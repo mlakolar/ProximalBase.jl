@@ -467,7 +467,7 @@ function prox!{T<:AbstractFloat}(g::ProxGaussLikelihood{T}, out_x::StridedMatrix
   ρ = one(T) / γ
   @. tmpStorage = ρ * x - S
 
-  ef = eigfact!(tmpStorage)::Base.LinAlg.Eigen{T, T}
+  ef = eigfact!(Symmetric(tmpStorage))::Base.LinAlg.Eigen{T, T}
   d = ef[:values]::Vector{T}
   U = ef[:vectors]::Matrix{T}
   @inbounds @simd for i in eachindex(d)
@@ -475,7 +475,7 @@ function prox!{T<:AbstractFloat}(g::ProxGaussLikelihood{T}, out_x::StridedMatrix
     d[i] = sqrt( (t + sqrt(t^2. + 4.*ρ)) / (2.*ρ) )::T
   end
   scale!(U, d)
-  A_mul_Bt!(out_x, U, U)::StridedMatrix{T}
+  A_mul_Bt!(out_x, U, U)
 end
 
 

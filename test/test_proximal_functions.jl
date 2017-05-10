@@ -51,6 +51,80 @@ facts("proximal_l1") do
 
 end
 
+
+facts("proximal_l1_fused") do
+
+context("random") do
+  if grb && jmp
+    srand(123)
+    m = JuMP.Model(solver=Gurobi.GurobiSolver(OutputFlag=0))
+    JuMP.@variable(m, z1)
+    JuMP.@variable(m, z2)
+    JuMP.@variable(m, t[1:3] >= 0)
+    JuMP.@constraint(m, z1 <= t[1] )
+    JuMP.@constraint(m, -t[1] <= z1 )
+    JuMP.@constraint(m, z2 <= t[2] )
+    JuMP.@constraint(m, -t[2] <= z2 )
+    JuMP.@constraint(m, z1 - z2 <= t[3])
+    JuMP.@constraint(m, -t[3] <= z1 - z2 )
+
+    for i=1:1000
+      x1 = randn()
+      x2 = randn()
+      λ1 = rand(Uniform(0.,1.))
+      λ2 = rand(Uniform(0.,1.))
+
+      JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ1 * (t[1]+t[2]) + λ2 * t[3])
+      JuMP.solve(m)
+
+      zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, λ1, λ2)
+
+      @fact abs(JuMP.getvalue(z1) - zp1) + abs(JuMP.getvalue(z2) - zp2)  --> roughly(0.; atol=1e-4)
+    end
+
+    m = JuMP.Model(solver=Gurobi.GurobiSolver(OutputFlag=0))
+    JuMP.@variable(m, z1)
+    JuMP.@variable(m, z2)
+    JuMP.@variable(m, t >= 0)
+    JuMP.@constraint(m, z1 - z2 <= t)
+    JuMP.@constraint(m, -t <= z1 - z2 )
+
+    for i=1:1000
+      x1 = randn()
+      x2 = randn()
+      λ = rand(Uniform(0.,1.))
+
+      JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ * t)
+      JuMP.solve(m)
+
+      zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, 0., λ)
+
+      @fact abs(JuMP.getvalue(z1) - zp1) + abs(JuMP.getvalue(z2) - zp2)  --> roughly(0.; atol=1e-4)
+    end
+  end
+end
+
+context("nonrandom") do
+  srand(123)
+
+  x1 = randn()
+  x2 = randn()
+  λ1 = rand(Uniform(0.,1.))
+
+  zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, λ1, 0.)
+  @fact ProximalBase.shrink(x1, λ1) --> zp1
+  @fact ProximalBase.shrink(x2, λ1) --> zp2
+
+  λ1 = 1000.
+  zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, λ1, 0.)
+  @fact ProximalBase.shrink(x1, λ1) --> 0.
+  @fact ProximalBase.shrink(x2, λ1) --> 0.
+
+end
+
+
+end
+
 facts("proximal_l2") do
 
   context("shrink to zero") do
@@ -201,6 +275,24 @@ end
 #   end
 #
 # end
-#
-#
-#
+
+
+
+facts("proximal_logdet") do
+  p = 10
+
+  out = zeros(p,p)
+
+  # identity
+  Σ = eye(p)
+  V = eye(p)
+  g = ProxGaussLikelihood(Σ)
+  @fact prox(g, V) --> roughly(eye(p))
+  @fact prox!(g, out, V) --> roughly(eye(p))
+
+  γ = 0.5
+  ρ = 2.
+  sol = eye(p) * (-(1.-ρ)+sqrt((1.-ρ)^2+4.*ρ)) / (2.*ρ)
+  @fact prox!(g, out, V, γ) --> roughly(sol)
+
+end

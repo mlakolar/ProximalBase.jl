@@ -6,7 +6,7 @@ function f1{T <: AbstractFloat}(
   ρ = one(T) / λ
   @. tmp = ρ * x  - S
 
-  ef = eigfact(tmp)::Base.LinAlg.Eigen{T,T}
+  ef = eigfact!(tmp)::Base.LinAlg.Eigen{T,T}
   @inbounds @simd for i in eachindex(ef[:values])
     t = ef[:values][i]
     ef[:values][i] = sqrt( (t + sqrt(t^2. + 4.*ρ)) / (2.*ρ) )
@@ -18,27 +18,26 @@ end
 function f2{T <: AbstractFloat}(
   out_x::AbstractArray{T}, x::AbstractArray{T}, S::AbstractArray{T}, tmp::AbstractArray{T}, λ::T)
 
-  ρ = one(T) / γ
-  @. tmp = ρ * x - S
 
-  ef = eigfact(Symmetric(tmp))::Base.LinAlg.Eigen{T, T}
-  d = ef[:values]::Vector{T}
-  U = ef[:vectors]::Matrix{T}
+  ρ = one(T) / λ
+  @. tmp = x * ρ - S
+  ef = eigfact!(Symmetric(tmp))
+  d = getindex(ef, :values)::Vector{T}
+  U = getindex(ef, :vectors)::Matrix{T}
   @inbounds @simd for i in eachindex(d)
     t = d[i]
-    d[i] = sqrt( (t + sqrt(t^2. + 4.*ρ)) / (2.*ρ) )::T
+    d[i] = sqrt( (t + sqrt(t^2. + 4.*ρ)) / (2.*ρ) )
   end
   scale!(U, d)
-  A_mul_Bt!(out_x, U, U)::StridedMatrix{T}
-
+  A_mul_Bt!(out_x, U, U)
 end
 
 
 function test_f()
-  numtest = 10
+  numtest = 1000
   λ = 1.
   n = 1000
-  p = 100
+  p = 50
   x = randn(n, p)
   S = x'x / n
 

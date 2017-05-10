@@ -235,6 +235,31 @@ end
 #   changed
 # end
 
+
+##########################################################
+###### L1 + Fused  g(x1,x2) = λ1*(|x1|+|x2|) + λ2*|x1-x2|
+##########################################################
+
+# proxL1Fused
+
+struct ProxL1Fused{T<:AbstractFloat} <: ProximableFunction
+  λ1::T
+  λ2::T
+end
+
+value{T<:AbstractFloat}(g::ProxL1Fused{T}, x1::T, x2::T) = g.λ1*(abs(x1)+abs(x2)) + g.λ2*abs(x1-x2)
+function prox!{T<:AbstractFloat}(g::ProxL1Fused{T}, out_x::Tuple{StridedVector{T},StridedVector{T}}, x::Tuple{StridedVector{T},StridedVector{T}}, γ::T)
+  @assert size(out_x[1]) == size(x[1])
+  @assert size(out_x[2]) == size(x[2])
+  λ1 = g.λ1
+  λ2 = g.λ2
+  @inbounds @simd for i in eachindex(x[1])
+    out_x[1][i], out_x[2][i] = proxL1Fused(x[1][i], x[2][i], λ1, λ2, γ)
+  end
+  out_x
+end
+
+
 ##########################################################
 ###### L2 norm   g(x) = λ * ||x||_2
 ##########################################################
@@ -448,34 +473,28 @@ end
 # f(X) = tr(SX) - log deg(X)
 ##########################################################
 
-struct ProxGaussLikelihood{T,M<:AbstractMatrix} <: ProximableFunction
+struct ProxGaussLikelihood{T,M<:StridedMatrix} <: ProximableFunction
   S::M
-  tmpStorage::Matrix{T}
-
-  ProxGaussLikelihood{T,M}(S::AbstractMatrix{T}, tmpStorage::Matrix{T}) where {T,M} = new(S, tmpStorage)
+  tmp::Matrix{T}
 end
+ProxGaussLikelihood(S::StridedMatrix) = ProxGaussLikelihood{eltype(S), typeof(S)}(S, zeros(eltype(S),size(S)))
 
-ProxGaussLikelihood(S::AbstractMatrix{T}) where {T} = ProxGaussLikelihood{T, Array{T, 2}}(S, zeros(T, size(S)))
-
-
-value{T<:AbstractFloat}(g::ProxGaussLikelihood{T}, x::StridedMatrix{T}) = trace(g.S*x) - logdet(x)
-function prox!{T<:AbstractFloat}(g::ProxGaussLikelihood{T}, out_x::StridedMatrix{T}, x::StridedMatrix{T}, γ::T)
+value{T<:AbstractFloat}(g::ProxGaussLikelihood{T}, X::StridedMatrix{T}) = trace(g.S*X) - logdet(X)
+function prox!{T<:AbstractFloat}(g::ProxGaussLikelihood{T}, hX::StridedMatrix{T}, X::StridedMatrix{T}, γ::T)
   S = g.S
-  @assert size(out_x) == size(x) == size(S)
+  tmp = g.tmp
 
-  tmpStorage = g.tmpStorage
   ρ = one(T) / γ
-  @. tmpStorage = ρ * x - S
-
-  ef = eigfact!(Symmetric(tmpStorage))::Base.LinAlg.Eigen{T, T}
-  d = ef[:values]::Vector{T}
-  U = ef[:vectors]::Matrix{T}
+  @. tmp = X * ρ -  S
+  ef = eigfact!(Symmetric(tmp))
+  d = getindex(ef, :values)::Vector{T}
+  U = getindex(ef, :vectors)::Matrix{T}
   @inbounds @simd for i in eachindex(d)
     t = d[i]
-    d[i] = sqrt( (t + sqrt(t^2. + 4.*ρ)) / (2.*ρ) )::T
+    d[i] = sqrt( (t + sqrt(t^2. + 4.*ρ)) / (2.*ρ) )
   end
   scale!(U, d)
-  A_mul_Bt!(out_x, U, U)
+  A_mul_Bt!(hX, U, U)
 end
 
 

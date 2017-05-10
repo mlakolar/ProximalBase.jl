@@ -2,12 +2,12 @@ module ProximalBase
 
 export
   # types
-  # DifferentiableFunction,
+  DifferentiableFunction,
   ProximableFunction,
 
   # smooth functions
-  # QuadraticFunction, L2Loss,
-  # gradient, gradient!, value_and_gradient!,
+  QuadraticFunction, L2Loss,
+  gradient, gradient!, value_and_gradient!,
 
   # proximal functions
   ProxZero,
@@ -25,7 +25,7 @@ export
 include("utils.jl")
 
 # DifferentiableFunctions
-#include("diff_functions.jl")
+include("differentiable_functions.jl")
 
 # ProximableFunctions
 include("proximal_functions.jl")

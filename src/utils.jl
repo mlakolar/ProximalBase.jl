@@ -9,7 +9,7 @@ shrink{T<:AbstractFloat}(v::T, c::T) = v > c ? v - c : (v < -c ? v + c : zero(T)
 
 """
 Computes a proximal operation for the penalty
-$$\lambda_1\cdot(|u|+|v|) + \lambda_2\cdot|u-v|$$.
+\[ \lambda_1\cdot(|u|+|v|) + \lambda_2\cdot|u-v| . \]
 
 Returns (u, v) = arg min (1/2γ) * ((u - x)^2 + (v-y)^2) + λ1 * (|u|+|v|) + λ2 * |u-v|
 """

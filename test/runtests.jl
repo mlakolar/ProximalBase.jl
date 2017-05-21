@@ -19,6 +19,7 @@ jmp = try_import(:JuMP)
 
 tests = [
 	"test_utils",
+  "sparseIterate",
   "test_proximal_functions",
 	"test_differentiable_functions"
 ]

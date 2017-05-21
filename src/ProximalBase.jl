@@ -4,6 +4,7 @@ export
   # types
   DifferentiableFunction,
   ProximableFunction,
+  SparseIterate,
 
   # smooth functions
   QuadraticFunction, L2Loss,
@@ -20,9 +21,11 @@ export
   prox,
 
   # utils
-  shrink
+  shrink,
+  proxL1Fused
 
 include("utils.jl")
+include("sparseIterate.jl")
 
 # DifferentiableFunctions
 include("differentiable_functions.jl")

@@ -7,8 +7,4 @@ notifications:
   email: mkolar@gmail.com
 sudo: false
 script:
-  - julia -e 'Pkg.clone(pwd())'
-  - julia -e 'Pkg.build("$name")'
-  - if [ -f test/runtests.jl ]; then
-  -   julia --check-bounds=yes test/runtests.jl
-  - fi
+  - julia -e 'Pkg.clone(pwd()); Pkg.build("ProximalBase"); Pkg.test("ProximalBase"; coverage=true)'

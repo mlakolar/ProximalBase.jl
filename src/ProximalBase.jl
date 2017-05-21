@@ -17,8 +17,7 @@ export
   # ProxSumProx, ProxL1L2, ProxL1Nuclear,
   # AProxSumProx,
   ProxGaussLikelihood,
-  value, prox!,
-  prox,
+  prox!, prox,
 
   # utils
   shrink,

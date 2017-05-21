@@ -6,9 +6,9 @@
 
 abstract type ProximableFunction end
 
-prox!(g::ProximableFunction, hat_x::StridedArray, x::StridedArray) = prox!(g, hat_x, x, 1.0)
-prox{T<:AbstractFloat}(g::ProximableFunction, x::StridedArray, γ::T) = prox!(g, similar(x), x, γ)
-prox(g::ProximableFunction, x::StridedArray) = prox!(g, similar(x), x, 1.0)
+prox!(g::ProximableFunction, hat_x::AbstractVecOrMat, x::AbstractVecOrMat) = prox!(g, hat_x, x, 1.0)
+prox(g::ProximableFunction, x::AbstractVecOrMat, γ::Real) = prox!(g, similar(x), x, γ)
+prox(g::ProximableFunction, x::AbstractVecOrMat) = prox!(g, similar(x), x, 1.0)
 
 
 
@@ -18,12 +18,11 @@ prox(g::ProximableFunction, x::StridedArray) = prox!(g, similar(x), x, 1.0)
 
 struct ProxZero <: ProximableFunction end
 
-value{T<:AbstractFloat}(g::ProxZero, x::StridedArray{T}) = zero(T)
+value(g::ProxZero, x::AbstractVecOrMat{T}) where {T} = zero(T)
 
-function prox!{T<:AbstractFloat}(::ProxZero, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
-  @assert size(out_x) == size(x)
+function prox!(::ProxZero, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, γ::T) where {T}
+  size(out_x) == size(x) || throw(ArgumentError("Sizes of the input and ouput need to be the same."))
   copy!(out_x, x)
-  out_x
 end
 
 ##########################################################
@@ -33,12 +32,10 @@ end
 struct AProxL1{T<:AbstractFloat, N} <: ProximableFunction
   λ::Array{T, N}
 end
-VProxL1{T<:AbstractFloat} = AProxL1{T, 1}
-MProxL1{T<:AbstractFloat} = AProxL1{T, 2}
 
-function value{T<:AbstractFloat, N}(g::AProxL1{T, N}, x::StridedArray{T, N})
+function value(g::AProxL1{T}, x::AbstractVecOrMat{T}) where {T}
+  size(g.λ) == size(x) || throw(ArgumentError("Sizes of g.λ and x need to be the same"))
   λ = g.λ
-  @assert size(x) == size(λ)
   v = zero(T)
   @inbounds @simd for i in eachindex(x)
     v += abs(x[i]) * λ[i]
@@ -46,7 +43,7 @@ function value{T<:AbstractFloat, N}(g::AProxL1{T, N}, x::StridedArray{T, N})
   v
 end
 
-prox!{T<:AbstractFloat}(g::AProxL1{T}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T) =
+prox!{T<:AbstractFloat}(g::AProxL1{T}, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, γ::T) =
     out_x .= shrink.(x, γ * g.λ)
 
 struct ProxL1{T<:AbstractFloat} <: ProximableFunction
@@ -54,193 +51,13 @@ struct ProxL1{T<:AbstractFloat} <: ProximableFunction
 end
 
 value{T<:AbstractFloat}(g::ProxL1{T}, x::StridedArray{T}) = g.λ * sum(abs, x)
-function prox!{T<:AbstractFloat}(g::ProxL1{T}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
-  @assert size(out_x) == size(x)
-  c = g.λ * γ
-  @inbounds @simd for i in eachindex(x)
-    out_x[i] = shrink(x[i], c)
-  end
-  out_x
-end
-
-# function value{T<:AbstractFloat, N}(g::AProxL1{T, N}, x::StridedArray{T, N}, activeset::ActiveSet)
-#   λ = g.λ
-#   @assert size(x) == size(λ)
-#   v = zero(T)
-#   indexes = activeset.indexes
-#   @inbounds for i=1:activeset.numActive
-#     t = indexes[i]
-#     v += λ[t]*abs(x[t])
-#   end
-#   v
-# end
-# function prox!{T<:AbstractFloat}(
-#     g::AProxL1{T},
-#     out_x::StridedArray{T},
-#     x::StridedArray{T},
-#     γ::T,
-#     activeset::ActiveSet)
-#   λ = g.λ
-#   @assert size(out_x) == size(x) == size(λ)
-#   indexes = activeset.indexes
-#   @inbounds for i=1:activeset.numActive
-#     t = indexes[i]
-#     c = λ[t]*γ
-#     out_x[t] = shrink(x[t], c)
-#   end
-#   out_x
-# end
-
-
-
-
-# function value{T<:AbstractFloat}(g::ProxL1{T}, x::StridedArray{T}, activeset::ActiveSet)
-#   r = zero(T)
-#   indexes = activeset.indexes
-#   @inbounds for i=1:activeset.numActive
-#     t = indexes[i]
-#     r += abs(x[t])
-#   end
-#   g.λ * r
-# end
-# function prox!{T<:AbstractFloat}(g::ProxL1{T}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T, activeset::ActiveSet)
-#   @assert size(out_x) == size(x)
-#   c = g.λ * γ
-#   indexes = activeset.indexes
-#   @inbounds for i=1:activeset.numActive
-#     t = indexes[i]
-#     out_x[t] = shrink(x[t], c)
-#   end
-#   out_x
-# end
-# function active_set{T<:AbstractFloat}(
-#     ::Union{ProxL1{T}, AProxL1{T}},
-#     x::StridedArray{T};
-#     zero_thr::T=1e-4
-#     )
-#   numElem = length(x)
-#   activeset = [1:numElem;]
-#   numActive = 0
-#   for j = 1:numElem
-#     if abs(x[j]) >= zero_thr
-#       numActive += 1
-#       activeset[numActive], activeset[j] = activeset[j], activeset[numActive]
-#     end
-#   end
-#   ActiveSet(activeset, numActive)
-# end
-#
-#
-# # active set of coordinates
-# # prox function
-# # differentiable function
-# # current iterate
-# # tmp array
-# function add_violator!{T<:AbstractFloat}(
-#     activeset::ActiveSet,
-#     x::StridedArray{T},
-#     g::ProxL1{T},
-#     f::DifferentiableFunction,
-#     tmp::StridedArray{T};
-#     zero_thr::T=1e-4,
-#     grad_tol::T=1e-6
-#     )
-#   λ = g.λ
-#   changed = false
-#
-#   numElem = length(x)
-#   numActive = activeset.numActive
-#   indexes = activeset.indexes
-#   # check for things to be removed from the active set
-#   i = 0
-#   @inbounds while i < numActive
-#     i = i + 1
-#     t = indexes[i]
-#     if abs(x[t]) < zero_thr
-#       x[t] = zero(T)
-#       changed = true
-#       indexes[numActive], indexes[i] = indexes[i], indexes[numActive]
-#       numActive -= 1
-#       i = i - 1
-#     end
-#   end
-#
-#   value_and_gradient!(f, tmp, x)
-#   I = 0
-#   V = zero(T)
-#   @inbounds for i=numActive+1:numElem
-#     t = indexes[i]
-#     nV = abs(tmp[t])
-#     if V < nV
-#       I = i
-#       V = nV
-#     end
-#   end
-#   if I > 0 && V + grad_tol > λ
-#     changed = true
-#     numActive += 1
-#     indexes[numActive], indexes[I] = indexes[I], indexes[numActive]
-#   end
-#   activeset.numActive = numActive
-#   changed
-# end
-#
-# function add_violator!{T<:AbstractFloat}(
-#     activeset::ActiveSet,
-#     x::StridedArray{T},
-#     g::AProxL1{T},
-#     f::DifferentiableFunction,
-#     tmp::StridedArray{T};
-#     zero_thr::T=1e-4,
-#     grad_tol::T=1e-4
-#     )
-#   λ = g.λ
-#   @assert size(λ) == size(x)
-#   changed = false
-#
-#   numElem = length(x)
-#   numActive = activeset.numActive
-#   indexes = activeset.indexes
-#   # check for things to be removed from the active set
-#   i = 0
-#   @inbounds while i < numActive
-#     i = i + 1
-#     t = indexes[i]
-#     if abs(x[t]) < zero_thr
-#       x[t] = zero(T)
-#       changed = true
-#       indexes[numActive], indexes[i] = indexes[i], indexes[numActive]
-#       numActive -= 1
-#       i = i - 1
-#     end
-#   end
-#
-#   value_and_gradient!(f, tmp, x)
-#   I = 0
-#   V = zero(T)
-#   @inbounds for i=numActive+1:numElem
-#     t = indexes[i]
-#     nV = abs(tmp[t]) - λ[i]
-#     if V < nV
-#       I = i
-#       V = nV
-#     end
-#   end
-#   if I > 0 && V + grad_tol > zero(T)
-#     changed = true
-#     numActive += 1
-#     indexes[numActive], indexes[I] = indexes[I], indexes[numActive]
-#   end
-#   activeset.numActive = numActive
-#   changed
-# end
+prox!{T<:AbstractFloat}(g::ProxL1{T}, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, γ::T) =
+  out_x .= shrink.(x, γ * g.λ)
 
 
 ##########################################################
 ###### L1 + Fused  g(x1,x2) = λ1*(|x1|+|x2|) + λ2*|x1-x2|
 ##########################################################
-
-# proxL1Fused
 
 struct ProxL1Fused{T<:AbstractFloat} <: ProximableFunction
   λ1::T
@@ -269,9 +86,9 @@ struct ProxL2{T<:AbstractFloat} <: ProximableFunction
 end
 
 value{T<:AbstractFloat}(g::ProxL2{T}, x::StridedVector{T}) = g.λ * norm(x)
-function prox!{T<:AbstractFloat}(g::ProxL2{T}, out_x::StridedVector{T}, x::StridedVector{T}, γ::T)
-  @assert size(out_x) == size(x)
-  tmp = max(one(T) - g.λ * γ / norm(x), zero(T))
+function prox!{T<:AbstractFloat}(g::ProxL2{T}, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, γ::T)
+  size(out_x) == size(x) || throw(ArgumentError("Sizes of the input and ouput need to be the same."))
+  tmp = max(one(T) - g.λ * γ / vecnorm(x), zero(T))
   if tmp > zero(T)
     out_x .= tmp .* x
   else
@@ -287,15 +104,13 @@ end
 struct ProxL2Sq{T<:AbstractFloat} <: ProximableFunction
   λ::T
 end
-value{T<:AbstractFloat}(g::ProxL2Sq{T}, x::StridedArray{T}) = g.λ * sum(abs2, x)
-function prox!{T<:AbstractFloat}(g::ProxL2Sq{T}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
-  @assert size(out_x) == size(x)
+value(g::ProxL2Sq, x::StridedArray{T}) = g.λ * sum(abs2, x)
+function prox!{T<:AbstractFloat}(g::ProxL2Sq{T}, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, γ::T)
+  size(out_x) == size(x) || throw(ArgumentError("Sizes of the input and ouput need to be the same."))
   c = g.λ * γ
   c = 1. / (1. + 2. * c)
-  @inbounds @simd for i in eachindex(x)
-    out_x[i] = c * x[i]
-  end
-  out_x
+  copy!(out_x, x)
+  scale!(out_x, c)
 end
 
 ##########################################################
@@ -305,10 +120,9 @@ end
 struct ProxNuclear{T<:AbstractFloat} <: ProximableFunction
   λ::T
 end
-value{T<:AbstractFloat}(g::ProxNuclear{T}, x::StridedMatrix{T}) = g.λ * sum(svdvals(x))
-
+value(g::ProxNuclear, x::StridedMatrix) = g.λ * sum(svdvals(x))
 function prox!{T<:AbstractFloat}(g::ProxNuclear{T}, out_x::StridedMatrix{T}, x::StridedMatrix{T}, γ::T)
-  @assert size(out_x) == size(x)
+  size(out_x) == size(x) || throw(ArgumentError("Sizes of the input and ouput need to be the same."))
   U, S, V = svd(x)
   c = g.λ * γ
   S .= shrink.(S, c)

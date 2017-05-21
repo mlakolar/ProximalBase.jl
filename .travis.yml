@@ -5,6 +5,9 @@ os:
   - linux
 notifications:
   email: mkolar@gmail.com
+addons:
+    apt_packages:
+        - gfortran  
 sudo: false
 script:
   - julia -e 'Pkg.clone(pwd()); Pkg.build("ProximalBase"); Pkg.test("ProximalBase"; coverage=true)'

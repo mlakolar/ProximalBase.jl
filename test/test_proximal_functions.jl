@@ -55,9 +55,15 @@ end
 facts("proximal_l1_fused") do
 
 context("random") do
-  if grb && jmp
+  if grb
+    solver = Gurobi.GurobiSolver(OutputFlag=0)
+  else
+    solver = SCS.SCSSolver(eps=1e-6, verbose=0)
+  end
+
+  if jmp
     srand(123)
-    m = JuMP.Model(solver=Gurobi.GurobiSolver(OutputFlag=0))
+    m = JuMP.Model(solver=solver)
     JuMP.@variable(m, z1)
     JuMP.@variable(m, z2)
     JuMP.@variable(m, t[1:3] >= 0)
@@ -82,7 +88,7 @@ context("random") do
       @fact abs(JuMP.getvalue(z1) - zp1) + abs(JuMP.getvalue(z2) - zp2)  --> roughly(0.; atol=1e-4)
     end
 
-    m = JuMP.Model(solver=Gurobi.GurobiSolver(OutputFlag=0))
+    m = JuMP.Model(solver=solver)
     JuMP.@variable(m, z1)
     JuMP.@variable(m, z2)
     JuMP.@variable(m, t >= 0)

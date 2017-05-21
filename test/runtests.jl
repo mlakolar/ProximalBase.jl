@@ -15,7 +15,7 @@ end
 
 grb = try_import(:Gurobi)
 jmp = try_import(:JuMP)
-scs = try_import(:SCS)
+ipopt = try_import(:Ipopt)
 
 
 tests = [

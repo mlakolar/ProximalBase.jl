@@ -77,7 +77,7 @@ function Base.setindex!{T}(x::SparseIterate{T}, v::T, ipred::Int)
     icoef = x.full2nzval[ipred]
     x.nzval[icoef] = v
   end
-  v
+  x
 end
 
 function Base.dropzeros!{T}(x::SparseIterate{T})
@@ -121,6 +121,11 @@ end
 
 
 
+
+
+
+
+
 ####################################
 #
 #  Sparse Matrix Iterate
@@ -149,7 +154,7 @@ Base.nnz(x::SparseMatrixIterate) = x.nnz
 Base.iszero(x::SparseMatrixIterate) = x.nnz == 0
 
 Base.getindex(A::SparseMatrixIterate, I::Tuple{Integer,Integer}) = getindex(A, I[1], I[2])
-function Base.getindex(A::SparseMatrixIterate, i0::Integer, i1::Integer) where T
+function Base.getindex(A::SparseMatrixIterate, i0::Integer, i1::Integer)
     if !(1 <= i0 <= size(A, 1) && 1 <= i1 <= size(A, 2)); throw(BoundsError()); end
     inzval = A.full2nzval[i0, i1]
     inzval == 0 ? zero(T) : A.nzval[inzval]

@@ -58,7 +58,7 @@ context("random") do
   if grb
     solver = Gurobi.GurobiSolver(OutputFlag=0)
   else
-    solver = SCS.SCSSolver(eps=1e-6, verbose=0)
+    solver = Ipopt.IpoptSolver(print_level=0)
   end
 
   if jmp
@@ -85,7 +85,7 @@ context("random") do
 
       zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, λ1, λ2)
 
-      @fact abs(JuMP.getvalue(z1) - zp1) + abs(JuMP.getvalue(z2) - zp2)  --> roughly(0.; atol=1e-4)
+      @fact abs(JuMP.getvalue(z1) - zp1) + abs(JuMP.getvalue(z2) - zp2)  --> roughly(0.; atol=2e-4)
     end
 
     m = JuMP.Model(solver=solver)

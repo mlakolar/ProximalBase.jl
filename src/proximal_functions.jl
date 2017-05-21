@@ -104,7 +104,7 @@ end
 struct ProxL2Sq{T<:AbstractFloat} <: ProximableFunction
   λ::T
 end
-value(g::ProxL2Sq, x::StridedArray{T}) = g.λ * sum(abs2, x)
+value(g::ProxL2Sq, x::StridedArray) = g.λ * sum(abs2, x)
 function prox!{T<:AbstractFloat}(g::ProxL2Sq{T}, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, γ::T)
   size(out_x) == size(x) || throw(ArgumentError("Sizes of the input and ouput need to be the same."))
   c = g.λ * γ

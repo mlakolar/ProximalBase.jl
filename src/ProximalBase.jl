@@ -4,7 +4,7 @@ export
   # types
   DifferentiableFunction,
   ProximableFunction,
-  SparseIterate,
+  SparseIterate, SparseMatrixIterate,
 
   # smooth functions
   QuadraticFunction, L2Loss, LeastSquaresLoss,

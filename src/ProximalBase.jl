@@ -7,8 +7,8 @@ export
   SparseIterate,
 
   # smooth functions
-  QuadraticFunction, L2Loss,
-  gradient, gradient!, value_and_gradient!,
+  QuadraticFunction, L2Loss, LeastSquaresLoss,
+  value, value_and_gradient!,
 
   # proximal functions
   ProxZero,

@@ -43,6 +43,19 @@ facts("Quadratic Function") do
 
   @fact value_and_gradient!(q3, hat_x, x) --> roughly(dot(x, A*x)/2. + dot(x, b) + c)
   @fact hat_x --> roughly(A*x + b)
+end
 
+
+facts("Least Squares Loss") do
+
+  y = randn(10)
+  X = randn(10, 5)
+  b = rand(5)
+  f = LeastSquaresLoss(y, X)
+
+  @fact value(f, b) --> roughly( vecnorm(y-X*b)^2 / 2. )
+  grad_out = zeros(5)
+  @fact value_and_gradient!(f, grad_out, b) --> roughly( vecnorm(y-X*b)^2 / 2. )
+  @fact grad_out --> roughly( -X'*(y - X*b) )
 
 end

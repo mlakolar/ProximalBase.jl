@@ -33,25 +33,6 @@ function value{T<:AbstractFloat, N}(f::L2Loss{T, N}, x::AbstractArray{T})
   s / 2.
 end
 
-
-# function value{T<:AbstractFloat, N}(f::L2Loss{T, N}, x::AbstractArray{T}, activeset::ActiveSet)
-#   s = zero(T)
-#   if N == 1
-#     y = f.y
-#     @assert size(y) == size(x)
-#   end
-#   indexes = activeset.indexes
-#   @inbounds for i=1:activeset.numActive
-#     ind = indexes[i]
-#     if N == 1
-#       s += (x[ind]-y[ind])^2.
-#     else
-#       s += x[ind]^2.
-#     end
-#   end
-#   s / 2.
-# end
-
 function value_and_gradient!{T<:AbstractFloat, N}(f::L2Loss{T, N}, hat_x::AbstractArray{T}, x::AbstractArray{T})
   if N == 1
     @. hat_x = x - f.y
@@ -60,23 +41,6 @@ function value_and_gradient!{T<:AbstractFloat, N}(f::L2Loss{T, N}, hat_x::Abstra
   end
   sum(abs2, hat_x) / 2.
 end
-
-# function value_and_gradient!{T<:AbstractFloat, N}(f::L2Loss{T, N}, hat_x::AbstractArray{T}, x::AbstractArray{T}, activeset::ActiveSet)
-#   s = zero(T)
-#   if N == 1
-#     y = f.y
-#     @assert size(y) == size(x)
-#   end
-#   indexes = activeset.indexes
-#   @inbounds for rr=1:activeset.numActive
-#     t = indexes[rr]
-#     s += N == 1 ? (x[t]-y[t])^2. : x[t]^2.
-#     hat_x[t] = N == 1 ? x[t] - y[t] : x[t]
-#   end
-#   s / 2.
-# end
-
-################
 
 ################ creates a function x'Ax/2 + b'x + c
 
@@ -104,37 +68,6 @@ function value{T<:AbstractFloat}(f::QuadraticFunction{T, 3}, x::StridedVector{T}
   dot(x, f.tmp) / 2. + dot(x, f.b) + f.c
 end
 
-# function value{T<:AbstractFloat, N}(f::QuadraticFunction{T, N}, x::StridedVector{T}, activeset::ActiveSet)
-#   A = f.A
-#   if N > 1
-#     b = f.b
-#   end
-#   indexes = activeset.indexes
-#
-#   s = zero(T)
-#   # dot(x, f.A*x) / 2.
-#   @inbounds for cc=1:activeset.numActive
-#     ci = indexes[cc]
-#     @inbounds for rr=1:activeset.numActive
-#       ri = indexes[rr]
-#       s += A[ri, ci] * x[ri] * x[ci]
-#     end
-#   end
-#   s /= 2.
-#
-#   if N > 1
-#     # dot(x, f.b)
-#     @inbounds for rr=1:activeset.numActive
-#       t = indexes[rr]
-#       s += x[t] * b[t]
-#     end
-#   end
-#   if N > 2
-#     s += f.c
-#   end
-#   s
-# end
-
 function value_and_gradient!{T<:AbstractFloat, N}(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::StridedVector{T})
   b = f.b
   A_mul_B!(hat_x, f.A, x)
@@ -147,36 +80,35 @@ function value_and_gradient!{T<:AbstractFloat, N}(f::QuadraticFunction{T, N}, ha
 end
 
 
-# function value_and_gradient!{T<:AbstractFloat, N}(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::StridedVector{T}, activeset::ActiveSet)
-#   A = f.A
-#   if N > 1
-#     b = f.b
-#   end
-#
-#   indexes = activeset.indexes
-#
-#   s = zero(T)
-#   # dot(x, f.A*x) / 2.
-#   @inbounds for rr=1:activeset.numActive
-#     ri = indexes[rr]
-#     hat_x[ri] = zero(T)
-#     @inbounds for cc=1:activeset.numActive
-#       ci = indexes[cc]
-#       hat_x[ri] += A[ri, ci] * x[ci]
-#     end
-#     s += hat_x[ri] * x[ri] / 2.
-#     if N > 1
-#       hat_x[ri] += b[ri]
-#       s += b[ri] * x[ri]
-#     end
-#   end
-#   if N > 2
-#     s += f.c
-#   end
-#   s
-# end
+
+################ creates a function |Y - X⋅β|_2^2 / 2.
+
+immutable LeastSquaresLoss{T, Ty<:AbstractVecOrMat, Tx<:AbstractMatrix} <: DifferentiableFunction
+  Y::Ty
+  X::Tx
+  tmp::VecOrMat{T}    ## call to value does not allocate
+end
+
+LeastSquaresLoss{T<:AbstractFloat}(Y::AbstractVecOrMat{T}, X::AbstractMatrix{T}) =
+    LeastSquaresLoss{T, typeof(Y), typeof(X)}(Y, X, zeros(T, size(Y)))
 
 
+function value{T<:AbstractFloat}(f::LeastSquaresLoss{T}, x)
+  A_mul_B!(f.tmp, f.X, x)
+  v = zero(T)
+  @inbounds for i in eachindex(f.tmp)
+    v += (f.Y[i] - f.tmp[i])^2.
+  end
+  v / 2.
+end
 
+function value_and_gradient!{T<:AbstractFloat}(
+  f::LeastSquaresLoss{T},
+  grad_out::StridedVector{T},
+  x)
 
-####################
+  A_mul_B!(f.tmp, f.X, x)
+  @. f.tmp -= f.Y
+  At_mul_B!(grad_out, f.X, f.tmp)  
+  sum(abs2, f.tmp) / 2.
+end

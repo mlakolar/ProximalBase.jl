@@ -6,7 +6,7 @@ mutable struct SparseIterate{T} <: AbstractVector{T}
 end
 
 SparseIterate(n::Int) = SparseIterate{Float64}(zeros(Float64, n), zeros(Int, n), zeros(Int, n), 0)
-SparseIterate(::T, n::Int) where {T} = SparseIterate{T}(zeros(T, n), zeros(Int, n), zeros(Int, n), 0)
+SparseIterate(::Type{T}, n::Int) where {T} = SparseIterate{T}(zeros(T, n), zeros(Int, n), zeros(Int, n), 0)
 
 Base.length(x::SparseIterate) = length(x.full2nzval)
 Base.size(x::SparseIterate) = (length(x.full2nzval),)

@@ -42,9 +42,13 @@ function value(g::AProxL1{T}, x::AbstractVecOrMat{T}) where {T}
   end
   v
 end
-
 prox!{T<:AbstractFloat}(g::AProxL1{T}, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, γ::T) =
     out_x .= shrink.(x, γ * g.λ)
+function cdprox!(g::AProxL1{T}, x::SparseIterate{T}, k::Int, γ::T) where {T}
+  size(g.λ) == size(x) || throw(DimensionMismatch())
+  x[k] = shrink(x[k], g.λ[k] * γ)
+end
+
 
 struct ProxL1{T<:AbstractFloat} <: ProximableFunction
   λ::T
@@ -53,7 +57,8 @@ end
 value{T<:AbstractFloat}(g::ProxL1{T}, x::StridedArray{T}) = g.λ * sum(abs, x)
 prox!{T<:AbstractFloat}(g::ProxL1{T}, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, γ::T) =
   out_x .= shrink.(x, γ * g.λ)
-
+cdprox!(g::ProxL1{T}, x::SparseIterate{T}, k::Int, γ::T) where {T} =
+  x[k] = shrink(x[k], g.λ * γ)
 
 ##########################################################
 ###### L1 + Fused  g(x1,x2) = λ1*(|x1|+|x2|) + λ2*|x1-x2|

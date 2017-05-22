@@ -42,11 +42,13 @@ function Base.show(io::IOContext, x::SparseIterate)
     if !haskey(io, :compact)
         io = IOContext(io, :compact => true)
     end
-    for k = 1:xnnz
+    for k = 1:n
         if k < half_screen_rows || k > xnnz - half_screen_rows
-            print(io, "  ", '[', rpad(x.nzval2full[k], pad), "]  =  ")
-            show(io, x.nzval[k])
-            k != xnnz && println(io)
+          if x.full2nzval[k] != 0
+            print(io, "  ", '[', rpad(k, pad), "]  =  ")
+            show(io, x[k])
+            k != n && println(io)
+          end
         elseif k == half_screen_rows
             println(io, "   ", " "^pad, "   \u22ee")
         end

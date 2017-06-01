@@ -101,7 +101,7 @@ function Base.dropzeros!{T}(x::SparseIterate{T})
 end
 
 ## multiplication
-function Base.A_mul_B!{T}(out::Vector, A::Matrix, coef::SparseIterate{T})
+function Base.A_mul_B!{T}(out::Vector{T}, A::AbstractMatrix{T}, coef::SparseIterate{T})
     fill!(out, zero(eltype(out)))
     @inbounds for icoef = 1:nnz(coef)
         ipred = coef.nzval2full[icoef]

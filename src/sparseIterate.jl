@@ -15,7 +15,22 @@ Base.getindex{T}(x::SparseIterate{T}, ipred::Int) =
     x.full2nzval[ipred] == 0 ? zero(T) : x.nzval[x.full2nzval[ipred]]
 Base.iszero(x::SparseIterate) = x.nnz == 0
 
+Base.IndexStyle(::Type{<:SparseIterate}) = IndexLinear()
 
+
+function Base.convert(::Type{Vector}, x::SparseIterate{Tv}) where Tv
+    n = length(x)
+    n == 0 && return Vector{Tv}(0)
+    r = zeros(Tv, n)
+    for k in 1:nnz(x)
+        i = x.nzval2full[k]
+        v = x.nzval[k]
+        r[i] = v
+    end
+    return r
+end
+Base.convert(::Type{Array}, x::SparseIterate) = convert(Vector, x)
+Base.full(x::SparseIterate) = convert(Array, x)
 
 ### show and friends
 
@@ -57,6 +72,10 @@ end
 
 
 ##
+
+Base.similar(A::SparseIterate{T}) where {T} = SparseIterate(T, length(A))
+Base.similar(A::SparseIterate, ::Type{S}) where {S} = SparseIterate(S, length(A))
+
 
 function Base.copy!(x::SparseIterate, y::SparseIterate)
     length(x) == length(y) || throw(DimensionMismatch())
@@ -146,8 +165,14 @@ end
 
 SparseMatrixIterate(n::Int, m::Int) =
   SparseMatrixIterate{Float64}(zeros(Float64, n*m), zeros(Int, n*m), zeros(Int, n, m), 0, false)
+
+SparseMatrixIterate(::Type{T}, n::Int, m::Int) where {T} =
+  SparseMatrixIterate{T}(zeros(T, n*m), zeros(Int, n*m), zeros(Int, n, m), 0, false)
+
 SparseMatrixIterate(n::Int, symmetric=true) =
   SparseMatrixIterate{Float64}(zeros(Float64, n*n), zeros(Int, n*n), zeros(Int, n, n), 0, symmetric)
+SparseMatrixIterate(::Type{T}, n::Int, symmetric=true) where {T} =
+  SparseMatrixIterate{T}(zeros(T, n*n), zeros(Int, n*n), zeros(Int, n, n), 0, symmetric)
 
 
 Base.length(x::SparseMatrixIterate) = length(x.full2nzval)
@@ -155,10 +180,14 @@ Base.size(x::SparseMatrixIterate) = size(x.full2nzval)
 Base.nnz(x::SparseMatrixIterate) = x.nnz
 Base.iszero(x::SparseMatrixIterate) = x.nnz == 0
 
-Base.getindex(A::SparseMatrixIterate, I::Tuple{Integer,Integer}) = getindex(A, I[1], I[2])
-function Base.getindex(A::SparseMatrixIterate, i0::Integer, i1::Integer)
-    if !(1 <= i0 <= size(A, 1) && 1 <= i1 <= size(A, 2)); throw(BoundsError()); end
+Base.IndexStyle(::Type{<:SparseMatrixIterate}) = IndexLinear()
+
+function Base.getindex(A::SparseMatrixIterate{T}, i0::Int, i1::Int) where {T}
     inzval = A.full2nzval[i0, i1]
+    inzval == 0 ? zero(T) : A.nzval[inzval]
+end
+function Base.getindex(A::SparseMatrixIterate{T}, i::Int) where {T}
+    inzval = A.full2nzval[i]
     inzval == 0 ? zero(T) : A.nzval[inzval]
 end
 
@@ -187,30 +216,60 @@ function Base.show(io::IOContext, S::SparseMatrixIterate)
         half_screen_rows = typemax(Int)
     end
     pad = ndigits(maximum( size(S) ))
-    k = 0
     sep = "\n  "
     if !haskey(io, :compact)
         io = IOContext(io, :compact => true)
     end
     for ind=1:nnz(S)
-        if k < half_screen_rows || k > nnz(S)-half_screen_rows
-            ifull = S.nzval2full[k]
+        if ind < half_screen_rows || ind > nnz(S)-half_screen_rows
+            ifull = S.nzval2full[ind]
             row, col = ind2sub(size(S), ifull)
             print(io, sep, '[', rpad(row, pad), ", ", lpad(col, pad), "]  =  ")
-            if isassigned(S.nzval, Int(k))
-                show(io, S.nzval[k])
+            if isassigned(S.nzval, Int(ind))
+                show(io, S.nzval[ind])
             else
                 print(io, Base.undef_ref_str)
             end
-        elseif k == half_screen_rows
+        elseif ind == half_screen_rows
             print(io, sep, '\u22ee')
         end
-        k += 1
     end
 end
 
 
 ##
+
+function Base.convert(::Type{Matrix}, S::SparseMatrixIterate{Tv}) where Tv
+  n, m = size(S)
+  A = zeros(Tv, n, m)
+  for k=1:nnz(S)
+    i = S.nzval2full[k]
+    v = S.nzval[k]
+    A[i] = v
+  end
+  return A
+end
+Base.convert(::Type{Array}, S::SparseMatrixIterate) = convert(Matrix, S)
+Base.full(S::SparseMatrixIterate) = convert(Array, S)
+
+
+function Base.similar(A::SparseMatrixIterate{T}) where {T}
+  n, m = size(A)
+  if n == m
+    return SparseMatrixIterate(T, n, A.symmetric)
+  else
+    return SparseMatrixIterate(T, n, m)
+  end
+end
+
+function Base.similar(A::SparseMatrixIterate, ::Type{S}) where {S}
+  n, m = size(A)
+  if n == m
+    return SparseMatrixIterate(S, n, A.symmetric)
+  else
+    return SparseMatrixIterate(S, n, m)
+  end
+end
 
 function Base.copy!(x::SparseMatrixIterate, y::SparseMatrixIterate)
     length(x) == length(y) || throw(DimensionMismatch())
@@ -222,16 +281,19 @@ function Base.copy!(x::SparseMatrixIterate, y::SparseMatrixIterate)
     x
 end
 
-function Base.setindex!(x::SparseMatrixIterate{T}, v::T, i::Integer, j::Integer) where {T}
-  if x.full2nzval[i, j] == 0
+Base.setindex!(x::SparseMatrixIterate{T}, v::T, i::Integer, j::Integer) where {T} =
+  setindex!(x, v, sub2ind(size(x), i, j))
+
+function Base.setindex!(x::SparseMatrixIterate{T}, v::T, i::Integer) where {T}
+  if x.full2nzval[i] == 0
     if v != zero(T)
       x.nnz += 1
       x.nzval[x.nnz] = v
-      x.nzval2full[x.nnz] = sub2ind(size(x), i, j)
-      x.full2nzval[i, j] = x.nnz
+      x.nzval2full[x.nnz] = i
+      x.full2nzval[i] = x.nnz
     end
   else
-    icoef = x.full2nzval[i, j]
+    icoef = x.full2nzval[i]
     x.nzval[icoef] = v
   end
   x

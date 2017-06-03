@@ -232,56 +232,51 @@ facts("proximal_nuclear") do
 end
 
 
+facts("proximal_l1l2") do
 
-#
-# facts("proximal_l1l2") do
-#
-#   context("shrink to zero") do
-#     p = 10
-#     x = randn(p)
-#     hat_x = randn(p)
-#
-#     groups = Array(UnitRange{Int64}, 2)
-#     groups[1] = 1:5
-#     groups[2] = 6:10
-#
-#     lambda = norm(x) + 0.1
-#
-#     # check the norm
-#     g = ProxL1L2(lambda, groups)
-#     @fact value(g, x) --> roughly(lambda * norm(x[1:5]) + lambda * norm(x[6:10]))
-#
-#     # check shrinkage
-#     prox!(g, hat_x, x, 1.)
-#
-#     @fact hat_x --> roughly(zeros(Float64, p))
-#     @fact norm(hat_x) --> roughly(0.)
-#   end
-#
-#   context("shrink not to zero") do
-#     p = 10
-#     x = randn(p)
-#     hat_x = randn(p)
-#
-#     groups = Array(UnitRange{Int64}, 2)
-#     groups[1] = 1:5
-#     groups[2] = 6:10
-#
-#     lambda = min(norm(x[1:5]), norm(x[6:10])) - 0.2
-#
-#     # check the norm
-#     g = ProxL1L2(lambda, groups)
-#     @fact value(g, x) --> roughly(lambda * norm(x[1:5]) + lambda * norm(x[6:10]))
-#
-#     # check shrinkage
-#     prox!(g, hat_x, x, 1.)
-#
-#     @fact hat_x[1:5] --> roughly( (1.-lambda/norm(x[1:5])) * x[1:5] )
-#     @fact hat_x[6:10] --> roughly( (1.-lambda/norm(x[6:10])) * x[6:10] )
-#   end
-#
-# end
+  context("shrink to zero") do
+    p = 10
+    x = AtomIterate(p, 2)
+    hat_x = AtomIterate(p, 2)
 
+    x .= randn(p)
+    hat_x .= randn(p)
+
+    lambda = vecnorm(x) + 0.1
+
+    # check the norm
+    g = AProxL2(lambda, [1., 1.])
+    @fact value(g, x) --> roughly(lambda * norm(x[1:5]) + lambda * norm(x[6:10]))
+
+    # check shrinkage
+    prox!(g, hat_x, x, 1.)
+
+    @fact hat_x.storage --> roughly(zeros(Float64, p))
+    @fact vecnorm(hat_x) --> roughly(0.)
+  end
+
+  context("shrink not to zero") do
+    p = 10
+    x = AtomIterate(p, 2)
+    hat_x = AtomIterate(p, 2)
+
+    x .= randn(p)
+    hat_x .= randn(p)
+
+    lambda = min(norm(x[1:5]), norm(x[6:10])) - 0.2
+
+    # check the norm
+    g = AProxL2(lambda, [1., 1.])
+    @fact value(g, x) --> roughly(lambda * norm(x[1:5]) + lambda * norm(x[6:10]))
+
+    # check shrinkage
+    prox!(g, hat_x, x, 1.)
+
+    @fact hat_x.storage[1:5] --> roughly( (1.-lambda/norm(x[1:5])) * x[1:5] )
+    @fact hat_x.storage[6:10] --> roughly( (1.-lambda/norm(x[6:10])) * x[6:10] )
+  end
+
+end
 
 
 facts("proximal_logdet") do

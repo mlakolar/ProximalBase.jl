@@ -92,17 +92,9 @@ struct ProxL2{T<:AbstractFloat} <: ProximableFunction
   λ::T
 end
 
-value{T<:AbstractFloat}(g::ProxL2{T}, x::StridedVector{T}) = g.λ * norm(x)
-function prox!{T<:AbstractFloat}(g::ProxL2{T}, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, γ::T)
-  size(out_x) == size(x) || throw(ArgumentError("Sizes of the input and ouput need to be the same."))
-  tmp = max(one(T) - g.λ * γ / vecnorm(x), zero(T))
-  if tmp > zero(T)
-    out_x .= tmp .* x
-  else
-    out_x .= zero(T)
-  end
-  out_x
-end
+value{T<:AbstractFloat}(g::ProxL2{T}, x::StridedVector{T}) = g.λ * vecnorm(x)
+prox!{T<:AbstractFloat}(g::ProxL2{T}, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, γ::T) =
+  shrinkL2!(out_x, x, g.λ*γ)
 
 ##########################################################
 ###### L2 norm squared g(x) = λ * ||x||_2^2
@@ -137,156 +129,33 @@ function prox!{T<:AbstractFloat}(g::ProxNuclear{T}, out_x::StridedMatrix{T}, x::
   A_mul_Bt!(out_x, U, V)
 end
 
-# ###### sum_k g(x_k)
+##################################
 #
-# immutable ProxSumProx{P<:ProximableFunction, I} <: ProximableFunction
-#   intern_prox::P
-#   groups::Vector{I}
-# end
+#  sum_k g(x_k)
 #
-# ProxL1L2{T<:AbstractFloat, I}(λ::T, groups::Vector{I}) = ProxSumProx{ProxL2{T}, I}(ProxL2{T}(λ), groups)
-# ProxL1Nuclear{T<:AbstractFloat, I}(λ::T, groups::Vector{I}) = ProxSumProx{ProxNuclear{T}, I}(ProxNuclear{T}(λ), groups)
-#
-# function value{T<:AbstractFloat}(g::ProxSumProx, x::StridedArray{T})
-#   intern_prox = g.intern_prox
-#   groups = g.groups
-#   v = zero(T)
-#   for i in eachindex(groups)
-#     v += value(intern_prox, sub(x, groups[i]))
-#   end
-#   v
-# end
-#
-# function prox!{T<:AbstractFloat}(g::ProxSumProx, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
-#   @assert size(out_x) == size(x)
-#   intern_prox = g.intern_prox
-#   groups = g.groups
-#   for i in eachindex(groups)
-#     prox!(intern_prox, sub(out_x, groups[i]), sub(x, groups[i]), γ)
-#   end
-#   out_x
-# end
-#
-# immutable AProxSumProx{P<:ProximableFunction, I} <: ProximableFunction
-#   intern_prox::Vector{P}
-#   groups::Vector{I}
-# end
-#
-# function ProxL1L2{T<:AbstractFloat, I}(
-#     λ::Vector{T},
-#     groups::Vector{I}
-#     )
-#   numGroups = length(groups)
-#   @assert length(λ) == numGroups
-#   proxV = Array(ProxL2{T}, numGroups)
-#   @inbounds for i=1:numGroups
-#     proxV[i] = ProxL2{T}(λ[i])
-#   end
-#   AProxSumProx{ProxL2{T}, I}(proxV, groups)
-# end
-#
-# function value{T<:AbstractFloat}(g::AProxSumProx, x::StridedArray{T})
-#   intern_prox = g.intern_prox
-#   groups = g.groups
-#   v = zero(T)
-#   @inbounds for i in eachindex(groups)
-#     v += value(intern_prox[i], sub(x, groups[i]))
-#   end
-#   v
-# end
-#
-# function prox!{T<:AbstractFloat}(g::AProxSumProx, out_x::StridedArray{T}, x::StridedArray{T}, γ::T)
-#   @assert size(out_x) == size(x)
-#   intern_prox = g.intern_prox
-#   groups = g.groups
-#   @inbounds for i in eachindex(groups)
-#     prox!(intern_prox[i], sub(out_x, groups[i]), sub(x, groups[i]), γ)
-#   end
-#   out_x
-# end
-#
-# #
-# function active_set{T<:AbstractFloat, I}(g::ProxSumProx{ProxNuclear{T}, I}, x::StridedArray{T}; zero_thr::T=1e-4)
-#   groups = g.groups
-#   numElem = length(groups)
-#   activeset = [1:numElem;]
-#   numActive = 0
-#   for j = 1:numElem
-#     if vecnorm(sub(x, groups[j])) > zero_thr
-#       numActive += 1
-#       activeset[numActive], activeset[j] = activeset[j], activeset[numActive]
-#     end
-#   end
-#   GroupActiveSet(activeset, numActive, groups)
-# end
-# function value{T<:AbstractFloat, I}(g::ProxSumProx{ProxNuclear{T}, I}, x::StridedArray{T}, activeset::GroupActiveSet)
-#   v = zero(T)
-#   intern_prox = g.intern_prox
-#   groups = g.groups
-#   activeGroups = activeset.groups
-#   @inbounds for i=1:activeset.numActive
-#     ind = activeGroups[i]
-#     v += value(intern_prox, sub(x, groups[ind]))
-#   end
-#   v
-# end
-# function prox!{T<:AbstractFloat, I}(g::ProxSumProx{ProxNuclear{T}, I}, out_x::StridedArray{T}, x::StridedArray{T}, γ::T, activeset::GroupActiveSet)
-#   @assert size(out_x) == size(x)
-#   intern_prox = g.intern_prox
-#   groups = g.groups
-#   activeGroups = activeset.groups
-#   @inbounds for i=1:activeset.numActive
-#     ind = activeGroups[i]
-#     prox!(intern_prox, sub(out_x, groups[ind]), sub(x, groups[ind]), γ)
-#   end
-#   out_x
-# end
-# function add_violator!{T<:AbstractFloat, II}(
-#     activeset::GroupActiveSet, x::StridedArray{T},
-#     g::ProxSumProx{ProxNuclear{T}, II}, f::DifferentiableFunction, tmp::StridedArray{T}; zero_thr::T=1e-4, grad_tol=1e-6
-#     )
-#   λ = g.intern_prox.λ
-#   groups = g.groups
-#   numElem = length(groups)
-#   changed = false
-#
-#   numActive = activeset.numActive
-#   activeGroups = activeset.groups
-#   # check for things to be removed from the active set
-#   i = 0
-#   while i < numActive
-#     i = i + 1
-#     ind = activeGroups[i]
-#     xt = sub(x, groups[ind])
-#     if vecnorm(xt) < zero_thr
-#       fill!(xt, zero(T))
-#       changed = true
-#       activeGroups[numActive], activeGroups[i] = activeGroups[i], activeGroups[numActive]
-#       numActive -= 1
-#       i = i - 1
-#     end
-#   end
-#
-#   gradient!(f, tmp, x)
-#   I = 0
-#   V = zero(T)
-#   for i=numActive+1:numElem
-#     ind = activeGroups[i]
-#     gxt = sub(tmp, groups[ind])
-#     nV = sqrt(eigmax(gxt'*gxt))
-#     if V < nV
-#       I = i
-#       V = nV
-#     end
-#   end
-#   if I > 0 && V + grad_tol > λ
-#     changed = true
-#     numActive += 1
-#     activeGroups[numActive], activeGroups[I] = activeGroups[I], activeGroups[numActive]
-#   end
-#   activeset.numActive = numActive
-#   changed
-# end
+##################################
+
+# λ0⋅sum_k λ_k g(x_k)
+struct AProxL2{T<:AbstractFloat} <: ProximableFunction
+  λ0::T
+  λ::Vector{T}
+end
+function value{T<:AbstractFloat}(g::AProxL2{T}, x::AtomIterate{T})
+  v = zero(T)
+  @inbounds for i=1:length(x.atoms)
+    v += vecnorm(x.atoms[i]) * g.λ[i]
+  end
+  v * g.λ0
+end
+function prox!{T<:AbstractFloat}(g::AProxL2{T}, out::AtomIterate{T}, x::AtomIterate{T}, γ::T)
+  for i=1:length(x.atoms)
+    shrinkL2!(out.atoms[i], x.atoms[i], γ*g.λ[i]*g.λ0)
+  end
+  out
+end
+cdprox!(g::AProxL2{T}, x::AtomIterate{T}, k::Int, γ::T) where {T} =
+  shrinkL2!(x.atoms[k], x.atoms[k], g.λ[k] * γ * g.λ0)
+
 
 
 ##########################################################

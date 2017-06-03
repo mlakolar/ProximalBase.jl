@@ -6,6 +6,11 @@ Soft-threshold operator. Returns sign(v)⋅max(0, |v|-c)
 """
 shrink{T<:AbstractFloat}(v::T, c::T) = v > c ? v - c : (v < -c ? v + c : zero(T))
 
+function shrinkL2!(out::M, x::M, c::T) where {M <: AbstractVecOrMat{T}} where T
+  tmp = max(one(T) - c / vecnorm(x), zero(T))
+  tmp > zero(T) ? scale!(copy!(out, x), tmp) : fill!(out, zero(T))
+end
+
 
 """
 Computes a proximal operation for the penalty

@@ -316,3 +316,99 @@ function Base.dropzeros!(x::SparseMatrixIterate{T}) where {T}
   end
   x
 end
+
+
+
+####################################
+#
+#  Group Sparse Iterate
+#
+####################################
+
+
+struct AtomIterate{T, N, V} <: AbstractArray{T, N}
+  storage::Array{T, N}
+  atoms::Vector{V}                                 # each atom is a view of the storage
+end
+
+function AtomIterate(n::Int, numAtom::Int)
+  mod(n, numAtom) == 0 || throw(ArgumentError("numAtom must divide n"))
+  storage = zeros(n)
+  lenAtom = div(n, numAtom)
+  b, e = 1, lenAtom
+  a1 = view(storage, b:e)
+  V = typeof(a1)
+  atoms = Vector{V}(numAtom)
+  atoms[1] = a1
+  for i=2:numAtom
+    b += lenAtom
+    e += lenAtom
+    atoms[i] = view(storage, b:e)
+  end
+  AtomIterate{Float64, 1, V}(storage, atoms)
+end
+
+# if byRow == true then each atom is a group of the form [b:e, :]
+# otherwise each atom is a group of the form [:, b:e]
+function AtomIterate(dims::Dims{2}, numAtom::Int, byRow::Bool)
+  nr = dims[1]
+  nc = dims[2]
+  if byRow
+    mod(nr, numAtom) == 0 || throw(ArgumentError("numAtom must divide dims[1]"))
+    lenAtom = div(nr, numAtom)
+  else
+    mod(nc, numAtom) == 0 || throw(ArgumentError("numAtom must divide dims[1]"))
+    lenAtom = div(nc, numAtom)
+  end
+  storage = zeros(nr, nc)
+  b, e = 1, lenAtom
+  if byRow
+    a1 = view(storage, b:e, :)
+  else
+    a1 = view(storage, :, b:e)
+  end
+  V = typeof(a1)
+  atoms = Vector{V}(numAtom)
+  atoms[1] = a1
+  for i=2:numAtom
+    b += lenAtom
+    e += lenAtom
+    if byRow
+      atoms[i] = view(storage, b:e, :)
+    else
+      atoms[i] = view(storage, :, b:e)
+    end
+  end
+  AtomIterate{Float64, 2, V}(storage, atoms)
+end
+
+
+#
+
+function Base.similar(a::AtomIterate{T, N, V}) where {T,N,V}
+  storage = zeros(a.storage)
+  numAtoms = length(a.atoms)
+  atoms = Vector{V}(numAtoms)
+  for i=1:numAtoms
+    atoms[i] = SubArray(storage, a.atoms[i].indexes)
+  end
+  AtomIterate{T,N,V}(storage, atoms)
+end
+
+Base.copy(a::AtomIterate) = copy!(similar(a), a)
+function Base.copy!(dest::AtomIterate, src::AtomIterate)
+  copy!(dest.storage, src.storage)
+  dest
+end
+
+
+#
+
+Base.length(x::AtomIterate) = length(x.storage)
+Base.size(x::AtomIterate) = size(x.storage)
+Base.IndexStyle(::Type{<:AtomIterate}) = IndexLinear()
+
+Base.getindex(x::AtomIterate, i::Int) = getindex(x.storage, i)
+Base.getindex(x::AtomIterate, I...) = getindex(x.storage, I...)
+Base.setindex!(x::AtomIterate, v, i::Int) = setindex!(x.storage, v, i)
+Base.setindex!(x::AtomIterate, v, I...) = setindex!(x.storage, v, I...)

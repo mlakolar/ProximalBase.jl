@@ -26,27 +26,29 @@ function prox!(::ProxZero, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, �
 end
 
 ##########################################################
-######  L1 norm  g(x) = λ * ||x||_1
+######  L1 norm  g(x) = λ0 ⋅ \sum_j λ_j |x_j|
 ##########################################################
 
 struct AProxL1{T<:AbstractFloat, N} <: ProximableFunction
+  λ0::T
   λ::Array{T, N}
 end
 
 function value(g::AProxL1{T}, x::AbstractVecOrMat{T}) where {T}
   size(g.λ) == size(x) || throw(ArgumentError("Sizes of g.λ and x need to be the same"))
   λ = g.λ
+  λ0 = g.λ0
   v = zero(T)
   @inbounds @simd for i in eachindex(x)
-    v += abs(x[i]) * λ[i]
+    v += abs(x[i]) * λ[i] * λ0
   end
   v
 end
 prox!{T<:AbstractFloat}(g::AProxL1{T}, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, γ::T) =
-    out_x .= shrink.(x, γ * g.λ)
+    out_x .= shrink.(x, g.λ0 * γ * g.λ)
 function cdprox!(g::AProxL1{T}, x::SparseIterate{T}, k::Int, γ::T) where {T}
   size(g.λ) == size(x) || throw(DimensionMismatch())
-  x[k] = shrink(x[k], g.λ[k] * γ)
+  x[k] = shrink(x[k], g.λ[k] * γ * g.λ0)
 end
 
 

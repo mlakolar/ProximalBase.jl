@@ -38,7 +38,7 @@ facts("proximal_l1") do
   context("shrink with vector") do
     x = [1.0, 1.4, -3.2]
     lambda = [0.1, 1.5, 1]
-    g = AProxL1(lambda)
+    g = AProxL1(1., lambda)
 
     hat_x = randn(3)
     prox!(g, hat_x, x)

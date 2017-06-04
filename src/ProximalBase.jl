@@ -22,8 +22,8 @@ export
   shrink, shrinkL2!,
   proxL1Fused
 
-include("utils.jl")
 include("sparseIterate.jl")
+include("utils.jl")
 
 # DifferentiableFunctions
 include("differentiable_functions.jl")

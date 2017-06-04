@@ -4,7 +4,7 @@ export
   # types
   DifferentiableFunction,
   ProximableFunction,
-  SparseIterate, SparseMatrixIterate, AtomIterate,
+  SparseIterate, AtomIterate,
 
   # smooth functions
   QuadraticFunction, L2Loss, LeastSquaresLoss,
@@ -14,13 +14,15 @@ export
   ProxZero,
   ProxL1, AProxL1,
   ProxL2, ProxL2Sq, ProxNuclear,
+  ProxL1Fused,
   AProxL2,
   ProxGaussLikelihood,
   prox!, prox, cdprox!,
 
   # utils
   shrink, shrinkL2!,
-  proxL1Fused
+  proxL1Fused,
+  A_mul_B_row, At_mul_B_row
 
 include("sparseIterate.jl")
 include("utils.jl")

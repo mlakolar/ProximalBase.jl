@@ -4,7 +4,7 @@ export
   # types
   DifferentiableFunction,
   ProximableFunction,
-  SparseIterate, AtomIterate,
+  SparseIterate, SymmetricSparseIterate, AtomIterate,
 
   # smooth functions
   QuadraticFunction, L2Loss, LeastSquaresLoss,
@@ -22,7 +22,10 @@ export
   # utils
   shrink, shrinkL2!,
   proxL1Fused,
-  A_mul_B_row, At_mul_B_row
+  A_mul_B_row, At_mul_B_row,
+  A_mul_X_mul_B, A_mul_X_mul_B_rc,
+  A_mul_UUt_mul_B, A_mul_UUt_mul_B_rc
+
 
 include("sparseIterate.jl")
 include("utils.jl")

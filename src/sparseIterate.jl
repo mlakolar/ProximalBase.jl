@@ -2,12 +2,12 @@ mutable struct SparseIterate{T, N} <: AbstractArray{T, N}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
     nzval2ind::Vector{Int}      # Mapping from nzval to indices
     ind2nzval::Array{Int, N}    # Mapping from indices to nzval
-    nnz::Int                    #
+    nnz::Int                    # number of stored zeros
 end
 
 SparseIterate(n::Int) = SparseIterate(Float64, n)
 SparseIterate(::Type{T}, n::Int) where {T} = SparseIterate{T, 1}(zeros(T, n), zeros(Int, n), zeros(Int, n), 0)
-SparseIterate(n::Int, m::Int) = SparseIterate(Float64, n)
+SparseIterate(n::Int, m::Int) = SparseIterate(Float64, n, m)
 SparseIterate(::Type{T}, n::Int, m::Int) where {T} = SparseIterate{T, 2}(zeros(T, n*m), zeros(Int, n*m), zeros(Int, n, m), 0)
 
 Base.length(x::SparseIterate) = length(x.ind2nzval)
@@ -32,6 +32,32 @@ function Base.setindex!{T}(x::SparseIterate{T}, v::T, i::Int)
   end
   x
 end
+
+
+function Base.convert(::Type{SparseIterate{T, 2}}, x::SparseMatrixCSC{T}) where {T}
+  n, m = size(x)
+  out = SparseIterate(T, n, m)
+
+  I, J, V = findnz(x)
+  for i=1:length(I)
+    @inbounds out[I[i], J[i]] = V[i]
+  end
+
+  out
+end
+function Base.convert(::Type{SparseIterate{T, 1}}, x::SparseVector{T}) where {T}
+  p = length(x)
+  out = SparseIterate(T, p)
+  nzval = SparseArrays.nonzeros(x)
+  rowval = SparseArrays.nonzeroinds(x)
+  for i=1:length(nzval)
+    out[rowval[i]] = nzval[i]
+  end
+  out
+end
+Base.convert(::Type{SparseIterate}, x::SparseMatrixCSC{T}) where {T} = convert(SparseIterate{T, 2}, x)
+Base.convert(::Type{SparseIterate}, x::SparseVector{T}) where {T} = convert(SparseIterate{T, 1}, x)
+
 
 
 function Base.convert(::Type{Vector}, x::SparseIterate{Tv, 1}) where Tv
@@ -180,7 +206,7 @@ end
 
 
 ## multiplication
-function Base.A_mul_B!{T}(out::Vector{T}, A::AbstractMatrix{T}, coef::SparseIterate{T})
+function Base.A_mul_B!{T}(out::Vector{T}, A::AbstractMatrix{T}, coef::SparseIterate{T, 1})
     fill!(out, zero(eltype(out)))
     @inbounds for icoef = 1:nnz(coef)
         ipred = coef.nzval2ind[icoef]
@@ -192,7 +218,7 @@ function Base.A_mul_B!{T}(out::Vector{T}, A::AbstractMatrix{T}, coef::SparseIter
     out
 end
 
-function Base.dot{T}(x::Vector{T}, coef::SparseIterate{T})
+function Base.dot{T}(x::Vector{T}, coef::SparseIterate{T, 1})
     v = 0.0
     @inbounds @simd for icoef = 1:nnz(coef)
         v += x[coef.nzval2ind[icoef]]*coef.nzval[icoef]
@@ -200,6 +226,74 @@ function Base.dot{T}(x::Vector{T}, coef::SparseIterate{T})
     v
 end
 
+
+####################################
+#
+#  Symmetric Sparse Iterate
+#
+####################################
+
+# data are stored in the lower triangle
+struct SymmetricSparseIterate{T} <: AbstractMatrix{T}
+  data::SparseIterate{T,2}
+end
+
+SymmetricSparseIterate(n::Int) = SymmetricSparseIterate(Float64, n)
+SymmetricSparseIterate(::Type{T}, n::Int) where {T} = SymmetricSparseIterate{T}(SparseIterate(T, n, n))
+
+Base.length(x::SymmetricSparseIterate) = length(x.data)
+Base.size(x::SymmetricSparseIterate) = size(x.data)
+Base.nnz(x::SymmetricSparseIterate) = nnz(x.data)
+Base.iszero(x::SymmetricSparseIterate) = iszero(x.data)
+
+Base.IndexStyle(::Type{<:SymmetricSparseIterate}) = IndexCartesian()
+Base.getindex(x::SymmetricSparseIterate, r::Int, c::Int) = r >= c ? x.data[r, c] : x.data[c, r]
+function Base.setindex!(x::SymmetricSparseIterate{T}, v::T, r::Int, c::Int) where {T}
+  if r >= c
+    setindex!(x.data, v, r, c)
+  else
+    setindex!(x.data, v, c, r)
+  end
+  x
+end
+
+function Base.convert(::Type{SymmetricSparseIterate{T}}, X::SparseMatrixCSC{T}) where {T}
+  n, m = size(X)
+  n == m || throw(ArgumentError("X needs to be square matrix"))
+  out = SymmetricSparseIterate(T, n)
+
+  I, J, V = findnz(X)
+  @inbounds for i=1:length(I)
+    if I[i] >= J[i]
+      out[I[i], J[i]] = V[i]
+    end
+  end
+
+  out
+end
+Base.convert(::Type{SymmetricSparseIterate}, x::SparseMatrixCSC{T}) where {T} = convert(SymmetricSparseIterate{T}, x)
+
+function Base.convert(::Type{Matrix}, S::SymmetricSparseIterate{Tv}) where Tv
+  n, m = size(S)
+  A = zeros(Tv, n, m)
+  for k=1:nnz(S)
+    i = S.nzval2ind[k]
+    r, c = ind2sub(S, i)
+    v = S.nzval[k]
+    A[r, c] = v
+  end
+  return A
+end
+Base.convert(::Type{Array}, x::SymmetricSparseIterate) = convert(Matrix, x)
+Base.full(x::SymmetricSparseIterate) = convert(Array, x)
+
+Base.similar(A::SymmetricSparseIterate{T}) where {T} = SymmetricSparseIterate(T, size(A, 1))
+Base.similar(A::SymmetricSparseIterate, ::Type{S}) where {S} = SymmetricSparseIterate(S, size(A, 1))
+
+function Base.copy!(x::SymmetricSparseIterate, y::SymmetricSparseIterate)
+    copy!(x.data, y.data)
+    x
+end
 
 
 ####################################

@@ -44,7 +44,7 @@ end
 
 ################ creates a function x'Ax/2 + b'x + c
 
-immutable QuadraticFunction{T<:AbstractFloat, N, M<:AbstractMatrix, V} <: DifferentiableFunction
+struct QuadraticFunction{T<:AbstractFloat, N, M<:AbstractMatrix, V} <: DifferentiableFunction
   A::M
   b::V
   c::T
@@ -83,7 +83,7 @@ end
 
 ################ creates a function |Y - X⋅β|_2^2 / 2.
 
-immutable LeastSquaresLoss{T, Ty<:AbstractVecOrMat, Tx<:AbstractMatrix} <: DifferentiableFunction
+struct LeastSquaresLoss{T, Ty<:AbstractVecOrMat, Tx<:AbstractMatrix} <: DifferentiableFunction
   Y::Ty
   X::Tx
   tmp::VecOrMat{T}    ## call to value does not allocate
@@ -109,6 +109,6 @@ function value_and_gradient!{T<:AbstractFloat}(
 
   A_mul_B!(f.tmp, f.X, x)
   @. f.tmp -= f.Y
-  At_mul_B!(grad_out, f.X, f.tmp)  
+  At_mul_B!(grad_out, f.X, f.tmp)
   sum(abs2, f.tmp) / 2.
 end

@@ -14,6 +14,7 @@ Base.length(x::SparseIterate) = length(x.ind2nzval)
 Base.size(x::SparseIterate) = size(x.ind2nzval)
 Base.nnz(x::SparseIterate) = x.nnz
 Base.iszero(x::SparseIterate) = nnz(x) == 0
+numCoordinates(x::SparseIterate) = length(x.ind2nzval)
 
 Base.IndexStyle(::Type{<:SparseIterate}) = IndexLinear()
 

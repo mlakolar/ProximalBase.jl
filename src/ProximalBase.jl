@@ -4,8 +4,8 @@ export
   # types
   DifferentiableFunction,
   ProximableFunction,
-  SparseIterate, SymmetricSparseIterate, AtomIterate,
-  AtomIterator,
+  SparseIterate, SymmetricSparseIterate, AtomIterate, numCoordinates,
+  AtomIterator, OrderedIterator, RandomIterator, reset!,
 
   # smooth functions
   QuadraticFunction, L2Loss, LeastSquaresLoss,
@@ -29,6 +29,7 @@ export
 
 
 include("sparseIterate.jl")
+include("atom_iterator.jl")
 include("utils.jl")
 
 # DifferentiableFunctions

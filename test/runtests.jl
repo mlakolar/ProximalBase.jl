@@ -19,10 +19,10 @@ ipopt = try_import(:Ipopt)
 
 
 tests = [
-	"test_utils",
+	# "test_utils",
   "sparseIterate",
-  "test_proximal_functions",
-	"test_differentiable_functions"
+  # "test_proximal_functions",
+	# "test_differentiable_functions"
 ]
 
 for t in tests

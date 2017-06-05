@@ -13,7 +13,6 @@ SparseIterate(::Type{T}, n::Int, m::Int) where {T} = SparseIterate{T, 2}(zeros(T
 Base.length(x::SparseIterate) = length(x.ind2nzval)
 Base.size(x::SparseIterate) = size(x.ind2nzval)
 Base.nnz(x::SparseIterate) = x.nnz
-Base.iszero(x::SparseIterate) = nnz(x) == 0
 numCoordinates(x::SparseIterate) = length(x.ind2nzval)
 
 Base.IndexStyle(::Type{<:SparseIterate}) = IndexLinear()
@@ -151,36 +150,39 @@ function Base.show(io::IOContext, x::SparseIterate{T, 1}) where T
 end
 
 function Base.show(io::IOContext, S::SparseIterate{T, 2}) where T
-    if nnz(S) == 0
-        return show(io, MIME("text/plain"), S)
-    end
+  if nnz(S) == 0
+    return show(io, MIME("text/plain"), S)
+  end
 
-    limit::Bool = get(io, :limit, false)
-    if limit
-        rows = displaysize(io)[1]
-        half_screen_rows = div(rows - 8, 2)
-    else
-        half_screen_rows = typemax(Int)
-    end
-    pad = ndigits(maximum( size(S) ))
-    sep = "\n  "
-    if !haskey(io, :compact)
-        io = IOContext(io, :compact => true)
-    end
-    for ind=1:nnz(S)
-        if ind < half_screen_rows || ind > nnz(S)-half_screen_rows
-            ifull = S.nzval2ind[ind]
-            row, col = ind2sub(size(S), ifull)
-            print(io, sep, '[', rpad(row, pad), ", ", lpad(col, pad), "]  =  ")
-            if isassigned(S.nzval, Int(ind))
-                show(io, S.nzval[ind])
-            else
-                print(io, Base.undef_ref_str)
-            end
-        elseif ind == half_screen_rows
-            print(io, sep, '\u22ee')
+  limit::Bool = get(io, :limit, false)
+  if limit
+    rows = displaysize(io)[1]
+    half_screen_rows = div(rows - 8, 2)
+  else
+    half_screen_rows = typemax(Int)
+  end
+  pad = ndigits(maximum( size(S) ))
+  sep = "\n  "
+  if !haskey(io, :compact)
+    io = IOContext(io, :compact => true)
+  end
+  ind = 0
+  for ifull in eachindex(S)
+    if S.ind2nzval[ifull] != 0
+      ind += 1
+      if ind < half_screen_rows || ind > nnz(S)-half_screen_rows
+        row, col = ind2sub(size(S), ifull)
+        print(io, sep, '[', rpad(row, pad), ", ", lpad(col, pad), "]  =  ")
+        if isassigned(S.nzval, S.ind2nzval[ifull])
+          show(io, S.nzval[S.ind2nzval[ifull]])
+        else
+          print(io, Base.undef_ref_str)
         end
+      elseif ind == half_screen_rows
+        print(io, sep, '\u22ee')
+      end
     end
+  end
 end
 
 
@@ -219,8 +221,9 @@ function Base.A_mul_B!{T}(out::Vector{T}, A::AbstractMatrix{T}, coef::SparseIter
     out
 end
 
+Base.dot(coef::SparseIterate{T, 1}, x::Vector{T}) where {T} = dot(x, coef)
 function Base.dot{T}(x::Vector{T}, coef::SparseIterate{T, 1})
-    v = 0.0
+    v = zero(T)
     @inbounds @simd for icoef = 1:nnz(coef)
         v += x[coef.nzval2ind[icoef]]*coef.nzval[icoef]
     end
@@ -245,7 +248,6 @@ SymmetricSparseIterate(::Type{T}, n::Int) where {T} = SymmetricSparseIterate{T}(
 Base.length(x::SymmetricSparseIterate) = length(x.data)
 Base.size(x::SymmetricSparseIterate) = size(x.data)
 Base.nnz(x::SymmetricSparseIterate) = nnz(x.data)
-Base.iszero(x::SymmetricSparseIterate) = iszero(x.data)
 
 Base.IndexStyle(::Type{<:SymmetricSparseIterate}) = IndexCartesian()
 Base.getindex(x::SymmetricSparseIterate, r::Int, c::Int) = r >= c ? x.data[r, c] : x.data[c, r]

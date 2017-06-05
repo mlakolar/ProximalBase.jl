@@ -124,32 +124,6 @@ function At_mul_B_row{T<:AbstractFloat}(A::AbstractMatrix{T}, b::SparseIterate{T
   v
 end
 
-
-# function A_mul_X_mul_B_rc{T<:AbstractFloat}(
-#   A::AbstractMatrix{T},
-#   X::SparseVector{T},
-#   B::AbstractMatrix{T},
-#   r::Int,
-#   c::Int
-#   )
-#
-#   p = size(A, 1)
-#
-#   nzval = SparseArrays.nonzeros(X)
-#   rowval = SparseArrays.nonzeroinds(X)
-#
-#   v = zero(T)
-#   for j=1:length(nzval)
-#     ri, ci = ind2subLowerTriangular(p, rowval[j])
-#     if ri == ci
-#       @inbounds v += A[ri, ar] * Σy[ci, ac] * nzval[j]
-#     else
-#       @inbounds v += (A[ri, ar] * Σy[ci, ac] + A[ci, ar] * Σy[ri, ac]) * nzval[j]
-#     end
-#   end
-#   v
-# end
-
 function A_mul_X_mul_B_rc(
   A::Symmetric{T},
   X::SymmetricSparseIterate{T},

@@ -30,7 +30,7 @@ facts("multiply") do
   x = A * b
   xt = A' * b
   for i=1:n
-    @fact A_mul_B_row(A, b, i) --> x[i]
+    @fact A_mul_B_row(A, b, i) --> roughly(x[i])
     @fact At_mul_B_row(A, b, i) --> roughly(xt[i])
   end
 
@@ -41,14 +41,14 @@ facts("multiply") do
   xi = A * bi
   xti = A' * bi
   for i=1:n
-    @fact A_mul_B_row(A, bs, i) --> x[i]
+    @fact A_mul_B_row(A, bs, i) --> roughly(x[i])
     @fact At_mul_B_row(A, bs, i) --> roughly(xt[i])
 
-    @fact A_mul_B_row(A, bi, i) --> x[i]
+    @fact A_mul_B_row(A, bi, i) --> roughly(x[i])
     @fact At_mul_B_row(A, bi, i) --> roughly(xt[i])
 
-    @fact xi[i] --> x[i]
-    @fact xti[i] --> xt[i]
+    @fact xi[i] --> roughly(x[i])
+    @fact xti[i] --> roughly(xt[i])
   end
 
   # symmetric A * X * B

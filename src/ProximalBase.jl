@@ -5,6 +5,7 @@ export
   DifferentiableFunction,
   ProximableFunction,
   SparseIterate, SymmetricSparseIterate, AtomIterate,
+  AtomIterator,
 
   # smooth functions
   QuadraticFunction, L2Loss, LeastSquaresLoss,

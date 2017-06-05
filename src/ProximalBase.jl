@@ -28,7 +28,6 @@ export
 
 
 include("sparseIterate.jl")
-include("atom_iterator.jl")
 include("utils.jl")
 
 # DifferentiableFunctions

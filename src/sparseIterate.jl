@@ -210,15 +210,18 @@ end
 
 ## multiplication
 function Base.A_mul_B!{T}(out::Vector{T}, A::AbstractMatrix{T}, coef::SparseIterate{T, 1})
-    fill!(out, zero(eltype(out)))
-    @inbounds for icoef = 1:nnz(coef)
-        ipred = coef.nzval2ind[icoef]
-        c = coef.nzval[icoef]
-        @simd for i = 1:size(A, 1)
-            out[i] += c*A[i, ipred]
-        end
+  length(coef) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), length of coef is $(length(coef))"))
+  length(out) == size(A, 1) || throw(DimensionMismatch("A has first dimension $(size(A,1)), length of out is $(length(out))"))
+
+  fill!(out, zero(eltype(out)))
+  @inbounds for inz = 1:nnz(coef)
+    indColumn = coef.nzval2ind[inz]
+    c = coef.nzval[inz]
+    @simd for i = 1:size(A, 1)
+      out[i] += c*A[i, indColumn]
     end
-    out
+  end
+  out
 end
 
 Base.dot(coef::SparseIterate{T, 1}, x::Vector{T}) where {T} = dot(x, coef)
@@ -380,7 +383,6 @@ function Base.copy!(dest::AtomIterate, src::AtomIterate)
   copy!(dest.storage, src.storage)
   dest
 end
-
 
 #
 

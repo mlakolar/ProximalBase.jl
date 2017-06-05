@@ -285,11 +285,12 @@ facts("proximal_logdet") do
   out = zeros(p,p)
 
   # identity
-  Σ = eye(p)
+  Σ = Symmetric(eye(p))
   V = eye(p)
   g = ProxGaussLikelihood(Σ)
   @fact prox(g, V) --> roughly(eye(p))
   @fact prox!(g, out, V) --> roughly(eye(p))
+  @fact value(g, V) --> p
 
   γ = 0.5
   ρ = 2.

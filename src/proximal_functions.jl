@@ -6,9 +6,9 @@
 
 abstract type ProximableFunction end
 
-prox!(g::ProximableFunction, hat_x::AbstractVecOrMat, x::AbstractVecOrMat) = prox!(g, hat_x, x, 1.0)
-prox(g::ProximableFunction, x::AbstractVecOrMat, γ::Real) = prox!(g, similar(x), x, γ)
-prox(g::ProximableFunction, x::AbstractVecOrMat) = prox!(g, similar(x), x, 1.0)
+prox!(g::ProximableFunction, hat_x::AbstractVecOrMat, x::AbstractVecOrMat) = prox!(g, hat_x, x, one(eltype(x)))
+prox(g::ProximableFunction, x::AbstractVecOrMat, γ) = prox!(g, similar(x), x, γ)
+prox(g::ProximableFunction, x::AbstractVecOrMat) = prox!(g, similar(x), x, one(eltype(x)))
 
 
 
@@ -147,13 +147,13 @@ function value{T<:AbstractFloat}(g::AProxL2{T}, x::AtomIterate{T})
   end
   v * g.λ0
 end
-function prox!{T<:AbstractFloat}(g::AProxL2{T}, out::AtomIterate{T}, x::AtomIterate{T}, γ::T)
+function prox!(g::AProxL2{T}, out::AtomIterate{T}, x::AtomIterate{T}, γ::T) where {T<:AbstractFloat}
   for i=1:length(x.atoms)
     shrinkL2!(out.atoms[i], x.atoms[i], γ*g.λ[i]*g.λ0)
   end
   out
 end
-cdprox!(g::AProxL2{T}, x::AtomIterate{T}, k::Int, γ::T) where {T} =
+cdprox!(g::AProxL2{T}, x::AtomIterate{T}, k::Int, γ::T) where {T<:AbstractFloat} =
   shrinkL2!(x.atoms[k], x.atoms[k], g.λ[k] * γ * g.λ0)
 
 
@@ -163,19 +163,19 @@ cdprox!(g::AProxL2{T}, x::AtomIterate{T}, k::Int, γ::T) where {T} =
 # f(X) = tr(SX) - log deg(X)
 ##########################################################
 
-struct ProxGaussLikelihood{T,M<:StridedMatrix} <: ProximableFunction
-  S::M
+struct ProxGaussLikelihood{T} <: ProximableFunction
+  S::Symmetric{T}
   tmp::Matrix{T}
 end
-ProxGaussLikelihood(S::StridedMatrix) = ProxGaussLikelihood{eltype(S), typeof(S)}(S, zeros(eltype(S),size(S)))
+ProxGaussLikelihood(S::Symmetric) = ProxGaussLikelihood{eltype(S)}(S, zeros(eltype(S),size(S)))
 
-value{T<:AbstractFloat}(g::ProxGaussLikelihood{T}, X::StridedMatrix{T}) = trace(g.S*X) - logdet(X)
-function prox!{T<:AbstractFloat}(g::ProxGaussLikelihood{T}, hX::StridedMatrix{T}, X::StridedMatrix{T}, γ::T)
+value(g::ProxGaussLikelihood{T}, X::StridedMatrix{T}) where {T<:AbstractFloat} = trace(g.S*X) - logdet(X)
+function prox!(g::ProxGaussLikelihood{T}, hX::StridedMatrix{T}, X::StridedMatrix{T}, γ::T) where {T<:AbstractFloat}
   S = g.S
   tmp = g.tmp
 
   ρ = one(T) / γ
-  @. tmp = X * ρ -  S
+  @. tmp = X * ρ - S
   ef = eigfact!(Symmetric(tmp))
   d = getindex(ef, :values)::Vector{T}
   U = getindex(ef, :vectors)::Matrix{T}

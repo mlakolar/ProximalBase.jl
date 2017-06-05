@@ -19,11 +19,13 @@ ipopt = try_import(:Ipopt)
 
 
 tests = [
-	"test_utils",
+	"utils",
   "sparseIterate",
-  "test_proximal_functions",
-	"test_differentiable_functions"
+  "proximal_functions",
+	"differentiable_functions"
 ]
+
+srand(1)
 
 for t in tests
 	f = "$t.jl"

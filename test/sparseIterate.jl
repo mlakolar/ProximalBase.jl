@@ -56,7 +56,7 @@ facts("sparseIterate") do
   end
 
   context("copy") do
-    v = sprand(10, 0.2)
+    v = sprand(20, 0.4)
     x = convert(SparseIterate, v)
     y = copy(x)
     @fact full(y) --> full(v)
@@ -101,5 +101,57 @@ facts("sparseIterate") do
 
      # constructor
     @fact typeof(SparseIterate(2, 3)) --> SparseIterate{Float64, 2}
+
+    # multiplication
+    v = sprandn(50, 0.2)
+    M = randn(30, 50)
+    x = convert(SparseIterate, v)
+
+    @fact A_mul_B!(zeros(30), M, x) --> M*v
+
+  end
+
+
+  context("AtomIterate") do
+    x = AtomIterate((2,3), 2, true)
+
+    @fact length(x) --> 6
+    @fact size(x) --> (2,3)
+    @fact IndexStyle(typeof(x)) == IndexLinear() --> true
+
+    x[:] = collect(1:6)
+    y = [1. 3 5; 2 4 6]
+
+    @fact x.storage --> y
+
+    g = AProxL2(1., [10., 10.])
+    out = prox(g, x)
+    @fact out.storage --> zeros(2,3)
+    out = prox(g, x, 1.)
+    @fact out.storage --> zeros(2,3)
+
+    g = AProxL2(1., [1., 10.])
+    out = prox(g, x)
+    @fact out.storage[1,:] --> roughly((1. - 1./vecnorm(y[1,:]))*y[1,:])
+    @fact out.storage[2,:] --> zeros(3)
+
+    g = AProxL2(1., [1., 1.])
+    out = prox(g, x)
+    @fact out.storage[1,:] --> roughly((1. - 1./vecnorm(y[1,:]))*y[1,:])
+    @fact out.storage[2,:] --> roughly((1. - 1./vecnorm(y[2,:]))*y[2,:])
+
+    @fact_throws ArgumentError AtomIterate((2,3), 2, false)
+
+    x = AtomIterate((2,3), 3, false)
+    x[:] = collect(1:6)
+
+    g = AProxL2(1., [1., 1.])
+    @fact_throws BoundsError prox(g, x)
+
+    g = AProxL2(1., [0., 1., 0.])
+    out = prox(g, x)
+    @fact out.storage[:, 1] --> y[:,1]
+    @fact out.storage[:, 2] --> roughly((1. - 1./vecnorm(y[:,2]))*y[:,2])
+    @fact out.storage[:, 3] --> y[:,3]
   end
 end

@@ -6,9 +6,9 @@
 
 abstract type ProximableFunction end
 
-prox!(g::ProximableFunction, hat_x::AbstractVecOrMat, x::AbstractVecOrMat) = prox!(g, hat_x, x, one(eltype(x)))
-prox(g::ProximableFunction, x::AbstractVecOrMat, γ) = prox!(g, similar(x), x, γ)
-prox(g::ProximableFunction, x::AbstractVecOrMat) = prox!(g, similar(x), x, one(eltype(x)))
+prox!(g::ProximableFunction, hat_x::AbstractArray, x::AbstractArray) = prox!(g, hat_x, x, one(eltype(x)))
+prox(g::ProximableFunction,                        x::AbstractArray, γ) = prox!(g, similar(x), x, γ)
+prox(g::ProximableFunction,                        x::AbstractArray) = prox!(g, similar(x), x, one(eltype(x)))
 
 
 
@@ -29,38 +29,38 @@ end
 ######  L1 norm  g(x) = λ0 ⋅ \sum_j λ_j |x_j|
 ##########################################################
 
-struct AProxL1{T<:AbstractFloat, N} <: ProximableFunction
+struct ProxL1{T<:AbstractFloat, S} <: ProximableFunction
   λ0::T
-  λ::Array{T, N}
+  λ::S #Array{T, N}
+
+  ProxL1{T, S}(λ0::T, λ::Union{Void, AbstractArray{T}}) where {T <: AbstractFloat, S} = new(λ0, λ)
 end
 
-function value(g::AProxL1{T}, x::AbstractVecOrMat{T}) where {T}
-  size(g.λ) == size(x) || throw(ArgumentError("Sizes of g.λ and x need to be the same"))
-  λ = g.λ
-  λ0 = g.λ0
+ProxL1(λ0::T        ) where {T <: AbstractFloat} = ProxL1{T, Void}(λ0, nothing)
+ProxL1(λ0::T, ::Void) where {T <: AbstractFloat} = ProxL1{T, Void}(λ0, nothing)
+ProxL1(λ0::T, λ::AbstractArray{T}) where {T <: AbstractFloat} = ProxL1{T, typeof(λ)}(λ0, λ)
+
+function value(g::ProxL1{T, S}, x::AbstractArray{T}) where {T <: AbstractFloat} where S <: AbstractArray
+  size(g.λ) == size(x) || throw(DimensionMismatch("Sizes of g.λ and x need to be the same"))
   v = zero(T)
   @inbounds @simd for i in eachindex(x)
-    v += abs(x[i]) * λ[i] * λ0
+    v += abs(x[i]) * g.λ[i]
   end
-  v
+  v * g.λ0
 end
-prox!{T<:AbstractFloat}(g::AProxL1{T}, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, γ::T) =
-    out_x .= shrink.(x, g.λ0 * γ * g.λ)
-function cdprox!(g::AProxL1{T}, x::SparseIterate{T}, k::Int, γ::T) where {T}
+prox!(g::ProxL1{T, S}, out_x::AbstractArray{T}, x::AbstractArray{T}, γ::T) where {T <: AbstractFloat} where S <: AbstractArray =
+    out_x .= shrink.(x, (g.λ0 * γ) * g.λ)
+@inline function cdprox!(g::ProxL1{T, S}, x::SparseIterate{T}, k::Int, γ::T) where {T <: AbstractFloat} where S <: AbstractArray
   size(g.λ) == size(x) || throw(DimensionMismatch())
+  @boundscheck checkbounds(x, k)
   x[k] = shrink(x[k], g.λ[k] * γ * g.λ0)
 end
 
-
-struct ProxL1{T<:AbstractFloat} <: ProximableFunction
-  λ::T
-end
-
-value{T<:AbstractFloat}(g::ProxL1{T}, x::StridedArray{T}) = g.λ * sum(abs, x)
-prox!{T<:AbstractFloat}(g::ProxL1{T}, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, γ::T) =
-  out_x .= shrink.(x, γ * g.λ)
-cdprox!(g::ProxL1{T}, x::SparseIterate{T}, k::Int, γ::T) where {T} =
-  x[k] = shrink(x[k], g.λ * γ)
+value(g::ProxL1{T, Void}, x::AbstractArray{T}) where {T<:AbstractFloat} = g.λ0 * sum(abs, x)
+prox!(g::ProxL1{T, Void}, out_x::AbstractArray{T}, x::AbstractArray{T}, γ::T) where {T<:AbstractFloat} =
+  out_x .= shrink.(x, γ * g.λ0)
+cdprox!(g::ProxL1{T, Void}, x::SparseIterate{T}, k::Int, γ::T) where {T} =
+  x[k] = shrink(x[k], g.λ0 * γ)
 
 ##########################################################
 ###### L1 + Fused  g(x1,x2) = λ1*(|x1|+|x2|) + λ2*|x1-x2|

@@ -124,18 +124,18 @@ facts("sparseIterate") do
 
     @fact x.storage --> y
 
-    g = AProxL2(1., [10., 10.])
+    g = ProxL2(1., [10., 10.])
     out = prox(g, x)
     @fact out.storage --> zeros(2,3)
     out = prox(g, x, 1.)
     @fact out.storage --> zeros(2,3)
 
-    g = AProxL2(1., [1., 10.])
+    g = ProxL2(1., [1., 10.])
     out = prox(g, x)
     @fact out.storage[1,:] --> roughly((1. - 1./vecnorm(y[1,:]))*y[1,:])
     @fact out.storage[2,:] --> zeros(3)
 
-    g = AProxL2(1., [1., 1.])
+    g = ProxL2(1., [1., 1.])
     out = prox(g, x)
     @fact out.storage[1,:] --> roughly((1. - 1./vecnorm(y[1,:]))*y[1,:])
     @fact out.storage[2,:] --> roughly((1. - 1./vecnorm(y[2,:]))*y[2,:])
@@ -145,10 +145,10 @@ facts("sparseIterate") do
     x = AtomIterate((2,3), 3, false)
     x[:] = collect(1:6)
 
-    g = AProxL2(1., [1., 1.])
-    @fact_throws BoundsError prox(g, x)
+    g = ProxL2(1., [1., 1.])
+    @fact_throws DimensionMismatch prox(g, x)
 
-    g = AProxL2(1., [0., 1., 0.])
+    g = ProxL2(1., [0., 1., 0.])
     out = prox(g, x)
     @fact out.storage[:, 1] --> y[:,1]
     @fact out.storage[:, 2] --> roughly((1. - 1./vecnorm(y[:,2]))*y[:,2])

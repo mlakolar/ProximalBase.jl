@@ -31,7 +31,7 @@ end
 
 struct ProxL1{T<:AbstractFloat, S} <: ProximableFunction
   λ0::T
-  λ::S #Array{T, N}
+  λ::S
 
   ProxL1{T, S}(λ0::T, λ::Union{Void, AbstractArray{T}}) where {T <: AbstractFloat, S} = new(λ0, λ)
 end
@@ -40,7 +40,7 @@ ProxL1(λ0::T        ) where {T <: AbstractFloat} = ProxL1{T, Void}(λ0, nothing
 ProxL1(λ0::T, ::Void) where {T <: AbstractFloat} = ProxL1{T, Void}(λ0, nothing)
 ProxL1(λ0::T, λ::AbstractArray{T}) where {T <: AbstractFloat} = ProxL1{T, typeof(λ)}(λ0, λ)
 
-function value(g::ProxL1{T, S}, x::AbstractArray{T}) where {T <: AbstractFloat} where S <: AbstractArray
+function value(g::ProxL1{T, S}, x::AbstractArray{T}) where S <: AbstractArray{T} where {T <: AbstractFloat}
   size(g.λ) == size(x) || throw(DimensionMismatch("Sizes of g.λ and x need to be the same"))
   v = zero(T)
   @inbounds @simd for i in eachindex(x)
@@ -48,9 +48,9 @@ function value(g::ProxL1{T, S}, x::AbstractArray{T}) where {T <: AbstractFloat} 
   end
   v * g.λ0
 end
-prox!(g::ProxL1{T, S}, out_x::AbstractArray{T}, x::AbstractArray{T}, γ::T) where {T <: AbstractFloat} where S <: AbstractArray =
+prox!(g::ProxL1{T, S}, out_x::AbstractArray{T}, x::AbstractArray{T}, γ::T) where S <: AbstractArray{T} where {T <: AbstractFloat} =
     out_x .= shrink.(x, (g.λ0 * γ) * g.λ)
-@inline function cdprox!(g::ProxL1{T, S}, x::SparseIterate{T}, k::Int, γ::T) where {T <: AbstractFloat} where S <: AbstractArray
+@inline function cdprox!(g::ProxL1{T, S}, x::SparseIterate{T}, k::Int, γ::T) where S <: AbstractArray{T} where {T <: AbstractFloat}
   size(g.λ) == size(x) || throw(DimensionMismatch())
   @boundscheck checkbounds(x, k)
   x[k] = shrink(x[k], g.λ[k] * γ * g.λ0)
@@ -88,13 +88,43 @@ end
 ###### L2 norm   g(x) = λ * ||x||_2
 ##########################################################
 
-struct ProxL2{T<:AbstractFloat} <: ProximableFunction
-  λ::T
+struct ProxL2{T<:AbstractFloat, S} <: ProximableFunction
+  λ0::T
+  λ::S
+
+  ProxL2{T, S}(λ0::T, λ::Union{Void, AbstractVector{T}}) where {T <: AbstractFloat, S} = new(λ0, λ)
 end
 
-value{T<:AbstractFloat}(g::ProxL2{T}, x::StridedVector{T}) = g.λ * vecnorm(x)
-prox!{T<:AbstractFloat}(g::ProxL2{T}, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, γ::T) =
-  shrinkL2!(out_x, x, g.λ*γ)
+ProxL2(λ0::T        ) where {T <: AbstractFloat} = ProxL2{T, Void}(λ0, nothing)
+ProxL2(λ0::T, ::Void) where {T <: AbstractFloat} = ProxL2{T, Void}(λ0, nothing)
+ProxL2(λ0::T, λ::AbstractVector{T}) where {T <: AbstractFloat} = ProxL2{T, typeof(λ)}(λ0, λ)
+
+value(g::ProxL2{T, Void}, x::AbstractArray{T}) where {T<:AbstractFloat} = g.λ0 * vecnorm(x)
+prox!(g::ProxL2{T, Void}, out_x::AbstractArray{T}, x::AbstractArray{T}, γ::T) where {T<:AbstractFloat} =
+  shrinkL2!(out_x, x, g.λ0*γ)
+
+# λ0⋅sum_k λ_k g(x_k)
+function value(g::ProxL2{T, S}, x::AtomIterate{T}) where S <: AbstractVector{T} where {T<:AbstractFloat}
+  length(x.atoms) == length(g.λ) || throw(DimensionMismatch())
+
+  v = zero(T)
+  @inbounds for i=1:length(x.atoms)
+    v += vecnorm(x.atoms[i]) * g.λ[i]
+  end
+  v * g.λ0
+end
+
+function prox!(g::ProxL2{T, S}, out::AtomIterate{T}, x::AtomIterate{T}, γ::T) where S <: AbstractVector{T} where {T<:AbstractFloat}
+  length(x.atoms) == length(g.λ) || throw(DimensionMismatch())
+
+  for i=1:length(x.atoms)
+    shrinkL2!(out.atoms[i], x.atoms[i], γ*g.λ[i]*g.λ0)
+  end
+  out
+end
+cdprox!(g::ProxL2{T, S}, x::AtomIterate{T}, k::Int, γ::T) where S <: AbstractVector{T} where {T<:AbstractFloat} =
+  shrinkL2!(x.atoms[k], x.atoms[k], g.λ[k] * γ * g.λ0)
+
 
 ##########################################################
 ###### L2 norm squared g(x) = λ * ||x||_2^2
@@ -134,27 +164,6 @@ end
 #  sum_k g(x_k)
 #
 ##################################
-
-# λ0⋅sum_k λ_k g(x_k)
-struct AProxL2{T<:AbstractFloat} <: ProximableFunction
-  λ0::T
-  λ::Vector{T}
-end
-function value{T<:AbstractFloat}(g::AProxL2{T}, x::AtomIterate{T})
-  v = zero(T)
-  @inbounds for i=1:length(x.atoms)
-    v += vecnorm(x.atoms[i]) * g.λ[i]
-  end
-  v * g.λ0
-end
-function prox!(g::AProxL2{T}, out::AtomIterate{T}, x::AtomIterate{T}, γ::T) where {T<:AbstractFloat}
-  for i=1:length(x.atoms)
-    shrinkL2!(out.atoms[i], x.atoms[i], γ*g.λ[i]*g.λ0)
-  end
-  out
-end
-cdprox!(g::AProxL2{T}, x::AtomIterate{T}, k::Int, γ::T) where {T<:AbstractFloat} =
-  shrinkL2!(x.atoms[k], x.atoms[k], g.λ[k] * γ * g.λ0)
 
 
 

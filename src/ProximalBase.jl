@@ -12,10 +12,9 @@ export
 
   # proximal functions
   ProxZero,
-  ProxL1, 
+  ProxL1,
   ProxL2, ProxL2Sq, ProxNuclear,
   ProxL1Fused,
-  AProxL2,
   ProxGaussLikelihood,
   prox!, prox, cdprox!,
 

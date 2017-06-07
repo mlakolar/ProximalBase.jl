@@ -245,7 +245,7 @@ facts("proximal_l1l2") do
     lambda = vecnorm(x) + 0.1
 
     # check the norm
-    g = AProxL2(lambda, [1., 1.])
+    g = ProxL2(lambda, [1., 1.])
     @fact value(g, x) --> roughly(lambda * norm(x[1:5]) + lambda * norm(x[6:10]))
 
     # check shrinkage
@@ -266,7 +266,7 @@ facts("proximal_l1l2") do
     lambda = min(norm(x[1:5]), norm(x[6:10])) - 0.2
 
     # check the norm
-    g = AProxL2(lambda, [1., 1.])
+    g = ProxL2(lambda, [1., 1.])
     @fact value(g, x) --> roughly(lambda * norm(x[1:5]) + lambda * norm(x[6:10]))
 
     # check shrinkage

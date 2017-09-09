@@ -23,7 +23,8 @@ export
   proxL1Fused,
   A_mul_B_row, At_mul_B_row,
   A_mul_X_mul_B, A_mul_X_mul_B_rc,
-  A_mul_UUt_mul_B, A_mul_UUt_mul_B_rc
+  A_mul_UUt_mul_B, A_mul_UUt_mul_B_rc,
+  ind2subLowerTriangular,sub2indLowerTriangular
 
 
 include("sparseIterate.jl")

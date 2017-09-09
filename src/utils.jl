@@ -133,15 +133,15 @@ function A_mul_X_mul_B_rc(
   ) where {T<:AbstractFloat}
   # check input dimensions
 
-  data = X.data
-  p = size(A, 1)
+  p = X.p
   v = zero(T)
-  for j=1:nnz(data)
-    ri, ci = ind2sub(data, data.nzval2ind[j])
+  for j=1:nnz(X)
+    ind = X.nzval2ind[j]
+    ri, ci = ind2subLowerTriangular(p, ind)
     if ri == ci
-      @inbounds v += A[ri, r] * B[ci, c] * data.nzval[j]
+      @inbounds v += A[ri, r] * B[ci, c] * X.nzval[j]
     else
-      @inbounds v += (A[ri, r] * B[ci, c] + A[ci, r] * B[ri, c]) * data.nzval[j]
+      @inbounds v += (A[ri, r] * B[ci, c] + A[ci, r] * B[ri, c]) * X.nzval[j]
     end
   end
   v

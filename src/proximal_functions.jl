@@ -59,7 +59,7 @@ end
 value(g::ProxL1{T, Void}, x::AbstractArray{T}) where {T<:AbstractFloat} = g.λ0 * sum(abs, x)
 prox!(g::ProxL1{T, Void}, out_x::AbstractArray{T}, x::AbstractArray{T}, γ::T) where {T<:AbstractFloat} =
   out_x .= shrink.(x, γ * g.λ0)
-cdprox!(g::ProxL1{T, Void}, x::SparseIterate{T}, k::Int, γ::T) where {T} =
+cdprox!(g::ProxL1{T, Void}, x::Union{SparseIterate{T},SymmetricSparseIterate{T}}, k::Int, γ::T) where {T} =
   x[k] = shrink(x[k], g.λ0 * γ)
 
 ##########################################################

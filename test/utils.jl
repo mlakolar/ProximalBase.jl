@@ -60,7 +60,7 @@ facts("multiply") do
   Δ = (Δ + Δ') / 2.
 
   A = Σx * Δ * Σy
-  Δs = convert(SymmetricSparseIterate, tril(Δ))
+  Δs = convert(SymmetricSparseIterate, Δ)
   @fact A_mul_X_mul_B(Σx, Δs, Σy) --> roughly(A)
 
   # symmetric A * U * U' * B

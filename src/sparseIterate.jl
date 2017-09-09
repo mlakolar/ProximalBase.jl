@@ -241,41 +241,49 @@ end
 ####################################
 
 # data are stored in the lower triangle
-struct SymmetricSparseIterate{T} <: AbstractMatrix{T}
-  data::SparseIterate{T,2}
+mutable struct SymmetricSparseIterate{T} <: AbstractMatrix{T}
+    nzval::Vector{T}            # stored nonzero values (1:nnz)
+    nzval2ind::Vector{Int}      # Mapping from nzval to indices
+    ind2nzval::Vector{Int}      # Mapping from indices to nzval
+    nnz::Int                    # number of stored zeros
+    p::Int                      # dimension of matrix
 end
 
 SymmetricSparseIterate(n::Int) = SymmetricSparseIterate(Float64, n)
-SymmetricSparseIterate(::Type{T}, n::Int) where {T} = SymmetricSparseIterate{T}(SparseIterate(T, n, n))
+SymmetricSparseIterate(::Type{T}, n::Int) where {T} =
+  (_t = div(n*(n+1), 2); SymmetricSparseIterate{T}(zeros(T, _t), zeros(Int, _t), zeros(Int, _t), 0, n))
 
-Base.length(x::SymmetricSparseIterate) = length(x.data)
-Base.size(x::SymmetricSparseIterate) = size(x.data)
-Base.nnz(x::SymmetricSparseIterate) = nnz(x.data)
+Base.length(x::SymmetricSparseIterate) = div(x.p*(x.p+1), 2)
+Base.size(x::SymmetricSparseIterate) = (x.p, x.p)
+Base.nnz(x::SymmetricSparseIterate) = x.nnz
 function numCoordinates(x::SymmetricSparseIterate)
-  p = size(x.data, 1)
-  convert(Int, p * (p + 1) / 2)
+  p = x.p
+  div(p*(p+1), 2)
 end
 
-Base.IndexStyle(::Type{<:SymmetricSparseIterate}) = IndexCartesian()
-Base.getindex(x::SymmetricSparseIterate, r::Int, c::Int) = r >= c ? x.data[r, c] : x.data[c, r]
-function Base.getindex(x::SymmetricSparseIterate, i::Int)
- ri, ci = ind2subLowerTriangular(size(x, 1), i)
- x.data[ri, ci]
+Base.IndexStyle(::Type{<:SymmetricSparseIterate}) = IndexLinear()
+function Base.getindex(x::SymmetricSparseIterate, r::Int, c::Int)
+  linInd = r >= c ? sub2indLowerTriangular(x.p, r, c) : sub2indLowerTriangular(x.p, c, r)
+  getindex(x, linInd)
 end
+Base.getindex(x::SymmetricSparseIterate{T}, i::Int) where {T} = x.ind2nzval[i] == 0 ? zero(T) : x.nzval[x.ind2nzval[i]]
 function Base.setindex!(x::SymmetricSparseIterate{T}, v::T, r::Int, c::Int) where {T}
-  if r >= c
-    setindex!(x.data, v, r, c)
+  linInd = r >= c ? sub2indLowerTriangular(x.p, r, c) : sub2indLowerTriangular(x.p, c, r)
+  setindex!(x, v, linInd)
+end
+function Base.setindex!{T}(x::SymmetricSparseIterate{T}, v::T, i::Int)
+  if x.ind2nzval[i] == 0
+    if v != zero(T)
+      x.nnz += 1
+      x.nzval[x.nnz] = v
+      x.nzval2ind[x.nnz] = i
+      x.ind2nzval[i] = x.nnz
+    end
   else
-    setindex!(x.data, v, c, r)
+    x.nzval[x.ind2nzval[i]] = v
   end
   x
 end
-function Base.setindex!{T}(x::SymmetricSparseIterate{T}, v::T, i::Int)
-  ri, ci = ind2subLowerTriangular(size(x, 1), i);
-  setindex!(x, v, ri, ci)
-end
-
-
 
 function Base.convert(::Type{SymmetricSparseIterate{T}}, X::SparseMatrixCSC{T}) where {T}
   n, m = size(X)
@@ -294,13 +302,12 @@ end
 Base.convert(::Type{SymmetricSparseIterate}, x::SparseMatrixCSC{T}) where {T} = convert(SymmetricSparseIterate{T}, x)
 
 function Base.convert(::Type{Matrix}, S::SymmetricSparseIterate{Tv}) where Tv
-  data = S.data
-  n, m = size(data)
-  A = zeros(Tv, n, m)
-  for k=1:nnz(data)
-    i = data.nzval2ind[k]
-    r, c = ind2sub(S, i)
-    v = data.nzval[k]
+  p = S.p
+  A = zeros(Tv, p, p)
+  for k=1:nnz(S)
+    i = S.nzval2ind[k]
+    v = S.nzval[k]
+    r, c = ind2subLowerTriangular(p, i)
     A[r, c] = v
     if r != c
       A[c, r] = v
@@ -315,11 +322,34 @@ Base.similar(A::SymmetricSparseIterate{T}) where {T} = SymmetricSparseIterate(T,
 Base.similar(A::SymmetricSparseIterate, ::Type{S}) where {S} = SymmetricSparseIterate(S, size(A, 1))
 
 function Base.copy!(x::SymmetricSparseIterate, y::SymmetricSparseIterate)
-    copy!(x.data, y.data)
+    size(x) == size(y) || throw(DimensionMismatch())
+    copy!(x.nzval, y.nzval)
+    copy!(x.nzval2ind, y.nzval2ind)
+    copy!(x.ind2nzval, y.ind2nzval)
+    x.nnz = y.nnz
+    x.p = y.p
     x
 end
 
-Base.dropzeros!(x::SymmetricSparseIterate)  = dropzeros!(x.data)
+
+
+function Base.dropzeros!(x::SymmetricSparseIterate{T}) where T
+    i = 1
+    while i <= x.nnz
+        if x.nzval[i] == zero(T)
+            x.ind2nzval[x.nzval2ind[i]] = 0
+            if i != x.nnz
+                x.nzval[i] = x.nzval[x.nnz]
+                x.ind2nzval[x.nzval2ind[x.nnz]] = i
+                x.nzval2ind[i] = x.nzval2ind[x.nnz]
+            end
+            x.nnz -= 1
+            i -= 1
+        end
+        i += 1
+    end
+    x
+end
 
 ####################################
 #

@@ -251,9 +251,17 @@ SymmetricSparseIterate(::Type{T}, n::Int) where {T} = SymmetricSparseIterate{T}(
 Base.length(x::SymmetricSparseIterate) = length(x.data)
 Base.size(x::SymmetricSparseIterate) = size(x.data)
 Base.nnz(x::SymmetricSparseIterate) = nnz(x.data)
+function numCoordinates(x::SymmetricSparseIterate)
+  p = size(x.data, 1)
+  p * (p + 1) / 2
+end
 
 Base.IndexStyle(::Type{<:SymmetricSparseIterate}) = IndexCartesian()
 Base.getindex(x::SymmetricSparseIterate, r::Int, c::Int) = r >= c ? x.data[r, c] : x.data[c, r]
+function Base.getindex(x::SymmetricSparseIterate, i::Int)
+ ri, ci = ind2subLowerTriangular(size(x, 1), i)
+ x.data[ri, ci]
+end
 function Base.setindex!(x::SymmetricSparseIterate{T}, v::T, r::Int, c::Int) where {T}
   if r >= c
     setindex!(x.data, v, r, c)
@@ -262,6 +270,12 @@ function Base.setindex!(x::SymmetricSparseIterate{T}, v::T, r::Int, c::Int) wher
   end
   x
 end
+function Base.setindex!{T}(x::SymmetricSparseIterate{T}, v::T, i::Int)
+  ri, ci = ind2subLowerTriangular(size(x, 1), i);
+  setindex!(x, v, ri, ci)
+end
+
+
 
 function Base.convert(::Type{SymmetricSparseIterate{T}}, X::SparseMatrixCSC{T}) where {T}
   n, m = size(X)
@@ -280,13 +294,17 @@ end
 Base.convert(::Type{SymmetricSparseIterate}, x::SparseMatrixCSC{T}) where {T} = convert(SymmetricSparseIterate{T}, x)
 
 function Base.convert(::Type{Matrix}, S::SymmetricSparseIterate{Tv}) where Tv
-  n, m = size(S)
+  data = S.data
+  n, m = size(data)
   A = zeros(Tv, n, m)
-  for k=1:nnz(S)
-    i = S.nzval2ind[k]
+  for k=1:nnz(data)
+    i = data.nzval2ind[k]
     r, c = ind2sub(S, i)
-    v = S.nzval[k]
+    v = data.nzval[k]
     A[r, c] = v
+    if r != c
+      A[c, r] = v
+    end
   end
   return A
 end
@@ -301,6 +319,7 @@ function Base.copy!(x::SymmetricSparseIterate, y::SymmetricSparseIterate)
     x
 end
 
+Base.dropzeros!(x::SymmetricSparseIterate)  = dropzeros!(x.data)
 
 ####################################
 #

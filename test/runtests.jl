@@ -19,10 +19,10 @@ ipopt = try_import(:Ipopt)
 
 
 tests = [
-  # "utils",
+  "utils",
   "sparseIterate",
-  # "proximal_functions",
-  # "differentiable_functions"
+  "proximal_functions",
+  "differentiable_functions"
 ]
 
 srand(1)

@@ -253,7 +253,7 @@ Base.size(x::SymmetricSparseIterate) = size(x.data)
 Base.nnz(x::SymmetricSparseIterate) = nnz(x.data)
 function numCoordinates(x::SymmetricSparseIterate)
   p = size(x.data, 1)
-  p * (p + 1) / 2
+  convert(Int, p * (p + 1) / 2)
 end
 
 Base.IndexStyle(::Type{<:SymmetricSparseIterate}) = IndexCartesian()

@@ -50,8 +50,8 @@ function value(g::ProxL1{T, S}, x::AbstractArray{T}) where S <: AbstractArray{T}
 end
 prox!(g::ProxL1{T, S}, out_x::AbstractArray{T}, x::AbstractArray{T}, γ::T) where S <: AbstractArray{T} where {T <: AbstractFloat} =
     out_x .= shrink.(x, (g.λ0 * γ) * g.λ)
-@inline function cdprox!(g::ProxL1{T, S}, x::SparseIterate{T}, k::Int, γ::T) where S <: AbstractArray{T} where {T <: AbstractFloat}
-  size(g.λ) == size(x) || throw(DimensionMismatch())
+@inline function cdprox!(g::ProxL1{T, S}, x::Union{SparseIterate{T},SymmetricSparseIterate{T}}, k::Int, γ::T) where S <: AbstractArray{T} where {T <: AbstractFloat}
+  length(g.λ) == numCoordinates(x) || throw(DimensionMismatch())
   @boundscheck checkbounds(x, k)
   x[k] = shrink(x[k], g.λ[k] * γ * g.λ0)
 end

@@ -131,7 +131,6 @@ function A_mul_X_mul_B_rc(
   r::Int,
   c::Int
   ) where {T<:AbstractFloat}
-  # check input dimensions
 
   p = X.p
   v = zero(T)
@@ -147,12 +146,33 @@ function A_mul_X_mul_B_rc(
   v
 end
 
-function A_mul_X_mul_B{T<:AbstractFloat}(
+function A_mul_X_mul_B_rc(
   A::Symmetric{T},
-  X::SymmetricSparseIterate{T},
+  X::SparseIterate{T, 2},
+  B::Symmetric{T},
+  r::Int,
+  c::Int
+  ) where {T<:AbstractFloat}
+
+  p = size(X, 1)
+  v = zero(T)
+  for j=1:nnz(X)
+    ind = X.nzval2ind[j]
+    ri, ci = ind2sub(X, ind)
+    if ri == ci
+      @inbounds v += A[ri, r] * B[ci, c] * X.nzval[j]
+    else
+      @inbounds v += (A[ri, r] * B[ci, c] + A[ci, r] * B[ri, c]) * X.nzval[j]
+    end
+  end
+  v
+end
+
+function A_mul_X_mul_B(
+  A::Symmetric{T},
+  X::Union{SymmetricSparseIterate{T},SparseIterate{T}},
   B::Symmetric{T}
-  )
-  # check input dimensions
+  ) where {T<:AbstractFloat}
 
   p = size(A, 1)
   out = zeros(T, p, p)

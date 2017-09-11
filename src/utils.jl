@@ -148,7 +148,7 @@ end
 
 function A_mul_X_mul_B_rc(
   A::Symmetric{T},
-  X::SparseIterate{T, 2},
+  X::SparseIterate{T, 1},
   B::Symmetric{T},
   r::Int,
   c::Int

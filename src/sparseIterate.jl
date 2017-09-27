@@ -261,7 +261,7 @@ function numCoordinates(x::SymmetricSparseIterate)
   div(p*(p+1), 2)
 end
 
-Base.IndexStyle(::Type{<:SymmetricSparseIterate}) = IndexLinear()
+Base.IndexStyle(::Type{<:SymmetricSparseIterate}) = IndexCartesian()
 function Base.getindex(x::SymmetricSparseIterate, r::Int, c::Int)
   linInd = r >= c ? sub2indLowerTriangular(x.p, r, c) : sub2indLowerTriangular(x.p, c, r)
   getindex(x, linInd)

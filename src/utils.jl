@@ -270,3 +270,16 @@ function tril2symmetric(Δ::SparseMatrixCSC)
   dDelta = spdiagm(diag(Δ))
   (lDelta + lDelta') + dDelta
 end
+
+
+#######
+
+function norm_diff(A::AbstractArray{T}, B::AbstractArray{T}) where {T<:AbstractFloat}
+  size(A) == size(B) || throw(DimensionMismatch())
+
+  v = zero(T)
+  @inbounds @simd for i in eachindex(A)
+    v += abs2( A[i] - B[i] )
+  end
+  sqrt(v)
+end

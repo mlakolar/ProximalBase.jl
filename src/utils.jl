@@ -274,12 +274,25 @@ end
 
 #######
 
-function norm_diff(A::AbstractArray{T}, B::AbstractArray{T}) where {T<:AbstractFloat}
+function norm_diff(A::AbstractArray{T}, B::AbstractArray{T}, p::Real) where {T<:AbstractFloat}
   size(A) == size(B) || throw(DimensionMismatch())
 
   v = zero(T)
-  @inbounds @simd for i in eachindex(A)
-    v += abs2( A[i] - B[i] )
-  end
-  sqrt(v)
+  if p == 2.
+    @inbounds @simd for i in eachindex(A)
+      t =
+      v += abs2( A[i] - B[i] )
+    end
+    return sqrt(v)
+ elseif p == Inf
+   @inbounds @simd for i in eachindex(A)
+     t = abs( A[i] - B[i] )
+     if t > v
+       v = t
+     end
+   end
+   return v
+ else
+   throw(ArgumentError("p should be 2 or Inf"))
+ end
 end

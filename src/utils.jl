@@ -274,7 +274,7 @@ end
 
 #######
 
-function norm_diff(A::AbstractArray{T}, B::AbstractArray{T}, p::Real) where {T<:AbstractFloat}
+function norm_diff(A::AbstractArray{T}, B::AbstractArray{T}, p::Real=2.) where {T<:AbstractFloat}
   size(A) == size(B) || throw(DimensionMismatch())
 
   v = zero(T)

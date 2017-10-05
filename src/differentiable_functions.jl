@@ -68,6 +68,14 @@ function value{T<:AbstractFloat}(f::QuadraticFunction{T, 3}, x::StridedVector{T}
   dot(x, f.tmp) / 2. + dot(x, f.b) + f.c
 end
 
+function gradient!{T<:AbstractFloat, N}(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::StridedVector{T})
+  A_mul_B!(hat_x, f.A, x)
+  if N > 1
+    @. hat_x += f.b
+  end
+  hat_x
+end
+
 function value_and_gradient!{T<:AbstractFloat, N}(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::StridedVector{T})
   b = f.b
   A_mul_B!(hat_x, f.A, x)

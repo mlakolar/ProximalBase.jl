@@ -8,7 +8,7 @@ export
 
   # smooth functions
   QuadraticFunction, L2Loss, LeastSquaresLoss,
-  value, value_and_gradient!,
+  value, value_and_gradient!, gradient!,
 
   # proximal functions
   ProxZero,

@@ -184,13 +184,58 @@ function A_mul_X_mul_B(
 end
 
 
-function A_mul_UUt_mul_B_rc{T<:AbstractFloat}(
+
+
+function A_mul_UVt_mul_B_rc(
+  A::Symmetric{T},
+  U::StridedMatrix{T},
+  V::StridedMatrix{T},
+  B::Symmetric{T},
+  r::Int,
+  c::Int
+  ) where {T<:AbstractFloat}
+  # check input dimensions
+
+  nr, nc = size(U)
+  v = zero(T)
+  for j=1:nc
+    v1 = zero(T)   # stores A[r, :]*U[:,j]
+    v2 = zero(T)   # stores B[c, :]*U[:,j]
+    for k=1:nr
+      @inbounds v1 += A[k, r] * U[k, j]
+      @inbounds v2 += B[k, c] * V[k, j]
+    end
+    v += v1 * v2
+  end
+  v
+end
+
+function A_mul_UVt_mul_B(
+    A::Symmetric{T},
+    U::StridedMatrix{T},
+    V::StridedMatrix{T},
+    B::Symmetric{T}
+  ) where {T<:AbstractFloat}
+
+  # check input dimensions
+
+  p = size(A, 1)
+  out = zeros(T, p, p)
+
+  for c=1:p, r=1:p
+    @inbounds out[r,c] = A_mul_UVt_mul_B_rc(A, U, V, B, r, c)
+  end
+  out
+end
+
+
+function A_mul_UUt_mul_B_rc(
   A::Symmetric{T},
   U::StridedMatrix{T},
   B::Symmetric{T},
   r::Int,
   c::Int
-  )
+  ) where {T<:AbstractFloat}
   # check input dimensions
 
   nr, nc = size(U)

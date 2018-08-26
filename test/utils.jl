@@ -1,3 +1,13 @@
+module UtilsTest
+
+using Test
+using ProximalBase
+using Random
+using LinearAlgebra
+using SparseArrays
+using Statistics
+
+
 @testset "shrink" begin
 
   @test shrink(3.0, 1.0) == 2.0
@@ -37,7 +47,7 @@ end
   bs = sprand(m, 0.3)
   x = A * bs
   xt = A' * bs
-  bi = convert(SparseIterate, bs)
+  bi = SparseIterate(bs)
   xi = A * bi
   xti = A' * bi
   for i=1:n
@@ -60,7 +70,7 @@ end
   Δ = (Δ + Δ') / 2.
 
   A = Σx * Δ * Σy
-  Δs = convert(SymmetricSparseIterate, Δ)
+  Δs = SymmetricSparseIterate(Δ)
   @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ A
 
   # symmetric A * U * U' * B
@@ -72,4 +82,6 @@ end
 
   A = (Σx * U)*(U' * Σy)
   @test A_mul_UUt_mul_B(Σx, U, Σy) ≈ A
+end
+
 end

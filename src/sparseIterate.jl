@@ -10,10 +10,85 @@ SparseIterate(::Type{T}, n::Int) where {T} = SparseIterate{T, 1}(zeros(T, n), ze
 SparseIterate(n::Int, m::Int) = SparseIterate(Float64, n, m)
 SparseIterate(::Type{T}, n::Int, m::Int) where {T} = SparseIterate{T, 2}(zeros(T, n*m), zeros(Int, n*m), zeros(Int, n, m), 0)
 
+SparseArrays.issparse(x::SparseIterate) = true
+
 Base.length(x::SparseIterate) = length(x.ind2nzval)
 Base.size(x::SparseIterate) = size(x.ind2nzval)
 SparseArrays.nnz(x::SparseIterate) = x.nnz
 numCoordinates(x::SparseIterate) = length(x.ind2nzval)
+
+## similar
+#
+Base.similar(A::SparseIterate{T}) where {T} = SparseIterate(T, size(A)...)
+Base.similar(A::SparseIterate, ::Type{S}) where {S} = SparseIterate(S, size(A)...)
+
+
+### Conversion
+function SparseIterate(x::SparseMatrixCSC{T}) where {T}
+  n, m = size(x)
+  out = SparseIterate(T, n, m)
+
+  I, J, V = findnz(x)
+  for i=1:length(I)
+    @inbounds out[I[i], J[i]] = V[i]
+  end
+
+  out
+end
+
+function SparseIterate(x::SparseVector{T}) where {T}
+  p = length(x)
+  out = SparseIterate(T, p)
+  nzval = SparseArrays.nonzeros(x)
+  rowval = SparseArrays.nonzeroinds(x)
+  for i=1:length(nzval)
+    out[rowval[i]] = nzval[i]
+  end
+  out
+end
+# Base.convert(::Type{SparseIterate}, x::SparseMatrixCSC{T}) where {T} = convert(SparseIterate{T, 2}, x)
+# Base.convert(::Type{SparseIterate}, x::SparseVector{T}) where {T} = convert(SparseIterate{T, 1}, x)
+
+function SparseIterate(x::Array{T}) where {T}
+  out = SparseIterate(T, size(x)...)
+
+  @inbounds for i in eachindex(x)
+      out[i] = x[i]
+  end
+
+  out
+end
+
+
+
+function Base.Vector(x::SparseIterate{Tv, 1}) where Tv
+    n = length(x)
+    n == 0 && return Vector{Tv}(0)
+    r = zeros(Tv, n)
+    for k in 1:nnz(x)
+        i = x.nzval2ind[k]
+        v = x.nzval[k]
+        r[i] = v
+    end
+    return r
+end
+
+function Base.Matrix(x::SparseIterate{Tv, 2}) where Tv
+  n, m = size(x)
+  A = zeros(Tv, n, m)
+  for k=1:nnz(x)
+    i = x.nzval2ind[k]
+    v = x.nzval[k]
+    A[i] = v
+  end
+  return A
+end
+
+# Base.convert(::Type{Array}, x::SparseIterate{T, 1}) where {T} = convert(Vector, x)
+# Base.convert(::Type{Array}, x::SparseIterate{T, 2}) where {T} = convert(Matrix, x)
+# Base.full(x::SparseIterate) = convert(Array, x)
+
+
 
 Base.IndexStyle(::Type{<:SparseIterate}) = IndexLinear()
 
@@ -34,66 +109,11 @@ function Base.setindex!(x::SparseIterate{T}, v::T, i::Int) where {T}
 end
 
 
-function Base.convert(::Type{SparseIterate{T, 2}}, x::SparseMatrixCSC{T}) where {T}
-  n, m = size(x)
-  out = SparseIterate(T, n, m)
-
-  I, J, V = findnz(x)
-  for i=1:length(I)
-    @inbounds out[I[i], J[i]] = V[i]
-  end
-
-  out
-end
-function Base.convert(::Type{SparseIterate{T, 1}}, x::SparseVector{T}) where {T}
-  p = length(x)
-  out = SparseIterate(T, p)
-  nzval = SparseArrays.nonzeros(x)
-  rowval = SparseArrays.nonzeroinds(x)
-  for i=1:length(nzval)
-    out[rowval[i]] = nzval[i]
-  end
-  out
-end
-Base.convert(::Type{SparseIterate}, x::SparseMatrixCSC{T}) where {T} = convert(SparseIterate{T, 2}, x)
-Base.convert(::Type{SparseIterate}, x::SparseVector{T}) where {T} = convert(SparseIterate{T, 1}, x)
-
-
-
-function Base.convert(::Type{Vector}, x::SparseIterate{Tv, 1}) where Tv
-    n = length(x)
-    n == 0 && return Vector{Tv}(0)
-    r = zeros(Tv, n)
-    for k in 1:nnz(x)
-        i = x.nzval2ind[k]
-        v = x.nzval[k]
-        r[i] = v
-    end
-    return r
-end
-function Base.convert(::Type{Matrix}, S::SparseIterate{Tv, 2}) where Tv
-  n, m = size(S)
-  A = zeros(Tv, n, m)
-  for k=1:nnz(S)
-    i = S.nzval2ind[k]
-    v = S.nzval[k]
-    A[i] = v
-  end
-  return A
-end
-Base.convert(::Type{Array}, x::SparseIterate{T, 1}) where {T} = convert(Vector, x)
-Base.convert(::Type{Array}, x::SparseIterate{T, 2}) where {T} = convert(Matrix, x)
-Base.full(x::SparseIterate) = convert(Array, x)
-
-
-Base.similar(A::SparseIterate{T}) where {T} = SparseIterate(T, size(A)...)
-Base.similar(A::SparseIterate, ::Type{S}) where {S} = SparseIterate(S, size(A)...)
-
-function Base.copy!(x::SparseIterate, y::SparseIterate)
+function Base.copyto!(x::SparseIterate, y::SparseIterate)
     size(x) == size(y) || throw(DimensionMismatch())
-    copy!(x.nzval, y.nzval)
-    copy!(x.nzval2ind, y.nzval2ind)
-    copy!(x.ind2nzval, y.ind2nzval)
+    copyto!(x.nzval, y.nzval)
+    copyto!(x.nzval2ind, y.nzval2ind)
+    copyto!(x.ind2nzval, y.ind2nzval)
     x.nnz = y.nnz
     x
 end
@@ -112,17 +132,6 @@ function Base.show(io::IO, ::MIME"text/plain", x::SparseIterate{T, 1}) where T
         show(io, x)
     end
 end
-
-function Base.show(io::IO, ::MIME"text/plain", S::SparseIterate{T,2}) where T
-    xnnz = nnz(S)
-    print(io, size(S, 1), "×", size(S, 2), " ", typeof(S), " with ", xnnz, " stored ",
-              xnnz == 1 ? "entry" : "entries")
-    if xnnz != 0
-        print(io, ":")
-        show(io, S)
-    end
-end
-
 
 function Base.show(io::IOContext, x::SparseIterate{T, 1}) where T
     n = length(x)
@@ -149,6 +158,18 @@ function Base.show(io::IOContext, x::SparseIterate{T, 1}) where T
     end
 end
 
+
+
+function Base.show(io::IO, ::MIME"text/plain", S::SparseIterate{T,2}) where T
+    xnnz = nnz(S)
+    print(io, size(S, 1), "×", size(S, 2), " ", typeof(S), " with ", xnnz, " stored ",
+              xnnz == 1 ? "entry" : "entries")
+    if xnnz != 0
+        print(io, ":")
+        show(io, S)
+    end
+end
+
 function Base.show(io::IOContext, S::SparseIterate{T, 2}) where T
   if nnz(S) == 0
     return show(io, MIME("text/plain"), S)
@@ -167,11 +188,12 @@ function Base.show(io::IOContext, S::SparseIterate{T, 2}) where T
     io = IOContext(io, :compact => true)
   end
   ind = 0
+  _ci = CartesianIndices(size(S))
   for ifull in eachindex(S)
     if S.ind2nzval[ifull] != 0
       ind += 1
       if ind < half_screen_rows || ind > nnz(S)-half_screen_rows
-        row, col = ind2sub(size(S), ifull)
+        row, col = Tuple(_ci[ifull])
         print(io, sep, '[', rpad(row, pad), ", ", lpad(col, pad), "]  =  ")
         if isassigned(S.nzval, S.ind2nzval[ifull])
           show(io, S.nzval[S.ind2nzval[ifull]])
@@ -209,7 +231,16 @@ end
 
 
 ## multiplication
-function LinearAlgebra.A_mul_B!(out::Vector{T}, A::AbstractMatrix{T}, coef::SparseIterate{T, 1}) where {T}
+
+function *(A::StridedMatrix{Ta}, x::SparseIterate{Tx, 1}) where {Ta,Tx}
+    m, n = size(A)
+    length(x) == n || throw(DimensionMismatch())
+    Ty = promote_type(Ta, Tx)
+    y = Vector{Ty}(undef, m)
+    mul!(y, A, x)
+end
+
+function LinearAlgebra.mul!(out::Vector, A::StridedMatrix, coef::SparseIterate{T, 1}) where {T}
   length(coef) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), length of coef is $(length(coef))"))
   length(out) == size(A, 1) || throw(DimensionMismatch("A has first dimension $(size(A,1)), length of out is $(length(out))"))
 
@@ -224,7 +255,33 @@ function LinearAlgebra.A_mul_B!(out::Vector{T}, A::AbstractMatrix{T}, coef::Spar
   out
 end
 
+function *(transA::Transpose{<:Any,<:StridedMatrix{Ta}}, x::SparseIterate{Tx, 1}) where {Ta,Tx}
+    A = transA.parent
+    m, n = size(A)
+    length(x) == m || throw(DimensionMismatch())
+    Ty = promote_type(Ta, Tx)
+    y = Vector{Ty}(undef, n)
+    mul!(y, transpose(A), x)
+end
+
+function LinearAlgebra.mul!(out::AbstractVector, transA::Transpose{<:Any,<:StridedMatrix}, coef::SparseIterate{T, 1}) where {T}
+    A = transA.parent
+    length(coef) == size(A, 1) || throw(DimensionMismatch("A has first dimension $(size(A,1)), length of coef is $(length(coef))"))
+    length(out) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), length of out is $(length(out))"))
+
+    fill!(out, zero(eltype(out)))
+    @inbounds for j = 1:size(A, 2)
+        s = zero(eltype(out))
+        for inz = 1:nnz(coef)
+            s += A[coef.nzval2ind[inz], j] * coef.nzval[inz]
+        end
+        out[j] = s
+    end
+    return out
+end
+
 LinearAlgebra.dot(coef::SparseIterate{T, 1}, x::Vector{T}) where {T} = dot(x, coef)
+
 function LinearAlgebra.dot(x::Vector{T}, coef::SparseIterate{T, 1}) where {T}
     v = zero(T)
     @inbounds @simd for icoef = 1:nnz(coef)
@@ -285,7 +342,7 @@ function Base.setindex!(x::SymmetricSparseIterate{T}, v::T, i::Int) where {T}
   x
 end
 
-function Base.convert(::Type{SymmetricSparseIterate{T}}, X::SparseMatrixCSC{T}) where {T}
+function SymmetricSparseIterate(X::SparseMatrixCSC{T}) where {T}
   n, m = size(X)
   n == m || throw(ArgumentError("X needs to be square matrix"))
   out = SymmetricSparseIterate(T, n)
@@ -299,9 +356,8 @@ function Base.convert(::Type{SymmetricSparseIterate{T}}, X::SparseMatrixCSC{T}) 
 
   out
 end
-Base.convert(::Type{SymmetricSparseIterate}, x::SparseMatrixCSC{T}) where {T} = convert(SymmetricSparseIterate{T}, x)
 
-function Base.convert(::Type{Matrix}, S::SymmetricSparseIterate{Tv}) where Tv
+function Base.Matrix(S::SymmetricSparseIterate{Tv}) where Tv
   p = S.p
   A = zeros(Tv, p, p)
   for k=1:nnz(S)
@@ -315,23 +371,19 @@ function Base.convert(::Type{Matrix}, S::SymmetricSparseIterate{Tv}) where Tv
   end
   return A
 end
-Base.convert(::Type{Array}, x::SymmetricSparseIterate) = convert(Matrix, x)
-Base.full(x::SymmetricSparseIterate) = convert(Array, x)
 
 Base.similar(A::SymmetricSparseIterate{T}) where {T} = SymmetricSparseIterate(T, size(A, 1))
 Base.similar(A::SymmetricSparseIterate, ::Type{S}) where {S} = SymmetricSparseIterate(S, size(A, 1))
 
-function Base.copy!(x::SymmetricSparseIterate, y::SymmetricSparseIterate)
+function Base.copyto!(x::SymmetricSparseIterate, y::SymmetricSparseIterate)
     size(x) == size(y) || throw(DimensionMismatch())
-    copy!(x.nzval, y.nzval)
-    copy!(x.nzval2ind, y.nzval2ind)
-    copy!(x.ind2nzval, y.ind2nzval)
+    copyto!(x.nzval, y.nzval)
+    copyto!(x.nzval2ind, y.nzval2ind)
+    copyto!(x.ind2nzval, y.ind2nzval)
     x.nnz = y.nnz
     x.p = y.p
     x
 end
-
-
 
 function SparseArrays.dropzeros!(x::SymmetricSparseIterate{T}) where T
     i = 1
@@ -400,7 +452,7 @@ function AtomIterate(dims::Dims{2}, numAtom::Int, byRow::Bool)
     a1 = view(storage, :, b:e)
   end
   V = typeof(a1)
-  atoms = Vector{V}(numAtom)
+  atoms = Vector{V}(undef, numAtom)
   atoms[1] = a1
   for i=2:numAtom
     b += lenAtom
@@ -418,18 +470,18 @@ end
 #
 
 function Base.similar(a::AtomIterate{T, N, V}) where {T,N,V}
-  storage = zeros(a.storage)
+  storage = zero(a.storage)
   numAtoms = length(a.atoms)
-  atoms = Vector{V}(numAtoms)
+  atoms = Vector{V}(undef, numAtoms)
   for i=1:numAtoms
-    atoms[i] = SubArray(storage, a.atoms[i].indexes)
+    atoms[i] = SubArray(storage, a.atoms[i].indices)
   end
   AtomIterate{T,N,V}(storage, atoms)
 end
 
-Base.copy(a::AtomIterate) = copy!(similar(a), a)
-function Base.copy!(dest::AtomIterate, src::AtomIterate)
-  copy!(dest.storage, src.storage)
+Base.copy(a::AtomIterate) = copyto!(similar(a), a)
+function Base.copyto!(dest::AtomIterate, src::AtomIterate)
+  copyto!(dest.storage, src.storage)
   dest
 end
 

@@ -30,6 +30,8 @@ export
 using SparseArrays
 using LinearAlgebra
 
+import Base: *
+
 include("sparseIterate.jl")
 
 include("utils.jl")

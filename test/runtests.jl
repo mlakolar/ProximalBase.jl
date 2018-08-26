@@ -7,10 +7,10 @@ using Statistics
 
 
 tests = [
-  # "utils",
-  # "sparseIterate",
+  "utils",
+  "sparseIterate",
   "proximal_functions",
-  # "differentiable_functions"
+  "differentiable_functions"
 ]
 
 for t in tests

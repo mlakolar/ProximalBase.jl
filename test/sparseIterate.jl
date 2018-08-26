@@ -102,8 +102,8 @@ using SparseArrays
             x[i] = xv[i]
         end
         y = randn(10)
-        @test dot(xv, y[1:5]) == dot(x, y)
-        @test dot(y[1:5], xv) == dot(x, y)
+        @test dot(xv, y[1:5]) ≈ dot(x, y)
+        @test dot(y[1:5], xv) ≈ dot(x, y)
 
         # convert
         n, m = 10, 100

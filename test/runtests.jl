@@ -1,36 +1,21 @@
-using FactCheck
+using Test
 
 using ProximalBase
-using Distributions
-
-
-function try_import(name::Symbol)
-    try
-        @eval import $name
-        return true
-    catch e
-        return false
-    end
-end
-
-grb = try_import(:Gurobi)
-jmp = try_import(:JuMP)
-ipopt = try_import(:Ipopt)
+using LinearAlgebra
+using SparseArrays
+using Statistics
 
 
 tests = [
-  "utils",
-  "sparseIterate",
+  # "utils",
+  # "sparseIterate",
   "proximal_functions",
-  "differentiable_functions"
+  # "differentiable_functions"
 ]
-
-srand(1)
 
 for t in tests
 	f = "$t.jl"
 	println("* running $f ...")
-	include(f)
+	t = @elapsed include(f)
+    println("done (took $t seconds).")
 end
-
-FactCheck.exitstatus()

@@ -16,10 +16,10 @@ struct L2Loss{T<:AbstractFloat, N, M<:AbstractArray} <: DifferentiableFunction
   y::M
 end
 
-L2Loss{T<:AbstractFloat}(y::AbstractArray{T}) = L2Loss{T, 1, typeof(y)}(y)
+L2Loss(y::AbstractArray{T}) where {T<:AbstractFloat} = L2Loss{T, 1, typeof(y)}(y)
 L2Loss() = L2Loss{Float64, 0, Vector{Float64}}(Float64[])
 
-function value{T<:AbstractFloat, N}(f::L2Loss{T, N}, x::AbstractArray{T})
+function value(f::L2Loss{T, N}, x::AbstractArray{T}) where {T<:AbstractFloat, N}
   s = zero(T)
   if N == 1
     y = f.y
@@ -33,7 +33,7 @@ function value{T<:AbstractFloat, N}(f::L2Loss{T, N}, x::AbstractArray{T})
   s / 2.
 end
 
-function value_and_gradient!{T<:AbstractFloat, N}(f::L2Loss{T, N}, hat_x::AbstractArray{T}, x::AbstractArray{T})
+function value_and_gradient!(f::L2Loss{T, N}, hat_x::AbstractArray{T}, x::AbstractArray{T}) where {T<:AbstractFloat, N}
   if N == 1
     @. hat_x = x - f.y
   else
@@ -51,24 +51,24 @@ struct QuadraticFunction{T<:AbstractFloat, N, M<:AbstractMatrix, V} <: Different
   tmp::Vector{T}    ## call to value does not allocate
 end
 
-QuadraticFunction{T<:AbstractFloat}(A::AbstractMatrix{T}) = QuadraticFunction{T, 1, typeof(A), Vector{T}}(A, T[], zero(T), Array{T}(size(A, 1)))
-QuadraticFunction{T<:AbstractFloat}(A::AbstractMatrix{T}, b::AbstractVector{T}) = QuadraticFunction{T, 2, typeof(A), typeof(b)}(A, b, zero(T), Array{T}(size(A, 1)))
-QuadraticFunction{T<:AbstractFloat}(A::AbstractMatrix{T}, b::AbstractVector{T}, c::T) = QuadraticFunction{T, 3, typeof(A), typeof(b)}(A, b, c, Array{T}(size(A, 1)))
+QuadraticFunction(A::AbstractMatrix{T}) where {T<:AbstractFloat} = QuadraticFunction{T, 1, typeof(A), Vector{T}}(A, T[], zero(T), Array{T}(size(A, 1)))
+QuadraticFunction(A::AbstractMatrix{T}, b::AbstractVector{T}) where {T<:AbstractFloat} = QuadraticFunction{T, 2, typeof(A), typeof(b)}(A, b, zero(T), Array{T}(size(A, 1)))
+QuadraticFunction(A::AbstractMatrix{T}, b::AbstractVector{T}, c::T) where {T<:AbstractFloat} = QuadraticFunction{T, 3, typeof(A), typeof(b)}(A, b, c, Array{T}(size(A, 1)))
 
-function value{T<:AbstractFloat}(f::QuadraticFunction{T, 1}, x::StridedVector{T})
+function value(f::QuadraticFunction{T, 1}, x::StridedVector{T}) where {T<:AbstractFloat}
   A_mul_B!(f.tmp, f.A, x)
   dot(x, f.tmp) / 2.
 end
-function value{T<:AbstractFloat}(f::QuadraticFunction{T, 2}, x::StridedVector{T})
+function value(f::QuadraticFunction{T, 2}, x::StridedVector{T}) where {T<:AbstractFloat}
   A_mul_B!(f.tmp, f.A, x)
   dot(x, f.tmp) / 2. + dot(x, f.b)
 end
-function value{T<:AbstractFloat}(f::QuadraticFunction{T, 3}, x::StridedVector{T})
+function value(f::QuadraticFunction{T, 3}, x::StridedVector{T}) where {T<:AbstractFloat}
   A_mul_B!(f.tmp, f.A, x)
   dot(x, f.tmp) / 2. + dot(x, f.b) + f.c
 end
 
-function gradient!{T<:AbstractFloat, N}(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::StridedVector{T})
+function gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::StridedVector{T}) where {T<:AbstractFloat, N}
   A_mul_B!(hat_x, f.A, x)
   if N > 1
     @. hat_x += f.b
@@ -76,7 +76,7 @@ function gradient!{T<:AbstractFloat, N}(f::QuadraticFunction{T, N}, hat_x::Strid
   hat_x
 end
 
-function value_and_gradient!{T<:AbstractFloat, N}(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::StridedVector{T})
+function value_and_gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::StridedVector{T}) where {T<:AbstractFloat, N}
   b = f.b
   A_mul_B!(hat_x, f.A, x)
   r = dot(hat_x, x) / 2.
@@ -97,11 +97,11 @@ struct LeastSquaresLoss{T, Ty<:AbstractVecOrMat, Tx<:AbstractMatrix} <: Differen
   tmp::VecOrMat{T}    ## call to value does not allocate
 end
 
-LeastSquaresLoss{T<:AbstractFloat}(Y::AbstractVecOrMat{T}, X::AbstractMatrix{T}) =
+LeastSquaresLoss(Y::AbstractVecOrMat{T}, X::AbstractMatrix{T}) where {T<:AbstractFloat} =
     LeastSquaresLoss{T, typeof(Y), typeof(X)}(Y, X, zeros(T, size(Y)))
 
 
-function value{T<:AbstractFloat}(f::LeastSquaresLoss{T}, x)
+function value(f::LeastSquaresLoss{T}, x) where {T<:AbstractFloat}
   A_mul_B!(f.tmp, f.X, x)
   v = zero(T)
   @inbounds for i in eachindex(f.tmp)
@@ -110,10 +110,10 @@ function value{T<:AbstractFloat}(f::LeastSquaresLoss{T}, x)
   v / 2.
 end
 
-function value_and_gradient!{T<:AbstractFloat}(
+function value_and_gradient!(
   f::LeastSquaresLoss{T},
   grad_out::StridedVector{T},
-  x)
+  x) where {T<:AbstractFloat} 
 
   A_mul_B!(f.tmp, f.X, x)
   @. f.tmp -= f.Y

@@ -12,13 +12,13 @@ SparseIterate(::Type{T}, n::Int, m::Int) where {T} = SparseIterate{T, 2}(zeros(T
 
 Base.length(x::SparseIterate) = length(x.ind2nzval)
 Base.size(x::SparseIterate) = size(x.ind2nzval)
-Base.nnz(x::SparseIterate) = x.nnz
+SparseArrays.nnz(x::SparseIterate) = x.nnz
 numCoordinates(x::SparseIterate) = length(x.ind2nzval)
 
 Base.IndexStyle(::Type{<:SparseIterate}) = IndexLinear()
 
-Base.getindex{T}(x::SparseIterate{T}, i::Int) = (checkbounds(x, i); x.ind2nzval[i] == 0 ? zero(T) : x.nzval[x.ind2nzval[i]])
-function Base.setindex!{T}(x::SparseIterate{T}, v::T, i::Int)
+Base.getindex(x::SparseIterate{T}, i::Int) where {T} = (checkbounds(x, i); x.ind2nzval[i] == 0 ? zero(T) : x.nzval[x.ind2nzval[i]])
+function Base.setindex!(x::SparseIterate{T}, v::T, i::Int) where {T}
   checkbounds(x, i)
   if x.ind2nzval[i] == 0
     if v != zero(T)
@@ -189,7 +189,7 @@ end
 ##
 
 
-function Base.dropzeros!(x::SparseIterate{T}) where T
+function SparseArrays.dropzeros!(x::SparseIterate{T}) where T
   i = 1
   while i <= x.nnz
     if x.nzval[i] == zero(T)
@@ -209,7 +209,7 @@ end
 
 
 ## multiplication
-function Base.A_mul_B!{T}(out::Vector{T}, A::AbstractMatrix{T}, coef::SparseIterate{T, 1})
+function LinearAlgebra.A_mul_B!(out::Vector{T}, A::AbstractMatrix{T}, coef::SparseIterate{T, 1}) where {T}
   length(coef) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), length of coef is $(length(coef))"))
   length(out) == size(A, 1) || throw(DimensionMismatch("A has first dimension $(size(A,1)), length of out is $(length(out))"))
 
@@ -224,8 +224,8 @@ function Base.A_mul_B!{T}(out::Vector{T}, A::AbstractMatrix{T}, coef::SparseIter
   out
 end
 
-Base.dot(coef::SparseIterate{T, 1}, x::Vector{T}) where {T} = dot(x, coef)
-function Base.dot{T}(x::Vector{T}, coef::SparseIterate{T, 1})
+LinearAlgebra.dot(coef::SparseIterate{T, 1}, x::Vector{T}) where {T} = dot(x, coef)
+function LinearAlgebra.dot(x::Vector{T}, coef::SparseIterate{T, 1}) where {T}
     v = zero(T)
     @inbounds @simd for icoef = 1:nnz(coef)
         v += x[coef.nzval2ind[icoef]]*coef.nzval[icoef]
@@ -255,7 +255,7 @@ SymmetricSparseIterate(::Type{T}, n::Int) where {T} =
 
 Base.length(x::SymmetricSparseIterate) = div(x.p*(x.p+1), 2)
 Base.size(x::SymmetricSparseIterate) = (x.p, x.p)
-Base.nnz(x::SymmetricSparseIterate) = x.nnz
+SparseArrays.nnz(x::SymmetricSparseIterate) = x.nnz
 function numCoordinates(x::SymmetricSparseIterate)
   p = x.p
   div(p*(p+1), 2)
@@ -271,7 +271,7 @@ function Base.setindex!(x::SymmetricSparseIterate{T}, v::T, r::Int, c::Int) wher
   linInd = r >= c ? sub2indLowerTriangular(x.p, r, c) : sub2indLowerTriangular(x.p, c, r)
   setindex!(x, v, linInd)
 end
-function Base.setindex!{T}(x::SymmetricSparseIterate{T}, v::T, i::Int)
+function Base.setindex!(x::SymmetricSparseIterate{T}, v::T, i::Int) where {T}
   if x.ind2nzval[i] == 0
     if v != zero(T)
       x.nnz += 1
@@ -333,7 +333,7 @@ end
 
 
 
-function Base.dropzeros!(x::SymmetricSparseIterate{T}) where T
+function SparseArrays.dropzeros!(x::SymmetricSparseIterate{T}) where T
     i = 1
     while i <= x.nnz
         if x.nzval[i] == zero(T)
@@ -370,7 +370,7 @@ function AtomIterate(n::Int, numAtom::Int)
   b, e = 1, lenAtom
   a1 = view(storage, b:e)
   V = typeof(a1)
-  atoms = Vector{V}(numAtom)
+  atoms = Vector{V}(undef, numAtom)
   atoms[1] = a1
   for i=2:numAtom
     b += lenAtom

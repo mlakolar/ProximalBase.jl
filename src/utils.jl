@@ -4,25 +4,25 @@
 
 Soft-threshold operator. Returns sign(v)⋅max(0, |v|-c)
 """
-shrink{T<:AbstractFloat}(v::T, c::T) = v > c ? v - c : (v < -c ? v + c : zero(T))
+shrink(v::T, c::T) where {T<:AbstractFloat} = v > c ? v - c : (v < -c ? v + c : zero(T))
 
 
 """
   out = max(1-c/|x|, 0) ⋅ x
 """
 function shrinkL2!(out::M, x::M, c::T) where {M <: AbstractVecOrMat{T}} where T
-  tmp = max(one(T) - c / vecnorm(x), zero(T))
-  tmp > zero(T) ? scale!(copy!(out, x), tmp) : fill!(out, zero(T))
+  tmp = max(one(T) - c / norm(x), zero(T))
+  tmp > zero(T) ? rmul!(copyto!(out, x), tmp) : fill!(out, zero(T))
 end
 
 
-"""
-Computes a proximal operation for the penalty
-\[ \lambda_1\cdot(|u|+|v|) + \lambda_2\cdot|u-v| . \]
-
-Returns (u, v) = arg min (1/2γ) * ((u - x)^2 + (v-y)^2) + λ1 * (|u|+|v|) + λ2 * |u-v|
-"""
-function proxL1Fused{T <: AbstractFloat}(x::T, y::T, λ1::T, λ2::T, γ::T=one(T))
+# """
+# Computes a proximal operation for the penalty
+# \[ \lambda_1\cdot(|u|+|v|) + \lambda_2\cdot|u-v| . \]
+#
+# Returns (u, v) = arg min (1/2γ) * ((u - x)^2 + (v-y)^2) + λ1 * (|u|+|v|) + λ2 * |u-v|
+# """
+function proxL1Fused(x::T, y::T, λ1::T, λ2::T, γ::T=one(T)) where {T<:AbstractFloat}
 
   if λ2 > zero(T)
     t = λ2 * γ
@@ -52,7 +52,7 @@ end
 #
 ####################################
 
-function A_mul_B_row{T<:AbstractFloat}(A::AbstractMatrix{T}, b::AbstractVector{T}, row::Int64)
+function A_mul_B_row(A::AbstractMatrix{T}, b::AbstractVector{T}, row::Int64) where {T<:AbstractFloat}
   n, p = size(A)
   ((p == length(b)) && (1 <= row <= n)) || throw(DimensionMismatch())
 
@@ -63,7 +63,7 @@ function A_mul_B_row{T<:AbstractFloat}(A::AbstractMatrix{T}, b::AbstractVector{T
   v
 end
 
-function A_mul_B_row{T<:AbstractFloat}(A::AbstractMatrix{T}, b::SparseVector{T}, row::Int64)
+function A_mul_B_row(A::AbstractMatrix{T}, b::SparseVector{T}, row::Int64) where {T<:AbstractFloat}
   n, p = size(A)
   ((p == length(b)) && (1 <= row <= n)) || throw(DimensionMismatch())
 
@@ -77,7 +77,7 @@ function A_mul_B_row{T<:AbstractFloat}(A::AbstractMatrix{T}, b::SparseVector{T},
   v
 end
 
-function A_mul_B_row{T<:AbstractFloat}(A::AbstractMatrix{T}, b::SparseIterate{T, 1}, row::Int64)
+function A_mul_B_row(A::AbstractMatrix{T}, b::SparseIterate{T, 1}, row::Int64) where {T<:AbstractFloat}
   n, p = size(A)
   ((p == length(b)) && (1 <= row <= n)) || throw(DimensionMismatch())
 
@@ -89,7 +89,7 @@ function A_mul_B_row{T<:AbstractFloat}(A::AbstractMatrix{T}, b::SparseIterate{T,
 end
 
 
-function At_mul_B_row{T<:AbstractFloat}(A::AbstractMatrix{T}, b::StridedVector{T}, row::Int64)
+function At_mul_B_row(A::AbstractMatrix{T}, b::StridedVector{T}, row::Int64) where {T<:AbstractFloat}
   n, p = size(A)
   ((n == length(b)) && (1 <= row <= p)) || throw(DimensionMismatch())
 
@@ -100,7 +100,7 @@ function At_mul_B_row{T<:AbstractFloat}(A::AbstractMatrix{T}, b::StridedVector{T
   v
 end
 
-function At_mul_B_row{T<:AbstractFloat}(A::AbstractMatrix{T}, b::SparseVector{T}, row::Int64)
+function At_mul_B_row(A::AbstractMatrix{T}, b::SparseVector{T}, row::Int64) where {T<:AbstractFloat}
   n, p = size(A)
   ((n == length(b)) && (1 <= row <= p)) || throw(DimensionMismatch())
 
@@ -113,7 +113,7 @@ function At_mul_B_row{T<:AbstractFloat}(A::AbstractMatrix{T}, b::SparseVector{T}
   v
 end
 
-function At_mul_B_row{T<:AbstractFloat}(A::AbstractMatrix{T}, b::SparseIterate{T, 1}, row::Int64)
+function At_mul_B_row(A::AbstractMatrix{T}, b::SparseIterate{T, 1}, row::Int64) where {T<:AbstractFloat}
   n, p = size(A)
   ((n == length(b)) && (1 <= row <= n)) || throw(DimensionMismatch())
 
@@ -274,14 +274,14 @@ end
 # functions to operate with sparse lower triangular
 #
 
-function ind2subLowerTriangular{T<:Integer}(p::T, ind::T)
+function ind2subLowerTriangular(p::T, ind::T) where {T<:Integer}
   rvLinear = div(p*(p+1), 2) - ind
   k = trunc(T, (sqrt(1+8*rvLinear)-1.)/2. )
   j = rvLinear - div(k*(k+1), 2)
   (p-j, p-k)
 end
 
-sub2indLowerTriangular{T<:Integer}(p::T, r::T, c::T) = p*(c-1)-div(c*(c-1),2)+r
+sub2indLowerTriangular(p::T, r::T, c::T) where {T<:Integer} = p*(c-1)-div(c*(c-1),2)+r
 
 function vec2tril(x::SparseVector, p::Int64)
   nx = nnz(x)

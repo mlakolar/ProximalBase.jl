@@ -27,10 +27,12 @@ export
   ind2subLowerTriangular,sub2indLowerTriangular,
   norm_diff
 
+using SparseArrays
+using LinearAlgebra
 
 include("sparseIterate.jl")
-include("utils.jl")
 
+include("utils.jl")
 # DifferentiableFunctions
 include("differentiable_functions.jl")
 

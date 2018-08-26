@@ -1,139 +1,159 @@
-facts("prox zero") do
+module  ProximalFunctionTest
+
+using Test
+using ProximalBase
+using Random
+using LinearAlgebra
+using Distributions
+
+function try_import(name::Symbol)
+    try
+        @eval import $name
+        return true
+    catch e
+        return false
+    end
+end
+
+grb = try_import(:Gurobi)
+jmp = try_import(:JuMP)
+ipopt = try_import(:Ipopt)
+
+
+Random.seed!(1)
+
+@testset "prox zero" begin
   f = ProxZero()
 
   p = 10
   x = randn(p)
   z = zeros(p)
 
-  @fact prox!(f, z, x) --> x
-  @fact prox(f,x) --> z
+  @test prox!(f, z, x) == x
+  @test prox(f, x) == z
 end
 
-facts("proximal_l1") do
-  context("shrink to zero") do
+@testset "proximal_l1" begin
+  @testset "shrink to zero" begin
     x = randn(10)
     lambda = maximum(abs, x) + 0.1
     g = ProxL1(lambda)
 
     hat_x = randn(10)
     prox!(g, hat_x, x)
-    @fact maximum(abs, hat_x) --> 0.
+    @test maximum(abs, hat_x) == 0.
 
-    @fact value(g, x) --> roughly(lambda * sum(abs, x))
+    @test value(g, x) ≈ lambda * sum(abs, x)
   end
 
-  context("shrink towards zero") do
+  @testset "shrink towards zero" begin
     x = [1.0, 1.4, -3.2]
     lambda = 0.1
     g = ProxL1(lambda)
 
     hat_x = randn(3)
     prox!(g, hat_x, x)
-    @fact  hat_x --> roughly([0.9, 1.3, -3.1])
+    @test  hat_x ≈ [0.9, 1.3, -3.1]
 
-    @fact value(g, x) --> roughly(lambda * sum(abs, x))
-    @fact value(g, hat_x) --> roughly(lambda * sum(abs, hat_x))
+    @test value(g, x) ≈ lambda * sum(abs, x)
+    @test value(g, hat_x) ≈ lambda * sum(abs, hat_x)
   end
 
-  context("shrink with vector") do
+  @testset "shrink with vector" begin
     x = [1.0, 1.4, -3.2]
     lambda = [0.1, 1.5, 1]
     g = ProxL1(1., lambda)
 
     hat_x = randn(3)
     prox!(g, hat_x, x)
-    @fact hat_x --> roughly([0.9, 0., -2.2])
-    @fact prox(g, x) --> roughly([0.9, 0., -2.2])
+    @test hat_x ≈ [0.9, 0., -2.2]
+    @test prox(g, x) ≈ [0.9, 0., -2.2]
 
-    @fact value(g, x) --> roughly( dot(lambda, abs.(x)) )
-    @fact value(g, hat_x) --> roughly( dot(lambda, abs.(hat_x)) )
+    @test value(g, x) ≈ dot(lambda, abs.(x))
+    @test value(g, hat_x) ≈ dot(lambda, abs.(hat_x))
   end
 
 end
 
 
-facts("proximal_l1_fused") do
+@testset "proximal_l1_fused" begin
 
-context("random") do
-  if grb
-    solver = Gurobi.GurobiSolver(OutputFlag=0)
-  else
-    solver = Ipopt.IpoptSolver(print_level=0)
-  end
+    @testset "random" begin
 
-  if jmp
-    srand(123)
-    m = JuMP.Model(solver=solver)
-    JuMP.@variable(m, z1)
-    JuMP.@variable(m, z2)
-    JuMP.@variable(m, t[1:3] >= 0)
-    JuMP.@constraint(m, z1 <= t[1] )
-    JuMP.@constraint(m, -t[1] <= z1 )
-    JuMP.@constraint(m, z2 <= t[2] )
-    JuMP.@constraint(m, -t[2] <= z2 )
-    JuMP.@constraint(m, z1 - z2 <= t[3])
-    JuMP.@constraint(m, -t[3] <= z1 - z2 )
+      if grb
+        solver = Gurobi.GurobiSolver(OutputFlag=0)
+      else
+        solver = Ipopt.IpoptSolver(print_level=0)
+      end
 
-    for i=1:1000
+      if jmp
+        m = JuMP.Model(solver=solver)
+        JuMP.@variable(m, z1)
+        JuMP.@variable(m, z2)
+        JuMP.@variable(m, t[1:3] >= 0)
+        JuMP.@constraint(m, z1 <= t[1] )
+        JuMP.@constraint(m, -t[1] <= z1 )
+        JuMP.@constraint(m, z2 <= t[2] )
+        JuMP.@constraint(m, -t[2] <= z2 )
+        JuMP.@constraint(m, z1 - z2 <= t[3])
+        JuMP.@constraint(m, -t[3] <= z1 - z2 )
+
+        for i=1:1000
+          x1 = randn()
+          x2 = randn()
+          λ1 = rand(Uniform(0.,1.))
+          λ2 = rand(Uniform(0.,1.))
+
+          JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ1 * (t[1]+t[2]) + λ2 * t[3])
+          JuMP.solve(m)
+
+          zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, λ1, λ2)
+
+          @test abs(JuMP.getvalue(z1) - zp1) + abs(JuMP.getvalue(z2) - zp2)  ≈ 0. atol=2e-4
+        end
+
+        m = JuMP.Model(solver=solver)
+        JuMP.@variable(m, z1)
+        JuMP.@variable(m, z2)
+        JuMP.@variable(m, t >= 0)
+        JuMP.@constraint(m, z1 - z2 <= t)
+        JuMP.@constraint(m, -t <= z1 - z2 )
+
+        for i=1:1000
+          x1 = randn()
+          x2 = randn()
+          λ = rand(Uniform(0.,1.))
+
+          JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ * t)
+          JuMP.solve(m)
+
+          zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, 0., λ)
+
+          @test abs(JuMP.getvalue(z1) - zp1) + abs(JuMP.getvalue(z2) - zp2)  ≈ 0. atol=1e-4
+        end
+      end
+  end # random testset
+
+  @testset "nonrandom" begin
       x1 = randn()
       x2 = randn()
       λ1 = rand(Uniform(0.,1.))
-      λ2 = rand(Uniform(0.,1.))
 
-      JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ1 * (t[1]+t[2]) + λ2 * t[3])
-      JuMP.solve(m)
+      zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, λ1, 0.)
+      @test ProximalBase.shrink(x1, λ1) ≈ zp1
+      @test ProximalBase.shrink(x2, λ1) ≈ zp2
 
-      zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, λ1, λ2)
-
-      @fact abs(JuMP.getvalue(z1) - zp1) + abs(JuMP.getvalue(z2) - zp2)  --> roughly(0.; atol=2e-4)
-    end
-
-    m = JuMP.Model(solver=solver)
-    JuMP.@variable(m, z1)
-    JuMP.@variable(m, z2)
-    JuMP.@variable(m, t >= 0)
-    JuMP.@constraint(m, z1 - z2 <= t)
-    JuMP.@constraint(m, -t <= z1 - z2 )
-
-    for i=1:1000
-      x1 = randn()
-      x2 = randn()
-      λ = rand(Uniform(0.,1.))
-
-      JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ * t)
-      JuMP.solve(m)
-
-      zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, 0., λ)
-
-      @fact abs(JuMP.getvalue(z1) - zp1) + abs(JuMP.getvalue(z2) - zp2)  --> roughly(0.; atol=1e-4)
-    end
+      λ1 = 1000.
+      zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, λ1, 0.)
+      @test ProximalBase.shrink(x1, λ1) ≈ 0.
+      @test ProximalBase.shrink(x2, λ1) ≈ 0.
   end
-end
-
-context("nonrandom") do
-  srand(123)
-
-  x1 = randn()
-  x2 = randn()
-  λ1 = rand(Uniform(0.,1.))
-
-  zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, λ1, 0.)
-  @fact ProximalBase.shrink(x1, λ1) --> zp1
-  @fact ProximalBase.shrink(x2, λ1) --> zp2
-
-  λ1 = 1000.
-  zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, λ1, 0.)
-  @fact ProximalBase.shrink(x1, λ1) --> 0.
-  @fact ProximalBase.shrink(x2, λ1) --> 0.
-
-end
+end # proximal_l1
 
 
-end
+@testset "proximal_l2" begin
 
-facts("proximal_l2") do
-
-  context("shrink to zero") do
+  @testset "shrink to zero" begin
     p = 10
     x = randn(p)
     hat_x = randn(p)
@@ -141,20 +161,20 @@ facts("proximal_l2") do
     lambda = norm(x) + 0.1
     g = ProxL2(lambda)
     # check the norm
-    @fact value(g, x) --> roughly(lambda * norm(x))
+    @test value(g, x) ≈ lambda * norm(x)
     ln = 0.
     for j=1:p
       ln += x[j]^2
     end
-    @fact value(g, x) --> roughly(lambda * sqrt(ln))
+    @test value(g, x) ≈ lambda * sqrt(ln)
 
     # check shrinkage
     prox!(g, hat_x, x, 1.)
-    @fact hat_x --> roughly(zeros(Float64, p))
-    @fact norm(hat_x) --> roughly(0.)
+    @test hat_x ≈ zeros(Float64, p)
+    @test norm(hat_x) ≈ 0.
   end
 
-  context("shrink not to zero") do
+  @testset "shrink not to zero" begin
     p = 2
     x = [1., 2.]
     hat_x = randn(p)
@@ -163,49 +183,49 @@ facts("proximal_l2") do
     # check the norm
     g = ProxL2(lambda)
 
-    @fact value(g, x) --> roughly(lambda * norm(x))
+    @test value(g, x) ≈ lambda * norm(x)
     ln = 0.
     for j=1:p
       ln += x[j]^2
     end
-    @fact value(g, x) --> roughly(lambda * sqrt(ln))
+    @test value(g, x) ≈ lambda * sqrt(ln)
 
     # check shrinkage
     prox!(g, hat_x, x, 1.)
 
-    @fact hat_x --> roughly((1.-1./sqrt(5.))*x)
-    @fact norm(hat_x) --> roughly(sqrt(5.)-1.)
+    @test hat_x ≈ (1. - 1. / sqrt(5.))*x
+    @test norm(hat_x) ≈ sqrt(5.) - 1.
   end
 
 end
 
-facts("proximal_l2sq") do
+@testset "proximal_l2sq" begin
 
-  context("prox operator") do
+  @testset "prox operator" begin
     x = [1., 2.]
     lambda = 1.
 
     # norm value
     g = ProxL2Sq(0.)
-    @fact value(g, x) --> 0.
+    @test value(g, x) == 0.
 
     g = ProxL2Sq(1.)
-    @fact value(g, x) --> sum(abs2, x)
+    @test value(g, x) == sum(abs2, x)
 
     g = ProxL2Sq(2.)
-    @fact value(g, x) --> roughly(2. * norm(x)^2)
+    @test value(g, x) ≈ 2. * norm(x)^2
 
     # prox
     hat_x = similar(x)
 
     g = ProxL2Sq(0.)
-    @fact prox!(g, hat_x, x) --> roughly(x)
+    @test prox!(g, hat_x, x) ≈ x
 
     g = ProxL2Sq(1.)
-    @fact prox!(g, hat_x, x) --> roughly(x / 3.)
+    @test prox!(g, hat_x, x) ≈ x / 3.
 
     g = ProxL2Sq(2.)
-    @fact prox!(g, hat_x, x) --> roughly(x / 5.)
+    @test prox!(g, hat_x, x) ≈ x / 5.
 
 
   end
@@ -213,7 +233,7 @@ facts("proximal_l2sq") do
 end
 
 
-facts("proximal_nuclear") do
+@testset "proximal_nuclear" begin
 
   y = randn(30, 10)
   y = y' * y
@@ -228,13 +248,13 @@ facts("proximal_nuclear") do
   g = ProxNuclear(0.1)
   prox!(g, x, y)
 
-  @fact x --> roughly(tx)
+  @test x ≈ tx
 end
 
 
-facts("proximal_l1l2") do
+@testset "proximal_l1l2" begin
 
-  context("shrink to zero") do
+  @testset "shrink to zero" begin
     p = 10
     x = AtomIterate(p, 2)
     hat_x = AtomIterate(p, 2)
@@ -242,20 +262,20 @@ facts("proximal_l1l2") do
     x .= randn(p)
     hat_x .= randn(p)
 
-    lambda = vecnorm(x) + 0.1
+    lambda = norm(x) + 0.1
 
     # check the norm
     g = ProxL2(lambda, [1., 1.])
-    @fact value(g, x) --> roughly(lambda * norm(x[1:5]) + lambda * norm(x[6:10]))
+    @test value(g, x) ≈ lambda * norm(x[1:5]) + lambda * norm(x[6:10])
 
     # check shrinkage
     prox!(g, hat_x, x, 1.)
 
-    @fact hat_x.storage --> roughly(zeros(Float64, p))
-    @fact vecnorm(hat_x) --> roughly(0.)
+    @test hat_x.storage ≈ zeros(Float64, p)
+    @test norm(hat_x) ≈ 0.
   end
 
-  context("shrink not to zero") do
+  @testset "shrink not to zero" begin
     p = 10
     x = AtomIterate(p, 2)
     hat_x = AtomIterate(p, 2)
@@ -267,34 +287,36 @@ facts("proximal_l1l2") do
 
     # check the norm
     g = ProxL2(lambda, [1., 1.])
-    @fact value(g, x) --> roughly(lambda * norm(x[1:5]) + lambda * norm(x[6:10]))
+    @test value(g, x) ≈ lambda * norm(x[1:5]) + lambda * norm(x[6:10])
 
     # check shrinkage
     prox!(g, hat_x, x, 1.)
 
-    @fact hat_x.storage[1:5] --> roughly( (1.-lambda/norm(x[1:5])) * x[1:5] )
-    @fact hat_x.storage[6:10] --> roughly( (1.-lambda/norm(x[6:10])) * x[6:10] )
+    @test hat_x.storage[1:5] ≈  (1. - lambda/norm(x[1:5])) * x[1:5]
+    @test hat_x.storage[6:10] ≈ (1. - lambda/norm(x[6:10])) * x[6:10]
   end
 
 end
 
 
-facts("proximal_logdet") do
+@testset "proximal_logdet" begin
   p = 10
 
   out = zeros(p,p)
 
   # identity
-  Σ = Symmetric(eye(p))
-  V = eye(p)
+  Σ = Symmetric(Matrix{Float64}(I, p, p))
+  V = Matrix{Float64}(I, p, p)
   g = ProxGaussLikelihood(Σ)
-  @fact prox(g, V) --> roughly(eye(p))
-  @fact prox!(g, out, V) --> roughly(eye(p))
-  @fact value(g, V) --> p
+  @test prox(g, V) ≈ Matrix{Float64}(I, p, p)
+  @test prox!(g, out, V) ≈ Matrix{Float64}(I, p, p)
+  @test value(g, V) ≈ p
 
   γ = 0.5
   ρ = 2.
-  sol = eye(p) * (-(1.-ρ)+sqrt((1.-ρ)^2+4.*ρ)) / (2.*ρ)
-  @fact prox!(g, out, V, γ) --> roughly(sol)
+  sol = Matrix{Float64}(I, p, p) * (-(1. - ρ)+sqrt((1. - ρ)^2 + 4. * ρ)) / (2. * ρ)
+  @test prox!(g, out, V, γ) ≈ sol
+
+end
 
 end

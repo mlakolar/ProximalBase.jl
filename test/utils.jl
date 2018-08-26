@@ -1,37 +1,37 @@
-facts("shrink") do
+@testset "shrink" begin
 
-  @fact shrink(3.0, 1.0) --> 2.0
-  @fact shrink(-2.0, 1.0) --> -1.0
-  @fact shrink(0.5, 1.0) --> 0.
+  @test shrink(3.0, 1.0) == 2.0
+  @test shrink(-2.0, 1.0) == -1.0
+  @test shrink(0.5, 1.0) == 0.
 
-  srand(1)
+  Random.seed!(1)
   p = 10
   x = randn(p)
-  c = vecnorm(x) + 0.1
-  @fact shrinkL2!(similar(x), x, c) --> zeros(p)
+  c = norm(x) + 0.1
+  @test shrinkL2!(similar(x), x, c) == zeros(p)
   c = c - 0.15
-  @fact shrinkL2!(similar(x), x, c) --> max(1. - c / vecnorm(x), 0,) * x
+  @test shrinkL2!(similar(x), x, c) == max(1. - c / norm(x), 0,) * x
 
   x = randn(p, 2*p)
-  c = vecnorm(x) + 0.1
-  @fact shrinkL2!(similar(x), x, c) --> zeros(p, 2*p)
+  c = norm(x) + 0.1
+  @test shrinkL2!(similar(x), x, c) == zeros(p, 2*p)
   c = c - 0.15
-  @fact shrinkL2!(similar(x), x, c) --> max(1. - c / vecnorm(x), 0,) * x
+  @test shrinkL2!(similar(x), x, c) == max(1. - c / norm(x), 0,) * x
 end
 
 
 
-facts("multiply") do
+@testset "multiply" begin
 
-  srand(1)
+  Random.seed!(1)
   n, m = 100, 100
   A = randn(n, m)
   b = randn(m)
   x = A * b
   xt = A' * b
   for i=1:n
-    @fact A_mul_B_row(A, b, i) --> roughly(x[i])
-    @fact At_mul_B_row(A, b, i) --> roughly(xt[i])
+    @test A_mul_B_row(A, b, i) ≈ x[i]
+    @test At_mul_B_row(A, b, i) ≈ xt[i]
   end
 
   bs = sprand(m, 0.3)
@@ -41,14 +41,14 @@ facts("multiply") do
   xi = A * bi
   xti = A' * bi
   for i=1:n
-    @fact A_mul_B_row(A, bs, i) --> roughly(x[i])
-    @fact At_mul_B_row(A, bs, i) --> roughly(xt[i])
+    @test A_mul_B_row(A, bs, i) ≈ x[i]
+    @test At_mul_B_row(A, bs, i) ≈ xt[i]
 
-    @fact A_mul_B_row(A, bi, i) --> roughly(x[i])
-    @fact At_mul_B_row(A, bi, i) --> roughly(xt[i])
+    @test A_mul_B_row(A, bi, i) ≈ x[i]
+    @test At_mul_B_row(A, bi, i) ≈ xt[i]
 
-    @fact xi[i] --> roughly(x[i])
-    @fact xti[i] --> roughly(xt[i])
+    @test xi[i] ≈ x[i]
+    @test xti[i] ≈ xt[i]
   end
 
   # symmetric A * X * B
@@ -61,7 +61,7 @@ facts("multiply") do
 
   A = Σx * Δ * Σy
   Δs = convert(SymmetricSparseIterate, Δ)
-  @fact A_mul_X_mul_B(Σx, Δs, Σy) --> roughly(A)
+  @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ A
 
   # symmetric A * U * U' * B
   X = randn(100, 50)
@@ -71,5 +71,5 @@ facts("multiply") do
   U = randn(50, 5)
 
   A = (Σx * U)*(U' * Σy)
-  @fact A_mul_UUt_mul_B(Σx, U, Σy) --> roughly(A)
+  @test A_mul_UUt_mul_B(Σx, U, Σy) ≈ A
 end

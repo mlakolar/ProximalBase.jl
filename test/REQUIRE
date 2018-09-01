@@ -3,6 +3,6 @@ LinearAlgebra
 SparseArrays
 Statistics
 Distributions
-JuMP
+JuMP release-0.18
 Ipopt
 Test

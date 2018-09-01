@@ -12,7 +12,11 @@ notifications:
 addons:
     apt_packages:
         - gfortran
-
+        - liblapack-dev
+        - libblas-dev
+        - libgmp-dev
+        - libglpk-dev
+        
 sudo: false
 
 # script:

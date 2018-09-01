@@ -10,7 +10,7 @@ addons:
         - gfortran
 sudo: false
 script:
-  - julia -e 'Pkg.clone(pwd()); Pkg.build("ProximalBase"); Pkg.test("ProximalBase"; coverage=true)'
+  - julia -e 'import Pkg; Pkg.clone(pwd(), "ProximalBase"); Pkg.build("ProximalBase"); Pkg.test("ProximalBase"; coverage=true)'
 after_success:
     - echo $TRAVIS_JULIA_VERSION
-    - julia -e 'Pkg.add("Coverage"); cd(Pkg.dir("ProximalBase")); using Coverage; Codecov.submit(process_folder())'
+    - julia -e 'import Pkg; Pkg.add("Coverage"); using Coverage; Codecov.submit(process_folder())'

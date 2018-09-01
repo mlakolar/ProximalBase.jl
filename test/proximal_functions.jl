@@ -18,7 +18,7 @@ end
 grb = try_import(:Gurobi)
 jmp = try_import(:JuMP)
 ipopt = try_import(:Ipopt)
-
+grb = false
 
 Random.seed!(1)
 

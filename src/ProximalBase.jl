@@ -25,7 +25,10 @@ export
   A_mul_X_mul_B, A_mul_X_mul_B_rc,
   A_mul_UUt_mul_B, A_mul_UUt_mul_B_rc,
   ind2subLowerTriangular,sub2indLowerTriangular,
-  norm_diff
+  norm_diff,
+
+  # function for SparseIterate
+  nnz
 
 using SparseArrays
 using LinearAlgebra

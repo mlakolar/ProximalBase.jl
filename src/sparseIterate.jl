@@ -46,8 +46,6 @@ function SparseIterate(x::SparseVector{T}) where {T}
   end
   out
 end
-# Base.convert(::Type{SparseIterate}, x::SparseMatrixCSC{T}) where {T} = convert(SparseIterate{T, 2}, x)
-# Base.convert(::Type{SparseIterate}, x::SparseVector{T}) where {T} = convert(SparseIterate{T, 1}, x)
 
 function SparseIterate(x::Array{T}) where {T}
   out = SparseIterate(T, size(x)...)

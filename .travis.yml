@@ -16,11 +16,12 @@ addons:
         - libblas-dev
         - libgmp-dev
         - libglpk-dev
-        
+
 sudo: false
 
 # script:
 #   - julia -e 'import Pkg; Pkg.build(); Pkg.test(; coverage=true)'
 
 after_success:
+    - julia -e 'import Pkg; Pkg.build("SpecialFunctions")'
     - julia -e 'import Pkg; Pkg.add("Coverage"); using Coverage; Codecov.submit(Codecov.process_folder())'

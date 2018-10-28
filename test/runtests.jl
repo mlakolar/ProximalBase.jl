@@ -1,11 +1,5 @@
 using Test
 
-using ProximalBase
-using LinearAlgebra
-using SparseArrays
-using Statistics
-
-
 tests = [
   "utils",
   "sparseIterate",

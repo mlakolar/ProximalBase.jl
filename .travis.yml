@@ -2,6 +2,7 @@ language: julia
 
 julia:
   - 0.7
+  - 1.0
 
 os:
   - linux
@@ -23,5 +24,4 @@ sudo: false
 #   - julia -e 'import Pkg; Pkg.build(); Pkg.test(; coverage=true)'
 
 after_success:
-    - julia -e 'import Pkg; Pkg.build("SpecialFunctions")'
     - julia -e 'import Pkg; Pkg.add("Coverage"); using Coverage; Codecov.submit(Codecov.process_folder())'

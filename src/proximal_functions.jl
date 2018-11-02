@@ -25,6 +25,8 @@ function prox!(::ProxZero, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, �
   copyto!(out_x, x)
 end
 
+cdprox!(g::ProxZero, x::Union{SparseIterate{T},SymmetricSparseIterate{T}}, k::Int, γ::T) where {T} = x[k]
+
 ##########################################################
 ######  L1 norm  g(x) = λ0 ⋅ \sum_j λ_j |x_j|
 ##########################################################

@@ -5,7 +5,7 @@ using ProximalBase
 using Random
 using LinearAlgebra
 using Distributions
-using JuMP, Ipopt
+import JuMP, Ipopt
 
 Random.seed!(1)
 
@@ -67,17 +67,17 @@ end
 
     @testset "random" begin
 
-    m = Model(with_optimizer(Ipopt.Optimizer, print_level=0))
+    m = JuMP.Model(JuMP.with_optimizer(Ipopt.Optimizer, print_level=0))
 
-    @variable(m, z1)
-    @variable(m, z2)
-    @variable(m, t[1:3] >= 0)
-    @constraint(m, z1 <= t[1] )
-    @constraint(m, -t[1] <= z1 )
-    @constraint(m, z2 <= t[2] )
-    @constraint(m, -t[2] <= z2 )
-    @constraint(m, z1 - z2 <= t[3])
-    @constraint(m, -t[3] <= z1 - z2 )
+    JuMP.@variable(m, z1)
+    JuMP.@variable(m, z2)
+    JuMP.@variable(m, t[1:3] >= 0)
+    JuMP.@constraint(m, z1 <= t[1] )
+    JuMP.@constraint(m, -t[1] <= z1 )
+    JuMP.@constraint(m, z2 <= t[2] )
+    JuMP.@constraint(m, -t[2] <= z2 )
+    JuMP.@constraint(m, z1 - z2 <= t[3])
+    JuMP.@constraint(m, -t[3] <= z1 - z2 )
 
     for i=1:1000
       x1 = randn()
@@ -85,32 +85,32 @@ end
       λ1 = rand(Uniform(0.,1.))
       λ2 = rand(Uniform(0.,1.))
 
-      @objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ1 * (t[1]+t[2]) + λ2 * t[3])
-      optimize!(m)
+      JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ1 * (t[1]+t[2]) + λ2 * t[3])
+      JuMP.optimize!(m)
 
       zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, λ1, λ2)
 
-      @test abs(JuMP.result_value.(z1) - zp1) + abs(JuMP.result_value.(z2) - zp2)  ≈ 0. atol=2e-4
+      @test abs(JuMP.value.(z1) - zp1) + abs(JuMP.value.(z2) - zp2)  ≈ 0. atol=2e-4
     end
 
-    m = Model(with_optimizer(Ipopt.Optimizer, print_level=0))
-    @variable(m, z1)
-    @variable(m, z2)
-    @variable(m, t >= 0)
-    @constraint(m, z1 - z2 <= t)
-    @constraint(m, -t <= z1 - z2 )
+    m = JuMP.Model(JuMP.with_optimizer(Ipopt.Optimizer, print_level=0))
+    JuMP.@variable(m, z1)
+    JuMP.@variable(m, z2)
+    JuMP.@variable(m, t >= 0)
+    JuMP.@constraint(m, z1 - z2 <= t)
+    JuMP.@constraint(m, -t <= z1 - z2 )
 
     for i=1:1000
       x1 = randn()
       x2 = randn()
       λ = rand(Uniform(0.,1.))
 
-      @objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ * t)
-      optimize!(m)
+      JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ * t)
+      JuMP.optimize!(m)
 
       zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, 0., λ)
 
-      @test abs(JuMP.result_value.(z1) - zp1) + abs(JuMP.result_value.(z2) - zp2)  ≈ 0. atol=1e-4
+      @test abs(JuMP.value.(z1) - zp1) + abs(JuMP.value.(z2) - zp2)  ≈ 0. atol=1e-4
     end
   end # random testset
 

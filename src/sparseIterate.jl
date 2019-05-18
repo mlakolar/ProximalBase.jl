@@ -400,6 +400,33 @@ function SparseArrays.dropzeros!(x::SymmetricSparseIterate{T}) where T
     end
     x
 end
+                        
+function LinearAlgebra.mul!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::AbstractMatrix{T}) where T                        
+  size(A, 2) == size(B, 1) || throw(DimensionMismatch())
+  size(A, 1) == size(C, 1) || throw(DimensionMismatch())
+  size(B, 2) == size(C, 2) || throw(DimensionMismatch())
+    
+  fill!(C, zero(T))
+  i = 1
+  @inbounds while i <= A.nnz
+    v = A.nzval[i]
+    ind = A.nzval2ind[i]
+    r, c = ind2subLowerTriangular(size(A, 1), ind)                          
+    if r == c
+      for k=1:size(C, 2)
+        @inbounds C[r, k] += B[c, k] * v
+      end
+    else
+      for k=1:size(C, 2)
+        @inbounds C[r, k] += B[c, k] * v
+        @inbounds C[c, k] += B[r, k] * v
+      end                                        
+    end    
+    i += 1
+  end
+  C
+end                            
+                            
 
 ####################################
 #

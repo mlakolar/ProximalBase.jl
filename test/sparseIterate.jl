@@ -164,6 +164,18 @@ end
       # constructor
       @test typeof(SymmetricSparseIterate(2)) == SymmetricSparseIterate{Float64}
     end
+    
+    @testset "mul" begin
+      n = 10
+      M = sprandn(n, n, 0.1)
+      M = (M + M') / 2
+      x = SymmetricSparseIterate(M)
+        
+      B = randn(10, 20)
+      C = M * B
+      CC = zeros(10, 20)
+      @test mul!(CC, x, B) == C
+    end
 
 end
 

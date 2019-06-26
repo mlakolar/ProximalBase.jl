@@ -43,15 +43,15 @@ using SparseArrays
         x = SparseIterate(3)
 
         show(io, MIME"text/plain"(), x)
-        @test String(take!(io)) == "3-element SparseIterate{Float64,1} with 0 stored entries"
+        @test String(take!(io)) == "3-element ProximalBase.SparseIterate{Float64,1} with 0 stored entries"
 
         x[1] = 1.
         show(io, MIME"text/plain"(), x)
-        @test String(take!(io)) == "3-element SparseIterate{Float64,1} with 1 stored entry:\n  [1]  =  1.0\n"
+        @test String(take!(io)) == "3-element ProximalBase.SparseIterate{Float64,1} with 1 stored entry:\n  [1]  =  1.0\n"
 
         x[2] = 2.
         show(io, MIME"text/plain"(), x)
-        @test String(take!(io)) == "3-element SparseIterate{Float64,1} with 2 stored entries:\n  [1]  =  1.0\n  [2]  =  2.0\n"
+        @test String(take!(io)) == "3-element ProximalBase.SparseIterate{Float64,1} with 2 stored entries:\n  [1]  =  1.0\n  [2]  =  2.0\n"
 
         show(io, x)
         @test String(take!(io)) == "  [1]  =  1.0\n  [2]  =  2.0\n"
@@ -60,14 +60,14 @@ using SparseArrays
         y = SparseIterate(2,3)
 
         show(io, MIME"text/plain"(), y)
-        @test String(take!(io)) == "2×3 SparseIterate{Float64,2} with 0 stored entries"
+        @test String(take!(io)) == "2×3 ProximalBase.SparseIterate{Float64,2} with 0 stored entries"
         y[1,3] = 1.
         show(io, MIME"text/plain"(), y)
-        @test String(take!(io)) == "2×3 SparseIterate{Float64,2} with 1 stored entry:\n  [1, 3]  =  1.0"
+        @test String(take!(io)) == "2×3 ProximalBase.SparseIterate{Float64,2} with 1 stored entry:\n  [1, 3]  =  1.0"
 
         y[2,2] = 2.
         show(io, MIME"text/plain"(), y)
-        @test String(take!(io)) == "2×3 SparseIterate{Float64,2} with 2 stored entries:\n  [2, 2]  =  2.0\n  [1, 3]  =  1.0"
+        @test String(take!(io)) == "2×3 ProximalBase.SparseIterate{Float64,2} with 2 stored entries:\n  [2, 2]  =  2.0\n  [1, 3]  =  1.0"
     end
 
     @testset "copy" begin
@@ -163,6 +163,18 @@ end
 
       # constructor
       @test typeof(SymmetricSparseIterate(2)) == SymmetricSparseIterate{Float64}
+    end
+    
+    @testset "mul" begin
+      n = 10
+      M = sprandn(n, n, 0.1)
+      M = (M + M') / 2
+      x = SymmetricSparseIterate(M)
+        
+      B = randn(10, 20)
+      C = M * B
+      CC = zeros(10, 20)
+      @test mul!(CC, x, B) == C
     end
 
 end

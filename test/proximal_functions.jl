@@ -5,20 +5,7 @@ using ProximalBase
 using Random
 using LinearAlgebra
 using Distributions
-
-function try_import(name::Symbol)
-    try
-        @eval import $name
-        return true
-    catch e
-        return false
-    end
-end
-
-grb = try_import(:Gurobi)
-jmp = try_import(:JuMP)
-ipopt = try_import(:Ipopt)
-grb = false
+import JuMP, Ipopt
 
 Random.seed!(1)
 
@@ -80,58 +67,51 @@ end
 
     @testset "random" begin
 
-      if grb
-        solver = Gurobi.GurobiSolver(OutputFlag=0)
-      else
-        solver = Ipopt.IpoptSolver(print_level=0)
-      end
+    m = JuMP.Model(JuMP.with_optimizer(Ipopt.Optimizer, print_level=0))
 
-      if jmp
-        m = JuMP.Model(solver=solver)
-        JuMP.@variable(m, z1)
-        JuMP.@variable(m, z2)
-        JuMP.@variable(m, t[1:3] >= 0)
-        JuMP.@constraint(m, z1 <= t[1] )
-        JuMP.@constraint(m, -t[1] <= z1 )
-        JuMP.@constraint(m, z2 <= t[2] )
-        JuMP.@constraint(m, -t[2] <= z2 )
-        JuMP.@constraint(m, z1 - z2 <= t[3])
-        JuMP.@constraint(m, -t[3] <= z1 - z2 )
+    JuMP.@variable(m, z1)
+    JuMP.@variable(m, z2)
+    JuMP.@variable(m, t[1:3] >= 0)
+    JuMP.@constraint(m, z1 <= t[1] )
+    JuMP.@constraint(m, -t[1] <= z1 )
+    JuMP.@constraint(m, z2 <= t[2] )
+    JuMP.@constraint(m, -t[2] <= z2 )
+    JuMP.@constraint(m, z1 - z2 <= t[3])
+    JuMP.@constraint(m, -t[3] <= z1 - z2 )
 
-        for i=1:1000
-          x1 = randn()
-          x2 = randn()
-          λ1 = rand(Uniform(0.,1.))
-          λ2 = rand(Uniform(0.,1.))
+    for i=1:1000
+      x1 = randn()
+      x2 = randn()
+      λ1 = rand(Uniform(0.,1.))
+      λ2 = rand(Uniform(0.,1.))
 
-          JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ1 * (t[1]+t[2]) + λ2 * t[3])
-          JuMP.solve(m)
+      JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ1 * (t[1]+t[2]) + λ2 * t[3])
+      JuMP.optimize!(m)
 
-          zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, λ1, λ2)
+      zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, λ1, λ2)
 
-          @test abs(JuMP.getvalue(z1) - zp1) + abs(JuMP.getvalue(z2) - zp2)  ≈ 0. atol=2e-4
-        end
+      @test abs(JuMP.value.(z1) - zp1) + abs(JuMP.value.(z2) - zp2)  ≈ 0. atol=2e-4
+    end
 
-        m = JuMP.Model(solver=solver)
-        JuMP.@variable(m, z1)
-        JuMP.@variable(m, z2)
-        JuMP.@variable(m, t >= 0)
-        JuMP.@constraint(m, z1 - z2 <= t)
-        JuMP.@constraint(m, -t <= z1 - z2 )
+    m = JuMP.Model(JuMP.with_optimizer(Ipopt.Optimizer, print_level=0))
+    JuMP.@variable(m, z1)
+    JuMP.@variable(m, z2)
+    JuMP.@variable(m, t >= 0)
+    JuMP.@constraint(m, z1 - z2 <= t)
+    JuMP.@constraint(m, -t <= z1 - z2 )
 
-        for i=1:1000
-          x1 = randn()
-          x2 = randn()
-          λ = rand(Uniform(0.,1.))
+    for i=1:1000
+      x1 = randn()
+      x2 = randn()
+      λ = rand(Uniform(0.,1.))
 
-          JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ * t)
-          JuMP.solve(m)
+      JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ * t)
+      JuMP.optimize!(m)
 
-          zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, 0., λ)
+      zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, 0., λ)
 
-          @test abs(JuMP.getvalue(z1) - zp1) + abs(JuMP.getvalue(z2) - zp2)  ≈ 0. atol=1e-4
-        end
-      end
+      @test abs(JuMP.value.(z1) - zp1) + abs(JuMP.value.(z2) - zp2)  ≈ 0. atol=1e-4
+    end
   end # random testset
 
   @testset "nonrandom" begin

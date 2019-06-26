@@ -1,7 +1,7 @@
 language: julia
 
-julia:
-  - 0.7
+julia:  
+  - 1.1
 
 os:
   - linux
@@ -16,7 +16,7 @@ addons:
         - libblas-dev
         - libgmp-dev
         - libglpk-dev
-        
+
 sudo: false
 
 # script:

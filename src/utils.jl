@@ -154,16 +154,11 @@ function A_mul_X_mul_B_rc(
   c::Int
   ) where {T<:AbstractFloat}
 
-  p = size(X, 1)
   v = zero(T)
+  I = CartesianIndices((size(A, 2), size(B, 1)))
   for j=1:nnz(X)
     ind = X.nzval2ind[j]
-    ri, ci = ind2sub(X, ind)
-    if ri == ci
-      @inbounds v += A[ri, r] * B[ci, c] * X.nzval[j]
-    else
-      @inbounds v += (A[ri, r] * B[ci, c] + A[ci, r] * B[ri, c]) * X.nzval[j]
-    end
+    @inbounds v += A[I[ind][1], r] * B[I[ind][2], c] * X.nzval[j]
   end
   v
 end

@@ -82,6 +82,25 @@ end
 
   A = (Σx * U)*(U' * Σy)
   @test A_mul_UUt_mul_B(Σx, U, Σy) ≈ A
+
+
+  # asymmetric A * X * B
+  X = randn(100, 50)
+  Σx = Symmetric(cov(X))
+  Y = randn(100, 50)
+  Σy = Symmetric(cov(Y))
+  Δ = sprand(50, 50, 0.1)
+  A = Σx * Δ * Σy
+
+  Δs = SparseIterate( Δ[:] )
+  R = zeros(50, 50)
+  for col=1:50
+      for row=1:50
+          R[row, col] = A_mul_X_mul_B_rc(Σx, Δs, Σy, row, col)
+      end
+  end
+
+  @test R ≈ A
 end
 
 end

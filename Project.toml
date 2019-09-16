@@ -1,7 +1,7 @@
 name = "ProximalBase"
-uuid = "e46f183a-ae2f-11e8-253c-bfe2254e1c56"
+uuid = "0a755509-c5b1-5d6f-9b24-59bcda3c37a3"
 author = ["Mladen Kolar <mkolar@chicagobooth.edu>"]
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"

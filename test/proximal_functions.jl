@@ -67,7 +67,7 @@ end
 
     @testset "random" begin
 
-    m = JuMP.Model(JuMP.with_optimizer(Ipopt.Optimizer, print_level=0))
+    m = JuMP.Model(JuMP.optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0))
 
     JuMP.@variable(m, z1)
     JuMP.@variable(m, z2)
@@ -93,7 +93,7 @@ end
       @test abs(JuMP.value.(z1) - zp1) + abs(JuMP.value.(z2) - zp2)  ≈ 0. atol=2e-4
     end
 
-    m = JuMP.Model(JuMP.with_optimizer(Ipopt.Optimizer, print_level=0))
+    m = JuMP.Model(JuMP.optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0))
     JuMP.@variable(m, z1)
     JuMP.@variable(m, z2)
     JuMP.@variable(m, t >= 0)

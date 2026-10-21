@@ -84,6 +84,24 @@ using SparseArrays
         @test Matrix(y) == Matrix(M)
         @test Matrix(y) == Matrix(x)
         @test !(x === y)
+
+        # copyto! into an iterate that holds other entries, via the sparse and the dense path
+        for d in (0.02, 0.6)
+            v, w = sprandn(200, d), sprandn(200, d)
+            x, y = SparseIterate(v), SparseIterate(w)
+            @test copyto!(x, y) === x
+            @test Vector(x) == Vector(w)
+            @test nnz(x) == nnz(y)
+            @test Vector(copyto!(x, x)) == Vector(w)
+
+            # entries set afterwards are stored correctly
+            i = findfirst(iszero, Vector(w))
+            x[i] = 7.
+            @test x[i] == 7.
+            @test nnz(x) == nnz(y) + 1
+            @test Vector(y) == Vector(w)
+        end
+        @test_throws DimensionMismatch copyto!(SparseIterate(3), SparseIterate(4))
     end
 
 
@@ -225,6 +243,17 @@ end
       @test Matrix(y) == Matrix(x)
       @test nnz(y) == nnz(x)
       @test_throws DimensionMismatch copyto!(SymmetricSparseIterate(3), x)
+
+      # into a destination that holds other entries (sparse path)
+      x = SymmetricSparseIterate(20); x[3, 1] = 1.; x[5, 5] = 2.
+      y = SymmetricSparseIterate(20); y[5, 5] = -1.; y[9, 2] = 4.
+      copyto!(x, y)
+      @test Matrix(x) == Matrix(y)
+      @test nnz(x) == 2
+      x[1, 3] = 6.
+      @test x[3, 1] == 6.
+      @test nnz(x) == 3
+      @test Matrix(y)[3, 1] == 0.
     end
 
 end

@@ -129,9 +129,27 @@ end
 
 function Base.copyto!(x::SparseIterate, y::SparseIterate)
     size(x) == size(y) || throw(DimensionMismatch())
-    copyto!(x.nzval, y.nzval)
-    copyto!(x.nzval2ind, y.nzval2ind)
-    copyto!(x.ind2nzval, y.ind2nzval)
+    _copyto_stored!(x, y)
+end
+
+# Copy the stored entries of y into x, an iterate of the same size. When both are
+# sparse, touch only their stored entries; otherwise copying whole arrays is faster.
+function _copyto_stored!(x, y)
+    if 4 * (x.nnz + y.nnz) < length(x.ind2nzval)
+        @inbounds for k = 1:x.nnz
+            x.ind2nzval[x.nzval2ind[k]] = 0
+        end
+        @inbounds for k = 1:y.nnz
+            i = y.nzval2ind[k]
+            x.nzval[k] = y.nzval[k]
+            x.nzval2ind[k] = i
+            x.ind2nzval[i] = k
+        end
+    else
+        copyto!(x.nzval, y.nzval)
+        copyto!(x.nzval2ind, y.nzval2ind)
+        copyto!(x.ind2nzval, y.ind2nzval)
+    end
     x.nnz = y.nnz
     x
 end
@@ -406,12 +424,7 @@ Base.similar(A::SymmetricSparseIterate, ::Type{S}) where {S} = SymmetricSparseIt
 
 function Base.copyto!(x::SymmetricSparseIterate, y::SymmetricSparseIterate)
     size(x) == size(y) || throw(DimensionMismatch())
-    copyto!(x.nzval, y.nzval)
-    copyto!(x.nzval2ind, y.nzval2ind)
-    copyto!(x.ind2nzval, y.ind2nzval)
-    x.nnz = y.nnz
-    x.p = y.p
-    x
+    _copyto_stored!(x, y)
 end
 
 function SparseArrays.dropzeros!(x::SymmetricSparseIterate{T}) where T

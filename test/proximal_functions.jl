@@ -63,6 +63,11 @@ end
 
     @test value(g, x) ≈ dot(lambda, abs.(x))
     @test value(g, hat_x) ≈ dot(lambda, abs.(hat_x))
+
+    # the scaled weights are not materialized
+    prox_allocs(g, out, x) = @allocated prox!(g, out, x, 0.5)
+    prox_allocs(g, hat_x, x)
+    @test prox_allocs(g, hat_x, x) == 0
   end
 
 
@@ -181,6 +186,20 @@ end
     end
 
     @test value(g, 1., -2.) ≈ 0.3 * 3. + 0.7 * 3.
+  end
+
+  @testset "Float32" begin
+    # x and y within 2λ2γ of each other are fused to their average before shrinking
+    z = ProximalBase.proxL1Fused(1f0, 1.1f0, 0.1f0, 0.5f0)
+    @test z isa Tuple{Float32, Float32}
+    @test all(z .≈ 0.95f0)
+
+    x1, x2 = randn(Float32, 20), randn(Float32, 20)
+    out = (zeros(Float32, 20), zeros(Float32, 20))
+    prox!(ProxL1Fused(0.3f0, 0.7f0), out, (x1, x2), 0.5f0)
+    for i=1:20
+      @test (out[1][i], out[2][i]) == ProximalBase.proxL1Fused(x1[i], x2[i], 0.3f0, 0.7f0, 0.5f0)
+    end
   end
 end # proximal_l1
 
@@ -359,6 +378,16 @@ end
   sol = Matrix{Float64}(I, p, p) * (-(1. - ρ)+sqrt((1. - ρ)^2 + 4. * ρ)) / (2. * ρ)
   @test prox!(g, out, V, γ) ≈ sol
 
+  # general S: Z = prox satisfies the optimality condition S - Z⁻¹ + (Z - X)/γ = 0
+  p = 20
+  A = randn(2p, p)
+  S = Symmetric(A'A / 2p)
+  B = randn(2p, p)
+  X = B'B / 2p + I
+  g = ProxGaussLikelihood(S)
+  Z = prox(g, X, 0.7)
+  @test S - inv(Z) + (Z - X) / 0.7 ≈ zeros(p, p) atol = 1e-8
+  @test value(g, X) ≈ tr(S * X) - logdet(X)
 end
 
 end

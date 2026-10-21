@@ -61,6 +61,9 @@ end
     @test xti[i] ≈ xt[i]
   end
 
+  # the same matrix with only its lower triangle stored; the other entries are NaN
+  lowerstored(S) = Symmetric(tril(Matrix(S)) + triu(fill(NaN, size(S)), 1), :L)
+
   # symmetric A * X * B
   X = randn(100, 50)
   Σx = Symmetric(cov(X))
@@ -72,6 +75,19 @@ end
   A = Σx * Δ * Σy
   Δs = SymmetricSparseIterate(Δ)
   @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ A
+  @test A_mul_X_mul_B(lowerstored(Σx), Δs, lowerstored(Σy)) ≈ A
+  @test [A_mul_X_mul_B_rc(Σx, Δs, Σy, r, c) for r=1:50, c=1:50] ≈ A
+
+  # very sparse X: the products use only the rows and columns of X that hold entries
+  Δ = sparse([3, 7, 20, 7], [3, 2, 11, 7], [1.5, -2., 3., 0.5], 50, 50)
+  Δs = SymmetricSparseIterate(Δ + Δ')
+  A = Σx * Matrix(Δ + Δ') * Σy
+  @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ A
+  @test A_mul_X_mul_B(lowerstored(Σx), Δs, lowerstored(Σy)) ≈ A
+  Δs[11, 20] = 0.                      # stored zero, the only entry in rows 11 and 20
+  @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ Σx * Matrix(Δs) * Σy
+  @test A_mul_X_mul_B(Σx, SymmetricSparseIterate(50), Σy) == zeros(50, 50)
+  @test_throws DimensionMismatch A_mul_X_mul_B(Σx, SymmetricSparseIterate(10), Σy)
 
   # symmetric A * U * U' * B
   X = randn(100, 50)
@@ -82,11 +98,15 @@ end
 
   A = (Σx * U)*(U' * Σy)
   @test A_mul_UUt_mul_B(Σx, U, Σy) ≈ A
+  @test A_mul_UUt_mul_B(lowerstored(Σx), U, lowerstored(Σy)) ≈ A
+  @test [A_mul_UUt_mul_B_rc(Σx, U, Σy, r, c) for r=1:50, c=1:50] ≈ A
 
   # symmetric A * U * V' * B
   V = randn(50, 5)
   A = (Σx * U)*(V' * Σy)
   @test ProximalBase.A_mul_UVt_mul_B(Σx, U, V, Σy) ≈ A
+  @test ProximalBase.A_mul_UVt_mul_B(lowerstored(Σx), U, V, lowerstored(Σy)) ≈ A
+  @test [ProximalBase.A_mul_UVt_mul_B_rc(Σx, U, V, Σy, r, c) for r=1:50, c=1:50] ≈ A
 
 
   # asymmetric A * X * B
@@ -106,6 +126,18 @@ end
   end
 
   @test R ≈ A
+  @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ A
+  @test A_mul_X_mul_B(lowerstored(Σx), Δs, lowerstored(Σy)) ≈ A
+
+  # very sparse X, including one full column and one full row, which take
+  # the two multiplication orders
+  for Δ in (sparse([3, 7, 20], [2, 2, 11], [1.5, -2., 3.], 50, 50),
+            sparse(1:50, fill(4, 50), randn(50), 50, 50),
+            sparse(fill(4, 50), 1:50, randn(50), 50, 50))
+    @test A_mul_X_mul_B(Σx, SparseIterate(Δ[:]), Σy) ≈ Σx * Matrix(Δ) * Σy
+  end
+  @test A_mul_X_mul_B(Σx, SparseIterate(2500), Σy) == zeros(50, 50)
+  @test_throws DimensionMismatch A_mul_X_mul_B(Σx, SparseIterate(100), Σy)
 end
 
 @testset "regressions" begin

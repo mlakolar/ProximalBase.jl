@@ -60,21 +60,28 @@ function value(f::L2Loss{T, N}, x::AbstractArray{T}) where {T<:AbstractFloat, N}
     y = f.y
     @assert size(y) == size(x)
     @inbounds @simd for i in eachindex(x)
-      s += (x[i]-y[i])^2.
+      s += abs2(x[i]-y[i])
     end
   else
     s = sum(abs2, x)
   end
-  s / 2.
+  s / 2
 end
 
 function value_and_gradient!(f::L2Loss{T, N}, hat_x::AbstractArray{T}, x::AbstractArray{T}) where {T<:AbstractFloat, N}
   if N == 1
-    @. hat_x = x - f.y
+    y = f.y
+    axes(y) == axes(x) == axes(hat_x) || throw(DimensionMismatch())
+    s = zero(T)
+    @inbounds @simd for i in eachindex(x)
+      d = x[i] - y[i]
+      hat_x[i] = d
+      s += abs2(d)
+    end
   else
-    copyto!(hat_x, x)
+    s = sum(abs2, copyto!(hat_x, x))
   end
-  sum(abs2, hat_x) / 2.
+  s / 2
 end
 
 ################ creates a function x'Ax/2 + b'x + c
@@ -153,8 +160,8 @@ LeastSquaresLoss(Y::AbstractVecOrMat{T}, X::AbstractMatrix{T}) where {T<:Abstrac
 function value(f::LeastSquaresLoss{T}, x) where {T<:AbstractFloat}
   mul!(f.tmp, f.X, x)
   v = zero(T)
-  @inbounds for i in eachindex(f.tmp)
-    v += (f.Y[i] - f.tmp[i])^2.
+  @inbounds @simd for i in eachindex(f.tmp)
+    v += abs2(f.Y[i] - f.tmp[i])
   end
   v / 2.
 end

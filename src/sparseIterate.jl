@@ -129,9 +129,27 @@ end
 
 function Base.copyto!(x::SparseIterate, y::SparseIterate)
     size(x) == size(y) || throw(DimensionMismatch())
-    copyto!(x.nzval, y.nzval)
-    copyto!(x.nzval2ind, y.nzval2ind)
-    copyto!(x.ind2nzval, y.ind2nzval)
+    _copyto_stored!(x, y)
+end
+
+# Copy the stored entries of y into x, an iterate of the same size. When both are
+# sparse, touch only their stored entries; otherwise copying whole arrays is faster.
+function _copyto_stored!(x, y)
+    if 4 * (x.nnz + y.nnz) < length(x.ind2nzval)
+        @inbounds for k = 1:x.nnz
+            x.ind2nzval[x.nzval2ind[k]] = 0
+        end
+        @inbounds for k = 1:y.nnz
+            i = y.nzval2ind[k]
+            x.nzval[k] = y.nzval[k]
+            x.nzval2ind[k] = i
+            x.ind2nzval[i] = k
+        end
+    else
+        copyto!(x.nzval, y.nzval)
+        copyto!(x.nzval2ind, y.nzval2ind)
+        copyto!(x.ind2nzval, y.ind2nzval)
+    end
     x.nnz = y.nnz
     x
 end
@@ -290,10 +308,9 @@ function LinearAlgebra.mul!(out::AbstractVector, transA::TransposedStridedMatrix
     length(coef) == size(A, 1) || throw(DimensionMismatch("A has first dimension $(size(A,1)), length of coef is $(length(coef))"))
     length(out) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), length of out is $(length(out))"))
 
-    fill!(out, zero(eltype(out)))
     @inbounds for j = 1:size(A, 2)
         s = zero(eltype(out))
-        for inz = 1:nnz(coef)
+        @simd for inz = 1:nnz(coef)
             s += A[coef.nzval2ind[inz], j] * coef.nzval[inz]
         end
         out[j] = s
@@ -406,12 +423,7 @@ Base.similar(A::SymmetricSparseIterate, ::Type{S}) where {S} = SymmetricSparseIt
 
 function Base.copyto!(x::SymmetricSparseIterate, y::SymmetricSparseIterate)
     size(x) == size(y) || throw(DimensionMismatch())
-    copyto!(x.nzval, y.nzval)
-    copyto!(x.nzval2ind, y.nzval2ind)
-    copyto!(x.ind2nzval, y.ind2nzval)
-    x.nnz = y.nnz
-    x.p = y.p
-    x
+    _copyto_stored!(x, y)
 end
 
 function SparseArrays.dropzeros!(x::SymmetricSparseIterate{T}) where T

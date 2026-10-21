@@ -24,6 +24,19 @@ Random.seed!(1)
   @test value_and_gradient!(f2, hat_x, x) ≈ sum(abs2,x-y)/2.
   @test hat_x ≈ x-y
 
+  # gradient written over its own input
+  z = copy(x)
+  @test value_and_gradient!(f2, z, z) ≈ sum(abs2,x-y)/2.
+  @test z ≈ x-y
+
+  @test_throws DimensionMismatch value_and_gradient!(f2, zeros(4), x)
+
+  # Float32 in, Float32 out
+  x32, y32 = randn(Float32, 5), randn(Float32, 5)
+  @test value(L2Loss(y32), x32) isa Float32
+  @test value_and_gradient!(L2Loss(y32), similar(x32), x32) isa Float32
+  @test value(L2Loss(y32), x32) ≈ sum(abs2, x32 - y32) / 2
+
 end
 
 @testset "Quadratic Function" begin

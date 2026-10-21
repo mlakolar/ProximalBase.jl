@@ -19,10 +19,12 @@ export
   DifferentiableFunction,
   ProximableFunction,
   SparseIterate, SymmetricSparseIterate, AtomIterate, numCoordinates,
+  activate!,
 
   # smooth functions
   QuadraticFunction, L2Loss, LeastSquaresLoss,
   value, value_and_gradient!, gradient!,
+  restrict,
 
   # proximal functions
   ProxZero,
@@ -31,6 +33,7 @@ export
   ProxL1Fused,
   ProxGaussLikelihood,
   prox!, prox, cdprox!,
+  kkt_violation,
 
   # utils
   shrink, shrinkL2!,

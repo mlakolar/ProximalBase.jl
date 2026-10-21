@@ -23,6 +23,11 @@ Random.seed!(1)
   xs = SparseIterate(x)
   @test cdprox!(f, xs, 3, 1.) == x[3]
   @test Vector(xs) == x
+
+  @test restrict(f, [2, 5]) === f
+  grad = [0.5, -2., 0.]
+  @test kkt_violation(f, grad, 2) == 2.
+  @test kkt_violation(f, grad, 3) == 0.
 end
 
 @testset "proximal_l1" begin
@@ -106,6 +111,41 @@ end
       @test cdprox!(g, xs, k, 1.) ≈ shrink(v, λ0)
     end
     @test Matrix(xs) ≈ prox(g, Matrix(M))
+  end
+
+  @testset "restrict" begin
+    x = randn(10)
+    S = [7, 2, 9]
+    z = zeros(10)
+    z[S] = x[S]                 # supported on S
+
+    g = ProxL1(0.5)
+    @test restrict(g, S) === g
+
+    λ = rand(10)
+    g = ProxL1(0.5, λ)
+    gS = restrict(g, S)
+    @test gS.λ0 == 0.5
+    @test gS.λ == λ[S]
+    @test value(gS, x[S]) ≈ value(g, z)
+    @test prox(gS, x[S], 2.) ≈ prox(g, x, 2.)[S]
+  end
+
+  @testset "kkt_violation" begin
+    grad = [0.3, -1.2, 0.8]
+    g = ProxL1(0.5)
+    @test kkt_violation(g, grad, 1) ≈ -0.2
+    @test kkt_violation(g, grad, 2) ≈ 0.7
+
+    g = ProxL1(0.5, [1., 3., 1.])
+    @test kkt_violation(g, grad, 2) ≈ -0.3
+    @test kkt_violation(g, grad, 3) ≈ 0.3
+
+    # a coordinate at zero violates optimality exactly when a proximal gradient
+    # step moves it away from zero
+    for g in (ProxL1(0.5), ProxL1(0.5, [1., 3., 1.])), i in 1:3
+      @test (kkt_violation(g, grad, i) > 0) == !iszero(prox(g, -grad)[i])
+    end
   end
 end
 

@@ -87,6 +87,13 @@ coordinate-wise updates
 | `SymmetricSparseIterate` | Sparse symmetric matrix storing only the lower triangle |
 | `AtomIterate` | Dense array split into equal-sized groups, for group penalties |
 
+**Active sets**: the stored entries of a `SparseIterate` can serve as the
+active set of an active-set solver. `activate!(x, i)` stores coordinate `i` as
+an explicit zero, `restrict(f, S)` and `restrict(g, S)` give the smooth function
+and the penalty on the coordinates `S` (for `QuadraticFunction`, `L2Loss`,
+`LeastSquaresLoss`, `ProxZero` and `ProxL1`), and `kkt_violation(g, grad, i)`
+measures how much a coordinate at zero violates optimality.
+
 **Utilities**: `shrink`, `shrinkL2!`, `proxL1Fused`, `A_mul_B_row`,
 `At_mul_B_row`, `A_mul_X_mul_B`, `A_mul_UUt_mul_B`, `norm_diff`, and index
 helpers for lower-triangular storage.

@@ -126,6 +126,25 @@ function Base.setindex!(x::SparseIterate{T}, v::T, i::Int) where {T}
   x
 end
 
+"""
+    activate!(x::SparseIterate, i)
+
+Store entry `i` of `x` as an explicit zero if it is not stored already, and
+return `x`. Assigning a zero does not store an entry, so this is how a
+coordinate joins the stored entries, for example the active set of an
+active-set solver. `dropzeros!` removes the entry again while it is zero.
+"""
+function activate!(x::SparseIterate{T}, i::Int) where {T}
+  checkbounds(x, i)
+  if x.ind2nzval[i] == 0
+    x.nnz += 1
+    x.nzval[x.nnz] = zero(T)
+    x.nzval2ind[x.nnz] = i
+    x.ind2nzval[i] = x.nnz
+  end
+  x
+end
+
 
 function Base.copyto!(x::SparseIterate, y::SparseIterate)
     size(x) == size(y) || throw(DimensionMismatch())

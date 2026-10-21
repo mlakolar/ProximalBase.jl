@@ -190,20 +190,14 @@ end
 Compute `A * X * B` for symmetric `A`, `B` and a sparse `X`; see
 [`A_mul_X_mul_B_rc`](@ref).
 """
-function A_mul_X_mul_B(
-  A::Symmetric{T},
-  X::Union{SymmetricSparseIterate{T},SparseIterate{T}},
-  B::Symmetric{T}
-  ) where {T<:AbstractFloat}
-
-  p = size(A, 1)
-  out = zeros(T, p, p)
-
-  for c=1:p, r=1:p
-    @inbounds out[r,c] = A_mul_X_mul_B_rc(A, X, B, r, c)
-  end
-  out
+function A_mul_X_mul_B(A::Symmetric{T}, X::SymmetricSparseIterate{T}, B::Symmetric{T}) where {T<:AbstractFloat}
+  # dense BLAS products are much faster than filling in the result entry by entry
+  # with A_mul_X_mul_B_rc, which costs O(p² nnz(X))
+  A * (Matrix(X) * B)
 end
+
+A_mul_X_mul_B(A::Symmetric{T}, X::SparseIterate{T, 1}, B::Symmetric{T}) where {T<:AbstractFloat} =
+  A * (reshape(Vector(X), size(A, 2), size(B, 1)) * B)
 
 
 
@@ -232,23 +226,8 @@ function A_mul_UVt_mul_B_rc(
   v
 end
 
-function A_mul_UVt_mul_B(
-    A::Symmetric{T},
-    U::StridedMatrix{T},
-    V::StridedMatrix{T},
-    B::Symmetric{T}
-  ) where {T<:AbstractFloat}
-
-  # check input dimensions
-
-  p = size(A, 1)
-  out = zeros(T, p, p)
-
-  for c=1:p, r=1:p
-    @inbounds out[r,c] = A_mul_UVt_mul_B_rc(A, U, V, B, r, c)
-  end
-  out
-end
+A_mul_UVt_mul_B(A::Symmetric{T}, U::StridedMatrix{T}, V::StridedMatrix{T}, B::Symmetric{T}) where {T<:AbstractFloat} =
+  (A * U) * transpose(B * V)
 
 
 """
@@ -284,21 +263,8 @@ end
 
 Compute `A * U * U' * B` for symmetric `A`, `B` without forming `U * U'`.
 """
-function A_mul_UUt_mul_B(A::Symmetric{T},
-  U::StridedMatrix{T},
-  B::Symmetric{T}
-  ) where {T<:AbstractFloat}
-
-  # check input dimensions
-
-  p = size(A, 1)
-  out = zeros(T, p, p)
-
-  for c=1:p, r=1:p
-    @inbounds out[r,c] = A_mul_UUt_mul_B_rc(A, U, B, r, c)
-  end
-  out
-end
+A_mul_UUt_mul_B(A::Symmetric{T}, U::StridedMatrix{T}, B::Symmetric{T}) where {T<:AbstractFloat} =
+  (A * U) * transpose(B * U)
 
 
 #####

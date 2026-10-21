@@ -61,6 +61,9 @@ end
     @test xti[i] ≈ xt[i]
   end
 
+  # the same matrix with only its lower triangle stored; the other entries are NaN
+  lowerstored(S) = Symmetric(tril(Matrix(S)) + triu(fill(NaN, size(S)), 1), :L)
+
   # symmetric A * X * B
   X = randn(100, 50)
   Σx = Symmetric(cov(X))
@@ -72,6 +75,7 @@ end
   A = Σx * Δ * Σy
   Δs = SymmetricSparseIterate(Δ)
   @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ A
+  @test A_mul_X_mul_B(lowerstored(Σx), Δs, lowerstored(Σy)) ≈ A
 
   # symmetric A * U * U' * B
   X = randn(100, 50)
@@ -82,11 +86,13 @@ end
 
   A = (Σx * U)*(U' * Σy)
   @test A_mul_UUt_mul_B(Σx, U, Σy) ≈ A
+  @test A_mul_UUt_mul_B(lowerstored(Σx), U, lowerstored(Σy)) ≈ A
 
   # symmetric A * U * V' * B
   V = randn(50, 5)
   A = (Σx * U)*(V' * Σy)
   @test ProximalBase.A_mul_UVt_mul_B(Σx, U, V, Σy) ≈ A
+  @test ProximalBase.A_mul_UVt_mul_B(lowerstored(Σx), U, V, lowerstored(Σy)) ≈ A
 
 
   # asymmetric A * X * B
@@ -106,6 +112,8 @@ end
   end
 
   @test R ≈ A
+  @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ A
+  @test A_mul_X_mul_B(lowerstored(Σx), Δs, lowerstored(Σy)) ≈ A
 end
 
 @testset "regressions" begin

@@ -257,16 +257,15 @@ struct ProxGaussLikelihood{T} <: ProximableFunction
 end
 ProxGaussLikelihood(S::Symmetric) = ProxGaussLikelihood{eltype(S)}(S, zeros(eltype(S),size(S)))
 
-value(g::ProxGaussLikelihood{T}, X::StridedMatrix{T}) where {T<:AbstractFloat} = tr(g.S*X) - logdet(X)
+# tr(SX) = dot(S, X) for symmetric S, without forming the product SX
+value(g::ProxGaussLikelihood{T}, X::StridedMatrix{T}) where {T<:AbstractFloat} = dot(g.S, X) - logdet(X)
 function prox!(g::ProxGaussLikelihood{T}, hX::StridedMatrix{T}, X::StridedMatrix{T}, γ::T) where {T<:AbstractFloat}
   S = g.S
   tmp = g.tmp
 
   ρ = one(T) / γ
   @. tmp = X * ρ - S
-  ef = eigen!(Symmetric(tmp))
-  d =  ef.values::Vector{T}
-  U = ef.vectors::Matrix{T}
+  d, U = _eigen_sym!(tmp)::Tuple{Vector{T}, Matrix{T}}
   @inbounds @simd for i in eachindex(d)
     t = d[i]
     d[i] = sqrt( (t + sqrt(t^2. + 4. * ρ)) / (2. * ρ) )
@@ -274,6 +273,12 @@ function prox!(g::ProxGaussLikelihood{T}, hX::StridedMatrix{T}, X::StridedMatrix
   rmul!(U, Diagonal(d))
   mul!(hX, U, transpose(U))
 end
+
+# Eigenvalues and eigenvectors of the symmetric matrix stored in the upper triangle
+# of A, overwriting A. LAPACK's divide-and-conquer driver (syevd) is faster than the
+# one eigen! uses (syevr) for all but small matrices.
+_eigen_sym!(A::StridedMatrix{<:LinearAlgebra.BlasReal}) = LAPACK.syevd!('V', 'U', A)
+_eigen_sym!(A::AbstractMatrix) = (ef = eigen!(Symmetric(A)); (ef.values, ef.vectors))
 
 
 

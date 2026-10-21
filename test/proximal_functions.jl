@@ -359,6 +359,16 @@ end
   sol = Matrix{Float64}(I, p, p) * (-(1. - ρ)+sqrt((1. - ρ)^2 + 4. * ρ)) / (2. * ρ)
   @test prox!(g, out, V, γ) ≈ sol
 
+  # general S: Z = prox satisfies the optimality condition S - Z⁻¹ + (Z - X)/γ = 0
+  p = 20
+  A = randn(2p, p)
+  S = Symmetric(A'A / 2p)
+  B = randn(2p, p)
+  X = B'B / 2p + I
+  g = ProxGaussLikelihood(S)
+  Z = prox(g, X, 0.7)
+  @test S - inv(Z) + (Z - X) / 0.7 ≈ zeros(p, p) atol = 1e-8
+  @test value(g, X) ≈ tr(S * X) - logdet(X)
 end
 
 end

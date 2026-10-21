@@ -29,7 +29,7 @@ export
   # proximal functions
   ProxZero,
   ProxL1,
-  ProxL2, ProxL2Sq, ProxNuclear,
+  ProxL2, ProxGroupL2, ProxL2Sq, ProxNuclear,
   ProxL1Fused,
   ProxGaussLikelihood,
   prox!, prox, cdprox!,

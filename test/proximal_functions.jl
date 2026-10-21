@@ -400,6 +400,154 @@ end
 end
 
 
+@testset "proximal_group_l2" begin
+  # groups of unequal sizes, one not contiguous; index 9 is in no group
+  groups = [1:3, [4, 7], 5:5, [8, 6]]
+  x = [1., -2., 0.5, 0.1, 3., -0.4, -0.2, 0.3, 2.]
+  λ0, γ = 0.4, 0.7
+  g = ProxGroupL2(λ0, groups)
+  w = sqrt.(length.(groups))
+
+  @testset "value and prox" begin
+    @test g.λ == w
+    @test g.groups isa Vector{Vector{Int}}      # the mixed groups are stored as vectors
+    @test value(g, x) ≈ λ0 * sum(w[k] * norm(x[groups[k]]) for k in 1:4)
+    @test value(g, SparseIterate(x)) ≈ value(g, x)
+
+    z = prox(g, x, γ)
+    for k in 1:4
+      G = groups[k]
+      @test z[G] ≈ max(1 - γ * λ0 * w[k] / norm(x[G]), 0) * x[G]
+    end
+    @test z[[4, 7]] == [0., 0.]       # ‖x[[4, 7]]‖ < γ λ0 √2
+    @test z[9] == x[9]
+
+    # z = prox_{γg}(x) exactly when (x - z) / γ is a subgradient of g at z
+    for k in 1:4
+      G = groups[k]
+      if iszero(z[G])
+        @test norm(x[G]) / γ <= λ0 * w[k]
+      else
+        @test (x[G] - z[G]) / γ ≈ λ0 * w[k] * z[G] / norm(z[G])
+      end
+    end
+
+    out = randn(9)
+    @test prox!(g, out, x, γ) === out
+    @test out == z
+    y = copy(x)
+    @test prox!(g, y, y, γ) == z      # in place
+
+    prox_allocs(g, out, x) = @allocated prox!(g, out, x, 0.5)
+    value_allocs(g, x) = @allocated value(g, x)
+    prox_allocs(g, out, x)
+    value_allocs(g, x)
+    @test prox_allocs(g, out, x) == 0
+    @test value_allocs(g, x) == 0
+  end
+
+  @testset "special cases" begin
+    v = randn(10)
+
+    # groups of one index: the ℓ1 norm
+    singletons = [[i] for i in 1:10]
+    @test prox(ProxGroupL2(0.3, singletons), v, γ) ≈ prox(ProxL1(0.3), v, γ)
+    @test value(ProxGroupL2(0.3, singletons), v) ≈ value(ProxL1(0.3), v)
+    λ = rand(10)
+    @test prox(ProxGroupL2(0.3, singletons, λ), v, γ) ≈ prox(ProxL1(0.3, λ), v, γ)
+
+    # one group: the Euclidean norm
+    @test prox(ProxGroupL2(0.3, [1:10], [1.]), v, γ) ≈ prox(ProxL2(0.3), v, γ)
+
+    # equal-sized contiguous groups: ProxL2 with weights on an AtomIterate
+    a, out = AtomIterate(10, 2), AtomIterate(10, 2)
+    a .= v
+    prox!(ProxL2(0.3, [1., 2.]), out, a, γ)
+    @test prox(ProxGroupL2(0.3, [1:5, 6:10], [1., 2.]), v, γ) ≈ out.storage
+    @test value(ProxGroupL2(0.3, [1:5, 6:10], [1., 2.]), v) ≈ value(ProxL2(0.3, [1., 2.]), a)
+
+    # groups of linear indices of a matrix, here its rows
+    M = randn(3, 4)
+    Z = prox(ProxGroupL2(0.3, [i:3:12 for i in 1:3], ones(3)), M, γ)
+    for i in 1:3
+      @test Z[i, :] ≈ max(1 - γ * 0.3 / norm(M[i, :]), 0) * M[i, :]
+    end
+
+    # a zero weight leaves its group unpenalized; no groups, nothing
+    @test prox(ProxGroupL2(λ0, groups, [1., 1., 0., 1.]), x, γ)[5] == x[5]
+    g0 = ProxGroupL2(λ0, UnitRange{Int}[])
+    @test value(g0, x) == 0.
+    @test prox(g0, x, γ) == x
+  end
+
+  @testset "constructors" begin
+    @test_throws ArgumentError ProxGroupL2(λ0, [1:3, 3:4])        # overlapping
+    @test_throws ArgumentError ProxGroupL2(λ0, [[1, 2, 1]])        # repeated index
+    @test_throws ArgumentError ProxGroupL2(λ0, [1:3, Int[]])       # empty
+    @test_throws ArgumentError ProxGroupL2(λ0, [0:2])
+    @test_throws ArgumentError ProxGroupL2(-1., [1:3])
+    @test_throws ArgumentError ProxGroupL2(λ0, [1:3], [-1.])
+    @test_throws DimensionMismatch ProxGroupL2(λ0, [1:3], [1., 2.])
+
+    @test_throws BoundsError value(g, randn(7))                    # index 8 is in a group
+    @test_throws BoundsError prox(g, randn(7))
+    @test_throws DimensionMismatch prox!(g, zeros(8), x, γ)
+  end
+
+  @testset "Float32" begin
+    g32 = ProxGroupL2(0.4f0, groups)
+    @test g32 isa ProxGroupL2{Float32}
+    z32 = prox(g32, Float32.(x), 0.7f0)
+    @test z32 isa Vector{Float32}
+    @test z32 ≈ Float32.(prox(g, x, γ))
+    @test value(g32, Float32.(x)) isa Float32
+  end
+
+  @testset "restrict" begin
+    gw = ProxGroupL2(λ0, groups, [1., 2., 3., 4.])
+    S = [7, 2, 9, 1, 4]       # part of group 1, all of group 2, and index 9
+    z = zeros(9)
+    z[S] = x[S]               # supported on S
+
+    gS = restrict(gw, S)
+    @test gS.groups == [[2, 4], [1, 5]]       # positions in S
+    @test gS.λ == [1., 2.]
+    @test gS.λ0 == λ0
+    @test value(gS, x[S]) ≈ value(gw, z)
+    @test prox(gS, x[S], γ) ≈ prox(gw, z, γ)[S]
+
+    # no group meets S
+    gE = restrict(gw, [9])
+    @test value(gE, [5.]) == 0.
+    @test prox(gE, [5.]) == [5.]
+  end
+
+  @testset "kkt_violation" begin
+    grad = [0.3, -1.2, 0.8, 0.1, -0.5, 0.2, 0.6, -0.1, 0.4]
+    xk = zeros(9)
+    xk[4], xk[5] = 1., 2.     # groups 2 and 3 are nonzero, groups 1 and 4 zero
+
+    @test kkt_violation(g, grad, xk, 1) ≈ norm(grad[1:3]) - λ0 * √3
+    @test kkt_violation(g, grad, xk, 3) == kkt_violation(g, grad, xk, 1)
+    @test kkt_violation(g, grad, xk, 7) == abs(grad[7])      # x[7] = 0 in a nonzero group
+    @test kkt_violation(g, grad, xk, 9) == abs(grad[9])      # in no group
+    @test kkt_violation(g, grad, SparseIterate(xk), 7) == abs(grad[7])
+    @test_throws MethodError kkt_violation(g, grad, 1)
+
+    # at x = 0, an index violates optimality exactly when a proximal gradient step
+    # moves it away from zero
+    for i in 1:9
+      @test (kkt_violation(g, grad, zeros(9), i) > 0) == !iszero(prox(g, -grad)[i])
+    end
+
+    # for the separable penalties, the rest of x does not matter
+    for gs in (ProxL1(0.5), ProxL1(0.5, rand(9)), ProxZero()), i in 1:9
+      @test kkt_violation(gs, grad, xk, i) == kkt_violation(gs, grad, i)
+    end
+  end
+end
+
+
 @testset "proximal_logdet" begin
   p = 10
 

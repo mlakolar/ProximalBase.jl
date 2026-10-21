@@ -49,7 +49,9 @@ For such `x`, at `x[S]` the restriction `restrict(g, S)` has value `g(x)`, and
 `L2Loss(y)`, whose restriction `L2Loss(y[S])` drops the constant
 `Σⱼ∉S yⱼ² / 2`. Defined for [`QuadraticFunction`](@ref),
 [`L2Loss`](@ref), [`LeastSquaresLoss`](@ref) with a vector response,
-[`ProxZero`](@ref) and [`ProxL1`](@ref).
+[`ProxZero`](@ref), [`ProxL1`](@ref) and [`ProxGroupL2`](@ref), whose
+restriction keeps the part of each group in `S`, as positions in `S`, with the
+group's weight.
 """
 function restrict end
 

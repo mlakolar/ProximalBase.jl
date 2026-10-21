@@ -74,6 +74,7 @@ coordinate-wise updates
 | `ProxZero()` | `0` |
 | `ProxL1(λ0)`, `ProxL1(λ0, λ)` | `λ0 Σⱼ λⱼ \|xⱼ\|` |
 | `ProxL2(λ0)`, `ProxL2(λ0, λ)` | `λ0 ‖x‖₂`, or group lasso `λ0 Σₖ λₖ ‖xₖ‖₂` on an `AtomIterate` |
+| `ProxGroupL2(λ0, groups)`, `ProxGroupL2(λ0, groups, λ)` | group lasso `λ0 Σₖ λₖ ‖x[Gₖ]‖₂` over disjoint groups of any sizes, with `λₖ = √\|Gₖ\|` by default |
 | `ProxL2Sq(λ)` | `λ ‖x‖₂²` |
 | `ProxNuclear(λ)` | `λ ‖X‖_*` |
 | `ProxL1Fused(λ1, λ2)` | `λ1 (\|x1\| + \|x2\|) + λ2 \|x1 - x2\|` |
@@ -91,8 +92,10 @@ coordinate-wise updates
 active set of an active-set solver. `activate!(x, i)` stores coordinate `i` as
 an explicit zero, `restrict(f, S)` and `restrict(g, S)` give the smooth function
 and the penalty on the coordinates `S` (for `QuadraticFunction`, `L2Loss`,
-`LeastSquaresLoss`, `ProxZero` and `ProxL1`), and `kkt_violation(g, grad, i)`
-measures how much a coordinate at zero violates optimality.
+`LeastSquaresLoss`, `ProxZero`, `ProxL1` and `ProxGroupL2`), and
+`kkt_violation(g, grad, x, i)` measures how much a coordinate at zero violates
+optimality. For the separable penalties `ProxZero` and `ProxL1`, the shorter
+`kkt_violation(g, grad, i)` gives the same value.
 
 **Utilities**: `shrink`, `shrinkL2!`, `proxL1Fused`, `A_mul_B_row`,
 `At_mul_B_row`, `A_mul_X_mul_B`, `A_mul_UUt_mul_B`, `norm_diff`, and index

@@ -103,4 +103,25 @@ end
   @test R ≈ A
 end
 
+@testset "regressions" begin
+  # At_mul_B_row with SparseIterate on a non-square matrix
+  A = randn(3, 5)
+  b = SparseIterate(randn(3))
+  @test At_mul_B_row(A, b, 5) ≈ dot(A[:, 5], Vector(b))
+
+  # vec2tril with SparseIterate
+  x = SparseIterate(6)
+  x[2] = 1.0
+  x[6] = 2.0
+  @test Matrix(ProximalBase.vec2tril(x, 3)) == [0. 0. 0.; 1. 0. 0.; 0. 0. 2.]
+
+  # norm_diff
+  A, B = randn(4, 3), randn(4, 3)
+  @test norm_diff(A, B) ≈ norm(A - B)
+  @test norm_diff(A, B, Inf) ≈ maximum(abs, A - B)
+
+  # Vector of an empty SparseIterate
+  @test Vector(SparseIterate(0)) == Float64[]
+end
+
 end

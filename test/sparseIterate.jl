@@ -37,6 +37,40 @@ using SparseArrays
         @test Vector(x) == [0., 0., 0.]
     end
 
+    @testset "activate!" begin
+        x = SparseIterate(5)
+        x[2] = 1.
+        x[4] = 0.                       # assigning a zero does not store the entry
+        @test nnz(x) == 1
+        @test activate!(x, 4) === x
+        @test nnz(x) == 2
+        @test x[4] == 0.
+        @test x.nzval2ind[1:nnz(x)] == [2, 4]
+        @test x.nzval[1:nnz(x)] == [1., 0.]
+
+        # activating a stored entry changes nothing
+        activate!(x, 2)
+        activate!(x, 4)
+        @test nnz(x) == 2
+        @test Vector(x) == [0., 1., 0., 0., 0.]
+
+        # the activated entry is written in place, and dropzeros! removes it while zero
+        x[4] = 3.
+        @test nnz(x) == 2
+        @test Vector(x) == [0., 1., 0., 3., 0.]
+        x[4] = 0.
+        dropzeros!(x)
+        @test nnz(x) == 1
+        @test x.nzval2ind[1:nnz(x)] == [2]
+
+        @test_throws BoundsError activate!(x, 6)
+
+        y = SparseIterate(Float32, 2, 3)
+        activate!(y, 5)
+        @test nnz(y) == 1
+        @test y[1, 3] === 0f0
+    end
+
 
     @testset "show" begin
         io = IOBuffer()

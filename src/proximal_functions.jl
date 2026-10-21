@@ -38,6 +38,17 @@ indexes a group rather than a single entry. Coordinates are numbered
 """
 function cdprox! end
 
+"""
+    kkt_violation(g, grad, i)
+
+How much coordinate `i` of a point `x` with `x[i] = 0` violates the optimality
+condition `0 ∈ grad[i] + ∂ᵢg(x)` of `f + g`, where `grad = ∇f(x)`. A positive
+value means that moving `x[i]` away from zero decreases the objective; a value
+`≤ 0` means that `x[i] = 0` is optimal. For [`ProxL1`](@ref) it is
+`|grad[i]| - λ0 λᵢ`, and for [`ProxZero`](@ref) it is `|grad[i]|`.
+"""
+function kkt_violation end
+
 prox!(g::ProximableFunction, hat_x::AbstractArray, x::AbstractArray) = prox!(g, hat_x, x, one(eltype(x)))
 prox(g::ProximableFunction,                        x::AbstractArray, γ) = prox!(g, similar(x), x, γ)
 prox(g::ProximableFunction,                        x::AbstractArray) = prox!(g, similar(x), x, one(eltype(x)))
@@ -63,6 +74,9 @@ function prox!(::ProxZero, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T}, �
 end
 
 cdprox!(g::ProxZero, x::Union{SparseIterate{T},SymmetricSparseIterate{T}}, k::Int, γ::T) where {T} = x[k]
+
+restrict(g::ProxZero, ::AbstractVector{<:Integer}) = g
+kkt_violation(::ProxZero, grad::AbstractArray, i::Int) = abs(grad[i])
 
 ##########################################################
 ######  L1 norm  g(x) = λ0 ⋅ \sum_j λ_j |x_j|
@@ -108,6 +122,12 @@ prox!(g::ProxL1{T, Nothing}, out_x::AbstractArray{T}, x::AbstractArray{T}, γ::T
   out_x .= shrink.(x, γ * g.λ0)
 cdprox!(g::ProxL1{T, Nothing}, x::Union{SparseIterate{T},SymmetricSparseIterate{T}}, k::Int, γ::T) where {T} =
   x[k] = shrink(x[k], g.λ0 * γ)
+
+restrict(g::ProxL1{T, Nothing}, ::AbstractVector{<:Integer}) where {T} = g
+restrict(g::ProxL1{T, S}, I::AbstractVector{<:Integer}) where S <: AbstractArray{T} where {T} = ProxL1(g.λ0, g.λ[I])
+
+kkt_violation(g::ProxL1{T, Nothing}, grad::AbstractArray, i::Int) where {T} = abs(grad[i]) - g.λ0
+kkt_violation(g::ProxL1{T, S}, grad::AbstractArray, i::Int) where S <: AbstractArray{T} where {T} = abs(grad[i]) - g.λ0 * g.λ[i]
 
 ##########################################################
 ###### L1 + Fused  g(x1,x2) = λ1*(|x1|+|x2|) + λ2*|x1-x2|

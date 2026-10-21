@@ -36,6 +36,23 @@ than calling [`value`](@ref) and [`gradient!`](@ref) separately.
 """
 function value_and_gradient! end
 
+"""
+    restrict(f, S)
+    restrict(g, S)
+
+The function of `x[S]` that `f` (or `g`) becomes on the vectors `x` supported on
+the coordinates `S`, as an ordinary function of the same kind. An active-set
+solver minimizes the restriction over the active coordinates `S`.
+
+For such `x`, at `x[S]` the restriction `restrict(g, S)` has value `g(x)`, and
+`restrict(f, S)` has gradient `∇f(x)[S]` and value `f(x)`, except for
+`L2Loss(y)`, whose restriction `L2Loss(y[S])` drops the constant
+`Σⱼ∉S yⱼ² / 2`. Defined for [`QuadraticFunction`](@ref),
+[`L2Loss`](@ref), [`LeastSquaresLoss`](@ref) with a vector response,
+[`ProxZero`](@ref) and [`ProxL1`](@ref).
+"""
+function restrict end
+
 
 ################ creates L2Loss =>  f(x) = ||x - y||^2 / 2
 
@@ -84,6 +101,9 @@ function value_and_gradient!(f::L2Loss{T, N}, hat_x::AbstractArray{T}, x::Abstra
   s / 2
 end
 
+restrict(f::L2Loss{T, 1}, S::AbstractVector{<:Integer}) where {T} = L2Loss(f.y[S])
+restrict(f::L2Loss{T, 0}, ::AbstractVector{<:Integer}) where {T} = f
+
 ################ creates a function x'Ax/2 + b'x + c
 
 """
@@ -126,7 +146,8 @@ function gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::Strid
   hat_x
 end
 
-function value_and_gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::StridedVector{T}) where {T<:AbstractFloat, N}
+# a SparseIterate x takes the O(p⋅nnz(x)) product A * x
+function value_and_gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::Union{StridedVector{T}, SparseIterate{T, 1}}) where {T<:AbstractFloat, N}
   b = f.b
   mul!(hat_x, f.A, x)
   r = dot(hat_x, x) / 2.
@@ -136,6 +157,10 @@ function value_and_gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}
   end
   r + f.c
 end
+
+restrict(f::QuadraticFunction{T, 1}, S::AbstractVector{<:Integer}) where {T} = QuadraticFunction(f.A[S, S])
+restrict(f::QuadraticFunction{T, 2}, S::AbstractVector{<:Integer}) where {T} = QuadraticFunction(f.A[S, S], f.b[S])
+restrict(f::QuadraticFunction{T, 3}, S::AbstractVector{<:Integer}) where {T} = QuadraticFunction(f.A[S, S], f.b[S], f.c)
 
 
 
@@ -176,3 +201,6 @@ function value_and_gradient!(
   mul!(grad_out, transpose(f.X), f.tmp)
   sum(abs2, f.tmp) / 2.
 end
+
+restrict(f::LeastSquaresLoss{T, <:AbstractVector}, S::AbstractVector{<:Integer}) where {T} =
+  LeastSquaresLoss(f.Y, f.X[:, S])

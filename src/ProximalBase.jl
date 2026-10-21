@@ -1,3 +1,17 @@
+"""
+    ProximalBase
+
+Building blocks for proximal and coordinate-descent optimization: smooth loss
+functions with gradients, proximal operators of common penalties, and sparse
+iterate types for coordinate-wise updates.
+
+Proximal operators follow the convention
+
+    prox_{γg}(x) = argmin_z  g(z) + ‖z - x‖² / (2γ),
+
+computed by [`prox!`](@ref) and [`prox`](@ref); [`cdprox!`](@ref) applies the same
+operator to a single coordinate (or group) of an iterate in place.
+"""
 module ProximalBase
 
 export

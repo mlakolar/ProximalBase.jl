@@ -187,6 +187,20 @@ end
 
     @test value(g, 1., -2.) ≈ 0.3 * 3. + 0.7 * 3.
   end
+
+  @testset "Float32" begin
+    # x and y within 2λ2γ of each other are fused to their average before shrinking
+    z = ProximalBase.proxL1Fused(1f0, 1.1f0, 0.1f0, 0.5f0)
+    @test z isa Tuple{Float32, Float32}
+    @test all(z .≈ 0.95f0)
+
+    x1, x2 = randn(Float32, 20), randn(Float32, 20)
+    out = (zeros(Float32, 20), zeros(Float32, 20))
+    prox!(ProxL1Fused(0.3f0, 0.7f0), out, (x1, x2), 0.5f0)
+    for i=1:20
+      @test (out[1][i], out[2][i]) == ProximalBase.proxL1Fused(x1[i], x2[i], 0.3f0, 0.7f0, 0.5f0)
+    end
+  end
 end # proximal_l1
 
 

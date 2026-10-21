@@ -28,14 +28,14 @@ function proxL1Fused(x::T, y::T, λ1::T, λ2::T, γ::T=one(T)) where {T<:Abstrac
 
   if λ2 > zero(T)
     t = λ2 * γ
-    if x > y + 2. * t
+    if x > y + 2 * t
       u = x - t
       v = y + t
-    elseif y > x + 2. * t
+    elseif y > x + 2 * t
       u = x + t
       v = y - t
     else
-      u = v = (x + y) / 2.
+      u = v = (x + y) / 2
     end
   else
     u = x

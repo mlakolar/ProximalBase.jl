@@ -136,6 +136,17 @@ using SparseArrays
         @test size(z) == size(x)
         @test nnz(z) == 0
 
+        # M' takes the same sparse path as transpose(M) for real M
+        @test which(*, typeof.((M', y))).module == ProximalBase
+        @test M' * y ≈ transpose(M) * Vector(w)
+        @test mul!(zeros(50), M', y) ≈ transpose(M) * Vector(w)
+        @test_throws DimensionMismatch M' * x
+
+        # complex M' conjugates, so it must not use the transpose path
+        Mc = complex.(M, randn(30, 50))
+        @test which(*, typeof.((Mc', y))).module != ProximalBase
+        @test Mc' * y ≈ Mc' * Vector(w)
+
     end
 
 end

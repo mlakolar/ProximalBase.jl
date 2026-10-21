@@ -253,7 +253,10 @@ function LinearAlgebra.mul!(out::Vector, A::StridedMatrix, coef::SparseIterate{T
   out
 end
 
-function *(transA::Transpose{<:Any,<:StridedMatrix{Ta}}, x::SparseIterate{Tx, 1}) where {Ta,Tx}
+# A' equals transpose(A) for real A, so both take the sparse path
+const TransposedStridedMatrix{T} = Union{Transpose{<:Any,<:StridedMatrix{T}}, Adjoint{<:Real,<:StridedMatrix{T}}}
+
+function *(transA::TransposedStridedMatrix{Ta}, x::SparseIterate{Tx, 1}) where {Ta,Tx}
     A = transA.parent
     m, n = size(A)
     length(x) == m || throw(DimensionMismatch())
@@ -262,7 +265,7 @@ function *(transA::Transpose{<:Any,<:StridedMatrix{Ta}}, x::SparseIterate{Tx, 1}
     mul!(y, transpose(A), x)
 end
 
-function LinearAlgebra.mul!(out::AbstractVector, transA::Transpose{<:Any,<:StridedMatrix}, coef::SparseIterate{T, 1}) where {T}
+function LinearAlgebra.mul!(out::AbstractVector, transA::TransposedStridedMatrix, coef::SparseIterate{T, 1}) where {T}
     A = transA.parent
     length(coef) == size(A, 1) || throw(DimensionMismatch("A has first dimension $(size(A,1)), length of coef is $(length(coef))"))
     length(out) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), length of out is $(length(out))"))

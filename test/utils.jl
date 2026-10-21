@@ -76,6 +76,7 @@ end
   Δs = SymmetricSparseIterate(Δ)
   @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ A
   @test A_mul_X_mul_B(lowerstored(Σx), Δs, lowerstored(Σy)) ≈ A
+  @test [A_mul_X_mul_B_rc(Σx, Δs, Σy, r, c) for r=1:50, c=1:50] ≈ A
 
   # symmetric A * U * U' * B
   X = randn(100, 50)
@@ -87,12 +88,14 @@ end
   A = (Σx * U)*(U' * Σy)
   @test A_mul_UUt_mul_B(Σx, U, Σy) ≈ A
   @test A_mul_UUt_mul_B(lowerstored(Σx), U, lowerstored(Σy)) ≈ A
+  @test [A_mul_UUt_mul_B_rc(Σx, U, Σy, r, c) for r=1:50, c=1:50] ≈ A
 
   # symmetric A * U * V' * B
   V = randn(50, 5)
   A = (Σx * U)*(V' * Σy)
   @test ProximalBase.A_mul_UVt_mul_B(Σx, U, V, Σy) ≈ A
   @test ProximalBase.A_mul_UVt_mul_B(lowerstored(Σx), U, V, lowerstored(Σy)) ≈ A
+  @test [ProximalBase.A_mul_UVt_mul_B_rc(Σx, U, V, Σy, r, c) for r=1:50, c=1:50] ≈ A
 
 
   # asymmetric A * X * B

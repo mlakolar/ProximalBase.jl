@@ -78,6 +78,17 @@ end
   @test A_mul_X_mul_B(lowerstored(Σx), Δs, lowerstored(Σy)) ≈ A
   @test [A_mul_X_mul_B_rc(Σx, Δs, Σy, r, c) for r=1:50, c=1:50] ≈ A
 
+  # very sparse X: the products use only the rows and columns of X that hold entries
+  Δ = sparse([3, 7, 20, 7], [3, 2, 11, 7], [1.5, -2., 3., 0.5], 50, 50)
+  Δs = SymmetricSparseIterate(Δ + Δ')
+  A = Σx * Matrix(Δ + Δ') * Σy
+  @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ A
+  @test A_mul_X_mul_B(lowerstored(Σx), Δs, lowerstored(Σy)) ≈ A
+  Δs[11, 20] = 0.                      # stored zero, the only entry in rows 11 and 20
+  @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ Σx * Matrix(Δs) * Σy
+  @test A_mul_X_mul_B(Σx, SymmetricSparseIterate(50), Σy) == zeros(50, 50)
+  @test_throws DimensionMismatch A_mul_X_mul_B(Σx, SymmetricSparseIterate(10), Σy)
+
   # symmetric A * U * U' * B
   X = randn(100, 50)
   Σx = Symmetric(cov(X))
@@ -117,6 +128,16 @@ end
   @test R ≈ A
   @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ A
   @test A_mul_X_mul_B(lowerstored(Σx), Δs, lowerstored(Σy)) ≈ A
+
+  # very sparse X, including one full column and one full row, which take
+  # the two multiplication orders
+  for Δ in (sparse([3, 7, 20], [2, 2, 11], [1.5, -2., 3.], 50, 50),
+            sparse(1:50, fill(4, 50), randn(50), 50, 50),
+            sparse(fill(4, 50), 1:50, randn(50), 50, 50))
+    @test A_mul_X_mul_B(Σx, SparseIterate(Δ[:]), Σy) ≈ Σx * Matrix(Δ) * Σy
+  end
+  @test A_mul_X_mul_B(Σx, SparseIterate(2500), Σy) == zeros(50, 50)
+  @test_throws DimensionMismatch A_mul_X_mul_B(Σx, SparseIterate(100), Σy)
 end
 
 @testset "regressions" begin

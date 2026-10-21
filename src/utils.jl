@@ -191,13 +191,60 @@ Compute `A * X * B` for symmetric `A`, `B` and a sparse `X`; see
 [`A_mul_X_mul_B_rc`](@ref).
 """
 function A_mul_X_mul_B(A::Symmetric{T}, X::SymmetricSparseIterate{T}, B::Symmetric{T}) where {T<:AbstractFloat}
-  # dense BLAS products are much faster than filling in the result entry by entry
-  # with A_mul_X_mul_B_rc, which costs O(p² nnz(X))
-  A * (Matrix(X) * B)
+  # Filling in the result entry by entry with A_mul_X_mul_B_rc costs O(p² nnz(X)), and
+  # dense BLAS products cost O(p³) however sparse X is. Restricted to the rows K where
+  # X has nonzeros, A[:, K] * X[K, K] * B[K, :] costs O(p² |K|). Once X has nonzeros
+  # in more than half of the rows, the dense products are as fast.
+  p = X.p
+  size(A, 2) == p == size(B, 1) || throw(DimensionMismatch())
+  pos = zeros(Int, p)
+  nK = 0
+  for k = 1:nnz(X)
+    iszero(X.nzval[k]) && continue
+    for i in ind2subLowerTriangular(p, X.nzval2ind[k])
+      pos[i] == 0 && (pos[i] = 1; nK += 1)
+    end
+    2 * nK > p && return A * (Matrix(X) * B)
+  end
+
+  K = findall(!iszero, pos)
+  pos[K] = 1:nK                 # position of each row within K
+  XK = zeros(T, nK, nK)
+  for k = 1:nnz(X)
+    iszero(X.nzval[k]) && continue
+    r, c = ind2subLowerTriangular(p, X.nzval2ind[k])
+    XK[pos[r], pos[c]] = XK[pos[c], pos[r]] = X.nzval[k]
+  end
+  A[:, K] * (XK * B[K, :])
 end
 
-A_mul_X_mul_B(A::Symmetric{T}, X::SparseIterate{T, 1}, B::Symmetric{T}) where {T<:AbstractFloat} =
-  A * (reshape(Vector(X), size(A, 2), size(B, 1)) * B)
+function A_mul_X_mul_B(A::Symmetric{T}, X::SparseIterate{T, 1}, B::Symmetric{T}) where {T<:AbstractFloat}
+  # as above, with the rows I and columns J where the size(A, 2) × size(B, 1) matrix X
+  # has nonzeros: A[:, I] * X[I, J] * B[J, :] costs O(p² min(|I|, |J|))
+  m, n = size(A, 2), size(B, 1)
+  length(X) == m * n || throw(DimensionMismatch())
+  posI, posJ = zeros(Int, m), zeros(Int, n)
+  nI = nJ = 0
+  for k = 1:nnz(X)
+    iszero(X.nzval[k]) && continue
+    i, j = mod1(X.nzval2ind[k], m), cld(X.nzval2ind[k], m)
+    posI[i] == 0 && (posI[i] = 1; nI += 1)
+    posJ[j] == 0 && (posJ[j] = 1; nJ += 1)
+    2 * nI > m && 2 * nJ > n && return A * (reshape(Vector(X), m, n) * B)
+  end
+
+  I, J = findall(!iszero, posI), findall(!iszero, posJ)
+  posI[I] = 1:nI
+  posJ[J] = 1:nJ
+  XIJ = zeros(T, nI, nJ)
+  for k = 1:nnz(X)
+    iszero(X.nzval[k]) && continue
+    i, j = mod1(X.nzval2ind[k], m), cld(X.nzval2ind[k], m)
+    XIJ[posI[i], posJ[j]] = X.nzval[k]
+  end
+  # multiply in the cheaper order
+  nI <= nJ ? A[:, I] * (XIJ * B[J, :]) : (A[:, I] * XIJ) * B[J, :]
+end
 
 
 

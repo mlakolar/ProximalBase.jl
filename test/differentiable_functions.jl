@@ -52,6 +52,10 @@ end
 
   @test value_and_gradient!(q3, hat_x, x) ≈ dot(x, A*x)/2. + dot(x, b) + c
   @test hat_x ≈ A*x + b
+
+  @test gradient!(q1, hat_x, x) ≈ A*x
+  @test gradient!(q2, hat_x, x) ≈ A*x + b
+  @test gradient!(q3, hat_x, x) ≈ A*x + b
 end
 
 

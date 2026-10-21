@@ -4,6 +4,7 @@ using Test
 using ProximalBase
 using Random
 using LinearAlgebra
+using SparseArrays
 import JuMP, Ipopt
 
 Random.seed!(1)
@@ -17,6 +18,11 @@ Random.seed!(1)
 
   @test prox!(f, z, x) == x
   @test prox(f, x) == z
+  @test value(f, x) == 0.
+
+  xs = SparseIterate(x)
+  @test cdprox!(f, xs, 3, 1.) == x[3]
+  @test Vector(xs) == x
 end
 
 @testset "proximal_l1" begin
@@ -59,6 +65,43 @@ end
     @test value(g, hat_x) ≈ dot(lambda, abs.(hat_x))
   end
 
+
+  @testset "constructors" begin
+    @test ProxL1(2., nothing) == ProxL1(2.)
+    @test typeof(ProxL1(2., nothing)) == ProxL1{Float64, Nothing}
+  end
+
+  @testset "cdprox!" begin
+    x = randn(10)
+    λ0 = 0.5
+
+    xs = SparseIterate(x)
+    g = ProxL1(λ0)
+    for k=1:10
+      @test cdprox!(g, xs, k, 2.) ≈ shrink(x[k], 2. * λ0)
+    end
+    @test Vector(xs) ≈ prox(g, x, 2.)
+
+    λ = rand(10)
+    xs = SparseIterate(x)
+    g = ProxL1(λ0, λ)
+    for k=1:10
+      @test cdprox!(g, xs, k, 2.) ≈ shrink(x[k], 2. * λ0 * λ[k])
+    end
+    @test Vector(xs) ≈ prox(g, x, 2.)
+    @test_throws DimensionMismatch cdprox!(ProxL1(λ0, rand(5)), xs, 1, 1.)
+
+    # coordinates of SymmetricSparseIterate index the lower triangle
+    M = sprandn(4, 4, 0.8)
+    M = (M + M') / 2
+    xs = SymmetricSparseIterate(M)
+    g = ProxL1(λ0)
+    for k=1:numCoordinates(xs)
+      v = xs[k]
+      @test cdprox!(g, xs, k, 1.) ≈ shrink(v, λ0)
+    end
+    @test Matrix(xs) ≈ prox(g, Matrix(M))
+  end
 end
 
 
@@ -127,6 +170,18 @@ end
       @test ProximalBase.shrink(x1, λ1) ≈ 0.
       @test ProximalBase.shrink(x2, λ1) ≈ 0.
   end
+
+  @testset "vector prox" begin
+    g = ProxL1Fused(0.3, 0.7)
+    x1, x2 = randn(20), randn(20)
+    out = (zeros(20), zeros(20))
+    prox!(g, out, (x1, x2), 0.5)
+    for i=1:20
+      @test (out[1][i], out[2][i]) == ProximalBase.proxL1Fused(x1[i], x2[i], 0.3, 0.7, 0.5)
+    end
+
+    @test value(g, 1., -2.) ≈ 0.3 * 3. + 0.7 * 3.
+  end
 end # proximal_l1
 
 
@@ -174,6 +229,11 @@ end # proximal_l1
 
     @test hat_x ≈ (1. - 1. / sqrt(5.))*x
     @test norm(hat_x) ≈ sqrt(5.) - 1.
+  end
+
+  @testset "constructors" begin
+    @test ProxL2(2., nothing) == ProxL2(2.)
+    @test typeof(ProxL2(2., nothing)) == ProxL2{Float64, Nothing}
   end
 
 end
@@ -228,6 +288,9 @@ end
   prox!(g, x, y)
 
   @test x ≈ tx
+
+  X = randn(5, 3)
+  @test value(ProxNuclear(0.5), X) ≈ 0.5 * sum(svdvals(X))
 end
 
 

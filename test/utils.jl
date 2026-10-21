@@ -83,6 +83,11 @@ end
   A = (Σx * U)*(U' * Σy)
   @test A_mul_UUt_mul_B(Σx, U, Σy) ≈ A
 
+  # symmetric A * U * V' * B
+  V = randn(50, 5)
+  A = (Σx * U)*(V' * Σy)
+  @test ProximalBase.A_mul_UVt_mul_B(Σx, U, V, Σy) ≈ A
+
 
   # asymmetric A * X * B
   X = randn(100, 50)
@@ -122,6 +127,20 @@ end
 
   # Vector of an empty SparseIterate
   @test Vector(SparseIterate(0)) == Float64[]
+
+  @test_throws ArgumentError norm_diff(A, B, 1)
+end
+
+@testset "lower triangular helpers" begin
+  p = 4
+  M = sprandn(p, p, 0.5)
+  L = tril(M)
+  v = sparsevec([L[r, c] for c=1:p for r=c:p])
+  @test ProximalBase.vec2tril(v, p) == L
+
+  S = ProximalBase.tril2symmetric(L)
+  @test S == L + L' - Diagonal(diag(L))
+  @test issymmetric(S)
 end
 
 end

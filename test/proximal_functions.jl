@@ -63,6 +63,11 @@ end
 
     @test value(g, x) ≈ dot(lambda, abs.(x))
     @test value(g, hat_x) ≈ dot(lambda, abs.(hat_x))
+
+    # the scaled weights are not materialized
+    prox_allocs(g, out, x) = @allocated prox!(g, out, x, 0.5)
+    prox_allocs(g, hat_x, x)
+    @test prox_allocs(g, hat_x, x) == 0
   end
 
 

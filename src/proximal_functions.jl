@@ -96,7 +96,7 @@ function value(g::ProxL1{T, S}, x::AbstractArray{T}) where S <: AbstractArray{T}
   v * g.λ0
 end
 prox!(g::ProxL1{T, S}, out_x::AbstractArray{T}, x::AbstractArray{T}, γ::T) where S <: AbstractArray{T} where {T <: AbstractFloat} =
-    out_x .= shrink.(x, (g.λ0 * γ) * g.λ)
+    out_x .= shrink.(x, (g.λ0 * γ) .* g.λ)
 @inline function cdprox!(g::ProxL1{T, S}, x::Union{SparseIterate{T},SymmetricSparseIterate{T}}, k::Int, γ::T) where S <: AbstractArray{T} where {T <: AbstractFloat}
   length(g.λ) == numCoordinates(x) || throw(DimensionMismatch())
   @boundscheck checkbounds(x, k)
@@ -204,8 +204,7 @@ function prox!(g::ProxL2Sq{T}, out_x::AbstractVecOrMat{T}, x::AbstractVecOrMat{T
   size(out_x) == size(x) || throw(ArgumentError("Sizes of the input and ouput need to be the same."))
   c = g.λ * γ
   c = 1. / (1. + 2. * c)
-  copyto!(out_x, x)
-  rmul!(out_x, c)
+  out_x .= c .* x
 end
 
 ##########################################################

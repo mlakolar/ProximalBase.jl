@@ -123,6 +123,19 @@ using SparseArrays
 
         @test mul!(zeros(30), M, x) == M*v
 
+        @test transpose(M) * SparseIterate(sprandn(30, 0.2)) isa Vector{Float64}
+        w = sprandn(30, 0.2)
+        y = SparseIterate(w)
+        @test transpose(M) * y ≈ transpose(M) * Vector(w)
+        @test mul!(zeros(50), transpose(M), y) ≈ transpose(M) * Vector(w)
+        @test_throws DimensionMismatch transpose(M) * x
+        @test_throws DimensionMismatch mul!(zeros(30), transpose(M), y)
+
+        z = similar(x, Float32)
+        @test z isa SparseIterate{Float32, 1}
+        @test size(z) == size(x)
+        @test nnz(z) == 0
+
     end
 
 end
@@ -168,7 +181,7 @@ end
     @testset "mul" begin
       n = 10
       M = sprandn(n, n, 0.1)
-      M = (M + M') / 2
+      M = (M + M') / 2 + spdiagm(0 => randn(n))   # diagonal entries exercise the r == c branch
       x = SymmetricSparseIterate(M)
         
       B = randn(10, 20)
@@ -179,6 +192,28 @@ end
       U = UpperTriangular(randn(10, 10))
       CC = zeros(10, 10)
       @test mul!(CC, x, U) ≈ M * U
+
+      b = randn(10)
+      @test mul!(zeros(10), x, b) ≈ M * b
+      @test_throws DimensionMismatch mul!(zeros(10), x, randn(5))
+    end
+
+    @testset "copy" begin
+      n = 6
+      M = sprandn(n, n, 0.4)
+      M = (M + M') / 2
+      x = SymmetricSparseIterate(M)
+
+      y = similar(x)
+      @test y isa SymmetricSparseIterate{Float64}
+      @test size(y) == size(x)
+      @test nnz(y) == 0
+      @test similar(x, Float32) isa SymmetricSparseIterate{Float32}
+
+      copyto!(y, x)
+      @test Matrix(y) == Matrix(x)
+      @test nnz(y) == nnz(x)
+      @test_throws DimensionMismatch copyto!(SymmetricSparseIterate(3), x)
     end
 
 end
@@ -225,6 +260,13 @@ end
     @test out.storage[:, 1] == y[:,1]
     @test out.storage[:, 2] ≈ (1. - 1. / norm(y[:,2]))*y[:,2]
     @test out.storage[:, 3] == y[:,3]
+
+    # cdprox! updates a single atom in place
+    z = copy(x)
+    @test z.storage == x.storage
+    @test !(z.storage === x.storage)
+    cdprox!(g, z, 2, 1.)
+    @test z.storage ≈ out.storage
 end
 
 

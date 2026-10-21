@@ -4,7 +4,15 @@ on:
     branches:
       - master
     tags: ['*']
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
   workflow_dispatch:
 concurrency:
   # Skip intermediate builds: always.

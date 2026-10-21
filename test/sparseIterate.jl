@@ -146,6 +146,8 @@ using SparseArrays
         y = SparseIterate(w)
         @test transpose(M) * y ≈ transpose(M) * Vector(w)
         @test mul!(zeros(50), transpose(M), y) ≈ transpose(M) * Vector(w)
+        @test mul!(fill(NaN, 50), transpose(M), y) ≈ transpose(M) * Vector(w)     # every entry is written
+        @test mul!(fill(NaN, 50), transpose(M), SparseIterate(30)) == zeros(50)
         @test_throws DimensionMismatch transpose(M) * x
         @test_throws DimensionMismatch mul!(zeros(30), transpose(M), y)
 

@@ -65,8 +65,8 @@ function A_mul_B_row(A::AbstractMatrix{T}, b::AbstractVector{T}, row::Int64) whe
   ((p == length(b)) && (1 <= row <= n)) || throw(DimensionMismatch())
 
   v = zero(T)
-  for i=1:p
-    @inbounds v += A[row, i] * b[i]
+  @inbounds @simd for i=1:p
+    v += A[row, i] * b[i]
   end
   v
 end
@@ -79,8 +79,8 @@ function A_mul_B_row(A::AbstractMatrix{T}, b::SparseVector{T}, row::Int64) where
   nzval = SparseArrays.nonzeros(b)
   rowval = SparseArrays.nonzeroinds(b)
   v = zero(T)
-  for i=1:length(nzval)
-    @inbounds v += A[row, rowval[i]] * nzval[i]
+  @inbounds @simd for i=1:length(nzval)
+    v += A[row, rowval[i]] * nzval[i]
   end
   v
 end
@@ -90,7 +90,7 @@ function A_mul_B_row(A::AbstractMatrix{T}, b::SparseIterate{T, 1}, row::Int64) w
   ((p == length(b)) && (1 <= row <= n)) || throw(DimensionMismatch())
 
   v = zero(T)
-  @inbounds for i = 1:nnz(b)
+  @inbounds @simd for i = 1:nnz(b)
       v += A[row, b.nzval2ind[i]] * b.nzval[i]
   end
   v
@@ -108,8 +108,8 @@ function At_mul_B_row(A::AbstractMatrix{T}, b::StridedVector{T}, row::Int64) whe
   ((n == length(b)) && (1 <= row <= p)) || throw(DimensionMismatch())
 
   v = zero(T)
-  for i=1:n
-    @inbounds v += A[i, row] * b[i]
+  @inbounds @simd for i=1:n
+    v += A[i, row] * b[i]
   end
   v
 end
@@ -121,8 +121,8 @@ function At_mul_B_row(A::AbstractMatrix{T}, b::SparseVector{T}, row::Int64) wher
   nzval = SparseArrays.nonzeros(b)
   rowval = SparseArrays.nonzeroinds(b)
   v = zero(T)
-  for i=1:length(nzval)
-    @inbounds v += A[rowval[i], row] * nzval[i]
+  @inbounds @simd for i=1:length(nzval)
+    v += A[rowval[i], row] * nzval[i]
   end
   v
 end
@@ -132,7 +132,7 @@ function At_mul_B_row(A::AbstractMatrix{T}, b::SparseIterate{T, 1}, row::Int64) 
   ((n == length(b)) && (1 <= row <= p)) || throw(DimensionMismatch())
 
   v = zero(T)
-  @inbounds for i = 1:b.nnz
+  @inbounds @simd for i = 1:b.nnz
       v += A[b.nzval2ind[i], row] * b.nzval[i]
   end
   v

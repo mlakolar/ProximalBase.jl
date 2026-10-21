@@ -308,10 +308,9 @@ function LinearAlgebra.mul!(out::AbstractVector, transA::TransposedStridedMatrix
     length(coef) == size(A, 1) || throw(DimensionMismatch("A has first dimension $(size(A,1)), length of coef is $(length(coef))"))
     length(out) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), length of out is $(length(out))"))
 
-    fill!(out, zero(eltype(out)))
     @inbounds for j = 1:size(A, 2)
         s = zero(eltype(out))
-        for inz = 1:nnz(coef)
+        @simd for inz = 1:nnz(coef)
             s += A[coef.nzval2ind[inz], j] * coef.nzval[inz]
         end
         out[j] = s

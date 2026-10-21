@@ -1,3 +1,15 @@
+"""
+    SparseIterate([T = Float64,] n)
+    SparseIterate([T = Float64,] n, m)
+    SparseIterate(x::Union{SparseVector, SparseMatrixCSC, Array})
+
+A vector or matrix that stores its nonzero entries in a compact list, so that
+reading or writing any entry is O(1) and multiplying by it costs O(nnz).
+Intended for coordinate-descent iterates that stay sparse.
+
+Setting an entry to zero keeps it in the list; call `dropzeros!` to remove
+stored zeros.
+"""
 mutable struct SparseIterate{T, N} <: AbstractArray{T, N}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
     nzval2ind::Vector{Int}      # Mapping from nzval to indices
@@ -15,6 +27,14 @@ SparseArrays.issparse(x::SparseIterate) = true
 Base.length(x::SparseIterate) = length(x.ind2nzval)
 Base.size(x::SparseIterate) = size(x.ind2nzval)
 SparseArrays.nnz(x::SparseIterate) = x.nnz
+
+"""
+    numCoordinates(x)
+
+Number of coordinates of `x` that [`cdprox!`](@ref) can update: all entries of
+a [`SparseIterate`](@ref), and the lower triangle of a
+[`SymmetricSparseIterate`](@ref).
+"""
 numCoordinates(x::SparseIterate) = length(x.ind2nzval)
 
 ## similar
@@ -298,7 +318,15 @@ end
 #
 ####################################
 
-# data are stored in the lower triangle
+"""
+    SymmetricSparseIterate([T = Float64,] p)
+    SymmetricSparseIterate(X::SparseMatrixCSC)
+
+A sparse symmetric `p × p` matrix that stores only its lower triangle, with the
+same O(1) access as [`SparseIterate`](@ref). `x[r, c]` and `x[c, r]` refer to
+the same entry. Linear indices `1:p(p+1)/2` run over the lower triangle column
+by column (see [`sub2indLowerTriangular`](@ref)).
+"""
 mutable struct SymmetricSparseIterate{T} <: AbstractMatrix{T}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
     nzval2ind::Vector{Int}      # Mapping from nzval to indices
@@ -464,6 +492,15 @@ end
 ####################################
 
 
+"""
+    AtomIterate(n, numAtom)
+    AtomIterate((nr, nc), numAtom, byRow)
+
+A dense array split into `numAtom` equal-sized groups ("atoms"), for group
+penalties such as [`ProxL2`](@ref) with weights. A vector of length `n` is split
+into contiguous blocks; a matrix is split into blocks of rows (`byRow = true`)
+or columns. Each atom is a view into the shared storage.
+"""
 struct AtomIterate{T, N, V} <: AbstractArray{T, N}
   storage::Array{T, N}
   atoms::Vector{V}                                 # each atom is a view of the storage

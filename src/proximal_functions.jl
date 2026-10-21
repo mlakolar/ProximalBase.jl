@@ -4,7 +4,39 @@
 #
 ##########################################################
 
+"""
+    ProximableFunction
+
+Abstract supertype for (possibly nonsmooth) functions `g` with an easy proximal
+operator. Subtypes implement [`value`](@ref) and [`prox!`](@ref), and
+[`cdprox!`](@ref) if they support coordinate-wise updates.
+"""
 abstract type ProximableFunction end
+
+"""
+    prox!(g, out, x, γ = 1)
+
+Compute the proximal operator `argmin_z g(z) + ‖z - x‖² / (2γ)`, store it in
+`out`, and return `out`.
+"""
+function prox! end
+
+"""
+    prox(g, x, γ = 1)
+
+Allocating version of [`prox!`](@ref).
+"""
+function prox end
+
+"""
+    cdprox!(g, x, k, γ)
+
+Apply the proximal operator of `g` with step `γ` to coordinate `k` of `x` in
+place, as in one step of coordinate descent. For [`AtomIterate`](@ref)s, `k`
+indexes a group rather than a single entry. Coordinates are numbered
+`1:numCoordinates(x)`.
+"""
+function cdprox! end
 
 prox!(g::ProximableFunction, hat_x::AbstractArray, x::AbstractArray) = prox!(g, hat_x, x, one(eltype(x)))
 prox(g::ProximableFunction,                        x::AbstractArray, γ) = prox!(g, similar(x), x, γ)
@@ -16,6 +48,11 @@ prox(g::ProximableFunction,                        x::AbstractArray) = prox!(g, 
 ######  zero
 ##########################################################
 
+"""
+    ProxZero()
+
+The zero function `g(x) = 0`. Its proximal operator is the identity.
+"""
 struct ProxZero <: ProximableFunction end
 
 value(g::ProxZero, x::AbstractVecOrMat{T}) where {T} = zero(T)
@@ -31,6 +68,14 @@ cdprox!(g::ProxZero, x::Union{SparseIterate{T},SymmetricSparseIterate{T}}, k::In
 ######  L1 norm  g(x) = λ0 ⋅ \sum_j λ_j |x_j|
 ##########################################################
 
+"""
+    ProxL1(λ0)
+    ProxL1(λ0, λ)
+
+The weighted ℓ1 norm `g(x) = λ0 ⋅ Σⱼ λⱼ |xⱼ|`, with all `λⱼ = 1` when `λ` is
+omitted. Its proximal operator is coordinate-wise soft-thresholding
+([`shrink`](@ref)).
+"""
 struct ProxL1{T<:AbstractFloat, S} <: ProximableFunction
   λ0::T
   λ::S
@@ -68,6 +113,12 @@ cdprox!(g::ProxL1{T, Nothing}, x::Union{SparseIterate{T},SymmetricSparseIterate{
 ###### L1 + Fused  g(x1,x2) = λ1*(|x1|+|x2|) + λ2*|x1-x2|
 ##########################################################
 
+"""
+    ProxL1Fused(λ1, λ2)
+
+The penalty `g(x1, x2) = λ1 (|x1| + |x2|) + λ2 |x1 - x2|`, applied entry-wise to
+a pair of vectors `(x1, x2)`. See [`proxL1Fused`](@ref).
+"""
 struct ProxL1Fused{T<:AbstractFloat} <: ProximableFunction
   λ1::T
   λ2::T
@@ -90,6 +141,14 @@ end
 ###### L2 norm   g(x) = λ * ||x||_2
 ##########################################################
 
+"""
+    ProxL2(λ0)
+    ProxL2(λ0, λ)
+
+The Euclidean norm `g(x) = λ0 ‖x‖₂`. With weights `λ` and an
+[`AtomIterate`](@ref), the group-lasso penalty `g(x) = λ0 ⋅ Σₖ λₖ ‖xₖ‖₂` over the
+atoms `xₖ`.
+"""
 struct ProxL2{T<:AbstractFloat, S} <: ProximableFunction
   λ0::T
   λ::S
@@ -132,6 +191,11 @@ cdprox!(g::ProxL2{T, S}, x::AtomIterate{T}, k::Int, γ::T) where S <: AbstractVe
 ###### L2 norm squared g(x) = λ * ||x||_2^2
 ##########################################################
 
+"""
+    ProxL2Sq(λ)
+
+The squared Euclidean norm `g(x) = λ ‖x‖₂²` (ridge penalty).
+"""
 struct ProxL2Sq{T<:AbstractFloat} <: ProximableFunction
   λ::T
 end
@@ -148,6 +212,12 @@ end
 ####### nuclear norm  g(x) = λ * ||x||_*
 ###########################################################
 
+"""
+    ProxNuclear(λ)
+
+The nuclear norm `g(X) = λ ‖X‖_*`, the sum of the singular values of `X`. Its
+proximal operator soft-thresholds the singular values.
+"""
 struct ProxNuclear{T<:AbstractFloat} <: ProximableFunction
   λ::T
 end
@@ -171,9 +241,16 @@ end
 
 ##########################################################
 # Gaussian likelihood prox
-# f(X) = tr(SX) - log deg(X)
+# f(X) = tr(SX) - log det(X)
 ##########################################################
 
+"""
+    ProxGaussLikelihood(S)
+
+The Gaussian negative log-likelihood `g(X) = tr(SX) - log det X` for a
+precision matrix `X`, where `S` is the (symmetric) sample covariance. The
+proximal operator has a closed form via an eigendecomposition.
+"""
 struct ProxGaussLikelihood{T} <: ProximableFunction
   S::Symmetric{T}
   tmp::Matrix{T}

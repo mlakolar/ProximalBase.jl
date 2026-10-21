@@ -5,13 +5,48 @@
 #
 ##########################################################
 
+"""
+    DifferentiableFunction
+
+Abstract supertype for smooth functions `f`. Subtypes implement [`value`](@ref)
+and [`value_and_gradient!`](@ref), and optionally [`gradient!`](@ref).
+"""
 abstract type DifferentiableFunction end
+
+"""
+    value(f, x)
+
+Evaluate `f(x)`. Defined for both [`DifferentiableFunction`](@ref)s and
+[`ProximableFunction`](@ref)s.
+"""
+function value end
+
+"""
+    gradient!(f, grad, x)
+
+Write the gradient of `f` at `x` into `grad` and return `grad`.
+"""
+function gradient! end
+
+"""
+    value_and_gradient!(f, grad, x)
+
+Write the gradient of `f` at `x` into `grad` and return `f(x)`. Usually cheaper
+than calling [`value`](@ref) and [`gradient!`](@ref) separately.
+"""
+function value_and_gradient! end
 
 
 ################ creates L2Loss =>  f(x) = ||x - y||^2 / 2
 
 # N = 1 --> y
 # N = 0 --> y = 0
+"""
+    L2Loss(y)
+    L2Loss()
+
+The loss `f(x) = ‖x - y‖² / 2`. Without `y`, `f(x) = ‖x‖² / 2`.
+"""
 struct L2Loss{T<:AbstractFloat, N, M<:AbstractArray} <: DifferentiableFunction
   y::M
 end
@@ -44,6 +79,14 @@ end
 
 ################ creates a function x'Ax/2 + b'x + c
 
+"""
+    QuadraticFunction(A)
+    QuadraticFunction(A, b)
+    QuadraticFunction(A, b, c)
+
+The quadratic `f(x) = x'Ax / 2 + b'x + c`, with `b = 0` and `c = 0` when omitted.
+The gradient is computed as `Ax + b`, so `A` should be symmetric.
+"""
 struct QuadraticFunction{T<:AbstractFloat, N, M<:AbstractMatrix, V} <: DifferentiableFunction
   A::M
   b::V
@@ -91,6 +134,12 @@ end
 
 ################ creates a function |Y - X⋅β|_2^2 / 2.
 
+"""
+    LeastSquaresLoss(Y, X)
+
+The least-squares loss `f(β) = ‖Y - Xβ‖² / 2`, with gradient `X'(Xβ - Y)`.
+`Y` may be a vector or a matrix (one column per response).
+"""
 struct LeastSquaresLoss{T, Ty<:AbstractVecOrMat, Tx<:AbstractMatrix} <: DifferentiableFunction
   Y::Ty
   X::Tx

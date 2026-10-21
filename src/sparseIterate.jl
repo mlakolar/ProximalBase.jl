@@ -61,7 +61,7 @@ end
 
 function Base.Vector(x::SparseIterate{Tv, 1}) where Tv
     n = length(x)
-    n == 0 && return Vector{Tv}(0)
+    n == 0 && return Vector{Tv}()
     r = zeros(Tv, n)
     for k in 1:nnz(x)
         i = x.nzval2ind[k]
@@ -401,7 +401,11 @@ function SparseArrays.dropzeros!(x::SymmetricSparseIterate{T}) where T
     x
 end
 
-function LinearAlgebra.mul!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::AbstractMatrix{T}) where T
+LinearAlgebra.mul!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::AbstractMatrix{T}) where T = _mul_symsparse!(C, A, B)
+# resolves ambiguity with LinearAlgebra's mul!(::AbstractMatrix, ::AbstractMatrix, ::AbstractTriangular)
+LinearAlgebra.mul!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::LinearAlgebra.AbstractTriangular{T}) where T = _mul_symsparse!(C, A, B)
+
+function _mul_symsparse!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::AbstractMatrix{T}) where T
   size(A, 2) == size(B, 1) || throw(DimensionMismatch())
   size(A, 1) == size(C, 1) || throw(DimensionMismatch())
   size(B, 2) == size(C, 2) || throw(DimensionMismatch())

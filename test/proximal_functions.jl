@@ -4,7 +4,6 @@ using Test
 using ProximalBase
 using Random
 using LinearAlgebra
-using Distributions
 import JuMP, Ipopt
 
 Random.seed!(1)
@@ -82,8 +81,8 @@ end
     for i=1:1000
       x1 = randn()
       x2 = randn()
-      λ1 = rand(Uniform(0.,1.))
-      λ2 = rand(Uniform(0.,1.))
+      λ1 = rand()
+      λ2 = rand()
 
       JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ1 * (t[1]+t[2]) + λ2 * t[3])
       JuMP.optimize!(m)
@@ -103,7 +102,7 @@ end
     for i=1:1000
       x1 = randn()
       x2 = randn()
-      λ = rand(Uniform(0.,1.))
+      λ = rand()
 
       JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ * t)
       JuMP.optimize!(m)
@@ -117,7 +116,7 @@ end
   @testset "nonrandom" begin
       x1 = randn()
       x2 = randn()
-      λ1 = rand(Uniform(0.,1.))
+      λ1 = rand()
 
       zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, λ1, 0.)
       @test ProximalBase.shrink(x1, λ1) ≈ zp1

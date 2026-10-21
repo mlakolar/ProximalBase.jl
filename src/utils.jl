@@ -115,7 +115,7 @@ end
 
 function At_mul_B_row(A::AbstractMatrix{T}, b::SparseIterate{T, 1}, row::Int64) where {T<:AbstractFloat}
   n, p = size(A)
-  ((n == length(b)) && (1 <= row <= n)) || throw(DimensionMismatch())
+  ((n == length(b)) && (1 <= row <= p)) || throw(DimensionMismatch())
 
   v = zero(T)
   @inbounds for i = 1:b.nnz
@@ -298,7 +298,7 @@ function vec2tril(x::SparseIterate, p::Int64)
   I = zeros(Int64, nx)
   J = zeros(Int64, nx)
   for i=1:nx
-    I[i], J[i] = ind2subLowerTriangular(p, x.nzval2full[i])
+    I[i], J[i] = ind2subLowerTriangular(p, x.nzval2ind[i])
   end
 
   sparse(I,J,x.nzval[1:nx], p, p)
@@ -320,7 +320,6 @@ function norm_diff(A::AbstractArray{T}, B::AbstractArray{T}, p::Real=2.) where {
   v = zero(T)
   if p == 2.
     @inbounds @simd for i in eachindex(A)
-      t =
       v += abs2( A[i] - B[i] )
     end
     return sqrt(v)

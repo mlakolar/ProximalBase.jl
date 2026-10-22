@@ -113,7 +113,13 @@ isconvex(::Type{<:SqrNormL2}) = true
 
 # Σ xᵢ² over the entries of x, in O(nnz) for the sparse iterates
 _sumabs2(x::AbstractArray) = sum(abs2, x)
-_sumabs2(x::SparseIterate) = sum(abs2, view(x.nzval, 1:x.nnz); init = zero(eltype(x)))
+function _sumabs2(x::SparseIterate)
+  s = zero(float(eltype(x)))
+  @inbounds @simd for k in 1:x.nnz
+    s += abs2(x.nzval[k])
+  end
+  s
+end
 function _sumabs2(x::SymmetricSparseIterate{T}) where {T}
   s = zero(T)
   @inbounds for k = 1:x.nnz
@@ -127,7 +133,7 @@ _sumabs2(x::AtomIterate) = sum(abs2, x.storage)
 function _sumabs2_diff(x::AbstractArray, y::AbstractArray)
   size(x) == size(y) || throw(DimensionMismatch("x has size $(size(x)) and y $(size(y))"))
   s = zero(float(promote_type(eltype(x), eltype(y))))
-  @inbounds for i in eachindex(x, y)
+  @inbounds @simd for i in eachindex(x, y)
     s += abs2(x[i] - y[i])
   end
   s

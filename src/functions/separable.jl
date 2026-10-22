@@ -116,22 +116,10 @@ function _prox_sep!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::Real)
   y
 end
 
-# one pass over a dense array; the iterates take the proximal operator, then their
-# fast value
-function _value_and_prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Real)
-  _checksize(y, x)
-  T = eltype(y)
-  S = float(T)
-  s = zero(S)
-  @inbounds for i in eachindex(IndexLinear(), y, x)
-    v = convert(T, cdprox(f, x[i], i, γ))
-    y[i] = v
-    s += convert(S, _entry_value(f, v, i))
-  end
-  s
-end
-_value_and_prox_sep!(y::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, f, x::AbstractArray, γ::Real) =
-  _value_sep(f, _prox_sep!(y, f, x, γ))
+# the proximal operator, then the value at the result: two vectorized passes are
+# several times faster than one that stores and sums, which does not vectorize;
+# an indicator function is 0 at its projection
+_value_and_prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Real) = _value_sep(f, _prox_sep!(y, f, x, γ))
 
 # a weight or a bound: a scalar, or the entry i of an array
 @inline _entry(w::Real, ::Integer) = w
@@ -178,10 +166,10 @@ _zeropreserving(::NormL1) = true
 kkt_violation(f::NormL1, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ0 * _entry(f.w, i)
 restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entries(f.w, S))
 
-# a weight per entry, so the dense sums vectorize
-function (f::NormL1{<:Real, Nothing})(x::DenseArray)
+# without weights, Base's vectorized sum (a sum with init takes a slow sequential path)
+function (f::NormL1{<:Real, Nothing})(x::DenseArray{<:AbstractFloat})
   T = float(eltype(x))
-  convert(T, f.λ0) * sum(abs, x; init = zero(T))
+  convert(T, f.λ0) * sum(abs, x)
 end
 
 ####################################
@@ -296,6 +284,20 @@ IndBallLinf(r::Real) = (_checknonneg("r", r); IndBox(-r, r))
 isconvex(::Type{<:IndBox}) = true
 _zeropreserving(f::IndBox) = f.zp
 
+value_and_prox!(y::AbstractArray, f::IndBox, x::AbstractArray, γ::Real) = (prox!(y, f, x, γ); zero(float(eltype(y))))
+
+# feasibility with a branch-free loop that vectorizes, then the value
+function _value_dense(f::IndBox, x::AbstractArray)
+  T = float(eltype(x))
+  t = _tol(T)
+  ok = true
+  @inbounds @simd for i in eachindex(IndexLinear(), x)
+    l, u, v = _entry(f.l, i), _entry(f.u, i), x[i]
+    ok &= (v >= l - t * max(one(T), abs(l))) & (v <= u + t * max(one(T), abs(u)))
+  end
+  ok ? zero(T) : T(Inf)
+end
+
 @inline function _entry_value(f::IndBox, v::T, i::Integer) where {T<:Real}
   S = float(T)
   l, u = _entry(f.l, i), _entry(f.u, i)
@@ -325,6 +327,10 @@ struct IndNonnegative <: SeparableFunction end
 
 isconvex(::Type{IndNonnegative}) = true
 _zeropreserving(::IndNonnegative) = true
+
+value_and_prox!(y::AbstractArray, f::IndNonnegative, x::AbstractArray, γ::Real) = (prox!(y, f, x, γ); zero(float(eltype(y))))
+_value_dense(::IndNonnegative, x::AbstractArray) =
+  (T = float(eltype(x)); isempty(x) || minimum(x) >= -_tol(T) ? zero(T) : T(Inf))
 
 @inline _entry_value(::IndNonnegative, v::T, ::Integer) where {T<:Real} =
   v >= -_tol(float(T)) ? zero(float(T)) : float(T)(Inf)

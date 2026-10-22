@@ -215,11 +215,9 @@ isconvex(::Type{<:IndSimplex}) = true
 function (f::IndSimplex)(x::AbstractArray)
   T = float(eltype(x))
   t = _tol(T)
-  s = zero(T)
-  for v in x
-    v >= -t || return T(Inf)
-    s += v
-  end
+  isempty(x) && return (f.equality && f.r > t) ? T(Inf) : zero(T)
+  minimum(x) >= -t || return T(Inf)
+  s = convert(T, sum(x))
   slack = t * max(one(T), f.r, abs(s))
   ok = f.equality ? abs(s - f.r) <= slack : s <= f.r + slack
   ok ? zero(T) : T(Inf)

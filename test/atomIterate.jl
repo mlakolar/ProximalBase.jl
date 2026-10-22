@@ -225,11 +225,17 @@ groups = [1:3, [4, 7], 5:5, [8, 6], [9]]
       x
     end
     read_all(x) = (s = 0.; @inbounds for i in eachindex(x); s += x[i]; end; s)
-    write_all!(x, v); read_all(x); activate!(x, 2); dropzeros!(x)
-    @test (@allocated write_all!(x, v)) == 0
-    @test (@allocated read_all(x)) == 0
-    @test (@allocated activate!(x, 2)) == 0
-    @test (@allocated dropzeros!(x)) == 0
+    # measured inside functions: called from the test scope, Julia 1.10 boxes a
+    # returned Float64
+    write_allocs(x, v) = @allocated write_all!(x, v)
+    read_allocs(x) = @allocated read_all(x)
+    activate_allocs(x, k) = @allocated activate!(x, k)
+    drop_allocs(x) = @allocated dropzeros!(x)
+    write_allocs(x, v); read_allocs(x); activate_allocs(x, 2); drop_allocs(x)
+    @test write_allocs(x, v) == 0
+    @test read_allocs(x) == 0
+    @test activate_allocs(x, 2) == 0
+    @test drop_allocs(x) == 0
   end
 
 end

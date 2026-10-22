@@ -174,7 +174,9 @@ restrict(f::QuadraticFunction{T, 3}, S::AbstractVector{<:Integer}) where {T} = Q
     LeastSquaresLoss(Y, X)
 
 The least-squares loss `f(β) = ‖Y - Xβ‖² / 2`, with gradient `X'(Xβ - Y)`.
-`Y` may be a vector or a matrix (one column per response).
+`Y` may be a vector or an `n × k` matrix with one column per response; then `β`
+and the gradient are `p × k` matrices and `‖⋅‖` is the Frobenius norm, as in
+multi-response regression with [`ProxNuclear`](@ref) for a low-rank `β`.
 """
 struct LeastSquaresLoss{T, Ty<:AbstractVecOrMat, Tx<:AbstractMatrix} <: DifferentiableFunction
   Y::Ty
@@ -197,7 +199,7 @@ end
 
 function value_and_gradient!(
   f::LeastSquaresLoss{T},
-  grad_out::StridedVector{T},
+  grad_out::StridedVecOrMat{T},
   x) where {T<:AbstractFloat}
 
   mul!(f.tmp, f.X, x)

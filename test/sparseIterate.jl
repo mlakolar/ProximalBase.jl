@@ -88,6 +88,22 @@ using SparseArrays
         @test [activeCoordinate(x, i) for i in 1:numActive(x)] == [2]
     end
 
+    @testset "setindex! converts" begin
+        x = SparseIterate(3)
+        x[1] = 1                        # an Int
+        x[2] = 2f0                      # a Float32
+        @test Vector(x) == [1., 2., 0.]
+        x[1] = 0                        # a stored entry stays stored
+        x[3] = 0                        # a zero is not stored
+        @test nnz(x) == 2
+        @test_throws InexactError (SparseIterate(Int, 2)[1] = 0.5)
+        @test_throws BoundsError (x[4] = 1.)
+
+        y = SparseIterate(2, 2)
+        y[2, 1] = 3
+        @test Matrix(y) == [0. 0.; 3. 0.]
+    end
+
 
     @testset "show" begin
         io = IOBuffer()
@@ -98,14 +114,25 @@ using SparseArrays
 
         x[1] = 1.
         show(io, MIME"text/plain"(), x)
-        @test String(take!(io)) == "3-element $(typeof(x)) with 1 stored entry:\n  [1]  =  1.0\n"
+        @test String(take!(io)) == "3-element $(typeof(x)) with 1 stored entry:\n  [1]  =  1.0"
 
         x[2] = 2.
         show(io, MIME"text/plain"(), x)
-        @test String(take!(io)) == "3-element $(typeof(x)) with 2 stored entries:\n  [1]  =  1.0\n  [2]  =  2.0\n"
+        @test String(take!(io)) == "3-element $(typeof(x)) with 2 stored entries:\n  [1]  =  1.0\n  [2]  =  2.0"
 
         show(io, x)
-        @test String(take!(io)) == "  [1]  =  1.0\n  [2]  =  2.0\n"
+        @test String(take!(io)) == "  [1]  =  1.0\n  [2]  =  2.0"
+
+        # a limited display shows the first and the last stored entries, however far apart
+        v = SparseIterate(10_000)
+        for i in 100:100:10_000
+            v[i] = 1.
+        end
+        lines = split(sprint(show, v; context = (:limit => true, :displaysize => (24, 80))), '\n')
+        @test length(lines) == 16               # 7 entries, ⋮ and 8 entries
+        @test count(contains('⋮'), lines) == 1 && contains(lines[8], '⋮')
+        @test startswith(lines[1], "  [100 ") && startswith(lines[end], "  [10000]")
+        @test length(split(sprint(show, v), '\n')) == 100
 
 
         y = SparseIterate(2,3)
@@ -278,6 +305,15 @@ end
       b = randn(10)
       @test mul!(zeros(10), x, b) ≈ M * b
       @test_throws DimensionMismatch mul!(zeros(10), x, randn(5))
+
+      # x is symmetric: x' and transpose(x) are x, and products from the left work
+      @test transpose(x) === x && x' === x
+      @test x' * b ≈ M * b
+      @test b' * x ≈ b' * M
+      @test transpose(b) * x ≈ transpose(b) * M
+      # other element types take the sparse product too
+      @test x * Float32.(b) ≈ M * Float32.(b)
+      @test x * complex.(b, b) ≈ M * complex.(b, b)
     end
 
     @testset "copy" begin
@@ -319,6 +355,21 @@ end
         @test [activeCoordinate(s, i) for i in 1:2] == [sub2indLowerTriangular(3, 2, 1), sub2indLowerTriangular(3, 3, 3)]
         @test isActive(s, sub2indLowerTriangular(3, 2, 1)) && !isActive(s, 1)
         @test_throws BoundsError activeCoordinate(s, 3)
+    end
+
+    @testset "indexing" begin
+        s = SymmetricSparseIterate(3)
+        s[2, 1] = 1                     # setindex! converts, as for SparseIterate
+        s[3] = 2f0                      # linear index 3 of the lower triangle is (3, 1)
+        @test s[1, 2] === 1. && s[1, 3] === 2.
+        s[2, 2] = 5.
+        # an index outside the matrix does not alias an entry of the lower triangle
+        @test_throws BoundsError s[4, 1]
+        @test_throws BoundsError s[1, 4]
+        @test_throws BoundsError (s[4, 1] = -1.)
+        @test_throws BoundsError s[7]
+        @test_throws BoundsError (s[0] = 1.)
+        @test s[2, 2] == 5. && nnz(s) == 3
     end
 end
 

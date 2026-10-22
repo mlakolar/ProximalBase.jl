@@ -5,7 +5,6 @@ using ProximalBase
 using Random
 using LinearAlgebra
 using SparseArrays
-import JuMP, Ipopt
 
 Random.seed!(1)
 
@@ -152,54 +151,28 @@ end
 
 @testset "proximal_l1_fused" begin
 
-    @testset "random" begin
-
-    m = JuMP.Model(JuMP.optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0))
-
-    JuMP.@variable(m, z1)
-    JuMP.@variable(m, z2)
-    JuMP.@variable(m, t[1:3] >= 0)
-    JuMP.@constraint(m, z1 <= t[1] )
-    JuMP.@constraint(m, -t[1] <= z1 )
-    JuMP.@constraint(m, z2 <= t[2] )
-    JuMP.@constraint(m, -t[2] <= z2 )
-    JuMP.@constraint(m, z1 - z2 <= t[3])
-    JuMP.@constraint(m, -t[3] <= z1 - z2 )
-
-    for i=1:1000
-      x1 = randn()
-      x2 = randn()
-      λ1 = rand()
-      λ2 = rand()
-
-      JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ1 * (t[1]+t[2]) + λ2 * t[3])
-      JuMP.optimize!(m)
-
-      zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, λ1, λ2)
-
-      @test abs(JuMP.value.(z1) - zp1) + abs(JuMP.value.(z2) - zp2)  ≈ 0. atol=2e-4
+  @testset "optimality" begin
+    # (u, v) minimizes ((u - x)² + (v - y)²) / 2γ + λ1 (|u| + |v|) + λ2 |u - v| if and
+    # only if 0 is a subgradient there: (x - u)/γ - t ∈ λ1 ∂|u| and
+    # (y - v)/γ + t ∈ λ1 ∂|v| for some t ∈ λ2 ∂|u - v|, where ∂|z| = [-1, 1] at z = 0
+    ∂abs(z) = z > 0 ? (1., 1.) : z < 0 ? (-1., -1.) : (-1., 1.)
+    function optimal(u, v, x, y, λ1, λ2, γ; tol = 1e-10)
+      (al, ah), (bl, bh), (sl, sh) = ∂abs(u), ∂abs(v), ∂abs(u - v)
+      gu, gv = (x - u) / γ, (y - v) / γ
+      # the interval of t allowed by each condition must intersect the others
+      max(λ2 * sl, gu - λ1 * ah - tol, λ1 * bl - gv - tol) <=
+        min(λ2 * sh, gu - λ1 * al + tol, λ1 * bh - gv + tol)
     end
 
-    m = JuMP.Model(JuMP.optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0))
-    JuMP.@variable(m, z1)
-    JuMP.@variable(m, z2)
-    JuMP.@variable(m, t >= 0)
-    JuMP.@constraint(m, z1 - z2 <= t)
-    JuMP.@constraint(m, -t <= z1 - z2 )
-
-    for i=1:1000
-      x1 = randn()
-      x2 = randn()
-      λ = rand()
-
-      JuMP.@objective(m, Min, ((x1-z1)^2+(x2-z2)^2)/2. + λ * t)
-      JuMP.optimize!(m)
-
-      zp1, zp2 = ProximalBase.proxL1Fused(x1, x2, 0., λ)
-
-      @test abs(JuMP.value.(z1) - zp1) + abs(JuMP.value.(z2) - zp2)  ≈ 0. atol=1e-4
+    # λ1 = 0 only fuses, λ2 = 0 only shrinks
+    for i = 1:1000, (λ1, λ2) in ((rand(), rand()), (0., rand()), (rand(), 0.))
+      x, y, γ = randn(), randn(), 0.1 + 2 * rand()
+      u, v = ProximalBase.proxL1Fused(x, y, λ1, λ2, γ)
+      @test optimal(u, v, x, y, λ1, λ2, γ)
+      @test !optimal(u + 1e-3, v, x, y, λ1, λ2, γ)     # the check rejects other points
     end
-  end # random testset
+    @test ProximalBase.proxL1Fused(0.3, -1.2, 0.2, 0.5) == ProximalBase.proxL1Fused(0.3, -1.2, 0.2, 0.5, 1.)
+  end
 
   @testset "nonrandom" begin
       x1 = randn()

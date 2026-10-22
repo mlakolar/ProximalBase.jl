@@ -211,7 +211,8 @@ end
 
 (f::IndPSD)(X::AbstractMatrix) = _ispsd!(f, X, f.rank) ? zero(float(eltype(X))) : float(eltype(X))(Inf)
 
-function prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real)
+# the projection onto the cone through all eigenpairs, in the workspace f.eig
+function _project_psd!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix)
   _checksize(Y, X)
   T = float(eltype(Y))
   ws = _eig_workspace(f.eig, T, checksquare(X))
@@ -222,10 +223,12 @@ function prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real)
   Y
 end
 
+prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real) = _project_psd!(Y, f, X)
+
 function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
   _checksize(Y, X)
   n = checksquare(X)
-  f.rank >= n && return prox!(Y, IndPSD(), X, γ)
+  f.rank >= n && return _project_psd!(Y, f, X)
   T = float(eltype(Y))
   ws = _eigtop_workspace(f.top, T, n, f.rank)
   f.top = ws

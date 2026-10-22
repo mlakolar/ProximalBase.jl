@@ -105,7 +105,8 @@ end
   @testset "spectral functions" begin
     M = randn(12, 8)
     A = randn(10, 10); A = A + A'
-    for (f, Z) in ((NuclearNorm(0.5), M), (IndBallRank(3), M), (IndPSD(), A), (IndPSD(rank = 3), A), (TracePSD(0.2), A))
+    for (f, Z) in ((NuclearNorm(0.5), M), (IndBallRank(3), M), (IndPSD(), A), (IndPSD(rank = 3), A),
+                   (IndPSD(rank = 10), A), (TracePSD(0.2), A))
       @testset "$(typeof(f))" begin
         zero_alloc_prox(f, Z)
         zero_alloc_prox(f, Float32.(Z))

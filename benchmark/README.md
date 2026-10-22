@@ -16,26 +16,30 @@ julia --project=benchmark benchmark/compare.jl
 ## Results
 
 ProximalBase 0.5.0 and ProximalOperators 0.16.1 on Julia 1.13.2, Apple M3 Pro
-(2026-10-23):
+(2026-10-23, after the review fixes):
 
 | case | ProximalBase (μs) | ProximalOperators (μs) | speedup | PB bytes | PO bytes |
 |:-----|---:|---:|---:|---:|---:|
-| NormL1, n = 10⁵                    |       17.0 |       34.1 |  2.01× |         0 |         0 |
-| weighted NormL1, n = 10⁵           |       21.2 |       57.9 |  2.74× |         0 |    802880 |
-| NormL2, n = 10⁵                    |       22.8 |      120.4 |  5.28× |         0 |         0 |
-| ElasticNet, n = 10⁵                |       27.5 |       80.4 |  2.92× |         0 |         0 |
-| NormL0, n = 10⁵                    |       11.4 |      137.9 | 12.12× |         0 |         0 |
-| NormLinf, n = 10⁵                  |       56.2 |      138.4 |  2.46× |         0 |   1607648 |
-| IndBallL1(10), n = 10⁵             |       84.5 |      145.7 |  1.72× |         0 |    853568 |
-| IndSimplex(1), n = 10⁵             |       42.2 |       54.0 |  1.28× |         0 |      5552 |
-| IndBallL0(1000), n = 10⁵           |      141.6 |      306.9 |  2.17× |         0 |   1605808 |
-| IndBox(-1, 1), n = 10⁵             |       21.2 |       66.7 |  3.14× |         0 |         0 |
-| group ℓ2, 10⁴ groups of 10         |       37.6 |       46.0 |  1.22× |         0 |         0 |
-| NuclearNorm, 200 × 100             |     1421.3 |     1424.2 |  1.00× |         0 |    829728 |
-| IndBallRank(5), 200 × 100          |     1405.1 |     2192.0 |  1.56× |         0 |   2328720 |
-| IndPSD, 200 × 200                  |     1879.3 |     5198.1 |  2.77× |         0 |    742944 |
-| LeastSquares prox, 500 × 200       |       10.5 |       56.9 |  5.42× |         0 |         0 |
-| LeastSquares prox, γ changing      |       10.5 |      111.5 | 10.62× |         0 |    655520 |
+| NormL1, n = 10⁵                    |       17.4 |       34.1 |  1.96× |         0 |         0 |
+| weighted NormL1, n = 10⁵           |       20.5 |       57.6 |  2.80× |         0 |    802880 |
+| NormL2, n = 10⁵                    |       20.0 |      116.2 |  5.81× |         0 |         0 |
+| ElasticNet, n = 10⁵                |       26.4 |       77.0 |  2.92× |         0 |         0 |
+| NormL0, n = 10⁵                    |       10.5 |      123.2 | 11.69× |         0 |         0 |
+| NormLinf, n = 10⁵                  |       55.7 |      138.5 |  2.49× |         0 |   1607648 |
+| IndBallL1(10), n = 10⁵             |       84.4 |      146.0 |  1.73× |         0 |    853568 |
+| IndSimplex(1), n = 10⁵             |       38.7 |       54.8 |  1.42× |         0 |      5552 |
+| IndBallL0(1000), n = 10⁵           |      102.1 |      290.2 |  2.84× |         0 |   1605808 |
+| IndBox(-1, 1), n = 10⁵             |       20.8 |       81.0 |  3.90× |         0 |         0 |
+| group ℓ2, 10⁴ groups of 10         |       35.5 |       45.0 |  1.27× |         0 |         0 |
+| NuclearNorm, 200 × 100             |     1422.8 |     1422.7 |  1.00× |         0 |    829728 |
+| IndBallRank(5), 200 × 100          |     1408.4 |     2186.6 |  1.55× |         0 |   2443200 |
+| IndPSD, 200 × 200                  |     1873.8 |     5276.5 |  2.82× |         0 |    742944 |
+| LeastSquares prox, 500 × 200       |       10.5 |       57.3 |  5.46× |         0 |         0 |
+| LeastSquares prox, γ changing      |       10.4 |      117.3 | 11.31× |         0 |    655520 |
+
+Times vary by about 10% between runs on a machine with other work; the time
+of ProximalOperators' least-squares proximal operator with a fixed step varied
+between 23 and 57 μs, against 10 μs for ProximalBase in every run.
 
 ProximalBase allocates nothing in any case. The main sources of its speed:
 
@@ -45,7 +49,8 @@ ProximalBase allocates nothing in any case. The main sources of its speed:
   function, in a loop over an index range (a loop through `iterate` is three
   times slower);
 - `IndBallL0` selects the `s` largest entries with Floyd and Rivest's
-  algorithm, in place;
+  algorithm, in place, and keeps them in one vectorized pass (ties beyond `s`
+  take a second pass only when there are some);
 - the spectral functions call LAPACK with workspaces kept by the function, and
   `IndPSD` rebuilds the projection with `syrk` from the eigenvectors that remain;
 - the proximal operator of `LeastSquaresLoss` uses a thin SVD of `X` computed

@@ -45,8 +45,8 @@ export
   ind2subLowerTriangular,sub2indLowerTriangular,
   norm_diff,
 
-  # function for SparseIterate
-  nnz
+  # functions of SparseArrays for SparseIterate and AtomIterate
+  nnz, dropzeros!
 
 using SparseArrays
 using LinearAlgebra

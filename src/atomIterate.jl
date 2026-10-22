@@ -21,8 +21,9 @@ zero. Writing a nonzero entry activates its group, [`activate!`](@ref) activates
 a group, and `dropzeros!` deactivates the active groups whose entries are all
 zero; an iterate built from a vector `x` starts with the groups that hold a
 nonzero entry. Reading or writing an entry is O(1), and so is activating or
-deactivating a group. [`numCoordinates`](@ref) is the number of groups, and
-[`atom`](@ref) is a view of the entries of a group.
+deactivating a group. [`numCoordinates`](@ref) is the number of groups,
+[`numActive`](@ref), [`activeCoordinate`](@ref) and [`isActive`](@ref) give the
+active groups, and [`atom`](@ref) is a view of the entries of a group.
 """
 mutable struct AtomIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractVector{T}
   storage::Vector{T}       # the entries; those of inactive groups are zero
@@ -107,6 +108,12 @@ Base.@propagate_inbounds function Base.setindex!(x::AtomIterate, v, i::Int)
 end
 
 numCoordinates(x::AtomIterate) = length(x.groups)
+numActive(x::AtomIterate) = x.nactive
+Base.@propagate_inbounds function activeCoordinate(x::AtomIterate, i::Int)
+  @boundscheck 1 <= i <= x.nactive || throw(BoundsError(Base.OneTo(x.nactive), i))
+  @inbounds x.active[i]
+end
+isActive(x::AtomIterate, k::Int) = x.position[k] != 0
 
 """
     atom(x::AtomIterate, k)

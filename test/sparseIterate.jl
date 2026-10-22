@@ -71,6 +71,23 @@ using SparseArrays
         @test y[1, 3] === 0f0
     end
 
+    @testset "active coordinates" begin
+        x = SparseIterate(6)
+        x[4] = 1.
+        x[2] = 3.
+        activate!(x, 6)
+        @test numActive(x) == 3
+        @test [activeCoordinate(x, i) for i in 1:numActive(x)] == [4, 2, 6]
+        @test isActive(x, 2) && isActive(x, 6) && !isActive(x, 1)
+        @test_throws BoundsError activeCoordinate(x, 4)
+        @test_throws BoundsError activeCoordinate(x, 0)
+        dropzeros!(x)
+        @test [activeCoordinate(x, i) for i in 1:numActive(x)] == [4, 2]
+        x[4] = 0.
+        dropzeros!(x)                   # the last active coordinate moves into the gap
+        @test [activeCoordinate(x, i) for i in 1:numActive(x)] == [2]
+    end
+
 
     @testset "show" begin
         io = IOBuffer()
@@ -292,6 +309,17 @@ end
       @test Matrix(y)[3, 1] == 0.
     end
 
+
+    @testset "active coordinates" begin
+        # linear indices of the lower triangle
+        s = SymmetricSparseIterate(3)
+        s[2, 1] = 1.
+        s[3, 3] = 2.
+        @test numActive(s) == 2
+        @test [activeCoordinate(s, i) for i in 1:2] == [sub2indLowerTriangular(3, 2, 1), sub2indLowerTriangular(3, 3, 3)]
+        @test isActive(s, sub2indLowerTriangular(3, 2, 1)) && !isActive(s, 1)
+        @test_throws BoundsError activeCoordinate(s, 3)
+    end
 end
 
 end

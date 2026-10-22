@@ -37,6 +37,41 @@ a [`SparseIterate`](@ref), the lower triangle of a
 """
 numCoordinates(x::SparseIterate) = length(x.ind2nzval)
 
+"""
+    numActive(x)
+
+Number of active coordinates of `x`: the stored entries of a
+[`SparseIterate`](@ref) or [`SymmetricSparseIterate`](@ref), and the active
+groups of an [`AtomIterate`](@ref). Solvers use them as the active set;
+[`activeCoordinate`](@ref) lists them.
+"""
+function numActive end
+
+"""
+    activeCoordinate(x, i)
+
+The `i`-th active coordinate of `x`, for `1 ≤ i ≤ numActive(x)`: an index of
+`x` for a [`SparseIterate`](@ref) or [`SymmetricSparseIterate`](@ref), a group
+for an [`AtomIterate`](@ref). Coordinates are listed in the order in which they
+became active, except that `dropzeros!` moves the last ones into the places of
+those it removes.
+"""
+function activeCoordinate end
+
+"""
+    isActive(x, k)
+
+Whether coordinate `k` of `x` is active (see [`numActive`](@ref)).
+"""
+function isActive end
+
+numActive(x::SparseIterate) = x.nnz
+Base.@propagate_inbounds function activeCoordinate(x::SparseIterate, i::Int)
+  @boundscheck 1 <= i <= x.nnz || throw(BoundsError(Base.OneTo(x.nnz), i))
+  @inbounds x.nzval2ind[i]
+end
+isActive(x::SparseIterate, k::Int) = x.ind2nzval[k] != 0
+
 ## similar
 #
 Base.similar(A::SparseIterate{T}) where {T} = SparseIterate(T, size(A)...)
@@ -384,6 +419,13 @@ function numCoordinates(x::SymmetricSparseIterate)
   p = x.p
   div(p*(p+1), 2)
 end
+
+numActive(x::SymmetricSparseIterate) = x.nnz
+Base.@propagate_inbounds function activeCoordinate(x::SymmetricSparseIterate, i::Int)
+  @boundscheck 1 <= i <= x.nnz || throw(BoundsError(Base.OneTo(x.nnz), i))
+  @inbounds x.nzval2ind[i]
+end
+isActive(x::SymmetricSparseIterate, k::Int) = x.ind2nzval[k] != 0
 
 Base.IndexStyle(::Type{<:SymmetricSparseIterate}) = IndexCartesian()
 function Base.getindex(x::SymmetricSparseIterate, r::Int, c::Int)

@@ -19,6 +19,7 @@ export
   DifferentiableFunction,
   ProximableFunction,
   SparseIterate, SymmetricSparseIterate, AtomIterate, numCoordinates,
+  numActive, activeCoordinate, isActive,
   activate!, atom,
 
   # smooth functions

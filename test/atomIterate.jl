@@ -82,6 +82,13 @@ groups = [1:3, [4, 7], 5:5, [8, 6], [9]]
     dropzeros!(x)
     @test x.nactive == 0
     @test_throws BoundsError activate!(x, 6)
+
+    x[9], x[2] = 1., 2.
+    @test numActive(x) == 2
+    @test [activeCoordinate(x, i) for i in 1:2] == [5, 1]
+    @test isActive(x, 5) && !isActive(x, 2)
+    @test_throws BoundsError activeCoordinate(x, 3)
+    fill!(x, 0.)
     @test_throws BoundsError x[10]
     @test_throws BoundsError (x[0] = 1.)
 
@@ -115,6 +122,8 @@ groups = [1:3, [4, 7], 5:5, [8, 6], [9]]
         empty!(act)
       end
       ok &= x == v && active_set(x) == act && consistent(x)
+      ok &= Set(activeCoordinate(x, i) for i in 1:numActive(x)) == act
+      ok &= all(k -> isActive(x, k) == (k in act), 1:5)
     end
     @test ok
   end

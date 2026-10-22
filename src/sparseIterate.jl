@@ -24,7 +24,10 @@ end
 A sparse symmetric `p × p` matrix that stores only its lower triangle, with the
 same O(1) access as [`SparseIterate`](@ref). `x[r, c]` and `x[c, r]` refer to
 the same entry. Linear indices `1:p(p+1)/2` run over the lower triangle column
-by column (see [`sub2indLowerTriangular`](@ref)).
+by column (see [`sub2indLowerTriangular`](@ref)): they are the coordinates that
+[`cdprox!`](@ref) updates, and `length(x)` is `p(p+1)/2`. Generic functions that
+expect the linear indices of a dense `p × p` matrix, such as `vec` and
+`reshape`, give wrong results or errors; convert with `Matrix(x)` first.
 """
 mutable struct SymmetricSparseIterate{T} <: AbstractMatrix{T}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
@@ -475,6 +478,10 @@ function Base.Matrix(S::SymmetricSparseIterate{Tv}) where Tv
 end
 Base.Array(S::SymmetricSparseIterate) = Matrix(S)
 
+# x is symmetric, so x' * b and b' * x take the sparse product
+Base.transpose(x::SymmetricSparseIterate) = x
+Base.adjoint(x::SymmetricSparseIterate{<:Real}) = x
+
 Base.similar(A::SymmetricSparseIterate{T}) where {T} = SymmetricSparseIterate(T, size(A, 1))
 Base.similar(A::SymmetricSparseIterate, ::Type{S}) where {S} = SymmetricSparseIterate(S, size(A, 1))
 
@@ -514,11 +521,12 @@ function _mul_symsparse!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::
 end
 
 
-function LinearAlgebra.mul!(C::AbstractVector{T}, A::SymmetricSparseIterate{T}, B::AbstractVector{T}) where T
+# any element types: the generic fallback would read linear indices as those of a dense matrix
+function LinearAlgebra.mul!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector)
   size(A, 2) == size(B, 1) || throw(DimensionMismatch())
   size(A, 1) == size(C, 1) || throw(DimensionMismatch())
 
-  fill!(C, zero(T))
+  fill!(C, zero(eltype(C)))
   i = 1
   @inbounds while i <= A.nnz
     v = A.nzval[i]

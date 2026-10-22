@@ -305,6 +305,15 @@ end
       b = randn(10)
       @test mul!(zeros(10), x, b) ≈ M * b
       @test_throws DimensionMismatch mul!(zeros(10), x, randn(5))
+
+      # x is symmetric: x' and transpose(x) are x, and products from the left work
+      @test transpose(x) === x && x' === x
+      @test x' * b ≈ M * b
+      @test b' * x ≈ b' * M
+      @test transpose(b) * x ≈ transpose(b) * M
+      # other element types take the sparse product too
+      @test x * Float32.(b) ≈ M * Float32.(b)
+      @test x * complex.(b, b) ≈ M * complex.(b, b)
     end
 
     @testset "copy" begin

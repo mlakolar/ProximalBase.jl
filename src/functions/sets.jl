@@ -44,6 +44,7 @@ struct IndBallL0 <: AbstractFunction
 end
 
 isproximable(::Type{IndBallL0}) = true
+_isindicator(::Type{IndBallL0}) = true
 
 # whether entry i of x is one that counts
 @inline _counts(f::IndBallL0, x::AbstractArray, i::Integer) = true
@@ -53,7 +54,11 @@ isproximable(::Type{IndBallL0}) = true
   mod1(i, m) != cld(i, m)
 end
 
+# whether every entry of x counts, as unless x is a matrix with a free diagonal
+_allcount(f::IndBallL0, x::AbstractArray) = f.diagonal || ndims(x) != 2
+
 function _count_nonzero(f::IndBallL0, x::AbstractArray)
+  _allcount(f, x) && return count(!iszero, x)
   k = 0
   @inbounds for i in eachindex(IndexLinear(), x)
     k += (!iszero(x[i]) & _counts(f, x, i))
@@ -65,8 +70,7 @@ function _count_nonzero(f::IndBallL0, x::SparseIterate)
   count(!iszero, view(x.nzval, 1:x.nnz))
 end
 
-_ind_value(ok::Bool, x) = ok ? zero(float(eltype(x))) : float(eltype(x))(Inf)
-(f::IndBallL0)(x::AbstractArray) = _ind_value(_count_nonzero(f, x) <= f.s, x)
+(f::IndBallL0)(x::AbstractArray) = _ind(_count_nonzero(f, x) <= f.s, float(eltype(x)))
 
 # the entries of the lower triangle of a symmetric matrix, the diagonal unless
 # it does not count
@@ -76,7 +80,7 @@ function (f::IndBallL0)(x::Union{Symmetric, SymmetricSparseIterate})
   @inbounds for c in 1:p, r in (f.diagonal ? c : c + 1):p
     k += !iszero(x[r, c])
   end
-  _ind_value(k <= f.s, x)
+  _ind(k <= f.s, float(eltype(x)))
 end
 
 function prox!(y::AbstractArray, f::IndBallL0, x::AbstractArray, ::Real)
@@ -85,6 +89,46 @@ function prox!(y::AbstractArray, f::IndBallL0, x::AbstractArray, ::Real)
     y === x || copyto!(y, x)
     return y
   end
+  _allcount(f, x) ? _keep_largest_all!(y, f, x) : _keep_largest_counted!(y, f, x)
+end
+
+# every entry counts: loops without a test per entry, which vectorize
+function _keep_largest_all!(y::AbstractArray, f::IndBallL0, x::AbstractArray)
+  n = length(x)
+  buf = _buffer!(f.scratch, float(eltype(x)), n)
+  @inbounds for (k, i) in enumerate(eachindex(IndexLinear(), x))
+    buf[k] = abs(x[i])
+  end
+  τ = f.s == 0 ? oftype(float(zero(eltype(x))), Inf) : _kth_largest!(view(buf, 1:n), f.s)
+  # keep the entries at or above τ in one branch-free pass, then drop the ties at τ
+  # beyond the s entries, which is rare, so that this works in place
+  above, equal = 0, 0
+  @inbounds @simd for i in eachindex(IndexLinear(), x)
+    a = abs(x[i])
+    above += a > τ
+    equal += a == τ
+  end
+  @inbounds @simd for i in eachindex(IndexLinear(), y, x)
+    v = x[i]
+    y[i] = ifelse(abs(v) >= τ, v, zero(v))
+  end
+  equal > f.s - above ? _drop_extra_ties!(y, τ, f.s - above, i -> true) : y
+end
+
+# zero the entries of y equal to τ in magnitude after the first `keep` of those
+# for which counts(i) holds
+function _drop_extra_ties!(y::AbstractArray, τ, keep::Integer, counts::F) where {F}
+  isfinite(τ) || return y
+  @inbounds for i in eachindex(IndexLinear(), y)
+    if counts(i) && abs(y[i]) == τ
+      keep > 0 ? (keep -= 1) : (y[i] = zero(eltype(y)))
+    end
+  end
+  y
+end
+
+# a matrix whose diagonal is free: it does not count and is kept
+function _keep_largest_counted!(y::AbstractArray, f::IndBallL0, x::AbstractArray)
   n = length(x)
   buf = _buffer!(f.scratch, float(eltype(x)), n)
   k = 0
@@ -94,29 +138,32 @@ function prox!(y::AbstractArray, f::IndBallL0, x::AbstractArray, ::Real)
     buf[k] = abs(x[i])
   end
   τ = f.s == 0 ? oftype(float(zero(eltype(x))), Inf) : _kth_largest!(view(buf, 1:k), f.s)
-  ties = f.s
+  above, equal = 0, 0
   @inbounds for i in eachindex(IndexLinear(), x)
-    ties -= (_counts(f, x, i) & (abs(x[i]) > τ))
+    c, a = _counts(f, x, i), abs(x[i])
+    above += c & (a > τ)
+    equal += c & (a == τ)
   end
   @inbounds for i in eachindex(IndexLinear(), y, x)
     v = x[i]
-    if !_counts(f, x, i)
-      y[i] = v
-    else
-      a = abs(v)
-      keep = a > τ || (a == τ && ties > 0)
-      keep && a == τ && (ties -= 1)
-      y[i] = keep ? v : zero(eltype(y))
-    end
+    y[i] = ifelse(!_counts(f, x, i) | (abs(v) >= τ), v, zero(v))
   end
-  y
+  equal > f.s - above ? _drop_extra_ties!(y, τ, f.s - above, i -> _counts(f, x, i)) : y
 end
 
 # the stored entries of a vector hold every nonzero
 function prox!(y::SparseIterate{<:Any, 1}, f::IndBallL0, x::SparseIterate{<:Any, 1}, γ::Real)
   _checksize(y, x)
   nz = _count_nonzero(f, x)
-  (nz <= f.s || f.s == 0) && return invoke(prox!, Tuple{AbstractArray, IndBallL0, AbstractArray, Real}, y, f, x, γ)
+  if nz <= f.s
+    y === x || copyto!(y, x)
+    return y
+  elseif f.s == 0
+    @inbounds for k in 1:y.nnz          # every entry is zero; y keeps its stored entries
+      y.nzval[k] = zero(eltype(y))
+    end
+    return y
+  end
   buf = _buffer!(f.scratch, float(eltype(x)), x.nnz)
   @inbounds for k in 1:x.nnz
     buf[k] = abs(x.nzval[k])
@@ -179,7 +226,6 @@ end
   y
 end
 
-value_and_prox!(y::AbstractArray, f::IndBallL0, x::AbstractArray, γ::Real) = (prox!(y, f, x, γ); zero(float(eltype(y))))
 
 ####################################
 #  ℓ1 ball
@@ -201,6 +247,7 @@ end
 IndBallL1(r::Real = 1) = IndBallL1{typeof(r)}(r)
 
 isproximable(::Type{<:IndBallL1}) = true
+_isindicator(::Type{<:IndBallL1}) = true
 isconvex(::Type{<:IndBallL1}) = true
 
 function (f::IndBallL1)(x::AbstractArray)
@@ -223,7 +270,6 @@ function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, ::Real)
   τ = _simplex_threshold!(_buffer!(f.scratch, T, length(x)), x, eachindex(IndexLinear(), x), r, abs)
   y .= shrink.(x, τ)
 end
-value_and_prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, γ::Real) = (prox!(y, f, x, γ); zero(float(eltype(y))))
 
 ####################################
 #  ℓ2 ball
@@ -243,6 +289,7 @@ end
 IndBallL2(r::Real = 1) = IndBallL2{typeof(r)}(r)
 
 isproximable(::Type{<:IndBallL2}) = true
+_isindicator(::Type{<:IndBallL2}) = true
 isconvex(::Type{<:IndBallL2}) = true
 
 function (f::IndBallL2)(x::AbstractArray)
@@ -262,7 +309,6 @@ function prox!(y::AbstractArray, f::IndBallL2, x::AbstractArray, ::Real)
   end
   y
 end
-value_and_prox!(y::AbstractArray, f::IndBallL2, x::AbstractArray, γ::Real) = (prox!(y, f, x, γ); zero(float(eltype(y))))
 
 ####################################
 #  simplex
@@ -286,6 +332,7 @@ end
 IndSimplex(r::Real = 1; equality::Bool = true) = IndSimplex{typeof(r)}(r, equality)
 
 isproximable(::Type{<:IndSimplex}) = true
+_isindicator(::Type{<:IndSimplex}) = true
 isconvex(::Type{<:IndSimplex}) = true
 
 function (f::IndSimplex)(x::AbstractArray)
@@ -320,7 +367,6 @@ function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, ::Real)
   τ = _simplex_threshold!(_buffer!(f.scratch, T, length(x)), x, eachindex(IndexLinear(), x), r)
   y .= max.(x .- τ, zero(T))
 end
-value_and_prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, γ::Real) = (prox!(y, f, x, γ); zero(float(eltype(y))))
 
 ####################################
 #  hyperplane and halfspace
@@ -366,8 +412,8 @@ IndHalfspace(a::AbstractArray, b::Real) = (T = float(promote_type(eltype(a), typ
 
 for F in (:IndHyperplane, :IndHalfspace)
   @eval isproximable(::Type{<:$F}) = true
+  @eval _isindicator(::Type{<:$F}) = true
   @eval isconvex(::Type{<:$F}) = true
-  @eval value_and_prox!(y::AbstractArray, f::$F, x::AbstractArray, γ::Real) = (prox!(y, f, x, γ); zero(float(eltype(y))))
 end
 
 function (f::IndHyperplane)(x::AbstractArray)

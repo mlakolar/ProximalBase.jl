@@ -106,8 +106,15 @@ an indicator function as `0`. This is then cheaper than `prox!` followed by
 """
 function value_and_prox!(y, f::AbstractFunction, x, γ::Real = 1)
   prox!(y, f, x, γ)
-  f(y)
+  _isindicator(f) ? zero(float(eltype(y))) : f(y)
 end
+
+# Internal traits: an indicator function is 0 at its projection, and the
+# parameter arrays of a function (weights, bounds, centers) must have an entry
+# for every entry of the argument, which _checkparams verifies in O(1).
+_isindicator(::Type{<:AbstractFunction}) = false
+_isindicator(f::AbstractFunction) = _isindicator(typeof(f))
+_checkparams(::AbstractFunction, x) = true
 
 ####################################
 #  Gradients
@@ -186,6 +193,7 @@ function cdprox! end
 
 function cdprox!(x::SparseIterate, f::AbstractFunction, k::Integer, γ::Real)
   isseparable(f) || _not_separable(f)
+  _checkparams(f, x)
   v = cdprox(f, x[k], k, γ)
   x[k] = v
   v
@@ -193,6 +201,7 @@ end
 
 function cdprox!(x::SymmetricSparseIterate, f::AbstractFunction, k::Integer, γ::Real)
   isseparable(f) || _not_separable(f)
+  _checkparams(f, x)
   r, c = tril_cartesian(x.p, k)
   v = cdprox(f, _getstored(x, k), (c - 1) * x.p + r, γ)
   _setstored!(x, v, k)
@@ -202,6 +211,7 @@ end
 # group k, entry by entry; the group becomes active if it ends nonzero
 function cdprox!(x::AtomIterate, f::AbstractFunction, k::Integer, γ::Real)
   isseparable(f) || _not_separable(f)
+  _checkparams(f, x)
   nonzero = false
   @inbounds for i in x.groups[k]
     v = cdprox(f, x.storage[i], i, γ)

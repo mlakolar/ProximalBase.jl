@@ -220,6 +220,17 @@ end
     D = randn(p, p); D = D + D'
     @test (f(X + h * D) - f(X - h * D)) / 2h ≈ dot(G, D) rtol = 1e-5
   end
+  # a very negative eigenvalue of ρX - S: no cancellation, a positive definite result
+  L = LogDetLoss(1e9 * Matrix(1.0I, 2, 2))
+  Y = similar(zeros(2, 2))
+  v = value_and_prox!(Y, L, zeros(2, 2), 1.0)
+  @test isposdef(Y)
+  @test Y ≈ 1e-9 * I rtol = 1e-6
+  @test isfinite(v) && v ≈ L(Y)
+  L2 = LogDetLoss(S)
+  Z = prox(L2, X, 1e6)                                  # a large step
+  @test isposdef(Z)
+  @test S - inv(Z) + (Z - X) / 1e6 ≈ zeros(p, p) atol = 1e-6
   f = LogDetLoss(S)
   # outside the cone the value is Inf, without an error, even when the determinant is positive
   @test f(-Matrix(1.0I, p, p)) == Inf

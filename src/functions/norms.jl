@@ -310,7 +310,11 @@ end
 
 # on an AtomIterate, k is a group
 kkt_violation(f::AbstractGroupNorm, g::AbstractArray, x::AtomIterate, k::Integer) =
-  (_checkgroups(f, g); _dual_norm(f, g, x.groups[k]) - f.λ0 * f.w[k])
+  (_checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - f.λ0 * f.w[k])
+
+# the coordinates of x are the groups of f; O(1) when they share them
+_checksamegroups(f::AbstractGroupNorm, x::AtomIterate) = x.groups === f.groups || x.groups == f.groups ||
+  throw(DimensionMismatch("f and x must have the same groups."))
 kkt_violation(f::AbstractGroupNorm, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate"))
 
@@ -353,7 +357,7 @@ end
 # group k of x shrunk in place; the group becomes active if it is nonzero, as after
 # writing to it through atom(x, k)
 function cdprox!(x::AtomIterate, f::AbstractGroupNorm, k::Integer, γ::Real)
-  length(f.w) == length(x.groups) || throw(DimensionMismatch("f and x must have the same groups."))
+  _checksamegroups(f, x)
   T = float(eltype(x))
   nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], convert(T, γ * f.λ0 * f.w[k]))
   iszero(nrm) || activate!(x, k)

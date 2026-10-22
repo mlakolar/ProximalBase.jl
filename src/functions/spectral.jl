@@ -40,13 +40,13 @@ function _issymmetric_tol(X::AbstractMatrix)
 end
 _issymmetric_tol(::SymmetricSparseIterate) = true
 
-# the symmetric Y = Σⱼ f(λⱼ) vⱼvⱼ' from the eigendecomposition in ws, through a
-# temporary matrix when Y is not strided
-function _rebuild_sym_out!(Y::AbstractMatrix, V::StridedMatrix, λ, f::F; logs::Bool = false) where {F}
+# the symmetric Y = Σⱼ f(λⱼ) vⱼvⱼ' from the eigendecomposition V, λ, through the
+# n × n matrix buffer when Y is not strided (a SymmetricSparseIterate, say)
+function _rebuild_sym_out!(Y::AbstractMatrix, V::StridedMatrix, λ, f::F; logs::Bool = false,
+                           buffer::StridedMatrix = similar(V, size(V, 1), size(V, 1))) where {F}
   Y isa StridedMatrix && return _rebuild_sym!(Y, V, λ, f; logs)
-  Z = similar(V, size(V, 1), size(V, 1))
-  s = _rebuild_sym!(Z, V, λ, f; logs)
-  copyto!(Y, Z)
+  s = _rebuild_sym!(buffer, V, λ, f; logs)
+  copyto!(Y, buffer)
   s
 end
 
@@ -129,6 +129,7 @@ mutable struct IndBallRank <: AbstractFunction
 end
 
 isproximable(::Type{IndBallRank}) = true
+_isindicator(::Type{IndBallRank}) = true
 
 function (f::IndBallRank)(X::AbstractMatrix)
   T = float(eltype(X))
@@ -159,7 +160,6 @@ function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, ::Real)
   end
   _mul_lowrank!(Y, U, Vt, f.r, ws)
 end
-value_and_prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real) = (prox!(Y, f, X, γ); zero(float(eltype(Y))))
 
 ####################################
 #  positive semidefinite cone
@@ -183,14 +183,16 @@ mutable struct IndPSD{R<:Union{Nothing, Int}} <: AbstractFunction
   rank::R
   eig::Any        # all eigenvalues: the value, and the projection onto the cone
   top::Any        # the largest r eigenpairs: the projection with a rank
+  out::Scratch    # the result, for an output that is not strided
 end
 function IndPSD(; rank::Union{Nothing, Integer} = nothing)
-  rank === nothing && return IndPSD{Nothing}(nothing, nothing, nothing)
+  rank === nothing && return IndPSD{Nothing}(nothing, nothing, nothing, Scratch())
   rank >= 1 || throw(ArgumentError("rank must be positive, got $rank"))
-  IndPSD{Int}(Int(rank), nothing, nothing)
+  IndPSD{Int}(Int(rank), nothing, nothing, Scratch())
 end
 
 isproximable(::Type{<:IndPSD}) = true
+_isindicator(::Type{<:IndPSD}) = true
 isconvex(::Type{IndPSD{Nothing}}) = true
 
 # whether X is symmetric positive semidefinite, and of rank at most r unless r is
@@ -219,7 +221,8 @@ function _project_psd!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix)
   f.eig = ws
   copyto!(ws.A, X)
   λ, V = _eigen!(ws)
-  _rebuild_sym_out!(Y, V, λ, t -> max(t, zero(t)))
+  n = size(V, 1)
+  _rebuild_sym_out!(Y, V, λ, t -> max(t, zero(t)); buffer = Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
   Y
 end
 
@@ -234,11 +237,10 @@ function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
   f.top = ws
   copyto!(ws.A, X)
   λ, Z = _eigen_top!(ws)
-  _rebuild_sym_out!(Y, Z, λ, t -> max(t, zero(t)))
+  _rebuild_sym_out!(Y, Z, λ, t -> max(t, zero(t)); buffer = Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
   Y
 end
 
-value_and_prox!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix, γ::Real) = (prox!(Y, f, X, γ); zero(float(eltype(Y))))
 
 ####################################
 #  trace on the positive semidefinite cone
@@ -257,8 +259,9 @@ $_SPECTRAL_NOTE
 mutable struct TracePSD{T<:Real} <: AbstractFunction
   λ::T
   eig::Any
+  out::Scratch
 
-  TracePSD{T}(λ::T) where {T<:Real} = (_checknonneg("λ", λ); new{T}(λ, nothing))
+  TracePSD{T}(λ::T) where {T<:Real} = (_checknonneg("λ", λ); new{T}(λ, nothing, Scratch()))
 end
 TracePSD(λ::Real = 1) = TracePSD{typeof(λ)}(λ)
 
@@ -280,7 +283,8 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
   @inbounds for t in λ
     s += max(t - c, zero(T))
   end
-  _rebuild_sym_out!(Y, V, λ, t -> max(t - c, zero(t)))
+  n = size(V, 1)
+  _rebuild_sym_out!(Y, V, λ, t -> max(t - c, zero(t)); buffer = Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
   convert(T, f.λ) * s
 end
 prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, f, X, γ); Y)

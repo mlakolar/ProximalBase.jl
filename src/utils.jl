@@ -67,6 +67,21 @@ _checknonneg(name, v::Real) = v >= 0 || throw(ArgumentError("$name must be nonne
 _checknonneg(name, v::AbstractArray) = all(>=(0), v) || throw(ArgumentError("$name must be nonnegative"))
 _checknonneg(name, ::Nothing) = true
 
+# A weight or a bound: a scalar, or the entry i of an array. The bounds check
+# propagates: a direct call checks it, and the loops that first check the
+# lengths of the parameter arrays (_checkparam) elide it with @inbounds.
+@inline _entry(w::Real, ::Integer) = w
+Base.@propagate_inbounds _entry(w::AbstractArray, i::Integer) = w[i]
+@inline _entry(::Nothing, ::Integer) = true
+
+# a parameter array has an entry for every entry of x
+_checkparam(::Union{Nothing, Real}, x) = true
+_checkparam(w::AbstractArray, x) = length(w) == length(x) ||
+  throw(DimensionMismatch("a parameter array has length $(length(w)) and the argument has length $(length(x))"))
+
+# the value of an indicator function
+_ind(ok::Bool, ::Type{T}) where {T} = ok ? zero(T) : T(Inf)
+
 # The relative tolerance with which an indicator function accepts a point
 # rounded onto the boundary of its set; points that a projection returns are
 # feasible within it.
@@ -251,10 +266,7 @@ function norm_diff(A::AbstractArray, B::AbstractArray, p::Real = 2)
   T = float(promote_type(eltype(A), eltype(B)))
   v = zero(T)
   if p == 2
-    @inbounds @simd for i in eachindex(A, B)
-      v += abs2(A[i] - B[i])
-    end
-    return sqrt(v)
+    return sqrt(_sumabs2_diff(A, B))
   elseif p == Inf
     @inbounds for i in eachindex(A, B)
       v = max(v, abs(A[i] - B[i]))
@@ -263,4 +275,14 @@ function norm_diff(A::AbstractArray, B::AbstractArray, p::Real = 2)
   else
     throw(ArgumentError("p should be 2 or Inf"))
   end
+end
+
+# Σᵢ (xᵢ - yᵢ)², without allocating x - y
+function _sumabs2_diff(x::AbstractArray, y::AbstractArray)
+  size(x) == size(y) || throw(DimensionMismatch("the arrays have sizes $(size(x)) and $(size(y))"))
+  s = zero(float(promote_type(eltype(x), eltype(y))))
+  @inbounds @simd for i in eachindex(x, y)
+    s += abs2(x[i] - y[i])
+  end
+  s
 end

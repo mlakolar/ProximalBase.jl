@@ -89,7 +89,14 @@ function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix,
   A = f.eig.A
   A .= ρ .* X .- f.S
   t, U = _eigen!(f.eig)
-  logdet_Y = _rebuild_sym_out!(Y, U, t, s -> (s + sqrt(s^2 + 4ρ)) / (2ρ); logs = true)
+  logdet_Y = _rebuild_sym_out!(Y, U, t, s -> _logdet_eigenvalue(s, ρ); logs = true, buffer = f.C)
   f.w * (dot(f.S, Y) - logdet_Y)
+end
+
+# the root μ > 0 of ρμ² - tμ - 1 = 0, as (t + √(t² + 4ρ)) / (2ρ) for t ≥ 0 and in
+# the form 2 / (√(t² + 4ρ) - t) for t < 0, where the first would cancel
+@inline function _logdet_eigenvalue(t::T, ρ::T) where {T}
+  r = sqrt(t^2 + 4ρ)
+  t >= 0 ? (t + r) / (2ρ) : 2 / (r - t)
 end
 prox!(Y::AbstractMatrix, f::LogDetLoss, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, f, X, γ); Y)

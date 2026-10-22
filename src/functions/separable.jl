@@ -33,9 +33,10 @@ function _value_dense(f, x::AbstractArray)
   s
 end
 
-_value_sep(f, x::AbstractArray) = _value_dense(f, x)
+_value_sep(f, x::AbstractArray) = (_checkparams(f, x); _value_dense(f, x))
 
 function _value_sep(f, x::SparseIterate)
+  _checkparams(f, x)
   _zeropreserving(f) || return _value_dense(f, x)
   T = float(eltype(x))
   s = zero(T)
@@ -47,6 +48,7 @@ end
 
 # an off-diagonal coordinate is the entries (r, c) and (c, r)
 function _value_sep(f, x::SymmetricSparseIterate)
+  _checkparams(f, x)
   _zeropreserving(f) || return _value_dense(f, x)
   T = float(eltype(x))
   p = x.p
@@ -61,6 +63,7 @@ function _value_sep(f, x::SymmetricSparseIterate)
 end
 
 function _value_sep(f, x::AtomIterate)
+  _checkparams(f, x)
   _zeropreserving(f) || return _value_dense(f, x)
   T = float(eltype(x))
   s = zero(T)
@@ -73,6 +76,7 @@ end
 # the proximal operator, entry by entry; y may be x
 function _prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Real)
   _checksize(y, x)
+  _checkparams(f, x)
   T = eltype(y)
   @inbounds for i in eachindex(IndexLinear(), y, x)
     y[i] = convert(T, cdprox(f, x[i], i, γ))
@@ -84,6 +88,7 @@ end
 # dense array, an entry stored in y stays stored, possibly as a zero
 function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::Real)
   _checksize(y, x)
+  _checkparams(f, x)
   _zeropreserving(f) || return invoke(_prox_sep!, Tuple{AbstractArray, Any, AbstractArray, Real}, y, f, x, γ)
   T = eltype(y)
   if y !== x
@@ -98,15 +103,23 @@ function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::Real)
   y
 end
 
-# each coordinate (an entry of the lower triangle) once
+# each coordinate (an entry of the lower triangle) once, and from a
+# SymmetricSparseIterate only its stored coordinates when f preserves zeros
 function _prox_sep!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::Real)
   _checksize(y, x)
+  _checkparams(f, x)
   T = eltype(y)
   p = y.p
-  if y === x && _zeropreserving(f)
-    @inbounds for k in 1:y.nnz
-      r, c = tril_cartesian(p, y.nzval2ind[k])
-      y.nzval[k] = convert(T, cdprox(f, y.nzval[k], (c - 1) * p + r, γ))
+  if x isa SymmetricSparseIterate && _zeropreserving(f)
+    if y !== x                       # as for a SparseIterate, y keeps its stored entries
+      @inbounds for k in 1:y.nnz
+        y.nzval[k] = zero(T)
+      end
+    end
+    @inbounds for k in 1:x.nnz
+      i = x.nzval2ind[k]
+      r, c = tril_cartesian(p, i)
+      _setstored!(y, convert(T, cdprox(f, x.nzval[k], (c - 1) * p + r, γ)), i)
     end
     return y
   end
@@ -119,12 +132,8 @@ end
 # the proximal operator, then the value at the result: two vectorized passes are
 # several times faster than one that stores and sums, which does not vectorize;
 # an indicator function is 0 at its projection
-_value_and_prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Real) = _value_sep(f, _prox_sep!(y, f, x, γ))
-
-# a weight or a bound: a scalar, or the entry i of an array
-@inline _entry(w::Real, ::Integer) = w
-@inline _entry(w::AbstractArray, i::Integer) = @inbounds w[i]
-@inline _entry(::Nothing, ::Integer) = true
+_value_and_prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Real) =
+  _isindicator(f) ? (_prox_sep!(y, f, x, γ); zero(float(eltype(y)))) : _value_sep(f, _prox_sep!(y, f, x, γ))
 
 _restrict_entries(w::Union{Nothing, Real}, ::AbstractVector{<:Integer}) = w
 _restrict_entries(w::AbstractArray, S::AbstractVector{<:Integer}) = w[S]
@@ -158,9 +167,10 @@ NormL1(λ0::Real = 1, w::Union{Nothing, AbstractArray} = nothing) = NormL1{typeo
 
 isconvex(::Type{<:NormL1}) = true
 _zeropreserving(::NormL1) = true
+_checkparams(f::NormL1, x) = (_checkparam(f.w, x); true)
 
-@inline _entry_value(f::NormL1, v::Real, i::Integer) = f.λ0 * _entry(f.w, i) * abs(v)
-@inline cdprox(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
+Base.@propagate_inbounds _entry_value(f::NormL1, v::Real, i::Integer) = f.λ0 * _entry(f.w, i) * abs(v)
+Base.@propagate_inbounds cdprox(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
   shrink(v, convert(float(T), γ * f.λ0 * _entry(f.w, i)))
 
 kkt_violation(f::NormL1, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ0 * _entry(f.w, i)
@@ -198,12 +208,13 @@ NormL1Nonneg(λ0::Real = 1, w::Union{Nothing, AbstractArray} = nothing) = NormL1
 
 isconvex(::Type{<:NormL1Nonneg}) = true
 _zeropreserving(::NormL1Nonneg) = true
+_checkparams(f::NormL1Nonneg, x) = (_checkparam(f.w, x); true)
 
-@inline function _entry_value(f::NormL1Nonneg, v::T, i::Integer) where {T<:Real}
+Base.@propagate_inbounds function _entry_value(f::NormL1Nonneg, v::T, i::Integer) where {T<:Real}
   S = float(T)
   v >= -_tol(S) ? f.λ0 * _entry(f.w, i) * max(v, zero(T)) : S(Inf)
 end
-@inline cdprox(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
+Base.@propagate_inbounds cdprox(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
   max(v - convert(float(T), γ * f.λ0 * _entry(f.w, i)), zero(float(T)))
 
 # moving up from zero decreases the objective when -gᵢ exceeds λ0 wᵢ
@@ -241,9 +252,10 @@ end
 
 isconvex(::Type{<:ElasticNet}) = true
 _zeropreserving(::ElasticNet) = true
+_checkparams(f::ElasticNet, x) = (_checkparam(f.w, x); true)
 
-@inline _entry_value(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
-@inline function cdprox(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds _entry_value(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
+Base.@propagate_inbounds function cdprox(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   shrink(v, convert(S, γ * f.λ1 * _entry(f.w, i))) / (1 + convert(S, γ * f.λ2))
 end
@@ -283,8 +295,9 @@ IndBallLinf(r::Real) = (_checknonneg("r", r); IndBox(-r, r))
 
 isconvex(::Type{<:IndBox}) = true
 _zeropreserving(f::IndBox) = f.zp
+_checkparams(f::IndBox, x) = (_checkparam(f.l, x); _checkparam(f.u, x); true)
 
-value_and_prox!(y::AbstractArray, f::IndBox, x::AbstractArray, γ::Real) = (prox!(y, f, x, γ); zero(float(eltype(y))))
+_isindicator(::Type{<:IndBox}) = true
 
 # feasibility with a branch-free loop that vectorizes, then the value
 function _value_dense(f::IndBox, x::AbstractArray)
@@ -298,13 +311,13 @@ function _value_dense(f::IndBox, x::AbstractArray)
   ok ? zero(T) : T(Inf)
 end
 
-@inline function _entry_value(f::IndBox, v::T, i::Integer) where {T<:Real}
+Base.@propagate_inbounds function _entry_value(f::IndBox, v::T, i::Integer) where {T<:Real}
   S = float(T)
   l, u = _entry(f.l, i), _entry(f.u, i)
   t = _tol(S)
   (v >= l - t * max(one(S), abs(l)) && v <= u + t * max(one(S), abs(u))) ? zero(S) : S(Inf)
 end
-@inline cdprox(f::IndBox, v::T, i::Integer, ::Real) where {T<:Real} =
+Base.@propagate_inbounds cdprox(f::IndBox, v::T, i::Integer, ::Real) where {T<:Real} =
   convert(float(T), clamp(v, _entry(f.l, i), _entry(f.u, i)))
 
 # from zero, the objective decreases upward at rate -gᵢ if u > 0, and downward
@@ -328,7 +341,7 @@ struct IndNonnegative <: SeparableFunction end
 isconvex(::Type{IndNonnegative}) = true
 _zeropreserving(::IndNonnegative) = true
 
-value_and_prox!(y::AbstractArray, f::IndNonnegative, x::AbstractArray, γ::Real) = (prox!(y, f, x, γ); zero(float(eltype(y))))
+_isindicator(::Type{IndNonnegative}) = true
 _value_dense(::IndNonnegative, x::AbstractArray) =
   (T = float(eltype(x)); isempty(x) || minimum(x) >= -_tol(T) ? zero(T) : T(Inf))
 
@@ -357,8 +370,8 @@ NormL0(λ::Real = 1) = NormL0{typeof(λ)}(λ)
 
 _zeropreserving(::NormL0) = true
 
-@inline _entry_value(f::NormL0, v::T, ::Integer) where {T<:Real} = iszero(v) ? zero(float(T)) : convert(float(T), f.λ)
-@inline cdprox(f::NormL0, v::T, ::Integer, γ::Real) where {T<:Real} =
+Base.@propagate_inbounds _entry_value(f::NormL0, v::T, ::Integer) where {T<:Real} = iszero(v) ? zero(float(T)) : convert(float(T), f.λ)
+Base.@propagate_inbounds cdprox(f::NormL0, v::T, ::Integer, γ::Real) where {T<:Real} =
   abs2(v) > 2 * γ * f.λ ? float(v) : zero(float(T))
 restrict(f::NormL0, ::AbstractVector{<:Integer}) = f
 
@@ -389,13 +402,13 @@ MCP(λ::Real, a::Real = 3) = (p = promote(λ, a); MCP{typeof(p[1])}(p...))
 
 _zeropreserving(::MCP) = true
 
-@inline function _entry_value(f::MCP, v::T, ::Integer) where {T<:Real}
+Base.@propagate_inbounds function _entry_value(f::MCP, v::T, ::Integer) where {T<:Real}
   S = float(T)
   λ, a, t = S(f.λ), S(f.a), abs(S(v))
   t <= a * λ ? λ * t - t^2 / (2a) : a * λ^2 / 2
 end
 
-@inline function cdprox(f::MCP, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function cdprox(f::MCP, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   λ, a, s, t = S(f.λ), S(f.a), S(γ), abs(S(v))
   if s < a
@@ -436,7 +449,7 @@ SCAD(λ::Real, a::Real = 3.7) = (p = promote(λ, a); SCAD{typeof(p[1])}(p...))
 
 _zeropreserving(::SCAD) = true
 
-@inline function _entry_value(f::SCAD, v::T, ::Integer) where {T<:Real}
+Base.@propagate_inbounds function _entry_value(f::SCAD, v::T, ::Integer) where {T<:Real}
   S = float(T)
   λ, a, t = S(f.λ), S(f.a), abs(S(v))
   t <= λ && return λ * t
@@ -444,7 +457,7 @@ _zeropreserving(::SCAD) = true
   λ^2 * (a + 1) / 2
 end
 
-@inline function cdprox(f::SCAD, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function cdprox(f::SCAD, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   λ, a, s, t = S(f.λ), S(f.a), S(γ), abs(S(v))
   if s < a - 1

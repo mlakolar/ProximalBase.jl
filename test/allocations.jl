@@ -114,6 +114,17 @@ end
     end
   end
 
+  @testset "symmetric outputs that are not strided" begin
+    A = randn(10, 10); A = A + A'
+    S = SymmetricSparseIterate(10)
+    for f in (IndPSD(), IndPSD(rank = 3), TracePSD(0.2))
+      @test allocs(a_prox!, S, f, A, 0.7) == 0
+    end
+    B = randn(40, 10)
+    L = LogDetLoss(Matrix(Symmetric(B'B / 40)))
+    @test allocs(a_vprox!, S, L, Matrix(1.0I, 10, 10), 0.7) == 0
+  end
+
   @testset "smooth functions" begin
     B = randn(2n, p)
     S = Matrix(Symmetric(B'B / 2n))

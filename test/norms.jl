@@ -180,6 +180,12 @@ end
       cdprox!(yb, fp, 2, γ)
       @test !isactive(yb, 2)
       @test_throws DimensionMismatch cdprox!(yb, F(λ0, [1:9]), 1, γ)
+      # as many groups, but other ones
+      fo = F(1.0, [1:2, 3:4])
+      ao = AtomIterate([1., 2., 3., 4.], [[1, 3], [2, 4]])
+      @test_throws DimensionMismatch cdprox!(ao, fo, 1, 0.1)
+      @test_throws DimensionMismatch kkt_violation(fo, randn(4), ao, 1)
+      @test cdprox!(AtomIterate([1., 2., 3., 4.], [1:2, 3:4]), fo, 1, 0.1) isa AbstractVector   # equal, not shared
 
       # kkt_violation takes a group: at zero, a group violates optimality exactly when a
       # proximal gradient step moves it away from zero

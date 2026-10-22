@@ -34,6 +34,19 @@ Random.seed!(1)
   @test restrict(s, [2, 5])(x[[2, 5]]) ≈ s([0, x[2], 0, 0, x[5], 0, 0, 0])
   @test cdprox(s, 2., 1, 0.4) ≈ shrink(2., 0.6)
   @test_throws ArgumentError Scaled(f, -1.)
+  # a scaled group penalty in coordinate descent and active-set code
+  gn = GroupNormL2(1.0, [1:2, 3:4])
+  sg = 0.5 * gn
+  grad = [0.3, -1.2, 0.8, 0.1]
+  a0 = AtomIterate(4, gn)
+  for k in 1:2
+    @test kkt_violation(sg, grad, a0, k) ≈ 0.5 * kkt_violation(gn, 2 .* grad, a0, k)
+    @test kkt_violation(sg, grad, a0, k) ≈ norm(grad[gn.groups[k]]) - 0.5 * gn.w[k]
+  end
+  @test kkt_violation(sg, grad, zeros(4), 1) ≈ norm(grad[1:2]) - 0.5 * sqrt(2)
+  a1, a2 = AtomIterate([1., 2., 3., 4.], gn), AtomIterate([1., 2., 3., 4.], gn)
+  @test cdprox!(a1, sg, 2, 0.4) ≈ cdprox!(a2, gn, 2, 0.2)
+  @test kkt_violation(0 * gn, grad, a0, 1) == maximum(abs, grad[1:2])
 end
 
 @testset "Tilt" begin

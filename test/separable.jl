@@ -86,6 +86,41 @@ end
   @test MCP(1.)(xa) ≈ MCP(1.)(Vector(xa))
 end
 
+@testset "parameter arrays must fit" begin
+  # weights and bounds of the wrong length raise an error instead of reading out of bounds
+  for f in (NormL1(1., [1., 2.]), NormL1Nonneg(1., [1., 2.]), ElasticNet(1., 1., [1., 2.]), IndBox([-1., -1.], 1.),
+            IndBox(-1., [1., 1.]), LinearFunction([1., 2.]), SqrNormL2(1., [1., 2.]), Tilt(NormL1(1.), [1., 2.]),
+            Translate(NormL1(1.), [1., 2.]), 2 * NormL1(1., [1., 2.]))
+    x = ones(6)
+    @test_throws DimensionMismatch prox(f, x, 0.1)
+    @test_throws DimensionMismatch cdprox!(SparseIterate(x), f, 3, 0.1)
+    @test_throws DimensionMismatch cdprox!(AtomIterate(x, 3), f, 2, 0.1)
+    f isa Union{LinearFunction, SqrNormL2, Tilt, Translate} || @test_throws DimensionMismatch f(x)
+  end
+  # a direct call of the scalar operator checks the index
+  @test_throws BoundsError cdprox(NormL1(1., [1., 2.]), 1.0, 5, 0.1)
+  # on a SymmetricSparseIterate the weights follow the p × p matrix: a vector over the
+  # lower triangle, the convention of 0.4, is rejected
+  p = 4
+  S = SymmetricSparseIterate(Matrix(1.0I, p, p))
+  wtri = rand(p * (p + 1) ÷ 2)
+  @test_throws DimensionMismatch cdprox!(S, NormL1(0.1, wtri), ncoordinates(S), 0.5)
+  @test_throws DimensionMismatch prox(NormL1(0.1, wtri), S, 0.5)
+  @test_throws DimensionMismatch NormL1(0.1, wtri)(S)
+  @test cdprox!(S, NormL1(0.1, ones(p, p)), ncoordinates(S), 0.5) ≈ 1 - 0.05
+end
+
+@testset "SymmetricSparseIterate into another iterate" begin
+  p = 5
+  D = Matrix(Symmetric(sprandn(p, p, 0.4))) + I
+  s = SymmetricSparseIterate(D)
+  y = SymmetricSparseIterate(p)
+  y[p, 1] = 3.                     # stored in y only: becomes a stored zero
+  prox!(y, NormL1(0.2), s, 1.)
+  @test Matrix(y) ≈ prox(NormL1(0.2), D, 1.)
+  @test isactive(y, tril_index(p, p, 1)) && y[p, 1] == 0
+end
+
 @testset "NormL1Nonneg" begin
   x = [1.0, -0.4, 2.5, 0.1]
   f = NormL1Nonneg(0.5)

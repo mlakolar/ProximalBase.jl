@@ -197,9 +197,6 @@ HuberLoss(y::AbstractVector, X::AbstractMatrix, δ::Real; kwargs...) = GLMLoss(H
 issmooth(::Type{<:GLMLoss}) = true
 isconvex(::Type{<:GLMLoss}) = true
 
-@inline _weight(::Nothing, ::Integer) = true
-@inline _weight(w::AbstractVector, i::Integer) = @inbounds w[i]
-
 function _linear_predictor!(f::GLMLoss, β::AbstractVector)
   length(β) == size(f.X, 2) || throw(DimensionMismatch("β has length $(length(β)) and X has $(size(f.X, 2)) columns"))
   mul!(f.η, f.X, β)
@@ -211,7 +208,7 @@ function (f::GLMLoss{L, T})(β::AbstractVector) where {L, T}
   η = _linear_predictor!(f, β)
   s = zero(T)
   @inbounds for i in eachindex(η)
-    s += convert(T, _weight(f.weights, i)) * convert(T, f.loss(η[i], f.y[i]))
+    s += convert(T, _entry(f.weights, i)) * convert(T, f.loss(η[i], f.y[i]))
   end
   s
 end
@@ -223,7 +220,7 @@ function value_and_gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVe
   s = zero(T)
   @inbounds for i in eachindex(η)
     v, dv = value_and_deriv(f.loss, η[i], f.y[i])
-    w = convert(T, _weight(f.weights, i))
+    w = convert(T, _entry(f.weights, i))
     s += w * convert(T, v)
     d[i] = w * dv
   end

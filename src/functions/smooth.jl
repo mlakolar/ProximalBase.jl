@@ -78,7 +78,8 @@ function value_and_gradient!(g::AbstractArray, f::LinearFunction, x::AbstractArr
 end
 gradient!(g::AbstractArray, f::LinearFunction, x::AbstractArray) = (_checksize(g, x); copyto!(g, f.c))
 
-cdprox(f::LinearFunction, v::Real, i::Integer, γ::Real) = v - γ * f.c[i]
+Base.@propagate_inbounds cdprox(f::LinearFunction, v::Real, i::Integer, γ::Real) = v - γ * f.c[i]
+_checkparams(f::LinearFunction, x) = _checkparam(f.c, x)
 kkt_violation(f::LinearFunction, g::AbstractArray, i::Integer) = abs(g[i] + f.c[i])
 restrict(f::LinearFunction, S::AbstractVector{<:Integer}) = LinearFunction(f.c[S], f.d)
 
@@ -130,15 +131,6 @@ function _sumabs2(x::SymmetricSparseIterate{T}) where {T}
 end
 _sumabs2(x::AtomIterate) = sum(abs2, x.storage)
 
-function _sumabs2_diff(x::AbstractArray, y::AbstractArray)
-  size(x) == size(y) || throw(DimensionMismatch("x has size $(size(x)) and y $(size(y))"))
-  s = zero(float(promote_type(eltype(x), eltype(y))))
-  @inbounds @simd for i in eachindex(x, y)
-    s += abs2(x[i] - y[i])
-  end
-  s
-end
-
 function (f::SqrNormL2)(x::AbstractArray)
   T = float(eltype(x))
   s = f.y === nothing ? _sumabs2(x) : _sumabs2_diff(x, f.y)
@@ -165,7 +157,8 @@ function prox!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real)
 end
 
 cdprox(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real) = v / (1 + γ * f.λ)
-cdprox(f::SqrNormL2, v::Real, i::Integer, γ::Real) = (v + γ * f.λ * f.y[i]) / (1 + γ * f.λ)
+Base.@propagate_inbounds cdprox(f::SqrNormL2, v::Real, i::Integer, γ::Real) = (v + γ * f.λ * f.y[i]) / (1 + γ * f.λ)
+_checkparams(f::SqrNormL2, x) = _checkparam(f.y, x)
 
 kkt_violation(::SqrNormL2{<:Real, Nothing}, g::AbstractArray, i::Integer) = abs(g[i])
 kkt_violation(f::SqrNormL2, g::AbstractArray, i::Integer) = abs(g[i] - f.λ * f.y[i])

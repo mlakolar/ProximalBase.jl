@@ -137,9 +137,9 @@ function Base.Matrix(x::SparseIterate{Tv, 2}) where Tv
   return A
 end
 
-# Base.convert(::Type{Array}, x::SparseIterate{T, 1}) where {T} = convert(Vector, x)
-# Base.convert(::Type{Array}, x::SparseIterate{T, 2}) where {T} = convert(Matrix, x)
-# Base.full(x::SparseIterate) = convert(Array, x)
+# Array(x) and convert(Array, x) otherwise fall back to copying entry by entry
+Base.Array(x::SparseIterate{T, 1}) where {T} = Vector(x)
+Base.Array(x::SparseIterate{T, 2}) where {T} = Matrix(x)
 
 
 
@@ -480,6 +480,7 @@ function Base.Matrix(S::SymmetricSparseIterate{Tv}) where Tv
   end
   return A
 end
+Base.Array(S::SymmetricSparseIterate) = Matrix(S)
 
 Base.similar(A::SymmetricSparseIterate{T}) where {T} = SymmetricSparseIterate(T, size(A, 1))
 Base.similar(A::SymmetricSparseIterate, ::Type{S}) where {S} = SymmetricSparseIterate(S, size(A, 1))

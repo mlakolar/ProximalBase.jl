@@ -19,7 +19,7 @@ export
   DifferentiableFunction,
   ProximableFunction,
   SparseIterate, SymmetricSparseIterate, AtomIterate, numCoordinates,
-  activate!,
+  activate!, atom,
 
   # smooth functions
   QuadraticFunction, L2Loss, LeastSquaresLoss,
@@ -53,6 +53,7 @@ using LinearAlgebra
 import Base: *
 
 include("sparseIterate.jl")
+include("atomIterate.jl")
 
 include("utils.jl")
 # DifferentiableFunctions

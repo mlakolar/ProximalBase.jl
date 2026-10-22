@@ -236,23 +236,6 @@ function ProxGroupL2(λ0::T, groups::AbstractVector{<:AbstractVector{<:Integer}}
   ProxGroupL2{T, typeof(G)}(λ0, G, convert(Vector{T}, λ))
 end
 
-# group_of[i] = k for i ∈ groups[k], after checking that the groups are nonempty,
-# disjoint sets of positive indices
-function _group_of(groups)
-  n = 0
-  for G in groups
-    isempty(G) && throw(ArgumentError("Groups must not be empty."))
-    minimum(G) >= 1 || throw(ArgumentError("Group indices must be positive."))
-    n = max(n, maximum(G))
-  end
-  group_of = zeros(Int, n)
-  for k in eachindex(groups), i in groups[k]
-    group_of[i] == 0 || throw(ArgumentError("Groups must be disjoint, but index $i is in groups $(group_of[i]) and $k."))
-    group_of[i] = k
-  end
-  group_of
-end
-
 # the group of index i, 0 if i is in no group
 _group(g::ProxGroupL2, i::Integer) = i <= length(g.group_of) ? g.group_of[i] : 0
 

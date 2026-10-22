@@ -3,6 +3,7 @@ using Test
 tests = [
   "utils",
   "sparseIterate",
+  "atomIterate",
   "proximal_functions",
   "differentiable_functions",
   "aqua"

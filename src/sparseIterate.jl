@@ -32,8 +32,8 @@ SparseArrays.nnz(x::SparseIterate) = x.nnz
     numCoordinates(x)
 
 Number of coordinates of `x` that [`cdprox!`](@ref) can update: all entries of
-a [`SparseIterate`](@ref), and the lower triangle of a
-[`SymmetricSparseIterate`](@ref).
+a [`SparseIterate`](@ref), the lower triangle of a
+[`SymmetricSparseIterate`](@ref), and the groups of an [`AtomIterate`](@ref).
 """
 numCoordinates(x::SparseIterate) = length(x.ind2nzval)
 
@@ -128,11 +128,13 @@ end
 
 """
     activate!(x::SparseIterate, i)
+    activate!(x::AtomIterate, k)
 
 Store entry `i` of `x` as an explicit zero if it is not stored already, and
 return `x`. Assigning a zero does not store an entry, so this is how a
 coordinate joins the stored entries, for example the active set of an
-active-set solver. `dropzeros!` removes the entry again while it is zero.
+active-set solver. `dropzeros!` removes the entry again while it is zero. For
+an [`AtomIterate`](@ref), make group `k` active, keeping its entries.
 """
 function activate!(x::SparseIterate{T}, i::Int) where {T}
   checkbounds(x, i)
@@ -514,106 +516,3 @@ function LinearAlgebra.mul!(C::AbstractVector{T}, A::SymmetricSparseIterate{T}, 
   end
   C
 end
-
-
-####################################
-#
-#  Group Sparse Iterate
-#
-####################################
-
-
-"""
-    AtomIterate(n, numAtom)
-    AtomIterate((nr, nc), numAtom, byRow)
-
-A dense array split into `numAtom` equal-sized groups ("atoms"), for group
-penalties such as [`ProxL2`](@ref) with weights. A vector of length `n` is split
-into contiguous blocks; a matrix is split into blocks of rows (`byRow = true`)
-or columns. Each atom is a view into the shared storage.
-"""
-struct AtomIterate{T, N, V} <: AbstractArray{T, N}
-  storage::Array{T, N}
-  atoms::Vector{V}                                 # each atom is a view of the storage
-end
-
-function AtomIterate(n::Int, numAtom::Int)
-  mod(n, numAtom) == 0 || throw(ArgumentError("numAtom must divide n"))
-  storage = zeros(n)
-  lenAtom = div(n, numAtom)
-  b, e = 1, lenAtom
-  a1 = view(storage, b:e)
-  V = typeof(a1)
-  atoms = Vector{V}(undef, numAtom)
-  atoms[1] = a1
-  for i=2:numAtom
-    b += lenAtom
-    e += lenAtom
-    atoms[i] = view(storage, b:e)
-  end
-  AtomIterate{Float64, 1, V}(storage, atoms)
-end
-
-# if byRow == true then each atom is a group of the form [b:e, :]
-# otherwise each atom is a group of the form [:, b:e]
-function AtomIterate(dims::Dims{2}, numAtom::Int, byRow::Bool)
-  nr = dims[1]
-  nc = dims[2]
-  if byRow
-    mod(nr, numAtom) == 0 || throw(ArgumentError("numAtom must divide dims[1]"))
-    lenAtom = div(nr, numAtom)
-  else
-    mod(nc, numAtom) == 0 || throw(ArgumentError("numAtom must divide dims[1]"))
-    lenAtom = div(nc, numAtom)
-  end
-  storage = zeros(nr, nc)
-  b, e = 1, lenAtom
-  if byRow
-    a1 = view(storage, b:e, :)
-  else
-    a1 = view(storage, :, b:e)
-  end
-  V = typeof(a1)
-  atoms = Vector{V}(undef, numAtom)
-  atoms[1] = a1
-  for i=2:numAtom
-    b += lenAtom
-    e += lenAtom
-    if byRow
-      atoms[i] = view(storage, b:e, :)
-    else
-      atoms[i] = view(storage, :, b:e)
-    end
-  end
-  AtomIterate{Float64, 2, V}(storage, atoms)
-end
-
-
-#
-
-function Base.similar(a::AtomIterate{T, N, V}) where {T,N,V}
-  storage = zero(a.storage)
-  numAtoms = length(a.atoms)
-  atoms = Vector{V}(undef, numAtoms)
-  for i=1:numAtoms
-    atoms[i] = SubArray(storage, a.atoms[i].indices)
-  end
-  AtomIterate{T,N,V}(storage, atoms)
-end
-
-Base.copy(a::AtomIterate) = copyto!(similar(a), a)
-function Base.copyto!(dest::AtomIterate, src::AtomIterate)
-  copyto!(dest.storage, src.storage)
-  dest
-end
-
-#
-
-Base.length(x::AtomIterate) = length(x.storage)
-Base.size(x::AtomIterate) = size(x.storage)
-Base.IndexStyle(::Type{<:AtomIterate}) = IndexLinear()
-
-Base.getindex(x::AtomIterate, i::Int) = getindex(x.storage, i)
-Base.getindex(x::AtomIterate, I...) = getindex(x.storage, I...)
-Base.setindex!(x::AtomIterate, v, i::Int) = setindex!(x.storage, v, i)
-Base.setindex!(x::AtomIterate, v, I...) = setindex!(x.storage, v, I...)

@@ -294,25 +294,4 @@ end
 
 end
 
-
-@testset "AtomIterate" begin
-    x = AtomIterate((2,3), 2, true)
-
-    @test length(x) == 6
-    @test size(x) == (2,3)
-    @test IndexStyle(typeof(x)) == IndexLinear()
-
-    x[:] = collect(1:6)
-    y = [1. 3 5; 2 4 6]
-
-    @test x.storage == y
-    @test x.atoms[2] == y[2:2, :]
-    @test_throws ArgumentError AtomIterate((2,3), 2, false)
-
-    z = copy(x)
-    @test z.storage == x.storage
-    @test !(z.storage === x.storage)
-end
-
-
 end

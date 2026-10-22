@@ -88,8 +88,9 @@ function _group_of(groups)
 end
 
 # group_of for groups that partition 1:p
-function _partition_group_of(groups, p::Integer)
-  group_of = _group_of(groups)
+_partition_group_of(groups, p::Integer) = _check_partition(_group_of(groups), p)
+
+function _check_partition(group_of::Vector{Int}, p::Integer)
   length(group_of) == p && all(!iszero, group_of) ||
     throw(ArgumentError("The groups must partition 1:$p."))
   group_of

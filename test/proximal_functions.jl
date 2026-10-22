@@ -438,6 +438,81 @@ end
     @test_throws BoundsError value(g, randn(7))                    # index 8 is in a group
     @test_throws BoundsError prox(g, randn(7))
     @test_throws DimensionMismatch prox!(g, zeros(8), x, γ)
+
+    # the groups are copied
+    gs = [1:2, 3:4]
+    gc = ProxGroupL2(1., gs)
+    gs[1] = 1:1
+    @test gc.groups == [1:2, 3:4]
+  end
+
+  @testset "on an AtomIterate" begin
+    # the same penalty, with index 9 in a group of weight 0, so that the groups partition 1:9
+    gp = ProxGroupL2(λ0, [groups; [[9]]], [w; 0.])
+    @test value(gp, x) ≈ value(g, x)
+    @test prox(gp, x, γ) ≈ prox(g, x, γ)
+
+    xa = AtomIterate(x, gp)
+    @test xa.groups === gp.groups && xa.group_of === gp.group_of
+    @test xa == x && numActive(xa) == 5
+    @test eltype(AtomIterate(9, gp)) == Float64 && numActive(AtomIterate(9, gp)) == 0
+    @test eltype(AtomIterate(Float32, 9, gp)) == Float32
+    @test_throws ArgumentError AtomIterate(x, g)           # index 9 is in no group of g
+    @test_throws ArgumentError AtomIterate(10, gp)
+
+    # value and prox! visit the active groups when the groups are shared, and take the
+    # methods for arrays otherwise
+    @test value(gp, xa) ≈ value(gp, x)
+    other = AtomIterate(x, [groups; [[9]]])
+    @test value(gp, other) ≈ value(gp, x)
+    out = similar(xa)
+    @test prox!(gp, out, xa, γ) === out
+    @test out ≈ prox(gp, x, γ)
+    @test out.active[1:numActive(out)] == xa.active[1:numActive(xa)]
+    out2 = AtomIterate(9, 3)
+    prox!(gp, out2, other, γ)
+    @test out2 ≈ prox(gp, x, γ)
+
+    # cdprox! shrinks one group in place, as prox! shrinks all of them
+    z = prox(gp, x, γ)
+    ya = copy(xa)
+    for k in 1:5
+      @test cdprox!(gp, ya, k, γ) == z[gp.groups[k]]
+    end
+    @test ya == z
+    # a group written through atom becomes active if cdprox! leaves it nonzero
+    yb = AtomIterate(9, gp)
+    atom(yb, 1) .= [3., 4., 0.]
+    cdprox!(gp, yb, 1, γ)
+    @test isActive(yb, 1)
+    @test yb[1:3] ≈ (1 - γ * λ0 * w[1] / 5) * [3., 4., 0.]
+    cdprox!(gp, yb, 2, γ)
+    @test !isActive(yb, 2)
+    @test_throws DimensionMismatch cdprox!(ProxGroupL2(λ0, [1:9]), yb, 1, γ)
+
+    # kkt_violation takes a group: at zero, a group violates optimality exactly when a
+    # proximal gradient step moves it away from zero
+    grad = [0.3, -1.2, 0.8, 0.1, -0.5, 0.2, 0.6, -0.1, 0.4]
+    x0 = AtomIterate(9, gp)
+    step = prox(gp, -grad)
+    for k in 1:5
+      G = gp.groups[k]
+      @test kkt_violation(gp, grad, x0, k) ≈ norm(grad[G]) - λ0 * gp.λ[k]
+      @test (kkt_violation(gp, grad, x0, k) > 0) == !iszero(step[G])
+      # for a separable penalty, the worst index of the group
+      @test kkt_violation(ProxL1(0.5), grad, x0, k) == maximum(i -> kkt_violation(ProxL1(0.5), grad, i), G)
+    end
+
+    g32 = ProxGroupL2(0.4f0, [groups; [[9]]], Float32[w; 0])
+    x32 = AtomIterate(Float32.(x), g32)
+    @test eltype(cdprox!(g32, x32, 1, 0.7f0)) == Float32
+    @test value(g32, x32) isa Float32
+
+    cd_allocs(g, x, k, γ) = @allocated cdprox!(g, x, k, γ)
+    value_allocs(g, x) = @allocated value(g, x)
+    cd_allocs(gp, ya, 1, 1e-12); value_allocs(gp, ya)
+    @test cd_allocs(gp, ya, 1, 1e-12) == 0
+    @test value_allocs(gp, ya) == 0
   end
 
   @testset "Float32" begin

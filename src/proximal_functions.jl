@@ -56,6 +56,11 @@ condition `‖grad[Gₖ]‖₂ ≤ λ0 λₖ` of the whole group, and the value 
 `‖grad[Gₖ]‖₂ - λ0 λₖ` for every `i` in `Gₖ`; a positive value means that moving
 `x[Gₖ]` away from zero decreases the objective. Otherwise the condition is
 `grad[i] = 0`, and the value is `|grad[i]|`, as for an index in no group.
+
+For an [`AtomIterate`](@ref) `x`, whose coordinates are groups, the second form
+takes a group `k` with `x[Gₖ] = 0`: for `ProxGroupL2` it is
+`‖grad[Gₖ]‖₂ - λ0 λₖ`, and for a separable penalty the largest violation of the
+indices in `Gₖ`.
 """
 function kkt_violation end
 
@@ -65,6 +70,9 @@ prox(g::ProximableFunction,                        x::AbstractArray) = prox!(g, 
 
 # for a separable penalty, the optimality of x[i] = 0 does not depend on the rest of x
 kkt_violation(g::ProximableFunction, grad::AbstractArray, ::AbstractArray, i::Int) = kkt_violation(g, grad, i)
+# a group at zero violates optimality as much as its worst index
+kkt_violation(g::ProximableFunction, grad::AbstractArray, x::AtomIterate, k::Int) =
+  maximum(i -> kkt_violation(g, grad, i), x.groups[k])
 
 
 
@@ -204,8 +212,12 @@ The group-lasso penalty `g(x) = λ0 ⋅ Σₖ λₖ ‖x[Gₖ]‖₂` over disjo
 give `ProxL1(λ0)`. Indices in no group are not penalized. The proximal operator
 shrinks each group towards zero in Euclidean norm, as [`shrinkL2!`](@ref) does.
 
-It has no [`cdprox!`](@ref) on ordinary arrays, as its groups do not split into
-coordinates; active-set solvers can use [`restrict`](@ref) and
+On an [`AtomIterate`](@ref), whose coordinates are groups, [`cdprox!`](@ref)
+updates a group and [`kkt_violation`](@ref) measures one. `AtomIterate(x, g)`
+builds an iterate that shares the groups of `g`, which must then partition
+`1:length(x)` (an index in no group goes in a group of its own with weight 0);
+with shared groups, `value` and `prox!` touch only the active groups. On
+ordinary arrays, active-set solvers can use [`restrict`](@ref) and
 [`kkt_violation`](@ref).
 
 # Example
@@ -230,9 +242,7 @@ end
 ProxGroupL2(λ0::T, groups::AbstractVector{<:AbstractVector{<:Integer}}) where {T<:AbstractFloat} =
   ProxGroupL2(λ0, groups, T[sqrt(T(length(G))) for G in groups])
 function ProxGroupL2(λ0::T, groups::AbstractVector{<:AbstractVector{<:Integer}}, λ::AbstractVector{T}) where {T<:AbstractFloat}
-  # groups of mixed types, such as [1:3, [4, 7]], are stored as Vector{Int}s, so
-  # that value and prox! do not dispatch on each group
-  G = isconcretetype(eltype(groups)) ? groups : [Vector{Int}(Gk) for Gk in groups]
+  G = _own_groups(groups)
   ProxGroupL2{T, typeof(G)}(λ0, G, convert(Vector{T}, λ))
 end
 
@@ -256,8 +266,9 @@ function prox!(g::ProxGroupL2{T}, out_x::AbstractArray{T}, x::AbstractArray{T}, 
   out_x
 end
 
-# x[G] ← max(1 - c / ‖x[G]‖₂, 0) ⋅ x[G] in place; shrinkL2! on a view would
-# allocate, as copyto! guards against the aliased source
+# x[G] ← max(1 - c / ‖x[G]‖₂, 0) ⋅ x[G] in place, and whether the result is
+# nonzero; shrinkL2! on a view would allocate, as copyto! guards against the
+# aliased source
 function _shrink_group!(x::AbstractArray{T}, G, c::T) where {T<:AbstractFloat}
   nx = norm(view(x, G))
   if nx > c
@@ -265,12 +276,13 @@ function _shrink_group!(x::AbstractArray{T}, G, c::T) where {T<:AbstractFloat}
     for i in G
       x[i] *= t
     end
+    true
   else
     for i in G
       x[i] = zero(T)
     end
+    false
   end
-  x
 end
 
 # the parts of the groups in S, as positions in S, with their weights
@@ -289,6 +301,51 @@ function kkt_violation(g::ProxGroupL2, grad::AbstractArray, x::AbstractArray, i:
   k == 0 && return abs(grad[i])
   G = g.groups[k]
   all(iszero, view(x, G)) ? norm(view(grad, G)) - g.λ0 * g.λ[k] : abs(grad[i])
+end
+
+# on an AtomIterate, k is a group
+kkt_violation(g::ProxGroupL2, grad::AbstractArray, x::AtomIterate, k::Int) =
+  norm(view(grad, x.groups[k])) - g.λ0 * g.λ[k]
+
+# an AtomIterate that shares the groups of g, which must partition 1:p
+AtomIterate(p::Integer, g::ProxGroupL2{T}) where {T} = AtomIterate(T, p, g)
+function AtomIterate(::Type{T}, p::Integer, g::ProxGroupL2) where {T}
+  _check_partition(g.group_of, p)
+  _AtomIterate(zeros(T, p), g.groups, g.group_of)
+end
+function AtomIterate(x::AbstractVector{T}, g::ProxGroupL2) where {T}
+  _check_partition(g.group_of, length(x))
+  _AtomIterate(Vector{T}(x), g.groups, g.group_of)
+end
+
+# with the groups of g, only the active groups count
+function value(g::ProxGroupL2{T}, x::AtomIterate{T}) where {T<:AbstractFloat}
+  x.groups === g.groups || return invoke(value, Tuple{ProxGroupL2{T}, AbstractArray{T}}, g, x)
+  v = zero(T)
+  for a in 1:x.nactive
+    k = x.active[a]
+    v += g.λ[k] * norm(atom(x, k))
+  end
+  v * g.λ0
+end
+
+function prox!(g::ProxGroupL2{T}, out_x::AtomIterate{T}, x::AtomIterate{T}, γ::T) where {T<:AbstractFloat}
+  out_x.groups === x.groups === g.groups ||
+    return invoke(prox!, Tuple{ProxGroupL2{T}, AbstractArray{T}, AbstractArray{T}, T}, g, out_x, x, γ)
+  copyto!(out_x, x)
+  for a in 1:out_x.nactive
+    k = out_x.active[a]
+    _shrink_group!(out_x.storage, g.groups[k], γ * g.λ0 * g.λ[k])
+  end
+  out_x
+end
+
+# group k of x shrunk in place; the group becomes active if it is nonzero, as after
+# writing to it through atom(x, k)
+function cdprox!(g::ProxGroupL2{T}, x::AtomIterate{T}, k::Int, γ::T) where {T<:AbstractFloat}
+  length(g.λ) == length(x.groups) || throw(DimensionMismatch("g and x must have the same groups."))
+  _shrink_group!(x.storage, x.groups[k], γ * g.λ0 * g.λ[k]) && activate!(x, k)
+  atom(x, k)
 end
 
 

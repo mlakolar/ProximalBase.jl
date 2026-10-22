@@ -32,7 +32,7 @@ groups = [1:3, [4, 7], 5:5, [8, 6], [9]]
     @test IndexStyle(typeof(x)) == IndexLinear()
     @test x == zeros(9)
     @test x.nactive == 0
-    @test numCoordinates(x) == 5
+    @test ncoordinates(x) == 5
     @test x.group_of == [1, 1, 1, 2, 3, 4, 2, 4, 5]
     @test eltype(AtomIterate(Float32, 9, groups)) == Float32
 
@@ -84,10 +84,10 @@ groups = [1:3, [4, 7], 5:5, [8, 6], [9]]
     @test_throws BoundsError activate!(x, 6)
 
     x[9], x[2] = 1., 2.
-    @test numActive(x) == 2
-    @test [activeCoordinate(x, i) for i in 1:2] == [5, 1]
-    @test isActive(x, 5) && !isActive(x, 2)
-    @test_throws BoundsError activeCoordinate(x, 3)
+    @test nactive(x) == 2
+    @test activecoordinates(x) == [5, 1]
+    @test isactive(x, 5) && !isactive(x, 2)
+    @test_throws BoundsError activecoordinates(x)[3]
     fill!(x, 0.)
     @test_throws BoundsError x[10]
     @test_throws BoundsError (x[0] = 1.)
@@ -122,8 +122,8 @@ groups = [1:3, [4, 7], 5:5, [8, 6], [9]]
         empty!(act)
       end
       ok &= x == v && active_set(x) == act && consistent(x)
-      ok &= Set(activeCoordinate(x, i) for i in 1:numActive(x)) == act
-      ok &= all(k -> isActive(x, k) == (k in act), 1:5)
+      ok &= Set(activecoordinates(x)) == act
+      ok &= all(k -> isactive(x, k) == (k in act), 1:5)
     end
     @test ok
   end
@@ -186,7 +186,7 @@ groups = [1:3, [4, 7], 5:5, [8, 6], [9]]
     y = AtomIterate(randn(p), [1:4, 5:9])
     @test dot(x, y) ≈ dot(xd, Vector(y))
     @test dot(SparseIterate(v), x) ≈ dot(v, xd)
-    @test all(row -> A_mul_B_row(X, x, row) ≈ (X * xd)[row], 1:n)
+    @test all(row -> dot(view(X, row, :), x) ≈ (X * xd)[row], 1:n)
 
     x32 = AtomIterate(Float32.(xd), groups)
     @test mul!(zeros(Float32, n), Float32.(X), x32) ≈ Float32.(X * xd)
@@ -196,7 +196,7 @@ groups = [1:3, [4, 7], 5:5, [8, 6], [9]]
     xa = AtomIterate(xd, [[i] for i in 1:p])
     @test X * xa ≈ X * xs
     @test dot(v, xa) ≈ dot(v, xs)
-    @test [activeCoordinate(xa, i) for i in 1:numActive(xa)] == [activeCoordinate(xs, i) for i in 1:numActive(xs)]
+    @test activecoordinates(xa) == activecoordinates(xs)
 
     mul_allocs(out, X, x) = @allocated mul!(out, X, x)
     dot_allocs(v, x) = @allocated dot(v, x)

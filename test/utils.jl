@@ -2,14 +2,12 @@ module UtilsTest
 
 using Test
 using ProximalBase
-using Random
 using LinearAlgebra
-using SparseArrays
-using Statistics
+using Random
 
+Random.seed!(1)
 
 @testset "shrink" begin
-
   @test shrink(3.0, 1.0) == 2.0
   @test shrink(-2.0, 1.0) == -1.0
   @test shrink(0.5, 1.0) == 0.
@@ -17,179 +15,96 @@ using Statistics
   @test shrink(Inf, 1.0) == Inf && shrink(-Inf, 1.0) == -Inf
   @test isnan(shrink(NaN, 1.0))             # a NaN propagates instead of becoming zero
   @test shrink(3f0, 1f0) === 2f0
-  v, c = randn(1000), rand(1000)
+  @test shrink(3, 1) === 2.0                # mixed and integer arguments are promoted to floats
+  v, c = randn(100), 0.7
   @test shrink.(v, c) == sign.(v) .* max.(abs.(v) .- c, 0)
-
-  Random.seed!(1)
-  p = 10
-  x = randn(p)
-  c = norm(x) + 0.1
-  @test shrinkL2!(similar(x), x, c) == zeros(p)
-  c = c - 0.15
-  @test shrinkL2!(similar(x), x, c) == max(1. - c / norm(x), 0,) * x
-
-  x = randn(p, 2*p)
-  c = norm(x) + 0.1
-  @test shrinkL2!(similar(x), x, c) == zeros(p, 2*p)
-  c = c - 0.15
-  @test shrinkL2!(similar(x), x, c) == max(1. - c / norm(x), 0,) * x
 end
 
-
-
-@testset "multiply" begin
-
-  Random.seed!(1)
-  n, m = 100, 100
-  A = randn(n, m)
-  b = randn(m)
-  x = A * b
-  xt = A' * b
-  for i=1:n
-    @test A_mul_B_row(A, b, i) ≈ x[i]
-    @test At_mul_B_row(A, b, i) ≈ xt[i]
+@testset "quickselect" begin
+  for n in (1, 2, 3, 10, 101, 1000), trial in 1:5
+    v = trial == 5 ? rand(1:4, n) .+ 0.0 : randn(n)          # with many ties
+    s = sort(v; rev = true)
+    for k in unique([1, max(1, n ÷ 2), n])
+      w = copy(v)
+      @test ProximalBase._kth_largest!(w, k) == s[k]
+      @test sort(w; rev = true) == s                          # a permutation of v
+    end
   end
-
-  bs = sprand(m, 0.3)
-  x = A * bs
-  xt = A' * bs
-  bi = SparseIterate(bs)
-  xi = A * bi
-  xti = A' * bi
-  for i=1:n
-    @test A_mul_B_row(A, bs, i) ≈ x[i]
-    @test At_mul_B_row(A, bs, i) ≈ xt[i]
-
-    @test A_mul_B_row(A, bi, i) ≈ x[i]
-    @test At_mul_B_row(A, bi, i) ≈ xt[i]
-
-    @test xi[i] ≈ x[i]
-    @test xti[i] ≈ xt[i]
-  end
-
-  # the same matrix with only its lower triangle stored; the other entries are NaN
-  lowerstored(S) = Symmetric(tril(Matrix(S)) + triu(fill(NaN, size(S)), 1), :L)
-
-  # symmetric A * X * B
-  X = randn(100, 50)
-  Σx = Symmetric(cov(X))
-  Y = randn(100, 50)
-  Σy = Symmetric(cov(Y))
-  Δ = sprand(50, 50, 0.1)
-  Δ = (Δ + Δ') / 2.
-
-  A = Σx * Δ * Σy
-  Δs = SymmetricSparseIterate(Δ)
-  @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ A
-  @test A_mul_X_mul_B(lowerstored(Σx), Δs, lowerstored(Σy)) ≈ A
-  @test [A_mul_X_mul_B_rc(Σx, Δs, Σy, r, c) for r=1:50, c=1:50] ≈ A
-
-  # very sparse X: the products use only the rows and columns of X that hold entries
-  Δ = sparse([3, 7, 20, 7], [3, 2, 11, 7], [1.5, -2., 3., 0.5], 50, 50)
-  Δs = SymmetricSparseIterate(Δ + Δ')
-  A = Σx * Matrix(Δ + Δ') * Σy
-  @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ A
-  @test A_mul_X_mul_B(lowerstored(Σx), Δs, lowerstored(Σy)) ≈ A
-  Δs[11, 20] = 0.                      # stored zero, the only entry in rows 11 and 20
-  @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ Σx * Matrix(Δs) * Σy
-  @test A_mul_X_mul_B(Σx, SymmetricSparseIterate(50), Σy) == zeros(50, 50)
-  @test_throws DimensionMismatch A_mul_X_mul_B(Σx, SymmetricSparseIterate(10), Σy)
-
-  # symmetric A * U * U' * B
-  X = randn(100, 50)
-  Σx = Symmetric(cov(X))
-  Y = randn(100, 50)
-  Σy = Symmetric(cov(Y))
-  U = randn(50, 5)
-
-  A = (Σx * U)*(U' * Σy)
-  @test A_mul_UUt_mul_B(Σx, U, Σy) ≈ A
-  @test A_mul_UUt_mul_B(lowerstored(Σx), U, lowerstored(Σy)) ≈ A
-  @test [A_mul_UUt_mul_B_rc(Σx, U, Σy, r, c) for r=1:50, c=1:50] ≈ A
-
-  # asymmetric A * X * B
-  X = randn(100, 50)
-  Σx = Symmetric(cov(X))
-  Y = randn(100, 50)
-  Σy = Symmetric(cov(Y))
-  Δ = sprand(50, 50, 0.1)
-  A = Σx * Δ * Σy
-
-  Δs = SparseIterate( Δ[:] )
-  R = zeros(50, 50)
-  for col=1:50
-      for row=1:50
-          R[row, col] = A_mul_X_mul_B_rc(Σx, Δs, Σy, row, col)
-      end
-  end
-
-  @test R ≈ A
-  @test A_mul_X_mul_B(Σx, Δs, Σy) ≈ A
-  @test A_mul_X_mul_B(lowerstored(Σx), Δs, lowerstored(Σy)) ≈ A
-
-  # very sparse X, including one full column and one full row, which take
-  # the two multiplication orders
-  for Δ in (sparse([3, 7, 20], [2, 2, 11], [1.5, -2., 3.], 50, 50),
-            sparse(1:50, fill(4, 50), randn(50), 50, 50),
-            sparse(fill(4, 50), 1:50, randn(50), 50, 50))
-    @test A_mul_X_mul_B(Σx, SparseIterate(Δ[:]), Σy) ≈ Σx * Matrix(Δ) * Σy
-  end
-  @test A_mul_X_mul_B(Σx, SparseIterate(2500), Σy) == zeros(50, 50)
-  @test_throws DimensionMismatch A_mul_X_mul_B(Σx, SparseIterate(100), Σy)
+  w = randn(50)
+  @test ProximalBase._kth_largest!(view(w, 11:30), 3) == sort(w[11:30]; rev = true)[3]
+  @test_throws ArgumentError ProximalBase._kth_largest!(randn(3), 4)
+  a(v, k) = @allocated ProximalBase._kth_largest!(v, k)
+  v = randn(1000)
+  a(v, 10)
+  @test a(v, 10) == 0
 end
 
-@testset "regressions" begin
-  # At_mul_B_row with SparseIterate on a non-square matrix
-  A = randn(3, 5)
-  b = SparseIterate(randn(3))
-  @test At_mul_B_row(A, b, 5) ≈ dot(A[:, 5], Vector(b))
-
-  # norm_diff
-  A, B = randn(4, 3), randn(4, 3)
-  @test norm_diff(A, B) ≈ norm(A - B)
-  @test norm_diff(A, B, Inf) ≈ maximum(abs, A - B)
-
-  # Vector of an empty SparseIterate
-  @test Vector(SparseIterate(0)) == Float64[]
-
-  @test_throws ArgumentError norm_diff(A, B, 1)
+# the threshold of the projection onto the simplex, by sorting
+function simplex_threshold_sort(y, a)
+  u = sort(y; rev = true)
+  c, τ = 0.0, 0.0
+  for (j, uj) in enumerate(u)
+    c += uj
+    t = (c - a) / j
+    uj > t && (τ = t)
+  end
+  τ
 end
 
-@testset "group products" begin
-  n, p = 8, 30
-  A, b = randn(n, p), randn(n)
-  for G in (5:9, [2, 17, 29], collect(11:14))
-    out = fill(NaN, length(G))
-    @test At_mul_B_group!(out, A, b, G) === out
-    @test out ≈ A[:, G]' * b
-    v, r = randn(length(G)), randn(n)
-    @test A_mul_B_group!(fill(NaN, n), A, v, G) ≈ A[:, G] * v
-    @test A_mul_B_group!(copy(r), A, v, G, -1, 1) ≈ r - A[:, G] * v
-    @test A_mul_B_group!(copy(r), A, v, G, 2., 0.5) ≈ 2 * A[:, G] * v + 0.5 * r
+@testset "projection onto the simplex" begin
+  for n in (1, 2, 5, 50, 1000), a in (0.5, 1.0, 10.0)
+    y = randn(n) .* 3
+    buf = zeros(n)
+    τ = ProximalBase._simplex_threshold!(buf, y, a)
+    @test τ ≈ simplex_threshold_sort(y, a)
+    @test sum(max.(y .- τ, 0)) ≈ a
+    # on |y|, the l1 ball
+    τ = ProximalBase._simplex_threshold!(buf, y, a, abs)
+    @test sum(max.(abs.(y) .- τ, 0)) ≈ a
   end
-  @test_throws DimensionMismatch At_mul_B_group!(zeros(2), A, b, 1:3)
-  @test_throws DimensionMismatch A_mul_B_group!(zeros(n), A, zeros(2), 1:3)
-  @test_throws BoundsError At_mul_B_group!(zeros(2), A, b, [1, p + 1])
-  @test_throws BoundsError A_mul_B_group!(zeros(n), A, zeros(2), [0, 1])
-
-  A32, b32 = Float32.(A), Float32.(b)
-  @test At_mul_B_group!(zeros(Float32, 3), A32, b32, [2, 17, 29]) ≈ Float32.(A[:, [2, 17, 29]]' * b)
-
-  G, u, r, v = [2, 17, 29], zeros(3), randn(n), randn(3)
-  grad_allocs(u, A, r, G) = @allocated At_mul_B_group!(u, A, r, G)
-  update_allocs(r, A, v, G) = @allocated A_mul_B_group!(r, A, v, G, -1., 1.)
-  grad_allocs(u, A, r, G); update_allocs(r, A, v, G)
-  @test grad_allocs(u, A, r, G) == 0
-  @test update_allocs(r, A, v, G) == 0
+  # ties and a single large entry
+  @test ProximalBase._simplex_threshold!(zeros(4), [1., 1., 1., 1.], 2.) ≈ 0.5
+  @test ProximalBase._simplex_threshold!(zeros(3), [10., 0., 0.], 1.) ≈ 9.
+  # works on any iterable array, such as a view or a matrix
+  M = randn(4, 5)
+  @test ProximalBase._simplex_threshold!(zeros(20), M, 1.) ≈ simplex_threshold_sort(vec(M), 1.)
 end
 
 @testset "lower triangular helpers" begin
-  # linear indices run over the lower triangle column by column
-  for p in (1, 4, 7)
+  for p in (1, 2, 5, 13)
     rc = [(r, c) for c in 1:p for r in c:p]
-    @test [ind2subLowerTriangular(p, k) for k in eachindex(rc)] == rc
-    @test [sub2indLowerTriangular(p, r, c) for (r, c) in rc] == eachindex(rc)
+    @test [tril_cartesian(p, k) for k in eachindex(rc)] == rc
+    @test [tril_index(p, r, c) for (r, c) in rc] == eachindex(rc)
   end
+  # exact for large p, where a floating square root is off by one
+  p = 10^8
+  for (r, c) in ((p, p), (p, 1), (p - 1, p - 1), (5, 3), (div(p, 2) + 7, div(p, 3)))
+    @test tril_cartesian(p, tril_index(p, r, c)) == (r, c)
+  end
+end
+
+@testset "norm_diff" begin
+  A, B = randn(10, 20), randn(10, 20)
+  @test norm_diff(A, B) ≈ norm(A - B)
+  @test norm_diff(A, B, Inf) ≈ maximum(abs, A - B)
+  @test norm_diff(Float32.(A), B) ≈ norm(A - B)
+  @test_throws ArgumentError norm_diff(A, B, 1)
+  @test_throws DimensionMismatch norm_diff(A, randn(3))
+  x = SparseIterate([0., 2., 0.])
+  @test norm_diff(x, [1., 1., 1.]) ≈ sqrt(3)
+  @test Vector(SparseIterate(0)) == Float64[]
+end
+
+@testset "buffers" begin
+  s = ProximalBase.Scratch()
+  b = ProximalBase._buffer!(s, Float64, 10)
+  @test b isa Vector{Float64} && length(b) >= 10
+  @test ProximalBase._buffer!(s, Float64, 5) === b               # reused
+  @test ProximalBase._buffer!(s, Float32, 5) isa Vector{Float32}  # a new element type
+  m = ProximalBase._array_buffer!(s, Float64, (3, 4))
+  @test size(m) == (3, 4)
+  @test ProximalBase._array_buffer!(s, Float64, (3, 4)) === m
+  @test copy(s).buf === nothing                                    # copies share nothing
 end
 
 end

@@ -1,66 +1,81 @@
 """
     ProximalBase
 
-Building blocks for proximal and coordinate-descent optimization: smooth loss
-functions with gradients, proximal operators of common penalties, and sparse
-iterate types for coordinate-wise updates.
+Building blocks for proximal, coordinate-descent and active-set methods:
+functions with gradients and proximal operators, and sparse iterates.
+
+A function `f` is callable, `f(x)` being its value, and its traits say what it
+provides: [`issmooth`](@ref) functions have [`gradient!`](@ref) and
+[`value_and_gradient!`](@ref), [`isproximable`](@ref) ones [`prox!`](@ref) and
+[`value_and_prox!`](@ref), and [`isseparable`](@ref) ones the scalar proximal
+operators [`cdprox`](@ref) with which [`cdprox!`](@ref) updates one coordinate
+of an iterate. A function may be both smooth and proximable.
 
 Proximal operators follow the convention
 
-    prox_{γg}(x) = argmin_z  g(z) + ‖z - x‖² / (2γ),
+    prox_{γf}(x) = argmin_z  f(z) + ‖z - x‖² / (2γ),
 
-computed by [`prox!`](@ref) and [`prox`](@ref); [`cdprox!`](@ref) applies the same
-operator to a single coordinate (or group) of an iterate in place.
+and mutating functions take their output first, as `mul!` does:
+`prox!(y, f, x, γ)`, `gradient!(g, f, x)`, `cdprox!(x, f, k, γ)`.
 """
 module ProximalBase
 
-export
-  # types
-  DifferentiableFunction,
-  ProximableFunction,
-  SparseIterate, SymmetricSparseIterate, AtomIterate, numCoordinates,
-  numActive, activeCoordinate, isActive,
-  activate!, atom,
-
-  # smooth functions
-  QuadraticFunction, L2Loss, LeastSquaresLoss,
-  value, value_and_gradient!, gradient!,
-  restrict,
-
-  # proximal functions
-  ProxZero,
-  ProxL1,
-  ProxL2, ProxGroupL2, ProxL2Sq, ProxNuclear,
-  ProxL1Fused,
-  ProxGaussLikelihood,
-  prox!, prox, cdprox!,
-  kkt_violation,
-
-  # utils
-  shrink, shrinkL2!,
-  proxL1Fused,
-  A_mul_B_row, At_mul_B_row, At_mul_B_group!, A_mul_B_group!,
-  A_mul_X_mul_B, A_mul_X_mul_B_rc,
-  A_mul_UUt_mul_B, A_mul_UUt_mul_B_rc,
-  ind2subLowerTriangular,sub2indLowerTriangular,
-  norm_diff,
-
-  # functions of SparseArrays for SparseIterate and AtomIterate
-  nnz, dropzeros!
-
-using SparseArrays
 using LinearAlgebra
+using SparseArrays
+using LinearAlgebra: BlasInt, LAPACKException, checksquare, libblastrampoline
+using LinearAlgebra.BLAS: @blasfunc
 
 import Base: *
+
+export
+  # the interface
+  AbstractFunction,
+  issmooth, isproximable, isseparable, isconvex,
+  prox!, prox, value_and_prox!,
+  gradient!, gradient, value_and_gradient!, value_and_gradient,
+  cdprox!, cdprox, kkt_violation, restrict,
+
+  # smooth functions
+  ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, LeastSquaresLoss,
+  GLMLoss, LogisticLoss, PoissonLoss, HuberLoss, LogDetLoss,
+
+  # penalties
+  NormL1, NormL1Nonneg, ElasticNet, NormL2, NormLinf, GroupNormL2, GroupNormLinf,
+  NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD,
+
+  # indicator functions
+  IndBox, IndNonnegative, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
+  IndHyperplane, IndHalfspace, IndPSD, IndBallRank,
+
+  # functions built from functions
+  Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum,
+
+  # iterates
+  SparseIterate, SymmetricSparseIterate, AtomIterate,
+  ncoordinates, coordinates, nactive, activecoordinates, isactive, activate!, atom,
+  nnz, dropzeros!,
+
+  # utilities
+  shrink, norm_diff, tril_index, tril_cartesian
+
+include("utils.jl")
+include("lapack.jl")
 
 include("sparseIterate.jl")
 include("atomIterate.jl")
 
-include("utils.jl")
-# DifferentiableFunctions
-include("differentiable_functions.jl")
+include("interface.jl")
 
-# ProximableFunctions
-include("proximal_functions.jl")
+include("functions/smooth.jl")
+include("functions/leastsquares.jl")
+include("functions/glm.jl")
+include("functions/logdet.jl")
+include("functions/separable.jl")
+include("functions/norms.jl")
+include("functions/spectral.jl")
+include("functions/sets.jl")
+
+include("calculus.jl")
+include("deprecated.jl")
 
 end

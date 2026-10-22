@@ -8,12 +8,13 @@
     AtomIterate([T = Float64,] p, groups)
     AtomIterate(x::AbstractVector, groups)
     AtomIterate([T = Float64,] p, numGroups::Integer)
+    AtomIterate(x::AbstractVector, numGroups::Integer)
 
 A vector of length `p` whose coordinates, for coordinate descent, are the groups
 ("atoms") `x.groups[k]`, which partition `1:p`. The groups are ranges such as
 `1:5` or vectors of indices such as `[2, 7, 9]`, of any sizes;
-`AtomIterate(p, numGroups)` splits `1:p` into `numGroups` equal contiguous
-groups.
+`AtomIterate(p, numGroups)` and `AtomIterate(x, numGroups)` split `1:p` into
+`numGroups` equal contiguous groups.
 
 As the stored entries of a [`SparseIterate`](@ref) do, a set of active groups
 serves as the active set of a solver, and the entries of the other groups are
@@ -21,8 +22,8 @@ zero. Writing a nonzero entry activates its group, [`activate!`](@ref) activates
 a group, and `dropzeros!` deactivates the active groups whose entries are all
 zero; an iterate built from a vector `x` starts with the groups that hold a
 nonzero entry. Reading or writing an entry is O(1), and so is activating or
-deactivating a group. [`numCoordinates`](@ref) is the number of groups,
-[`numActive`](@ref), [`activeCoordinate`](@ref) and [`isActive`](@ref) give the
+deactivating a group. [`ncoordinates`](@ref) is the number of groups,
+[`nactive`](@ref), [`activecoordinates`](@ref) and [`isactive`](@ref) give the
 active groups, and [`atom`](@ref) is a view of the entries of a group.
 """
 mutable struct AtomIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractVector{T}
@@ -46,10 +47,14 @@ function AtomIterate(x::AbstractVector{T}, groups::AbstractVector{<:AbstractVect
 end
 
 AtomIterate(p::Integer, numGroups::Integer) = AtomIterate(Float64, p, numGroups)
-function AtomIterate(::Type{T}, p::Integer, numGroups::Integer) where {T}
+AtomIterate(::Type{T}, p::Integer, numGroups::Integer) where {T} = AtomIterate(T, p, _equal_groups(p, numGroups))
+AtomIterate(x::AbstractVector, numGroups::Integer) = AtomIterate(x, _equal_groups(length(x), numGroups))
+
+# 1:p split into numGroups contiguous groups of equal sizes
+function _equal_groups(p::Integer, numGroups::Integer)
   numGroups > 0 && p % numGroups == 0 || throw(ArgumentError("numGroups must divide p."))
   m = div(p, numGroups)
-  AtomIterate(T, p, [(m*(k-1)+1):(m*k) for k in 1:numGroups])
+  [(m*(k-1)+1):(m*k) for k in 1:numGroups]
 end
 
 # the iterate with the given entries; the groups with a nonzero entry are active
@@ -108,13 +113,10 @@ Base.@propagate_inbounds function Base.setindex!(x::AtomIterate, v, i::Int)
   x
 end
 
-numCoordinates(x::AtomIterate) = length(x.groups)
-numActive(x::AtomIterate) = x.nactive
-Base.@propagate_inbounds function activeCoordinate(x::AtomIterate, i::Int)
-  @boundscheck 1 <= i <= x.nactive || throw(BoundsError(Base.OneTo(x.nactive), i))
-  @inbounds x.active[i]
-end
-isActive(x::AtomIterate, k::Int) = x.position[k] != 0
+ncoordinates(x::AtomIterate) = length(x.groups)
+nactive(x::AtomIterate) = x.nactive
+activecoordinates(x::AtomIterate) = view(x.active, 1:x.nactive)
+isactive(x::AtomIterate, k::Integer) = x.position[k] != 0
 
 """
     atom(x::AtomIterate, k)
@@ -122,9 +124,9 @@ isActive(x::AtomIterate, k::Int) = x.position[k] != 0
 A view of the entries of group `k` of `x`. Writing through it does not activate
 the group; see [`activate!`](@ref).
 """
-atom(x::AtomIterate, k::Int) = view(x.storage, x.groups[k])
+atom(x::AtomIterate, k::Integer) = view(x.storage, x.groups[k])
 
-function activate!(x::AtomIterate, k::Int)
+function activate!(x::AtomIterate, k::Integer)
   checkbounds(x.position, k)
   if x.position[k] == 0
     x.nactive += 1

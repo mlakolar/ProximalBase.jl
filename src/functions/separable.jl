@@ -1,0 +1,460 @@
+####################################
+#
+#  Separable functions f(x) = Σᵢ fᵢ(xᵢ)
+#
+####################################
+
+# A separable function implements, for the entry with linear index i,
+#
+#   cdprox(f, v, i, γ)      the proximal operator of γfᵢ at the scalar v,
+#   _entry_value(f, v, i)   fᵢ(v),
+#
+# and may declare _zeropreserving(f) when fᵢ(0) = 0 and cdprox(f, 0, i, γ) = 0
+# for every i and γ, which lets its value and proximal operator on a sparse
+# iterate touch only the stored entries. The value, prox! and value_and_prox!
+# below follow, for every kind of array and iterate.
+abstract type SeparableFunction <: AbstractFunction end
+
+isseparable(::Type{<:SeparableFunction}) = true
+isproximable(::Type{<:SeparableFunction}) = true
+_zeropreserving(::SeparableFunction) = false
+
+(f::SeparableFunction)(x::AbstractArray) = _value_sep(f, x)
+prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) = _prox_sep!(y, f, x, γ)
+value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) = _value_and_prox_sep!(y, f, x, γ)
+
+# the value, entry by entry over the dense array
+function _value_dense(f, x::AbstractArray)
+  T = float(eltype(x))
+  s = zero(T)
+  @inbounds @simd for i in eachindex(IndexLinear(), x)
+    s += convert(T, _entry_value(f, x[i], i))
+  end
+  s
+end
+
+_value_sep(f, x::AbstractArray) = _value_dense(f, x)
+
+function _value_sep(f, x::SparseIterate)
+  _zeropreserving(f) || return _value_dense(f, x)
+  T = float(eltype(x))
+  s = zero(T)
+  @inbounds for k in 1:x.nnz
+    s += convert(T, _entry_value(f, x.nzval[k], x.nzval2ind[k]))
+  end
+  s
+end
+
+# an off-diagonal coordinate is the entries (r, c) and (c, r)
+function _value_sep(f, x::SymmetricSparseIterate)
+  _zeropreserving(f) || return _value_dense(f, x)
+  T = float(eltype(x))
+  p = x.p
+  s = zero(T)
+  @inbounds for k in 1:x.nnz
+    r, c = tril_cartesian(p, x.nzval2ind[k])
+    v = x.nzval[k]
+    s += convert(T, _entry_value(f, v, (c - 1) * p + r))
+    r == c || (s += convert(T, _entry_value(f, v, (r - 1) * p + c)))
+  end
+  s
+end
+
+function _value_sep(f, x::AtomIterate)
+  _zeropreserving(f) || return _value_dense(f, x)
+  T = float(eltype(x))
+  s = zero(T)
+  @inbounds for a in 1:x.nactive, i in x.groups[x.active[a]]
+    s += convert(T, _entry_value(f, x.storage[i], i))
+  end
+  s
+end
+
+# the proximal operator, entry by entry; y may be x
+function _prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Real)
+  _checksize(y, x)
+  T = eltype(y)
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    y[i] = convert(T, cdprox(f, x[i], i, γ))
+  end
+  y
+end
+
+# on sparse iterates, only the stored entries when f preserves zeros; as for a
+# dense array, an entry stored in y stays stored, possibly as a zero
+function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::Real)
+  _checksize(y, x)
+  _zeropreserving(f) || return invoke(_prox_sep!, Tuple{AbstractArray, Any, AbstractArray, Real}, y, f, x, γ)
+  T = eltype(y)
+  if y !== x
+    @inbounds for k in 1:y.nnz
+      y.nzval[k] = zero(T)
+    end
+  end
+  @inbounds for k in 1:x.nnz
+    i = x.nzval2ind[k]
+    _setstored!(y, convert(T, cdprox(f, x.nzval[k], i, γ)), i)
+  end
+  y
+end
+
+# each coordinate (an entry of the lower triangle) once
+function _prox_sep!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::Real)
+  _checksize(y, x)
+  T = eltype(y)
+  p = y.p
+  if y === x && _zeropreserving(f)
+    @inbounds for k in 1:y.nnz
+      r, c = tril_cartesian(p, y.nzval2ind[k])
+      y.nzval[k] = convert(T, cdprox(f, y.nzval[k], (c - 1) * p + r, γ))
+    end
+    return y
+  end
+  @inbounds for c in 1:p, r in c:p
+    _setstored!(y, convert(T, cdprox(f, x[r, c], (c - 1) * p + r, γ)), tril_index(p, r, c))
+  end
+  y
+end
+
+# one pass over a dense array; the iterates take the proximal operator, then their
+# fast value
+function _value_and_prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Real)
+  _checksize(y, x)
+  T = eltype(y)
+  S = float(T)
+  s = zero(S)
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    v = convert(T, cdprox(f, x[i], i, γ))
+    y[i] = v
+    s += convert(S, _entry_value(f, v, i))
+  end
+  s
+end
+_value_and_prox_sep!(y::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}, f, x::AbstractArray, γ::Real) =
+  _value_sep(f, _prox_sep!(y, f, x, γ))
+
+# a weight or a bound: a scalar, or the entry i of an array
+@inline _entry(w::Real, ::Integer) = w
+@inline _entry(w::AbstractArray, i::Integer) = @inbounds w[i]
+@inline _entry(::Nothing, ::Integer) = true
+
+_restrict_entries(w::Union{Nothing, Real}, ::AbstractVector{<:Integer}) = w
+_restrict_entries(w::AbstractArray, S::AbstractVector{<:Integer}) = w[S]
+
+####################################
+#  ℓ1 norm
+####################################
+
+"""
+    NormL1(λ0 = 1)
+    NormL1(λ0, w)
+
+The weighted ℓ1 norm `f(x) = λ0 Σᵢ wᵢ |xᵢ|`, with all `wᵢ = 1` when `w` is
+omitted. Its proximal operator is entry-wise soft thresholding
+([`shrink`](@ref)). Separable, so [`cdprox!`](@ref) updates any coordinate, and
+on a sparse iterate the value and the proximal operator touch only the stored
+entries. On a [`SymmetricSparseIterate`](@ref) the weights are a `p × p` matrix
+(or anything indexed by the linear indices of one), as for a dense matrix.
+"""
+struct NormL1{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
+  λ0::T
+  w::W
+
+  function NormL1{T, W}(λ0::T, w::W) where {T<:Real, W<:Union{Nothing, AbstractArray}}
+    _checknonneg("λ0", λ0)
+    _checknonneg("the weights", w)
+    new{T, W}(λ0, w)
+  end
+end
+NormL1(λ0::Real = 1, w::Union{Nothing, AbstractArray} = nothing) = NormL1{typeof(λ0), typeof(w)}(λ0, w)
+
+isconvex(::Type{<:NormL1}) = true
+_zeropreserving(::NormL1) = true
+
+@inline _entry_value(f::NormL1, v::Real, i::Integer) = f.λ0 * _entry(f.w, i) * abs(v)
+@inline cdprox(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
+  shrink(v, convert(float(T), γ * f.λ0 * _entry(f.w, i)))
+
+kkt_violation(f::NormL1, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ0 * _entry(f.w, i)
+restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entries(f.w, S))
+
+# a weight per entry, so the dense sums vectorize
+function (f::NormL1{<:Real, Nothing})(x::DenseArray)
+  T = float(eltype(x))
+  convert(T, f.λ0) * sum(abs, x; init = zero(T))
+end
+
+####################################
+#  ℓ1 norm on the nonnegative orthant
+####################################
+
+"""
+    NormL1Nonneg(λ0 = 1)
+    NormL1Nonneg(λ0, w)
+
+The weighted ℓ1 norm restricted to the nonnegative orthant:
+`f(x) = λ0 Σᵢ wᵢ xᵢ` for `x ≥ 0`, and `Inf` otherwise, the penalty of the
+nonnegative lasso. Its proximal operator is `max(x - γλ0w, 0)`.
+"""
+struct NormL1Nonneg{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
+  λ0::T
+  w::W
+
+  function NormL1Nonneg{T, W}(λ0::T, w::W) where {T<:Real, W<:Union{Nothing, AbstractArray}}
+    _checknonneg("λ0", λ0)
+    _checknonneg("the weights", w)
+    new{T, W}(λ0, w)
+  end
+end
+NormL1Nonneg(λ0::Real = 1, w::Union{Nothing, AbstractArray} = nothing) = NormL1Nonneg{typeof(λ0), typeof(w)}(λ0, w)
+
+isconvex(::Type{<:NormL1Nonneg}) = true
+_zeropreserving(::NormL1Nonneg) = true
+
+@inline function _entry_value(f::NormL1Nonneg, v::T, i::Integer) where {T<:Real}
+  S = float(T)
+  v >= -_tol(S) ? f.λ0 * _entry(f.w, i) * max(v, zero(T)) : S(Inf)
+end
+@inline cdprox(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
+  max(v - convert(float(T), γ * f.λ0 * _entry(f.w, i)), zero(float(T)))
+
+# moving up from zero decreases the objective when -gᵢ exceeds λ0 wᵢ
+kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer) = -g[i] - f.λ0 * _entry(f.w, i)
+restrict(f::NormL1Nonneg, S::AbstractVector{<:Integer}) = NormL1Nonneg(f.λ0, _restrict_entries(f.w, S))
+
+####################################
+#  elastic net
+####################################
+
+"""
+    ElasticNet(λ1, λ2)
+    ElasticNet(λ1, λ2, w)
+
+The elastic-net penalty `f(x) = λ1 Σᵢ wᵢ |xᵢ| + (λ2/2) ‖x‖²`, with all `wᵢ = 1`
+when `w` is omitted. Its proximal operator is
+`shrink(x, γλ1w) / (1 + γλ2)`.
+"""
+struct ElasticNet{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
+  λ1::T
+  λ2::T
+  w::W
+
+  function ElasticNet{T, W}(λ1::T, λ2::T, w::W) where {T<:Real, W<:Union{Nothing, AbstractArray}}
+    _checknonneg("λ1", λ1)
+    _checknonneg("λ2", λ2)
+    _checknonneg("the weights", w)
+    new{T, W}(λ1, λ2, w)
+  end
+end
+function ElasticNet(λ1::Real, λ2::Real, w::Union{Nothing, AbstractArray} = nothing)
+  λ1, λ2 = promote(λ1, λ2)
+  ElasticNet{typeof(λ1), typeof(w)}(λ1, λ2, w)
+end
+
+isconvex(::Type{<:ElasticNet}) = true
+_zeropreserving(::ElasticNet) = true
+
+@inline _entry_value(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
+@inline function cdprox(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
+  S = float(T)
+  shrink(v, convert(S, γ * f.λ1 * _entry(f.w, i))) / (1 + convert(S, γ * f.λ2))
+end
+
+kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ1 * _entry(f.w, i)
+restrict(f::ElasticNet, S::AbstractVector{<:Integer}) = ElasticNet(f.λ1, f.λ2, _restrict_entries(f.w, S))
+
+####################################
+#  box
+####################################
+
+"""
+    IndBox(l, u)
+
+The indicator of the box `{x : l ≤ x ≤ u}`: `0` inside and `Inf` outside. The
+bounds are scalars or arrays of the size of `x`, and may be infinite. Its
+proximal operator is the projection `clamp.(x, l, u)`.
+"""
+struct IndBox{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: SeparableFunction
+  l::L
+  u::U
+  zp::Bool          # l ≤ 0 ≤ u, so that zero is feasible and its own projection
+
+  function IndBox{L, U}(l::L, u::U) where {L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}}
+    all(l .<= u) || throw(ArgumentError("the lower bounds must not exceed the upper bounds"))
+    new{L, U}(l, u, all(l .<= 0) && all(u .>= 0))
+  end
+end
+IndBox(l::Union{Real, AbstractArray}, u::Union{Real, AbstractArray}) = IndBox{typeof(l), typeof(u)}(l, u)
+
+"""
+    IndBallLinf(r)
+
+The indicator of the ℓ∞ ball `{x : maxᵢ |xᵢ| ≤ r}`, the box [`IndBox`](@ref)`(-r, r)`.
+"""
+IndBallLinf(r::Real) = (_checknonneg("r", r); IndBox(-r, r))
+
+isconvex(::Type{<:IndBox}) = true
+_zeropreserving(f::IndBox) = f.zp
+
+@inline function _entry_value(f::IndBox, v::T, i::Integer) where {T<:Real}
+  S = float(T)
+  l, u = _entry(f.l, i), _entry(f.u, i)
+  t = _tol(S)
+  (v >= l - t * max(one(S), abs(l)) && v <= u + t * max(one(S), abs(u))) ? zero(S) : S(Inf)
+end
+@inline cdprox(f::IndBox, v::T, i::Integer, ::Real) where {T<:Real} =
+  convert(float(T), clamp(v, _entry(f.l, i), _entry(f.u, i)))
+
+# from zero, the objective decreases upward at rate -gᵢ if u > 0, and downward
+# at rate gᵢ if l < 0; zero must be feasible
+function kkt_violation(f::IndBox, g::AbstractArray, i::Integer)
+  T = float(eltype(g))
+  up = _entry(f.u, i) > 0 ? -g[i] : T(-Inf)
+  down = _entry(f.l, i) < 0 ? g[i] : T(-Inf)
+  max(up, down)
+end
+restrict(f::IndBox, S::AbstractVector{<:Integer}) = IndBox(_restrict_entries(f.l, S), _restrict_entries(f.u, S))
+
+"""
+    IndNonnegative()
+
+The indicator of the nonnegative orthant `{x : x ≥ 0}`. Its proximal operator is
+`max.(x, 0)`.
+"""
+struct IndNonnegative <: SeparableFunction end
+
+isconvex(::Type{IndNonnegative}) = true
+_zeropreserving(::IndNonnegative) = true
+
+@inline _entry_value(::IndNonnegative, v::T, ::Integer) where {T<:Real} =
+  v >= -_tol(float(T)) ? zero(float(T)) : float(T)(Inf)
+@inline cdprox(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} = max(float(v), zero(float(T)))
+kkt_violation(::IndNonnegative, g::AbstractArray, i::Integer) = -g[i]
+restrict(f::IndNonnegative, ::AbstractVector{<:Integer}) = f
+
+####################################
+#  ℓ0 penalty
+####################################
+
+"""
+    NormL0(λ = 1)
+
+The ℓ0 penalty `f(x) = λ ⋅ #{i : xᵢ ≠ 0}`, nonconvex. Its proximal operator is
+hard thresholding: `xᵢ` is kept when `|xᵢ| > √(2γλ)` and set to zero otherwise.
+"""
+struct NormL0{T<:Real} <: SeparableFunction
+  λ::T
+
+  NormL0{T}(λ::T) where {T<:Real} = (_checknonneg("λ", λ); new{T}(λ))
+end
+NormL0(λ::Real = 1) = NormL0{typeof(λ)}(λ)
+
+_zeropreserving(::NormL0) = true
+
+@inline _entry_value(f::NormL0, v::T, ::Integer) where {T<:Real} = iszero(v) ? zero(float(T)) : convert(float(T), f.λ)
+@inline cdprox(f::NormL0, v::T, ::Integer, γ::Real) where {T<:Real} =
+  abs2(v) > 2 * γ * f.λ ? float(v) : zero(float(T))
+restrict(f::NormL0, ::AbstractVector{<:Integer}) = f
+
+####################################
+#  MCP and SCAD
+####################################
+
+"""
+    MCP(λ, a = 3)
+
+The minimax concave penalty of Zhang (2010), nonconvex:
+`fᵢ(t) = λ|t| - t²/(2a)` for `|t| ≤ aλ` and `aλ²/2` beyond, for `a > 0`. It
+matches the ℓ1 penalty at zero and stops penalizing large entries. For a step
+`γ < a` its proximal operator is firm thresholding; for larger steps it is the
+global minimizer of the nonconvex problem.
+"""
+struct MCP{T<:Real} <: SeparableFunction
+  λ::T
+  a::T
+
+  function MCP{T}(λ::T, a::T) where {T<:Real}
+    _checknonneg("λ", λ)
+    a > 0 || throw(ArgumentError("a must be positive, got $a"))
+    new{T}(λ, a)
+  end
+end
+MCP(λ::Real, a::Real = 3) = (p = promote(λ, a); MCP{typeof(p[1])}(p...))
+
+_zeropreserving(::MCP) = true
+
+@inline function _entry_value(f::MCP, v::T, ::Integer) where {T<:Real}
+  S = float(T)
+  λ, a, t = S(f.λ), S(f.a), abs(S(v))
+  t <= a * λ ? λ * t - t^2 / (2a) : a * λ^2 / 2
+end
+
+@inline function cdprox(f::MCP, v::T, i::Integer, γ::Real) where {T<:Real}
+  S = float(T)
+  λ, a, s, t = S(f.λ), S(f.a), S(γ), abs(S(v))
+  if s < a
+    t <= s * λ && return zero(S)
+    t > a * λ && return S(v)
+    return sign(S(v)) * (t - s * λ) / (1 - s / a)
+  end
+  # concave between 0 and aλ: the minimizer is 0 or the largest candidate
+  u = max(t, a * λ)
+  h(z) = (z - t)^2 / (2s) + _entry_value(f, z, i)
+  h(u) < h(zero(S)) ? sign(S(v)) * u : zero(S)
+end
+
+kkt_violation(f::MCP, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ
+restrict(f::MCP, ::AbstractVector{<:Integer}) = f
+
+"""
+    SCAD(λ, a = 3.7)
+
+The smoothly clipped absolute deviation penalty of Fan and Li (2001),
+nonconvex: `fᵢ(t) = λ|t|` for `|t| ≤ λ`,
+`(2aλ|t| - t² - λ²) / (2(a - 1))` for `λ < |t| ≤ aλ`, and `λ²(a + 1)/2` beyond,
+for `a > 2`. For a step `γ < a - 1` its proximal operator is the SCAD
+thresholding rule; for larger steps it is the global minimizer of the nonconvex
+problem.
+"""
+struct SCAD{T<:Real} <: SeparableFunction
+  λ::T
+  a::T
+
+  function SCAD{T}(λ::T, a::T) where {T<:Real}
+    _checknonneg("λ", λ)
+    a > 2 || throw(ArgumentError("a must exceed 2, got $a"))
+    new{T}(λ, a)
+  end
+end
+SCAD(λ::Real, a::Real = 3.7) = (p = promote(λ, a); SCAD{typeof(p[1])}(p...))
+
+_zeropreserving(::SCAD) = true
+
+@inline function _entry_value(f::SCAD, v::T, ::Integer) where {T<:Real}
+  S = float(T)
+  λ, a, t = S(f.λ), S(f.a), abs(S(v))
+  t <= λ && return λ * t
+  t <= a * λ && return (2a * λ * t - t^2 - λ^2) / (2 * (a - 1))
+  λ^2 * (a + 1) / 2
+end
+
+@inline function cdprox(f::SCAD, v::T, i::Integer, γ::Real) where {T<:Real}
+  S = float(T)
+  λ, a, s, t = S(f.λ), S(f.a), S(γ), abs(S(v))
+  if s < a - 1
+    t <= (1 + s) * λ && return shrink(S(v), s * λ)
+    t > a * λ && return S(v)
+    return sign(S(v)) * ((a - 1) * t - s * a * λ) / (a - 1 - s)
+  end
+  # concave on [λ, aλ]: compare the minimizers of the three pieces
+  h(z) = (z - t)^2 / (2s) + _entry_value(f, z, i)
+  best, hb = zero(S), h(zero(S))
+  for z in (min(max(t - s * λ, zero(S)), λ), a * λ, max(t, a * λ))
+    hz = h(z)
+    hz < hb && ((best, hb) = (z, hz))
+  end
+  sign(S(v)) * best
+end
+
+kkt_violation(f::SCAD, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ
+restrict(f::SCAD, ::AbstractVector{<:Integer}) = f

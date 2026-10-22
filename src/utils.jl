@@ -1,407 +1,243 @@
+####################################
+#
+#  Scalar operations
+#
+####################################
 
+# without branches, so that broadcasting it vectorizes
 """
     shrink(v, c)
 
-Soft-thresholding: return `sign(v) ⋅ max(|v| - c, 0)` for a threshold `c ≥ 0`.
-A `NaN` in `v` propagates.
+Soft thresholding: `sign(v) ⋅ max(|v| - c, 0)` for a threshold `c ≥ 0`, the
+proximal operator of `c|⋅|`. A `NaN` in `v` propagates.
 """
-# without branches, so that broadcasting it vectorizes
 shrink(v::T, c::T) where {T<:AbstractFloat} = max(v - c, zero(T)) + min(v + c, zero(T))
-
-
-"""
-    shrinkL2!(out, x, c)
-
-Group soft-thresholding: store `max(1 - c / ‖x‖₂, 0) ⋅ x` in `out` and return it.
-"""
-function shrinkL2!(out::M, x::M, c::T) where {M <: AbstractVecOrMat{T}} where T
-  tmp = max(one(T) - c / norm(x), zero(T))
-  tmp > zero(T) ? rmul!(copyto!(out, x), tmp) : fill!(out, zero(T))
-end
-
-
-"""
-    proxL1Fused(x, y, λ1, λ2, γ = 1)
-
-Proximal operator of `λ1 (|u| + |v|) + λ2 |u - v|` at the scalar pair `(x, y)`:
-return `(u, v) = argmin (1/2γ) ((u - x)² + (v - y)²) + λ1 (|u| + |v|) + λ2 |u - v|`.
-"""
-function proxL1Fused(x::T, y::T, λ1::T, λ2::T, γ::T=one(T)) where {T<:AbstractFloat}
-
-  if λ2 > zero(T)
-    t = λ2 * γ
-    if x > y + 2 * t
-      u = x - t
-      v = y + t
-    elseif y > x + 2 * t
-      u = x + t
-      v = y - t
-    else
-      u = v = (x + y) / 2
-    end
-  else
-    u = x
-    v = y
-  end
-
-  t = λ1 * γ
-  (shrink(u, t), shrink(v, t))
-end
-
-
+shrink(v::Real, c::Real) = shrink(promote(float(v), float(c))...)
 
 ####################################
 #
-# helper functions
+#  Buffers
+#
+####################################
+
+# A buffer that a function object caches and sizes on demand, so that its hot
+# calls allocate only when the size or the element type of the input changes.
+# The field is untyped; _buffer! returns a concretely typed vector.
+mutable struct Scratch
+  buf::Any
+end
+Scratch() = Scratch(nothing)
+
+function _buffer!(s::Scratch, ::Type{T}, n::Integer) where {T}
+  b = s.buf
+  if b isa Vector{T}
+    length(b) < n && resize!(b, n)
+    return b
+  end
+  b = Vector{T}(undef, n)
+  s.buf = b
+  b
+end
+
+# an array of eltype T and size dims, reused while they do not change
+function _array_buffer!(s::Scratch, ::Type{T}, dims::NTuple{N, Int}) where {T, N}
+  b = s.buf
+  if b isa Array{T, N}
+    size(b) == dims && return b
+  end
+  b = Array{T, N}(undef, dims)
+  s.buf = b
+  b
+end
+
+# Scratch is an implementation detail: copies of a function object share no buffer
+Base.copy(s::Scratch) = Scratch()
+Base.deepcopy_internal(::Scratch, ::IdDict) = Scratch()
+
+####################################
+#
+#  Checks
+#
+####################################
+
+_checksize(y, x) = size(y) == size(x) ||
+  throw(DimensionMismatch("the output has size $(size(y)) and the input $(size(x))"))
+
+_checknonneg(name, v::Real) = v >= 0 || throw(ArgumentError("$name must be nonnegative, got $v"))
+_checknonneg(name, v::AbstractArray) = all(>=(0), v) || throw(ArgumentError("$name must be nonnegative"))
+_checknonneg(name, ::Nothing) = true
+
+# The relative tolerance with which an indicator function accepts a point
+# rounded onto the boundary of its set; points that a projection returns are
+# feasible within it.
+_tol(::Type{T}) where {T<:AbstractFloat} = sqrt(eps(T))
+_tol(::Type) = sqrt(eps(Float64))
+
+####################################
+#
+#  Selection and projection onto the simplex
+#
+####################################
+
+# The k-th largest entry of v, 1 ≤ k ≤ length(v), by quickselect with a
+# median-of-three pivot; reorders v. Base's partialsort! allocates a scratch
+# buffer, this does not.
+function _kth_largest!(v::AbstractVector, k::Integer)
+  lo, hi = firstindex(v), lastindex(v)
+  kk = lo + k - 1
+  lo <= kk <= hi || throw(ArgumentError("k = $k is not in 1:$(length(v))"))
+  @inbounds while lo < hi
+    mid = (lo + hi) >>> 1
+    a, b, c = v[lo], v[mid], v[hi]
+    pivot = a < b ? (b < c ? b : (a < c ? c : a)) : (a < c ? a : (b < c ? c : b))
+    i, j = lo, hi
+    while i <= j
+      while v[i] > pivot
+        i += 1
+      end
+      while v[j] < pivot
+        j -= 1
+      end
+      if i <= j
+        v[i], v[j] = v[j], v[i]
+        i += 1
+        j -= 1
+      end
+    end
+    # v[lo:j] ≥ pivot ≥ v[i:hi], and the entries in between equal the pivot
+    if kk <= j
+      hi = j
+    elseif kk >= i
+      lo = i
+    else
+      return v[kk]
+    end
+  end
+  v[kk]
+end
+
+# The threshold τ of the projection max.(f.(x) .- τ, 0) of the vector f.(x)
+# onto the simplex {z ≥ 0 : Σ z = a}, a > 0, by Condat's algorithm (Fast
+# projection onto the simplex and the l1 ball, Math. Program. 158, 2016), in
+# O(n) expected time. buf is scratch of length at least length(x); f is applied
+# on the fly (abs gives the projection onto the l1 ball).
+function _simplex_threshold!(buf::AbstractVector{T}, x::AbstractArray, a::T, f::F = identity) where {T, F}
+  n = length(x)
+  n == 0 && return zero(T)
+  # buf[1:nt] holds the discarded entries ṽ, buf[nt+1:nt+nv] the candidates v
+  it = iterate(x)
+  y1 = T(f(it[1]))
+  buf[1] = y1
+  nt, nv = 0, 1
+  ρ = y1 - a
+  it = iterate(x, it[2])
+  @inbounds while it !== nothing
+    y = T(f(it[1]))
+    if y > ρ
+      ρ += (y - ρ) / (nv + 1)
+      if ρ > y - a
+        nv += 1
+        buf[nt + nv] = y
+      else
+        nt += nv
+        nv = 1
+        buf[nt + 1] = y
+        ρ = y - a
+      end
+    end
+    it = iterate(x, it[2])
+  end
+  # the discarded entries above ρ rejoin the candidates, collected at the front
+  w = 0
+  @inbounds for i in 1:nt
+    y = buf[i]
+    if y > ρ
+      w += 1
+      buf[w] = y
+      ρ += (y - ρ) / (w + nv)
+    end
+  end
+  @inbounds for i in 1:nv
+    buf[w + i] = buf[nt + i]
+  end
+  len = w + nv
+  # drop the candidates at or below ρ until none is left
+  changed = true
+  @inbounds while changed
+    changed = false
+    i = 1
+    while i <= len
+      y = buf[i]
+      if y <= ρ
+        buf[i] = buf[len]
+        len -= 1
+        len == 0 && return ρ        # only from rounding: the largest entry stays
+        ρ += (ρ - y) / len
+        changed = true
+      else
+        i += 1
+      end
+    end
+  end
+  ρ
+end
+
+####################################
+#
+#  Lower-triangular indexing
 #
 ####################################
 
 """
-    A_mul_B_row(A, b, row)
+    tril_index(p, r, c)
 
-Compute `(A * b)[row]` without forming `A * b`. `b` may be dense, a
-`SparseVector`, a [`SparseIterate`](@ref) or an [`AtomIterate`](@ref).
+The linear index of entry `(r, c)`, `r ≥ c`, of the lower triangle of a `p × p`
+matrix, numbered column by column: the coordinate of a
+[`SymmetricSparseIterate`](@ref) that holds the entry. Inverse of
+[`tril_cartesian`](@ref).
 """
-function A_mul_B_row(A::AbstractMatrix{T}, b::AbstractVector{T}, row::Int64) where {T<:AbstractFloat}
-  n, p = size(A)
-  ((p == length(b)) && (1 <= row <= n)) || throw(DimensionMismatch())
+tril_index(p::Integer, r::Integer, c::Integer) = p * (c - 1) - div(c * (c - 1), 2) + r
 
-  v = zero(T)
-  @inbounds @simd for i=1:p
-    v += A[row, i] * b[i]
-  end
-  v
+"""
+    tril_cartesian(p, k)
+
+The entry `(r, c)`, `r ≥ c`, of the lower triangle of a `p × p` matrix with
+linear index `k`, numbered column by column. Inverse of [`tril_index`](@ref).
+"""
+function tril_cartesian(p::Integer, k::Integer)
+  rv = div(p * (p + 1), 2) - k
+  j = div(isqrt(1 + 8rv) - 1, 2)      # integer arithmetic, exact for any p
+  i = rv - div(j * (j + 1), 2)
+  (p - i, p - j)
 end
 
-function A_mul_B_row(A::AbstractMatrix{T}, b::SparseVector{T}, row::Int64) where {T<:AbstractFloat}
-  n, p = size(A)
-  ((p == length(b)) && (1 <= row <= n)) || throw(DimensionMismatch())
-
-
-  nzval = SparseArrays.nonzeros(b)
-  rowval = SparseArrays.nonzeroinds(b)
-  v = zero(T)
-  @inbounds @simd for i=1:length(nzval)
-    v += A[row, rowval[i]] * nzval[i]
-  end
-  v
-end
-
-function A_mul_B_row(A::AbstractMatrix{T}, b::SparseIterate{T, 1}, row::Int64) where {T<:AbstractFloat}
-  n, p = size(A)
-  ((p == length(b)) && (1 <= row <= n)) || throw(DimensionMismatch())
-
-  v = zero(T)
-  @inbounds @simd for i = 1:nnz(b)
-      v += A[row, b.nzval2ind[i]] * b.nzval[i]
-  end
-  v
-end
-
-
-function A_mul_B_row(A::AbstractMatrix{T}, b::AtomIterate{T}, row::Int64) where {T<:AbstractFloat}
-  n, p = size(A)
-  ((p == length(b)) && (1 <= row <= n)) || throw(DimensionMismatch())
-
-  v = zero(T)
-  @inbounds for a in 1:b.nactive, j in b.groups[b.active[a]]
-    v += A[row, j] * b.storage[j]
-  end
-  v
-end
-
-
-"""
-    At_mul_B_row(A, b, row)
-
-Compute `(A' * b)[row]` without forming `A' * b`. `b` may be dense, a
-`SparseVector`, or a [`SparseIterate`](@ref).
-"""
-function At_mul_B_row(A::AbstractMatrix{T}, b::StridedVector{T}, row::Int64) where {T<:AbstractFloat}
-  n, p = size(A)
-  ((n == length(b)) && (1 <= row <= p)) || throw(DimensionMismatch())
-
-  v = zero(T)
-  @inbounds @simd for i=1:n
-    v += A[i, row] * b[i]
-  end
-  v
-end
-
-function At_mul_B_row(A::AbstractMatrix{T}, b::SparseVector{T}, row::Int64) where {T<:AbstractFloat}
-  n, p = size(A)
-  ((n == length(b)) && (1 <= row <= p)) || throw(DimensionMismatch())
-
-  nzval = SparseArrays.nonzeros(b)
-  rowval = SparseArrays.nonzeroinds(b)
-  v = zero(T)
-  @inbounds @simd for i=1:length(nzval)
-    v += A[rowval[i], row] * nzval[i]
-  end
-  v
-end
-
-function At_mul_B_row(A::AbstractMatrix{T}, b::SparseIterate{T, 1}, row::Int64) where {T<:AbstractFloat}
-  n, p = size(A)
-  ((n == length(b)) && (1 <= row <= p)) || throw(DimensionMismatch())
-
-  v = zero(T)
-  @inbounds @simd for i = 1:b.nnz
-      v += A[b.nzval2ind[i], row] * b.nzval[i]
-  end
-  v
-end
-
-"""
-    At_mul_B_group!(out, A, b, G)
-
-Compute `out = A[:, G]' * b`, the entries `G` of `A' * b`, for a range or a
-vector of column indices `G`, without allocating. In a block coordinate step,
-this is the gradient of a least-squares loss in the block `G`.
-"""
-function At_mul_B_group!(out::AbstractVector{T}, A::AbstractMatrix{T}, b::AbstractVector{T}, G::AbstractVector{<:Integer}) where {T<:AbstractFloat}
-  length(b) == size(A, 1) && length(out) == length(G) || throw(DimensionMismatch())
-  checkbounds(A, :, G)
-  @inbounds for (t, j) in zip(eachindex(out), G)
-    s = zero(T)
-    @simd for i in eachindex(b)
-      s += A[i, j] * b[i]
-    end
-    out[t] = s
-  end
-  out
-end
-
-"""
-    A_mul_B_group!(out, A, v, G)
-    A_mul_B_group!(out, A, v, G, α, β)
-
-Compute `out = A[:, G] * v`, or `out = α A[:, G] v + β out` as the
-five-argument `mul!` does, for a range or a vector of column indices `G`,
-without allocating. `A_mul_B_group!(r, X, δ, G, -1, 1)` updates the residual
-`r = y - Xβ` after a block coordinate step changes `β[G]` by `δ`.
-"""
-A_mul_B_group!(out::AbstractVector{T}, A::AbstractMatrix{T}, v::AbstractVector{T}, G::AbstractVector{<:Integer}) where {T<:AbstractFloat} =
-  A_mul_B_group!(out, A, v, G, true, false)
-function A_mul_B_group!(out::AbstractVector{T}, A::AbstractMatrix{T}, v::AbstractVector{T}, G::AbstractVector{<:Integer},
-                        α::Number, β::Number) where {T<:AbstractFloat}
-  length(out) == size(A, 1) && length(v) == length(G) || throw(DimensionMismatch())
-  checkbounds(A, :, G)
-  if iszero(β)
-    fill!(out, zero(T))
-  elseif !isone(β)
-    rmul!(out, β)
-  end
-  @inbounds for (t, j) in zip(eachindex(v), G)
-    c = T(α) * v[t]
-    @simd for i in eachindex(out)
-      out[i] += c * A[i, j]
-    end
-  end
-  out
-end
-
-
-"""
-    A_mul_X_mul_B_rc(A, X, B, r, c)
-
-Compute `(A * X * B)[r, c]` for symmetric `A`, `B` and a sparse `X`, in O(nnz(X)).
-`X` is a [`SymmetricSparseIterate`](@ref), or a [`SparseIterate`](@ref) vector
-holding `vec` of a `size(A, 2) × size(B, 1)` matrix.
-"""
-function A_mul_X_mul_B_rc(
-  A::Symmetric{T},
-  X::SymmetricSparseIterate{T},
-  B::Symmetric{T},
-  r::Int,
-  c::Int
-  ) where {T<:AbstractFloat}
-
-  p = X.p
-  v = zero(T)
-  for j=1:nnz(X)
-    ind = X.nzval2ind[j]
-    ri, ci = ind2subLowerTriangular(p, ind)
-    if ri == ci
-      @inbounds v += A[ri, r] * B[ci, c] * X.nzval[j]
-    else
-      @inbounds v += (A[ri, r] * B[ci, c] + A[ci, r] * B[ri, c]) * X.nzval[j]
-    end
-  end
-  v
-end
-
-function A_mul_X_mul_B_rc(
-  A::Symmetric{T},
-  X::SparseIterate{T, 1},
-  B::Symmetric{T},
-  r::Int,
-  c::Int
-  ) where {T<:AbstractFloat}
-
-  v = zero(T)
-  I = CartesianIndices((size(A, 2), size(B, 1)))
-  for j=1:nnz(X)
-    ind = X.nzval2ind[j]
-    @inbounds v += A[I[ind][1], r] * B[I[ind][2], c] * X.nzval[j]
-  end
-  v
-end
-
-"""
-    A_mul_X_mul_B(A, X, B)
-
-Compute `A * X * B` for symmetric `A`, `B` and a sparse `X`; see
-[`A_mul_X_mul_B_rc`](@ref).
-"""
-function A_mul_X_mul_B(A::Symmetric{T}, X::SymmetricSparseIterate{T}, B::Symmetric{T}) where {T<:AbstractFloat}
-  # Filling in the result entry by entry with A_mul_X_mul_B_rc costs O(p² nnz(X)), and
-  # dense BLAS products cost O(p³) however sparse X is. Restricted to the rows K where
-  # X has nonzeros, A[:, K] * X[K, K] * B[K, :] costs O(p² |K|). Once X has nonzeros
-  # in more than half of the rows, the dense products are as fast.
-  p = X.p
-  size(A, 2) == p == size(B, 1) || throw(DimensionMismatch())
-  pos = zeros(Int, p)
-  nK = 0
-  for k = 1:nnz(X)
-    iszero(X.nzval[k]) && continue
-    for i in ind2subLowerTriangular(p, X.nzval2ind[k])
-      pos[i] == 0 && (pos[i] = 1; nK += 1)
-    end
-    2 * nK > p && return A * (Matrix(X) * B)
-  end
-
-  K = findall(!iszero, pos)
-  pos[K] = 1:nK                 # position of each row within K
-  XK = zeros(T, nK, nK)
-  for k = 1:nnz(X)
-    iszero(X.nzval[k]) && continue
-    r, c = ind2subLowerTriangular(p, X.nzval2ind[k])
-    XK[pos[r], pos[c]] = XK[pos[c], pos[r]] = X.nzval[k]
-  end
-  A[:, K] * (XK * B[K, :])
-end
-
-function A_mul_X_mul_B(A::Symmetric{T}, X::SparseIterate{T, 1}, B::Symmetric{T}) where {T<:AbstractFloat}
-  # as above, with the rows I and columns J where the size(A, 2) × size(B, 1) matrix X
-  # has nonzeros: A[:, I] * X[I, J] * B[J, :] costs O(p² min(|I|, |J|))
-  m, n = size(A, 2), size(B, 1)
-  length(X) == m * n || throw(DimensionMismatch())
-  posI, posJ = zeros(Int, m), zeros(Int, n)
-  nI = nJ = 0
-  for k = 1:nnz(X)
-    iszero(X.nzval[k]) && continue
-    i, j = mod1(X.nzval2ind[k], m), cld(X.nzval2ind[k], m)
-    posI[i] == 0 && (posI[i] = 1; nI += 1)
-    posJ[j] == 0 && (posJ[j] = 1; nJ += 1)
-    2 * nI > m && 2 * nJ > n && return A * (reshape(Vector(X), m, n) * B)
-  end
-
-  I, J = findall(!iszero, posI), findall(!iszero, posJ)
-  posI[I] = 1:nI
-  posJ[J] = 1:nJ
-  XIJ = zeros(T, nI, nJ)
-  for k = 1:nnz(X)
-    iszero(X.nzval[k]) && continue
-    i, j = mod1(X.nzval2ind[k], m), cld(X.nzval2ind[k], m)
-    XIJ[posI[i], posJ[j]] = X.nzval[k]
-  end
-  # multiply in the cheaper order
-  nI <= nJ ? A[:, I] * (XIJ * B[J, :]) : (A[:, I] * XIJ) * B[J, :]
-end
-
-
-"""
-    A_mul_UUt_mul_B_rc(A, U, B, r, c)
-
-Compute `(A * U * U' * B)[r, c]` for symmetric `A`, `B` without forming `U * U'`.
-"""
-function A_mul_UUt_mul_B_rc(
-  A::Symmetric{T},
-  U::StridedMatrix{T},
-  B::Symmetric{T},
-  r::Int,
-  c::Int
-  ) where {T<:AbstractFloat}
-  # check input dimensions
-
-  nr, nc = size(U)
-  v = zero(T)
-  for j=1:nc
-    v1 = zero(T)   # stores A[r, :]*U[:,j]
-    v2 = zero(T)   # stores B[c, :]*U[:,j]
-    for k=1:nr
-      @inbounds v1 += A[k, r] * U[k, j]
-      @inbounds v2 += B[k, c] * U[k, j]
-    end
-    v += v1 * v2
-  end
-  v
-end
-
-"""
-    A_mul_UUt_mul_B(A, U, B)
-
-Compute `A * U * U' * B` for symmetric `A`, `B` without forming `U * U'`.
-"""
-A_mul_UUt_mul_B(A::Symmetric{T}, U::StridedMatrix{T}, B::Symmetric{T}) where {T<:AbstractFloat} =
-  (A * U) * transpose(B * U)
-
-
-#####
+####################################
 #
-# functions to operate with sparse lower triangular
+#  Norms
 #
-
-"""
-    ind2subLowerTriangular(p, ind)
-
-Convert a linear index into the lower triangle of a `p × p` matrix (numbered
-column by column) to `(row, col)` with `row ≥ col`. Inverse of
-[`sub2indLowerTriangular`](@ref).
-"""
-function ind2subLowerTriangular(p::T, ind::T) where {T<:Integer}
-  rvLinear = div(p*(p+1), 2) - ind
-  k = trunc(T, (sqrt(1+8*rvLinear)-1.)/2. )
-  j = rvLinear - div(k*(k+1), 2)
-  (p-j, p-k)
-end
-
-"""
-    sub2indLowerTriangular(p, r, c)
-
-Linear index of entry `(r, c)`, `r ≥ c`, in the lower triangle of a `p × p`
-matrix, numbered column by column. Inverse of [`ind2subLowerTriangular`](@ref).
-"""
-sub2indLowerTriangular(p::T, r::T, c::T) where {T<:Integer} = p*(c-1)-div(c*(c-1),2)+r
-
-
-#######
+####################################
 
 """
     norm_diff(A, B, p = 2)
 
-Compute `‖A - B‖` without allocating `A - B`: the Euclidean (Frobenius) norm for
+`‖A - B‖` without allocating `A - B`: the Euclidean (Frobenius) norm for
 `p = 2`, the largest absolute entry for `p = Inf`.
 """
-function norm_diff(A::AbstractArray{T}, B::AbstractArray{T}, p::Real=2.) where {T<:AbstractFloat}
+function norm_diff(A::AbstractArray, B::AbstractArray, p::Real = 2)
   size(A) == size(B) || throw(DimensionMismatch())
-
+  T = float(promote_type(eltype(A), eltype(B)))
   v = zero(T)
-  if p == 2.
-    @inbounds @simd for i in eachindex(A)
-      v += abs2( A[i] - B[i] )
+  if p == 2
+    @inbounds @simd for i in eachindex(A, B)
+      v += abs2(A[i] - B[i])
     end
     return sqrt(v)
- elseif p == Inf
-   @inbounds @simd for i in eachindex(A)
-     t = abs( A[i] - B[i] )
-     if t > v
-       v = t
-     end
-   end
-   return v
- else
-   throw(ArgumentError("p should be 2 or Inf"))
- end
+  elseif p == Inf
+    @inbounds for i in eachindex(A, B)
+      v = max(v, abs(A[i] - B[i]))
+    end
+    return v
+  else
+    throw(ArgumentError("p should be 2 or Inf"))
+  end
 end

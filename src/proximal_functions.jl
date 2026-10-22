@@ -392,14 +392,6 @@ function prox!(g::ProxNuclear{T}, out_x::StridedMatrix{T}, x::StridedMatrix{T}, 
   mul!(out_x, U, transpose(V))
 end
 
-##################################
-#
-#  sum_k g(x_k)
-#
-##################################
-
-
-
 ##########################################################
 # Gaussian likelihood prox
 # f(X) = tr(SX) - log det(X)
@@ -440,23 +432,3 @@ end
 # one eigen! uses (syevr) for all but small matrices.
 _eigen_sym!(A::StridedMatrix{<:LinearAlgebra.BlasReal}) = LAPACK.syevd!('V', 'U', A)
 _eigen_sym!(A::AbstractMatrix) = (ef = eigen!(Symmetric(A)); (ef.values, ef.vectors))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-###

@@ -99,6 +99,14 @@ end
   @test value_and_gradient!(f32, zeros(Float32, 5), b32) isa Float32
   @test value(f32, b32) ≈ norm(Float32.(y) - Float32.(X)*b32)^2 / 2
 
+  # a matrix response, one column per response: β and the gradient are matrices
+  Y, B = randn(10, 3), randn(5, 3)
+  fm = LeastSquaresLoss(Y, X)
+  G = fill(NaN, 5, 3)
+  @test value_and_gradient!(fm, G, B) ≈ norm(Y - X*B)^2 / 2
+  @test G ≈ -X' * (Y - X*B)
+  @test value(fm, B) ≈ norm(Y - X*B)^2 / 2
+
 end
 
 p = 30

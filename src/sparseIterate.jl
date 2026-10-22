@@ -14,19 +14,39 @@ mutable struct SparseIterate{T, N} <: AbstractArray{T, N}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
     nzval2ind::Vector{Int}      # Mapping from nzval to indices
     ind2nzval::Array{Int, N}    # Mapping from indices to nzval
-    nnz::Int                    # number of stored zeros
+    nnz::Int                    # number of stored entries
 end
 
-SparseIterate(n::Int) = SparseIterate(Float64, n)
-SparseIterate(::Type{T}, n::Int) where {T} = SparseIterate{T, 1}(zeros(T, n), zeros(Int, n), zeros(Int, n), 0)
-SparseIterate(n::Int, m::Int) = SparseIterate(Float64, n, m)
-SparseIterate(::Type{T}, n::Int, m::Int) where {T} = SparseIterate{T, 2}(zeros(T, n*m), zeros(Int, n*m), zeros(Int, n, m), 0)
+"""
+    SymmetricSparseIterate([T = Float64,] p)
+    SymmetricSparseIterate(X::SparseMatrixCSC)
 
-SparseArrays.issparse(x::SparseIterate) = true
+A sparse symmetric `p × p` matrix that stores only its lower triangle, with the
+same O(1) access as [`SparseIterate`](@ref). `x[r, c]` and `x[c, r]` refer to
+the same entry. Linear indices `1:p(p+1)/2` run over the lower triangle column
+by column (see [`sub2indLowerTriangular`](@ref)).
+"""
+mutable struct SymmetricSparseIterate{T} <: AbstractMatrix{T}
+    nzval::Vector{T}            # stored nonzero values (1:nnz)
+    nzval2ind::Vector{Int}      # Mapping from nzval to indices
+    ind2nzval::Vector{Int}      # Mapping from indices to nzval
+    nnz::Int                    # number of stored entries
+    p::Int                      # dimension of matrix
+end
 
-Base.length(x::SparseIterate) = length(x.ind2nzval)
-Base.size(x::SparseIterate) = size(x.ind2nzval)
-SparseArrays.nnz(x::SparseIterate) = x.nnz
+
+####################################
+#
+#  Storage shared by SparseIterate and SymmetricSparseIterate
+#
+####################################
+
+# Both store their entries in the same way: nzval[1:nnz] are the stored values,
+# nzval2ind[1:nnz] their linear indices, and ind2nzval[i] is the position of index i
+# in nzval, 0 if i is not stored.
+const _StoredIterate{T} = Union{SparseIterate{T}, SymmetricSparseIterate{T}}
+
+SparseArrays.nnz(x::_StoredIterate) = x.nnz
 
 """
     numCoordinates(x)
@@ -35,7 +55,7 @@ Number of coordinates of `x` that [`cdprox!`](@ref) can update: all entries of
 a [`SparseIterate`](@ref), the lower triangle of a
 [`SymmetricSparseIterate`](@ref), and the groups of an [`AtomIterate`](@ref).
 """
-numCoordinates(x::SparseIterate) = length(x.ind2nzval)
+function numCoordinates end
 
 """
     numActive(x)
@@ -65,12 +85,98 @@ Whether coordinate `k` of `x` is active (see [`numActive`](@ref)).
 """
 function isActive end
 
-numActive(x::SparseIterate) = x.nnz
-Base.@propagate_inbounds function activeCoordinate(x::SparseIterate, i::Int)
+numCoordinates(x::_StoredIterate) = length(x.ind2nzval)
+numActive(x::_StoredIterate) = x.nnz
+Base.@propagate_inbounds function activeCoordinate(x::_StoredIterate, i::Int)
   @boundscheck 1 <= i <= x.nnz || throw(BoundsError(Base.OneTo(x.nnz), i))
   @inbounds x.nzval2ind[i]
 end
-isActive(x::SparseIterate, k::Int) = x.ind2nzval[k] != 0
+isActive(x::_StoredIterate, k::Int) = x.ind2nzval[k] != 0
+
+# entry i; for a SymmetricSparseIterate, i is a linear index of the lower triangle
+function Base.getindex(x::_StoredIterate{T}, i::Int) where {T}
+  checkbounds(Bool, x.ind2nzval, i) || throw(BoundsError(x, i))
+  x.ind2nzval[i] == 0 ? zero(T) : x.nzval[x.ind2nzval[i]]
+end
+
+function Base.setindex!(x::_StoredIterate{T}, v, i::Int) where {T}
+  checkbounds(Bool, x.ind2nzval, i) || throw(BoundsError(x, i))
+  v = convert(T, v)
+  if x.ind2nzval[i] != 0
+    x.nzval[x.ind2nzval[i]] = v
+  elseif !iszero(v)
+    _store!(x, i, v)
+  end
+  x
+end
+
+# store index i, which is not stored yet, with the value v
+function _store!(x::_StoredIterate, i::Int, v)
+  x.nnz += 1
+  x.nzval[x.nnz] = v
+  x.nzval2ind[x.nnz] = i
+  x.ind2nzval[i] = x.nnz
+  x
+end
+
+# remove the stored zeros, moving the last stored entry into the place of each
+function SparseArrays.dropzeros!(x::_StoredIterate)
+  i = 1
+  while i <= x.nnz
+    if iszero(x.nzval[i])
+      x.ind2nzval[x.nzval2ind[i]] = 0
+      if i != x.nnz
+        x.nzval[i] = x.nzval[x.nnz]
+        x.ind2nzval[x.nzval2ind[x.nnz]] = i
+        x.nzval2ind[i] = x.nzval2ind[x.nnz]
+      end
+      x.nnz -= 1
+    else
+      i += 1
+    end
+  end
+  x
+end
+
+# Copy the stored entries of y into x, an iterate of the same size. When both are
+# sparse, touch only their stored entries; otherwise copying whole arrays is faster.
+function _copyto_stored!(x::_StoredIterate, y::_StoredIterate)
+    if 4 * (x.nnz + y.nnz) < length(x.ind2nzval)
+        @inbounds for k = 1:x.nnz
+            x.ind2nzval[x.nzval2ind[k]] = 0
+        end
+        @inbounds for k = 1:y.nnz
+            i = y.nzval2ind[k]
+            x.nzval[k] = y.nzval[k]
+            x.nzval2ind[k] = i
+            x.ind2nzval[i] = k
+        end
+    else
+        copyto!(x.nzval, y.nzval)
+        copyto!(x.nzval2ind, y.nzval2ind)
+        copyto!(x.ind2nzval, y.ind2nzval)
+    end
+    x.nnz = y.nnz
+    x
+end
+
+
+####################################
+#
+#  Sparse Iterate
+#
+####################################
+
+SparseIterate(n::Int) = SparseIterate(Float64, n)
+SparseIterate(::Type{T}, n::Int) where {T} = SparseIterate{T, 1}(zeros(T, n), zeros(Int, n), zeros(Int, n), 0)
+SparseIterate(n::Int, m::Int) = SparseIterate(Float64, n, m)
+SparseIterate(::Type{T}, n::Int, m::Int) where {T} = SparseIterate{T, 2}(zeros(T, n*m), zeros(Int, n*m), zeros(Int, n, m), 0)
+
+SparseArrays.issparse(x::SparseIterate) = true
+
+Base.length(x::SparseIterate) = length(x.ind2nzval)
+Base.size(x::SparseIterate) = size(x.ind2nzval)
+Base.IndexStyle(::Type{<:SparseIterate}) = IndexLinear()
 
 ## similar
 #
@@ -115,9 +221,7 @@ end
 
 
 function Base.Vector(x::SparseIterate{Tv, 1}) where Tv
-    n = length(x)
-    n == 0 && return Vector{Tv}()
-    r = zeros(Tv, n)
+    r = zeros(Tv, length(x))
     for k in 1:nnz(x)
         i = x.nzval2ind[k]
         v = x.nzval[k]
@@ -142,25 +246,6 @@ Base.Array(x::SparseIterate{T, 1}) where {T} = Vector(x)
 Base.Array(x::SparseIterate{T, 2}) where {T} = Matrix(x)
 
 
-
-Base.IndexStyle(::Type{<:SparseIterate}) = IndexLinear()
-
-Base.getindex(x::SparseIterate{T}, i::Int) where {T} = (checkbounds(x, i); x.ind2nzval[i] == 0 ? zero(T) : x.nzval[x.ind2nzval[i]])
-function Base.setindex!(x::SparseIterate{T}, v::T, i::Int) where {T}
-  checkbounds(x, i)
-  if x.ind2nzval[i] == 0
-    if v != zero(T)
-      x.nnz += 1
-      x.nzval[x.nnz] = v
-      x.nzval2ind[x.nnz] = i
-      x.ind2nzval[i] = x.nnz
-    end
-  else
-    x.nzval[x.ind2nzval[i]] = v
-  end
-  x
-end
-
 """
     activate!(x::SparseIterate, i)
     activate!(x::AtomIterate, k)
@@ -173,12 +258,7 @@ an [`AtomIterate`](@ref), make group `k` active, keeping its entries.
 """
 function activate!(x::SparseIterate{T}, i::Int) where {T}
   checkbounds(x, i)
-  if x.ind2nzval[i] == 0
-    x.nnz += 1
-    x.nzval[x.nnz] = zero(T)
-    x.nzval2ind[x.nnz] = i
-    x.ind2nzval[i] = x.nnz
-  end
+  x.ind2nzval[i] == 0 && _store!(x, i, zero(T))
   x
 end
 
@@ -186,28 +266,6 @@ end
 function Base.copyto!(x::SparseIterate, y::SparseIterate)
     size(x) == size(y) || throw(DimensionMismatch())
     _copyto_stored!(x, y)
-end
-
-# Copy the stored entries of y into x, an iterate of the same size. When both are
-# sparse, touch only their stored entries; otherwise copying whole arrays is faster.
-function _copyto_stored!(x, y)
-    if 4 * (x.nnz + y.nnz) < length(x.ind2nzval)
-        @inbounds for k = 1:x.nnz
-            x.ind2nzval[x.nzval2ind[k]] = 0
-        end
-        @inbounds for k = 1:y.nnz
-            i = y.nzval2ind[k]
-            x.nzval[k] = y.nzval[k]
-            x.nzval2ind[k] = i
-            x.ind2nzval[i] = k
-        end
-    else
-        copyto!(x.nzval, y.nzval)
-        copyto!(x.nzval2ind, y.nzval2ind)
-        copyto!(x.ind2nzval, y.ind2nzval)
-    end
-    x.nnz = y.nnz
-    x
 end
 
 
@@ -232,20 +290,22 @@ function Base.show(io::IOContext, x::SparseIterate{T, 1}) where T
         return show(io, MIME("text/plain"), x)
     end
     limit::Bool = get(io, :limit, false)
-    half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
+    half_screen_rows = limit ? max(div(displaysize(io)[1] - 8, 2), 1) : typemax(Int)
     pad = ndigits(n)
     if !haskey(io, :compact)
         io = IOContext(io, :compact => true)
     end
+    # the first and the last stored entries, counted in the order of their indices
+    ind = 0
     for k = 1:n
-        if k < half_screen_rows || k > xnnz - half_screen_rows
-          if x.ind2nzval[k] != 0
+        x.ind2nzval[k] == 0 && continue
+        ind += 1
+        if ind < half_screen_rows || ind > xnnz - half_screen_rows
             print(io, "  ", '[', rpad(k, pad), "]  =  ")
             show(io, x[k])
-            k != n && println(io)
-          end
-        elseif k == half_screen_rows
-            println(io, "   ", " "^pad, "   \u22ee")
+            ind != xnnz && println(io)
+        elseif ind == half_screen_rows
+            println(io, "   ", " "^pad, "   ⋮")
         end
     end
 end
@@ -270,7 +330,7 @@ function Base.show(io::IOContext, S::SparseIterate{T, 2}) where T
   limit::Bool = get(io, :limit, false)
   if limit
     rows = displaysize(io)[1]
-    half_screen_rows = div(rows - 8, 2)
+    half_screen_rows = max(div(rows - 8, 2), 1)
   else
     half_screen_rows = typemax(Int)
   end
@@ -287,38 +347,12 @@ function Base.show(io::IOContext, S::SparseIterate{T, 2}) where T
       if ind < half_screen_rows || ind > nnz(S)-half_screen_rows
         row, col = Tuple(_ci[ifull])
         print(io, sep, '[', rpad(row, pad), ", ", lpad(col, pad), "]  =  ")
-        if isassigned(S.nzval, S.ind2nzval[ifull])
-          show(io, S.nzval[S.ind2nzval[ifull]])
-        else
-          print(io, Base.undef_ref_str)
-        end
+        show(io, S.nzval[S.ind2nzval[ifull]])
       elseif ind == half_screen_rows
-        print(io, sep, '\u22ee')
+        print(io, sep, '⋮')
       end
     end
   end
-end
-
-
-##
-
-
-function SparseArrays.dropzeros!(x::SparseIterate{T}) where T
-  i = 1
-  while i <= x.nnz
-    if x.nzval[i] == zero(T)
-      x.ind2nzval[x.nzval2ind[i]] = 0
-      if i != x.nnz
-        x.nzval[i] = x.nzval[x.nnz]
-        x.ind2nzval[x.nzval2ind[x.nnz]] = i
-        x.nzval2ind[i] = x.nzval2ind[x.nnz]
-      end
-      x.nnz -= 1
-      i -= 1
-    end
-    i += 1
-  end
-  x
 end
 
 
@@ -391,64 +425,23 @@ end
 #
 ####################################
 
-"""
-    SymmetricSparseIterate([T = Float64,] p)
-    SymmetricSparseIterate(X::SparseMatrixCSC)
-
-A sparse symmetric `p × p` matrix that stores only its lower triangle, with the
-same O(1) access as [`SparseIterate`](@ref). `x[r, c]` and `x[c, r]` refer to
-the same entry. Linear indices `1:p(p+1)/2` run over the lower triangle column
-by column (see [`sub2indLowerTriangular`](@ref)).
-"""
-mutable struct SymmetricSparseIterate{T} <: AbstractMatrix{T}
-    nzval::Vector{T}            # stored nonzero values (1:nnz)
-    nzval2ind::Vector{Int}      # Mapping from nzval to indices
-    ind2nzval::Vector{Int}      # Mapping from indices to nzval
-    nnz::Int                    # number of stored zeros
-    p::Int                      # dimension of matrix
-end
-
 SymmetricSparseIterate(n::Int) = SymmetricSparseIterate(Float64, n)
 SymmetricSparseIterate(::Type{T}, n::Int) where {T} =
   (_t = div(n*(n+1), 2); SymmetricSparseIterate{T}(zeros(T, _t), zeros(Int, _t), zeros(Int, _t), 0, n))
 
 Base.length(x::SymmetricSparseIterate) = div(x.p*(x.p+1), 2)
 Base.size(x::SymmetricSparseIterate) = (x.p, x.p)
-SparseArrays.nnz(x::SymmetricSparseIterate) = x.nnz
-function numCoordinates(x::SymmetricSparseIterate)
-  p = x.p
-  div(p*(p+1), 2)
-end
-
-numActive(x::SymmetricSparseIterate) = x.nnz
-Base.@propagate_inbounds function activeCoordinate(x::SymmetricSparseIterate, i::Int)
-  @boundscheck 1 <= i <= x.nnz || throw(BoundsError(Base.OneTo(x.nnz), i))
-  @inbounds x.nzval2ind[i]
-end
-isActive(x::SymmetricSparseIterate, k::Int) = x.ind2nzval[k] != 0
 
 Base.IndexStyle(::Type{<:SymmetricSparseIterate}) = IndexCartesian()
 function Base.getindex(x::SymmetricSparseIterate, r::Int, c::Int)
+  checkbounds(x, r, c)
   linInd = r >= c ? sub2indLowerTriangular(x.p, r, c) : sub2indLowerTriangular(x.p, c, r)
   getindex(x, linInd)
 end
-Base.getindex(x::SymmetricSparseIterate{T}, i::Int) where {T} = x.ind2nzval[i] == 0 ? zero(T) : x.nzval[x.ind2nzval[i]]
-function Base.setindex!(x::SymmetricSparseIterate{T}, v::T, r::Int, c::Int) where {T}
+function Base.setindex!(x::SymmetricSparseIterate, v, r::Int, c::Int)
+  checkbounds(x, r, c)
   linInd = r >= c ? sub2indLowerTriangular(x.p, r, c) : sub2indLowerTriangular(x.p, c, r)
   setindex!(x, v, linInd)
-end
-function Base.setindex!(x::SymmetricSparseIterate{T}, v::T, i::Int) where {T}
-  if x.ind2nzval[i] == 0
-    if v != zero(T)
-      x.nnz += 1
-      x.nzval[x.nnz] = v
-      x.nzval2ind[x.nnz] = i
-      x.ind2nzval[i] = x.nnz
-    end
-  else
-    x.nzval[x.ind2nzval[i]] = v
-  end
-  x
 end
 
 function SymmetricSparseIterate(X::SparseMatrixCSC{T}) where {T}
@@ -488,24 +481,6 @@ Base.similar(A::SymmetricSparseIterate, ::Type{S}) where {S} = SymmetricSparseIt
 function Base.copyto!(x::SymmetricSparseIterate, y::SymmetricSparseIterate)
     size(x) == size(y) || throw(DimensionMismatch())
     _copyto_stored!(x, y)
-end
-
-function SparseArrays.dropzeros!(x::SymmetricSparseIterate{T}) where T
-    i = 1
-    while i <= x.nnz
-        if x.nzval[i] == zero(T)
-            x.ind2nzval[x.nzval2ind[i]] = 0
-            if i != x.nnz
-                x.nzval[i] = x.nzval[x.nnz]
-                x.ind2nzval[x.nzval2ind[x.nnz]] = i
-                x.nzval2ind[i] = x.nzval2ind[x.nnz]
-            end
-            x.nnz -= 1
-            i -= 1
-        end
-        i += 1
-    end
-    x
 end
 
 LinearAlgebra.mul!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::AbstractMatrix{T}) where T = _mul_symsparse!(C, A, B)
@@ -553,7 +528,7 @@ function LinearAlgebra.mul!(C::AbstractVector{T}, A::SymmetricSparseIterate{T}, 
         @inbounds C[r] += B[c] * v
     else
         @inbounds C[r] += B[c] * v
-        @inbounds C[c] += B[r] * v      
+        @inbounds C[c] += B[r] * v
     end
     i += 1
   end

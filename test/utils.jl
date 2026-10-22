@@ -13,6 +13,12 @@ using Statistics
   @test shrink(3.0, 1.0) == 2.0
   @test shrink(-2.0, 1.0) == -1.0
   @test shrink(0.5, 1.0) == 0.
+  @test shrink(1.0, 1.0) === shrink(-1.0, 1.0) === shrink(-0.0, 0.0) === 0.0
+  @test shrink(Inf, 1.0) == Inf && shrink(-Inf, 1.0) == -Inf
+  @test isnan(shrink(NaN, 1.0))             # a NaN propagates instead of becoming zero
+  @test shrink(3f0, 1f0) === 2f0
+  v, c = randn(1000), rand(1000)
+  @test shrink.(v, c) == sign.(v) .* max.(abs.(v) .- c, 0)
 
   Random.seed!(1)
   p = 10
@@ -101,14 +107,6 @@ end
   @test A_mul_UUt_mul_B(lowerstored(Σx), U, lowerstored(Σy)) ≈ A
   @test [A_mul_UUt_mul_B_rc(Σx, U, Σy, r, c) for r=1:50, c=1:50] ≈ A
 
-  # symmetric A * U * V' * B
-  V = randn(50, 5)
-  A = (Σx * U)*(V' * Σy)
-  @test ProximalBase.A_mul_UVt_mul_B(Σx, U, V, Σy) ≈ A
-  @test ProximalBase.A_mul_UVt_mul_B(lowerstored(Σx), U, V, lowerstored(Σy)) ≈ A
-  @test [ProximalBase.A_mul_UVt_mul_B_rc(Σx, U, V, Σy, r, c) for r=1:50, c=1:50] ≈ A
-
-
   # asymmetric A * X * B
   X = randn(100, 50)
   Σx = Symmetric(cov(X))
@@ -145,12 +143,6 @@ end
   A = randn(3, 5)
   b = SparseIterate(randn(3))
   @test At_mul_B_row(A, b, 5) ≈ dot(A[:, 5], Vector(b))
-
-  # vec2tril with SparseIterate
-  x = SparseIterate(6)
-  x[2] = 1.0
-  x[6] = 2.0
-  @test Matrix(ProximalBase.vec2tril(x, 3)) == [0. 0. 0.; 1. 0. 0.; 0. 0. 2.]
 
   # norm_diff
   A, B = randn(4, 3), randn(4, 3)
@@ -192,15 +184,12 @@ end
 end
 
 @testset "lower triangular helpers" begin
-  p = 4
-  M = sprandn(p, p, 0.5)
-  L = tril(M)
-  v = sparsevec([L[r, c] for c=1:p for r=c:p])
-  @test ProximalBase.vec2tril(v, p) == L
-
-  S = ProximalBase.tril2symmetric(L)
-  @test S == L + L' - Diagonal(diag(L))
-  @test issymmetric(S)
+  # linear indices run over the lower triangle column by column
+  for p in (1, 4, 7)
+    rc = [(r, c) for c in 1:p for r in c:p]
+    @test [ind2subLowerTriangular(p, k) for k in eachindex(rc)] == rc
+    @test [sub2indLowerTriangular(p, r, c) for (r, c) in rc] == eachindex(rc)
+  end
 end
 
 end

@@ -2,9 +2,11 @@
 """
     shrink(v, c)
 
-Soft-thresholding: return `sign(v) ⋅ max(|v| - c, 0)`.
+Soft-thresholding: return `sign(v) ⋅ max(|v| - c, 0)` for a threshold `c ≥ 0`.
+A `NaN` in `v` propagates.
 """
-shrink(v::T, c::T) where {T<:AbstractFloat} = v > c ? v - c : (v < -c ? v + c : zero(T))
+# without branches, so that broadcasting it vectorizes
+shrink(v::T, c::T) where {T<:AbstractFloat} = max(v - c, zero(T)) + min(v + c, zero(T))
 
 
 """
@@ -309,36 +311,6 @@ function A_mul_X_mul_B(A::Symmetric{T}, X::SparseIterate{T, 1}, B::Symmetric{T})
 end
 
 
-
-
-function A_mul_UVt_mul_B_rc(
-  A::Symmetric{T},
-  U::StridedMatrix{T},
-  V::StridedMatrix{T},
-  B::Symmetric{T},
-  r::Int,
-  c::Int
-  ) where {T<:AbstractFloat}
-  # check input dimensions
-
-  nr, nc = size(U)
-  v = zero(T)
-  for j=1:nc
-    v1 = zero(T)   # stores A[r, :]*U[:,j]
-    v2 = zero(T)   # stores B[c, :]*U[:,j]
-    for k=1:nr
-      @inbounds v1 += A[k, r] * U[k, j]
-      @inbounds v2 += B[k, c] * V[k, j]
-    end
-    v += v1 * v2
-  end
-  v
-end
-
-A_mul_UVt_mul_B(A::Symmetric{T}, U::StridedMatrix{T}, V::StridedMatrix{T}, B::Symmetric{T}) where {T<:AbstractFloat} =
-  (A * U) * transpose(B * V)
-
-
 """
     A_mul_UUt_mul_B_rc(A, U, B, r, c)
 
@@ -402,39 +374,6 @@ Linear index of entry `(r, c)`, `r ≥ c`, in the lower triangle of a `p × p`
 matrix, numbered column by column. Inverse of [`ind2subLowerTriangular`](@ref).
 """
 sub2indLowerTriangular(p::T, r::T, c::T) where {T<:Integer} = p*(c-1)-div(c*(c-1),2)+r
-
-function vec2tril(x::SparseVector, p::Int64)
-  nx = nnz(x)
-  nzval = SparseArrays.nonzeros(x)
-  nzind = SparseArrays.nonzeroinds(x)
-
-  I = zeros(Int64, nx)
-  J = zeros(Int64, nx)
-  for i=1:nx
-    I[i], J[i] = ind2subLowerTriangular(p, nzind[i])
-  end
-
-  sparse(I,J,nzval, p, p)
-end
-
-function vec2tril(x::SparseIterate, p::Int64)
-  nx = nnz(x)
-
-  I = zeros(Int64, nx)
-  J = zeros(Int64, nx)
-  for i=1:nx
-    I[i], J[i] = ind2subLowerTriangular(p, x.nzval2ind[i])
-  end
-
-  sparse(I,J,x.nzval[1:nx], p, p)
-end
-
-
-function tril2symmetric(Δ::SparseMatrixCSC)
-  lDelta = tril(Δ, -1)
-  dDelta = spdiagm(diag(Δ))
-  (lDelta + lDelta') + dDelta
-end
 
 
 #######

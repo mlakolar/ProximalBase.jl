@@ -77,7 +77,7 @@ function value_and_prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Re
     fill!(y, zero(eltype(y)))
     return zero(T)
   end
-  τ = _simplex_threshold!(_buffer!(f.scratch, T, length(x)), x, c, abs)
+  τ = _simplex_threshold!(_buffer!(f.scratch, T, length(x)), x, eachindex(IndexLinear(), x), c, abs)
   y .= sign.(x) .* min.(abs.(x), τ)
   convert(T, f.λ) * τ
 end
@@ -128,12 +128,14 @@ struct GroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: A
   groups::G
   w::Vector{T}
   group_of::Vector{Int}   # group_of[i] = k for i ∈ Gₖ, 0 for an index in no group
+  free::Vector{Int}       # the indices up to the largest in a group that are in none
 
   function GroupNormL2{T, G}(λ0::T, groups::G, w::Vector{T}) where {T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}}
     length(w) == length(groups) || throw(DimensionMismatch("There must be one weight per group."))
     _checknonneg("λ0", λ0)
     _checknonneg("the weights", w)
-    new{T, G}(λ0, groups, w, _group_of(groups))
+    group_of = _group_of(groups)
+    new{T, G}(λ0, groups, w, group_of, findall(iszero, group_of))
   end
 end
 
@@ -153,13 +155,15 @@ struct GroupNormLinf{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <:
   groups::G
   w::Vector{T}
   group_of::Vector{Int}
+  free::Vector{Int}
   scratch::Scratch
 
   function GroupNormLinf{T, G}(λ0::T, groups::G, w::Vector{T}) where {T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}}
     length(w) == length(groups) || throw(DimensionMismatch("There must be one weight per group."))
     _checknonneg("λ0", λ0)
     _checknonneg("the weights", w)
-    new{T, G}(λ0, groups, w, _group_of(groups), Scratch())
+    group_of = _group_of(groups)
+    new{T, G}(λ0, groups, w, group_of, findall(iszero, group_of), Scratch())
   end
 end
 
@@ -178,66 +182,107 @@ GroupNormLinf(λ0::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}) =
 _rebuild(f::GroupNormL2, λ0, groups, w) = GroupNormL2(λ0, groups, w)
 _rebuild(f::GroupNormLinf, λ0, groups, w) = GroupNormLinf(λ0, groups, w)
 
-# the norm of a group and its dual norm
-_group_norm(::GroupNormL2, v) = norm(v)
-_group_norm(::GroupNormLinf, v) = norm(v, Inf)
-_dual_norm(::GroupNormL2, v) = norm(v)
-_dual_norm(::GroupNormLinf, v) = norm(v, 1)
+# the norm of the group G of x and its dual norm, by loops over the indices: a
+# view of a matrix at linear indices reshapes it, which allocates
+@inline function _sumsq(x::AbstractArray, G)
+  s = zero(float(eltype(x)))
+  @inbounds @simd for i in G
+    s += abs2(x[i])
+  end
+  s
+end
+@inline function _sumabs(x::AbstractArray, G)
+  s = zero(float(eltype(x)))
+  @inbounds @simd for i in G
+    s += abs(x[i])
+  end
+  s
+end
+function _maxabs(x::AbstractArray, G)
+  s = zero(float(eltype(x)))
+  @inbounds for i in G
+    s = max(s, abs(x[i]))
+  end
+  s
+end
+function _allzero(x::AbstractArray, G)
+  @inbounds for i in G
+    iszero(x[i]) || return false
+  end
+  true
+end
+_group_norm(::GroupNormL2, x, G) = sqrt(_sumsq(x, G))
+_group_norm(::GroupNormLinf, x, G) = _maxabs(x, G)
+_dual_norm(::GroupNormL2, g, G) = sqrt(_sumsq(g, G))
+_dual_norm(::GroupNormLinf, g, G) = _sumabs(g, G)
 
 # the group of index i, 0 if i is in no group
 _group(f::AbstractGroupNorm, i::Integer) = i <= length(f.group_of) ? f.group_of[i] : 0
 
-# x[G] ← prox_{c‖⋅‖₂}(x[G]) in place; returns the new norm of the group
-function _shrink_group!(::GroupNormL2, x::AbstractArray{T}, G, c) where {T}
-  nx = norm(view(x, G))
+# the groups fit in x: the loops over a group skip the bounds checks
+@inline _checkgroups(f::AbstractGroupNorm, x::AbstractArray) =
+  length(x) >= length(f.group_of) || throw(BoundsError(x, length(f.group_of)))
+
+# y[G] ← prox_{c‖⋅‖₂}(x[G]), which may be in place; returns the new norm of the group
+@inline function _shrink_group!(::GroupNormL2, y::AbstractArray{T}, x::AbstractArray, G, c) where {T}
+  nx = sqrt(_sumsq(x, G))
   if nx > c
-    t = one(T) - c / nx
+    t = one(nx) - c / nx
     @inbounds for i in G
-      x[i] *= t
+      y[i] = t * x[i]
     end
     return nx - c
   else
     @inbounds for i in G
-      x[i] = zero(T)
+      y[i] = zero(T)
     end
     return zero(nx)
   end
 end
 
-# x[G] ← prox_{c‖⋅‖∞}(x[G]) in place: the entries clipped at τ; returns τ, the
-# new norm of the group
-function _shrink_group!(f::GroupNormLinf, x::AbstractArray{T}, G, c) where {T}
-  v = view(x, G)
+# y[G] ← prox_{c‖⋅‖∞}(x[G]), which may be in place: the entries clipped at τ;
+# returns τ, the new norm of the group
+function _shrink_group!(f::GroupNormLinf, y::AbstractArray{T}, x::AbstractArray, G, c) where {T}
   S = float(T)
-  if norm(v, 1) <= c
+  if _sumabs(x, G) <= c
     @inbounds for i in G
-      x[i] = zero(T)
+      y[i] = zero(T)
     end
     return zero(S)
   end
-  τ = _simplex_threshold!(_buffer!(f.scratch, S, length(G)), v, convert(S, c), abs)
+  τ = _simplex_threshold!(_buffer!(f.scratch, S, length(G)), x, G, convert(S, c), abs)
   @inbounds for i in G
-    x[i] = sign(x[i]) * min(abs(x[i]), τ)
+    v = x[i]
+    y[i] = sign(v) * min(abs(v), τ)
   end
   τ
 end
 
 function (f::AbstractGroupNorm)(x::AbstractArray)
+  _checkgroups(f, x)
   T = float(eltype(x))
   v = zero(T)
   for k in eachindex(f.groups)
-    v += convert(T, f.w[k]) * _group_norm(f, view(x, f.groups[k]))
+    v += convert(T, f.w[k]) * _group_norm(f, x, f.groups[k])
   end
   convert(T, f.λ0) * v
 end
 
 function value_and_prox!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::Real)
   _checksize(y, x)
+  _checkgroups(f, x)
   T = float(eltype(y))
-  y === x || copyto!(y, x)      # indices in no group are not penalized
+  if y !== x                    # indices in no group are not penalized
+    @inbounds for i in f.free
+      y[i] = x[i]
+    end
+    @inbounds for i in length(f.group_of)+1:length(x)
+      y[i] = x[i]
+    end
+  end
   v = zero(T)
   for k in eachindex(f.groups)
-    v += convert(T, f.w[k]) * _shrink_group!(f, y, f.groups[k], convert(T, γ * f.λ0 * f.w[k]))
+    v += convert(T, f.w[k]) * _shrink_group!(f, y, x, f.groups[k], convert(T, γ * f.λ0 * f.w[k]))
   end
   convert(T, f.λ0) * v
 end
@@ -255,15 +300,17 @@ function restrict(f::AbstractGroupNorm, S::AbstractVector{<:Integer})
 end
 
 function kkt_violation(f::AbstractGroupNorm, g::AbstractArray, x::AbstractArray, i::Integer)
+  _checkgroups(f, g)
+  _checkgroups(f, x)
   k = _group(f, i)
   k == 0 && return abs(g[i])
   G = f.groups[k]
-  all(iszero, view(x, G)) ? _dual_norm(f, view(g, G)) - f.λ0 * f.w[k] : abs(g[i])
+  _allzero(x, G) ? _dual_norm(f, g, G) - f.λ0 * f.w[k] : abs(g[i])
 end
 
 # on an AtomIterate, k is a group
 kkt_violation(f::AbstractGroupNorm, g::AbstractArray, x::AtomIterate, k::Integer) =
-  _dual_norm(f, view(g, x.groups[k])) - f.λ0 * f.w[k]
+  (_checkgroups(f, g); _dual_norm(f, g, x.groups[k]) - f.λ0 * f.w[k])
 kkt_violation(f::AbstractGroupNorm, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate"))
 
@@ -285,7 +332,7 @@ function (f::AbstractGroupNorm)(x::AtomIterate)
   v = zero(T)
   for a in 1:x.nactive
     k = x.active[a]
-    v += convert(T, f.w[k]) * _group_norm(f, atom(x, k))
+    v += convert(T, f.w[k]) * _group_norm(f, x.storage, f.groups[k])
   end
   convert(T, f.λ0) * v
 end
@@ -298,7 +345,7 @@ function value_and_prox!(y::AtomIterate, f::AbstractGroupNorm, x::AtomIterate, �
   v = zero(T)
   for a in 1:y.nactive
     k = y.active[a]
-    v += convert(T, f.w[k]) * _shrink_group!(f, y.storage, f.groups[k], convert(T, γ * f.λ0 * f.w[k]))
+    v += convert(T, f.w[k]) * _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, γ * f.λ0 * f.w[k]))
   end
   convert(T, f.λ0) * v
 end
@@ -308,7 +355,7 @@ end
 function cdprox!(x::AtomIterate, f::AbstractGroupNorm, k::Integer, γ::Real)
   length(f.w) == length(x.groups) || throw(DimensionMismatch("f and x must have the same groups."))
   T = float(eltype(x))
-  nrm = _shrink_group!(f, x.storage, x.groups[k], convert(T, γ * f.λ0 * f.w[k]))
+  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], convert(T, γ * f.λ0 * f.w[k]))
   iszero(nrm) || activate!(x, k)
   atom(x, k)
 end

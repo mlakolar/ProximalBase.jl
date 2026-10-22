@@ -55,19 +55,27 @@ end
   for n in (1, 2, 5, 50, 1000), a in (0.5, 1.0, 10.0)
     y = randn(n) .* 3
     buf = zeros(n)
-    τ = ProximalBase._simplex_threshold!(buf, y, a)
+    τ = ProximalBase._simplex_threshold!(buf, y, eachindex(y), a)
     @test τ ≈ simplex_threshold_sort(y, a)
     @test sum(max.(y .- τ, 0)) ≈ a
     # on |y|, the l1 ball
-    τ = ProximalBase._simplex_threshold!(buf, y, a, abs)
+    τ = ProximalBase._simplex_threshold!(buf, y, eachindex(y), a, abs)
     @test sum(max.(abs.(y) .- τ, 0)) ≈ a
   end
   # ties and a single large entry
-  @test ProximalBase._simplex_threshold!(zeros(4), [1., 1., 1., 1.], 2.) ≈ 0.5
-  @test ProximalBase._simplex_threshold!(zeros(3), [10., 0., 0.], 1.) ≈ 9.
-  # works on any iterable array, such as a view or a matrix
+  @test ProximalBase._simplex_threshold!(zeros(4), ones(4), 1:4, 2.) ≈ 0.5
+  @test ProximalBase._simplex_threshold!(zeros(3), [10., 0., 0.], 1:3, 1.) ≈ 9.
+  # a matrix through its linear indices, and the indices of a group
   M = randn(4, 5)
-  @test ProximalBase._simplex_threshold!(zeros(20), M, 1.) ≈ simplex_threshold_sort(vec(M), 1.)
+  @test ProximalBase._simplex_threshold!(zeros(20), M, eachindex(IndexLinear(), M), 1.) ≈ simplex_threshold_sort(vec(M), 1.)
+  G = [3, 7, 8, 15]
+  @test ProximalBase._simplex_threshold!(zeros(4), M, G, 0.5, abs) ≈
+        simplex_threshold_sort(abs.(M[G]), 0.5)
+  @test ProximalBase._simplex_threshold!(zeros(1), Float64[], Int[], 1.) == 0.
+  a_thr(buf, x) = @allocated ProximalBase._simplex_threshold!(buf, x, eachindex(x), 1., abs)
+  y, buf = randn(1000), zeros(1000)
+  a_thr(buf, y)
+  @test a_thr(buf, y) == 0
 end
 
 @testset "lower triangular helpers" begin

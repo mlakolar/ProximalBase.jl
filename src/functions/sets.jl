@@ -144,7 +144,7 @@ function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, ::Real)
     fill!(y, zero(eltype(y)))
     return y
   end
-  τ = _simplex_threshold!(_buffer!(f.scratch, T, length(x)), x, r, abs)
+  τ = _simplex_threshold!(_buffer!(f.scratch, T, length(x)), x, eachindex(IndexLinear(), x), r, abs)
   y .= shrink.(x, τ)
 end
 value_and_prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, γ::Real) = (prox!(y, f, x, γ); zero(float(eltype(y))))
@@ -243,7 +243,7 @@ function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, ::Real)
     fill!(y, zero(eltype(y)))
     return y
   end
-  τ = _simplex_threshold!(_buffer!(f.scratch, T, length(x)), x, r)
+  τ = _simplex_threshold!(_buffer!(f.scratch, T, length(x)), x, eachindex(IndexLinear(), x), r)
   y .= max.(x .- τ, zero(T))
 end
 value_and_prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, γ::Real) = (prox!(y, f, x, γ); zero(float(eltype(y))))

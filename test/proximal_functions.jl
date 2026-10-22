@@ -291,8 +291,8 @@ end # proximal_l1
   end
 
   @testset "constructors" begin
-    @test ProxL2(2., nothing) == ProxL2(2.)
-    @test typeof(ProxL2(2., nothing)) == ProxL2{Float64, Nothing}
+    @test ProxL2(2.) isa ProxL2{Float64}
+    @test ProxL2(2f0) isa ProxL2{Float32}
   end
 
 end
@@ -350,53 +350,6 @@ end
 
   X = randn(5, 3)
   @test value(ProxNuclear(0.5), X) ≈ 0.5 * sum(svdvals(X))
-end
-
-
-@testset "proximal_l1l2" begin
-
-  @testset "shrink to zero" begin
-    p = 10
-    x = AtomIterate(p, 2)
-    hat_x = AtomIterate(p, 2)
-
-    x .= randn(p)
-    hat_x .= randn(p)
-
-    lambda = norm(x) + 0.1
-
-    # check the norm
-    g = ProxL2(lambda, [1., 1.])
-    @test value(g, x) ≈ lambda * norm(x[1:5]) + lambda * norm(x[6:10])
-
-    # check shrinkage
-    prox!(g, hat_x, x, 1.)
-
-    @test hat_x.storage ≈ zeros(Float64, p)
-    @test norm(hat_x) ≈ 0.
-  end
-
-  @testset "shrink not to zero" begin
-    p = 10
-    x = AtomIterate(p, 2)
-    hat_x = AtomIterate(p, 2)
-
-    x .= randn(p)
-    hat_x .= randn(p)
-
-    lambda = min(norm(x[1:5]), norm(x[6:10])) - 0.2
-
-    # check the norm
-    g = ProxL2(lambda, [1., 1.])
-    @test value(g, x) ≈ lambda * norm(x[1:5]) + lambda * norm(x[6:10])
-
-    # check shrinkage
-    prox!(g, hat_x, x, 1.)
-
-    @test hat_x.storage[1:5] ≈  (1. - lambda/norm(x[1:5])) * x[1:5]
-    @test hat_x.storage[6:10] ≈ (1. - lambda/norm(x[6:10])) * x[6:10]
-  end
-
 end
 
 
@@ -458,13 +411,6 @@ end
 
     # one group: the Euclidean norm
     @test prox(ProxGroupL2(0.3, [1:10], [1.]), v, γ) ≈ prox(ProxL2(0.3), v, γ)
-
-    # equal-sized contiguous groups: ProxL2 with weights on an AtomIterate
-    a, out = AtomIterate(10, 2), AtomIterate(10, 2)
-    a .= v
-    prox!(ProxL2(0.3, [1., 2.]), out, a, γ)
-    @test prox(ProxGroupL2(0.3, [1:5, 6:10], [1., 2.]), v, γ) ≈ out.storage
-    @test value(ProxGroupL2(0.3, [1:5, 6:10], [1., 2.]), v) ≈ value(ProxL2(0.3, [1., 2.]), a)
 
     # groups of linear indices of a matrix, here its rows
     M = randn(3, 4)

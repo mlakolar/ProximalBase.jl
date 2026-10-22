@@ -176,49 +176,18 @@ end
 
 """
     ProxL2(λ0)
-    ProxL2(λ0, λ)
 
-The Euclidean norm `g(x) = λ0 ‖x‖₂`. With weights `λ` and an
-[`AtomIterate`](@ref), the group-lasso penalty `g(x) = λ0 ⋅ Σₖ λₖ ‖xₖ‖₂` over the
-atoms `xₖ`; [`ProxGroupL2`](@ref) is the same penalty on ordinary arrays, with
-groups of any sizes.
+The Euclidean norm `g(x) = λ0 ‖x‖₂`. Its proximal operator shrinks `x` towards
+zero ([`shrinkL2!`](@ref)). For the group lasso, a sum of such norms over groups
+of coordinates, use [`ProxGroupL2`](@ref).
 """
-struct ProxL2{T<:AbstractFloat, S} <: ProximableFunction
+struct ProxL2{T<:AbstractFloat} <: ProximableFunction
   λ0::T
-  λ::S
-
-  ProxL2{T, S}(λ0::T, λ::Union{Nothing, AbstractVector{T}}) where {T <: AbstractFloat, S} = new(λ0, λ)
 end
 
-ProxL2(λ0::T        ) where {T <: AbstractFloat} = ProxL2{T, Nothing}(λ0, nothing)
-ProxL2(λ0::T, ::Nothing) where {T <: AbstractFloat} = ProxL2{T, Nothing}(λ0, nothing)
-ProxL2(λ0::T, λ::AbstractVector{T}) where {T <: AbstractFloat} = ProxL2{T, typeof(λ)}(λ0, λ)
-
-value(g::ProxL2{T, Nothing}, x::AbstractArray{T}) where {T<:AbstractFloat} = g.λ0 * norm(x)
-prox!(g::ProxL2{T, Nothing}, out_x::AbstractArray{T}, x::AbstractArray{T}, γ::T) where {T<:AbstractFloat} =
+value(g::ProxL2{T}, x::AbstractArray{T}) where {T<:AbstractFloat} = g.λ0 * norm(x)
+prox!(g::ProxL2{T}, out_x::AbstractArray{T}, x::AbstractArray{T}, γ::T) where {T<:AbstractFloat} =
   shrinkL2!(out_x, x, g.λ0*γ)
-
-# λ0⋅sum_k λ_k g(x_k)
-function value(g::ProxL2{T, S}, x::AtomIterate{T}) where S <: AbstractVector{T} where {T<:AbstractFloat}
-  length(x.atoms) == length(g.λ) || throw(DimensionMismatch())
-
-  v = zero(T)
-  @inbounds for i=1:length(x.atoms)
-    v += norm(x.atoms[i]) * g.λ[i]
-  end
-  v * g.λ0
-end
-
-function prox!(g::ProxL2{T, S}, out::AtomIterate{T}, x::AtomIterate{T}, γ::T) where S <: AbstractVector{T} where {T<:AbstractFloat}
-  length(x.atoms) == length(g.λ) || throw(DimensionMismatch())
-
-  for i=1:length(x.atoms)
-    shrinkL2!(out.atoms[i], x.atoms[i], γ*g.λ[i]*g.λ0)
-  end
-  out
-end
-cdprox!(g::ProxL2{T, S}, x::AtomIterate{T}, k::Int, γ::T) where S <: AbstractVector{T} where {T<:AbstractFloat} =
-  shrinkL2!(x.atoms[k], x.atoms[k], g.λ[k] * γ * g.λ0)
 
 
 ##########################################################
@@ -235,10 +204,9 @@ The group-lasso penalty `g(x) = λ0 ⋅ Σₖ λₖ ‖x[Gₖ]‖₂` over disjo
 give `ProxL1(λ0)`. Indices in no group are not penalized. The proximal operator
 shrinks each group towards zero in Euclidean norm, as [`shrinkL2!`](@ref) does.
 
-Unlike `ProxL2(λ0, λ)`, which needs an [`AtomIterate`](@ref) with equal-sized
-contiguous groups, it works on ordinary arrays. It has no [`cdprox!`](@ref), as
-its groups do not split into coordinates; active-set solvers can use
-[`restrict`](@ref) and [`kkt_violation`](@ref).
+It has no [`cdprox!`](@ref) on ordinary arrays, as its groups do not split into
+coordinates; active-set solvers can use [`restrict`](@ref) and
+[`kkt_violation`](@ref).
 
 # Example
 ```julia

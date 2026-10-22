@@ -73,7 +73,7 @@ coordinate-wise updates
 |---|---|
 | `ProxZero()` | `0` |
 | `ProxL1(λ0)`, `ProxL1(λ0, λ)` | `λ0 Σⱼ λⱼ \|xⱼ\|` |
-| `ProxL2(λ0)`, `ProxL2(λ0, λ)` | `λ0 ‖x‖₂`, or group lasso `λ0 Σₖ λₖ ‖xₖ‖₂` on an `AtomIterate` |
+| `ProxL2(λ0)` | `λ0 ‖x‖₂` |
 | `ProxGroupL2(λ0, groups)`, `ProxGroupL2(λ0, groups, λ)` | group lasso `λ0 Σₖ λₖ ‖x[Gₖ]‖₂` over disjoint groups of any sizes, with `λₖ = √\|Gₖ\|` by default |
 | `ProxL2Sq(λ)` | `λ ‖x‖₂²` |
 | `ProxNuclear(λ)` | `λ ‖X‖_*` |

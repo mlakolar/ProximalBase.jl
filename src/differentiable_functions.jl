@@ -49,7 +49,9 @@ For such `x`, at `x[S]` the restriction `restrict(g, S)` has value `g(x)`, and
 `L2Loss(y)`, whose restriction `L2Loss(y[S])` drops the constant
 `Σⱼ∉S yⱼ² / 2`. Defined for [`QuadraticFunction`](@ref),
 [`L2Loss`](@ref), [`LeastSquaresLoss`](@ref) with a vector response,
-[`ProxZero`](@ref) and [`ProxL1`](@ref).
+[`ProxZero`](@ref), [`ProxL1`](@ref) and [`ProxGroupL2`](@ref), whose
+restriction keeps the part of each group in `S`, as positions in `S`, with the
+group's weight.
 """
 function restrict end
 
@@ -121,24 +123,27 @@ struct QuadraticFunction{T<:AbstractFloat, N, M<:AbstractMatrix, V} <: Different
   tmp::Vector{T}    ## call to value does not allocate
 end
 
+# a SparseIterate or an AtomIterate x takes the O(p ⋅ active entries) product A * x
+const _VectorOrIterate{T} = Union{StridedVector{T}, SparseIterate{T, 1}, AtomIterate{T}}
+
 QuadraticFunction(A::AbstractMatrix{T}) where {T<:AbstractFloat} = QuadraticFunction{T, 1, typeof(A), Vector{T}}(A, T[], zero(T), Array{T}(undef, size(A, 1)))
 QuadraticFunction(A::AbstractMatrix{T}, b::AbstractVector{T}) where {T<:AbstractFloat} = QuadraticFunction{T, 2, typeof(A), typeof(b)}(A, b, zero(T), Array{T}(undef, size(A, 1)))
 QuadraticFunction(A::AbstractMatrix{T}, b::AbstractVector{T}, c::T) where {T<:AbstractFloat} = QuadraticFunction{T, 3, typeof(A), typeof(b)}(A, b, c, Array{T}(undef, size(A, 1)))
 
-function value(f::QuadraticFunction{T, 1}, x::StridedVector{T}) where {T<:AbstractFloat}
+function value(f::QuadraticFunction{T, 1}, x::_VectorOrIterate{T}) where {T<:AbstractFloat}
   mul!(f.tmp, f.A, x)
-  dot(x, f.tmp) / 2.
+  dot(x, f.tmp) / 2
 end
-function value(f::QuadraticFunction{T, 2}, x::StridedVector{T}) where {T<:AbstractFloat}
+function value(f::QuadraticFunction{T, 2}, x::_VectorOrIterate{T}) where {T<:AbstractFloat}
   mul!(f.tmp, f.A, x)
-  dot(x, f.tmp) / 2. + dot(x, f.b)
+  dot(x, f.tmp) / 2 + dot(x, f.b)
 end
-function value(f::QuadraticFunction{T, 3}, x::StridedVector{T}) where {T<:AbstractFloat}
+function value(f::QuadraticFunction{T, 3}, x::_VectorOrIterate{T}) where {T<:AbstractFloat}
   mul!(f.tmp, f.A, x)
-  dot(x, f.tmp) / 2. + dot(x, f.b) + f.c
+  dot(x, f.tmp) / 2 + dot(x, f.b) + f.c
 end
 
-function gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::StridedVector{T}) where {T<:AbstractFloat, N}
+function gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::_VectorOrIterate{T}) where {T<:AbstractFloat, N}
   mul!(hat_x, f.A, x)
   if N > 1
     @. hat_x += f.b
@@ -146,11 +151,10 @@ function gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::Strid
   hat_x
 end
 
-# a SparseIterate x takes the O(p⋅nnz(x)) product A * x
-function value_and_gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::Union{StridedVector{T}, SparseIterate{T, 1}}) where {T<:AbstractFloat, N}
+function value_and_gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::_VectorOrIterate{T}) where {T<:AbstractFloat, N}
   b = f.b
   mul!(hat_x, f.A, x)
-  r = dot(hat_x, x) / 2.
+  r = dot(hat_x, x) / 2
   if N > 1
     @. hat_x += b
     r += dot(x, b)
@@ -188,7 +192,7 @@ function value(f::LeastSquaresLoss{T}, x) where {T<:AbstractFloat}
   @inbounds @simd for i in eachindex(f.tmp)
     v += abs2(f.Y[i] - f.tmp[i])
   end
-  v / 2.
+  v / 2
 end
 
 function value_and_gradient!(
@@ -199,7 +203,7 @@ function value_and_gradient!(
   mul!(f.tmp, f.X, x)
   @. f.tmp -= f.Y
   mul!(grad_out, transpose(f.X), f.tmp)
-  sum(abs2, f.tmp) / 2.
+  sum(abs2, f.tmp) / 2
 end
 
 restrict(f::LeastSquaresLoss{T, <:AbstractVector}, S::AbstractVector{<:Integer}) where {T} =

@@ -163,6 +163,34 @@ end
   @test_throws ArgumentError norm_diff(A, B, 1)
 end
 
+@testset "group products" begin
+  n, p = 8, 30
+  A, b = randn(n, p), randn(n)
+  for G in (5:9, [2, 17, 29], collect(11:14))
+    out = fill(NaN, length(G))
+    @test At_mul_B_group!(out, A, b, G) === out
+    @test out ≈ A[:, G]' * b
+    v, r = randn(length(G)), randn(n)
+    @test A_mul_B_group!(fill(NaN, n), A, v, G) ≈ A[:, G] * v
+    @test A_mul_B_group!(copy(r), A, v, G, -1, 1) ≈ r - A[:, G] * v
+    @test A_mul_B_group!(copy(r), A, v, G, 2., 0.5) ≈ 2 * A[:, G] * v + 0.5 * r
+  end
+  @test_throws DimensionMismatch At_mul_B_group!(zeros(2), A, b, 1:3)
+  @test_throws DimensionMismatch A_mul_B_group!(zeros(n), A, zeros(2), 1:3)
+  @test_throws BoundsError At_mul_B_group!(zeros(2), A, b, [1, p + 1])
+  @test_throws BoundsError A_mul_B_group!(zeros(n), A, zeros(2), [0, 1])
+
+  A32, b32 = Float32.(A), Float32.(b)
+  @test At_mul_B_group!(zeros(Float32, 3), A32, b32, [2, 17, 29]) ≈ Float32.(A[:, [2, 17, 29]]' * b)
+
+  G, u, r, v = [2, 17, 29], zeros(3), randn(n), randn(3)
+  grad_allocs(u, A, r, G) = @allocated At_mul_B_group!(u, A, r, G)
+  update_allocs(r, A, v, G) = @allocated A_mul_B_group!(r, A, v, G, -1., 1.)
+  grad_allocs(u, A, r, G); update_allocs(r, A, v, G)
+  @test grad_allocs(u, A, r, G) == 0
+  @test update_allocs(r, A, v, G) == 0
+end
+
 @testset "lower triangular helpers" begin
   p = 4
   M = sprandn(p, p, 0.5)

@@ -8,7 +8,8 @@ Building blocks for proximal and coordinate-descent optimization in Julia:
 
 - smooth loss functions with in-place gradients,
 - proximal operators of common penalties (ℓ1, group lasso, nuclear norm, ...),
-- sparse iterate types with O(1) coordinate access for coordinate descent.
+- sparse iterate types with O(1) coordinate access for coordinate descent,
+  whose coordinates are entries or groups of entries.
 
 ProximalBase provides the pieces, not complete solvers: you write the
 optimization loop.
@@ -48,6 +49,41 @@ end
 
 `β` recovers the three nonzero coefficients and sets the rest to exactly zero.
 
+## Example: group lasso by block coordinate descent
+
+Minimize `‖Y - Xβ‖² / 2 + λ Σₖ √|Gₖ| ‖β[Gₖ]‖₂`, one group at a time. An
+`AtomIterate` is a vector whose coordinates are the groups:
+
+```julia
+using ProximalBase, LinearAlgebra
+
+n, p = 100, 20
+groups = [1:5, 6:10, 11:15, 16:20]
+X = randn(n, p)
+β_true = [ones(5); zeros(15)]
+Y = X * β_true + 0.1 * randn(n)
+
+g = ProxGroupL2(50.0, groups)        # g(β) = 50 Σₖ √5 ‖β[Gₖ]‖₂
+β = AtomIterate(p, g)                # its coordinates are the groups of g
+r = copy(Y)                          # the residual Y - Xβ
+L = [opnorm(X[:, G])^2 for G in groups]
+u, old = zeros(5), zeros(5)
+for sweep in 1:100, k in 1:numCoordinates(β)
+    G = β.groups[k]
+    old .= atom(β, k)
+    At_mul_B_group!(u, X, r, G)                  # u = X[:, G]' r = -∇_G f(β)
+    atom(β, k) .+= u ./ L[k]                     # a gradient step on group k,
+    cdprox!(g, β, k, 1 / L[k])                   # then its proximal step
+    A_mul_B_group!(r, X, old .- atom(β, k), G, 1, 1)
+end
+dropzeros!(β)
+```
+
+`β` keeps the first group, and its only active group is that one: the other
+three are exactly zero. `cdprox!` activates a group that it leaves nonzero, so
+the active groups track the support, and an active-set solver would sweep over
+them only.
+
 ## Overview
 
 All proximal operators follow the convention
@@ -73,7 +109,8 @@ coordinate-wise updates
 |---|---|
 | `ProxZero()` | `0` |
 | `ProxL1(λ0)`, `ProxL1(λ0, λ)` | `λ0 Σⱼ λⱼ \|xⱼ\|` |
-| `ProxL2(λ0)`, `ProxL2(λ0, λ)` | `λ0 ‖x‖₂`, or group lasso `λ0 Σₖ λₖ ‖xₖ‖₂` on an `AtomIterate` |
+| `ProxL2(λ0)` | `λ0 ‖x‖₂` |
+| `ProxGroupL2(λ0, groups)`, `ProxGroupL2(λ0, groups, λ)` | group lasso `λ0 Σₖ λₖ ‖x[Gₖ]‖₂` over disjoint groups of any sizes, with `λₖ = √\|Gₖ\|` by default |
 | `ProxL2Sq(λ)` | `λ ‖x‖₂²` |
 | `ProxNuclear(λ)` | `λ ‖X‖_*` |
 | `ProxL1Fused(λ1, λ2)` | `λ1 (\|x1\| + \|x2\|) + λ2 \|x1 - x2\|` |
@@ -85,18 +122,24 @@ coordinate-wise updates
 |---|---|
 | `SparseIterate` | Sparse vector or matrix with O(1) entry access and O(nnz) multiplication |
 | `SymmetricSparseIterate` | Sparse symmetric matrix storing only the lower triangle |
-| `AtomIterate` | Dense array split into equal-sized groups, for group penalties |
+| `AtomIterate` | Vector whose coordinates are groups of entries, a partition of `1:p`, with O(1) entry access and multiplication by the active groups only |
 
-**Active sets**: the stored entries of a `SparseIterate` can serve as the
-active set of an active-set solver. `activate!(x, i)` stores coordinate `i` as
-an explicit zero, `restrict(f, S)` and `restrict(g, S)` give the smooth function
-and the penalty on the coordinates `S` (for `QuadraticFunction`, `L2Loss`,
-`LeastSquaresLoss`, `ProxZero` and `ProxL1`), and `kkt_violation(g, grad, i)`
-measures how much a coordinate at zero violates optimality.
+**Active sets**: the stored entries of a `SparseIterate`, or the active groups
+of an `AtomIterate`, can serve as the active set of an active-set solver.
+`numActive(x)`, `activeCoordinate(x, i)` and `isActive(x, k)` give it for
+either iterate, `activate!(x, k)` adds a coordinate and `dropzeros!(x)` removes
+the coordinates that are zero. `restrict(f, S)` and `restrict(g, S)` give the
+smooth function and the penalty on the coordinates `S` (for
+`QuadraticFunction`, `L2Loss`, `LeastSquaresLoss`, `ProxZero`, `ProxL1` and
+`ProxGroupL2`), and `kkt_violation(g, grad, x, k)` measures how much a
+coordinate at zero, an entry or a group, violates optimality. For the
+separable penalties `ProxZero` and `ProxL1` on arrays, the shorter
+`kkt_violation(g, grad, i)` gives the same value.
 
 **Utilities**: `shrink`, `shrinkL2!`, `proxL1Fused`, `A_mul_B_row`,
-`At_mul_B_row`, `A_mul_X_mul_B`, `A_mul_UUt_mul_B`, `norm_diff`, and index
-helpers for lower-triangular storage.
+`At_mul_B_row`, `At_mul_B_group!` and `A_mul_B_group!` (the products with the
+columns of a group, for block coordinate steps), `A_mul_X_mul_B`,
+`A_mul_UUt_mul_B`, `norm_diff`, and index helpers for lower-triangular storage.
 
 Every exported function and type has a docstring; use `?name` in the Julia REPL,
 for example `?ProxL1`.

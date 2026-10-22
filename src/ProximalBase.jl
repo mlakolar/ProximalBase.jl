@@ -19,7 +19,8 @@ export
   DifferentiableFunction,
   ProximableFunction,
   SparseIterate, SymmetricSparseIterate, AtomIterate, numCoordinates,
-  activate!,
+  numActive, activeCoordinate, isActive,
+  activate!, atom,
 
   # smooth functions
   QuadraticFunction, L2Loss, LeastSquaresLoss,
@@ -29,7 +30,7 @@ export
   # proximal functions
   ProxZero,
   ProxL1,
-  ProxL2, ProxL2Sq, ProxNuclear,
+  ProxL2, ProxGroupL2, ProxL2Sq, ProxNuclear,
   ProxL1Fused,
   ProxGaussLikelihood,
   prox!, prox, cdprox!,
@@ -38,14 +39,14 @@ export
   # utils
   shrink, shrinkL2!,
   proxL1Fused,
-  A_mul_B_row, At_mul_B_row,
+  A_mul_B_row, At_mul_B_row, At_mul_B_group!, A_mul_B_group!,
   A_mul_X_mul_B, A_mul_X_mul_B_rc,
   A_mul_UUt_mul_B, A_mul_UUt_mul_B_rc,
   ind2subLowerTriangular,sub2indLowerTriangular,
   norm_diff,
 
-  # function for SparseIterate
-  nnz
+  # functions of SparseArrays for SparseIterate and AtomIterate
+  nnz, dropzeros!
 
 using SparseArrays
 using LinearAlgebra
@@ -53,6 +54,7 @@ using LinearAlgebra
 import Base: *
 
 include("sparseIterate.jl")
+include("atomIterate.jl")
 
 include("utils.jl")
 # DifferentiableFunctions

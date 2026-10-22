@@ -53,3 +53,24 @@ ProximalBase allocates nothing in any case. The main sources of its speed:
   nothing more; ProximalOperators refactors its Cholesky factor at each new step.
 
 `NuclearNorm` is bound by the SVD in both packages.
+
+## Against ProximalBase 0.4
+
+`compare_04.jl` times the calls that the dependents of ProximalBase make, in
+whichever version its environment has: with ProximalBase 0.4.0
+(`Pkg.add(name = "ProximalBase", version = "0.4.0")`) or with this checkout.
+In 0.4 a solver called `prox!` and then the value, which for the spectral
+functions meant a second decomposition; 0.5 has `value_and_prox!`.
+
+| call | 0.4.0 | 0.5.0 |
+|:-----|------:|------:|
+| ℓ1 prox, n = 10⁵ | 20.0 μs | 16.7 μs |
+| group ℓ2 prox, 10⁴ groups of 10 | 114.9 μs | 35.5 μs |
+| nuclear norm, prox and value, 200 × 100 | 2119 μs, 984 KB | 1415 μs, 0 bytes |
+| Gaussian likelihood, prox and value, 200 × 200 | 2099 μs, 995 KB | 1914 μs, 0 bytes |
+| least squares, value and gradient, 500 × 200 | 88.2 μs | 26.6 μs |
+| ℓ1 prox of a SparseIterate with 1% nonzeros, n = 10⁵ | 89.6 μs | 0.8 μs |
+
+The least-squares loss gains from a buffer of a concrete type (0.4 stored a
+`Union` of vector and matrix), and the sparse iterate from proximal operators
+that touch only the stored entries.

@@ -103,6 +103,10 @@ These cannot warn, so check for them when migrating:
 - **Other penalties and sets:** `NormLinf`, `GroupNormLinf`, `IndBallL0`,
   `IndBallL1`, `IndBallL2`, `IndSimplex`, `IndHyperplane`, `IndHalfspace`,
   `IndPSD` (with an optional rank), `TracePSD` and `IndBallRank`.
+  `IndBallL0(s; diagonal = false)` on a `Symmetric` or a
+  `SymmetricSparseIterate` is CovSel's `HardThreshold!(out, X, s, false)`:
+  `prox!(out, IndBallL0(s; diagonal = false), Symmetric(X))`, except that ties
+  keep exactly `s` entries.
 - **Calculus:** `Scaled` (also `α * f`), `Tilt`, `Translate`, `Conjugate`,
   `SeparableSum` and `Sum`.
 - **Iterates:** `coordinates(x)`; `activate!` for a `SymmetricSparseIterate`;

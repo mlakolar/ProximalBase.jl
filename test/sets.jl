@@ -69,6 +69,53 @@ l1ball_proj(y, r) = norm(y, 1) <= r ? y : sign.(y) .* simplex_proj(abs.(y), r)
   @test_throws ArgumentError IndBallL0(-1)
 end
 
+# the s largest entries of the lower triangle, kept with their transposes; with
+# diagonal = false the diagonal is kept and does not count
+function sym_hard_threshold(X, s, diagonal)
+  p = size(X, 1)
+  cand = [(abs(X[r, c]), r, c) for c in 1:p for r in (diagonal ? c : c + 1):p]
+  sort!(cand; rev = true, by = first)
+  Z = zeros(p, p)
+  for (_, r, c) in cand[1:min(s, length(cand))]
+    Z[r, c] = Z[c, r] = X[r, c]
+  end
+  diagonal || for i in 1:p
+    Z[i, i] = X[i, i]
+  end
+  Z
+end
+
+@testset "IndBallL0 on symmetric matrices" begin
+  p = 7
+  D = randn(p, p); D = (D + D') / 2
+  for diagonal in (true, false), s in (0, 1, 4, 10, 40)
+    f = IndBallL0(s; diagonal)
+    ref = sym_hard_threshold(D, s, diagonal)
+    # a dense symmetric input, a dense or a sparse symmetric output
+    @test prox!(zeros(p, p), f, Symmetric(D), 1.) == ref
+    @test prox(f, Symmetric(D)) == ref
+    @test Matrix(prox!(SymmetricSparseIterate(p), f, Symmetric(D, :L), 1.)) == ref
+    # a SymmetricSparseIterate, also in place
+    S = SymmetricSparseIterate(D)
+    @test Matrix(prox(f, S)) == ref
+    prox!(S, f, S, 1.)
+    @test Matrix(S) == ref
+    @test f(S) == 0 && f(Symmetric(ref)) == 0
+  end
+  @test IndBallL0(3; diagonal = false)(Symmetric(D)) == Inf
+  # the diagonal does not count for a dense matrix either, whose entries count one by one
+  M = randn(4, 4)
+  Z = prox(IndBallL0(2; diagonal = false), M)
+  @test diag(Z) == diag(M)
+  @test count(!iszero, Z - Diagonal(diag(Z))) == 2
+  @test IndBallL0(2; diagonal = false)(Z) == 0 && IndBallL0(2)(Z) == Inf
+  # the use in iterative hard thresholding: no allocation
+  a(S, f, X) = @allocated prox!(S, f, X, 1.)
+  S, f, X = SymmetricSparseIterate(p), IndBallL0(5; diagonal = false), Symmetric(D, :L)
+  a(S, f, X)
+  @test a(S, f, X) == 0
+end
+
 @testset "IndBallL1" begin
   for n in (1, 5, 50), r in (0.5, 2.)
     x = 3 .* randn(n)

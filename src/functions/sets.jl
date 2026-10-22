@@ -13,70 +13,109 @@
 ####################################
 
 """
-    IndBallL0(s)
+    IndBallL0(s; diagonal = true)
 
-The indicator of the vectors with at most `s` nonzero entries, nonconvex. Its
+The indicator of the arrays with at most `s` nonzero entries, nonconvex. Its
 proximal operator keeps the `s` entries of largest magnitude (exactly `s` when
-there are ties) and sets the others to zero: a quickselect in O(n) expected
-time, without allocating, and in O(nnz) on a [`SparseIterate`](@ref). On a [`SymmetricSparseIterate`](@ref), `s` counts its
-coordinates, the entries of the lower triangle, so that an entry and its
-transpose are kept or dropped together.
+there are ties) and sets the others to zero: a selection in O(n) expected time
+(Floyd and Rivest's algorithm), without allocating, and in O(nnz) on a
+[`SparseIterate`](@ref).
+
+For a symmetric matrix, a `Symmetric` or a [`SymmetricSparseIterate`](@ref),
+`s` counts the entries of one triangle, so that an entry and its transpose are
+kept or dropped together, and the result is symmetric; the output may be a
+dense matrix or a `SymmetricSparseIterate`. With `diagonal = false`, the
+diagonal of a matrix does not count and is kept, as for the off-diagonal
+sparsity of a precision matrix:
+
+```julia
+prox!(S, IndBallL0(s; diagonal = false), Symmetric(Θ, :L))   # S::SymmetricSparseIterate
+```
 """
 struct IndBallL0 <: AbstractFunction
   s::Int
+  diagonal::Bool      # whether the diagonal of a matrix counts
   scratch::Scratch
 
-  IndBallL0(s::Integer) = (s >= 0 || throw(ArgumentError("s must be nonnegative, got $s")); new(Int(s), Scratch()))
+  function IndBallL0(s::Integer; diagonal::Bool = true)
+    s >= 0 || throw(ArgumentError("s must be nonnegative, got $s"))
+    new(Int(s), diagonal, Scratch())
+  end
 end
 
 isproximable(::Type{IndBallL0}) = true
 
-_count_nonzero(x::AbstractArray) = count(!iszero, x)
-_count_nonzero(x::SparseIterate) = count(!iszero, view(x.nzval, 1:x.nnz))
+# whether entry i of x is one that counts
+@inline _counts(f::IndBallL0, x::AbstractArray, i::Integer) = true
+@inline function _counts(f::IndBallL0, x::AbstractMatrix, i::Integer)
+  f.diagonal && return true
+  m = size(x, 1)
+  mod1(i, m) != cld(i, m)
+end
 
-(f::IndBallL0)(x::AbstractArray) = _count_nonzero(x) <= f.s ? zero(float(eltype(x))) : float(eltype(x))(Inf)
-(f::IndBallL0)(x::SymmetricSparseIterate) = f(view(x.nzval, 1:x.nnz))
+function _count_nonzero(f::IndBallL0, x::AbstractArray)
+  k = 0
+  @inbounds for i in eachindex(IndexLinear(), x)
+    k += (!iszero(x[i]) & _counts(f, x, i))
+  end
+  k
+end
+function _count_nonzero(f::IndBallL0, x::SparseIterate)
+  f.diagonal || ndims(x) == 1 || return invoke(_count_nonzero, Tuple{IndBallL0, AbstractArray}, f, x)
+  count(!iszero, view(x.nzval, 1:x.nnz))
+end
+
+_ind_value(ok::Bool, x) = ok ? zero(float(eltype(x))) : float(eltype(x))(Inf)
+(f::IndBallL0)(x::AbstractArray) = _ind_value(_count_nonzero(f, x) <= f.s, x)
+
+# the entries of the lower triangle of a symmetric matrix, the diagonal unless
+# it does not count
+function (f::IndBallL0)(x::Union{Symmetric, SymmetricSparseIterate})
+  p = checksquare(x)
+  k = 0
+  @inbounds for c in 1:p, r in (f.diagonal ? c : c + 1):p
+    k += !iszero(x[r, c])
+  end
+  _ind_value(k <= f.s, x)
+end
 
 function prox!(y::AbstractArray, f::IndBallL0, x::AbstractArray, ::Real)
   _checksize(y, x)
-  if _count_nonzero(x) <= f.s
+  if _count_nonzero(f, x) <= f.s
     y === x || copyto!(y, x)
-    return y
-  end
-  if f.s == 0
-    fill!(y, zero(eltype(y)))
     return y
   end
   n = length(x)
   buf = _buffer!(f.scratch, float(eltype(x)), n)
   k = 0
   @inbounds for i in eachindex(IndexLinear(), x)
+    _counts(f, x, i) || continue
     k += 1
     buf[k] = abs(x[i])
   end
-  τ = _kth_largest!(view(buf, 1:n), f.s)
-  _keep_largest!(y, x, τ, f.s - count(v -> abs(v) > τ, x))
-end
-
-# y = x where |x| > τ, and where |x| = τ for the first `ties` such entries; 0 elsewhere
-function _keep_largest!(y::AbstractArray, x::AbstractArray, τ, ties::Integer)
+  τ = f.s == 0 ? oftype(float(zero(eltype(x))), Inf) : _kth_largest!(view(buf, 1:k), f.s)
+  ties = f.s
+  @inbounds for i in eachindex(IndexLinear(), x)
+    ties -= (_counts(f, x, i) & (abs(x[i]) > τ))
+  end
   @inbounds for i in eachindex(IndexLinear(), y, x)
     v = x[i]
-    a = abs(v)
-    if a > τ || (a == τ && ties > 0)
-      a > τ || (ties -= 1)
+    if !_counts(f, x, i)
       y[i] = v
     else
-      y[i] = zero(eltype(y))
+      a = abs(v)
+      keep = a > τ || (a == τ && ties > 0)
+      keep && a == τ && (ties -= 1)
+      y[i] = keep ? v : zero(eltype(y))
     end
   end
   y
 end
 
-# the stored entries hold every nonzero
-function prox!(y::SparseIterate, f::IndBallL0, x::SparseIterate, γ::Real)
+# the stored entries of a vector hold every nonzero
+function prox!(y::SparseIterate{<:Any, 1}, f::IndBallL0, x::SparseIterate{<:Any, 1}, γ::Real)
   _checksize(y, x)
-  nz = _count_nonzero(x)
+  nz = _count_nonzero(f, x)
   (nz <= f.s || f.s == 0) && return invoke(prox!, Tuple{AbstractArray, IndBallL0, AbstractArray, Real}, y, f, x, γ)
   buf = _buffer!(f.scratch, float(eltype(x)), x.nnz)
   @inbounds for k in 1:x.nnz
@@ -96,10 +135,47 @@ function prox!(y::SparseIterate, f::IndBallL0, x::SparseIterate, γ::Real)
   y
 end
 
-# over the coordinates
-function prox!(y::SymmetricSparseIterate, f::IndBallL0, x::SymmetricSparseIterate, γ::Real)
+# a symmetric matrix: the entries of the lower triangle, each counted once and
+# written to both triangles of a dense output
+function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSparseIterate}, ::Real)
   _checksize(y, x)
-  prox!(coordinates(y), f, coordinates(x), γ)
+  p = checksquare(x)
+  T = float(eltype(x))
+  first_row(c) = f.diagonal ? c : c + 1
+  buf = _buffer!(f.scratch, T, div(p * (p + 1), 2))
+  k = 0
+  nz = 0
+  @inbounds for c in 1:p, r in first_row(c):p
+    a = abs(x[r, c])
+    k += 1
+    buf[k] = a
+    nz += !iszero(a)
+  end
+  τ = nz <= f.s ? -one(T) : f.s == 0 ? T(Inf) : _kth_largest!(view(buf, 1:k), f.s)
+  ties = f.s
+  if nz > f.s
+    @inbounds for c in 1:p, r in first_row(c):p
+      ties -= abs(x[r, c]) > τ
+    end
+  end
+  @inbounds for c in 1:p, r in c:p
+    v = x[r, c]
+    if !f.diagonal && r == c
+      keep = true
+    else
+      a = abs(v)
+      keep = a > τ || (a == τ && ties > 0)
+      keep && a == τ && (ties -= 1)
+    end
+    _set_symmetric!(y, keep ? v : zero(v), r, c)
+  end
+  y
+end
+
+@inline _set_symmetric!(y::SymmetricSparseIterate, v, r, c) = _setstored!(y, v, tril_index(y.p, r, c))
+@inline function _set_symmetric!(y::AbstractMatrix, v, r, c)
+  @inbounds y[r, c] = v
+  @inbounds y[c, r] = v
   y
 end
 

@@ -91,6 +91,9 @@ prox!(y, f::AbstractFunction, x) = prox!(y, f, x, 1)
 Allocating version of [`prox!`](@ref).
 """
 prox(f::AbstractFunction, x::AbstractArray, γ::Real = 1) = prox!(similar(x, float(eltype(x))), f, x, γ)
+# a Symmetric or Hermitian wrapper does not accept off-diagonal writes: a dense result
+prox(f::AbstractFunction, x::Union{Symmetric, Hermitian}, γ::Real = 1) =
+  prox!(Matrix{float(eltype(x))}(undef, size(x)), f, x, γ)
 
 """
     value_and_prox!(y, f, x, γ = 1)

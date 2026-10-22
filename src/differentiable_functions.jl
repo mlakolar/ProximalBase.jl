@@ -123,24 +123,27 @@ struct QuadraticFunction{T<:AbstractFloat, N, M<:AbstractMatrix, V} <: Different
   tmp::Vector{T}    ## call to value does not allocate
 end
 
+# a SparseIterate or an AtomIterate x takes the O(p ⋅ active entries) product A * x
+const _VectorOrIterate{T} = Union{StridedVector{T}, SparseIterate{T, 1}, AtomIterate{T}}
+
 QuadraticFunction(A::AbstractMatrix{T}) where {T<:AbstractFloat} = QuadraticFunction{T, 1, typeof(A), Vector{T}}(A, T[], zero(T), Array{T}(undef, size(A, 1)))
 QuadraticFunction(A::AbstractMatrix{T}, b::AbstractVector{T}) where {T<:AbstractFloat} = QuadraticFunction{T, 2, typeof(A), typeof(b)}(A, b, zero(T), Array{T}(undef, size(A, 1)))
 QuadraticFunction(A::AbstractMatrix{T}, b::AbstractVector{T}, c::T) where {T<:AbstractFloat} = QuadraticFunction{T, 3, typeof(A), typeof(b)}(A, b, c, Array{T}(undef, size(A, 1)))
 
-function value(f::QuadraticFunction{T, 1}, x::StridedVector{T}) where {T<:AbstractFloat}
+function value(f::QuadraticFunction{T, 1}, x::_VectorOrIterate{T}) where {T<:AbstractFloat}
   mul!(f.tmp, f.A, x)
   dot(x, f.tmp) / 2
 end
-function value(f::QuadraticFunction{T, 2}, x::StridedVector{T}) where {T<:AbstractFloat}
+function value(f::QuadraticFunction{T, 2}, x::_VectorOrIterate{T}) where {T<:AbstractFloat}
   mul!(f.tmp, f.A, x)
   dot(x, f.tmp) / 2 + dot(x, f.b)
 end
-function value(f::QuadraticFunction{T, 3}, x::StridedVector{T}) where {T<:AbstractFloat}
+function value(f::QuadraticFunction{T, 3}, x::_VectorOrIterate{T}) where {T<:AbstractFloat}
   mul!(f.tmp, f.A, x)
   dot(x, f.tmp) / 2 + dot(x, f.b) + f.c
 end
 
-function gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::StridedVector{T}) where {T<:AbstractFloat, N}
+function gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::_VectorOrIterate{T}) where {T<:AbstractFloat, N}
   mul!(hat_x, f.A, x)
   if N > 1
     @. hat_x += f.b
@@ -148,8 +151,7 @@ function gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::Strid
   hat_x
 end
 
-# a SparseIterate x takes the O(p⋅nnz(x)) product A * x
-function value_and_gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::Union{StridedVector{T}, SparseIterate{T, 1}}) where {T<:AbstractFloat, N}
+function value_and_gradient!(f::QuadraticFunction{T, N}, hat_x::StridedVector{T}, x::_VectorOrIterate{T}) where {T<:AbstractFloat, N}
   b = f.b
   mul!(hat_x, f.A, x)
   r = dot(hat_x, x) / 2

@@ -132,14 +132,21 @@ smooth_functions = (QuadraticFunction(A), QuadraticFunction(A, b), QuadraticFunc
   end
 end
 
-@testset "gradient at a SparseIterate" begin
+@testset "value and gradient at an iterate" begin
+  groups = [1:4, [5, 9, 30], 6:8, 10:29]
   @testset "$(nameof(typeof(f)))" for f in smooth_functions
     xs = SparseIterate(sprandn(p, 0.2))
     activate!(xs, findfirst(iszero, Vector(xs)))    # a stored zero
-    for x in (xs, SparseIterate(p))
-      grad, grad_sparse = zeros(p), fill(NaN, p)    # every entry must be written
-      @test value_and_gradient!(f, grad_sparse, x) ≈ value_and_gradient!(f, grad, Vector(x))
-      @test grad_sparse ≈ grad
+    v = zeros(p)
+    v[1:4], v[6:8] = randn(4), randn(3)
+    xa = AtomIterate(v, groups)
+    activate!(xa, 4)                                # an active group of zeros
+    for x in (xs, SparseIterate(p), xa, AtomIterate(p, groups))
+      grad, grad_iterate = zeros(p), fill(NaN, p)   # every entry must be written
+      @test value_and_gradient!(f, grad_iterate, x) ≈ value_and_gradient!(f, grad, Vector(x))
+      @test grad_iterate ≈ grad
+      @test value(f, x) ≈ value(f, Vector(x))
+      f isa QuadraticFunction && @test gradient!(f, fill(NaN, p), x) ≈ grad
     end
   end
 end

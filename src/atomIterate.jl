@@ -203,6 +203,42 @@ end
 Base.Vector(x::AtomIterate) = copy(x.storage)
 
 
+## multiplication: loops over the entries of the active groups, which are as fast
+## as BLAS on the active columns whether the groups are contiguous or not
+
+function *(A::StridedMatrix{Ta}, x::AtomIterate{Tx}) where {Ta, Tx}
+  size(A, 2) == length(x) || throw(DimensionMismatch())
+  mul!(Vector{promote_type(Ta, Tx)}(undef, size(A, 1)), A, x)
+end
+
+function LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::AtomIterate)
+  size(A, 2) == length(x) || throw(DimensionMismatch("A has second dimension $(size(A, 2)), length of x is $(length(x))"))
+  size(A, 1) == length(out) || throw(DimensionMismatch("A has first dimension $(size(A, 1)), length of out is $(length(out))"))
+  fill!(out, zero(eltype(out)))
+  @inbounds for a in 1:x.nactive, j in x.groups[x.active[a]]
+    c = x.storage[j]
+    iszero(c) && continue
+    @simd for i in eachindex(out)
+      out[i] += c * A[i, j]
+    end
+  end
+  out
+end
+
+# dot(v, x) = Σ conj(vⱼ) xⱼ over the entries of the active groups of x; other
+# vectors than these take the generic method, as SparseArrays has its own for
+# sparse vectors
+function LinearAlgebra.dot(v::Union{StridedVector, SparseIterate{<:Any, 1}, AtomIterate}, x::AtomIterate)
+  length(v) == length(x) || throw(DimensionMismatch())
+  s = zero(promote_type(eltype(v), eltype(x)))
+  @inbounds for a in 1:x.nactive, j in x.groups[x.active[a]]
+    s += dot(v[j], x.storage[j])
+  end
+  s
+end
+LinearAlgebra.dot(x::AtomIterate, v::Union{StridedVector, SparseIterate{<:Any, 1}}) = conj(dot(v, x))
+
+
 function Base.show(io::IO, ::MIME"text/plain", x::AtomIterate)
   K, na = length(x.groups), x.nactive
   print(io, length(x), "-element ", typeof(x), " with ", na, " of ", K, K == 1 ? " group" : " groups", " active")

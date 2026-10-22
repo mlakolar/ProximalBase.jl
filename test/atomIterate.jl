@@ -164,6 +164,47 @@ groups = [1:3, [4, 7], 5:5, [8, 6], [9]]
     @test Vector(x) == x.storage && !(Vector(x) === x.storage)
   end
 
+  @testset "products" begin
+    n, p = 7, 9
+    X = randn(n, p)
+    x = AtomIterate(9, groups)
+    x[7], x[1], x[3] = 2., -1., 0.5
+    activate!(x, 3)                        # an active group of zeros
+    xd = Vector(x)
+
+    out = fill(NaN, n)
+    @test mul!(out, X, x) === out
+    @test out ≈ X * xd
+    @test X * x ≈ X * xd
+    @test mul!(fill(NaN, n), X, AtomIterate(9, groups)) == zeros(n)
+    @test_throws DimensionMismatch mul!(zeros(n), X[:, 1:8], x)
+    @test_throws DimensionMismatch mul!(zeros(n + 1), X, x)
+
+    v = randn(p)
+    @test dot(v, x) ≈ dot(v, xd)
+    @test dot(x, v) ≈ dot(xd, v)
+    y = AtomIterate(randn(p), [1:4, 5:9])
+    @test dot(x, y) ≈ dot(xd, Vector(y))
+    @test dot(SparseIterate(v), x) ≈ dot(v, xd)
+    @test all(row -> A_mul_B_row(X, x, row) ≈ (X * xd)[row], 1:n)
+
+    x32 = AtomIterate(Float32.(xd), groups)
+    @test mul!(zeros(Float32, n), Float32.(X), x32) ≈ Float32.(X * xd)
+
+    # groups of one coordinate give the products of a SparseIterate
+    xs = SparseIterate(xd)
+    xa = AtomIterate(xd, [[i] for i in 1:p])
+    @test X * xa ≈ X * xs
+    @test dot(v, xa) ≈ dot(v, xs)
+    @test [activeCoordinate(xa, i) for i in 1:numActive(xa)] == [activeCoordinate(xs, i) for i in 1:numActive(xs)]
+
+    mul_allocs(out, X, x) = @allocated mul!(out, X, x)
+    dot_allocs(v, x) = @allocated dot(v, x)
+    mul_allocs(out, X, x); dot_allocs(v, x)
+    @test mul_allocs(out, X, x) == 0
+    @test dot_allocs(v, x) == 0
+  end
+
   @testset "show" begin
     x = AtomIterate(9, groups)
     @test sprint(show, MIME"text/plain"(), x) == "9-element $(typeof(x)) with 0 of 5 groups active"

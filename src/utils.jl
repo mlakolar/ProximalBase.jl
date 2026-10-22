@@ -58,7 +58,7 @@ end
     A_mul_B_row(A, b, row)
 
 Compute `(A * b)[row]` without forming `A * b`. `b` may be dense, a
-`SparseVector`, or a [`SparseIterate`](@ref).
+`SparseVector`, a [`SparseIterate`](@ref) or an [`AtomIterate`](@ref).
 """
 function A_mul_B_row(A::AbstractMatrix{T}, b::AbstractVector{T}, row::Int64) where {T<:AbstractFloat}
   n, p = size(A)
@@ -92,6 +92,18 @@ function A_mul_B_row(A::AbstractMatrix{T}, b::SparseIterate{T, 1}, row::Int64) w
   v = zero(T)
   @inbounds @simd for i = 1:nnz(b)
       v += A[row, b.nzval2ind[i]] * b.nzval[i]
+  end
+  v
+end
+
+
+function A_mul_B_row(A::AbstractMatrix{T}, b::AtomIterate{T}, row::Int64) where {T<:AbstractFloat}
+  n, p = size(A)
+  ((p == length(b)) && (1 <= row <= n)) || throw(DimensionMismatch())
+
+  v = zero(T)
+  @inbounds for a in 1:b.nactive, j in b.groups[b.active[a]]
+    v += A[row, j] * b.storage[j]
   end
   v
 end
@@ -137,6 +149,56 @@ function At_mul_B_row(A::AbstractMatrix{T}, b::SparseIterate{T, 1}, row::Int64) 
   end
   v
 end
+
+"""
+    At_mul_B_group!(out, A, b, G)
+
+Compute `out = A[:, G]' * b`, the entries `G` of `A' * b`, for a range or a
+vector of column indices `G`, without allocating. In a block coordinate step,
+this is the gradient of a least-squares loss in the block `G`.
+"""
+function At_mul_B_group!(out::AbstractVector{T}, A::AbstractMatrix{T}, b::AbstractVector{T}, G::AbstractVector{<:Integer}) where {T<:AbstractFloat}
+  length(b) == size(A, 1) && length(out) == length(G) || throw(DimensionMismatch())
+  checkbounds(A, :, G)
+  @inbounds for (t, j) in zip(eachindex(out), G)
+    s = zero(T)
+    @simd for i in eachindex(b)
+      s += A[i, j] * b[i]
+    end
+    out[t] = s
+  end
+  out
+end
+
+"""
+    A_mul_B_group!(out, A, v, G)
+    A_mul_B_group!(out, A, v, G, α, β)
+
+Compute `out = A[:, G] * v`, or `out = α A[:, G] v + β out` as the
+five-argument `mul!` does, for a range or a vector of column indices `G`,
+without allocating. `A_mul_B_group!(r, X, δ, G, -1, 1)` updates the residual
+`r = y - Xβ` after a block coordinate step changes `β[G]` by `δ`.
+"""
+A_mul_B_group!(out::AbstractVector{T}, A::AbstractMatrix{T}, v::AbstractVector{T}, G::AbstractVector{<:Integer}) where {T<:AbstractFloat} =
+  A_mul_B_group!(out, A, v, G, true, false)
+function A_mul_B_group!(out::AbstractVector{T}, A::AbstractMatrix{T}, v::AbstractVector{T}, G::AbstractVector{<:Integer},
+                        α::Number, β::Number) where {T<:AbstractFloat}
+  length(out) == size(A, 1) && length(v) == length(G) || throw(DimensionMismatch())
+  checkbounds(A, :, G)
+  if iszero(β)
+    fill!(out, zero(T))
+  elseif !isone(β)
+    rmul!(out, β)
+  end
+  @inbounds for (t, j) in zip(eachindex(v), G)
+    c = T(α) * v[t]
+    @simd for i in eachindex(out)
+      out[i] += c * A[i, j]
+    end
+  end
+  out
+end
+
 
 """
     A_mul_X_mul_B_rc(A, X, B, r, c)

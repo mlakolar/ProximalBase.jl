@@ -117,7 +117,7 @@ BLAS thread (USC CARC Discovery, job 13351505, 2026-10-23):
 
 - **Total variation:** as fast as ProximalOperators, with the same results to
   rounding. Condat's algorithm goes back over a segment when it ends, and at
-  n = 10⁵ both implementations take about 17 ns per entry.
+  n = 10⁵ both implementations take 16 to 18 ns per entry.
 - **Isotonic regression:** 2.3 to 3.5 times faster than
   NearlyIsotonicRegression.jl, with the same results.
 - **The proximal operator of SLOPE:** most of its time is the sort. It sorts an

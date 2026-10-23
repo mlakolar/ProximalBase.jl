@@ -44,10 +44,12 @@ export
   # penalties
   NormL1, NormL1Nonneg, ElasticNet, NormL2, NormLinf, GroupNormL2, GroupNormLinf,
   NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD,
+  CappedL1, LogPenalty, NormLq, GroupMCP, GroupSCAD,
 
   # indicator functions
   IndBox, IndNonnegative, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
   IndHyperplane, IndHalfspace, IndPSD, IndBallRank,
+  IndBallGroupL0,
 
   # functions built from functions
   Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum,
@@ -80,6 +82,7 @@ include("functions/norms.jl")
 include("functions/fibers.jl")
 include("functions/spectral.jl")
 include("functions/sets.jl")
+include("functions/nonconvex.jl")
 
 include("calculus.jl")
 include("deprecated.jl")

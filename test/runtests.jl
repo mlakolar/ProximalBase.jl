@@ -14,6 +14,7 @@ tests = [
   "fibers",
   "spectral",
   "sets",
+  "nonconvex",
   "calculus",
   "allocations",
   "deprecated",

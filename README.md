@@ -229,10 +229,12 @@ bound, for Newton and coordinate steps.
 | `ElasticNet(λ1, λ2, w)` | `λ1 Σᵢ wᵢ \|xᵢ\| + (λ2/2) ‖x‖²` | ✓ |
 | `NormL0(λ)` | `λ ⋅ #{xᵢ ≠ 0}`, nonconvex | ✓ |
 | `MCP(λ, a)`, `SCAD(λ, a)` | the minimax concave and SCAD penalties, nonconvex | ✓ |
+| `CappedL1(λ, a, w)`, `LogPenalty(λ, ε, w)`, `NormLq(λ, q, w)` | `λ Σᵢ wᵢ min(\|xᵢ\|, a)`, `λ Σᵢ wᵢ log(1 + \|xᵢ\|/ε)`, `λ Σᵢ wᵢ \|xᵢ\|^q`, nonconvex | ✓ |
 | `NormL2(λ)` | `λ ‖x‖₂` | |
 | `NormLinf(λ)` | `λ maxᵢ \|xᵢ\|` | |
 | `GroupNormL2(λ0, groups, w)` | `λ0 Σₖ wₖ ‖x[Gₖ]‖₂`, the group lasso | |
 | `GroupNormLinf(λ0, groups, w)` | `λ0 Σₖ wₖ ‖x[Gₖ]‖∞` | |
+| `GroupMCP(λ, groups, w; a)`, `GroupSCAD(λ, groups, w; a)` | the MCP or SCAD of `‖x[Gₖ]‖₂` with level `λwₖ`, nonconvex | |
 | `NormL1Fused(λ1, λ2)` | `Σᵢ λ1 (\|x1ᵢ\| + \|x2ᵢ\|) + λ2 \|x1ᵢ - x2ᵢ\|` on pairs `(x1, x2)` | |
 | `NuclearNorm(λ)` | `λ ‖X‖_*` | |
 | `TracePSD(λ)` | `λ tr(X)` on `X ⪰ 0` | |
@@ -243,6 +245,7 @@ bound, for Newton and coordinate steps.
 |:---------|:----|
 | `IndBox(l, u)`, `IndNonnegative()`, `IndBallLinf(r)` | `l ≤ x ≤ u`, `x ≥ 0`, `‖x‖∞ ≤ r` (separable) |
 | `IndBallL0(s; diagonal)` | at most `s` nonzero entries, nonconvex; on a symmetric matrix, entries of one triangle, with or without the diagonal |
+| `IndBallGroupL0(s, groups)` | at most `s` nonzero groups, nonconvex |
 | `IndBallL1(r)`, `IndBallL2(r)` | `‖x‖₁ ≤ r`, `‖x‖₂ ≤ r` |
 | `IndSimplex(r; equality)` | `x ≥ 0, Σᵢ xᵢ = r` (or `≤ r`) |
 | `IndHyperplane(a, b)`, `IndHalfspace(a, b)` | `⟨a, x⟩ = b`, `⟨a, x⟩ ≤ b` |

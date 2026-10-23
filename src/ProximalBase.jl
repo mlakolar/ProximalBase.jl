@@ -79,6 +79,7 @@ include("functions/sets.jl")
 
 include("calculus.jl")
 include("deprecated.jl")
+include("testing.jl")
 include("precompile.jl")
 
 end

@@ -118,7 +118,9 @@ over the observations and one product with ``X^\top``.
 | `ConvolutionCheck(τ, h; kernel)` | ``\int \rho_\tau(u - t)K(t/h)/h\,dt`` at ``u = y - \eta`` | ``-(\tau - \tfrac12) - \tfrac12 m'(u/h)`` for ``\lvert u\rvert < h`` | ``\max K/h`` | `GLMLoss(ProximalBase.ConvolutionCheck(τ, h), y, X)` |
 
 Here ``\sigma(\eta) = 1/(1 + e^{-\eta})``, and ``\log(1 + e^\eta)`` is
-computed so that it neither overflows nor loses precision.
+computed so that it neither overflows nor loses precision. The scalar losses
+expose `ProximalBase.deriv`, `deriv2` and `curvature`, for Newton and
+coordinate steps.
 
 The last two smooth the check loss ``\rho_\tau(u) = \max(\tau u, (\tau - 1)u)`` of
 quantile regression, so that coordinate descent and proximal Newton fit it
@@ -129,9 +131,7 @@ quadratic on ``-h(1 - \tau) < u < h\tau`` and within ``h/2`` of ``\rho_\tau``.
 smoothing of the conquer estimator (He, Pan, Tan and Zhou, 2023). With the
 uniform or the Epanechnikov kernel (`kernel = :uniform` or `:epanechnikov`) it
 equals ``\rho_\tau`` for ``|u| \ge h`` and is a polynomial in between: with
-``m(s) = \int|s - t|K(t)\,dt``, it is ``(\tau - \tfrac12)u + \tfrac{h}{2}m(u/h)``. The scalar losses
-expose `ProximalBase.deriv`, `deriv2` and `curvature`, for Newton and
-coordinate steps.
+``m(s) = \int|s - t|K(t)\,dt``, it is ``(\tau - \tfrac12)u + \tfrac{h}{2}m(u/h)``.
 
 ## The Gaussian log-likelihood
 

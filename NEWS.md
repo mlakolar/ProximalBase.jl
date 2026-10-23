@@ -18,6 +18,10 @@
   entries sum to zero.
 - **Example 16:** the lasso on compositional data, the lasso on a box by
   coordinate descent, and the capped simplex.
+- **`IndBox` with integer bounds**, such as `IndBox(0, 1)`: its proximal
+  operator converts the bounds to the type of the result. A clamp between
+  integer bounds compared each float with an integer exactly, which did not
+  vectorize; the projection is about six times faster.
 
 ## 0.5.3
 

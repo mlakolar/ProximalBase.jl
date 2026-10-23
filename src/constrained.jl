@@ -151,7 +151,7 @@ end
 function _constraint_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ::T) where {T}
   f, a = c.f, c.set.a
   s, m = zero(T), zero(T)
-  @inbounds for i in eachindex(IndexLinear(), x)
+  @inbounds @simd for i in eachindex(IndexLinear(), x)
     aᵢ = convert(T, _entry(a, i))
     t = aᵢ * convert(T, prox_entry(f, x[i] - γ * ν * aᵢ, i, γ))
     s += t

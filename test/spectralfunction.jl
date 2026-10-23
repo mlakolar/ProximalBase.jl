@@ -30,6 +30,8 @@ fantope(k) = Spectral(Constrained(IndBox(0, 1), IndHyperplane(1, k)))
   P = prox(Spectral(IndBox(-0.5, 0.5)), A)
   @test P ≈ V * Diagonal(clamp.(λ, -0.5, 0.5)) * V'
   @test prox(Spectral(Conjugate(NormL1(0.5))), A) ≈ P
+  @test prox(Spectral(NormL1(100.)), A) == zeros(n, n)               # every eigenvalue to zero
+  @test prox(Spectral(Constrained(NormL1(0.1), IndBox(-0.5, 0.5))), A) ≈ V * Diagonal(clamp.(shrink.(λ, 0.1), -0.5, 0.5)) * V'
   for f in (Spectral(NormL1(0.3)), Spectral(IndBox(-0.5, 0.5)), Spectral(ElasticNet(0.2, 0.3)), Spectral(NormLinf(0.4)))
     check_prox(f, A, 0.8; symmetric = true)
   end

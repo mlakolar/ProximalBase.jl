@@ -95,10 +95,7 @@ function _rebuild_sym_signed!(Y::AbstractMatrix, V::Matrix{T}, z::AbstractVector
       pos -= 1
     end
     @inbounds for j in Iterators.flatten((1:neg, pos:n))
-      c = sqrt(abs(z[j]))
-      @simd for i in 1:n
-        V[i, j] *= c
-      end
+      view(V, :, j) .*= sqrt(abs(z[j]))
     end
     β = zero(T)
     if pos <= n

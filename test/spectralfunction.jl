@@ -38,6 +38,7 @@ fantope(k) = Spectral(Constrained(IndBox(0, 1), IndHyperplane(1, k)))
   @test Spectral(NormL1(0.3))(A + triu(ones(n, n), 1)) == Inf       # not symmetric
   check_traits(Spectral(NormL1(0.3)); proximable = true, convex = true)
   check_traits(Spectral(NormL0(0.3)); proximable = true)
+  @test ProximalBase._isindicator(Spectral(IndBox(-1, 1))) && !ProximalBase._isindicator(Spectral(NormL1(0.3)))
 end
 
 @testset "the Fantope" begin

@@ -19,6 +19,7 @@ rounding.
 | [`IndBallL0`](@ref)`(s)` | at most ``s`` nonzero entries | keep the ``s`` largest in magnitude |
 | [`IndHyperplane`](@ref)`(a, b)` | ``\langle a, x\rangle = b`` | ``v - \frac{\langle a, v\rangle - b}{\lVert a\rVert^2}\,a`` |
 | [`IndHalfspace`](@ref)`(a, b)` | ``\langle a, x\rangle \le b`` | the same when ``\langle a, v\rangle > b`` |
+| [`IndIsotonic`](@ref)`()` | ``x_1 \le x_2 \le \dots \le x_n`` | isotonic regression, by pool adjacent violators |
 | [`IndPSD`](@ref)`()` | ``X \succeq 0`` | ``U\max(\Lambda, 0)U^\top`` |
 | [`IndPSD`](@ref)`(rank = r)` | ``X \succeq 0``, rank at most ``r`` | the ``r`` largest positive eigenpairs |
 | [`IndBallRank`](@ref)`(r)` | rank at most ``r`` | the truncated SVD |
@@ -71,6 +72,16 @@ Minimizing ``\|z - v\|^2`` subject to ``\langle a, z\rangle = b`` gives
 ``z = v - \mu a`` with ``\mu = (\langle a, v\rangle - b)/\|a\|^2``. For the
 halfspace ``\langle a, z\rangle \le b``, the same step applies when ``v``
 violates the inequality, and ``z = v`` otherwise.
+
+## Monotone vectors
+
+The projection onto the nondecreasing vectors, [`IndIsotonic`](@ref), is
+isotonic regression. Pool adjacent violators scans the entries, pooling each
+entry with the block before it while their means are out of order. Each block
+then takes its mean, the projection of the block onto the constants. With a
+stack of blocks in buffers that the function owns, it runs in O(n) time.
+`IndIsotonic(decreasing = true)` projects onto the nonincreasing vectors, and
+the same pooling gives the proximal operator of [`SLOPE`](@ref).
 
 ## Positive semidefinite and low-rank matrices
 

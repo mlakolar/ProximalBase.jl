@@ -13,6 +13,7 @@ tests = [
   "norms",
   "spectral",
   "sets",
+  "ordered",
   "calculus",
   "allocations",
   "deprecated",

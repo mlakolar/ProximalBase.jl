@@ -43,11 +43,11 @@ export
 
   # penalties
   NormL1, NormL1Nonneg, ElasticNet, NormL2, NormLinf, GroupNormL2, GroupNormLinf,
-  NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD,
+  NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD, TotalVariation1D, FusedLasso, SLOPE,
 
   # indicator functions
   IndBox, IndNonnegative, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
-  IndHyperplane, IndHalfspace, IndPSD, IndBallRank,
+  IndHyperplane, IndHalfspace, IndPSD, IndBallRank, IndIsotonic,
 
   # functions built from functions
   Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum,
@@ -76,6 +76,7 @@ include("functions/separable.jl")
 include("functions/norms.jl")
 include("functions/spectral.jl")
 include("functions/sets.jl")
+include("functions/ordered.jl")
 
 include("calculus.jl")
 include("deprecated.jl")

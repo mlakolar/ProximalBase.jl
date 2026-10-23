@@ -234,6 +234,9 @@ bound, for Newton and coordinate steps.
 | `GroupNormL2(λ0, groups, w)` | `λ0 Σₖ wₖ ‖x[Gₖ]‖₂`, the group lasso | |
 | `GroupNormLinf(λ0, groups, w)` | `λ0 Σₖ wₖ ‖x[Gₖ]‖∞` | |
 | `NormL1Fused(λ1, λ2)` | `Σᵢ λ1 (\|x1ᵢ\| + \|x2ᵢ\|) + λ2 \|x1ᵢ - x2ᵢ\|` on pairs `(x1, x2)` | |
+| `TotalVariation1D(λ)` | `λ Σᵢ \|xᵢ₊₁ - xᵢ\|` | |
+| `FusedLasso(λ1, λ2)` | `λ1 ‖x‖₁ + λ2 Σᵢ \|xᵢ₊₁ - xᵢ\|` | |
+| `SLOPE(λ)` | `Σᵢ λᵢ \|x\|₍ᵢ₎`, the sorted ℓ1 norm, `λ` nonincreasing | |
 | `NuclearNorm(λ)` | `λ ‖X‖_*` | |
 | `TracePSD(λ)` | `λ tr(X)` on `X ⪰ 0` | |
 
@@ -246,6 +249,7 @@ bound, for Newton and coordinate steps.
 | `IndBallL1(r)`, `IndBallL2(r)` | `‖x‖₁ ≤ r`, `‖x‖₂ ≤ r` |
 | `IndSimplex(r; equality)` | `x ≥ 0, Σᵢ xᵢ = r` (or `≤ r`) |
 | `IndHyperplane(a, b)`, `IndHalfspace(a, b)` | `⟨a, x⟩ = b`, `⟨a, x⟩ ≤ b` |
+| `IndIsotonic()` | `x₁ ≤ x₂ ≤ … ≤ xₙ` |
 | `IndPSD()`, `IndPSD(rank = r)` | `X ⪰ 0`, and of rank at most `r` (nonconvex) |
 | `IndBallRank(r)` | rank at most `r`, nonconvex |
 

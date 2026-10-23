@@ -32,6 +32,7 @@ test suite runs all of them.
 | [`13_differential_network.jl`](13_differential_network.jl) | a differential network | the D-trace loss as `KronQuadratic` on a `SymmetricSparseIterate`; its coordinates and `tril_cartesian` |
 | [`14_active_set_lasso.jl`](14_active_set_lasso.jl) | the lasso with p ≫ n | a working-set solver with `restrict` and `kkt_violation` |
 | [`15_calculus_and_custom_functions.jl`](15_calculus_and_custom_functions.jl) | building functions | `Scaled`, `Translate`, `Tilt`, `Conjugate` (Moreau's identity), `Sum`, `SeparableSum`, and a `SeparableFunction` of your own |
+| [`18_ordered_penalties.jl`](18_ordered_penalties.jl) | piecewise-constant and monotone fits, SLOPE | `TotalVariation1D` and `FusedLasso` on a signal with jumps, `IndIsotonic`, `SLOPE` against the lasso on correlated predictors |
 
 For complete solvers built on these pieces, including coordinate descent with
 penalty paths, see [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl).

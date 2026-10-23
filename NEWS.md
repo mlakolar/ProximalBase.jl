@@ -1,5 +1,24 @@
 # ProximalBase.jl news
 
+## Unreleased
+
+- **`Constrained(f, C)`:** a convex separable `f` restricted to a box, a
+  hyperplane, a halfspace or a simplex `C`.
+  - On a box, the proximal operator clamps that of `f`, and the function stays
+    separable, with `prox_entry` for coordinate descent.
+  - On a hyperplane `⟨a, x⟩ = b`, the proximal operator is `prox_{γf}(x - γνa)`
+    for the multiplier `ν` that meets the constraint, found by a search over
+    the scalar `ν`. On the problems tried it took 6 to 17 passes over `x`, and
+    it allocates nothing.
+  - Examples: `Constrained(NormL1(λ), IndHyperplane(1, 0))`, the lasso penalty
+    on coefficients that sum to zero, and
+    `Constrained(IndBox(0, 1), IndHyperplane(1, k))`, the capped simplex.
+- **`IndHyperplane` and `IndHalfspace`** take a scalar `a`, which stands for an
+  array of `a`s of any size: `IndHyperplane(1, 0)` is the set of arrays whose
+  entries sum to zero.
+- **Example 16:** the lasso on compositional data, the lasso on a box by
+  coordinate descent, and the capped simplex.
+
 ## 0.5.3
 
 - **Separable functions of your own:** `SeparableFunction` is exported as the

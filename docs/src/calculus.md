@@ -12,6 +12,7 @@ from known ones.
 | [`Conjugate`](@ref)`(f)` | ``f^*(x) = \sup_z \langle z, x\rangle - f(z)`` | ``x - \gamma\operatorname{prox}_{f/\gamma}(x/\gamma)`` | |
 | [`SeparableSum`](@ref)`(f1, f2, ...)` | ``\sum_k f_k(x_k)`` on a tuple of blocks | block by block | block by block |
 | [`Sum`](@ref)`(f1, f2, ...)` | ``\sum_k f_k(x)`` | | ``\sum_k \nabla f_k(x)`` |
+| [`Constrained`](@ref)`(f, C)` | ``f(x)`` on a box, hyperplane, halfspace or simplex ``C`` | on a box, ``\operatorname{clamp}(\operatorname{prox}_{\gamma f}(x), l, u)``; on a hyperplane, ``\operatorname{prox}_{\gamma f}(x - \gamma\nu a)`` | |
 
 ## Derivations
 
@@ -60,4 +61,72 @@ proximable function's conjugate is available, even where the value is not.
 ```@example calculus
 h = Conjugate(NormL2(1.0))                     # the indicator of the unit ℓ2 ball
 prox(h, [3.0, 4.0], 0.5) ≈ [0.6, 0.8]
+```
+
+## Separable functions with constraints
+
+[`Constrained`](@ref)`(f, C)` is ``f + \iota_C`` for a convex separable
+``f(x) = \sum_i f_i(x_i)`` and a set ``C`` that is a box, a hyperplane, a
+halfspace or a simplex. Its proximal operator reduces to the scalar proximal
+operators of ``f``.
+
+**On a box.** The problem that defines the proximal operator separates over the
+entries, into the scalar problems
+```math
+\underset{l_i \le z \le u_i}{\text{minimize}} \quad f_i(z) + \frac{1}{2\gamma}(z - v_i)^2 .
+```
+The objective is strictly convex, so it decreases up to its unconstrained
+minimizer ``\operatorname{prox}_{\gamma f_i}(v_i)`` and increases after it. Its
+minimizer on the interval is therefore the point of the interval nearest to that
+minimizer:
+```math
+\operatorname{prox}_{\gamma(f + \iota_C)}(v)_i = \operatorname{clamp}\big(\operatorname{prox}_{\gamma f_i}(v_i),\, l_i,\, u_i\big).
+```
+The constrained function is again separable, so coordinate descent applies to
+it. For a nonconvex ``f_i`` the objective can have several local minimizers, and
+the clamp can pick the wrong one, so `Constrained` requires a convex ``f``.
+
+**On a hyperplane.** For ``C = \{z : \langle a, z\rangle = b\}``, the Lagrangian
+```math
+f(z) + \frac{1}{2\gamma}\|z - v\|^2 + \nu\,(\langle a, z\rangle - b)
+```
+also separates over the entries. Completing the square, its minimizer for a
+fixed multiplier ``\nu`` is
+```math
+z_i(\nu) = \operatorname{prox}_{\gamma f_i}(v_i - \gamma\nu a_i).
+```
+A scalar proximal operator is nondecreasing and 1-Lipschitz, so each
+``a_i z_i(\nu)`` is a continuous, nonincreasing function of ``\nu``, and so is
+``\varphi(\nu) = \langle a, z(\nu)\rangle - b``. The proximal point is
+``z(\nu^\star)`` for a root ``\nu^\star`` of ``\varphi``, and it is the same for
+every root. For the halfspace ``\langle a, z\rangle \le b`` the multiplier is
+nonnegative and vanishes when the constraint is inactive: ``\nu^\star = 0`` when
+``\varphi(0) \le 0``.
+
+`Constrained` finds the root by a search over the scalar ``\nu``, and each step
+of the search is one pass over the entries. The slope of ``\varphi`` is at least
+``-\gamma\|a\|^2``, so the first step, ``|\varphi(0)|/(\gamma\|a\|^2)``, does not
+pass the root. Secant steps then bracket the root, and regula falsi with the
+Illinois rule shrinks the bracket. For the ℓ1 norm and boxes ``\varphi`` is
+piecewise linear, and the search is exact once the bracket lies on one piece.
+On simplices, capped simplices and the zero-sum lasso, with ``10^3`` to ``10^5``
+entries, it took 6 to 17 passes. A box enters through the scalar proximal
+operators, so ``f`` may itself be `Constrained(f, box)`; the simplex is the box
+``x \ge 0`` with the hyperplane ``\sum_i x_i = r``.
+
+| Call | Function |
+|:-----|:---------|
+| `Constrained(NormL1(λ), IndHyperplane(1, 0))` | the lasso penalty on coefficients that sum to zero, as in regression on compositional data |
+| `Constrained(NormL1(λ), IndBox(0, u))` | the nonnegative lasso penalty with upper bounds |
+| `Constrained(IndBox(0, 1), IndHyperplane(1, k))` | the indicator of the capped simplex ``\{x : 0 \le x \le 1,\ \sum_i x_i = k\}`` |
+| `Constrained(SqrNormL2(λ), IndSimplex(1))` | the ridge penalty on the probability simplex |
+
+```@example calculus
+v = [0.9, -0.4, 0.3, 1.6]
+z = prox(Constrained(NormL1(0.2), IndHyperplane(1, 0)), v, 1.0)   # entries that sum to zero
+(z, sum(z))
+```
+
+```@example calculus
+prox(Constrained(IndBox(0, 1), IndHyperplane(1, 2)), v)            # onto the capped simplex
 ```

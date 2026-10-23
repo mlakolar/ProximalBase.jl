@@ -45,6 +45,9 @@ export
   NormL1, NormL1Nonneg, ElasticNet, NormL2, NormLinf, GroupNormL2, GroupNormLinf,
   NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD,
 
+  # functions of the singular values
+  SingularValue,
+
   # indicator functions
   IndBox, IndNonnegative, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
   IndHyperplane, IndHalfspace, IndPSD, IndBallRank,
@@ -79,6 +82,7 @@ include("functions/separable.jl")
 include("functions/norms.jl")
 include("functions/fibers.jl")
 include("functions/spectral.jl")
+include("functions/singular.jl")
 include("functions/sets.jl")
 
 include("calculus.jl")

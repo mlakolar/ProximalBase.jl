@@ -236,6 +236,7 @@ bound, for Newton and coordinate steps.
 | `NormL1Fused(λ1, λ2)` | `Σᵢ λ1 (\|x1ᵢ\| + \|x2ᵢ\|) + λ2 \|x1ᵢ - x2ᵢ\|` on pairs `(x1, x2)` | |
 | `NuclearNorm(λ)` | `λ ‖X‖_*` | |
 | `TracePSD(λ)` | `λ tr(X)` on `X ⪰ 0` | |
+| `SingularValue(f)` | `f(σ(X))`: the spectral norm, the nuclear-norm and spectral-norm balls, the matrix elastic net, MCP or SCAD of the singular values, … | |
 
 **Indicator functions of sets**
 

@@ -5,10 +5,12 @@
 
 A vector or matrix that stores its nonzero entries in a compact list, so that
 reading or writing any entry is O(1) and multiplying by it costs O(nnz).
-Intended for coordinate-descent iterates that stay sparse.
+Intended for coordinate-descent and active-set iterates that stay sparse. Its
+coordinates (see [`ncoordinates`](@ref)) are its entries, in linear order.
 
 Setting an entry to zero keeps it in the list; call `dropzeros!` to remove
-stored zeros.
+stored zeros. The stored entries are the active coordinates
+([`activecoordinates`](@ref)).
 """
 mutable struct SparseIterate{T, N} <: AbstractArray{T, N}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
@@ -19,20 +21,31 @@ end
 
 """
     SymmetricSparseIterate([T = Float64,] p)
-    SymmetricSparseIterate(X::SparseMatrixCSC)
+    SymmetricSparseIterate(X::AbstractMatrix)
 
 A sparse symmetric `p × p` matrix that stores only its lower triangle, with the
-same O(1) access as [`SparseIterate`](@ref). `x[r, c]` and `x[c, r]` refer to
-the same entry. Linear indices `1:p(p+1)/2` run over the lower triangle column
-by column (see [`sub2indLowerTriangular`](@ref)): they are the coordinates that
-[`cdprox!`](@ref) updates, and `length(x)` is `p(p+1)/2`. Generic functions that
-expect the linear indices of a dense `p × p` matrix, such as `vec` and
-`reshape`, give wrong results or errors; convert with `Matrix(x)` first.
+same O(1) access as [`SparseIterate`](@ref). It is an ordinary `p × p` matrix:
+`x[r, c]` and `x[c, r]` are the same entry, and linear indices, `length(x) = p²`
+and iteration follow the dense matrix, so that an off-diagonal entry is visited
+twice.
+
+Writing `x[r, c]` writes `x[c, r]` too. Broadcasting into `x`, `copyto!`, `fill!`,
+`rmul!`, `lmul!`, `axpy!` and `axpby!` update each entry once, from the lower
+triangle of a source that is not symmetric. Other functions that update the
+entries of `x` one at a time, such as `map!` or `mul!` into `x`, would update an
+off-diagonal entry twice, and those that build a result that is not symmetric in
+`similar(x)`, such as `cumsum` or `circshift`, need `Matrix(x)`. `triu`, `tril`
+and `sparse` return a `SparseMatrixCSC`.
+
+Its coordinates are the `p(p+1)/2` entries of the lower triangle, numbered
+column by column ([`tril_index`](@ref)): [`prox_coordinate!`](@ref) updates
+them, [`ncoordinates`](@ref) counts them, [`activecoordinates`](@ref) lists the
+stored ones and [`coordinates`](@ref) is a vector view of them.
 """
 mutable struct SymmetricSparseIterate{T} <: AbstractMatrix{T}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
-    nzval2ind::Vector{Int}      # Mapping from nzval to indices
-    ind2nzval::Vector{Int}      # Mapping from indices to nzval
+    nzval2ind::Vector{Int}      # Mapping from nzval to coordinates
+    ind2nzval::Vector{Int}      # Mapping from coordinates to nzval
     nnz::Int                    # number of stored entries
     p::Int                      # dimension of matrix
 end
@@ -45,80 +58,107 @@ end
 ####################################
 
 # Both store their entries in the same way: nzval[1:nnz] are the stored values,
-# nzval2ind[1:nnz] their linear indices, and ind2nzval[i] is the position of index i
-# in nzval, 0 if i is not stored.
+# nzval2ind[1:nnz] their coordinates, and ind2nzval[i] is the position of
+# coordinate i in nzval, 0 if i is not stored.
 const _StoredIterate{T} = Union{SparseIterate{T}, SymmetricSparseIterate{T}}
 
 SparseArrays.nnz(x::_StoredIterate) = x.nnz
 
 """
-    numCoordinates(x)
+    ncoordinates(x)
 
-Number of coordinates of `x` that [`cdprox!`](@ref) can update: all entries of
-a [`SparseIterate`](@ref), the lower triangle of a
-[`SymmetricSparseIterate`](@ref), and the groups of an [`AtomIterate`](@ref).
+The number of coordinates of the iterate `x` that [`prox_coordinate!`](@ref)
+updates: the entries of a [`SparseIterate`](@ref), the entries of the lower
+triangle of a [`SymmetricSparseIterate`](@ref), the groups of an
+[`AtomIterate`](@ref).
 """
-function numCoordinates end
-
-"""
-    numActive(x)
-
-Number of active coordinates of `x`: the stored entries of a
-[`SparseIterate`](@ref) or [`SymmetricSparseIterate`](@ref), and the active
-groups of an [`AtomIterate`](@ref). Solvers use them as the active set;
-[`activeCoordinate`](@ref) lists them.
-"""
-function numActive end
+function ncoordinates end
 
 """
-    activeCoordinate(x, i)
+    nactive(x)
 
-The `i`-th active coordinate of `x`, for `1 ≤ i ≤ numActive(x)`: an index of
-`x` for a [`SparseIterate`](@ref) or [`SymmetricSparseIterate`](@ref), a group
-for an [`AtomIterate`](@ref). Coordinates are listed in the order in which they
-became active, except that `dropzeros!` moves the last ones into the places of
-those it removes.
+The number of active coordinates of `x`: the stored entries of a
+[`SparseIterate`](@ref) or [`SymmetricSparseIterate`](@ref), the active groups
+of an [`AtomIterate`](@ref). Active-set solvers use them as the active set.
 """
-function activeCoordinate end
+function nactive end
 
 """
-    isActive(x, k)
+    activecoordinates(x)
 
-Whether coordinate `k` of `x` is active (see [`numActive`](@ref)).
+A vector of the active coordinates of `x` (see [`nactive`](@ref)), in the order
+in which they became active, except that `dropzeros!` moves the last ones into
+the places of those it removes. The vector is a view of the internal list: it
+does not grow when coordinates become active, so call `activecoordinates` again
+after changing the active set.
 """
-function isActive end
+function activecoordinates end
 
-numCoordinates(x::_StoredIterate) = length(x.ind2nzval)
-numActive(x::_StoredIterate) = x.nnz
-Base.@propagate_inbounds function activeCoordinate(x::_StoredIterate, i::Int)
-  @boundscheck 1 <= i <= x.nnz || throw(BoundsError(Base.OneTo(x.nnz), i))
-  @inbounds x.nzval2ind[i]
+"""
+    isactive(x, k)
+
+Whether coordinate `k` of `x` is active (see [`nactive`](@ref)).
+"""
+function isactive end
+
+"""
+    coordinates(x)
+
+A vector view of the coordinates of `x` (see [`ncoordinates`](@ref)): `x`
+itself for a [`SparseIterate`](@ref), whose coordinates are its entries in
+linear order, and the entries of the lower triangle for a
+[`SymmetricSparseIterate`](@ref). Writing through the view writes `x`.
+"""
+function coordinates end
+
+ncoordinates(x::_StoredIterate) = length(x.ind2nzval)
+nactive(x::_StoredIterate) = x.nnz
+activecoordinates(x::_StoredIterate) = view(x.nzval2ind, 1:x.nnz)
+isactive(x::_StoredIterate, k::Integer) = x.ind2nzval[k] != 0
+
+# the value of coordinate i
+Base.@propagate_inbounds function _getstored(x::_StoredIterate{T}, i::Integer) where {T}
+  @boundscheck checkbounds(x.ind2nzval, i)
+  @inbounds j = x.ind2nzval[i]
+  j == 0 ? zero(T) : @inbounds x.nzval[j]
 end
-isActive(x::_StoredIterate, k::Int) = x.ind2nzval[k] != 0
 
-# entry i; for a SymmetricSparseIterate, i is a linear index of the lower triangle
-function Base.getindex(x::_StoredIterate{T}, i::Int) where {T}
-  checkbounds(Bool, x.ind2nzval, i) || throw(BoundsError(x, i))
-  x.ind2nzval[i] == 0 ? zero(T) : x.nzval[x.ind2nzval[i]]
-end
-
-function Base.setindex!(x::_StoredIterate{T}, v, i::Int) where {T}
-  checkbounds(Bool, x.ind2nzval, i) || throw(BoundsError(x, i))
+# write coordinate i; a zero is stored only if i is stored already
+Base.@propagate_inbounds function _setstored!(x::_StoredIterate{T}, v, i::Integer) where {T}
+  @boundscheck checkbounds(x.ind2nzval, i)
   v = convert(T, v)
-  if x.ind2nzval[i] != 0
-    x.nzval[x.ind2nzval[i]] = v
+  @inbounds j = x.ind2nzval[i]
+  if j != 0
+    @inbounds x.nzval[j] = v
   elseif !iszero(v)
     _store!(x, i, v)
   end
   x
 end
 
-# store index i, which is not stored yet, with the value v
-function _store!(x::_StoredIterate, i::Int, v)
+# store coordinate i, which is not stored yet, with the value v
+function _store!(x::_StoredIterate, i::Integer, v)
   x.nnz += 1
   x.nzval[x.nnz] = v
   x.nzval2ind[x.nnz] = i
   x.ind2nzval[i] = x.nnz
+  x
+end
+
+"""
+    activate!(x::SparseIterate, i)
+    activate!(x::SymmetricSparseIterate, k)
+    activate!(x::AtomIterate, k)
+
+Make coordinate `i` of `x` active, storing it as an explicit zero if it is not
+stored already, and return `x`. Assigning a zero does not store an entry, so
+this is how a coordinate joins the active set of an active-set solver;
+`dropzeros!` removes it again while it is zero. For an [`AtomIterate`](@ref),
+make group `k` active, keeping its entries.
+"""
+function activate!(x::_StoredIterate{T}, i::Integer) where {T}
+  checkbounds(x.ind2nzval, i)
+  x.ind2nzval[i] == 0 && _store!(x, i, zero(T))
   x
 end
 
@@ -163,6 +203,43 @@ function _copyto_stored!(x::_StoredIterate, y::_StoredIterate)
     x
 end
 
+# remove all stored entries
+function _clear!(x::_StoredIterate)
+  @inbounds for k = 1:x.nnz
+    x.ind2nzval[x.nzval2ind[k]] = 0
+  end
+  x.nnz = 0
+  x
+end
+
+# Multiplying by a number scales the stored entries, in O(nnz), as for a sparse
+# matrix. The generic methods visit every index, among them (r, c) and (c, r) of a
+# SymmetricSparseIterate, which share storage, and so would scale it twice.
+function LinearAlgebra.rmul!(x::_StoredIterate, s::Number)
+  @inbounds for k = 1:x.nnz
+    x.nzval[k] *= s
+  end
+  x
+end
+function LinearAlgebra.lmul!(s::Number, x::_StoredIterate)
+  @inbounds for k = 1:x.nnz
+    x.nzval[k] = s * x.nzval[k]
+  end
+  x
+end
+function LinearAlgebra.rdiv!(x::_StoredIterate, s::Number)
+  @inbounds for k = 1:x.nnz
+    x.nzval[k] /= s
+  end
+  x
+end
+function LinearAlgebra.ldiv!(s::Number, x::_StoredIterate)
+  @inbounds for k = 1:x.nnz
+    x.nzval[k] = s \ x.nzval[k]
+  end
+  x
+end
+
 
 ####################################
 #
@@ -180,6 +257,11 @@ SparseArrays.issparse(x::SparseIterate) = true
 Base.length(x::SparseIterate) = length(x.ind2nzval)
 Base.size(x::SparseIterate) = size(x.ind2nzval)
 Base.IndexStyle(::Type{<:SparseIterate}) = IndexLinear()
+
+Base.@propagate_inbounds Base.getindex(x::SparseIterate, i::Int) = _getstored(x, i)
+Base.@propagate_inbounds Base.setindex!(x::SparseIterate, v, i::Int) = _setstored!(x, v, i)
+
+coordinates(x::SparseIterate) = x
 
 ## similar
 #
@@ -249,27 +331,26 @@ Base.Array(x::SparseIterate{T, 1}) where {T} = Vector(x)
 Base.Array(x::SparseIterate{T, 2}) where {T} = Matrix(x)
 
 
-"""
-    activate!(x::SparseIterate, i)
-    activate!(x::AtomIterate, k)
-
-Store entry `i` of `x` as an explicit zero if it is not stored already, and
-return `x`. Assigning a zero does not store an entry, so this is how a
-coordinate joins the stored entries, for example the active set of an
-active-set solver. `dropzeros!` removes the entry again while it is zero. For
-an [`AtomIterate`](@ref), make group `k` active, keeping its entries.
-"""
-function activate!(x::SparseIterate{T}, i::Int) where {T}
-  checkbounds(x, i)
-  x.ind2nzval[i] == 0 && _store!(x, i, zero(T))
-  x
-end
-
-
 function Base.copyto!(x::SparseIterate, y::SparseIterate)
     size(x) == size(y) || throw(DimensionMismatch())
     _copyto_stored!(x, y)
 end
+
+# fill!(x, 0) removes the stored entries, as zeros are not stored
+function Base.fill!(x::SparseIterate, v)
+  if iszero(v)
+    _clear!(x)
+  else
+    @inbounds for i in eachindex(x)
+      x[i] = v
+    end
+  end
+  x
+end
+
+# the entries that are not stored are zero and do not count in a p-norm, p ≥ 0
+LinearAlgebra.norm(x::SparseIterate, p::Real = 2) =
+  p >= 0 ? norm(view(x.nzval, 1:x.nnz), p) : invoke(norm, Tuple{Any, Real}, x, p)
 
 
 ### show and friends
@@ -329,31 +410,27 @@ function Base.show(io::IOContext, S::SparseIterate{T, 2}) where T
   if nnz(S) == 0
     return show(io, MIME("text/plain"), S)
   end
+  _show_entries(io, nnz(S), (pos -> Tuple(CartesianIndices(size(S))[S.nzval2ind[pos]])),
+                pos -> S.nzval[pos], maximum(size(S)))
+end
 
+# print the stored entries listed by entry(pos) = (row, col) and value(pos) for
+# pos in 1:nnz, in column-major order of the entries, eliding the middle ones
+function _show_entries(io::IO, xnnz::Int, entry, value, maxdim::Int)
   limit::Bool = get(io, :limit, false)
-  if limit
-    rows = displaysize(io)[1]
-    half_screen_rows = max(div(rows - 8, 2), 1)
-  else
-    half_screen_rows = typemax(Int)
-  end
-  pad = ndigits(maximum( size(S) ))
-  sep = "\n  "
+  half_screen_rows = limit ? max(div(displaysize(io)[1] - 8, 2), 1) : typemax(Int)
+  pad = ndigits(maxdim)
   if !haskey(io, :compact)
     io = IOContext(io, :compact => true)
   end
-  ind = 0
-  _ci = CartesianIndices(size(S))
-  for ifull in eachindex(S)
-    if S.ind2nzval[ifull] != 0
-      ind += 1
-      if ind < half_screen_rows || ind > nnz(S)-half_screen_rows
-        row, col = Tuple(_ci[ifull])
-        print(io, sep, '[', rpad(row, pad), ", ", lpad(col, pad), "]  =  ")
-        show(io, S.nzval[S.ind2nzval[ifull]])
-      elseif ind == half_screen_rows
-        print(io, sep, '⋮')
-      end
+  order = sortperm(1:xnnz, by = pos -> reverse(entry(pos)))
+  for (ind, pos) in enumerate(order)
+    if ind < half_screen_rows || ind > xnnz - half_screen_rows
+      row, col = entry(pos)
+      print(io, "\n  ", '[', rpad(row, pad), ", ", lpad(col, pad), "]  =  ")
+      show(io, value(pos))
+    elseif ind == half_screen_rows
+      print(io, "\n  ⋮")
     end
   end
 end
@@ -369,7 +446,7 @@ function *(A::StridedMatrix{Ta}, x::SparseIterate{Tx, 1}) where {Ta,Tx}
     mul!(y, A, x)
 end
 
-function LinearAlgebra.mul!(out::Vector, A::StridedMatrix, coef::SparseIterate{T, 1}) where {T}
+function LinearAlgebra.mul!(out::StridedVector, A::StridedMatrix, coef::SparseIterate{T, 1}) where {T}
   length(coef) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), length of coef is $(length(coef))"))
   length(out) == size(A, 1) || throw(DimensionMismatch("A has first dimension $(size(A,1)), length of out is $(length(out))"))
 
@@ -379,6 +456,22 @@ function LinearAlgebra.mul!(out::Vector, A::StridedMatrix, coef::SparseIterate{T
     c = coef.nzval[inz]
     @simd for i = 1:size(A, 1)
       out[i] += c*A[i, indColumn]
+    end
+  end
+  out
+end
+
+# the product with a matrix of coefficients, one column per response
+function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIterate{T, 2}) where {T}
+  size(coef, 1) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), coef has $(size(coef, 1)) rows"))
+  size(out) == (size(A, 1), size(coef, 2)) || throw(DimensionMismatch("out has size $(size(out))"))
+  fill!(out, zero(eltype(out)))
+  p = size(coef, 1)
+  @inbounds for inz = 1:nnz(coef)
+    j, k = mod1(coef.nzval2ind[inz], p), cld(coef.nzval2ind[inz], p)
+    c = coef.nzval[inz]
+    @simd for i = 1:size(A, 1)
+      out[i, k] += c * A[i, j]
     end
   end
   out
@@ -396,7 +489,7 @@ function *(transA::TransposedStridedMatrix{Ta}, x::SparseIterate{Tx, 1}) where {
     mul!(y, transpose(A), x)
 end
 
-function LinearAlgebra.mul!(out::AbstractVector, transA::TransposedStridedMatrix, coef::SparseIterate{T, 1}) where {T}
+function LinearAlgebra.mul!(out::StridedVector, transA::TransposedStridedMatrix, coef::SparseIterate{T, 1}) where {T}
     A = transA.parent
     length(coef) == size(A, 1) || throw(DimensionMismatch("A has first dimension $(size(A,1)), length of coef is $(length(coef))"))
     length(out) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), length of out is $(length(out))"))
@@ -411,14 +504,72 @@ function LinearAlgebra.mul!(out::AbstractVector, transA::TransposedStridedMatrix
     return out
 end
 
-LinearAlgebra.dot(coef::SparseIterate{T, 1}, x::Vector{T}) where {T} = dot(x, coef)
-
-function LinearAlgebra.dot(x::Vector{T}, coef::SparseIterate{T, 1}) where {T}
-    v = zero(T)
+# dot(v, x) over the stored entries of x, for any strided v, such as a row or a
+# column of a matrix: dot(view(A, i, :), x) is (A * x)[i] in O(nnz(x)). Other
+# vectors take the generic method, as SparseArrays has its own for sparse vectors.
+function LinearAlgebra.dot(v::StridedVector, coef::SparseIterate{<:Any, 1})
+    length(v) == length(coef) || throw(DimensionMismatch())
+    s = zero(promote_type(eltype(v), eltype(coef)))
     @inbounds @simd for icoef = 1:nnz(coef)
-        v += x[coef.nzval2ind[icoef]]*coef.nzval[icoef]
+        s += dot(v[coef.nzval2ind[icoef]], coef.nzval[icoef])
     end
-    v
+    s
+end
+LinearAlgebra.dot(coef::SparseIterate{<:Any, 1}, v::StridedVector) = conj(dot(v, coef))
+
+function LinearAlgebra.dot(x::SparseIterate{<:Any, 1}, y::SparseIterate{<:Any, 1})
+    length(x) == length(y) || throw(DimensionMismatch())
+    nnz(x) > nnz(y) && return conj(dot(y, x))
+    s = zero(promote_type(eltype(x), eltype(y)))
+    @inbounds for k = 1:nnz(x)
+        s += dot(x.nzval[k], y[x.nzval2ind[k]])
+    end
+    s
+end
+
+# a' X b and the entries of A X B for a sparse matrix X, in O(nnz(X))
+function LinearAlgebra.dot(a::StridedVector, X::SparseIterate{<:Any, 2}, b::StridedVector)
+  (length(a), length(b)) == size(X) || throw(DimensionMismatch())
+  m = size(X, 1)
+  s = zero(promote_type(eltype(a), eltype(X), eltype(b)))
+  @inbounds for k = 1:nnz(X)
+    i = X.nzval2ind[k]
+    s += a[mod1(i, m)] * X.nzval[k] * b[cld(i, m)]
+  end
+  s
+end
+
+"""
+    *(A::Symmetric, X::Union{SymmetricSparseIterate, SparseIterate{T, 2}}, B::Symmetric)
+
+The product `A * X * B` for a sparse iterate `X`, restricted to the rows and
+columns where `X` has nonzeros: O(p² k) for nonzeros in k rows, instead of the
+O(p³) of dense products.
+"""
+function *(A::Symmetric{T}, X::SparseIterate{T, 2}, B::Symmetric{T}) where {T}
+  m, n = size(X)
+  size(A, 2) == m && size(B, 1) == n || throw(DimensionMismatch())
+  posI, posJ = zeros(Int, m), zeros(Int, n)
+  nI = nJ = 0
+  for k = 1:nnz(X)
+    iszero(X.nzval[k]) && continue
+    i, j = mod1(X.nzval2ind[k], m), cld(X.nzval2ind[k], m)
+    posI[i] == 0 && (posI[i] = 1; nI += 1)
+    posJ[j] == 0 && (posJ[j] = 1; nJ += 1)
+    2 * nI > m && 2 * nJ > n && return A * (Matrix(X) * B)
+  end
+
+  I, J = findall(!iszero, posI), findall(!iszero, posJ)
+  posI[I] = 1:nI
+  posJ[J] = 1:nJ
+  XIJ = zeros(T, nI, nJ)
+  for k = 1:nnz(X)
+    iszero(X.nzval[k]) && continue
+    i, j = mod1(X.nzval2ind[k], m), cld(X.nzval2ind[k], m)
+    XIJ[posI[i], posJ[j]] = X.nzval[k]
+  end
+  # multiply in the cheaper order
+  nI <= nJ ? A[:, I] * (XIJ * B[J, :]) : (A[:, I] * XIJ) * B[J, :]
 end
 
 
@@ -432,20 +583,32 @@ SymmetricSparseIterate(n::Int) = SymmetricSparseIterate(Float64, n)
 SymmetricSparseIterate(::Type{T}, n::Int) where {T} =
   (_t = div(n*(n+1), 2); SymmetricSparseIterate{T}(zeros(T, _t), zeros(Int, _t), zeros(Int, _t), 0, n))
 
-Base.length(x::SymmetricSparseIterate) = div(x.p*(x.p+1), 2)
 Base.size(x::SymmetricSparseIterate) = (x.p, x.p)
-
 Base.IndexStyle(::Type{<:SymmetricSparseIterate}) = IndexCartesian()
-function Base.getindex(x::SymmetricSparseIterate, r::Int, c::Int)
-  checkbounds(x, r, c)
-  linInd = r >= c ? sub2indLowerTriangular(x.p, r, c) : sub2indLowerTriangular(x.p, c, r)
-  getindex(x, linInd)
+
+# the coordinate of entry (r, c)
+@inline _coordinate(x::SymmetricSparseIterate, r::Integer, c::Integer) =
+  r >= c ? tril_index(x.p, r, c) : tril_index(x.p, c, r)
+
+Base.@propagate_inbounds function Base.getindex(x::SymmetricSparseIterate, r::Int, c::Int)
+  @boundscheck checkbounds(x, r, c)
+  @inbounds _getstored(x, _coordinate(x, r, c))
 end
-function Base.setindex!(x::SymmetricSparseIterate, v, r::Int, c::Int)
-  checkbounds(x, r, c)
-  linInd = r >= c ? sub2indLowerTriangular(x.p, r, c) : sub2indLowerTriangular(x.p, c, r)
-  setindex!(x, v, linInd)
+Base.@propagate_inbounds function Base.setindex!(x::SymmetricSparseIterate, v, r::Int, c::Int)
+  @boundscheck checkbounds(x, r, c)
+  @inbounds _setstored!(x, v, _coordinate(x, r, c))
 end
+
+# the coordinates of x, the entries of its lower triangle, as a vector
+struct SymmetricCoordinates{T} <: AbstractVector{T}
+  x::SymmetricSparseIterate{T}
+end
+Base.size(c::SymmetricCoordinates) = (length(c.x.ind2nzval),)
+Base.IndexStyle(::Type{<:SymmetricCoordinates}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(c::SymmetricCoordinates, k::Int) = _getstored(c.x, k)
+Base.@propagate_inbounds Base.setindex!(c::SymmetricCoordinates, v, k::Int) = (_setstored!(c.x, v, k); c)
+
+coordinates(x::SymmetricSparseIterate) = SymmetricCoordinates(x)
 
 function SymmetricSparseIterate(X::SparseMatrixCSC{T}) where {T}
   n, m = size(X)
@@ -462,13 +625,24 @@ function SymmetricSparseIterate(X::SparseMatrixCSC{T}) where {T}
   out
 end
 
+# the lower triangle of a dense matrix
+function SymmetricSparseIterate(X::AbstractMatrix{T}) where {T}
+  p = checksquare(X)
+  out = SymmetricSparseIterate(T, p)
+  @inbounds for c = 1:p, r = c:p
+    v = X[r, c]
+    iszero(v) || _store!(out, tril_index(p, r, c), v)
+  end
+  out
+end
+
 function Base.Matrix(S::SymmetricSparseIterate{Tv}) where Tv
   p = S.p
   A = zeros(Tv, p, p)
   for k=1:nnz(S)
     i = S.nzval2ind[k]
     v = S.nzval[k]
-    r, c = ind2subLowerTriangular(p, i)
+    r, c = tril_cartesian(p, i)
     A[r, c] = v
     if r != c
       A[c, r] = v
@@ -490,6 +664,88 @@ function Base.copyto!(x::SymmetricSparseIterate, y::SymmetricSparseIterate)
     _copyto_stored!(x, y)
 end
 
+# from a dense matrix, its lower triangle
+function Base.copyto!(x::SymmetricSparseIterate, y::Matrix)
+  size(x) == size(y) || throw(DimensionMismatch())
+  p = x.p
+  @inbounds for c = 1:p, r = c:p
+    _setstored!(x, y[r, c], tril_index(p, r, c))
+  end
+  x
+end
+
+# Broadcasting into x computes each entry of the lower triangle once: visiting
+# both (r, c) and (c, r) would cost twice as much and, as they share storage,
+# apply an in-place update such as x .= 2 .* x twice.
+function Base.copyto!(x::SymmetricSparseIterate, bc::Broadcast.Broadcasted{Nothing})
+  axes(x) == axes(bc) || throw(DimensionMismatch("destination axes $(axes(x)) do not match $(axes(bc))"))
+  bc′ = Broadcast.preprocess(x, bc)
+  p = x.p
+  @inbounds for c = 1:p, r = c:p
+    _setstored!(x, bc′[CartesianIndex(r, c)], tril_index(p, r, c))
+  end
+  x
+end
+
+function Base.fill!(x::SymmetricSparseIterate, v)
+  if iszero(v)
+    _clear!(x)
+  else
+    c = coordinates(x)
+    @inbounds for k in eachindex(c)
+      c[k] = v
+    end
+  end
+  x
+end
+
+# axpy! and axpby! update each entry once, as broadcasting does, from the lower
+# triangle of x when x is not symmetric
+function LinearAlgebra.axpy!(α::Number, x::AbstractArray, y::SymmetricSparseIterate)
+  x′ = _reshape_like(x, y)
+  iszero(α) && return y
+  y .+= α .* x′
+end
+function LinearAlgebra.axpby!(α::Number, x::AbstractArray, β::Number, y::SymmetricSparseIterate)
+  x′ = _reshape_like(x, y)
+  iszero(α) && isone(β) && return y
+  y .= α .* x′ .+ β .* y
+end
+
+# x, which has as many entries as y, in the shape of y
+_reshape_like(x::AbstractArray, y::SymmetricSparseIterate) =
+  size(x) == size(y) ? x :
+  length(x) == length(y) ? reshape(x, size(y)) :
+  throw(DimensionMismatch(lazy"x has length $(length(x)), but y has length $(length(y))"))
+
+# The stored entries as a SparseMatrixCSC, in O(nnz): each nonzero (r, c) of the
+# lower triangle gives the entries (r, c) and (c, r) for which keep holds. The
+# generic sparse visits all p² entries, and the generic triu and tril work in
+# similar(x), which, being symmetric, cannot hold a triangle.
+function _sparse(x::SymmetricSparseIterate{T}, keep::F) where {T, F}
+  I, J, V = Int[], Int[], T[]
+  for k = 1:x.nnz
+    v = x.nzval[k]
+    iszero(v) && continue
+    r, c = tril_cartesian(x.p, x.nzval2ind[k])
+    keep(r, c) && (push!(I, r); push!(J, c); push!(V, v))
+    r != c && keep(c, r) && (push!(I, c); push!(J, r); push!(V, v))
+  end
+  sparse(I, J, V, x.p, x.p)
+end
+SparseArrays.sparse(x::SymmetricSparseIterate) = _sparse(x, (i, j) -> true)
+LinearAlgebra.triu(x::SymmetricSparseIterate, k::Integer = 0) = _sparse(x, (i, j) -> j - i >= k)
+LinearAlgebra.tril(x::SymmetricSparseIterate, k::Integer = 0) = _sparse(x, (i, j) -> j - i <= k)
+
+function Base.show(io::IO, ::MIME"text/plain", S::SymmetricSparseIterate)
+  xnnz = nnz(S)
+  print(io, S.p, "×", S.p, " ", typeof(S), " with ", xnnz, " stored ",
+        xnnz == 1 ? "entry" : "entries", " in the lower triangle")
+  xnnz == 0 && return
+  print(io, ":")
+  _show_entries(io, xnnz, pos -> tril_cartesian(S.p, S.nzval2ind[pos]), pos -> S.nzval[pos], S.p)
+end
+
 LinearAlgebra.mul!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::AbstractMatrix{T}) where T = _mul_symsparse!(C, A, B)
 # resolves ambiguity with LinearAlgebra's mul!(::AbstractMatrix, ::AbstractMatrix, ::AbstractTriangular)
 LinearAlgebra.mul!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::LinearAlgebra.AbstractTriangular{T}) where T = _mul_symsparse!(C, A, B)
@@ -504,7 +760,7 @@ function _mul_symsparse!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::
   @inbounds while i <= A.nnz
     v = A.nzval[i]
     ind = A.nzval2ind[i]
-    r, c = ind2subLowerTriangular(size(A, 1), ind)
+    r, c = tril_cartesian(size(A, 1), ind)
     if r == c
       for k=1:size(C, 2)
         @inbounds C[r, k] += B[c, k] * v
@@ -521,7 +777,7 @@ function _mul_symsparse!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::
 end
 
 
-# any element types: the generic fallback would read linear indices as those of a dense matrix
+# any element types: the generic fallback would loop over all p² entries
 function LinearAlgebra.mul!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector)
   size(A, 2) == size(B, 1) || throw(DimensionMismatch())
   size(A, 1) == size(C, 1) || throw(DimensionMismatch())
@@ -531,7 +787,7 @@ function LinearAlgebra.mul!(C::AbstractVector, A::SymmetricSparseIterate, B::Abs
   @inbounds while i <= A.nnz
     v = A.nzval[i]
     ind = A.nzval2ind[i]
-    r, c = ind2subLowerTriangular(size(A, 1), ind)
+    r, c = tril_cartesian(size(A, 1), ind)
     if r == c
         @inbounds C[r] += B[c] * v
     else
@@ -541,4 +797,57 @@ function LinearAlgebra.mul!(C::AbstractVector, A::SymmetricSparseIterate, B::Abs
     i += 1
   end
   C
+end
+
+# a' X b over the stored entries of X: the entry (A X B)[r, c] of symmetric A, B
+# is dot(view(A, :, r), X, view(B, :, c))
+function LinearAlgebra.dot(a::StridedVector, X::SymmetricSparseIterate, b::StridedVector)
+  length(a) == X.p == length(b) || throw(DimensionMismatch())
+  s = zero(promote_type(eltype(a), eltype(X), eltype(b)))
+  @inbounds for k = 1:X.nnz
+    r, c = tril_cartesian(X.p, X.nzval2ind[k])
+    v = X.nzval[k]
+    s += r == c ? a[r] * v * b[c] : (a[r] * b[c] + a[c] * b[r]) * v
+  end
+  s
+end
+
+# the trace inner product tr(A'X) over the stored entries of X
+function LinearAlgebra.dot(A::StridedMatrix, X::SymmetricSparseIterate)
+  size(A) == size(X) || throw(DimensionMismatch())
+  s = zero(promote_type(eltype(A), eltype(X)))
+  @inbounds for k = 1:X.nnz
+    r, c = tril_cartesian(X.p, X.nzval2ind[k])
+    v = X.nzval[k]
+    s += r == c ? dot(A[r, c], v) : dot(A[r, c] + A[c, r], v)
+  end
+  s
+end
+LinearAlgebra.dot(X::SymmetricSparseIterate, A::StridedMatrix) = conj(dot(A, X))
+
+function *(A::Symmetric{T}, X::SymmetricSparseIterate{T}, B::Symmetric{T}) where {T}
+  # Dense BLAS products cost O(p³) however sparse X is. Restricted to the rows K where
+  # X has nonzeros, A[:, K] * X[K, K] * B[K, :] costs O(p² |K|). Once X has nonzeros
+  # in more than half of the rows, the dense products are as fast.
+  p = X.p
+  size(A, 2) == p == size(B, 1) || throw(DimensionMismatch())
+  pos = zeros(Int, p)
+  nK = 0
+  for k = 1:nnz(X)
+    iszero(X.nzval[k]) && continue
+    for i in tril_cartesian(p, X.nzval2ind[k])
+      pos[i] == 0 && (pos[i] = 1; nK += 1)
+    end
+    2 * nK > p && return A * (Matrix(X) * B)
+  end
+
+  K = findall(!iszero, pos)
+  pos[K] = 1:nK                 # position of each row within K
+  XK = zeros(T, nK, nK)
+  for k = 1:nnz(X)
+    iszero(X.nzval[k]) && continue
+    r, c = tril_cartesian(p, X.nzval2ind[k])
+    XK[pos[r], pos[c]] = XK[pos[c], pos[r]] = X.nzval[k]
+  end
+  A[:, K] * (XK * B[K, :])
 end

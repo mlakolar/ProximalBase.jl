@@ -1,11 +1,21 @@
 using Test
 
+include("testutils.jl")
+
 tests = [
   "utils",
+  "lapack",
   "sparseIterate",
   "atomIterate",
-  "proximal_functions",
-  "differentiable_functions",
+  "interface",
+  "smooth",
+  "separable",
+  "norms",
+  "spectral",
+  "sets",
+  "calculus",
+  "allocations",
+  "deprecated",
   "aqua"
 ]
 

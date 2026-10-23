@@ -210,4 +210,52 @@ end
   @test fS(z[S]) ≈ SqrNormL2(2., c)(z) - sum(abs2, c[setdiff(1:10, S)])
 end
 
+@testset "gradient_mapping" begin
+  n, p = 50, 12
+  X, y = randn(n, p), randn(n)
+  f, g = LeastSquaresLoss(y, X), NormL1(5.)
+  L = lipschitz(f)
+  β, grad = zeros(p), zeros(p)
+  for _ in 1:5000
+    gradient!(grad, f, β)
+    β .-= grad ./ L
+    prox!(β, g, β, 1 / L)
+  end
+  # zero at the solution, for any step, and not elsewhere
+  @test norm(gradient_mapping(f, g, β, 1 / L)) < 1e-10
+  @test norm(gradient_mapping(f, g, β, 0.1 / L)) < 1e-10
+  @test norm(gradient_mapping(f, g, zeros(p), 1 / L)) > 1
+  # the gradient when g = 0, and a proximal gradient step is x - γG
+  x = randn(p)
+  @test gradient_mapping(f, ZeroFunction(), x, 0.3) ≈ gradient(f, x)
+  G = similar(x)
+  @test gradient_mapping!(G, f, g, x, 1 / L) === G
+  @test x - G / L ≈ prox(g, x - gradient(f, x) / L, 1 / L)
+  @test_throws ArgumentError gradient_mapping!(x, f, g, x, 1 / L)
+end
+
+@testset "proximal operators in place" begin
+  # prox!(y, f, y, γ) is prox(f, y, γ): solvers and gradient_mapping! rely on it
+  n = 12
+  x = randn(n)
+  X, y = randn(30, n), randn(30)
+  M, P = randn(8, 6), Matrix(Symmetric(randn(8, 8)))
+  B = randn(20, 8)
+  S = Matrix(Symmetric(B'B / 20))
+  vec_fs = (NormL1(0.3), NormL1(0.3, rand(n)), NormL1Nonneg(0.2), ElasticNet(0.3, 0.5), IndBox(-0.5, 0.5),
+            IndNonnegative(), IndBallLinf(0.4), NormL0(0.2), MCP(0.4), SCAD(0.4), NormL2(0.5), NormLinf(0.5),
+            GroupNormL2(0.4, [1:4, 5:12]), GroupNormLinf(0.4, [1:4, 5:12]), IndBallL0(3), IndBallL1(1.),
+            IndBallL2(1.), IndSimplex(1.), IndHyperplane(randn(n), 0.5), IndHalfspace(randn(n), -0.5),
+            ZeroFunction(), LinearFunction(randn(n)), SqrNormL2(2.), SqrNormL2(2., randn(n)),
+            QuadraticFunction(X'X, randn(n)), LeastSquaresLoss(y, X), 2 * NormL1(0.3),
+            Tilt(NormL1(0.3), randn(n), 1.), Translate(NormL1(0.3), randn(n)), Conjugate(NormL2(1.)),
+            Conjugate(NormL1(1.)))
+  mat_fs = ((NuclearNorm(0.5), M), (IndBallRank(2), M), (IndPSD(), P), (IndPSD(rank = 2), P), (TracePSD(0.3), P),
+            (LogDetLoss(S), Matrix(1.0I, 8, 8) + 0.1 * P), (LeastSquaresLoss(randn(30, 3), X), randn(n, 3)))
+  for (f, z) in (((f, x) for f in vec_fs)..., mat_fs...)
+    w = copy(z)
+    @test prox!(w, f, w, 0.7) ≈ prox(f, z, 0.7)
+  end
+end
+
 end

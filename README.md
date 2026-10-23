@@ -53,6 +53,14 @@ operator itself: a solver that tracks the objective should call it instead of
 `LeastSquaresLoss` and `LogDetLoss` are, so the same object serves a proximal
 gradient method and ADMM.
 
+`lipschitz(f)` is a Lipschitz constant of `∇f`, for step sizes; for a loss of a
+matrix it computes the largest eigenvalue by the Lanczos process, without
+forming `X'X`. `gradient_mapping(f, g, x, γ)` is zero exactly at the minimizers
+of `f + g`, so its norm is a stopping rule. A separable function of your own
+subtypes `SeparableFunction` and implements `value_entry` and `prox_entry`; the
+value, `prox!`, `value_and_prox!` and coordinate steps on every iterate come
+with it (see [examples/15](examples/15_calculus_and_custom_functions.jl)).
+
 ## Example: lasso by proximal gradient descent
 
 Minimize `‖Y - Xβ‖² / 2 + λ‖β‖₁`:

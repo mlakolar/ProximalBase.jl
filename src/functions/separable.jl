@@ -4,21 +4,60 @@
 #
 ####################################
 
-# A separable function implements, for the entry with linear index i,
-#
-#   prox_entry(f, v, i, γ)  the proximal operator of γfᵢ at the scalar v,
-#   _entry_value(f, v, i)   fᵢ(v),
-#
-# and may declare _zeropreserving(f) when fᵢ(0) = 0 and
-# prox_entry(f, 0, i, γ) = 0 for every i and γ, which lets its value and
-# proximal operator on a sparse iterate touch only the stored entries. The
-# value, prox! and value_and_prox! below follow, for every kind of array and
-# iterate.
+"""
+    SeparableFunction
+
+The supertype of the separable functions `f(x) = Σᵢ fᵢ(xᵢ)`, and the way to add
+one of your own. A subtype implements, for the entry with linear index `i`,
+
+- [`prox_entry`](@ref)`(f, v, i, γ)`: the proximal operator of `γfᵢ` at the
+  scalar `v`;
+- [`value_entry`](@ref)`(f, v, i)`: the value `fᵢ(v)`.
+
+From these it gets the value `f(x)`, [`prox!`](@ref) and
+[`value_and_prox!`](@ref) on any array, and [`prox_coordinate!`](@ref) on the
+three iterates. Declare [`iszeropreserving`](@ref) when `fᵢ(0) = 0` and the
+proximal operator maps 0 to 0; then the value and the proximal operator on a
+sparse iterate touch only its stored entries. `isseparable` and `isproximable`
+are true; declare `isconvex` when it holds.
+
+# Example
+
+```julia
+struct WeightedSquare <: SeparableFunction            # Σᵢ wᵢ xᵢ² / 2
+    w::Vector{Float64}
+end
+ProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2
+ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
+ProximalBase.iszeropreserving(::WeightedSquare) = true
+ProximalBase.isconvex(::Type{WeightedSquare}) = true
+```
+"""
 abstract type SeparableFunction <: AbstractFunction end
 
 isseparable(::Type{<:SeparableFunction}) = true
 isproximable(::Type{<:SeparableFunction}) = true
-_zeropreserving(::SeparableFunction) = false
+
+"""
+    value_entry(f, v, i)
+
+For a [`SeparableFunction`](@ref) `f(x) = Σᵢ fᵢ(xᵢ)`, the value `fᵢ(v)` of the
+term of entry `i` at the scalar `v`. `i` is a linear index of the array, as in
+[`prox_entry`](@ref).
+"""
+function value_entry end
+
+"""
+    iszeropreserving(f)
+
+Whether the separable function `f` has `fᵢ(0) = 0` and maps 0 to 0 by its
+proximal operator, `prox_entry(f, 0, i, γ) = 0`, for every entry `i` and step
+`γ`, as norms and most penalties do. Then the value and the proximal operator
+on a sparse iterate touch only its stored entries. It is `false` unless a
+function declares it, and it is a property of the function, not of its type:
+the bounds of an `IndBox` may exclude zero.
+"""
+iszeropreserving(::SeparableFunction) = false
 
 (f::SeparableFunction)(x::AbstractArray) = _value_sep(f, x)
 prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) = _prox_sep!(y, f, x, γ)
@@ -29,7 +68,7 @@ function _value_dense(f, x::AbstractArray)
   T = float(eltype(x))
   s = zero(T)
   @inbounds @simd for i in eachindex(IndexLinear(), x)
-    s += convert(T, _entry_value(f, x[i], i))
+    s += convert(T, value_entry(f, x[i], i))
   end
   s
 end
@@ -38,11 +77,11 @@ _value_sep(f, x::AbstractArray) = (_checkparams(f, x); _value_dense(f, x))
 
 function _value_sep(f, x::SparseIterate)
   _checkparams(f, x)
-  _zeropreserving(f) || return _value_dense(f, x)
+  iszeropreserving(f) || return _value_dense(f, x)
   T = float(eltype(x))
   s = zero(T)
   @inbounds for k in 1:x.nnz
-    s += convert(T, _entry_value(f, x.nzval[k], x.nzval2ind[k]))
+    s += convert(T, value_entry(f, x.nzval[k], x.nzval2ind[k]))
   end
   s
 end
@@ -50,26 +89,26 @@ end
 # an off-diagonal coordinate is the entries (r, c) and (c, r)
 function _value_sep(f, x::SymmetricSparseIterate)
   _checkparams(f, x)
-  _zeropreserving(f) || return _value_dense(f, x)
+  iszeropreserving(f) || return _value_dense(f, x)
   T = float(eltype(x))
   p = x.p
   s = zero(T)
   @inbounds for k in 1:x.nnz
     r, c = tril_cartesian(p, x.nzval2ind[k])
     v = x.nzval[k]
-    s += convert(T, _entry_value(f, v, (c - 1) * p + r))
-    r == c || (s += convert(T, _entry_value(f, v, (r - 1) * p + c)))
+    s += convert(T, value_entry(f, v, (c - 1) * p + r))
+    r == c || (s += convert(T, value_entry(f, v, (r - 1) * p + c)))
   end
   s
 end
 
 function _value_sep(f, x::AtomIterate)
   _checkparams(f, x)
-  _zeropreserving(f) || return _value_dense(f, x)
+  iszeropreserving(f) || return _value_dense(f, x)
   T = float(eltype(x))
   s = zero(T)
   @inbounds for a in 1:x.nactive, i in x.groups[x.active[a]]
-    s += convert(T, _entry_value(f, x.storage[i], i))
+    s += convert(T, value_entry(f, x.storage[i], i))
   end
   s
 end
@@ -90,7 +129,7 @@ end
 function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  _zeropreserving(f) || return invoke(_prox_sep!, Tuple{AbstractArray, Any, AbstractArray, Real}, y, f, x, γ)
+  iszeropreserving(f) || return invoke(_prox_sep!, Tuple{AbstractArray, Any, AbstractArray, Real}, y, f, x, γ)
   T = eltype(y)
   if y !== x
     @inbounds for k in 1:y.nnz
@@ -111,7 +150,7 @@ function _prox_sep!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::Real)
   _checkparams(f, x)
   T = eltype(y)
   p = y.p
-  if x isa SymmetricSparseIterate && _zeropreserving(f)
+  if x isa SymmetricSparseIterate && iszeropreserving(f)
     if y !== x                       # as for a SparseIterate, y keeps its stored entries
       @inbounds for k in 1:y.nnz
         y.nzval[k] = zero(T)
@@ -168,10 +207,10 @@ end
 NormL1(λ0::Real = 1, w::Union{Nothing, AbstractArray} = nothing) = NormL1{typeof(λ0), typeof(w)}(λ0, w)
 
 isconvex(::Type{<:NormL1}) = true
-_zeropreserving(::NormL1) = true
+iszeropreserving(::NormL1) = true
 _checkparams(f::NormL1, x) = (_checkparam(f.w, x); true)
 
-Base.@propagate_inbounds _entry_value(f::NormL1, v::Real, i::Integer) = f.λ0 * _entry(f.w, i) * abs(v)
+Base.@propagate_inbounds value_entry(f::NormL1, v::Real, i::Integer) = f.λ0 * _entry(f.w, i) * abs(v)
 Base.@propagate_inbounds prox_entry(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
   shrink(v, convert(float(T), γ * f.λ0 * _entry(f.w, i)))
 
@@ -209,10 +248,10 @@ end
 NormL1Nonneg(λ0::Real = 1, w::Union{Nothing, AbstractArray} = nothing) = NormL1Nonneg{typeof(λ0), typeof(w)}(λ0, w)
 
 isconvex(::Type{<:NormL1Nonneg}) = true
-_zeropreserving(::NormL1Nonneg) = true
+iszeropreserving(::NormL1Nonneg) = true
 _checkparams(f::NormL1Nonneg, x) = (_checkparam(f.w, x); true)
 
-Base.@propagate_inbounds function _entry_value(f::NormL1Nonneg, v::T, i::Integer) where {T<:Real}
+Base.@propagate_inbounds function value_entry(f::NormL1Nonneg, v::T, i::Integer) where {T<:Real}
   S = float(T)
   v >= -_tol(S) ? f.λ0 * _entry(f.w, i) * max(v, zero(T)) : S(Inf)
 end
@@ -253,10 +292,10 @@ function ElasticNet(λ1::Real, λ2::Real, w::Union{Nothing, AbstractArray} = not
 end
 
 isconvex(::Type{<:ElasticNet}) = true
-_zeropreserving(::ElasticNet) = true
+iszeropreserving(::ElasticNet) = true
 _checkparams(f::ElasticNet, x) = (_checkparam(f.w, x); true)
 
-Base.@propagate_inbounds _entry_value(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
+Base.@propagate_inbounds value_entry(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
 Base.@propagate_inbounds function prox_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   shrink(v, convert(S, γ * f.λ1 * _entry(f.w, i))) / (1 + convert(S, γ * f.λ2))
@@ -296,7 +335,7 @@ The indicator of the ℓ∞ ball `{x : maxᵢ |xᵢ| ≤ r}`, the box [`IndBox`]
 IndBallLinf(r::Real) = (_checknonneg("r", r); IndBox(-r, r))
 
 isconvex(::Type{<:IndBox}) = true
-_zeropreserving(f::IndBox) = f.zp
+iszeropreserving(f::IndBox) = f.zp
 _checkparams(f::IndBox, x) = (_checkparam(f.l, x); _checkparam(f.u, x); true)
 
 _isindicator(::Type{<:IndBox}) = true
@@ -313,7 +352,7 @@ function _value_dense(f::IndBox, x::AbstractArray)
   ok ? zero(T) : T(Inf)
 end
 
-Base.@propagate_inbounds function _entry_value(f::IndBox, v::T, i::Integer) where {T<:Real}
+Base.@propagate_inbounds function value_entry(f::IndBox, v::T, i::Integer) where {T<:Real}
   S = float(T)
   l, u = _entry(f.l, i), _entry(f.u, i)
   t = _tol(S)
@@ -341,13 +380,13 @@ The indicator of the nonnegative orthant `{x : x ≥ 0}`. Its proximal operator 
 struct IndNonnegative <: SeparableFunction end
 
 isconvex(::Type{IndNonnegative}) = true
-_zeropreserving(::IndNonnegative) = true
+iszeropreserving(::IndNonnegative) = true
 
 _isindicator(::Type{IndNonnegative}) = true
 _value_dense(::IndNonnegative, x::AbstractArray) =
   (T = float(eltype(x)); isempty(x) || minimum(x) >= -_tol(T) ? zero(T) : T(Inf))
 
-@inline _entry_value(::IndNonnegative, v::T, ::Integer) where {T<:Real} =
+@inline value_entry(::IndNonnegative, v::T, ::Integer) where {T<:Real} =
   v >= -_tol(float(T)) ? zero(float(T)) : float(T)(Inf)
 @inline prox_entry(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} = max(float(v), zero(float(T)))
 kkt_violation(::IndNonnegative, g::AbstractArray, i::Integer) = -g[i]
@@ -370,9 +409,9 @@ struct NormL0{T<:Real} <: SeparableFunction
 end
 NormL0(λ::Real = 1) = NormL0{typeof(λ)}(λ)
 
-_zeropreserving(::NormL0) = true
+iszeropreserving(::NormL0) = true
 
-Base.@propagate_inbounds _entry_value(f::NormL0, v::T, ::Integer) where {T<:Real} = iszero(v) ? zero(float(T)) : convert(float(T), f.λ)
+Base.@propagate_inbounds value_entry(f::NormL0, v::T, ::Integer) where {T<:Real} = iszero(v) ? zero(float(T)) : convert(float(T), f.λ)
 Base.@propagate_inbounds prox_entry(f::NormL0, v::T, ::Integer, γ::Real) where {T<:Real} =
   abs2(v) > 2 * γ * f.λ ? float(v) : zero(float(T))
 restrict(f::NormL0, ::AbstractVector{<:Integer}) = f
@@ -402,9 +441,9 @@ struct MCP{T<:Real} <: SeparableFunction
 end
 MCP(λ::Real, a::Real = 3) = (p = promote(λ, a); MCP{typeof(p[1])}(p...))
 
-_zeropreserving(::MCP) = true
+iszeropreserving(::MCP) = true
 
-Base.@propagate_inbounds function _entry_value(f::MCP, v::T, ::Integer) where {T<:Real}
+Base.@propagate_inbounds function value_entry(f::MCP, v::T, ::Integer) where {T<:Real}
   S = float(T)
   λ, a, t = S(f.λ), S(f.a), abs(S(v))
   t <= a * λ ? λ * t - t^2 / (2a) : a * λ^2 / 2
@@ -420,7 +459,7 @@ Base.@propagate_inbounds function prox_entry(f::MCP, v::T, i::Integer, γ::Real)
   end
   # concave between 0 and aλ: the minimizer is 0 or the largest candidate
   u = max(t, a * λ)
-  h(z) = (z - t)^2 / (2s) + _entry_value(f, z, i)
+  h(z) = (z - t)^2 / (2s) + value_entry(f, z, i)
   h(u) < h(zero(S)) ? sign(S(v)) * u : zero(S)
 end
 
@@ -449,9 +488,9 @@ struct SCAD{T<:Real} <: SeparableFunction
 end
 SCAD(λ::Real, a::Real = 3.7) = (p = promote(λ, a); SCAD{typeof(p[1])}(p...))
 
-_zeropreserving(::SCAD) = true
+iszeropreserving(::SCAD) = true
 
-Base.@propagate_inbounds function _entry_value(f::SCAD, v::T, ::Integer) where {T<:Real}
+Base.@propagate_inbounds function value_entry(f::SCAD, v::T, ::Integer) where {T<:Real}
   S = float(T)
   λ, a, t = S(f.λ), S(f.a), abs(S(v))
   t <= λ && return λ * t
@@ -468,7 +507,7 @@ Base.@propagate_inbounds function prox_entry(f::SCAD, v::T, i::Integer, γ::Real
     return sign(S(v)) * ((a - 1) * t - s * a * λ) / (a - 1 - s)
   end
   # concave on [λ, aλ]: compare the minimizers of the three pieces
-  h(z) = (z - t)^2 / (2s) + _entry_value(f, z, i)
+  h(z) = (z - t)^2 / (2s) + value_entry(f, z, i)
   best, hb = zero(S), h(zero(S))
   for z in (min(max(t - s * λ, zero(S)), λ), a * λ, max(t, a * λ))
     hz = h(z)

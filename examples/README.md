@@ -17,7 +17,7 @@ test suite runs all of them.
 
 | Script | Problem | What it shows |
 |:-------|:--------|:--------------|
-| [`01_lasso_three_ways.jl`](01_lasso_three_ways.jl) | the lasso | ISTA, FISTA and ADMM from the same two functions: `LeastSquaresLoss` is smooth and proximable; `value_and_prox!` tracks the objective |
+| [`01_lasso_three_ways.jl`](01_lasso_three_ways.jl) | the lasso | ISTA, FISTA and ADMM from the same two functions: `LeastSquaresLoss` is smooth and proximable; `lipschitz`, `value_and_prox!`, `gradient_mapping` |
 | [`02_lasso_path_coordinate_descent.jl`](02_lasso_path_coordinate_descent.jl) | a lasso path | coordinate descent with `prox_entry` on a `SparseIterate`; warm starts, an active set, `kkt_violation` |
 | [`03_nonconvex_penalties.jl`](03_nonconvex_penalties.jl) | sparse regression | the thresholding functions of `NormL1`, `MCP`, `SCAD` and `NormL0`; the bias of the lasso against MCP and SCAD |
 | [`04_group_lasso.jl`](04_group_lasso.jl) | the group lasso | `GroupNormL2` with groups of unequal sizes, by FISTA and by block coordinate descent on an `AtomIterate` |
@@ -31,7 +31,7 @@ test suite runs all of them.
 | [`12_multitask_regression.jl`](12_multitask_regression.jl) | multitask regression | `LeastSquaresLoss` with a matrix response; `GroupNormL2` on the rows of the coefficient matrix |
 | [`13_differential_network.jl`](13_differential_network.jl) | a differential network | the D-trace loss as `KronQuadratic` on a `SymmetricSparseIterate`; its coordinates and `tril_cartesian` |
 | [`14_active_set_lasso.jl`](14_active_set_lasso.jl) | the lasso with p ≫ n | a working-set solver with `restrict` and `kkt_violation` |
-| [`15_calculus_and_custom_functions.jl`](15_calculus_and_custom_functions.jl) | building functions | `Scaled`, `Translate`, `Tilt`, `Conjugate` (Moreau's identity), `Sum`, `SeparableSum`, and a function of your own |
+| [`15_calculus_and_custom_functions.jl`](15_calculus_and_custom_functions.jl) | building functions | `Scaled`, `Translate`, `Tilt`, `Conjugate` (Moreau's identity), `Sum`, `SeparableSum`, and a `SeparableFunction` of your own |
 
 For complete solvers built on these pieces, including coordinate descent with
 penalty paths, see [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl).

@@ -292,3 +292,64 @@ function _sumabs2_diff(x::AbstractArray, y::AbstractArray)
   end
   s
 end
+
+####################################
+#
+#  The largest eigenvalue of an operator
+#
+####################################
+
+# The largest eigenvalue of a symmetric positive semidefinite n × n operator,
+# given as op!(w, v) for w = Av, by the Lanczos process. The largest Ritz value
+# increases to it; the process stops when the residual of the largest Ritz pair
+# is below rtol times the value, and then the value is an eigenvalue to that
+# accuracy. Without reorthogonalization the Ritz values stay within the
+# spectrum (Paige, 1980), so the estimate does not exceed the largest
+# eigenvalue. The start is a fixed vector with no simple structure, which is
+# orthogonal to the leading eigenvector only by accident.
+function _largest_eigenvalue(op!, n::Integer, ::Type{T}; rtol::Real = 1e-10, maxiter::Integer = 500) where {T<:AbstractFloat}
+  n == 0 && return zero(T)
+  v = T[sin(1.0 * i) + cos(sqrt(2.0) * i) for i in 1:n]
+  v ./= norm(v)
+  vold, w = zeros(T, n), zeros(T, n)
+  α, β = T[], T[]
+  θ = zero(T)
+  for j in 1:min(n, maxiter)
+    op!(w, v)
+    push!(α, dot(v, w))
+    w .-= α[j] .* v
+    j > 1 && (w .-= β[j-1] .* vold)
+    E = eigen(SymTridiagonal(α, β), j:j)                 # the largest Ritz pair
+    θ = E.values[1]
+    b = norm(w)
+    b * abs(E.vectors[j, 1]) <= rtol * abs(θ) && return θ
+    iszero(b) && return θ
+    push!(β, b)
+    vold, v = v, vold
+    v .= w ./ b
+  end
+  θ
+end
+
+# ‖X‖₂², the largest eigenvalue of X' Diagonal(w) X, through products with X
+# and X' only, on the smaller of the two Gram matrices
+function _opnorm2(X::AbstractMatrix, w = nothing)
+  T = float(eltype(X))
+  m, n = size(X)
+  if w === nothing && m < n
+    t = zeros(T, n)
+    return _largest_eigenvalue(m, T) do out, v
+      mul!(t, X', v)
+      mul!(out, X, t)
+    end
+  end
+  t = zeros(T, m)
+  _largest_eigenvalue(n, T) do out, v
+    mul!(t, X, v)
+    w === nothing || (t .*= w)
+    mul!(out, X', t)
+  end
+end
+
+# ‖A‖₂, the largest singular value
+_opnorm(A::AbstractMatrix) = sqrt(_opnorm2(A))

@@ -1,5 +1,28 @@
 # ProximalBase.jl news
 
+## 0.5.3
+
+- **Separable functions of your own:** `SeparableFunction` is exported as the
+  supertype to subtype. Implementing `value_entry(f, v, i)` and
+  `prox_entry(f, v, i, γ)` gives the value, `prox!`, `value_and_prox!` and
+  `prox_coordinate!` on every array and iterate. Declaring
+  `iszeropreserving(f)` gives the O(nnz) paths on sparse iterates. These were
+  the internal `_entry_value` and `_zeropreserving`.
+- **`lipschitz(f)`:** a Lipschitz constant of the gradient of a smooth function,
+  for step sizes.
+  - It uses the closed form where there is one.
+  - For a loss of a matrix, it computes the largest eigenvalue by the Lanczos
+    process, without forming `X'X`: `‖X‖₂²` for `LeastSquaresLoss`, the
+    curvature bound times `‖W^½ X‖₂²` for `GLMLoss`, and `‖A‖₂‖B‖₂` for
+    `KronQuadratic`.
+  - It is `Inf` for `LogDetLoss` and `PoissonLoss`.
+- **`gradient_mapping(f, g, x, γ)`:** `(x - prox_{γg}(x - γ∇f(x))) / γ`. It is
+  zero exactly at the minimizers of `f + g` when both are convex, so its norm is
+  a stopping rule for any smooth plus proximable pair. `gradient_mapping!`
+  allocates nothing.
+- **`KronQuadratic`** accepts `A` and `B` that are symmetric up to rounding, such
+  as `inv(Ω)`, and symmetrizes them.
+
 ## 0.5.2
 
 - **Precompilation:** a PrecompileTools workload compiles the common calls into

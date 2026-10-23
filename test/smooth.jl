@@ -307,4 +307,52 @@ end
   @test prox(f32, Float32.(X), 0.5f0) ≈ prox(f, X, 0.5) rtol = 1e-4
 end
 
+@testset "lipschitz" begin
+  n, p = 40, 15
+  X, y = randn(n, p), randn(n)
+  L = opnorm(X)^2
+  # closed forms, and the largest eigenvalues the losses involve
+  @test lipschitz(ZeroFunction()) == 0 && lipschitz(LinearFunction(randn(p))) == 0
+  @test lipschitz(SqrNormL2(3.)) == 3 && lipschitz(SqrNormL2(3., randn(p))) == 3
+  @test lipschitz(LeastSquaresLoss(y, X)) ≈ L rtol = 1e-8
+  @test lipschitz(LeastSquaresLoss(randn(n, 3), X)) ≈ L rtol = 1e-8
+  Xw = randn(10, 60)                                  # more columns than rows
+  @test lipschitz(LeastSquaresLoss(randn(10), Xw)) ≈ opnorm(Xw)^2 rtol = 1e-8
+  wt = rand(n)
+  @test lipschitz(LogisticLoss(rand(0:1, n), X)) ≈ L / 4 rtol = 1e-8
+  @test lipschitz(LogisticLoss(rand(0:1, n), X; weights = wt)) ≈ opnorm(Diagonal(sqrt.(wt)) * X)^2 / 4 rtol = 1e-8
+  @test lipschitz(HuberLoss(y, X, 0.5)) ≈ L rtol = 1e-8
+  @test lipschitz(GLMLoss(ProximalBase.Squared(), y, X)) ≈ L rtol = 1e-8
+  @test lipschitz(PoissonLoss(rand(0:3, n), X)) == Inf
+  A = X'X / n
+  @test lipschitz(QuadraticFunction(A, randn(p))) ≈ opnorm(A) rtol = 1e-8
+  B = A[1:5, 1:5]
+  @test lipschitz(KronQuadratic(A, B, randn(p, 5))) ≈ opnorm(A) * opnorm(B) rtol = 1e-8
+  @test lipschitz(LogDetLoss(Matrix(1.0I, 3, 3))) == Inf
+  # functions built from functions
+  f = LeastSquaresLoss(y, X)
+  @test lipschitz(2 * f) ≈ 2L rtol = 1e-8
+  @test lipschitz(Tilt(f, randn(p), 1.)) ≈ L rtol = 1e-8
+  @test lipschitz(Translate(f, randn(p))) ≈ L rtol = 1e-8
+  @test lipschitz(Sum(f, SqrNormL2(3.))) ≈ L + 3 rtol = 1e-8
+  @test lipschitz(SeparableSum(f, SqrNormL2(3.))) ≈ max(L, 3) rtol = 1e-8
+  # the step 1/L decreases the objective along the gradient
+  β = randn(p)
+  @test f(β - gradient(f, β) / lipschitz(f)) < f(β)
+  # edge cases and errors
+  @test lipschitz(LeastSquaresLoss(zeros(n), zeros(n, p))) == 0
+  @test lipschitz(LeastSquaresLoss(Float32.(y), Float32.(X))) isa Float32
+  @test_throws ArgumentError lipschitz(NormL1(1.))
+  @test_throws ArgumentError lipschitz(Conjugate(NormL2(1.)))
+end
+
+@testset "KronQuadratic from matrices symmetric up to rounding" begin
+  p = 6
+  Ω = Matrix(SymTridiagonal(fill(1.0, p), fill(0.3, p - 1)))
+  @test !issymmetric(inv(Ω))                          # an inverse computed by inv
+  f = KronQuadratic(inv(Ω), inv(Ω))
+  @test issymmetric(f.A) && f.A ≈ inv(Ω)
+  @test_throws ArgumentError KronQuadratic(Ω + [i > j ? 1e-3 : 0. for i in 1:p, j in 1:p], Ω)
+end
+
 end

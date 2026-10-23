@@ -21,6 +21,7 @@ a_vgrad!(g, f, x) = value_and_gradient!(g, f, x)
 a_grad!(g, f, x) = gradient!(g, f, x)
 a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
 a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
+a_gmap!(G, f, g, x, γ) = gradient_mapping!(G, f, g, x, γ)
 
 function zero_alloc_prox(f, x; γ = 0.7, value = true)
   y = similar(x)
@@ -151,6 +152,8 @@ end
     zero_alloc_grad(LeastSquaresLoss(y, X), xs)
     zero_alloc_grad(LogisticLoss(rand(0:1, n), X), xs)
     zero_alloc_grad(LeastSquaresLoss(y, X), xa)
+    # the gradient mapping
+    @test allocs(a_gmap!, similar(x), LeastSquaresLoss(y, X), NormL1(0.3), x, 0.01) == 0
   end
 
   @testset "calculus" begin

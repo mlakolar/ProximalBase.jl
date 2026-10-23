@@ -14,6 +14,7 @@ tests = [
   "fibers",
   "spectral",
   "sets",
+  "matrixsets",
   "calculus",
   "allocations",
   "deprecated",

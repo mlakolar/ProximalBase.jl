@@ -26,6 +26,20 @@ mathematics:
 - the coordinate step on symmetric matrices;
 - the examples, run and rendered.
 
+ProximalBase is one of five Julia packages for high-dimensional statistics,
+three for estimation and inference and two for the optimization beneath them:
+
+| Package | |
+|---|---|
+| [CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl) | the lasso and its paths; the group, square-root, scaled and heteroscedastic lasso; varying-coefficient models |
+| [CovarianceSelection.jl](https://github.com/mlakolar/CovarianceSelection.jl) | Gaussian graphical models: the graphical lasso, CLIME and ACLIME, precision matrices by the scaled lasso, the fused graphical lasso, and the difference of two precision matrices |
+| [DiffPrecTest.jl](https://github.com/mlakolar/DiffPrecTest.jl) | confidence intervals and tests for the difference of two precision matrices |
+| [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl) | the solvers: coordinate descent with penalty paths, screening and active sets; proximal gradient methods, proximal Newton and ADMM |
+| **ProximalBase.jl** (this package) | the building blocks: losses, penalties and constraints with their gradients and proximal operators, and sparse iterates; [documentation](https://mlakolar.github.io/ProximalBase.jl/dev/) with the mathematics |
+
+Most users need one of the first three. To solve a problem of your own, use
+ProximalSolvers; to write your own algorithm, ProximalBase.
+
 ## Installation
 
 Requires Julia 1.10 or later.
@@ -97,6 +111,11 @@ end
 
 `β` recovers the three nonzero coefficients and sets the rest to exactly zero.
 
+To fit the lasso, use [CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl):
+`lasso(X, Y, 5 / n)` computes the same `β` by coordinate descent (its loss is
+divided by `n`), and `LassoPath(X, Y)` the solutions along a path of penalty
+levels.
+
 ## Example: group lasso by block coordinate descent
 
 Minimize `‖Y - Xβ‖² / 2 + λ Σₖ √|Gₖ| ‖β[Gₖ]‖₂`, one group at a time. An
@@ -160,6 +179,10 @@ end
 and few others are. `f` and `g` own their workspaces, so the proximal operators
 allocate nothing; the temporaries `Z .- U` and `Ω .+ U` are those of this short
 loop.
+
+To fit the graphical lasso, use [CovarianceSelection.jl](https://github.com/mlakolar/CovarianceSelection.jl):
+`covselpath(Matrix(S), [0.2, 0.1]; penalize_diag = false)` runs this ADMM to a
+stopping rule at each penalty level, warm starting each level from the last.
 
 ## More examples
 
@@ -284,21 +307,6 @@ that compilation would take.
 
 Every exported function and type has a docstring; use `?name` in the Julia REPL,
 for example `?NormL1`.
-
-## Related packages
-
-- [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl): solvers
-  built on ProximalBase. Its core is coordinate descent with penalty paths,
-  screening and active sets; it also has proximal gradient methods and ADMM.
-- [CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl): the
-  lasso, group lasso, square-root and scaled lasso, and varying-coefficient
-  models by coordinate descent.
-- [CovSel.jl](https://github.com/mlakolar/CovSel.jl): high-dimensional Gaussian
-  graphical models: the graphical lasso, CLIME, sparse precision matrices by the
-  scaled lasso, the fused graphical lasso, and the direct estimation of the
-  difference of two precision matrices.
-- [DiffPrecTest.jl](https://github.com/mlakolar/DiffPrecTest.jl): confidence
-  intervals and tests for the difference of two precision matrices.
 
 ## License
 

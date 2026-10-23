@@ -19,6 +19,20 @@ ProximalBase provides the pieces, not complete solvers: you write the
 optimization loop, or use
 [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl).
 
+ProximalBase is one of five Julia packages for high-dimensional statistics,
+three for estimation and inference and two for the optimization beneath them:
+
+| Package | |
+|---|---|
+| [CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl) | the lasso and its paths; the group, square-root, scaled and heteroscedastic lasso; varying-coefficient models |
+| [CovarianceSelection.jl](https://github.com/mlakolar/CovarianceSelection.jl) | Gaussian graphical models: the graphical lasso, CLIME and ACLIME, precision matrices by the scaled lasso, the fused graphical lasso, and the difference of two precision matrices |
+| [DiffPrecTest.jl](https://github.com/mlakolar/DiffPrecTest.jl) | confidence intervals and tests for the difference of two precision matrices |
+| [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl) | the solvers: coordinate descent with penalty paths, screening and active sets; proximal gradient methods, proximal Newton and ADMM |
+| **ProximalBase.jl** (this package) | the building blocks: losses, penalties and constraints with their gradients and proximal operators, and sparse iterates; [documentation](https://mlakolar.github.io/ProximalBase.jl/dev/) with the mathematics |
+
+Most users need one of the first three. To solve a problem of your own, use
+ProximalSolvers; to write your own algorithm, ProximalBase.
+
 ## Installation
 
 ```julia
@@ -92,17 +106,3 @@ norm(gradient_mapping(f, g, β, 1 / L))
 - [Writing your own function](@ref) shows how to add a function, separable or
   not.
 - The examples are sixteen complete programs, each checking its result.
-
-## Related packages
-
-- [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl): solvers
-  built on ProximalBase, with coordinate descent, penalty paths, screening,
-  active sets, proximal gradient methods and ADMM.
-- [CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl): the
-  lasso, group lasso, square-root and scaled lasso, and varying-coefficient
-  models.
-- [CovSel.jl](https://github.com/mlakolar/CovSel.jl): Gaussian graphical models:
-  the graphical lasso, CLIME, sparse precision matrices by the scaled lasso, the
-  fused graphical lasso, and differential networks.
-- [DiffPrecTest.jl](https://github.com/mlakolar/DiffPrecTest.jl): inference for
-  the difference of two precision matrices.

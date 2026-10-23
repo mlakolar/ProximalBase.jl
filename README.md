@@ -225,7 +225,8 @@ coordinates the iterate; they differ for a `SymmetricSparseIterate` and an
 set, `coordinates(x)` is a vector view of the coordinates (the lower triangle of
 a `SymmetricSparseIterate`), and `tril_index` and `tril_cartesian` convert
 between a coordinate and its entry `(r, c)`. A `SymmetricSparseIterate` is an
-ordinary `p × p` matrix for indexing, iteration and broadcasting.
+ordinary `p × p` matrix for indexing, iteration and broadcasting, in which
+writing `x[r, c]` also writes `x[c, r]`.
 
 `restrict(f, S)` is the function of `x[S]` on the vectors supported on `S`, and
 `kkt_violation(f, g, x, k)` measures how much a coordinate at zero violates

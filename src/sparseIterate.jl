@@ -29,6 +29,14 @@ same O(1) access as [`SparseIterate`](@ref). It is an ordinary `p × p` matrix:
 and iteration follow the dense matrix, so that an off-diagonal entry is visited
 twice.
 
+Writing `x[r, c]` writes `x[c, r]` too. Broadcasting into `x`, `copyto!`, `fill!`,
+`rmul!`, `lmul!`, `axpy!` and `axpby!` update each entry once, from the lower
+triangle of a source that is not symmetric. Other functions that update the
+entries of `x` one at a time, such as `map!` or `mul!` into `x`, would update an
+off-diagonal entry twice, and those that build a result that is not symmetric in
+`similar(x)`, such as `cumsum` or `circshift`, need `Matrix(x)`. `triu`, `tril`
+and `sparse` return a `SparseMatrixCSC`.
+
 Its coordinates are the `p(p+1)/2` entries of the lower triangle, numbered
 column by column ([`tril_index`](@ref)): [`prox_coordinate!`](@ref) updates
 them, [`ncoordinates`](@ref) counts them, [`activecoordinates`](@ref) lists the
@@ -201,6 +209,34 @@ function _clear!(x::_StoredIterate)
     x.ind2nzval[x.nzval2ind[k]] = 0
   end
   x.nnz = 0
+  x
+end
+
+# Multiplying by a number scales the stored entries, in O(nnz), as for a sparse
+# matrix. The generic methods visit every index, among them (r, c) and (c, r) of a
+# SymmetricSparseIterate, which share storage, and so would scale it twice.
+function LinearAlgebra.rmul!(x::_StoredIterate, s::Number)
+  @inbounds for k = 1:x.nnz
+    x.nzval[k] *= s
+  end
+  x
+end
+function LinearAlgebra.lmul!(s::Number, x::_StoredIterate)
+  @inbounds for k = 1:x.nnz
+    x.nzval[k] = s * x.nzval[k]
+  end
+  x
+end
+function LinearAlgebra.rdiv!(x::_StoredIterate, s::Number)
+  @inbounds for k = 1:x.nnz
+    x.nzval[k] /= s
+  end
+  x
+end
+function LinearAlgebra.ldiv!(s::Number, x::_StoredIterate)
+  @inbounds for k = 1:x.nnz
+    x.nzval[k] = s \ x.nzval[k]
+  end
   x
 end
 
@@ -662,6 +698,44 @@ function Base.fill!(x::SymmetricSparseIterate, v)
   end
   x
 end
+
+# axpy! and axpby! update each entry once, as broadcasting does, from the lower
+# triangle of x when x is not symmetric
+function LinearAlgebra.axpy!(α::Number, x::AbstractArray, y::SymmetricSparseIterate)
+  x′ = _reshape_like(x, y)
+  iszero(α) && return y
+  y .+= α .* x′
+end
+function LinearAlgebra.axpby!(α::Number, x::AbstractArray, β::Number, y::SymmetricSparseIterate)
+  x′ = _reshape_like(x, y)
+  iszero(α) && isone(β) && return y
+  y .= α .* x′ .+ β .* y
+end
+
+# x, which has as many entries as y, in the shape of y
+_reshape_like(x::AbstractArray, y::SymmetricSparseIterate) =
+  size(x) == size(y) ? x :
+  length(x) == length(y) ? reshape(x, size(y)) :
+  throw(DimensionMismatch(lazy"x has length $(length(x)), but y has length $(length(y))"))
+
+# The stored entries as a SparseMatrixCSC, in O(nnz): each nonzero (r, c) of the
+# lower triangle gives the entries (r, c) and (c, r) for which keep holds. The
+# generic sparse visits all p² entries, and the generic triu and tril work in
+# similar(x), which, being symmetric, cannot hold a triangle.
+function _sparse(x::SymmetricSparseIterate{T}, keep::F) where {T, F}
+  I, J, V = Int[], Int[], T[]
+  for k = 1:x.nnz
+    v = x.nzval[k]
+    iszero(v) && continue
+    r, c = tril_cartesian(x.p, x.nzval2ind[k])
+    keep(r, c) && (push!(I, r); push!(J, c); push!(V, v))
+    r != c && keep(c, r) && (push!(I, c); push!(J, r); push!(V, v))
+  end
+  sparse(I, J, V, x.p, x.p)
+end
+SparseArrays.sparse(x::SymmetricSparseIterate) = _sparse(x, (i, j) -> true)
+LinearAlgebra.triu(x::SymmetricSparseIterate, k::Integer = 0) = _sparse(x, (i, j) -> j - i >= k)
+LinearAlgebra.tril(x::SymmetricSparseIterate, k::Integer = 0) = _sparse(x, (i, j) -> j - i <= k)
 
 function Base.show(io::IO, ::MIME"text/plain", S::SymmetricSparseIterate)
   xnnz = nnz(S)

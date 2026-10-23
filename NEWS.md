@@ -114,6 +114,14 @@ These cannot warn, so check for them when migrating:
   three-argument `dot` and `*` with sparse iterates; `fill!` and `norm` on the
   stored entries.
 
+### Fixes
+
+- On a `SymmetricSparseIterate`, whose entries `(r, c)` and `(c, r)` share
+  storage, `rmul!`, `lmul!`, `rdiv!`, `ldiv!`, `axpy!` and `axpby!` updated an
+  off-diagonal entry twice, and `triu` and `tril` kept only the diagonal. Each
+  entry is now updated once, scaling takes O(nnz), and `triu`, `tril` and
+  `sparse` build a `SparseMatrixCSC` from the stored entries.
+
 ### Performance
 
 The hot calls allocate nothing, which the tests check on Julia 1.10 and the

@@ -146,6 +146,9 @@ end
     @test prox_coordinate!(x, f, k, γ) ≈ shrink(D[r, c], γ * 0.3 * W[r, c])
   end
   @test Matrix(x) ≈ prox(f, D, γ)
+  # a coordinate is checked against ncoordinates(x), not length(x) = p²
+  @test_throws BoundsError prox_coordinate!(x, f, ncoordinates(x) + 1, γ)
+  @test_throws BoundsError prox_coordinate!(x, f, 0, γ)
 
   # functions that are not separable
   @test_throws ArgumentError prox_coordinate!(SparseIterate(3), NormL2(1.), 1, 1.)

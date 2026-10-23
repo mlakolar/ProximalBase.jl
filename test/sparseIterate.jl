@@ -6,6 +6,7 @@ using ProximalBase
 using Random
 using LinearAlgebra
 using SparseArrays
+using Statistics
 
 Random.seed!(1)
 
@@ -318,6 +319,71 @@ end
         @test_throws BoundsError (s[4, 1] = -1.)
         @test_throws BoundsError s[10]
         @test s[2, 2] == 5. && nnz(s) == 3
+    end
+
+    @testset "generic functions agree with the dense matrix" begin
+        # Base and LinearAlgebra read x through its indices, length and iteration
+        p = 5
+        A = sprandn(p, p, 0.4)
+        M = Matrix(A + A') + 2p * I       # symmetric positive definite, with zeros
+        S = SymmetricSparseIterate(sparse(M))
+        b, B = randn(p), randn(p, 3)
+        @test length(S) == p^2 == lastindex(S) && S[end] == M[end]
+        @test [S[i] for i in 1:p^2] == vec(S) == S[:] == reshape(S, p^2) == vec(M)
+        @test count(_ -> true, S) == p^2 && [v for v in S] == collect(S) == M
+        @test mean(S) ≈ mean(M) && sum(abs2, S) ≈ sum(abs2, M) && sum(S; dims = 1) ≈ sum(M; dims = 1)
+        @test extrema(S) == extrema(M) && findmax(S) == findmax(M)
+        @test count(!iszero, S) == count(!iszero, M) && findall(!iszero, S) == findall(!iszero, M)
+        @test norm(S) ≈ norm(M) && norm(S, 1) ≈ norm(M, 1) && norm(S, Inf) == norm(M, Inf)
+        @test S == M && S ≈ M && isequal(S, M) && hash(S) == hash(M)
+        @test Matrix{Float32}(S) == Float32.(M) && convert(Matrix{Float64}, S) == M
+        @test copyto!(zeros(p, p), S) == M && Symmetric(S) == M && Diagonal(S) == Diagonal(M)
+        @test S[2:4, 1:2] == M[2:4, 1:2] && S[:, 2] == M[:, 2] && view(S, 3, :) == M[3, :]
+        @test S[S .> 0] == M[M .> 0] && S[CartesianIndex(3, 2)] == M[3, 2]
+        @test permutedims(S) == M && hcat(S, S) == hcat(M, M) && [S S; S S] == [M M; M M]
+        @test 2 .* S .+ 1 == 2 .* M .+ 1 && S + M == 2M && -S == -M && map(abs, S) == abs.(M)
+        @test kron(S, S) == kron(M, M)
+        # sparse, triu and tril build a SparseMatrixCSC from the stored entries
+        @test sparse(S) isa SparseMatrixCSC && sparse(S) == M
+        @test triu(S) == triu(M) && tril(S) == tril(M) && triu(S, 1) == triu(M, 1) && tril(S, -2) == tril(M, -2)
+        # products
+        @test S * b ≈ M * b && S' * b ≈ M * b && b' * S ≈ b' * M && transpose(b) * S ≈ transpose(b) * M
+        @test S * Float32.(b) ≈ M * Float32.(b) && S * complex.(b, b) ≈ M * complex.(b, b)
+        @test S * B ≈ M * B && B' * S ≈ B' * M && S * S ≈ M * M && S * Float32.(B) ≈ M * Float32.(B)
+        @test dot(S, M) ≈ dot(M, M) && dot(M, S) ≈ dot(M, M) && dot(S, S) ≈ dot(M, M) && dot(b, S, b) ≈ dot(b, M, b)
+        # linear algebra
+        @test tr(S) ≈ tr(M) && diag(S) == diag(M) && issymmetric(S) && !istriu(S)
+        @test det(S) ≈ det(M) && logdet(S) ≈ logdet(M) && inv(S) ≈ inv(M) && S \ b ≈ M \ b
+        @test eigvals(S) ≈ eigvals(M) && svdvals(S) ≈ svdvals(M) && cholesky(S).L ≈ cholesky(M).L
+        @test opnorm(S) ≈ opnorm(M) && opnorm(S, 1) ≈ opnorm(M, 1) && exp(S) ≈ exp(M) && sqrt(S) ≈ sqrt(M)
+    end
+
+    @testset "writes update each entry once" begin
+        p = 5
+        A = sprandn(p, p, 0.4)
+        S = SymmetricSparseIterate(sparse(A + A') + 2p * I)
+        # a linear index is an entry of the dense matrix, and writing it writes
+        # its mirror image
+        S[7] = -1.                       # (2, 2)
+        @test S[2, 2] == -1.
+        S[2] = 3.                        # (2, 1), so (1, 2) too
+        @test S[1, 2] == S[2, 1] == 3.
+        @test_throws BoundsError S[0]
+        @test_throws BoundsError S[p^2 + 1]
+        @test_throws BoundsError (S[p^2 + 1] = 1.)
+        # scaling and axpy update an off-diagonal entry once, not twice
+        M = Matrix(S)
+        @test Matrix(rmul!(copy(S), 2.)) == 2M && Matrix(lmul!(2., copy(S))) == 2M
+        @test Matrix(rdiv!(copy(S), 2.)) == M / 2 && Matrix(ldiv!(2., copy(S))) == M / 2
+        @test Matrix(axpy!(2., M, copy(S))) ≈ 3M && Matrix(axpby!(2., M, 3., copy(S))) ≈ 5M
+        @test Matrix(axpy!(2., S, copy(S))) ≈ 3M && Matrix(axpy!(2., vec(M), copy(S))) ≈ 3M
+        @test Matrix(axpy!(0., fill(NaN, p, p), copy(S))) == M
+        @test_throws DimensionMismatch axpy!(1., ones(3, 3), copy(S))
+        @test_throws DimensionMismatch axpby!(1., ones(3, 3), 1., copy(S))
+        # a stored zero stays stored, and a SparseIterate is scaled in O(nnz)
+        x = SparseIterate(sparse([1., 0., 2.]))
+        @test rmul!(x, 3.) === x && Vector(x) == [3., 0., 6.] && nnz(x) == 2
+        @test Vector(ldiv!(3., x)) == [1., 0., 2.]
     end
 
     @testset "coordinates" begin

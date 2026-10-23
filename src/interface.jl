@@ -204,6 +204,7 @@ end
 function prox_coordinate!(x::SymmetricSparseIterate, f::AbstractFunction, k::Integer, γ::Real)
   isseparable(f) || _not_separable(f)
   _checkparams(f, x)
+  checkbounds(coordinates(x), k)
   r, c = tril_cartesian(x.p, k)
   v = prox_entry(f, _getstored(x, k), (c - 1) * x.p + r, γ)
   _setstored!(x, v, k)

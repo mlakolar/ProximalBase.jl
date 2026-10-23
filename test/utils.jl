@@ -89,6 +89,18 @@ end
   for (r, c) in ((p, p), (p, 1), (p - 1, p - 1), (5, 3), (div(p, 2) + 7, div(p, 3)))
     @test tril_cartesian(p, tril_index(p, r, c)) == (r, c)
   end
+  # the floating square root of p < 2²⁴ agrees with integer arithmetic, at every
+  # coordinate of small p and at the column ends and random coordinates of p
+  # near 2²⁴
+  exact(p, k) = (rv = div(p * (p + 1), 2) - k; j = div(isqrt(1 + 8rv) - 1, 2); (p - (rv - div(j * (j + 1), 2)), p - j))
+  @test all(tril_cartesian(p, k) == exact(p, k) for p in 1:300 for k in 1:div(p * (p + 1), 2))
+  rng = Random.Xoshiro(1)
+  for p in (2^24 - 1, 2^24 - 2, 2^24, 2^24 + 1, 10^7)
+    m = div(p * (p + 1), 2)
+    ks = [1, 2, m - 1, m, rand(rng, 1:m, 10_000)...,
+          (tril_index(p, c, c) + d for c in rand(rng, 1:p, 2_000) for d in (-1, 0, 1))...]
+    @test all(tril_cartesian(p, k) == exact(p, k) for k in ks if 1 <= k <= m)
+  end
 end
 
 @testset "norm_diff" begin

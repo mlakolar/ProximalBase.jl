@@ -244,7 +244,10 @@ linear index `k`, numbered column by column. Inverse of [`tril_index`](@ref).
 """
 function tril_cartesian(p::Integer, k::Integer)
   rv = div(p * (p + 1), 2) - k
-  j = div(isqrt(1 + 8rv) - 1, 2)      # integer arithmetic, exact for any p
+  # j = ⌊(√(1 + 8rv) - 1)/2⌋. For p < 2²⁴, 1 + 8rv < 2⁵⁰ and the floating square
+  # root is exact, and three times faster than isqrt; the larger p, beyond any
+  # p × p matrix in memory, take integer arithmetic, exact for any p
+  j = p < 16_777_216 ? trunc(typeof(rv), (sqrt(1 + 8rv) - 1) / 2) : div(isqrt(1 + 8rv) - 1, 2)
   i = rv - div(j * (j + 1), 2)
   (p - i, p - j)
 end

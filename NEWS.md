@@ -1,5 +1,21 @@
 # ProximalBase.jl news
 
+## 0.5.2
+
+- **Precompilation:** a PrecompileTools workload compiles the common calls into
+  the package image, all in `Float64`:
+  - the proximal operators of the separable, group and projection functions;
+  - the values and gradients of the least-squares, logistic and quadratic losses;
+  - `LogDetLoss`, `NuclearNorm`, `IndPSD` and `KronQuadratic`;
+  - coordinate steps on the three iterates.
+
+  Nine typical first calls take 0.02 s instead of 0.55 s on Julia 1.13, and
+  0.01 s instead of 0.69 s on 1.10. The cost is 1.5–2 s more when the package
+  is precompiled and about 30 ms more at `using ProximalBase`. PrecompileTools'
+  preference `precompile_workload = false` skips the workload.
+- `tril_cartesian` keeps its integer square root, used only for `p ≥ 2²⁴`, out
+  of line, so that it inlines into the loops that call it (#26).
+
 ## 0.5.1
 
 - `tril_cartesian` finds the column with the floating square root for

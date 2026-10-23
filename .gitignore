@@ -5,3 +5,5 @@
 /test/Manifest*.toml
 /docs/build/
 .vscode/
+/docs/Manifest*.toml
+/docs/src/examples/

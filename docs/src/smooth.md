@@ -113,6 +113,7 @@ over the observations and one product with ``X^\top``.
 | `Logistic()` | ``\log(1 + e^\eta) - y\eta`` | ``\sigma(\eta) - y`` | ``1/4`` | [`LogisticLoss`](@ref)`(y, X)` |
 | `Poisson()` | ``e^\eta - y\eta`` | ``e^\eta - y`` | ``\infty`` | [`PoissonLoss`](@ref)`(y, X)` |
 | `Huber(δ)` | ``\tfrac12 r^2`` if ``\lvert r\rvert \le \delta``, else ``\delta(\lvert r\rvert - \delta/2)``, with ``r = \eta - y`` | ``\operatorname{clamp}(r, -\delta, \delta)`` | ``1`` | [`HuberLoss`](@ref)`(y, X, δ)` |
+| `Smoothed(φ, μ)` | ``\min_t \varphi(t) + \tfrac{1}{2\mu}(t - r)^2``, with ``r = \eta - y`` | ``(r - \operatorname{prox}_{\mu\varphi}(r))/\mu`` | ``1/\mu`` | `GLMLoss(ProximalBase.Smoothed(φ, μ), y, X)` |
 
 Here ``\sigma(\eta) = 1/(1 + e^{-\eta})``, and ``\log(1 + e^\eta)`` is
 computed so that it neither overflows nor loses precision. The scalar losses

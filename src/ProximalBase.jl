@@ -51,6 +51,7 @@ export
 
   # functions built from functions
   Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum,
+  MoreauEnvelope, Precompose, Regularize,
 
   # iterates
   SparseIterate, SymmetricSparseIterate, AtomIterate,
@@ -78,6 +79,8 @@ include("functions/spectral.jl")
 include("functions/sets.jl")
 
 include("calculus.jl")
+include("envelope.jl")
+include("composition.jl")
 include("deprecated.jl")
 include("precompile.jl")
 

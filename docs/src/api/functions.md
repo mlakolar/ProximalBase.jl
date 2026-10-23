@@ -18,6 +18,7 @@ ProximalBase.Squared
 ProximalBase.Logistic
 ProximalBase.Poisson
 ProximalBase.Huber
+ProximalBase.Smoothed
 ProximalBase.deriv
 ProximalBase.deriv2
 ProximalBase.curvature

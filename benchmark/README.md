@@ -79,3 +79,35 @@ functions meant a second decomposition; 0.5 has `value_and_prox!`.
 The least-squares loss gains from a buffer of a concrete type (0.4 stored a
 `Union` of vector and matrix), and the sparse iterate from proximal operators
 that touch only the stored entries.
+
+## The nearest correlation matrix (`intersection.jl`)
+
+`intersection.jl` projects an indefinite symmetric matrix with unit diagonal
+onto the correlation matrices with `IndIntersection(IndPSD(), IndBox(L, U))`
+(Dykstra's algorithm), from zero corrections ("cold") and from the corrections
+of a call on an input `2e-4` away ("warm", as inside a solver). It compares
+them with the quadratically convergent Newton method of Qi and Sun (2006) and
+with alternating projections, both from NearestCorrelationMatrix.jl:
+
+```sh
+julia --project=benchmark -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
+julia --project=benchmark benchmark/intersection.jl
+```
+
+ProximalBase at 62067d9, NearestCorrelationMatrix 1.2.1 and Julia 1.13.2 on
+one core of an AMD EPYC 7513 (USC Discovery), one BLAS thread (2026-10-23):
+
+| p | Dykstra, cold (ms) | rounds | Dykstra, warm (ms) | rounds | Newton (ms) | alternating projections (ms) | ‖Dykstra − Newton‖ |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 50 | 4.02 | 19 | 2.67 | 13 | 1.19 | 3.35 | 5.6e-08 |
+| 200 | 59.86 | 17 | 39.51 | 11 | 26.54 | 57.68 | 6.9e-10 |
+| 500 | 553.54 | 17 | 342.18 | 11 | 253.52 | 589.69 | 4.7e-07 |
+
+Each round of Dykstra's algorithm costs one eigendecomposition, as an
+iteration of alternating projections does, and the two take the same time.
+Newton's method is 2.2 to 3.4 times faster from scratch, as expected for this
+particular problem, and 1.3 to 2.2 times faster than a warm start. So for
+repeated correlation repair alone, that package is the better tool.
+`IndIntersection` is for intersections that have no dedicated solver, and its
+warm start pays inside a solver whose inputs converge.
+

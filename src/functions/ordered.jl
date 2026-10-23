@@ -266,9 +266,9 @@ in buffers that the function owns.
 struct SLOPE{V<:AbstractVector{<:Real}} <: AbstractFunction
   λ::V
   perm::Scratch       # the order of the magnitudes
-  vals::Scratch       # the sorted magnitudes, then the result in that order
-  sums::Scratch       # the blocks of the pooling
-  sizes::Scratch
+  vals::Scratch       # the result, in that order
+  sums::Scratch       # the magnitudes, then the sums of the blocks of the pooling
+  sizes::Scratch      # the scratch of the sort, then the sizes of the blocks
 
   function SLOPE{V}(λ::V) where {V<:AbstractVector{<:Real}}
     _checknonneg("λ", λ)
@@ -282,24 +282,27 @@ isproximable(::Type{<:SLOPE}) = true
 isconvex(::Type{<:SLOPE}) = true
 _checkparams(f::SLOPE, x) = (_checkparam(f.λ, x); true)
 
-# the indices of x by decreasing magnitude, in the buffer of f; an in-place
-# quicksort, which allocates nothing
-function _sortperm_abs!(f::SLOPE, x::AbstractVector)
-  p = _buffer!(f.perm, Int, length(x))
-  @inbounds for i in eachindex(p)
-    p[i] = i
+# the magnitudes a of x and the indices p that sort them in decreasing order,
+# in the buffers of f: Base's sort with a scratch buffer, which allocates nothing
+function _sortperm_abs!(f::SLOPE, x::AbstractVector, ::Type{T}) where {T}
+  n = length(x)
+  a = _buffer!(f.sums, T, n)
+  @inbounds for i in 1:n
+    a[i] = abs(convert(T, x[i]))
   end
-  sort!(p; alg = QuickSort, lt = (i, j) -> abs(x[i]) > abs(x[j]))
+  p = _buffer!(f.perm, Int, n)
+  sortperm!(p, a; rev = true, scratch = _buffer!(f.sizes, Int, n))
+  p, a
 end
 
 function (f::SLOPE)(x::AbstractVector)
   _checkparams(f, x)
   Base.require_one_based_indexing(x)
   T = float(eltype(x))
-  p = _sortperm_abs!(f, x)
+  p, a = _sortperm_abs!(f, x, T)
   s = zero(T)
   @inbounds for k in eachindex(p)
-    s += convert(T, f.λ[k]) * abs(convert(T, x[p[k]]))
+    s += convert(T, f.λ[k]) * a[p[k]]
   end
   s
 end
@@ -310,11 +313,11 @@ function value_and_prox!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Rea
   Base.require_one_based_indexing(y, x)
   T = float(eltype(y))
   n = length(x)
-  p = _sortperm_abs!(f, x)
+  p, a = _sortperm_abs!(f, x, T)
   w = _buffer!(f.vals, T, n)
   g = convert(T, γ)
   @inbounds for k in 1:n
-    w[k] = abs(convert(T, x[p[k]])) - g * convert(T, f.λ[k])
+    w[k] = a[p[k]] - g * convert(T, f.λ[k])
   end
   # the nearest nonincreasing sequence, clipped at zero, is the projection onto
   # the nonincreasing nonnegative sequences

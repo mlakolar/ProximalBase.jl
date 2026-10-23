@@ -5,8 +5,12 @@
 A breaking release: a Julian interface, functions that can be both smooth and
 proximable, new functions for covariance selection and nonconvex problems, and
 zero allocations in the hot calls. The 0.4 interface still works with
-deprecation warnings (run tests with `--depwarn=yes` to see them), except for
-the changes under [Silent changes](#silent-changes); it will be removed in 0.6.
+deprecation warnings, except for the
+[changes that cannot warn](#changes-that-cannot-warn); it will be removed in
+0.6. `Pkg.test` shows the warnings, and with them on, every call of a
+deprecated function builds a backtrace. Move the inner loops of solvers to the
+new names first: CoordinateDescent's tests take 40 seconds with
+`--depwarn=no`, and had not finished after 39 minutes with the warnings on.
 
 ### Migrating from 0.4
 
@@ -66,11 +70,12 @@ updating: `NormL1{T, Nothing}` keeps the meaning of the latter.
 A `SparseIterate` vector that holds `vec` of a matrix in `A_mul_X_mul_B` should
 become a `SparseIterate` matrix.
 
-### Silent changes
+### Changes that cannot warn
 
-These cannot warn, so check for them when migrating:
+Check for these when migrating:
 
-- **`SymmetricSparseIterate` is an ordinary `p × p` matrix.** Linear indexing,
+- **`SymmetricSparseIterate` is an ordinary `p × p` matrix** (silent: an index
+  `k ≤ p(p+1)/2` still exists, but names another entry). Linear indexing,
   `length(x)` (now `p²`), iteration, `vec` and broadcasting follow the dense
   matrix. The `p(p+1)/2` coordinates, the entries of the lower triangle, go
   through `ncoordinates(x)` and `coordinates(x)`, a vector view in which
@@ -78,9 +83,19 @@ These cannot warn, so check for them when migrating:
   of coordinates by `ncoordinates(x)`, and `x[k]` with a coordinate `k` by
   `coordinates(x)[k]` or `x[r, c]`.
 - **Per-entry weights on a `SymmetricSparseIterate`** are indexed like those of
-  the dense matrix: a `p × p` matrix, not a vector over the lower triangle. The
-  step `γ` of `prox_coordinate!` still applies to one coordinate, so
+  the dense matrix: a `p × p` matrix, with the weight of `(r, c)` at `[r, c]`
+  and `[c, r]`. A vector over the lower triangle throws a `DimensionMismatch`.
+  The step `γ` of `prox_coordinate!` still applies to one coordinate, so
   off-diagonal coordinates take `2/a` where the diagonal takes `1/a`, as before.
+- **Constructors check their parameters**, such as `λ0 ≥ 0` and `w ≥ 0` for
+  `NormL1(λ0, w)`, and throw an `ArgumentError` when the function is built
+  rather than when it is used. Initialize a weight array that is filled after
+  the function is built (`zeros`, not `undef`).
+- **Functions defined outside ProximalBase** must implement the 0.5 names:
+  callable, `prox!(y, f, x, γ)`, `prox_coordinate!(x, f, k, γ)`, and so on.
+  Methods of the old names are found only by code that still calls the old
+  names. While the deprecations exist, `hasmethod(ProximalBase.value, ...)`
+  holds for every function; test `hasmethod(f, Tuple{typeof(x)})` instead.
 - `ProxL2Sq`'s replacement `SqrNormL2` halves the convention (see above); the
   deprecated `ProxL2Sq(λ)` converts.
 

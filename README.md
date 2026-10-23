@@ -32,7 +32,7 @@ three for estimation and inference and two for the optimization beneath them:
 | Package | |
 |---|---|
 | [CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl) | the lasso and its paths; the group, square-root, scaled and heteroscedastic lasso; varying-coefficient models |
-| [CovSel.jl](https://github.com/mlakolar/CovSel.jl) | Gaussian graphical models: the graphical lasso, CLIME and ACLIME, precision matrices by the scaled lasso, the fused graphical lasso, and the difference of two precision matrices |
+| [CovarianceSelection.jl](https://github.com/mlakolar/CovarianceSelection.jl) | Gaussian graphical models: the graphical lasso, CLIME and ACLIME, precision matrices by the scaled lasso, the fused graphical lasso, and the difference of two precision matrices |
 | [DiffPrecTest.jl](https://github.com/mlakolar/DiffPrecTest.jl) | confidence intervals and tests for the difference of two precision matrices |
 | [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl) | the solvers: coordinate descent with penalty paths, screening and active sets; proximal gradient methods, proximal Newton and ADMM |
 | **ProximalBase.jl** (this package) | the building blocks: losses, penalties and constraints with their gradients and proximal operators, and sparse iterates; [documentation](https://mlakolar.github.io/ProximalBase.jl/dev/) with the mathematics |
@@ -180,7 +180,7 @@ and few others are. `f` and `g` own their workspaces, so the proximal operators
 allocate nothing; the temporaries `Z .- U` and `Ω .+ U` are those of this short
 loop.
 
-To fit the graphical lasso, use [CovSel.jl](https://github.com/mlakolar/CovSel.jl):
+To fit the graphical lasso, use [CovarianceSelection.jl](https://github.com/mlakolar/CovarianceSelection.jl):
 `covselpath(Matrix(S), [0.2, 0.1]; penalize_diag = false)` runs this ADMM to a
 stopping rule at each penalty level, warm starting each level from the last.
 

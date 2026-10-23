@@ -1,5 +1,7 @@
 # ProximalBase.jl
 
+[![Docs: stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://mlakolar.github.io/ProximalBase.jl/stable/)
+[![Docs: dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://mlakolar.github.io/ProximalBase.jl/dev/)
 [![CI](https://github.com/mlakolar/ProximalBase.jl/actions/workflows/CI.yml/badge.svg?branch=master)](https://github.com/mlakolar/ProximalBase.jl/actions/workflows/CI.yml?query=branch%3Amaster)
 [![codecov](https://codecov.io/gh/mlakolar/ProximalBase.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/mlakolar/ProximalBase.jl)
 [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
@@ -16,6 +18,13 @@ Julia:
 ProximalBase provides the pieces, not complete solvers: you write the
 optimization loop, or use [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl).
 Its hot calls allocate nothing.
+
+The [documentation](https://mlakolar.github.io/ProximalBase.jl/dev/) has the
+mathematics:
+- the proximal operators and the facts solvers use;
+- each function's closed forms, with their derivations;
+- the coordinate step on symmetric matrices;
+- the examples, run and rendered.
 
 ## Installation
 

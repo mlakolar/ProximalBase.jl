@@ -84,6 +84,9 @@ The projection of a symmetric ``V = U\Lambda U^\top`` onto the positive
 semidefinite cone, in the Frobenius norm, sets its negative eigenvalues to zero.
 This holds because the Frobenius norm is unitarily invariant, and the nearest
 diagonal matrix with nonnegative entries clips the negative ones.
+The sets that bound the eigenvalues, such as the Fantope
+``\{X : 0 \preceq X \preceq I,\ \operatorname{tr}(X) = k\}``, are [`Spectral`](@ref) of
+the corresponding sets of vectors.
 [`IndPSD`](@ref) reads the upper triangle of its argument. It computes all the
 eigenpairs with LAPACK's divide-and-conquer `syevd`, or with `rank = r` only the
 ``r`` largest with `syevr`, keeping the positive ones. It rebuilds the result

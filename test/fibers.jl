@@ -123,6 +123,22 @@ end
   # simultaneous selection, with a free diagonal
   check_prox(FiberSum(NormLinf(0.3); diagonal = nothing), X, γ)
 
+  # symmetric slices with a rule for the diagonal, through views
+  Xs = symslices(p, K)
+  for diagonal in (NormL2(0.1), nothing)
+    fb = FiberSum(NormL2(0.3); diagonal)
+    fs = FiberSum(NormL2(0.3); diagonal, symmetric = true)
+    Y, Ys = similar(Xs), similar(Xs)
+    v = value_and_prox!(Y, fb, Xs, γ)
+    @test value_and_prox!(Ys, fs, Xs, γ) ≈ v
+    @test Ys == Y
+    @test prox!(similar(Xs), fs, Xs, γ) == Y
+    @test fs(Xs) ≈ fb(Xs)
+    @test all(Y[i, i, :] == (diagonal === nothing ? Xs[i, i, :] : prox(diagonal, Xs[i, i, :], γ)) for i in 1:p)
+    check_prox(fb, Xs, γ)
+    @test allocs(a_vprox!, Ys, fs, Xs, γ) == 0
+  end
+
   # the fibers of a matrix are its rows: the row-sparse penalty of multitask regression
   B = randn(5, 3)
   @test prox(FiberSum(NormL2(0.3)), B, γ) ≈ reshape(prox(GroupNormL2(0.3, [i:5:15 for i in 1:5], ones(5)), vec(B), γ), 5, 3)

@@ -11,6 +11,7 @@ tests = [
   "smooth",
   "separable",
   "norms",
+  "fibers",
   "spectral",
   "sets",
   "calculus",

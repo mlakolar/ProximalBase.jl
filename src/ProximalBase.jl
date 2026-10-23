@@ -52,6 +52,9 @@ export
   # functions built from functions
   Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum,
 
+  # functions of stacked arrays
+  SliceSum, FiberSum,
+
   # iterates
   SparseIterate, SymmetricSparseIterate, AtomIterate,
   ncoordinates, coordinates, nactive, activecoordinates, isactive, activate!, atom,
@@ -74,6 +77,7 @@ include("functions/glm.jl")
 include("functions/logdet.jl")
 include("functions/separable.jl")
 include("functions/norms.jl")
+include("functions/fibers.jl")
 include("functions/spectral.jl")
 include("functions/sets.jl")
 

@@ -154,6 +154,7 @@ loop.
 | `LinearFunction(c, d)` | `⟨c, x⟩ + d` | ✓ |
 | `SqrNormL2(λ, y)` | `(λ/2) ‖x - y‖²` | ✓ |
 | `QuadraticFunction(A, b, c)` | `x'Ax / 2 + b'x + c` | ✓ |
+| `KronQuadratic(A, B, C)` | `⟨Θ, AΘB⟩ / 2 + ⟨C, Θ⟩`, without forming `B ⊗ A` | |
 | `LeastSquaresLoss(Y, X)` | `‖Y - Xβ‖² / 2`, `Y` a vector or a matrix | ✓ |
 | `LogDetLoss(S, w)` | `w (tr(SX) - log det X)` | ✓ |
 | `LogisticLoss(y, X)` | `Σᵢ log(1 + exp(ηᵢ)) - yᵢηᵢ`, `η = Xβ` | |

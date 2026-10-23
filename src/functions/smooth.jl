@@ -247,3 +247,124 @@ end
 
 restrict(f::QuadraticFunction, S::AbstractVector{<:Integer}) =
   QuadraticFunction(f.A[S, S], f.b === nothing ? nothing : f.b[S], f.c)
+
+####################################
+#  Kronecker quadratic
+####################################
+
+"""
+    KronQuadratic(A, B, C = nothing)
+
+The quadratic `f(Θ) = ⟨Θ, AΘB⟩ / 2 + ⟨C, Θ⟩` of a `p × q` matrix `Θ`, for
+symmetric positive semidefinite `A` (`p × p`) and `B` (`q × q`), with `C = 0`
+when omitted: `vec(Θ)'(B ⊗ A) vec(Θ) / 2 + vec(C)'vec(Θ)`, without forming the
+`pq × pq` matrix `B ⊗ A`. Smooth, with gradient `AΘB + C`; `size(f)` is
+`(p, q)`.
+
+`Θ` may be a `p × q` matrix, the vector `vec(Θ)`, a [`SparseIterate`](@ref) of
+either shape or, when `p = q`, a [`SymmetricSparseIterate`](@ref). On a
+`SymmetricSparseIterate` the gradient is the one over symmetric matrices,
+`(AΘB + BΘA + C + C')/2`, so that a solver that steps on one triangle moves
+correctly. The value and the gradient use buffers that `f` owns and allocate
+nothing; do not share `f` between threads.
+
+Examples:
+- the direct difference (D-trace) loss `tr(ΣxΔΣyΔ)/2 - tr(Δ(Σy - Σx))` of a
+  symmetric `Δ` (CovSel) is `KronQuadratic(Σx, Σy, Σx - Σy)`;
+- the loss `tr(ΣxΘΣyΘ')/2 - Θ[a, b]` (DiffPrecTest), whose minimizer is the
+  column `(b - 1)p + a` of `(Σy ⊗ Σx)⁻¹`, is `KronQuadratic(Σx, Σy, -E)`, with
+  `E` the indicator of the entry `(a, b)`; DiffPrecTest's reduced loss on
+  `svec(Θ)` is this function on a symmetric `Θ`, in coordinates that scale the
+  off-diagonal entries by `√2`.
+"""
+struct KronQuadratic{T<:AbstractFloat, MC<:Union{Nothing, Matrix{T}}} <: AbstractFunction
+  A::Matrix{T}
+  B::Matrix{T}
+  C::MC
+  D::Matrix{T}          # Θ as a dense p × q matrix
+  AD::Matrix{T}         # A Θ
+  W::Matrix{T}          # A Θ B, and the gradient
+end
+
+function KronQuadratic(A::AbstractMatrix, B::AbstractMatrix, C::Union{Nothing, AbstractMatrix} = nothing)
+  p, q = checksquare(A), checksquare(B)
+  C === nothing || size(C) == (p, q) ||
+    throw(DimensionMismatch("A is $p × $p and B is $q × $q, so C must be $p × $q, not $(size(C, 1)) × $(size(C, 2))"))
+  T = float(promote_type(eltype(A), eltype(B), C === nothing ? Bool : eltype(C)))
+  # dense copies, so that the products never index a Symmetric or sparse matrix
+  Ad, Bd = Matrix{T}(A), Matrix{T}(B)
+  issymmetric(Ad) && issymmetric(Bd) || throw(ArgumentError("A and B must be symmetric"))
+  Cd = C === nothing ? nothing : Matrix{T}(C)
+  all(isfinite, Ad) && all(isfinite, Bd) && (Cd === nothing || all(isfinite, Cd)) ||
+    throw(ArgumentError("A, B and C must be finite"))
+  KronQuadratic{T, typeof(Cd)}(Ad, Bd, Cd, zeros(T, p, q), zeros(T, p, q), zeros(T, p, q))
+end
+
+issmooth(::Type{<:KronQuadratic}) = true
+isconvex(::Type{<:KronQuadratic}) = true
+
+Base.size(f::KronQuadratic) = size(f.D)
+
+# Θ is vec(Θ) or a p × q matrix
+_checkshape(f::KronQuadratic, Θ::AbstractVector) = length(Θ) == length(f.D) ||
+  throw(DimensionMismatch("Θ has length $(length(Θ)) and f takes $(size(f.D, 1)) × $(size(f.D, 2)) matrices"))
+_checkshape(f::KronQuadratic, Θ::AbstractArray) = size(Θ) == size(f.D) ||
+  throw(DimensionMismatch("Θ has size $(size(Θ)) and f takes $(size(f.D, 1)) × $(size(f.D, 2)) matrices"))
+
+# Θ as a dense matrix in f.D
+function _densify!(f::KronQuadratic, Θ::AbstractArray)
+  _checkshape(f, Θ)
+  copyto!(f.D, Θ)
+end
+function _densify!(f::KronQuadratic, Θ::SparseIterate)
+  _checkshape(f, Θ)
+  D = fill!(f.D, 0)
+  @inbounds for k = 1:nnz(Θ)
+    D[Θ.nzval2ind[k]] = Θ.nzval[k]
+  end
+  D
+end
+function _densify!(f::KronQuadratic, Θ::SymmetricSparseIterate)
+  _checkshape(f, Θ)
+  D = fill!(f.D, 0)
+  @inbounds for k = 1:nnz(Θ)
+    r, c = tril_cartesian(Θ.p, Θ.nzval2ind[k])
+    D[r, c] = D[c, r] = Θ.nzval[k]
+  end
+  D
+end
+
+function (f::KronQuadratic)(Θ::AbstractArray)
+  D = _densify!(f, Θ)
+  mul!(f.AD, f.A, D)
+  mul!(f.W, f.AD, f.B)
+  v = dot(D, f.W) / 2
+  f.C === nothing ? v : v + dot(f.C, D)
+end
+
+function value_and_gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray)
+  _checkshape(f, G)
+  D = _densify!(f, Θ)
+  W = f.W
+  mul!(f.AD, f.A, D)
+  mul!(W, f.AD, f.B)
+  v = dot(D, W) / 2
+  if f.C !== nothing
+    v += dot(f.C, D)
+    W .+= f.C
+  end
+  Θ isa SymmetricSparseIterate && _symmetrize!(W)
+  copyto!(G, W)
+  v
+end
+
+gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) = (value_and_gradient!(G, f, Θ); G)
+
+# (W + W')/2 in place
+function _symmetrize!(W::Matrix)
+  p = checksquare(W)
+  @inbounds for c = 1:p, r = c+1:p
+    W[r, c] = W[c, r] = (W[r, c] + W[c, r]) / 2
+  end
+  W
+end

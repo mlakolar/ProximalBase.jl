@@ -85,6 +85,63 @@ end
   @test f32(Float32.(x)) isa Float32
 end
 
+@testset "KronQuadratic" begin
+  p, q = 6, 4
+  X, Y = randn(30, p), randn(30, q)
+  A, B = Matrix(Symmetric(X'X / 30)), Matrix(Symmetric(Y'Y / 30))
+  C = randn(p, q)
+  f = KronQuadratic(A, B, C)
+  check_traits(f; smooth = true, convex = true)
+  @test size(f) == (p, q)
+  # vec(Θ)'(B ⊗ A)vec(Θ)/2 + ⟨C, Θ⟩, with gradient AΘB + C
+  K = kron(B, A)
+  Θ = randn(p, q)
+  @test f(Θ) ≈ dot(vec(Θ), K * vec(Θ)) / 2 + dot(C, Θ)
+  @test KronQuadratic(A, B)(Θ) ≈ dot(vec(Θ), K * vec(Θ)) / 2
+  @test gradient(f, Θ) ≈ A * Θ * B + C
+  check_gradient(f, Θ)
+  # vec(Θ) and sparse iterates of either shape
+  @test f(vec(Θ)) ≈ f(Θ) && gradient(f, vec(Θ)) ≈ vec(A * Θ * B + C)
+  Θs = SparseIterate(sprandn(p, q, 0.4))
+  @test f(Θs) ≈ f(Matrix(Θs)) && gradient(f, Θs) ≈ gradient(f, Matrix(Θs))
+  θs = SparseIterate(sprandn(p * q, 0.4))
+  @test f(θs) ≈ f(Vector(θs)) && gradient(f, θs) ≈ gradient(f, Vector(θs))
+  # on a SymmetricSparseIterate, the gradient over symmetric matrices
+  Z = randn(30, p)
+  Σy = Matrix(Symmetric(Z'Z / 30))
+  Cs = randn(p, p)
+  g = KronQuadratic(A, Σy, Cs)
+  S = SymmetricSparseIterate(Matrix(Symmetric(randn(p, p))))
+  D = Matrix(S)
+  @test g(S) ≈ g(D)
+  @test gradient(g, S) ≈ (A * D * Σy + Σy * D * A) / 2 + (Cs + Cs') / 2
+  @test value_and_gradient(g, S)[1] ≈ g(D)
+  @test gradient(g, D) ≈ A * D * Σy + Cs          # a dense matrix: over all matrices
+  @test Matrix(gradient!(similar(S), g, S)) ≈ gradient(g, S)
+  # CovSel's D-trace loss and DiffPrecTest's loss
+  @test KronQuadratic(A, Σy, A - Σy)(D) ≈ tr(A * D * Σy * D) / 2 - tr(D * (Σy - A))
+  E = zeros(p, q)
+  E[2, 3] = 1
+  fE = KronQuadratic(A, B, -E)
+  @test fE(Θ) ≈ tr(A * Θ * B * Θ') / 2 - Θ[2, 3]
+  # whose minimizer is the column (b - 1)p + a of (B ⊗ A)⁻¹
+  @test isapprox(gradient(fE, reshape(inv(K)[:, (3 - 1) * p + 2], p, q)), zeros(p, q); atol = 1e-10)
+  # A and B are stored as dense matrices, whatever their type
+  h = KronQuadratic(Symmetric(A), sparse(B))
+  @test h.A isa Matrix{Float64} && h.B isa Matrix{Float64} && h.C === nothing
+  @test h(Θ) ≈ KronQuadratic(A, B)(Θ)
+  @test KronQuadratic(Float32.(A), Float32.(B))(Float32.(Θ)) isa Float32
+  # shapes and arguments
+  @test_throws DimensionMismatch f(randn(q, p))             # as many entries, the wrong shape
+  @test_throws DimensionMismatch f(randn(p * q + 1))
+  @test_throws DimensionMismatch gradient!(zeros(q, p), f, Θ)
+  @test_throws DimensionMismatch g(SymmetricSparseIterate(p + 1))
+  @test_throws DimensionMismatch KronQuadratic(A, B, randn(q, p))
+  @test_throws DimensionMismatch KronQuadratic(randn(3, 4), B)
+  @test_throws ArgumentError KronQuadratic(randn(p, p), B)   # not symmetric
+  @test_throws ArgumentError KronQuadratic(A, B, fill(NaN, p, q))
+end
+
 @testset "LeastSquaresLoss" begin
   for (n, p) in ((30, 10), (10, 30))         # p > n: the proximal operator still works
     X, y = randn(n, p), randn(n)

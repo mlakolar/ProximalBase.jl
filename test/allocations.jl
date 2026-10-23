@@ -139,6 +139,14 @@ end
         isproximable(f) && zero_alloc_prox(f, z)
       end
     end
+    # KronQuadratic on a matrix, vec Θ, sparse iterates of either shape and a
+    # symmetric iterate
+    Bq = Matrix(Symmetric(randn(4, 4)))
+    fk = KronQuadratic(S, Bq, randn(p, 4))
+    for z in (randn(p, 4), randn(4p), SparseIterate(sprandn(p, 4, 0.3)), SparseIterate(sprandn(4p, 0.3)))
+      zero_alloc_grad(fk, z)
+    end
+    zero_alloc_grad(KronQuadratic(S, P, randn(p, p)), SymmetricSparseIterate(P))
     # products with sparse iterates
     zero_alloc_grad(LeastSquaresLoss(y, X), xs)
     zero_alloc_grad(LogisticLoss(rand(0:1, n), X), xs)

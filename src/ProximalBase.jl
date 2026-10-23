@@ -36,8 +36,8 @@ export
   prox_coordinate!, prox_entry, kkt_violation, restrict,
 
   # smooth functions
-  ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, LeastSquaresLoss,
-  GLMLoss, LogisticLoss, PoissonLoss, HuberLoss, LogDetLoss,
+  ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, KronQuadratic,
+  LeastSquaresLoss, GLMLoss, LogisticLoss, PoissonLoss, HuberLoss, LogDetLoss,
 
   # penalties
   NormL1, NormL1Nonneg, ElasticNet, NormL2, NormLinf, GroupNormL2, GroupNormLinf,

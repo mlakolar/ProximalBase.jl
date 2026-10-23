@@ -91,12 +91,14 @@ These cannot warn, so check for them when migrating:
   `prox_coordinate!` on every iterate for every separable function, including
   the groups of an `AtomIterate`. Steps accept any real number and computations
   follow the element type of `x`.
-- **Smooth functions:** `LinearFunction`; `GLMLoss`, with `LogisticLoss`,
-  `PoissonLoss` and `HuberLoss`, the losses of `η = Xβ + offset` with weights,
-  whose scalar losses expose their derivatives and a curvature bound;
-  proximal operators of `QuadraticFunction` and `LeastSquaresLoss` from a
-  factorization computed once; `LogDetLoss` smooth, with value `Inf` off the
-  positive definite cone.
+- **Smooth functions:** `LinearFunction`; `KronQuadratic`, the quadratic
+  `⟨Θ, AΘB⟩ / 2 + ⟨C, Θ⟩` of a matrix, such as CovSel's D-trace loss, with the
+  gradient over symmetric matrices on a `SymmetricSparseIterate`; `GLMLoss`,
+  with `LogisticLoss`, `PoissonLoss` and `HuberLoss`, the losses of
+  `η = Xβ + offset` with weights, whose scalar losses expose their derivatives
+  and a curvature bound; proximal operators of `QuadraticFunction` and
+  `LeastSquaresLoss` from a factorization computed once; `LogDetLoss` smooth,
+  with value `Inf` off the positive definite cone.
 - **Separable penalties:** `NormL1Nonneg`, `ElasticNet`, `IndBox`,
   `IndNonnegative`, `IndBallLinf`, `NormL0`, `MCP` and `SCAD`, with exact
   proximal operators also for the nonconvex steps of MCP and SCAD.

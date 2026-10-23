@@ -16,6 +16,7 @@ tests = [
   "calculus",
   "allocations",
   "deprecated",
+  "examples",
   "aqua"
 ]
 

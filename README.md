@@ -14,8 +14,8 @@ Julia:
   the entries of a symmetric matrix, or groups of entries.
 
 ProximalBase provides the pieces, not complete solvers: you write the
-optimization loop, or use a package such as ProximalOPT.jl. Its hot calls
-allocate nothing.
+optimization loop, or use [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl).
+Its hot calls allocate nothing.
 
 ## Installation
 
@@ -125,7 +125,7 @@ using ProximalBase, LinearAlgebra
 
 p = 30
 Ω0 = SymTridiagonal(fill(1.0, p), fill(0.4, p - 1))     # a sparse precision matrix
-A = randn(500, p) / cholesky(Matrix(Ω0)).U              # 500 draws from N(0, Ω0⁻¹)
+A = randn(500, p) / cholesky(Matrix(Ω0)).U'             # 500 draws from N(0, Ω0⁻¹)
 S = Symmetric(A'A / 500)
 
 f = LogDetLoss(S)                         # tr(SΩ) - log det Ω, Inf unless Ω ≻ 0
@@ -143,6 +143,20 @@ end
 and few others are. `f` and `g` own their workspaces, so the proximal operators
 allocate nothing; the temporaries `Z .- U` and `Ω .+ U` are those of this short
 loop.
+
+## More examples
+
+The [examples](examples/) directory has fifteen complete scripts, each of which
+checks its own result:
+- the lasso by ISTA, FISTA and ADMM, and by coordinate descent along a path;
+- nonconvex penalties and the group lasso;
+- logistic, robust and Poisson regression;
+- constrained least squares;
+- the graphical lasso, and covariance and correlation matrices;
+- matrix completion, robust PCA and multitask regression;
+- a differential network;
+- a working-set solver;
+- functions of your own.
 
 ## Functions
 
@@ -252,6 +266,20 @@ that compilation would take.
 
 Every exported function and type has a docstring; use `?name` in the Julia REPL,
 for example `?NormL1`.
+
+## Related packages
+
+- [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl): solvers
+  built on ProximalBase. Its core is coordinate descent with penalty paths,
+  screening and active sets; it also has proximal gradient methods and ADMM.
+- [CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl): the
+  lasso, group lasso, square-root and scaled lasso, and varying-coefficient
+  models by coordinate descent.
+- [CovSel.jl](https://github.com/mlakolar/CovSel.jl): high-dimensional Gaussian
+  graphical models: the graphical lasso, CLIME, the fused graphical lasso, and
+  the direct estimation of the difference of two precision matrices.
+- [DiffPrecTest.jl](https://github.com/mlakolar/DiffPrecTest.jl): confidence
+  intervals and tests for the difference of two precision matrices.
 
 ## License
 

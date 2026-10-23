@@ -93,21 +93,21 @@ end
             Translate(NormL1(1.), [1., 2.]), 2 * NormL1(1., [1., 2.]))
     x = ones(6)
     @test_throws DimensionMismatch prox(f, x, 0.1)
-    @test_throws DimensionMismatch cdprox!(SparseIterate(x), f, 3, 0.1)
-    @test_throws DimensionMismatch cdprox!(AtomIterate(x, 3), f, 2, 0.1)
+    @test_throws DimensionMismatch prox_coordinate!(SparseIterate(x), f, 3, 0.1)
+    @test_throws DimensionMismatch prox_coordinate!(AtomIterate(x, 3), f, 2, 0.1)
     f isa Union{LinearFunction, SqrNormL2, Tilt, Translate} || @test_throws DimensionMismatch f(x)
   end
   # a direct call of the scalar operator checks the index
-  @test_throws BoundsError cdprox(NormL1(1., [1., 2.]), 1.0, 5, 0.1)
+  @test_throws BoundsError prox_entry(NormL1(1., [1., 2.]), 1.0, 5, 0.1)
   # on a SymmetricSparseIterate the weights follow the p × p matrix: a vector over the
   # lower triangle, the convention of 0.4, is rejected
   p = 4
   S = SymmetricSparseIterate(Matrix(1.0I, p, p))
   wtri = rand(p * (p + 1) ÷ 2)
-  @test_throws DimensionMismatch cdprox!(S, NormL1(0.1, wtri), ncoordinates(S), 0.5)
+  @test_throws DimensionMismatch prox_coordinate!(S, NormL1(0.1, wtri), ncoordinates(S), 0.5)
   @test_throws DimensionMismatch prox(NormL1(0.1, wtri), S, 0.5)
   @test_throws DimensionMismatch NormL1(0.1, wtri)(S)
-  @test cdprox!(S, NormL1(0.1, ones(p, p)), ncoordinates(S), 0.5) ≈ 1 - 0.05
+  @test prox_coordinate!(S, NormL1(0.1, ones(p, p)), ncoordinates(S), 0.5) ≈ 1 - 0.05
 end
 
 @testset "SymmetricSparseIterate into another iterate" begin
@@ -167,7 +167,7 @@ end
   @test prox(f, x, 1.) == [0., -2., 0., 1.2]       # kept when x² > 2γλ = 1
   for v in (-3., -1.1, -0.9, 0.3, 1.0, 2.5), γ in (0.3, 1., 4.)
     t, _ = brute_force_prox(u -> 0.5 * (u != 0), v, γ)
-    @test cdprox(f, v, 1, γ) ≈ t atol = 1e-6
+    @test prox_entry(f, v, 1, γ) ≈ t atol = 1e-6
   end
   check_prox(f, randn(10), 0.8)
 end
@@ -182,13 +182,13 @@ end
   # problem nonconvex
   for v in (-3., -1.5, -0.7, -0.2, 0., 0.35, 0.65, 1.0, 1.5, 2.2, 4.), γ in (0.3, 1., 2.4, 2.5, 3., 10.)
     t, ht = brute_force_prox(pen, v, γ)
-    z = cdprox(f, v, 1, γ)
+    z = prox_entry(f, v, 1, γ)
     @test pen(z) + (z - v)^2 / (2γ) <= ht + 1e-9
   end
   # firm thresholding for γ < a
-  @test cdprox(f, 0.5, 1, 1.) == 0.
-  @test cdprox(f, 1.0, 1, 1.) ≈ (1.0 - 0.6) / (1 - 1 / 2.5)
-  @test cdprox(f, 2.0, 1, 1.) == 2.0
+  @test prox_entry(f, 0.5, 1, 1.) == 0.
+  @test prox_entry(f, 1.0, 1, 1.) ≈ (1.0 - 0.6) / (1 - 1 / 2.5)
+  @test prox_entry(f, 2.0, 1, 1.) == 2.0
   check_prox(f, x, 0.8)
   @test_throws ArgumentError MCP(0.5, 0.)
 end
@@ -204,13 +204,13 @@ end
   @test f(x) ≈ sum(pen, x)
   for v in (-4., -2., -1.1, -0.7, 0., 0.3, 0.9, 1.3, 2.1, 3., 5.), γ in (0.3, 1., 2.6, 2.7, 3., 10.)
     t, ht = brute_force_prox(pen, v, γ)
-    z = cdprox(f, v, 1, γ)
+    z = prox_entry(f, v, 1, γ)
     @test pen(z) + (z - v)^2 / (2γ) <= ht + 1e-9
   end
   # the SCAD thresholding rule for γ = 1: soft thresholding up to 2λ
-  @test cdprox(f, 1.0, 1, 1.) ≈ 0.4
-  @test cdprox(f, 1.5, 1, 1.) ≈ ((a - 1) * 1.5 - a * λ) / (a - 2)
-  @test cdprox(f, 3.0, 1, 1.) == 3.0
+  @test prox_entry(f, 1.0, 1, 1.) ≈ 0.4
+  @test prox_entry(f, 1.5, 1, 1.) ≈ ((a - 1) * 1.5 - a * λ) / (a - 2)
+  @test prox_entry(f, 3.0, 1, 1.) == 3.0
   check_prox(f, x, 0.8)
   @test_throws ArgumentError SCAD(0.5, 2.)
 end

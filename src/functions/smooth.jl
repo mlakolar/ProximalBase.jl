@@ -38,7 +38,7 @@ function value_and_gradient!(g::AbstractArray, ::ZeroFunction, x::AbstractArray)
 end
 gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray) = (value_and_gradient!(g, f, x); g)
 
-cdprox(::ZeroFunction, v::Real, ::Integer, ::Real) = v
+prox_entry(::ZeroFunction, v::Real, ::Integer, ::Real) = v
 kkt_violation(::ZeroFunction, g::AbstractArray, i::Integer) = abs(g[i])
 restrict(f::ZeroFunction, ::AbstractVector{<:Integer}) = f
 
@@ -78,7 +78,7 @@ function value_and_gradient!(g::AbstractArray, f::LinearFunction, x::AbstractArr
 end
 gradient!(g::AbstractArray, f::LinearFunction, x::AbstractArray) = (_checksize(g, x); copyto!(g, f.c))
 
-Base.@propagate_inbounds cdprox(f::LinearFunction, v::Real, i::Integer, γ::Real) = v - γ * f.c[i]
+Base.@propagate_inbounds prox_entry(f::LinearFunction, v::Real, i::Integer, γ::Real) = v - γ * f.c[i]
 _checkparams(f::LinearFunction, x) = _checkparam(f.c, x)
 kkt_violation(f::LinearFunction, g::AbstractArray, i::Integer) = abs(g[i] + f.c[i])
 restrict(f::LinearFunction, S::AbstractVector{<:Integer}) = LinearFunction(f.c[S], f.d)
@@ -156,8 +156,8 @@ function prox!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real)
   f.y === nothing ? (z .= x ./ (1 + t)) : (z .= (x .+ t .* f.y) ./ (1 + t))
 end
 
-cdprox(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real) = v / (1 + γ * f.λ)
-Base.@propagate_inbounds cdprox(f::SqrNormL2, v::Real, i::Integer, γ::Real) = (v + γ * f.λ * f.y[i]) / (1 + γ * f.λ)
+prox_entry(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real) = v / (1 + γ * f.λ)
+Base.@propagate_inbounds prox_entry(f::SqrNormL2, v::Real, i::Integer, γ::Real) = (v + γ * f.λ * f.y[i]) / (1 + γ * f.λ)
 _checkparams(f::SqrNormL2, x) = _checkparam(f.y, x)
 
 kkt_violation(::SqrNormL2{<:Real, Nothing}, g::AbstractArray, i::Integer) = abs(g[i])

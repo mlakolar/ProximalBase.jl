@@ -6,13 +6,14 @@
 
 # A separable function implements, for the entry with linear index i,
 #
-#   cdprox(f, v, i, γ)      the proximal operator of γfᵢ at the scalar v,
+#   prox_entry(f, v, i, γ)  the proximal operator of γfᵢ at the scalar v,
 #   _entry_value(f, v, i)   fᵢ(v),
 #
-# and may declare _zeropreserving(f) when fᵢ(0) = 0 and cdprox(f, 0, i, γ) = 0
-# for every i and γ, which lets its value and proximal operator on a sparse
-# iterate touch only the stored entries. The value, prox! and value_and_prox!
-# below follow, for every kind of array and iterate.
+# and may declare _zeropreserving(f) when fᵢ(0) = 0 and
+# prox_entry(f, 0, i, γ) = 0 for every i and γ, which lets its value and
+# proximal operator on a sparse iterate touch only the stored entries. The
+# value, prox! and value_and_prox! below follow, for every kind of array and
+# iterate.
 abstract type SeparableFunction <: AbstractFunction end
 
 isseparable(::Type{<:SeparableFunction}) = true
@@ -79,7 +80,7 @@ function _prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Real)
   _checkparams(f, x)
   T = eltype(y)
   @inbounds for i in eachindex(IndexLinear(), y, x)
-    y[i] = convert(T, cdprox(f, x[i], i, γ))
+    y[i] = convert(T, prox_entry(f, x[i], i, γ))
   end
   y
 end
@@ -98,7 +99,7 @@ function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::Real)
   end
   @inbounds for k in 1:x.nnz
     i = x.nzval2ind[k]
-    _setstored!(y, convert(T, cdprox(f, x.nzval[k], i, γ)), i)
+    _setstored!(y, convert(T, prox_entry(f, x.nzval[k], i, γ)), i)
   end
   y
 end
@@ -119,12 +120,12 @@ function _prox_sep!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::Real)
     @inbounds for k in 1:x.nnz
       i = x.nzval2ind[k]
       r, c = tril_cartesian(p, i)
-      _setstored!(y, convert(T, cdprox(f, x.nzval[k], (c - 1) * p + r, γ)), i)
+      _setstored!(y, convert(T, prox_entry(f, x.nzval[k], (c - 1) * p + r, γ)), i)
     end
     return y
   end
   @inbounds for c in 1:p, r in c:p
-    _setstored!(y, convert(T, cdprox(f, x[r, c], (c - 1) * p + r, γ)), tril_index(p, r, c))
+    _setstored!(y, convert(T, prox_entry(f, x[r, c], (c - 1) * p + r, γ)), tril_index(p, r, c))
   end
   y
 end
@@ -148,10 +149,11 @@ _restrict_entries(w::AbstractArray, S::AbstractVector{<:Integer}) = w[S]
 
 The weighted ℓ1 norm `f(x) = λ0 Σᵢ wᵢ |xᵢ|`, with all `wᵢ = 1` when `w` is
 omitted. Its proximal operator is entry-wise soft thresholding
-([`shrink`](@ref)). Separable, so [`cdprox!`](@ref) updates any coordinate, and
-on a sparse iterate the value and the proximal operator touch only the stored
-entries. On a [`SymmetricSparseIterate`](@ref) the weights are a `p × p` matrix
-(or anything indexed by the linear indices of one), as for a dense matrix.
+([`shrink`](@ref)). Separable, so [`prox_coordinate!`](@ref) updates any
+coordinate, and on a sparse iterate the value and the proximal operator touch
+only the stored entries. On a [`SymmetricSparseIterate`](@ref) the weights are a
+`p × p` matrix (or anything indexed by the linear indices of one), as for a
+dense matrix.
 """
 struct NormL1{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ0::T
@@ -170,7 +172,7 @@ _zeropreserving(::NormL1) = true
 _checkparams(f::NormL1, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds _entry_value(f::NormL1, v::Real, i::Integer) = f.λ0 * _entry(f.w, i) * abs(v)
-Base.@propagate_inbounds cdprox(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
+Base.@propagate_inbounds prox_entry(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
   shrink(v, convert(float(T), γ * f.λ0 * _entry(f.w, i)))
 
 kkt_violation(f::NormL1, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ0 * _entry(f.w, i)
@@ -214,7 +216,7 @@ Base.@propagate_inbounds function _entry_value(f::NormL1Nonneg, v::T, i::Integer
   S = float(T)
   v >= -_tol(S) ? f.λ0 * _entry(f.w, i) * max(v, zero(T)) : S(Inf)
 end
-Base.@propagate_inbounds cdprox(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
+Base.@propagate_inbounds prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
   max(v - convert(float(T), γ * f.λ0 * _entry(f.w, i)), zero(float(T)))
 
 # moving up from zero decreases the objective when -gᵢ exceeds λ0 wᵢ
@@ -255,7 +257,7 @@ _zeropreserving(::ElasticNet) = true
 _checkparams(f::ElasticNet, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds _entry_value(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
-Base.@propagate_inbounds function cdprox(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   shrink(v, convert(S, γ * f.λ1 * _entry(f.w, i))) / (1 + convert(S, γ * f.λ2))
 end
@@ -317,7 +319,7 @@ Base.@propagate_inbounds function _entry_value(f::IndBox, v::T, i::Integer) wher
   t = _tol(S)
   (v >= l - t * max(one(S), abs(l)) && v <= u + t * max(one(S), abs(u))) ? zero(S) : S(Inf)
 end
-Base.@propagate_inbounds cdprox(f::IndBox, v::T, i::Integer, ::Real) where {T<:Real} =
+Base.@propagate_inbounds prox_entry(f::IndBox, v::T, i::Integer, ::Real) where {T<:Real} =
   convert(float(T), clamp(v, _entry(f.l, i), _entry(f.u, i)))
 
 # from zero, the objective decreases upward at rate -gᵢ if u > 0, and downward
@@ -347,7 +349,7 @@ _value_dense(::IndNonnegative, x::AbstractArray) =
 
 @inline _entry_value(::IndNonnegative, v::T, ::Integer) where {T<:Real} =
   v >= -_tol(float(T)) ? zero(float(T)) : float(T)(Inf)
-@inline cdprox(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} = max(float(v), zero(float(T)))
+@inline prox_entry(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} = max(float(v), zero(float(T)))
 kkt_violation(::IndNonnegative, g::AbstractArray, i::Integer) = -g[i]
 restrict(f::IndNonnegative, ::AbstractVector{<:Integer}) = f
 
@@ -371,7 +373,7 @@ NormL0(λ::Real = 1) = NormL0{typeof(λ)}(λ)
 _zeropreserving(::NormL0) = true
 
 Base.@propagate_inbounds _entry_value(f::NormL0, v::T, ::Integer) where {T<:Real} = iszero(v) ? zero(float(T)) : convert(float(T), f.λ)
-Base.@propagate_inbounds cdprox(f::NormL0, v::T, ::Integer, γ::Real) where {T<:Real} =
+Base.@propagate_inbounds prox_entry(f::NormL0, v::T, ::Integer, γ::Real) where {T<:Real} =
   abs2(v) > 2 * γ * f.λ ? float(v) : zero(float(T))
 restrict(f::NormL0, ::AbstractVector{<:Integer}) = f
 
@@ -408,7 +410,7 @@ Base.@propagate_inbounds function _entry_value(f::MCP, v::T, ::Integer) where {T
   t <= a * λ ? λ * t - t^2 / (2a) : a * λ^2 / 2
 end
 
-Base.@propagate_inbounds function cdprox(f::MCP, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_entry(f::MCP, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   λ, a, s, t = S(f.λ), S(f.a), S(γ), abs(S(v))
   if s < a
@@ -457,7 +459,7 @@ Base.@propagate_inbounds function _entry_value(f::SCAD, v::T, ::Integer) where {
   λ^2 * (a + 1) / 2
 end
 
-Base.@propagate_inbounds function cdprox(f::SCAD, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function prox_entry(f::SCAD, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   λ, a, s, t = S(f.λ), S(f.a), S(γ), abs(S(v))
   if s < a - 1

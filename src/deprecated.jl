@@ -13,7 +13,7 @@
 @deprecate prox!(f::AbstractFunction, y::AbstractArray, x::AbstractArray, γ::Real) prox!(y, f, x, γ)
 @deprecate prox!(f::AbstractFunction, y::AbstractArray, x::AbstractArray) prox!(y, f, x)
 @deprecate prox!(f::AbstractFunction, y::Tuple, x::Tuple, γ::Real) prox!(y, f, x, γ)
-@deprecate cdprox!(f::AbstractFunction, x::AbstractArray, k::Integer, γ::Real) cdprox!(x, f, k, γ)
+@deprecate cdprox!(f::AbstractFunction, x::AbstractArray, k::Integer, γ::Real) prox_coordinate!(x, f, k, γ)
 @deprecate gradient!(f::AbstractFunction, g::AbstractArray, x::AbstractArray) gradient!(g, f, x)
 @deprecate value_and_gradient!(f::AbstractFunction, g::AbstractArray, x::AbstractArray) value_and_gradient!(g, f, x)
 

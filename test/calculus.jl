@@ -32,7 +32,7 @@ Random.seed!(1)
   @test kkt_violation(s, grad, 3) ≈ abs(grad[3]) - 1.5
   @test kkt_violation(0 * f, grad, 3) == abs(grad[3])
   @test restrict(s, [2, 5])(x[[2, 5]]) ≈ s([0, x[2], 0, 0, x[5], 0, 0, 0])
-  @test cdprox(s, 2., 1, 0.4) ≈ shrink(2., 0.6)
+  @test prox_entry(s, 2., 1, 0.4) ≈ shrink(2., 0.6)
   @test_throws ArgumentError Scaled(f, -1.)
   # a scaled group penalty in coordinate descent and active-set code
   gn = GroupNormL2(1.0, [1:2, 3:4])
@@ -45,7 +45,7 @@ Random.seed!(1)
   end
   @test kkt_violation(sg, grad, zeros(4), 1) ≈ norm(grad[1:2]) - 0.5 * sqrt(2)
   a1, a2 = AtomIterate([1., 2., 3., 4.], gn), AtomIterate([1., 2., 3., 4.], gn)
-  @test cdprox!(a1, sg, 2, 0.4) ≈ cdprox!(a2, gn, 2, 0.2)
+  @test prox_coordinate!(a1, sg, 2, 0.4) ≈ prox_coordinate!(a2, gn, 2, 0.2)
   @test kkt_violation(0 * gn, grad, a0, 1) == maximum(abs, grad[1:2])
 end
 
@@ -57,7 +57,7 @@ end
     @test t(x) ≈ f(x) + dot(c, x) + 2
     @test prox(t, x, 0.6) ≈ prox(f, x - 0.6c, 0.6)
     check_prox(t, x, 0.6)
-    @test [cdprox(t, x[i], i, 0.6) for i in 1:8] ≈ prox(t, x, 0.6)
+    @test [prox_entry(t, x[i], i, 0.6) for i in 1:8] ≈ prox(t, x, 0.6)
   end
   t = Tilt(SqrNormL2(1.5), c)
   check_gradient(t, x)
@@ -76,7 +76,7 @@ end
   @test t(x) ≈ 0.4 * sum(abs, x - b)
   @test prox(t, x, 0.7) ≈ b + prox(f, x - b, 0.7)
   check_prox(t, x, 0.7)
-  @test [cdprox(t, x[i], i, 0.7) for i in 1:8] ≈ prox(t, x, 0.7)
+  @test [prox_entry(t, x[i], i, 0.7) for i in 1:8] ≈ prox(t, x, 0.7)
   # the loss ‖x - b‖²/2 of a translated squared norm
   q = Translate(SqrNormL2(), b)
   @test q(x) ≈ norm(x - b)^2 / 2
@@ -123,7 +123,7 @@ end
   # separable conjugates have the scalar proximal operators
   cf = Conjugate(NormL1(0.6))
   @test isseparable(cf)
-  @test [cdprox(cf, y[i], i, 0.8) for i in 1:3] ≈ prox(cf, y, 0.8)
+  @test [prox_entry(cf, y[i], i, 0.8) for i in 1:3] ≈ prox(cf, y, 0.8)
 end
 
 @testset "SeparableSum" begin

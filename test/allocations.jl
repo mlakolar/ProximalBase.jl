@@ -2,7 +2,7 @@ module AllocationsTest
 
 # The hot calls allocate nothing once a function object exists and has seen its
 # input once (to size its workspaces): f(x), prox!, value_and_prox!,
-# value_and_gradient!, gradient! and cdprox!.
+# value_and_gradient!, gradient! and prox_coordinate!.
 
 using Test
 using ProximalBase
@@ -19,7 +19,7 @@ a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
 a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
 a_vgrad!(g, f, x) = value_and_gradient!(g, f, x)
 a_grad!(g, f, x) = gradient!(g, f, x)
-a_cd!(x, f, k, γ) = cdprox!(x, f, k, γ)
+a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
 a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
 
 function zero_alloc_prox(f, x; γ = 0.7, value = true)

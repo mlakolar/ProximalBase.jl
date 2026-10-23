@@ -30,9 +30,9 @@ and iteration follow the dense matrix, so that an off-diagonal entry is visited
 twice.
 
 Its coordinates are the `p(p+1)/2` entries of the lower triangle, numbered
-column by column ([`tril_index`](@ref)): [`cdprox!`](@ref) updates them,
-[`ncoordinates`](@ref) counts them, [`activecoordinates`](@ref) lists the stored
-ones and [`coordinates`](@ref) is a vector view of them.
+column by column ([`tril_index`](@ref)): [`prox_coordinate!`](@ref) updates
+them, [`ncoordinates`](@ref) counts them, [`activecoordinates`](@ref) lists the
+stored ones and [`coordinates`](@ref) is a vector view of them.
 """
 mutable struct SymmetricSparseIterate{T} <: AbstractMatrix{T}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
@@ -59,9 +59,10 @@ SparseArrays.nnz(x::_StoredIterate) = x.nnz
 """
     ncoordinates(x)
 
-The number of coordinates of the iterate `x` that [`cdprox!`](@ref) updates:
-the entries of a [`SparseIterate`](@ref), the entries of the lower triangle of
-a [`SymmetricSparseIterate`](@ref), the groups of an [`AtomIterate`](@ref).
+The number of coordinates of the iterate `x` that [`prox_coordinate!`](@ref)
+updates: the entries of a [`SparseIterate`](@ref), the entries of the lower
+triangle of a [`SymmetricSparseIterate`](@ref), the groups of an
+[`AtomIterate`](@ref).
 """
 function ncoordinates end
 

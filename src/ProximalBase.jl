@@ -8,15 +8,15 @@ A function `f` is callable, `f(x)` being its value, and its traits say what it
 provides: [`issmooth`](@ref) functions have [`gradient!`](@ref) and
 [`value_and_gradient!`](@ref), [`isproximable`](@ref) ones [`prox!`](@ref) and
 [`value_and_prox!`](@ref), and [`isseparable`](@ref) ones the scalar proximal
-operators [`cdprox`](@ref) with which [`cdprox!`](@ref) updates one coordinate
-of an iterate. A function may be both smooth and proximable.
+operators [`prox_entry`](@ref), with which [`prox_coordinate!`](@ref) updates
+one coordinate of an iterate. A function may be both smooth and proximable.
 
 Proximal operators follow the convention
 
     prox_{γf}(x) = argmin_z  f(z) + ‖z - x‖² / (2γ),
 
 and mutating functions take their output first, as `mul!` does:
-`prox!(y, f, x, γ)`, `gradient!(g, f, x)`, `cdprox!(x, f, k, γ)`.
+`prox!(y, f, x, γ)`, `gradient!(g, f, x)`, `prox_coordinate!(x, f, k, γ)`.
 """
 module ProximalBase
 
@@ -33,7 +33,7 @@ export
   issmooth, isproximable, isseparable, isconvex,
   prox!, prox, value_and_prox!,
   gradient!, gradient, value_and_gradient!, value_and_gradient,
-  cdprox!, cdprox, kkt_violation, restrict,
+  prox_coordinate!, prox_entry, kkt_violation, restrict,
 
   # smooth functions
   ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, LeastSquaresLoss,

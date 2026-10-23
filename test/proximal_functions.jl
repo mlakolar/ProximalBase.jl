@@ -20,7 +20,7 @@ Random.seed!(1)
   @test value(f, x) == 0.
 
   xs = SparseIterate(x)
-  @test cdprox!(f, xs, 3, 1.) == x[3]
+  @test prox_coordinate!(f, xs, 3, 1.) == x[3]
   @test Vector(xs) == x
 
   @test restrict(f, [2, 5]) === f
@@ -80,14 +80,14 @@ end
     @test typeof(ProxL1(2., nothing)) == ProxL1{Float64, Nothing}
   end
 
-  @testset "cdprox!" begin
+  @testset "prox_coordinate!" begin
     x = randn(10)
     λ0 = 0.5
 
     xs = SparseIterate(x)
     g = ProxL1(λ0)
     for k=1:10
-      @test cdprox!(g, xs, k, 2.) ≈ shrink(x[k], 2. * λ0)
+      @test prox_coordinate!(g, xs, k, 2.) ≈ shrink(x[k], 2. * λ0)
     end
     @test Vector(xs) ≈ prox(g, x, 2.)
 
@@ -95,10 +95,10 @@ end
     xs = SparseIterate(x)
     g = ProxL1(λ0, λ)
     for k=1:10
-      @test cdprox!(g, xs, k, 2.) ≈ shrink(x[k], 2. * λ0 * λ[k])
+      @test prox_coordinate!(g, xs, k, 2.) ≈ shrink(x[k], 2. * λ0 * λ[k])
     end
     @test Vector(xs) ≈ prox(g, x, 2.)
-    @test_throws DimensionMismatch cdprox!(ProxL1(λ0, rand(5)), xs, 1, 1.)
+    @test_throws DimensionMismatch prox_coordinate!(ProxL1(λ0, rand(5)), xs, 1, 1.)
 
     # coordinates of SymmetricSparseIterate index the lower triangle
     M = sprandn(4, 4, 0.8)
@@ -107,7 +107,7 @@ end
     g = ProxL1(λ0)
     for k=1:numCoordinates(xs)
       v = xs[k]
-      @test cdprox!(g, xs, k, 1.) ≈ shrink(v, λ0)
+      @test prox_coordinate!(g, xs, k, 1.) ≈ shrink(v, λ0)
     end
     @test Matrix(xs) ≈ prox(g, Matrix(M))
   end
@@ -446,22 +446,22 @@ end
     prox!(gp, out2, other, γ)
     @test out2 ≈ prox(gp, x, γ)
 
-    # cdprox! shrinks one group in place, as prox! shrinks all of them
+    # prox_coordinate! shrinks one group in place, as prox! shrinks all of them
     z = prox(gp, x, γ)
     ya = copy(xa)
     for k in 1:5
-      @test cdprox!(gp, ya, k, γ) == z[gp.groups[k]]
+      @test prox_coordinate!(gp, ya, k, γ) == z[gp.groups[k]]
     end
     @test ya == z
-    # a group written through atom becomes active if cdprox! leaves it nonzero
+    # a group written through atom becomes active if prox_coordinate! leaves it nonzero
     yb = AtomIterate(9, gp)
     atom(yb, 1) .= [3., 4., 0.]
-    cdprox!(gp, yb, 1, γ)
+    prox_coordinate!(gp, yb, 1, γ)
     @test isActive(yb, 1)
     @test yb[1:3] ≈ (1 - γ * λ0 * w[1] / 5) * [3., 4., 0.]
-    cdprox!(gp, yb, 2, γ)
+    prox_coordinate!(gp, yb, 2, γ)
     @test !isActive(yb, 2)
-    @test_throws DimensionMismatch cdprox!(ProxGroupL2(λ0, [1:9]), yb, 1, γ)
+    @test_throws DimensionMismatch prox_coordinate!(ProxGroupL2(λ0, [1:9]), yb, 1, γ)
 
     # kkt_violation takes a group: at zero, a group violates optimality exactly when a
     # proximal gradient step moves it away from zero
@@ -478,10 +478,10 @@ end
 
     g32 = ProxGroupL2(0.4f0, [groups; [[9]]], Float32[w; 0])
     x32 = AtomIterate(Float32.(x), g32)
-    @test eltype(cdprox!(g32, x32, 1, 0.7f0)) == Float32
+    @test eltype(prox_coordinate!(g32, x32, 1, 0.7f0)) == Float32
     @test value(g32, x32) isa Float32
 
-    cd_allocs(g, x, k, γ) = @allocated cdprox!(g, x, k, γ)
+    cd_allocs(g, x, k, γ) = @allocated prox_coordinate!(g, x, k, γ)
     value_allocs(g, x) = @allocated value(g, x)
     cd_allocs(gp, ya, 1, 1e-12); value_allocs(gp, ya)
     @test cd_allocs(gp, ya, 1, 1e-12) == 0

@@ -60,11 +60,11 @@ value_and_gradient!(g, s::Scaled, x) = (v = value_and_gradient!(g, s.f, x); g .*
 gradient!(g, s::Scaled, x) = (gradient!(g, s.f, x); g .*= s.α)
 prox!(y, s::Scaled, x, γ::Real) = prox!(y, s.f, x, s.α * γ)
 value_and_prox!(y, s::Scaled, x, γ::Real) = s.α * value_and_prox!(y, s.f, x, s.α * γ)
-Base.@propagate_inbounds cdprox(s::Scaled, v::Real, i::Integer, γ::Real) = cdprox(s.f, v, i, s.α * γ)
+Base.@propagate_inbounds prox_entry(s::Scaled, v::Real, i::Integer, γ::Real) = prox_entry(s.f, v, i, s.α * γ)
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 # a scaled group penalty updates a group of an AtomIterate with a scaled step
-cdprox!(x::AtomIterate, s::Scaled, k::Integer, γ::Real) = cdprox!(x, s.f, k, s.α * γ)
+prox_coordinate!(x::AtomIterate, s::Scaled, k::Integer, γ::Real) = prox_coordinate!(x, s.f, k, s.α * γ)
 kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
   iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i)
 for X in (:AbstractArray, :AtomIterate, :SymmetricSparseIterate)
@@ -109,7 +109,7 @@ function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   y .= x .- convert(float(eltype(y)), γ) .* t.c
   value_and_prox!(y, t.f, y, γ) + dot(t.c, y) + t.d
 end
-Base.@propagate_inbounds cdprox(t::Tilt, v::Real, i::Integer, γ::Real) = cdprox(t.f, v - γ * t.c[i], i, γ)
+Base.@propagate_inbounds prox_entry(t::Tilt, v::Real, i::Integer, γ::Real) = prox_entry(t.f, v - γ * t.c[i], i, γ)
 _checkparams(t::Tilt, x) = (_checkparam(t.c, x); _checkparams(t.f, x))
 kkt_violation(t::Tilt, g::AbstractArray, i::Integer) = kkt_violation(t.f, _ShiftedArray(g, t.c), i)
 restrict(t::Tilt, S::AbstractVector{<:Integer}) = Tilt(restrict(t.f, S), t.c[S], t.d)
@@ -160,7 +160,7 @@ function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::R
   y .+= t.b
   v
 end
-Base.@propagate_inbounds cdprox(t::Translate, v::Real, i::Integer, γ::Real) = t.b[i] + cdprox(t.f, v - t.b[i], i, γ)
+Base.@propagate_inbounds prox_entry(t::Translate, v::Real, i::Integer, γ::Real) = t.b[i] + prox_entry(t.f, v - t.b[i], i, γ)
 _checkparams(t::Translate, x) = (_checkparam(t.b, x); _checkparams(t.f, x))
 _isindicator(::Type{<:Translate{F}}) where {F} = _isindicator(F)
 restrict(t::Translate, S::AbstractVector{<:Integer}) = Translate(restrict(t.f, S), t.b[S])
@@ -175,10 +175,10 @@ restrict(t::Translate, S::AbstractVector{<:Integer}) = Translate(restrict(t.f, S
 The convex conjugate `f*(y) = supₓ ⟨x, y⟩ - f(x)` of a convex `f`. Its proximal
 operator follows from that of `f` by Moreau's identity,
 `prox_{γf*}(x) = x - γ prox_{f/γ}(x/γ)`, so every proximable function gives one;
-for a separable `f` so does [`cdprox`](@ref). Its value is known for the norms
-(the indicators of the dual balls), the balls (their support functions), the
-box, the nonnegative orthant, [`SqrNormL2`](@ref), [`LinearFunction`](@ref) and
-[`ZeroFunction`](@ref).
+for a separable `f` so does [`prox_entry`](@ref). Its value is known for the
+norms (the indicators of the dual balls), the balls (their support functions),
+the box, the nonnegative orthant, [`SqrNormL2`](@ref), [`LinearFunction`](@ref)
+and [`ZeroFunction`](@ref).
 """
 struct Conjugate{F<:AbstractFunction} <: AbstractFunction
   f::F
@@ -199,7 +199,7 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   prox!(z, c.f, z, inv(γ))
   y .= x .- γ .* z
 end
-Base.@propagate_inbounds cdprox(c::Conjugate, v::Real, i::Integer, γ::Real) = v - γ * cdprox(c.f, v / γ, i, inv(γ))
+Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real) = v - γ * prox_entry(c.f, v / γ, i, inv(γ))
 _checkparams(c::Conjugate, x) = _checkparams(c.f, x)
 
 (c::Conjugate)(y::AbstractArray) = _conjugate_value(c.f, y)

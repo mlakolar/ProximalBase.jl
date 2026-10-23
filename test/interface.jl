@@ -94,7 +94,7 @@ end
   @test prox(Box2(), [3., -4., 1.]) == [2., -2., 1.]
 end
 
-@testset "cdprox and cdprox!" begin
+@testset "prox_entry and prox_coordinate!" begin
   γ = 0.7
   separable = [ZeroFunction(), LinearFunction(randn(10)), SqrNormL2(2.), SqrNormL2(1., randn(10)),
                NormL1(0.3), NormL1(0.3, rand(10)), NormL1Nonneg(0.4, rand(10)), ElasticNet(0.3, 0.5),
@@ -106,17 +106,17 @@ end
       x = randn(10)
       z = prox(f, x, γ)
       # the scalar operators are the entries of the proximal operator
-      @test [cdprox(f, x[i], i, γ) for i in 1:10] ≈ z
+      @test [prox_entry(f, x[i], i, γ) for i in 1:10] ≈ z
       # on a SparseIterate, coordinate k is entry k
       xs = SparseIterate(x)
       for k in 1:10
-        @test cdprox!(xs, f, k, γ) ≈ z[k]
+        @test prox_coordinate!(xs, f, k, γ) ≈ z[k]
       end
       @test Vector(xs) ≈ z
       # on an AtomIterate, coordinate k is group k, entry by entry
       xa = AtomIterate(x, [1:3, 4:4, [5, 9], [6, 7, 8, 10]])
       for k in 1:4
-        @test cdprox!(xa, f, k, γ) ≈ z[xa.groups[k]]
+        @test prox_coordinate!(xa, f, k, γ) ≈ z[xa.groups[k]]
       end
       @test Vector(xa) ≈ z
     end
@@ -124,14 +124,14 @@ end
 
   # a coordinate that stays zero is not stored, one that becomes nonzero is
   xs = SparseIterate(5)
-  cdprox!(xs, NormL1(1.), 2, 1.)
+  prox_coordinate!(xs, NormL1(1.), 2, 1.)
   @test nnz(xs) == 0
-  cdprox!(xs, IndBox(1, 2), 2, 1.)
+  prox_coordinate!(xs, IndBox(1, 2), 2, 1.)
   @test nnz(xs) == 1 && xs[2] == 1.
   xa = AtomIterate(4, [1:2, 3:4])
-  cdprox!(xa, NormL1(1.), 1, 1.)
+  prox_coordinate!(xa, NormL1(1.), 1, 1.)
   @test nactive(xa) == 0
-  cdprox!(xa, IndBox(1, 2), 2, 1.)
+  prox_coordinate!(xa, IndBox(1, 2), 2, 1.)
   @test activecoordinates(xa) == [2] && Vector(xa) == [0., 0., 1., 1.]
 
   # on a SymmetricSparseIterate, coordinate k is entry (r, c) of the lower triangle, and
@@ -143,14 +143,14 @@ end
   x = SymmetricSparseIterate(D)
   for k in 1:ncoordinates(x)
     r, c = tril_cartesian(p, k)
-    @test cdprox!(x, f, k, γ) ≈ shrink(D[r, c], γ * 0.3 * W[r, c])
+    @test prox_coordinate!(x, f, k, γ) ≈ shrink(D[r, c], γ * 0.3 * W[r, c])
   end
   @test Matrix(x) ≈ prox(f, D, γ)
 
   # functions that are not separable
-  @test_throws ArgumentError cdprox!(SparseIterate(3), NormL2(1.), 1, 1.)
-  @test_throws ArgumentError cdprox!(SymmetricSparseIterate(3), NuclearNorm(1.), 1, 1.)
-  @test_throws ArgumentError cdprox!(AtomIterate(4, 2), IndBallL1(1.), 1, 1.)
+  @test_throws ArgumentError prox_coordinate!(SparseIterate(3), NormL2(1.), 1, 1.)
+  @test_throws ArgumentError prox_coordinate!(SymmetricSparseIterate(3), NuclearNorm(1.), 1, 1.)
+  @test_throws ArgumentError prox_coordinate!(AtomIterate(4, 2), IndBallL1(1.), 1, 1.)
 end
 
 @testset "kkt_violation" begin

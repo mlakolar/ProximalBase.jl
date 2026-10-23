@@ -35,7 +35,7 @@ and its traits say which oracles it provides:
 |:------|:--------|
 | `issmooth(f)` | `gradient!(g, f, x)`, `value_and_gradient!(g, f, x)` |
 | `isproximable(f)` | `prox!(y, f, x, γ)`, `value_and_prox!(y, f, x, γ)` |
-| `isseparable(f)` | `cdprox(f, v, i, γ)`, and `cdprox!(x, f, k, γ)` on any iterate |
+| `isseparable(f)` | `prox_entry(f, v, i, γ)`, and `prox_coordinate!(x, f, k, γ)` on any iterate |
 | `isconvex(f)` | |
 
 Proximal operators follow the convention
@@ -104,16 +104,16 @@ for sweep in 1:100, k in 1:ncoordinates(β)
     old .= atom(β, k)
     mul!(u, view(X, :, G)', r)                   # u = X[:, G]' r = -∇_G f(β)
     atom(β, k) .+= u ./ L[k]                     # a gradient step on group k,
-    cdprox!(β, g, k, 1 / L[k])                   # then its proximal step
+    prox_coordinate!(β, g, k, 1 / L[k])          # then its proximal step
     mul!(r, view(X, :, G), old .- atom(β, k), 1, 1)
 end
 dropzeros!(β)
 ```
 
 `β` keeps the first group, and its only active group is that one: the other
-three are exactly zero. `cdprox!` activates a group that it leaves nonzero, so
-the active groups track the support, and an active-set solver would sweep over
-them only.
+three are exactly zero. `prox_coordinate!` activates a group that it leaves
+nonzero, so the active groups track the support, and an active-set solver would
+sweep over them only.
 
 ## Example: the graphical lasso by ADMM
 
@@ -215,10 +215,12 @@ bound, for Newton and coordinate steps.
 | `SymmetricSparseIterate` | the entries of its lower triangle; a sparse symmetric `p × p` matrix |
 | `AtomIterate` | groups of entries that partition `1:p`, with products over the active groups |
 
-`cdprox!(x, f, k, γ)` applies the proximal operator of `γf` to coordinate `k`;
-for a separable `f` it uses `cdprox(f, v, i, γ)`, the scalar proximal
-operator of entry `i`, which a coordinate-descent loop can also call
-directly. `ncoordinates(x)`, `nactive(x)`, `activecoordinates(x)`,
+`prox_coordinate!(x, f, k, γ)` applies the proximal operator of `γf` to
+coordinate `k` of the iterate `x`; for a separable `f` it uses
+`prox_entry(f, v, i, γ)`, the scalar proximal operator of entry `i`, which a
+coordinate-descent loop can also call directly. Entries index the array and
+coordinates the iterate; they differ for a `SymmetricSparseIterate` and an
+`AtomIterate`. `ncoordinates(x)`, `nactive(x)`, `activecoordinates(x)`,
 `isactive(x, k)`, `activate!(x, k)` and `dropzeros!(x)` maintain the active
 set, `coordinates(x)` is a vector view of the coordinates (the lower triangle of
 a `SymmetricSparseIterate`), and `tril_index` and `tril_cartesian` convert
@@ -232,11 +234,11 @@ optimality given the gradient `g` of the smooth part.
 ## Performance
 
 The hot calls (`f(x)`, `prox!`, `value_and_prox!`, `gradient!`,
-`value_and_gradient!`, `cdprox!`) allocate nothing once a function has seen
-its input; the tests check this on Julia 1.10 and the current release. The
-spectral functions and `LogDetLoss` call LAPACK through workspaces that they
-own, sized for their input, and the proximal operators that need scratch
-space (`NormLinf`, `IndBallL1`, `IndSimplex`, `IndBallL0`, ...) keep it.
+`value_and_gradient!`, `prox_entry`, `prox_coordinate!`) allocate nothing once a
+function has seen its input; the tests check this on Julia 1.10 and the current
+release. The spectral functions and `LogDetLoss` call LAPACK through workspaces
+that they own, sized for their input, and the proximal operators that need
+scratch space (`NormLinf`, `IndBallL1`, `IndSimplex`, `IndBallL0`, ...) keep it.
 Projections onto the simplex and the ℓ1 ball take O(n) expected time
 (Condat's algorithm), and `IndBallL0` uses an in-place quickselect. A function
 that owns a workspace must not be shared between threads; give each thread a

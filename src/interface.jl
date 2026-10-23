@@ -15,7 +15,7 @@ outside its domain. Its traits say which oracles it provides:
 |:------|:--------|
 | [`issmooth`](@ref) | [`gradient!`](@ref), [`value_and_gradient!`](@ref) |
 | [`isproximable`](@ref) | [`prox!`](@ref), [`value_and_prox!`](@ref) |
-| [`isseparable`](@ref) | [`cdprox`](@ref), and [`cdprox!`](@ref) on every iterate |
+| [`isseparable`](@ref) | [`prox_entry`](@ref), and [`prox_coordinate!`](@ref) on every iterate |
 
 A function can have several roles: [`SqrNormL2`](@ref), [`QuadraticFunction`](@ref),
 [`LeastSquaresLoss`](@ref) and [`LogDetLoss`](@ref) are both smooth and
@@ -51,9 +51,9 @@ isproximable(f::AbstractFunction) = isproximable(typeof(f))
     isseparable(f)
 
 Whether `f(x) = Σᵢ fᵢ(xᵢ)` is a sum over the entries of `x`. A separable `f` has
-the scalar proximal operators [`cdprox`](@ref), with which [`cdprox!`](@ref)
-updates a coordinate of any iterate, and [`kkt_violation`](@ref) needs only the
-gradient.
+the scalar proximal operators [`prox_entry`](@ref), with which
+[`prox_coordinate!`](@ref) updates a coordinate of any iterate, and
+[`kkt_violation`](@ref) needs only the gradient.
 """
 isseparable(::Type{<:AbstractFunction}) = false
 isseparable(f::AbstractFunction) = isseparable(typeof(f))
@@ -161,60 +161,62 @@ end
 ####################################
 
 """
-    cdprox(f, v, i, γ)
+    prox_entry(f, v, i, γ)
 
 For a separable `f(x) = Σᵢ fᵢ(xᵢ)` (see [`isseparable`](@ref)), the proximal
 operator of `γfᵢ` at the scalar `v`: the value that a coordinate-descent step
 gives entry `i` when the gradient step lands at `v`. `i` is a linear index of
 the array, so that weights and bounds may depend on the entry; for a
 [`SymmetricSparseIterate`](@ref), entry `(r, c)` has index `(c - 1)p + r`.
+It touches no iterate: [`prox_coordinate!`](@ref) updates a coordinate of one in
+place.
 """
-function cdprox end
+function prox_entry end
 
 """
-    cdprox!(x, f, k, γ)
+    prox_coordinate!(x, f, k, γ)
 
 Apply the proximal operator of `γf` to coordinate `k` of the iterate `x` in
 place, as in one step of coordinate descent, and return the new value of the
 coordinate. The coordinates of a [`SparseIterate`](@ref) are its entries, those
 of a [`SymmetricSparseIterate`](@ref) the entries of its lower triangle, and
-those of an [`AtomIterate`](@ref) its groups, for which `cdprox!` returns a view
-of the group (see [`ncoordinates`](@ref)).
+those of an [`AtomIterate`](@ref) its groups, for which `prox_coordinate!`
+returns a view of the group (see [`ncoordinates`](@ref)).
 
-A separable `f` updates any coordinate through [`cdprox`](@ref); a group
+A separable `f` updates any coordinate through [`prox_entry`](@ref); a group
 penalty such as [`GroupNormL2`](@ref) updates a group of an `AtomIterate` that
 shares its groups. A coordinate that stays zero does not become stored or
 active; one that becomes nonzero does.
 """
-function cdprox! end
+function prox_coordinate! end
 
 @noinline _not_separable(f) =
-  throw(ArgumentError("$(typeof(f)) is not separable: cdprox! needs a separable function or a group penalty on matching groups"))
+  throw(ArgumentError("$(typeof(f)) is not separable: prox_coordinate! needs a separable function or a group penalty on matching groups"))
 
-function cdprox!(x::SparseIterate, f::AbstractFunction, k::Integer, γ::Real)
+function prox_coordinate!(x::SparseIterate, f::AbstractFunction, k::Integer, γ::Real)
   isseparable(f) || _not_separable(f)
   _checkparams(f, x)
-  v = cdprox(f, x[k], k, γ)
+  v = prox_entry(f, x[k], k, γ)
   x[k] = v
   v
 end
 
-function cdprox!(x::SymmetricSparseIterate, f::AbstractFunction, k::Integer, γ::Real)
+function prox_coordinate!(x::SymmetricSparseIterate, f::AbstractFunction, k::Integer, γ::Real)
   isseparable(f) || _not_separable(f)
   _checkparams(f, x)
   r, c = tril_cartesian(x.p, k)
-  v = cdprox(f, _getstored(x, k), (c - 1) * x.p + r, γ)
+  v = prox_entry(f, _getstored(x, k), (c - 1) * x.p + r, γ)
   _setstored!(x, v, k)
   v
 end
 
 # group k, entry by entry; the group becomes active if it ends nonzero
-function cdprox!(x::AtomIterate, f::AbstractFunction, k::Integer, γ::Real)
+function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, γ::Real)
   isseparable(f) || _not_separable(f)
   _checkparams(f, x)
   nonzero = false
   @inbounds for i in x.groups[k]
-    v = cdprox(f, x.storage[i], i, γ)
+    v = prox_entry(f, x.storage[i], i, γ)
     x.storage[i] = v
     nonzero |= !iszero(v)
   end

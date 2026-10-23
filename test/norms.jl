@@ -165,27 +165,27 @@ end
       prox!(out2, fp, other, γ)
       @test out2 ≈ prox(fp, x, γ)
 
-      # cdprox! shrinks one group in place, as prox! shrinks all of them
+      # prox_coordinate! shrinks one group in place, as prox! shrinks all of them
       z = prox(fp, x, γ)
       ya = copy(xa)
       for k in 1:5
-        @test cdprox!(ya, fp, k, γ) ≈ z[fp.groups[k]]
+        @test prox_coordinate!(ya, fp, k, γ) ≈ z[fp.groups[k]]
       end
       @test ya ≈ z
-      # a group written through atom becomes active if cdprox! leaves it nonzero
+      # a group written through atom becomes active if prox_coordinate! leaves it nonzero
       yb = AtomIterate(9, fp)
       atom(yb, 1) .= [3., 4., 0.]
-      cdprox!(yb, fp, 1, γ)
+      prox_coordinate!(yb, fp, 1, γ)
       @test isactive(yb, 1)
-      cdprox!(yb, fp, 2, γ)
+      prox_coordinate!(yb, fp, 2, γ)
       @test !isactive(yb, 2)
-      @test_throws DimensionMismatch cdprox!(yb, F(λ0, [1:9]), 1, γ)
+      @test_throws DimensionMismatch prox_coordinate!(yb, F(λ0, [1:9]), 1, γ)
       # as many groups, but other ones
       fo = F(1.0, [1:2, 3:4])
       ao = AtomIterate([1., 2., 3., 4.], [[1, 3], [2, 4]])
-      @test_throws DimensionMismatch cdprox!(ao, fo, 1, 0.1)
+      @test_throws DimensionMismatch prox_coordinate!(ao, fo, 1, 0.1)
       @test_throws DimensionMismatch kkt_violation(fo, randn(4), ao, 1)
-      @test cdprox!(AtomIterate([1., 2., 3., 4.], [1:2, 3:4]), fo, 1, 0.1) isa AbstractVector   # equal, not shared
+      @test prox_coordinate!(AtomIterate([1., 2., 3., 4.], [1:2, 3:4]), fo, 1, 0.1) isa AbstractVector   # equal, not shared
 
       # kkt_violation takes a group: at zero, a group violates optimality exactly when a
       # proximal gradient step moves it away from zero
@@ -203,7 +203,7 @@ end
     end
     g32 = GroupNormL2(0.4f0, [groups; [[9]]], Float32[sqrt.(length.(groups)); 0])
     x32 = AtomIterate(Float32.(x), g32)
-    @test eltype(cdprox!(x32, g32, 1, 0.7f0)) == Float32
+    @test eltype(prox_coordinate!(x32, g32, 1, 0.7f0)) == Float32
     @test g32(x32) isa Float32
   end
 

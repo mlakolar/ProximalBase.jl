@@ -20,8 +20,8 @@ first:
 | `prox!(g, out, x); value(g, out)` | `value_and_prox!(out, g, x)` |
 | `gradient!(f, grad, x)` | `gradient!(grad, f, x)` |
 | `value_and_gradient!(f, grad, x)` | `value_and_gradient!(grad, f, x)` |
-| `cdprox!(g, x, k, γ)` | `cdprox!(x, g, k, γ)` |
-| a private scalar shrink, such as CoordinateDescent's `_cdshrink` | `cdprox(g, v, i, γ)` |
+| `cdprox!(g, x, k, γ)` | `prox_coordinate!(x, g, k, γ)` |
+| a private scalar shrink, such as CoordinateDescent's `_cdshrink` | `prox_entry(g, v, i, γ)` |
 
 **Types.** One abstract type with traits replaces the two abstract types, and
 functions are named for what they are:
@@ -79,18 +79,18 @@ These cannot warn, so check for them when migrating:
   `coordinates(x)[k]` or `x[r, c]`.
 - **Per-entry weights on a `SymmetricSparseIterate`** are indexed like those of
   the dense matrix: a `p × p` matrix, not a vector over the lower triangle. The
-  step `γ` of `cdprox!` still applies to one coordinate, so off-diagonal
-  coordinates take `2/a` where the diagonal takes `1/a`, as before.
+  step `γ` of `prox_coordinate!` still applies to one coordinate, so
+  off-diagonal coordinates take `2/a` where the diagonal takes `1/a`, as before.
 - `ProxL2Sq`'s replacement `SqrNormL2` halves the convention (see above); the
   deprecated `ProxL2Sq(λ)` converts.
 
 ### New
 
 - **Interface:** `value_and_prox!`, the allocating `gradient` and
-  `value_and_gradient`, `cdprox` for separable functions, and `cdprox!` on
-  every iterate for every separable function, including the groups of an
-  `AtomIterate`. Steps accept any real number and computations follow the
-  element type of `x`.
+  `value_and_gradient`, `prox_entry` for separable functions, and
+  `prox_coordinate!` on every iterate for every separable function, including
+  the groups of an `AtomIterate`. Steps accept any real number and computations
+  follow the element type of `x`.
 - **Smooth functions:** `LinearFunction`; `GLMLoss`, with `LogisticLoss`,
   `PoissonLoss` and `HuberLoss`, the losses of `η = Xβ + offset` with weights,
   whose scalar losses expose their derivatives and a curvature bound;

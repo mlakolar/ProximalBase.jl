@@ -109,13 +109,13 @@ The rows of a `p × k` matrix are the groups `[i:p:p*k for i in 1:p]`, which
 gives the multi-task group lasso with a matrix response in
 [`LeastSquaresLoss`](@ref).
 
-On an [`AtomIterate`](@ref), whose coordinates are groups, [`cdprox!`](@ref)
-updates a group and [`kkt_violation`](@ref) measures one. `AtomIterate(x, f)`
-builds an iterate that shares the groups of `f`, which must then partition
-`1:length(x)` (an index in no group goes in a group of its own with weight 0);
-with shared groups, the value and the proximal operator touch only the active
-groups. On ordinary arrays, active-set solvers can use [`restrict`](@ref) and
-[`kkt_violation`](@ref).
+On an [`AtomIterate`](@ref), whose coordinates are groups,
+[`prox_coordinate!`](@ref) updates a group and [`kkt_violation`](@ref) measures
+one. `AtomIterate(x, f)` builds an iterate that shares the groups of `f`, which
+must then partition `1:length(x)` (an index in no group goes in a group of its
+own with weight 0); with shared groups, the value and the proximal operator
+touch only the active groups. On ordinary arrays, active-set solvers can use
+[`restrict`](@ref) and [`kkt_violation`](@ref).
 
 # Example
 ```julia
@@ -356,7 +356,7 @@ end
 
 # group k of x shrunk in place; the group becomes active if it is nonzero, as after
 # writing to it through atom(x, k)
-function cdprox!(x::AtomIterate, f::AbstractGroupNorm, k::Integer, γ::Real)
+function prox_coordinate!(x::AtomIterate, f::AbstractGroupNorm, k::Integer, γ::Real)
   _checksamegroups(f, x)
   T = float(eltype(x))
   nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], convert(T, γ * f.λ0 * f.w[k]))

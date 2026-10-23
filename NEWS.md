@@ -1,5 +1,14 @@
 # ProximalBase.jl news
 
+## 0.5.1
+
+- `tril_cartesian` finds the column with the floating square root for
+  `p < 2²⁴`, where it is exact, as 0.4's `ind2subLowerTriangular` did, and
+  keeps the integer square root for larger `p` (#24). Loops that convert
+  coordinates to entries are faster: in DiffPrecTest's `skron` at `p = 20`, an
+  entry takes 9.8 ns instead of 14.3 ns on Julia 1.10, and 9.9 ns instead of
+  11.1 ns on Julia 1.13.
+
 ## 0.5.0
 
 A breaking release: a Julian interface, functions that can be both smooth and

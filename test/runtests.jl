@@ -11,6 +11,7 @@ tests = [
   "smooth",
   "separable",
   "norms",
+  "sparsegroup",
   "fibers",
   "spectral",
   "sets",

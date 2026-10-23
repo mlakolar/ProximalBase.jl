@@ -232,6 +232,7 @@ bound, for Newton and coordinate steps.
 | `NormL2(λ)` | `λ ‖x‖₂` | |
 | `NormLinf(λ)` | `λ maxᵢ \|xᵢ\|` | |
 | `GroupNormL2(λ0, groups, w)` | `λ0 Σₖ wₖ ‖x[Gₖ]‖₂`, the group lasso | |
+| `SparseGroupNormL2(λ1, λ2, groups, w)` | `λ1 ‖x‖₁ + λ2 Σₖ wₖ ‖x[Gₖ]‖₂`, the sparse group lasso | |
 | `GroupNormLinf(λ0, groups, w)` | `λ0 Σₖ wₖ ‖x[Gₖ]‖∞` | |
 | `NormL1Fused(λ1, λ2)` | `Σᵢ λ1 (\|x1ᵢ\| + \|x2ᵢ\|) + λ2 \|x1ᵢ - x2ᵢ\|` on pairs `(x1, x2)` | |
 | `NuclearNorm(λ)` | `λ ‖X‖_*` | |

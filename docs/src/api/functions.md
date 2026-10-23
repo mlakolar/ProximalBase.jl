@@ -9,6 +9,10 @@ Private = false
 Filter = t -> !(t in (SeparableFunction, value_entry, iszeropreserving))
 ```
 
+```@docs
+SparseGroupNormL2
+```
+
 ## Scalar losses of `GLMLoss`
 
 These are not exported; use them qualified, as `ProximalBase.Logistic()`.

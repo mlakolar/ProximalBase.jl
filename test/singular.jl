@@ -96,6 +96,8 @@ end
 @testset "traits, inputs and outputs" begin
   check_traits(SingularValue(NormL1(0.5)); proximable = true, convex = true)
   check_traits(SingularValue(MCP(0.5)); proximable = true)
+  # an indicator of singular values is an indicator, which other functions may ask
+  @test ProximalBase._isindicator(SingularValue(IndBallL1(1.))) && !ProximalBase._isindicator(SingularValue(NormL1(1.)))
   @test value_and_prox!(zeros(6, 4), SingularValue(IndBallLinf(1.)), randn(6, 4), 1.) == 0
   # a symmetric matrix, and a SymmetricSparseIterate as the output
   A = randn(6, 6); A = A + A'

@@ -45,6 +45,9 @@ export
   NormL1, NormL1Nonneg, ElasticNet, NormL2, NormLinf, GroupNormL2, GroupNormLinf,
   NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD,
 
+  # nonsmooth losses
+  CheckLoss, HingeLoss, EpsInsensitiveLoss,
+
   # indicator functions
   IndBox, IndNonnegative, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
   IndHyperplane, IndHalfspace, IndPSD, IndBallRank,
@@ -76,6 +79,7 @@ include("functions/leastsquares.jl")
 include("functions/glm.jl")
 include("functions/logdet.jl")
 include("functions/separable.jl")
+include("functions/losses.jl")
 include("functions/norms.jl")
 include("functions/fibers.jl")
 include("functions/spectral.jl")

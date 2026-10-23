@@ -113,9 +113,23 @@ over the observations and one product with ``X^\top``.
 | `Logistic()` | ``\log(1 + e^\eta) - y\eta`` | ``\sigma(\eta) - y`` | ``1/4`` | [`LogisticLoss`](@ref)`(y, X)` |
 | `Poisson()` | ``e^\eta - y\eta`` | ``e^\eta - y`` | ``\infty`` | [`PoissonLoss`](@ref)`(y, X)` |
 | `Huber(δ)` | ``\tfrac12 r^2`` if ``\lvert r\rvert \le \delta``, else ``\delta(\lvert r\rvert - \delta/2)``, with ``r = \eta - y`` | ``\operatorname{clamp}(r, -\delta, \delta)`` | ``1`` | [`HuberLoss`](@ref)`(y, X, δ)` |
+| `SquaredHinge()` | ``\max(0, 1 - y\eta)^2``, ``y = \pm 1`` | ``-2y\max(0, 1 - y\eta)`` | ``2`` | `GLMLoss(ProximalBase.SquaredHinge(), y, X)` |
+| `SmoothCheck(τ, h)` | the Moreau envelope of ``\rho_\tau`` at ``u = y - \eta`` | ``-\operatorname{clamp}(u/h, \tau - 1, \tau)`` | ``1/h`` | `GLMLoss(ProximalBase.SmoothCheck(τ, h), y, X)` |
+| `ConvolutionCheck(τ, h; kernel)` | ``\int \rho_\tau(u - t)K(t/h)/h\,dt`` at ``u = y - \eta`` | ``-(\tau - \tfrac12) - \tfrac12 m'(u/h)`` for ``\lvert u\rvert < h`` | ``\max K/h`` | `GLMLoss(ProximalBase.ConvolutionCheck(τ, h), y, X)` |
 
 Here ``\sigma(\eta) = 1/(1 + e^{-\eta})``, and ``\log(1 + e^\eta)`` is
-computed so that it neither overflows nor loses precision. The scalar losses
+computed so that it neither overflows nor loses precision.
+
+The last two smooth the check loss ``\rho_\tau(u) = \max(\tau u, (\tau - 1)u)`` of
+quantile regression, so that coordinate descent and proximal Newton fit it
+without a linear program. `SmoothCheck(τ, h)` is its Moreau envelope
+``\min_s \rho_\tau(s) + (s - u)^2/(2h)``: an asymmetric Huber loss that is
+quadratic on ``-h(1 - \tau) < u < h\tau`` and within ``h/2`` of ``\rho_\tau``.
+`ConvolutionCheck(τ, h)` convolves ``\rho_\tau`` with a kernel of bandwidth ``h``, the
+smoothing of the conquer estimator (He, Pan, Tan and Zhou, 2023). With the
+uniform or the Epanechnikov kernel (`kernel = :uniform` or `:epanechnikov`) it
+equals ``\rho_\tau`` for ``|u| \ge h`` and is a polynomial in between: with
+``m(s) = \int|s - t|K(t)\,dt``, it is ``(\tau - \tfrac12)u + \tfrac{h}{2}m(u/h)``. The scalar losses
 expose `ProximalBase.deriv`, `deriv2` and `curvature`, for Newton and
 coordinate steps.
 

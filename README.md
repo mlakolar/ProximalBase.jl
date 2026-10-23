@@ -217,8 +217,9 @@ checks its own result:
 | `GLMLoss(ℓ, y, X; weights, offset)` | `Σᵢ wᵢ ℓ(ηᵢ, yᵢ)`, `η = Xβ + offset` | |
 
 The scalar losses `ℓ` of `GLMLoss` (`ProximalBase.Squared`, `Logistic`,
-`Poisson`, `Huber`) expose `ProximalBase.deriv`, `deriv2` and a `curvature`
-bound, for Newton and coordinate steps.
+`Poisson`, `Huber`, and `SquaredHinge`, `SmoothCheck` and `ConvolutionCheck`,
+smooth versions of the hinge and quantile losses) expose `ProximalBase.deriv`,
+`deriv2` and a `curvature` bound, for Newton and coordinate steps.
 
 **Penalties**
 
@@ -236,6 +237,14 @@ bound, for Newton and coordinate steps.
 | `NormL1Fused(λ1, λ2)` | `Σᵢ λ1 (\|x1ᵢ\| + \|x2ᵢ\|) + λ2 \|x1ᵢ - x2ᵢ\|` on pairs `(x1, x2)` | |
 | `NuclearNorm(λ)` | `λ ‖X‖_*` | |
 | `TracePSD(λ)` | `λ tr(X)` on `X ⪰ 0` | |
+
+**Nonsmooth losses**, separable, for splitting methods
+
+| Function | Value |
+|:---------|:------|
+| `CheckLoss(τ, w)` | `Σᵢ wᵢ ρ_τ(xᵢ)`, `ρ_τ(u) = max(τu, (τ - 1)u)`, the quantile loss |
+| `HingeLoss(y, w)` | `Σᵢ wᵢ max(0, 1 - yᵢxᵢ)` |
+| `EpsInsensitiveLoss(ε, w)` | `Σᵢ wᵢ max(0, \|xᵢ\| - ε)` |
 
 **Indicator functions of sets**
 

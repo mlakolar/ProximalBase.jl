@@ -18,6 +18,9 @@ and ``\gamma`` is the step of the proximal operator.
 | [`NormL1Fused`](@ref)`(λ1, λ2)` | ``\sum_i \lambda_1(\lvert a_i\rvert + \lvert b_i\rvert) + \lambda_2\lvert a_i - b_i\rvert`` | fuse each pair, then soft threshold | |
 | [`NuclearNorm`](@ref)`(λ)` | ``\lambda\sum_i \sigma_i(X)`` | ``U\max(\Sigma - \gamma\lambda, 0)V^\top`` | |
 | [`TracePSD`](@ref)`(λ)` | ``\lambda\operatorname{tr}(X)`` on ``X \succeq 0`` | ``U\max(\Lambda - \gamma\lambda, 0)U^\top`` | |
+| [`CheckLoss`](@ref)`(τ, w)` | ``\sum_i w_i\rho_\tau(x_i)`` | see below | ✓ |
+| [`HingeLoss`](@ref)`(y, w)` | ``\sum_i w_i\max(0, 1 - y_i x_i)`` | see below | ✓ |
+| [`EpsInsensitiveLoss`](@ref)`(ε, w)` | ``\sum_i w_i\max(0, \lvert x_i\rvert - \varepsilon)`` | see below | ✓ |
 
 ## The ℓ1 norm and its relatives
 
@@ -147,6 +150,48 @@ fused but not shrunk, the penalty is
 On a matrix, the fibers are the rows and the slices the columns.
 `FiberSum(NormL2(λ))` is then the row-sparse penalty of multitask regression,
 without the index vectors of `GroupNormL2`.
+
+## Losses of residuals and margins
+
+Quantile regression, support vector machines and support vector regression
+have losses that are nonsmooth but separable, with closed-form proximal
+operators. So splitting methods such as ADMM apply them to ``z = X\beta`` exactly.
+
+**The check loss.** [`CheckLoss`](@ref)`(τ)` is
+``\sum_i \rho_\tau(x_i)`` with ``\rho_\tau(u) = \max(\tau u, (\tau - 1)u)``, for
+``\tau \in (0, 1)``. Its proximal operator is
+
+```math
+\operatorname{prox}_{\gamma\rho_\tau}(v) =
+\begin{cases}
+v - \gamma\tau & v > \gamma\tau,\\
+v + \gamma(1 - \tau) & v < -\gamma(1 - \tau),\\
+0 & \text{otherwise}.
+\end{cases}
+```
+
+Since ``\rho_\tau(-u) = \rho_{1-\tau}(u)``, the loss
+``\sum_i \rho_\tau(y_i - z_i)`` of predictions ``z`` is
+`Translate(CheckLoss(1 - τ), y)`. The conjugate of ``\rho_\tau`` is the indicator
+of ``[\tau - 1, \tau]``, the dual feasible set of quantile regression, and
+[`Conjugate`](@ref) gives its value.
+
+**The hinge loss.** [`HingeLoss`](@ref)`(y)` is ``\sum_i \max(0, 1 - y_i x_i)``
+for labels ``y_i = \pm 1``. At the margin ``u = y_i v``, the proximal operator of
+``\gamma\max(0, 1 - u)`` is ``u + \gamma`` for ``u < 1 - \gamma``, ``1`` for
+``1 - \gamma \le u \le 1``, and ``u`` above. Without labels, ``x`` holds the margins.
+
+**The ε-insensitive loss.** [`EpsInsensitiveLoss`](@ref)`(ε)` is
+``\sum_i \max(0, |x_i| - \varepsilon)``. Its proximal operator keeps ``v`` for
+``|v| \le \varepsilon``, puts it at ``\pm\varepsilon`` for
+``\varepsilon < |v| \le \varepsilon + \gamma``, and moves it toward zero by
+``\gamma`` beyond. With ``\varepsilon = 0`` it is soft thresholding.
+
+All three take weights ``w_i``, which multiply the step. For coordinate descent
+and Newton steps, the scalar losses `ProximalBase.SquaredHinge`,
+`ProximalBase.SmoothCheck` and `ProximalBase.ConvolutionCheck` of
+[`GLMLoss`](@ref) are smooth versions with bounded curvature; see
+[Smooth functions](@ref).
 
 ## Spectral penalties
 

@@ -47,6 +47,7 @@ export
 
   # indicator functions
   IndBox, IndNonnegative, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
+  IndIntersection,
   IndHyperplane, IndHalfspace, IndPSD, IndBallRank,
 
   # functions built from functions
@@ -75,6 +76,7 @@ include("functions/logdet.jl")
 include("functions/separable.jl")
 include("functions/norms.jl")
 include("functions/spectral.jl")
+include("functions/intersection.jl")
 include("functions/sets.jl")
 
 include("calculus.jl")

@@ -12,6 +12,7 @@ tests = [
   "separable",
   "norms",
   "spectral",
+  "intersection",
   "sets",
   "calculus",
   "allocations",

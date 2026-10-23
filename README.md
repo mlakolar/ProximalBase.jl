@@ -244,6 +244,7 @@ bound, for Newton and coordinate steps.
 | `IndBox(l, u)`, `IndNonnegative()`, `IndBallLinf(r)` | `l ≤ x ≤ u`, `x ≥ 0`, `‖x‖∞ ≤ r` (separable) |
 | `IndBallL0(s; diagonal)` | at most `s` nonzero entries, nonconvex; on a symmetric matrix, entries of one triangle, with or without the diagonal |
 | `IndBallL1(r)`, `IndBallL2(r)` | `‖x‖₁ ≤ r`, `‖x‖₂ ≤ r` |
+| `IndIntersection(C₁, C₂, …)` | the intersection of sets, projected by Dykstra's algorithm (iterative) |
 | `IndSimplex(r; equality)` | `x ≥ 0, Σᵢ xᵢ = r` (or `≤ r`) |
 | `IndHyperplane(a, b)`, `IndHalfspace(a, b)` | `⟨a, x⟩ = b`, `⟨a, x⟩ ≤ b` |
 | `IndPSD()`, `IndPSD(rank = r)` | `X ⪰ 0`, and of rank at most `r` (nonconvex) |

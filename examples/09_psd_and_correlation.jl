@@ -1,8 +1,9 @@
 # Projections onto sets of covariance matrices.
 #
 # - the nearest positive semidefinite matrix: `IndPSD()`;
-# - the nearest correlation matrix, by Dykstra's alternating projections between
-#   the positive semidefinite cone and the matrices with unit diagonal;
+# - the nearest correlation matrix, the projection onto the intersection of the
+#   positive semidefinite cone and the matrices with unit diagonal:
+#   `IndIntersection`, by Dykstra's alternating projections;
 # - the nearest positive semidefinite matrix of rank r: `IndPSD(rank = r)`;
 # - eigenvalue shrinkage: `TracePSD(μ)`, the trace on the PSD cone, whose
 #   proximal operator subtracts μ from the eigenvalues and clips at zero;
@@ -32,25 +33,19 @@ println("nearest PSD matrix: smallest eigenvalue ", round(eigmin(R̃), digits = 
         round(eigmin(Symmetric(P)), sigdigits = 2), ", distance ", round(norm(P - R̃), digits = 4))
 
 # --- the nearest correlation matrix (Higham, 2002) --------------------------
-# Dykstra's algorithm corrects the projection onto the cone with the increment
-# ΔS of the previous round, which plain alternating projections would omit.
-function nearest_correlation(A; tol = 1e-10, maxiter = 10_000)
-    psd = IndPSD()
-    Y, X, ΔS, Rk = Matrix(A), zeros(size(A)), zeros(size(A)), zeros(size(A))
-    for iter in 1:maxiter
-        Rk .= Y .- ΔS
-        prox!(X, psd, Rk, 1.0)                                    # onto the PSD cone
-        ΔS .= X .- Rk
-        Y .= X
-        Y[diagind(Y)] .= 1                                        # onto unit diagonals
-        norm(Y - X) < tol && return Y, iter
-    end
-    error("no convergence")
-end
-C, iters = nearest_correlation(R̃)
-println("nearest correlation matrix: ", iters, " rounds, smallest eigenvalue ",
+# The matrices with unit diagonal are a box with array bounds. The projection
+# onto the intersection with the cone has no closed form: Dykstra's algorithm
+# projects onto the two sets in turn and corrects each projection by the
+# increment of the previous round, which plain alternating projections omit, so
+# that it converges to the projection, not just to a point of the intersection.
+L, U = fill(-Inf, p, p), fill(Inf, p, p)
+L[diagind(L)] .= 1
+U[diagind(U)] .= 1
+correlations = IndIntersection(IndPSD(), IndBox(L, U))
+C = prox(correlations, R̃)
+println("nearest correlation matrix: ", correlations.iterations, " rounds, smallest eigenvalue ",
         round(eigmin(Symmetric(C)), sigdigits = 2), ", distance ", round(norm(C - R̃), digits = 4))
-@assert all(diag(C) .== 1) && eigmin(Symmetric(C)) > -1e-8
+@assert all(diag(C) .== 1) && eigmin(Symmetric(C)) > -1e-8 && correlations(C) == 0
 @assert norm(C - R̃) >= norm(P - R̃) - 1e-10                    # a smaller set than the cone
 
 # --- the nearest PSD matrix of rank 2 ---------------------------------------

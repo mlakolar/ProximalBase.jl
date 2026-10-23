@@ -335,3 +335,13 @@ function value_and_gradient!(g::AbstractArray, s::Sum, x::AbstractArray)
   b = _array_buffer!(s.scratch, eltype(g), size(g))
   _add_gradients!(g, b, x, v, Base.tail(s.fs))
 end
+
+####################################
+#  Lipschitz constants of the gradients
+####################################
+
+lipschitz(s::Scaled) = abs(s.α) * lipschitz(s.f)
+lipschitz(t::Tilt) = lipschitz(t.f)
+lipschitz(t::Translate) = lipschitz(t.f)
+lipschitz(s::Sum) = sum(lipschitz, s.fs)
+lipschitz(s::SeparableSum) = maximum(lipschitz, s.fs)

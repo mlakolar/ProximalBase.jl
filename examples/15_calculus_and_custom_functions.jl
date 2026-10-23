@@ -4,8 +4,9 @@
 # function over to the new one; `Sum` adds smooth functions and their
 # gradients; `SeparableSum` acts on a tuple of blocks. A new function is any
 # subtype of `AbstractFunction` that declares its traits and implements the
-# oracles they promise: here a separable Huber penalty, whose scalar proximal
-# operator `prox_entry` also gives `prox_coordinate!` on sparse iterates.
+# oracles they promise. A separable one subtypes `SeparableFunction` and
+# implements two scalar functions, `value_entry` and `prox_entry`; the value,
+# `prox!`, `value_and_prox!` and `prox_coordinate!` then come with the type.
 
 using ProximalBase, LinearAlgebra, Random
 
@@ -66,27 +67,21 @@ y1, y2 = prox(h, (x1, x2), γ)
 # λ Σᵢ h_δ(xᵢ), with h_δ(t) = t²/(2δ) for |t| ≤ δ and |t| - δ/2 beyond: a
 # smoothed ℓ1 norm. Its scalar proximal operator, the minimizer of
 # λ h_δ(z) + (z - v)²/(2γ), is v / (1 + γλ/δ) when |v| ≤ δ + γλ, and
-# v - γλ sign(v) beyond.
-struct HuberPenalty <: AbstractFunction
+# v - γλ sign(v) beyond. It maps 0 to 0, and h_δ(0) = 0, so declaring
+# `iszeropreserving` lets it touch only the stored entries of a sparse iterate.
+struct HuberPenalty <: SeparableFunction
     λ::Float64
     δ::Float64
 end
 huber(t, δ) = abs(t) <= δ ? t^2 / (2δ) : abs(t) - δ / 2
 
-ProximalBase.isproximable(::Type{HuberPenalty}) = true
-ProximalBase.isseparable(::Type{HuberPenalty}) = true
-ProximalBase.isconvex(::Type{HuberPenalty}) = true
-(f::HuberPenalty)(x) = f.λ * sum(t -> huber(t, f.δ), x)
-function ProximalBase.prox_entry(f::HuberPenalty, v::Real, ::Integer, γ::Real)
+ProximalBase.value_entry(f::HuberPenalty, v, i) = f.λ * huber(v, f.δ)
+function ProximalBase.prox_entry(f::HuberPenalty, v, i, γ)
     τ = γ * f.λ
     abs(v) <= f.δ + τ ? v / (1 + τ / f.δ) : v - τ * sign(v)
 end
-function ProximalBase.prox!(y::AbstractArray, f::HuberPenalty, x::AbstractArray, γ::Real)
-    for i in eachindex(y, x)
-        y[i] = prox_entry(f, x[i], i, γ)
-    end
-    y
-end
+ProximalBase.iszeropreserving(::HuberPenalty) = true
+ProximalBase.isconvex(::Type{HuberPenalty}) = true
 
 hp = HuberPenalty(1.0, 0.5)
 # the proximal operator against a brute-force minimization on a fine grid
@@ -95,7 +90,8 @@ for v in (-2.0, -0.8, 0.3, 1.1, 3.0)
     zbest = grid[argmin([hp([z]) + (z - v)^2 / (2γ) for z in grid])]
     @assert abs(prox_entry(hp, v, 1, γ) - zbest) < 1e-4
 end
-# prox_coordinate! works on a SparseIterate through prox_entry
+# the value and prox! come from value_entry and prox_entry, also on sparse iterates
+@assert hp(x) ≈ sum(t -> huber(t, hp.δ), x) && prox(hp, x, γ) ≈ [prox_entry(hp, v, 1, γ) for v in x]
 xs = SparseIterate(5)
 xs[2] = 1.5
 @assert prox_coordinate!(xs, hp, 2, γ) ≈ prox_entry(hp, 1.5, 2, γ)
@@ -106,7 +102,7 @@ prox_coordinate!(xs, hp, 4, γ)                        # a zero stays zero, and 
 # smooth problem whose solution has ∇f(β) + λ h_δ'(β) = 0
 f = LeastSquaresLoss(y, X)
 β = zeros(p)
-L = opnorm(X)^2
+L = lipschitz(f)
 for _ in 1:5000
     gradient!(grad, f, β)
     β .-= grad ./ L

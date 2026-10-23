@@ -18,7 +18,7 @@ y = X * β_true + 0.5 * randn(rng, n)
 
 f = LeastSquaresLoss(y, X)
 g = NormL1(λ)
-L = opnorm(X)^2                    # Lipschitz constant of ∇f
+L = lipschitz(f)                   # ‖X‖₂², the Lipschitz constant of ∇f, by Lanczos
 
 # ISTA: β ← prox_{g/L}(β - ∇f(β)/L). `value_and_prox!` returns g at the new point,
 # so tracking the objective costs no extra pass.
@@ -84,3 +84,7 @@ println("first coefficients: ", round.(β_fista[1:4], digits = 3), " (truth ", �
 @assert kkt(f, λ, β_ista) < 1e-6 && kkt(f, λ, β_fista) < 1e-6 && kkt(f, λ, β_admm) < 1e-6
 @assert norm(β_ista - β_fista) < 1e-6 && norm(β_admm - β_fista) < 1e-6
 @assert findall(!iszero, β_fista) == 1:3                 # the support of β_true
+@assert L ≈ opnorm(X)^2
+# the gradient mapping (β - prox_{g/L}(β - ∇f(β)/L)) L is zero at the solution:
+# a stopping rule that works for any f and g
+@assert norm(gradient_mapping(f, g, β_fista, 1 / L)) < 1e-8

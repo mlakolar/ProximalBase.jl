@@ -267,3 +267,44 @@ the value `f(x)` and the gradient `∇f(x)[S]`, except that [`SqrNormL2`](@ref)
 with a center `y` drops the constant `Σⱼ∉S yⱼ²`.
 """
 function restrict end
+
+"""
+    gradient_mapping!(G, f, g, x, γ)
+    gradient_mapping(f, g, x, γ)
+
+The gradient mapping `G = (x - prox_{γg}(x - γ∇f(x))) / γ` of the problem
+`minimize f(x) + g(x)`, for a smooth `f` and a proximable `g`. When `f` and `g`
+are convex it is zero exactly at the minimizers, for every `γ > 0`; with
+`g = 0` it is `∇f(x)`. Its norm is a stopping rule that needs neither the
+optimal value nor the structure of `g`, and a proximal gradient step from `x` is
+`x - γG`. `G` must not be `x`; `gradient_mapping!` allocates nothing beyond
+what `gradient!` and `prox!` do.
+"""
+function gradient_mapping!(G::AbstractArray, f::AbstractFunction, g::AbstractFunction, x::AbstractArray, γ::Real)
+  G === x && throw(ArgumentError("G must not be x"))
+  gradient!(G, f, x)
+  G .= x .- γ .* G
+  prox!(G, g, G, γ)
+  G .= (x .- G) ./ γ
+end
+
+gradient_mapping(f::AbstractFunction, g::AbstractFunction, x::AbstractArray, γ::Real) =
+  gradient_mapping!(_gradient_buffer(x), f, g, x, γ)
+
+"""
+    lipschitz(f)
+
+A Lipschitz constant `L` of the gradient of the smooth function `f`, so that a
+gradient or proximal gradient step with step `1/L` decreases the objective.
+It is exact for the closed forms (`SqrNormL2(λ)` gives `λ`); for a loss of a
+matrix it is the largest eigenvalue involved, such as `‖X‖₂²` for
+`LeastSquaresLoss`, computed by the Lanczos process with products by `X` and
+`X'` only, to a relative accuracy of `1e-10` and from below. It is `Inf` for a
+smooth function whose gradient is not globally Lipschitz, such as `LogDetLoss`
+and `PoissonLoss`, which call for a line search, and an error for a function
+that is not smooth. Sums add the constants, `Scaled` scales them, and
+`SeparableSum` takes their maximum.
+"""
+lipschitz(f::AbstractFunction) =
+  throw(ArgumentError(issmooth(f) ? "no Lipschitz constant is known for the gradient of $(nameof(typeof(f)))" :
+                                    "$(nameof(typeof(f))) is not smooth"))

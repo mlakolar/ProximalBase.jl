@@ -34,6 +34,8 @@ export
   prox!, prox, value_and_prox!,
   gradient!, gradient, value_and_gradient!, value_and_gradient,
   prox_coordinate!, prox_entry, kkt_violation, restrict,
+  SeparableFunction, value_entry, iszeropreserving,
+  gradient_mapping, gradient_mapping!, lipschitz,
 
   # smooth functions
   ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, KronQuadratic,

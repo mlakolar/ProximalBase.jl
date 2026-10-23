@@ -259,7 +259,8 @@ The quadratic `f(Θ) = ⟨Θ, AΘB⟩ / 2 + ⟨C, Θ⟩` of a `p × q` matrix `�
 symmetric positive semidefinite `A` (`p × p`) and `B` (`q × q`), with `C = 0`
 when omitted: `vec(Θ)'(B ⊗ A) vec(Θ) / 2 + vec(C)'vec(Θ)`, without forming the
 `pq × pq` matrix `B ⊗ A`. Smooth, with gradient `AΘB + C`; `size(f)` is
-`(p, q)`.
+`(p, q)`. `A` and `B` are stored as dense matrices; one that is symmetric only up
+to rounding, such as an inverse computed by `inv`, is symmetrized.
 
 `Θ` may be a `p × q` matrix, the vector `vec(Θ)`, a [`SparseIterate`](@ref) of
 either shape or, when `p = q`, a [`SymmetricSparseIterate`](@ref). On a
@@ -293,11 +294,23 @@ function KronQuadratic(A::AbstractMatrix, B::AbstractMatrix, C::Union{Nothing, A
   T = float(promote_type(eltype(A), eltype(B), C === nothing ? Bool : eltype(C)))
   # dense copies, so that the products never index a Symmetric or sparse matrix
   Ad, Bd = Matrix{T}(A), Matrix{T}(B)
-  issymmetric(Ad) && issymmetric(Bd) || throw(ArgumentError("A and B must be symmetric"))
   Cd = C === nothing ? nothing : Matrix{T}(C)
   all(isfinite, Ad) && all(isfinite, Bd) && (Cd === nothing || all(isfinite, Cd)) ||
     throw(ArgumentError("A, B and C must be finite"))
-  KronQuadratic{T, typeof(Cd)}(Ad, Bd, Cd, zeros(T, p, q), zeros(T, p, q), zeros(T, p, q))
+  KronQuadratic{T, typeof(Cd)}(_symmetrized!(Ad, "A"), _symmetrized!(Bd, "B"), Cd, zeros(T, p, q), zeros(T, p, q), zeros(T, p, q))
+end
+
+# M, which must be symmetric; one that is symmetric up to rounding, such as an
+# inverse computed by inv, becomes (M + M')/2
+function _symmetrized!(M::Matrix{T}, name) where {T}
+  issymmetric(M) && return M
+  δ = maximum(abs(M[i, j] - M[j, i]) for j in axes(M, 2) for i in j+1:size(M, 1))
+  δ <= sqrt(eps(T)) * maximum(abs, M) ||
+    throw(ArgumentError("$name must be symmetric (one that is symmetric up to rounding is accepted); wrap it in Symmetric to use one of its triangles"))
+  for j in axes(M, 2), i in j+1:size(M, 1)
+    M[i, j] = M[j, i] = (M[i, j] + M[j, i]) / 2
+  end
+  M
 end
 
 issmooth(::Type{<:KronQuadratic}) = true
@@ -368,3 +381,13 @@ function _symmetrize!(W::Matrix)
   end
   W
 end
+
+####################################
+#  Lipschitz constants of the gradients
+####################################
+
+lipschitz(::ZeroFunction) = 0.0
+lipschitz(f::LinearFunction) = zero(float(eltype(f.c)))
+lipschitz(f::SqrNormL2) = float(f.λ)
+lipschitz(f::QuadraticFunction) = _opnorm(f.A)
+lipschitz(f::KronQuadratic) = _opnorm(f.A) * _opnorm(f.B)       # also over symmetric Θ

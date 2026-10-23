@@ -100,3 +100,6 @@ end
   t >= 0 ? (t + r) / (2ρ) : 2 / (r - t)
 end
 prox!(Y::AbstractMatrix, f::LogDetLoss, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, f, X, γ); Y)
+
+# the gradient S - X⁻¹ is not Lipschitz on the positive definite matrices
+lipschitz(::LogDetLoss{T}) where {T} = T(Inf)

@@ -29,7 +29,7 @@ kkt(f, λ, β) = (grad = gradient(f, β);
 
 # FISTA from β0, stopping when the optimality conditions hold to tol
 function fista(f, g, λ, β0; tol = 1e-9, maxiter = 100_000)
-    L = opnorm(f.X)^2
+    L = lipschitz(f)
     β, βold, z, grad = copy(β0), copy(β0), copy(β0), similar(β0)
     t = 1.0
     for iter in 1:maxiter

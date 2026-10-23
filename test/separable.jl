@@ -10,6 +10,20 @@ using ..TestUtils
 
 Random.seed!(1)
 
+# separable functions of a user: one that preserves zeros, and one that does not
+struct WeightedSquare <: SeparableFunction       # Σᵢ wᵢ xᵢ² / 2
+  w::Vector{Float64}
+end
+ProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2
+ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
+ProximalBase.iszeropreserving(::WeightedSquare) = true
+ProximalBase.isconvex(::Type{WeightedSquare}) = true
+
+struct ShiftedAbs <: SeparableFunction           # Σᵢ |xᵢ - 1|, which does not preserve zeros
+end
+ProximalBase.value_entry(::ShiftedAbs, v, i) = abs(v - 1)
+ProximalBase.prox_entry(::ShiftedAbs, v, i, γ) = 1 + sign(v - 1) * max(abs(v - 1) - γ, 0)
+
 @testset "NormL1" begin
   @testset "shrink" begin
     x = randn(10)
@@ -213,6 +227,50 @@ end
   @test prox_entry(f, 3.0, 1, 1.) == 3.0
   check_prox(f, x, 0.8)
   @test_throws ArgumentError SCAD(0.5, 2.)
+end
+
+@testset "a separable function of your own" begin
+  p = 4
+  W = rand(p, p) .+ 0.5
+  w = vec(W + W')                         # symmetric, as weights on a SymmetricSparseIterate must be
+  f = WeightedSquare(w)
+  check_traits(f; proximable = true, separable = true, convex = true)
+  @test iszeropreserving(f) && !iszeropreserving(ShiftedAbs())
+  @test iszeropreserving(IndBox(-1., 1.)) && !iszeropreserving(IndBox(1., 2.))   # a property of the instance
+  # the value and the proximal operator on a vector, from value_entry and prox_entry
+  x = randn(p * p)
+  @test f(x) ≈ sum(w .* x .^ 2) / 2
+  check_prox(f, x, 0.7)
+  @test prox(f, x, 0.7) ≈ x ./ (1 .+ 0.7 .* w)
+  # on the three iterates, as on the dense arrays they hold
+  for g in (f, ShiftedAbs())
+    xs = SparseIterate(sprandn(p * p, 0.3))
+    @test g(xs) ≈ g(Vector(xs))
+    @test Vector(prox!(SparseIterate(p * p), g, xs, 0.7)) ≈ prox(g, Vector(xs), 0.7)
+    D = randn(p, p); D = D + D'
+    S = SymmetricSparseIterate(D)
+    @test g(S) ≈ g(Matrix(S))
+    @test Matrix(prox!(SymmetricSparseIterate(p), g, S, 0.7)) ≈ prox(g, Matrix(S), 0.7)
+    xa = AtomIterate(randn(p * p), p)
+    @test g(xa) ≈ g(Vector(xa))
+  end
+  # coordinate steps
+  xs = SparseIterate(p * p)
+  xs[3] = 2.
+  @test prox_coordinate!(xs, f, 3, 0.5) ≈ 2 / (1 + 0.5 * w[3])
+  prox_coordinate!(xs, f, 5, 0.5)
+  @test nnz(xs) == 1                      # a zero stays zero, and unstored
+  S = SymmetricSparseIterate(p)
+  S[3, 2] = 1.
+  k = tril_index(p, 3, 2)
+  @test prox_coordinate!(S, f, k, 0.5) ≈ 1 / (1 + 0.5 * w[(2 - 1) * p + 3])
+  # zero-preserving functions touch only the stored entries of a sparse iterate
+  xs = SparseIterate(sprandn(p * p, 0.3))
+  y = SparseIterate(p * p)
+  prox!(y, f, xs, 0.7)
+  @test nnz(y) == nnz(xs)
+  prox!(y, ShiftedAbs(), xs, 0.7)
+  @test nnz(y) > nnz(xs)                  # the prox of |x - 1| moves zeros
 end
 
 end

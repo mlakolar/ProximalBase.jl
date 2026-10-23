@@ -290,6 +290,7 @@ end
 
 gradient_mapping(f::AbstractFunction, g::AbstractFunction, x::AbstractArray, γ::Real) =
   gradient_mapping!(_gradient_buffer(x), f, g, x, γ)
+@doc (@doc gradient_mapping!) gradient_mapping
 
 """
     lipschitz(f)

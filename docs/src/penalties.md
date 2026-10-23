@@ -121,6 +121,36 @@ solves the fusion part, moving ``a_i`` and ``b_i`` toward each other by
 ``\gamma\lambda_1``. Composing the two proximal operators this way is exact
 (Friedman, Hastie, Höfling and Tibshirani, 2007).
 
+## Penalties across stacked matrices
+
+The joint estimation of ``K`` related matrices, such as the precision matrices
+of ``K`` classes or time points, works on an ``m \times n \times K`` array
+``x``. The fiber ``x_{ij} = (x^1_{ij}, \dots, x^K_{ij})`` holds entry
+``(i, j)`` of every matrix. [`FiberSum`](@ref)`(f; diagonal = f)` is
+``\sum_{ij} f(x_{ij})``, and its proximal operator applies that of ``f`` to
+each fiber. `diagonal` gives the fibers ``x_{ii}`` of square slices their own
+function, and `nothing` leaves them unpenalized.
+
+| penalty on ``x_{ij}`` | model | `f` |
+|---|---|---|
+| ``\lambda\|x_{ij}\|_2`` | a shared sparsity pattern, the group graphical lasso | `NormL2(λ)` |
+| ``\lambda\|x_{ij}\|_\infty`` | simultaneous selection | `NormLinf(λ)` |
+| ``\lambda_1(|x^1_{ij}| + |x^2_{ij}|) + \lambda_2|x^1_{ij} - x^2_{ij}|`` | the fused graphical lasso of two classes | `NormL1Fused(λ1, λ2)` |
+
+[`SliceSum`](@ref)`(f₁, …, f_K)` is ``\sum_k f_k(x^k)`` for the slices
+``x^k = x[:, :, k]``, and its value, gradient and proximal operator act slice by
+slice. With ``f_k`` the log-likelihood `LogDetLoss(Sₖ, nₖ/n)` of class ``k``,
+the joint graphical lasso minimizes `SliceSum(f₁, …, f_K)` plus a `FiberSum`.
+ADMM splits the two: its ``x``-update takes ``K`` eigendecompositions, and its
+``z``-update is the proximal operator of the penalty, fiber by fiber. In the
+fused graphical lasso of Danaher, Wang and Witten (2014), with the diagonal
+fused but not shrunk, the penalty is
+`FiberSum(NormL1Fused(λ1, λ2); diagonal = NormL1Fused(0, λ2))`.
+
+On a matrix, the fibers are the rows and the slices the columns.
+`FiberSum(NormL2(λ))` is then the row-sparse penalty of multitask regression,
+without the index vectors of `GroupNormL2`.
+
 ## Total variation, the fused lasso and SLOPE
 
 These penalties depend on the order of the entries, and their proximal

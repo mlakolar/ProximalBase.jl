@@ -3,8 +3,8 @@
 ```@autodocs
 Modules = [ProximalBase]
 Pages = ["functions/smooth.jl", "functions/leastsquares.jl", "functions/glm.jl", "functions/logdet.jl",
-         "functions/separable.jl", "functions/norms.jl", "functions/spectral.jl", "functions/sets.jl",
-         "functions/ordered.jl"]
+         "functions/separable.jl", "functions/norms.jl", "functions/fibers.jl", "functions/spectral.jl",
+         "functions/sets.jl", "functions/ordered.jl"]
 Private = false
 Filter = t -> !(t in (SeparableFunction, value_entry, iszeropreserving))
 ```

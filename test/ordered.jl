@@ -28,6 +28,22 @@ function tv_reference(x, λ; iters = 50_000)
   z
 end
 
+# the proximal operator of SLOPE from an explicit sort and a plain stack of
+# blocks, pooled while their means increase, then clipped at zero
+function slope_reference(x, λ, γ)
+  p = sortperm(abs.(x); rev = true)
+  s, c = Float64[], Int[]
+  for v in abs.(x[p]) .- γ .* λ
+    push!(s, v); push!(c, 1)
+    while length(s) > 1 && s[end-1] / c[end-1] < s[end] / c[end]
+      s[end-1] += s[end]; c[end-1] += c[end]; pop!(s); pop!(c)
+    end
+  end
+  z = similar(x)
+  z[p] = sign.(x[p]) .* max.(reduce(vcat, [fill(s[b] / c[b], c[b]) for b in eachindex(s)]), 0)
+  z
+end
+
 # isotonic regression by the min-max formula, zᵢ = max_{j ≤ i} min_{k ≥ i} mean(x[j:k])
 isotonic_reference(x) = [maximum(minimum(sum(x[j:k]) / (k - j + 1) for k in i:length(x)) for j in 1:i) for i in eachindex(x)]
 
@@ -85,6 +101,14 @@ end
     check_prox(f, x, γ)
   end
   @test f(x) ≈ dot(λ, sort(abs.(x); rev = true))
+  # short and long vectors take different sorts; ties
+  for m in (50, 5000)
+    xm = randn(m)
+    xm[1:3:end] .= round.(xm[1:3:end], digits = 1)
+    λm = sort(rand(m); rev = true)
+    @test prox(SLOPE(λm), xm, 0.7) ≈ slope_reference(xm, λm, 0.7)
+    @test SLOPE(λm)(xm) ≈ dot(λm, sort(abs.(xm); rev = true))
+  end
   # constant weights give the ℓ1 norm, and one weight the ℓ∞ norm
   @test prox(SLOPE(fill(0.7, n)), x, 0.6) ≈ prox(NormL1(0.7), x, 0.6)
   @test prox(SLOPE([0.7; zeros(n - 1)]), x, 0.6) ≈ prox(NormLinf(0.7), x, 0.6)

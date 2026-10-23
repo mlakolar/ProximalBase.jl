@@ -283,15 +283,22 @@ isconvex(::Type{<:SLOPE}) = true
 _checkparams(f::SLOPE, x) = (_checkparam(f.λ, x); true)
 
 # the magnitudes a of x and the indices p that sort them in decreasing order,
-# in the buffers of f: Base's sort with a scratch buffer, which allocates nothing
+# in the buffers of f, allocating nothing: an in-place quicksort for short
+# vectors, and Base's sort with a scratch buffer, about twice as fast, once the
+# indirect comparisons of the quicksort leave the cache
 function _sortperm_abs!(f::SLOPE, x::AbstractVector, ::Type{T}) where {T}
   n = length(x)
   a = _buffer!(f.sums, T, n)
+  p = _buffer!(f.perm, Int, n)
   @inbounds for i in 1:n
     a[i] = abs(convert(T, x[i]))
+    p[i] = i
   end
-  p = _buffer!(f.perm, Int, n)
-  sortperm!(p, a; rev = true, scratch = _buffer!(f.sizes, Int, n))
+  if n <= 4096
+    sort!(p; alg = QuickSort, lt = (i, j) -> a[i] > a[j])
+  else
+    sortperm!(p, a; rev = true, initialized = true, scratch = _buffer!(f.sizes, Int, n))
+  end
   p, a
 end
 

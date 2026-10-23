@@ -79,3 +79,47 @@ functions meant a second decomposition; 0.5 has `value_and_prox!`.
 The least-squares loss gains from a buffer of a concrete type (0.4 stored a
 `Union` of vector and matrix), and the sparse iterate from proximal operators
 that touch only the stored entries.
+
+## Constrained
+
+`constrained.jl` times the proximal operators of `Constrained` against the
+specialized algorithms for the same sets: the projections onto the simplex of
+ProximalBase (Condat's algorithm) and of ProximalOperators, and a projection
+onto the capped simplex that sorts the breakpoints, in O(n log n). The passes
+are those of the search for the multiplier over `x`, counted as calls of the
+scalar proximal operator of `f`.
+
+```sh
+julia --project=benchmark benchmark/constrained.jl
+```
+
+ProximalBase at c8c083c and ProximalOperators 0.16.1 on Julia 1.13.2, one core
+of an AMD EPYC 7513 (USC CARC Discovery, job 13350846, 2026-10-23):
+
+| case | Constrained (μs) | passes | specialized (time, relative to Constrained) |
+|:-----|---:|---:|:---|
+| simplex r = 1, n = 10³                 |        2.9 |  14 | 1.0 μs (0.36×), 1.4 μs (0.47×) |
+| simplex r = n/10, n = 10³              |        2.3 |  11 | 6.4 μs (2.79×), 8.0 μs (3.51×) |
+| capped simplex k = 10, n = 10³         |        2.7 |  13 | 16.0 μs (5.89×) |
+| capped simplex k = n/2, n = 10³        |        1.6 |   8 | 14.3 μs (8.73×) |
+| zero-sum lasso λ = 0.5, n = 10³        |        2.9 |   8 |  |
+| ElasticNet on the simplex, n = 10³     |        6.6 |  12 |  |
+| NormL1 on [-1, 1], n = 10³             |        0.3 |   1 | 0.2 μs (0.75×) |
+| simplex r = 1, n = 10⁵                 |      274.1 |  14 | 62.2 μs (0.23×), 79.2 μs (0.29×) |
+| simplex r = n/10, n = 10⁵              |      215.8 |  11 | 1400.9 μs (6.49×), 21423.4 μs (99.26×) |
+| capped simplex k = 10, n = 10⁵         |      267.8 |  14 | 2767.8 μs (10.33×) |
+| capped simplex k = n/2, n = 10⁵        |      189.5 |  10 | 2208.2 μs (11.65×) |
+| zero-sum lasso λ = 0.5, n = 10⁵        |      241.3 |   7 |  |
+| ElasticNet on the simplex, n = 10⁵     |      673.9 |  13 |  |
+| NormL1 on [-1, 1], n = 10⁵             |       29.9 |   1 | 22.3 μs (0.75×) |
+
+- **The capped simplex:** the search is 6 to 12 times faster than sorting.
+- **The simplex:** when most entries stay positive (r = n/10), the search is
+  2.8 to 6.5 times faster than Condat's algorithm, whose list of candidate
+  entries is then long. When few entries stay positive (r = 1), Condat's
+  algorithm is 2.8 to 4.4 times faster, and `IndSimplex` remains the function
+  for the simplex alone.
+- **The zero-sum lasso and the elastic net on the simplex** take 7 to 13
+  passes, at 0.35 to 0.5 μs per pass and 1000 entries.
+- **A separable function on a box** is one pass: the clamp adds a third to the
+  time of the ℓ1 norm alone.

@@ -372,9 +372,13 @@ end
     NormL1Fused(λ1, λ2)
 
 The penalty `f(x1, x2) = Σᵢ λ1 (|x1ᵢ| + |x2ᵢ|) + λ2 |x1ᵢ - x2ᵢ|` of a pair of
-vectors, given as a tuple `(x1, x2)`, as in the joint estimation of two sparse
-models that should be close. Its proximal operator acts entry by entry on the
-pairs `(x1ᵢ, x2ᵢ)`; `prox(f, (u, v), γ)` gives it for two scalars.
+arrays of the same size, given as a tuple `(x1, x2)`, as in the joint
+estimation of two sparse models that should be close. Its proximal operator acts
+entry by entry on the pairs `(x1ᵢ, x2ᵢ)`; `prox(f, (u, v), γ)` gives it for two
+scalars. On a vector of length 2 it is the function of that one pair, which
+makes it the penalty on the fibers of two stacked matrices in
+[`FiberSum`](@ref): `FiberSum(NormL1Fused(λ1, λ2))` on an `n × n × 2` array is the
+penalty of the fused graphical lasso of two classes.
 """
 struct NormL1Fused{T<:Real} <: AbstractFunction
   λ1::T
@@ -393,9 +397,9 @@ isconvex(::Type{<:NormL1Fused}) = true
 
 (f::NormL1Fused)(xy::Tuple{Real, Real}) = f.λ1 * (abs(xy[1]) + abs(xy[2])) + f.λ2 * abs(xy[1] - xy[2])
 
-function (f::NormL1Fused)(x::Tuple{AbstractVector, AbstractVector})
+function (f::NormL1Fused)(x::Tuple{AbstractArray, AbstractArray})
   x1, x2 = x
-  length(x1) == length(x2) || throw(DimensionMismatch())
+  size(x1) == size(x2) || throw(DimensionMismatch("the arrays of the pair have sizes $(size(x1)) and $(size(x2))"))
   T = float(promote_type(eltype(x1), eltype(x2)))
   s = zero(T)
   @inbounds for i in eachindex(x1, x2)
@@ -430,8 +434,8 @@ function prox(f::NormL1Fused, xy::Tuple{Real, Real}, γ::Real = 1)
   _prox_l1fused(T(xy[1]), T(xy[2]), T(f.λ1), T(f.λ2), T(γ))
 end
 
-function prox!(y::Tuple{AbstractVector, AbstractVector}, f::NormL1Fused, x::Tuple{AbstractVector, AbstractVector}, γ::Real)
-  size(y[1]) == size(x[1]) == size(y[2]) == size(x[2]) || throw(DimensionMismatch())
+function prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real)
+  size(y[1]) == size(x[1]) == size(y[2]) == size(x[2]) || throw(DimensionMismatch("the arrays of the pairs must have one size"))
   T = float(promote_type(eltype(y[1]), eltype(y[2])))
   λ1, λ2, γ = T(f.λ1), T(f.λ2), T(γ)
   @inbounds for i in eachindex(x[1])
@@ -439,5 +443,23 @@ function prox!(y::Tuple{AbstractVector, AbstractVector}, f::NormL1Fused, x::Tupl
   end
   y
 end
-prox(f::NormL1Fused, x::Tuple{AbstractVector, AbstractVector}, γ::Real = 1) =
+prox(f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real = 1) =
   prox!((similar(x[1], float(eltype(x[1]))), similar(x[2], float(eltype(x[2])))), f, x, γ)
+
+# one pair, as a vector of length 2: a fiber of two stacked matrices
+_checkpair(x::AbstractVector) =
+  length(x) == 2 || throw(DimensionMismatch("NormL1Fused on a vector needs the pair (x1, x2), a vector of length 2; got length $(length(x))"))
+(f::NormL1Fused)(x::AbstractVector) = (_checkpair(x); i = firstindex(x); @inbounds f((x[i], x[i+1])))
+function value_and_prox!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real)
+  prox!(y, f, x, γ)
+  i = firstindex(y)
+  @inbounds f((y[i], y[i+1]))
+end
+function prox!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real)
+  _checkpair(x)
+  _checksize(y, x)
+  T = float(eltype(y))
+  i, j = firstindex(x), firstindex(y)
+  @inbounds y[j], y[j+1] = _prox_l1fused(T(x[i]), T(x[i+1]), T(f.λ1), T(f.λ2), T(γ))
+  y
+end

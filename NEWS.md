@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **Functions of stacked arrays**, for the joint estimation of K related
+  matrices, such as the joint, fused and time-varying graphical lasso (#42):
+  - `FiberSum(f; diagonal = f, symmetric = false)`: a vector function `f` of
+    each fiber `x[i, j, :]` of an `m × n × K` array. `diagonal` gives the
+    fibers `x[i, i, :]` their own function, and `nothing` leaves them
+    unpenalized. The proximal operator acts fiber by fiber. With symmetric
+    slices, `symmetric = true` reads the fibers with `i ≥ j` and mirrors them,
+    which halves the work. `NormL1Fused` fibers take a loop without views: on
+    two stacked 200 × 200 matrices the proximal operator takes 40 μs.
+  - `SliceSum(f₁, …, f_K)`: the sum of the `fₖ` of the slices `x[:, :, k]`,
+    with value, gradient and proximal operator slice by slice. With the
+    log-det losses of K classes, it is the smooth part of the joint graphical
+    lasso. ProximalSolvers' `ADMMSolver` takes the stacked array.
+
+  Neither allocates beyond what `f` and the `fₖ` do.
+- **`NormL1Fused`** acts on a pair of arrays of any shape, not only vectors. On a
+  vector of length 2, it is the function of that one pair, the fiber of two
+  stacked matrices. `FiberSum(NormL1Fused(λ1, λ2); diagonal =
+  NormL1Fused(0, λ2))` is the penalty of the fused graphical lasso of two
+  classes with the diagonal left unshrunk (#32).
 - **`Constrained(f, C)`:** a convex separable `f` restricted to a box, a
   hyperplane, a halfspace or a simplex `C`.
   - On a box, the proximal operator clamps that of `f`, and the function stays

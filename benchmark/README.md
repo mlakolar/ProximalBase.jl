@@ -123,3 +123,38 @@ of an AMD EPYC 7513 (USC CARC Discovery, job 13350846, 2026-10-23):
   passes, at 0.35 to 0.5 μs per pass and 1000 entries.
 - **A separable function on a box** is one pass: the clamp adds a third to the
   time of the ℓ1 norm alone.
+
+## Spectral
+
+`spectral.jl` times `Spectral(f)` against the functions of the eigenvalues
+that ProximalBase and ProximalOperators have, and the projection onto the
+Fantope against the same computation written with LinearAlgebra's `eigen`.
+
+```sh
+julia --project=benchmark benchmark/spectral.jl
+```
+
+ProximalBase at dac7e5d and ProximalOperators 0.16.1 on Julia 1.13.2, one core
+of an AMD EPYC 7513 with one BLAS thread (USC CARC Discovery, job 13351030,
+2026-10-23):
+
+| case | Spectral (μs) | bytes | others (time, relative to Spectral; bytes) |
+|:-----|---:|---:|:---|
+| PSD cone, 50 × 50              |      197 |       0 | 196 μs (1.00×), 0 bytes; 239 μs (1.21×), 59136 bytes |
+| trace norm, 50 × 50            |      199 |       0 | 328 μs (1.65×), 0 bytes; 327 μs (1.65×), 148224 bytes |
+| trace on the cone, 50 × 50     |      197 |       0 | 196 μs (0.99×), 0 bytes |
+| Fantope k = 5, 50 × 50         |      194 |       0 | 204 μs (1.05×), 79736 bytes |
+| eigenvalues in [-1, 1], 50 × 50 |      199 |       0 |  |
+| PSD cone, 200 × 200            |     3099 |       0 | 3112 μs (1.00×), 0 bytes; 6612 μs (2.13×), 714216 bytes |
+| trace norm, 200 × 200          |     3192 |       0 | 5510 μs (1.73×), 0 bytes; 5537 μs (1.73×), 2266592 bytes |
+| trace on the cone, 200 × 200   |     3100 |       0 | 3106 μs (1.00×), 0 bytes |
+| Fantope k = 5, 200 × 200       |     3017 |       0 | 3493 μs (1.16×), 1035872 bytes |
+| eigenvalues in [-1, 1], 200 × 200 |     3188 |       0 |  |
+
+- `Spectral` allocates nothing in any case, and costs what the eigendecomposition
+  costs: the same as `IndPSD` and `TracePSD`.
+- On a symmetric matrix, the trace norm by the eigendecomposition is 1.7 times
+  faster than `NuclearNorm`, which computes an SVD.
+- The projection onto the Fantope is 1.05 to 1.16 times faster than the one
+  written with `eigen`, which allocates 80 kB at n = 50 and 1 MB at n = 200 on
+  every call.

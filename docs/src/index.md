@@ -102,7 +102,7 @@ norm(gradient_mapping(f, g, β, 1 / L))
   lasso, group lasso, square-root and scaled lasso, and varying-coefficient
   models.
 - [CovSel.jl](https://github.com/mlakolar/CovSel.jl): Gaussian graphical models:
-  the graphical lasso, CLIME, the fused graphical lasso and differential
-  networks.
+  the graphical lasso, CLIME, sparse precision matrices by the scaled lasso, the
+  fused graphical lasso, and differential networks.
 - [DiffPrecTest.jl](https://github.com/mlakolar/DiffPrecTest.jl): inference for
   the difference of two precision matrices.

@@ -293,8 +293,9 @@ for example `?NormL1`.
   lasso, group lasso, square-root and scaled lasso, and varying-coefficient
   models by coordinate descent.
 - [CovSel.jl](https://github.com/mlakolar/CovSel.jl): high-dimensional Gaussian
-  graphical models: the graphical lasso, CLIME, the fused graphical lasso, and
-  the direct estimation of the difference of two precision matrices.
+  graphical models: the graphical lasso, CLIME, sparse precision matrices by the
+  scaled lasso, the fused graphical lasso, and the direct estimation of the
+  difference of two precision matrices.
 - [DiffPrecTest.jl](https://github.com/mlakolar/DiffPrecTest.jl): confidence
   intervals and tests for the difference of two precision matrices.
 

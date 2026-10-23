@@ -246,6 +246,10 @@ Projections onto the simplex and the ℓ1 ball take O(n) expected time
 that owns a workspace must not be shared between threads; give each thread a
 `deepcopy`.
 
+The common calls on `Float64` arrays are compiled when the package is
+precompiled, so their first use takes milliseconds, not the tenths of a second
+that compilation would take.
+
 Every exported function and type has a docstring; use `?name` in the Julia REPL,
 for example `?NormL1`.
 

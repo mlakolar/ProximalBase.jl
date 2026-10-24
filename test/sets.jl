@@ -63,17 +63,20 @@ l1ball_proj(y, r) = norm(y, 1) <= r ? y : sign.(y) .* simplex_proj(abs.(y), r)
   Z = prox(IndBallL0(5), S)
   @test nnz(dropzeros!(copy(Z))) == 5
   @test Matrix(Z) == Matrix(Z)'                          # an entry and its transpose together
-  kept = sort([abs(Z[r, c]) for c in 1:p for r in c:p if Z[r, c] != 0])
-  @test kept == sort([abs(D[r, c]) for c in 1:p for r in c:p]; rev = true)[1:5] |> sort
+  # the five entries of largest magnitude, an off-diagonal entry counting √2 times
+  wa(X, r, c) = (r == c ? 1 : sqrt(2)) * abs(X[r, c])
+  kept = sort([wa(Z, r, c) for c in 1:p for r in c:p if Z[r, c] != 0])
+  @test kept == sort(sort([wa(D, r, c) for c in 1:p for r in c:p]; rev = true)[1:5])
   @test IndBallL0(5)(Z) == 0 && IndBallL0(4)(Z) == Inf
   @test_throws ArgumentError IndBallL0(-1)
 end
 
-# the s largest entries of the lower triangle, kept with their transposes; with
-# diagonal = false the diagonal is kept and does not count
+# the s largest entries of the lower triangle, kept with their transposes, an
+# off-diagonal entry counting √2 times when the diagonal counts (the Frobenius
+# projection); with diagonal = false the diagonal is kept and does not count
 function sym_hard_threshold(X, s, diagonal)
   p = size(X, 1)
-  cand = [(abs(X[r, c]), r, c) for c in 1:p for r in (diagonal ? c : c + 1):p]
+  cand = [((diagonal && r != c ? sqrt(2) : 1) * abs(X[r, c]), r, c) for c in 1:p for r in (diagonal ? c : c + 1):p]
   sort!(cand; rev = true, by = first)
   Z = zeros(p, p)
   for (_, r, c) in cand[1:min(s, length(cand))]
@@ -109,6 +112,24 @@ end
   @test diag(Z) == diag(M)
   @test count(!iszero, Z - Diagonal(diag(Z))) == 2
   @test IndBallL0(2; diagonal = false)(Z) == 0 && IndBallL0(2)(Z) == Inf
+  # the projection in the Frobenius norm: an off-diagonal pair costs twice its
+  # square, so it can beat a larger diagonal entry
+  X2 = [1.0 0.8; 0.8 0.1]
+  @test prox(IndBallL0(1), Symmetric(X2)) == [0.0 0.8; 0.8 0.0]
+  # against all supports of at most s entries of one triangle, for small p
+  p4 = 4
+  for diagonal in (true, false), s in 0:4, _ in 1:20
+    X = randn(p4, p4); X = X + X'
+    pos = [(r, c) for c in 1:p4 for r in (diagonal ? c : c + 1):p4]
+    best = Inf
+    for mask in 0:(2^length(pos) - 1)
+      count_ones(mask) <= s || continue
+      d = sum(((r == c ? 1 : 2) * X[r, c]^2 for (j, (r, c)) in enumerate(pos) if (mask >> (j - 1)) & 1 == 0); init = 0.0)
+      best = min(best, d)
+    end
+    Z = prox(IndBallL0(s; diagonal), Symmetric(X))
+    @test sum(abs2, X - Z) ≈ best atol = 1e-12
+  end
   # the use in iterative hard thresholding: no allocation
   a(S, f, X) = @allocated prox!(S, f, X, 1.)
   S, f, X = SymmetricSparseIterate(p), IndBallL0(5; diagonal = false), Symmetric(D, :L)

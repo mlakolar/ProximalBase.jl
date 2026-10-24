@@ -24,9 +24,11 @@ there are ties) and sets the others to zero: a selection in O(n) expected time
 For a symmetric matrix, a `Symmetric` or a [`SymmetricSparseIterate`](@ref),
 `s` counts the entries of one triangle, so that an entry and its transpose are
 kept or dropped together, and the result is symmetric; the output may be a
-dense matrix or a `SymmetricSparseIterate`. With `diagonal = false`, the
-diagonal of a matrix does not count and is kept, as for the off-diagonal
-sparsity of a precision matrix:
+dense matrix or a `SymmetricSparseIterate`. The result is the projection in the
+Frobenius norm: an off-diagonal entry stands for a pair, whose removal costs
+twice its square, so it competes with the diagonal by `√2|xᵢⱼ|`. With
+`diagonal = false`, the diagonal of a matrix does not count and is kept, as for
+the off-diagonal sparsity of a precision matrix:
 
 ```julia
 prox!(S, IndBallL0(s; diagonal = false), Symmetric(Θ, :L))   # S::SymmetricSparseIterate
@@ -189,11 +191,12 @@ function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSpa
   p = checksquare(x)
   T = float(eltype(x))
   first_row(c) = f.diagonal ? c : c + 1
+  w = sqrt(T(2))
   buf = _buffer!(f.scratch, T, div(p * (p + 1), 2))
   k = 0
   nz = 0
   @inbounds for c in 1:p, r in first_row(c):p
-    a = abs(x[r, c])
+    a = _pairweight(f, r, c, w) * abs(x[r, c])
     k += 1
     buf[k] = a
     nz += !iszero(a)
@@ -202,7 +205,7 @@ function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSpa
   ties = f.s
   if nz > f.s
     @inbounds for c in 1:p, r in first_row(c):p
-      ties -= abs(x[r, c]) > τ
+      ties -= _pairweight(f, r, c, w) * abs(x[r, c]) > τ
     end
   end
   @inbounds for c in 1:p, r in c:p
@@ -210,7 +213,7 @@ function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSpa
     if !f.diagonal && r == c
       keep = true
     else
-      a = abs(v)
+      a = _pairweight(f, r, c, w) * abs(v)
       keep = a > τ || (a == τ && ties > 0)
       keep && a == τ && (ties -= 1)
     end
@@ -218,6 +221,12 @@ function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSpa
   end
   y
 end
+
+# the weight of entry (r, c) in the selection: when the diagonal counts, an
+# off-diagonal entry stands for the pair (r, c), (c, r), whose removal costs
+# twice its square in the Frobenius norm; with a free diagonal every counted
+# entry is off the diagonal, and the weight is 1
+@inline _pairweight(f::IndBallL0, r, c, w) = f.diagonal && r != c ? w : one(w)
 
 @inline _set_symmetric!(y::SymmetricSparseIterate, v, r, c) = _setstored!(y, v, tril_index(y.p, r, c))
 @inline function _set_symmetric!(y::AbstractMatrix, v, r, c)

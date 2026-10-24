@@ -204,6 +204,22 @@ end
       @test_throws DimensionMismatch prox!(zeros(T, p, m + 1), f, zeros(T, p, m + 1), 0.7)
       @test_throws DimensionMismatch prox!(zeros(T, p, 1), LeastSquaresLoss(randn(T, n), X), zeros(T, p, 1), 0.7)
     end
+    # Subnormal steps have an infinite reciprocal but a finite, near-identity prox.
+    for T in (Float32, Float64), (n, p) in ((10, 10), (30, 10), (10, 30)), m in (1, 3)
+      X = randn(T, n, p)
+      Y = m == 1 ? randn(T, n) : randn(T, n, m)
+      v = m == 1 ? randn(T, p) : randn(T, p, m)
+      f = LeastSquaresLoss(Y, X)
+      for γ in (floatmin(T) / T(8), nextfloat(zero(T)))
+        @test prox(f, v, γ) ≈ v rtol = 20eps(T)
+        alias = copy(v)
+        @test prox!(alias, f, alias, γ) ≈ v rtol = 20eps(T)
+        @test allocs(prox!, alias, f, v, γ) == 0
+        sparseout = SparseIterate(zeros(T, size(v)))
+        @test Array(prox!(sparseout, f, v, γ)) ≈ v rtol = 20eps(T)
+        @test allocs(prox!, sparseout, f, v, γ) == 0
+      end
+    end
     # An empty design has a constant loss and the identity proximal operator.
     for (n, p) in ((0, 4), (4, 0), (0, 0)), m in (1, 3)
       X = zeros(n, p)

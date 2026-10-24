@@ -112,6 +112,11 @@ end
   @test value_and_prox!(similar(v), c, v, 1.) ≈ 0.5 * norm(p, 1)
   @test c(p) ≈ 0.5 * norm(p, 1) && c(2 .* p) == Inf
 
+  # an indicator stays an indicator, and its value is 0
+  for C in (IndBallL2(1.), IndSphereL2(1.))
+    @test ProximalBase._isindicator(typeof(Constrained(IndBallL0(2), C)))
+    @test !ProximalBase._isindicator(typeof(Constrained(NormL1(1.), C)))
+  end
   @test_throws ArgumentError Constrained(SqrNormL2(1.), IndBallL2(1.))
   @test_throws ArgumentError Constrained(MCP(1.), IndBallL2(1.))
   @test_throws ArgumentError Constrained(IndBox(-1, 1), IndBallL2(1.))

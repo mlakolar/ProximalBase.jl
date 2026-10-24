@@ -65,6 +65,27 @@ end
   end
 end
 
+@testset "shared scalar and diagonal-step kernels" begin
+  for T in (Float32, Float64), dims in ((12,), (3, 4))
+    x = randn(T, dims)
+    γ = T(0.7)
+    steps = reshape(view(fill(γ, 2length(x)), 1:2:2length(x)), dims)
+    for f in (NormL1(T(0.3)), NormL1(T(0.3), rand(T, 12)), MCP(T(0.3)),
+              SCAD(T(0.3)), IndBox(T(0.1), one(T)))
+      for input in (x, SparseIterate(x))
+        out = similar(input)
+        @test Array(prox!(out, f, input, steps)) == Array(prox(f, input, γ))
+        @test value_and_prox!(out, f, input, steps) ≈ f(out)
+        @test allocs(prox!, out, f, input, γ) == 0
+        @test allocs(prox!, out, f, input, steps) == 0
+        alias = copy(input)
+        @test Array(prox!(alias, f, alias, steps)) == Array(prox(f, input, γ))
+        @test_throws DimensionMismatch prox!(out, f, input, zeros(T, 11))
+      end
+    end
+  end
+end
+
 @testset "a step per group for group norms" begin
   groups = [1:3, 4:5, [6, 8], 9:12]               # x[7] is in no group
   x = 2 .* randn(12)

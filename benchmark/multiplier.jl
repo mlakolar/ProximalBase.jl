@@ -14,9 +14,11 @@
 #    of the breakpoint search that #77 proposed, against the whole search.
 # 4. The threshold of the projection onto the simplex: master's Condat pass
 #    against the pass that hands over to Michelot's algorithm.
-# Times are medians from BenchmarkTools, or the best of five runs of a sequence;
-# passes are calls of the scalar proximal operator divided by n, the last pass,
-# which writes the result, included.
+# Every comparison runs its sides on the same data, interleaved over rounds,
+# and keeps the fastest round of each: other jobs on a shared node slow down
+# phases of a run, and interleaving spreads that over both sides. Passes are
+# calls of the scalar proximal operator divided by n, the last pass, which
+# writes the result, included.
 
 using BenchmarkTools, LinearAlgebra, Random, Printf
 import ProximalBase as PB
@@ -41,31 +43,31 @@ PB._prox_entry_slope(g::Counted, v, i, γ) = (CALLS[] += 1; PB._prox_entry_slope
 PB.prox_entry(g::Slopeless, v, i, γ) = PB.prox_entry(g.f, v, i, γ)
 
 cold!(c) = (c.last[] = NaN; c)
-t_cold(c, y, x) = (cold!(c); PB.prox!(y, c, x, 0.7); @belapsed PB.prox!($y, $c, $x, 0.7) setup = cold!($c) evals = 1)
-function passes_cold(c, y, x)
-  cold!(c)
-  CALLS[] = 0
-  PB.prox!(y, c, x, 0.7)
-  CALLS[] / length(x)
-end
 # 20 slowly changing points, made before the timing
 points(x, noise) = [x .+ (0.002 * t) .* noise for t in 1:20]
-sequence(c, y, xs) = (for xt in xs; PB.prox!(y, c, xt, 0.7); end)
-function warm(f, H, y, x, noise)
-  xs = points(x, noise)
-  c = PB.Constrained(f, H)
-  sequence(c, y, xs)
-  t = minimum(@elapsed(sequence(c, y, xs)) for _ in 1:5) / 20
-  cc = PB.Constrained(Counted(f), H)
-  sequence(cc, y, xs)
+calls_cold(c, y, xs) = (for xt in xs; cold!(c); PB.prox!(y, c, xt, 0.7); end)
+calls_warm(c, y, xs) = (for xt in xs; PB.prox!(y, c, xt, 0.7); end)
+function passes(c, y, xs, calls)
+  calls(c, y, xs)
   CALLS[] = 0
-  sequence(cc, y, xs)
-  t, CALLS[] / length(x) / 20
+  calls(c, y, xs)
+  CALLS[] / length(xs[1]) / length(xs)
+end
+# the fastest of 7 interleaved rounds of each side, per call
+function interleaved(sides...; rounds = 7)
+  foreach(s -> s(), sides)
+  best = fill(Inf, length(sides))
+  for _ in 1:rounds, (k, s) in enumerate(sides)
+    best[k] = min(best[k], @elapsed s())
+  end
+  best
 end
 
 println("## 1. The search, one call from zero and the calls of a solver")
 println()
-println("| case | master's first step (μs, passes) | exact first step (μs, passes) | from the last multiplier (μs, passes) |")
+println("Each column: the same 20 slowly changing points; time and passes per call.")
+println()
+println("| case | from zero, master's first step (μs, passes) | from zero, exact first step (μs, passes) | from the last multiplier (μs, passes) |")
 println("|:-----|---:|---:|---:|")
 for n in (1_000, 100_000)
   x, noise, y = randn(n), randn(n), zeros(n)
@@ -78,12 +80,13 @@ for n in (1_000, 100_000)
            ("ℓ1 on [-1, 1], a general normal", PB.Constrained(PB.NormL1(0.3), PB.IndBox(-1, 1)), PB.IndHyperplane(randn(n), 3.)),
            ("elastic net on the simplex", PB.Constrained(PB.ElasticNet(0.1, 1.), PB.IndNonnegative()), PB.IndHyperplane(1, 1))]
   for (name, f, H) in cases
-    tm = t_cold(PB.Constrained(Slopeless(f), H), y, x)
-    pm = passes_cold(PB.Constrained(Slopeless(Counted(f)), H), y, x)
-    tn = t_cold(PB.Constrained(f, H), y, x)
-    pn = passes_cold(PB.Constrained(Counted(f), H), y, x)
-    tw, pw = warm(f, H, y, x, noise)
-    @printf("| %s, n = %s | %.1f, %.0f | %.1f, %.0f | %.1f, %.1f |\n", name, s, 1e6tm, pm, 1e6tn, pn, 1e6tw, pw)
+    xs = points(x, noise)
+    cm, cn, cw = PB.Constrained(Slopeless(f), H), PB.Constrained(f, H), PB.Constrained(f, H)
+    tm, tn, tw = interleaved(() -> calls_cold(cm, y, xs), () -> calls_cold(cn, y, xs), () -> calls_warm(cw, y, xs)) ./ length(xs)
+    pm = passes(PB.Constrained(Slopeless(Counted(f)), H), y, xs, calls_cold)
+    pn = passes(PB.Constrained(Counted(f), H), y, xs, calls_cold)
+    pw = passes(PB.Constrained(Counted(f), H), y, xs, calls_warm)
+    @printf("| %s, n = %s | %.1f, %.1f | %.1f, %.1f | %.1f, %.1f |\n", name, s, 1e6tm, pm, 1e6tn, pn, 1e6tw, pw)
   end
 end
 
@@ -117,17 +120,15 @@ for (n, p) in ((100, 20_000), (50, 100_000))         # the proximal step a large
   y .-= sum(y) / n
   f = (1 / n) * PB.LeastSquaresLoss(y, Z)
   λ = 0.3 * maximum(abs.(Z' * y)) / n
-  res = Float64[]
-  for reset in (true, false)
-    g = PB.Constrained(PB.NormL1(λ), PB.IndHyperplane(1, 0))
-    fista!(zeros(p), f, g, 500; reset)
-    push!(res, minimum(@elapsed(fista!(zeros(p), f, g, 500; reset)) for _ in 1:3))
+  g0, g1 = PB.Constrained(PB.NormL1(λ), PB.IndHyperplane(1, 0)), PB.Constrained(PB.NormL1(λ), PB.IndHyperplane(1, 0))
+  tc, tw = interleaved(() -> fista!(zeros(p), f, g0, 500; reset = true), () -> fista!(zeros(p), f, g1, 500); rounds = 3)
+  pc, pw = map((true, false)) do reset
     gc = PB.Constrained(Counted(PB.NormL1(λ)), PB.IndHyperplane(1, 0))
     CALLS[] = 0
     fista!(zeros(p), f, gc, 500; reset)
-    push!(res, CALLS[] / p / 500)
+    CALLS[] / p / 500
   end
-  @printf("| n = %d, p = %d, 500 iterations | %.1f, %.1f | %.1f, %.1f |\n", n, p, 1e3res[1], res[2], 1e3res[3], res[4])
+  @printf("| n = %d, p = %d, 500 iterations | %.1f, %.1f | %.1f, %.1f |\n", n, p, 1e3tc, pc, 1e3tw, pw)
 end
 
 println()
@@ -145,9 +146,11 @@ println("|---:|---:|---:|")
 for n in (1_000, 100_000)
   x, y = randn(n), zeros(n)
   bp = zeros(2n)
-  ts = @belapsed PB._select_desc!(breakpoints!($bp, $x, 0.35), 1, $(2n), $n)
   c = PB.Constrained(PB.NormL1(0.5), PB.IndHyperplane(1, 0))
-  @printf("| %d | %.1f | %.1f |\n", n, 1e6ts, 1e6t_cold(c, y, x))
+  reps = n == 1_000 ? 2000 : 20
+  ts, tc = interleaved(() -> (for _ in 1:reps; PB._select_desc!(breakpoints!(bp, x, 0.35), 1, 2n, n); end),
+                       () -> (for _ in 1:reps; cold!(c); PB.prox!(y, c, x, 0.7); end)) ./ reps
+  @printf("| %d | %.1f | %.1f |\n", n, 1e6ts, 1e6tc)
 end
 
 println()
@@ -212,8 +215,9 @@ for n in (1_000, 100_000)
   x, buf = randn(n), zeros(n)
   s = n == 1_000 ? "10³" : "10⁵"
   for (rs, r) in (("1", 1.0), ("100", 100.0), ("n/100", n / 100), ("n/10", n / 10), ("n/2", n / 2))
-    tm = @belapsed master_threshold!($buf, $x, $r)
-    tn = @belapsed PB._simplex_threshold!($buf, $x, $(eachindex(x)), $r)
+    reps = n == 1_000 ? 2000 : 50
+    tm, tn = interleaved(() -> (for _ in 1:reps; master_threshold!(buf, x, r); end),
+                         () -> (for _ in 1:reps; PB._simplex_threshold!(buf, x, eachindex(x), r); end)) ./ reps
     d = abs(master_threshold!(buf, x, r) - PB._simplex_threshold!(buf, x, eachindex(x), r))
     @printf("| r = %s, n = %s | %.1f | %.1f | %.2f× | %.0e |\n", rs, s, 1e6tm, 1e6tn, tm / tn, d)
   end

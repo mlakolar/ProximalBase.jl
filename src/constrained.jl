@@ -26,8 +26,8 @@ constrained to a box. Each step of the search is a pass over `x`. It starts
 from the multiplier of the previous call, which the function keeps, with a
 first step from the exact slope of the constraint where the scalar proximal
 operators of `f` are piecewise linear, as for every function below. The calls
-of a solver on slowly changing points then take three or four passes, against
-7 to 17 from zero. Do not share one function object between threads. For
+of a solver on slowly changing points then take three to five passes, against
+5 to 17 from zero. Do not share one function object between threads. For
 example:
 
 - `Constrained(NormL1(λ), IndHyperplane(1, 0))` is the lasso penalty on

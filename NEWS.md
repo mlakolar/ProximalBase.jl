@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **`Constrained` on a hyperplane or a halfspace** starts its search for the
+  multiplier from the multiplier of the last call, which it keeps (#77).
+  - The first step goes to the root of the line with the exact slope of the
+    constraint, where the scalar proximal operators are piecewise linear.
+  - The calls of a solver on slowly changing points take three to five passes
+    over `x`, against 5 to 17 from zero.
+  - Do not share one such function between threads.
+- **The projection onto the simplex** is 1.2 to 16 times faster, and with it
+  `IndBallL1`, `NormLinf` and `GroupNormLinf` (#77). Condat's pass computes its
+  level from a sum instead of a division at every step. It hands over to
+  Michelot's algorithm when more than an eighth of the entries become
+  candidates, as when many stay positive.
+
 - **Functions of stacked arrays**, for the joint estimation of K related
   matrices, such as the joint, fused and time-varying graphical lasso (#42):
   - `FiberSum(f; diagonal = f, symmetric = false)`: a vector function `f` of

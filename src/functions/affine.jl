@@ -23,7 +23,9 @@ from a factorization cached at construction:
 - **with `μ`:** `A` is a tight frame, `AAᵀ = μI`, and nothing is factorized.
 
 The rank-deficient path is taken when a pivot of the Cholesky factorization is
-below `√eps` times the largest. A call costs two products with `A` (or with `V`)
+below `eps^(1/4)` times the largest: rounding leaves a dependent row a pivot of
+about `√eps` times the largest, and the factor of `AAᵀ` squares the condition
+number of `A`. A call costs two products with `A` (or with `V`)
 and allocates nothing. The value is `0` when `‖Ax - b‖` is within a relative
 `√eps` of the scale of the problem, and `Inf` otherwise.
 """
@@ -50,7 +52,7 @@ function IndAffine(A::AbstractMatrix, b::AbstractVector; μ::Union{Nothing, Real
   C = cholesky(Symmetric(G); check = false)
   if issuccess(C)
     d = diag(C.U)
-    if minimum(d) >= sqrt(eps(T)) * maximum(d)
+    if minimum(d) >= sqrt(sqrt(eps(T))) * maximum(d)
       return IndAffine{T, typeof(A), typeof(C)}(A, bt, C, zeros(T, m), zeros(T, m), scale)
     end
   end

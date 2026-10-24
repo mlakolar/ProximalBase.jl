@@ -123,8 +123,10 @@ equality constraints at once. It factors ``AA^\top`` once, by Cholesky when
 ``A``. A tight frame, ``AA^\top = \mu I``, needs no factorization
 (`IndAffine(A, b; μ)`). Each call costs two products with ``A`` and allocates
 nothing. With ADMM, it gives basis pursuit, ``\min \|x\|_1`` subject to
-``Ax = b``, and equality-constrained estimators such as log-contrast regression
-with several subcompositions.
+``Ax = b``. [`Constrained`](@ref)`(f, IndAffine(A, b))` restricts a
+least-squares loss or a quadratic to the set, the ``f`` of ADMM for
+equality-constrained estimators such as log-contrast regression with several
+subcompositions.
 
 ## Hyperplanes and halfspaces
 

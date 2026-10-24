@@ -100,7 +100,7 @@ function _dykstra_round!(sets::Tuple, P, k, y, w, s)
   p = P[k]
   w .= y .+ p
   prox!(y, first(sets), w, one(eltype(y)))
-  @inbounds @simd for i in eachindex(y, w, p)
+  @inbounds for i in eachindex(y, w, p)
     q = w[i] - y[i]
     s += abs2(q - p[i])
     p[i] = q

@@ -86,6 +86,7 @@ include("calculus.jl")
 include("constrained.jl")
 include("spectralfunction.jl")
 include("ballconstrained.jl")
+include("constrained_nonconvex.jl")
 include("deprecated.jl")
 include("precompile.jl")
 

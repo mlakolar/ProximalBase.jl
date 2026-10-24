@@ -181,8 +181,8 @@ end
   @testset "errors" begin
     @test_throws ArgumentError prox(Constrained(IndBox(0, 1), IndHyperplane(1, n + 1)), x)
     @test_throws ArgumentError prox(Constrained(IndNonnegative(), IndHalfspace(1, -1)), x)
-    @test_throws ArgumentError Constrained(MCP(1.), IndBox(0, 1))
-    @test_throws ArgumentError Constrained(NormL0(1.), IndNonnegative())
+    @test_throws ArgumentError Constrained(MCP(1.), IndHyperplane(1, 0))
+    @test_throws ArgumentError Constrained(NormL0(1.), IndSimplex(1.))
     @test_throws ArgumentError Constrained(NormL2(1.), IndBox(0, 1))
     @test_throws ArgumentError Constrained(SqrNormL2(1.), IndBallL2(1.))
     @test_throws ArgumentError Constrained(Constrained(NormL1(1.), IndHyperplane(1, 0)), IndHyperplane(1, 1))

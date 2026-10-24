@@ -186,14 +186,14 @@ stopping rule at each penalty level, warm starting each level from the last.
 
 ## More examples
 
-The [examples](examples/) directory has sixteen complete scripts, each of which
+The [examples](examples/) directory has seventeen complete scripts, each of which
 checks its own result:
 - the lasso by ISTA, FISTA and ADMM, and by coordinate descent along a path;
 - nonconvex penalties and the group lasso;
 - logistic, robust and Poisson regression;
 - constrained least squares, and penalties with constraints;
 - the graphical lasso, and covariance and correlation matrices;
-- matrix completion, robust PCA and multitask regression;
+- matrix completion, robust PCA, sparse PCA and multitask regression;
 - a differential network;
 - a working-set solver;
 - functions of your own.
@@ -260,6 +260,7 @@ bound, for Newton and coordinate steps.
 | `SeparableSum(f1, f2, ...)` | `Σₖ fₖ(xₖ)` on a tuple of blocks |
 | `Sum(f1, f2, ...)` | `Σₖ fₖ(x)`, smooth |
 | `Constrained(f, C)` | a convex separable `f` on a box, a hyperplane, a halfspace or a simplex `C` |
+| `Spectral(f)` | `f(λ(X))` of the eigenvalues of a symmetric `X`, for an `f` that does not depend on the order of its entries: the Fantope, bounds on the eigenvalues, the trace norm |
 
 ## Coordinate descent and active sets
 

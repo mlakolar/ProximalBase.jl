@@ -113,12 +113,18 @@ end
         zero_alloc_prox(f, Float32.(Z))
       end
     end
+    for f in (Spectral(NormL1(0.3)), Spectral(Constrained(IndBox(0, 1), IndHyperplane(1, 2))), Spectral(IndBox(-0.5, 0.5)))
+      @testset "Spectral($(nameof(typeof(f.f))))" begin
+        zero_alloc_prox(f, A)
+        zero_alloc_prox(f, Float32.(A))
+      end
+    end
   end
 
   @testset "symmetric outputs that are not strided" begin
     A = randn(10, 10); A = A + A'
     S = SymmetricSparseIterate(10)
-    for f in (IndPSD(), IndPSD(rank = 3), TracePSD(0.2))
+    for f in (IndPSD(), IndPSD(rank = 3), TracePSD(0.2), Spectral(NormL1(0.3)))
       @test allocs(a_prox!, S, f, A, 0.7) == 0
     end
     B = randn(40, 10)

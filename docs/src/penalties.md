@@ -161,3 +161,6 @@ subtracts ``\gamma\lambda`` from each eigenvalue and clips at zero. It is the
 penalty on the low-rank part of latent-variable graphical models.
 [`value_and_prox!`](@ref) gets the value from the thresholded spectrum. The
 decompositions run in LAPACK workspaces that the functions own.
+[`Spectral`](@ref)`(f)` builds the function of the eigenvalues of a symmetric
+matrix from any function ``f`` of a vector that does not depend on the order of
+its entries.

@@ -13,6 +13,7 @@ from known ones.
 | [`SeparableSum`](@ref)`(f1, f2, ...)` | ``\sum_k f_k(x_k)`` on a tuple of blocks | block by block | block by block |
 | [`Sum`](@ref)`(f1, f2, ...)` | ``\sum_k f_k(x)`` | | ``\sum_k \nabla f_k(x)`` |
 | [`Constrained`](@ref)`(f, C)` | ``f(x)`` on a box, hyperplane, halfspace or simplex ``C`` | on a box, ``\operatorname{clamp}(\operatorname{prox}_{\gamma f}(x), l, u)``; on a hyperplane, ``\operatorname{prox}_{\gamma f}(x - \gamma\nu a)`` | |
+| [`Spectral`](@ref)`(f)` | ``f(\lambda(X))`` for a symmetric ``X`` | ``V\operatorname{diag}(\operatorname{prox}_{\gamma f}(\lambda))V^\top`` | |
 
 ## Derivations
 
@@ -129,4 +130,50 @@ z = prox(Constrained(NormL1(0.2), IndHyperplane(1, 0)), v, 1.0)   # entries that
 
 ```@example calculus
 prox(Constrained(IndBox(0, 1), IndHyperplane(1, 2)), v)            # onto the capped simplex
+```
+
+## Functions of the eigenvalues
+
+[`Spectral`](@ref)`(f)` is ``F(X) = f(\lambda(X))`` on the symmetric matrices,
+for a function ``f`` of a vector that does not depend on the order of its
+entries. Its proximal operator acts on the eigenvalues (Lewis, 1996): for
+``X = V\operatorname{diag}(\lambda)V^\top``,
+```math
+\operatorname{prox}_{\gamma F}(X) = V\operatorname{diag}\big(\operatorname{prox}_{\gamma f}(\lambda)\big)V^\top .
+```
+For a symmetric ``Z`` with eigenvalues ``\mu``, sorted in the same order as
+``\lambda``, the trace inequality ``\operatorname{tr}(ZX) \le \langle \mu, \lambda\rangle``
+(von Neumann; Fan, 1949) gives ``\|Z - X\|_F \ge \|\mu - \lambda\|_2``. So the
+objective that defines the proximal operator is at least
+``f(\mu) + \|\mu - \lambda\|_2^2/(2\gamma)`` at ``Z``. The matrix above, with the
+eigenvectors of ``X``, attains the minimum of that bound over ``\mu``. ``F`` is
+convex exactly when ``f`` is.
+
+| ``f`` | `Spectral(f)` |
+|:------|:--------------|
+| `IndNonnegative()` | the positive semidefinite cone, [`IndPSD`](@ref)`()` |
+| `NormL1Nonneg(λ)` | ``\lambda\operatorname{tr}(X)`` on the cone, [`TracePSD`](@ref)`(λ)` |
+| `NormL1(λ)` | ``\lambda\|X\|_*``, the trace norm |
+| `NormL2(λ)` | ``\lambda\|X\|_F`` |
+| `NormLinf(λ)` | ``\lambda\|X\|_2``, the spectral norm |
+| `IndBox(l, u)` | ``lI \preceq X \preceq uI`` |
+| `IndBallL1(r)` | ``\|X\|_* \le r`` |
+| `IndSimplex(1)` | the density matrices: ``X \succeq 0`` and ``\operatorname{tr}(X) = 1`` |
+| `Constrained(IndBox(0, 1), IndHyperplane(1, k))` | the Fantope: ``0 \preceq X \preceq I`` and ``\operatorname{tr}(X) = k`` |
+| `NormL0(λ)` | ``\lambda\operatorname{rank}(X)``, nonconvex |
+| `IndBallL0(r)` | the matrices of rank at most ``r``, nonconvex |
+
+The Fantope ``\mathcal{F}^k`` is the convex hull of the projections onto
+``k``-dimensional subspaces (Fan, 1949; Overton and Womersley, 1992), and its
+projection projects the eigenvalues onto the capped simplex. Vu, Cho, Lei and
+Rohe (2013) estimate a sparse principal subspace by maximizing
+``\langle S, X\rangle - \lambda\|X\|_1`` over ``\mathcal{F}^k``, and the example on
+sparse principal component analysis does this by ADMM. A function with weights,
+bounds or normals that differ between entries depends on their order, and
+`Spectral` rejects it.
+
+```@example calculus
+B = randn(5, 5)
+P = prox(Spectral(Constrained(IndBox(0, 1), IndHyperplane(1, 2))), (B + B') / 2)   # onto the Fantope
+(eigvals(Symmetric(P)), tr(P))
 ```

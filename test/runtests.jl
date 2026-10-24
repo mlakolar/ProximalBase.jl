@@ -8,6 +8,7 @@ tests = [
   "partial",
   "sparseIterate",
   "atomIterate",
+  "symmetric_products",
   "interface",
   "smooth",
   "separable",

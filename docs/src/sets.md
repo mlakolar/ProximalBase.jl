@@ -21,6 +21,7 @@ rounding.
 | [`IndBallGroupL0`](@ref)`(s, groups)` | at most ``s`` nonzero groups | keep the ``s`` groups of largest norm |
 | [`IndHyperplane`](@ref)`(a, b)` | ``\langle a, x\rangle = b`` | ``v - \frac{\langle a, v\rangle - b}{\lVert a\rVert^2}\,a`` |
 | [`IndHalfspace`](@ref)`(a, b)` | ``\langle a, x\rangle \le b`` | the same when ``\langle a, v\rangle > b`` |
+| [`IndIntersection`](@ref)`(C₁, C₂, …)` | ``C_1 \cap C_2 \cap \cdots`` | Dykstra's algorithm, iterative |
 | [`IndPSD`](@ref)`()` | ``X \succeq 0`` | ``U\max(\Lambda, 0)U^\top`` |
 | [`IndPSD`](@ref)`(rank = r)` | ``X \succeq 0``, rank at most ``r`` | the ``r`` largest positive eigenpairs |
 | [`IndBallRank`](@ref)`(r)` | rank at most ``r`` | the truncated SVD |
@@ -60,6 +61,28 @@ Projecting onto the ℓ1 ball ``\{\|x\|_1 \le r\}`` is trivial when
 ``\|v\|_1 \le r``. Otherwise the projection has the signs of ``v`` and solves
 the simplex problem for ``|v|``. The ℓ∞ norms use this projection through
 Moreau's decomposition.
+
+## Intersections
+
+The projection onto an intersection ``C_1 \cap \cdots \cap C_m`` of convex sets
+has no closed form even when each ``C_k`` has one: the correlation matrices,
+for instance, are the positive semidefinite matrices with unit diagonal.
+Alternating the projections finds a point of the intersection, not the
+projection. Dykstra's algorithm (Boyle and Dykstra, 1986) keeps a correction
+``p_k`` for each set and repeats, for ``k = 1, \dots, m``,
+
+```math
+y \leftarrow P_{C_k}(y + p_k), \qquad p_k \leftarrow (y_{\mathrm{old}} + p_k) - y ,
+```
+
+from ``y = v`` and ``p_k = 0``. Throughout, ``v = y + \sum_k p_k``, and the
+iterates converge to ``P_C(v)``. The algorithm is block coordinate ascent on the
+dual of the projection problem, whose variables are the corrections (Tibshirani,
+2017), so it converges from any corrections. [`IndIntersection`](@ref) uses this
+to start each call from the corrections of the previous one, which helps inside
+a solver, where successive inputs are close. Its proximal operator is iterative,
+and so exact only to a tolerance. The rate is linear, from a few rounds for the
+nearest correlation matrix to thousands when the sets meet at a small angle.
 
 ## Sparsity
 

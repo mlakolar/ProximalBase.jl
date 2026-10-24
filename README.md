@@ -261,6 +261,7 @@ smooth versions of the hinge and quantile losses) expose `ProximalBase.deriv`,
 | `IndBallGroupL0(s, groups)` | at most `s` nonzero groups, nonconvex |
 | `IndBallL1(r)`, `IndBallL2(r)` | `‖x‖₁ ≤ r`, `‖x‖₂ ≤ r` |
 | `IndSphereL2(r)` | `‖x‖₂ = r`, nonconvex |
+| `IndIntersection(C₁, C₂, …)` | the intersection of sets, projected by Dykstra's algorithm (iterative) |
 | `IndSimplex(r; equality)` | `x ≥ 0, Σᵢ xᵢ = r` (or `≤ r`) |
 | `IndHyperplane(a, b)`, `IndHalfspace(a, b)` | `⟨a, x⟩ = b`, `⟨a, x⟩ ≤ b`; a scalar `a` multiplies `Σᵢ xᵢ` |
 | `IndPSD()`, `IndPSD(rank = r)` | `X ⪰ 0`, and of rank at most `r` (nonconvex) |

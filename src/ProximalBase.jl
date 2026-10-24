@@ -57,6 +57,7 @@ export
 
   # indicator functions
   IndBox, IndNonnegative, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
+  IndIntersection,
   IndHyperplane, IndHalfspace, IndPSD, IndBallRank,
   IndSphereL2,
   IndBallGroupL0,
@@ -97,6 +98,7 @@ include("functions/sparsegroup.jl")
 include("functions/fibers.jl")
 include("functions/spectral.jl")
 include("functions/singular.jl")
+include("functions/intersection.jl")
 include("functions/sets.jl")
 include("functions/nonconvex.jl")
 include("functions/matrixsets.jl")

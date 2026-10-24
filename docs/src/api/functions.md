@@ -31,3 +31,9 @@ ProximalBase.deriv2
 ProximalBase.curvature
 ProximalBase.value_and_deriv
 ```
+
+## Intersections of sets
+
+```@docs
+IndIntersection
+```

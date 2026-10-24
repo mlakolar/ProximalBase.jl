@@ -17,6 +17,7 @@ tests = [
   "fibers",
   "spectral",
   "singular",
+  "intersection",
   "sets",
   "nonconvex",
   "matrixsets",

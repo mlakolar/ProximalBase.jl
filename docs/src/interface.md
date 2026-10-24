@@ -111,6 +111,15 @@ the three iterates. A group norm takes a step per group, a metric constant on ea
 group, which keeps the closed form. `Scaled`, `Tilt`, `Translate` and `Conjugate`
 pass the steps on.
 
+The projections onto a hyperplane, a halfspace, a simplex and an ℓ1 ball take an
+array of steps as well, as projections in the metric. The hyperplane has the
+closed form ``x - \gamma \odot a\,(\langle a, x\rangle - b)/\sum_i \gamma_i a_i^2``.
+The simplex and the ℓ1 ball are ``\max(x_i - \gamma_i\nu, 0)`` and the soft
+thresholding of ``x_i`` at ``\gamma_i\nu`` for a level ``\nu`` found by Newton's
+method from the left, which ends at the exact root. [`Constrained`](@ref) on a
+box, a hyperplane, a halfspace or a simplex takes the steps into its multiplier
+search, with ``z_i(\nu) = \operatorname{prox}_{\gamma_i f_i}(x_i - \gamma_i\nu a_i)``.
+
 The curvature of a smooth ``f`` along each coordinate, a Lipschitz constant of
 ``\partial f/\partial x_k``, comes from [`coordinate_lipschitz`](@ref) and
 [`coordinate_lipschitz!`](@ref): ``\lVert X_{:,j}\rVert^2`` for least squares,

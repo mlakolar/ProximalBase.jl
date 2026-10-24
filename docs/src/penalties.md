@@ -342,6 +342,7 @@ nuclear norm is `SingularValue(NormL1(λ))`. The others:
 | `SingularValue(IndBallLinf(r))` | the indicator of the spectral-norm ball ``\lVert X\rVert_2 \le r`` | `proj_spectral` |
 | `SingularValue(IndBallL0(r))` | the indicator of rank at most ``r`` | |
 | `SingularValue(ElasticNet(λ1, λ2))` | ``\lambda_1\lVert X\rVert_* + \tfrac{\lambda_2}{2}\lVert X\rVert_F^2`` | |
+| `SingularValue(Conjugate(Constrained(IndBox(0, λ), IndHalfspace(1, λ * k))))` | the Ky Fan ``k``-norm ``\lambda(\sigma_1 + \dots + \sigma_k)`` | |
 | `SingularValue(MCP(λ, a))`, `SCAD`, `NormL0` | nonconvex penalties of the singular values | |
 
 For a nonconvex separable ``f`` whose scalar proximal operator is nondecreasing
@@ -350,7 +351,11 @@ minimizer (Lu, Zhu, Xu, Yan and Lin, 2015). So MCP and SCAD thresholding of the
 singular values reduce the bias of singular value thresholding, as they do for
 the lasso. The conjugate of ``f \circ \sigma`` is ``f^* \circ \sigma``, so the
 spectral norm and the nuclear-norm ball are a conjugate pair under
-[`Conjugate`](@ref).
+[`Conjugate`](@ref). The Ky Fan ``k``-norm, the sum of the ``k`` largest singular
+values, is the support function of
+``\{w : 0 \le w_i \le \lambda,\ \sum_i w_i \le \lambda k\}`` at ``\sigma``. It
+needs the halfspace: with the hyperplane, the conjugate of the capped simplex is
+the sum of the ``k`` largest entries, which is not absolutely symmetric.
 
 ### Partial decompositions
 

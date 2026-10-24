@@ -28,7 +28,10 @@ mutable struct LeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVecOrMat, Tx<:Abst
   V::Matrix{T}
   s2::Vector{T}
   XtY::Array{T, N}
+  sUtY::Array{T, N}       # Diagonal(s) U'Y, the right-hand side in the V basis
   w::Array{T, N}
+  output::Scratch         # dense output for a non-strided destination
+  svd_ready::Bool
 end
 
 function LeastSquaresLoss(Y::AbstractVecOrMat, X::AbstractMatrix)
@@ -38,7 +41,8 @@ function LeastSquaresLoss(Y::AbstractVecOrMat, X::AbstractMatrix)
   tmp = _zeros_like(Y, T, size(Y))
   LeastSquaresLoss{T, typeof(Y), typeof(X), N, typeof(tmp)}(Y, X, tmp, Matrix{T}(undef, 0, 0), T[],
                                                             Array{T, N}(undef, ntuple(_ -> 0, N)),
-                                                            Array{T, N}(undef, ntuple(_ -> 0, N)))
+                                                            Array{T, N}(undef, ntuple(_ -> 0, N)),
+                                                            Array{T, N}(undef, ntuple(_ -> 0, N)), Scratch(), false)
 end
 
 issmooth(::Type{<:LeastSquaresLoss}) = true
@@ -70,31 +74,45 @@ function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMa
 end
 
 function _svd_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
-  if isempty(f.s2)
+  if !f.svd_ready
     F = svd(Matrix{T}(f.X))
     f.V = F.V
     f.s2 = F.S .^ 2
     f.XtY = Array{T, N}(transpose(f.X) * f.Y)
+    f.sUtY = Array{T, N}(transpose(F.U) * f.Y)
+    f.sUtY .*= F.S
     f.w = N == 1 ? Array{T, N}(undef, length(f.s2)) : Array{T, N}(undef, length(f.s2), size(f.Y, 2))
+    f.svd_ready = true
   end
   f
 end
 
-# (X'X + ρI)⁻¹ z = z/ρ + V Diagonal(1/(s² + ρ) - 1/ρ) V'z, with z = X'Y + ρv
+# In the V basis the solution is (s U'Y + ρ V'v)/(s² + ρ). When V is
+# rectangular, keep v's null-space component with v + V(s U'Y - s² V'v)/(s² + ρ).
+# Neither form subtracts terms of size γ X'Y at a large step γ.
 function prox!(β::AbstractVecOrMat, f::LeastSquaresLoss{T}, v::AbstractVecOrMat, γ::Real) where {T}
   _checksize(β, v)
   size(β, 1) == size(f.X, 2) || throw(DimensionMismatch("β must have $(size(f.X, 2)) rows"))
-  β isa StridedVecOrMat || return copyto!(β, prox!(Array{T}(undef, size(β)), f, v, γ))
+  ndims(β) == ndims(f.Y) && size(β, 2) == size(f.Y, 2) ||
+    throw(DimensionMismatch("β must have the same number of responses as Y"))
+  # With no observations or coefficients the loss is constant; avoid an empty SVD.
+  (isempty(f.X) || isempty(β)) && return β === v ? β : copyto!(β, v)
+  β isa StridedVecOrMat || return copyto!(β, prox!(_array_buffer!(f.output, T, size(β)), f, v, γ))
   _svd_cache!(f)
   ρ = inv(convert(T, γ))
-  β .= f.XtY .+ ρ .* v
-  mul!(f.w, transpose(f.V), β)
-  @inbounds for j in axes(f.w, 2), i in axes(f.w, 1)
-    s2 = f.s2[i]
-    f.w[i, j] *= -s2 / (ρ * (s2 + ρ))
+  mul!(f.w, transpose(f.V), v)
+  if size(f.V, 1) == size(f.V, 2)
+    @inbounds for j in axes(f.w, 2), i in axes(f.w, 1)
+      f.w[i, j] = (f.sUtY[i, j] + ρ * f.w[i, j]) / (f.s2[i] + ρ)
+    end
+    mul!(β, f.V, f.w)
+  else
+    @inbounds for j in axes(f.w, 2), i in axes(f.w, 1)
+      f.w[i, j] = (f.sUtY[i, j] - f.s2[i] * f.w[i, j]) / (f.s2[i] + ρ)
+    end
+    β === v || copyto!(β, v)
+    mul!(β, f.V, f.w, one(T), one(T))
   end
-  β ./= ρ
-  mul!(β, f.V, f.w, one(T), one(T))
 end
 
 restrict(f::LeastSquaresLoss{T, <:AbstractVector}, S::AbstractVector{<:Integer}) where {T} =

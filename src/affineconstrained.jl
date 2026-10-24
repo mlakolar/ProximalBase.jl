@@ -49,6 +49,7 @@ mutable struct AffineConstrained{T<:AbstractFloat, F<:Union{LeastSquaresLoss, Qu
   t::Vector{T}                  # V'z
   u::Vector{T}
   r::Vector{T}                  # CMz - d, then the multiplier
+  output::Scratch               # dense output for a non-strided destination
 end
 
 function AffineConstrained(f::Union{LeastSquaresLoss, QuadraticFunction}, set::IndAffine)
@@ -58,7 +59,7 @@ function AffineConstrained(f::Union{LeastSquaresLoss, QuadraticFunction}, set::I
   size(set.A, 2) == n || throw(DimensionMismatch("the loss has $n coefficients and A has $(size(set.A, 2)) columns"))
   T = eltype(f.tmp)
   e = Matrix{T}(undef, 0, 0)
-  AffineConstrained{T, typeof(f), typeof(set)}(f, set, e, e, e, Cholesky(e, 'U', 0), T(NaN), T[], T[], T[])
+  AffineConstrained{T, typeof(f), typeof(set)}(f, set, e, e, e, Cholesky(e, 'U', 0), T(NaN), T[], T[], T[], Scratch())
 end
 
 isproximable(::Type{<:AffineConstrained}) = true
@@ -117,7 +118,7 @@ end
 function prox!(y::AbstractVector, c::AffineConstrained{T}, x::AbstractVector, γ::Real) where {T}
   _checksize(y, x)
   _checkaffine(c.set, x)
-  y isa StridedVector || return copyto!(y, prox!(Vector{T}(undef, length(y)), c, x, γ))
+  y isa StridedVector || return copyto!(y, prox!(_array_buffer!(c.output, T, size(y)), c, x, γ))
   _affine_cache!(c)
   s = convert(T, γ)
   c.γ == s || _affine_factor!(c, s)

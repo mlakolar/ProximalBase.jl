@@ -1,31 +1,22 @@
-# Coordinate descent and iterates
+# Sparse iterates
 
-## The coordinate step
+ProximalBase provides three iterate types for coordinate descent and active-set
+procedures. We separate the choice of storage from the update formulas,
+which are derived in [Coordinate descent](@ref).
 
-Coordinate descent minimizes
-``F(x) = f(x) + \sum_i g_i(x_i)``, with ``f`` smooth and ``g`` separable, one
-coordinate at a time. Fix every coordinate but ``x_i``. Let ``a_i`` bound the
-curvature of ``f`` along ``x_i``; it is exact for a quadratic, and
-``a_i = \|X_i\|^2`` for least squares. Minimizing the quadratic model of ``f``
-plus ``g_i`` gives
+| Iterate | Array represented | One coordinate |
+|:--------|:------------------|:---------------|
+| [`SparseIterate`](@ref) | A sparse vector or matrix | One entry |
+| [`SymmetricSparseIterate`](@ref) | A sparse symmetric matrix | One lower-triangular entry and its symmetric counterpart |
+| [`AtomIterate`](@ref) | A vector partitioned into groups | One group of entries |
 
-```math
-x_i^+ = \operatorname*{argmin}_t \; \nabla_i f(x)\,(t - x_i) + \frac{a_i}{2}(t - x_i)^2 + g_i(t)
-= \operatorname{prox}_{g_i/a_i}\Big(x_i - \frac{\nabla_i f(x)}{a_i}\Big).
-```
+## Entries and coordinates
 
-For least squares, with the residual ``r = y - Xx`` kept up to date, the
-gradient is ``\nabla_i f(x) = -X_i^\top r``. The step is then
-``x_i^+ = \operatorname{prox}_{g_i/a_i}(x_i + X_i^\top r/a_i)``, followed by
-``r \leftarrow r - X_i(x_i^+ - x_i)``. For a convex ``F`` with separable
-``g``, cyclic coordinate descent converges to a minimizer (Tseng, 2001).
-
-[`prox_entry`](@ref)`(g, v, i, γ)` is ``\operatorname{prox}_{\gamma g_i}(v)``.
-It computes the new value without writing the iterate. So a solver writes only
-the coordinates that change, and a coordinate that stays at zero is never
-stored. [`prox_coordinate!`](@ref)`(x, g, k, γ)` applies the proximal step to
-coordinate ``k`` of an iterate in place. It reads the current value, maps the
-coordinate to its entry, writes the result and keeps the active set up to date.
+[`prox_entry`](@ref)`(g, v, i, γ)` computes the scalar proximal operator of
+entry ``i`` without writing the iterate. In contrast,
+[`prox_coordinate!`](@ref)`(x, g, k, γ)` reads coordinate ``k`` of the iterate,
+applies its proximal operator and writes the result. The calling procedure
+must supply the gradient step before applying this proximal operation.
 
 The two calls index different spaces:
 - `prox_entry` takes an entry ``i`` of the array, the index of the weights and
@@ -96,22 +87,22 @@ which is block soft thresholding, and which activates the group when it ends
 nonzero. `AtomIterate(p, g)` builds an iterate that shares the groups of a
 group penalty `g`.
 
-## Active sets
+## Tracking an active set
 
-Most coordinates of a sparse solution are zero, so active-set and working-set
-solvers sweep only the coordinates that may be nonzero. Two oracles support
-them.
+The active coordinates form a stored working set, which can contain entries
+or groups that have returned to zero. We keep them during a sweep so that
+the set being traversed does not change.
 
-- **[`kkt_violation`](@ref)`(g, ∇f(x), i)`** measures how much a coordinate at
-  zero violates optimality, given the gradient of the smooth part. It is
-  ``|\nabla_i f| - \lambda w_i`` for the ℓ1 norm, and
-  ``\|\nabla_{G_k} f\|_2 - \lambda w_k`` for a group, so a positive value means
-  the coordinate should join the active set.
-- **[`restrict`](@ref)`(f, S)`** is the function of ``x_S`` that ``f`` becomes on
-  the vectors supported on ``S``. For a loss it keeps the columns ``S`` of
-  ``X``.
+| Operation | Meaning |
+|:----------|:--------|
+| [`ncoordinates`](@ref)`(x)` | Number of possible coordinates |
+| [`nactive`](@ref)`(x)` | Number of stored active coordinates |
+| [`activecoordinates`](@ref)`(x)` | Indices of the active coordinates |
+| [`isactive`](@ref)`(x, k)` | Whether coordinate `k` is active |
+| [`activate!`](@ref)`(x, k)` | Add a coordinate to the active set |
+| `dropzeros!(x)` | Remove stored zero entries or zero groups |
 
-A working-set solver alternates between solving the problem restricted to
-``S`` and adding the worst violators. The working-set example solves a lasso
-with ``p = 5000`` that way, about 40 times faster than proximal gradient descent on
-all the coordinates.
+Use [`kkt_violation`](@ref) to test excluded zero coordinates and
+[`restrict`](@ref) to construct a supported restricted problem. The
+[Coordinate descent](@ref) chapter explains the full optimality checks that
+must accompany these storage operations.

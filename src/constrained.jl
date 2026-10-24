@@ -397,7 +397,7 @@ function _live(c::LinearConstrained{F}, x::AbstractArray, ::Type{T}) where {F, T
   end
   n = length(x)
   R[] = _Live{T}(n, false, zero(T), zero(T), T(NaN), T(NaN), T(NaN), T(_FIX_RHO))
-  R
+  return R
 end
 
 # the first point and the steepest slope, once known
@@ -405,7 +405,7 @@ _seen(::Nothing, ν, φ, a2) = nothing
 function _seen(R::Base.RefValue{_Live{T}}, ν, φ, a2) where {T}
   L = R[]
   R[] = _Live{T}(L.n, L.compact, L.s, L.m, ν, φ, a2, L.ρmax)
-  R
+  return R
 end
 
 # φ, the scale of its rounding error, and the state; with Val(true), the point
@@ -435,7 +435,7 @@ end
     L = _try_fix(c, x, ν, γ, L, φ > 0, Δ * length(x) / (L.a2 * abs(ν - L.νp) * L.n))
   end
   R[] = _Live{T}(L.n, L.compact, L.s, L.m, ν, φ, L.a2, L.ρmax)
-  nothing
+  return nothing
 end
 
 # φ and the scale of its rounding error, from the live entries in the buffers
@@ -553,7 +553,7 @@ function _keep_bits!(B::Vector{UInt64}, f, Xs, As, Gs, Is, r, ν::T, low::Bool) 
     @simd for q in 1:min(64, n - o + j0); w |= _live_bit(f, Xs, As, Gs, Is, o, q, ν, low); end
     B[k] = w
   end
-  B
+  return B
 end
 Base.@propagate_inbounds _live_bit(f, Xs, As, Gs, Is, o, q, ν, low) =
   UInt64(!_at_end(f, Xs, As, Gs, Is, o + q, ν, low)) << (q - 1)
@@ -575,7 +575,7 @@ function _copy_live!(X, A, G, I, B::Vector{UInt64}, Xs, As, Gs, Is, r, ::Type{T}
       keep &= keep - 1
     end
   end
-  w
+  return w
 end
 
 # The range [L, U] of the scalar proximal operator, in the type S of its value,

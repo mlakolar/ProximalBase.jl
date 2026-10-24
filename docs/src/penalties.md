@@ -351,3 +351,66 @@ singular values reduce the bias of singular value thresholding, as they do for
 the lasso. The conjugate of ``f \circ \sigma`` is ``f^* \circ \sigma``, so the
 spectral norm and the nuclear-norm ball are a conjugate pair under
 [`Conjugate`](@ref).
+
+### Partial decompositions
+
+[`NuclearNorm`](@ref), [`TracePSD`](@ref), [`IndPSD`](@ref) and
+[`IndBallRank`](@ref) keep only the singular triplets or eigenpairs above a
+threshold, or the ``r`` largest, but by default compute the whole decomposition,
+in ``O(p^3)`` for a ``p \times p`` matrix. With the keyword `partial = true` they
+compute only the pairs they keep, by randomized subspace iteration with a
+Rayleigh–Ritz step (Halko, Martinsson and Tropp, 2011): for a result of rank
+``k``, each iteration costs ``O(p^2\ell)`` on a block of ``\ell \approx k + 10``
+vectors.
+
+- **Warm starts.** A call starts from the block of the previous call, after one
+  more power step, with two fresh random vectors. A solver calls the proximal
+  operator on nearby matrices, so a call takes one to a few iterations, and a
+  direction that enters the leading subspace is amplified from call to call.
+- **Accuracy.** A result is accepted when the residuals
+  ``\|Xv_j - \sigma_j u_j\|`` (or ``\|Au_j - \theta_j u_j\|``) of the pairs kept
+  are below ``\epsilon^{3/4}`` times the largest value, and the next three pairs
+  are certified to lie below the threshold: their value plus their residual is
+  below it. The result then agrees with the full decomposition to about
+  ``10^{-12}`` in `Float64`.
+- **Unknown ranks.** For the thresholds of [`NuclearNorm`](@ref),
+  [`TracePSD`](@ref) and [`IndPSD`](@ref)`()`, the block starts from the rank of
+  the previous call and doubles while too few of its values fall below the
+  threshold. For symmetric matrices, it iterates on ``A + cI`` with a shift
+  ``c`` when negative eigenvalues are large enough to crowd out the ones kept.
+- **Fallback.** The function takes the full decomposition when the block would
+  exceed a quarter of the dimension, or when the iteration does not converge,
+  and that decomposition starts the next call. `partial = true` is therefore
+  safe to use on any input, and pays when the rank of the result is small.
+- **What stays full.** The value ``f(X)`` alone needs every singular value or
+  eigenvalue, and still takes the full decomposition. As for the full
+  decompositions, the workspaces belong to the function object, so do not share
+  one between threads.
+
+On a low-rank matrix plus noise, one call on a slightly changed input, as in a
+solver, takes (Julia 1.13, one thread of an AMD EPYC 7513; `benchmark/partial.jl`):
+
+| rank 10 | p = 500 | p = 1000 | p = 2000 | p = 5000 |
+|:--|--:|--:|--:|--:|
+| `NuclearNorm` | 3.39 ms (15×) | 11.7 ms (27×) | 46.2 ms (51×) | 343 ms (125×) |
+| `IndBallRank(10)` | 2.69 ms (18×) | 9.20 ms (34×) | 37.4 ms (63×) | 243 ms (177×) |
+| `IndPSD(rank = 10)` | 2.42 ms (4×) | 9.63 ms (6×) | 31.8 ms (11×) | 303 ms (24×) |
+| `TracePSD` | 3.14 ms (8×) | 10.5 ms (14×) | 40.2 ms (25×) | 311 ms (54×) |
+| `IndPSD()` | 3.12 ms (8×) | 12.2 ms (12×) | 47.7 ms (21×) | 363 ms (46×) |
+
+In parentheses, the factor by which this is faster than the full decomposition;
+at ``p = 5000`` the full SVD and eigendecomposition were timed once, for
+`NuclearNorm` and `TracePSD`, and `IndBallRank` and `IndPSD()` take the same.
+
+Over ranks ``k = 2, 10, 50`` and ``p`` from 200 to 5000, a warm call is faster
+than the full decomposition wherever the partial path applies, and so is a call
+from a random block, except for [`TracePSD`](@ref) and [`IndPSD`](@ref)`()` at
+``p = 500`` with ``k = 50``, about 7% slower. Told the exact rank,
+[ARPACK](https://github.com/JuliaLinearAlgebra/Arpack.jl) and
+[KrylovKit](https://github.com/Jutho/KrylovKit.jl) compute the leading pairs of
+one matrix up to twice as fast for ``p \le 2000``, and up to three times as
+fast for [`IndPSD`](@ref)`(rank = k)`, but their SVDs are slower than the
+partial one at ``p = 5000``; they allocate at every call, need the rank in
+advance, and do not start from the previous call. The Lanczos SVD of TSVD is
+often faster but accurate to about ``10^{-7}``, and randomized SVDs without
+power iterations to a few percent (see `benchmark/README.md`).

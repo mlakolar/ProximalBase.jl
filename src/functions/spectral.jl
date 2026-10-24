@@ -15,6 +15,16 @@ The function caches a LAPACK workspace for the size and element type
 (`Float32` or `Float64`) of its input, so that repeated calls allocate nothing;
 do not share one function object between threads."""
 
+const _PARTIAL_NOTE = """
+With `partial = true` the proximal operator computes only the leading singular
+triplets or eigenpairs, by randomized subspace iteration started from those of
+the previous call, in O(p²k) instead of O(p³) for k of them. It accepts the
+result when the residuals of the pairs kept are below `eps^(3/4)` times the
+largest value, and otherwise, or when the pairs kept would be more than about a
+quarter of the dimension, falls back to the full decomposition. This pays
+when the rank of the result is small and the proximal operator is called on a
+sequence of nearby matrices, as in a solver; see [Partial decompositions](@ref)."""
+
 # Y = U[:, 1:k] * Vt[1:k, :], through the workspace's matrix when Y is not strided
 function _mul_lowrank!(Y::AbstractMatrix, U::Matrix, Vt::Matrix, k::Integer, ws::SVDWorkspace)
   if k == 0
@@ -55,22 +65,28 @@ end
 ####################################
 
 """
-    NuclearNorm(λ = 1)
+    NuclearNorm(λ = 1; partial = false)
 
 The nuclear norm `f(X) = λ ‖X‖_*`, the sum of the singular values of `X`. Its
 proximal operator soft-thresholds the singular values, and
 [`value_and_prox!`](@ref) returns the value from the thresholded singular values
 without a second decomposition.
 
+$_PARTIAL_NOTE The value `f(X)` alone needs every singular value and always
+takes the full decomposition.
+
 $_SPECTRAL_NOTE
 """
 mutable struct NuclearNorm{T<:Real} <: AbstractFunction
   λ::T
+  partial::Bool
   ws::Any
+  pws::Any        # the workspace of the partial SVD
 
-  NuclearNorm{T}(λ::T) where {T<:Real} = (_checknonneg("λ", λ); new{T}(λ, nothing))
+  NuclearNorm{T}(λ::T; partial::Bool = false) where {T<:Real} =
+    (_checknonneg("λ", λ); new{T}(λ, partial, nothing, nothing))
 end
-NuclearNorm(λ::Real = 1) = NuclearNorm{typeof(λ)}(λ)
+NuclearNorm(λ::Real = 1; partial::Bool = false) = NuclearNorm{typeof(λ)}(λ; partial)
 
 isproximable(::Type{<:NuclearNorm}) = true
 isconvex(::Type{<:NuclearNorm}) = true
@@ -87,11 +103,15 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real)
   _checksize(Y, X)
   T = float(eltype(Y))
+  c = convert(T, γ) * convert(T, f.λ)
+  if f.partial
+    pv = _partial_nuclear!(Y, f, X, c)
+    pv === nothing || return convert(T, f.λ) * pv
+  end
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
   copyto!(ws.A, X)
   s, U, Vt = _svd!(ws)
-  c = convert(T, γ) * convert(T, f.λ)
   k = 0
   v = zero(T)
   @inbounds for j in eachindex(s)
@@ -103,6 +123,7 @@ function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, �
       U[i, j] *= t
     end
   end
+  f.partial && _warm_start_svd!(f, U, k)
   _mul_lowrank!(Y, U, Vt, k, ws)
   convert(T, f.λ) * v
 end
@@ -113,19 +134,26 @@ prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real) = (value_a
 ####################################
 
 """
-    IndBallRank(r)
+    IndBallRank(r; partial = false)
 
 The indicator of the matrices of rank at most `r`, nonconvex. Its proximal
 operator is the truncated singular value decomposition, which keeps the `r`
 largest singular triplets.
 
+$_PARTIAL_NOTE
+
 $_SPECTRAL_NOTE
 """
 mutable struct IndBallRank <: AbstractFunction
   r::Int
+  partial::Bool
   ws::Any
+  pws::Any        # the workspace of the partial SVD
 
-  IndBallRank(r::Integer) = (r >= 1 || throw(ArgumentError("r must be positive, got $r")); new(Int(r), nothing))
+  function IndBallRank(r::Integer; partial::Bool = false)
+    r >= 1 || throw(ArgumentError("r must be positive, got $r"))
+    new(Int(r), partial, nothing, nothing)
+  end
 end
 
 isproximable(::Type{IndBallRank}) = true
@@ -148,6 +176,7 @@ function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, ::Real)
     Y === X || copyto!(Y, X)
     return Y
   end
+  f.partial && _partial_rank!(Y, f, X, T) !== nothing && return Y
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
   copyto!(ws.A, X)
@@ -158,6 +187,7 @@ function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, ::Real)
       U[i, j] *= t
     end
   end
+  f.partial && _warm_start_svd!(f, U, f.r)
   _mul_lowrank!(Y, U, Vt, f.r, ws)
 end
 
@@ -166,8 +196,8 @@ end
 ####################################
 
 """
-    IndPSD()
-    IndPSD(; rank = r)
+    IndPSD(; partial = false)
+    IndPSD(; rank = r, partial = false)
 
 The indicator of the positive semidefinite matrices, and with `rank` of those of
 rank at most `r`, which is nonconvex. Its proximal operator is the projection of
@@ -177,18 +207,23 @@ eigendecomposition with the negative eigenvalues set to zero, and for a rank
 The result is rebuilt from the eigenvectors that remain, in O(n²k) for k of
 them.
 
+$_PARTIAL_NOTE Without a rank, the partial projection pays when few
+eigenvalues are positive.
+
 $_SPECTRAL_NOTE
 """
 mutable struct IndPSD{R<:Union{Nothing, Int}} <: AbstractFunction
   rank::R
+  partial::Bool
   eig::Any        # all eigenvalues: the value, and the projection onto the cone
   top::Any        # the largest r eigenpairs: the projection with a rank
+  pws::Any        # the workspace of the partial eigendecomposition
   out::Scratch    # the result, for an output that is not strided
 end
-function IndPSD(; rank::Union{Nothing, Integer} = nothing)
-  rank === nothing && return IndPSD{Nothing}(nothing, nothing, nothing, Scratch())
+function IndPSD(; rank::Union{Nothing, Integer} = nothing, partial::Bool = false)
+  rank === nothing && return IndPSD{Nothing}(nothing, partial, nothing, nothing, nothing, Scratch())
   rank >= 1 || throw(ArgumentError("rank must be positive, got $rank"))
-  IndPSD{Int}(Int(rank), nothing, nothing, Scratch())
+  IndPSD{Int}(Int(rank), partial, nothing, nothing, nothing, Scratch())
 end
 
 isproximable(::Type{<:IndPSD}) = true
@@ -223,21 +258,30 @@ function _project_psd!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix)
   λ, V = _eigen!(ws)
   n = size(V, 1)
   _rebuild_sym_out!(Y, V, λ, t -> max(t, zero(t)); buffer = Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
+  f.partial && _warm_start_eigen!(f, V, count(>(zero(T)), λ))
   Y
 end
 
-prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real) = _project_psd!(Y, f, X)
+function prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real)
+  if f.partial
+    _checksize(Y, X)
+    _partial_psd!(Y, f, X, zero(float(eltype(Y))), 0) === nothing || return Y
+  end
+  _project_psd!(Y, f, X)
+end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
   _checksize(Y, X)
   n = checksquare(X)
   f.rank >= n && return _project_psd!(Y, f, X)
   T = float(eltype(Y))
+  f.partial && _partial_psd!(Y, f, X, zero(T), f.rank) !== nothing && return Y
   ws = _eigtop_workspace(f.top, T, n, f.rank)
   f.top = ws
   copyto!(ws.A, X)
   λ, Z = _eigen_top!(ws)
   _rebuild_sym_out!(Y, Z, λ, t -> max(t, zero(t)); buffer = Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
+  f.partial && _warm_start_eigen!(f, Z, count(>(zero(T)), λ))
   Y
 end
 
@@ -247,23 +291,28 @@ end
 ####################################
 
 """
-    TracePSD(λ = 1)
+    TracePSD(λ = 1; partial = false)
 
 The function `f(X) = λ tr(X)` on the positive semidefinite matrices, `Inf`
 elsewhere: the nuclear norm restricted to them, as in the low-rank part of
 latent-variable graphical models. Its proximal operator shifts the eigenvalues
 of a symmetric matrix down by `γλ` and sets the negative ones to zero.
 
+$_PARTIAL_NOTE
+
 $_SPECTRAL_NOTE
 """
 mutable struct TracePSD{T<:Real} <: AbstractFunction
   λ::T
+  partial::Bool
   eig::Any
+  pws::Any        # the workspace of the partial eigendecomposition
   out::Scratch
 
-  TracePSD{T}(λ::T) where {T<:Real} = (_checknonneg("λ", λ); new{T}(λ, nothing, Scratch()))
+  TracePSD{T}(λ::T; partial::Bool = false) where {T<:Real} =
+    (_checknonneg("λ", λ); new{T}(λ, partial, nothing, nothing, Scratch()))
 end
-TracePSD(λ::Real = 1) = TracePSD{typeof(λ)}(λ)
+TracePSD(λ::Real = 1; partial::Bool = false) = TracePSD{typeof(λ)}(λ; partial)
 
 isproximable(::Type{<:TracePSD}) = true
 isconvex(::Type{<:TracePSD}) = true
@@ -274,17 +323,22 @@ isconvex(::Type{<:TracePSD}) = true
 function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real)
   _checksize(Y, X)
   T = float(eltype(Y))
+  c = convert(T, γ) * convert(T, f.λ)
+  if f.partial
+    pv = _partial_psd!(Y, f, X, c, 0)
+    pv === nothing || return convert(T, f.λ) * pv
+  end
   ws = _eig_workspace(f.eig, T, checksquare(X))
   f.eig = ws
   copyto!(ws.A, X)
   λ, V = _eigen!(ws)
-  c = convert(T, γ) * convert(T, f.λ)
   s = zero(T)
   @inbounds for t in λ
     s += max(t - c, zero(T))
   end
   n = size(V, 1)
   _rebuild_sym_out!(Y, V, λ, t -> max(t - c, zero(t)); buffer = Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
+  f.partial && _warm_start_eigen!(f, V, count(>(c), λ))
   convert(T, f.λ) * s
 end
 prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, f, X, γ); Y)

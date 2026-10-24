@@ -82,6 +82,7 @@ export
 
 include("utils.jl")
 include("lapack.jl")
+include("partial.jl")
 
 include("sparseIterate.jl")
 include("atomIterate.jl")

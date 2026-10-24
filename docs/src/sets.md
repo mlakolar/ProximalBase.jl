@@ -165,6 +165,9 @@ of a general matrix, which by the Eckart–Young theorem gives the nearest matri
 of rank at most ``r``. Both rank sets are nonconvex with exact projections.
 Projected gradient with them is hard-impute in matrix completion.
 
+With `partial = true`, [`IndPSD`](@ref) and [`IndBallRank`](@ref) compute only
+the eigenpairs or singular triplets they keep; see [Partial decompositions](@ref).
+
 ## Structured matrices
 
 [`IndPattern`](@ref)`(P)` is the set of arrays supported on a pattern ``P``, and

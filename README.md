@@ -248,6 +248,7 @@ bound, for Newton and coordinate steps.
 | `IndBox(l, u)`, `IndNonnegative()`, `IndBallLinf(r)` | `l ≤ x ≤ u`, `x ≥ 0`, `‖x‖∞ ≤ r` (separable) |
 | `IndBallL0(s; diagonal)` | at most `s` nonzero entries, nonconvex; on a symmetric matrix, entries of one triangle, with or without the diagonal |
 | `IndBallL1(r)`, `IndBallL2(r)` | `‖x‖₁ ≤ r`, `‖x‖₂ ≤ r` |
+| `IndSphereL2(r)` | `‖x‖₂ = r`, nonconvex |
 | `IndSimplex(r; equality)` | `x ≥ 0, Σᵢ xᵢ = r` (or `≤ r`) |
 | `IndHyperplane(a, b)`, `IndHalfspace(a, b)` | `⟨a, x⟩ = b`, `⟨a, x⟩ ≤ b`; a scalar `a` multiplies `Σᵢ xᵢ` |
 | `IndIsotonic()` | `x₁ ≤ x₂ ≤ … ≤ xₙ` |
@@ -264,7 +265,7 @@ bound, for Newton and coordinate steps.
 | `Conjugate(f)` | `f*(y)`, with the proximal operator by Moreau's identity |
 | `SeparableSum(f1, f2, ...)` | `Σₖ fₖ(xₖ)` on a tuple of blocks |
 | `Sum(f1, f2, ...)` | `Σₖ fₖ(x)`, smooth |
-| `Constrained(f, C)` | a convex separable `f` on a box, a hyperplane, a halfspace or a simplex `C` |
+| `Constrained(f, C)` | a convex separable `f` on a box, a hyperplane, a halfspace or a simplex `C`; a norm on an ℓ2 ball or sphere |
 | `Spectral(f)` | `f(λ(X))` of the eigenvalues of a symmetric `X`, for an `f` that does not depend on the order of its entries: the Fantope, bounds on the eigenvalues, the trace norm |
 
 ## Coordinate descent and active sets

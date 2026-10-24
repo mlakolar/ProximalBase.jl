@@ -18,6 +18,8 @@ tests = [
   "calculus",
   "constrained",
   "spectralfunction",
+  "ballconstrained",
+  "constrained_nonconvex",
   "allocations",
   "deprecated",
   "examples",

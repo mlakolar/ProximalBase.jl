@@ -14,6 +14,7 @@ rounding.
 | [`IndNonnegative`](@ref)`()` | ``x \ge 0`` | ``\max(v, 0)`` |
 | [`IndBallLinf`](@ref)`(r)` | ``\lVert x\rVert_\infty \le r`` | ``\operatorname{clamp}(v, -r, r)`` |
 | [`IndBallL2`](@ref)`(r)` | ``\lVert x\rVert_2 \le r`` | ``\min(1, r/\lVert v\rVert_2)\,v`` |
+| [`IndSphereL2`](@ref)`(r)` | ``\lVert x\rVert_2 = r``, nonconvex | ``r\,v/\lVert v\rVert_2`` |
 | [`IndBallL1`](@ref)`(r)` | ``\lVert x\rVert_1 \le r`` | ``\operatorname{sign}(v)\odot P_{\Delta_r}(\lvert v\rvert)``, by Condat's algorithm |
 | [`IndSimplex`](@ref)`(r)` | ``x \ge 0,\ \sum_i x_i = r`` | ``\max(v - \tau, 0)`` |
 | [`IndBallL0`](@ref)`(s)` | at most ``s`` nonzero entries | keep the ``s`` largest in magnitude |
@@ -64,8 +65,11 @@ expected time, in place, and in ``O(\mathrm{nnz})`` on a `SparseIterate`. It
 keeps exactly ``s`` entries when there are ties. Projected gradient descent with
 this set is iterative hard thresholding. On a symmetric matrix, ``s`` counts the
 entries of one triangle, so that an entry and its transpose are kept or dropped
-together. With `diagonal = false` the diagonal does not count and is kept, as for
-the off-diagonal sparsity of a precision matrix.
+together. Dropping an off-diagonal pair costs ``2x_{ij}^2`` in the Frobenius
+norm and a diagonal entry ``x_{ii}^2``, so the projection compares
+``\sqrt{2}\,|x_{ij}|`` with ``|x_{ii}|``. With `diagonal = false` the diagonal
+does not count and is kept, as for the off-diagonal sparsity of a precision
+matrix.
 
 ## Hyperplanes and halfspaces
 

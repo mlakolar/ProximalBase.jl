@@ -13,7 +13,9 @@ The function `f(x)` on the set `C`, and `Inf` outside it, for a convex separable
 - a box: [`IndBox`](@ref), [`IndNonnegative`](@ref) or [`IndBallLinf`](@ref);
 - a hyperplane or a halfspace: [`IndHyperplane`](@ref) or [`IndHalfspace`](@ref);
 - a simplex, [`IndSimplex`](@ref): the box `x ≥ 0` with the hyperplane
-  `Σᵢ xᵢ = r`, or with the halfspace `Σᵢ xᵢ ≤ r`.
+  `Σᵢ xᵢ = r`, or with the halfspace `Σᵢ xᵢ ≤ r`;
+- for a norm, an ℓ2 ball or sphere, [`IndBallL2`](@ref) or
+  [`IndSphereL2`](@ref), described below.
 
 On a box, the proximal operator clamps that of `f` entry by entry, so
 `Constrained(f, box)` is separable, with [`prox_entry`](@ref) for coordinate
@@ -32,8 +34,11 @@ constraint, found by a search over the scalar `ν` that takes a few passes over
   probability simplex.
 
 `f` must be convex: for a nonconvex penalty, clamping its proximal operator does
-not give the constrained one. When the set misses the domain of `f`, the
-proximal operator throws an `ArgumentError`.
+not give the constrained one. The exceptions are [`MCP`](@ref), [`SCAD`](@ref)
+and [`NormL0`](@ref) on a box, whose scalar problems are solved exactly by
+comparing the minimizers of their convex pieces with the ends of the interval;
+the result is separable but not convex. When the set misses the domain of `f`,
+the proximal operator throws an `ArgumentError`.
 """
 function Constrained end
 
@@ -43,7 +48,7 @@ struct BoxConstrained{F<:AbstractFunction, B<:IndBox} <: AbstractFunction
   box::B
 
   BoxConstrained{F, B}(f::F, box::B) where {F<:AbstractFunction, B<:IndBox} =
-    (_check_constrainable(f); new{F, B}(f, box))
+    (_check_box_constrainable(f); new{F, B}(f, box))
 end
 BoxConstrained(f::AbstractFunction, box::IndBox) = BoxConstrained{typeof(f), typeof(box)}(f, box)
 
@@ -64,6 +69,17 @@ LinearConstrained(f::AbstractFunction, set::Union{IndHyperplane, IndHalfspace}) 
   nothing
 end
 
+# on a box, also the nonconvex penalties whose constrained scalar problems
+# constrained_nonconvex.jl solves exactly; the multiplier search on a hyperplane
+# needs the monotone scalar proximal operators of a convex function
+@noinline function _check_box_constrainable(f)
+  isseparable(f) || throw(ArgumentError("Constrained needs a separable function, and $(nameof(typeof(f))) is not"))
+  isconvex(f) || _has_box_prox(f) ||
+    throw(ArgumentError("Constrained needs a convex function, or MCP, SCAD or NormL0 on a box, and $(nameof(typeof(f))) is neither"))
+  nothing
+end
+_has_box_prox(::AbstractFunction) = false
+
 Constrained(f::AbstractFunction, C::IndBox) = BoxConstrained(f, C)
 Constrained(f::AbstractFunction, ::IndNonnegative) = BoxConstrained(f, IndBox(0.0, Inf))
 Constrained(f::AbstractFunction, C::Union{IndHyperplane, IndHalfspace}) = LinearConstrained(f, C)
@@ -73,10 +89,11 @@ Constrained(f::AbstractFunction, C::IndSimplex) =
 Constrained(c::LinearConstrained, C::IndBox) = LinearConstrained(Constrained(c.f, C), c.set)
 Constrained(c::LinearConstrained, C::IndNonnegative) = LinearConstrained(Constrained(c.f, C), c.set)
 Constrained(::AbstractFunction, C::AbstractFunction) =
-  throw(ArgumentError("Constrained takes a box, a hyperplane, a halfspace or a simplex, not $(nameof(typeof(C)))"))
+  throw(ArgumentError("Constrained takes a box, a hyperplane, a halfspace, a simplex, an ℓ2 ball or an ℓ2 sphere, not $(nameof(typeof(C)))"))
 
 isproximable(::Type{<:Union{BoxConstrained, LinearConstrained}}) = true
-isconvex(::Type{<:Union{BoxConstrained, LinearConstrained}}) = true
+isconvex(::Type{<:LinearConstrained}) = true
+isconvex(::Type{<:BoxConstrained{F}}) where {F} = isconvex(F)
 isseparable(::Type{<:BoxConstrained}) = true
 _isindicator(::Type{<:BoxConstrained{F}}) where {F} = _isindicator(F)
 _isindicator(::Type{<:LinearConstrained{F}}) where {F} = _isindicator(F)

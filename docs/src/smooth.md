@@ -113,11 +113,26 @@ over the observations and one product with ``X^\top``.
 | `Logistic()` | ``\log(1 + e^\eta) - y\eta`` | ``\sigma(\eta) - y`` | ``1/4`` | [`LogisticLoss`](@ref)`(y, X)` |
 | `Poisson()` | ``e^\eta - y\eta`` | ``e^\eta - y`` | ``\infty`` | [`PoissonLoss`](@ref)`(y, X)` |
 | `Huber(δ)` | ``\tfrac12 r^2`` if ``\lvert r\rvert \le \delta``, else ``\delta(\lvert r\rvert - \delta/2)``, with ``r = \eta - y`` | ``\operatorname{clamp}(r, -\delta, \delta)`` | ``1`` | [`HuberLoss`](@ref)`(y, X, δ)` |
+| `SquaredHinge()` | ``\max(0, 1 - y\eta)^2``, ``y = \pm 1`` | ``-2y\max(0, 1 - y\eta)`` | ``2`` | `GLMLoss(ProximalBase.SquaredHinge(), y, X)` |
+| `SmoothCheck(τ, h)` | the Moreau envelope of ``\rho_\tau`` at ``u = y - \eta`` | ``-\operatorname{clamp}(u/h, \tau - 1, \tau)`` | ``1/h`` | `GLMLoss(ProximalBase.SmoothCheck(τ, h), y, X)` |
+| `ConvolutionCheck(τ, h; kernel)` | ``\int \rho_\tau(u - t)K(t/h)/h\,dt`` at ``u = y - \eta`` | ``-(\tau - \tfrac12) - \tfrac12 m'(u/h)`` for ``\lvert u\rvert < h`` | ``\max K/h`` | `GLMLoss(ProximalBase.ConvolutionCheck(τ, h), y, X)` |
+| `Smoothed(φ, μ)` | ``\min_t \varphi(t) + \tfrac{1}{2\mu}(t - r)^2``, with ``r = \eta - y`` | ``(r - \operatorname{prox}_{\mu\varphi}(r))/\mu`` | ``1/\mu`` | `GLMLoss(ProximalBase.Smoothed(φ, μ), y, X)` |
 
 Here ``\sigma(\eta) = 1/(1 + e^{-\eta})``, and ``\log(1 + e^\eta)`` is
 computed so that it neither overflows nor loses precision. The scalar losses
 expose `ProximalBase.deriv`, `deriv2` and `curvature`, for Newton and
 coordinate steps.
+
+The last two smooth the check loss ``\rho_\tau(u) = \max(\tau u, (\tau - 1)u)`` of
+quantile regression, so that coordinate descent and proximal Newton fit it
+without a linear program. `SmoothCheck(τ, h)` is its Moreau envelope
+``\min_s \rho_\tau(s) + (s - u)^2/(2h)``: an asymmetric Huber loss that is
+quadratic on ``-h(1 - \tau) < u < h\tau`` and within ``h/2`` of ``\rho_\tau``.
+`ConvolutionCheck(τ, h)` convolves ``\rho_\tau`` with a kernel of bandwidth ``h``, the
+smoothing of the conquer estimator (He, Pan, Tan and Zhou, 2023). With the
+uniform or the Epanechnikov kernel (`kernel = :uniform` or `:epanechnikov`) it
+equals ``\rho_\tau`` for ``|u| \ge h`` and is a polynomial in between: with
+``m(s) = \int|s - t|K(t)\,dt``, it is ``(\tau - \tfrac12)u + \tfrac{h}{2}m(u/h)``.
 
 ## The Gaussian log-likelihood
 
@@ -155,3 +170,48 @@ avoids cancellation. ``Z`` is positive definite by construction, and
 [`Sum`](@ref)`(f1, f2, ...)` is ``\sum_k f_k``, a smooth function when all the
 ``f_k`` are. Its gradient and its Lipschitz constant are the sums of theirs. A
 sum has no proximal operator in general.
+
+## Second-order models
+
+The smooth functions with [`hashessian`](@ref) provide two more oracles, for
+Newton-type methods. [`hessian_vec!`](@ref)`(Hv, f, x, v)` computes
+``\nabla^2 f(x)\,v`` at about the cost of a gradient, and
+[`quadratic_model`](@ref)`(f, x)` returns the second-order model of ``f`` at
+``x``,
+
+```math
+q(z) = f(x) + \langle \nabla f(x), z - x\rangle
++ \tfrac12\langle z - x, \nabla^2 f(x)(z - x)\rangle \quad (\text{up to a constant}),
+```
+
+as another function of ProximalBase. Minimizing ``q + g`` with any solver and
+penalty ``g`` is a proximal Newton step, and [`quadratic_model!`](@ref) moves
+the model to the next point in place.
+
+The quadratics are their own models. For a [`GLMLoss`](@ref) the model is the
+weighted least-squares loss of iteratively reweighted least squares,
+
+```math
+q(\beta) = \tfrac12 \sum_i w_i\,\ell''_i\,\big(\eta_i(\beta) - z_i\big)^2 + \text{const},
+\qquad z_i = \eta_i - \frac{\ell'_i}{\ell''_i},
+```
+
+with ``\ell'_i`` and ``\ell''_i`` evaluated at the current linear predictor. The
+curvature ``\ell''_i`` is floored at ``\sqrt{\varepsilon}``, so that the working
+responses stay finite where it vanishes (a Huber loss beyond ``\delta``); the
+gradient of ``q`` at the current point is still exact.
+
+For [`LogDetLoss`](@ref), with ``W = X^{-1}``, the expansion of
+``\operatorname{tr}(SZ) - \log\det Z`` at ``X`` in the step ``\Delta = Z - X`` is
+``\operatorname{tr}((S - W)\Delta) + \tfrac12\operatorname{tr}(W\Delta W\Delta)``.
+Written in the new point ``Z``, and using ``WXW = W``, it is
+
+```math
+q(Z) = \tfrac12\operatorname{tr}(WZWZ) + \operatorname{tr}\big((S - 2W)Z\big) + \text{const},
+```
+
+the [`KronQuadratic`](@ref)`(W, W, S - 2W)`. Minimizing ``q(Z) + \lambda\|Z\|_1``
+over symmetric matrices, by coordinate descent on a `SymmetricSparseIterate`, is
+the Newton step of QUIC for the graphical lasso (Hsieh, Sustik, Dhillon and
+Ravikumar, 2014). Without the penalty, its minimizer is ``2X - XSX``, Newton's
+iteration for ``S^{-1}``.

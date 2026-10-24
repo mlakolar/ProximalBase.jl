@@ -13,9 +13,10 @@ callable, `ℓ(η, y)`, and implements [`ProximalBase.deriv`](@ref),
 [`ProximalBase.deriv2`](@ref) and [`ProximalBase.curvature`](@ref), and
 [`ProximalBase.value_and_deriv`](@ref) when the value and the derivative share
 work. The losses are [`ProximalBase.Squared`](@ref),
-[`ProximalBase.Logistic`](@ref), [`ProximalBase.Poisson`](@ref) and
-[`ProximalBase.Huber`](@ref); they are not exported, as names such as `Poisson`
-belong to distributions.
+[`ProximalBase.Logistic`](@ref), [`ProximalBase.Poisson`](@ref),
+[`ProximalBase.Huber`](@ref), [`ProximalBase.SquaredHinge`](@ref),
+[`ProximalBase.SmoothCheck`](@ref) and [`ProximalBase.ConvolutionCheck`](@ref);
+they are not exported, as names such as `Poisson` belong to distributions.
 """
 abstract type ScalarLoss end
 

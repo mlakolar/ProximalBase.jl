@@ -358,8 +358,12 @@ Base.@propagate_inbounds function value_entry(f::IndBox, v::T, i::Integer) where
   t = _tol(S)
   (v >= l - t * max(one(S), abs(l)) && v <= u + t * max(one(S), abs(u))) ? zero(S) : S(Inf)
 end
-Base.@propagate_inbounds prox_entry(f::IndBox, v::T, i::Integer, ::Real) where {T<:Real} =
-  convert(float(T), clamp(v, _entry(f.l, i), _entry(f.u, i)))
+# the bounds in the type of the result: a clamp between integer bounds compares
+# a float with an integer exactly, which does not vectorize
+Base.@propagate_inbounds function prox_entry(f::IndBox, v::T, i::Integer, ::Real) where {T<:Real}
+  S = float(T)
+  clamp(convert(S, v), convert(S, _entry(f.l, i)), convert(S, _entry(f.u, i)))
+end
 
 # from zero, the objective decreases upward at rate -gᵢ if u > 0, and downward
 # at rate gᵢ if l < 0; zero must be feasible

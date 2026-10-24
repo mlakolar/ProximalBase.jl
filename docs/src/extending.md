@@ -92,12 +92,38 @@ type when it has the structure they need.
 
 ## Testing a new function
 
-- **The proximal operator.** Check the optimality condition
-  ``0 \in \partial f(z) + (z - x)/\gamma`` at ``z = \operatorname{prox}_{\gamma f}(x)``,
-  or compare with a brute-force minimization, which for a scalar problem is a
-  fine grid. Check that `prox!(y, f, y, γ)` gives the same result in place.
-- **The gradient.** Compare with central finite differences along a few random
-  directions.
-- **Allocations.** Measure `@allocated` inside a function, after a warm-up call.
-  The hot calls of the built-in functions allocate nothing, and the test suite
-  checks them on Julia 1.10 and the current release.
+[`ProximalBase.Testing`](@ref) has the checks that the package's own test
+suite runs on every built-in function. They are defined once the Test
+standard library is loaded, and they run `@test` inside your `@testset`:
+
+- [`test_prox`](@ref ProximalBase.Testing.test_prox): `prox`, `prox!` (also in
+  place) and `value_and_prox!` agree, and the result is optimal (the
+  subgradient inequality for a convex function, and no nearby point with a
+  smaller proximal objective);
+- [`test_gradient`](@ref ProximalBase.Testing.test_gradient): the gradient
+  against central finite differences;
+- [`test_separable`](@ref ProximalBase.Testing.test_separable): `prox_entry`
+  against `prox!`, `value_entry` against the value, coordinate steps on the
+  three iterates, and the O(nnz) paths when the function preserves zero;
+- [`test_conjugate`](@ref ProximalBase.Testing.test_conjugate) and
+  [`test_kkt`](@ref ProximalBase.Testing.test_kkt): Moreau's decomposition and
+  the Fenchel–Young equality, and `kkt_violation` against the proximal operator;
+- [`allocations`](@ref ProximalBase.Testing.allocations): the bytes a hot call
+  allocates, measured inside a function after a warm-up call. The built-in
+  functions allocate nothing; check on Julia 1.10 and the current release,
+  whose counts differ.
+
+```@example extending
+using Test
+const PT = ProximalBase.Testing
+@testset "WeightedSquare" begin
+    PT.test_traits(f; proximable = true, separable = true, convex = true)
+    PT.test_prox(f, randn(3), 0.5)
+    PT.test_separable(f, randn(3), 0.5)
+    @test PT.allocations(prox!, similar(x), f, x, 0.5) == 0
+end
+nothing # hide
+```
+
+[`brute_force_prox`](@ref ProximalBase.Testing.brute_force_prox) is a
+reference for a scalar proximal operator, convex or not.

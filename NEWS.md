@@ -1,5 +1,58 @@
 # ProximalBase.jl news
 
+## Unreleased
+
+- **Functions of stacked arrays**, for the joint estimation of K related
+  matrices, such as the joint, fused and time-varying graphical lasso (#42):
+  - `FiberSum(f; diagonal = f, symmetric = false)`: a vector function `f` of
+    each fiber `x[i, j, :]` of an `m × n × K` array. `diagonal` gives the
+    fibers `x[i, i, :]` their own function, and `nothing` leaves them
+    unpenalized. The proximal operator acts fiber by fiber. With symmetric
+    slices, `symmetric = true` reads the fibers with `i ≥ j` and mirrors them,
+    which halves the work. `NormL1Fused` fibers take a loop without views: on
+    two stacked 200 × 200 matrices the proximal operator takes 40 μs.
+  - `SliceSum(f₁, …, f_K)`: the sum of the `fₖ` of the slices `x[:, :, k]`,
+    with value, gradient and proximal operator slice by slice. With the
+    log-det losses of K classes, it is the smooth part of the joint graphical
+    lasso. ProximalSolvers' `ADMMSolver` takes the stacked array.
+
+  Neither allocates beyond what `f` and the `fₖ` do.
+- **`NormL1Fused`** acts on a pair of arrays of any shape, not only vectors. On a
+  vector of length 2, it is the function of that one pair, the fiber of two
+  stacked matrices. `FiberSum(NormL1Fused(λ1, λ2); diagonal =
+  NormL1Fused(0, λ2))` is the penalty of the fused graphical lasso of two
+  classes with the diagonal left unshrunk (#32).
+- **`Constrained(f, C)`:** a convex separable `f` restricted to a box, a
+  hyperplane, a halfspace or a simplex `C`.
+  - On a box, the proximal operator clamps that of `f`, and the function stays
+    separable, with `prox_entry` for coordinate descent.
+  - On a hyperplane `⟨a, x⟩ = b`, the proximal operator is `prox_{γf}(x - γνa)`
+    for the multiplier `ν` that meets the constraint, found by a search over
+    the scalar `ν`. On the problems tried it took 6 to 17 passes over `x`, and
+    it allocates nothing.
+  - Examples: `Constrained(NormL1(λ), IndHyperplane(1, 0))`, the lasso penalty
+    on coefficients that sum to zero, and
+    `Constrained(IndBox(0, 1), IndHyperplane(1, k))`, the capped simplex.
+- **`Spectral(f)`:** the function `f(λ(X))` of the eigenvalues of a symmetric
+  matrix, for an `f` that does not depend on the order of its entries. Its
+  proximal operator applies that of `f` to the eigenvalues, in a LAPACK
+  workspace that it owns, and allocates nothing.
+  - `Spectral(Constrained(IndBox(0, 1), IndHyperplane(1, k)))` is the Fantope
+    of sparse principal component analysis, `Spectral(IndBox(l, u))` bounds the
+    eigenvalues, and `Spectral(IndSimplex(1))` gives the density matrices.
+  - Weights or bounds that differ between entries are rejected.
+- **`IndHyperplane` and `IndHalfspace`** take a scalar `a`, which stands for an
+  array of `a`s of any size: `IndHyperplane(1, 0)` is the set of arrays whose
+  entries sum to zero.
+- **Example 16:** the lasso on compositional data, the lasso on a box by
+  coordinate descent, and the capped simplex.
+- **Example 17:** sparse principal component analysis by Fantope projection
+  and selection.
+- **`IndBox` with integer bounds**, such as `IndBox(0, 1)`: its proximal
+  operator converts the bounds to the type of the result. A clamp between
+  integer bounds compared each float with an integer exactly, which did not
+  vectorize; the projection is about six times faster.
+
 ## 0.5.3
 
 - **Separable functions of your own:** `SeparableFunction` is exported as the

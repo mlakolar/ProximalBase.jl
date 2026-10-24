@@ -111,7 +111,10 @@ matrix.
 
 [`IndBallGroupL0`](@ref) is the same for groups: it keeps the ``s`` groups of
 largest Euclidean norm, and projected gradient descent with it is iterative hard
-thresholding of groups.
+thresholding of groups. With `k`, each group also keeps at most ``k`` nonzero
+entries, the doubly sparse set of group IHT with sparsity within the groups.
+The projection ranks the groups by the norm of their ``k`` largest entries and
+keeps those entries of the ``s`` best groups.
 
 ## Affine sets
 

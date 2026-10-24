@@ -274,6 +274,51 @@ end
   @test_throws ArgumentError IndBallGroupL0(-1, groups)
 end
 
+# the subsets of 1:n with min(k, n) elements
+subsets(n, k) = k >= n ? [collect(1:n)] : [findall(b -> b == '1', reverse(string(m; base = 2, pad = n))) for m in 0:2^n-1
+                                          if count_ones(m) == k]
+
+@testset "IndBallGroupL0 with at most k entries per group" begin
+  groups = [1:3, 4:7, 8:9, 10:12]               # x[13] is free
+  for trial in 1:20, s in 0:4, k in 0:4
+    x = randn(13)
+    f = IndBallGroupL0(s, groups; k)
+    y = prox(f, x, 1.)
+    @test f(y) == 0
+    @test all(y[i] == 0 || y[i] == x[i] for i in 1:13)
+    @test y[13] == x[13]
+    # the projection maximizes the kept sum of squares over the supports with at
+    # most s groups and k entries in each: by brute force over all of them
+    best = [maximum(sum(abs2, x[G[S]]) for S in subsets(length(G), k)) for G in groups]
+    kept = s == 0 ? 0.0 : sum(sort(best; rev = true)[1:s])
+    @test sum(abs2, y[1:12]) ≈ kept atol = 1e-12
+    @test value_and_prox!(similar(x), f, x, 1.) == 0
+  end
+  # ties keep exactly k entries and s groups, the earlier first
+  xt = [1., -1., 1., 0., 2., 0., 0., 1., 1., 0., 0., 0., 5.]
+  @test prox(IndBallGroupL0(2, groups; k = 2), xt, 1.) == [1., -1., 0., 0., 2., 0., 0., 0., 0., 0., 0., 0., 5.]
+  @test prox(IndBallGroupL0(1, groups; k = 1), xt, 1.) == [0., 0., 0., 0., 2., 0., 0., 0., 0., 0., 0., 0., 5.]
+  # within the bound on the groups, the groups are still cut to k entries
+  @test prox(IndBallGroupL0(4, groups; k = 1), xt, 1.) == [1., 0., 0., 0., 2., 0., 0., 1., 0., 0., 0., 0., 5.]
+  f = IndBallGroupL0(2, groups; k = 2)
+  @test f(xt) == Inf
+  @test f([1., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 5.]) == 0
+  @test f([1., 1., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 5.]) == Inf     # three entries in a group
+  @test IndBallGroupL0(2, groups; k = 3)([1., 1., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 5.]) == 0
+  # on an AtomIterate with its groups
+  x = randn(13)
+  ga = [groups; [[13]]]
+  fa = IndBallGroupL0(3, ga; k = 2)
+  xa = AtomIterate(x, ga)
+  ya = similar(xa)
+  prox!(ya, fa, xa, 1.)
+  @test Vector(ya) == prox(fa, x, 1.)
+  @test nactive(ya) == 3
+  @test fa(ya) == 0 && fa(xa) == Inf
+  @test prox(f, Float32.(x), 1.) == Float32.(prox(f, x, 1.))
+  @test_throws ArgumentError IndBallGroupL0(1, groups; k = -1)
+end
+
 @testset "zero allocations" begin
   a_value(f, x) = f(x)
   a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
@@ -294,7 +339,7 @@ end
     xc = copy(xs)
     @test allocs(a_cd!, xc, f, 3, 0.7) == 0
   end
-  for f in (GroupMCP(0.4, groups), GroupSCAD(0.4, groups), IndBallGroupL0(2, groups))
+  for f in (GroupMCP(0.4, groups), GroupSCAD(0.4, groups), IndBallGroupL0(2, groups), IndBallGroupL0(2, groups; k = 3))
     y = similar(x)
     @test allocs(a_value, f, x) == 0
     @test allocs(a_prox!, y, f, x, 0.7) == 0

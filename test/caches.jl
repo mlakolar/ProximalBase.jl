@@ -47,10 +47,10 @@ end
       prox(c, v, T(0.7))
       if loss isa LeastSquaresLoss
         @test loss.XtY ≈ X'Y
-        X .*= T(1.2)
+        X .+= T(0.2) .* randn(T, size(X))
         Y .+= T(0.3)
       else
-        A .*= T(1.2)
+        A[1, 1] += T(0.3)
       end
       @test reset_cache!(c) === c
       @test isempty(c.t) && isnan(c.γ)

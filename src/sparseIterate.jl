@@ -502,6 +502,7 @@ function _symmetric_axpy!(out::StridedVector, A::_StridedSymmetric, j::Int, c)
 end
 
 _scale_product_output!(out, β) = iszero(β) ? fill!(out, zero(eltype(out))) : (out .*= β)
+_product_scale(A, x, α) = convert(promote_type(typeof(α), real(eltype(A)), real(eltype(x))), α)
 
 function *(A::_StridedSymmetric, x::SparseIterate{T, 1}) where {T}
   mul!(Vector{promote_type(eltype(A), T)}(undef, size(A, 1)), A, x)
@@ -516,8 +517,9 @@ function LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::SparseI
   length(x) == size(A, 2) && length(out) == size(A, 1) || throw(DimensionMismatch())
   _scale_product_output!(out, β)
   iszero(α) && return out
+  scale = _product_scale(A, x, α)
   @inbounds for k in 1:x.nnz
-    _symmetric_axpy!(out, A, x.nzval2ind[k], α * x.nzval[k])
+    _symmetric_axpy!(out, A, x.nzval2ind[k], scale * x.nzval[k])
   end
   out
 end
@@ -528,10 +530,11 @@ function LinearAlgebra.mul!(out::StridedMatrix, A::_StridedSymmetric, x::SparseI
   size(x, 1) == size(A, 2) && size(out) == (size(A, 1), size(x, 2)) || throw(DimensionMismatch())
   _scale_product_output!(out, β)
   iszero(α) && return out
+  scale = _product_scale(A, x, α)
   p = size(x, 1)
   @inbounds for k in 1:x.nnz
     j, col = mod1(x.nzval2ind[k], p), cld(x.nzval2ind[k], p)
-    _symmetric_axpy!(view(out, :, col), A, j, α * x.nzval[k])
+    _symmetric_axpy!(view(out, :, col), A, j, scale * x.nzval[k])
   end
   out
 end

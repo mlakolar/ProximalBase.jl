@@ -77,6 +77,12 @@ end
     end
     @test mul!(zeros(6, 2), A, SparseIterate(zeros(Float32, 6, 2))) == zeros(6, 2)
   end
+  A = Symmetric(Matrix{Float64}(I, 3, 3))
+  values = Float32[0.1, 0.2, 0.3]
+  for x in (SparseIterate(values), AtomIterate(values, [1:3]), SparseIterate(hcat(values, values)))
+    ref = Float64(0.1f0) .* Float64.(Array(x))
+    @test mul!(zeros(size(x)), A, x, 0.1f0, 0.) ≈ ref rtol = 4eps(Float64)
+  end
 end
 
 @testset "raw symmetric quadratic has no hot allocations" begin

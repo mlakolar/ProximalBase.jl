@@ -237,9 +237,10 @@ function LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::AtomIte
   length(x) == size(A, 2) && length(out) == size(A, 1) || throw(DimensionMismatch())
   _scale_product_output!(out, β)
   iszero(α) && return out
+  scale = _product_scale(A, x, α)
   @inbounds for a in 1:x.nactive, j in x.groups[x.active[a]]
     c = x.storage[j]
-    iszero(c) || _symmetric_axpy!(out, A, j, α * c)
+    iszero(c) || _symmetric_axpy!(out, A, j, scale * c)
   end
   out
 end

@@ -93,61 +93,68 @@ scalar proximal operator of `f`.
 julia --project=benchmark benchmark/constrained.jl
 ```
 
-ProximalBase at 5506b9b and ProximalOperators 0.16.1 on Julia 1.13.2, one core
-of an AMD EPYC 7513 (USC CARC Discovery, job 13371989, 2026-10-24). Every call
-starts the search from zero, as on a new problem, and takes the steps it took
-before #77; the next section times the calls of a solver, which start from the
-multiplier of the last call:
+ProximalBase at 35a7142 and ProximalOperators 0.16.1 on Julia 1.13.2, one core
+of an AMD EPYC 7513 (USC CARC Discovery, job 13377074, 2026-10-24). Every call
+starts the search from zero, as on a new problem; from 4096 entries on, it fixes
+the entries that reach an end of their range (#79, section 6 below). The next
+section times the calls of a solver, which start from the multiplier of the
+last call:
 
 | case | Constrained (μs) | passes | specialized (time, relative to Constrained) |
 |:-----|---:|---:|:---|
-| simplex r = 1, n = 10³                 |        2.8 |  14 | 0.4 μs (0.15×), 1.3 μs (0.46×) |
-| simplex r = n/10, n = 10³              |        2.2 |  11 | 1.8 μs (0.84×), 7.5 μs (3.41×) |
-| capped simplex k = 10, n = 10³         |        2.5 |  13 | 15.2 μs (6.07×) |
-| capped simplex k = n/2, n = 10³        |        1.5 |   8 | 13.4 μs (8.77×) |
-| zero-sum lasso λ = 0.5, n = 10³        |        2.6 |   8 |  |
-| ElasticNet on the simplex, n = 10³     |        6.3 |  12 |  |
+| simplex r = 1, n = 10³                 |        2.8 |  14 | 0.4 μs (0.15×), 1.4 μs (0.49×) |
+| simplex r = n/10, n = 10³              |        2.2 |  11 | 1.9 μs (0.85×), 7.2 μs (3.28×) |
+| capped simplex k = 10, n = 10³         |        2.8 |  13 | 15.1 μs (5.43×) |
+| capped simplex k = n/2, n = 10³        |        1.6 |   8 | 12.9 μs (8.09×) |
+| zero-sum lasso λ = 0.5, n = 10³        |        2.7 |   8 |  |
+| ElasticNet on the simplex, n = 10³     |        6.4 |  12 |  |
 | NormL1 on [-1, 1], n = 10³             |        0.3 |   1 | 0.2 μs (0.76×) |
-| simplex r = 1, n = 10⁵                 |      256.4 |  14 | 32.2 μs (0.13×), 73.9 μs (0.29×) |
-| simplex r = n/10, n = 10⁵              |      203.8 |  11 | 110.0 μs (0.54×), 20381.2 μs (99.98×) |
-| capped simplex k = 10, n = 10⁵         |      250.8 |  14 | 2694.8 μs (10.74×) |
-| capped simplex k = n/2, n = 10⁵        |      181.0 |  10 | 2112.9 μs (11.67×) |
-| zero-sum lasso λ = 0.5, n = 10⁵        |      216.5 |   7 |  |
-| ElasticNet on the simplex, n = 10⁵     |      653.5 |  13 |  |
-| NormL1 on [-1, 1], n = 10⁵             |       27.5 |   1 | 20.7 μs (0.75×) |
+| simplex r = 1, n = 10⁵                 |      110.1 |   6 | 31.6 μs (0.29×), 72.8 μs (0.66×) |
+| simplex r = n/10, n = 10⁵              |      203.1 |  11 | 109.8 μs (0.54×), 20273.8 μs (99.84×) |
+| capped simplex k = 10, n = 10⁵         |      103.9 |   6 | 2512.9 μs (24.20×) |
+| capped simplex k = n/2, n = 10⁵        |      181.2 |  10 | 1955.4 μs (10.79×) |
+| zero-sum lasso λ = 0.5, n = 10⁵        |      217.4 |   7 |  |
+| ElasticNet on the simplex, n = 10⁵     |      275.3 |   6 |  |
+| NormL1 on [-1, 1], n = 10⁵             |       27.9 |   1 | 21.1 μs (0.76×) |
 
-- **The capped simplex:** the search is 6 to 12 times faster than sorting.
+- **The capped simplex:** the search is 5 to 24 times faster than sorting.
 - **The simplex:** `IndSimplex` is faster than the search in every case, by
-  1.2 to 7.7 times, and remains the function for the simplex alone. Its
+  1.2 to 6.7 times, and remains the function for the simplex alone. Its
   threshold got up to 16 times faster (next section): with r = n/10 and
   n = 10⁵ it took 1401 μs before #77, and takes 110 μs.
-- **The zero-sum lasso and the elastic net on the simplex** take 7 to 13
-  passes, at 0.3 to 0.5 μs per pass and 1000 entries.
+- **The zero-sum lasso and the elastic net on the simplex** take 7 to 12
+  passes, at 0.3 to 0.5 μs per pass and 1000 entries; at n = 10⁵ the elastic
+  net takes six, with its entries fixed.
 - **A separable function on a box** is one pass: the clamp adds a third to the
   time of the ℓ1 norm alone.
 
 ## The search for the multiplier, and the simplex threshold
 
-`multiplier.jl` measures the changes of issue #77:
+`multiplier.jl` measures the changes of issues #77 and #79:
 
 - the search of `Constrained` on a hyperplane starts from the multiplier of the
   last call, with a first step from the exact slope of φ where the scalar
   proximal operators are piecewise linear;
 - the threshold of the projection onto the simplex tests four entries at a
   time, and hands over to Michelot's algorithm when many entries become
-  candidates.
+  candidates;
+- from zero, on 4096 entries or more, the search fixes the entries whose scalar
+  proximal operator has reached an end of its range (#79).
 
 The search before #77 is the current one with the slopes hidden and every call
-from zero, and the threshold before #77 is a copy in the script. Each
-comparison runs its sides on the same data, interleaved over rounds, and keeps
-the fastest round of each side.
+from zero, the search before #79 the current one with the ranges hidden, and
+the threshold before #77 is a copy in the script. Each comparison runs its
+sides on the same data, interleaved over rounds, and keeps the fastest round of
+each side.
 
 ```sh
 julia --project=benchmark benchmark/multiplier.jl
 ```
 
-ProximalBase at 5506b9b on Julia 1.13.2, one core of an AMD EPYC 7513 (USC CARC
-Discovery, job 13371989, 2026-10-24).
+Julia 1.13.2, one core of an AMD EPYC 7513 (USC CARC Discovery): sections 1
+and 6 with ProximalBase at 35a7142 (job 13377074), sections 2 to 5 at 5506b9b
+(job 13371989), both 2026-10-24. The code that sections 2 to 5 time did not
+change in between.
 
 **1. One call from zero**, over 200 draws of `x` at n = 10³ and 20 at n = 10⁵,
 the same for both columns: the mean time and passes per call. A first call
@@ -158,27 +165,29 @@ column is the share of draws on which it takes more passes.
 
 | case | the first step of a first call (μs, passes) | the exact first step (μs, passes) | more passes |
 |:-----|---:|---:|---:|
-| simplex r = 1, n = 10³ | 2.39, 12.0 | 2.33, 11.5 | 14% |
-| simplex r = n/10, n = 10³ | 2.13, 10.7 | 1.88, 9.1 | 0% |
-| capped simplex k = 10, n = 10³ | 2.00, 10.5 | 2.03, 10.1 | 5% |
-| capped simplex k = n/2, n = 10³ | 1.58, 8.1 | 1.44, 7.0 | 4% |
-| zero-sum lasso λ = 0.5, n = 10³ | 2.54, 7.4 | 1.86, 5.3 | 1% |
-| ℓ1 on [-1, 1], a general normal, n = 10³ | 3.33, 7.6 | 2.71, 5.8 | 1% |
-| elastic net on the simplex, n = 10³ | 5.89, 11.1 | 5.97, 10.8 | 26% |
-| simplex r = 1, n = 10⁵ | 340.9, 15.9 | 337.3, 15.7 | 15% |
-| simplex r = n/10, n = 10⁵ | 215.8, 11.0 | 220.9, 11.0 | 0% |
-| capped simplex k = 10, n = 10⁵ | 307.8, 14.7 | 307.2, 14.4 | 10% |
-| capped simplex k = n/2, n = 10⁵ | 173.7, 9.0 | 162.4, 7.8 | 5% |
-| zero-sum lasso λ = 0.5, n = 10⁵ | 249.3, 7.9 | 165.0, 5.1 | 0% |
-| ℓ1 on [-1, 1], a general normal, n = 10⁵ | 346.5, 7.8 | 254.4, 5.3 | 0% |
-| elastic net on the simplex, n = 10⁵ | 806.1, 15.8 | 840.8, 15.9 | 40% |
+| simplex r = 1, n = 10³ | 2.44, 12.0 | 2.36, 11.5 | 15% |
+| simplex r = n/10, n = 10³ | 2.21, 10.7 | 1.94, 9.1 | 0% |
+| capped simplex k = 10, n = 10³ | 2.06, 10.5 | 2.07, 10.1 | 6% |
+| capped simplex k = n/2, n = 10³ | 1.62, 8.1 | 1.47, 7.0 | 4% |
+| zero-sum lasso λ = 0.5, n = 10³ | 2.48, 7.4 | 1.81, 5.3 | 1% |
+| ℓ1 on [-1, 1], a general normal, n = 10³ | 3.36, 7.6 | 2.74, 5.8 | 1% |
+| elastic net on the simplex, n = 10³ | 5.89, 11.1 | 5.98, 10.8 | 27% |
+| simplex r = 1, n = 10⁵ | 129.4, 6.4 | 303.8, 15.6 | 100% |
+| simplex r = n/10, n = 10⁵ | 215.7, 11.0 | 222.1, 11.1 | 5% |
+| capped simplex k = 10, n = 10⁵ | 127.0, 6.2 | 287.9, 14.4 | 100% |
+| capped simplex k = n/2, n = 10⁵ | 175.8, 9.0 | 166.3, 7.8 | 5% |
+| zero-sum lasso λ = 0.5, n = 10⁵ | 252.6, 7.9 | 169.9, 5.1 | 0% |
+| ℓ1 on [-1, 1], a general normal, n = 10⁵ | 325.7, 7.8 | 244.0, 5.3 | 0% |
+| elastic net on the simplex, n = 10⁵ | 283.4, 6.3 | 816.6, 15.6 | 100% |
 
 - The exact first step would make a first call 19 to 34% faster on the
   zero-sum lasso and on ℓ1 with a general normal, whose root lies near zero.
 - Where the root lies far out in the tail of the entries, as for the elastic
   net on the simplex, it saves under half a pass, while the pass that computes
-  the slope costs half a pass more: the elastic net would be 1 to 4% slower. A
-  first call therefore keeps the old first step.
+  the slope costs half a pass more: at n = 10³ the elastic net would be 1 to 4%
+  slower. A first call therefore keeps the old first step. On 10⁵ entries it
+  also fixes entries (section 6), and takes about six passes where the exact
+  first step, which does not, takes 14 to 16.
 
 **2. The calls of a solver**, on the same 20 slowly changing points for every
 column: the time and passes per call. The middle column starts from the last
@@ -256,6 +265,57 @@ selection of `IndBallL0`, against the whole search from zero:
   on where its code landed in memory: six identical copies took 30 or 56.5 μs
   at r = 1 and n = 10⁵, and the pass before #77 36 to 43 μs. With the test of
   four, all six take 16.1 to 16.8 μs (jobs 13371750 and 13371886).
+
+**6. Variable fixing** (#79): one call from zero, over 200 draws of `x` at
+n = 10³, 50 at n = 10⁴ and 20 at n = 10⁵, the same for both columns, with the
+ranges of the scalar proximal operators hidden as before #79 and known. The
+passes count the calls of the scalar proximal operator, those of the copy
+included. The last rows take a step per entry, uniform on [0.2, 1.2].
+
+| case | before #79 (μs, passes) | after #79 (μs, passes) | speedup |
+|:-----|---:|---:|---:|
+| simplex r = 1, n = 10³ | 2.42, 11.7 | 2.38, 11.7 | 1.02× |
+| simplex r = n/10, n = 10³ | 2.22, 10.6 | 2.19, 10.6 | 1.01× |
+| capped simplex k = 10, n = 10³ | 2.10, 10.5 | 2.04, 10.5 | 1.03× |
+| capped simplex k = n/2, n = 10³ | 1.60, 8.1 | 1.60, 8.1 | 1.00× |
+| zero-sum lasso λ = 0.5, n = 10³ | 2.55, 7.5 | 2.53, 7.5 | 1.01× |
+| ℓ1 on [-1, 1], a general normal, n = 10³ | 3.36, 7.6 | 3.38, 7.6 | 0.99× |
+| elastic net on the simplex, n = 10³ | 6.08, 11.1 | 6.00, 11.1 | 1.01× |
+| simplex r = 1, n = 10⁴ | 26.5, 14.3 | 11.6, 6.4 | 2.28× |
+| simplex r = n/10, n = 10⁴ | 20.6, 11.0 | 20.5, 11.0 | 1.00× |
+| capped simplex k = 10, n = 10⁴ | 23.1, 12.6 | 10.6, 6.3 | 2.19× |
+| capped simplex k = n/2, n = 10⁴ | 15.1, 8.5 | 15.2, 8.5 | 1.00× |
+| zero-sum lasso λ = 0.5, n = 10⁴ | 24.2, 7.7 | 24.2, 7.7 | 1.00× |
+| ℓ1 on [-1, 1], a general normal, n = 10⁴ | 32.4, 7.7 | 32.6, 7.7 | 1.00× |
+| elastic net on the simplex, n = 10⁴ | 68.5, 13.0 | 29.8, 6.3 | 2.30× |
+| simplex r = 1, n = 10⁵ | 319.4, 16.0 | 137.4, 6.4 | 2.32× |
+| simplex r = n/10, n = 10⁵ | 239.5, 11.1 | 235.8, 11.1 | 1.02× |
+| capped simplex k = 10, n = 10⁵ | 290.7, 14.7 | 133.7, 6.2 | 2.17× |
+| capped simplex k = n/2, n = 10⁵ | 169.4, 9.0 | 170.0, 9.0 | 1.00× |
+| zero-sum lasso λ = 0.5, n = 10⁵ | 252.7, 7.8 | 253.0, 7.8 | 1.00× |
+| ℓ1 on [-1, 1], a general normal, n = 10⁵ | 322.3, 7.6 | 324.9, 7.6 | 0.99× |
+| elastic net on the simplex, n = 10⁵ | 849.0, 15.9 | 299.2, 6.3 | 2.84× |
+| simplex r = 1, n = 10⁵, a step per entry | 431.2, 17.0 | 186.6, 6.5 | 2.31× |
+| simplex r = n/10, n = 10⁵, a step per entry | 290.9, 11.1 | 291.6, 11.1 | 1.00× |
+| capped simplex k = 10, n = 10⁵, a step per entry | 431.4, 15.1 | 204.5, 6.4 | 2.11× |
+| capped simplex k = n/2, n = 10⁵, a step per entry | 260.5, 9.4 | 261.9, 9.4 | 0.99× |
+| ℓ1 on [-1, 1], a general normal, n = 10⁵, a step per entry | 501.3, 7.5 | 503.9, 7.5 | 0.99× |
+| elastic net on the simplex, n = 10⁵, a step per entry | 1247.1, 15.8 | 468.6, 6.4 | 2.66× |
+
+- Where the root lies in the tail of the entries, a call from zero takes about
+  six passes instead of 13 to 17, and is 2.1 to 2.8 times faster at n = 10⁴ and
+  10⁵. Its first three passes go over all entries; once a sample shows that at
+  most a quarter of them stays live, the others are fixed, the rest copied, and
+  the passes that follow cost little.
+- Elsewhere few entries reach an end of their range, the search samples at
+  most once and copies nothing, and the time stays within 1%. Below 4096
+  entries the search does not fix: the per-call bookkeeping cost about 1% where
+  the root is not in the tail (the n = 10³ rows compare the same search).
+- Against master, interleaved on six separately compiled copies of each, every
+  other case of these scripts, from zero or from the last multiplier, is within
+  1% (job 13377071). The calls from the last multiplier, the functions without
+  a finite end of their range and the inputs under 4096 entries compile to the
+  same LLVM IR as before.
 
 ## Spectral
 

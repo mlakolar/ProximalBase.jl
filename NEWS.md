@@ -120,6 +120,14 @@
     linear. A first call starts from zero, as before.
   - The calls of a solver on slowly changing points take three to five passes
     over `x`, against 7 to 16 from zero, and are 1.8 to 3.5 times faster.
+  - A call from zero on 4096 entries or more fixes the entries whose scalar
+    proximal operator has reached an end of its range, such as 0 on the
+    simplex or a bound of a box, once a sample shows that few others stay; its
+    later passes go over the rest only (#79). Where the multiplier lies far
+    out in the tail of the entries, as on the simplex with r = 1, the capped
+    simplex with k = 10 or the elastic net on the simplex, such a call takes
+    about six passes instead of 13 to 17 and is 1.6 to 2.9 times faster; the
+    other calls take the time they took.
   - Do not share one such function between threads.
 - **The projection onto the simplex** is up to 16 times faster, and at least
   as fast in every case measured, and with it `IndBallL1`, `NormLinf` and

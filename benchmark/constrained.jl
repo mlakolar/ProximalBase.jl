@@ -73,6 +73,8 @@ PB.value_entry(c::Counting, v, i) = c.f([v])
 PB.isconvex(::Type{<:Counting}) = true
 PB._has_prox_slope(::Type{<:Counting{F}}) where {F} = PB._has_prox_slope(F)
 PB._prox_entry_slope(c::Counting, v, i, γ) = (CALLS[] += 1; PB._prox_entry_slope(c.f, v, i, γ))
+PB._has_prox_range(::Type{<:Counting{F}}) where {F} = PB._has_prox_range(F)
+PB._prox_range(c::Counting, i::Integer, ::Type{S}) where {S} = PB._prox_range(c.f, i, S)
 
 # the case's function, from the separable function f
 function row(name, make, f, others, x; γ = 0.5)

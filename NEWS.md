@@ -86,7 +86,11 @@
   with reductions alone. So do `GroupNormL2`, `GroupNormLinf`,
   `SparseGroupNormL2` and `IndBallGroupL0` (without a bound `k` per group), by
   segmented reductions over the groups of each size class, in a layout that
-  `adapt(CuArray, f)` puts on the device.
+  `adapt(CuArray, f)` puts on the device. `LeastSquaresLoss` and `GLMLoss`
+  keep their buffers next to the response (a new last type parameter), so that
+  `adapt(CuArray, f)` moves `X`, `y` and the buffers to the device, where the
+  value and the gradient are products and a broadcast over the observations;
+  the proximal operator of `LeastSquaresLoss` stays on the CPU.
 - **`ProximalBase.Testing`** (#52): the checks of the test suite, public for
   authors of new functions, after `using Test`: `test_prox`, `test_gradient`,
   `test_separable`, `test_conjugate`, `test_kkt`, `test_traits`, `allocations`

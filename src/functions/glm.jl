@@ -143,14 +143,14 @@ products with `X` cost O(n ⋅ nnz). [`restrict`](@ref) keeps the columns `S` of
 `X`.
 """
 struct GLMLoss{L<:ScalarLoss, T<:AbstractFloat, Ty<:AbstractVector, TX<:AbstractMatrix,
-               W<:Union{Nothing, AbstractVector}, O<:Union{Nothing, AbstractVector}} <: AbstractFunction
+               W<:Union{Nothing, AbstractVector}, O<:Union{Nothing, AbstractVector}, V<:AbstractVector{T}} <: AbstractFunction
   loss::L
   y::Ty
   X::TX
   weights::W
   offset::O
-  η::Vector{T}
-  d::Vector{T}     # wᵢ ℓ'(ηᵢ, yᵢ)
+  η::V             # the buffers live next to y
+  d::V             # wᵢ ℓ'(ηᵢ, yᵢ)
 end
 
 function GLMLoss(loss::ScalarLoss, y::AbstractVector, X::AbstractMatrix;
@@ -161,8 +161,9 @@ function GLMLoss(loss::ScalarLoss, y::AbstractVector, X::AbstractMatrix;
   offset === nothing || length(offset) == n || throw(DimensionMismatch("offset must have length $n"))
   weights === nothing || _checknonneg("the weights", weights)
   T = float(promote_type(eltype(y), eltype(X)))
-  GLMLoss{typeof(loss), T, typeof(y), typeof(X), typeof(weights), typeof(offset)}(
-    loss, y, X, weights, offset, zeros(T, n), zeros(T, n))
+  η, d = _zeros_like(y, T, n), _zeros_like(y, T, n)
+  GLMLoss{typeof(loss), T, typeof(y), typeof(X), typeof(weights), typeof(offset), typeof(η)}(
+    loss, y, X, weights, offset, η, d)
 end
 
 """

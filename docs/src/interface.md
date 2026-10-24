@@ -194,6 +194,15 @@ device once; a group function left on the host builds it at every call.
 groups; with a bound `k` on the entries of a group, its projection runs on the
 CPU only.
 
+The losses with a design matrix, [`LeastSquaresLoss`](@ref) and
+[`GLMLoss`](@ref) (with [`LogisticLoss`](@ref), [`PoissonLoss`](@ref) and
+[`HuberLoss`](@ref)), keep their buffers next to the response.
+`Adapt.adapt(CuArray, f)` moves `X`, the response, the weights and the offset
+to the device, where `f(β)`, [`gradient!`](@ref) and
+[`value_and_gradient!`](@ref) are products by `X` and `X'` and a broadcast over
+the observations. The proximal operator of `LeastSquaresLoss` uses the SVD of
+`X` and runs on the CPU only.
+
 - **Parameter arrays on the device.** Weights, bounds and centers must live on
   the device with the argument: `Adapt.adapt(CuArray, NormL1(λ, w))` copies
   them there and checks them, as the constructor does.
@@ -203,5 +212,5 @@ CPU only.
   `Adapt.adapt_structure` method that rebuilds it with the arrays converted
   and without checks, since inside a kernel its arrays are device arrays.
 - **Not yet.** The spectral functions and [`LogDetLoss`](@ref) (which use
-  LAPACK), the losses of a design matrix, and the sparse iterates run on the
-  CPU only.
+  LAPACK), the second-order methods of `GLMLoss`, and the sparse iterates run
+  on the CPU only.

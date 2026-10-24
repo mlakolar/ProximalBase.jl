@@ -51,6 +51,18 @@ end
     end
     @test_throws DimensionMismatch prox(f, x, rand(n - 1))
   end
+  # into a SymmetricSparseIterate that holds entries: from another iterate, from a
+  # dense matrix, and with a function that does not preserve zeros
+  D = randn(5, 5); D = D + D'
+  G = rand(5, 5) .+ 0.1; G = G + G'
+  for f in (NormL1(0.3), MCP(0.3), IndBox(0.1, 1.))
+    out = SymmetricSparseIterate(randn(5, 5) |> A -> A + A')
+    prox!(out, f, SymmetricSparseIterate(D), G)
+    @test Matrix(out) ≈ prox(f, D, G)
+    out = SymmetricSparseIterate(randn(5, 5) |> A -> A + A')
+    prox!(out, f, D, G)
+    @test Matrix(out) ≈ prox(f, D, G)
+  end
 end
 
 @testset "a step per group for group norms" begin

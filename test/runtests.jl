@@ -5,6 +5,7 @@ include("testutils.jl")
 tests = [
   "utils",
   "lapack",
+  "partial",
   "sparseIterate",
   "atomIterate",
   "interface",
@@ -13,7 +14,6 @@ tests = [
   "norms",
   "fibers",
   "spectral",
-  "partial",
   "sets",
   "calculus",
   "allocations",

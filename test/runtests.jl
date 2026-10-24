@@ -11,6 +11,7 @@ tests = [
   "smooth",
   "separable",
   "losses",
+  "entropy",
   "norms",
   "sparsegroup",
   "fibers",

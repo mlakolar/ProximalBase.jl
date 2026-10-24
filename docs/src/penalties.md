@@ -11,6 +11,10 @@ and ``\gamma`` is the step of the proximal operator.
 | [`NormL0`](@ref)`(λ)` | ``\lambda\,\#\{i : x_i \ne 0\}`` | hard thresholding at ``\sqrt{2\gamma\lambda}`` | ✓ |
 | [`MCP`](@ref)`(λ, a)` | the minimax concave penalty | firm thresholding | ✓ |
 | [`SCAD`](@ref)`(λ, a)` | the smoothly clipped absolute deviation | SCAD thresholding | ✓ |
+| [`Berhu`](@ref)`(λ, M, w)` | ``\lambda w_i\lvert x_i\rvert`` up to ``M``, ``\lambda w_i(x_i^2 + M^2)/(2M)`` beyond | soft thresholding, then scaling | ✓ |
+| [`NegEntropy`](@ref)`(λ)` | ``\lambda\sum_i x_i\log x_i`` on ``x \ge 0`` | ``\mu\,\omega(v_i/\mu - 1 - \log\mu)``, ``\mu = \gamma\lambda`` | ✓ |
+| [`KLDivergence`](@ref)`(q; λ)` | ``\lambda\sum_i x_i\log(x_i/q_i) - x_i + q_i`` on ``x \ge 0`` | ``\mu\,\omega(v_i/\mu + \log(q_i/\mu))`` | ✓ |
+| [`NegLog`](@ref)`(λ)` | ``-\lambda\sum_i\log x_i`` on ``x > 0`` | ``(v_i + \sqrt{v_i^2 + 4\gamma\lambda})/2`` | ✓ |
 | [`NormL2`](@ref)`(λ)` | ``\lambda\lVert x\rVert_2`` | ``\max(1 - \gamma\lambda/\lVert v\rVert_2, 0)\,v`` | |
 | [`NormLinf`](@ref)`(λ)` | ``\lambda\lVert x\rVert_\infty`` | ``v - P_{\lVert\cdot\rVert_1 \le \gamma\lambda}(v)`` | |
 | [`GroupNormL2`](@ref)`(λ0, groups, w)` | ``\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_2`` | block soft thresholding of each group | |
@@ -86,6 +90,26 @@ For larger steps the scalar problems of MCP and SCAD are not convex.
 minimizers of the pieces. So these penalties work in coordinate descent and
 proximal gradient methods with any step. At zero their subdifferential is that
 of ``\lambda|\cdot|``, so `kkt_violation` is ``|g_i| - \lambda``.
+
+## Entropy, divergence and barrier functions
+
+The negative entropy, the Kullback–Leibler divergence and the log barrier are
+separable, convex, and finite only on the nonnegative (or positive) orthant. For
+the first two, the optimality condition of the scalar problem with
+``\mu = \gamma\lambda`` is ``z/\mu + \log z = c`` for a constant ``c``. Writing
+``z = \mu s`` gives ``s + \log s = c - \log\mu``, whose solution is the Wright
+omega function ``\omega(u) = W_0(e^u)``, the Lambert ``W`` function at ``e^u``.
+ProximalBase computes ``\omega`` without forming ``e^u``, which overflows when
+the step is small and ``u = v/\mu - 1 - \log\mu`` is large, so the proximal
+operators stay accurate there. The log barrier's scalar problem is the
+quadratic ``z^2 - vz - \gamma\lambda = 0``, whose positive root is the one the
+proximal operator of [`LogDetLoss`](@ref) takes for each eigenvalue.
+
+**The reverse Huber penalty** [`Berhu`](@ref) (Owen, 2007) is the ℓ1 norm up to
+``M`` and a ridge penalty beyond, with matching slopes at ``\pm M``. It is
+convex and keeps the sparsity of the lasso near zero while shrinking large,
+correlated coefficients together. Its proximal operator soft-thresholds up to
+``|v| = M + \gamma\lambda`` and scales by ``M/(M + \gamma\lambda)`` beyond.
 
 ## Norms of vectors and groups
 

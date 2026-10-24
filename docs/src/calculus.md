@@ -85,7 +85,16 @@ minimizer:
 ```
 The constrained function is again separable, so coordinate descent applies to
 it. For a nonconvex ``f_i`` the objective can have several local minimizers, and
-the clamp can pick the wrong one, so `Constrained` requires a convex ``f``.
+the clamp can pick the wrong one, so `Constrained` requires a convex ``f``,
+except for [`MCP`](@ref), [`SCAD`](@ref) and [`NormL0`](@ref). Their scalar
+objectives are piecewise quadratic, convex or concave between the kinks of
+``f_i``, so the minimum on the interval is at one of a few candidates: the ends
+of the interval, the kinks inside it, and the clamped vertices of the convex
+pieces. When the step is small enough for the objective to be convex everywhere
+(``\gamma < a`` for MCP, ``\gamma < a - 1`` for SCAD), the clamp is exact again.
+For example, the ℓ0 penalty with ``\lambda = \gamma = 1`` on ``[-1, 0.5]`` at
+``v = 2``: hard thresholding keeps ``2``, whose clamp ``0.5`` costs
+``1 + 1.5^2/2 = 2.125``, while ``0`` costs ``2^2/2 = 2``.
 
 **On a hyperplane.** For ``C = \{z : \langle a, z\rangle = b\}``, the Lagrangian
 ```math

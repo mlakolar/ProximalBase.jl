@@ -40,7 +40,12 @@
   - `IndIntersection(C₁, C₂, …)`: the projection onto an intersection by
     Dykstra's algorithm, warm started from the previous call (#44);
   - `IndAffine(A, b)`: the projection onto `{x : Ax = b}` from a factorization
-    cached at construction, or none for a tight frame (#50);
+    cached at construction, or none for a tight frame. With it,
+    `Constrained(f, IndAffine(A, b))` for a `LeastSquaresLoss` or a
+    `QuadraticFunction` is the equality-constrained ridge step, through the
+    decomposition that `f` keeps and the factor of an `m × m` matrix kept for
+    the last step: the `f` of ADMM for the lasso under equality constraints
+    (#50);
   - `Constrained(f, IndBallL2(r))` for a norm or the indicator of a cone, and
     the nonconvex set `IndSphereL2(r)` with `Constrained` for `NormL1`,
     `GroupNormL2` and `IndBallL0`: the steps of sparse PCA and CCA (#37);

@@ -161,49 +161,41 @@ of an AMD EPYC 7513 with one BLAS thread (USC CARC Discovery, job 13351030,
 
 ## Functions of the order of the entries
 
-[`ordered/run.jl`](ordered/run.jl) compares `TotalVariation1D` with
-ProximalOperators' implementation of the same algorithm, `IndIsotonic` with
-NearlyIsotonicRegression.jl's pool adjacent violators, and `SLOPE` with
-SLOPE.jl, the interface to libslope. SLOPE.jl solves the regression, so FISTA
-with the proximal operator of `SLOPE` solves the same problem,
-`‖y - Xβ‖²/(2n) + α Σᵢ λᵢ|β|₍ᵢ₎`. The packages it needs have their own
-environment:
+[`ordered/run.jl`](ordered/run.jl) compares the proximal operators of
+`TotalVariation1D` with ProximalOperators' implementation of the same
+algorithm, and `IndIsotonic` with NearlyIsotonicRegression.jl's pool adjacent
+violators. No package exposes the proximal operator of SLOPE, so its time is
+compared with that of the sort it needs, which bounds it from below. Solvers
+that use these operators are compared in ProximalSolvers (mlakolar/ProximalSolvers.jl#57
+for SLOPE regression against SLOPE.jl). The packages it needs have their own environment:
 
 ```sh
 julia --project=benchmark/ordered -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
 julia --project=benchmark/ordered benchmark/ordered/run.jl
 ```
 
-ProximalBase at 9cf0c03, ProximalOperators 0.16.1, NearlyIsotonicRegression
-0.1.0 and SLOPE 1.3.1 on Julia 1.13.2, one core of an AMD EPYC 7513 with one
-BLAS thread (USC CARC Discovery, job 13351505, 2026-10-23):
+ProximalBase at 6951b88, ProximalOperators 0.16.1 and NearlyIsotonicRegression
+0.1.0 on Julia 1.13.2, one core of an AMD EPYC 7513 (USC CARC Discovery, job
+13367486, 2026-10-24):
 
 | case | ProximalBase (μs) | other | other (μs) | ratio | largest difference |
 |:-----|---:|:---|---:|---:|---:|
-| TV, noise, n = 10³                 |       5.3 | ProximalOperators          |       6.2 |  1.17× | 2e-16 |
-| TV, 10 steps and noise, n = 10³    |       6.7 | ProximalOperators          |       7.5 |  1.12× | 2e-16 |
-| isotonic, n = 10³                  |       2.9 | NearlyIsotonicRegression   |      10.1 |  3.51× | 2e-15 |
-| SLOPE, n = 10³                     |      13.0 | NormL1 of ProximalBase     |       0.2 |  0.02× | NaN |
-| TV, noise, n = 10⁵                 |    1848.5 | ProximalOperators          |    1804.8 |  0.98× | 4e-16 |
-| TV, 10 steps and noise, n = 10⁵    |    1679.0 | ProximalOperators          |    1640.6 |  0.98× | 4e-16 |
-| isotonic, n = 10⁵                  |    1414.9 | NearlyIsotonicRegression   |    3295.9 |  2.33× | 1e-12 |
-| SLOPE, n = 10⁵                     |    6464.7 | NormL1 of ProximalBase     |      20.6 |  0.00× | NaN |
-
-| SLOPE regression | FISTA with SLOPE (ms) | iterations | SLOPE.jl (ms) | ratio | largest difference, 1/n loss | 1/1 loss |
-|:-----|---:|---:|---:|---:|---:|---:|
-| n = 200, p = 500 | 8.9 | 212 | 0.6 | 0.07× | 3e-08 | 1e+00 |
-| n = 1000, p = 2000 | 101.8 | 146 | 6.9 | 0.07× | 3e-08 | 2e+00 |
+| TV, noise, n = 10³                 |       5.5 | ProximalOperators          |       5.8 |  1.07× | 2e-16 |
+| TV, 10 steps and noise, n = 10³    |       6.9 | ProximalOperators          |       7.2 |  1.04× | 2e-16 |
+| isotonic, n = 10³                  |       2.9 | NearlyIsotonicRegression   |      11.3 |  3.93× | 2e-15 |
+| SLOPE, n = 10³                     |      14.1 | its sort alone             |       9.8 |  0.69× |  |
+| TV, noise, n = 10⁵                 |    1818.5 | ProximalOperators          |    1821.3 |  1.00× | 4e-16 |
+| TV, 10 steps and noise, n = 10⁵    |    1665.9 | ProximalOperators          |    1648.6 |  0.99× | 4e-16 |
+| isotonic, n = 10⁵                  |    1414.1 | NearlyIsotonicRegression   |    3728.9 |  2.64× | 1e-12 |
+| SLOPE, n = 10⁵                     |    6464.5 | its sort alone             |    4446.1 |  0.69× |  |
 
 - **Total variation:** as fast as ProximalOperators, with the same results to
   rounding. Condat's algorithm goes back over a segment when it ends, and at
   n = 10⁵ both implementations take 16 to 18 ns per entry.
-- **Isotonic regression:** 2.3 to 3.5 times faster than
+- **Isotonic regression:** 2.6 to 3.9 times faster than
   NearlyIsotonicRegression.jl, with the same results.
-- **The proximal operator of SLOPE:** most of its time is the sort. It sorts an
+- **The proximal operator of SLOPE:** the sort takes 69% of its time, and the
+  pooling and the restoration of the order and the signs the rest. It sorts an
   index vector by a quicksort up to 4096 entries, and with Base's `sortperm!`
   and a scratch buffer beyond, where that is 2 to 2.6 times faster; neither
   allocates.
-- **SLOPE regression:** FISTA with the proximal operator of `SLOPE` finds
-  SLOPE.jl's solution to 3e-8, with the loss divided by 2n. libslope's
-  coordinate descent is 14 times faster than FISTA: a coordinate method for
-  SLOPE belongs in the solvers.

@@ -154,7 +154,10 @@ function prox!(y::AbstractVector, c::AffineConstrained{T}, x::AbstractVector, γ
 end
 
 # the proximal point lies on the set, which the value does not check again
-function value_and_prox!(y::AbstractVector, c::AffineConstrained, x::AbstractVector, γ::Real)
+function value_and_prox!(y::AbstractVector, c::AffineConstrained{T}, x::AbstractVector, γ::Real) where {T}
   prox!(y, c, x, γ)
-  convert(float(eltype(y)), c.f(y))
+  # Reuse the dense destination for the value too: structured matrix products
+  # with sparse iterates can allocate. Copy back any rounding in y's element type.
+  point = y isa StridedVector ? y : copyto!(_array_buffer!(c.output, T, size(y)), y)
+  convert(float(eltype(y)), c.f(point))
 end

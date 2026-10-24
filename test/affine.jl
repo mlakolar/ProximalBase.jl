@@ -217,9 +217,17 @@ end
       @test allocs(a_two!, y, c, x) == 0
       for out in (SparseIterate(p), AtomIterate(p, [1:p]))
         @test prox!(out, c, x, 1.) ≈ prox(c, x, 1.)
+        @test value_and_prox!(out, c, x, 1.) ≈ f(out)
         @test allocs(a_prox!, out, c, x, 1.) == 0
         @test allocs(a_vprox!, out, c, x, 1.) == 0
       end
+      # The value is at the rounded destination, including when its type differs
+      # from that of the loss and its dense workspace.
+      out32 = SparseIterate(zeros(Float32, p))
+      v32 = value_and_prox!(out32, c, x, 1.)
+      @test v32 isa Float32
+      @test v32 ≈ Float32(f(out32))
+      @test allocs(a_vprox!, out32, c, x, 1.) == 0
     end
   end
 end

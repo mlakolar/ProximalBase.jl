@@ -16,6 +16,7 @@ outside its domain. Its traits say which oracles it provides:
 | [`issmooth`](@ref) | [`gradient!`](@ref), [`value_and_gradient!`](@ref) |
 | [`isproximable`](@ref) | [`prox!`](@ref), [`value_and_prox!`](@ref) |
 | [`isseparable`](@ref) | [`prox_entry`](@ref), and [`prox_coordinate!`](@ref) on every iterate |
+| [`hashessian`](@ref) | [`hessian_vec!`](@ref), [`quadratic_model`](@ref) |
 
 A function can have several roles: [`SqrNormL2`](@ref), [`QuadraticFunction`](@ref),
 [`LeastSquaresLoss`](@ref) and [`LogDetLoss`](@ref) are both smooth and

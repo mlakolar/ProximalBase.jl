@@ -101,6 +101,11 @@ end
       end
     end
     zero_alloc_prox(IndBallL0(3), xs)
+    # long enough for the simplex threshold to hand over to Michelot's algorithm
+    xl = randn(20_000)
+    for f in (IndSimplex(10_000.), IndBallL1(5_000.), NormLinf(0.01))
+      zero_alloc_prox(f, xl)
+    end
   end
 
   @testset "spectral functions" begin
@@ -111,6 +116,12 @@ end
       @testset "$(typeof(f))" begin
         zero_alloc_prox(f, Z)
         zero_alloc_prox(f, Float32.(Z))
+      end
+    end
+    for f in (Spectral(NormL1(0.3)), Spectral(Constrained(IndBox(0, 1), IndHyperplane(1, 2))), Spectral(IndBox(-0.5, 0.5)))
+      @testset "Spectral($(nameof(typeof(f.f))))" begin
+        zero_alloc_prox(f, A)
+        zero_alloc_prox(f, Float32.(A))
       end
     end
   end
@@ -147,7 +158,7 @@ end
   @testset "symmetric outputs that are not strided" begin
     A = randn(10, 10); A = A + A'
     S = SymmetricSparseIterate(10)
-    for f in (IndPSD(), IndPSD(rank = 3), TracePSD(0.2))
+    for f in (IndPSD(), IndPSD(rank = 3), TracePSD(0.2), Spectral(NormL1(0.3)))
       @test allocs(a_prox!, S, f, A, 0.7) == 0
     end
     B = randn(40, 10)
@@ -199,6 +210,22 @@ end
     xy, out = (randn(p), randn(p)), (zeros(p), zeros(p))
     @test allocs(a_prox!, out, sep, xy, 0.7) == 0
     @test allocs(a_vprox!, out, sep, xy, 0.7) == 0
+  end
+
+  @testset "constrained" begin
+    for f in (Constrained(NormL1(0.3, w), IndBox(-w, w)), Constrained(ElasticNet(0.3, 0.4), IndNonnegative()),
+              Constrained(NormL1(0.3), IndHyperplane(1, 0)), Constrained(IndBox(0, 1), IndHyperplane(randn(p), 1.)),
+              Constrained(SqrNormL2(1.), IndSimplex(2.)), Constrained(NormL1(0.3), IndHalfspace(rand(p), -1.)))
+      @testset "$(nameof(typeof(f)))" begin
+        zero_alloc_prox(f, x)
+        zero_alloc_prox(f, Float32.(x))
+      end
+    end
+    f = Constrained(NormL1(0.3), IndBox(-1, 1))
+    zero_alloc_prox(f, xs)
+    @test allocs(a_cd!, copy(xs), f, 3, 0.7) == 0
+    @test allocs(a_cd!, copy(xa), f, 2, 0.7) == 0
+    @test allocs(a_kkt, f, x, x, 4) == 0
   end
 end
 

@@ -8,7 +8,8 @@
 #     U ← U + Ω - Z
 # `LogDetLoss` computes its proximal operator in a workspace it owns and is `Inf`
 # outside the positive definite matrices; the weights of `NormL1` leave the
-# diagonal unpenalized.
+# diagonal unpenalized. The same ADMM with `IndPattern` in place of the ℓ1 norm
+# then refits on the selected graph.
 
 using ProximalBase, LinearAlgebra, Random
 
@@ -62,3 +63,15 @@ for j in 1:p, i in 1:p
     end
 end
 @assert isposdef(Ω̂) && truth ⊆ found
+
+# --- the refit on the selected graph -----------------------------------------
+# The same ADMM with g the indicator of the matrices supported on the graph of Ω̂
+# (and the diagonal) gives the maximum likelihood estimate on that graph,
+# without the shrinkage of the ℓ1 penalty.
+support = Ω̂ .!= 0
+Ω̃, _, iters_refit = glasso_admm(f, IndPattern(support), p)
+println("refit on the selected graph: ", iters_refit, " iterations")
+# optimality: (S - Ω̃⁻¹)ᵢⱼ = 0 on the graph and the diagonal, and Ω̃ᵢⱼ = 0 off it
+G̃ = S - inv(Ω̃)
+@assert all(support[i, j] ? abs(G̃[i, j]) < 1e-6 : iszero(Ω̃[i, j]) for j in 1:p for i in 1:p)
+@assert isposdef(Ω̃)

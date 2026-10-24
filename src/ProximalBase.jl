@@ -38,6 +38,7 @@ export
   gradient_mapping, gradient_mapping!, lipschitz,
   hashessian, hessian_vec!, hessian_vec, quadratic_model, quadratic_model!,
   coordinate_lipschitz, coordinate_lipschitz!,
+  lla_weight, lla_weights!, lla_weights,
 
   # smooth functions
   ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, KronQuadratic,
@@ -107,6 +108,7 @@ include("functions/ordered.jl")
 include("functions/nonconvex.jl")
 include("functions/matrixsets.jl")
 include("functions/affine.jl")
+include("lla.jl")
 
 include("calculus.jl")
 include("constrained.jl")

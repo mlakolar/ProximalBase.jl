@@ -22,6 +22,7 @@ tests = [
   "sets",
   "ordered",
   "nonconvex",
+  "lla",
   "matrixsets",
   "affine",
   "calculus",

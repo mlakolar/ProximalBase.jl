@@ -25,6 +25,20 @@
   - `NegEntropy`, `KLDivergence` and `NegLog`, finite on the nonnegative or
     positive orthant, the first two through an accurate Wright ω function, and
     the reverse Huber penalty `Berhu` (#51).
+- **Local linear approximation (reweighted ℓ1)** of the nonconvex penalties
+  (part of #46): `lla_weights!(w, f, x)`, `lla_weights(f, x)` and the scalar
+  `lla_weight(f, v, i)` give the slopes `pᵢ′(|xᵢ|)` of `CappedL1`,
+  `LogPenalty`, `MCP` and `SCAD`, with their entry weights, and
+  `pₖ′(‖x[Gₖ]‖₂)` for each group of `GroupMCP` and `GroupSCAD`. The next stage
+  is the weighted lasso `NormL1(1, w)`, or `GroupNormL2(1, f.groups, w)`.
+  - At a kink the slope is taken from the right: the first stage from zero is
+    the lasso, and the capped ℓ1 weight is 0 from the cap on, as in T. Zhang's
+    multi-stage convex relaxation. `NormLq`, with its infinite slope at zero,
+    throws an error.
+  - The documentation lists the papers that compute their estimators this way
+    (Zou and Li, 2008; Candès, Wakin and Boyd, 2008; T. Zhang, 2010; Shen, Pan
+    and Zhu, 2012; Fan, Xue and Zou, 2014), with their penalties in
+    ProximalBase.
 - **`SingularValue(f)`:** functions of the singular values of a matrix, from one
   SVD workspace: the spectral norm, the nuclear-norm and spectral-norm balls,
   the matrix elastic net, the Ky Fan `k`-norm, and MCP, SCAD or ℓ0 thresholding

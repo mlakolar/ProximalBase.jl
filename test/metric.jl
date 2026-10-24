@@ -142,6 +142,9 @@ end
   hdiag = vec(sum(wobs .* (exp.(η) ./ (1 .+ exp.(η)) .^ 2) .* X .^ 2; dims = 1))
   @test all(hdiag .<= L)
   @test coordinate_lipschitz(HuberLoss(y, X, 1.0), 3) ≈ H[3, 3]
+  Xsp = sprandn(n, p, 0.4)
+  @test coordinate_lipschitz!(zeros(p), LogisticLoss(Float64.(rand(n) .< 0.5), Xsp; weights = wobs)) ≈
+        0.25 .* vec(sum(wobs .* Matrix(Xsp) .^ 2; dims = 1))       # sparse, weighted
   @test coordinate_lipschitz(PoissonLoss(rand(0:3, n), X), 2) == Inf
   # Kronecker quadratics: A[r, r] B[c, c] for entry (r, c) of Θ
   A = randn(5, 5); A = A * A'
@@ -150,6 +153,12 @@ end
   @test vec(coordinate_lipschitz!(zeros(5, 4), fk)) ≈ kron(diag(B), diag(A))
   @test coordinate_lipschitz(SqrNormL2(2.5), 3) == 2.5
   @test coordinate_lipschitz(ZeroFunction(), 1) == 0
+  @test coordinate_lipschitz(LinearFunction(randn(p)), 2) == 0
+  # the wrappers keep the constants of the loss, also all at once
+  @test coordinate_lipschitz!(zeros(p), Tilt(f, randn(p))) ≈ diag(H)
+  @test coordinate_lipschitz!(zeros(p), Translate(f, randn(p))) ≈ diag(H)
+  @test coordinate_lipschitz!(zeros(p), Sum(f, SqrNormL2(2.))) ≈ diag(H) .+ 2
+  @test coordinate_lipschitz!(zeros(p), LeastSquaresLoss(y, sprandn(n, p, 0.3))) isa Vector{Float64}
   @test coordinate_lipschitz(LogDetLoss(Matrix(1.0I, 3, 3)), 2) == Inf
   @test_throws ArgumentError coordinate_lipschitz(NormL1(1.), 1)
   @test_throws ArgumentError coordinate_lipschitz(SmoothWithoutConstants(), 1)

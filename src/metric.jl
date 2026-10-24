@@ -14,9 +14,68 @@
 prox(f::AbstractFunction, x::AbstractArray, γ::AbstractArray) = prox!(similar(x, float(eltype(x))), f, x, γ)
 
 # separable functions: the step of each entry; on a SymmetricSparseIterate the
-# steps are a p × p array read at the lower triangle, so give a symmetric one
+# steps are a p × p array read at the lower triangle, so give a symmetric one.
+# The loops are those of separable.jl with γ[i] for γ, kept apart so that the
+# scalar loops stay exactly as they are
 prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) = _prox_sep!(y, f, x, γ)
-value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) = _value_and_prox_sep!(y, f, x, γ)
+value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) =
+  _isindicator(f) ? (_prox_sep!(y, f, x, γ); zero(float(eltype(y)))) : _value_sep(f, _prox_sep!(y, f, x, γ))
+
+function _prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::AbstractArray)
+  _checksize(y, x)
+  _checkparams(f, x)
+  _checkparam(γ, x)
+  T = eltype(y)
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    y[i] = convert(T, prox_entry(f, x[i], i, γ[i]))
+  end
+  y
+end
+
+function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::AbstractArray)
+  _checksize(y, x)
+  _checkparams(f, x)
+  _checkparam(γ, x)
+  iszeropreserving(f) || return invoke(_prox_sep!, Tuple{AbstractArray, Any, AbstractArray, AbstractArray}, y, f, x, γ)
+  T = eltype(y)
+  if y !== x
+    @inbounds for k in 1:y.nnz
+      y.nzval[k] = zero(T)
+    end
+  end
+  @inbounds for k in 1:x.nnz
+    i = x.nzval2ind[k]
+    _setstored!(y, convert(T, prox_entry(f, x.nzval[k], i, γ[i])), i)
+  end
+  y
+end
+
+function _prox_sep!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::AbstractArray)
+  _checksize(y, x)
+  _checkparams(f, x)
+  _checkparam(γ, x)
+  T = eltype(y)
+  p = y.p
+  if x isa SymmetricSparseIterate && iszeropreserving(f)
+    if y !== x
+      @inbounds for k in 1:y.nnz
+        y.nzval[k] = zero(T)
+      end
+    end
+    @inbounds for k in 1:x.nnz
+      i = x.nzval2ind[k]
+      r, c = tril_cartesian(p, i)
+      j = (c - 1) * p + r
+      _setstored!(y, convert(T, prox_entry(f, x.nzval[k], j, γ[j])), i)
+    end
+    return y
+  end
+  @inbounds for c in 1:p, r in c:p
+    j = (c - 1) * p + r
+    _setstored!(y, convert(T, prox_entry(f, x[r, c], j, γ[j])), tril_index(p, r, c))
+  end
+  y
+end
 
 # group norms: a step per group, constant on the group, which keeps the closed form
 value_and_prox!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::AbstractVector) = _value_and_prox_groups!(y, f, x, γ)

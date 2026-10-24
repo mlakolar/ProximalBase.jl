@@ -172,29 +172,46 @@ function _simplex_threshold!(buf::AbstractVector{T}, x::AbstractArray, idx::Abst
   ρ = y1 - a
   cap = max(1024, n ÷ 8)
   many = false
-  @inbounds for j in j0+1:j0+n-1
-    y = convert(T, f(x[idx[j]]))
-    if y > ρ
-      if s > (y - a) * nv               # the level with y, (s + y - a)/(nv + 1), exceeds y - a
-        nv += 1
-        if nv > cap
-          many = true
-          break
-        end
-        s += y
-        ρ = (s - a) / nv
-        buf[nt + nv] = y
-      else
-        nt += nv
-        nv = 1
-        buf[nt + 1] = y
-        s = y
-        ρ = y - a
-      end
+  # Once the level has risen, most entries fall below it. One test for four
+  # entries keeps the loop from depending on where its code lands in memory,
+  # which changed its speed twofold on an AMD EPYC.
+  j, jend = j0 + 1, j0 + n - 1
+  @inbounds while j + 3 <= jend
+    y₁, y₂ = convert(T, f(x[idx[j]])), convert(T, f(x[idx[j + 1]]))
+    y₃, y₄ = convert(T, f(x[idx[j + 2]])), convert(T, f(x[idx[j + 3]]))
+    if (y₁ > ρ) | (y₂ > ρ) | (y₃ > ρ) | (y₄ > ρ)
+      nt, nv, s, ρ, many = _condat_step!(buf, y₁, nt, nv, s, ρ, a, cap)
+      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₂, nt, nv, s, ρ, a, cap))
+      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₃, nt, nv, s, ρ, a, cap))
+      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₄, nt, nv, s, ρ, a, cap))
+      many && break
     end
+    j += 4
+  end
+  @inbounds while !many && j <= jend
+    nt, nv, s, ρ, many = _condat_step!(buf, convert(T, f(x[idx[j]])), nt, nv, s, ρ, a, cap)
+    j += 1
   end
   many && return _simplex_threshold_michelot(x, idx, a, f)
   _simplex_finish!(buf, nt, nv, s, a)
+end
+
+# One entry y of Condat's pass: below the level ρ it is discarded; otherwise it
+# joins the candidates when their level with y, (s + y - a)/(nv + 1), exceeds
+# y - a, and starts them anew if not. The last value is true when more than cap
+# entries have become candidates.
+@inline function _condat_step!(buf::AbstractVector{T}, y::T, nt::Int, nv::Int, s::T, ρ::T, a::T, cap::Int) where {T}
+  y > ρ || return nt, nv, s, ρ, false
+  if s > (y - a) * nv
+    nv += 1
+    nv > cap && return nt, nv, s, ρ, true
+    s += y
+    @inbounds buf[nt + nv] = y
+    return nt, nv, s, (s - a) / nv, false
+  end
+  nt += nv
+  @inbounds buf[nt + 1] = y
+  nt, 1, y, y - a, false
 end
 
 # the end of Condat's algorithm, from the discarded entries buf[1:nt] and the

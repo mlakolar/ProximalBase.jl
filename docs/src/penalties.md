@@ -30,6 +30,7 @@ and ``\gamma`` is the step of the proximal operator.
 | [`CheckLoss`](@ref)`(τ, w)` | ``\sum_i w_i\rho_\tau(x_i)`` | see below | ✓ |
 | [`HingeLoss`](@ref)`(y, w)` | ``\sum_i w_i\max(0, 1 - y_i x_i)`` | see below | ✓ |
 | [`EpsInsensitiveLoss`](@ref)`(ε, w)` | ``\sum_i w_i\max(0, \lvert x_i\rvert - \varepsilon)`` | see below | ✓ |
+| [`SingularValue`](@ref)`(f)` | ``f(\sigma(X))`` | ``U\operatorname{diag}(\operatorname{prox}_{\gamma f}(\sigma))V^\top`` | |
 
 ## The ℓ1 norm and its relatives
 
@@ -287,3 +288,25 @@ decompositions run in LAPACK workspaces that the functions own.
 [`Spectral`](@ref)`(f)` builds the function of the eigenvalues of a symmetric
 matrix from any function ``f`` of a vector that does not depend on the order of
 its entries.
+
+[`SingularValue`](@ref)`(f)` is the general function of the singular values, for
+any absolutely symmetric vector function ``f`` with a proximal operator: one
+thin SVD, then the proximal operator of ``f`` on the singular values. The
+nuclear norm is `SingularValue(NormL1(λ))`. The others:
+
+| `SingularValue(f)` | ``F(X)`` | TFOCS |
+|:-------------------|:---------|:------|
+| `SingularValue(NormLinf(λ))` | the spectral norm ``\lambda\lVert X\rVert_2`` | `prox_spectral` |
+| `SingularValue(IndBallL1(r))` | the indicator of the nuclear-norm ball ``\lVert X\rVert_* \le r`` | `proj_nuclear` |
+| `SingularValue(IndBallLinf(r))` | the indicator of the spectral-norm ball ``\lVert X\rVert_2 \le r`` | `proj_spectral` |
+| `SingularValue(IndBallL0(r))` | the indicator of rank at most ``r`` | |
+| `SingularValue(ElasticNet(λ1, λ2))` | ``\lambda_1\lVert X\rVert_* + \tfrac{\lambda_2}{2}\lVert X\rVert_F^2`` | |
+| `SingularValue(MCP(λ, a))`, `SCAD`, `NormL0` | nonconvex penalties of the singular values | |
+
+For a nonconvex separable ``f`` whose scalar proximal operator is nondecreasing
+on ``[0, \infty)``, applying it to the singular values still gives a global
+minimizer (Lu, Zhu, Xu, Yan and Lin, 2015). So MCP and SCAD thresholding of the
+singular values reduce the bias of singular value thresholding, as they do for
+the lasso. The conjugate of ``f \circ \sigma`` is ``f^* \circ \sigma``, so the
+spectral norm and the nuclear-norm ball are a conjugate pair under
+[`Conjugate`](@ref).

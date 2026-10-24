@@ -121,9 +121,10 @@ Composing them is exact, because soft thresholding preserves the signs and
 only shrinks, so the subdifferential of the group norm at its output contains
 that at ``z``. A group at zero is optimal when
 ``\|S_{\lambda_1}(g_{G_k})\|_2 \le \lambda_2 w_k``, and an entry at zero inside
-a nonzero group when ``|g_i| \le \lambda_1``. With one group, it is the sparse
-group lasso of a single vector, such as the entries ``(i, j)`` of several
-precision matrices in the group graphical lasso.
+a nonzero group when ``|g_i| \le \lambda_1``. With one group,
+`SparseGroupNormL2(λ1, λ2, [1:K], [1.0])`, it is the sparse group lasso of a
+single vector: as the fiber function of a [`FiberSum`](@ref) it gives the
+penalty of the group graphical lasso (see below).
 
 The rows of a ``p \times k`` matrix are the groups
 `[i:p:p*k for i in 1:p]` of its linear indices. So `GroupNormL2` with these
@@ -151,6 +152,7 @@ function, and `nothing` leaves them unpenalized.
 | penalty on ``x_{ij}`` | model | `f` |
 |---|---|---|
 | ``\lambda\|x_{ij}\|_2`` | a shared sparsity pattern, the group graphical lasso | `NormL2(λ)` |
+| ``\lambda_1\|x_{ij}\|_1 + \lambda_2\|x_{ij}\|_2`` | the group graphical lasso of Danaher, Wang and Witten (2014), sparse within a fiber too | `SparseGroupNormL2(λ1, λ2, [1:K], [1.0])` |
 | ``\lambda\|x_{ij}\|_\infty`` | simultaneous selection | `NormLinf(λ)` |
 | ``\lambda_1(|x^1_{ij}| + |x^2_{ij}|) + \lambda_2|x^1_{ij} - x^2_{ij}|`` | the fused graphical lasso of two classes | `NormL1Fused(λ1, λ2)` |
 

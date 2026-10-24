@@ -21,8 +21,10 @@ in no group are not penalized.
 Its proximal operator is exact: soft thresholding at `γλ1`, then the shrinkage of
 each group at `γλ2wₖ`, in one pass over a group, which also gives the value.
 With one group covering `x`, `SparseGroupNormL2(λ1, λ2, [1:n], [1.0])` is the
-sparse group lasso of a single vector, such as an entry across several
-matrices.
+sparse group lasso of a single vector. As the fiber function of a
+[`FiberSum`](@ref), `FiberSum(SparseGroupNormL2(λ1, λ2, [1:K], [1.0]))` is the
+penalty `λ1 Σᵢⱼₖ |xᵢⱼₖ| + λ2 Σᵢⱼ ‖x[i, j, :]‖₂` of the group graphical lasso of
+K precision matrices (Danaher, Wang and Witten, 2014).
 
 As for `GroupNormL2`, on an [`AtomIterate`](@ref) that shares its groups
 ([`AtomIterate`](@ref)`(x, f)`), [`prox_coordinate!`](@ref) takes the block step

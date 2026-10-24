@@ -100,6 +100,24 @@ a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
       @test fk(v) ≈ λ1 * norm(v, 1) + λ2 * norm(v)
     end
     @test allocs(a_prox!, zeros(K), fk, randn(K), 0.7) == 0
+    # as the fiber function of a FiberSum: the group graphical lasso penalty
+    q = 5
+    x = randn(q, q, K)
+    fb = FiberSum(fk)
+    z = prox(fb, x, 0.7)
+    for j in 1:q, i in 1:q
+      @test z[i, j, :] ≈ prox(fk, x[i, j, :], 0.7)
+    end
+    @test fb(x) ≈ λ1 * norm(x, 1) + λ2 * sum(norm(x[i, j, :]) for i in 1:q, j in 1:q)
+    @test value_and_prox!(similar(x), fb, x, 0.7) ≈ fb(z)
+    @test allocs(a_prox!, similar(x), fb, x, 0.7) == 0
+    # symmetric slices with a free diagonal, as for precision matrices
+    s = x .+ permutedims(x, (2, 1, 3))
+    fs = FiberSum(fk; diagonal = nothing, symmetric = true)
+    zs = prox(fs, s, 0.7)
+    @test all(zs[:, :, k] ≈ zs[:, :, k]' for k in 1:K)
+    @test all(zs[i, i, :] == s[i, i, :] for i in 1:q)
+    @test zs[3, 1, :] ≈ prox(fk, s[3, 1, :], 0.7)
   end
 
   @testset "AtomIterate, coordinate steps and optimality" begin

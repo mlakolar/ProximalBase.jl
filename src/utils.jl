@@ -161,30 +161,42 @@ function _simplex_threshold!(buf::AbstractVector{T}, x::AbstractArray, idx::Abst
   j0 = firstindex(idx)
   @inbounds y1 = convert(T, f(x[idx[j0]]))
   buf[1] = y1
-  # buf[1:nt] holds the discarded entries ṽ, buf[nt+1:nt+nv] the candidates v
+  # buf[1:nt] holds the discarded entries ṽ, buf[nt+1:nt+nv] the candidates v,
+  # of sum s and level ρ = (s - a)/nv. The level is recomputed from the sum when
+  # a candidate joins, rather than updated by a division in a chain of dependent
+  # steps, and Michelot's algorithm takes over when more than an eighth of the
+  # entries become candidates: then the level starts far below the entries and
+  # rises slowly, and Condat's pass costs most.
   nt, nv = 0, 1
+  s = y1
   ρ = y1 - a
+  cap = max(1024, n ÷ 8)
   @inbounds for j in j0+1:j0+n-1
     y = convert(T, f(x[idx[j]]))
     if y > ρ
-      ρ += (y - ρ) / (nv + 1)
-      if ρ > y - a
+      if s > (y - a) * nv               # the level with y, (s + y - a)/(nv + 1), exceeds y - a
         nv += 1
+        nv > cap && return _simplex_threshold_michelot(x, idx, a, f)
+        s += y
+        ρ = (s - a) / nv
         buf[nt + nv] = y
       else
         nt += nv
         nv = 1
         buf[nt + 1] = y
+        s = y
         ρ = y - a
       end
     end
   end
-  _simplex_finish!(buf, nt, nv, ρ)
+  _simplex_finish!(buf, nt, nv, s, a)
 end
 
-# the end of Condat's algorithm, from the discarded entries buf[1:nt], the
-# candidates buf[nt+1:nt+nv] and the level ρ of the first pass
-function _simplex_finish!(buf::AbstractVector{T}, nt::Int, nv::Int, ρ::T) where {T}
+# the end of Condat's algorithm, from the discarded entries buf[1:nt] and the
+# candidates buf[nt+1:nt+nv] of sum s, whose level is ρ = (s - a)/nv, recomputed
+# from the sum whenever the candidates change
+function _simplex_finish!(buf::AbstractVector{T}, nt::Int, nv::Int, s::T, a::T) where {T}
+  ρ = (s - a) / nv
   # the discarded entries above ρ rejoin the candidates, collected at the front
   w = 0
   @inbounds for i in 1:nt
@@ -192,7 +204,8 @@ function _simplex_finish!(buf::AbstractVector{T}, nt::Int, nv::Int, ρ::T) where
     if y > ρ
       w += 1
       buf[w] = y
-      ρ += (y - ρ) / (w + nv)
+      s += y
+      ρ = (s - a) / (w + nv)
     end
   end
   @inbounds for i in 1:nv
@@ -207,10 +220,11 @@ function _simplex_finish!(buf::AbstractVector{T}, nt::Int, nv::Int, ρ::T) where
     while i <= len
       y = buf[i]
       if y <= ρ
+        len == 1 && return ρ            # only from rounding: the largest entry stays
         buf[i] = buf[len]
         len -= 1
-        len == 0 && return ρ        # only from rounding: the largest entry stays
-        ρ += (ρ - y) / len
+        s -= y
+        ρ = (s - a) / len
         changed = true
       else
         i += 1
@@ -218,6 +232,35 @@ function _simplex_finish!(buf::AbstractVector{T}, nt::Int, nv::Int, ρ::T) where
     end
   end
   ρ
+end
+
+# The threshold by Michelot's algorithm (J. Optim. Theory Appl. 50, 1986): the
+# level of all entries, then of those above it, until that set stops changing.
+# It is Newton's method on the convex Σᵢ max(yᵢ - τ, 0) - a from below, each step
+# a vectorized pass. Condat's pass hands over to it when many entries become
+# candidates, as for a radius a that keeps a large share of them positive: its
+# level then starts far below the entries and rises slowly.
+function _simplex_threshold_michelot(x::AbstractArray, idx::AbstractVector{<:Integer}, a::T, f::F) where {T, F}
+  n = length(idx)
+  s = zero(T)
+  @inbounds @simd for j in idx
+    s += convert(T, f(x[j]))
+  end
+  τ = (s - a) / n
+  cnt = n
+  for _ in 1:n
+    s, c = zero(T), 0
+    @inbounds @simd for j in idx
+      y = convert(T, f(x[j]))
+      above = y > τ
+      s += ifelse(above, y, zero(T))
+      c += above
+    end
+    τ = (s - a) / c
+    c == cnt && break
+    cnt = c
+  end
+  τ
 end
 
 ####################################

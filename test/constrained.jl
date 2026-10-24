@@ -201,4 +201,90 @@ end
   end
 end
 
+# a separable function without known slopes, for the secant path of the search
+struct NoSlope{F} <: SeparableFunction
+  f::F
+end
+ProximalBase.prox_entry(g::NoSlope, v, i, γ) = prox_entry(g.f, v, i, γ)
+ProximalBase.value_entry(g::NoSlope, v, i) = value_entry(g.f, v, i)
+ProximalBase.isconvex(::Type{<:NoSlope}) = true
+
+# and one that counts the passes of the search over x
+const CALLS = Ref(0)
+struct Counted{F} <: SeparableFunction
+  f::F
+end
+ProximalBase.prox_entry(g::Counted, v, i, γ) = (CALLS[] += 1; prox_entry(g.f, v, i, γ))
+ProximalBase.value_entry(g::Counted, v, i) = value_entry(g.f, v, i)
+ProximalBase.isconvex(::Type{<:Counted}) = true
+ProximalBase._has_prox_slope(::Type{<:Counted{F}}) where {F} = ProximalBase._has_prox_slope(F)
+ProximalBase._prox_entry_slope(g::Counted, v, i, γ) = (CALLS[] += 1; ProximalBase._prox_entry_slope(g.f, v, i, γ))
+
+@testset "the search starts from the last multiplier" begin
+  n = 2000
+  x = randn(n)
+  noise = randn(n)
+  for (f, H) in ((NormL1(0.5), IndHyperplane(1, 0)), (IndBox(0, 1), IndHyperplane(1, 10)),
+                 (IndNonnegative(), IndHyperplane(1, n / 10)), (Constrained(NormL1(0.3), IndBox(-1, 1)), IndHyperplane(randn(n), 3.)),
+                 (Constrained(ElasticNet(0.1, 1.), IndNonnegative()), IndHalfspace(1, 1.)), (NoSlope(NormL1(0.5)), IndHyperplane(1, 0)),
+                 (NoSlope(IndBox(0, 1)), IndHyperplane(1, 10)))
+    c = Constrained(f, H)
+    for t in 1:10
+      xt = x .+ (0.01 * t) .* noise
+      @test prox(c, xt, 0.7) ≈ prox(Constrained(f, H), xt, 0.7) atol = 1e-10    # a fresh one starts from zero
+    end
+    xs = 5 .* randn(n)                                                          # a stale start
+    @test prox(c, xs, 0.7) ≈ prox(Constrained(f, H), xs, 0.7) atol = 1e-10
+  end
+
+  # a halfspace that becomes inactive, and active again
+  c = Constrained(NormL1(0.1), IndHalfspace(1, 1.))
+  xa = abs.(randn(n)) .+ 0.5
+  za = prox(c, xa, 1.)
+  @test sum(za) ≈ 1 && c.last[] > 0
+  xi = 0.01 .* randn(n)
+  @test prox(c, xi, 1.) == prox(NormL1(0.1), xi, 1.)
+  @test c.last[] == 0
+  @test prox(c, xa, 1.) ≈ za
+
+  # the passes of the search: many from zero, a few from the last multiplier
+  y = similar(x)
+  for (f, H) in ((IndNonnegative(), IndHyperplane(1, 1)), (NormL1(0.5), IndHyperplane(1, 0)), (IndBox(0, 1), IndHyperplane(1, n / 2)))
+    c = Constrained(Counted(f), H)
+    CALLS[] = 0
+    prox!(y, c, x, 0.7)
+    cold = CALLS[] / n
+    CALLS[] = 0
+    for t in 1:10
+      prox!(y, c, x .+ (0.001 * t) .* noise, 0.7)
+    end
+    warm = CALLS[] / n / 10
+    @test warm <= 5 && warm < cold
+  end
+
+  # Float32 calls keep the multiplier too
+  c = Constrained(NormL1(0.5f0), IndHyperplane(1, 0))
+  x32 = Float32.(x)
+  @test prox(c, x32, 0.7f0) ≈ prox(c, x32 .+ 0.0f0, 0.7f0)
+  @test eltype(prox(c, x32, 0.7f0)) == Float32
+end
+
+@testset "slopes of scalar proximal operators" begin
+  n = 5
+  for f in (ZeroFunction(), LinearFunction(randn(n)), SqrNormL2(2.), SqrNormL2(1., randn(n)), NormL1(0.3),
+            NormL1(0.3, [0.5, 1., 1.5, 2., 0.2]), NormL1Nonneg(0.2), ElasticNet(0.1, 0.5), IndBox(-0.5, 1), IndNonnegative(),
+            0.5 * NormL1(1.), Tilt(NormL1(0.3), [0.1, -0.3, 0.2, 0., 0.4]), Translate(NormL1(0.3), [0.1, -0.2, 0.3, 0., 0.5]),
+            Constrained(NormL1(0.2), IndBox(-1, 1)))
+    @test ProximalBase._has_prox_slope(typeof(f))
+    for i in 1:n, v in (-2.3, -0.45, 0.05, 0.7, 1.9)          # away from the kinks
+      z, dz = ProximalBase._prox_entry_slope(f, v, i, 0.8)
+      @test z == prox_entry(f, v, i, 0.8)
+      h = 1e-7
+      @test dz ≈ (prox_entry(f, v + h, i, 0.8) - prox_entry(f, v - h, i, 0.8)) / 2h atol = 1e-6
+    end
+  end
+  @test !ProximalBase._has_prox_slope(typeof(MCP(1.)))
+  @test !ProximalBase._has_prox_slope(typeof(NoSlope(NormL1(1.))))
+end
+
 end

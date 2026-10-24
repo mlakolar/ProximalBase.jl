@@ -54,7 +54,12 @@ function project!(z, c::CappedSimplexSort, x)
   z .= clamp.(x .- τ, 0, u)
 end
 
-time_prox(f::PB.AbstractFunction, y, x, γ) = (PB.prox!(y, f, x, γ); @belapsed PB.prox!($y, $f, $x, $γ))
+# Constrained starts its search from the multiplier of the last call; each call
+# here starts from zero, as on a new problem (benchmark/multiplier.jl times the
+# calls of a solver)
+cold!(f) = (f isa PB.LinearConstrained && (f.last[] = NaN); f)
+time_prox(f::PB.AbstractFunction, y, x, γ) =
+  (cold!(f); PB.prox!(y, f, x, γ); @belapsed PB.prox!($y, $f, $x, $γ) setup = cold!($f) evals = 1)
 time_prox(f, y, x, γ) = (PO.prox!(y, f, x, γ); @belapsed PO.prox!($y, $f, $x, $γ))
 time_prox(c::CappedSimplexSort, y, x, γ) = (project!(y, c, x); @belapsed project!($y, $c, $x))
 
@@ -66,6 +71,8 @@ end
 PB.prox_entry(c::Counting, v, i, γ) = (CALLS[] += 1; PB.prox_entry(c.f, v, i, γ))
 PB.value_entry(c::Counting, v, i) = c.f([v])
 PB.isconvex(::Type{<:Counting}) = true
+PB._has_prox_slope(::Type{<:Counting{F}}) where {F} = PB._has_prox_slope(F)
+PB._prox_entry_slope(c::Counting, v, i, γ) = (CALLS[] += 1; PB._prox_entry_slope(c.f, v, i, γ))
 
 # the case's function, from the separable function f
 function row(name, make, f, others, x; γ = 0.5)

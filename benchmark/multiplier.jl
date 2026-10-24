@@ -48,15 +48,18 @@ function passes_cold(c, y, x)
   PB.prox!(y, c, x, 0.7)
   CALLS[] / length(x)
 end
-sequence(c, y, x, noise) = (for t in 1:20; PB.prox!(y, c, x .+ (0.002 * t) .* noise, 0.7); end)
+# 20 slowly changing points, made before the timing
+points(x, noise) = [x .+ (0.002 * t) .* noise for t in 1:20]
+sequence(c, y, xs) = (for xt in xs; PB.prox!(y, c, xt, 0.7); end)
 function warm(f, H, y, x, noise)
+  xs = points(x, noise)
   c = PB.Constrained(f, H)
-  sequence(c, y, x, noise)
-  t = minimum(@elapsed(sequence(c, y, x, noise)) for _ in 1:5) / 20
+  sequence(c, y, xs)
+  t = minimum(@elapsed(sequence(c, y, xs)) for _ in 1:5) / 20
   cc = PB.Constrained(Counted(f), H)
-  sequence(cc, y, x, noise)
+  sequence(cc, y, xs)
   CALLS[] = 0
-  sequence(cc, y, x, noise)
+  sequence(cc, y, xs)
   t, CALLS[] / length(x) / 20
 end
 

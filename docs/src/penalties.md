@@ -24,7 +24,7 @@ and ``\gamma`` is the step of the proximal operator.
 | [`SparseGroupNormL2`](@ref)`(λ1, λ2, groups, w)` | ``\lambda_1\lVert x\rVert_1 + \lambda_2\sum_k w_k\lVert x_{G_k}\rVert_2`` | soft thresholding, then block soft thresholding | |
 | [`GroupNormLinf`](@ref)`(λ0, groups, w)` | ``\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_\infty`` | ``v_{G_k} - P_{\lVert\cdot\rVert_1 \le \gamma\lambda_0 w_k}(v_{G_k})`` | |
 | [`GroupMCP`](@ref)`(λ, groups, w)`, [`GroupSCAD`](@ref) | ``\sum_k p_{\lambda w_k}(\lVert x_{G_k}\rVert_2)`` with the MCP or SCAD ``p`` | the scalar proximal operator of ``p`` at ``\lVert v_{G_k}\rVert_2``, along ``v_{G_k}`` | |
-| [`NormL1Fused`](@ref)`(λ1, λ2)` | ``\sum_i \lambda_1(\lvert a_i\rvert + \lvert b_i\rvert) + \lambda_2\lvert a_i - b_i\rvert`` | fuse each pair, then soft threshold | |
+| [`NormL1Fused`](@ref)`(λ1, λ2)` | ``\sum_i \lambda_1(\lvert a_i\rvert + \lvert b_i\rvert) + \lambda_2\lvert a_i - b_i\rvert`` on pairs; ``\lambda_1\lVert v\rVert_1 + \lambda_2\sum_{k<l}\lvert v_k - v_l\rvert`` on a vector | fuse, then soft threshold | |
 | [`TotalVariation1D`](@ref)`(λ)` | ``\lambda\sum_i\lvert x_{i+1} - x_i\rvert`` | Condat's direct algorithm | |
 | [`FusedLasso`](@ref)`(λ1, λ2)` | ``\lambda_1\lVert x\rVert_1 + \lambda_2\sum_i\lvert x_{i+1} - x_i\rvert`` | ``S_{\gamma\lambda_1}`` of the total-variation denoising | |
 | [`SLOPE`](@ref)`(λ)` | ``\sum_i\lambda_i\lvert x\rvert_{(i)}`` | pool adjacent violators on the sorted magnitudes | |
@@ -202,6 +202,17 @@ solves the fusion part, moving ``a_i`` and ``b_i`` toward each other by
 ``\gamma\lambda_1``. Composing the two proximal operators this way is exact
 (Friedman, Hastie, Höfling and Tibshirani, 2007).
 
+On a vector ``v`` of length ``K``, `NormL1Fused(λ1, λ2)` fuses all pairs of
+entries: ``\lambda_1\lVert v\rVert_1 + \lambda_2\sum_{k<l}|v_k - v_l|``. For
+``K = 2`` it is the function of one pair. The proximal operator of the fusion
+part keeps the order of ``v``, and on vectors sorted the same way the fusion
+part is linear: with ``v_{(1)} \le \dots \le v_{(K)}`` it is
+``\lambda_2\sum_i (2i - K - 1) v_{(i)}``. So the proximal operator sorts
+``v``, subtracts ``\gamma\lambda_2(2i - K - 1)`` from the ``i``-th smallest
+entry, pools adjacent violators into a nondecreasing sequence, as for
+[`IndIsotonic`](@ref), restores the order, and soft thresholds by
+``\gamma\lambda_1``. It is exact and takes ``O(K \log K)`` operations.
+
 ## Penalties across stacked matrices
 
 The joint estimation of ``K`` related matrices, such as the precision matrices
@@ -217,7 +228,9 @@ function, and `nothing` leaves them unpenalized.
 | ``\lambda\|x_{ij}\|_2`` | a shared sparsity pattern, the group graphical lasso | `NormL2(λ)` |
 | ``\lambda_1\|x_{ij}\|_1 + \lambda_2\|x_{ij}\|_2`` | the group graphical lasso of Danaher, Wang and Witten (2014), sparse within a fiber too | `SparseGroupNormL2(λ1, λ2, [1:K], [1.0])` |
 | ``\lambda\|x_{ij}\|_\infty`` | simultaneous selection | `NormLinf(λ)` |
-| ``\lambda_1(|x^1_{ij}| + |x^2_{ij}|) + \lambda_2|x^1_{ij} - x^2_{ij}|`` | the fused graphical lasso of two classes | `NormL1Fused(λ1, λ2)` |
+| ``\lambda_1\|x_{ij}\|_1 + \lambda_2\sum_{k<l}|x^k_{ij} - x^l_{ij}|`` | the fused graphical lasso of ``K`` classes, all pairs fused (``K = 2``: two classes) | `NormL1Fused(λ1, λ2)` |
+| ``\lambda_1\|x_{ij}\|_1 + \lambda_2\sum_k|x^{k+1}_{ij} - x^k_{ij}|`` | graphs over time with jumps, neighboring time points fused | `FusedLasso(λ1, λ2)` |
+| ``\lambda\sum_k|x^{k+1}_{ij} - x^k_{ij}|`` | the same, without sparsity | `TotalVariation1D(λ)` |
 
 [`SliceSum`](@ref)`(f₁, …, f_K)` is ``\sum_k f_k(x^k)`` for the slices
 ``x^k = x[:, :, k]``, and its value, gradient and proximal operator act slice by

@@ -4,15 +4,16 @@
 #   julia --project=benchmark -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
 #   julia --project=benchmark benchmark/multiplier.jl
 #
-# 1. One call from zero: the first step of master (the lower bound on the
-#    distance to the root, which a function without known slopes still takes)
-#    against the first step from the exact slope; and the calls of a solver on
-#    slowly changing points, which start from the last multiplier.
-# 2. FISTA on the zero-sum lasso, each search from zero against each from the
-#    last multiplier.
-# 3. One median selection over the 2n breakpoints of the zero-sum lasso, the step
+# 1. One call from zero, over independent draws: the first step of master (the
+#    lower bound on the distance to the root, which a function without known
+#    slopes still takes) against the first step from the exact slope.
+# 2. The calls of a solver on slowly changing points: master, which searches
+#    from zero on every call, against this branch, which starts from the last
+#    multiplier.
+# 3. FISTA on the zero-sum lasso, master against this branch.
+# 4. One median selection over the 2n breakpoints of the zero-sum lasso, the step
 #    of the breakpoint search that #77 proposed, against the whole search.
-# 4. The threshold of the projection onto the simplex: master's Condat pass
+# 5. The threshold of the projection onto the simplex: master's Condat pass
 #    against the pass that hands over to Michelot's algorithm.
 # Every comparison runs its sides on the same data, interleaved over rounds,
 # and keeps the fastest round of each: other jobs on a shared node slow down
@@ -47,12 +48,17 @@ cold!(c) = (c.last[] = NaN; c)
 points(x, noise) = [x .+ (0.002 * t) .* noise for t in 1:20]
 calls_cold(c, y, xs) = (for xt in xs; cold!(c); PB.prox!(y, c, xt, 0.7); end)
 calls_warm(c, y, xs) = (for xt in xs; PB.prox!(y, c, xt, 0.7); end)
-function passes(c, y, xs, calls)
-  calls(c, y, xs)
-  CALLS[] = 0
-  calls(c, y, xs)
-  CALLS[] / length(xs[1]) / length(xs)
+# the passes of each call, from zero or, after a first round, from the last multiplier
+function passes(c, y, xs; warm = false)
+  warm && calls_warm(c, y, xs)
+  map(xs) do xt
+    warm || cold!(c)
+    CALLS[] = 0
+    PB.prox!(y, c, xt, 0.7)
+    CALLS[] / length(xt)
+  end
 end
+avg(v) = sum(v) / length(v)
 # the fastest of 7 interleaved rounds of each side, per call
 function interleaved(sides...; rounds = 7)
   foreach(s -> s(), sides)
@@ -63,35 +69,56 @@ function interleaved(sides...; rounds = 7)
   best
 end
 
-println("## 1. The search, one call from zero and the calls of a solver")
+# the cases, on vectors of length n
+cases(n) = [("simplex r = 1", PB.IndNonnegative(), PB.IndHyperplane(1, 1)),
+            ("simplex r = n/10", PB.IndNonnegative(), PB.IndHyperplane(1, n / 10)),
+            ("capped simplex k = 10", PB.IndBox(0, 1), PB.IndHyperplane(1, 10)),
+            ("capped simplex k = n/2", PB.IndBox(0, 1), PB.IndHyperplane(1, n / 2)),
+            ("zero-sum lasso λ = 0.5", PB.NormL1(0.5), PB.IndHyperplane(1, 0)),
+            ("ℓ1 on [-1, 1], a general normal", PB.Constrained(PB.NormL1(0.3), PB.IndBox(-1, 1)), PB.IndHyperplane(randn(n), 3.)),
+            ("elastic net on the simplex", PB.Constrained(PB.ElasticNet(0.1, 1.), PB.IndNonnegative()), PB.IndHyperplane(1, 1))]
+label(n) = n == 1_000 ? "10³" : "10⁵"
+
+println("## 1. One call from zero, over independent draws")
 println()
-println("Each column: the same 20 slowly changing points; time and passes per call.")
+println("200 draws of x at n = 10³ and 20 at n = 10⁵, the same for both sides: the mean time and passes per call, ",
+        "and the share of draws on which the exact first step takes more passes than master's.")
 println()
-println("| case | from zero, master's first step (μs, passes) | from zero, exact first step (μs, passes) | from the last multiplier (μs, passes) |")
+println("| case | master's first step (μs, passes) | exact first step (μs, passes) | more passes |")
 println("|:-----|---:|---:|---:|")
 for n in (1_000, 100_000)
-  x, noise, y = randn(n), randn(n), zeros(n)
-  s = n == 1_000 ? "10³" : "10⁵"
-  cases = [("simplex r = 1", PB.IndNonnegative(), PB.IndHyperplane(1, 1)),
-           ("simplex r = n/10", PB.IndNonnegative(), PB.IndHyperplane(1, n / 10)),
-           ("capped simplex k = 10", PB.IndBox(0, 1), PB.IndHyperplane(1, 10)),
-           ("capped simplex k = n/2", PB.IndBox(0, 1), PB.IndHyperplane(1, n / 2)),
-           ("zero-sum lasso λ = 0.5", PB.NormL1(0.5), PB.IndHyperplane(1, 0)),
-           ("ℓ1 on [-1, 1], a general normal", PB.Constrained(PB.NormL1(0.3), PB.IndBox(-1, 1)), PB.IndHyperplane(randn(n), 3.)),
-           ("elastic net on the simplex", PB.Constrained(PB.ElasticNet(0.1, 1.), PB.IndNonnegative()), PB.IndHyperplane(1, 1))]
-  for (name, f, H) in cases
-    xs = points(x, noise)
-    cm, cn, cw = PB.Constrained(Slopeless(f), H), PB.Constrained(f, H), PB.Constrained(f, H)
-    tm, tn, tw = interleaved(() -> calls_cold(cm, y, xs), () -> calls_cold(cn, y, xs), () -> calls_warm(cw, y, xs)) ./ length(xs)
-    pm = passes(PB.Constrained(Slopeless(Counted(f)), H), y, xs, calls_cold)
-    pn = passes(PB.Constrained(Counted(f), H), y, xs, calls_cold)
-    pw = passes(PB.Constrained(Counted(f), H), y, xs, calls_warm)
-    @printf("| %s, n = %s | %.1f, %.1f | %.1f, %.1f | %.1f, %.1f |\n", name, s, 1e6tm, pm, 1e6tn, pn, 1e6tw, pw)
+  xs, y = [randn(n) for _ in 1:(n == 1_000 ? 200 : 20)], zeros(n)
+  for (name, f, H) in cases(n)
+    cm, cn = PB.Constrained(Slopeless(f), H), PB.Constrained(f, H)
+    tm, tn = interleaved(() -> calls_cold(cm, y, xs), () -> calls_cold(cn, y, xs)) ./ length(xs)
+    pm = passes(PB.Constrained(Slopeless(Counted(f)), H), y, xs)
+    pn = passes(PB.Constrained(Counted(f), H), y, xs)
+    @printf("| %s, n = %s | %.1f, %.1f | %.1f, %.1f | %.0f%% |\n", name, label(n), 1e6tm, avg(pm), 1e6tn, avg(pn),
+            100avg(pn .> pm))
   end
 end
 
 println()
-println("## 2. FISTA on the zero-sum lasso")
+println("## 2. The calls of a solver")
+println()
+println("The same 20 slowly changing points for both sides: the time and passes per call.")
+println()
+println("| case | master, each call from zero (μs, passes) | this branch, from the last multiplier (μs, passes) | speedup |")
+println("|:-----|---:|---:|---:|")
+for n in (1_000, 100_000)
+  x, noise, y = randn(n), randn(n), zeros(n)
+  xs = points(x, noise)
+  for (name, f, H) in cases(n)
+    cm, cw = PB.Constrained(Slopeless(f), H), PB.Constrained(f, H)
+    tm, tw = interleaved(() -> calls_cold(cm, y, xs), () -> calls_warm(cw, y, xs)) ./ length(xs)
+    pm = passes(PB.Constrained(Slopeless(Counted(f)), H), y, xs)
+    pw = passes(PB.Constrained(Counted(f), H), y, xs; warm = true)
+    @printf("| %s, n = %s | %.1f, %.1f | %.1f, %.1f | %.2f× |\n", name, label(n), 1e6tm, avg(pm), 1e6tw, avg(pw), tm / tw)
+  end
+end
+
+println()
+println("## 3. FISTA on the zero-sum lasso")
 println()
 function fista!(β, f, g, iters; reset = false)
   L = PB.lipschitz(f)
@@ -109,7 +136,7 @@ function fista!(β, f, g, iters; reset = false)
   end
   β
 end
-println("| problem | searches from zero (ms, passes per call) | from the last multiplier (ms, passes per call) |")
+println("| problem | master, each search from zero (ms, passes per call) | this branch, from the last multiplier (ms, passes per call) |")
 println("|:-----|---:|---:|")
 for (n, p) in ((100, 20_000), (50, 100_000))         # the proximal step a large part of each iteration
   W = exp.(randn(n, p))
@@ -120,10 +147,11 @@ for (n, p) in ((100, 20_000), (50, 100_000))         # the proximal step a large
   y .-= sum(y) / n
   f = (1 / n) * PB.LeastSquaresLoss(y, Z)
   λ = 0.3 * maximum(abs.(Z' * y)) / n
-  g0, g1 = PB.Constrained(PB.NormL1(λ), PB.IndHyperplane(1, 0)), PB.Constrained(PB.NormL1(λ), PB.IndHyperplane(1, 0))
+  g0, g1 = PB.Constrained(Slopeless(PB.NormL1(λ)), PB.IndHyperplane(1, 0)), PB.Constrained(PB.NormL1(λ), PB.IndHyperplane(1, 0))
   tc, tw = interleaved(() -> fista!(zeros(p), f, g0, 500; reset = true), () -> fista!(zeros(p), f, g1, 500); rounds = 3)
   pc, pw = map((true, false)) do reset
-    gc = PB.Constrained(Counted(PB.NormL1(λ)), PB.IndHyperplane(1, 0))
+    h = Counted(PB.NormL1(λ))
+    gc = PB.Constrained(reset ? Slopeless(h) : h, PB.IndHyperplane(1, 0))
     CALLS[] = 0
     fista!(zeros(p), f, gc, 500; reset)
     CALLS[] / p / 500
@@ -132,7 +160,7 @@ for (n, p) in ((100, 20_000), (50, 100_000))         # the proximal step a large
 end
 
 println()
-println("## 3. One median selection over the breakpoints, against the whole search")
+println("## 4. One median selection over the breakpoints, against the whole search")
 println()
 function breakpoints!(bp, x, t)
   @inbounds for i in eachindex(x)
@@ -154,7 +182,7 @@ for n in (1_000, 100_000)
 end
 
 println()
-println("## 4. The threshold of the projection onto the simplex")
+println("## 5. The threshold of the projection onto the simplex")
 println()
 # master's _simplex_threshold! (f5a7ec4), Condat's algorithm with a division per update
 function master_threshold!(buf::AbstractVector{T}, x::AbstractVector, a::T) where {T}

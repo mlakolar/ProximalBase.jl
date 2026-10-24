@@ -3,9 +3,13 @@
 ```@autodocs
 Modules = [ProximalBase]
 Pages = ["functions/smooth.jl", "functions/leastsquares.jl", "functions/glm.jl", "functions/logdet.jl",
-         "functions/separable.jl", "functions/norms.jl", "functions/spectral.jl", "functions/sets.jl"]
+         "functions/separable.jl", "functions/losses.jl", "functions/entropy.jl", "functions/norms.jl", "functions/fibers.jl", "functions/spectral.jl", "functions/sets.jl", "functions/nonconvex.jl"]
 Private = false
 Filter = t -> !(t in (SeparableFunction, value_entry, iszeropreserving))
+```
+
+```@docs
+SparseGroupNormL2
 ```
 
 ## Scalar losses of `GLMLoss`
@@ -18,6 +22,9 @@ ProximalBase.Squared
 ProximalBase.Logistic
 ProximalBase.Poisson
 ProximalBase.Huber
+ProximalBase.SquaredHinge
+ProximalBase.SmoothCheck
+ProximalBase.ConvolutionCheck
 ProximalBase.Smoothed
 ProximalBase.deriv
 ProximalBase.deriv2

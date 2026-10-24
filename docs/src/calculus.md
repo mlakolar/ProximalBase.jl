@@ -12,6 +12,8 @@ from known ones.
 | [`Conjugate`](@ref)`(f)` | ``f^*(x) = \sup_z \langle z, x\rangle - f(z)`` | ``x - \gamma\operatorname{prox}_{f/\gamma}(x/\gamma)`` | |
 | [`SeparableSum`](@ref)`(f1, f2, ...)` | ``\sum_k f_k(x_k)`` on a tuple of blocks | block by block | block by block |
 | [`Sum`](@ref)`(f1, f2, ...)` | ``\sum_k f_k(x)`` | | ``\sum_k \nabla f_k(x)`` |
+| [`Constrained`](@ref)`(f, C)` | ``f(x)`` on a box, hyperplane, halfspace or simplex ``C`` | on a box, ``\operatorname{clamp}(\operatorname{prox}_{\gamma f}(x), l, u)``; on a hyperplane, ``\operatorname{prox}_{\gamma f}(x - \gamma\nu a)`` | |
+| [`Spectral`](@ref)`(f)` | ``f(\lambda(X))`` for a symmetric ``X`` | ``V\operatorname{diag}(\operatorname{prox}_{\gamma f}(\lambda))V^\top`` | |
 | [`MoreauEnvelope`](@ref)`(f, μ)` | ``\min_z f(z) + \tfrac{1}{2\mu}\lVert z - x\rVert^2`` | ``x + \tfrac{\gamma}{\mu + \gamma}\big(\operatorname{prox}_{(\mu+\gamma) f}(x) - x\big)`` | ``\big(x - \operatorname{prox}_{\mu f}(x)\big)/\mu`` |
 | [`Precompose`](@ref)`(f, A, μ)`, ``AA^\top = \mu I`` | ``f(Ax)`` | ``x + \tfrac1\mu A^\top\big(\operatorname{prox}_{\mu\gamma f}(Ax) - Ax\big)`` | ``A^\top\nabla f(Ax)`` |
 | [`Regularize`](@ref)`(f, ρ, c)` | ``f(x) + \tfrac{\rho}{2}\lVert x - c\rVert^2`` | ``\operatorname{prox}_{\frac{\gamma}{1+\gamma\rho} f}\big(\tfrac{x + \gamma\rho c}{1 + \gamma\rho}\big)`` | ``\nabla f(x) + \rho(x - c)`` |
@@ -77,6 +79,163 @@ proximable function's conjugate is available, even where the value is not.
 ```@example calculus
 h = Conjugate(NormL2(1.0))                     # the indicator of the unit ℓ2 ball
 prox(h, [3.0, 4.0], 0.5) ≈ [0.6, 0.8]
+```
+
+## Separable functions with constraints
+
+[`Constrained`](@ref)`(f, C)` is ``f + \iota_C`` for a convex separable
+``f(x) = \sum_i f_i(x_i)`` and a set ``C`` that is a box, a hyperplane, a
+halfspace or a simplex. Its proximal operator reduces to the scalar proximal
+operators of ``f``.
+
+**On a box.** The problem that defines the proximal operator separates over the
+entries, into the scalar problems
+```math
+\underset{l_i \le z \le u_i}{\text{minimize}} \quad f_i(z) + \frac{1}{2\gamma}(z - v_i)^2 .
+```
+The objective is strictly convex, so it decreases up to its unconstrained
+minimizer ``\operatorname{prox}_{\gamma f_i}(v_i)`` and increases after it. Its
+minimizer on the interval is therefore the point of the interval nearest to that
+minimizer:
+```math
+\operatorname{prox}_{\gamma(f + \iota_C)}(v)_i = \operatorname{clamp}\big(\operatorname{prox}_{\gamma f_i}(v_i),\, l_i,\, u_i\big).
+```
+The constrained function is again separable, so coordinate descent applies to
+it. For a nonconvex ``f_i`` the objective can have several local minimizers, and
+the clamp can pick the wrong one, so `Constrained` requires a convex ``f``,
+except for [`MCP`](@ref), [`SCAD`](@ref) and [`NormL0`](@ref). Their scalar
+objectives are piecewise quadratic, convex or concave between the kinks of
+``f_i``, so the minimum on the interval is at one of a few candidates: the ends
+of the interval, the kinks inside it, and the clamped vertices of the convex
+pieces. When the step is small enough for the objective to be convex everywhere
+(``\gamma < a`` for MCP, ``\gamma < a - 1`` for SCAD), the clamp is exact again.
+For example, the ℓ0 penalty with ``\lambda = \gamma = 1`` on ``[-1, 0.5]`` at
+``v = 2``: hard thresholding keeps ``2``, whose clamp ``0.5`` costs
+``1 + 1.5^2/2 = 2.125``, while ``0`` costs ``2^2/2 = 2``.
+
+**On a hyperplane.** For ``C = \{z : \langle a, z\rangle = b\}``, the Lagrangian
+```math
+f(z) + \frac{1}{2\gamma}\|z - v\|^2 + \nu\,(\langle a, z\rangle - b)
+```
+also separates over the entries. Completing the square, its minimizer for a
+fixed multiplier ``\nu`` is
+```math
+z_i(\nu) = \operatorname{prox}_{\gamma f_i}(v_i - \gamma\nu a_i).
+```
+A scalar proximal operator is nondecreasing and 1-Lipschitz, so each
+``a_i z_i(\nu)`` is a continuous, nonincreasing function of ``\nu``, and so is
+``\varphi(\nu) = \langle a, z(\nu)\rangle - b``. The proximal point is
+``z(\nu^\star)`` for a root ``\nu^\star`` of ``\varphi``, and it is the same for
+every root. For the halfspace ``\langle a, z\rangle \le b`` the multiplier is
+nonnegative and vanishes when the constraint is inactive: ``\nu^\star = 0`` when
+``\varphi(0) \le 0``.
+
+`Constrained` finds the root by a search over the scalar ``\nu``, and each step
+of the search is one pass over the entries. The slope of ``\varphi`` is at least
+``-\gamma\|a\|^2``, so the first step, ``|\varphi(0)|/(\gamma\|a\|^2)``, does not
+pass the root. Secant steps then bracket the root, and regula falsi with the
+Illinois rule shrinks the bracket. For the ℓ1 norm and boxes ``\varphi`` is
+piecewise linear, and the search is exact once the bracket lies on one piece.
+On simplices, capped simplices and the zero-sum lasso, with ``10^3`` to ``10^5``
+entries, it took 6 to 17 passes. A box enters through the scalar proximal
+operators, so ``f`` may itself be `Constrained(f, box)`; the simplex is the box
+``x \ge 0`` with the hyperplane ``\sum_i x_i = r``.
+
+| Call | Function |
+|:-----|:---------|
+| `Constrained(NormL1(λ), IndHyperplane(1, 0))` | the lasso penalty on coefficients that sum to zero, as in regression on compositional data |
+| `Constrained(NormL1(λ), IndBox(0, u))` | the nonnegative lasso penalty with upper bounds |
+| `Constrained(IndBox(0, 1), IndHyperplane(1, k))` | the indicator of the capped simplex ``\{x : 0 \le x \le 1,\ \sum_i x_i = k\}`` |
+| `Constrained(SqrNormL2(λ), IndSimplex(1))` | the ridge penalty on the probability simplex |
+
+```@example calculus
+v = [0.9, -0.4, 0.3, 1.6]
+z = prox(Constrained(NormL1(0.2), IndHyperplane(1, 0)), v, 1.0)   # entries that sum to zero
+(z, sum(z))
+```
+
+```@example calculus
+prox(Constrained(IndBox(0, 1), IndHyperplane(1, 2)), v)            # onto the capped simplex
+```
+
+**On an ℓ2 ball or sphere.** For a norm ``f`` on the ball ``\{z : \|z\|_2 \le r\}``,
+the proximal operator is the proximal point of ``f`` scaled onto the ball:
+```math
+\operatorname{prox}_{\gamma(f + \iota_{B_r})}(v) = \min\Big(1, \frac{r}{\|p\|_2}\Big)\, p,
+\qquad p = \operatorname{prox}_{\gamma f}(v).
+```
+A positively homogeneous convex ``f`` has ``\partial f(tp) = \partial f(p)`` for
+``t > 0``, so ``v - p \in \gamma\,\partial f(p)`` gives
+``v - tp = (v - p) + (1 - t)p``, a subgradient plus a multiple of ``tp``, which
+lies in the normal cone of the ball at ``tp = rp/\|p\|``. The same holds for the
+indicator of a cone, also a nonconvex one such as the ℓ0 ball or the matrices of
+rank at most ``r``. Among the points of the ball on one face of the cone, the
+best is the projection there scaled onto the ball, at a distance that decreases
+with the norm of that projection, so the projection onto the cone already picks
+the face.
+
+On the sphere ``\|z\|_2 = r``, the quadratic term is ``-\langle z, v\rangle`` plus
+a constant, so the proximal operator maximizes ``\langle z, v\rangle - \gamma f(z)``.
+For ``f = \lambda\|\cdot\|_1`` this is
+``\sum_i |z_i|\,(|v_i| - \gamma\lambda)`` for ``z`` with the signs of ``v``, so
+the maximizer is the soft thresholding of ``v`` scaled onto the sphere when some
+``|v_i| > \gamma\lambda``. Otherwise every coefficient is at most zero, and since
+``\sum_i |z_i| \ge \|z\|_2`` the maximizer puts all the mass on the entry where
+``|v_i| - \gamma\lambda`` is largest. The group norm works the same way with the
+margins ``\|v_G\| - \gamma\lambda w_G``, and the ℓ0 ball keeps the ``s`` largest
+entries. These are the steps of the penalized matrix decomposition (Witten,
+Tibshirani and Hastie, 2009) and of the truncated power method (Yuan and Zhang,
+2013) for sparse principal components.
+
+```@example calculus
+u = prox(Constrained(NormL1(0.5), IndSphereL2(1)), [2.0, -0.3, 1.0, 0.2])   # a sparse unit vector
+(u, norm(u))
+```
+
+## Functions of the eigenvalues
+
+[`Spectral`](@ref)`(f)` is ``F(X) = f(\lambda(X))`` on the symmetric matrices,
+for a function ``f`` of a vector that does not depend on the order of its
+entries. Its proximal operator acts on the eigenvalues (Lewis, 1996): for
+``X = V\operatorname{diag}(\lambda)V^\top``,
+```math
+\operatorname{prox}_{\gamma F}(X) = V\operatorname{diag}\big(\operatorname{prox}_{\gamma f}(\lambda)\big)V^\top .
+```
+For a symmetric ``Z`` with eigenvalues ``\mu``, sorted in the same order as
+``\lambda``, the trace inequality ``\operatorname{tr}(ZX) \le \langle \mu, \lambda\rangle``
+(von Neumann; Fan, 1949) gives ``\|Z - X\|_F \ge \|\mu - \lambda\|_2``. So the
+objective that defines the proximal operator is at least
+``f(\mu) + \|\mu - \lambda\|_2^2/(2\gamma)`` at ``Z``. The matrix above, with the
+eigenvectors of ``X``, attains the minimum of that bound over ``\mu``. ``F`` is
+convex exactly when ``f`` is.
+
+| ``f`` | `Spectral(f)` |
+|:------|:--------------|
+| `IndNonnegative()` | the positive semidefinite cone, [`IndPSD`](@ref)`()` |
+| `NormL1Nonneg(λ)` | ``\lambda\operatorname{tr}(X)`` on the cone, [`TracePSD`](@ref)`(λ)` |
+| `NormL1(λ)` | ``\lambda\|X\|_*``, the trace norm |
+| `NormL2(λ)` | ``\lambda\|X\|_F`` |
+| `NormLinf(λ)` | ``\lambda\|X\|_2``, the spectral norm |
+| `IndBox(l, u)` | ``lI \preceq X \preceq uI`` |
+| `IndBallL1(r)` | ``\|X\|_* \le r`` |
+| `IndSimplex(1)` | the density matrices: ``X \succeq 0`` and ``\operatorname{tr}(X) = 1`` |
+| `Constrained(IndBox(0, 1), IndHyperplane(1, k))` | the Fantope: ``0 \preceq X \preceq I`` and ``\operatorname{tr}(X) = k`` |
+| `NormL0(λ)` | ``\lambda\operatorname{rank}(X)``, nonconvex |
+| `IndBallL0(r)` | the matrices of rank at most ``r``, nonconvex |
+
+The Fantope ``\mathcal{F}^k`` is the convex hull of the projections onto
+``k``-dimensional subspaces (Fan, 1949; Overton and Womersley, 1992), and its
+projection projects the eigenvalues onto the capped simplex. Vu, Cho, Lei and
+Rohe (2013) estimate a sparse principal subspace by maximizing
+``\langle S, X\rangle - \lambda\|X\|_1`` over ``\mathcal{F}^k``, and the example on
+sparse principal component analysis does this by ADMM. A function with weights,
+bounds or normals that differ between entries depends on their order, and
+`Spectral` rejects it.
+
+```@example calculus
+B = randn(5, 5)
+P = prox(Spectral(Constrained(IndBox(0, 1), IndHyperplane(1, 2))), (B + B') / 2)   # onto the Fantope
+(eigvals(Symmetric(P)), tr(P))
 ```
 
 ## Smoothing

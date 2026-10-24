@@ -177,8 +177,9 @@ operator follows from that of `f` by Moreau's identity,
 `prox_{γf*}(x) = x - γ prox_{f/γ}(x/γ)`, so every proximable function gives one;
 for a separable `f` so does [`prox_entry`](@ref). Its value is known for the
 norms (the indicators of the dual balls), the balls (their support functions),
-the box, the nonnegative orthant, [`SqrNormL2`](@ref), [`LinearFunction`](@ref)
-and [`ZeroFunction`](@ref).
+the box, the nonnegative orthant, [`SqrNormL2`](@ref), [`LinearFunction`](@ref),
+[`ZeroFunction`](@ref), and the losses [`CheckLoss`](@ref), [`HingeLoss`](@ref)
+and [`EpsInsensitiveLoss`](@ref).
 """
 struct Conjugate{F<:AbstractFunction} <: AbstractFunction
   f::F

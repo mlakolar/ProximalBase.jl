@@ -171,6 +171,22 @@ end
     @test allocs(a_prox!, out, sep, xy, 0.7) == 0
     @test allocs(a_vprox!, out, sep, xy, 0.7) == 0
   end
+
+  @testset "constrained" begin
+    for f in (Constrained(NormL1(0.3, w), IndBox(-w, w)), Constrained(ElasticNet(0.3, 0.4), IndNonnegative()),
+              Constrained(NormL1(0.3), IndHyperplane(1, 0)), Constrained(IndBox(0, 1), IndHyperplane(randn(p), 1.)),
+              Constrained(SqrNormL2(1.), IndSimplex(2.)), Constrained(NormL1(0.3), IndHalfspace(rand(p), -1.)))
+      @testset "$(nameof(typeof(f)))" begin
+        zero_alloc_prox(f, x)
+        zero_alloc_prox(f, Float32.(x))
+      end
+    end
+    f = Constrained(NormL1(0.3), IndBox(-1, 1))
+    zero_alloc_prox(f, xs)
+    @test allocs(a_cd!, copy(xs), f, 3, 0.7) == 0
+    @test allocs(a_cd!, copy(xa), f, 2, 0.7) == 0
+    @test allocs(a_kkt, f, x, x, 4) == 0
+  end
 end
 
 end

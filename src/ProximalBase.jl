@@ -50,7 +50,7 @@ export
   IndHyperplane, IndHalfspace, IndPSD, IndBallRank,
 
   # functions built from functions
-  Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum,
+  Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum, Constrained,
 
   # functions of stacked arrays
   SliceSum, FiberSum,
@@ -82,6 +82,7 @@ include("functions/spectral.jl")
 include("functions/sets.jl")
 
 include("calculus.jl")
+include("constrained.jl")
 include("deprecated.jl")
 include("precompile.jl")
 

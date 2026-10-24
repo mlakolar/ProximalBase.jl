@@ -29,7 +29,8 @@ The box, the nonnegative orthant and the ℓ∞ ball are products of intervals.
 Their projections clamp each coordinate, and they have scalar proximal
 operators for coordinate descent. A box whose bounds exclude zero does not
 preserve zeros (see [`iszeropreserving`](@ref)), so on a sparse iterate it
-visits every entry.
+visits every entry. [`Constrained`](@ref) restricts a convex separable function
+to a box, and the result is again separable.
 
 ## The simplex and the ℓ1 ball
 
@@ -71,6 +72,11 @@ Minimizing ``\|z - v\|^2`` subject to ``\langle a, z\rangle = b`` gives
 ``z = v - \mu a`` with ``\mu = (\langle a, v\rangle - b)/\|a\|^2``. For the
 halfspace ``\langle a, z\rangle \le b``, the same step applies when ``v``
 violates the inequality, and ``z = v`` otherwise.
+
+A scalar `a` stands for an array of `a`s of the size of the argument, so
+`IndHyperplane(1, r)` is the set of arrays whose entries sum to ``r``, of any
+size. [`Constrained`](@ref) restricts a convex separable function to a
+hyperplane or a halfspace.
 
 ## Positive semidefinite and low-rank matrices
 

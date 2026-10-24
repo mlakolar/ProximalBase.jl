@@ -185,4 +185,17 @@ end
   @test dot(A, Z) ≈ 2.
 end
 
+@testset "scalar normals of hyperplanes and halfspaces" begin
+  x = randn(7)
+  for H in (IndHyperplane, IndHalfspace), (a, b) in ((2., 1.5), (-0.5, 0.2))
+    h, ha = H(a, b), H(fill(a, 7), b)
+    @test prox(h, x) ≈ prox(ha, x)
+    z = prox(h, x)
+    @test h(z) == 0 == ha(z)
+    @test h(x) == ha(x)
+  end
+  @test sum(prox(IndHyperplane(1, 0), randn(3, 3))) ≈ 0 atol = 1e-14
+  @test_throws ArgumentError IndHyperplane(0, 1.)
+end
+
 end

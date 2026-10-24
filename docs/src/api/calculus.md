@@ -2,6 +2,6 @@
 
 ```@autodocs
 Modules = [ProximalBase]
-Pages = ["calculus.jl"]
+Pages = ["calculus.jl", "constrained.jl"]
 Private = false
 ```

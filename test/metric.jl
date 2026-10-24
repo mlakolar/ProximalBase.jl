@@ -96,6 +96,30 @@ end
   end
 end
 
+@testset "a step per group for the sparse group lasso" begin
+  groups = [1:3, 4:5, [6, 8], 9:12]               # x[7] is in no group
+  x = 2 .* randn(12)
+  γ = [0.2, 0.9, 0.5, 1.4]
+  f = SparseGroupNormL2(0.3, 0.5, groups)
+  p = prox(f, x, γ)
+  @test p[7] == x[7]
+  for k in eachindex(groups)
+    G = groups[k]
+    @test p[G] ≈ prox(SparseGroupNormL2(0.3, 0.5, [1:length(G)], [f.w[k]]), x[G], γ[k])
+  end
+  @test prox(f, x, fill(0.6, 4)) ≈ prox(f, x, 0.6)
+  @test value_and_prox!(similar(x), f, x, γ) ≈ f(p)
+  @test prox!(similar(x), f, x, 0.6) ≈ prox(f, x, 0.6)   # prox! goes through value_and_prox!
+  # an AtomIterate with the groups of f
+  fa = SparseGroupNormL2(0.3, 0.5, [groups; [[7]]], [f.w; 0.])
+  xa = AtomIterate(x, fa)
+  ya = similar(xa)
+  γa = [γ; 1.0]
+  @test value_and_prox!(ya, fa, xa, γa) ≈ fa(prox(fa, x, γa))
+  @test Vector(ya) ≈ prox(fa, x, γa)
+  @test_throws DimensionMismatch prox(f, x, rand(3))
+end
+
 @testset "functions built from functions pass the steps on" begin
   n = 10
   x = 2 .* randn(n)

@@ -269,7 +269,7 @@ function (f::AbstractGroupNorm)(x::AbstractArray)
 end
 
 value_and_prox!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
-prox!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::Real) = (_value_and_prox_groups!(y, f, x, γ); y)
+prox!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::Real) = (value_and_prox!(y, f, x, γ); y)
 
 # the step γ is a scalar or a vector with a step per group (see metric.jl)
 function _value_and_prox_groups!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::Union{Real, AbstractVector})

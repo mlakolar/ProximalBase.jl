@@ -483,25 +483,19 @@ const _StridedSymmetric = Symmetric{<:Any, <:StridedMatrix}
 function _symmetric_axpy!(out::StridedVector, A::_StridedSymmetric, j::Int, c)
   M = parent(A)
   n = size(A, 1)
+  # One-line SIMD loops avoid phantom uncovered `end` lines on Julia 1.10.
   if A.uplo == 'U'
-    @inbounds @simd for i in 1:j
-      out[i] += c * M[i, j]
-    end
-    @inbounds @simd for i in j+1:n
-      out[i] += c * M[j, i]
-    end
+    @inbounds @simd for i in 1:j; out[i] += c * M[i, j]; end
+    @inbounds @simd for i in j+1:n; out[i] += c * M[j, i]; end
   else
-    @inbounds @simd for i in 1:j-1
-      out[i] += c * M[j, i]
-    end
-    @inbounds @simd for i in j:n
-      out[i] += c * M[i, j]
-    end
+    @inbounds @simd for i in 1:j-1; out[i] += c * M[j, i]; end
+    @inbounds @simd for i in j:n; out[i] += c * M[i, j]; end
   end
   out
 end
 
 _scale_product_output!(out, β) = iszero(β) ? fill!(out, zero(eltype(out))) : (out .*= β)
+# Preserve the common component precision without making a real scale complex.
 _product_scale(A, x, α) = convert(promote_type(typeof(α), real(eltype(A)), real(eltype(x))), α)
 
 function *(A::_StridedSymmetric, x::SparseIterate{T, 1}) where {T}

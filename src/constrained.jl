@@ -43,6 +43,12 @@ by the same search with `prox_{γᵢfᵢ}(xᵢ - γᵢνaᵢ)` in entry `i`. For
 - `Constrained(SqrNormL2(λ), IndSimplex(1))` is the ridge penalty on the
   probability simplex.
 
+The conjugate of the indicator of a box with scalar bounds intersected with a
+hyperplane or a halfspace with a scalar `a`, such as the capped simplex, has a
+value: the support function of the set. For the capped simplex it is the sum of
+the `k` largest entries, and [`SingularValue`](@ref) and [`Spectral`](@ref) turn
+it into the Ky Fan `k`-norm and the sum of the `k` largest eigenvalues.
+
 `f` must be convex: for a nonconvex penalty, clamping its proximal operator does
 not give the constrained one. The exceptions are [`MCP`](@ref), [`SCAD`](@ref)
 and [`NormL0`](@ref) on a box, whose scalar problems are solved exactly by
@@ -69,9 +75,10 @@ struct LinearConstrained{F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspa
   set::H
   last::Base.RefValue{Float64}      # the multiplier of the last call
   slope::Base.RefValue{Float64}     # the slope of φ near it, from the last secant
+  scratch::Scratch                  # for the value of the conjugate
 
   LinearConstrained{F, H}(f::F, set::H) where {F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspace}} =
-    (_check_constrainable(f); new{F, H}(f, set, Ref(NaN), Ref(NaN)))
+    (_check_constrainable(f); new{F, H}(f, set, Ref(NaN), Ref(NaN), Scratch()))
 end
 LinearConstrained(f::AbstractFunction, set::Union{IndHyperplane, IndHalfspace}) =
   LinearConstrained{typeof(f), typeof(set)}(f, set)
@@ -323,6 +330,61 @@ function _refine(c::LinearConstrained, x::AbstractArray, γ, lo::T, φlo::T, hi:
     abs(hi - lo) <= 2eps(T) * max(abs(lo), abs(hi)) && break
   end
   best
+end
+
+####################################
+#  the support function of a box with a linear constraint
+####################################
+
+# The value of the conjugate of the indicator of {x : l ≤ x ≤ u, a Σᵢ xᵢ = b}, or
+# a Σᵢ xᵢ ≤ b, for scalar l, u and a: the support function of the set. A
+# halfspace with a < 0 bounds the sum from below, and σ_C(y) = σ_{-C}(-y) turns it
+# into one that bounds it from above. With x = l + (u - l)w, the support function
+# is l Σᵢ yᵢ plus u - l times the largest ⟨y, w⟩ over 0 ≤ w ≤ 1 with Σᵢ wᵢ = κ:
+# the sum of the ⌊κ⌋ largest yᵢ and the fraction κ - ⌊κ⌋ of the next one. Under
+# Σᵢ wᵢ ≤ κ, it is the same sum of the positive parts. For the capped simplex it
+# is the sum of the k largest entries, and with the halfspace on the singular
+# values the Ky Fan k-norm.
+function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}},
+                          y::AbstractArray)
+  T = float(eltype(y))
+  box, set = c.f, c.set
+  n = length(y)
+  upper = set isa IndHyperplane || set.a > 0
+  s = upper ? one(T) : -one(T)
+  l, u = upper ? (convert(T, box.l), convert(T, box.u)) : (-convert(T, box.u), -convert(T, box.l))
+  isfinite(l) && isfinite(u) ||
+    throw(ArgumentError("the value of the conjugate of Constrained(IndBox(l, u), $(nameof(typeof(set)))(a, b)) needs finite bounds"))
+  β = s * convert(T, set.b) / convert(T, set.a)
+  slack = _tol(T) * max(one(T), abs(β), n * abs(l))
+  v = _buffer!(c.scratch, T, n)
+  total = zero(T)
+  @inbounds for (i, yi) in enumerate(y)
+    z = s * convert(T, yi)
+    total += z
+    v[i] = set isa IndHyperplane ? z : max(z, zero(T))
+  end
+  m = β - n * l                                   # the sum of w, times u - l
+  (m < -slack || (set isa IndHyperplane && m > n * (u - l) + slack)) && _infeasible(c)
+  iszero(u - l) && return l * total
+  κ = clamp(m / (u - l), zero(T), convert(T, n))
+  return l * total + (u - l) * _top_sum!(view(v, 1:n), κ)
+end
+
+# the sum of the ⌊κ⌋ largest entries of v and the fraction κ - ⌊κ⌋ of the next
+# one, for 0 ≤ κ ≤ length(v); reorders v
+function _top_sum!(v::AbstractVector{T}, κ::T) where {T}
+  n = length(v)
+  k = min(floor(Int, κ), n)
+  f = κ - k
+  j = f > 0 && k < n ? k + 1 : k
+  j == 0 && return zero(T)
+  j < n && _kth_largest!(v, j)
+  t = zero(T)
+  @inbounds for i in 1:k
+    t += v[i]
+  end
+  return j > k ? t + f * v[j] : t
 end
 
 ####################################

@@ -28,8 +28,11 @@ from the multiplier of the previous call, which the function keeps, with a
 first step from the exact slope of the constraint where the scalar proximal
 operators of `f` are piecewise linear, as for every function below. The calls
 of a solver on slowly changing points then take three to five passes, against
-7 to 16 from zero. Do not share one function object between threads. For
-example:
+7 to 16 from zero. Do not share one function object between threads.
+
+On a box, a hyperplane, a halfspace or a simplex, `γ` may also be an array of
+steps, one per entry: the proximal operator in the metric of `Diagonal(1 ./ γ)`,
+by the same search with `prox_{γᵢfᵢ}(xᵢ - γᵢνaᵢ)` in entry `i`. For example:
 
 - `Constrained(NormL1(λ), IndHyperplane(1, 0))` is the lasso penalty on
   coefficients that sum to zero, as in regression on compositional data;
@@ -126,8 +129,12 @@ _isindicator(::Type{<:LinearConstrained{F}}) where {F} = _isindicator(F)
 Base.@propagate_inbounds prox_entry(c::BoxConstrained, v::Real, i::Integer, γ::Real) =
   prox_entry(c.box, prox_entry(c.f, v, i, γ), i, γ)
 
+# γ is a scalar step or an array of steps, one per entry
 prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = _prox_sep!(y, c, x, γ)
-function value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real)
+prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = _prox_sep!(y, c, x, γ)
+value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = _value_and_prox_box!(y, c, x, γ)
+value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_box!(y, c, x, γ)
+function _value_and_prox_box!(y, c, x, γ)
   _prox_sep!(y, c, x, γ)
   T = float(eltype(y))
   _isindicator(c) ? zero(T) : convert(T, c.f(y))
@@ -161,42 +168,65 @@ restrict(c::BoxConstrained, S::AbstractVector{<:Integer}) = BoxConstrained(restr
 
 _checkparams(c::LinearConstrained, x) = (_checkparams(c.f, x); _checkparams(c.set, x); true)
 
-function prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real)
+# γ is a scalar step, or an array of steps, one per entry: the proximal operator
+# in the metric of Diagonal(1 ./ γ), where z(ν) has the entries
+# prox_{γᵢfᵢ}(xᵢ - γᵢνaᵢ)
+prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
+  _linear_constrained_prox!(y, c, x, convert(float(eltype(y)), γ))
+prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
+  (_checkparam(γ, x); _linear_constrained_prox!(y, c, x, γ))
+
+function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ)
   _checksize(y, x)
   _checkparams(c, x)
   T = float(eltype(y))
-  s = convert(T, γ)
-  ν = _multiplier(c, x, s)
+  ν = _multiplier(c, x, γ, T)
   f, a = c.f, c.set.a
   @inbounds for i in eachindex(IndexLinear(), y, x)
-    y[i] = convert(eltype(y), prox_entry(f, x[i] - s * ν * convert(T, _entry(a, i)), i, s))
+    γᵢ = convert(T, _entry(γ, i))
+    y[i] = convert(eltype(y), prox_entry(f, x[i] - γᵢ * ν * convert(T, _entry(a, i)), i, γᵢ))
   end
   y
 end
 
-function value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) = _value_and_prox_linear!(y, c, x, γ)
+value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_linear!(y, c, x, γ)
+function _value_and_prox_linear!(y, c, x, γ)
   prox!(y, c, x, γ)
   T = float(eltype(y))
   _isindicator(c) ? zero(T) : convert(T, c.f(y))
 end
 
-# φ(ν) = ⟨a, z⟩ - b at z = prox_{γf}(x - γνa), and Σᵢ |aᵢzᵢ| + |b|, the scale of
-# its rounding error; with Val(true), also the slope of φ, -γ Σᵢ aᵢ² Pᵢ', where
-# Pᵢ' is the slope of the scalar proximal operator at its argument
-function _constraint_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ::T, ::Val{S} = Val(false)) where {T, S}
+# φ(ν) = ⟨a, z⟩ - b at z = z(ν), and Σᵢ |aᵢzᵢ| + |b|, the scale of its rounding
+# error; with Val(true), also the slope of φ, -Σᵢ γᵢaᵢ² Pᵢ', where Pᵢ' is the
+# slope of the scalar proximal operator at its argument
+function _constraint_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ, ::Val{S} = Val(false)) where {T, S}
   f, a = c.f, c.set.a
   s, m, d = zero(T), zero(T), zero(T)
   @inbounds @simd for i in eachindex(IndexLinear(), x)
     aᵢ = convert(T, _entry(a, i))
-    v = x[i] - γ * ν * aᵢ
-    z, dz = S ? _prox_entry_slope(f, v, i, γ) : (prox_entry(f, v, i, γ), zero(T))
+    γᵢ = convert(T, _entry(γ, i))
+    v = x[i] - γᵢ * ν * aᵢ
+    z, dz = S ? _prox_entry_slope(f, v, i, γᵢ) : (prox_entry(f, v, i, γᵢ), zero(T))
     t = aᵢ * convert(T, z)
     s += t
     m += abs(t)
-    S && (d += aᵢ * aᵢ * convert(T, dz))
+    S && (d += γᵢ * aᵢ * aᵢ * convert(T, dz))
   end
   b = convert(T, c.set.b)
-  S ? (s - b, m + abs(b), -γ * d) : (s - b, m + abs(b))
+  S ? (s - b, m + abs(b), -d) : (s - b, m + abs(b))
+end
+
+# Σᵢ γᵢaᵢ², the steepest slope of φ
+_metric_sqnorm(set::Union{IndHyperplane, IndHalfspace}, x::AbstractArray, γ::Real) = γ * _normal_sqnorm(set, x)
+function _metric_sqnorm(set::Union{IndHyperplane, IndHalfspace}, x::AbstractArray, γ::AbstractArray)
+  T = float(promote_type(eltype(γ), typeof(set.a2)))
+  set.a isa Real && return convert(T, set.a2) * convert(T, sum(γ))
+  s = zero(T)
+  @inbounds for i in eachindex(IndexLinear(), γ)
+    s += convert(T, γ[i]) * convert(T, abs2(set.a[i]))
+  end
+  return s
 end
 
 const _MAX_BRACKET_STEPS = 64
@@ -207,11 +237,11 @@ const _MAX_SECANTS = 100
 
 # φ and the scale of its rounding error at ν, and its slope when the scalar
 # proximal operators of f have known slopes, NaN otherwise
-_gap_and_slope(c::LinearConstrained{F}, x::AbstractArray, ν::T, γ::T) where {F, T} =
+_gap_and_slope(c::LinearConstrained{F}, x::AbstractArray, ν::T, γ) where {F, T} =
   _gap_and_slope(c, x, ν, γ, Val(_has_prox_slope(F)))
-_gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ::T, ::Val{true}) where {T} =
+_gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ, ::Val{true}) where {T} =
   _constraint_gap(c, x, ν, γ, Val(true))
-_gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ::T, ::Val{false}) where {T} =
+_gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ, ::Val{false}) where {T} =
   ((φ, m) = _constraint_gap(c, x, ν, γ); (φ, m, T(NaN)))
 
 # The multiplier of the constraint, a root of φ, which is nonincreasing because
@@ -219,7 +249,7 @@ _gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ::T, ::Val{false
 # proximal point of f satisfies the constraint. The search starts from the
 # multiplier of the last call, and from 0 at the first call or when that was
 # an inactive halfspace.
-function _multiplier(c::LinearConstrained, x::AbstractArray, γ::T) where {T}
+function _multiplier(c::LinearConstrained, x::AbstractArray, γ, ::Type{T}) where {T}
   ν0 = convert(T, c.last[])
   warm = isfinite(ν0) && !(c.set isa IndHalfspace && !(ν0 > 0))
   ν = _search(c, x, γ, warm ? ν0 : zero(T), warm)
@@ -227,8 +257,8 @@ function _multiplier(c::LinearConstrained, x::AbstractArray, γ::T) where {T}
   ν
 end
 
-# The search from start. The first step is at least |φ(start)|/(γ‖a‖²), a lower
-# bound on the distance to the root, as the slope of φ is at least -γ‖a‖². From
+# The search from start. The first step is at least |φ(start)|/Σᵢ γᵢaᵢ², a lower
+# bound on the distance to the root, as the slope of φ is at least -Σᵢ γᵢaᵢ². From
 # the multiplier of the last call, it goes to the root of the line through
 # (start, φ(start)) with the slope of φ there, exact where the scalar proximal
 # operators of f have known slopes and otherwise that of the last call's
@@ -239,7 +269,7 @@ end
 # points, which passes the root when that secant predicts it well, or twice the
 # last step where φ is flat. Regula falsi with the Illinois rule then shrinks
 # the bracket; it is exact once both ends lie on one linear piece of φ.
-function _search(c::LinearConstrained, x::AbstractArray, γ::T, start::T, warm::Bool) where {T}
+function _search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool) where {T}
   φs, ms, dφ = warm ? _gap_and_slope(c, x, start, γ) : (_constraint_gap(c, x, start, γ)..., T(NaN))
   abs(φs) <= 2eps(T) * ms && return start
   if c.set isa IndHalfspace && φs < 0
@@ -249,13 +279,13 @@ function _search(c::LinearConstrained, x::AbstractArray, γ::T, start::T, warm::
     (φ0 <= 0 || abs(φ0) <= 2eps(T) * m0) && return zero(T)
     return _refine(c, x, γ, zero(T), φ0, start, φs)
   end
-  step = abs(φs) / (γ * convert(T, _normal_sqnorm(c.set, x)))
+  step = abs(φs) / convert(T, _metric_sqnorm(c.set, x, γ))
   σ = dφ < 0 ? dφ : (warm ? convert(T, c.slope[]) : T(NaN))
   σ < 0 && (step = max(step, abs(φs) / -σ))
   _bracket_and_refine(c, x, γ, start, φs, step)
 end
 
-function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ::T, ν0::T, φ0::T, step::T) where {T}
+function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, ν0::T, φ0::T, step::T) where {T}
   dir = φ0 > 0 ? one(T) : -one(T)
   lo, φlo = ν0, φ0                          # φlo has the sign of φ(ν₀), φhi the other
   hi, φhi = lo, φlo
@@ -277,7 +307,7 @@ end
 
 # regula falsi with the Illinois rule on the bracket [lo, hi], where φlo and φhi
 # have opposite signs; keeps the slope of the last secant for the next call
-function _refine(c::LinearConstrained, x::AbstractArray, γ::T, lo::T, φlo::T, hi::T, φhi::T) where {T}
+function _refine(c::LinearConstrained, x::AbstractArray, γ, lo::T, φlo::T, hi::T, φhi::T) where {T}
   best, φbest = abs(φlo) < abs(φhi) ? (lo, φlo) : (hi, φhi)
   νp, φp = hi, φhi                          # the last point evaluated, for the slope
   side = 0                                  # which end the last step kept

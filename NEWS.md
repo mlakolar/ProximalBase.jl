@@ -62,7 +62,11 @@
   `KronQuadratic`) and the calculus wrappers.
 - **Diagonal metrics** (#49): `prox!` and `value_and_prox!` of separable
   functions take a step per entry, and group norms a step per group, also
-  through `Scaled`, `Tilt`, `Translate` and `Conjugate`.
+  through `Scaled`, `Tilt`, `Translate` and `Conjugate`. The hyperplane, the
+  halfspace, the simplex and the ℓ1 ball take a step per entry too, with the
+  projections in the metric, and so does `Constrained` on a box, a hyperplane,
+  a halfspace or a simplex, whose multiplier search steps each entry with its
+  own `γᵢ`: `prox_{γᵢfᵢ}(xᵢ - γᵢνaᵢ)`.
   `coordinate_lipschitz(f, k)` and `coordinate_lipschitz!(L, f)` give the
   curvature of a smooth loss along each coordinate.
 - **Partial decompositions** (#45): `NuclearNorm`, `IndBallRank`, `IndPSD` and

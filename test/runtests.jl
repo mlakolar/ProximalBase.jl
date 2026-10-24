@@ -22,6 +22,7 @@ tests = [
   "ordered",
   "nonconvex",
   "matrixsets",
+  "affine",
   "calculus",
   "constrained",
   "spectralfunction",

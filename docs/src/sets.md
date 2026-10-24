@@ -23,6 +23,7 @@ rounding.
 | [`IndHalfspace`](@ref)`(a, b)` | ``\langle a, x\rangle \le b`` | the same when ``\langle a, v\rangle > b`` |
 | [`IndIsotonic`](@ref)`()` | ``x_1 \le x_2 \le \dots \le x_n`` | isotonic regression, by pool adjacent violators |
 | [`IndIntersection`](@ref)`(C₁, C₂, …)` | ``C_1 \cap C_2 \cap \cdots`` | Dykstra's algorithm, iterative |
+| [`IndAffine`](@ref)`(A, b)` | ``Ax = b`` | ``v - A^\top(AA^\top)^{-1}(Av - b)``, from a factorization cached at construction |
 | [`IndPSD`](@ref)`()` | ``X \succeq 0`` | ``U\max(\Lambda, 0)U^\top`` |
 | [`IndPSD`](@ref)`(rank = r)` | ``X \succeq 0``, rank at most ``r`` | the ``r`` largest positive eigenpairs |
 | [`IndBallRank`](@ref)`(r)` | rank at most ``r`` | the truncated SVD |
@@ -54,7 +55,15 @@ constraint, the unique solution of
 The left side is continuous, piecewise linear and decreasing in ``\tau``, so
 ``\tau`` lies between two sorted values of ``v``. Sorting finds it in
 ``O(n\log n)``. Condat's algorithm (2016) finds it in ``O(n)`` expected time
-with one pass and a scratch buffer, which the function keeps. With
+with one pass and a scratch buffer, which the function keeps.
+
+When ``r`` is large, the level of Condat's algorithm starts far below the
+entries, so many entries become candidates and are then dropped one by one.
+When more than an eighth of the entries, and more than 1024, become candidates,
+Michelot's algorithm (1986) takes over:
+the level of all the entries, then of those above it, until that set stops
+changing. It is Newton's method on the left side of the equation above, from
+below, and each of its steps is a vectorized pass. With
 `equality = false` the set is ``\sum_i x_i \le r``, and ``\tau = 0`` when ``v``
 already satisfies the inequality.
 
@@ -103,6 +112,19 @@ matrix.
 [`IndBallGroupL0`](@ref) is the same for groups: it keeps the ``s`` groups of
 largest Euclidean norm, and projected gradient descent with it is iterative hard
 thresholding of groups.
+
+## Affine sets
+
+[`IndAffine`](@ref)`(A, b)` projects onto ``\{x : Ax = b\}`` with several
+equality constraints at once. It factors ``AA^\top`` once, by Cholesky when
+``A`` has full row rank. Otherwise it caches a thin SVD
+``A = U\Sigma V^\top`` of the rank of ``A``, and the projection is
+``v - V(V^\top v - \Sigma^{-1}U^\top b)``, defined when ``b`` is in the range of
+``A``. A tight frame, ``AA^\top = \mu I``, needs no factorization
+(`IndAffine(A, b; μ)`). Each call costs two products with ``A`` and allocates
+nothing. With ADMM, it gives basis pursuit, ``\min \|x\|_1`` subject to
+``Ax = b``, and equality-constrained estimators such as log-contrast regression
+with several subcompositions.
 
 ## Hyperplanes and halfspaces
 

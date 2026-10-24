@@ -131,15 +131,34 @@ nonnegative and vanishes when the constraint is inactive: ``\nu^\star = 0`` when
 ``\varphi(0) \le 0``.
 
 `Constrained` finds the root by a search over the scalar ``\nu``, and each step
-of the search is one pass over the entries. The slope of ``\varphi`` is at least
-``-\gamma\|a\|^2``, so the first step, ``|\varphi(0)|/(\gamma\|a\|^2)``, does not
-pass the root. Secant steps then bracket the root, and regula falsi with the
-Illinois rule shrinks the bracket. For the ℓ1 norm and boxes ``\varphi`` is
-piecewise linear, and the search is exact once the bracket lies on one piece.
-On simplices, capped simplices and the zero-sum lasso, with ``10^3`` to ``10^5``
-entries, it took 6 to 17 passes. A box enters through the scalar proximal
-operators, so ``f`` may itself be `Constrained(f, box)`; the simplex is the box
-``x \ge 0`` with the hyperplane ``\sum_i x_i = r``.
+of the search is one pass over the entries.
+
+- **The start.** A solver calls the proximal operator at points that change
+  little from one call to the next, and so does the multiplier. The search
+  starts from the multiplier of the last call, which the function keeps.
+- **The first step.** It is at least ``|\varphi|/(\gamma\|a\|^2)``, since the
+  slope of ``\varphi`` is at least ``-\gamma\|a\|^2``. From the last
+  multiplier, it goes to the root of the line through the start with the slope
+  of ``\varphi`` there. Where the scalar proximal operators ``P_i`` of ``f``
+  are piecewise linear, as for every function below, that slope is exact,
+  ``\varphi'(\nu) = -\gamma\sum_i a_i^2 P_i'``, and from a start on the linear
+  piece of the root the first step lands on the root. Otherwise the slope is
+  that of the last secant. At a first call, from zero, the step is the lower
+  bound: computing the slope costs half a pass, and pays only when the root
+  lies near zero.
+- **The bracket.** Secant steps bracket the root, and regula falsi with the
+  Illinois rule shrinks the bracket. For the piecewise linear ``\varphi`` of the
+  ℓ1 norm and boxes, the search is exact once the bracket lies on one piece.
+- **The cost.** On simplices, capped simplices and the zero-sum lasso with
+  ``10^3`` to ``10^5`` entries, the search took 7 to 16 passes from zero, and
+  three to five from the last multiplier on slowly changing points.
+- **Breakpoint searches.** For the continuous quadratic knapsack problem they
+  are exact in ``O(n)`` time (Brucker, 1984; Kiwiel, 2008), but a single
+  selection of the median of the breakpoints costs more than the whole search.
+
+A box enters through the scalar proximal operators, so ``f`` may itself be
+`Constrained(f, box)`; the simplex is the box ``x \ge 0`` with the hyperplane
+``\sum_i x_i = r``.
 
 | Call | Function |
 |:-----|:---------|

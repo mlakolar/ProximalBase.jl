@@ -101,6 +101,11 @@ end
       end
     end
     zero_alloc_prox(IndBallL0(3), xs)
+    # long enough for the simplex threshold to hand over to Michelot's algorithm
+    xl = randn(20_000)
+    for f in (IndSimplex(10_000.), IndBallL1(5_000.), NormLinf(0.01))
+      zero_alloc_prox(f, xl)
+    end
   end
 
   @testset "functions of the order of the entries" begin

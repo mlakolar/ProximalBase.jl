@@ -200,6 +200,128 @@ end
   @test_throws ArgumentError coordinate_lipschitz(SmoothWithoutConstants(), 1)
 end
 
+# The minimizer of λ‖z‖₁ + Σᵢ (zᵢ - xᵢ)²/(2γᵢ) on the box [l, u] with ⟨a, z⟩ = b
+# (or ≤ b), by brute force: each entry is at a bound, at zero, or free with a
+# sign, zᵢ = xᵢ - γᵢ(λσᵢ + νaᵢ), and ν makes the constraint hold. The best
+# feasible candidate is the minimizer, which is one of them.
+function brute_linear(x, γ, a, b, λ, l, u; halfspace = false)
+  n = length(x)
+  obj(z) = λ * norm(z, 1) + sum((z .- x) .^ 2 ./ (2 .* γ))
+  feasible(z) = all(l .- 1e-12 .<= z .<= u .+ 1e-12) &&
+                (halfspace ? dot(a, z) <= b + 1e-10 : abs(dot(a, z) - b) <= 1e-10)
+  best, zbest = Inf, fill(NaN, n)
+  consider(z) = (feasible(z) && obj(z) < best) && ((best, zbest) = (obj(z), z))
+  halfspace && consider(clamp.(sign.(x) .* max.(abs.(x) .- γ .* λ, 0), l, u))   # inactive
+  for states in Iterators.product(ntuple(_ -> 1:5, n)...)
+    z = zeros(n)
+    free = [s >= 4 for s in states]
+    σ = [s == 4 ? 1.0 : s == 5 ? -1.0 : 0.0 for s in states]
+    for i in 1:n
+      states[i] == 1 && (z[i] = l)
+      states[i] == 2 && (z[i] = u)
+      states[i] == 3 && (z[i] = 0.0)
+    end
+    w = sum(γ[free] .* a[free] .^ 2; init = 0.0)
+    w > 0 || continue
+    rest = dot(a[.!free], z[.!free])
+    ν = (rest + dot(a[free], x[free] .- γ[free] .* λ .* σ[free]) - b) / w
+    halfspace && ν < 0 && continue
+    z[free] .= x[free] .- γ[free] .* (λ .* σ[free] .+ ν .* a[free])
+    all(sign.(z[free]) .== σ[free] .|| λ == 0) || continue
+    consider(z)
+  end
+  zbest
+end
+
+# the projection onto the ℓ1 ball in the metric, by brute force over the signs
+function brute_ballL1(x, γ, r)
+  norm(x, 1) <= r && return copy(x)
+  n = length(x)
+  best, zbest = Inf, fill(NaN, n)
+  for σ in Iterators.product(ntuple(_ -> -1:1, n)...)
+    F = [s != 0 for s in σ]
+    any(F) || continue
+    ν = (sum(σ[i] * x[i] for i in 1:n if F[i]) - r) / sum(γ[F])
+    z = [F[i] ? x[i] - γ[i] * ν * σ[i] : 0.0 for i in 1:n]
+    all(sign(z[i]) == σ[i] for i in 1:n if F[i]) || continue
+    o = sum((z .- x) .^ 2 ./ (2 .* γ))
+    o < best && ((best, zbest) = (o, z))
+  end
+  zbest
+end
+
+@testset "sets in a diagonal metric" begin
+  rng = Xoshiro(13)
+  n = 4
+  for trial in 1:20
+    x = 1.5 .* randn(rng, n)
+    γ = 0.2 .+ 3 .* rand(rng, n)
+    a = randn(rng, n)
+    b = randn(rng)
+    # the hyperplane and the halfspace in closed form, against the KKT system
+    # of the metric, Diagonal(1 ./ γ) z + νa = x ./ γ, ⟨a, z⟩ = b
+    K = [Diagonal(1 ./ γ) a; a' 0]
+    zh = (K \ [x ./ γ; b])[1:n]
+    @test prox(IndHyperplane(a, b), x, γ) ≈ zh
+    @test prox(IndHalfspace(a, b), x, γ) ≈ (dot(a, x) > b ? zh : x)
+    @test prox(IndHyperplane(1, b), x, γ) ≈ prox(IndHyperplane(ones(n), b), x, γ)
+    # Constrained: the multiplier search with a step per entry
+    # b from a point of the box, so that the set is not empty
+    for (f, λ, l, u, b) in ((NormL1(0.4), 0.4, -Inf, Inf, b), (IndBox(0, 1), 0.0, 0.0, 1.0, dot(a, rand(rng, n))),
+                            (Constrained(NormL1(0.3), IndBox(-1, 2)), 0.3, -1.0, 2.0, dot(a, 3 .* rand(rng, n) .- 1)))
+      c = Constrained(f, IndHyperplane(a, b))
+      @test prox(c, x, γ) ≈ brute_linear(x, γ, a, b, λ, l, u) atol = 1e-9
+      ch = Constrained(f, IndHalfspace(a, b))
+      @test prox(ch, x, γ) ≈ brute_linear(x, γ, a, b, λ, l, u; halfspace = true) atol = 1e-9
+    end
+    # the simplex and the ℓ1 ball, alone and through Constrained
+    zs = brute_linear(x, γ, ones(n), 1.0, 0.0, 0.0, Inf)
+    @test prox(IndSimplex(1), x, γ) ≈ zs
+    @test prox(Constrained(ZeroFunction(), IndSimplex(1)), x, γ) ≈ zs atol = 1e-9
+    @test prox(IndSimplex(1; equality = false), x, γ) ≈ brute_linear(x, γ, ones(n), 1.0, 0.0, 0.0, Inf; halfspace = true)
+    @test prox(IndBallL1(1), x, γ) ≈ brute_ballL1(x, γ, 1.0)
+    @test prox(IndBallL1(10), x, γ) == x
+  end
+  # equal steps give the scalar step
+  x = randn(rng, 50)
+  a = randn(rng, 50)
+  for f in (IndHyperplane(a, 0.3), IndHalfspace(a, -0.3), IndSimplex(2), IndSimplex(2; equality = false),
+            IndBallL1(2), Constrained(NormL1(0.2), IndHyperplane(1, 0)), Constrained(IndBox(0, 1), IndHyperplane(1, 3)),
+            Constrained(SqrNormL2(0.5), IndSimplex(1)), Constrained(NormL1(0.2), IndBox(-0.3, 0.4)))
+    @test prox(f, x, fill(0.7, 50)) ≈ prox(f, x, 0.7)
+    @test value_and_prox!(similar(x), f, x, fill(0.7, 50)) ≈ value_and_prox!(similar(x), f, x, 0.7)
+  end
+  # two algorithms for the simplex and the ℓ1 ball in the metric: the level by
+  # Newton's method and the multiplier search of Constrained, at n = 1000
+  x = randn(rng, 1000)
+  γ = 0.1 .+ rand(rng, 1000)
+  @test prox(IndSimplex(3), x, γ) ≈ prox(Constrained(ZeroFunction(), IndSimplex(3)), x, γ)
+  zb = prox(Constrained(ZeroFunction(), IndSimplex(5; equality = false)), abs.(x), γ)
+  @test prox(IndBallL1(5), x, γ) ≈ sign.(x) .* zb
+  @test sum(prox(IndSimplex(3), x, γ)) ≈ 3
+  # the warm start: a sequence of nearby points gives what a new function gives
+  c = Constrained(NormL1(0.1), IndHyperplane(1, 0))
+  for k in 1:5
+    xk = x .+ 0.01k .* sin.(1:1000)
+    @test prox(c, xk, γ) ≈ prox(Constrained(NormL1(0.1), IndHyperplane(1, 0)), xk, γ) rtol = 1e-10
+  end
+  # in place, Float32, and the size of the steps
+  z = copy(x)
+  prox!(z, IndSimplex(3), z, γ)
+  @test z ≈ prox(IndSimplex(3), x, γ)
+  z = copy(x)
+  prox!(z, c, z, γ)
+  @test z ≈ prox(c, x, γ)
+  x32, γ32 = Float32.(x), Float32.(γ)
+  for f in (IndSimplex(3), IndBallL1(5), IndHyperplane(1, 2), c)
+    @test prox(f, x32, γ32) isa Vector{Float32}
+    @test prox(f, x32, γ32) ≈ prox(f, x, γ) rtol = 1e-4
+  end
+  for f in (IndSimplex(3), IndBallL1(5), IndHyperplane(1, 2), c, Constrained(NormL1(0.2), IndBox(-1, 1)))
+    @test_throws DimensionMismatch prox(f, x, γ[1:999])
+  end
+end
+
 @testset "zero allocations" begin
   a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
   a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
@@ -214,6 +336,13 @@ end
     y = similar(x)
     @test allocs(a_prox!, y, f, x, γ) == 0
     f isa Conjugate || @test allocs(a_vprox!, y, f, x, γ) == 0
+  end
+  for f in (IndHyperplane(randn(n), 0.3), IndHalfspace(1, -0.3), IndSimplex(1), IndSimplex(1; equality = false),
+            IndBallL1(1), Constrained(NormL1(0.1), IndHyperplane(1, 0)), Constrained(IndBox(0, 1), IndHyperplane(1, 3)),
+            Constrained(NormL1(0.1), IndHalfspace(randn(n), -0.5)), Constrained(NormL1(0.2), IndBox(-0.3, 0.4)))
+    y = similar(x)
+    @test allocs(a_prox!, y, f, x, γ) == 0
+    @test allocs(a_vprox!, y, f, x, γ) == 0
   end
   ys = similar(xs)
   @test allocs(a_prox!, ys, NormL1(0.3), xs, γ) == 0

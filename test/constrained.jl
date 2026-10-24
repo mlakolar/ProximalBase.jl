@@ -374,6 +374,47 @@ ProximalBase._has_uniform_range(::Type{<:Ranged{F}}) where {F} = ProximalBase._h
   end
 end
 
+a_value(f, x) = f(x)
+
+@testset "the conjugate of a box with a linear constraint" begin
+  n = 7
+  y = randn(n)
+  function top(v, κ)
+    s = sort(v; rev = true)
+    k = floor(Int, κ)
+    sum(s[1:k]) + (k < length(v) ? (κ - k) * s[k + 1] : 0.0)
+  end
+  # on the capped simplex, the sum of the k largest entries, also for a fractional k
+  for k in (0, 1, 3, 2.5, 7)
+    @test Conjugate(Constrained(IndBox(0, 1), IndHyperplane(1, k)))(y) ≈ top(y, k) atol = 1e-14
+    @test Conjugate(Constrained(IndBox(0, 1), IndHalfspace(1, k)))(y) ≈ top(max.(y, 0), k) atol = 1e-14
+  end
+  @test Conjugate(Constrained(IndBox(0, 1), IndHyperplane(1, 3)))(reshape(1:12, 3, 4)) ≈ 33
+  # Fenchel–Young with equality at the proximal point, for other boxes, normals
+  # and right-hand sides, and a lower bound on the sum
+  for C in (Constrained(IndBox(-0.5, 2), IndHyperplane(2, 3)), Constrained(IndBox(-1, 1), IndHalfspace(-1.5, 2)),
+            Constrained(IndBox(-1, 1), IndHalfspace(0.5, -1)), Constrained(IndBox(0.3, 0.3), IndHalfspace(1, 4)),
+            Constrained(IndBox(-1, 1), IndHalfspace(1, 20)))
+    S = Conjugate(C)
+    x = 3 .* randn(n)
+    for γ in (0.3, 1.)
+      z = prox(S, x, γ)
+      p = (x .- z) ./ γ                              # the projection of x/γ onto the set
+      @test C(p) == 0
+      @test S(z) ≈ dot(z, p) atol = 1e-10
+    end
+    check_prox(S, x, 0.7)
+  end
+  S = Conjugate(Constrained(IndBox(0, 1), IndHyperplane(1, 2.5)))
+  @test S(Float32.(y)) isa Float32
+  @test S(Float32.(y)) ≈ top(y, 2.5) rtol = 1e-5
+  @test allocs(a_value, S, y) == 0
+  @test_throws ArgumentError Conjugate(Constrained(IndBox(0, 1), IndHyperplane(1, 9)))(y)        # an empty set
+  @test_throws ArgumentError Conjugate(Constrained(IndBox(0, 1), IndHalfspace(1, -1)))(y)
+  @test_throws ArgumentError Conjugate(Constrained(IndBox(0, Inf), IndHyperplane(1, 1)))(y)      # unbounded
+  @test_throws ArgumentError Conjugate(Constrained(IndBox(zeros(n), ones(n)), IndHyperplane(1, 2)))(y)
+end
+
 @testset "slopes of scalar proximal operators" begin
   n = 5
   for f in (ZeroFunction(), LinearFunction(randn(n)), SqrNormL2(2.), SqrNormL2(1., randn(n)), NormL1(0.3),

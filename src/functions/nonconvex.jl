@@ -388,7 +388,7 @@ end
 ####################################
 
 """
-    IndBallGroupL0(s, groups)
+    IndBallGroupL0(s, groups; k = nothing)
 
 The indicator of the vectors with at most `s` nonzero groups, over disjoint
 groups `Gₖ = groups[k]` of (linear) indices, nonconvex; indices in no group are
@@ -399,20 +399,29 @@ gradient descent with it is iterative hard thresholding of groups, as in the
 group IHT of MendelIHT (Chu et al., 2020). On an [`AtomIterate`](@ref) with its
 groups, only the active groups are visited, and the dropped ones are
 deactivated.
+
+With `k`, each group also has at most `k` nonzero entries: the doubly sparse set
+of group IHT with sparsity within the groups. The projection ranks the groups by
+the norm of their `k` largest entries, keeps the `s` best, and within each the
+`k` largest entries (exactly `k` when there are ties, the earlier entries
+first).
 """
 struct IndBallGroupL0{G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractFunction
   s::Int
   groups::G
+  k::Int              # the nonzero entries allowed in a group, typemax(Int) for any number
   group_of::Vector{Int}
-  scratch::Scratch
+  scratch::Scratch    # the squared norms of the groups, and a copy for the selection
+  entries::Scratch    # the squares of the entries of a group, for the selection
 
-  function IndBallGroupL0{G}(s::Integer, groups::G) where {G<:AbstractVector{<:AbstractVector{<:Integer}}}
+  function IndBallGroupL0{G}(s::Integer, groups::G, k::Integer) where {G<:AbstractVector{<:AbstractVector{<:Integer}}}
     s >= 0 || throw(ArgumentError("s must be nonnegative, got $s"))
-    new{G}(Int(s), groups, _group_of(groups), Scratch())
+    k >= 0 || throw(ArgumentError("k must be nonnegative, got $k"))
+    new{G}(Int(s), groups, Int(k), _group_of(groups), Scratch(), Scratch())
   end
 end
-IndBallGroupL0(s::Integer, groups::AbstractVector{<:AbstractVector{<:Integer}}) =
-  (G = _own_groups(groups); IndBallGroupL0{typeof(G)}(s, G))
+IndBallGroupL0(s::Integer, groups::AbstractVector{<:AbstractVector{<:Integer}}; k::Union{Integer, Nothing} = nothing) =
+  (G = _own_groups(groups); IndBallGroupL0{typeof(G)}(s, G, k === nothing ? typemax(Int) : k))
 
 isproximable(::Type{<:IndBallGroupL0}) = true
 _isindicator(::Type{<:IndBallGroupL0}) = true
@@ -423,22 +432,38 @@ _checkgroups(f::IndBallGroupL0, x::AbstractArray) =
 # the groups of an iterate are those of f, compared in O(number of groups)
 _samegroups(f::IndBallGroupL0, x::AtomIterate) = x.groups === f.groups || x.groups == f.groups
 
+# whether the entries of x in G are all zero, and, if not, whether there are at
+# most k of them
+function _group_status(x::AbstractArray, G, k::Int)
+  _allzero(x, G) && return (true, true)
+  length(G) <= k && return (false, true)
+  c = 0
+  @inbounds for i in G
+    c += !iszero(x[i])
+  end
+  return (false, c <= k)
+end
+
 function (f::IndBallGroupL0)(x::AbstractArray)
   _checkgroups(f, x)
-  k = 0
+  nz, ok = 0, true
   for G in f.groups
-    k += !_allzero(x, G)
+    z, fits = _group_status(x, G, f.k)
+    nz += !z
+    ok &= fits
   end
-  _ind(k <= f.s, float(eltype(x)))
+  _ind(ok && nz <= f.s, float(eltype(x)))
 end
 
 function (f::IndBallGroupL0)(x::AtomIterate)
   _samegroups(f, x) || return invoke(f, Tuple{AbstractArray}, x)
-  k = 0
+  nz, ok = 0, true
   for a in 1:x.nactive
-    k += !_allzero(x.storage, f.groups[x.active[a]])
+    z, fits = _group_status(x.storage, f.groups[x.active[a]], f.k)
+    nz += !z
+    ok &= fits
   end
-  _ind(k <= f.s, float(eltype(x)))
+  _ind(ok && nz <= f.s, float(eltype(x)))
 end
 
 function prox!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray, ::Real)
@@ -456,18 +481,68 @@ function prox!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate, γ::Real)
   dropzeros!(y)
 end
 
-# zero all but the s groups of largest norm among the groups ks of y
+# the squares of the entries of y in G, in w[1:length(G)]
+function _group_squares!(w::AbstractVector{T}, y::AbstractArray, G) where {T}
+  @inbounds for (t, i) in enumerate(G)
+    w[t] = abs2(convert(T, y[i]))
+  end
+  view(w, 1:length(G))
+end
+
+# the sum of the k largest squares of the entries of y in G
+function _top_sumsq(f::IndBallGroupL0, y::AbstractArray, G, ::Type{T}) where {T}
+  length(G) <= f.k && return convert(T, _sumsq(y, G))
+  f.k == 0 && return zero(T)
+  v = _group_squares!(_buffer!(f.entries, T, length(G)), y, G)
+  _kth_largest!(v, f.k)
+  t = zero(T)
+  @inbounds for j in 1:f.k
+    t += v[j]
+  end
+  return t
+end
+
+# zero all but the k entries of largest magnitude of y in G, the earlier first
+# among ties
+function _keep_largest_entries!(y::AbstractArray, f::IndBallGroupL0, G, ::Type{T}) where {T}
+  length(G) <= f.k && return y
+  v = _group_squares!(_buffer!(f.entries, T, length(G)), y, G)
+  τ = f.k == 0 ? T(Inf) : _kth_largest!(v, f.k)
+  above = 0
+  @inbounds for i in G
+    above += abs2(convert(T, y[i])) > τ
+  end
+  ties = f.k - above
+  @inbounds for i in G
+    a = abs2(convert(T, y[i]))
+    if a > τ
+      continue
+    elseif a == τ && ties > 0
+      ties -= 1
+    else
+      y[i] = zero(eltype(y))
+    end
+  end
+  return y
+end
+
+# zero all but the s groups of largest norm among the groups ks of y, and with
+# a bound k on the entries, all but the k largest entries of each group kept;
+# the groups are ranked by the norm of those entries
 function _keep_largest_groups!(y::AbstractArray, f::IndBallGroupL0, ks)
   T = float(eltype(y))
   n = length(ks)
   buf = _buffer!(f.scratch, T, 2n)
   nz = 0
   @inbounds for (j, k) in enumerate(ks)
-    s2 = _sumsq(y, f.groups[k])
+    s2 = _top_sumsq(f, y, f.groups[k], T)
     buf[j] = s2
     nz += !iszero(s2) || !_allzero(y, f.groups[k])      # a sum of squares may underflow
   end
-  nz <= f.s && return y
+  if nz <= f.s
+    _keep_entries_of_groups!(y, f, ks, T)
+    return y
+  end
   # the s-th largest squared norm, from a copy that the selection reorders
   @inbounds for j in 1:n
     buf[n + j] = buf[j]
@@ -480,15 +555,25 @@ function _keep_largest_groups!(y::AbstractArray, f::IndBallGroupL0, ks)
   ties = f.s - above            # the groups at τ to keep, the earliest first
   @inbounds for (j, k) in enumerate(ks)
     s2 = buf[j]
+    G = f.groups[k]
     if s2 > τ
-      continue
+      _keep_largest_entries!(y, f, G, T)
     elseif s2 == τ && ties > 0
       ties -= 1
+      _keep_largest_entries!(y, f, G, T)
     else
-      for i in f.groups[k]
+      for i in G
         y[i] = zero(eltype(y))
       end
     end
   end
   y
+end
+
+function _keep_entries_of_groups!(y::AbstractArray, f::IndBallGroupL0, ks, ::Type{T}) where {T}
+  f.k == typemax(Int) && return y
+  for k in ks
+    _keep_largest_entries!(y, f, f.groups[k], T)
+  end
+  return y
 end

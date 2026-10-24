@@ -20,10 +20,10 @@ It is also proximable: the first proximal operator computes the thin SVD
 `prox_{γf}(v) = (X'X + I/γ)⁻¹ (X'Y + v/γ)` costs two products with `V` for any
 `γ`, also when `p > n`. ADMM changes `γ` freely at no cost.
 """
-mutable struct LeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVecOrMat, Tx<:AbstractMatrix, N} <: AbstractFunction
+mutable struct LeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVecOrMat, Tx<:AbstractMatrix, N, A<:AbstractArray{T, N}} <: AbstractFunction
   Y::Ty
   X::Tx
-  tmp::Array{T, N}        # Xβ - Y; calls to f(β) do not allocate
+  tmp::A                  # Xβ - Y, next to Y; calls to f(β) do not allocate
   # the proximal operator: X = U Diagonal(√s2) V' and X'Y, computed on first use
   V::Matrix{T}
   s2::Vector{T}
@@ -35,9 +35,10 @@ function LeastSquaresLoss(Y::AbstractVecOrMat, X::AbstractMatrix)
   size(X, 1) == size(Y, 1) || throw(DimensionMismatch("X has $(size(X, 1)) rows and Y has $(size(Y, 1))"))
   T = float(promote_type(eltype(Y), eltype(X)))
   N = ndims(Y)
-  LeastSquaresLoss{T, typeof(Y), typeof(X), N}(Y, X, zeros(T, size(Y)), Matrix{T}(undef, 0, 0), T[],
-                                               Array{T, N}(undef, ntuple(_ -> 0, N)),
-                                               Array{T, N}(undef, ntuple(_ -> 0, N)))
+  tmp = _zeros_like(Y, T, size(Y))
+  LeastSquaresLoss{T, typeof(Y), typeof(X), N, typeof(tmp)}(Y, X, tmp, Matrix{T}(undef, 0, 0), T[],
+                                                            Array{T, N}(undef, ntuple(_ -> 0, N)),
+                                                            Array{T, N}(undef, ntuple(_ -> 0, N)))
 end
 
 issmooth(::Type{<:LeastSquaresLoss}) = true

@@ -28,7 +28,13 @@ scalar proximal operator is nondecreasing on `[0, ∞)`, such as [`MCP`](@ref),
 | `SingularValue(IndBallLinf(r))` | the indicator of the spectral-norm ball `‖X‖₂ ≤ r` |
 | `SingularValue(IndBallL0(r))` | the indicator of the matrices of rank at most `r`, also [`IndBallRank`](@ref) |
 | `SingularValue(ElasticNet(λ1, λ2))` | the matrix elastic net `λ1‖X‖_* + (λ2/2)‖X‖_F²` |
+| `SingularValue(Conjugate(Constrained(IndBox(0, λ), IndHalfspace(1, λ * k))))` | the Ky Fan `k`-norm `λ(σ₁ + … + σₖ)` |
 | `SingularValue(MCP(λ, a))`, `SCAD`, `NormL0` | nonconvex penalties of the singular values |
+
+The Ky Fan norm is the support function of `{w : 0 ≤ wᵢ ≤ λ, Σᵢ wᵢ ≤ λk}` at the
+singular values. It needs the halfspace: the conjugate of the capped simplex,
+with the hyperplane `Σᵢ wᵢ = k`, is the sum of the `k` largest entries, which is
+not absolutely symmetric.
 
 `isconvex` and the indicator property come from `f`. In the value `F(X)`,
 singular values within a relative `√ε` of the largest count as zero, as they do

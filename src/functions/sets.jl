@@ -376,64 +376,77 @@ end
     IndHyperplane(a, b)
 
 The indicator of the hyperplane `{x : ⟨a, x⟩ = b}`, `a ≠ 0`. Its proximal
-operator is the projection `x - ((⟨a, x⟩ - b) / ‖a‖²) a`.
+operator is the projection `x - ((⟨a, x⟩ - b) / ‖a‖²) a`. A scalar `a` stands
+for an array of `a`s of the size of `x`: `IndHyperplane(1, 0)` is the set of
+arrays whose entries sum to zero, of any size.
 """
-struct IndHyperplane{A<:AbstractArray, T<:Real} <: AbstractFunction
+struct IndHyperplane{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
   a::A
   b::T
-  a2::T          # ‖a‖²
+  a2::T          # ‖a‖², or a² for a scalar a
 
-  function IndHyperplane{A, T}(a::A, b::T) where {A<:AbstractArray, T<:Real}
+  function IndHyperplane{A, T}(a::A, b::T) where {A<:Union{Real, AbstractArray}, T<:Real}
     a2 = convert(T, sum(abs2, a))
     a2 > 0 || throw(ArgumentError("a must be nonzero"))
     new{A, T}(a, b, a2)
   end
 end
-IndHyperplane(a::AbstractArray, b::Real) = (T = float(promote_type(eltype(a), typeof(b))); IndHyperplane{typeof(a), T}(a, convert(T, b)))
+IndHyperplane(a::Union{Real, AbstractArray}, b::Real) =
+  (T = float(promote_type(eltype(a), typeof(b))); IndHyperplane{typeof(a), T}(a, convert(T, b)))
 
 """
     IndHalfspace(a, b)
 
 The indicator of the halfspace `{x : ⟨a, x⟩ ≤ b}`, `a ≠ 0`. Its proximal operator
-is the projection, `x - (max(⟨a, x⟩ - b, 0) / ‖a‖²) a`.
+is the projection, `x - (max(⟨a, x⟩ - b, 0) / ‖a‖²) a`. A scalar `a` stands for
+an array of `a`s of the size of `x`, as in [`IndHyperplane`](@ref).
 """
-struct IndHalfspace{A<:AbstractArray, T<:Real} <: AbstractFunction
+struct IndHalfspace{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
   a::A
   b::T
   a2::T
 
-  function IndHalfspace{A, T}(a::A, b::T) where {A<:AbstractArray, T<:Real}
+  function IndHalfspace{A, T}(a::A, b::T) where {A<:Union{Real, AbstractArray}, T<:Real}
     a2 = convert(T, sum(abs2, a))
     a2 > 0 || throw(ArgumentError("a must be nonzero"))
     new{A, T}(a, b, a2)
   end
 end
-IndHalfspace(a::AbstractArray, b::Real) = (T = float(promote_type(eltype(a), typeof(b))); IndHalfspace{typeof(a), T}(a, convert(T, b)))
+IndHalfspace(a::Union{Real, AbstractArray}, b::Real) =
+  (T = float(promote_type(eltype(a), typeof(b))); IndHalfspace{typeof(a), T}(a, convert(T, b)))
 
 for F in (:IndHyperplane, :IndHalfspace)
   @eval isproximable(::Type{<:$F}) = true
   @eval _isindicator(::Type{<:$F}) = true
   @eval isconvex(::Type{<:$F}) = true
+  @eval _checkparams(f::$F, x) = (_checkparam(f.a, x); true)
 end
+
+# ⟨a, x⟩ and ‖a‖², for an array a or a scalar one
+_dot_normal(a::Real, x::AbstractArray) = a * sum(x)
+_dot_normal(a::AbstractArray, x::AbstractArray) = dot(a, x)
+_normal_sqnorm(f::Union{IndHyperplane, IndHalfspace}, x::AbstractArray) = f.a isa Real ? f.a2 * length(x) : f.a2
 
 function (f::IndHyperplane)(x::AbstractArray)
   T = float(eltype(x))
-  abs(dot(f.a, x) - f.b) <= _tol(T) * max(one(T), abs(f.b), sqrt(f.a2 * _sumabs2(x))) ? zero(T) : T(Inf)
+  slack = _tol(T) * max(one(T), abs(f.b), sqrt(_normal_sqnorm(f, x) * _sumabs2(x)))
+  abs(_dot_normal(f.a, x) - f.b) <= slack ? zero(T) : T(Inf)
 end
 function (f::IndHalfspace)(x::AbstractArray)
   T = float(eltype(x))
-  dot(f.a, x) - f.b <= _tol(T) * max(one(T), abs(f.b), sqrt(f.a2 * _sumabs2(x))) ? zero(T) : T(Inf)
+  slack = _tol(T) * max(one(T), abs(f.b), sqrt(_normal_sqnorm(f, x) * _sumabs2(x)))
+  _dot_normal(f.a, x) - f.b <= slack ? zero(T) : T(Inf)
 end
 
 function prox!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, ::Real)
   _checksize(y, x)
   T = float(eltype(y))
-  t = convert(T, (dot(f.a, x) - f.b) / f.a2)
+  t = convert(T, (_dot_normal(f.a, x) - f.b) / _normal_sqnorm(f, x))
   y .= x .- t .* f.a
 end
 function prox!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, ::Real)
   _checksize(y, x)
   T = float(eltype(y))
-  t = convert(T, max(dot(f.a, x) - f.b, zero(f.b)) / f.a2)
+  t = convert(T, max(_dot_normal(f.a, x) - f.b, zero(f.b)) / _normal_sqnorm(f, x))
   y .= x .- t .* f.a
 end

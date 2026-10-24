@@ -186,14 +186,15 @@ stopping rule at each penalty level, warm starting each level from the last.
 
 ## More examples
 
-The [examples](examples/) directory has fifteen complete scripts, each of which
+The [examples](examples/) directory has eighteen complete scripts, each of which
 checks its own result:
 - the lasso by ISTA, FISTA and ADMM, and by coordinate descent along a path;
 - nonconvex penalties and the group lasso;
 - logistic, robust and Poisson regression;
-- constrained least squares;
+- constrained least squares, and penalties with constraints;
 - the graphical lasso, and covariance and correlation matrices;
-- matrix completion, robust PCA and multitask regression;
+- matrix completion, robust PCA, sparse PCA and multitask regression;
+- a signal with jumps, isotonic regression, and SLOPE;
 - a differential network;
 - a working-set solver;
 - functions of your own.
@@ -248,7 +249,7 @@ bound, for Newton and coordinate steps.
 | `IndBallL0(s; diagonal)` | at most `s` nonzero entries, nonconvex; on a symmetric matrix, entries of one triangle, with or without the diagonal |
 | `IndBallL1(r)`, `IndBallL2(r)` | `‖x‖₁ ≤ r`, `‖x‖₂ ≤ r` |
 | `IndSimplex(r; equality)` | `x ≥ 0, Σᵢ xᵢ = r` (or `≤ r`) |
-| `IndHyperplane(a, b)`, `IndHalfspace(a, b)` | `⟨a, x⟩ = b`, `⟨a, x⟩ ≤ b` |
+| `IndHyperplane(a, b)`, `IndHalfspace(a, b)` | `⟨a, x⟩ = b`, `⟨a, x⟩ ≤ b`; a scalar `a` multiplies `Σᵢ xᵢ` |
 | `IndIsotonic()` | `x₁ ≤ x₂ ≤ … ≤ xₙ` |
 | `IndPSD()`, `IndPSD(rank = r)` | `X ⪰ 0`, and of rank at most `r` (nonconvex) |
 | `IndBallRank(r)` | rank at most `r`, nonconvex |
@@ -263,6 +264,8 @@ bound, for Newton and coordinate steps.
 | `Conjugate(f)` | `f*(y)`, with the proximal operator by Moreau's identity |
 | `SeparableSum(f1, f2, ...)` | `Σₖ fₖ(xₖ)` on a tuple of blocks |
 | `Sum(f1, f2, ...)` | `Σₖ fₖ(x)`, smooth |
+| `Constrained(f, C)` | a convex separable `f` on a box, a hyperplane, a halfspace or a simplex `C` |
+| `Spectral(f)` | `f(λ(X))` of the eigenvalues of a symmetric `X`, for an `f` that does not depend on the order of its entries: the Fantope, bounds on the eigenvalues, the trace norm |
 
 ## Coordinate descent and active sets
 

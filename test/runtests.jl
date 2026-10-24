@@ -16,6 +16,8 @@ tests = [
   "sets",
   "ordered",
   "calculus",
+  "constrained",
+  "spectralfunction",
   "allocations",
   "deprecated",
   "examples",

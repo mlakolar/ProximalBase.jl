@@ -30,7 +30,8 @@ The box, the nonnegative orthant and the ℓ∞ ball are products of intervals.
 Their projections clamp each coordinate, and they have scalar proximal
 operators for coordinate descent. A box whose bounds exclude zero does not
 preserve zeros (see [`iszeropreserving`](@ref)), so on a sparse iterate it
-visits every entry.
+visits every entry. [`Constrained`](@ref) restricts a convex separable function
+to a box, and the result is again separable.
 
 ## The simplex and the ℓ1 ball
 
@@ -73,6 +74,11 @@ Minimizing ``\|z - v\|^2`` subject to ``\langle a, z\rangle = b`` gives
 halfspace ``\langle a, z\rangle \le b``, the same step applies when ``v``
 violates the inequality, and ``z = v`` otherwise.
 
+A scalar `a` stands for an array of `a`s of the size of the argument, so
+`IndHyperplane(1, r)` is the set of arrays whose entries sum to ``r``, of any
+size. [`Constrained`](@ref) restricts a convex separable function to a
+hyperplane or a halfspace.
+
 ## Monotone vectors
 
 The projection onto the nondecreasing vectors, [`IndIsotonic`](@ref), is
@@ -89,6 +95,9 @@ The projection of a symmetric ``V = U\Lambda U^\top`` onto the positive
 semidefinite cone, in the Frobenius norm, sets its negative eigenvalues to zero.
 This holds because the Frobenius norm is unitarily invariant, and the nearest
 diagonal matrix with nonnegative entries clips the negative ones.
+The sets that bound the eigenvalues, such as the Fantope
+``\{X : 0 \preceq X \preceq I,\ \operatorname{tr}(X) = k\}``, are [`Spectral`](@ref) of
+the corresponding sets of vectors.
 [`IndPSD`](@ref) reads the upper triangle of its argument. It computes all the
 eigenpairs with LAPACK's divide-and-conquer `syevd`, or with `rank = r` only the
 ``r`` largest with `syevr`, keeping the positive ones. It rebuilds the result

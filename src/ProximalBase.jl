@@ -52,6 +52,9 @@ export
   CheckLoss, HingeLoss, EpsInsensitiveLoss,
   CappedL1, LogPenalty, NormLq, GroupMCP, GroupSCAD,
 
+  # functions of the singular values
+  SingularValue,
+
   # indicator functions
   IndBox, IndNonnegative, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
   IndHyperplane, IndHalfspace, IndPSD, IndBallRank,
@@ -92,6 +95,7 @@ include("functions/norms.jl")
 include("functions/sparsegroup.jl")
 include("functions/fibers.jl")
 include("functions/spectral.jl")
+include("functions/singular.jl")
 include("functions/sets.jl")
 include("functions/nonconvex.jl")
 

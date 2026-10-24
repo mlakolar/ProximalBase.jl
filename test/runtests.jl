@@ -16,6 +16,7 @@ tests = [
   "sparsegroup",
   "fibers",
   "spectral",
+  "singular",
   "sets",
   "nonconvex",
   "calculus",

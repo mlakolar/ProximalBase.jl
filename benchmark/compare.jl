@@ -50,6 +50,7 @@ case("group ℓ2, 10⁴ groups of 10", PB.GroupNormL2(0.3, [(10k-9):(10k) for k 
      PO.NormL21(0.3, 1), X)
 M = randn(200, 100)
 case("NuclearNorm, 200 × 100", PB.NuclearNorm(1.0), PO.NuclearNorm(1.0), M)
+case("SingularValue(NormL1), 200 × 100", PB.SingularValue(PB.NormL1(1.0)), PO.NuclearNorm(1.0), M)
 case("IndBallRank(5), 200 × 100", PB.IndBallRank(5), PO.IndBallRank(5), M)
 A = randn(200, 200); A = (A + A') / 2
 case("IndPSD, 200 × 200", PB.IndPSD(), PO.IndPSD(), A)

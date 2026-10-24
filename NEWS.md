@@ -2,6 +2,75 @@
 
 ## Unreleased
 
+- **Losses of residuals and margins** (#41):
+  - `CheckLoss(τ)`, `HingeLoss(y)` and `EpsInsensitiveLoss(ε)`: separable
+    losses for quantile regression, support vector machines and support vector
+    regression, with closed-form proximal operators and the values of their
+    conjugates, for splitting methods.
+  - Smooth scalar losses for `GLMLoss`, with bounded curvature for coordinate
+    descent and proximal Newton: `ProximalBase.SquaredHinge`,
+    `ProximalBase.SmoothCheck` (the Moreau envelope of the check loss) and
+    `ProximalBase.ConvolutionCheck` (convolution smoothing with a uniform or
+    Epanechnikov kernel).
+- **More penalties:**
+  - `SparseGroupNormL2(λ1, λ2, groups, w)`, the sparse group lasso, with block
+    coordinate steps and `kkt_violation` on an `AtomIterate`; with one group it
+    is the fiber function of the group graphical lasso,
+    `FiberSum(SparseGroupNormL2(λ1, λ2, [1:K], [1.0]))` (#40);
+  - nonconvex: `CappedL1`, `LogPenalty` and `NormLq` (ℓq thresholding in closed
+    form for q = 1/2 and 2/3), `GroupMCP` and `GroupSCAD` (radial proximal
+    operators and block steps), and the group ℓ0 ball `IndBallGroupL0` (#46);
+  - `NegEntropy`, `KLDivergence` and `NegLog`, finite on the nonnegative or
+    positive orthant, the first two through an accurate Wright ω function, and
+    the reverse Huber penalty `Berhu` (#51).
+- **`SingularValue(f)`:** functions of the singular values of a matrix, from one
+  SVD workspace: the spectral norm, the nuclear-norm and spectral-norm balls,
+  the matrix elastic net, and MCP, SCAD or ℓ0 thresholding of the singular
+  values, with the value from the proximal operator (#39).
+- **More sets:**
+  - `IndPattern`, `IndBanded` and `IndToeplitz`: arrays supported on a pattern,
+    banded matrices, Toeplitz matrices. The first two are separable (#43);
+  - `IndIntersection(C₁, C₂, …)`: the projection onto an intersection by
+    Dykstra's algorithm, warm started from the previous call (#44);
+  - `IndAffine(A, b)`: the projection onto `{x : Ax = b}` from a factorization
+    cached at construction, or none for a tight frame (#50);
+  - `Constrained(f, IndBallL2(r))` for a norm or the indicator of a cone, and
+    the nonconvex set `IndSphereL2(r)` with `Constrained` for `NormL1`,
+    `GroupNormL2` and `IndBallL0`: the steps of sparse PCA and CCA (#37);
+  - `Constrained(f, box)` for `MCP`, `SCAD` and `NormL0`, with exact proximal
+    operators: the clamp where the scalar problem is convex, a comparison of
+    candidates elsewhere. On a box, `isconvex` follows `f` (#38).
+- **Functions built from functions** (#47): `MoreauEnvelope(f, γ)`, smooth and
+  proximable; `Precompose(f, A, μ)` for `AAᵀ = μI`; `Regularize(f, ρ, c)`; and
+  the scalar loss `ProximalBase.Smoothed(φ, γ)`, the envelope of a scalar
+  function of the residual, for `GLMLoss`.
+- **Second-order oracles** (#48): `hashessian`, `hessian_vec!`/`hessian_vec`
+  and `quadratic_model`/`quadratic_model!`, for the quadratic functions,
+  `GLMLoss` (the IRLS model), `LogDetLoss` (QUIC's Newton subproblem as a
+  `KronQuadratic`) and the calculus wrappers.
+- **Diagonal metrics** (#49): `prox!` and `value_and_prox!` of separable
+  functions take a step per entry, and group norms a step per group, also
+  through `Scaled`, `Tilt`, `Translate` and `Conjugate`.
+  `coordinate_lipschitz(f, k)` and `coordinate_lipschitz!(L, f)` give the
+  curvature of a smooth loss along each coordinate.
+- **Partial decompositions** (#45): `NuclearNorm`, `IndBallRank`, `IndPSD` and
+  `TracePSD` take `partial = true`, which computes only the singular triplets or
+  eigenpairs they keep, by warm-started randomized subspace iteration. For a
+  result of rank 10 at p = 500 to 5000 it is 4 to 177 times faster than the
+  full decomposition, allocates nothing and agrees with it to about 1e-12; it
+  falls back to the full decomposition when the block would be large or the
+  iteration does not converge.
+- **GPU arrays** (#53): through a package extension on GPUArraysCore and Adapt,
+  the separable functions run on GPU arrays as broadcasts and reductions, and
+  `adapt(CuArray, f)` moves a function's parameter arrays to the device.
+- **`ProximalBase.Testing`** (#52): the checks of the test suite, public for
+  authors of new functions, after `using Test`: `test_prox`, `test_gradient`,
+  `test_separable`, `test_conjugate`, `test_kkt`, `test_traits`, `allocations`
+  and `brute_force_prox`.
+- **Fix:** `IndBallL0(s)` on a symmetric matrix with a counted diagonal is the
+  projection in the Frobenius norm: an off-diagonal pair competes with a
+  diagonal entry by `√2|xᵢⱼ|`. Results with `diagonal = false`, on vectors and
+  on general matrices are unchanged (#71).
 - **`Constrained` on a hyperplane or a halfspace** starts its search for the
   multiplier from the multiplier of the last call, which it keeps (#77).
   - From there, the first step goes to the root of the line with the exact

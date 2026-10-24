@@ -21,6 +21,7 @@ tests = [
   "sets",
   "nonconvex",
   "matrixsets",
+  "affine",
   "calculus",
   "constrained",
   "spectralfunction",

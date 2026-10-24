@@ -264,6 +264,7 @@ smooth versions of the hinge and quantile losses) expose `ProximalBase.deriv`,
 | `IndIntersection(C₁, C₂, …)` | the intersection of sets, projected by Dykstra's algorithm (iterative) |
 | `IndSimplex(r; equality)` | `x ≥ 0, Σᵢ xᵢ = r` (or `≤ r`) |
 | `IndHyperplane(a, b)`, `IndHalfspace(a, b)` | `⟨a, x⟩ = b`, `⟨a, x⟩ ≤ b`; a scalar `a` multiplies `Σᵢ xᵢ` |
+| `IndAffine(A, b)` | `Ax = b`, with a factorization cached at construction |
 | `IndPSD()`, `IndPSD(rank = r)` | `X ⪰ 0`, and of rank at most `r` (nonconvex) |
 | `IndBallRank(r)` | rank at most `r`, nonconvex |
 | `IndPattern(P)`, `IndBanded(k, p)`, `IndToeplitz()` | zero off a pattern, banded, Toeplitz (the first two separable) |

@@ -236,4 +236,21 @@ end
   @test !usedfull(fg) && fg.pws.rank == 20
 end
 
+@testset "a slowly decaying spectrum: the full decomposition takes over" begin
+  # twenty values above the threshold and the spectrum decaying slowly through
+  # it: the pairs kept do not converge in the iterations allowed, so the partial
+  # decomposition gives up and the full one gives the result
+  rng = Xoshiro(11)
+  m, n = 300, 240
+  U = Matrix(qr(randn(rng, m, n)).Q)
+  V = Matrix(qr(randn(rng, n, n)).Q)
+  σ = [collect(1.2:-0.01:1.01); collect(range(0.99, 0.11; length = n - 20))]
+  X = U * Diagonal(σ) * V'
+  @test prox(NuclearNorm(1.0; partial = true), X, 1.0) ≈ prox(NuclearNorm(1.0), X, 1.0) rtol = 1e-12
+  Q = Matrix(qr(randn(rng, n, n)).Q)
+  A = Q * Diagonal(σ) * Q'
+  A = (A + A') / 2
+  @test prox(TracePSD(1.0; partial = true), A, 1.0) ≈ prox(TracePSD(1.0), A, 1.0) rtol = 1e-12
+end
+
 end

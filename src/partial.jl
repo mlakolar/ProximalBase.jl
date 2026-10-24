@@ -134,7 +134,7 @@ end
 # ‖Y[:, c] - t U[:, c]‖, the residual of a pair
 function _pair_residual(Y::Matrix{T}, U::Matrix{T}, t::T, c::Int) where {T}
   e = zero(T)
-  @inbounds @simd for i in axes(Y, 1)
+  @inbounds for i in axes(Y, 1)
     e += abs2(Y[i, c] - t * U[i, c])
   end
   sqrt(e)
@@ -229,7 +229,7 @@ function _partial_svd!(ws::PartialSVDWorkspace{T}, X::StridedMatrix{T}, τ::T, r
     _thin_qr!(Q, ws.qrm)
   end
   ws.warm = ℓ
-  -1
+  return -1
 end
 
 # whether the k triplets kept have residuals at most bound, and the next g are
@@ -245,7 +245,7 @@ function _svd_accepted(Y::Matrix{T}, U::Matrix{T}, s::Vector{T}, k::Int, g::Int,
   for c in k+1:k+g
     s[c] + _pair_residual(Y, U, s[c], c) <= edge || return false
   end
-  true
+  return true
 end
 
 # Runs _partial_svd!, growing the block while too few of its values are below
@@ -393,7 +393,7 @@ function _partial_eigen!(ws::PartialEigenWorkspace{T}, A::StridedMatrix{T}, τ::
     _thin_qr!(V, ws.qr)
   end
   ws.warm = ℓ
-  -1
+  return -1
 end
 
 # whether the k pairs kept (the last k) have residuals at most bound, and the g
@@ -410,7 +410,7 @@ function _eig_accepted(AU::Matrix{T}, U::Matrix{T}, θ::Vector{T}, k::Int, g::In
   for c in ℓ-k:-1:ℓ-k-g+1
     θ[c] + _pair_residual(AU, U, θ[c], c) <= edge || return false
   end
-  true
+  return true
 end
 
 # Runs _partial_eigen!, growing the block while too few of its values are below

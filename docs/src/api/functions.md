@@ -25,6 +25,7 @@ ProximalBase.Huber
 ProximalBase.SquaredHinge
 ProximalBase.SmoothCheck
 ProximalBase.ConvolutionCheck
+ProximalBase.Smoothed
 ProximalBase.deriv
 ProximalBase.deriv2
 ProximalBase.curvature

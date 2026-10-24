@@ -14,6 +14,9 @@ from known ones.
 | [`Sum`](@ref)`(f1, f2, ...)` | ``\sum_k f_k(x)`` | | ``\sum_k \nabla f_k(x)`` |
 | [`Constrained`](@ref)`(f, C)` | ``f(x)`` on a box, hyperplane, halfspace or simplex ``C`` | on a box, ``\operatorname{clamp}(\operatorname{prox}_{\gamma f}(x), l, u)``; on a hyperplane, ``\operatorname{prox}_{\gamma f}(x - \gamma\nu a)`` | |
 | [`Spectral`](@ref)`(f)` | ``f(\lambda(X))`` for a symmetric ``X`` | ``V\operatorname{diag}(\operatorname{prox}_{\gamma f}(\lambda))V^\top`` | |
+| [`MoreauEnvelope`](@ref)`(f, μ)` | ``\min_z f(z) + \tfrac{1}{2\mu}\lVert z - x\rVert^2`` | ``x + \tfrac{\gamma}{\mu + \gamma}\big(\operatorname{prox}_{(\mu+\gamma) f}(x) - x\big)`` | ``\big(x - \operatorname{prox}_{\mu f}(x)\big)/\mu`` |
+| [`Precompose`](@ref)`(f, A, μ)`, ``AA^\top = \mu I`` | ``f(Ax)`` | ``x + \tfrac1\mu A^\top\big(\operatorname{prox}_{\mu\gamma f}(Ax) - Ax\big)`` | ``A^\top\nabla f(Ax)`` |
+| [`Regularize`](@ref)`(f, ρ, c)` | ``f(x) + \tfrac{\rho}{2}\lVert x - c\rVert^2`` | ``\operatorname{prox}_{\frac{\gamma}{1+\gamma\rho} f}\big(\tfrac{x + \gamma\rho c}{1 + \gamma\rho}\big)`` | ``\nabla f(x) + \rho(x - c)`` |
 
 ## Derivations
 
@@ -32,6 +35,20 @@ operator.
 - **Blocks.** For ``\sum_k f_k(x_k)`` the problem defining the proximal operator
   separates over the blocks, so a solver can update a tuple of variables, such
   as the sparse and low-rank parts of robust PCA, with one call.
+- **Envelopes.** For the Moreau envelope ``e`` of ``f`` with parameter ``\mu``,
+  let ``P = \operatorname{prox}_{(\mu+\gamma) f}(x)`` and
+  ``y = x + \frac{\gamma}{\mu+\gamma}(P - x)``. Then
+  ``(y - P)/\mu = (x - P)/(\mu + \gamma) \in \partial f(P)``, so
+  ``P = \operatorname{prox}_{\mu f}(y)``, and ``(x - y)/\gamma = (y - P)/\mu = \nabla e(y)``:
+  ``y`` is the proximal point of ``\gamma e``. The value ``e(y)`` comes from
+  ``f(P)``, with no second evaluation.
+- **Composition with ``A``, ``AA^\top = \mu I``.** Write ``z = x + A^\top u``
+  plus a component in the null space of ``A``; the problem for ``f(Az)`` at
+  ``x`` becomes the problem for ``f`` at ``Ax`` with step ``\mu\gamma``, and
+  ``A\operatorname{prox}_{\gamma f\circ A}(x) = \operatorname{prox}_{\mu\gamma f}(Ax)``.
+- **A ridge term.** ``f(z) + \frac{\rho}{2}\|z - c\|^2 + \frac{1}{2\gamma}\|z - x\|^2``
+  equals ``f(z) + \frac{1 + \gamma\rho}{2\gamma}\big\|z - \frac{x + \gamma\rho c}{1 + \gamma\rho}\big\|^2``
+  plus a constant.
 
 ```@example calculus
 using ProximalBase, LinearAlgebra
@@ -220,3 +237,20 @@ B = randn(5, 5)
 P = prox(Spectral(Constrained(IndBox(0, 1), IndHyperplane(1, 2))), (B + B') / 2)   # onto the Fantope
 (eigvals(Symmetric(P)), tr(P))
 ```
+
+## Smoothing
+
+[`MoreauEnvelope`](@ref)`(f, μ)` replaces a nonsmooth convex ``f`` by a smooth
+function with a ``1/\mu``-Lipschitz gradient, from the same proximal operator:
+the envelope of ``\delta|\cdot|`` is the Huber function, that of an indicator
+function the squared distance to the set divided by ``2\mu``. For the losses of
+a linear predictor, `ProximalBase.Smoothed(φ, μ)` is the envelope of a scalar
+function of the residual as a scalar loss of [`GLMLoss`](@ref), with curvature
+at most ``1/\mu``, so that coordinate descent and proximal Newton apply to a
+smoothed check loss (quantile regression) or hinge.
+
+```@example calculus
+const PB = ProximalBase
+PB.Smoothed(NormL1(0.5), 1.0)(1.3, 0.2) ≈ PB.Huber(0.5)(1.3, 0.2)
+```
+

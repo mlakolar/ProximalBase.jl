@@ -25,6 +25,8 @@ tests = [
   "constrained_nonconvex",
   "testing",
   "second_order",
+  "envelope",
+  "composition",
   "allocations",
   "gpu",
   "deprecated",

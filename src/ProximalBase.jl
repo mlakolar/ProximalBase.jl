@@ -60,6 +60,7 @@ export
 
   # functions built from functions
   Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum, Constrained, Spectral,
+  MoreauEnvelope, Precompose, Regularize,
 
   # functions of stacked arrays
   SliceSum, FiberSum,
@@ -100,6 +101,8 @@ include("spectralfunction.jl")
 include("ballconstrained.jl")
 include("constrained_nonconvex.jl")
 include("second_order.jl")
+include("envelope.jl")
+include("composition.jl")
 include("deprecated.jl")
 include("testing.jl")
 include("precompile.jl")

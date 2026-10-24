@@ -116,6 +116,7 @@ over the observations and one product with ``X^\top``.
 | `SquaredHinge()` | ``\max(0, 1 - y\eta)^2``, ``y = \pm 1`` | ``-2y\max(0, 1 - y\eta)`` | ``2`` | `GLMLoss(ProximalBase.SquaredHinge(), y, X)` |
 | `SmoothCheck(τ, h)` | the Moreau envelope of ``\rho_\tau`` at ``u = y - \eta`` | ``-\operatorname{clamp}(u/h, \tau - 1, \tau)`` | ``1/h`` | `GLMLoss(ProximalBase.SmoothCheck(τ, h), y, X)` |
 | `ConvolutionCheck(τ, h; kernel)` | ``\int \rho_\tau(u - t)K(t/h)/h\,dt`` at ``u = y - \eta`` | ``-(\tau - \tfrac12) - \tfrac12 m'(u/h)`` for ``\lvert u\rvert < h`` | ``\max K/h`` | `GLMLoss(ProximalBase.ConvolutionCheck(τ, h), y, X)` |
+| `Smoothed(φ, μ)` | ``\min_t \varphi(t) + \tfrac{1}{2\mu}(t - r)^2``, with ``r = \eta - y`` | ``(r - \operatorname{prox}_{\mu\varphi}(r))/\mu`` | ``1/\mu`` | `GLMLoss(ProximalBase.Smoothed(φ, μ), y, X)` |
 
 Here ``\sigma(\eta) = 1/(1 + e^{-\eta})``, and ``\log(1 + e^\eta)`` is
 computed so that it neither overflows nor loses precision. The scalar losses

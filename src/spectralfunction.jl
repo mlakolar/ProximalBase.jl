@@ -17,6 +17,8 @@ order of the entries. Its proximal operator acts on the eigenvalues: for
   the Fantope `{X : 0 ⪯ X ⪯ I, tr(X) = k}`, the convex hull of the projections of
   rank `k`, as in sparse principal component analysis (Vu, Cho, Lei and Rohe,
   2013);
+- `Spectral(Conjugate(Constrained(IndBox(0, 1), IndHyperplane(1, k))))` is the
+  sum of the `k` largest eigenvalues, the support function of the Fantope;
 - `Spectral(IndBox(l, u))` is the indicator of the matrices with eigenvalues in
   `[l, u]`;
 - `Spectral(IndSimplex(1))` is the indicator of the density matrices,

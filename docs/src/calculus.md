@@ -239,6 +239,7 @@ convex exactly when ``f`` is.
 | `IndBallL1(r)` | ``\|X\|_* \le r`` |
 | `IndSimplex(1)` | the density matrices: ``X \succeq 0`` and ``\operatorname{tr}(X) = 1`` |
 | `Constrained(IndBox(0, 1), IndHyperplane(1, k))` | the Fantope: ``0 \preceq X \preceq I`` and ``\operatorname{tr}(X) = k`` |
+| `Conjugate(Constrained(IndBox(0, 1), IndHyperplane(1, k)))` | ``\lambda_1(X) + \dots + \lambda_k(X)``, the sum of the ``k`` largest eigenvalues |
 | `NormL0(λ)` | ``\lambda\operatorname{rank}(X)``, nonconvex |
 | `IndBallL0(r)` | the matrices of rank at most ``r``, nonconvex |
 

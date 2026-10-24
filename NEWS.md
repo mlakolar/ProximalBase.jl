@@ -25,8 +25,15 @@
     the reverse Huber penalty `Berhu` (#51).
 - **`SingularValue(f)`:** functions of the singular values of a matrix, from one
   SVD workspace: the spectral norm, the nuclear-norm and spectral-norm balls,
-  the matrix elastic net, and MCP, SCAD or ℓ0 thresholding of the singular
-  values, with the value from the proximal operator (#39).
+  the matrix elastic net, the Ky Fan `k`-norm, and MCP, SCAD or ℓ0 thresholding
+  of the singular values, with the value from the proximal operator (#39).
+  - The conjugate of the indicator of a box with a hyperplane or a halfspace,
+    for scalar bounds and normal, has a value: the support function of the set,
+    by a selection in a buffer that the function owns.
+  - So the Ky Fan norm `λ(σ₁ + … + σₖ)` is
+    `SingularValue(Conjugate(Constrained(IndBox(0, λ), IndHalfspace(1, λ * k))))`,
+    and `Spectral` of the conjugate of the capped simplex is the sum of the `k`
+    largest eigenvalues.
 - **More sets:**
   - `IndPattern`, `IndBanded` and `IndToeplitz`: arrays supported on a pattern,
     banded matrices, Toeplitz matrices. The first two are separable (#43);

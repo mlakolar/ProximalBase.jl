@@ -312,7 +312,10 @@ writing `x[r, c]` also writes `x[c, r]`.
 
 `restrict(f, S)` is the function of `x[S]` on the vectors supported on `S`, and
 `kkt_violation(f, g, x, k)` measures how much a coordinate at zero violates
-optimality given the gradient `g` of the smooth part.
+optimality given the gradient `g` of the smooth part. For the capped ℓ1, log,
+MCP and SCAD penalties and their group versions, `lla_weights!(w, f, x)` gives
+the weights of the local linear approximation (reweighted ℓ1) at `x`: the next
+stage is the weighted lasso `NormL1(1, w)`, or `GroupNormL2(1, f.groups, w)`.
 
 ## Performance
 

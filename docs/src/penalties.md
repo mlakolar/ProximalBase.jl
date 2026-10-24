@@ -127,6 +127,102 @@ with level ``\lambda w_k`` to the Euclidean norm of each group. For any ``p``,
 of a given norm ``r``, at ``z = r\,v/\lVert v\rVert``, so the proximal operator is
 the scalar one at ``\lVert v_{G_k}\rVert``, along ``v_{G_k}``: exact for every step.
 
+## Local linear approximation (reweighted ℓ1)
+
+For a nonconvex penalty, the algorithm decides which local solution an
+estimator is, so recreating a paper means matching both its penalty and its
+algorithm. The papers that define the capped ℓ1 and log penalties, and the
+one-step and two-step SCAD and MCP estimators, compute them by *local linear
+approximation* (LLA), also called reweighted ℓ1.
+
+The capped ℓ1, log, MCP and SCAD penalties are
+``f(x) = \sum_i p_i(\lvert x_i\rvert)`` with each ``p_i`` concave and
+nondecreasing on ``[0, \infty)``. So ``f`` lies below its tangent at any point
+``\tilde x``:
+
+```math
+p_i(\lvert t\rvert) \le p_i(\lvert\tilde x_i\rvert) + p_i'(\lvert\tilde x_i\rvert)\,\bigl(\lvert t\rvert - \lvert\tilde x_i\rvert\bigr).
+```
+
+A stage of LLA minimizes the loss plus the tangent, the weighted lasso with
+penalty ``\sum_i w_i\lvert x_i\rvert``, ``w_i = p_i'(\lvert\tilde x_i\rvert)``.
+Each stage is convex, so λmax, the strong rule and safe screening are those of
+a weighted lasso. Alternating stages and weights is a
+majorization-minimization algorithm: each stage, solved exactly, decreases the
+loss plus ``f``.
+
+[`lla_weights!`](@ref)`(w, f, x)` fills `w` with these weights, and
+[`lla_weight`](@ref)`(f, v, i)` gives one. They include the level and the entry
+weights of `f`, so the penalty of the next stage is `NormL1(1, w)`. For
+[`GroupMCP`](@ref) and [`GroupSCAD`](@ref), `w` has one weight per group,
+``w_k = p_k'(\lVert x_{G_k}\rVert_2)``, and the next stage is
+`GroupNormL2(1, f.groups, w)`.
+
+| Penalty | ``p_i'(t)``, ``t > 0`` | ``p_i'(0)`` |
+|:--------|:-----------------------|:------------|
+| [`CappedL1`](@ref)`(λ, a, w)` | ``\lambda w_i`` for ``t < a``, ``0`` for ``t \ge a`` | ``\lambda w_i`` |
+| [`LogPenalty`](@ref)`(λ, ε, w)` | ``\lambda w_i/(\varepsilon + t)`` | ``\lambda w_i/\varepsilon`` |
+| [`MCP`](@ref)`(λ, a)` | ``(\lambda - t/a)_+`` | ``\lambda`` |
+| [`SCAD`](@ref)`(λ, a)` | ``\lambda`` for ``t \le \lambda``, ``(a\lambda - t)_+/(a - 1)`` beyond | ``\lambda`` |
+| [`GroupMCP`](@ref), [`GroupSCAD`](@ref) | the MCP or SCAD slope at level ``\lambda w_k``, at ``t = \lVert x_{G_k}\rVert_2`` | ``\lambda w_k`` |
+
+At a kink the weight is the slope from the right, a supergradient of the
+concave ``p_i``, so the majorization holds there too. At zero it is
+``p_i'(0+)``, which makes the first stage from ``\tilde x = 0`` the lasso. For
+the capped ℓ1 penalty at ``\lvert t\rvert = a`` it is ``0``, the rule of
+T. Zhang's algorithm: ``\lambda w_i`` for ``\lvert t\rvert < a``, ``0`` otherwise.
+The slopes of the MCP and SCAD are continuous away from zero.
+[`NormLq`](@ref) has an infinite slope at zero, so every stage would keep the
+zero entries at zero, and [`lla_weights!`](@ref) throws an error for it.
+
+The papers, with their penalties as they define them:
+
+| Paper | Penalty | In ProximalBase | Stages |
+|:------|:--------|:----------------|:-------|
+| Zou and Li (2008) | SCAD | `SCAD(λ, 3.7)` | one, from an initial estimate such as the unpenalized maximum likelihood estimate (the one-step estimator) |
+| Candès, Wakin and Boyd (2008) | ``\sum_i\log(\lvert x_i\rvert + \varepsilon)``, fixed ``\varepsilon`` | `LogPenalty(λ, ε)` | from the ℓ1 solution, until the weights stop changing or for a fixed number of stages |
+| T. Zhang (2010) | capped ℓ1, ``\lambda\min(\lvert t\rvert, a)``, fixed cap ``a`` | `CappedL1(λ, a)` | from the lasso, until the weights stop changing (multi-stage convex relaxation) |
+| Shen, Pan and Zhu (2012) | truncated ℓ1 (TLP), ``\lambda\min(\lvert t\rvert/\tau, 1)``, fixed ``\tau`` | `CappedL1(λ / τ, τ)` | until the weights stop changing (difference of convex functions); ``(\lambda, \tau)`` tuned on a grid |
+| Fan, Xue and Zou (2014) | SCAD, MCP | `SCAD(λ, a)`, `MCP(λ, a)` | two from zero: the lasso, then one weighted lasso (the two-step estimator) |
+
+Breheny and Huang (2011) compute MCP and SCAD paths instead by coordinate
+descent with the exact proximal operator of the penalty, which can give a
+different local solution.
+
+With the loss ``\tfrac12\lVert x - y\rVert^2``, a stage is weighted soft
+thresholding, and three stages of LLA for the MCP read:
+
+```@example penalties
+using ProximalBase
+y = [3.0, -0.4, 1.2, 0.1]
+f = MCP(0.8, 2.0)
+x = zeros(4)
+for stage in 1:3
+    w = lla_weights(f, x)          # the first stage, from zero, is the lasso
+    x .= prox(NormL1(1, w), y)
+end
+x
+```
+
+The stages of a regression run in a solver; ProximalSolvers' `reweight!`
+alternates them with the weights.
+
+- Candès, E. J., Wakin, M. B. and Boyd, S. P. (2008). Enhancing sparsity by
+  reweighted ℓ1 minimization. *Journal of Fourier Analysis and Applications*
+  14, 877–905.
+- Breheny, P. and Huang, J. (2011). Coordinate descent algorithms for
+  nonconvex penalized regression, with applications to biological feature
+  selection. *Annals of Applied Statistics* 5, 232–253.
+- Fan, J., Xue, L. and Zou, H. (2014). Strong oracle optimality of folded
+  concave penalized estimation. *Annals of Statistics* 42, 819–849.
+- Shen, X., Pan, W. and Zhu, Y. (2012). Likelihood-based selection and sharp
+  parameter estimation. *Journal of the American Statistical Association*
+  107, 223–232.
+- Zhang, T. (2010). Analysis of multi-stage convex relaxation for sparse
+  regularization. *Journal of Machine Learning Research* 11, 1081–1107.
+- Zou, H. and Li, R. (2008). One-step sparse estimates in nonconcave penalized
+  likelihood models. *Annals of Statistics* 36, 1509–1533.
+
 ## Entropy, divergence and barrier functions
 
 The negative entropy, the Kullback–Leibler divergence and the log barrier are

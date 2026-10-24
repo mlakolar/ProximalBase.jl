@@ -10,7 +10,8 @@
 # 2. The calls of a solver on slowly changing points: master, which searches
 #    from zero on every call, against this branch, which starts from the last
 #    multiplier.
-# 3. FISTA on the zero-sum lasso, master against this branch.
+# 3. FISTA on the zero-sum lasso: its calls of the proximal operator, recorded
+#    from one run and replayed for master and for this branch.
 # 4. One median selection over the 2n breakpoints of the zero-sum lasso, the step
 #    of the breakpoint search that #77 proposed, against the whole search.
 # 5. The threshold of the projection onto the simplex: master's Condat pass
@@ -46,15 +47,15 @@ PB.prox_entry(g::Slopeless, v, i, γ) = PB.prox_entry(g.f, v, i, γ)
 cold!(c) = (c.last[] = NaN; c)
 # 20 slowly changing points, made before the timing
 points(x, noise) = [x .+ (0.002 * t) .* noise for t in 1:20]
-calls_cold(c, y, xs) = (for xt in xs; cold!(c); PB.prox!(y, c, xt, 0.7); end)
-calls_warm(c, y, xs) = (for xt in xs; PB.prox!(y, c, xt, 0.7); end)
+calls_cold(c, y, xs, γ = 0.7) = (for xt in xs; cold!(c); PB.prox!(y, c, xt, γ); end)
+calls_warm(c, y, xs, γ = 0.7) = (for xt in xs; PB.prox!(y, c, xt, γ); end)
 # the passes of each call, from zero or, after a first round, from the last multiplier
-function passes(c, y, xs; warm = false)
-  warm && calls_warm(c, y, xs)
+function passes(c, y, xs; warm = false, γ = 0.7)
+  warm && calls_warm(c, y, xs, γ)
   map(xs) do xt
     warm || cold!(c)
     CALLS[] = 0
-    PB.prox!(y, c, xt, 0.7)
+    PB.prox!(y, c, xt, γ)
     CALLS[] / length(xt)
   end
 end
@@ -125,7 +126,10 @@ end
 println()
 println("## 3. FISTA on the zero-sum lasso")
 println()
-function fista!(β, f, g, iters; reset = false)
+println("The points at which 500 iterations of FISTA call the proximal operator, recorded from one run and replayed ",
+        "for both sides: the time and passes per call, and the time of a whole iteration on master, for scale.")
+println()
+function fista!(β, f, g, iters; reset = false, record = nothing)
   L = PB.lipschitz(f)
   βold, z, grad = similar(β), copy(β), similar(β)
   t = 1.0
@@ -133,6 +137,7 @@ function fista!(β, f, g, iters; reset = false)
     PB.gradient!(grad, f, z)
     copyto!(βold, β)
     β .= z .- grad ./ L
+    record === nothing || push!(record, copy(β))
     reset && cold!(g)
     PB.prox!(β, g, β, 1 / L)
     tnew = (1 + sqrt(1 + 4t^2)) / 2
@@ -141,9 +146,10 @@ function fista!(β, f, g, iters; reset = false)
   end
   β
 end
-println("| problem | master, each search from zero (ms, passes per call) | this branch, from the last multiplier (ms, passes per call) |")
-println("|:-----|---:|---:|")
-for (n, p) in ((100, 20_000), (50, 100_000))         # the proximal step a large part of each iteration
+println("| problem | an iteration on master (ms) | master, each call from zero (μs, passes) | ",
+        "this branch, from the last multiplier (μs, passes) | speedup |")
+println("|:-----|---:|---:|---:|---:|")
+for (n, p) in ((100, 20_000), (50, 100_000))
   W = exp.(randn(n, p))
   W ./= sum(W; dims = 2)
   Z = log.(W)
@@ -152,16 +158,16 @@ for (n, p) in ((100, 20_000), (50, 100_000))         # the proximal step a large
   y .-= sum(y) / n
   f = (1 / n) * PB.LeastSquaresLoss(y, Z)
   λ = 0.3 * maximum(abs.(Z' * y)) / n
-  g0, g1 = PB.Constrained(Slopeless(PB.NormL1(λ)), PB.IndHyperplane(1, 0)), PB.Constrained(PB.NormL1(λ), PB.IndHyperplane(1, 0))
-  tc, tw = interleaved(() -> fista!(zeros(p), f, g0, 500; reset = true), () -> fista!(zeros(p), f, g1, 500); rounds = 3)
-  pc, pw = map((true, false)) do reset
-    h = Counted(PB.NormL1(λ))
-    gc = PB.Constrained(reset ? Slopeless(h) : h, PB.IndHyperplane(1, 0))
-    CALLS[] = 0
-    fista!(zeros(p), f, gc, 500; reset)
-    CALLS[] / p / 500
-  end
-  @printf("| n = %d, p = %d, 500 iterations | %.1f, %.1f | %.1f, %.1f |\n", n, p, 1e3tc, pc, 1e3tw, pw)
+  γ = 1 / PB.lipschitz(f)
+  zerosum(h) = PB.Constrained(h, PB.IndHyperplane(1, 0))
+  pts = Vector{Float64}[]
+  fista!(zeros(p), f, zerosum(Slopeless(PB.NormL1(λ))), 500; reset = true, record = pts)
+  ti = interleaved(() -> fista!(zeros(p), f, zerosum(Slopeless(PB.NormL1(λ))), 500; reset = true); rounds = 3)[1] / 500
+  gm, gw, z = zerosum(Slopeless(PB.NormL1(λ))), zerosum(PB.NormL1(λ)), zeros(p)
+  tm, tw = interleaved(() -> calls_cold(gm, z, pts, γ), () -> calls_warm(gw, z, pts, γ)) ./ length(pts)
+  pm = passes(zerosum(Slopeless(Counted(PB.NormL1(λ)))), z, pts; γ)
+  pw = passes(zerosum(Counted(PB.NormL1(λ))), z, pts; warm = true, γ)
+  @printf("| n = %d, p = %d | %.2f | %s, %.1f | %s, %.1f | %.2f× |\n", n, p, 1e3ti, μs(tm), avg(pm), μs(tw), avg(pw), tm / tw)
 end
 
 println()

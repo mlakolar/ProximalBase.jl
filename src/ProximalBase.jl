@@ -36,6 +36,7 @@ export
   prox_coordinate!, prox_entry, kkt_violation, restrict,
   SeparableFunction, value_entry, iszeropreserving,
   gradient_mapping, gradient_mapping!, lipschitz,
+  coordinate_lipschitz, coordinate_lipschitz!,
 
   # smooth functions
   ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, KronQuadratic,
@@ -82,6 +83,7 @@ include("functions/spectral.jl")
 include("functions/sets.jl")
 
 include("calculus.jl")
+include("metric.jl")
 include("deprecated.jl")
 include("precompile.jl")
 

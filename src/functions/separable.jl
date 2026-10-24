@@ -113,23 +113,28 @@ function _value_sep(f, x::AtomIterate)
   s
 end
 
-# the proximal operator, entry by entry; y may be x
-function _prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Real)
+# the proximal operator, entry by entry; y may be x. The step γ is a scalar or an
+# array of the size of x, a step per entry (see metric.jl)
+const _Step = Union{Real, AbstractArray}
+
+function _prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::_Step)
   _checksize(y, x)
   _checkparams(f, x)
+  _checkparam(γ, x)
   T = eltype(y)
   @inbounds for i in eachindex(IndexLinear(), y, x)
-    y[i] = convert(T, prox_entry(f, x[i], i, γ))
+    y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i)))
   end
   y
 end
 
 # on sparse iterates, only the stored entries when f preserves zeros; as for a
 # dense array, an entry stored in y stays stored, possibly as a zero
-function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::Real)
+function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::_Step)
   _checksize(y, x)
   _checkparams(f, x)
-  iszeropreserving(f) || return invoke(_prox_sep!, Tuple{AbstractArray, Any, AbstractArray, Real}, y, f, x, γ)
+  _checkparam(γ, x)
+  iszeropreserving(f) || return invoke(_prox_sep!, Tuple{AbstractArray, Any, AbstractArray, _Step}, y, f, x, γ)
   T = eltype(y)
   if y !== x
     @inbounds for k in 1:y.nnz
@@ -138,16 +143,17 @@ function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::Real)
   end
   @inbounds for k in 1:x.nnz
     i = x.nzval2ind[k]
-    _setstored!(y, convert(T, prox_entry(f, x.nzval[k], i, γ)), i)
+    _setstored!(y, convert(T, prox_entry(f, x.nzval[k], i, _entry(γ, i))), i)
   end
   y
 end
 
 # each coordinate (an entry of the lower triangle) once, and from a
 # SymmetricSparseIterate only its stored coordinates when f preserves zeros
-function _prox_sep!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::Real)
+function _prox_sep!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::_Step)
   _checksize(y, x)
   _checkparams(f, x)
+  _checkparam(γ, x)
   T = eltype(y)
   p = y.p
   if x isa SymmetricSparseIterate && iszeropreserving(f)
@@ -159,12 +165,12 @@ function _prox_sep!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::Real)
     @inbounds for k in 1:x.nnz
       i = x.nzval2ind[k]
       r, c = tril_cartesian(p, i)
-      _setstored!(y, convert(T, prox_entry(f, x.nzval[k], (c - 1) * p + r, γ)), i)
+      _setstored!(y, convert(T, prox_entry(f, x.nzval[k], (c - 1) * p + r, _entry(γ, (c - 1) * p + r))), i)
     end
     return y
   end
   @inbounds for c in 1:p, r in c:p
-    _setstored!(y, convert(T, prox_entry(f, x[r, c], (c - 1) * p + r, γ)), tril_index(p, r, c))
+    _setstored!(y, convert(T, prox_entry(f, x[r, c], (c - 1) * p + r, _entry(γ, (c - 1) * p + r))), tril_index(p, r, c))
   end
   y
 end
@@ -172,7 +178,7 @@ end
 # the proximal operator, then the value at the result: two vectorized passes are
 # several times faster than one that stores and sums, which does not vectorize;
 # an indicator function is 0 at its projection
-_value_and_prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Real) =
+_value_and_prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::_Step) =
   _isindicator(f) ? (_prox_sep!(y, f, x, γ); zero(float(eltype(y)))) : _value_sep(f, _prox_sep!(y, f, x, γ))
 
 _restrict_entries(w::Union{Nothing, Real}, ::AbstractVector{<:Integer}) = w

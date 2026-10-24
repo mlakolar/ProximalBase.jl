@@ -15,6 +15,7 @@ tests = [
   "spectral",
   "sets",
   "calculus",
+  "metric",
   "allocations",
   "deprecated",
   "examples",

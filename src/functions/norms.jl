@@ -268,9 +268,14 @@ function (f::AbstractGroupNorm)(x::AbstractArray)
   convert(T, f.λ0) * v
 end
 
-function value_and_prox!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
+prox!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::Real) = (_value_and_prox_groups!(y, f, x, γ); y)
+
+# the step γ is a scalar or a vector with a step per group (see metric.jl)
+function _value_and_prox_groups!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::Union{Real, AbstractVector})
   _checksize(y, x)
   _checkgroups(f, x)
+  _checkgroupsteps(f, γ)
   T = float(eltype(y))
   if y !== x                    # indices in no group are not penalized
     @inbounds for i in f.free
@@ -282,11 +287,15 @@ function value_and_prox!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArra
   end
   v = zero(T)
   for k in eachindex(f.groups)
-    v += convert(T, f.w[k]) * _shrink_group!(f, y, x, f.groups[k], convert(T, γ * f.λ0 * f.w[k]))
+    v += convert(T, f.w[k]) * _shrink_group!(f, y, x, f.groups[k], convert(T, _entry(γ, k) * f.λ0 * f.w[k]))
   end
   convert(T, f.λ0) * v
 end
-prox!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::Real) = (value_and_prox!(y, f, x, γ); y)
+
+# a step per group (see metric.jl): one entry for every group
+_checkgroupsteps(::AbstractGroupNorm, ::Real) = true
+_checkgroupsteps(f::AbstractGroupNorm, γ::AbstractVector) = length(γ) == length(f.groups) ||
+  throw(DimensionMismatch("a step per group: $(length(f.groups)) groups and $(length(γ)) steps"))
 
 # the parts of the groups in S, as positions in S, with their weights
 function restrict(f::AbstractGroupNorm, S::AbstractVector{<:Integer})
@@ -341,15 +350,18 @@ function (f::AbstractGroupNorm)(x::AtomIterate)
   convert(T, f.λ0) * v
 end
 
-function value_and_prox!(y::AtomIterate, f::AbstractGroupNorm, x::AtomIterate, γ::Real)
+value_and_prox!(y::AtomIterate, f::AbstractGroupNorm, x::AtomIterate, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
+
+function _value_and_prox_groups!(y::AtomIterate, f::AbstractGroupNorm, x::AtomIterate, γ::Union{Real, AbstractVector})
   y.groups === x.groups === f.groups ||
-    return invoke(value_and_prox!, Tuple{AbstractArray, AbstractGroupNorm, AbstractArray, Real}, y, f, x, γ)
+    return invoke(_value_and_prox_groups!, Tuple{AbstractArray, AbstractGroupNorm, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
+  _checkgroupsteps(f, γ)
   T = float(eltype(y))
   copyto!(y, x)
   v = zero(T)
   for a in 1:y.nactive
     k = y.active[a]
-    v += convert(T, f.w[k]) * _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, γ * f.λ0 * f.w[k]))
+    v += convert(T, f.w[k]) * _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, _entry(γ, k) * f.λ0 * f.w[k]))
   end
   convert(T, f.λ0) * v
 end

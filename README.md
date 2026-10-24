@@ -246,6 +246,7 @@ bound, for Newton and coordinate steps.
 | `IndBallL1(r)`, `IndBallL2(r)` | `‖x‖₁ ≤ r`, `‖x‖₂ ≤ r` |
 | `IndSimplex(r; equality)` | `x ≥ 0, Σᵢ xᵢ = r` (or `≤ r`) |
 | `IndHyperplane(a, b)`, `IndHalfspace(a, b)` | `⟨a, x⟩ = b`, `⟨a, x⟩ ≤ b` |
+| `IndAffine(A, b)` | `Ax = b`, with a factorization cached at construction |
 | `IndPSD()`, `IndPSD(rank = r)` | `X ⪰ 0`, and of rank at most `r` (nonconvex) |
 | `IndBallRank(r)` | rank at most `r`, nonconvex |
 

@@ -19,6 +19,7 @@ rounding.
 | [`IndBallL0`](@ref)`(s)` | at most ``s`` nonzero entries | keep the ``s`` largest in magnitude |
 | [`IndHyperplane`](@ref)`(a, b)` | ``\langle a, x\rangle = b`` | ``v - \frac{\langle a, v\rangle - b}{\lVert a\rVert^2}\,a`` |
 | [`IndHalfspace`](@ref)`(a, b)` | ``\langle a, x\rangle \le b`` | the same when ``\langle a, v\rangle > b`` |
+| [`IndAffine`](@ref)`(A, b)` | ``Ax = b`` | ``v - A^\top(AA^\top)^{-1}(Av - b)``, from a factorization cached at construction |
 | [`IndPSD`](@ref)`()` | ``X \succeq 0`` | ``U\max(\Lambda, 0)U^\top`` |
 | [`IndPSD`](@ref)`(rank = r)` | ``X \succeq 0``, rank at most ``r`` | the ``r`` largest positive eigenpairs |
 | [`IndBallRank`](@ref)`(r)` | rank at most ``r`` | the truncated SVD |
@@ -64,6 +65,19 @@ this set is iterative hard thresholding. On a symmetric matrix, ``s`` counts the
 entries of one triangle, so that an entry and its transpose are kept or dropped
 together. With `diagonal = false` the diagonal does not count and is kept, as for
 the off-diagonal sparsity of a precision matrix.
+
+## Affine sets
+
+[`IndAffine`](@ref)`(A, b)` projects onto ``\{x : Ax = b\}`` with several
+equality constraints at once. It factors ``AA^\top`` once, by Cholesky when
+``A`` has full row rank. Otherwise it caches a thin SVD
+``A = U\Sigma V^\top`` of the rank of ``A``, and the projection is
+``v - V(V^\top v - \Sigma^{-1}U^\top b)``, defined when ``b`` is in the range of
+``A``. A tight frame, ``AA^\top = \mu I``, needs no factorization
+(`IndAffine(A, b; μ)`). Each call costs two products with ``A`` and allocates
+nothing. With ADMM, it gives basis pursuit, ``\min \|x\|_1`` subject to
+``Ax = b``, and equality-constrained estimators such as log-contrast regression
+with several subcompositions.
 
 ## Hyperplanes and halfspaces
 

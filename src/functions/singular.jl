@@ -104,7 +104,7 @@ function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix,
   end
   @inbounds for j in 1:k
     tj = t[j]
-    @simd for i in axes(U, 1)
+    for i in axes(U, 1)
       U[i, j] *= tj
     end
   end

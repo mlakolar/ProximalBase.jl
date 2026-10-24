@@ -24,9 +24,11 @@ there are ties) and sets the others to zero: a selection in O(n) expected time
 For a symmetric matrix, a `Symmetric` or a [`SymmetricSparseIterate`](@ref),
 `s` counts the entries of one triangle, so that an entry and its transpose are
 kept or dropped together, and the result is symmetric; the output may be a
-dense matrix or a `SymmetricSparseIterate`. With `diagonal = false`, the
-diagonal of a matrix does not count and is kept, as for the off-diagonal
-sparsity of a precision matrix:
+dense matrix or a `SymmetricSparseIterate`. The result is the projection in the
+Frobenius norm: an off-diagonal entry stands for a pair, whose removal costs
+twice its square, so it competes with the diagonal by `√2|xᵢⱼ|`. With
+`diagonal = false`, the diagonal of a matrix does not count and is kept, as for
+the off-diagonal sparsity of a precision matrix:
 
 ```julia
 prox!(S, IndBallL0(s; diagonal = false), Symmetric(Θ, :L))   # S::SymmetricSparseIterate
@@ -189,11 +191,12 @@ function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSpa
   p = checksquare(x)
   T = float(eltype(x))
   first_row(c) = f.diagonal ? c : c + 1
+  w = sqrt(T(2))
   buf = _buffer!(f.scratch, T, div(p * (p + 1), 2))
   k = 0
   nz = 0
   @inbounds for c in 1:p, r in first_row(c):p
-    a = abs(x[r, c])
+    a = _pairweight(f, r, c, w) * abs(x[r, c])
     k += 1
     buf[k] = a
     nz += !iszero(a)
@@ -202,7 +205,7 @@ function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSpa
   ties = f.s
   if nz > f.s
     @inbounds for c in 1:p, r in first_row(c):p
-      ties -= abs(x[r, c]) > τ
+      ties -= _pairweight(f, r, c, w) * abs(x[r, c]) > τ
     end
   end
   @inbounds for c in 1:p, r in c:p
@@ -210,7 +213,7 @@ function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSpa
     if !f.diagonal && r == c
       keep = true
     else
-      a = abs(v)
+      a = _pairweight(f, r, c, w) * abs(v)
       keep = a > τ || (a == τ && ties > 0)
       keep && a == τ && (ties -= 1)
     end
@@ -218,6 +221,12 @@ function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSpa
   end
   y
 end
+
+# the weight of entry (r, c) in the selection: when the diagonal counts, an
+# off-diagonal entry stands for the pair (r, c), (c, r), whose removal costs
+# twice its square in the Frobenius norm; with a free diagonal every counted
+# entry is off the diagonal, and the weight is 1
+@inline _pairweight(f::IndBallL0, r, c, w) = f.diagonal && r != c ? w : one(w)
 
 @inline _set_symmetric!(y::SymmetricSparseIterate, v, r, c) = _setstored!(y, v, tril_index(y.p, r, c))
 @inline function _set_symmetric!(y::AbstractMatrix, v, r, c)
@@ -311,6 +320,50 @@ function prox!(y::AbstractArray, f::IndBallL2, x::AbstractArray, ::Real)
 end
 
 ####################################
+#  ℓ2 sphere
+####################################
+
+"""
+    IndSphereL2(r = 1)
+
+The indicator of the Euclidean sphere `{x : ‖x‖₂ = r}` (the Frobenius sphere for
+matrices), for `r > 0`, nonconvex. Its proximal operator scales `x` onto the
+sphere, `r x / ‖x‖₂`; every point of the sphere is nearest to `x = 0`, which goes
+to `r` times the first unit vector. With a norm, [`Constrained`](@ref)`(f,
+IndSphereL2(r))` is the step of sparse principal component analysis.
+"""
+struct IndSphereL2{T<:Real} <: AbstractFunction
+  r::T
+
+  IndSphereL2{T}(r::T) where {T<:Real} = (r > 0 || throw(ArgumentError("r must be positive, got $r")); new{T}(r))
+end
+IndSphereL2(r::Real = 1) = IndSphereL2{typeof(r)}(r)
+
+isproximable(::Type{<:IndSphereL2}) = true
+_isindicator(::Type{<:IndSphereL2}) = true
+
+function (f::IndSphereL2)(x::AbstractArray)
+  T = float(eltype(x))
+  r = convert(T, f.r)
+  abs(sqrt(convert(T, _sumabs2(x))) - r) <= _tol(T) * max(one(T), r) ? zero(T) : T(Inf)
+end
+
+function prox!(y::AbstractArray, f::IndSphereL2, x::AbstractArray, ::Real)
+  _checksize(y, x)
+  isempty(x) && throw(ArgumentError("the sphere has no point of size $(size(x))"))
+  T = float(eltype(y))
+  nx = sqrt(convert(T, _sumabs2(x)))
+  r = convert(T, f.r)
+  if iszero(nx)
+    fill!(y, zero(eltype(y)))
+    y[firstindex(y)] = r
+  else
+    y .= (r / nx) .* x
+  end
+  y
+end
+
+####################################
 #  simplex
 ####################################
 
@@ -376,64 +429,77 @@ end
     IndHyperplane(a, b)
 
 The indicator of the hyperplane `{x : ⟨a, x⟩ = b}`, `a ≠ 0`. Its proximal
-operator is the projection `x - ((⟨a, x⟩ - b) / ‖a‖²) a`.
+operator is the projection `x - ((⟨a, x⟩ - b) / ‖a‖²) a`. A scalar `a` stands
+for an array of `a`s of the size of `x`: `IndHyperplane(1, 0)` is the set of
+arrays whose entries sum to zero, of any size.
 """
-struct IndHyperplane{A<:AbstractArray, T<:Real} <: AbstractFunction
+struct IndHyperplane{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
   a::A
   b::T
-  a2::T          # ‖a‖²
+  a2::T          # ‖a‖², or a² for a scalar a
 
-  function IndHyperplane{A, T}(a::A, b::T) where {A<:AbstractArray, T<:Real}
+  function IndHyperplane{A, T}(a::A, b::T) where {A<:Union{Real, AbstractArray}, T<:Real}
     a2 = convert(T, sum(abs2, a))
     a2 > 0 || throw(ArgumentError("a must be nonzero"))
     new{A, T}(a, b, a2)
   end
 end
-IndHyperplane(a::AbstractArray, b::Real) = (T = float(promote_type(eltype(a), typeof(b))); IndHyperplane{typeof(a), T}(a, convert(T, b)))
+IndHyperplane(a::Union{Real, AbstractArray}, b::Real) =
+  (T = float(promote_type(eltype(a), typeof(b))); IndHyperplane{typeof(a), T}(a, convert(T, b)))
 
 """
     IndHalfspace(a, b)
 
 The indicator of the halfspace `{x : ⟨a, x⟩ ≤ b}`, `a ≠ 0`. Its proximal operator
-is the projection, `x - (max(⟨a, x⟩ - b, 0) / ‖a‖²) a`.
+is the projection, `x - (max(⟨a, x⟩ - b, 0) / ‖a‖²) a`. A scalar `a` stands for
+an array of `a`s of the size of `x`, as in [`IndHyperplane`](@ref).
 """
-struct IndHalfspace{A<:AbstractArray, T<:Real} <: AbstractFunction
+struct IndHalfspace{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
   a::A
   b::T
   a2::T
 
-  function IndHalfspace{A, T}(a::A, b::T) where {A<:AbstractArray, T<:Real}
+  function IndHalfspace{A, T}(a::A, b::T) where {A<:Union{Real, AbstractArray}, T<:Real}
     a2 = convert(T, sum(abs2, a))
     a2 > 0 || throw(ArgumentError("a must be nonzero"))
     new{A, T}(a, b, a2)
   end
 end
-IndHalfspace(a::AbstractArray, b::Real) = (T = float(promote_type(eltype(a), typeof(b))); IndHalfspace{typeof(a), T}(a, convert(T, b)))
+IndHalfspace(a::Union{Real, AbstractArray}, b::Real) =
+  (T = float(promote_type(eltype(a), typeof(b))); IndHalfspace{typeof(a), T}(a, convert(T, b)))
 
 for F in (:IndHyperplane, :IndHalfspace)
   @eval isproximable(::Type{<:$F}) = true
   @eval _isindicator(::Type{<:$F}) = true
   @eval isconvex(::Type{<:$F}) = true
+  @eval _checkparams(f::$F, x) = (_checkparam(f.a, x); true)
 end
+
+# ⟨a, x⟩ and ‖a‖², for an array a or a scalar one
+_dot_normal(a::Real, x::AbstractArray) = a * sum(x)
+_dot_normal(a::AbstractArray, x::AbstractArray) = dot(a, x)
+_normal_sqnorm(f::Union{IndHyperplane, IndHalfspace}, x::AbstractArray) = f.a isa Real ? f.a2 * length(x) : f.a2
 
 function (f::IndHyperplane)(x::AbstractArray)
   T = float(eltype(x))
-  abs(dot(f.a, x) - f.b) <= _tol(T) * max(one(T), abs(f.b), sqrt(f.a2 * _sumabs2(x))) ? zero(T) : T(Inf)
+  slack = _tol(T) * max(one(T), abs(f.b), sqrt(_normal_sqnorm(f, x) * _sumabs2(x)))
+  abs(_dot_normal(f.a, x) - f.b) <= slack ? zero(T) : T(Inf)
 end
 function (f::IndHalfspace)(x::AbstractArray)
   T = float(eltype(x))
-  dot(f.a, x) - f.b <= _tol(T) * max(one(T), abs(f.b), sqrt(f.a2 * _sumabs2(x))) ? zero(T) : T(Inf)
+  slack = _tol(T) * max(one(T), abs(f.b), sqrt(_normal_sqnorm(f, x) * _sumabs2(x)))
+  _dot_normal(f.a, x) - f.b <= slack ? zero(T) : T(Inf)
 end
 
 function prox!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, ::Real)
   _checksize(y, x)
   T = float(eltype(y))
-  t = convert(T, (dot(f.a, x) - f.b) / f.a2)
+  t = convert(T, (_dot_normal(f.a, x) - f.b) / _normal_sqnorm(f, x))
   y .= x .- t .* f.a
 end
 function prox!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, ::Real)
   _checksize(y, x)
   T = float(eltype(y))
-  t = convert(T, max(dot(f.a, x) - f.b, zero(f.b)) / f.a2)
+  t = convert(T, max(_dot_normal(f.a, x) - f.b, zero(f.b)) / _normal_sqnorm(f, x))
   y .= x .- t .* f.a
 end

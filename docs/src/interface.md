@@ -130,3 +130,26 @@ The allocating versions [`prox`](@ref), [`gradient`](@ref),
   and [`LogDetLoss`](@ref) own LAPACK workspaces sized for their input. A
   function that owns a workspace must not be shared between threads; give each
   thread a `deepcopy`.
+
+## GPU arrays
+
+The separable functions work on GPU arrays: CUDA.jl's `CuArray`, and the other
+arrays built on GPUArrays (AMDGPU.jl, Metal.jl, oneAPI.jl). Loading such a
+package loads an extension in which `f(x)`, [`prox!`](@ref) and
+[`value_and_prox!`](@ref) are broadcasts and reductions that run as kernels,
+instead of the loops over entries of the dense path. This covers
+[`NormL1`](@ref), [`NormL1Nonneg`](@ref), [`ElasticNet`](@ref),
+[`IndBox`](@ref) and [`IndBallLinf`](@ref), [`IndNonnegative`](@ref),
+[`NormL0`](@ref), [`MCP`](@ref), [`SCAD`](@ref) and [`SqrNormL2`](@ref).
+
+- **Parameter arrays on the device.** Weights, bounds and centers must live on
+  the device with the argument: `Adapt.adapt(CuArray, NormL1(λ, w))` copies
+  them there and checks them, as the constructor does.
+- **Your own separable functions.** A [`SeparableFunction`](@ref) whose fields
+  are numbers works as it is: its [`prox_entry`](@ref) and
+  [`value_entry`](@ref) run inside the kernels. One that holds arrays needs an
+  `Adapt.adapt_structure` method that rebuilds it with the arrays converted
+  and without checks, since inside a kernel its arrays are device arrays.
+- **Not yet.** The group norms, the projections onto the simplex and the balls,
+  the spectral functions and [`LogDetLoss`](@ref) (which use LAPACK), the
+  losses of a design matrix, and the sparse iterates run on the CPU only.

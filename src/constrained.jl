@@ -32,8 +32,9 @@ of a solver on slowly changing points then take three to five passes, against
 proximal operators of `f` stop at a bound, as on a box, the nonnegative orthant
 or a simplex, the search fixes the entries that have reached one once few
 others stay, and its later passes skip them: when the multiplier lies far out
-in the tail of the entries, as for a simplex of radius 1, such a call is two to
-three times faster. Do not share one function object between threads.
+in the tail of the entries, as for a simplex of radius 1, such a call takes
+about six passes and is 1.6 to 2.9 times faster. Do not share one function
+object between threads.
 
 On a box, a hyperplane, a halfspace or a simplex, `γ` may also be an array of
 steps, one per entry: the proximal operator in the metric of `Diagonal(1 ./ γ)`,

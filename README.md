@@ -186,14 +186,14 @@ stopping rule at each penalty level, warm starting each level from the last.
 
 ## More examples
 
-The [examples](examples/) directory has fifteen complete scripts, each of which
+The [examples](examples/) directory has seventeen complete scripts, each of which
 checks its own result:
 - the lasso by ISTA, FISTA and ADMM, and by coordinate descent along a path;
 - nonconvex penalties and the group lasso;
 - logistic, robust and Poisson regression;
-- constrained least squares;
+- constrained least squares, and penalties with constraints;
 - the graphical lasso, and covariance and correlation matrices;
-- matrix completion, robust PCA and multitask regression;
+- matrix completion, robust PCA, sparse PCA and multitask regression;
 - a differential network;
 - a working-set solver;
 - functions of your own.
@@ -217,8 +217,9 @@ checks its own result:
 | `GLMLoss(ℓ, y, X; weights, offset)` | `Σᵢ wᵢ ℓ(ηᵢ, yᵢ)`, `η = Xβ + offset` | |
 
 The scalar losses `ℓ` of `GLMLoss` (`ProximalBase.Squared`, `Logistic`,
-`Poisson`, `Huber`) expose `ProximalBase.deriv`, `deriv2` and a `curvature`
-bound, for Newton and coordinate steps.
+`Poisson`, `Huber`, and `SquaredHinge`, `SmoothCheck` and `ConvolutionCheck`,
+smooth versions of the hinge and quantile losses) expose `ProximalBase.deriv`,
+`deriv2` and a `curvature` bound, for Newton and coordinate steps.
 
 **Penalties**
 
@@ -229,15 +230,26 @@ bound, for Newton and coordinate steps.
 | `ElasticNet(λ1, λ2, w)` | `λ1 Σᵢ wᵢ \|xᵢ\| + (λ2/2) ‖x‖²` | ✓ |
 | `NormL0(λ)` | `λ ⋅ #{xᵢ ≠ 0}`, nonconvex | ✓ |
 | `MCP(λ, a)`, `SCAD(λ, a)` | the minimax concave and SCAD penalties, nonconvex | ✓ |
+| `Berhu(λ, M, w)` | the reverse Huber penalty: `λ wᵢ \|xᵢ\|` up to `M`, a ridge beyond | ✓ |
+| `NegEntropy(λ)`, `KLDivergence(q; λ)`, `NegLog(λ)` | `λ Σᵢ xᵢ log xᵢ`, `λ Σᵢ xᵢ log(xᵢ/qᵢ) - xᵢ + qᵢ`, `-λ Σᵢ log xᵢ` | ✓ |
 | `CappedL1(λ, a, w)`, `LogPenalty(λ, ε, w)`, `NormLq(λ, q, w)` | `λ Σᵢ wᵢ min(\|xᵢ\|, a)`, `λ Σᵢ wᵢ log(1 + \|xᵢ\|/ε)`, `λ Σᵢ wᵢ \|xᵢ\|^q`, nonconvex | ✓ |
 | `NormL2(λ)` | `λ ‖x‖₂` | |
 | `NormLinf(λ)` | `λ maxᵢ \|xᵢ\|` | |
 | `GroupNormL2(λ0, groups, w)` | `λ0 Σₖ wₖ ‖x[Gₖ]‖₂`, the group lasso | |
+| `SparseGroupNormL2(λ1, λ2, groups, w)` | `λ1 ‖x‖₁ + λ2 Σₖ wₖ ‖x[Gₖ]‖₂`, the sparse group lasso | |
 | `GroupNormLinf(λ0, groups, w)` | `λ0 Σₖ wₖ ‖x[Gₖ]‖∞` | |
 | `GroupMCP(λ, groups, w; a)`, `GroupSCAD(λ, groups, w; a)` | the MCP or SCAD of `‖x[Gₖ]‖₂` with level `λwₖ`, nonconvex | |
 | `NormL1Fused(λ1, λ2)` | `Σᵢ λ1 (\|x1ᵢ\| + \|x2ᵢ\|) + λ2 \|x1ᵢ - x2ᵢ\|` on pairs `(x1, x2)` | |
 | `NuclearNorm(λ)` | `λ ‖X‖_*` | |
 | `TracePSD(λ)` | `λ tr(X)` on `X ⪰ 0` | |
+
+**Nonsmooth losses**, separable, for splitting methods
+
+| Function | Value |
+|:---------|:------|
+| `CheckLoss(τ, w)` | `Σᵢ wᵢ ρ_τ(xᵢ)`, `ρ_τ(u) = max(τu, (τ - 1)u)`, the quantile loss |
+| `HingeLoss(y, w)` | `Σᵢ wᵢ max(0, 1 - yᵢxᵢ)` |
+| `EpsInsensitiveLoss(ε, w)` | `Σᵢ wᵢ max(0, \|xᵢ\| - ε)` |
 
 **Indicator functions of sets**
 
@@ -247,8 +259,9 @@ bound, for Newton and coordinate steps.
 | `IndBallL0(s; diagonal)` | at most `s` nonzero entries, nonconvex; on a symmetric matrix, entries of one triangle, with or without the diagonal |
 | `IndBallGroupL0(s, groups)` | at most `s` nonzero groups, nonconvex |
 | `IndBallL1(r)`, `IndBallL2(r)` | `‖x‖₁ ≤ r`, `‖x‖₂ ≤ r` |
+| `IndSphereL2(r)` | `‖x‖₂ = r`, nonconvex |
 | `IndSimplex(r; equality)` | `x ≥ 0, Σᵢ xᵢ = r` (or `≤ r`) |
-| `IndHyperplane(a, b)`, `IndHalfspace(a, b)` | `⟨a, x⟩ = b`, `⟨a, x⟩ ≤ b` |
+| `IndHyperplane(a, b)`, `IndHalfspace(a, b)` | `⟨a, x⟩ = b`, `⟨a, x⟩ ≤ b`; a scalar `a` multiplies `Σᵢ xᵢ` |
 | `IndPSD()`, `IndPSD(rank = r)` | `X ⪰ 0`, and of rank at most `r` (nonconvex) |
 | `IndBallRank(r)` | rank at most `r`, nonconvex |
 
@@ -262,6 +275,8 @@ bound, for Newton and coordinate steps.
 | `Conjugate(f)` | `f*(y)`, with the proximal operator by Moreau's identity |
 | `SeparableSum(f1, f2, ...)` | `Σₖ fₖ(xₖ)` on a tuple of blocks |
 | `Sum(f1, f2, ...)` | `Σₖ fₖ(x)`, smooth |
+| `Constrained(f, C)` | a convex separable `f` on a box, a hyperplane, a halfspace or a simplex `C`; a norm on an ℓ2 ball or sphere |
+| `Spectral(f)` | `f(λ(X))` of the eigenvalues of a symmetric `X`, for an `f` that does not depend on the order of its entries: the Fantope, bounds on the eigenvalues, the trace norm |
 
 ## Coordinate descent and active sets
 

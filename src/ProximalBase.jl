@@ -43,16 +43,22 @@ export
 
   # penalties
   NormL1, NormL1Nonneg, ElasticNet, NormL2, NormLinf, GroupNormL2, GroupNormLinf,
+  SparseGroupNormL2,
   NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD,
+  NegEntropy, KLDivergence, NegLog, Berhu,
+
+  # nonsmooth losses
+  CheckLoss, HingeLoss, EpsInsensitiveLoss,
   CappedL1, LogPenalty, NormLq, GroupMCP, GroupSCAD,
 
   # indicator functions
   IndBox, IndNonnegative, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
   IndHyperplane, IndHalfspace, IndPSD, IndBallRank,
+  IndSphereL2,
   IndBallGroupL0,
 
   # functions built from functions
-  Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum,
+  Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum, Constrained, Spectral,
 
   # functions of stacked arrays
   SliceSum, FiberSum,
@@ -78,14 +84,22 @@ include("functions/leastsquares.jl")
 include("functions/glm.jl")
 include("functions/logdet.jl")
 include("functions/separable.jl")
+include("functions/losses.jl")
+include("functions/entropy.jl")
 include("functions/norms.jl")
+include("functions/sparsegroup.jl")
 include("functions/fibers.jl")
 include("functions/spectral.jl")
 include("functions/sets.jl")
 include("functions/nonconvex.jl")
 
 include("calculus.jl")
+include("constrained.jl")
+include("spectralfunction.jl")
+include("ballconstrained.jl")
+include("constrained_nonconvex.jl")
 include("deprecated.jl")
+include("testing.jl")
 include("precompile.jl")
 
 end

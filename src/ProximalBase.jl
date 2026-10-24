@@ -49,11 +49,13 @@ export
 
   # nonsmooth losses
   CheckLoss, HingeLoss, EpsInsensitiveLoss,
+  CappedL1, LogPenalty, NormLq, GroupMCP, GroupSCAD,
 
   # indicator functions
   IndBox, IndNonnegative, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
   IndHyperplane, IndHalfspace, IndPSD, IndBallRank,
   IndSphereL2,
+  IndBallGroupL0,
 
   # functions built from functions
   Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum, Constrained, Spectral,
@@ -89,6 +91,7 @@ include("functions/sparsegroup.jl")
 include("functions/fibers.jl")
 include("functions/spectral.jl")
 include("functions/sets.jl")
+include("functions/nonconvex.jl")
 
 include("calculus.jl")
 include("constrained.jl")

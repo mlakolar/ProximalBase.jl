@@ -17,6 +17,7 @@ tests = [
   "fibers",
   "spectral",
   "sets",
+  "nonconvex",
   "calculus",
   "constrained",
   "spectralfunction",

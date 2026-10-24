@@ -15,11 +15,15 @@ and ``\gamma`` is the step of the proximal operator.
 | [`NegEntropy`](@ref)`(λ)` | ``\lambda\sum_i x_i\log x_i`` on ``x \ge 0`` | ``\mu\,\omega(v_i/\mu - 1 - \log\mu)``, ``\mu = \gamma\lambda`` | ✓ |
 | [`KLDivergence`](@ref)`(q; λ)` | ``\lambda\sum_i x_i\log(x_i/q_i) - x_i + q_i`` on ``x \ge 0`` | ``\mu\,\omega(v_i/\mu + \log(q_i/\mu))`` | ✓ |
 | [`NegLog`](@ref)`(λ)` | ``-\lambda\sum_i\log x_i`` on ``x > 0`` | ``(v_i + \sqrt{v_i^2 + 4\gamma\lambda})/2`` | ✓ |
+| [`CappedL1`](@ref)`(λ, a, w)` | ``\lambda\sum_i w_i\min(\lvert x_i\rvert, a)`` | the better of two clipped candidates | ✓ |
+| [`LogPenalty`](@ref)`(λ, ε, w)` | ``\lambda\sum_i w_i\log(1 + \lvert x_i\rvert/\varepsilon)`` | zero or the root of a quadratic | ✓ |
+| [`NormLq`](@ref)`(λ, q, w)` | ``\lambda\sum_i w_i\lvert x_i\rvert^q``, ``0 < q < 1`` | ℓq thresholding | ✓ |
 | [`NormL2`](@ref)`(λ)` | ``\lambda\lVert x\rVert_2`` | ``\max(1 - \gamma\lambda/\lVert v\rVert_2, 0)\,v`` | |
 | [`NormLinf`](@ref)`(λ)` | ``\lambda\lVert x\rVert_\infty`` | ``v - P_{\lVert\cdot\rVert_1 \le \gamma\lambda}(v)`` | |
 | [`GroupNormL2`](@ref)`(λ0, groups, w)` | ``\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_2`` | block soft thresholding of each group | |
 | [`SparseGroupNormL2`](@ref)`(λ1, λ2, groups, w)` | ``\lambda_1\lVert x\rVert_1 + \lambda_2\sum_k w_k\lVert x_{G_k}\rVert_2`` | soft thresholding, then block soft thresholding | |
 | [`GroupNormLinf`](@ref)`(λ0, groups, w)` | ``\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_\infty`` | ``v_{G_k} - P_{\lVert\cdot\rVert_1 \le \gamma\lambda_0 w_k}(v_{G_k})`` | |
+| [`GroupMCP`](@ref)`(λ, groups, w)`, [`GroupSCAD`](@ref) | ``\sum_k p_{\lambda w_k}(\lVert x_{G_k}\rVert_2)`` with the MCP or SCAD ``p`` | the scalar proximal operator of ``p`` at ``\lVert v_{G_k}\rVert_2``, along ``v_{G_k}`` | |
 | [`NormL1Fused`](@ref)`(λ1, λ2)` | ``\sum_i \lambda_1(\lvert a_i\rvert + \lvert b_i\rvert) + \lambda_2\lvert a_i - b_i\rvert`` | fuse each pair, then soft threshold | |
 | [`NuclearNorm`](@ref)`(λ)` | ``\lambda\sum_i \sigma_i(X)`` | ``U\max(\Sigma - \gamma\lambda, 0)V^\top`` | |
 | [`TracePSD`](@ref)`(λ)` | ``\lambda\operatorname{tr}(X)`` on ``X \succeq 0`` | ``U\max(\Lambda - \gamma\lambda, 0)U^\top`` | |
@@ -90,6 +94,34 @@ For larger steps the scalar problems of MCP and SCAD are not convex.
 minimizers of the pieces. So these penalties work in coordinate descent and
 proximal gradient methods with any step. At zero their subdifferential is that
 of ``\lambda|\cdot|``, so `kkt_violation` is ``|g_i| - \lambda``.
+
+**Capped ℓ1** (Zhang, 2010): ``p(t) = \lambda\min(|t|, a)``. On ``|z| \le a``
+the scalar problem is the lasso's, so its minimizer is soft thresholding clipped
+at ``a``; on ``|z| \ge a`` the penalty is constant, so the minimizer is
+``\max(|v|, a)``. The proximal operator is the better of the two.
+
+**Log penalty**: ``p(t) = \lambda\log(1 + |t|/\varepsilon)``, whose linearization
+gives reweighted ℓ1 minimization (Candès, Wakin and Boyd, 2008). With
+``c = \gamma\lambda`` and ``t = |v|``, the stationary points of
+``c\log(1 + z/\varepsilon) + \tfrac12(z - t)^2`` on ``z > 0`` are the roots of
+``z^2 + (\varepsilon - t)z + c - \varepsilon t = 0``. The larger is a local
+minimum, compared with ``z = 0``. Its slope at zero is ``\lambda/\varepsilon``.
+
+**ℓq**, ``0 < q < 1``: ``p(t) = \lambda|t|^q``. With ``\mu = \gamma\lambda`` and
+``\beta = (2\mu(1 - q))^{1/(2 - q)}``, the proximal operator is zero for
+``|v| \le \tau = \beta(2 - q)/(2 - 2q)``, where zero and ``\beta`` tie, and above
+it the root ``z > \beta`` of ``z + \mu q z^{q - 1} = |v|``, with the sign of ``v``.
+The root has a closed form for ``q = 1/2`` (half thresholding: Xu, Chang, Xu and
+Zhang, 2012) and ``q = 2/3`` (Cao, Sun and Xu, 2013), and comes from Newton's
+method, which converges monotonically from ``|v|``, otherwise. The slope at zero
+is infinite, so zero is a local minimizer of every problem and `kkt_violation`
+is ``-\infty``.
+
+**Group MCP and group SCAD** (Huang, Breheny and Ma, 2012) apply the MCP or SCAD
+with level ``\lambda w_k`` to the Euclidean norm of each group. For any ``p``,
+``p(\lVert z\rVert) + \lVert z - v\rVert^2/(2\gamma)`` is smallest, among the ``z``
+of a given norm ``r``, at ``z = r\,v/\lVert v\rVert``, so the proximal operator is
+the scalar one at ``\lVert v_{G_k}\rVert``, along ``v_{G_k}``: exact for every step.
 
 ## Entropy, divergence and barrier functions
 

@@ -232,11 +232,13 @@ smooth versions of the hinge and quantile losses) expose `ProximalBase.deriv`,
 | `MCP(λ, a)`, `SCAD(λ, a)` | the minimax concave and SCAD penalties, nonconvex | ✓ |
 | `Berhu(λ, M, w)` | the reverse Huber penalty: `λ wᵢ \|xᵢ\|` up to `M`, a ridge beyond | ✓ |
 | `NegEntropy(λ)`, `KLDivergence(q; λ)`, `NegLog(λ)` | `λ Σᵢ xᵢ log xᵢ`, `λ Σᵢ xᵢ log(xᵢ/qᵢ) - xᵢ + qᵢ`, `-λ Σᵢ log xᵢ` | ✓ |
+| `CappedL1(λ, a, w)`, `LogPenalty(λ, ε, w)`, `NormLq(λ, q, w)` | `λ Σᵢ wᵢ min(\|xᵢ\|, a)`, `λ Σᵢ wᵢ log(1 + \|xᵢ\|/ε)`, `λ Σᵢ wᵢ \|xᵢ\|^q`, nonconvex | ✓ |
 | `NormL2(λ)` | `λ ‖x‖₂` | |
 | `NormLinf(λ)` | `λ maxᵢ \|xᵢ\|` | |
 | `GroupNormL2(λ0, groups, w)` | `λ0 Σₖ wₖ ‖x[Gₖ]‖₂`, the group lasso | |
 | `SparseGroupNormL2(λ1, λ2, groups, w)` | `λ1 ‖x‖₁ + λ2 Σₖ wₖ ‖x[Gₖ]‖₂`, the sparse group lasso | |
 | `GroupNormLinf(λ0, groups, w)` | `λ0 Σₖ wₖ ‖x[Gₖ]‖∞` | |
+| `GroupMCP(λ, groups, w; a)`, `GroupSCAD(λ, groups, w; a)` | the MCP or SCAD of `‖x[Gₖ]‖₂` with level `λwₖ`, nonconvex | |
 | `NormL1Fused(λ1, λ2)` | `Σᵢ λ1 (\|x1ᵢ\| + \|x2ᵢ\|) + λ2 \|x1ᵢ - x2ᵢ\|` on pairs `(x1, x2)` | |
 | `NuclearNorm(λ)` | `λ ‖X‖_*` | |
 | `TracePSD(λ)` | `λ tr(X)` on `X ⪰ 0` | |
@@ -255,6 +257,7 @@ smooth versions of the hinge and quantile losses) expose `ProximalBase.deriv`,
 |:---------|:----|
 | `IndBox(l, u)`, `IndNonnegative()`, `IndBallLinf(r)` | `l ≤ x ≤ u`, `x ≥ 0`, `‖x‖∞ ≤ r` (separable) |
 | `IndBallL0(s; diagonal)` | at most `s` nonzero entries, nonconvex; on a symmetric matrix, entries of one triangle, with or without the diagonal |
+| `IndBallGroupL0(s, groups)` | at most `s` nonzero groups, nonconvex |
 | `IndBallL1(r)`, `IndBallL2(r)` | `‖x‖₁ ≤ r`, `‖x‖₂ ≤ r` |
 | `IndSphereL2(r)` | `‖x‖₂ = r`, nonconvex |
 | `IndSimplex(r; equality)` | `x ≥ 0, Σᵢ xᵢ = r` (or `≤ r`) |

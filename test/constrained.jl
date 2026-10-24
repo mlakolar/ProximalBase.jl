@@ -274,6 +274,106 @@ ProximalBase._prox_entry_slope(g::Counted, v, i, γ) =
   @test eltype(prox(c, x32, 0.7f0)) == Float32
 end
 
+# and one that also keeps the ranges of its scalar proximal operators, so that
+# the search fixes entries; Counted hides them, and searches as before
+struct Ranged{F} <: SeparableFunction
+  f::F
+end
+ProximalBase.prox_entry(g::Ranged, v, i, γ) = (CALLS[] += 1; prox_entry(g.f, v, i, γ))
+ProximalBase.value_entry(g::Ranged, v, i) = value_entry(g.f, v, i)
+ProximalBase.isconvex(::Type{<:Ranged}) = true
+ProximalBase._has_prox_slope(::Type{<:Ranged{F}}) where {F} = ProximalBase._has_prox_slope(F)
+ProximalBase._prox_entry_slope(g::Ranged, v, i, γ) =
+  (CALLS[] += 1; SLOPES[] += 1; ProximalBase._prox_entry_slope(g.f, v, i, γ))
+ProximalBase._has_prox_range(::Type{<:Ranged{F}}) where {F} = ProximalBase._has_prox_range(F)
+ProximalBase._prox_range(g::Ranged, i::Integer, ::Type{S}) where {S} = ProximalBase._prox_range(g.f, i, S)
+ProximalBase._has_uniform_range(::Type{<:Ranged{F}}) where {F} = ProximalBase._has_uniform_range(F)
+
+@testset "variable fixing" begin
+  # against the search without it, from zero, on problems whose root lies in
+  # the tail of the entries, where it fixes most of them
+  n = 20_000
+  a = randn(n)
+  a[1:7:end] .= 0                                   # a normal with zeros and both signs
+  b = 0.3 .* randn(n)
+  w, l, u = rand(n), -rand(n), rand(n)
+  γv = 0.2 .+ rand(n)
+  x = randn(n)
+  cases = [(IndNonnegative(), IndHyperplane(1, 1), true),                           # the simplex
+           (IndBox(0, 1), IndHyperplane(1, 10), true),                              # the capped simplex
+           (Constrained(ElasticNet(0.1, 1.), IndNonnegative()), IndHyperplane(1, 1), true),
+           (Constrained(ElasticNet(0.1, 1.), IndNonnegative()), IndHalfspace(1, 1), true),
+           (NormL1Nonneg(0.1, w), IndHyperplane(abs.(a) .+ 0.1, 0.5), true),         # weights, a normal per entry
+           (NormL1Nonneg(0.1, w), IndHyperplane(a, 0.3), false),                    # zeros and negative entries
+           (IndBox(l, u), IndHyperplane(1, sum(l) + 0.5), true),                    # bounds per entry
+           (Translate(IndBox(0, 1), b), IndHyperplane(1, sum(b) + 3), true),
+           (Scaled(NormL1Nonneg(0.2), 2.), IndHyperplane(1, 2), true),
+           (Tilt(IndBox(0, 1), b), IndHyperplane(1, 5), true),
+           (Constrained(NormL1(0.3), IndBox(-1, 1)), IndHyperplane(-1, n - 5), true),  # at the top of [-1, 1]
+           (IndNonnegative(), IndHyperplane(1, n / 10), false),                     # the root among the entries
+           (IndBox(0, 1), IndHyperplane(1, n / 2), false)]
+  y, yr = similar(x), similar(x)
+  for (f, H, tail) in cases, γ in (0.7, γv)
+    c, r = Constrained(Ranged(f), H), Constrained(Counted(f), H)
+    CALLS[] = SLOPES[] = 0
+    prox!(y, c, x, γ)
+    fixed = CALLS[]
+    @test SLOPES[] == 0
+    CALLS[] = 0
+    prox!(yr, r, x, γ)
+    @test isapprox(y, yr; rtol = 1e-10)
+    H isa IndHyperplane && @test abs(dot(H.a isa Real ? fill(H.a, n) : H.a, y) - H.b) <= 1e-10 * max(1, abs(H.b))
+    tail && @test fixed < CALLS[] / 2
+    # the calls that follow start from the last multiplier, as before
+    xt = x .+ 0.01 .* randn(n)
+    @test isapprox(prox!(y, c, xt, γ), prox!(yr, r, xt, γ); rtol = 1e-10)
+  end
+
+  # Float32, a matrix, and a small input, where it does not fix
+  for (f, H) in ((IndNonnegative(), IndHyperplane(1, 1)), (IndBox(0, 1), IndHyperplane(1, 10)))
+    x32 = Float32.(x)
+    z = prox(Constrained(f, H), x32, 0.7f0)
+    @test eltype(z) == Float32
+    @test z ≈ prox(Constrained(f, H), x, 0.7) atol = 1e-5
+    @test abs(sum(z) - H.b) <= 1e-4
+    X = reshape(x, 200, 100)
+    @test prox(Constrained(Ranged(f), H), X, 0.7) ≈ prox(Constrained(Counted(f), H), X, 0.7) rtol = 1e-10
+    @test prox(Constrained(Ranged(f), H), x[1:100], 0.7) ≈ prox(Constrained(Counted(f), H), x[1:100], 0.7) rtol = 1e-10
+  end
+
+  # a call from zero allocates nothing once the buffers exist, and is inferred
+  cold!(y, c, x, γ) = (c.last[] = NaN; prox!(y, c, x, γ))
+  for c in (Constrained(IndNonnegative(), IndHyperplane(1, 1)), Constrained(NormL1Nonneg(0.1, w), IndHyperplane(abs.(a) .+ 0.1, 0.5)))
+    @test allocs(cold!, y, c, x, 0.7) == 0
+    @test allocs(cold!, y, c, x, γv) == 0
+    c.last[] = NaN
+    @inferred prox!(y, c, x, 0.7)
+  end
+
+  # the ranges of the scalar proximal operators, reached by prox_entry
+  for f in (IndNonnegative(), NormL1Nonneg(0.2), NormL1Nonneg(0.2, w), IndBox(-0.5, 1), IndBox(l, u), Scaled(IndBox(0, 1), 2.),
+            Tilt(IndNonnegative(), b), Translate(IndBox(0, 1), b), Constrained(NormL1(0.3), IndBox(-1, 1)),
+            Constrained(NormL1Nonneg(0.3), IndBox(-1, 1)), Constrained(ElasticNet(0.1, 1.), IndNonnegative()))
+    @test ProximalBase._has_prox_range(typeof(f))
+    for i in (1, 2, 3)
+      lo, hi = ProximalBase._prox_range(f, i, Float64)
+      @test isfinite(lo) ? lo == prox_entry(f, -1e300, i, 0.7) : lo == -Inf
+      @test isfinite(hi) ? hi == prox_entry(f, 1e300, i, 0.7) : hi == Inf
+    end
+  end
+  @test ProximalBase._prox_range(NormL1(0.3), 1, Float32) === (-Inf32, Inf32)
+  for f in (NormL1(0.3), ElasticNet(0.1, 1.), SqrNormL2(1.), ZeroFunction(), LinearFunction(b), MCP(1.))
+    @test !ProximalBase._has_prox_range(typeof(f))
+  end
+  for (f, uniform) in ((IndNonnegative(), true), (NormL1Nonneg(0.2, w), true), (IndBox(-0.5, 1), true), (IndBox(l, u), false),
+                       (Scaled(IndBox(0, 1), 2.), true), (Tilt(IndNonnegative(), b), true), (Translate(IndBox(0, 1), b), false),
+                       (Constrained(NormL1(0.3), IndBox(-1, 1)), true), (Constrained(ElasticNet(0.1, 1.), IndBox(l, u)), false),
+                       (Constrained(SqrNormL2(1.), IndNonnegative()), true), (Constrained(ZeroFunction(), IndNonnegative()), true),
+                       (Constrained(LinearFunction(b), IndNonnegative()), true), (MCP(1.), false))
+    @test ProximalBase._has_uniform_range(typeof(f)) == uniform
+  end
+end
+
 @testset "slopes of scalar proximal operators" begin
   n = 5
   for f in (ZeroFunction(), LinearFunction(randn(n)), SqrNormL2(2.), SqrNormL2(1., randn(n)), NormL1(0.3),

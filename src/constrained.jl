@@ -28,7 +28,12 @@ from the multiplier of the previous call, which the function keeps, with a
 first step from the exact slope of the constraint where the scalar proximal
 operators of `f` are piecewise linear, as for every function below. The calls
 of a solver on slowly changing points then take three to five passes, against
-7 to 16 from zero. Do not share one function object between threads.
+7 to 16 from zero. From zero, on 4096 entries or more, where the scalar
+proximal operators of `f` stop at a bound, as on a box, the nonnegative orthant
+or a simplex, the search fixes the entries that have reached one once few
+others stay, and its later passes skip them: when the multiplier lies far out
+in the tail of the entries, as for a simplex of radius 1, such a call is two to
+three times faster. Do not share one function object between threads.
 
 On a box, a hyperplane, a halfspace or a simplex, `γ` may also be an array of
 steps, one per entry: the proximal operator in the metric of `Diagonal(1 ./ γ)`,
@@ -69,9 +74,10 @@ struct LinearConstrained{F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspa
   set::H
   last::Base.RefValue{Float64}      # the multiplier of the last call
   slope::Base.RefValue{Float64}     # the slope of φ near it, from the last secant
+  live::NTuple{6, Scratch}          # the entries the search still evaluates: x, a, γ, index; bits; state
 
   LinearConstrained{F, H}(f::F, set::H) where {F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspace}} =
-    (_check_constrainable(f); new{F, H}(f, set, Ref(NaN), Ref(NaN)))
+    (_check_constrainable(f); new{F, H}(f, set, Ref(NaN), Ref(NaN), ntuple(_ -> Scratch(), 6)))
 end
 LinearConstrained(f::AbstractFunction, set::Union{IndHyperplane, IndHalfspace}) =
   LinearConstrained{typeof(f), typeof(set)}(f, set)
@@ -192,8 +198,9 @@ end
 
 # φ(ν) = ⟨a, z⟩ - b at z = z(ν), and Σᵢ |aᵢzᵢ| + |b|, the scale of its rounding
 # error; with Val(true), also the slope of φ, -Σᵢ γᵢaᵢ² Pᵢ', where Pᵢ' is the
-# slope of the scalar proximal operator at its argument
-function _constraint_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ, ::Val{S} = Val(false)) where {T, S}
+# slope of the scalar proximal operator at its argument. c is the function, or
+# a named tuple with its f and set, as for the live entries of variable fixing.
+function _constraint_gap(c, x::AbstractArray, ν::T, γ, ::Val{S} = Val(false)) where {T, S}
   f, a = c.f, c.set.a
   s, m, d = zero(T), zero(T), zero(T)
   @inbounds @simd for i in eachindex(IndexLinear(), x)
@@ -262,7 +269,10 @@ end
 # points, which passes the root when that secant predicts it well, or twice the
 # last step where φ is flat. Regula falsi with the Illinois rule then shrinks
 # the bracket; it is exact once both ends lie on one linear piece of φ.
-function _search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool) where {T}
+_search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool) where {T} =
+  warm || length(x) < _FIX_NMIN ? _search(c, x, γ, start, warm, nothing) : _search(c, x, γ, start, false, _live(c, x, T))
+
+function _search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool, L) where {T}
   φs, ms, dφ = warm ? _gap_and_slope(c, x, start, γ) : (_constraint_gap(c, x, start, γ)..., T(NaN))
   abs(φs) <= 2eps(T) * ms && return start
   if c.set isa IndHalfspace && φs < 0
@@ -270,21 +280,23 @@ function _search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Boo
     # the root lies below the start, where the constraint may be inactive
     φ0, m0 = _constraint_gap(c, x, zero(T), γ)
     (φ0 <= 0 || abs(φ0) <= 2eps(T) * m0) && return zero(T)
-    return _refine(c, x, γ, zero(T), φ0, start, φs)
+    return _refine(c, x, γ, zero(T), φ0, start, φs, nothing)
   end
-  step = abs(φs) / convert(T, _metric_sqnorm(c.set, x, γ))
+  a2 = convert(T, _metric_sqnorm(c.set, x, γ))
+  step = abs(φs) / a2
+  L = _seen(L, start, φs, a2)
   σ = dφ < 0 ? dφ : (warm ? convert(T, c.slope[]) : T(NaN))
   σ < 0 && (step = max(step, abs(φs) / -σ))
-  _bracket_and_refine(c, x, γ, start, φs, step)
+  _bracket_and_refine(c, x, γ, start, φs, step, L)
 end
 
-function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, ν0::T, φ0::T, step::T) where {T}
+function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, ν0::T, φ0::T, step::T, L) where {T}
   dir = φ0 > 0 ? one(T) : -one(T)
   lo, φlo = ν0, φ0                          # φlo has the sign of φ(ν₀), φhi the other
   hi, φhi = lo, φlo
   for k in 1:_MAX_BRACKET_STEPS
     hi = lo + dir * step
-    φhi, mhi = _constraint_gap(c, x, hi, γ)
+    φhi, mhi, L = _gap!(c, x, hi, γ, L)
     if abs(φhi) <= 2eps(T) * mhi
       c.slope[] = (φhi - φlo) / (hi - lo)
       return hi
@@ -295,18 +307,21 @@ function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, ν0::T,
     step = isfinite(s) && s > 0 ? min(2s, 64step) : 2step
     lo, φlo = hi, φhi
   end
-  _refine(c, x, γ, lo, φlo, hi, φhi)
+  # regula falsi passes over the live entries once some are fixed, and searches
+  # as before otherwise
+  L isa Base.RefValue && L[].compact && return _refine(c, x, γ, lo, φlo, hi, φhi, L)
+  _refine(c, x, γ, lo, φlo, hi, φhi, nothing)
 end
 
 # regula falsi with the Illinois rule on the bracket [lo, hi], where φlo and φhi
 # have opposite signs; keeps the slope of the last secant for the next call
-function _refine(c::LinearConstrained, x::AbstractArray, γ, lo::T, φlo::T, hi::T, φhi::T) where {T}
+function _refine(c::LinearConstrained, x::AbstractArray, γ, lo::T, φlo::T, hi::T, φhi::T, L) where {T}
   best, φbest = abs(φlo) < abs(φhi) ? (lo, φlo) : (hi, φhi)
   νp, φp = hi, φhi                          # the last point evaluated, for the slope
   side = 0                                  # which end the last step kept
   for _ in 1:_MAX_SECANTS
     ν = (lo * φhi - hi * φlo) / (φhi - φlo)
-    φν, mν = _constraint_gap(c, x, ν, γ)
+    φν, mν, L = _gap!(c, x, ν, γ, L, Val(false))
     ν != νp && (c.slope[] = (φν - φp) / (ν - νp))
     νp, φp = ν, φν
     abs(φν) < abs(φbest) && ((best, φbest) = (ν, φν))
@@ -323,6 +338,281 @@ function _refine(c::LinearConstrained, x::AbstractArray, γ, lo::T, φlo::T, hi:
     abs(hi - lo) <= 2eps(T) * max(abs(lo), abs(hi)) && break
   end
   best
+end
+
+####################################
+#  variable fixing
+####################################
+
+# Each aᵢzᵢ(ν) = aᵢPᵢ(xᵢ - γᵢνaᵢ) is nonincreasing in ν. Where the scalar proximal
+# operator Pᵢ has a range [Lᵢ, Uᵢ] with a finite end, an entry whose aᵢzᵢ sits at
+# the bottom of its range at a point with φ > 0 stays there over the rest of the
+# search, which looks above that point only, and an entry at the top at a point
+# with φ < 0 stays there below it. Such entries are fixed: aᵢzᵢ and |aᵢzᵢ| join
+# two sums, and the passes that follow skip them (Kiwiel, 2008). As computed, zᵢ
+# is monotone in ν and equals the end of its range exactly once there, so the
+# sums hold the terms that the pass would add. The live entries are copied to
+# buffers, x and the arrays among a and γ with the indices, so that a pass over
+# them reads contiguous memory and vectorizes as a pass over x.
+#
+# A pass costs about a seventh of a nanosecond per entry on an AMD EPYC 7513,
+# and the copy two to three passes, so a call from zero fixes entries only where
+# few stay live: at a point of the bracketing, when the secant through the last
+# two points is flat against the steepest slope of the live entries, as in the
+# tail of the entries, and an evenly spaced sample of them shows that at most a
+# quarter stays. After a sample that shows more, the next waits for a secant
+# half as steep. Regula falsi then passes over the live entries. A call from the
+# last multiplier ends within a few passes, which the copy would not repay, and
+# a call on fewer than 4096 entries would lose about a percent where the root is
+# not in the tail; both search as before.
+struct _Live{T}
+  n::Int          # the live entries: the first n in the buffers, or all of x
+  compact::Bool   # whether they are in the buffers
+  s::T            # Σᵢ aᵢzᵢ over the fixed entries
+  m::T            # Σᵢ |aᵢzᵢ| over them
+  νp::T           # the last point evaluated, and φ there
+  φp::T
+  a2::T           # Σᵢ γᵢaᵢ² over all entries, the steepest slope of φ
+  ρmax::T         # the flattest secant that calls for a sample, against the
+                  # steepest slope of the live entries
+end
+
+const _FIX_NMIN = 4096          # the least n with fixing
+const _FIX_MIN = 256            # the least live entries worth a copy
+const _FIX_RHO = 0.2            # the flattest secant that calls for a sample
+const _FIX_KEEP = 0.25          # the largest share of the sample that stays live for a copy
+const _FIX_SAMPLE = 32          # the size of the sample
+
+# The state lives in the function object, and the search passes a reference to
+# it, so that it does not crowd the loop of the pass, inlined into the search,
+# out of the registers.
+function _live(c::LinearConstrained{F}, x::AbstractArray, ::Type{T}) where {F, T}
+  _has_prox_range(F) || return nothing
+  holder = c.live[6]
+  R = holder.buf
+  if !(R isa Base.RefValue{_Live{T}})
+    R = Ref{_Live{T}}()
+    holder.buf = R
+  end
+  n = length(x)
+  R[] = _Live{T}(n, false, zero(T), zero(T), T(NaN), T(NaN), T(NaN), T(_FIX_RHO))
+  R
+end
+
+# the first point and the steepest slope, once known
+_seen(::Nothing, ν, φ, a2) = nothing
+function _seen(R::Base.RefValue{_Live{T}}, ν, φ, a2) where {T}
+  L = R[]
+  R[] = _Live{T}(L.n, L.compact, L.s, L.m, ν, φ, a2, L.ρmax)
+  R
+end
+
+# φ, the scale of its rounding error, and the state; with Val(true), the point
+# may fix entries, as while the search brackets the root: regula falsi then
+# passes over the entries left live
+@inline _gap!(c::LinearConstrained, x::AbstractArray, ν::T, γ, ::Nothing, ::Val = Val(true)) where {T} =
+  (_constraint_gap(c, x, ν, γ)..., nothing)
+@inline _gap!(c::LinearConstrained, x::AbstractArray, ν::T, γ, R::Base.RefValue{_Live{T}}, fix::Val = Val(true)) where {T} =
+  (_fixing_gap!(c, x, ν, γ, R, fix)..., R)
+
+# A call, so that the loop of the pass keeps the registers that the state of
+# the search would take
+@noinline function _fixing_gap!(c::LinearConstrained, x::AbstractArray, ν::T, γ, R::Base.RefValue{_Live{T}}, ::Val{F}) where {T, F}
+  φ, M = R[].compact ? _live_gap(c, x, ν, γ, R[]) : _constraint_gap(c, x, ν, γ)
+  F && _note!(c, x, ν, γ, R, φ, M)
+  φ, M
+end
+
+# keeps the point, and fixes entries when the secant through the last two
+# points is flat against the steepest slope of the live entries, unless
+# rounding dominates it
+@noinline function _note!(c::LinearConstrained, x::AbstractArray, ν::T, γ, R::Base.RefValue{_Live{T}}, φ::T, M::T) where {T}
+  L = R[]
+  Δ = abs(L.φp - φ)
+  if abs(φ) > 2eps(T) * M && L.n >= _FIX_MIN && Δ > 8eps(T) * M &&
+     Δ * length(x) <= L.ρmax * L.a2 * abs(ν - L.νp) * L.n
+    L = _try_fix(c, x, ν, γ, L, φ > 0, Δ * length(x) / (L.a2 * abs(ν - L.νp) * L.n))
+  end
+  R[] = _Live{T}(L.n, L.compact, L.s, L.m, ν, φ, L.a2, L.ρmax)
+  nothing
+end
+
+# φ and the scale of its rounding error, from the live entries in the buffers
+@noinline function _live_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ, L::_Live{T}) where {T}
+  X, A, G, I = _live_buffers(c, x, γ, T)
+  φ, M = _live_pass(c.f, c.set.b, X, A, G, I, L.n, ν)
+  φ + L.s, M + L.m
+end
+
+# the pass of _constraint_gap over the first n entries of the buffers, with the
+# indices I in f
+_live_pass(f, b, X, A, G, I, n, ν) =
+  _constraint_gap((f = _Reindexed(f, I), set = (a = _head(A, n), b = b)), view(X, Base.OneTo(n)), ν, _head(G, n))
+_head(a::Real, ::Integer) = a
+_head(a::AbstractVector, n::Integer) = view(a, Base.OneTo(n))
+
+# f with the entry j at the index I[j]
+struct _Reindexed{F, V}
+  f::F
+  I::V
+end
+Base.@propagate_inbounds prox_entry(g::_Reindexed, v::Real, j::Integer, γ::Real) = prox_entry(g.f, v, g.I[j], γ)
+
+# fixes the entries at the bottom (low) or the top of their ranges at ν when a
+# sample shows that few stay live; if it does not, the next sample waits for a
+# secant half as steep as this one, ρ
+@noinline function _try_fix(c::LinearConstrained, x::AbstractArray, ν::T, γ, L::_Live{T}, low::Bool, ρ::T) where {T}
+  few = L.compact ? _few_stay(c, _live_buffers(c, x, γ, T)..., Base.OneTo(L.n), ν, low) :
+                    _few_stay(c, x, c.set.a, γ, nothing, eachindex(IndexLinear(), x), ν, low)
+  few || return _Live{T}(L.n, L.compact, L.s, L.m, L.νp, L.φp, L.a2, ρ / 2)
+  X, A, G, I = _live_buffers(c, x, γ, T)
+  w, s, m = L.compact ? _fix!(c, X, A, G, I, X, A, G, I, Base.OneTo(L.n), ν, low) :
+                        _fix!(c, X, A, G, I, x, c.set.a, γ, nothing, eachindex(IndexLinear(), x), ν, low)
+  _Live{T}(w, true, L.s + s, L.m + m, L.νp, L.φp, L.a2, T(_FIX_RHO))
+end
+
+function _live_buffers(c::LinearConstrained, x::AbstractArray, γ, ::Type{T}) where {T}
+  bx, ba, bg, bi = c.live
+  n = length(x)
+  a = c.set.a
+  X = _buffer!(bx, promote_type(eltype(x), T), n)
+  A = a isa Real ? a : _buffer!(ba, T, n)
+  G = γ isa Real ? γ : _buffer!(bg, T, n)
+  X, A, G, _buffer!(bi, Int, n)
+end
+
+# whether zᵢ, the value at the index i with the normal aᵢ, sits at the bottom
+# (low) or the top of the range of aᵢzᵢ
+Base.@propagate_inbounds function _at_end(f, z, aᵢ, i, low::Bool)
+  l, u = _prox_range(f, i, typeof(z))
+  z == ifelse((aᵢ > 0) == low, l, u)
+end
+
+# whether entry j of (Xs, As, Gs, Is) sits at an end at ν
+Base.@propagate_inbounds function _at_end(f, Xs, As, Gs, Is, j, ν::T, low::Bool) where {T}
+  i = Is === nothing ? j : Is[j]
+  aᵢ = convert(T, _entry(As, j))
+  γᵢ = convert(T, _entry(Gs, j))
+  _at_end(f, prox_entry(f, Xs[j] - γᵢ * ν * aᵢ, i, γᵢ), aᵢ, i, low)
+end
+
+# the scalar proximal operator of f where it sits at an end, and 0 elsewhere:
+# through the pass, the sums of aᵢzᵢ and |aᵢzᵢ| over the entries that it fixes
+struct _AtEnd{F, A}
+  f::F
+  a::A          # the normal, by index
+  low::Bool
+end
+Base.@propagate_inbounds function prox_entry(g::_AtEnd, v::Real, i::Integer, γ::Real)
+  z = prox_entry(g.f, v, i, γ)
+  ifelse(_at_end(g.f, z, _entry(g.a, i), i, g.low), z, zero(z))
+end
+
+# whether at most a share _FIX_KEEP of an evenly spaced sample of the live
+# entries r stays live
+function _few_stay(c::LinearConstrained, Xs, As, Gs, Is, r, ν::T, low::Bool) where {T}
+  n = length(r)
+  step = max(1, n ÷ _FIX_SAMPLE)
+  stay = total = 0
+  @inbounds for p in 1:step:n
+    stay += !_at_end(c.f, Xs, As, Gs, Is, r[p], ν, low)
+    total += 1
+  end
+  stay <= _FIX_KEEP * total
+end
+
+# copies the entries r of (Xs, As, Gs, Is) that stay live at ν to the front of
+# (X, A, G, I), in order, in place when they are the same; their number, and
+# the sums of aᵢzᵢ and |aᵢzᵢ| over the others, which sit at the bottom (low) or
+# the top of their ranges
+function _fix!(c::LinearConstrained{F}, X, A, G, I, Xs, As, Gs, Is, r, ν::T, low::Bool) where {F, T}
+  f, a = c.f, c.set.a
+  B = _buffer!(c.live[5], UInt64, cld(length(r), 64))
+  _keep_bits!(B, f, Xs, As, Gs, Is, r, ν, low)
+  if a isa Real && _has_uniform_range(F)     # every fixed entry has the same aᵢzᵢ
+    w = _copy_live!(X, A, G, I, B, Xs, As, Gs, Is, r, T)
+    l, u = _prox_range(f, 1, T)
+    aT = convert(T, a)
+    t = aT * ifelse((aT > 0) == low, l, u)
+    return w, (length(r) - w) * t, (length(r) - w) * abs(t)
+  end
+  g = _AtEnd(f, a, low)
+  s, m = Is === nothing ? _constraint_gap((f = g, set = (a = As, b = zero(T))), Xs, ν, Gs) :
+                          _live_pass(g, zero(T), Xs, As, Gs, Is, length(r), ν)
+  _copy_live!(X, A, G, I, B, Xs, As, Gs, Is, r, T), s, m
+end
+
+# the entries r as bits, 64 to a word, set where an entry stays live (the
+# inner loop on one line, which coverage counts as run)
+function _keep_bits!(B::Vector{UInt64}, f, Xs, As, Gs, Is, r, ν::T, low::Bool) where {T}
+  n, j0 = length(r), first(r) - 1
+  @inbounds for k in 1:cld(n, 64)
+    o = j0 + 64(k - 1)
+    w = zero(UInt64)
+    @simd for q in 1:min(64, n - o + j0); w |= _live_bit(f, Xs, As, Gs, Is, o, q, ν, low); end
+    B[k] = w
+  end
+  B
+end
+Base.@propagate_inbounds _live_bit(f, Xs, As, Gs, Is, o, q, ν, low) =
+  UInt64(!_at_end(f, Xs, As, Gs, Is, o + q, ν, low)) << (q - 1)
+
+# copies the entries r of (Xs, As, Gs, Is) whose bit is set to the front of
+# (X, A, G, I), in order, in place when they are the same; their number
+function _copy_live!(X, A, G, I, B::Vector{UInt64}, Xs, As, Gs, Is, r, ::Type{T}) where {T}
+  w = 0
+  j0 = first(r) - 1
+  @inbounds for k in 1:cld(length(r), 64)
+    keep = B[k]
+    while keep != 0
+      j = j0 + 64(k - 1) + trailing_zeros(keep) + 1
+      w += 1
+      X[w] = Xs[j]
+      I[w] = Is === nothing ? j : Is[j]
+      A isa AbstractArray && (A[w] = convert(T, As[j]))
+      G isa AbstractArray && (G[w] = convert(T, Gs[j]))
+      keep &= keep - 1
+    end
+  end
+  w
+end
+
+# The range [L, U] of the scalar proximal operator, in the type S of its value,
+# with ±Inf for an open end; _has_prox_range is true where an end may be finite.
+# prox_entry must return the end itself where it reaches it, and be
+# nondecreasing in v as computed.
+_has_prox_range(::Type{<:AbstractFunction}) = false
+for F in (:IndBox, :IndNonnegative, :NormL1Nonneg, :BoxConstrained)
+  @eval _has_prox_range(::Type{<:$F}) = true
+end
+_has_prox_range(::Type{<:Scaled{F}}) where {F} = _has_prox_range(F)
+_has_prox_range(::Type{<:Tilt{F}}) where {F} = _has_prox_range(F)
+_has_prox_range(::Type{<:Translate{F}}) where {F} = _has_prox_range(F)
+
+# whether the range is the same for every entry
+_has_uniform_range(::Type{<:AbstractFunction}) = false
+for F in (:ZeroFunction, :LinearFunction, :SqrNormL2, :NormL1, :ElasticNet, :IndNonnegative, :NormL1Nonneg)
+  @eval _has_uniform_range(::Type{<:$F}) = true
+end
+_has_uniform_range(::Type{<:IndBox{<:Real, <:Real}}) = true
+_has_uniform_range(::Type{<:Scaled{F}}) where {F} = _has_uniform_range(F)
+_has_uniform_range(::Type{<:Tilt{F}}) where {F} = _has_uniform_range(F)
+_has_uniform_range(::Type{<:BoxConstrained{F, B}}) where {F, B} = _has_uniform_range(F) && _has_uniform_range(B)
+
+_prox_range(::AbstractFunction, ::Integer, ::Type{S}) where {S} = (S(-Inf), S(Inf))
+_prox_range(::Union{IndNonnegative, NormL1Nonneg}, ::Integer, ::Type{S}) where {S} = (zero(S), S(Inf))
+Base.@propagate_inbounds _prox_range(f::IndBox, i::Integer, ::Type{S}) where {S} =
+  (convert(S, _entry(f.l, i)), convert(S, _entry(f.u, i)))
+Base.@propagate_inbounds function _prox_range(c::BoxConstrained, i::Integer, ::Type{S}) where {S}
+  l, u = _prox_range(c.f, i, S)
+  bl, bu = _prox_range(c.box, i, S)
+  clamp(l, bl, bu), clamp(u, bl, bu)
+end
+Base.@propagate_inbounds _prox_range(s::Scaled, i::Integer, ::Type{S}) where {S} = _prox_range(s.f, i, S)
+Base.@propagate_inbounds _prox_range(t::Tilt, i::Integer, ::Type{S}) where {S} = _prox_range(t.f, i, S)
+Base.@propagate_inbounds function _prox_range(t::Translate, i::Integer, ::Type{S}) where {S}
+  l, u = _prox_range(t.f, i, S)
+  t.b[i] + l, t.b[i] + u
 end
 
 ####################################

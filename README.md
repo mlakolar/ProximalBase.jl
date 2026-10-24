@@ -240,7 +240,7 @@ smooth versions of the hinge and quantile losses) expose `ProximalBase.deriv`,
 | `SparseGroupNormL2(λ1, λ2, groups, w)` | `λ1 ‖x‖₁ + λ2 Σₖ wₖ ‖x[Gₖ]‖₂`, the sparse group lasso | |
 | `GroupNormLinf(λ0, groups, w)` | `λ0 Σₖ wₖ ‖x[Gₖ]‖∞` | |
 | `GroupMCP(λ, groups, w; a)`, `GroupSCAD(λ, groups, w; a)` | the MCP or SCAD of `‖x[Gₖ]‖₂` with level `λwₖ`, nonconvex | |
-| `NormL1Fused(λ1, λ2)` | `Σᵢ λ1 (\|x1ᵢ\| + \|x2ᵢ\|) + λ2 \|x1ᵢ - x2ᵢ\|` on pairs `(x1, x2)` | |
+| `NormL1Fused(λ1, λ2)` | `Σᵢ λ1 (\|x1ᵢ\| + \|x2ᵢ\|) + λ2 \|x1ᵢ - x2ᵢ\|` on pairs `(x1, x2)`; `λ1 ‖v‖₁ + λ2 Σₖ<ₗ \|vₖ - vₗ\|` on a vector, all pairs fused | |
 | `TotalVariation1D(λ)` | `λ Σᵢ \|xᵢ₊₁ - xᵢ\|` | |
 | `FusedLasso(λ1, λ2)` | `λ1 ‖x‖₁ + λ2 Σᵢ \|xᵢ₊₁ - xᵢ\|` | |
 | `SLOPE(λ)` | `Σᵢ λᵢ \|x\|₍ᵢ₎`, the sorted ℓ1 norm, `λ` nonincreasing | |

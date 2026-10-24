@@ -130,6 +130,12 @@
   stacked matrices. `FiberSum(NormL1Fused(λ1, λ2); diagonal =
   NormL1Fused(0, λ2))` is the penalty of the fused graphical lasso of two
   classes with the diagonal left unshrunk (#32).
+  - On a vector of length K, `NormL1Fused(λ1, λ2)` is `λ1 ‖v‖₁ + λ2 Σₖ<ₗ |vₖ - vₗ|`,
+    which fuses all pairs of entries. Its proximal operator sorts, shifts the
+    sorted entries, pools adjacent violators and soft thresholds: exact, in
+    O(K log K), allocating nothing. `FiberSum(NormL1Fused(λ1, λ2))` is the
+    fused graphical lasso of K classes, and `FiberSum(FusedLasso(λ1, λ2))`
+    fuses neighboring slices, for graphs over time with jumps (#42).
 - **`Constrained(f, C)`:** a convex separable `f` restricted to a box, a
   hyperplane, a halfspace or a simplex `C`.
   - On a box, the proximal operator clamps that of `f`, and the function stays

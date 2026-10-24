@@ -114,9 +114,11 @@ With `x[:, :, k]` the precision matrix of class or time point `k`:
 
 | penalty | `f` |
 |---|---|
-| a shared sparsity pattern (group graphical lasso) | `NormL2(λ)` |
+| a shared sparsity pattern | `NormL2(λ)` |
+| the group graphical lasso | `SparseGroupNormL2(λ1, λ2, [1:K], [1.0])` |
 | simultaneous selection | `NormLinf(λ)` |
-| the fused graphical lasso of two classes | `NormL1Fused(λ1, λ2)` |
+| the fused graphical lasso of K classes, all pairs fused | `NormL1Fused(λ1, λ2)` |
+| graphs over time with jumps, neighbors fused | `FusedLasso(λ1, λ2)` or `TotalVariation1D(λ)` |
 
 and `diagonal = nothing` leaves the diagonal free, `diagonal =
 NormL1Fused(0, λ2)` keeps only the fusion on it.
@@ -170,8 +172,11 @@ end
 value_and_prox!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real) = _fiberprox!(y, fb, x, γ, Val(true))
 prox!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real) = (_fiberprox!(y, fb, x, γ, Val(false)); y)
 
-# the proximal operator fiber by fiber, and the value at the result if V
-function _fiberprox!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real, ::Val{V}) where {V}
+_fiberprox!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real, v::Val) = _fiberprox_views!(y, fb, x, γ, v)
+
+# the proximal operator fiber by fiber, through views, and the value at the
+# result if V
+function _fiberprox_views!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real, ::Val{V}) where {V}
   _checksize(y, x)
   own = _owndiagonal(fb, x)
   T = float(eltype(y))
@@ -199,11 +204,12 @@ _prox_diagonal!(y, d::AbstractFunction, x, γ, ::Type{T}, ::Val{false}) where {T
 
 # NormL1Fused on the pairs of two stacked matrices, the fused graphical lasso of
 # two classes: the same proximal operator, entry by entry without views, which
-# costs about as much per fiber as one call of _prox_l1fused
+# costs about as much per fiber as one call of _prox_l1fused. Other numbers of
+# slices go through the views.
 function _fiberprox!(y::AbstractArray{<:Any, 3}, fb::FiberSum{<:NormL1Fused, D}, x::AbstractArray{<:Any, 3},
                      γ::Real, ::Val{V}) where {D<:Union{Nothing, NormL1Fused}, V}
   _checksize(y, x)
-  size(x, 3) == 2 || throw(DimensionMismatch("NormL1Fused acts on pairs: two slices, not $(size(x, 3))"))
+  size(x, 3) == 2 || return _fiberprox_views!(y, fb, x, γ, Val(V))
   own = _owndiagonal(fb, x)
   T = float(eltype(y))
   a, b = firstindex(x, 3), firstindex(x, 3) + 1

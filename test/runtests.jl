@@ -22,6 +22,7 @@ tests = [
   "spectralfunction",
   "ballconstrained",
   "constrained_nonconvex",
+  "testing",
   "allocations",
   "gpu",
   "deprecated",

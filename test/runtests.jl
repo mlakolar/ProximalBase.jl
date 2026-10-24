@@ -10,6 +10,7 @@ tests = [
   "interface",
   "smooth",
   "separable",
+  "losses",
   "norms",
   "fibers",
   "spectral",

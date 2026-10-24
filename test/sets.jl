@@ -183,6 +183,17 @@ end
   @test IndSimplex(1.; equality = false)([0.2, 0.3]) == 0
   @test IndSimplex(1.)([1.5, -0.5]) == Inf
   @test prox(IndSimplex(0.), [1., 2.]) == [0., 0.]
+  # long vectors: Condat's pass hands over to Michelot's algorithm when many
+  # entries stay candidates
+  x = randn(20_000)
+  for r in (1., 100., 2000., 10_000.)
+    @test prox(IndSimplex(r), x) ≈ simplex_proj(x, r)
+    @test prox(IndBallL1(r), x) ≈ l1ball_proj(x, r)
+  end
+  τ(y, r) = (u = simplex_proj(y, r); i = findfirst(>(0), u); y[i] - u[i])
+  @test ProximalBase._simplex_threshold_michelot(x, eachindex(x), 50., identity) ≈ τ(x, 50.)
+  odd = collect(1:2:20_000)
+  @test ProximalBase._simplex_threshold_michelot(x, odd, 3000., abs) ≈ τ(abs.(x[odd]), 3000.)
 end
 
 @testset "hyperplanes and halfspaces" begin

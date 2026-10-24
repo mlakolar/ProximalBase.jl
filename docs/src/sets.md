@@ -54,7 +54,15 @@ constraint, the unique solution of
 The left side is continuous, piecewise linear and decreasing in ``\tau``, so
 ``\tau`` lies between two sorted values of ``v``. Sorting finds it in
 ``O(n\log n)``. Condat's algorithm (2016) finds it in ``O(n)`` expected time
-with one pass and a scratch buffer, which the function keeps. With
+with one pass and a scratch buffer, which the function keeps.
+
+When ``r`` is large, the level of Condat's algorithm starts far below the
+entries, so many entries become candidates and are then dropped one by one.
+When more than an eighth of the entries, and more than 1024, become candidates,
+Michelot's algorithm (1986) takes over:
+the level of all the entries, then of those above it, until that set stops
+changing. It is Newton's method on the left side of the equation above, from
+below, and each of its steps is a vectorized pass. With
 `equality = false` the set is ``\sum_i x_i \le r``, and ``\tau = 0`` when ``v``
 already satisfies the inequality.
 

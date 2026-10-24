@@ -260,6 +260,10 @@ ProximalBase._prox_entry_slope(g::Counted, v, i, γ) = (CALLS[] += 1; ProximalBa
     end
     warm = CALLS[] / n / 10
     @test warm <= 5 && warm < cold
+    # a first call takes the steps of a function without known slopes
+    CALLS[] = 0
+    z = prox(Constrained(NoSlope(Counted(f)), H), x, 0.7)
+    @test CALLS[] / n == cold && z == prox(Constrained(f, H), x, 0.7)
   end
 
   # Float32 calls keep the multiplier too

@@ -50,7 +50,8 @@ with one pass and a scratch buffer, which the function keeps.
 
 When ``r`` is large, the level of Condat's algorithm starts far below the
 entries, so many entries become candidates and are then dropped one by one.
-When more than an eighth of them do, Michelot's algorithm (1986) takes over:
+When more than an eighth of the entries, and more than 1024, become candidates,
+Michelot's algorithm (1986) takes over:
 the level of all the entries, then of those above it, until that set stops
 changing. It is Newton's method on the left side of the equation above, from
 below, and each of its steps is a vectorized pass. With

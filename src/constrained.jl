@@ -27,7 +27,7 @@ from the multiplier of the previous call, which the function keeps, with a
 first step from the exact slope of the constraint where the scalar proximal
 operators of `f` are piecewise linear, as for every function below. The calls
 of a solver on slowly changing points then take three to five passes, against
-5 to 17 from zero. Do not share one function object between threads. For
+7 to 16 from zero. Do not share one function object between threads. For
 example:
 
 - `Constrained(NormL1(λ), IndHyperplane(1, 0))` is the lasso penalty on
@@ -226,24 +226,26 @@ _gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ::T, ::Val{false
 # an inactive halfspace.
 function _multiplier(c::LinearConstrained, x::AbstractArray, γ::T) where {T}
   ν0 = convert(T, c.last[])
-  start = isfinite(ν0) && !(c.set isa IndHalfspace && !(ν0 > 0)) ? ν0 : zero(T)
-  ν = _search(c, x, γ, start)
+  warm = isfinite(ν0) && !(c.set isa IndHalfspace && !(ν0 > 0))
+  ν = _search(c, x, γ, warm ? ν0 : zero(T), warm)
   c.last[] = ν
   ν
 end
 
-# The search from start. The first step goes to the root of the line through
+# The search from start. The first step is at least |φ(start)|/(γ‖a‖²), a lower
+# bound on the distance to the root, as the slope of φ is at least -γ‖a‖². From
+# the multiplier of the last call, it goes to the root of the line through
 # (start, φ(start)) with the slope of φ there, exact where the scalar proximal
 # operators of f have known slopes and otherwise that of the last call's
-# secant; it is at least |φ(start)|/(γ‖a‖²), a lower bound on the distance to
-# the root, as the slope of φ is at least -γ‖a‖². From a start on the linear
-# piece of the root, this step ends the search. Each further step is twice the
-# step to the root of the secant through the last two points, which passes the
-# root when that secant predicts it well, or twice the last step where φ is
-# flat. Regula falsi with the Illinois rule then shrinks the bracket; it is
-# exact once both ends lie on one linear piece of φ.
-function _search(c::LinearConstrained, x::AbstractArray, γ::T, start::T) where {T}
-  φs, ms, dφ = _gap_and_slope(c, x, start, γ)
+# secant; from a start on the linear piece of the root, this step ends the
+# search. From zero it is the lower bound: a pass that computes the slope costs
+# half a pass more, and saves passes only when the root lies near zero. Each
+# further step is twice the step to the root of the secant through the last two
+# points, which passes the root when that secant predicts it well, or twice the
+# last step where φ is flat. Regula falsi with the Illinois rule then shrinks
+# the bracket; it is exact once both ends lie on one linear piece of φ.
+function _search(c::LinearConstrained, x::AbstractArray, γ::T, start::T, warm::Bool) where {T}
+  φs, ms, dφ = warm ? _gap_and_slope(c, x, start, γ) : (_constraint_gap(c, x, start, γ)..., T(NaN))
   abs(φs) <= 2eps(T) * ms && return start
   if c.set isa IndHalfspace && φs < 0
     iszero(start) && return zero(T)                           # the constraint is inactive
@@ -253,7 +255,7 @@ function _search(c::LinearConstrained, x::AbstractArray, γ::T, start::T) where 
     return _refine(c, x, γ, zero(T), φ0, start, φs)
   end
   step = abs(φs) / (γ * convert(T, _normal_sqnorm(c.set, x)))
-  σ = dφ < 0 ? dφ : (iszero(start) ? T(NaN) : convert(T, c.slope[]))
+  σ = dφ < 0 ? dφ : (warm ? convert(T, c.slope[]) : T(NaN))
   σ < 0 && (step = max(step, abs(φs) / -σ))
   _bracket_and_refine(c, x, γ, start, φs, step)
 end

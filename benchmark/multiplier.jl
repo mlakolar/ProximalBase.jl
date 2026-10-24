@@ -4,9 +4,10 @@
 #   julia --project=benchmark -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
 #   julia --project=benchmark benchmark/multiplier.jl
 #
-# 1. One call from zero, over independent draws: the first step of master (the
-#    lower bound on the distance to the root, which a function without known
-#    slopes still takes) against the first step from the exact slope.
+# 1. One call from zero, over independent draws: master's first step, the lower
+#    bound on the distance to the root, which this branch keeps for a first
+#    call, against the first step from the exact slope, which it takes from the
+#    last multiplier and which a stored multiplier of zero forces here.
 # 2. The calls of a solver on slowly changing points: master, which searches
 #    from zero on every call, against this branch, which starts from the last
 #    multiplier.
@@ -32,7 +33,7 @@ const CALLS = Ref(0)
 struct Counted{F} <: PB.SeparableFunction       # counts the passes; keeps the slopes
   f::F
 end
-struct Slopeless{F} <: PB.SeparableFunction     # hides the slopes: master's first step
+struct Slopeless{F} <: PB.SeparableFunction     # hides the slopes: master's search
   f::F
 end
 for W in (:Counted, :Slopeless)
@@ -49,11 +50,13 @@ cold!(c) = (c.last[] = NaN; c)
 points(x, noise) = [x .+ (0.002 * t) .* noise for t in 1:20]
 calls_cold(c, y, xs, γ = 0.7) = (for xt in xs; cold!(c); PB.prox!(y, c, xt, γ); end)
 calls_warm(c, y, xs, γ = 0.7) = (for xt in xs; PB.prox!(y, c, xt, γ); end)
-# the passes of each call, from zero or, after a first round, from the last multiplier
-function passes(c, y, xs; warm = false, γ = 0.7)
+calls_zero(c, y, xs) = (for xt in xs; c.last[] = 0.0; PB.prox!(y, c, xt, 0.7); end)
+# the passes of each call, from zero (start = NaN as at a first call, 0.0 as from a
+# stored multiplier) or, after a first round, from the last multiplier
+function passes(c, y, xs; warm = false, start = NaN, γ = 0.7)
   warm && calls_warm(c, y, xs, γ)
   map(xs) do xt
-    warm || cold!(c)
+    warm || (c.last[] = start)
     CALLS[] = 0
     PB.prox!(y, c, xt, γ)
     CALLS[] / length(xt)
@@ -84,17 +87,19 @@ label(n) = n == 1_000 ? "10³" : "10⁵"
 println("## 1. One call from zero, over independent draws")
 println()
 println("200 draws of x at n = 10³ and 20 at n = 10⁵, the same for both sides: the mean time and passes per call, ",
-        "and the share of draws on which the exact first step takes more passes than master's.")
+        "and the share of draws on which the exact first step takes more passes. A first call takes master's first ",
+        "step; the exact one, which this branch takes from the last multiplier, is forced from zero by storing a ",
+        "multiplier of zero.")
 println()
-println("| case | master's first step (μs, passes) | exact first step (μs, passes) | more passes |")
+println("| case | master's first step, as at a first call (μs, passes) | the exact first step (μs, passes) | more passes |")
 println("|:-----|---:|---:|---:|")
 for n in (1_000, 100_000)
   xs, y = [randn(n) for _ in 1:(n == 1_000 ? 200 : 20)], zeros(n)
   for (name, f, H) in cases(n)
-    cm, cn = PB.Constrained(Slopeless(f), H), PB.Constrained(f, H)
-    tm, tn = interleaved(() -> calls_cold(cm, y, xs), () -> calls_cold(cn, y, xs)) ./ length(xs)
-    pm = passes(PB.Constrained(Slopeless(Counted(f)), H), y, xs)
-    pn = passes(PB.Constrained(Counted(f), H), y, xs)
+    cm, cn = PB.Constrained(f, H), PB.Constrained(f, H)
+    tm, tn = interleaved(() -> calls_cold(cm, y, xs), () -> calls_zero(cn, y, xs)) ./ length(xs)
+    pm = passes(PB.Constrained(Counted(f), H), y, xs)
+    pn = passes(PB.Constrained(Counted(f), H), y, xs; start = 0.0)
     @printf("| %s, n = %s | %s, %.1f | %s, %.1f | %.0f%% |\n", name, label(n), μs(tm), avg(pm), μs(tn), avg(pn),
             100avg(pn .> pm))
   end

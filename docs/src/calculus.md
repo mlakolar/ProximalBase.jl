@@ -119,18 +119,21 @@ of the search is one pass over the entries.
 - **The start.** A solver calls the proximal operator at points that change
   little from one call to the next, and so does the multiplier. The search
   starts from the multiplier of the last call, which the function keeps.
-- **The first step.** It goes to the root of the line through the start with the
-  slope of ``\varphi`` there. Where the scalar proximal operators ``P_i`` of
-  ``f`` are piecewise linear, as for every function below, that slope is exact,
-  ``\varphi'(\nu) = -\gamma\sum_i a_i^2 P_i'``. From a start on the linear piece
-  of the root, the first step then lands on the root. Otherwise the slope is
-  that of the last secant. The step is at least ``|\varphi|/(\gamma\|a\|^2)``,
-  since the slope of ``\varphi`` is at least ``-\gamma\|a\|^2``.
+- **The first step.** It is at least ``|\varphi|/(\gamma\|a\|^2)``, since the
+  slope of ``\varphi`` is at least ``-\gamma\|a\|^2``. From the last
+  multiplier, it goes to the root of the line through the start with the slope
+  of ``\varphi`` there. Where the scalar proximal operators ``P_i`` of ``f``
+  are piecewise linear, as for every function below, that slope is exact,
+  ``\varphi'(\nu) = -\gamma\sum_i a_i^2 P_i'``, and from a start on the linear
+  piece of the root the first step lands on the root. Otherwise the slope is
+  that of the last secant. At a first call, from zero, the step is the lower
+  bound: computing the slope costs half a pass, and pays only when the root
+  lies near zero.
 - **The bracket.** Secant steps bracket the root, and regula falsi with the
   Illinois rule shrinks the bracket. For the piecewise linear ``\varphi`` of the
   ℓ1 norm and boxes, the search is exact once the bracket lies on one piece.
 - **The cost.** On simplices, capped simplices and the zero-sum lasso with
-  ``10^3`` to ``10^5`` entries, the search took 5 to 17 passes from zero, and
+  ``10^3`` to ``10^5`` entries, the search took 7 to 16 passes from zero, and
   three to five from the last multiplier on slowly changing points.
 - **Breakpoint searches.** For the continuous quadratic knapsack problem they
   are exact in ``O(n)`` time (Brucker, 1984; Kiwiel, 2008), but a single

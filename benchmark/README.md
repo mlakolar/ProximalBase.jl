@@ -93,34 +93,34 @@ scalar proximal operator of `f`.
 julia --project=benchmark benchmark/constrained.jl
 ```
 
-ProximalBase at ac681eb and ProximalOperators 0.16.1 on Julia 1.13.2, one core
-of an AMD EPYC 7513 (USC CARC Discovery, job 13370883, 2026-10-24). Every call
+ProximalBase at 5506b9b and ProximalOperators 0.16.1 on Julia 1.13.2, one core
+of an AMD EPYC 7513 (USC CARC Discovery, job 13371989, 2026-10-24). Every call
 starts the search from zero, as on a new problem, and takes the steps it took
 before #77; the next section times the calls of a solver, which start from the
 multiplier of the last call:
 
 | case | Constrained (μs) | passes | specialized (time, relative to Constrained) |
 |:-----|---:|---:|:---|
-| simplex r = 1, n = 10³                 |        2.8 |  14 | 0.7 μs (0.26×), 1.3 μs (0.46×) |
-| simplex r = n/10, n = 10³              |        2.2 |  11 | 1.8 μs (0.80×), 7.3 μs (3.36×) |
-| capped simplex k = 10, n = 10³         |        2.5 |  13 | 14.7 μs (5.82×) |
-| capped simplex k = n/2, n = 10³        |        1.5 |   8 | 13.1 μs (8.51×) |
+| simplex r = 1, n = 10³                 |        2.8 |  14 | 0.4 μs (0.15×), 1.3 μs (0.46×) |
+| simplex r = n/10, n = 10³              |        2.2 |  11 | 1.8 μs (0.84×), 7.5 μs (3.41×) |
+| capped simplex k = 10, n = 10³         |        2.5 |  13 | 15.2 μs (6.07×) |
+| capped simplex k = n/2, n = 10³        |        1.5 |   8 | 13.4 μs (8.77×) |
 | zero-sum lasso λ = 0.5, n = 10³        |        2.6 |   8 |  |
 | ElasticNet on the simplex, n = 10³     |        6.3 |  12 |  |
 | NormL1 on [-1, 1], n = 10³             |        0.3 |   1 | 0.2 μs (0.76×) |
-| simplex r = 1, n = 10⁵                 |      254.5 |  14 | 45.1 μs (0.18×), 72.8 μs (0.29×) |
-| simplex r = n/10, n = 10⁵              |      203.3 |  11 | 107.7 μs (0.53×), 20329.8 μs (99.98×) |
-| capped simplex k = 10, n = 10⁵         |      249.7 |  14 | 2561.4 μs (10.26×) |
-| capped simplex k = n/2, n = 10⁵        |      179.9 |  10 | 2015.8 μs (11.21×) |
-| zero-sum lasso λ = 0.5, n = 10⁵        |      216.6 |   7 |  |
-| ElasticNet on the simplex, n = 10⁵     |      652.5 |  13 |  |
+| simplex r = 1, n = 10⁵                 |      256.4 |  14 | 32.2 μs (0.13×), 73.9 μs (0.29×) |
+| simplex r = n/10, n = 10⁵              |      203.8 |  11 | 110.0 μs (0.54×), 20381.2 μs (99.98×) |
+| capped simplex k = 10, n = 10⁵         |      250.8 |  14 | 2694.8 μs (10.74×) |
+| capped simplex k = n/2, n = 10⁵        |      181.0 |  10 | 2112.9 μs (11.67×) |
+| zero-sum lasso λ = 0.5, n = 10⁵        |      216.5 |   7 |  |
+| ElasticNet on the simplex, n = 10⁵     |      653.5 |  13 |  |
 | NormL1 on [-1, 1], n = 10⁵             |       27.5 |   1 | 20.7 μs (0.75×) |
 
-- **The capped simplex:** the search is 6 to 11 times faster than sorting.
+- **The capped simplex:** the search is 6 to 12 times faster than sorting.
 - **The simplex:** `IndSimplex` is faster than the search in every case, by
-  1.25 to 5.6 times, and remains the function for the simplex alone. Its
-  threshold got up to 17 times faster when many entries stay positive (next
-  section): with r = n/10 and n = 10⁵ it took 1401 μs before #77.
+  1.2 to 7.7 times, and remains the function for the simplex alone. Its
+  threshold got up to 16 times faster (next section): with r = n/10 and
+  n = 10⁵ it took 1401 μs before #77, and takes 110 μs.
 - **The zero-sum lasso and the elastic net on the simplex** take 7 to 13
   passes, at 0.3 to 0.5 μs per pass and 1000 entries.
 - **A separable function on a box** is one pass: the clamp adds a third to the
@@ -133,8 +133,9 @@ multiplier of the last call:
 - the search of `Constrained` on a hyperplane starts from the multiplier of the
   last call, with a first step from the exact slope of φ where the scalar
   proximal operators are piecewise linear;
-- the threshold of the projection onto the simplex hands over to Michelot's
-  algorithm when many entries become candidates.
+- the threshold of the projection onto the simplex tests four entries at a
+  time, and hands over to Michelot's algorithm when many entries become
+  candidates.
 
 The search before #77 is the current one with the slopes hidden and every call
 from zero, and the threshold before #77 is a copy in the script. Each
@@ -145,8 +146,8 @@ the fastest round of each side.
 julia --project=benchmark benchmark/multiplier.jl
 ```
 
-ProximalBase at ac681eb on Julia 1.13.2, one core of an AMD EPYC 7513 (USC CARC
-Discovery, job 13370883, 2026-10-24).
+ProximalBase at 5506b9b on Julia 1.13.2, one core of an AMD EPYC 7513 (USC CARC
+Discovery, job 13371989, 2026-10-24).
 
 **1. One call from zero**, over 200 draws of `x` at n = 10³ and 20 at n = 10⁵,
 the same for both columns: the mean time and passes per call. A first call
@@ -157,22 +158,22 @@ column is the share of draws on which it takes more passes.
 
 | case | the first step of a first call (μs, passes) | the exact first step (μs, passes) | more passes |
 |:-----|---:|---:|---:|
-| simplex r = 1, n = 10³ | 2.47, 12.0 | 2.38, 11.5 | 14% |
-| simplex r = n/10, n = 10³ | 2.15, 10.7 | 1.86, 9.1 | 0% |
-| capped simplex k = 10, n = 10³ | 2.11, 10.5 | 2.08, 10.1 | 5% |
-| capped simplex k = n/2, n = 10³ | 1.59, 8.1 | 1.44, 7.0 | 4% |
-| zero-sum lasso λ = 0.5, n = 10³ | 2.50, 7.4 | 1.82, 5.3 | 1% |
-| ℓ1 on [-1, 1], a general normal, n = 10³ | 3.34, 7.6 | 2.73, 5.8 | 1% |
-| elastic net on the simplex, n = 10³ | 5.95, 11.1 | 6.02, 10.8 | 26% |
-| simplex r = 1, n = 10⁵ | 310.5, 15.9 | 308.8, 15.7 | 15% |
-| simplex r = n/10, n = 10⁵ | 214.4, 11.0 | 221.0, 11.0 | 0% |
-| capped simplex k = 10, n = 10⁵ | 280.1, 14.7 | 284.7, 14.4 | 10% |
-| capped simplex k = n/2, n = 10⁵ | 167.6, 9.0 | 158.9, 7.8 | 5% |
-| zero-sum lasso λ = 0.5, n = 10⁵ | 254.1, 7.9 | 168.0, 5.1 | 0% |
-| ℓ1 on [-1, 1], a general normal, n = 10⁵ | 329.7, 7.8 | 243.3, 5.3 | 0% |
-| elastic net on the simplex, n = 10⁵ | 807.4, 15.8 | 840.7, 15.9 | 40% |
+| simplex r = 1, n = 10³ | 2.39, 12.0 | 2.33, 11.5 | 14% |
+| simplex r = n/10, n = 10³ | 2.13, 10.7 | 1.88, 9.1 | 0% |
+| capped simplex k = 10, n = 10³ | 2.00, 10.5 | 2.03, 10.1 | 5% |
+| capped simplex k = n/2, n = 10³ | 1.58, 8.1 | 1.44, 7.0 | 4% |
+| zero-sum lasso λ = 0.5, n = 10³ | 2.54, 7.4 | 1.86, 5.3 | 1% |
+| ℓ1 on [-1, 1], a general normal, n = 10³ | 3.33, 7.6 | 2.71, 5.8 | 1% |
+| elastic net on the simplex, n = 10³ | 5.89, 11.1 | 5.97, 10.8 | 26% |
+| simplex r = 1, n = 10⁵ | 340.9, 15.9 | 337.3, 15.7 | 15% |
+| simplex r = n/10, n = 10⁵ | 215.8, 11.0 | 220.9, 11.0 | 0% |
+| capped simplex k = 10, n = 10⁵ | 307.8, 14.7 | 307.2, 14.4 | 10% |
+| capped simplex k = n/2, n = 10⁵ | 173.7, 9.0 | 162.4, 7.8 | 5% |
+| zero-sum lasso λ = 0.5, n = 10⁵ | 249.3, 7.9 | 165.0, 5.1 | 0% |
+| ℓ1 on [-1, 1], a general normal, n = 10⁵ | 346.5, 7.8 | 254.4, 5.3 | 0% |
+| elastic net on the simplex, n = 10⁵ | 806.1, 15.8 | 840.8, 15.9 | 40% |
 
-- The exact first step would make a first call 18 to 34% faster on the
+- The exact first step would make a first call 19 to 34% faster on the
   zero-sum lasso and on ℓ1 with a general normal, whose root lies near zero.
 - Where the root lies far out in the tail of the entries, as for the elastic
   net on the simplex, it saves under half a pass, while the pass that computes
@@ -186,23 +187,23 @@ slopes.
 
 | case | before #77, each call from zero (μs, passes) | from the last multiplier, slopes hidden (μs, passes) | after #77, from the last multiplier (μs, passes) | speedup |
 |:-----|---:|---:|---:|---:|
-| simplex r = 1, n = 10³ | 2.10, 10.6 | 0.99, 5.2 | 0.77, 4.0 | 2.72× |
-| simplex r = n/10, n = 10³ | 2.11, 10.6 | 0.86, 4.4 | 0.61, 3.2 | 3.47× |
-| capped simplex k = 10, n = 10³ | 1.99, 10.2 | 0.78, 4.3 | 0.64, 3.1 | 3.09× |
-| capped simplex k = n/2, n = 10³ | 1.51, 7.9 | 0.78, 4.4 | 0.64, 3.1 | 2.38× |
-| zero-sum lasso λ = 0.5, n = 10³ | 2.58, 7.9 | 1.35, 4.5 | 1.03, 3.1 | 2.50× |
-| ℓ1 on [-1, 1], a general normal, n = 10³ | 3.42, 7.8 | 2.06, 4.8 | 1.47, 3.1 | 2.33× |
+| simplex r = 1, n = 10³ | 2.10, 10.6 | 0.98, 5.2 | 0.77, 4.0 | 2.73× |
+| simplex r = n/10, n = 10³ | 2.11, 10.6 | 0.86, 4.4 | 0.60, 3.2 | 3.50× |
+| capped simplex k = 10, n = 10³ | 1.99, 10.2 | 0.77, 4.3 | 0.63, 3.1 | 3.13× |
+| capped simplex k = n/2, n = 10³ | 1.51, 7.9 | 0.77, 4.4 | 0.63, 3.1 | 2.41× |
+| zero-sum lasso λ = 0.5, n = 10³ | 2.58, 7.9 | 1.34, 4.5 | 1.02, 3.1 | 2.54× |
+| ℓ1 on [-1, 1], a general normal, n = 10³ | 3.47, 7.8 | 2.09, 4.8 | 1.49, 3.1 | 2.33× |
 | elastic net on the simplex, n = 10³ | 5.93, 11.2 | 2.53, 4.9 | 2.12, 3.7 | 2.80× |
-| simplex r = 1, n = 10⁵ | 306.4, 15.3 | 106.6, 5.1 | 87.0, 4.2 | 3.52× |
-| simplex r = n/10, n = 10⁵ | 221.2, 11.0 | 101.2, 5.0 | 91.7, 4.5 | 2.41× |
-| capped simplex k = 10, n = 10⁵ | 282.8, 14.9 | 128.7, 5.7 | 90.0, 4.0 | 3.14× |
-| capped simplex k = n/2, n = 10⁵ | 178.2, 9.3 | 98.5, 4.9 | 87.3, 4.1 | 2.04× |
-| zero-sum lasso λ = 0.5, n = 10⁵ | 246.1, 7.5 | 151.5, 4.8 | 125.2, 3.8 | 1.97× |
-| ℓ1 on [-1, 1], a general normal, n = 10⁵ | 334.8, 7.8 | 211.8, 4.8 | 180.4, 3.9 | 1.86× |
-| elastic net on the simplex, n = 10⁵ | 799.7, 15.6 | 251.8, 5.0 | 227.8, 4.1 | 3.51× |
+| simplex r = 1, n = 10⁵ | 295.7, 15.3 | 103.8, 5.1 | 90.0, 4.2 | 3.28× |
+| simplex r = n/10, n = 10⁵ | 216.6, 11.0 | 101.2, 5.0 | 94.5, 4.5 | 2.29× |
+| capped simplex k = 10, n = 10⁵ | 283.2, 14.9 | 111.7, 5.7 | 90.3, 4.0 | 3.14× |
+| capped simplex k = n/2, n = 10⁵ | 178.0, 9.3 | 96.5, 4.9 | 90.7, 4.1 | 1.96× |
+| zero-sum lasso λ = 0.5, n = 10⁵ | 257.9, 7.5 | 163.8, 4.8 | 134.5, 3.8 | 1.92× |
+| ℓ1 on [-1, 1], a general normal, n = 10⁵ | 334.3, 7.8 | 203.5, 4.8 | 181.8, 3.9 | 1.84× |
+| elastic net on the simplex, n = 10⁵ | 795.0, 15.6 | 247.8, 5.0 | 226.1, 4.1 | 3.52× |
 
 - From the last multiplier, a call takes 3.1 to 4.5 passes instead of 7.5 to
-  15.6, and is 1.9 to 3.5 times faster.
+  15.6, and is 1.8 to 3.5 times faster.
 - The exact slope saves 0.5 to 1.7 passes per call against the slope of the
   last secant.
 
@@ -211,12 +212,12 @@ proximal operator, recorded from one run and replayed for both sides.
 
 | problem | an iteration before #77 (ms) | before #77, each call from zero (μs, passes) | after #77, from the last multiplier (μs, passes) | speedup |
 |:-----|---:|---:|---:|---:|
-| n = 100, p = 20000 | 1.00 | 61.3, 9.1 | 22.8, 3.1 | 2.69× |
-| n = 50, p = 100000 | 4.80 | 289.1, 8.5 | 123.6, 3.4 | 2.34× |
+| n = 100, p = 20000 | 0.70 | 62.9, 9.1 | 23.5, 3.1 | 2.68× |
+| n = 50, p = 100000 | 5.17 | 294.6, 8.5 | 125.8, 3.4 | 2.34× |
 
 - The calls take 3.1 to 3.4 passes instead of 8.5 to 9.1, and are 2.3 to 2.7
-  times faster. Before #77 they took 6% of an iteration; the products with the
-  data matrix take the rest.
+  times faster. Before #77 they took 6 to 9% of an iteration; the products with
+  the data matrix take the rest.
 
 **4. The breakpoint search** that #77 proposed (Brucker, 1984; Kiwiel, 2008)
 selects the median of the breakpoints left in the bracket, several times. One
@@ -225,8 +226,8 @@ selection of `IndBallL0`, against the whole search from zero:
 
 | n | fill 2n breakpoints and select their median (μs) | the whole search from zero (μs) |
 |---:|---:|---:|
-| 1000 | 3.0 | 2.3 |
-| 100000 | 1019.0 | 254.8 |
+| 1000 | 3.1 | 2.3 |
+| 100000 | 1001.2 | 254.3 |
 
 - One selection costs 1.3 to 4 times as much as the whole search, so the
   breakpoint search was not implemented.
@@ -236,20 +237,25 @@ selection of `IndBallL0`, against the whole search from zero:
 
 | case | before #77 (μs) | after #77 (μs) | speedup | difference in τ |
 |:-----|---:|---:|---:|---:|
-| r = 1, n = 10³ | 0.6 | 0.5 | 1.22× | 1e-15 |
-| r = 100, n = 10³ | 6.0 | 1.6 | 3.67× | 2e-15 |
-| r = n/100, n = 10³ | 2.3 | 0.8 | 2.99× | 8e-15 |
-| r = n/10, n = 10³ | 6.0 | 1.7 | 3.61× | 2e-15 |
-| r = n/2, n = 10³ | 9.0 | 2.6 | 3.53× | 5e-16 |
-| r = 1, n = 10⁵ | 39.1 | 28.8 | 1.36× | 9e-16 |
-| r = 100, n = 10⁵ | 187.6 | 135.1 | 1.39× | 1e-13 |
-| r = n/100, n = 10⁵ | 562.0 | 300.4 | 1.87× | 2e-14 |
-| r = n/10, n = 10⁵ | 1286.5 | 105.5 | 12.20× | 7e-15 |
-| r = n/2, n = 10⁵ | 1384.2 | 83.1 | 16.66× | 2e-14 |
+| r = 1, n = 10³ | 0.6 | 0.2 | 2.78× | 1e-15 |
+| r = 100, n = 10³ | 5.9 | 1.7 | 3.44× | 2e-15 |
+| r = n/100, n = 10³ | 2.3 | 0.7 | 3.26× | 8e-15 |
+| r = n/10, n = 10³ | 5.9 | 1.7 | 3.43× | 2e-15 |
+| r = n/2, n = 10³ | 8.8 | 2.6 | 3.43× | 5e-16 |
+| r = 1, n = 10⁵ | 39.7 | 16.5 | 2.40× | 9e-16 |
+| r = 100, n = 10⁵ | 188.1 | 179.4 | 1.05× | 1e-13 |
+| r = n/100, n = 10⁵ | 568.9 | 282.0 | 2.02× | 2e-14 |
+| r = n/10, n = 10⁵ | 1298.4 | 105.2 | 12.34× | 7e-15 |
+| r = n/2, n = 10⁵ | 1394.3 | 89.4 | 15.60× | 2e-14 |
 
-- 1.2 to 17 times faster, most when many entries stay positive, with the same
-  threshold up to 1e-13. `IndSimplex`, `IndBallL1`, `NormLinf` and
-  `GroupNormLinf` use it.
+- At least as fast in every case, and 2 to 16 times faster in all but r = 100
+  at n = 10⁵, with the same threshold up to 1e-13. `IndSimplex`, `IndBallL1`,
+  `NormLinf` and `GroupNormLinf` use it.
+- Once the level has risen, most entries fall below it, and Condat's pass
+  tests four of them at a time. Entry by entry, the speed of the loop depended
+  on where its code landed in memory: six identical copies took 30 or 56.5 μs
+  at r = 1 and n = 10⁵, and the pass before #77 36 to 43 μs. With the test of
+  four, all six take 16.1 to 16.8 μs (jobs 13371750 and 13371886).
 
 ## Spectral
 

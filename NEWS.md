@@ -8,11 +8,12 @@
     slope of the constraint, where the scalar proximal operators are piecewise
     linear. A first call starts from zero, as before.
   - The calls of a solver on slowly changing points take three to five passes
-    over `x`, against 7 to 16 from zero, and are 1.9 to 3.5 times faster.
+    over `x`, against 7 to 16 from zero, and are 1.8 to 3.5 times faster.
   - Do not share one such function between threads.
-- **The projection onto the simplex** is 1.2 to 17 times faster, and with it
-  `IndBallL1`, `NormLinf` and `GroupNormLinf` (#77). Condat's pass computes its
-  level from a sum instead of a division at every step. It hands over to
+- **The projection onto the simplex** is up to 16 times faster, and at least
+  as fast in every case measured, and with it `IndBallL1`, `NormLinf` and
+  `GroupNormLinf` (#77). Condat's pass computes its level from a sum instead of
+  a division at every step, and tests four entries at a time. It hands over to
   Michelot's algorithm when more than an eighth of the entries, and more than
   1024, become candidates, as when many stay positive.
 

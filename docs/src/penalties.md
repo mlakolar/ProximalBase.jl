@@ -14,6 +14,7 @@ and ``\gamma`` is the step of the proximal operator.
 | [`NormL2`](@ref)`(λ)` | ``\lambda\lVert x\rVert_2`` | ``\max(1 - \gamma\lambda/\lVert v\rVert_2, 0)\,v`` | |
 | [`NormLinf`](@ref)`(λ)` | ``\lambda\lVert x\rVert_\infty`` | ``v - P_{\lVert\cdot\rVert_1 \le \gamma\lambda}(v)`` | |
 | [`GroupNormL2`](@ref)`(λ0, groups, w)` | ``\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_2`` | block soft thresholding of each group | |
+| [`SparseGroupNormL2`](@ref)`(λ1, λ2, groups, w)` | ``\lambda_1\lVert x\rVert_1 + \lambda_2\sum_k w_k\lVert x_{G_k}\rVert_2`` | soft thresholding, then block soft thresholding | |
 | [`GroupNormLinf`](@ref)`(λ0, groups, w)` | ``\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_\infty`` | ``v_{G_k} - P_{\lVert\cdot\rVert_1 \le \gamma\lambda_0 w_k}(v_{G_k})`` | |
 | [`NormL1Fused`](@ref)`(λ1, λ2)` | ``\sum_i \lambda_1(\lvert a_i\rvert + \lvert b_i\rvert) + \lambda_2\lvert a_i - b_i\rvert`` | fuse each pair, then soft threshold | |
 | [`NuclearNorm`](@ref)`(λ)` | ``\lambda\sum_i \sigma_i(X)`` | ``U\max(\Sigma - \gamma\lambda, 0)V^\top`` | |
@@ -108,6 +109,26 @@ each group, with the ℓ1-ball projection, and its optimality test is
 ``\|g_{G_k}\|_1 \le \lambda_0 w_k``. On an `AtomIterate` that shares their
 groups, these penalties update one group at a time.
 
+**Sparse groups.** [`SparseGroupNormL2`](@ref)`(λ1, λ2, groups, w)` adds an ℓ1
+term, ``\lambda_1\|x\|_1 + \lambda_2\sum_k w_k\|x_{G_k}\|_2``, the sparse
+group lasso of Simon, Friedman, Hastie and Tibshirani (2013): it selects groups,
+and entries within a selected group. Its proximal operator soft thresholds each
+entry at ``\gamma\lambda_1`` and then applies block soft thresholding at
+``\gamma\lambda_2 w_k`` to each group,
+
+```math
+z_{G_k} = \max\Bigl(1 - \frac{\gamma\lambda_2 w_k}{\|S_{\gamma\lambda_1}(v_{G_k})\|_2}, 0\Bigr) S_{\gamma\lambda_1}(v_{G_k}) .
+```
+
+Composing them is exact, because soft thresholding preserves the signs and
+only shrinks, so the subdifferential of the group norm at its output contains
+that at ``z``. A group at zero is optimal when
+``\|S_{\lambda_1}(g_{G_k})\|_2 \le \lambda_2 w_k``, and an entry at zero inside
+a nonzero group when ``|g_i| \le \lambda_1``. With one group,
+`SparseGroupNormL2(λ1, λ2, [1:K], [1.0])`, it is the sparse group lasso of a
+single vector: as the fiber function of a [`FiberSum`](@ref) it gives the
+penalty of the group graphical lasso (see below).
+
 The rows of a ``p \times k`` matrix are the groups
 `[i:p:p*k for i in 1:p]` of its linear indices. So `GroupNormL2` with these
 groups is the row-sparse penalty of multitask regression; see the multitask
@@ -134,6 +155,7 @@ function, and `nothing` leaves them unpenalized.
 | penalty on ``x_{ij}`` | model | `f` |
 |---|---|---|
 | ``\lambda\|x_{ij}\|_2`` | a shared sparsity pattern, the group graphical lasso | `NormL2(λ)` |
+| ``\lambda_1\|x_{ij}\|_1 + \lambda_2\|x_{ij}\|_2`` | the group graphical lasso of Danaher, Wang and Witten (2014), sparse within a fiber too | `SparseGroupNormL2(λ1, λ2, [1:K], [1.0])` |
 | ``\lambda\|x_{ij}\|_\infty`` | simultaneous selection | `NormLinf(λ)` |
 | ``\lambda_1(|x^1_{ij}| + |x^2_{ij}|) + \lambda_2|x^1_{ij} - x^2_{ij}|`` | the fused graphical lasso of two classes | `NormL1Fused(λ1, λ2)` |
 

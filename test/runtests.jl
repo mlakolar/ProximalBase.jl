@@ -12,6 +12,7 @@ tests = [
   "separable",
   "losses",
   "norms",
+  "sparsegroup",
   "fibers",
   "spectral",
   "sets",

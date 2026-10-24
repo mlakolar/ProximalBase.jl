@@ -43,6 +43,7 @@ export
 
   # penalties
   NormL1, NormL1Nonneg, ElasticNet, NormL2, NormLinf, GroupNormL2, GroupNormLinf,
+  SparseGroupNormL2,
   NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD,
 
   # nonsmooth losses
@@ -82,6 +83,7 @@ include("functions/logdet.jl")
 include("functions/separable.jl")
 include("functions/losses.jl")
 include("functions/norms.jl")
+include("functions/sparsegroup.jl")
 include("functions/fibers.jl")
 include("functions/spectral.jl")
 include("functions/sets.jl")

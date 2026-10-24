@@ -171,12 +171,16 @@ function _simplex_threshold!(buf::AbstractVector{T}, x::AbstractArray, idx::Abst
   s = y1
   ρ = y1 - a
   cap = max(1024, n ÷ 8)
+  many = false
   @inbounds for j in j0+1:j0+n-1
     y = convert(T, f(x[idx[j]]))
     if y > ρ
       if s > (y - a) * nv               # the level with y, (s + y - a)/(nv + 1), exceeds y - a
         nv += 1
-        nv > cap && return _simplex_threshold_michelot(x, idx, a, f)
+        if nv > cap
+          many = true
+          break
+        end
         s += y
         ρ = (s - a) / nv
         buf[nt + nv] = y
@@ -189,6 +193,7 @@ function _simplex_threshold!(buf::AbstractVector{T}, x::AbstractArray, idx::Abst
       end
     end
   end
+  many && return _simplex_threshold_michelot(x, idx, a, f)
   _simplex_finish!(buf, nt, nv, s, a)
 end
 

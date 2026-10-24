@@ -95,6 +95,32 @@ functions whose gradient is not globally Lipschitz, such as the Gaussian
 log-likelihood and the Poisson loss, it returns ``\infty``, and a solver needs
 a line search.
 
+## Steps per entry and diagonal metrics
+
+A scalar step is set by the worst-scaled coordinate. In a diagonal metric
+``D = \operatorname{diag}(d)``, the proximal operator of a separable ``g`` is
+
+```math
+\operatorname*{argmin}_z\; g(z) + \sum_i \frac{d_i}{2}(z_i - x_i)^2 ,
+```
+
+the scalar proximal operator with the step ``\gamma_i = 1/d_i`` in every entry.
+So [`prox!`](@ref) and [`value_and_prox!`](@ref) of a [`SeparableFunction`](@ref)
+take an array of steps of the size of ``x`` as well as a scalar, on arrays and on
+the three iterates. A group norm takes a step per group, a metric constant on each
+group, which keeps the closed form. `Scaled`, `Tilt`, `Translate` and `Conjugate`
+pass the steps on.
+
+The curvature of a smooth ``f`` along each coordinate, a Lipschitz constant of
+``\partial f/\partial x_k``, comes from [`coordinate_lipschitz`](@ref) and
+[`coordinate_lipschitz!`](@ref): ``\lVert X_{:,j}\rVert^2`` for least squares,
+the diagonal of a quadratic, a bound for a GLM. These are the steps of coordinate
+descent. A method that moves every coordinate at once can use them as the metric,
+but the diagonal of a Hessian does not majorize it, so the steps
+``\gamma_i = t/L_i`` need a scalar ``t`` from a line search, or
+``t = 1/\lambda_{\max}(D^{-1/2}\nabla^2 f\, D^{-1/2})``, which standardizing the
+columns of ``X`` amounts to.
+
 ## Traits and oracles
 
 A function is a subtype of [`AbstractFunction`](@ref). It is callable, `f(x)`

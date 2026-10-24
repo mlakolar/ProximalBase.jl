@@ -37,6 +37,7 @@ export
   SeparableFunction, value_entry, iszeropreserving,
   gradient_mapping, gradient_mapping!, lipschitz,
   hashessian, hessian_vec!, hessian_vec, quadratic_model, quadratic_model!,
+  coordinate_lipschitz, coordinate_lipschitz!,
 
   # smooth functions
   ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, KronQuadratic,
@@ -113,6 +114,7 @@ include("constrained_nonconvex.jl")
 include("second_order.jl")
 include("envelope.jl")
 include("composition.jl")
+include("metric.jl")
 include("deprecated.jl")
 include("testing.jl")
 include("precompile.jl")

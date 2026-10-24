@@ -111,9 +111,13 @@ function (f::SparseGroupNormL2)(x::AbstractArray)
   convert(T, f.λ0) * v2 + convert(T, f.λ1) * v1
 end
 
-function value_and_prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
+
+# the step γ is a scalar or a vector with a step per group (see metric.jl)
+function _value_and_prox_groups!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Union{Real, AbstractVector})
   _checksize(y, x)
   _checkgroups(f, x)
+  _checkgroupsteps(f, γ)
   T = float(eltype(y))
   if y !== x                    # indices in no group are not penalized
     @inbounds for i in f.free
@@ -123,10 +127,10 @@ function value_and_prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArra
       y[i] = x[i]
     end
   end
-  c1 = convert(T, γ * f.λ1)
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
-    n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], c1, convert(T, γ * f.λ0 * f.w[k]))
+    γk = _entry(γ, k)
+    n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], convert(T, γk * f.λ1), convert(T, γk * f.λ0 * f.w[k]))
     v2 += convert(T, f.w[k]) * n2
     v1 += n1
   end
@@ -147,16 +151,19 @@ function (f::SparseGroupNormL2)(x::AtomIterate)
   convert(T, f.λ0) * v2 + convert(T, f.λ1) * v1
 end
 
-function value_and_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Real)
+value_and_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
+
+function _value_and_prox_groups!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Union{Real, AbstractVector})
   y.groups === x.groups === f.groups ||
-    return invoke(value_and_prox!, Tuple{AbstractArray, SparseGroupNormL2, AbstractArray, Real}, y, f, x, γ)
+    return invoke(_value_and_prox_groups!, Tuple{AbstractArray, SparseGroupNormL2, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
+  _checkgroupsteps(f, γ)
   T = float(eltype(y))
   copyto!(y, x)
-  c1 = convert(T, γ * f.λ1)
   v2, v1 = zero(T), zero(T)
   for a in 1:y.nactive
     k = y.active[a]
-    n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], c1, convert(T, γ * f.λ0 * f.w[k]))
+    γk = _entry(γ, k)
+    n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1), convert(T, γk * f.λ0 * f.w[k]))
     v2 += convert(T, f.w[k]) * n2
     v1 += n1
   end

@@ -31,6 +31,7 @@ tests = [
   "second_order",
   "envelope",
   "composition",
+  "metric",
   "allocations",
   "gpu",
   "deprecated",

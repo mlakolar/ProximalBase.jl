@@ -107,9 +107,10 @@ types, say which oracles it provides:
 | [`isproximable`](@ref) | [`prox!`](@ref), [`value_and_prox!`](@ref) | a proximal operator that is cheap to compute |
 | [`isseparable`](@ref) | [`prox_entry`](@ref), [`prox_coordinate!`](@ref), [`kkt_violation`](@ref) | ``f(x) = \sum_i f_i(x_i)`` |
 | [`isconvex`](@ref) | | convex |
+| [`hashessian`](@ref) | [`hessian_vec!`](@ref), [`quadratic_model`](@ref) | second derivatives, for Newton steps |
 
-The allocating versions [`prox`](@ref), [`gradient`](@ref) and
-[`value_and_gradient`](@ref) return new arrays.
+The allocating versions [`prox`](@ref), [`gradient`](@ref),
+[`value_and_gradient`](@ref) and [`hessian_vec`](@ref) return new arrays.
 
 ## Conventions
 

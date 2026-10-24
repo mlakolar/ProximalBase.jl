@@ -24,6 +24,7 @@ tests = [
   "ballconstrained",
   "constrained_nonconvex",
   "testing",
+  "second_order",
   "allocations",
   "gpu",
   "deprecated",

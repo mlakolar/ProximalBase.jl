@@ -169,3 +169,48 @@ avoids cancellation. ``Z`` is positive definite by construction, and
 [`Sum`](@ref)`(f1, f2, ...)` is ``\sum_k f_k``, a smooth function when all the
 ``f_k`` are. Its gradient and its Lipschitz constant are the sums of theirs. A
 sum has no proximal operator in general.
+
+## Second-order models
+
+The smooth functions with [`hashessian`](@ref) provide two more oracles, for
+Newton-type methods. [`hessian_vec!`](@ref)`(Hv, f, x, v)` computes
+``\nabla^2 f(x)\,v`` at about the cost of a gradient, and
+[`quadratic_model`](@ref)`(f, x)` returns the second-order model of ``f`` at
+``x``,
+
+```math
+q(z) = f(x) + \langle \nabla f(x), z - x\rangle
++ \tfrac12\langle z - x, \nabla^2 f(x)(z - x)\rangle \quad (\text{up to a constant}),
+```
+
+as another function of ProximalBase. Minimizing ``q + g`` with any solver and
+penalty ``g`` is a proximal Newton step, and [`quadratic_model!`](@ref) moves
+the model to the next point in place.
+
+The quadratics are their own models. For a [`GLMLoss`](@ref) the model is the
+weighted least-squares loss of iteratively reweighted least squares,
+
+```math
+q(\beta) = \tfrac12 \sum_i w_i\,\ell''_i\,\big(\eta_i(\beta) - z_i\big)^2 + \text{const},
+\qquad z_i = \eta_i - \frac{\ell'_i}{\ell''_i},
+```
+
+with ``\ell'_i`` and ``\ell''_i`` evaluated at the current linear predictor. The
+curvature ``\ell''_i`` is floored at ``\sqrt{\varepsilon}``, so that the working
+responses stay finite where it vanishes (a Huber loss beyond ``\delta``); the
+gradient of ``q`` at the current point is still exact.
+
+For [`LogDetLoss`](@ref), with ``W = X^{-1}``, the expansion of
+``\operatorname{tr}(SZ) - \log\det Z`` at ``X`` in the step ``\Delta = Z - X`` is
+``\operatorname{tr}((S - W)\Delta) + \tfrac12\operatorname{tr}(W\Delta W\Delta)``.
+Written in the new point ``Z``, and using ``WXW = W``, it is
+
+```math
+q(Z) = \tfrac12\operatorname{tr}(WZWZ) + \operatorname{tr}\big((S - 2W)Z\big) + \text{const},
+```
+
+the [`KronQuadratic`](@ref)`(W, W, S - 2W)`. Minimizing ``q(Z) + \lambda\|Z\|_1``
+over symmetric matrices, by coordinate descent on a `SymmetricSparseIterate`, is
+the Newton step of QUIC for the graphical lasso (Hsieh, Sustik, Dhillon and
+Ravikumar, 2014). Without the penalty, its minimizer is ``2X - XSX``, Newton's
+iteration for ``S^{-1}``.

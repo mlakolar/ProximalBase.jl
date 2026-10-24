@@ -6,7 +6,7 @@ ProximalBase
 
 ```@autodocs
 Modules = [ProximalBase]
-Pages = ["interface.jl"]
+Pages = ["interface.jl", "second_order.jl"]
 Private = false
 ```
 

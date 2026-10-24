@@ -32,6 +32,8 @@ test suite runs all of them.
 | [`13_differential_network.jl`](13_differential_network.jl) | a differential network | the D-trace loss as `KronQuadratic` on a `SymmetricSparseIterate`; its coordinates and `tril_cartesian` |
 | [`14_active_set_lasso.jl`](14_active_set_lasso.jl) | the lasso with p ≫ n | a working-set solver with `restrict` and `kkt_violation` |
 | [`15_calculus_and_custom_functions.jl`](15_calculus_and_custom_functions.jl) | building functions | `Scaled`, `Translate`, `Tilt`, `Conjugate` (Moreau's identity), `Sum`, `SeparableSum`, and a `SeparableFunction` of your own |
+| [`16_constrained_penalties.jl`](16_constrained_penalties.jl) | constrained penalties | `Constrained`: the lasso on coefficients that sum to zero for compositional data, the lasso on a box by coordinate descent, the capped simplex |
+| [`17_sparse_pca_fantope.jl`](17_sparse_pca_fantope.jl) | sparse principal components | `Spectral` of a constrained function: the Fantope; ADMM with `Tilt` for the linear term, against plain PCA |
 
 For complete solvers built on these pieces, including coordinate descent with
 penalty paths, see [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl).

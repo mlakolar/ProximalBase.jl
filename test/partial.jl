@@ -130,6 +130,27 @@ end
   @test f32.pws isa PB.PartialSVDWorkspace{Float32} && !usedfull(f32)
 end
 
+# A first call starts from a random block, whose Ritz values are small. With p
+# large and signals just above the threshold, such a block passes the test of
+# the pairs below the threshold, and power steps must come first.
+@testset "a first call from a random block" begin
+  p = 1500
+  V = orth(p, 2)
+  G = randn(p, p) / sqrt(2p)
+  S = V * Diagonal([3.0, 2.0]) * V' + 0.1 * (G + G')
+  for f in (TracePSD(1.0; partial = true), IndPSD(rank = 2, partial = true))
+    Y = prox(f, S, 1.0)
+    @test Y ≈ (f isa TracePSD ? psd_proj(S, t -> max(t - 1, 0)) : psd_rank_proj(S, 2)) rtol = 1e-10
+    @test !usedfull(f)
+  end
+  X = orth(p, 2) * Diagonal([3.0, 2.0]) * orth(1000, 2)' + 0.1 * randn(p, 1000) / sqrt(p)
+  for f in (NuclearNorm(1.0; partial = true), IndBallRank(2; partial = true))
+    Y = prox(f, X, 1.0)
+    @test Y ≈ (f isa NuclearNorm ? nuclear_prox(X, 1.0) : rank_proj(X, 2)) rtol = 1e-10
+    @test !usedfull(f)
+  end
+end
+
 @testset "IndBallRank, partial" begin
   X = lowrank(100, 70, 4)
   f = IndBallRank(4; partial = true)

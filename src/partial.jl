@@ -18,9 +18,12 @@
 # until the block holds it.
 #
 # A result is accepted when the residuals of the pairs kept are below
-# _partial_rtol times the largest value, and the next _PARTIAL_GUARD pairs are
-# certified to lie below the boundary (the threshold, or the smallest pair
-# kept): their value plus their residual is below it. Otherwise, after
+# _partial_rtol times the largest value, and the next _PARTIAL_GUARD pairs lie
+# below the boundary (the threshold, or the smallest pair kept) by more than
+# their residuals. That is no proof that the block missed no larger pair:
+# from a random block the Ritz values are small and pass it, so a call that
+# starts from one takes power steps first, and a call that starts from the
+# previous block has had the previous calls' steps. Otherwise, after
 # _PARTIAL_MAXITER iterations, the function falls back to the full
 # decomposition, which starts the next call. A block of more than a quarter of
 # the dimension takes the full decomposition directly: benchmark/partial.jl
@@ -202,7 +205,8 @@ function _partial_svd!(ws::PartialSVDWorkspace{T}, X::StridedMatrix{T}, τ::T, r
   _randomize!(Q, w+1:ℓ, ws)
   _thin_qr!(Q, ws.qrm)
   tol = _partial_rtol(T, max(ws.m, ws.n))
-  for _ in 1:_PARTIAL_MAXITER
+  minit = w == 0 ? 3 : 1             # a random block takes two power steps before it can be accepted
+  for it in 1:_PARTIAL_MAXITER
     mul!(W, X', Q)
     _thin_qr!(W, ws.qrn, ws.small.A)
     sR, UR, VRt = _svd!(ws.small)
@@ -217,7 +221,7 @@ function _partial_svd!(ws::PartialSVDWorkspace{T}, X::StridedMatrix{T}, τ::T, r
       ws.warm = ℓ
       return -2
     end
-    if _svd_accepted(Y, U, s, k, g, τ + δ, r, δ)
+    if it >= minit && _svd_accepted(Y, U, s, k, g, τ + δ, r, δ)
       ws.warm, ws.rank = ℓ, k
       return k
     end
@@ -355,8 +359,9 @@ function _partial_eigen!(ws::PartialEigenWorkspace{T}, A::StridedMatrix{T}, τ::
   _randomize!(V, 1:ℓ-w, ws)
   _thin_qr!(V, ws.qr)
   tol = _partial_rtol(T, ws.n)
+  minit = w == 0 ? 5 : 1             # a random block takes four power steps before it can be accepted
   c = ws.shift
-  for _ in 1:2_PARTIAL_MAXITER
+  for it in 1:2_PARTIAL_MAXITER
     BLAS.symm!('L', 'U', one(T), A, V, zero(T), Z)
     mul!(ws.small.A, transpose(V), Z)
     θR, WR = _eigen!(ws.small)
@@ -377,7 +382,7 @@ function _partial_eigen!(ws::PartialEigenWorkspace{T}, A::StridedMatrix{T}, τ::
     # smallest Ritz value moves up)
     edge = r > 0 ? (k > 0 ? θ[ℓ-k+1] : zero(T)) : τ + δ
     shifted = -θ[1] < edge || -θ[1] <= c + δ
-    accepted = shifted && _eig_accepted(AU, U, θ, k, g, τ + δ, r, δ)
+    accepted = it >= minit && shifted && _eig_accepted(AU, U, θ, k, g, τ + δ, r, δ)
     shifted || (c = -θ[1])
     @. Z = AU + c * U                                      # (A + cI)U, one more power step
     if accepted

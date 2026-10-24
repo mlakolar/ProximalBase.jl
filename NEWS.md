@@ -19,7 +19,9 @@
     `FiberSum(SparseGroupNormL2(λ1, λ2, [1:K], [1.0]))` (#40);
   - nonconvex: `CappedL1`, `LogPenalty` and `NormLq` (ℓq thresholding in closed
     form for q = 1/2 and 2/3), `GroupMCP` and `GroupSCAD` (radial proximal
-    operators and block steps), and the group ℓ0 ball `IndBallGroupL0` (#46);
+    operators and block steps), and the group ℓ0 ball `IndBallGroupL0`, also
+    with at most `k` nonzero entries per group: the doubly sparse projection
+    ranks the groups by the norm of their `k` largest entries (#46);
   - `NegEntropy`, `KLDivergence` and `NegLog`, finite on the nonnegative or
     positive orthant, the first two through an accurate Wright ω function, and
     the reverse Huber penalty `Berhu` (#51).

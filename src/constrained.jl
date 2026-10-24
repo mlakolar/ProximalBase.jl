@@ -173,35 +173,22 @@ function value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArra
 end
 
 # φ(ν) = ⟨a, z⟩ - b at z = prox_{γf}(x - γνa), and Σᵢ |aᵢzᵢ| + |b|, the scale of
-# its rounding error
-function _constraint_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ::T) where {T}
-  f, a = c.f, c.set.a
-  s, m = zero(T), zero(T)
-  @inbounds @simd for i in eachindex(IndexLinear(), x)
-    aᵢ = convert(T, _entry(a, i))
-    t = aᵢ * convert(T, prox_entry(f, x[i] - γ * ν * aᵢ, i, γ))
-    s += t
-    m += abs(t)
-  end
-  b = convert(T, c.set.b)
-  s - b, m + abs(b)
-end
-
-# The same with the slope of φ, -γ Σᵢ aᵢ² Pᵢ', where Pᵢ' is the slope of the
-# scalar proximal operator at its argument
-function _constraint_gap_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ::T) where {T}
+# its rounding error; with Val(true), also the slope of φ, -γ Σᵢ aᵢ² Pᵢ', where
+# Pᵢ' is the slope of the scalar proximal operator at its argument
+function _constraint_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ::T, ::Val{S} = Val(false)) where {T, S}
   f, a = c.f, c.set.a
   s, m, d = zero(T), zero(T), zero(T)
   @inbounds @simd for i in eachindex(IndexLinear(), x)
     aᵢ = convert(T, _entry(a, i))
-    z, dz = _prox_entry_slope(f, x[i] - γ * ν * aᵢ, i, γ)
+    v = x[i] - γ * ν * aᵢ
+    z, dz = S ? _prox_entry_slope(f, v, i, γ) : (prox_entry(f, v, i, γ), zero(T))
     t = aᵢ * convert(T, z)
     s += t
     m += abs(t)
-    d += aᵢ * aᵢ * convert(T, dz)
+    S && (d += aᵢ * aᵢ * convert(T, dz))
   end
   b = convert(T, c.set.b)
-  s - b, m + abs(b), -γ * d
+  S ? (s - b, m + abs(b), -γ * d) : (s - b, m + abs(b))
 end
 
 const _MAX_BRACKET_STEPS = 64
@@ -215,7 +202,7 @@ const _MAX_SECANTS = 100
 _gap_and_slope(c::LinearConstrained{F}, x::AbstractArray, ν::T, γ::T) where {F, T} =
   _gap_and_slope(c, x, ν, γ, Val(_has_prox_slope(F)))
 _gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ::T, ::Val{true}) where {T} =
-  _constraint_gap_slope(c, x, ν, γ)
+  _constraint_gap(c, x, ν, γ, Val(true))
 _gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ::T, ::Val{false}) where {T} =
   ((φ, m) = _constraint_gap(c, x, ν, γ); (φ, m, T(NaN)))
 

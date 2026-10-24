@@ -246,14 +246,8 @@ end
 # candidates, as for a radius a that keeps a large share of them positive: its
 # level then starts far below the entries and rises slowly.
 function _simplex_threshold_michelot(x::AbstractArray, idx::AbstractVector{<:Integer}, a::T, f::F) where {T, F}
-  n = length(idx)
-  s = zero(T)
-  @inbounds @simd for j in idx
-    s += convert(T, f(x[j]))
-  end
-  τ = (s - a) / n
-  cnt = n
-  for _ in 1:n
+  τ, cnt = T(-Inf), -1                    # the first pass takes the level of all the entries
+  for _ in 0:length(idx)
     s, c = zero(T), 0
     @inbounds @simd for j in idx
       y = convert(T, f(x[j]))

@@ -1,20 +1,22 @@
 module ProximalBaseGPUArraysCoreExt
 
-# The separable functions, the norms and balls and the group functions on GPU
-# arrays. The dense paths loop over linear indices and read and write one
-# entry at a time, which a GPU array forbids; here they are broadcasts and
-# reductions, which run as kernels. A function object enters a kernel through
-# Ref(f), so it must be a bits type there: the built-in functions that hold
-# parameter arrays (weights, bounds, a center) broadcast over those arrays
-# instead, and never enter a kernel themselves.
+# The separable functions, the norms and balls, the group functions and the
+# losses with a design matrix on GPU arrays. The dense paths loop over linear
+# indices and read and write one entry at a time, which a GPU array forbids;
+# here they are broadcasts and reductions, which run as kernels. A function
+# object enters a kernel through Ref(f), so it must be a bits type there: the
+# built-in functions that hold parameter arrays (weights, bounds, a center)
+# broadcast over those arrays instead, and never enter a kernel themselves.
 
 using ProximalBase
 using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, SqrNormL2,
                     NormLinf, IndBallL1, IndSimplex,
                     GroupNormL2, GroupNormLinf, SparseGroupNormL2, IndBallGroupL0, AbstractFunction,
+                    LeastSquaresLoss, GLMLoss,
                     prox_entry, value_entry, shrink, _checksize, _checkparams, _checkgroups, _tol, _ind,
                     _kth_largest!
 using GPUArraysCore: AbstractGPUArray
+using LinearAlgebra: mul!
 using Base.Broadcast: broadcasted, instantiate
 import Adapt
 
@@ -530,6 +532,64 @@ function _keep_groups(sq::Vector{T}, nz::Vector{Bool}, pos::Vector{Int}, s::Int)
 end
 
 ####################################
+#  Losses with a design matrix
+####################################
+
+# LeastSquaresLoss and GLMLoss keep their buffers next to the response, so that
+# adapt(CuArray, f) puts X, y and the buffers on the device. Their products by
+# X and X' are mul!, which the device arrays implement; the passes over the
+# observations, which loop on the CPU, are reductions and broadcasts here.
+
+ProximalBase._zeros_like(a::GPUArray, ::Type{T}, dims) where {T} = fill!(similar(a, T, dims), zero(T))
+
+# the gradient at a device array is a device array
+ProximalBase._gradient_buffer(x::GPUArray) = similar(x, float(eltype(x)))
+
+# The losses with their buffers on the device. The parameters keep the bounds
+# of the types, so that the methods here are more specific than those of the
+# CPU.
+const _DeviceLeastSquares{T} = LeastSquaresLoss{T, <:AbstractVecOrMat, <:AbstractMatrix, N, <:GPUArray{T, N}} where {N}
+const _DeviceGLM{L, T} = GLMLoss{L, T, <:AbstractVector, <:AbstractMatrix, <:Union{Nothing, AbstractVector},
+                                 <:Union{Nothing, AbstractVector}, <:GPUArray{T, 1}}
+
+function (f::_DeviceLeastSquares{T})(β::AbstractVecOrMat) where {T}
+  mul!(f.tmp, f.X, β)
+  return convert(T, ProximalBase._sumabs2_diff(f.Y, f.tmp)) / 2
+end
+
+# value_and_gradient!, gradient! and hessian_vec! are products and broadcasts,
+# and run as they are; the proximal operator needs the SVD of X
+ProximalBase.prox!(::AbstractVecOrMat, ::_DeviceLeastSquares, ::AbstractVecOrMat, ::Real) =
+  throw(ArgumentError("the proximal operator of LeastSquaresLoss uses the SVD of X, by LAPACK, and runs on the CPU only"))
+
+# wᵢ ℓ(ηᵢ, yᵢ) and wᵢ ℓ'(ηᵢ, yᵢ) in type T, as the loops of the CPU compute them
+struct _ObsValue{T, L}
+  loss::L
+end
+_ObsValue{T}(loss::L) where {T, L} = _ObsValue{T, L}(loss)
+(o::_ObsValue{T})(η, y, w) where {T} = convert(T, w) * convert(T, o.loss(η, y))
+struct _ObsDeriv{T, L}
+  loss::L
+end
+_ObsDeriv{T}(loss::L) where {T, L} = _ObsDeriv{T, L}(loss)
+(o::_ObsDeriv{T})(η, y, w) where {T} = convert(T, w) * convert(T, ProximalBase.value_and_deriv(o.loss, η, y)[2])
+
+function (f::_DeviceGLM{L, T})(β::AbstractVector) where {L, T}
+  η = ProximalBase._linear_predictor!(f, β)
+  return _sum(T, _ObsValue{T}(f.loss), η, f.y, _param(f.weights))
+end
+
+function ProximalBase.value_and_gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::AbstractVector) where {L, T}
+  _checksize(g, β)
+  η = ProximalBase._linear_predictor!(f, β)
+  w = _param(f.weights)
+  f.d .= _ObsDeriv{T}(f.loss).(η, f.y, w)
+  s = _sum(T, _ObsValue{T}(f.loss), η, f.y, w)
+  mul!(g, transpose(f.X), f.d)
+  return s
+end
+
+####################################
 #  Moving a function object to the device: adapt(CuArray, f) and the like
 ####################################
 
@@ -547,5 +607,11 @@ Adapt.adapt_structure(to, f::_GroupFunction) = DeviceGroups(f, A -> Adapt.adapt(
 Adapt.adapt_structure(to, d::DeviceGroups) = Adapt.adapt_structure(to, d.f)
 Adapt.adapt_structure(::Type{<:Array}, f::_GroupFunction) = f
 Adapt.adapt_structure(::Type{<:Array}, d::DeviceGroups) = d.f
+
+# The losses move their data and get new buffers next to it; the SVD of
+# LeastSquaresLoss is computed again, on the CPU, when it is needed.
+Adapt.adapt_structure(to, f::LeastSquaresLoss) = LeastSquaresLoss(Adapt.adapt(to, f.Y), Adapt.adapt(to, f.X))
+Adapt.adapt_structure(to, f::GLMLoss) =
+  GLMLoss(f.loss, Adapt.adapt(to, f.y), Adapt.adapt(to, f.X); weights = Adapt.adapt(to, f.weights), offset = Adapt.adapt(to, f.offset))
 
 end

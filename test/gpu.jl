@@ -176,4 +176,50 @@ end
   @test value_and_prox!(JLArray(similar(x)), fl0, JLArray(x), 1.0) == 0
 end
 
+@testset "losses with a design matrix on GPU arrays" begin
+  allowscalar(false)
+  n, p, k = 40, 7, 3
+  X, y, Y, b, B = randn(n, p), randn(n), randn(n, k), randn(p), randn(p, k)
+  yb = Float64.(rand(n) .> 0.5)
+  w, o = 0.5 .+ rand(n), 0.1 .* randn(n)
+  for T in (Float64, Float32)
+    Xc = T.(X)
+    for f in (LeastSquaresLoss(T.(y), Xc), LeastSquaresLoss(T.(Y), Xc), GLMLoss(ProximalBase.Squared(), T.(y), Xc),
+              LogisticLoss(T.(yb), Xc), PoissonLoss(T.(abs.(y)), Xc; offset = T.(o)), HuberLoss(T.(y), Xc, 0.5; weights = T.(w)),
+              GLMLoss(ProximalBase.SmoothCheck(0.3, 0.2), T.(y), Xc; weights = T.(w), offset = T.(o)))
+      @testset "$(nameof(typeof(f))) $(f isa GLMLoss ? nameof(typeof(f.loss)) : ndims(f.Y)), $T" begin
+        fg = Adapt.adapt(JLArray, f)                      # X, y and the buffers on the device
+        @test fg.X isa JLArray && (fg isa GLMLoss ? fg.η isa JLArray && fg.d isa JLArray : fg.tmp isa JLArray)
+        βc = T.(f isa LeastSquaresLoss && ndims(f.Y) == 2 ? B : b)
+        βg = JLArray(βc)
+        @test fg(βg) ≈ f(βc)
+        gc = similar(βc)
+        vc = value_and_gradient!(gc, f, βc)
+        gg = similar(βg)
+        @test value_and_gradient!(gg, fg, βg) ≈ vc
+        @test eltype(gg) == T
+        @test Array(gg) ≈ gc
+        fill!(gg, 0)
+        @test gradient!(gg, fg, βg) === gg
+        @test Array(gg) ≈ gc
+        @test gradient(fg, βg) isa JLArray
+        @test Array(gradient(fg, βg)) ≈ gc
+      end
+    end
+  end
+  # the Hessian of least squares is products; its proximal operator runs on the CPU
+  f = LeastSquaresLoss(y, X)
+  fg = Adapt.adapt(JLArray, f)
+  v = randn(p)
+  @test Array(hessian_vec!(JLArray(similar(b)), fg, JLArray(b), JLArray(v))) ≈ hessian_vec!(similar(b), f, b, v)
+  @test_throws ArgumentError prox(fg, JLArray(b), 0.5)
+  # back to the host, with the buffers there
+  fh = Adapt.adapt(Array, fg)
+  @test fh.tmp isa Vector{Float64} && prox(fh, b, 0.5) ≈ prox(f, b, 0.5)
+  gh = Adapt.adapt(Array, Adapt.adapt(JLArray, LogisticLoss(yb, X; weights = w)))
+  @test gh.η isa Vector{Float64} && gh.weights isa Vector{Float64} && gh(b) ≈ LogisticLoss(yb, X; weights = w)(b)
+  # a negative weight is caught on the device, as on the host
+  @test_throws ArgumentError GLMLoss(ProximalBase.Squared(), JLArray(y), JLArray(X); weights = JLArray(-w))
+end
+
 end

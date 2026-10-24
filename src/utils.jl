@@ -82,6 +82,10 @@ _checkparam(w::AbstractArray, x) = length(w) == length(x) ||
 # the value of an indicator function
 _ind(ok::Bool, ::Type{T}) where {T} = ok ? zero(T) : T(Inf)
 
+# A buffer of zeros of type T and size dims, next to the array a: an Array,
+# and a device array of the type of a GPU array a (see the GPU extension).
+_zeros_like(a, ::Type{T}, dims) where {T} = zeros(T, dims)
+
 # The relative tolerance with which an indicator function accepts a point
 # rounded onto the boundary of its set; points that a projection returns are
 # feasible within it.

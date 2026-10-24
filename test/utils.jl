@@ -113,6 +113,18 @@ end
   x = SparseIterate([0., 2., 0.])
   @test norm_diff(x, [1., 1., 1.]) ≈ sqrt(3)
   @test Vector(SparseIterate(0)) == Float64[]
+  for T in (ComplexF32, ComplexF64), dims in ((12,), (3, 4), (0,))
+    A, B = randn(T, dims), randn(T, dims)
+    for C in (B, real.(B)), p in (2, Inf)
+      R = typeof(real(zero(T)))
+      value = norm_diff(A, C, p)
+      @test value isa R
+      @test value ≈ norm(A - C, p)
+      @test ProximalBase.Testing.allocations(norm_diff, A, C, p) == 0
+    end
+    @test ProximalBase._sumabs2_diff(A, B) ≈ sum(abs2, A - B)
+    @test ProximalBase._sumabs2_diff(A, B) isa typeof(real(zero(T)))
+  end
 end
 
 @testset "buffers" begin

@@ -230,6 +230,8 @@ smooth versions of the hinge and quantile losses) expose `ProximalBase.deriv`,
 | `ElasticNet(λ1, λ2, w)` | `λ1 Σᵢ wᵢ \|xᵢ\| + (λ2/2) ‖x‖²` | ✓ |
 | `NormL0(λ)` | `λ ⋅ #{xᵢ ≠ 0}`, nonconvex | ✓ |
 | `MCP(λ, a)`, `SCAD(λ, a)` | the minimax concave and SCAD penalties, nonconvex | ✓ |
+| `Berhu(λ, M, w)` | the reverse Huber penalty: `λ wᵢ \|xᵢ\|` up to `M`, a ridge beyond | ✓ |
+| `NegEntropy(λ)`, `KLDivergence(q; λ)`, `NegLog(λ)` | `λ Σᵢ xᵢ log xᵢ`, `λ Σᵢ xᵢ log(xᵢ/qᵢ) - xᵢ + qᵢ`, `-λ Σᵢ log xᵢ` | ✓ |
 | `NormL2(λ)` | `λ ‖x‖₂` | |
 | `NormLinf(λ)` | `λ maxᵢ \|xᵢ\|` | |
 | `GroupNormL2(λ0, groups, w)` | `λ0 Σₖ wₖ ‖x[Gₖ]‖₂`, the group lasso | |

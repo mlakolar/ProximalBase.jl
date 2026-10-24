@@ -45,6 +45,7 @@ export
   NormL1, NormL1Nonneg, ElasticNet, NormL2, NormLinf, GroupNormL2, GroupNormLinf,
   SparseGroupNormL2,
   NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD,
+  NegEntropy, KLDivergence, NegLog, Berhu,
 
   # nonsmooth losses
   CheckLoss, HingeLoss, EpsInsensitiveLoss,
@@ -82,6 +83,7 @@ include("functions/glm.jl")
 include("functions/logdet.jl")
 include("functions/separable.jl")
 include("functions/losses.jl")
+include("functions/entropy.jl")
 include("functions/norms.jl")
 include("functions/sparsegroup.jl")
 include("functions/fibers.jl")

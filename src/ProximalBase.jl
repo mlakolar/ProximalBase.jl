@@ -48,6 +48,7 @@ export
   # indicator functions
   IndBox, IndNonnegative, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
   IndHyperplane, IndHalfspace, IndPSD, IndBallRank,
+  IndSphereL2,
 
   # functions built from functions
   Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum, Constrained, Spectral,
@@ -84,6 +85,7 @@ include("functions/sets.jl")
 include("calculus.jl")
 include("constrained.jl")
 include("spectralfunction.jl")
+include("ballconstrained.jl")
 include("deprecated.jl")
 include("precompile.jl")
 

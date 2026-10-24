@@ -320,6 +320,50 @@ function prox!(y::AbstractArray, f::IndBallL2, x::AbstractArray, ::Real)
 end
 
 ####################################
+#  ℓ2 sphere
+####################################
+
+"""
+    IndSphereL2(r = 1)
+
+The indicator of the Euclidean sphere `{x : ‖x‖₂ = r}` (the Frobenius sphere for
+matrices), for `r > 0`, nonconvex. Its proximal operator scales `x` onto the
+sphere, `r x / ‖x‖₂`; every point of the sphere is nearest to `x = 0`, which goes
+to `r` times the first unit vector. With a norm, [`Constrained`](@ref)`(f,
+IndSphereL2(r))` is the step of sparse principal component analysis.
+"""
+struct IndSphereL2{T<:Real} <: AbstractFunction
+  r::T
+
+  IndSphereL2{T}(r::T) where {T<:Real} = (r > 0 || throw(ArgumentError("r must be positive, got $r")); new{T}(r))
+end
+IndSphereL2(r::Real = 1) = IndSphereL2{typeof(r)}(r)
+
+isproximable(::Type{<:IndSphereL2}) = true
+_isindicator(::Type{<:IndSphereL2}) = true
+
+function (f::IndSphereL2)(x::AbstractArray)
+  T = float(eltype(x))
+  r = convert(T, f.r)
+  abs(sqrt(convert(T, _sumabs2(x))) - r) <= _tol(T) * max(one(T), r) ? zero(T) : T(Inf)
+end
+
+function prox!(y::AbstractArray, f::IndSphereL2, x::AbstractArray, ::Real)
+  _checksize(y, x)
+  isempty(x) && throw(ArgumentError("the sphere has no point of size $(size(x))"))
+  T = float(eltype(y))
+  nx = sqrt(convert(T, _sumabs2(x)))
+  r = convert(T, f.r)
+  if iszero(nx)
+    fill!(y, zero(eltype(y)))
+    y[firstindex(y)] = r
+  else
+    y .= (r / nx) .* x
+  end
+  y
+end
+
+####################################
 #  simplex
 ####################################
 

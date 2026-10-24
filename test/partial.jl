@@ -229,6 +229,11 @@ end
   check_prox(f, S, 1.0; symmetric = true)
   # all eigenvalues below the threshold
   @test prox(f, S, 1000.0) ≈ zeros(n, n) atol = 1e-12
+  # a rank above the first block: the block grows
+  Sg = symlowrank(200, 20)
+  fg = TracePSD(1.0; partial = true)
+  @test prox(fg, Sg, 1.0) ≈ psd_proj(Sg, t -> max(t - 1.0, 0)) rtol = 1e-10
+  @test !usedfull(fg) && fg.pws.rank == 20
 end
 
 end

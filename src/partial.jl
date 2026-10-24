@@ -61,7 +61,7 @@ end
 # call that is not inlined would be allocated)
 function _copycols!(A::Matrix{T}, a::UnitRange{Int}, B::AbstractMatrix{T}, b::UnitRange{Int}) where {T}
   @inbounds for (ja, jb) in zip(a, b)
-    @simd for i in axes(A, 1)
+    for i in axes(A, 1)
       A[i, ja] = B[i, jb]
     end
   end
@@ -274,7 +274,7 @@ function _partial_svd_out!(Y::AbstractMatrix, ws::PartialSVDWorkspace{T}, k::Int
   U, V, s = ws.U, ws.V, ws.s
   @inbounds for j in 1:k
     c = t(s[j])
-    @simd for i in axes(U, 1)
+    for i in axes(U, 1)
       U[i, j] *= c
     end
   end
@@ -494,12 +494,11 @@ function _partial_nuclear!(Y::AbstractMatrix, f, X::AbstractMatrix, c::T) where 
   v
 end
 
-# IndBallRank: the r largest triplets; returns true, or nothing to fall back
+# IndBallRank: the r largest triplets; returns Y, or nothing to fall back
 function _partial_rank!(Y::AbstractMatrix, f, X::AbstractMatrix, ::Type{T}) where {T}
   k = _leading_svd!(f, X, T, zero(T), f.r)
   k < 0 && return nothing
   _partial_svd_out!(Y, f.pws::PartialSVDWorkspace{T}, k, identity)
-  true
 end
 
 # IndPSD and TracePSD: Y = Σⱼ max(θⱼ - c, 0) uⱼuⱼᵀ over the eigenvalues above

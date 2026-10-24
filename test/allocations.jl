@@ -115,6 +115,35 @@ end
     end
   end
 
+  @testset "partial decompositions" begin
+    # low-rank inputs, where the partial path accepts its result; two warm-up
+    # calls, since the first one also learns the rank and sizes the block
+    M = Matrix(qr(randn(120, 4)).Q) * Diagonal([20.0, 16.0, 13.0, 10.0]) * Matrix(qr(randn(80, 4)).Q)' +
+        0.002 * randn(120, 80)
+    Q = Matrix(qr(randn(100, 4)).Q)
+    A = Q * Diagonal([20.0, 16.0, 13.0, 10.0]) * Q' + 0.001 * Matrix(Symmetric(randn(100, 100)))
+    for (f, Z) in ((NuclearNorm(0.5; partial = true), M), (IndBallRank(4; partial = true), M),
+                   (IndPSD(rank = 4, partial = true), A), (IndPSD(partial = true), A - 0.5I),
+                   (TracePSD(0.2; partial = true), A))
+      @testset "$(typeof(f))" begin
+        for z in (Z, Float32.(Z))
+          prox(f, z, 0.7f0)
+          prox(f, z, 0.7f0)
+          zero_alloc_prox(f, z)
+        end
+        @test f.pws isa Union{ProximalBase.PartialSVDWorkspace, ProximalBase.PartialEigenWorkspace}
+      end
+    end
+    # a rank too high for the partial path: every call takes the full decomposition
+    R = randn(120, 80)
+    D = randn(100, 100); D = D + D'
+    for (f, Z) in ((NuclearNorm(0.01; partial = true), R), (IndPSD(partial = true), D))
+      prox(f, Z, 0.7)
+      prox(f, Z, 0.7)
+      zero_alloc_prox(f, Z; value = false)
+    end
+  end
+
   @testset "symmetric outputs that are not strided" begin
     A = randn(10, 10); A = A + A'
     S = SymmetricSparseIterate(10)

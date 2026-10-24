@@ -13,6 +13,7 @@ tests = [
   "norms",
   "fibers",
   "spectral",
+  "partial",
   "sets",
   "calculus",
   "allocations",

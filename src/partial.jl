@@ -13,40 +13,55 @@
 #
 # A call starts from the block of the previous one after one more power step,
 # with fresh random vectors in its last _PARTIAL_FRESH columns. A solver calls
-# the proximal operator on nearby matrices, so one iteration usually suffices,
-# and a direction that enters the leading subspace is amplified from call to
-# call until the block holds it.
+# the proximal operator on nearby matrices, so few iterations suffice, and a
+# direction that enters the leading subspace is amplified from call to call
+# until the block holds it.
 #
 # A result is accepted when the residuals of the pairs kept are below
-# _partial_rtol times the largest value, and the next _PARTIAL_GUARD pairs are certified to
-# lie below the boundary (the threshold, or the smallest pair kept): their
-# value plus their residual is below it. Otherwise, after _PARTIAL_MAXITER
-# iterations, or when the block would be more than half the dimension, the
-# function falls back to the full decomposition, which starts the next call.
+# _partial_rtol times the largest value, and the next _PARTIAL_GUARD pairs are
+# certified to lie below the boundary (the threshold, or the smallest pair
+# kept): their value plus their residual is below it. Otherwise, after
+# _PARTIAL_MAXITER iterations, the function falls back to the full
+# decomposition, which starts the next call. A block of more than a quarter of
+# the dimension takes the full decomposition directly: benchmark/partial.jl
+# finds the two about equally fast there.
 
-const _PARTIAL_MAXITER = 8      # subspace iterations before falling back
+const _PARTIAL_MAXITER = 8      # subspace iterations of the SVD before falling back; the
+                                # eigensolver, at one product per iteration, gets twice as many
 const _PARTIAL_GUARD = 3        # pairs after those kept that must lie below the boundary
 const _PARTIAL_FRESH = 2        # random vectors in each call's starting block
 
 # the relative tolerance on the residuals of the pairs kept: eps^(3/4), or what
 # the rounding of a product with a p × p matrix allows
-_partial_rtol(::Type{T}, p::Integer) where {T} = max(eps(T)^(3 // 4), 10 * eps(T) * sqrt(T(p)))
+_partial_rtol(::Type{T}, p::Integer) where {T} = max(eps(T)^T(0.75), 10 * eps(T) * sqrt(T(p)))
 
 # the block size for `need` pairs: the oversampling makes the pairs kept
 # converge at the rate of the gap to the (ℓ + 1)-st value
 _partial_block(need::Integer) = need + max(10, need ÷ 4)
 
-# fills A with numbers uniform on [-1, 1) from the xorshift generator whose
-# state ws.seed advances: no allocation, and the same numbers in every session
-function _randomize!(A::AbstractMatrix{T}, ws) where {T}
+# fills the columns cols of A with numbers uniform on [-1, 1) from the
+# xorshift generator whose state ws.seed advances: no allocation, and the same
+# numbers in every session
+function _randomize!(A::AbstractMatrix{T}, cols::UnitRange{Int}, ws) where {T}
   s = ws.seed
-  @inbounds for j in axes(A, 2), i in axes(A, 1)
+  @inbounds for j in cols, i in axes(A, 1)
     s ⊻= s << 13
     s ⊻= s >> 7
     s ⊻= s << 17
     A[i, j] = T((s >> 11) * 0x1.0p-52 - 1)
   end
   ws.seed = s
+  A
+end
+
+# copies the columns b of B to the columns a of A, by loops (a view passed to a
+# call that is not inlined would be allocated)
+function _copycols!(A::Matrix{T}, a::UnitRange{Int}, B::AbstractMatrix{T}, b::UnitRange{Int}) where {T}
+  @inbounds for (ja, jb) in zip(a, b)
+    @simd for i in axes(A, 1)
+      A[i, ja] = B[i, jb]
+    end
+  end
   A
 end
 
@@ -153,24 +168,24 @@ end
 
 # The workspace for `need` triplets of an m × n matrix: the cached one while
 # its block is between ℓ and 2ℓ, so that the block stays while the rank
-# changes little; nothing when the block would exceed half the dimension, where
-# the full SVD is cheaper. A new workspace inherits the starting block.
+# changes little; nothing when the block would exceed a quarter of the
+# dimension, where the full SVD is about as fast. A new workspace inherits the starting block.
 function _partial_svd_workspace(cache, ::Type{T}, m::Integer, n::Integer, need::Integer) where {T<:_BlasReal}
   ℓ = _partial_block(need)
-  2ℓ > min(m, n) && return nothing
+  4ℓ > min(m, n) && return nothing
   old = cache isa PartialSVDWorkspace{T} && cache.m == m && cache.n == n ? cache : nothing
   old !== nothing && ℓ <= old.ℓ <= 2ℓ && return old
   ws = PartialSVDWorkspace(T, m, n, ℓ)
   if old !== nothing
     w = min(old.warm, ℓ)
-    copyto!(view(ws.Y, :, 1:w), view(old.Y, :, 1:w))
+    _copycols!(ws.Y, 1:w, old.Y, 1:w)
     ws.warm, ws.rank, ws.seed = w, old.rank, old.seed
   end
   ws
 end
 
 # The leading singular triplets of X: the r largest when r > 0, otherwise all
-# the singular values above τ. Returns the number k of triplets kept, with the
+# the singular values above τ (by more than the tolerance δ). Returns the number k of triplets kept, with the
 # values in ws.s[1:k] and the vectors in the first k columns of ws.U and ws.V;
 # -2 when fewer than _PARTIAL_GUARD values of the block are below τ, and -1
 # when the iteration did not converge.
@@ -183,8 +198,8 @@ function _partial_svd!(ws::PartialSVDWorkspace{T}, X::StridedMatrix{T}, τ::T, r
   ℓ = ws.ℓ
   Q, U, Y, W, V, s = ws.Q, ws.U, ws.Y, ws.W, ws.V, ws.s
   w = min(ws.warm, ℓ - _PARTIAL_FRESH)
-  copyto!(view(Q, :, 1:w), view(Y, :, 1:w))
-  _randomize!(view(Q, :, w+1:ℓ), ws)
+  _copycols!(Q, 1:w, Y, 1:w)
+  _randomize!(Q, w+1:ℓ, ws)
   _thin_qr!(Q, ws.qrm)
   tol = _partial_rtol(T, max(ws.m, ws.n))
   for _ in 1:_PARTIAL_MAXITER
@@ -195,13 +210,14 @@ function _partial_svd!(ws::PartialSVDWorkspace{T}, X::StridedMatrix{T}, τ::T, r
     mul!(V, W, UR)
     copyto!(s, sR)
     mul!(Y, X, V)
-    k = r > 0 ? r : count(>(τ), s)
+    δ = tol * s[1]                     # values within δ of τ weigh at most δ: not kept
+    k = r > 0 ? r : count(>(τ + δ), s)
     g = min(_PARTIAL_GUARD, ℓ - k)
     if r == 0 && g < _PARTIAL_GUARD
       ws.warm = ℓ
       return -2
     end
-    if _svd_accepted(Y, U, s, k, g, τ, r, tol * s[1])
+    if _svd_accepted(Y, U, s, k, g, τ + δ, r, δ)
       ws.warm, ws.rank = ℓ, k
       return k
     end
@@ -234,8 +250,9 @@ end
 function _leading_svd!(f, X::AbstractMatrix, ::Type{T}, τ::T, r::Int) where {T}
   m, n = size(X)
   cache = f.pws
-  prev = cache isa PartialSVDWorkspace{T} ? cache.rank : 0
-  ws = _partial_svd_workspace(cache, T, m, n, r > 0 ? r : prev + _PARTIAL_GUARD)
+  old = cache isa PartialSVDWorkspace{T} ? cache : nothing   # f.pws is untyped: no dynamic call
+  prev = old === nothing ? 0 : old.rank
+  ws = _partial_svd_workspace(old, T, m, n, r > 0 ? r : prev + _PARTIAL_GUARD)
   ws === nothing && return -1
   f.pws = ws
   Xd = _dense_input(ws, X, T)
@@ -269,11 +286,13 @@ function _partial_svd_out!(Y::AbstractMatrix, ws::PartialSVDWorkspace{T}, k::Int
   Y
 end
 
-# After a full SVD, its leading left vectors start the next partial call
-function _warm_start_svd!(cache, U::Matrix{T}, k::Int) where {T}
-  cache isa PartialSVDWorkspace{T} && cache.m == size(U, 1) || return nothing
+# After a full SVD, its leading left vectors start the next partial call of f
+function _warm_start_svd!(f, U::Matrix{T}, k::Int) where {T}
+  cache = f.pws
+  cache isa PartialSVDWorkspace{T} || return nothing
+  cache.m == size(U, 1) || return nothing
   w = min(cache.ℓ, size(U, 2))
-  copyto!(view(cache.Y, :, 1:w), view(U, :, 1:w))
+  _copycols!(cache.Y, 1:w, U, 1:w)
   cache.warm, cache.rank = w, k
   nothing
 end
@@ -306,54 +325,60 @@ end
 
 function _partial_eigen_workspace(cache, ::Type{T}, n::Integer, need::Integer) where {T<:_BlasReal}
   ℓ = _partial_block(need)
-  2ℓ > n && return nothing
+  4ℓ > n && return nothing
   old = cache isa PartialEigenWorkspace{T} && cache.n == n ? cache : nothing
   old !== nothing && ℓ <= old.ℓ <= 2ℓ && return old
   ws = PartialEigenWorkspace(T, n, ℓ)
   if old !== nothing
     w = min(old.warm, ℓ)
-    copyto!(view(ws.Z, :, ℓ-w+1:ℓ), view(old.Z, :, old.ℓ-w+1:old.ℓ))
+    _copycols!(ws.Z, ℓ-w+1:ℓ, old.Z, old.ℓ-w+1:old.ℓ)
     ws.warm, ws.rank, ws.seed, ws.shift = w, old.rank, old.seed, old.shift
   end
   ws
 end
 
 # The leading eigenpairs of the symmetric matrix A (its upper triangle is
-# read): the r largest when r > 0, otherwise all the eigenvalues above τ.
-# Returns the number k of pairs kept, in the last k columns of ws.U with the
+# read): the r largest when r > 0, otherwise all the eigenvalues above τ (by
+# more than the tolerance δ). Returns the number k of pairs kept, in the last k columns of ws.U with the
 # values ascending in ws.θ; -2 when fewer than _PARTIAL_GUARD values of the
 # block are below τ, and -1 when the iteration did not converge.
 #
-# The block iterates on A + cI, with the shift c raised to the most negative
-# Ritz value seen, so that eigenvalues that are negative but large in magnitude
-# do not crowd out the largest ones; a result is accepted only when the shift
-# covers the smallest Ritz value.
+# The block iterates on A + cI, with the shift c raised past the most negative
+# Ritz value seen when that is larger in magnitude than the boundary, so that
+# eigenvalues that are negative but large in magnitude do not crowd out the
+# largest ones.
 function _partial_eigen!(ws::PartialEigenWorkspace{T}, A::StridedMatrix{T}, τ::T, r::Int) where {T}
   ℓ = ws.ℓ
   V, Z, U, AU, θ = ws.V, ws.Z, ws.U, ws.AU, ws.θ
   w = min(ws.warm, ℓ - _PARTIAL_FRESH)
-  copyto!(view(V, :, ℓ-w+1:ℓ), view(Z, :, ℓ-w+1:ℓ))
-  _randomize!(view(V, :, 1:ℓ-w), ws)
+  _copycols!(V, ℓ-w+1:ℓ, Z, ℓ-w+1:ℓ)
+  _randomize!(V, 1:ℓ-w, ws)
   _thin_qr!(V, ws.qr)
   tol = _partial_rtol(T, ws.n)
   c = ws.shift
-  for _ in 1:_PARTIAL_MAXITER
+  for _ in 1:2_PARTIAL_MAXITER
     BLAS.symm!('L', 'U', one(T), A, V, zero(T), Z)
     mul!(ws.small.A, transpose(V), Z)
     θR, WR = _eigen!(ws.small)
     copyto!(θ, θR)
     mul!(U, V, WR)
     mul!(AU, Z, WR)
-    k = r > 0 ? r : count(>(τ), θ)
+    δ = tol * max(abs(θ[1]), abs(θ[ℓ]))  # values within δ of τ weigh at most δ: not kept
+    k = r > 0 ? r : count(>(τ + δ), θ)
     g = min(_PARTIAL_GUARD, ℓ - k)
     if r == 0 && g < _PARTIAL_GUARD
       @. Z = AU + c * U
       ws.warm = ℓ
       return -2
     end
-    scale = max(abs(θ[1]), abs(θ[ℓ]))
-    accepted = -θ[1] <= c + tol * scale && _eig_accepted(AU, U, θ, k, g, τ, r, tol * scale)
-    accepted || (c = max(c, -θ[1]))
+    # negative values smaller in magnitude than the boundary cannot crowd out
+    # the pairs kept; otherwise the block must have been made with a shift that
+    # covers them (once shifted, the block turns to the largest values, and its
+    # smallest Ritz value moves up)
+    edge = r > 0 ? (k > 0 ? θ[ℓ-k+1] : zero(T)) : τ + δ
+    shifted = -θ[1] < edge || -θ[1] <= c + δ
+    accepted = shifted && _eig_accepted(AU, U, θ, k, g, τ + δ, r, δ)
+    shifted || (c = -θ[1])
     @. Z = AU + c * U                                      # (A + cI)U, one more power step
     if accepted
       ws.warm, ws.rank, ws.shift = ℓ, k, c                 # the next call keeps the shift
@@ -389,8 +414,9 @@ end
 function _leading_eigen!(f, X::AbstractMatrix, ::Type{T}, τ::T, r::Int) where {T}
   n = checksquare(X)
   cache = f.pws
-  prev = cache isa PartialEigenWorkspace{T} ? cache.rank : 0
-  ws = _partial_eigen_workspace(cache, T, n, r > 0 ? r : prev + _PARTIAL_GUARD)
+  old = cache isa PartialEigenWorkspace{T} ? cache : nothing  # f.pws is untyped: no dynamic call
+  prev = old === nothing ? 0 : old.rank
+  ws = _partial_eigen_workspace(old, T, n, r > 0 ? r : prev + _PARTIAL_GUARD)
   ws === nothing && return -1
   f.pws = ws
   Xd = _dense_input(ws, X, T)
@@ -405,20 +431,24 @@ end
 
 # Y = Σⱼ f(θⱼ) uⱼuⱼᵀ over the last k pairs of the workspace; returns
 # Σⱼ max(f(θⱼ), 0). The Ritz vectors are copied first, since _rebuild_sym!
-# destroys its vectors.
+# destroys its vectors, and the other values become -Inf, so that f gives them
+# no weight (f is nondecreasing and f(-Inf) ≤ 0).
 function _partial_eigen_out!(Y::AbstractMatrix, ws::PartialEigenWorkspace{T}, k::Int, f::F) where {T, F}
-  ℓ = ws.ℓ
-  cols = ℓ-k+1:ℓ
-  copyto!(view(ws.AU, :, cols), view(ws.U, :, cols))
+  ℓ, θ = ws.ℓ, ws.θ
+  copyto!(ws.AU, ws.U)
   s = zero(T)
-  @inbounds for j in cols
-    s += max(f(ws.θ[j]), zero(T))
+  @inbounds for j in 1:ℓ
+    if j <= ℓ - k
+      θ[j] = T(-Inf)
+    else
+      s += max(f(θ[j]), zero(T))
+    end
   end
   if Y isa StridedMatrix
-    _rebuild_sym!(Y, view(ws.AU, :, cols), view(ws.θ, cols), f)
+    _rebuild_sym!(Y, ws.AU, θ, f)
   else
     B = _array_buffer!(ws.dense, T, (ws.n, ws.n))
-    _rebuild_sym!(B, view(ws.AU, :, cols), view(ws.θ, cols), f)
+    _rebuild_sym!(B, ws.AU, θ, f)
     copyto!(Y, B)
   end
   s
@@ -426,12 +456,14 @@ end
 
 # After a full eigendecomposition and _rebuild_sym!, which moves the k vectors
 # it keeps to the first columns of V in ascending order of their values, the
-# largest of them start the next partial call
-function _warm_start_eigen!(cache, V::AbstractMatrix{T}, k::Int) where {T}
-  cache isa PartialEigenWorkspace{T} && cache.n == size(V, 1) || return nothing
+# largest of them start the next partial call of f
+function _warm_start_eigen!(f, V::AbstractMatrix{T}, k::Int) where {T}
+  cache = f.pws
+  cache isa PartialEigenWorkspace{T} || return nothing
+  cache.n == size(V, 1) || return nothing
   ℓ = cache.ℓ
   w = min(ℓ, k)
-  copyto!(view(cache.Z, :, ℓ-w+1:ℓ), view(V, :, k-w+1:k))
+  _copycols!(cache.Z, ℓ-w+1:ℓ, V, k-w+1:k)
   cache.warm, cache.rank = w, k
   nothing
 end

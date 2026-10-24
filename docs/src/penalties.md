@@ -161,3 +161,50 @@ subtracts ``\gamma\lambda`` from each eigenvalue and clips at zero. It is the
 penalty on the low-rank part of latent-variable graphical models.
 [`value_and_prox!`](@ref) gets the value from the thresholded spectrum. The
 decompositions run in LAPACK workspaces that the functions own.
+
+### Partial decompositions
+
+[`NuclearNorm`](@ref), [`TracePSD`](@ref), [`IndPSD`](@ref) and
+[`IndBallRank`](@ref) keep only the singular triplets or eigenpairs above a
+threshold, or the ``r`` largest, but by default compute the whole decomposition,
+in ``O(p^3)`` for a ``p \times p`` matrix. With the keyword `partial = true` they
+compute only the pairs they keep, by randomized subspace iteration with a
+Rayleigh–Ritz step (Halko, Martinsson and Tropp, 2011): for a result of rank
+``k``, each iteration costs ``O(p^2\ell)`` on a block of ``\ell \approx k + 10``
+vectors.
+
+- **Warm starts.** A call starts from the block of the previous call, after one
+  more power step, with two fresh random vectors. A solver calls the proximal
+  operator on nearby matrices, so a call takes one to a few iterations, and a
+  direction that enters the leading subspace is amplified from call to call.
+- **Accuracy.** A result is accepted when the residuals
+  ``\|Xv_j - \sigma_j u_j\|`` (or ``\|Au_j - \theta_j u_j\|``) of the pairs kept
+  are below ``\epsilon^{3/4}`` times the largest value, and the next three pairs
+  are certified to lie below the threshold: their value plus their residual is
+  below it. The result then agrees with the full decomposition to about
+  ``10^{-12}`` in `Float64`.
+- **Unknown ranks.** For the thresholds of [`NuclearNorm`](@ref),
+  [`TracePSD`](@ref) and [`IndPSD`](@ref)`()`, the block starts from the rank of
+  the previous call and doubles while too few of its values fall below the
+  threshold. For symmetric matrices, it iterates on ``A + cI`` with a shift
+  ``c`` when negative eigenvalues are large enough to crowd out the ones kept.
+- **Fallback.** The function takes the full decomposition when the block would
+  exceed a quarter of the dimension, or when the iteration does not converge,
+  and that decomposition starts the next call. `partial = true` is therefore
+  safe to use on any input, and pays when the rank of the result is small.
+- **What stays full.** The value ``f(X)`` alone needs every singular value or
+  eigenvalue, and still takes the full decomposition. As for the full
+  decompositions, the workspaces belong to the function object, so do not share
+  one between threads.
+
+On a low-rank matrix plus noise, one call on a slightly changed input, as in a
+solver, takes (Julia 1.13, one thread of an AMD EPYC 7513; `benchmark/partial.jl`):
+
+PARTIAL_TABLE
+
+[ARPACK](https://github.com/JuliaLinearAlgebra/Arpack.jl) and
+[KrylovKit](https://github.com/Jutho/KrylovKit.jl) compute the leading pairs
+about as fast or up to twice as fast for one matrix of known rank, but allocate
+at every call, need the rank in advance, and do not start from the previous
+call. Randomized SVDs without power iterations are faster still, and inaccurate
+(see `benchmark/README.md`).

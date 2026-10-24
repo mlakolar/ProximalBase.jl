@@ -118,7 +118,8 @@ function ours(p, k, name, make, X, Xs, ref, n; full = true)
     report(p, k, name, "full", t, bytes, rel(Y, ref))
   end
   f = make(true)
-  prox!(Y, f, X, 1.0)                                      # sizes the workspace
+  prox!(Y, f, X, 1.0)                                      # learns the rank and sizes the block
+  prox!(Y, f, X, 1.0)
   _forget_full!(f)
   t, bytes = timed(n) do
     f.pws isa Union{PB.PartialSVDWorkspace, PB.PartialEigenWorkspace} && (f.pws.warm = 0)
@@ -127,8 +128,9 @@ function ours(p, k, name, make, X, Xs, ref, n; full = true)
   report(p, k, name, "partial, cold", t, bytes, rel(Y, ref), _fellback(f) ? "fell back" : "")
   f = make(true)
   prox!(Y, f, Xs[1], 1.0)
+  prox!(Y, f, Xs[2], 1.0)
   _forget_full!(f)
-  i = 1
+  i = 2
   t, bytes = timed(n) do
     i += 1
     prox!(Y, f, Xs[i], 1.0)
@@ -149,7 +151,7 @@ function run_size(p)
     full = p < 5000 || k == 10                             # the full SVD at p = 5000 once
     X = lowrank(p, k)
     E = randn(p, p) / sqrt(p)
-    Xs = [X + 1e-3 * t * E for t in 1:n+2]
+    Xs = [X + 1e-3 * t * E for t in 1:n+3]
     F = svd(X)                                             # the references
     ref = svt(F.U, F.S, F.V, c)
     ours(p, k, "NuclearNorm", partial -> NuclearNorm(c; partial), X, Xs, ref, n; full)
@@ -160,7 +162,7 @@ function run_size(p)
 
     S = symlowrank(p, k)
     G = randn(p, p) / sqrt(2p)
-    Ss = [S + 1e-3 * t * (G + G') for t in 1:n+2]
+    Ss = [S + 1e-3 * t * (G + G') for t in 1:n+3]
     D = eigen(Symmetric(S))
     top = p-k+1:p
     ref = psdk(D.vectors[:, top], D.values[top])

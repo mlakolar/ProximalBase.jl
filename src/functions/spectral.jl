@@ -123,7 +123,7 @@ function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, �
       U[i, j] *= t
     end
   end
-  f.partial && _warm_start_svd!(f.pws, U, k)
+  f.partial && _warm_start_svd!(f, U, k)
   _mul_lowrank!(Y, U, Vt, k, ws)
   convert(T, f.λ) * v
 end
@@ -187,7 +187,7 @@ function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, ::Real)
       U[i, j] *= t
     end
   end
-  f.partial && _warm_start_svd!(f.pws, U, f.r)
+  f.partial && _warm_start_svd!(f, U, f.r)
   _mul_lowrank!(Y, U, Vt, f.r, ws)
 end
 
@@ -258,7 +258,7 @@ function _project_psd!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix)
   λ, V = _eigen!(ws)
   n = size(V, 1)
   _rebuild_sym_out!(Y, V, λ, t -> max(t, zero(t)); buffer = Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
-  f.partial && _warm_start_eigen!(f.pws, V, count(>(zero(T)), λ))
+  f.partial && _warm_start_eigen!(f, V, count(>(zero(T)), λ))
   Y
 end
 
@@ -281,7 +281,7 @@ function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
   copyto!(ws.A, X)
   λ, Z = _eigen_top!(ws)
   _rebuild_sym_out!(Y, Z, λ, t -> max(t, zero(t)); buffer = Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
-  f.partial && _warm_start_eigen!(f.pws, Z, count(>(zero(T)), λ))
+  f.partial && _warm_start_eigen!(f, Z, count(>(zero(T)), λ))
   Y
 end
 
@@ -338,7 +338,7 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
   end
   n = size(V, 1)
   _rebuild_sym_out!(Y, V, λ, t -> max(t - c, zero(t)); buffer = Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
-  f.partial && _warm_start_eigen!(f.pws, V, count(>(c), λ))
+  f.partial && _warm_start_eigen!(f, V, count(>(c), λ))
   convert(T, f.λ) * s
 end
 prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, f, X, γ); Y)

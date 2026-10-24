@@ -84,4 +84,6 @@ eigenpairs with LAPACK's divide-and-conquer `syevd`, or with `rank = r` only the
 from the eigenvectors it keeps with one symmetric rank-``k`` update. [`IndBallRank`](@ref)`(r)` keeps the ``r`` largest singular values
 of a general matrix, which by the Eckart–Young theorem gives the nearest matrix
 of rank at most ``r``. Both rank sets are nonconvex with exact projections.
-Projected gradient with them is hard-impute in matrix completion.
+Projected gradient with them is hard-impute in matrix completion. With `partial = true`,
+[`IndPSD`](@ref) and [`IndBallRank`](@ref) compute only the eigenpairs or
+singular triplets they keep; see [Partial decompositions](@ref).

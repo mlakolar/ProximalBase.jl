@@ -96,6 +96,8 @@ PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
     @test passes(() -> PT.test_conjugate(NormL1(0.5), x, γ))
     @test passes(() -> PT.test_conjugate(SqrNormL2(2.0), x, γ))
     @test passes(() -> PT.test_conjugate(NormL2(1.0), x, γ))
+    # the value of its conjugate is not known: Moreau's decomposition alone
+    @test passes(() -> PT.test_conjugate(ElasticNet(0.3, 0.6), x, γ))
     for f in (NormL1(0.5, w), ElasticNet(0.3, 0.6), MCP(0.4), SCAD(0.4), NormL1Nonneg(0.3), IndBox(-1.0, 2.0))
       @test passes(() -> PT.test_kkt(f, x, 0.5))
     end

@@ -387,19 +387,32 @@ The penalty `f(x1, x2) = Σᵢ λ1 (|x1ᵢ| + |x2ᵢ|) + λ2 |x1ᵢ - x2ᵢ|` of
 arrays of the same size, given as a tuple `(x1, x2)`, as in the joint
 estimation of two sparse models that should be close. Its proximal operator acts
 entry by entry on the pairs `(x1ᵢ, x2ᵢ)`; `prox(f, (u, v), γ)` gives it for two
-scalars. On a vector of length 2 it is the function of that one pair, which
-makes it the penalty on the fibers of two stacked matrices in
-[`FiberSum`](@ref): `FiberSum(NormL1Fused(λ1, λ2))` on an `n × n × 2` array is the
-penalty of the fused graphical lasso of two classes.
+scalars.
+
+On a vector `v` of length K it is `λ1 Σₖ |vₖ| + λ2 Σₖ<ₗ |vₖ - vₗ|`, which fuses
+all pairs of entries; for K = 2 this is the function of one pair. As the fiber
+function of [`FiberSum`](@ref), `FiberSum(NormL1Fused(λ1, λ2))` on an
+`n × n × K` array is the penalty of the fused graphical lasso of K classes
+(Danaher, Wang and Witten, 2014). With the entries sorted, `v₍₁₎ ≤ … ≤ v₍K₎`,
+the fusion term is `Σᵢ (2i - K - 1) v₍ᵢ₎`, linear on the vectors sorted the
+same way, and its proximal operator keeps the order of `v`. So the proximal
+operator sorts `v`, subtracts `γλ2 (2i - K - 1)` from the `i`-th smallest entry,
+pools adjacent violators into a nondecreasing sequence, restores the order, and
+soft-thresholds by `γλ1`: exact, in O(K log K), in buffers that the function
+owns.
 """
 struct NormL1Fused{T<:Real} <: AbstractFunction
   λ1::T
   λ2::T
+  perm::Scratch       # the order of the entries of a vector
+  vals::Scratch       # the sorted entries, shifted, then pooled
+  sums::Scratch       # the entries, then the sums of the blocks of the pooling
+  sizes::Scratch      # the scratch of the sort, then the sizes of the blocks
 
   function NormL1Fused{T}(λ1::T, λ2::T) where {T<:Real}
     _checknonneg("λ1", λ1)
     _checknonneg("λ2", λ2)
-    new{T}(λ1, λ2)
+    new{T}(λ1, λ2, Scratch(), Scratch(), Scratch(), Scratch())
   end
 end
 NormL1Fused(λ1::Real, λ2::Real) = (p = promote(λ1, λ2); NormL1Fused{typeof(p[1])}(p...))
@@ -458,20 +471,73 @@ end
 prox(f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real = 1) =
   prox!((similar(x[1], float(eltype(x[1]))), similar(x[2], float(eltype(x[2])))), f, x, γ)
 
-# one pair, as a vector of length 2: a fiber of two stacked matrices
-_checkpair(x::AbstractVector) =
-  length(x) == 2 || throw(DimensionMismatch("NormL1Fused on a vector needs the pair (x1, x2), a vector of length 2; got length $(length(x))"))
-(f::NormL1Fused)(x::AbstractVector) = (_checkpair(x); i = firstindex(x); @inbounds f((x[i], x[i+1])))
-function value_and_prox!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real)
-  prox!(y, f, x, γ)
-  i = firstindex(y)
-  @inbounds f((y[i], y[i+1]))
+# a vector of K entries, all pairs fused: a fiber of K stacked matrices. Two
+# entries take the closed form of a pair.
+
+# the entries of x, and the indices p that sort them in increasing order, in the
+# buffers of f, allocating nothing: an in-place quicksort for short vectors, and
+# Base's sort with a scratch buffer for long ones, as for SLOPE
+function _sortperm_fused!(f::NormL1Fused, x::AbstractVector, ::Type{T}) where {T}
+  n = length(x)
+  a = _buffer!(f.sums, T, n)
+  p = _buffer!(f.perm, Int, n)
+  @inbounds for i in 1:n
+    a[i] = convert(T, x[i])
+    p[i] = i
+  end
+  if n <= 4096
+    sort!(view(p, 1:n); alg = QuickSort, lt = (i, j) -> a[i] < a[j])
+  else
+    sortperm!(view(p, 1:n), view(a, 1:n); initialized = true, scratch = _buffer!(f.sizes, Int, n))
+  end
+  p, a
 end
-function prox!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real)
-  _checkpair(x)
+
+function (f::NormL1Fused)(x::AbstractVector)
+  Base.require_one_based_indexing(x)
+  T = float(eltype(x))
+  n = length(x)
+  n == 2 && return @inbounds f((x[1], x[2]))
+  p, a = _sortperm_fused!(f, x, T)
+  v1, v2 = zero(T), zero(T)
+  @inbounds for k in 1:n
+    v1 += abs(a[p[k]])
+    v2 += (2k - n - 1) * a[p[k]]
+  end
+  convert(T, f.λ1) * v1 + convert(T, f.λ2) * v2
+end
+
+value_and_prox!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real) = _prox_fused!(y, f, x, γ, Val(true))
+prox!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real) = (_prox_fused!(y, f, x, γ, Val(false)); y)
+
+# the proximal operator of all pairs fused, and the value at the result if V
+function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real, ::Val{V}) where {V}
   _checksize(y, x)
+  Base.require_one_based_indexing(y, x)
   T = float(eltype(y))
-  i, j = firstindex(x), firstindex(y)
-  @inbounds y[j], y[j+1] = _prox_l1fused(T(x[i]), T(x[i+1]), T(f.λ1), T(f.λ2), T(γ))
-  y
+  λ1, λ2 = convert(T, f.λ1), convert(T, f.λ2)
+  n = length(x)
+  if n == 2
+    @inbounds y[1], y[2] = _prox_l1fused(convert(T, x[1]), convert(T, x[2]), λ1, λ2, convert(T, γ))
+    return V ? @inbounds(f((y[1], y[2]))) : zero(T)
+  end
+  p, a = _sortperm_fused!(f, x, T)          # x is read here, so y may be x
+  w = _buffer!(f.vals, T, n)
+  t = convert(T, γ) * λ2
+  @inbounds for k in 1:n
+    w[k] = a[p[k]] - t * (2k - n - 1)
+  end
+  # the buffers may be longer than x, which changes length from call to call
+  wn = view(w, 1:n)
+  _pava!(wn, wn, _buffer!(f.sums, T, n), _buffer!(f.sizes, Int, n), 1)
+  # soft thresholding keeps the order, so the result is sorted as w
+  c = convert(T, γ) * λ1
+  v1, v2 = zero(T), zero(T)
+  @inbounds for k in 1:n
+    wk = shrink(w[k], c)
+    y[p[k]] = wk
+    v1 += abs(wk)
+    v2 += (2k - n - 1) * wk
+  end
+  V ? λ1 * v1 + λ2 * v2 : zero(T)
 end

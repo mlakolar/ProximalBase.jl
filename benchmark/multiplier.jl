@@ -59,6 +59,7 @@ function passes(c, y, xs; warm = false)
   end
 end
 avg(v) = sum(v) / length(v)
+μs(t) = t < 1e-5 ? @sprintf("%.2f", 1e6t) : @sprintf("%.1f", 1e6t)
 # the fastest of 7 interleaved rounds of each side, per call
 function interleaved(sides...; rounds = 7)
   foreach(s -> s(), sides)
@@ -93,7 +94,7 @@ for n in (1_000, 100_000)
     tm, tn = interleaved(() -> calls_cold(cm, y, xs), () -> calls_cold(cn, y, xs)) ./ length(xs)
     pm = passes(PB.Constrained(Slopeless(Counted(f)), H), y, xs)
     pn = passes(PB.Constrained(Counted(f), H), y, xs)
-    @printf("| %s, n = %s | %.1f, %.1f | %.1f, %.1f | %.0f%% |\n", name, label(n), 1e6tm, avg(pm), 1e6tn, avg(pn),
+    @printf("| %s, n = %s | %s, %.1f | %s, %.1f | %.0f%% |\n", name, label(n), μs(tm), avg(pm), μs(tn), avg(pn),
             100avg(pn .> pm))
   end
 end
@@ -101,19 +102,23 @@ end
 println()
 println("## 2. The calls of a solver")
 println()
-println("The same 20 slowly changing points for both sides: the time and passes per call.")
+println("The same 20 slowly changing points for all sides: the time and passes per call. The middle column starts ",
+        "from the last multiplier with the slope of the last secant, as for a function without known slopes.")
 println()
-println("| case | master, each call from zero (μs, passes) | this branch, from the last multiplier (μs, passes) | speedup |")
-println("|:-----|---:|---:|---:|")
+println("| case | master, each call from zero (μs, passes) | from the last multiplier, slopes hidden (μs, passes) | ",
+        "this branch, from the last multiplier (μs, passes) | speedup over master |")
+println("|:-----|---:|---:|---:|---:|")
 for n in (1_000, 100_000)
   x, noise, y = randn(n), randn(n), zeros(n)
   xs = points(x, noise)
   for (name, f, H) in cases(n)
-    cm, cw = PB.Constrained(Slopeless(f), H), PB.Constrained(f, H)
-    tm, tw = interleaved(() -> calls_cold(cm, y, xs), () -> calls_warm(cw, y, xs)) ./ length(xs)
+    cm, cs, cw = PB.Constrained(Slopeless(f), H), PB.Constrained(Slopeless(f), H), PB.Constrained(f, H)
+    tm, ts, tw = interleaved(() -> calls_cold(cm, y, xs), () -> calls_warm(cs, y, xs), () -> calls_warm(cw, y, xs)) ./ length(xs)
     pm = passes(PB.Constrained(Slopeless(Counted(f)), H), y, xs)
+    ps = passes(PB.Constrained(Slopeless(Counted(f)), H), y, xs; warm = true)
     pw = passes(PB.Constrained(Counted(f), H), y, xs; warm = true)
-    @printf("| %s, n = %s | %.1f, %.1f | %.1f, %.1f | %.2f× |\n", name, label(n), 1e6tm, avg(pm), 1e6tw, avg(pw), tm / tw)
+    @printf("| %s, n = %s | %s, %.1f | %s, %.1f | %s, %.1f | %.2f× |\n", name, label(n), μs(tm), avg(pm), μs(ts), avg(ps),
+            μs(tw), avg(pw), tm / tw)
   end
 end
 

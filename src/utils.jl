@@ -396,6 +396,20 @@ end
 
 # ‖X‖₂², the largest eigenvalue of X' Diagonal(w) X, through products with X
 # and X' only, on the smaller of the two Gram matrices
+"""
+    opnorm2(X)
+
+Estimate the squared spectral norm `‖X‖₂²` by Lanczos iteration, using only
+products with `X` and its adjoint, without forming a Gram matrix or densifying
+a sparse matrix. The result has floating element type matching `X`.
+
+This is a numerical estimate, not a certified upper bound: Lanczos can miss
+an eigenspace orthogonal to its deterministic starting vector. Algorithms
+requiring a guaranteed bound should use an independently known bound (for
+example `opnorm(X, 1) * opnorm(X, Inf)`) or a suitable line search.
+"""
+opnorm2(X::AbstractMatrix{<:Real}) = _opnorm2(X)
+
 function _opnorm2(X::AbstractMatrix, w = nothing)
   T = float(eltype(X))
   m, n = size(X)

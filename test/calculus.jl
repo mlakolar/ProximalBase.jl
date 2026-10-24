@@ -88,6 +88,20 @@ end
   @test Translate(NuclearNorm(1.), M)(M) ≈ 0
 end
 
+@testset "Conjugate wrappers" begin
+  for T in (Float32,Float64)
+    y,b = T[.1,-.2,.3], T[1,2,3]
+    f = Scaled(Translate(SqrNormL2(T(2)),b),T(.5))
+    @test Conjugate(f)(y) ≈ sum(abs2,y)/2 + dot(b,y)
+    @test Conjugate(f)(y) isa T
+    h = Scaled(Translate(CheckLoss(T(.7)),b),T(.5))
+    @test Conjugate(h)(T[.1,-.1,.2]) ≈ dot(b,T[.1,-.1,.2])
+    @test Conjugate(h)(T[.5,0,0]) == Inf
+    @test_throws DimensionMismatch Conjugate(Translate(NormL1(),b))(zeros(T,2))
+  end
+  @test_throws ArgumentError Conjugate(Scaled(NormL1(),0.))(zeros(3))
+end
+
 @testset "Conjugate" begin
   # Moreau: x = prox_{γf}(x) + γ prox_{f*/γ}(x/γ), for vectors and matrices
   vector_functions = [NormL1(0.6), NormL1(0.6, rand(10)), NormL2(0.6), NormLinf(0.6), IndBallL1(1.5),

@@ -19,6 +19,7 @@ tests = [
   "singular",
   "sets",
   "nonconvex",
+  "matrixsets",
   "calculus",
   "constrained",
   "spectralfunction",

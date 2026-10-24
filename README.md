@@ -265,6 +265,7 @@ smooth versions of the hinge and quantile losses) expose `ProximalBase.deriv`,
 | `IndHyperplane(a, b)`, `IndHalfspace(a, b)` | `⟨a, x⟩ = b`, `⟨a, x⟩ ≤ b`; a scalar `a` multiplies `Σᵢ xᵢ` |
 | `IndPSD()`, `IndPSD(rank = r)` | `X ⪰ 0`, and of rank at most `r` (nonconvex) |
 | `IndBallRank(r)` | rank at most `r`, nonconvex |
+| `IndPattern(P)`, `IndBanded(k, p)`, `IndToeplitz()` | zero off a pattern, banded, Toeplitz (the first two separable) |
 
 **Functions built from functions**
 

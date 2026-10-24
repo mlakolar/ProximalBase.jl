@@ -3,7 +3,7 @@
 ```@autodocs
 Modules = [ProximalBase]
 Pages = ["functions/smooth.jl", "functions/leastsquares.jl", "functions/glm.jl", "functions/logdet.jl",
-         "functions/separable.jl", "functions/losses.jl", "functions/entropy.jl", "functions/norms.jl", "functions/fibers.jl", "functions/spectral.jl", "functions/sets.jl", "functions/nonconvex.jl", "functions/singular.jl"]
+         "functions/separable.jl", "functions/losses.jl", "functions/entropy.jl", "functions/norms.jl", "functions/fibers.jl", "functions/spectral.jl", "functions/sets.jl", "functions/nonconvex.jl", "functions/singular.jl", "functions/matrixsets.jl"]
 Private = false
 Filter = t -> !(t in (SeparableFunction, value_entry, iszeropreserving))
 ```

@@ -26,6 +26,9 @@ rounding.
 | [`IndBallRank`](@ref)`(r)` | rank at most ``r`` | the truncated SVD |
 | [`SingularValue`](@ref)`(IndBallL1(r))` | ``\lVert X\rVert_* \le r`` | the ℓ1-ball projection of the singular values |
 | [`SingularValue`](@ref)`(IndBallLinf(r))` | ``\lVert X\rVert_2 \le r`` | ``U\min(\Sigma, r)V^\top`` |
+| [`IndPattern`](@ref)`(P)` | ``x_i = 0`` off the pattern ``P`` | zero the entries off ``P`` |
+| [`IndBanded`](@ref)`(k, p)` | ``X_{ij} = 0`` for ``\lvert i - j\rvert > k`` | zero the entries outside the band |
+| [`IndToeplitz`](@ref)`()` | ``X_{ij} = c_{j - i}`` | the mean of each diagonal |
 
 ## Separable sets
 
@@ -105,3 +108,29 @@ from the eigenvectors it keeps with one symmetric rank-``k`` update. [`IndBallRa
 of a general matrix, which by the Eckart–Young theorem gives the nearest matrix
 of rank at most ``r``. Both rank sets are nonconvex with exact projections.
 Projected gradient with them is hard-impute in matrix completion.
+
+## Structured matrices
+
+[`IndPattern`](@ref)`(P)` is the set of arrays supported on a pattern ``P``, and
+[`IndBanded`](@ref) the set of banded matrices. Each is a product of one set per
+entry, ``\{0\}`` off the pattern or the band and ``\mathbb{R}`` on it, so the
+projection zeroes the entries outside, and both are separable: they preserve
+zeros and have scalar proximal operators for coordinate descent. `IndBanded`
+holds the size of its matrices, which gives the row and the column of an entry
+from its linear index, instead of a pattern. Banding a sample covariance is its
+projection (Bickel and Levina, 2008). With [`LogDetLoss`](@ref) in ADMM,
+`IndPattern` gives the refit on a known graph: the Gaussian maximum likelihood
+estimate whose precision matrix is zero off the graph (see the graphical lasso
+example).
+
+The Toeplitz matrices, constant along each diagonal, form a subspace, so the
+projection onto them is orthogonal. On each diagonal ``D_d = \{(i, j) : j - i = d\}``
+it is the mean of the entries of ``V``:
+
+```math
+P(V)_{ij} = \frac{1}{\lvert D_{j-i}\rvert} \sum_{(k, l) \in D_{j-i}} V_{kl} .
+```
+
+With `symmetric = true`, [`IndToeplitz`](@ref) projects onto the symmetric
+Toeplitz matrices, the covariance matrices of a stationary series, and averages
+the diagonals ``d`` and ``-d`` together.

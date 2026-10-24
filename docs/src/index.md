@@ -105,4 +105,4 @@ norm(gradient_mapping(f, g, β, 1 / L))
   explains the three iterates.
 - [Writing your own function](@ref) shows how to add a function, separable or
   not.
-- The examples are fifteen complete programs, each checking its result.
+- The examples are seventeen complete programs, each checking its result.

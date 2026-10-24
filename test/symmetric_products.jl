@@ -58,6 +58,27 @@ Random.seed!(35)
   @test mul!(zeros(6), A, AtomIterate(6, 2)) == zeros(6)
 end
 
+@testset "strided destinations and mixed element types" begin
+  for uplo in (:U, :L)
+    data = randn(12, 12)
+    A = Symmetric(view(data, 1:2:12, 2:2:12), uplo)
+    values = Float32[1, 0, -2, 0, 0, 3]
+    for x in (SparseIterate(values), AtomIterate(values, [1:3, 4:6]),
+              SparseIterate(hcat(values, reverse(values))))
+      out = ndims(x) == 1 ? view(zeros(12), 1:2:12) : view(zeros(12, 4), 1:2:12, 1:2:4)
+      ref = Matrix(A) * Array(x)
+      @test mul!(out, A, x) ≈ ref
+      @test A * x ≈ ref
+      @test eltype(A * x) == Float64
+      initial = copy(out)
+      @test mul!(out, A, x, 0.7f0, 0.3) ≈ 0.7f0 .* ref .+ 0.3 .* initial
+      @test allocs(mul!, out, A, x) == 0
+      @test allocs(mul!, out, A, x, 0.7f0, 0.3) == 0
+    end
+    @test mul!(zeros(6, 2), A, SparseIterate(zeros(Float32, 6, 2))) == zeros(6, 2)
+  end
+end
+
 @testset "raw symmetric quadratic has no hot allocations" begin
   for T in (Float32, Float64)
     X = randn(T, 20, 10)

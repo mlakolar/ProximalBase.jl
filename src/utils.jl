@@ -328,12 +328,13 @@ end
     norm_diff(A, B, p = 2)
 
 `‖A - B‖` without allocating `A - B`: the Euclidean (Frobenius) norm for
-`p = 2`, the largest absolute entry for `p = Inf`.
+`p = 2`, the largest absolute entry for `p = Inf`. The result is real, also
+for complex arrays.
 """
 function norm_diff(A::AbstractArray, B::AbstractArray, p::Real = 2)
   size(A) == size(B) || throw(DimensionMismatch())
   T = float(promote_type(eltype(A), eltype(B)))
-  v = zero(T)
+  v = real(zero(T))
   if p == 2
     return sqrt(_sumabs2_diff(A, B))
   elseif p == Inf
@@ -349,7 +350,7 @@ end
 # Σᵢ (xᵢ - yᵢ)², without allocating x - y
 function _sumabs2_diff(x::AbstractArray, y::AbstractArray)
   size(x) == size(y) || throw(DimensionMismatch("the arrays have sizes $(size(x)) and $(size(y))"))
-  s = zero(float(promote_type(eltype(x), eltype(y))))
+  s = real(zero(float(promote_type(eltype(x), eltype(y)))))
   @inbounds @simd for i in eachindex(x, y)
     s += abs2(x[i] - y[i])
   end

@@ -37,14 +37,18 @@ makedocs(
     ),
     pages = [
         "Home" => "index.md",
-        "The interface" => "interface.md",
+        "Getting started" => "getting_started.md",
+        "Algorithms and interface" => [
+            "Coordinate descent" => "coordinate_descent.md",
+            "Sparse iterates" => "iterates.md",
+            "Proximal operators and interface" => "interface.md",
+        ],
         "Functions" => [
             "Smooth functions" => "smooth.md",
             "Penalties" => "penalties.md",
             "Sets" => "sets.md",
             "Functions built from functions" => "calculus.md",
         ],
-        "Coordinate descent and iterates" => "iterates.md",
         "Writing your own function" => "extending.md",
         "Examples" => example_pages,
         "API reference" => [

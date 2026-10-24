@@ -1,5 +1,10 @@
 # The interface
 
+We describe the function interface and the mathematics of full proximal
+steps. For updates of individual entries or groups, see
+[Coordinate descent](@ref). All mutating operations take their output first,
+as in `gradient!(grad, f, x)` and `prox!(out, g, x, γ)`.
+
 ## Proximal operators
 
 The proximal operator of a function ``g`` with step ``\gamma > 0`` is
@@ -30,7 +35,8 @@ For a convex ``g`` (closed and proper) the minimizer is unique, and the map is
 The fixed points of ``\operatorname{prox}_{\gamma g}`` are the minimizers of
 ``g``. For a nonconvex ``g``, such as the ℓ0 penalty, MCP and SCAD with large
 steps, or a rank constraint, the minimizer may not be unique. ProximalBase
-returns one of them, computed exactly.
+selects one solution when there are ties. The function pages describe the
+closed forms and iterative procedures used to compute the operators.
 
 **The Moreau envelope.** ``M_{\gamma g}(x) = \min_z g(z) + \|z - x\|^2/(2\gamma)``
 is a smooth approximation of ``g`` for convex ``g``. Its gradient,
@@ -48,7 +54,7 @@ is Lipschitz with constant ``1/\gamma``.
 x = \operatorname{prox}_{\gamma g}(x) + \gamma\, \operatorname{prox}_{g^*/\gamma}(x/\gamma).
 ```
 
-So the proximal operator of a function gives that of its conjugate.
+Therefore, the proximal operator of a function gives that of its conjugate.
 [`Conjugate`](@ref) uses this, and so do the ℓ∞ norms, through the projection
 onto the ℓ1 ball. A check:
 
@@ -77,20 +83,30 @@ x = \operatorname{prox}_{\gamma g}\big(x - \gamma\nabla f(x)\big)
 \iff G_\gamma(x) = 0 .
 ```
 
-So ``\|G_\gamma(x)\|`` is a stopping rule that needs neither the optimal value nor
+Therefore, ``\|G_\gamma(x)\|`` is a stopping rule that needs neither the optimal value nor
 the form of ``g``. [`gradient_mapping`](@ref) computes it, and
 [`gradient_mapping!`](@ref) does so without allocating.
 
-**Step sizes.** If ``\nabla f`` is Lipschitz with constant ``L`` and
-``\gamma \le 1/L``, the descent lemma gives
+**Step sizes.** Suppose that ``f`` is convex with an ``L``-Lipschitz gradient,
+``g`` is proper, closed and convex, and ``F`` has a minimizer ``x^\star``.
+For an initial point with finite objective and a fixed ``0<\gamma\le 1/L``,
+the descent lemma and proximal optimality give
 
 ```math
 F(x^+) \le F(x) - \frac{\gamma}{2}\|G_\gamma(x)\|^2 ,
 ```
 
-so every step decreases the objective. Proximal gradient descent then converges
-at the rate ``O(1/k)`` in objective value, and its accelerated version (FISTA)
-at ``O(1/k^2)``. [`lipschitz`](@ref) returns ``L`` for the smooth functions. For
+so the objective does not increase. In particular, after ``k\ge1`` proximal
+gradient steps,
+
+```math
+F(x^k)-F(x^\star)\le\frac{\|x^0-x^\star\|^2}{2\gamma k}.
+```
+
+Under the same convexity and smoothness conditions, the accelerated procedure
+FISTA has objective error ``O(1/k^2)``. These global objective guarantees do
+not extend to arbitrary nonconvex penalties. [`lipschitz`](@ref) returns
+``L`` for the smooth functions. For
 functions whose gradient is not globally Lipschitz, such as the Gaussian
 log-likelihood and the Poisson loss, it returns ``\infty``, and a solver needs
 a line search.

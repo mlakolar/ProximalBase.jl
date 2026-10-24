@@ -183,6 +183,61 @@ end
   f = LeastSquaresLoss(randn(20), X)
   β = randn(6)
   @test Vector(prox!(zs, f, β, 0.3)) ≈ prox(f, β, 0.3)
+
+  @testset "large steps and reusable output buffers" begin
+    for T in (Float32, Float64), (n, p) in ((30, 10), (10, 30)), m in (1, 3)
+      X = randn(T, n, p)
+      Y = m == 1 ? randn(T, n) : randn(T, n, m)
+      v = m == 1 ? randn(T, p) : randn(T, p, m)
+      f = LeastSquaresLoss(Y, X)
+      X64, Y64, v64 = Float64.(X), Float64.(Y), Float64.(v)
+      for γ in T.((0.01, 0.7, T === Float32 ? 1e6 : 1e12))
+        ρ = inv(Float64(γ))
+        ref = n >= p ? (X64'X64 + ρ * I) \ (X64'Y64 + ρ * v64) :
+                       v64 + X64' * ((X64 * X64' + ρ * I) \ (Y64 - X64 * v64))
+        tol = T === Float32 ? 2e-5 : 2e-12
+        @test prox(f, v, γ) ≈ ref rtol = tol
+        alias = copy(v)
+        @test prox!(alias, f, alias, γ) ≈ ref rtol = tol
+        sparseout = SparseIterate(zeros(T, size(v)))
+        @test Array(prox!(sparseout, f, v, γ)) ≈ ref rtol = tol
+        @test allocs(prox!, sparseout, f, v, γ) == 0
+        if m == 1
+          atomout = AtomIterate(zeros(T, p), [1:p])
+          @test Vector(prox!(atomout, f, v, γ)) ≈ ref rtol = tol
+          @test allocs(prox!, atomout, f, v, γ) == 0
+        end
+      end
+      @test_throws DimensionMismatch prox!(zeros(T, p, m + 1), f, zeros(T, p, m + 1), 0.7)
+      @test_throws DimensionMismatch prox!(zeros(T, p, 1), LeastSquaresLoss(randn(T, n), X), zeros(T, p, 1), 0.7)
+    end
+    # Tiny steps can overflow the reciprocal or its product with V'v.
+    for T in (Float32, Float64), (n, p) in ((10, 10), (30, 10), (10, 30)), m in (1, 3)
+      X = randn(T, n, p)
+      Y = m == 1 ? randn(T, n) : randn(T, n, m)
+      v = T(10) .* (m == 1 ? randn(T, p) : randn(T, p, m))
+      f = LeastSquaresLoss(Y, X)
+      for γ in (floatmin(T), floatmin(T) / T(8), nextfloat(zero(T)))
+        @test prox(f, v, γ) ≈ v rtol = 20eps(T)
+        alias = copy(v)
+        @test prox!(alias, f, alias, γ) ≈ v rtol = 20eps(T)
+        @test allocs(prox!, alias, f, v, γ) == 0
+        sparseout = SparseIterate(zeros(T, size(v)))
+        @test Array(prox!(sparseout, f, v, γ)) ≈ v rtol = 20eps(T)
+        @test allocs(prox!, sparseout, f, v, γ) == 0
+      end
+    end
+    # An empty design has a constant loss and the identity proximal operator.
+    for (n, p) in ((0, 4), (4, 0), (0, 0)), m in (1, 3)
+      X = zeros(n, p)
+      Y = m == 1 ? zeros(n) : zeros(n, m)
+      v = m == 1 ? randn(p) : randn(p, m)
+      f = LeastSquaresLoss(Y, X)
+      out = similar(v)
+      @test prox!(out, f, v, 0.7) == v
+      @test allocs(prox!, out, f, v, 0.7) == 0
+    end
+  end
 end
 
 @testset "scalar losses" begin

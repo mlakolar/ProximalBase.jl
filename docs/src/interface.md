@@ -181,6 +181,19 @@ covers [`NormL2`](@ref), [`IndBallL2`](@ref), [`NormLinf`](@ref),
 their thresholding by Michelot's algorithm, which needs only reductions,
 instead of a selection: a few passes over the array.
 
+The group functions [`GroupNormL2`](@ref), [`GroupNormLinf`](@ref),
+[`SparseGroupNormL2`](@ref) and [`IndBallGroupL0`](@ref) run there too, by
+segmented reductions. The groups of sizes in one class (1, 2, 3–4, 5–8, …) are
+the columns of an index matrix, padded to the largest of them; one gather and
+one reduction along the columns give the norms of all the groups of the class,
+and a vector of group ids carries each group's factor or level back to its
+entries. The number of passes grows with the number of size classes, not with
+the number of groups. `Adapt.adapt(CuArray, f)` builds this layout on the
+device once; a group function left on the host builds it at every call.
+`IndBallGroupL0` selects its `s` groups on the host, among the norms of the
+groups; with a bound `k` on the entries of a group, its projection runs on the
+CPU only.
+
 - **Parameter arrays on the device.** Weights, bounds and centers must live on
   the device with the argument: `Adapt.adapt(CuArray, NormL1(λ, w))` copies
   them there and checks them, as the constructor does.
@@ -189,5 +202,6 @@ instead of a selection: a few passes over the array.
   [`value_entry`](@ref) run inside the kernels. One that holds arrays needs an
   `Adapt.adapt_structure` method that rebuilds it with the arrays converted
   and without checks, since inside a kernel its arrays are device arrays.
-- **Not yet.** The group norms, the spectral functions and [`LogDetLoss`](@ref) (which use LAPACK), the
-  losses of a design matrix, and the sparse iterates run on the CPU only.
+- **Not yet.** The spectral functions and [`LogDetLoss`](@ref) (which use
+  LAPACK), the losses of a design matrix, and the sparse iterates run on the
+  CPU only.

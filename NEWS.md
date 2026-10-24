@@ -83,7 +83,10 @@
   `adapt(CuArray, f)` moves a function's parameter arrays to the device.
   `NormL2`, `IndBallL2`, `NormLinf`, `IndBallL1` and `IndSimplex` run there too:
   the last three find the level of their thresholding by Michelot's algorithm,
-  with reductions alone.
+  with reductions alone. So do `GroupNormL2`, `GroupNormLinf`,
+  `SparseGroupNormL2` and `IndBallGroupL0` (without a bound `k` per group), by
+  segmented reductions over the groups of each size class, in a layout that
+  `adapt(CuArray, f)` puts on the device.
 - **`ProximalBase.Testing`** (#52): the checks of the test suite, public for
   authors of new functions, after `using Test`: `test_prox`, `test_gradient`,
   `test_separable`, `test_conjugate`, `test_kkt`, `test_traits`, `allocations`

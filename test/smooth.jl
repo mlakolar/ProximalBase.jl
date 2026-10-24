@@ -204,13 +204,13 @@ end
       @test_throws DimensionMismatch prox!(zeros(T, p, m + 1), f, zeros(T, p, m + 1), 0.7)
       @test_throws DimensionMismatch prox!(zeros(T, p, 1), LeastSquaresLoss(randn(T, n), X), zeros(T, p, 1), 0.7)
     end
-    # Subnormal steps have an infinite reciprocal but a finite, near-identity prox.
+    # Tiny steps can overflow the reciprocal or its product with V'v.
     for T in (Float32, Float64), (n, p) in ((10, 10), (30, 10), (10, 30)), m in (1, 3)
       X = randn(T, n, p)
       Y = m == 1 ? randn(T, n) : randn(T, n, m)
-      v = m == 1 ? randn(T, p) : randn(T, p, m)
+      v = T(10) .* (m == 1 ? randn(T, p) : randn(T, p, m))
       f = LeastSquaresLoss(Y, X)
-      for γ in (floatmin(T) / T(8), nextfloat(zero(T)))
+      for γ in (floatmin(T), floatmin(T) / T(8), nextfloat(zero(T)))
         @test prox(f, v, γ) ≈ v rtol = 20eps(T)
         alias = copy(v)
         @test prox!(alias, f, alias, γ) ≈ v rtol = 20eps(T)

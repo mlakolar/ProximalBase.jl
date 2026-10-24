@@ -102,8 +102,8 @@ function prox!(β::AbstractVecOrMat, f::LeastSquaresLoss{T}, v::AbstractVecOrMat
   ρ = inv(convert(T, γ))
   mul!(f.w, transpose(f.V), v)
   if size(f.V, 1) == size(f.V, 2)
-    if isinf(ρ)
-      # A subnormal step can overflow its reciprocal; scale both sides by γ.
+    if convert(T, γ) <= one(T)
+      # At small steps, avoid overflow in ρ or ρ V'v by scaling both sides by γ.
       s = convert(T, γ)
       @inbounds for j in axes(f.w, 2), i in axes(f.w, 1)
         f.w[i, j] = (s * f.sUtY[i, j] + f.w[i, j]) / (s * f.s2[i] + one(T))

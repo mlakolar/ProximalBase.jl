@@ -184,7 +184,7 @@ end
     @test_throws ArgumentError Constrained(MCP(1.), IndBox(0, 1))
     @test_throws ArgumentError Constrained(NormL0(1.), IndNonnegative())
     @test_throws ArgumentError Constrained(NormL2(1.), IndBox(0, 1))
-    @test_throws ArgumentError Constrained(NormL1(1.), IndBallL2(1.))
+    @test_throws ArgumentError Constrained(SqrNormL2(1.), IndBallL2(1.))
     @test_throws ArgumentError Constrained(Constrained(NormL1(1.), IndHyperplane(1, 0)), IndHyperplane(1, 1))
     @test_throws DimensionMismatch prox(Constrained(NormL1(1.), IndHyperplane(ones(3), 0)), x)
   end

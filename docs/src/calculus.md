@@ -132,6 +132,40 @@ z = prox(Constrained(NormL1(0.2), IndHyperplane(1, 0)), v, 1.0)   # entries that
 prox(Constrained(IndBox(0, 1), IndHyperplane(1, 2)), v)            # onto the capped simplex
 ```
 
+**On an ℓ2 ball or sphere.** For a norm ``f`` on the ball ``\{z : \|z\|_2 \le r\}``,
+the proximal operator is the proximal point of ``f`` scaled onto the ball:
+```math
+\operatorname{prox}_{\gamma(f + \iota_{B_r})}(v) = \min\Big(1, \frac{r}{\|p\|_2}\Big)\, p,
+\qquad p = \operatorname{prox}_{\gamma f}(v).
+```
+A positively homogeneous convex ``f`` has ``\partial f(tp) = \partial f(p)`` for
+``t > 0``, so ``v - p \in \gamma\,\partial f(p)`` gives
+``v - tp = (v - p) + (1 - t)p``, a subgradient plus a multiple of ``tp``, which
+lies in the normal cone of the ball at ``tp = rp/\|p\|``. The same holds for the
+indicator of a cone, also a nonconvex one such as the ℓ0 ball or the matrices of
+rank at most ``r``. Among the points of the ball on one face of the cone, the
+best is the projection there scaled onto the ball, at a distance that decreases
+with the norm of that projection, so the projection onto the cone already picks
+the face.
+
+On the sphere ``\|z\|_2 = r``, the quadratic term is ``-\langle z, v\rangle`` plus
+a constant, so the proximal operator maximizes ``\langle z, v\rangle - \gamma f(z)``.
+For ``f = \lambda\|\cdot\|_1`` this is
+``\sum_i |z_i|\,(|v_i| - \gamma\lambda)`` for ``z`` with the signs of ``v``, so
+the maximizer is the soft thresholding of ``v`` scaled onto the sphere when some
+``|v_i| > \gamma\lambda``. Otherwise every coefficient is at most zero, and since
+``\sum_i |z_i| \ge \|z\|_2`` the maximizer puts all the mass on the entry where
+``|v_i| - \gamma\lambda`` is largest. The group norm works the same way with the
+margins ``\|v_G\| - \gamma\lambda w_G``, and the ℓ0 ball keeps the ``s`` largest
+entries. These are the steps of the penalized matrix decomposition (Witten,
+Tibshirani and Hastie, 2009) and of the truncated power method (Yuan and Zhang,
+2013) for sparse principal components.
+
+```@example calculus
+u = prox(Constrained(NormL1(0.5), IndSphereL2(1)), [2.0, -0.3, 1.0, 0.2])   # a sparse unit vector
+(u, norm(u))
+```
+
 ## Functions of the eigenvalues
 
 [`Spectral`](@ref)`(f)` is ``F(X) = f(\lambda(X))`` on the symmetric matrices,

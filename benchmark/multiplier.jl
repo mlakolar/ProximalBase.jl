@@ -16,6 +16,9 @@
 #    of the breakpoint search that #77 proposed, against the whole search.
 # 5. The threshold of the projection onto the simplex: Condat's pass before #77
 #    against the pass that hands over to Michelot's algorithm.
+# 6. Variable fixing (issue #79): one call from zero over independent draws,
+#    with the ranges of the scalar proximal operators hidden, as before #79,
+#    and known, so that the search fixes the entries at an end of their range.
 # Every comparison runs its sides on the same data, interleaved over rounds,
 # and keeps the fastest round of each: other jobs on a shared node slow down
 # phases of a run, and interleaving spreads that over both sides. Passes are
@@ -35,14 +38,22 @@ end
 struct Slopeless{F} <: PB.SeparableFunction     # hides the slopes: the search before #77
   f::F
 end
-for W in (:Counted, :Slopeless)
+struct Rangeless{F} <: PB.SeparableFunction     # hides the ranges: the search before #79
+  f::F
+end
+for W in (:Counted, :Slopeless, :Rangeless)
   @eval PB.value_entry(g::$W, v, i) = PB.value_entry(g.f, v, i)
   @eval PB.isconvex(::Type{<:$W}) = true
 end
 PB.prox_entry(g::Counted, v, i, γ) = (CALLS[] += 1; PB.prox_entry(g.f, v, i, γ))
 PB._has_prox_slope(::Type{<:Counted{F}}) where {F} = PB._has_prox_slope(F)
 PB._prox_entry_slope(g::Counted, v, i, γ) = (CALLS[] += 1; PB._prox_entry_slope(g.f, v, i, γ))
+PB._has_prox_range(::Type{<:Counted{F}}) where {F} = PB._has_prox_range(F)
+PB._prox_range(g::Counted, i::Integer, ::Type{S}) where {S} = PB._prox_range(g.f, i, S)
 PB.prox_entry(g::Slopeless, v, i, γ) = PB.prox_entry(g.f, v, i, γ)
+PB.prox_entry(g::Rangeless, v, i, γ) = PB.prox_entry(g.f, v, i, γ)
+PB._has_prox_slope(::Type{<:Rangeless{F}}) where {F} = PB._has_prox_slope(F)
+PB._prox_entry_slope(g::Rangeless, v, i, γ) = PB._prox_entry_slope(g.f, v, i, γ)
 
 cold!(c) = (c.last[] = NaN; c)
 # 20 slowly changing points, made before the timing
@@ -81,7 +92,7 @@ cases(n) = [("simplex r = 1", PB.IndNonnegative(), PB.IndHyperplane(1, 1)),
             ("zero-sum lasso λ = 0.5", PB.NormL1(0.5), PB.IndHyperplane(1, 0)),
             ("ℓ1 on [-1, 1], a general normal", PB.Constrained(PB.NormL1(0.3), PB.IndBox(-1, 1)), PB.IndHyperplane(randn(n), 3.)),
             ("elastic net on the simplex", PB.Constrained(PB.ElasticNet(0.1, 1.), PB.IndNonnegative()), PB.IndHyperplane(1, 1))]
-label(n) = n == 1_000 ? "10³" : "10⁵"
+label(n) = n == 1_000 ? "10³" : n == 10_000 ? "10⁴" : "10⁵"
 
 println("## 1. One call from zero, over independent draws")
 println()
@@ -263,5 +274,31 @@ for n in (1_000, 100_000)
                          () -> (for _ in 1:reps; PB._simplex_threshold!(buf, x, eachindex(x), r); end)) ./ reps
     d = abs(old_threshold!(buf, x, r) - PB._simplex_threshold!(buf, x, eachindex(x), r))
     @printf("| r = %s, n = %s | %.1f | %.1f | %.2f× | %.0e |\n", rs, s, 1e6tm, 1e6tn, tm / tn, d)
+  end
+end
+
+println()
+println("## 6. Variable fixing: one call from zero, over independent draws")
+println()
+println("200 draws of x at n = 10³, 50 at n = 10⁴ and 20 at n = 10⁵, the same for both sides: the mean time and passes ",
+        "per call. Before #79 the ranges of the scalar proximal operators are hidden; after, the search fixes the entries ",
+        "at an end of their range once few stay live. The passes count the calls of the scalar proximal operator, those ",
+        "of the copy included. The last rows take a step per entry, uniform on [0.2, 1.2].")
+println()
+println("| case | before #79 (μs, passes) | after #79 (μs, passes) | speedup |")
+println("|:-----|---:|---:|---:|")
+for n in (1_000, 10_000, 100_000), steps in (:scalar, :entry)
+  steps === :entry && n != 100_000 && continue
+  nd = n == 1_000 ? 200 : n == 10_000 ? 50 : 20
+  xs, y = [randn(n) for _ in 1:nd], zeros(n)
+  γ = steps === :scalar ? 0.7 : 0.2 .+ rand(n)
+  for (name, f, H) in cases(n)
+    steps === :entry && name in ("zero-sum lasso λ = 0.5",) && continue
+    cb, ca = PB.Constrained(Rangeless(f), H), PB.Constrained(f, H)
+    tb, ta = interleaved(() -> calls_cold(cb, y, xs, γ), () -> calls_cold(ca, y, xs, γ)) ./ length(xs)
+    pb = passes(PB.Constrained(Rangeless(Counted(f)), H), y, xs; γ)
+    pa = passes(PB.Constrained(Counted(f), H), y, xs; γ)
+    @printf("| %s, n = %s%s | %s, %.1f | %s, %.1f | %.2f× |\n", name, label(n), steps === :entry ? ", a step per entry" : "",
+            μs(tb), avg(pb), μs(ta), avg(pa), tb / ta)
   end
 end

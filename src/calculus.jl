@@ -179,7 +179,9 @@ for a separable `f` so does [`prox_entry`](@ref). Its value is known for the
 norms (the indicators of the dual balls), the balls (their support functions),
 the box, the nonnegative orthant, [`SqrNormL2`](@ref), [`LinearFunction`](@ref),
 [`ZeroFunction`](@ref), and the losses [`CheckLoss`](@ref), [`HingeLoss`](@ref)
-and [`EpsInsensitiveLoss`](@ref).
+and [`EpsInsensitiveLoss`](@ref), and for translations and strictly positive
+rescalings of these functions. The conjugate value of a zero rescaling is
+not implemented, since it depends on the domain of the underlying function.
 """
 struct Conjugate{F<:AbstractFunction} <: AbstractFunction
   f::F

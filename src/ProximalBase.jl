@@ -35,7 +35,7 @@ export
   gradient!, gradient, value_and_gradient!, value_and_gradient,
   prox_coordinate!, prox_entry, kkt_violation, restrict,
   SeparableFunction, value_entry, iszeropreserving,
-  gradient_mapping, gradient_mapping!, lipschitz,
+  gradient_mapping, gradient_mapping!, lipschitz, opnorm2,
   hashessian, hessian_vec!, hessian_vec, quadratic_model, quadratic_model!,
   coordinate_lipschitz, coordinate_lipschitz!,
   lla_weight, lla_weights!, lla_weights,

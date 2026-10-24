@@ -4,8 +4,23 @@ using Test
 using ProximalBase
 using LinearAlgebra
 using Random
+using SparseArrays
 
 Random.seed!(1)
+
+@testset "public squared operator norm" begin
+  for T in (Float32, Float64), dims in ((7,3),(3,7),(4,4))
+    X = randn(T,dims...)
+    for A in (X,sparse(X))
+      @test opnorm2(A) ≈ opnorm(X)^2 rtol=1e-5
+      @test opnorm2(A) isa T
+    end
+  end
+  @test opnorm2(zeros(3,4)) == 0
+  @test opnorm2(zeros(0,3)) == 0
+  @test opnorm2(zeros(3,0)) == 0
+  @test opnorm2([1 0; 0 2]) ≈ 4
+end
 
 @testset "shrink" begin
   @test shrink(3.0, 1.0) == 2.0

@@ -31,3 +31,9 @@ SeparableFunction
 value_entry
 iszeropreserving
 ```
+
+## Matrix norm estimate
+
+```@docs
+opnorm2
+```

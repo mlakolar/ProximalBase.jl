@@ -179,7 +179,9 @@ for a separable `f` so does [`prox_entry`](@ref). Its value is known for the
 norms (the indicators of the dual balls), the balls (their support functions),
 the box, the nonnegative orthant, [`SqrNormL2`](@ref), [`LinearFunction`](@ref),
 [`ZeroFunction`](@ref), and the losses [`CheckLoss`](@ref), [`HingeLoss`](@ref)
-and [`EpsInsensitiveLoss`](@ref).
+and [`EpsInsensitiveLoss`](@ref), and for translations and strictly positive
+rescalings of these functions. The conjugate value of a zero rescaling is
+not implemented, since it depends on the domain of the underlying function.
 """
 struct Conjugate{F<:AbstractFunction} <: AbstractFunction
   f::F
@@ -204,6 +206,20 @@ Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real)
 _checkparams(c::Conjugate, x) = _checkparams(c.f, x)
 
 (c::Conjugate)(y::AbstractArray) = _conjugate_value(c.f, y)
+
+# (αf)*(y) = α f*(y/α), and (f(⋅-b))*(y) = f*(y) + ⟨b,y⟩.
+# Zero scaling of an extended-valued function depends on its domain, so the
+# positive-scaling formula deliberately does not cover it.
+function _conjugate_value(f::Scaled, y::AbstractArray)
+  f.α > 0 || throw(ArgumentError("conjugate values of Scaled require a positive scale"))
+  T = float(eltype(y))
+  α = convert(T, f.α)
+  α * _conjugate_value(f.f, _ScaledArray(y, inv(α)))
+end
+function _conjugate_value(f::Translate, y::AbstractArray)
+  _checksize(f.b, y)
+  _conjugate_value(f.f, y) + dot(f.b, y)
+end
 
 @noinline _conjugate_value(f::AbstractFunction, y) =
   throw(ArgumentError("the value of the conjugate of $(typeof(f)) is not implemented; its proximal operator is"))

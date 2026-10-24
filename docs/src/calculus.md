@@ -211,6 +211,36 @@ u = prox(Constrained(NormL1(0.5), IndSphereL2(1)), [2.0, -0.3, 1.0, 0.2])   # a 
 (u, norm(u))
 ```
 
+**A quadratic on an affine set.** For a [`LeastSquaresLoss`](@ref) or a
+[`QuadraticFunction`](@ref) ``f`` with Hessian ``H`` on
+``\{z : Az = b\}`` for an ``m \times n`` matrix ``A``, the proximal problem is a
+ridge regression with equality constraints. Its optimality conditions
+```math
+(H + I/\gamma)\, z + A^\top\lambda = c, \qquad Az = b, \qquad c = v/\gamma - \nabla f(0),
+```
+give, with ``M = (H + I/\gamma)^{-1}``,
+```math
+z = M(c - A^\top\lambda), \qquad (AMA^\top)\,\lambda = AMc - b .
+```
+`Constrained(f, IndAffine(A, b))` applies ``M`` through the decomposition that
+``f`` keeps for its own proximal operator, the thin SVD ``X = U\Sigma V^\top`` of
+the least-squares loss or the eigendecomposition of the quadratic:
+``M = V(\Sigma^2 + I/\gamma)^{-1}V^\top + \gamma(I - VV^\top)``. The ``m \times m``
+matrix ``AMA^\top`` changes with ``\gamma``, and the function keeps its Cholesky
+factor for the last ``\gamma``, which ADMM changes rarely. A call then costs the
+unconstrained step plus two products with an ``m \times n`` matrix. With ADMM,
+``f`` as this function and ``g = \lambda\|\cdot\|_1`` give the lasso under
+equality constraints, such as log-contrast regression with several
+subcompositions (Shi, Zhang and Li, 2016).
+
+```@example calculus
+X = [1.0 0.0 2.0; 0.5 1.0 0.0; 0.0 1.0 1.0; 1.0 1.0 1.0]
+Y = [1.0, 2.0, 0.5, 1.5]
+f = Constrained(LeastSquaresLoss(Y, X), IndAffine([1.0 1.0 1.0], [0.0]))   # coefficients that sum to zero
+z = prox(f, zeros(3), 10.0)
+(z, sum(z))
+```
+
 ## Functions of the eigenvalues
 
 [`Spectral`](@ref)`(f)` is ``F(X) = f(\lambda(X))`` on the symmetric matrices,

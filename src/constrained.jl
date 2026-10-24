@@ -15,7 +15,8 @@ The function `f(x)` on the set `C`, and `Inf` outside it, for a convex separable
 - a simplex, [`IndSimplex`](@ref): the box `x ≥ 0` with the hyperplane
   `Σᵢ xᵢ = r`, or with the halfspace `Σᵢ xᵢ ≤ r`;
 - for a norm, an ℓ2 ball or sphere, [`IndBallL2`](@ref) or
-  [`IndSphereL2`](@ref), described below.
+  [`IndSphereL2`](@ref), described below;
+- for a quadratic, an affine set [`IndAffine`](@ref), described below.
 
 On a box, the proximal operator clamps that of `f` entry by entry, so
 `Constrained(f, box)` is separable, with [`prox_entry`](@ref) for coordinate
@@ -98,7 +99,7 @@ Constrained(f::AbstractFunction, C::IndSimplex) =
 Constrained(c::LinearConstrained, C::IndBox) = LinearConstrained(Constrained(c.f, C), c.set)
 Constrained(c::LinearConstrained, C::IndNonnegative) = LinearConstrained(Constrained(c.f, C), c.set)
 Constrained(::AbstractFunction, C::AbstractFunction) =
-  throw(ArgumentError("Constrained takes a box, a hyperplane, a halfspace, a simplex, an ℓ2 ball or an ℓ2 sphere, not $(nameof(typeof(C)))"))
+  throw(ArgumentError("Constrained takes a box, a hyperplane, a halfspace, a simplex, an ℓ2 ball, an ℓ2 sphere or an affine set, not $(nameof(typeof(C)))"))
 
 isproximable(::Type{<:Union{BoxConstrained, LinearConstrained}}) = true
 isconvex(::Type{<:LinearConstrained}) = true

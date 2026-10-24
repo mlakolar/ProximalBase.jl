@@ -34,6 +34,7 @@ test suite runs all of them.
 | [`15_calculus_and_custom_functions.jl`](15_calculus_and_custom_functions.jl) | building functions | `Scaled`, `Translate`, `Tilt`, `Conjugate` (Moreau's identity), `Sum`, `SeparableSum`, and a `SeparableFunction` of your own |
 | [`16_constrained_penalties.jl`](16_constrained_penalties.jl) | constrained penalties | `Constrained`: the lasso on coefficients that sum to zero for compositional data, the lasso on a box by coordinate descent, the capped simplex |
 | [`17_sparse_pca_fantope.jl`](17_sparse_pca_fantope.jl) | sparse principal components | `Spectral` of a constrained function: the Fantope; ADMM with `Tilt` for the linear term, against plain PCA |
+| [`18_ordered_penalties.jl`](18_ordered_penalties.jl) | piecewise-constant and monotone fits, SLOPE | `TotalVariation1D` and `FusedLasso` on a signal with jumps, `IndIsotonic`, `SLOPE` against the lasso on correlated predictors |
 
 For complete solvers built on these pieces, including coordinate descent with
 penalty paths, see [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl).

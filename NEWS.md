@@ -67,6 +67,18 @@
   operator converts the bounds to the type of the result. A clamp between
   integer bounds compared each float with an integer exactly, which did not
   vectorize; the projection is about six times faster.
+- **Functions of the order of the entries**, whose proximal operators pool
+  adjacent entries:
+  - `TotalVariation1D(λ)`: total-variation denoising by Condat's direct
+    algorithm, exact and in place;
+  - `FusedLasso(λ1, λ2)`: soft thresholding of the denoised vector;
+  - `IndIsotonic()`: isotonic regression by pool adjacent violators, in O(n);
+  - `SLOPE(λ)`: the sorted ℓ1 norm, by the same pooling on the sorted
+    magnitudes, in O(n log n).
+
+  None of them allocates.
+- **Example 18:** a piecewise-constant signal by the fused lasso, isotonic
+  regression, and SLOPE regression.
 
 ## 0.5.3
 

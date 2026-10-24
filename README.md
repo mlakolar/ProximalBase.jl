@@ -186,7 +186,7 @@ stopping rule at each penalty level, warm starting each level from the last.
 
 ## More examples
 
-The [examples](examples/) directory has seventeen complete scripts, each of which
+The [examples](examples/) directory has eighteen complete scripts, each of which
 checks its own result:
 - the lasso by ISTA, FISTA and ADMM, and by coordinate descent along a path;
 - nonconvex penalties and the group lasso;
@@ -194,6 +194,7 @@ checks its own result:
 - constrained least squares, and penalties with constraints;
 - the graphical lasso, and covariance and correlation matrices;
 - matrix completion, robust PCA, sparse PCA and multitask regression;
+- a signal with jumps, isotonic regression, and SLOPE;
 - a differential network;
 - a working-set solver;
 - functions of your own.
@@ -240,6 +241,9 @@ smooth versions of the hinge and quantile losses) expose `ProximalBase.deriv`,
 | `GroupNormLinf(λ0, groups, w)` | `λ0 Σₖ wₖ ‖x[Gₖ]‖∞` | |
 | `GroupMCP(λ, groups, w; a)`, `GroupSCAD(λ, groups, w; a)` | the MCP or SCAD of `‖x[Gₖ]‖₂` with level `λwₖ`, nonconvex | |
 | `NormL1Fused(λ1, λ2)` | `Σᵢ λ1 (\|x1ᵢ\| + \|x2ᵢ\|) + λ2 \|x1ᵢ - x2ᵢ\|` on pairs `(x1, x2)` | |
+| `TotalVariation1D(λ)` | `λ Σᵢ \|xᵢ₊₁ - xᵢ\|` | |
+| `FusedLasso(λ1, λ2)` | `λ1 ‖x‖₁ + λ2 Σᵢ \|xᵢ₊₁ - xᵢ\|` | |
+| `SLOPE(λ)` | `Σᵢ λᵢ \|x\|₍ᵢ₎`, the sorted ℓ1 norm, `λ` nonincreasing | |
 | `NuclearNorm(λ)` | `λ ‖X‖_*` | |
 | `TracePSD(λ)` | `λ tr(X)` on `X ⪰ 0` | |
 | `SingularValue(f)` | `f(σ(X))`: the spectral norm, the nuclear-norm and spectral-norm balls, the matrix elastic net, MCP or SCAD of the singular values, … | |
@@ -264,6 +268,7 @@ smooth versions of the hinge and quantile losses) expose `ProximalBase.deriv`,
 | `IndIntersection(C₁, C₂, …)` | the intersection of sets, projected by Dykstra's algorithm (iterative) |
 | `IndSimplex(r; equality)` | `x ≥ 0, Σᵢ xᵢ = r` (or `≤ r`) |
 | `IndHyperplane(a, b)`, `IndHalfspace(a, b)` | `⟨a, x⟩ = b`, `⟨a, x⟩ ≤ b`; a scalar `a` multiplies `Σᵢ xᵢ` |
+| `IndIsotonic()` | `x₁ ≤ x₂ ≤ … ≤ xₙ` |
 | `IndAffine(A, b)` | `Ax = b`, with a factorization cached at construction |
 | `IndPSD()`, `IndPSD(rank = r)` | `X ⪰ 0`, and of rank at most `r` (nonconvex) |
 | `IndBallRank(r)` | rank at most `r`, nonconvex |

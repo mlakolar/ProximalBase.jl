@@ -12,7 +12,7 @@ const TITLES = Dict(
     "10" => "Matrix completion", "11" => "Sparse plus low rank", "12" => "Multitask regression",
     "13" => "A differential network", "14" => "A working-set solver",
     "15" => "Building functions, and your own", "16" => "Constraints on separable penalties",
-    "17" => "Sparse principal components")
+    "17" => "Sparse principal components", "18" => "Total variation, isotonic regression and SLOPE")
 const SECTION = r"^# -+ (.+?) -*$"m
 headings(s) = replace(s, SECTION => m -> "# ### " * uppercasefirst(match(SECTION, m)[1]) * "\n#")
 rm(GENERATED; force = true, recursive = true)

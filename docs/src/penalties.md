@@ -25,6 +25,9 @@ and ``\gamma`` is the step of the proximal operator.
 | [`GroupNormLinf`](@ref)`(λ0, groups, w)` | ``\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_\infty`` | ``v_{G_k} - P_{\lVert\cdot\rVert_1 \le \gamma\lambda_0 w_k}(v_{G_k})`` | |
 | [`GroupMCP`](@ref)`(λ, groups, w)`, [`GroupSCAD`](@ref) | ``\sum_k p_{\lambda w_k}(\lVert x_{G_k}\rVert_2)`` with the MCP or SCAD ``p`` | the scalar proximal operator of ``p`` at ``\lVert v_{G_k}\rVert_2``, along ``v_{G_k}`` | |
 | [`NormL1Fused`](@ref)`(λ1, λ2)` | ``\sum_i \lambda_1(\lvert a_i\rvert + \lvert b_i\rvert) + \lambda_2\lvert a_i - b_i\rvert`` | fuse each pair, then soft threshold | |
+| [`TotalVariation1D`](@ref)`(λ)` | ``\lambda\sum_i\lvert x_{i+1} - x_i\rvert`` | Condat's direct algorithm | |
+| [`FusedLasso`](@ref)`(λ1, λ2)` | ``\lambda_1\lVert x\rVert_1 + \lambda_2\sum_i\lvert x_{i+1} - x_i\rvert`` | ``S_{\gamma\lambda_1}`` of the total-variation denoising | |
+| [`SLOPE`](@ref)`(λ)` | ``\sum_i\lambda_i\lvert x\rvert_{(i)}`` | pool adjacent violators on the sorted magnitudes | |
 | [`NuclearNorm`](@ref)`(λ)` | ``\lambda\sum_i \sigma_i(X)`` | ``U\max(\Sigma - \gamma\lambda, 0)V^\top`` | |
 | [`TracePSD`](@ref)`(λ)` | ``\lambda\operatorname{tr}(X)`` on ``X \succeq 0`` | ``U\max(\Lambda - \gamma\lambda, 0)U^\top`` | |
 | [`CheckLoss`](@ref)`(τ, w)` | ``\sum_i w_i\rho_\tau(x_i)`` | see below | ✓ |
@@ -229,6 +232,44 @@ fused but not shrunk, the penalty is
 On a matrix, the fibers are the rows and the slices the columns.
 `FiberSum(NormL2(λ))` is then the row-sparse penalty of multitask regression,
 without the index vectors of `GroupNormL2`.
+
+## Total variation, the fused lasso and SLOPE
+
+These penalties depend on the order of the entries, and their proximal
+operators pool adjacent entries into blocks of equal values.
+
+**Total variation.** The proximal operator of
+``\lambda\sum_i |x_{i+1} - x_i|`` is total-variation denoising. Its solution
+``z`` is piecewise constant. Its optimality conditions say that the cumulative
+sums of the residual ``v - z`` stay within ``\pm\gamma\lambda`` and end at zero, so
+the cumulative sums of ``z`` are a taut string in a tube around those of ``v``.
+Condat's algorithm (2013) scans ``v`` once, keeping bounds on the value of the
+current segment, and goes back only when a segment ends. It is exact, works in
+place, and takes O(n) time on most inputs, O(n²) at worst.
+
+**The fused lasso.** For ``\lambda_1\|x\|_1 + \lambda_2\sum_i|x_{i+1} - x_i|``,
+soft thresholding the denoised vector by ``\gamma\lambda_1`` gives the proximal
+operator (Friedman, Hastie, Höfling and Tibshirani, 2007): thresholding keeps
+the blocks of equal values, so their optimality conditions still hold.
+
+**SLOPE.** The sorted ℓ1 norm ``J_\lambda(x) = \sum_i \lambda_i|x|_{(i)}``, with
+``\lambda_1 \ge \dots \ge \lambda_n \ge 0`` and ``|x|_{(1)} \ge |x|_{(2)} \ge \cdots``,
+is the ℓ1 norm when the ``\lambda_i`` are equal and the ℓ∞ norm when
+``\lambda = (\lambda_1, 0, \dots, 0)``. With the Benjamini–Hochberg sequence
+``\lambda_i = \sigma\Phi^{-1}(1 - iq/(2p))``, SLOPE controls the false discovery
+rate of the selected variables for orthogonal designs (Bogdan, van den Berg,
+Sabatti, Su and Candès, 2015). The proximal operator keeps the signs and the
+order of the magnitudes of ``v``. With ``|v|`` sorted in decreasing order, it is
+the nonincreasing, nonnegative sequence nearest to ``|v|_{(i)} - \gamma\lambda_i``:
+isotonic regression by pool adjacent violators, clipped at zero, in
+O(n log n) time for the sort. Entries pooled into a block come out with equal
+magnitudes, which is how SLOPE groups correlated predictors.
+
+```@example penalties
+using ProximalBase
+v = [3.0, -1.0, 0.5, 2.0]
+prox(SLOPE([1.0, 0.8, 0.5, 0.2]), v, 1.0)    # magnitudes 3, 2, 1, 0.5 minus λ
+```
 
 ## Losses of residuals and margins
 

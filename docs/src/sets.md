@@ -21,6 +21,7 @@ rounding.
 | [`IndBallGroupL0`](@ref)`(s, groups)` | at most ``s`` nonzero groups | keep the ``s`` groups of largest norm |
 | [`IndHyperplane`](@ref)`(a, b)` | ``\langle a, x\rangle = b`` | ``v - \frac{\langle a, v\rangle - b}{\lVert a\rVert^2}\,a`` |
 | [`IndHalfspace`](@ref)`(a, b)` | ``\langle a, x\rangle \le b`` | the same when ``\langle a, v\rangle > b`` |
+| [`IndIsotonic`](@ref)`()` | ``x_1 \le x_2 \le \dots \le x_n`` | isotonic regression, by pool adjacent violators |
 | [`IndIntersection`](@ref)`(C₁, C₂, …)` | ``C_1 \cap C_2 \cap \cdots`` | Dykstra's algorithm, iterative |
 | [`IndAffine`](@ref)`(A, b)` | ``Ax = b`` | ``v - A^\top(AA^\top)^{-1}(Av - b)``, from a factorization cached at construction |
 | [`IndPSD`](@ref)`()` | ``X \succeq 0`` | ``U\max(\Lambda, 0)U^\top`` |
@@ -136,6 +137,16 @@ A scalar `a` stands for an array of `a`s of the size of the argument, so
 `IndHyperplane(1, r)` is the set of arrays whose entries sum to ``r``, of any
 size. [`Constrained`](@ref) restricts a convex separable function to a
 hyperplane or a halfspace.
+
+## Monotone vectors
+
+The projection onto the nondecreasing vectors, [`IndIsotonic`](@ref), is
+isotonic regression. Pool adjacent violators scans the entries, pooling each
+entry with the block before it while their means are out of order. Each block
+then takes its mean, the projection of the block onto the constants. With a
+stack of blocks in buffers that the function owns, it runs in O(n) time.
+`IndIsotonic(decreasing = true)` projects onto the nonincreasing vectors, and
+the same pooling gives the proximal operator of [`SLOPE`](@ref).
 
 ## Positive semidefinite and low-rank matrices
 

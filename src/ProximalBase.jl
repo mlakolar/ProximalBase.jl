@@ -46,7 +46,7 @@ export
   # penalties
   NormL1, NormL1Nonneg, ElasticNet, NormL2, NormLinf, GroupNormL2, GroupNormLinf,
   SparseGroupNormL2,
-  NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD,
+  NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD, TotalVariation1D, FusedLasso, SLOPE,
   NegEntropy, KLDivergence, NegLog, Berhu,
 
   # nonsmooth losses
@@ -59,7 +59,7 @@ export
   # indicator functions
   IndBox, IndNonnegative, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
   IndIntersection,
-  IndHyperplane, IndHalfspace, IndPSD, IndBallRank,
+  IndHyperplane, IndHalfspace, IndPSD, IndBallRank, IndIsotonic,
   IndSphereL2,
   IndBallGroupL0,
   IndPattern, IndBanded, IndToeplitz,
@@ -102,6 +102,7 @@ include("functions/spectral.jl")
 include("functions/singular.jl")
 include("functions/intersection.jl")
 include("functions/sets.jl")
+include("functions/ordered.jl")
 include("functions/nonconvex.jl")
 include("functions/matrixsets.jl")
 include("functions/affine.jl")

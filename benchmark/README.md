@@ -292,6 +292,47 @@ of an AMD EPYC 7513 with one BLAS thread (USC CARC Discovery, job 13351030,
   written with `eigen`, which allocates 80 kB at n = 50 and 1 MB at n = 200 on
   every call.
 
+## Functions of the order of the entries
+
+[`ordered/run.jl`](ordered/run.jl) compares the proximal operators of
+`TotalVariation1D` with ProximalOperators' implementation of the same
+algorithm, and `IndIsotonic` with NearlyIsotonicRegression.jl's pool adjacent
+violators. No package exposes the proximal operator of SLOPE, so its time is
+compared with that of the sort it needs, which bounds it from below. Solvers
+that use these operators are compared in ProximalSolvers (mlakolar/ProximalSolvers.jl#57
+for SLOPE regression against SLOPE.jl). The packages it needs have their own environment:
+
+```sh
+julia --project=benchmark/ordered -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
+julia --project=benchmark/ordered benchmark/ordered/run.jl
+```
+
+ProximalBase at 6951b88, ProximalOperators 0.16.1 and NearlyIsotonicRegression
+0.1.0 on Julia 1.13.2, one core of an AMD EPYC 7513 (USC CARC Discovery, job
+13367486, 2026-10-24):
+
+| case | ProximalBase (μs) | other | other (μs) | ratio | largest difference |
+|:-----|---:|:---|---:|---:|---:|
+| TV, noise, n = 10³                 |       5.5 | ProximalOperators          |       5.8 |  1.07× | 2e-16 |
+| TV, 10 steps and noise, n = 10³    |       6.9 | ProximalOperators          |       7.2 |  1.04× | 2e-16 |
+| isotonic, n = 10³                  |       2.9 | NearlyIsotonicRegression   |      11.3 |  3.93× | 2e-15 |
+| SLOPE, n = 10³                     |      14.1 | its sort alone             |       9.8 |  0.69× |  |
+| TV, noise, n = 10⁵                 |    1818.5 | ProximalOperators          |    1821.3 |  1.00× | 4e-16 |
+| TV, 10 steps and noise, n = 10⁵    |    1665.9 | ProximalOperators          |    1648.6 |  0.99× | 4e-16 |
+| isotonic, n = 10⁵                  |    1414.1 | NearlyIsotonicRegression   |    3728.9 |  2.64× | 1e-12 |
+| SLOPE, n = 10⁵                     |    6464.5 | its sort alone             |    4446.1 |  0.69× |  |
+
+- **Total variation:** as fast as ProximalOperators, with the same results to
+  rounding. Condat's algorithm goes back over a segment when it ends, and at
+  n = 10⁵ both implementations take 16 to 18 ns per entry.
+- **Isotonic regression:** 2.6 to 3.9 times faster than
+  NearlyIsotonicRegression.jl, with the same results.
+- **The proximal operator of SLOPE:** the sort takes 69% of its time, and the
+  pooling and the restoration of the order and the signs the rest. It sorts an
+  index vector by a quicksort up to 4096 entries, and with Base's `sortperm!`
+  and a scratch buffer beyond, where that is 2 to 2.6 times faster; neither
+  allocates.
+
 ## The nearest correlation matrix (`intersection.jl`)
 
 `intersection.jl` projects an indefinite symmetric matrix with unit diagonal

@@ -108,6 +108,16 @@ end
     end
   end
 
+  @testset "functions of the order of the entries" begin
+    for f in (TotalVariation1D(0.4), FusedLasso(0.2, 0.4), IndIsotonic(), IndIsotonic(decreasing = true),
+              SLOPE(sort(rand(p); rev = true)))
+      @testset "$(nameof(typeof(f)))" begin
+        zero_alloc_prox(f, x)
+        zero_alloc_prox(f, Float32.(x))
+      end
+    end
+  end
+
   @testset "spectral functions" begin
     M = randn(12, 8)
     A = randn(10, 10); A = A + A'

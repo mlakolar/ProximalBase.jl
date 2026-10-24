@@ -19,6 +19,7 @@ tests = [
   "singular",
   "intersection",
   "sets",
+  "ordered",
   "nonconvex",
   "matrixsets",
   "affine",

@@ -4,18 +4,17 @@
 #   julia --project=benchmark -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
 #   julia --project=benchmark benchmark/multiplier.jl
 #
-# 1. One call from zero, over independent draws: master's first step, the lower
-#    bound on the distance to the root, which this branch keeps for a first
-#    call, against the first step from the exact slope, which it takes from the
-#    last multiplier and which a stored multiplier of zero forces here.
-# 2. The calls of a solver on slowly changing points: master, which searches
-#    from zero on every call, against this branch, which starts from the last
-#    multiplier.
+# 1. One call from zero, over independent draws: the first step of a first call,
+#    the lower bound on the distance to the root, as before #77, against the
+#    first step from the exact slope, which the search takes from the last
+#    multiplier and which a stored multiplier of zero forces here.
+# 2. The calls of a solver on slowly changing points: the search before #77,
+#    from zero on every call, against the search from the last multiplier.
 # 3. FISTA on the zero-sum lasso: its calls of the proximal operator, recorded
-#    from one run and replayed for master and for this branch.
+#    from one run and replayed before and after #77.
 # 4. One median selection over the 2n breakpoints of the zero-sum lasso, the step
 #    of the breakpoint search that #77 proposed, against the whole search.
-# 5. The threshold of the projection onto the simplex: master's Condat pass
+# 5. The threshold of the projection onto the simplex: Condat's pass before #77
 #    against the pass that hands over to Michelot's algorithm.
 # Every comparison runs its sides on the same data, interleaved over rounds,
 # and keeps the fastest round of each: other jobs on a shared node slow down
@@ -33,7 +32,7 @@ const CALLS = Ref(0)
 struct Counted{F} <: PB.SeparableFunction       # counts the passes; keeps the slopes
   f::F
 end
-struct Slopeless{F} <: PB.SeparableFunction     # hides the slopes: master's search
+struct Slopeless{F} <: PB.SeparableFunction     # hides the slopes: the search before #77
   f::F
 end
 for W in (:Counted, :Slopeless)
@@ -87,11 +86,11 @@ label(n) = n == 1_000 ? "10³" : "10⁵"
 println("## 1. One call from zero, over independent draws")
 println()
 println("200 draws of x at n = 10³ and 20 at n = 10⁵, the same for both sides: the mean time and passes per call, ",
-        "and the share of draws on which the exact first step takes more passes. A first call takes master's first ",
-        "step; the exact one, which this branch takes from the last multiplier, is forced from zero by storing a ",
-        "multiplier of zero.")
+        "and the share of draws on which the exact first step takes more passes. A first call takes the first step ",
+        "of the search before #77; the exact one, which the search takes from the last multiplier, is forced from ",
+        "zero by storing a multiplier of zero.")
 println()
-println("| case | master's first step, as at a first call (μs, passes) | the exact first step (μs, passes) | more passes |")
+println("| case | the first step of a first call (μs, passes) | the exact first step (μs, passes) | more passes |")
 println("|:-----|---:|---:|---:|")
 for n in (1_000, 100_000)
   xs, y = [randn(n) for _ in 1:(n == 1_000 ? 200 : 20)], zeros(n)
@@ -111,8 +110,8 @@ println()
 println("The same 20 slowly changing points for all sides: the time and passes per call. The middle column starts ",
         "from the last multiplier with the slope of the last secant, as for a function without known slopes.")
 println()
-println("| case | master, each call from zero (μs, passes) | from the last multiplier, slopes hidden (μs, passes) | ",
-        "this branch, from the last multiplier (μs, passes) | speedup over master |")
+println("| case | before #77, each call from zero (μs, passes) | from the last multiplier, slopes hidden (μs, passes) | ",
+        "after #77, from the last multiplier (μs, passes) | speedup |")
 println("|:-----|---:|---:|---:|---:|")
 for n in (1_000, 100_000)
   x, noise, y = randn(n), randn(n), zeros(n)
@@ -132,7 +131,7 @@ println()
 println("## 3. FISTA on the zero-sum lasso")
 println()
 println("The points at which 500 iterations of FISTA call the proximal operator, recorded from one run and replayed ",
-        "for both sides: the time and passes per call, and the time of a whole iteration on master, for scale.")
+        "for both sides: the time and passes per call, and the time of a whole iteration before #77, for scale.")
 println()
 function fista!(β, f, g, iters; reset = false, record = nothing)
   L = PB.lipschitz(f)
@@ -151,8 +150,8 @@ function fista!(β, f, g, iters; reset = false, record = nothing)
   end
   β
 end
-println("| problem | an iteration on master (ms) | master, each call from zero (μs, passes) | ",
-        "this branch, from the last multiplier (μs, passes) | speedup |")
+println("| problem | an iteration before #77 (ms) | before #77, each call from zero (μs, passes) | ",
+        "after #77, from the last multiplier (μs, passes) | speedup |")
 println("|:-----|---:|---:|---:|---:|")
 for (n, p) in ((100, 20_000), (50, 100_000))
   W = exp.(randn(n, p))
@@ -200,8 +199,8 @@ end
 println()
 println("## 5. The threshold of the projection onto the simplex")
 println()
-# master's _simplex_threshold! (f5a7ec4), Condat's algorithm with a division per update
-function master_threshold!(buf::AbstractVector{T}, x::AbstractVector, a::T) where {T}
+# _simplex_threshold! before #77 (f5a7ec4), Condat's algorithm with a division per update
+function old_threshold!(buf::AbstractVector{T}, x::AbstractVector, a::T) where {T}
   n = length(x)
   buf[1] = x[1]
   nt, nv = 0, 1
@@ -253,16 +252,16 @@ function master_threshold!(buf::AbstractVector{T}, x::AbstractVector, a::T) wher
   end
   ρ
 end
-println("| case | master (μs) | this branch (μs) | speedup | difference in τ |")
+println("| case | before #77 (μs) | after #77 (μs) | speedup | difference in τ |")
 println("|:-----|---:|---:|---:|---:|")
 for n in (1_000, 100_000)
   x, buf = randn(n), zeros(n)
   s = n == 1_000 ? "10³" : "10⁵"
   for (rs, r) in (("1", 1.0), ("100", 100.0), ("n/100", n / 100), ("n/10", n / 10), ("n/2", n / 2))
     reps = n == 1_000 ? 2000 : 50
-    tm, tn = interleaved(() -> (for _ in 1:reps; master_threshold!(buf, x, r); end),
+    tm, tn = interleaved(() -> (for _ in 1:reps; old_threshold!(buf, x, r); end),
                          () -> (for _ in 1:reps; PB._simplex_threshold!(buf, x, eachindex(x), r); end)) ./ reps
-    d = abs(master_threshold!(buf, x, r) - PB._simplex_threshold!(buf, x, eachindex(x), r))
+    d = abs(old_threshold!(buf, x, r) - PB._simplex_threshold!(buf, x, eachindex(x), r))
     @printf("| r = %s, n = %s | %.1f | %.1f | %.2f× | %.0e |\n", rs, s, 1e6tm, 1e6tn, tm / tn, d)
   end
 end

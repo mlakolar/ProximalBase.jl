@@ -209,8 +209,10 @@ ProximalBase.prox_entry(g::NoSlope, v, i, γ) = prox_entry(g.f, v, i, γ)
 ProximalBase.value_entry(g::NoSlope, v, i) = value_entry(g.f, v, i)
 ProximalBase.isconvex(::Type{<:NoSlope}) = true
 
-# and one that counts the passes of the search over x
+# and one that counts the passes of the search over x, and the entries whose
+# slopes it computes
 const CALLS = Ref(0)
+const SLOPES = Ref(0)
 struct Counted{F} <: SeparableFunction
   f::F
 end
@@ -218,7 +220,8 @@ ProximalBase.prox_entry(g::Counted, v, i, γ) = (CALLS[] += 1; prox_entry(g.f, v
 ProximalBase.value_entry(g::Counted, v, i) = value_entry(g.f, v, i)
 ProximalBase.isconvex(::Type{<:Counted}) = true
 ProximalBase._has_prox_slope(::Type{<:Counted{F}}) where {F} = ProximalBase._has_prox_slope(F)
-ProximalBase._prox_entry_slope(g::Counted, v, i, γ) = (CALLS[] += 1; ProximalBase._prox_entry_slope(g.f, v, i, γ))
+ProximalBase._prox_entry_slope(g::Counted, v, i, γ) =
+  (CALLS[] += 1; SLOPES[] += 1; ProximalBase._prox_entry_slope(g.f, v, i, γ))
 
 @testset "the search starts from the last multiplier" begin
   n = 2000
@@ -251,19 +254,17 @@ ProximalBase._prox_entry_slope(g::Counted, v, i, γ) = (CALLS[] += 1; ProximalBa
   y = similar(x)
   for (f, H) in ((IndNonnegative(), IndHyperplane(1, 1)), (NormL1(0.5), IndHyperplane(1, 0)), (IndBox(0, 1), IndHyperplane(1, n / 2)))
     c = Constrained(Counted(f), H)
-    CALLS[] = 0
+    CALLS[] = SLOPES[] = 0
     prox!(y, c, x, 0.7)
     cold = CALLS[] / n
-    CALLS[] = 0
+    @test SLOPES[] == 0                               # a first call computes no slopes
+    CALLS[] = SLOPES[] = 0
     for t in 1:10
       prox!(y, c, x .+ (0.001 * t) .* noise, 0.7)
     end
     warm = CALLS[] / n / 10
     @test warm <= 5 && warm < cold
-    # a first call takes the steps of a function without known slopes
-    CALLS[] = 0
-    z = prox(Constrained(NoSlope(Counted(f)), H), x, 0.7)
-    @test CALLS[] / n == cold && z == prox(Constrained(f, H), x, 0.7)
+    @test SLOPES[] == 10n                             # the later ones in their first pass
   end
 
   # Float32 calls keep the multiplier too

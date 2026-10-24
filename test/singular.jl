@@ -135,6 +135,53 @@ a_value(f, x) = f(x)
 a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
 a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
 
+# the projection onto {0 ≤ w ≤ u, Σᵢ wᵢ ≤ r}, by bisection on the level τ of
+# clamp.(z .- τ, 0, u)
+function capped_halfspace_proj(z, r, u)
+  sum(clamp.(z, 0, u)) <= r && return clamp.(z, 0, u)
+  lo, hi = 0.0, maximum(z)
+  for _ in 1:200
+    τ = (lo + hi) / 2
+    sum(clamp.(z .- τ, 0, u)) > r ? (lo = τ) : (hi = τ)
+  end
+  clamp.(z .- (lo + hi) / 2, 0, u)
+end
+
+kyfan(k, λ) = SingularValue(Conjugate(Constrained(IndBox(0, λ), IndHalfspace(1, λ * k))))
+
+@testset "the Ky Fan norm" begin
+  λ = 0.7
+  for (m, n) in ((9, 6), (6, 9), (7, 7)), k in (1, 2, 4)
+    X = 2 .* randn(m, n)
+    F = kyfan(k, λ)
+    σ = svdvals(X)
+    @test F(X) ≈ λ * sum(σ[1:k])
+    S = svd(X)
+    for γ in (0.3, 1., 3.)
+      # Moreau's identity on the singular values, with a projection by bisection
+      t = σ .- γ .* capped_halfspace_proj(σ ./ γ, λ * k, λ)
+      @test prox(F, X, γ) ≈ S.U * Diagonal(t) * S.Vt atol = 1e-9
+      @test value_and_prox!(similar(X), F, X, γ) ≈ λ * sum(sort(t; rev = true)[1:k]) atol = 1e-9
+    end
+    check_prox(F, X, 0.7)
+  end
+  # with k = 1 the spectral norm, and with k = min(m, n) the nuclear norm
+  X = randn(8, 5)
+  for γ in (0.2, 1., 5.)
+    @test prox(kyfan(1, λ), X, γ) ≈ prox(SingularValue(NormLinf(λ)), X, γ) atol = 1e-10
+    @test prox(kyfan(5, λ), X, γ) ≈ prox(NuclearNorm(λ), X, γ) atol = 1e-10
+  end
+  @test kyfan(5, λ)(X) ≈ NuclearNorm(λ)(X)
+  F = kyfan(2, λ)
+  X32 = Float32.(X)
+  @test F(X32) isa Float32
+  @test @inferred(value_and_prox!(similar(X32), F, X32, 0.5f0)) isa Float32
+  @test prox(F, X32, 0.5) ≈ prox(F, X, 0.5) rtol = 1e-4 atol = 1e-5
+  Y = similar(X)
+  @test allocs(a_value, F, X) == 0
+  @test allocs(a_vprox!, Y, F, X, 0.7) == 0
+end
+
 @testset "zero allocations" begin
   M = randn(12, 8)
   for f in CATALOG, Z in (M, Float32.(M))

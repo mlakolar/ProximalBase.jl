@@ -65,6 +65,37 @@ end
   @test tr(D) ≈ 1 && minimum(eigvals(Symmetric(D))) >= -1e-12
 end
 
+# the projection onto the capped simplex {0 ≤ x ≤ 1, Σᵢ xᵢ = k}, by bisection on
+# the level τ of clamp.(x .- τ, 0, 1)
+function capped_simplex_proj(x, k)
+  lo, hi = minimum(x) - 1, maximum(x)
+  for _ in 1:200
+    τ = (lo + hi) / 2
+    sum(clamp.(x .- τ, 0, 1)) > k ? (lo = τ) : (hi = τ)
+  end
+  clamp.(x .- (lo + hi) / 2, 0, 1)
+end
+
+@testset "the sum of the k largest eigenvalues" begin
+  n = 7
+  A = randsym(n)
+  λ, V = eigen(Symmetric(A))
+  top = sort(λ; rev = true)
+  for k in (1, 3, 2.5)
+    F = Spectral(Conjugate(Constrained(IndBox(0, 1), IndHyperplane(1, k))))
+    j = floor(Int, k)
+    @test F(A) ≈ sum(top[1:j]) + (k - j) * top[j + 1]
+    for γ in (0.3, 1., 3.)
+      # Moreau's identity on the eigenvalues, with a projection by bisection,
+      # and on the matrices, with the Fantope
+      z = λ .- γ .* capped_simplex_proj(λ ./ γ, k)
+      @test prox(F, A, γ) ≈ V * Diagonal(z) * V' atol = 1e-9
+      @test prox(F, A, γ) .+ γ .* prox(fantope(k), A ./ γ) ≈ A
+    end
+    check_prox(F, A, 0.7; symmetric = true)
+  end
+end
+
 @testset "outputs, element types and errors" begin
   n = 6
   A = randsym(n)

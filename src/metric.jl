@@ -134,6 +134,82 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArr
 end
 
 ####################################
+#  sets in a diagonal metric
+####################################
+
+# The projection onto a hyperplane in the metric of Diagonal(1 ./ γ),
+#   x - γ .* a (⟨a, x⟩ - b) / Σᵢ γᵢaᵢ²,
+# and onto a halfspace the same step when x violates the inequality
+function prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace}, x::AbstractArray, γ::AbstractArray)
+  _checksize(y, x)
+  _checkparams(f, x)
+  _checkparam(γ, x)
+  T = float(eltype(y))
+  g = _dot_normal(f.a, x) - f.b
+  f isa IndHalfspace && (g = max(g, zero(g)))
+  t = convert(T, g / _metric_sqnorm(f, x, γ))
+  y .= x .- t .* γ .* f.a
+end
+
+# The simplex and the ℓ1 ball: max(xᵢ - γᵢν, 0) and shrink(xᵢ, γᵢν) for the
+# level ν that meets the constraint
+function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, γ::AbstractArray)
+  _checksize(y, x)
+  _checkparam(γ, x)
+  T = float(eltype(y))
+  r = convert(T, f.r)
+  if !f.equality
+    s = zero(T)
+    for v in x
+      s += max(v, zero(v))
+    end
+    s <= r && return (y .= max.(x, zero(T)))
+  end
+  iszero(r) && return fill!(y, zero(eltype(y)))
+  ν = _metric_simplex_level(x, γ, r, identity)
+  y .= max.(x .- γ .* ν, zero(T))
+end
+
+function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, γ::AbstractArray)
+  _checksize(y, x)
+  _checkparam(γ, x)
+  T = float(eltype(y))
+  r = convert(T, f.r)
+  norm(x, 1) <= r && return (y === x ? y : copyto!(y, x))
+  iszero(r) && return fill!(y, zero(eltype(y)))
+  ν = _metric_simplex_level(x, γ, r, abs)
+  y .= shrink.(x, γ .* ν)
+end
+
+value_and_prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndSimplex, IndBallL1}, x::AbstractArray, γ::AbstractArray) =
+  (prox!(y, f, x, γ); zero(float(eltype(y))))
+
+# The level ν with Σᵢ max(uᵢ - γᵢν, 0) = r for uᵢ = h(xᵢ), by Newton's method
+# from the left on this convex, decreasing, piecewise linear function. From
+# ν = -∞, where every entry is active, each step solves for ν on the active set,
+# which then only shrinks, so ν increases to the root; the steps end when the
+# active set stays the same, at the exact root, as in Michelot's algorithm for
+# the simplex. Rounding can only stop it a step early.
+function _metric_simplex_level(x::AbstractArray, γ::AbstractArray, r::T, h::H) where {T, H}
+  ν = T(-Inf)
+  last = typemax(Int)
+  while true
+    s, w, k = zero(T), zero(T), 0
+    @inbounds for i in eachindex(IndexLinear(), x)
+      u, g = convert(T, h(x[i])), convert(T, γ[i])
+      if u > g * ν
+        s += u
+        w += g
+        k += 1
+      end
+    end
+    (k >= last || k == 0) && return ν
+    last = k
+    ν = (s - r) / w
+  end
+end
+
+####################################
 #  per-coordinate curvatures
 ####################################
 

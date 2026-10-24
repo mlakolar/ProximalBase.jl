@@ -67,4 +67,38 @@ same(a, b) = isinf(b) ? a == b : a ≈ b
   @test_throws ArgumentError Adapt.adapt(JLArray, NormL1(0.3, -w))
 end
 
+@testset "norms, balls and the simplex on GPU arrays" begin
+  allowscalar(false)
+  n = 300
+  x = 2 .* randn(n)
+  for T in (Float64, Float32)
+    xc = T.(x)
+    xg = JLArray(xc)
+    # each function also with a level or radius at which the result is zero or x
+    for f in (NormL2(0.3), NormL2(100.), NormLinf(0.3), NormLinf(1e4), IndBallL2(1.), IndBallL2(1e3), IndBallL1(2.),
+              IndBallL1(1e4), IndBallL1(0.), IndSimplex(1.), IndSimplex(3., equality = false), IndSimplex(1e4, equality = false),
+              IndSimplex(1e4), IndSimplex(0.))
+      @testset "$(nameof(typeof(f))), $T" begin
+        yc = prox(f, xc, 0.8)
+        yg = similar(xg)
+        @test prox!(yg, f, xg, 0.8) === yg
+        @test eltype(yg) == T
+        @test Array(yg) ≈ yc
+        @test same(f(xg), f(xc))
+        @test same(f(yg), f(yc))
+        vc = value_and_prox!(similar(xc), f, xc, 0.8)
+        @test same(value_and_prox!(yg, f, xg, 0.8), vc)
+        @test Array(yg) ≈ yc
+        zg = copy(xg)
+        @test Array(prox!(zg, f, zg, 0.8)) ≈ yc       # in place
+      end
+    end
+  end
+  # a matrix, and entries of one sign, where every entry stays active
+  X = randn(6, 5)
+  @test Array(prox(IndBallL1(1.), JLArray(X))) ≈ prox(IndBallL1(1.), X)
+  @test Array(prox(IndSimplex(1.), JLArray(fill(0.5, 4)))) ≈ fill(0.25, 4)
+  @test Array(prox(NormLinf(0.5), JLArray([3., -3., 3.]))) ≈ fill(3 - 0.5 / 3, 3) .* [1, -1, 1]
+end
+
 end

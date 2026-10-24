@@ -9,6 +9,7 @@ module ProximalBaseGPUArraysCoreExt
 
 using ProximalBase
 using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, SqrNormL2,
+                    NormLinf, IndBallL1, IndSimplex,
                     prox_entry, value_entry, shrink, _checksize, _checkparams, _tol
 using GPUArraysCore: AbstractGPUArray
 using Base.Broadcast: broadcasted, instantiate
@@ -107,6 +108,86 @@ end
 function ProximalBase._sumabs2_diff(x::GPUArray, y::GPUArray)
   size(x) == size(y) || throw(DimensionMismatch("the arrays have sizes $(size(x)) and $(size(y))"))
   _sum(float(promote_type(eltype(x), eltype(y))), (a, b) -> abs2(a - b), x, y)
+end
+
+####################################
+#  Norms, balls and the simplex
+####################################
+
+# NormL2 and IndBallL2 need only the sum of squares, a reduction, and a
+# broadcast, and run on the generic methods. The ℓ∞ norm, the ℓ1 ball and the
+# simplex clip or shrink the entries at the level τ with
+# Σᵢ max(g(xᵢ) - τ, 0) = r, for g = abs or the identity, which the CPU finds by
+# a selection. Michelot's algorithm finds it with reductions alone: τ is the
+# level that makes the entries above the last level sum to r, so it only
+# grows, and the entries at or below it drop out until none does, after at
+# most n passes and in practice a few.
+
+# g(v) when it exceeds τ, and 0 otherwise; whether it exceeds τ
+struct _Above{G, T}
+  g::G
+  τ::T
+end
+(a::_Above)(v) = (u = a.g(v); u > a.τ ? u : zero(u))
+struct _CountAbove{G, T}
+  g::G
+  τ::T
+end
+(a::_CountAbove)(v) = Int(a.g(v) > a.τ)
+
+function _level(x::GPUArray, r::T, g::G) where {T, G}
+  c = length(x)
+  τ = (_sum(T, _Above(g, T(-Inf)), x) - r) / c
+  while true
+    m = _sum(Int, _CountAbove(g, τ), x)
+    (m >= c || m == 0) && return τ                   # no entry dropped out
+    c = m
+    τ = (_sum(T, _Above(g, τ), x) - r) / c
+  end
+end
+
+(f::NormLinf)(x::GPUArray) = (T = float(eltype(x)); convert(T, f.λ) * mapreduce(abs, max, x; init = zero(T)))
+
+function ProximalBase.value_and_prox!(y::GPUArray, f::NormLinf, x::GPUArray, γ::Real)
+  _checksize(y, x)
+  T = float(eltype(y))
+  c = convert(T, γ) * convert(T, f.λ)
+  if _sum(T, abs, x) <= c
+    fill!(y, zero(eltype(y)))
+    return zero(T)
+  end
+  τ = _level(x, c, abs)
+  y .= sign.(x) .* min.(abs.(x), τ)
+  return convert(T, f.λ) * τ
+end
+
+function (f::IndBallL1)(x::GPUArray)
+  T = float(eltype(x))
+  _sum(T, abs, x) <= f.r + _tol(T) * max(one(T), f.r) ? zero(T) : T(Inf)
+end
+
+function ProximalBase.prox!(y::GPUArray, f::IndBallL1, x::GPUArray, ::Real)
+  _checksize(y, x)
+  T = float(eltype(y))
+  r = convert(T, f.r)
+  if _sum(T, abs, x) <= r
+    y === x || copyto!(y, x)
+    return y
+  end
+  iszero(r) && return fill!(y, zero(eltype(y)))
+  y .= shrink.(x, _level(x, r, abs))
+end
+
+function ProximalBase.prox!(y::GPUArray, f::IndSimplex, x::GPUArray, ::Real)
+  _checksize(y, x)
+  T = float(eltype(y))
+  r = convert(T, f.r)
+  if !f.equality && _sum(T, v -> max(v, zero(v)), x) <= r
+    y .= max.(x, zero(T))
+    return y
+  end
+  iszero(r) && return fill!(y, zero(eltype(y)))
+  y .= max.(x .- _level(x, r, identity), zero(T))
 end
 
 ####################################

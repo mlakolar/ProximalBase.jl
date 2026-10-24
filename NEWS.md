@@ -68,6 +68,9 @@
 - **GPU arrays** (#53): through a package extension on GPUArraysCore and Adapt,
   the separable functions run on GPU arrays as broadcasts and reductions, and
   `adapt(CuArray, f)` moves a function's parameter arrays to the device.
+  `NormL2`, `IndBallL2`, `NormLinf`, `IndBallL1` and `IndSimplex` run there too:
+  the last three find the level of their thresholding by Michelot's algorithm,
+  with reductions alone.
 - **`ProximalBase.Testing`** (#52): the checks of the test suite, public for
   authors of new functions, after `using Test`: `test_prox`, `test_gradient`,
   `test_separable`, `test_conjugate`, `test_kkt`, `test_traits`, `allocations`

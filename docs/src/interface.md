@@ -166,7 +166,11 @@ package loads an extension in which `f(x)`, [`prox!`](@ref) and
 instead of the loops over entries of the dense path. This covers
 [`NormL1`](@ref), [`NormL1Nonneg`](@ref), [`ElasticNet`](@ref),
 [`IndBox`](@ref) and [`IndBallLinf`](@ref), [`IndNonnegative`](@ref),
-[`NormL0`](@ref), [`MCP`](@ref), [`SCAD`](@ref) and [`SqrNormL2`](@ref).
+[`NormL0`](@ref), [`MCP`](@ref), [`SCAD`](@ref) and [`SqrNormL2`](@ref). It also
+covers [`NormL2`](@ref), [`IndBallL2`](@ref), [`NormLinf`](@ref),
+[`IndBallL1`](@ref) and [`IndSimplex`](@ref). The last three find the level of
+their thresholding by Michelot's algorithm, which needs only reductions,
+instead of a selection: a few passes over the array.
 
 - **Parameter arrays on the device.** Weights, bounds and centers must live on
   the device with the argument: `Adapt.adapt(CuArray, NormL1(λ, w))` copies
@@ -176,6 +180,5 @@ instead of the loops over entries of the dense path. This covers
   [`value_entry`](@ref) run inside the kernels. One that holds arrays needs an
   `Adapt.adapt_structure` method that rebuilds it with the arrays converted
   and without checks, since inside a kernel its arrays are device arrays.
-- **Not yet.** The group norms, the projections onto the simplex and the balls,
-  the spectral functions and [`LogDetLoss`](@ref) (which use LAPACK), the
+- **Not yet.** The group norms, the spectral functions and [`LogDetLoss`](@ref) (which use LAPACK), the
   losses of a design matrix, and the sparse iterates run on the CPU only.

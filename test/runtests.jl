@@ -23,6 +23,7 @@ tests = [
   "ballconstrained",
   "constrained_nonconvex",
   "allocations",
+  "gpu",
   "deprecated",
   "examples",
   "aqua"

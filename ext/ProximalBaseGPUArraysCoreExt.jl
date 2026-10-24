@@ -572,7 +572,7 @@ struct _ObsDeriv{T, L}
   loss::L
 end
 _ObsDeriv{T}(loss::L) where {T, L} = _ObsDeriv{T, L}(loss)
-(o::_ObsDeriv{T})(η, y, w) where {T} = convert(T, w) * convert(T, ProximalBase.value_and_deriv(o.loss, η, y)[2])
+(o::_ObsDeriv{T})(η, y, w) where {T} = convert(T, w) * convert(T, ProximalBase.deriv(o.loss, η, y))
 
 function (f::_DeviceGLM{L, T})(β::AbstractVector) where {L, T}
   η = ProximalBase._linear_predictor!(f, β)
@@ -587,6 +587,13 @@ function ProximalBase.value_and_gradient!(g::AbstractVector, f::_DeviceGLM{L, T}
   s = _sum(T, _ObsValue{T}(f.loss), η, f.y, w)
   mul!(g, transpose(f.X), f.d)
   return s
+end
+
+function ProximalBase.gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::AbstractVector) where {L, T}
+  _checksize(g, β)
+  η = ProximalBase._linear_predictor!(f, β)
+  f.d .= _ObsDeriv{T}(f.loss).(η, f.y, _param(f.weights))
+  return mul!(g, transpose(f.X), f.d)
 end
 
 ####################################

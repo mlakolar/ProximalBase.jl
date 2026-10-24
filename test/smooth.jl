@@ -12,6 +12,13 @@ Random.seed!(1)
 
 const PB = ProximalBase
 
+# Count objective evaluations independently of derivative evaluations.
+struct CountedSquared <: PB.ScalarLoss
+  calls::Base.RefValue{Int}
+end
+(ℓ::CountedSquared)(η, y) = (ℓ.calls[] += 1; abs2(η - y) / 2)
+PB.deriv(::CountedSquared, η, y) = η - y
+
 @testset "ZeroFunction and LinearFunction" begin
   x = randn(5)
   f = ZeroFunction()
@@ -196,6 +203,32 @@ end
   @test PB.Logistic()(1000., 0.) ≈ 1000.
   @test PB.deriv(PB.Logistic(), 1000., 0.) ≈ 1.
   @test PB.Logistic()(0.3f0, 1f0) isa Float32
+  # Correctly classified observations still have a positive loss and curvature
+  # after sigmoid(η) has rounded to 1; compare to independent high-precision formulas.
+  setprecision(BigFloat, 512) do
+    for T in (Float32, Float64), η in T.((-80, -40, -20, 0, 20, 40, 80)), y in T.((0, 0.3, 1))
+      bη, by = BigFloat(η), BigFloat(y)
+      e = exp(bη)
+      refv = T(log1p(e) - by * bη)
+      refd = T(e / (1 + e) - by)
+      refh = T(e / (1 + e)^2)
+      v, d = PB.value_and_deriv(PB.Logistic(), η, y)
+      @test v ≈ refv rtol = 8eps(T)
+      @test d ≈ refd rtol = 8eps(T)
+      @test PB.deriv(PB.Logistic(), η, y) ≈ refd rtol = 8eps(T)
+      @test PB.deriv2(PB.Logistic(), η, y) ≈ refh rtol = 8eps(T)
+    end
+    for (η, y) in ((40., 0.3f0), (40f0, 0.3), (40f0, 1), (40, 1f0))
+      bη, by = BigFloat(η), BigFloat(y)
+      T = typeof(first(promote(float(η), y)))
+      refv = T(log1p(exp(bη)) - by * bη)
+      refd = T(inv(1 + exp(-bη)) - by)
+      v, d = PB.value_and_deriv(PB.Logistic(), η, y)
+      @test v ≈ refv rtol = 8eps(T)
+      @test d ≈ refd rtol = 8eps(T)
+      @test PB.deriv(PB.Logistic(), η, y) ≈ refd rtol = 8eps(T)
+    end
+  end
   @test_throws ArgumentError PB.Huber(0.)
 end
 
@@ -238,6 +271,25 @@ end
   @test_throws DimensionMismatch LogisticLoss(yb, X)(randn(p + 1))
   f32 = LogisticLoss(Float32.(yb), Float32.(X))
   @test f32(Float32.(β)) isa Float32
+
+  calls = Ref(0)
+  f = GLMLoss(CountedSquared(calls), yr, X; weights = w, offset = off)
+  g = similar(β)
+  @test gradient!(g, f, β) === g
+  @test g ≈ X' * (w .* (X * β + off - yr))
+  @test calls[] == 0
+  @test value_and_gradient!(g, f, β) ≈ sum(w .* abs2.(X * β + off - yr)) / 2
+  @test calls[] == n
+
+  # The loss, gradient and Hessian-vector product retain the logistic tail too.
+  for T in (Float32, Float64)
+    f = LogisticLoss(T[1], ones(T, 1, 1))
+    β = T[40]
+    e = exp(T(-40))
+    @test f(β) ≈ log1p(e)
+    @test gradient(f, β) ≈ T[-e / (1 + e)]
+    @test hessian_vec(f, β, T[1]) ≈ T[e / (1 + e)^2]
+  end
 end
 
 @testset "LogDetLoss" begin

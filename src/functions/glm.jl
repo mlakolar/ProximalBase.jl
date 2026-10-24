@@ -73,23 +73,28 @@ of logistic regression with `y ∈ {0, 1}` (or a proportion), computed without
 overflow.
 """
 struct Logistic <: ScalarLoss end
-# log(1 + exp(η)) and the sigmoid 1/(1 + exp(-η)), without overflow
-@inline function _log1pexp_sigmoid(η::T) where {T<:AbstractFloat}
+@inline function value_and_deriv(::Logistic, η::Real, y::Real)
+  η, y = promote(float(η), y)
+  # Keep the small tail explicitly: (η + log1p(exp(-η))) - η and
+  # sigmoid(η) - 1 both round to zero for correctly classified large η.
   if η > 0
-    e = exp(-η)
-    (η + log1p(e), inv(1 + e))
+    e = exp(-float(η))
+    ((1 - y) * η + log1p(e), (1 - y) - e / (1 + e))
   else
-    e = exp(η)
-    (log1p(e), e / (1 + e))
+    e = exp(float(η))
+    (log1p(e) - y * η, e / (1 + e) - y)
   end
 end
-@inline function value_and_deriv(::Logistic, η::Real, y::Real)
-  l, σ = _log1pexp_sigmoid(float(η))
-  (l - y * η, σ - y)
-end
 (ℓ::Logistic)(η::Real, y::Real) = value_and_deriv(ℓ, η, y)[1]
-deriv(ℓ::Logistic, η::Real, y::Real) = value_and_deriv(ℓ, η, y)[2]
-deriv2(::Logistic, η::Real, ::Real) = (σ = _log1pexp_sigmoid(float(η))[2]; σ * (1 - σ))
+function deriv(::Logistic, η::Real, y::Real)
+  η, y = promote(float(η), y)
+  e = exp(-abs(float(η)))
+  η > 0 ? (1 - y) - e / (1 + e) : e / (1 + e) - y
+end
+function deriv2(::Logistic, η::Real, ::Real)
+  e = exp(-abs(float(η)))
+  e / (1 + e)^2
+end
 curvature(::Logistic) = 0.25
 
 """
@@ -228,6 +233,15 @@ function value_and_gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVe
   end
   mul!(g, transpose(f.X), d)
   s
+end
+
+function gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVector) where {L, T}
+  _checksize(g, β)
+  η = _linear_predictor!(f, β)
+  @inbounds for i in eachindex(η)
+    f.d[i] = convert(T, _entry(f.weights, i)) * deriv(f.loss, η[i], f.y[i])
+  end
+  mul!(g, transpose(f.X), f.d)
 end
 
 restrict(f::GLMLoss, S::AbstractVector{<:Integer}) =

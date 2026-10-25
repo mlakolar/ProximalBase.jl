@@ -21,7 +21,18 @@ PB_N=10000 PB_P=1000 julia --project=test/cuda benchmark/gpu_solver/profile.jl >
 A missing CUDA device is an error. `check.jl` also runs with the package's CPU
 project and requires no CUDA installation. Output directories must be fresh.
 Save the generated environment, project, manifest, setup files, raw CSV, and
-profiles. The manifest contains a local package path: develop the recreated
+profiles. The Discovery launcher pins CUDA toolkit 12.8 by default, independently of the
+installed driver, so V100 devices remain supported. Override `PB_CUDA_RUNTIME`
+only with a toolkit supported by the selected device. A manifest alone does not
+capture this selection: retain `LocalPreferences.toml` alongside it. To select
+12.8 manually after instantiation, run the following command and restart Julia
+before validation:
+
+```sh
+julia --project=test/cuda -e 'using CUDA; CUDA.set_runtime_version!(v"12.8")'
+```
+
+The manifest contains a local package path: develop the recreated
 checkout at that path, or explicitly run `Pkg.develop(path=...)` before replay.
 The runner verifies the loaded package path. Source SHA and tracked dirty status
 are in `environment.txt`; use a committed checkout to capture the harness itself.

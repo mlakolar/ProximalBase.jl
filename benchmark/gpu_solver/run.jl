@@ -20,6 +20,8 @@ manifest = joinpath(dirname(Base.active_project()), "Manifest.toml")
 isfile(manifest) || error("Instantiate the CUDA environment first")
 cp(manifest, joinpath(OUT, "Manifest.toml"))
 cp(Base.active_project(), joinpath(OUT, "Project.toml"))
+preferences = joinpath(dirname(Base.active_project()), "LocalPreferences.toml")
+isfile(preferences) && cp(preferences, joinpath(OUT, "LocalPreferences.toml"))
 open(joinpath(OUT, "environment.txt"), "w") do io
     println(io, "UTC: ", now(UTC), "\nsource: ", SOURCE, "\ntracked dirty: ", DIRTY)
     println(io, "Loaded package: ", pathof(ProximalBase))

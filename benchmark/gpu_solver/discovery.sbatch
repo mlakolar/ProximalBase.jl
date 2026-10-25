@@ -15,6 +15,10 @@ export JULIA_DEPOT_PATH="$SLURM_SUBMIT_DIR/depot:/home1/mkolar/juliaPkg/depot"
 JULIA=/home1/mkolar/juliaPkg/julia-1.10.12/bin/julia
 nvidia-smi > hardware.txt
 "$JULIA" --project=source/test/cuda source/test/cuda/instantiate.jl
+# CUDA 13 drops compilation for V100 (sm70). Pin the toolkit independently
+# of the driver, and restart Julia before validation. Keep this preference receipt.
+export PB_CUDA_RUNTIME="${PB_CUDA_RUNTIME:-12.8}"
+"$JULIA" --project=source/test/cuda -e 'using CUDA; CUDA.set_runtime_version!(VersionNumber(ENV["PB_CUDA_RUNTIME"]))'
 "$JULIA" --project=source/test/cuda source/test/cuda/runtests.jl > validation.log 2>&1
 "$JULIA" --project=source/test/cuda source/benchmark/gpu_solver/check.jl > solver-check.log 2>&1
 PB_MODE=small PB_OUTPUT=small "$JULIA" --project=source/test/cuda source/benchmark/gpu_solver/run.jl > small.log 2>&1

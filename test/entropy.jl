@@ -23,6 +23,17 @@ function check_scalar_prox(f, pen; vs, γs, lo = -Inf)
   end
 end
 
+@testset "Wright omega near the Taylor-start boundaries" begin
+  for T in (Float32, Float64)
+    us = vcat(collect(range(T(-2), T(2); length=1001)),
+              T[prevfloat(T(-2)), nextfloat(T(-2)), prevfloat(T(2)), nextfloat(T(2))])
+    for u in us
+      reference = T(lambertw(exp(Float64(u))))
+      @test ProximalBase._wright_omega(u) ≈ reference rtol = 8eps(T)
+    end
+  end
+end
+
 @testset "the Wright omega function" begin
   ω = ProximalBase._wright_omega
   # against the Lambert W function where eᵘ is finite

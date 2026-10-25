@@ -128,6 +128,7 @@ function run_case(n, p, seed, T; initial = false, extra = false)
     return successes
 end
 
+function main()
 try
     # Both precisions of the initial case must pass before expanding the design.
     initial_passed = true
@@ -149,3 +150,7 @@ finally
     close(records)
 end
 println("BENCHMARK_COMPLETE; numerical failures remain in timings.csv")
+
+end
+
+main()

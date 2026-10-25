@@ -541,4 +541,31 @@ end
     end
 end
 
+
+@testset "sparse triple products agree with dense products" begin
+    rng = Xoshiro(20261025)
+    for T in (Float32, Float64)
+        m, n = 8, 10
+        A = Symmetric(randn(rng, T, m, m))
+        B = Symmetric(randn(rng, T, n, n))
+        # Concentrated support exercises each multiplication order, and no
+        # support verifies the empty-product dimensions. Stored zeros must
+        # contribute neither a row nor a column to the restricted product.
+        for (rows, columns) in (([2], [3, 7]), ([2, 6], [3]), (Int[], Int[]))
+            dense = zeros(T, m, n)
+            for i in rows, j in columns
+                dense[i, j] = T(i - j)
+            end
+            sparse = SparseIterate(dense)
+            activate!(sparse, 1)
+            product = A * sparse * B
+            @test product ≈ A * dense * B
+            @test size(product) == (m, n)
+            @test eltype(product) == T
+            @test Matrix(sparse) == dense
+        end
+    end
+end
+
+
 end

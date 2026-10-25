@@ -71,6 +71,10 @@ at the cutoff.
 
 Use `benchmark/changes/partial_svd.jl` with version-specific before/after
 projects and the [campaign protocol](../../../campaign/README.md). The
+runtime [source audit](source-audit.txt) verified the actual baseline and final
+candidate package roots on both Julia versions. Use `Pkg.develop(path=...)`
+and `PB_EXPECTED_PACKAGE_ROOT` for fresh runs; the portable harness now records
+and can assert that root before generating cases. The
 `launch/` files preserve Discovery settings for this run; adapt account/paths
 before reuse. Workers use one Julia and one BLAS thread, and four workers on
 distinct AMD EPYC 7513 nodes at most. Requested peak resources are 4 CPUs and

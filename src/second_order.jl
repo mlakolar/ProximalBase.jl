@@ -20,7 +20,8 @@ hashessian(f::AbstractFunction) = hashessian(typeof(f))
     hessian_vec!(Hv, f, x, v)
 
 Store the product `∇²f(x) v` of the Hessian of `f` at `x` with the direction
-`v` in `Hv` and return `Hv`, for a function with [`hashessian`](@ref). `Hv` is
+`v` in `Hv` and return `Hv`, for a function with [`hashessian`](@ref). Use an
+output that does not overlap `x` or `v`, as for `mul!`. `Hv` is
 a dense array of the shape of `x`; `x` and `v` may be sparse iterates. The
 product costs about as much as a gradient: two products with `X` for
 [`LeastSquaresLoss`](@ref) and [`GLMLoss`](@ref), `w X⁻¹VX⁻¹` from one Cholesky
@@ -59,7 +60,7 @@ allocating, and returns it.
 | [`QuadraticFunction`](@ref), [`KronQuadratic`](@ref), [`LeastSquaresLoss`](@ref), [`SqrNormL2`](@ref), [`LinearFunction`](@ref), [`ZeroFunction`](@ref) | `f` itself |
 | [`GLMLoss`](@ref) | the weighted least-squares loss of IRLS, `GLMLoss(ProximalBase.Squared(), z, X; weights = w ⊙ ℓ'', offset)` with the working responses `zᵢ = ηᵢ - ℓ'ᵢ / ℓ''ᵢ` |
 | [`LogDetLoss`](@ref)`(S, w)` | `KronQuadratic(wW, W, w(S - 2W))` with `W = x⁻¹` |
-| [`Scaled`](@ref), [`Tilt`](@ref), [`Translate`](@ref), [`Sum`](@ref), [`SeparableSum`](@ref) | the same construction around the models of the parts |
+| [`Scaled`](@ref), [`Tilt`](@ref), [`Translate`](@ref), [`Sum`](@ref), [`SeparableSum`](@ref), [`Regularize`](@ref), [`Precompose`](@ref) | the same construction around the models of the parts |
 
 For a `GLMLoss`, `ℓ''ᵢ` is floored at `√eps`, as in IRLS, so that the working
 responses stay finite where the curvature vanishes (a Huber loss beyond `δ`);

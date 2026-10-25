@@ -270,3 +270,16 @@ coordinate_lipschitz!(L::AbstractArray, s::Scaled) = (coordinate_lipschitz!(L, s
 coordinate_lipschitz(t::Union{Tilt, Translate}, k::Integer) = coordinate_lipschitz(t.f, k)
 coordinate_lipschitz!(L::AbstractArray, t::Union{Tilt, Translate}) = coordinate_lipschitz!(L, t.f)
 coordinate_lipschitz(s::Sum, k::Integer) = sum(f -> coordinate_lipschitz(f, k), s.fs)
+
+function coordinate_lipschitz(r::Regularize, k::Integer)
+  r.c === nothing || checkbounds(r.c, k)
+  coordinate_lipschitz(r.f, k) + r.ρ
+end
+function coordinate_lipschitz!(L::AbstractArray, r::Regularize)
+  _checkparam(r.c, L)
+  coordinate_lipschitz!(L, r.f)
+  L .+= r.ρ
+end
+coordinate_lipschitz(h::_ScalarPrecompose, k::Integer) = h.μ * coordinate_lipschitz(h.f, k)
+coordinate_lipschitz!(L::AbstractArray, h::_ScalarPrecompose) =
+  (coordinate_lipschitz!(L, h.f); L .*= h.μ)

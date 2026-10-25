@@ -23,10 +23,12 @@ from that of `f`. `A` is anything with `mul!(y, A, x)` and the five-argument
 matrix, the constructor checks `AA' = μI` unless `check = false`. Rows of the
 identity (a selection of entries), permutations, orthogonal transforms and
 tight frames qualify. Smooth when `f` is, with gradient `A'∇f(Ax)` and
-Lipschitz constant `μ L_f`; proximable and convex when `f` is.
+Lipschitz constant `μ L_f`; proximable and convex when `f` is. When `f` has
+second-order oracles, so does `h`, with Hessian product `A'∇²f(Ax)Av`.
 
 With a scalar `a ≠ 0`, `Precompose(f, a)` is `f(ax)` on arrays of any shape
-(`μ = a²`), separable when `f` is; with [`Translate`](@ref) it gives TFOCS's
+(`μ = a²`), separable when `f` is, with coordinate curvatures scaled by `a²`;
+with [`Translate`](@ref) it gives TFOCS's
 `f(ax + b)`. The value, the gradient and the proximal operator use buffers that
 `h` owns; do not share `h` between threads.
 """
@@ -36,10 +38,11 @@ struct Precompose{F<:AbstractFunction, M, T<:Real} <: AbstractFunction
   μ::T
   image::Scratch        # Ax
   inner::Scratch        # the proximal point or the gradient of f at Ax
+  direction::Scratch    # Av for a Hessian-vector product
 
   function Precompose{F, M, T}(f::F, A::M, μ::T) where {F<:AbstractFunction, M, T<:Real}
     μ > 0 || throw(ArgumentError("μ must be positive, got $μ"))
-    new{F, M, T}(f, A, μ, Scratch(), Scratch())
+    new{F, M, T}(f, A, μ, Scratch(), Scratch(), Scratch())
   end
 end
 
@@ -67,15 +70,15 @@ isseparable(::Type{<:Precompose{F, M}}) where {F, M} = M <: Real && isseparable(
 _isindicator(::Type{<:Precompose{F}}) where {F} = _isindicator(F)
 
 # the image Ax in a buffer that h owns
-_image!(h::Precompose, x::AbstractArray) = _image!(h, h.A, x)
-function _image!(h::Precompose, A, x)
+_image!(h::Precompose, x::AbstractArray) = _linear_image!(h.image, h.A, x)
+function _linear_image!(scratch::Scratch, A, x)
   T = float(promote_type(eltype(x), eltype(A)))
-  z = _array_buffer!(h.image, T, (size(A, 1),))
+  z = _array_buffer!(scratch, T, (size(A, 1),))
   mul!(z, A, x)
 end
-function _image!(h::Precompose, a::Real, x)
+function _linear_image!(scratch::Scratch, a::Real, x)
   T = float(promote_type(eltype(x), typeof(a)))
-  z = _array_buffer!(h.image, T, size(x))
+  z = _array_buffer!(scratch, T, size(x))
   z .= a .* x
 end
 _inner_buffer(h::Precompose, z::AbstractArray) = _array_buffer!(h.inner, eltype(z), size(z))
@@ -156,7 +159,9 @@ a shrunk point,
 
 and the value at the result comes from that of `f`. Smooth when `f` is, with
 gradient `∇f + ρ(x - c)` and Lipschitz constant `L_f + ρ`; separable when `f`
-is, so coordinate descent applies; on an [`AtomIterate`](@ref) a regularized
+is, so coordinate descent applies. Hessian products and quadratic models are
+available when `f` provides them, and coordinate curvatures increase by `ρ`.
+On an [`AtomIterate`](@ref) a regularized
 group norm updates a group. `Regularize(NormL1(λ), ρ)` is `ElasticNet(λ, ρ)`,
 `Regularize(GroupNormL2(λ, groups), ρ)` the group elastic net,
 `Regularize(NuclearNorm(λ), ρ)` the matrix elastic net, and with a center `c`
@@ -244,3 +249,47 @@ end
 restrict(r::Regularize, S::AbstractVector{<:Integer}) = Regularize(restrict(r.f, S), r.ρ, r.c === nothing ? nothing : r.c[S])
 
 lipschitz(r::Regularize) = lipschitz(r.f) + r.ρ
+
+####################################
+#  second-order oracles
+####################################
+
+hashessian(::Type{<:Precompose{F}}) where {F} = hashessian(F)
+hashessian(::Type{<:Regularize{F}}) where {F} = hashessian(F)
+
+function hessian_vec!(Hv::AbstractArray, h::Precompose, x::AbstractArray, v::AbstractArray)
+  _checksize(Hv, x)
+  _checkdirection(v, x)
+  z = _image!(h, x)
+  d = _linear_image!(h.direction, h.A, v)
+  b = _inner_buffer(h, z)
+  hessian_vec!(b, h.f, z, d)
+  _adjoint_apply!(Hv, h, b)
+end
+
+function hessian_vec!(Hv::AbstractArray, r::Regularize, x::AbstractArray, v::AbstractArray)
+  _checksize(Hv, x)
+  _checkdirection(v, x)
+  _checkparam(r.c, x)
+  hessian_vec!(Hv, r.f, x, v)
+  Hv .+= convert(eltype(Hv), r.ρ) .* v
+end
+
+function quadratic_model(h::Precompose, x::AbstractArray)
+  f = quadratic_model(h.f, _image!(h, x))
+  Precompose{typeof(f), typeof(h.A), typeof(h.μ)}(f, h.A, h.μ)
+end
+quadratic_model(r::Regularize, x) =
+  (_checkparam(r.c, x); Regularize(quadratic_model(r.f, x), r.ρ, r.c))
+
+function quadratic_model!(q::Precompose, h::Precompose, x::AbstractArray)
+  q.A === h.A && q.μ == h.μ || throw(ArgumentError("the model must come from the same Precompose"))
+  quadratic_model!(q.f, h.f, _image!(h, x))
+  q
+end
+function quadratic_model!(q::Regularize, r::Regularize, x)
+  q.c === r.c && q.ρ == r.ρ || throw(ArgumentError("the model must come from the same Regularize"))
+  _checkparam(r.c, x)
+  quadratic_model!(q.f, r.f, x)
+  q
+end

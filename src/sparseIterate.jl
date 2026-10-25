@@ -477,6 +477,62 @@ function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIt
   out
 end
 
+const _StridedSymmetric = Symmetric{<:Any, <:StridedMatrix}
+
+# Add c times column j, reading only the triangle that Symmetric owns.
+function _symmetric_axpy!(out::StridedVector, A::_StridedSymmetric, j::Int, c)
+  M = parent(A)
+  n = size(A, 1)
+  # One-line SIMD loops avoid phantom uncovered `end` lines on Julia 1.10.
+  if A.uplo == 'U'
+    @inbounds @simd for i in 1:j; out[i] += c * M[i, j]; end
+    @inbounds @simd for i in j+1:n; out[i] += c * M[j, i]; end
+  else
+    @inbounds @simd for i in 1:j-1; out[i] += c * M[j, i]; end
+    @inbounds @simd for i in j:n; out[i] += c * M[i, j]; end
+  end
+  out
+end
+
+_scale_product_output!(out, β) = iszero(β) ? fill!(out, zero(eltype(out))) : (out .*= β)
+# Preserve the common component precision without making a real scale complex.
+_product_scale(A, x, α) = convert(promote_type(typeof(α), real(eltype(A)), real(eltype(x))), α)
+
+function *(A::_StridedSymmetric, x::SparseIterate{T, 1}) where {T}
+  mul!(Vector{promote_type(eltype(A), T)}(undef, size(A, 1)), A, x)
+end
+function *(A::_StridedSymmetric, x::SparseIterate{T, 2}) where {T}
+  mul!(Matrix{promote_type(eltype(A), T)}(undef, size(A, 1), size(x, 2)), A, x)
+end
+
+LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::SparseIterate{<:Any, 1}) =
+  mul!(out, A, x, true, false)
+function LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::SparseIterate{<:Any, 1}, α::Number, β::Number)
+  length(x) == size(A, 2) && length(out) == size(A, 1) || throw(DimensionMismatch())
+  _scale_product_output!(out, β)
+  iszero(α) && return out
+  scale = _product_scale(A, x, α)
+  @inbounds for k in 1:x.nnz
+    _symmetric_axpy!(out, A, x.nzval2ind[k], scale * x.nzval[k])
+  end
+  out
+end
+
+LinearAlgebra.mul!(out::StridedMatrix, A::_StridedSymmetric, x::SparseIterate{<:Any, 2}) =
+  mul!(out, A, x, true, false)
+function LinearAlgebra.mul!(out::StridedMatrix, A::_StridedSymmetric, x::SparseIterate{<:Any, 2}, α::Number, β::Number)
+  size(x, 1) == size(A, 2) && size(out) == (size(A, 1), size(x, 2)) || throw(DimensionMismatch())
+  _scale_product_output!(out, β)
+  iszero(α) && return out
+  scale = _product_scale(A, x, α)
+  p = size(x, 1)
+  @inbounds for k in 1:x.nnz
+    j, col = mod1(x.nzval2ind[k], p), cld(x.nzval2ind[k], p)
+    _symmetric_axpy!(view(out, :, col), A, j, scale * x.nzval[k])
+  end
+  out
+end
+
 # A' equals transpose(A) for real A, so both take the sparse path
 const TransposedStridedMatrix{T} = Union{Transpose{<:Any,<:StridedMatrix{T}}, Adjoint{<:Real,<:StridedMatrix{T}}}
 

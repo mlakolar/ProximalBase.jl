@@ -76,7 +76,10 @@ _hessian_decomposition!(f::LeastSquaresLoss) = (_svd_cache!(f); (f.V, f.s2))
 _hessian_decomposition!(f::QuadraticFunction) = (_eigen!(f); (f.Q, f.Λ))
 
 # z = v/γ - ∇f(0)
-_ridge_rhs!(z, f::LeastSquaresLoss, v, ρ) = (z .= ρ .* v .+ f.XtY)
+function _ridge_rhs!(z, f::LeastSquaresLoss, v, ρ)
+  rhs = _xty_cache!(f)
+  z .= ρ .* v .+ rhs
+end
 _ridge_rhs!(z, f::QuadraticFunction, v, ρ) = f.b === nothing ? (z .= ρ .* v) : (z .= ρ .* v .- f.b)
 
 function _affine_cache!(c::AffineConstrained{T}) where {T}

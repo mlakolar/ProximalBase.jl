@@ -57,7 +57,7 @@ its result when the documentation is built.
 ## Related packages
 
 For statistical estimation and inference, see
-[CoordinateDescent.jl](https://github.com/mlakolar/CoordinateDescent.jl) for
+[HighDimensionalModels.jl](https://github.com/mlakolar/HighDimensionalModels.jl) for
 penalized regression,
 [CovarianceSelection.jl](https://github.com/mlakolar/CovarianceSelection.jl)
 for Gaussian graphical models, and

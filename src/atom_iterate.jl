@@ -7,14 +7,14 @@
 """
     AtomIterate([T = Float64,] p, groups)
     AtomIterate(x::AbstractVector, groups)
-    AtomIterate([T = Float64,] p, numGroups::Integer)
-    AtomIterate(x::AbstractVector, numGroups::Integer)
+    AtomIterate([T = Float64,] p, num_groups::Integer)
+    AtomIterate(x::AbstractVector, num_groups::Integer)
 
 A vector of length `p` whose coordinates, for coordinate descent, are the groups
 ("atoms") `x.groups[k]`, which partition `1:p`. The groups are ranges such as
 `1:5` or vectors of indices such as `[2, 7, 9]`, of any sizes;
-`AtomIterate(p, numGroups)` and `AtomIterate(x, numGroups)` split `1:p` into
-`numGroups` equal contiguous groups.
+`AtomIterate(p, num_groups)` and `AtomIterate(x, num_groups)` split `1:p` into
+`num_groups` equal contiguous groups.
 
 As the stored entries of a [`SparseIterate`](@ref) do, a set of active groups
 serves as the active set of a solver, and the entries of the other groups are
@@ -46,15 +46,15 @@ function AtomIterate(x::AbstractVector{T}, groups::AbstractVector{<:AbstractVect
   _AtomIterate(Vector{T}(x), G, _partition_group_of(G, length(x)))
 end
 
-AtomIterate(p::Integer, numGroups::Integer) = AtomIterate(Float64, p, numGroups)
-AtomIterate(::Type{T}, p::Integer, numGroups::Integer) where {T} = AtomIterate(T, p, _equal_groups(p, numGroups))
-AtomIterate(x::AbstractVector, numGroups::Integer) = AtomIterate(x, _equal_groups(length(x), numGroups))
+AtomIterate(p::Integer, num_groups::Integer) = AtomIterate(Float64, p, num_groups)
+AtomIterate(::Type{T}, p::Integer, num_groups::Integer) where {T} = AtomIterate(T, p, _equal_groups(p, num_groups))
+AtomIterate(x::AbstractVector, num_groups::Integer) = AtomIterate(x, _equal_groups(length(x), num_groups))
 
-# 1:p split into numGroups contiguous groups of equal sizes
-function _equal_groups(p::Integer, numGroups::Integer)
-  numGroups > 0 && p % numGroups == 0 || throw(ArgumentError("numGroups must divide p."))
-  m = div(p, numGroups)
-  [(m*(k-1)+1):(m*k) for k in 1:numGroups]
+# 1:p split into num_groups contiguous groups of equal sizes
+function _equal_groups(p::Integer, num_groups::Integer)
+  num_groups > 0 && p % num_groups == 0 || throw(ArgumentError("num_groups must divide p."))
+  m = div(p, num_groups)
+  [(m*(k-1)+1):(m*k) for k in 1:num_groups]
 end
 
 # the iterate with the given entries; the groups with a nonzero entry are active

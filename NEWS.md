@@ -380,7 +380,7 @@ Check for these when migrating:
 - **Calculus:** `Scaled` (also `α * f`), `Tilt`, `Translate`, `Conjugate`,
   `SeparableSum` and `Sum`.
 - **Iterates:** `coordinates(x)`; `activate!` for a `SymmetricSparseIterate`;
-  `AtomIterate(x, numGroups)`; `mul!` with `SparseIterate` matrices; the
+  `AtomIterate(x, num_groups)`; `mul!` with `SparseIterate` matrices; the
   three-argument `dot` and `*` with sparse iterates; `fill!` and `norm` on the
   stored entries.
 

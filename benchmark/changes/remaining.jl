@@ -41,39 +41,43 @@ function chol_refactor!(c::CholPrototype, γ)
     nothing
 end
 
+function ls_case!(cases,X,y,x,γ,steps,method,state)
+    T=eltype(X);m,n=size(X)
+    out=similar(x)
+    f=LeastSquaresLoss(y,X)
+    c=chol_prototype(X,y,γ)
+    warm = method=="ThinSVD" ? ()->prox!(out,f,x,γ) : ()->chol_prox!(out,c,x,γ)
+    cold = method=="ThinSVD" ? ()->prox!(out,LeastSquaresLoss(y,X),x,γ) :
+                             ()->chol_prox!(out,chol_prototype(X,y,γ),x,γ)
+    function trace!()
+        for step in steps
+            if method=="ThinSVD"
+                prox!(out,f,x,step)
+            else
+                chol_refactor!(c,step);chol_prox!(out,c,x,step)
+            end
+        end
+    end
+    op=state=="fixed_step" ? warm : state=="first_prox" ? cold : trace!
+    step=state=="four_changing_steps" ? last(steps) : γ
+    check!()=(op();close_enough(out,prox(LeastSquaresLoss(y,X),x,step)))
+    addcase!(cases,"ls_backend","$method/$state",op,check!;T,
+            shape="$(m)x$n",zero_alloc=false,work=(state=="four_changing_steps" ? 4 : 1)*m*n,
+            profile=T==Float64 && n==256)
+end
+
 function ls_study!(cases,rep)
     for T in (Float32,Float64), (m,n) in ((128,32),(1024,256),(32,128),(128,1024))
         rng=scenario_rng(rep,"ls_backend/$T/$m/$n")
         X,y,x=randn(rng,T,m,n),randn(rng,T,m),randn(rng,T,n)
         γ=T(0.7); steps=T[0.1,0.3,0.7,1.2]
-        for method in ("ThinSVD","Cholesky")
-            out=similar(x)
-            f=LeastSquaresLoss(y,X)
-            c=chol_prototype(X,y,γ)
-            warm = method=="ThinSVD" ? ()->prox!(out,f,x,γ) : ()->chol_prox!(out,c,x,γ)
-            cold = method=="ThinSVD" ? ()->prox!(out,LeastSquaresLoss(y,X),x,γ) :
-                                     ()->chol_prox!(out,chol_prototype(X,y,γ),x,γ)
-            function trace!()
-                for step in steps
-                    if method=="ThinSVD"
-                        prox!(out,f,x,step)
-                    else
-                        chol_refactor!(c,step);chol_prox!(out,c,x,step)
-                    end
-                end
-            end
-            for (state,op,step) in (("fixed_step",warm,γ),("first_prox",cold,γ),
-                                    ("four_changing_steps",trace!,last(steps)))
-                check!()=(op();close_enough(out,prox(LeastSquaresLoss(y,X),x,step)))
-                addcase!(cases,"ls_backend","$method/$state",op,check!;T,
-                    shape="$(m)x$n",zero_alloc=false,work=(state=="four_changing_steps" ? 4 : 1)*m*n,
-                    profile=T==Float64 && n==256)
-            end
+        for method in ("ThinSVD","Cholesky"), state in ("fixed_step","first_prox","four_changing_steps")
+            ls_case!(cases,X,y,x,γ,steps,method,state)
         end
     end
 end
 
-function sort_kernel!(f,x,::Type{T},alg) where T
+function sort_kernel!(f,x::AbstractVector{T},alg) where T
     n=length(x)
     a=ProximalBase._buffer!(f.sums,T,n)
     p=ProximalBase._buffer!(f.perm,Int,n)
@@ -81,6 +85,8 @@ function sort_kernel!(f,x,::Type{T},alg) where T
     sortperm!(p,a;rev=true,initialized=true,alg,scratch=ProximalBase._buffer!(f.sizes,Int,n))
     nothing
 end
+
+baseline_sort!(f,x::AbstractVector{T}) where T = (ProximalBase._sortperm_abs!(f,x,T);nothing)
 
 function slope_study!(cases,rep)
     for T in (Float32,Float64), n in (256,4096,100_000)
@@ -90,8 +96,8 @@ function slope_study!(cases,rep)
             expected=sort(abs.(input);rev=true)
             for (name,alg) in (("BaseDefault",nothing),("QuickSort",QuickSort),("MergeSort",MergeSort))
                 f=SLOPE(collect(range(T(0.5),T(0.1);length=n)))
-                op = alg===nothing ? ()->(ProximalBase._sortperm_abs!(f,input,T);nothing) :
-                                     ()->sort_kernel!(f,input,T,alg)
+                op = alg===nothing ? ()->baseline_sort!(f,input) :
+                                     ()->sort_kernel!(f,input,alg)
                 function check!()
                     op()
                     p=ProximalBase._buffer!(f.perm,Int,n)

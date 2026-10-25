@@ -9,6 +9,9 @@ stacked-array functions, sparse products, and a fixed-work lasso coordinate trac
 The catalog is in `cases.jl`. GPU hardware and exhaustive parameter coverage are
 outside this CPU campaign.
 
+The first saved baseline is [Discovery, 25 October 2026](baselines/discovery-2026-10-25/README.md),
+with results, uncertainty, implementation candidates and recreation receipts.
+
 ## Measurement design
 
 - Run ten fresh Julia processes per supported Julia version, with repetitions

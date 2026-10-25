@@ -1,0 +1,19 @@
+{
+  "measurement_rows": 21080,
+  "case_version_groups": 2108,
+  "expected_runs": 10,
+  "versions": [
+    "julia-1.10.12",
+    "julia-1.13.2"
+  ],
+  "missing_versions": [],
+  "cases_per_version": {
+    "julia-1.10.12": 1054,
+    "julia-1.13.2": 1054
+  },
+  "errors": [],
+  "incomplete": [],
+  "duplicate_groups": [],
+  "unexpected_allocation_groups": 0,
+  "high_variability_groups": 320
+}

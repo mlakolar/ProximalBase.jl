@@ -235,4 +235,12 @@ the observations. The proximal operator of `LeastSquaresLoss` uses the SVD of
   and without checks, since inside a kernel its arrays are device arrays.
 - **Not yet.** The spectral functions and [`LogDetLoss`](@ref) (which use
   LAPACK), the second-order methods of `GLMLoss`, and the sparse iterates run
-  on the CPU only.
+  on the CPU only. The GPU extension supports scalar steps; diagonal-step
+  proximal methods currently use CPU loops.
+
+Normal CI checks these operations through JLArrays, a reference backend that
+executes on the CPU. Optional physical NVIDIA GPU validation uses the separate
+[`test/cuda` environment](https://github.com/mlakolar/ProximalBase.jl/tree/master/test/cuda).
+It shares the reference-backend cases, disables scalar indexing, synchronizes
+device work before numerical comparisons and reports host and device allocations
+separately. CUDA remains optional and is not required for ordinary tests.

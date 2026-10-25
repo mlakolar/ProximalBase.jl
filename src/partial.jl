@@ -161,7 +161,7 @@ mutable struct PartialSVDWorkspace{T<:_BlasReal}
   seed::UInt64
   warm::Int                    # the leading columns of Y that start the next call
   rank::Int                    # the number of triplets kept at the last call
-  accepted::Bool               # the last partial attempt met the residual/guard checks
+  accepted::Bool               # the warm block comes from an accepted partial result
 end
 
 function PartialSVDWorkspace(::Type{T}, m::Integer, n::Integer, ℓ::Integer) where {T<:_BlasReal}

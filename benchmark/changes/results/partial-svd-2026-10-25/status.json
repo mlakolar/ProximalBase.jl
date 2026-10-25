@@ -1,0 +1,14 @@
+{
+  "julia-1.10.12": {
+    "groups": 370,
+    "faster": 27,
+    "slower": 2,
+    "slower_more_than_10pct": 0
+  },
+  "julia-1.13.2": {
+    "groups": 370,
+    "faster": 27,
+    "slower": 8,
+    "slower_more_than_10pct": 0
+  }
+}

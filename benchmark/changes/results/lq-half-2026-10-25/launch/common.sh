@@ -1,0 +1,3 @@
+export JULIA_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
+export JULIA_PKG_PRECOMPILE_AUTO=0 JULIA_NUM_PRECOMPILE_TASKS=1 JULIA_PKG_OFFLINE=true
+export JULIA_DEPOT_PATH="$PWD/depot:/home1/mkolar/juliaPkg/runs/20261025-pb-performance-baseline/depot:/home1/mkolar/juliaPkg/runs/20261025-pb-readme-audit/depot:/home1/mkolar/juliaPkg/runs/20261025-pb-followups/depot:/home1/mkolar/juliaPkg/runs/20261024T1838Z-pb-review/depot-recovery:/home1/mkolar/juliaPkg/runs/20261024T1838Z-pb-review/depot-norm:/home1/mkolar/juliaPkg/runs/20261024T1838Z-pb-review/depot:/home1/mkolar/juliaPkg/depot:"

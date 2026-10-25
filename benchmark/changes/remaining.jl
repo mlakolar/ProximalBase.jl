@@ -61,9 +61,11 @@ function ls_case!(cases,X,y,x,γ,steps,method,state)
     op=state=="fixed_step" ? warm : state=="first_prox" ? cold : trace!
     step=state=="four_changing_steps" ? last(steps) : γ
     check!()=(op();close_enough(out,prox(LeastSquaresLoss(y,X),x,step)))
-    addcase!(cases,"ls_backend","$method/$state",op,check!;T,
-            shape="$(m)x$n",zero_alloc=false,work=(state=="four_changing_steps" ? 4 : 1)*m*n,
-            profile=T==Float64 && n==256)
+    phase = state=="first_prox" ? "construct_and_first_prox" :
+            state=="four_changing_steps" ? "four_step_trace" : "warm"
+    addcase!(cases,"ls_backend","$method/$state",op,check!;T,phase,
+        shape="$(m)x$n",zero_alloc=false,work=(state=="four_changing_steps" ? 4 : 1)*m*n,
+        profile=T==Float64 && n==256)
 end
 
 function ls_study!(cases,rep)

@@ -165,6 +165,12 @@ The allocating versions [`prox`](@ref), [`gradient`](@ref),
 
 ## Conventions
 
+Data arrays retained by a function may be shared with the caller. After changing
+entries of `X` or `Y` in a `LeastSquaresLoss`, or `A` in a `QuadraticFunction`,
+call [`reset_cache!`](@ref) on the outermost function before using its proximal
+operator again. Sizes must stay unchanged. Reconstruct `IndAffine` after changing
+its data; its factorization type can change with the rank of `A`.
+
 - **Output first.** Mutating functions take their output first, as `mul!` does:
   `prox!(y, f, x, γ)` and `gradient!(g, f, x)`. The output may be the input:
   `prox!(x, f, x, γ)` works for every function.

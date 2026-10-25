@@ -16,7 +16,7 @@ the row groups of [`GroupNormL2`](@ref). `β` may be a dense array, a
 O(n ⋅ nnz).
 
 It is also proximable: the first proximal operator computes the thin SVD
-`X = U Diagonal(s) V'` and `X'Y` once, after which
+`X = U Diagonal(s) V'` and `Diagonal(s) U'Y` once, after which
 `prox_{γf}(v) = (X'X + I/γ)⁻¹ (X'Y + v/γ)` costs two products with `V` for any
 `γ`, also when `p > n`. ADMM changes `γ` freely at no cost.
 """
@@ -24,10 +24,10 @@ mutable struct LeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVecOrMat, Tx<:Abst
   Y::Ty
   X::Tx
   tmp::A                  # Xβ - Y, next to Y; calls to f(β) do not allocate
-  # the proximal operator: X = U Diagonal(√s2) V' and X'Y, computed on first use
+  # the proximal operator: X = U Diagonal(√s2) V', computed on first use
   V::Matrix{T}
   s2::Vector{T}
-  XtY::Array{T, N}
+  XtY::Array{T, N}        # only needed by an affine-constrained loss, built lazily
   sUtY::Array{T, N}       # Diagonal(s) U'Y, the right-hand side in the V basis
   w::Array{T, N}
   output::Scratch         # dense output for a non-strided destination
@@ -78,13 +78,19 @@ function _svd_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
     F = svd(Matrix{T}(f.X))
     f.V = F.V
     f.s2 = F.S .^ 2
-    f.XtY = Array{T, N}(transpose(f.X) * f.Y)
     f.sUtY = Array{T, N}(transpose(F.U) * f.Y)
     f.sUtY .*= F.S
     f.w = N == 1 ? Array{T, N}(undef, length(f.s2)) : Array{T, N}(undef, length(f.s2), size(f.Y, 2))
     f.svd_ready = true
   end
   f
+end
+
+function _xty_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
+  if isempty(f.XtY)
+    f.XtY = Array{T, N}(transpose(f.X) * f.Y)
+  end
+  f.XtY
 end
 
 # In the V basis the solution is (s U'Y + ρ V'v)/(s² + ρ). When V is

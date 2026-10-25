@@ -58,9 +58,12 @@ function partial_svd_cases(rep)
             svd_case!(cases, kind, X, previous, rank, "gapped", state)
         end
     end
-    for T in (Float32,Float64), (m,n,rank) in ((128,64,28),(160,80,32),(192,128,20),(512,256,20))
+    for T in (Float32,Float64), (m,n,rank) in ((128,64,4),(128,64,6),(128,64,8),
+                                          (128,64,28),(160,80,32),(192,128,20),(512,256,20))
         X, previous = svd_input(rep, T, m, n, rank, "clustered")
-        svd_case!(cases, "nuclear", X, previous, rank, "clustered", "nearby")
+        for state in ("nearby", "random_restart")
+            svd_case!(cases, "nuclear", X, previous, rank, "clustered", state)
+        end
     end
     for T in (Float32,Float64), (m,n) in ((128,64),(512,256))
         X, _ = svd_input(rep, T, m, n, 4, "gapped")

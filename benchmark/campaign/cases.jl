@@ -181,9 +181,11 @@ function separable_cases!(cases, rep)
                 atomx = AtomIterate(xa,f)
                 addprox!(cases, "groups", string(nameof(typeof(f))), f, atomx; layout="atom_half_active")
                 z = copy(atomx)
+                step = T(0.7)
+                group_index = length(groups)
                 prep!() = copyto!(z,atomx)
-                check!() = (prep!(); prox_coordinate!(z,f,length(groups),T(0.7)); all(isfinite,z) || error("nonfinite group update"))
-                addcase!(cases, "coordinates", string(nameof(typeof(f))), () -> prox_coordinate!(z,f,length(groups),T(0.7)), check!;
+                check!() = (prep!(); prox_coordinate!(z,f,group_index,step); all(isfinite,z) || error("nonfinite group update"))
+                addcase!(cases, "coordinates", string(nameof(typeof(f))), () -> prox_coordinate!(z,f,group_index,step), check!;
                          T, shape=string(n), layout="atom", prepare=prep!, work=length(last(groups)))
             end
         end
@@ -318,8 +320,9 @@ function constrained_cases!(cases,rep)
         if n == 256
             C=IndIntersection(IndNonnegative(),IndHyperplane(one(T),T(10));warmstart=false)
             out=similar(x)
-            check!() = (prox!(out,C,x,T(0.7));C.converged || error("Dykstra failed to converge");close_enough(out,prox(IndSimplex(T(10)),x)))
-            addcase!(cases,"intersection","simplex_cold_corrections",()->prox!(out,C,x,T(0.7)),check!;
+            step=T(0.7)
+            check!() = (prox!(out,C,x,step);C.converged || error("Dykstra failed to converge");close_enough(out,prox(IndSimplex(T(10)),x)))
+            addcase!(cases,"intersection","simplex_cold_corrections",()->prox!(out,C,x,step),check!;
                      T,shape=string(n),profile=T==Float64,work=n)
         end
     end

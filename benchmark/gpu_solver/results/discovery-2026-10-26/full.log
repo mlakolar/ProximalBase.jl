@@ -1,0 +1,20 @@
+Completed 400x40-Float32-103; successful=true
+Completed 400x40-Float64-103; successful=true
+Completed 400x40-Float64-103-tight; successful=true
+Completed 400x40-Float32-104; successful=true
+Completed 400x40-Float64-104; successful=true
+Completed 400x40-Float32-105; successful=true
+Completed 400x40-Float64-105; successful=true
+Completed 4000x400-Float32-103; successful=true
+Completed 4000x400-Float64-103; successful=true
+Completed 4000x400-Float32-104; successful=true
+Completed 4000x400-Float64-104; successful=true
+Completed 4000x400-Float32-105; successful=true
+Completed 4000x400-Float64-105; successful=true
+Completed 10000x1000-Float32-103; successful=true
+Completed 10000x1000-Float64-103; successful=true
+Completed 10000x1000-Float32-104; successful=true
+Completed 10000x1000-Float64-104; successful=true
+Completed 10000x1000-Float32-105; successful=true
+Completed 10000x1000-Float64-105; successful=true
+BENCHMARK_COMPLETE; numerical failures remain in timings.csv

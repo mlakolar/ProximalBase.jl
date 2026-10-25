@@ -4,6 +4,9 @@ Optional benchmark for issue #110. It uses ordinary proximal gradient with
 `LeastSquaresLoss`, `gradient!`, `NormL1`, and `prox!`. CUDA remains optional;
 production implementations and ordinary JLArrays tests are unchanged.
 
+The [Discovery report](results/discovery-2026-10-26/README.md) retains the
+measured V100 comparisons, raw samples, environment and diagnostic receipts.
+
 From a clean committed checkout on a physical CUDA device:
 
 ```sh

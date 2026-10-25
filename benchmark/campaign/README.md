@@ -28,9 +28,13 @@ outside this CPU campaign.
   times and all runs. Do not report the fastest draw as a typical time. Input
   variability and shared-node machine noise are both present in these intervals;
   ten draws are a useful baseline, not a guarantee of narrow intervals.
+  The intervals treat process/input draws as independent and do not correct for
+  correlated machine noise or for inspecting many cases.
 - Measure allocated bytes in ten separate warmed calls per case per process.
   Retain maximum and mean bytes, so occasional allocations are visible.
   Constructor-plus-first-prox costs have their own phase and allocation policy.
+  These measurements track Julia heap allocation; they do not measure native
+  library allocations or peak process memory.
 - Collect representative CPU profiles, including preparation callbacks for
   stateful traces, separately from benchmark timings. Allocation stack profiles
   isolate the timed operation when a supposedly allocation-free call allocates.
@@ -49,7 +53,7 @@ from timing conclusions; missing repetitions are reported explicitly.
 
 Create a project from `Project.toml`, develop the package checkout into it and
 instantiate it under the Julia version being measured. Set the three source and
-output variables, then run the harness ten times, serially:
+output variables, then run the harness ten times, serially, from this directory:
 
 ```sh
 export JULIA_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
@@ -65,16 +69,19 @@ Use Python 3.11 or later for validation and comparison. `validate.py` checks exa
 process and case coverage, consistent settings, successful checks, and agreement
 of reported means/extrema with every retained timing and allocation observation.
 It checks the measurement records, without rerunning the package operations.
-For the user's
-Discovery runs, all execution, analysis and profiling runs under Slurm using
-the task's saved launchers. GNU Parallel pins its worker slots to separate nodes
-with exclusive, CPU-bound `srun` steps. Cluster account, paths and resource settings stay in the
-run record rather than this portable harness.
+On Discovery, run execution, analysis and profiling under Slurm using the task's
+saved launchers. GNU Parallel pins its worker slots to separate nodes with
+exclusive, CPU-bound `srun` steps. Cluster account, paths and resource settings
+stay in the run record rather than this portable harness.
 
 `PB_MODE=canary` reduces samples and profile duration for launcher validation.
 `PB_SAMPLES`, `PB_SECONDS` and `PB_PROFILE_SECONDS` override measurement settings;
 retain identical settings when comparing changes. Existing repetition files are
 never silently overwritten.
+
+Run `python3 check_analysis.py` to exercise the analysis utilities on analytic
+data and on deliberately damaged records. Run this check under Slurm on Discovery
+when following the project's execution policy.
 
 To compare a later implementation using the same case IDs, keyed seeds, Julia
 version, CPU and settings:
@@ -91,3 +98,7 @@ baselines and requires matching Julia/BLAS versions, CPU target, threads, seeds,
 measurement settings and harness commit. Keep the same instrumentation commit
 when changing the package implementation. Also confirm the actual CPU model
 from the saved hardware receipts before interpreting its output.
+Matching seeds pairs the inputs; it does not remove changes in machine load
+between campaigns. Use the saved baseline to screen candidates. Confirm small
+changes by interleaving before/after runs on the same nodes, alternating which
+implementation runs first.

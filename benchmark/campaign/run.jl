@@ -58,8 +58,8 @@ function measure!(c::PerfCase, metrics, raw, allocations, profiles, allocation_p
     end
     allocated_call(op,prep); allocated_call(op,prep)
     bytes=[allocated_call(op,prep) for _ in 1:10]
-    b=@benchmarkable $op() setup=($prep()) evals=$(c.evals) samples=$samples seconds=$seconds
-    trial=run(b)
+    b=@benchmarkable $op() setup=($prep())
+    trial=run(b;evals=c.evals,samples=samples,seconds=seconds)
     times=trial.times
     isempty(times) && error("empty benchmark trial")
     gc_share=sum(trial.gctimes)/max(sum(times),1)

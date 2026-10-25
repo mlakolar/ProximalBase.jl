@@ -11,7 +11,7 @@
 # ω(u) = W₀(eᵘ), the solution of ω + log ω = u, for real u, without forming eᵘ
 # for large u, where it overflows and the entropy proxes need it (u = v/γ - 1 -
 # log γ is large for a small step). The start comes from the series of W at 0,
-# an approximation of W (Winitzki, 2003) or the asymptotic series, by the range
+# a Taylor expansion at u = 0 or the asymptotic series, by the range
 # of u, as in Lawrence, Corless and Jeffrey (2012, ACM TOMS Algorithm 917); then
 # Halley's method converges in two or three steps. For u < -2, ω is small and
 # log ω ≈ u, so the residual ω + log ω - u would lose the digits of ω; the
@@ -31,8 +31,13 @@ function _wright_omega(u::T) where {T<:AbstractFloat}
     end
     return w
   elseif u < 2
-    l = log1p(exp(u))
-    w = l * (1 - log1p(l) / (2 + l))
+    # ω(0) is the omega constant. Implicit differentiation gives
+    # ω' = ω/(1+ω) and ω'' = ω/(1+ω)^3. A quadratic start avoids exp and two
+    # log1p calls here; the same Halley iteration below supplies the accuracy.
+    a = T(0.567143290409783873)
+    b = a / (1 + a)
+    c = a / (2 * (1 + a)^3)
+    w = a + u * (b + u * c)
   else
     l = log(u)
     w = u - l + l / u

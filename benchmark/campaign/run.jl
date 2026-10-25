@@ -83,7 +83,7 @@ function measure!(c::PerfCase, metrics, raw, allocations, profiles, allocation_p
     end
 end
 
-function main()
+function main(builder=build_cases)
     rep=parse(Int,get(ENV,"PB_REPETITION","1"))
     output=get(ENV,"PB_OUTPUT",joinpath(@__DIR__,"results"))
     mode=get(ENV,"PB_MODE","full")
@@ -97,7 +97,7 @@ function main()
     BLAS.set_num_threads(1)
     Profile.init(n=2_000_000,delay=0.001)
     started=time()
-    cases=build_cases(rep)
+    cases=builder(rep)
     case_filter=get(ENV,"PB_CASE_FILTER","")
     isempty(case_filter) || filter!(c->occursin(Regex(case_filter),c.meta.id),cases)
     isempty(cases) && error("case filter selected no cases")
@@ -152,4 +152,6 @@ function main()
     failures==0 || exit(2)
 end
 
-main()
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end

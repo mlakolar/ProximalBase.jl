@@ -86,8 +86,8 @@ include("utils.jl")
 include("lapack.jl")
 include("partial.jl")
 
-include("sparseIterate.jl")
-include("atomIterate.jl")
+include("sparse_iterate.jl")
+include("atom_iterate.jl")
 
 include("interface.jl")
 

@@ -127,3 +127,10 @@ nothing # hide
 
 [`brute_force_prox`](@ref ProximalBase.Testing.brute_force_prox) is a
 reference for a scalar proximal operator, convex or not.
+
+## Running the package suite
+
+From the package checkout, run `julia scripts/test_master.jl` after adding or
+changing an implementation. This uses the complete test extras and workspace
+master dependencies on Julia 1.10 and newer, with bounds checking enabled,
+while leaving the package's `Project.toml` unchanged.

@@ -147,6 +147,21 @@ The documentation includes function definitions and an API reference, while
 the [examples](examples/README.md) give complete programs for regression,
 graphical models, matrix estimation and constrained optimization.
 
+## Development and tests
+
+From the package checkout, resolve dependencies and run the complete suite with:
+
+```sh
+julia scripts/instantiate.jl
+julia scripts/test_master.jl
+```
+
+The bootstrap uses sibling `master` checkouts for workspace dependencies. The
+runner creates an isolated environment containing the package and its test
+extras, including extra-only master dependencies on Julia 1.10, while keeping
+this package's `Project.toml` unchanged. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for the naming policy and development setup.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

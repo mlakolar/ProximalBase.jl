@@ -2,6 +2,6 @@
 
 ```@autodocs
 Modules = [ProximalBase]
-Pages = ["sparseIterate.jl", "atomIterate.jl", "utils.jl", "lapack.jl", "deprecated.jl"]
+Pages = ["sparse_iterate.jl", "atom_iterate.jl", "utils.jl", "lapack.jl", "deprecated.jl"]
 Private = false
 ```

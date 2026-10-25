@@ -536,8 +536,8 @@ end
 # A' equals transpose(A) for real A, so both take the sparse path
 const TransposedStridedMatrix{T} = Union{Transpose{<:Any,<:StridedMatrix{T}}, Adjoint{<:Real,<:StridedMatrix{T}}}
 
-function *(transA::TransposedStridedMatrix{Ta}, x::SparseIterate{Tx, 1}) where {Ta,Tx}
-    A = transA.parent
+function *(trans_a::TransposedStridedMatrix{Ta}, x::SparseIterate{Tx, 1}) where {Ta,Tx}
+    A = trans_a.parent
     m, n = size(A)
     length(x) == m || throw(DimensionMismatch())
     Ty = promote_type(Ta, Tx)
@@ -545,8 +545,8 @@ function *(transA::TransposedStridedMatrix{Ta}, x::SparseIterate{Tx, 1}) where {
     mul!(y, transpose(A), x)
 end
 
-function LinearAlgebra.mul!(out::StridedVector, transA::TransposedStridedMatrix, coef::SparseIterate{T, 1}) where {T}
-    A = transA.parent
+function LinearAlgebra.mul!(out::StridedVector, trans_a::TransposedStridedMatrix, coef::SparseIterate{T, 1}) where {T}
+    A = trans_a.parent
     length(coef) == size(A, 1) || throw(DimensionMismatch("A has first dimension $(size(A,1)), length of coef is $(length(coef))"))
     length(out) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), length of out is $(length(out))"))
 

@@ -14,3 +14,4 @@
 
 # Local Julia-minor environments are regenerated from master checkouts
 /Manifest-v*.toml
+/test/oracles/Manifest*.toml

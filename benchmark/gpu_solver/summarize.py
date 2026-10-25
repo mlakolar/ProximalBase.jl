@@ -1,12 +1,12 @@
 """Summarize successful paired samples; retain and count all failed runs."""
-import csv
+from validate import validate
 import statistics as st
 import sys
 from collections import defaultdict
 from pathlib import Path
 
 root = Path(sys.argv[1])
-rows = list(csv.DictReader((root / "timings.csv").open()))
+rows = validate(root)
 groups = defaultdict(list)
 for row in rows:
     groups[tuple(row[k] for k in ("n", "p", "precision", "seed", "scenario", "tolerance", "check_every"))].append(row)

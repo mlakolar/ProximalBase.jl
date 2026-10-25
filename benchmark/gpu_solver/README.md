@@ -81,6 +81,9 @@ and compilation are excluded from both scenarios. GPU work is synchronized
 before the clock starts and before it stops. Independent verification is outside
 the clock. The summary retains per-seed medians and ranges and counts failures.
 Raw rows include execution order; slow samples are retained.
+The summarizer checks exact design coverage, duplicate rows, source identity,
+and recorded numerical success claims before producing a report. Run
+`python3 benchmark/gpu_solver/validate.py full` to repeat these saved-record checks.
 
 ## Profiles and the Float64 anomaly
 

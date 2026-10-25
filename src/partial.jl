@@ -256,7 +256,11 @@ function _leading_svd!(f, X::AbstractMatrix, ::Type{T}, τ::T, r::Int) where {T}
   cache = f.pws
   old = cache isa PartialSVDWorkspace{T} ? cache : nothing   # f.pws is untyped: no dynamic call
   prev = old === nothing ? 0 : old.rank
-  ws = _partial_svd_workspace(old, T, m, n, r > 0 ? r : prev + _PARTIAL_GUARD)
+  # The oversampling already leaves at least ten pairs beyond the predicted
+  # rank, including the guards. Adding guards to prev as well can send a small
+  # matrix to the full SVD despite a sufficient block at the preceding call.
+  need = r > 0 ? r : max(prev, _PARTIAL_GUARD)
+  ws = _partial_svd_workspace(old, T, m, n, need)
   ws === nothing && return -1
   f.pws = ws
   Xd = _dense_input(ws, X, T)

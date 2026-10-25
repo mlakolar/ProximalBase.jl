@@ -1,5 +1,15 @@
 # Benchmarks
 
+For a reusable baseline, use the [repeated CPU campaign](campaign/README.md).
+It measures ten independent seeded runs per case and Julia version, reports
+arithmetic means with between-run variation and intervals, and retains raw
+timings, allocation measurements and representative profiles.
+
+The comparisons below are historical experiments with their stated machines,
+commits and timing summaries. In particular, the partial-decomposition tables
+use the fastest of a few calls. Treat them as exploratory evidence; new
+performance decisions should use repeated measurements with matching settings.
+
 `compare.jl` times the proximal operators of ProximalBase against
 [ProximalOperators.jl](https://github.com/JuliaFirstOrder/ProximalOperators.jl),
 the general Julia library of proximal operators, and counts the bytes each call

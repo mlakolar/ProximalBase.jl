@@ -28,7 +28,7 @@ for r in rows:
         before_id=before['id'],after_id=r['id'],before_mean_us=float(before['mean_ns'])/1000,
         after_mean_us=float(r['mean_ns'])/1000,paired_ratio=math.exp(mu),ci95_low=math.exp(mu-half),ci95_high=math.exp(mu+half)))
 with (out/'contrasts.csv').open('w',newline='') as stream:
-    writer=csv.DictWriter(stream,fieldnames=list(contrasts[0]));writer.writeheader();writer.writerows(contrasts)
+    writer=csv.DictWriter(stream,fieldnames=list(contrasts[0]),lineterminator='\n');writer.writeheader();writer.writerows(contrasts)
 versions=sorted({r['julia'] for r in rows})
 stats={}
 for version in versions:

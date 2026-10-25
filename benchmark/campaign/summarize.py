@@ -58,7 +58,7 @@ def summarize(root, output, expected, versions):
     if not results:
         raise RuntimeError("No valid benchmark measurements")
     with open(output/"summary.csv", "w", newline="") as stream:
-        writer=csv.DictWriter(stream,fieldnames=list(results[0]))
+        writer=csv.DictWriter(stream,fieldnames=list(results[0]),lineterminator="\n")
         writer.writeheader(); writer.writerows(results)
     incomplete = [{"julia":version,"id":case_id,"valid_runs":len(groups.get((version,case_id),[]))}
                   for version, ids in catalogs.items() for case_id in sorted(ids)

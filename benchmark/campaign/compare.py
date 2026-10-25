@@ -47,7 +47,7 @@ if __name__=="__main__":
     out=Path(args.output);out.mkdir(parents=True,exist_ok=True)
     fields=["julia","id","paired_runs","before_mean_ns","after_mean_ns","paired_geometric_speedup","ci95_low","ci95_high"]
     with open(out/"comparison.csv","w",newline="") as stream:
-        writer=csv.DictWriter(stream,fieldnames=fields);writer.writeheader()
+        writer=csv.DictWriter(stream,fieldnames=fields,lineterminator="\n");writer.writeheader()
         for (version,case),pairs in sorted(groups.items()):
             if {rep for rep, _, _ in pairs} != set(range(1, 11)):
                 raise ValueError(f"Incomplete paired repetitions: {version}/{case}")

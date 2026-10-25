@@ -73,14 +73,62 @@ These V100 measurements do not resolve the earlier L40S bimodality. Coarse
 one-second clock/utilization telemetry covers the diagnostics, not the main
 benchmark, and cannot assign a clock state to each millisecond solve.
 
-**Trace collection is pending.** The initial profiling script computed CUDA
-profile objects but did not display them in batch mode. The original logs above
-therefore contain allocation and timing diagnostics, not kernel/API traces.
-Commit `68eea64` prints those objects explicitly. A separate profile-only job
-will collect the small CPU-win and large GPU-win traces without replacing these
-validated timings. No package optimization is proposed before those traces
-connect overhead to concrete operations. Individual `CUDA.@time` call latencies
-can include instrumentation compilation and must not be used to rank operations.
+## Rendered traces and implementation decision
+
+Profile-only job **13447957** completed in 1m23s on V100 node d13-04.
+It used the same package and saved CUDA environment as the timing run, with
+profile source `68eea64f88780aad1749c01c7e42ef03b0ba2814`.
+The [small CPU-win trace](profile-v5/profile-400.log) and
+[large GPU-win trace](profile-v5/profile-10000.log) include operation and
+whole-solve host/API and device activity. They run on a second node of the same
+GPU model; their instrumented durations are separate diagnostics and do not
+replace the main timings. Profile job receipts and telemetry are in
+[profile-v5](profile-v5).
+
+| Float64 case | Check frequency | Profile wall ms | Device busy ms | Kernel launches | Host scalar downloads | GEMV-named kernels |
+|---|---|---|---|---|---|---|
+| 400 × 40 | 1 | 3.73 | 0.318 | 92 | 13 | 26 |
+| 400 × 40 | 10 | 4.19 | 0.390 | 112 | 3 | 42 |
+| 10,000 × 1,000 | 1 | 5.20 | 3.53 | 136 | 15 | 30 |
+| 10,000 × 1,000 | 10 | 5.83 | 4.73 | 136 | 3 | 42 |
+
+Kernel launch counts combine driver `cuLaunchKernel` and runtime
+`cudaLaunchKernel` API calls. Host scalar downloads are the recorded
+`cuMemcpyDtoHAsync` calls for stopping reductions. Neither count includes an
+initial input upload or final coefficient download: these are resident solves.
+
+In the small every-update solve, the GPU was busy for only 8.52% of the trace;
+CUDA API calls occupied 1.59 ms, or 42.68%. The trace shows many short launches,
+scalar transfers and gaps between GPU operations. In the large every-update solve,
+GPU activity occupied 67.87%; GEMV-named kernels accounted for 3.135 ms of the
+3.53 ms device-busy interval. Host API time was 2.41 ms and can overlap device
+work; these percentages must not be added. Matrix-vector work matters much more
+in the large case, while host submission remains visible.
+
+The gradient-only trace contains four 8-byte pool allocations and four host-to-device
+scalar copies. Each isolated GEMV contains exactly two of each. This localizes the
+four-scalar allocation observation to the GEMV calls. It does not by itself
+identify the wrapper's scalar variables or prove a reusable-buffer speedup.
+The value-returning gradient adds one stopping-independent scalar download and
+one/two reduction kernels for the small/large problem. The prox-only call is one
+broadcast; value-and-prox adds one/two reduction kernels, a scalar download and
+host synchronization. Both full-solve traces retain the reductions and host waits
+required by the selected stopping rule.
+
+Checking every ten updates reduces host scalar downloads from 13/15 to three,
+but increases GEMV work from 26/30 named kernels to 42. It therefore did not
+improve these seed-103 diagnostic solves. Neither the count comparison nor the
+separate timing instruments justify a general check-frequency recommendation.
+The [parsed trace summary](profile-v5/trace-summary.json) retains counts and
+summed displayed activity durations; the full printed traces remain authoritative.
+
+Leave package implementations unchanged. Small cases favor CPU execution, and
+matrix-vector work dominates the large device trace. The scalar allocations are
+now localized, but their removal has no measured end-to-end benefit yet. Any
+future scalar-buffer or launch-fusion patch should be separate, preserve stream
+and numerical behavior, and demonstrate repeated before/after improvement to
+the same verified accuracy. Individual `CUDA.@time` call latencies can include
+instrumentation compilation and must not be used to rank operations.
 
 ## Provenance and recreation
 
@@ -107,6 +155,8 @@ which could not compile for sm70. It was cancelled after 5m23s and collected no
 solver timings. Its [compressed failure log](failed-attempt-v3-validation.log.gz)
 is preserved. Selecting runtime 12.8 before starting a fresh Julia process fixed
 the incompatibility. Keep the saved preferences: the manifest alone is insufficient.
+The original diagnostic logs are retained as collected; the later profile-only
+job supplies their missing rendered traces without rerunning valid timing samples.
 
 Recheck the downloaded records and regenerate the compact tables from the repository root:
 

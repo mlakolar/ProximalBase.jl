@@ -84,6 +84,13 @@ function measure!(c::PerfCase, metrics, raw, allocations, profiles, allocation_p
 end
 
 function main(builder=build_cases)
+    package_root=realpath(dirname(dirname(pathof(ProximalBase))))
+    expected_root=get(ENV,"PB_EXPECTED_PACKAGE_ROOT","")
+    if !isempty(expected_root)
+        expected_root=realpath(expected_root)
+        package_root==expected_root ||
+            error("Loaded ProximalBase from $package_root; expected $expected_root")
+    end
     rep=parse(Int,get(ENV,"PB_REPETITION","1"))
     output=get(ENV,"PB_OUTPUT",joinpath(@__DIR__,"results"))
     mode=get(ENV,"PB_MODE","full")
@@ -139,6 +146,7 @@ function main(builder=build_cases)
     end
     meta=Dict("julia"=>string(VERSION),"source_sha"=>get(ENV,"PB_SOURCE_SHA","unknown"),
               "harness_sha"=>get(ENV,"PB_HARNESS_SHA","unknown"),"rep"=>rep,"mode"=>mode,
+              "package_root"=>package_root,"expected_package_root"=>expected_root,
               "seed_scheme"=>"FNV1a64 keyed scenario xor repetition", "host"=>get(ENV,"SLURMD_NODENAME",get(ENV,"HOSTNAME","unknown")),
               "slurm_job_id"=>get(ENV,"SLURM_JOB_ID","none"),"julia_threads"=>Threads.nthreads(),
               "blas_threads"=>BLAS.get_num_threads(),"blas"=>string(BLAS.get_config()),

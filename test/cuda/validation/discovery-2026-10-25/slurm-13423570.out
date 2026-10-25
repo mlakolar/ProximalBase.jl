@@ -1,0 +1,394 @@
+Sun Oct 25 03:39:56 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.159.04             Driver Version: 580.159.04     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA A40                     On  |   00000000:81:00.0 Off |                    0 |
+|  0%   40C    P8             38W /  300W |       0MiB /  46068MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+ Downloading artifact: CUDA_Runtime
+  Activating project at `~/juliaPkg/runs/20261025-pb-gpu103/source/test/cuda`
+   Resolving package versions...
+   Installed LLVMLoopInfo ─────────── v1.0.0
+   Installed CUDA_Runtime_Discovery ─ v2.1.1
+   Installed demumble_jll ─────────── v1.3.0+0
+   Installed CUDA_Driver_jll ──────── v13.3.5+0
+   Installed Tracy ────────────────── v0.1.6
+   Installed Scratch ──────────────── v1.3.0
+   Installed GPUCompiler ──────────── v1.17.1
+   Installed PrecompileTools ──────── v1.2.1
+   Installed CUDA_Compiler_jll ────── v0.4.4+1
+   Installed LLVMExtra_jll ────────── v0.0.47+0
+   Installed NVTX ─────────────────── v1.0.3
+   Installed NVTX_jll ─────────────── v3.2.2+0
+   Installed CEnum ────────────────── v0.5.0
+   Installed GPUToolbox ───────────── v1.1.1
+   Installed Random123 ────────────── v1.7.1
+   Installed BFloat16s ────────────── v0.6.3
+   Installed GPUArrays ────────────── v11.5.16
+   Installed JuliaNVTXCallbacks_jll ─ v0.2.1+0
+   Installed StyledStrings ────────── v1.0.3
+   Installed LibTracyClient_jll ───── v0.13.1+0
+   Installed UnsafeAtomics ────────── v0.3.2
+   Installed RandomNumbers ────────── v1.6.0
+   Installed CUDA_Runtime_jll ─────── v0.21.0+1
+   Installed JLArrays ─────────────── v0.3.3
+   Installed Atomix ───────────────── v1.2.1
+   Installed LLVM ─────────────────── v9.13.2
+   Installed CUDA ─────────────────── v5.11.3
+    Updating `~/juliaPkg/runs/20261025-pb-gpu103/source/test/cuda/Project.toml`
+  [79e6a3ab] + Adapt v4.7.4
+⌅ [052768ef] + CUDA v5.11.3
+  [46192b85] + GPUArraysCore v0.2.1
+⌃ [27aeb0d3] + JLArrays v0.3.3
+  [0a755509] + ProximalBase v0.5.3 `~/juliaPkg/runs/20261025-pb-gpu103/source`
+    Updating `~/juliaPkg/runs/20261025-pb-gpu103/source/test/cuda/Manifest.toml`
+  [621f4979] + AbstractFFTs v1.5.0
+  [79e6a3ab] + Adapt v4.7.4
+⌃ [a9b6321e] + Atomix v1.2.1
+  [ab4f0b2a] + BFloat16s v0.6.3
+⌅ [fa961155] + CEnum v0.5.0
+⌅ [052768ef] + CUDA v5.11.3
+  [1af6417a] + CUDA_Runtime_Discovery v2.1.1
+  [a8cc5b0e] + Crayons v4.2.0
+  [9a962f9c] + DataAPI v1.16.0
+  [e2d170a0] + DataValueInterfaces v1.0.0
+  [e2ba6199] + ExprTools v0.1.11
+⌅ [0c68f7d7] + GPUArrays v11.5.16
+  [46192b85] + GPUArraysCore v0.2.1
+⌅ [61eb1bfa] + GPUCompiler v1.17.1
+⌅ [096a3bc2] + GPUToolbox v1.1.1
+  [076d061b] + HashArrayMappedTries v0.2.0
+  [82899510] + IteratorInterfaceExtensions v1.0.0
+⌃ [27aeb0d3] + JLArrays v0.3.3
+  [692b3bcd] + JLLWrappers v1.8.0
+⌅ [63c18a36] + KernelAbstractions v0.9.45
+⌅ [929cbde3] + LLVM v9.13.2
+  [8b046642] + LLVMLoopInfo v1.0.0
+  [b964fa9f] + LaTeXStrings v1.4.1
+  [1914dd2f] + MacroTools v0.5.16
+  [5da4648a] + NVTX v1.0.3
+  [bac558e1] + OrderedCollections v2.0.3
+⌅ [aea7be01] + PrecompileTools v1.2.1
+  [21216c6a] + Preferences v1.6.1
+  [08abe8d2] + PrettyTables v3.5.0
+  [0a755509] + ProximalBase v0.5.3 `~/juliaPkg/runs/20261025-pb-gpu103/source`
+  [74087812] + Random123 v1.7.1
+  [e6cf234a] + RandomNumbers v1.6.0
+  [189a3867] + Reexport v1.2.2
+  [ae029012] + Requires v1.3.1
+  [7e506255] + ScopedValues v1.6.2
+  [6c6a2e73] + Scratch v1.3.0
+  [90137ffa] + StaticArrays v1.9.24
+  [1e83bf80] + StaticArraysCore v1.4.4
+  [892a3eda] + StringManipulation v0.6.1
+  [f489334b] + StyledStrings v1.0.3
+  [3783bdb8] + TableTraits v1.0.1
+  [bd369af6] + Tables v1.14.0
+  [e689c965] + Tracy v0.1.6
+⌅ [013be700] + UnsafeAtomics v0.3.2
+⌅ [d1e2174e] + CUDA_Compiler_jll v0.4.4+1
+  [4ee394cb] + CUDA_Driver_jll v13.3.5+0
+⌅ [76a88914] + CUDA_Runtime_jll v0.21.0+1
+  [9c1d0b0a] + JuliaNVTXCallbacks_jll v0.2.1+0
+⌅ [dad2f222] + LLVMExtra_jll v0.0.47+0
+  [ad6e5548] + LibTracyClient_jll v0.13.1+0
+  [e98f9f5b] + NVTX_jll v3.2.2+0
+  [1e29f10c] + demumble_jll v1.3.0+0
+  [0dad84c5] + ArgTools v1.1.1
+  [56f22d72] + Artifacts
+  [2a0f44e3] + Base64
+  [ade2ca70] + Dates
+  [f43a241f] + Downloads v1.6.0
+  [7b1f6079] + FileWatching
+  [b77e0a4c] + InteractiveUtils
+  [4af54fe1] + LazyArtifacts
+  [b27032c2] + LibCURL v0.6.4
+  [76f85450] + LibGit2
+  [8f399da3] + Libdl
+  [37e2e46d] + LinearAlgebra
+  [56ddb016] + Logging
+  [d6f4376e] + Markdown
+  [ca575930] + NetworkOptions v1.2.0
+  [44cfe95a] + Pkg v1.10.0
+  [de0858da] + Printf
+  [3fa0cd96] + REPL
+  [9a3f8284] + Random
+  [ea8e919c] + SHA v0.7.0
+  [9e88b42a] + Serialization
+  [6462fe0b] + Sockets
+  [2f01184e] + SparseArrays v1.10.0
+  [10745b16] + Statistics v1.10.0
+  [fa267f1f] + TOML v1.0.3
+  [a4e569a6] + Tar v1.10.0
+  [8dfed614] + Test
+  [cf7118a7] + UUIDs
+  [4ec0a83e] + Unicode
+  [e66e0078] + CompilerSupportLibraries_jll v1.1.2+1
+  [deac9b47] + LibCURL_jll v8.4.0+0
+  [e37daf67] + LibGit2_jll v1.6.4+0
+  [29816b5a] + LibSSH2_jll v1.11.0+1
+  [c8ffd9c3] + MbedTLS_jll v2.28.1010+0
+  [14a3606d] + MozillaCACerts_jll v2025.12.2
+  [4536629a] + OpenBLAS_jll v0.3.23+5
+  [bea87d4a] + SuiteSparse_jll v7.2.1+1
+  [83775a58] + Zlib_jll v1.2.13+1
+  [8e850b90] + libblastrampoline_jll v5.11.0+0
+  [8e850ede] + nghttp2_jll v1.52.0+1
+  [3f19e933] + p7zip_jll v17.6.1+0
+        Info Packages marked with ⌃ and ⌅ have new versions available. Those with ⌃ may be upgradable, but those with ⌅ are restricted by compatibility constraints from upgrading. To see why use `status --outdated -m`
+Precompiling packages...
+    640.0 ms  ✓ LLVMLoopInfo
+    486.6 ms  ✓ DataValueInterfaces
+    589.4 ms  ✓ Requires
+    667.2 ms  ✓ OrderedCollections
+    313.0 ms  ✓ LaTeXStrings
+    293.2 ms  ✓ Reexport
+    439.3 ms  ✓ AbstractFFTs
+    314.9 ms  ✓ ExprTools
+    261.1 ms  ✓ IteratorInterfaceExtensions
+    353.1 ms  ✓ Adapt
+    298.3 ms  ✓ DataAPI
+    256.2 ms  ✓ LazyArtifacts
+    479.7 ms  ✓ BFloat16s
+    333.9 ms  ✓ SuiteSparse_jll
+   1013.7 ms  ✓ Crayons
+    291.4 ms  ✓ Scratch
+   2061.4 ms  ✓ UnsafeAtomics
+    531.0 ms  ✓ CEnum
+   1812.5 ms  ✓ MacroTools
+    636.4 ms  ✓ StaticArraysCore
+   1554.4 ms  ✓ RandomNumbers
+   1558.5 ms  ✓ CUDA_Runtime_Discovery
+    481.1 ms  ✓ HashArrayMappedTries
+   2962.9 ms  ✓ Test
+    413.7 ms  ✓ TableTraits
+    524.8 ms  ✓ Preferences
+    610.4 ms  ✓ GPUArraysCore
+    391.6 ms  ✓ Atomix
+    316.6 ms  ✓ ScopedValues
+    709.6 ms  ✓ Random123
+    297.6 ms  ✓ PrecompileTools
+    863.6 ms  ✓ AbstractFFTs → AbstractFFTsTestExt
+    911.3 ms  ✓ Tables
+    346.8 ms  ✓ JLLWrappers
+    359.0 ms  ✓ NVTX_jll
+   1003.9 ms  ✓ CUDA_Driver_jll
+   2947.8 ms  ✓ SparseArrays
+    362.9 ms  ✓ LibTracyClient_jll
+    439.0 ms  ✓ LLVMExtra_jll
+    527.7 ms  ✓ demumble_jll
+   1365.5 ms  ✓ CUDA_Runtime_jll
+    354.2 ms  ✓ JuliaNVTXCallbacks_jll
+    538.4 ms  ✓ Statistics
+    394.3 ms  ✓ Adapt → AdaptSparseArraysExt
+    687.1 ms  ✓ Tracy
+   6150.1 ms  ✓ StaticArrays
+   7830.9 ms  ✓ StyledStrings
+   2024.9 ms  ✓ CUDA_Compiler_jll
+    689.8 ms  ✓ NVTX
+    587.4 ms  ✓ StaticArrays → StaticArraysStatisticsExt
+    439.9 ms  ✓ Adapt → AdaptStaticArraysExt
+   3691.7 ms  ✓ StringManipulation
+   3731.2 ms  ✓ KernelAbstractions
+   8942.4 ms  ✓ LLVM
+   1462.9 ms  ✓ KernelAbstractions → LinearAlgebraExt
+   2045.3 ms  ✓ KernelAbstractions → SparseArraysExt
+    608.6 ms  ✓ LLVM → BFloat16sExt
+    853.7 ms  ✓ GPUToolbox
+  13260.6 ms  ✓ ProximalBase
+   1197.5 ms  ✓ UnsafeAtomics → UnsafeAtomicsLLVM
+    569.8 ms  ✓ ProximalBase → ProximalBaseGPUArraysCoreExt
+    654.6 ms  ✓ ProximalBase → ProximalBaseTestExt
+   2727.0 ms  ✓ GPUArrays
+   1000.5 ms  ✓ JLArrays
+  22629.5 ms  ✓ GPUCompiler
+  26310.8 ms  ✓ PrettyTables
+  35676.9 ms  ✓ CUDA
+   2629.8 ms  ✓ Atomix → AtomixCUDAExt
+  68 dependencies successfully precompiled in 84 seconds
+Physical GPU validation at 2026-10-25T10:43:01.893 UTC
+Source commit: 097e788440da1aba71d22d531c209f5e4ecf1ea7
+Source status: 
+Invocation: julia --project=test/cuda test/cuda/runtests.jl
+Tolerances Float32: rtol=5e-5, atol=5e-6; Float64: rtol=1e-10, atol=1e-12
+Scalar indexing: disabled; seed: 1
+Julia Version 1.10.12
+Commit d93beab124c (2026-08-15 10:29 UTC)
+Build Info:
+  Official https://julialang.org/ release
+Platform Info:
+  OS: Linux (x86_64-linux-gnu)
+  CPU: 32 × AMD EPYC 7313 16-Core Processor
+  WORD_SIZE: 64
+  LIBM: libopenlibm
+  LLVM: libLLVM-15.0.7 (ORCJIT, znver3)
+Threads: 4 default, 0 interactive, 2 GC (on 32 virtual cores)
+Environment:
+  LD_LIBRARY_PATH = /apps/spack/2406/apps/linux-rocky8-x86_64_v3/gcc-13.3.0/openmpi-5.0.5-mufqd73/lib:/apps/spack/2406/apps/linux-rocky8-x86_64_v3/gcc-13.3.0/openblas-0.3.28-mgrljin/lib64:/apps/spack/2406/apps/linux-rocky8-x86_64_v3/gcc-13.3.0/python-3.11.9-x74mtjf/lib:/apps/generic/gcc/13.3.0/lib64
+  JULIA_DEPOT_PATH = /home1/mkolar/juliaPkg/runs/20261025-pb-gpu103/depot:/home1/mkolar/juliaPkg/depot
+  JULIA_NUM_PRECOMPILE_TASKS = 4
+  JULIA_NUM_THREADS = 4
+CUDA toolchain: 
+- runtime 13.2, artifact installation
+- driver 580.159.4 for 13.3
+- compiler 13.3, artifact installation
+
+CUDA libraries: 
+- CUBLAS: 13.4.0
+- CURAND: 10.4.2
+- CUFFT: 12.2.0
+- CUSOLVER: 12.2.0
+- CUSPARSE: 12.7.10
+- CUPTI: 2026.1.1 (API 13.2.1)
+- NVML: 13.0.0+580.159.4
+
+Julia packages: 
+- CUDA: 5.11.3
+- GPUArrays: 11.5.16
+- GPUCompiler: 1.17.1
+- KernelAbstractions: 0.9.45
+- CUDA_Driver_jll: 13.3.5+0
+- CUDA_Compiler_jll: 0.4.4+1
+- CUDA_Runtime_jll: 0.21.0+1
+
+Toolchain:
+- Julia: 1.10.12
+- LLVM: 15.0.7
+
+1 device:
+  0: NVIDIA A40 (sm_86, 44.419 GiB / 44.988 GiB available)
+Status `~/juliaPkg/runs/20261025-pb-gpu103/source/test/cuda/Manifest.toml`
+  [621f4979] AbstractFFTs v1.5.0
+  [79e6a3ab] Adapt v4.7.4
+⌃ [a9b6321e] Atomix v1.2.1
+  [ab4f0b2a] BFloat16s v0.6.3
+⌅ [fa961155] CEnum v0.5.0
+⌅ [052768ef] CUDA v5.11.3
+  [1af6417a] CUDA_Runtime_Discovery v2.1.1
+  [a8cc5b0e] Crayons v4.2.0
+  [9a962f9c] DataAPI v1.16.0
+  [e2d170a0] DataValueInterfaces v1.0.0
+  [e2ba6199] ExprTools v0.1.11
+⌅ [0c68f7d7] GPUArrays v11.5.16
+  [46192b85] GPUArraysCore v0.2.1
+⌅ [61eb1bfa] GPUCompiler v1.17.1
+⌅ [096a3bc2] GPUToolbox v1.1.1
+  [076d061b] HashArrayMappedTries v0.2.0
+  [82899510] IteratorInterfaceExtensions v1.0.0
+⌃ [27aeb0d3] JLArrays v0.3.3
+  [692b3bcd] JLLWrappers v1.8.0
+⌅ [63c18a36] KernelAbstractions v0.9.45
+⌅ [929cbde3] LLVM v9.13.2
+  [8b046642] LLVMLoopInfo v1.0.0
+  [b964fa9f] LaTeXStrings v1.4.1
+  [1914dd2f] MacroTools v0.5.16
+  [5da4648a] NVTX v1.0.3
+  [bac558e1] OrderedCollections v2.0.3
+⌅ [aea7be01] PrecompileTools v1.2.1
+  [21216c6a] Preferences v1.6.1
+  [08abe8d2] PrettyTables v3.5.0
+  [0a755509] ProximalBase v0.5.3 `~/juliaPkg/runs/20261025-pb-gpu103/source`
+  [74087812] Random123 v1.7.1
+  [e6cf234a] RandomNumbers v1.6.0
+  [189a3867] Reexport v1.2.2
+  [ae029012] Requires v1.3.1
+  [7e506255] ScopedValues v1.6.2
+  [6c6a2e73] Scratch v1.3.0
+  [90137ffa] StaticArrays v1.9.24
+  [1e83bf80] StaticArraysCore v1.4.4
+  [892a3eda] StringManipulation v0.6.1
+  [f489334b] StyledStrings v1.0.3
+  [3783bdb8] TableTraits v1.0.1
+  [bd369af6] Tables v1.14.0
+  [e689c965] Tracy v0.1.6
+⌅ [013be700] UnsafeAtomics v0.3.2
+⌅ [d1e2174e] CUDA_Compiler_jll v0.4.4+1
+  [4ee394cb] CUDA_Driver_jll v13.3.5+0
+⌅ [76a88914] CUDA_Runtime_jll v0.21.0+1
+  [9c1d0b0a] JuliaNVTXCallbacks_jll v0.2.1+0
+⌅ [dad2f222] LLVMExtra_jll v0.0.47+0
+  [ad6e5548] LibTracyClient_jll v0.13.1+0
+  [e98f9f5b] NVTX_jll v3.2.2+0
+  [1e29f10c] demumble_jll v1.3.0+0
+  [0dad84c5] ArgTools v1.1.1
+  [56f22d72] Artifacts
+  [2a0f44e3] Base64
+  [ade2ca70] Dates
+  [f43a241f] Downloads v1.6.0
+  [7b1f6079] FileWatching
+  [b77e0a4c] InteractiveUtils
+  [4af54fe1] LazyArtifacts
+  [b27032c2] LibCURL v0.6.4
+  [76f85450] LibGit2
+  [8f399da3] Libdl
+  [37e2e46d] LinearAlgebra
+  [56ddb016] Logging
+  [d6f4376e] Markdown
+  [ca575930] NetworkOptions v1.2.0
+  [44cfe95a] Pkg v1.10.0
+  [de0858da] Printf
+  [3fa0cd96] REPL
+  [9a3f8284] Random
+  [ea8e919c] SHA v0.7.0
+  [9e88b42a] Serialization
+  [6462fe0b] Sockets
+  [2f01184e] SparseArrays v1.10.0
+  [10745b16] Statistics v1.10.0
+  [fa267f1f] TOML v1.0.3
+  [a4e569a6] Tar v1.10.0
+  [8dfed614] Test
+  [cf7118a7] UUIDs
+  [4ec0a83e] Unicode
+  [e66e0078] CompilerSupportLibraries_jll v1.1.2+1
+  [deac9b47] LibCURL_jll v8.4.0+0
+  [e37daf67] LibGit2_jll v1.6.4+0
+  [29816b5a] LibSSH2_jll v1.11.0+1
+  [c8ffd9c3] MbedTLS_jll v2.28.1010+0
+  [14a3606d] MozillaCACerts_jll v2025.12.2
+  [4536629a] OpenBLAS_jll v0.3.23+5
+  [bea87d4a] SuiteSparse_jll v7.2.1+1
+  [83775a58] Zlib_jll v1.2.13+1
+  [8e850b90] libblastrampoline_jll v5.11.0+0
+  [8e850ede] nghttp2_jll v1.52.0+1
+  [3f19e933] p7zip_jll v17.6.1+0
+Info Packages marked with ⌃ and ⌅ have new versions available. Those with ⌃ may be upgradable, but those with ⌅ are restricted by compatibility constraints from upgrading. To see why use `status --outdated -m`
+Test Summary:     | Pass  Total     Time
+Physical CUDA GPU | 1182   1182  1m24.8s
+Warmed allocation diagnostic: prox!, Float64
+  0.000077 seconds (76 CPU allocations: 2.141 KiB)
+Warmed allocation diagnostic: value_and_prox!, Float64
+  0.000061 seconds (124 CPU allocations: 3.469 KiB) (1 GPU allocation: 8 bytes, 11.63% memmgmt time)
+Warmed allocation diagnostic: least_squares_gradient!, Float64
+  0.000098 seconds (179 CPU allocations: 4.047 KiB) (4 GPU allocations: 32 bytes, 8.16% memmgmt time)
+Warmed allocation diagnostic: glm_value_and_gradient!, Float64
+  0.000141 seconds (257 CPU allocations: 5.906 KiB) (5 GPU allocations: 40 bytes, 5.25% memmgmt time)
+Warmed allocation diagnostic: prox!, Float32
+  0.000022 seconds (77 CPU allocations: 2.078 KiB)
+Warmed allocation diagnostic: value_and_prox!, Float32
+  0.000056 seconds (125 CPU allocations: 3.406 KiB) (1 GPU allocation: 4 bytes, 4.32% memmgmt time)
+Warmed allocation diagnostic: least_squares_gradient!, Float32
+  0.000067 seconds (179 CPU allocations: 4.047 KiB) (4 GPU allocations: 16 bytes, 12.59% memmgmt time)
+Warmed allocation diagnostic: glm_value_and_gradient!, Float32
+  0.000105 seconds (257 CPU allocations: 5.906 KiB) (5 GPU allocations: 20 bytes, 7.30% memmgmt time)
+PHYSICAL_GPU_VALIDATION_PASSED
+Test Summary:                     | Pass  Total   Time
+separable functions on GPU arrays |  264    264  13.1s
+Test Summary:                              | Pass  Total  Time
+norms, balls and the simplex on GPU arrays |  227    227  3.5s
+Test Summary:             | Pass  Total   Time
+group norms on GPU arrays |  504    504  14.0s
+Test Summary:                             | Pass  Total  Time
+losses with a design matrix on GPU arrays |  187    187  9.7s

@@ -59,3 +59,6 @@ The launcher requests one A40, four CPUs, 16 GB host memory and 45 minutes under
 `mkolar_1314`. It uses the installed Julia 1.10.12 and a run-specific depot layered
 over the existing shared depot. Adjust site paths and resource settings for other
 clusters. Submitting the launcher requires compute authorization.
+
+The [Discovery report from 2026-10-25](validation/discovery-2026-10-25/README.md)
+records the first physical A40 run, including its raw output and manifest.

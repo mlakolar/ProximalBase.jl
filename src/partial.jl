@@ -161,12 +161,13 @@ mutable struct PartialSVDWorkspace{T<:_BlasReal}
   seed::UInt64
   warm::Int                    # the leading columns of Y that start the next call
   rank::Int                    # the number of triplets kept at the last call
+  accepted::Bool               # the last partial attempt met the residual/guard checks
 end
 
 function PartialSVDWorkspace(::Type{T}, m::Integer, n::Integer, ℓ::Integer) where {T<:_BlasReal}
   PartialSVDWorkspace{T}(m, n, ℓ, zeros(T, m, ℓ), zeros(T, m, ℓ), zeros(T, m, ℓ), zeros(T, n, ℓ), zeros(T, n, ℓ),
                          zeros(T, ℓ), SVDWorkspace(T, ℓ, ℓ), QRWorkspace(T, m, ℓ), QRWorkspace(T, n, ℓ),
-                         Scratch(), 0x9e3779b97f4a7c15, 0, 0)
+                         Scratch(), 0x9e3779b97f4a7c15, 0, 0, false)
 end
 
 # The workspace for `need` triplets of an m × n matrix: the cached one while
@@ -198,6 +199,7 @@ end
 # U = Q V_R and V = Q_W U_R. Then XᵀU = VΣ exactly, and Y = XV gives both the
 # residuals XV - UΣ and the next block.
 function _partial_svd!(ws::PartialSVDWorkspace{T}, X::StridedMatrix{T}, τ::T, r::Int) where {T}
+  ws.accepted = false
   ℓ = ws.ℓ
   Q, U, Y, W, V, s = ws.Q, ws.U, ws.Y, ws.W, ws.V, ws.s
   w = min(ws.warm, ℓ - _PARTIAL_FRESH)
@@ -223,6 +225,7 @@ function _partial_svd!(ws::PartialSVDWorkspace{T}, X::StridedMatrix{T}, τ::T, r
     end
     if it >= minit && _svd_accepted(Y, U, s, k, g, τ + δ, r, δ)
       ws.warm, ws.rank = ℓ, k
+      ws.accepted = true
       return k
     end
     copyto!(Q, Y)                                          # one more power step
@@ -257,10 +260,10 @@ function _leading_svd!(f, X::AbstractMatrix, ::Type{T}, τ::T, r::Int) where {T}
   old = cache isa PartialSVDWorkspace{T} ? cache : nothing   # f.pws is untyped: no dynamic call
   prev = old === nothing ? 0 : old.rank
   ws = _partial_svd_workspace(old, T, m, n, r > 0 ? r : prev + _PARTIAL_GUARD)
-  # A larger oversampling target may cross the cutoff even though the warm
-  # block already contains the learned rank and its guards. Reuse that block;
-  # do not start a new partial attempt on a block too small for the rank.
-  if ws === nothing && r == 0 && old !== nothing && old.warm > 0 &&
+  # A larger oversampling target may cross the cutoff even though the last
+  # partial result passed with a sufficient warm block. Reuse that block;
+  # a failed attempt or a full result must not trigger repeated partial retries.
+  if ws === nothing && r == 0 && old !== nothing && old.accepted && old.warm > 0 &&
       old.m == m && old.n == n && 4old.ℓ <= min(m, n) && prev + _PARTIAL_GUARD <= old.ℓ
     ws = old
   end
@@ -302,6 +305,7 @@ function _warm_start_svd!(f, U::Matrix{T}, k::Int) where {T}
   cache = f.pws
   cache isa PartialSVDWorkspace{T} || return nothing
   cache.m == size(U, 1) || return nothing
+  cache.accepted = false
   w = min(cache.ℓ, size(U, 2))
   _copycols!(cache.Y, 1:w, U, 1:w)
   cache.warm, cache.rank = w, k

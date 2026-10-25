@@ -164,4 +164,5 @@ Recheck the downloaded records and regenerate the compact tables from the reposi
 python3 benchmark/gpu_solver/validate.py benchmark/gpu_solver/results/discovery-2026-10-26/small
 python3 benchmark/gpu_solver/validate.py benchmark/gpu_solver/results/discovery-2026-10-26/full
 python3 benchmark/gpu_solver/report_tables.py benchmark/gpu_solver/results/discovery-2026-10-26
+python3 benchmark/gpu_solver/trace_summary.py benchmark/gpu_solver/results/discovery-2026-10-26/profile-v5
 ```

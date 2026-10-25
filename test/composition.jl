@@ -148,6 +148,71 @@ end
   @test_throws DimensionMismatch prox(Regularize(NormL1(1.0), 1.0, randn(3)), x, 0.5)
 end
 
+@testset "composed second-order oracles" begin
+  for T in (Float32, Float64)
+    X, y = randn(T, 14, 4), T.(rand(0:1, 14))
+    inner = LogisticLoss(y, X)
+    A = hcat(Matrix{T}(I, 4, 4), Matrix{T}(I, 4, 4))
+    for f in (Regularize(inner, T(0.7), randn(T, 4)),
+              Precompose(inner, A, T(2)), Precompose(inner, sparse(A), T(2)),
+              Precompose(inner, T(-2)))
+      p = f isa Precompose && f.A isa AbstractMatrix ? 8 : 4
+      x, v = randn(T, p) ./ T(5), randn(T, p)
+      Hv = similar(x)
+      @test hashessian(f)
+      @test hessian_vec!(Hv, f, x, v) === Hv
+      step = cbrt(eps(T))
+      ref = (gradient(f, x .+ step .* v) .- gradient(f, x .- step .* v)) ./ (2step)
+      tol = T === Float32 ? 3e-3 : 1e-6
+      @test Hv ≈ ref rtol = tol
+      q = quadratic_model(f, x)
+      @test gradient(q, x) ≈ gradient(f, x)
+      @test hessian_vec(q, x, v) ≈ Hv
+      x2 = x .+ T(0.1) .* v
+      @test quadratic_model!(q, f, x2) === q
+      @test gradient(q, x2) ≈ gradient(f, x2)
+      @test hessian_vec(q, x2, v) ≈ hessian_vec(f, x2, v)
+      @test allocs(hessian_vec!, Hv, f, x, v) == 0
+      @test allocs(quadratic_model!, q, f, x) == 0
+      @inferred hessian_vec!(Hv, f, x, v)
+      @inferred quadratic_model!(q, f, x)
+      @test_throws DimensionMismatch hessian_vec!(zeros(T, p + 1), f, x, v)
+      @test_throws DimensionMismatch hessian_vec!(Hv, f, x, zeros(T, p + 1))
+    end
+    # Scalar precomposition also acts on matrices and sparse directions.
+    x, v = randn(T, 3, 4), randn(T, 3, 4)
+    h = Precompose(SqrNormL2(T(0.6)), T(-2))
+    @test hessian_vec(h, x, SparseIterate(v)) ≈ T(2.4) .* v
+    @test gradient(quadratic_model(h, x), x) ≈ gradient(h, x)
+    r = Regularize(SqrNormL2(T(0.6)), T(0.7))
+    @test hessian_vec(r, x, v) ≈ T(1.3) .* v
+    @test !hashessian(Regularize(NormL1(), T(0.5)))
+    @test !hashessian(Precompose(NormL1(), T(2)))
+  end
+  h = Precompose(SqrNormL2(), -2.)
+  @test_throws ArgumentError quadratic_model!(quadratic_model(h, ones(3)), Precompose(h.f, 2.), ones(3))
+  r = Regularize(SqrNormL2(), 0.5)
+  @test_throws ArgumentError quadratic_model!(quadratic_model(r, ones(3)), Regularize(r.f, 0.7), ones(3))
+end
+
+@testset "composed coordinate curvatures" begin
+  X, y = randn(16, 5), randn(16)
+  f = LeastSquaresLoss(y, X)
+  for outer in (Regularize(f, 0.7), Regularize(f, 0.7, ones(5)),
+                Precompose(f, -2.), Regularize(Precompose(f, -2.), 0.7))
+    ref = [coordinate_lipschitz(outer, k) for k in 1:5]
+    @test coordinate_lipschitz!(zeros(5), outer) ≈ ref
+    expected = outer isa Precompose ? 4 .* vec(sum(abs2, X; dims = 1)) :
+               outer.f isa Precompose ? 4 .* vec(sum(abs2, X; dims = 1)) .+ 0.7 :
+               vec(sum(abs2, X; dims = 1)) .+ 0.7
+    @test ref ≈ expected
+    @test allocs(coordinate_lipschitz!, zeros(5), outer) == 0
+    @test allocs(coordinate_lipschitz, outer, 2) == 0
+    @test_throws BoundsError coordinate_lipschitz(outer, 6)
+    @test_throws DimensionMismatch coordinate_lipschitz!(zeros(4), outer)
+  end
+end
+
 a_value(f, x) = f(x)
 a_vgrad!(g, f, x) = value_and_gradient!(g, f, x)
 a_prox!(y, f, x, γ) = prox!(y, f, x, γ)

@@ -38,7 +38,7 @@ for (label, operation) in operations
     println("Host-only @allocated bytes: ", host_bytes)
     println("CUDA allocation diagnostic (host/device separate):")
     CUDA.@time operation()
-    CUDA.@profile trace=true operation()
+    display(CUDA.@profile trace=true operation())
 end
 println("LIVE/POOL before repeated solves, after GC:")
 GC.gc(true); CUDA.reclaim(); CUDA.synchronize(); CUDA.memory_status()
@@ -51,7 +51,7 @@ GC.gc(true); CUDA.synchronize()
 println("LIVE/POOL after 20 solves, after GC:"); CUDA.memory_status()
 for frequency in (1, 10)
     println("FULL SOLVE PROFILE: check_every=", frequency)
-    CUDA.@profile trace=true solve(frequency)
+    display(CUDA.@profile trace=true solve(frequency))
 end
 # Identical data/order; natural GC and explicit-GC samples remain separate.
 # Julia @timed and CUDA @timed are also separate from plain wall measurements.

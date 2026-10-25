@@ -1,0 +1,6 @@
+{
+  "shared_measurements": 1440,
+  "before_only": 0,
+  "after_only": 0,
+  "note": "Ratios above one favor after; interval is paired on log ratios; no automatic cross-hardware or cross-Julia comparison"
+}

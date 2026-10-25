@@ -1,0 +1,17 @@
+{
+  "valid": true,
+  "expected_runs": 10,
+  "versions": [
+    "1.13.2",
+    "1.10.12"
+  ],
+  "cases_per_version": {
+    "1.10.12": 72,
+    "1.13.2": 72
+  },
+  "processes": 20,
+  "measurements": 1440,
+  "timing_samples": 34287,
+  "allocation_calls": 14400,
+  "issues": []
+}

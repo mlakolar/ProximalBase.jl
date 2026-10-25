@@ -35,11 +35,11 @@ Pkg.add("ProximalBase")
 
 We consider the lasso,
 
-$$
+```math
 \min_{\beta} \left\{
-\frac12\|y-X\beta\|_2^2 + \lambda\|\beta\|_1
+\frac12\lVert y-X\beta\rVert_2^2 + \lambda\lVert\beta\rVert_1
 \right\},
-$$
+```
 
 where the loss is a sum over observations, without division by the sample size.
 In particular, we use the same loss and penalty in both procedures below,
@@ -62,12 +62,12 @@ For least squares, we minimize over one coefficient at a time and maintain the
 residual `r = y - Xβ`, so each update uses one column of `X`. With
 `a[j] = sum(abs2, X[:, j])`, the exact coordinate minimizer is
 
-$$
+```math
 \beta_j^{\mathrm{new}} = S_{\lambda/a_j}
 \left(\beta_j^{\mathrm{old}} + \frac{X_{:,j}^{\mathsf T}r}{a_j}\right),
-$$
+```
 
-where $S_t(v)=\operatorname{sign}(v)\max(|v|-t,0)$. The old coefficient
+where $S_t(v)=\mathrm{sign}(v)\max(|v|-t,0)$. The old coefficient
 adds back this column's contribution to the residual before fitting its new
 value; it is needed because `r` includes the current coefficient.
 

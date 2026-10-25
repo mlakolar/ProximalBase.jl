@@ -181,7 +181,11 @@ Base.@propagate_inbounds function prox_entry(f::NormLq, v::T, i::Integer, γ::Re
   S = float(T)
   μ, q, t = S(γ) * S(f.λ) * S(_entry(f.w, i)), S(f.q), abs(S(v))
   iszero(μ) && return S(v)
-  t <= (2 - q) / (2 - 2q) * (2μ * (1 - q))^(1 / (2 - q)) && return zero(S)
+  # For q = 1/2 the threshold is 3μ^(2/3)/2. cbrt avoids a general
+  # floating-point power and remains well scaled for subnormal μ.
+  τ = q == S(1)/2 ? S(3)/2 * cbrt(μ)^2 :
+      (2 - q) / (2 - 2q) * (2μ * (1 - q))^(1 / (2 - q))
+  t <= τ && return zero(S)
   sign(S(v)) * _lq_root(t, μ, q)
 end
 
@@ -192,8 +196,10 @@ end
 function _lq_root(t::S, μ::S, q::S) where {S<:AbstractFloat}
   if q == S(1) / 2
     # the cubic in √z by the trigonometric method (Xu et al., with λ = 2μ)
-    φ = acos(μ / 4 * (t / 3)^(-S(3) / 2))
-    return 2t / 3 * (1 + cos(2 * S(π) / 3 - 2φ / 3))
+    # μ/t^(3/2) is bounded above the threshold. Divide in this order so
+    # neither t^(3/2) nor its reciprocal can overflow before multiplying μ.
+    φ = acos((μ / t) / sqrt(t) * (3sqrt(S(3))/4))
+    return t * (S(2)/3 * (1 + cos(2 * S(π) / 3 - 2φ / 3)))
   elseif q == S(2) / 3
     # the quartic in z^(1/3) by its resolvent cubic (Cao et al., with λ = 2μ)
     λ2 = 2μ

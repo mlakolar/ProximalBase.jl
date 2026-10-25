@@ -106,6 +106,22 @@ function addgrad!(cases, family, name, f, x; profile=false, second=true)
         function checkhess!()
             hessian_vec!(hv, f, x, v)
             δ = T == Float32 ? T(0.01) : T(1e-5)
+            if f isa GLMLoss && f.loss isa ProximalBase.Huber
+                η=f.X*dense(x)
+                f.offset===nothing || (η .+= f.offset)
+                weights=T.(abs.(η .- f.y).<=f.loss.δ)
+                f.weights===nothing || (weights .*= f.weights)
+                reference=f.X'*(weights.*(f.X*v))
+                close_enough(hv,reference)
+                if get(ENV,"PB_MODE","")=="canary"
+                    direction=f.X*v
+                    crossed=count((abs.(η .+ δ.*direction .- f.y).<=f.loss.δ) .!=
+                                  (abs.(η .- δ.*direction .- f.y).<=f.loss.δ))
+                    println("HUBER_ANALYTIC_CHECK dtype=",T," n=",size(f.X,1),
+                            " max_error=",maximum(abs,hv.-reference)," crossed_fd_boundaries=",crossed)
+                end
+                return
+            end
             gp = gradient(f, dense(x) .+ δ .* v)
             gm = gradient(f, dense(x) .- δ .* v)
             isapprox(hv, (gp .- gm) ./ (2δ); atol=T==Float32 ? 0.02 : 1e-5,

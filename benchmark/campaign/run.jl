@@ -98,6 +98,9 @@ function main()
     Profile.init(n=2_000_000,delay=0.001)
     started=time()
     cases=build_cases(rep)
+    case_filter=get(ENV,"PB_CASE_FILTER","")
+    isempty(case_filter) || filter!(c->occursin(Regex(case_filter),c.meta.id),cases)
+    isempty(cases) && error("case filter selected no cases")
     open(prefix*"-catalog.tsv","w") do io
         line(io,"id","family","dtype","shape","layout","phase","zero_alloc")
         for c in cases
@@ -139,7 +142,7 @@ function main()
               "seed_scheme"=>"FNV1a64 keyed scenario xor repetition", "host"=>get(ENV,"SLURMD_NODENAME",get(ENV,"HOSTNAME","unknown")),
               "slurm_job_id"=>get(ENV,"SLURM_JOB_ID","none"),"julia_threads"=>Threads.nthreads(),
               "blas_threads"=>BLAS.get_num_threads(),"blas"=>string(BLAS.get_config()),
-              "cpu"=>Sys.CPU_NAME,"benchmarktools"=>string(pkgversion(BenchmarkTools)),
+              "cpu"=>Sys.CPU_NAME,"benchmarktools"=>string(pkgversion(BenchmarkTools)),"case_filter"=>case_filter,
               "cases"=>length(cases),"failures"=>failures,"samples_target"=>samples,
               "seconds_limit"=>seconds,"profile_seconds"=>profile_seconds,"elapsed_s"=>time()-started)
     open(prefix*"-metadata.toml","w") do io

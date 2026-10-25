@@ -37,7 +37,8 @@ outside this CPU campaign.
   Profiles are sampling diagnostics, not another source of latency measurements.
 
 Validation compares optimized layouts with dense calls, checks returned values,
-uses directional derivatives for Float64 gradients and Hessian products, compares
+uses directional derivatives for Float64 gradients and smooth Hessian products
+(and the analytic piecewise Hessian for Huber, whose finite differences can cross a kink), compares
 partial decompositions with full decompositions, checks a specialized simplex
 projection against Dykstra, and checks residual/objective invariants in the lasso
 trace. These checks complement the unit tests; they are not an independent proof

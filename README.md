@@ -36,7 +36,9 @@ Pkg.add("ProximalBase")
 We consider the lasso,
 
 $$
-\min_\beta\; \frac12\|y-X\beta\|_2^2 + \lambda\|\beta\|_1,
+\min_{\beta} \left\{
+\frac12\|y-X\beta\|_2^2 + \lambda\|\beta\|_1
+\right\},
 $$
 
 where the loss is a sum over observations, without division by the sample size.
@@ -49,32 +51,47 @@ using ProximalBase, LinearAlgebra, Random
 rng = Xoshiro(1)
 X = randn(rng, 100, 20)
 y = X * [ones(3); zeros(17)] + 0.1 * randn(rng, 100)
+λ = 5.0
 f = LeastSquaresLoss(y, X)
-g = NormL1(5.0)
+g = NormL1(λ)
 ```
 
 ### Coordinate descent
 
 For least squares, we minimize over one coefficient at a time and maintain the
-residual `r = y - Xβ`, so each update uses one column of `X`.
+residual `r = y - Xβ`, so each update uses one column of `X`. With
+`a[j] = sum(abs2, X[:, j])`, the exact coordinate minimizer is
+
+$$
+\beta_j^{\mathrm{new}} = S_{\lambda/a_j}
+\left(\beta_j^{\mathrm{old}} + \frac{X_{:,j}^{\mathsf T}r}{a_j}\right),
+$$
+
+where $S_t(v)=\operatorname{sign}(v)\max(|v|-t,0)$. The old coefficient
+adds back this column's contribution to the residual before fitting its new
+value; it is needed because `r` includes the current coefficient.
 
 ```julia
 β = SparseIterate(size(X, 2))
 r = copy(y)
-a = [coordinate_lipschitz(f, j) for j in axes(X, 2)]
+a = [sum(abs2, view(X, :, j)) for j in axes(X, 2)]
+all(>(0), a) || error("Remove zero columns before fitting")
 
-for sweep in 1:100, j in axes(X, 2)
-    old = β[j]
-    z = old + dot(view(X, :, j), r) / a[j]
-    new = prox_entry(g, z, j, 1 / a[j])
-    if new != old
-        β[j] = new
-        axpy!(old - new, view(X, :, j), r)
+for sweep in 1:100
+    for j in axes(X, 2)
+        xj = view(X, :, j)
+        old = β[j]
+        z = old + dot(xj, r) / a[j]
+        new = prox_entry(g, z, j, 1 / a[j])
+        if new != old
+            β[j] = new
+            axpy!(old - new, xj, r)  # keep r = y - Xβ for the next coordinate
+        end
     end
 end
 ```
 
-Here `prox_entry` applies soft thresholding with threshold `5 / a[j]`, while
+Here `prox_entry` applies soft thresholding with threshold `λ / a[j]`, while
 the iterate stores coordinates that become nonzero during the updates.
 Use `dropzeros!(β)` to remove stored entries that have returned to zero.
 
@@ -92,6 +109,29 @@ for iter in 1:500
     prox!(β_pg, g, β_pg, γ)
 end
 ```
+
+### Check both solutions
+
+The iteration counts above illustrate the two procedures; a fixed iteration
+budget alone does not certify convergence. For the lasso, a nonzero coefficient
+must satisfy `grad[j] + λ * sign(β[j]) = 0`, and a zero coefficient must satisfy
+`abs(grad[j]) <= λ`. Check these conditions and agreement for this example:
+
+```julia
+for solution in (β, β_pg)
+    grad_solution = gradient(f, solution)
+    violation = maximum(eachindex(solution)) do j
+        iszero(solution[j]) ? max(abs(grad_solution[j]) - λ, 0.0) :
+                             abs(grad_solution[j] + λ * sign(solution[j]))
+    end
+    @assert violation < 1e-7
+end
+@assert norm(Vector(β) - β_pg, Inf) < 1e-7
+```
+
+These snippets use APIs available in the registered v0.5.2 release and on
+`master`. The development version also provides `coordinate_lipschitz(f, j)`
+for the curvature used above.
 
 Mutating calls take their output first. The
 [getting-started guide](https://mlakolar.github.io/ProximalBase.jl/dev/getting_started/)

@@ -61,6 +61,7 @@ output variables, then run the harness ten times, serially, from this directory:
 ```sh
 export JULIA_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
 export PB_SOURCE_SHA=<package-commit> PB_HARNESS_SHA=<harness-commit>
+export PB_EXPECTED_PACKAGE_ROOT=/absolute/path/to/the/package/checkout
 export PB_OUTPUT=/absolute/path/to/fresh-results
 PB_REPETITION=1 julia --project=/path/to/version-specific-project run.jl
 # Repeat PB_REPETITION=2,...,10 in new processes, using the same output directory.
@@ -81,6 +82,12 @@ stay in the run record rather than this portable harness.
 `PB_SAMPLES`, `PB_SECONDS` and `PB_PROFILE_SECONDS` override measurement settings;
 retain identical settings when comparing changes. Existing repetition files are
 never silently overwritten.
+
+Set `PB_EXPECTED_PACKAGE_ROOT` for each before/after job. The harness records
+the loaded package path and rejects a different path before building cases.
+Create version-specific projects with `Pkg.develop(path=...)`. Updating only
+a Manifest path can leave a conflicting `[sources]` entry in Project.toml;
+a later dependency resolution on Julia 1.13 can then select the wrong checkout.
 
 Run `python3 check_analysis.py` to exercise the analysis utilities on analytic
 data and on deliberately damaged records. Run this check under Slurm on Discovery

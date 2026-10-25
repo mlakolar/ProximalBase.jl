@@ -38,6 +38,8 @@ def validate(root, expected=10, versions=("1.13.2", "1.10.12")):
                 raise ValueError("failed, filtered or non-production process")
             if meta["julia_threads"] != 1 or meta["blas_threads"] != 1:
                 raise ValueError("expected one Julia and BLAS thread")
+            if meta.get("expected_package_root") and meta.get("package_root") != meta["expected_package_root"]:
+                raise ValueError("loaded package root differs from the requested source")
             for key in ("source_sha", "harness_sha"):
                 if len(meta[key]) != 40 or any(c not in "0123456789abcdef" for c in meta[key]):
                     raise ValueError(f"missing commit provenance: {key}")

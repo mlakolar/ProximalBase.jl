@@ -152,4 +152,6 @@ function main(builder=build_cases)
     failures==0 || exit(2)
 end
 
-abspath(PROGRAM_FILE) == @__FILE__ && main()
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end

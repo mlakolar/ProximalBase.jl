@@ -45,7 +45,7 @@ def summarize(root, output, expected, versions):
         interval = t975.get(len(values)-1, 1.96)*sd/math.sqrt(len(values)) if len(values)>1 else float("nan")
         first = group[0]
         result = {key:first[key] for key in ("id","family","name","dtype","shape","layout","phase","expected_zero")}
-        result.update(julia=version, runs=len(values), complete=len(values)==expected,
+        result.update(julia=version, runs=len(values), complete=len(reps)==expected and set(reps)==set(range(1,expected+1)),
             mean_ns=average, sd_between_runs_ns=sd, ci95_low_ns=max(0,average-interval),
             ci95_high_ns=average+interval, cv=sd/average if average else 0,
             median_run_median_ns=st.median(float(r["median_ns"]) for r in group),
@@ -62,7 +62,8 @@ def summarize(root, output, expected, versions):
         writer.writeheader(); writer.writerows(results)
     incomplete = [{"julia":version,"id":case_id,"valid_runs":len(groups.get((version,case_id),[]))}
                   for version, ids in catalogs.items() for case_id in sorted(ids)
-                  if len(groups.get((version,case_id),[]))!=expected]
+                  if (len(groups.get((version,case_id),[]))!=expected or
+                      {int(r["rep"]) for r in groups.get((version,case_id),[])}!=set(range(1,expected+1)))]
     unexpected = [r for r in results if r["expected_zero"]=="true" and r["max_bytes"]>0]
     variable = sorted([r for r in results if r["cv"]>0.15],key=lambda r:r["cv"],reverse=True)
     missing_versions=sorted(set("julia-"+v for v in versions)-set(catalogs))

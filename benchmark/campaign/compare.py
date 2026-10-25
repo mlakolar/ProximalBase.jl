@@ -8,14 +8,21 @@ import math
 from pathlib import Path
 import statistics
 import tomllib
+from validate import MATCH_SETTINGS, validate
 
 def load(root):
     rows, configs = {}, set()
+    versions = sorted({p.name.removeprefix("julia-").split("-rep")[0]
+                       for p in Path(root).glob("*-metadata.toml")})
+    if not versions:
+        raise ValueError("No process metadata")
+    checked = validate(root, versions=versions)
+    if not checked["valid"]:
+        raise ValueError(f"Invalid baseline {root}: {checked['issues']}")
     for path in glob.glob(str(Path(root)/"*-metadata.toml")):
         with open(path,"rb") as stream:
             m=tomllib.load(stream)
-        configs.add(tuple(str(m.get(key,"")) for key in
-                    ("julia","cpu","blas_threads","julia_threads","seed_scheme","samples_target","seconds_limit")))
+        configs.add(tuple(str(m[key]) for key in MATCH_SETTINGS))
     for path in glob.glob(str(Path(root)/"*-metrics.tsv")):
         version=Path(path).name.split("-rep")[0]
         with open(path,newline="") as stream:
@@ -42,7 +49,8 @@ if __name__=="__main__":
     with open(out/"comparison.csv","w",newline="") as stream:
         writer=csv.DictWriter(stream,fieldnames=fields);writer.writeheader()
         for (version,case),pairs in sorted(groups.items()):
-            if len(pairs)!=10: continue
+            if {rep for rep, _, _ in pairs} != set(range(1, 11)):
+                raise ValueError(f"Incomplete paired repetitions: {version}/{case}")
             log_ratios=[math.log(old/new) for _,old,new in pairs]
             mu=statistics.mean(log_ratios)
             half=2.262*statistics.stdev(log_ratios)/math.sqrt(10)

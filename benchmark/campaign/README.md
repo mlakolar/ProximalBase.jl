@@ -58,9 +58,14 @@ export PB_OUTPUT=/absolute/path/to/fresh-results
 PB_REPETITION=1 julia --project=/path/to/version-specific-project run.jl
 # Repeat PB_REPETITION=2,...,10 in new processes, using the same output directory.
 python3 summarize.py "$PB_OUTPUT" /path/to/summary --expected-runs=10
+python3 validate.py "$PB_OUTPUT" /path/to/summary/validation.json
 ```
 
-Use Python 3.11 or later for the paired comparison utility. For the user's
+Use Python 3.11 or later for validation and comparison. `validate.py` checks exact
+process and case coverage, consistent settings, successful checks, and agreement
+of reported means/extrema with every retained timing and allocation observation.
+It checks the measurement records, without rerunning the package operations.
+For the user's
 Discovery runs, all execution, analysis and profiling runs under Slurm using
 the task's saved launchers. GNU Parallel pins its worker slots to separate nodes
 with exclusive, CPU-bound `srun` steps. Cluster account, paths and resource settings stay in the
@@ -81,6 +86,8 @@ python3 compare.py /path/to/before-results /path/to/after-results /path/to/compa
 The primary before/after times remain arithmetic means. Paired speedups use the
 geometric mean of the ten within-seed ratios with an interval on log ratios;
 an interval spanning one is inconclusive. Review allocation counts, numerical
-checks and variability alongside speed. The comparator checks recorded settings;
-also confirm the actual CPU model and matching input-generation code before
-interpreting its output.
+checks and variability alongside speed. The comparator first validates both
+baselines and requires matching Julia/BLAS versions, CPU target, threads, seeds,
+measurement settings and harness commit. Keep the same instrumentation commit
+when changing the package implementation. Also confirm the actual CPU model
+from the saved hardware receipts before interpreting its output.

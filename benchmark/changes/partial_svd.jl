@@ -25,8 +25,9 @@ function svd_case!(cases, kind, X, previous, rank, spectrum, state)
     make(partial) = kind == "nuclear" ? NuclearNorm(step; partial) : IndBallRank(rank; partial)
     f, reference = make(true), make(false)
     Y, scratch = similar(X), similar(X)
-    prepare = state == "nearby" ? () -> prox!(scratch, f, previous, step) :
-        () -> (f.pws === nothing || (f.pws.warm = 0); nothing)
+    prepare = state == "random_restart" ?
+        () -> (f.pws === nothing || (f.pws.warm = 0); nothing) :
+        () -> prox!(scratch, f, previous, step)
     operation = () -> prox!(Y, f, X, step)
     name = "$kind/rank$rank/$spectrum/$state"
     function check!()
@@ -51,7 +52,7 @@ function partial_svd_cases(rep)
     cases = PerfCase[]
     shapes = ((64,64), (128,64), (64,128), (96,64), (160,80), (128,96), (192,128), (512,256))
     canary = get(ENV, "PB_MODE", "full") == "canary"
-    for T in (Float32, Float64), (m,n) in shapes, rank in (2,4,6,12)
+    for T in (Float32, Float64), (m,n) in shapes, rank in (2,4,6,8,12)
         canary && !((m,n) in ((128,64),(64,128),(512,256)) && rank==4) && continue
         X, previous = svd_input(rep, T, m, n, rank, "gapped")
         for kind in ("nuclear", "rank"), state in ("nearby", "random_restart")
@@ -61,8 +62,10 @@ function partial_svd_cases(rep)
     for T in (Float32,Float64), (m,n,rank) in ((128,64,4),(128,64,6),(128,64,8),
                                           (128,64,28),(160,80,32),(192,128,20),(512,256,20))
         X, previous = svd_input(rep, T, m, n, rank, "clustered")
-        for state in ("nearby", "random_restart")
-            svd_case!(cases, "nuclear", X, previous, rank, "clustered", state)
+        unrelated, _ = svd_input(rep+10_000, T, m, n, rank, "clustered")
+        for state in ("nearby", "random_restart", "unrelated")
+            seed_input = state == "unrelated" ? unrelated : previous
+            svd_case!(cases, "nuclear", X, seed_input, rank, "clustered", state)
         end
     end
     for T in (Float32,Float64), (m,n) in ((128,64),(512,256))

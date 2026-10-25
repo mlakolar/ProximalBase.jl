@@ -36,6 +36,7 @@ export
   prox_coordinate!, prox_entry, kkt_violation, restrict,
   SeparableFunction, value_entry, iszeropreserving,
   gradient_mapping, gradient_mapping!, lipschitz, opnorm2,
+  reset_cache!,
   hashessian, hessian_vec!, hessian_vec, quadratic_model, quadratic_model!,
   coordinate_lipschitz, coordinate_lipschitz!,
   lla_weight, lla_weights!, lla_weights,
@@ -120,6 +121,7 @@ include("second_order.jl")
 include("envelope.jl")
 include("composition.jl")
 include("metric.jl")
+include("caches.jl")
 include("deprecated.jl")
 include("testing.jl")
 include("precompile.jl")

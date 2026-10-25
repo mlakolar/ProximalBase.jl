@@ -35,6 +35,7 @@ tests = [
   "second_order",
   "envelope",
   "composition",
+  "caches",
   "metric",
   "allocations",
   "gpu",

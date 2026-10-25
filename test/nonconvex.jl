@@ -186,7 +186,7 @@ end
               Δ = (z + bμ/(2sqrt(z)) - BigFloat(t)) /
                   (1 - bμ/(4z*sqrt(z)))
               z -= Δ
-              abs(Δ) <= 8eps(z)*abs(z) && break
+              abs(Δ) <= 8eps(one(z))*abs(z) && break
             end
             @test actual ≈ sgn*T(z) rtol = 32eps(T)
           end

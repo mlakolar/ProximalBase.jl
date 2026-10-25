@@ -130,6 +130,33 @@ end
   @test f32.pws isa PB.PartialSVDWorkspace{Float32} && !usedfull(f32)
 end
 
+# Repeated thresholded calls must keep using a sufficient partial block. The
+# old rank prediction added guards before oversampling and crossed the cutoff
+# after learning rank four on these small rectangular matrices.
+@testset "a learned rank near the partial-SVD cutoff" begin
+  for T in (Float32, Float64), (m, n) in ((128, 64), (64, 128))
+    X = T.(lowrank(m, n, 4))
+    E = T.(1e-4 * randn(m, n))
+    f = NuclearNorm(one(T); partial = true)
+    Y = similar(X)
+    tol = T == Float32 ? 5e-4 : 1e-10
+    for t in 0:3
+      Xt = X + t * E
+      forget!(f)
+      v = value_and_prox!(Y, f, Xt, one(T))
+      ref = nuclear_prox(Xt, one(T))
+      @test Y ≈ ref rtol = tol
+      @test v ≈ sum(svdvals(ref)) rtol = tol
+      @test !usedfull(f)
+    end
+    @test allocs(prox!, Y, f, X, one(T)) == 0
+    # A later high-rank input still falls back and returns the full result.
+    R = randn(T, m, n)
+    @test prox(f, R) ≈ nuclear_prox(R, one(T)) rtol = tol
+    @test usedfull(f)
+  end
+end
+
 # A first call starts from a random block, whose Ritz values are small. With p
 # large and signals just above the threshold, such a block passes the test of
 # the pairs below the threshold, and power steps must come first.

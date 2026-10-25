@@ -162,6 +162,40 @@ end
   end
 end
 
+@testset "half thresholding across floating-point scales" begin
+  # Independent Newton roots in higher precision, including scales at which
+  # a reciprocal power would overflow although the proximal result is finite.
+  setprecision(BigFloat, 256) do
+    for T in (Float32, Float64)
+      levels = T == Float32 ? T[1e-35,1e-10,1,1e10,1e35] : T[1e-300,1e-100,1,1e100,1e300]
+      append!(levels, (nextfloat(zero(T)), floatmin(T), floatmax(T)/16))
+      for μ in levels
+        bμ = BigFloat(μ)
+        threshold = BigFloat(3)/2 * bμ^(BigFloat(2)/3)
+        f = NormLq(μ, T(0.5))
+        for scale in (0.9,1.0001,2,1e10), sgn in (-1,1)
+          t = T(threshold * BigFloat(scale))
+          isfinite(t) || continue
+          actual = prox_entry(f, sgn*t, 1, one(T))
+          @test isfinite(actual)
+          if BigFloat(t) <= threshold
+            @test actual == 0
+          else
+            z = BigFloat(t)
+            for _ in 1:100
+              Δ = (z + bμ/(2sqrt(z)) - BigFloat(t)) /
+                  (1 - bμ/(4z*sqrt(z)))
+              z -= Δ
+              abs(Δ) <= 8eps(one(z))*abs(z) && break
+            end
+            @test actual ≈ sgn*T(z) rtol = 32eps(T)
+          end
+        end
+      end
+    end
+  end
+end
+
 # the minimizer of p(‖z‖) + ‖z - v‖²/(2γ) along the ray of v, by brute force
 function radial_reference(p, v, γ)
   nv = norm(v)

@@ -17,7 +17,7 @@ def read_rows(pattern):
                 rows.append(row)
     return rows
 
-def summarize(root, output, expected):
+def summarize(root, output, expected, versions):
     root, output = Path(root), Path(output)
     output.mkdir(parents=True, exist_ok=True)
     rows = read_rows(str(root / "*-metrics.tsv"))
@@ -65,8 +65,9 @@ def summarize(root, output, expected):
                   if len(groups.get((version,case_id),[]))!=expected]
     unexpected = [r for r in results if r["expected_zero"]=="true" and r["max_bytes"]>0]
     variable = sorted([r for r in results if r["cv"]>0.15],key=lambda r:r["cv"],reverse=True)
+    missing_versions=sorted(set("julia-"+v for v in versions)-set(catalogs))
     status={"measurement_rows":len(rows),"case_version_groups":len(results),
-        "expected_runs":expected,"versions":sorted(catalogs),
+        "expected_runs":expected,"versions":sorted(catalogs),"missing_versions":missing_versions,
         "cases_per_version":{v:len(ids) for v,ids in catalogs.items()},
         "errors":errors,"incomplete":incomplete,"duplicate_groups":duplicate_groups,
         "unexpected_allocation_groups":len(unexpected),"high_variability_groups":len(variable)}
@@ -94,11 +95,12 @@ def summarize(root, output, expected):
         lines.append(f"| `{r['id']}` | {r['julia']} | {r['mean_ns']/1e6:.3f} | [{r['ci95_low_ns']/1e6:.3f}, {r['ci95_high_ns']/1e6:.3f}] | {r['runs']} |")
     (output/"REPORT.md").write_text("\n".join(lines)+"\n")
     print(json.dumps({k:v for k,v in status.items() if k not in ("errors","incomplete","duplicate_groups")},indent=2))
-    return not errors and not incomplete and not duplicate_groups
+    return not errors and not incomplete and not duplicate_groups and not missing_versions
 
 if __name__=="__main__":
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("results");parser.add_argument("output")
     parser.add_argument("--expected-runs",type=int,default=10)
+    parser.add_argument("--versions",nargs="+",default=["1.13.2","1.10.12"])
     args=parser.parse_args()
-    raise SystemExit(0 if summarize(args.results,args.output,args.expected_runs) else 2)
+    raise SystemExit(0 if summarize(args.results,args.output,args.expected_runs,args.versions) else 2)

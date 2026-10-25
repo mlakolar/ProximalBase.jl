@@ -14,8 +14,9 @@ outside this CPU campaign.
 - Run ten fresh Julia processes per supported Julia version, with repetitions
   numbered 1–10. Each repetition draws inputs from stable scenario keys and its
   repetition number, and shuffles measurement order deterministically.
-- Use one benchmark worker at a time, one Julia thread and one BLAS thread on
-  a fixed CPU model. Record the machine, versions, source/harness commits and
+- Use one benchmark worker per node, one Julia thread and one BLAS thread on
+  a fixed CPU model. Independent workers may run on different nodes, never
+  concurrently on the same node. Record the machine, versions, source/harness commits and
   thread settings. Separate project manifests for different Julia versions.
 - Check correctness and warm compilation outside the measured region. Each
   case collects up to 40 BenchmarkTools samples or 0.1 seconds; actual counts
@@ -60,8 +61,8 @@ python3 summarize.py "$PB_OUTPUT" /path/to/summary --expected-runs=10
 
 Use Python 3.11 or later for the paired comparison utility. For the user's
 Discovery runs, all execution, analysis and profiling runs under Slurm using
-the task's saved launchers. GNU Parallel runs serial workers with exclusive,
-CPU-bound `srun` steps. Cluster account, paths and resource settings stay in the
+the task's saved launchers. GNU Parallel pins its worker slots to separate nodes
+with exclusive, CPU-bound `srun` steps. Cluster account, paths and resource settings stay in the
 run record rather than this portable harness.
 
 `PB_MODE=canary` reduces samples and profile duration for launcher validation.

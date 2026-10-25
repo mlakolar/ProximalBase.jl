@@ -42,7 +42,7 @@ native library allocation.
 
 No case has both a paired slowdown above 10% and an interval excluding one. It has
 two nominally slower groups on LTS and eight on Julia 1.13.2; those rows remain
-in the [full comparison](comparison.csv) and [report](REPORT.md). The largest
+in the [full comparison](comparison.csv) and [report](REPORT.md). The lowest
 paired speedup is 0.932 [0.784, 1.108]. Its arithmetic mean is about 12% higher
 after the change; the two summaries describe different aspects of variation.
 Some intervals still allow larger slowdowns. Intervals

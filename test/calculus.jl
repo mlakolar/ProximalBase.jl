@@ -107,6 +107,10 @@ end
 end
 
 @testset "Conjugate wrappers" begin
+  for f in (NormL0(), MCP(1.0), GroupSCAD(1.0, [1:2]))
+    @test_throws ArgumentError Conjugate(f)
+    @test_throws ArgumentError Conjugate{typeof(f)}(f, ProximalBase.Scratch())
+  end
   for T in (Float32,Float64)
     y,b = T[.1,-.2,.3], T[1,2,3]
     f = Scaled(Translate(SqrNormL2(T(2)),b),T(.5))

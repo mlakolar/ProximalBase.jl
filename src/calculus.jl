@@ -201,8 +201,13 @@ not implemented, since it depends on the domain of the underlying function.
 struct Conjugate{F<:AbstractFunction} <: AbstractFunction
   f::F
   scratch::Scratch
+
+  function Conjugate{F}(f::F, scratch::Scratch) where {F<:AbstractFunction}
+    isconvex(f) || throw(ArgumentError("Conjugate requires a convex function"))
+    new{F}(f, scratch)
+  end
 end
-Conjugate(f::AbstractFunction) = Conjugate(f, Scratch())
+Conjugate(f::AbstractFunction, scratch::Scratch = Scratch()) = Conjugate{typeof(f)}(f, scratch)
 
 isproximable(::Type{<:Conjugate{F}}) where {F} = isproximable(F)
 isseparable(::Type{<:Conjugate{F}}) where {F} = isseparable(F)

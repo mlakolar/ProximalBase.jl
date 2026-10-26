@@ -320,9 +320,9 @@ restrict(f::ElasticNet, S::AbstractVector{<:Integer}) = ElasticNet(f.λ1, f.λ2,
 
 The indicator of the box `{x : l ≤ x ≤ u}`: `0` inside and `Inf` outside. The
 bounds are scalars or arrays of the size of `x`, and may be infinite. Its
-proximal operator is the projection `clamp.(x, l, u)`. Array bounds are retained
-by reference; reconstruct the function after changing them, since zero
-preservation is cached at construction.
+proximal operator is the projection `clamp.(x, l, u)`. Array bounds are stored
+without copying; construct a new `IndBox` after changing them in place, since
+whether the box contains zero is computed at construction.
 """
 struct IndBox{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: SeparableFunction
   l::L

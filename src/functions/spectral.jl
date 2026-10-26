@@ -19,14 +19,15 @@ const _PARTIAL_NOTE = """
 With `partial = true` the proximal operator computes only the leading singular
 triplets or eigenpairs, by randomized subspace iteration started from those of
 the previous call, in O(p²k) instead of O(p³) for k of them. It accepts the
-result when residuals of the retained pairs are below
-`max(eps^(3/4), 10eps*sqrt(p))` times the largest value and guard pairs lie
-below the selection boundary. These checks do not certify that a leading
-subspace was not missed. Otherwise, or when the pairs kept would be more than
-about a quarter of the dimension, it falls back to the full decomposition.
-This opt-in approximation pays when the result has low rank and calls use
-nearby matrices; use the default full decomposition when a missed leading
-subspace is unacceptable. See [Partial decompositions](@ref)."""
+result when the residuals of the pairs kept are below
+`max(eps^(3/4), 10eps*sqrt(p))` times the largest value and the next three
+computed pairs lie below the threshold. Otherwise, or when the pairs kept
+would be more than about a quarter of the dimension, it falls back to the full
+decomposition. These checks cannot detect a leading singular value or
+eigenvalue that the iteration missed, so the result is an approximation. It
+pays when the result has low rank and the calls use nearby matrices; keep the
+default full decomposition when an exact proximal step is needed. See
+[Partial decompositions](@ref)."""
 
 # Y = U[:, 1:k] * Vt[1:k, :], through the workspace's matrix when Y is not strided
 function _mul_lowrank!(Y::AbstractMatrix, U::Matrix, Vt::Matrix, k::Integer, ws::SVDWorkspace)

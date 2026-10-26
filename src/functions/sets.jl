@@ -431,9 +431,9 @@ end
 The indicator of the hyperplane `{x : ⟨a, x⟩ = b}`, `a ≠ 0`. Its proximal
 operator is the projection `x - ((⟨a, x⟩ - b) / ‖a‖²) a`. A scalar `a` stands
 for an array of `a`s of the size of `x`: `IndHyperplane(1, 0)` is the set of
-arrays whose entries sum to zero, of any size. Array normals are retained by
-reference; reconstruct the function after changing them, since their squared
-norm is cached at construction.
+arrays whose entries sum to zero, of any size. An array `a` is stored without
+copying and its squared norm is computed at construction; construct a new
+function after changing `a` in place.
 """
 struct IndHyperplane{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
   a::A
@@ -454,9 +454,8 @@ IndHyperplane(a::Union{Real, AbstractArray}, b::Real) =
 
 The indicator of the halfspace `{x : ⟨a, x⟩ ≤ b}`, `a ≠ 0`. Its proximal operator
 is the projection, `x - (max(⟨a, x⟩ - b, 0) / ‖a‖²) a`. A scalar `a` stands for
-an array of `a`s of the size of `x`, as in [`IndHyperplane`](@ref). Reconstruct
-the function after changing a retained array normal, whose squared norm is
-cached at construction.
+an array of `a`s of the size of `x`, as in [`IndHyperplane`](@ref). As there,
+construct a new function after changing an array `a` in place.
 """
 struct IndHalfspace{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
   a::A

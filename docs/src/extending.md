@@ -110,9 +110,8 @@ standard library is loaded, and they run `@test` inside your `@testset`:
   the Fenchel–Young equality, and `kkt_violation` against the proximal operator;
 - [`allocations`](@ref ProximalBase.Testing.allocations): the bytes a hot call
   allocates, measured inside a function after a warm-up call. The built-in
-  CPU paths covered by the allocation suite allocate nothing after warm-up;
-  check new paths on Julia 1.10 and the current release,
-  whose counts differ.
+  functions allocate nothing in these calls on CPU arrays; check your own
+  functions on Julia 1.10 and on the current release, whose counts can differ.
 
 ```@example extending
 using Test

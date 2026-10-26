@@ -173,11 +173,12 @@ operator again. Sizes must stay unchanged. Reconstruct `IndAffine` after changin
 its data; its factorization type can change with the rank of `A`.
 
 - **Output first.** Mutating functions take their output first, as `mul!` does:
-  `prox!(y, f, x, γ)` and `gradient!(g, f, x)`. Proximal output may be the input:
-  `prox!(x, f, x, γ)` works for every function. Use separate input and output
-  storage for gradients, combined value/gradient calls and Hessian products
-  unless a particular method explicitly supports aliasing. The proximal
-  guarantee does not extend to partially overlapping views.
+  `prox!(y, f, x, γ)` and `gradient!(g, f, x)`. The output of a proximal
+  operator may be its input: `prox!(x, f, x, γ)` works for every function. An
+  output that only partly overlaps the input, such as a shifted view of the
+  same array, is not supported. For `gradient!`, `value_and_gradient!` and
+  `hessian_vec!`, pass an output separate from the input unless a method's
+  documentation says otherwise.
 - **The value at the result.** [`value_and_prox!`](@ref) stores the proximal
   point and returns the function's value there. Many functions get that value
   from the computation itself: the nuclear norm from the singular values it
@@ -185,13 +186,14 @@ its data; its factorization type can change with the rank of `A`.
   should call it instead of `prox!` followed by `f(y)`.
 - **Steps and types.** Steps may be any positive real. Computations follow the
   element type of the argument, so `Float32` input gives `Float32` results.
-- **Allocation scope.** The tested built-in CPU hot paths (`f(x)`, `prox!`,
-  `value_and_prox!`, `gradient!`, `value_and_gradient!`, `prox_entry`,
-  `prox_coordinate!`) reuse their buffers after warm-up at fixed input sizes
-  and types. Workspace creation, cache rebuilding, allocating convenience
-  functions and arbitrary user-defined functions are outside this guarantee.
-  GPU calls can allocate host and device reduction or launch state; their
-  allocation diagnostics are separate from the CPU assertions. The spectral functions
+- **Allocations.** On CPU arrays, the hot calls of the built-in functions
+  (`f(x)`, `prox!`, `value_and_prox!`, `gradient!`, `value_and_gradient!`,
+  `prox_entry`, `prox_coordinate!`) allocate nothing once the function has seen
+  an input of the same size and element type; the test suite checks this.
+  Creating a function, rebuilding a cache and the allocating versions such as
+  `prox` do allocate, and functions you write yourself are not covered. Calls
+  on GPU arrays run kernels and reductions that may allocate on the host and
+  the device. The spectral functions
   and [`LogDetLoss`](@ref) own LAPACK workspaces sized for their input. A
   function that owns a workspace must not be shared between threads; give each
   thread a `deepcopy`.

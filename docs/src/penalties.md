@@ -482,15 +482,14 @@ vectors.
   more power step, with two fresh random vectors. A solver calls the proximal
   operator on nearby matrices, so a call takes one to a few iterations, and a
   direction that enters the leading subspace is amplified from call to call.
-- **Acceptance checks.** A result is accepted when the residuals
+- **Acceptance.** A result is accepted when the residuals
   ``\|Xv_j - \sigma_j u_j\|`` (or ``\|Au_j - \theta_j u_j\|``) of the pairs kept
   are below ``\max(\epsilon^{3/4},10\epsilon\sqrt{p})`` times the largest
-  represented value, and the next three represented pairs have their value
-  plus residual below the threshold. These checks concern the computed
-  subspace. They cannot certify that it contains every leading direction;
-  a small residual can coexist with a missed singular value or eigenvalue.
-  Agreement with the full decomposition therefore depends on the input and
-  the captured subspace, rather than a uniform error guarantee.
+  computed value, and the next three computed pairs have their value plus
+  residual below the threshold. Small residuals show that the computed pairs
+  are accurate, not that the block contains every leading direction: a singular
+  value or eigenvalue that the iteration missed goes undetected, and the result
+  then differs from the full decomposition.
 - **Unknown ranks.** For the thresholds of [`NuclearNorm`](@ref),
   [`TracePSD`](@ref) and [`IndPSD`](@ref)`()`, the block starts from the rank of
   the previous call and doubles while too few of its values fall below the
@@ -498,10 +497,10 @@ vectors.
   ``c`` when negative eigenvalues are large enough to crowd out the ones kept.
 - **Fallback.** The function takes the full decomposition when the block would
   exceed a quarter of the dimension, or when the iteration does not converge,
-  and that decomposition starts the next call. A missed direction need not
-  trigger this fallback. Use the default full decomposition when an exact
-  spectral proximal step is required; the partial path is an optional
-  approximation that can pay when the rank of the result is small.
+  and that decomposition starts the next call. A missed direction does not
+  trigger this fallback. `partial = true` is therefore an approximation that
+  pays when the rank of the result is small; keep the default full
+  decomposition when an exact proximal step is needed.
 - **What stays full.** The value ``f(X)`` alone needs every singular value or
   eigenvalue, and still takes the full decomposition. As for the full
   decompositions, the workspaces belong to the function object, so do not share

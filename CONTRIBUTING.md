@@ -16,14 +16,34 @@ Julia installs the declared dependencies and test dependencies automatically.
 ProximalBase currently has no dependencies on other related packages, such as
 ProximalSolvers, so local clones of those packages are not required.
 
-The setup script, `scripts/instantiate.jl`, can use local clones of related
-packages listed in `scripts/master_dependencies.jl`. It selects only packages
-that are direct or indirect dependencies of the selected environment,
-including dependencies used for testing. For those dependencies, it requires
-the local clones to be on their `master` branches. Missing clones are created
-in the parent directory from those branches. The package being developed
-uses its own local clone and may be on a feature branch. The script does not
-install every package in the list.
+For a concrete example, ProximalSolvers depends on ProximalBase. Its setup
+script expects these directories:
+
+```text
+development/
+├── ProximalBase.jl/    # dependency, on master
+└── ProximalOPT.jl/     # ProximalSolvers package, may be on a feature branch
+```
+
+`ProximalOPT.jl` is the directory name currently expected by the scripts for
+the ProximalSolvers package. From `development/`, run:
+
+```sh
+cd ProximalOPT.jl
+julia scripts/instantiate.jl
+julia scripts/test_master.jl
+```
+
+The setup script calls `Pkg.develop` to use `../ProximalBase.jl` as the
+ProximalBase dependency. It requires that clone to be on `master` and clones
+it from GitHub if the directory is missing. This lets you test ProximalSolvers
+against the code in that local ProximalBase clone.
+
+By contrast, running `julia scripts/instantiate.jl` from `ProximalBase.jl/`
+does not clone ProximalSolvers, HighDimensionalModels or the other packages
+listed in `scripts/master_dependencies.jl`. ProximalBase does not depend on
+them. The script follows only the selected environment's dependencies,
+including indirect dependencies and dependencies used for testing.
 
 The documentation and benchmark environments specify the local ProximalBase
 clone with a relative path in the `[sources]` section of `Project.toml`.

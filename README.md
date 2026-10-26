@@ -166,12 +166,14 @@ This script installs dependencies, creates a separate Julia environment
 containing the local package and its test dependencies, and runs with array
 bounds checking. There is no need to run `scripts/instantiate.jl` first.
 
-The setup script, `scripts/instantiate.jl`, also supports developing related
-packages together. It uses local clones of those packages on their `master`
-branches only when they are direct or indirect dependencies of the selected
-environment, including dependencies used for testing. ProximalBase currently
-has no such dependencies on other related packages. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for development and documentation setup.
+For example, ProximalSolvers depends on ProximalBase. Running
+`julia scripts/instantiate.jl` from the ProximalSolvers directory uses a local
+ProximalBase clone on its `master` branch, so the solver can be tested against
+that code. Running the same command from the ProximalBase directory does not
+install ProximalSolvers: ProximalBase does not depend on it. The other packages
+listed in `scripts/master_dependencies.jl` are also unused unless they are
+needed as dependencies. See [CONTRIBUTING.md](CONTRIBUTING.md) for the directory
+layout and documentation setup.
 
 ## License
 

@@ -207,7 +207,6 @@ end
 # g(z) = z + μq z^(q-1) - t, the minimizer of μ z^q + (z - t)²/2. g is convex
 # and increasing there, so Newton's method from z = t, right of the root,
 # decreases to it monotonically.
-_lq_root(t::S, μ::S, q::S) where {S<:AbstractFloat} = _lq_root(t, μ, q, log(μ))
 function _lq_root(t::S, μ::S, q::S, logμ::S) where {S<:AbstractFloat}
   # μ/t^(2-q) is bounded above the threshold. A log level retains it even
   # when μ itself overflowed or underflowed while multiplying its factors.

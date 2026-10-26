@@ -1,5 +1,9 @@
 # Storage and extension audit
 
+Historical first-audit ledger, source edition `5839b4e`. The subsequent
+[necessity review](necessity-review.md) supersedes its domain-rejection policy
+and records further numerical defects and simplifications.
+
 Edition: fetched master `f5c5797ded0800afd1c3c8f6289860906473b8e4`, plus the repairs recorded below. Every implementation line of the files in the coverage table was read independently. Source checks establish the stated local relationships and defects; they are not a proof of general numerical correctness. Julia execution is centralized by the root reviewer; this reviewer did not launch Julia.
 
 ## Findings
@@ -59,4 +63,4 @@ The installed GPUArrays source versions inspected at `src/host/linalg.jl` alread
 
 The first LTS run exposed a further CHOLMOD dispatch detail: the element-type union of its matched `copyto!` method is narrower in Julia 1.10 (Float64/ComplexF64) than in 1.13 (also Float32/ComplexF32). A hardcoded four-type union therefore left an LTS ambiguity. The final method uses `SparseArrays.CHOLMOD.VTypes`, the actual scalar union used by those library signatures, giving the exact version-independent intersection. Matching and mixed-type CHOLMOD regressions are retained. The earlier failed LTS outcome is retained in the report; its temporary log was lost in the restart. Final full suites, storage checks and Aqua passed on both versions; durable receipts are in validation/.
 
-Final execution authority: [validation receipts](validation/README.md). Full suites passed 63,133 assertions on each Julia version at f68cd73. Final guard suites passed 13,283 assertions per version at c0e1305. Reviewer-specific statements about not executing Julia describe the division of work; root ran the recorded checks. Physical GPUs remain unverified.
+Final execution authority: [validation receipts](https://github.com/mlakolar/ProximalBase.jl/blob/5839b4e973a115fa0d3c1a328903a0a58ded3aac/docs/audit/release-0.5.4/validation/README.md). Full suites passed 63,133 assertions on each Julia version at f68cd73. Final guard suites passed 13,283 assertions per version at c0e1305. Reviewer-specific statements about not executing Julia describe the division of work; root ran the recorded checks. Physical GPUs remain unverified.

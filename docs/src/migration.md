@@ -42,15 +42,11 @@ For `A_mul_X_mul_B`, use `A * X * B`, with `X` represented as a
 For `A_mul_UUt_mul_B`, use `(A * U) * transpose(B * U)`; its entry helper
 becomes `dot(U' * view(A, :, r), U' * view(B, :, c))` in the same real setting.
 
-## Qualified group compatibility interface
+## Group compatibility alias
 
-`ProximalBase.AbstractGroupNorm` is a compatibility alias for
-`ProximalBase.AbstractGroupPenalty`. It includes `GroupMCP` and `GroupSCAD`.
-Callers selecting grouped storage may retain that alias. Algorithms requiring
-a convex, positively homogeneous group penalty must use the narrower
-`ProximalBase.HomogeneousGroupNorm` or check the needed properties. The alias
-has no separately announced removal version; it is distinct from the 0.4
-deprecations above.
+Existing code may use `ProximalBase.AbstractGroupNorm` to recognize grouped
+penalties. This compatibility alias includes `GroupMCP` and `GroupSCAD`, so it
+does not imply convexity or positive homogeneity.
 
 `LogisticLoss`, `PoissonLoss`, and `HuberLoss` are specializations of
 [`GLMLoss`](@ref). `IndBallLinf` and [`Constrained`](@ref) are constructor

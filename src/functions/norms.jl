@@ -287,9 +287,9 @@ function (f::HomogeneousGroupNorm)(x::AbstractArray)
   for k in eachindex(f.groups)
     w = convert(T, f.w[k])
     iszero(w) && continue
-    v += w * _group_norm(f, x, f.groups[k])
+    v += _positive_product(convert(T, f.λ0), w, _group_norm(f, x, f.groups[k]))
   end
-  convert(T, f.λ0) * v
+  v
 end
 
 value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
@@ -330,9 +330,10 @@ function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::A
       end
       continue
     end
-    v += w * _shrink_group!(f, y, x, f.groups[k], convert(T, _entry(γ, k) * f.λ0 * f.w[k]))
+    nrm = _shrink_group!(f, y, x, f.groups[k], convert(T, _positive_product(_entry(γ, k), f.λ0, f.w[k])))
+    v += _positive_product(convert(T, f.λ0), w, nrm)
   end
-  convert(T, f.λ0) * v
+  v
 end
 
 # a step per group (see metric.jl): one entry for every group
@@ -391,9 +392,9 @@ function (f::HomogeneousGroupNorm)(x::AtomIterate)
     k = x.active[a]
     w = convert(T, f.w[k])
     iszero(w) && continue
-    v += w * _group_norm(f, x.storage, f.groups[k])
+    v += _positive_product(convert(T, f.λ0), w, _group_norm(f, x.storage, f.groups[k]))
   end
-  convert(T, f.λ0) * v
+  v
 end
 
 value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
@@ -410,9 +411,10 @@ function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::Ato
     k = y.active[a]
     w = convert(T, f.w[k])
     iszero(w) && continue
-    v += w * _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, _entry(γ, k) * f.λ0 * f.w[k]))
+    nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, _positive_product(_entry(γ, k), f.λ0, f.w[k])))
+    v += _positive_product(convert(T, f.λ0), w, nrm)
   end
-  convert(T, f.λ0) * v
+  v
 end
 
 # group k of x shrunk in place; the group becomes active if it is nonzero, as after
@@ -424,7 +426,7 @@ function prox_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k::Integer, �
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
     return atom(x, k)
   end
-  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], convert(T, γ * f.λ0 * f.w[k]))
+  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], convert(T, _positive_product(γ, f.λ0, f.w[k])))
   iszero(nrm) || activate!(x, k)
   atom(x, k)
 end

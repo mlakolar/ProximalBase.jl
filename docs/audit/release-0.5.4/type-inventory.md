@@ -1,6 +1,8 @@
 # Type declarations
 
-All implementation declarations from source and extensions, including private workspaces and views. Multiline type parameters are joined without omitting their parent. Compatibility bindings are listed separately in the migration guide and public API inventory.
+Implementation declarations, including private workspaces and views. This is
+an architecture inventory; internal types are not promoted as extension APIs.
+Multiline parameters include their parent. Compatibility bindings are separate.
 
 | Source | Kind | Declaration |
 | --- | --- | --- |
@@ -118,7 +120,7 @@ All implementation declarations from source and extensions, including private wo
 | `src/lapack.jl` | mutable struct | `SymEigenTopWorkspace{T<:_BlasReal}` |
 | `src/lapack.jl` | mutable struct | `SVDWorkspace{T<:_BlasReal}` |
 | `src/metric.jl` | struct | `_ReciprocalArray{T, N, A<:AbstractArray} <: AbstractArray{T, N}` |
-| `src/partial.jl` | mutable struct | `QRWorkspace{T<:_BlasReal}` |
+| `src/partial.jl` | struct | `QRWorkspace{T<:_BlasReal}` |
 | `src/partial.jl` | mutable struct | `PartialSVDWorkspace{T<:_BlasReal}` |
 | `src/partial.jl` | mutable struct | `PartialEigenWorkspace{T<:_BlasReal}` |
 | `src/sparse_iterate.jl` | mutable struct | `SparseIterate{T, N} <: AbstractArray{T, N}` |

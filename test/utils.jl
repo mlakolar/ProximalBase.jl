@@ -160,4 +160,17 @@ end
   @test copy(s).buf === nothing                                    # copies share nothing
 end
 
+@testset "compensated nonnegative products" begin
+  for T in (Float32, Float64)
+    large = floatmax(T) / 2
+    small = inv(large)
+    for factors in ((T(4), large, small), (small, small, large),
+                    (large, large, small), (small, large, T(7)))
+      expected = T(prod(BigFloat.(factors)))
+      @test ProximalBase._positive_product(factors...) ≈ expected rtol=16eps(T) atol=zero(T)
+    end
+    @test ProximalBase._positive_product(T(Inf), zero(T), one(T)) == zero(T)
+  end
+end
+
 end

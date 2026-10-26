@@ -185,9 +185,6 @@ scheduled for 0.6. They do not introduce additional abstract or concrete types.
 - `ProximalBase.curvature`
 - `ProximalBase.value_and_deriv`
 - `ProximalBase.Testing`
-- `ProximalBase.AbstractGroupPenalty`
-- `ProximalBase.HomogeneousGroupNorm`
-- `ProximalBase.AbstractGroupNorm`
 - `ProximalBase.Testing.test_prox`
 - `ProximalBase.Testing.test_gradient`
 - `ProximalBase.Testing.test_separable`
@@ -196,3 +193,11 @@ scheduled for 0.6. They do not introduce additional abstract or concrete types.
 - `ProximalBase.Testing.test_traits`
 - `ProximalBase.Testing.allocations`
 - `ProximalBase.Testing.brute_force_prox`
+
+# Qualified compatibility binding
+
+`ProximalBase.AbstractGroupNorm` is retained for existing downstream
+grouped-storage dispatch. It includes nonconvex group penalties, so its name
+does not imply convexity or positive homogeneity. The group implementation
+hierarchy is described in the architecture inventory, rather than recommended
+as an extension API.

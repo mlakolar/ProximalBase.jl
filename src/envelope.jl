@@ -217,6 +217,3 @@ function _prox_slope(φ::SeparableFunction, r::T, γ::T) where {T}
   s = (prox_entry(φ, r + h, 1, γ) - prox_entry(φ, r - h, 1, γ)) / (2h)
   clamp(convert(T, s), zero(T), one(T))
 end
-
-# The envelope is finite everywhere; its conjugate keeps the inner domain.
-_entry_conjugate_domain(e::MoreauEnvelope, i) = _entry_conjugate_domain(e.f, i)

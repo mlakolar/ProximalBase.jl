@@ -109,7 +109,7 @@ end
 @testset "Conjugate wrappers" begin
   for f in (NormL0(), MCP(1.0), GroupSCAD(1.0, [1:2]))
     @test_throws ArgumentError Conjugate(f)
-    @test_throws ArgumentError Conjugate{typeof(f)}(f, ProximalBase.Scratch())
+    @test_throws ArgumentError Conjugate{typeof(f)}(f)
   end
   for T in (Float32,Float64)
     y,b = T[.1,-.2,.3], T[1,2,3]
@@ -123,6 +123,14 @@ end
   end
   @test Conjugate(Scaled(NormL1(), 0.0))(zeros(3)) == 0
   @test Conjugate(Scaled(NormL1(), 0.0))(ones(3)) == Inf
+  # Deep copies own their numerical workspace.
+  c = Conjugate(NormL1(0.4))
+  expected = prox(c, [2.0, -1.0])
+  d = deepcopy(c)
+  @test d.scratch !== c.scratch
+  @test d.scratch.buf === nothing
+  @test prox(d, [2.0, -1.0]) == expected
+  @test d.scratch.buf !== c.scratch.buf
 end
 
 @testset "zero scales preserve domains" begin
@@ -206,6 +214,48 @@ end
   cf = Conjugate(NormL1(0.6))
   @test isseparable(cf)
   @test [prox_entry(cf, y[i], i, 0.8) for i in 1:3] ≈ prox(cf, y, 0.8)
+end
+
+@testset "Euclidean conjugate values across numerical scales" begin
+  for T in (Float32, Float64)
+    large = T === Float32 ? T(1e30) : T(1e200)
+    for scale in (large, inv(large))
+      y = T[scale]
+      @test Conjugate(IndBallL2(one(T)))(y) ≈ scale rtol = 8eps(T)
+    end
+    @test Conjugate(NormL2(large))(T[large / 2]) == zero(T)
+
+    # Compare true inside/outside membership independently at ordinary scale
+    # and near floatmax, where adding a relative tolerance used to overflow.
+    m = floatmax(T)
+    for radius in (one(T), m), fraction in (T(0.25), T(0.8))
+      y = fill(fraction * radius, 3)
+      exact_norm = sqrt(sum(abs2, BigFloat.(y)))
+      expected = exact_norm <= BigFloat(radius) ? zero(T) : T(Inf)
+      @test Conjugate(NormL2(radius))(y) == expected
+    end
+    @test Conjugate(IndBallL2(zero(T)))(fill(T(0.8) * m, 3)) == zero(T)
+
+    # Dividing a squared norm by 2λ must not overflow or underflow its
+    # intermediates. The last case has a norm outside T but finite energy.
+    cases = ((large, T[large]), (inv(large), T[inv(large)]),
+             (m, T[1]), (m, fill(T(0.7) * m, 3)))
+    for (λ, y) in cases
+      reference = T(sum(abs2, BigFloat.(y)) / (2BigFloat(λ)))
+      @test isfinite(reference) && reference > zero(T)
+      f = Conjugate(SqrNormL2(λ))
+      @test f(y) ≈ reference rtol = 32eps(T) atol = 8nextfloat(zero(T))
+      @test f(SparseIterate(y)) ≈ reference rtol = 32eps(T) atol = 8nextfloat(zero(T))
+      @test allocs(f, y) == 0
+    end
+  end
+
+  # Parameter precision may exceed output precision. Keep λ until scaling;
+  # converting it to Float32 first would turn these finite energies into 0/Inf.
+  for (λ, y) in ((1e100, Float32[1e30]), (1e-100, Float32[1e-40]))
+    reference = Float32(sum(abs2, BigFloat.(y)) / (2BigFloat(λ)))
+    @test Conjugate(SqrNormL2(λ))(y) ≈ reference rtol = 32eps(Float32) atol = 8nextfloat(0f0)
+  end
 end
 
 @testset "SeparableSum" begin

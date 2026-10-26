@@ -55,8 +55,8 @@ _issymmetric_tol(::SymmetricSparseIterate) = true
 
 # the symmetric Y = Σⱼ f(λⱼ) vⱼvⱼ' from the eigendecomposition V, λ, through the
 # n × n matrix buffer when Y is not strided (a SymmetricSparseIterate, say)
-function _rebuild_sym_out!(Y::AbstractMatrix, V::StridedMatrix, λ, f::F; logs::Bool = false,
-                           buffer::StridedMatrix = similar(V, size(V, 1), size(V, 1))) where {F}
+function _rebuild_sym_out!(Y::AbstractMatrix, V::StridedMatrix, λ, f::F, buffer::StridedMatrix;
+                           logs::Bool = false) where {F}
   Y isa StridedMatrix && return _rebuild_sym!(Y, V, λ, f; logs)
   s = _rebuild_sym!(buffer, V, λ, f; logs)
   copyto!(Y, buffer)
@@ -265,7 +265,7 @@ function _project_psd!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix)
   copyto!(ws.A, X)
   λ, V = _eigen!(ws)
   n = size(V, 1)
-  _rebuild_sym_out!(Y, V, λ, t -> max(t, zero(t)); buffer = Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
+  _rebuild_sym_out!(Y, V, λ, t -> max(t, zero(t)), Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
   f.partial && _warm_start_eigen!(f, V, count(>(zero(T)), λ))
   Y
 end
@@ -288,7 +288,7 @@ function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
   f.top = ws
   copyto!(ws.A, X)
   λ, Z = _eigen_top!(ws)
-  _rebuild_sym_out!(Y, Z, λ, t -> max(t, zero(t)); buffer = Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
+  _rebuild_sym_out!(Y, Z, λ, t -> max(t, zero(t)), Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
   f.partial && _warm_start_eigen!(f, Z, count(>(zero(T)), λ))
   Y
 end
@@ -345,7 +345,7 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
     s += max(t - c, zero(T))
   end
   n = size(V, 1)
-  _rebuild_sym_out!(Y, V, λ, t -> max(t - c, zero(t)); buffer = Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
+  _rebuild_sym_out!(Y, V, λ, t -> max(t - c, zero(t)), Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
   f.partial && _warm_start_eigen!(f, V, count(>(c), λ))
   convert(T, f.λ) * s
 end

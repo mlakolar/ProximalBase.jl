@@ -304,13 +304,3 @@ function quadratic_model!(q::Regularize, r::Regularize, x)
   quadratic_model!(q.f, r.f, x)
   q
 end
-
-# Scalar-domain propagation for box-constrained compositions.
-_entry_domain(r::Regularize, i) = _entry_domain(r.f, i)
-_entry_conjugate_domain(r::Regularize, i) = r.ρ > 0 ? (-Inf, Inf, false, false) : _entry_conjugate_domain(r.f, i)
-function _rescale_domain(d, a)
-  l, u, ol, ou = d
-  a > 0 ? (a * l, a * u, ol, ou) : (a * u, a * l, ou, ol)
-end
-_entry_domain(h::_ScalarPrecompose, i) = _rescale_domain(_entry_domain(h.f, i), inv(h.A))
-_entry_conjugate_domain(h::_ScalarPrecompose, i) = _rescale_domain(_entry_conjugate_domain(h.f, i), h.A)

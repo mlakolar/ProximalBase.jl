@@ -19,3 +19,8 @@
 /benchmark/__pycache__/
 /benchmark/gpu_solver/results/
 /benchmark/gpu_solver/__pycache__/
+
+# Local audit receipts and rendered mirrors; maintain Markdown/Mermaid sources.
+/docs/audit/*/validation/
+/docs/audit/*/architecture/rendered/
+/docs/audit/*/architecture/original-pages.json

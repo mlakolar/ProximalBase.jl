@@ -117,12 +117,12 @@ end
   for q in (1/2, 2/3), μ in (0.01, 0.4, 3.), s in (1 + 1e-12, 1 + 1e-6, 1.01, 1.5, 3., 30.)
     τ = (2 - q) / (2 - 2q) * (2μ * (1 - q))^(1 / (2 - q))
     t = τ * s
-    @test ProximalBase._lq_root(t, μ, q) ≈ lq_root_reference(t, μ, q) rtol = 1e-12
+    @test prox_entry(NormLq(μ, q), t, 1, 1.0) ≈ lq_root_reference(t, μ, q) rtol = 1e-12
   end
   # and Newton's method for any other q
   for q in (0.1, 0.45, 0.99), μ in (0.05, 2.)
     τ = (2 - q) / (2 - 2q) * (2μ * (1 - q))^(1 / (2 - q))
-    @test ProximalBase._lq_root(1.3τ, μ, q) ≈ lq_root_reference(1.3τ, μ, q) rtol = 1e-12
+    @test prox_entry(NormLq(μ, q), 1.3τ, 1, 1.0) ≈ lq_root_reference(1.3τ, μ, q) rtol = 1e-12
   end
   # weights, Float32, and zero as a local minimizer everywhere
   w = rand(10) .+ 0.5

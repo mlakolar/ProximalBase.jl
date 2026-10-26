@@ -433,37 +433,22 @@ end
   @test !ProximalBase._has_prox_slope(typeof(NoSlope(NormL1(1.))))
 end
 
-@testset "boxes cannot return points outside inner domains" begin
+@testset "boxes intersecting closed and open scalar domains" begin
   for T in (Float32, Float64)
-    fs = (IndBox(zero(T), one(T)), NegLog(one(T)), NegEntropy(one(T)),
-          KLDivergence(one(T)), Conjugate(NormL1(one(T))),
-          Translate(IndNonnegative(), T[1]))
-    for (j, f) in enumerate(fs)
-      bounds = j in (1, 5) ? IndBox(T(2), T(3)) : IndBox(T(-2), T(-1))
-      c = Constrained(f, bounds)
-      @test_throws ArgumentError prox(c, T[0])
-      @test_throws ArgumentError value_and_prox!(zeros(T, 1), c, T[0], one(T))
-      @test_throws ArgumentError prox_entry(c, zero(T), 1, one(T))
-      @test_throws ArgumentError prox_coordinate!(SparseIterate(T[0]), c, 1, one(T))
-    end
-    # Domain checks propagate through wrappers and dual slope bounds.
-    for f in (Scaled(NegLog(one(T)), T(2)), Tilt(NegLog(one(T)), T[1]),
-              Regularize(NegLog(one(T)), one(T)),
-              Conjugate(Conjugate(IndNonnegative())),
-              Conjugate(Constrained(NormL1(one(T)), IndNonnegative())))
-      c = Constrained(f, f isa Conjugate && f.f isa ProximalBase.BoxConstrained ?
-                          IndBox(T(2), T(3)) : IndBox(T(-2), T(-1)))
-      @test_throws ArgumentError prox(c, T[0])
-    end
-    # Zero belongs to entropy's closed domain, but not the log barrier's domain.
+    # Entropy has a closed domain at zero; the positive log barrier can instead
+    # be constrained to an interval contained in its open domain.
     @test prox(Constrained(NegEntropy(one(T)), IndBox(zero(T), zero(T))), T[1]) == T[0]
-    @test_throws ArgumentError prox(Constrained(NegLog(one(T)), IndBox(zero(T), zero(T))), T[1])
-    c = Constrained(NormL1(one(T)), IndBox(T(-1), T(1)))
-    @test allocs(prox!, zeros(T, 3), c, T[3, -2, 0], one(T)) == 0
+    c = Constrained(NegLog(one(T)), IndBox(one(T), T(2)))
+    x, out = T[-3, 0, 5], zeros(T, 3)
+    expected = clamp.((x .+ sqrt.(x.^2 .+ 4)) ./ 2, one(T), T(2))
+    @test prox(c, x) ≈ expected
+    @test value_and_prox!(out, c, x, one(T)) ≈ -sum(log, expected)
+    @test out ≈ expected
+    @test all(>(zero(T)), out)
   end
 end
 
-@testset "box domain checks preserve mixed-precision touching endpoints" begin
+@testset "boxes with mixed-precision touching endpoints" begin
   for T in (Float32, Float64)
     # Each bound rounds outward in T. The original domains touch at exactly
     # b, which the proximal output represents by T(b).
@@ -478,22 +463,6 @@ end
     end
     c = Constrained(IndBox(zero(b), b), IndBox(b, b))
     @test ProximalBase._prox_entry_slope(c, zero(T), 1, one(T)) == (T(b), zero(T))
-
-    # A truly empty intersection must not become valid just because both
-    # original endpoints round to the same number in the output precision.
-    disjoint = nextfloat(b)
-    @test T(disjoint) == T(b)
-    for f in (IndBox(zero(b), b), Conjugate(NormL1(b)))
-      c = Constrained(f, IndBox(disjoint, disjoint))
-      @test_throws ArgumentError prox(c, T[0])
-      @test_throws ArgumentError prox(c, T[1])  # clamping need not change p
-      @test_throws ArgumentError prox_entry(c, one(T), 1, one(T))
-      @test_throws ArgumentError prox_coordinate!(SparseIterate(T[1]), c, 1, one(T))
-    end
-    c = Constrained(IndBox(zero(b), b), IndBox(disjoint, disjoint))
-    @test_throws ArgumentError ProximalBase._prox_entry_slope(c, one(T), 1, one(T))
-    # The strict barrier domain remains open, including in mixed precision.
-    @test_throws ArgumentError prox(Constrained(NegLog(b), IndBox(0, 0)), T[1])
   end
 end
 

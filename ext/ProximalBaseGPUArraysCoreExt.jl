@@ -14,7 +14,7 @@ using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, Sq
                     GroupNormL2, GroupNormLinf, SparseGroupNormL2, IndBallGroupL0, AbstractFunction,
                     LeastSquaresLoss, GLMLoss,
                     prox_entry, value_entry, shrink, _checksize, _checkparams, _checkgroups, _tol, _ind,
-                    _kth_largest!
+                    _kth_largest!, _positive_product
 using GPUArraysCore: AbstractGPUArray
 using LinearAlgebra: mul!
 using Base.Broadcast: broadcasted, instantiate
@@ -291,8 +291,8 @@ ProximalBase.prox!(y::AbstractArray, d::DeviceGroups, x::AbstractArray, γ::Real
 ProximalBase.value_and_prox!(y::AbstractArray, d::DeviceGroups, x::AbstractArray, γ::Real) = value_and_prox!(y, d.f, x, γ)
 
 (d::DeviceGroups)(x::GPUArray) = _value(d.f, d.layout, x)
-ProximalBase.value_and_prox!(y::GPUArray, d::DeviceGroups, x::GPUArray, γ::Real) = _value_and_prox!(y, d.f, d.layout, x, γ)
-ProximalBase.prox!(y::GPUArray, d::DeviceGroups, x::GPUArray, γ::Real) = (_value_and_prox!(y, d.f, d.layout, x, γ); y)
+ProximalBase.value_and_prox!(y::GPUArray, d::DeviceGroups, x::GPUArray, γ::Real) = _group_prox!(y, d.f, d.layout, x, γ, Val(true))
+ProximalBase.prox!(y::GPUArray, d::DeviceGroups, x::GPUArray, γ::Real) = (_group_prox!(y, d.f, d.layout, x, γ, Val(false)); y)
 
 # a function left on the host builds the layout on the device of x at each call
 _on_device(f, x) = DeviceGroups(f, A -> copyto!(similar(x, eltype(A), size(A)), A))
@@ -326,25 +326,31 @@ function _scatter_back!(op::O, yv, lay::_GroupLayout, a) where {O}
 end
 
 # The thresholds c wₖ of the groups, the norms and the factors are computed in
-# the element type T of the output, with c converted on the host, so that a
+# the element type T of the output, with the step and level converted on the host, so that a
 # Float32 array is not computed in Float64 inside a kernel.
 struct _Level{T}
-  c::T
+  step::T
+  λ::T
 end
-(l::_Level{T})(w) where {T} = l.c * convert(T, w)
+(l::_Level{T})(w) where {T} = _positive_product(l.step, l.λ, convert(T, w))
 
-# wₖ ⋅ v and the shrinkage of a group of norm n at c wₖ: its factor and new weighted norm
-struct _Weighted{T} end
-(::_Weighted{T})(v, w) where {T} = iszero(w) ? zero(T) : convert(T, w) * v
-struct _L2Factor{T}
-  c::T
+# λwₖ ⋅ v and group shrinkage at γλwₖ: its factor and value at the proximal point
+struct _Weighted{T}
+  λ::T
 end
-(l::_L2Factor{T})(n, w) where {T} = (c = l.c * convert(T, w); n > c ? one(T) - c / n : zero(T))
+(l::_Weighted{T})(v, w) where {T} = _positive_product(l.λ, convert(T, w), v)
+struct _L2Factor{T}
+  step::T
+  λ::T
+end
+(l::_L2Factor{T})(n, w) where {T} = iszero(w) ? one(T) :
+  (c = _positive_product(l.step, l.λ, convert(T, w)); n > c ? one(T) - c / n : zero(T))
 struct _L2Value{T}
-  c::T
+  step::T
+  λ::T
 end
 (l::_L2Value{T})(n, w) where {T} = iszero(w) ? zero(T) :
-  (c = l.c * convert(T, w); n > c ? convert(T, w) * (n - c) : zero(T))
+  (c = _positive_product(l.step, l.λ, convert(T, w)); n > c ? _positive_product(l.λ, convert(T, w), n - c) : zero(T))
 
 # Scale each group before squaring. A direct sum of squares can overflow or
 # underflow even when its norm, and hence its proximal factor, is representable.
@@ -368,11 +374,11 @@ struct _AbsIn{T}
 end
 (a::_AbsIn{T})(v, g) where {T} = g <= a.K ? convert(T, abs(v)) : zero(T)
 
-# Σₖ wₖ ‖x[Gₖ]‖₂ and the ℓ1 norm of the entries in groups
-function _l2_part(::Type{T}, xv, lay::_GroupLayout) where {T}
+# λΣₖ wₖ ‖x[Gₖ]‖₂ and the ℓ1 norm of the entries in groups
+function _l2_part(::Type{T}, xv, lay::_GroupLayout, λ::T) where {T}
   v = zero(T)
   for b in lay.blocks
-    v += _sum(T, _Weighted{T}(), _group_norms(_gather(xv, b), b, T), b.w)
+    v += _sum(T, _Weighted(λ), _group_norms(_gather(xv, b), b, T), b.w)
   end
   return v
 end
@@ -388,11 +394,13 @@ end
 
 # GroupNormL2: block soft thresholding
 _value(f::GroupNormL2, lay, x) =
-  (_checkgroups(f, x); T = float(eltype(x)); iszero(f.λ0) ? zero(T) : convert(T, f.λ0) * _l2_part(T, vec(x), lay))
+  (_checkgroups(f, x); T = float(eltype(x)); iszero(f.λ0) ? zero(T) : _l2_part(T, vec(x), lay, convert(T, f.λ0)))
 
 _scale(v, t, _) = t * v
 
-function _value_and_prox!(y, f::GroupNormL2, lay, x, γ::Real)
+# Value reductions return host scalars and can synchronize the device. Compile
+# them out for prox!, while sharing the actual proximal calculation.
+function _group_prox!(y, f::GroupNormL2, lay, x, γ::Real, ::Val{V}) where {V}
   _checksize(y, x)
   _checkgroups(f, x)
   S = float(eltype(y))
@@ -400,15 +408,15 @@ function _value_and_prox!(y, f::GroupNormL2, lay, x, γ::Real)
   iszero(f.λ0) && return zero(S)
   yv = vec(y)
   fac = _group_buffer(yv, S, lay, one(S))
-  c = convert(S, γ * f.λ0)
+  step, λ = convert(S, γ), convert(S, f.λ0)
   v = zero(S)
   for b in lay.blocks
     s = _group_norms(_gather(yv, b), b, S)
-    view(fac, b.pos) .= _L2Factor(c).(vec(s), vec(b.w))
-    v += _sum(S, _L2Value(c), s, b.w)
+    view(fac, b.pos) .= _L2Factor(step, λ).(vec(s), vec(b.w))
+    V && (v += _sum(S, _L2Value(step, λ), s, b.w))
   end
   _scatter_back!(_scale, yv, lay, fac)
-  return convert(S, f.λ0) * v
+  return v
 end
 
 # SparseGroupNormL2: soft thresholding, then block soft thresholding
@@ -416,7 +424,7 @@ function _value(f::SparseGroupNormL2, lay, x)
   _checkgroups(f, x)
   T = float(eltype(x))
   xv = vec(x)
-  return (iszero(f.λ0) ? zero(T) : convert(T, f.λ0) * _l2_part(T, xv, lay)) +
+  return (iszero(f.λ0) ? zero(T) : _l2_part(T, xv, lay, convert(T, f.λ0))) +
          (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * _grouped_l1(T, xv, lay))
 end
 
@@ -430,25 +438,29 @@ struct _SparseScale{T}
 end
 (s::_SparseScale{T})(v, t, g) where {T} = g <= s.K ? t * shrink(convert(T, v), s.c) : v
 
-function _value_and_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real)
+function _group_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real, ::Val{V}) where {V}
   _checksize(y, x)
   _checkgroups(f, x)
   S = float(eltype(y))
   y === x || copyto!(y, x)
   iszero(f.λ0) && iszero(f.λ1) && return zero(S)
   yv = vec(y)
-  fac = _group_buffer(yv, S, lay, one(S))
   c1 = convert(S, γ * f.λ1)
-  c2 = convert(S, γ * f.λ0)
+  if iszero(f.λ0)
+    yl = view(yv, 1:length(lay.gid))
+    yl .= _SparseScale(c1, length(lay.pos)).(yl, one(S), lay.gid)
+    return V ? convert(S, f.λ1) * _grouped_l1(S, yv, lay) : zero(S)
+  end
+  fac = _group_buffer(yv, S, lay, one(S))
+  step, λ = convert(S, γ), convert(S, f.λ0)
   v2 = zero(S)
   for b in lay.blocks
     s = _group_norms(_gather(yv, b), b, S, _Shrink(c1))
-    view(fac, b.pos) .= _L2Factor(c2).(vec(s), vec(b.w))
-    v2 += _sum(S, _L2Value(c2), s, b.w)
+    view(fac, b.pos) .= _L2Factor(step, λ).(vec(s), vec(b.w))
+    V && (v2 += _sum(S, _L2Value(step, λ), s, b.w))
   end
   _scatter_back!(_SparseScale(c1, length(lay.pos)), yv, lay, fac)
-  return (iszero(f.λ0) ? zero(S) : convert(S, f.λ0) * v2) +
-         (iszero(f.λ1) ? zero(S) : convert(S, f.λ1) * _grouped_l1(S, yv, lay))
+  return v2 + (V && !iszero(f.λ1) ? convert(S, f.λ1) * _grouped_l1(S, yv, lay) : zero(S))
 end
 
 # GroupNormLinf: each group clipped at a level, by Moreau's identity with the
@@ -461,9 +473,9 @@ function _value(f::GroupNormLinf, lay, x)
   xv = vec(x)
   v = zero(T)
   for b in lay.blocks
-    v += _sum(T, _Weighted{T}(), _segreduce(abs, max, zero(T), _gather(xv, b), b), b.w)
+    v += _sum(T, _Weighted(convert(T, f.λ0)), _segreduce(abs, max, zero(T), _gather(xv, b), b), b.w)
   end
-  return convert(T, f.λ0) * v
+  return v
 end
 
 _sum_above(v, τ) = (a = abs(v); a > τ ? a : zero(a))
@@ -488,7 +500,7 @@ function _linf_levels(X, b::_GroupBlock, c)
   end
 end
 
-function _value_and_prox!(y, f::GroupNormLinf, lay, x, γ::Real)
+function _group_prox!(y, f::GroupNormLinf, lay, x, γ::Real, ::Val{V}) where {V}
   _checksize(y, x)
   _checkgroups(f, x)
   S = float(eltype(y))
@@ -496,15 +508,15 @@ function _value_and_prox!(y, f::GroupNormLinf, lay, x, γ::Real)
   iszero(f.λ0) && return zero(S)
   yv = vec(y)
   levels = _group_buffer(yv, S, lay, S(Inf))
-  c = convert(S, γ * f.λ0)
+  step, λ = convert(S, γ), convert(S, f.λ0)
   v = zero(S)
   for b in lay.blocks
-    τ = _linf_levels(_gather(yv, b), b, _Level(c).(b.w))
+    τ = _linf_levels(_gather(yv, b), b, _Level(step, λ).(b.w))
     view(levels, b.pos) .= vec(τ)
-    v += _sum(S, _Weighted{S}(), τ, b.w)
+    V && (v += _sum(S, _Weighted(λ), τ, b.w))
   end
   _scatter_back!(_clip, yv, lay, levels)
-  return convert(S, f.λ0) * v
+  return v
 end
 
 # IndBallGroupL0: the number of nonzero groups, and of nonzero entries in a group
@@ -526,7 +538,7 @@ _keep(v, keep, _) = keep ? v : zero(v)
 # the s largest on the host, among the K norms, as the CPU does, the earlier
 # groups first among ties. With a bound k on the entries of a group, it would
 # need a selection inside each group, which runs on the CPU only.
-function _value_and_prox!(y, f::IndBallGroupL0, lay, x, ::Real)
+function _group_prox!(y, f::IndBallGroupL0, lay, x, ::Real, ::Val)
   _checksize(y, x)
   _checkgroups(f, x)
   f.k == typemax(Int) ||
@@ -536,24 +548,22 @@ function _value_and_prox!(y, f::IndBallGroupL0, lay, x, ::Real)
   yv = vec(y)
   K = length(lay.pos)
   norms = similar(yv, S, K)
-  nz = similar(yv, Bool, K)
   for b in lay.blocks
-    X = _gather(yv, b)
-    view(norms, b.pos) .= vec(_group_norms(X, b, S))
-    view(nz, b.pos) .= vec(_segreduce(!iszero, |, false, X, b))
+    view(norms, b.pos) .= vec(_group_norms(_gather(yv, b), b, S))
   end
-  keep = _keep_groups(Array(norms), Array(nz), lay.pos, f.s)
+  keep = _keep_groups(Array(norms), lay.pos, f.s)
   _scatter_back!(_keep, yv, lay, copyto!(similar(yv, Bool, K + 1), keep))
   return zero(S)
 end
 
 # which groups the projection keeps, in block order, then true for the indices
 # in no group: those of the s largest norms, the earlier groups first among
-# ties; nz tells the nonzero groups independently of the numerical scores.
-function _keep_groups(norms::Vector{T}, nz::Vector{Bool}, pos::Vector{Int}, s::Int) where {T}
+# ties. The scaled norm is zero exactly for a zero group: a nonzero finite
+# group has norm at least its largest magnitude, and NaN/Inf norms are nonzero.
+function _keep_groups(norms::Vector{T}, pos::Vector{Int}, s::Int) where {T}
   K = length(pos)
   keep = fill(true, K + 1)
-  count(nz) <= s && return keep
+  count(!iszero, norms) <= s && return keep
   q = norms[pos]                                  # in the order of the groups
   τ = s == 0 ? T(Inf) : _kth_largest!(copy(q), s)
   ties = s - count(>(τ), q)

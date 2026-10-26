@@ -1,5 +1,9 @@
 # Function kernel audit
 
+Historical first-audit ledger, source edition `5839b4e`. The subsequent
+[necessity review](necessity-review.md) supersedes its domain-rejection policy
+and records further numerical defects and simplifications.
+
 Reviewed base: `f5c5797ded0800afd1c3c8f6289860906473b8e4`. All 18 files in `src/functions/` and `src/lla.jl` were read in full. The review reconstructed formulas and followed scalar, array, sparse, symmetric and group-dispatch paths. The corresponding tests and maintained function reference, smooth-function, penalty, set and coordinate-descent guidance were inspected. Root owns full environment execution, final commit provenance and complete documentation validation.
 
 ## Confirmed findings and repairs
@@ -75,4 +79,4 @@ FK14 now also enforces the existing exact-size center contract in direct full-ar
 
 Cross-review of the new zero-weight coordinate branch caught its activation obligation: a gradient step may write a raw atom view while its group is inactive. Identity proximal branches now activate a nonzero group before returning, matching ordinary and sparse-group coordinate behavior. Added a regression starting with an inactive atom, writing its view, and checking activation and contents after the zero-weight step.
 
-Final execution authority: [validation receipts](validation/README.md). Full suites passed 63,133 assertions on each Julia version at f68cd73. Final guard suites passed 13,283 assertions per version at c0e1305. Reviewer-specific statements about not executing Julia describe the division of work; root ran the recorded checks. Physical GPUs remain unverified.
+Final execution authority: [validation receipts](https://github.com/mlakolar/ProximalBase.jl/blob/5839b4e973a115fa0d3c1a328903a0a58ded3aac/docs/audit/release-0.5.4/validation/README.md). Full suites passed 63,133 assertions on each Julia version at f68cd73. Final guard suites passed 13,283 assertions per version at c0e1305. Reviewer-specific statements about not executing Julia describe the division of work; root ran the recorded checks. Physical GPUs remain unverified.

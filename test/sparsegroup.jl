@@ -193,4 +193,30 @@ end
 end
 
 
+@testset "compensated sparse group weights and steps" begin
+  for T in (Float32, Float64)
+    large, step = floatmax(T) / 2, T(4)
+    groups, x = [1:1, 2:2], T[7, -8]
+    for (λ, w) in ((large, inv(large)), (inv(large), large))
+      f = SparseGroupNormL2(T(0.25), λ, groups, fill(w, 2))
+      coefficient = BigFloat(λ) * BigFloat(w)
+      expected = T[sign(v) * max(abs(BigFloat(v)) - BigFloat(step) * (coefficient + BigFloat(f.λ1)), 0) for v in x]
+      value = T((coefficient + BigFloat(f.λ1)) * sum(abs, BigFloat.(expected)))
+      @test f(x) ≈ T((coefficient + BigFloat(f.λ1)) * sum(abs, BigFloat.(x))) rtol=32eps(T)
+      y = similar(x)
+      @test value_and_prox!(y, f, x, step) ≈ value rtol=32eps(T)
+      @test y ≈ expected rtol=32eps(T)
+      @test prox(f, x, fill(step, 2)) ≈ expected rtol=32eps(T)
+      a = AtomIterate(x, f)
+      @test f(a) ≈ f(x) rtol=32eps(T)
+      @test value_and_prox!(a, f, a, fill(step, 2)) ≈ value rtol=32eps(T)
+      @test Vector(a) ≈ expected rtol=32eps(T)
+      a = AtomIterate(x, f)
+      prox_coordinate!(a, f, 1, step)
+      @test a[1] ≈ expected[1] rtol=32eps(T)
+      @test a[2] == x[2]
+    end
+  end
+end
+
 end

@@ -298,3 +298,52 @@ end
   # a negative weight is caught on the device, as on the host
   @test_throws ArgumentError GLMLoss(ProximalBase.Squared(), DeviceArray(y), DeviceArray(X); weights = DeviceArray(-w))
 end
+
+@testset "compensated group coefficients on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types
+    large, step = floatmax(T) / 2, T(4)
+    groups, x = [1:1, 2:2], T[7, -8]
+    for (λ, w) in ((large, inv(large)), (inv(large), large))
+      coefficient = BigFloat(λ) * BigFloat(w)
+      functions = (GroupNormL2(λ, groups, fill(w, 2)),
+                   GroupNormLinf(λ, groups, fill(w, 2)),
+                   SparseGroupNormL2(T(0.25), λ, groups, fill(w, 2)))
+      for f in functions
+        λ1 = f isa SparseGroupNormL2 ? BigFloat(f.λ1) : BigFloat(0)
+        expected = T[sign(v) * max(abs(BigFloat(v)) - BigFloat(step) * (coefficient + λ1), 0) for v in x]
+        value = T((coefficient + λ1) * sum(abs, BigFloat.(expected)))
+        fg, xg = Adapt.adapt(DeviceArray, f), DeviceArray(x)
+        @test fg(xg) ≃ T((coefficient + λ1) * sum(abs, BigFloat.(x)))
+        yg = similar(xg)
+        @test prox!(yg, fg, xg, step) === yg
+        @test host(yg) ≃ expected
+        @test value_and_prox!(yg, fg, xg, step) ≃ value
+        @test host(yg) ≃ expected
+        zg = copy(xg)
+        @test value_and_prox!(zg, fg, zg, step) ≃ value
+        @test host(zg) ≃ expected
+      end
+    end
+    # A vanished group coefficient must remain an identity even when γλ overflows.
+    for f in (GroupNormL2(large, groups, T[0, 1]),
+              GroupNormLinf(large, groups, T[0, 1]),
+              SparseGroupNormL2(T(0.25), large, groups, T[0, 1]))
+      fg, xg = Adapt.adapt(DeviceArray, f), DeviceArray(x)
+      expected = f isa SparseGroupNormL2 ? T[6, 0] : T[7, 0]
+      value = f isa SparseGroupNormL2 ? T(1.5) : zero(T)
+      @test host(prox(fg, xg, step)) ≃ expected
+      yg = similar(xg)
+      @test value_and_prox!(yg, fg, xg, step) ≃ value
+      @test host(yg) ≃ expected
+    end
+    # Scaled norms also identify zero groups for exceptional inputs; no separate
+    # nonzero reduction is needed to preserve these unchanged/zero projections.
+    xg = DeviceArray(T[Inf, 0, NaN, 0])
+    for s in (0, 2)
+      fg = Adapt.adapt(DeviceArray, IndBallGroupL0(s, [1:2, 3:4]))
+      expected = s == 0 ? zeros(T, 4) : T[Inf, 0, NaN, 0]
+      @test isequal(host(prox(fg, xg)), expected)
+    end
+  end
+end

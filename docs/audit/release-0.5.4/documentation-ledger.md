@@ -1,5 +1,9 @@
 # Documentation coverage
 
+Historical first-audit ledger, source edition `5839b4e`. The subsequent
+[necessity review](necessity-review.md) supersedes its domain-rejection policy
+and records further numerical defects and simplifications.
+
 Every baseline Markdown document below was read; historical records retain their original claims and dates. Source docstrings are covered file by file in the three implementation ledgers. New audit outputs are the report rather than an additional input corpus.
 
 | File | Status | Review and validation scope |

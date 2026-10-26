@@ -160,7 +160,9 @@ of the search is one pass over the entries.
 
 A box enters through the scalar proximal operators, so ``f`` may itself be
 `Constrained(f, box)`; the simplex is the box ``x \ge 0`` with the hyperplane
-``\sum_i x_i = r``.
+``\sum_i x_i = r``. The box must intersect the domain of ``f``. The caller
+is responsible for this precondition; the proximal operator is undefined when
+the intersection is empty.
 
 | Call | Function |
 |:-----|:---------|

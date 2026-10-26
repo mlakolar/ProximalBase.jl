@@ -1,5 +1,9 @@
 # Composition and interface audit
 
+Historical first-audit ledger, source edition `5839b4e`. The subsequent
+[necessity review](necessity-review.md) supersedes its domain-rejection policy
+and records further numerical defects and simplifications.
+
 Base edition: fetched master `f5c5797ded0800afd1c3c8f6289860906473b8e4`. Scope is every line of the twelve implementation files listed below, their docstrings, maintained calculus/interface guidance, and targeted regression coverage. This is source and numerical reasoning, not a proof of absence of bugs. Runtime validation is centralized in the root audit to keep local Julia execution sequential.
 
 ## Findings ledger
@@ -47,4 +51,4 @@ Base edition: fetched master `f5c5797ded0800afd1c3c8f6289860906473b8e4`. Scope i
 
 No Julia process was launched by this reviewer. Root is responsible for executing focused probes, new regression modules, the supported-version suite, allocations and documentation builds. Physical GPU behavior is outside this reviewer's source ownership. No claim is made for nonfinite input coordinates, every partial alias layout, every extended precision, or arbitrary user-defined scalar domain composition. Unknown custom scalar domains retain the caller precondition that the constrained intersection is proper; the implementation does not infer that fact from arbitrary code.
 
-Final execution authority: [validation receipts](validation/README.md). Full suites passed 63,133 assertions on each Julia version at f68cd73. Final guard suites passed 13,283 assertions per version at c0e1305. Reviewer-specific statements about not executing Julia describe the division of work; root ran the recorded checks. Physical GPUs remain unverified.
+Final execution authority: [validation receipts](https://github.com/mlakolar/ProximalBase.jl/blob/5839b4e973a115fa0d3c1a328903a0a58ded3aac/docs/audit/release-0.5.4/validation/README.md). Full suites passed 63,133 assertions on each Julia version at f68cd73. Final guard suites passed 13,283 assertions per version at c0e1305. Reviewer-specific statements about not executing Julia describe the division of work; root ran the recorded checks. Physical GPUs remain unverified.

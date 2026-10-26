@@ -231,18 +231,19 @@ and [`EpsInsensitiveLoss`](@ref), and for translations and strictly positive
 rescalings of these functions. Even when its standalone value is unavailable,
 [`value_and_prox!`](@ref) obtains the value at its proximal point from Fenchel
 equality and the inner function's value. Supported zero rescalings simplify in
-[`Scaled`](@ref) while preserving the underlying domain.
+[`Scaled`](@ref) while preserving the underlying domain. Each conjugate owns
+a working buffer; do not share it between concurrent calls.
 """
 struct Conjugate{F<:AbstractFunction} <: AbstractFunction
   f::F
   scratch::Scratch
 
-  function Conjugate{F}(f::F, scratch::Scratch) where {F<:AbstractFunction}
+  function Conjugate{F}(f::F) where {F<:AbstractFunction}
     isconvex(f) || throw(ArgumentError("Conjugate requires a convex function"))
-    new{F}(f, scratch)
+    new{F}(f, Scratch())
   end
 end
-Conjugate(f::AbstractFunction, scratch::Scratch = Scratch()) = Conjugate{typeof(f)}(f, scratch)
+Conjugate(f::AbstractFunction) = Conjugate{typeof(f)}(f)
 
 isproximable(::Type{<:Conjugate{F}}) where {F} = isproximable(F)
 isseparable(::Type{<:Conjugate{F}}) where {F} = isseparable(F)
@@ -305,7 +306,7 @@ end
 # indicators of the dual balls and support functions of the balls, within the
 # tolerance of the indicator functions; loops rather than closures, which would
 # capture the element type as a DataType and dispatch dynamically
-_within(a, b, ::Type{T}) where {T} = a <= b + _tol(T) * max(one(T), abs(b))
+_within(a, b, ::Type{T}) where {T} = a <= b || a - b <= _tol(T) * max(one(T), abs(b))
 
 function _conjugate_value(f::NormL1, y::AbstractArray)
   _checkparams(f, y)
@@ -315,10 +316,11 @@ function _conjugate_value(f::NormL1, y::AbstractArray)
   end
   zero(T)
 end
-_conjugate_value(f::NormL2, y::AbstractArray) = (T = float(eltype(y)); _ind(_within(sqrt(_sumabs2(y)), f.λ, T), T))
+_conjugate_value(f::NormL2, y::AbstractArray) = (T = float(eltype(y)); _ind(_within(_norm2(y), f.λ, T), T))
 _conjugate_value(f::NormLinf, y::AbstractArray) = (T = float(eltype(y)); _ind(_within(norm(y, 1), f.λ, T), T))
 _conjugate_value(f::IndBallL1, y::AbstractArray) = convert(float(eltype(y)), f.r) * norm(y, Inf)
-_conjugate_value(f::IndBallL2, y::AbstractArray) = convert(float(eltype(y)), f.r) * sqrt(_sumabs2(y))
+_conjugate_value(f::IndBallL2, y::AbstractArray) =
+  (T = float(eltype(y)); iszero(f.r) ? zero(T) : convert(T, f.r) * _norm2(y))
 function _conjugate_value(::ZeroFunction, y::AbstractArray)
   T = float(eltype(y))
   for v in y
@@ -347,7 +349,12 @@ end
 function _conjugate_value(f::SqrNormL2, y::AbstractArray)
   iszero(f.λ) && return _conjugate_value(ZeroFunction(), y)
   T = float(eltype(y))
-  v = convert(T, _sumabs2(y)) / (2 * convert(T, f.λ))
+  S = float(promote_type(typeof(real(zero(T))), typeof(f.λ)))
+  scale = inv(sqrt(convert(S, f.λ)) * sqrt(S(2)))
+  r = _norm2(y)
+  # Preserve sparse O(nnz) norms at ordinary scales. If the norm itself is
+  # outside its working range, scale the entries before computing it.
+  v = convert(T, isfinite(r) ? abs2(r * scale) : abs2(_norm2(_ScaledArray(y, scale))))
   f.y === nothing ? v : v + dot(f.y, y)
 end
 function _conjugate_value(f::LinearFunction, y::AbstractArray)

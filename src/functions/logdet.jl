@@ -99,12 +99,12 @@ function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix,
     # when 1/(γw) underflows. No large step multiplies the covariance.
     A .= (((X ./ 2 .+ transpose(X) ./ 2) ./ root_step) ./ root_step) ./ 2 .- f.S ./ 2
     t, U = _eigen!(f.eig)
-    _rebuild_sym_out!(Y, U, t, s -> _logdet_scaled_root_half(s, root_step); logs = true, buffer = f.C)
+    _rebuild_sym_out!(Y, U, t, s -> _logdet_scaled_root_half(s, root_step), f.C; logs = true)
   else
     # Half of X - γwS, without forming a possibly underflowed γw.
     A .= X ./ 4 .+ transpose(X) ./ 4 .- ((f.S ./ 2 .* root_step) .* root_step)
     t, U = _eigen!(f.eig)
-    _rebuild_sym_out!(Y, U, t, s -> _logbarrier_root_half(s, root_step); logs = true, buffer = f.C)
+    _rebuild_sym_out!(Y, U, t, s -> _logbarrier_root_half(s, root_step), f.C; logs = true)
   end
   f.w * (dot(f.S, Y) - logdet_Y)
 end

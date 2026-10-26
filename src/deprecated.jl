@@ -5,7 +5,7 @@
 ####################################
 
 # Old code runs with a deprecation warning (shown with --depwarn=yes, as in the
-# tests of a package); NEWS.md lists what to change. Removed in 0.6.
+# tests of a package). The replacements below define the migration. Removed in 0.6.
 
 # functions are callable, and mutating functions take their output first
 @deprecate value(f::AbstractFunction, x) f(x)

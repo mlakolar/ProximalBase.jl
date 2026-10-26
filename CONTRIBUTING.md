@@ -21,15 +21,14 @@ script expects these directories:
 
 ```text
 development/
-├── ProximalBase.jl/    # dependency, on master
-└── ProximalOPT.jl/     # ProximalSolvers package, may be on a feature branch
+├── ProximalBase.jl/       # dependency, on master
+└── ProximalSolvers.jl/    # package being developed, may be on a feature branch
 ```
 
-`ProximalOPT.jl` is the directory name currently expected by the scripts for
-the ProximalSolvers package. From `development/`, run:
+From `development/`, run:
 
 ```sh
-cd ProximalOPT.jl
+cd ProximalSolvers.jl
 julia scripts/instantiate.jl
 julia scripts/test_master.jl
 ```

@@ -270,6 +270,38 @@ end
   end
 end
 
+@testset "constrained steps with unrepresentable inner norms" begin
+  for T in (Float32, Float64)
+    large = floatmax(T)
+    x = T[large, large, large, 0]
+    groups = [1:2, 3:4]
+    families = ((NormL2(large/2), NormL2(T(0.5))),
+                (GroupNormL2(large/2, groups, ones(T,2)), GroupNormL2(T(0.5), groups, ones(T,2))),
+                (GroupNormLinf(large/2, groups, ones(T,2)), GroupNormLinf(T(0.5), groups, ones(T,2))),
+                (SparseGroupNormL2(large/10, large/2, groups, ones(T,2)),
+                 SparseGroupNormL2(T(0.1), T(0.5), groups, ones(T,2))))
+    for (f, scaled) in families
+      # Homogeneity: prox_f(x)/large = prox_{f/large}(x/large).
+      q = prox(scaled, x/large)
+      expected = q/norm(q)
+      c = Constrained(f, IndBallL2(one(T)))
+      y = copy(x)
+      value = value_and_prox!(y, c, y, one(T))
+      @test y ≈ expected rtol=32eps(T)
+      @test value ≈ f(y) rtol=32eps(T)
+    end
+    # Independent group-sphere formula in higher precision.
+    norms = [norm(BigFloat.(x[G])) for G in groups]
+    margins = norms .- BigFloat(large/2)
+    expected = zeros(T,4)
+    for (G, n, m) in zip(groups, norms, margins)
+      expected[G] .= T.((m/norm(margins)) .* BigFloat.(x[G]) ./ n)
+    end
+    f = GroupNormL2(large/2, groups, ones(T,2))
+    @test prox(Constrained(f, IndSphereL2(one(T))), x) ≈ expected rtol=32eps(T)
+  end
+end
+
 @testset "balls and spheres at extreme scales" begin
   for T in (Float32, Float64)
     tiny, huge = T === Float32 ? (T(1e-30), T(1e30)) : (T(1e-200), T(1e200))

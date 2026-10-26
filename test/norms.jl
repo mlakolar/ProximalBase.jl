@@ -370,6 +370,11 @@ end
   x = Int64[typemin(Int64), 1 << 62, 1 << 62]
   @test ProximalBase._group_norm2(x, 1:3) ≈ Float64(norm(BigFloat.(x)))
   @test ProximalBase._group_norm2(Int64[5_000_000_001], 1:1) == 5_000_000_001.0
+  for T in (Float32, Float64), x in (T[NaN, Inf], T[Inf, NaN])
+    @test isnan(ProximalBase._group_norm2(x, 1:2))
+    @test isnan(ProximalBase._soft_group_norm(x, 1:2, zero(T)))
+    @test isnan(ProximalBase._norm2(SymmetricSparseIterate(Matrix(Diagonal(x)))))
+  end
   for T in (Float32, Float64), scale in (zero(T), nextfloat(zero(T)), sqrt(floatmin(T))/4)
     x = T[0, scale, 0, 0]
     for a in (x, AtomIterate(x, [[2, 4], [1, 3]]))

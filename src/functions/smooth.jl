@@ -158,6 +158,7 @@ function _norm2_scaled(x::SymmetricSparseIterate{T}) where {T}
   n = zero(float(T))
   @inbounds for k in 1:x.nnz
     r, c = tril_cartesian(x.p, x.nzval2ind[k])
+    isnan(x.nzval[k]) && return oftype(n, NaN)
     n = hypot(n, x.nzval[k])
     r == c || (n = hypot(n, x.nzval[k]))
   end

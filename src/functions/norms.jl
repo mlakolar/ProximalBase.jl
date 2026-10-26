@@ -39,6 +39,10 @@ function value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real
   c = convert(T, γ) * convert(T, f.λ)
   nx = convert(T, _norm2(x))
   if nx > c
+    if isinf(nx) && isfinite(c)
+      n = _shrink_group!(f, y, x, eachindex(IndexLinear(), x), c)
+      return convert(T, f.λ) * n
+    end
     t = 1 - c / nx
     y .= t .* x
     return convert(T, f.λ) * (nx - c)
@@ -211,6 +215,7 @@ end
   iszero(s) && iszero(_sumabs(x, G)) && return s
   n = zero(s)
   @inbounds for i in G
+    isnan(x[i]) && return oftype(n, NaN)
     n = hypot(n, x[i])
   end
   n
@@ -250,9 +255,13 @@ _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_
   length(x) >= length(f.group_of) || throw(BoundsError(x, length(f.group_of)))
 
 # y[G] ← prox_{c‖⋅‖₂}(x[G]), which may be in place; returns the new norm of the group
-@inline function _shrink_group!(::GroupNormL2, y::AbstractArray{T}, x::AbstractArray, G, c) where {T}
+@inline function _shrink_group!(f::Union{NormL2, GroupNormL2}, y::AbstractArray{T}, x::AbstractArray, G, c) where {T}
   nx = _group_norm2(x, G)
   if nx > c
+    if isinf(nx) && isfinite(c)
+      scale = _maxabs(x, G)
+      isfinite(scale) && scale > 1 && return _rescaled_group_prox!(f, y, x, G, c, scale)
+    end
     t = one(nx) - c / nx
     @inbounds for i in G
       y[i] = t * x[i]
@@ -270,11 +279,16 @@ end
 # returns τ, the new norm of the group
 function _shrink_group!(f::GroupNormLinf, y::AbstractArray{T}, x::AbstractArray, G, c) where {T}
   S = float(T)
-  if _sumabs(x, G) <= c
+  s = _sumabs(x, G)
+  if s <= c
     @inbounds for i in G
       y[i] = zero(T)
     end
     return zero(S)
+  end
+  if isinf(s) && isfinite(c)
+    scale = _maxabs(x, G)
+    isfinite(scale) && scale > 1 && return _rescaled_group_prox!(f, y, x, G, c, scale)
   end
   τ = _simplex_threshold!(_buffer!(f.scratch, S, length(G)), x, G, convert(S, c), abs)
   @inbounds for i in G
@@ -282,6 +296,17 @@ function _shrink_group!(f::GroupNormLinf, y::AbstractArray{T}, x::AbstractArray,
     y[i] = sign(v) * min(abs(v), τ)
   end
   τ
+end
+
+# A finite input can have a norm (or simplex sum) outside the working range.
+# Homogeneity lets the same kernel operate in smaller units, without losing
+# the shrinkage to c/Inf. This path is only needed for large finite entries.
+function _rescaled_group_prox!(f, y, x, G, c::S, scale)::S where {S}
+  n = _shrink_group!(f, y, _ScaledArray(x, inv(scale)), G, c / scale)
+  @inbounds for i in G
+    y[i] *= scale
+  end
+  n * scale
 end
 
 function (f::HomogeneousGroupNorm)(x::AbstractArray)

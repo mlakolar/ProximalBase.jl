@@ -146,6 +146,10 @@ end
     @test norm_diff(complex.(a, a), complex.(b, b)) / scale ≈ sqrt(T(50))
     @test ProximalBase.Testing.allocations(norm_diff, a, b) == 0
   end
+  for T in (Float32, Float64), x in (T[NaN, Inf], T[Inf, NaN])
+    @test isnan(norm_diff(x, zero(x)))
+    @test isnan(norm_diff(complex.(x, zero(x)), zero(complex.(x, zero(x)))))
+  end
 end
 
 @testset "integer norm differences" begin

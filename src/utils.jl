@@ -388,7 +388,9 @@ function _norm_diff2(A::AbstractArray, B::AbstractArray)
   end
   v = zero(T)
   @inbounds for i in eachindex(A, B)
-    v = hypot(v, abs(S(_norm_difference(A[i], B[i]))))
+    d = S(_norm_difference(A[i], B[i]))
+    isnan(d) && return T(NaN)
+    v = hypot(v, abs(d))
   end
   v
 end

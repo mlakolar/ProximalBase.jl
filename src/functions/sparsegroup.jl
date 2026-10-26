@@ -87,16 +87,28 @@ end
   end
   n = zero(S)
   @inbounds for i in G
-    n = hypot(n, shrink(convert(S, x[i]), c))
+    z = shrink(convert(S, x[i]), c)
+    isnan(z) && return oftype(n, NaN)
+    n = hypot(n, z)
   end
   n
 end
 
 # y[G] ← the soft threshold of x[G] at c1, shrunk by c2 in Euclidean norm, which
 # may be in place; returns the ℓ2 and ℓ1 norms of the result
-@inline function _sparse_shrink_group!(y::AbstractArray{T}, x::AbstractArray, G, c1::S, c2::S) where {T, S}
+@inline function _sparse_shrink_group!(y::AbstractArray{T}, x::AbstractArray, G, c1::S, c2::S)::Tuple{S, S} where {T, S}
   ns = _soft_group_norm(x, G, c1)
   if ns > c2
+    if isinf(ns) && isfinite(c2)
+      scale = convert(S, _maxabs(x, G))
+      if isfinite(scale) && scale > 1
+        n2, n1 = _sparse_shrink_group!(y, _ScaledArray(x, inv(scale)), G, c1 / scale, c2 / scale)
+        @inbounds for i in G
+          y[i] *= scale
+        end
+        return n2 * scale, n1 * scale
+      end
+    end
     t = one(S) - c2 / ns
     l1 = zero(S)
     @inbounds for i in G

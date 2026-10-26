@@ -5,13 +5,15 @@ from pathlib import Path
 import re
 
 # Matrix caches and scientific notation retain their conventional identifiers.
+# Only names that occur in ProximalBase are listed.
 MATHEMATICAL = {'A','B','C','D','G','H','I','J','K','L','M','N','P','Q','R','S','T','U','V','W','X','Y','Z',
-                'Ax','At','Bt','Xt','Yt','XtY','XtX','sUtY','Ws','SX','SY','Xn','Yn','SXn','SYn',
-                'Xa','Ya','SXa','SYa','Xr','Yr','posA','posR','T0','F','Sx','Sy','Sxy','Sxx','Syy','AD','Vt','AU','D_calls','Dt_calls','Dx','Dxp','Dty','Dtyp','Bpath'}
-FUNCTION = re.compile(r'^\s*(?:function\s+)([\w.!]+)\s*\(|^\s*([\w.!]+)\([^\n]*\)\s*(?:where\s+[^=]+)?=(?!=)')
+                'Ax','At','XtY','sUtY','Ws','SX','F','AD','Vt','AU'}
+# A definition may follow macros such as @inline or Base.@propagate_inbounds.
+MACROS = r'(?:(?:Base\.)?@[\w.]+\s+)*'
+FUNCTION = re.compile(r'^\s*' + MACROS + r'(?:function\s+)([\w.!]+)\s*\(|^\s*' + MACROS + r'([\w.!]+)\([^\n]*\)\s*(?:where\s+[^=]+)?=(?!=)')
 FIELD = re.compile(r'^\s*(\w+)\s*::')
-LEGACY_KEYWORDS = {'printEvery','normD','maxK','requested_maxK','epsTol','maxIter','checkEvery','bootSamples','estimSupport'}
-FACTORIES = {'IndBallLinf','Constrained','_AtomIterate','CDLeastSquaresLoss','CDWeightedLSLoss','CDSqrtLassoLoss','CDSqrtQuadraticLoss','CDQuadraticLoss'}
+# Constructor functions that do not name a type of their own.
+FACTORIES = {'IndBallLinf','Constrained','_AtomIterate'}
 TYPE = re.compile(r'^\s*(?:mutable\s+)?(?:struct|abstract\s+type|primitive\s+type)\s+(\w+)')
 
 def check(root):
@@ -63,7 +65,7 @@ def check(root):
                                 match=re.match(r'\s*(\w+)\s*(?:::[^=]+)?=',segment)
                                 if match:
                                     key=match.group(1)
-                                    if re.search('[a-z][A-Z]',key) and key not in LEGACY_KEYWORDS:
+                                    if re.search('[a-z][A-Z]',key):
                                         errors.append((path,number,'keyword',key))
                             segment=''
                         else: segment+=char

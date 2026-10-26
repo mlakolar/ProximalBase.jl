@@ -203,6 +203,14 @@ function smooth_cases!(cases, rep; quick=false)
             addgrad!(cases,"smooth",name,f,x; profile=T==Float64 && n==1024)
         end
         ls = LeastSquaresLoss(y,X)
+        check_global_curvature!() = begin
+            bound = lipschitz(ls)
+            reference = opnorm(X)^2
+            isfinite(bound) && bound >= reference * (1 - tolerance(T)) ||
+                error("invalid global curvature bound")
+        end
+        addcase!(cases,"setup","least_squares_lipschitz",() -> lipschitz(ls),check_global_curvature!;
+                 T,shape="$(n)x$p",phase="setup",zero_alloc=false,work=n*p)
         addprox!(cases,"least_squares","tall",ls,x;profile=T==Float64 && n==1024)
         addcold!(cases,"least_squares","tall",() -> LeastSquaresLoss(y,X),x)
         B = randn(rng,T,p,3); Y = randn(rng,T,n,3)

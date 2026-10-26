@@ -147,18 +147,30 @@ graphical models, matrix estimation and constrained optimization.
 
 ## Development and tests
 
-From the package checkout, resolve dependencies and run the complete suite with:
+ProximalBase can be developed on its own; sibling checkouts of ProximalSolvers
+or other workspace packages are not required. From the package checkout,
+install the declared dependencies and run the complete suite with:
 
 ```sh
-julia scripts/instantiate.jl
+julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
+```
+
+To use the same test runner as CI:
+
+```sh
 julia scripts/test_master.jl
 ```
 
-The bootstrap uses sibling `master` checkouts for workspace dependencies. The
-runner creates an isolated environment containing the package and its test
-extras, including extra-only master dependencies on Julia 1.10, while keeping
-this package's `Project.toml` unchanged. See [CONTRIBUTING.md](CONTRIBUTING.md)
-for the naming policy and development setup.
+This runner performs its own setup, creates an isolated environment containing
+the local package and its test extras, and runs with bounds checking. There is
+no need to run `scripts/instantiate.jl` first.
+
+The shared bootstrap helper lists known workspace packages, but only selects
+those found in the chosen environment's dependency and test-extra graph.
+ProximalBase currently needs none of the other workspace packages. Sibling
+`master` checkouts are used when those packages are dependencies, as in
+downstream packages that use ProximalBase and ProximalSolvers together. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for development and documentation setup.
 
 ## License
 

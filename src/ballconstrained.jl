@@ -14,8 +14,8 @@ of sparse principal component and canonical correlation analysis, whose
 alternating steps put a shrunken vector on the ball or the sphere.
 
 On the ball, `f` is positively homogeneous: a norm (`NormL1`, `NormL1Nonneg`,
-`NormL2`, `NormLinf`, `GroupNormL2`, `GroupNormLinf`, `NuclearNorm`, `TracePSD`,
-or a `Scaled` one) or the indicator of a cone (`IndNonnegative`, `IndPSD`, and
+`NormL2`, `NormLinf`, `GroupNormL2`, `GroupNormLinf`, `SparseGroupNormL2`,
+`NuclearNorm`, `TracePSD`, or a `Scaled` one) or the indicator of a cone (`IndNonnegative`, `IndPSD`, and
 the nonconvex `IndBallL0` and `IndBallRank`). The proximal operator is the
 proximal point of `f` scaled onto the ball, and the value scales with it:
 `f(tz) = t f(z)` for `t > 0`.
@@ -42,7 +42,7 @@ Constrained(f::AbstractFunction, C::IndBallL2) = (_scales_onto_ball(f) || _ball_
 # onto the ball, at distance² ‖x‖² - ‖P(x)‖² + (‖P(x)‖ - r)₊², which decreases in
 # ‖P(x)‖: the projection onto C already maximizes it.
 _scales_onto_ball(::AbstractFunction) = false
-_scales_onto_ball(::Union{ZeroFunction, NormL1, NormL1Nonneg, NormL2, NormLinf, AbstractGroupNorm,
+_scales_onto_ball(::Union{ZeroFunction, NormL1, NormL1Nonneg, NormL2, NormLinf, HomogeneousGroupNorm,
                           NuclearNorm, TracePSD, IndNonnegative, IndPSD, IndBallL0, IndBallRank}) = true
 _scales_onto_ball(s::Scaled) = _scales_onto_ball(s.f)
 

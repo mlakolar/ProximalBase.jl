@@ -21,10 +21,10 @@ prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArra
 value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) =
   _value_and_prox_sep!(y, f, x, γ)
 
-# group norms: a step per group, constant on the group, which keeps the closed form
-value_and_prox!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::AbstractVector) = _value_and_prox_groups!(y, f, x, γ)
-prox!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::AbstractVector) = (value_and_prox!(y, f, x, γ); y)
-value_and_prox!(y::AtomIterate, f::AbstractGroupNorm, x::AtomIterate, γ::AbstractVector) = _value_and_prox_groups!(y, f, x, γ)
+# group penalties: a step per group, constant on the group, keeps the closed form
+value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = _value_and_prox_groups!(y, f, x, γ)
+prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (value_and_prox!(y, f, x, γ); y)
+value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::AbstractVector) = _value_and_prox_groups!(y, f, x, γ)
 
 # the entrywise reciprocal of an array of steps, without allocating
 struct _ReciprocalArray{T, N, A<:AbstractArray} <: AbstractArray{T, N}

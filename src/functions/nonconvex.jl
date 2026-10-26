@@ -240,7 +240,7 @@ At zero its subdifferential is that of the group lasso, so
 its groups, [`prox_coordinate!`](@ref) updates a group, the block step of
 coordinate descent.
 """
-struct GroupMCP{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractGroupNorm
+struct GroupMCP{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractGroupPenalty
   λ0::T                   # the level λ, under the field name of the other group penalties
   a::T
   groups::G
@@ -264,7 +264,7 @@ The group SCAD penalty, nonconvex: `f(x) = Σₖ pₖ(‖x[Gₖ]‖₂)`, where 
 [`GroupMCP`](@ref) is for the MCP; `a > 2`. Its proximal operator is radial and
 exact for every step.
 """
-struct GroupSCAD{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractGroupNorm
+struct GroupSCAD{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractGroupPenalty
   λ0::T
   a::T
   groups::G
@@ -345,36 +345,31 @@ function (f::_RadialGroupPenalty)(x::AtomIterate)
   v
 end
 
-function value_and_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::Real)
+function _value_and_prox_groups!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::Union{Real, AbstractVector})
   _checksize(y, x)
   _checkgroups(f, x)
+  _checkgroupsteps(f, γ)
   T = float(eltype(y))
-  if y !== x                    # indices in no group are not penalized
-    @inbounds for i in f.free
-      y[i] = x[i]
-    end
-    @inbounds for i in length(f.group_of)+1:length(x)
-      y[i] = x[i]
-    end
-  end
+  _copy_ungrouped!(y, f, x)
   v = zero(T)
   for k in eachindex(f.groups)
     p = _group_scalar(f, T, k)
-    v += value_entry(p, _radial_shrink!(p, y, x, f.groups[k], convert(T, γ)), 1)
+    v += value_entry(p, _radial_shrink!(p, y, x, f.groups[k], convert(T, _entry(γ, k))), 1)
   end
   v
 end
 
-function value_and_prox!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::Real)
+function _value_and_prox_groups!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::Union{Real, AbstractVector})
   y.groups === x.groups === f.groups ||
-    return invoke(value_and_prox!, Tuple{AbstractArray, _RadialGroupPenalty, AbstractArray, Real}, y, f, x, γ)
+    return invoke(_value_and_prox_groups!, Tuple{AbstractArray, _RadialGroupPenalty, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
+  _checkgroupsteps(f, γ)
   T = float(eltype(y))
   copyto!(y, x)
   v = zero(T)
   for a in 1:y.nactive
     k = y.active[a]
     p = _group_scalar(f, T, k)
-    v += value_entry(p, _radial_shrink!(p, y.storage, y.storage, f.groups[k], convert(T, γ)), 1)
+    v += value_entry(p, _radial_shrink!(p, y.storage, y.storage, f.groups[k], convert(T, _entry(γ, k))), 1)
   end
   v
 end

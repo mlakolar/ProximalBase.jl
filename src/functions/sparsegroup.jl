@@ -32,7 +32,7 @@ on a group and [`kkt_violation`](@ref) measures a group at zero, which is
 optimal when `‖soft(g[Gₖ], λ1)‖₂ ≤ λ2wₖ`. Inside a nonzero group, an entry at
 zero is optimal when `|gᵢ| ≤ λ1`.
 """
-struct SparseGroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractGroupNorm
+struct SparseGroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: HomogeneousGroupNorm
   λ1::T                   # the level of the ℓ1 term
   λ0::T                   # λ2, the level of the group term, as the shared code reads it
   groups::G
@@ -119,14 +119,7 @@ function _value_and_prox_groups!(y::AbstractArray, f::SparseGroupNormL2, x::Abst
   _checkgroups(f, x)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
-  if y !== x                    # indices in no group are not penalized
-    @inbounds for i in f.free
-      y[i] = x[i]
-    end
-    @inbounds for i in length(f.group_of)+1:length(x)
-      y[i] = x[i]
-    end
-  end
+  _copy_ungrouped!(y, f, x)
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
     γk = _entry(γ, k)

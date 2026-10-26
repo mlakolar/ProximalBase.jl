@@ -7,6 +7,19 @@ production implementations and ordinary JLArrays tests are unchanged.
 The [Discovery report](results/discovery-2026-10-26/README.md) retains the
 measured V100 comparisons, raw samples, environment and diagnostic receipts.
 
+## Practical recommendation
+
+Benchmark the intended workload on its target hardware at matched, independently
+verified accuracy. Include its actual transfer and data-reuse pattern. The V100
+study favors CPU execution for small problems and GPU execution for the largest
+dense problems, particularly when data remain on the device. Transfers can erase
+a modest GPU advantage. The crossover also depends on CPU/BLAS configuration,
+precision and stopping checks; these results establish no portable size threshold.
+Keep GPU execution an explicit choice. Automatic backend selection and production
+optimizations require additional evidence for the intended workload.
+
+## Run the benchmark
+
 From a clean committed checkout on a physical CUDA device:
 
 ```sh

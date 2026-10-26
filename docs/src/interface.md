@@ -244,3 +244,18 @@ executes on the CPU. Optional physical NVIDIA GPU validation uses the separate
 It shares the reference-backend cases, disables scalar indexing, synchronizes
 device work before numerical comparisons and reports host and device allocations
 separately. CUDA remains optional and is not required for ordinary tests.
+
+### Choosing CPU or GPU execution
+
+Benchmark representative solves on the target hardware at the same verified
+accuracy. Include the application's actual input upload, coefficient download
+and data reuse. GPU architecture, CPU and BLAS configuration, matrix shape,
+precision and stopping checks all affect the result. There is no portable
+problem-size threshold for choosing a backend.
+
+The [V100 study](https://github.com/mlakolar/ProximalBase.jl/blob/master/benchmark/gpu_solver/results/discovery-2026-10-26/README.md)
+favored CPU execution for small problems and GPU execution for the largest dense
+problems, especially with data already resident on the device. Transfers erased
+some smaller GPU advantages. Keep GPU execution an explicit choice based on the
+intended workload. These measurements do not justify automatic backend selection
+or a production optimization solely to remove the observed scalar allocations.

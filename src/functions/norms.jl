@@ -195,9 +195,10 @@ _rebuild(f::GroupNormLinf, λ0, groups, w) = GroupNormLinf(λ0, groups, w)
 # the norm of the group G of x and its dual norm, by loops over the indices: a
 # view of a matrix at linear indices reshapes it, which allocates
 @inline function _sumsq(x::AbstractArray, G)
-  s = zero(float(eltype(x)))
+  T = float(eltype(x))
+  s = zero(T)
   @inbounds @simd for i in G
-    s += abs2(x[i])
+    s += abs2(convert(T, x[i]))
   end
   s
 end
@@ -216,9 +217,10 @@ end
 end
 
 @inline function _sumabs(x::AbstractArray, G)
-  s = zero(float(eltype(x)))
+  T = float(eltype(x))
+  s = zero(T)
   @inbounds @simd for i in G
-    s += abs(x[i])
+    s += abs(convert(T, x[i]))
   end
   s
 end

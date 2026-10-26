@@ -366,6 +366,25 @@ end
   end
 end
 
+@testset "zero confirmation and integer group norms" begin
+  x = Int64[typemin(Int64), 1 << 62, 1 << 62]
+  @test ProximalBase._group_norm2(x, 1:3) ≈ Float64(norm(BigFloat.(x)))
+  @test ProximalBase._group_norm2(Int64[5_000_000_001], 1:1) == 5_000_000_001.0
+  for T in (Float32, Float64), scale in (zero(T), nextfloat(zero(T)), sqrt(floatmin(T))/4)
+    x = T[0, scale, 0, 0]
+    for a in (x, AtomIterate(x, [[2, 4], [1, 3]]))
+      @test ProximalBase._group_norm2(a, [4, 2]) == scale
+      @test ProximalBase._soft_group_norm(a, [4, 2], zero(T)) == scale
+      @test ProximalBase._soft_group_norm(a, [4, 2], one(T)) == zero(T)
+    end
+  end
+  # A normal aggregate does not detect underflow in individual weighted norms.
+  x = [fill(1f-16, 1000); 1f-8]
+  f = GroupNormL2(1f30, [[i] for i in eachindex(x)], fill(1f-30, length(x)))
+  expected = Float32(BigFloat(f.λ0) * sum(BigFloat(f.w[i])*BigFloat(x[i]) for i in eachindex(x)))
+  @test f(x) ≈ expected rtol=32eps(Float32)
+end
+
 @testset "compensated group weights and steps" begin
   for T in (Float32, Float64)
     large, step = floatmax(T) / 2, T(4)

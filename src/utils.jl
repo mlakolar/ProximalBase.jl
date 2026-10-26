@@ -339,6 +339,12 @@ end
 #
 ####################################
 
+@inline _norm_difference(a, b) = a - b
+@inline _norm_difference(a::Integer, b::Integer) = signed(widen(a)) - signed(widen(b))
+@inline _norm_difference(a::Complex, b::Complex) = complex(_norm_difference(real(a), real(b)), _norm_difference(imag(a), imag(b)))
+@inline _norm_difference(a::Complex, b::Real) = complex(_norm_difference(real(a), b), imag(a))
+@inline _norm_difference(a::Real, b::Complex) = complex(_norm_difference(a, real(b)), _norm_difference(0, imag(b)))
+
 """
     norm_diff(A, B, p = 2)
 
@@ -354,7 +360,7 @@ function norm_diff(A::AbstractArray, B::AbstractArray, p::Real = 2)
     return _norm_diff2(A, B)
   elseif p == Inf
     @inbounds for i in eachindex(A, B)
-      v = max(v, abs(A[i] - B[i]))
+      v = max(v, abs(T(_norm_difference(A[i], B[i]))))
     end
     return v
   else
@@ -370,18 +376,19 @@ end
 function _norm_diff2(A::AbstractArray, B::AbstractArray)
   s = _sumabs2_diff(A, B)
   T = typeof(s)
+  S = float(promote_type(eltype(A), eltype(B)))
   isfinite(s) && s >= floatmin(T) && return sqrt(s)
   if iszero(s)
     a = zero(T)
     @inbounds @simd for i in eachindex(A, B)
-      d = A[i] - B[i]
+      d = S(_norm_difference(A[i], B[i]))
       a += abs(real(d)) + abs(imag(d))
     end
     iszero(a) && return s
   end
   v = zero(T)
   @inbounds for i in eachindex(A, B)
-    v = hypot(v, abs(A[i] - B[i]))
+    v = hypot(v, abs(S(_norm_difference(A[i], B[i]))))
   end
   v
 end
@@ -389,9 +396,10 @@ end
 # Σᵢ (xᵢ - yᵢ)², without allocating x - y
 function _sumabs2_diff(x::AbstractArray, y::AbstractArray)
   size(x) == size(y) || throw(DimensionMismatch("the arrays have sizes $(size(x)) and $(size(y))"))
-  s = real(zero(float(promote_type(eltype(x), eltype(y)))))
+  T = float(promote_type(eltype(x), eltype(y)))
+  s = real(zero(T))
   @inbounds @simd for i in eachindex(x, y)
-    s += abs2(x[i] - y[i])
+    s += abs2(T(_norm_difference(x[i], y[i])))
   end
   s
 end

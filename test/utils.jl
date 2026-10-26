@@ -148,6 +148,19 @@ end
   end
 end
 
+@testset "integer norm differences" begin
+  x = Int64[typemin(Int64), 1 << 62, 1 << 62]
+  @test norm_diff(x, zeros(Int64, 3)) ≈ Float64(norm(BigFloat.(x)))
+  for (a, b) in ((typemax(Int64), typemin(Int64)),
+                 (typemax(Int64), typemax(Int64)-1),
+                 (typemax(UInt64), zero(UInt64)))
+    expected = Float64(abs(BigInt(a)-BigInt(b)))
+    @test norm_diff([a], [b]) == expected
+    @test norm_diff([a], [b], Inf) == expected
+    @test norm_diff([complex(a, a)], [complex(b, b)]) ≈ sqrt(2)*expected
+  end
+end
+
 @testset "buffers" begin
   s = ProximalBase.Scratch()
   b = ProximalBase._buffer!(s, Float64, 10)

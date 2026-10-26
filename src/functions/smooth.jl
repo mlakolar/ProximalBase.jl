@@ -148,7 +148,9 @@ _sumabs2(x::AtomIterate) = sum(abs2, x.storage)
 function _norm2(x::AbstractArray)
   eltype(x) <: AbstractFloat || return _norm2_scaled(x)
   s = _sumabs2(x)
-  isfinite(s) && s >= floatmin(typeof(s)) ? sqrt(s) : _norm2_scaled(x)
+  isfinite(s) && s >= floatmin(typeof(s)) && return sqrt(s)
+  iszero(s) && x isa DenseArray && iszero(sum(abs, x)) && return s
+  _norm2_scaled(x)
 end
 _norm2_scaled(x::AbstractArray) = norm(x)
 _norm2_scaled(x::AtomIterate) = norm(x.storage)

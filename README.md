@@ -129,9 +129,7 @@ end
 @assert norm(Vector(β) - β_pg, Inf) < 1e-7
 ```
 
-These snippets use APIs available in the registered v0.5.2 release and on
-`master`. The development version also provides `coordinate_lipschitz(f, j)`
-for the curvature used above.
+`coordinate_lipschitz(f, j)` provides the coordinate curvature used above.
 
 Mutating calls take their output first. The
 [getting-started guide](https://mlakolar.github.io/ProximalBase.jl/dev/getting_started/)

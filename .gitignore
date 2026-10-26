@@ -15,3 +15,10 @@
 # Local Julia-minor environments are regenerated from master checkouts
 /Manifest-v*.toml
 /test/oracles/Manifest*.toml
+
+# Generated benchmark measurements and environments
+/benchmark/results/
+/benchmark/Manifest*.toml
+/benchmark/__pycache__/
+/benchmark/gpu_solver/results/
+/benchmark/gpu_solver/__pycache__/

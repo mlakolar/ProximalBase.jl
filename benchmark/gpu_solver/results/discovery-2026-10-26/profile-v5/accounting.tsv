@@ -1,4 +1,0 @@
-JobID|State|ExitCode|Elapsed|NodeList|AllocTRES
-13447957|COMPLETED|0:0|00:01:23|d13-04|billing=12,cpu=4,gres/gpu:v100=1,gres/gpu=1,mem=16G,node=1
-13447957.batch|COMPLETED|0:0|00:01:23|d13-04|cpu=4,gres/gpu:v100=1,gres/gpu=1,mem=16G,node=1
-13447957.extern|COMPLETED|0:0|00:01:23|d13-04|billing=12,cpu=4,gres/gpu:v100=1,gres/gpu=1,mem=16G,node=1

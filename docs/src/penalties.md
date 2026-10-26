@@ -501,30 +501,10 @@ vectors.
   decompositions, the workspaces belong to the function object, so do not share
   one between threads.
 
-On a low-rank matrix plus noise, one call on a slightly changed input, as in a
-solver, takes (Julia 1.13, one thread of an AMD EPYC 7513; `benchmark/partial.jl`):
-
-| rank 10 | p = 500 | p = 1000 | p = 2000 | p = 5000 |
-|:--|--:|--:|--:|--:|
-| `NuclearNorm` | 3.39 ms (15×) | 11.7 ms (27×) | 46.2 ms (51×) | 343 ms (125×) |
-| `IndBallRank(10)` | 2.69 ms (18×) | 9.20 ms (34×) | 37.4 ms (63×) | 243 ms (177×) |
-| `IndPSD(rank = 10)` | 2.42 ms (4×) | 9.63 ms (6×) | 31.8 ms (11×) | 303 ms (24×) |
-| `TracePSD` | 3.14 ms (8×) | 10.5 ms (14×) | 40.2 ms (25×) | 311 ms (54×) |
-| `IndPSD()` | 3.12 ms (8×) | 12.2 ms (12×) | 47.7 ms (21×) | 363 ms (46×) |
-
-In parentheses, the factor by which this is faster than the full decomposition;
-at ``p = 5000`` the full SVD and eigendecomposition were timed once, for
-`NuclearNorm` and `TracePSD`, and `IndBallRank` and `IndPSD()` take the same.
-
-Over ranks ``k = 2, 10, 50`` and ``p`` from 200 to 5000, a warm call is faster
-than the full decomposition wherever the partial path applies, and so is a call
-from a random block, except for [`TracePSD`](@ref) and [`IndPSD`](@ref)`()` at
-``p = 500`` with ``k = 50``, about 7% slower. Told the exact rank,
-[ARPACK](https://github.com/JuliaLinearAlgebra/Arpack.jl) and
-[KrylovKit](https://github.com/Jutho/KrylovKit.jl) compute the leading pairs of
-one matrix up to twice as fast for ``p \le 2000``, and up to three times as
-fast for [`IndPSD`](@ref)`(rank = k)`, but their SVDs are slower than the
-partial one at ``p = 5000``; they allocate at every call, need the rank in
-advance, and do not start from the previous call. The Lanczos SVD of TSVD is
-often faster but accurate to about ``10^{-7}``, and randomized SVDs without
-power iterations to a few percent (see `benchmark/README.md`).
+The benefit of `partial = true` depends on matrix size, the retained rank and
+spectral separation. Repeated calls on nearby inputs can reuse the previous
+subspace. Small matrices or results with a large retained rank may gain little;
+the partial path can add work before falling back to the full decomposition.
+Compare the full and partial paths on representative inputs when choosing this
+option. Retain the function object across calls to reuse its workspaces and
+warm-start information.

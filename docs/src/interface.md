@@ -253,7 +253,7 @@ and data reuse. GPU architecture, CPU and BLAS configuration, matrix shape,
 precision and stopping checks all affect the result. There is no portable
 problem-size threshold for choosing a backend.
 
-The [V100 study](https://github.com/mlakolar/ProximalBase.jl/blob/master/benchmark/gpu_solver/results/discovery-2026-10-26/README.md)
+The [V100 study](https://github.com/mlakolar/ProximalBase.jl/blob/3ec6f5513d3d8c91beec010f156c533f09cbf739/benchmark/gpu_solver/results/discovery-2026-10-26/README.md)
 favored CPU execution for small problems and GPU execution for the largest dense
 problems, especially with data already resident on the device. Transfers erased
 some smaller GPU advantages. Keep GPU execution an explicit choice based on the

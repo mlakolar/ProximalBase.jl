@@ -86,7 +86,7 @@ end
 function value_and_prox!(y::AbstractArray, c::BallConstrained, x::AbstractArray, γ::Real)
   T = float(eltype(y))
   v = _value_and_inner_prox!(y, c.f, x, γ, T)
-  ny = sqrt(convert(T, _sumabs2(y)))
+  ny = convert(T, _norm2(y))
   r = convert(T, c.ball.r)
   if ny > r
     t = r / ny
@@ -103,7 +103,7 @@ end
 # y = r z/‖z‖ for the proximal point z ≠ 0 of f in y, and the value v of f at z
 # scaled with it
 function _onto_sphere!(y, v::T, r::T) where {T}
-  t = r / sqrt(convert(T, _sumabs2(y)))
+  t = r / convert(T, _norm2(y))
   y .*= t
   v * t
 end
@@ -144,7 +144,7 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, 
   f, r = c.f, convert(T, c.sphere.r)
   kbest, ibest, best = 0, 0, U(-Inf)
   for k in eachindex(f.groups)
-    m = convert(U, sqrt(_sumsq(x, f.groups[k]))) - convert(U, convert(T, γ * f.λ0 * f.w[k]))
+    m = convert(U, _group_norm2(x, f.groups[k])) - convert(U, convert(T, _positive_product(γ, f.λ0, f.w[k])))
     m > best && ((kbest, ibest, best) = (k, 0, m))
   end
   @inbounds for i in eachindex(IndexLinear(), x)
@@ -159,7 +159,7 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, 
     return zero(T)
   end
   G = f.groups[kbest]
-  nG = convert(T, sqrt(_sumsq(x, G)))
+  nG = convert(T, _group_norm2(x, G))
   @inbounds if iszero(nG)
     fill!(y, zero(eltype(y)))
     y[first(G)] = r
@@ -172,7 +172,7 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, 
       _group(f, i) == kbest || (y[i] = zero(eltype(y)))
     end
   end
-  convert(T, f.λ0) * convert(T, f.w[kbest]) * r
+  convert(T, _positive_product(f.λ0, f.w[kbest], r))
 end
 
 # On the sphere a point with at most s nonzero entries has ⟨z, x⟩ ≤ r‖x_S‖ on its
@@ -185,7 +185,7 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{IndBallL0}, x::A
     throw(ArgumentError("the sphere misses the ℓ0 ball of no nonzero entries"))
   prox!(y, c.f, x, γ)
   r = convert(T, c.sphere.r)
-  if iszero(_sumabs2(y))
+  if iszero(_norm2(y))
     # x is zero on the entries that count and on the free ones, so it is zero
     fill!(y, zero(eltype(y)))
     y[firstindex(y)] = r

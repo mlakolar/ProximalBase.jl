@@ -232,4 +232,27 @@ end
   @test allocs((Y, X) -> value_and_prox!(Y, c, X, 1.), similar(M), M) == 0
 end
 
+@testset "balls and spheres at extreme scales" begin
+  for T in (Float32, Float64)
+    tiny, huge = T === Float32 ? (T(1e-30), T(1e30)) : (T(1e-200), T(1e200))
+    # Squared norms underflow or overflow here, while the norms themselves
+    # and the results are representable.
+    @test prox(Constrained(NormL1(one(T)), IndBallL2(one(T))), T[huge, 0]) ≈ T[1, 0]
+    @test prox(Constrained(NormL1(tiny / 10), IndSphereL2(one(T))), T[0, tiny]) ≈ T[0, 1]
+    @test prox(Constrained(IndBallL0(1), IndSphereL2(one(T))), T[0, tiny]) ≈ T[0, 1]
+    groups = [1:2, 3:4]
+    c = Constrained(GroupNormL2(tiny / 10, groups), IndSphereL2(one(T)))
+    @test prox(c, T[0, tiny, 0, 0]) ≈ T[0, 1, 0, 0]
+    # A large level and a compensating small weight give the threshold 4 at
+    # the step 4; forming γλ0 first overflows.
+    large = floatmax(T) / 2
+    c = Constrained(GroupNormL2(large, groups, fill(inv(large), 2)), IndSphereL2(one(T)))
+    y = zeros(T, 4)
+    @test value_and_prox!(y, c, T[7, 0, 0, -1], T(4)) ≈ one(T)
+    @test y ≈ T[1, 0, 0, 0]
+    @test value_and_prox!(y, c, T[1, 0, 0, -2], T(4)) ≈ one(T)     # every group within its threshold
+    @test y ≈ T[0, 0, 0, -1]
+  end
+end
+
 end

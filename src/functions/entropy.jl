@@ -168,8 +168,8 @@ end
 
 @inline function prox_entry(f::NegLog, v::T, ::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  μ = S(γ) * S(f.λ)
-  _positive_quadratic_root(S(v), μ)
+  root_step = sqrt(S(γ)) * sqrt(S(f.λ))
+  _logbarrier_root_half(S(v) / 2, root_step)
 end
 
 restrict(f::NegLog, ::AbstractVector{<:Integer}) = f

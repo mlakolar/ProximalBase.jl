@@ -87,20 +87,39 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix, γ::Real) where {T}
   _checksize(Y, X)
   size(X) == size(f.S) || throw(DimensionMismatch("X has size $(size(X)) and S $(size(f.S))"))
-  μ = convert(T, γ) * f.w
+  root_step = sqrt(convert(T, γ)) * sqrt(f.w)
   A = f.eig.A
-  A .= X .- μ .* f.S
-  t, U = _eigen!(f.eig)
-  logdet_Y = _rebuild_sym_out!(Y, U, t, s -> _positive_quadratic_root(s, μ); logs = true, buffer = f.C)
+  logdet_Y = if root_step > one(T)
+    # Half of X/(γw) - S; divide twice to retain the contribution of X even
+    # when 1/(γw) underflows. No large step multiplies the covariance.
+    A .= ((X ./ root_step) ./ root_step) ./ 2 .- f.S ./ 2
+    t, U = _eigen!(f.eig)
+    _rebuild_sym_out!(Y, U, t, s -> _logdet_scaled_root_half(s, root_step); logs = true, buffer = f.C)
+  else
+    # Half of X - γwS, without forming a possibly underflowed γw.
+    A .= X ./ 2 .- ((f.S ./ 2 .* root_step) .* root_step)
+    t, U = _eigen!(f.eig)
+    _rebuild_sym_out!(Y, U, t, s -> _logbarrier_root_half(s, root_step); logs = true, buffer = f.C)
+  end
   f.w * (dot(f.S, Y) - logdet_Y)
 end
 
-# The positive root of z² - tz - μ = 0. Halving t before hypot avoids squaring
-# large inputs; the rationalized negative branch avoids cancellation.
-@inline function _positive_quadratic_root(t::T, μ::T) where {T}
-  half = t / 2
-  r = hypot(half, sqrt(μ))
-  t >= 0 ? half + r : μ / (r - half)
+# The positive root of z² - 2half*z - root_step² = 0. Keeping the square root
+# of the step avoids overflow and underflow of the step product itself.
+@inline function _logbarrier_root_half(half::T, root_step::T) where {T}
+  r = hypot(half, root_step)
+  half >= 0 && return half + r
+  denominator = r - half
+  isinf(denominator) ? (root_step / 2) * (root_step / (r / 2 - half / 2)) :
+                       root_step * (root_step / denominator)
+end
+
+# The same root when half = (X/(γw) - S)/2 and root_step = √(γw) > 1.
+@inline function _logdet_scaled_root_half(half::T, root_step::T) where {T}
+  r = hypot(half, inv(root_step))
+  half >= 0 && return ((half + r) * root_step) * root_step
+  denominator = r - half
+  isinf(denominator) ? (one(T) / 2) / (r / 2 - half / 2) : inv(denominator)
 end
 prox!(Y::AbstractMatrix, f::LogDetLoss, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, f, X, γ); Y)
 

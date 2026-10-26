@@ -145,6 +145,12 @@ end
       @test z ≈ T(reference) rtol=8eps(T)
     end
     @test prox(f, T[1], tiny) ≈ T[1]
+    extreme = T == Float32 ? T(1e30) : T(1e200)
+    for scale in (extreme, inv(extreme))
+      @test prox(NegLog(scale), T[0], scale) ≈ T[scale] rtol=8eps(T)
+      z = prox_entry(NegLog(scale), -scale, 1, scale)
+      @test z ≈ T((sqrt(BigFloat(5)) - 1) / 2) * scale rtol=8eps(T)
+    end
   end
 end
 

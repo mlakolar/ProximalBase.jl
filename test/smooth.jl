@@ -421,6 +421,15 @@ end
     @test value ≈ fsmall(Ysmall)
     alias = copy(Xsmall)
     @test prox!(alias, fsmall, alias, tiny) ≈ Xsmall
+    extreme = T == Float32 ? T(1e30) : T(1e200)
+    for scale in (extreme, inv(extreme))
+      @test prox(LogDetLoss(zeros(T, 1, 1), scale), zeros(T, 1, 1), scale) ≈ fill(scale, 1, 1) rtol=16eps(T)
+    end
+    @test prox(LogDetLoss(fill(extreme, 1, 1)), ones(T, 1, 1), extreme) ≈ fill(inv(extreme), 1, 1) rtol=16eps(T)
+    # The subtraction X - γS can overflow even with a unit step.
+    z = only(prox(LogDetLoss(fill(floatmax(T), 1, 1)), fill(-floatmax(T), 1, 1)))
+    @test isfinite(z) && z > 0
+    @test z ≈ T(inv(2BigFloat(floatmax(T)))) rtol=32eps(T)
   end
   @test f32(Float32.(X)) isa Float32
   @test prox(f32, Float32.(X), 0.5f0) ≈ prox(f, X, 0.5) rtol = 1e-4

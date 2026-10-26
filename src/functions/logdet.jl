@@ -7,17 +7,19 @@
 """
     LogDetLoss(S, w = 1)
 
-The Gaussian negative log-likelihood `f(X) = w (tr(SX) - log det X)` of a
+The Gaussian negative log-likelihood `f(X) = w (tr(SX) - log det X)` for finite
+`w > 0`, of a
 precision matrix `X`, for a symmetric `S` such as a sample covariance, and
 `Inf` when `X` is not positive definite. The loss of the graphical lasso.
 
 It is smooth on the positive definite matrices, with gradient `w(S - X⁻¹)`,
 which [`value_and_gradient!`](@ref) computes from one Cholesky factorization;
 the value never throws, so that a line search can reject a step that leaves the
-cone. It is also proximable: with `ρ = 1/(γw)` and the eigendecomposition
-`ρX - S = U Diagonal(t) U'`, `prox_{γf}(X) = U Diagonal(μ) U'` with
-`μᵢ = (tᵢ + √(tᵢ² + 4ρ)) / (2ρ)`, and [`value_and_prox!`](@ref) returns the
-value from the `μᵢ`. Both use workspaces that `f` owns, sized by `S`, and
+cone. It is also proximable: with `μ = γw` and the eigendecomposition
+`X - μS = U Diagonal(t) U'`, `prox_{γf}(X) = U Diagonal(z) U'`, where
+`zᵢ = (tᵢ + √(tᵢ² + 4μ))/2`, evaluated without overflow or cancellation.
+[`value_and_prox!`](@ref) returns the value from the `zᵢ`.
+Both use workspaces that `f` owns, sized by `S`, and
 allocate nothing; do not share `f` between threads. The element type of `X`
 must be that of `S`, `Float32` or `Float64`.
 """
@@ -85,19 +87,20 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix, γ::Real) where {T}
   _checksize(Y, X)
   size(X) == size(f.S) || throw(DimensionMismatch("X has size $(size(X)) and S $(size(f.S))"))
-  ρ = inv(convert(T, γ) * f.w)
+  μ = convert(T, γ) * f.w
   A = f.eig.A
-  A .= ρ .* X .- f.S
+  A .= X .- μ .* f.S
   t, U = _eigen!(f.eig)
-  logdet_Y = _rebuild_sym_out!(Y, U, t, s -> _logdet_eigenvalue(s, ρ); logs = true, buffer = f.C)
+  logdet_Y = _rebuild_sym_out!(Y, U, t, s -> _positive_quadratic_root(s, μ); logs = true, buffer = f.C)
   f.w * (dot(f.S, Y) - logdet_Y)
 end
 
-# the root μ > 0 of ρμ² - tμ - 1 = 0, as (t + √(t² + 4ρ)) / (2ρ) for t ≥ 0 and in
-# the form 2 / (√(t² + 4ρ) - t) for t < 0, where the first would cancel
-@inline function _logdet_eigenvalue(t::T, ρ::T) where {T}
-  r = sqrt(t^2 + 4ρ)
-  t >= 0 ? (t + r) / (2ρ) : 2 / (r - t)
+# The positive root of z² - tz - μ = 0. Halving t before hypot avoids squaring
+# large inputs; the rationalized negative branch avoids cancellation.
+@inline function _positive_quadratic_root(t::T, μ::T) where {T}
+  half = t / 2
+  r = hypot(half, sqrt(μ))
+  t >= 0 ? half + r : μ / (r - half)
 end
 prox!(Y::AbstractMatrix, f::LogDetLoss, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, f, X, γ); Y)
 

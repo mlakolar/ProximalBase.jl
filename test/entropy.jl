@@ -132,6 +132,20 @@ end
   check_prox(f, x, 0.8)
   check_traits(f; proximable = true, separable = true, convex = true)
   @test_throws ArgumentError NegLog(-1.)
+  for T in (Float32, Float64)
+    tiny = T == Float32 ? T(1e-20) : T(1e-200)
+    f = NegLog(one(T))
+    for v in T[-1, 0, 1], μ in (tiny, one(T), sqrt(floatmax(T)))
+      z = prox_entry(f, v, 1, μ)
+      reference = setprecision(BigFloat, 256) do
+        b, m = BigFloat(v), BigFloat(μ)
+        v < 0 ? 2m / (sqrt(b*b + 4m) - b) : (b + sqrt(b*b + 4m)) / 2
+      end
+      @test isfinite(z) && z > 0
+      @test z ≈ T(reference) rtol=8eps(T)
+    end
+    @test prox(f, T[1], tiny) ≈ T[1]
+  end
 end
 
 @testset "Berhu" begin

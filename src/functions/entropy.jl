@@ -169,7 +169,7 @@ end
 @inline function prox_entry(f::NegLog, v::T, ::Integer, γ::Real) where {T<:Real}
   S = float(T)
   μ = S(γ) * S(f.λ)
-  _logdet_eigenvalue(S(v) / μ, inv(μ))          # the root of z²/μ - (v/μ)z - 1
+  _positive_quadratic_root(S(v), μ)
 end
 
 restrict(f::NegLog, ::AbstractVector{<:Integer}) = f

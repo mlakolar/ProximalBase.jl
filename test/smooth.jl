@@ -410,6 +410,18 @@ end
   @test_throws DimensionMismatch f(randn(3, 3))
   @test_throws ArgumentError LogDetLoss(big.([2. 1.; 1. 2.]))
   f32 = LogDetLoss(Float32.(S))
+  for T in (Float32, Float64)
+    tiny = T == Float32 ? T(1e-20) : T(1e-200)
+    fsmall = LogDetLoss(zeros(T, 2, 2), one(T))
+    Xsmall = Matrix{T}(I, 2, 2)
+    Ysmall = similar(Xsmall)
+    value = value_and_prox!(Ysmall, fsmall, Xsmall, tiny)
+    @test all(isfinite, Ysmall) && isfinite(value)
+    @test Ysmall ≈ Xsmall
+    @test value ≈ fsmall(Ysmall)
+    alias = copy(Xsmall)
+    @test prox!(alias, fsmall, alias, tiny) ≈ Xsmall
+  end
   @test f32(Float32.(X)) isa Float32
   @test prox(f32, Float32.(X), 0.5f0) ≈ prox(f, X, 0.5) rtol = 1e-4
 end

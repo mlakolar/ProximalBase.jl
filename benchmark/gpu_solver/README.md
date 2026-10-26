@@ -55,6 +55,17 @@ are in `environment.txt`; use a committed checkout to capture the harness itself
 
 ## Design and acceptance
 
+The saved-record validators and both reporters share complete-pair acceptance.
+Run their synthetic controls without CUDA with:
+
+```sh
+python3 benchmark/gpu_solver/check_analysis.py
+```
+
+Failed repetitions remain in failure counts and suppress the affected speedup.
+The validator also rejects empty designs, fewer than five repetitions, and
+nonfinite or negative reference residuals.
+
 The small run uses seed 103, shape 400 × 40, both precisions, and target 1e-4.
 The full run first repeats that gate, then measures shapes 400 × 40,
 4,000 × 400, and 10,000 × 1,000; seeds 103–105; Float32/Float64;

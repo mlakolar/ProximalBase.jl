@@ -16,12 +16,17 @@ shrink(v::Real, c::Real) = shrink(promote(float(v), float(c))...)
 
 # Nonnegative coefficients: keep the usual multiply order when it is well
 # scaled. At exceptional scales, multiply bounded significands and apply the
-# combined exponent once, so no intermediate subnormal loses precision.
+# combined exponent once, so no intermediate subnormal loses precision. The
+# exceptional path is a separate call, so loops over the ordinary path stay
+# small. A zero factor or a NaN fails the range test and is handled there.
 @inline function _positive_product(a::T, b::T, c::T) where {T<:AbstractFloat}
-  (iszero(a) || iszero(b) || iszero(c)) && return zero(T)
   ab = a * b
   p = ab * c
-  isfinite(ab) && ab >= floatmin(T) && isfinite(p) && p >= floatmin(T) && return p
+  (floatmin(T) <= ab <= floatmax(T)) & (floatmin(T) <= p <= floatmax(T)) && return p
+  _exceptional_product(a, b, c, p)
+end
+@noinline function _exceptional_product(a::T, b::T, c::T, p::T) where {T<:AbstractFloat}
+  (iszero(a) || iszero(b) || iszero(c)) && return zero(T)
   (isfinite(a) && isfinite(b) && isfinite(c)) || return p
   ma, ea = frexp(a)
   mb, eb = frexp(b)

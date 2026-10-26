@@ -427,6 +427,34 @@ end
   end
 end
 
+@testset "lq compensated factors and the branch near q=1" begin
+  for T in (Float32, Float64)
+    step = floatmin(T)
+    level = T === Float32 ? T(1e-6) : T(1e-15)
+    weight = T === Float32 ? T(1e30) : T(1e300)
+    for q in T.((0.1, 0.5, 2/3, 0.9))
+      f = NormLq(level, q, T[weight])
+      μ = BigFloat(step)*BigFloat(level)*BigFloat(weight)
+      v = T(4μ^(1/(2-BigFloat(q))))
+      z = prox_entry(f, v, 1, step)
+      @test isfinite(z) && z > 0
+      residual = abs((BigFloat(z)+μ*BigFloat(q)*BigFloat(z)^(BigFloat(q)-1)-BigFloat(v))/BigFloat(v))
+      @test residual <= 128eps(T)
+    end
+    q = prevfloat(one(T))
+    f = NormLq(level, q, T[weight])
+    μ = BigFloat(step)*BigFloat(level)*BigFloat(weight)
+    τ = (2-BigFloat(q))/(2-2BigFloat(q))*(2μ*(1-BigFloat(q)))^(1/(2-BigFloat(q)))
+    v = T((1+128eps(T))*τ)
+    z = prox_entry(f, v, 1, step)
+    @test isfinite(z) && z >= 0
+    # Compare objectives near the discontinuity, not relative errors of a
+    # minimizer approaching zero as q approaches one.
+    objective = μ*BigFloat(z)^BigFloat(q)+(BigFloat(z)-BigFloat(v))^2/2
+    @test objective <= BigFloat(v)^2/2 * (1+128eps(T))
+  end
+end
+
 @testset "lq threshold beyond the step product range" begin
   for T in (Float32, Float64), q in (T(1)/2, T(2)/3, T(0.2))
     # The base 2μ(1-q) must not overflow solely because 2μ was formed first.

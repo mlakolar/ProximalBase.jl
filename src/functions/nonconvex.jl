@@ -183,14 +183,12 @@ Base.@propagate_inbounds function prox_entry(f::NormLq, v::T, i::Integer, γ::Re
   step, λ, w = S(γ), S(f.λ), S(_entry(f.w, i))
   q, t = S(f.q), abs(S(v))
   (iszero(λ) || iszero(w)) && return S(v)
-  μ = step * λ * w
-  ordinary = isfinite(μ) && !iszero(μ)
-  # log(μ) from its factors, used only when μ itself overflowed or underflowed
-  logμ = ordinary ? zero(S) : log(step) + log(λ) + log(w)
-  # Multiply the bounded coefficient before μ. The logarithmic fallback also
-  # covers step products outside the working type's exponent range.
-  τ = if q == S(1)/2 && ordinary
-    S(3)/2 * cbrt(μ)^2
+  μ = _positive_product(step, λ, w)
+  ordinary = isfinite(μ) && μ >= floatmin(S)
+  # When μ cannot retain its precision, take the bounded powers of its factors
+  # before multiplying. The threshold can fit even when μ does not.
+  τ = if q == S(1)/2
+    S(3)/2 * (ordinary ? cbrt(μ)^2 : _positive_product(cbrt(step)^2, cbrt(λ)^2, cbrt(w)^2))
   elseif ordinary
     power = inv(2 - q)
     # Separate powers retain subnormal μ without rounding μ*2(1-q)
@@ -198,21 +196,30 @@ Base.@propagate_inbounds function prox_entry(f::NormLq, v::T, i::Integer, γ::Re
     coefficient = ((2 - q) / (2 - 2q)) * (2 * (1 - q))^power
     coefficient * μ^power
   else
-    exp(log((2 - q) / (2 - 2q)) + (log(S(2)) + logμ + log1p(-q)) / (2 - q))
+    power = inv(2 - q)
+    coefficient = ((2 - q) / (2 - 2q)) * (2 * (1 - q))^power
+    coefficient * _positive_product(step^power, λ^power, w^power)
   end
   t <= τ && return zero(S)
-  sign(S(v)) * _lq_root(t, μ, q, logμ)
+  sign(S(v)) * _lq_root(t, μ, q, τ)
 end
 
 # For t above the threshold, the root z > (2μ(1 - q))^(1/(2-q)) of
 # g(z) = z + μq z^(q-1) - t, the minimizer of μ z^q + (z - t)²/2. g is convex
 # and increasing there, so Newton's method from z = t, right of the root,
 # decreases to it monotonically.
-function _lq_root(t::S, μ::S, q::S, logμ::S) where {S<:AbstractFloat}
-  # μ/t^(2-q) is bounded above the threshold. A log level retains it even
-  # when μ itself overflowed or underflowed while multiplying its factors.
-  relative_level = !(isfinite(μ) && !iszero(μ)) ? exp(logμ - (2 - q) * log(t)) :
-                   q == S(1) / 2 ? (μ / t) / sqrt(t) : (μ / t) / t^(1 - q)
+function _lq_root(t::S, μ::S, q::S, τ::S) where {S<:AbstractFloat}
+  # μ/t^(2-q) is bounded above the threshold. Recover it from τ = c μ^(1/(2-q))
+  # when μ is outside its normal range, without logarithmic cancellation.
+  relative_level = if isfinite(μ) && μ >= floatmin(S)
+    q == S(1) / 2 ? (μ / t) / sqrt(t) : (μ / t) / t^(1 - q)
+  elseif q == S(1) / 2
+    ratio = (τ / t) / (S(3)/2)
+    ratio * sqrt(ratio)
+  else
+    coefficient = ((2 - q) / (2 - 2q)) * (2 * (1 - q))^inv(2 - q)
+    ((τ / t) / coefficient)^(2 - q)
+  end
   if q == S(1) / 2
     # the cubic in √z by the trigonometric method (Xu et al., with λ = 2μ)
     # μ/t^(3/2) is bounded above the threshold. Divide in this order so
@@ -225,10 +232,15 @@ function _lq_root(t::S, μ::S, q::S, logμ::S) where {S<:AbstractFloat}
   # is bounded away from zero for a fixed q, and Newton from r=1 decreases.
   a = relative_level * q
   r = one(S)
+  # The nonzero branch starts at this ratio at the threshold. Rounding near
+  # q=1 must not send a Newton step below it and into a negative power base.
+  lower = 2 * (1 - q) / (2 - q)
   for _ in 1:100
-    power = r^(q - 1)                       # r^(q - 2) is power / r
+    power = q == S(2) / 3 ? inv(cbrt(r)) : r^(q - 1)
     Δ = (r + a * power - 1) / (1 + a * (q - 1) * power / r)
-    r -= Δ
+    next = max(lower, r - Δ)
+    next == r && break
+    r = next
     abs(Δ) <= 4eps(r) && break
   end
   t * r

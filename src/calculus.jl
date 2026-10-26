@@ -163,7 +163,22 @@ end
 Base.@propagate_inbounds prox_entry(t::Translate, v::Real, i::Integer, γ::Real) = t.b[i] + prox_entry(t.f, v - t.b[i], i, γ)
 _checkparams(t::Translate, x) = (_checkparam(t.b, x); _checkparams(t.f, x))
 _isindicator(::Type{<:Translate{F}}) where {F} = _isindicator(F)
-restrict(t::Translate, S::AbstractVector{<:Integer}) = Translate(restrict(t.f, S), t.b[S])
+function restrict(t::Translate, S::AbstractVector{<:Integer})
+  selected = falses(length(t.b))
+  selected[S] .= true
+  excluded = findall(!, selected)
+  if !isempty(excluded)
+    if isseparable(t.f)
+      # Dropping finite terms is harmless for minimization, but dropping an
+      # infinite term would turn an infeasible supported problem into a feasible one.
+      v = restrict(t.f, excluded)(-t.b[excluded])
+      isfinite(v) || throw(ArgumentError("excluded translated coordinates are outside the function's domain"))
+    elseif any(i -> !iszero(t.b[i]), excluded)
+      throw(ArgumentError("restrict of a nonseparable Translate requires zero translation outside S"))
+    end
+  end
+  Translate(restrict(t.f, S), t.b[S])
+end
 
 ####################################
 #  convex conjugate

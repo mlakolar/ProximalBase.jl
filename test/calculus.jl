@@ -86,6 +86,24 @@ end
   @test_throws DimensionMismatch t(randn(3))
   M = randn(3, 4)
   @test Translate(NuclearNorm(1.), M)(M) ≈ 0
+  for T in (Float32, Float64)
+    s = Translate(NormL1(one(T)), T[1, 2, 3])
+    r = restrict(s, [1, 3])
+    for z in (T[0, 0], T[2, 4])
+      @test s(T[z[1], 0, z[2]]) - r(z) ≈ T(2)
+    end
+    q = Translate(SqrNormL2(T(2)), T[1, 2, 3])
+    rq = restrict(q, [1, 3])
+    @test gradient(rq, T[2, 4]) ≈ gradient(q, T[2, 0, 4])[[1, 3]]
+    @test q(T[2, 0, 4]) - rq(T[2, 4]) ≈ T(4)
+    coupled = Translate(GroupNormL2(one(T), [1:2], T[1]), T[0, 1])
+    @test_throws ArgumentError restrict(coupled, [1])
+    @test restrict(coupled, [2])(T[2]) ≈ coupled(T[0, 2])
+    @test restrict(coupled, [2, 1])(T[2, 1]) ≈ coupled(T[1, 2])
+    @test_throws ArgumentError restrict(Translate(IndNonnegative(), T[0, 1]), [1])
+    @test_throws ArgumentError restrict(Translate(NegLog(), zeros(T, 2)), [1])
+    @test_throws BoundsError restrict(s, [4])
+  end
 end
 
 @testset "Conjugate wrappers" begin

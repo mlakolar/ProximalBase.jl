@@ -262,10 +262,17 @@ kkt_violation(f::AbstractFunction, g::AbstractArray, x::AtomIterate, k::Integer)
     restrict(f, S)
 
 The function of `x[S]` that `f` becomes on the vectors `x` supported on the
-coordinates `S`, as a function of the same kind: an active-set solver minimizes
-the restriction over the active coordinates `S`. At `x[S]` the restriction has
-the value `f(x)` and the gradient `∇f(x)[S]`, except that [`SqrNormL2`](@ref)
-with a center `y` drops the constant `Σⱼ∉S yⱼ²`.
+coordinates `S`, where supported: an active-set solver minimizes the restriction
+over those coordinates. The restriction preserves the objective up to a finite
+additive constant and, for a smooth function, has gradient `∇f(x)[S]`. Centered
+[`SqrNormL2`](@ref), [`Regularize`](@ref) and separable [`Translate`](@ref) may
+drop terms belonging to excluded coordinates. These constants do not change the
+minimizer; evaluate the original function when comparing full objective values.
+
+A nonseparable `Translate` requires its translation to vanish outside `S`;
+otherwise restricting its underlying function would change more than a constant,
+and the operation throws. Excluded terms outside a translated separable
+function's domain also cause an error.
 """
 function restrict end
 

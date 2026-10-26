@@ -73,14 +73,18 @@ end
 # Retain the vectorized sum for ordinary magnitudes; the fallback keeps
 # soft-thresholded norms whose squares overflow or underflow representable.
 @inline function _soft_group_norm(x::AbstractArray, G, c::S) where {S}
-  s, a = zero(S), zero(S)
+  s = zero(S)
   @inbounds for i in G
-    z = shrink(convert(S, x[i]), c)
-    s += abs2(z)
-    a += abs(z)                  # zero only when the whole group thresholds to zero
+    s += abs2(shrink(convert(S, x[i]), c))
   end
   isfinite(s) && s >= floatmin(S) && return sqrt(s)
-  iszero(a) && return s
+  if iszero(s)                   # most groups threshold to zero; confirm without hypot
+    a = zero(S)
+    @inbounds for i in G
+      a += abs(shrink(convert(S, x[i]), c))
+    end
+    iszero(a) && return s
+  end
   n = zero(S)
   @inbounds for i in G
     n = hypot(n, shrink(convert(S, x[i]), c))

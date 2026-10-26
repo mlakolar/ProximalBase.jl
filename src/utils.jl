@@ -364,19 +364,21 @@ end
 
 # Preserve the inexpensive sum-of-squares path at ordinary scales. Outside
 # its representable range, hypot accumulates the norm without squaring the
-# unscaled differences and without constructing a temporary array. The
-# same pass sums |real| + |imag| of the differences, which is zero only for
-# equal arrays, so these need no second pass.
+# unscaled differences and without constructing a temporary array. Equal
+# arrays also have a zero sum of squares; a vectorized sum of |real| + |imag|
+# of the differences confirms them without hypot.
 function _norm_diff2(A::AbstractArray, B::AbstractArray)
-  T = real(float(promote_type(eltype(A), eltype(B))))
-  s, a = zero(T), zero(T)
-  @inbounds @simd for i in eachindex(A, B)
-    d = A[i] - B[i]
-    s += abs2(d)
-    a += abs(real(d)) + abs(imag(d))
-  end
+  s = _sumabs2_diff(A, B)
+  T = typeof(s)
   isfinite(s) && s >= floatmin(T) && return sqrt(s)
-  iszero(a) && return s
+  if iszero(s)
+    a = zero(T)
+    @inbounds @simd for i in eachindex(A, B)
+      d = A[i] - B[i]
+      a += abs(real(d)) + abs(imag(d))
+    end
+    iszero(a) && return s
+  end
   v = zero(T)
   @inbounds for i in eachindex(A, B)
     v = hypot(v, abs(A[i] - B[i]))

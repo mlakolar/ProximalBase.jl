@@ -5,6 +5,10 @@ It measures ten independent seeded runs per case and Julia version, reports
 arithmetic means with between-run variation and intervals, and retains raw
 timings, allocation measurements and representative profiles.
 
+For optional physical CUDA comparisons, use the
+[common-accuracy GPU solver benchmark](gpu_solver/README.md). It pairs CPU/GPU
+solves, verifies final accuracy independently, and profiles overhead separately.
+
 The comparisons below are historical experiments with their stated machines,
 commits and timing summaries. In particular, the partial-decomposition tables
 use the fastest of a few calls. Treat them as exploratory evidence; new

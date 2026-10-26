@@ -1,0 +1,14 @@
+reference_seconds = 0.000266646
+data_and_spectral_setup_seconds = 0.000780579
+
+[cpu]
+first_call = 8.3026e-5
+construction = 3.638e-6
+objective = 2.0926916242674016
+residual = 8.652141204824585e-5
+
+[gpu]
+first_call = 0.002935074
+construction = 0.000121769
+objective = 2.092691624267402
+residual = 8.652141204805916e-5

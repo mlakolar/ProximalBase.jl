@@ -149,10 +149,11 @@ function hessian_vec!(Hv::AbstractVector, f::GLMLoss{L, T}, β::AbstractVector, 
   η = _linear_predictor!(f, β)
   d = f.d
   @inbounds for i in eachindex(η)
-    d[i] = convert(T, _entry(f.weights, i)) * convert(T, deriv2(f.loss, η[i], f.y[i]))
+    w = convert(T, _entry(f.weights, i))
+    d[i] = iszero(w) ? zero(T) : w * convert(T, deriv2(f.loss, η[i], f.y[i]))
   end
   mul!(η, f.X, v)
-  η .*= d
+  η .= ifelse.(iszero.(d), zero(T), η .* d)
   mul!(Hv, transpose(f.X), η)
 end
 
@@ -172,9 +173,14 @@ function quadratic_model!(q::GLMLoss{Squared, T, Vector{T}, <:Any, Vector{T}}, f
   z, v = q.y, q.weights
   floor = sqrt(eps(T))
   @inbounds for i in eachindex(η)
+    w = convert(T, _entry(f.weights, i))
+    if iszero(w)
+      v[i] = z[i] = zero(T)
+      continue
+    end
     d1 = convert(T, deriv(f.loss, η[i], f.y[i]))
     d2 = max(convert(T, deriv2(f.loss, η[i], f.y[i])), floor)
-    v[i] = convert(T, _entry(f.weights, i)) * d2
+    v[i] = w * d2
     z[i] = η[i] - d1 / d2
   end
   q

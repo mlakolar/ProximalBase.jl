@@ -567,12 +567,12 @@ struct _ObsValue{T, L}
   loss::L
 end
 _ObsValue{T}(loss::L) where {T, L} = _ObsValue{T, L}(loss)
-(o::_ObsValue{T})(η, y, w) where {T} = convert(T, w) * convert(T, o.loss(η, y))
+(o::_ObsValue{T})(η, y, w) where {T} = iszero(w) ? zero(T) : convert(T, w) * convert(T, o.loss(η, y))
 struct _ObsDeriv{T, L}
   loss::L
 end
 _ObsDeriv{T}(loss::L) where {T, L} = _ObsDeriv{T, L}(loss)
-(o::_ObsDeriv{T})(η, y, w) where {T} = convert(T, w) * convert(T, ProximalBase.deriv(o.loss, η, y))
+(o::_ObsDeriv{T})(η, y, w) where {T} = iszero(w) ? zero(T) : convert(T, w) * convert(T, ProximalBase.deriv(o.loss, η, y))
 
 function (f::_DeviceGLM{L, T})(β::AbstractVector) where {L, T}
   η = ProximalBase._linear_predictor!(f, β)

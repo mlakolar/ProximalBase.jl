@@ -207,6 +207,16 @@ end
     end
   end
   # the Hessian of least squares is products; its proximal operator runs on the CPU
+  for T in test_types
+    fzero = PoissonLoss(zeros(T, 2), ones(T, 2, 1); weights=T[0, 1], offset=T[1000, 0])
+    device = Adapt.adapt(DeviceArray, fzero)
+    β = DeviceArray(T[0])
+    g = similar(β)
+    @test device(β) ≃ one(T)
+    @test value_and_gradient!(g, device, β) ≃ one(T)
+    @test host(g) ≃ T[1]
+    @test host(gradient(device, β)) ≃ T[1]
+  end
   f = LeastSquaresLoss(y, X)
   fg = Adapt.adapt(DeviceArray, f)
   v = randn(p)

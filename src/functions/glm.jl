@@ -215,7 +215,9 @@ function (f::GLMLoss{L, T})(β::AbstractVector) where {L, T}
   η = _linear_predictor!(f, β)
   s = zero(T)
   @inbounds for i in eachindex(η)
-    s += convert(T, _entry(f.weights, i)) * convert(T, f.loss(η[i], f.y[i]))
+    w = convert(T, _entry(f.weights, i))
+    iszero(w) && continue
+    s += w * convert(T, f.loss(η[i], f.y[i]))
   end
   s
 end
@@ -226,8 +228,12 @@ function value_and_gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVe
   d = f.d
   s = zero(T)
   @inbounds for i in eachindex(η)
-    v, dv = value_and_deriv(f.loss, η[i], f.y[i])
     w = convert(T, _entry(f.weights, i))
+    if iszero(w)
+      d[i] = zero(T)
+      continue
+    end
+    v, dv = value_and_deriv(f.loss, η[i], f.y[i])
     s += w * convert(T, v)
     d[i] = w * dv
   end
@@ -239,7 +245,8 @@ function gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVector) wher
   _checksize(g, β)
   η = _linear_predictor!(f, β)
   @inbounds for i in eachindex(η)
-    f.d[i] = convert(T, _entry(f.weights, i)) * deriv(f.loss, η[i], f.y[i])
+    w = convert(T, _entry(f.weights, i))
+    f.d[i] = iszero(w) ? zero(T) : w * deriv(f.loss, η[i], f.y[i])
   end
   mul!(g, transpose(f.X), f.d)
 end

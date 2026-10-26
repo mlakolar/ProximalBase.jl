@@ -426,6 +426,29 @@ end
   @test prox(f32, Float32.(X), 0.5f0) ≈ prox(f, X, 0.5) rtol = 1e-4
 end
 
+@testset "zero-weight observations are ignored" begin
+  for T in (Float32, Float64)
+    f = PoissonLoss(zeros(T, 2), ones(T, 2, 1); weights=T[0, 1], offset=T[1000, 0])
+    for β in (T[0], T[-2], T[2])
+      expected = exp(β[1])
+      @test f(β) ≈ expected
+      @test gradient(f, β) ≈ T[expected]
+      g = similar(β)
+      @test value_and_gradient!(g, f, β) ≈ expected
+      @test g ≈ T[expected]
+      @test hessian_vec(f, β, T[2]) ≈ T[2expected]
+      q = quadratic_model(f, β)
+      @test all(isfinite, q.y) && all(isfinite, q.weights)
+      @test gradient(q, β) ≈ T[expected]
+      @test hessian_vec(q, β, T[2]) ≈ T[2expected]
+    end
+    fzero = PoissonLoss(zeros(T, 2), ones(T, 2, 1); weights=zeros(T, 2), offset=fill(T(1000), 2))
+    @test fzero(T[0]) == 0
+    @test gradient(fzero, T[0]) == T[0]
+    @test hessian_vec(fzero, T[0], T[2]) == T[0]
+  end
+end
+
 @testset "lipschitz" begin
   n, p = 40, 15
   X, y = randn(n, p), randn(n)

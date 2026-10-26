@@ -4,7 +4,7 @@ Optional benchmark for issue #110. It uses ordinary proximal gradient with
 `LeastSquaresLoss`, `gradient!`, `NormL1`, and `prox!`. CUDA remains optional;
 production implementations and ordinary JLArrays tests are unchanged.
 
-The [Discovery report](results/discovery-2026-10-26/README.md) retains the
+The [Discovery report](https://github.com/mlakolar/ProximalBase.jl/blob/3ec6f5513d3d8c91beec010f156c533f09cbf739/benchmark/gpu_solver/results/discovery-2026-10-26/README.md) retains the
 measured V100 comparisons, raw samples, environment and diagnostic receipts.
 
 ## Practical recommendation
@@ -26,12 +26,12 @@ From a clean committed checkout on a physical CUDA device:
 julia --project=test/cuda test/cuda/instantiate.jl
 julia --project=test/cuda test/cuda/runtests.jl
 julia --project=test/cuda benchmark/gpu_solver/check.jl
-PB_MODE=small PB_OUTPUT=small julia --project=test/cuda benchmark/gpu_solver/run.jl
-python3 benchmark/gpu_solver/summarize.py small
-PB_MODE=full PB_OUTPUT=full julia --project=test/cuda benchmark/gpu_solver/run.jl
-python3 benchmark/gpu_solver/summarize.py full
-PB_N=400 PB_P=40 julia --project=test/cuda benchmark/gpu_solver/profile.jl > profile-small.log 2>&1
-PB_N=10000 PB_P=1000 julia --project=test/cuda benchmark/gpu_solver/profile.jl > profile-large.log 2>&1
+PB_MODE=small PB_OUTPUT=benchmark/gpu_solver/results/small julia --project=test/cuda benchmark/gpu_solver/run.jl
+python3 benchmark/gpu_solver/summarize.py benchmark/gpu_solver/results/small
+PB_MODE=full PB_OUTPUT=benchmark/gpu_solver/results/full julia --project=test/cuda benchmark/gpu_solver/run.jl
+python3 benchmark/gpu_solver/summarize.py benchmark/gpu_solver/results/full
+PB_N=400 PB_P=40 julia --project=test/cuda benchmark/gpu_solver/profile.jl > benchmark/gpu_solver/results/profile-small.log 2>&1
+PB_N=10000 PB_P=1000 julia --project=test/cuda benchmark/gpu_solver/profile.jl > benchmark/gpu_solver/results/profile-large.log 2>&1
 ```
 
 A missing CUDA device is an error. `check.jl` also runs with the package's CPU

@@ -11,11 +11,14 @@ Active documentation and benchmark environments specify those checkouts with
 relative `[sources]` paths. Run `julia scripts/instantiate.jl` from the package
 root to develop these dependencies explicitly on Julia 1.10 and newer. Use
 `julia scripts/instantiate.jl docs` for the documentation environment.
-Historical benchmark
-environments and recorded baseline metadata retain their original pins so
-that the recorded comparisons remain reproducible.
 
-Keep package version numbering unchanged during this migration.
+Use the [benchmark suite](benchmark/README.md) to measure runtime and allocations
+before and after implementation changes. Keep generated measurements with the
+PR that uses them; add reusable cases for workloads worth protecting.
+
+The documentation presents the package as a whole, with 0.5.4 as the planned
+initial release baseline. Version metadata and release tags are updated
+separately during the release process.
 
 Run the complete tests with:
 

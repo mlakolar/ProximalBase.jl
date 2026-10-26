@@ -157,9 +157,9 @@ runtime tracking of mutable parameter arrays would be separate proposals.
 
 ## Architecture diagrams
 
-The existing [overview Page](https://chatgpt.com/space/page_19d0374c8de481918344267237028f43)
-and its five child Pages are the canonical location. Their native Markdown
-and Mermaid format is preserved. Recovered original blocks are saved in
+The six views were originally maintained as Markdown and Mermaid Pages.
+The public diagram sources and inspected renders are linked below, preserving
+that format. Recovered original blocks are saved in
 [original Page sources](https://github.com/mlakolar/ProximalBase.jl/blob/5839b4e973a115fa0d3c1a328903a0a58ded3aac/docs/audit/release-0.5.4/architecture/original-pages.json); local diagram sources
 and inspected renders are coordinated mirrors:
 

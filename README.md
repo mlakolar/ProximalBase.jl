@@ -15,8 +15,8 @@ The package has three parts:
   squares, generalized linear models, sparsity penalties and matrix constraints.
 - Coordinate updates for individual entries and groups, with curvature bounds
   and optimality checks for constructing coordinate-descent procedures.
-- Sparse vector, symmetric matrix and group iterates that track active
-  coordinates and support repeated updates.
+- Sparse data structures for vectors, symmetric matrices and groups of
+  coefficients that track active coordinates and support repeated updates.
 
 Use ProximalBase when you want to write or extend an optimization procedure,
 or use the complete solvers in
@@ -131,7 +131,8 @@ end
 
 `coordinate_lipschitz(f, j)` provides the coordinate curvature used above.
 
-Mutating calls take their output first. The
+Functions that modify an output array take that array as their first argument.
+The
 [getting-started guide](https://mlakolar.github.io/ProximalBase.jl/dev/getting_started/)
 derives both updates, adds stopping rules and checks that their solutions agree.
 
@@ -147,29 +148,29 @@ graphical models, matrix estimation and constrained optimization.
 
 ## Development and tests
 
-ProximalBase can be developed on its own; sibling checkouts of ProximalSolvers
-or other workspace packages are not required. From the package checkout,
+ProximalBase can be developed on its own; local clones of ProximalSolvers
+or other related packages are not required. From the ProximalBase directory,
 install the declared dependencies and run the complete suite with:
 
 ```sh
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ```
 
-To use the same test runner as CI:
+To use the same test script as continuous integration (CI):
 
 ```sh
 julia scripts/test_master.jl
 ```
 
-This runner performs its own setup, creates an isolated environment containing
-the local package and its test extras, and runs with bounds checking. There is
-no need to run `scripts/instantiate.jl` first.
+This script installs dependencies, creates a separate Julia environment
+containing the local package and its test dependencies, and runs with array
+bounds checking. There is no need to run `scripts/instantiate.jl` first.
 
-The shared bootstrap helper lists known workspace packages, but only selects
-those found in the chosen environment's dependency and test-extra graph.
-ProximalBase currently needs none of the other workspace packages. Sibling
-`master` checkouts are used when those packages are dependencies, as in
-downstream packages that use ProximalBase and ProximalSolvers together. See
+The setup script, `scripts/instantiate.jl`, also supports developing related
+packages together. It uses local clones of those packages on their `master`
+branches only when they are direct or indirect dependencies of the selected
+environment, including dependencies used for testing. ProximalBase currently
+has no such dependencies on other related packages. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for development and documentation setup.
 
 ## License

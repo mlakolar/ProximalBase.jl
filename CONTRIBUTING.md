@@ -12,21 +12,23 @@ For standalone development, run from the package root:
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ```
 
-Julia installs the declared dependencies and test extras automatically.
-ProximalBase currently has no dependencies on the other workspace packages,
-so their sibling checkouts and `master` branches are not required.
+Julia installs the declared dependencies and test dependencies automatically.
+ProximalBase currently has no dependencies on other related packages, such as
+ProximalSolvers, so local clones of those packages are not required.
 
-The shared `scripts/instantiate.jl` helper selects known workspace packages
-only when they occur in the chosen environment's dependency and test-extra
-graph. For those dependencies, use local `master` checkouts; missing sibling
-checkouts are cloned from `master`. The package being developed uses its own
-checkout and may be on a feature branch. The catalog in
-`scripts/master_dependencies.jl` is not a list of packages to install in every
-environment.
+The setup script, `scripts/instantiate.jl`, can use local clones of related
+packages listed in `scripts/master_dependencies.jl`. It selects only packages
+that are direct or indirect dependencies of the selected environment,
+including dependencies used for testing. For those dependencies, it requires
+the local clones to be on their `master` branches. Missing clones are created
+in the parent directory from those branches. The package being developed
+uses its own local clone and may be on a feature branch. The script does not
+install every package in the list.
 
 The documentation and benchmark environments specify the local ProximalBase
-checkout with a relative `[sources]` path. To build the documentation, including
-on Julia 1.10 where the helper explicitly develops that checkout, run:
+clone with a relative path in the `[sources]` section of `Project.toml`.
+To build the documentation, including on Julia 1.10 where the setup script
+calls `Pkg.develop` to use the local clone explicitly, run:
 
 ```sh
 julia scripts/instantiate.jl docs
@@ -41,14 +43,15 @@ The documentation presents the package as a whole, with 0.5.4 as the planned
 initial release baseline. Version metadata and release tags are updated
 separately during the release process.
 
-To run the complete tests using the same runner as CI:
+To run the complete tests using the same script as continuous integration (CI):
 
 ```sh
 julia scripts/test_master.jl
 ```
 
-The runner performs its own dependency setup, creates an isolated environment
-with the local package and test extras, and runs the suite with bounds checking.
+The script installs dependencies, creates a separate Julia environment with
+the local package and test dependencies, and runs the suite with array bounds
+checking.
 It leaves the package's `Project.toml` unchanged and needs no preceding
-`scripts/instantiate.jl` invocation. Its support for extra-only workspace
-dependencies on Julia 1.10 does not add any such dependencies to ProximalBase.
+`scripts/instantiate.jl` invocation. On Julia 1.10 it also supports related
+packages needed only for testing; ProximalBase currently has no such dependencies.

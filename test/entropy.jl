@@ -151,6 +151,19 @@ end
       z = prox_entry(NegLog(scale), -scale, 1, scale)
       @test z ≈ T((sqrt(BigFloat(5)) - 1) / 2) * scale rtol=8eps(T)
     end
+    # hypot(v/2, sqrt(γ)*sqrt(λ)) can itself overflow while the positive
+    # root is representable. Both the root and its denominator need scaling.
+    scale = floatmax(T)
+    for v in (-scale, -scale/2)
+      reference = setprecision(BigFloat, 256) do
+        b, μ = BigFloat(v), BigFloat(scale)^2
+        T(2μ / (sqrt(b*b + 4μ) - b))
+      end
+      z = prox_entry(NegLog(scale), v, 1, scale)
+      @test isfinite(z) && z > 0
+      @test z ≈ reference rtol=8eps(T)
+      @test allocs(prox_entry, NegLog(scale), v, 1, scale) == 0
+    end
   end
 end
 

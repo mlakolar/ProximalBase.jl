@@ -110,8 +110,13 @@ end
   r = hypot(half, root_step)
   half >= 0 && return half + r
   denominator = r - half
-  isinf(denominator) ? (root_step / 2) * (root_step / (r / 2 - half / 2)) :
-                       root_step * (root_step / denominator)
+  # The positive root remains finite when half < 0, even if hypot itself
+  # overflows. Recompute the half denominator from scaled inputs in that case.
+  if isinf(denominator)
+    scaled_denominator = hypot(half / 2, root_step / 2) - half / 2
+    return (root_step / 2) * (root_step / scaled_denominator)
+  end
+  root_step * (root_step / denominator)
 end
 
 # The same root when half = (X/(γw) - S)/2 and root_step = √(γw) > 1.

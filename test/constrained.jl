@@ -463,4 +463,38 @@ end
   end
 end
 
+@testset "box domain checks preserve mixed-precision touching endpoints" begin
+  for T in (Float32, Float64)
+    # Each bound rounds outward in T. The original domains touch at exactly
+    # b, which the proximal output represents by T(b).
+    b = T === Float32 ? 0.3 : big"0.1"
+    for f in (IndBox(zero(b), b), Conjugate(NormL1(b)))
+      c = Constrained(f, IndBox(b, b))
+      @test prox(c, T[0]) == T[b]
+      @test prox_entry(c, zero(T), 1, one(T)) == T(b)
+      x = SparseIterate(T[0])
+      prox_coordinate!(x, c, 1, one(T))
+      @test Vector(x) == T[b]
+    end
+    c = Constrained(IndBox(zero(b), b), IndBox(b, b))
+    @test ProximalBase._prox_entry_slope(c, zero(T), 1, one(T)) == (T(b), zero(T))
+
+    # A truly empty intersection must not become valid just because both
+    # original endpoints round to the same number in the output precision.
+    disjoint = nextfloat(b)
+    @test T(disjoint) == T(b)
+    for f in (IndBox(zero(b), b), Conjugate(NormL1(b)))
+      c = Constrained(f, IndBox(disjoint, disjoint))
+      @test_throws ArgumentError prox(c, T[0])
+      @test_throws ArgumentError prox(c, T[1])  # clamping need not change p
+      @test_throws ArgumentError prox_entry(c, one(T), 1, one(T))
+      @test_throws ArgumentError prox_coordinate!(SparseIterate(T[1]), c, 1, one(T))
+    end
+    c = Constrained(IndBox(zero(b), b), IndBox(disjoint, disjoint))
+    @test_throws ArgumentError ProximalBase._prox_entry_slope(c, one(T), 1, one(T))
+    # The strict barrier domain remains open, including in mixed precision.
+    @test_throws ArgumentError prox(Constrained(NegLog(b), IndBox(0, 0)), T[1])
+  end
+end
+
 end

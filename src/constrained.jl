@@ -196,9 +196,19 @@ function _entry_conjugate_domain(f::BoxConstrained, i)
   l, u, ol, ou
 end
 
-@inline function _inside_entry_domain(f, v, i)
+@inline function _inside_entry_domain(f, v, i, box::IndBox)
   l, u, ol, ou = _entry_domain(f, i)
-  (ol ? v > l : v >= l) && (ou ? v < u : v <= u)
+  bl, bu = _entry(box.l, i), _entry(box.u, i)
+  lower, upper = max(l, bl), min(u, bu)
+  open_lower, open_upper = ol && l >= bl, ou && u <= bu
+  # Check the original intervals before rounding their endpoints. Otherwise
+  # distinct disjoint bounds can collapse to the same working-precision point.
+  (lower < upper || (lower == upper && !open_lower && !open_upper)) || return false
+  # Proxes and clamps work in the output precision. A closed endpoint rounded
+  # outward is still their representation of a valid touching intersection.
+  S = typeof(float(v))
+  lower, upper = convert(S, lower), convert(S, upper)
+  (open_lower ? v > lower : v >= lower) && (open_upper ? v < upper : v <= upper)
 end
 @noinline _empty_box_domain() = throw(ArgumentError("the box misses the scalar function's domain"))
 
@@ -207,7 +217,7 @@ end
 Base.@propagate_inbounds function prox_entry(c::BoxConstrained, v::Real, i::Integer, γ::Real)
   p = prox_entry(c.f, v, i, γ)
   z = prox_entry(c.box, p, i, γ)
-  z == p || _inside_entry_domain(c.f, z, i) || _empty_box_domain()
+  _inside_entry_domain(c.f, z, i, c.box) || _empty_box_domain()
   z
 end
 
@@ -820,6 +830,6 @@ Base.@propagate_inbounds function _prox_entry_slope(c::BoxConstrained, v::T, i::
   z, dz = _prox_entry_slope(c.f, v, i, γ)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
   p = clamp(convert(S, z), l, u)
-  p == z || _inside_entry_domain(c.f, p, i) || _empty_box_domain()
+  _inside_entry_domain(c.f, p, i, c.box) || _empty_box_domain()
   p, _slope((z > l) & (z < u), convert(S, dz))
 end

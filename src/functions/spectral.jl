@@ -20,8 +20,10 @@ With `partial = true` the proximal operator computes only the leading singular
 triplets or eigenpairs, by randomized subspace iteration started from those of
 the previous call, in O(p²k) instead of O(p³) for k of them. It accepts the
 result when the residuals of the pairs kept are below
-`max(eps^(3/4), 10eps*sqrt(p))` times the largest value and the next three
-computed pairs lie below the threshold. Otherwise, or when the pairs kept
+`max(eps^(3/4), 10eps*sqrt(p))` times the largest absolute computed value. The
+next three computed pairs must lie below the threshold within this tolerance,
+or below the smallest retained value for a fixed rank, accounting for their
+residuals. Otherwise, or when the pairs kept
 would be more than about a quarter of the dimension, it falls back to the full
 decomposition. These checks cannot detect a leading singular value or
 eigenvalue that the iteration missed, so the result is an approximation. It

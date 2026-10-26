@@ -20,9 +20,10 @@ It is also proximable, by
 Huber function, that of the indicator function of a set `C` the squared
 distance to `C` divided by `2γ`. The value, the gradient and the proximal
 operator use a buffer that `e` owns; do not share `e` between threads, and pass
-a gradient output that is not `x`. The proximal operator with step `t` needs
-`γ + t` to be finite in the element type of the output; otherwise `prox!` and
-`value_and_prox!` throw an `ArgumentError` and leave the output unchanged.
+a gradient output that is not `x`. For a proximal step `t`, `γ` and `t` are
+converted to the element type of the output. Their sum must be finite and
+positive; otherwise `prox!` and `value_and_prox!` throw an `ArgumentError` and
+leave the output unchanged.
 """
 struct MoreauEnvelope{F<:AbstractFunction, T<:Real} <: AbstractFunction
   f::F

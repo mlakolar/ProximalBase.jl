@@ -12,8 +12,8 @@ of its linear predictor `η`, the building blocks of [`GLMLoss`](@ref). A loss i
 callable, `ℓ(η, y)`, and implements [`ProximalBase.deriv`](@ref),
 [`ProximalBase.deriv2`](@ref) and [`ProximalBase.curvature`](@ref), and
 [`ProximalBase.value_and_deriv`](@ref) when the value and the derivative share
-work. A custom loss must be convex and differentiable in `η` for every
-response value, and `curvature` must bound its second derivative (it may be
+work. A custom loss must be convex and differentiable in `η` for the response
+values it supports, and `curvature` must bound its second derivative (it may be
 `Inf`). `GLMLoss` reports itself smooth and convex on that basis and does not
 check these properties. The losses are [`ProximalBase.Squared`](@ref),
 [`ProximalBase.Logistic`](@ref), [`ProximalBase.Poisson`](@ref),

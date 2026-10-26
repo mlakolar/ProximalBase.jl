@@ -186,12 +186,16 @@ its data; its factorization type can change with the rank of `A`.
   should call it instead of `prox!` followed by `f(y)`.
 - **Steps and types.** Steps may be any positive real. Computations follow the
   element type of the argument, so `Float32` input gives `Float32` results.
-- **Allocations.** On CPU arrays, the hot calls of the built-in functions
-  (`f(x)`, `prox!`, `value_and_prox!`, `gradient!`, `value_and_gradient!`,
-  `prox_entry`, `prox_coordinate!`) allocate nothing once the function has seen
-  an input of the same size and element type; the test suite checks this.
+- **Allocations.** Many built-in operations reuse their buffers for inputs of
+  a fixed size and element type. The allocation tests check `f(x)`, `prox!`,
+  `value_and_prox!`, `gradient!`, `value_and_gradient!`, `prox_entry` and
+  `prox_coordinate!` on Float32 and Float64 CPU arrays after warm-up. They do
+  not establish zero allocations for every array type or execution path;
+  measure the method and inputs your solver uses with
+  [`allocations`](@ref ProximalBase.Testing.allocations).
   Creating a function, rebuilding a cache and the allocating versions such as
-  `prox` do allocate, and functions you write yourself are not covered. Calls
+  `prox` do allocate. BigFloat arithmetic and functions you write yourself
+  can also allocate on every call. Calls
   on GPU arrays run kernels and reductions that may allocate on the host and
   the device. The spectral functions
   and [`LogDetLoss`](@ref) own LAPACK workspaces sized for their input. A

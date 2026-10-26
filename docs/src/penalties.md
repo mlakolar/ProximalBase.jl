@@ -484,9 +484,11 @@ vectors.
   direction that enters the leading subspace is amplified from call to call.
 - **Acceptance.** A result is accepted when the residuals
   ``\|Xv_j - \sigma_j u_j\|`` (or ``\|Au_j - \theta_j u_j\|``) of the pairs kept
-  are below ``\max(\epsilon^{3/4},10\epsilon\sqrt{p})`` times the largest
-  computed value, and the next three computed pairs have their value plus
-  residual below the threshold. Small residuals show that the computed pairs
+  are at most ``\delta``: ``\max(\epsilon^{3/4},10\epsilon\sqrt{p})`` times
+  the largest absolute computed value. For a threshold ``\tau``, the next three
+  computed pairs must have their value plus residual at most ``\tau+\delta``.
+  For a fixed rank, the comparison is instead with the smallest retained
+  value minus its residual. Small residuals show that the computed pairs
   are accurate, not that the block contains every leading direction: a singular
   value or eigenvalue that the iteration missed goes undetected, and the result
   then differs from the full decomposition.

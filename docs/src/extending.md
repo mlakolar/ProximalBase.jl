@@ -130,7 +130,7 @@ reference for a scalar proximal operator, convex or not.
 
 ## Running the package suite
 
-From the package checkout, run `julia scripts/test_master.jl` after adding or
-changing an implementation. This uses the complete test extras and workspace
-master dependencies on Julia 1.10 and newer, with bounds checking enabled,
-while leaving the package's `Project.toml` unchanged.
+From the package checkout, run `julia scripts/test.jl` after adding or changing
+an implementation. This calls `Pkg.test()` with array bounds checking enabled
+and installs the dependencies needed for the package tests. No clones of
+other packages are required.

@@ -6,11 +6,51 @@ functions. Retain established Julia interface names, familiar numerical
 abbreviations, and mathematical identifiers such as `X`, `Σ` and `λ`.
 Deprecated names are compatibility exceptions, not examples for new code.
 
-Develop and test against local `master` checkouts of workspace packages.
-Active documentation and benchmark environments specify those checkouts with
-relative `[sources]` paths. Run `julia scripts/instantiate.jl` from the package
-root to develop these dependencies explicitly on Julia 1.10 and newer. Use
-`julia scripts/instantiate.jl docs` for the documentation environment.
+For standalone development, run from the package root:
+
+```sh
+julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
+```
+
+Julia installs the declared dependencies and test dependencies automatically.
+No clones of ProximalSolvers or other related packages are required, and you
+can work on any Git branch.
+
+To run the tests with the same options as continuous integration (CI):
+
+```sh
+julia scripts/test.jl
+```
+
+This calls `Pkg.test()` with array bounds checking enabled. No separate setup
+command is needed. Set `JULIA_TEST_COVERAGE=true` to collect coverage, as CI
+does, or `JULIA_TEST_DEPWARN=error` to treat deprecation warnings as errors.
+
+Documentation, benchmarks and optional conic tests each have their own
+`Project.toml` with additional tools. The setup script installs those tools
+and calls `Pkg.develop` to select this local ProximalBase checkout, including
+on Julia 1.10 where `[sources]` is not supported. It preserves the environment's
+`Project.toml` and writes a local manifest. It does not clone other repositories
+or check Git branches.
+
+For example, to build documentation for your current changes, run from the
+package root:
+
+```sh
+julia scripts/instantiate.jl docs
+julia --project=docs docs/make.jl
+```
+
+To prepare the benchmark environment:
+
+```sh
+julia scripts/instantiate.jl benchmark
+```
+
+For the optional conic tests, use `julia scripts/instantiate.jl test/oracles`;
+see [the conic test instructions](test/oracles/README.md) for running them.
+Calling `julia scripts/instantiate.jl` without an argument simply installs
+the package's declared dependencies, like `Pkg.instantiate()`.
 
 Use the [benchmark suite](benchmark/README.md) to measure runtime and allocations
 before and after implementation changes. Keep generated measurements with the
@@ -19,14 +59,3 @@ PR that uses them; add reusable cases for workloads worth protecting.
 The documentation presents the package as a whole, with 0.5.4 as the planned
 initial release baseline. Version metadata and release tags are updated
 separately during the release process.
-
-Run the complete tests with:
-
-```sh
-julia scripts/test_master.jl
-```
-
-The runner creates an isolated environment with the package, dependencies and
-test extras, and runs the suite with bounds checking. It preserves extra-only
-master dependencies on Julia 1.10 and leaves the package's `Project.toml`
-unchanged. This is the development test command used by CI.

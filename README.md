@@ -15,8 +15,8 @@ The package has three parts:
   squares, generalized linear models, sparsity penalties and matrix constraints.
 - Coordinate updates for individual entries and groups, with curvature bounds
   and optimality checks for constructing coordinate-descent procedures.
-- Sparse vector, symmetric matrix and group iterates that track active
-  coordinates and support repeated updates.
+- Sparse data structures for vectors, symmetric matrices and groups of
+  coefficients that track active coordinates and support repeated updates.
 
 Use ProximalBase when you want to write or extend an optimization procedure,
 or use the complete solvers in
@@ -131,7 +131,8 @@ end
 
 `coordinate_lipschitz(f, j)` provides the coordinate curvature used above.
 
-Mutating calls take their output first. The
+Functions that modify an output array take that array as their first argument.
+The
 [getting-started guide](https://mlakolar.github.io/ProximalBase.jl/dev/getting_started/)
 derives both updates, adds stopping rules and checks that their solutions agree.
 
@@ -147,18 +148,29 @@ graphical models, matrix estimation and constrained optimization.
 
 ## Development and tests
 
-From the package checkout, resolve dependencies and run the complete suite with:
+ProximalBase can be developed on its own; local clones of ProximalSolvers
+or other related packages are not required. From the ProximalBase directory,
+install the declared dependencies and run the complete suite with:
 
 ```sh
-julia scripts/instantiate.jl
-julia scripts/test_master.jl
+julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ```
 
-The bootstrap uses sibling `master` checkouts for workspace dependencies. The
-runner creates an isolated environment containing the package and its test
-extras, including extra-only master dependencies on Julia 1.10, while keeping
-this package's `Project.toml` unchanged. See [CONTRIBUTING.md](CONTRIBUTING.md)
-for the naming policy and development setup.
+To use the same test script as continuous integration (CI):
+
+```sh
+julia scripts/test.jl
+```
+
+This calls `Pkg.test()` with array bounds checking enabled. Julia prepares
+an environment containing ProximalBase and its test dependencies automatically.
+There is no need to run `scripts/instantiate.jl` first.
+
+To build the documentation or run benchmarks, use `scripts/instantiate.jl`
+to install the tools for that task and select your local ProximalBase code.
+For example, `julia scripts/instantiate.jl docs` sets up the documentation
+build. This script does not clone other package repositories or require any
+particular Git branch. See [CONTRIBUTING.md](CONTRIBUTING.md) for the commands.
 
 ## License
 

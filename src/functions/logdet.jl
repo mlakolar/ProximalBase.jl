@@ -10,7 +10,9 @@
 The Gaussian negative log-likelihood `f(X) = w (tr(SX) - log det X)` for finite
 `w > 0`, of a
 precision matrix `X`, for a symmetric `S` such as a sample covariance, and
-`Inf` when `X` is not positive definite. The loss of the graphical lasso.
+`Inf` when `X` is not positive definite, has a nonfinite entry, or is not
+symmetric to a relative tolerance of `sqrt(eps)`. The loss of the graphical
+lasso.
 
 It is smooth on the positive definite matrices, with gradient `w(S - X⁻¹)`,
 which [`value_and_gradient!`](@ref) computes from one Cholesky factorization;

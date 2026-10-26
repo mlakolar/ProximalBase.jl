@@ -59,9 +59,15 @@ it into the Ky Fan `k`-norm and the sum of the `k` largest eigenvalues.
 not give the constrained one. The exceptions are [`MCP`](@ref), [`SCAD`](@ref)
 and [`NormL0`](@ref) on a box, whose scalar problems are solved exactly by
 comparing the minimizers of their convex pieces with the ends of the interval;
-the result is separable but not convex. The caller must ensure that the box
-intersects the domain of `f`. An empty intersection has no proximal operator;
-`Constrained` does not check this precondition.
+the result is separable but not convex.
+
+The set must meet the domain of `f`. `Constrained` does not check this for a
+box: when the box misses the domain, the proximal operator returns the
+projection onto the box of the proximal point of `f`, a point outside the
+domain. The value there is `Inf`, but `value_and_prox!` returns zero when `f`
+is an indicator function. On a hyperplane or a halfspace, the proximal
+operator throws an `ArgumentError` when the search for the multiplier finds no
+point of the set.
 """
 function Constrained end
 

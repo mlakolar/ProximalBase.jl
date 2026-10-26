@@ -228,11 +228,16 @@ norms (the indicators of the dual balls), the balls (their support functions),
 the box, the nonnegative orthant, [`SqrNormL2`](@ref), [`LinearFunction`](@ref),
 [`ZeroFunction`](@ref), and the losses [`CheckLoss`](@ref), [`HingeLoss`](@ref)
 and [`EpsInsensitiveLoss`](@ref), and for translations and strictly positive
-rescalings of these functions. Even when its standalone value is unavailable,
-[`value_and_prox!`](@ref) obtains the value at its proximal point from Fenchel
-equality and the inner function's value. Supported zero rescalings simplify in
-[`Scaled`](@ref) while preserving the underlying domain. Each conjugate owns
-a working buffer; do not share it between concurrent calls.
+rescalings of these functions; for other functions, evaluating the conjugate
+throws an `ArgumentError`. [`value_and_prox!`](@ref) returns the value at the
+proximal point for every proximable `f`: where no closed form is known, it uses
+the Fenchel equality `f*(y) = ⟨p, y⟩ - f(p)`, with `p` the corresponding
+proximal point of `f`. That value is exact up to rounding relative to
+`|⟨p, y⟩|`, so a conjugate that is an indicator can return a small nonzero
+value instead of zero.
+Supported zero rescalings simplify in [`Scaled`](@ref) while preserving the
+underlying domain. Each conjugate owns a working buffer; do not share it
+between threads.
 """
 struct Conjugate{F<:AbstractFunction} <: AbstractFunction
   f::F

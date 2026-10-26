@@ -74,9 +74,12 @@ indicator is the dual norm scaled by the radius:
 
 [`Conjugate`](@ref) knows these values, and those of the other norms and balls,
 so `value_and_prox!` reports them. The proximal operator of any convex,
-proximable function's conjugate is available. Where its standalone value is
-not implemented, `value_and_prox!` still obtains its value at the proximal
-point from Fenchel equality and the inner function's value.
+proximable function's conjugate is available. Where the value has no closed
+form, `value_and_prox!` computes it at the proximal point from the Fenchel
+equality ``f^*(y) = \langle p, y\rangle - f(p)``, with ``p`` the corresponding
+proximal point of ``f``. This value is exact only up to rounding relative to
+``|\langle p, y\rangle|``: for a conjugate that is an indicator, it can be a
+small nonzero number rather than zero.
 
 ```@example calculus
 h = Conjugate(NormL2(1.0))                     # the indicator of the unit ℓ2 ball
@@ -160,9 +163,11 @@ of the search is one pass over the entries.
 
 A box enters through the scalar proximal operators, so ``f`` may itself be
 `Constrained(f, box)`; the simplex is the box ``x \ge 0`` with the hyperplane
-``\sum_i x_i = r``. The box must intersect the domain of ``f``. The caller
-is responsible for this precondition; the proximal operator is undefined when
-the intersection is empty.
+``\sum_i x_i = r``. The set must meet the domain of ``f``. `Constrained`
+does not check this for a box: when the box misses the domain, the result is
+the projection onto the box of the proximal point of ``f``, which lies outside
+the domain. On a hyperplane or a halfspace, the proximal operator throws an
+`ArgumentError` when the search for the multiplier finds no point of the set.
 
 | Call | Function |
 |:-----|:---------|

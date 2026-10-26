@@ -60,7 +60,9 @@ not give the constrained one. The exceptions are [`MCP`](@ref), [`SCAD`](@ref)
 and [`NormL0`](@ref) on a box, whose scalar problems are solved exactly by
 comparing the minimizers of their convex pieces with the ends of the interval;
 the result is separable but not convex. When the set misses the domain of `f`,
-the proximal operator throws an `ArgumentError`.
+the proximal operator throws an `ArgumentError` for the built-in scalar domains.
+For a custom function, the caller must ensure that the box intersects its
+domain; domain intervals are not inferred from arbitrary user code.
 """
 function Constrained end
 
@@ -131,10 +133,83 @@ _isindicator(::Type{<:LinearConstrained{F}}) where {F} = _isindicator(F)
 
 (c::BoxConstrained)(x::AbstractArray) = (T = float(eltype(x)); iszero(c.box(x)) ? convert(T, c.f(x)) : T(Inf))
 
+# A clamped scalar prox is valid only when it remains in the inner domain.
+# These intervals describe built-in scalar domains, not numerical value growth:
+# checking a large finite penalty value would mistake overflow for infeasibility.
+_entry_domain(::AbstractFunction, i) = (-Inf, Inf, false, false)
+_entry_domain(f::IndBox, i) = (_entry(f.l, i), _entry(f.u, i), false, false)
+_entry_domain(::Union{IndNonnegative, NormL1Nonneg, NegEntropy, KLDivergence}, i) = (0, Inf, false, false)
+_entry_domain(::NegLog, i) = (0, Inf, true, false)
+_entry_domain(f::IndPattern, i) = f.P[i] ? (-Inf, Inf, false, false) : (0, 0, false, false)
+_entry_domain(f::IndBanded, i) = _inband(f, i) ? (-Inf, Inf, false, false) : (0, 0, false, false)
+_entry_domain(f::Union{Scaled, Tilt}, i) = _entry_domain(f.f, i)
+function _entry_domain(f::Translate, i)
+  l, u, ol, ou = _entry_domain(f.f, i)
+  l + f.b[i], u + f.b[i], ol, ou
+end
+_entry_domain(f::Conjugate, i) = _entry_conjugate_domain(f.f, i)
+function _entry_domain(f::BoxConstrained, i)
+  l, u, ol, ou = _entry_domain(f.f, i)
+  bl, bu = _entry(f.box.l, i), _entry(f.box.u, i)
+  max(l, bl), min(u, bu), ol && l >= bl, ou && u <= bu
+end
+
+# The domain of a conjugate is a slope interval. An unknown custom function
+# supplies its own proper-intersection precondition; no slope limits are inferred.
+_entry_conjugate_domain(::AbstractFunction, i) = (-Inf, Inf, false, false)
+_entry_conjugate_domain(f::NormL1, i) = (c = f.λ0 * _entry(f.w, i); (-c, c, false, false))
+_entry_conjugate_domain(f::NormL1Nonneg, i) = (-Inf, f.λ0 * _entry(f.w, i), false, false)
+_entry_conjugate_domain(f::ElasticNet, i) = f.λ2 > 0 ? (-Inf, Inf, false, false) :
+  (c = f.λ1 * _entry(f.w, i); (-c, c, false, false))
+_entry_conjugate_domain(::ZeroFunction, i) = (0, 0, false, false)
+_entry_conjugate_domain(f::LinearFunction, i) = (f.c[i], f.c[i], false, false)
+_entry_conjugate_domain(f::SqrNormL2, i) = iszero(f.λ) ? (0, 0, false, false) : (-Inf, Inf, false, false)
+_entry_conjugate_domain(::IndNonnegative, i) = (-Inf, 0, false, false)
+_entry_conjugate_domain(::NegLog, i) = (-Inf, 0, false, true)
+_entry_conjugate_domain(f::IndPattern, i) = f.P[i] ? (0, 0, false, false) : (-Inf, Inf, false, false)
+_entry_conjugate_domain(f::IndBanded, i) = _inband(f, i) ? (0, 0, false, false) : (-Inf, Inf, false, false)
+_entry_conjugate_domain(f::IndBox, i) =
+  (isfinite(_entry(f.l, i)) ? -Inf : 0, isfinite(_entry(f.u, i)) ? Inf : 0, false, false)
+_entry_conjugate_domain(f::CheckLoss, i) =
+  (_entry(f.w, i) * (f.τ - 1), _entry(f.w, i) * f.τ, false, false)
+_entry_conjugate_domain(f::EpsInsensitiveLoss, i) = (w = _entry(f.w, i); (-w, w, false, false))
+function _entry_conjugate_domain(f::HingeLoss, i)
+  a = -_entry(f.w, i) * _entry(f.y, i)
+  min(a, zero(a)), max(a, zero(a)), false, false
+end
+_entry_conjugate_domain(f::Berhu, i) = iszero(f.λ * _entry(f.w, i)) ? (0, 0, false, false) : (-Inf, Inf, false, false)
+_entry_conjugate_domain(f::Conjugate, i) = _entry_domain(f.f, i)
+_entry_conjugate_domain(f::Translate, i) = _entry_conjugate_domain(f.f, i)
+function _entry_conjugate_domain(f::Scaled, i)
+  l, u, ol, ou = _entry_conjugate_domain(f.f, i)
+  f.α * l, f.α * u, ol, ou
+end
+function _entry_conjugate_domain(f::Tilt, i)
+  l, u, ol, ou = _entry_conjugate_domain(f.f, i)
+  l + f.c[i], u + f.c[i], ol, ou
+end
+function _entry_conjugate_domain(f::BoxConstrained, i)
+  l, u, ol, ou = _entry_conjugate_domain(f.f, i)
+  # A finite primal endpoint removes the corresponding asymptotic slope limit.
+  isfinite(_entry(f.box.l, i)) && ((l, ol) = (-Inf, false))
+  isfinite(_entry(f.box.u, i)) && ((u, ou) = (Inf, false))
+  l, u, ol, ou
+end
+
+@inline function _inside_entry_domain(f, v, i)
+  l, u, ol, ou = _entry_domain(f, i)
+  (ol ? v > l : v >= l) && (ou ? v < u : v <= u)
+end
+@noinline _empty_box_domain() = throw(ArgumentError("the box misses the scalar function's domain"))
+
 # the scalar problem is convex, so its minimizer on an interval is the nearest
 # point to its unconstrained minimizer
-Base.@propagate_inbounds prox_entry(c::BoxConstrained, v::Real, i::Integer, γ::Real) =
-  prox_entry(c.box, prox_entry(c.f, v, i, γ), i, γ)
+Base.@propagate_inbounds function prox_entry(c::BoxConstrained, v::Real, i::Integer, γ::Real)
+  p = prox_entry(c.f, v, i, γ)
+  z = prox_entry(c.box, p, i, γ)
+  z == p || _inside_entry_domain(c.f, z, i) || _empty_box_domain()
+  z
+end
 
 # γ is a scalar step or an array of steps, one per entry
 prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = _prox_sep!(y, c, x, γ)
@@ -662,6 +737,9 @@ function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union
   return l * total + (u - l) * _top_sum!(view(v, 1:n), κ)
 end
 
+_has_conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}}) =
+  isfinite(c.f.l) && isfinite(c.f.u)
+
 # the sum of the ⌊κ⌋ largest entries of v and the fraction κ - ⌊κ⌋ of the next
 # one, for 0 ≤ κ ≤ length(v); reorders v
 function _top_sum!(v::AbstractVector{T}, κ::T) where {T}
@@ -741,5 +819,7 @@ Base.@propagate_inbounds function _prox_entry_slope(c::BoxConstrained, v::T, i::
   S = float(T)
   z, dz = _prox_entry_slope(c.f, v, i, γ)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
-  clamp(convert(S, z), l, u), _slope((z > l) & (z < u), convert(S, dz))
+  p = clamp(convert(S, z), l, u)
+  p == z || _inside_entry_domain(c.f, p, i) || _empty_box_domain()
+  p, _slope((z > l) & (z < u), convert(S, dz))
 end

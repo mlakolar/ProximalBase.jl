@@ -160,6 +160,10 @@ extras, including extra-only master dependencies on Julia 1.10, while keeping
 this package's `Project.toml` unchanged. See [CONTRIBUTING.md](CONTRIBUTING.md)
 for the naming policy and development setup.
 
+The [compatibility guide](https://mlakolar.github.io/ProximalBase.jl/dev/migration/)
+lists the 0.4 names retained through 0.5, their replacements, and the planned
+0.6 removal policy.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

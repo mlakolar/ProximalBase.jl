@@ -140,6 +140,12 @@ end
     @test ProximalBase._sumabs2_diff(A, B) ≈ sum(abs2, A - B)
     @test ProximalBase._sumabs2_diff(A, B) isa typeof(real(zero(T)))
   end
+  for T in (Float32, Float64), scale in (floatmin(T), floatmax(T) / T(16))
+    a, b = scale .* T[3, 4], zeros(T, 2)
+    @test norm_diff(a, b) / scale ≈ T(5)
+    @test norm_diff(complex.(a, a), complex.(b, b)) / scale ≈ sqrt(T(50))
+    @test ProximalBase.Testing.allocations(norm_diff, a, b) == 0
+  end
 end
 
 @testset "buffers" begin

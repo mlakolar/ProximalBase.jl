@@ -26,13 +26,18 @@ NormL2(λ::Real = 1) = NormL2{typeof(λ)}(λ)
 isproximable(::Type{<:NormL2}) = true
 isconvex(::Type{<:NormL2}) = true
 
-(f::NormL2)(x::AbstractArray) = convert(float(eltype(x)), f.λ) * sqrt(_sumabs2(x))
+(f::NormL2)(x::AbstractArray) =
+  (T = float(eltype(x)); iszero(f.λ) ? zero(T) : convert(T, f.λ) * _norm2(x))
 
 function value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real)
   _checksize(y, x)
   T = float(eltype(y))
+  if iszero(f.λ)
+    y === x || copyto!(y, x)
+    return zero(T)
+  end
   c = convert(T, γ) * convert(T, f.λ)
-  nx = sqrt(convert(T, _sumabs2(x)))
+  nx = convert(T, _norm2(x))
   if nx > c
     t = 1 - c / nx
     y .= t .* x
@@ -117,8 +122,8 @@ gives the multi-task group lasso with a matrix response in
 On an [`AtomIterate`](@ref), whose coordinates are groups,
 [`prox_coordinate!`](@ref) updates a group and [`kkt_violation`](@ref) measures
 one. `AtomIterate(x, f)` builds an iterate that shares the groups of `f`, which
-must then partition `1:length(x)` (an index in no group goes in a group of its
-own with weight 0); with shared groups, the value and the proximal operator
+must then partition `1:length(x)`; include otherwise unpenalized entries in
+additional groups with weight 0. With shared groups, the value and the proximal operator
 touch only the active groups. On ordinary arrays, active-set solvers can use
 [`restrict`](@ref) and [`kkt_violation`](@ref).
 
@@ -196,6 +201,17 @@ _rebuild(f::GroupNormLinf, λ0, groups, w) = GroupNormLinf(λ0, groups, w)
   end
   s
 end
+# As for whole arrays, only exceptional magnitudes need the scaled path.
+@inline function _group_norm2(x::AbstractArray, G)
+  s = _sumsq(x, G)
+  isfinite(s) && s >= floatmin(typeof(s)) && return sqrt(s)
+  n = zero(s)
+  @inbounds for i in G
+    n = hypot(n, x[i])
+  end
+  n
+end
+
 @inline function _sumabs(x::AbstractArray, G)
   s = zero(float(eltype(x)))
   @inbounds @simd for i in G
@@ -216,9 +232,9 @@ function _allzero(x::AbstractArray, G)
   end
   true
 end
-_group_norm(::GroupNormL2, x, G) = sqrt(_sumsq(x, G))
+_group_norm(::GroupNormL2, x, G) = _group_norm2(x, G)
 _group_norm(::GroupNormLinf, x, G) = _maxabs(x, G)
-_dual_norm(::GroupNormL2, g, G) = sqrt(_sumsq(g, G))
+_dual_norm(::GroupNormL2, g, G) = _group_norm2(g, G)
 _dual_norm(::GroupNormLinf, g, G) = _sumabs(g, G)
 
 # the group of index i, 0 if i is in no group
@@ -230,7 +246,7 @@ _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_
 
 # y[G] ← prox_{c‖⋅‖₂}(x[G]), which may be in place; returns the new norm of the group
 @inline function _shrink_group!(::GroupNormL2, y::AbstractArray{T}, x::AbstractArray, G, c) where {T}
-  nx = sqrt(_sumsq(x, G))
+  nx = _group_norm2(x, G)
   if nx > c
     t = one(nx) - c / nx
     @inbounds for i in G
@@ -266,6 +282,7 @@ end
 function (f::HomogeneousGroupNorm)(x::AbstractArray)
   _checkgroups(f, x)
   T = float(eltype(x))
+  iszero(f.λ0) && return zero(T)
   v = zero(T)
   for k in eachindex(f.groups)
     v += convert(T, f.w[k]) * _group_norm(f, x, f.groups[k])
@@ -297,6 +314,10 @@ function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::A
   _checkgroups(f, x)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
+  if iszero(f.λ0)
+    y === x || copyto!(y, x)
+    return zero(T)
+  end
   _copy_ungrouped!(y, f, x)
   v = zero(T)
   for k in eachindex(f.groups)
@@ -355,6 +376,7 @@ end
 function (f::HomogeneousGroupNorm)(x::AtomIterate)
   x.groups === f.groups || return invoke(f, Tuple{AbstractArray}, x)
   T = float(eltype(x))
+  iszero(f.λ0) && return zero(T)
   v = zero(T)
   for a in 1:x.nactive
     k = x.active[a]
@@ -371,6 +393,7 @@ function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::Ato
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
   copyto!(y, x)
+  iszero(f.λ0) && return zero(T)
   v = zero(T)
   for a in 1:y.nactive
     k = y.active[a]
@@ -433,7 +456,9 @@ NormL1Fused(λ1::Real, λ2::Real) = (p = promote(λ1, λ2); NormL1Fused{typeof(p
 isproximable(::Type{<:NormL1Fused}) = true
 isconvex(::Type{<:NormL1Fused}) = true
 
-(f::NormL1Fused)(xy::Tuple{Real, Real}) = f.λ1 * (abs(xy[1]) + abs(xy[2])) + f.λ2 * abs(xy[1] - xy[2])
+(f::NormL1Fused)(xy::Tuple{Real, Real}) =
+  (iszero(f.λ1) ? zero(float(xy[1])) : f.λ1 * (abs(xy[1]) + abs(xy[2]))) +
+  (iszero(f.λ2) ? zero(float(xy[1])) : f.λ2 * abs(xy[1] - xy[2]))
 
 function (f::NormL1Fused)(x::Tuple{AbstractArray, AbstractArray})
   x1, x2 = x
@@ -509,6 +534,7 @@ end
 function (f::NormL1Fused)(x::AbstractVector)
   Base.require_one_based_indexing(x)
   T = float(eltype(x))
+  iszero(f.λ1) && iszero(f.λ2) && return zero(T)
   n = length(x)
   n == 2 && return @inbounds f((x[1], x[2]))
   p, a = _sortperm_fused!(f, x, T)
@@ -517,7 +543,8 @@ function (f::NormL1Fused)(x::AbstractVector)
     v1 += abs(a[p[k]])
     v2 += (2k - n - 1) * a[p[k]]
   end
-  convert(T, f.λ1) * v1 + convert(T, f.λ2) * v2
+  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1) +
+  (iszero(f.λ2) ? zero(T) : convert(T, f.λ2) * v2)
 end
 
 value_and_prox!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real) = _prox_fused!(y, f, x, γ, Val(true))
@@ -530,6 +557,10 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
   T = float(eltype(y))
   λ1, λ2 = convert(T, f.λ1), convert(T, f.λ2)
   n = length(x)
+  if iszero(λ1) && iszero(λ2)
+    y === x || copyto!(y, x)
+    return zero(T)
+  end
   if n == 2
     @inbounds y[1], y[2] = _prox_l1fused(convert(T, x[1]), convert(T, x[2]), λ1, λ2, convert(T, γ))
     return V ? @inbounds(f((y[1], y[2]))) : zero(T)
@@ -552,5 +583,5 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     v1 += abs(wk)
     v2 += (2k - n - 1) * wk
   end
-  V ? λ1 * v1 + λ2 * v2 : zero(T)
+  V ? (iszero(λ1) ? zero(T) : λ1 * v1) + (iszero(λ2) ? zero(T) : λ2 * v2) : zero(T)
 end

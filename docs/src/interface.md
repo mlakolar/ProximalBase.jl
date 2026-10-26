@@ -182,9 +182,13 @@ its data; its factorization type can change with the rank of `A`.
   should call it instead of `prox!` followed by `f(y)`.
 - **Steps and types.** Steps may be any positive real. Computations follow the
   element type of the argument, so `Float32` input gives `Float32` results.
-- **No allocations.** The hot calls (`f(x)`, `prox!`, `value_and_prox!`,
-  `gradient!`, `value_and_gradient!`, `prox_entry`, `prox_coordinate!`)
-  allocate nothing once a function has seen its input. The spectral functions
+- **Allocation scope.** The tested built-in CPU hot paths (`f(x)`, `prox!`,
+  `value_and_prox!`, `gradient!`, `value_and_gradient!`, `prox_entry`,
+  `prox_coordinate!`) reuse their buffers after warm-up at fixed input sizes
+  and types. Workspace creation, cache rebuilding, allocating convenience
+  functions and arbitrary user-defined functions are outside this guarantee.
+  GPU calls can allocate host and device reduction or launch state; their
+  allocation diagnostics are separate from the CPU assertions. The spectral functions
   and [`LogDetLoss`](@ref) own LAPACK workspaces sized for their input. A
   function that owns a workspace must not be shared between threads; give each
   thread a `deepcopy`.

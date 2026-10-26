@@ -11,9 +11,11 @@ julia --project=. examples/01_lasso_three_ways.jl
 or with ProximalBase installed in your environment. They need only ProximalBase
 and the standard library.
 
-Every script ends by checking its result, usually the optimality conditions of
-the problem, so a script that runs to the end has found a correct solution. The
-test suite runs all of them.
+Every script checks its result, using optimality conditions, feasibility,
+agreement between procedures, or properties of the seeded example. These are
+numerical checks for the displayed problem and tolerances. In particular, a
+nonconvex procedure's checks do not establish global optimality. The test suite
+runs all scripts.
 
 | Script | Problem | What it shows |
 |:-------|:--------|:--------------|

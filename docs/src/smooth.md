@@ -103,8 +103,12 @@ cost every iteration.
 
 where ``c_\ell = \sup \ell''`` is the curvature bound of the scalar loss and
 ``W = \operatorname{diag}(w)``. So ``L = c_\ell\|W^{1/2}X\|_2^2``, and
-[`lipschitz`](@ref) computes it by the Lanczos process without forming
-``X^\top W X``. One value and gradient cost one product with ``X``, one pass
+[`lipschitz`](@ref) computes the spectral norm for dense matrices. For sparse
+and other indexed matrices it uses the conservative bound
+``\lVert W^{1/2}X\rVert_1\lVert W^{1/2}X\rVert_\infty`` instead of forming
+``X^\top W X`` or densifying the design. [`opnorm2`](@ref) is a separate
+iterative estimate and needs backtracking or an independent bound when used
+to select a step. One value and gradient cost one product with ``X``, one pass
 over the observations and one product with ``X^\top``.
 
 | Scalar loss | ``\ell(\eta, y)`` | ``\ell'(\eta, y)`` | ``c_\ell`` | Constructor |
@@ -123,7 +127,8 @@ computed so that it neither overflows nor loses precision. The scalar losses
 expose `ProximalBase.deriv`, `deriv2` and `curvature`, for Newton and
 coordinate steps.
 
-The last two smooth the check loss ``\rho_\tau(u) = \max(\tau u, (\tau - 1)u)`` of
+`SmoothCheck` and `ConvolutionCheck` smooth the check loss
+``\rho_\tau(u) = \max(\tau u, (\tau - 1)u)`` of
 quantile regression, so that coordinate descent and proximal Newton fit it
 without a linear program. `SmoothCheck(τ, h)` is its Moreau envelope
 ``\min_s \rho_\tau(s) + (s - u)^2/(2h)``: an asymmetric Huber loss that is
@@ -184,7 +189,10 @@ q(z) = f(x) + \langle \nabla f(x), z - x\rangle
 + \tfrac12\langle z - x, \nabla^2 f(x)(z - x)\rangle \quad (\text{up to a constant}),
 ```
 
-as another function of ProximalBase. Minimizing ``q + g`` with any solver and
+as another function of ProximalBase. The GLM construction below floors very
+small observation curvatures, so its model is a regularized curvature model
+where that floor is active, while preserving the gradient at the model point.
+Minimizing ``q + g`` with any solver and
 penalty ``g`` is a proximal Newton step, and [`quadratic_model!`](@ref) moves
 the model to the next point in place.
 

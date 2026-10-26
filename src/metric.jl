@@ -49,12 +49,14 @@ value_and_prox!(y, s::Scaled, x, γ::AbstractArray) = s.α * value_and_prox!(y, 
 
 function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
   _checksize(y, x)
+  _checkparams(t, x)
   _checkparam(γ, x)
   y .= x .- γ .* t.c
   prox!(y, t.f, y, γ)
 end
 function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
   _checksize(y, x)
+  _checkparams(t, x)
   _checkparam(γ, x)
   y .= x .- γ .* t.c
   value_and_prox!(y, t.f, y, γ) + dot(t.c, y) + t.d
@@ -62,12 +64,14 @@ end
 
 function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
   _checksize(y, x)
+  _checksize(t.b, x)
   y .= x .- t.b
   prox!(y, t.f, y, γ)
   y .+= t.b
 end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
   _checksize(y, x)
+  _checksize(t.b, x)
   y .= x .- t.b
   v = value_and_prox!(y, t.f, y, γ)
   y .+= t.b
@@ -83,6 +87,21 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArr
   z .= x ./ γ
   prox!(z, c.f, z, _ReciprocalArray(γ))
   y .= x .- γ .* z
+end
+
+function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
+  if _has_conjugate_value(c.f)
+    prox!(y, c, x, γ)
+    return _conjugate_value(c.f, y)
+  end
+  _checksize(y, x)
+  _checkparam(γ, x)
+  T = float(eltype(y))
+  p = _array_buffer!(c.scratch, T, size(x))
+  p .= x ./ γ
+  fp = value_and_prox!(p, c.f, p, _ReciprocalArray(γ))
+  y .= x .- γ .* p
+  dot(p, y) - fp
 end
 
 ####################################
@@ -266,7 +285,7 @@ function coordinate_lipschitz!(L::AbstractArray, f::LeastSquaresLoss)
 end
 
 function coordinate_lipschitz(f::GLMLoss{L, T}, k::Integer) where {L, T}
-  checkbounds(f.X, 1, k)
+  checkbounds(axes(f.X, 2), k)
   c = curvature(f.loss)
   isinf(c) ? T(Inf) : convert(T, c) * _column_sumsq(f.X, k, f.weights)
 end

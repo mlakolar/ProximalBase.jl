@@ -52,6 +52,33 @@ function _wright_omega(u::T) where {T<:AbstractFloat}
 end
 _wright_omega(u::Real) = _wright_omega(float(u))
 
+# Solve z + μ(log(z) + c) = v for μ = γλ. Keeping log(μ)
+# separately handles a step product outside the floating-point range. When
+# omega is tiny, z = exp(v/μ-c) to working precision; do not underflow omega
+# before multiplying it by a large μ.
+@inline _entropy_prox(v::T, γ::T, λ::T, c::T) where {T<:AbstractFloat} =
+  _entropy_prox(v, γ, λ, c, zero(T))
+@inline function _entropy_prox(v::T, γ::T, λ::T, c::T, reference::T) where {T<:AbstractFloat}
+  μ = γ * λ
+  ordinary = isfinite(μ) && !iszero(μ)
+  logμ = ordinary ? log(μ) : log(γ) + log(λ)
+  ratio = ordinary ? v / μ : (v / γ) / λ
+  isinf(ratio) && isfinite(v) && return ratio > 0 ? v : zero(T)
+  u = ratio - c - logμ
+  if u < log(eps(T))
+    # For KL retain q directly when q*exp(v/μ) is in range. In particular,
+    # a huge step and tiny q should not lose digits through exp(log(q)).
+    if reference > 0
+      factor = exp(ratio)
+      z = reference * factor
+      isfinite(factor) && isfinite(z) && !iszero(z) && return z
+    end
+    return exp(ratio - c)
+  end
+  w = _wright_omega(u)
+  ordinary ? μ * w : exp(logμ + log(w))
+end
+
 ####################################
 #  negative entropy
 ####################################
@@ -86,8 +113,7 @@ end
 
 @inline function prox_entry(f::NegEntropy, v::T, ::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  μ = S(γ) * S(f.λ)
-  μ * _wright_omega(S(v) / μ - 1 - log(μ))
+  _entropy_prox(S(v), S(γ), S(f.λ), one(S))
 end
 
 restrict(f::NegEntropy, ::AbstractVector{<:Integer}) = f
@@ -102,7 +128,8 @@ restrict(f::NegEntropy, ::AbstractVector{<:Integer}) = f
 The Kullback–Leibler divergence `f(x) = λ Σᵢ (xᵢ log(xᵢ/qᵢ) - xᵢ + qᵢ)` from a
 positive reference `q` (a scalar, or an array of the size of `x`) on `x ≥ 0`, and
 `Inf` for a negative entry, for `λ > 0`. Separable and convex, and zero at
-`x = q`. It is the Poisson deviance of `q` as a function of the mean `x`. With
+`x = q`. It is half the Poisson deviance of observations `x` with fitted mean `q`,
+viewed as a function of `x`. With
 `μ = γλ`, its proximal operator is
 
     μ ω(v/μ + log(qᵢ/μ)),
@@ -127,13 +154,18 @@ _checkparams(f::KLDivergence, x) = (_checkparam(f.q, x); true)
 Base.@propagate_inbounds function value_entry(f::KLDivergence, v::T, i::Integer) where {T<:Real}
   S = float(T)
   t, q = S(v), S(_entry(f.q, i))
-  t > 0 ? S(f.λ) * (t * log(t / q) - t + q) : (iszero(t) ? S(f.λ) * q : S(Inf))
+  if t > 0
+    ratio = t / q
+    logratio = isfinite(ratio) && !iszero(ratio) ? log(ratio) : log(t) - log(q)
+    return S(f.λ) * (t * logratio - t + q)
+  end
+  iszero(t) ? S(f.λ) * q : S(Inf)
 end
 
 Base.@propagate_inbounds function prox_entry(f::KLDivergence, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  μ = S(γ) * S(f.λ)
-  μ * _wright_omega(S(v) / μ + log(S(_entry(f.q, i)) / μ))
+  q = S(_entry(f.q, i))
+  _entropy_prox(S(v), S(γ), S(f.λ), -log(q), q)
 end
 
 restrict(f::KLDivergence, S::AbstractVector{<:Integer}) = KLDivergence(_restrict_entries(f.q, S); λ = f.λ)

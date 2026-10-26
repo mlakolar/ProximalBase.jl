@@ -433,4 +433,34 @@ end
   @test !ProximalBase._has_prox_slope(typeof(NoSlope(NormL1(1.))))
 end
 
+@testset "boxes cannot return points outside inner domains" begin
+  for T in (Float32, Float64)
+    fs = (IndBox(zero(T), one(T)), NegLog(one(T)), NegEntropy(one(T)),
+          KLDivergence(one(T)), Conjugate(NormL1(one(T))),
+          Translate(IndNonnegative(), T[1]))
+    for (j, f) in enumerate(fs)
+      bounds = j in (1, 5) ? IndBox(T(2), T(3)) : IndBox(T(-2), T(-1))
+      c = Constrained(f, bounds)
+      @test_throws ArgumentError prox(c, T[0])
+      @test_throws ArgumentError value_and_prox!(zeros(T, 1), c, T[0], one(T))
+      @test_throws ArgumentError prox_entry(c, zero(T), 1, one(T))
+      @test_throws ArgumentError prox_coordinate!(SparseIterate(T[0]), c, 1, one(T))
+    end
+    # Domain checks propagate through wrappers and dual slope bounds.
+    for f in (Scaled(NegLog(one(T)), T(2)), Tilt(NegLog(one(T)), T[1]),
+              Regularize(NegLog(one(T)), one(T)),
+              Conjugate(Conjugate(IndNonnegative())),
+              Conjugate(Constrained(NormL1(one(T)), IndNonnegative())))
+      c = Constrained(f, f isa Conjugate && f.f isa ProximalBase.BoxConstrained ?
+                          IndBox(T(2), T(3)) : IndBox(T(-2), T(-1)))
+      @test_throws ArgumentError prox(c, T[0])
+    end
+    # Zero belongs to entropy's closed domain, but not the log barrier's domain.
+    @test prox(Constrained(NegEntropy(one(T)), IndBox(zero(T), zero(T))), T[1]) == T[0]
+    @test_throws ArgumentError prox(Constrained(NegLog(one(T)), IndBox(zero(T), zero(T))), T[1])
+    c = Constrained(NormL1(one(T)), IndBox(T(-1), T(1)))
+    @test allocs(prox!, zeros(T, 3), c, T[3, -2, 0], one(T)) == 0
+  end
+end
+
 end

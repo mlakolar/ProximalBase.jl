@@ -131,8 +131,28 @@ function _sumabs2(x::SymmetricSparseIterate{T}) where {T}
 end
 _sumabs2(x::AtomIterate) = sum(abs2, x.storage)
 
+# Keep the vectorized sum-of-squares path for ordinary magnitudes; use a
+# scaled norm when squaring overflows or loses the subnormal entries.
+function _norm2(x::AbstractArray)
+  eltype(x) <: AbstractFloat || return _norm2_scaled(x)
+  s = _sumabs2(x)
+  isfinite(s) && s >= floatmin(typeof(s)) ? sqrt(s) : _norm2_scaled(x)
+end
+_norm2_scaled(x::AbstractArray) = norm(x)
+_norm2_scaled(x::AtomIterate) = norm(x.storage)
+function _norm2_scaled(x::SymmetricSparseIterate{T}) where {T}
+  n = zero(float(T))
+  @inbounds for k in 1:x.nnz
+    r, c = tril_cartesian(x.p, x.nzval2ind[k])
+    n = hypot(n, x.nzval[k])
+    r == c || (n = hypot(n, x.nzval[k]))
+  end
+  n
+end
+
 function (f::SqrNormL2)(x::AbstractArray)
   T = float(eltype(x))
+  iszero(f.λ) && return zero(T)
   s = f.y === nothing ? _sumabs2(x) : _sumabs2_diff(x, f.y)
   convert(T, f.λ) * s / 2
 end
@@ -152,12 +172,41 @@ end
 function prox!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real)
   _checksize(z, x)
   T = float(eltype(z))
-  t = convert(T, γ) * convert(T, f.λ)
-  f.y === nothing ? (z .= x ./ (1 + t)) : (z .= (x .+ t .* f.y) ./ (1 + t))
+  a, b = _ridge_weights(T(γ), T(f.λ))
+  f.y === nothing ? (z .= a .* x) : (z .= _ridge_blend.(x, f.y, a, b))
 end
 
-prox_entry(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real) = v / (1 + γ * f.λ)
-Base.@propagate_inbounds prox_entry(f::SqrNormL2, v::Real, i::Integer, γ::Real) = (v + γ * f.λ * f.y[i]) / (1 + γ * f.λ)
+# The convex weights 1/(1+γλ), γλ/(1+γλ), without overflowing γλ or
+# the numerator x + γλy of a centered proximal operator.
+@inline function _ridge_weights(γ::T, λ::T) where {T}
+  t = γ * λ
+  if t <= one(T)
+    d = one(T) + t
+    return inv(d), t / d
+  end
+  ρ = inv(γ) / λ
+  d = one(T) + ρ
+  ρ / d, inv(d)
+end
+# Interpolate same-sign endpoints from the endpoint with larger weight,
+# so rounding in two weighted products cannot overflow near floatmax.
+@inline function _ridge_blend(x, y, a::T, b::T) where {T}
+  x, y = T(x), T(y)
+  if signbit(x) == signbit(y)
+    return b <= a ? muladd(b, y - x, x) : muladd(a, x - y, y)
+  end
+  a * x + b * y
+end
+function prox_entry(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real)
+  T = typeof(float(v))
+  a, _ = _ridge_weights(T(γ), T(f.λ))
+  a * v
+end
+Base.@propagate_inbounds function prox_entry(f::SqrNormL2, v::Real, i::Integer, γ::Real)
+  T = typeof(float(v))
+  a, b = _ridge_weights(T(γ), T(f.λ))
+  _ridge_blend(T(v), T(f.y[i]), a, b)
+end
 _checkparams(f::SqrNormL2, x) = _checkparam(f.y, x)
 
 kkt_violation(::SqrNormL2{<:Real, Nothing}, g::AbstractArray, i::Integer) = abs(g[i])

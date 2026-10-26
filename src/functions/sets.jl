@@ -303,13 +303,13 @@ isconvex(::Type{<:IndBallL2}) = true
 
 function (f::IndBallL2)(x::AbstractArray)
   T = float(eltype(x))
-  sqrt(_sumabs2(x)) <= f.r + _tol(T) * max(one(T), f.r) ? zero(T) : T(Inf)
+  _norm2(x) <= f.r + _tol(T) * max(one(T), f.r) ? zero(T) : T(Inf)
 end
 
 function prox!(y::AbstractArray, f::IndBallL2, x::AbstractArray, ::Real)
   _checksize(y, x)
   T = float(eltype(y))
-  nx = sqrt(convert(T, _sumabs2(x)))
+  nx = convert(T, _norm2(x))
   r = convert(T, f.r)
   if nx <= r
     y === x || copyto!(y, x)
@@ -345,14 +345,14 @@ _isindicator(::Type{<:IndSphereL2}) = true
 function (f::IndSphereL2)(x::AbstractArray)
   T = float(eltype(x))
   r = convert(T, f.r)
-  abs(sqrt(convert(T, _sumabs2(x))) - r) <= _tol(T) * max(one(T), r) ? zero(T) : T(Inf)
+  abs(convert(T, _norm2(x)) - r) <= _tol(T) * max(one(T), r) ? zero(T) : T(Inf)
 end
 
 function prox!(y::AbstractArray, f::IndSphereL2, x::AbstractArray, ::Real)
   _checksize(y, x)
   isempty(x) && throw(ArgumentError("the sphere has no point of size $(size(x))"))
   T = float(eltype(y))
-  nx = sqrt(convert(T, _sumabs2(x)))
+  nx = convert(T, _norm2(x))
   r = convert(T, f.r)
   if iszero(nx)
     fill!(y, zero(eltype(y)))
@@ -431,7 +431,9 @@ end
 The indicator of the hyperplane `{x : ⟨a, x⟩ = b}`, `a ≠ 0`. Its proximal
 operator is the projection `x - ((⟨a, x⟩ - b) / ‖a‖²) a`. A scalar `a` stands
 for an array of `a`s of the size of `x`: `IndHyperplane(1, 0)` is the set of
-arrays whose entries sum to zero, of any size.
+arrays whose entries sum to zero, of any size. Array normals are retained by
+reference; reconstruct the function after changing them, since their squared
+norm is cached at construction.
 """
 struct IndHyperplane{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
   a::A
@@ -452,7 +454,9 @@ IndHyperplane(a::Union{Real, AbstractArray}, b::Real) =
 
 The indicator of the halfspace `{x : ⟨a, x⟩ ≤ b}`, `a ≠ 0`. Its proximal operator
 is the projection, `x - (max(⟨a, x⟩ - b, 0) / ‖a‖²) a`. A scalar `a` stands for
-an array of `a`s of the size of `x`, as in [`IndHyperplane`](@ref).
+an array of `a`s of the size of `x`, as in [`IndHyperplane`](@ref). Reconstruct
+the function after changing a retained array normal, whose squared norm is
+cached at construction.
 """
 struct IndHalfspace{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
   a::A

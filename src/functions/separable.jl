@@ -227,7 +227,7 @@ restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entr
 # without weights, Base's vectorized sum (a sum with init takes a slow sequential path)
 function (f::NormL1{<:Real, Nothing})(x::DenseArray{<:AbstractFloat})
   T = float(eltype(x))
-  convert(T, f.λ0) * sum(abs, x)
+  iszero(f.λ0) ? zero(T) : convert(T, f.λ0) * sum(abs, x)
 end
 
 ####################################
@@ -320,7 +320,9 @@ restrict(f::ElasticNet, S::AbstractVector{<:Integer}) = ElasticNet(f.λ1, f.λ2,
 
 The indicator of the box `{x : l ≤ x ≤ u}`: `0` inside and `Inf` outside. The
 bounds are scalars or arrays of the size of `x`, and may be infinite. Its
-proximal operator is the projection `clamp.(x, l, u)`.
+proximal operator is the projection `clamp.(x, l, u)`. Array bounds are retained
+by reference; reconstruct the function after changing them, since zero
+preservation is cached at construction.
 """
 struct IndBox{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: SeparableFunction
   l::L

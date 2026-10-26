@@ -150,4 +150,25 @@ a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
   @test value_and_gradient!(similar(x32), f32, x32) isa Float32
 end
 
+@testset "envelope combined step range and stable interpolation" begin
+  for T in (Float32, Float64)
+    e = MoreauEnvelope(NormL1(one(T)), floatmax(T))
+    x, y = T[1], T[7]
+    for operation in (prox!, value_and_prox!)
+      @test_throws ArgumentError operation(y, e, x, floatmax(T))
+      @test y == T[7]
+      alias = copy(x)
+      @test_throws ArgumentError operation(alias, e, alias, floatmax(T))
+      @test alias == x
+    end
+    @test_throws ArgumentError prox_entry(e, one(T), 1, floatmax(T))
+    # The difference between finite opposite endpoints can overflow even when
+    # their equal-weight interpolation is exactly zero.
+    m = floatmax(T)
+    centered = MoreauEnvelope(IndBox(m, m), one(T))
+    @test prox(centered, T[-m], one(T)) == T[0]
+    @test prox_entry(centered, -m, 1, one(T)) == zero(T)
+  end
+end
+
 end

@@ -234,4 +234,30 @@ end
   end
 end
 
+@testset "entropy steps outside the product range" begin
+  for T in (Float32, Float64)
+    large = T == Float32 ? T(1e30) : T(1e200)
+    tiny = inv(large)
+    # The minimizer tends to the input for tiny positive steps; v/μ may overflow.
+    for f in (NegEntropy(one(T)), KLDivergence(one(T)))
+      @test prox_entry(f, large, 1, tiny) ≈ large rtol=8eps(T)
+    end
+    # The step product may overflow although its positive minimizer is finite.
+    @test prox_entry(NegEntropy(large), zero(T), 1, large) ≈ exp(-one(T)) rtol=16eps(T)
+    @test prox_entry(KLDivergence(T(2); λ=large), zero(T), 1, large) ≈ T(2) rtol=16eps(T)
+    # A tiny reference must survive an intermediate omega below the normal range.
+    f = KLDivergence(tiny; λ=large)
+    @test prox_entry(f, zero(T), 1, large) ≈ tiny rtol=32eps(T)
+    # The finite KL value must not overflow solely in t/q.
+    f = KLDivergence(tiny)
+    reference = setprecision(BigFloat, 256) do
+      x, q = BigFloat(large), BigFloat(tiny)
+      T(x * (log(x)-log(q)) - x + q)
+    end
+    @test value_entry(f, large, 1) ≈ reference rtol=16eps(T)
+    @test allocs(prox_entry, NegEntropy(large), zero(T), 1, large) == 0
+  end
+end
+
+
 end

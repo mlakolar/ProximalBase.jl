@@ -19,11 +19,14 @@ const _PARTIAL_NOTE = """
 With `partial = true` the proximal operator computes only the leading singular
 triplets or eigenpairs, by randomized subspace iteration started from those of
 the previous call, in O(p²k) instead of O(p³) for k of them. It accepts the
-result when the residuals of the pairs kept are below `eps^(3/4)` times the
-largest value, and otherwise, or when the pairs kept would be more than about a
-quarter of the dimension, falls back to the full decomposition. This pays
-when the rank of the result is small and the proximal operator is called on a
-sequence of nearby matrices, as in a solver; see [Partial decompositions](@ref)."""
+result when residuals of the retained pairs are below
+`max(eps^(3/4), 10eps*sqrt(p))` times the largest value and guard pairs lie
+below the selection boundary. These checks do not certify that a leading
+subspace was not missed. Otherwise, or when the pairs kept would be more than
+about a quarter of the dimension, it falls back to the full decomposition.
+This opt-in approximation pays when the result has low rank and calls use
+nearby matrices; use the default full decomposition when a missed leading
+subspace is unacceptable. See [Partial decompositions](@ref)."""
 
 # Y = U[:, 1:k] * Vt[1:k, :], through the workspace's matrix when Y is not strided
 function _mul_lowrank!(Y::AbstractMatrix, U::Matrix, Vt::Matrix, k::Integer, ws::SVDWorkspace)
@@ -93,6 +96,7 @@ isconvex(::Type{<:NuclearNorm}) = true
 
 function (f::NuclearNorm)(X::AbstractMatrix)
   T = float(eltype(X))
+  iszero(f.λ) && return zero(T)
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
   copyto!(ws.A, X)
@@ -103,6 +107,10 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real)
   _checksize(Y, X)
   T = float(eltype(Y))
+  if iszero(f.λ)
+    Y === X || copyto!(Y, X)
+    return zero(T)
+  end
   c = convert(T, γ) * convert(T, f.λ)
   if f.partial
     pv = _partial_nuclear!(Y, f, X, c)

@@ -74,7 +74,9 @@ indicator is the dual norm scaled by the radius:
 
 [`Conjugate`](@ref) knows these values, and those of the other norms and balls,
 so `value_and_prox!` reports them. The proximal operator of any convex,
-proximable function's conjugate is available, even where the value is not.
+proximable function's conjugate is available. Where its standalone value is
+not implemented, `value_and_prox!` still obtains its value at the proximal
+point from Fenchel equality and the inner function's value.
 
 ```@example calculus
 h = Conjugate(NormL2(1.0))                     # the indicator of the unit ℓ2 ball

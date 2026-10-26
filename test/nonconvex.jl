@@ -112,7 +112,7 @@ end
       @test hobj(pen, β, τ, γ) ≈ hobj(pen, 0., τ, γ) atol = 1e-12
     end
   end
-  # the closed forms of q = 1/2 and 2/3 against the root in BigFloat, from just
+  # the scalar roots of q = 1/2 and 2/3 against BigFloat, from just
   # above the threshold to far beyond it
   for q in (1/2, 2/3), μ in (0.01, 0.4, 3.), s in (1 + 1e-12, 1 + 1e-6, 1.01, 1.5, 3., 30.)
     τ = (2 - q) / (2 - 2q) * (2μ * (1 - q))^(1 / (2 - q))
@@ -385,5 +385,90 @@ end
     @test allocs(a_cd!, xc, f, 2, 0.7) == 0
   end
 end
+
+@testset "dimensionless lq roots" begin
+  for T in (Float32, Float64)
+    large = T == Float32 ? T(1e30) : T(1e200)
+    tiny = inv(large)
+    for q in (T(2)/3, T(0.8)), t in (large, one(T), tiny)
+      μ = t == tiny ? tiny : one(T)
+      f = NormLq(one(T), q)
+      z = prox_entry(f, t, 1, μ)
+      if z > 0
+        residual = setprecision(BigFloat, 256) do
+          b, m, p = BigFloat(z), BigFloat(μ), BigFloat(q)
+          abs((b + m*p*b^(p-1) - BigFloat(t)) / BigFloat(t))
+        end
+        @test residual <= 32eps(T)
+      else
+        @test iszero(z)
+      end
+      @test isfinite(z)
+      @test allocs(prox_entry, f, t, 1, μ) == 0
+    end
+    @test prox_entry(LogPenalty(zero(T), one(T)), large, 1, one(T)) == large
+  end
+end
+
+
+@testset "group sparsity selection at extreme magnitudes" begin
+  for T in (Float32, Float64)
+    large = T == Float32 ? T(1e30) : T(1e200)
+    for scale in (large, inv(large))
+      x = T[scale, 2scale]
+      f = IndBallGroupL0(1, [1:1, 2:2])
+      @test prox(f, x) == T[0, 2scale]
+      # Ranking within a group also uses magnitudes rather than their squares.
+      f = IndBallGroupL0(1, [1:2]; k=1)
+      @test prox(f, x) == T[0, 2scale]
+      y = similar(x)
+      @test allocs(prox!, y, f, x, one(T)) == 0
+    end
+  end
+end
+
+@testset "lq threshold beyond the step product range" begin
+  for T in (Float32, Float64), q in (T(1)/2, T(2)/3, T(0.2))
+    # The base 2μ(1-q) must not overflow solely because 2μ was formed first.
+    μ = T(0.75)*floatmax(T)
+    v = T == Float32 ? T(1e35) : T(1e250)
+    f = NormLq(one(T), q)
+    z = prox_entry(f, v, 1, μ)
+    reference = setprecision(BigFloat, 256) do
+      t, m, p = BigFloat(v), BigFloat(μ), BigFloat(q)
+      threshold = (2-p)/(2-2p)*(2m*(1-p))^(1/(2-p))
+      if t <= threshold
+        zero(T)
+      else
+        r = t
+        for _ in 1:200
+          d = (r+m*p*r^(p-1)-t)/(1+m*p*(p-1)*r^(p-2))
+          r -= d
+          abs(d) <= eps(BigFloat)*abs(r)*8 && break
+        end
+        T(r)
+      end
+    end
+    @test z ≈ reference rtol=128eps(T)
+    # Here γλ overflows, but its threshold is representable for q=2/3.
+    scale = T == Float32 ? T(1e20) : T(1e155)
+    v = setprecision(BigFloat, 256) do
+      p, m = BigFloat(q), BigFloat(scale)^2
+      T(2 * (2-p)/(2-2p) * (2m*(1-p))^(1/(2-p)))
+    end
+    f = NormLq(scale, q)
+    z = prox_entry(f, v, 1, scale)
+    @test isfinite(z) && z > 0
+    if z > 0
+      residual = setprecision(BigFloat, 256) do
+        b, p = BigFloat(z), BigFloat(q)
+        m = BigFloat(scale)^2
+        abs((b+m*p*b^(p-1)-BigFloat(v))/BigFloat(v))
+      end
+      @test residual <= 256eps(T)
+    end
+  end
+end
+
 
 end

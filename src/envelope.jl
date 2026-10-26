@@ -20,7 +20,11 @@ It is also proximable, by
 Huber function, that of the indicator function of a set `C` the squared
 distance to `C` divided by `2γ`. The value, the gradient and the proximal
 operator use a buffer that `e` owns; do not share `e` between threads, and pass
-a gradient output that is not `x`.
+a gradient output that is not `x`. The sum of the envelope parameter and
+the proximal step must be finite and positive in the output working precision;
+otherwise the proximal methods throw an `ArgumentError` before changing the
+output. Rescale the objective and step when their combined magnitude exceeds
+that precision's finite range.
 """
 struct MoreauEnvelope{F<:AbstractFunction, T<:Real} <: AbstractFunction
   f::F
@@ -70,6 +74,13 @@ function gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
   g .= (x .- g) ./ γ
 end
 
+@inline function _envelope_step(γ::T, t::T) where {T}
+  combined = γ + t
+  isfinite(combined) && combined > zero(T) ||
+    throw(ArgumentError("the envelope parameter plus proximal step must be finite and positive in working precision; rescale the objective and step"))
+  combined
+end
+
 # With P = prox_{(γ+t)f}(x), the result is y = x + t/(γ + t) (P - x); since
 # (y - P)/γ = (x - P)/(γ + t) ∈ ∂f(P), P is also prox_{γf}(y), so the value at y
 # is f(P) + ‖y - P‖²/(2γ), with ‖y - P‖ = γ/(γ + t) ‖x - P‖
@@ -77,27 +88,31 @@ function prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
   _checksize(y, x)
   T = float(eltype(y))
   γ, t = convert(T, e.γ), convert(T, t)
+  combined = _envelope_step(γ, t)
   P = _envelope_buffer(e, T, x)
-  prox!(P, e.f, x, γ + t)
-  c = t / (γ + t)
-  y .= x .+ c .* (P .- x)
+  prox!(P, e.f, x, combined)
+  y .= _ridge_blend.(x, P, γ / combined, t / combined)
 end
 
 function value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
   _checksize(y, x)
   T = float(eltype(y))
   γ, t = convert(T, e.γ), convert(T, t)
+  combined = _envelope_step(γ, t)
   P = _envelope_buffer(e, T, x)
-  v = value_and_prox!(P, e.f, x, γ + t)
+  v = value_and_prox!(P, e.f, x, combined)
   s = _sumabs2_diff(x, P)
-  c = t / (γ + t)
-  y .= x .+ c .* (P .- x)
-  v + (1 - c)^2 * s / (2γ)
+  a, b = γ / combined, t / combined
+  y .= _ridge_blend.(x, P, a, b)
+  v + a^2 * s / (2γ)
 end
 
 Base.@propagate_inbounds function prox_entry(e::MoreauEnvelope, v::Real, i::Integer, t::Real)
-  γ = e.γ
-  v + t / (γ + t) * (prox_entry(e.f, v, i, γ + t) - v)
+  T = typeof(float(v))
+  γ, step = convert(T, e.γ), convert(T, t)
+  combined = _envelope_step(γ, step)
+  p = prox_entry(e.f, v, i, combined)
+  _ridge_blend(v, p, γ / combined, step / combined)
 end
 _checkparams(e::MoreauEnvelope, x) = _checkparams(e.f, x)
 
@@ -172,3 +187,6 @@ function _prox_slope(φ::SeparableFunction, r::T, γ::T) where {T}
   s = (prox_entry(φ, r + h, 1, γ) - prox_entry(φ, r - h, 1, γ)) / (2h)
   clamp(convert(T, s), zero(T), one(T))
 end
+
+# The envelope is finite everywhere; its conjugate keeps the inner domain.
+_entry_conjugate_domain(e::MoreauEnvelope, i) = _entry_conjugate_domain(e.f, i)

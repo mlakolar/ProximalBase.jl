@@ -242,4 +242,56 @@ end
   @test g ≈ x
 end
 
+@testset "wrapper parameter lengths before mutation" begin
+  for T in (Float32, Float64)
+    x = T[1, 2, 3]
+    bad_tilt = Tilt(NormL1(one(T)), T[1])
+    bad_translate = Translate(NormL1(one(T)), T[1])
+    for f in (bad_tilt, bad_translate), step in (T(0.5), fill(T(0.5), 3))
+      y = copy(x)
+      @test_throws DimensionMismatch prox!(y, f, x, step)
+      @test y == x
+      @test_throws DimensionMismatch value_and_prox!(y, f, x, step)
+      @test y == x
+    end
+    for op in (gradient!, value_and_gradient!)
+      y = copy(x)
+      @test_throws DimensionMismatch op(y, Tilt(SqrNormL2(one(T)), T[1]), x)
+      @test y == x
+    end
+    # Equal entry counts cannot replace Translate's established shape contract.
+    shifted = Translate(NormL1(one(T)), reshape(T[1, 2, 3], 1, 3))
+    @test_throws DimensionMismatch prox(shifted, x)
+    @test_throws DimensionMismatch prox(shifted, x, ones(T, 3))
+  end
+end
+
+@testset "conjugate values at proximal points without a standalone value" begin
+  for T in (Float32, Float64)
+    x = T[3, 4]
+    f = GroupNormL2(one(T), [1:2], T[1])
+    c = Conjugate(f)
+    y = similar(x)
+    @test value_and_prox!(y, c, x, one(T)) ≈ zero(T) atol = 10eps(T)
+    @test y ≈ x ./ 5
+    @test_throws ArgumentError c(y) # The standalone value interface is unchanged.
+    for step in (T(0.5), T[0.3, 0.8])
+      # The double conjugate is f itself, although its standalone value is not implemented.
+      original = NormL1(T(0.7))
+      twice = Conjugate(Conjugate(original))
+      expected = prox(original, x, step)
+      for alias in (false, true)
+        input = copy(x)
+        output = alias ? input : similar(x)
+        value = value_and_prox!(output, twice, input, step)
+        @test output ≈ expected
+        @test value ≈ original(expected)
+      end
+    end
+    # Existing exact indicator values continue to use their closed form.
+    @test value_and_prox!(y, Conjugate(NormL1(one(T))), x, one(T)) == zero(T)
+    @test allocs(value_and_prox!, y, c, x, one(T)) == 0
+  end
+end
+
 end

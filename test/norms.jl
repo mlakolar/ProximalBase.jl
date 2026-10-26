@@ -280,4 +280,42 @@ end
   end
 end
 
+@testset "Euclidean penalties preserve extreme directions" begin
+  for T in (Float32, Float64)
+    large = T == Float32 ? T(1e30) : T(1e200)
+    for scale in (large, inv(large))
+      x = T[0, scale]
+      @test NormL2(one(T))(x) ≈ scale rtol=8eps(T)
+      @test prox(NormL2(scale/2), x) ≈ T[0, scale/2] rtol=8eps(T)
+      g = GroupNormL2(scale/2, [1:2], T[1])
+      @test prox(g, x) ≈ T[0, scale/2] rtol=8eps(T)
+      a = AtomIterate(x, g)
+      prox_coordinate!(a, g, 1, one(T))
+      @test Vector(a) ≈ T[0, scale/2] rtol=8eps(T)
+    end
+  end
+end
+
+
+@testset "zero norm levels before overflowing reductions" begin
+  for T in (Float32, Float64)
+    x = T[floatmax(T), -floatmax(T)]
+    for f in (NormL2(zero(T)), NormL1(zero(T)), NormL1Fused(zero(T),zero(T)),
+              TotalVariation1D(zero(T)), FusedLasso(zero(T),zero(T)),
+              SqrNormL2(zero(T)), GroupNormL2(zero(T), [1:2], T[1]))
+      @test f(x) == zero(T)
+      y = similar(x)
+      @test value_and_prox!(y, f, x, one(T)) == zero(T)
+      @test y == x
+    end
+    f = NuclearNorm(zero(T))
+    X = reshape(copy(x), 2, 1)
+    Y = similar(X)
+    @test f(X) == zero(T)
+    @test value_and_prox!(Y, f, X, one(T)) == zero(T)
+    @test Y == X
+  end
+end
+
+
 end

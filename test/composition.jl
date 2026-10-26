@@ -243,4 +243,42 @@ a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
   @test allocs(a_cd!, AtomIterate(x, gn), Regularize(gn, 0.5), 2, 0.4) == 0
 end
 
+@testset "regularized group validation precedes mutation" begin
+  f = GroupNormL2(0.5, [1:2, 3:4])
+  for r in (Regularize(f, 1.0, [1.0]),
+            Regularize(GroupNormL2(0.5, [1:1, 2:4]), 1.0))
+    x = AtomIterate([1.0, 2.0, 3.0, 4.0], f)
+    before = Vector(x)
+    @test_throws DimensionMismatch prox_coordinate!(x, r, 1, 0.5)
+    @test Vector(x) == before
+  end
+  x = AtomIterate([1.0, 2.0, 3.0, 4.0], f)
+  before = Vector(x)
+  @test_throws BoundsError prox_coordinate!(x, Regularize(f, 1.0), 0, 0.5)
+  @test_throws BoundsError prox_coordinate!(x, NormL1(), 3, 0.5)
+  @test Vector(x) == before
+end
+
+@testset "finite ridge parameters with an overflowing product" begin
+  for T in (Float32, Float64)
+    r = Regularize(NormL1(one(T)), floatmax(T), ones(T, 2))
+    x = zeros(T, 2)
+    @test prox(r, x, T(2)) == ones(T, 2)
+    @test prox_entry(r, zero(T), 1, T(2)) == one(T)
+    y = copy(x)
+    @test prox!(y, r, y, T(2)) == ones(T, 2)
+    f = GroupNormL2(one(T), [1:2], T[1])
+    rg = Regularize(f, floatmax(T), ones(T, 2))
+    a = AtomIterate(x, f)
+    @test prox_coordinate!(a, rg, 1, T(2)) == ones(T, 2)
+    @test ProximalBase._regularize_step(T(2), floatmax(T)) > zero(T)
+    # Same-sign endpoints at floatmax stay finite even when weights round up.
+    huge = T[floatmax(T)]
+    centered = Regularize(ZeroFunction(), T(0.6), huge)
+    @test prox(centered, huge, one(T)) == huge
+    @test prox_entry(centered, huge[1], 1, one(T)) == huge[1]
+
+  end
+end
+
 end

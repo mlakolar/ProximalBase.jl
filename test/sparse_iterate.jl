@@ -294,6 +294,17 @@ Random.seed!(1)
         @test dot(view(Matrix(Σx), :, 4), X, view(Matrix(Σy), :, 2)) ≈ (Σx * Matrix(X) * Σy)[4, 2]
     end
 
+    @testset "sesquilinear matrix products" begin
+        for T in (ComplexF32, ComplexF64)
+            a, b = T[1 + im, 2 - im], T[1, 2 + im]
+            M = T[1 2; 0 3]
+            X = SparseIterate(M)
+            @test dot(a, X, b) ≈ dot(a, M, b)
+            # A complex left vector must also be conjugated for real storage.
+            @test dot(a, SparseIterate(real.(M)), b) ≈ dot(a, real.(M), b)
+        end
+    end
+
 end
 
 @testset "sparseSymmetricIterate" begin
@@ -435,6 +446,11 @@ end
       y = SymmetricSparseIterate(D)
       @test Matrix(y) == Matrix(Symmetric(D, :L))
       @test nnz(y) == 10
+      @test size(SymmetricSparseIterate(0)) == (0, 0)
+      for p in (-1, -2)
+        @test_throws ArgumentError SymmetricSparseIterate(p)
+        @test_throws ArgumentError SymmetricSparseIterate(Float32, p)
+      end
     end
 
     @testset "broadcasting and copyto!" begin
@@ -450,6 +466,22 @@ end
       # copyto! and broadcasting from a matrix read its lower triangle
       E = randn(5, 5)
       @test Matrix(copyto!(t, E)) == Matrix(Symmetric(E, :L))
+      for source in (view(E, :, :), transpose(E), sparse(E), UpperTriangular(E))
+        @test copyto!(t, source) === t
+        @test Matrix(t) == Matrix(Symmetric(Matrix(source), :L))
+      end
+      for T in (Float64, ComplexF64)
+        source = SparseArrays.CHOLMOD.Dense(T.(E))
+        dest = SymmetricSparseIterate(T, 5)
+        @test copyto!(dest, source) === dest
+        @test Matrix(dest) == Matrix(Symmetric(T.(E), :L))
+        # The differently typed destination takes CHOLMOD's untyped
+        # intersection rather than its element-type-matched method.
+        mixed = SymmetricSparseIterate(ComplexF64, 5)
+        @test copyto!(mixed, source) === mixed
+        @test Matrix(mixed) == Matrix(Symmetric(ComplexF64.(E), :L))
+      end
+      @test_throws DimensionMismatch copyto!(t, view(E, 1:4, 1:4))
       t .= E
       @test Matrix(t) == Matrix(Symmetric(E, :L))
       fill!(t, 0)
@@ -498,6 +530,13 @@ end
       # a' X b, tr(A X), and A X B for symmetric A, B
       a = randn(n)
       @test dot(a, x, b) ≈ dot(a, Matrix(M), b)
+      for T in (ComplexF32, ComplexF64)
+        ac, bc = T.(complex.(a, reverse(a))), T.(complex.(b, reverse(b)))
+        @test dot(ac, x, bc) ≈ dot(ac, Matrix(M), bc)
+        Mc = T[1 2 + im; 2 + im 3 - im]
+        xc = SymmetricSparseIterate(Mc)
+        @test dot(ac[1:2], xc, bc[1:2]) ≈ dot(ac[1:2], Mc, bc[1:2])
+      end
       A = randn(n, n)
       @test dot(A, x) ≈ dot(A, Matrix(M)) && dot(x, A) ≈ dot(A, Matrix(M))
       Σx, Σy = Symmetric(randn(n, n)), Symmetric(randn(n, n))

@@ -125,16 +125,18 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
 end
 
 (t::Tilt)(x) = t.f(x) + dot(t.c, x) + t.d
-value_and_gradient!(g, t::Tilt, x) = (v = value_and_gradient!(g, t.f, x); g .+= t.c; v + dot(t.c, x) + t.d)
-gradient!(g, t::Tilt, x) = (gradient!(g, t.f, x); g .+= t.c)
+value_and_gradient!(g, t::Tilt, x) = (_checkparams(t, x); v = value_and_gradient!(g, t.f, x); g .+= t.c; v + dot(t.c, x) + t.d)
+gradient!(g, t::Tilt, x) = (_checkparams(t, x); gradient!(g, t.f, x); g .+= t.c)
 
 function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checksize(y, x)
+  _checkparams(t, x)
   y .= x .- convert(float(eltype(y)), γ) .* t.c
   prox!(y, t.f, y, γ)
 end
 function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checksize(y, x)
+  _checkparams(t, x)
   y .= x .- convert(float(eltype(y)), γ) .* t.c
   value_and_prox!(y, t.f, y, γ) + dot(t.c, y) + t.d
 end
@@ -178,12 +180,14 @@ gradient!(g, t::Translate, x::AbstractArray) = gradient!(g, t.f, _shifted(t, x))
 
 function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checksize(y, x)
+  _checksize(t.b, x)
   y .= x .- t.b
   prox!(y, t.f, y, γ)
   y .+= t.b
 end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checksize(y, x)
+  _checksize(t.b, x)
   y .= x .- t.b
   v = value_and_prox!(y, t.f, y, γ)
   y .+= t.b
@@ -224,7 +228,9 @@ norms (the indicators of the dual balls), the balls (their support functions),
 the box, the nonnegative orthant, [`SqrNormL2`](@ref), [`LinearFunction`](@ref),
 [`ZeroFunction`](@ref), and the losses [`CheckLoss`](@ref), [`HingeLoss`](@ref)
 and [`EpsInsensitiveLoss`](@ref), and for translations and strictly positive
-rescalings of these functions. Supported zero rescalings simplify in
+rescalings of these functions. Even when its standalone value is unavailable,
+[`value_and_prox!`](@ref) obtains the value at its proximal point from Fenchel
+equality and the inner function's value. Supported zero rescalings simplify in
 [`Scaled`](@ref) while preserving the underlying domain.
 """
 struct Conjugate{F<:AbstractFunction} <: AbstractFunction
@@ -250,6 +256,29 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   z .= x ./ γ
   prox!(z, c.f, z, inv(γ))
   y .= x .- γ .* z
+end
+# At a proximal point y = x - γp, Fenchel equality gives f*(y) = <p,y> - f(p).
+# Keep the direct value for known closed forms, especially exact indicator zeros.
+_has_conjugate_value(::AbstractFunction) = false
+_has_conjugate_value(::Union{NormL1, NormL2, NormLinf, IndBallL1, IndBallL2,
+                            ZeroFunction, IndNonnegative, IndBox, SqrNormL2,
+                            LinearFunction, CheckLoss, HingeLoss, EpsInsensitiveLoss}) = true
+_has_conjugate_value(f::Union{Scaled, Translate}) = _has_conjugate_value(f.f)
+_has_conjugate_value(f::SingularValue) = _has_conjugate_value(f.f)
+
+function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
+  if _has_conjugate_value(c.f)
+    prox!(y, c, x, γ)
+    return _conjugate_value(c.f, y)
+  end
+  _checksize(y, x)
+  T = float(eltype(y))
+  step = convert(T, γ)
+  p = _array_buffer!(c.scratch, T, size(x))
+  p .= x ./ step
+  fp = value_and_prox!(p, c.f, p, inv(step))
+  y .= x .- step .* p
+  dot(p, y) - fp
 end
 Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real) = v - γ * prox_entry(c.f, v / γ, i, inv(γ))
 _checkparams(c::Conjugate, x) = _checkparams(c.f, x)

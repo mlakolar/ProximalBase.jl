@@ -1,0 +1,58 @@
+# Compatibility and migration
+
+The 0.5 interface uses callable function objects, output-first mutating
+operations, and lowercase coordinate operations. The 0.4 compatibility names
+remain available with deprecation warnings throughout 0.5 and are scheduled
+for removal in 0.6. Run existing code with `--depwarn=yes` to find uses.
+
+## Operations and types
+
+| Compatibility call or name | Current interface |
+|:---|:---|
+| `value(f, x)` | `f(x)` |
+| `prox!(f, y, x, γ)` | `prox!(y, f, x, γ)` |
+| `gradient!(f, g, x)` | `gradient!(g, f, x)` |
+| `value_and_gradient!(f, g, x)` | `value_and_gradient!(g, f, x)` |
+| `cdprox!(f, x, k, γ)` | `prox_coordinate!(x, f, k, γ)` |
+| `DifferentiableFunction`, `ProximableFunction` | `AbstractFunction`, with explicit capability traits |
+| `ProxZero`, `ProxL1`, `ProxL2`, `ProxGroupL2` | `ZeroFunction`, `NormL1`, `NormL2`, `GroupNormL2` |
+| `ProxNuclear`, `ProxL1Fused`, `ProxGaussLikelihood` | `NuclearNorm`, `NormL1Fused`, `LogDetLoss` |
+| `ProxL2Sq(λ)` | `SqrNormL2(2λ)`; the new coefficient multiplies half the squared norm |
+| `L2Loss(y)`, `L2Loss()` | `SqrNormL2(1, y)`, `SqrNormL2()` |
+| `f.λ` for `NormL1` or `GroupNormL2` | `f.w` for weights; `f.λ0` is the overall level |
+| `numCoordinates`, `numActive`, `isActive` | `ncoordinates`, `nactive`, `isactive` |
+| `activeCoordinate(x, i)` | `activecoordinates(x)[i]` |
+| `ind2subLowerTriangular`, `sub2indLowerTriangular` | `tril_cartesian`, `tril_index` |
+| `proxL1Fused(x, y, λ1, λ2, γ)` | `prox(NormL1Fused(λ1, λ2), (x, y), γ)` |
+| `shrinkL2!(out, x, c)` | `prox!(out, NormL2(c), x)` |
+
+The legacy abstract-type bindings alias `AbstractFunction`; they do not
+identify smooth or proximable subsets. Query [`issmooth`](@ref) and
+[`isproximable`](@ref) instead.
+
+## Matrix products
+
+Use `dot(view(A, row, :), b)` in place of `A_mul_B_row`, and
+`dot(view(A, :, row), b)` in place of `At_mul_B_row`. Replace group-product
+helpers with `mul!` on `view(A, :, G)` or its transpose.
+
+For `A_mul_X_mul_B`, use `A * X * B`, with `X` represented as a
+`SparseIterate` matrix rather than a vector of its entries. A single entry is
+`dot(view(A, :, r), X, view(B, :, c))` for symmetric real `A` and `B`.
+For `A_mul_UUt_mul_B`, use `(A * U) * transpose(B * U)`; its entry helper
+becomes `dot(U' * view(A, :, r), U' * view(B, :, c))` in the same real setting.
+
+## Qualified group compatibility interface
+
+`ProximalBase.AbstractGroupNorm` is a compatibility alias for
+`ProximalBase.AbstractGroupPenalty`. It includes `GroupMCP` and `GroupSCAD`.
+Callers selecting grouped storage may retain that alias. Algorithms requiring
+a convex, positively homogeneous group penalty must use the narrower
+`ProximalBase.HomogeneousGroupNorm` or check the needed properties. The alias
+has no separately announced removal version; it is distinct from the 0.4
+deprecations above.
+
+`LogisticLoss`, `PoissonLoss`, and `HuberLoss` are specializations of
+[`GLMLoss`](@ref). `IndBallLinf` and [`Constrained`](@ref) are constructor
+functions that return suitable concrete functions. Avoid dispatch that
+assumes every exported constructor name is a concrete type.

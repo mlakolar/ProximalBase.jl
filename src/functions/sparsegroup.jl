@@ -67,21 +67,28 @@ _rebuild(f::SparseGroupNormL2, λ0, groups, w) = SparseGroupNormL2(f.λ1, λ0, g
 function _dual_norm(f::SparseGroupNormL2, g, G)
   T = float(eltype(g))
   c = convert(T, f.λ1)
-  s = zero(T)
+  _soft_group_norm(g, G, c)
+end
+
+# Retain the vectorized sum for ordinary magnitudes; the fallback keeps
+# soft-thresholded norms whose squares overflow or underflow representable.
+@inline function _soft_group_norm(x::AbstractArray, G, c::S) where {S}
+  s = zero(S)
   @inbounds for i in G
-    s += abs2(shrink(convert(T, g[i]), c))
+    s += abs2(shrink(convert(S, x[i]), c))
   end
-  sqrt(s)
+  isfinite(s) && s >= floatmin(S) && return sqrt(s)
+  n = zero(S)
+  @inbounds for i in G
+    n = hypot(n, shrink(convert(S, x[i]), c))
+  end
+  n
 end
 
 # y[G] ← the soft threshold of x[G] at c1, shrunk by c2 in Euclidean norm, which
 # may be in place; returns the ℓ2 and ℓ1 norms of the result
 @inline function _sparse_shrink_group!(y::AbstractArray{T}, x::AbstractArray, G, c1::S, c2::S) where {T, S}
-  s = zero(S)
-  @inbounds for i in G
-    s += abs2(shrink(convert(S, x[i]), c1))
-  end
-  ns = sqrt(s)
+  ns = _soft_group_norm(x, G, c1)
   if ns > c2
     t = one(S) - c2 / ns
     l1 = zero(S)
@@ -105,7 +112,7 @@ function (f::SparseGroupNormL2)(x::AbstractArray)
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
     G = f.groups[k]
-    v2 += convert(T, f.w[k]) * sqrt(_sumsq(x, G))
+    v2 += convert(T, f.w[k]) * _group_norm2(x, G)
     v1 += _sumabs(x, G)
   end
   convert(T, f.λ0) * v2 + convert(T, f.λ1) * v1
@@ -138,7 +145,7 @@ function (f::SparseGroupNormL2)(x::AtomIterate)
   for a in 1:x.nactive
     k = x.active[a]
     G = f.groups[k]
-    v2 += convert(T, f.w[k]) * sqrt(_sumsq(x.storage, G))
+    v2 += convert(T, f.w[k]) * _group_norm2(x.storage, G)
     v1 += _sumabs(x.storage, G)
   end
   convert(T, f.λ0) * v2 + convert(T, f.λ1) * v1

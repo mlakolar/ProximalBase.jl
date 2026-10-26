@@ -336,7 +336,7 @@ function norm_diff(A::AbstractArray, B::AbstractArray, p::Real = 2)
   T = float(promote_type(eltype(A), eltype(B)))
   v = real(zero(T))
   if p == 2
-    return sqrt(_sumabs2_diff(A, B))
+    return _norm_diff2(A, B)
   elseif p == Inf
     @inbounds for i in eachindex(A, B)
       v = max(v, abs(A[i] - B[i]))
@@ -345,6 +345,19 @@ function norm_diff(A::AbstractArray, B::AbstractArray, p::Real = 2)
   else
     throw(ArgumentError("p should be 2 or Inf"))
   end
+end
+
+# Preserve the inexpensive sum-of-squares path at ordinary scales. Outside
+# its representable range, hypot accumulates the norm without squaring the
+# unscaled differences and without constructing a temporary array.
+function _norm_diff2(A::AbstractArray, B::AbstractArray)
+  s = _sumabs2_diff(A, B)
+  isfinite(s) && s >= floatmin(typeof(s)) && return sqrt(s)
+  v = zero(typeof(s))
+  @inbounds for i in eachindex(A, B)
+    v = hypot(v, abs(A[i] - B[i]))
+  end
+  v
 end
 
 # Σᵢ (xᵢ - yᵢ)², without allocating x - y

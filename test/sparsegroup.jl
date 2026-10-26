@@ -177,4 +177,20 @@ a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
   end
 end
 
+@testset "sparse group norm at extreme magnitudes" begin
+  for T in (Float32, Float64)
+    large = T == Float32 ? T(1e30) : T(1e200)
+    for scale in (large, inv(large))
+      x = T[0, scale]
+      f = SparseGroupNormL2(scale/4, scale/4, [1:2], T[1])
+      @test prox(f, x) ≈ T[0, scale/2] rtol=16eps(T)
+      @test f(x) ≈ scale*(scale/2) rtol=16eps(T)
+      a = AtomIterate(x, f)
+      prox_coordinate!(a, f, 1, one(T))
+      @test Vector(a) ≈ T[0, scale/2] rtol=16eps(T)
+    end
+  end
+end
+
+
 end

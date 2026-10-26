@@ -250,5 +250,5 @@ restrict(f::GLMLoss, S::AbstractVector{<:Integer}) =
 # the curvature bound of ℓ times the largest eigenvalue of X' Diagonal(w) X
 function lipschitz(f::GLMLoss{L, T}) where {L, T}
   c = curvature(f.loss)
-  isinf(c) ? T(Inf) : c * _opnorm2(f.X, f.weights)
+  isinf(c) ? T(Inf) : c * _opnorm2_upper(f.X, f.weights)
 end

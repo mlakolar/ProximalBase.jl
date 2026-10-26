@@ -18,7 +18,7 @@ y = X * β_true + 0.5 * randn(rng, n)
 
 f = LeastSquaresLoss(y, X)
 g = NormL1(λ)
-L = lipschitz(f)                   # ‖X‖₂², the Lipschitz constant of ∇f, by Lanczos
+L = lipschitz(f)                   # ‖X‖₂², the Lipschitz constant of ∇f
 
 # ISTA: β ← prox_{g/L}(β - ∇f(β)/L). `value_and_prox!` returns g at the new point,
 # so tracking the objective costs no extra pass.

@@ -389,5 +389,5 @@ end
 lipschitz(::ZeroFunction) = 0.0
 lipschitz(f::LinearFunction) = zero(float(eltype(f.c)))
 lipschitz(f::SqrNormL2) = float(f.λ)
-lipschitz(f::QuadraticFunction) = _opnorm(f.A)
-lipschitz(f::KronQuadratic) = _opnorm(f.A) * _opnorm(f.B)       # also over symmetric Θ
+lipschitz(f::QuadraticFunction) = _opnorm_upper(f.A)
+lipschitz(f::KronQuadratic) = _opnorm_upper(f.A) * _opnorm_upper(f.B)       # also over symmetric Θ

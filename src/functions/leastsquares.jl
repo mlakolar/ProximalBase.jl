@@ -132,4 +132,4 @@ end
 restrict(f::LeastSquaresLoss{T, <:AbstractVector}, S::AbstractVector{<:Integer}) where {T} =
   LeastSquaresLoss(f.Y, f.X[:, S])
 
-lipschitz(f::LeastSquaresLoss) = _opnorm2(f.X)
+lipschitz(f::LeastSquaresLoss) = _opnorm2_upper(f.X)

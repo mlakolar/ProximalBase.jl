@@ -451,6 +451,28 @@ end
   @test lipschitz(LeastSquaresLoss(Float32.(y), Float32.(X))) isa Float32
   @test_throws ArgumentError lipschitz(NormL1(1.))
   @test_throws ArgumentError lipschitz(Conjugate(NormL2(1.)))
+  # A fixed Lanczos start can be orthogonal to the leading eigenspace. Bounds
+  # used for a fixed gradient step must still account for that direction.
+  for T in (Float32, Float64)
+    start = T[sin(i) + cos(sqrt(2) * i) for i in 1:3]
+    u = normalize(T[start[2], -start[1], 0])
+    A = Matrix{T}(I, 3, 3) + T(99) * (u * u')
+    for matrix in (A, sparse(A))
+      q = QuadraticFunction(matrix)
+      Lq = lipschitz(q)
+      @test Lq >= T(100) * (1 - 16eps(T))
+      @test q(u - gradient(q, u) / Lq) < q(u)
+      ls = LeastSquaresLoss(zeros(T, 3), matrix)
+      Ll = lipschitz(ls)
+      @test Ll >= T(10000) * (1 - 32eps(T))
+      @test ls(u - gradient(ls, u) / Ll) < ls(u)
+      logistic = LogisticLoss(zeros(T, 3), matrix; weights=T[0.5, 1, 2])
+      reference = opnorm(Diagonal(sqrt.(T[0.5, 1, 2])) * A)^2 / 4
+      @test lipschitz(logistic) >= reference * (1 - 32eps(T))
+    end
+    Xs = sprandn(T, 30, 15, 0.1)
+    @test lipschitz(LeastSquaresLoss(zeros(T, 30), Xs)) >= opnorm(Matrix(Xs))^2 * (1 - 32eps(T))
+  end
 end
 
 @testset "KronQuadratic from matrices symmetric up to rounding" begin

@@ -53,8 +53,8 @@ jobs:
       - uses: julia-actions/cache@v3
       - name: Check naming conventions
         run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} scripts/check_naming.py
-      - name: Test against dependency master checkouts
-        run: julia --color=yes scripts/test_master.jl
+      - name: Run package tests
+        run: julia --color=yes scripts/test.jl
         env:
           JULIA_TEST_COVERAGE: "true"
       - uses: julia-actions/julia-processcoverage@v1

@@ -1,0 +1,7 @@
+flowchart TD
+  C["Constrained constructor"] -.->|pair dispatch| W["Concrete constrained wrapper"]
+  U["Single inner function wrappers"] --o|contains f| F["Inner function object"]
+  W --o|contains f and set data| F
+  M["Sum / SeparableSum / SliceSum / FiberSum"] --o|contains functions| F
+  CALL["Public operation on wrapper"] ==>|transform input or split blocks| INNER["Operation on inner function"]
+  INNER -.->|type dispatch| K["Concrete kernel"]

@@ -173,8 +173,11 @@ operator again. Sizes must stay unchanged. Reconstruct `IndAffine` after changin
 its data; its factorization type can change with the rank of `A`.
 
 - **Output first.** Mutating functions take their output first, as `mul!` does:
-  `prox!(y, f, x, γ)` and `gradient!(g, f, x)`. The output may be the input:
-  `prox!(x, f, x, γ)` works for every function.
+  `prox!(y, f, x, γ)` and `gradient!(g, f, x)`. Proximal output may be the input:
+  `prox!(x, f, x, γ)` works for every function. Use separate input and output
+  storage for gradients, combined value/gradient calls and Hessian products
+  unless a particular method explicitly supports aliasing. The proximal
+  guarantee does not extend to partially overlapping views.
 - **The value at the result.** [`value_and_prox!`](@ref) stores the proximal
   point and returns the function's value there. Many functions get that value
   from the computation itself: the nuclear norm from the singular values it

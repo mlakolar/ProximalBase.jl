@@ -1,0 +1,479 @@
+[
+  {
+    "page_id": "page_19d0374c8de481918344267237028f43",
+    "url": "https://chatgpt.com/space/page_19d0374c8de481918344267237028f43",
+    "title": "ProximalBase abstractions and call structure",
+    "blocks": [
+      {
+        "id": "1055810c-ef59-4a95-b6e5-54cd9f055b30",
+        "hash": "35427e66cadb459b1da49d6dfa63e8bb2f385d834b3a20352f648d4b4bc7a786",
+        "markdown": "ProximalBase.jl supplies mathematical functions and array-like iterates for optimization. Its organization is easiest to read in three layers: **function types describe the objective, traits describe available operations, and iterate types describe the coordinates being updated.** Solvers sit above this interface and call its operations."
+      },
+      {
+        "id": "301d2260-200a-4d1e-9ea4-37d5d010d5fe",
+        "hash": "331f94e057cde1405bd519f21fee37c2aa3ae20bd69121c0db5ff0492a977cf7",
+        "markdown": "# Organization at a glance"
+      },
+      {
+        "id": "80bb472b-1a42-47d2-91fc-37f60c6d69a4",
+        "hash": "0d661f30346ac8d30c2393ef9f45e33a0c2b45ec9c20de085b05f89f38b6c537",
+        "markdown": "```mermaid\nflowchart TD\n  S[External solver] --> O[Generic operations]\n  O --> F[Concrete function methods]\n  O --> I[Array or iterate methods]\n  F --> W[Wrapped functions and numerical workspaces]\n  T[Traits describe capabilities] -.-> S\n```"
+      },
+      {
+        "id": "ccd42c91-c1c7-4790-aad2-19519d8a50a0",
+        "hash": "5b03b0e2e121569774bc3132dc6be1fbee6b8e3cb9b05c2ec2bf728cf77c32ca",
+        "markdown": "| Layer | Main names | Responsibility |\n| --- | --- | --- |\n| Function root | `AbstractFunction` | Callable objective terms and common operation interface |\n| Scalar separability | `SeparableFunction` | Build array operations from scalar value and proximal kernels |\n| Group structure | `AbstractGroupPenalty`, `HomogeneousGroupNorm` | Shared grouping machinery and group updates |\n| Observation losses | `ScalarLoss`, contained in `GLMLoss` | Loss and derivatives for one observation |\n| Function composition | `Scaled`, `Sum`, `Constrained`, `Spectral`, and others | Store functions and delegate operations |\n| Iterates | `SparseIterate`, `SymmetricSparseIterate`, `AtomIterate` | Store coefficients and expose scalar or group coordinates |"
+      },
+      {
+        "id": "e784df29-153b-4113-8c83-644bdc619360",
+        "hash": "107e495dd57cf02d6a85d05b518d5b8cc5f3c4a3d2d366a1b13ab743ff2fd6f3",
+        "markdown": "# The inheritance tree"
+      },
+      {
+        "id": "0c63d1fd-cfb1-4408-8d92-965c45a8dd9e",
+        "hash": "c53f6f308ea6c00c37b8676b1a8c3012f42acbe18fb2507e0a12ca3b99ede854",
+        "markdown": "Solid arrows below mean “is a subtype of,” directed from subtype to supertype. The concrete examples are representative."
+      },
+      {
+        "id": "c94f5b77-3b35-42c0-bfa0-6ba5f68a892b",
+        "hash": "40f8bdfecf6ddfc21eeafa9823ada0c260b5c0286c9286f2889bb8fd80b3b1cf",
+        "markdown": "```mermaid\nflowchart BT\n  SEP[SeparableFunction] --> AF[AbstractFunction]\n  GP[AbstractGroupPenalty] --> AF\n  HGN[HomogeneousGroupNorm] --> GP\n  L1[NormL1 and ElasticNet] --> SEP\n  GN[GroupNormL2 and GroupNormLinf and SparseGroupNormL2] --> HGN\n  NC[GroupMCP and GroupSCAD] --> GP\n  DIRECT[LeastSquaresLoss and GLMLoss and Sum and Spectral] --> AF\n  OBS[Logistic and Poisson and Huber] --> SL[ScalarLoss]\n  SI[SparseIterate] --> AA[AbstractArray]\n  SSI[SymmetricSparseIterate] --> AM[AbstractMatrix]\n  AI[AtomIterate] --> AV[AbstractVector]\n```"
+      },
+      {
+        "id": "da583411-b371-424c-9d28-d21709bc7f10",
+        "hash": "9f833eb86b766ac297c4fc8f75e983f3bb42d6df214899448cb3c2362e1bd244",
+        "markdown": "`ScalarLoss` is a separate root. `GLMLoss` contains a scalar loss; it does not inherit from it. The three iterate types inherit from Julia array abstractions and are independent of the function tree."
+      },
+      {
+        "id": "bb847752-e189-46eb-9098-fb9f10fc85c1",
+        "hash": "fad54e92307eea7059ffc1dd8e42348bc9898311a7274f88326b435dd3e4a0cb",
+        "markdown": "# Traits are capabilities"
+      },
+      {
+        "id": "24d28b75-ee2f-4443-94bb-b087ecac3e6a",
+        "hash": "a64a5bc31efdd4ed03d77b2f75d36c24002d3747c31d95d0ff94e3c80649abba",
+        "markdown": "| Query | Meaning | Operations a caller can use |\n| --- | --- | --- |\n| `issmooth(f)` | Differentiable on the interior of its domain | `gradient!`, `value_and_gradient!` |\n| `isproximable(f)` | Provides a proximal operator | `prox!`, `value_and_prox!` |\n| `isseparable(f)` | Sum over individual entries | `prox_entry`, coordinate update machinery |\n| `isconvex(f)` | Convexity | Select applicable algorithmic guarantees |\n| `hashessian(f)` | Provides second order oracles | `hessian_vec!`, `quadratic_model` |\n| `iszeropreserving(f)` | Scalar value at zero is zero and scalar prox preserves zero | Skip implicit zeros on supported sparse paths |"
+      },
+      {
+        "id": "03f3b311-76e2-4d2a-afc6-61a2cfd2241d",
+        "hash": "ccade7e1f4c37a6cb9a9979c2edd8903a570b1835fa437bac8d2277dd2745965",
+        "markdown": "The first five queries default to false on `AbstractFunction` and are generally declared on types. `iszeropreserving` is an instance property for separable functions because parameters such as box bounds can change it. Traits describe support; Julia dispatch selects the actual method from the argument types. Smoothness does not promise a finite global Lipschitz constant."
+      },
+      {
+        "id": "7770be3e-61d3-410e-bbe9-12776a48b574",
+        "hash": "a1e73f657b457b62b55da5b3643cae355d31e4930d2f7934ca5253aa06271984",
+        "markdown": "# Who calls whom"
+      },
+      {
+        "id": "6d769c34-4e2d-495a-80eb-e957ea5571c8",
+        "hash": "589dc8d70adbb238d06aa4bebcacb12c119a0dbf0aab8a183f4eb3b793bb139a",
+        "markdown": "```mermaid\nsequenceDiagram\n  participant S as Solver\n  participant L as Smooth function f\n  participant P as Penalty g\n  participant K as Scalar kernel\n  S->>L: gradient!(grad, f, x)\n  L-->>S: gradient buffer\n  Note over S: v = x - gamma * grad\n  S->>P: prox!(next, g, v, gamma)\n  opt g uses SeparableFunction implementation\n    P->>K: prox_entry(g, v[i], i, gamma)\n    K-->>P: updated entry\n  end\n  P-->>S: next iterate\n```"
+      },
+      {
+        "id": "c2914f45-65f7-414c-bd02-a38f0a80fa24",
+        "hash": "37d83fbab56b43c14fd3c4f2e74ede83990def2af42156f439b13aa484713bbd",
+        "markdown": "A coordinate solver instead calls `prox_coordinate!(x, g, k, γ)`. For a separable function this delegates to `prox_entry`; for a matching group penalty and `AtomIterate`, it applies a group kernel. A Newton caller asks for Hessian products or a quadratic model. The optimization loop owns the step selection, iteration, and stopping decisions."
+      },
+      {
+        "id": "b8f9e838-5148-47b5-b8ef-78805e24c02c",
+        "hash": "80d0d3118e62c80b72f1f11237816c1e04312c478da5acb038af8afb2e61ff4c",
+        "markdown": "# Reading guide"
+      },
+      {
+        "id": "8ad6c672-6850-444f-8dff-7d5ff46ba54a",
+        "hash": "e8f107117c67d910d45a0d16b20f0b1f6705fc1f148fdc2f65b2541adf4fb5a5",
+        "markdown": "1. [AbstractFunction and the common operation interface](https://chatgpt.com/space/page_f5a2d29fc4a8819190df5e53343aeb95)"
+      },
+      {
+        "id": "59b16cd8-f368-4542-a435-1e7d5ca29813",
+        "hash": "f5ca08f7aeb03b1382b6470d6b12f8818c7ff0bc34a7c4dc428833fc49c4dbaa",
+        "markdown": "2. [SeparableFunction and scalar kernels](https://chatgpt.com/space/page_0d1da0aa24548191bcf6c74c7c5a9b6e)"
+      },
+      {
+        "id": "ef8f2064-f8a0-4a46-9224-7b7a34f88ff0",
+        "hash": "b377cc2d01d504e05f9160344777d773ecbb77dd7225c6cd9280647b991e03cf",
+        "markdown": "3. [AbstractGroupPenalty and HomogeneousGroupNorm](https://chatgpt.com/space/page_7c673b96f0c48191923f1eee9bf0cd27)"
+      },
+      {
+        "id": "2b84ed1d-3a66-47e1-b935-f54c3491dffb",
+        "hash": "c5a8988cf009107a327938b84149fb0832426cdf8358c7166c2830fbfbcb22e5",
+        "markdown": "4. [ScalarLoss and its composition into GLMLoss](https://chatgpt.com/space/page_d31a54e6b19881918c2ce1a321911b0a)"
+      },
+      {
+        "id": "90dfd7ea-2623-4be6-8b07-1c50dcca8ec9",
+        "hash": "c05c57f7c6a793ff1f2959cb64567e2fd9c0015a0b3a262fff805a8a442ad2c3",
+        "markdown": "5. [Function wrappers iterates and workspaces](https://chatgpt.com/space/page_98a0214de41c8191a6400d69d863833c)"
+      },
+      {
+        "id": "2d6cfb38-4be0-4d29-ac16-b459a8d9ae1d",
+        "hash": "ab36b047fd2a89fa85ff64ad5636401a687aa0f330a52c56484366490cf6e405",
+        "markdown": "# Source snapshot"
+      },
+      {
+        "id": "5dd50da9-440f-43db-aa43-be9758f8a748",
+        "hash": "15e028dfd20c82e1ece31dd6c2c51b516997346536d9e06d631704526507126f",
+        "markdown": "Based on the clean local checkout at commit `37d32e1`, inspected 26 October 2026. Source links are pinned to this commit: [module and exports](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/ProximalBase.jl), [function interface](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/interface.jl), [second order interface](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/second_order.jl)."
+      }
+    ]
+  },
+  {
+    "page_id": "page_f5a2d29fc4a8819190df5e53343aeb95",
+    "url": "https://chatgpt.com/space/page_f5a2d29fc4a8819190df5e53343aeb95",
+    "title": "AbstractFunction and the common operation interface",
+    "blocks": [
+      {
+        "id": "2b270373-f83f-4192-b08d-dcc9106db08b",
+        "hash": "dbee0f9fc9e655369b90a83fe8d32e2e971e6a73601bf3e21b616a9923f4617f",
+        "markdown": "[Package overview](https://chatgpt.com/space/page_19d0374c8de481918344267237028f43)"
+      },
+      {
+        "id": "58c95fa2-c382-4b7a-b5ce-908e92d863cf",
+        "hash": "c062a30cb093752b8ad3b49c5f948efb094a9231e5aeac99d889907f8c530791",
+        "markdown": "`AbstractFunction` is the root for objective terms: losses, penalties, set indicators, and wrappers. A value such as `NormL1(λ)` is a callable object; `f(x)` evaluates the term."
+      },
+      {
+        "id": "75b11404-b94c-4f87-a154-9d207cf37d06",
+        "hash": "a69580abaa5ebcdbfda2637adf64b19ca11e45d6124e738101fa77e46d71d4f5",
+        "markdown": "# Contract"
+      },
+      {
+        "id": "c64d314e-b86f-4e59-bc89-28afde97944d",
+        "hash": "c57f440097aac2ce2441b449e4c44d1e5c29658bb4b1a264d7b8193a17a62165",
+        "markdown": "| Role | Implement | Common fallback |\n| --- | --- | --- |\n| Any function | `(f::MyFunction)(x)` | Value is `Inf` outside the domain |\n| Smooth function | `value_and_gradient!(g, f, x)` and smoothness trait | `gradient!` calls the combined method; allocating helpers build buffers |\n| Proximable function | `prox!(y, f, x, γ)` and proximability trait | `prox` allocates an output; `value_and_prox!` applies prox then evaluates its result |\n| Second order function | Hessian products and quadratic model methods with `hashessian` | `hessian_vec` allocates its output |"
+      },
+      {
+        "id": "d85cf6e5-d534-47cf-b640-6998c329da4c",
+        "hash": "1bf370f5b58897b965ab8867b7b37e2bd58186f5cbae1f7c3d3eebcf63cd4032",
+        "markdown": "These are generic functions with methods selected by multiple dispatch. Read `prox!(y, f, x, γ)` as an operation on a function and two arrays, rather than a member method of `f`. Mutating operations take the output first."
+      },
+      {
+        "id": "1882c190-a329-440e-bfd2-30ae0d16de8e",
+        "hash": "6997c4c5c47397993dd3a83ecc1c41b5670f7c7b125a9d6df9a1e0558b5c9724",
+        "markdown": "# Representative direct subtypes"
+      },
+      {
+        "id": "fb8e6f46-79ec-4df1-bc12-a220b42dbeb0",
+        "hash": "4c038f637613ed656b567a391e5294d9eda94b61bcfe346d6ca86b94a235a842",
+        "markdown": "`LeastSquaresLoss`, `QuadraticFunction`, `SqrNormL2`, `GLMLoss`, `LogDetLoss`, `NormL2`, `IndSimplex`, `NuclearNorm`, and wrappers all directly subtype this root. There is no separate abstract smooth-function or indicator-function superclass. The private `_isindicator` trait identifies indicator behavior."
+      },
+      {
+        "id": "0bdae8c3-d422-400c-ab9c-7de00a9af680",
+        "hash": "1720fb97ba67f3c20e64e4fae3abd9f9903113080c8d3be20a6840c99f063f58",
+        "markdown": "`SqrNormL2`, `QuadraticFunction`, `LeastSquaresLoss`, and `LogDetLoss` are both smooth and proximable. `SqrNormL2` is mathematically separable and declares that trait while directly inheriting from `AbstractFunction`: separability as a capability is broader than membership in `SeparableFunction`."
+      },
+      {
+        "id": "28a31d64-ed57-44e9-9425-3ea5179947b3",
+        "hash": "bf3865b9ace703199433a415b45e10effa4ec0fdecd8f68edc758e79a1c5c1d8",
+        "markdown": "# Additional operations"
+      },
+      {
+        "id": "40bb88d5-67a8-496e-802a-2788ad73d0b5",
+        "hash": "018ff7f974a273cae852cf1a71611aa3d423b1b405270b92353c1e707114b690",
+        "markdown": "`lipschitz` supplies a known global gradient bound, which may be infinite; smoothness alone does not supply a finite bound. `coordinate_lipschitz` supplies coordinate curvature information. `restrict(f, S)` constructs a supported restriction for active-set work and may drop an additive constant. `gradient_mapping!` calls the smooth gradient and penalty prox to compute a stopping quantity."
+      },
+      {
+        "id": "4f1cb3de-4130-44b0-a147-d35a4e558f50",
+        "hash": "4f66d7c1b5c2392663b75c1f11fa296bc50065aa4615feb6e4633adaa991ddae",
+        "markdown": "# Source"
+      },
+      {
+        "id": "1e8bd6dc-e5b6-4d9f-956a-448cdb26cfdf",
+        "hash": "25e5ab168f99d774bf0c329119447347291184ec87f7515be85a36c9b8a814bf",
+        "markdown": "[Common interface](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/interface.jl) and [Second order operations](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/second_order.jl)."
+      }
+    ]
+  },
+  {
+    "page_id": "page_0d1da0aa24548191bcf6c74c7c5a9b6e",
+    "url": "https://chatgpt.com/space/page_0d1da0aa24548191bcf6c74c7c5a9b6e",
+    "title": "SeparableFunction and scalar kernels",
+    "blocks": [
+      {
+        "id": "5ba95ac7-1fe7-4e68-a65f-77fdfc77f893",
+        "hash": "dbee0f9fc9e655369b90a83fe8d32e2e971e6a73601bf3e21b616a9923f4617f",
+        "markdown": "[Package overview](https://chatgpt.com/space/page_19d0374c8de481918344267237028f43)"
+      },
+      {
+        "id": "f7897b08-be1b-4625-8600-ccaf244a6f65",
+        "hash": "be8c4489b3034aa7c0a83ad8f8a225630b8b6561704574b5d02570b2d189b8a3",
+        "markdown": "`SeparableFunction <: AbstractFunction` is the implementation shortcut for functions that sum scalar terms over array entries. Supply two small scalar kernels and reuse the array and sparse-iterate machinery."
+      },
+      {
+        "id": "949af3d4-893d-491b-9a60-c7da0d3a107b",
+        "hash": "e37896db0e0cf4983663d9c55b1e0425177d7bb302108e741fb9afa3935205b9",
+        "markdown": "# What a subtype supplies"
+      },
+      {
+        "id": "d62a90fe-e6ad-40d5-85f4-399af6514a41",
+        "hash": "13579f02091feaaca7a1d6c7fcdfe04fb9bf1d0889f7e93824389e2a0f7053d7",
+        "markdown": "```julia\nstruct WeightedSquare <: SeparableFunction\n    w::Vector{Float64}\nend\nProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2\nProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])\nProximalBase.isconvex(::Type{WeightedSquare}) = true\nProximalBase.iszeropreserving(::WeightedSquare) = true\n```"
+      },
+      {
+        "id": "6bf0ee19-cc6c-4453-ba1b-9154d6a23782",
+        "hash": "55d8a86cc959022e54548f9fb60621fa6c23d9a55cad2ecc36a4117906b0bd86",
+        "markdown": "Here `i` is a linear entry index, allowing weights and bounds to vary by entry. Inheritance supplies `isseparable = true` and `isproximable = true`. Convexity and smoothness remain separate declarations and require their corresponding methods."
+      },
+      {
+        "id": "3b6db8d2-a136-4b9b-85b0-0347878ec2eb",
+        "hash": "a1e73f657b457b62b55da5b3643cae355d31e4930d2f7934ca5253aa06271984",
+        "markdown": "# Who calls whom"
+      },
+      {
+        "id": "cc54cea1-0e77-483b-9b9f-68ac89b6fa82",
+        "hash": "ac72f2bc7e637cdd5fb45e22e8c95a82df2e749d7d34007bbd0999a555bd7d4f",
+        "markdown": "```mermaid\nflowchart TD\n  V[Array value f x] --> VE[value_entry for each entry]\n  P[Array prox!] --> PE[prox_entry for each entry]\n  VP[value_and_prox!] --> PE\n  VP --> VE\n  C[prox_coordinate!] --> PE\n  Z[iszeropreserving] -.-> SP[Stored entries only on supported sparse paths]\n```"
+      },
+      {
+        "id": "ab6cdc35-1708-4f54-8f8c-9d7de1d6b97e",
+        "hash": "011101b6e49b9540faff0c759f2c857754e0d0368d15e163ec3af90babf6f631",
+        "markdown": "`value_and_prox!` evaluates scalar values at the updated entries. Specialized methods can fuse work further. Zero preservation means both `fᵢ(0) = 0` and `prox_entry(f, 0, i, γ) = 0`; it lets sparse paths skip implicit zeros."
+      },
+      {
+        "id": "5a76cc7a-8c2a-40a7-b0af-0aec842e6d34",
+        "hash": "aeb561d697a949b20563de12f365f27616bde607eaf5adc23966e027212830fd",
+        "markdown": "# Concrete families"
+      },
+      {
+        "id": "55add368-0350-443e-90a8-518b13b98de5",
+        "hash": "43cb0b02877dabe8ae0d4f1d7ef6a13b893c5083b2f2afe4f8cad701702abe0c",
+        "markdown": "| Family | Examples |\n| --- | --- |\n| Convex penalties | `NormL1`, `NormL1Nonneg`, `ElasticNet` |\n| Nonconvex penalties | `NormL0`, `MCP`, `SCAD`, `CappedL1`, `LogPenalty`, `NormLq` |\n| Entrywise sets | `IndBox`, `IndNonnegative`, `IndPattern`, `IndBanded` |\n| Losses and domain terms | `CheckLoss`, `HingeLoss`, `EpsInsensitiveLoss`, `NegEntropy`, `KLDivergence`, `NegLog`, `Berhu` |"
+      },
+      {
+        "id": "df5694d2-6410-4921-9ed4-17c0149790f4",
+        "hash": "b64ab8de074b789f431b4133739cc29e528efb3095f5641394ffbda5312ec6b4",
+        "markdown": "`SeparableSum` is a different abstraction: it acts on a tuple of blocks and directly subtypes `AbstractFunction`. A group penalty couples entries within a group and belongs to the group hierarchy."
+      },
+      {
+        "id": "6f3e9dc7-c1e6-44a6-bf2c-049fa9ce4b30",
+        "hash": "4f66d7c1b5c2392663b75c1f11fa296bc50065aa4615feb6e4633adaa991ddae",
+        "markdown": "# Source"
+      },
+      {
+        "id": "fccb6df6-34c9-4b01-934b-3c21b9de62df",
+        "hash": "4096ae2aa8d067cbaf456de1be24c4bcb93a1d33768964d819578e86dc67537a",
+        "markdown": "[Scalar kernels and reusable loops](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/functions/separable.jl), [Coordinate dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/interface.jl), and [Diagonal step methods](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/metric.jl)."
+      }
+    ]
+  },
+  {
+    "page_id": "page_7c673b96f0c48191923f1eee9bf0cd27",
+    "url": "https://chatgpt.com/space/page_7c673b96f0c48191923f1eee9bf0cd27",
+    "title": "AbstractGroupPenalty and HomogeneousGroupNorm",
+    "blocks": [
+      {
+        "id": "8ba16cf5-d7bc-4f99-8d6f-0ef70b2e9130",
+        "hash": "dbee0f9fc9e655369b90a83fe8d32e2e971e6a73601bf3e21b616a9923f4617f",
+        "markdown": "[Package overview](https://chatgpt.com/space/page_19d0374c8de481918344267237028f43)"
+      },
+      {
+        "id": "e0749a8c-9de6-42f5-bb6a-fb53158f5eee",
+        "hash": "c727c8b0eb0c5a6edeb9483e6024b6cb403551687d3f4368854b421ab1d6618e",
+        "markdown": "Group penalties share grouping and active-set machinery. Their hierarchy separates the common structure from the stronger properties of convex, positively homogeneous norms."
+      },
+      {
+        "id": "e94b0118-5c06-4f24-a533-79cbe769a976",
+        "hash": "23a3306be8c4a1e94af16ce81d4d2d0e3df8c575ce80ef42019dcb96f8baf0cb",
+        "markdown": "# Inheritance"
+      },
+      {
+        "id": "0d9861e5-d834-41bc-a4bb-ab880de34e10",
+        "hash": "1d99e643fc58bfe5ffa41f51b645bf226b88d4948923893dd1e17116c444d0f1",
+        "markdown": "```mermaid\nflowchart BT\n  G2[GroupNormL2] --> H[HomogeneousGroupNorm]\n  GI[GroupNormLinf] --> H\n  SG[SparseGroupNormL2] --> H\n  H --> G[AbstractGroupPenalty]\n  M[GroupMCP] --> G\n  S[GroupSCAD] --> G\n  G --> A[AbstractFunction]\n```"
+      },
+      {
+        "id": "552d00a7-6c3d-49a5-8d1c-e3c3fba5bd26",
+        "hash": "69209249c937681ddad4fd364453b29427ef3b9aa38de5e4ff1ac6f363309c5b",
+        "markdown": "`AbstractGroupPenalty` supplies the proximability trait. `HomogeneousGroupNorm` also supplies convexity. These abstract names are internal or qualified interfaces rather than exported entry points. `AbstractGroupNorm` is a compatibility alias for `AbstractGroupPenalty`; despite its name, it includes nonconvex group penalties."
+      },
+      {
+        "id": "590eb385-72f4-4f63-ac3b-f6c1d6350dcd",
+        "hash": "31d70b5c6e15e30b533c1eff8a73adcc7d2f9df9f3e5f8c118554e5f75e2b491",
+        "markdown": "# Shared structure and calls"
+      },
+      {
+        "id": "7dfb443f-4026-42e2-b99e-2fb870040215",
+        "hash": "186a6bae605fc2ddf70932c0290141f4de924c9d75a9877991e3d82b85e8e03f",
+        "markdown": "Concrete group penalties retain groups, weights, and index mappings. Full proximal calls apply kernels to groups. For an `AtomIterate` with matching groups, `prox_coordinate!(x, g, k, γ)` updates group `k`, and `kkt_violation(g, grad, x, k)` measures violation for a group at zero. Group-specific methods select the kernel through dispatch."
+      },
+      {
+        "id": "a58ac6bc-717d-41a9-9590-0c5ac875599b",
+        "hash": "2ee51e9a5ab4c2a320eebc7eeff9f6db304bd73dd96524aa36734816bdf6af81",
+        "markdown": "`AtomIterate(x, g)` aligns the iterate with a penalty's grouping. The iterate groups partition the vector; entries left unpenalized by the penalty receive their own free grouping. Shared groups allow supported sparse operations to visit only active groups."
+      },
+      {
+        "id": "0f89814c-ab18-420b-8e04-c9e886fb70d5",
+        "hash": "40002c9cb3242e63e540888330d5022dd82da519a363406eeec59855b22a1963",
+        "markdown": "# The useful distinction"
+      },
+      {
+        "id": "c650ebad-5147-4017-bb3f-482e9f8e488e",
+        "hash": "2d2b84eeb74d91be34aa698548dfb2b75beba9501648dbb2fa7367200eafb248",
+        "markdown": "`NormL1` separates by entry; `GroupNormL2` separates across groups but couples entries within each group. `GroupMCP` and `GroupSCAD` reuse grouping while requiring nonconvex kernels. A caller that needs a homogeneous convex group norm must use the narrower abstraction."
+      },
+      {
+        "id": "d255bfd1-fdbb-493d-87ef-43bd433c1f51",
+        "hash": "6e88eae731e0cf87d212f1ac96e810ac01e1db34fa25015a707676a5f468ff6e",
+        "markdown": "`IndBallGroupL0` is a related group constraint but directly subtypes `AbstractFunction`, so it is not a descendant of `AbstractGroupPenalty`."
+      },
+      {
+        "id": "08558b17-d349-4d2b-9b3f-e22abeb66d90",
+        "hash": "4f66d7c1b5c2392663b75c1f11fa296bc50065aa4615feb6e4633adaa991ddae",
+        "markdown": "# Source"
+      },
+      {
+        "id": "970e9f5d-9c03-4a02-9398-7b66bdb01686",
+        "hash": "95311f656aee2ea3723b28091a8a7e44b3969a43a58d735c68700961a6f13d9b",
+        "markdown": "[Group hierarchy and kernels](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/functions/norms.jl), [Sparse group norm](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/functions/sparsegroup.jl), [Nonconvex group penalties](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/functions/nonconvex.jl), and [Grouped iterate](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/atom_iterate.jl)."
+      }
+    ]
+  },
+  {
+    "page_id": "page_d31a54e6b19881918c2ce1a321911b0a",
+    "url": "https://chatgpt.com/space/page_d31a54e6b19881918c2ce1a321911b0a",
+    "title": "ScalarLoss and its composition into GLMLoss",
+    "blocks": [
+      {
+        "id": "b09844b9-ea20-4654-80b2-1761a42363f5",
+        "hash": "dbee0f9fc9e655369b90a83fe8d32e2e971e6a73601bf3e21b616a9923f4617f",
+        "markdown": "[Package overview](https://chatgpt.com/space/page_19d0374c8de481918344267237028f43)"
+      },
+      {
+        "id": "ac0688cf-e053-4d27-ba5d-30f7d9f4309f",
+        "hash": "3c5380ca8c21fd189a75a867e0a18d5330f4854b09f3252f0d2688467708558d",
+        "markdown": "`ScalarLoss` describes the loss of one observation as a function of a scalar predictor. It is a separate abstract root. `GLMLoss <: AbstractFunction` contains a scalar loss, design matrix, response, weights, offset, and working buffers."
+      },
+      {
+        "id": "2c66f27e-b58d-4abb-92e3-604b6dfbba93",
+        "hash": "b80a385cadd7e14df548fda4dfe0c5e873727040a9c5728f045aefa71ec1e856",
+        "markdown": "# Contract and concrete types"
+      },
+      {
+        "id": "ed33b0ec-5337-4b6b-a1f0-d64bcd443c16",
+        "hash": "70ec3e301dc2e6ca43a76cf03ef716bb60ba2794ed2649125ce5845a0deae5de",
+        "markdown": "| Operation | Role |\n| --- | --- |\n| `loss(η, y)` | Value for one observation |\n| `deriv(loss, η, y)` | First derivative in the predictor |\n| `deriv2(loss, η, y)` | Second derivative in the predictor |\n| `curvature(loss)` | Global bound on second derivative, possibly `Inf` |\n| `value_and_deriv(loss, η, y)` | Combined calculation; default calls value and derivative |"
+      },
+      {
+        "id": "b141803f-1ce3-428d-92cc-71841247a542",
+        "hash": "414e6e742fcdc18bfa3987ae460327406054c860f953c68f32639a1d264d9107",
+        "markdown": "Concrete types include `Squared`, `Logistic`, `Poisson`, `Huber`, `SquaredHinge`, `SmoothCheck`, `ConvolutionCheck`, and `Smoothed`. These scalar names and `ScalarLoss` are accessed with the `ProximalBase` qualifier."
+      },
+      {
+        "id": "ddd0b3fb-7524-4930-8fd7-0f2b5826b40b",
+        "hash": "a1e73f657b457b62b55da5b3643cae355d31e4930d2f7934ca5253aa06271984",
+        "markdown": "# Who calls whom"
+      },
+      {
+        "id": "dc27f13f-e272-41f1-b170-91d8245e8d57",
+        "hash": "c3c42aaad6300b8c2521b2de0c2743c080d0e2e7b3607d7de4aa49b3803df897",
+        "markdown": "```mermaid\nflowchart TD\n  C[Solver gradient call] --> G[GLMLoss]\n  G --> X[Compute predictor X beta plus offset]\n  X --> L[ScalarLoss value_and_deriv per observation]\n  L --> W[Apply observation weights]\n  W --> R[Multiply by transpose of X]\n  N[Hessian or quadratic model call] --> D[ScalarLoss deriv2 per observation]\n```"
+      },
+      {
+        "id": "42667f8f-e72e-4a2e-915a-9319e28c225d",
+        "hash": "a2e9839779345cce5dbbd64bd84b050658108f71012daa86fbfe2c0c1dd79e57",
+        "markdown": "`LogisticLoss`, `PoissonLoss`, and `HuberLoss` are aliases for specializations of `GLMLoss`, with convenience constructors. They are not sibling classes that inherit from `GLMLoss`."
+      },
+      {
+        "id": "277e0920-ee7f-4cda-81d3-8d19768af63a",
+        "hash": "ab0016cc6c0933e8710677e74d15eabed93b2897e1cbd82e8a5fb0ec64d15428",
+        "markdown": "# Connection to second order methods"
+      },
+      {
+        "id": "02985bd1-b626-4af3-b04c-230ee9405aed",
+        "hash": "485088e96c8030ba8c625aa019a648616e1d4f334d0b769e724ba8f6a9465a83",
+        "markdown": "`GLMLoss` uses scalar second derivatives for Hessian products and an IRLS quadratic model. Its model is another `GLMLoss` with a `Squared` scalar loss and working responses and weights. The implementation floors observation curvature at a small positive value where needed for finite working responses; this is the implemented model rather than an exact Hessian model at zero curvature."
+      },
+      {
+        "id": "08764697-0937-41ee-b603-1accc3c68cfb",
+        "hash": "f511467cdc04e863254f31261d7bb1f918aa34f2cd1f73a1c58804f074472379",
+        "markdown": "Adding a scalar observation loss can reuse the design-matrix calculations in `GLMLoss`. Adding an unrelated objective term instead starts from `AbstractFunction` or `SeparableFunction`."
+      },
+      {
+        "id": "b290ec85-64ec-4ccd-8507-2079977fe433",
+        "hash": "4f66d7c1b5c2392663b75c1f11fa296bc50065aa4615feb6e4633adaa991ddae",
+        "markdown": "# Source"
+      },
+      {
+        "id": "f723363e-5658-4e85-a8d0-430f16e27d83",
+        "hash": "3fcfbbed9942109c0a5d32a867efe6a174b0ff1fd640b06f15f3bea0ab561feb",
+        "markdown": "[ScalarLoss and GLMLoss](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/functions/glm.jl), [Additional scalar loss types](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/functions/losses.jl), [Smoothed scalar losses](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/envelope.jl), and [IRLS model construction](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/second_order.jl)."
+      }
+    ]
+  },
+  {
+    "page_id": "page_98a0214de41c8191a6400d69d863833c",
+    "url": "https://chatgpt.com/space/page_98a0214de41c8191a6400d69d863833c",
+    "title": "Function wrappers iterates and workspaces",
+    "blocks": [
+      {
+        "id": "a9a46013-e4b7-4b03-a40e-28a5214f2b86",
+        "hash": "dbee0f9fc9e655369b90a83fe8d32e2e971e6a73601bf3e21b616a9923f4617f",
+        "markdown": "[Package overview](https://chatgpt.com/space/page_19d0374c8de481918344267237028f43)"
+      },
+      {
+        "id": "039a225f-646b-4b71-ba87-a470c35e4ec0",
+        "hash": "1576fa802c189a1adb93cad2363cc3fafa10fccb07f8a83cabe5cdd9616bd007",
+        "markdown": "Wrappers assemble functions through composition. Iterates supply array storage and coordinate meaning. Workspaces retain numerical buffers inside functions. These are three different relationships from inheritance."
+      },
+      {
+        "id": "3986862e-207a-40b3-8220-208ba045c553",
+        "hash": "aba239b00c8d859f713006682ee31eb3e669f9878e569f6081e1c34301c23b1f",
+        "markdown": "# Wrappers contain other functions"
+      },
+      {
+        "id": "f7c61f90-ee43-4e2e-8d9f-fbeb0f3786fa",
+        "hash": "75b8e0338fedd07fd35044dda9ba4bc0859d5ff06f8b2e726c4053ee9d97091d",
+        "markdown": "| Wrapper | Meaning and delegation |\n| --- | --- |\n| `Scaled`, `Tilt`, `Translate` | Scale a function, add a linear term, or shift its input; transform and call the inner operations |\n| `Conjugate` | Uses the inner prox through Moreau decomposition; constructor requires convexity |\n| `Sum` | Add functions on the same input; add their gradients when smooth; no generic prox of the sum |\n| `SeparableSum` | Apply functions to separate tuple blocks; prox and gradients act block by block |\n| `SliceSum`, `FiberSum` | Apply functions along slices or fibers of an array |\n| `Precompose` | Apply an inner function after a linear map; the matrix construction requires `A A′ = μ I` |\n| `Regularize` | Add a quadratic ridge term |\n| `MoreauEnvelope` | Build a smooth envelope from a convex proximable function |\n| `Spectral`, `SingularValue` | Decompose a matrix, call an inner vector prox on eigenvalues or singular values, reconstruct |"
+      },
+      {
+        "id": "b810d1ed-ba10-4a90-9309-14d250533a8b",
+        "hash": "e3910e7ebbed81fc9fec84a592eb57704e5d6a01e4a09e78ea7318fedc40cf0a",
+        "markdown": "Each wrapper is itself an `AbstractFunction`. Trait methods propagate the supported capabilities under the wrapper's conditions. A wrapper can report separability without inheriting from `SeparableFunction`. `Spectral` requires permutation invariance; `SingularValue` requires absolute symmetry, with additional conditions for its nonconvex construction."
+      },
+      {
+        "id": "4ca8af04-6ff7-4514-b4ab-12eb534533e0",
+        "hash": "77be8b0e5b8d1b08b83a63dad00800e4641b79c0c8e2856c2fd9754e65eed6a8",
+        "markdown": "`Constrained` is a generic constructor function, rather than an abstract or concrete type. Supported combinations select implementations such as `BoxConstrained`, `LinearConstrained`, `BallConstrained`, `SphereConstrained`, and `AffineConstrained`."
+      },
+      {
+        "id": "96df72d1-c2a2-4484-9e4a-5de69c00d20b",
+        "hash": "2a21fe1f1248f093cbe82e4e727aaf7dcc11a644578a8f5d7c0657f4abc5cdcb",
+        "markdown": "# Iterates form a separate array hierarchy"
+      },
+      {
+        "id": "cf10dd41-fe4a-40f3-9302-ddf81f2592eb",
+        "hash": "5be51de35e8336532f103fc34fa4ba88528ed68e18b1be85b6cf1a2fd2e7684d",
+        "markdown": "| Type | Julia parent | One coordinate |\n| --- | --- | --- |\n| `SparseIterate{T,N}` | `AbstractArray{T,N}` | One array entry |\n| `SymmetricSparseIterate{T}` | `AbstractMatrix{T}` | One lower triangular entry representing a symmetric pair off the diagonal |\n| `AtomIterate{T}` | `AbstractVector{T}` | One group of entries |"
+      },
+      {
+        "id": "3f02d803-6fd4-4ba1-8a77-ee43cde07140",
+        "hash": "2aad25157257455695dfe3e762608a675fb56b1043d2bb3b6b0085c2b97dc512",
+        "markdown": "`ncoordinates`, `coordinates`, `activecoordinates`, `activate!`, and `isactive` expose coordinate and active-set structure. `atom` gives a group view. A separable function's `prox_entry` still uses a full linear array index; a symmetric iterate translates its lower triangular coordinate index before the call."
+      },
+      {
+        "id": "ef60e5a4-2d8c-4039-8e00-65cdcae5f0b6",
+        "hash": "bbfcbe0307971957a9d16d31e12ea65214884db5567df71ddf5b640cca1ad26c",
+        "markdown": "# Workspaces are owned numerical state"
+      },
+      {
+        "id": "5dc4ebe8-ea02-4a3c-8b66-47de515c8b83",
+        "hash": "41936a1a314322d890c56d271f48244f2d58cb3a60fd502dc53d9175bf84fa65",
+        "markdown": "Losses and wrappers can own scratch arrays, cached factorizations, and LAPACK workspaces even when their outer struct is immutable. For example, `GLMLoss` retains predictor and derivative buffers; `Spectral` owns an eigensolver workspace. Workspace types support numerical calculations and do not belong to the objective-function hierarchy."
+      },
+      {
+        "id": "09facf32-2cb9-43b5-a636-bbc939721aba",
+        "hash": "5c77a4d2608da33b9e42102d7bf1bae12658de8a94accadf2837f5ccc59264d0",
+        "markdown": "After changing retained least-squares or quadratic data in place, call `reset_cache!` on the outermost function. It descends through supported wrappers. Keep dimensions unchanged; reconstruct `IndAffine` after changing its data. Give each thread its own function copy when a function owns mutable workspaces."
+      },
+      {
+        "id": "0f8aea85-191e-4354-8e1c-5946d8e0b79c",
+        "hash": "4f66d7c1b5c2392663b75c1f11fa296bc50065aa4615feb6e4633adaa991ddae",
+        "markdown": "# Source"
+      },
+      {
+        "id": "781c872c-07ab-468d-9ff9-9ad6360342ea",
+        "hash": "cf270865bc3eec81d350498876972b385ba8074f749da0b71a26b87fc30bcda5",
+        "markdown": "[Basic wrappers](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/calculus.jl), [Composition](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/composition.jl), [Constrained constructors](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/constrained.jl), [Sparse iterates](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/sparse_iterate.jl), [AtomIterate](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/atom_iterate.jl), and [Cache lifecycle](https://github.com/mlakolar/ProximalBase.jl/blob/37d32e1579a1cb04a6ef26a175d2858ddd68e8ea/src/caches.jl)."
+      }
+    ]
+  }
+]

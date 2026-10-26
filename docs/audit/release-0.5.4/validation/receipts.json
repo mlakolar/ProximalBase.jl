@@ -1,0 +1,263 @@
+[
+  {
+    "label": "full-1.10",
+    "commit": "f68cd73fd5efcc1b7a59e4c8099f17e7060cafa3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.10.12+0.aarch64.apple.darwin14/Julia-1.10.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "scripts/test_master.jl"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 274.209460208,
+    "started_utc": "2026-10-26T11:47:05.441345+00:00"
+  },
+  {
+    "label": "full-1.13",
+    "commit": "f68cd73fd5efcc1b7a59e4c8099f17e7060cafa3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.13.2+0.aarch64.apple.darwin14/Julia-1.13.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "scripts/test_master.jl"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 349.623482125,
+    "started_utc": "2026-10-26T11:41:03.117448+00:00"
+  },
+  {
+    "label": "final-guard-1.10",
+    "commit": "c0e13053a5b4d19d113f2d2815cd1c15563268e3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.10.12+0.aarch64.apple.darwin14/Julia-1.10.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "--check-bounds=yes",
+      "--project=.master-test-env/v1.10",
+      "/Users/mladen.kolar/projects/juliaPkg/validation/proximalbase-release054-20261026/final-guard-tests.jl"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 68.34991804100001,
+    "started_utc": "2026-10-26T11:55:47.615614+00:00"
+  },
+  {
+    "label": "final-guard-1.13",
+    "commit": "c0e13053a5b4d19d113f2d2815cd1c15563268e3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.13.2+0.aarch64.apple.darwin14/Julia-1.13.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "--check-bounds=yes",
+      "--project=.master-test-env/v1.13",
+      "/Users/mladen.kolar/projects/juliaPkg/validation/proximalbase-release054-20261026/final-guard-tests.jl"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 85.911639166,
+    "started_utc": "2026-10-26T11:54:21.517301+00:00"
+  },
+  {
+    "label": "baseline-probes",
+    "commit": "c0e13053a5b4d19d113f2d2815cd1c15563268e3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.13.2+0.aarch64.apple.darwin14/Julia-1.13.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "--project=.master-test-env/v1.13",
+      "/Users/mladen.kolar/projects/juliaPkg/validation/proximalbase-release054-20261026/baseline-probes.jl"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 2.0333000830000003,
+    "started_utc": "2026-10-26T11:56:56.118639+00:00"
+  },
+  {
+    "label": "mixed-precision-before",
+    "commit": "f68cd73fd5efcc1b7a59e4c8099f17e7060cafa3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.13.2+0.aarch64.apple.darwin14/Julia-1.13.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "--project=.master-test-env/v1.13",
+      "/Users/mladen.kolar/projects/juliaPkg/validation/proximalbase-release054-20261026/mixed-precision-before.jl"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 2.0196045,
+    "started_utc": "2026-10-26T11:52:17.633916+00:00"
+  },
+  {
+    "label": "hot-paths",
+    "commit": "c0e13053a5b4d19d113f2d2815cd1c15563268e3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.13.2+0.aarch64.apple.darwin14/Julia-1.13.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "--project=.master-test-env/v1.13",
+      "/Users/mladen.kolar/projects/juliaPkg/validation/proximalbase-release054-20261026/hot-paths.jl"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 8.382478458,
+    "started_utc": "2026-10-26T11:56:58.321177+00:00"
+  },
+  {
+    "label": "device-diagnostics",
+    "commit": "c0e13053a5b4d19d113f2d2815cd1c15563268e3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.13.2+0.aarch64.apple.darwin14/Julia-1.13.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "--project=.master-test-env/v1.13",
+      "/Users/mladen.kolar/projects/juliaPkg/validation/proximalbase-release054-20261026/device-diagnostics.jl"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 11.942116042,
+    "started_utc": "2026-10-26T11:57:06.904261+00:00"
+  },
+  {
+    "label": "installed-user-1.13",
+    "commit": "c0e13053a5b4d19d113f2d2815cd1c15563268e3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.13.2+0.aarch64.apple.darwin14/Julia-1.13.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "/Users/mladen.kolar/projects/juliaPkg/validation/proximalbase-release054-20261026/user-install.jl",
+      "/Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026",
+      "c0e13053a5b4d19d113f2d2815cd1c15563268e3"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 11.973785125000001,
+    "started_utc": "2026-10-26T11:57:18.998256+00:00"
+  },
+  {
+    "label": "installed-user-1.10",
+    "commit": "c0e13053a5b4d19d113f2d2815cd1c15563268e3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.10.12+0.aarch64.apple.darwin14/Julia-1.10.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "/Users/mladen.kolar/projects/juliaPkg/validation/proximalbase-release054-20261026/user-install.jl",
+      "/Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026",
+      "c0e13053a5b4d19d113f2d2815cd1c15563268e3"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 1.077089666,
+    "started_utc": "2026-10-26T11:57:31.122723+00:00"
+  },
+  {
+    "label": "installed-user-1.13-retry",
+    "commit": "c0e13053a5b4d19d113f2d2815cd1c15563268e3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.13.2+0.aarch64.apple.darwin14/Julia-1.13.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "/Users/mladen.kolar/projects/juliaPkg/validation/proximalbase-release054-20261026/user-install-fixed.jl",
+      "/Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026",
+      "c0e13053a5b4d19d113f2d2815cd1c15563268e3"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 5.273234833,
+    "started_utc": "2026-10-26T11:59:33.305354+00:00"
+  },
+  {
+    "label": "installed-user-1.10-retry",
+    "commit": "c0e13053a5b4d19d113f2d2815cd1c15563268e3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.10.12+0.aarch64.apple.darwin14/Julia-1.10.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "/Users/mladen.kolar/projects/juliaPkg/validation/proximalbase-release054-20261026/user-install-fixed.jl",
+      "/Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026",
+      "c0e13053a5b4d19d113f2d2815cd1c15563268e3"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 11.134888208,
+    "started_utc": "2026-10-26T12:00:22.158906+00:00"
+  },
+  {
+    "label": "downstream",
+    "commit": "c0e13053a5b4d19d113f2d2815cd1c15563268e3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.13.2+0.aarch64.apple.darwin14/Julia-1.13.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "/Users/mladen.kolar/projects/juliaPkg/validation/proximalbase-release054-20261026/downstream-smoke.jl",
+      "/Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 19.433111417,
+    "started_utc": "2026-10-26T11:57:32.372763+00:00"
+  },
+  {
+    "label": "oracle-setup",
+    "commit": "c0e13053a5b4d19d113f2d2815cd1c15563268e3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.13.2+0.aarch64.apple.darwin14/Julia-1.13.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "scripts/instantiate.jl",
+      "test/oracles"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 4.174815875,
+    "started_utc": "2026-10-26T11:57:52.008593+00:00"
+  },
+  {
+    "label": "oracle",
+    "commit": "c0e13053a5b4d19d113f2d2815cd1c15563268e3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.13.2+0.aarch64.apple.darwin14/Julia-1.13.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "--check-bounds=yes",
+      "--project=test/oracles",
+      "test/oracles/runtests.jl"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 23.138112667,
+    "started_utc": "2026-10-26T11:57:56.357957+00:00"
+  },
+  {
+    "label": "docs-links",
+    "commit": "c0e13053a5b4d19d113f2d2815cd1c15563268e3",
+    "command": [
+      "/usr/bin/env",
+      "DOCUMENTER_LINKCHECK=true",
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.13.2+0.aarch64.apple.darwin14/Julia-1.13.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "--project=docs",
+      "docs/make.jl"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 36.878697208,
+    "started_utc": "2026-10-26T11:58:19.658132+00:00"
+  },
+  {
+    "label": "naming",
+    "commit": "f68cd73fd5efcc1b7a59e4c8099f17e7060cafa3",
+    "command": [
+      "python3",
+      "scripts/check_naming.py"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 0.164303917,
+    "started_utc": "2026-10-26T11:42:33.873391+00:00"
+  },
+  {
+    "label": "benchmark-analysis",
+    "commit": "f68cd73fd5efcc1b7a59e4c8099f17e7060cafa3",
+    "command": [
+      "/Users/mladen.kolar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+      "benchmark/check_analysis.py"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 0.38719258300000003,
+    "started_utc": "2026-10-26T11:42:34.275550+00:00"
+  },
+  {
+    "label": "gpu-analysis",
+    "commit": "f68cd73fd5efcc1b7a59e4c8099f17e7060cafa3",
+    "command": [
+      "/Users/mladen.kolar/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+      "benchmark/gpu_solver/check_analysis.py"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 0.505459833,
+    "started_utc": "2026-10-26T11:42:34.903562+00:00"
+  },
+  {
+    "label": "storage-baseline",
+    "commit": "c0e13053a5b4d19d113f2d2815cd1c15563268e3",
+    "command": [
+      "/Users/mladen.kolar/.julia/juliaup/julia-1.13.2+0.aarch64.apple.darwin14/Julia-1.13.app/Contents/Resources/julia/bin/julia",
+      "--startup-file=no",
+      "--project=.master-test-env/v1.13",
+      "/Users/mladen.kolar/projects/juliaPkg/validation/proximalbase-release054-20261026/storage-baseline.jl"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 2.5343075830000004,
+    "started_utc": "2026-10-26T12:04:40.354093+00:00"
+  }
+]

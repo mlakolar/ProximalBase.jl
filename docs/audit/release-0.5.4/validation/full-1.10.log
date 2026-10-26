@@ -1,0 +1,582 @@
+{
+  "label": "full-1.10",
+  "cwd": "/Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026",
+  "command": [
+    "/Users/mladen.kolar/.julia/juliaup/julia-1.10.12+0.aarch64.apple.darwin14/Julia-1.10.app/Contents/Resources/julia/bin/julia",
+    "--startup-file=no",
+    "scripts/test_master.jl"
+  ],
+  "started_utc": "2026-10-26T11:47:05.441345+00:00",
+  "commit": "f68cd73fd5efcc1b7a59e4c8099f17e7060cafa3",
+  "status": "M docs/src/interface.md\n?? docs/audit/",
+  "implementation_sha256": {
+    "src/ProximalBase.jl": "31ecee629ab86aebde81f8831f3293aa5bf41aa2449a1583d429f43c0daab269",
+    "src/affineconstrained.jl": "47b7f5f4bc027b02d03e36fe7caf5a58921f3ca9b8f7f2dbb8059e78f2d6a6ee",
+    "src/atom_iterate.jl": "a307e3e489704de22804a4773226d4c54411a0ba95f7be1e6228f73ab52dcaf5",
+    "src/ballconstrained.jl": "a82ecadc7fbd67049a08402d12c9d4ca348d523cee26d624f4517e51a91eaf87",
+    "src/caches.jl": "4d58992a64b4e77e1358cfb1bdb8e4c145e4a9ab61f82fb9b8e8d2f4d8ab76c8",
+    "src/calculus.jl": "54f47a5443f0fb7f3976bd3fb776fa9e97783e52b9b5b797e1cd9bba9ba5e451",
+    "src/composition.jl": "fb12acc0682f36574d2930a94422ff9685517513ac0a074ccb4a6dddea13981e",
+    "src/constrained.jl": "7a59bb717a0a800edf7bafbc25297fc430e5be18cb00472969267f7ba94abb78",
+    "src/constrained_nonconvex.jl": "530680f64041cc2099022a2375390f787e7ad00cf7274d71b3e3724cfc0a9dae",
+    "src/deprecated.jl": "825fc397391762b2055316ee1d42c0bafe9a05c165cc852a6f0b6472b6d34228",
+    "src/envelope.jl": "c4155c040aa78707ed382031a2ffdf04dcea74ebb2c42a56e50426e807eeaf62",
+    "src/functions/affine.jl": "2ce1163abebd7af59cb8b7f1dc088d13609964a5ff14345f1cb4e75be9523c5d",
+    "src/functions/entropy.jl": "1a2b6552f8c74a32f46ef8ef25c2ca68a649d5f57a7f3c1f225582a5e2128b06",
+    "src/functions/fibers.jl": "84c7ccbfbdc627051e5ba0cd00dbaa5eca7fe62a9df9851f3589114b41cf8f6b",
+    "src/functions/glm.jl": "50ac8b05bba2ebeacb9080f68fb24bcb7bccdba88ed10dd72b94cae4b1739af5",
+    "src/functions/intersection.jl": "306c2aa7308c3a1f802447bcf46cf5a95a8c0fbdcab5cb2aebbe44e367aafd9e",
+    "src/functions/leastsquares.jl": "257c96968d8e3d61eb25015d934b1720f9e88f4c1e626cdce7dac21575fc3367",
+    "src/functions/logdet.jl": "b11061c054ab495bd636e21c52293fba6c152dd41645f1e6719259291506c117",
+    "src/functions/losses.jl": "f88eae9d70760c59198500f775519c8a113b8db0a483a4ee46cf537e904ba744",
+    "src/functions/matrixsets.jl": "28811d277881b44de14ee77b6c4e41bb78da45be0cdd684dd0f965ce327a5e3b",
+    "src/functions/nonconvex.jl": "5d8e4aa154f77d3ce92e3505f7c093feb2b706d986abfd3ff8b0dbe6af8c0079",
+    "src/functions/norms.jl": "651bdf7eca1143fb5f2b7474465b44fdd7c386ea11070f5688408b523edbaba2",
+    "src/functions/ordered.jl": "0278f7401b57d302d2f974261463572c4ce2facde901686a956668febf8456b8",
+    "src/functions/separable.jl": "7315731b97d760e93346682e6b1cb54ba1f7559554a390363f6a0e59054e5e06",
+    "src/functions/sets.jl": "cacc462cc1204d433e99a5322cc6582b0f0ae12980db7492cbc886dfe389f8f6",
+    "src/functions/singular.jl": "3cdf5bcd34f48f95cfb20592535b1659be9c23aa4fc422eb2dee46ac30d1e0ec",
+    "src/functions/smooth.jl": "009d19d7e77a8c868f57ea18b84958b0bb60d756c4ca27c77163588a325afeb7",
+    "src/functions/sparsegroup.jl": "19b0fd469b3de962f46d8cde619c5152a801ed566c5694f64a90a554e9856402",
+    "src/functions/spectral.jl": "4b4ef30c2cc7e320a731cc600c960e4e5b077a510172a1105f46b535ce038976",
+    "src/interface.jl": "edc049c1a4ae6b6fb8b359439c8930bcbcbe0f0a50e865e0c3cb05ee7d352f13",
+    "src/lapack.jl": "49b19110bdba6c8467263060d9f2bd55db41ceb4fa0ae7fb2a3350173240114c",
+    "src/lla.jl": "f14a0f1d2ff0a9e048d25fd2cb9b084c168446f0fb8ff75567e6165d3cbc43e6",
+    "src/metric.jl": "e13c464e16d834640920c739cefa2f014b4203c62089d5e4cb4452942a8e45bf",
+    "src/partial.jl": "094e1e21cea4a4a64fcf2d034b3d64e2aecd4c12590c5b401e631f13b2552190",
+    "src/precompile.jl": "203d5453dddad762f4be4f7ca45461877b5654e8483cf30ae06909eaa7f04f00",
+    "src/second_order.jl": "99120db40e6a4df02bbada70cfff0423756338f3a5eb69f6123aca3c65e834af",
+    "src/sparse_iterate.jl": "fa6e2a6a5b7c22d0428ad81aa234af1987d592a38de762cf3c3de0164d8e26fd",
+    "src/spectralfunction.jl": "9946d0170605378dca68b7d3e2c12e0b6b77a0b5ca733cfb9d5af4bf90412c6a",
+    "src/testing.jl": "8e77a1ea7900edbca9fffeee4a06b10fde5e7fb2d360dd183bba247f0166c297",
+    "src/utils.jl": "36f43f4e6eab0c62d18a1ad61ed6b9325a463f145a237deb6f06549155ce2d56",
+    "ext/ProximalBaseGPUArraysCoreExt.jl": "38fc211d3fdf499e65f9613d4a5c55b124967599340100391887fb60b432a998",
+    "ext/ProximalBaseTestExt.jl": "65afdf05d77c6269c87a9e3d4bd6af8ad8ee8a28450e6cc7d8da87e677fdd0a3"
+  }
+}
+
+WARNING: ProximalBase.ProxL1 is deprecated, use NormL1 instead.
+  likely near /Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026/test/deprecated.jl:13
+WARNING: ProximalBase.ProxZero is deprecated, use ZeroFunction instead.
+  likely near /Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026/test/deprecated.jl:13
+WARNING: ProximalBase.ProxL2 is deprecated, use NormL2 instead.
+  likely near /Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026/test/deprecated.jl:13
+WARNING: ProximalBase.ProxGroupL2 is deprecated, use GroupNormL2 instead.
+  likely near /Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026/test/deprecated.jl:13
+WARNING: ProximalBase.ProxNuclear is deprecated, use NuclearNorm instead.
+  likely near /Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026/test/deprecated.jl:13
+WARNING: ProximalBase.ProxL1Fused is deprecated, use NormL1Fused instead.
+  likely near /Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026/test/deprecated.jl:13
+WARNING: ProximalBase.ProxGaussLikelihood is deprecated, use LogDetLoss instead.
+  likely near /Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026/test/deprecated.jl:13
+WARNING: ProximalBase.DifferentiableFunction is deprecated, use AbstractFunction instead.
+  likely near /Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026/test/deprecated.jl:13
+WARNING: ProximalBase.ProximableFunction is deprecated, use AbstractFunction instead.
+  likely near /Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026/test/deprecated.jl:13
+* running utils.jl ...
+Test Summary:                | Pass  Total  Time
+public squared operator norm |   28     28  1.5s
+Test Summary: | Pass  Total  Time
+shrink        |    9      9  0.1s
+Test Summary: | Pass  Total  Time
+quickselect   |  143    143  0.5s
+Test Summary:               | Pass  Total  Time
+projection onto the simplex |   51     51  0.2s
+Test Summary:            | Pass  Total  Time
+lower triangular helpers |   19     19  0.2s
+Test Summary: | Pass  Total  Time
+norm_diff     |  103    103  1.3s
+Test Summary: | Pass  Total  Time
+buffers       |    6      6  0.0s
+done (took 5.5032665 seconds).
+* running lapack.jl ...
+Test Summary:     | Pass  Total  Time
+LAPACK workspaces |   52     52  2.6s
+done (took 2.684641791 seconds).
+* running partial.jl ...
+Test Summary:         | Pass  Total  Time
+thin QR decomposition |   11     11  0.1s
+Test Summary:    | Pass  Total  Time
+the random block |    4      4  0.0s
+Test Summary:        | Pass  Total  Time
+NuclearNorm, partial |  122    122  0.5s
+Test Summary:                              | Pass  Total  Time
+a learned rank near the partial-SVD cutoff |   60     60  0.3s
+Test Summary:                    | Pass  Total  Time
+a first call from a random block |    8      8  2.9s
+Test Summary:        | Pass  Total  Time
+IndBallRank, partial |   24     24  0.0s
+Test Summary:   | Pass  Total  Time
+IndPSD, partial |   49     49  0.3s
+Test Summary:     | Pass  Total  Time
+TracePSD, partial |   25     25  0.4s
+Test Summary:                                                 | Pass  Total  Time
+a slowly decaying spectrum: the full decomposition takes over |    2      2  0.2s
+done (took 10.522666292 seconds).
+* running sparse_iterate.jl ...
+Test Summary: | Pass  Total  Time
+sparseIterate |  125    125  0.3s
+Test Summary:          | Pass  Total   Time
+sparseSymmetricIterate |  145    145  18.0s
+Test Summary:                                    | Pass  Total  Time
+sparse triple products agree with dense products |   24     24  0.1s
+done (took 21.202011084 seconds).
+* running atom_iterate.jl ...
+Test Summary: | Pass  Total  Time
+AtomIterate   |   80     80  0.7s
+done (took 0.882062208 seconds).
+* running symmetric_products.jl ...
+Test Summary:                              | Pass  Total  Time
+Symmetric products over active coordinates |  300    300  2.5s
+Test Summary:                                | Pass  Total  Time
+strided destinations and mixed element types |   41     41  0.5s
+Test Summary:                                  | Pass  Total  Time
+raw symmetric quadratic has no hot allocations |   20     20  0.3s
+done (took 5.506257875 seconds).
+* running interface.jl ...
+Test Summary: | Pass  Total  Time
+traits        |  362    362  0.8s
+Test Summary:     | Pass  Total  Time
+generic interface |   12     12  0.2s
+Test Summary:                   | Pass  Total  Time
+prox_entry and prox_coordinate! |  331    331  1.3s
+Test Summary: | Pass  Total  Time
+kkt_violation |   66     66  0.0s
+Test Summary: | Pass  Total  Time
+restrict      |   35     35  0.2s
+Test Summary:    | Pass  Total  Time
+gradient_mapping |    7      7  0.0s
+Test Summary:               | Pass  Total  Time
+proximal operators in place |   39     39  1.1s
+done (took 4.489511667 seconds).
+* running smooth.jl ...
+Test Summary:                   | Pass  Total  Time
+ZeroFunction and LinearFunction |   55     55  0.5s
+Test Summary: | Pass  Total  Time
+SqrNormL2     |   67     67  0.0s
+Test Summary:     | Pass  Total  Time
+QuadraticFunction |   76     76  0.0s
+Test Summary: | Pass  Total  Time
+KronQuadratic |   42     42  0.6s
+Test Summary:    | Pass  Total  Time
+LeastSquaresLoss |  506    506  0.9s
+Test Summary: | Pass  Total  Time
+scalar losses |  379    379  0.2s
+Test Summary: | Pass  Total  Time
+GLMLoss       |   81     81  0.4s
+Test Summary: | Pass  Total  Time
+LogDetLoss    |  101    101  0.2s
+Test Summary:                        | Pass  Total  Time
+zero-weight observations are ignored |   54     54  0.3s
+Test Summary: | Pass  Total  Time
+lipschitz     |   53     53  0.7s
+Test Summary:                                        | Pass  Total  Time
+KronQuadratic from matrices symmetric up to rounding |    3      3  0.0s
+Test Summary:                 | Pass  Total  Time
+centered ridge at large steps |   12     12  0.0s
+Test Summary:                                          | Pass  Total  Time
+LogDetLoss symmetric domain and general proximal input |   26     26  0.3s
+Test Summary:                     | Pass  Total  Time
+ridge interpolation near floatmax |    6      6  0.0s
+Test Summary:                  | Pass  Total  Time
+least-squares rank-zero caches |  288    288  0.2s
+Test Summary:                                   | Pass  Total  Time
+direct smooth parameter checks precede mutation |  116    116  0.1s
+Test Summary:                              | Pass  Total  Time
+centered ridge shape checks precede writes |   32     32  0.0s
+done (took 11.409766333 seconds).
+* running separable.jl ...
+Test Summary: | Pass  Total  Time
+NormL1        |   53     53  0.0s
+Test Summary:   | Pass  Total  Time
+sparse iterates |   85     85  0.4s
+Test Summary:             | Pass  Total  Time
+parameter arrays must fit |   41     41  0.2s
+Test Summary:                               | Pass  Total  Time
+SymmetricSparseIterate into another iterate |    2      2  0.0s
+Test Summary: | Pass  Total  Time
+NormL1Nonneg  |   21     21  0.2s
+Test Summary: | Pass  Total  Time
+ElasticNet    |   42     42  0.4s
+Test Summary: | Pass  Total  Time
+boxes         |   99     99  0.0s
+Test Summary: | Pass  Total  Time
+NormL0        |   33     33  0.2s
+Test Summary: | Pass  Total  Time
+MCP           |   84     84  0.3s
+Test Summary: | Pass  Total  Time
+SCAD          |   84     84  0.3s
+Test Summary:                    | Pass  Total  Time
+a separable function of your own |   46     46  0.0s
+done (took 4.480089667 seconds).
+* running losses.jl ...
+Test Summary: | Pass  Total  Time
+CheckLoss     |  416    416  1.5s
+Test Summary: | Pass  Total  Time
+HingeLoss     |  811    811  2.2s
+Test Summary:      | Pass  Total  Time
+EpsInsensitiveLoss |  412    412  0.2s
+Test Summary:                 | Pass  Total  Time
+iterates and coordinate steps |   33     33  0.3s
+Test Summary: | Pass  Total  Time
+Float32       |   15     15  0.1s
+Test Summary:        | Pass  Total  Time
+smooth scalar losses |  523    523  0.8s
+Test Summary:                  | Pass  Total  Time
+GLMLoss with the smooth losses |   29     29  0.0s
+Test Summary:    | Pass  Total  Time
+zero allocations |   88     88  0.3s
+done (took 7.54518975 seconds).
+* running entropy.jl ...
+Test Summary:                                 | Pass  Total  Time
+Wright omega near the Taylor-start boundaries | 2010   2010  0.1s
+Test Summary:             | Pass  Total  Time
+the Wright omega function |  635    635  0.0s
+Test Summary: | Pass  Total  Time
+NegEntropy    |   98     98  0.4s
+Test Summary: | Pass  Total  Time
+KLDivergence  |   58     58  0.4s
+Test Summary: | Pass  Total  Time
+NegLog        |  142    142  0.4s
+Test Summary: | Pass  Total  Time
+Berhu         |  103    103  0.6s
+Test Summary:            | Pass  Total  Time
+Float32 and the iterates |   19     19  0.2s
+Test Summary:    | Pass  Total  Time
+zero allocations |   35     35  0.2s
+Test Summary:                           | Pass  Total  Time
+entropy steps outside the product range |   14     14  0.0s
+done (took 2.710096416 seconds).
+* running norms.jl ...
+Test Summary: | Pass  Total  Time
+NormL2        |   47     47  0.0s
+Test Summary: | Pass  Total  Time
+NormLinf      |   44     44  0.0s
+Test Summary: | Pass  Total  Time
+group norms   |  242    242  2.0s
+Test Summary: | Pass  Total  Time
+NormL1Fused   | 6027   6027  0.1s
+Test Summary:                                   | Pass  Total  Time
+Euclidean penalties preserve extreme directions |   16     16  0.1s
+Test Summary:                                  | Pass  Total  Time
+zero norm levels before overflowing reductions |   48     48  1.1s
+Test Summary:                               | Pass  Total  Time
+zero group weights before overflowing norms |   86     86  1.6s
+Test Summary:                                        | Pass  Total  Time
+identity group coordinate steps activate view writes |   40     40  0.0s
+done (took 6.886563917 seconds).
+* running sparsegroup.jl ...
+Test Summary:     | Pass  Total  Time
+SparseGroupNormL2 |  242    242  1.6s
+Test Summary:                           | Pass  Total  Time
+sparse group norm at extreme magnitudes |   12     12  0.0s
+done (took 1.737176958 seconds).
+* running fibers.jl ...
+Test Summary: | Pass  Total  Time
+SliceSum      |   51     51  2.1s
+Test Summary: | Pass  Total  Time
+FiberSum      |  303    303  4.3s
+Test Summary:                                  | Pass  Total  Time
+NormL1Fused on pairs of arrays and on one pair |   25     25  0.3s
+Test Summary:                             | Pass  Total  Time
+NormL1Fused on K entries, all pairs fused |  194    194  0.4s
+Test Summary:                                       | Pass  Total  Time
+FiberSum: K classes all fused, and fusion over time |   87     87  1.5s
+done (took 8.699771459 seconds).
+* running spectral.jl ...
+Test Summary: | Pass  Total  Time
+NuclearNorm   |   58     58  0.0s
+Test Summary: | Pass  Total  Time
+IndBallRank   |   20     20  0.0s
+Test Summary: | Pass  Total  Time
+IndPSD        |   60     60  0.0s
+Test Summary: | Pass  Total  Time
+TracePSD      |   22     22  0.0s
+done (took 0.375976666 seconds).
+* running singular.jl ...
+Test Summary:               | Pass  Total  Time
+against the dense reference |  612    612  2.6s
+Test Summary:                 | Pass  Total  Time
+the nuclear norm and the rank |   13     13  0.0s
+Test Summary:   | Pass  Total  Time
+norms and balls |    7      7  0.2s
+Test Summary: | Pass  Total  Time
+conjugates    |   42     42  0.0s
+Test Summary:              | Pass  Total  Time
+traits, inputs and outputs |   27     27  0.1s
+Test Summary: | Pass  Total  Time
+Float32       |   12     12  0.3s
+Test Summary:   | Pass  Total  Time
+the Ky Fan norm |  246    246  0.0s
+Test Summary:    | Pass  Total  Time
+zero allocations |   56     56  0.3s
+done (took 6.143352167 seconds).
+* running intersection.jl ...
+Test Summary:   | Pass  Total  Time
+IndIntersection |   81     81  3.6s
+done (took 3.623347791 seconds).
+* running sets.jl ...
+Test Summary: | Pass  Total  Time
+IndBallL0     |   55     55  0.7s
+Test Summary:                   | Pass  Total  Time
+IndBallL0 on symmetric matrices |  266    266  0.6s
+Test Summary: | Pass  Total  Time
+IndBallL1     |  124    124  0.0s
+Test Summary: | Pass  Total  Time
+IndBallL2     |   37     37  0.0s
+Test Summary: | Pass  Total  Time
+IndSimplex    |  225    225  0.3s
+Test Summary:              | Pass  Total  Time
+hyperplanes and halfspaces |   40     40  0.6s
+Test Summary:                                | Pass  Total  Time
+scalar normals of hyperplanes and halfspaces |   14     14  0.0s
+Test Summary:                                     | Pass  Total  Time
+Euclidean projections preserve extreme directions |    8      8  0.1s
+done (took 3.437193583 seconds).
+* running ordered.jl ...
+Test Summary:   | Pass  Total  Time
+total variation |  118    118  0.1s
+Test Summary:       | Pass  Total  Time
+isotonic regression |   56     56  0.1s
+Test Summary: | Pass  Total  Time
+SLOPE         |   62     62  0.0s
+done (took 2.032390834 seconds).
+* running nonconvex.jl ...
+Test Summary: | Pass  Total  Time
+CappedL1      |  112    112  0.6s
+Test Summary: | Pass  Total  Time
+LogPenalty    |  652    652  2.1s
+Test Summary: | Pass  Total  Time
+NormLq        |  394    394  1.5s
+Test Summary:                       | Pass  Total  Time
+separable functions on the iterates |   22     22  0.1s
+Test Summary:                                  | Pass  Total  Time
+half thresholding across floating-point scales |  256    256  0.1s
+Test Summary:          | Pass  Total  Time
+GroupMCP and GroupSCAD |  200    200  1.8s
+Test Summary:  | Pass  Total  Time
+IndBallGroupL0 |   29     29  0.2s
+Test Summary:                                   | Pass  Total  Time
+IndBallGroupL0 with at most k entries per group | 2512   2512  0.3s
+Test Summary:    | Pass  Total  Time
+zero allocations |   78     78  0.4s
+Test Summary:          | Pass  Total  Time
+dimensionless lq roots |   38     38  0.0s
+Test Summary:                                  | Pass  Total  Time
+group sparsity selection at extreme magnitudes |   12     12  0.0s
+Test Summary:                              | Pass  Total  Time
+lq threshold beyond the step product range |   18     18  0.0s
+done (took 7.557881792 seconds).
+* running lla.jl ...
+Test Summary:                         |  Pass  Total  Time
+the slopes of the separable penalties | 10540  10540  0.2s
+Test Summary:                | Pass  Total  Time
+the conventions at the kinks |   20     20  0.0s
+Test Summary:                       | Pass  Total  Time
+lla_weights! on arrays and iterates |   40     40  0.3s
+Test Summary:                          | Pass  Total  Time
+a stage of LLA decreases the objective |   28     28  0.1s
+Test Summary: | Pass  Total  Time
+group weights |   77     77  0.1s
+Test Summary:                       | Pass  Total  Time
+element types, inference and errors |   21     21  0.1s
+Test Summary:    | Pass  Total  Time
+zero allocations |   24     24  0.1s
+done (took 1.193563 seconds).
+* running matrixsets.jl ...
+Test Summary: | Pass  Total  Time
+IndPattern    |   98     98  0.0s
+Test Summary: | Pass  Total  Time
+IndBanded     |  384    384  0.0s
+Test Summary: | Pass  Total  Time
+IndToeplitz   |  137    137  0.0s
+done (took 4.748701375 seconds).
+* running affine.jl ...
+Test Summary: | Pass  Total  Time
+IndAffine     |   86     86  0.3s
+Test Summary:    | Pass  Total  Time
+zero allocations |   12     12  0.1s
+Test Summary:                                                | Pass  Total  Time
+Constrained(f, IndAffine): the restricted least-squares step |  187    187  1.1s
+Test Summary:                              | Pass  Total  Time
+ADMM: the lasso under equality constraints |    6      6  0.2s
+Test Summary:                               | Pass  Total  Time
+Constrained(f, IndAffine): zero allocations |   84     84  0.6s
+Test Summary:                              | Pass  Total  Time
+affine constrained empty-observation cache |    8      8  0.0s
+done (took 5.388533542 seconds).
+* running calculus.jl ...
+Test Summary: | Pass  Total  Time
+Scaled        |   47     47  0.1s
+Test Summary: | Pass  Total  Time
+Tilt          |   71     71  0.9s
+Test Summary: | Pass  Total  Time
+Translate     |   73     73  1.1s
+Test Summary:      | Pass  Total  Time
+Conjugate wrappers |   18     18  0.1s
+Test Summary:                | Pass  Total  Time
+zero scales preserve domains |  244    244  0.4s
+Test Summary: | Pass  Total  Time
+Conjugate     |  212    212  2.4s
+Test Summary: | Pass  Total  Time
+SeparableSum  |    9      9  0.0s
+Test Summary: | Pass  Total  Time
+Sum           |   12     12  0.1s
+Test Summary:                             | Pass  Total  Time
+wrapper parameter lengths before mutation |   44     44  0.5s
+Test Summary:                                                  | Pass  Total  Time
+conjugate values at proximal points without a standalone value |   26     26  0.4s
+done (took 7.288207042 seconds).
+* running constrained.jl ...
+Test Summary:                 | Pass  Total  Time
+a separable function on a box | 1781   1781  5.0s
+Test Summary:             | Pass  Total  Time
+coordinate steps on a box |   33     33  0.0s
+Test Summary:                                       | Pass  Total  Time
+a separable function on a hyperplane or a halfspace |  207    207  5.3s
+Test Summary:                              | Pass  Total  Time
+the search starts from the last multiplier |   92     92  0.2s
+Test Summary:   | Pass  Total  Time
+variable fixing |  233    233  5.6s
+Test Summary:                                   | Pass  Total  Time
+the conjugate of a box with a linear constraint |  133    133  2.7s
+Test Summary:                       | Pass  Total  Time
+slopes of scalar proximal operators |  716    716  0.0s
+Test Summary:                                    | Pass  Total  Time
+boxes cannot return points outside inner domains |   64     64  0.6s
+done (took 20.391343959 seconds).
+* running spectralfunction.jl ...
+Test Summary:                | Pass  Total  Time
+functions of the eigenvalues |  103    103  1.2s
+Test Summary: | Pass  Total  Time
+the Fantope   |   96     96  0.0s
+Test Summary:                        | Pass  Total  Time
+the sum of the k largest eigenvalues |   78     78  0.0s
+Test Summary:                     | Pass  Total  Time
+outputs, element types and errors |   11     11  0.2s
+done (took 2.864728 seconds).
+* running ballconstrained.jl ...
+Test Summary: | Pass  Total  Time
+IndSphereL2   |   20     20  0.1s
+Test Summary:        | Pass  Total  Time
+a norm on an ℓ2 ball | 9099   9099  2.8s
+Test Summary:          | Pass  Total  Time
+a norm on an ℓ2 sphere |  587    587  1.1s
+Test Summary:                      | Pass  Total  Time
+allocations, inference and Float32 |   25     25  0.2s
+done (took 5.657285041 seconds).
+* running constrained_nonconvex.jl ...
+Test Summary:                 | Pass  Total  Time
+MCP, SCAD and NormL0 on a box | 8358   8358  6.7s
+Test Summary:                      | Pass  Total  Time
+allocations, inference and Float32 |   12     12  0.1s
+done (took 6.791138125 seconds).
+* running testing.jl ...
+Test Summary:        | Pass  Total  Time
+ProximalBase.Testing |   42     42  3.4s
+done (took 3.514932792 seconds).
+* running second_order.jl ...
+Test Summary:                   | Pass  Total  Time
+quadratics are their own models |  108    108  1.6s
+Test Summary:             | Pass  Total  Time
+generalized linear models |  119    119  2.2s
+Test Summary: | Pass  Total  Time
+LogDetLoss    |   54     54  0.0s
+Test Summary:                  | Pass  Total  Time
+functions built from functions |   97     97  1.8s
+Test Summary:                  | Pass  Total  Time
+zero allocations and inference |   27     27  0.1s
+done (took 8.797079167 seconds).
+* running envelope.jl ...
+Test Summary:  | Pass  Total  Time
+MoreauEnvelope |  218    218  5.0s
+Test Summary: | Pass  Total  Time
+Smoothed      |  213    213  0.4s
+Test Summary:    | Pass  Total  Time
+zero allocations |   14     14  0.0s
+Test Summary:                                         | Pass  Total  Time
+envelope combined step range and stable interpolation |   22     22  0.1s
+Test Summary:                                     | Pass  Total  Time
+envelope energy across the squared-distance range |   46     46  0.1s
+done (took 6.029452333 seconds).
+* running composition.jl ...
+Test Summary: | Pass  Total  Time
+Precompose    |  150    150  1.3s
+Test Summary: | Pass  Total  Time
+Regularize    |  138    138  1.8s
+Test Summary:                 | Pass  Total  Time
+composed second-order oracles |  108    108  1.1s
+Test Summary:                  | Pass  Total  Time
+composed coordinate curvatures |   24     24  0.2s
+Test Summary:    | Pass  Total  Time
+zero allocations |   24     24  0.0s
+Test Summary:                                  | Pass  Total  Time
+regularized group validation precedes mutation |    7      7  0.0s
+Test Summary:                                       | Pass  Total  Time
+finite ridge parameters with an overflowing product |   14     14  0.2s
+done (took 5.222316708 seconds).
+* running caches.jl ...
+Test Summary:                 | Pass  Total  Time
+least-squares cache lifecycle |   41     41  0.2s
+Test Summary:                    | Pass  Total  Time
+quadratic and constrained caches |   28     28  0.3s
+Test Summary:                | Pass  Total  Time
+reset the outermost function |   40     40  0.4s
+done (took 1.120217375 seconds).
+* running metric.jl ...
+Test Summary:                            | Pass  Total  Time
+a step per entry for separable functions |  105    105  0.8s
+Test Summary:                           | Pass  Total  Time
+shared scalar and diagonal-step kernels |  240    240  1.7s
+Test Summary:                    | Pass  Total  Time
+a step per group for group norms |   50     50  0.2s
+Test Summary:                     | Pass  Total  Time
+a step per group for MCP and SCAD |  104    104  1.1s
+Test Summary:                               | Pass  Total  Time
+a step per group for the sparse group lasso |   11     11  0.1s
+Test Summary:                                    | Pass  Total  Time
+functions built from functions pass the steps on |   18     18  0.5s
+Test Summary:                      | Pass  Total  Time
+per-coordinate Lipschitz constants |   41     41  0.5s
+Test Summary:             | Pass  Total  Time
+sets in a diagonal metric |  321    321  1.9s
+Test Summary:    | Pass  Total  Time
+zero allocations |   44     44  0.2s
+Test Summary:                          | Pass  Total  Time
+coordinate bounds with no observations |    8      8  0.1s
+done (took 9.781977375 seconds).
+* running allocations.jl ...
+Test Summary:    | Pass  Total  Time
+zero allocations |  665    665  4.1s
+done (took 5.806363458 seconds).
+* running gpu.jl ...
+Test Summary:                     | Pass  Total  Time
+separable functions on GPU arrays |  264    264  6.6s
+Test Summary:                              | Pass  Total  Time
+norms, balls and the simplex on GPU arrays |  227    227  2.2s
+Test Summary:             | Pass  Total  Time
+group norms on GPU arrays |  504    504  9.8s
+Test Summary:                                       | Pass  Total  Time
+representable group norms outside the squared range |   48     48  1.8s
+Test Summary:                                | Pass  Total  Time
+zero penalty levels before device reductions |  204    204  0.4s
+Test Summary:                             | Pass  Total  Time
+losses with a design matrix on GPU arrays |  205    205  4.5s
+done (took 31.451325125 seconds).
+* running deprecated.jl ...
+Test Summary: | Pass  Total  Time
+deprecated    |   76     76  1.6s
+done (took 1.997067375 seconds).
+* running examples.jl ...
+Test Summary: | Pass  Total  Time
+examples      |   18     18  9.5s
+done (took 9.555315958 seconds).
+* running aqua.jl ...
+Test Summary: | Pass  Total  Time
+Aqua          |   11     11  5.9s
+done (took 5.898329542 seconds).
+  Activating project at `~/projects/juliaPkg/pb-release-audit-20261026/.master-test-env/v1.10`
+   Resolving package versions...
+  No Changes to `~/projects/juliaPkg/pb-release-audit-20261026/.master-test-env/v1.10/Project.toml`
+  No Changes to `~/projects/juliaPkg/pb-release-audit-20261026/.master-test-env/v1.10/Manifest.toml`
+Master test environment: /Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026/.master-test-env/v1.10

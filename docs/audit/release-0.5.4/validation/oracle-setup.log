@@ -1,0 +1,155 @@
+{
+  "label": "oracle-setup",
+  "cwd": "/Users/mladen.kolar/projects/juliaPkg/pb-release-audit-20261026",
+  "command": [
+    "/Users/mladen.kolar/.julia/juliaup/julia-1.13.2+0.aarch64.apple.darwin14/Julia-1.13.app/Contents/Resources/julia/bin/julia",
+    "--startup-file=no",
+    "scripts/instantiate.jl",
+    "test/oracles"
+  ],
+  "started_utc": "2026-10-26T11:57:52.008593+00:00",
+  "commit": "c0e13053a5b4d19d113f2d2815cd1c15563268e3",
+  "status": "M docs/src/interface.md\n?? docs/audit/",
+  "implementation_sha256": {
+    "src/ProximalBase.jl": "31ecee629ab86aebde81f8831f3293aa5bf41aa2449a1583d429f43c0daab269",
+    "src/affineconstrained.jl": "47b7f5f4bc027b02d03e36fe7caf5a58921f3ca9b8f7f2dbb8059e78f2d6a6ee",
+    "src/atom_iterate.jl": "a307e3e489704de22804a4773226d4c54411a0ba95f7be1e6228f73ab52dcaf5",
+    "src/ballconstrained.jl": "a82ecadc7fbd67049a08402d12c9d4ca348d523cee26d624f4517e51a91eaf87",
+    "src/caches.jl": "4d58992a64b4e77e1358cfb1bdb8e4c145e4a9ab61f82fb9b8e8d2f4d8ab76c8",
+    "src/calculus.jl": "54f47a5443f0fb7f3976bd3fb776fa9e97783e52b9b5b797e1cd9bba9ba5e451",
+    "src/composition.jl": "fb12acc0682f36574d2930a94422ff9685517513ac0a074ccb4a6dddea13981e",
+    "src/constrained.jl": "6375e90eabbfb12a2a4b08940ad008a9ff83cbfc21b298e2264a38510cbf50ac",
+    "src/constrained_nonconvex.jl": "530680f64041cc2099022a2375390f787e7ad00cf7274d71b3e3724cfc0a9dae",
+    "src/deprecated.jl": "825fc397391762b2055316ee1d42c0bafe9a05c165cc852a6f0b6472b6d34228",
+    "src/envelope.jl": "c4155c040aa78707ed382031a2ffdf04dcea74ebb2c42a56e50426e807eeaf62",
+    "src/functions/affine.jl": "2ce1163abebd7af59cb8b7f1dc088d13609964a5ff14345f1cb4e75be9523c5d",
+    "src/functions/entropy.jl": "1a2b6552f8c74a32f46ef8ef25c2ca68a649d5f57a7f3c1f225582a5e2128b06",
+    "src/functions/fibers.jl": "84c7ccbfbdc627051e5ba0cd00dbaa5eca7fe62a9df9851f3589114b41cf8f6b",
+    "src/functions/glm.jl": "50ac8b05bba2ebeacb9080f68fb24bcb7bccdba88ed10dd72b94cae4b1739af5",
+    "src/functions/intersection.jl": "306c2aa7308c3a1f802447bcf46cf5a95a8c0fbdcab5cb2aebbe44e367aafd9e",
+    "src/functions/leastsquares.jl": "257c96968d8e3d61eb25015d934b1720f9e88f4c1e626cdce7dac21575fc3367",
+    "src/functions/logdet.jl": "b11061c054ab495bd636e21c52293fba6c152dd41645f1e6719259291506c117",
+    "src/functions/losses.jl": "f88eae9d70760c59198500f775519c8a113b8db0a483a4ee46cf537e904ba744",
+    "src/functions/matrixsets.jl": "28811d277881b44de14ee77b6c4e41bb78da45be0cdd684dd0f965ce327a5e3b",
+    "src/functions/nonconvex.jl": "5d8e4aa154f77d3ce92e3505f7c093feb2b706d986abfd3ff8b0dbe6af8c0079",
+    "src/functions/norms.jl": "651bdf7eca1143fb5f2b7474465b44fdd7c386ea11070f5688408b523edbaba2",
+    "src/functions/ordered.jl": "0278f7401b57d302d2f974261463572c4ce2facde901686a956668febf8456b8",
+    "src/functions/separable.jl": "7315731b97d760e93346682e6b1cb54ba1f7559554a390363f6a0e59054e5e06",
+    "src/functions/sets.jl": "cacc462cc1204d433e99a5322cc6582b0f0ae12980db7492cbc886dfe389f8f6",
+    "src/functions/singular.jl": "3cdf5bcd34f48f95cfb20592535b1659be9c23aa4fc422eb2dee46ac30d1e0ec",
+    "src/functions/smooth.jl": "009d19d7e77a8c868f57ea18b84958b0bb60d756c4ca27c77163588a325afeb7",
+    "src/functions/sparsegroup.jl": "19b0fd469b3de962f46d8cde619c5152a801ed566c5694f64a90a554e9856402",
+    "src/functions/spectral.jl": "4b4ef30c2cc7e320a731cc600c960e4e5b077a510172a1105f46b535ce038976",
+    "src/interface.jl": "edc049c1a4ae6b6fb8b359439c8930bcbcbe0f0a50e865e0c3cb05ee7d352f13",
+    "src/lapack.jl": "49b19110bdba6c8467263060d9f2bd55db41ceb4fa0ae7fb2a3350173240114c",
+    "src/lla.jl": "f14a0f1d2ff0a9e048d25fd2cb9b084c168446f0fb8ff75567e6165d3cbc43e6",
+    "src/metric.jl": "e13c464e16d834640920c739cefa2f014b4203c62089d5e4cb4452942a8e45bf",
+    "src/partial.jl": "094e1e21cea4a4a64fcf2d034b3d64e2aecd4c12590c5b401e631f13b2552190",
+    "src/precompile.jl": "203d5453dddad762f4be4f7ca45461877b5654e8483cf30ae06909eaa7f04f00",
+    "src/second_order.jl": "99120db40e6a4df02bbada70cfff0423756338f3a5eb69f6123aca3c65e834af",
+    "src/sparse_iterate.jl": "fa6e2a6a5b7c22d0428ad81aa234af1987d592a38de762cf3c3de0164d8e26fd",
+    "src/spectralfunction.jl": "9946d0170605378dca68b7d3e2c12e0b6b77a0b5ca733cfb9d5af4bf90412c6a",
+    "src/testing.jl": "8e77a1ea7900edbca9fffeee4a06b10fde5e7fb2d360dd183bba247f0166c297",
+    "src/utils.jl": "36f43f4e6eab0c62d18a1ad61ed6b9325a463f145a237deb6f06549155ce2d56",
+    "ext/ProximalBaseGPUArraysCoreExt.jl": "38fc211d3fdf499e65f9613d4a5c55b124967599340100391887fb60b432a998",
+    "ext/ProximalBaseTestExt.jl": "65afdf05d77c6269c87a9e3d4bd6af8ad8ee8a28450e6cc7d8da87e677fdd0a3"
+  }
+}
+
+  Activating project at `~/projects/juliaPkg/pb-release-audit-20261026/test/oracles`
+   Resolving package versions...
+    Updating `~/projects/juliaPkg/pb-release-audit-20261026/test/oracles/Project.toml`
+  [b99e6be6] + Hypatia v0.11.0
+  [4076af6c] + JuMP v1.32.1
+  [b8f27783] + MathOptInterface v1.54.0
+  [0a755509] + ProximalBase v0.5.3 `~/projects/juliaPkg/pb-release-audit-20261026`
+  [37e2e46d] ~ LinearAlgebra ⇒ v1.13.0
+  [9a3f8284] ~ Random ⇒ v1.11.0
+  [8dfed614] ~ Test ⇒ v1.11.0
+    Updating `~/projects/juliaPkg/pb-release-audit-20261026/test/oracles/Manifest.toml`
+  [523fee87] + CodecBzip2 v0.8.5
+  [944b1d66] + CodecZlib v0.7.9
+  [861a8166] + Combinatorics v1.1.0
+  [bbf7d656] + CommonSubexpressions v0.3.1
+  [a8cc5b0e] + Crayons v4.2.0
+  [9a962f9c] + DataAPI v1.16.0
+  [e2d170a0] + DataValueInterfaces v1.0.0
+  [163ba53b] + DiffResults v1.1.0
+  [b552c78f] + DiffRules v1.16.0
+⌅ [ffbed154] + DocStringExtensions v0.9.5
+  [e2ba6199] + ExprTools v0.1.11
+  [9aa1b823] + FastClosures v0.3.2
+  [1a297f60] + FillArrays v1.18.1
+  [f6369f11] + ForwardDiff v1.4.6
+  [14197337] + GenericLinearAlgebra v0.4.1
+  [b99e6be6] + Hypatia v0.11.0
+  [92d709cd] + IrrationalConstants v0.2.7
+  [42fd0dbc] + IterativeSolvers v0.9.4
+  [82899510] + IteratorInterfaceExtensions v1.0.0
+  [692b3bcd] + JLLWrappers v1.8.0
+  [682c06a0] + JSON v1.12.2
+  [4076af6c] + JuMP v1.32.1
+  [0b1a1467] + KrylovKit v0.10.4
+  [b964fa9f] + LaTeXStrings v1.4.1
+  [7a12625a] + LinearMaps v3.11.4
+  [5c8ed15e] + LinearOperators v2.14.3
+  [2ab3a3ac] + LogExpFunctions v1.0.3
+  [607ca3ad] + LowRankOpt v0.2.3
+  [1914dd2f] + MacroTools v0.5.16
+  [b8f27783] + MathOptInterface v1.54.0
+  [d8a4904e] + MutableArithmetics v1.9.1
+  [a4795742] + NLPModels v0.21.12
+  [792afdf1] + NLPModelsJuMP v0.13.6
+  [77ba4419] + NaNMath v1.1.5
+  [bac558e1] + OrderedCollections v2.0.3
+  [65ce6f38] + PackageExtensionCompat v1.0.2
+  [69de0a69] + Parsers v3.0.0
+  [3a141323] + PolynomialRoots v1.1.0
+  [aea7be01] + PrecompileTools v1.3.4
+  [21216c6a] + Preferences v1.6.1
+  [08abe8d2] + PrettyTables v3.5.0
+  [0a755509] + ProximalBase v0.5.3 `~/projects/juliaPkg/pb-release-audit-20261026`
+  [3cdcf5f2] + RecipesBase v1.4.0
+  [189a3867] + Reexport v1.2.2
+  [ff4d7338] + SolverCore v0.3.10
+  [276daf66] + SpecialFunctions v2.9.1
+  [1e83bf80] + StaticArraysCore v1.4.4
+  [892a3eda] + StringManipulation v0.6.1
+  [ec057cc2] + StructUtils v2.11.1
+  [3783bdb8] + TableTraits v1.0.1
+  [bd369af6] + Tables v1.14.0
+  [a759f4b9] + TimerOutputs v1.2.2
+  [3bb67fe8] + TranscodingStreams v0.11.3
+  [c4a57d5a] + UnsafeArrays v1.0.9
+⌅ [409d34a3] + VectorInterface v0.6.1
+  [6e34b625] + Bzip2_jll v1.0.9+0
+  [efe28fd5] + OpenSpecFun_jll v0.5.6+0
+  [56f22d72] + Artifacts v1.11.0
+  [2a0f44e3] + Base64 v1.11.0
+  [ade2ca70] + Dates v1.11.0
+  [7b1f6079] + FileWatching v1.11.0
+  [b77e0a4c] + InteractiveUtils v1.11.0
+  [ac6e5ff7] + JuliaSyntaxHighlighting v1.12.0
+  [8f399da3] + Libdl v1.11.0
+  [37e2e46d] ~ LinearAlgebra ⇒ v1.13.0
+  [56ddb016] + Logging v1.11.0
+  [d6f4376e] + Markdown v1.11.0
+  [de0858da] + Printf v1.11.0
+  [3fa0cd96] + REPL v1.11.0
+  [9a3f8284] ~ Random ⇒ v1.11.0
+  [ea8e919c] + SHA v1.0.0
+  [9e88b42a] + Serialization v1.11.0
+  [6462fe0b] + Sockets v1.11.0
+  [2f01184e] + SparseArrays v1.13.0
+  [f489334b] + StyledStrings v1.11.0
+  [fa267f1f] + TOML v1.0.3
+  [8dfed614] ~ Test ⇒ v1.11.0
+  [cf7118a7] + UUIDs v1.11.0
+  [4ec0a83e] + Unicode v1.11.0
+  [e66e0078] + CompilerSupportLibraries_jll v1.5.5+2
+  [4536629a] + OpenBLAS_jll v0.3.30+0
+  [05823500] + OpenLibm_jll v0.8.7+0
+  [bea87d4a] + SuiteSparse_jll v7.10.1+0
+  [83775a58] + Zlib_jll v1.3.2+0
+  [8e850b90] + libblastrampoline_jll v5.15.0+0
+        Info Packages marked with ⌅ have new versions available but compatibility constraints restrict them from upgrading. To see why use `status --outdated -m`

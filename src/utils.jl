@@ -14,18 +14,19 @@ proximal operator of `c|⋅|`. A `NaN` in `v` propagates.
 shrink(v::T, c::T) where {T<:AbstractFloat} = max(v - c, zero(T)) + min(v + c, zero(T))
 shrink(v::Real, c::Real) = shrink(promote(float(v), float(c))...)
 
-# Grouped nonnegative coefficients: keep the usual multiply order when it is
-# well scaled. Retry exceptional intermediates with the smallest and largest
-# factors paired first, so a compensating weight is applied before it is lost.
+# Nonnegative coefficients: keep the usual multiply order when it is well
+# scaled. At exceptional scales, multiply bounded significands and apply the
+# combined exponent once, so no intermediate subnormal loses precision.
 @inline function _positive_product(a::T, b::T, c::T) where {T<:AbstractFloat}
   (iszero(a) || iszero(b) || iszero(c)) && return zero(T)
   ab = a * b
   p = ab * c
   isfinite(ab) && ab >= floatmin(T) && isfinite(p) && p >= floatmin(T) && return p
-  a > b && ((a, b) = (b, a))
-  b > c && ((b, c) = (c, b))
-  a > b && ((a, b) = (b, a))
-  (a * c) * b
+  (isfinite(a) && isfinite(b) && isfinite(c)) || return p
+  ma, ea = frexp(a)
+  mb, eb = frexp(b)
+  mc, ec = frexp(c)
+  ldexp((ma * mb) * mc, ea + eb + ec)
 end
 @inline _positive_product(a::Real, b::Real, c::Real) = _positive_product(promote(float(a), float(b), float(c))...)
 

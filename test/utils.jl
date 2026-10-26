@@ -187,6 +187,14 @@ end
       @test ProximalBase._positive_product(factors...) ≈ expected rtol=16eps(T) atol=zero(T)
     end
     @test ProximalBase._positive_product(T(Inf), zero(T), one(T)) == zero(T)
+    # Reordering alone still rounds a subnormal intermediate before a large
+    # third factor restores the product to the normal range.
+    tiny = nextfloat(zero(T))
+    factor = T === Float32 ? T(4096.5) : T(100000000.5)
+    for factors in ((tiny, factor, factor), (factor, tiny, factor), (factor, factor, tiny))
+      expected = T(prod(BigFloat.(factors)))
+      @test ProximalBase._positive_product(factors...) ≈ expected rtol=4eps(T) atol=zero(T)
+    end
   end
 end
 

@@ -77,6 +77,14 @@ end
     expected = T(BigFloat(small)^2*BigFloat(x[1]))
     @test f(x) ≈ expected
     @test Adapt.adapt(DeviceArray, f)(DeviceArray(x)) ≈ expected
+    tiny = nextfloat(zero(T))
+    factor = T === Float32 ? T(4096.5) : T(100000000.5)
+    threshold = T(BigFloat(tiny)*BigFloat(factor)^2)
+    f = F(factor, T[factor])
+    x = T[4threshold]
+    expected = x .- threshold
+    @test prox(f, x, tiny) ≈ expected rtol=8eps(T) atol=zero(T)
+    @test host(prox(Adapt.adapt(DeviceArray, f), DeviceArray(x), tiny)) ≈ expected rtol=8eps(T) atol=zero(T)
   end
 end
 

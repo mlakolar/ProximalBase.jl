@@ -441,6 +441,15 @@ end
       residual = abs((BigFloat(z)+μ*BigFloat(q)*BigFloat(z)^(BigFloat(q)-1)-BigFloat(v))/BigFloat(v))
       @test residual <= 128eps(T)
     end
+    tiny = nextfloat(zero(T))
+    factor = T === Float32 ? T(4096.5) : T(100000000.5)
+    for q in T.((0.5, 2/3))
+      μ = BigFloat(tiny)*BigFloat(factor)^2
+      v = T(4μ^(1/(2-BigFloat(q))))
+      z = prox_entry(NormLq(factor, q, T[factor]), v, 1, tiny)
+      residual = abs((BigFloat(z)+μ*BigFloat(q)*BigFloat(z)^(BigFloat(q)-1)-BigFloat(v))/BigFloat(v))
+      @test residual <= 128eps(T)
+    end
     q = prevfloat(one(T))
     f = NormLq(level, q, T[weight])
     μ = BigFloat(step)*BigFloat(level)*BigFloat(weight)

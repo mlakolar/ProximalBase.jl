@@ -622,4 +622,47 @@ end
   end
 end
 
+@testset "direct smooth parameter checks precede mutation" begin
+  for T in (Float32, Float64), parameter in (T[1], T[1,2])
+    for f in (LinearFunction(parameter), SqrNormL2(one(T),parameter), SqrNormL2(zero(T),parameter))
+      x = T[3,4,5]
+      out = fill(T(-7),3)
+      @test_throws DimensionMismatch prox!(out,f,x,one(T))
+      @test out == fill(T(-7),3)
+      @test_throws DimensionMismatch gradient!(out,f,x)
+      @test out == fill(T(-7),3)
+      @test_throws DimensionMismatch value_and_gradient!(out,f,x)
+      @test out == fill(T(-7),3)
+      @test_throws DimensionMismatch f(x)
+      alias = copy(x)
+      @test_throws DimensionMismatch prox!(alias,f,alias,one(T))
+      @test alias == x
+    end
+    # LinearFunction follows dot's linear-index convention for same-length arrays.
+    c = reshape(T[1,2,3],1,3)
+    f = LinearFunction(c)
+    x = T[4,5,6]
+    @test prox(f,x,T(0.5)) == x-T(0.5)*vec(c)
+    @test gradient(f,x) == vec(c)
+  end
+end
+
+@testset "centered ridge shape checks precede writes" begin
+  for T in (Float32,Float64), λ in (zero(T),one(T))
+    f = SqrNormL2(λ,reshape(T[1,2,3],1,3))
+    x = T[4,5,6]
+    out = fill(T(-7),3)
+    @test_throws DimensionMismatch f(x)
+    @test_throws DimensionMismatch prox!(out,f,x,one(T))
+    @test out == fill(T(-7),3)
+    @test_throws DimensionMismatch gradient!(out,f,x)
+    @test out == fill(T(-7),3)
+    @test_throws DimensionMismatch value_and_gradient!(out,f,x)
+    @test out == fill(T(-7),3)
+    # Coordinate kernels retain their established linear-entry convention.
+    a = SparseIterate(x)
+    @test prox_coordinate!(a,f,1,one(T)) == prox_entry(f,x[1],1,one(T))
+  end
+end
+
 end

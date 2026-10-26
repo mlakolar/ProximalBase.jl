@@ -106,16 +106,30 @@ end
   end
 end
 
+# Independent soft thresholding when the group term vanishes. Do not
+# compute a Euclidean norm only to multiply it by a zero group weight.
+@inline function _soft_group_only!(y::AbstractArray, x::AbstractArray, G, c::S) where {S}
+  l1 = zero(S)
+  @inbounds for i in G
+    z = shrink(convert(S, x[i]), c)
+    y[i] = z
+    l1 += abs(z)
+  end
+  l1
+end
+
 function (f::SparseGroupNormL2)(x::AbstractArray)
   _checkgroups(f, x)
   T = float(eltype(x))
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
     G = f.groups[k]
-    v2 += convert(T, f.w[k]) * _group_norm2(x, G)
-    v1 += _sumabs(x, G)
+    w = convert(T, f.w[k])
+    (iszero(f.λ0) || iszero(w)) || (v2 += w * _group_norm2(x, G))
+    iszero(f.λ1) || (v1 += _sumabs(x, G))
   end
-  convert(T, f.λ0) * v2 + convert(T, f.λ1) * v1
+  (iszero(f.λ0) ? zero(T) : convert(T, f.λ0) * v2) +
+  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1)
 end
 
 value_and_prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
@@ -130,11 +144,17 @@ function _value_and_prox_groups!(y::AbstractArray, f::SparseGroupNormL2, x::Abst
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
     γk = _entry(γ, k)
-    n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], convert(T, γk * f.λ1), convert(T, γk * f.λ0 * f.w[k]))
-    v2 += convert(T, f.w[k]) * n2
-    v1 += n1
+    w = convert(T, f.w[k])
+    if iszero(f.λ0) || iszero(w)
+      n1 = _soft_group_only!(y, x, f.groups[k], convert(T, γk * f.λ1))
+    else
+      n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], convert(T, γk * f.λ1), convert(T, γk * f.λ0 * f.w[k]))
+      v2 += w * n2
+    end
+    iszero(f.λ1) || (v1 += n1)
   end
-  convert(T, f.λ0) * v2 + convert(T, f.λ1) * v1
+  (iszero(f.λ0) ? zero(T) : convert(T, f.λ0) * v2) +
+  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1)
 end
 
 # with the groups of f, only the active groups count
@@ -145,10 +165,12 @@ function (f::SparseGroupNormL2)(x::AtomIterate)
   for a in 1:x.nactive
     k = x.active[a]
     G = f.groups[k]
-    v2 += convert(T, f.w[k]) * _group_norm2(x.storage, G)
-    v1 += _sumabs(x.storage, G)
+    w = convert(T, f.w[k])
+    (iszero(f.λ0) || iszero(w)) || (v2 += w * _group_norm2(x.storage, G))
+    iszero(f.λ1) || (v1 += _sumabs(x.storage, G))
   end
-  convert(T, f.λ0) * v2 + convert(T, f.λ1) * v1
+  (iszero(f.λ0) ? zero(T) : convert(T, f.λ0) * v2) +
+  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1)
 end
 
 value_and_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
@@ -163,17 +185,28 @@ function _value_and_prox_groups!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIt
   for a in 1:y.nactive
     k = y.active[a]
     γk = _entry(γ, k)
-    n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1), convert(T, γk * f.λ0 * f.w[k]))
-    v2 += convert(T, f.w[k]) * n2
-    v1 += n1
+    w = convert(T, f.w[k])
+    if iszero(f.λ0) || iszero(w)
+      n1 = _soft_group_only!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1))
+    else
+      n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1), convert(T, γk * f.λ0 * f.w[k]))
+      v2 += w * n2
+    end
+    iszero(f.λ1) || (v1 += n1)
   end
-  convert(T, f.λ0) * v2 + convert(T, f.λ1) * v1
+  (iszero(f.λ0) ? zero(T) : convert(T, f.λ0) * v2) +
+  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1)
 end
 
 # the block step on group k, in place; the group becomes active if it is nonzero
 function prox_coordinate!(x::AtomIterate, f::SparseGroupNormL2, k::Integer, γ::Real)
   _checksamegroups(f, x)
   T = float(eltype(x))
+  if iszero(f.λ0) || iszero(convert(T, f.w[k]))
+    _soft_group_only!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1))
+    _allzero(x.storage, x.groups[k]) || activate!(x, k)
+    return atom(x, k)
+  end
   n2, _ = _sparse_shrink_group!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1), convert(T, γ * f.λ0 * f.w[k]))
   iszero(n2) || activate!(x, k)
   atom(x, k)

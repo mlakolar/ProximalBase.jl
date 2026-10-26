@@ -285,7 +285,9 @@ function (f::HomogeneousGroupNorm)(x::AbstractArray)
   iszero(f.λ0) && return zero(T)
   v = zero(T)
   for k in eachindex(f.groups)
-    v += convert(T, f.w[k]) * _group_norm(f, x, f.groups[k])
+    w = convert(T, f.w[k])
+    iszero(w) && continue
+    v += w * _group_norm(f, x, f.groups[k])
   end
   convert(T, f.λ0) * v
 end
@@ -321,7 +323,14 @@ function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::A
   _copy_ungrouped!(y, f, x)
   v = zero(T)
   for k in eachindex(f.groups)
-    v += convert(T, f.w[k]) * _shrink_group!(f, y, x, f.groups[k], convert(T, _entry(γ, k) * f.λ0 * f.w[k]))
+    w = convert(T, f.w[k])
+    if iszero(w)
+      @inbounds for i in f.groups[k]
+        y[i] = x[i]
+      end
+      continue
+    end
+    v += w * _shrink_group!(f, y, x, f.groups[k], convert(T, _entry(γ, k) * f.λ0 * f.w[k]))
   end
   convert(T, f.λ0) * v
 end
@@ -380,7 +389,9 @@ function (f::HomogeneousGroupNorm)(x::AtomIterate)
   v = zero(T)
   for a in 1:x.nactive
     k = x.active[a]
-    v += convert(T, f.w[k]) * _group_norm(f, x.storage, f.groups[k])
+    w = convert(T, f.w[k])
+    iszero(w) && continue
+    v += w * _group_norm(f, x.storage, f.groups[k])
   end
   convert(T, f.λ0) * v
 end
@@ -397,7 +408,9 @@ function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::Ato
   v = zero(T)
   for a in 1:y.nactive
     k = y.active[a]
-    v += convert(T, f.w[k]) * _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, _entry(γ, k) * f.λ0 * f.w[k]))
+    w = convert(T, f.w[k])
+    iszero(w) && continue
+    v += w * _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, _entry(γ, k) * f.λ0 * f.w[k]))
   end
   convert(T, f.λ0) * v
 end
@@ -407,6 +420,10 @@ end
 function prox_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k::Integer, γ::Real)
   _checksamegroups(f, x)
   T = float(eltype(x))
+  if iszero(convert(T, f.λ0)) || iszero(convert(T, f.w[k]))
+    _allzero(x.storage, x.groups[k]) || activate!(x, k)
+    return atom(x, k)
+  end
   nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], convert(T, γ * f.λ0 * f.w[k]))
   iszero(nrm) || activate!(x, k)
   atom(x, k)

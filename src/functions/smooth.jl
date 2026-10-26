@@ -67,16 +67,28 @@ isconvex(::Type{<:LinearFunction}) = true
 
 function prox!(y::AbstractArray, f::LinearFunction, x::AbstractArray, γ::Real)
   _checksize(y, x)
+  _checkparams(f, x)
   γ = convert(float(eltype(y)), γ)
-  y .= x .- γ .* f.c
+  if size(f.c) == size(x)
+    y .= x .- γ .* f.c
+  else
+    # dot accepts equal-length arrays even when their shapes differ.
+    @inbounds for i in eachindex(IndexLinear(), y, x)
+      y[i] = x[i] - γ * f.c[i]
+    end
+  end
+  y
 end
 
 function value_and_gradient!(g::AbstractArray, f::LinearFunction, x::AbstractArray)
   _checksize(g, x)
+  _checkparams(f, x)
+  v = f(x)
   copyto!(g, f.c)
-  f(x)
+  v
 end
-gradient!(g::AbstractArray, f::LinearFunction, x::AbstractArray) = (_checksize(g, x); copyto!(g, f.c))
+gradient!(g::AbstractArray, f::LinearFunction, x::AbstractArray) =
+  (_checksize(g, x); _checkparams(f, x); copyto!(g, f.c))
 
 Base.@propagate_inbounds prox_entry(f::LinearFunction, v::Real, i::Integer, γ::Real) = v - γ * f.c[i]
 _checkparams(f::LinearFunction, x) = _checkparam(f.c, x)
@@ -151,6 +163,8 @@ function _norm2_scaled(x::SymmetricSparseIterate{T}) where {T}
 end
 
 function (f::SqrNormL2)(x::AbstractArray)
+  _checkparams(f, x)
+  f.y === nothing || _checksize(f.y, x)
   T = float(eltype(x))
   iszero(f.λ) && return zero(T)
   s = f.y === nothing ? _sumabs2(x) : _sumabs2_diff(x, f.y)
@@ -159,18 +173,24 @@ end
 
 function value_and_gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
   _checksize(g, x)
+  _checkparams(f, x)
+  f.y === nothing || _checksize(f.y, x)
   λ = convert(float(eltype(g)), f.λ)
   f.y === nothing ? (g .= λ .* x) : (g .= λ .* (x .- f.y))
   f(x)
 end
 function gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
   _checksize(g, x)
+  _checkparams(f, x)
+  f.y === nothing || _checksize(f.y, x)
   λ = convert(float(eltype(g)), f.λ)
   f.y === nothing ? (g .= λ .* x) : (g .= λ .* (x .- f.y))
 end
 
 function prox!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real)
   _checksize(z, x)
+  _checkparams(f, x)
+  f.y === nothing || _checksize(f.y, x)
   T = float(eltype(z))
   a, b = _ridge_weights(T(γ), T(f.λ))
   f.y === nothing ? (z .= a .* x) : (z .= _ridge_blend.(x, f.y, a, b))

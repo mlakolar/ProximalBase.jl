@@ -345,7 +345,9 @@ function (f::_RadialGroupPenalty)(x::AbstractArray)
   T = float(eltype(x))
   v = zero(T)
   for k in eachindex(f.groups)
-    v += value_entry(_group_scalar(f, T, k), _group_norm(f, x, f.groups[k]), 1)
+    p = _group_scalar(f, T, k)
+    iszero(p.λ) && continue
+    v += value_entry(p, _group_norm(f, x, f.groups[k]), 1)
   end
   v
 end
@@ -357,7 +359,9 @@ function (f::_RadialGroupPenalty)(x::AtomIterate)
   v = zero(T)
   for a in 1:x.nactive
     k = x.active[a]
-    v += value_entry(_group_scalar(f, T, k), _group_norm(f, x.storage, f.groups[k]), 1)
+    p = _group_scalar(f, T, k)
+    iszero(p.λ) && continue
+    v += value_entry(p, _group_norm(f, x.storage, f.groups[k]), 1)
   end
   v
 end
@@ -371,6 +375,12 @@ function _value_and_prox_groups!(y::AbstractArray, f::_RadialGroupPenalty, x::Ab
   v = zero(T)
   for k in eachindex(f.groups)
     p = _group_scalar(f, T, k)
+    if iszero(p.λ)
+      @inbounds for i in f.groups[k]
+        y[i] = x[i]
+      end
+      continue
+    end
     v += value_entry(p, _radial_shrink!(p, y, x, f.groups[k], convert(T, _entry(γ, k))), 1)
   end
   v
@@ -386,6 +396,7 @@ function _value_and_prox_groups!(y::AtomIterate, f::_RadialGroupPenalty, x::Atom
   for a in 1:y.nactive
     k = y.active[a]
     p = _group_scalar(f, T, k)
+    iszero(p.λ) && continue
     v += value_entry(p, _radial_shrink!(p, y.storage, y.storage, f.groups[k], convert(T, _entry(γ, k))), 1)
   end
   v
@@ -396,7 +407,12 @@ end
 function prox_coordinate!(x::AtomIterate, f::_RadialGroupPenalty, k::Integer, γ::Real)
   _checksamegroups(f, x)
   T = float(eltype(x))
-  r = _radial_shrink!(_group_scalar(f, T, k), x.storage, x.storage, x.groups[k], convert(T, γ))
+  p = _group_scalar(f, T, k)
+  if iszero(p.λ)
+    _allzero(x.storage, x.groups[k]) || activate!(x, k)
+    return atom(x, k)
+  end
+  r = _radial_shrink!(p, x.storage, x.storage, x.groups[k], convert(T, γ))
   iszero(r) || activate!(x, k)
   atom(x, k)
 end

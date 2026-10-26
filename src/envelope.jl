@@ -48,12 +48,42 @@ isconvex(::Type{<:MoreauEnvelope{F}}) where {F} = isconvex(F)
 # the proximal point of f, in the buffer that e owns
 _envelope_buffer(e::MoreauEnvelope, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(e.scratch, T, size(x))
 
+# Form the distance in units of sqrt(2γ) before squaring it: an unscaled
+# squared distance can overflow or underflow although its energy is finite.
+# If even the distance overflows, scale the entries before subtracting only
+# where the subtraction itself overflows. Ordinary finite differences retain
+# their accuracy, including cancellation between nearby endpoints.
+function _envelope_energy(x::AbstractArray, p::AbstractArray, γ::Real)
+  r = norm_diff(x, p)
+  scale = sqrt(γ) * sqrt(oftype(γ, 2))
+  isfinite(r) && return abs2(r / scale)
+  q = zero(r)
+  @inbounds for i in eachindex(x, p)
+    d = x[i] - p[i]
+    z = isfinite(d) ? d / scale : x[i] / scale - p[i] / scale
+    q = hypot(q, abs(z))
+  end
+  abs2(q)
+end
+
+@inline function _envelope_energy(x::Real, p::Real, γ::Real)
+  scale = sqrt(γ) * sqrt(oftype(γ, 2))
+  d = x - p
+  abs2(isfinite(d) ? d / scale : x / scale - p / scale)
+end
+
+# The difference can overflow before division even for a finite derivative.
+@inline function _envelope_derivative(x, p, γ)
+  d = x - p
+  isfinite(d) ? d / γ : x / γ - p / γ
+end
+
 function (e::MoreauEnvelope)(x::AbstractArray)
   T = float(eltype(x))
   γ = convert(T, e.γ)
   p = _envelope_buffer(e, T, x)
   v = value_and_prox!(p, e.f, x, γ)
-  v + _sumabs2_diff(x, p) / (2γ)
+  v + _envelope_energy(x, p, γ)
 end
 
 function value_and_gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
@@ -61,9 +91,9 @@ function value_and_gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArr
   g === x && throw(ArgumentError("the gradient must not overwrite x"))
   γ = convert(float(eltype(g)), e.γ)
   v = value_and_prox!(g, e.f, x, γ)
-  s = _sumabs2_diff(x, g)
-  g .= (x .- g) ./ γ
-  v + s / (2γ)
+  energy = _envelope_energy(x, g, γ)
+  g .= _envelope_derivative.(x, g, γ)
+  v + energy
 end
 
 function gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
@@ -71,7 +101,7 @@ function gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
   g === x && throw(ArgumentError("the gradient must not overwrite x"))
   γ = convert(float(eltype(g)), e.γ)
   prox!(g, e.f, x, γ)
-  g .= (x .- g) ./ γ
+  g .= _envelope_derivative.(x, g, γ)
 end
 
 @inline function _envelope_step(γ::T, t::T) where {T}
@@ -101,10 +131,9 @@ function value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, 
   combined = _envelope_step(γ, t)
   P = _envelope_buffer(e, T, x)
   v = value_and_prox!(P, e.f, x, combined)
-  s = _sumabs2_diff(x, P)
   a, b = γ / combined, t / combined
   y .= _ridge_blend.(x, P, a, b)
-  v + a^2 * s / (2γ)
+  v + _envelope_energy(y, P, γ)
 end
 
 Base.@propagate_inbounds function prox_entry(e::MoreauEnvelope, v::Real, i::Integer, t::Real)
@@ -163,7 +192,8 @@ Smoothed(φ::SeparableFunction, γ::Real) = Smoothed{typeof(φ), typeof(γ)}(φ,
   r = float(η - y)
   γ = convert(typeof(r), ℓ.γ)
   p = prox_entry(ℓ.φ, r, 1, γ)
-  (convert(typeof(r), value_entry(ℓ.φ, p, 1)) + abs2(r - p) / (2γ), (r - p) / γ)
+  (convert(typeof(r), value_entry(ℓ.φ, p, 1)) + _envelope_energy(r, p, γ),
+   _envelope_derivative(r, p, γ))
 end
 (ℓ::Smoothed)(η::Real, y::Real) = value_and_deriv(ℓ, η, y)[1]
 deriv(ℓ::Smoothed, η::Real, y::Real) = value_and_deriv(ℓ, η, y)[2]

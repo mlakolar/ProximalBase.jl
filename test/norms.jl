@@ -318,4 +318,52 @@ end
 end
 
 
+@testset "zero group weights before overflowing norms" begin
+  for T in (Float32, Float64)
+    x = fill(floatmax(T),4)
+    groups, weights = [1:2,3:4], zeros(T,2)
+    for f in (GroupNormL2(one(T),groups,weights),GroupNormLinf(one(T),groups,weights),
+              GroupMCP(one(T),groups,weights),GroupSCAD(one(T),groups,weights),
+              SparseGroupNormL2(zero(T),one(T),groups,weights))
+      @test f(x) == zero(T)
+      y = similar(x)
+      @test value_and_prox!(y,f,x,one(T)) == zero(T)
+      @test y == x
+      @test allocs(value_and_prox!,y,f,x,one(T)) == 0
+      a = AtomIterate(x,f)
+      @test f(a) == zero(T)
+      @test value_and_prox!(a,f,a,one(T)) == zero(T)
+      @test Vector(a) == x
+      prox_coordinate!(a,f,1,one(T))
+      @test Vector(a) == x
+    end
+    # Zero group weights remove only the group term, preserving entry shrinkage.
+    f = SparseGroupNormL2(T(0.5),one(T),groups,weights)
+    v, expected = T[-2,2,-4,4],T[-1.5,1.5,-3.5,3.5]
+    y = similar(v)
+    @test value_and_prox!(y,f,v,one(T)) == T(5)
+    @test y == expected
+    a = AtomIterate(v,f)
+    prox_coordinate!(a,f,1,one(T))
+    @test Vector(a) == T[-1.5,1.5,-4,4]
+  end
+end
+
+@testset "identity group coordinate steps activate view writes" begin
+  for T in (Float32,Float64)
+    groups,weights = [1:2,3:4],zeros(T,2)
+    for f in (GroupNormL2(one(T),groups,weights),GroupNormLinf(one(T),groups,weights),
+              GroupMCP(one(T),groups,weights),GroupSCAD(one(T),groups,weights),
+              SparseGroupNormL2(zero(T),one(T),groups,weights))
+      a = AtomIterate(zeros(T,4),f)
+      atom(a,1)[1] = one(T)
+      @test !isactive(a,1)
+      prox_coordinate!(a,f,1,one(T))
+      @test isactive(a,1)
+      @test nactive(a) == 1
+      @test Vector(a) == T[1,0,0,0]
+    end
+  end
+end
+
 end

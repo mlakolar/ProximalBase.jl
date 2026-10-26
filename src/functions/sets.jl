@@ -314,7 +314,7 @@ function prox!(y::AbstractArray, f::IndBallL2, x::AbstractArray, ::Real)
   if nx <= r
     y === x || copyto!(y, x)
   else
-    y .= (r / nx) .* x
+    _scale_l2!(y, x, r, nx)
   end
   y
 end
@@ -358,9 +358,23 @@ function prox!(y::AbstractArray, f::IndSphereL2, x::AbstractArray, ::Real)
     fill!(y, zero(eltype(y)))
     y[firstindex(y)] = r
   else
-    y .= (r / nx) .* x
+    _scale_l2!(y, x, r, nx)
   end
   y
+end
+
+# Keep the single broadcast at ordinary scales. Otherwise divide by a finite
+# magnitude before taking the norm, so neither the norm nor r/n must fit.
+function _scale_l2!(y, x, r, n)
+  t = r / n
+  if isfinite(n) && n >= floatmin(typeof(n)) && isfinite(t) && t >= floatmin(typeof(t))
+    y .= t .* x
+  else
+    m = maximum(abs, x)
+    y .= x ./ m
+    y .*= r / _norm2(y)
+  end
+  t
 end
 
 ####################################

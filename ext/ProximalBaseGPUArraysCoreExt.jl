@@ -58,23 +58,23 @@ _scalar(y, a) = convert(float(eltype(y)), a)
 function ProximalBase._prox_sep!(y::GPUArray, f::NormL1, x::GPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= shrink.(x, _scalar(y, γ * f.λ0) .* _param(f.w))
+  y .= shrink.(x, _Level(_scalar(y, γ), _scalar(y, f.λ0)).(_param(f.w)))
 end
 ProximalBase._value_dense(f::NormL1, x::GPUArray) =
   (T = float(eltype(x)); iszero(f.λ0) ? zero(T) :
-   _scalar(x, f.λ0) * _sum(T, (w, v) -> w * abs(v), _param(f.w), x))
+   _sum(T, _Weighted(_scalar(x, f.λ0)), instantiate(broadcasted(abs, x)), _param(f.w)))
 
 function ProximalBase._prox_sep!(y::GPUArray, f::NormL1Nonneg, x::GPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= max.(x .- _scalar(y, γ * f.λ0) .* _param(f.w), 0)
+  y .= max.(x .- _Level(_scalar(y, γ), _scalar(y, f.λ0)).(_param(f.w)), 0)
 end
 function ProximalBase._value_dense(f::NormL1Nonneg, x::GPUArray)
   T = float(eltype(x))
   t = _tol(T)
   _all(v -> v >= -t, x) || return T(Inf)
   iszero(f.λ0) && return zero(T)
-  _scalar(x, f.λ0) * _sum(T, (w, v) -> w * max(v, zero(v)), _param(f.w), x)
+  _sum(T, _Weighted(_scalar(x, f.λ0)), instantiate(broadcasted(max, x, zero(T))), _param(f.w))
 end
 
 function ProximalBase._prox_sep!(y::GPUArray, f::ElasticNet, x::GPUArray, γ::Real)

@@ -232,6 +232,44 @@ end
   @test allocs((Y, X) -> value_and_prox!(Y, c, X, 1.), similar(M), M) == 0
 end
 
+@testset "normalization beyond the scale-factor range" begin
+  for T in (Float32, Float64)
+    for x in (T[0, nextfloat(zero(T))], T[floatmax(T), floatmax(T)])
+      expected = T.(BigFloat.(x) ./ norm(BigFloat.(x)))
+      for f in (NormL1(zero(T)), GroupNormL2(zero(T), [1:2]), IndBallL0(2))
+        c = Constrained(f, IndSphereL2(one(T)))
+        y = copy(x)
+        @test value_and_prox!(y, c, y, one(T)) == zero(T)
+        @test y ≈ expected
+        @test prox(IndSphereL2(one(T)), x) ≈ expected
+        if maximum(abs, x) > 1
+          @test prox(Constrained(f, IndBallL2(one(T))), x) ≈ expected
+          @test prox(IndBallL2(one(T)), x) ≈ expected
+        end
+      end
+    end
+    tiny = nextfloat(zero(T))
+    for f in (NormL1(one(T)), GroupNormL2(one(T), [[1], [2]], ones(T, 2)))
+      @test prox(Constrained(f, IndSphereL2(one(T))), T[0, tiny]) == T[0, 1]
+    end
+    r = T === Float32 ? T(1e-30) : T(1e-300)
+    # The normal scale factor can still be inaccurate when the input norm
+    # itself is subnormal; evaluate the value at the normalized point.
+    for f in (NormL1(zero(T)), NormL1(one(T)))
+      c = Constrained(f, IndSphereL2(r))
+      y = zeros(T, 2)
+      value = value_and_prox!(y, c, T[tiny, tiny], one(T))
+      @test value ≈ f(y)
+      @test norm(y)/r ≈ one(T)
+    end
+    large = floatmax(T)/2
+    f = NormL1(large, fill(inv(large), 2))
+    @test prox(f, T[7, 1], T(4)) ≈ T[3, 0]
+    @test prox(Constrained(f, IndSphereL2(one(T))), T[7, 1], T(4)) ≈ T[1, 0]
+    @test prox(Constrained(f, IndSphereL2(one(T))), T[1, 2], T(4)) ≈ T[0, 1]
+  end
+end
+
 @testset "balls and spheres at extreme scales" begin
   for T in (Float32, Float64)
     tiny, huge = T === Float32 ? (T(1e-30), T(1e30)) : (T(1e-200), T(1e200))

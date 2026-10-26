@@ -25,7 +25,9 @@ operator is the global minimizer of the nonconvex problem: the proximal point
 of `f` scaled onto the sphere. When that point is zero, so that every entry of
 `x` is within its threshold, the minimizer puts all the mass on one entry (one
 group) where `|xᵢ|` exceeds the threshold the least, along the sign of `xᵢ` (the
-direction of `x` on the group).
+direction of `x` on the group). If all thresholds exceed the finite range of
+the working type, the method throws an `ArgumentError`; rescale the penalty
+or step.
 
 ```julia
 u = prox(Constrained(NormL1(λ), IndBallL2(1)), X * v)        # the step of the penalized matrix decomposition
@@ -89,9 +91,9 @@ function value_and_prox!(y::AbstractArray, c::BallConstrained, x::AbstractArray,
   ny = convert(T, _norm2(y))
   r = convert(T, c.ball.r)
   if ny > r
-    t = r / ny
-    y .*= t
-    v *= t
+    t = _scale_l2!(y, y, r, ny)
+    v = isfinite(v) && ny >= floatmin(T) && isfinite(t) && t >= floatmin(T) ? v * t :
+        (_isindicator(c.f) ? zero(T) : convert(T, c.f(y)))
   end
   v
 end
@@ -102,10 +104,11 @@ end
 
 # y = r z/‖z‖ for the proximal point z ≠ 0 of f in y, and the value v of f at z
 # scaled with it
-function _onto_sphere!(y, v::T, r::T) where {T}
-  t = r / convert(T, _norm2(y))
-  y .*= t
-  v * t
+function _onto_sphere!(y, f, v::T, r::T) where {T}
+  n = convert(T, _norm2(y))
+  t = _scale_l2!(y, y, r, n)
+  isfinite(v) && n >= floatmin(T) && isfinite(t) && t >= floatmin(T) ? v * t :
+    (_isindicator(f) ? zero(T) : convert(T, f(y)))
 end
 
 # On the sphere ‖z‖² is fixed, so the proximal operator maximizes
@@ -119,17 +122,21 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::Ab
   _checkparams(c, x)
   T, S = float(eltype(y)), float(eltype(x))
   f, r = c.f, convert(T, c.sphere.r)
-  k, best = 0, S(-Inf)
+  k, bestn, bestc = 0, zero(S), zero(S)
   @inbounds for i in eachindex(IndexLinear(), x)
-    m = abs(convert(S, x[i])) - convert(S, γ * f.λ0 * _entry(f.w, i))
-    m > best && ((k, best) = (i, m))
+    n = abs(convert(S, x[i]))
+    threshold = convert(S, _positive_product(γ, f.λ0, _entry(f.w, i)))
+    # Compare margins by differences, retaining small differences in |x| when
+    # the thresholds are equal and much larger.
+    (k == 0 || n - bestn > threshold - bestc) && ((k, bestn, bestc) = (i, n, threshold))
   end
-  k == 0 && throw(ArgumentError("the sphere misses the domain of NormL1: every weight is infinite"))
-  best > 0 && return _onto_sphere!(y, convert(T, value_and_prox!(y, f, x, γ)), r)
+  k == 0 && throw(ArgumentError("the sphere has no point of size $(size(x))"))
+  isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
+  bestn > bestc && return _onto_sphere!(y, f, convert(T, value_and_prox!(y, f, x, γ)), r)
   negative = signbit(x[k])
   fill!(y, zero(eltype(y)))
   y[k] = negative ? -r : r
-  convert(T, f.λ0) * convert(T, _entry(f.w, k)) * r
+  convert(T, _positive_product(f.λ0, _entry(f.w, k), r))
 end
 
 # The same with groups: ⟨z_G, x_G⟩ - γλ0w_G‖z_G‖ ≤ ‖z_G‖(‖x_G‖ - γλ0w_G), with
@@ -142,17 +149,20 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, 
   T = float(eltype(y))
   U = promote_type(float(eltype(x)), T)       # the type in which the shrinkage compares
   f, r = c.f, convert(T, c.sphere.r)
-  kbest, ibest, best = 0, 0, U(-Inf)
+  kbest, ibest, bestn, bestc = 0, 0, zero(U), zero(U)
   for k in eachindex(f.groups)
-    m = convert(U, _group_norm2(x, f.groups[k])) - convert(U, convert(T, _positive_product(γ, f.λ0, f.w[k])))
-    m > best && ((kbest, ibest, best) = (k, 0, m))
+    n = convert(U, _group_norm2(x, f.groups[k]))
+    threshold = convert(U, convert(T, _positive_product(γ, f.λ0, f.w[k])))
+    (kbest == 0 || n - bestn > threshold - bestc) && ((kbest, bestn, bestc) = (k, n, threshold))
   end
   @inbounds for i in eachindex(IndexLinear(), x)
     _group(f, i) == 0 || continue
-    m = convert(U, abs(x[i]))
-    m > best && ((kbest, ibest, best) = (0, i, m))
+    n = convert(U, abs(x[i]))
+    ((kbest == 0 && ibest == 0) || n - bestn > -bestc) && ((kbest, ibest, bestn, bestc) = (0, i, n, zero(U)))
   end
-  best > 0 && return _onto_sphere!(y, convert(T, value_and_prox!(y, f, x, γ)), r)
+  (kbest != 0 || ibest != 0) || throw(ArgumentError("the sphere has no point of size $(size(x))"))
+  isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
+  bestn > bestc && return _onto_sphere!(y, f, convert(T, value_and_prox!(y, f, x, γ)), r)
   if ibest != 0                         # an index in no group, where x is zero
     fill!(y, zero(eltype(y)))
     y[ibest] = r
@@ -164,10 +174,7 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, 
     fill!(y, zero(eltype(y)))
     y[first(G)] = r
   else
-    t = r / nG
-    for i in G
-      y[i] = t * x[i]
-    end
+    _scale_l2!(view(y, G), view(x, G), r, nG)
     for i in eachindex(IndexLinear(), y)
       _group(f, i) == kbest || (y[i] = zero(eltype(y)))
     end
@@ -190,7 +197,7 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{IndBallL0}, x::A
     fill!(y, zero(eltype(y)))
     y[firstindex(y)] = r
   else
-    _onto_sphere!(y, zero(T), r)
+    _onto_sphere!(y, c.f, zero(T), r)
   end
   zero(T)
 end

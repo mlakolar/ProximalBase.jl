@@ -59,6 +59,27 @@ same(a, b) = isinf(b) ? a == b : a ≃ b
   @test_throws ArgumentError Adapt.adapt(DeviceArray, NormL1(0.3, -w))
 end
 
+@testset "compensated separable L1 coefficients" begin
+  allowscalar(false)
+  for T in test_types, F in (NormL1, NormL1Nonneg)
+    large = floatmax(T)/2
+    f = F(large, T[inv(large), 0])
+    x = T[7, 3]
+    fg = Adapt.adapt(DeviceArray, f)
+    y = similar(DeviceArray(x))
+    value = value_and_prox!(y, fg, DeviceArray(x), T(4))
+    @test host(y) ≃ T[3, 3]
+    @test value ≃ one(T)*3
+    @test ProximalBase._prox_entry_slope(f, x[1], 1, T(4))[1] == prox_entry(f, x[1], 1, T(4))
+    small = T === Float32 ? T(1e-30) : T(1e-200)
+    f = F(small, T[small])
+    x = T[inv(small)]
+    expected = T(BigFloat(small)^2*BigFloat(x[1]))
+    @test f(x) ≈ expected
+    @test Adapt.adapt(DeviceArray, f)(DeviceArray(x)) ≈ expected
+  end
+end
+
 @testset "norms, balls and the simplex on GPU arrays" begin
   allowscalar(false)
   n = 300

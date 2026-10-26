@@ -61,13 +61,15 @@ and [`NormL0`](@ref) on a box, whose scalar problems are solved exactly by
 comparing the minimizers of their convex pieces with the ends of the interval;
 the result is separable but not convex.
 
-The set must meet the domain of `f`. `Constrained` does not check this for a
-box: when the box misses the domain, the proximal operator returns the
-projection onto the box of the proximal point of `f`, a point outside the
-domain. The value there is `Inf`, but `value_and_prox!` returns zero when `f`
-is an indicator function. On a hyperplane or a halfspace, the proximal
-operator throws an `ArgumentError` when the search for the multiplier finds no
-point of the set.
+The caller must ensure that the set meets the domain of `f`. For a convex
+function on a box, the method clamps the unconstrained proximal point even
+when the intersection is empty. Neither that point nor the returned value
+certifies feasibility; `value_and_prox!` returns zero for an indicator even in
+this improper case. On a hyperplane or halfspace, the search throws an
+`ArgumentError` if it cannot bracket a multiplier. This is not a general test
+for an empty intersection: rounding may put a point on the closure of an open
+domain, and a finite multiplier may not exist when the set meets only the
+boundary of a closed domain.
 """
 function Constrained end
 
@@ -718,12 +720,12 @@ Base.@propagate_inbounds function _prox_entry_slope(f::SqrNormL2, v::T, i::Integ
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = convert(S, γ * f.λ0 * _entry(f.w, i))
+  t = convert(S, _positive_product(γ, f.λ0, _entry(f.w, i)))
   shrink(v, t), _slope(abs(v) > t, one(S))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = convert(S, γ * f.λ0 * _entry(f.w, i))
+  t = convert(S, _positive_product(γ, f.λ0, _entry(f.w, i)))
   max(v - t, zero(S)), _slope(v > t, one(S))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}

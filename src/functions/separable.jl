@@ -217,9 +217,9 @@ isconvex(::Type{<:NormL1}) = true
 iszeropreserving(::NormL1) = true
 _checkparams(f::NormL1, x) = (_checkparam(f.w, x); true)
 
-Base.@propagate_inbounds value_entry(f::NormL1, v::Real, i::Integer) = f.λ0 * _entry(f.w, i) * abs(v)
+Base.@propagate_inbounds value_entry(f::NormL1, v::Real, i::Integer) = _positive_product(f.λ0, _entry(f.w, i), abs(float(v)))
 Base.@propagate_inbounds prox_entry(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
-  shrink(v, convert(float(T), γ * f.λ0 * _entry(f.w, i)))
+  shrink(v, convert(float(T), _positive_product(γ, f.λ0, _entry(f.w, i))))
 
 kkt_violation(f::NormL1, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ0 * _entry(f.w, i)
 restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entries(f.w, S))
@@ -260,10 +260,10 @@ _checkparams(f::NormL1Nonneg, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::NormL1Nonneg, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  v >= -_tol(S) ? f.λ0 * _entry(f.w, i) * max(v, zero(T)) : S(Inf)
+  v >= -_tol(S) ? _positive_product(f.λ0, _entry(f.w, i), max(S(v), zero(S))) : S(Inf)
 end
 Base.@propagate_inbounds prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
-  max(v - convert(float(T), γ * f.λ0 * _entry(f.w, i)), zero(float(T)))
+  max(v - convert(float(T), _positive_product(γ, f.λ0, _entry(f.w, i))), zero(float(T)))
 
 # moving up from zero decreases the objective when -gᵢ exceeds λ0 wᵢ
 kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer) = -g[i] - f.λ0 * _entry(f.w, i)

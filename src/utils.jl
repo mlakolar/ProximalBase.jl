@@ -341,7 +341,9 @@ end
 ####################################
 
 @inline _norm_difference(a, b) = a - b
-@inline _norm_difference(a::Integer, b::Integer) = signed(widen(a)) - signed(widen(b))
+@inline _norm_difference(a::Integer, b::Integer) = _wide_signed(a) - _wide_signed(b)
+@inline _wide_signed(a::Integer) = signed(widen(a))
+@inline _wide_signed(a::Bool) = Int(a)          # widen has no method for Bool
 @inline _norm_difference(a::Complex, b::Complex) = complex(_norm_difference(real(a), real(b)), _norm_difference(imag(a), imag(b)))
 @inline _norm_difference(a::Complex, b::Real) = complex(_norm_difference(real(a), b), imag(a))
 @inline _norm_difference(a::Real, b::Complex) = complex(_norm_difference(a, real(b)), _norm_difference(0, imag(b)))

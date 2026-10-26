@@ -163,6 +163,10 @@ end
     @test norm_diff([a], [b], Inf) == expected
     @test norm_diff([complex(a, a)], [complex(b, b)]) ≈ sqrt(2)*expected
   end
+  # Bool has no widened type; master accepted Bool arrays.
+  @test norm_diff([true, false, true], [false, false, false]) == sqrt(2)
+  @test norm_diff([true, false], [false, true], Inf) == 1
+  @test norm_diff([true], [complex(false, true)]) == sqrt(2)
 end
 
 @testset "buffers" begin

@@ -14,6 +14,18 @@ Random.seed!(1)
 reference(A, b, x) = x - pinv(Matrix(A)) * (Matrix(A) * x - b)
 
 @testset "IndAffine" begin
+  for T in (Float32, Float64), n in (0, 3), A in (zeros(T, 0, n), spzeros(T, 0, n))
+    fempty = IndAffine(A, T[])
+    xempty = ones(T, n)
+    @test fempty(xempty) == 0
+    @test prox(fempty, xempty) == xempty
+    out = similar(xempty)
+    @test value_and_prox!(out, fempty, xempty, one(T)) == 0
+    @test out == xempty
+    @test prox!(xempty, fempty, xempty, one(T)) === xempty
+    @test xempty == ones(T, n)
+    @test_throws ArgumentError IndAffine(A, T[]; μ=zero(T))
+  end
   m, n = 4, 10
   A = randn(m, n)
   b = randn(m)

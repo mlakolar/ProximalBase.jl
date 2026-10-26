@@ -48,6 +48,11 @@ function IndAffine(A::AbstractMatrix, b::AbstractVector; μ::Union{Nothing, Real
     μ > 0 || throw(ArgumentError("μ must be positive, got $μ"))
     return IndAffine{T, typeof(A), T}(A, bt, convert(T, μ), zeros(T, m), zeros(T, m), scale)
   end
+  if m == 0
+    # A vacuous system has rank zero and projects every vector to itself.
+    return IndAffine{T, typeof(A), Tuple{Matrix{T}, Vector{T}}}(
+      A, bt, (zeros(T, n, 0), T[]), T[], T[], scale)
+  end
   G = Matrix{T}(A * A')
   C = cholesky(Symmetric(G); check = false)
   if issuccess(C)

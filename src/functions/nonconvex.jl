@@ -185,7 +185,8 @@ Base.@propagate_inbounds function prox_entry(f::NormLq, v::T, i::Integer, γ::Re
   (iszero(λ) || iszero(w)) && return S(v)
   μ = step * λ * w
   ordinary = isfinite(μ) && !iszero(μ)
-  logμ = ordinary ? log(μ) : log(step) + log(λ) + log(w)
+  # log(μ) from its factors, used only when μ itself overflowed or underflowed
+  logμ = ordinary ? zero(S) : log(step) + log(λ) + log(w)
   # Multiply the bounded coefficient before μ. The logarithmic fallback also
   # covers step products outside the working type's exponent range.
   τ = if q == S(1)/2 && ordinary
@@ -210,8 +211,8 @@ end
 function _lq_root(t::S, μ::S, q::S, logμ::S) where {S<:AbstractFloat}
   # μ/t^(2-q) is bounded above the threshold. A log level retains it even
   # when μ itself overflowed or underflowed while multiplying its factors.
-  relative_level = isfinite(μ) && !iszero(μ) ? (μ / t) / t^(1 - q) :
-                   exp(logμ - (2 - q) * log(t))
+  relative_level = !(isfinite(μ) && !iszero(μ)) ? exp(logμ - (2 - q) * log(t)) :
+                   q == S(1) / 2 ? (μ / t) / sqrt(t) : (μ / t) / t^(1 - q)
   if q == S(1) / 2
     # the cubic in √z by the trigonometric method (Xu et al., with λ = 2μ)
     # μ/t^(3/2) is bounded above the threshold. Divide in this order so
@@ -225,7 +226,8 @@ function _lq_root(t::S, μ::S, q::S, logμ::S) where {S<:AbstractFloat}
   a = relative_level * q
   r = one(S)
   for _ in 1:100
-    Δ = (r + a * r^(q - 1) - 1) / (1 + a * (q - 1) * r^(q - 2))
+    power = r^(q - 1)                       # r^(q - 2) is power / r
+    Δ = (r + a * power - 1) / (1 + a * (q - 1) * power / r)
     r -= Δ
     abs(Δ) <= 4eps(r) && break
   end

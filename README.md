@@ -159,21 +159,18 @@ julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 To use the same test script as continuous integration (CI):
 
 ```sh
-julia scripts/test_master.jl
+julia scripts/test.jl
 ```
 
-This script installs dependencies, creates a separate Julia environment
-containing the local package and its test dependencies, and runs with array
-bounds checking. There is no need to run `scripts/instantiate.jl` first.
+This calls `Pkg.test()` with array bounds checking enabled. Julia prepares
+an environment containing ProximalBase and its test dependencies automatically.
+There is no need to run `scripts/instantiate.jl` first.
 
-For example, ProximalSolvers depends on ProximalBase. Running
-`julia scripts/instantiate.jl` from the ProximalSolvers directory uses a local
-ProximalBase clone on its `master` branch, so the solver can be tested against
-that code. Running the same command from the ProximalBase directory does not
-install ProximalSolvers: ProximalBase does not depend on it. The other packages
-listed in `scripts/master_dependencies.jl` are also unused unless they are
-needed as dependencies. See [CONTRIBUTING.md](CONTRIBUTING.md) for the directory
-layout and documentation setup.
+To build the documentation or run benchmarks, use `scripts/instantiate.jl`
+to install the tools for that task and select your local ProximalBase code.
+For example, `julia scripts/instantiate.jl docs` sets up the documentation
+build. This script does not clone other package repositories or require any
+particular Git branch. See [CONTRIBUTING.md](CONTRIBUTING.md) for the commands.
 
 ## License
 

@@ -516,6 +516,15 @@ end
     end
     Xs = sprandn(T, 30, 15, 0.1)
     @test lipschitz(LeastSquaresLoss(zeros(T, 30), Xs)) >= opnorm(Matrix(Xs))^2 * (1 - 32eps(T))
+    # Transposed inputs retain the full dense calculation; empty losses have
+    # zero curvature on both the dense and sparse paths.
+    rectangular = T[1 2 3; 4 5 6]
+    for matrix in (transpose(rectangular), adjoint(rectangular))
+      @test lipschitz(LeastSquaresLoss(zeros(T, 3), matrix)) ≈ opnorm(rectangular)^2
+    end
+    for matrix in (zeros(T, 0, 3), spzeros(T, 0, 3))
+      @test lipschitz(LeastSquaresLoss(T[], matrix)) == zero(T)
+    end
   end
 end
 

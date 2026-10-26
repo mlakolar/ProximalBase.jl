@@ -127,15 +127,35 @@ end
 
 @testset "zero scales preserve domains" begin
   for T in (Float32, Float64)
-    for f in (NormL1(one(T)), GroupNormL2(one(T), [1:2]),
-              ElasticNet(one(T), one(T)), SqrNormL2(one(T), T[1, 2]), MCP(one(T)))
+    for f in (ZeroFunction(), NormL1(one(T)), GroupNormL2(one(T), [1:2]),
+              GroupNormLinf(one(T), [1:2]), SparseGroupNormL2(one(T), one(T), [1:2]),
+              NormL2(one(T)), NormLinf(one(T)), NormL0(one(T)),
+              MCP(one(T)), SCAD(one(T)), GroupMCP(one(T), [1:2]), GroupSCAD(one(T), [1:2]),
+              ElasticNet(one(T), one(T)), SqrNormL2(one(T), T[1, 2]),
+              QuadraticFunction(Matrix{T}(I, 2, 2)),
+              LeastSquaresLoss(T[1, 2], Matrix{T}(I, 2, 2)), LinearFunction(T[1, 2]))
       z = Scaled(f, zero(T))
       @test z isa ZeroFunction
       @test z(T[2, -1]) == 0
       @test prox(z, T[2, -1]) == T[2, -1]
       @test gradient(z, T[2, -1]) == zeros(T, 2)
       @test prox(z, T[2, -1], T[0.2, 0.8]) == T[2, -1]
+      @test Scaled{typeof(f), T}(f, zero(T)) isa ZeroFunction
     end
+    positive = Scaled(NormL1(one(T)), one(T))
+    @test Scaled{typeof(positive), T}(positive, zero(T)) isa ZeroFunction
+    infinite = Scaled(NormL1(one(T)), T(Inf))
+    @test_throws ArgumentError Scaled{typeof(infinite), T}(infinite, zero(T))
+    @test_throws ArgumentError Scaled(NormL1(one(T), T[1, Inf]), zero(T))
+    x, steps = T[2, -1], T[0.2, 0.8]
+    out = similar(x)
+    @test value_and_prox!(out, ZeroFunction(), x, steps) == zero(T)
+    @test out == x
+    @test prox!(x, ZeroFunction(), x, steps) === x
+    @test x == T[2, -1]
+    @test allocs(value_and_prox!, out, ZeroFunction(), x, steps) == 0
+    @test_throws DimensionMismatch prox(ZeroFunction(), x, steps[1:1])
+    @test_throws DimensionMismatch prox!(ones(T, 3), ZeroFunction(), x, steps)
     C = IndNonnegative()
     @test Scaled(C, zero(T)) === C
     @test Scaled(C, zero(T))(T[-1]) == Inf

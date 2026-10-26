@@ -1,7 +1,7 @@
 # Architecture views
 
-The existing [overview Page](https://chatgpt.com/space/page_19d0374c8de481918344267237028f43)
-and its five child Pages retain their native Markdown and Mermaid format.
+The six views below preserve the Markdown and Mermaid format of the original
+architecture Pages. Their public sources and initial renders are linked here.
 The [recovered original Page source](https://github.com/mlakolar/ProximalBase.jl/blob/5839b4e973a115fa0d3c1a328903a0a58ded3aac/docs/audit/release-0.5.4/architecture/original-pages.json)
 is retained with the initial audit edition. The `.mmd` files here mirror the
 coordinated views. Rendered PNGs and raw execution receipts are local artifacts; the linked initial renders remain

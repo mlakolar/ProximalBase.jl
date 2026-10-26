@@ -232,9 +232,10 @@ rescalings of these functions; for other functions, evaluating the conjugate
 throws an `ArgumentError`. [`value_and_prox!`](@ref) returns the value at the
 proximal point for every proximable `f`: where no closed form is known, it uses
 the Fenchel equality `f*(y) = ⟨p, y⟩ - f(p)`, with `p` the corresponding
-proximal point of `f`. That value is exact up to rounding relative to
-`|⟨p, y⟩|`, so a conjugate that is an indicator can return a small nonzero
-value instead of zero.
+proximal point of `f`. Cancellation in this subtraction and errors in the inner
+proximal point affect the reported value. A conjugate that is an indicator
+can return a small nonzero value instead of zero; this is not a feasibility
+certificate.
 Supported zero rescalings simplify in [`Scaled`](@ref) while preserving the
 underlying domain. Each conjugate owns a working buffer; do not share it
 between threads.

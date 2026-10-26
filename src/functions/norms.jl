@@ -201,10 +201,17 @@ _rebuild(f::GroupNormLinf, λ0, groups, w) = GroupNormLinf(λ0, groups, w)
   end
   s
 end
-# As for whole arrays, only exceptional magnitudes need the scaled path.
+# As for whole arrays, only exceptional magnitudes need the scaled path. The
+# same pass sums the magnitudes, which are zero only for a zero group, the
+# common case in a sparse iterate, so that it needs no second pass.
 @inline function _group_norm2(x::AbstractArray, G)
-  s = _sumsq(x, G)
+  s, a = zero(float(eltype(x))), zero(float(eltype(x)))
+  @inbounds @simd for i in G
+    s += abs2(x[i])
+    a += abs(x[i])
+  end
   isfinite(s) && s >= floatmin(typeof(s)) && return sqrt(s)
+  iszero(a) && return s
   n = zero(s)
   @inbounds for i in G
     n = hypot(n, x[i])

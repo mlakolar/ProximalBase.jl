@@ -132,6 +132,39 @@ end
   check_prox(f, x, 0.8)
   check_traits(f; proximable = true, separable = true, convex = true)
   @test_throws ArgumentError NegLog(-1.)
+  for T in (Float32, Float64)
+    tiny = T == Float32 ? T(1e-20) : T(1e-200)
+    f = NegLog(one(T))
+    for v in T[-1, 0, 1], μ in (tiny, one(T), sqrt(floatmax(T)))
+      z = prox_entry(f, v, 1, μ)
+      reference = setprecision(BigFloat, 256) do
+        b, m = BigFloat(v), BigFloat(μ)
+        v < 0 ? 2m / (sqrt(b*b + 4m) - b) : (b + sqrt(b*b + 4m)) / 2
+      end
+      @test isfinite(z) && z > 0
+      @test z ≈ T(reference) rtol=8eps(T)
+    end
+    @test prox(f, T[1], tiny) ≈ T[1]
+    extreme = T == Float32 ? T(1e30) : T(1e200)
+    for scale in (extreme, inv(extreme))
+      @test prox(NegLog(scale), T[0], scale) ≈ T[scale] rtol=8eps(T)
+      z = prox_entry(NegLog(scale), -scale, 1, scale)
+      @test z ≈ T((sqrt(BigFloat(5)) - 1) / 2) * scale rtol=8eps(T)
+    end
+    # hypot(v/2, sqrt(γ)*sqrt(λ)) can itself overflow while the positive
+    # root is representable. Both the root and its denominator need scaling.
+    scale = floatmax(T)
+    for v in (-scale, -scale/2)
+      reference = setprecision(BigFloat, 256) do
+        b, μ = BigFloat(v), BigFloat(scale)^2
+        T(2μ / (sqrt(b*b + 4μ) - b))
+      end
+      z = prox_entry(NegLog(scale), v, 1, scale)
+      @test isfinite(z) && z > 0
+      @test z ≈ reference rtol=8eps(T)
+      @test allocs(prox_entry, NegLog(scale), v, 1, scale) == 0
+    end
+  end
 end
 
 @testset "Berhu" begin

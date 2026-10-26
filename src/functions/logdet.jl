@@ -7,17 +7,19 @@
 """
     LogDetLoss(S, w = 1)
 
-The Gaussian negative log-likelihood `f(X) = w (tr(SX) - log det X)` of a
+The Gaussian negative log-likelihood `f(X) = w (tr(SX) - log det X)` for finite
+`w > 0`, of a
 precision matrix `X`, for a symmetric `S` such as a sample covariance, and
 `Inf` when `X` is not positive definite. The loss of the graphical lasso.
 
 It is smooth on the positive definite matrices, with gradient `w(S - X⁻¹)`,
 which [`value_and_gradient!`](@ref) computes from one Cholesky factorization;
 the value never throws, so that a line search can reject a step that leaves the
-cone. It is also proximable: with `ρ = 1/(γw)` and the eigendecomposition
-`ρX - S = U Diagonal(t) U'`, `prox_{γf}(X) = U Diagonal(μ) U'` with
-`μᵢ = (tᵢ + √(tᵢ² + 4ρ)) / (2ρ)`, and [`value_and_prox!`](@ref) returns the
-value from the `μᵢ`. Both use workspaces that `f` owns, sized by `S`, and
+cone. It is also proximable: with `μ = γw` and the eigendecomposition
+`X - μS = U Diagonal(t) U'`, `prox_{γf}(X) = U Diagonal(z) U'`, where
+`zᵢ = (tᵢ + √(tᵢ² + 4μ))/2`, evaluated without overflow or cancellation.
+[`value_and_prox!`](@ref) returns the value from the `zᵢ`.
+Both use workspaces that `f` owns, sized by `S`, and
 allocate nothing; do not share `f` between threads. The element type of `X`
 must be that of `S`, `Float32` or `Float64`.
 """
@@ -28,7 +30,7 @@ struct LogDetLoss{T<:_BlasReal} <: AbstractFunction
   C::Matrix{T}                  # Cholesky factors and inverses
 
   function LogDetLoss{T}(S::Matrix{T}, w::T) where {T<:_BlasReal}
-    _checknonneg("w", w)
+    isfinite(w) && w > 0 || throw(ArgumentError("w must be finite and positive, got $w"))
     p = checksquare(S)
     new{T}(S, w, SymEigenWorkspace(T, p), zeros(T, p, p))
   end
@@ -85,19 +87,44 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix, γ::Real) where {T}
   _checksize(Y, X)
   size(X) == size(f.S) || throw(DimensionMismatch("X has size $(size(X)) and S $(size(f.S))"))
-  ρ = inv(convert(T, γ) * f.w)
+  root_step = sqrt(convert(T, γ)) * sqrt(f.w)
   A = f.eig.A
-  A .= ρ .* X .- f.S
-  t, U = _eigen!(f.eig)
-  logdet_Y = _rebuild_sym_out!(Y, U, t, s -> _logdet_eigenvalue(s, ρ); logs = true, buffer = f.C)
+  logdet_Y = if root_step > one(T)
+    # Half of X/(γw) - S; divide twice to retain the contribution of X even
+    # when 1/(γw) underflows. No large step multiplies the covariance.
+    A .= ((X ./ root_step) ./ root_step) ./ 2 .- f.S ./ 2
+    t, U = _eigen!(f.eig)
+    _rebuild_sym_out!(Y, U, t, s -> _logdet_scaled_root_half(s, root_step); logs = true, buffer = f.C)
+  else
+    # Half of X - γwS, without forming a possibly underflowed γw.
+    A .= X ./ 2 .- ((f.S ./ 2 .* root_step) .* root_step)
+    t, U = _eigen!(f.eig)
+    _rebuild_sym_out!(Y, U, t, s -> _logbarrier_root_half(s, root_step); logs = true, buffer = f.C)
+  end
   f.w * (dot(f.S, Y) - logdet_Y)
 end
 
-# the root μ > 0 of ρμ² - tμ - 1 = 0, as (t + √(t² + 4ρ)) / (2ρ) for t ≥ 0 and in
-# the form 2 / (√(t² + 4ρ) - t) for t < 0, where the first would cancel
-@inline function _logdet_eigenvalue(t::T, ρ::T) where {T}
-  r = sqrt(t^2 + 4ρ)
-  t >= 0 ? (t + r) / (2ρ) : 2 / (r - t)
+# The positive root of z² - 2half*z - root_step² = 0. Keeping the square root
+# of the step avoids overflow and underflow of the step product itself.
+@inline function _logbarrier_root_half(half::T, root_step::T) where {T}
+  r = hypot(half, root_step)
+  half >= 0 && return half + r
+  denominator = r - half
+  # The positive root remains finite when half < 0, even if hypot itself
+  # overflows. Recompute the half denominator from scaled inputs in that case.
+  if isinf(denominator)
+    scaled_denominator = hypot(half / 2, root_step / 2) - half / 2
+    return (root_step / 2) * (root_step / scaled_denominator)
+  end
+  root_step * (root_step / denominator)
+end
+
+# The same root when half = (X/(γw) - S)/2 and root_step = √(γw) > 1.
+@inline function _logdet_scaled_root_half(half::T, root_step::T) where {T}
+  r = hypot(half, inv(root_step))
+  half >= 0 && return ((half + r) * root_step) * root_step
+  denominator = r - half
+  isinf(denominator) ? (one(T) / 2) / (r / 2 - half / 2) : inv(denominator)
 end
 prox!(Y::AbstractMatrix, f::LogDetLoss, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, f, X, γ); Y)
 

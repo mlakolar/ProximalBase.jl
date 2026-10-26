@@ -207,6 +207,23 @@ end
     end
   end
   # the Hessian of least squares is products; its proximal operator runs on the CPU
+  for T in test_types
+    # Match the CPU's zero test after conversion to the working precision,
+    # including higher-precision weights that underflow when converted.
+    weight_sets = T == Float32 ? (T[0, 1], Float64[floatmin(Float64), 1]) : (T[0, 1],)
+    for weights in weight_sets
+      fzero = PoissonLoss(zeros(T, 2), ones(T, 2, 1); weights, offset=T[1000, 0])
+      @test fzero(T[0]) ≃ one(T)
+      @test gradient(fzero, T[0]) ≃ T[1]
+      device = Adapt.adapt(DeviceArray, fzero)
+      β = DeviceArray(T[0])
+      g = similar(β)
+      @test device(β) ≃ one(T)
+      @test value_and_gradient!(g, device, β) ≃ one(T)
+      @test host(g) ≃ T[1]
+      @test host(gradient(device, β)) ≃ T[1]
+    end
+  end
   f = LeastSquaresLoss(y, X)
   fg = Adapt.adapt(DeviceArray, f)
   v = randn(p)

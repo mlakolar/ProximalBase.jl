@@ -262,10 +262,17 @@ kkt_violation(f::AbstractFunction, g::AbstractArray, x::AtomIterate, k::Integer)
     restrict(f, S)
 
 The function of `x[S]` that `f` becomes on the vectors `x` supported on the
-coordinates `S`, as a function of the same kind: an active-set solver minimizes
-the restriction over the active coordinates `S`. At `x[S]` the restriction has
-the value `f(x)` and the gradient `∇f(x)[S]`, except that [`SqrNormL2`](@ref)
-with a center `y` drops the constant `Σⱼ∉S yⱼ²`.
+coordinates `S`, where supported: an active-set solver minimizes the restriction
+over those coordinates. The restriction preserves the objective up to a finite
+additive constant and, for a smooth function, has gradient `∇f(x)[S]`. Centered
+[`SqrNormL2`](@ref), [`Regularize`](@ref) and separable [`Translate`](@ref) may
+drop terms belonging to excluded coordinates. These constants do not change the
+minimizer; evaluate the original function when comparing full objective values.
+
+A nonseparable `Translate` requires its translation to vanish outside `S`;
+otherwise restricting its underlying function would change more than a constant,
+and the operation throws. Excluded terms outside a translated separable
+function's domain also cause an error.
 """
 function restrict end
 
@@ -298,10 +305,16 @@ gradient_mapping(f::AbstractFunction, g::AbstractFunction, x::AbstractArray, γ:
 
 A Lipschitz constant `L` of the gradient of the smooth function `f`, so that a
 gradient or proximal gradient step with step `1/L` decreases the objective.
-It is exact for the closed forms (`SqrNormL2(λ)` gives `λ`); for a loss of a
-matrix it is the largest eigenvalue involved, such as `‖X‖₂²` for
-`LeastSquaresLoss`, computed by the Lanczos process with products by `X` and
-`X'` only, to a relative accuracy of `1e-10` and from below. It is `Inf` for a
+It is exact for the closed forms (`SqrNormL2(λ)` gives `λ`). Dense matrices use
+a full spectral calculation, such as `‖X‖₂²` for `LeastSquaresLoss`. Sparse and
+other indexed matrices use the conservative bound `‖X‖₁ ‖X‖∞` for `‖X‖₂²`,
+without forming a Gram matrix or densifying the input. Weighted losses apply
+this calculation to `Diagonal(sqrt.(weights)) * X`.
+
+The full dense calculation can cost more than an iterative estimate. For large
+problems, [`opnorm2`](@ref) supplies a faster estimate with matrix products, but
+it must be paired with backtracking or an independent bound when selecting a
+step: an estimate can miss a leading eigenspace. `lipschitz` is `Inf` for a
 smooth function whose gradient is not globally Lipschitz, such as `LogDetLoss`
 and `PoissonLoss`, which call for a line search, and an error for a function
 that is not smooth. Sums add the constants, `Scaled` scales them, and

@@ -53,9 +53,6 @@ jobs:
       - uses: julia-actions/cache@v3
       - name: Check naming conventions
         run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} scripts/check_naming.py
-      - name: Resolve dependencies from master checkouts
-        run: julia --color=yes scripts/instantiate.jl
-      - uses: julia-actions/julia-buildpkg@v1
       - name: Test against dependency master checkouts
         run: julia --color=yes scripts/test_master.jl
         env:
@@ -66,3 +63,17 @@ jobs:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+  analysis:
+    name: Benchmark analysis controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check Python runtime
+        run: python3 -c 'import sys; assert sys.version_info >= (3, 11), "Python 3.11 or later required"'
+      - name: Check benchmark analysis and failure preservation
+        run: |
+          python3 benchmark/check_analysis.py
+          python3 benchmark/gpu_solver/check_analysis.py

@@ -28,6 +28,7 @@ struct MoreauEnvelope{F<:AbstractFunction, T<:Real} <: AbstractFunction
   scratch::Scratch
 
   function MoreauEnvelope{F, T}(f::F, γ::T) where {F<:AbstractFunction, T<:Real}
+    isconvex(f) || throw(ArgumentError("the Moreau envelope requires a convex f"))
     isproximable(f) || throw(ArgumentError("the Moreau envelope needs a proximable f, but f is a $(typeof(f))"))
     γ > 0 || throw(ArgumentError("γ must be positive, got $γ"))
     new{F, T}(f, γ, Scratch())
@@ -136,6 +137,7 @@ struct Smoothed{F<:SeparableFunction, T<:Real} <: ScalarLoss
   γ::T
 
   function Smoothed{F, T}(φ::F, γ::T) where {F<:SeparableFunction, T<:Real}
+    isconvex(φ) || throw(ArgumentError("Smoothed requires a convex scalar function"))
     γ > 0 || throw(ArgumentError("γ must be positive, got $γ"))
     new{F, T}(φ, γ)
   end

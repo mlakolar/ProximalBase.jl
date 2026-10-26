@@ -86,9 +86,31 @@ end
   @test_throws DimensionMismatch t(randn(3))
   M = randn(3, 4)
   @test Translate(NuclearNorm(1.), M)(M) ≈ 0
+  for T in (Float32, Float64)
+    s = Translate(NormL1(one(T)), T[1, 2, 3])
+    r = restrict(s, [1, 3])
+    for z in (T[0, 0], T[2, 4])
+      @test s(T[z[1], 0, z[2]]) - r(z) ≈ T(2)
+    end
+    q = Translate(SqrNormL2(T(2)), T[1, 2, 3])
+    rq = restrict(q, [1, 3])
+    @test gradient(rq, T[2, 4]) ≈ gradient(q, T[2, 0, 4])[[1, 3]]
+    @test q(T[2, 0, 4]) - rq(T[2, 4]) ≈ T(4)
+    coupled = Translate(GroupNormL2(one(T), [1:2], T[1]), T[0, 1])
+    @test_throws ArgumentError restrict(coupled, [1])
+    @test restrict(coupled, [2])(T[2]) ≈ coupled(T[0, 2])
+    @test restrict(coupled, [2, 1])(T[2, 1]) ≈ coupled(T[1, 2])
+    @test_throws ArgumentError restrict(Translate(IndNonnegative(), T[0, 1]), [1])
+    @test_throws ArgumentError restrict(Translate(NegLog(), zeros(T, 2)), [1])
+    @test_throws BoundsError restrict(s, [4])
+  end
 end
 
 @testset "Conjugate wrappers" begin
+  for f in (NormL0(), MCP(1.0), GroupSCAD(1.0, [1:2]))
+    @test_throws ArgumentError Conjugate(f)
+    @test_throws ArgumentError Conjugate{typeof(f)}(f, ProximalBase.Scratch())
+  end
   for T in (Float32,Float64)
     y,b = T[.1,-.2,.3], T[1,2,3]
     f = Scaled(Translate(SqrNormL2(T(2)),b),T(.5))
@@ -99,7 +121,53 @@ end
     @test Conjugate(h)(T[.5,0,0]) == Inf
     @test_throws DimensionMismatch Conjugate(Translate(NormL1(),b))(zeros(T,2))
   end
-  @test_throws ArgumentError Conjugate(Scaled(NormL1(),0.))(zeros(3))
+  @test Conjugate(Scaled(NormL1(), 0.0))(zeros(3)) == 0
+  @test Conjugate(Scaled(NormL1(), 0.0))(ones(3)) == Inf
+end
+
+@testset "zero scales preserve domains" begin
+  for T in (Float32, Float64)
+    for f in (ZeroFunction(), NormL1(one(T)), GroupNormL2(one(T), [1:2]),
+              GroupNormLinf(one(T), [1:2]), SparseGroupNormL2(one(T), one(T), [1:2]),
+              NormL2(one(T)), NormLinf(one(T)), NormL0(one(T)),
+              MCP(one(T)), SCAD(one(T)), GroupMCP(one(T), [1:2]), GroupSCAD(one(T), [1:2]),
+              ElasticNet(one(T), one(T)), SqrNormL2(one(T), T[1, 2]),
+              QuadraticFunction(Matrix{T}(I, 2, 2)),
+              LeastSquaresLoss(T[1, 2], Matrix{T}(I, 2, 2)), LinearFunction(T[1, 2]))
+      z = Scaled(f, zero(T))
+      @test z isa ZeroFunction
+      @test z(T[2, -1]) == 0
+      @test prox(z, T[2, -1]) == T[2, -1]
+      @test gradient(z, T[2, -1]) == zeros(T, 2)
+      @test prox(z, T[2, -1], T[0.2, 0.8]) == T[2, -1]
+      @test Scaled{typeof(f), T}(f, zero(T)) isa ZeroFunction
+    end
+    positive = Scaled(NormL1(one(T)), one(T))
+    @test Scaled{typeof(positive), T}(positive, zero(T)) isa ZeroFunction
+    infinite = Scaled(NormL1(one(T)), T(Inf))
+    @test_throws ArgumentError Scaled{typeof(infinite), T}(infinite, zero(T))
+    @test_throws ArgumentError Scaled(NormL1(one(T), T[1, Inf]), zero(T))
+    x, steps = T[2, -1], T[0.2, 0.8]
+    out = similar(x)
+    @test value_and_prox!(out, ZeroFunction(), x, steps) == zero(T)
+    @test out == x
+    @test prox!(x, ZeroFunction(), x, steps) === x
+    @test x == T[2, -1]
+    @test allocs(value_and_prox!, out, ZeroFunction(), x, steps) == 0
+    @test_throws DimensionMismatch prox(ZeroFunction(), x, steps[1:1])
+    @test_throws DimensionMismatch prox!(ones(T, 3), ZeroFunction(), x, steps)
+    C = IndNonnegative()
+    @test Scaled(C, zero(T)) === C
+    @test Scaled(C, zero(T))(T[-1]) == Inf
+    @test Scaled(NormL1Nonneg(), zero(T))(T[-1]) == Inf
+    @test_throws ArgumentError Scaled(NegLog(), zero(T))
+    @test_throws ArgumentError Scaled{NegLog{Int}, T}(NegLog(), zero(T))
+    @test_throws ArgumentError Scaled(NormL1(T(Inf)), zero(T))
+    @test Conjugate(SqrNormL2(zero(T)))(T[0]) == 0
+    @test Conjugate(SqrNormL2(zero(T)))(T[1]) == Inf
+    @test_throws ArgumentError LogDetLoss(zeros(T, 1, 1), zero(T))
+    @test_throws ArgumentError LogDetLoss(zeros(T, 1, 1), T(Inf))
+  end
 end
 
 @testset "Conjugate" begin

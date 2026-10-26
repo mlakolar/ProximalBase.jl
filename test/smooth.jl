@@ -410,8 +410,52 @@ end
   @test_throws DimensionMismatch f(randn(3, 3))
   @test_throws ArgumentError LogDetLoss(big.([2. 1.; 1. 2.]))
   f32 = LogDetLoss(Float32.(S))
+  for T in (Float32, Float64)
+    tiny = T == Float32 ? T(1e-20) : T(1e-200)
+    fsmall = LogDetLoss(zeros(T, 2, 2), one(T))
+    Xsmall = Matrix{T}(I, 2, 2)
+    Ysmall = similar(Xsmall)
+    value = value_and_prox!(Ysmall, fsmall, Xsmall, tiny)
+    @test all(isfinite, Ysmall) && isfinite(value)
+    @test Ysmall ≈ Xsmall
+    @test value ≈ fsmall(Ysmall)
+    alias = copy(Xsmall)
+    @test prox!(alias, fsmall, alias, tiny) ≈ Xsmall
+    extreme = T == Float32 ? T(1e30) : T(1e200)
+    for scale in (extreme, inv(extreme))
+      @test prox(LogDetLoss(zeros(T, 1, 1), scale), zeros(T, 1, 1), scale) ≈ fill(scale, 1, 1) rtol=16eps(T)
+    end
+    @test prox(LogDetLoss(fill(extreme, 1, 1)), ones(T, 1, 1), extreme) ≈ fill(inv(extreme), 1, 1) rtol=16eps(T)
+    # The subtraction X - γS can overflow even with a unit step.
+    z = only(prox(LogDetLoss(fill(floatmax(T), 1, 1)), fill(-floatmax(T), 1, 1)))
+    @test isfinite(z) && z > 0
+    @test z ≈ T(inv(2BigFloat(floatmax(T)))) rtol=32eps(T)
+  end
   @test f32(Float32.(X)) isa Float32
   @test prox(f32, Float32.(X), 0.5f0) ≈ prox(f, X, 0.5) rtol = 1e-4
+end
+
+@testset "zero-weight observations are ignored" begin
+  for T in (Float32, Float64)
+    f = PoissonLoss(zeros(T, 2), ones(T, 2, 1); weights=T[0, 1], offset=T[1000, 0])
+    for β in (T[0], T[-2], T[2])
+      expected = exp(β[1])
+      @test f(β) ≈ expected
+      @test gradient(f, β) ≈ T[expected]
+      g = similar(β)
+      @test value_and_gradient!(g, f, β) ≈ expected
+      @test g ≈ T[expected]
+      @test hessian_vec(f, β, T[2]) ≈ T[2expected]
+      q = quadratic_model(f, β)
+      @test all(isfinite, q.y) && all(isfinite, q.weights)
+      @test gradient(q, β) ≈ T[expected]
+      @test hessian_vec(q, β, T[2]) ≈ T[2expected]
+    end
+    fzero = PoissonLoss(zeros(T, 2), ones(T, 2, 1); weights=zeros(T, 2), offset=fill(T(1000), 2))
+    @test fzero(T[0]) == 0
+    @test gradient(fzero, T[0]) == T[0]
+    @test hessian_vec(fzero, T[0], T[2]) == T[0]
+  end
 end
 
 @testset "lipschitz" begin
@@ -451,6 +495,37 @@ end
   @test lipschitz(LeastSquaresLoss(Float32.(y), Float32.(X))) isa Float32
   @test_throws ArgumentError lipschitz(NormL1(1.))
   @test_throws ArgumentError lipschitz(Conjugate(NormL2(1.)))
+  # A fixed Lanczos start can be orthogonal to the leading eigenspace. Bounds
+  # used for a fixed gradient step must still account for that direction.
+  for T in (Float32, Float64)
+    start = T[sin(i) + cos(sqrt(2) * i) for i in 1:3]
+    u = normalize(T[start[2], -start[1], 0])
+    A = Matrix{T}(I, 3, 3) + T(99) * (u * u')
+    for matrix in (A, sparse(A))
+      q = QuadraticFunction(matrix)
+      Lq = lipschitz(q)
+      @test Lq >= T(100) * (1 - 16eps(T))
+      @test q(u - gradient(q, u) / Lq) < q(u)
+      ls = LeastSquaresLoss(zeros(T, 3), matrix)
+      Ll = lipschitz(ls)
+      @test Ll >= T(10000) * (1 - 32eps(T))
+      @test ls(u - gradient(ls, u) / Ll) < ls(u)
+      logistic = LogisticLoss(zeros(T, 3), matrix; weights=T[0.5, 1, 2])
+      reference = opnorm(Diagonal(sqrt.(T[0.5, 1, 2])) * A)^2 / 4
+      @test lipschitz(logistic) >= reference * (1 - 32eps(T))
+    end
+    Xs = sprandn(T, 30, 15, 0.1)
+    @test lipschitz(LeastSquaresLoss(zeros(T, 30), Xs)) >= opnorm(Matrix(Xs))^2 * (1 - 32eps(T))
+    # Transposed inputs retain the full dense calculation; empty losses have
+    # zero curvature on both the dense and sparse paths.
+    rectangular = T[1 2 3; 4 5 6]
+    for matrix in (transpose(rectangular), adjoint(rectangular))
+      @test lipschitz(LeastSquaresLoss(zeros(T, 3), matrix)) ≈ opnorm(rectangular)^2
+    end
+    for matrix in (zeros(T, 0, 3), spzeros(T, 0, 3))
+      @test lipschitz(LeastSquaresLoss(T[], matrix)) == zero(T)
+    end
+  end
 end
 
 @testset "KronQuadratic from matrices symmetric up to rounding" begin

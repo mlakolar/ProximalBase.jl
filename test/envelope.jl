@@ -79,10 +79,15 @@ PB.isconvex(::Type{Quad}) = true
   end
 
   @test_throws ArgumentError MoreauEnvelope(NormL1(1.0), 0.0)
+  for f in (NormL0(), MCP(1.0), GroupSCAD(1.0, [1:2]))
+    @test_throws ArgumentError MoreauEnvelope(f, 1.0)
+    @test_throws ArgumentError MoreauEnvelope{typeof(f), Float64}(f, 1.0)
+  end
   @test_throws ArgumentError MoreauEnvelope(LogisticLoss(rand(0:1, 5), randn(5, 3)), 1.0)
 end
 
 @testset "Smoothed" begin
+  @test_throws ArgumentError PB.Smoothed(NormL0(), 1.0)
   δ = 0.5
   s, h = PB.Smoothed(NormL1(δ), 1.0), PB.Huber(δ)
   for η in (-2.0, -0.5, -0.2, 0.0, 0.3, 0.5, 1.7), y in (0.0, 0.4)

@@ -13,6 +13,14 @@
 
 prox(f::AbstractFunction, x::AbstractArray, γ::AbstractArray) = prox!(similar(x, float(eltype(x))), f, x, γ)
 
+function prox!(y::AbstractArray, ::ZeroFunction, x::AbstractArray, γ::AbstractArray)
+  _checkparam(γ, x)
+  _checksize(y, x)
+  y === x ? y : copyto!(y, x)
+end
+value_and_prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::AbstractArray) =
+  (prox!(y, f, x, γ); zero(float(eltype(y))))
+
 # separable functions: the step of each entry; on a SymmetricSparseIterate the
 # steps are a p × p array read at the lower triangle, so give a symmetric one.
 # Scalar and array steps share the loops of separable.jl; _entry specializes

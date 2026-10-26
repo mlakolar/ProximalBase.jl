@@ -429,5 +429,20 @@ function _opnorm2(X::AbstractMatrix, w = nothing)
   end
 end
 
-# ‖A‖₂, the largest singular value
-_opnorm(A::AbstractMatrix) = sqrt(_opnorm2(A))
+# Bounds used by fixed-step methods must account for every eigenspace. Dense
+# matrices use a full spectral calculation; sparse and other indexed matrices
+# use ‖A‖₂ ≤ √(‖A‖₁ ‖A‖∞), without forming a Gram matrix or densifying A.
+function _opnorm_upper(A::AbstractMatrix)
+  T = float(eltype(A))
+  isempty(A) && return zero(T)
+  sqrt(convert(T, opnorm(A, 1))) * sqrt(convert(T, opnorm(A, Inf)))
+end
+function _opnorm_upper(A::Union{StridedMatrix, Symmetric{<:Real, <:StridedMatrix}, Hermitian{<:Real, <:StridedMatrix}})
+  isempty(A) ? zero(float(eltype(A))) : opnorm(A)
+end
+_opnorm_upper(A::Union{Transpose, Adjoint}) = _opnorm_upper(parent(A))
+_opnorm2_upper(A::AbstractMatrix) = abs2(_opnorm_upper(A))
+function _opnorm2_upper(A::AbstractMatrix, w)
+  w === nothing && return _opnorm2_upper(A)
+  convert(float(eltype(A)), _opnorm2_upper(Diagonal(sqrt.(w)) * A))
+end

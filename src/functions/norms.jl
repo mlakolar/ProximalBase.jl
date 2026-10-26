@@ -87,13 +87,18 @@ prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Real) = (value_and_pr
 #  group norms  λ0 ⋅ Σₖ wₖ ‖x[Gₖ]‖
 ####################################
 
-# GroupNormL2 and GroupNormLinf share their groups, weights and the map from an
-# index to its group, and differ in the norm of a group, its dual norm and the
-# shrinkage of a group.
-abstract type AbstractGroupNorm <: AbstractFunction end
+# Group penalties share their groups, weights and the map from an index to its
+# group. Only the group norms are positively homogeneous and convex; MCP and
+# SCAD use the same grouping machinery but have different proximal kernels.
+abstract type AbstractGroupPenalty <: AbstractFunction end
+abstract type HomogeneousGroupNorm <: AbstractGroupPenalty end
 
-isproximable(::Type{<:AbstractGroupNorm}) = true
-isconvex(::Type{<:AbstractGroupNorm}) = true
+# Keep the qualified name used by solvers to select grouped iterates. Its old
+# meaning included MCP and SCAD; norm-only algorithms use HomogeneousGroupNorm.
+const AbstractGroupNorm = AbstractGroupPenalty
+
+isproximable(::Type{<:AbstractGroupPenalty}) = true
+isconvex(::Type{<:HomogeneousGroupNorm}) = true
 
 """
     GroupNormL2(λ0, groups)
@@ -123,7 +128,7 @@ f = GroupNormL2(0.5, [1:3, 4:5, [6, 8]])    # x[7] is not penalized
 prox(f, randn(8))
 ```
 """
-struct GroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractGroupNorm
+struct GroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: HomogeneousGroupNorm
   λ0::T
   groups::G
   w::Vector{T}
@@ -150,7 +155,7 @@ operator clips each group, by Moreau's identity with the projection onto an ℓ1
 ball, and its optimality test ([`kkt_violation`](@ref)) uses the dual norm,
 `‖g[Gₖ]‖₁ - λ0 wₖ`.
 """
-struct GroupNormLinf{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractGroupNorm
+struct GroupNormLinf{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: HomogeneousGroupNorm
   λ0::T
   groups::G
   w::Vector{T}
@@ -217,10 +222,10 @@ _dual_norm(::GroupNormL2, g, G) = sqrt(_sumsq(g, G))
 _dual_norm(::GroupNormLinf, g, G) = _sumabs(g, G)
 
 # the group of index i, 0 if i is in no group
-_group(f::AbstractGroupNorm, i::Integer) = i <= length(f.group_of) ? f.group_of[i] : 0
+_group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_of[i] : 0
 
 # the groups fit in x: the loops over a group skip the bounds checks
-@inline _checkgroups(f::AbstractGroupNorm, x::AbstractArray) =
+@inline _checkgroups(f::AbstractGroupPenalty, x::AbstractArray) =
   length(x) >= length(f.group_of) || throw(BoundsError(x, length(f.group_of)))
 
 # y[G] ← prox_{c‖⋅‖₂}(x[G]), which may be in place; returns the new norm of the group
@@ -258,7 +263,7 @@ function _shrink_group!(f::GroupNormLinf, y::AbstractArray{T}, x::AbstractArray,
   τ
 end
 
-function (f::AbstractGroupNorm)(x::AbstractArray)
+function (f::HomogeneousGroupNorm)(x::AbstractArray)
   _checkgroups(f, x)
   T = float(eltype(x))
   v = zero(T)
@@ -268,16 +273,14 @@ function (f::AbstractGroupNorm)(x::AbstractArray)
   convert(T, f.λ0) * v
 end
 
-value_and_prox!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
-prox!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::Real) = (value_and_prox!(y, f, x, γ); y)
+value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
+prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::Real) = (value_and_prox!(y, f, x, γ); y)
 
-# the step γ is a scalar or a vector with a step per group (see metric.jl)
-function _value_and_prox_groups!(y::AbstractArray, f::AbstractGroupNorm, x::AbstractArray, γ::Union{Real, AbstractVector})
-  _checksize(y, x)
-  _checkgroups(f, x)
-  _checkgroupsteps(f, γ)
-  T = float(eltype(y))
-  if y !== x                    # indices in no group are not penalized
+# Copy indices outside the penalized groups, including those beyond the last
+# group. Call after checking sizes and groups; all proximal kernels leave these
+# entries unchanged, and an in-place call already has the required values.
+@inline function _copy_ungrouped!(y, f::AbstractGroupPenalty, x)
+  if y !== x
     @inbounds for i in f.free
       y[i] = x[i]
     end
@@ -285,6 +288,16 @@ function _value_and_prox_groups!(y::AbstractArray, f::AbstractGroupNorm, x::Abst
       y[i] = x[i]
     end
   end
+  y
+end
+
+# the step γ is a scalar or a vector with a step per group (see metric.jl)
+function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::AbstractArray, γ::Union{Real, AbstractVector})
+  _checksize(y, x)
+  _checkgroups(f, x)
+  _checkgroupsteps(f, γ)
+  T = float(eltype(y))
+  _copy_ungrouped!(y, f, x)
   v = zero(T)
   for k in eachindex(f.groups)
     v += convert(T, f.w[k]) * _shrink_group!(f, y, x, f.groups[k], convert(T, _entry(γ, k) * f.λ0 * f.w[k]))
@@ -293,12 +306,12 @@ function _value_and_prox_groups!(y::AbstractArray, f::AbstractGroupNorm, x::Abst
 end
 
 # a step per group (see metric.jl): one entry for every group
-_checkgroupsteps(::AbstractGroupNorm, ::Real) = true
-_checkgroupsteps(f::AbstractGroupNorm, γ::AbstractVector) = length(γ) == length(f.groups) ||
+_checkgroupsteps(::AbstractGroupPenalty, ::Real) = true
+_checkgroupsteps(f::AbstractGroupPenalty, γ::AbstractVector) = length(γ) == length(f.groups) ||
   throw(DimensionMismatch("a step per group: $(length(f.groups)) groups and $(length(γ)) steps"))
 
 # the parts of the groups in S, as positions in S, with their weights
-function restrict(f::AbstractGroupNorm, S::AbstractVector{<:Integer})
+function restrict(f::AbstractGroupPenalty, S::AbstractVector{<:Integer})
   members = Dict{Int, Vector{Int}}()
   for (j, i) in enumerate(S)
     k = _group(f, i)
@@ -308,7 +321,7 @@ function restrict(f::AbstractGroupNorm, S::AbstractVector{<:Integer})
   _rebuild(f, f.λ0, [members[k] for k in ks], f.w[ks])
 end
 
-function kkt_violation(f::AbstractGroupNorm, g::AbstractArray, x::AbstractArray, i::Integer)
+function kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AbstractArray, i::Integer)
   _checkgroups(f, g)
   _checkgroups(f, x)
   k = _group(f, i)
@@ -318,28 +331,28 @@ function kkt_violation(f::AbstractGroupNorm, g::AbstractArray, x::AbstractArray,
 end
 
 # on an AtomIterate, k is a group
-kkt_violation(f::AbstractGroupNorm, g::AbstractArray, x::AtomIterate, k::Integer) =
+kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AtomIterate, k::Integer) =
   (_checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - f.λ0 * f.w[k])
 
 # the coordinates of x are the groups of f; O(1) when they share them
-_checksamegroups(f::AbstractGroupNorm, x::AtomIterate) = x.groups === f.groups || x.groups == f.groups ||
+_checksamegroups(f::AbstractGroupPenalty, x::AtomIterate) = x.groups === f.groups || x.groups == f.groups ||
   throw(DimensionMismatch("f and x must have the same groups."))
-kkt_violation(f::AbstractGroupNorm, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
+kkt_violation(f::AbstractGroupPenalty, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate"))
 
 # an AtomIterate that shares the groups of f, which must partition 1:p
-AtomIterate(p::Integer, f::AbstractGroupNorm) = AtomIterate(Float64, p, f)
-function AtomIterate(::Type{T}, p::Integer, f::AbstractGroupNorm) where {T}
+AtomIterate(p::Integer, f::AbstractGroupPenalty) = AtomIterate(Float64, p, f)
+function AtomIterate(::Type{T}, p::Integer, f::AbstractGroupPenalty) where {T}
   _check_partition(f.group_of, p)
   _AtomIterate(zeros(T, p), f.groups, f.group_of)
 end
-function AtomIterate(x::AbstractVector{T}, f::AbstractGroupNorm) where {T}
+function AtomIterate(x::AbstractVector{T}, f::AbstractGroupPenalty) where {T}
   _check_partition(f.group_of, length(x))
   _AtomIterate(Vector{T}(x), f.groups, f.group_of)
 end
 
 # with the groups of f, only the active groups count
-function (f::AbstractGroupNorm)(x::AtomIterate)
+function (f::HomogeneousGroupNorm)(x::AtomIterate)
   x.groups === f.groups || return invoke(f, Tuple{AbstractArray}, x)
   T = float(eltype(x))
   v = zero(T)
@@ -350,11 +363,11 @@ function (f::AbstractGroupNorm)(x::AtomIterate)
   convert(T, f.λ0) * v
 end
 
-value_and_prox!(y::AtomIterate, f::AbstractGroupNorm, x::AtomIterate, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
+value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
 
-function _value_and_prox_groups!(y::AtomIterate, f::AbstractGroupNorm, x::AtomIterate, γ::Union{Real, AbstractVector})
+function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::AtomIterate, γ::Union{Real, AbstractVector})
   y.groups === x.groups === f.groups ||
-    return invoke(_value_and_prox_groups!, Tuple{AbstractArray, AbstractGroupNorm, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
+    return invoke(_value_and_prox_groups!, Tuple{AbstractArray, HomogeneousGroupNorm, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
   copyto!(y, x)
@@ -368,7 +381,7 @@ end
 
 # group k of x shrunk in place; the group becomes active if it is nonzero, as after
 # writing to it through atom(x, k)
-function prox_coordinate!(x::AtomIterate, f::AbstractGroupNorm, k::Integer, γ::Real)
+function prox_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k::Integer, γ::Real)
   _checksamegroups(f, x)
   T = float(eltype(x))
   nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], convert(T, γ * f.λ0 * f.w[k]))

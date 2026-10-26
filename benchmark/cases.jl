@@ -174,18 +174,20 @@ function separable_cases!(cases, rep; quick=false)
                   GroupMCP(T(0.3),groups,weights), GroupSCAD(T(0.3),groups,weights))
             quick && !(f isa GroupNormL2) && continue
             addprox!(cases, "groups", string(nameof(typeof(f))), f, x; profile=T==Float64 && n==100_000 && f isa SparseGroupNormL2)
-            if f isa Union{GroupNormL2,GroupNormLinf,SparseGroupNormL2}
-                xa = copy(x); xa[1:n÷2] .= 0
-                atomx = AtomIterate(xa,f)
-                addprox!(cases, "groups", string(nameof(typeof(f))), f, atomx; layout="atom_half_active")
-                z = copy(atomx)
-                step = T(0.7)
-                group_index = length(groups)
-                prep!() = copyto!(z,atomx)
-                check!() = (prep!(); prox_coordinate!(z,f,group_index,step); all(isfinite,z) || error("nonfinite group update"))
-                addcase!(cases, "coordinates", string(nameof(typeof(f))), () -> prox_coordinate!(z,f,group_index,step), check!;
-                         T, shape=string(n), layout="atom", prepare=prep!, work=length(last(groups)))
+            if !quick
+                steps = T(0.2) .+ rand(rng, T, length(groups))
+                addprox!(cases, "groups", string(nameof(typeof(f))), f, x; γ=steps, layout="group_steps")
             end
+            xa = copy(x); xa[1:n÷2] .= 0
+            atomx = AtomIterate(xa,f)
+            addprox!(cases, "groups", string(nameof(typeof(f))), f, atomx; layout="atom_half_active")
+            z = copy(atomx)
+            step = T(0.7)
+            group_index = length(groups)
+            prep!() = copyto!(z,atomx)
+            check!() = (prep!(); prox_coordinate!(z,f,group_index,step); all(isfinite,z) || error("nonfinite group update"))
+            addcase!(cases, "coordinates", string(nameof(typeof(f))), () -> prox_coordinate!(z,f,group_index,step), check!;
+                     T, shape=string(n), layout="atom", prepare=prep!, work=length(last(groups)))
         end
     end
 end

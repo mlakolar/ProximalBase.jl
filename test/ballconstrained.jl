@@ -62,7 +62,8 @@ end
   n = 8
   v = 2 .* randn(n)
   fs = (NormL1(0.3), NormL1(0.3, rand(n)), NormL1Nonneg(0.4), NormL2(0.5), NormLinf(0.2),
-        GroupNormL2(0.4, [1:3, 4:5, [6, 8]]), GroupNormLinf(0.3, [1:4, 5:8]), Scaled(NormL1(1.), 0.3),
+        GroupNormL2(0.4, [1:3, 4:5, [6, 8]]), GroupNormLinf(0.3, [1:4, 5:8]),
+        SparseGroupNormL2(0.2, 0.3, [1:3, 4:5, [6, 8]]), Scaled(NormL1(1.), 0.3),
         ZeroFunction(), IndNonnegative())
   for f in fs, r in (0.5, 2., 50.), γ in (0.4, 1.5)
     @testset "$(nameof(typeof(f))), r = $r" begin
@@ -119,6 +120,15 @@ end
   end
   @test_throws ArgumentError Constrained(SqrNormL2(1.), IndBallL2(1.))
   @test_throws ArgumentError Constrained(MCP(1.), IndBallL2(1.))
+  # MCP and SCAD share the grouping interface, but are not homogeneous norms.
+  for F in (GroupMCP, GroupSCAD)
+    f = F(1.0, [1:1, 2:2])
+    @test f isa ProximalBase.AbstractGroupPenalty
+    @test !(f isa ProximalBase.HomogeneousGroupNorm)
+    @test f isa ProximalBase.AbstractGroupNorm   # preserve solvers' grouped-iterate selection
+    @test_throws ArgumentError Constrained(f, IndBallL2(1.0))
+    @test_throws ArgumentError Constrained(0.5 * f, IndBallL2(1.0))
+  end
   @test_throws ArgumentError Constrained(IndBox(-1, 1), IndBallL2(1.))
 end
 

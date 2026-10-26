@@ -228,9 +228,9 @@ Base.@propagate_inbounds function prox_entry(r::Regularize, v::Real, i::Integer,
 end
 _checkparams(r::Regularize, x) = (_checkparam(r.c, x); _checkparams(r.f, x))
 
-# a regularized group norm on an AtomIterate: shrink the group towards c, then
-# take the step of the group norm
-function prox_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupNorm}, k::Integer, γ::Real)
+# a regularized group penalty on an AtomIterate: shrink the group towards c,
+# then take the step of the group penalty
+function prox_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k::Integer, γ::Real)
   T = float(eltype(x))
   γρ = convert(T, γ) * convert(T, r.ρ)
   @inbounds for i in x.groups[k]

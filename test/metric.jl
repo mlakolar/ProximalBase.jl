@@ -117,6 +117,63 @@ end
   end
 end
 
+@testset "a step per group for MCP and SCAD" begin
+  groups = [1:2, [4, 6]]                    # internal and trailing free entries
+  for T in (Float32, Float64), F in (GroupMCP, GroupSCAD)
+    f = F(T(0.5), groups, T[1, 0.7])
+    x = T[3, 4, 7, -1, 8, 2, 9, 10]
+    steps = T[0.2, 4]                      # includes a nonconvex scalar subproblem
+    p = prox(f, x, steps)
+    @test eltype(p) == T
+    @test p[[3, 5, 7, 8]] == x[[3, 5, 7, 8]]
+    for k in eachindex(groups)
+      G = groups[k]
+      @test p[G] ≈ prox(F(f.λ0, [1:length(G)], [f.w[k]]; a=f.a), x[G], steps[k])
+    end
+    @test prox(f, x, fill(T(0.6), 2)) ≈ prox(f, x, T(0.6))
+    # A strided step vector and a sparse iterate use the same per-group metric.
+    @test prox(f, x, view(T[steps[1], 0, steps[2], 0], 1:2:4)) ≈ p
+    @test Vector(prox(f, SparseIterate(x), steps)) ≈ p
+    for input in (x, SparseIterate(x))
+      out = similar(input)
+      @test value_and_prox!(out, f, input, steps) ≈ f(p)
+      @test Vector(out) ≈ p
+      alias = copy(input)
+      @test Vector(prox!(alias, f, alias, steps)) ≈ p
+    end
+    @test allocs(value_and_prox!, similar(x), f, x, steps) == 0
+    @inferred value_and_prox!(similar(x), f, x, steps)
+    @test_throws DimensionMismatch prox(f, x, steps[1:1])
+    @test_throws DimensionMismatch prox(f, x, [steps; one(T)])
+
+    # Shared groups retain the active-group path, including zero and free groups.
+    fa = F(T(0.5), [1:2, 3:4, 5:6], T[1, 0.7, 0])
+    xa = AtomIterate(T[3, 4, 0, 0, 2, -1], fa)
+    γa = T[0.2, 4, 0.5]
+    reference = prox(fa, Vector(xa), γa)
+    ya = similar(xa)
+    @test value_and_prox!(ya, fa, xa, γa) ≈ fa(reference)
+    @test Vector(ya) ≈ reference
+    alias = copy(xa)
+    @test Vector(prox!(alias, fa, alias, γa)) ≈ reference
+    @test allocs(value_and_prox!, ya, fa, xa, γa) == 0
+    @inferred value_and_prox!(ya, fa, xa, γa)
+    @test_throws DimensionMismatch prox(fa, xa, γa[1:2])
+    # Equal but independently owned groups exercise the ordinary-array fallback.
+    for layout in ([1:2, 3:4, 5:6], [1:3, 4:6])
+      independent = AtomIterate(Vector(xa), layout)
+      out = similar(independent)
+      @test value_and_prox!(out, fa, independent, γa) ≈ fa(reference)
+      @test Vector(out) ≈ reference
+    end
+    # A regularized group penalty still updates one atom through the shared API.
+    regularized = Regularize(fa, T(0.3))
+    alias = copy(xa)
+    prox_coordinate!(alias, regularized, 1, T(0.2))
+    @test Vector(alias)[1:2] ≈ prox(regularized, Vector(xa), T(0.2))[1:2]
+  end
+end
+
 @testset "a step per group for the sparse group lasso" begin
   groups = [1:3, 4:5, [6, 8], 9:12]               # x[7] is in no group
   x = 2 .* randn(12)

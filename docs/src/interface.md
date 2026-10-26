@@ -123,9 +123,10 @@ A scalar step is set by the worst-scaled coordinate. In a diagonal metric
 the scalar proximal operator with the step ``\gamma_i = 1/d_i`` in every entry.
 So [`prox!`](@ref) and [`value_and_prox!`](@ref) of a [`SeparableFunction`](@ref)
 take an array of steps of the size of ``x`` as well as a scalar, on arrays and on
-the three iterates. A group norm takes a step per group, a metric constant on each
-group, which keeps the closed form. `Scaled`, `Tilt`, `Translate` and `Conjugate`
-pass the steps on.
+the three iterates. Group norms and the nonconvex [`GroupMCP`](@ref) and
+[`GroupSCAD`](@ref) take a vector with one step per group, a metric constant on
+each group, which keeps the closed form. `Scaled`, `Tilt`, `Translate` and
+`Conjugate` pass the steps on.
 
 The projections onto a hyperplane, a halfspace, a simplex and an ℓ1 ball take an
 array of steps as well, as projections in the metric. The hyperplane has the

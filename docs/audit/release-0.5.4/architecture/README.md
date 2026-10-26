@@ -59,7 +59,16 @@ validation is distinct from physical-device compiler/performance validation.
 
 ## Recreation
 
-The inspected rendering used `@mermaid-js/mermaid-cli` in a temporary npm
-environment, with an installed Chrome executable selected through the CLI's
-Puppeteer configuration. Run `mmdc -i VIEW.mmd -o VIEW.png --size 1300 -b white`
-with that configuration. No renderer dependency is added to ProximalBase.
+The inspected rendering used `@mermaid-js/mermaid-cli` 12.0.0 outside the
+package environment, with the installed Chrome executable selected through
+`puppeteer.json`. The two corrected views were rerendered with the same size
+and white background:
+
+```sh
+mmdc -p puppeteer.json -i VIEW.mmd -o VIEW.png --size 1300 -b white
+```
+
+The Puppeteer configuration sets `executablePath` to the installed Chrome
+binary and `args` to `["--no-sandbox"]`. No renderer dependency is added to
+ProximalBase. The durable audit validation folder retains the renderer's npm
+lockfile and configuration for recreation.

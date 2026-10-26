@@ -1,5 +1,5 @@
 flowchart TD
-  F["Loss or wrapper instance"] --o|owns| WS["Scratch / factorization / LAPACK workspace"]
+  F["Function instance"] --o|owns| WS["Scratch / factorization / LAPACK workspace"]
   RC["reset_cache!"] ==>|traverses supported wrappers| F
   EX["Adapt and GPUArraysCore loaded"] -.->|extension dispatch| GPU["Device array methods"]
   AD["Adapt.adapt"] ==>|converts parameters| DG["DeviceGroups with grouped layout"]

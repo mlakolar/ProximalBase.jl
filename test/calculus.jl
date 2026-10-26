@@ -121,7 +121,33 @@ end
     @test Conjugate(h)(T[.5,0,0]) == Inf
     @test_throws DimensionMismatch Conjugate(Translate(NormL1(),b))(zeros(T,2))
   end
-  @test_throws ArgumentError Conjugate(Scaled(NormL1(),0.))(zeros(3))
+  @test Conjugate(Scaled(NormL1(), 0.0))(zeros(3)) == 0
+  @test Conjugate(Scaled(NormL1(), 0.0))(ones(3)) == Inf
+end
+
+@testset "zero scales preserve domains" begin
+  for T in (Float32, Float64)
+    for f in (NormL1(one(T)), GroupNormL2(one(T), [1:2]),
+              ElasticNet(one(T), one(T)), SqrNormL2(one(T), T[1, 2]), MCP(one(T)))
+      z = Scaled(f, zero(T))
+      @test z isa ZeroFunction
+      @test z(T[2, -1]) == 0
+      @test prox(z, T[2, -1]) == T[2, -1]
+      @test gradient(z, T[2, -1]) == zeros(T, 2)
+      @test prox(z, T[2, -1], T[0.2, 0.8]) == T[2, -1]
+    end
+    C = IndNonnegative()
+    @test Scaled(C, zero(T)) === C
+    @test Scaled(C, zero(T))(T[-1]) == Inf
+    @test Scaled(NormL1Nonneg(), zero(T))(T[-1]) == Inf
+    @test_throws ArgumentError Scaled(NegLog(), zero(T))
+    @test_throws ArgumentError Scaled{NegLog{Int}, T}(NegLog(), zero(T))
+    @test_throws ArgumentError Scaled(NormL1(T(Inf)), zero(T))
+    @test Conjugate(SqrNormL2(zero(T)))(T[0]) == 0
+    @test Conjugate(SqrNormL2(zero(T)))(T[1]) == Inf
+    @test_throws ArgumentError LogDetLoss(zeros(T, 1, 1), zero(T))
+    @test_throws ArgumentError LogDetLoss(zeros(T, 1, 1), T(Inf))
+  end
 end
 
 @testset "Conjugate" begin

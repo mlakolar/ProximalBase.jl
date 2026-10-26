@@ -28,7 +28,7 @@ struct LogDetLoss{T<:_BlasReal} <: AbstractFunction
   C::Matrix{T}                  # Cholesky factors and inverses
 
   function LogDetLoss{T}(S::Matrix{T}, w::T) where {T<:_BlasReal}
-    _checknonneg("w", w)
+    isfinite(w) && w > 0 || throw(ArgumentError("w must be finite and positive, got $w"))
     p = checksquare(S)
     new{T}(S, w, SymEigenWorkspace(T, p), zeros(T, p, p))
   end

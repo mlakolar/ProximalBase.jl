@@ -35,6 +35,11 @@ Base.@propagate_inbounds Base.getindex(a::_ShiftedArray, i::Int) = a.g[i] + a.c[
 The function `α f(x)` for `α ≥ 0`, with the roles of `f`: its gradient is
 `α ∇f`, and its proximal operator `prox_{γαf}`, so that `0.5 * f` halves a loss
 and `(1/n) * f` averages one.
+
+At zero scale, finite-parameter norms and quadratics simplify to
+[`ZeroFunction`](@ref), while an indicator retains its domain and is returned
+unchanged. Zero scaling of other extended-valued functions is rejected when
+the package has no domain-preserving proximal representation.
 """
 struct Scaled{F<:AbstractFunction, T<:Real} <: AbstractFunction
   f::F
@@ -42,11 +47,35 @@ struct Scaled{F<:AbstractFunction, T<:Real} <: AbstractFunction
 
   function Scaled{F, T}(f::F, α::T) where {F<:AbstractFunction, T<:Real}
     _checknonneg("α", α)
+    iszero(α) && return _zero_scaled(f)
     new{F, T}(f, α)
   end
 end
 Scaled(f::AbstractFunction, α::Real) = Scaled{typeof(f), typeof(α)}(f, α)
 Scaled(f::Scaled, α::Real) = Scaled(f.f, f.α * α)
+
+@noinline _zero_scale_error(f) = throw(ArgumentError("zero scaling of $(typeof(f)) has no supported domain-preserving representation"))
+_zero_scaled(f::AbstractFunction) = _isindicator(f) ? f : _zero_scale_error(f)
+_zero_scaled(f::ZeroFunction) = f
+_finite_parameter(::Nothing) = true
+_finite_parameter(x::Real) = isfinite(x)
+_finite_parameter(x::AbstractArray) = all(isfinite, x)
+_finite_zero(f, parameters...) = all(_finite_parameter, parameters) ? ZeroFunction() : _zero_scale_error(f)
+_zero_scaled(f::Union{NormL1, GroupNormL2, GroupNormLinf}) = _finite_zero(f, f.λ0, f.w)
+_zero_scaled(f::SparseGroupNormL2) = _finite_zero(f, f.λ0, f.λ1, f.w)
+_zero_scaled(f::Union{NormL2, NormLinf, NormL0}) = _finite_zero(f, f.λ)
+_zero_scaled(f::Union{MCP, SCAD}) = _finite_zero(f, f.λ, f.a)
+_zero_scaled(f::Union{GroupMCP, GroupSCAD}) = _finite_zero(f, f.λ0, f.w, f.a)
+_zero_scaled(f::ElasticNet) = _finite_zero(f, f.λ1, f.λ2, f.w)
+_zero_scaled(f::SqrNormL2) = _finite_zero(f, f.λ, f.y)
+_zero_scaled(f::QuadraticFunction) = _finite_zero(f, f.A, f.b, f.c)
+_zero_scaled(f::LeastSquaresLoss) = _finite_zero(f, f.X, f.Y)
+_zero_scaled(f::LinearFunction) = _finite_zero(f, f.c, f.d)
+_zero_scaled(f::Scaled) = (_finite_parameter(f.α) || _zero_scale_error(f); _zero_scaled(f.f))
+function _zero_scaled(f::NormL1Nonneg)
+  _finite_zero(f, f.λ0, f.w)
+  IndNonnegative()
+end
 
 Base.:*(α::Real, f::AbstractFunction) = Scaled(f, α)
 Base.:*(f::AbstractFunction, α::Real) = Scaled(f, α)
@@ -195,8 +224,8 @@ norms (the indicators of the dual balls), the balls (their support functions),
 the box, the nonnegative orthant, [`SqrNormL2`](@ref), [`LinearFunction`](@ref),
 [`ZeroFunction`](@ref), and the losses [`CheckLoss`](@ref), [`HingeLoss`](@ref)
 and [`EpsInsensitiveLoss`](@ref), and for translations and strictly positive
-rescalings of these functions. The conjugate value of a zero rescaling is
-not implemented, since it depends on the domain of the underlying function.
+rescalings of these functions. Supported zero rescalings simplify in
+[`Scaled`](@ref) while preserving the underlying domain.
 """
 struct Conjugate{F<:AbstractFunction} <: AbstractFunction
   f::F
@@ -287,6 +316,7 @@ function _conjugate_value(f::IndBox, y::AbstractArray)
   s
 end
 function _conjugate_value(f::SqrNormL2, y::AbstractArray)
+  iszero(f.λ) && return _conjugate_value(ZeroFunction(), y)
   T = float(eltype(y))
   v = convert(T, _sumabs2(y)) / (2 * convert(T, f.λ))
   f.y === nothing ? v : v + dot(f.y, y)

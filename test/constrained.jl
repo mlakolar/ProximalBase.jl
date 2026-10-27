@@ -482,12 +482,13 @@ end
              (NormL1Nonneg(T(0.1)), positive, T(0.5)),
              (IndBox(zero(T), one(T)), a, sum(min.(a, zero(T))) + one(T)))
     rtol, atol = T === Float64 ? (1e-10, 1e-12) : (1e-4, 1e-6)
-    tol = T === Float64 ? 1e-10 : 16eps(T)
+    tol = T === Float64 ? 1e-10 : 16Float64(eps(T))
     for (f, normal, b) in cases, F in (IndHyperplane, IndHalfspace), γ in (T(0.7), γv)
       H = F(normal, b)
-      r = Constrained(Counted(f), H)
+      r = Constrained(Ranged(f), H)
       CALLS[] = SLOPES[] = 0
       ref = prox(r, x, γ)
+      unfixed = T === Float64 ? prox(Constrained(Counted(f), H), x, γ) : nothing
       for c in (ldexp(one(T), -e), ldexp(one(T), e))
         ac, bc = c .* normal, c * b
         @test ac ./ c == normal
@@ -500,11 +501,14 @@ end
         @test g.live[6].buf[].compact
         @test g.live[6].buf[].n < n
         @test isapprox(y, ref; rtol, atol = atol * max(1, norm(x)))
+        T === Float64 && @test isapprox(y, unfixed; rtol = 1e-10)
         m = normal isa Real ? abs(normal) : maximum(abs, normal)
         s = ldexp(1.0, -exponent(m))
         an, bn = Float64.(normal) .* s, Float64(b) * s
-        gap = (an isa Real ? an * sum(Float64, y) : dot(an, Float64.(y))) - bn
-        @test (F === IndHalfspace ? max(gap, zero(T)) : abs(gap)) <= tol * max(1, abs(bn))
+        products = an .* Float64.(y)
+        gap = sum(products) - bn
+        scale = sum(abs, products) + abs(bn)
+        @test (F === IndHalfspace ? max(gap, zero(gap)) : abs(gap)) <= tol * scale
       end
     end
   end

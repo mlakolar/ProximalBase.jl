@@ -9,6 +9,9 @@ on:
       - 'src/utils.jl'
 permissions:
   contents: read
+concurrency:
+  group: weighted-l1-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   compare:
     runs-on: ubuntu-latest

@@ -275,9 +275,9 @@ restrict(f::NormL1Nonneg, S::AbstractVector{<:Integer}) = NormL1Nonneg(f.λ0, _r
 @inline _l1_prox(::NormL1, v, c) = shrink(v, c)
 @inline _l1_prox(::NormL1Nonneg, v, c) = max(v - c, zero(v))
 
-function _prox_sep_dense!(y::DenseArray{T},
-    f::Union{NormL1{T,<:DenseArray{T}}, NormL1Nonneg{T,<:DenseArray{T}}},
-    x::DenseArray{T}, γ::T) where {T<:Union{Float32,Float64}}
+function _prox_sep_dense!(y::Array{T},
+    f::Union{NormL1{T,<:Array{T}}, NormL1Nonneg{T,<:Array{T}}},
+    x::Array{T}, γ::T) where {T<:Union{Float32,Float64}}
   a = γ * f.λ0
   floatmin(T) <= a <= floatmax(T) ||
     return invoke(_prox_sep_dense!, Tuple{AbstractArray,Any,AbstractArray,Any}, y, f, x, γ)
@@ -297,8 +297,8 @@ end
 # with compensation if any term needs it. Checking only the final sum would
 # miss small contributions lost before a large x[i] restores their range.
 function _value_dense(
-    f::Union{NormL1{T,<:DenseArray{T}}, NormL1Nonneg{T,<:DenseArray{T}}},
-    x::DenseArray{T}) where {T<:Union{Float32,Float64}}
+    f::Union{NormL1{T,<:Array{T}}, NormL1Nonneg{T,<:Array{T}}},
+    x::Array{T}) where {T<:Union{Float32,Float64}}
   s = zero(T)
   ordinary = true
   @inbounds @simd for i in eachindex(IndexLinear(), x)

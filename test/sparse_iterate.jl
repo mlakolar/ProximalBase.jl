@@ -490,6 +490,32 @@ end
       @test Matrix(t) == ones(5, 5) && nnz(t) == 15
     end
 
+    @testset "copyto! from sparse wrappers" begin
+      A = sparse(ComplexF64[1+2im 3-4im; 5+6im 0])
+      sources = Any[transpose(A), adjoint(A)]
+      @static if isdefined(SparseArrays, :SparseMatrixCSCOrView)
+        push!(sources, view(A, :, 1:2))
+      end
+      for source in sources
+        dest = fill!(SymmetricSparseIterate(ComplexF64, 2), 9)
+        @test copyto!(dest, source) === dest
+        @test Matrix(dest) == Matrix(Symmetric(Matrix(source), :L))
+        @test_throws DimensionMismatch copyto!(SymmetricSparseIterate(3), source)
+      end
+      @static if isdefined(SparseArrays, :AdjOrTransSparseVectorOrView)
+        v = sparse(ComplexF64[2+3im])
+        B = sparse(reshape(ComplexF64[2+3im], 1, 1))
+        for parent in (v, view(v, :), view(B, :, 1)), wrap in (transpose, adjoint)
+          source = wrap(parent)
+          dest = SymmetricSparseIterate(ComplexF64, 1)
+          @test copyto!(dest, source) === dest
+          @test Matrix(dest) == Matrix(source)
+          @test_throws DimensionMismatch copyto!(SymmetricSparseIterate(2), source)
+        end
+        @test_throws DimensionMismatch copyto!(SymmetricSparseIterate(1), transpose(sparse([1., 2.])))
+      end
+    end
+
     @testset "show" begin
       s = SymmetricSparseIterate(3)
       @test sprint(show, MIME"text/plain"(), s) == "3×3 $(typeof(s)) with 0 stored entries in the lower triangle"

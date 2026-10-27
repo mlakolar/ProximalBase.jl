@@ -133,9 +133,10 @@ function test_traits end
 """
     allocations(f, args...)
 
-The bytes allocated by `f(args...)`, measured inside a function after a warm-up
-call, as a solver makes the call: `allocations(prox!, y, f, x, γ) == 0` is the
-contract of the hot calls. Counts differ between Julia versions; test on all
+The bytes allocated by `f(args...)`, measured inside a function after warming
+the same measured entry, as a solver makes the call:
+`allocations(prox!, y, f, x, γ) == 0` is the contract of the hot calls.
+Counts differ between Julia versions; test on all
 that you support.
 """
 function allocations end

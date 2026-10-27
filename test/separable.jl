@@ -81,6 +81,8 @@ end
 
     # True zero factors suppress NaN/Inf products, but the nonnegative
     # penalty still rejects infeasible entries, even at zero level/weight.
+    # Finite sums may reassociate: n*eps(T) covers two orders of summation
+    # of n nonnegative terms. Nonfinite values must still agree exactly.
     for level in (T(0), T(0.3), T(Inf)), v in (T(Inf), T(-Inf), T(NaN), T(-1), -zero(T))
       z = ones(T, 513)
       z[1] = v
@@ -88,11 +90,13 @@ end
       isinf(level) && fill!(weights, zero(T))
       weights[1] = zero(T)
       f = F(level, weights)
-      @test isequal(f(z), sum(value_entry(f, z[i], i) for i in eachindex(z)))
+      reference = sum(value_entry(f, z[i], i) for i in eachindex(z))
+      @test isfinite(reference) ? isapprox(f(z), reference; rtol=length(z)*eps(T)) : isequal(f(z), reference)
       if iszero(level)
         weights[1] = T(Inf)  # 0*Inf must still contribute exact zero
         f = F(level, weights)
-        @test isequal(f(z), sum(value_entry(f, z[i], i) for i in eachindex(z)))
+        reference = sum(value_entry(f, z[i], i) for i in eachindex(z))
+        @test isfinite(reference) ? isapprox(f(z), reference; rtol=length(z)*eps(T)) : isequal(f(z), reference)
       end
     end
 
@@ -117,7 +121,8 @@ end
       @test prox(f, z, γ) == reference
       out = copy(z)
       @test prox!(out, f, out, γ) == reference
-      @test isequal(f(z), sum(value_entry(f, z[i], i) for i in eachindex(z)))
+      reference = sum(value_entry(f, z[i], i) for i in eachindex(z))
+      @test isfinite(reference) ? isapprox(f(z), reference; rtol=length(z)*eps(T)) : isequal(f(z), reference)
     end
   end
 end

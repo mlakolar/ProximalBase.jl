@@ -727,6 +727,15 @@ end
 Base.copyto!(x::SymmetricSparseIterate, y::AbstractMatrix) = _copyto_lower!(x, y)
 # Resolve SparseArrays' copyto!(::AbstractMatrix, ::AbstractSparseMatrixCSC).
 Base.copyto!(x::SymmetricSparseIterate, y::SparseArrays.AbstractSparseMatrixCSC) = _copyto_lower!(x, y)
+# SparseArrays also specializes matrix views and transposed sparse sources.
+@static if isdefined(SparseArrays, :SparseMatrixCSCOrView)
+  Base.copyto!(x::SymmetricSparseIterate, y::SparseArrays.SparseMatrixCSCOrView) = _copyto_lower!(x, y)
+end
+Base.copyto!(x::SymmetricSparseIterate, y::Union{Adjoint{<:Any,<:SparseArrays.AbstractSparseMatrixCSC},
+                                               Transpose{<:Any,<:SparseArrays.AbstractSparseMatrixCSC}}) = _copyto_lower!(x, y)
+@static if isdefined(SparseArrays, :AdjOrTransSparseVectorOrView)
+  Base.copyto!(x::SymmetricSparseIterate, y::SparseArrays.AdjOrTransSparseVectorOrView) = _copyto_lower!(x, y)
+end
 # CHOLMOD defines both an element-type-matched matrix method and an untyped
 # array method for its dense matrix wrapper; preserve the same triangle rule.
 Base.copyto!(x::SymmetricSparseIterate, y::SparseArrays.CHOLMOD.Dense) = _copyto_lower!(x, y)

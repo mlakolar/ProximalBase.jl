@@ -401,9 +401,12 @@ end
             @test_throws DimensionMismatch("A has second dimension 4, length of coef is 5") mul!(out, A, SparseIterate(5), α, β)
             @test out == fill(3., 3)
             @test_throws DimensionMismatch("A has first dimension 3, length of out is 2") mul!(zeros(2), A, SparseIterate(4), α, β)
-            @test_throws DimensionMismatch mul!(zeros(3, 2), A, SparseIterate(5, 2), α, β)
-            @test_throws DimensionMismatch mul!(zeros(2, 2), A, SparseIterate(4, 2), α, β)
-            @test_throws DimensionMismatch mul!(zeros(3, 1), A, SparseIterate(4, 2), α, β)
+            # LinearAlgebra on Julia 1.10 skips the size check when α = 0.
+            if !iszero(α)
+                @test_throws DimensionMismatch mul!(zeros(3, 2), A, SparseIterate(5, 2), α, β)
+                @test_throws DimensionMismatch mul!(zeros(2, 2), A, SparseIterate(4, 2), α, β)
+                @test_throws DimensionMismatch mul!(zeros(3, 1), A, SparseIterate(4, 2), α, β)
+            end
             for M in (transpose(A), adjoint(A))
                 @test_throws DimensionMismatch("A has first dimension 3, length of coef is 4") mul!(zeros(4), M, SparseIterate(4), α, β)
                 @test_throws DimensionMismatch("A has second dimension 4, length of out is 3") mul!(zeros(3), M, SparseIterate(3), α, β)

@@ -17,17 +17,23 @@ proximal operator is the projection
 from a factorization cached at construction:
 
 - **full row rank:** a Cholesky factorization of the `m × m` matrix `AAᵀ`;
-- **otherwise:** a thin SVD `A = U Diagonal(s) Vᵀ` of the rank `r` of `A`, with
-  the projection `x - V(Vᵀx - Diagonal(s)⁻¹Uᵀb)`. `b` must be in the range of
-  `A`, or the set is empty and the constructor throws;
+- **otherwise:** a truncated SVD `A ≈ Uᵣ Diagonal(sᵣ) Vᵣᵀ`, retaining the `r`
+  singular values strictly above `max(m, n) * eps(T) * s₁`, with `T` the
+  floating-point data type and `s₁` the largest singular value. The projection
+  is `x - Vᵣ(Vᵣᵀx - Diagonal(sᵣ)⁻¹Uᵣᵀb)`. The constructor throws unless
+  `‖b - UᵣUᵣᵀb‖ ≤ √eps(T) * max(1, ‖b‖)`;
 - **with `μ`:** `A` is a tight frame, `AAᵀ = μI`, and nothing is factorized.
 
-The rank-deficient path is taken when a pivot of the Cholesky factorization is
-below `eps^(1/4)` times the largest: rounding leaves a dependent row a pivot of
+The SVD path is taken when Cholesky fails or a diagonal entry of its factor is
+below `eps(T)^(1/4)` times the largest: rounding leaves a dependent row a pivot of
 about `√eps` times the largest, and the factor of `AAᵀ` squares the condition
-number of `A`. A call costs two products with `A` (or with `V`)
-and allocates nothing. The value is `0` when `‖Ax - b‖` is within a relative
-`√eps` of the scale of the problem, and `Inf` otherwise.
+number of `A`. Smaller singular directions are dropped, so a nearly
+rank-deficient `A` is treated as its truncation, with `b` projected onto its
+retained range. The projection can then be far from `{x : Ax = b}` while the
+value is `0`. A call costs two products with `A` (or with `Vᵣ`)
+and allocates nothing. The value is `0` when
+`‖Ax - b‖ ≤ √eps(S) * max(1, ‖b‖, ‖A‖_F * ‖x‖)`, with `S` the promoted
+floating-point type of the data and `x`, and `Inf` otherwise.
 """
 struct IndAffine{T<:AbstractFloat, M, F} <: AbstractFunction
   A::M

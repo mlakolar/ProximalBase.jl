@@ -5,8 +5,10 @@ The indicator function ``\iota_C`` of a set ``C`` is ``0`` on ``C`` and
 ``P_C(v) = \operatorname{argmin}_{z \in C}\|z - v\|``, for every step, so
 projected gradient descent is proximal gradient descent with an indicator.
 [`value_and_prox!`](@ref) returns ``0`` without checking membership. Closed-form
-projections are exact up to rounding when their intermediate quantities stay
-within floating-point range. Iterative projections, such as
+projections use exact formulas, but computed results have rounding errors that
+grow with the conditioning of the problem. Projections that determine a numerical
+rank, such as [`IndAffine`](@ref), project onto the set of the truncated data
+when the data are nearly rank deficient. Iterative projections, such as
 [`IndIntersection`](@ref), use a stopping rule that need not bound the distance
 from the returned point to the set; a returned value of ``0`` is not a
 feasibility certificate.
@@ -97,7 +99,8 @@ to start each call from the corrections of the previous one, which helps inside
 a solver, where successive inputs are close. It stops when the sum of squared
 step lengths in a round is at most
 ``\max(\mathtt{tol}, 10\varepsilon)^2\max(1, \|y\|)^2``, or after `maxiter`
-rounds, with a warning. `converged` reports only whether the step-length test
+rounds. Only the first non-converged call in a session warns; later calls are
+silent. `f.converged` reports only whether the step-length test
 was met, and `iterations` counts the rounds of the last call. Neither stopping
 condition bounds the distance to the intersection: nearly parallel sets can
 meet the step-length test far from it, and `maxiter` can also stop before

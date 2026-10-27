@@ -20,9 +20,10 @@ to a different point of the intersection.
 The proximal operator is iterative and so inexact: it stops when the sum of
 squared step lengths in a round is at most
 `max(tol, 10eps(T))^2 * max(1, norm(y))^2`, with `T` the floating-point type of
-the output, or after `maxiter` rounds, with a warning. This step-length test
-does not bound the distance to the intersection. Nearly parallel sets can
-satisfy it far from the intersection, and `maxiter` can also stop before
+the output, or after `maxiter` rounds. Only the first non-converged call in a
+session warns; later calls are silent and must be checked through `f.converged`.
+This step-length test does not bound the distance to the intersection. Nearly
+parallel sets can satisfy it far from the intersection, and `maxiter` can also stop before
 feasibility. The last set's projection determines membership in that set only
 to its own accuracy. `f.iterations` counts the rounds of the last call, and
 `f.converged` reports only whether the step-length test was met; neither is a

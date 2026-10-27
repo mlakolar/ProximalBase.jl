@@ -33,7 +33,8 @@ const TESTING_NAMES = [
   inventory = union(setdiff(exports, COMPATIBILITY_EXPORTS), QUALIFIED_NAMES)
   for (M, entries) in ((PB, inventory), (PB.Testing, TESTING_NAMES))
     @testset "$M.$name" for name in entries
-      @test haskey(Docs.meta(M), Docs.Binding(M, name))
+      documented = haskey(Docs.meta(M), Docs.Binding(M, name))
+      @test documented
     end
   end
 end

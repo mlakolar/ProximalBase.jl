@@ -22,15 +22,16 @@ _prox_objective(f, z, x, γ) = f(z) + norm_diff(z, x)^2 / (2γ)
 
 # one method per number of arguments, typed so that they specialize: Julia 1.10
 # does not specialize a method that only passes its varargs on, and the dynamic
-# dispatch would show as allocations
-allocations(f::F, a::A) where {F, A} = (f(a); @allocated f(a))
-allocations(f::F, a::A, b::B) where {F, A, B} = (f(a, b); @allocated f(a, b))
-allocations(f::F, a::A, b::B, c::C) where {F, A, B, C} = (f(a, b, c); @allocated f(a, b, c))
-allocations(f::F, a::A, b::B, c::C, d::D) where {F, A, B, C, D} = (f(a, b, c, d); @allocated f(a, b, c, d))
+# dispatch would show as allocations. Warm the measured entry too: a plain
+# call can inline and leave its out-of-line foreign symbols unresolved.
+allocations(f::F, a::A) where {F, A} = (@allocated f(a); @allocated f(a))
+allocations(f::F, a::A, b::B) where {F, A, B} = (@allocated f(a, b); @allocated f(a, b))
+allocations(f::F, a::A, b::B, c::C) where {F, A, B, C} = (@allocated f(a, b, c); @allocated f(a, b, c))
+allocations(f::F, a::A, b::B, c::C, d::D) where {F, A, B, C, D} = (@allocated f(a, b, c, d); @allocated f(a, b, c, d))
 allocations(f::F, a::A, b::B, c::C, d::D, e::E) where {F, A, B, C, D, E} =
-  (f(a, b, c, d, e); @allocated f(a, b, c, d, e))
+  (@allocated f(a, b, c, d, e); @allocated f(a, b, c, d, e))
 allocations(f::F, a::A, b::B, c::C, d::D, e::E, g::G) where {F, A, B, C, D, E, G} =
-  (f(a, b, c, d, e, g); @allocated f(a, b, c, d, e, g))
+  (@allocated f(a, b, c, d, e, g); @allocated f(a, b, c, d, e, g))
 
 function brute_force_prox(fi, v::Real, γ::Real; lo = v - 5abs(v) - 5, hi = v + 5abs(v) + 5, n = 200_001)
   h(t) = fi(t) + (t - v)^2 / (2γ)

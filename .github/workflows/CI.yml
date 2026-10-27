@@ -5,12 +5,20 @@ on:
       - master
     tags: ['*']
     paths-ignore:
-      - '**.md'
+      - 'docs/**'
+      - 'CONTRIBUTING.md'
+      - 'examples/README.md'
+      - 'benchmark/**.md'
+      - 'test/oracles/**.md'
       - 'LICENSE'
       - '.gitignore'
   pull_request:
     paths-ignore:
-      - '**.md'
+      - 'docs/**'
+      - 'CONTRIBUTING.md'
+      - 'examples/README.md'
+      - 'benchmark/**.md'
+      - 'test/oracles/**.md'
       - 'LICENSE'
       - '.gitignore'
   workflow_dispatch:

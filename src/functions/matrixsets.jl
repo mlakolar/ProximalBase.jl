@@ -201,10 +201,12 @@ end
 The indicator of the Toeplitz matrices, which are constant along each diagonal:
 `Xᵢⱼ = c_{j-i}`. Its proximal operator replaces each diagonal by its mean. With
 `symmetric = true` the set is that of the symmetric Toeplitz matrices, which are
-square, and the projection averages the diagonals `d` and `-d` together. These
-are the covariance matrices of a stationary series. The function is not
-separable. The projection takes two passes over each diagonal, works in place,
-and allocates nothing. Its output may be a [`SymmetricSparseIterate`](@ref)
+square, and the projection averages the diagonals `d` and `-d` together. This
+is a structural constraint of covariance matrices of a stationary series;
+positive semidefiniteness must be imposed separately, with [`IndPSD`](@ref).
+The function is not separable. The projection takes two passes over each
+diagonal, works in place, and allocates nothing. Its output may be a
+[`SymmetricSparseIterate`](@ref)
 when the result is symmetric: with `symmetric = true`, or from a symmetric
 input.
 """

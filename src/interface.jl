@@ -99,11 +99,13 @@ prox(f::AbstractFunction, x::Union{Symmetric, Hermitian}, γ::Real = 1) =
 """
     value_and_prox!(y, f, x, γ = 1)
 
-Store `prox_{γf}(x)` in `y`, as [`prox!`](@ref) does, and return `f(y)`, the
-value at the result. Many functions get the value from the computation of the
-proximal operator: a nuclear norm from the singular values that it thresholds,
-an indicator function as `0`. This is then cheaper than `prox!` followed by
-`f(y)`, and solvers that track the objective should call it.
+Store `prox_{γf}(x)` in `y`, as [`prox!`](@ref) does, and return the value at the
+result. Many functions get the value from the computation of the proximal
+operator: a nuclear norm from the singular values that it thresholds. For an
+indicator function, return `0` without checking membership. This equals `f(y)`
+when the projection is exact, but is not a feasibility certificate for an
+inexact projection such as [`IndIntersection`](@ref). Computing the value this
+way can be cheaper than `prox!` followed by `f(y)`.
 """
 function value_and_prox!(y, f::AbstractFunction, x, γ::Real = 1)
   prox!(y, f, x, γ)

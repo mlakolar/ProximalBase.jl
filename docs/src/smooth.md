@@ -209,16 +209,17 @@ curvature ``\ell''_i`` is floored at ``\sqrt{\varepsilon}``, so that the working
 responses stay finite where it vanishes (a Huber loss beyond ``\delta``); the
 gradient of ``q`` at the current point is still exact.
 
-For [`LogDetLoss`](@ref), with ``W = X^{-1}``, the expansion of
-``\operatorname{tr}(SZ) - \log\det Z`` at ``X`` in the step ``\Delta = Z - X`` is
-``\operatorname{tr}((S - W)\Delta) + \tfrac12\operatorname{tr}(W\Delta W\Delta)``.
+For [`LogDetLoss`](@ref)`(S, w)`, with ``W = X^{-1}``, the expansion of
+``w(\operatorname{tr}(SZ) - \log\det Z)`` at ``X`` in the step ``\Delta = Z - X`` is,
+up to a constant,
+``w\operatorname{tr}((S - W)\Delta) + \tfrac{w}{2}\operatorname{tr}(W\Delta W\Delta)``.
 Written in the new point ``Z``, and using ``WXW = W``, it is
 
 ```math
-q(Z) = \tfrac12\operatorname{tr}(WZWZ) + \operatorname{tr}\big((S - 2W)Z\big) + \text{const},
+q(Z) = \tfrac{w}{2}\operatorname{tr}(WZWZ) + w\operatorname{tr}\big((S - 2W)Z\big) + \text{const},
 ```
 
-the [`KronQuadratic`](@ref)`(W, W, S - 2W)`. Minimizing ``q(Z) + \lambda\|Z\|_1``
+the [`KronQuadratic`](@ref)`(wW, W, w(S - 2W))`. Minimizing ``q(Z) + \lambda\|Z\|_1``
 over symmetric matrices, by coordinate descent on a `SymmetricSparseIterate`, is
 the Newton step of QUIC for the graphical lasso (Hsieh, Sustik, Dhillon and
 Ravikumar, 2014). Without the penalty, its minimizer is ``2X - XSX``, Newton's

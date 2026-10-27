@@ -53,6 +53,7 @@ operator.
 ```@example calculus
 using ProximalBase, LinearAlgebra
 x, c, γ = [2.0, -1.0, 0.5], [0.3, 0.3, -0.3], 0.7
+@assert prox(Tilt(NormL1(1.0), c, 0.0), x, γ) ≈ prox(NormL1(1.0), x - γ * c, γ) # hide
 prox(Tilt(NormL1(1.0), c, 0.0), x, γ) ≈ prox(NormL1(1.0), x - γ * c, γ)
 ```
 
@@ -69,8 +70,13 @@ indicator is the dual norm scaled by the radius:
 | ``\lambda\lVert x\rVert_2`` | the indicator of ``\lVert y\rVert_2 \le \lambda`` |
 | ``\lambda\lVert x\rVert_\infty`` | the indicator of ``\lVert y\rVert_1 \le \lambda`` |
 | the indicator of ``l \le x \le u`` | ``\sum_i \max(l_i y_i, u_i y_i)`` |
-| ``\tfrac{\lambda}{2}\lVert x - c\rVert^2`` | ``\tfrac{1}{2\lambda}\lVert y\rVert^2 + \langle c, y\rangle`` |
+| ``\tfrac{\lambda}{2}\lVert x - c\rVert^2``, ``\lambda > 0`` | ``\tfrac{1}{2\lambda}\lVert y\rVert^2 + \langle c, y\rangle`` |
 | ``\langle c, x\rangle + d`` | the indicator of ``\{c\}``, minus ``d`` |
+
+For ``\lambda = 0``, the squared-norm conjugate is the indicator of ``\{0\}``.
+Centering the function at ``c`` adds ``\langle c, y\rangle`` to its conjugate;
+at ``\lambda = 0`` this leaves the indicator unchanged, since the linear term
+vanishes at ``y = 0``.
 
 [`Conjugate`](@ref) knows these values, and those of the other norms and balls,
 so `value_and_prox!` reports them. The proximal operator of any convex,
@@ -84,6 +90,7 @@ rather than zero; it is not a feasibility certificate.
 
 ```@example calculus
 h = Conjugate(NormL2(1.0))                     # the indicator of the unit ℓ2 ball
+@assert prox(h, [3.0, 4.0], 0.5) ≈ [0.6, 0.8] # hide
 prox(h, [3.0, 4.0], 0.5) ≈ [0.6, 0.8]
 ```
 
@@ -313,6 +320,7 @@ smoothed check loss (quantile regression) or hinge.
 
 ```@example calculus
 const PB = ProximalBase
+@assert PB.Smoothed(NormL1(0.5), 1.0)(1.3, 0.2) ≈ PB.Huber(0.5)(1.3, 0.2) # hide
 PB.Smoothed(NormL1(0.5), 1.0)(1.3, 0.2) ≈ PB.Huber(0.5)(1.3, 0.2)
 ```
 

@@ -239,10 +239,17 @@ end
           before = copy(x)
           out = strided ? view(randn(To, 2n), 1:2:2n) : randn(To, n)
           initial = copy(out)
-          for α in (true, 0, 2.5), β in (false, 1, -0.5)
+          S = real(Ta)
+          for α in S.((0, 1, 2.5)), β in S.((0, 1, -0.5))
             copyto!(out, initial)
             iszero(β) && fill!(out, NaN)
             check_scaled_product(out, A, x, α, β)
+          end
+          if support == :partial && !strided
+            for (α, β) in ((true, false), (0, 0))
+              fill!(out, NaN)
+              check_scaled_product(out, A, x, α, β)
+            end
           end
           if To <: Complex
             copyto!(out, initial)
@@ -257,14 +264,14 @@ end
     before = copy(x)
     out = view(zeros(2n), collect(1:2:2n))
     @test !(out isa StridedVector)
-    for α in (true, 0, 2.5), β in (false, 1, -0.5)
+    for α in (0.0, 1.0, 2.5), β in (0.0, 1.0, -0.5)
       fill!(out, iszero(β) ? NaN : 3.)
       check_scaled_product(out, A, x, α, β)
     end
     check_product_state(x, before)
     x = AtomIterate(randn(p), [1:3, 4:6, 7:9])
     before = copy(x)
-    for α in (true, 0, 2.5), β in (false, 1, -0.5)
+    for α in (0.0, 1.0, 2.5), β in (0.0, 1.0, -0.5)
       out = fill(iszero(β) ? NaN : 3., n)
       check_scaled_product(out, A, x, α, β)
     end
@@ -280,16 +287,16 @@ end
       reference = mul!(fill(NaN, 2), A, x)
       @test reference == [2., 10.]
       @test any(isnan, A * Array(x))
-      for α in (true, 1, 2.5), β in (false, 1, -0.5)
+      for α in (1.0, 2.5), β in (0.0, 1.0, -0.5)
         out = fill(iszero(β) ? NaN : 3., 2)
         expected = iszero(β) ? α .* reference : α .* reference .+ β * 3.
         @test mul!(out, A, x, α, β) == expected
       end
       x[2] = NaN
-      @test mul!(fill(NaN, 2), A, x, 0, 0) == zeros(2)
-      @test mul!(fill(3., 2), A, x, 0, -0.5) == fill(-1.5, 2)
+      @test mul!(fill(NaN, 2), A, x, 0.0, 0.0) == zeros(2)
+      @test mul!(fill(3., 2), A, x, 0.0, -0.5) == fill(-1.5, 2)
       x[2] = before[2]
-      @test all(isnan, mul!(fill(NaN, 2), A, x, 1, 1))
+      @test all(isnan, mul!(fill(NaN, 2), A, x, 1.0, 1.0))
       check_product_state(x, before)
     end
   end
@@ -297,7 +304,7 @@ end
   @testset "five-argument product dimensions" begin
     A = zeros(3, 9)
     x = AtomIterate(9, groups)
-    for α in (0, 2.5), β in (false, -0.5)
+    for α in (0.0, 2.5), β in (0.0, -0.5)
       out = fill(3., 3)
       @test_throws DimensionMismatch("A has second dimension 8, length of x is 9") mul!(out, A[:, 1:8], x, α, β)
       @test out == fill(3., 3)

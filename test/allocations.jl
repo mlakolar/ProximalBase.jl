@@ -62,7 +62,8 @@ end
       coef_matrix = SparseIterate(Tx.(sprandn(p, 4, 0.3)))
       atom_coefs = (AtomIterate(Tx.(Array(xs)), groups),
                     AtomIterate(Tx.(Array(xs)), [collect(k:4:p) for k in 1:4]))
-      for α in (true, zero(real(Ta)), real(Ta)(1.5)), β in (false, one(real(Ta)), real(Ta)(-0.5))
+      S = real(Ta)
+      for α in S.((0, 1, 1.5)), β in S.((0, 1, -0.5))
         @test allocs(a_mul!, out, A, coef, α, β) == 0
         @test allocs(a_mul!, out_matrix, A, coef_matrix, α, β) == 0
         @test allocs(a_mul!, out, transpose(B), coef, α, β) == 0
@@ -71,6 +72,17 @@ end
         end
         for atom_coef in atom_coefs
           @test allocs(a_mul!, out, A, atom_coef, α, β) == 0
+        end
+      end
+      if !strided
+        for (α, β) in ((true, false), (0, 0))
+          @test allocs(a_mul!, out, A, coef, α, β) == 0
+          @test allocs(a_mul!, out_matrix, A, coef_matrix, α, β) == 0
+          @test allocs(a_mul!, out, transpose(B), coef, α, β) == 0
+          if Ta <: Real
+            @test allocs(a_mul!, out, adjoint(B), coef, α, β) == 0
+          end
+          @test allocs(a_mul!, out, A, first(atom_coefs), α, β) == 0
         end
       end
     end

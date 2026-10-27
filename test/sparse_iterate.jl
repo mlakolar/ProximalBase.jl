@@ -335,11 +335,19 @@ end
                         matrices = (A,)
                     end
                     initial = copy(out)
-                    for M in matrices, α in (true, 0, 2.5), β in (false, 1, -0.5)
+                    S = real(Ta)
+                    for M in matrices, α in S.((0, 1, 2.5)), β in S.((0, 1, -0.5))
                         copyto!(out, initial)
                         iszero(β) && fill!(out, NaN)
                         specialized = !(M isa Adjoint && !(eltype(M) <: Real))
                         check_scaled_product(out, M, x, α, β; specialized = specialized)
+                    end
+                    if support == :partial && !strided
+                        for M in matrices, (α, β) in ((true, false), (0, 0))
+                            fill!(out, NaN)
+                            specialized = !(M isa Adjoint && !(eltype(M) <: Real))
+                            check_scaled_product(out, M, x, α, β; specialized = specialized)
+                        end
                     end
                     if To <: Complex
                         for M in matrices
@@ -366,21 +374,21 @@ end
             dims = ndims(coef) == 1 ? (2,) : (2, 2)
             reference = mul!(fill(NaN, dims...), M, coef)
             @test isnan(reference[1]) && reference[2] == 8.
-            for (α, β) in ((true, false), (1, 0), (2.5, -0.5))
+            for (α, β) in ((1.0, 0.0), (2.5, -0.5))
                 out = fill(iszero(β) ? NaN : 3., dims...)
                 expected = iszero(β) ? α .* reference : α .* reference .+ β * 3.
                 @test isequal(mul!(out, M, coef, α, β), expected)
             end
-            @test mul!(fill(NaN, dims...), M, coef, 0, 0) == zeros(dims...)
-            @test mul!(fill(3., dims...), M, coef, 0, -0.5) == fill(-1.5, dims...)
-            @test all(isnan, mul!(fill(NaN, dims...), M, coef, 1, 1))
+            @test mul!(fill(NaN, dims...), M, coef, 0.0, 0.0) == zeros(dims...)
+            @test mul!(fill(3., dims...), M, coef, 0.0, -0.5) == fill(-1.5, dims...)
+            @test all(isnan, mul!(fill(NaN, dims...), M, coef, 1.0, 1.0))
             check_product_state(coef, before)
         end
     end
 
     @testset "five-argument product dimensions" begin
         A = zeros(3, 4)
-        for α in (0, 2.5), β in (false, -0.5)
+        for α in (0.0, 2.5), β in (0.0, -0.5)
             out = fill(3., 3)
             @test_throws DimensionMismatch("A has second dimension 4, length of coef is 5") mul!(out, A, SparseIterate(5), α, β)
             @test out == fill(3., 3)

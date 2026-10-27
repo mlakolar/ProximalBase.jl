@@ -79,6 +79,23 @@ end
     @test F(T(0.3), T[])(T[]) == zero(T)
     @test isempty(prox(F(T(0.3), T[]), T[], step))
 
+    # True zero factors suppress NaN/Inf products, but the nonnegative
+    # penalty still rejects infeasible entries, even at zero level/weight.
+    for level in (T(0), T(0.3), T(Inf)), v in (T(Inf), T(-Inf), T(NaN), T(-1), -zero(T))
+      z = ones(T, 513)
+      z[1] = v
+      weights = ones(T, length(z))
+      isinf(level) && fill!(weights, zero(T))
+      weights[1] = zero(T)
+      f = F(level, weights)
+      @test isequal(f(z), sum(value_entry(f, z[i], i) for i in eachindex(z)))
+      if iszero(level)
+        weights[1] = T(Inf)  # 0*Inf must still contribute exact zero
+        f = F(level, weights)
+        @test isequal(f(z), sum(value_entry(f, z[i], i) for i in eachindex(z)))
+      end
+    end
+
     # The total is normal even though one coefficient underflows: testing
     # only the aggregate would silently lose half the value.
     small = T === Float32 ? T(1e-30) : T(1e-200)

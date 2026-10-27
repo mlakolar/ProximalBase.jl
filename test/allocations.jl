@@ -53,6 +53,10 @@ end
     for T in (Float32, Float64), F in (NormL1, NormL1Nonneg)
       z = rand(T, 513)
       zero_alloc_prox(F(T(0.3), rand(T, length(z))), z; γ=T(0.7))
+      w = rand(T, length(z))
+      w[1:10:end] .= zero(T)
+      zero_alloc_prox(F(T(0.3), w), z; γ=T(0.7))
+      zero_alloc_prox(F(zero(T), w), z; γ=T(0.7))
       # The exceptional fallback also remains allocation free.
       zero_alloc_prox(F(floatmin(T), fill(floatmin(T), length(z))), z; γ=T(0.7))
     end

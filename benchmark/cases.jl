@@ -153,6 +153,20 @@ function separable_cases!(cases, rep; quick=false)
                          T, shape=string(n), work=n)
             end
         end
+        if !quick
+            wz = copy(w)
+            wz[1:10:end] .= zero(T)
+            for F in (NormL1, NormL1Nonneg)
+                z = F === NormL1Nonneg ? abs.(x) : x
+                for (suffix, level, weights) in (("zero_weights", T(0.3), wz), ("zero_level", zero(T), w))
+                    f = F(level, weights)
+                    checkzero() = isapprox(f(z), sum(value_entry(f,z[i],i) for i in eachindex(z));
+                                          rtol=tolerance(T), atol=tolerance(T)) || error("zero-factor value differs from entrywise sum")
+                    addcase!(cases, "separable", string(nameof(F), "_", suffix, "/value"), () -> f(z), checkzero;
+                             T, shape=string(n), work=n)
+                end
+            end
+        end
         sx = SparseIterate(sprandn(rng, T, n, 0.01))
         for f in (NormL1(T(0.3)), ElasticNet(T(0.3), T(0.4)), NormL0(T(0.1)), MCP(T(0.3)))
             quick && !(f isa NormL1) && continue

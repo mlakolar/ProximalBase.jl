@@ -273,20 +273,30 @@ restrict(f::NormL1Nonneg, S::AbstractVector{<:Integer}) = NormL1Nonneg(f.λ0, _r
 @inline _l1_value(::NormL1Nonneg, v::T, a) where {T} =
   ifelse(v >= -_tol(T), a * max(v, zero(T)), T(Inf))
 
-# Read-only speculation: check every intermediate while summing, then repeat
-# with compensation if any term needs it. Checking only the final sum would
-# miss small contributions lost before a large x[i] restores their range.
-function _value_dense(
-    f::Union{NormL1{T,<:Array{T}}, NormL1Nonneg{T,<:Array{T}}},
-    x::Array{T}) where {T<:Union{Float32,Float64}}
+@inline function _l1_value_sum(f, x::Array{T}, allow_zero::Bool) where {T<:Union{Float32,Float64}}
   s = zero(T)
   ordinary = true
   @inbounds @simd for i in eachindex(IndexLinear(), x)
-    a = f.λ0 * f.w[i]
+    w = f.w[i]
+    a = f.λ0 * w
+    # Test the factors: a rounded zero may conceal recoverable underflow.
+    z = allow_zero & (iszero(f.λ0) | iszero(w))
     s += _l1_value(f, x[i], a)
-    ordinary &= floatmin(T) <= a <= floatmax(T)
+    ordinary &= z | (floatmin(T) <= a <= floatmax(T))
   end
-  ordinary ? s : invoke(_value_dense, Tuple{Any,AbstractArray}, f, x)
+  s, ordinary
+end
+
+# Preserve the original ordinary loop; retry zeros with SIMD before resorting
+# to compensation. Every pass checks intermediates, not just the final sum.
+function _value_dense(
+    f::Union{NormL1{T,<:Array{T}}, NormL1Nonneg{T,<:Array{T}}},
+    x::Array{T}) where {T<:Union{Float32,Float64}}
+  s, ordinary = _l1_value_sum(f, x, false)
+  ordinary && return s
+  s, ordinary = _l1_value_sum(f, x, true)
+  # 0*Inf/NaN needs the entrywise zero-factor and domain priorities.
+  ordinary && !isnan(s) ? s : invoke(_value_dense, Tuple{Any,AbstractArray}, f, x)
 end
 
 ####################################

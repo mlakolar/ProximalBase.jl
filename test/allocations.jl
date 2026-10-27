@@ -22,6 +22,7 @@ a_grad!(g, f, x) = gradient!(g, f, x)
 a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
 a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
 a_gmap!(G, f, g, x, γ) = gradient_mapping!(G, f, g, x, γ)
+a_mul!(out, A, x, α, β) = mul!(out, A, x, α, β)
 
 function zero_alloc_prox(f, x; γ = 0.7, value = true)
   y = similar(x)
@@ -48,6 +49,34 @@ end
   w = rand(p)
   groups = [1:5, 6:10, 11:15, 16:20]
   xa = AtomIterate(randn(p), groups)
+
+  @testset "five-argument iterate products" begin
+    types = ((Float32, Float32, Float32), (Float64, Float64, Float64),
+             (Float64, Float32, Float64), (ComplexF64, ComplexF64, ComplexF64))
+    for (Ta, Tx, To) in types, strided in (false, true)
+      A = strided ? view(randn(Ta, 2n, 2p), 1:2:2n, 1:2:2p) : randn(Ta, n, p)
+      B = strided ? view(randn(Ta, 2p, 2n), 1:2:2p, 1:2:2n) : randn(Ta, p, n)
+      out = strided ? view(zeros(To, 2n), 1:2:2n) : zeros(To, n)
+      out_matrix = strided ? view(zeros(To, 2n, 8), 1:2:2n, 1:2:8) : zeros(To, n, 4)
+      coef = SparseIterate(Tx.(Array(xs)))
+      coef_matrix = SparseIterate(Tx.(sprandn(p, 4, 0.3)))
+      atom_coefs = (AtomIterate(Tx.(Array(xs)), groups),
+                    AtomIterate(Tx.(Array(xs)), [collect(k:4:p) for k in 1:4]))
+      for α in (true, zero(real(Ta)), real(Ta)(1.5)), β in (false, one(real(Ta)), real(Ta)(-0.5))
+        @test allocs(a_mul!, out, A, coef, α, β) == 0
+        @test allocs(a_mul!, out_matrix, A, coef_matrix, α, β) == 0
+        @test allocs(a_mul!, out, transpose(B), coef, α, β) == 0
+        if Ta <: Real
+          @test allocs(a_mul!, out, adjoint(B), coef, α, β) == 0
+        end
+        for atom_coef in atom_coefs
+          @test allocs(a_mul!, out, A, atom_coef, α, β) == 0
+        end
+      end
+    end
+    out = view(zeros(2n), collect(1:2:2n))
+    @test allocs(a_mul!, out, X, xa, 1.5, 0.5) == 0
+  end
 
   @testset "separable penalties" begin
     for T in (Float32, Float64), F in (NormL1, NormL1Nonneg)

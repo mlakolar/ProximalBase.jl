@@ -10,6 +10,23 @@ using Statistics
 
 Random.seed!(1)
 
+function check_scaled_product(out, A, x, α, β; specialized = true)
+    @nospecialize out A x α β
+    expected = Array(out)
+    mul!(expected, A, Array(x), α, β)
+    @test (parentmodule(which(mul!, typeof.((out, A, x, α, β)))) == ProximalBase) == specialized
+    @test mul!(out, A, x, α, β) === out
+    @test out ≈ expected
+end
+
+function check_product_state(x, before)
+    @nospecialize x before
+    @test Array(x) == Array(before)
+    @test activecoordinates(x) == activecoordinates(before)
+    @test x.nzval[1:nnz(x)] == before.nzval[1:nnz(before)]
+    @test x.ind2nzval == before.ind2nzval
+end
+
 @testset "sparseIterate" begin
 
     @testset "issparse" begin
@@ -292,6 +309,90 @@ Random.seed!(1)
         X = SparseIterate(8, 3)
         X[2, 3] = 1.5
         @test dot(view(Matrix(Σx), :, 4), X, view(Matrix(Σy), :, 2)) ≈ (Σx * Matrix(X) * Σy)[4, 2]
+    end
+
+    @testset "five-argument products" begin
+        n, p, q = 7, 9, 4
+        types = ((Float32, Float32, Float32), (Float64, Float64, Float64),
+                 (Float64, Float32, Float64), (Float32, Float64, Float64),
+                 (ComplexF64, Float64, ComplexF64), (ComplexF64, ComplexF64, ComplexF64))
+        for (Ta, Tx, To) in types, support in (:empty, :partial, :full), strided in (false, true)
+            strided && !(Ta == Tx == To && Ta <: Real) && continue
+            @testset "$Ta × $Tx → $To, $support, views=$strided" begin
+                A = strided ? view(randn(Ta, 2n, 2p), 1:2:2n, 1:2:2p) : randn(Ta, n, p)
+                B = strided ? view(randn(Ta, 2p, 2n), 1:2:2p, 1:2:2n) : randn(Ta, p, n)
+                for dims in ((p,), (p, q))
+                    dense = randn(Tx, dims...)
+                    support == :empty && fill!(dense, 0)
+                    support == :partial && (dense[1:2:end] .= 0)
+                    x = SparseIterate(dense)
+                    before = copy(x)
+                    if length(dims) == 1
+                        out = strided ? view(randn(To, 2n), 1:2:2n) : randn(To, n)
+                        matrices = (A, transpose(B), adjoint(B))
+                    else
+                        out = strided ? view(randn(To, 2n, 2q), 1:2:2n, 1:2:2q) : randn(To, n, q)
+                        matrices = (A,)
+                    end
+                    initial = copy(out)
+                    for M in matrices, α in (true, 0, 2.5), β in (false, 1, -0.5)
+                        copyto!(out, initial)
+                        iszero(β) && fill!(out, NaN)
+                        specialized = !(M isa Adjoint && !(eltype(M) <: Real))
+                        check_scaled_product(out, M, x, α, β; specialized = specialized)
+                    end
+                    if To <: Complex
+                        for M in matrices
+                            copyto!(out, initial)
+                            specialized = !(M isa Adjoint && !(eltype(M) <: Real))
+                            check_scaled_product(out, M, x, 1 + 0.5im, -0.5 + 0.25im; specialized = specialized)
+                        end
+                    end
+                    check_product_state(x, before)
+                end
+            end
+        end
+    end
+
+    @testset "five-argument stored zeros" begin
+        A = [Inf 1. 3.; 2. 4. 5.]
+        B = Matrix(transpose(A))
+        x = SparseIterate([0., 2., 0.])
+        activate!(x, 1)
+        X = SparseIterate([0. 0.; 2. 0.; 0. -1.])
+        activate!(X, 1)
+        for (M, coef) in ((A, x), (A, X), (transpose(B), x), (adjoint(B), x))
+            before = copy(coef)
+            dims = ndims(coef) == 1 ? (2,) : (2, 2)
+            reference = mul!(fill(NaN, dims...), M, coef)
+            @test isnan(reference[1]) && reference[2] == 8.
+            for (α, β) in ((true, false), (1, 0), (2.5, -0.5))
+                out = fill(iszero(β) ? NaN : 3., dims...)
+                expected = iszero(β) ? α .* reference : α .* reference .+ β * 3.
+                @test isequal(mul!(out, M, coef, α, β), expected)
+            end
+            @test mul!(fill(NaN, dims...), M, coef, 0, 0) == zeros(dims...)
+            @test mul!(fill(3., dims...), M, coef, 0, -0.5) == fill(-1.5, dims...)
+            @test all(isnan, mul!(fill(NaN, dims...), M, coef, 1, 1))
+            check_product_state(coef, before)
+        end
+    end
+
+    @testset "five-argument product dimensions" begin
+        A = zeros(3, 4)
+        for α in (0, 2.5), β in (false, -0.5)
+            out = fill(3., 3)
+            @test_throws DimensionMismatch("A has second dimension 4, length of coef is 5") mul!(out, A, SparseIterate(5), α, β)
+            @test out == fill(3., 3)
+            @test_throws DimensionMismatch("A has first dimension 3, length of out is 2") mul!(zeros(2), A, SparseIterate(4), α, β)
+            @test_throws DimensionMismatch("A has second dimension 4, coef has 5 rows") mul!(zeros(3, 2), A, SparseIterate(5, 2), α, β)
+            @test_throws DimensionMismatch("out has size (2, 2)") mul!(zeros(2, 2), A, SparseIterate(4, 2), α, β)
+            @test_throws DimensionMismatch("out has size (3, 1)") mul!(zeros(3, 1), A, SparseIterate(4, 2), α, β)
+            for M in (transpose(A), adjoint(A))
+                @test_throws DimensionMismatch("A has first dimension 3, length of coef is 4") mul!(zeros(4), M, SparseIterate(4), α, β)
+                @test_throws DimensionMismatch("A has second dimension 4, length of out is 3") mul!(zeros(3), M, SparseIterate(3), α, β)
+            end
+        end
     end
 
     @testset "sesquilinear matrix products" begin

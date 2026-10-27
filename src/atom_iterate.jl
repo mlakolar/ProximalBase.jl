@@ -214,13 +214,18 @@ function *(A::StridedMatrix{Ta}, x::AtomIterate{Tx}) where {Ta, Tx}
   mul!(Vector{promote_type(Ta, Tx)}(undef, size(A, 1)), A, x)
 end
 
-function LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::AtomIterate)
+LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::AtomIterate) =
+  mul!(out, A, x, true, false)
+function LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::AtomIterate, α::Number, β::Number)
   size(A, 2) == length(x) || throw(DimensionMismatch("A has second dimension $(size(A, 2)), length of x is $(length(x))"))
   size(A, 1) == length(out) || throw(DimensionMismatch("A has first dimension $(size(A, 1)), length of out is $(length(out))"))
-  fill!(out, zero(eltype(out)))
+  _scale_product_output!(out, β)
+  iszero(α) && return out
+  scale = _product_scale(A, x, α)
   @inbounds for a in 1:x.nactive, j in x.groups[x.active[a]]
     c = x.storage[j]
     iszero(c) && continue
+    c = scale * c
     @simd for i in eachindex(out)
       out[i] += c * A[i, j]
     end

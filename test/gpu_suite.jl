@@ -78,6 +78,8 @@ end
     @test f(x) ≈ expected
     @test Adapt.adapt(DeviceArray, f)(DeviceArray(x)) ≈ expected
     tiny = nextfloat(zero(T))
+    final_subnormal = F(T(1.5), T[2])
+    @test Adapt.adapt(DeviceArray, final_subnormal)(DeviceArray(T[tiny])) == 3tiny
     factor = T === Float32 ? T(4096.5) : T(100000000.5)
     threshold = T(BigFloat(tiny)*BigFloat(factor)^2)
     f = F(factor, T[factor])

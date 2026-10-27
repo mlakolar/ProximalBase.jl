@@ -50,6 +50,12 @@ end
   xa = AtomIterate(randn(p), groups)
 
   @testset "separable penalties" begin
+    for T in (Float32, Float64), F in (NormL1, NormL1Nonneg)
+      z = rand(T, 513)
+      zero_alloc_prox(F(T(0.3), rand(T, length(z))), z; γ=T(0.7))
+      # The exceptional fallback also remains allocation free.
+      zero_alloc_prox(F(floatmin(T), fill(floatmin(T), length(z))), z; γ=T(0.7))
+    end
     for f in (ZeroFunction(), LinearFunction(randn(p)), SqrNormL2(2.), SqrNormL2(1., randn(p)),
               NormL1(0.3), NormL1(0.3, w), NormL1Nonneg(0.3, w), ElasticNet(0.3, 0.4, w), IndBox(-0.5, 0.5),
               IndBox(-w, w), IndNonnegative(), NormL0(0.1), MCP(0.3), SCAD(0.3))

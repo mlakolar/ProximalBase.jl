@@ -55,6 +55,56 @@ ProximalBase.prox_entry(::ShiftedAbs, v, i, γ) = 1 + sign(v - 1) * max(abs(v - 
   end
 end
 
+@testset "weighted L1 dense loops" begin
+  for T in (Float32, Float64), F in (NormL1, NormL1Nonneg)
+    x = randn(T, 513)
+    w = rand(T, length(x)) .+ T(0.2)
+    f = F(T(0.3), w)
+    step = T(0.7)
+    expected = [prox_entry(f, x[i], i, step) for i in eachindex(x)]
+    @test prox(f, x, step) == expected
+    y = copy(x)
+    @test prox!(y, f, y, step) === y
+    @test y == expected
+    @test value_and_prox!(similar(x), f, x, step) ≈ f(expected)
+    for z in (x, abs.(x), expected)
+      @test f(z) ≈ sum(value_entry(f, z[i], i) for i in eachindex(z))
+    end
+    # Matrices, views and mixed precision retain the entrywise interface.
+    for z in (reshape(copy(x), 27, 19), view(x, :), Float64.(x))
+      @test vec(prox(f, z, step)) ≈ expected
+    end
+    y = copy(w)
+    @test prox!(y, F(f.λ0, y), x, step) == expected  # output may be the weights
+    @test F(T(0.3), T[])(T[]) == zero(T)
+    @test isempty(prox(F(T(0.3), T[]), T[], step))
+
+    # The total is normal even though one coefficient underflows: testing
+    # only the aggregate would silently lose half the value.
+    small = T === Float32 ? T(1e-30) : T(1e-200)
+    f = F(small, T[small, inv(small)])
+    z = T[inv(small), small]
+    reference = T(sum(BigFloat(f.λ0) .* BigFloat.(f.w) .* BigFloat.(z)))
+    @test f(z) ≈ reference rtol=8eps(T) atol=zero(T)
+
+    tiny = nextfloat(zero(T))
+    @test F(T(1.5), T[2])(T[tiny]) == 3tiny
+    @test prox(F(T(2), T[tiny]), T[16tiny], T(1.5)) == T[13tiny]
+    large = floatmax(T) / 2
+    for (level, weights, z, γ) in (
+        (large, T[inv(large), 0], T[7, 3], T(4)),
+        (T(0), T[1, Inf], T[7, Inf], step),
+        (T(Inf), T[0, 1], T[7, 3], T(0)))
+      f = F(level, weights)
+      reference = [prox_entry(f, z[i], i, γ) for i in eachindex(z)]
+      @test prox(f, z, γ) == reference
+      out = copy(z)
+      @test prox!(out, f, out, γ) == reference
+      @test isequal(f(z), sum(value_entry(f, z[i], i) for i in eachindex(z)))
+    end
+  end
+end
+
 @testset "sparse iterates" begin
   # the value and the proximal operator touch the stored entries of a SparseIterate,
   # and give the results of the dense array

@@ -138,11 +138,20 @@ function separable_cases!(cases, rep; quick=false)
               NormL0(T(0.1)), MCP(T(0.3)), SCAD(T(0.3)), NegEntropy(T(0.2)),
               KLDivergence(w; λ=T(0.2)), NegLog(T(0.2)), Berhu(T(0.3), T(1)),
               CheckLoss(T(0.3)), HingeLoss(), EpsInsensitiveLoss(T(0.2)),
-              CappedL1(T(0.3), T(1)), LogPenalty(T(0.3), T(0.5)), NormLq(T(0.3), T(0.5)))
+              CappedL1(T(0.3), T(1)), LogPenalty(T(0.3), T(0.5)), NormLq(T(0.3), T(0.5)),
+              NormL1Nonneg(T(0.3), w))
         for (k, f) in enumerate(fs)
             quick && !(k in (1, 4)) && continue
-            name = string(nameof(typeof(f)), k == 2 ? "_weighted" : "")
-            addprox!(cases, "separable", name, f, x; profile=T==Float64 && n==100_000 && k in (1,9,10,19), alias=k in (1,4))
+            weighted = f isa Union{NormL1,NormL1Nonneg} && f.w !== nothing
+            name = string(nameof(typeof(f)), weighted ? "_weighted" : "")
+            addprox!(cases, "separable", name, f, x; profile=T==Float64 && n==100_000 && k in (1,9,10,19), alias=k in (1,4) || weighted)
+            if weighted
+                z = f isa NormL1Nonneg ? abs.(x) : x
+                checkvalue() = isapprox(f(z), sum(value_entry(f,z[i],i) for i in eachindex(z));
+                                       rtol=tolerance(T), atol=tolerance(T)) || error("weighted value differs from entrywise sum")
+                addcase!(cases, "separable", name * "/value", () -> f(z), checkvalue;
+                         T, shape=string(n), work=n)
+            end
         end
         sx = SparseIterate(sprandn(rng, T, n, 0.01))
         for f in (NormL1(T(0.3)), ElasticNet(T(0.3), T(0.4)), NormL0(T(0.1)), MCP(T(0.3)))

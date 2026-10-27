@@ -38,6 +38,7 @@ makedocs(
     pages = [
         "Home" => "index.md",
         "Getting started" => "getting_started.md",
+        "Package structure" => "architecture.md",
         "Algorithms and interface" => [
             "Coordinate descent" => "coordinate_descent.md",
             "Sparse iterates" => "iterates.md",

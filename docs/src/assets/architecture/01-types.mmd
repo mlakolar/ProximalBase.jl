@@ -1,0 +1,14 @@
+flowchart BT
+  AF["AbstractFunction"]
+  SEP["SeparableFunction"] --> AF
+  GP["AbstractGroupPenalty"] --> AF
+  HG["HomogeneousGroupNorm"] --> GP
+  S["NormL1 / ElasticNet / IndBox"] --> SEP
+  H["GroupNormL2 / GroupNormLinf / SparseGroupNormL2"] --> HG
+  N["GroupMCP / GroupSCAD"] --> GP
+  D["LeastSquaresLoss / NormL2 / Conjugate"] --> AF
+  OLD["AbstractGroupNorm compatibility alias"] -.->|same binding| GP
+  SL["ScalarLoss"]
+  OBS["Squared / Logistic / Poisson / Huber"] --> SL
+  GL["GLMLoss"] --> AF
+  GL --o|contains loss| SL

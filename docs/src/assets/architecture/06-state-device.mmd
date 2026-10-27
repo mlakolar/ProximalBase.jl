@@ -1,0 +1,9 @@
+flowchart TD
+  F["Function with working buffers"] --o|owns| WS["Scratch / factorization / LAPACK workspace"]
+  RC["reset_cache!"] ==>|traverses supported wrappers| F
+  EX["Adapt and GPUArraysCore loaded"] -.->|extension dispatch| GPU["Device array methods"]
+  AD["Adapt.adapt"] ==>|converts parameters| DG["DeviceGroups with grouped layout"]
+  GPU ==>|executes| K["Broadcast / reduction / GEMV"]
+  DG --o|inner function| INNER["Grouped function"]
+  DG --o|owns| LAY["Device group layout"]
+  TE["Test loaded"] -.->|Test extension| TEST["ProximalBase.Testing implementations"]

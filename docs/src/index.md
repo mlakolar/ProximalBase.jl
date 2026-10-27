@@ -43,6 +43,7 @@ Next, choose the material that matches your procedure:
 
 | Goal | Read |
 |:-----|:-----|
+| Understand the type hierarchy, traits and who calls whom | [Package structure](@ref architecture) |
 | Derive entry or block updates, or construct an active-set procedure | [Coordinate descent](@ref) |
 | Understand coordinate indexing and sparse storage | [Sparse iterates](@ref) |
 | Derive a proximal step or choose a stopping rule | [The interface](@ref) |

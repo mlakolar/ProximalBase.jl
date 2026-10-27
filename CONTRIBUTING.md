@@ -56,6 +56,6 @@ Use the [benchmark suite](benchmark/README.md) to measure runtime and allocation
 before and after implementation changes. Keep generated measurements with the
 PR that uses them; add reusable cases for workloads worth protecting.
 
-The documentation presents the package as a whole, with 0.5.4 as the planned
-initial release baseline. Version metadata and release tags are updated
-separately during the release process.
+Release tags must match the version in `Project.toml`. Labels under
+`docs/audit` describe historical audit plans; for example, `release-0.5.4`
+does not set the package version.

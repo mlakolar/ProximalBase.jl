@@ -1,0 +1,7 @@
+{
+  "theme": "default",
+  "fontFamily": "Arial, sans-serif",
+  "deterministicIds": true,
+  "deterministicIDSeed": "proximalbase-architecture",
+  "flowchart": {"htmlLabels": false}
+}

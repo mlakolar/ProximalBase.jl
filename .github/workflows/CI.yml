@@ -23,6 +23,7 @@ jobs:
   test:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.version == 'pre' }}
     timeout-minutes: 60
     permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
       actions: write
@@ -44,6 +45,9 @@ jobs:
           - version: '1'
             os: windows-latest
             arch: x64
+          - version: 'pre'
+            os: ubuntu-latest
+            arch: x64
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
@@ -56,9 +60,11 @@ jobs:
       - name: Run package tests
         run: julia --color=yes scripts/test.jl
         env:
-          JULIA_TEST_COVERAGE: "true"
+          JULIA_TEST_COVERAGE: "${{ matrix.version == '1' && matrix.os == 'ubuntu-latest' }}"
       - uses: julia-actions/julia-processcoverage@v1
+        if: matrix.version == '1' && matrix.os == 'ubuntu-latest'
       - uses: codecov/codecov-action@v7
+        if: matrix.version == '1' && matrix.os == 'ubuntu-latest'
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}

@@ -136,8 +136,13 @@ function activate!(x::AtomIterate, k::Integer)
   x
 end
 
-# deactivate the active groups whose entries are all zero, moving the last active
-# group into the place of each
+"""
+    dropzeros!(x::AtomIterate)
+
+Deactivate the active groups of `x` whose entries are all zero and return `x`.
+The last active group moves into the place of each removed one, so the order
+of [`activecoordinates`](@ref) can change. The entries of `x` do not change.
+"""
 function SparseArrays.dropzeros!(x::AtomIterate)
   i = 1
   while i <= x.nactive

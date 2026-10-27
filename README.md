@@ -1,6 +1,7 @@
 # ProximalBase.jl
 
-[![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://mlakolar.github.io/ProximalBase.jl/dev/)
+[![Stable documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://mlakolar.github.io/ProximalBase.jl/stable/)
+[![Development documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://mlakolar.github.io/ProximalBase.jl/dev/)
 [![CI](https://github.com/mlakolar/ProximalBase.jl/actions/workflows/CI.yml/badge.svg?branch=master)](https://github.com/mlakolar/ProximalBase.jl/actions/workflows/CI.yml?query=branch%3Amaster)
 [![codecov](https://codecov.io/gh/mlakolar/ProximalBase.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/mlakolar/ProximalBase.jl)
 
@@ -133,15 +134,15 @@ end
 
 Functions that modify an output array take that array as their first argument.
 The
-[getting-started guide](https://mlakolar.github.io/ProximalBase.jl/dev/getting_started/)
+[getting-started guide](https://mlakolar.github.io/ProximalBase.jl/stable/getting_started/)
 derives both updates, adds stopping rules and checks that their solutions agree.
 
 ## Documentation
 
-Start with the [guide](https://mlakolar.github.io/ProximalBase.jl/dev/getting_started/),
+Start with the [guide](https://mlakolar.github.io/ProximalBase.jl/stable/getting_started/),
 then read the derivations for
-[coordinate descent](https://mlakolar.github.io/ProximalBase.jl/dev/coordinate_descent/)
-or [proximal operators](https://mlakolar.github.io/ProximalBase.jl/dev/interface/).
+[coordinate descent](https://mlakolar.github.io/ProximalBase.jl/stable/coordinate_descent/)
+or [proximal operators](https://mlakolar.github.io/ProximalBase.jl/stable/interface/).
 The documentation includes function definitions and an API reference, while
 the [examples](examples/README.md) give complete programs for regression,
 graphical models, matrix estimation and constrained optimization.

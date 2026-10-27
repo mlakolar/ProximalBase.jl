@@ -41,6 +41,8 @@ tests = [
   "gpu",
   "deprecated",
   "examples",
+  "readme",
+  "docstrings",
   "aqua"
 ]
 

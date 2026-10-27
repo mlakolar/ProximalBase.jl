@@ -62,6 +62,14 @@ end
 # coordinate i in nzval, 0 if i is not stored.
 const _StoredIterate{T} = Union{SparseIterate{T}, SymmetricSparseIterate{T}}
 
+"""
+    nnz(x::Union{SparseIterate, SymmetricSparseIterate})
+
+The number of stored coordinates of `x`, including stored zeros. On a
+[`SymmetricSparseIterate`](@ref), count the stored coordinates of the lower
+triangle, so each off-diagonal pair counts once. Use [`dropzeros!`](@ref) to
+remove stored zeros.
+"""
 SparseArrays.nnz(x::_StoredIterate) = x.nnz
 
 """
@@ -162,7 +170,15 @@ function activate!(x::_StoredIterate{T}, i::Integer) where {T}
   x
 end
 
-# remove the stored zeros, moving the last stored entry into the place of each
+"""
+    dropzeros!(x::Union{SparseIterate, SymmetricSparseIterate})
+
+Remove stored zero coordinates from `x` and return `x`. On a
+[`SymmetricSparseIterate`](@ref), these are coordinates of the lower triangle.
+The last stored coordinate moves into the place of each removed one, so the
+order of [`activecoordinates`](@ref) can change. The entries of `x` do not
+change.
+"""
 function SparseArrays.dropzeros!(x::_StoredIterate)
   i = 1
   while i <= x.nnz

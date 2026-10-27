@@ -10,18 +10,23 @@
 The indicator of the intersection of the sets `C₁, C₂, …`, given by their
 indicator functions, such as [`IndPSD`](@ref), [`IndBox`](@ref) or
 [`IndHyperplane`](@ref). Its proximal operator, the projection onto the
-intersection, has no closed form even when each set has one. It is computed by
-Dykstra's algorithm (Boyle and Dykstra, 1986), which projects onto the sets in
-turn and corrects each projection by the increment of the previous round, so
-that it converges to the projection onto the intersection of convex sets, not
-merely to some point of it as plain alternating projections do.
+intersection, need not have a closed form even when each set has one. It is
+computed by Dykstra's algorithm (Boyle and Dykstra, 1986), which projects onto
+the sets in turn and corrects each projection by the increment of the previous
+round. For closed convex sets with a nonempty intersection it converges to the
+projection onto that intersection. Plain alternating projections can converge
+to a different point of the intersection.
 
-The proximal operator is iterative and so inexact: it stops when a round over
-the sets moves the point by less than `tol` relative to its norm (at least ten
-machine epsilons in the precision of the output), or after `maxiter` rounds,
-with a warning. The point it returns lies exactly in the last set and within
-the tolerance of the others. `f.iterations` and `f.converged` report the last
-call.
+The proximal operator is iterative and so inexact: it stops when the sum of
+squared step lengths in a round is at most
+`max(tol, 10eps(T))^2 * max(1, norm(y))^2`, with `T` the floating-point type of
+the output, or after `maxiter` rounds, with a warning. This step-length test
+does not bound the distance to the intersection. Nearly parallel sets can
+satisfy it far from the intersection, and `maxiter` can also stop before
+feasibility. The last set's projection determines membership in that set only
+to its own accuracy. `f.iterations` counts the rounds of the last call, and
+`f.converged` reports only whether the step-length test was met; neither is a
+feasibility certificate.
 
 With `warmstart`, each call starts from the corrections of the previous call,
 which Dykstra's algorithm allows, since it is block coordinate ascent on the

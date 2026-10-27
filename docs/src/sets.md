@@ -4,9 +4,12 @@ The indicator function ``\iota_C`` of a set ``C`` is ``0`` on ``C`` and
 ``+\infty`` outside. Its proximal operator is the Euclidean projection
 ``P_C(v) = \operatorname{argmin}_{z \in C}\|z - v\|``, for every step, so
 projected gradient descent is proximal gradient descent with an indicator.
-[`value_and_prox!`](@ref) returns ``0``. The projections return a point within
-a relative ``\sqrt{\varepsilon}`` of the set, so the result is feasible up to
-rounding.
+[`value_and_prox!`](@ref) returns ``0`` without checking membership. Closed-form
+projections are exact up to rounding when their intermediate quantities stay
+within floating-point range. Iterative projections, such as
+[`IndIntersection`](@ref), use a stopping rule that need not bound the distance
+from the returned point to the set; a returned value of ``0`` is not a
+feasibility certificate.
 
 | Function | Set | Projection |
 |:---------|:----|:-----------|
@@ -74,12 +77,13 @@ Moreau's decomposition.
 
 ## Intersections
 
-The projection onto an intersection ``C_1 \cap \cdots \cap C_m`` of convex sets
-has no closed form even when each ``C_k`` has one: the correlation matrices,
-for instance, are the positive semidefinite matrices with unit diagonal.
-Alternating the projections finds a point of the intersection, not the
-projection. Dykstra's algorithm (Boyle and Dykstra, 1986) keeps a correction
-``p_k`` for each set and repeats, for ``k = 1, \dots, m``,
+The projection onto a nonempty intersection ``C_1 \cap \cdots \cap C_m`` of
+closed convex sets need not have a closed form even when each ``C_k`` has one:
+the correlation matrices, for instance, are the positive semidefinite matrices
+with unit diagonal.
+Alternating the projections converges to a point of the intersection, which
+need not be the projection. Dykstra's algorithm (Boyle and Dykstra, 1986) keeps
+a correction ``p_k`` for each set and repeats, for ``k = 1, \dots, m``,
 
 ```math
 y \leftarrow P_{C_k}(y + p_k), \qquad p_k \leftarrow (y_{\mathrm{old}} + p_k) - y ,
@@ -90,9 +94,16 @@ iterates converge to ``P_C(v)``. The algorithm is block coordinate ascent on the
 dual of the projection problem, whose variables are the corrections (Tibshirani,
 2017), so it converges from any corrections. [`IndIntersection`](@ref) uses this
 to start each call from the corrections of the previous one, which helps inside
-a solver, where successive inputs are close. Its proximal operator is iterative,
-and so exact only to a tolerance. The rate is linear, from a few rounds for the
-nearest correlation matrix to thousands when the sets meet at a small angle.
+a solver, where successive inputs are close. It stops when the sum of squared
+step lengths in a round is at most
+``\max(\mathtt{tol}, 10\varepsilon)^2\max(1, \|y\|)^2``, or after `maxiter`
+rounds, with a warning. `converged` reports only whether the step-length test
+was met, and `iterations` counts the rounds of the last call. Neither stopping
+condition bounds the distance to the intersection: nearly parallel sets can
+meet the step-length test far from it, and `maxiter` can also stop before
+feasibility. Linear convergence requires geometric assumptions, as for a
+nonempty intersection of affine subspaces; there is no uniform linear rate for
+arbitrary closed convex sets, and small angles can make convergence slow.
 
 ## Sparsity
 
@@ -196,5 +207,7 @@ P(V)_{ij} = \frac{1}{\lvert D_{j-i}\rvert} \sum_{(k, l) \in D_{j-i}} V_{kl} .
 ```
 
 With `symmetric = true`, [`IndToeplitz`](@ref) projects onto the symmetric
-Toeplitz matrices, the covariance matrices of a stationary series, and averages
-the diagonals ``d`` and ``-d`` together.
+Toeplitz matrices and averages the diagonals ``d`` and ``-d`` together. This is
+a structural constraint of covariance matrices of a stationary series.
+Covariance matrices must also be positive semidefinite, which requires a
+separate constraint such as [`IndPSD`](@ref).

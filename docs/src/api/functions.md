@@ -10,6 +10,7 @@ Filter = t -> !(t in (SeparableFunction, value_entry, iszeropreserving))
 
 ```@docs
 SparseGroupNormL2
+ProximalBase.AbstractGroupPenalty
 ```
 
 ## Scalar losses of `GLMLoss`

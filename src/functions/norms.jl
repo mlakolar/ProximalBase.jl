@@ -99,6 +99,16 @@ prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Real) = (value_and_pr
 # Group penalties share their groups, weights and the map from an index to its
 # group. Only the group norms are positively homogeneous and convex; MCP and
 # SCAD use the same grouping machinery but have different proximal kernels.
+"""
+    ProximalBase.AbstractGroupPenalty
+
+Abstract supertype of penalties on disjoint groups of entries, including
+[`GroupNormL2`](@ref), [`GroupNormLinf`](@ref), [`GroupMCP`](@ref) and
+[`GroupSCAD`](@ref). They share groups, weights and a map from each entry to
+its group. The group norms are convex and positively homogeneous; the group
+MCP and SCAD penalties are nonconvex. An [`AtomIterate`](@ref) can use the
+groups as its coordinates when they partition its entries.
+"""
 abstract type AbstractGroupPenalty <: AbstractFunction end
 abstract type HomogeneousGroupNorm <: AbstractGroupPenalty end
 

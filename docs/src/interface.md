@@ -62,6 +62,7 @@ onto the ℓ1 ball. A check:
 using ProximalBase, LinearAlgebra
 x, γ = [3.0, -0.5, 1.2], 0.7
 f = NormL1(1.0)
+@assert prox(f, x, γ) + γ * prox(Conjugate(f), x / γ, 1 / γ) ≈ x # hide
 prox(f, x, γ) + γ * prox(Conjugate(f), x / γ, 1 / γ) ≈ x
 ```
 
@@ -182,8 +183,9 @@ its data; its factorization type can change with the rank of `A`.
 - **The value at the result.** [`value_and_prox!`](@ref) stores the proximal
   point and returns the function's value there. Many functions get that value
   from the computation itself: the nuclear norm from the singular values it
-  thresholds, an indicator function as zero. A solver that tracks the objective
-  should call it instead of `prox!` followed by `f(y)`.
+  thresholds, an indicator function as zero without checking membership. The
+  latter equals the value at an exact projection, but does not certify
+  feasibility for an inexact projection such as [`IndIntersection`](@ref).
 - **Steps and types.** Steps may be any positive real. Computations follow the
   element type of the argument, so `Float32` input gives `Float32` results.
 - **Allocations.** Many built-in operations reuse their buffers for inputs of

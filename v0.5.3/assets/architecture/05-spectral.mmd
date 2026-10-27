@@ -1,0 +1,12 @@
+flowchart TD
+  P["Public matrix prox! / value_and_prox!"]
+  P -.->|default| F["Full decomposition default"]
+  P -.->|partial=true on four spectral primitives| A["Partial subspace iteration"]
+  F ==>|LAPACK workspace| D["Eigenvalues or singular values"]
+  A ==>|represented Ritz pairs| R["Residual and guard-pair acceptance checks"]
+  R ==>|accepted approximation| D
+  R ==>|failed checks or oversized block| F
+  D ==>|threshold or vector prox| K["Spectral proximal kernel"]
+  K ==>|retained vectors and coefficients| B["Reconstruct output"]
+  K ==>|fused function value| V["Returned value at proximal point"]
+  C["No bound on omitted leading directions"] -.->|limits interpretation of| R

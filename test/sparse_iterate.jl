@@ -14,7 +14,7 @@ function check_scaled_product(out, A, x, α, β; specialized = true)
     @nospecialize out A x α β
     expected = Array(out)
     mul!(expected, A, Array(x), α, β)
-    @test (parentmodule(which(mul!, typeof.((out, A, x, α, β)))) == ProximalBase) == specialized
+    @test parentmodule(which(mul!, typeof.((out, A, x, α, β)))) == (specialized ? ProximalBase : LinearAlgebra)
     @test mul!(out, A, x, α, β) === out
     @test out ≈ expected
 end
@@ -339,20 +339,20 @@ end
                     for M in matrices, α in S.((0, 1, 2.5)), β in S.((0, 1, -0.5))
                         copyto!(out, initial)
                         iszero(β) && fill!(out, NaN)
-                        specialized = !(M isa Adjoint && !(eltype(M) <: Real))
+                        specialized = ndims(x) == 1 && !(M isa Adjoint && !(eltype(M) <: Real))
                         check_scaled_product(out, M, x, α, β; specialized = specialized)
                     end
                     if support == :partial && !strided
                         for M in matrices, (α, β) in ((true, false), (0, 0))
                             fill!(out, NaN)
-                            specialized = !(M isa Adjoint && !(eltype(M) <: Real))
+                            specialized = ndims(x) == 1 && !(M isa Adjoint && !(eltype(M) <: Real))
                             check_scaled_product(out, M, x, α, β; specialized = specialized)
                         end
                     end
                     if To <: Complex
                         for M in matrices
                             copyto!(out, initial)
-                            specialized = !(M isa Adjoint && !(eltype(M) <: Real))
+                            specialized = ndims(x) == 1 && !(M isa Adjoint && !(eltype(M) <: Real))
                             check_scaled_product(out, M, x, 1 + 0.5im, -0.5 + 0.25im; specialized = specialized)
                         end
                     end
@@ -374,9 +374,17 @@ end
             dims = ndims(coef) == 1 ? (2,) : (2, 2)
             reference = mul!(fill(NaN, dims...), M, coef)
             @test isnan(reference[1]) && reference[2] == 8.
+            # A nonstrided dense oracle keeps zero handling on the generic path.
+            five_arg_reference = if ndims(coef) == 2
+                dense_coef = view(Array(coef), collect(axes(coef, 1)), :)
+                @test !(dense_coef isa StridedMatrix)
+                mul!(fill(NaN, dims...), M, dense_coef, 1.0, 0.0)
+            else
+                reference
+            end
             for (α, β) in ((1.0, 0.0), (2.5, -0.5))
                 out = fill(iszero(β) ? NaN : 3., dims...)
-                expected = iszero(β) ? α .* reference : α .* reference .+ β * 3.
+                expected = iszero(β) ? α .* five_arg_reference : α .* five_arg_reference .+ β * 3.
                 @test isequal(mul!(out, M, coef, α, β), expected)
             end
             @test mul!(fill(NaN, dims...), M, coef, 0.0, 0.0) == zeros(dims...)
@@ -393,9 +401,9 @@ end
             @test_throws DimensionMismatch("A has second dimension 4, length of coef is 5") mul!(out, A, SparseIterate(5), α, β)
             @test out == fill(3., 3)
             @test_throws DimensionMismatch("A has first dimension 3, length of out is 2") mul!(zeros(2), A, SparseIterate(4), α, β)
-            @test_throws DimensionMismatch("A has second dimension 4, coef has 5 rows") mul!(zeros(3, 2), A, SparseIterate(5, 2), α, β)
-            @test_throws DimensionMismatch("out has size (2, 2)") mul!(zeros(2, 2), A, SparseIterate(4, 2), α, β)
-            @test_throws DimensionMismatch("out has size (3, 1)") mul!(zeros(3, 1), A, SparseIterate(4, 2), α, β)
+            @test_throws DimensionMismatch mul!(zeros(3, 2), A, SparseIterate(5, 2), α, β)
+            @test_throws DimensionMismatch mul!(zeros(2, 2), A, SparseIterate(4, 2), α, β)
+            @test_throws DimensionMismatch mul!(zeros(3, 1), A, SparseIterate(4, 2), α, β)
             for M in (transpose(A), adjoint(A))
                 @test_throws DimensionMismatch("A has first dimension 3, length of coef is 4") mul!(zeros(4), M, SparseIterate(4), α, β)
                 @test_throws DimensionMismatch("A has second dimension 4, length of out is 3") mul!(zeros(3), M, SparseIterate(3), α, β)

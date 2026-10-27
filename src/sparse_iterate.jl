@@ -466,18 +466,14 @@ function LinearAlgebra.mul!(out::StridedVector, A::StridedMatrix, coef::SparseIt
 end
 
 # the product with a matrix of coefficients, one column per response
-LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIterate{T, 2}) where {T} =
-  mul!(out, A, coef, true, false)
-function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIterate{T, 2}, α::Number, β::Number) where {T}
+function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIterate{T, 2}) where {T}
   size(coef, 1) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), coef has $(size(coef, 1)) rows"))
   size(out) == (size(A, 1), size(coef, 2)) || throw(DimensionMismatch("out has size $(size(out))"))
-  _scale_product_output!(out, β)
-  iszero(α) && return out
-  scale = _product_scale(A, coef, α)
+  fill!(out, zero(eltype(out)))
   p = size(coef, 1)
   @inbounds for inz = 1:nnz(coef)
     j, k = mod1(coef.nzval2ind[inz], p), cld(coef.nzval2ind[inz], p)
-    c = scale * coef.nzval[inz]
+    c = coef.nzval[inz]
     @simd for i = 1:size(A, 1)
       out[i, k] += c * A[i, j]
     end

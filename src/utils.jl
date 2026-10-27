@@ -20,6 +20,8 @@ shrink(v::Real, c::Real) = shrink(promote(float(v), float(c))...)
 # exceptional path is a separate call. Only the intermediate needs to be
 # normal: a subnormal or overflowing final multiply has no later factor to
 # restore its range. With a normal intermediate, a zero third factor is safe.
+# For scalar-step L1 proximal loops, ab is invariant: LLVM can unswitch this
+# check and vectorize the ordinary loop without a per-weight recovery branch.
 @inline function _positive_product(a::T, b::T, c::T) where {T<:AbstractFloat}
   ab = a * b
   p = ab * c

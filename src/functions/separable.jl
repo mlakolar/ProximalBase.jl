@@ -269,26 +269,6 @@ Base.@propagate_inbounds prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real)
 kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer) = -g[i] - f.λ0 * _entry(f.w, i)
 restrict(f::NormL1Nonneg, S::AbstractVector{<:Integer}) = NormL1Nonneg(f.λ0, _restrict_entries(f.w, S))
 
-# A normal step*level can be shared without rounding a subnormal intermediate.
-# Keeping the exceptional call outside the loop lets LLVM vectorize, including
-# y === x; no preliminary pass over the weights or coefficient buffer is needed.
-@inline _l1_prox(::NormL1, v, c) = shrink(v, c)
-@inline _l1_prox(::NormL1Nonneg, v, c) = max(v - c, zero(v))
-
-function _prox_sep_dense!(y::Array{T},
-    f::Union{NormL1{T,<:Array{T}}, NormL1Nonneg{T,<:Array{T}}},
-    x::Array{T}, γ::T) where {T<:Union{Float32,Float64}}
-  a = γ * f.λ0
-  floatmin(T) <= a <= floatmax(T) ||
-    return invoke(_prox_sep_dense!, Tuple{AbstractArray,Any,AbstractArray,Any}, y, f, x, γ)
-  _checksize(y, x)
-  _checkparams(f, x)
-  @inbounds for i in eachindex(IndexLinear(), y, x)
-    y[i] = _l1_prox(f, x[i], a * f.w[i])
-  end
-  y
-end
-
 @inline _l1_value(::NormL1, v, a) = a * abs(v)
 @inline _l1_value(::NormL1Nonneg, v::T, a) where {T} =
   ifelse(v >= -_tol(T), a * max(v, zero(T)), T(Inf))

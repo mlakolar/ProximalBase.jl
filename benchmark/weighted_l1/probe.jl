@@ -83,7 +83,8 @@ function coordinate_sweep(f, x)
 end
 
 function measure(io, raw, name, op::F) where {F}
-    first = @timed op()
+    # Keep inference of measure() from compiling op before the first-call timer.
+    first = @timed Base.invokelatest(op)
     trial = @benchmark $op() samples=1000 seconds=0.2 evals=1
     println(io, join((name, minimum(trial).time, mean(trial).time, trial.memory,
                       first.time, first.compile_time), '\t'))

@@ -312,20 +312,35 @@ end
     end
 
     @testset "five-argument products" begin
-        n, p, q = 7, 9, 4
+        n, p, q = 7, 32, 4
         types = ((Float32, Float32, Float32), (Float64, Float64, Float64),
                  (Float64, Float32, Float64), (Float32, Float64, Float64),
                  (ComplexF64, Float64, ComplexF64), (ComplexF64, ComplexF64, ComplexF64))
-        for (Ta, Tx, To) in types, support in (:empty, :partial, :full), strided in (false, true)
+        for (Ta, Tx, To) in types, support in (:empty, :sparse, :partial, :full), strided in (false, true)
             strided && !(Ta == Tx == To && Ta <: Real) && continue
             @testset "$Ta × $Tx → $To, $support, views=$strided" begin
                 A = strided ? view(randn(Ta, 2n, 2p), 1:2:2n, 1:2:2p) : randn(Ta, n, p)
                 B = strided ? view(randn(Ta, 2p, 2n), 1:2:2p, 1:2:2n) : randn(Ta, p, n)
                 for dims in ((p,), (p, q))
+                    support == :sparse && length(dims) == 1 && continue
                     dense = randn(Tx, dims...)
                     support == :empty && fill!(dense, 0)
-                    support == :partial && (dense[1:2:end] .= 0)
+                    if support == :sparse
+                        fill!(dense, 0)
+                        dense[end] = one(Tx)
+                    elseif support == :partial
+                        if length(dims) == 1
+                            dense[1:2:end] .= 0
+                        else
+                            dense[2:3:end] .= 0
+                            dense[3:3:end] .= 0
+                        end
+                    end
                     x = SparseIterate(dense)
+                    if length(dims) == 2 && support in (:sparse, :partial)
+                        @test nnz(x) >= 1
+                        @test (32 * nnz(x) <= length(x)) == (support == :sparse)
+                    end
                     before = copy(x)
                     if length(dims) == 1
                         out = strided ? view(randn(To, 2n), 1:2:2n) : randn(To, n)
@@ -339,20 +354,21 @@ end
                     for M in matrices, α in S.((0, 1, 2.5)), β in S.((0, 1, -0.5))
                         copyto!(out, initial)
                         iszero(β) && fill!(out, NaN)
-                        specialized = ndims(x) == 1 && !(M isa Adjoint && !(eltype(M) <: Real))
+                        specialized = !(M isa Adjoint && !(eltype(M) <: Real))
                         check_scaled_product(out, M, x, α, β; specialized = specialized)
                     end
-                    if support == :partial && !strided
-                        for M in matrices, (α, β) in ((true, false), (0, 0))
+                    if support in (:sparse, :partial) && !strided
+                        scalar_pairs = length(dims) == 2 ? ((true, false), (0, 0), (1, 0)) : ((true, false), (0, 0))
+                        for M in matrices, (α, β) in scalar_pairs
                             fill!(out, NaN)
-                            specialized = ndims(x) == 1 && !(M isa Adjoint && !(eltype(M) <: Real))
+                            specialized = !(M isa Adjoint && !(eltype(M) <: Real))
                             check_scaled_product(out, M, x, α, β; specialized = specialized)
                         end
                     end
                     if To <: Complex
                         for M in matrices
                             copyto!(out, initial)
-                            specialized = ndims(x) == 1 && !(M isa Adjoint && !(eltype(M) <: Real))
+                            specialized = !(M isa Adjoint && !(eltype(M) <: Real))
                             check_scaled_product(out, M, x, 1 + 0.5im, -0.5 + 0.25im; specialized = specialized)
                         end
                     end
@@ -369,22 +385,23 @@ end
         activate!(x, 1)
         X = SparseIterate([0. 0.; 2. 0.; 0. -1.])
         activate!(X, 1)
-        for (M, coef) in ((A, x), (A, X), (transpose(B), x), (adjoint(B), x))
+        X_sparse = SparseIterate(3, 32)
+        X_sparse[2, 1], X_sparse[3, 2] = 2., -1.
+        activate!(X_sparse, 1)
+        @test 32 * nnz(X_sparse) == length(X_sparse)
+        @test 32 * nnz(X) > length(X)
+        for (M, coef) in ((A, x), (A, X_sparse), (A, X), (transpose(B), x), (adjoint(B), x))
             before = copy(coef)
-            dims = ndims(coef) == 1 ? (2,) : (2, 2)
+            dims = ndims(coef) == 1 ? (2,) : (2, size(coef, 2))
             reference = mul!(fill(NaN, dims...), M, coef)
             @test isnan(reference[1]) && reference[2] == 8.
-            # A nonstrided dense oracle keeps zero handling on the generic path.
-            five_arg_reference = if ndims(coef) == 2
-                dense_coef = view(Array(coef), collect(axes(coef, 1)), :)
-                @test !(dense_coef isa StridedMatrix)
-                mul!(fill(NaN, dims...), M, dense_coef, 1.0, 0.0)
-            else
-                reference
+            if ndims(coef) == 2
+                @test reference[:, 2] == [-3., -5.]
+                @test all(iszero, view(reference, :, 3:size(coef, 2)))
             end
             for (α, β) in ((1.0, 0.0), (2.5, -0.5))
                 out = fill(iszero(β) ? NaN : 3., dims...)
-                expected = iszero(β) ? α .* five_arg_reference : α .* five_arg_reference .+ β * 3.
+                expected = iszero(β) ? α .* reference : α .* reference .+ β * 3.
                 @test isequal(mul!(out, M, coef, α, β), expected)
             end
             @test mul!(fill(NaN, dims...), M, coef, 0.0, 0.0) == zeros(dims...)
@@ -401,12 +418,9 @@ end
             @test_throws DimensionMismatch("A has second dimension 4, length of coef is 5") mul!(out, A, SparseIterate(5), α, β)
             @test out == fill(3., 3)
             @test_throws DimensionMismatch("A has first dimension 3, length of out is 2") mul!(zeros(2), A, SparseIterate(4), α, β)
-            # LinearAlgebra on Julia 1.10 skips the size check when α = 0.
-            if !iszero(α)
-                @test_throws DimensionMismatch mul!(zeros(3, 2), A, SparseIterate(5, 2), α, β)
-                @test_throws DimensionMismatch mul!(zeros(2, 2), A, SparseIterate(4, 2), α, β)
-                @test_throws DimensionMismatch mul!(zeros(3, 1), A, SparseIterate(4, 2), α, β)
-            end
+            @test_throws DimensionMismatch("A has second dimension 4, coef has 5 rows") mul!(zeros(3, 2), A, SparseIterate(5, 2), α, β)
+            @test_throws DimensionMismatch("out has size (2, 2)") mul!(zeros(2, 2), A, SparseIterate(4, 2), α, β)
+            @test_throws DimensionMismatch("out has size (3, 1)") mul!(zeros(3, 1), A, SparseIterate(4, 2), α, β)
             for M in (transpose(A), adjoint(A))
                 @test_throws DimensionMismatch("A has first dimension 3, length of coef is 4") mul!(zeros(4), M, SparseIterate(4), α, β)
                 @test_throws DimensionMismatch("A has second dimension 4, length of out is 3") mul!(zeros(3), M, SparseIterate(3), α, β)

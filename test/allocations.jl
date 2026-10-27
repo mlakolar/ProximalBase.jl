@@ -59,13 +59,20 @@ end
       out = strided ? view(zeros(To, 2n), 1:2:2n) : zeros(To, n)
       out_matrix = strided ? view(zeros(To, 2n, 8), 1:2:2n, 1:2:8) : zeros(To, n, 4)
       coef = SparseIterate(Tx.(Array(xs)))
+      coef_matrix_sparse = SparseIterate(Tx, p, 4)
+      coef_matrix_sparse[p, 4] = one(Tx)
       coef_matrix = SparseIterate(Tx.(sprandn(p, 4, 0.3)))
+      @test 32 * nnz(coef_matrix_sparse) <= length(coef_matrix_sparse)
+      @test 32 * nnz(coef_matrix) > length(coef_matrix)
+      coef_matrices = (coef_matrix_sparse, coef_matrix)
       atom_coefs = (AtomIterate(Tx.(Array(xs)), groups),
                     AtomIterate(Tx.(Array(xs)), [collect(k:4:p) for k in 1:4]))
       S = real(Ta)
       for α in S.((0, 1, 1.5)), β in S.((0, 1, -0.5))
         @test allocs(a_mul!, out, A, coef, α, β) == 0
-        @test allocs(a_mul!, out_matrix, A, coef_matrix, α, β) == 0
+        for matrix_coef in coef_matrices
+          @test allocs(a_mul!, out_matrix, A, matrix_coef, α, β) == 0
+        end
         @test allocs(a_mul!, out, transpose(B), coef, α, β) == 0
         if Ta <: Real
           @test allocs(a_mul!, out, adjoint(B), coef, α, β) == 0
@@ -75,9 +82,11 @@ end
         end
       end
       if !strided
-        for (α, β) in ((true, false), (0, 0))
+        for (α, β) in ((true, false), (0, 0), (1, 0))
           @test allocs(a_mul!, out, A, coef, α, β) == 0
-          @test allocs(a_mul!, out_matrix, A, coef_matrix, α, β) == 0
+          for matrix_coef in coef_matrices
+            @test allocs(a_mul!, out_matrix, A, matrix_coef, α, β) == 0
+          end
           @test allocs(a_mul!, out, transpose(B), coef, α, β) == 0
           if Ta <: Real
             @test allocs(a_mul!, out, adjoint(B), coef, α, β) == 0

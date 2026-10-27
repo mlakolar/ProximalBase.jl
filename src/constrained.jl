@@ -88,8 +88,8 @@ BoxConstrained(f::AbstractFunction, box::IndBox) = BoxConstrained{typeof(f), typ
 struct LinearConstrained{F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspace}} <: AbstractFunction
   f::F
   set::H
-  last::Base.RefValue{Float64}      # the multiplier of the last call
-  slope::Base.RefValue{Float64}     # the slope of φ near it, from the last secant
+  last::Base.RefValue{Float64}      # the multiplier for the normalized constraint
+  slope::Base.RefValue{Float64}     # its residual's slope, from the last secant
   scratch::Scratch                  # for the value of the conjugate
   live::NTuple{6, Scratch}          # the entries the search still evaluates: x, a, γ, index; bits; state
 
@@ -197,7 +197,14 @@ function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::Ab
   _checkparams(c, x)
   T = float(eltype(y))
   ν = _multiplier(c, x, γ, T)
-  f, a = c.f, c.set.a
+  set = c.set
+  if _isscaled(set)
+    return _linear_constrained_output!(y, c.f, _normalized_normal(set.a, set.s), x, γ, ν)
+  end
+  _linear_constrained_output!(y, c.f, set.a, x, γ, ν)
+end
+
+function _linear_constrained_output!(y, f, a, x, γ, ν::T) where {T}
   @inbounds for i in eachindex(IndexLinear(), y, x)
     γᵢ = convert(T, _entry(γ, i))
     y[i] = convert(eltype(y), prox_entry(f, x[i] - γᵢ * ν * convert(T, _entry(a, i)), i, γᵢ))
@@ -217,8 +224,17 @@ end
 # error; with Val(true), also the slope of φ, -Σᵢ γᵢaᵢ² Pᵢ', where Pᵢ' is the
 # slope of the scalar proximal operator at its argument. c is the function, or
 # a named tuple with its f and set, as for the live entries of variable fixing.
-function _constraint_gap(c, x::AbstractArray, ν::T, γ, ::Val{S} = Val(false)) where {T, S}
-  f, a = c.f, c.set.a
+function _constraint_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ, v::Val = Val(false)) where {T}
+  set = c.set
+  if _isscaled(set)
+    return _constraint_gap(c.f, _normalized_normal(set.a, set.s), _scaled_offset(set), x, ν, γ, v)
+  end
+  _constraint_gap(c.f, set.a, set.b, x, ν, γ, v)
+end
+_constraint_gap(c, x::AbstractArray, ν::T, γ, v::Val = Val(false)) where {T} =
+  _constraint_gap(c.f, c.set.a, c.set.b, x, ν, γ, v)
+
+function _constraint_gap(f, a, b, x::AbstractArray, ν::T, γ, ::Val{S}) where {T, S}
   s, m, d = zero(T), zero(T), zero(T)
   @inbounds @simd for i in eachindex(IndexLinear(), x)
     aᵢ = convert(T, _entry(a, i))
@@ -230,18 +246,22 @@ function _constraint_gap(c, x::AbstractArray, ν::T, γ, ::Val{S} = Val(false)) 
     m += abs(t)
     S && (d += γᵢ * aᵢ * aᵢ * convert(T, dz))
   end
-  b = convert(T, c.set.b)
+  b = convert(T, b)
   S ? (s - b, m + abs(b), -d) : (s - b, m + abs(b))
 end
 
 # Σᵢ γᵢaᵢ², the steepest slope of φ
 _metric_sqnorm(set::Union{IndHyperplane, IndHalfspace}, x::AbstractArray, γ::Real) = γ * _normal_sqnorm(set, x)
 function _metric_sqnorm(set::Union{IndHyperplane, IndHalfspace}, x::AbstractArray, γ::AbstractArray)
-  T = float(promote_type(eltype(γ), typeof(set.a2)))
-  set.a isa Real && return convert(T, set.a2) * convert(T, sum(γ))
+  T = float(promote_type(eltype(γ), typeof(set.q)))
+  set.a isa Real && return convert(T, set.q) * convert(T, sum(γ))
+  _isscaled(set) && return _metric_sqnorm(_normalized_normal(set.a, set.s), γ, T)
+  _metric_sqnorm(set.a, γ, T)
+end
+function _metric_sqnorm(a::AbstractArray, γ::AbstractArray, ::Type{T}) where {T}
   s = zero(T)
   @inbounds for i in eachindex(IndexLinear(), γ)
-    s += convert(T, γ[i]) * convert(T, abs2(set.a[i]))
+    s += convert(T, γ[i]) * convert(T, abs2(float(a[i])))
   end
   return s
 end
@@ -382,10 +402,11 @@ end
 # last multiplier ends within a few passes, which the copy would not repay, and
 # a call on fewer than 4096 entries would lose about a percent where the root is
 # not in the tail; both search as before.
+# The sums, slopes and multipliers use the same normalized constraint.
 struct _Live{T}
   n::Int          # the live entries: the first n in the buffers, or all of x
   compact::Bool   # whether they are in the buffers
-  s::T            # Σᵢ aᵢzᵢ over the fixed entries
+  s::T            # Σᵢ aᵢzᵢ over the fixed entries, with the normalized normal
   m::T            # Σᵢ |aᵢzᵢ| over them
   νp::T           # the last point evaluated, and φ there
   φp::T
@@ -457,7 +478,7 @@ end
 # φ and the scale of its rounding error, from the live entries in the buffers
 @noinline function _live_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ, L::_Live{T}) where {T}
   X, A, G, I = _live_buffers(c, x, γ, T)
-  φ, M = _live_pass(c.f, c.set.b, X, A, G, I, L.n, ν)
+  φ, M = _live_pass(c.f, _scaled_offset(c.set), X, A, G, I, L.n, ν)
   φ + L.s, M + L.m
 end
 
@@ -479,12 +500,20 @@ Base.@propagate_inbounds prox_entry(g::_Reindexed, v::Real, j::Integer, γ::Real
 # sample shows that few stay live; if it does not, the next sample waits for a
 # secant half as steep as this one, ρ
 @noinline function _try_fix(c::LinearConstrained, x::AbstractArray, ν::T, γ, L::_Live{T}, low::Bool, ρ::T) where {T}
+  set = c.set
+  if _isscaled(set)
+    return _try_fix(c, _normalized_normal(set.a, set.s), x, ν, γ, L, low, ρ)
+  end
+  _try_fix(c, set.a, x, ν, γ, L, low, ρ)
+end
+
+function _try_fix(c::LinearConstrained, a, x::AbstractArray, ν::T, γ, L::_Live{T}, low::Bool, ρ::T) where {T}
   few = L.compact ? _few_stay(c, _live_buffers(c, x, γ, T)..., Base.OneTo(L.n), ν, low) :
-                    _few_stay(c, x, c.set.a, γ, nothing, eachindex(IndexLinear(), x), ν, low)
+                    _few_stay(c, x, a, γ, nothing, eachindex(IndexLinear(), x), ν, low)
   few || return _Live{T}(L.n, L.compact, L.s, L.m, L.νp, L.φp, L.a2, ρ / 2)
   X, A, G, I = _live_buffers(c, x, γ, T)
-  w, s, m = L.compact ? _fix!(c, X, A, G, I, X, A, G, I, Base.OneTo(L.n), ν, low) :
-                        _fix!(c, X, A, G, I, x, c.set.a, γ, nothing, eachindex(IndexLinear(), x), ν, low)
+  w, s, m = L.compact ? _fix!(c, a, X, A, G, I, X, A, G, I, Base.OneTo(L.n), ν, low) :
+                        _fix!(c, a, X, A, G, I, x, a, γ, nothing, eachindex(IndexLinear(), x), ν, low)
   _Live{T}(w, true, L.s + s, L.m + m, L.νp, L.φp, L.a2, T(_FIX_RHO))
 end
 
@@ -493,7 +522,7 @@ function _live_buffers(c::LinearConstrained, x::AbstractArray, γ, ::Type{T}) wh
   n = length(x)
   a = c.set.a
   X = _buffer!(bx, promote_type(eltype(x), T), n)
-  A = a isa Real ? a : _buffer!(ba, T, n)
+  A = a isa Real ? _scaled_normal(c.set) : _buffer!(ba, T, n)
   G = γ isa Real ? γ : _buffer!(bg, T, n)
   X, A, G, _buffer!(bi, Int, n)
 end
@@ -542,8 +571,8 @@ end
 # (X, A, G, I), in order, in place when they are the same; their number, and
 # the sums of aᵢzᵢ and |aᵢzᵢ| over the others, which sit at the bottom (low) or
 # the top of their ranges
-function _fix!(c::LinearConstrained{F}, X, A, G, I, Xs, As, Gs, Is, r, ν::T, low::Bool) where {F, T}
-  f, a = c.f, c.set.a
+function _fix!(c::LinearConstrained{F}, a, X, A, G, I, Xs, As, Gs, Is, r, ν::T, low::Bool) where {F, T}
+  f = c.f
   B = _buffer!(c.live[5], UInt64, cld(length(r), 64))
   _keep_bits!(B, f, Xs, As, Gs, Is, r, ν, low)
   if a isa Real && _has_uniform_range(F)     # every fixed entry has the same aᵢzᵢ
@@ -655,7 +684,7 @@ function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union
   l, u = upper ? (convert(T, box.l), convert(T, box.u)) : (-convert(T, box.u), -convert(T, box.l))
   isfinite(l) && isfinite(u) ||
     throw(ArgumentError("the value of the conjugate of Constrained(IndBox(l, u), $(nameof(typeof(set)))(a, b)) needs finite bounds"))
-  β = s * convert(T, set.b) / convert(T, set.a)
+  β = _isscaled(set) ? s * convert(T, set.b / float(set.a)) : s * convert(T, set.b) / convert(T, set.a)
   slack = _tol(T) * max(one(T), abs(β), n * abs(l))
   v = _buffer!(c.scratch, T, n)
   total = zero(T)

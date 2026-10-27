@@ -1,6 +1,12 @@
 name: Weighted L1 investigation
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/weighted-l1.yml'
+      - 'benchmark/weighted_l1/*.jl'
+      - 'src/functions/separable.jl'
+      - 'src/utils.jl'
 permissions:
   contents: read
 jobs:

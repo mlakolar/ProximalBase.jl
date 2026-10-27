@@ -59,6 +59,35 @@ same(a, b) = isinf(b) ? a == b : a ≃ b
   @test_throws ArgumentError Adapt.adapt(DeviceArray, NormL1(0.3, -w))
 end
 
+@testset "compensated separable L1 coefficients" begin
+  allowscalar(false)
+  for T in test_types, F in (NormL1, NormL1Nonneg)
+    large = floatmax(T)/2
+    f = F(large, T[inv(large), 0])
+    x = T[7, 3]
+    fg = Adapt.adapt(DeviceArray, f)
+    y = similar(DeviceArray(x))
+    value = value_and_prox!(y, fg, DeviceArray(x), T(4))
+    @test host(y) ≃ T[3, 3]
+    @test value ≃ one(T)*3
+    @test ProximalBase._prox_entry_slope(f, x[1], 1, T(4))[1] == prox_entry(f, x[1], 1, T(4))
+    small = T === Float32 ? T(1e-30) : T(1e-200)
+    f = F(small, T[small])
+    x = T[inv(small)]
+    expected = T(BigFloat(small)^2*BigFloat(x[1]))
+    @test f(x) ≈ expected
+    @test Adapt.adapt(DeviceArray, f)(DeviceArray(x)) ≈ expected
+    tiny = nextfloat(zero(T))
+    factor = T === Float32 ? T(4096.5) : T(100000000.5)
+    threshold = T(BigFloat(tiny)*BigFloat(factor)^2)
+    f = F(factor, T[factor])
+    x = T[4threshold]
+    expected = x .- threshold
+    @test prox(f, x, tiny) ≈ expected rtol=8eps(T) atol=zero(T)
+    @test host(prox(Adapt.adapt(DeviceArray, f), DeviceArray(x), tiny)) ≈ expected rtol=8eps(T) atol=zero(T)
+  end
+end
+
 @testset "norms, balls and the simplex on GPU arrays" begin
   allowscalar(false)
   n = 300
@@ -168,6 +197,67 @@ end
   @test value_and_prox!(DeviceArray(similar(x)), fl0, DeviceArray(x), 1.0) == 0
 end
 
+@testset "representable group norms outside the squared range" begin
+  allowscalar(false)
+  groups = [1:2, 3:4]
+  for T in test_types, scale in (floatmin(T), floatmax(T) / T(16))
+    @test norm_diff(DeviceArray(scale .* T[3, 4]), DeviceArray(zeros(T, 2))) / scale ≃ T(5)
+    cx = DeviceArray(complex.(scale .* T[3, 4], scale .* T[3, 4]))
+    cy = DeviceArray(zeros(Complex{T}, 2))
+    @test norm_diff(cx, cy) isa T
+    @test norm_diff(cx, cy) / scale ≃ sqrt(T(50))
+    # The shared Euclidean routines fall back to GPUArrays' scaled norm.
+    xv = scale .* T[3, 4]
+    @test NormL2(one(T))(DeviceArray(xv)) / scale ≃ T(5)
+    for f in (NormL2(scale * T(2.5)), IndBallL2(scale * T(2.5)))
+      @test host(prox(f, DeviceArray(xv))) ./ scale ≃ T[1.5, 2]
+    end
+    x = scale .* T[1, 0, 2, 0]
+    for f in (GroupNormL2(scale / T(2), groups, ones(T, 2)),
+              SparseGroupNormL2(scale / T(4), scale / T(4), groups, ones(T, 2)))
+      fg = Adapt.adapt(DeviceArray, f)
+      expected = T[0.5, 0, 1.5, 0]
+      @test host(prox(fg, DeviceArray(x))) ./ scale ≃ expected
+      @test host(prox(f, DeviceArray(x))) ./ scale ≃ expected
+    end
+    f = Adapt.adapt(DeviceArray, GroupNormL2(one(T), groups, ones(T, 2)))
+    @test f(DeviceArray(x)) / scale ≃ T(3)
+    # Norm-based selection must distinguish a zero group and finite nonzero
+    # groups even when every nonzero squared norm overflows or underflows.
+    h = Adapt.adapt(DeviceArray, IndBallGroupL0(1, [1:1, 2:2, 3:3]))
+    @test host(prox(h, DeviceArray(scale .* T[0, 1, 2]))) ./ scale == T[0, 0, 2]
+  end
+end
+
+@testset "zero penalty levels before device reductions" begin
+  allowscalar(false)
+  groups = [1:2, 3:4]
+  for T in test_types
+    x = fill(floatmax(T), 4)
+    functions = (NormL1(zero(T)), NormL1Nonneg(zero(T)), ElasticNet(zero(T), zero(T)),
+                 SqrNormL2(zero(T)), NormL2(zero(T)), NormLinf(zero(T)),
+                 GroupNormL2(zero(T), groups), GroupNormLinf(zero(T), groups),
+                 SparseGroupNormL2(zero(T), zero(T), groups),
+                 GroupNormL2(one(T), groups, zeros(T, 2)))
+    for f in functions, fg in (f, Adapt.adapt(DeviceArray, f))
+      input = DeviceArray(x)
+      output = similar(input)
+      @test fg(input) === zero(T)
+      @test value_and_prox!(output, fg, input, one(T)) === zero(T)
+      @test host(output) == x
+      @test value_and_prox!(input, fg, input, one(T)) === zero(T)
+      @test host(input) == x
+    end
+    # Zero coefficient preserves the nonnegative domain.
+    f = Adapt.adapt(DeviceArray, NormL1Nonneg(zero(T)))
+    @test f(DeviceArray(T[-1, 1])) == T(Inf)
+    # An absent elastic-net quadratic term must not multiply an overflowing
+    # sum of squares by zero when the remaining l1 value is representable.
+    z = DeviceArray(T[floatmax(T) / 4])
+    @test Adapt.adapt(DeviceArray, ElasticNet(one(T), zero(T)))(z) == floatmax(T) / 4
+  end
+end
+
 @testset "losses with a design matrix on GPU arrays" begin
   allowscalar(false)
   n, p, k = 40, 7, 3
@@ -236,4 +326,53 @@ end
   @test gh.η isa Vector{Float64} && gh.weights isa Vector{Float64} && gh(b) ≃ LogisticLoss(yb, X; weights = w)(b)
   # a negative weight is caught on the device, as on the host
   @test_throws ArgumentError GLMLoss(ProximalBase.Squared(), DeviceArray(y), DeviceArray(X); weights = DeviceArray(-w))
+end
+
+@testset "compensated group coefficients on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types
+    large, step = floatmax(T) / 2, T(4)
+    groups, x = [1:1, 2:2], T[7, -8]
+    for (λ, w) in ((large, inv(large)), (inv(large), large))
+      coefficient = BigFloat(λ) * BigFloat(w)
+      functions = (GroupNormL2(λ, groups, fill(w, 2)),
+                   GroupNormLinf(λ, groups, fill(w, 2)),
+                   SparseGroupNormL2(T(0.25), λ, groups, fill(w, 2)))
+      for f in functions
+        λ1 = f isa SparseGroupNormL2 ? BigFloat(f.λ1) : BigFloat(0)
+        expected = T[sign(v) * max(abs(BigFloat(v)) - BigFloat(step) * (coefficient + λ1), 0) for v in x]
+        value = T((coefficient + λ1) * sum(abs, BigFloat.(expected)))
+        fg, xg = Adapt.adapt(DeviceArray, f), DeviceArray(x)
+        @test fg(xg) ≃ T((coefficient + λ1) * sum(abs, BigFloat.(x)))
+        yg = similar(xg)
+        @test prox!(yg, fg, xg, step) === yg
+        @test host(yg) ≃ expected
+        @test value_and_prox!(yg, fg, xg, step) ≃ value
+        @test host(yg) ≃ expected
+        zg = copy(xg)
+        @test value_and_prox!(zg, fg, zg, step) ≃ value
+        @test host(zg) ≃ expected
+      end
+    end
+    # A vanished group coefficient must remain an identity even when γλ overflows.
+    for f in (GroupNormL2(large, groups, T[0, 1]),
+              GroupNormLinf(large, groups, T[0, 1]),
+              SparseGroupNormL2(T(0.25), large, groups, T[0, 1]))
+      fg, xg = Adapt.adapt(DeviceArray, f), DeviceArray(x)
+      expected = f isa SparseGroupNormL2 ? T[6, 0] : T[7, 0]
+      value = f isa SparseGroupNormL2 ? T(1.5) : zero(T)
+      @test host(prox(fg, xg, step)) ≃ expected
+      yg = similar(xg)
+      @test value_and_prox!(yg, fg, xg, step) ≃ value
+      @test host(yg) ≃ expected
+    end
+    # Scaled norms also identify zero groups for exceptional inputs; no separate
+    # nonzero reduction is needed to preserve these unchanged/zero projections.
+    xg = DeviceArray(T[Inf, 0, NaN, 0])
+    for s in (0, 2)
+      fg = Adapt.adapt(DeviceArray, IndBallGroupL0(s, [1:2, 3:4]))
+      expected = s == 0 ? zeros(T, 4) : T[Inf, 0, NaN, 0]
+      @test isequal(host(prox(fg, xg)), expected)
+    end
+  end
 end

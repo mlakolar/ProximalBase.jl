@@ -216,6 +216,7 @@ end
 function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, γ::Real)
   isseparable(f) || _not_separable(f)
   _checkparams(f, x)
+  checkbounds(x.groups, k)
   nonzero = false
   @inbounds for i in x.groups[k]
     v = prox_entry(f, x.storage[i], i, γ)

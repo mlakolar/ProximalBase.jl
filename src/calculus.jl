@@ -125,16 +125,18 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
 end
 
 (t::Tilt)(x) = t.f(x) + dot(t.c, x) + t.d
-value_and_gradient!(g, t::Tilt, x) = (v = value_and_gradient!(g, t.f, x); g .+= t.c; v + dot(t.c, x) + t.d)
-gradient!(g, t::Tilt, x) = (gradient!(g, t.f, x); g .+= t.c)
+value_and_gradient!(g, t::Tilt, x) = (_checkparams(t, x); v = value_and_gradient!(g, t.f, x); g .+= t.c; v + dot(t.c, x) + t.d)
+gradient!(g, t::Tilt, x) = (_checkparams(t, x); gradient!(g, t.f, x); g .+= t.c)
 
 function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checksize(y, x)
+  _checkparams(t, x)
   y .= x .- convert(float(eltype(y)), γ) .* t.c
   prox!(y, t.f, y, γ)
 end
 function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checksize(y, x)
+  _checkparams(t, x)
   y .= x .- convert(float(eltype(y)), γ) .* t.c
   value_and_prox!(y, t.f, y, γ) + dot(t.c, y) + t.d
 end
@@ -178,12 +180,14 @@ gradient!(g, t::Translate, x::AbstractArray) = gradient!(g, t.f, _shifted(t, x))
 
 function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checksize(y, x)
+  _checksize(t.b, x)
   y .= x .- t.b
   prox!(y, t.f, y, γ)
   y .+= t.b
 end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checksize(y, x)
+  _checksize(t.b, x)
   y .= x .- t.b
   v = value_and_prox!(y, t.f, y, γ)
   y .+= t.b
@@ -224,19 +228,28 @@ norms (the indicators of the dual balls), the balls (their support functions),
 the box, the nonnegative orthant, [`SqrNormL2`](@ref), [`LinearFunction`](@ref),
 [`ZeroFunction`](@ref), and the losses [`CheckLoss`](@ref), [`HingeLoss`](@ref)
 and [`EpsInsensitiveLoss`](@ref), and for translations and strictly positive
-rescalings of these functions. Supported zero rescalings simplify in
-[`Scaled`](@ref) while preserving the underlying domain.
+rescalings of these functions; for other functions, evaluating the conjugate
+throws an `ArgumentError`. [`value_and_prox!`](@ref) returns the value at the
+proximal point for every proximable `f`: where no closed form is known, it uses
+the Fenchel equality `f*(y) = ⟨p, y⟩ - f(p)`, with `p` the corresponding
+proximal point of `f`. Cancellation in this subtraction and errors in the inner
+proximal point affect the reported value. A conjugate that is an indicator
+can return a small nonzero value instead of zero; this is not a feasibility
+certificate.
+Supported zero rescalings simplify in [`Scaled`](@ref) while preserving the
+underlying domain. Each conjugate owns a working buffer; do not share it
+between threads.
 """
 struct Conjugate{F<:AbstractFunction} <: AbstractFunction
   f::F
   scratch::Scratch
 
-  function Conjugate{F}(f::F, scratch::Scratch) where {F<:AbstractFunction}
+  function Conjugate{F}(f::F) where {F<:AbstractFunction}
     isconvex(f) || throw(ArgumentError("Conjugate requires a convex function"))
-    new{F}(f, scratch)
+    new{F}(f, Scratch())
   end
 end
-Conjugate(f::AbstractFunction, scratch::Scratch = Scratch()) = Conjugate{typeof(f)}(f, scratch)
+Conjugate(f::AbstractFunction) = Conjugate{typeof(f)}(f)
 
 isproximable(::Type{<:Conjugate{F}}) where {F} = isproximable(F)
 isseparable(::Type{<:Conjugate{F}}) where {F} = isseparable(F)
@@ -250,6 +263,29 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   z .= x ./ γ
   prox!(z, c.f, z, inv(γ))
   y .= x .- γ .* z
+end
+# At a proximal point y = x - γp, Fenchel equality gives f*(y) = <p,y> - f(p).
+# Keep the direct value for known closed forms, especially exact indicator zeros.
+_has_conjugate_value(::AbstractFunction) = false
+_has_conjugate_value(::Union{NormL1, NormL2, NormLinf, IndBallL1, IndBallL2,
+                            ZeroFunction, IndNonnegative, IndBox, SqrNormL2,
+                            LinearFunction, CheckLoss, HingeLoss, EpsInsensitiveLoss}) = true
+_has_conjugate_value(f::Union{Scaled, Translate}) = _has_conjugate_value(f.f)
+_has_conjugate_value(f::SingularValue) = _has_conjugate_value(f.f)
+
+function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
+  if _has_conjugate_value(c.f)
+    prox!(y, c, x, γ)
+    return _conjugate_value(c.f, y)
+  end
+  _checksize(y, x)
+  T = float(eltype(y))
+  step = convert(T, γ)
+  p = _array_buffer!(c.scratch, T, size(x))
+  p .= x ./ step
+  fp = value_and_prox!(p, c.f, p, inv(step))
+  y .= x .- step .* p
+  dot(p, y) - fp
 end
 Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real) = v - γ * prox_entry(c.f, v / γ, i, inv(γ))
 _checkparams(c::Conjugate, x) = _checkparams(c.f, x)
@@ -276,7 +312,7 @@ end
 # indicators of the dual balls and support functions of the balls, within the
 # tolerance of the indicator functions; loops rather than closures, which would
 # capture the element type as a DataType and dispatch dynamically
-_within(a, b, ::Type{T}) where {T} = a <= b + _tol(T) * max(one(T), abs(b))
+_within(a, b, ::Type{T}) where {T} = a <= b || a - b <= _tol(T) * max(one(T), abs(b))
 
 function _conjugate_value(f::NormL1, y::AbstractArray)
   _checkparams(f, y)
@@ -286,10 +322,11 @@ function _conjugate_value(f::NormL1, y::AbstractArray)
   end
   zero(T)
 end
-_conjugate_value(f::NormL2, y::AbstractArray) = (T = float(eltype(y)); _ind(_within(sqrt(_sumabs2(y)), f.λ, T), T))
+_conjugate_value(f::NormL2, y::AbstractArray) = (T = float(eltype(y)); _ind(_within(_norm2(y), f.λ, T), T))
 _conjugate_value(f::NormLinf, y::AbstractArray) = (T = float(eltype(y)); _ind(_within(norm(y, 1), f.λ, T), T))
 _conjugate_value(f::IndBallL1, y::AbstractArray) = convert(float(eltype(y)), f.r) * norm(y, Inf)
-_conjugate_value(f::IndBallL2, y::AbstractArray) = convert(float(eltype(y)), f.r) * sqrt(_sumabs2(y))
+_conjugate_value(f::IndBallL2, y::AbstractArray) =
+  (T = float(eltype(y)); iszero(f.r) ? zero(T) : convert(T, f.r) * _norm2(y))
 function _conjugate_value(::ZeroFunction, y::AbstractArray)
   T = float(eltype(y))
   for v in y
@@ -318,7 +355,12 @@ end
 function _conjugate_value(f::SqrNormL2, y::AbstractArray)
   iszero(f.λ) && return _conjugate_value(ZeroFunction(), y)
   T = float(eltype(y))
-  v = convert(T, _sumabs2(y)) / (2 * convert(T, f.λ))
+  S = float(promote_type(typeof(real(zero(T))), typeof(f.λ)))
+  scale = inv(sqrt(convert(S, f.λ)) * sqrt(S(2)))
+  r = _norm2(y)
+  # Preserve sparse O(nnz) norms at ordinary scales. If the norm itself is
+  # outside its working range, scale the entries before computing it.
+  v = convert(T, isfinite(r) ? abs2(r * scale) : abs2(_norm2(_ScaledArray(y, scale))))
   f.y === nothing ? v : v + dot(f.y, y)
 end
 function _conjugate_value(f::LinearFunction, y::AbstractArray)

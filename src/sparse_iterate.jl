@@ -590,7 +590,7 @@ function LinearAlgebra.dot(a::StridedVector, X::SparseIterate{<:Any, 2}, b::Stri
   s = zero(promote_type(eltype(a), eltype(X), eltype(b)))
   @inbounds for k = 1:nnz(X)
     i = X.nzval2ind[k]
-    s += a[mod1(i, m)] * X.nzval[k] * b[cld(i, m)]
+    s += conj(a[mod1(i, m)]) * X.nzval[k] * b[cld(i, m)]
   end
   s
 end
@@ -636,8 +636,11 @@ end
 ####################################
 
 SymmetricSparseIterate(n::Int) = SymmetricSparseIterate(Float64, n)
-SymmetricSparseIterate(::Type{T}, n::Int) where {T} =
-  (_t = div(n*(n+1), 2); SymmetricSparseIterate{T}(zeros(T, _t), zeros(Int, _t), zeros(Int, _t), 0, n))
+function SymmetricSparseIterate(::Type{T}, n::Int) where {T}
+  n >= 0 || throw(ArgumentError("the dimension must be nonnegative, got $n"))
+  _t = div(n*(n+1), 2)
+  SymmetricSparseIterate{T}(zeros(T, _t), zeros(Int, _t), zeros(Int, _t), 0, n)
+end
 
 Base.size(x::SymmetricSparseIterate) = (x.p, x.p)
 Base.IndexStyle(::Type{<:SymmetricSparseIterate}) = IndexCartesian()
@@ -720,8 +723,16 @@ function Base.copyto!(x::SymmetricSparseIterate, y::SymmetricSparseIterate)
     _copyto_stored!(x, y)
 end
 
-# from a dense matrix, its lower triangle
-function Base.copyto!(x::SymmetricSparseIterate, y::Matrix)
+# From a matrix source, its lower triangle.
+Base.copyto!(x::SymmetricSparseIterate, y::AbstractMatrix) = _copyto_lower!(x, y)
+# Resolve SparseArrays' copyto!(::AbstractMatrix, ::AbstractSparseMatrixCSC).
+Base.copyto!(x::SymmetricSparseIterate, y::SparseArrays.AbstractSparseMatrixCSC) = _copyto_lower!(x, y)
+# CHOLMOD defines both an element-type-matched matrix method and an untyped
+# array method for its dense matrix wrapper; preserve the same triangle rule.
+Base.copyto!(x::SymmetricSparseIterate, y::SparseArrays.CHOLMOD.Dense) = _copyto_lower!(x, y)
+Base.copyto!(x::SymmetricSparseIterate{T}, y::SparseArrays.CHOLMOD.Dense{T}) where
+    {T<:SparseArrays.CHOLMOD.VTypes} = _copyto_lower!(x, y)
+function _copyto_lower!(x::SymmetricSparseIterate, y::AbstractMatrix)
   size(x) == size(y) || throw(DimensionMismatch())
   p = x.p
   @inbounds for c = 1:p, r = c:p
@@ -863,7 +874,7 @@ function LinearAlgebra.dot(a::StridedVector, X::SymmetricSparseIterate, b::Strid
   @inbounds for k = 1:X.nnz
     r, c = tril_cartesian(X.p, X.nzval2ind[k])
     v = X.nzval[k]
-    s += r == c ? a[r] * v * b[c] : (a[r] * b[c] + a[c] * b[r]) * v
+    s += r == c ? conj(a[r]) * v * b[c] : (conj(a[r]) * b[c] + conj(a[c]) * b[r]) * v
   end
   s
 end

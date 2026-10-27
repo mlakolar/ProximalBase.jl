@@ -280,4 +280,141 @@ end
   end
 end
 
+@testset "Euclidean penalties preserve extreme directions" begin
+  for T in (Float32, Float64)
+    large = T == Float32 ? T(1e30) : T(1e200)
+    for scale in (large, inv(large))
+      x = T[0, scale]
+      @test NormL2(one(T))(x) ≈ scale rtol=8eps(T)
+      @test prox(NormL2(scale/2), x) ≈ T[0, scale/2] rtol=8eps(T)
+      g = GroupNormL2(scale/2, [1:2], T[1])
+      @test prox(g, x) ≈ T[0, scale/2] rtol=8eps(T)
+      a = AtomIterate(x, g)
+      prox_coordinate!(a, g, 1, one(T))
+      @test Vector(a) ≈ T[0, scale/2] rtol=8eps(T)
+    end
+  end
+end
+
+
+@testset "zero norm levels before overflowing reductions" begin
+  for T in (Float32, Float64)
+    x = T[floatmax(T), -floatmax(T)]
+    for f in (NormL2(zero(T)), NormL1(zero(T)), NormL1Fused(zero(T),zero(T)),
+              TotalVariation1D(zero(T)), FusedLasso(zero(T),zero(T)),
+              SqrNormL2(zero(T)), GroupNormL2(zero(T), [1:2], T[1]))
+      @test f(x) == zero(T)
+      y = similar(x)
+      @test value_and_prox!(y, f, x, one(T)) == zero(T)
+      @test y == x
+    end
+    f = NuclearNorm(zero(T))
+    X = reshape(copy(x), 2, 1)
+    Y = similar(X)
+    @test f(X) == zero(T)
+    @test value_and_prox!(Y, f, X, one(T)) == zero(T)
+    @test Y == X
+  end
+end
+
+
+@testset "zero group weights before overflowing norms" begin
+  for T in (Float32, Float64)
+    x = fill(floatmax(T),4)
+    groups, weights = [1:2,3:4], zeros(T,2)
+    for f in (GroupNormL2(one(T),groups,weights),GroupNormLinf(one(T),groups,weights),
+              GroupMCP(one(T),groups,weights),GroupSCAD(one(T),groups,weights),
+              SparseGroupNormL2(zero(T),one(T),groups,weights))
+      @test f(x) == zero(T)
+      y = similar(x)
+      @test value_and_prox!(y,f,x,one(T)) == zero(T)
+      @test y == x
+      @test allocs(value_and_prox!,y,f,x,one(T)) == 0
+      a = AtomIterate(x,f)
+      @test f(a) == zero(T)
+      @test value_and_prox!(a,f,a,one(T)) == zero(T)
+      @test Vector(a) == x
+      prox_coordinate!(a,f,1,one(T))
+      @test Vector(a) == x
+    end
+    # Zero group weights remove only the group term, preserving entry shrinkage.
+    f = SparseGroupNormL2(T(0.5),one(T),groups,weights)
+    v, expected = T[-2,2,-4,4],T[-1.5,1.5,-3.5,3.5]
+    y = similar(v)
+    @test value_and_prox!(y,f,v,one(T)) == T(5)
+    @test y == expected
+    a = AtomIterate(v,f)
+    prox_coordinate!(a,f,1,one(T))
+    @test Vector(a) == T[-1.5,1.5,-4,4]
+  end
+end
+
+@testset "identity group coordinate steps activate view writes" begin
+  for T in (Float32,Float64)
+    groups,weights = [1:2,3:4],zeros(T,2)
+    for f in (GroupNormL2(one(T),groups,weights),GroupNormLinf(one(T),groups,weights),
+              GroupMCP(one(T),groups,weights),GroupSCAD(one(T),groups,weights),
+              SparseGroupNormL2(zero(T),one(T),groups,weights))
+      a = AtomIterate(zeros(T,4),f)
+      atom(a,1)[1] = one(T)
+      @test !isactive(a,1)
+      prox_coordinate!(a,f,1,one(T))
+      @test isactive(a,1)
+      @test nactive(a) == 1
+      @test Vector(a) == T[1,0,0,0]
+    end
+  end
+end
+
+@testset "zero confirmation and integer group norms" begin
+  x = Int64[typemin(Int64), 1 << 62, 1 << 62]
+  @test ProximalBase._group_norm2(x, 1:3) ≈ Float64(norm(BigFloat.(x)))
+  @test ProximalBase._group_norm2(Int64[5_000_000_001], 1:1) == 5_000_000_001.0
+  for T in (Float32, Float64), x in (T[NaN, Inf], T[Inf, NaN])
+    @test isnan(ProximalBase._group_norm2(x, 1:2))
+    @test isnan(ProximalBase._soft_group_norm(x, 1:2, zero(T)))
+    @test isnan(ProximalBase._norm2(SymmetricSparseIterate(Matrix(Diagonal(x)))))
+  end
+  for T in (Float32, Float64), scale in (zero(T), nextfloat(zero(T)), sqrt(floatmin(T))/4)
+    x = T[0, scale, 0, 0]
+    for a in (x, AtomIterate(x, [[2, 4], [1, 3]]))
+      @test ProximalBase._group_norm2(a, [4, 2]) == scale
+      @test ProximalBase._soft_group_norm(a, [4, 2], zero(T)) == scale
+      @test ProximalBase._soft_group_norm(a, [4, 2], one(T)) == zero(T)
+    end
+  end
+  # A normal aggregate does not detect underflow in individual weighted norms.
+  x = [fill(1f-16, 1000); 1f-8]
+  f = GroupNormL2(1f30, [[i] for i in eachindex(x)], fill(1f-30, length(x)))
+  expected = Float32(BigFloat(f.λ0) * sum(BigFloat(f.w[i])*BigFloat(x[i]) for i in eachindex(x)))
+  @test f(x) ≈ expected rtol=32eps(Float32)
+end
+
+@testset "compensated group weights and steps" begin
+  for T in (Float32, Float64)
+    large, step = floatmax(T) / 2, T(4)
+    groups = [1:1, 2:2]
+    for (λ, w) in ((large, inv(large)), (inv(large), large)), F in (GroupNormL2, GroupNormLinf)
+      f = F(λ, groups, fill(w, 2))
+      x = T[7, -8]
+      coefficient = BigFloat(λ) * BigFloat(w)
+      expected = T[sign(v) * max(abs(BigFloat(v)) - BigFloat(step) * coefficient, 0) for v in x]
+      value = T(coefficient * sum(abs, BigFloat.(expected)))
+      @test f(x) ≈ T(coefficient * sum(abs, BigFloat.(x))) rtol=32eps(T)
+      y = similar(x)
+      @test value_and_prox!(y, f, x, step) ≈ value rtol=32eps(T)
+      @test y ≈ expected rtol=32eps(T)
+      @test prox(f, x, fill(step, 2)) ≈ expected rtol=32eps(T)
+      a = AtomIterate(x, f)
+      @test f(a) ≈ f(x) rtol=32eps(T)
+      @test value_and_prox!(a, f, a, fill(step, 2)) ≈ value rtol=32eps(T)
+      @test Vector(a) ≈ expected rtol=32eps(T)
+      a = AtomIterate(x, f)
+      prox_coordinate!(a, f, 1, step)
+      @test a[1] ≈ expected[1] rtol=32eps(T)
+      @test a[2] == x[2]
+    end
+  end
+end
+
 end

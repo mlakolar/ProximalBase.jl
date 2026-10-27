@@ -50,6 +50,7 @@ makedocs(
             "Functions built from functions" => "calculus.md",
         ],
         "Writing your own function" => "extending.md",
+        "Compatibility and migration" => "migration.md",
         "Examples" => example_pages,
         "API reference" => [
             "The interface" => "api/interface.md",
@@ -59,6 +60,7 @@ makedocs(
         ],
     ],
     checkdocs = :exports,
+    linkcheck = get(ENV, "DOCUMENTER_LINKCHECK", "false") == "true",
 )
 
 deploydocs(repo = "github.com/mlakolar/ProximalBase.jl.git", devbranch = "master", push_preview = false)

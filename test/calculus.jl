@@ -109,7 +109,7 @@ end
 @testset "Conjugate wrappers" begin
   for f in (NormL0(), MCP(1.0), GroupSCAD(1.0, [1:2]))
     @test_throws ArgumentError Conjugate(f)
-    @test_throws ArgumentError Conjugate{typeof(f)}(f, ProximalBase.Scratch())
+    @test_throws ArgumentError Conjugate{typeof(f)}(f)
   end
   for T in (Float32,Float64)
     y,b = T[.1,-.2,.3], T[1,2,3]
@@ -123,6 +123,14 @@ end
   end
   @test Conjugate(Scaled(NormL1(), 0.0))(zeros(3)) == 0
   @test Conjugate(Scaled(NormL1(), 0.0))(ones(3)) == Inf
+  # Deep copies own their numerical workspace.
+  c = Conjugate(NormL1(0.4))
+  expected = prox(c, [2.0, -1.0])
+  d = deepcopy(c)
+  @test d.scratch !== c.scratch
+  @test d.scratch.buf === nothing
+  @test prox(d, [2.0, -1.0]) == expected
+  @test d.scratch.buf !== c.scratch.buf
 end
 
 @testset "zero scales preserve domains" begin
@@ -208,6 +216,48 @@ end
   @test [prox_entry(cf, y[i], i, 0.8) for i in 1:3] ≈ prox(cf, y, 0.8)
 end
 
+@testset "Euclidean conjugate values across numerical scales" begin
+  for T in (Float32, Float64)
+    large = T === Float32 ? T(1e30) : T(1e200)
+    for scale in (large, inv(large))
+      y = T[scale]
+      @test Conjugate(IndBallL2(one(T)))(y) ≈ scale rtol = 8eps(T)
+    end
+    @test Conjugate(NormL2(large))(T[large / 2]) == zero(T)
+
+    # Compare true inside/outside membership independently at ordinary scale
+    # and near floatmax, where adding a relative tolerance used to overflow.
+    m = floatmax(T)
+    for radius in (one(T), m), fraction in (T(0.25), T(0.8))
+      y = fill(fraction * radius, 3)
+      exact_norm = sqrt(sum(abs2, BigFloat.(y)))
+      expected = exact_norm <= BigFloat(radius) ? zero(T) : T(Inf)
+      @test Conjugate(NormL2(radius))(y) == expected
+    end
+    @test Conjugate(IndBallL2(zero(T)))(fill(T(0.8) * m, 3)) == zero(T)
+
+    # Dividing a squared norm by 2λ must not overflow or underflow its
+    # intermediates. The last case has a norm outside T but finite energy.
+    cases = ((large, T[large]), (inv(large), T[inv(large)]),
+             (m, T[1]), (m, fill(T(0.7) * m, 3)))
+    for (λ, y) in cases
+      reference = T(sum(abs2, BigFloat.(y)) / (2BigFloat(λ)))
+      @test isfinite(reference) && reference > zero(T)
+      f = Conjugate(SqrNormL2(λ))
+      @test f(y) ≈ reference rtol = 32eps(T) atol = 8nextfloat(zero(T))
+      @test f(SparseIterate(y)) ≈ reference rtol = 32eps(T) atol = 8nextfloat(zero(T))
+      @test allocs(f, y) == 0
+    end
+  end
+
+  # Parameter precision may exceed output precision. Keep λ until scaling;
+  # converting it to Float32 first would turn these finite energies into 0/Inf.
+  for (λ, y) in ((1e100, Float32[1e30]), (1e-100, Float32[1e-40]))
+    reference = Float32(sum(abs2, BigFloat.(y)) / (2BigFloat(λ)))
+    @test Conjugate(SqrNormL2(λ))(y) ≈ reference rtol = 32eps(Float32) atol = 8nextfloat(0f0)
+  end
+end
+
 @testset "SeparableSum" begin
   S, L = randn(5, 5), Matrix(Symmetric(randn(5, 5)))
   f = SeparableSum(NormL1(0.3), TracePSD(0.2))
@@ -240,6 +290,58 @@ end
   g = similar(x)
   value_and_gradient!(g, Sum(SqrNormL2()), x)
   @test g ≈ x
+end
+
+@testset "wrapper parameter lengths before mutation" begin
+  for T in (Float32, Float64)
+    x = T[1, 2, 3]
+    bad_tilt = Tilt(NormL1(one(T)), T[1])
+    bad_translate = Translate(NormL1(one(T)), T[1])
+    for f in (bad_tilt, bad_translate), step in (T(0.5), fill(T(0.5), 3))
+      y = copy(x)
+      @test_throws DimensionMismatch prox!(y, f, x, step)
+      @test y == x
+      @test_throws DimensionMismatch value_and_prox!(y, f, x, step)
+      @test y == x
+    end
+    for op in (gradient!, value_and_gradient!)
+      y = copy(x)
+      @test_throws DimensionMismatch op(y, Tilt(SqrNormL2(one(T)), T[1]), x)
+      @test y == x
+    end
+    # Equal entry counts cannot replace Translate's established shape contract.
+    shifted = Translate(NormL1(one(T)), reshape(T[1, 2, 3], 1, 3))
+    @test_throws DimensionMismatch prox(shifted, x)
+    @test_throws DimensionMismatch prox(shifted, x, ones(T, 3))
+  end
+end
+
+@testset "conjugate values at proximal points without a standalone value" begin
+  for T in (Float32, Float64)
+    x = T[3, 4]
+    f = GroupNormL2(one(T), [1:2], T[1])
+    c = Conjugate(f)
+    y = similar(x)
+    @test value_and_prox!(y, c, x, one(T)) ≈ zero(T) atol = 10eps(T)
+    @test y ≈ x ./ 5
+    @test_throws ArgumentError c(y) # The standalone value interface is unchanged.
+    for step in (T(0.5), T[0.3, 0.8])
+      # The double conjugate is f itself, although its standalone value is not implemented.
+      original = NormL1(T(0.7))
+      twice = Conjugate(Conjugate(original))
+      expected = prox(original, x, step)
+      for alias in (false, true)
+        input = copy(x)
+        output = alias ? input : similar(x)
+        value = value_and_prox!(output, twice, input, step)
+        @test output ≈ expected
+        @test value ≈ original(expected)
+      end
+    end
+    # Existing exact indicator values continue to use their closed form.
+    @test value_and_prox!(y, Conjugate(NormL1(one(T))), x, one(T)) == zero(T)
+    @test allocs(value_and_prox!, y, c, x, one(T)) == 0
+  end
 end
 
 end

@@ -172,6 +172,10 @@ For example, `julia scripts/instantiate.jl docs` sets up the documentation
 build. This script does not clone other package repositories or require any
 particular Git branch. See [CONTRIBUTING.md](CONTRIBUTING.md) for the commands.
 
+The [compatibility guide](docs/src/migration.md)
+lists the 0.4 names retained through 0.5, their replacements, and the planned
+0.6 removal policy.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

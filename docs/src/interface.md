@@ -173,8 +173,12 @@ operator again. Sizes must stay unchanged. Reconstruct `IndAffine` after changin
 its data; its factorization type can change with the rank of `A`.
 
 - **Output first.** Mutating functions take their output first, as `mul!` does:
-  `prox!(y, f, x, γ)` and `gradient!(g, f, x)`. The output may be the input:
-  `prox!(x, f, x, γ)` works for every function.
+  `prox!(y, f, x, γ)` and `gradient!(g, f, x)`. The output of a proximal
+  operator may be its input: `prox!(x, f, x, γ)` works for every function. An
+  output that only partly overlaps the input, such as a shifted view of the
+  same array, is not supported. For `gradient!`, `value_and_gradient!` and
+  `hessian_vec!`, pass an output separate from the input unless a method's
+  documentation says otherwise.
 - **The value at the result.** [`value_and_prox!`](@ref) stores the proximal
   point and returns the function's value there. Many functions get that value
   from the computation itself: the nuclear norm from the singular values it
@@ -182,9 +186,18 @@ its data; its factorization type can change with the rank of `A`.
   should call it instead of `prox!` followed by `f(y)`.
 - **Steps and types.** Steps may be any positive real. Computations follow the
   element type of the argument, so `Float32` input gives `Float32` results.
-- **No allocations.** The hot calls (`f(x)`, `prox!`, `value_and_prox!`,
-  `gradient!`, `value_and_gradient!`, `prox_entry`, `prox_coordinate!`)
-  allocate nothing once a function has seen its input. The spectral functions
+- **Allocations.** Many built-in operations reuse their buffers for inputs of
+  a fixed size and element type. The allocation tests check `f(x)`, `prox!`,
+  `value_and_prox!`, `gradient!`, `value_and_gradient!`, `prox_entry` and
+  `prox_coordinate!` on Float32 and Float64 CPU arrays after warm-up. They do
+  not establish zero allocations for every array type or execution path;
+  measure the method and inputs your solver uses with
+  [`allocations`](@ref ProximalBase.Testing.allocations).
+  Creating a function, rebuilding a cache and the allocating versions such as
+  `prox` do allocate. BigFloat arithmetic and functions you write yourself
+  can also allocate on every call. Calls
+  on GPU arrays run kernels and reductions that may allocate on the host and
+  the device. The spectral functions
   and [`LogDetLoss`](@ref) own LAPACK workspaces sized for their input. A
   function that owns a workspace must not be shared between threads; give each
   thread a `deepcopy`.

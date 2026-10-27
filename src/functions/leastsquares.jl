@@ -75,6 +75,17 @@ end
 
 function _svd_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
   if !f.svd_ready
+    if isempty(f.X)
+      # LAPACK's empty SVD may expose a square V even for a 0×p design.
+      # Hessian consumers need the thin rank-zero factorization p×0.
+      f.V = zeros(T, size(f.X, 2), 0)
+      f.s2 = T[]
+      dims = N == 1 ? (0,) : (0, size(f.Y, 2))
+      f.sUtY = Array{T, N}(undef, dims)
+      f.w = Array{T, N}(undef, dims)
+      f.svd_ready = true
+      return f
+    end
     F = svd(Matrix{T}(f.X))
     f.V = F.V
     f.s2 = F.S .^ 2
@@ -87,7 +98,12 @@ function _svd_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
 end
 
 function _xty_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
-  if isempty(f.XtY)
+  dims = N == 1 ? (size(f.X, 2),) : (size(f.X, 2), size(f.Y, 2))
+  if any(iszero, dims)
+    # An empty result is also a ready cache; isempty cannot identify its
+    # uninitialized state on later calls.
+    size(f.XtY) == dims || (f.XtY = Array{T, N}(undef, dims))
+  elseif isempty(f.XtY)
     f.XtY = Array{T, N}(transpose(f.X) * f.Y)
   end
   f.XtY

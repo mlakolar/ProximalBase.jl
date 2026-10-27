@@ -14,6 +14,27 @@ proximal operator of `c|⋅|`. A `NaN` in `v` propagates.
 shrink(v::T, c::T) where {T<:AbstractFloat} = max(v - c, zero(T)) + min(v + c, zero(T))
 shrink(v::Real, c::Real) = shrink(promote(float(v), float(c))...)
 
+# Nonnegative coefficients: keep the usual multiply order when it is well
+# scaled. At exceptional scales, multiply bounded significands and apply the
+# combined exponent once, so no intermediate subnormal loses precision. The
+# exceptional path is a separate call, so loops over the ordinary path stay
+# small. A zero factor or a NaN fails the range test and is handled there.
+@inline function _positive_product(a::T, b::T, c::T) where {T<:AbstractFloat}
+  ab = a * b
+  p = ab * c
+  (floatmin(T) <= ab <= floatmax(T)) & (floatmin(T) <= p <= floatmax(T)) && return p
+  _exceptional_product(a, b, c, p)
+end
+@noinline function _exceptional_product(a::T, b::T, c::T, p::T) where {T<:AbstractFloat}
+  (iszero(a) || iszero(b) || iszero(c)) && return zero(T)
+  (isfinite(a) && isfinite(b) && isfinite(c)) || return p
+  ma, ea = frexp(a)
+  mb, eb = frexp(b)
+  mc, ec = frexp(c)
+  ldexp((ma * mb) * mc, ea + eb + ec)
+end
+@inline _positive_product(a::Real, b::Real, c::Real) = _positive_product(promote(float(a), float(b), float(c))...)
+
 ####################################
 #
 #  Buffers
@@ -324,6 +345,14 @@ end
 #
 ####################################
 
+@inline _norm_difference(a, b) = a - b
+@inline _norm_difference(a::Integer, b::Integer) = _wide_signed(a) - _wide_signed(b)
+@inline _wide_signed(a::Integer) = signed(widen(a))
+@inline _wide_signed(a::Bool) = Int(a)          # widen has no method for Bool
+@inline _norm_difference(a::Complex, b::Complex) = complex(_norm_difference(real(a), real(b)), _norm_difference(imag(a), imag(b)))
+@inline _norm_difference(a::Complex, b::Real) = complex(_norm_difference(real(a), b), imag(a))
+@inline _norm_difference(a::Real, b::Complex) = complex(_norm_difference(a, real(b)), _norm_difference(0, imag(b)))
+
 """
     norm_diff(A, B, p = 2)
 
@@ -336,10 +365,10 @@ function norm_diff(A::AbstractArray, B::AbstractArray, p::Real = 2)
   T = float(promote_type(eltype(A), eltype(B)))
   v = real(zero(T))
   if p == 2
-    return sqrt(_sumabs2_diff(A, B))
+    return _norm_diff2(A, B)
   elseif p == Inf
     @inbounds for i in eachindex(A, B)
-      v = max(v, abs(A[i] - B[i]))
+      v = max(v, abs(T(_norm_difference(A[i], B[i]))))
     end
     return v
   else
@@ -347,12 +376,40 @@ function norm_diff(A::AbstractArray, B::AbstractArray, p::Real = 2)
   end
 end
 
+# Preserve the inexpensive sum-of-squares path at ordinary scales. Outside
+# its representable range, hypot accumulates the norm without squaring the
+# unscaled differences and without constructing a temporary array. Equal
+# arrays also have a zero sum of squares; a vectorized sum of |real| + |imag|
+# of the differences confirms them without hypot.
+function _norm_diff2(A::AbstractArray, B::AbstractArray)
+  s = _sumabs2_diff(A, B)
+  T = typeof(s)
+  S = float(promote_type(eltype(A), eltype(B)))
+  isfinite(s) && s >= floatmin(T) && return sqrt(s)
+  if iszero(s)
+    a = zero(T)
+    @inbounds @simd for i in eachindex(A, B)
+      d = S(_norm_difference(A[i], B[i]))
+      a += abs(real(d)) + abs(imag(d))
+    end
+    iszero(a) && return s
+  end
+  v = zero(T)
+  @inbounds for i in eachindex(A, B)
+    d = S(_norm_difference(A[i], B[i]))
+    isnan(d) && return T(NaN)
+    v = hypot(v, abs(d))
+  end
+  v
+end
+
 # Σᵢ (xᵢ - yᵢ)², without allocating x - y
 function _sumabs2_diff(x::AbstractArray, y::AbstractArray)
   size(x) == size(y) || throw(DimensionMismatch("the arrays have sizes $(size(x)) and $(size(y))"))
-  s = real(zero(float(promote_type(eltype(x), eltype(y)))))
+  T = float(promote_type(eltype(x), eltype(y)))
+  s = real(zero(T))
   @inbounds @simd for i in eachindex(x, y)
-    s += abs2(x[i] - y[i])
+    s += abs2(T(_norm_difference(x[i], y[i])))
   end
   s
 end

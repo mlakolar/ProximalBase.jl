@@ -1,0 +1,15 @@
+flowchart TD
+  S["Solver or application"]
+  S -.->|queries| T["issmooth / isproximable / isseparable / isconvex / hashessian"]
+  S ==>|calls| G["gradient!"]
+  G ==>|default fallback| VG["value_and_gradient!"]
+  VG -.->|dispatch on f and array types| CG["Concrete smooth methods"]
+  S ==>|calls| P["prox! / value_and_prox!"]
+  P -.->|dispatch on f and array types| CP["Concrete proximal methods"]
+  CP ==>|SeparableFunction path| PE["prox_entry / value_entry"]
+  S ==>|coordinate update| C["prox_coordinate!"]
+  C -.->|scalar separable method| PE
+  C -.->|group penalty and AtomIterate| GK["Group radial / norm kernels"]
+  S ==>|Newton operations| H["hessian_vec! / quadratic_model"]
+  H ==>|GLMLoss| IRLS["Scalar deriv2 and weighted GLMLoss model"]
+  H ==>|LogDetLoss| KR["Inverse factors and KronQuadratic model"]

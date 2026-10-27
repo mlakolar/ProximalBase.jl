@@ -303,18 +303,18 @@ isconvex(::Type{<:IndBallL2}) = true
 
 function (f::IndBallL2)(x::AbstractArray)
   T = float(eltype(x))
-  sqrt(_sumabs2(x)) <= f.r + _tol(T) * max(one(T), f.r) ? zero(T) : T(Inf)
+  _norm2(x) <= f.r + _tol(T) * max(one(T), f.r) ? zero(T) : T(Inf)
 end
 
 function prox!(y::AbstractArray, f::IndBallL2, x::AbstractArray, ::Real)
   _checksize(y, x)
   T = float(eltype(y))
-  nx = sqrt(convert(T, _sumabs2(x)))
+  nx = convert(T, _norm2(x))
   r = convert(T, f.r)
   if nx <= r
     y === x || copyto!(y, x)
   else
-    y .= (r / nx) .* x
+    _scale_l2!(y, x, r, nx)
   end
   y
 end
@@ -345,22 +345,36 @@ _isindicator(::Type{<:IndSphereL2}) = true
 function (f::IndSphereL2)(x::AbstractArray)
   T = float(eltype(x))
   r = convert(T, f.r)
-  abs(sqrt(convert(T, _sumabs2(x))) - r) <= _tol(T) * max(one(T), r) ? zero(T) : T(Inf)
+  abs(convert(T, _norm2(x)) - r) <= _tol(T) * max(one(T), r) ? zero(T) : T(Inf)
 end
 
 function prox!(y::AbstractArray, f::IndSphereL2, x::AbstractArray, ::Real)
   _checksize(y, x)
   isempty(x) && throw(ArgumentError("the sphere has no point of size $(size(x))"))
   T = float(eltype(y))
-  nx = sqrt(convert(T, _sumabs2(x)))
+  nx = convert(T, _norm2(x))
   r = convert(T, f.r)
   if iszero(nx)
     fill!(y, zero(eltype(y)))
     y[firstindex(y)] = r
   else
-    y .= (r / nx) .* x
+    _scale_l2!(y, x, r, nx)
   end
   y
+end
+
+# Keep the single broadcast at ordinary scales. Otherwise divide by a finite
+# magnitude before taking the norm, so neither the norm nor r/n must fit.
+function _scale_l2!(y, x, r, n)
+  t = r / n
+  if isfinite(n) && n >= floatmin(typeof(n)) && isfinite(t) && t >= floatmin(typeof(t))
+    y .= t .* x
+  else
+    m = maximum(abs, x)
+    y .= x ./ m
+    y .*= r / _norm2(y)
+  end
+  t
 end
 
 ####################################
@@ -431,7 +445,9 @@ end
 The indicator of the hyperplane `{x : ⟨a, x⟩ = b}`, `a ≠ 0`. Its proximal
 operator is the projection `x - ((⟨a, x⟩ - b) / ‖a‖²) a`. A scalar `a` stands
 for an array of `a`s of the size of `x`: `IndHyperplane(1, 0)` is the set of
-arrays whose entries sum to zero, of any size.
+arrays whose entries sum to zero, of any size. An array `a` is stored without
+copying and its squared norm is computed at construction; construct a new
+function after changing `a` in place.
 """
 struct IndHyperplane{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
   a::A
@@ -452,7 +468,8 @@ IndHyperplane(a::Union{Real, AbstractArray}, b::Real) =
 
 The indicator of the halfspace `{x : ⟨a, x⟩ ≤ b}`, `a ≠ 0`. Its proximal operator
 is the projection, `x - (max(⟨a, x⟩ - b, 0) / ‖a‖²) a`. A scalar `a` stands for
-an array of `a`s of the size of `x`, as in [`IndHyperplane`](@ref).
+an array of `a`s of the size of `x`, as in [`IndHyperplane`](@ref). As there,
+construct a new function after changing an array `a` in place.
 """
 struct IndHalfspace{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
   a::A

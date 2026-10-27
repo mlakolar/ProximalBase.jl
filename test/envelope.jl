@@ -150,4 +150,78 @@ a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
   @test value_and_gradient!(similar(x32), f32, x32) isa Float32
 end
 
+@testset "envelope combined step range and stable interpolation" begin
+  for T in (Float32, Float64)
+    e = MoreauEnvelope(NormL1(one(T)), floatmax(T))
+    x, y = T[1], T[7]
+    for operation in (prox!, value_and_prox!)
+      @test_throws ArgumentError operation(y, e, x, floatmax(T))
+      @test y == T[7]
+      alias = copy(x)
+      @test_throws ArgumentError operation(alias, e, alias, floatmax(T))
+      @test alias == x
+    end
+    @test_throws ArgumentError prox_entry(e, one(T), 1, floatmax(T))
+    # The difference between finite opposite endpoints can overflow even when
+    # their equal-weight interpolation is exactly zero.
+    m = floatmax(T)
+    centered = MoreauEnvelope(IndBox(m, m), one(T))
+    @test prox(centered, T[-m], one(T)) == T[0]
+    @test prox_entry(centered, -m, 1, one(T)) == zero(T)
+  end
+end
+
+@testset "envelope energy across the squared-distance range" begin
+  for T in (Float32, Float64)
+    # The exact Huber envelope is γ/2 here. Squaring the distance first
+    # overflows at the large scale and underflows at the small scale.
+    large = T === Float32 ? T(1e30) : T(1e200)
+    small = inv(large)
+    for γ in (small, large)
+      x = T[γ]
+      e = MoreauEnvelope(NormL1(one(T)), γ)
+      reference = T(BigFloat(γ) / 2)
+      @test e(x) ≈ reference rtol = 8eps(T)
+      g = similar(x)
+      @test value_and_gradient!(g, e, x) ≈ reference rtol = 8eps(T)
+      @test g ≈ T[1] rtol = 8eps(T)
+      @test gradient(e, x) ≈ T[1] rtol = 8eps(T)
+      ℓ = PB.Smoothed(NormL1(one(T)), γ)
+      value, derivative = PB.value_and_deriv(ℓ, γ, zero(T))
+      @test value ≈ reference rtol = 8eps(T)
+      @test derivative ≈ one(T) rtol = 8eps(T)
+    end
+
+    # Even the finite endpoints' difference overflows. Scaling before the
+    # subtraction gives a representable energy and derivative; BigFloat is
+    # an independent reference for these rounded Float32/Float64 endpoints.
+    m = floatmax(T)
+    c, γ = T(0.6) * m, m
+    x, p = T[-c], T[c]
+    e = MoreauEnvelope(IndBox(c, c), γ)
+    reference = T((BigFloat(x[1]) - BigFloat(p[1]))^2 / (2BigFloat(γ)))
+    derivative = T((BigFloat(x[1]) - BigFloat(p[1])) / BigFloat(γ))
+    @test isfinite(reference)
+    @test e(x) ≈ reference rtol = 16eps(T)
+    g = similar(x)
+    @test value_and_gradient!(g, e, x) ≈ reference rtol = 16eps(T)
+    @test g[1] ≈ derivative rtol = 8eps(T)
+    @test gradient(e, x)[1] ≈ derivative rtol = 8eps(T)
+
+    # Fused prox must use the distance at its returned point. Its former
+    # unscaled squared distance was Inf even though the energy is finite.
+    γ, step = m / 2, m / 4
+    e = MoreauEnvelope(IndBox(c, c), γ)
+    for alias in (false, true)
+      input = copy(x)
+      output = alias ? input : similar(input)
+      value = value_and_prox!(output, e, input, step)
+      reference = T((BigFloat(output[1]) - BigFloat(c))^2 / (2BigFloat(γ)))
+      @test isfinite(reference)
+      @test value ≈ reference rtol = 16eps(T)
+      @test value ≈ e(output) rtol = 16eps(T)
+    end
+  end
+end
+
 end

@@ -59,8 +59,17 @@ it into the Ky Fan `k`-norm and the sum of the `k` largest eigenvalues.
 not give the constrained one. The exceptions are [`MCP`](@ref), [`SCAD`](@ref)
 and [`NormL0`](@ref) on a box, whose scalar problems are solved exactly by
 comparing the minimizers of their convex pieces with the ends of the interval;
-the result is separable but not convex. When the set misses the domain of `f`,
-the proximal operator throws an `ArgumentError`.
+the result is separable but not convex.
+
+The caller must ensure that the set meets the domain of `f`. For a convex
+function on a box, the method clamps the unconstrained proximal point even
+when the intersection is empty. Neither that point nor the returned value
+certifies feasibility; `value_and_prox!` returns zero for an indicator even in
+this improper case. On a hyperplane or halfspace, the search throws an
+`ArgumentError` if it cannot bracket a multiplier. This is not a general test
+for an empty intersection: rounding may put a point on the closure of an open
+domain, and a finite multiplier may not exist when the set meets only the
+boundary of a closed domain.
 """
 function Constrained end
 
@@ -662,6 +671,9 @@ function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union
   return l * total + (u - l) * _top_sum!(view(v, 1:n), κ)
 end
 
+_has_conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}}) =
+  isfinite(c.f.l) && isfinite(c.f.u)
+
 # the sum of the ⌊κ⌋ largest entries of v and the fraction κ - ⌊κ⌋ of the next
 # one, for 0 ≤ κ ≤ length(v); reorders v
 function _top_sum!(v::AbstractVector{T}, κ::T) where {T}
@@ -708,12 +720,12 @@ Base.@propagate_inbounds function _prox_entry_slope(f::SqrNormL2, v::T, i::Integ
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = convert(S, γ * f.λ0 * _entry(f.w, i))
+  t = convert(S, _positive_product(γ, f.λ0, _entry(f.w, i)))
   shrink(v, t), _slope(abs(v) > t, one(S))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = convert(S, γ * f.λ0 * _entry(f.w, i))
+  t = convert(S, _positive_product(γ, f.λ0, _entry(f.w, i)))
   max(v - t, zero(S)), _slope(v > t, one(S))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}

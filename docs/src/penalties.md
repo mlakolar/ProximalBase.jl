@@ -13,7 +13,7 @@ and ``\gamma`` is the step of the proximal operator.
 | [`SCAD`](@ref)`(λ, a)` | the smoothly clipped absolute deviation | SCAD thresholding | ✓ |
 | [`Berhu`](@ref)`(λ, M, w)` | ``\lambda w_i\lvert x_i\rvert`` up to ``M``, ``\lambda w_i(x_i^2 + M^2)/(2M)`` beyond | soft thresholding, then scaling | ✓ |
 | [`NegEntropy`](@ref)`(λ)` | ``\lambda\sum_i x_i\log x_i`` on ``x \ge 0`` | ``\mu\,\omega(v_i/\mu - 1 - \log\mu)``, ``\mu = \gamma\lambda`` | ✓ |
-| [`KLDivergence`](@ref)`(q; λ)` | ``\lambda\sum_i x_i\log(x_i/q_i) - x_i + q_i`` on ``x \ge 0`` | ``\mu\,\omega(v_i/\mu + \log(q_i/\mu))`` | ✓ |
+| [`KLDivergence`](@ref)`(q; λ)` | ``\lambda\sum_i (x_i\log(x_i/q_i) - x_i + q_i)`` on ``x \ge 0`` | ``\mu\,\omega(v_i/\mu + \log(q_i/\mu))`` | ✓ |
 | [`NegLog`](@ref)`(λ)` | ``-\lambda\sum_i\log x_i`` on ``x > 0`` | ``(v_i + \sqrt{v_i^2 + 4\gamma\lambda})/2`` | ✓ |
 | [`CappedL1`](@ref)`(λ, a, w)` | ``\lambda\sum_i w_i\min(\lvert x_i\rvert, a)`` | the better of two clipped candidates | ✓ |
 | [`LogPenalty`](@ref)`(λ, ε, w)` | ``\lambda\sum_i w_i\log(1 + \lvert x_i\rvert/\varepsilon)`` | zero or the root of a quadratic | ✓ |
@@ -115,9 +115,10 @@ minimum, compared with ``z = 0``. Its slope at zero is ``\lambda/\varepsilon``.
 ``\beta = (2\mu(1 - q))^{1/(2 - q)}``, the proximal operator is zero for
 ``|v| \le \tau = \beta(2 - q)/(2 - 2q)``, where zero and ``\beta`` tie, and above
 it the root ``z > \beta`` of ``z + \mu q z^{q - 1} = |v|``, with the sign of ``v``.
-The root has a closed form for ``q = 1/2`` (half thresholding: Xu, Chang, Xu and
-Zhang, 2012) and ``q = 2/3`` (Cao, Sun and Xu, 2013), and comes from Newton's
-method, which converges monotonically from ``|v|``, otherwise. The slope at zero
+The implementation uses a closed form for ``q = 1/2`` (half thresholding:
+Xu, Chang, Xu and Zhang, 2012). Otherwise it solves the dimensionless equation
+for ``z/|v|`` by Newton's method from one, avoiding overflow in the quartic
+closed form for ``q = 2/3`` (Cao, Sun and Xu, 2013). The slope at zero
 is infinite, so zero is a local minimizer of every problem and `kkt_violation`
 is ``-\infty``.
 
@@ -481,12 +482,16 @@ vectors.
   more power step, with two fresh random vectors. A solver calls the proximal
   operator on nearby matrices, so a call takes one to a few iterations, and a
   direction that enters the leading subspace is amplified from call to call.
-- **Accuracy.** A result is accepted when the residuals
+- **Acceptance.** A result is accepted when the residuals
   ``\|Xv_j - \sigma_j u_j\|`` (or ``\|Au_j - \theta_j u_j\|``) of the pairs kept
-  are below ``\epsilon^{3/4}`` times the largest value, and the next three pairs
-  are certified to lie below the threshold: their value plus their residual is
-  below it. The result then agrees with the full decomposition to about
-  ``10^{-12}`` in `Float64`.
+  are at most ``\delta``: ``\max(\epsilon^{3/4},10\epsilon\sqrt{p})`` times
+  the largest absolute computed value. For a threshold ``\tau``, the next three
+  computed pairs must have their value plus residual at most ``\tau+\delta``.
+  For a fixed rank, the comparison is instead with the smallest retained
+  value minus its residual. Small residuals show that the computed pairs
+  are accurate, not that the block contains every leading direction: a singular
+  value or eigenvalue that the iteration missed goes undetected, and the result
+  then differs from the full decomposition.
 - **Unknown ranks.** For the thresholds of [`NuclearNorm`](@ref),
   [`TracePSD`](@ref) and [`IndPSD`](@ref)`()`, the block starts from the rank of
   the previous call and doubles while too few of its values fall below the
@@ -494,8 +499,10 @@ vectors.
   ``c`` when negative eigenvalues are large enough to crowd out the ones kept.
 - **Fallback.** The function takes the full decomposition when the block would
   exceed a quarter of the dimension, or when the iteration does not converge,
-  and that decomposition starts the next call. `partial = true` is therefore
-  safe to use on any input, and pays when the rank of the result is small.
+  and that decomposition starts the next call. A missed direction does not
+  trigger this fallback. `partial = true` is therefore an approximation that
+  pays when the rank of the result is small; keep the default full
+  decomposition when an exact proximal step is needed.
 - **What stays full.** The value ``f(X)`` alone needs every singular value or
   eigenvalue, and still takes the full decomposition. As for the full
   decompositions, the workspaces belong to the function object, so do not share

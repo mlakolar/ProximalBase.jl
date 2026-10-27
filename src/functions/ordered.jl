@@ -38,7 +38,8 @@ function _tv(x::AbstractVector)
   s
 end
 
-(f::TotalVariation1D)(x::AbstractVector) = convert(float(eltype(x)), f.λ) * _tv(x)
+(f::TotalVariation1D)(x::AbstractVector) =
+  (T = float(eltype(x)); iszero(f.λ) ? zero(T) : convert(T, f.λ) * _tv(x))
 
 prox!(y::AbstractVector, f::TotalVariation1D, x::AbstractVector, γ::Real) =
   _tv_denoise!(y, x, convert(float(eltype(y)), γ * f.λ))
@@ -161,7 +162,8 @@ isconvex(::Type{<:FusedLasso}) = true
 
 function (f::FusedLasso)(x::AbstractVector)
   T = float(eltype(x))
-  convert(T, f.λ1) * convert(T, sum(abs, x; init = zero(T))) + convert(T, f.λ2) * _tv(x)
+  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * convert(T, sum(abs, x; init = zero(T)))) +
+  (iszero(f.λ2) ? zero(T) : convert(T, f.λ2) * _tv(x))
 end
 
 function prox!(y::AbstractVector, f::FusedLasso, x::AbstractVector, γ::Real)

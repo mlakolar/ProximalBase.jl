@@ -244,4 +244,17 @@ end
   end
 end
 
+@testset "affine constrained empty-observation cache" begin
+  for T in (Float32, Float64)
+    f = LeastSquaresLoss(T[], zeros(T, 0, 2))
+    c = Constrained(f, IndAffine(reshape(T[1, 1], 1, 2), T[1]))
+    x, y = T[2, -1], zeros(T, 2)
+    @test prox!(y, c, x, one(T)) ≈ x
+    @test prox!(y, c, x, one(T)) ≈ x
+    @test allocs(prox!, y, c, x, one(T)) == 0
+    reset_cache!(c)
+    @test prox!(y, c, x, one(T)) ≈ x
+  end
+end
+
 end

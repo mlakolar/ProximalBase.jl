@@ -50,6 +50,10 @@ The second-order model of the smooth function `f` at `x`, as a smooth function
 
     q(z) = f(x) + ⟨∇f(x), z - x⟩ + ⟨z - x, ∇²f(x)(z - x)⟩ / 2   (up to a constant)
 
+For `GLMLoss`, the curvature floor described below makes this a regularized
+curvature model where the floor is active, rather than the exact Taylor
+Hessian. It retains the gradient at the model point.
+
 A proximal Newton method minimizes `q + g` with any solver and penalty `g`,
 then searches along the step on `f + g`. `quadratic_model!` updates a model
 returned by `quadratic_model(f, x₀)` to the model at `x`, in place and without

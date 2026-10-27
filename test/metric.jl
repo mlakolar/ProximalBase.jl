@@ -439,4 +439,14 @@ end
   end
 end
 
+@testset "coordinate bounds with no observations" begin
+  for T in (Float32, Float64)
+    f = LogisticLoss(T[], zeros(T, 0, 3))
+    @test [coordinate_lipschitz(f, k) for k in 1:3] == zeros(T, 3)
+    @test coordinate_lipschitz!(ones(T, 3), f) == zeros(T, 3)
+    @test_throws BoundsError coordinate_lipschitz(f, 0)
+    @test_throws BoundsError coordinate_lipschitz(f, 4)
+  end
+end
+
 end

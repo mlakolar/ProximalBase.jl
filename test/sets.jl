@@ -230,4 +230,16 @@ end
   @test_throws ArgumentError IndHyperplane(0, 1.)
 end
 
+@testset "Euclidean projections preserve extreme directions" begin
+  for T in (Float32, Float64)
+    large = T == Float32 ? T(1e30) : T(1e200)
+    for scale in (large, inv(large))
+      x = T[0, scale]
+      @test prox(IndSphereL2(one(T)), x) ≈ T[0, 1] rtol=8eps(T)
+      @test prox(IndBallL2(scale/2), x) ≈ T[0, scale/2] rtol=8eps(T)
+    end
+  end
+end
+
+
 end

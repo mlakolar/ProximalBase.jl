@@ -232,4 +232,97 @@ end
   @test allocs((Y, X) -> value_and_prox!(Y, c, X, 1.), similar(M), M) == 0
 end
 
+@testset "normalization beyond the scale-factor range" begin
+  for T in (Float32, Float64)
+    for x in (T[0, nextfloat(zero(T))], T[floatmax(T), floatmax(T)])
+      expected = T.(BigFloat.(x) ./ norm(BigFloat.(x)))
+      for f in (NormL1(zero(T)), GroupNormL2(zero(T), [1:2]), IndBallL0(2))
+        c = Constrained(f, IndSphereL2(one(T)))
+        y = copy(x)
+        @test value_and_prox!(y, c, y, one(T)) == zero(T)
+        @test y ≈ expected
+        @test prox(IndSphereL2(one(T)), x) ≈ expected
+        if maximum(abs, x) > 1
+          @test prox(Constrained(f, IndBallL2(one(T))), x) ≈ expected
+          @test prox(IndBallL2(one(T)), x) ≈ expected
+        end
+      end
+    end
+    tiny = nextfloat(zero(T))
+    for f in (NormL1(one(T)), GroupNormL2(one(T), [[1], [2]], ones(T, 2)))
+      @test prox(Constrained(f, IndSphereL2(one(T))), T[0, tiny]) == T[0, 1]
+    end
+    r = T === Float32 ? T(1e-30) : T(1e-300)
+    # The normal scale factor can still be inaccurate when the input norm
+    # itself is subnormal; evaluate the value at the normalized point.
+    for f in (NormL1(zero(T)), NormL1(one(T)))
+      c = Constrained(f, IndSphereL2(r))
+      y = zeros(T, 2)
+      value = value_and_prox!(y, c, T[tiny, tiny], one(T))
+      @test value ≈ f(y)
+      @test norm(y)/r ≈ one(T)
+    end
+    large = floatmax(T)/2
+    f = NormL1(large, fill(inv(large), 2))
+    @test prox(f, T[7, 1], T(4)) ≈ T[3, 0]
+    @test prox(Constrained(f, IndSphereL2(one(T))), T[7, 1], T(4)) ≈ T[1, 0]
+    @test prox(Constrained(f, IndSphereL2(one(T))), T[1, 2], T(4)) ≈ T[0, 1]
+  end
+end
+
+@testset "constrained steps with unrepresentable inner norms" begin
+  for T in (Float32, Float64)
+    large = floatmax(T)
+    x = T[large, large, large, 0]
+    groups = [1:2, 3:4]
+    families = ((NormL2(large/2), NormL2(T(0.5))),
+                (GroupNormL2(large/2, groups, ones(T,2)), GroupNormL2(T(0.5), groups, ones(T,2))),
+                (GroupNormLinf(large/2, groups, ones(T,2)), GroupNormLinf(T(0.5), groups, ones(T,2))),
+                (SparseGroupNormL2(large/10, large/2, groups, ones(T,2)),
+                 SparseGroupNormL2(T(0.1), T(0.5), groups, ones(T,2))))
+    for (f, scaled) in families
+      # Homogeneity: prox_f(x)/large = prox_{f/large}(x/large).
+      q = prox(scaled, x/large)
+      expected = q/norm(q)
+      c = Constrained(f, IndBallL2(one(T)))
+      y = copy(x)
+      value = value_and_prox!(y, c, y, one(T))
+      @test y ≈ expected rtol=32eps(T)
+      @test value ≈ f(y) rtol=32eps(T)
+    end
+    # Independent group-sphere formula in higher precision.
+    norms = [norm(BigFloat.(x[G])) for G in groups]
+    margins = norms .- BigFloat(large/2)
+    expected = zeros(T,4)
+    for (G, n, m) in zip(groups, norms, margins)
+      expected[G] .= T.((m/norm(margins)) .* BigFloat.(x[G]) ./ n)
+    end
+    f = GroupNormL2(large/2, groups, ones(T,2))
+    @test prox(Constrained(f, IndSphereL2(one(T))), x) ≈ expected rtol=32eps(T)
+  end
+end
+
+@testset "balls and spheres at extreme scales" begin
+  for T in (Float32, Float64)
+    tiny, huge = T === Float32 ? (T(1e-30), T(1e30)) : (T(1e-200), T(1e200))
+    # Squared norms underflow or overflow here, while the norms themselves
+    # and the results are representable.
+    @test prox(Constrained(NormL1(one(T)), IndBallL2(one(T))), T[huge, 0]) ≈ T[1, 0]
+    @test prox(Constrained(NormL1(tiny / 10), IndSphereL2(one(T))), T[0, tiny]) ≈ T[0, 1]
+    @test prox(Constrained(IndBallL0(1), IndSphereL2(one(T))), T[0, tiny]) ≈ T[0, 1]
+    groups = [1:2, 3:4]
+    c = Constrained(GroupNormL2(tiny / 10, groups), IndSphereL2(one(T)))
+    @test prox(c, T[0, tiny, 0, 0]) ≈ T[0, 1, 0, 0]
+    # A large level and a compensating small weight give the threshold 4 at
+    # the step 4; forming γλ0 first overflows.
+    large = floatmax(T) / 2
+    c = Constrained(GroupNormL2(large, groups, fill(inv(large), 2)), IndSphereL2(one(T)))
+    y = zeros(T, 4)
+    @test value_and_prox!(y, c, T[7, 0, 0, -1], T(4)) ≈ one(T)
+    @test y ≈ T[1, 0, 0, 0]
+    @test value_and_prox!(y, c, T[1, 0, 0, -2], T(4)) ≈ one(T)     # every group within its threshold
+    @test y ≈ T[0, 0, 0, -1]
+  end
+end
+
 end

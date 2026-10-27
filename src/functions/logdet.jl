@@ -10,7 +10,9 @@
 The Gaussian negative log-likelihood `f(X) = w (tr(SX) - log det X)` for finite
 `w > 0`, of a
 precision matrix `X`, for a symmetric `S` such as a sample covariance, and
-`Inf` when `X` is not positive definite. The loss of the graphical lasso.
+`Inf` when `X` is not positive definite, has a nonfinite entry, or fails the
+symmetry check `abs(X[i,j] - X[j,i]) ≤ sqrt(eps(T)) * max(1, abs(X[i,j]),
+abs(X[j,i]))`, with `T = eltype(X)`. The loss of the graphical lasso.
 
 It is smooth on the positive definite matrices, with gradient `w(S - X⁻¹)`,
 which [`value_and_gradient!`](@ref) computes from one Cholesky factorization;
@@ -19,6 +21,8 @@ cone. It is also proximable: with `μ = γw` and the eigendecomposition
 `X - μS = U Diagonal(t) U'`, `prox_{γf}(X) = U Diagonal(z) U'`, where
 `zᵢ = (tᵢ + √(tᵢ² + 4μ))/2`, evaluated without overflow or cancellation.
 [`value_and_prox!`](@ref) returns the value from the `zᵢ`.
+For a nonsymmetric proximal input, `X` is replaced by its symmetric part:
+the skew part contributes only a constant to the proximal objective.
 Both use workspaces that `f` owns, sized by `S`, and
 allocate nothing; do not share `f` between threads. The element type of `X`
 must be that of `S`, `Float32` or `Float64`.
@@ -50,6 +54,7 @@ isconvex(::Type{<:LogDetLoss}) = true
 # positive definite
 function _logdet_chol!(f::LogDetLoss{T}, X::AbstractMatrix) where {T}
   size(X) == size(f.S) || throw(DimensionMismatch("X has size $(size(X)) and S $(size(f.S))"))
+  all(isfinite, X) && _issymmetric_tol(X) || return nothing
   C = f.C
   copyto!(C, X)
   _, info = LAPACK.potrf!('U', C)
@@ -89,17 +94,19 @@ function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix,
   size(X) == size(f.S) || throw(DimensionMismatch("X has size $(size(X)) and S $(size(f.S))"))
   root_step = sqrt(convert(T, γ)) * sqrt(f.w)
   A = f.eig.A
+  # The domain is symmetric: the skew part contributes only a constant
+  # to the proximal objective, so use the symmetric part of any input.
   logdet_Y = if root_step > one(T)
     # Half of X/(γw) - S; divide twice to retain the contribution of X even
     # when 1/(γw) underflows. No large step multiplies the covariance.
-    A .= ((X ./ root_step) ./ root_step) ./ 2 .- f.S ./ 2
+    A .= (((X ./ 2 .+ transpose(X) ./ 2) ./ root_step) ./ root_step) ./ 2 .- f.S ./ 2
     t, U = _eigen!(f.eig)
-    _rebuild_sym_out!(Y, U, t, s -> _logdet_scaled_root_half(s, root_step); logs = true, buffer = f.C)
+    _rebuild_sym_out!(Y, U, t, s -> _logdet_scaled_root_half(s, root_step), f.C; logs = true)
   else
     # Half of X - γwS, without forming a possibly underflowed γw.
-    A .= X ./ 2 .- ((f.S ./ 2 .* root_step) .* root_step)
+    A .= X ./ 4 .+ transpose(X) ./ 4 .- ((f.S ./ 2 .* root_step) .* root_step)
     t, U = _eigen!(f.eig)
-    _rebuild_sym_out!(Y, U, t, s -> _logbarrier_root_half(s, root_step); logs = true, buffer = f.C)
+    _rebuild_sym_out!(Y, U, t, s -> _logbarrier_root_half(s, root_step), f.C; logs = true)
   end
   f.w * (dot(f.S, Y) - logdet_Y)
 end

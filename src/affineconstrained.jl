@@ -83,7 +83,7 @@ end
 _ridge_rhs!(z, f::QuadraticFunction, v, ρ) = f.b === nothing ? (z .= ρ .* v) : (z .= ρ .* v .- f.b)
 
 function _affine_cache!(c::AffineConstrained{T}) where {T}
-  isempty(c.t) || return c
+  isnan(c.γ) || return c
   V, _ = _hessian_decomposition!(c.f)
   C, _ = _constraint(c.set)
   n, k = size(V)

@@ -67,22 +67,48 @@ _rebuild(f::SparseGroupNormL2, λ0, groups, w) = SparseGroupNormL2(f.λ1, λ0, g
 function _dual_norm(f::SparseGroupNormL2, g, G)
   T = float(eltype(g))
   c = convert(T, f.λ1)
-  s = zero(T)
+  _soft_group_norm(g, G, c)
+end
+
+# Retain the vectorized sum for ordinary magnitudes; the fallback keeps
+# soft-thresholded norms whose squares overflow or underflow representable.
+@inline function _soft_group_norm(x::AbstractArray, G, c::S) where {S}
+  s = zero(S)
   @inbounds for i in G
-    s += abs2(shrink(convert(T, g[i]), c))
+    s += abs2(shrink(convert(S, x[i]), c))
   end
-  sqrt(s)
+  isfinite(s) && s >= floatmin(S) && return sqrt(s)
+  if iszero(s)                   # most groups threshold to zero; confirm without hypot
+    a = zero(S)
+    @inbounds for i in G
+      a += abs(shrink(convert(S, x[i]), c))
+    end
+    iszero(a) && return s
+  end
+  n = zero(S)
+  @inbounds for i in G
+    z = shrink(convert(S, x[i]), c)
+    isnan(z) && return oftype(n, NaN)
+    n = hypot(n, z)
+  end
+  n
 end
 
 # y[G] ← the soft threshold of x[G] at c1, shrunk by c2 in Euclidean norm, which
 # may be in place; returns the ℓ2 and ℓ1 norms of the result
-@inline function _sparse_shrink_group!(y::AbstractArray{T}, x::AbstractArray, G, c1::S, c2::S) where {T, S}
-  s = zero(S)
-  @inbounds for i in G
-    s += abs2(shrink(convert(S, x[i]), c1))
-  end
-  ns = sqrt(s)
+@inline function _sparse_shrink_group!(y::AbstractArray{T}, x::AbstractArray, G, c1::S, c2::S)::Tuple{S, S} where {T, S}
+  ns = _soft_group_norm(x, G, c1)
   if ns > c2
+    if isinf(ns) && isfinite(c2)
+      scale = convert(S, _maxabs(x, G))
+      if isfinite(scale) && scale > 1
+        n2, n1 = _sparse_shrink_group!(y, _ScaledArray(x, inv(scale)), G, c1 / scale, c2 / scale)
+        @inbounds for i in G
+          y[i] *= scale
+        end
+        return n2 * scale, n1 * scale
+      end
+    end
     t = one(S) - c2 / ns
     l1 = zero(S)
     @inbounds for i in G
@@ -99,16 +125,30 @@ end
   end
 end
 
+# Independent soft thresholding when the group term vanishes. Do not
+# compute a Euclidean norm only to multiply it by a zero group weight.
+@inline function _soft_group_only!(y::AbstractArray, x::AbstractArray, G, c::S) where {S}
+  l1 = zero(S)
+  @inbounds for i in G
+    z = shrink(convert(S, x[i]), c)
+    y[i] = z
+    l1 += abs(z)
+  end
+  l1
+end
+
 function (f::SparseGroupNormL2)(x::AbstractArray)
   _checkgroups(f, x)
   T = float(eltype(x))
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
     G = f.groups[k]
-    v2 += convert(T, f.w[k]) * sqrt(_sumsq(x, G))
-    v1 += _sumabs(x, G)
+    w = convert(T, f.w[k])
+    (iszero(f.λ0) || iszero(w)) || (v2 += _positive_product(convert(T, f.λ0), w, _group_norm2(x, G)))
+    iszero(f.λ1) || (v1 += _sumabs(x, G))
   end
-  convert(T, f.λ0) * v2 + convert(T, f.λ1) * v1
+  v2 +
+  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1)
 end
 
 value_and_prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
@@ -123,11 +163,17 @@ function _value_and_prox_groups!(y::AbstractArray, f::SparseGroupNormL2, x::Abst
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
     γk = _entry(γ, k)
-    n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], convert(T, γk * f.λ1), convert(T, γk * f.λ0 * f.w[k]))
-    v2 += convert(T, f.w[k]) * n2
-    v1 += n1
+    w = convert(T, f.w[k])
+    if iszero(f.λ0) || iszero(w)
+      n1 = _soft_group_only!(y, x, f.groups[k], convert(T, γk * f.λ1))
+    else
+      n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], convert(T, γk * f.λ1), convert(T, _positive_product(γk, f.λ0, f.w[k])))
+      v2 += _positive_product(convert(T, f.λ0), w, n2)
+    end
+    iszero(f.λ1) || (v1 += n1)
   end
-  convert(T, f.λ0) * v2 + convert(T, f.λ1) * v1
+  v2 +
+  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1)
 end
 
 # with the groups of f, only the active groups count
@@ -138,10 +184,12 @@ function (f::SparseGroupNormL2)(x::AtomIterate)
   for a in 1:x.nactive
     k = x.active[a]
     G = f.groups[k]
-    v2 += convert(T, f.w[k]) * sqrt(_sumsq(x.storage, G))
-    v1 += _sumabs(x.storage, G)
+    w = convert(T, f.w[k])
+    (iszero(f.λ0) || iszero(w)) || (v2 += _positive_product(convert(T, f.λ0), w, _group_norm2(x.storage, G)))
+    iszero(f.λ1) || (v1 += _sumabs(x.storage, G))
   end
-  convert(T, f.λ0) * v2 + convert(T, f.λ1) * v1
+  v2 +
+  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1)
 end
 
 value_and_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
@@ -156,18 +204,29 @@ function _value_and_prox_groups!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIt
   for a in 1:y.nactive
     k = y.active[a]
     γk = _entry(γ, k)
-    n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1), convert(T, γk * f.λ0 * f.w[k]))
-    v2 += convert(T, f.w[k]) * n2
-    v1 += n1
+    w = convert(T, f.w[k])
+    if iszero(f.λ0) || iszero(w)
+      n1 = _soft_group_only!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1))
+    else
+      n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1), convert(T, _positive_product(γk, f.λ0, f.w[k])))
+      v2 += _positive_product(convert(T, f.λ0), w, n2)
+    end
+    iszero(f.λ1) || (v1 += n1)
   end
-  convert(T, f.λ0) * v2 + convert(T, f.λ1) * v1
+  v2 +
+  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1)
 end
 
 # the block step on group k, in place; the group becomes active if it is nonzero
 function prox_coordinate!(x::AtomIterate, f::SparseGroupNormL2, k::Integer, γ::Real)
   _checksamegroups(f, x)
   T = float(eltype(x))
-  n2, _ = _sparse_shrink_group!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1), convert(T, γ * f.λ0 * f.w[k]))
+  if iszero(f.λ0) || iszero(convert(T, f.w[k]))
+    _soft_group_only!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1))
+    _allzero(x.storage, x.groups[k]) || activate!(x, k)
+    return atom(x, k)
+  end
+  n2, _ = _sparse_shrink_group!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1), convert(T, _positive_product(γ, f.λ0, f.w[k])))
   iszero(n2) || activate!(x, k)
   atom(x, k)
 end

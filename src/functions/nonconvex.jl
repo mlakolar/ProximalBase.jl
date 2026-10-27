@@ -108,6 +108,7 @@ end
 Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   c, ε, t = S(γ) * S(f.λ) * S(_entry(f.w, i)), S(f.ε), abs(S(v))
+  iszero(c) && return S(v)
   # the stationary points of c log(1 + z/ε) + (z - t)²/2 on z > 0 are the roots
   # of z² + (ε - t)z + c - εt; the larger is a local minimum. Without real roots
   # the objective increases on [0, ∞)
@@ -142,9 +143,9 @@ for `|v|` up to the threshold
 
 where zero and the nonzero candidate tie, and above it the root `z > 0` of
 `z + μq z^(q-1) = |v|` that exceeds `(2μ(1 - q))^(1/(2 - q))`, with the sign of
-`v`. The root has a closed form for `q = 1/2` (half thresholding: Xu, Chang, Xu
-and Zhang, 2012) and `q = 2/3` (Cao, Sun and Xu, 2013), and comes from Newton's
-method otherwise.
+`v`. The root uses a closed form for `q = 1/2` (half thresholding: Xu, Chang, Xu
+and Zhang, 2012), and a dimensionless Newton iteration otherwise, avoiding
+overflow and underflow in the quartic closed form at `q = 2/3`.
 
 Its slope at zero is infinite, so zero is a local minimizer of every problem
 `h + f`, and [`kkt_violation`](@ref) is `-Inf`: an active-set method that grows
@@ -179,41 +180,70 @@ end
 
 Base.@propagate_inbounds function prox_entry(f::NormLq, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  μ, q, t = S(γ) * S(f.λ) * S(_entry(f.w, i)), S(f.q), abs(S(v))
-  iszero(μ) && return S(v)
-  # For q = 1/2 the threshold is 3μ^(2/3)/2. cbrt avoids a general
-  # floating-point power and remains well scaled for subnormal μ.
-  τ = q == S(1)/2 ? S(3)/2 * cbrt(μ)^2 :
-      (2 - q) / (2 - 2q) * (2μ * (1 - q))^(1 / (2 - q))
+  step, λ, w = S(γ), S(f.λ), S(_entry(f.w, i))
+  q, t = S(f.q), abs(S(v))
+  (iszero(λ) || iszero(w)) && return S(v)
+  μ = _positive_product(step, λ, w)
+  ordinary = isfinite(μ) && μ >= floatmin(S)
+  # When μ cannot retain its precision, take the bounded powers of its factors
+  # before multiplying. The threshold can fit even when μ does not.
+  τ = if q == S(1)/2
+    S(3)/2 * (ordinary ? cbrt(μ)^2 : _positive_product(cbrt(step)^2, cbrt(λ)^2, cbrt(w)^2))
+  elseif ordinary
+    power = inv(2 - q)
+    # Separate powers retain subnormal μ without rounding μ*2(1-q)
+    # first. The coefficient is bounded as q tends to either endpoint.
+    coefficient = ((2 - q) / (2 - 2q)) * (2 * (1 - q))^power
+    coefficient * μ^power
+  else
+    power = inv(2 - q)
+    coefficient = ((2 - q) / (2 - 2q)) * (2 * (1 - q))^power
+    coefficient * _positive_product(step^power, λ^power, w^power)
+  end
   t <= τ && return zero(S)
-  sign(S(v)) * _lq_root(t, μ, q)
+  sign(S(v)) * _lq_root(t, μ, q, τ)
 end
 
 # For t above the threshold, the root z > (2μ(1 - q))^(1/(2-q)) of
 # g(z) = z + μq z^(q-1) - t, the minimizer of μ z^q + (z - t)²/2. g is convex
 # and increasing there, so Newton's method from z = t, right of the root,
 # decreases to it monotonically.
-function _lq_root(t::S, μ::S, q::S) where {S<:AbstractFloat}
+function _lq_root(t::S, μ::S, q::S, τ::S) where {S<:AbstractFloat}
+  # μ/t^(2-q) is bounded above the threshold. Recover it from τ = c μ^(1/(2-q))
+  # when μ is outside its normal range, without logarithmic cancellation.
+  relative_level = if isfinite(μ) && μ >= floatmin(S)
+    q == S(1) / 2 ? (μ / t) / sqrt(t) : (μ / t) / t^(1 - q)
+  elseif q == S(1) / 2
+    ratio = (τ / t) / (S(3)/2)
+    ratio * sqrt(ratio)
+  else
+    coefficient = ((2 - q) / (2 - 2q)) * (2 * (1 - q))^inv(2 - q)
+    ((τ / t) / coefficient)^(2 - q)
+  end
   if q == S(1) / 2
     # the cubic in √z by the trigonometric method (Xu et al., with λ = 2μ)
     # μ/t^(3/2) is bounded above the threshold. Divide in this order so
     # neither t^(3/2) nor its reciprocal can overflow before multiplying μ.
-    φ = acos((μ / t) / sqrt(t) * (3sqrt(S(3))/4))
+    φ = acos(relative_level * (3sqrt(S(3))/4))
     return t * (S(2)/3 * (1 + cos(2 * S(π) / 3 - 2φ / 3)))
-  elseif q == S(2) / 3
-    # the quartic in z^(1/3) by its resolvent cubic (Cao et al., with λ = 2μ)
-    λ2 = 2μ
-    φ = acosh(27 * t^2 / (16 * λ2^(S(3) / 2)))
-    A = 2 / sqrt(S(3)) * λ2^(S(1) / 4) * sqrt(cosh(φ / 3))
-    return ((A + sqrt(2t / A - A^2)) / 2)^3
   end
-  z = t
+  # The dimensionless equation r + a*r^(q-1) = 1 avoids t², μ^(3/2)
+  # and negative powers of a tiny z. Above the threshold its larger root
+  # is bounded away from zero for a fixed q, and Newton from r=1 decreases.
+  a = relative_level * q
+  r = one(S)
+  # The nonzero branch starts at this ratio at the threshold. Rounding near
+  # q=1 must not send a Newton step below it and into a negative power base.
+  lower = 2 * (1 - q) / (2 - q)
   for _ in 1:100
-    Δ = (z + μ * q * z^(q - 1) - t) / (1 + μ * q * (q - 1) * z^(q - 2))
-    z -= Δ
-    abs(Δ) <= 4eps(z) && break
+    power = q == S(2) / 3 ? inv(cbrt(r)) : r^(q - 1)
+    Δ = (r + a * power - 1) / (1 + a * (q - 1) * power / r)
+    next = max(lower, r - Δ)
+    next == r && break
+    r = next
+    abs(Δ) <= 4eps(r) && break
   end
-  z
+  t * r
 end
 
 kkt_violation(f::NormLq, g::AbstractArray, ::Integer) = float(eltype(g))(-Inf)
@@ -308,13 +338,13 @@ _rebuild(f::GroupSCAD, λ0, groups, w) = GroupSCAD(λ0, groups, w; a = f.a)
 _group_scalar(f::GroupMCP, ::Type{S}, k::Integer) where {S} = MCP{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
 _group_scalar(f::GroupSCAD, ::Type{S}, k::Integer) where {S} = SCAD{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
 
-_group_norm(::_RadialGroupPenalty, x, G) = sqrt(_sumsq(x, G))
-_dual_norm(::_RadialGroupPenalty, g, G) = sqrt(_sumsq(g, G))
+_group_norm(::_RadialGroupPenalty, x, G) = _group_norm2(x, G)
+_dual_norm(::_RadialGroupPenalty, g, G) = _group_norm2(g, G)
 
 # y[G] ← the proximal operator of γp(‖⋅‖₂) at x[G], which may be in place: the
 # scalar proximal operator of p at the norm, along x[G]; returns the new norm
 @inline function _radial_shrink!(p, y::AbstractArray{T}, x::AbstractArray, G, γ) where {T}
-  nx = sqrt(_sumsq(x, G))
+  nx = _group_norm2(x, G)
   r = iszero(nx) ? nx : prox_entry(p, nx, 1, γ)
   t = iszero(nx) ? nx : r / nx
   @inbounds for i in G
@@ -328,7 +358,9 @@ function (f::_RadialGroupPenalty)(x::AbstractArray)
   T = float(eltype(x))
   v = zero(T)
   for k in eachindex(f.groups)
-    v += value_entry(_group_scalar(f, T, k), _group_norm(f, x, f.groups[k]), 1)
+    p = _group_scalar(f, T, k)
+    iszero(p.λ) && continue
+    v += value_entry(p, _group_norm(f, x, f.groups[k]), 1)
   end
   v
 end
@@ -340,7 +372,9 @@ function (f::_RadialGroupPenalty)(x::AtomIterate)
   v = zero(T)
   for a in 1:x.nactive
     k = x.active[a]
-    v += value_entry(_group_scalar(f, T, k), _group_norm(f, x.storage, f.groups[k]), 1)
+    p = _group_scalar(f, T, k)
+    iszero(p.λ) && continue
+    v += value_entry(p, _group_norm(f, x.storage, f.groups[k]), 1)
   end
   v
 end
@@ -354,6 +388,12 @@ function _value_and_prox_groups!(y::AbstractArray, f::_RadialGroupPenalty, x::Ab
   v = zero(T)
   for k in eachindex(f.groups)
     p = _group_scalar(f, T, k)
+    if iszero(p.λ)
+      @inbounds for i in f.groups[k]
+        y[i] = x[i]
+      end
+      continue
+    end
     v += value_entry(p, _radial_shrink!(p, y, x, f.groups[k], convert(T, _entry(γ, k))), 1)
   end
   v
@@ -369,6 +409,7 @@ function _value_and_prox_groups!(y::AtomIterate, f::_RadialGroupPenalty, x::Atom
   for a in 1:y.nactive
     k = y.active[a]
     p = _group_scalar(f, T, k)
+    iszero(p.λ) && continue
     v += value_entry(p, _radial_shrink!(p, y.storage, y.storage, f.groups[k], convert(T, _entry(γ, k))), 1)
   end
   v
@@ -379,7 +420,12 @@ end
 function prox_coordinate!(x::AtomIterate, f::_RadialGroupPenalty, k::Integer, γ::Real)
   _checksamegroups(f, x)
   T = float(eltype(x))
-  r = _radial_shrink!(_group_scalar(f, T, k), x.storage, x.storage, x.groups[k], convert(T, γ))
+  p = _group_scalar(f, T, k)
+  if iszero(p.λ)
+    _allzero(x.storage, x.groups[k]) || activate!(x, k)
+    return atom(x, k)
+  end
+  r = _radial_shrink!(p, x.storage, x.storage, x.groups[k], convert(T, γ))
   iszero(r) || activate!(x, k)
   atom(x, k)
 end
@@ -412,8 +458,8 @@ struct IndBallGroupL0{G<:AbstractVector{<:AbstractVector{<:Integer}}} <: Abstrac
   groups::G
   k::Int              # the nonzero entries allowed in a group, typemax(Int) for any number
   group_of::Vector{Int}
-  scratch::Scratch    # the squared norms of the groups, and a copy for the selection
-  entries::Scratch    # the squares of the entries of a group, for the selection
+  scratch::Scratch    # the norms of the groups, and a copy for the selection
+  entries::Scratch    # the magnitudes of entries of a group, for the selection
 
   function IndBallGroupL0{G}(s::Integer, groups::G, k::Integer) where {G<:AbstractVector{<:AbstractVector{<:Integer}}}
     s >= 0 || throw(ArgumentError("s must be nonnegative, got $s"))
@@ -482,40 +528,36 @@ function prox!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate, γ::Real)
   dropzeros!(y)
 end
 
-# the squares of the entries of y in G, in w[1:length(G)]
-function _group_squares!(w::AbstractVector{T}, y::AbstractArray, G) where {T}
+# the magnitudes of entries of y in G, in w[1:length(G)]
+function _group_magnitudes!(w::AbstractVector{T}, y::AbstractArray, G) where {T}
   @inbounds for (t, i) in enumerate(G)
-    w[t] = abs2(convert(T, y[i]))
+    w[t] = abs(convert(T, y[i]))
   end
   view(w, 1:length(G))
 end
 
-# the sum of the k largest squares of the entries of y in G
-function _top_sumsq(f::IndBallGroupL0, y::AbstractArray, G, ::Type{T}) where {T}
-  length(G) <= f.k && return convert(T, _sumsq(y, G))
+# the norm of the k largest magnitudes of entries of y in G
+function _top_norm(f::IndBallGroupL0, y::AbstractArray, G, ::Type{T}) where {T}
+  length(G) <= f.k && return convert(T, _group_norm2(y, G))
   f.k == 0 && return zero(T)
-  v = _group_squares!(_buffer!(f.entries, T, length(G)), y, G)
+  v = _group_magnitudes!(_buffer!(f.entries, T, length(G)), y, G)
   _kth_largest!(v, f.k)
-  t = zero(T)
-  @inbounds for j in 1:f.k
-    t += v[j]
-  end
-  return t
+  return norm(view(v, 1:f.k))
 end
 
 # zero all but the k entries of largest magnitude of y in G, the earlier first
 # among ties
 function _keep_largest_entries!(y::AbstractArray, f::IndBallGroupL0, G, ::Type{T}) where {T}
   length(G) <= f.k && return y
-  v = _group_squares!(_buffer!(f.entries, T, length(G)), y, G)
+  v = _group_magnitudes!(_buffer!(f.entries, T, length(G)), y, G)
   τ = f.k == 0 ? T(Inf) : _kth_largest!(v, f.k)
   above = 0
   @inbounds for i in G
-    above += abs2(convert(T, y[i])) > τ
+    above += abs(convert(T, y[i])) > τ
   end
   ties = f.k - above
   @inbounds for i in G
-    a = abs2(convert(T, y[i]))
+    a = abs(convert(T, y[i]))
     if a > τ
       continue
     elseif a == τ && ties > 0
@@ -536,15 +578,15 @@ function _keep_largest_groups!(y::AbstractArray, f::IndBallGroupL0, ks)
   buf = _buffer!(f.scratch, T, 2n)
   nz = 0
   @inbounds for (j, k) in enumerate(ks)
-    s2 = _top_sumsq(f, y, f.groups[k], T)
-    buf[j] = s2
-    nz += !iszero(s2) || !_allzero(y, f.groups[k])      # a sum of squares may underflow
+    nrm = _top_norm(f, y, f.groups[k], T)
+    buf[j] = nrm
+    nz += !iszero(nrm) || !_allzero(y, f.groups[k])
   end
   if nz <= f.s
     _keep_entries_of_groups!(y, f, ks, T)
     return y
   end
-  # the s-th largest squared norm, from a copy that the selection reorders
+  # the s-th largest norm, from a copy that the selection reorders
   @inbounds for j in 1:n
     buf[n + j] = buf[j]
   end
@@ -555,11 +597,11 @@ function _keep_largest_groups!(y::AbstractArray, f::IndBallGroupL0, ks)
   end
   ties = f.s - above            # the groups at τ to keep, the earliest first
   @inbounds for (j, k) in enumerate(ks)
-    s2 = buf[j]
+    nrm = buf[j]
     G = f.groups[k]
-    if s2 > τ
+    if nrm > τ
       _keep_largest_entries!(y, f, G, T)
-    elseif s2 == τ && ties > 0
+    elseif nrm == τ && ties > 0
       ties -= 1
       _keep_largest_entries!(y, f, G, T)
     else

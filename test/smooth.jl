@@ -537,4 +537,132 @@ end
   @test_throws ArgumentError KronQuadratic(Ω + [i > j ? 1e-3 : 0. for i in 1:p, j in 1:p], Ω)
 end
 
+@testset "centered ridge at large steps" begin
+  for T in (Float32, Float64)
+    large = T == Float32 ? T(1e30) : T(1e200)
+    center = T[2, -3]
+    f = SqrNormL2(large, center)
+    x = T[-1, 4]
+    y = similar(x)
+    @test prox!(y, f, x, large) === y
+    @test y ≈ center rtol=8eps(T)
+    @test prox_entry(f, x[1], 1, large) ≈ center[1]
+    @test prox_entry(f, x[1], 1, large) isa T
+    @test allocs(prox!, y, f, x, large) == 0
+    # A convex combination of finite same-sign endpoints stays finite.
+    nearmax = floatmax(T) / T(2)
+    @test prox(SqrNormL2(one(T), T[nearmax]), T[nearmax], T(2)) ≈ T[nearmax]
+  end
+end
+
+
+@testset "LogDetLoss symmetric domain and general proximal input" begin
+  for T in (Float32, Float64)
+    f = LogDetLoss(Matrix{T}(I, 2, 2))
+    X = T[2 1; -1 3]
+    G = similar(X)
+    @test f(X) == T(Inf)
+    @test value_and_gradient!(G, f, X) == T(Inf)
+    @test all(isnan, G)
+    for bad in (T(NaN), T(Inf))
+      Z = Matrix{T}(I, 2, 2)
+      Z[1,1] = bad
+      @test f(Z) == T(Inf)
+    end
+    symmetric_part = (X + transpose(X)) / 2
+    for γ in (T(0.3), T(3))
+      expected = prox(f, symmetric_part, γ)
+      Y = similar(X)
+      @test value_and_prox!(Y, f, X, γ) ≈ f(expected) rtol=32eps(T)
+      @test Y ≈ expected rtol=32eps(T)
+      alias = copy(X)
+      @test prox!(alias, f, alias, γ) ≈ expected rtol=32eps(T)
+      @test allocs(prox!, Y, f, X, γ) == 0
+    end
+  end
+end
+
+@testset "ridge interpolation near floatmax" begin
+  for T in (Float32, Float64)
+    endpoint = floatmax(T)
+    γ = T(2.9121568528227888e-6)
+    f = SqrNormL2(one(T), T[endpoint])
+    @test only(prox(f, T[endpoint], γ)) == endpoint
+    @test prox_entry(f, endpoint, 1, γ) == endpoint
+    @test prox(SqrNormL2(1.0, [2.0]), Float32[3], 0.2) ≈ Float32[17/6]
+  end
+end
+
+
+@testset "least-squares rank-zero caches" begin
+  for T in (Float32, Float64), (n,p) in ((0,4),(4,0),(0,0)), responses in (nothing,0,3)
+    X = zeros(T,n,p)
+    Y = responses === nothing ? ones(T,n) : ones(T,n,responses)
+    x = responses === nothing ? ones(T,p) : ones(T,p,responses)
+    f = LeastSquaresLoss(Y,X)
+    @test ProximalBase._svd_cache!(f) === f
+    @test size(f.V) == (p,0)
+    @test isempty(f.s2)
+    dims = responses === nothing ? (0,) : (0,responses)
+    @test size(f.sUtY) == dims
+    @test size(f.w) == dims
+    @test f.svd_ready
+    @test ProximalBase._xty_cache!(f) == transpose(X)*Y
+    @test allocs(ProximalBase._svd_cache!, f) == 0
+    @test allocs(ProximalBase._xty_cache!, f) == 0
+    y,g = similar(x),similar(x)
+    @test value_and_prox!(y,f,x,one(T)) ≈ sum(abs2,Y)/2
+    @test y == x
+    @test value_and_gradient!(g,f,x) ≈ sum(abs2,Y)/2
+    @test all(iszero,g)
+    @test allocs(prox!,y,f,x,one(T)) == 0
+    reset_cache!(f)
+    @test ProximalBase._svd_cache!(f) === f
+    @test size(f.V) == (p,0)
+  end
+end
+
+@testset "direct smooth parameter checks precede mutation" begin
+  for T in (Float32, Float64), parameter in (T[1], T[1,2])
+    for f in (LinearFunction(parameter), SqrNormL2(one(T),parameter), SqrNormL2(zero(T),parameter))
+      x = T[3,4,5]
+      out = fill(T(-7),3)
+      @test_throws DimensionMismatch prox!(out,f,x,one(T))
+      @test out == fill(T(-7),3)
+      @test_throws DimensionMismatch gradient!(out,f,x)
+      @test out == fill(T(-7),3)
+      @test_throws DimensionMismatch value_and_gradient!(out,f,x)
+      @test out == fill(T(-7),3)
+      @test_throws DimensionMismatch f(x)
+      alias = copy(x)
+      @test_throws DimensionMismatch prox!(alias,f,alias,one(T))
+      @test alias == x
+    end
+    # LinearFunction follows dot's linear-index convention for same-length arrays.
+    c = reshape(T[1,2,3],1,3)
+    f = LinearFunction(c)
+    x = T[4,5,6]
+    @test prox(f,x,T(0.5)) == x-T(0.5)*vec(c)
+    @test gradient(f,x) == vec(c)
+  end
+end
+
+@testset "centered ridge shape checks precede writes" begin
+  for T in (Float32,Float64), λ in (zero(T),one(T))
+    f = SqrNormL2(λ,reshape(T[1,2,3],1,3))
+    x = T[4,5,6]
+    out = fill(T(-7),3)
+    @test_throws DimensionMismatch f(x)
+    @test_throws DimensionMismatch prox!(out,f,x,one(T))
+    @test out == fill(T(-7),3)
+    @test_throws DimensionMismatch gradient!(out,f,x)
+    @test out == fill(T(-7),3)
+    @test_throws DimensionMismatch value_and_gradient!(out,f,x)
+    @test out == fill(T(-7),3)
+    # Coordinate kernels retain their established linear-entry convention.
+    a = SparseIterate(x)
+    @test prox_coordinate!(a,f,1,one(T)) == prox_entry(f,x[1],1,one(T))
+  end
+end
+
 end

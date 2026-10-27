@@ -19,11 +19,17 @@ const _PARTIAL_NOTE = """
 With `partial = true` the proximal operator computes only the leading singular
 triplets or eigenpairs, by randomized subspace iteration started from those of
 the previous call, in O(p²k) instead of O(p³) for k of them. It accepts the
-result when the residuals of the pairs kept are below `eps^(3/4)` times the
-largest value, and otherwise, or when the pairs kept would be more than about a
-quarter of the dimension, falls back to the full decomposition. This pays
-when the rank of the result is small and the proximal operator is called on a
-sequence of nearby matrices, as in a solver; see [Partial decompositions](@ref)."""
+result when the residuals of the pairs kept are below
+`max(eps^(3/4), 10eps*sqrt(p))` times the largest absolute computed value. The
+next three computed pairs must lie below the threshold within this tolerance,
+or below the smallest retained value for a fixed rank, accounting for their
+residuals. Otherwise, or when the pairs kept
+would be more than about a quarter of the dimension, it falls back to the full
+decomposition. These checks cannot detect a leading singular value or
+eigenvalue that the iteration missed, so the result is an approximation. It
+pays when the result has low rank and the calls use nearby matrices; keep the
+default full decomposition when an exact proximal step is needed. See
+[Partial decompositions](@ref)."""
 
 # Y = U[:, 1:k] * Vt[1:k, :], through the workspace's matrix when Y is not strided
 function _mul_lowrank!(Y::AbstractMatrix, U::Matrix, Vt::Matrix, k::Integer, ws::SVDWorkspace)
@@ -52,8 +58,8 @@ _issymmetric_tol(::SymmetricSparseIterate) = true
 
 # the symmetric Y = Σⱼ f(λⱼ) vⱼvⱼ' from the eigendecomposition V, λ, through the
 # n × n matrix buffer when Y is not strided (a SymmetricSparseIterate, say)
-function _rebuild_sym_out!(Y::AbstractMatrix, V::StridedMatrix, λ, f::F; logs::Bool = false,
-                           buffer::StridedMatrix = similar(V, size(V, 1), size(V, 1))) where {F}
+function _rebuild_sym_out!(Y::AbstractMatrix, V::StridedMatrix, λ, f::F, buffer::StridedMatrix;
+                           logs::Bool = false) where {F}
   Y isa StridedMatrix && return _rebuild_sym!(Y, V, λ, f; logs)
   s = _rebuild_sym!(buffer, V, λ, f; logs)
   copyto!(Y, buffer)
@@ -93,6 +99,7 @@ isconvex(::Type{<:NuclearNorm}) = true
 
 function (f::NuclearNorm)(X::AbstractMatrix)
   T = float(eltype(X))
+  iszero(f.λ) && return zero(T)
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
   copyto!(ws.A, X)
@@ -103,6 +110,10 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real)
   _checksize(Y, X)
   T = float(eltype(Y))
+  if iszero(f.λ)
+    Y === X || copyto!(Y, X)
+    return zero(T)
+  end
   c = convert(T, γ) * convert(T, f.λ)
   if f.partial
     pv = _partial_nuclear!(Y, f, X, c)
@@ -257,7 +268,7 @@ function _project_psd!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix)
   copyto!(ws.A, X)
   λ, V = _eigen!(ws)
   n = size(V, 1)
-  _rebuild_sym_out!(Y, V, λ, t -> max(t, zero(t)); buffer = Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
+  _rebuild_sym_out!(Y, V, λ, t -> max(t, zero(t)), Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
   f.partial && _warm_start_eigen!(f, V, count(>(zero(T)), λ))
   Y
 end
@@ -280,7 +291,7 @@ function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
   f.top = ws
   copyto!(ws.A, X)
   λ, Z = _eigen_top!(ws)
-  _rebuild_sym_out!(Y, Z, λ, t -> max(t, zero(t)); buffer = Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
+  _rebuild_sym_out!(Y, Z, λ, t -> max(t, zero(t)), Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
   f.partial && _warm_start_eigen!(f, Z, count(>(zero(T)), λ))
   Y
 end
@@ -337,7 +348,7 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
     s += max(t - c, zero(T))
   end
   n = size(V, 1)
-  _rebuild_sym_out!(Y, V, λ, t -> max(t - c, zero(t)); buffer = Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
+  _rebuild_sym_out!(Y, V, λ, t -> max(t - c, zero(t)), Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
   f.partial && _warm_start_eigen!(f, V, count(>(c), λ))
   convert(T, f.λ) * s
 end

@@ -433,4 +433,37 @@ end
   @test !ProximalBase._has_prox_slope(typeof(NoSlope(NormL1(1.))))
 end
 
+@testset "boxes intersecting closed and open scalar domains" begin
+  for T in (Float32, Float64)
+    # Entropy has a closed domain at zero; the positive log barrier can instead
+    # be constrained to an interval contained in its open domain.
+    @test prox(Constrained(NegEntropy(one(T)), IndBox(zero(T), zero(T))), T[1]) == T[0]
+    c = Constrained(NegLog(one(T)), IndBox(one(T), T(2)))
+    x, out = T[-3, 0, 5], zeros(T, 3)
+    expected = clamp.((x .+ sqrt.(x.^2 .+ 4)) ./ 2, one(T), T(2))
+    @test prox(c, x) ≈ expected
+    @test value_and_prox!(out, c, x, one(T)) ≈ -sum(log, expected)
+    @test out ≈ expected
+    @test all(>(zero(T)), out)
+  end
+end
+
+@testset "boxes with mixed-precision touching endpoints" begin
+  for T in (Float32, Float64)
+    # Each bound rounds outward in T. The original domains touch at exactly
+    # b, which the proximal output represents by T(b).
+    b = T === Float32 ? 0.3 : big"0.1"
+    for f in (IndBox(zero(b), b), Conjugate(NormL1(b)))
+      c = Constrained(f, IndBox(b, b))
+      @test prox(c, T[0]) == T[b]
+      @test prox_entry(c, zero(T), 1, one(T)) == T(b)
+      x = SparseIterate(T[0])
+      prox_coordinate!(x, c, 1, one(T))
+      @test Vector(x) == T[b]
+    end
+    c = Constrained(IndBox(zero(b), b), IndBox(b, b))
+    @test ProximalBase._prox_entry_slope(c, zero(T), 1, one(T)) == (T(b), zero(T))
+  end
+end
+
 end

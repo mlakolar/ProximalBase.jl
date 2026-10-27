@@ -77,9 +77,7 @@ _dense_input(ws, X::AbstractMatrix, ::Type{T}) where {T} = copyto!(_array_buffer
 #  Thin QR decomposition (geqrf, orgqr)
 ####################################
 
-mutable struct QRWorkspace{T<:_BlasReal}
-  m::Int
-  n::Int
+struct QRWorkspace{T<:_BlasReal}
   tau::Vector{T}
   work::Vector{T}
   info::Base.RefValue{BlasInt}
@@ -111,7 +109,7 @@ function QRWorkspace(::Type{T}, m::Integer, n::Integer) where {T<:_BlasReal}
   _geqrf!(A, tau, work, -1, info)                         # workspace queries
   lwork = max(1, round(Int, work[1]))
   _orgqr!(A, tau, work, -1, info)
-  QRWorkspace{T}(m, n, tau, resize!(work, max(lwork, round(Int, work[1]))), info)
+  QRWorkspace{T}(tau, resize!(work, max(lwork, round(Int, work[1]))), info)
 end
 
 # Overwrites A (m × n, m ≥ n) with the Q factor of its thin QR decomposition,

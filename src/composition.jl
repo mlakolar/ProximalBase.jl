@@ -202,11 +202,16 @@ function _add_ridge_gradient!(g, r::Regularize, x)
 end
 
 # the point (v + γρc)/(1 + γρ) in y, and the step γ/(1 + γρ) of f
+@inline function _regularize_step(γ::T, ρ::T) where {T}
+  product = γ * ρ
+  isfinite(product) ? γ / (one(T) + product) : inv(ρ) / (one(T) + inv(γ) / ρ)
+end
 function _shrunk!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
   T = float(eltype(y))
-  γρ = convert(T, γ) * convert(T, r.ρ)
-  r.c === nothing ? (y .= x ./ (1 + γρ)) : (y .= (x .+ γρ .* r.c) ./ (1 + γρ))
-  convert(T, γ) / (1 + γρ)
+  step, ρ = convert(T, γ), convert(T, r.ρ)
+  a, b = _ridge_weights(step, ρ)
+  r.c === nothing ? (y .= a .* x) : (y .= _ridge_blend.(x, r.c, a, b))
+  _regularize_step(step, ρ)
 end
 
 function prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
@@ -222,21 +227,27 @@ function value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::
 end
 
 Base.@propagate_inbounds function prox_entry(r::Regularize, v::Real, i::Integer, γ::Real)
-  γρ = γ * r.ρ
-  w = r.c === nothing ? v : v + γρ * r.c[i]
-  prox_entry(r.f, w / (1 + γρ), i, γ / (1 + γρ))
+  T = float(typeof(v))
+  step, ρ = convert(T, γ), convert(T, r.ρ)
+  a, b = _ridge_weights(step, ρ)
+  w = r.c === nothing ? a * v : _ridge_blend(v, r.c[i], a, b)
+  prox_entry(r.f, w, i, _regularize_step(step, ρ))
 end
 _checkparams(r::Regularize, x) = (_checkparam(r.c, x); _checkparams(r.f, x))
 
 # a regularized group penalty on an AtomIterate: shrink the group towards c,
 # then take the step of the group penalty
 function prox_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k::Integer, γ::Real)
+  _checkparam(r.c, x)
+  _checksamegroups(r.f, x)
+  checkbounds(x.groups, k)
   T = float(eltype(x))
-  γρ = convert(T, γ) * convert(T, r.ρ)
+  step, ρ = convert(T, γ), convert(T, r.ρ)
+  a, b = _ridge_weights(step, ρ)
   @inbounds for i in x.groups[k]
-    x.storage[i] = r.c === nothing ? x.storage[i] / (1 + γρ) : (x.storage[i] + γρ * r.c[i]) / (1 + γρ)
+    x.storage[i] = r.c === nothing ? a * x.storage[i] : _ridge_blend(x.storage[i], r.c[i], a, b)
   end
-  prox_coordinate!(x, r.f, k, convert(T, γ) / (1 + γρ))
+  prox_coordinate!(x, r.f, k, _regularize_step(step, ρ))
 end
 
 # the ridge term adds ρ(xᵢ - cᵢ) to the gradient, -ρcᵢ at a coordinate at zero

@@ -1,0 +1,81 @@
+name: Weighted L1 investigation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: weighted-l1-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      JULIA_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      PB_SUITE: extended
+      PB_GROUPS: vectors
+      PB_SAMPLES: '40'
+      PB_SECONDS: '0.1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.13.3'
+      - name: Prepare pinned revisions
+        shell: bash
+        run: |
+          mkdir -p benchmark/results/weighted-l1
+          for ref in 4dc00b0 b7b0659 6319e9f f48d630 e61e32d; do
+            git worktree add --detach "$RUNNER_TEMP/pb-$ref" "$ref"
+            julia benchmark/setup.jl "$RUNNER_TEMP/pb-$ref" "$RUNNER_TEMP/env-$ref"
+          done
+          julia benchmark/setup.jl "$GITHUB_WORKSPACE" "$RUNNER_TEMP/env-repair"
+      - name: Historical probes and compiler evidence
+        shell: bash
+        run: |
+          for rep in 1 2 3 4 5; do
+            refs='4dc00b0 b7b0659 6319e9f f48d630 e61e32d repair'
+            if (( rep % 2 == 0 )); then refs='repair e61e32d f48d630 6319e9f b7b0659 4dc00b0'; fi
+            for ref in $refs; do
+              export PB_COMPILER=false
+              if (( rep == 1 )); then export PB_COMPILER=true; fi
+              julia --project="$RUNNER_TEMP/env-$ref" benchmark/weighted_l1/probe.jl \
+                "benchmark/results/weighted-l1/probes/$ref/rep-$rep"
+            done
+          done
+          for ref in e61e32d repair; do
+            julia --project="$RUNNER_TEMP/env-$ref" benchmark/weighted_l1/products.jl \
+              > "benchmark/results/weighted-l1/products-$ref.txt"
+          done
+          diff benchmark/results/weighted-l1/products-e61e32d.txt \
+            benchmark/results/weighted-l1/products-repair.txt
+      - name: Five interleaved vector-suite comparisons
+        shell: bash
+        run: |
+          for rep in 1 2 3 4 5; do
+            refs='e61e32d repair'
+            if (( rep % 2 == 0 )); then refs='repair e61e32d'; fi
+            for ref in $refs; do
+              package="$GITHUB_WORKSPACE"
+              if [[ "$ref" != repair ]]; then package="$RUNNER_TEMP/pb-$ref"; fi
+              PB_REPETITION="$rep" PB_EXPECTED_PACKAGE_ROOT="$package" \
+                PB_OUTPUT="benchmark/results/weighted-l1/suite-$ref" \
+                julia --project="$RUNNER_TEMP/env-$ref" benchmark/run.jl
+            done
+          done
+          python3 benchmark/compare.py benchmark/results/weighted-l1/suite-e61e32d \
+            benchmark/results/weighted-l1/suite-repair \
+            benchmark/results/weighted-l1/comparison --expected-runs 5
+      - name: Preserve all measurements, failures and compiler output
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: weighted-l1-investigation
+          path: |
+            benchmark/results/weighted-l1
+            ${{ runner.temp }}/env-*/Project.toml
+            ${{ runner.temp }}/env-*/Manifest.toml
+          if-no-files-found: error

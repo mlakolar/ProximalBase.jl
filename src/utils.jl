@@ -17,12 +17,15 @@ shrink(v::Real, c::Real) = shrink(promote(float(v), float(c))...)
 # Nonnegative coefficients: keep the usual multiply order when it is well
 # scaled. At exceptional scales, multiply bounded significands and apply the
 # combined exponent once, so no intermediate subnormal loses precision. The
-# exceptional path is a separate call, so loops over the ordinary path stay
-# small. A zero factor or a NaN fails the range test and is handled there.
+# exceptional path is a separate call. Only the intermediate needs to be
+# normal: a subnormal or overflowing final multiply has no later factor to
+# restore its range. With a normal intermediate, a zero third factor is safe.
+# For scalar-step L1 proximal loops, ab is invariant: LLVM can unswitch this
+# check and vectorize the ordinary loop without a per-weight recovery branch.
 @inline function _positive_product(a::T, b::T, c::T) where {T<:AbstractFloat}
   ab = a * b
   p = ab * c
-  (floatmin(T) <= ab <= floatmax(T)) & (floatmin(T) <= p <= floatmax(T)) && return p
+  floatmin(T) <= ab <= floatmax(T) && return p
   _exceptional_product(a, b, c, p)
 end
 @noinline function _exceptional_product(a::T, b::T, c::T, p::T) where {T<:AbstractFloat}

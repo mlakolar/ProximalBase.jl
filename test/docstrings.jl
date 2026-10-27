@@ -39,4 +39,25 @@ const TESTING_NAMES = [
   end
 end
 
+@testset "manual docstring entries" begin
+  entries = Set{String}()
+  source = joinpath(dirname(@__DIR__), "docs", "src")
+  for (root, _, files) in walkdir(source), file in files
+    endswith(file, ".md") || continue
+    page = read(joinpath(root, file), String)
+    for block in eachmatch(r"(?m)^```@docs\s*\r?\n(.*?)^```\s*$"s, page)
+      for line in split(block.captures[1], '\n')
+        entry = match(r"^(ProximalBase\.(?:Testing\.)?\w+)(?:\s*\(.*\))?$", strip(line))
+        entry === nothing || push!(entries, entry.captures[1])
+      end
+    end
+  end
+  required = ["ProximalBase.$name" for name in QUALIFIED_NAMES]
+  append!(required, [name == :Testing ? "ProximalBase.Testing" :
+    "ProximalBase.Testing.$name" for name in TESTING_NAMES])
+  @testset "$name" for name in required
+    @test name in entries
+  end
+end
+
 end

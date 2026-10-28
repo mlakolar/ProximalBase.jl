@@ -41,6 +41,7 @@ tests = [
   "second_order",
   "envelope",
   "composition",
+  "precompose_array",
   "caches",
   "metric",
   "allocations",

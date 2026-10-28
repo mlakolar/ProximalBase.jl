@@ -29,6 +29,20 @@ prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArra
 value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) =
   _value_and_prox_sep!(y, f, x, γ)
 
+function prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::AbstractArray)
+  isseparable(h) || throw(ArgumentError("array steps for an array scale require a separable function"))
+  _checkwrite(prox!, h, y, x)
+  _checkparam(γ, x)
+  _value_and_prox_array!(y, h, x, γ, false)
+  y
+end
+function value_and_prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::AbstractArray)
+  isseparable(h) || throw(ArgumentError("array steps for an array scale require a separable function"))
+  _checkwrite(value_and_prox!, h, y, x)
+  _checkparam(γ, x)
+  _value_and_prox_array!(y, h, x, γ, true)
+end
+
 # group penalties: a step per group, constant on the group, keeps the closed form
 value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = _value_and_prox_groups!(y, f, x, γ)
 prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (value_and_prox!(y, f, x, γ); y)
@@ -322,3 +336,15 @@ end
 coordinate_lipschitz(h::_ScalarPrecompose, k::Integer) = h.μ * coordinate_lipschitz(h.f, k)
 coordinate_lipschitz!(L::AbstractArray, h::_ScalarPrecompose) =
   (coordinate_lipschitz!(L, h.f); L .*= h.μ)
+
+Base.@propagate_inbounds function coordinate_lipschitz(h::_ArrayPrecompose, k::Integer)
+  a = abs(float(h.a[k]))
+  _positive_product(coordinate_lipschitz(h.f, k), a, a)
+end
+function coordinate_lipschitz!(L::AbstractArray, h::_ArrayPrecompose)
+  _checkparams(h, L)
+  @inbounds for k in eachindex(IndexLinear(), L)
+    L[k] = coordinate_lipschitz(h, k)
+  end
+  L
+end

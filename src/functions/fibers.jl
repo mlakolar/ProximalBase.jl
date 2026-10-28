@@ -160,9 +160,9 @@ function (fb::FiberSum)(x::AbstractArray)
     fb.symmetric && I[1] < I[2] && continue
     xv = @inbounds _fiber(x, I)
     if own && _isdiagonal(I)
-      fb.diagonal === nothing || (v += fb.diagonal(xv))
+      fb.diagonal === nothing || (v += convert(T, fb.diagonal(xv)))
     else
-      w = fb.f(xv)
+      w = convert(T, fb.f(xv))
       v += fb.symmetric && !_isdiagonal(I) ? 2w : w
     end
   end

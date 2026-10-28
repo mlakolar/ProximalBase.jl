@@ -78,12 +78,13 @@ map_allocations(f::F, x::X, A::TA, B::TB, C::TC) where {F, X, TA, TB, TC} =
     dense_symmetric = Matrix(Symmetric(dense, :L))
     sparse_source = sparse(dense)
     wrapped = view(dense, [4, 2, 3, 1], :)
+    contiguous = view(dense, :, :)
     rectangular = reshape(copy(dense), 2, 8)
     vector = vec(copy(dense))
     initial = SymmetricSparseIterate(4)
     initial[4, 1] = 7
     activate!(initial, tril_index(4, 3, 2))
-    for A in (symmetric, dense_symmetric, dense, sparse_source, wrapped, rectangular, vector)
+    for A in (symmetric, dense_symmetric, dense, sparse_source, wrapped, contiguous, rectangular, vector)
       check_map(double, copy(initial), A)
     end
     check_map(+, copy(initial), dense, symmetric)
@@ -92,10 +93,15 @@ map_allocations(f::F, x::X, A::TA, B::TB, C::TC) where {F, X, TA, TB, TC} =
     check_map(identity, SymmetricSparseIterate(ComplexF64, 4), dense)
 
     x = copy(initial)
-    for A in (dense, symmetric)
+    for A in (dense, dense_symmetric, symmetric, sparse_source, wrapped, contiguous)
       @test map_allocations(double, x, A) == 0
       @test map_allocations(+, x, A, dense) == 0
       @test map_allocations(+, x, A, dense, dense) == 0
+    end
+    for A in (vector, rectangular)
+      bytes = (map_allocations(double, x, A), map_allocations(+, x, A, dense),
+               map_allocations(+, x, A, dense, dense))
+      @info "Reshaped-source map! allocations (one, two, three sources)" size = size(A) bytes
     end
   end
 
@@ -104,6 +110,11 @@ map_allocations(f::F, x::X, A::TA, B::TB, C::TC) where {F, X, TA, TB, TC} =
     x = SymmetricSparseIterate(randn(4, 4))
     check_map(double, x, view(x, perm, :))
     check_map(+, x, x, view(x, perm, :))
+    check_map(double, x, reshape(x, 2, 8))
+    check_map(+, x, x, reshape(x, 2, 8))
+    check_map(+, x, x, reshape(x, 2, 8), x)
+    check_map(double, x, reshape(view(x, perm, :), 2, 8))
+    check_map(+, x, x, reshape(view(x, perm, :), 2, 8), x, x)
   end
 
   @testset "stored zeros" begin

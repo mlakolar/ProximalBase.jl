@@ -878,8 +878,11 @@ end
 
 # Full-length sources use the lower triangle once, as broadcasting does.
 # Otherwise preserve map!'s iteration order and shortest-source rule.
+# Matching axes avoid carrying reshaped-source unions into the broadcast.
 function Base.map!(f::F, x::SymmetricSparseIterate, A::AbstractArray) where {F}
-  if length(A) == length(x)
+  if axes(A) == axes(x)
+    return x .= f.(A)
+  elseif length(A) == length(x)
     A′ = _reshape_like(A, x)
     if axes(A′) == axes(x)
       return x .= f.(A′)
@@ -889,7 +892,9 @@ function Base.map!(f::F, x::SymmetricSparseIterate, A::AbstractArray) where {F}
 end
 
 function Base.map!(f::F, x::SymmetricSparseIterate, A::AbstractArray, B::AbstractArray) where {F}
-  if length(A) == length(B) == length(x)
+  if axes(A) == axes(B) == axes(x)
+    return x .= f.(A, B)
+  elseif length(A) == length(B) == length(x)
     A′, B′ = _reshape_like(A, x), _reshape_like(B, x)
     if axes(A′) == axes(B′) == axes(x)
       return x .= f.(A′, B′)
@@ -901,14 +906,19 @@ end
 function Base.map!(f::F, x::SymmetricSparseIterate, A::AbstractArray, B::AbstractArray,
                    C::AbstractArray, Ds::Vararg{AbstractArray, N}) where {F, N}
   As = (A, B, C, Ds...)
-  if all(a -> length(a) == length(x), As)
+  if all(a -> axes(a) == axes(x), As)
+    x .= f.(A, B, C, Ds...)
+    return x
+  elseif all(a -> length(a) == length(x), As)
     A′, B′, C′ = _reshape_like(A, x), _reshape_like(B, x), _reshape_like(C, x)
     Ds′ = map(a -> _reshape_like(a, x), Ds)
     if axes(A′) == axes(B′) == axes(C′) == axes(x) && all(a -> axes(a) == axes(x), Ds′)
-      return x .= f.(A′, B′, C′, Ds′...)
+      x .= f.(A′, B′, C′, Ds′...)
+      return x
     end
   end
   invoke(Base.map!, Tuple{F, AbstractArray, Vararg{AbstractArray}}, f, x, As...)
+  x
 end
 
 function Base.fill!(x::SymmetricSparseIterate, v)

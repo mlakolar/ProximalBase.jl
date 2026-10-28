@@ -260,11 +260,11 @@ function (f::IndToeplitz)(x::AbstractMatrix)
 end
 
 function _toeplitz_scaled_value(f, x, ::Type{T}) where {T}
-  m = _maximum_abs(x)
-  isfinite(m) || return T(Inf)
-  k = _comparison_exponent(_magnitude_exponent(m))
+  mx = _maximum_abs(x)
+  isfinite(mx) || return T(Inf)
+  k = _comparison_exponent(_magnitude_exponent(mx))
   scale = _power_factors(T, -k)
-  floor = ldexp(one(T), -k)
+  unit = ldexp(one(T), -k)
   m, n = size(x)
   ok = true
   if f.symmetric
@@ -274,7 +274,7 @@ function _toeplitz_scaled_value(f, x, ::Type{T}) where {T}
         v += _scale_value(x[r, r + d], scale) + _scale_value(x[r + d, r], scale)
       end
       μ = v / (2 * (n - d))
-      slack = _tol(T) * max(floor, abs(μ))
+      slack = _tol(T) * max(unit, abs(μ))
       for r in 1:n-d
         ok &= (abs(_scale_value(x[r, r + d], scale) - μ) <= slack) &
               (abs(_scale_value(x[r + d, r], scale) - μ) <= slack)
@@ -288,7 +288,7 @@ function _toeplitz_scaled_value(f, x, ::Type{T}) where {T}
         v += _scale_value(x[r, r + d], scale)
       end
       μ = v / length(rows)
-      slack = _tol(T) * max(floor, abs(μ))
+      slack = _tol(T) * max(unit, abs(μ))
       for r in rows
         ok &= abs(_scale_value(x[r, r + d], scale) - μ) <= slack
       end

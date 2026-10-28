@@ -326,6 +326,14 @@ end
       for A in ([1e10 0.0], sparse([1e10 0.0]))
         @test IndAffine(A, [0.0])([1e300, 0.0]) == Inf
       end
+      fd = IndAffine(Float32[1 -1], Float32[0])
+      fs = IndAffine(sparse(Float32[1 -1]), Float32[0])
+      M = floatmax(Float64)
+      for (x, expected) in (([M, M], 0.0), ([M, -M], Inf))
+        @test fd(x) == expected
+        @test fs(x) == expected
+        @test fs(x) == fd(x)
+      end
       for symmetric in (false, true)
         @test IndToeplitz(; symmetric)([1e308 0.0; 0.0 1.2e308]) == Inf
       end

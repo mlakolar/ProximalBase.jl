@@ -8,6 +8,7 @@ tests = [
   "compat",
   "partial",
   "sparse_iterate",
+  "symmetric_map",
   "iterate_queries",
   "atom_iterate",
   "symmetric_products",

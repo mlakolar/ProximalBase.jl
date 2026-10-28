@@ -30,12 +30,13 @@ and iteration follow the dense matrix, so that an off-diagonal entry is visited
 twice.
 
 Writing `x[r, c]` writes `x[c, r]` too. Broadcasting into `x`, `copyto!`, `fill!`,
-`rmul!`, `lmul!`, `axpy!` and `axpby!` update each entry once, from the lower
-triangle of a source that is not symmetric. Other functions that update the
-entries of `x` one at a time, such as `map!` or `mul!` into `x`, would update an
-off-diagonal entry twice, and those that build a result that is not symmetric in
-`similar(x)`, such as `cumsum` or `circshift`, need `Matrix(x)`. `triu`, `tril`
-and `sparse` return a `SparseMatrixCSC`.
+`rmul!`, `lmul!`, `axpy!`, `axpby!` and `map!` from sources with as many entries
+as `x` update each entry once, from the lower triangle of a source that is not
+symmetric. Other functions that update the entries of `x` one at a time, such
+as `replace!` or `mul!` into `x`, would update an off-diagonal entry twice, and
+those that build a result that is not symmetric in `similar(x)`, such as
+`cumsum` or `circshift`, need `Matrix(x)`. `triu`, `tril` and `sparse` return a
+`SparseMatrixCSC`.
 
 Its coordinates are the `p(p+1)/2` entries of the lower triangle, numbered
 column by column ([`tril_index`](@ref)): [`prox_coordinate!`](@ref) updates
@@ -873,6 +874,41 @@ function Base.copyto!(x::SymmetricSparseIterate, bc::Broadcast.Broadcasted{Nothi
     _setstored!(x, bc′[CartesianIndex(r, c)], tril_index(p, r, c))
   end
   x
+end
+
+# Full-length sources use the lower triangle once, as broadcasting does.
+# Otherwise preserve map!'s iteration order and shortest-source rule.
+function Base.map!(f::F, x::SymmetricSparseIterate, A::AbstractArray) where {F}
+  if length(A) == length(x)
+    A′ = _reshape_like(A, x)
+    if axes(A′) == axes(x)
+      return x .= f.(A′)
+    end
+  end
+  invoke(Base.map!, Tuple{F, AbstractArray, AbstractArray}, f, x, A)
+end
+
+function Base.map!(f::F, x::SymmetricSparseIterate, A::AbstractArray, B::AbstractArray) where {F}
+  if length(A) == length(B) == length(x)
+    A′, B′ = _reshape_like(A, x), _reshape_like(B, x)
+    if axes(A′) == axes(B′) == axes(x)
+      return x .= f.(A′, B′)
+    end
+  end
+  invoke(Base.map!, Tuple{F, AbstractArray, AbstractArray, AbstractArray}, f, x, A, B)
+end
+
+function Base.map!(f::F, x::SymmetricSparseIterate, A::AbstractArray, B::AbstractArray,
+                   C::AbstractArray, Ds::Vararg{AbstractArray, N}) where {F, N}
+  As = (A, B, C, Ds...)
+  if all(a -> length(a) == length(x), As)
+    A′, B′, C′ = _reshape_like(A, x), _reshape_like(B, x), _reshape_like(C, x)
+    Ds′ = map(a -> _reshape_like(a, x), Ds)
+    if axes(A′) == axes(B′) == axes(C′) == axes(x) && all(a -> axes(a) == axes(x), Ds′)
+      return x .= f.(A′, B′, C′, Ds′...)
+    end
+  end
+  invoke(Base.map!, Tuple{F, AbstractArray, Vararg{AbstractArray}}, f, x, As...)
 end
 
 function Base.fill!(x::SymmetricSparseIterate, v)

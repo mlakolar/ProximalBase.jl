@@ -118,7 +118,6 @@ _tol(::Type) = sqrt(eps(Float64))
 
 # Compare magnitudes directly, without a subtraction dependency on the value.
 @inline _finite_value(v::AbstractFloat) = abs(v) < oftype(v, Inf)
-@inline _finite_value(v) = isfinite(v)
 # A nonnegative bound is finite exactly when it is below infinity.
 @inline _finite_bound(v) = v < oftype(v, Inf)
 

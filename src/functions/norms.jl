@@ -137,8 +137,8 @@ On an [`AtomIterate`](@ref), whose coordinates are groups,
 [`prox_coordinate!`](@ref) updates a group and [`kkt_violation`](@ref) measures
 one. `AtomIterate(x, f)` builds an iterate that shares the groups of `f`, which
 must then partition `1:length(x)`; include otherwise unpenalized entries in
-additional groups with weight 0. With shared groups, the value and the proximal operator
-touch only the active groups. On ordinary arrays, active-set solvers can use
+additional groups with weight 0. With equal groups, the value and the proximal
+operator touch only the active groups. On ordinary arrays, active-set solvers can use
 [`restrict`](@ref) and [`kkt_violation`](@ref).
 
 # Example
@@ -405,8 +405,8 @@ end
 kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AtomIterate, k::Integer) =
   (_checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - f.λ0 * f.w[k])
 
-# the coordinates of x are the groups of f; O(1) when they share them
-_checksamegroups(f::AbstractGroupPenalty, x::AtomIterate) = x.groups === f.groups || x.groups == f.groups ||
+# the coordinates of x are the groups of f
+_checksamegroups(f::AbstractGroupPenalty, x::AtomIterate) = _samelayout(f, x) ||
   throw(DimensionMismatch("f and x must have the same groups."))
 kkt_violation(f::AbstractGroupPenalty, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate"))
@@ -424,7 +424,7 @@ end
 
 # with the groups of f, only the active groups count
 function (f::HomogeneousGroupNorm)(x::AtomIterate)
-  x.groups === f.groups || return invoke(f, Tuple{AbstractArray}, x)
+  _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   T = float(eltype(x))
   iszero(f.λ0) && return zero(T)
   v = zero(T)
@@ -440,7 +440,7 @@ end
 value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
 
 function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::AtomIterate, γ::Union{Real, AbstractVector})
-  y.groups === x.groups === f.groups ||
+  _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, HomogeneousGroupNorm, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))

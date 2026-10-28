@@ -23,6 +23,7 @@ a_cd!(x, f, k, γ) = prox_coordinate!(x, f, k, γ)
 a_kkt(f, g, x, k) = kkt_violation(f, g, x, k)
 a_gmap!(G, f, g, x, γ) = gradient_mapping!(G, f, g, x, γ)
 a_mul!(out, A, x, α, β) = mul!(out, A, x, α, β)
+a_copyto!(y, x) = copyto!(y, x)
 
 function zero_alloc_prox(f, x; γ = 0.7, value = true)
   y = similar(x)
@@ -38,6 +39,37 @@ function zero_alloc_grad(f, x)
   @test allocs(a_value, f, x) == 0
   @test allocs(a_vgrad!, g, f, x) == 0
   @test allocs(a_grad!, g, f, x) == 0
+end
+
+@testset "distinct group layouts allocate nothing" begin
+  ranges = [1:2, 3:5, 6:6, 7:9]
+  layouts = (ranges, collect.(ranges))
+  v = [3., -4., 0., 0., 0., 0., 2., -1., 0.5]
+  for gs in layouts
+    for f in (GroupNormL2(0.4, gs), GroupNormLinf(0.4, gs), SparseGroupNormL2(0.2, 0.4, gs),
+              GroupMCP(0.4, gs), GroupSCAD(0.4, gs), IndBallGroupL0(1, gs; k = 1))
+      for xgroups in layouts, ygroups in layouts
+        xa = AtomIterate(v, xgroups)
+        activate!(xa, 3)
+        ya = AtomIterate(ones(9), ygroups)
+        @test xa.groups !== f.groups && ya.groups !== xa.groups && ya.groups !== f.groups
+        @test allocs(a_value, f, xa) == 0
+        @test allocs(a_prox!, ya, f, xa, 0.7) == 0
+        @test allocs(a_copyto!, ya, xa) == 0
+        alias = copy(xa)
+        @test allocs(a_prox!, alias, f, alias, 0.7) == 0
+        f isa IndBallGroupL0 && continue
+        for step in (0.7, [0.4, 1.2, 0.3, 0.8])
+          @test allocs(a_prox!, ya, f, xa, step) == 0
+          @test allocs(a_vprox!, ya, f, xa, step) == 0
+          alias = copy(xa)
+          @test allocs(a_vprox!, alias, f, alias, step) == 0
+        end
+        @test allocs(a_cd!, copy(xa), f, 1, 0.7) == 0
+        @test allocs(a_kkt, f, v, xa, 2) == 0
+      end
+    end
+  end
 end
 
 @testset "zero allocations" begin

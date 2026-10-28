@@ -16,6 +16,7 @@ tests = [
   "precision_mixed",
   "smooth",
   "separable",
+  "binary",
   "losses",
   "entropy",
   "norms",

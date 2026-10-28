@@ -55,7 +55,8 @@ on real vectors. Its proximal operator is `Lx`, where `x` minimizes
   point solves `(γQ + L'L)x = L'y - γq`. A Cholesky factorization is cached
   for the last step. A very small or large step can make this matrix
   numerically singular even when the assumptions hold. Pivots at the
-  rounding scale of the assembled matrix are rejected. The standalone value
+  rounding scale of the assembled matrix are rejected: a squared pivot
+  must exceed `64n eps(T) maxⱼ |Gⱼⱼ|` for `G = γQ + L'L`. The standalone value
   uses a rank-revealing SVD of `L` and a solve on its null space, cached on
   first use. Singular values at most `max(size(L)...) eps(T) σ₁` are dropped,
   as in [`IndAffine`](@ref); infeasible arguments have value `Inf`.
@@ -305,10 +306,23 @@ end
 # A successful Cholesky can retain a rounding-level pivot of a singular matrix.
 _image_factor_diagonal(factor::Cholesky) = diag(factor.U)
 _image_factor_diagonal(factor) = diag(factor)
+function _image_diagonal_scale(A)
+  scale = zero(float(eltype(A)))
+  @inbounds for i in axes(A, 1)
+    scale = max(scale, abs(A[i, i]))
+  end
+  scale
+end
 function _image_factor_ok(factor, ::Type{T}, scale, n) where {T}
   issuccess(factor) || return false
   d = _image_factor_diagonal(factor)
-  isempty(d) || minimum(d) > _tol(T) * sqrt(max(1, n)) * sqrt(scale)
+  isempty(d) && return true
+  isfinite(scale) && scale > 0 && all(isfinite, d) || return false
+  # Gram/projection products and Cholesky accumulate errors on the n*eps
+  # scale. A safety factor of 64 allows for their combined rounding variation,
+  # rather than treating a backend's rounding-level positive pivot as rank.
+  # Compare square roots in relative units to avoid overflow or underflow.
+  minimum(d) / sqrt(scale) > sqrt(T(64) * max(1, n) * eps(T))
 end
 
 function _image_factor!(h::_QuadraticLinearImage, γ)
@@ -331,7 +345,7 @@ function _image_factor!(h::_QuadraticLinearImage, γ)
     e isa Union{PosDefException, ZeroPivotException, LAPACKException} || rethrow()
     throw(ArgumentError(message))
   end
-  _image_factor_ok(factor, T, _maximum_abs(A), size(A, 1)) || throw(ArgumentError(message))
+  _image_factor_ok(factor, T, _image_diagonal_scale(A), size(A, 1)) || throw(ArgumentError(message))
   cache.factor, cache.γ = factor, step
   cache
 end
@@ -413,8 +427,12 @@ function _image_value_cache!(h::_QuadraticLinearImage)
   tol = max(m, n) * eps(T) * (isempty(F.S) ? zero(T) : F.S[1])
   k = count(>(tol), F.S)
   U, V, N = F.U[:, 1:k], F.V[:, 1:k], F.V[:, (k + 1):n]
-  R = cholesky(Symmetric(N' * Matrix{T}(h.f.A) * N); check = false)
-  _image_factor_ok(R, T, _maximum_abs(h.f.A), n) ||
+  A = N' * Matrix{T}(h.f.A) * N
+  # Projection can leave rounding noise on an exact null direction; retain
+  # Q's scale even when the entire reduced matrix is at that noise level.
+  scale = max(_image_diagonal_scale(h.f.A), _image_diagonal_scale(A))
+  R = cholesky(Symmetric(A); check = false)
+  _image_factor_ok(R, T, scale, n) ||
     throw(ArgumentError("Q must be positive definite on null(L) numerically"))
   c.valuecache = _ImageValueCache(U, V, F.S[1:k], N, R, zeros(T, k), zeros(T, n - k))
 end

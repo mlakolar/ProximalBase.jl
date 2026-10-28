@@ -102,11 +102,11 @@ end
     latent = (K \ [-q; y])[1:n]
     @test dense(y) ≈ dot(latent, Q * latent) / 2 + dot(q, latent) + 0.3 rtol = 1e-10
   end
-  for map in (Matrix{Float64}(I, n, n)[1:1, :], sparse(Matrix{Float64}(I, n, n)[1:1, :]))
+  for T in (Float32, Float64), map in (Matrix{T}(I, n, n)[1:1, :], sparse(Matrix{T}(I, n, n)[1:1, :]))
     # A single grid value leaves the affine slope unobserved.
-    g = LinearImage(QuadraticFunction(D' * D), map)
-    @test_throws ArgumentError prox(g, [0.4], 0.6)
-    @test_throws ArgumentError g([0.4])
+    g = LinearImage(QuadraticFunction(T.(D' * D)), map)
+    @test_throws ArgumentError prox(g, T[0.4], T(0.6))
+    @test_throws ArgumentError g(T[0.4])
   end
   for Q in (Diagonal(fill(2.0, n)), SymTridiagonal(fill(3.0, n), fill(-1.0, n - 1)),
             Tridiagonal(fill(-1.0, n - 1), fill(3.0, n), fill(-1.0, n - 1)),
@@ -120,6 +120,26 @@ end
     @test prox(g, T[1], T(0.5)) ≈ T[0.45] rtol = (T === Float32 ? 1e-6 : 1e-12)
     @test g(T[1]) isa T
     @test value_and_prox!(T[0], g, T[1], T(0.5)) isa T
+  end
+end
+
+@testset "numerical positive definiteness" begin
+  for T in (Float32, Float64), map in (T[1 0], sparse(T[1 0]))
+    # These strictly positive pivots pass the old one-rounding-level cutoff.
+    # The enlarged cutoff must reject them in both the prox and reduced solve.
+    δ = T(32 * 2) * eps(T)
+    near_singular = LinearImage(QuadraticFunction(T[1 0; 0 δ]), map)
+    @test_throws ArgumentError prox(near_singular, T[1], one(T))
+    @test_throws ArgumentError near_singular(T[1])
+
+    # A resolved small eigenvalue remains valid: the proximal system has
+    # condition number about 4e12 in Float64 and 8e3 in Float32.
+    δ = T(1024 * 2) * eps(T)
+    g = LinearImage(QuadraticFunction(T[1 0; 0 δ], T[-1, δ]), map)
+    @test prox(g, T[2], one(T)) ≈ T[1.5] rtol = 8eps(T)
+    @test g.cache.latent ≈ T[1.5, -1] rtol = 8eps(T)
+    @test g(T[1]) ≈ -one(T) / 2 - δ / 2 rtol = 8eps(T)
+    @test value_and_prox!(T[0], g, T[2], one(T)) ≈ -T(0.375) - δ / 2 rtol = 8eps(T)
   end
 end
 

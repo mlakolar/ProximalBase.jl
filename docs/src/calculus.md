@@ -96,13 +96,18 @@ structured band matrices `Diagonal`, `Bidiagonal`, `Tridiagonal` and
 `SymTridiagonal` use sparse factorizations; these solves allocate and compute
 in `Float64` on Julia 1.10. Other matrix types are converted to dense matrices
 for factorization. Very small or large steps can make the system numerically
-singular or ill-conditioned. Cholesky pivots no greater than
-``\sqrt{n\operatorname{eps}(T)\max_{ij}|A_{ij}|}`` for the assembled system
-``A`` are rejected as numerically singular. The standalone quadratic value
+singular or ill-conditioned. Squared Cholesky pivots no greater than
+``64n\operatorname{eps}(T)\max_j|G_{jj}|`` for the assembled system
+``G = \gamma Q + L^\top L`` are rejected as numerically singular. The factor
+64 allows for rounding in both the matrix products and factorization.
+The standalone quadratic value
 uses a cached SVD of `L`, with the rank tolerance of [`IndAffine`](@ref), and
 minimizes on its null space. Tall maps use a thin left factor; only wide maps
 need a full decomposition to retain the complete right null space. Its reduced
-factor uses the same pivot test with the scale and dimension of `Q`.
+factor uses the same pivot test with the original dimension of `Q` and the
+larger maximum absolute diagonal of `Q` and ``N^\top QN``, where ``N`` is
+the null-space basis. Retaining the scale of `Q` prevents projection rounding
+from making an exact null direction appear positive definite.
 This path densifies sparse data and accepts dependent
 rows and rank-zero maps. Range membership uses a scaled residual and the tolerance
 ``\sqrt{\operatorname{eps}(T)}\max(1,\lVert y\rVert)``.

@@ -203,14 +203,24 @@ _ridge(r::Regularize, x::AbstractArray) =
 (r::Regularize)(x::AbstractArray) = (_checkparams(r, x); r.f(x) + _ridge(r, x))
 
 function value_and_gradient!(g::AbstractArray, r::Regularize, x::AbstractArray)
-  _checksize(g, x)
-  _checkparams(r, x)
+  _checkwrite(value_and_gradient!, r, g, x)
   v = value_and_gradient!(g, r.f, x)
   _add_ridge_gradient!(g, r, x)
   v + _ridge(r, x)
 end
 gradient!(g::AbstractArray, r::Regularize, x::AbstractArray) =
-  (_checksize(g, x); _checkparams(r, x); gradient!(g, r.f, x); _add_ridge_gradient!(g, r, x))
+  (_checkwrite(gradient!, r, g, x); gradient!(g, r.f, x); _add_ridge_gradient!(g, r, x))
+
+function _checkwrite(op::O, r::Regularize, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+  _checksize(y, x)
+  _checkparams(r, x)
+  r.c === nothing || Base.Broadcast.check_broadcast_axes(axes(y), x, r.c)
+  if op === value_and_prox! || op === value_and_gradient!
+    r.c === nothing || size(x) == size(r.c) ||
+      throw(DimensionMismatch("the arrays have sizes $(size(x)) and $(size(r.c))"))
+  end
+  _checkwrite(op, r.f, y, op === prox! || op === value_and_prox! ? y : x)
+end
 
 function _add_ridge_gradient!(g, r::Regularize, x)
   ρ = convert(eltype(g), r.ρ)
@@ -231,13 +241,11 @@ function _shrunk!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
 end
 
 function prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
-  _checksize(y, x)
-  _checkparams(r, x)
+  _checkwrite(prox!, r, y, x)
   prox!(y, r.f, y, _shrunk!(y, r, x, γ))
 end
 function value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
-  _checksize(y, x)
-  _checkparams(r, x)
+  _checkwrite(value_and_prox!, r, y, x)
   v = value_and_prox!(y, r.f, y, _shrunk!(y, r, x, γ))
   v + _ridge(r, y)
 end

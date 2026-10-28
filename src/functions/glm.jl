@@ -207,8 +207,14 @@ HuberLoss(y::AbstractVector, X::AbstractMatrix, δ::Real; kwargs...) = GLMLoss(H
 issmooth(::Type{<:GLMLoss}) = true
 isconvex(::Type{<:GLMLoss}) = true
 
-function _linear_predictor!(f::GLMLoss, β::AbstractVector)
+_checkpredictor(f::GLMLoss, β::AbstractVector) =
   length(β) == size(f.X, 2) || throw(DimensionMismatch("β has length $(length(β)) and X has $(size(f.X, 2)) columns"))
+
+_checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::GLMLoss{L, T}, g::AbstractVector, β::AbstractVector) where {L, T} =
+  (_checksize(g, β); _checkpredictor(f, β); true)
+
+function _linear_predictor!(f::GLMLoss, β::AbstractVector)
+  _checkpredictor(f, β)
   mul!(f.η, f.X, β)
   f.offset === nothing || (f.η .+= f.offset)
   f.η
@@ -226,7 +232,7 @@ function (f::GLMLoss{L, T})(β::AbstractVector) where {L, T}
 end
 
 function value_and_gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVector) where {L, T}
-  _checksize(g, β)
+  _checkwrite(value_and_gradient!, f, g, β)
   η = _linear_predictor!(f, β)
   d = f.d
   s = zero(T)
@@ -245,7 +251,7 @@ function value_and_gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVe
 end
 
 function gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVector) where {L, T}
-  _checksize(g, β)
+  _checkwrite(gradient!, f, g, β)
   η = _linear_predictor!(f, β)
   @inbounds for i in eachindex(η)
     w = convert(T, _entry(f.weights, i))

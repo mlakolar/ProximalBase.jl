@@ -379,4 +379,81 @@ end
   end
 end
 
+@testset "IndGraph review regressions" begin
+  @testset "promoted membership products" begin
+    a = Float32(1 + 2.0^-12)
+    for A in (reshape([a], 1, 1), sparse(reshape([a], 1, 1))), operator in (false, true)
+      f = IndGraph(A; operator)
+      point = ([a], [Float64(a)^2])
+      @test f(point) === 0.0
+      @test f((Float64.(point[1]), point[2])) === 0.0
+      @test allocs(f, point) == 0
+    end
+    f = IndGraph(GraphOperator(reshape([a], 1, 1)))
+    @test f(([a], [Float64(a)^2])) === 0.0
+  end
+
+  @testset "integer operator membership" begin
+    for A in (reshape([2], 1, 1), sparse(reshape([2], 1, 1)),
+              GraphOperator(reshape([2], 1, 1)))
+      f = IndGraph(A; operator = true)
+      point = ([typemax(Int)], [-2])
+      @test f(point) === Inf
+      @test allocs(f, point) == 0
+    end
+  end
+
+  @testset "warm starts across magnitudes" begin
+    for T in (Float32, Float64), wide in (false, true)
+      A = wide ? T[1 0] : ones(T, 1, 1)
+      tiny = T === Float32 ? T(1e-30) : T(1e-200)
+      for B in (A, GraphOperator(A))
+        f = IndGraph(B; operator = true)
+        prox(f, (fill(T(2), size(A, 2)), T[0]))
+        point = (fill(tiny, size(A, 2)), T[0])
+        p = prox(f, point)
+        @test f.converged
+        @test p[1][1] ≈ tiny / 2 rtol = 8eps(T) atol = 0
+        @test p[2][1] ≈ tiny / 2 rtol = 8eps(T) atol = 0
+      end
+      # Keep the pair at unit scale while the system's rhs becomes tiny.
+      small_A = wide ? T[tiny 0] : reshape([tiny], 1, 1)
+      f = IndGraph(small_A; operator = true)
+      warm = wide ? (zeros(T, 2), T[2]) : (T[2], T[0])
+      prox(f, warm)
+      point = wide ? (T[1, 0], T[0]) : (T[0], T[1])
+      p = prox(f, point)
+      @test f.converged
+      @test p[1][1] ≈ (wide ? one(T) : tiny) rtol = 8eps(T) atol = 0
+      @test p[2][1] ≈ (wide ? tiny : zero(T)) rtol = 8eps(T) atol = 0
+    end
+  end
+
+  @testset "scaled projection right-hand sides" begin
+    for T in (Float32, Float64), wide in (false, true)
+      A = wide ? T[1 0] : ones(T, 1, 1)
+      largest = floatmax(T)
+      point = wide ? (T[-largest, 0], T[largest]) : (T[largest], T[largest])
+      for B in (A, sparse(A), GraphOperator(A)), operator in (false, true)
+        !(B isa AbstractMatrix) && !operator && continue
+        f = IndGraph(B; operator)
+        for oracle in (prox!, value_and_prox!), alias in (false, true)
+          z = deepcopy(point)
+          out = alias ? z : map(similar, z)
+          oracle(out, f, z, one(T))
+          @test f.converged
+          @test all(isfinite, stack(out))
+          expected = wide ? zeros(T, 3) : ones(T, 2)
+          @test stack(out) / largest ≈ expected rtol = 8eps(T) atol = 8eps(T)
+        end
+        if !(B isa SparseMatrixCSC)
+          out = map(similar, point)
+          @test allocs(prox!, out, f, point, one(T)) == 0
+          @test allocs(value_and_prox!, out, f, point, one(T)) == 0
+        end
+      end
+    end
+  end
+end
+
 end

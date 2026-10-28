@@ -14,6 +14,12 @@ operator projects `(c, d)` onto the graph, independently of the scalar step:
 - with `n ≤ m`, solve `(I + AᵀA)x = c + Aᵀd` and return `(x, Ax)`;
 - with `n > m`, solve `(I + AAᵀ)q = d - Ac` and return `(c + Aᵀq, d - q)`.
 
+The input pair is scaled by a power of two before forming the right-hand side,
+and the result is rescaled into the output blocks' types. This avoids overflow
+in the right-hand side when the projection itself is representable.
+At extreme scales, direct solves use one residual correction before rescaling
+to avoid overflowing a representable boundary result through solve rounding.
+
 For a dense matrix, a Cholesky factorization of the smaller system is cached
 at construction, and projections allocate nothing. A sparse matrix is factored
 sparsely through `cholesky`; its solves allocate and may compute in `Float64`
@@ -27,6 +33,7 @@ With `operator = true`, or for an `A` that is not an `AbstractMatrix`, `A`
 must provide `size(A)`, a real `eltype(A)`, `mul!(y, A, x)` and
 `mul!(x, A', y)`. Conjugate gradients solve the smaller system from the previous
 solution, stopping when the true residual satisfies `‖r‖ ≤ rtol * ‖rhs‖`.
+A warm start larger in norm than the new right-hand side is discarded.
 A zero right-hand side returns zero immediately. At `maxiter`, the last iterate
 is returned, so the projection can be inexact. `f.converged` reports whether
 this residual test was met, and `f.iterations` counts the iterations of the
@@ -38,7 +45,9 @@ The value is `0` when
 `‖Ax - y‖ ≤ √eps(S) * max(1, ‖y‖, ‖A‖_F * ‖x‖)`, and `Inf` otherwise,
 with `S` the promoted floating type of `A` and both input blocks. For operators
 the bound instead uses `max(1, ‖y‖, ‖Ax‖)`. Nonfinite operator images give `Inf`.
-The value buffer is reused while this promoted type stays unchanged.
+Matrix entries and the input vector are converted to `S` before the value's
+product. Operators must support products in this promoted type. The value
+buffers are reused while this promoted type stays unchanged.
 [`value_and_prox!`](@ref) returns a typed zero in the promoted floating type of
 the data and all input and output blocks, without checking feasibility.
 Allocating [`prox`](@ref) preserves each block's floating type.
@@ -59,7 +68,11 @@ mutable struct IndGraph{T<:AbstractFloat, M, F} <: AbstractFunction
   product::Vector{T}
   x::Vector{T}
   y::Vector{T}
+  c::Vector{T}
+  d::Vector{T}
   value::Scratch
+  value_input::Scratch
+  value_matrix::Scratch
   scale::T
   rtol::T
   maxiter::Int
@@ -87,7 +100,8 @@ function IndGraph(A; operator::Bool = !(A isa AbstractMatrix),
   fact = operator ? nothing : _graph_factor(A, T, tall)
   scale = operator ? zero(T) : convert(T, norm(A))
   IndGraph(A, fact, tall, zeros(T, k), zeros(T, k), zeros(T, k),
-    zeros(T, k), zeros(T, k), zeros(T, n), zeros(T, m), Scratch(zeros(T, m)),
+    zeros(T, k), zeros(T, k), zeros(T, n), zeros(T, m), zeros(T, n), zeros(T, m),
+    Scratch(zeros(T, m)), Scratch(zeros(T, n)), Scratch(),
     scale, tol, Int(maxiter), 0, false)
 end
 
@@ -141,9 +155,9 @@ function (f::IndGraph{T})(z) where {T}
   S = float(promote_type(T, eltype(x), eltype(y)))
   all(isfinite, x) && all(isfinite, y) || return S(Inf)
   r = _array_buffer!(f.value, S, (length(f.y),))
-  f.fact !== nothing && eltype(x) <: Integer &&
-    return _affine_scaled_value((A = f.A, b = y, rb = r), x, S)
-  mul!(r, f.A, x)
+  xs = eltype(x) === S ? x : copyto!(_array_buffer!(f.value_input, S, (length(f.x),)), x)
+  A = _graph_value_matrix!(f.value_matrix, f.A, S)
+  mul!(r, A, xs)
   f.fact === nothing && return _graph_operator_value!(r, y, S)
   r .-= y
   nr = _norm2(r)
@@ -151,6 +165,20 @@ function (f::IndGraph{T})(z) where {T}
   isfinite(nr) && isfinite(slack) && return _ind(nr <= slack, S)
   # The affine value uses the same residual, including its overflow-safe scaling.
   _affine_scaled_value((A = f.A, b = y, rb = r), x, S)
+end
+
+_graph_value_matrix!(::Scratch, A, ::Type) = A
+function _graph_value_matrix!(scratch::Scratch, A::AbstractMatrix, ::Type{S}) where {S}
+  eltype(A) === S && return A
+  copyto!(_array_buffer!(scratch, S, size(A)), A)
+end
+function _graph_value_matrix!(scratch::Scratch, A::SparseMatrixCSC, ::Type{S}) where {S}
+  eltype(A) === S && return A
+  B = scratch.buf
+  B isa SparseMatrixCSC{S, Int} && size(B) == size(A) && return B
+  B = _graph_matrix(A, S)
+  scratch.buf = B
+  B
 end
 
 function _graph_operator_value!(r, y, ::Type{S}) where {S}
@@ -184,15 +212,27 @@ function _graph_system!(out, f::IndGraph, v)
   out
 end
 
-function _graph_solve!(f::IndGraph{T, M, <:Cholesky}) where {T<:AbstractFloat, M}
-  copyto!(f.solution, f.rhs)
-  ldiv!(f.fact, f.solution)
+function _graph_ldiv!(out, fact::Cholesky, rhs)
+  copyto!(out, rhs)
+  ldiv!(fact, out)
+end
+_graph_ldiv!(out, fact, rhs) = copyto!(out, fact \ rhs)
+
+function _graph_solve!(f::IndGraph)
+  _graph_ldiv!(f.solution, f.fact, f.rhs)
   f.converged = true
 end
 
-function _graph_solve!(f::IndGraph)
-  copyto!(f.solution, f.fact \ f.rhs)
-  f.converged = true
+function _graph_refine!(f::IndGraph{T}, k) where {T}
+  f.fact === nothing && return
+  k >= exponent(floatmax(T)) - 1 || return
+  # A rounding error near floatmax can turn a finite boundary solution into Inf.
+  _graph_system!(f.product, f, f.solution)
+  f.residual .= f.rhs .- f.product
+  _graph_finite(f.residual)
+  all(iszero, f.residual) && return
+  _graph_ldiv!(f.residual, f.fact, f.residual)
+  f.solution .+= f.residual
 end
 
 function _graph_solve!(f::IndGraph{T, M, Nothing}) where {T<:AbstractFloat, M}
@@ -205,15 +245,23 @@ function _graph_solve!(f::IndGraph{T, M, Nothing}) where {T<:AbstractFloat, M}
     return
   end
   tol = _positive_product(f.rtol, one(T), nb)
+  # The solution of this SPD system has norm at most that of its rhs.
+  _norm2(q) > nb && fill!(q, zero(T))
   _graph_system!(v, f, q)
   r .= rhs .- v
   _graph_finite(r)
-  if _norm2(r) <= tol
+  nr = _norm2(r)
+  if nr <= tol
     f.converged = true
     return
   end
+  if nr > nb
+    fill!(q, zero(T))
+    copyto!(r, rhs)
+    nr = nb
+  end
   # Powers of two keep squared directions in range without rounding a rescaling.
-  unit = ldexp(one(T), _magnitude_exponent(nb))
+  unit = ldexp(one(T), _magnitude_exponent(nr))
   r ./= unit
   copyto!(p, r)
   rr = dot(r, r)
@@ -247,24 +295,42 @@ function _graph_solve!(f::IndGraph{T, M, Nothing}) where {T<:AbstractFloat, M}
   nothing
 end
 
-function _graph_project!(f::IndGraph, z)
+function _graph_scale_inputs!(f::IndGraph, z)
   c, d = z
+  _graph_finite(c)
+  _graph_finite(d)
+  k = _magnitude_exponent(max(_maximum_abs(c), _maximum_abs(d)))
+  @inbounds for i in eachindex(f.c, c)
+    f.c[i] = ldexp(float(c[i]), -k)
+  end
+  @inbounds for i in eachindex(f.d, d)
+    f.d[i] = ldexp(float(d[i]), -k)
+  end
+  k
+end
+
+function _graph_scaled_output(v, ::Type{T}, k) where {T}
+  S = float(promote_type(typeof(v), T))
+  convert(T, ldexp(S(v), k))
+end
+
+function _graph_project!(f::IndGraph, k)
+  c, d = f.c, f.d
   if f.tall
-    # Convert before multiplying so integer blocks cannot overflow in integer arithmetic.
-    copyto!(f.y, d)
-    mul!(f.rhs, f.A', f.y)
+    mul!(f.rhs, f.A', d)
     f.rhs .+= c
     _graph_finite(f.rhs)
     _graph_solve!(f)
+    _graph_refine!(f, k)
     copyto!(f.x, f.solution)
     mul!(f.y, f.A, f.x)
   else
-    copyto!(f.x, c)
-    mul!(f.y, f.A, f.x)
+    mul!(f.y, f.A, c)
     _graph_finite(f.y)
     f.rhs .= d .- f.y
     _graph_finite(f.rhs)
     _graph_solve!(f)
+    _graph_refine!(f, k)
     mul!(f.x, f.A', f.solution)
     f.x .+= c
     # This identity avoids cancellation in A * (c + Aᵀq).
@@ -277,15 +343,28 @@ end
 function prox!(out, f::IndGraph, z, ::Real)
   _checkwrite(prox!, f, out, z)
   f.iterations, f.converged = 0, false
+  k = 0
   try
-    _graph_project!(f, z)
+    k = _graph_scale_inputs!(f, z)
+    _graph_project!(f, k)
+    # Check both rescaled blocks before an aliased output can overwrite the input.
+    for v in f.x
+      _graph_finite(_graph_scaled_output(v, eltype(out[1]), k))
+    end
+    for v in f.y
+      _graph_finite(_graph_scaled_output(v, eltype(out[2]), k))
+    end
   catch
     fill!(f.solution, zero(eltype(f.solution)))
     f.converged = false
     rethrow()
   end
-  copyto!(out[1], f.x)
-  copyto!(out[2], f.y)
+  @inbounds for i in eachindex(out[1], f.x)
+    out[1][i] = _graph_scaled_output(f.x[i], eltype(out[1]), k)
+  end
+  @inbounds for i in eachindex(out[2], f.y)
+    out[2][i] = _graph_scaled_output(f.y[i], eltype(out[2]), k)
+  end
   out
 end
 

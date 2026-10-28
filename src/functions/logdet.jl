@@ -26,6 +26,8 @@ the skew part contributes only a constant to the proximal objective.
 Both use workspaces that `f` owns, sized by `S`, and
 allocate nothing; do not share `f` between threads. The element type of `X`
 must be that of `S`, `Float32` or `Float64`.
+When an intermediate sum overflows although the weighted value is representable,
+the value is computed in scaled units.
 """
 struct LogDetLoss{T<:_BlasReal} <: AbstractFunction
   S::Matrix{T}
@@ -74,7 +76,20 @@ end
 
 function (f::LogDetLoss{T})(X::AbstractMatrix) where {T}
   ld = _logdet_chol!(f, X)
-  ld === nothing ? T(Inf) : f.w * (dot(f.S, X) - ld)
+  ld === nothing ? T(Inf) : _logdet_value(f, X, ld)
+end
+
+@inline function _logdet_value(f::LogDetLoss, X::AbstractMatrix, ld)
+  v = f.w * (dot(f.S, X) - ld)
+  isfinite(v) || !(all(isfinite, f.S) && all(isfinite, X)) ? v : _scaled_logdet_value(f, X, ld)
+end
+
+@noinline function _scaled_logdet_value(f::LogDetLoss{T}, X::AbstractMatrix, ld::T) where {T}
+  ks = _magnitude_exponent(_maximum_abs(f.S))
+  kx = _magnitude_exponent(_maximum_abs(X))
+  d = _scaled_dot(f.S, X, _power_factors(T, -ks), _power_factors(T, -kx))
+  v = d - _scale_value(ld, _power_factors(T, -ks - kx))
+  _scaled_product(f.w, v, ks + kx)
 end
 
 function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix) where {T}
@@ -84,7 +99,7 @@ function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMat
     fill!(G, T(NaN))
     return T(Inf)
   end
-  v = f.w * (dot(f.S, X) - ld)
+  v = _logdet_value(f, X, ld)
   C, S, w = f.C, f.S, f.w
   _potri!('U', C)             # the upper triangle of X⁻¹
   @inbounds for j in axes(C, 2), i in 1:j
@@ -113,7 +128,7 @@ function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix,
     t, U = _eigen!(f.eig)
     _rebuild_sym_out!(Y, U, t, s -> _logbarrier_root_half(s, root_step), f.C; logs = true)
   end
-  f.w * (dot(f.S, Y) - logdet_Y)
+  _logdet_value(f, Y, logdet_Y)
 end
 
 # The positive root of z² - 2half*z - root_step² = 0. Keeping the square root

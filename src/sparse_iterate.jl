@@ -83,6 +83,27 @@ function _scaled_dot(a, x::SymmetricSparseIterate, s)
   v
 end
 
+function _scaled_dot(a::AbstractArray, x::SparseIterate, sa, sx)
+  _checksize(a, x)
+  v = e = zero(sx[1])
+  @inbounds for k in 1:x.nnz
+    u = _scale_value(a[x.nzval2ind[k]], sa) * _scale_value(x.nzval[k], sx)
+    v, e = _compensated_add(v, e, u)
+  end
+  v + e
+end
+function _scaled_dot(a::AbstractArray, x::SymmetricSparseIterate, sa, sx)
+  _checksize(a, x)
+  v = e = zero(sx[1])
+  @inbounds for k in 1:x.nnz
+    r, c = tril_cartesian(x.p, x.nzval2ind[k])
+    u = _scale_value(x.nzval[k], sx)
+    v, e = _compensated_add(v, e, _scale_value(a[r, c], sa) * u)
+    r == c || ((v, e) = _compensated_add(v, e, _scale_value(a[c, r], sa) * u))
+  end
+  v + e
+end
+
 
 ####################################
 #

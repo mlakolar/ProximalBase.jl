@@ -499,6 +499,7 @@ function _partial_nuclear!(Y::AbstractMatrix, f, X::AbstractMatrix, c::T) where 
   @inbounds for j in 1:k
     v += ws.s[j] - c
   end
+  isfinite(convert(T, f.λ) * v) || return nothing
   _partial_svd_out!(Y, ws, k, σ -> σ - c)
   v
 end
@@ -512,8 +513,17 @@ end
 
 # IndPSD and TracePSD: Y = Σⱼ max(θⱼ - c, 0) uⱼuⱼᵀ over the eigenvalues above
 # c, or over the r largest when r > 0; returns Σⱼ max(θⱼ - c, 0)
-function _partial_psd!(Y::AbstractMatrix, f, X::AbstractMatrix, c::T, r::Int) where {T}
+function _partial_psd!(Y::AbstractMatrix, f, X::AbstractMatrix, c::T, r::Int,
+                       λ::Union{Nothing, T} = nothing) where {T}
   k = _leading_eigen!(f, X, T, c, r)
   k < 0 && return nothing
-  _partial_eigen_out!(Y, f.pws::PartialEigenWorkspace{T}, k, t -> max(t - c, zero(t)))
+  ws = f.pws::PartialEigenWorkspace{T}
+  if λ !== nothing
+    v = zero(T)
+    @inbounds for j in ws.ℓ-k+1:ws.ℓ
+      v += max(ws.θ[j] - c, zero(T))
+    end
+    isfinite(λ * v) || return nothing
+  end
+  _partial_eigen_out!(Y, ws, k, t -> max(t - c, zero(t)))
 end

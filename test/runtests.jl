@@ -15,6 +15,7 @@ tests = [
   "precision",
   "smooth",
   "separable",
+  "binary",
   "losses",
   "entropy",
   "norms",

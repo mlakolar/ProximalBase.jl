@@ -65,16 +65,12 @@ end
 
 function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, t, y, x)
-  _checkparam(γ, x)
-  Base.Broadcast.check_broadcast_axes(axes(y), γ)
   y .= x .- t.b
   prox!(y, t.f, y, γ)
   y .+= t.b
 end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
   _checkwrite(value_and_prox!, t, y, x)
-  _checkparam(γ, x)
-  Base.Broadcast.check_broadcast_axes(axes(y), γ)
   y .= x .- t.b
   v = value_and_prox!(y, t.f, y, γ)
   y .+= t.b
@@ -143,8 +139,16 @@ function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, γ::Abstract
   isempty(x) && return y
   g = _hyperslab_residual(f, x)
   iszero(g) && return (y === x ? y : copyto!(y, x))
-  t = convert(float(eltype(y)), g / _metric_sqnorm(f, x, γ))
-  y .= x .- t .* (γ .* _scaled_normal(f))
+  t = g / _metric_sqnorm(f, x, γ)
+  if _isscaled(f)
+    return _hyperslab_metric_output!(y, x, _normalized_normal(f.a, f.s), γ, t)
+  end
+  _hyperslab_metric_output!(y, x, f.a, γ, t)
+end
+
+# Inline so that passing the scaled normal does not allocate a view.
+@inline function _hyperslab_metric_output!(y, x, a, γ, t::T) where {T}
+  y .= x .- t .* (T.(γ) .* a)
 end
 
 # The simplex and the ℓ1 ball: max(xᵢ - γᵢν, 0) and shrink(xᵢ, γᵢν) for the

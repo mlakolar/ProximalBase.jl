@@ -774,7 +774,7 @@ function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, ::Real)
   isempty(x) && return y
   g = _hyperslab_residual(f, x)
   iszero(g) && return (y === x ? y : copyto!(y, x))
-  t = convert(float(eltype(y)), g / _normal_sqnorm(f, x))
+  t = g / _normal_sqnorm(f, x)
   y .= x .- t .* _scaled_normal(f)
 end
 

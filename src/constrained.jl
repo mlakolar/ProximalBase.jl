@@ -232,7 +232,7 @@ end
 # error; with Val(true), also the slope of φ, -Σᵢ γᵢaᵢ² Pᵢ', where Pᵢ' is the
 # slope of the scalar proximal operator at its argument. c is the function, or
 # a named tuple with its f and set, as for the live entries of variable fixing.
-function _constraint_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, v::Val = Val(false)) where {T}
+function _constraint_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ, b::Real, v::Val = Val(false)) where {T}
   set = c.set
   if _isscaled(set)
     return _constraint_gap(c.f, _normalized_normal(set.a, set.s), b, x, ν, γ, v)
@@ -266,6 +266,14 @@ function _metric_sqnorm(set::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x
   _isscaled(set) && return _metric_sqnorm(_normalized_normal(set.a, set.s), γ, T)
   _metric_sqnorm(set.a, γ, T)
 end
+
+# Convert integer steps before summing, as for the products in the array pass.
+function _metric_sqnorm(set::IndHyperslab, x::AbstractArray, γ::AbstractArray{<:Integer})
+  T = float(promote_type(eltype(γ), typeof(set.q)))
+  set.a isa Real && return convert(T, set.q) * sum(T, γ)
+  _metric_sqnorm(_scaled_normal(set), γ, T)
+end
+
 function _metric_sqnorm(a::AbstractArray, γ::AbstractArray, ::Type{T}) where {T}
   s = zero(T)
   @inbounds for i in eachindex(IndexLinear(), γ)

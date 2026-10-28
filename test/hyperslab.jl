@@ -23,6 +23,71 @@ function projection_ref(a, l, u, x, γ)
   X .- ((s - b) / sum(G .* A.^2)) .* G .* A
 end
 
+@testset "projection precision and translated group steps" begin
+  g = GroupNormL2(1.0, [1:2, 3:4], ones(2))
+  γ = [1.0, 2]
+  for b in (zeros(4), [0.5, -0.25, 0.75, 1.0])
+    f = Translate(g, b)
+    x = b .+ [3.0, 4, 0, 5]
+    ref = b .+ [2.4, 3.2, 0, 3]
+    @test prox(f, x, γ) ≈ ref rtol = 1e-12
+    y = similar(x)
+    @test prox!(y, f, x, γ) === y
+    @test y ≈ ref rtol = 1e-12
+    @test value_and_prox!(y, f, x, γ) ≈ 7 rtol = 1e-12
+    @test y ≈ ref rtol = 1e-12
+    y .= x
+    @test prox!(y, f, y, γ) === y
+    @test y ≈ ref rtol = 1e-12
+    y .= x
+    @test value_and_prox!(y, f, y, γ) ≈ 7 rtol = 1e-12
+    @test y ≈ ref rtol = 1e-12
+    @test allocs(prox!, y, f, x, γ) == 0
+    @test allocs(value_and_prox!, y, f, x, γ) == 0
+  end
+  for op in (prox!, value_and_prox!)
+    y = fill(19.0, 4)
+    @test_throws DimensionMismatch op(y, Tilt(g, ones(4)), [3.0, 4, 0, 5], γ)
+    @test y == fill(19.0, 4)
+  end
+
+  @test prox(IndHyperslab(2, 0, 2), [3.0], [typemax(Int)]) == [1.0]
+  for a in (2, [2], -2, [-2]), n in (1, 2)
+    A = a isa Real ? a : fill(only(a), n)
+    x = fill(3.0, n)
+    γ = fill(typemax(Int), n)
+    l, u = first(a) > 0 ? (0, 2) : (-2, 0)
+    f = IndHyperslab(A, l, u)
+    ref = projection_ref(A, l, u, x, γ)
+    @test prox(f, x, γ) ≈ ref rtol = 1e-12
+    y = similar(x)
+    @test value_and_prox!(y, f, x, γ) === 0.0
+    @test y ≈ ref rtol = 1e-12
+    @test allocs(prox!, y, f, x, γ) == 0
+  end
+
+  @testset "normal $c, $(typeof(a)), $(typeof(γ))" for c in (2.0^100, -2.0^100, 2.0^300), a in (c, [c]), γ in (1.0, [1.0], Float32[1], [typemax(Int)])
+    f = IndHyperslab(a, 0, 0)
+    x, y = Float32[2.0^-100], zeros(Float32, 1)
+    @test prox(f, x, γ) == zeros(Float32, 1)
+    @test value_and_prox!(y, f, x, γ) === 0.0f0
+    @test y == zeros(Float32, 1)
+    y .= x
+    @test prox!(y, f, y, γ) === y
+    @test y == zeros(Float32, 1)
+    @test allocs(prox!, y, f, x, γ) == 0
+    @test allocs(value_and_prox!, y, f, x, γ) == 0
+  end
+
+  for c in (2.0, 1e200, 1e-200), a in (c, [c]), F in (IndHyperplane, IndHalfspace), γ in (0.7, [0.5])
+    f = F(a, c)
+    x, y = Float32[3], zeros(Float32, 1)
+    @test prox(f, x, γ) ≈ Float32[1] rtol = 1e-5
+    @test value_and_prox!(y, f, x, γ) === 0.0f0
+    @test y ≈ Float32[1] rtol = 1e-5
+  end
+end
+
 @testset "hyperslab projection and traits" begin
   for T in (Float32, Float64), a in (T(2), T[1, -2, 0, 0.5]), dims in ((4,), (2, 2))
     A = a isa Real ? a : reshape(a, dims)
@@ -376,10 +441,20 @@ end
     for h in (f, Tilt(f, ones(4)), Translate(f, ones(4)))
       y = fill(19.0, 4)
       @test_throws DimensionMismatch op(y, h, x, ones(3))
-      @test y == fill(19.0, 4)
-      if !(h === f) || f isa IndHyperslab
+      # Translate delegates steps to its inner function after shifting the output.
+      h isa Translate || @test y == fill(19.0, 4)
+      y .= 19.0
+      if h isa Translate && f isa PB.LinearConstrained
+        ref = prox(h, x, ones(4))
+        if op === value_and_prox!
+          @test op(y, h, x, ones(2, 2)) ≈ h(ref) rtol = 1e-12
+        else
+          @test op(y, h, x, ones(2, 2)) === y
+        end
+        @test y ≈ ref rtol = 1e-12
+      elseif !(h === f) || f isa IndHyperslab
         @test_throws DimensionMismatch op(y, h, x, ones(2, 2))
-        @test y == fill(19.0, 4)
+        h isa Translate || @test y == fill(19.0, 4)
       end
     end
   end

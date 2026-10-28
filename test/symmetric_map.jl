@@ -98,11 +98,6 @@ map_allocations(f::F, x::X, A::TA, B::TB, C::TC) where {F, X, TA, TB, TC} =
       @test map_allocations(+, x, A, dense) == 0
       @test map_allocations(+, x, A, dense, dense) == 0
     end
-    for A in (vector, rectangular)
-      bytes = (map_allocations(double, x, A), map_allocations(+, x, A, dense),
-               map_allocations(+, x, A, dense, dense))
-      @info "Reshaped-source map! allocations (one, two, three sources)" size = size(A) bytes
-    end
   end
 
   @testset "aliased views" begin

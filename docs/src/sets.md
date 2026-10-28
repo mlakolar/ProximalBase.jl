@@ -20,6 +20,7 @@ feasibility certificate.
 | [`IndBinary`](@ref)`(l, u)` | ``x_i \in \{l_i, u_i\}``, nonconvex | nearer endpoint, ties to ``l_i`` |
 | [`IndBallLinf`](@ref)`(r)` | ``\lVert x\rVert_\infty \le r`` | ``\operatorname{clamp}(v, -r, r)`` |
 | [`IndBallL2`](@ref)`(r)` | ``\lVert x\rVert_2 \le r`` | ``\min(1, r/\lVert v\rVert_2)\,v`` |
+| [`IndSOC`](@ref)`()` | ``\lVert x_{2:n}\rVert_2 \le x_1`` | closed form in the head and the tail norm |
 | [`IndSphereL2`](@ref)`(r)` | ``\lVert x\rVert_2 = r``, nonconvex | ``r\,v/\lVert v\rVert_2`` |
 | [`IndBallL1`](@ref)`(r)` | ``\lVert x\rVert_1 \le r`` | ``\operatorname{sign}(v)\odot P_{\Delta_r}(\lvert v\rvert)``, by Condat's algorithm |
 | [`IndSimplex`](@ref)`(r)` | ``x \ge 0,\ \sum_i x_i = r`` | ``\max(v - \tau, 0)`` |
@@ -92,6 +93,27 @@ Projecting onto the ℓ1 ball ``\{\|x\|_1 \le r\}`` is trivial when
 ``\|v\|_1 \le r``. Otherwise the projection has the signs of ``v`` and solves
 the simplex problem for ``|v|``. The ℓ∞ norms use this projection through
 Moreau's decomposition.
+
+## Second-order cones
+
+[`IndSOC`](@ref)`()` is the epigraph of the Euclidean norm: the first entry
+is a variable bound on the norm of the remaining entries. With head ``t`` and
+tail norm ``s``, the projection keeps the point when ``s \le t``, returns zero
+when ``s \le -t``, and otherwise returns
+``(\alpha, (\alpha/s)x_{2:n})`` with ``\alpha = (t+s)/2``.
+Arrays are read by one-based linear index, including matrices. An empty array
+has no head and is rejected. Only scalar steps are supported.
+
+`IndSOC(groups)` projects each disjoint group onto its own cone. The first
+listed index is the head, even when the indices are out of order; a group of
+one index imposes nonnegativity. For example, `IndSOC([[3, 1, 2], [5, 4]])`
+bounds the norm of entries 1 and 2 by entry 3, and the magnitude of entry 4 by
+entry 5. Groups are copied and must be nonempty. Entries in no group are free
+and remain unchanged; an empty collection of groups leaves all entries free.
+[`Conjugate`](@ref) gives the polar indicator, which requires the negative
+cone on each group and zero on every free entry, within the indicator's
+tolerance. With a single cone the polar is its negative, since the
+second-order cone is self-dual.
 
 ## Intersections
 

@@ -10,6 +10,8 @@ struct _OrthogonalImage{T<:Real}
   inner::Scratch
   scaled::Scratch
   residual::Scratch
+  wide_latent::Scratch
+  wide_inner::Scratch
 end
 
 struct _ImageValueCache{T<:AbstractFloat}
@@ -65,8 +67,11 @@ factorizations, which compute in `Float64` on Julia 1.10 and allocate during
 solves. Other matrices are converted to dense matrices for factorization.
 The standalone quadratic value densifies sparse data. Orthogonal-image
 buffers and scalar values promote the floating types of `L` and the argument.
-Outputs keep their element type. Dense `prox!` and `value_and_prox!` allocate nothing after
-warming the step and buffers when the inner oracles allocate nothing.
+Outputs keep their element type. An orthogonal image widens its inner workspace
+when the transformed step falls outside its normal range; exceptional `BigFloat`
+computations may allocate. Dense `prox!` and `value_and_prox!` allocate nothing
+after warming the step and buffers in the ordinary range when the inner
+oracles allocate nothing.
 
 Convex and proximable, but neither separability nor smoothness is claimed.
 Nonfinite arguments have value `Inf`; proximal points propagate `NaN`.
@@ -101,7 +106,7 @@ function LinearImage(f::AbstractFunction, L, μ::Real; check::Bool = true)
     norm(A' * A - I) <= _tol(T) * max(1, size(L, 2)) ||
       throw(ArgumentError("L'L must be μI; pass check = false to skip this test"))
   end
-  cache = _OrthogonalImage(μ, Scratch(), Scratch(), Scratch(), Scratch())
+  cache = _OrthogonalImage(μ, Scratch(), Scratch(), Scratch(), Scratch(), Scratch(), Scratch())
   LinearImage(f, L, cache)
 end
 
@@ -173,56 +178,128 @@ function _checkwrite(op::O, h::LinearImage, y::AbstractArray, x::AbstractArray) 
   true
 end
 
-# Use the affine-set scaled product to avoid overflow before cancellation.
+# Keep a scale's exponent separate until it meets both multiplicands.
+function _image_inverse_scale(v, ::Type{T}) where {T}
+  m, e = frexp(float(v))
+  convert(T, inv(m)), -e
+end
+@inline function _image_product(a, b, scale::Tuple{T, Int}) where {T}
+  ma, ea = frexp(convert(T, a))
+  mb, eb = frexp(convert(T, b))
+  ldexp((ma * mb) * scale[1], ea + eb + scale[2])
+end
+
+function _image_scaled_dot(a, b, scale::Tuple{T, Int}) where {T}
+  v = zero(T)
+  @inbounds for i in eachindex(a, b)
+    v += _image_product(a[i], b[i], scale)
+  end
+  v
+end
+
 function _image_scaled_mul!(z, A::AbstractMatrix, x, scale)
-  fill!(z, zero(eltype(z)))
-  _scaled_affine_residual!(z, A, x, z, (scale, one(scale)),
-    (one(scale), one(scale)), 0)
+  @inbounds for i in axes(A, 1)
+    v = zero(eltype(z))
+    for j in axes(A, 2)
+      v += _image_product(A[i, j], x[j], scale)
+    end
+    z[i] = v
+  end
+  z
 end
 function _image_scaled_mul!(z, A, x, scale)
   mul!(z, A, x)
-  z .*= scale
-end
-
-function _image_orthogonal_coordinates!(h::_OrthogonalLinearImage, x)
-  T = _image_type(h, x)
-  z = _image_latent(h, x)
-  scaled = _array_buffer!(h.cache.scaled, T, size(x))
-  magnitude = max(one(T), _maximum_abs(x))
-  scaled .= x ./ magnitude
-  _image_scaled_mul!(z, h.L', scaled, convert(T, inv(sqrt(h.cache.μ))))
-  z, scaled, magnitude
-end
-
-function _image_unscale!(z, magnitude, μ)
-  T = eltype(z)
-  a, b = convert(T, magnitude), convert(T, inv(sqrt(μ)))
   @inbounds for i in eachindex(z)
-    z[i] = copysign(_positive_product(abs(z[i]), a, b), z[i])
+    z[i] = _image_product(z[i], one(eltype(z)), scale)
   end
   z
+end
+
+function _image_orthogonal_coordinates!(z, h::_OrthogonalLinearImage, x)
+  T = eltype(z)
+  if h.L isa AbstractMatrix
+    _image_scaled_mul!(z, h.L', x, _image_inverse_scale(h.cache.μ, T))
+  else
+    # Operators expose products only: put one square-root scale on each side.
+    scale = _image_inverse_scale(sqrt(h.cache.μ), T)
+    scaled = _array_buffer!(h.cache.scaled, T, size(x))
+    @inbounds for i in eachindex(scaled, x)
+      scaled[i] = _image_product(x[i], one(T), scale)
+    end
+    _image_scaled_mul!(z, h.L', scaled, scale)
+  end
+  z
+end
+
+# Only the membership comparison is normalized; latent coordinates retain
+# small entries that can still make a representable contribution to f.
+function _image_in_range!(residual, scaled, L, z, x, ::Type{T}) where {T}
+  S = eltype(residual)
+  k = max(0, _magnitude_exponent(_maximum_abs(x)))
+  scale = (one(S), -k)
+  _image_scaled_mul!(residual, L, z, scale)
+  @inbounds for i in eachindex(scaled, residual, x)
+    scaled[i] = ldexp(convert(S, x[i]), -k)
+    residual[i] -= scaled[i]
+  end
+  _norm2(residual) <= _tol(T) * max(ldexp(one(S), -k), _norm2(scaled))
 end
 
 function (h::_OrthogonalLinearImage)(x::AbstractArray)
   _checkparams(h, x)
   T = _image_type(h, x)
   isfinite(_maximum_abs(x)) || return T(Inf)
-  z, scaled, magnitude = _image_orthogonal_coordinates!(h, x)
+  z = _image_orthogonal_coordinates!(_image_latent(h, x), h, x)
+  scaled = _array_buffer!(h.cache.scaled, T, size(x))
   residual = _array_buffer!(h.cache.residual, T, size(x))
-  _image_scaled_mul!(residual, h.L, z, convert(T, inv(sqrt(h.cache.μ))))
-  residual .-= scaled
-  _norm2(residual) <= _tol(float(eltype(h.L))) * max(inv(magnitude), _norm2(scaled)) || return T(Inf)
-  convert(T, h.f(_image_unscale!(z, magnitude, h.cache.μ)))
+  _image_in_range!(residual, scaled, h.L, z, x, float(eltype(h.L))) || return T(Inf)
+  convert(T, h.f(z))
 end
 
 function _image_prox!(y, h::_OrthogonalLinearImage, x, γ, withvalue::Bool)
-  z, _, magnitude = _image_orthogonal_coordinates!(h, x)
-  _image_unscale!(z, magnitude, h.cache.μ)
+  T = _image_type(h, x)
+  step = γ / h.cache.μ
+  # Inner oracles commonly convert the step to their workspace's type.
+  # Widen exceptional steps before that conversion combines them with data.
+  if !(floatmin(T) <= step <= floatmax(T))
+    W = T === Float32 && floatmin(Float64) <= step <= floatmax(Float64) ? Float64 : BigFloat
+    return convert(T, _image_wide_prox!(y, h, x, γ, W, withvalue))
+  end
+  z = _image_orthogonal_coordinates!(_image_latent(h, x), h, x)
   p = _image_inner(h, x)
-  step = convert(eltype(z), γ / h.cache.μ)
   v = withvalue ? value_and_prox!(p, h.f, z, step) : (prox!(p, h.f, z, step); zero(eltype(z)))
   mul!(y, h.L, p)
   convert(eltype(z), v)
+end
+
+function _image_wide_prox!(y, h, x, γ, ::Type{T}, withvalue) where {T}
+  z = _array_buffer!(h.cache.wide_latent, T, (size(h.L, 2),))
+  p = _array_buffer!(h.cache.wide_inner, T, size(z))
+  _image_orthogonal_coordinates!(z, h, x)
+  step = T(γ) / T(h.cache.μ)
+  v = _image_wide_inner!(p, h.f, z, step, withvalue)
+  mul!(y, h.L, p)
+  v
+end
+
+_image_wide_inner!(p, f, z, step, withvalue) =
+  withvalue ? value_and_prox!(p, f, z, step) : (prox!(p, f, z, step); zero(eltype(p)))
+
+function _image_wide_inner!(p, f::QuadraticFunction, z, step, withvalue)
+  # This inner oracle owns caches in its data's precision, so widening its
+  # destination alone would still narrow the transformed step.
+  T = eltype(p)
+  A = Matrix{T}(f.A)
+  G = step .* A
+  @inbounds for i in axes(G, 1)
+    G[i, i] += one(T)
+  end
+  f.b === nothing ? copyto!(p, z) : (p .= z .- step .* f.b)
+  ldiv!(cholesky!(Symmetric(G)), p)
+  withvalue || return zero(T)
+  mul!(z, A, p)
+  v = _image_scaled_dot(p, z, (T(0.5), 0)) + T(f.c)
+  f.b === nothing ? v : v + dot(f.b, p)
 end
 
 # A successful Cholesky can retain a rounding-level pivot of a singular matrix.
@@ -268,7 +345,7 @@ function _image_quadratic_value(h::_QuadraticLinearImage, z)
   c = h.cache
   T = eltype(z)
   mul!(c.work, h.f.A, z)
-  v = dot(z, c.work) / 2 + convert(T, h.f.c)
+  v = _image_scaled_dot(z, c.work, (T(0.5), 0)) + convert(T, h.f.c)
   h.f.b === nothing ? v : v + convert(T, dot(h.f.b, z))
 end
 
@@ -276,9 +353,34 @@ function _image_prox!(y, h::_QuadraticLinearImage, x, γ, withvalue::Bool)
   c = _image_factor!(h, γ)
   z = mul!(c.latent, h.L', x)
   h.f.b === nothing || (z .-= c.γ .* h.f.b)
+  k = all(isfinite, z) ? 0 : _image_scaled_rhs!(h, x)
   _image_solve!(c)
+  if !iszero(k)
+    @inbounds for i in eachindex(z)
+      z[i] = ldexp(z[i], k)
+    end
+  end
   mul!(y, h.L, z)
   withvalue ? _image_quadratic_value(h, z) : zero(eltype(z))
+end
+
+function _image_scaled_rhs!(h::_QuadraticLinearImage, x)
+  c = h.cache
+  T = eltype(c.latent)
+  ml, mx = _maximum_abs(h.L), _maximum_abs(x)
+  eq = h.f.b === nothing ? 0 :
+    _magnitude_exponent(c.γ) + _magnitude_exponent(_maximum_abs(h.f.b)) + 2
+  e = max(eq, _magnitude_exponent(ml) + _magnitude_exponent(mx) + 2 +
+    ndigits(max(1, length(x)); base = 2))
+  k = max(0, e - exponent(floatmax(T)) + 2)
+  scale = (one(T), -k)
+  _image_scaled_mul!(c.latent, h.L', x, scale)
+  if h.f.b !== nothing
+    @inbounds for i in eachindex(c.latent, h.f.b)
+      c.latent[i] -= _image_product(c.γ, h.f.b[i], scale)
+    end
+  end
+  k
 end
 
 function prox!(y::AbstractArray, h::LinearImage, x::AbstractArray, γ::Real)
@@ -307,7 +409,7 @@ function _image_value_cache!(h::_QuadraticLinearImage)
   c.valuecache === nothing || return c.valuecache
   T = eltype(c.latent)
   m, n = size(h.L)
-  F = svd(Matrix{T}(h.L); full = true)
+  F = svd(Matrix{T}(h.L); full = m < n)
   tol = max(m, n) * eps(T) * (isempty(F.S) ? zero(T) : F.S[1])
   k = count(>(tol), F.S)
   U, V, N = F.U[:, 1:k], F.V[:, 1:k], F.V[:, (k + 1):n]
@@ -323,16 +425,25 @@ function (h::_QuadraticLinearImage)(x::AbstractArray)
   T = eltype(c.latent)
   isfinite(_maximum_abs(x)) || return T(Inf)
   v = _image_value_cache!(h)
-  magnitude = max(one(T), _maximum_abs(x))
-  c.ambient .= x ./ magnitude
-  nx = _norm2(c.ambient)
-  mul!(v.coefficients, v.U', c.ambient)
-  mul!(c.ambient, v.U, v.coefficients)
-  c.ambient .-= x ./ magnitude
-  # Feasibility is checked independently of the constrained minimization.
-  _norm2(c.ambient) <= _tol(T) * max(inv(magnitude), nx) || return T(Inf)
-  v.coefficients .= (v.coefficients ./ v.s) .* magnitude
+  @inbounds for j in eachindex(v.coefficients, v.s)
+    scale = _image_inverse_scale(v.s[j], T)
+    a = zero(T)
+    for i in eachindex(x)
+      a += _image_product(v.U[i, j], x[i], scale)
+    end
+    v.coefficients[j] = a
+  end
   mul!(c.latent, v.V, v.coefficients)
+  # Feasibility is checked independently of the constrained minimization.
+  k = max(0, _magnitude_exponent(_maximum_abs(x)))
+  _image_scaled_mul!(c.ambient, h.L, c.latent, (one(T), -k))
+  nx = zero(T)
+  @inbounds for i in eachindex(x, c.ambient)
+    a = ldexp(convert(T, x[i]), -k)
+    nx = hypot(nx, a)
+    c.ambient[i] -= a
+  end
+  _norm2(c.ambient) <= _tol(T) * max(ldexp(one(T), -k), nx) || return T(Inf)
   if !isempty(v.nullwork)
     mul!(c.work, h.f.A, c.latent)
     h.f.b === nothing || (c.work .+= h.f.b)

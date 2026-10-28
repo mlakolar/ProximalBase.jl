@@ -99,16 +99,22 @@ for factorization. Very small or large steps can make the system numerically
 singular or ill-conditioned. Cholesky pivots no greater than
 ``\sqrt{n\operatorname{eps}(T)\max_{ij}|A_{ij}|}`` for the assembled system
 ``A`` are rejected as numerically singular. The standalone quadratic value
-uses a cached SVD of `L`, with the rank tolerance of [`IndAffine`](@ref), and minimizes on
-its null space. Its reduced factor uses the same pivot test with the scale
-and dimension of `Q`. This path densifies sparse data and accepts dependent
+uses a cached SVD of `L`, with the rank tolerance of [`IndAffine`](@ref), and
+minimizes on its null space. Tall maps use a thin left factor; only wide maps
+need a full decomposition to retain the complete right null space. Its reduced
+factor uses the same pivot test with the scale and dimension of `Q`.
+This path densifies sparse data and accepts dependent
 rows and rank-zero maps. Range membership uses a scaled residual and the tolerance
 ``\sqrt{\operatorname{eps}(T)}\max(1,\lVert y\rVert)``.
 
 Quadratic buffers and scalar values use the promoted floating type of `Q`
 and `L`. Orthogonal-image buffers and scalar values use the promoted floating
-type of `L` and the argument. Outputs keep their element type. The function
-owns its buffers and is not safe to share between threads. Data are stored
+type of `L` and the argument. When the transformed step falls outside its
+normal range, the orthogonal proximal computation widens its inner workspace;
+exceptional `BigFloat` computations may allocate. Powers of two carry extreme
+scales without first narrowing them to the workspace type. Outputs keep their
+element type. The function owns its buffers and is not safe to share between
+threads. Data are stored
 by reference: call [`reset_cache!`](@ref) on the outermost wrapper after
 changing them, including before a standalone quadratic value call.
 

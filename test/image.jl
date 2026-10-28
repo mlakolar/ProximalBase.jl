@@ -43,8 +43,9 @@ LinearAlgebra.mul!(y, A::ImageMap, x) = mul!(y, A.A, x)
       z = similar(y)
       @test value_and_prox!(z, g, y, γ) ≈ reference(p) rtol = rtol atol = atol
       @test z ≈ p rtol = rtol atol = atol
-      latent = (γ * Q + L' * L) \ (L' * y - γ * q)
-      @test Q * latent + q + L' * (L * latent - y) / γ ≈ zeros(T, n) atol = 20atol
+      latent = copy(g.cache.latent)
+      @test L * latent ≈ p rtol = rtol atol = atol
+      @test Q * latent + q + L' * (p - y) / γ ≈ zeros(T, n) atol = 20atol
       # Fenchel equality tests g*(u) = f*(L'u) independently of the prox formula.
       u = (y - p) / γ
       a = L' * u - q
@@ -344,6 +345,84 @@ end
       @test allocs(value_and_prox!, alias, g, alias, T(0.4)) == 0
     end
   end
+end
+
+@testset "tall value decomposition" begin
+  L = randn(2000, 3)
+  Q = Matrix{Float64}(I, 3, 3)
+  warm = LinearImage(QuadraticFunction(Q), L)
+  point = randn(3)
+  y = L * point
+  @test warm(y) ≈ dot(point, point) / 2 rtol = 1e-12
+  g = LinearImage(QuadraticFunction(Q), L)
+  # Include construction of the value cache: a full left factor exceeds 32 MB.
+  bytes = @allocated g(y)
+  @test bytes < 2_000_000
+  @test size(g.cache.valuecache.U) == (2000, 3)
+  @test size(g.cache.valuecache.V) == (3, 3)
+  @test size(g.cache.valuecache.N) == (3, 0)
+  L[:, 3] .= L[:, 1]
+  reset_cache!(g)
+  @test g(y) == Inf
+  @test size(g.cache.valuecache.U) == (2000, 2)
+  @test size(g.cache.valuecache.N) == (3, 1)
+end
+
+@testset "orthogonal image scales retain their range" begin
+  s = Float32(1e30)
+  L = reshape([s], 1, 1)
+  g = LinearImage(NormL1(s), L, Float64(s)^2)
+  y = Float32[1]
+  @test g(y) ≈ 1f0 rtol = 4eps(Float32)
+  @test prox(g, y, 1f0) == Float32[0]
+  z = similar(y)
+  @test value_and_prox!(z, g, y, 1f0) == 0f0
+  @test z == Float32[0]
+  quadratic = LinearImage(QuadraticFunction(zeros(Float32, 1, 1), [s], 0f0), L, Float64(s)^2)
+  @test prox(quadratic, y, 1f0) ≈ Float32[0] atol = eps(Float32)
+  @test value_and_prox!(z, quadratic, y, 1f0) ≈ 0f0 atol = eps(Float32)
+  for map in (reshape(Float32[1e-40], 1, 1), ImageMap(reshape(Float32[1e-40], 1, 1)))
+    s = Float32(1e-40)
+    g = LinearImage(ZeroFunction(), map, Float64(s)^2)
+    @test g([s]) == 0f0
+    @test prox(g, [s], 1f0) == [s]
+    @test value_and_prox!(Float32[0], g, [s], 1f0) == 0f0
+  end
+  # Float64 can also need an exponent range beyond a machine scalar's.
+  s, γ = 1e150, 1e-300
+  g = LinearImage(NormL1(s, [s]), reshape([s], 1, 1), s^2)
+  y = [2e-150]
+  @test prox(g, y, γ) ≈ [1e-150] rtol = 4eps(Float64)
+  @test value_and_prox!(zeros(1), g, y, γ) ≈ 1.0 rtol = 4eps(Float64)
+end
+
+@testset "small coordinates retain finite value contributions" begin
+  g = LinearImage(LinearFunction([0.0, 1e20]), Matrix{Float64}(I, 2, 2), 1.0)
+  @test g([1e308, 1e-20]) ≈ 1.0 rtol = 1e-15
+  mixed = LinearImage(ZeroFunction(), Matrix{Float32}(I, 2, 2), 1.0)
+  @test mixed([1e200, 1e-200]) == 0.0
+  L = 1e200 * Matrix{Float64}(I, 2, 2)
+  g = LinearImage(QuadraticFunction(zeros(2, 2), [0.0, 1e200], 0.0), L)
+  @test g([1e200, 1.0]) ≈ 1.0 rtol = 1e-15
+  @test g.cache.latent[2] ≈ 1e-200 rtol = 1e-15
+end
+
+@testset "scaled quadratic right-hand side and values" begin
+  for map in (reshape([1e150], 1, 1), sparse(reshape([1e150], 1, 1)))
+    g = LinearImage(QuadraticFunction(ones(1, 1)), map)
+    y = [1e200]
+    p = prox(g, y, 1.0)
+    @test p ≈ y rtol = 1e-14
+    @test g.cache.latent ≈ [1e50] rtol = 1e-14
+    output = similar(y)
+    @test value_and_prox!(output, g, y, 1.0) ≈ 5e99 rtol = 1e-14
+    @test output ≈ y rtol = 1e-14
+  end
+  g = LinearImage(QuadraticFunction(reshape([2.0], 1, 1)), ones(1, 1))
+  @test g([1e154]) ≈ 1e308 rtol = 1e-15
+  output = zeros(1)
+  @test value_and_prox!(output, g, [2e154], 0.5) ≈ 1e308 rtol = 1e-15
+  @test output ≈ [1e154] rtol = 1e-15
 end
 
 end

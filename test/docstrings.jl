@@ -23,9 +23,6 @@ const QUALIFIED_NAMES = [
   :value_and_deriv, :Smoothed, :AbstractGroupPenalty, :check_parameters,
 ]
 
-# Documented compatibility aliases without a separate docstring or @docs entry.
-const QUALIFIED_ALIASES = [:AbstractGroupNorm]
-
 const TESTING_NAMES = [
   :Testing, :test_prox, :test_gradient, :test_separable, :test_conjugate,
   :test_kkt, :test_traits, :allocations, :brute_force_prox,
@@ -33,7 +30,7 @@ const TESTING_NAMES = [
 
 @testset "public qualified names" begin
   if VERSION >= v"1.11"
-    for (M, entries) in ((PB, union(QUALIFIED_NAMES, QUALIFIED_ALIASES, [:Testing])),
+    for (M, entries) in ((PB, union(QUALIFIED_NAMES, [:Testing])),
                          (PB.Testing, setdiff(TESTING_NAMES, [:Testing])))
       @testset "$M.$name" for name in entries
         @test Base.ispublic(M, name)

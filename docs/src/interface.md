@@ -235,6 +235,10 @@ and `f = Translate(NormL1(1f0), Float64[0.25, -0.5])`, `f(x)` is `Float64`,
 but `value_and_prox!(similar(x), f, x, 0.5)` is `Float32`: the latter evaluates
 the inner function using the output buffer.
 
+To compute in `Float32` throughout, give the argument, the parameters, the
+data and the step in `Float32`; the functions above then return `Float32`
+values and arrays.
+
 ## GPU arrays
 
 The separable functions work on GPU arrays: CUDA.jl's `CuArray`, and the other

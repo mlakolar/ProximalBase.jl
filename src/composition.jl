@@ -142,7 +142,6 @@ end
 Base.@propagate_inbounds prox_entry(h::_ScalarPrecompose, v::Real, i::Integer, γ::Real) =
   prox_entry(h.f, h.A * v, i, h.μ * γ) / h.A
 _checkparams(h::_ScalarPrecompose, x) = _checkparams(h.f, x)
-_checkparams(h::Precompose, x) = _checkparams(h.f, _image!(h, x))
 # 0 ∈ gᵢ + a∂fᵢ(0) when 0 ∈ gᵢ/a + ∂fᵢ(0)
 kkt_violation(h::_ScalarPrecompose, g::AbstractArray, i::Integer) =
   abs(h.A) * kkt_violation(h.f, _ScaledArray(g, inv(h.A)), i)

@@ -65,7 +65,7 @@ touch only its stored entries.
 ```@example extending
 # Σᵢ wᵢ xᵢ² / 2: separable, with weights
 struct WeightedSquare <: SeparableFunction
-  w::Vector{Float64}
+    w::Vector{Float64}
 end
 ProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2
 ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])

@@ -30,16 +30,13 @@ const PB = ProximalBase
   end
 
   @testset "BLAS symbols" begin
+    library = Base.Libc.Libdl.dlopen(PB._libblastrampoline)
     for name in (:dsyevd_, :ssyevd_, :dsyevr_, :ssyevr_, :dgesdd_, :sgesdd_,
                  :dgeqrf_, :sgeqrf_, :dorgqr_, :sorgqr_)
       @eval @testset $(string(name)) begin
         @test PB._blasfunc($(QuoteNode(name))) === BLAS.@blasfunc($name)
-        address = try
-          cglobal(($(QuoteNode(PB._blasfunc(name))), PB._libblastrampoline))
-        catch
-          C_NULL
-        end
-        @test address != C_NULL
+        address = Base.Libc.Libdl.dlsym($library, PB._blasfunc($(QuoteNode(name))); throw_error = false)
+        @test address !== nothing
       end
     end
   end

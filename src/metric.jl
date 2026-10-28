@@ -83,15 +83,6 @@ function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::A
   v
 end
 
-function prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
-  isseparable(r) || _not_separable(r)
-  _prox_sep!(y, r, x, γ)
-end
-function value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
-  prox!(y, r, x, γ)
-  r(y)
-end
-
 # Moreau's identity in each entry: prox_{γᵢfᵢ*}(xᵢ) = xᵢ - γᵢ prox_{fᵢ/γᵢ}(xᵢ/γᵢ)
 function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
   _checksize(y, x)

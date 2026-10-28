@@ -81,9 +81,17 @@ For Float64 and ComplexF64, the defaults are `h = 1e-6`, `rtol = 1e-5` and
 `atol = 1e-6`. For other precisions they are multiplied by
 `c = cbrt(eps(real(float(eltype(x)))) / eps(Float64))`. For Float32 this gives
 `h ≈ 8.1e-4`, `rtol ≈ 8.1e-3` and `atol ≈ 8.1e-4`. The absolute tolerance is
-`atol * max(1, abs(fd))`, where `fd` is the finite difference. Supplied keywords
-override these defaults. Directions and perturbed points keep the floating
-element type of `x`.
+the larger of `atol * max(1, abs(fd))` and the finite difference's rounding
+error allowance `8 eps(R) max|f(x ± hd)| / (2h)`, where `fd` is the finite
+difference and `R = real(float(eltype(x)))`. This allowance also applies when
+`atol` is supplied, so a loss with a large value relative to its directional
+derivative does not fail in Float32. Supplied keywords override the defaults.
+Directions and perturbed points keep the floating element type of `x`.
+
+In Float32, a small gradient error can go undetected when `|f|` is large
+relative to the directional derivatives, because the comparison allows the
+finite difference's rounding error. Increasing `directions` raises the chance
+of detecting it.
 """
 function test_gradient end
 

@@ -19,7 +19,7 @@ ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
 ProximalBase.iszeropreserving(::WeightedSquare) = true
 ProximalBase.isconvex(::Type{WeightedSquare}) = true
 function ProximalBase.check_parameters(f::WeightedSquare, x)
-  length(f.w) == length(x) || throw(DimensionMismatch("one weight per entry is required"))
+  length(f.w) == length(x) || throw(DimensionMismatch("a parameter array has length $(length(f.w)) and the argument has length $(length(x))"))
   nothing
 end
 
@@ -215,6 +215,7 @@ end
     for h in fs
       @test_throws DimensionMismatch h(x)
       for step in (0.5, fill(0.5, size(x))), op in (prox!, value_and_prox!), alias in (false, true)
+        step isa AbstractArray && h isa Regularize && continue
         input = copy(x)
         output = alias ? input : copy(x)
         before = Array(output)

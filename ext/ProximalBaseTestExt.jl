@@ -142,8 +142,10 @@ function test_gradient(f, x::AbstractArray; h = nothing, rtol = nothing, atol = 
     d = _randn(rng, eltype(xp), size(xd)...)
     xp .= xd .+ h .* d
     xm .= xd .- h .* d
-    fd = (f(xp) - f(xm)) / (2h)
-    @test fd ≈ real(dot(g, d)) rtol = rtol atol = atol * max(1, abs(fd))
+    fp, fm = f(xp), f(xm)
+    fd = (fp - fm) / (2h)
+    round_err = 8 * eps(R) * max(abs(fp), abs(fm)) / (2h)
+    @test fd ≈ real(dot(g, d)) rtol = rtol atol = max(atol * max(1, abs(fd)), round_err)
   end
   g
 end

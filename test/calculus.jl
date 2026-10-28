@@ -15,7 +15,8 @@ blocks_approx(x::Tuple, y::Tuple) = all(map(blocks_approx, x, y))
 
 @testset "zero preservation" begin
   table = (
-    (ZeroFunction(), true), (SqrNormL2(), true), (SqrNormL2(1., [1., 2.]), false),
+    (ZeroFunction(), true), (SqrNormL2(), true), (SqrNormL2(Inf), false),
+    (SqrNormL2(1., [1., 2.]), false),
     (Scaled(NormL1(1.), 2.), true), (Scaled(NormL1(1.), Inf), false),
     (Regularize(NormL1(1.), 1.), true), (Regularize(NormL1(1.), Inf), false),
     (Regularize(NormL1(1.), 1., zeros(2)), false),
@@ -484,7 +485,7 @@ end
               Precompose(inner, T(-2)), MoreauEnvelope(inner, one(T))),
         op in (prox!, value_and_prox!), alias in (false, true)
       for step in (T(0.5), fill(T(0.5), 3))
-        step isa AbstractArray && f isa Union{Precompose, MoreauEnvelope} && continue
+        step isa AbstractArray && f isa Union{Regularize, Precompose, MoreauEnvelope} && continue
         input = copy(x)
         out = alias ? input : copy(x)
         @test_throws DimensionMismatch op(out, f, input, step)
@@ -492,18 +493,20 @@ end
         @test input == x
       end
     end
+    for h in (Precompose(inner, T(-2)), Precompose(inner, Matrix{T}(I, 3, 3), one(T))),
+        op in (prox!, value_and_prox!), alias in (false, true)
+      input = copy(x)
+      out = alias ? input : copy(x)
+      @test_throws DimensionMismatch op(out, Scaled(h, T(2)), input, T(0.5))
+      @test out == x
+      @test input == x
+    end
     r = Regularize(SqrNormL2(one(T)), one(T), ones(T, 2))
     for op in (gradient!, value_and_gradient!)
       out = copy(x)
       @test_throws DimensionMismatch op(out, r, x)
       @test out == x
     end
-    r = Regularize(NormL1(T(0.4)), T(0.8), T[1, -2, 3])
-    steps = T[0.2, 0.7, 1.3]
-    expected = [prox_entry(r, x[i], i, steps[i]) for i in eachindex(x)]
-    out = similar(x)
-    @test prox!(out, r, x, steps) ≈ expected
-    @test value_and_prox!(out, r, x, steps) ≈ r(expected)
   end
 end
 

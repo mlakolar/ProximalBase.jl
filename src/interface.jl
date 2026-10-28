@@ -143,7 +143,7 @@ For a [`SeparableFunction`](@ref) `WeightedSquare` with a weight vector `w`:
 
 ```julia
 function ProximalBase.check_parameters(f::WeightedSquare, x)
-  length(f.w) == length(x) || throw(DimensionMismatch("one weight per entry is required"))
+  length(f.w) == length(x) || throw(DimensionMismatch("a parameter array has length \$(length(f.w)) and the argument has length \$(length(x))"))
   nothing
 end
 ```

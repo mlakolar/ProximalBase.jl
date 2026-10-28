@@ -148,19 +148,22 @@ PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
             PoissonLoss(T.(rand(0:3, 50)), X ./ 3))
       for f in fs
         @test passes(() -> PT.test_gradient(f, β))
+        @test passes(() -> PT.test_gradient(f, β; atol = 0.0))
       end
     end
     for T in (Float32, Float64), seed in 1:20
       Random.seed!(seed)
       X = randn(T, 50, 5)
       β = randn(T, 5) ./ 10
-      y = randn(T, 50)
-      f = BiasedGradient(LeastSquaresLoss(y, X))
-      ts = @testset Collect "biased gradient" begin
-        PT.test_gradient(f, β)
+      fs = (LeastSquaresLoss(randn(T, 50), X), LogisticLoss(T.(rand(50) .< 0.5), X),
+            PoissonLoss(T.(rand(0:3, 50)), X ./ 3))
+      for f in fs
+        ts = @testset Collect "biased gradient" begin
+          PT.test_gradient(BiasedGradient(f), β)
+        end
+        @test count(r -> r isa Test.Fail, ts.results) > 0
+        @test count(r -> r isa Test.Error, ts.results) == 0
       end
-      @test count(r -> r isa Test.Fail, ts.results) > 0
-      @test count(r -> r isa Test.Error, ts.results) == 0
     end
     for T in (Float64, ComplexF64)
       @test passes(() -> PT.test_gradient(SqrNormL2(), T[1, 2]; rng = Xoshiro(4)))

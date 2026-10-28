@@ -214,7 +214,7 @@ function hessian_vec!(Hv::StridedMatrix{T}, f::LogDetLoss{T}, X::AbstractMatrix,
     return Hv
   end
   C, M = f.C, f.eig.A
-  LAPACK.potri!('U', C)                                   # the upper triangle of X⁻¹
+  _potri!('U', C)                                         # the upper triangle of X⁻¹
   copyto!(Hv, V)
   BLAS.symm!('L', 'U', one(T), C, Hv, zero(T), M)
   BLAS.symm!('R', 'U', f.w, C, M, zero(T), Hv)
@@ -235,7 +235,7 @@ function quadratic_model!(q::KronQuadratic{T, Matrix{T}}, f::LogDetLoss{T}, X::A
   _logdet_chol!(f, X) === nothing &&
     throw(ArgumentError("X is not positive definite: LogDetLoss has no quadratic model there"))
   C, S, w = f.C, f.S, f.w
-  LAPACK.potri!('U', C)
+  _potri!('U', C)
   A, B, Cq = q.A, q.B, q.C
   @inbounds for j in axes(C, 2), i in 1:j
     Wij = C[i, j]

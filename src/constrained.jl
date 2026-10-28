@@ -671,11 +671,12 @@ end
 # values the Ky Fan k-norm.
 _constant_normal(a::Real) = a
 function _constant_normal(a::AbstractArray)
+  isempty(a) && return nothing
   v = first(a)
   all(==(v), a) ? v : nothing
 end
 
-function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}},
+function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane, IndHalfspace}},
                           y::AbstractArray)
   _checkparams(c, y)
   T = float(eltype(y))
@@ -704,7 +705,7 @@ function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}},
   return l * total + (u - l) * _top_sum!(view(v, 1:n), κ)
 end
 
-_has_conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}}) =
+_has_conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane, IndHalfspace}}) =
   isfinite(c.f.l) && isfinite(c.f.u) && _constant_normal(c.set.a) !== nothing
 
 # the sum of the ⌊κ⌋ largest entries of v and the fraction κ - ⌊κ⌋ of the next

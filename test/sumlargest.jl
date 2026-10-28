@@ -195,10 +195,14 @@ end
 end
 
 @testset "constant array normals" begin
+  for a in (Float64[], zeros(Float32, 0, 2))
+    @test ProximalBase._constant_normal(a) === nothing
+  end
   x = [2.0, -3.0, 1.0, 4.0]
   for Set in (IndHyperplane, IndHalfspace), a in (1.0, -2.0), k in (1, 2, 4)
     scalar = Conjugate(Constrained(IndBox(0.0, 1.0), Set(a, a * k)))
     array = Conjugate(Constrained(IndBox(0.0, 1.0), Set(fill(a, 4), a * k)))
+    @test ProximalBase._has_conjugate_value(array.f)
     @test array(x) ≈ scalar(x) rtol = 1e-10
     @test prox(array, x, 0.7) ≈ prox(scalar, x, 0.7) rtol = 1e-10 atol = 1e-12
     y = similar(x)

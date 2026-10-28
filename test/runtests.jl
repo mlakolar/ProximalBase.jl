@@ -27,6 +27,7 @@ tests = [
   "singular",
   "intersection",
   "sets",
+  "soc",
   "extreme_normals",
   "large_inputs",
   "spectral_overflow",

@@ -132,7 +132,7 @@ _ispermutationinvariant(::Union{ZeroFunction, NormL0, MCP, SCAD, IndNonnegative,
 _ispermutationinvariant(::Union{NormL1{<:Real, Nothing}, NormL1Nonneg{<:Real, Nothing},
                                 ElasticNet{<:Real, Nothing}, SqrNormL2{<:Real, Nothing}}) = true
 _ispermutationinvariant(::IndBox{<:Real, <:Real}) = true
-_ispermutationinvariant(::Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}) = true
+_ispermutationinvariant(::Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}, IndHyperslab{<:Real}}) = true
 _ispermutationinvariant(s::Union{Scaled, Conjugate}) = _ispermutationinvariant(s.f)
 _ispermutationinvariant(c::BoxConstrained) = _ispermutationinvariant(c.f) && _ispermutationinvariant(c.box)
 _ispermutationinvariant(c::LinearConstrained) = _ispermutationinvariant(c.f) && _ispermutationinvariant(c.set)

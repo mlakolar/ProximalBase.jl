@@ -24,6 +24,7 @@ tests = [
   "singular",
   "intersection",
   "sets",
+  "hyperslab",
   "extreme_normals",
   "large_inputs",
   "ordered",

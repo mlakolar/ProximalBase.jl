@@ -28,8 +28,11 @@ calls on the same function unsafe.
 
 The membership value uses `√eps` relative to the row norm, the argument norm
 and the bounds, with an absolute floor in the original constraint units.
-The solver instead uses `8eps(T)` times the corresponding scale of each
-normalized constraint. Its dependence threshold is `8n * eps(T)` times the
+The solver instead uses `8eps(T)` times each normalized row's bound and
+absolute dot-product scale. Working-set checks also allow cancellation at
+the input's scale. Residual corrections refine the working projection, and
+every row is reconsidered before returning, including skipped equalities.
+Its dependence threshold is `8n * eps(T)` times the
 normal's norm. A dependent violated row takes a dual-only step when possible;
 otherwise a Farkas certificate is checked to `64n * eps(T)` and verified in
 exact arithmetic on the stored data before reporting an empty set with
@@ -211,16 +214,10 @@ function _checkparams(f::IndPolyhedron, x)
   true
 end
 
-function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndPolyhedron{T}, y, x) where {T}
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndPolyhedron, y, x)
   _checkparams(f, x)
   y isa AbstractVector || throw(DimensionMismatch("IndPolyhedron requires a vector output"))
   _checksize(y, x)
-  for a in x
-    if !(a isa Real && isfinite(a) && isfinite(T(a)))
-      f.valid = false
-      throw(ArgumentError("polyhedron projection requires finite real inputs representable in $T"))
-    end
-  end
   true
 end
 
@@ -416,8 +413,31 @@ function _poly_refactor!(f::IndPolyhedron{T}) where {T}
   end
 end
 
-@inline function _poly_slack(f::IndPolyhedron{T}, id, nx) where {T}
-  8 * eps(T) * max(one(T), abs(_poly_bound(f, id)), _poly_norm(f, id) * nx)
+# Apply eps before accumulating magnitudes: neither a row's absolute dot
+# product nor its product of norms needs to fit in the working type.
+function _poly_absdot(A::AbstractMatrix{T}, i, x, tol) where {T}
+  scale = zero(T)
+  @inbounds for j in axes(A, 1)
+    scale += _positive_product(tol, abs(A[j, i]), abs(x[j]))
+  end
+  scale
+end
+function _poly_absdot(A::SparseMatrixCSC{T}, i, x, tol) where {T}
+  scale = zero(T)
+  rows, vals = rowvals(A), nonzeros(A)
+  @inbounds for h in nzrange(A, i)
+    scale += _positive_product(tol, abs(vals[h]), abs(x[rows[h]]))
+  end
+  scale
+end
+@inline function _poly_absdot(f, id, x, tol)
+  row = abs(_poly_row(f, id))
+  row <= f.m ? _poly_absdot(f.At, row, x, tol) : tol * abs(x[row - f.m])
+end
+@inline function _poly_slack(f::IndPolyhedron{T}, id, x, tol = 8 * eps(T)) where {T}
+  slack = max(tol, tol * abs(_poly_bound(f, id)), _poly_absdot(f, id, x, tol))
+  isfinite(slack) || _poly_failure()
+  slack
 end
 
 function _poly_project_working!(f::IndPolyhedron{T}) where {T}
@@ -445,23 +465,61 @@ function _poly_project_working!(f::IndPolyhedron{T}) where {T}
   all(isfinite, f.point) || _poly_failure()
 end
 
-function _poly_working_valid(f)
-  nx = norm(f.point)
+function _poly_working_valid(f::IndPolyhedron{T}) where {T}
+  tol = 64 * eps(T)
+  nx = _norm2_scaled(_ScaledArray(f.point, tol))
   isfinite(nx) || return false
   for j in 1:f.count
     id = f.active[j]
+    slack = max(_poly_slack(f, id, f.point, tol),
+      _poly_absdot(f, id, f.origin, tol), _poly_norm(f, id) * nx)
+    isfinite(slack) || return false
     abs(_poly_constraint(f, id, f.point) - _poly_bound(f, id)) <=
-      8 * _poly_slack(f, id, nx) || return false
+      slack || return false
   end
   true
+end
+
+# Subtracting the projection from a much larger input can lose boundary
+# digits. Correct those residuals through the same QR, without normal equations.
+function _poly_refine!(f::IndPolyhedron{T}) where {T}
+  k = f.count
+  for pass in 1:2
+    accurate = true
+    @inbounds for j in 1:k
+      id = f.active[j]
+      a = _poly_constraint(f, id, f.point) - _poly_bound(f, id)
+      accurate &= abs(a) <= _poly_slack(f, id, f.point)
+      for h in 1:(j - 1)
+        a -= f.R[h, j] * f.coeff[h]
+      end
+      f.coeff[j] = a / f.R[j, j]
+    end
+    accurate && return
+    @inbounds for j in k:-1:1
+      a = f.coeff[j]
+      for h in (j + 1):k
+        a -= f.R[j, h] * f.dual[h]
+      end
+      f.dual[j] = a / f.R[j, j]
+      f.multipliers[j] += f.dual[j]
+      isfinite(f.multipliers[j]) || _poly_failure()
+    end
+    @inbounds for j in 1:k, i in 1:f.n
+      f.point[i] -= f.Q[i, j] * f.coeff[j]
+    end
+    all(isfinite, f.point) || _poly_failure()
+  end
 end
 
 function _poly_restore!(f)
   while true
     _poly_project_working!(f)
+    _poly_refine!(f)
     if !_poly_working_valid(f)
       _poly_refactor!(f)
       _poly_project_working!(f)
+      _poly_refine!(f)
       _poly_working_valid(f) || _poly_failure()
     end
     drop = 0
@@ -569,7 +627,7 @@ function _poly_add!(f::IndPolyhedron{T}, id) where {T}
       continue
     end
     if dependent && abs(id) <= f.equalities &&
-        abs(violation) <= _poly_slack(f, id, norm(f.point))
+        abs(violation) <= _poly_slack(f, id, f.point)
       return
     end
     # Only positive r_i can make an inequality multiplier hit zero.
@@ -633,17 +691,24 @@ function _poly_solve!(f::IndPolyhedron{T}, x) where {T}
     for id in 1:f.equalities
       residual = _poly_constraint(f, id, f.point) - _poly_bound(f, id)
       _poly_add!(f, residual < 0 ? -id : id)
+      _poly_restore!(f)
     end
   end
   while true
     _poly_restore!(f)
     best, violation = 0, zero(T)
-    nx = norm(f.point)
-    for id in (f.equalities + 1):length(f.rows)
-      f.used[id] && continue
+    # A previously skipped row can become violated after other rows enter,
+    # or when a warm input changes. Check every row in its own constraint units.
+    for id in eachindex(f.rows)
       a = _poly_constraint(f, id, f.point) - _poly_bound(f, id)
-      if a > _poly_slack(f, id, nx) && a / _poly_norm(f, id) > violation
-        best, violation = id, a / _poly_norm(f, id)
+      isfinite(a) || _poly_failure()
+      eq = id <= f.equalities
+      residual = eq ? abs(a) : a
+      if residual > _poly_slack(f, id, f.point)
+        f.used[id] && _poly_failure()
+        if residual / _poly_norm(f, id) > violation
+          best, violation = eq && a < 0 ? -id : id, residual / _poly_norm(f, id)
+        end
       end
     end
     iszero(best) && break
@@ -653,9 +718,15 @@ function _poly_solve!(f::IndPolyhedron{T}, x) where {T}
   f.point
 end
 
-function prox!(y::AbstractArray, f::IndPolyhedron, x::AbstractArray, ::Real)
+function prox!(y::AbstractArray, f::IndPolyhedron{T}, x::AbstractArray, ::Real) where {T}
   try
     _checkwrite(prox!, f, y, x)
+    # Wrappers preflight with the destination as a placeholder input.
+    # Validate values only after the actual argument reaches this oracle.
+    for a in x
+      a isa Real && isfinite(a) && isfinite(T(a)) ||
+        throw(ArgumentError("polyhedron projection requires finite real inputs representable in $T"))
+    end
     _poly_solve!(f, x)
     copyto!(y, f.point)
   catch

@@ -363,6 +363,70 @@ end
   @test out == fill(37., 2)
 end
 
+@testset "Cancellation, skipped rows and wrapper preflight" begin
+  for T in (Float64, Float32), sparse_data in (false, true)
+    A = ones(T, 1, 1)
+    f = IndPolyhedron(sparse_data ? sparse(A) : A, -Inf, T(0.1))
+    @test prox(f, T[1024]) ≈ T[0.1] rtol = 0 atol = 4eps(T)
+    @test prox(f, T[1]) ≈ T[0.1] rtol = 0 atol = 4eps(T)
+    @test prox(f, T[-1024]) == T[-1024]
+    # An unrelated large coordinate must not mask the first row's violation.
+    A = T[1 0]
+    f = IndPolyhedron(sparse_data ? sparse(A) : A, -Inf, T(0.1))
+    z = prox(f, T[1, 1e16])
+    @test z[1] ≈ T(0.1) rtol = 0 atol = 4eps(T)
+    @test z[2] == T(1e16)
+    A = T[1 0; 1 0]
+    empty = IndPolyhedron(sparse_data ? sparse(A) : A, T[0, 1], T[0, 1], T[-Inf, 0], T[Inf, 0])
+    for x in (T[0, 1e16], T[0, 0])
+      out = fill(T(37), 2)
+      err = try
+        prox!(out, empty, x, one(T))
+      catch err
+        err
+      end
+      @test err isa ArgumentError
+      @test occursin("empty", sprint(showerror, err))
+      @test out == fill(T(37), 2)
+      @test !empty.valid
+    end
+    # This independent equality is satisfied, but below the rank threshold,
+    # on the first call. The warm call must add it when the input changes.
+    δ = T === Float64 ? T(1e-16) : T(1e-8)
+    A = T[1 0; 1 δ]
+    f = IndPolyhedron(sparse_data ? sparse(A) : A, T[0, 1000], T[0, 1000])
+    expected = T[0, 1000 / δ]
+    @test prox(f, expected) ≈ expected rtol = 8eps(T) atol = 8eps(T)
+    @test !f.used[2]
+    @test prox(f, zeros(T, 2)) ≈ expected rtol = 8eps(T) atol = 8eps(T)
+  end
+  for T in (Float64, Float32), op in (prox!, value_and_prox!)
+    f = IndPolyhedron(ones(T, 1, 1), -Inf, zero(T))
+    for (wrapper, x, expected) in
+        ((Translate(f, T[0]), T[1], T[0]), (Translate(f, T[2]), T[3], T[2]),
+         (Tilt(f, T[0]), T[1], T[0]), (Tilt(f, T[2]), T[3], T[0]))
+      out = T[NaN]
+      value = op(out, wrapper, x, one(T))
+      @test out == expected
+      op === value_and_prox! && @test value == zero(T)
+    end
+  end
+end
+
+@testset "Finite solver tolerances near floatmax" begin
+  for T in (Float64, Float32), sparse_data in (false, true)
+    A = ones(T, 1, 2)
+    f = IndPolyhedron(sparse_data ? sparse(A) : A, -Inf, zero(T))
+    a = T === Float64 ? T(1.2e308) : T(2.4e38)
+    x = T[a, -a / 2]
+    z = prox(f, x)
+    @test all(isfinite, z)
+    @test z ./ a ≈ T[0.75, -0.75] rtol = 8eps(T) atol = 0
+    @test f(z) == 0
+    @test prox(f, x) ./ a ≈ T[0.75, -0.75] rtol = 8eps(T) atol = 0
+  end
+end
+
 # The sequence forces warm-start drops as well as additions inside a call.
 function sequence!(op, y, f, points, γ)
   for x in points

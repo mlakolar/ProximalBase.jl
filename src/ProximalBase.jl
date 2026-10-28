@@ -58,7 +58,7 @@ export
   SingularValue,
 
   # indicator functions
-  IndBox, IndNonnegative, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
+  IndBox, IndNonnegative, IndBinary, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
   IndIntersection,
   IndHyperplane, IndHalfspace, IndPSD, IndBallRank, IndIsotonic,
   IndSphereL2,

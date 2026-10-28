@@ -50,6 +50,39 @@ mutable struct SymmetricSparseIterate{T} <: AbstractMatrix{T}
     p::Int                      # dimension of matrix
 end
 
+_stored_values(x::Union{SparseIterate, SymmetricSparseIterate}) = view(x.nzval, 1:x.nnz)
+
+function _scaled_sum(x::SymmetricSparseIterate, s, f::F = identity) where {F}
+  v = zero(s[1])
+  @inbounds for k in 1:x.nnz
+    r, c = tril_cartesian(x.p, x.nzval2ind[k])
+    u = f(_scale_value(x.nzval[k], s))
+    v += r == c ? u : 2u
+  end
+  v
+end
+
+function _scaled_dot(a, x::SparseIterate, s)
+  _checkparam(a, x)
+  v = zero(s[1])
+  @inbounds @simd for k in 1:x.nnz
+    v += float(_entry(a, x.nzval2ind[k])) * _scale_value(x.nzval[k], s)
+  end
+  v
+end
+function _scaled_dot(a, x::SymmetricSparseIterate, s)
+  _checkparam(a, x)
+  v = zero(s[1])
+  @inbounds for k in 1:x.nnz
+    r, c = tril_cartesian(x.p, x.nzval2ind[k])
+    u = _scale_value(x.nzval[k], s)
+    ar = float(_entry(a, r + (c - 1) * x.p))
+    ac = r == c ? zero(ar) : float(_entry(a, c + (r - 1) * x.p))
+    v += (ar + ac) * u
+  end
+  v
+end
+
 
 ####################################
 #

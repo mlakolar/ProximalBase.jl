@@ -116,6 +116,47 @@ _zeros_like(a, ::Type{T}, dims) where {T} = zeros(T, dims)
 _tol(::Type{T}) where {T<:AbstractFloat} = sqrt(eps(T))
 _tol(::Type) = sqrt(eps(Float64))
 
+# Powers of two keep the units of a comparison without rounding the scale.
+# Split a power that is outside the range of a single floating-point factor.
+@inline function _power_factors(::Type{T}, k::Int) where {T<:AbstractFloat}
+  k1 = clamp(k, exponent(nextfloat(zero(T))), exponent(floatmax(T)))
+  (ldexp(one(T), k1), ldexp(one(T), k - k1))
+end
+@inline _scale_value(v, s) = (float(v) * s[1]) * s[2]
+@inline _magnitude_exponent(v) = iszero(v) ? 0 : exponent(v)
+@inline _comparison_exponent(es::Int...) = max(0, es...)
+
+# The stored values suffice for maxima; symmetric multiplicities do not matter.
+_stored_values(x::AbstractArray) = x
+_stored_values(x::SparseArrays.AbstractSparseArray) = nonzeros(x)
+function _maximum_abs(x::AbstractArray)
+  m = zero(real(float(eltype(x))))
+  @inbounds for v in _stored_values(x)
+    m = max(m, abs(float(v)))
+  end
+  m
+end
+
+# Scale each entry before summing, including before taking its square.
+function _scaled_sum(x::AbstractArray, s, f::F = identity) where {F}
+  v = zero(s[1])
+  @inbounds for u in _stored_values(x)
+    v += f(_scale_value(u, s))
+  end
+  v
+end
+_scaled_sumabs2(x, s) = _scaled_sum(x, s, abs2)
+
+# Floating-point products also cover integer entries and integer coefficients.
+function _scaled_dot(a, x::AbstractArray, s)
+  _checkparam(a, x)
+  v = zero(s[1])
+  @inbounds @simd for i in eachindex(IndexLinear(), x)
+    v += float(_entry(a, i)) * _scale_value(x[i], s)
+  end
+  v
+end
+
 ####################################
 #
 #  Selection and projection onto the simplex

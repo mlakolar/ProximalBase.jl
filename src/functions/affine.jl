@@ -90,9 +90,60 @@ _checkaffine(f::IndAffine, x::AbstractArray) = length(x) == size(f.A, 2) ||
 function (f::IndAffine{T})(x::AbstractVector) where {T}
   _checkaffine(f, x)
   S = float(promote_type(T, eltype(x)))
+  eltype(x) <: Integer && return _affine_scaled_value(f, x, S)
   r = mul!(f.rb, f.A, x)
   r .-= f.b
-  _ind(norm(r) <= _tol(S) * max(one(S), norm(f.b), f.scale * norm(x)), S)
+  nr = norm(r)
+  slack = _tol(S) * max(one(S), norm(f.b), f.scale * norm(x))
+  isfinite(nr) && isfinite(slack) && return _ind(nr <= slack, S)
+  _affine_scaled_value(f, x, S)
+end
+
+# Normalize the matrix separately, then put its product and b in common units.
+function _affine_scaled_value(f, x, ::Type{S}) where {S}
+  ma, mx, mb = _maximum_abs(f.A), _maximum_abs(x), _maximum_abs(f.b)
+  if !(isfinite(ma) && isfinite(mx) && isfinite(mb))
+    fill!(f.rb, zero(eltype(f.rb)))
+    return S(Inf)
+  end
+  ea = _magnitude_exponent(ma)
+  k = _comparison_exponent(ea + _magnitude_exponent(mx), _magnitude_exponent(mb))
+  sa, sx = _power_factors(S, -ea), _power_factors(S, ea - k)
+  _scaled_affine_residual!(f.rb, f.A, x, f.b, sa, sx, k)
+  nb = sqrt(_scaled_sumabs2(f.b, _power_factors(S, -k)))
+  na = sqrt(_scaled_sumabs2(f.A, sa))
+  nx = sqrt(_scaled_sumabs2(x, sx))
+  slack = _tol(S) * max(ldexp(one(S), -k), nb, na * nx)
+  _ind(_norm2(f.rb) <= slack, S)
+end
+
+# Accumulate scaled products, and subtract b before rounding into the buffer.
+function _scaled_affine_residual!(r, A::AbstractMatrix, x, b, sa, sx, k)
+  @inbounds for i in axes(A, 1)
+    v = zero(sa[1])
+    for j in axes(A, 2)
+      v += _scale_value(A[i, j], sa) * _scale_value(x[j], sx)
+    end
+    r[i] = v - ldexp(typeof(v)(b[i]), -k)
+  end
+  r
+end
+
+# Sparse columns update only their stored rows; every buffer entry is reset.
+function _scaled_affine_residual!(r, A::SparseMatrixCSC, x, b, sa::NTuple{2, S}, sx, k) where {S}
+  S === eltype(r) || return invoke(_scaled_affine_residual!,
+    Tuple{Any, AbstractMatrix, Any, Any, Any, Any, Any}, r, A, x, b, sa, sx, k)
+  @inbounds for i in eachindex(r, b)
+    r[i] = -ldexp(S(b[i]), -k)
+  end
+  rows, vals = rowvals(A), nonzeros(A)
+  @inbounds for j in axes(A, 2)
+    v = _scale_value(x[j], sx)
+    for h in nzrange(A, j)
+      r[rows[h]] += _scale_value(vals[h], sa) * v
+    end
+  end
+  r
 end
 
 function prox!(y::AbstractVector, f::IndAffine{T, M, <:Cholesky}, x::AbstractVector, ::Real) where {T<:AbstractFloat, M}

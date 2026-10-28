@@ -125,23 +125,23 @@ isseparable(::Type{<:SqrNormL2}) = true
 isconvex(::Type{<:SqrNormL2}) = true
 
 # Σ xᵢ² over the entries of x, in O(nnz) for the sparse iterates
-_sumabs2(x::AbstractArray) = sum(abs2, x)
+_sumabs2(x::AbstractArray) = eltype(x) <: Integer ? sum(v -> abs2(float(v)), x) : sum(abs2, x)
 function _sumabs2(x::SparseIterate)
   s = zero(float(eltype(x)))
   @inbounds @simd for k in 1:x.nnz
-    s += abs2(x.nzval[k])
+    s += abs2(float(x.nzval[k]))
   end
   s
 end
 function _sumabs2(x::SymmetricSparseIterate{T}) where {T}
-  s = zero(T)
+  s = zero(float(T))
   @inbounds for k = 1:x.nnz
     r, c = tril_cartesian(x.p, x.nzval2ind[k])
-    s += (r == c ? 1 : 2) * abs2(x.nzval[k])
+    s += (r == c ? 1 : 2) * abs2(float(x.nzval[k]))
   end
   s
 end
-_sumabs2(x::AtomIterate) = sum(abs2, x.storage)
+_sumabs2(x::AtomIterate) = _sumabs2(x.storage)
 
 # Keep the vectorized sum-of-squares path for ordinary magnitudes; use a
 # scaled norm when squaring overflows or loses the subnormal entries.

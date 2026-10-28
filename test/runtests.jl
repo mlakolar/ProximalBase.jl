@@ -22,6 +22,7 @@ tests = [
   "intersection",
   "sets",
   "extreme_normals",
+  "large_inputs",
   "ordered",
   "nonconvex",
   "lla",

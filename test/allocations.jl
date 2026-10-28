@@ -355,4 +355,78 @@ end
   end
 end
 
+function zero_alloc_large_value(f, x, expected)
+  @test a_value(f, x) == expected
+  @test allocs(a_value, f, x) == 0
+  @test a_value(f, x) == expected
+end
+
+@testset "zero allocations with large inputs" begin
+  for T in (Float32, Float64)
+    M = floatmax(T)
+    large = ldexp(one(T), exponent(M) - 3)
+    extreme = ldexp(one(T), round(Int, 0.6 * exponent(M)))
+    for c in (one(T), extreme), F in (IndHyperplane, IndHalfspace)
+      for a in (c, T[c, c])
+        f = F(a, zero(T))
+        for (x, expected) in ((T[large, -large], zero(T)), (T[large, large], T(Inf)))
+          zero_alloc_large_value(f, x, expected)
+          zero_alloc_large_value(f, SparseIterate(x), expected)
+          zero_alloc_large_value(f, AtomIterate(x, [1:1, 2:2]), expected)
+        end
+      end
+      for a in (c, fill(c, 2, 2))
+        f = F(a, zero(T))
+        for (X, expected) in ((T[large 0; 0 -large], zero(T)),
+                              (T[large 0; 0 large], T(Inf)))
+          zero_alloc_large_value(f, X, expected)
+          zero_alloc_large_value(f, SparseIterate(X), expected)
+          zero_alloc_large_value(f, SymmetricSparseIterate(X), expected)
+        end
+      end
+      f = F(nextfloat(zero(T)), one(T))
+      zero_alloc_large_value(f, T[large], F === IndHalfspace ? zero(T) : T(Inf))
+      zero_alloc_large_value(F(nextfloat(zero(T)), -one(T)), T[large], T(Inf))
+    end
+
+    for equality in (false, true)
+      f = IndSimplex(M; equality)
+      zero_alloc_large_value(f, T[M / 2, M / 2, sqrt(eps(T)) * M / 4], zero(T))
+      zero_alloc_large_value(f, T[M, M], T(Inf))
+    end
+    for A in (T[1 -1], sparse(T[1 -1]))
+      f = IndAffine(A, T[0])
+      # Alternate verdicts to check that the residual buffer is overwritten.
+      zero_alloc_large_value(f, T[M, M], zero(T))
+      zero_alloc_large_value(f, T[M, -M], T(Inf))
+      zero_alloc_large_value(f, T[M, M], zero(T))
+    end
+    for A in (T[1e10 0], sparse(T[1e10 0]))
+      f = IndAffine(A, T[0])
+      zero_alloc_large_value(f, T[0, M], zero(T))
+      zero_alloc_large_value(f, T[large, 0], T(Inf))
+    end
+    for A in (Matrix{T}(I, 2, 2), sparse(Matrix{T}(I, 2, 2)), Diagonal(ones(T, 2)))
+      b = fill(M * T(0.75), 2)
+      f = IndAffine(A, b)
+      zero_alloc_large_value(f, b, zero(T))
+      zero_alloc_large_value(f, ones(T, 2), T(Inf))
+      zero_alloc_large_value(f, b, zero(T))
+    end
+    for symmetric in (false, true)
+      f = IndToeplitz(; symmetric)
+      zero_alloc_large_value(f, T[M M / 2; M / 2 M], zero(T))
+      zero_alloc_large_value(f, T[M * T(0.6) 0; 0 M * T(0.8)], T(Inf))
+    end
+    for F in (IndBallL1, IndBallL2)
+      f = F(M)
+      zero_alloc_large_value(f, T[prevfloat(M), 0], zero(T))
+      zero_alloc_large_value(f, T[M, M], T(Inf))
+    end
+  end
+  zero_alloc_large_value(IndSimplex(1e40; equality = false), fill(1f38, 4), 0f0)
+  zero_alloc_large_value(IndHyperplane(Int64[4], 0), [Int64(1) << 62], Inf)
+  zero_alloc_large_value(Constrained(NormL1(0.1), IndHyperplane(1.0, 0)), [1e200, 1e200], Inf)
+end
+
 end

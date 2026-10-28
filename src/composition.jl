@@ -67,7 +67,7 @@ for trait in (:issmooth, :isproximable, :isconvex)
   @eval $trait(::Type{<:Precompose{F}}) where {F} = $trait(F)
 end
 isseparable(::Type{<:Precompose{F, M}}) where {F, M} = M <: Real && isseparable(F)
-iszeropreserving(h::_ScalarPrecompose) = isfinite(h.A) && iszeropreserving(h.f)
+iszeropreserving(h::_ScalarPrecompose) = isfinite(h.A) && isfinite(h.μ) && iszeropreserving(h.f)
 _isindicator(::Type{<:Precompose{F}}) where {F} = _isindicator(F)
 
 # the image Ax in a buffer that h owns
@@ -142,6 +142,13 @@ end
 Base.@propagate_inbounds prox_entry(h::_ScalarPrecompose, v::Real, i::Integer, γ::Real) =
   prox_entry(h.f, h.A * v, i, h.μ * γ) / h.A
 _checkparams(h::_ScalarPrecompose, x) = _checkparams(h.f, x)
+function _checkparams(h::Precompose{<:AbstractFunction, <:AbstractMatrix}, x::AbstractArray)
+  size(h.A, 2) == length(x) ||
+    throw(DimensionMismatch("A has $(size(h.A, 2)) columns and the argument has length $(length(x))"))
+  T = float(promote_type(eltype(x), eltype(h.A)))
+  z = _array_buffer!(h.image, T, (size(h.A, 1),))
+  _checkparams(h.f, z)
+end
 # 0 ∈ gᵢ + a∂fᵢ(0) when 0 ∈ gᵢ/a + ∂fᵢ(0)
 kkt_violation(h::_ScalarPrecompose, g::AbstractArray, i::Integer) =
   abs(h.A) * kkt_violation(h.f, _ScaledArray(g, inv(h.A)), i)

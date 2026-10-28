@@ -67,7 +67,6 @@ function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArr
   _checksize(y, x)
   _checksize(t.b, x)
   _checkparams(t, x)
-  _checkparam(γ, x)
   y .= x .- t.b
   prox!(y, t.f, y, γ)
   y .+= t.b
@@ -76,7 +75,6 @@ function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::A
   _checksize(y, x)
   _checksize(t.b, x)
   _checkparams(t, x)
-  _checkparam(γ, x)
   y .= x .- t.b
   v = value_and_prox!(y, t.f, y, γ)
   y .+= t.b

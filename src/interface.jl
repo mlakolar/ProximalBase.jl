@@ -69,6 +69,11 @@ standalone value oracle. It is `false` for non-separable functions and unless
 a function declares it. Wrappers forward it only where it holds for every
 entry and every positive finite step.
 
+The promise holds in exact arithmetic: for parameters or steps so extreme
+that dense computations overflow (for example, a scale beyond
+`floatmax(Float32)` with a `Float32` argument), paths over stored entries
+return exact zeros where dense results can be `NaN`.
+
 It is a property of the function, not of its type: the bounds of an
 [`IndBox`](@ref) may exclude zero.
 """

@@ -245,6 +245,28 @@ end
     @test_throws DimensionMismatch prox!(x, f, x, 0.5)
     @test all(iszero, x)
   end
+  for T in (Float32, Float64)
+    A = Matrix{T}(I, 3, 3)
+    h = Precompose(WeightedSquare(ones(2)), A, one(T))
+    for f in (Translate(h, ones(T, 3)), Regularize(h, one(T))),
+        op in (prox!, value_and_prox!), alias in (false, true)
+      input = fill(T(3), 3)
+      output = alias ? input : copy(input)
+      @test_throws DimensionMismatch op(output, f, input, T(0.5))
+      @test output == fill(T(3), 3)
+      @test input == fill(T(3), 3)
+    end
+    @test h.image.buf isa Vector{T}
+    h = Precompose(WeightedSquare(ones(2)), Matrix{T}(I, 2, 3), one(T))
+    @test prox(Scaled(h, T(2)), ones(T, 3), T(0.5)) ≈ T[0.5, 0.5, 1]
+    @test h.image.buf isa Vector{T} && length(h.image.buf) == 2
+    h = Precompose(WeightedSquare(ones(2)), A, one(T))
+    for f in (Translate(h, ones(T, 4)), Regularize(h, one(T)))
+      input = fill(T(3), 4)
+      @test_throws DimensionMismatch prox!(input, f, input, T(0.5))
+      @test input == fill(T(3), 4)
+    end
+  end
 end
 
 @testset "SymmetricSparseIterate into another iterate" begin

@@ -13,6 +13,17 @@ Random.seed!(1)
 blocks_approx(x::AbstractArray, y::AbstractArray) = isapprox(x, y)
 blocks_approx(x::Tuple, y::Tuple) = all(map(blocks_approx, x, y))
 
+struct CountedMatrix <: AbstractMatrix{Float64}
+  data::Matrix{Float64}
+  images::Base.RefValue{Int}
+end
+Base.size(A::CountedMatrix) = size(A.data)
+Base.getindex(A::CountedMatrix, i::Int, j::Int) = A.data[i, j]
+function LinearAlgebra.mul!(y::AbstractVector, A::CountedMatrix, x::AbstractVector)
+  A.images[] += 1
+  mul!(y, A.data, x)
+end
+
 @testset "zero preservation" begin
   table = (
     (ZeroFunction(), true), (SqrNormL2(), true), (SqrNormL2(Inf), false),
@@ -21,6 +32,7 @@ blocks_approx(x::Tuple, y::Tuple) = all(map(blocks_approx, x, y))
     (Regularize(NormL1(1.), 1.), true), (Regularize(NormL1(1.), Inf), false),
     (Regularize(NormL1(1.), 1., zeros(2)), false),
     (Precompose(NormL1(1.), -2.), true), (Precompose(NormL1(1.), Inf), false),
+    (Precompose(ElasticNet(0., 1.), 1e200), false),
     (Precompose(NormL1(1.), Matrix(1.0I, 2, 2), 1.), false),
     (Conjugate(NormL1(1.)), true), (Conjugate(NormL2(1.)), false),
     (MoreauEnvelope(NormL1(1.), 1.), false), (Tilt(NormL1(1.), ones(2)), false),
@@ -113,6 +125,22 @@ end
   check_prox(q, x, 0.7)
   @test value_and_prox!(similar(x), t, x, 0.7) ≈ t(prox(t, x, 0.7))
   @test_throws DimensionMismatch t(randn(3))
+  for T in (Float32, Float64)
+    f = GroupNormL2(one(T), [1:2, 3:4])
+    x, b, steps = ones(T, 4), zeros(T, 4), fill(T(0.5), 2)
+    t = Translate(f, b)
+    expected = fill(T(0.5), 4)
+    @test prox(t, x, steps) ≈ expected
+    out = similar(x)
+    @test value_and_prox!(out, t, x, steps) ≈ f(expected)
+    @test out ≈ expected
+    b = T[1, -1, 2, -2]
+    t = Translate(f, b)
+    expected = b + prox(f, x - b, steps)
+    @test prox(t, x, steps) ≈ expected
+    @test value_and_prox!(out, t, x, steps) ≈ t(expected)
+    @test out ≈ expected
+  end
   M = randn(3, 4)
   @test Translate(NuclearNorm(1.), M)(M) ≈ 0
   for T in (Float32, Float64)
@@ -414,7 +442,8 @@ end
     alias = deepcopy(point)
     @test prox!(alias, c, alias, 0.7) === alias
     @test blocks_approx(alias, expected)
-    @test ProximalBase.Testing.allocations(prox!, out, c, point, 0.7) == 0
+    # Nested SeparableSum already allocates on Julia 1.10.
+    VERSION >= v"1.11" && @test ProximalBase.Testing.allocations(prox!, out, c, point, 0.7) == 0
   end
 
   f = SeparableSum(fallback, SqrNormL2())
@@ -507,6 +536,16 @@ end
       @test_throws DimensionMismatch op(out, r, x)
       @test out == x
     end
+  end
+  A = CountedMatrix(Matrix{Float64}(I, 3, 3), Ref(0))
+  h = Precompose(SqrNormL2(), A, 1.; check = false)
+  x = fill(3., 3)
+  out = similar(x)
+  for op in (prox!, value_and_prox!)
+    A.images[] = 0
+    op(out, Scaled(h, 2.), x, 0.5)
+    @test A.images[] == 1
+    @test out ≈ prox(Scaled(SqrNormL2(), 2.), x, 0.5)
   end
 end
 

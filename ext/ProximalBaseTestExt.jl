@@ -118,7 +118,13 @@ end
 #  gradients
 ####################################
 
-function test_gradient(f, x::AbstractArray; h = 1e-6, rtol = 1e-5, directions = 3, rng = nothing)
+function test_gradient(f, x::AbstractArray; h = nothing, rtol = nothing, atol = nothing, directions = 3,
+                       rng = nothing)
+  R = real(float(eltype(x)))
+  c = cbrt(eps(R) / eps(Float64))
+  h === nothing && (h = 1e-6c)
+  rtol === nothing && (rtol = 1e-5c)
+  atol === nothing && (atol = 1e-6c)
   g = gradient(f, x)
   g2 = similar(g)
   @test gradient!(g2, f, x) === g2
@@ -130,10 +136,14 @@ function test_gradient(f, x::AbstractArray; h = 1e-6, rtol = 1e-5, directions = 
   v4, g4 = value_and_gradient(f, x)
   @test v4 ≈ v && g4 ≈ g
   xd = Array(x)
+  xp = similar(xd, float(eltype(x)))
+  xm = similar(xp)
   for _ in 1:directions
-    d = _randn(rng, size(xd)...)
-    fd = (f(xd .+ h .* d) - f(xd .- h .* d)) / (2h)
-    @test fd ≈ dot(g, d) rtol = rtol atol = 1e-6 * max(1, abs(fd))
+    d = _randn(rng, eltype(xp), size(xd)...)
+    xp .= xd .+ h .* d
+    xm .= xd .- h .* d
+    fd = (f(xp) - f(xm)) / (2h)
+    @test fd ≈ real(dot(g, d)) rtol = rtol atol = atol * max(1, abs(fd))
   end
   g
 end
@@ -171,15 +181,17 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
   @test _dense(xs) ≈ _dense(pz)
 
   # the stored entries only, when zero is preserved
-  if f isa SeparableFunction && iszeropreserving(f)
+  if iszeropreserving(f)
     T = float(eltype(x))
     @test all(i -> iszero(prox_entry(f, zero(T), i, γ)), eachindex(x))
-    @test all(i -> iszero(value_entry(f, zero(T), i)), eachindex(x))
     xs = SparseIterate(xz)
-    @test f(xs) ≈ f(xz)
     ys = SparseIterate(xz)
     @test _dense(prox!(ys, f, xs, γ)) ≈ _dense(pz)
-    @test value_and_prox!(ys, f, xs, γ) ≈ f(pz)
+    if f isa SeparableFunction
+      @test all(i -> iszero(value_entry(f, zero(T), i)), eachindex(x))
+      @test f(xs) ≈ f(xz)
+      @test value_and_prox!(ys, f, xs, γ) ≈ f(pz)
+    end
   end
 
   if groups !== nothing

@@ -270,6 +270,38 @@ SparseIterate(::Type{T}, n::Int, m::Int) where {T} = SparseIterate{T, 2}(zeros(T
 
 SparseArrays.issparse(x::SparseIterate) = true
 
+"""
+    nonzeros(x::SparseIterate)
+
+The stored values of `x`, including stored zeros, in storage order. Entry `k`
+pairs with `activecoordinates(x)[k]`. The returned view aliases `x`: writing
+through it changes `x`. The view is invalidated when the stored set changes.
+"""
+SparseArrays.nonzeros(x::SparseIterate) = view(x.nzval, 1:x.nnz)
+
+"""
+    findnz(x::SparseIterate)
+
+The stored indices and values of `x`, including stored zeros, as copies.
+Return `(I, V)` sorted by index for a vector, or `(I, J, V)` in column-major
+order for a matrix. Changing the returned arrays does not change `x`.
+"""
+function SparseArrays.findnz(x::SparseIterate{<:Any, 1})
+  order = sortperm(activecoordinates(x))
+  x.nzval2ind[order], x.nzval[order]
+end
+
+function SparseArrays.findnz(x::SparseIterate{T, 2}) where {T}
+  order = sortperm(activecoordinates(x))
+  I, J, V = Vector{Int}(undef, x.nnz), Vector{Int}(undef, x.nnz), Vector{T}(undef, x.nnz)
+  n = size(x, 1)
+  @inbounds for (k, p) in enumerate(order)
+    j, i = divrem(x.nzval2ind[p] - 1, n)
+    I[k], J[k], V[k] = i + 1, j + 1, x.nzval[p]
+  end
+  I, J, V
+end
+
 Base.length(x::SparseIterate) = length(x.ind2nzval)
 Base.size(x::SparseIterate) = size(x.ind2nzval)
 Base.IndexStyle(::Type{<:SparseIterate}) = IndexLinear()
@@ -301,8 +333,7 @@ end
 function SparseIterate(x::SparseVector{T}) where {T}
   p = length(x)
   out = SparseIterate(T, p)
-  nzval = SparseArrays.nonzeros(x)
-  rowval = SparseArrays.nonzeroinds(x)
+  rowval, nzval = findnz(x)
   for i=1:length(nzval)
     out[rowval[i]] = nzval[i]
   end
@@ -767,22 +798,28 @@ end
 
 # From a matrix source, its lower triangle.
 Base.copyto!(x::SymmetricSparseIterate, y::AbstractMatrix) = _copyto_lower!(x, y)
-# Resolve SparseArrays' copyto!(::AbstractMatrix, ::AbstractSparseMatrixCSC).
-Base.copyto!(x::SymmetricSparseIterate, y::SparseArrays.AbstractSparseMatrixCSC) = _copyto_lower!(x, y)
+# Resolve sparse-source copyto! ambiguities.
+@static if isdefined(@__MODULE__, :_AbstractSparseMatrixCSC)
+  Base.copyto!(x::SymmetricSparseIterate, y::_AbstractSparseMatrixCSC) = _copyto_lower!(x, y)
+  Base.copyto!(x::SymmetricSparseIterate, y::Union{Adjoint{<:Any,<:_AbstractSparseMatrixCSC},
+                                                 Transpose{<:Any,<:_AbstractSparseMatrixCSC}}) = _copyto_lower!(x, y)
+end
 # SparseArrays also specializes matrix views and transposed sparse sources.
-@static if isdefined(SparseArrays, :SparseMatrixCSCOrView)
-  Base.copyto!(x::SymmetricSparseIterate, y::SparseArrays.SparseMatrixCSCOrView) = _copyto_lower!(x, y)
+@static if isdefined(@__MODULE__, :_SparseMatrixCSCOrView)
+  Base.copyto!(x::SymmetricSparseIterate, y::_SparseMatrixCSCOrView) = _copyto_lower!(x, y)
 end
-Base.copyto!(x::SymmetricSparseIterate, y::Union{Adjoint{<:Any,<:SparseArrays.AbstractSparseMatrixCSC},
-                                               Transpose{<:Any,<:SparseArrays.AbstractSparseMatrixCSC}}) = _copyto_lower!(x, y)
-@static if isdefined(SparseArrays, :AdjOrTransSparseVectorOrView)
-  Base.copyto!(x::SymmetricSparseIterate, y::SparseArrays.AdjOrTransSparseVectorOrView) = _copyto_lower!(x, y)
+@static if isdefined(@__MODULE__, :_AdjOrTransSparseVectorOrView)
+  Base.copyto!(x::SymmetricSparseIterate, y::_AdjOrTransSparseVectorOrView) = _copyto_lower!(x, y)
 end
-# CHOLMOD defines both an element-type-matched matrix method and an untyped
-# array method for its dense matrix wrapper; preserve the same triangle rule.
-Base.copyto!(x::SymmetricSparseIterate, y::SparseArrays.CHOLMOD.Dense) = _copyto_lower!(x, y)
-Base.copyto!(x::SymmetricSparseIterate{T}, y::SparseArrays.CHOLMOD.Dense{T}) where
-    {T<:SparseArrays.CHOLMOD.VTypes} = _copyto_lower!(x, y)
+# Sparse factorizations define typed matrix and untyped array copy methods.
+# Preserve the same triangle rule for their dense matrix wrapper.
+@static if isdefined(@__MODULE__, :_CHOLMODDense)
+  Base.copyto!(x::SymmetricSparseIterate, y::_CHOLMODDense) = _copyto_lower!(x, y)
+  @static if isdefined(@__MODULE__, :_CHOLMODVTypes)
+    Base.copyto!(x::SymmetricSparseIterate{T}, y::_CHOLMODDense{T}) where
+        {T<:_CHOLMODVTypes} = _copyto_lower!(x, y)
+  end
+end
 function _copyto_lower!(x::SymmetricSparseIterate, y::AbstractMatrix)
   size(x) == size(y) || throw(DimensionMismatch())
   p = x.p

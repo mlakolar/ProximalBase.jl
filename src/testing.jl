@@ -45,6 +45,10 @@ module Testing
 
 using ..ProximalBase
 
+# `public` does not parse on Julia 1.10.
+VERSION >= v"1.11" && Core.eval(@__MODULE__, Expr(:public, :test_prox, :test_gradient, :test_separable,
+  :test_conjugate, :test_kkt, :test_traits, :allocations, :brute_force_prox))
+
 """
     test_prox(f, x, γ; rtol = 1e-8, atol = 1e-10, local_points = true, symmetric = false, rng = nothing)
 
@@ -65,13 +69,21 @@ Returns `p`.
 function test_prox end
 
 """
-    test_gradient(f, x; h = 1e-6, rtol = 1e-5, directions = 3, rng = nothing)
+    test_gradient(f, x; h = nothing, rtol = nothing, atol = nothing, directions = 3, rng = nothing)
 
 Test the gradient of the smooth function `f` at `x` against central finite
 differences along random directions, and [`gradient!`](@ref),
 [`gradient`](@ref), [`value_and_gradient!`](@ref) and
 [`value_and_gradient`](@ref) against each other and against `f(x)`. Returns the
 gradient.
+
+For Float64 and ComplexF64, the defaults are `h = 1e-6`, `rtol = 1e-5` and
+`atol = 1e-6`. For other precisions they are multiplied by
+`c = cbrt(eps(real(float(eltype(x)))) / eps(Float64))`. For Float32 this gives
+`h ≈ 8.1e-4`, `rtol ≈ 8.1e-3` and `atol ≈ 8.1e-4`. The absolute tolerance is
+`atol * max(1, abs(fd))`, where `fd` is the finite difference. Supplied keywords
+override these defaults. Directions and perturbed points keep the floating
+element type of `x`.
 """
 function test_gradient end
 
@@ -85,9 +97,10 @@ Test a separable `f` at the vector or matrix `x` with step `γ`:
 - [`prox_coordinate!`](@ref) on every coordinate of a [`SparseIterate`](@ref)
   (a copy of `x` with some entries set to zero) gives the proximal point;
 - when [`iszeropreserving`](@ref)`(f)`, zero is fixed by every scalar proximal
-  operator and has value 0, and the value and the proximal operator on a
-  `SparseIterate`, which touch only its stored entries, agree with the dense
-  ones;
+  operator, and `prox!` on a `SparseIterate` agrees with the dense result;
+- for a zero-preserving `SeparableFunction`, every `value_entry` at zero is 0,
+  and the value and [`value_and_prox!`](@ref) on a `SparseIterate` agree with
+  the dense results. Zero-preserving wrappers need no value oracle;
 - with `groups`, `prox_coordinate!` on each group of an [`AtomIterate`](@ref)
   gives the proximal point;
 - with `symmetric = true` and a square `x`, `prox_coordinate!` on each

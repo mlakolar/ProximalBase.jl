@@ -20,17 +20,17 @@ mutable struct SymEigenWorkspace{T<:_BlasReal}
   A::Matrix{T}                 # the input, overwritten with the eigenvectors
   w::Vector{T}                 # the eigenvalues, in ascending order
   work::Vector{T}
-  iwork::Vector{BlasInt}
-  info::Base.RefValue{BlasInt}
+  iwork::Vector{_BlasInt}
+  info::Base.RefValue{_BlasInt}
 end
 
 for (syevd, T) in ((:dsyevd_, :Float64), (:ssyevd_, :Float32))
   @eval function _syevd!(jobz::Char, A::Matrix{$T}, w::Vector{$T}, work::Vector{$T}, lwork::Integer,
-                         iwork::Vector{BlasInt}, liwork::Integer, info::Base.RefValue{BlasInt})
+                         iwork::Vector{_BlasInt}, liwork::Integer, info::Base.RefValue{_BlasInt})
     n = size(A, 1)
-    ccall((@blasfunc($syevd), libblastrampoline), Cvoid,
-          (Ref{UInt8}, Ref{UInt8}, Ref{BlasInt}, Ptr{$T}, Ref{BlasInt}, Ptr{$T},
-           Ptr{$T}, Ref{BlasInt}, Ptr{BlasInt}, Ref{BlasInt}, Ptr{BlasInt}, Clong, Clong),
+    ccall(($(QuoteNode(_blasfunc(syevd))), _libblastrampoline), Cvoid,
+          (Ref{UInt8}, Ref{UInt8}, Ref{_BlasInt}, Ptr{$T}, Ref{_BlasInt}, Ptr{$T},
+           Ptr{$T}, Ref{_BlasInt}, Ptr{_BlasInt}, Ref{_BlasInt}, Ptr{_BlasInt}, Clong, Clong),
           jobz, 'U', n, A, max(1, n), w, work, lwork, iwork, liwork, info, 1, 1)
     info[]
   end
@@ -38,7 +38,7 @@ end
 
 function SymEigenWorkspace(::Type{T}, n::Integer) where {T<:_BlasReal}
   A, w = zeros(T, n, n), zeros(T, n)
-  work, iwork, info = zeros(T, 1), zeros(BlasInt, 1), Ref{BlasInt}(0)
+  work, iwork, info = zeros(T, 1), zeros(_BlasInt, 1), Ref{_BlasInt}(0)
   _syevd!('V', A, w, work, -1, iwork, -1, info)       # workspace query
   lwork, liwork = max(1, round(Int, work[1])), max(1, Int(iwork[1]))
   SymEigenWorkspace{T}(n, A, w, resize!(work, lwork), resize!(iwork, liwork), info)
@@ -92,23 +92,23 @@ mutable struct SymEigenTopWorkspace{T<:_BlasReal}
   A::Matrix{T}                 # the input, destroyed
   w::Vector{T}                 # w[1:r] are the r largest eigenvalues, ascending
   Z::Matrix{T}                 # their eigenvectors
-  isuppz::Vector{BlasInt}
+  isuppz::Vector{_BlasInt}
   work::Vector{T}
-  iwork::Vector{BlasInt}
-  m::Base.RefValue{BlasInt}
-  info::Base.RefValue{BlasInt}
+  iwork::Vector{_BlasInt}
+  m::Base.RefValue{_BlasInt}
+  info::Base.RefValue{_BlasInt}
 end
 
 for (syevr, T) in ((:dsyevr_, :Float64), (:ssyevr_, :Float32))
-  @eval function _syevr!(A::Matrix{$T}, il::Integer, iu::Integer, m::Base.RefValue{BlasInt}, w::Vector{$T},
-                         Z::Matrix{$T}, isuppz::Vector{BlasInt}, work::Vector{$T}, lwork::Integer,
-                         iwork::Vector{BlasInt}, liwork::Integer, info::Base.RefValue{BlasInt})
+  @eval function _syevr!(A::Matrix{$T}, il::Integer, iu::Integer, m::Base.RefValue{_BlasInt}, w::Vector{$T},
+                         Z::Matrix{$T}, isuppz::Vector{_BlasInt}, work::Vector{$T}, lwork::Integer,
+                         iwork::Vector{_BlasInt}, liwork::Integer, info::Base.RefValue{_BlasInt})
     n = size(A, 1)
-    ccall((@blasfunc($syevr), libblastrampoline), Cvoid,
-          (Ref{UInt8}, Ref{UInt8}, Ref{UInt8}, Ref{BlasInt}, Ptr{$T}, Ref{BlasInt},
-           Ref{$T}, Ref{$T}, Ref{BlasInt}, Ref{BlasInt}, Ref{$T}, Ptr{BlasInt}, Ptr{$T},
-           Ptr{$T}, Ref{BlasInt}, Ptr{BlasInt}, Ptr{$T}, Ref{BlasInt}, Ptr{BlasInt}, Ref{BlasInt},
-           Ptr{BlasInt}, Clong, Clong, Clong),
+    ccall(($(QuoteNode(_blasfunc(syevr))), _libblastrampoline), Cvoid,
+          (Ref{UInt8}, Ref{UInt8}, Ref{UInt8}, Ref{_BlasInt}, Ptr{$T}, Ref{_BlasInt},
+           Ref{$T}, Ref{$T}, Ref{_BlasInt}, Ref{_BlasInt}, Ref{$T}, Ptr{_BlasInt}, Ptr{$T},
+           Ptr{$T}, Ref{_BlasInt}, Ptr{_BlasInt}, Ptr{$T}, Ref{_BlasInt}, Ptr{_BlasInt}, Ref{_BlasInt},
+           Ptr{_BlasInt}, Clong, Clong, Clong),
           'V', 'I', 'U', n, A, max(1, n), zero($T), zero($T), il, iu, -one($T), m, w,
           Z, max(1, n), isuppz, work, lwork, iwork, liwork, info, 1, 1, 1)
     info[]
@@ -118,8 +118,8 @@ end
 function SymEigenTopWorkspace(::Type{T}, n::Integer, r::Integer) where {T<:_BlasReal}
   1 <= r <= n || throw(ArgumentError("need 1 ≤ r ≤ n, got r = $r and n = $n"))
   A, w, Z = zeros(T, n, n), zeros(T, n), zeros(T, n, r)
-  isuppz, m, info = zeros(BlasInt, 2r), Ref{BlasInt}(0), Ref{BlasInt}(0)
-  work, iwork = zeros(T, 1), zeros(BlasInt, 1)
+  isuppz, m, info = zeros(_BlasInt, 2r), Ref{_BlasInt}(0), Ref{_BlasInt}(0)
+  work, iwork = zeros(T, 1), zeros(_BlasInt, 1)
   _syevr!(A, n - r + 1, n, m, w, Z, isuppz, work, -1, iwork, -1, info)    # workspace query
   lwork, liwork = max(1, round(Int, work[1])), max(1, Int(iwork[1]))
   SymEigenTopWorkspace{T}(n, r, A, w, Z, isuppz, resize!(work, lwork), resize!(iwork, liwork), m, info)
@@ -146,18 +146,18 @@ mutable struct SVDWorkspace{T<:_BlasReal}
   U::Matrix{T}                 # m × min(m, n)
   Vt::Matrix{T}                # min(m, n) × n
   work::Vector{T}
-  iwork::Vector{BlasInt}
-  info::Base.RefValue{BlasInt}
+  iwork::Vector{_BlasInt}
+  info::Base.RefValue{_BlasInt}
 end
 
 for (gesdd, T) in ((:dgesdd_, :Float64), (:sgesdd_, :Float32))
   @eval function _gesdd!(jobz::Char, A::Matrix{$T}, s::Vector{$T}, U::Matrix{$T}, Vt::Matrix{$T},
-                         work::Vector{$T}, lwork::Integer, iwork::Vector{BlasInt}, info::Base.RefValue{BlasInt})
+                         work::Vector{$T}, lwork::Integer, iwork::Vector{_BlasInt}, info::Base.RefValue{_BlasInt})
     m, n = size(A)
-    ccall((@blasfunc($gesdd), libblastrampoline), Cvoid,
-          (Ref{UInt8}, Ref{BlasInt}, Ref{BlasInt}, Ptr{$T}, Ref{BlasInt}, Ptr{$T},
-           Ptr{$T}, Ref{BlasInt}, Ptr{$T}, Ref{BlasInt}, Ptr{$T}, Ref{BlasInt},
-           Ptr{BlasInt}, Ptr{BlasInt}, Clong),
+    ccall(($(QuoteNode(_blasfunc(gesdd))), _libblastrampoline), Cvoid,
+          (Ref{UInt8}, Ref{_BlasInt}, Ref{_BlasInt}, Ptr{$T}, Ref{_BlasInt}, Ptr{$T},
+           Ptr{$T}, Ref{_BlasInt}, Ptr{$T}, Ref{_BlasInt}, Ptr{$T}, Ref{_BlasInt},
+           Ptr{_BlasInt}, Ptr{_BlasInt}, Clong),
           jobz, m, n, A, max(1, m), s, U, max(1, m), Vt, max(1, min(m, n)), work, lwork, iwork, info, 1)
     info[]
   end
@@ -166,7 +166,7 @@ end
 function SVDWorkspace(::Type{T}, m::Integer, n::Integer) where {T<:_BlasReal}
   k = min(m, n)
   A, s, U, Vt = zeros(T, m, n), zeros(T, k), zeros(T, m, k), zeros(T, k, n)
-  work, iwork, info = zeros(T, 1), zeros(BlasInt, max(1, 8k)), Ref{BlasInt}(0)
+  work, iwork, info = zeros(T, 1), zeros(_BlasInt, max(1, 8k)), Ref{_BlasInt}(0)
   lwork = 1
   for jobz in ('S', 'N')                                  # workspace queries
     _gesdd!(jobz, A, s, U, Vt, work, -1, iwork, info)

@@ -85,12 +85,15 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
 end
 
 (s::Scaled)(x) = s.α * s.f(x)
-value_and_gradient!(g, s::Scaled, x) = (v = value_and_gradient!(g, s.f, x); g .*= s.α; s.α * v)
-gradient!(g, s::Scaled, x) = (gradient!(g, s.f, x); g .*= s.α)
-prox!(y, s::Scaled, x, γ::Real) = prox!(y, s.f, x, s.α * γ)
-value_and_prox!(y, s::Scaled, x, γ::Real) = s.α * value_and_prox!(y, s.f, x, s.α * γ)
+_scale!(g::AbstractArray, α) = (g .*= α)
+_scale!(g::Tuple, α) = (map(gk -> _scale!(gk, α), g); g)
+value_and_gradient!(g, s::Scaled, x) = (_checkparams(s, x); v = value_and_gradient!(g, s.f, x); _scale!(g, s.α); s.α * v)
+gradient!(g, s::Scaled, x) = (_checkparams(s, x); gradient!(g, s.f, x); _scale!(g, s.α))
+prox!(y, s::Scaled, x, γ::Real) = (_checkparams(s, x); prox!(y, s.f, x, s.α * γ))
+value_and_prox!(y, s::Scaled, x, γ::Real) = (_checkparams(s, x); s.α * value_and_prox!(y, s.f, x, s.α * γ))
 Base.@propagate_inbounds prox_entry(s::Scaled, v::Real, i::Integer, γ::Real) = prox_entry(s.f, v, i, s.α * γ)
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
+iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 # a scaled group penalty updates a group of an AtomIterate with a scaled step
 prox_coordinate!(x::AtomIterate, s::Scaled, k::Integer, γ::Real) = prox_coordinate!(x, s.f, k, s.α * γ)
@@ -170,6 +173,7 @@ end
 # x - b in a buffer owned by t
 function _shifted(t::Translate, x::AbstractArray)
   size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
+  _checkparams(t, x)
   z = _array_buffer!(t.scratch, float(promote_type(eltype(x), eltype(t.b))), size(x))
   z .= x .- t.b
 end
@@ -181,6 +185,7 @@ gradient!(g, t::Translate, x::AbstractArray) = gradient!(g, t.f, _shifted(t, x))
 function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checksize(y, x)
   _checksize(t.b, x)
+  _checkparams(t, x)
   y .= x .- t.b
   prox!(y, t.f, y, γ)
   y .+= t.b
@@ -188,6 +193,7 @@ end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checksize(y, x)
   _checksize(t.b, x)
+  _checkparams(t, x)
   y .= x .- t.b
   v = value_and_prox!(y, t.f, y, γ)
   y .+= t.b
@@ -238,7 +244,8 @@ can return a small nonzero value instead of zero; this is not a feasibility
 certificate.
 Supported zero rescalings simplify in [`Scaled`](@ref) while preserving the
 underlying domain. Each conjugate owns a working buffer; do not share it
-between threads.
+between threads. Tuples, including nested tuples, use one buffer per array
+block and support an output that is the input tuple.
 """
 struct Conjugate{F<:AbstractFunction} <: AbstractFunction
   f::F
@@ -254,9 +261,11 @@ Conjugate(f::AbstractFunction) = Conjugate{typeof(f)}(f)
 isproximable(::Type{<:Conjugate{F}}) where {F} = isproximable(F)
 isseparable(::Type{<:Conjugate{F}}) where {F} = isseparable(F)
 isconvex(::Type{<:Conjugate}) = true
+iszeropreserving(c::Conjugate) = iszeropreserving(c.f)
 
 function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _checksize(y, x)
+  _checkparams(c, x)
   T = float(eltype(y))
   γ = convert(T, γ)
   z = _array_buffer!(c.scratch, T, size(x))
@@ -274,6 +283,7 @@ _has_conjugate_value(f::Union{Scaled, Translate}) = _has_conjugate_value(f.f)
 _has_conjugate_value(f::SingularValue) = _has_conjugate_value(f.f)
 
 function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
+  _checkparams(c, x)
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
     return _conjugate_value(c.f, y)
@@ -290,7 +300,56 @@ end
 Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real) = v - γ * prox_entry(c.f, v / γ, i, inv(γ))
 _checkparams(c::Conjugate, x) = _checkparams(c.f, x)
 
-(c::Conjugate)(y::AbstractArray) = _conjugate_value(c.f, y)
+(c::Conjugate)(y::Union{AbstractArray, Tuple}) = (_checkparams(c, y); _conjugate_value(c.f, y))
+
+_tuple_buffer_type(::Type{<:AbstractArray{T, N}}) where {T, N} = Array{float(T), N}
+_tuple_buffer_type(::Type{X}) where {X<:Tuple} = Tuple{map(_tuple_buffer_type, fieldtypes(X))...}
+_same_buffer_sizes(b::AbstractArray, x::AbstractArray) = size(b) == size(x)
+_same_buffer_sizes(b::Tuple, x::Tuple) = all(map(_same_buffer_sizes, b, x))
+
+function _tuple_buffer!(s::Scratch, y::Y, x::X) where {Y<:Tuple, X<:Tuple}
+  B = _tuple_buffer_type(Y)
+  cached = s.buf
+  if cached isa Tuple{Val{X}, Val{Y}, B}
+    b = cached[3]
+    _same_buffer_sizes(b, y) && return b
+  end
+  b = _gradient_buffer(y)
+  s.buf = (Val{X}(), Val{Y}(), b)
+  b::B
+end
+
+_divide!(z::AbstractArray, x::AbstractArray, γ) = (z .= x ./ convert(float(eltype(z)), γ))
+_divide!(z::Tuple, x::Tuple, γ) = (map((zk, xk) -> _divide!(zk, xk, γ), z, x); z)
+_moreau_output!(y::AbstractArray, x::AbstractArray, p::AbstractArray, γ) =
+  (y .= x .- convert(float(eltype(y)), γ) .* p)
+_moreau_output!(y::Tuple, x::Tuple, p::Tuple, γ) =
+  (map((yk, xk, pk) -> _moreau_output!(yk, xk, pk, γ), y, x, p); y)
+_tuple_dot(x::AbstractArray, y::AbstractArray) = dot(x, y)
+_tuple_dot(x::Tuple, y::Tuple) = sum(map(_tuple_dot, x, y))
+
+function prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
+  _checksize(y, x)
+  _checkparams(c, x)
+  p = _tuple_buffer!(c.scratch, y, x)
+  _divide!(p, x, γ)
+  prox!(p, c.f, p, inv(γ))
+  _moreau_output!(y, x, p, γ)
+end
+
+function value_and_prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
+  _checksize(y, x)
+  _checkparams(c, x)
+  if _has_conjugate_value(c.f)
+    prox!(y, c, x, γ)
+    return _conjugate_value(c.f, y)
+  end
+  p = _tuple_buffer!(c.scratch, y, x)
+  _divide!(p, x, γ)
+  fp = value_and_prox!(p, c.f, p, inv(γ))
+  _moreau_output!(y, x, p, γ)
+  _tuple_dot(p, y) - fp
+end
 
 # (αf)*(y) = α f*(y/α), and (f(⋅-b))*(y) = f*(y) + ⟨b,y⟩.
 # Zero scaling of an extended-valued function depends on its domain, so the
@@ -300,6 +359,10 @@ function _conjugate_value(f::Scaled, y::AbstractArray)
   T = float(eltype(y))
   α = convert(T, f.α)
   α * _conjugate_value(f.f, _ScaledArray(y, inv(α)))
+end
+function _conjugate_value(f::Scaled, y::Tuple)
+  f.α > 0 || throw(ArgumentError("conjugate values of Scaled require a positive scale"))
+  _scaled_conjugate_value(f.f, y, f.α)
 end
 function _conjugate_value(f::Translate, y::AbstractArray)
   _checksize(f.b, y)
@@ -383,6 +446,8 @@ The function `Σₖ fₖ(xₖ)` of a tuple `x = (x1, x2, ...)` of blocks, with t
 roles that all the `fₖ` share: the proximal operator, gradient and value act
 block by block on tuples. Sparse plus low-rank models, for example, take
 `SeparableSum(NormL1(λ), TracePSD(μ))` on the pair `(S, L)`.
+Blocks may themselves be tuples for nested sums. Allocating oracles and
+[`Conjugate`](@ref) preserve this block structure.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
@@ -397,16 +462,22 @@ function _checkblocks(s::SeparableSum, x::Tuple)
   length(x) == length(s.fs) || throw(DimensionMismatch("$(length(s.fs)) functions for $(length(x)) blocks"))
 end
 
-(s::SeparableSum)(x::Tuple) = (_checkblocks(s, x); sum(map((f, xk) -> f(xk), s.fs, x)))
+_checkparams(s::SeparableSum, x::Tuple) = (_checkblocks(s, x); map(_checkparams, s.fs, x); true)
+_has_conjugate_value(s::SeparableSum) = all(_has_conjugate_value, s.fs)
+_conjugate_value(s::SeparableSum, y::Tuple) =
+  (_checkparams(s, y); sum(map(_conjugate_value, s.fs, y)))
+_scaled_conjugate_value(s::SeparableSum, y::Tuple, α) =
+  (_checkparams(s, y); sum(map((f, yk) -> _conjugate_value(Scaled(f, α), yk), s.fs, y)))
+
+(s::SeparableSum)(x::Tuple) = (_checkparams(s, x); sum(map((f, xk) -> f(xk), s.fs, x)))
 prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkblocks(s, x); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
+  (_checksize(y, x); _checkparams(s, x); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
 value_and_prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkblocks(s, x); sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)))
-prox(s::SeparableSum, x::Tuple, γ::Real = 1) = prox!(map(xk -> similar(xk, float(eltype(xk))), x), s, x, γ)
+  (_checksize(y, x); _checkparams(s, x); sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)))
 value_and_gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
-  (_checkblocks(s, x); sum(map((f, gk, xk) -> value_and_gradient!(gk, f, xk), s.fs, g, x)))
+  (_checksize(g, x); _checkparams(s, x); sum(map((f, gk, xk) -> value_and_gradient!(gk, f, xk), s.fs, g, x)))
 gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
-  (_checkblocks(s, x); map((f, gk, xk) -> gradient!(gk, f, xk), s.fs, g, x); g)
+  (_checksize(g, x); _checkparams(s, x); map((f, gk, xk) -> gradient!(gk, f, xk), s.fs, g, x); g)
 
 ####################################
 #  sums of smooth functions
@@ -427,6 +498,7 @@ Sum(fs::AbstractFunction...) = Sum(fs, Scratch())
 
 issmooth(::Type{<:Sum{F}}) where {F} = all(issmooth, fieldtypes(F))
 isconvex(::Type{<:Sum{F}}) where {F} = all(isconvex, fieldtypes(F))
+_checkparams(s::Sum, x) = (map(f -> _checkparams(f, x), s.fs); true)
 
 (s::Sum)(x) = sum(f -> f(x), s.fs)
 
@@ -439,6 +511,8 @@ function _add_gradients!(g, b, x, v, fs::Tuple)
 end
 
 function value_and_gradient!(g::AbstractArray, s::Sum, x::AbstractArray)
+  _checksize(g, x)
+  _checkparams(s, x)
   v = value_and_gradient!(g, first(s.fs), x)
   length(s.fs) == 1 && return v
   b = _array_buffer!(s.scratch, eltype(g), size(g))

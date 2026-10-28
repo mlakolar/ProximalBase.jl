@@ -186,8 +186,6 @@ its data; its factorization type can change with the rank of `A`.
   thresholds, an indicator function as zero without checking membership. The
   latter equals the value at an exact projection, but does not certify
   feasibility for an inexact projection such as [`IndIntersection`](@ref).
-- **Steps and types.** Steps may be any positive real. Computations follow the
-  element type of the argument, so `Float32` input gives `Float32` results.
 - **Allocations.** Many built-in operations reuse their buffers for inputs of
   a fixed size and element type. The allocation tests check `f(x)`, `prox!`,
   `value_and_prox!`, `gradient!`, `value_and_gradient!`, `prox_entry` and
@@ -203,6 +201,39 @@ its data; its factorization type can change with the rank of `A`.
   and [`LogDetLoss`](@ref) own LAPACK workspaces sized for their input. A
   function that owns a workspace must not be shared between threads; give each
   thread a `deepcopy`.
+
+## Precision
+
+Steps may be any positive real. Operations that write an output keep its
+element type: `prox!(y, f, x, γ)` with a `Float32` output writes `Float32`
+entries even when the argument, parameters and step are `Float64`. The
+allocating forms `prox`, `gradient`, `value_and_gradient` and `hessian_vec`
+make their arrays with element type `float(eltype(x))`.
+
+Cache precision depends on the method. For `NuclearNorm`, the value workspace
+follows the argument's precision, and the proximal workspace follows the
+output's. The proximal buffer of `Conjugate` also follows the output.
+`LeastSquaresLoss` and `GLMLoss` keep buffers in the promoted floating type of
+the response and design matrix, independently of the argument's precision.
+The shifted buffer for values and gradients of `Translate(f, b)` uses
+`float(promote_type(eltype(x), eltype(b)))`.
+
+Constructors also differ. `NormL1(λ, w)` stores the scale and weights as given;
+`GroupNormL2(λ, groups, w)` converts both to their common floating type.
+
+Scalar values need not have the output array's element type. For example,
+`NormL1(1.0)(Float32[1, 2])` and `SqrNormL2(1.0)(Float32[1, 2])` return
+`Float32`, since these methods convert the scale. An unconverted parameter
+can widen the result: `Scaled(NormL1(1f0), 2.0)(Float32[1, 2])` returns
+`Float64`, as does `SqrNormL2(1f0, Float64[0, 1])(Float32[1, 2])`.
+For `LeastSquaresLoss`, `LogisticLoss` and `GLMLoss`, the value and the scalar
+returned by `value_and_gradient!` have the buffers' precision. With `Float32`
+data, these are `Float32` even for a `Float64` argument.
+
+The scalar type can also differ between oracles. With `x = Float32[1, 2]`
+and `f = Translate(NormL1(1f0), Float64[0.25, -0.5])`, `f(x)` is `Float64`,
+but `value_and_prox!(similar(x), f, x, 0.5)` is `Float32`: the latter evaluates
+the inner function using the output buffer.
 
 ## GPU arrays
 

@@ -30,6 +30,7 @@ ProximalBase.Testing.brute_force_prox
 SeparableFunction
 value_entry
 iszeropreserving
+ProximalBase.check_parameters
 ```
 
 ## Matrix norm estimate

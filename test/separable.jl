@@ -18,6 +18,10 @@ ProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2
 ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
 ProximalBase.iszeropreserving(::WeightedSquare) = true
 ProximalBase.isconvex(::Type{WeightedSquare}) = true
+function ProximalBase.check_parameters(f::WeightedSquare, x)
+  length(f.w) == length(x) || throw(DimensionMismatch("one weight per entry is required"))
+  nothing
+end
 
 struct ShiftedAbs <: SeparableFunction           # Σᵢ |xᵢ - 1|, which does not preserve zeros
 end
@@ -194,6 +198,52 @@ end
   @test_throws DimensionMismatch prox(NormL1(0.1, wtri), S, 0.5)
   @test_throws DimensionMismatch NormL1(0.1, wtri)(S)
   @test prox_coordinate!(S, NormL1(0.1, ones(p, p)), ncoordinates(S), 0.5) ≈ 1 - 0.05
+end
+
+@testset "public parameter checks before writes" begin
+  f = WeightedSquare([1., 2., 3.])
+  @test ProximalBase.check_parameters(f, ones(3)) === nothing
+  @test ProximalBase.check_parameters(ShiftedAbs(), ones(4)) === nothing
+  @test prox(ShiftedAbs(), zeros(4), 0.5) == fill(0.5, 4)
+  points = (ones(4), SparseIterate([1., 0., -2., 0.]),
+            SymmetricSparseIterate([1. 0.; 0. -2.]),
+            AtomIterate([1., 0., -2., 0.], [1:2, 3:4]))
+  for x in points
+    fs = (f, Scaled(f, 2.), Tilt(f, ones(size(x))), Translate(f, ones(size(x))),
+          Regularize(f, 1.), Regularize(f, 1., ones(size(x))),
+          Constrained(f, IndBox(-1., 1.)), Constrained(Scaled(f, 2.), IndBox(-1., 1.)))
+    for h in fs
+      @test_throws DimensionMismatch h(x)
+      for step in (0.5, fill(0.5, size(x))), op in (prox!, value_and_prox!), alias in (false, true)
+        input = copy(x)
+        output = alias ? input : copy(x)
+        before = Array(output)
+        stored = output isa Union{SparseIterate, SymmetricSparseIterate, AtomIterate} ? copy(activecoordinates(output)) : nothing
+        @test_throws DimensionMismatch op(output, h, input, step)
+        @test Array(output) == before
+        @test Array(input) == Array(x)
+        stored === nothing || @test activecoordinates(output) == stored
+      end
+      if x isa Union{SparseIterate, SymmetricSparseIterate, AtomIterate}
+        for k in (1, ncoordinates(x))
+          input = copy(x)
+          before = Array(input)
+          stored = copy(activecoordinates(input))
+          @test_throws DimensionMismatch prox_coordinate!(input, h, k, 0.5)
+          @test Array(input) == before
+          @test activecoordinates(input) == stored
+        end
+      end
+    end
+  end
+  # Parameters are checked even when the argument is outside the box.
+  @test_throws DimensionMismatch Constrained(f, IndBox(-1., 1.))(fill(2., 4))
+  # An empty stored set must not skip the hook.
+  for x in (SparseIterate(4), SymmetricSparseIterate(2), AtomIterate(4, [1:2, 3:4]))
+    @test_throws DimensionMismatch f(x)
+    @test_throws DimensionMismatch prox!(x, f, x, 0.5)
+    @test all(iszero, x)
+  end
 end
 
 @testset "SymmetricSparseIterate into another iterate" begin

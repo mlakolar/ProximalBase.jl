@@ -54,11 +54,30 @@ PB.issmooth(::Type{WrongGradient}) = true
 (::WrongGradient)(x) = sum(abs2, x) / 2
 PB.value_and_gradient!(g::AbstractArray, f::WrongGradient, x::AbstractArray) = (g .= 2 .* x; f(x))
 
+struct BiasedGradient{F<:AbstractFunction} <: AbstractFunction
+  f::F
+end
+PB.issmooth(::Type{<:BiasedGradient}) = true
+(f::BiasedGradient)(x) = f.f(x)
+function PB.value_and_gradient!(g::AbstractArray, f::BiasedGradient, x::AbstractArray)
+  v = value_and_gradient!(g, f.f, x)
+  g .*= 1.05
+  v
+end
+
 struct FalseZero <: SeparableFunction                  # declares that it preserves zero, but shifts it
 end
 PB.value_entry(::FalseZero, v, i) = abs2(v - 0.1) / 2
 PB.prox_entry(::FalseZero, v, i, γ) = (v + 0.1γ) / (1 + γ)
 PB.iszeropreserving(::FalseZero) = true
+
+struct FalseZeroWrapper{F<:AbstractFunction} <: AbstractFunction
+  f::F
+end
+PB.isseparable(::Type{<:FalseZeroWrapper}) = true
+PB.iszeropreserving(::FalseZeroWrapper) = true
+PB.prox_entry(f::FalseZeroWrapper, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+PB.prox!(y::AbstractArray, f::FalseZeroWrapper, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
 
 struct WrongEntries <: SeparableFunction               # prox! overridden, disagreeing with prox_entry
   λ::Float64
@@ -79,6 +98,16 @@ PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
   w = rand(12) .+ 0.5
   γ = 0.7
 
+  @testset "public helpers" begin
+    if VERSION >= v"1.11"
+      for name in (:test_prox, :test_gradient, :test_separable, :test_conjugate, :test_kkt, :test_traits,
+                   :allocations, :brute_force_prox)
+        @test Base.ispublic(PT, name)
+        @test !Base.isexported(PT, name)
+      end
+    end
+  end
+
   @testset "correct functions pass" begin
     @test passes(() -> PT.test_traits(NormL1(0.5); proximable = true, separable = true, convex = true))
     @test passes(() -> PT.test_prox(NormL1(0.5, w), x, γ))
@@ -89,6 +118,9 @@ PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
     groups = [1:3, 4:8, 9:12]
     for f in (NormL1(0.5, w), ElasticNet(0.3, 0.6), MCP(0.4), IndBox(-1.0, 2.0), NormL0(0.2))
       @test passes(() -> PT.test_separable(f, x, γ; groups))
+    end
+    for f in (Scaled(NormL1(1.0), 2.0), Conjugate(NormL1(1.0)), Conjugate(ElasticNet(0.3, 0.6)))
+      @test passes(() -> PT.test_separable(f, x, γ; rng = Xoshiro(2)))
     end
     Ws = Matrix(Symmetric(rand(5, 5)))
     @test passes(() -> PT.test_separable(NormL1(0.5, Ws), randn(5, 5), γ; symmetric = true))
@@ -106,6 +138,42 @@ PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
     @test passes(() -> PT.test_kkt(NormL1(0.5), AtomIterate(12, groups), γ))
   end
 
+  @testset "gradient precision" begin
+    for seed in 1:20
+      T = Float32
+      Random.seed!(seed)
+      X = randn(T, 50, 5)
+      β = randn(T, 5) ./ 10
+      fs = (LogisticLoss(T.(rand(50) .< 0.5), X), LeastSquaresLoss(randn(T, 50), X),
+            PoissonLoss(T.(rand(0:3, 50)), X ./ 3))
+      for f in fs
+        @test passes(() -> PT.test_gradient(f, β))
+      end
+    end
+    for T in (Float32, Float64), seed in 1:20
+      Random.seed!(seed)
+      X = randn(T, 50, 5)
+      β = randn(T, 5) ./ 10
+      y = randn(T, 50)
+      f = BiasedGradient(LeastSquaresLoss(y, X))
+      ts = @testset Collect "biased gradient" begin
+        PT.test_gradient(f, β)
+      end
+      @test count(r -> r isa Test.Fail, ts.results) > 0
+      @test count(r -> r isa Test.Error, ts.results) == 0
+    end
+    for T in (Float64, ComplexF64)
+      @test passes(() -> PT.test_gradient(SqrNormL2(), T[1, 2]; rng = Xoshiro(4)))
+      @test passes(() -> PT.test_gradient(SqrNormL2(), T[1, 2]; h = 1e-6, rtol = 1e-5,
+                                         atol = 1e-6, rng = Xoshiro(4)))
+    end
+    f = BiasedGradient(SqrNormL2())
+    @test passes(() -> PT.test_gradient(f, Float32[1, 2]; h = 0.01, rtol = 0.1, atol = 0.0,
+                                       rng = Xoshiro(4)))
+    @test passes(() -> PT.test_gradient(f, Float32[1, 2]; h = 0.01, rtol = 0.0, atol = 1.0,
+                                       rng = Xoshiro(4)))
+  end
+
   @testset "broken functions fail" begin
     @test failures(() -> PT.test_traits(NormL1(0.5); smooth = true, proximable = true, separable = true,
                                         convex = true)) > 0
@@ -113,6 +181,12 @@ PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
     @test failures(() -> PT.test_prox(WrongValue(0.5), x, γ)) > 0
     @test failures(() -> PT.test_gradient(WrongGradient(), x)) > 0
     @test failures(() -> PT.test_separable(FalseZero(), x, γ)) > 0
+    f = FalseZeroWrapper(Translate(SqrNormL2(), fill(0.1, length(x))))
+    ts = @testset Collect "false zero wrapper" begin
+      PT.test_separable(f, x, γ; rng = Xoshiro(2))
+    end
+    @test count(r -> r isa Test.Fail, ts.results) > 0
+    @test count(r -> r isa Test.Error, ts.results) == 0
     @test failures(() -> PT.test_separable(WrongEntries(0.5), x, γ)) > 0
     @test failures(() -> PT.test_conjugate(NormL1(0.5), x, γ; conjugate = IndBallLinf(1.0))) > 0
     @test failures(() -> PT.test_kkt(WrongKKT(0.5), x, γ)) > 0

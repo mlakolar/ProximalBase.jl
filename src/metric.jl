@@ -44,8 +44,9 @@ Base.IndexStyle(::Type{<:_ReciprocalArray}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(a::_ReciprocalArray{T}, i::Int) where {T} = inv(convert(T, a.γ[i]))
 
 # functions built from functions pass the steps on, entry by entry
-prox!(y, s::Scaled, x, γ::AbstractArray) = prox!(y, s.f, x, _ScaledArray(γ, s.α))
-value_and_prox!(y, s::Scaled, x, γ::AbstractArray) = s.α * value_and_prox!(y, s.f, x, _ScaledArray(γ, s.α))
+prox!(y, s::Scaled, x, γ::AbstractArray) = (_checkparams(s, x); prox!(y, s.f, x, _ScaledArray(γ, s.α)))
+value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
+  (_checkparams(s, x); s.α * value_and_prox!(y, s.f, x, _ScaledArray(γ, s.α)))
 
 function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
   _checksize(y, x)
@@ -65,6 +66,8 @@ end
 function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
   _checksize(y, x)
   _checksize(t.b, x)
+  _checkparams(t, x)
+  _checkparam(γ, x)
   y .= x .- t.b
   prox!(y, t.f, y, γ)
   y .+= t.b
@@ -72,15 +75,27 @@ end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
   _checksize(y, x)
   _checksize(t.b, x)
+  _checkparams(t, x)
+  _checkparam(γ, x)
   y .= x .- t.b
   v = value_and_prox!(y, t.f, y, γ)
   y .+= t.b
   v
 end
 
+function prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
+  isseparable(r) || _not_separable(r)
+  _prox_sep!(y, r, x, γ)
+end
+function value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
+  prox!(y, r, x, γ)
+  r(y)
+end
+
 # Moreau's identity in each entry: prox_{γᵢfᵢ*}(xᵢ) = xᵢ - γᵢ prox_{fᵢ/γᵢ}(xᵢ/γᵢ)
 function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
   _checksize(y, x)
+  _checkparams(c, x)
   _checkparam(γ, x)
   T = float(eltype(y))
   z = _array_buffer!(c.scratch, T, size(x))
@@ -90,6 +105,7 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArr
 end
 
 function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
+  _checkparams(c, x)
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
     return _conjugate_value(c.f, y)

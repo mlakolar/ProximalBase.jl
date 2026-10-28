@@ -65,17 +65,23 @@ touch only its stored entries.
 ```@example extending
 # Σᵢ wᵢ xᵢ² / 2: separable, with weights
 struct WeightedSquare <: SeparableFunction
-    w::Vector{Float64}
+  w::Vector{Float64}
 end
 ProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2
 ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
 ProximalBase.iszeropreserving(::WeightedSquare) = true
 ProximalBase.isconvex(::Type{WeightedSquare}) = true
+ProximalBase.check_parameters(f::WeightedSquare, x) =
+  length(f.w) == length(x) || throw(DimensionMismatch("a parameter array has length $(length(f.w)) and the argument has length $(length(x))"))
 
 f = WeightedSquare([1.0, 2.0, 4.0])
 x = [1.0, 1.0, 1.0]
 (f(x), prox(f, x, 0.5))
 ```
+
+The optional [`ProximalBase.check_parameters`](@ref) method checks that the
+weights fit the argument. The generic methods call it before writing any
+output, so a mismatched argument leaves outputs and iterates untouched.
 
 ```@example extending
 xs = SparseIterate(3)                          # a coordinate step on a sparse iterate

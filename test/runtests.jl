@@ -40,6 +40,7 @@ tests = [
   "testing",
   "second_order",
   "envelope",
+  "distance",
   "composition",
   "caches",
   "metric",

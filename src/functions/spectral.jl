@@ -151,6 +151,9 @@ The indicator of the matrices of rank at most `r`, nonconvex. Its proximal
 operator is the truncated singular value decomposition, which keeps the `r`
 largest singular triplets.
 
+Membership is reliable for every finite input within the floating-point
+tolerance; non-finite entries are not members.
+
 $_PARTIAL_NOTE
 
 $_SPECTRAL_NOTE
@@ -172,12 +175,20 @@ _isindicator(::Type{IndBallRank}) = true
 
 function (f::IndBallRank)(X::AbstractMatrix)
   T = float(eltype(X))
+  all(isfinite, X) || return T(Inf)
   minimum(size(X)) <= f.r && return zero(T)
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
   copyto!(ws.A, X)
   s, = _svd!(ws; vectors = false)
+  _finite_value(s[1]) || return _rank_scaled_value(ws, X, f.r)
   s[f.r + 1] <= _tol(T) * max(one(T), s[1]) ? zero(T) : T(Inf)
+end
+
+@noinline function _rank_scaled_value(ws::SVDWorkspace{T}, X::AbstractMatrix, r::Int) where {T}
+  α = _scaled_spectral_input!(ws.A, X)
+  s, = _svd!(ws; vectors = false)
+  s[r + 1] <= _tol(T) * max(α, s[1]) ? zero(T) : T(Inf)
 end
 
 function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, ::Real)
@@ -218,6 +229,9 @@ eigendecomposition with the negative eigenvalues set to zero, and for a rank
 The result is rebuilt from the eigenvectors that remain, in O(n²k) for k of
 them.
 
+Membership is reliable for every finite input within the floating-point
+tolerance; non-finite entries are not members.
+
 $_PARTIAL_NOTE Without a rank, the partial projection pays when few
 eigenvalues are positive.
 
@@ -241,6 +255,9 @@ isproximable(::Type{<:IndPSD}) = true
 _isindicator(::Type{<:IndPSD}) = true
 isconvex(::Type{IndPSD{Nothing}}) = true
 
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::Union{IndPSD{Nothing}, IndPSD{Int}}, Y::AbstractMatrix, X::AbstractMatrix) =
+  (_checksize(Y, X); checksquare(X); true)
+
 # whether X is symmetric positive semidefinite, and of rank at most r unless r is
 # nothing, within the tolerance of the indicator functions; f caches the workspace
 function _ispsd!(f, X::AbstractMatrix, r::Union{Nothing, Int})
@@ -250,9 +267,19 @@ function _ispsd!(f, X::AbstractMatrix, r::Union{Nothing, Int})
   ws = _eig_workspace(f.eig, T, n)
   f.eig = ws
   copyto!(ws.A, X)
+  all(isfinite, ws.A) || return false
   λ = _eigvals!(ws)
   n == 0 && return true
+  _finite_value(λ[1]) && _finite_value(λ[n]) || return _scaled_ispsd!(ws, X, r)
   tol = _tol(T) * max(one(T), abs(λ[1]), abs(λ[n]))
+  λ[1] >= -tol || return false
+  r === nothing || count(>(tol), λ) <= r
+end
+
+@noinline function _scaled_ispsd!(ws::SymEigenWorkspace{T}, X::AbstractMatrix, r::Union{Nothing, Int}) where {T}
+  α = _scaled_spectral_input!(ws.A, X)
+  λ = _eigvals!(ws)
+  tol = _tol(T) * max(α, abs(λ[1]), abs(λ[end]))
   λ[1] >= -tol || return false
   r === nothing || count(>(tol), λ) <= r
 end
@@ -274,15 +301,15 @@ function _project_psd!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix)
 end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real)
+  _checkwrite(prox!, f, Y, X)
   if f.partial
-    _checksize(Y, X)
     _partial_psd!(Y, f, X, zero(float(eltype(Y))), 0) === nothing || return Y
   end
   _project_psd!(Y, f, X)
 end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
-  _checksize(Y, X)
+  _checkwrite(prox!, f, Y, X)
   n = checksquare(X)
   f.rank >= n && return _project_psd!(Y, f, X)
   T = float(eltype(Y))
@@ -309,6 +336,9 @@ elsewhere: the nuclear norm restricted to them, as in the low-rank part of
 latent-variable graphical models. Its proximal operator shifts the eigenvalues
 of a symmetric matrix down by `γλ` and sets the negative ones to zero.
 
+Membership in the positive semidefinite cone is reliable for every finite input
+within the floating-point tolerance; non-finite entries are not members.
+
 $_PARTIAL_NOTE
 
 $_SPECTRAL_NOTE
@@ -328,11 +358,14 @@ TracePSD(λ::Real = 1; partial::Bool = false) = TracePSD{typeof(λ)}(λ; partial
 isproximable(::Type{<:TracePSD}) = true
 isconvex(::Type{<:TracePSD}) = true
 
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::TracePSD, Y::AbstractMatrix, X::AbstractMatrix) =
+  (_checksize(Y, X); checksquare(X); true)
+
 (f::TracePSD)(X::AbstractMatrix) =
   _ispsd!(f, X, nothing) ? convert(float(eltype(X)), f.λ) * tr(X) : float(eltype(X))(Inf)
 
 function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real)
-  _checksize(Y, X)
+  _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
   c = convert(T, γ) * convert(T, f.λ)
   if f.partial
@@ -352,4 +385,5 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
   f.partial && _warm_start_eigen!(f, V, count(>(c), λ))
   convert(T, f.λ) * s
 end
-prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, f, X, γ); Y)
+prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real) =
+  (_checkwrite(prox!, f, Y, X); value_and_prox!(Y, f, X, γ); Y)

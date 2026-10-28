@@ -82,6 +82,11 @@ x = [1.0, 1.0, 1.0]
 The optional [`ProximalBase.check_parameters`](@ref) method checks that the
 weights fit the argument. The generic methods call it before writing any
 output, so a mismatched argument leaves outputs and iterates untouched.
+Before writing any output, `SeparableSum`, `SliceSum` and `FiberSum` check the
+block, slice or fiber sizes and the parameters, data dimensions and squareness
+that their functions' own oracles check before writing. A function that
+transforms its argument, such as `Precompose` or `Constrained`, or fails during
+computation can still leave earlier blocks, slices or fibers written.
 
 ```@example extending
 xs = SparseIterate(3)                          # a coordinate step on a sparse iterate

@@ -673,15 +673,25 @@ end
   _ind(f isa IndHyperplane ? abs(g) <= slack : g <= slack, T)
 end
 
-function prox!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, ::Real)
+function _checkwrite(op::O, f::Union{IndHyperplane, IndHalfspace}, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checksize(y, x)
+  op === value_and_prox! && _checkparams(f, x)
+  if f.a isa AbstractArray
+    length(f.a) == length(x) || _dot_normal(_scaled_normal(f), x)
+    Base.Broadcast.check_broadcast_axes(axes(y), x, f.a)
+  end
+  true
+end
+
+function prox!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, ::Real)
+  _checkwrite(prox!, f, y, x)
   _isscaled(f) && return _scaled_normal_prox!(y, f, x)
   T = float(eltype(y))
   t = convert(T, (_dot_normal(f.a, x) - f.b) / _normal_sqnorm(f, x))
   y .= x .- t .* f.a
 end
 function prox!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, ::Real)
-  _checksize(y, x)
+  _checkwrite(prox!, f, y, x)
   _isscaled(f) && return _scaled_normal_prox!(y, f, x)
   T = float(eltype(y))
   t = convert(T, max(_dot_normal(f.a, x) - f.b, zero(f.b)) / _normal_sqnorm(f, x))

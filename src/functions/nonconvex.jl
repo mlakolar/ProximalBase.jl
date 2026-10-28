@@ -476,6 +476,9 @@ _isindicator(::Type{<:IndBallGroupL0}) = true
 _checkgroups(f::IndBallGroupL0, x::AbstractArray) =
   length(x) >= length(f.group_of) || throw(BoundsError(x, length(f.group_of)))
 
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndBallGroupL0, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); _checkgroups(f, x); true)
+
 _samegroups(f::IndBallGroupL0, x::AtomIterate) = _samelayout(f, x)
 
 # whether the entries of x in G are all zero, and, if not, whether there are at
@@ -513,13 +516,13 @@ function (f::IndBallGroupL0)(x::AtomIterate)
 end
 
 function prox!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray, ::Real)
-  _checksize(y, x)
-  _checkgroups(f, x)
+  _checkwrite(prox!, f, y, x)
   y === x || copyto!(y, x)
   _keep_largest_groups!(y, f, eachindex(f.groups))
 end
 
 function prox!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate, γ::Real)
+  _checkwrite(prox!, f, y, x)
   _samegroups(f, y) && _samegroups(f, x) ||
     return invoke(prox!, Tuple{AbstractArray, IndBallGroupL0, AbstractArray, Real}, y, f, x, γ)
   copyto!(y, x)

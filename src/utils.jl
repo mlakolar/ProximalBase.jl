@@ -142,6 +142,17 @@ function _maximum_abs(x::AbstractArray)
   m
 end
 
+# Recopy before scaling: LAPACK destroys the input of the first decomposition.
+function _scaled_spectral_input!(A::AbstractMatrix{T}, X::AbstractMatrix) where {T<:AbstractFloat}
+  copyto!(A, X)
+  k = _magnitude_exponent(_maximum_abs(A))
+  s = _power_factors(T, -k)
+  @inbounds for i in eachindex(A)
+    A[i] = _scale_value(A[i], s)
+  end
+  ldexp(one(T), -k)
+end
+
 # Scale each entry before summing, including before taking its square.
 function _scaled_sum(x::AbstractArray, s, f::F = identity) where {F}
   v = zero(s[1])

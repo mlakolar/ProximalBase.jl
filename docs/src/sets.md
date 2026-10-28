@@ -32,6 +32,7 @@ feasibility certificate.
 | [`IndPSD`](@ref)`()` | ``X \succeq 0`` | ``U\max(\Lambda, 0)U^\top`` |
 | [`IndPSD`](@ref)`(rank = r)` | ``X \succeq 0``, rank at most ``r`` | the ``r`` largest positive eigenpairs |
 | [`IndBallRank`](@ref)`(r)` | rank at most ``r`` | the truncated SVD |
+| [`IndStiefel`](@ref)`()` | ``X^\top X = I_k``, ``k \le p``, nonconvex | ``UV^\top`` from the thin SVD |
 | [`SingularValue`](@ref)`(IndBallL1(r))` | ``\lVert X\rVert_* \le r`` | the ℓ1-ball projection of the singular values |
 | [`SingularValue`](@ref)`(IndBallLinf(r))` | ``\lVert X\rVert_2 \le r`` | ``U\min(\Sigma, r)V^\top`` |
 | [`IndPattern`](@ref)`(P)` | ``x_i = 0`` off the pattern ``P`` | zero the entries off ``P`` |
@@ -186,6 +187,34 @@ Projected gradient with them is hard-impute in matrix completion.
 
 With `partial = true`, [`IndPSD`](@ref) and [`IndBallRank`](@ref) compute only
 the eigenpairs or singular triplets they keep; see [Partial decompositions](@ref).
+
+## Orthonormal columns
+
+[`IndStiefel`](@ref)`()` projects a real ``p \times k`` matrix onto the
+matrices with orthonormal columns, for ``k \le p``. If
+``X = U\Sigma V^\top`` is a thin SVD, the Frobenius projection is
+``UV^\top``. All ``k`` singular-vector columns are used, including an
+orthonormal completion at rank-deficient inputs. The projection is unique
+at full column rank. Otherwise the SVD chooses a minimizer, deterministically
+for a fixed input, LAPACK backend and configuration. The choice need not be
+continuous across rank-deficient inputs. With ``k = p`` the set is the
+orthogonal group, including reflections; with ``k = 1`` it is the unit
+sphere written as a column matrix.
+
+This projection gives gradient projection steps for factor rotation and
+k-component PCA. Projecting ``A^\top B`` gives a minimizer of the orthogonal
+Procrustes problem ``\min_{Q^\top Q = I}\|AQ - B\|_F``. The step size does
+not affect the projection. The alternative formula
+``X(X^\top X)^{-1/2}`` requires full column rank and squares the condition
+number when forming the Gram matrix, so this implementation uses the SVD.
+There is no general closed form for `Constrained(f, IndStiefel())`.
+
+The value checks ``\|X^\top X - I\|_F \le \sqrt{\varepsilon}\sqrt{k}``
+in the argument's floating precision. A value of zero only reports this
+tolerance check. Nonfinite inputs have value `Inf` and cannot be projected.
+The proximal workspace follows the output's precision, which must be
+`Float32` or `Float64`; scaling precedes conversion to preserve direction
+at extreme magnitudes. Buffers are reused for fixed types and sizes.
 
 ## Structured matrices
 

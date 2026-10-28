@@ -232,15 +232,16 @@ For `LeastSquaresLoss`, `LogisticLoss` and `GLMLoss`, the value and the scalar
 returned by `value_and_gradient!` have the buffers' precision. With `Float32`
 data, these are `Float32` even for a `Float64` argument.
 
-When the argument and the output have the same element type,
-`value_and_prox!(y, f, x, γ)` returns a scalar of the type of `f(x)`.
-The same rule holds for `value_and_gradient!(g, f, x)` when the argument and
-the gradient have the same element type. It applies wherever `f(x)` is
-defined. For example, `Conjugate(ElasticNet(...))` has a proximal value but
-no standalone value. This is a rule about types. The returned values use
-the proximal or gradient intermediates. A proximal value can differ from
-`f(y)` in the last bits. With `x = Float32[1, 2]` and
-`f = Translate(NormL1(1f0), Float64[0.25, -0.5])`, both `f(x)` and
+When the argument and the output or gradient have the same element type,
+`value_and_prox!(y, f, x, γ)` and `value_and_gradient!(g, f, x)` return
+scalars of the type of `f(x)`. The rule applies wherever `f(x)` is defined,
+which excludes functions such as `Conjugate(ElasticNet(...))` that have a
+proximal value but no standalone value. It is a rule about types: the
+returned value is computed from the proximal or gradient intermediates,
+so a proximal value can differ from `f(y)` in the last bits. With
+`x = Float32[1, 2]` and
+`f = Translate(NormL1(1f0), Float64[0.25, -0.5])`, the translation does not
+widen the value: both `f(x)` and
 `value_and_prox!(similar(x), f, x, 0.5)` return `Float32`.
 
 To compute in `Float32` throughout, give the argument, the parameters, the

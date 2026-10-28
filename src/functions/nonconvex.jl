@@ -367,7 +367,7 @@ end
 
 # with the groups of f, only the active groups count
 function (f::_RadialGroupPenalty)(x::AtomIterate)
-  x.groups === f.groups || return invoke(f, Tuple{AbstractArray}, x)
+  _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   T = float(eltype(x))
   v = zero(T)
   for a in 1:x.nactive
@@ -400,7 +400,7 @@ function _value_and_prox_groups!(y::AbstractArray, f::_RadialGroupPenalty, x::Ab
 end
 
 function _value_and_prox_groups!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::Union{Real, AbstractVector})
-  y.groups === x.groups === f.groups ||
+  _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, _RadialGroupPenalty, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
@@ -476,8 +476,7 @@ _isindicator(::Type{<:IndBallGroupL0}) = true
 _checkgroups(f::IndBallGroupL0, x::AbstractArray) =
   length(x) >= length(f.group_of) || throw(BoundsError(x, length(f.group_of)))
 
-# the groups of an iterate are those of f, compared in O(number of groups)
-_samegroups(f::IndBallGroupL0, x::AtomIterate) = x.groups === f.groups || x.groups == f.groups
+_samegroups(f::IndBallGroupL0, x::AtomIterate) = _samelayout(f, x)
 
 # whether the entries of x in G are all zero, and, if not, whether there are at
 # most k of them

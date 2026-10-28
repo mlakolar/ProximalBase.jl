@@ -151,8 +151,7 @@ end
       @test_throws ArgumentError AtomIterate(x, f)           # index 9 is in no group of f
       @test_throws ArgumentError AtomIterate(10, fp)
 
-      # the value and prox! visit the active groups when the groups are shared, and take
-      # the methods for arrays otherwise
+      # Equal layouts use the active groups, including layouts built independently.
       @test fp(xa) ≈ fp(x)
       other = AtomIterate(x, [groups; [[9]]])
       @test fp(other) ≈ fp(x)
@@ -205,6 +204,66 @@ end
     x32 = AtomIterate(Float32.(x), g32)
     @test eltype(prox_coordinate!(x32, g32, 1, 0.7f0)) == Float32
     @test g32(x32) isa Float32
+  end
+
+  @testset "equal group layouts" begin
+    ranges = [1:2, 3:5, 6:6, 7:9]
+    layouts = (ranges, collect.(ranges))
+    v = [3., -4., 0., 0., 0., 0., 2., -1., 0.5]
+    grad = collect(range(-1.0, 1.0; length = 9))
+    for F in (GroupNormL2, GroupNormLinf), gs in layouts
+      f = F(0.4, gs, [1., 1.5, 0., 0.8])
+      bad = F(0.4, [[1, 3], [2, 4, 6], [5], [7, 8, 9]], f.w)
+      for xgroups in (f, layouts...), ygroups in (f, layouts...)
+        xa = AtomIterate(v, xgroups)
+        activate!(xa, 3)
+        ya = AtomIterate(ones(9), ygroups)
+        @test f(xa) ≈ f(Vector(xa))
+        x0 = AtomIterate(9, xgroups)
+        for k in eachindex(gs)
+          @test kkt_violation(f, grad, x0, k) ≈ kkt_violation(f, grad, zeros(9), first(gs[k]))
+        end
+        for step in (0.7, [0.4, 1.2, 0.3, 0.8])
+          reference = prox(f, v, step)
+          @test prox!(ya, f, xa, step) === ya
+          @test Vector(ya) ≈ reference
+          @test Set(activecoordinates(ya)) == Set(activecoordinates(xa))
+          fill!(ya, 0.25)
+          @test value_and_prox!(ya, f, xa, step) ≈ f(reference)
+          @test Vector(ya) ≈ reference && Vector(xa) == v
+          for operation! in (prox!, value_and_prox!)
+            alias = copy(xa)
+            value = operation!(alias, f, alias, step)
+            @test Vector(alias) ≈ reference
+            operation! === value_and_prox! && @test value ≈ f(reference)
+          end
+          xc = AtomIterate(v, xgroups)
+          expected = copy(v)
+          for k in eachindex(gs)
+            γk = step isa Real ? step : step[k]
+            @test prox_coordinate!(xc, f, k, γk) ≈ reference[gs[k]]
+            expected[gs[k]] = reference[gs[k]]
+            @test Vector(xc) ≈ expected
+          end
+        end
+        @test bad(xa) ≈ bad(v)
+        @test prox!(ya, bad, xa, 0.7) === ya
+        @test Vector(ya) ≈ prox(bad, v, 0.7)
+        @test value_and_prox!(ya, bad, xa, 0.7) ≈ bad(prox(bad, v, 0.7))
+        @test Vector(ya) ≈ prox(bad, v, 0.7)
+        @test_throws DimensionMismatch prox_coordinate!(xa, bad, 1, 0.7)
+        @test_throws DimensionMismatch kkt_violation(bad, grad, xa, 1)
+        @test Vector(xa) == v && Set(activecoordinates(xa)) == Set([1, 3, 4])
+        @test f(xa) ≈ f(v)
+        @test value_and_prox!(ya, f, xa, 0.7) ≈ f(prox(f, v, 0.7))
+        @test Vector(ya) ≈ prox(f, v, 0.7)
+        other = AtomIterate(ones(9), bad)
+        @test value_and_prox!(other, f, xa, 0.7) ≈ f(prox(f, v, 0.7))
+        @test Vector(other) ≈ prox(f, v, 0.7)
+        @test value_and_prox!(ya, f, AtomIterate(v, bad), 0.7) ≈ f(prox(f, v, 0.7))
+        @test Vector(ya) ≈ prox(f, v, 0.7)
+      end
+    end
   end
 
   @testset "restrict and kkt_violation" begin

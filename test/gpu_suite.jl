@@ -199,6 +199,35 @@ end
   @test value_and_prox!(DeviceArray(similar(x)), fl0, DeviceArray(x), 1.0) == 0
 end
 
+@testset "adapted group penalties on host AtomIterates" begin
+  allowscalar(false)
+  ranges = [1:2, 3:5, 6:6, 7:9]
+  layouts = (ranges, collect.(ranges))
+  for T in test_types, gs in layouts
+    v = T[3, -4, 0, 0, 0, 0, 2, -1, 0.5]
+    for f in (GroupNormL2(T(0.4), gs), GroupNormLinf(T(0.4), gs),
+              SparseGroupNormL2(T(0.2), T(0.4), gs), IndBallGroupL0(1, gs; k = 1))
+      fg = Adapt.adapt(DeviceArray, f)
+      reference = prox(f, v, T(0.7))
+      for xgroups in layouts, ygroups in layouts
+        xa = AtomIterate(v, xgroups)
+        activate!(xa, 3)
+        ya = AtomIterate(ones(T, 9), ygroups)
+        @test same(fg(xa), f(Vector(xa)))
+        @test prox!(ya, fg, xa, T(0.7)) === ya
+        @test Vector(ya) ≃ reference
+        @test same(value_and_prox!(ya, fg, xa, T(0.7)), f(reference))
+        @test Vector(ya) ≃ reference
+        @test xa.layout_cache === ya.layout_cache === f.groups
+        alias = copy(xa)
+        @test prox!(alias, fg, alias, T(0.7)) === alias
+        @test Vector(alias) ≃ reference
+        @test Vector(xa) == v
+      end
+    end
+  end
+end
+
 @testset "representable group norms outside the squared range" begin
   allowscalar(false)
   groups = [1:2, 3:4]

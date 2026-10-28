@@ -91,6 +91,17 @@ which is block soft thresholding, and which activates the group when it ends
 nonzero. `AtomIterate(p, g)` builds an iterate that shares the groups of a
 group penalty `g`.
 
+An iterate and a group penalty whose groups are equal but were built separately
+also take the active-group paths. The first check compares the two layouts in
+full; the iterate then remembers the penalty's group array, so later checks take
+constant time. `copy` and `similar` keep what the iterate remembers, `copyto!`
+keeps the destination's, and an iterate built from a restricted penalty starts
+with nothing remembered.
+
+Group arrays and the indices inside them must not be mutated after a penalty
+or an iterate is built. This also applies to arrays retained by inner
+constructors.
+
 ## Tracking an active set
 
 The active coordinates form a stored working set, which can contain entries

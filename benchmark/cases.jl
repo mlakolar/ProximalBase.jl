@@ -225,6 +225,74 @@ function separable_cases!(cases, rep; quick=false)
     end
 end
 
+function group_layout_cases!(cases, rep)
+  for T in (Float32, Float64), K in (1_000, 10_000), indices in (false, true)
+    ranges = [8k-7:8k for k in 1:K]
+    groups = indices ? collect.(ranges) : ranges
+    p = 8K
+    rng = scenario_rng(rep, "group_layouts/$T/$K/$indices")
+    v = zeros(T, p)
+    v[1:64] .= T(2) .* randn(rng, T, 64)
+    grad = ones(T, p)
+    step, k = T(0.7), 4
+    for F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2)
+      f = F === SparseGroupNormL2 ? F(T(0.2), T(0.3), groups) : F(T(0.3), groups)
+      name = string(nameof(typeof(f)))
+      reference = prox(f, v, step)
+      reference_value = f(v)
+      reference_prox_value = f(reference)
+      reference_kkt = kkt_violation(f, grad, zeros(T, p), first(groups[k]))
+      coordinate_reference = copy(v)
+      coordinate_reference[groups[k]] = reference[groups[k]]
+      for shared in (true, false)
+        layout = string(indices ? "indices" : "ranges", shared ? "_shared" : "_distinct")
+        source = shared ? f : groups
+        x = AtomIterate(v, source)
+        y = AtomIterate(T, p, source)
+        z = AtomIterate(v, source)
+        f(x); f(y); f(z)
+        prepare!() = copyto!(z, x)
+        function checkcoordinate!()
+          prepare!()
+          prox_coordinate!(z, f, k, step)
+          close_enough(z, coordinate_reference)
+        end
+        checkkkt!() = isapprox(kkt_violation(f, grad, x, k), reference_kkt;
+                              atol=tolerance(T), rtol=tolerance(T)) || error("KKT differs from dense reference")
+        checkvalue!() = isapprox(f(x), reference_value; atol=tolerance(T), rtol=tolerance(T)) ||
+          error("value differs from dense reference")
+        checkprox!() = (prox!(y, f, x, step); close_enough(y, reference))
+        function checkvprox!()
+          value = value_and_prox!(y, f, x, step)
+          close_enough(y, reference)
+          isapprox(value, reference_prox_value; atol=tolerance(T), rtol=tolerance(T)) ||
+            error("proximal value differs from dense reference")
+        end
+        addcase!(cases, "group_layouts", name * "/coordinate", () -> prox_coordinate!(z, f, k, step), checkcoordinate!;
+                 T, shape=string(K), layout, prepare=prepare!, work=8)
+        addcase!(cases, "group_layouts", name * "/kkt", () -> kkt_violation(f, grad, x, k), checkkkt!;
+                 T, shape=string(K), layout, work=8)
+        addcase!(cases, "group_layouts", name * "/value", () -> f(x), checkvalue!;
+                 T, shape=string(K), layout, work=64)
+        addcase!(cases, "group_layouts", name * "/prox!", () -> prox!(y, f, x, step), checkprox!;
+                 T, shape=string(K), layout, work=64)
+        addcase!(cases, "group_layouts", name * "/value_and_prox!", () -> value_and_prox!(y, f, x, step), checkvprox!;
+                 T, shape=string(K), layout, work=64)
+        if !shared
+          other = F === SparseGroupNormL2 ? F(T(0.2), T(0.3), groups) : F(T(0.3), groups)
+          function checkalternating!()
+            checkvalue!()
+            isapprox(other(x), other(v); atol=tolerance(T), rtol=tolerance(T)) ||
+              error("alternating value differs from dense reference")
+          end
+          addcase!(cases, "group_layouts", name * "/value_alternating", () -> (f(x), other(x)), checkalternating!;
+                   T, shape=string(K), layout, work=128)
+        end
+      end
+    end
+  end
+end
+
 function smooth_cases!(cases, rep; quick=false)
     for T in (quick ? (Float64,) : (Float32,Float64)), (n,p) in (quick ? ((128,32),) : ((128,32),(1024,256)))
         rng = scenario_rng(rep,"smooth/$T/$n/$p")
@@ -466,6 +534,7 @@ function build_cases(rep; suite="quick", groups=collect(CASE_GROUPS))
     for (group,builder) in zip(CASE_GROUPS,builders)
         group in groups && builder(cases,rep;quick=suite=="quick")
     end
+    suite == "extended" && "vectors" in groups && group_layout_cases!(cases, rep)
     ids=[c.meta.id for c in cases]
     length(unique(ids))==length(ids) || error("duplicate case IDs")
     cases

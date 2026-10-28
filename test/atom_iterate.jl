@@ -23,6 +23,17 @@ end
 # groups of unequal sizes, two not contiguous
 groups = [1:3, [4, 7], 5:5, [8, 6], [9]]
 
+mutable struct CountedGroups <: AbstractVector{UnitRange{Int}}
+  groups::Vector{UnitRange{Int}}
+  comparisons::Int
+end
+Base.size(groups::CountedGroups) = size(groups.groups)
+Base.getindex(groups::CountedGroups, k::Int) = groups.groups[k]
+function Base.:(==)(a::CountedGroups, b::CountedGroups)
+  a.comparisons += 1
+  a.groups == b.groups
+end
+
 function check_scaled_product(out, A, x, α, β)
   @nospecialize out A x α β
   expected = Array(out)
@@ -48,6 +59,7 @@ end
     @test IndexStyle(typeof(x)) == IndexLinear()
     @test x == zeros(9)
     @test x.nactive == 0
+    @test x.layout_cache === nothing
     @test ncoordinates(x) == 5
     @test x.group_of == [1, 1, 1, 2, 3, 4, 2, 4, 5]
     @test eltype(AtomIterate(Float32, 9, groups)) == Float32
@@ -79,6 +91,115 @@ end
     @test_throws ArgumentError AtomIterate(4, [1:3, 3:4])      # overlapping
     @test_throws ArgumentError AtomIterate(3, [1:3, Int[]])    # empty
     @test_throws ArgumentError AtomIterate(3, [0:2])
+  end
+
+  @testset "layout cache" begin
+    gs = CountedGroups([1:2, 3:4, 5:6], 0)
+    fgs = CountedGroups(copy(gs.groups), 0)
+    ygs = CountedGroups(copy(gs.groups), 0)
+    f = GroupNormL2{Float64, CountedGroups}(0.4, fgs, ones(3))
+    x = ProximalBase._AtomIterate([3., -4., 0., 0., 0., 0.], gs, [1, 1, 2, 2, 3, 3])
+    y = ProximalBase._AtomIterate(ones(6), ygs, copy(x.group_of))
+    activate!(x, 3)
+    @test x.layout_cache === y.layout_cache === nothing
+    @test f(x) ≈ f(Vector(x))
+    @test f(y) ≈ f(Vector(y))
+    @test x.layout_cache === y.layout_cache === f.groups
+    @test gs.comparisons == ygs.comparisons == 1
+
+    for _ in 1:3
+      @test ProximalBase._samelayout(x, y)
+      @test ProximalBase._samelayout(y, x)
+      copyto!(y, x)
+      @test active_set(y) == active_set(x)
+      @test f(x) ≈ f(Vector(x))
+      @test prox!(y, f, x, 0.7) === y
+      @test Vector(y) ≈ prox(f, Vector(x), 0.7)
+      @test value_and_prox!(y, f, x, 0.7) ≈ f(Vector(y))
+      @test kkt_violation(f, ones(6), x, 2) ≈ sqrt(2) - 0.4
+      prox_coordinate!(x, f, 1, 0.1)
+      @test x.layout_cache === y.layout_cache === f.groups
+    end
+    @test gs.comparisons == ygs.comparisons == 1
+
+    shared = AtomIterate(6, f)
+    @test ProximalBase._samelayout(shared, x)
+    @test ProximalBase._samelayout(x, shared)
+    @test shared.layout_cache === nothing
+    @test gs.comparisons == 1 && fgs.comparisons == 0
+
+    for z in (copy(x), similar(x), similar(x, Float32))
+      @test z.groups === x.groups && z.group_of === x.group_of
+      @test z.layout_cache === f.groups
+      @test ProximalBase._samelayout(f, z)
+      @test f(z) ≈ f(Vector(z))
+      reference = prox(f, Vector(z), 0.7)
+      @test value_and_prox!(z, f, z, 0.7) ≈ f(reference)
+      @test Vector(z) ≈ reference && z.layout_cache === f.groups
+    end
+    @test eltype(similar(x, Float32)) == Float32
+
+    g = GroupNormL2(0.2, copy(gs.groups))
+    @test ProximalBase._samelayout(g, y)
+    copyto!(y, x)
+    @test y == Vector(x) && consistent(y)
+    @test y.layout_cache === g.groups && x.layout_cache === f.groups
+    for h in (g, f, g, f)
+      @test h(x) ≈ h(Vector(x))
+      @test x.layout_cache === h.groups
+    end
+
+    bad = GroupNormL2(0.4, [1:3, 4:5, 6:6])
+    before = copy(x)
+    @test !ProximalBase._samelayout(bad, x)
+    @test bad(x) ≈ bad(Vector(x))
+    @test_throws DimensionMismatch prox_coordinate!(x, bad, 1, 0.7)
+    @test_throws DimensionMismatch kkt_violation(bad, ones(6), x, 1)
+    @test x == Vector(before) && activecoordinates(x) == activecoordinates(before)
+    @test x.layout_cache === f.groups
+    @test f(x) ≈ f(Vector(x))
+
+    other = AtomIterate(ones(6), bad)
+    @test other.layout_cache === nothing
+    @test !ProximalBase._samelayout(shared, other)
+    @test shared.layout_cache === other.layout_cache === nothing
+    @test ProximalBase._samelayout(g, other) == false
+    copyto!(other, x)
+    @test other == Vector(x) && consistent(other)
+    @test other.layout_cache === nothing && x.layout_cache === f.groups
+
+    S = [1, 2, 5, 6]
+    r = restrict(f, S)
+    restricted = AtomIterate(Vector(x)[S], r)
+    @test restricted.layout_cache === nothing
+    @test restricted.groups === r.groups && restricted.groups !== x.groups
+    @test r(restricted) ≈ r(Vector(restricted))
+  end
+
+  @testset "group wrappers preserve a failed coordinate step" begin
+    gs = [1:2, 3:4, 5:6]
+    other = [[1, 3], [2, 5], [4, 6]]
+    v = [3., -4., 0., 0., 0., 0.]
+    for F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2, GroupMCP, GroupSCAD)
+      f = F === SparseGroupNormL2 ? F(0.2, 0.4, gs) : F(0.4, gs)
+      bad = F === SparseGroupNormL2 ? F(0.2, 0.4, other) : F(0.4, other)
+      for wrap in (h -> 2.0 * h, h -> Regularize(h, 0.3, ones(6)))
+        x = AtomIterate(v, gs)
+        activate!(x, 3)
+        prox_coordinate!(x, wrap(f), 1, 0.7)
+        reference = prox(wrap(f), v, 0.7)
+        @test Vector(x)[gs[1]] ≈ reference[gs[1]]
+        @test Vector(x)[3:6] == v[3:6]
+        before = copy(x)
+        @test_throws DimensionMismatch prox_coordinate!(x, wrap(bad), 1, 0.7)
+        @test_throws DimensionMismatch kkt_violation(wrap(bad), ones(6), x, 1)
+        @test x.storage == before.storage
+        @test activecoordinates(x) == activecoordinates(before)
+        @test x.position == before.position && x.layout_cache === f.groups
+        prox_coordinate!(x, wrap(f), 1, 0.7)
+        @test Vector(x)[gs[1]] ≈ prox(wrap(f), Vector(before), 0.7)[gs[1]]
+      end
+    end
   end
 
   @testset "entries and active groups" begin
@@ -169,6 +290,7 @@ end
     w = AtomIterate(9, groups)
     copyto!(w, x)
     @test w == x && active_set(w) == active_set(x)
+    @test w.layout_cache === x.layout_cache === nothing
     u = AtomIterate(9, 3)
     copyto!(u, x)
     @test u == x && active_set(u) == Set([1, 2]) && consistent(u)

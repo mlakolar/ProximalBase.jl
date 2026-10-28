@@ -178,7 +178,7 @@ end
 
 # with the groups of f, only the active groups count
 function (f::SparseGroupNormL2)(x::AtomIterate)
-  x.groups === f.groups || return invoke(f, Tuple{AbstractArray}, x)
+  _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   T = float(eltype(x))
   v2, v1 = zero(T), zero(T)
   for a in 1:x.nactive
@@ -195,7 +195,7 @@ end
 value_and_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
 
 function _value_and_prox_groups!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Union{Real, AbstractVector})
-  y.groups === x.groups === f.groups ||
+  _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, SparseGroupNormL2, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))

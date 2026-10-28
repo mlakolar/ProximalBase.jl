@@ -264,7 +264,8 @@ function (f::IndBallL1)(x::AbstractArray)
   eltype(x) <: Integer && return _ball_scaled_value(f, x, T)
   n = norm(x, 1)
   slack = f.r + _tol(T) * max(one(T), f.r)
-  isfinite(n) && isfinite(slack) && return _ind(n <= slack, T)
+  # A non-finite norm already fails the comparison with a finite bound.
+  _finite_bound(slack) && return _ind(n <= slack, T)
   _ball_scaled_value(f, x, T)
 end
 
@@ -310,11 +311,12 @@ function (f::IndBallL2)(x::AbstractArray)
   eltype(x) <: Integer && return _ball_scaled_value(f, x, T)
   n = _norm2(x)
   slack = f.r + _tol(T) * max(one(T), f.r)
-  isfinite(n) && isfinite(slack) && return _ind(n <= slack, T)
+  # A non-finite norm already fails the comparison with a finite bound.
+  _finite_bound(slack) && return _ind(n <= slack, T)
   _ball_scaled_value(f, x, T)
 end
 
-function _ball_scaled_value(f, x, ::Type{T}) where {T}
+@noinline function _ball_scaled_value(f, x, ::Type{T}) where {T}
   m = _maximum_abs(x)
   isfinite(m) || return T(Inf)
   S = float(promote_type(typeof(m), typeof(f.r)))
@@ -430,15 +432,14 @@ function (f::IndSimplex)(x::AbstractArray)
   minimum(x) >= -t || return T(Inf)
   s = convert(T, eltype(x) <: Integer ? sum(float, x) : sum(x))
   slack = t * max(one(T), f.r, abs(s))
-  g = s - f.r
-  bound = f.equality ? slack : f.r + slack
-  if isfinite(g) && isfinite(bound)
-    return _ind(f.equality ? abs(g) <= slack : s <= bound, T)
-  end
-  _simplex_scaled_value(f, x, T)
+  # A finite slack implies a finite sum; overflowed deviations already reject.
+  # An overflowed upper bound contains every finite sum.
+  _finite_bound(slack) || return _simplex_scaled_value(f, x, T)
+  ok = f.equality ? abs(s - f.r) <= slack : s <= f.r + slack
+  ok ? zero(T) : T(Inf)
 end
 
-function _simplex_scaled_value(f, x, ::Type{T}) where {T}
+@noinline function _simplex_scaled_value(f, x, ::Type{T}) where {T}
   m = _maximum_abs(x)
   isfinite(m) || return T(Inf)
   S = float(promote_type(T, typeof(f.r)))
@@ -619,24 +620,43 @@ function _scaled_normal_slack(f, x, ::Type{T}) where {T}
       (tol * sqrt(_normal_sqnorm(f, x))) * _norm2_scaled(x))
 end
 
-function (f::Union{IndHyperplane, IndHalfspace})(x::AbstractArray)
+function (f::IndHyperplane)(x::AbstractArray)
   T = float(eltype(x))
   eltype(x) <: Integer && return _linear_scaled_value(f, x, T)
-  if _isscaled(f)
-    g = _dot_normal(_normalized_normal(f.a, f.s), x) - _scaled_offset(f)
-    slack = _scaled_normal_slack(f, x, T)
-  else
-    slack = _tol(T) * max(one(T), abs(f.b), sqrt(_normal_sqnorm(f, x) * _sumabs2(x)))
-    g = _dot_normal(f.a, x) - f.b
-  end
-  if isfinite(g) && isfinite(slack)
+  _isscaled(f) && return _scaled_normal_value(f, x, T)
+  slack = _tol(T) * max(one(T), abs(f.b), sqrt(_normal_sqnorm(f, x) * _sumabs2(x)))
+  g = _dot_normal(f.a, x) - f.b
+  _finite_bound(slack) && _ordinary_residual_finite(f, x, g, typeof(slack)) ||
+    return _linear_scaled_value(f, x, T)
+  abs(g) <= slack ? zero(T) : T(Inf)
+end
+function (f::IndHalfspace)(x::AbstractArray)
+  T = float(eltype(x))
+  eltype(x) <: Integer && return _linear_scaled_value(f, x, T)
+  _isscaled(f) && return _scaled_normal_value(f, x, T)
+  slack = _tol(T) * max(one(T), abs(f.b), sqrt(_normal_sqnorm(f, x) * _sumabs2(x)))
+  g = _dot_normal(f.a, x) - f.b
+  _finite_bound(slack) && _ordinary_residual_finite(f, x, g, typeof(slack)) ||
+    return _linear_scaled_value(f, x, T)
+  g <= slack ? zero(T) : T(Inf)
+end
+
+# At matching precisions, the finite squared-norm bound precludes residual overflow.
+@inline function _ordinary_residual_finite(f, x, g, ::Type{S}) where {S}
+  P = float(promote_type(eltype(f.a), eltype(x)))
+  (P === S && S <: Union{Float32, Float64}) || _finite_value(g)
+end
+
+@noinline function _scaled_normal_value(f, x, ::Type{T}) where {T}
+  g = _dot_normal(_normalized_normal(f.a, f.s), x) - _scaled_offset(f)
+  slack = _scaled_normal_slack(f, x, T)
+  _finite_value(g) && _finite_bound(slack) &&
     return _ind(f isa IndHyperplane ? abs(g) <= slack : g <= slack, T)
-  end
   _linear_scaled_value(f, x, T)
 end
 
 # Include the normal's scale in the offset exponent before forming either one.
-function _linear_scaled_value(f, x, ::Type{T}) where {T}
+@noinline function _linear_scaled_value(f, x, ::Type{T}) where {T}
   m = _maximum_abs(x)
   isfinite(m) || return T(Inf)
   S = promote_type(T, typeof(f.q))

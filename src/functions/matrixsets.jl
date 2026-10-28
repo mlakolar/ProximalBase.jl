@@ -232,34 +232,36 @@ function (f::IndToeplitz)(x::AbstractMatrix)
   f.symmetric && m != n && return T(Inf)
   eltype(x) <: Integer && return _toeplitz_scaled_value(f, x, T)
   ok = true
+  finite = true
+  # Overflowed deviations exceed any finite tolerance; non-finite entries spoil the mean.
+  # The tolerance scale bounds both the mean and its tolerance, since t ≤ 1.
   if f.symmetric
     @inbounds for d in 0:n-1
       μ = _symmetric_diagonal_mean(x, n, d)
-      s = t * max(one(T), abs(μ))
-      isfinite(μ) && isfinite(s) || return _toeplitz_scaled_value(f, x, T)
+      scale = max(one(T), abs(μ))
+      s = t * scale
+      finite &= _finite_bound(scale)
       for r in 1:n-d
-        g, h = x[r, r + d] - μ, x[r + d, r] - μ
-        isfinite(g) && isfinite(h) || return _toeplitz_scaled_value(f, x, T)
-        ok &= (abs(g) <= s) & (abs(h) <= s)
+        ok &= (abs(x[r, r + d] - μ) <= s) & (abs(x[r + d, r] - μ) <= s)
       end
     end
   else
     @inbounds for d in -(m - 1):(n - 1)
       rows = _diagonal_rows(m, n, d)
       μ = _diagonal_mean(x, rows, d)
-      s = t * max(one(T), abs(μ))
-      isfinite(μ) && isfinite(s) || return _toeplitz_scaled_value(f, x, T)
+      scale = max(one(T), abs(μ))
+      s = t * scale
+      finite &= _finite_bound(scale)
       for r in rows
-        g = x[r, r + d] - μ
-        isfinite(g) || return _toeplitz_scaled_value(f, x, T)
-        ok &= abs(g) <= s
+        ok &= abs(x[r, r + d] - μ) <= s
       end
     end
   end
+  finite || return _toeplitz_scaled_value(f, x, T)
   ok ? zero(T) : T(Inf)
 end
 
-function _toeplitz_scaled_value(f, x, ::Type{T}) where {T}
+@noinline function _toeplitz_scaled_value(f, x, ::Type{T}) where {T}
   mx = _maximum_abs(x)
   isfinite(mx) || return T(Inf)
   k = _comparison_exponent(_magnitude_exponent(mx))

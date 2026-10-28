@@ -116,6 +116,12 @@ _zeros_like(a, ::Type{T}, dims) where {T} = zeros(T, dims)
 _tol(::Type{T}) where {T<:AbstractFloat} = sqrt(eps(T))
 _tol(::Type) = sqrt(eps(Float64))
 
+# Compare magnitudes directly, without a subtraction dependency on the value.
+@inline _finite_value(v::AbstractFloat) = abs(v) < oftype(v, Inf)
+@inline _finite_value(v) = isfinite(v)
+# A nonnegative bound is finite exactly when it is below infinity.
+@inline _finite_bound(v) = v < oftype(v, Inf)
+
 # Powers of two keep the units of a comparison without rounding the scale.
 # Split a power that is outside the range of a single floating-point factor.
 @inline function _power_factors(::Type{T}, k::Int) where {T<:AbstractFloat}

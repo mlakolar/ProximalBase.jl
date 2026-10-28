@@ -11,11 +11,11 @@ y = X * β_true + 0.3 * randn(rng, n)
 a = [sum(abs2, view(X, :, j)) for j in 1:p]          # coordinate curvatures ‖Xⱼ‖²</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">300-element Vector{Float64}:
   89.98138413168286
  104.80733871029449
-  77.15421770462758
-  90.67467270132738
+  77.1542177046276
+  90.67467270132737
   94.0829477069477
   91.85243397389704
-  91.32431552281933
+  91.32431552281932
   96.91562736831847
  102.91332221149068
   83.07024709204346
@@ -24,11 +24,11 @@ a = [sum(abs2, view(X, :, j)) for j in 1:p]          # coordinate curvatures ‖
  101.9098275445456
  102.5409472135332
   89.26310551684875
- 115.98237742481041
+ 115.98237742481042
   78.75102932852973
  112.32344202391447
   75.39095234255147
- 109.64091573823576</code></pre><p>one pass over the coordinates js; returns the largest change of a coordinate</p><pre><code class="language-julia hljs">function sweep!(β, r, X, a, g, js)
+ 109.64091573823575</code></pre><p>one pass over the coordinates js; returns the largest change of a coordinate</p><pre><code class="language-julia hljs">function sweep!(β, r, X, a, g, js)
     δ = 0.0
     for j in js
         old = β[j]
@@ -96,4 +96,4 @@ for (λ, βλ) in zip(λs, path)
 end
 @assert iszero(path[1])                                 # λmax gives β = 0
 @assert Set(findall(!iszero, path[12])) == Set([5, 50, 120, 200, 260])
-@assert nnz(β) &lt; p                                      # most coordinates were never stored</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../01_lasso_three_ways/">« The lasso three ways</a><a class="docs-footer-nextpage" href="../03_nonconvex_penalties/">Nonconvex penalties »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Tuesday 27 October 2026 19:40">Tuesday 27 October 2026</span>. Using Julia version 1.13.3.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+@assert nnz(β) &lt; p                                      # most coordinates were never stored</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../01_lasso_three_ways/">« The lasso three ways</a><a class="docs-footer-nextpage" href="../03_nonconvex_penalties/">Nonconvex penalties »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Wednesday 28 October 2026 03:35">Wednesday 28 October 2026</span>. Using Julia version 1.13.3.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

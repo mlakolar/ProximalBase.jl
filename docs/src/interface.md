@@ -215,8 +215,10 @@ follows the argument's precision, and the proximal workspace follows the
 output's. The proximal buffer of `Conjugate` also follows the output.
 `LeastSquaresLoss` and `GLMLoss` keep buffers in the promoted floating type of
 the response and design matrix, independently of the argument's precision.
-The shifted buffer for values and gradients of `Translate(f, b)` uses
-`float(promote_type(eltype(x), eltype(b)))`.
+The shifted buffer for values and gradients of `Translate(f, b)` uses the
+argument's precision, `float(eltype(x))`. `Spectral`, `SingularValue` and
+`FiberSum` give their values in the argument's precision, and in the output's
+precision for the proximal operators.
 
 Constructors also differ. `NormL1(λ, w)` stores the scale and weights as given;
 `GroupNormL2(λ, groups, w)` converts both to their common floating type.
@@ -230,10 +232,16 @@ For `LeastSquaresLoss`, `LogisticLoss` and `GLMLoss`, the value and the scalar
 returned by `value_and_gradient!` have the buffers' precision. With `Float32`
 data, these are `Float32` even for a `Float64` argument.
 
-The scalar type can also differ between oracles. With `x = Float32[1, 2]`
-and `f = Translate(NormL1(1f0), Float64[0.25, -0.5])`, `f(x)` is `Float64`,
-but `value_and_prox!(similar(x), f, x, 0.5)` is `Float32`: the latter evaluates
-the inner function using the output buffer.
+When the argument and the output have the same element type,
+`value_and_prox!(y, f, x, γ)` returns a scalar of the type of `f(x)`.
+The same rule holds for `value_and_gradient!(g, f, x)` when the argument and
+the gradient have the same element type. It applies wherever `f(x)` is
+defined. For example, `Conjugate(ElasticNet(...))` has a proximal value but
+no standalone value. This is a rule about types. The returned values use
+the proximal or gradient intermediates. A proximal value can differ from
+`f(y)` in the last bits. With `x = Float32[1, 2]` and
+`f = Translate(NormL1(1f0), Float64[0.25, -0.5])`, both `f(x)` and
+`value_and_prox!(similar(x), f, x, 0.5)` return `Float32`.
 
 To compute in `Float32` throughout, give the argument, the parameters, the
 data and the step in `Float32`; the functions above then return `Float32`

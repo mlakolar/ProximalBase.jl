@@ -35,7 +35,11 @@ Reading or writing any entry is therefore ``O(1)``, and a product ``Xx`` costs
 ``O(n\cdot\mathrm{nnz})``. The stored entries are the active coordinates
 ([`activecoordinates`](@ref), [`nactive`](@ref)). Setting an entry to zero keeps
 it stored, so that an active set does not change during a sweep. `dropzeros!`
-removes the zeros between sweeps.
+removes the zeros between sweeps. `nnz(x)` counts stored zeros too.
+`nonzeros(x)` gives a view of the stored values, paired with
+`activecoordinates(x)` in storage order; the view is invalidated when the
+stored set changes. `findnz(x)` returns copies of the stored indices and
+values in sorted order, including stored zeros.
 
 ## SymmetricSparseIterate
 

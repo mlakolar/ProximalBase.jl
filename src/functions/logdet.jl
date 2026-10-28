@@ -57,7 +57,7 @@ function _logdet_chol!(f::LogDetLoss{T}, X::AbstractMatrix) where {T}
   all(isfinite, X) && _issymmetric_tol(X) || return nothing
   C = f.C
   copyto!(C, X)
-  _, info = LAPACK.potrf!('U', C)
+  _, info = _potrf!('U', C)
   info == 0 || return nothing
   ld = zero(T)
   @inbounds for i in axes(C, 1)
@@ -80,7 +80,7 @@ function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMat
   end
   v = f.w * (dot(f.S, X) - ld)
   C, S, w = f.C, f.S, f.w
-  LAPACK.potri!('U', C)             # the upper triangle of X⁻¹
+  _potri!('U', C)             # the upper triangle of X⁻¹
   @inbounds for j in axes(C, 2), i in 1:j
     g = w * (S[i, j] - C[i, j])
     G[i, j] = g

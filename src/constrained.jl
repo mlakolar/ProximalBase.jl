@@ -138,7 +138,8 @@ _isindicator(::Type{<:LinearConstrained{F}}) where {F} = _isindicator(F)
 #  on a box
 ####################################
 
-(c::BoxConstrained)(x::AbstractArray) = (T = float(eltype(x)); iszero(c.box(x)) ? convert(T, c.f(x)) : T(Inf))
+(c::BoxConstrained)(x::AbstractArray) =
+  (_checkparams(c, x); T = float(eltype(x)); iszero(c.box(x)) ? convert(T, c.f(x)) : T(Inf))
 
 # the scalar problem is convex, so its minimizer on an interval is the nearest
 # point to its unconstrained minimizer
@@ -157,13 +158,7 @@ function _value_and_prox_box!(y, c, x, γ)
 end
 
 _checkparams(c::BoxConstrained, x) = (_checkparams(c.f, x); _checkparams(c.box, x); true)
-iszeropreserving(c::BoxConstrained) = _iszeropreserving(c.f) && iszeropreserving(c.box)
-
-# whether a separable function is known to vanish at 0 and map 0 to 0
-_iszeropreserving(f::Union{SeparableFunction, BoxConstrained}) = iszeropreserving(f)
-_iszeropreserving(::Union{ZeroFunction, SqrNormL2{<:Real, Nothing}}) = true
-_iszeropreserving(s::Scaled) = _iszeropreserving(s.f)
-_iszeropreserving(::AbstractFunction) = false
+iszeropreserving(c::BoxConstrained) = iszeropreserving(c.f) && iszeropreserving(c.box)
 
 # For a convex f with 0 in its domain, the proximal step of f from -gᵢ moves in
 # the direction that improves on zero, if one does; the box must allow it.

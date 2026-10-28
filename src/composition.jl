@@ -67,6 +67,7 @@ for trait in (:issmooth, :isproximable, :isconvex)
   @eval $trait(::Type{<:Precompose{F}}) where {F} = $trait(F)
 end
 isseparable(::Type{<:Precompose{F, M}}) where {F, M} = M <: Real && isseparable(F)
+iszeropreserving(h::_ScalarPrecompose) = isfinite(h.A) && isfinite(h.μ) && iszeropreserving(h.f)
 _isindicator(::Type{<:Precompose{F}}) where {F} = _isindicator(F)
 
 # the image Ax in a buffer that h owns
@@ -88,6 +89,7 @@ _inner_buffer(h::Precompose, z::AbstractArray) = _array_buffer!(h.inner, eltype(
 function value_and_gradient!(g::AbstractArray, h::Precompose, x::AbstractArray)
   _checksize(g, x)
   z = _image!(h, x)
+  _checkparams(h.f, z)
   b = _inner_buffer(h, z)
   v = value_and_gradient!(b, h.f, z)
   _adjoint_apply!(g, h, b)
@@ -96,6 +98,7 @@ end
 function gradient!(g::AbstractArray, h::Precompose, x::AbstractArray)
   _checksize(g, x)
   z = _image!(h, x)
+  _checkparams(h.f, z)
   b = _inner_buffer(h, z)
   gradient!(b, h.f, z)
   _adjoint_apply!(g, h, b)
@@ -116,6 +119,7 @@ value_and_prox!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real) =
 
 function _value_and_prox_precompose!(y, h::Precompose, x, γ, withvalue::Bool)
   z = _image!(h, x)
+  _checkparams(h.f, z)
   P = _inner_buffer(h, z)
   T = eltype(z)
   μγ = convert(T, h.μ) * convert(T, γ)
@@ -127,6 +131,7 @@ function _value_and_prox_precompose!(y, h::Precompose, x, γ, withvalue::Bool)
 end
 function _value_and_prox_precompose!(y, h::_ScalarPrecompose, x, γ, withvalue::Bool)
   z = _image!(h, x)
+  _checkparams(h.f, z)
   T = eltype(z)
   μγ = convert(T, h.μ) * convert(T, γ)
   v = withvalue ? value_and_prox!(z, h.f, z, μγ) : (prox!(z, h.f, z, μγ); zero(T))
@@ -137,6 +142,13 @@ end
 Base.@propagate_inbounds prox_entry(h::_ScalarPrecompose, v::Real, i::Integer, γ::Real) =
   prox_entry(h.f, h.A * v, i, h.μ * γ) / h.A
 _checkparams(h::_ScalarPrecompose, x) = _checkparams(h.f, x)
+function _checkparams(h::Precompose{<:AbstractFunction, <:AbstractMatrix}, x::AbstractArray)
+  size(h.A, 2) == length(x) ||
+    throw(DimensionMismatch("A has $(size(h.A, 2)) columns and the argument has length $(length(x))"))
+  T = float(promote_type(eltype(x), eltype(h.A)))
+  z = _array_buffer!(h.image, T, (size(h.A, 1),))
+  _checkparams(h.f, z)
+end
 # 0 ∈ gᵢ + a∂fᵢ(0) when 0 ∈ gᵢ/a + ∂fᵢ(0)
 kkt_violation(h::_ScalarPrecompose, g::AbstractArray, i::Integer) =
   abs(h.A) * kkt_violation(h.f, _ScaledArray(g, inv(h.A)), i)
@@ -183,18 +195,22 @@ Regularize(f::AbstractFunction, ρ::Real, c::Union{Nothing, AbstractArray} = not
 for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Regularize{F}}) where {F} = $trait(F)
 end
+iszeropreserving(r::Regularize) = r.c === nothing && isfinite(r.ρ) && iszeropreserving(r.f)
 
 _ridge(r::Regularize, x::AbstractArray) =
   convert(float(eltype(x)), r.ρ) * (r.c === nothing ? _sumabs2(x) : _sumabs2_diff(x, r.c)) / 2
 
-(r::Regularize)(x::AbstractArray) = r.f(x) + _ridge(r, x)
+(r::Regularize)(x::AbstractArray) = (_checkparams(r, x); r.f(x) + _ridge(r, x))
 
 function value_and_gradient!(g::AbstractArray, r::Regularize, x::AbstractArray)
+  _checksize(g, x)
+  _checkparams(r, x)
   v = value_and_gradient!(g, r.f, x)
   _add_ridge_gradient!(g, r, x)
   v + _ridge(r, x)
 end
-gradient!(g::AbstractArray, r::Regularize, x::AbstractArray) = (gradient!(g, r.f, x); _add_ridge_gradient!(g, r, x))
+gradient!(g::AbstractArray, r::Regularize, x::AbstractArray) =
+  (_checksize(g, x); _checkparams(r, x); gradient!(g, r.f, x); _add_ridge_gradient!(g, r, x))
 
 function _add_ridge_gradient!(g, r::Regularize, x)
   ρ = convert(eltype(g), r.ρ)
@@ -216,12 +232,12 @@ end
 
 function prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
   _checksize(y, x)
-  _checkparam(r.c, x)
+  _checkparams(r, x)
   prox!(y, r.f, y, _shrunk!(y, r, x, γ))
 end
 function value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
   _checksize(y, x)
-  _checkparam(r.c, x)
+  _checkparams(r, x)
   v = value_and_prox!(y, r.f, y, _shrunk!(y, r, x, γ))
   v + _ridge(r, y)
 end
@@ -238,7 +254,7 @@ _checkparams(r::Regularize, x) = (_checkparam(r.c, x); _checkparams(r.f, x))
 # a regularized group penalty on an AtomIterate: shrink the group towards c,
 # then take the step of the group penalty
 function prox_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k::Integer, γ::Real)
-  _checkparam(r.c, x)
+  _checkparams(r, x)
   _checksamegroups(r.f, x)
   checkbounds(x.groups, k)
   T = float(eltype(x))
@@ -272,6 +288,7 @@ function hessian_vec!(Hv::AbstractArray, h::Precompose, x::AbstractArray, v::Abs
   _checksize(Hv, x)
   _checkdirection(v, x)
   z = _image!(h, x)
+  _checkparams(h.f, z)
   d = _linear_image!(h.direction, h.A, v)
   b = _inner_buffer(h, z)
   hessian_vec!(b, h.f, z, d)
@@ -281,7 +298,7 @@ end
 function hessian_vec!(Hv::AbstractArray, r::Regularize, x::AbstractArray, v::AbstractArray)
   _checksize(Hv, x)
   _checkdirection(v, x)
-  _checkparam(r.c, x)
+  _checkparams(r, x)
   hessian_vec!(Hv, r.f, x, v)
   Hv .+= convert(eltype(Hv), r.ρ) .* v
 end

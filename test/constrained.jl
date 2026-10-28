@@ -109,6 +109,35 @@ end
   @test prox(restrict(c, S), x[S], 0.6) ≈ prox(c, x, 0.6)[S]
 end
 
+@testset "zero-preserving wrappers on a box" begin
+  fs = (Regularize(NormL1(1.), 1.), Scaled(NormL1(1.), 2.),
+        Precompose(NormL1(1.), -2.), Conjugate(NormL1(1.)), ZeroFunction(), SqrNormL2())
+  for f in fs, xs in (SparseIterate([0., 3., 0., -2., 0.]), SparseIterate(5))
+    c = Constrained(f, IndBox(-1., 1.))
+    @test iszeropreserving(c)
+    x = Vector(xs)
+    @test c(xs) == c(x)
+    for step in (0.7, fill(0.7, 5))
+      expected = prox(c, x, step)
+      out = SparseIterate([2., 0., 0., 0., 0.])
+      @test prox!(out, c, xs, step) === out
+      @test Vector(out) ≈ expected
+      @test value_and_prox!(out, c, xs, step) ≈ c(expected)
+      @test Vector(out) ≈ expected
+      @test c(out) ≈ c(expected)
+      @test isactive(out, 1) && out[1] == 0
+      alias = copy(xs)
+      @test prox!(alias, c, alias, step) === alias
+      @test Vector(alias) ≈ expected
+      alias = copy(xs)
+      @test value_and_prox!(alias, c, alias, step) ≈ c(expected)
+      @test Vector(alias) ≈ expected
+      @test nnz(alias) == nnz(xs)
+    end
+  end
+  @test !iszeropreserving(Constrained(Scaled(NormL1(1.), Inf), IndBox(-1., 1.)))
+end
+
 @testset "a separable function on a hyperplane or a halfspace" begin
   n = 10
   x = randn(n)

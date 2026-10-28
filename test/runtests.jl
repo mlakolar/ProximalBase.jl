@@ -17,6 +17,7 @@ tests = [
   "separable",
   "binary",
   "losses",
+  "sqrhinge",
   "entropy",
   "norms",
   "sparsegroup",

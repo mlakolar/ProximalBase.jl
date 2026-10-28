@@ -257,8 +257,8 @@ operator follows from that of `f` by Moreau's identity,
 for a separable `f` so does [`prox_entry`](@ref). Its value is known for the
 norms (the indicators of the dual balls), the balls (their support functions),
 the box, the nonnegative orthant, [`SqrNormL2`](@ref), [`LinearFunction`](@ref),
-[`ZeroFunction`](@ref), and the losses [`CheckLoss`](@ref), [`HingeLoss`](@ref)
-and [`EpsInsensitiveLoss`](@ref), and for translations and strictly positive
+[`ZeroFunction`](@ref), and the losses [`CheckLoss`](@ref), [`HingeLoss`](@ref),
+[`SqrHingeLoss`](@ref) and [`EpsInsensitiveLoss`](@ref), and for translations and strictly positive
 rescalings of these functions; for other functions, evaluating the conjugate
 throws an `ArgumentError`. [`value_and_prox!`](@ref) returns the value at the
 proximal point for every proximable `f`: where no closed form is known, it uses
@@ -303,7 +303,7 @@ end
 _has_conjugate_value(::AbstractFunction) = false
 _has_conjugate_value(::Union{NormL1, NormL2, NormLinf, IndBallL1, IndBallL2,
                             ZeroFunction, IndNonnegative, IndBox, SqrNormL2,
-                            LinearFunction, CheckLoss, HingeLoss, EpsInsensitiveLoss}) = true
+                            LinearFunction, CheckLoss, HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}) = true
 _has_conjugate_value(f::Union{Scaled, Translate}) = _has_conjugate_value(f.f)
 _has_conjugate_value(f::SingularValue) = _has_conjugate_value(f.f)
 

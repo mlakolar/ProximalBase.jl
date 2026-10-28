@@ -126,6 +126,9 @@ function rule_cases(P)
   # These conjugates have a proximal value but no standalone value.
   push!(cases, case("Conjugate unsupported", Conjugate(ElasticNet(P(1), P(0.5)))))
   push!(cases, case("Conjugate tuple unsupported", Conjugate(SeparableSum(ElasticNet(P(1), P(0.5)), NormL1(P(1)))), blocks))
+  missing = Precompose(Conjugate(ElasticNet(P(1), P(0.5))), P(2))
+  push!(cases, case("Precompose unsupported", missing))
+  push!(cases, case("Scaled Precompose unsupported", Scaled(missing, P(2))))
   for f in (NormL1(P(1)), ElasticNet(P(1), P(0.5)), SqrNormL2(P(1)), MCP(P(1)), SCAD(P(1)), IndBox(-P(1), P(1)))
     name = nameof(typeof(f))
     metric = f isa SeparableFunction ? :entry : :none
@@ -142,7 +145,8 @@ function rule_cases(P)
   cases
 end
 
-const unsupported_values = ("Conjugate unsupported", "Conjugate tuple unsupported")
+const unsupported_values = ("Conjugate unsupported", "Conjugate tuple unsupported",
+                            "Precompose unsupported", "Scaled Precompose unsupported")
 
 function check_rule(c, Tx, Ty, S)
   @nospecialize c
@@ -205,23 +209,109 @@ function oracle_bits(f, x, T)
   reinterpret(T === Float32 ? UInt32 : UInt64, values)
 end
 
-# Fixed inputs recorded before the precision fixes, including signed zeros.
+# Master's formulas, using this platform's BLAS for products and solves.
+function master_image(h::Precompose, x)
+  if h.A isa Real
+    T = float(promote_type(eltype(x), typeof(h.A)))
+    z = similar(x, T)
+    z .= h.A .* x
+  else
+    T = float(promote_type(eltype(x), eltype(h.A)))
+    z = zeros(T, size(h.A, 1))
+    mul!(z, h.A, x)
+  end
+  z
+end
+
+function master_prox!(y, h::Precompose, x, γ)
+  z = master_image(h, x)
+  T = eltype(z)
+  step = convert(T, h.μ) * convert(T, γ)
+  if h.A isa Real
+    v = value_and_prox!(z, h.f, z, step)
+    y .= z ./ h.A
+  else
+    p = similar(z)
+    v = value_and_prox!(p, h.f, z, step)
+    p .-= z
+    copyto!(y, x)
+    mul!(y, h.A', p, inv(convert(T, h.μ)), one(T))
+  end
+  v
+end
+master_prox!(y, s::Scaled, x, γ) = s.α * master_prox!(y, s.f, x, s.α * γ)
+
+function master_envelope_gradient!(g, e, x)
+  γ = convert(float(eltype(g)), e.γ)
+  prox!(g, e.f, x, γ)
+  g .= PB._envelope_derivative.(x, g, γ)
+end
+
+function master_bits(h::Precompose{<:Any, <:AbstractMatrix}, x, T)
+  values = [h.f(master_image(h, x))]
+  y = similar(x)
+  push!(values, master_prox!(y, h, x, T(0.4)))
+  append!(values, y)
+  append!(values, y)
+  reinterpret(T === Float32 ? UInt32 : UInt64, values)
+end
+
+function master_quadratic_value(f, x)
+  tmp = similar(f.tmp)
+  mul!(tmp, f.A, x)
+  v = dot(x, tmp) / 2 + f.c
+  f.b === nothing ? v : v + dot(f.b, x)
+end
+
+function master_bits(f::QuadraticFunction, x, T)
+  γ = T(0.4)
+  E = eigen(Symmetric(Matrix{T}(f.A)))
+  tmp, w = similar(x), similar(x)
+  f.b === nothing ? copyto!(tmp, x) : (tmp .= x .- γ .* f.b)
+  mul!(w, transpose(E.vectors), tmp)
+  w ./= 1 .+ γ .* E.values
+  mul!(tmp, E.vectors, w)
+  values = [master_quadratic_value(f, x), master_quadratic_value(f, tmp)]
+  append!(values, tmp)
+  append!(values, tmp)
+  g = similar(x)
+  mul!(g, f.A, x)
+  v = dot(g, x) / 2 + f.c
+  if f.b !== nothing
+    g .+= f.b
+    v += dot(f.b, x)
+  end
+  push!(values, v)
+  append!(values, g)
+  append!(values, g)
+  reinterpret(T === Float32 ? UInt32 : UInt64, values)
+end
+
+function master_bits(f::IndAffine, x, T)
+  r = similar(f.rb)
+  mul!(r, f.A, x)
+  r .-= f.b
+  slack = PB._tol(T) * max(one(T), norm(f.b), f.scale * norm(x))
+  value = PB._ind(norm(r) <= slack, T)
+  ldiv!(f.fact, r)
+  y = copy(x)
+  mul!(y, f.A', r, -one(T), one(T))
+  reinterpret(T === Float32 ? UInt32 : UInt64, [value; zero(T); y; y])
+end
+
+# Fixed non-BLAS computations recorded before the precision fixes.
 const same_precision_bits = Dict(
   Float32 => Dict(
     "Precompose scalar" => UInt32[0x41066666, 0x40933334, 0x00000000, 0x3f666667, 0xbfb33334, 0x00000000, 0x3f666667, 0xbfb33334],
     "Precompose smooth" => UInt32[0x3f7a3d71, 0x3f4ecf56, 0x3e8ba2e9, 0x3fc5d174, 0xc0000000, 0x3e8ba2e9, 0x3fc5d174, 0xc0000000, 0x3f7a3d71, 0x3d99999a, 0x3ed9999a, 0xbf0ccccd, 0x3d99999a, 0x3ed9999a, 0xbf0ccccd],
-    "Precompose matrix" => UInt32[0x40ecccce, 0x40466667, 0xbed82d83, 0x3fba4fa5, 0xbf9f49f5, 0xbed82d83, 0x3fba4fa5, 0xbf9f49f5],
     "Precompose indicator" => UInt32[0x7f800000, 0x00000000, 0x3e99999a, 0x3f000000, 0xbf000000, 0x3e99999a, 0x3f000000, 0xbf000000],
-    "Precompose matrix indicator" => UInt32[0x7f800000, 0x00000000, 0xbf66d1ba, 0x3f996967, 0xbf4cb6ee, 0xbf66d1ba, 0x3f996967, 0xbf4cb6ee],
     "MoreauEnvelope norm" => UInt32[0x405f5c2a, 0x40282d84, 0x3e2aaaaa, 0x3fa66667, 0xbfe66667, 0x3e2aaaaa, 0x3fa66667, 0xbfe66667, 0x405f5c2a, 0x3f19999a, 0x3f800000, 0xbf800000, 0x3f19999a, 0x3f800000, 0xbf800000],
     "MoreauEnvelope indicator" => UInt32[0x3ff70a41, 0x3f187e6b, 0x3e99999a, 0x3fb1c71c, 0xbfd55555, 0x3e99999a, 0x3fb1c71c, 0xbfd55555, 0x3ff70a41, 0x00000000, 0x3fb33334, 0xc019999a, 0x00000000, 0x3fb33334, 0xc019999a],
-    "QuadraticFunction" => UInt32[0x410947ae, 0x401a1632, 0x3b536719, 0x3fa2af13, 0xbf86fb59, 0x3b536719, 0x3fa2af13, 0xbf86fb59, 0x410947ae, 0x3fc66667, 0x3fd33333, 0xc0c9999a, 0x3fc66667, 0x3fd33333, 0xc0c9999a],
     "GroupNormL2" => UInt32[0x40c40a63, 0x40840a63, 0x3e6c047d, 0x3fa72dd9, 0xbfb33333, 0x3e6c047d, 0x3fa72dd9, 0xbfb33333],
     "GroupNormLinf" => UInt32[0x4079999a, 0x40466667, 0x3e99999a, 0x3fa66667, 0xbfe66667, 0x3e99999a, 0x3fa66667, 0xbfe66667],
     "SparseGroupNormL2" => UInt32[0x40d0a936, 0x40845d5c, 0x00000000, 0x3f823236, 0xbfcccccd, 0x00000000, 0x3f823236, 0xbfcccccd],
     "GroupMCP" => UInt32[0x4055a16e, 0x403cfcca, 0x3e6e4e9c, 0x3fa8cd04, 0xc004ec4f, 0x3e6e4e9c, 0x3fa8cd04, 0xc004ec4f],
     "GroupSCAD" => UInt32[0x408b695c, 0x405ab202, 0x3e4e8865, 0x3f924b48, 0xbff8356e, 0x3e4e8865, 0x3f924b48, 0xbff8356e],
-    "IndAffine" => UInt32[0x7f800000, 0x00000000, 0x3f1c3832, 0x3f478f99, 0xc017d05f, 0x3f1c3832, 0x3f478f99, 0xc017d05f],
     "NormL1Fused pair" => UInt32[0x402ccccd, 0x3fd9999a, 0x3dcccccc, 0x3f8ccccd, 0x3dcccccc, 0x3f8ccccd],
     "NormL1Fused vector" => UInt32[0x4101999a, 0x40933334, 0x00000000, 0x3f666668, 0xbfb33334, 0x00000000, 0x3f666668, 0xbfb33334],
     "NormL1Fused zero" => UInt32[0x00000000, 0x00000000, 0x3e99999a, 0x3fd9999a, 0x3e99999a, 0x3fd9999a],
@@ -229,18 +319,14 @@ const same_precision_bits = Dict(
   Float64 => Dict(
     "Precompose scalar" => UInt64[0x4020cccccccccccd, 0x4012666666666666, 0x0000000000000000, 0x3feccccccccccccc, 0xbff6666666666667, 0x0000000000000000, 0x3feccccccccccccc, 0xbff6666666666667],
     "Precompose smooth" => UInt64[0x3fef47ae147ae148, 0x3fe9d9ead7cd3920, 0x3fd1745d1745d174, 0x3ff8ba2e8ba2e8ba, 0xc000000000000000, 0x3fd1745d1745d174, 0x3ff8ba2e8ba2e8ba, 0xc000000000000000, 0x3fef47ae147ae148, 0x3fb3333333333333, 0x3fdb333333333333, 0xbfe199999999999a, 0x3fb3333333333333, 0x3fdb333333333333, 0xbfe199999999999a],
-    "Precompose matrix" => UInt64[0x401d99999999999a, 0x4008cccccccccccd, 0xbfdb05b05b05b05a, 0x3ff749f49f49f4a0, 0xbff3e93e93e93e94, 0xbfdb05b05b05b05a, 0x3ff749f49f49f4a0, 0xbff3e93e93e93e94],
     "Precompose indicator" => UInt64[0x7ff0000000000000, 0x0000000000000000, 0x3fd3333333333333, 0x3fe0000000000000, 0xbfe0000000000000, 0x3fd3333333333333, 0x3fe0000000000000, 0xbfe0000000000000],
-    "Precompose matrix indicator" => UInt64[0x7ff0000000000000, 0x0000000000000000, 0xbfecda373e8a79ad, 0x3ff32d2ce9e116fd, 0xbfe996dddb66b0b2, 0xbfecda373e8a79ad, 0x3ff32d2ce9e116fd, 0xbfe996dddb66b0b2],
     "MoreauEnvelope norm" => UInt64[0x400beb851eb851ec, 0x400505b05b05b05a, 0x3fc5555555555555, 0x3ff4cccccccccccc, 0xbffcccccccccccce, 0x3fc5555555555555, 0x3ff4cccccccccccc, 0xbffcccccccccccce, 0x400beb851eb851ec, 0x3fe3333333333333, 0x3ff0000000000000, 0xbff0000000000000, 0x3fe3333333333333, 0x3ff0000000000000, 0xbff0000000000000],
     "MoreauEnvelope indicator" => UInt64[0x3ffee147ae147adf, 0x3fe30fcd6e9e0650, 0x3fd3333333333333, 0x3ff638e38e38e38e, 0xbffaaaaaaaaaaaab, 0x3fd3333333333333, 0x3ff638e38e38e38e, 0xbffaaaaaaaaaaaab, 0x3ffee147ae147adf, 0x0000000000000000, 0x3ff6666666666666, 0xc003333333333334, 0x0000000000000000, 0x3ff6666666666666, 0xc003333333333334],
-    "QuadraticFunction" => UInt64[0x402128f5c28f5c29, 0x400342c61bae4234, 0x3f6a6d01a6d01b30, 0x3ff455e2455e2456, 0xbff0df6b0df6b0e0, 0x3f6a6d01a6d01b30, 0x3ff455e2455e2456, 0xbff0df6b0df6b0e0, 0x402128f5c28f5c29, 0x3ff8cccccccccccd, 0x3ffa666666666666, 0xc019333333333334, 0x3ff8cccccccccccd, 0x3ffa666666666666, 0xc019333333333334],
     "GroupNormL2" => UInt64[0x4018814c4e8ff998, 0x4010814c4e8ff998, 0x3fcd808f954469d8, 0x3ff4e5bb09bb204f, 0xbff6666666666667, 0x3fcd808f954469d8, 0x3ff4e5bb09bb204f, 0xbff6666666666667],
     "GroupNormLinf" => UInt64[0x400f333333333334, 0x4008cccccccccccd, 0x3fd3333333333333, 0x3ff4cccccccccccc, 0xbffcccccccccccce, 0x3fd3333333333333, 0x3ff4cccccccccccc, 0xbffcccccccccccce],
     "SparseGroupNormL2" => UInt64[0x401a1526bb45c0a8, 0x40108bab6b87e9ee, 0x0000000000000000, 0x3ff04646b84cf409, 0xbff999999999999a, 0x0000000000000000, 0x3ff04646b84cf409, 0xbff999999999999a],
     "GroupMCP" => UInt64[0x400ab42db3102eff, 0x40079f993eae8a4e, 0x3fcdc9d36679aa40, 0x3ff519a068962dee, 0xc0009d89d89d89d9, 0x3fcdc9d36679aa40, 0x3ff519a068962dee, 0xc0009d89d89d89d9],
     "GroupSCAD" => UInt64[0x40116d2b9347b4ff, 0x400b564023f7bf8c, 0x3fc9d10c8c030b05, 0x3ff24968e32cd279, 0xbfff06ada2811cf1, 0x3fc9d10c8c030b05, 0x3ff24968e32cd279, 0xbfff06ada2811cf1],
-    "IndAffine" => UInt64[0x7ff0000000000000, 0x0000000000000000, 0x3fe387066e053d34, 0x3fe8f1f323f58599, 0xc002fa0be82fa0bf, 0x3fe387066e053d34, 0x3fe8f1f323f58599, 0xc002fa0be82fa0bf],
     "NormL1Fused pair" => UInt64[0x400599999999999a, 0x3ffb333333333334, 0x3fb9999999999998, 0x3ff199999999999a, 0x3fb9999999999998, 0x3ff199999999999a],
     "NormL1Fused vector" => UInt64[0x4020333333333334, 0x4012666666666667, 0x0000000000000000, 0x3feccccccccccccb, 0xbff6666666666668, 0x0000000000000000, 0x3feccccccccccccb, 0xbff6666666666668],
     "NormL1Fused zero" => UInt64[0x0000000000000000, 0x0000000000000000, 0x3fd3333333333333, 0x3ffb333333333333, 0x3fd3333333333333, 0x3ffb333333333333],
@@ -253,7 +339,8 @@ if occursin(selection, "bitwise")
   @testset "Same precision bits" begin
     for T in (Float32, Float64), (name, f, x) in changed_cases(T)
       @testset "$T/$name" begin
-        @test oracle_bits(f, x, T) == same_precision_bits[T][name]
+        expected = haskey(same_precision_bits[T], name) ? same_precision_bits[T][name] : master_bits(f, x, T)
+        @test oracle_bits(f, x, T) == expected
         if f isa PB.AbstractGroupPenalty
           for groups in (f.groups, [1:1, 2:3])
             @test oracle_bits(f, AtomIterate(x, groups), T) == same_precision_bits[T][name]
@@ -311,14 +398,61 @@ if occursin(selection, "regressions")
       v = e(x)
       @test value_and_gradient!(g, e, x) === v
       @test eltype(e.scratch.buf) === Tx
-      expected = Ty.(gradient(e, x))
+      expected = master_envelope_gradient!(similar(g), e, x)
       @test g == expected
       @test gradient!(g, e, x) == expected
+    end
+    for (Tx, Ty) in ((Float32, Float64), (Float64, Float32))
+      e = MoreauEnvelope(NormL2(1f0), 1f-8)
+      x, g = Tx[1], zeros(Ty, 1)
+      expected = master_envelope_gradient!(similar(g), e, x)
+      @test value_and_gradient!(g, e, x) === e(x)
+      @test g == expected
+      @test g[1] === (Ty === Float64 ? 1.0 : 0f0)
+      @test gradient!(g, e, x) === g
+      @test g == expected
+    end
+    for P in (Float32, Float64), (Tx, Ty) in ((Float32, Float64), (Float64, Float32))
+      h = Precompose(Conjugate(ElasticNet(P(1), P(0.5))), P(2))
+      for f in (h, Scaled(h, P(2)))
+        x, y = Tx[1, 2], zeros(Ty, 2)
+        expected = similar(y)
+        ref = master_prox!(expected, f, x, 0.5f0)
+        v = value_and_prox!(y, f, x, 0.5f0)
+        @test v === ref
+        @test y == expected
+        @test_throws ArgumentError f(y)
+        P === Float32 && Tx === Float64 && f === h && @test v === 0.3999999999999999
+      end
     end
     translated = Translate(NormL1(1.0), [1e8])
     x, y = [0.5], zeros(Float32, 1)
     @test prox!(y, translated, x, 1.0) == Float32[0]
     @test prox_entry(translated, x[1], 1, 1.0) === 1.5
+  end
+end
+
+if occursin(selection, "value availability")
+  @testset "Standalone value availability" begin
+    missing = Conjugate(ElasticNet(1f0, 0.5f0))
+    for (inner, available) in ((NormL1(1f0), true), (missing, false))
+      @test PB._has_value(inner) === available
+      for f in (Scaled(inner, 2f0), Tilt(inner, zeros(Float32, 2)), Translate(inner, zeros(Float32, 2)),
+                Regularize(inner, 0.25f0), Precompose(inner, 2f0),
+                Constrained(inner, IndBox(-1f0, 1f0)), Constrained(inner, IndHyperplane(1f0, 0f0)),
+                SeparableSum(NormL1(1f0), inner), Sum(NormL1(1f0), inner), SliceSum(NormL1(1f0), inner),
+                SliceSum([inner, inner]), FiberSum(inner; diagonal = nothing),
+                FiberSum(inner; diagonal = NormL1(1f0)), FiberSum(NormL1(1f0); diagonal = inner),
+                Spectral(inner), SingularValue(inner))
+        @test PB._has_value(f) === available
+      end
+    end
+    @test !PB._has_value(Precompose(Scaled(missing, 2f0), 2f0))
+    @test PB._has_value(MoreauEnvelope(missing, 0.5f0))
+    @test isfinite(MoreauEnvelope(missing, 0.5f0)(Float32[1, 2]))
+    @test PB._has_value(Constrained(NormL1(1f0), IndBallL2(1f0)))
+    @test PB._has_value(Constrained(NormL1(1f0), IndSphereL2(1f0)))
+    @test PB._has_value(Constrained(QuadraticFunction(Matrix{Float32}(I, 2, 2)), IndAffine(Float32[1 0], Float32[0])))
   end
 end
 

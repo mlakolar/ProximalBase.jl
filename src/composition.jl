@@ -127,7 +127,7 @@ function _value_and_prox_precompose!(y, h::Precompose, x, γ, withvalue::Bool)
   P .-= z
   y === x || copyto!(y, x)
   mul!(y, h.A', P, inv(convert(T, h.μ)), one(T))
-  withvalue && eltype(y) !== eltype(x) ? _precompose_prox_value(h, y) : v
+  withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _precompose_prox_value(h, y) : v
 end
 function _value_and_prox_precompose!(y, h::_ScalarPrecompose, x, γ, withvalue::Bool)
   z = _image!(h, x)
@@ -136,7 +136,7 @@ function _value_and_prox_precompose!(y, h::_ScalarPrecompose, x, γ, withvalue::
   μγ = convert(T, h.μ) * convert(T, γ)
   v = withvalue ? value_and_prox!(z, h.f, z, μγ) : (prox!(z, h.f, z, μγ); zero(T))
   y .= z ./ h.A
-  withvalue && eltype(y) !== eltype(x) ? _precompose_prox_value(h, y) : v
+  withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _precompose_prox_value(h, y) : v
 end
 
 function _precompose_prox_value(h::Precompose, y)
@@ -334,3 +334,7 @@ function quadratic_model!(q::Regularize, r::Regularize, x)
   quadratic_model!(q.f, r.f, x)
   q
 end
+
+# These wrappers, defined after calculus.jl, also evaluate the inner value.
+_has_value(f::Union{Precompose, Regularize, Spectral, BoxConstrained, LinearConstrained,
+                   BallConstrained, SphereConstrained, AffineConstrained}) = _has_value(f.f)

@@ -556,6 +556,16 @@ function value_and_gradient!(g::AbstractArray, s::Sum, x::AbstractArray)
 end
 
 ####################################
+#  Availability of standalone values
+####################################
+
+_has_value(::AbstractFunction) = true
+_has_value(c::Conjugate) = _has_conjugate_value(c.f)
+_has_value(f::Union{Scaled, Tilt, Translate, SingularValue}) = _has_value(f.f)
+_has_value(s::Union{SeparableSum, Sum, SliceSum}) = all(_has_value, s.fs)
+_has_value(fb::FiberSum) = _has_value(fb.f) && (fb.diagonal === nothing || _has_value(fb.diagonal))
+
+####################################
 #  Lipschitz constants of the gradients
 ####################################
 

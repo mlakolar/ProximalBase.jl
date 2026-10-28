@@ -32,7 +32,7 @@ isconvex(::Type{<:TotalVariation1D}) = true
 function _tv(x::AbstractVector)
   T = float(eltype(x))
   s = zero(T)
-  @inbounds for i in firstindex(x):lastindex(x)-1
+  @inbounds @simd for i in firstindex(x):lastindex(x)-1
     s += abs(x[i + 1] - x[i])
   end
   s

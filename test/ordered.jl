@@ -73,6 +73,24 @@ isotonic_reference(x) = [maximum(minimum(sum(x[j:k]) / (k - j + 1) for k in i:le
   @test_throws ArgumentError TotalVariation1D(-1.0)
 end
 
+@testset "total variation values" begin
+  for T in (Float32, Float64)
+    n = 100_000
+    x = randn(T, n)
+    tv = zero(T)
+    for i in 1:n-1
+      tv += abs(x[i + 1] - x[i])
+    end
+    @test TotalVariation1D(one(T))(x) ≈ tv rtol = n * eps(T)
+    f = FusedLasso(T(0.2), T(0.4))
+    @test f(x) ≈ T(0.2) * sum(abs, x) + T(0.4) * tv rtol = n * eps(T)
+    for z in (T[], T[2])
+      @test TotalVariation1D(one(T))(z) === zero(T)
+      @test f(z) == T(0.2) * sum(abs, z; init = zero(T))
+    end
+  end
+end
+
 @testset "isotonic regression" begin
   for n in (1, 2, 7, 15)
     x = randn(n) .+ 0.2 .* (1:n)

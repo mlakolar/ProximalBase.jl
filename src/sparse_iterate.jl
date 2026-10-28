@@ -462,14 +462,18 @@ function *(A::StridedMatrix{Ta}, x::SparseIterate{Tx, 1}) where {Ta,Tx}
     mul!(y, A, x)
 end
 
-function LinearAlgebra.mul!(out::StridedVector, A::StridedMatrix, coef::SparseIterate{T, 1}) where {T}
+LinearAlgebra.mul!(out::StridedVector, A::StridedMatrix, coef::SparseIterate{T, 1}) where {T} =
+  mul!(out, A, coef, true, false)
+function LinearAlgebra.mul!(out::StridedVector, A::StridedMatrix, coef::SparseIterate{T, 1}, α::Number, β::Number) where {T}
   length(coef) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), length of coef is $(length(coef))"))
   length(out) == size(A, 1) || throw(DimensionMismatch("A has first dimension $(size(A,1)), length of out is $(length(out))"))
 
-  fill!(out, zero(eltype(out)))
+  _scale_product_output!(out, β)
+  iszero(α) && return out
+  scale = _product_scale(A, coef, α)
   @inbounds for inz = 1:nnz(coef)
     indColumn = coef.nzval2ind[inz]
-    c = coef.nzval[inz]
+    c = scale * coef.nzval[inz]
     @simd for i = 1:size(A, 1)
       out[i] += c*A[i, indColumn]
     end
@@ -478,16 +482,34 @@ function LinearAlgebra.mul!(out::StridedVector, A::StridedMatrix, coef::SparseIt
 end
 
 # the product with a matrix of coefficients, one column per response
-function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIterate{T, 2}) where {T}
+LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIterate{T, 2}) where {T} =
+  mul!(out, A, coef, true, false)
+function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIterate{T, 2}, α::Number, β::Number) where {T}
   size(coef, 1) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), coef has $(size(coef, 1)) rows"))
   size(out) == (size(A, 1), size(coef, 2)) || throw(DimensionMismatch("out has size $(size(out))"))
-  fill!(out, zero(eltype(out)))
-  p = size(coef, 1)
-  @inbounds for inz = 1:nnz(coef)
-    j, k = mod1(coef.nzval2ind[inz], p), cld(coef.nzval2ind[inz], p)
-    c = coef.nzval[inz]
-    @simd for i = 1:size(A, 1)
-      out[i, k] += c * A[i, j]
+  _scale_product_output!(out, β)
+  iszero(α) && return out
+  scale = _product_scale(A, coef, α)
+  # Stored-entry traversal wins for few coefficients; column order reads A
+  # sequentially and matches LinearAlgebra's generic loop for denser coefficients.
+  # Measurements on x86-64 place the crossover between 2% and 5%, hence 1/32.
+  if 32 * nnz(coef) <= length(coef)
+    p = size(coef, 1)
+    @inbounds for inz = 1:nnz(coef)
+      j, k = mod1(coef.nzval2ind[inz], p), cld(coef.nzval2ind[inz], p)
+      c = scale * coef.nzval[inz]
+      @simd for i = 1:size(A, 1)
+        out[i, k] += c * A[i, j]
+      end
+    end
+  else
+    @inbounds for k = 1:size(coef, 2), j = 1:size(coef, 1)
+      pos = coef.ind2nzval[j, k]
+      pos == 0 && continue
+      c = scale * coef.nzval[pos]
+      @simd for i = 1:size(A, 1)
+        out[i, k] += c * A[i, j]
+      end
     end
   end
   out
@@ -561,17 +583,21 @@ function *(trans_a::TransposedStridedMatrix{Ta}, x::SparseIterate{Tx, 1}) where 
     mul!(y, transpose(A), x)
 end
 
-function LinearAlgebra.mul!(out::StridedVector, trans_a::TransposedStridedMatrix, coef::SparseIterate{T, 1}) where {T}
+LinearAlgebra.mul!(out::StridedVector, trans_a::TransposedStridedMatrix, coef::SparseIterate{T, 1}) where {T} =
+    mul!(out, trans_a, coef, true, false)
+function LinearAlgebra.mul!(out::StridedVector, trans_a::TransposedStridedMatrix, coef::SparseIterate{T, 1}, α::Number, β::Number) where {T}
     A = trans_a.parent
     length(coef) == size(A, 1) || throw(DimensionMismatch("A has first dimension $(size(A,1)), length of coef is $(length(coef))"))
     length(out) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), length of out is $(length(out))"))
 
+    iszero(α) && return _scale_product_output!(out, β)
+    scale = _product_scale(A, coef, α)
     @inbounds for j = 1:size(A, 2)
         s = zero(eltype(out))
         @simd for inz = 1:nnz(coef)
             s += A[coef.nzval2ind[inz], j] * coef.nzval[inz]
         end
-        out[j] = s
+        out[j] = iszero(β) ? scale * s : scale * s + β * out[j]
     end
     return out
 end

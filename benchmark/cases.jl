@@ -187,6 +187,16 @@ function separable_cases!(cases, rep; quick=false)
         end
         for f in (TotalVariation1D(T(0.4)), FusedLasso(T(0.2),T(0.4)), IndIsotonic(),
                   SLOPE(collect(range(T(0.5),T(0.1);length=n))))
+            if f isa Union{TotalVariation1D,FusedLasso}
+                function checkvalue!()
+                    tv = sum(abs, diff(x))
+                    reference = f isa TotalVariation1D ? f.λ * tv : f.λ1 * sum(abs,x) + f.λ2 * tv
+                    isapprox(f(x),reference;atol=tolerance(T),rtol=tolerance(T)) ||
+                        error("ordered value differs from direct sum")
+                end
+                addcase!(cases,"ordered",string(nameof(typeof(f)),"/value"),()->f(x),checkvalue!;
+                         T,shape=string(n),profile=T==Float64 && n==100_000,work=n)
+            end
             quick && !(f isa Union{TotalVariation1D,SLOPE}) && continue
             addprox!(cases, "ordered", string(nameof(typeof(f))), f, x; profile=T==Float64 && n==100_000)
         end
@@ -406,6 +416,39 @@ function product_cases!(cases,rep; quick=false)
             addcase!(cases,"products","symmetric_$triangle",()->mul!(y,A,x),check!;
                      T,shape=string(p),layout="$(layout)_$density",evals=10,
                      profile=T==Float64 && p==1024 && density==0.01 && triangle==:U,work=nnz(xs))
+        end
+    end
+    n = 512
+    for T in (quick ? (Float64,) : (Float32,Float64)), p in (quick ? (256,) : (256,1024)), density in (quick ? (0.01,) : (0.01,0.2))
+        rng=scenario_rng(rep,"products/strided/$T/$p/$density")
+        A=randn(rng,T,n,p)
+        xs=SparseIterate(sprandn(rng,T,p,density))
+        xm=SparseIterate(sprandn(rng,T,p,4,density))
+        groups=[j:min(j+7,p) for j in 1:8:p]
+        xa=AtomIterate(dense(xs),GroupNormL2(T(0.3),groups))
+        xt=SparseIterate(sprandn(rng,T,n,density))
+        for (name,B,x) in (("strided_vector",A,xs),("strided_matrix",A,xm),
+                           ("strided_atom",A,xa),("transposed_vector",transpose(A),xt))
+            shape="$(n)x$p" * (x === xm ? "x4" : "")
+            layout="$(x isa AtomIterate ? "atom" : "sparse")_$density"
+            xd=dense(x)
+            out=x isa AbstractVector ? zeros(T,size(B,1)) : zeros(T,size(B,1),size(x,2))
+            reference=B*xd
+            work=size(B,1)*count(!iszero,xd)
+            check!()=(mul!(out,B,x);close_enough(out,reference))
+            addcase!(cases,"products",name*"/mul!",()->mul!(out,B,x),check!;
+                     T,shape,layout,evals=10,work)
+            original=fill(T(0.25),size(out))
+            α,β=T(1.5),T(0.5)
+            prepare!()=copyto!(out,original)
+            function checkscaled!()
+                expected=copy(original)
+                mul!(expected,B,xd,α,β)
+                prepare!(); mul!(out,B,x,α,β)
+                close_enough(out,expected)
+            end
+            addcase!(cases,"products",name*"/mul!_scaled",()->mul!(out,B,x,α,β),checkscaled!;
+                     T,shape,layout,prepare=prepare!,evals=1,work)
         end
     end
 end

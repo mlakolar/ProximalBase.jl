@@ -29,6 +29,7 @@ feasibility certificate.
 | [`IndIsotonic`](@ref)`()` | ``x_1 \le x_2 \le \dots \le x_n`` | isotonic regression, by pool adjacent violators |
 | [`IndIntersection`](@ref)`(C₁, C₂, …)` | ``C_1 \cap C_2 \cap \cdots`` | Dykstra's algorithm, iterative |
 | [`IndAffine`](@ref)`(A, b)` | ``Ax = b`` | ``v - A^\top(AA^\top)^{-1}(Av - b)``, from a factorization cached at construction |
+| [`IndPolyhedron`](@ref)`(A, l, u, xmin, xmax)` | ``l \le Ax \le u,\ x_{\min} \le x \le x_{\max}`` | a dual active-set method, with a cached working set |
 | [`IndPSD`](@ref)`()` | ``X \succeq 0`` | ``U\max(\Lambda, 0)U^\top`` |
 | [`IndPSD`](@ref)`(rank = r)` | ``X \succeq 0``, rank at most ``r`` | the ``r`` largest positive eigenpairs |
 | [`IndBallRank`](@ref)`(r)` | rank at most ``r`` | the truncated SVD |
@@ -144,6 +145,52 @@ nothing. With ADMM, it gives basis pursuit, ``\min \|x\|_1`` subject to
 least-squares loss or a quadratic to the set, the ``f`` of ADMM for
 equality-constrained estimators such as log-contrast regression with several
 subcompositions.
+
+## Polyhedra
+
+[`IndPolyhedron`](@ref)`(A, l, u)` projects onto several linear equalities
+and inequalities at once. Optional coordinate bounds give
+`IndPolyhedron(A, l, u, xmin, xmax)`. Bounds may be scalars or vectors;
+infinite sides are omitted. Equal finite bounds are equalities. Dense and
+sparse matrices are supported, and the constructor copies the data.
+
+This projection adds linear constraints to a loss through splitting. For
+example, constrained lasso combines a least-squares loss and an ℓ1 penalty
+with equalities and inequalities on the coefficients. Ordered effects,
+nonnegativity with a budget, and sign constraints on compositional coefficients
+all have this form. For order restrictions on a partial order, a row with
+``1`` at ``i`` and ``-1`` at ``j``, with upper bound zero, enforces
+``\theta_i \le \theta_j``. [`IndIsotonic`](@ref) provides a faster specialized
+projection when the order is a chain.
+
+The dual active-set method adds violated sides and drops inequalities when
+their multipliers reach zero. Native equalities have free multipliers and
+are never dropped. A thin orthogonal factorization avoids forming ``AA^\top``
+and handles redundant rows. Successive calls reuse the working set;
+[`reset_cache!`](@ref) clears it. Calls on one function share buffers and must
+be sequential. The workspace uses ``O(n^2)`` storage. Each search costs
+``O(mn)`` for dense data or ``O(\operatorname{nnz}(A) + m + n)`` for sparse data,
+and factor updates cost ``O(n|S|)``. A large working set can be expensive.
+
+Membership uses a relative ``\sqrt{\varepsilon}`` tolerance, with an absolute
+floor in the original constraint units. Projection decisions use the tighter
+``8\varepsilon`` scale of normalized rows. Thus a point accepted by the value
+can still move under projection. The dependence threshold is
+``8n\varepsilon`` times the normal's norm. Rows are scaled by powers of two;
+scaled nonzero coefficients, finite offsets and the projection arithmetic
+must remain representable. Accuracy is limited by numerical rank and output
+precision.
+
+An infeasibility certificate, checked to ``64n\varepsilon`` relative to its
+normal and offset scales and verified exactly on the stored data, causes an
+`ArgumentError` identifying an empty set. This exceptional verification
+allocates. It preserves genuine small directions when the rank test is
+inconclusive, rather than declaring a feasible set empty.
+Numerical failure and the iteration limit (`maxiter`, default
+`100 * (sum(size(A)) + 1)`) instead cause distinct errors. As for
+[`IndIntersection`](@ref), `value_and_prox!` returns zero without a feasibility
+certificate. It does not replace checking the constraints of an ill-conditioned
+problem. `Constrained(f, IndPolyhedron(...))` is not provided.
 
 ## Hyperplanes and halfspaces
 

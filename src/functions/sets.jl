@@ -261,7 +261,12 @@ isconvex(::Type{<:IndBallL1}) = true
 
 function (f::IndBallL1)(x::AbstractArray)
   T = float(eltype(x))
-  norm(x, 1) <= f.r + _tol(T) * max(one(T), f.r) ? zero(T) : T(Inf)
+  eltype(x) <: Integer && return _ball_scaled_value(f, x, T)
+  n = norm(x, 1)
+  slack = f.r + _tol(T) * max(one(T), f.r)
+  # A non-finite norm already fails the comparison with a finite bound.
+  _finite_bound(slack) && return _ind(n <= slack, T)
+  _ball_scaled_value(f, x, T)
 end
 
 function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, ::Real)
@@ -303,7 +308,25 @@ isconvex(::Type{<:IndBallL2}) = true
 
 function (f::IndBallL2)(x::AbstractArray)
   T = float(eltype(x))
-  _norm2(x) <= f.r + _tol(T) * max(one(T), f.r) ? zero(T) : T(Inf)
+  eltype(x) <: Integer && return _ball_scaled_value(f, x, T)
+  n = _norm2(x)
+  slack = f.r + _tol(T) * max(one(T), f.r)
+  # A non-finite norm already fails the comparison with a finite bound.
+  _finite_bound(slack) && return _ind(n <= slack, T)
+  _ball_scaled_value(f, x, T)
+end
+
+@noinline function _ball_scaled_value(f, x, ::Type{T}) where {T}
+  m = _maximum_abs(x)
+  isfinite(m) || return T(Inf)
+  S = float(promote_type(typeof(m), typeof(f.r)))
+  isfinite(f.r) || return _ind(isinf(f.r), T)
+  k = _comparison_exponent(_magnitude_exponent(m), _magnitude_exponent(float(f.r)))
+  s = _power_factors(S, -k)
+  r = ldexp(S(f.r), -k)
+  n = f isa IndBallL1 ? _scaled_sum(x, s, abs) : sqrt(_scaled_sumabs2(x, s))
+  slack = _tol(T) * max(ldexp(one(S), -k), r)
+  _ind(n <= r + slack, T)
 end
 
 function prox!(y::AbstractArray, f::IndBallL2, x::AbstractArray, ::Real)
@@ -407,10 +430,25 @@ function (f::IndSimplex)(x::AbstractArray)
   t = _tol(T)
   isempty(x) && return (f.equality && f.r > t) ? T(Inf) : zero(T)
   minimum(x) >= -t || return T(Inf)
-  s = convert(T, sum(x))
+  s = convert(T, eltype(x) <: Integer ? sum(float, x) : sum(x))
   slack = t * max(one(T), f.r, abs(s))
+  # A finite slack implies a finite sum; overflowed deviations already reject.
+  # An overflowed upper bound contains every finite sum.
+  _finite_bound(slack) || return _simplex_scaled_value(f, x, T)
   ok = f.equality ? abs(s - f.r) <= slack : s <= f.r + slack
   ok ? zero(T) : T(Inf)
+end
+
+@noinline function _simplex_scaled_value(f, x, ::Type{T}) where {T}
+  m = _maximum_abs(x)
+  isfinite(m) || return T(Inf)
+  S = float(promote_type(T, typeof(f.r)))
+  isfinite(f.r) || return _ind(!f.equality && isinf(f.r), T)
+  k = _comparison_exponent(_magnitude_exponent(m), _magnitude_exponent(float(f.r)))
+  s = _scaled_sum(x, _power_factors(S, -k))
+  r = ldexp(S(f.r), -k)
+  slack = _tol(T) * max(ldexp(one(S), -k), r, abs(s))
+  _ind(f.equality ? abs(s - r) <= slack : s <= r + slack, T)
 end
 
 function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, ::Real)
@@ -450,10 +488,12 @@ copying; construct a new function after changing `a` in place.
 
 Every finite nonzero normal is accepted, including subnormal and integer
 entries; `b` must be finite. The normal and `b` are scaled by exact powers of
-two when needed to keep the squared norm in range. Results are accurate when
-the scaled `b`, the scaled residual and the output are representable; inputs
-near `floatmax` are outside this guarantee. Accuracy is limited by the less
-precise of the function's floating-point type and the output type.
+two when needed to keep the squared norm in range. The membership value is
+reliable for all finite inputs, within its floating-point tolerance. The
+projection is accurate when the scaled `b`, the scaled residual and the output
+are representable; inputs near `floatmax` are outside this projection guarantee.
+Accuracy is limited by the less precise of the function's floating-point type
+and the output type.
 """
 struct IndHyperplane{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
   a::A
@@ -479,10 +519,12 @@ construct a new function after changing an array `a` in place.
 
 Every finite nonzero normal is accepted, including subnormal and integer
 entries; `b` must be finite. As for [`IndHyperplane`](@ref), powers of two
-rescale the normal and `b` when needed. Results are accurate when the scaled
-`b`, the scaled residual and the output are representable; inputs near
-`floatmax` are outside this guarantee. Accuracy is limited by the less precise
-of the function's floating-point type and the output type.
+rescale the normal and `b` when needed. The membership value is reliable for all
+finite inputs, within its floating-point tolerance. The projection is accurate
+when the scaled `b`, the scaled residual and the output are representable;
+inputs near `floatmax` are outside this projection guarantee. Accuracy is
+limited by the less precise of the function's floating-point type and the
+output type.
 """
 struct IndHalfspace{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
   a::A
@@ -562,30 +604,73 @@ function _dot_normal(a::_ScaledNormal, x::AbstractArray)
   g
 end
 
+function _stored_dot_normal(a, x)
+  T = float(promote_type(eltype(a), eltype(x)))
+  _scaled_dot(a, x, (one(T), one(T)))
+end
+_dot_normal(a::Real, x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}) = _stored_dot_normal(a, x)
+_dot_normal(a::AbstractArray, x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}) = _stored_dot_normal(a, x)
+_dot_normal(a::_ScaledNormal, x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}) =
+  _stored_dot_normal(a, x)
+
 # Keep the absolute floor in the original units, without forming the scale.
 function _scaled_normal_slack(f, x, ::Type{T}) where {T}
   tol = max(_tol(T), _tol(typeof(f.q)))
   max((tol * f.s[1]) * f.s[2], tol * abs(_scaled_offset(f)),
-      (tol * sqrt(_normal_sqnorm(f, x))) * norm(x))
+      (tol * sqrt(_normal_sqnorm(f, x))) * _norm2_scaled(x))
 end
 
 function (f::IndHyperplane)(x::AbstractArray)
   T = float(eltype(x))
-  if _isscaled(f)
-    g = _dot_normal(_normalized_normal(f.a, f.s), x) - _scaled_offset(f)
-    return _ind(abs(g) <= _scaled_normal_slack(f, x, T), T)
-  end
+  eltype(x) <: Integer && return _linear_scaled_value(f, x, T)
+  _isscaled(f) && return _scaled_normal_value(f, x, T)
   slack = _tol(T) * max(one(T), abs(f.b), sqrt(_normal_sqnorm(f, x) * _sumabs2(x)))
-  abs(_dot_normal(f.a, x) - f.b) <= slack ? zero(T) : T(Inf)
+  g = _dot_normal(f.a, x) - f.b
+  _finite_bound(slack) && _ordinary_residual_finite(f, x, g, typeof(slack)) ||
+    return _linear_scaled_value(f, x, T)
+  abs(g) <= slack ? zero(T) : T(Inf)
 end
 function (f::IndHalfspace)(x::AbstractArray)
   T = float(eltype(x))
-  if _isscaled(f)
-    g = _dot_normal(_normalized_normal(f.a, f.s), x) - _scaled_offset(f)
-    return _ind(g <= _scaled_normal_slack(f, x, T), T)
-  end
+  eltype(x) <: Integer && return _linear_scaled_value(f, x, T)
+  _isscaled(f) && return _scaled_normal_value(f, x, T)
   slack = _tol(T) * max(one(T), abs(f.b), sqrt(_normal_sqnorm(f, x) * _sumabs2(x)))
-  _dot_normal(f.a, x) - f.b <= slack ? zero(T) : T(Inf)
+  g = _dot_normal(f.a, x) - f.b
+  _finite_bound(slack) && _ordinary_residual_finite(f, x, g, typeof(slack)) ||
+    return _linear_scaled_value(f, x, T)
+  g <= slack ? zero(T) : T(Inf)
+end
+
+# At matching precisions, the finite squared-norm bound precludes residual overflow.
+@inline function _ordinary_residual_finite(f, x, g, ::Type{S}) where {S}
+  P = float(promote_type(eltype(f.a), eltype(x)))
+  (P === S && S <: Union{Float32, Float64}) || _finite_value(g)
+end
+
+@noinline function _scaled_normal_value(f, x, ::Type{T}) where {T}
+  g = _dot_normal(_normalized_normal(f.a, f.s), x) - _scaled_offset(f)
+  slack = _scaled_normal_slack(f, x, T)
+  _finite_value(g) && _finite_bound(slack) &&
+    return _ind(f isa IndHyperplane ? abs(g) <= slack : g <= slack, T)
+  _linear_scaled_value(f, x, T)
+end
+
+# Include the normal's scale in the offset exponent before forming either one.
+@noinline function _linear_scaled_value(f, x, ::Type{T}) where {T}
+  m = _maximum_abs(x)
+  isfinite(m) || return T(Inf)
+  S = promote_type(T, typeof(f.q))
+  e = exponent(f.s[1]) + exponent(f.s[2])
+  k = _comparison_exponent(_magnitude_exponent(m), e, _magnitude_exponent(abs(f.b)) + e)
+  s = _power_factors(S, -k)
+  b = ldexp(S(f.b), e - k)
+  a = _normalized_normal(f.a, f.s)
+  g = _scaled_dot(a, x, s) - b
+  nx = sqrt(_scaled_sumabs2(x, s))
+  q = f.a isa Real ? sqrt(S(f.q)) * sqrt(S(length(x))) : sqrt(S(f.q))
+  tol = _isscaled(f) ? max(_tol(T), _tol(typeof(f.q))) : _tol(T)
+  slack = tol * max(ldexp(one(S), e - k), abs(b), q * nx)
+  _ind(f isa IndHyperplane ? abs(g) <= slack : g <= slack, T)
 end
 
 function prox!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, ::Real)

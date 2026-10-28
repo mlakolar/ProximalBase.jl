@@ -230,11 +230,17 @@ function (f::IndToeplitz)(x::AbstractMatrix)
   t = _tol(T)
   m, n = size(x)
   f.symmetric && m != n && return T(Inf)
+  eltype(x) <: Integer && return _toeplitz_scaled_value(f, x, T)
   ok = true
+  finite = true
+  # Overflowed deviations exceed any finite tolerance; non-finite entries spoil the mean.
+  # The tolerance scale bounds both the mean and its tolerance, since t ≤ 1.
   if f.symmetric
     @inbounds for d in 0:n-1
       μ = _symmetric_diagonal_mean(x, n, d)
-      s = t * max(one(T), abs(μ))
+      scale = max(one(T), abs(μ))
+      s = t * scale
+      finite &= _finite_bound(scale)
       for r in 1:n-d
         ok &= (abs(x[r, r + d] - μ) <= s) & (abs(x[r + d, r] - μ) <= s)
       end
@@ -243,13 +249,54 @@ function (f::IndToeplitz)(x::AbstractMatrix)
     @inbounds for d in -(m - 1):(n - 1)
       rows = _diagonal_rows(m, n, d)
       μ = _diagonal_mean(x, rows, d)
-      s = t * max(one(T), abs(μ))
+      scale = max(one(T), abs(μ))
+      s = t * scale
+      finite &= _finite_bound(scale)
       for r in rows
         ok &= abs(x[r, r + d] - μ) <= s
       end
     end
   end
+  finite || return _toeplitz_scaled_value(f, x, T)
   ok ? zero(T) : T(Inf)
+end
+
+@noinline function _toeplitz_scaled_value(f, x, ::Type{T}) where {T}
+  mx = _maximum_abs(x)
+  isfinite(mx) || return T(Inf)
+  k = _comparison_exponent(_magnitude_exponent(mx))
+  scale = _power_factors(T, -k)
+  unit = ldexp(one(T), -k)
+  m, n = size(x)
+  ok = true
+  if f.symmetric
+    @inbounds for d in 0:n-1
+      v = zero(T)
+      for r in 1:n-d
+        v += _scale_value(x[r, r + d], scale) + _scale_value(x[r + d, r], scale)
+      end
+      μ = v / (2 * (n - d))
+      slack = _tol(T) * max(unit, abs(μ))
+      for r in 1:n-d
+        ok &= (abs(_scale_value(x[r, r + d], scale) - μ) <= slack) &
+              (abs(_scale_value(x[r + d, r], scale) - μ) <= slack)
+      end
+    end
+  else
+    @inbounds for d in -(m - 1):(n - 1)
+      rows = _diagonal_rows(m, n, d)
+      v = zero(T)
+      for r in rows
+        v += _scale_value(x[r, r + d], scale)
+      end
+      μ = v / length(rows)
+      slack = _tol(T) * max(unit, abs(μ))
+      for r in rows
+        ok &= abs(_scale_value(x[r, r + d], scale) - μ) <= slack
+      end
+    end
+  end
+  _ind(ok, T)
 end
 
 Base.@propagate_inbounds function _diagonal_mean(x::AbstractMatrix, rows::UnitRange{Int}, d::Int)

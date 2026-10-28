@@ -37,6 +37,9 @@ mutable struct AtomIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <:
   nactive::Int
 end
 
+_stored_values(x::AtomIterate) = x.storage
+_scaled_dot(a, x::AtomIterate, s) = _scaled_dot(a, x.storage, s)
+
 AtomIterate(p::Integer, groups::AbstractVector{<:AbstractVector{<:Integer}}) = AtomIterate(Float64, p, groups)
 function AtomIterate(::Type{T}, p::Integer, groups::AbstractVector{<:AbstractVector{<:Integer}}) where {T}
   G = _own_groups(groups)

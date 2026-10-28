@@ -33,6 +33,7 @@ tests = [
   "matrixsets",
   "affine",
   "calculus",
+  "blockchecks",
   "constrained",
   "spectralfunction",
   "ballconstrained",

@@ -87,6 +87,13 @@ isconvex(::Type{<:IndAffine}) = true
 _checkaffine(f::IndAffine, x::AbstractArray) = length(x) == size(f.A, 2) ||
   throw(DimensionMismatch("x has length $(length(x)) and A has $(size(f.A, 2)) columns"))
 
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndAffine{T, M, <:Cholesky}, y::AbstractVector, x::AbstractVector) where {T<:AbstractFloat, M} =
+  (_checksize(y, x); _checkaffine(f, x); true)
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndAffine{T, M, T}, y::AbstractVector, x::AbstractVector) where {T<:AbstractFloat, M} =
+  (_checksize(y, x); _checkaffine(f, x); true)
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndAffine{T, M, Tuple{Matrix{T}, Vector{T}}}, y::AbstractVector, x::AbstractVector) where {T<:AbstractFloat, M} =
+  (_checksize(y, x); _checkaffine(f, x); true)
+
 function (f::IndAffine{T})(x::AbstractVector) where {T}
   _checkaffine(f, x)
   S = float(promote_type(T, eltype(x)))
@@ -147,8 +154,7 @@ function _scaled_affine_residual!(r, A::SparseMatrixCSC, x, b, sa::NTuple{2, S},
 end
 
 function prox!(y::AbstractVector, f::IndAffine{T, M, <:Cholesky}, x::AbstractVector, ::Real) where {T<:AbstractFloat, M}
-  _checksize(y, x)
-  _checkaffine(f, x)
+  _checkwrite(prox!, f, y, x)
   r = mul!(f.r, f.A, x)
   r .-= f.b
   ldiv!(f.fact, r)
@@ -157,8 +163,7 @@ function prox!(y::AbstractVector, f::IndAffine{T, M, <:Cholesky}, x::AbstractVec
 end
 
 function prox!(y::AbstractVector, f::IndAffine{T, M, T}, x::AbstractVector, ::Real) where {T<:AbstractFloat, M}
-  _checksize(y, x)
-  _checkaffine(f, x)
+  _checkwrite(prox!, f, y, x)
   r = mul!(f.r, f.A, x)
   r .-= f.b
   y === x || copyto!(y, x)
@@ -166,8 +171,7 @@ function prox!(y::AbstractVector, f::IndAffine{T, M, T}, x::AbstractVector, ::Re
 end
 
 function prox!(y::AbstractVector, f::IndAffine{T, M, Tuple{Matrix{T}, Vector{T}}}, x::AbstractVector, ::Real) where {T<:AbstractFloat, M}
-  _checksize(y, x)
-  _checkaffine(f, x)
+  _checkwrite(prox!, f, y, x)
   V, c = f.fact
   t = mul!(f.r, V', x)
   t .-= c

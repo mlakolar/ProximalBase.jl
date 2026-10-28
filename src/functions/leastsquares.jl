@@ -59,7 +59,7 @@ function (f::LeastSquaresLoss{T})(β::AbstractVecOrMat) where {T}
 end
 
 function value_and_gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)
-  _checksize(g, β)
+  _checkwrite(value_and_gradient!, f, g, β)
   mul!(f.tmp, f.X, β)
   f.tmp .-= f.Y
   mul!(g, transpose(f.X), f.tmp)
@@ -67,10 +67,25 @@ function value_and_gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::Abstr
 end
 
 function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)
-  _checksize(g, β)
+  _checkwrite(gradient!, f, g, β)
   mul!(f.tmp, f.X, β)
   f.tmp .-= f.Y
   mul!(g, transpose(f.X), f.tmp)
+end
+
+function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::LeastSquaresLoss, g::AbstractVecOrMat, β::AbstractVecOrMat)
+  _checksize(g, β)
+  # Preserve the dimension error of the product, which checks before writing.
+  size(β, 1) == size(f.X, 2) && size(β, 2) == size(f.tmp, 2) || mul!(f.tmp, f.X, β)
+  true
+end
+
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::LeastSquaresLoss{T}, β::AbstractVecOrMat, v::AbstractVecOrMat) where {T}
+  _checksize(β, v)
+  size(β, 1) == size(f.X, 2) || throw(DimensionMismatch("β must have $(size(f.X, 2)) rows"))
+  ndims(β) == ndims(f.Y) && size(β, 2) == size(f.Y, 2) ||
+    throw(DimensionMismatch("β must have the same number of responses as Y"))
+  true
 end
 
 function _svd_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
@@ -113,10 +128,7 @@ end
 # rectangular, keep v's null-space component with v + V(s U'Y - s² V'v)/(s² + ρ).
 # Neither form subtracts terms of size γ X'Y at a large step γ.
 function prox!(β::AbstractVecOrMat, f::LeastSquaresLoss{T}, v::AbstractVecOrMat, γ::Real) where {T}
-  _checksize(β, v)
-  size(β, 1) == size(f.X, 2) || throw(DimensionMismatch("β must have $(size(f.X, 2)) rows"))
-  ndims(β) == ndims(f.Y) && size(β, 2) == size(f.Y, 2) ||
-    throw(DimensionMismatch("β must have the same number of responses as Y"))
+  _checkwrite(prox!, f, β, v)
   # With no observations or coefficients the loss is constant; avoid an empty SVD.
   (isempty(f.X) || isempty(β)) && return β === v ? β : copyto!(β, v)
   β isa StridedVecOrMat || return copyto!(β, prox!(_array_buffer!(f.output, T, size(β)), f, v, γ))

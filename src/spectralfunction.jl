@@ -53,6 +53,9 @@ isproximable(::Type{<:Spectral}) = true
 isconvex(::Type{<:Spectral{F}}) where {F} = isconvex(F)
 _isindicator(::Type{<:Spectral{F}}) where {F} = _isindicator(F)
 
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix) =
+  (_checksize(Y, X); checksquare(X); true)
+
 function (s::Spectral)(X::AbstractMatrix)
   T = float(eltype(X))
   n = checksquare(X)
@@ -65,7 +68,7 @@ function (s::Spectral)(X::AbstractMatrix)
 end
 
 function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real)
-  _checksize(Y, X)
+  _checkwrite(value_and_prox!, s, Y, X)
   T = float(eltype(Y))
   n = checksquare(X)
   ws = _eig_workspace(s.eig, T, n)
@@ -77,7 +80,8 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   _rebuild_sym_signed!(Y, V, z, Y isa StridedMatrix ? Y : _array_buffer!(s.out, T, (n, n)))
   convert(T, v)
 end
-prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, s, X, γ); Y)
+prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real) =
+  (_checkwrite(prox!, s, Y, X); value_and_prox!(Y, s, X, γ); Y)
 
 # Y = Σⱼ zⱼ vⱼvⱼ' for the eigenvectors vⱼ in the columns of V, through B, which
 # is Y when Y is strided and an n × n buffer otherwise; destroys V. The proximal

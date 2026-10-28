@@ -255,6 +255,9 @@ isproximable(::Type{<:IndPSD}) = true
 _isindicator(::Type{<:IndPSD}) = true
 isconvex(::Type{IndPSD{Nothing}}) = true
 
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::Union{IndPSD{Nothing}, IndPSD{Int}}, Y::AbstractMatrix, X::AbstractMatrix) =
+  (_checksize(Y, X); checksquare(X); true)
+
 # whether X is symmetric positive semidefinite, and of rank at most r unless r is
 # nothing, within the tolerance of the indicator functions; f caches the workspace
 function _ispsd!(f, X::AbstractMatrix, r::Union{Nothing, Int})
@@ -298,15 +301,15 @@ function _project_psd!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix)
 end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real)
+  _checkwrite(prox!, f, Y, X)
   if f.partial
-    _checksize(Y, X)
     _partial_psd!(Y, f, X, zero(float(eltype(Y))), 0) === nothing || return Y
   end
   _project_psd!(Y, f, X)
 end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
-  _checksize(Y, X)
+  _checkwrite(prox!, f, Y, X)
   n = checksquare(X)
   f.rank >= n && return _project_psd!(Y, f, X)
   T = float(eltype(Y))
@@ -355,11 +358,14 @@ TracePSD(λ::Real = 1; partial::Bool = false) = TracePSD{typeof(λ)}(λ; partial
 isproximable(::Type{<:TracePSD}) = true
 isconvex(::Type{<:TracePSD}) = true
 
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::TracePSD, Y::AbstractMatrix, X::AbstractMatrix) =
+  (_checksize(Y, X); checksquare(X); true)
+
 (f::TracePSD)(X::AbstractMatrix) =
   _ispsd!(f, X, nothing) ? convert(float(eltype(X)), f.λ) * tr(X) : float(eltype(X))(Inf)
 
 function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real)
-  _checksize(Y, X)
+  _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
   c = convert(T, γ) * convert(T, f.λ)
   if f.partial
@@ -379,4 +385,5 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
   f.partial && _warm_start_eigen!(f, V, count(>(c), λ))
   convert(T, f.λ) * s
 end
-prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, f, X, γ); Y)
+prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real) =
+  (_checkwrite(prox!, f, Y, X); value_and_prox!(Y, f, X, γ); Y)

@@ -177,28 +177,29 @@ function (f::SqrNormL2)(x::AbstractArray)
 end
 
 function value_and_gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
-  _checksize(g, x)
-  _checkparams(f, x)
-  f.y === nothing || _checksize(f.y, x)
+  _checkwrite(value_and_gradient!, f, g, x)
   λ = convert(float(eltype(g)), f.λ)
   f.y === nothing ? (g .= λ .* x) : (g .= λ .* (x .- f.y))
   f(x)
 end
 function gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
-  _checksize(g, x)
-  _checkparams(f, x)
-  f.y === nothing || _checksize(f.y, x)
+  _checkwrite(gradient!, f, g, x)
   λ = convert(float(eltype(g)), f.λ)
   f.y === nothing ? (g .= λ .* x) : (g .= λ .* (x .- f.y))
 end
 
 function prox!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real)
-  _checksize(z, x)
-  _checkparams(f, x)
-  f.y === nothing || _checksize(f.y, x)
+  _checkwrite(prox!, f, z, x)
   T = float(eltype(z))
   a, b = _ridge_weights(T(γ), T(f.λ))
   f.y === nothing ? (z .= a .* x) : (z .= _ridge_blend.(x, f.y, a, b))
+end
+
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::SqrNormL2, y::AbstractArray, x::AbstractArray)
+  _checksize(y, x)
+  _checkparams(f, x)
+  f.y === nothing || _checksize(f.y, x)
+  true
 end
 
 # The convex weights 1/(1+γλ), γλ/(1+γλ), without overflowing γλ or
@@ -281,7 +282,7 @@ function (f::QuadraticFunction)(x::AbstractVector)
 end
 
 function value_and_gradient!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector)
-  _checksize(g, x)
+  _checkwrite(value_and_gradient!, f, g, x)
   mul!(g, f.A, x)
   v = dot(g, x) / 2 + f.c
   if f.b !== nothing
@@ -292,7 +293,7 @@ function value_and_gradient!(g::AbstractVector, f::QuadraticFunction, x::Abstrac
 end
 
 function gradient!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector)
-  _checksize(g, x)
+  _checkwrite(gradient!, f, g, x)
   mul!(g, f.A, x)
   f.b === nothing || (g .+= f.b)
   g
@@ -307,8 +308,7 @@ function _eigen!(f::QuadraticFunction{T}) where {T}
 end
 
 function prox!(y::AbstractVector, f::QuadraticFunction{T}, x::AbstractVector, γ::Real) where {T}
-  _checksize(y, x)
-  length(x) == length(f.tmp) || throw(DimensionMismatch())
+  _checkwrite(prox!, f, y, x)
   _eigen!(f)
   γ = convert(T, γ)
   t = f.tmp
@@ -317,6 +317,19 @@ function prox!(y::AbstractVector, f::QuadraticFunction{T}, x::AbstractVector, γ
   f.w ./= 1 .+ γ .* f.Λ
   mul!(t, f.Q, f.w)
   copyto!(y, t)
+end
+
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::QuadraticFunction{T}, y::AbstractVector, x::AbstractVector) where {T}
+  _checksize(y, x)
+  length(x) == length(f.tmp) || throw(DimensionMismatch())
+  true
+end
+
+function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::QuadraticFunction, g::AbstractVector, x::AbstractVector)
+  _checksize(g, x)
+  # Preserve the dimension error of the product, which checks before writing.
+  length(x) == size(f.A, 2) || mul!(g, f.A, x)
+  true
 end
 
 restrict(f::QuadraticFunction, S::AbstractVector{<:Integer}) =
@@ -430,7 +443,7 @@ function (f::KronQuadratic)(Θ::AbstractArray)
 end
 
 function value_and_gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray)
-  _checkshape(f, G)
+  _checkwrite(value_and_gradient!, f, G, Θ)
   D = _densify!(f, Θ)
   W = f.W
   mul!(f.AD, f.A, D)
@@ -445,7 +458,11 @@ function value_and_gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArr
   v
 end
 
-gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) = (value_and_gradient!(G, f, Θ); G)
+gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =
+  (_checkwrite(gradient!, f, G, Θ); value_and_gradient!(G, f, Θ); G)
+
+_checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::KronQuadratic, G::AbstractArray, Θ::AbstractArray) =
+  (_checkshape(f, G); _checkshape(f, Θ); true)
 
 # (W + W')/2 in place
 function _symmetrize!(W::Matrix)

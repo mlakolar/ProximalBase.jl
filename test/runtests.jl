@@ -21,6 +21,7 @@ tests = [
   "singular",
   "intersection",
   "sets",
+  "extreme_normals",
   "ordered",
   "nonconvex",
   "lla",

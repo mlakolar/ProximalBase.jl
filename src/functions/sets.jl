@@ -446,18 +446,24 @@ The indicator of the hyperplane `{x : ⟨a, x⟩ = b}`, `a ≠ 0`. Its proximal
 operator is the projection `x - ((⟨a, x⟩ - b) / ‖a‖²) a`. A scalar `a` stands
 for an array of `a`s of the size of `x`: `IndHyperplane(1, 0)` is the set of
 arrays whose entries sum to zero, of any size. An array `a` is stored without
-copying and its squared norm is computed at construction; construct a new
-function after changing `a` in place.
+copying; construct a new function after changing `a` in place.
+
+Every finite nonzero normal is accepted, including subnormal and integer
+entries; `b` must be finite. The normal and `b` are scaled by exact powers of
+two when needed to keep the squared norm in range. Results are accurate when
+the scaled `b`, the scaled residual and the output are representable; inputs
+near `floatmax` are outside this guarantee. Accuracy is limited by the less
+precise of the function's floating-point type and the output type.
 """
 struct IndHyperplane{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
   a::A
   b::T
-  a2::T          # ‖a‖², or a² for a scalar a
+  s::NTuple{2, T} # the scale, applied as two successive powers of two
+  q::T           # ‖s·a‖², or (s·a)² for a scalar a
 
   function IndHyperplane{A, T}(a::A, b::T) where {A<:Union{Real, AbstractArray}, T<:Real}
-    a2 = convert(T, sum(abs2, a))
-    a2 > 0 || throw(ArgumentError("a must be nonzero"))
-    new{A, T}(a, b, a2)
+    s, q = _normal_cache(a, b)
+    new{A, T}(a, b, s, q)
   end
 end
 IndHyperplane(a::Union{Real, AbstractArray}, b::Real) =
@@ -470,20 +476,70 @@ The indicator of the halfspace `{x : ⟨a, x⟩ ≤ b}`, `a ≠ 0`. Its proximal
 is the projection, `x - (max(⟨a, x⟩ - b, 0) / ‖a‖²) a`. A scalar `a` stands for
 an array of `a`s of the size of `x`, as in [`IndHyperplane`](@ref). As there,
 construct a new function after changing an array `a` in place.
+
+Every finite nonzero normal is accepted, including subnormal and integer
+entries; `b` must be finite. As for [`IndHyperplane`](@ref), powers of two
+rescale the normal and `b` when needed. Results are accurate when the scaled
+`b`, the scaled residual and the output are representable; inputs near
+`floatmax` are outside this guarantee. Accuracy is limited by the less precise
+of the function's floating-point type and the output type.
 """
 struct IndHalfspace{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
   a::A
   b::T
-  a2::T
+  s::NTuple{2, T}
+  q::T
 
   function IndHalfspace{A, T}(a::A, b::T) where {A<:Union{Real, AbstractArray}, T<:Real}
-    a2 = convert(T, sum(abs2, a))
-    a2 > 0 || throw(ArgumentError("a must be nonzero"))
-    new{A, T}(a, b, a2)
+    s, q = _normal_cache(a, b)
+    new{A, T}(a, b, s, q)
   end
 end
 IndHalfspace(a::Union{Real, AbstractArray}, b::Real) =
   (T = float(promote_type(eltype(a), typeof(b))); IndHalfspace{typeof(a), T}(a, convert(T, b)))
+
+# Leave moderate normals unchanged; otherwise bring their maximum into [1, 2).
+# Two factors also cover a reciprocal beyond floatmax for a subnormal maximum.
+function _normal_cache(a, b::T) where {T}
+  isfinite(b) || throw(ArgumentError("b must be finite"))
+  m = zero(T)
+  for v in a
+    u = convert(T, v)
+    isfinite(u) || throw(ArgumentError("a must have finite entries"))
+    m = max(m, abs(u))
+  end
+  m > 0 || throw(ArgumentError("a must be nonzero"))
+  e = min(exponent(floatmax(T)), exponent(floatmax(float(eltype(a))))) ÷ 4
+  if ldexp(one(T), -e) <= m <= ldexp(one(T), e)
+    s = (one(T), one(T))
+    q = eltype(a) <: AbstractFloat ? convert(T, sum(abs2, a)) : sum(v -> abs2(convert(T, v)), a)
+  else
+    k = -exponent(m)
+    k1 = min(k, exponent(floatmax(T)))
+    s = (ldexp(one(T), k1), ldexp(one(T), k - k1))
+    q = sum(v -> abs2(_scale_normal(v, s)), a)
+  end
+  s, q
+end
+
+@inline _scale_normal(v, s::NTuple{2, T}) where {T} = (convert(T, v) * s[1]) * s[2]
+@inline _isscaled(f::Union{IndHyperplane, IndHalfspace}) = !isone(f.s[1])
+
+# A view of the normalized coefficients; live buffers copy its values once.
+struct _ScaledNormal{T, N, A<:AbstractArray} <: AbstractArray{T, N}
+  a::A
+  s::NTuple{2, T}
+end
+_ScaledNormal(a::AbstractArray, s::NTuple{2, T}) where {T} = _ScaledNormal{T, ndims(a), typeof(a)}(a, s)
+Base.size(a::_ScaledNormal) = size(a.a)
+Base.axes(a::_ScaledNormal) = axes(a.a)
+Base.IndexStyle(::Type{<:_ScaledNormal{T, N, A}}) where {T, N, A} = IndexStyle(A)
+Base.@propagate_inbounds Base.getindex(a::_ScaledNormal, I::Vararg{Int, N}) where {N} = _scale_normal(a.a[I...], a.s)
+
+_normalized_normal(a::Real, s) = _scale_normal(a, s)
+_normalized_normal(a::AbstractArray, s) = _ScaledNormal(a, s)
+@inline _scaled_normal(f::Union{IndHyperplane, IndHalfspace}) = _isscaled(f) ? _normalized_normal(f.a, f.s) : f.a
+@inline _scaled_offset(f::Union{IndHyperplane, IndHalfspace}) = _isscaled(f) ? _scale_normal(f.b, f.s) : f.b
 
 for F in (:IndHyperplane, :IndHalfspace)
   @eval isproximable(::Type{<:$F}) = true
@@ -495,28 +551,63 @@ end
 # ⟨a, x⟩ and ‖a‖², for an array a or a scalar one
 _dot_normal(a::Real, x::AbstractArray) = a * sum(x)
 _dot_normal(a::AbstractArray, x::AbstractArray) = dot(a, x)
-_normal_sqnorm(f::Union{IndHyperplane, IndHalfspace}, x::AbstractArray) = f.a isa Real ? f.a2 * length(x) : f.a2
+_normal_sqnorm(f::Union{IndHyperplane, IndHalfspace}, x::AbstractArray) = f.a isa Real ? f.q * length(x) : f.q
+function _dot_normal(a::_ScaledNormal, x::AbstractArray)
+  _checkparam(a, x)
+  T = float(promote_type(eltype(a), eltype(x)))
+  g = zero(T)
+  @inbounds @simd for i in eachindex(IndexLinear(), a, x)
+    g += a[i] * x[i]
+  end
+  g
+end
+
+# Keep the absolute floor in the original units, without forming the scale.
+function _scaled_normal_slack(f, x, ::Type{T}) where {T}
+  tol = max(_tol(T), _tol(typeof(f.q)))
+  max((tol * f.s[1]) * f.s[2], tol * abs(_scaled_offset(f)),
+      (tol * sqrt(_normal_sqnorm(f, x))) * norm(x))
+end
 
 function (f::IndHyperplane)(x::AbstractArray)
   T = float(eltype(x))
+  if _isscaled(f)
+    g = _dot_normal(_normalized_normal(f.a, f.s), x) - _scaled_offset(f)
+    return _ind(abs(g) <= _scaled_normal_slack(f, x, T), T)
+  end
   slack = _tol(T) * max(one(T), abs(f.b), sqrt(_normal_sqnorm(f, x) * _sumabs2(x)))
   abs(_dot_normal(f.a, x) - f.b) <= slack ? zero(T) : T(Inf)
 end
 function (f::IndHalfspace)(x::AbstractArray)
   T = float(eltype(x))
+  if _isscaled(f)
+    g = _dot_normal(_normalized_normal(f.a, f.s), x) - _scaled_offset(f)
+    return _ind(g <= _scaled_normal_slack(f, x, T), T)
+  end
   slack = _tol(T) * max(one(T), abs(f.b), sqrt(_normal_sqnorm(f, x) * _sumabs2(x)))
   _dot_normal(f.a, x) - f.b <= slack ? zero(T) : T(Inf)
 end
 
 function prox!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, ::Real)
   _checksize(y, x)
+  _isscaled(f) && return _scaled_normal_prox!(y, f, x)
   T = float(eltype(y))
   t = convert(T, (_dot_normal(f.a, x) - f.b) / _normal_sqnorm(f, x))
   y .= x .- t .* f.a
 end
 function prox!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, ::Real)
   _checksize(y, x)
+  _isscaled(f) && return _scaled_normal_prox!(y, f, x)
   T = float(eltype(y))
   t = convert(T, max(_dot_normal(f.a, x) - f.b, zero(f.b)) / _normal_sqnorm(f, x))
   y .= x .- t .* f.a
+end
+
+function _scaled_normal_prox!(y, f, x)
+  T = float(eltype(y))
+  a = _normalized_normal(f.a, f.s)
+  g = _dot_normal(a, x) - _scaled_offset(f)
+  f isa IndHalfspace && (g = max(g, zero(g)))
+  t = convert(T, g / _normal_sqnorm(f, x))
+  y .= x .- t .* a
 end

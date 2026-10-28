@@ -299,4 +299,60 @@ end
   end
 end
 
+function a_reset_prox!(y, f, x, γ, original)
+  copyto!(x, original)
+  prox!(y, f, x, γ)
+end
+
+function a_reset_vprox!(y, f, x, γ, original)
+  copyto!(x, original)
+  value_and_prox!(y, f, x, γ)
+end
+
+function a_cold_prox!(y, f, x, γ, original)
+  copyto!(x, original)
+  f.last[] = NaN
+  f.slope[] = NaN
+  prox!(y, f, x, γ)
+end
+
+@testset "zero allocations with extreme normals" begin
+  for T in (Float32, Float64)
+    e = round(Int, 0.6 * exponent(floatmax(T)))
+    original = T[2, -0.5, 1, 0.25]
+    x, y = copy(original), similar(original)
+    for c in (ldexp(one(T), -e), ldexp(one(T), e), nextfloat(zero(T)))
+      for a in (c, c .* T[1, -1, 0, 1]), F in (IndHyperplane, IndHalfspace)
+        f = F(a, zero(T))
+        copyto!(x, original)
+        @test allocs(a_value, f, x) == 0
+        for γ in (T(0.7), T[0.5, 1, 1.5, 2])
+          @test allocs(a_reset_prox!, y, f, x, γ, original) == 0
+          @test allocs(a_reset_vprox!, y, f, x, γ, original) == 0
+          @test allocs(a_reset_prox!, x, f, x, γ, original) == 0
+          @test allocs(a_reset_vprox!, x, f, x, γ, original) == 0
+        end
+      end
+    end
+  end
+
+  rng = Xoshiro(140)
+  n = 20_000
+  original = randn(rng, n)
+  x, y = copy(original), similar(original)
+  a = 0.5 .+ abs.(randn(rng, n))
+  γv = 0.2 .+ rand(rng, n)
+  for c in (ldexp(1.0, -614), ldexp(1.0, 614)), F in (IndHyperplane, IndHalfspace)
+    for (f, normal, b) in ((IndNonnegative(), c, c),
+                           (NormL1Nonneg(0.1), c .* a, c * 0.5))
+      g = Constrained(f, F(normal, b))
+      for γ in (0.7, γv)
+        a_cold_prox!(y, g, x, γ, original)             # size the live buffers
+        @test g.live[6].buf[].compact
+        @test allocs(a_cold_prox!, y, g, x, γ, original) == 0
+      end
+    end
+  end
+end
+
 end

@@ -116,6 +116,13 @@ function prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace}, x::Abstr
   _checkparams(f, x)
   _checkparam(γ, x)
   T = float(eltype(y))
+  if _isscaled(f)
+    a = _normalized_normal(f.a, f.s)
+    g = _dot_normal(a, x) - _scaled_offset(f)
+    f isa IndHalfspace && (g = max(g, zero(g)))
+    t = convert(T, g / _metric_sqnorm(f, x, γ))
+    return y .= x .- t .* (γ .* a)
+  end
   g = _dot_normal(f.a, x) - f.b
   f isa IndHalfspace && (g = max(g, zero(g)))
   t = convert(T, g / _metric_sqnorm(f, x, γ))

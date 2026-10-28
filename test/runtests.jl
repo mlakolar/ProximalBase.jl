@@ -27,6 +27,7 @@ tests = [
   "extreme_normals",
   "large_inputs",
   "ordered",
+  "sumlargest",
   "nonconvex",
   "lla",
   "matrixsets",

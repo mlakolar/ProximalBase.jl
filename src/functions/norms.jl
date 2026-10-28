@@ -332,8 +332,13 @@ function (f::HomogeneousGroupNorm)(x::AbstractArray)
   v
 end
 
-value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
-prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::Real) = (value_and_prox!(y, f, x, γ); y)
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::AbstractGroupPenalty, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); _checkgroups(f, x); true)
+
+value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::Real) =
+  (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
+prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::Real) =
+  (_checkwrite(prox!, f, y, x); value_and_prox!(y, f, x, γ); y)
 
 # Copy indices outside the penalized groups, including those beyond the last
 # group. Call after checking sizes and groups; all proximal kernels leave these
@@ -437,7 +442,8 @@ function (f::HomogeneousGroupNorm)(x::AtomIterate)
   v
 end
 
-value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::Real) = _value_and_prox_groups!(y, f, x, γ)
+value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::Real) =
+  (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 
 function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::AtomIterate, γ::Union{Real, AbstractVector})
   _samelayout(f, x) && _samelayout(f, y) ||

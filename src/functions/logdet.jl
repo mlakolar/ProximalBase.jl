@@ -50,6 +50,12 @@ issmooth(::Type{<:LogDetLoss}) = true
 isproximable(::Type{<:LogDetLoss}) = true
 isconvex(::Type{<:LogDetLoss}) = true
 
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::LogDetLoss{T}, Y::AbstractMatrix, X::AbstractMatrix) where {T}
+  _checksize(Y, X)
+  size(X) == size(f.S) || throw(DimensionMismatch("X has size $(size(X)) and S $(size(f.S))"))
+  true
+end
+
 # log det X from the Cholesky factor of X in f.C, or nothing if X is not
 # positive definite
 function _logdet_chol!(f::LogDetLoss{T}, X::AbstractMatrix) where {T}
@@ -72,7 +78,7 @@ function (f::LogDetLoss{T})(X::AbstractMatrix) where {T}
 end
 
 function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix) where {T}
-  _checksize(G, X)
+  _checkwrite(value_and_gradient!, f, G, X)
   ld = _logdet_chol!(f, X)
   if ld === nothing
     fill!(G, T(NaN))
@@ -90,8 +96,7 @@ function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMat
 end
 
 function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix, γ::Real) where {T}
-  _checksize(Y, X)
-  size(X) == size(f.S) || throw(DimensionMismatch("X has size $(size(X)) and S $(size(f.S))"))
+  _checkwrite(value_and_prox!, f, Y, X)
   root_step = sqrt(convert(T, γ)) * sqrt(f.w)
   A = f.eig.A
   # The domain is symmetric: the skew part contributes only a constant
@@ -133,7 +138,8 @@ end
   denominator = r - half
   isinf(denominator) ? (one(T) / 2) / (r / 2 - half / 2) : inv(denominator)
 end
-prox!(Y::AbstractMatrix, f::LogDetLoss, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, f, X, γ); Y)
+prox!(Y::AbstractMatrix, f::LogDetLoss, X::AbstractMatrix, γ::Real) =
+  (_checkwrite(prox!, f, Y, X); value_and_prox!(Y, f, X, γ); Y)
 
 # the gradient S - X⁻¹ is not Lipschitz on the positive definite matrices
 lipschitz(::LogDetLoss{T}) where {T} = T(Inf)

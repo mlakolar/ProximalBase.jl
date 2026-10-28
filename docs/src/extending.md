@@ -82,6 +82,8 @@ x = [1.0, 1.0, 1.0]
 The optional [`ProximalBase.check_parameters`](@ref) method checks that the
 weights fit the argument. The generic methods call it before writing any
 output, so a mismatched argument leaves outputs and iterates untouched.
+`SeparableSum`, `SliceSum` and `FiberSum` check the sizes and `check_parameters`
+of every block, slice or fiber before writing any output.
 
 ```@example extending
 xs = SparseIterate(3)                          # a coordinate step on a sparse iterate

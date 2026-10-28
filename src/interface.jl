@@ -130,7 +130,7 @@ value uses the Fenchel equality can return a small nonzero value even when it
 represents an indicator.
 """
 function value_and_prox!(y, f::AbstractFunction, x, γ::Real = 1)
-  _checkparams(f, x)
+  _checkwrite(value_and_prox!, f, y, x)
   prox!(y, f, x, γ)
   _isindicator(f) ? zero(float(eltype(y))) : f(y)
 end
@@ -160,6 +160,7 @@ check_parameters(::AbstractFunction, x) = nothing
 _isindicator(::Type{<:AbstractFunction}) = false
 _isindicator(f::AbstractFunction) = _isindicator(typeof(f))
 _checkparams(f::AbstractFunction, x) = (check_parameters(f, x); true)
+_checkwrite(op, f, y, x) = (_checksize(y, x); _checkparams(f, x); true)
 
 ####################################
 #  Gradients
@@ -170,7 +171,7 @@ _checkparams(f::AbstractFunction, x) = (check_parameters(f, x); true)
 
 Store the gradient of `f` at `x` in `g` and return `g`.
 """
-gradient!(g, f::AbstractFunction, x) = (_checkparams(f, x); value_and_gradient!(g, f, x); g)
+gradient!(g, f::AbstractFunction, x) = (_checkwrite(gradient!, f, g, x); value_and_gradient!(g, f, x); g)
 
 """
     value_and_gradient!(g, f, x)

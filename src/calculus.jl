@@ -87,12 +87,13 @@ end
 (s::Scaled)(x) = s.α * s.f(x)
 _scale!(g::AbstractArray, α) = (g .*= α)
 _scale!(g::Tuple, α) = (map(gk -> _scale!(gk, α), g); g)
-value_and_gradient!(g, s::Scaled, x) = (_checkparams(s, x); v = value_and_gradient!(g, s.f, x); _scale!(g, s.α); s.α * v)
-gradient!(g, s::Scaled, x) = (_checkparams(s, x); gradient!(g, s.f, x); _scale!(g, s.α))
-prox!(y, s::Scaled, x, γ::Real) = (_checkparams(s, x); prox!(y, s.f, x, s.α * γ))
-value_and_prox!(y, s::Scaled, x, γ::Real) = (_checkparams(s, x); s.α * value_and_prox!(y, s.f, x, s.α * γ))
+value_and_gradient!(g, s::Scaled, x) = (_checkwrite(value_and_gradient!, s, g, x); v = value_and_gradient!(g, s.f, x); _scale!(g, s.α); s.α * v)
+gradient!(g, s::Scaled, x) = (_checkwrite(gradient!, s, g, x); gradient!(g, s.f, x); _scale!(g, s.α))
+prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(prox!, s, y, x); prox!(y, s.f, x, s.α * γ))
+value_and_prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); s.α * value_and_prox!(y, s.f, x, s.α * γ))
 Base.@propagate_inbounds prox_entry(s::Scaled, v::Real, i::Integer, γ::Real) = prox_entry(s.f, v, i, s.α * γ)
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
+_checkwrite(op::O, s::Scaled, y, x) where {O} = _checkwrite(op, s.f, y, x)
 iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 # a scaled group penalty updates a group of an AtomIterate with a scaled step
@@ -128,18 +129,29 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
 end
 
 (t::Tilt)(x) = t.f(x) + dot(t.c, x) + t.d
-value_and_gradient!(g, t::Tilt, x) = (_checkparams(t, x); v = value_and_gradient!(g, t.f, x); g .+= t.c; v + dot(t.c, x) + t.d)
-gradient!(g, t::Tilt, x) = (_checkparams(t, x); gradient!(g, t.f, x); g .+= t.c)
+value_and_gradient!(g, t::Tilt, x) = (_checkwrite(value_and_gradient!, t, g, x); v = value_and_gradient!(g, t.f, x); g .+= t.c; v + dot(t.c, x) + t.d)
+gradient!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, x); g .+= t.c)
 
-function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
+function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}}
+  _checkparams(t, x)
+  Base.Broadcast.check_broadcast_axes(axes(g), t.c)
+  _checkwrite(op, t.f, g, x)
+end
+
+function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checksize(y, x)
   _checkparams(t, x)
+  Base.Broadcast.check_broadcast_axes(axes(y), x, t.c)
+  _checkwrite(op, t.f, y, y)
+end
+
+function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
+  _checkwrite(prox!, t, y, x)
   y .= x .- convert(float(eltype(y)), γ) .* t.c
   prox!(y, t.f, y, γ)
 end
 function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
-  _checksize(y, x)
-  _checkparams(t, x)
+  _checkwrite(value_and_prox!, t, y, x)
   y .= x .- convert(float(eltype(y)), γ) .* t.c
   value_and_prox!(y, t.f, y, γ) + dot(t.c, y) + t.d
 end
@@ -170,30 +182,42 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Translate{F}}) where {F} = $trait(F)
 end
 
-# x - b in a buffer owned by t
-function _shifted(t::Translate, x::AbstractArray)
+function _shifted_buffer(t::Translate, x::AbstractArray)
   size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
   _checkparams(t, x)
-  z = _array_buffer!(t.scratch, float(promote_type(eltype(x), eltype(t.b))), size(x))
+  _array_buffer!(t.scratch, float(promote_type(eltype(x), eltype(t.b))), size(x))
+end
+
+# x - b in a buffer owned by t
+function _shifted(t::Translate, x::AbstractArray)
+  z = _shifted_buffer(t, x)
   z .= x .- t.b
 end
 
 (t::Translate)(x::AbstractArray) = t.f(_shifted(t, x))
-value_and_gradient!(g, t::Translate, x::AbstractArray) = value_and_gradient!(g, t.f, _shifted(t, x))
-gradient!(g, t::Translate, x::AbstractArray) = gradient!(g, t.f, _shifted(t, x))
+value_and_gradient!(g, t::Translate, x::AbstractArray) =
+  (_checkwrite(value_and_gradient!, t, g, x); value_and_gradient!(g, t.f, _shifted(t, x)))
+gradient!(g, t::Translate, x::AbstractArray) =
+  (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, _shifted(t, x)))
 
-function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
+_checkwrite(op::O, t::Translate, g, x::AbstractArray) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
+  _checkwrite(op, t.f, g, _shifted_buffer(t, x))
+
+function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checksize(y, x)
   _checksize(t.b, x)
   _checkparams(t, x)
+  _checkwrite(op, t.f, y, y)
+end
+
+function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
+  _checkwrite(prox!, t, y, x)
   y .= x .- t.b
   prox!(y, t.f, y, γ)
   y .+= t.b
 end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
-  _checksize(y, x)
-  _checksize(t.b, x)
-  _checkparams(t, x)
+  _checkwrite(value_and_prox!, t, y, x)
   y .= x .- t.b
   v = value_and_prox!(y, t.f, y, γ)
   y .+= t.b
@@ -448,6 +472,8 @@ block by block on tuples. Sparse plus low-rank models, for example, take
 `SeparableSum(NormL1(λ), TracePSD(μ))` on the pair `(S, L)`.
 Blocks may themselves be tuples for nested sums. Allocating oracles and
 [`Conjugate`](@ref) preserve this block structure.
+If a block's sizes, parameters or data do not fit, the oracle throws before
+writing any part of the output.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
@@ -463,6 +489,12 @@ function _checkblocks(s::SeparableSum, x::Tuple)
 end
 
 _checkparams(s::SeparableSum, x::Tuple) = (_checkblocks(s, x); map(_checkparams, s.fs, x); true)
+function _checkwrite(op::O, s::SeparableSum, y::Tuple, x::Tuple) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+  _checkblocks(s, x)
+  length(y) == length(x) || _block_size_error(length(y), length(x))
+  map((f, yk, xk) -> _checkwrite(op, f, yk, xk), s.fs, y, x)
+  true
+end
 _has_conjugate_value(s::SeparableSum) = all(_has_conjugate_value, s.fs)
 _conjugate_value(s::SeparableSum, y::Tuple) =
   (_checkparams(s, y); sum(map(_conjugate_value, s.fs, y)))
@@ -471,13 +503,13 @@ _scaled_conjugate_value(s::SeparableSum, y::Tuple, α) =
 
 (s::SeparableSum)(x::Tuple) = (_checkparams(s, x); sum(map((f, xk) -> f(xk), s.fs, x)))
 prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checksize(y, x); _checkparams(s, x); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
+  (_checkwrite(prox!, s, y, x); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
 value_and_prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checksize(y, x); _checkparams(s, x); sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)))
+  (_checkwrite(value_and_prox!, s, y, x); sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)))
 value_and_gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
-  (_checksize(g, x); _checkparams(s, x); sum(map((f, gk, xk) -> value_and_gradient!(gk, f, xk), s.fs, g, x)))
+  (_checkwrite(value_and_gradient!, s, g, x); sum(map((f, gk, xk) -> value_and_gradient!(gk, f, xk), s.fs, g, x)))
 gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
-  (_checksize(g, x); _checkparams(s, x); map((f, gk, xk) -> gradient!(gk, f, xk), s.fs, g, x); g)
+  (_checkwrite(gradient!, s, g, x); map((f, gk, xk) -> gradient!(gk, f, xk), s.fs, g, x); g)
 
 ####################################
 #  sums of smooth functions

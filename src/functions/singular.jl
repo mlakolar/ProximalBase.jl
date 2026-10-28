@@ -44,8 +44,8 @@ the one [`value_and_prox!`](@ref) returns, also for a discontinuous `f` such as
 that of `Conjugate(f)` is, as for the nuclear-norm ball and the spectral norm,
 which are conjugate to each other.
 
-The zero mask is reliable for every finite input; correct evaluation of an
-overflowing spectrum is the responsibility of `f`.
+The zero mask stays correct when the largest singular value overflows.
+Whether `f` evaluates an overflowing spectrum correctly depends on `f`.
 
 $_SPECTRAL_NOTE
 """

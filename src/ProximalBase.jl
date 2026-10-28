@@ -50,8 +50,8 @@ export
   NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD, TotalVariation1D, FusedLasso, SLOPE,
   NegEntropy, KLDivergence, NegLog, Berhu,
 
-  # nonsmooth losses
-  CheckLoss, HingeLoss, EpsInsensitiveLoss,
+  # separable losses
+  CheckLoss, HingeLoss, SqrHingeLoss, EpsInsensitiveLoss,
   CappedL1, LogPenalty, NormLq, GroupMCP, GroupSCAD,
 
   # functions of the singular values

@@ -32,6 +32,7 @@ and ``\gamma`` is the step of the proximal operator.
 | [`TracePSD`](@ref)`(λ)` | ``\lambda\operatorname{tr}(X)`` on ``X \succeq 0`` | ``U\max(\Lambda - \gamma\lambda, 0)U^\top`` | |
 | [`CheckLoss`](@ref)`(τ, w)` | ``\sum_i w_i\rho_\tau(x_i)`` | see below | ✓ |
 | [`HingeLoss`](@ref)`(y, w)` | ``\sum_i w_i\max(0, 1 - y_i x_i)`` | see below | ✓ |
+| [`SqrHingeLoss`](@ref)`(y, w)` | ``\sum_i w_i\max(0, 1 - y_i x_i)^2`` | see below | ✓ |
 | [`EpsInsensitiveLoss`](@ref)`(ε, w)` | ``\sum_i w_i\max(0, \lvert x_i\rvert - \varepsilon)`` | see below | ✓ |
 | [`SingularValue`](@ref)`(f)` | ``f(\sigma(X))`` | ``U\operatorname{diag}(\operatorname{prox}_{\gamma f}(\sigma))V^\top`` | |
 
@@ -384,8 +385,8 @@ prox(SLOPE([1.0, 0.8, 0.5, 0.2]), v, 1.0)    # magnitudes 3, 2, 1, 0.5 minus λ
 ## Losses of residuals and margins
 
 Quantile regression, support vector machines and support vector regression
-have losses that are nonsmooth but separable, with closed-form proximal
-operators. So splitting methods such as ADMM apply them to ``z = X\beta`` exactly.
+have separable losses with closed-form proximal operators. So splitting
+methods such as ADMM apply them to ``z = X\beta`` exactly.
 
 **The check loss.** [`CheckLoss`](@ref)`(τ)` is
 ``\sum_i \rho_\tau(x_i)`` with ``\rho_\tau(u) = \max(\tau u, (\tau - 1)u)``, for
@@ -411,13 +412,27 @@ for labels ``y_i = \pm 1``. At the margin ``u = y_i v``, the proximal operator o
 ``\gamma\max(0, 1 - u)`` is ``u + \gamma`` for ``u < 1 - \gamma``, ``1`` for
 ``1 - \gamma \le u \le 1``, and ``u`` above. Without labels, ``x`` holds the margins.
 
+**The squared hinge loss.** [`SqrHingeLoss`](@ref)`(y, w)` is
+``\sum_i w_i\max(0, 1 - y_i x_i)^2``. It is smooth, with gradient
+``-2w_i y_i\max(0, 1 - y_i x_i)`` and Lipschitz constant
+``2\max_i w_i y_i^2``. For label 1, its proximal operator keeps ``v \ge 1``
+and otherwise returns ``(v + 2\gamma w_i)/(1 + 2\gamma w_i)``. A general label
+acts on the margin ``y_i v`` with step ``\gamma w_i y_i^2``. Labels must be
+finite and nonzero, and weights finite and nonnegative. `SqrHingeLoss()` takes
+margins directly; `SqrHingeLoss(nothing, w)` weights those margins. A zero
+weight leaves the entry unchanged. The conjugate term is
+``s_i/y_i + s_i^2/(4w_i y_i^2)`` for ``s_i/y_i \le 0``, and ``+\infty``
+otherwise; a zero weight gives the indicator of ``s_i = 0``. Splitting methods
+can apply this loss to a separate margin variable; the scalar loss
+[`ProximalBase.SquaredHinge`](@ref) is for [`GLMLoss`](@ref).
+
 **The ε-insensitive loss.** [`EpsInsensitiveLoss`](@ref)`(ε)` is
 ``\sum_i \max(0, |x_i| - \varepsilon)``. Its proximal operator keeps ``v`` for
 ``|v| \le \varepsilon``, puts it at ``\pm\varepsilon`` for
 ``\varepsilon < |v| \le \varepsilon + \gamma``, and moves it toward zero by
 ``\gamma`` beyond. With ``\varepsilon = 0`` it is soft thresholding.
 
-All three take weights ``w_i``, which multiply the step. For coordinate descent
+All four take weights ``w_i``, which multiply the step. For coordinate descent
 and Newton steps, the scalar losses `ProximalBase.SquaredHinge`,
 `ProximalBase.SmoothCheck` and `ProximalBase.ConvolutionCheck` of
 [`GLMLoss`](@ref) are smooth versions with bounded curvature; see

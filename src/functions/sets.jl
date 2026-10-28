@@ -673,11 +673,13 @@ end
   _ind(f isa IndHyperplane ? abs(g) <= slack : g <= slack, T)
 end
 
-function _checkwrite(op::O, f::Union{IndHyperplane{<:AbstractArray}, IndHalfspace{<:AbstractArray}}, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+function _checkwrite(op::O, f::Union{IndHyperplane, IndHalfspace}, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checksize(y, x)
   op === value_and_prox! && _checkparams(f, x)
-  length(f.a) == length(x) || _dot_normal(_scaled_normal(f), x)
-  Base.Broadcast.check_broadcast_axes(axes(y), x, f.a)
+  if f.a isa AbstractArray
+    length(f.a) == length(x) || _dot_normal(_scaled_normal(f), x)
+    Base.Broadcast.check_broadcast_axes(axes(y), x, f.a)
+  end
   true
 end
 

@@ -35,8 +35,11 @@ columns of a matrix. The value, the gradient and the proximal operator act slice
 by slice, on views, and allocate nothing beyond what the `fₖ` do. `SliceSum` has
 the traits that all the `fₖ` share. The `fₖ` are given as arguments, or as a
 vector when there are many of one type.
-If a slice function's sizes, parameters or data do not fit, the oracle throws
-before writing any part of the output.
+Before writing any output, the oracles check the sizes of all slices and the
+parameters, data dimensions and squareness that the slice functions' own
+oracles check before writing. A function that transforms its argument, such as
+`Precompose` or `Constrained`, or fails during computation can still leave
+earlier slices written.
 
 With `fₖ = LogDetLoss(Sₖ, nₖ/n)` it is the smooth part of the joint graphical
 lasso of K classes, whose penalty on the entries across the classes is a
@@ -119,8 +122,11 @@ precision matrices that make them share a sparsity pattern or be close.
 rule. The proximal operator applies the proximal operator of `f` to each fiber,
 on views, and allocates nothing beyond what that of `f` does. On a matrix, the
 fibers are its rows.
-If a fiber function's sizes, parameters or data do not fit, the oracle throws
-before writing any part of the output.
+Before writing any output, the oracles check the sizes of all fibers and the
+parameters, data dimensions and squareness that the fiber functions' own
+oracles check before writing. A function that transforms its argument, such as
+`Precompose` or `Constrained`, or fails during computation can still leave
+earlier fibers written.
 
 With `symmetric = true` the slices are taken to be symmetric, as precision
 matrices are: only the fibers with `i ≥ j` are read, and the proximal operator

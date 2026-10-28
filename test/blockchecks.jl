@@ -43,6 +43,43 @@ PB.check_parameters(f::CheckedSquare, x) = length(x) == f.n ? nothing : throw(Di
 PB.value_entry(::CheckedSquare, v, i) = abs2(v) / 2
 PB.prox_entry(::CheckedSquare, v, i, γ) = v / (1 + γ)
 
+struct Q <: AbstractFunction end
+(::Q)(x) = sum(abs2, x) / 2
+PB.prox!(y::AbstractArray, ::Q, x::AbstractArray, γ::Real) = (y .= x ./ (1 + γ))
+PB.value_and_gradient!(g::AbstractArray, f::Q, x::AbstractArray) = (g .= x; f(x))
+
+@testset "Generic oracle output shapes" begin
+  f, x = Q(), [3.0, 4.0]
+  for op in oracles, α in (1.0, 2.0)
+    expected = zeros(2, 1)
+    if op in proximal
+      prox!(expected, f, x, α)
+      v = α * f(expected)
+    else
+      v = α * value_and_gradient!(expected, f, x)
+      expected .*= α
+    end
+    y = zeros(2, 1)
+    result = oracle!(op, y, α == 1 ? f : Scaled(f, α), x)
+    @test y ≈ expected
+    @test op === prox! || op === gradient! ? result === y : result ≈ v
+  end
+
+  for op in oracles
+    y = ([7.0, 8.0], zeros(2, 1))
+    before = deepcopy(y)
+    @test_throws DimensionMismatch oracle!(op, y, SeparableSum(f, f), (x, x))
+    @test y == before
+  end
+
+  for f in (IndHyperplane(ones(2), 1.0), IndHalfspace(ones(2), 1.0),
+            IndHyperplane(1.0, 1.0), IndHalfspace(1.0, 1.0)), op in proximal
+    y = zeros(2, 1)
+    @test_throws DimensionMismatch oracle!(op, y, f, x)
+    @test iszero(y)
+  end
+end
+
 function bad_cases()
   v, M = [3.0, 4.0], [2.0 1.0; 1.0 3.0]
   A = [1.0 0 0; 0 1 0]
@@ -162,6 +199,8 @@ function same_as_blocks(op, f, point)
   f1 = SqrNormL2(2.0)
   for alias in (false, true)
     for nested in (false, true), scaled in (false, true)
+      # LinearFunction also checks the nested and scaled positive paths.
+      (nested || scaled) && !(f isa LinearFunction) && continue
       x = ([3.0], copy(point))
       expected_x = deepcopy(x)
       expected = alias ? expected_x : deepcopy(x)

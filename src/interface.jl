@@ -160,7 +160,7 @@ check_parameters(::AbstractFunction, x) = nothing
 _isindicator(::Type{<:AbstractFunction}) = false
 _isindicator(f::AbstractFunction) = _isindicator(typeof(f))
 _checkparams(f::AbstractFunction, x) = (check_parameters(f, x); true)
-_checkwrite(op, f, y, x) = (_checksize(y, x); _checkparams(f, x); true)
+_checkwrite(op, f, y, x) = _checkparams(f, x)
 
 ####################################
 #  Gradients

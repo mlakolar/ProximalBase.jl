@@ -473,8 +473,11 @@ block by block on tuples. Sparse plus low-rank models, for example, take
 `SeparableSum(NormL1(λ), TracePSD(μ))` on the pair `(S, L)`.
 Blocks may themselves be tuples for nested sums. Allocating oracles and
 [`Conjugate`](@ref) preserve this block structure.
-If a block's sizes, parameters or data do not fit, the oracle throws before
-writing any part of the output.
+Before writing any output, the oracles check the sizes of all blocks and the
+parameters, data dimensions and squareness that the block functions' own
+oracles check before writing. A function that transforms its argument, such as
+`Precompose` or `Constrained`, or fails during computation can still leave
+earlier blocks written.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
@@ -491,8 +494,8 @@ end
 
 _checkparams(s::SeparableSum, x::Tuple) = (_checkblocks(s, x); map(_checkparams, s.fs, x); true)
 function _checkwrite(op::O, s::SeparableSum, y::Tuple, x::Tuple) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+  _checksize(y, x)
   _checkblocks(s, x)
-  length(y) == length(x) || _block_size_error(length(y), length(x))
   map((f, yk, xk) -> _checkwrite(op, f, yk, xk), s.fs, y, x)
   true
 end

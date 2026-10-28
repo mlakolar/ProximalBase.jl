@@ -88,6 +88,7 @@ end
 function value_and_gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
   _checksize(g, x)
   g === x && throw(ArgumentError("the gradient must not overwrite x"))
+  _checkparams(e, x)
   γ = convert(float(eltype(g)), e.γ)
   v = value_and_prox!(g, e.f, x, γ)
   energy = _envelope_energy(x, g, γ)
@@ -98,6 +99,7 @@ end
 function gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
   _checksize(g, x)
   g === x && throw(ArgumentError("the gradient must not overwrite x"))
+  _checkparams(e, x)
   γ = convert(float(eltype(g)), e.γ)
   prox!(g, e.f, x, γ)
   g .= _envelope_derivative.(x, g, γ)
@@ -115,6 +117,7 @@ end
 # is f(P) + ‖y - P‖²/(2γ), with ‖y - P‖ = γ/(γ + t) ‖x - P‖
 function prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
   _checksize(y, x)
+  _checkparams(e, x)
   T = float(eltype(y))
   γ, t = convert(T, e.γ), convert(T, t)
   combined = _envelope_step(γ, t)
@@ -125,6 +128,7 @@ end
 
 function value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
   _checksize(y, x)
+  _checkparams(e, x)
   T = float(eltype(y))
   γ, t = convert(T, e.γ), convert(T, t)
   combined = _envelope_step(γ, t)

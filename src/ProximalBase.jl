@@ -22,8 +22,7 @@ module ProximalBase
 
 using LinearAlgebra
 using SparseArrays
-using LinearAlgebra: BlasInt, LAPACKException, checksquare, libblastrampoline
-using LinearAlgebra.BLAS: @blasfunc
+using LinearAlgebra: LAPACKException, checksquare
 
 import Base: *
 
@@ -82,6 +81,13 @@ export
   # utilities
   shrink, norm_diff, tril_index, tril_cartesian
 
+# A public statement does not parse on Julia 1.10.
+VERSION >= v"1.11" && Core.eval(@__MODULE__, Expr(:public,
+  :ScalarLoss, :Squared, :Logistic, :Poisson, :Huber, :SquaredHinge,
+  :SmoothCheck, :ConvolutionCheck, :deriv, :deriv2, :curvature,
+  :value_and_deriv, :Smoothed, :AbstractGroupPenalty, :Testing, :check_parameters))
+
+include("compat.jl")
 include("utils.jl")
 include("lapack.jl")
 include("partial.jl")

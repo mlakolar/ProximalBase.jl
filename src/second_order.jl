@@ -39,6 +39,7 @@ function hessian_vec! end
 Allocating version of [`hessian_vec!`](@ref).
 """
 hessian_vec(f::AbstractFunction, x::AbstractArray, v::AbstractArray) = hessian_vec!(_gradient_buffer(x), f, x, v)
+hessian_vec(f::AbstractFunction, x::Tuple, v::Tuple) = hessian_vec!(_gradient_buffer(x), f, x, v)
 
 """
     quadratic_model(f, x)
@@ -89,6 +90,11 @@ quadratic_model!(q, f::AbstractFunction, x) = _no_hessian(f)
 
 _checkdirection(v, x) = size(v) == size(x) ||
   throw(DimensionMismatch("the direction has size $(size(v)) and the point $(size(x))"))
+function _checkdirection(v::Tuple, x::Tuple)
+  length(v) == length(x) || throw(DimensionMismatch("the direction and the point must have the same number of blocks"))
+  map(_checkdirection, v, x)
+  true
+end
 
 ####################################
 #  quadratics: the model is the function
@@ -102,15 +108,17 @@ for F in (:ZeroFunction, :LinearFunction, :SqrNormL2, :QuadraticFunction, :KronQ
   end
 end
 
-function hessian_vec!(Hv::AbstractArray, ::Union{ZeroFunction, LinearFunction}, x::AbstractArray, v::AbstractArray)
+function hessian_vec!(Hv::AbstractArray, f::Union{ZeroFunction, LinearFunction}, x::AbstractArray, v::AbstractArray)
   _checksize(Hv, x)
   _checkdirection(v, x)
+  _checkparams(f, x)
   fill!(Hv, zero(eltype(Hv)))
 end
 
 function hessian_vec!(Hv::AbstractArray, f::SqrNormL2, x::AbstractArray, v::AbstractArray)
   _checksize(Hv, x)
   _checkdirection(v, x)
+  _checkparams(f, x)
   copyto!(Hv, v)
   Hv .*= convert(eltype(Hv), f.λ)
 end
@@ -206,7 +214,7 @@ function hessian_vec!(Hv::StridedMatrix{T}, f::LogDetLoss{T}, X::AbstractMatrix,
     return Hv
   end
   C, M = f.C, f.eig.A
-  LAPACK.potri!('U', C)                                   # the upper triangle of X⁻¹
+  _potri!('U', C)                                         # the upper triangle of X⁻¹
   copyto!(Hv, V)
   BLAS.symm!('L', 'U', one(T), C, Hv, zero(T), M)
   BLAS.symm!('R', 'U', f.w, C, M, zero(T), Hv)
@@ -227,7 +235,7 @@ function quadratic_model!(q::KronQuadratic{T, Matrix{T}}, f::LogDetLoss{T}, X::A
   _logdet_chol!(f, X) === nothing &&
     throw(ArgumentError("X is not positive definite: LogDetLoss has no quadratic model there"))
   C, S, w = f.C, f.S, f.w
-  LAPACK.potri!('U', C)
+  _potri!('U', C)
   A, B, Cq = q.A, q.B, q.C
   @inbounds for j in axes(C, 2), i in 1:j
     Wij = C[i, j]
@@ -248,8 +256,8 @@ end
 hashessian(::Type{<:Sum{F}}) where {F} = all(hashessian, fieldtypes(F))
 hashessian(::Type{SeparableSum{F}}) where {F} = all(hashessian, fieldtypes(F))
 
-hessian_vec!(Hv, s::Scaled, x, v) = (hessian_vec!(Hv, s.f, x, v); Hv .*= s.α)
-hessian_vec!(Hv, t::Tilt, x, v) = hessian_vec!(Hv, t.f, x, v)
+hessian_vec!(Hv, s::Scaled, x, v) = (_checkparams(s, x); hessian_vec!(Hv, s.f, x, v); _scale!(Hv, s.α))
+hessian_vec!(Hv, t::Tilt, x, v) = (_checkparams(t, x); hessian_vec!(Hv, t.f, x, v))
 hessian_vec!(Hv, t::Translate, x::AbstractArray, v) = hessian_vec!(Hv, t.f, _shifted(t, x), v)
 
 # the remaining functions' products added into Hv through the buffer b
@@ -261,6 +269,9 @@ function _add_hessian_vecs!(Hv, b, x, v, fs::Tuple)
 end
 
 function hessian_vec!(Hv::AbstractArray, s::Sum, x::AbstractArray, v::AbstractArray)
+  _checksize(Hv, x)
+  _checkdirection(v, x)
+  _checkparams(s, x)
   hessian_vec!(Hv, first(s.fs), x, v)
   length(s.fs) == 1 && return Hv
   b = _array_buffer!(s.scratch, eltype(Hv), size(Hv))
@@ -268,8 +279,8 @@ function hessian_vec!(Hv::AbstractArray, s::Sum, x::AbstractArray, v::AbstractAr
 end
 
 hessian_vec!(Hv::Tuple, s::SeparableSum, x::Tuple, v::Tuple) =
-  (_checkblocks(s, x); map((f, Hk, xk, vk) -> hessian_vec!(Hk, f, xk, vk), s.fs, Hv, x, v); Hv)
-hessian_vec(s::SeparableSum, x::Tuple, v::Tuple) = hessian_vec!(map(_gradient_buffer, x), s, x, v)
+  (_checksize(Hv, x); _checkdirection(v, x); _checkparams(s, x);
+   map((f, Hk, xk, vk) -> hessian_vec!(Hk, f, xk, vk), s.fs, Hv, x, v); Hv)
 
 quadratic_model(s::Scaled, x) = Scaled(quadratic_model(s.f, x), s.α)
 quadratic_model(t::Tilt, x) = Tilt(quadratic_model(t.f, x), t.c, t.d)

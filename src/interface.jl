@@ -60,6 +60,26 @@ isseparable(::Type{<:AbstractFunction}) = false
 isseparable(f::AbstractFunction) = isseparable(typeof(f))
 
 """
+    iszeropreserving(f)
+
+Whether the separable function `f` has `fᵢ(0) = 0` and
+`prox_entry(f, 0, i, γ) = 0` for every entry `i` and every positive finite step
+`γ`. Then sparse-iterate kernels may skip unstored zeros. This promises no
+standalone value oracle. It is `false` for non-separable functions and unless
+a function declares it. Wrappers forward it only where it holds for every
+entry and every positive finite step.
+
+The promise holds in exact arithmetic: for parameters or steps so extreme
+that dense computations overflow (for example, a scale beyond
+`floatmax(Float32)` with a `Float32` argument), paths over stored entries
+return exact zeros where dense results can be `NaN`.
+
+It is a property of the function, not of its type: the bounds of an
+[`IndBox`](@ref) may exclude zero.
+"""
+iszeropreserving(::AbstractFunction) = false
+
+"""
     isconvex(f)
 
 Whether `f` is convex. For a nonconvex `f`, [`prox!`](@ref) returns one of the
@@ -110,16 +130,36 @@ value uses the Fenchel equality can return a small nonzero value even when it
 represents an indicator.
 """
 function value_and_prox!(y, f::AbstractFunction, x, γ::Real = 1)
+  _checkparams(f, x)
   prox!(y, f, x, γ)
   _isindicator(f) ? zero(float(eltype(y))) : f(y)
 end
 
-# Internal traits: an indicator function is 0 at its projection, and the
-# parameter arrays of a function (weights, bounds, centers) must have an entry
-# for every entry of the argument, which _checkparams verifies in O(1).
+"""
+    ProximalBase.check_parameters(f, x)
+
+Check that the parameters of `f` fit the argument `x`. Throw `DimensionMismatch`
+when they do not. The default for an [`AbstractFunction`](@ref) returns
+`nothing`. Define this method for a function with parameter arrays; the
+generic kernels call it before writing any output, including `x` when the
+output aliases it.
+
+For a [`SeparableFunction`](@ref) `WeightedSquare` with a weight vector `w`:
+
+```julia
+function ProximalBase.check_parameters(f::WeightedSquare, x)
+  length(f.w) == length(x) || throw(DimensionMismatch("a parameter array has length \$(length(f.w)) and the argument has length \$(length(x))"))
+  nothing
+end
+```
+"""
+check_parameters(::AbstractFunction, x) = nothing
+
+# An indicator is zero at its projection. Built-ins check their parameter
+# arrays privately; the fallback calls the public extension hook before writes.
 _isindicator(::Type{<:AbstractFunction}) = false
 _isindicator(f::AbstractFunction) = _isindicator(typeof(f))
-_checkparams(::AbstractFunction, x) = true
+_checkparams(f::AbstractFunction, x) = (check_parameters(f, x); true)
 
 ####################################
 #  Gradients
@@ -130,7 +170,7 @@ _checkparams(::AbstractFunction, x) = true
 
 Store the gradient of `f` at `x` in `g` and return `g`.
 """
-gradient!(g, f::AbstractFunction, x) = (value_and_gradient!(g, f, x); g)
+gradient!(g, f::AbstractFunction, x) = (_checkparams(f, x); value_and_gradient!(g, f, x); g)
 
 """
     value_and_gradient!(g, f, x)
@@ -142,6 +182,20 @@ function value_and_gradient! end
 
 # a dense array for the gradient at x, also when x is a sparse iterate
 _gradient_buffer(x::AbstractArray) = similar(Array{float(eltype(x))}, axes(x))
+_gradient_buffer(x::Tuple) = map(_gradient_buffer, x)
+
+_prox_buffer(x::AbstractArray) = similar(x, float(eltype(x)))
+_prox_buffer(x::Union{Symmetric, Hermitian}) = Matrix{float(eltype(x))}(undef, size(x))
+_prox_buffer(x::Tuple) = map(_prox_buffer, x)
+
+function _checksize(y::Tuple, x::Tuple)
+  length(y) == length(x) || _block_size_error(length(y), length(x))
+  map(_checksize, y, x)
+  true
+end
+@noinline _block_size_error(n, m) = throw(DimensionMismatch("the output has $n blocks and the input $m"))
+
+prox(f::AbstractFunction, x::Tuple, γ::Real = 1) = prox!(_prox_buffer(x), f, x, γ)
 
 """
     gradient(f, x)
@@ -149,13 +203,14 @@ _gradient_buffer(x::AbstractArray) = similar(Array{float(eltype(x))}, axes(x))
 Allocating version of [`gradient!`](@ref).
 """
 gradient(f::AbstractFunction, x::AbstractArray) = gradient!(_gradient_buffer(x), f, x)
+gradient(f::AbstractFunction, x::Tuple) = gradient!(_gradient_buffer(x), f, x)
 
 """
     value_and_gradient(f, x)
 
 Allocating version of [`value_and_gradient!`](@ref): returns `(f(x), ∇f(x))`.
 """
-function value_and_gradient(f::AbstractFunction, x::AbstractArray)
+function value_and_gradient(f::AbstractFunction, x::Union{AbstractArray, Tuple})
   g = _gradient_buffer(x)
   v = value_and_gradient!(g, f, x)
   v, g
@@ -295,6 +350,9 @@ what `gradient!` and `prox!` do.
 """
 function gradient_mapping!(G::AbstractArray, f::AbstractFunction, g::AbstractFunction, x::AbstractArray, γ::Real)
   G === x && throw(ArgumentError("G must not be x"))
+  _checksize(G, x)
+  _checkparams(f, x)
+  _checkparams(g, x)
   gradient!(G, f, x)
   G .= x .- γ .* G
   prox!(G, g, G, γ)

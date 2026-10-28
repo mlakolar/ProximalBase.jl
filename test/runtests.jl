@@ -18,6 +18,7 @@ tests = [
   "losses",
   "entropy",
   "norms",
+  "cubenorm",
   "sparsegroup",
   "fibers",
   "spectral",

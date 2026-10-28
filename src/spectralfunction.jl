@@ -127,7 +127,7 @@ end
 # whether f(x) does not depend on the order of the entries of x: no weights,
 # bounds, centers or normals that vary between the entries
 _ispermutationinvariant(::AbstractFunction) = false
-_ispermutationinvariant(::Union{ZeroFunction, NormL0, MCP, SCAD, IndNonnegative, NormL2, NormLinf,
+_ispermutationinvariant(::Union{ZeroFunction, NormL0, MCP, SCAD, IndNonnegative, NormL2, CubeNormL2, NormLinf,
                                 IndBallL0, IndBallL1, IndBallL2, IndSimplex}) = true
 _ispermutationinvariant(::Union{NormL1{<:Real, Nothing}, NormL1Nonneg{<:Real, Nothing},
                                 ElasticNet{<:Real, Nothing}, SqrNormL2{<:Real, Nothing}}) = true

@@ -212,6 +212,7 @@ for [`GLMLoss`](@ref), and `Inf` where none exists:
 | [`QuadraticFunction`](@ref) | `A[k, k]` |
 | [`KronQuadratic`](@ref) | `A[r, r] B[c, c]` for entry `(r, c)` of `Θ` |
 | [`SqrNormL2`](@ref)`(λ)` | `λ` |
+| [`CubeNormL2`](@ref)`(λ)` | `Inf` for `λ > 0`, `0` for `λ = 0` |
 | [`LogDetLoss`](@ref) | `Inf` |
 
 `Scaled` scales the constants, `Tilt` and `Translate` keep them, and `Sum` adds
@@ -264,6 +265,7 @@ end
 coordinate_lipschitz(::ZeroFunction, ::Integer) = 0.0
 coordinate_lipschitz(f::LinearFunction, ::Integer) = zero(float(eltype(f.c)))
 coordinate_lipschitz(f::SqrNormL2, ::Integer) = float(f.λ)
+coordinate_lipschitz(f::CubeNormL2, ::Integer) = lipschitz(f)
 
 function coordinate_lipschitz(f::QuadraticFunction{T}, k::Integer) where {T}
   checkbounds(f.A, k, k)

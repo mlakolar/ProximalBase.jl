@@ -50,15 +50,15 @@ export
   NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD, TotalVariation1D, FusedLasso, SLOPE,
   NegEntropy, KLDivergence, NegLog, Berhu,
 
-  # nonsmooth losses
-  CheckLoss, HingeLoss, EpsInsensitiveLoss,
+  # separable losses
+  CheckLoss, HingeLoss, SqrHingeLoss, EpsInsensitiveLoss,
   CappedL1, LogPenalty, NormLq, GroupMCP, GroupSCAD,
 
   # functions of the singular values
   SingularValue,
 
   # indicator functions
-  IndBox, IndNonnegative, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
+  IndBox, IndNonnegative, IndBinary, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
   IndIntersection,
   IndHyperplane, IndHalfspace, IndPSD, IndBallRank, IndIsotonic, IndSOC,
   IndSphereL2,

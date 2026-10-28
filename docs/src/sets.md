@@ -17,6 +17,7 @@ feasibility certificate.
 |:---------|:----|:-----------|
 | [`IndBox`](@ref)`(l, u)` | ``l \le x \le u`` | ``\operatorname{clamp}(v, l, u)`` |
 | [`IndNonnegative`](@ref)`()` | ``x \ge 0`` | ``\max(v, 0)`` |
+| [`IndBinary`](@ref)`(l, u)` | ``x_i \in \{l_i, u_i\}``, nonconvex | nearer endpoint, ties to ``l_i`` |
 | [`IndBallLinf`](@ref)`(r)` | ``\lVert x\rVert_\infty \le r`` | ``\operatorname{clamp}(v, -r, r)`` |
 | [`IndBallL2`](@ref)`(r)` | ``\lVert x\rVert_2 \le r`` | ``\min(1, r/\lVert v\rVert_2)\,v`` |
 | [`IndSOC`](@ref)`()` | ``\lVert x_{2:n}\rVert_2 \le x_1`` | closed form in the head and the tail norm |
@@ -47,6 +48,21 @@ operators for coordinate descent. A box whose bounds exclude zero does not
 preserve zeros (see [`iszeropreserving`](@ref)), so on a sparse iterate it
 visits every entry. [`Constrained`](@ref) restricts a convex separable function
 to a box, and the result is again separable.
+
+[`IndBinary`](@ref)`(l, u)` instead allows two finite values per entry, with
+``l_i < u_i``. Its projection selects the nearer endpoint, independently of the
+step, with ties going to the lower endpoint. Alternating multiplication by a
+matrix and projection onto ``\{-1, 1\}^n`` gives the projected power method
+for community detection and synchronization (Chen and Candès, 2018). Zero
+projects to ``-1``, unlike `sign(0) = 0`. Bounds may be scalars or arrays,
+indexed linearly as for `IndBox`. Array bounds are stored without copying;
+construct a new `IndBinary` after changing them. Zero is preserved exactly when
+each pair contains zero, including mixed pairs such as ``\{0, 1\}`` and
+``\{-1, 0\}``; then sparse iterates visit only stored entries, and `restrict`
+is supported. A proximal gradient update from zero projects ``-\gamma g``,
+so whether it stays zero depends on the step, and no gradient-only
+`kkt_violation` is provided. With scalar bounds,
+`Spectral(IndBinary(0, 1))` projects onto the orthogonal projection matrices.
 
 ## The simplex and the ℓ1 ball
 

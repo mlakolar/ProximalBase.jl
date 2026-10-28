@@ -265,6 +265,10 @@ end
 coordinate_lipschitz(::ZeroFunction, ::Integer) = 0.0
 coordinate_lipschitz(f::LinearFunction, ::Integer) = zero(float(eltype(f.c)))
 coordinate_lipschitz(f::SqrNormL2, ::Integer) = float(f.λ)
+function coordinate_lipschitz(f::SqrDistL2, k::Integer)
+  isseparable(f) && (iszero(f.λ) || isconvex(f)) && return float(f.λ)
+  invoke(coordinate_lipschitz, Tuple{AbstractFunction, Integer}, f, k)
+end
 
 function coordinate_lipschitz(f::SqrHingeLoss, k::Integer)
   y, w = promote(float(_entry(f.y, k)), float(_entry(f.w, k)))

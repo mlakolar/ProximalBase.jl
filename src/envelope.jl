@@ -89,10 +89,11 @@ function value_and_gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArr
   _checksize(g, x)
   g === x && throw(ArgumentError("the gradient must not overwrite x"))
   _checkparams(e, x)
-  γ = convert(float(eltype(g)), e.γ)
-  v = value_and_prox!(g, e.f, x, γ)
-  energy = _envelope_energy(x, g, γ)
-  g .= _envelope_derivative.(x, g, γ)
+  p = eltype(g) === eltype(x) ? g : _envelope_buffer(e, float(eltype(x)), x)
+  γ = convert(float(eltype(p)), e.γ)
+  v = value_and_prox!(p, e.f, x, γ)
+  energy = _envelope_energy(x, p, γ)
+  g .= _envelope_derivative.(x, p, γ)
   v + energy
 end
 
@@ -100,9 +101,10 @@ function gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
   _checksize(g, x)
   g === x && throw(ArgumentError("the gradient must not overwrite x"))
   _checkparams(e, x)
-  γ = convert(float(eltype(g)), e.γ)
-  prox!(g, e.f, x, γ)
-  g .= _envelope_derivative.(x, g, γ)
+  p = eltype(g) === eltype(x) ? g : _envelope_buffer(e, float(eltype(x)), x)
+  γ = convert(float(eltype(p)), e.γ)
+  prox!(p, e.f, x, γ)
+  g .= _envelope_derivative.(x, p, γ)
 end
 
 @inline function _envelope_step(γ::T, t::T) where {T}

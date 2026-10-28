@@ -394,7 +394,7 @@ function _value_and_prox_groups!(y::AbstractArray, f::_RadialGroupPenalty, x::Ab
       end
       continue
     end
-    v += value_entry(p, _radial_shrink!(p, y, x, f.groups[k], convert(T, _entry(γ, k))), 1)
+    v += convert(T, value_entry(p, _radial_shrink!(p, y, x, f.groups[k], convert(T, _entry(γ, k))), 1))
   end
   v
 end
@@ -410,7 +410,7 @@ function _value_and_prox_groups!(y::AtomIterate, f::_RadialGroupPenalty, x::Atom
     k = y.active[a]
     p = _group_scalar(f, T, k)
     iszero(p.λ) && continue
-    v += value_entry(p, _radial_shrink!(p, y.storage, y.storage, f.groups[k], convert(T, _entry(γ, k))), 1)
+    v += convert(T, value_entry(p, _radial_shrink!(p, y.storage, y.storage, f.groups[k], convert(T, _entry(γ, k))), 1))
   end
   v
 end

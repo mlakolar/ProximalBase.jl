@@ -171,6 +171,44 @@ end
   end
 end
 
+function outcome(f, args...)
+  @nospecialize f args
+  try
+    (nothing, f(args...))
+  catch e
+    (typeof(e), nothing)
+  end
+end
+
+function dot_case(c, x)
+  @nospecialize c x
+  f = LinearFunction(c)
+  expected = outcome(dot, c, x)
+  @test isequal(outcome(f, x), expected)
+  g = fill(7.0, size(x))
+  @test isequal(outcome(value_and_gradient!, g, f, x), expected)
+  expected[1] === nothing || @test g == fill(7.0, size(x))
+  y = deepcopy(x)
+  p = deepcopy(x)
+  prox!(p, f, x, 1.0)
+  expected = outcome(dot, c, p)
+  @test isequal(outcome(value_and_prox!, y, f, x, 1.0), expected)
+  @test isequal(y, expected[1] === nothing ? p : x)
+end
+
+@testset "LinearFunction dot dispatch" begin
+  M = [2.0 1.0; 1.0 3.0]
+  arguments = (sparse(M), SymmetricSparseIterate(M), view(sparse(hcat(M, M)), :, [3, 4]))
+  for dims in ((2, 2), (1, 4))
+    c = ones(dims)
+    coefficients = (c, view(vcat(c, c), collect(1:size(c, 1)), :), sparse(c),
+                    view(sparse(hcat(c, c)), :, collect(1:size(c, 2))))
+    for c in coefficients, x in arguments
+      dot_case(c, x)
+    end
+  end
+end
+
 function same_as_blocks(op, f, point; output = point, alias = false)
   @nospecialize op f point output
   x = ([3.0], deepcopy(point))

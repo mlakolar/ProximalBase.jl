@@ -437,7 +437,7 @@ _checkconjugate(f::LinearFunction, y::AbstractArray) = size(y) == size(f.c) || t
 _checkconjugate(f::SqrNormL2, y::AbstractArray) = (iszero(f.λ) || f.y === nothing || _checkdot(f.y, y); true)
 
 @noinline _conjugate_value(f::AbstractFunction, y) =
-  (_checkconjugate(f, y); throw(ArgumentError("the value of the conjugate of $(typeof(f)) is not implemented; its proximal operator is")))
+  throw(ArgumentError("the value of the conjugate of $(typeof(f)) is not implemented; its proximal operator is"))
 
 # indicators of the dual balls and support functions of the balls, within the
 # tolerance of the indicator functions; loops rather than closures, which would

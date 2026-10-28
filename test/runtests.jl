@@ -41,6 +41,7 @@ tests = [
   "second_order",
   "envelope",
   "composition",
+  "image",
   "caches",
   "metric",
   "allocations",

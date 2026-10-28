@@ -16,6 +16,7 @@ from known ones.
 | [`Spectral`](@ref)`(f)` | ``f(\lambda(X))`` for a symmetric ``X`` | ``V\operatorname{diag}(\operatorname{prox}_{\gamma f}(\lambda))V^\top`` | |
 | [`MoreauEnvelope`](@ref)`(f, μ)` | ``\min_z f(z) + \tfrac{1}{2\mu}\lVert z - x\rVert^2`` | ``x + \tfrac{\gamma}{\mu + \gamma}\big(\operatorname{prox}_{(\mu+\gamma) f}(x) - x\big)`` | ``\big(x - \operatorname{prox}_{\mu f}(x)\big)/\mu`` |
 | [`Precompose`](@ref)`(f, A, μ)`, ``AA^\top = \mu I`` | ``f(Ax)`` | ``x + \tfrac1\mu A^\top\big(\operatorname{prox}_{\mu\gamma f}(Ax) - Ax\big)`` | ``A^\top\nabla f(Ax)`` |
+| [`LinearImage`](@ref)`(f, L)` | ``\inf_{Lx=y} f(x)`` | ``L\operatorname*{argmin}_x\{f(x) + \lVert Lx-y\rVert^2/(2\gamma)\}`` in the supported cases | |
 | [`Regularize`](@ref)`(f, ρ, c)` | ``f(x) + \tfrac{\rho}{2}\lVert x - c\rVert^2`` | ``\operatorname{prox}_{\frac{\gamma}{1+\gamma\rho} f}\big(\tfrac{x + \gamma\rho c}{1 + \gamma\rho}\big)`` | ``\nabla f(x) + \rho(x - c)`` |
 
 The allocating forms `prox`, `gradient`, `value_and_gradient` and `hessian_vec`
@@ -59,6 +60,87 @@ using ProximalBase, LinearAlgebra
 x, c, γ = [2.0, -1.0, 0.5], [0.3, 0.3, -0.3], 0.7
 @assert prox(Tilt(NormL1(1.0), c, 0.0), x, γ) ≈ prox(NormL1(1.0), x - γ * c, γ) # hide
 prox(Tilt(NormL1(1.0), c, 0.0), x, γ) ≈ prox(NormL1(1.0), x - γ * c, γ)
+```
+
+## Images under linear maps
+
+[`LinearImage`](@ref) builds the image, or infimal postcomposition,
+``g(y) = \inf\{f(x) : Lx = y\}``. It is convex when ``f`` is convex and
+has value ``+\infty`` outside the range of ``L``. Its proximal point is
+``Lx^\star``, where
+
+```math
+x^\star \in \operatorname*{argmin}_x\; f(x) + \frac{\lVert Lx-y\rVert^2}{2\gamma}.
+```
+
+Two cases are supported. With ``L^\top L = \mu I`` and a convex proximable
+``f``, use `LinearImage(f, L, μ)`. Then
+``x^\star = \operatorname{prox}_{(\gamma/\mu) f}(L^\top y/\mu)``. A matrix is
+checked unless `check = false`; an operator needs `mul!` and its adjoint and
+is trusted to satisfy the identity. This gives a penalty on coefficients in
+an orthogonal basis together with the constraint that the signal lies in
+the basis's span. The standalone value needs the inner value oracle;
+`value_and_prox!` also works with a proximal-only inner function.
+
+With `f = QuadraticFunction(Q, q, c)`, use `LinearImage(f, L)` for a matrix
+`L`. The matrix ``Q`` must be symmetric positive semidefinite and positive
+definite on ``\operatorname{null}(L)``. The proximal point follows from
+
+```math
+(\gamma Q + L^\top L)x^\star = L^\top y - \gamma q.
+```
+
+A Cholesky factorization is cached for the last step. Dense solves allocate
+nothing after warming the buffers and factorization. Sparse data and the
+structured band matrices `Diagonal`, `Bidiagonal`, `Tridiagonal` and
+`SymTridiagonal` use sparse factorizations; these solves allocate and compute
+in `Float64` on Julia 1.10. Other matrix types are converted to dense matrices
+for factorization. Very small or large steps can make the system numerically
+singular or ill-conditioned. Cholesky pivots no greater than
+``\sqrt{n\operatorname{eps}(T)\max_{ij}|A_{ij}|}`` for the assembled system
+``A`` are rejected as numerically singular. The standalone quadratic value
+uses a cached SVD of `L`, with the rank tolerance of [`IndAffine`](@ref), and minimizes on
+its null space. Its reduced factor uses the same pivot test with the scale
+and dimension of `Q`. This path densifies sparse data and accepts dependent
+rows and rank-zero maps. Range membership uses a scaled residual and the tolerance
+``\sqrt{\operatorname{eps}(T)}\max(1,\lVert y\rVert)``.
+
+Quadratic buffers and scalar values use the promoted floating type of `Q`
+and `L`. Orthogonal-image buffers and scalar values use the promoted floating
+type of `L` and the argument. Outputs keep their element type. The function
+owns its buffers and is not safe to share between threads. Data are stored
+by reference: call [`reset_cache!`](@ref) on the outermost wrapper after
+changing them, including before a standalone quadratic value call.
+
+Three applications illustrate the distinction from [`Precompose`](@ref).
+
+- **Penalties on fitted values.** Let ``x`` describe a function on a fine
+  grid, let ``D`` take second differences, and let ``L`` evaluate the function
+  at the design points. With ``Q = D^\top D``, the image is the least
+  roughness among grid functions with fitted values ``y``. Observations must
+  identify the unpenalized affine null space. Combining this image with a
+  quantile, Huber or Poisson loss penalizes roughness without forming a dense
+  precision on the fitted values. For ``Q \succ 0``, the Gaussian prior
+  interpretation is proper and the induced covariance is
+  ``LQ^{-1}L^\top``; singular roughness corresponds to an intrinsic prior
+  with an unpenalized null space.
+- **Profiling nuisance parameters.** With ``L = [I\;0]`` selecting ``\theta``
+  from ``(\theta,\eta)``, the image is ``\min_\eta f(\theta,\eta)``. For
+  ``f(\theta,\eta) = \lVert r-X\theta-Z\eta\rVert^2/2`` and full-column-rank
+  ``Z``, it equals ``\lVert M_Z(r-X\theta)\rVert^2/2``, where ``M_Z`` projects
+  orthogonally off the columns of ``Z``. This is the Frisch–Waugh–Lovell
+  residualization identity. Convert the least-squares loss to its equivalent
+  `QuadraticFunction` for this constructor.
+- **A truncated basis.** With orthogonal columns of equal norm, `LinearImage`
+  of `NormL1` penalizes the basis coefficients and constrains the signal to
+  their span. Outside the span its value is `Inf`.
+
+```@example calculus
+L = [1.0 0.0 0.0; 0.0 1.0 0.0]
+f = QuadraticFunction([2.0 0.0 1.0; 0.0 2.0 1.0; 1.0 1.0 2.0])
+g = LinearImage(f, L)
+@assert prox(g, [1.0, -1.0], 0.5) ≈ [0.5, -0.5] # hide
+prox(g, [1.0, -1.0], 0.5)
 ```
 
 ## Conjugates

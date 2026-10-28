@@ -31,7 +31,14 @@ ProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2
 ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
 ProximalBase.iszeropreserving(::WeightedSquare) = true
 ProximalBase.isconvex(::Type{WeightedSquare}) = true
+function ProximalBase.check_parameters(f::WeightedSquare, x)
+  length(f.w) == length(x) || throw(DimensionMismatch("a parameter array has length \$(length(f.w)) and the argument has length \$(length(x))"))
+  nothing
+end
 ```
+
+The generic kernels call `check_parameters` before writing any output or
+updating a coordinate.
 """
 abstract type SeparableFunction <: AbstractFunction end
 
@@ -46,18 +53,6 @@ term of entry `i` at the scalar `v`. `i` is a linear index of the array, as in
 [`prox_entry`](@ref).
 """
 function value_entry end
-
-"""
-    iszeropreserving(f)
-
-Whether the separable function `f` has `fᵢ(0) = 0` and maps 0 to 0 by its
-proximal operator, `prox_entry(f, 0, i, γ) = 0`, for every entry `i` and step
-`γ`, as norms and most penalties do. Then the value and the proximal operator
-on a sparse iterate touch only its stored entries. It is `false` unless a
-function declares it, and it is a property of the function, not of its type:
-the bounds of an `IndBox` may exclude zero.
-"""
-iszeropreserving(::SeparableFunction) = false
 
 (f::SeparableFunction)(x::AbstractArray) = _value_sep(f, x)
 prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) = _prox_sep!(y, f, x, γ)

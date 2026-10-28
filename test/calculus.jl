@@ -10,6 +10,47 @@ using ..TestUtils
 
 Random.seed!(1)
 
+blocks_approx(x::AbstractArray, y::AbstractArray) = isapprox(x, y)
+blocks_approx(x::Tuple, y::Tuple) = all(map(blocks_approx, x, y))
+
+struct CountedMatrix <: AbstractMatrix{Float64}
+  data::Matrix{Float64}
+  images::Base.RefValue{Int}
+end
+Base.size(A::CountedMatrix) = size(A.data)
+Base.getindex(A::CountedMatrix, i::Int, j::Int) = A.data[i, j]
+function LinearAlgebra.mul!(y::AbstractVector, A::CountedMatrix, x::AbstractVector)
+  A.images[] += 1
+  mul!(y, A.data, x)
+end
+
+@testset "zero preservation" begin
+  table = (
+    (ZeroFunction(), true), (SqrNormL2(), true), (SqrNormL2(Inf), false),
+    (SqrNormL2(1., [1., 2.]), false),
+    (Scaled(NormL1(1.), 2.), true), (Scaled(NormL1(1.), Inf), false),
+    (Regularize(NormL1(1.), 1.), true), (Regularize(NormL1(1.), Inf), false),
+    (Regularize(NormL1(1.), 1., zeros(2)), false),
+    (Precompose(NormL1(1.), -2.), true), (Precompose(NormL1(1.), Inf), false),
+    (Precompose(ElasticNet(0., 1.), 1e200), false),
+    (Precompose(NormL1(1.), Matrix(1.0I, 2, 2), 1.), false),
+    (Conjugate(NormL1(1.)), true), (Conjugate(NormL2(1.)), false),
+    (MoreauEnvelope(NormL1(1.), 1.), false), (Tilt(NormL1(1.), ones(2)), false),
+    (Translate(NormL1(1.), ones(2)), false), (LinearFunction(ones(2)), false),
+    (NormL2(), false), (SeparableSum(SqrNormL2(), SqrNormL2()), false),
+    (Sum(SqrNormL2(), SqrNormL2()), false),
+    (Constrained(NormL1(1.), IndBox(-1., 1.)), true),
+    (Constrained(NormL1(1.), IndBox(1., 2.)), false),
+    (Constrained(NormL1(1.), IndHyperplane(1., 0.)), false))
+  for (f, expected) in table
+    @test iszeropreserving(f) === expected
+    if expected
+      ProximalBase.Testing.test_separable(f, [0., 2.], 0.7)
+    end
+  end
+  @test !isdefined(ProximalBase, :_iszeropreserving)
+end
+
 @testset "Scaled" begin
   x = randn(8)
   f = NormL1(0.5)
@@ -84,6 +125,22 @@ end
   check_prox(q, x, 0.7)
   @test value_and_prox!(similar(x), t, x, 0.7) ≈ t(prox(t, x, 0.7))
   @test_throws DimensionMismatch t(randn(3))
+  for T in (Float32, Float64)
+    f = GroupNormL2(one(T), [1:2, 3:4])
+    x, b, steps = ones(T, 4), zeros(T, 4), fill(T(0.5), 2)
+    t = Translate(f, b)
+    expected = fill(T(0.5), 4)
+    @test prox(t, x, steps) ≈ expected
+    out = similar(x)
+    @test value_and_prox!(out, t, x, steps) ≈ f(expected)
+    @test out ≈ expected
+    b = T[1, -1, 2, -2]
+    t = Translate(f, b)
+    expected = b + prox(f, x - b, steps)
+    @test prox(t, x, steps) ≈ expected
+    @test value_and_prox!(out, t, x, steps) ≈ t(expected)
+    @test out ≈ expected
+  end
   M = randn(3, 4)
   @test Translate(NuclearNorm(1.), M)(M) ≈ 0
   for T in (Float32, Float64)
@@ -277,6 +334,144 @@ end
   @test G[1] ≈ 2a && G[2] ≈ gradient(LeastSquaresLoss(y, X), b)
   @test gradient!(G, g, (a, b)) === G
   @test_throws DimensionMismatch f((S,))
+
+  s = SeparableSum(SqrNormL2(), SqrNormL2(2))
+  x = ([1., 2.], [3.])
+  expected = map(gradient, s.fs, x)
+  @test blocks_approx(gradient(s, x), expected)
+  value, g = value_and_gradient(s, x)
+  @test value == s(x) == 11.5
+  @test blocks_approx(g, expected)
+  scaled = Scaled(s, 2)
+  g = map(similar, x)
+  @test gradient!(g, scaled, x) === g
+  @test blocks_approx(g, map(yk -> 2 .* yk, expected))
+  @test value_and_gradient!(g, scaled, x) == 23.
+  @test blocks_approx(g, map(yk -> 2 .* yk, expected))
+  @test blocks_approx(prox(scaled, x, 0.7), map((f, xk) -> prox(2f, xk, 0.7), s.fs, x))
+
+  # Nested tuples and matrix wrappers retain the block structure.
+  S = Symmetric([1. 2.; 2. 3.])
+  H = Hermitian([1. 2.; 2. 3.])
+  nested = SeparableSum(s, SeparableSum(SqrNormL2(), SqrNormL2(2)))
+  point = (x, (S, H))
+  g = gradient(2nested, point)
+  @test blocks_approx(g[1], map(yk -> 2 .* yk, expected))
+  @test g[2][1] isa Matrix{Float64} && g[2][1] ≈ 2S
+  @test g[2][2] isa Matrix{Float64} && g[2][2] ≈ 4H
+  value, g = value_and_gradient(nested, point)
+  @test value ≈ nested(point)
+  @test g[2][1] ≈ S && g[2][2] ≈ 2H
+  p = prox(2nested, point, 0.5)
+  @test blocks_approx(p[1], prox(2s, x, 0.5))
+  @test p[2][1] isa Matrix{Float64} && p[2][1] ≈ S / 2
+  @test p[2][2] isa Matrix{Float64} && p[2][2] ≈ H / 3
+  Hc = Hermitian(ComplexF64[1 2+im; 2-im 3])
+  p = prox(SeparableSum(ZeroFunction()), (Hc,))
+  @test p[1] isa Matrix{ComplexF64} && p[1] == Hc
+end
+
+@testset "tuple conjugates" begin
+  x = ([1., -2.], [3.])
+  known = SeparableSum(NormL1(1.), SqrNormL2())
+  fallback = SeparableSum(ElasticNet(0.4, 0.7), SqrNormL2(2.))
+  for f in (known, Scaled(known, 2.), fallback, Scaled(fallback, 2.)), step in (0.3, 2.)
+    fs = f isa Scaled ? map(fk -> Scaled(fk, f.α), f.f.fs) : f.fs
+    cs = map(Conjugate, fs)
+    c = Conjugate(f)
+    expected = map((ck, xk) -> prox(ck, xk, step), cs, x)
+    value = sum(map((ck, xk) -> value_and_prox!(similar(xk), ck, xk, step), cs, x))
+    out = map(similar, x)
+    @test prox!(out, c, x, step) === out
+    @test blocks_approx(out, expected)
+    @test blocks_approx(prox(c, x, step), expected)
+    @test value_and_prox!(out, c, x, step) ≈ value
+    @test blocks_approx(out, expected)
+    if f === known || (f isa Scaled && f.f === known)
+      before = deepcopy(out)
+      @test c(out) ≈ sum(map((ck, yk) -> ck(yk), cs, out))
+      @test out == before
+    else
+      @test_throws ArgumentError c(out)
+      # The elastic-net conjugate has this value, independently of Fenchel subtraction.
+      α = f isa Scaled ? f.α : 1.
+      reference = sum(abs2, max.(abs.(out[1]) .- α * 0.4, 0)) / (2α * 0.7) + sum(abs2, out[2]) / (4α)
+      @test value ≈ reference
+    end
+    for op in (prox!, value_and_prox!)
+      alias = map(copy, x)
+      result = op(alias, c, alias, step)
+      @test op === prox! ? result === alias : isapprox(result, value)
+      @test blocks_approx(alias, expected)
+    end
+    primal = prox(f, x, step)
+    dual = prox(c, map(xk -> xk ./ step, x), inv(step))
+    @test blocks_approx(map((pk, dk) -> pk .+ step .* dk, primal, dual), x)
+    cache = c.scratch.buf
+    prox!(out, c, x, step)
+    @test c.scratch.buf === cache
+    @test ProximalBase.Testing.allocations(prox!, out, c, x, step) == 0
+  end
+
+  c = Conjugate(known)
+  previous_cache = nothing
+  for point in (x, ([1., 2., -3.], [4., 5.]), (Float32[1, -2], Float32[3]),
+                (Float32[1, -2], [3.]), (view([1., -2.], :), [3.]))
+    out = map(similar, point)
+    expected = map((f, xk) -> prox(Conjugate(f), xk, 0.7), known.fs, point)
+    @test prox!(out, c, point, 0.7) === out
+    @test blocks_approx(out, expected)
+    cache = c.scratch.buf
+    @test cache !== previous_cache
+    @test ProximalBase.Testing.allocations(prox!, out, c, point, 0.7) == 0
+    @test c.scratch.buf === cache
+    previous_cache = cache
+  end
+
+  nested = SeparableSum(known, SeparableSum(SqrNormL2(2.), NormL1(0.5)))
+  point = (x, ([2.], [-2., 1.]))
+  for f in (nested, Scaled(nested, 2.))
+    α = f isa Scaled ? f.α : 1.
+    c = Conjugate(f)
+    expected = ((clamp.(x[1], -α, α), x[2] ./ (1 + 0.7 / α)),
+                (point[2][1] ./ (1 + 0.7 / (2α)), clamp.(point[2][2], -0.5α, 0.5α)))
+    out = prox(c, point, 0.7)
+    @test blocks_approx(out, expected)
+    @test value_and_prox!(out, c, point, 0.7) ≈ c(expected)
+    @test blocks_approx(out, expected)
+    alias = deepcopy(point)
+    @test prox!(alias, c, alias, 0.7) === alias
+    @test blocks_approx(alias, expected)
+    # Nested SeparableSum already allocates on Julia 1.10.
+    VERSION >= v"1.11" && @test ProximalBase.Testing.allocations(prox!, out, c, point, 0.7) == 0
+  end
+
+  f = SeparableSum(fallback, SqrNormL2())
+  point = (x, [2., -3.])
+  c = Conjugate(f)
+  out = prox(c, point, 0.7)
+  value = sum(abs2, max.(abs.(out[1][1]) .- 0.4, 0)) / 1.4 +
+          sum(abs2, out[1][2]) / 4 + sum(abs2, out[2]) / 2
+  @test value_and_prox!(out, c, point, 0.7) ≈ value
+  alias = deepcopy(point)
+  @test value_and_prox!(alias, c, alias, 0.7) ≈ value
+  @test blocks_approx(alias, out)
+  @test ProximalBase.Testing.allocations(prox!, out, c, point, 0.7) == 0
+
+  # A mismatch in a later block leaves all earlier blocks untouched.
+  bad = SeparableSum(SqrNormL2(), NormL1(1., ones(2)))
+  for f in (bad, Scaled(bad, 2.), Conjugate(bad)), op in (prox!, value_and_prox!)
+    out = map(copy, x)
+    @test_throws DimensionMismatch op(out, f, x, 0.7)
+    @test out == x
+  end
+  for f in (SeparableSum(SqrNormL2(), SqrNormL2(1., ones(2))),
+            Scaled(SeparableSum(SqrNormL2(), SqrNormL2(1., ones(2))), 2)),
+      op in (gradient!, value_and_gradient!)
+    out = map(copy, x)
+    @test_throws DimensionMismatch op(out, f, x)
+    @test out == x
+  end
 end
 
 @testset "Sum" begin
@@ -313,6 +508,44 @@ end
     shifted = Translate(NormL1(one(T)), reshape(T[1, 2, 3], 1, 3))
     @test_throws DimensionMismatch prox(shifted, x)
     @test_throws DimensionMismatch prox(shifted, x, ones(T, 3))
+    inner = NormL1(one(T), ones(T, 2))
+    for f in (Translate(inner, ones(T, 3)), Regularize(inner, one(T)),
+              Regularize(inner, one(T), ones(T, 3)), Conjugate(inner),
+              Precompose(inner, T(-2)), MoreauEnvelope(inner, one(T))),
+        op in (prox!, value_and_prox!), alias in (false, true)
+      for step in (T(0.5), fill(T(0.5), 3))
+        step isa AbstractArray && f isa Union{Regularize, Precompose, MoreauEnvelope} && continue
+        input = copy(x)
+        out = alias ? input : copy(x)
+        @test_throws DimensionMismatch op(out, f, input, step)
+        @test out == x
+        @test input == x
+      end
+    end
+    for h in (Precompose(inner, T(-2)), Precompose(inner, Matrix{T}(I, 3, 3), one(T))),
+        op in (prox!, value_and_prox!), alias in (false, true)
+      input = copy(x)
+      out = alias ? input : copy(x)
+      @test_throws DimensionMismatch op(out, Scaled(h, T(2)), input, T(0.5))
+      @test out == x
+      @test input == x
+    end
+    r = Regularize(SqrNormL2(one(T)), one(T), ones(T, 2))
+    for op in (gradient!, value_and_gradient!)
+      out = copy(x)
+      @test_throws DimensionMismatch op(out, r, x)
+      @test out == x
+    end
+  end
+  A = CountedMatrix(Matrix{Float64}(I, 3, 3), Ref(0))
+  h = Precompose(SqrNormL2(), A, 1.; check = false)
+  x = fill(3., 3)
+  out = similar(x)
+  for op in (prox!, value_and_prox!)
+    A.images[] = 0
+    op(out, Scaled(h, 2.), x, 0.5)
+    @test A.images[] == 1
+    @test out ≈ prox(Scaled(SqrNormL2(), 2.), x, 0.5)
   end
 end
 

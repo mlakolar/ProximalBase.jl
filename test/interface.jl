@@ -60,6 +60,7 @@ ProximalBase.prox!(y::AbstractArray, ::Box2, x::AbstractArray, ::Real) = (y .= c
     @testset "$(nameof(typeof(f)))" begin
       check_traits(f; smooth, proximable, separable, convex)
       @test f isa AbstractFunction
+      @test iszeropreserving(f) isa Bool
     end
   end
   # the calculus passes the traits on
@@ -93,6 +94,7 @@ end
   # a generic function: value_and_prox! falls back to prox! then the value
   @test value_and_prox!(similar(x), Box2(), 3 .* x) == 0.
   @test prox(Box2(), [3., -4., 1.]) == [2., -2., 1.]
+  @test ProximalBase.check_parameters(Box2(), x) === nothing
 end
 
 @testset "prox_entry and prox_coordinate!" begin
@@ -233,6 +235,9 @@ end
   @test gradient_mapping!(G, f, g, x, 1 / L) === G
   @test x - G / L ≈ prox(g, x - gradient(f, x) / L, 1 / L)
   @test_throws ArgumentError gradient_mapping!(x, f, g, x, 1 / L)
+  out = copy(x)
+  @test_throws DimensionMismatch gradient_mapping!(out, f, NormL1(1., ones(p - 1)), x, 1 / L)
+  @test out == x
 end
 
 @testset "proximal operators in place" begin

@@ -234,6 +234,35 @@ end
   @test qs isa SeparableSum
   @test quadratic_model!(qs, s, xb) === qs
 
+  s = SeparableSum(SqrNormL2(), SqrNormL2(2))
+  point, direction = ([1., 2.], [3.]), ([2., -1.], [4.])
+  out = map(similar, point)
+  expected = map((f, xk, vk) -> hessian_vec(2f, xk, vk), s.fs, point, direction)
+  @test hessian_vec!(out, Scaled(s, 2), point, direction) === out
+  @test all(map(isapprox, out, expected))
+  @test all(map(isapprox, hessian_vec(Scaled(s, 2), point, direction), expected))
+  @test allocs(hessian_vec!, out, Scaled(s, 2), point, direction) == 0
+
+  nested = Scaled(SeparableSum(s, SqrNormL2(3)), 2)
+  S = Symmetric([1. 2.; 2. 3.])
+  H = Hermitian(ComplexF64[1 2+im; 2-im 3])
+  for matrix in (S, H)
+    product = hessian_vec(nested, (point, matrix), (direction, matrix))
+    @test all(map(isapprox, product[1], expected))
+    @test product[2] isa Matrix
+    @test product[2] ≈ 6matrix
+  end
+  # Later invalid blocks and directions are checked before the first product.
+  for f in (SeparableSum(SqrNormL2(), SqrNormL2(1., ones(2))),
+            Scaled(SeparableSum(SqrNormL2(), SqrNormL2(1., ones(2))), 2))
+    out = map(copy, point)
+    @test_throws DimensionMismatch hessian_vec!(out, f, point, direction)
+    @test out == point
+  end
+  out = map(copy, point)
+  @test_throws DimensionMismatch hessian_vec!(out, s, point, (direction[1], ones(2)))
+  @test out == point
+
   # no Hessian
   @test !hashessian(NormL1(1.))
   @test !hashessian(Sum(fl, NormL1(1.)))

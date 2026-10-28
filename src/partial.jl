@@ -80,24 +80,24 @@ _dense_input(ws, X::AbstractMatrix, ::Type{T}) where {T} = copyto!(_array_buffer
 struct QRWorkspace{T<:_BlasReal}
   tau::Vector{T}
   work::Vector{T}
-  info::Base.RefValue{BlasInt}
+  info::Base.RefValue{_BlasInt}
 end
 
 for (geqrf, orgqr, T) in ((:dgeqrf_, :dorgqr_, :Float64), (:sgeqrf_, :sorgqr_, :Float32))
   @eval function _geqrf!(A::Matrix{$T}, tau::Vector{$T}, work::Vector{$T}, lwork::Integer,
-                         info::Base.RefValue{BlasInt})
+                         info::Base.RefValue{_BlasInt})
     m, n = size(A)
-    ccall((@blasfunc($geqrf), libblastrampoline), Cvoid,
-          (Ref{BlasInt}, Ref{BlasInt}, Ptr{$T}, Ref{BlasInt}, Ptr{$T}, Ptr{$T}, Ref{BlasInt}, Ptr{BlasInt}),
+    ccall(($(QuoteNode(_blasfunc(geqrf))), _libblastrampoline), Cvoid,
+          (Ref{_BlasInt}, Ref{_BlasInt}, Ptr{$T}, Ref{_BlasInt}, Ptr{$T}, Ptr{$T}, Ref{_BlasInt}, Ptr{_BlasInt}),
           m, n, A, max(1, m), tau, work, lwork, info)
     info[]
   end
   @eval function _orgqr!(A::Matrix{$T}, tau::Vector{$T}, work::Vector{$T}, lwork::Integer,
-                         info::Base.RefValue{BlasInt})
+                         info::Base.RefValue{_BlasInt})
     m, n = size(A)
-    ccall((@blasfunc($orgqr), libblastrampoline), Cvoid,
-          (Ref{BlasInt}, Ref{BlasInt}, Ref{BlasInt}, Ptr{$T}, Ref{BlasInt}, Ptr{$T}, Ptr{$T},
-           Ref{BlasInt}, Ptr{BlasInt}),
+    ccall(($(QuoteNode(_blasfunc(orgqr))), _libblastrampoline), Cvoid,
+          (Ref{_BlasInt}, Ref{_BlasInt}, Ref{_BlasInt}, Ptr{$T}, Ref{_BlasInt}, Ptr{$T}, Ptr{$T},
+           Ref{_BlasInt}, Ptr{_BlasInt}),
           m, n, length(tau), A, max(1, m), tau, work, lwork, info)
     info[]
   end
@@ -105,7 +105,7 @@ end
 
 function QRWorkspace(::Type{T}, m::Integer, n::Integer) where {T<:_BlasReal}
   m >= n || throw(ArgumentError("need m ≥ n, got m = $m and n = $n"))
-  A, tau, work, info = zeros(T, m, n), zeros(T, n), zeros(T, 1), Ref{BlasInt}(0)
+  A, tau, work, info = zeros(T, m, n), zeros(T, n), zeros(T, 1), Ref{_BlasInt}(0)
   _geqrf!(A, tau, work, -1, info)                         # workspace queries
   lwork = max(1, round(Int, work[1]))
   _orgqr!(A, tau, work, -1, info)

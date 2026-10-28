@@ -20,6 +20,7 @@ issmooth(::Type{ZeroFunction}) = true
 isproximable(::Type{ZeroFunction}) = true
 isseparable(::Type{ZeroFunction}) = true
 isconvex(::Type{ZeroFunction}) = true
+iszeropreserving(::ZeroFunction) = true
 
 (::ZeroFunction)(x::AbstractArray) = zero(float(eltype(x)))
 
@@ -123,6 +124,7 @@ issmooth(::Type{<:SqrNormL2}) = true
 isproximable(::Type{<:SqrNormL2}) = true
 isseparable(::Type{<:SqrNormL2}) = true
 isconvex(::Type{<:SqrNormL2}) = true
+iszeropreserving(f::SqrNormL2) = f.y === nothing && isfinite(f.λ)
 
 # Σ xᵢ² over the entries of x, in O(nnz) for the sparse iterates
 _sumabs2(x::AbstractArray) = eltype(x) <: Integer ? sum(v -> abs2(float(v)), x) : sum(abs2, x)

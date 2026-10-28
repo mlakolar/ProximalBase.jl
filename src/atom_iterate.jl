@@ -30,6 +30,8 @@ mutable struct AtomIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <:
   storage::Vector{T}       # the entries; those of inactive groups are zero
   groups::G                # a partition of 1:length(storage)
   group_of::Vector{Int}    # group_of[i] = k for i ∈ groups[k]
+  # Group arrays must not be mutated after a penalty or iterate is built.
+  layout_cache::Any        # an equal group array, or nothing
   active::Vector{Int}      # active[1:nactive] are the active groups, in the order they joined
   position::Vector{Int}    # position[k] is the index of group k in active, 0 if it is inactive
   nactive::Int
@@ -63,7 +65,7 @@ end
 # the iterate with the given entries; the groups with a nonzero entry are active
 function _AtomIterate(storage::Vector{T}, groups::G, group_of::Vector{Int}) where {T, G}
   K = length(groups)
-  x = AtomIterate{T, G}(storage, groups, group_of, zeros(Int, K), zeros(Int, K), 0)
+  x = AtomIterate{T, G}(storage, groups, group_of, nothing, zeros(Int, K), zeros(Int, K), 0)
   for k in 1:K
     any(!iszero, view(storage, groups[k])) && activate!(x, k)
   end
@@ -102,6 +104,22 @@ function _check_partition(group_of::Vector{Int}, p::Integer)
   length(group_of) == p && all(!iszero, group_of) ||
     throw(ArgumentError("The groups must partition 1:$p."))
   group_of
+end
+
+@inline function _samelayout(f, x::AtomIterate)
+  x.groups === f.groups && return true
+  x.layout_cache === f.groups && return true
+  x.groups == f.groups || return false
+  x.layout_cache = f.groups
+  true
+end
+
+# Copying must preserve the cached penalty layouts of both iterates.
+@inline function _samelayout(y::AtomIterate, x::AtomIterate)
+  y.groups === x.groups ||
+    (y.layout_cache !== nothing && y.layout_cache === x.layout_cache) ||
+    y.layout_cache === x.groups || x.layout_cache === y.groups ||
+    y.groups == x.groups
 end
 
 
@@ -178,17 +196,17 @@ end
 Base.similar(x::AtomIterate{T}) where {T} = similar(x, T)
 function Base.similar(x::AtomIterate, ::Type{S}) where {S}
   K = length(x.groups)
-  AtomIterate{S, typeof(x.groups)}(zeros(S, length(x)), x.groups, x.group_of, zeros(Int, K), zeros(Int, K), 0)
+  AtomIterate{S, typeof(x.groups)}(zeros(S, length(x)), x.groups, x.group_of, x.layout_cache, zeros(Int, K), zeros(Int, K), 0)
 end
 
 Base.copy(x::AtomIterate{T, G}) where {T, G} =
-  AtomIterate{T, G}(copy(x.storage), x.groups, x.group_of, copy(x.active), copy(x.position), x.nactive)
+  AtomIterate{T, G}(copy(x.storage), x.groups, x.group_of, x.layout_cache, copy(x.active), copy(x.position), x.nactive)
 
 # with the same groups, only the entries of the active groups are copied
 function Base.copyto!(dest::AtomIterate, src::AtomIterate)
   dest === src && return dest
   length(dest) == length(src) || throw(DimensionMismatch())
-  dest.groups === src.groups || dest.groups == src.groups ||
+  _samelayout(dest, src) ||
     return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
   _zero_active!(dest)
   for a in 1:src.nactive

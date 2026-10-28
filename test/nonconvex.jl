@@ -265,6 +265,66 @@ end
   @test_throws ArgumentError GroupMCP(-1., [1:2])
 end
 
+@testset "equal radial group layouts" begin
+  ranges = [1:2, 3:5, 6:6, 7:9]
+  layouts = (ranges, collect.(ranges))
+  v = [3., -4., 0., 0., 0., 0., 2., -1., 0.5]
+  grad = collect(range(-1.0, 1.0; length = 9))
+  for F in (GroupMCP, GroupSCAD), gs in layouts
+    f = F(0.4, gs, [1., 1.5, 0., 0.8])
+    bad = F(0.4, [[1, 3], [2, 4, 6], [5], [7, 8, 9]], f.w)
+    for xgroups in (f, layouts...), ygroups in (f, layouts...)
+      xa = AtomIterate(v, xgroups)
+      activate!(xa, 3)
+      ya = AtomIterate(ones(9), ygroups)
+      @test f(xa) ≈ f(Vector(xa))
+      x0 = AtomIterate(9, xgroups)
+      for k in eachindex(gs)
+        @test kkt_violation(f, grad, x0, k) ≈ kkt_violation(f, grad, zeros(9), first(gs[k]))
+      end
+      for step in (0.7, [0.4, 1.2, 3.8, 0.8])
+        reference = prox(f, v, step)
+        @test prox!(ya, f, xa, step) === ya
+        @test Vector(ya) ≈ reference
+        @test Set(activecoordinates(ya)) == Set(activecoordinates(xa))
+        fill!(ya, 0.25)
+        @test value_and_prox!(ya, f, xa, step) ≈ f(reference)
+        @test Vector(ya) ≈ reference && Vector(xa) == v
+        for operation! in (prox!, value_and_prox!)
+          alias = copy(xa)
+          value = operation!(alias, f, alias, step)
+          @test Vector(alias) ≈ reference
+          operation! === value_and_prox! && @test value ≈ f(reference)
+        end
+        xc = AtomIterate(v, xgroups)
+        expected = copy(v)
+        for k in eachindex(gs)
+          γk = step isa Real ? step : step[k]
+          @test prox_coordinate!(xc, f, k, γk) ≈ reference[gs[k]]
+          expected[gs[k]] = reference[gs[k]]
+          @test Vector(xc) ≈ expected
+        end
+      end
+      @test bad(xa) ≈ bad(v)
+      @test prox!(ya, bad, xa, 0.7) === ya
+      @test Vector(ya) ≈ prox(bad, v, 0.7)
+      @test value_and_prox!(ya, bad, xa, 0.7) ≈ bad(prox(bad, v, 0.7))
+      @test Vector(ya) ≈ prox(bad, v, 0.7)
+      @test_throws DimensionMismatch prox_coordinate!(xa, bad, 1, 0.7)
+      @test_throws DimensionMismatch kkt_violation(bad, grad, xa, 1)
+      @test Vector(xa) == v && Set(activecoordinates(xa)) == Set([1, 3, 4])
+      @test f(xa) ≈ f(v)
+      @test value_and_prox!(ya, f, xa, 0.7) ≈ f(prox(f, v, 0.7))
+      @test Vector(ya) ≈ prox(f, v, 0.7)
+      other = AtomIterate(ones(9), bad)
+      @test value_and_prox!(other, f, xa, 0.7) ≈ f(prox(f, v, 0.7))
+      @test Vector(other) ≈ prox(f, v, 0.7)
+      @test value_and_prox!(ya, f, AtomIterate(v, bad), 0.7) ≈ f(prox(f, v, 0.7))
+      @test Vector(ya) ≈ prox(f, v, 0.7)
+    end
+  end
+end
+
 @testset "IndBallGroupL0" begin
   groups = [1:2, 3:5, [6], 7:8]               # x[9] is free
   x = [0.1, -0.2, 3., 1., 0., -2.5, 0.5, 0.5, 9.]
@@ -306,6 +366,53 @@ end
   @test nactive(ya) == 3
   @test fa(ya) == 0 && fa(xa) == Inf
   @test_throws ArgumentError IndBallGroupL0(-1, groups)
+end
+
+@testset "equal group l0 layouts" begin
+  ranges = [1:2, 3:5, 6:6, 7:9]
+  layouts = (ranges, collect.(ranges))
+  v = [3., -4., 0., 0., 0., 0., 2., -1., 0.5]
+  for gs in layouts, bound in (nothing, 1), s in (0, 1, 4)
+    f = IndBallGroupL0(s, gs; k = bound)
+    bad = IndBallGroupL0(s, [[1, 3], [2, 4, 6], [5], [7, 8, 9]]; k = bound)
+    shared = ProximalBase._AtomIterate(copy(v), f.groups, f.group_of)
+    activate!(shared, 3)
+    output = similar(shared)
+    reference = prox(f, v, 0.7)
+    @test f(shared) == f(v)
+    @test prox!(output, f, shared, 0.7) === output
+    @test Vector(output) == reference
+    alias = copy(shared)
+    @test prox!(alias, f, alias, 0.7) === alias
+    @test Vector(alias) == reference
+    @test shared.layout_cache === output.layout_cache === nothing
+    for xgroups in layouts, ygroups in layouts
+      xa = AtomIterate(v, xgroups)
+      activate!(xa, 3)
+      ya = AtomIterate(ones(9), ygroups)
+      @test f(xa) == f(Vector(xa))
+      @test prox!(ya, f, xa, 0.7) === ya
+      @test Vector(ya) == reference
+      @test Set(activecoordinates(ya)) == Set(k for k in eachindex(gs) if any(!iszero, reference[gs[k]]))
+      @test f(ya) == f(reference)
+      alias = copy(xa)
+      @test prox!(alias, f, alias, 0.7) === alias
+      @test Vector(alias) == reference
+      @test xa.layout_cache === ya.layout_cache === f.groups
+      @test bad(xa) == bad(v)
+      @test prox!(ya, bad, xa, 0.7) === ya
+      @test Vector(ya) == prox(bad, v, 0.7)
+      @test xa.layout_cache === ya.layout_cache === f.groups
+      @test f(xa) == f(v)
+      @test prox!(ya, f, xa, 0.7) === ya
+      @test Vector(ya) == reference && Vector(xa) == v
+      other = AtomIterate(ones(9), bad.groups)
+      @test prox!(other, f, xa, 0.7) === other
+      @test Vector(other) == reference
+      @test prox!(ya, f, AtomIterate(v, bad.groups), 0.7) === ya
+      @test Vector(ya) == reference
+    end
+  end
 end
 
 # the subsets of 1:n with min(k, n) elements

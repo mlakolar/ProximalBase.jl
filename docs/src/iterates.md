@@ -35,7 +35,11 @@ Reading or writing any entry is therefore ``O(1)``, and a product ``Xx`` costs
 ``O(n\cdot\mathrm{nnz})``. The stored entries are the active coordinates
 ([`activecoordinates`](@ref), [`nactive`](@ref)). Setting an entry to zero keeps
 it stored, so that an active set does not change during a sweep. `dropzeros!`
-removes the zeros between sweeps.
+removes the zeros between sweeps. `nnz(x)` counts stored zeros too.
+`nonzeros(x)` gives a view of the stored values, paired with
+`activecoordinates(x)` in storage order; the view is invalidated when the
+stored set changes. `findnz(x)` returns copies of the stored indices and
+values in sorted order, including stored zeros.
 
 ## SymmetricSparseIterate
 
@@ -86,6 +90,17 @@ then applies the group's proximal step, `prox_coordinate!(x, g, k, 1/L_k)`,
 which is block soft thresholding, and which activates the group when it ends
 nonzero. `AtomIterate(p, g)` builds an iterate that shares the groups of a
 group penalty `g`.
+
+An iterate and a group penalty whose groups are equal but were built separately
+also take the active-group paths. The first check compares the two layouts in
+full; the iterate then remembers the penalty's group array, so later checks take
+constant time. `copy` and `similar` keep what the iterate remembers, `copyto!`
+keeps the destination's, and an iterate built from a restricted penalty starts
+with nothing remembered.
+
+Group arrays and the indices inside them must not be mutated after a penalty
+or an iterate is built. This also applies to arrays retained by inner
+constructors.
 
 ## Tracking an active set
 

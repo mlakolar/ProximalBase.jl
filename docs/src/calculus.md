@@ -18,6 +18,10 @@ from known ones.
 | [`Precompose`](@ref)`(f, A, μ)`, ``AA^\top = \mu I`` | ``f(Ax)`` | ``x + \tfrac1\mu A^\top\big(\operatorname{prox}_{\mu\gamma f}(Ax) - Ax\big)`` | ``A^\top\nabla f(Ax)`` |
 | [`Regularize`](@ref)`(f, ρ, c)` | ``f(x) + \tfrac{\rho}{2}\lVert x - c\rVert^2`` | ``\operatorname{prox}_{\frac{\gamma}{1+\gamma\rho} f}\big(\tfrac{x + \gamma\rho c}{1 + \gamma\rho}\big)`` | ``\nabla f(x) + \rho(x - c)`` |
 
+The allocating forms `prox`, `gradient`, `value_and_gradient` and `hessian_vec`
+of a `SeparableSum` act on tuples of blocks, as do `Scaled` and `Conjugate` of
+a `SeparableSum`, for the oracles each provides.
+
 ## Derivations
 
 Each rule follows from substituting into the definition of the proximal

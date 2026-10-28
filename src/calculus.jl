@@ -170,6 +170,7 @@ restrict(t::Tilt, S::AbstractVector{<:Integer}) = Tilt(restrict(t.f, S), t.c[S],
 The function `f(x - b)`, with the roles of `f`: its gradient is `∇f(x - b)` and
 its proximal operator `b + prox_{γf}(x - b)`. For example, `Translate(NormL1(λ), β₀)`
 is the penalty `λ ‖β - β₀‖₁` that shrinks towards `β₀`.
+Values and gradients use a shifted buffer in the argument's precision.
 """
 struct Translate{F<:AbstractFunction, B<:AbstractArray} <: AbstractFunction
   f::F
@@ -185,7 +186,7 @@ end
 function _shifted_buffer(t::Translate, x::AbstractArray)
   size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
   _checkparams(t, x)
-  _array_buffer!(t.scratch, float(promote_type(eltype(x), eltype(t.b))), size(x))
+  _array_buffer!(t.scratch, float(eltype(x)), size(x))
 end
 
 # x - b in a buffer owned by t

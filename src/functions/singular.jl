@@ -90,7 +90,7 @@ function (F::SingularValue)(X::AbstractMatrix)
   @inbounds for j in eachindex(s)
     t[j] = s[j] <= c ? zero(T) : s[j]
   end
-  F.f(t)
+  convert(T, F.f(t))
 end
 
 function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real)

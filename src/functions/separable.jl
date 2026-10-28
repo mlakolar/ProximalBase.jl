@@ -111,9 +111,11 @@ end
 # the proximal operator, entry by entry; y may be x
 _prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Union{Real, AbstractArray}) = _prox_sep_dense!(y, f, x, γ)
 
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SeparableFunction, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); _checkparams(f, x); true)
+
 function _prox_sep_dense!(y::AbstractArray, f, x::AbstractArray, γ)
-  _checksize(y, x)
-  _checkparams(f, x)
+  _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   T = eltype(y)
   @inbounds for i in eachindex(IndexLinear(), y, x)
@@ -125,8 +127,7 @@ end
 # on sparse iterates, only the stored entries when f preserves zeros; as for a
 # dense array, an entry stored in y stays stored, possibly as a zero
 function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::Union{Real, AbstractArray})
-  _checksize(y, x)
-  _checkparams(f, x)
+  _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   iszeropreserving(f) || return _prox_sep_dense!(y, f, x, γ)
   T = eltype(y)
@@ -145,8 +146,7 @@ end
 # each coordinate (an entry of the lower triangle) once, and from a
 # SymmetricSparseIterate only its stored coordinates when f preserves zeros
 function _prox_sep!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::Union{Real, AbstractArray})
-  _checksize(y, x)
-  _checkparams(f, x)
+  _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   T = eltype(y)
   p = y.p

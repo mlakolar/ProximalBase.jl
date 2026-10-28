@@ -10,6 +10,8 @@ const _potri! = LAPACK.potri!
 @static if isdefined(SparseArrays, :AbstractSparseMatrixCSC)
   const _AbstractSparseMatrixCSC = SparseArrays.AbstractSparseMatrixCSC
 end
+const _SparseDotMatrix = Union{SparseArrays.DenseMatrixUnion,
+  SparseArrays.WrapperMatrixTypes{<:Any, <:Union{SparseArrays.DenseMatrixUnion, AbstractSparseMatrix}}}
 @static if isdefined(SparseArrays, :SparseMatrixCSCOrView)
   const _SparseMatrixCSCOrView = SparseArrays.SparseMatrixCSCOrView
 end

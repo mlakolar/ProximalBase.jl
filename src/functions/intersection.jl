@@ -98,6 +98,21 @@ function _dykstra_buffers!(f::IndIntersection, ::Type{T}, dims::NTuple{N, Int}) 
   b
 end
 
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndIntersection, out::AbstractArray, x::AbstractArray)
+  _checksize(out, x)
+  _checkintersection(f, float(eltype(out)), size(x))
+end
+function _checkintersection(f::IndIntersection, ::Type{T}, dims::NTuple{N, Int}) where {T, N}
+  b = f.buffers
+  if b isa _DykstraBuffers{T, N} && size(b.y) == dims
+    y, w = b.y, b.w
+  else
+    y, w = Array{T, N}(undef, dims), Array{T, N}(undef, dims)
+  end
+  map(C -> _checkwrite(prox!, C, y, w), f.sets)
+  true
+end
+
 # One round over the sets, unrolled over the tuple of sets: for set k,
 # y ← P(y + pₖ) and pₖ ← (y + pₖ) - P(y + pₖ). The change of pₖ is the step of y,
 # so the sum of the squared changes is the squared length of the path of y.
@@ -115,7 +130,7 @@ function _dykstra_round!(sets::Tuple, P, k, y, w, s)
 end
 
 function prox!(out::AbstractArray, f::IndIntersection, x::AbstractArray, ::Real)
-  _checksize(out, x)
+  _checkwrite(prox!, f, out, x)
   T = float(eltype(out))
   b = _dykstra_buffers!(f, T, size(x))
   y, w, P = b.y, b.w, b.corrections

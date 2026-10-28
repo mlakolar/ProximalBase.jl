@@ -47,6 +47,22 @@ isconvex(::Type{<:MoreauEnvelope{F}}) where {F} = isconvex(F)
 # the proximal point of f, in the buffer that e owns
 _envelope_buffer(e::MoreauEnvelope, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(e.scratch, T, size(x))
 
+function _checkwrite(op::O, e::MoreauEnvelope, y::AbstractArray, x::AbstractArray) where {O}
+  _checksize(y, x)
+  if op === gradient! || op === value_and_gradient!
+    y === x && throw(ArgumentError("the gradient must not overwrite x"))
+    _checkparams(e, x)
+    _checkwrite(op === gradient! ? prox! : value_and_prox!, e.f, y, x)
+  else
+    _checkparams(e, x)
+    p = _checkbuffer(e.scratch, float(eltype(y)), size(x))
+    _checkwrite(op, e.f, p, x)
+  end
+  true
+end
+_checkvalue(e::MoreauEnvelope, x::AbstractArray) =
+  _checkwrite(value_and_prox!, e.f, _checkbuffer(e.scratch, float(eltype(x)), size(x)), x)
+
 # Form the distance in units of sqrt(2γ) before squaring it: an unscaled
 # squared distance can overflow or underflow although its energy is finite.
 # If even the distance overflows, scale the entries before subtracting only
@@ -86,9 +102,7 @@ function (e::MoreauEnvelope)(x::AbstractArray)
 end
 
 function value_and_gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
-  _checksize(g, x)
-  g === x && throw(ArgumentError("the gradient must not overwrite x"))
-  _checkparams(e, x)
+  _checkwrite(value_and_gradient!, e, g, x)
   γ = convert(float(eltype(g)), e.γ)
   v = value_and_prox!(g, e.f, x, γ)
   energy = _envelope_energy(x, g, γ)
@@ -97,9 +111,7 @@ function value_and_gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArr
 end
 
 function gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
-  _checksize(g, x)
-  g === x && throw(ArgumentError("the gradient must not overwrite x"))
-  _checkparams(e, x)
+  _checkwrite(gradient!, e, g, x)
   γ = convert(float(eltype(g)), e.γ)
   prox!(g, e.f, x, γ)
   g .= _envelope_derivative.(x, g, γ)
@@ -116,8 +128,7 @@ end
 # (y - P)/γ = (x - P)/(γ + t) ∈ ∂f(P), P is also prox_{γf}(y), so the value at y
 # is f(P) + ‖y - P‖²/(2γ), with ‖y - P‖ = γ/(γ + t) ‖x - P‖
 function prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
-  _checksize(y, x)
-  _checkparams(e, x)
+  _checkwrite(prox!, e, y, x)
   T = float(eltype(y))
   γ, t = convert(T, e.γ), convert(T, t)
   combined = _envelope_step(γ, t)
@@ -127,8 +138,7 @@ function prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
 end
 
 function value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
-  _checksize(y, x)
-  _checkparams(e, x)
+  _checkwrite(value_and_prox!, e, y, x)
   T = float(eltype(y))
   γ, t = convert(T, e.γ), convert(T, t)
   combined = _envelope_step(γ, t)

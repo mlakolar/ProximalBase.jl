@@ -74,6 +74,18 @@ function _array_buffer!(s::Scratch, ::Type{T}, dims::NTuple{N, Int}) where {T, N
   b
 end
 
+# Inspect the buffers an oracle will use without changing its cache history.
+function _checkbuffer(cache, ::Type{T}, dims::NTuple{N, Int}) where {T, N}
+  cache isa Array{T, N} && size(cache) == dims && return cache
+  Array{T, N}(undef, dims)
+end
+_checkbuffer(s::Scratch, ::Type{T}, dims::NTuple{N, Int}) where {T, N} = _checkbuffer(s.buf, T, dims)
+function _checkvector(s::Scratch, ::Type{T}, n::Integer) where {T}
+  b = s.buf
+  b isa Vector{T} && length(b) >= n && return b
+  Vector{T}(undef, n)
+end
+
 # Scratch is an implementation detail: copies of a function object share no buffer
 Base.copy(s::Scratch) = Scratch()
 Base.deepcopy_internal(::Scratch, ::IdDict) = Scratch()

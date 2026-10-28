@@ -34,6 +34,7 @@ tests = [
   "affine",
   "calculus",
   "blockchecks",
+  "blockchecks_wrappers",
   "constrained",
   "spectralfunction",
   "ballconstrained",

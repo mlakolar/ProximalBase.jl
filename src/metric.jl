@@ -83,8 +83,7 @@ end
 
 # Moreau's identity in each entry: prox_{γᵢfᵢ*}(xᵢ) = xᵢ - γᵢ prox_{fᵢ/γᵢ}(xᵢ/γᵢ)
 function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
-  _checksize(y, x)
-  _checkparams(c, x)
+  _checkwrite(prox!, c, y, x)
   _checkparam(γ, x)
   T = float(eltype(y))
   z = _array_buffer!(c.scratch, T, size(x))
@@ -94,7 +93,7 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArr
 end
 
 function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
-  _checkparams(c, x)
+  _checkwrite(value_and_prox!, c, y, x)
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
     return _conjugate_value(c.f, y)

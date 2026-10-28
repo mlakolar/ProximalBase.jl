@@ -46,6 +46,8 @@ struct IndBallL0 <: AbstractFunction
 end
 
 isproximable(::Type{IndBallL0}) = true
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::IndBallL0, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); true)
 _isindicator(::Type{IndBallL0}) = true
 
 # whether entry i of x is one that counts
@@ -86,7 +88,7 @@ function (f::IndBallL0)(x::Union{Symmetric, SymmetricSparseIterate})
 end
 
 function prox!(y::AbstractArray, f::IndBallL0, x::AbstractArray, ::Real)
-  _checksize(y, x)
+  _checkwrite(prox!, f, y, x)
   if _count_nonzero(f, x) <= f.s
     y === x || copyto!(y, x)
     return y
@@ -155,7 +157,7 @@ end
 
 # the stored entries of a vector hold every nonzero
 function prox!(y::SparseIterate{<:Any, 1}, f::IndBallL0, x::SparseIterate{<:Any, 1}, γ::Real)
-  _checksize(y, x)
+  _checkwrite(prox!, f, y, x)
   nz = _count_nonzero(f, x)
   if nz <= f.s
     y === x || copyto!(y, x)
@@ -187,7 +189,7 @@ end
 # a symmetric matrix: the entries of the lower triangle, each counted once and
 # written to both triangles of a dense output
 function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSparseIterate}, ::Real)
-  _checksize(y, x)
+  _checkwrite(prox!, f, y, x)
   p = checksquare(x)
   T = float(eltype(x))
   first_row(c) = f.diagonal ? c : c + 1
@@ -256,6 +258,8 @@ end
 IndBallL1(r::Real = 1) = IndBallL1{typeof(r)}(r)
 
 isproximable(::Type{<:IndBallL1}) = true
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::IndBallL1, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); true)
 _isindicator(::Type{<:IndBallL1}) = true
 isconvex(::Type{<:IndBallL1}) = true
 
@@ -270,7 +274,7 @@ function (f::IndBallL1)(x::AbstractArray)
 end
 
 function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, ::Real)
-  _checksize(y, x)
+  _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   r = convert(T, f.r)
   if norm(x, 1) <= r
@@ -303,6 +307,8 @@ end
 IndBallL2(r::Real = 1) = IndBallL2{typeof(r)}(r)
 
 isproximable(::Type{<:IndBallL2}) = true
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::IndBallL2, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); true)
 _isindicator(::Type{<:IndBallL2}) = true
 isconvex(::Type{<:IndBallL2}) = true
 
@@ -330,7 +336,7 @@ end
 end
 
 function prox!(y::AbstractArray, f::IndBallL2, x::AbstractArray, ::Real)
-  _checksize(y, x)
+  _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   nx = convert(T, _norm2(x))
   r = convert(T, f.r)
@@ -422,6 +428,8 @@ end
 IndSimplex(r::Real = 1; equality::Bool = true) = IndSimplex{typeof(r)}(r, equality)
 
 isproximable(::Type{<:IndSimplex}) = true
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::IndSimplex, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); true)
 _isindicator(::Type{<:IndSimplex}) = true
 isconvex(::Type{<:IndSimplex}) = true
 
@@ -452,7 +460,7 @@ end
 end
 
 function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, ::Real)
-  _checksize(y, x)
+  _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   r = convert(T, f.r)
   if !f.equality

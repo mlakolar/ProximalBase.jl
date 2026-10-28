@@ -95,6 +95,9 @@ end
 NuclearNorm(λ::Real = 1; partial::Bool = false) = NuclearNorm{typeof(λ)}(λ; partial)
 
 isproximable(::Type{<:NuclearNorm}) = true
+_argument_type(::Type{<:NuclearNorm}) = AbstractMatrix
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NuclearNorm, Y::AbstractMatrix, X::AbstractMatrix) =
+  (_checksize(Y, X); true)
 isconvex(::Type{<:NuclearNorm}) = true
 
 function (f::NuclearNorm)(X::AbstractMatrix)
@@ -108,7 +111,7 @@ function (f::NuclearNorm)(X::AbstractMatrix)
 end
 
 function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real)
-  _checksize(Y, X)
+  _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
   if iszero(f.λ)
     Y === X || copyto!(Y, X)
@@ -171,6 +174,9 @@ mutable struct IndBallRank <: AbstractFunction
 end
 
 isproximable(::Type{IndBallRank}) = true
+_argument_type(::Type{<:IndBallRank}) = AbstractMatrix
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::IndBallRank, Y::AbstractMatrix, X::AbstractMatrix) =
+  (_checksize(Y, X); true)
 _isindicator(::Type{IndBallRank}) = true
 
 function (f::IndBallRank)(X::AbstractMatrix)
@@ -192,7 +198,7 @@ end
 end
 
 function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, ::Real)
-  _checksize(Y, X)
+  _checkwrite(prox!, f, Y, X)
   T = float(eltype(Y))
   if minimum(size(X)) <= f.r
     Y === X || copyto!(Y, X)
@@ -252,6 +258,7 @@ function IndPSD(; rank::Union{Nothing, Integer} = nothing, partial::Bool = false
 end
 
 isproximable(::Type{<:IndPSD}) = true
+_argument_type(::Type{<:IndPSD}) = AbstractMatrix
 _isindicator(::Type{<:IndPSD}) = true
 isconvex(::Type{IndPSD{Nothing}}) = true
 
@@ -356,6 +363,7 @@ end
 TracePSD(λ::Real = 1; partial::Bool = false) = TracePSD{typeof(λ)}(λ; partial)
 
 isproximable(::Type{<:TracePSD}) = true
+_argument_type(::Type{<:TracePSD}) = AbstractMatrix
 isconvex(::Type{<:TracePSD}) = true
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::TracePSD, Y::AbstractMatrix, X::AbstractMatrix) =

@@ -27,6 +27,7 @@ end
 TotalVariation1D(λ::Real = 1) = TotalVariation1D{typeof(λ)}(λ)
 
 isproximable(::Type{<:TotalVariation1D}) = true
+_argument_type(::Type{<:TotalVariation1D}) = AbstractVector
 isconvex(::Type{<:TotalVariation1D}) = true
 
 function _tv(x::AbstractVector)
@@ -42,7 +43,7 @@ end
   (T = float(eltype(x)); iszero(f.λ) ? zero(T) : convert(T, f.λ) * _tv(x))
 
 prox!(y::AbstractVector, f::TotalVariation1D, x::AbstractVector, γ::Real) =
-  _tv_denoise!(y, x, convert(float(eltype(y)), γ * f.λ))
+  (_checkwrite(prox!, f, y, x); _tv_denoise!(y, x, convert(float(eltype(y)), γ * f.λ)))
 value_and_prox!(y::AbstractVector, f::TotalVariation1D, x::AbstractVector, γ::Real) =
   f(prox!(y, f, x, γ))
 
@@ -158,6 +159,7 @@ end
 FusedLasso(λ1::Real, λ2::Real) = (p = promote(λ1, λ2); FusedLasso{typeof(p[1])}(p...))
 
 isproximable(::Type{<:FusedLasso}) = true
+_argument_type(::Type{<:FusedLasso}) = AbstractVector
 isconvex(::Type{<:FusedLasso}) = true
 
 function (f::FusedLasso)(x::AbstractVector)
@@ -167,6 +169,7 @@ function (f::FusedLasso)(x::AbstractVector)
 end
 
 function prox!(y::AbstractVector, f::FusedLasso, x::AbstractVector, γ::Real)
+  _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   _tv_denoise!(y, x, convert(T, γ * f.λ2))
   c = convert(T, γ * f.λ1)
@@ -227,6 +230,7 @@ end
 IndIsotonic(; decreasing::Bool = false) = IndIsotonic(decreasing, Scratch(), Scratch())
 
 isproximable(::Type{IndIsotonic}) = true
+_argument_type(::Type{<:IndIsotonic}) = AbstractVector
 isconvex(::Type{IndIsotonic}) = true
 _isindicator(::Type{IndIsotonic}) = true
 
@@ -241,8 +245,7 @@ function (f::IndIsotonic)(x::AbstractVector)
 end
 
 function prox!(y::AbstractVector, f::IndIsotonic, x::AbstractVector, ::Real)
-  _checksize(y, x)
-  Base.require_one_based_indexing(y, x)
+  _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   n = length(x)
   _pava!(y, x, _buffer!(f.sums, T, n), _buffer!(f.sizes, Int, n), f.decreasing ? -1 : 1)
@@ -281,8 +284,17 @@ end
 SLOPE(λ::AbstractVector{<:Real}) = SLOPE{typeof(λ)}(λ)
 
 isproximable(::Type{<:SLOPE}) = true
+_argument_type(::Type{<:SLOPE}) = AbstractVector
 isconvex(::Type{<:SLOPE}) = true
 _checkparams(f::SLOPE, x) = (_checkparam(f.λ, x); true)
+
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)},
+                     f::Union{TotalVariation1D, FusedLasso, IndIsotonic, SLOPE}, y::AbstractVector, x::AbstractVector)
+  _checksize(y, x)
+  _checkparams(f, x)
+  Base.require_one_based_indexing(y, x)
+  true
+end
 
 # the magnitudes a of x and the indices p that sort them in decreasing order,
 # in the buffers of f, allocating nothing: an in-place quicksort for short
@@ -317,9 +329,7 @@ function (f::SLOPE)(x::AbstractVector)
 end
 
 function value_and_prox!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Real)
-  _checksize(y, x)
-  _checkparams(f, x)
-  Base.require_one_based_indexing(y, x)
+  _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
   n = length(x)
   p, a = _sortperm_abs!(f, x, T)

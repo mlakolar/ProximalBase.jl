@@ -62,6 +62,7 @@ end
 SingularValue(f::AbstractFunction) = SingularValue{typeof(f)}(f)
 
 isproximable(::Type{<:SingularValue}) = true
+_argument_type(::Type{<:SingularValue}) = AbstractMatrix
 isconvex(::Type{<:SingularValue{F}}) where {F} = isconvex(F)
 _isindicator(::Type{<:SingularValue{F}}) where {F} = _isindicator(F)
 
@@ -113,7 +114,7 @@ end
 end
 
 function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real)
-  _checksize(Y, X)
+  _checkwrite(value_and_prox!, F, Y, X)
   T = float(eltype(Y))
   ws = _svd_workspace(F.ws, T, size(X)...)
   F.ws = ws
@@ -138,5 +139,21 @@ function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix,
 end
 prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, F, X, γ); Y)
 
+function _checkspectrum(F::SingularValue, ::Type{T}, dims::Tuple) where {T}
+  ws = F.ws
+  k = min(dims...)
+  ws isa SVDWorkspace{T} && (ws.m, ws.n) == dims ? ws.s : Vector{T}(undef, k)
+end
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, F::SingularValue, Y::AbstractMatrix, X::AbstractMatrix)
+  _checksize(Y, X)
+  T = float(eltype(Y))
+  s = _checkspectrum(F, T, size(X))
+  t = _checkbuffer(F.t, T, size(s))
+  _checkwrite(value_and_prox!, F.f, t, s)
+end
+_checkvalue(F::SingularValue, X::AbstractMatrix) =
+  _checkvalue(F.f, _checkbuffer(F.t, float(eltype(X)), (min(size(X)...),)))
+
 # the conjugate of f ∘ σ is f* ∘ σ (Lewis, 1995)
-_conjugate_value(F::SingularValue, Y::AbstractMatrix) = _conjugate_value(F.f, _singular_values!(F, Y))
+_checkconjugate(F::SingularValue, Y::AbstractMatrix) = _checkconjugate(F.f, _checkspectrum(F, float(eltype(Y)), size(Y)))
+_conjugate_value(F::SingularValue, Y::AbstractMatrix) = (_checkconjugate(F, Y); _conjugate_value(F.f, _singular_values!(F, Y)))

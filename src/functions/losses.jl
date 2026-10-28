@@ -144,7 +144,7 @@ restrict(f::EpsInsensitiveLoss, S::AbstractVector{<:Integer}) = EpsInsensitiveLo
 # the values of their conjugates, for Conjugate, within the tolerance of the
 # indicator functions (_within is in calculus.jl)
 function _conjugate_value(f::CheckLoss, s::AbstractArray)
-  _checkparams(f, s)
+  _checkconjugate(f, s)
   T = float(eltype(s))
   τ = convert(T, f.τ)
   @inbounds for i in eachindex(IndexLinear(), s)
@@ -154,7 +154,7 @@ function _conjugate_value(f::CheckLoss, s::AbstractArray)
   zero(T)
 end
 function _conjugate_value(f::HingeLoss, s::AbstractArray)
-  _checkparams(f, s)
+  _checkconjugate(f, s)
   T = float(eltype(s))
   v = zero(T)
   @inbounds for i in eachindex(IndexLinear(), s)
@@ -165,7 +165,7 @@ function _conjugate_value(f::HingeLoss, s::AbstractArray)
   v
 end
 function _conjugate_value(f::EpsInsensitiveLoss, s::AbstractArray)
-  _checkparams(f, s)
+  _checkconjugate(f, s)
   T = float(eltype(s))
   v = zero(T)
   @inbounds for i in eachindex(IndexLinear(), s)

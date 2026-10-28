@@ -205,6 +205,7 @@ const HuberLoss = GLMLoss{<:Huber}
 HuberLoss(y::AbstractVector, X::AbstractMatrix, δ::Real; kwargs...) = GLMLoss(Huber(δ), y, X; kwargs...)
 
 issmooth(::Type{<:GLMLoss}) = true
+_argument_type(::Type{<:GLMLoss}) = AbstractVector
 isconvex(::Type{<:GLMLoss}) = true
 
 _checkpredictor(f::GLMLoss, β::AbstractVector) =

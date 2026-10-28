@@ -63,7 +63,14 @@ function AffineConstrained(f::Union{LeastSquaresLoss, QuadraticFunction}, set::I
 end
 
 isproximable(::Type{<:AffineConstrained}) = true
+_argument_type(::Type{<:AffineConstrained}) = AbstractVector
 isconvex(::Type{<:AffineConstrained}) = true
+
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, c::AffineConstrained, y::AbstractVector, x::AbstractVector)
+  _checksize(y, x)
+  _checkaffine(c.set, x)
+  _checkwrite(prox!, c.f, y, x)
+end
 
 (c::AffineConstrained)(x::AbstractVector) = (T = float(eltype(x)); iszero(c.set(x)) ? convert(T, c.f(x)) : T(Inf))
 
@@ -119,8 +126,7 @@ function _affine_factor!(c::AffineConstrained{T}, γ::T) where {T}
 end
 
 function prox!(y::AbstractVector, c::AffineConstrained{T}, x::AbstractVector, γ::Real) where {T}
-  _checksize(y, x)
-  _checkaffine(c.set, x)
+  _checkwrite(prox!, c, y, x)
   y isa StridedVector || return copyto!(y, prox!(_array_buffer!(c.output, T, size(y)), c, x, γ))
   _affine_cache!(c)
   s = convert(T, γ)

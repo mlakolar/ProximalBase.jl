@@ -62,6 +62,26 @@ function Precompose(f::AbstractFunction, a::Real)
 end
 
 const _ScalarPrecompose = Precompose{<:AbstractFunction, <:Real}
+_argument_type(::Type{<:Precompose{<:AbstractFunction, <:AbstractMatrix}}) = AbstractVector
+
+function _checkimage(h::Precompose, x)
+  _checkargument(h, x)
+  h.A isa AbstractMatrix && size(h.A, 2) != length(x) &&
+    throw(DimensionMismatch("A has $(size(h.A, 2)) columns and the argument has length $(length(x))"))
+  T = float(promote_type(eltype(x), eltype(h.A)))
+  _checkbuffer(h.image, T, (size(h.A, 1),))
+end
+_checkimage(h::_ScalarPrecompose, x) = _checkbuffer(h.image, float(promote_type(eltype(x), typeof(h.A))), size(x))
+
+function _checkwrite(op::O, h::Precompose, y::AbstractArray, x::AbstractArray) where {O}
+  _checksize(y, x)
+  z = _checkimage(h, x)
+  _checkparams(h.f, z)
+  b = h isa _ScalarPrecompose && (op === prox! || op === value_and_prox!) ? z :
+      _checkbuffer(h.inner, eltype(z), size(z))
+  _checkwrite(op, h.f, b, z)
+end
+_checkvalue(h::Precompose, x::AbstractArray) = _checkvalue(h.f, _checkimage(h, x))
 
 for trait in (:issmooth, :isproximable, :isconvex)
   @eval $trait(::Type{<:Precompose{F}}) where {F} = $trait(F)
@@ -87,7 +107,7 @@ _inner_buffer(h::Precompose, z::AbstractArray) = _array_buffer!(h.inner, eltype(
 (h::Precompose)(x::AbstractArray) = h.f(_image!(h, x))
 
 function value_and_gradient!(g::AbstractArray, h::Precompose, x::AbstractArray)
-  _checksize(g, x)
+  _checkwrite(value_and_gradient!, h, g, x)
   z = _image!(h, x)
   _checkparams(h.f, z)
   b = _inner_buffer(h, z)
@@ -96,7 +116,7 @@ function value_and_gradient!(g::AbstractArray, h::Precompose, x::AbstractArray)
   v
 end
 function gradient!(g::AbstractArray, h::Precompose, x::AbstractArray)
-  _checksize(g, x)
+  _checkwrite(gradient!, h, g, x)
   z = _image!(h, x)
   _checkparams(h.f, z)
   b = _inner_buffer(h, z)
@@ -110,12 +130,12 @@ _adjoint_apply!(g, h::_ScalarPrecompose, b) = (g .= h.A .* b)
 
 # y = x + A'(P - Ax)/μ, with P - Ax in the buffer; for a scalar a, y = P/a
 function prox!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real)
-  _checksize(y, x)
+  _checkwrite(prox!, h, y, x)
   _value_and_prox_precompose!(y, h, x, γ, false)
   y
 end
 value_and_prox!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real) =
-  (_checksize(y, x); _value_and_prox_precompose!(y, h, x, γ, true))
+  (_checkwrite(value_and_prox!, h, y, x); _value_and_prox_precompose!(y, h, x, γ, true))
 
 function _value_and_prox_precompose!(y, h::Precompose, x, γ, withvalue::Bool)
   z = _image!(h, x)
@@ -146,7 +166,7 @@ function _checkparams(h::Precompose{<:AbstractFunction, <:AbstractMatrix}, x::Ab
   size(h.A, 2) == length(x) ||
     throw(DimensionMismatch("A has $(size(h.A, 2)) columns and the argument has length $(length(x))"))
   T = float(promote_type(eltype(x), eltype(h.A)))
-  z = _array_buffer!(h.image, T, (size(h.A, 1),))
+  z = _checkbuffer(h.image, T, (size(h.A, 1),))
   _checkparams(h.f, z)
 end
 # 0 ∈ gᵢ + a∂fᵢ(0) when 0 ∈ gᵢ/a + ∂fᵢ(0)
@@ -201,6 +221,12 @@ _ridge(r::Regularize, x::AbstractArray) =
   convert(float(eltype(x)), r.ρ) * (r.c === nothing ? _sumabs2(x) : _sumabs2_diff(x, r.c)) / 2
 
 (r::Regularize)(x::AbstractArray) = (_checkparams(r, x); r.f(x) + _ridge(r, x))
+function _checkvalue(r::Regularize, x::AbstractArray)
+  _checkparams(r, x)
+  _checkvalue(r.f, x)
+  r.c === nothing || _checksize(x, r.c)
+  true
+end
 
 function value_and_gradient!(g::AbstractArray, r::Regularize, x::AbstractArray)
   _checkwrite(value_and_gradient!, r, g, x)

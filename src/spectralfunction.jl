@@ -50,11 +50,19 @@ end
 Spectral(f::AbstractFunction) = Spectral{typeof(f)}(f)
 
 isproximable(::Type{<:Spectral}) = true
+_argument_type(::Type{<:Spectral}) = AbstractMatrix
 isconvex(::Type{<:Spectral{F}}) where {F} = isconvex(F)
 _isindicator(::Type{<:Spectral{F}}) where {F} = _isindicator(F)
 
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix) =
-  (_checksize(Y, X); checksquare(X); true)
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix)
+  _checksize(Y, X)
+  n = checksquare(X)
+  T = float(eltype(Y))
+  ws = s.eig
+  λ = ws isa SymEigenWorkspace{T} && ws.n == n ? ws.w : Vector{T}(undef, n)
+  z = _checkvector(s.z, T, n)
+  _checkwrite(value_and_prox!, s.f, z, λ)
+end
 
 function (s::Spectral)(X::AbstractMatrix)
   T = float(eltype(X))

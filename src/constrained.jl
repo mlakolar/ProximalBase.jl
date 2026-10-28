@@ -147,17 +147,27 @@ Base.@propagate_inbounds prox_entry(c::BoxConstrained, v::Real, i::Integer, γ::
   prox_entry(c.box, prox_entry(c.f, v, i, γ), i, γ)
 
 # γ is a scalar step or an array of steps, one per entry
-prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = _prox_sep!(y, c, x, γ)
-prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = _prox_sep!(y, c, x, γ)
+prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = (_checkwrite(prox!, c, y, x); _prox_sep!(y, c, x, γ))
+prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = (_checkwrite(prox!, c, y, x); _prox_sep!(y, c, x, γ))
 value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = _value_and_prox_box!(y, c, x, γ)
 value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_box!(y, c, x, γ)
 function _value_and_prox_box!(y, c, x, γ)
+  _checkwrite(value_and_prox!, c, y, x)
   _prox_sep!(y, c, x, γ)
   T = float(eltype(y))
   _isindicator(c) ? zero(T) : convert(T, c.f(y))
 end
 
 _checkparams(c::BoxConstrained, x) = (_checkparams(c.f, x); _checkparams(c.box, x); true)
+function _checkwrite(op::O, c::Union{BoxConstrained, LinearConstrained}, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checksize(y, x)
+  _checkparams(c, x)
+  op === value_and_prox! && !_isindicator(c) && _checkvalue(c.f, y)
+  true
+end
+# Membership can return Inf without evaluating the inner value.
+_checkvalue(c::BoxConstrained, x::AbstractArray) = _checkparams(c, x)
+_checkvalue(c::LinearConstrained, x::AbstractArray) = _checkvalue(c.set, x)
 iszeropreserving(c::BoxConstrained) = iszeropreserving(c.f) && iszeropreserving(c.box)
 
 # For a convex f with 0 in its domain, the proximal step of f from -gᵢ moves in
@@ -188,8 +198,7 @@ prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArra
   (_checkparam(γ, x); _linear_constrained_prox!(y, c, x, γ))
 
 function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ)
-  _checksize(y, x)
-  _checkparams(c, x)
+  _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
   ν = _multiplier(c, x, γ, T)
   set = c.set
@@ -210,6 +219,7 @@ end
 value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) = _value_and_prox_linear!(y, c, x, γ)
 value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_linear!(y, c, x, γ)
 function _value_and_prox_linear!(y, c, x, γ)
+  _checkwrite(value_and_prox!, c, y, x)
   prox!(y, c, x, γ)
   T = float(eltype(y))
   _isindicator(c) ? zero(T) : convert(T, c.f(y))
@@ -671,6 +681,28 @@ end
 # values the Ky Fan k-norm.
 function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}},
                           y::AbstractArray)
+  _checkconjugate(c, y)
+  T = float(eltype(y))
+  box, set = c.f, c.set
+  n = length(y)
+  upper = set isa IndHyperplane || set.a > 0
+  s = upper ? one(T) : -one(T)
+  l, u = upper ? (convert(T, box.l), convert(T, box.u)) : (-convert(T, box.u), -convert(T, box.l))
+  β = _isscaled(set) ? s * convert(T, set.b / float(set.a)) : s * convert(T, set.b) / convert(T, set.a)
+  v = _buffer!(c.scratch, T, n)
+  total = zero(T)
+  @inbounds for (i, yi) in enumerate(y)
+    z = s * convert(T, yi)
+    total += z
+    v[i] = set isa IndHyperplane ? z : max(z, zero(T))
+  end
+  m = β - n * l                                   # the sum of w, times u - l
+  iszero(u - l) && return l * total
+  κ = clamp(m / (u - l), zero(T), convert(T, n))
+  return l * total + (u - l) * _top_sum!(view(v, 1:n), κ)
+end
+
+function _checkconjugate(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}}, y::AbstractArray)
   T = float(eltype(y))
   box, set = c.f, c.set
   n = length(y)
@@ -681,18 +713,9 @@ function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union
     throw(ArgumentError("the value of the conjugate of Constrained(IndBox(l, u), $(nameof(typeof(set)))(a, b)) needs finite bounds"))
   β = _isscaled(set) ? s * convert(T, set.b / float(set.a)) : s * convert(T, set.b) / convert(T, set.a)
   slack = _tol(T) * max(one(T), abs(β), n * abs(l))
-  v = _buffer!(c.scratch, T, n)
-  total = zero(T)
-  @inbounds for (i, yi) in enumerate(y)
-    z = s * convert(T, yi)
-    total += z
-    v[i] = set isa IndHyperplane ? z : max(z, zero(T))
-  end
-  m = β - n * l                                   # the sum of w, times u - l
+  m = β - n * l
   (m < -slack || (set isa IndHyperplane && m > n * (u - l) + slack)) && _infeasible(c)
-  iszero(u - l) && return l * total
-  κ = clamp(m / (u - l), zero(T), convert(T, n))
-  return l * total + (u - l) * _top_sum!(view(v, 1:n), κ)
+  true
 end
 
 _has_conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}}) =

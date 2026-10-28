@@ -81,6 +81,7 @@ function IndAffine(A::AbstractMatrix, b::AbstractVector; μ::Union{Nothing, Real
 end
 
 isproximable(::Type{<:IndAffine}) = true
+_argument_type(::Type{<:IndAffine}) = AbstractVector
 _isindicator(::Type{<:IndAffine}) = true
 isconvex(::Type{<:IndAffine}) = true
 

@@ -303,6 +303,10 @@ function coordinate_lipschitz(f::GLMLoss{L, T}, k::Integer) where {L, T}
 end
 
 coordinate_lipschitz(::LogDetLoss{T}, ::Integer) where {T} = T(Inf)
+Base.@propagate_inbounds function coordinate_lipschitz(f::BernoulliLoss, k::Integer)
+  w = float(_entry(f.w, k))
+  iszero(w) ? zero(w) : oftype(w, Inf)
+end
 
 coordinate_lipschitz(s::Scaled, k::Integer) = s.α * coordinate_lipschitz(s.f, k)
 coordinate_lipschitz!(L::AbstractArray, s::Scaled) = (coordinate_lipschitz!(L, s.f); L .*= s.α)

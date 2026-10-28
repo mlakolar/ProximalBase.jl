@@ -17,6 +17,7 @@ tests = [
   "separable",
   "losses",
   "entropy",
+  "bernoulli",
   "norms",
   "sparsegroup",
   "fibers",

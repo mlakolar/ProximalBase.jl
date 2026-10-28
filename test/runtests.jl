@@ -26,6 +26,7 @@ tests = [
   "sets",
   "extreme_normals",
   "large_inputs",
+  "spectral_overflow",
   "ordered",
   "nonconvex",
   "lla",

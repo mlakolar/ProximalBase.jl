@@ -60,6 +60,7 @@ function (s::Spectral)(X::AbstractMatrix)
   ws = _eig_workspace(s.eig, T, n)
   s.eig = ws
   copyto!(ws.A, X)
+  _isindicator(s.f) && !all(isfinite, ws.A) && return T(Inf)
   convert(T, s.f(_eigvals!(ws)))
 end
 

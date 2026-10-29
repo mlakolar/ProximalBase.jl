@@ -56,13 +56,13 @@ function reset_cache!(f::IndPolyhedron)
   f
 end
 
-for F in (:Scaled, :Tilt, :Translate, :Conjugate, :Precompose, :Regularize,
-          :MoreauEnvelope, :Spectral, :SingularValue, :BallConstrained,
+for F in (:Scaled, :Tilt, :Translate, :Conjugate, :Precompose, :_ArrayPrecompose, :Regularize,
+          :MoreauEnvelope, :SqrDistL2, :Spectral, :SingularValue, :BallConstrained,
           :SphereConstrained, :BoxConstrained, :LinearConstrained)
   @eval reset_cache!(f::$F) = (reset_cache!(f.f); f)
 end
 
-for F in (:Sum, :SeparableSum, :SliceSum)
+for F in (:Sum, :SeparableSum, :SliceSum, :PointwiseMinimum)
   @eval reset_cache!(s::$F) = (foreach(reset_cache!, s.fs); s)
 end
 

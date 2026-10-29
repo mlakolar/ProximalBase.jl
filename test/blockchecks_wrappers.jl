@@ -278,6 +278,9 @@ end
   block_failure(s, Matrix(2.0I, 2, 2), errors(proximal, DimensionMismatch))
 end
 
+_allocation_prox!(y, f, x, γ) = prox!(y, f, x, γ)
+_allocation_value_and_prox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
+
 @testset "Wrapper checks allocate nothing" begin
   for (f, point, ops) in (
       (Precompose(SqrNormL2(), 2.0), [3.0, 4.0], oracles),
@@ -305,6 +308,24 @@ end
   for fs in ((Precompose(SqrNormL2(), 2.0), Precompose(SqrNormL2(), 2.0)),
              [Precompose(SqrNormL2(), 2.0), Precompose(SqrNormL2(), 2.0)])
     @test PB.Testing.allocations(prox!, similar(x), SliceSum(fs), x, 1.0) == 0
+  end
+  L, U = fill(-Inf, 8, 8), fill(Inf, 8, 8)
+  L[diagind(L)] .= 1
+  U[diagind(U)] .= 1
+  for T in (Float32, Float64)
+    M = fill(T(1.1), 8, 8)
+    M[diagind(M)] .= one(T)
+    v = collect(T, range(-2, 2; length = 30))
+    cases = ((IndIntersection(IndPSD(), IndBox(L, U)), M),
+             (IndIntersection(IndBox(-1.0, 1.0), IndHyperplane(collect(1.0:30.0), 0.5)), v))
+    for (f, point) in cases, block in (false, true), alias in (false, true)
+      x = block ? ([T(3)], copy(point)) : copy(point)
+      s = block ? SeparableSum(SqrNormL2(2.0), f) : f
+      y = alias ? x : deepcopy(x)
+      for op in (_allocation_prox!, _allocation_value_and_prox!)
+        @test PB.Testing.allocations(op, y, s, x, 1.0) == 0
+      end
+    end
   end
 end
 

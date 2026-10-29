@@ -104,10 +104,11 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndInte
 end
 function _checkintersection(f::IndIntersection, ::Type{T}, dims::NTuple{N, Int}) where {T, N}
   b = f.buffers
-  if b isa _DykstraBuffers{T, N} && size(b.y) == dims
-    y, w = b.y, b.w
+  # Bind once so the closure does not box y and w.
+  y, w = if b isa _DykstraBuffers{T, N} && size(b.y) == dims
+    b.y, b.w
   else
-    y, w = Array{T, N}(undef, dims), Array{T, N}(undef, dims)
+    Array{T, N}(undef, dims), Array{T, N}(undef, dims)
   end
   map(C -> _checkwrite(prox!, C, y, w), f.sets)
   true

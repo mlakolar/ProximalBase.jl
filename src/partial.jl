@@ -70,7 +70,8 @@ end
 
 # X as a dense matrix of eltype T that BLAS can read: X itself, or a copy in
 # the workspace's buffer
-_dense_input(ws, X::StridedMatrix{T}, ::Type{T}) where {T} = X
+_dense_input(ws, X::StridedMatrix{T}, ::Type{T}) where {T} =
+  _blas_ready(X) ? X : copyto!(_array_buffer!(ws.dense, T, size(X)), X)
 _dense_input(ws, X::AbstractMatrix, ::Type{T}) where {T} = copyto!(_array_buffer!(ws.dense, T, size(X)), X)
 
 ####################################
@@ -293,7 +294,7 @@ function _partial_svd_out!(Y::AbstractMatrix, ws::PartialSVDWorkspace{T}, k::Int
   else
     B = _array_buffer!(ws.dense, T, size(Y))
     mul!(B, view(U, :, 1:k), transpose(view(V, :, 1:k)))
-    copyto!(Y, B)
+    _copyto_rounded!(Y, B)
   end
   Y
 end
@@ -324,7 +325,7 @@ mutable struct PartialEigenWorkspace{T<:_BlasReal}
   θ::Vector{T}                 # the Ritz values, in ascending order
   small::SymEigenWorkspace{T}  # the eigendecomposition of the ℓ × ℓ matrix VᵀAV
   qr::QRWorkspace{T}
-  dense::Scratch               # a dense copy of an input or output that is not strided
+  dense::Scratch               # a dense copy of an input or output BLAS cannot use
   seed::UInt64
   warm::Int                    # the last columns of Z that start the next call
   rank::Int                    # the number of pairs kept at the last call
@@ -458,7 +459,7 @@ function _partial_eigen_out!(Y::AbstractMatrix, ws::PartialEigenWorkspace{T}, k:
       s += max(f(θ[j]), zero(T))
     end
   end
-  if Y isa StridedMatrix
+  if _blas_ready(Y)
     _rebuild_sym!(Y, ws.AU, θ, f)
   else
     B = _array_buffer!(ws.dense, T, (ws.n, ws.n))

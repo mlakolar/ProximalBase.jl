@@ -66,6 +66,7 @@ function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, t, y, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)
+  _check_symmetric_source(y, γ)
   y .= x .- γ .* t.c
   prox!(y, t.f, y, γ)
 end
@@ -73,6 +74,7 @@ function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Abstra
   _checkwrite(value_and_prox!, t, y, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)
+  _check_symmetric_source(y, γ)
   y .= x .- γ .* t.c
   value_and_prox!(y, t.f, y, γ) + dot(t.c, y) + t.d
 end

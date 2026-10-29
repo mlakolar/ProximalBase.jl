@@ -38,6 +38,37 @@ end
 end
 @inline _positive_product(a::Real, b::Real, c::Real) = _positive_product(promote(float(a), float(b), float(c))...)
 
+# Weights of separable functions: an infinite weight fixes the entry at zero,
+# at every level and step, and a zero weight leaves it unpenalized at every
+# level. These helpers keep the ordinary products of positive finite scales,
+# so that loops over entries are unchanged.
+
+# the coefficient s⋅w of an entry with the weight w ≥ 0 at the scale s ≥ 0 (a
+# level, or a step times a level); the test of s does not depend on the entry.
+# Otherwise s⋅w is NaN only as 0⋅Inf, where the weight decides: Inf for an
+# infinite weight, 0 for a zero one.
+@inline function _weight_coefficient(s, w)
+  p = s * w
+  (s > zero(s)) & isfinite(s) && return p
+  ifelse(isnan(p) & !isnan(s), oftype(p, w), p)
+end
+@inline _weight_coefficient(γ, λ, w) = _weight_coefficient(γ * λ, w)
+
+# γλw as _positive_product, where an infinite weight gives Inf also when γλ is
+# zero; only the exceptional path tests the weight
+@inline function _weight_product(a::T, b::T, w::T) where {T<:AbstractFloat}
+  ab = a * b
+  p = ab * w
+  floatmin(T) <= ab <= floatmax(T) && return p
+  isinf(w) ? T(Inf) : _exceptional_product(a, b, w, p)
+end
+@inline _weight_product(a::Real, b::Real, w::Real) = _weight_product(promote(float(a), float(b), float(w))...)
+
+# the value p = c⋅φ of a term with the coefficient c and the unweighted value
+# φ ≥ 0: zero where c⋅φ is 0⋅Inf (an infinite weight at a zero entry, a zero
+# coefficient at an infinite entry); NaN arguments propagate
+@inline _weighted_value(p, φ) = ifelse(isnan(p) & !isnan(φ), zero(p), p)
+
 # Keep the power outside the floating-point range until the final rounding.
 @inline function _scaled_product(w::T, v::T, k::Int) where {T<:AbstractFloat}
   (iszero(w) || iszero(v)) && return w * v

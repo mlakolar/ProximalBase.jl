@@ -12,10 +12,13 @@ from known ones.
 | [`Conjugate`](@ref)`(f)` | ``f^*(x) = \sup_z \langle z, x\rangle - f(z)`` | ``x - \gamma\operatorname{prox}_{f/\gamma}(x/\gamma)`` | |
 | [`SeparableSum`](@ref)`(f1, f2, ...)` | ``\sum_k f_k(x_k)`` on a tuple of blocks | block by block | block by block |
 | [`Sum`](@ref)`(f1, f2, ...)` | ``\sum_k f_k(x)`` | | ``\sum_k \nabla f_k(x)`` |
+| [`PointwiseMinimum`](@ref)`(f1, f2, ...)` | ``\min_k f_k(x)`` | the candidate with the smallest proximal objective | |
 | [`Constrained`](@ref)`(f, C)` | ``f(x)`` on a box, hyperplane, halfspace or simplex ``C`` | on a box, ``\operatorname{clamp}(\operatorname{prox}_{\gamma f}(x), l, u)``; on a hyperplane, ``\operatorname{prox}_{\gamma f}(x - \gamma\nu a)`` | |
 | [`Spectral`](@ref)`(f)` | ``f(\lambda(X))`` for a symmetric ``X`` | ``V\operatorname{diag}(\operatorname{prox}_{\gamma f}(\lambda))V^\top`` | |
 | [`MoreauEnvelope`](@ref)`(f, μ)` | ``\min_z f(z) + \tfrac{1}{2\mu}\lVert z - x\rVert^2`` | ``x + \tfrac{\gamma}{\mu + \gamma}\big(\operatorname{prox}_{(\mu+\gamma) f}(x) - x\big)`` | ``\big(x - \operatorname{prox}_{\mu f}(x)\big)/\mu`` |
+| [`SqrDistL2`](@ref)`(C, λ)` | ``\tfrac{\lambda}{2}\operatorname{dist}(x,C)^2`` | ``(x + \gamma\lambda P_C(x))/(1 + \gamma\lambda)`` | ``\lambda(x - P_C(x))`` where the projection is unique |
 | [`Precompose`](@ref)`(f, A, μ)`, ``AA^\top = \mu I`` | ``f(Ax)`` | ``x + \tfrac1\mu A^\top\big(\operatorname{prox}_{\mu\gamma f}(Ax) - Ax\big)`` | ``A^\top\nabla f(Ax)`` |
+| [`Precompose`](@ref)`(f, a)`, array `a`, separable `f` | ``f(a \odot x)`` | ``\operatorname{prox}_{\gamma a_i^2 f_i}(a_i x_i)/a_i`` in entry ``i`` | ``a \odot \nabla f(a \odot x)`` |
 | [`LinearImage`](@ref)`(f, L)` | ``\inf_{Lx=y} f(x)`` | ``L\operatorname*{argmin}_x\{f(x) + \lVert Lx-y\rVert^2/(2\gamma)\}`` in the supported cases | |
 | [`Regularize`](@ref)`(f, ρ, c)` | ``f(x) + \tfrac{\rho}{2}\lVert x - c\rVert^2`` | ``\operatorname{prox}_{\frac{\gamma}{1+\gamma\rho} f}\big(\tfrac{x + \gamma\rho c}{1 + \gamma\rho}\big)`` | ``\nabla f(x) + \rho(x - c)`` |
 
@@ -61,6 +64,124 @@ x, c, γ = [2.0, -1.0, 0.5], [0.3, 0.3, -0.3], 0.7
 @assert prox(Tilt(NormL1(1.0), c, 0.0), x, γ) ≈ prox(NormL1(1.0), x - γ * c, γ) # hide
 prox(Tilt(NormL1(1.0), c, 0.0), x, γ) ≈ prox(NormL1(1.0), x - γ * c, γ)
 ```
+
+## Entrywise scaling
+
+[`Precompose`](@ref)`(f, a)` with a real array `a` represents
+``h(x) = f(a \odot x)``. This is entrywise scaling even for a matrix `a`;
+use the three-argument form for a linear map. The scale must have the same
+size as `x`, with finite, nonzero entries. It is stored by reference, so
+construct a new function after changing it.
+
+For a separable ``f``, substituting ``u = a_i z_i`` in each scalar proximal
+problem gives
+```math
+\operatorname{prox}_{\gamma h}(x)_i
+= \frac{\operatorname{prox}_{\gamma a_i^2 f_i}(a_i x_i)}{a_i}.
+```
+The wrapper supports diagonal steps, coordinate updates, optimality tests
+and restriction. Its coordinate curvatures are ``a_i^2 L_i``, and its gradient
+has Lipschitz constant at most ``\max_i a_i^2 L_f``. Entrywise values require
+`f` to be a `SeparableFunction`. On a `SymmetricSparseIterate`, both `a` and
+the inner parameters must be symmetric. The image uses the promoted floating
+type of `x` and `a`; values have the inner function's type at that image.
+The scaled inputs, effective steps and results must fit
+in that precision and in the range supported by the inner oracle; effective
+steps are formed without first rounding ``a_i^2``.
+
+For a group penalty, `a` must be constant on each group. Full-array values
+and proximal operators then use the step ``\gamma c_k^2`` for group ``k``,
+where ``c_k`` is its scale. Indices outside the groups remain unchanged.
+The four-argument `kkt_violation` works on arrays and on matching groups of an
+`AtomIterate`; group coordinate updates and `restrict` are not supported.
+Other nonseparable functions are rejected, and the array wrapper supplies no
+Hessian products.
+
+Penalizing standardized regression coefficients can be done without
+rescaling the design: with column scales `s`, use `Precompose(f, s)` on
+the coefficients. For the ℓ1 norm this gives weights `s`. For MCP it changes
+both the level and the concavity, entry by entry:
+```math
+\operatorname{MCP}_{\lambda, b}(s\beta)
+= \operatorname{MCP}_{s\lambda, b/s^2}(\beta), \qquad s > 0.
+```
+Similarly, `Precompose(IndBox(l, u), s)` imposes a box on the standardized
+coefficients.
+
+Known residual scales also enter this way. The separable Huber function
+`MoreauEnvelope(NormL1(1), δ)` has quadratic part ``t^2/(2\delta)`` for
+``|t| \le \delta`` and linear part ``|t| - \delta/2`` otherwise.
+Thus `Precompose(MoreauEnvelope(NormL1(1), δ), 1 ./ σ)` gives
+``\sum_i \rho(r_i/\sigma_i)``. Both the quadratic curvature and the transition
+point change with ``\sigma_i``.
+
+```@example calculus
+s = [0.5, 2.0, 1.5]
+h = Precompose(MCP(0.3), s)
+prox(h, [2.0, -1.0, 0.2], 0.4)
+```
+
+## Pointwise minima and unions
+
+[`PointwiseMinimum`](@ref)`(f1, f2, ...)` takes one or more proximable functions
+on arrays. If ``z_i = \operatorname{prox}_{\gamma f_i}(x)``, then
+```math
+\min_z\left\{\min_i f_i(z) + \frac{\|z-x\|^2}{2\gamma}\right\}
+= \min_i\left\{f_i(z_i) + \frac{\|z_i-x\|^2}{2\gamma}\right\}.
+```
+The two minima commute, so the proximal operator evaluates every candidate
+and keeps the one with the smallest objective. Ties go to the first function.
+A `NaN` score never beats a number; if all scores are `NaN`, the first
+candidate is kept and `value_and_prox!` returns `NaN`. Comparisons preserve the
+range of the distance term even when its square overflows or underflows.
+The minimum is generally nonconvex and has no smooth or separable oracles.
+
+For indicators, the minimum is the indicator of the union, and its proximal
+operator is the nearest of the individual projections. Isotonic regression
+with an unknown direction is the union of the two monotone cones:
+
+```@example calculus
+monotone = PointwiseMinimum(IndIsotonic(), IndIsotonic(decreasing = true))
+prox(monotone, [3.0, 1.0, 2.0, 0.0])
+```
+
+A block of effects whose sign is shared but unknown lies in the union of the
+nonnegative and nonpositive orthants:
+
+```@example calculus
+shared_sign = PointwiseMinimum(IndNonnegative(), IndBox(-Inf, 0))
+prox(shared_sign, [2.0, -0.5, 1.0])
+```
+
+For several prior guesses ``\beta_k``, the penalty
+``\min_k \lambda\|\beta-\beta_k\|_1`` shrinks towards the best source model:
+
+```@example calculus
+prior = PointwiseMinimum(Translate(NormL1(0.5), [0.0, 1.0]),
+                         Translate(NormL1(0.5), [2.0, 0.0]))
+prox(prior, [1.5, 0.2], 1.0)
+```
+
+The cost is one proximal operator per component. For unions with many sets,
+such as unimodal regression with an unknown mode, a dedicated algorithm can
+be preferable (Stout, *Unimodal regression via prefix isotonic regression*,
+2008). Two buffers follow the output's shape and element type; the output may
+alias the input. Warmed calls on fixed-shape CPU arrays allocate nothing when
+the components allocate nothing. Use a separate function object per thread.
+Steps must be positive scalars; tuple inputs and arrays of steps are unsupported.
+
+The standalone value `g(x)` evaluates every component's value in order, and
+propagates `NaN` as `minimum` does. Every component must provide a value oracle;
+`Conjugate(ElasticNet(0.5, 0.2))`, for example, has no standalone value. The proximal
+operator instead obtains each candidate value from `value_and_prox!`, and
+promotes the returned scalar across all candidate values. It is exact when
+every component's proximal operator and reported value are exact. Approximate
+projections, partial decompositions and cancellation in `Conjugate` values can
+change the selected branch. In particular, the package's indicators return
+zero from `value_and_prox!` without checking membership. This is correct for
+exact projections, but an inexact `IndIntersection` projection can win a
+comparison it should lose. The zero returned for a union is not a feasibility
+certificate.
 
 ## Images under linear maps
 
@@ -195,8 +316,8 @@ prox(h, [3.0, 4.0], 0.5) ≈ [0.6, 0.8]
 
 [`Constrained`](@ref)`(f, C)` is ``f + \iota_C`` for a convex separable
 ``f(x) = \sum_i f_i(x_i)`` and a set ``C`` that is a box, a hyperplane, a
-halfspace or a simplex. Its proximal operator reduces to the scalar proximal
-operators of ``f``.
+halfspace, a hyperslab or a simplex. Its proximal operator reduces to the scalar
+proximal operators of ``f``.
 
 **On a box.** The problem that defines the proximal operator separates over the
 entries, into the scalar problems
@@ -240,6 +361,13 @@ every root. For the halfspace ``\langle a, z\rangle \le b`` the multiplier is
 nonnegative and vanishes when the constraint is inactive: ``\nu^\star = 0`` when
 ``\varphi(0) \le 0``.
 
+For a hyperslab [`IndHyperslab`](@ref)`(a, l, u)`, the multiplier vanishes
+when the unconstrained proximal point satisfies both bounds. Otherwise the
+search meets the violated bound, with a negative multiplier at the lower bound
+or a positive one at the upper bound. The selected bound stays fixed throughout
+that call. A warm start from the other side, or from an inactive call, is
+discarded. This also applies when `f` is itself constrained to a box.
+
 `Constrained` finds the root by a search over the scalar ``\nu``, and each step
 of the search is one pass over the entries.
 
@@ -271,14 +399,15 @@ A box enters through the scalar proximal operators, so ``f`` may itself be
 ``\sum_i x_i = r``. The caller must ensure that the set meets the domain of
 ``f``. A box clamps the unconstrained proximal point without checking this
 intersection; for an indicator, `value_and_prox!` returns zero even when the
-intersection is empty. The multiplier search on a hyperplane or halfspace
-throws an `ArgumentError` if it cannot bracket a multiplier. It is not a
+intersection is empty. The multiplier search on a hyperplane, halfspace or
+hyperslab throws an `ArgumentError` if it cannot bracket a multiplier. It is not a
 general feasibility test: rounding can reach the closure of an open domain,
 and a finite multiplier need not exist at the boundary of a closed domain.
 
 | Call | Function |
 |:-----|:---------|
 | `Constrained(NormL1(λ), IndHyperplane(1, 0))` | the lasso penalty on coefficients that sum to zero, as in regression on compositional data |
+| `Constrained(NormL1(λ), IndHyperslab(a, l, u))` | the lasso penalty with a bounded contrast ``l \le \langle a, x\rangle \le u`` |
 | `Constrained(NormL1(λ), IndBox(0, u))` | the nonnegative lasso penalty with upper bounds |
 | `Constrained(IndBox(0, 1), IndHyperplane(1, k))` | the indicator of the capped simplex ``\{x : 0 \le x \le 1,\ \sum_i x_i = k\}`` |
 | `Constrained(SqrNormL2(λ), IndSimplex(1))` | the ridge penalty on the probability simplex |
@@ -402,6 +531,63 @@ bounds or normals that differ between entries depends on their order, and
 B = randn(5, 5)
 P = prox(Spectral(Constrained(IndBox(0, 1), IndHyperplane(1, 2))), (B + B') / 2)   # onto the Fantope
 (eigvals(Symmetric(P)), tr(P))
+```
+
+## Distances to sets
+
+[`SqrDistL2`](@ref)`(C, λ)` is ``(\lambda/2)\operatorname{dist}(x,C)^2``
+for finite ``\lambda \ge 0`` and a proximable indicator function ``C``. It
+uses one projection ``p \in P_C(x)`` for its value, gradient or proximal
+operator. For a convex set and ``\lambda > 0``, it equals
+[`MoreauEnvelope`](@ref)`(C, 1/λ)` and has a ``\lambda``-Lipschitz gradient.
+It also supports nonconvex sets such as [`IndBallL0`](@ref),
+[`IndBallGroupL0`](@ref), [`IndBallRank`](@ref) and [`IndSphereL2`](@ref).
+For these sets, `issmooth` is false and `lipschitz` throws: the function can
+fail to be differentiable at points with several nearest projections. The
+gradient oracles still return ``\lambda(x - p)``. This is the gradient where
+the projection is unique, almost everywhere, and the residual of the chosen
+projection at ties.
+
+The proximal formula holds for every nonempty closed set with an exact
+projection. Minimizing
+``(\lambda/2)\|z-c\|^2 + \|z-x\|^2/(2\gamma)`` first over ``z`` gives
+``z = (x + \gamma\lambda c)/(1 + \gamma\lambda)`` and the reduced objective
+``\lambda\|x-c\|^2/(2(1 + \gamma\lambda))``. Minimizing this over ``c \in C``
+selects a nearest point ``p``. It remains nearest along the segment from
+``x`` to ``p``: a closer point at an intermediate point would, by the
+triangle inequality, also be closer to ``x``. Thus `value_and_prox!` uses the
+distance from its returned point to the retained projection, with no second
+projection.
+
+At zero scale, the value and gradient vanish and the proximal operator is the
+identity, after structural checks, with no projection. Separable sets also
+provide scalar proximal operators, KKT tests and, when convex, coordinate
+curvatures ``\lambda``. `restrict` is supported only for separable sets.
+Only scalar steps are supported, and `Spectral(SqrDistL2(...))` is not
+supported. The projection buffer belongs to the function, so do not share it
+between threads. It follows the argument's precision for values and gradients,
+and the output's precision for proximal operators. The proximal output may
+alias the input; the gradient output must not.
+
+The set must be nonempty and closed, and its proximal operator an exact
+projection in the argument space. An inexact [`IndIntersection`](@ref),
+partial spectral decomposition or truncated [`IndAffine`](@ref) system gives
+approximate distances and oracles. Nonemptiness of a [`Constrained`](@ref)
+set is the caller's responsibility. For [`Spectral`](@ref) sets, supply
+symmetric matrices: they read one triangle and the distance is within the
+symmetric matrices.
+
+Distance penalties allow sparsity, rank and shape constraints to enter a
+smooth objective through their projection residuals. Increasing ``\lambda``
+in a sequence of problems is the distance-to-set penalty method of Xu, Chi
+and Lange (2017) and the proximal distance method of Keys, Zhou and Lange
+(2019), following distance majorization (Chi, Zhou and Lange, 2014).
+
+```@example calculus
+d = SqrDistL2(IndBallL0(1), 2.0)
+x = [3.0, -1.0, 0.5]
+@assert d(x) ≈ 1.25 # hide
+(d(x), gradient(d, x), prox(d, x, 0.5))
 ```
 
 ## Smoothing

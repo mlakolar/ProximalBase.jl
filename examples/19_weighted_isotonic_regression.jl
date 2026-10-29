@@ -24,11 +24,12 @@ a = [curve[b] .+ 0.3 .* randn(rng, n[b]) for b in 1:K]
 f = IndIsotonic()
 θw = prox(f, ā, γ)
 θu = prox(f, ā)
-errw = sqrt(sum(n .* abs2.(θw .- curve)) / sum(n))
-erru = sqrt(sum(n .* abs2.(θu .- curve)) / sum(n))
+rss(θ) = sum(sum(abs2, a[b] .- θ[b]) for b in 1:K)
+# By the identity above, θw minimizes raw RSS among monotone fits with one value per bin, while θu treats a bin of 1 observation like a bin of 30.
+@assert rss(θw) <= rss(θu)
 println("binned data: ", sum(n), " observations in ", K, " bins")
-println("count-weighted error: ", round(errw; digits = 4),
-        " for the weighted fit, ", round(erru; digits = 4), " for the unweighted fit")
+println("raw residual sum of squares: ", round(rss(θw); digits = 4),
+        " for the weighted fit, ", round(rss(θu); digits = 4), " for the unweighted fit")
 
 # --- optimality checks -------------------------------------------------------
 # The cumulative weighted residuals are nonnegative and vanish at block ends.

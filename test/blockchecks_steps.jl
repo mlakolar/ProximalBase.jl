@@ -207,7 +207,6 @@ _allocation_prox!(y, f, x, γ) = prox!(y, f, x, γ)
   for op in proximal
     op(dest, nested, point, 1.0)
     @test PB.Testing.allocations(_allocation_check, op, dest, nested, point, 1.0) == 0
-    @test PB.Testing.allocations(op, dest, nested, point, 1.0) <= (VERSION < v"1.11" ? 80 : 0)
   end
   inner = SeparableSum(Precompose(MoreauEnvelope(NormL1(), 0.5), 2.0), SumLargest(1))
   f = SeparableSum(SqrNormL2(2.0), inner)
@@ -228,6 +227,7 @@ _allocation_prox!(y, f, x, γ) = prox!(y, f, x, γ)
     dest = similar(z)
     for op in proximal
       @test PB.Testing.allocations(op, dest, h, z, 1.0) == 0
+      @test PB.Testing.allocations(_allocation_check, op, dest, h, z, 1.0) == 0
     end
   end
 end

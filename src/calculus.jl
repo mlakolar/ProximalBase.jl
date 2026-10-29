@@ -578,8 +578,7 @@ prox!(y::AbstractArray{<:Real}, c::Conjugate{<:SumLargest}, x::AbstractArray{<:R
   _sumlargest_prox!(y, c.f, x, 1, Val(true))
 
 _tuple_buffer_type(::Type{<:AbstractArray{T, N}}) where {T, N} = Array{float(T), N}
-# Keep nested buffer types constant during inference.
-Base.@assume_effects :foldable _tuple_buffer_type(::Type{X}) where {X<:Tuple} = Tuple{map(_tuple_buffer_type, fieldtypes(X))...}
+_tuple_buffer_type(::Type{X}) where {X<:Tuple} = Tuple{map(_tuple_buffer_type, fieldtypes(X))...}
 _same_buffer_sizes(b::AbstractArray, x::AbstractArray) = size(b) == size(x)
 _same_buffer_sizes(b::Tuple, x::Tuple) = all(map(_same_buffer_sizes, b, x))
 
@@ -983,12 +982,17 @@ _step_input(x::AbstractArray) = _StepInput(x)
 _step_input(::Tuple{}) = ()
 _step_input(x::Tuple) = (_step_input(first(x)), _step_input(Base.tail(x))...)
 
-_step_unwrap(x::AbstractArray) = x
-_step_unwrap(x::_StepInput) = _step_unwrap(x.array)
-_step_unwrap(::Tuple{}) = ()
-_step_unwrap(x::Tuple) = (_step_unwrap(first(x)), _step_unwrap(Base.tail(x))...)
+# The step pass needs only the shape and element type of the dense buffer.
+struct _StepBuffer{T, N} <: AbstractArray{T, N}
+  dims::NTuple{N, Int}
+end
+Base.size(x::_StepBuffer) = x.dims
+_step_values(::_StepBuffer) = false
+_step_buffer(x::AbstractArray{T, N}) where {T, N} = _StepBuffer{float(T), N}(size(x))
+_step_buffer(::Tuple{}) = ()
+_step_buffer(x::Tuple) = (_step_buffer(first(x)), _step_buffer(Base.tail(x))...)
 function _checkstep(op::O, c::Conjugate, y::Tuple, x::Tuple, γ::Real) where {O}
-  p = _conjugate_checkbuffer(c.scratch, y, _step_unwrap(x))
+  p = _step_buffer(y)
   if op === value_and_prox! && !_isindicator(c) && !_has_conjugate_value(c.f)
     return _checkstep(value_and_prox!, c.f, p, _step_input(p), inv(γ))
   end

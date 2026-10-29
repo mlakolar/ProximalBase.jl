@@ -198,7 +198,10 @@ its data; its factorization type can change with the rank of `A`.
   can also allocate on every call. Calls
   on GPU arrays run kernels and reductions that may allocate on the host and
   the device. The spectral functions
-  and [`LogDetLoss`](@ref) own LAPACK workspaces sized for their input. A
+  and [`LogDetLoss`](@ref) own LAPACK workspaces sized for their input, and
+  [`Translate`](@ref), [`Tilt`](@ref) and [`Regularize`](@ref) own a buffer
+  for the input of their proximal operator; one object used at alternating
+  sizes or element types reallocates it. A
   function that owns a workspace must not be shared between threads; give each
   thread a `deepcopy`.
 
@@ -218,7 +221,8 @@ the response and design matrix, independently of the argument's precision.
 `LogDetLoss` keeps its workspace in the data's precision and writes outputs of
 any precision by rounding.
 The shifted buffer for values and gradients of `Translate(f, b)` uses the
-argument's precision, `float(eltype(x))`. `Spectral`, `SingularValue` and
+argument's precision, `float(eltype(x))`; the proximal buffers of `Translate`,
+`Tilt` and `Regularize` follow the output's type. `Spectral`, `SingularValue` and
 `FiberSum` give their values in the argument's precision, and in the output's
 precision for the proximal operators.
 `IndAffine` returns the argument's floating precision, like the other

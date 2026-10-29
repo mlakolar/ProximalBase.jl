@@ -124,6 +124,29 @@ end
   @test host(prox(NormLinf(0.5), DeviceArray([3., -3., 3.]))) ≃ fill(3 - 0.5 / 3, 3) .* [1, -1, 1]
 end
 
+@testset "NormLinf precision on GPU arrays" begin
+  allowscalar(false)
+  ext = Base.get_extension(ProximalBase, :ProximalBaseGPUArraysCoreExt)
+  for P in test_types, Tx in test_types, Ty in test_types, S in test_types, λ in (0, 0.3, 100)
+    f = NormLinf(P(λ))
+    x = DeviceArray(Tx[0.3, 1.7, -2.2])
+    y = DeviceArray(zeros(Ty, 3))
+    v = value_and_prox!(y, f, x, S(0.4))
+    @test typeof(v) === typeof(f(y))
+    @test isapprox(host(y), prox(f, Tx[0.3, 1.7, -2.2], S(0.4)); rtol = 8sqrt(max(eps(Tx), eps(Ty))))
+    if P === Tx === Ty === S && λ == 0.3
+      # The level and product used by the original same-precision kernel.
+      τ = ext._level(x, S(0.4) * f.λ, abs)
+      expected = f.λ * τ
+      expected_y = sign.(host(x)) .* min.(abs.(host(x)), τ)
+      U = Tx === Float32 ? UInt32 : UInt64
+      @test reinterpret(U, v) == reinterpret(U, expected)
+      @test reinterpret(U, host(y)) == reinterpret(U, expected_y)
+      @test reinterpret(U, host(prox!(y, f, x, S(0.4)))) == reinterpret(U, expected_y)
+    end
+  end
+end
+
 @testset "group norms on GPU arrays" begin
   allowscalar(false)
   # groups of sizes 1 to 26 in six size classes, out of order and not all

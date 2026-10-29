@@ -216,6 +216,7 @@ end
 IndToeplitz(; symmetric::Bool = false) = IndToeplitz(symmetric)
 
 isproximable(::Type{IndToeplitz}) = true
+_argument_type(::Type{<:IndToeplitz}) = AbstractMatrix
 _isindicator(::Type{IndToeplitz}) = true
 isconvex(::Type{IndToeplitz}) = true
 
@@ -317,10 +318,9 @@ Base.@propagate_inbounds function _symmetric_diagonal_mean(x::AbstractMatrix, n:
 end
 
 function prox!(y::AbstractMatrix, f::IndToeplitz, x::AbstractMatrix, ::Real)
-  _checksize(y, x)
+  _checkwrite(prox!, f, y, x)
   m, n = size(x)
   if _symmetric_toeplitz(f, x)
-    m == n || throw(DimensionMismatch("a symmetric Toeplitz matrix is square, and the argument is $m × $n"))
     @inbounds for d in 0:n-1
       μ = _symmetric_diagonal_mean(x, n, d)
       for r in 1:n-d
@@ -328,8 +328,6 @@ function prox!(y::AbstractMatrix, f::IndToeplitz, x::AbstractMatrix, ::Real)
       end
     end
   else
-    y isa SymmetricSparseIterate &&
-      throw(ArgumentError("the projection of a matrix that is not symmetric onto the Toeplitz matrices is not symmetric; use a dense output"))
     @inbounds for d in -(m - 1):(n - 1)
       rows = _diagonal_rows(m, n, d)
       μ = _diagonal_mean(x, rows, d)
@@ -339,4 +337,16 @@ function prox!(y::AbstractMatrix, f::IndToeplitz, x::AbstractMatrix, ::Real)
     end
   end
   y
+end
+
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndToeplitz, y::AbstractMatrix, x::AbstractMatrix)
+  _checksize(y, x)
+  m, n = size(x)
+  if _symmetric_toeplitz(f, x)
+    m == n || throw(DimensionMismatch("a symmetric Toeplitz matrix is square, and the argument is $m × $n"))
+  else
+    y isa SymmetricSparseIterate &&
+      throw(ArgumentError("the projection of a matrix that is not symmetric onto the Toeplitz matrices is not symmetric; use a dense output"))
+  end
+  true
 end

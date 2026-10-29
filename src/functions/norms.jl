@@ -27,6 +27,8 @@ NormL2(λ::Real = 1) = NormL2{typeof(λ)}(λ)
 
 isproximable(::Type{<:NormL2}) = true
 isconvex(::Type{<:NormL2}) = true
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL2, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); true)
 
 function (f::NormL2)(x::AbstractArray)
   T = float(eltype(x))
@@ -45,7 +47,7 @@ end
 end
 
 function _norm2_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real, ::Val{V}) where {V}
-  _checksize(y, x)
+  _checkwrite(V ? value_and_prox! : prox!, f, y, x)
   T = float(eltype(y))
   if iszero(f.λ)
     y === x || copyto!(y, x)
@@ -269,11 +271,13 @@ NormLinf(λ::Real = 1) = NormLinf{typeof(λ)}(λ)
 
 isproximable(::Type{<:NormLinf}) = true
 isconvex(::Type{<:NormLinf}) = true
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormLinf, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); true)
 
 (f::NormLinf)(x::AbstractArray) = convert(float(eltype(x)), f.λ) * norm(x, Inf)
 
 function value_and_prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Real)
-  _checksize(y, x)
+  _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
   c = convert(T, γ) * convert(T, f.λ)
   if norm(x, 1) <= c
@@ -570,7 +574,7 @@ function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::A
       continue
     end
     nrm = _shrink_group!(f, y, x, f.groups[k], convert(T, _positive_product(_entry(γ, k), f.λ0, f.w[k])))
-    v += _positive_product(convert(T, f.λ0), w, nrm)
+    v += convert(T, _positive_product(convert(T, f.λ0), w, nrm))
   end
   v
 end
@@ -652,7 +656,7 @@ function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::Ato
     w = convert(T, f.w[k])
     iszero(w) && continue
     nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, _positive_product(_entry(γ, k), f.λ0, f.w[k])))
-    v += _positive_product(convert(T, f.λ0), w, nrm)
+    v += convert(T, _positive_product(convert(T, f.λ0), w, nrm))
   end
   v
 end
@@ -713,6 +717,7 @@ end
 NormL1Fused(λ1::Real, λ2::Real) = (p = promote(λ1, λ2); NormL1Fused{typeof(p[1])}(p...))
 
 isproximable(::Type{<:NormL1Fused}) = true
+_argument_type(::Type{<:NormL1Fused}) = Union{AbstractVector, Tuple{AbstractArray, AbstractArray}}
 isconvex(::Type{<:NormL1Fused}) = true
 
 (f::NormL1Fused)(xy::Tuple{Real, Real}) =
@@ -757,7 +762,7 @@ function prox(f::NormL1Fused, xy::Tuple{Real, Real}, γ::Real = 1)
 end
 
 function prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real)
-  size(y[1]) == size(x[1]) == size(y[2]) == size(x[2]) || throw(DimensionMismatch("the arrays of the pairs must have one size"))
+  _checkwrite(prox!, f, y, x)
   T = float(promote_type(eltype(y[1]), eltype(y[2])))
   λ1, λ2, γ = T(f.λ1), T(f.λ2), T(γ)
   @inbounds for i in eachindex(x[1])
@@ -765,6 +770,11 @@ function prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused, x::Tuple{
   end
   y
 end
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL1Fused,
+            y::Tuple{AbstractArray, AbstractArray}, x::Tuple{AbstractArray, AbstractArray}) =
+  size(y[1]) == size(x[1]) == size(y[2]) == size(x[2]) || throw(DimensionMismatch("the arrays of the pairs must have one size"))
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL1Fused, y::AbstractVector, x::AbstractVector) =
+  (_checksize(y, x); Base.require_one_based_indexing(y, x); true)
 prox(f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real = 1) =
   prox!((similar(x[1], float(eltype(x[1]))), similar(x[2], float(eltype(x[2])))), f, x, γ)
 
@@ -811,14 +821,13 @@ prox!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real) = (_prox_f
 
 # the proximal operator of all pairs fused, and the value at the result if V
 function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real, ::Val{V}) where {V}
-  _checksize(y, x)
-  Base.require_one_based_indexing(y, x)
+  _checkwrite(V ? value_and_prox! : prox!, f, y, x)
   T = float(eltype(y))
   λ1, λ2 = convert(T, f.λ1), convert(T, f.λ2)
   n = length(x)
   if iszero(λ1) && iszero(λ2)
     y === x || copyto!(y, x)
-    return zero(T)
+    return V ? zero(f(y)) : zero(T)
   end
   if n == 2
     @inbounds y[1], y[2] = _prox_l1fused(convert(T, x[1]), convert(T, x[2]), λ1, λ2, convert(T, γ))

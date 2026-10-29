@@ -209,7 +209,7 @@ function ProximalBase.value_and_prox!(y::GPUArray, f::NormLinf, x::GPUArray, γ:
   end
   τ = _level(x, c, abs)
   y .= sign.(x) .* min.(abs.(x), τ)
-  return convert(T, f.λ) * τ
+  return convert(T, convert(T, f.λ) * τ)
 end
 
 function (f::IndBallL1)(x::GPUArray)

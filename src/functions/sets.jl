@@ -46,6 +46,8 @@ struct IndBallL0 <: AbstractFunction
 end
 
 isproximable(::Type{IndBallL0}) = true
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::IndBallL0, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); true)
 _isindicator(::Type{IndBallL0}) = true
 
 # whether entry i of x is one that counts
@@ -86,7 +88,7 @@ function (f::IndBallL0)(x::Union{Symmetric, SymmetricSparseIterate})
 end
 
 function prox!(y::AbstractArray, f::IndBallL0, x::AbstractArray, ::Real)
-  _checksize(y, x)
+  _checkwrite(prox!, f, y, x)
   if _count_nonzero(f, x) <= f.s
     y === x || copyto!(y, x)
     return y
@@ -155,7 +157,7 @@ end
 
 # the stored entries of a vector hold every nonzero
 function prox!(y::SparseIterate{<:Any, 1}, f::IndBallL0, x::SparseIterate{<:Any, 1}, γ::Real)
-  _checksize(y, x)
+  _checkwrite(prox!, f, y, x)
   nz = _count_nonzero(f, x)
   if nz <= f.s
     y === x || copyto!(y, x)
@@ -187,7 +189,7 @@ end
 # a symmetric matrix: the entries of the lower triangle, each counted once and
 # written to both triangles of a dense output
 function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSparseIterate}, ::Real)
-  _checksize(y, x)
+  _checkwrite(prox!, f, y, x)
   p = checksquare(x)
   T = float(eltype(x))
   first_row(c) = f.diagonal ? c : c + 1
@@ -256,6 +258,8 @@ end
 IndBallL1(r::Real = 1) = IndBallL1{typeof(r)}(r)
 
 isproximable(::Type{<:IndBallL1}) = true
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::IndBallL1, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); true)
 _isindicator(::Type{<:IndBallL1}) = true
 isconvex(::Type{<:IndBallL1}) = true
 
@@ -270,7 +274,7 @@ function (f::IndBallL1)(x::AbstractArray)
 end
 
 function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, ::Real)
-  _checksize(y, x)
+  _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   r = convert(T, f.r)
   if norm(x, 1) <= r
@@ -303,6 +307,8 @@ end
 IndBallL2(r::Real = 1) = IndBallL2{typeof(r)}(r)
 
 isproximable(::Type{<:IndBallL2}) = true
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::IndBallL2, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); true)
 _isindicator(::Type{<:IndBallL2}) = true
 isconvex(::Type{<:IndBallL2}) = true
 
@@ -330,7 +336,7 @@ end
 end
 
 function prox!(y::AbstractArray, f::IndBallL2, x::AbstractArray, ::Real)
-  _checksize(y, x)
+  _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   nx = convert(T, _norm2(x))
   r = convert(T, f.r)
@@ -422,6 +428,8 @@ end
 IndSimplex(r::Real = 1; equality::Bool = true) = IndSimplex{typeof(r)}(r, equality)
 
 isproximable(::Type{<:IndSimplex}) = true
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::IndSimplex, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); true)
 _isindicator(::Type{<:IndSimplex}) = true
 isconvex(::Type{<:IndSimplex}) = true
 
@@ -452,7 +460,7 @@ end
 end
 
 function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, ::Real)
-  _checksize(y, x)
+  _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   r = convert(T, f.r)
   if !f.equality
@@ -474,7 +482,7 @@ function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, ::Real)
 end
 
 ####################################
-#  hyperplane and halfspace
+#  hyperplane, halfspace and hyperslab
 ####################################
 
 """
@@ -540,6 +548,50 @@ end
 IndHalfspace(a::Union{Real, AbstractArray}, b::Real) =
   (T = float(promote_type(eltype(a), typeof(b))); IndHalfspace{typeof(a), T}(a, convert(T, b)))
 
+"""
+    IndHyperslab(a, l, u)
+
+The indicator of the hyperslab `{x : l ≤ ⟨a, x⟩ ≤ u}`, `a ≠ 0`. Its proximal
+operator is `x` inside the slab, and `x - ((⟨a, x⟩ - b) / ‖a‖²) a` otherwise,
+where `b` is the violated bound. A scalar `a` stands for an array of `a`s of
+the size of `x`. An array `a` is stored without copying; construct a new
+function after changing it in place.
+
+The bounds satisfy `l ≤ u`, `l < Inf` and `u > -Inf`. Equal bounds give a
+hyperplane, one infinite bound a halfspace, and both infinite the whole space.
+Every finite nonzero normal is accepted, including subnormal and integer
+entries. As for [`IndHyperplane`](@ref), powers of two rescale the normal and
+each finite bound when needed. Membership checks each bound independently,
+within `sqrt(eps(T)) * max(1, abs(b), ‖a‖ ‖x‖)` in the original units, where
+`T = float(eltype(x))`. For scaled normals the tolerance uses the less precise
+of `T` and the function's floating-point type. The membership value is reliable
+for all finite inputs. Nonfinite inputs are rejected even for the
+whole space. An empty input has a projection only when `l ≤ 0 ≤ u`.
+
+The projection is accurate when the scaled active bound, residual and output
+are representable; inputs near `floatmax` are outside this guarantee. Accuracy
+is limited by the less precise of the function's floating-point type and the
+output type. An array of positive steps `γ` gives the projection in the metric
+of `Diagonal(1 ./ γ)`, with the correction along `γ .* a`. This uses the
+hyperplane's formula and also requires its weighted squared norm and correction
+to be representable; extreme steps may overflow.
+"""
+struct IndHyperslab{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
+  a::A
+  l::T
+  u::T
+  s::NTuple{2, T}
+  q::T
+
+  function IndHyperslab{A, T}(a::A, l::T, u::T) where {A<:Union{Real, AbstractArray}, T<:Real}
+    l <= u && l < Inf && u > -Inf || throw(ArgumentError("bounds must satisfy l ≤ u, l < Inf and u > -Inf"))
+    s, q = _normal_cache(a, zero(T))
+    new{A, T}(a, l, u, s, q)
+  end
+end
+IndHyperslab(a::Union{Real, AbstractArray}, l::Real, u::Real) =
+  (T = float(promote_type(eltype(a), typeof(l), typeof(u))); IndHyperslab{typeof(a), T}(a, convert(T, l), convert(T, u)))
+
 # Leave moderate normals unchanged; otherwise bring their maximum into [1, 2).
 # Two factors also cover a reciprocal beyond floatmax for a subnormal maximum.
 function _normal_cache(a, b::T) where {T}
@@ -565,7 +617,7 @@ function _normal_cache(a, b::T) where {T}
 end
 
 @inline _scale_normal(v, s::NTuple{2, T}) where {T} = (convert(T, v) * s[1]) * s[2]
-@inline _isscaled(f::Union{IndHyperplane, IndHalfspace}) = !isone(f.s[1])
+@inline _isscaled(f::Union{IndHyperplane, IndHalfspace, IndHyperslab}) = !isone(f.s[1])
 
 # A view of the normalized coefficients; live buffers copy its values once.
 struct _ScaledNormal{T, N, A<:AbstractArray} <: AbstractArray{T, N}
@@ -580,20 +632,27 @@ Base.@propagate_inbounds Base.getindex(a::_ScaledNormal, I::Vararg{Int, N}) wher
 
 _normalized_normal(a::Real, s) = _scale_normal(a, s)
 _normalized_normal(a::AbstractArray, s) = _ScaledNormal(a, s)
-@inline _scaled_normal(f::Union{IndHyperplane, IndHalfspace}) = _isscaled(f) ? _normalized_normal(f.a, f.s) : f.a
-@inline _scaled_offset(f::Union{IndHyperplane, IndHalfspace}) = _isscaled(f) ? _scale_normal(f.b, f.s) : f.b
+@inline _scaled_normal(f::Union{IndHyperplane, IndHalfspace, IndHyperslab}) = _isscaled(f) ? _normalized_normal(f.a, f.s) : f.a
+@inline _scaled_offset(f, b) = _isscaled(f) ? _scale_normal(b, f.s) : b
+@inline _scaled_offset(f::Union{IndHyperplane, IndHalfspace}) = _scaled_offset(f, f.b)
 
-for F in (:IndHyperplane, :IndHalfspace)
+for F in (:IndHyperplane, :IndHalfspace, :IndHyperslab)
   @eval isproximable(::Type{<:$F}) = true
   @eval _isindicator(::Type{<:$F}) = true
   @eval isconvex(::Type{<:$F}) = true
-  @eval _checkparams(f::$F, x) = (_checkparam(f.a, x); true)
+end
+_checkparams(f::Union{IndHyperplane, IndHalfspace}, x) = (_checkparam(f.a, x); true)
+
+function _checkparams(f::IndHyperslab, x)
+  _checkparam(f.a, x)
+  f.a isa AbstractArray && Base.Broadcast.check_broadcast_axes(axes(x), f.a)
+  true
 end
 
 # ⟨a, x⟩ and ‖a‖², for an array a or a scalar one
 _dot_normal(a::Real, x::AbstractArray) = a * sum(x)
 _dot_normal(a::AbstractArray, x::AbstractArray) = dot(a, x)
-_normal_sqnorm(f::Union{IndHyperplane, IndHalfspace}, x::AbstractArray) = f.a isa Real ? f.q * length(x) : f.q
+_normal_sqnorm(f::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::AbstractArray) = f.a isa Real ? f.q * length(x) : f.q
 function _dot_normal(a::_ScaledNormal, x::AbstractArray)
   _checkparam(a, x)
   T = float(promote_type(eltype(a), eltype(x)))
@@ -614,9 +673,9 @@ _dot_normal(a::_ScaledNormal, x::Union{SparseIterate, SymmetricSparseIterate, At
   _stored_dot_normal(a, x)
 
 # Keep the absolute floor in the original units, without forming the scale.
-function _scaled_normal_slack(f, x, ::Type{T}) where {T}
+function _scaled_normal_slack(f, x, ::Type{T}, b = f.b) where {T}
   tol = max(_tol(T), _tol(typeof(f.q)))
-  max((tol * f.s[1]) * f.s[2], tol * abs(_scaled_offset(f)),
+  max((tol * f.s[1]) * f.s[2], tol * abs(_scaled_offset(f, b)),
       (tol * sqrt(_normal_sqnorm(f, x))) * _norm2_scaled(x))
 end
 
@@ -631,14 +690,26 @@ function (f::IndHyperplane)(x::AbstractArray)
   abs(g) <= slack ? zero(T) : T(Inf)
 end
 function (f::IndHalfspace)(x::AbstractArray)
+  _halfspace_value(f, x, f.b)
+end
+
+function _halfspace_value(f, x, b, lower::Bool = false)
   T = float(eltype(x))
-  eltype(x) <: Integer && return _linear_scaled_value(f, x, T)
-  _isscaled(f) && return _scaled_normal_value(f, x, T)
-  slack = _tol(T) * max(one(T), abs(f.b), sqrt(_normal_sqnorm(f, x) * _sumabs2(x)))
-  g = _dot_normal(f.a, x) - f.b
+  eltype(x) <: Integer && return _linear_scaled_value(f, x, T, b, lower)
+  _isscaled(f) && return _scaled_normal_value(f, x, T, b, lower)
+  slack = _tol(T) * max(one(T), abs(b), sqrt(_normal_sqnorm(f, x) * _sumabs2(x)))
+  g = _dot_normal(f.a, x) - b
   _finite_bound(slack) && _ordinary_residual_finite(f, x, g, typeof(slack)) ||
-    return _linear_scaled_value(f, x, T)
-  g <= slack ? zero(T) : T(Inf)
+    return _linear_scaled_value(f, x, T, b, lower)
+  _ind(lower ? -g <= slack : g <= slack, T)
+end
+
+function (f::IndHyperslab)(x::AbstractArray)
+  _checkparams(f, x)
+  T = float(eltype(x))
+  isfinite(f.l) && !iszero(_halfspace_value(f, x, f.l, true)) && return T(Inf)
+  isfinite(f.u) && return _halfspace_value(f, x, f.u)
+  _ind(isfinite(_maximum_abs(x)), T)
 end
 
 # At matching precisions, the finite squared-norm bound precludes residual overflow.
@@ -647,33 +718,38 @@ end
   (P === S && S <: Union{Float32, Float64}) || _finite_value(g)
 end
 
-@noinline function _scaled_normal_value(f, x, ::Type{T}) where {T}
-  g = _dot_normal(_normalized_normal(f.a, f.s), x) - _scaled_offset(f)
-  slack = _scaled_normal_slack(f, x, T)
+@noinline function _scaled_normal_value(f, x, ::Type{T}, b = f.b, lower::Bool = false) where {T}
+  g = _dot_normal(_normalized_normal(f.a, f.s), x) - _scaled_offset(f, b)
+  slack = _scaled_normal_slack(f, x, T, b)
   _finite_value(g) && _finite_bound(slack) &&
-    return _ind(f isa IndHyperplane ? abs(g) <= slack : g <= slack, T)
-  _linear_scaled_value(f, x, T)
+    return _ind(f isa IndHyperplane ? abs(g) <= slack : (lower ? -g <= slack : g <= slack), T)
+  _linear_scaled_value(f, x, T, b, lower)
 end
 
 # Include the normal's scale in the offset exponent before forming either one.
-@noinline function _linear_scaled_value(f, x, ::Type{T}) where {T}
+@noinline function _linear_scaled_value(f, x, ::Type{T}, b = f.b, lower::Bool = false) where {T}
   m = _maximum_abs(x)
   isfinite(m) || return T(Inf)
   S = promote_type(T, typeof(f.q))
   e = exponent(f.s[1]) + exponent(f.s[2])
-  k = _comparison_exponent(_magnitude_exponent(m), e, _magnitude_exponent(abs(f.b)) + e)
+  k = _comparison_exponent(_magnitude_exponent(m), e, _magnitude_exponent(abs(b)) + e)
   s = _power_factors(S, -k)
-  b = ldexp(S(f.b), e - k)
+  b = ldexp(S(b), e - k)
   a = _normalized_normal(f.a, f.s)
   g = _scaled_dot(a, x, s) - b
   nx = sqrt(_scaled_sumabs2(x, s))
   q = f.a isa Real ? sqrt(S(f.q)) * sqrt(S(length(x))) : sqrt(S(f.q))
   tol = _isscaled(f) ? max(_tol(T), _tol(typeof(f.q))) : _tol(T)
   slack = tol * max(ldexp(one(S), e - k), abs(b), q * nx)
-  _ind(f isa IndHyperplane ? abs(g) <= slack : g <= slack, T)
+  _ind(f isa IndHyperplane ? abs(g) <= slack : (lower ? -g <= slack : g <= slack), T)
 end
 
-function _checkwrite(op::O, f::Union{IndHyperplane, IndHalfspace}, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+function _checkwrite(op::O, f::Union{IndHyperplane, IndHalfspace, IndHyperslab}, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checknormal(op, f, y, x)
+  f isa IndHyperslab && _hyperslab_input(f, x)
+  true
+end
+function _checknormal(op, f, y::AbstractArray, x::AbstractArray)
   _checksize(y, x)
   op === value_and_prox! && _checkparams(f, x)
   if f.a isa AbstractArray
@@ -682,6 +758,41 @@ function _checkwrite(op::O, f::Union{IndHyperplane, IndHalfspace}, y::AbstractAr
   end
   true
 end
+
+function _hyperslab_input(f, x)
+  isfinite(_maximum_abs(x)) || throw(ArgumentError("a hyperslab projection needs finite inputs"))
+  isempty(x) && !(f.l <= 0 <= f.u) && throw(ArgumentError("the hyperslab contains no empty array"))
+  nothing
+end
+
+# Choose the active bound from the residual, independently of membership slack.
+# Branch before passing the normal: the scaled and unscaled normals have
+# different types, and a Union of them allocates on Julia 1.10 and under coverage.
+_hyperslab_residual(f, x) = _isscaled(f) ?
+  _hyperslab_residual(f, x, _normalized_normal(f.a, f.s)) : _hyperslab_residual(f, x, f.a)
+function _hyperslab_residual(f, x, a)
+  # Floating-point products avoid wraparound for integer inputs and normals.
+  s = eltype(x) <: Integer ? _stored_dot_normal(a, x) : _dot_normal(a, x)
+  if isfinite(f.l)
+    g = s - _scaled_offset(f, f.l)
+    g < 0 && return g
+  end
+  if isfinite(f.u)
+    g = s - _scaled_offset(f, f.u)
+    g > 0 && return g
+  end
+  zero(s)
+end
+
+function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, ::Real)
+  _checkwrite(prox!, f, y, x)
+  isempty(x) && return y
+  g = _hyperslab_residual(f, x)
+  iszero(g) && return (y === x ? y : copyto!(y, x))
+  t = g / _normal_sqnorm(f, x)
+  _isscaled(f) ? _hyperslab_output!(y, x, _normalized_normal(f.a, f.s), t) : _hyperslab_output!(y, x, f.a, t)
+end
+_hyperslab_output!(y, x, a, t) = (y .= x .- t .* a)
 
 function prox!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)

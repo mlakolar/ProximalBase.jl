@@ -256,7 +256,7 @@ end
       @test output == fill(T(3), 3)
       @test input == fill(T(3), 3)
     end
-    @test h.image.buf isa Vector{T}
+    @test h.image.buf === nothing
     h = Precompose(WeightedSquare(ones(2)), Matrix{T}(I, 2, 3), one(T))
     @test prox(Scaled(h, T(2)), ones(T, 3), T(0.5)) ≈ T[0.5, 0.5, 1]
     @test h.image.buf isa Vector{T} && length(h.image.buf) == 2

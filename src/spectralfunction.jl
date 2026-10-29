@@ -17,7 +17,7 @@ order of the entries. Its proximal operator acts on the eigenvalues: for
   the Fantope `{X : 0 ⪯ X ⪯ I, tr(X) = k}`, the convex hull of the projections of
   rank `k`, as in sparse principal component analysis (Vu, Cho, Lei and Rohe,
   2013);
-- `Spectral(Conjugate(Constrained(IndBox(0, 1), IndHyperplane(1, k))))` is the
+- `Spectral(SumLargest(k))` is the
   sum of the `k` largest eigenvalues, the support function of the Fantope;
 - `Spectral(IndBox(l, u))` is the indicator of the matrices with eigenvalues in
   `[l, u]`;
@@ -52,11 +52,19 @@ end
 Spectral(f::AbstractFunction) = Spectral{typeof(f)}(f)
 
 isproximable(::Type{<:Spectral}) = true
+_argument_type(::Type{<:Spectral}) = AbstractMatrix
 isconvex(::Type{<:Spectral{F}}) where {F} = isconvex(F)
 _isindicator(::Type{<:Spectral{F}}) where {F} = _isindicator(F)
 
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix) =
-  (_checksize(Y, X); checksquare(X); true)
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix)
+  _checksize(Y, X)
+  n = checksquare(X)
+  T = float(eltype(Y))
+  ws = s.eig
+  λ = T <: _BlasReal && ws isa SymEigenWorkspace{T} && ws.n == n ? ws.w : Vector{T}(undef, n)
+  z = _checkbuffer(s.z, T, (n,))
+  _checkwrite(value_and_prox!, s.f, z, λ)
+end
 
 function (s::Spectral)(X::AbstractMatrix)
   T = float(eltype(X))
@@ -77,7 +85,9 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   s.eig = ws
   copyto!(ws.A, X)
   λ, V = _eigen!(ws)
+  # the eigenvalues of the result, exactly as many as those of X
   z = _buffer!(s.z, T, n)
+  length(z) == n || resize!(z, n)
   v = value_and_prox!(z, s.f, λ, γ)
   _rebuild_sym_signed!(Y, V, z, Y isa StridedMatrix ? Y : _array_buffer!(s.out, T, (n, n)))
   convert(T, v)
@@ -131,12 +141,12 @@ end
 # bounds, centers or normals that vary between the entries
 _ispermutationinvariant(::AbstractFunction) = false
 _ispermutationinvariant(::Union{ZeroFunction, NormL0, MCP, SCAD, IndNonnegative, NormL2, CubeNormL2, NormLinf,
-                                IndBallL0, IndBallL1, IndBallL2, IndSimplex}) = true
+                                IndBallL0, IndBallL1, IndBallL2, IndSimplex, SumLargest}) = true
 _ispermutationinvariant(::Union{NormL1{<:Real, Nothing}, NormL1Nonneg{<:Real, Nothing},
                                 ElasticNet{<:Real, Nothing}, SqrNormL2{<:Real, Nothing}}) = true
 _ispermutationinvariant(::IndBox{<:Real, <:Real}) = true
 _ispermutationinvariant(::IndBinary{<:Real, <:Real}) = true
-_ispermutationinvariant(::Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}) = true
+_ispermutationinvariant(::Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}, IndHyperslab{<:Real}}) = true
 _ispermutationinvariant(s::Union{Scaled, Conjugate}) = _ispermutationinvariant(s.f)
 _ispermutationinvariant(c::BoxConstrained) = _ispermutationinvariant(c.f) && _ispermutationinvariant(c.box)
 _ispermutationinvariant(c::LinearConstrained) = _ispermutationinvariant(c.f) && _ispermutationinvariant(c.set)

@@ -111,7 +111,15 @@ search with the limitations described in [Functions built from functions](@ref).
 
 `Conjugate` uses Moreau decomposition for a proximal step. Its combined
 value/prox method can use Fenchel equality at the computed point; this does
-not create a general standalone conjugate-value solver.
+not create a general standalone conjugate-value solver. Where the inner point
+`γ prox_{f/γ}(x/γ)` has a form free of the step (positively homogeneous
+functions and cones, the ℓ2 ball and the box, their translations and positive
+rescalings, and the double conjugate), the input is never divided by the step,
+and the result has the accuracy of a unit step, about eps times the largest
+input entry; with array steps and in `prox_entry` this covers only the
+indicator conjugates of separable functions, the box and the double conjugate.
+The other conjugates check that a finite input gives a finite result before
+writing.
 
 Representative source: [basic wrappers](https://github.com/mlakolar/ProximalBase.jl/blob/6004c42d90e51f2410eb8147b454f2ad16e25bdc/src/calculus.jl),
 [compositions](https://github.com/mlakolar/ProximalBase.jl/blob/6004c42d90e51f2410eb8147b454f2ad16e25bdc/src/composition.jl),

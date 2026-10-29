@@ -63,32 +63,28 @@ value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
   (_checkparams(s, x); s.α * value_and_prox!(y, s.f, x, _ScaledArray(γ, s.α)))
 
 function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
-  _checksize(y, x)
-  _checkparams(t, x)
+  _checkwrite(prox!, t, y, x)
   _checkparam(γ, x)
+  Base.Broadcast.check_broadcast_axes(axes(y), γ)
   y .= x .- γ .* t.c
   prox!(y, t.f, y, γ)
 end
 function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
-  _checksize(y, x)
-  _checkparams(t, x)
+  _checkwrite(value_and_prox!, t, y, x)
   _checkparam(γ, x)
+  Base.Broadcast.check_broadcast_axes(axes(y), γ)
   y .= x .- γ .* t.c
   value_and_prox!(y, t.f, y, γ) + dot(t.c, y) + t.d
 end
 
 function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
-  _checksize(y, x)
-  _checksize(t.b, x)
-  _checkparams(t, x)
+  _checkwrite(prox!, t, y, x)
   y .= x .- t.b
   prox!(y, t.f, y, γ)
   y .+= t.b
 end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
-  _checksize(y, x)
-  _checksize(t.b, x)
-  _checkparams(t, x)
+  _checkwrite(value_and_prox!, t, y, x)
   y .= x .- t.b
   v = value_and_prox!(y, t.f, y, γ)
   y .+= t.b
@@ -148,6 +144,27 @@ function prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace}, x::Abstr
   y .= x .- t .* γ .* f.a
 end
 
+function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, γ::AbstractArray)
+  _checkwrite(prox!, f, y, x)
+  _checkparams(f, x)
+  _checkparam(γ, x)
+  Base.Broadcast.check_broadcast_axes(axes(y), γ)
+  _hyperslab_input(f, x)
+  isempty(x) && return y
+  g = _hyperslab_residual(f, x)
+  iszero(g) && return (y === x ? y : copyto!(y, x))
+  t = g / _metric_sqnorm(f, x, γ)
+  if _isscaled(f)
+    return _hyperslab_metric_output!(y, x, _normalized_normal(f.a, f.s), γ, t)
+  end
+  _hyperslab_metric_output!(y, x, f.a, γ, t)
+end
+
+# Inline so that passing the scaled normal does not allocate a view.
+@inline function _hyperslab_metric_output!(y, x, a, γ, t::T) where {T}
+  y .= x .- t .* (T.(γ) .* a)
+end
+
 # The simplex and the ℓ1 ball: max(xᵢ - γᵢν, 0) and shrink(xᵢ, γᵢν) for the
 # level ν that meets the constraint
 function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, γ::AbstractArray)
@@ -178,7 +195,7 @@ function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, γ::AbstractArr
   y .= shrink.(x, γ .* ν)
 end
 
-value_and_prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndSimplex, IndBallL1}, x::AbstractArray, γ::AbstractArray) =
+value_and_prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndHyperslab, IndSimplex, IndBallL1}, x::AbstractArray, γ::AbstractArray) =
   (prox!(y, f, x, γ); zero(float(eltype(y))))
 
 # The level ν with Σᵢ max(uᵢ - γᵢν, 0) = r for uᵢ = h(xᵢ), by Newton's method

@@ -60,7 +60,7 @@ export
   # indicator functions
   IndBox, IndNonnegative, IndBinary, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
   IndIntersection,
-  IndHyperplane, IndHalfspace, IndPSD, IndBallRank, IndStiefel, IndIsotonic, IndSOC,
+  IndHyperplane, IndHalfspace, IndHyperslab, IndPSD, IndBallRank, IndStiefel, IndIsotonic, IndSOC,
   IndSphereL2,
   IndBallGroupL0,
   IndPattern, IndBanded, IndToeplitz,
@@ -68,7 +68,7 @@ export
 
   # functions built from functions
   Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum, Constrained, Spectral,
-  MoreauEnvelope, SqrDistL2, Precompose, Regularize,
+  MoreauEnvelope, SqrDistL2, Precompose, Regularize, PointwiseMinimum,
 
   # functions of stacked arrays
   SliceSum, FiberSum,
@@ -129,6 +129,7 @@ include("second_order.jl")
 include("envelope.jl")
 include("distance.jl")
 include("composition.jl")
+include("minimum.jl")
 include("metric.jl")
 include("caches.jl")
 include("deprecated.jl")

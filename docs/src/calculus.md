@@ -12,6 +12,7 @@ from known ones.
 | [`Conjugate`](@ref)`(f)` | ``f^*(x) = \sup_z \langle z, x\rangle - f(z)`` | ``x - \gamma\operatorname{prox}_{f/\gamma}(x/\gamma)`` | |
 | [`SeparableSum`](@ref)`(f1, f2, ...)` | ``\sum_k f_k(x_k)`` on a tuple of blocks | block by block | block by block |
 | [`Sum`](@ref)`(f1, f2, ...)` | ``\sum_k f_k(x)`` | | ``\sum_k \nabla f_k(x)`` |
+| [`PointwiseMinimum`](@ref)`(f1, f2, ...)` | ``\min_k f_k(x)`` | the candidate with the smallest proximal objective | |
 | [`Constrained`](@ref)`(f, C)` | ``f(x)`` on a box, hyperplane, halfspace or simplex ``C`` | on a box, ``\operatorname{clamp}(\operatorname{prox}_{\gamma f}(x), l, u)``; on a hyperplane, ``\operatorname{prox}_{\gamma f}(x - \gamma\nu a)`` | |
 | [`Spectral`](@ref)`(f)` | ``f(\lambda(X))`` for a symmetric ``X`` | ``V\operatorname{diag}(\operatorname{prox}_{\gamma f}(\lambda))V^\top`` | |
 | [`MoreauEnvelope`](@ref)`(f, μ)` | ``\min_z f(z) + \tfrac{1}{2\mu}\lVert z - x\rVert^2`` | ``x + \tfrac{\gamma}{\mu + \gamma}\big(\operatorname{prox}_{(\mu+\gamma) f}(x) - x\big)`` | ``\big(x - \operatorname{prox}_{\mu f}(x)\big)/\mu`` |
@@ -119,6 +120,68 @@ h = Precompose(MCP(0.3), s)
 prox(h, [2.0, -1.0, 0.2], 0.4)
 ```
 
+## Pointwise minima and unions
+
+[`PointwiseMinimum`](@ref)`(f1, f2, ...)` takes one or more proximable functions
+on arrays. If ``z_i = \operatorname{prox}_{\gamma f_i}(x)``, then
+```math
+\min_z\left\{\min_i f_i(z) + \frac{\|z-x\|^2}{2\gamma}\right\}
+= \min_i\left\{f_i(z_i) + \frac{\|z_i-x\|^2}{2\gamma}\right\}.
+```
+The two minima commute, so the proximal operator evaluates every candidate
+and keeps the one with the smallest objective. Ties go to the first function.
+A `NaN` score never beats a number; if all scores are `NaN`, the first
+candidate is kept and `value_and_prox!` returns `NaN`. Comparisons preserve the
+range of the distance term even when its square overflows or underflows.
+The minimum is generally nonconvex and has no smooth or separable oracles.
+
+For indicators, the minimum is the indicator of the union, and its proximal
+operator is the nearest of the individual projections. Isotonic regression
+with an unknown direction is the union of the two monotone cones:
+
+```@example calculus
+monotone = PointwiseMinimum(IndIsotonic(), IndIsotonic(decreasing = true))
+prox(monotone, [3.0, 1.0, 2.0, 0.0])
+```
+
+A block of effects whose sign is shared but unknown lies in the union of the
+nonnegative and nonpositive orthants:
+
+```@example calculus
+shared_sign = PointwiseMinimum(IndNonnegative(), IndBox(-Inf, 0))
+prox(shared_sign, [2.0, -0.5, 1.0])
+```
+
+For several prior guesses ``\beta_k``, the penalty
+``\min_k \lambda\|\beta-\beta_k\|_1`` shrinks towards the best source model:
+
+```@example calculus
+prior = PointwiseMinimum(Translate(NormL1(0.5), [0.0, 1.0]),
+                         Translate(NormL1(0.5), [2.0, 0.0]))
+prox(prior, [1.5, 0.2], 1.0)
+```
+
+The cost is one proximal operator per component. For unions with many sets,
+such as unimodal regression with an unknown mode, a dedicated algorithm can
+be preferable (Stout, *Unimodal regression via prefix isotonic regression*,
+2008). Two buffers follow the output's shape and element type; the output may
+alias the input. Warmed calls on fixed-shape CPU arrays allocate nothing when
+the components allocate nothing. Use a separate function object per thread.
+Steps must be positive scalars; tuple inputs and arrays of steps are unsupported.
+
+The standalone value `g(x)` evaluates every component's value in order, and
+propagates `NaN` as `minimum` does. Every component must provide a value oracle;
+`Conjugate(ElasticNet(0.5, 0.2))`, for example, has no standalone value. The proximal
+operator instead obtains each candidate value from `value_and_prox!`, and
+promotes the returned scalar across all candidate values. It is exact when
+every component's proximal operator and reported value are exact. Approximate
+projections, partial decompositions and cancellation in `Conjugate` values can
+change the selected branch. In particular, the package's indicators return
+zero from `value_and_prox!` without checking membership. This is correct for
+exact projections, but an inexact `IndIntersection` projection can win a
+comparison it should lose. The zero returned for a union is not a feasibility
+certificate.
+
 ## Conjugates
 
 The conjugate of a convex function gives a second function for free, with its
@@ -160,8 +223,8 @@ prox(h, [3.0, 4.0], 0.5) ≈ [0.6, 0.8]
 
 [`Constrained`](@ref)`(f, C)` is ``f + \iota_C`` for a convex separable
 ``f(x) = \sum_i f_i(x_i)`` and a set ``C`` that is a box, a hyperplane, a
-halfspace or a simplex. Its proximal operator reduces to the scalar proximal
-operators of ``f``.
+halfspace, a hyperslab or a simplex. Its proximal operator reduces to the scalar
+proximal operators of ``f``.
 
 **On a box.** The problem that defines the proximal operator separates over the
 entries, into the scalar problems
@@ -205,6 +268,13 @@ every root. For the halfspace ``\langle a, z\rangle \le b`` the multiplier is
 nonnegative and vanishes when the constraint is inactive: ``\nu^\star = 0`` when
 ``\varphi(0) \le 0``.
 
+For a hyperslab [`IndHyperslab`](@ref)`(a, l, u)`, the multiplier vanishes
+when the unconstrained proximal point satisfies both bounds. Otherwise the
+search meets the violated bound, with a negative multiplier at the lower bound
+or a positive one at the upper bound. The selected bound stays fixed throughout
+that call. A warm start from the other side, or from an inactive call, is
+discarded. This also applies when `f` is itself constrained to a box.
+
 `Constrained` finds the root by a search over the scalar ``\nu``, and each step
 of the search is one pass over the entries.
 
@@ -236,14 +306,15 @@ A box enters through the scalar proximal operators, so ``f`` may itself be
 ``\sum_i x_i = r``. The caller must ensure that the set meets the domain of
 ``f``. A box clamps the unconstrained proximal point without checking this
 intersection; for an indicator, `value_and_prox!` returns zero even when the
-intersection is empty. The multiplier search on a hyperplane or halfspace
-throws an `ArgumentError` if it cannot bracket a multiplier. It is not a
+intersection is empty. The multiplier search on a hyperplane, halfspace or
+hyperslab throws an `ArgumentError` if it cannot bracket a multiplier. It is not a
 general feasibility test: rounding can reach the closure of an open domain,
 and a finite multiplier need not exist at the boundary of a closed domain.
 
 | Call | Function |
 |:-----|:---------|
 | `Constrained(NormL1(λ), IndHyperplane(1, 0))` | the lasso penalty on coefficients that sum to zero, as in regression on compositional data |
+| `Constrained(NormL1(λ), IndHyperslab(a, l, u))` | the lasso penalty with a bounded contrast ``l \le \langle a, x\rangle \le u`` |
 | `Constrained(NormL1(λ), IndBox(0, u))` | the nonnegative lasso penalty with upper bounds |
 | `Constrained(IndBox(0, 1), IndHyperplane(1, k))` | the indicator of the capped simplex ``\{x : 0 \le x \le 1,\ \sum_i x_i = k\}`` |
 | `Constrained(SqrNormL2(λ), IndSimplex(1))` | the ridge penalty on the probability simplex |

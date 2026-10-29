@@ -147,9 +147,7 @@ end
 function ProximalBase._prox_sep!(y::AnyGPUArray, f::ElasticNet, x::AnyGPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  T = float(eltype(y))
-  λ1 = _device_level(T, γ * f.λ1)
-  y .= _enet_prox.(x, one(T), λ1, _scalar(y, γ * f.λ2), _param(f.w, x))
+  y .= shrink.(x, _weight_coefficient.(_scalar(y, γ * f.λ1), _param(f.w, x))) ./ (1 + _scalar(y, γ * f.λ2))
 end
 function ProximalBase._value_dense(f::ElasticNet, x::GPUArray)
   T = float(eltype(x))

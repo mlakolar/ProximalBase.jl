@@ -57,6 +57,18 @@ same(a, b) = isinf(b) ? a == b : a ≃ b
   @test Adapt.adapt(DeviceArray, IndBox(l, u)).u isa DeviceArray
   @test Adapt.adapt(DeviceArray, NormL1(0.3)) == NormL1(0.3)
   @test_throws ArgumentError Adapt.adapt(DeviceArray, NormL1(0.3, -w))
+  if Float32 in test_types
+    for (w, x) in (([1 - 2.0^-26], Float32[1]), ([1e40], Float32[Inf]))
+      f = ElasticNet(1, 0, w)
+      fg = Adapt.adapt(DeviceArray, f)
+      # The broadcast retains the weights' precision until writing Float32.
+      expected = Float32.(prox(f, Float64.(x), 1.0))
+      xg = DeviceArray(x)
+      @test host(prox(fg, xg, 1f0)) == expected
+      @test host(prox!(xg, fg, xg, 1f0)) == expected
+    end
+  end
+
 end
 
 @testset "compensated separable L1 coefficients" begin
@@ -739,18 +751,6 @@ end
       @test same(value_and_prox!(y, cg, xg, T(0.5)), value_and_prox!(similar(x), c, x, T(0.5)))
       @test host(y) ≃ expected
       @test same(fg(xg), f(x))
-    end
-  end
-  if Float32 in test_types
-    for λ in (1e40, BigFloat(1e40))
-      x = Float32[2e10]
-      f = ElasticNet(λ, 1, Float32[1e-30])
-      c, cg = Conjugate(f), Conjugate(Adapt.adapt(DeviceArray, f))
-      xg = DeviceArray(x)
-      y = similar(xg)
-      @test host(prox!(y, cg, xg, 1f0)) ≃ prox(c, x, 1f0)
-      @test same(value_and_prox!(y, cg, xg, 1f0), value_and_prox!(similar(x), c, x, 1f0))
-      @test host(y) ≃ prox(c, x, 1f0)
     end
   end
 

@@ -45,7 +45,7 @@ mutable struct Spectral{F<:AbstractFunction} <: AbstractFunction
   f::F
   eig::Any         # the eigendecomposition
   z::Scratch       # the eigenvalues of the result
-  out::Scratch     # the result, for an output that is not strided
+  out::Scratch     # the result, for an output BLAS cannot write
 
   function Spectral{F}(f::F) where {F<:AbstractFunction}
     isproximable(f) || throw(ArgumentError("Spectral needs a proximable function, and $(nameof(typeof(f))) is not"))
@@ -111,14 +111,14 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   z = _buffer!(s.z, T, n)
   length(z) == n || resize!(z, n)
   v = value_and_prox!(z, s.f, λ, γ)
-  _rebuild_sym_signed!(Y, V, z, Y isa StridedMatrix ? Y : _array_buffer!(s.out, T, (n, n)))
+  _rebuild_sym_signed!(Y, V, z, _blas_ready(Y) ? Y : _array_buffer!(s.out, T, (n, n)))
   convert(T, v)
 end
 prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real) =
   (_checkwrite(prox!, s, Y, X); value_and_prox!(Y, s, X, γ); Y)
 
 # Y = Σⱼ zⱼ vⱼvⱼ' for the eigenvectors vⱼ in the columns of V, through B, which
-# is Y when Y is strided and an n × n buffer otherwise; destroys V. The proximal
+# is Y when BLAS can write Y and an n × n buffer otherwise; destroys V. The proximal
 # operator of a function that does not depend on the order of the entries keeps
 # the ascending order of the eigenvalues, so the negative zⱼ come first and the
 # positive ones last: two products with syrk, of the columns scaled by √|zⱼ|, in

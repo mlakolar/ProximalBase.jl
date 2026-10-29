@@ -117,7 +117,8 @@ function logical_inputs(X::Matrix{T}) where {T}
   padded = fill(T(NaN), size(X, 1) + 2, size(X, 2) + 2)
   V = view(padded, 2:size(X, 1)+1, 2:size(X, 2)+1)
   copyto!(V, X)
-  (X, sparse(X), SparseIterate(X), SymmetricSparseIterate(X), V)
+  # an iterate stores the lower triangle of X explicitly, since X may not be symmetric
+  (X, sparse(X), SparseIterate(X), SymmetricSparseIterate(Symmetric(X, :L)), V)
 end
 
 # The value formulas at the base, through the same LAPACK workspaces.

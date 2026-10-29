@@ -307,7 +307,16 @@ the Fenchel equality ``f^*(y) = \langle p, y\rangle - f(p)``, with ``p`` the cor
 proximal point of ``f``. Subtraction can lose accuracy when these terms nearly
 cancel, and errors in the inner proximal point also affect the value. For a
 conjugate that is an indicator, the result can be a small nonzero number
-rather than zero; it is not a feasibility certificate.
+rather than zero; it is not a feasibility certificate. For a positively
+homogeneous ``f`` or a cone, ``\gamma\operatorname{prox}_{f/\gamma}(x/\gamma) =
+\operatorname{prox}_f(x)``, and for the ℓ2 ball and box indicators, their
+translations and positive rescalings, it is the projection onto ``\gamma C``,
+so these conjugates take every step without dividing by ``\gamma``, with the
+accuracy of a unit step, about ``\epsilon`` times the largest input entry
+(with array steps and in `prox_entry`, only for the conjugates that are
+indicators of separable functions, the box itself and the double conjugate); for
+the others, `prox!` and `value_and_prox!` throw an `ArgumentError` when a finite
+input gives a result that is not finite in working precision.
 
 ```@example calculus
 h = Conjugate(NormL2(1.0))                     # the indicator of the unit ℓ2 ball

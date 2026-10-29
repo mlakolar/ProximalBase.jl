@@ -36,11 +36,12 @@ struct LogDetLoss{T<:_BlasReal} <: AbstractFunction
   w::T
   eig::SymEigenWorkspace{T}     # the proximal operator
   C::Matrix{T}                  # Cholesky factors and inverses
+  out::Scratch                  # the Hessian product, for an output BLAS cannot write
 
   function LogDetLoss{T}(S::Matrix{T}, w::T) where {T<:_BlasReal}
     isfinite(w) && w > 0 || throw(ArgumentError("w must be finite and positive, got $w"))
     p = checksquare(S)
-    new{T}(S, w, SymEigenWorkspace(T, p), zeros(T, p, p))
+    new{T}(S, w, SymEigenWorkspace(T, p), zeros(T, p, p), Scratch())
   end
 end
 

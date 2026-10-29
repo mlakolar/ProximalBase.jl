@@ -127,4 +127,23 @@ end
   @test f(Matrix(2.0I, n, n)) ≈ 0.3 * 2n
 end
 
+@testset "views whose columns are not contiguous" begin
+  # every other row of a larger matrix: a StridedMatrix that BLAS cannot write
+  # (issue #214); the rows in between must stay zero
+  n = 7
+  X = symmetric(n) + 0.5I
+  rows(m, n) = view(zeros(2m, n), 1:2:2m, :)
+  B = randn(3n, n)
+  L = LogDetLoss(B'B / 3n + I)
+  for f in (IndPSD(), IndPSD(rank = 3), TracePSD(0.3), L, NuclearNorm(0.5), IndBallRank(3))
+    @testset "$(nameof(typeof(f)))" begin
+      Y = rows(n, n)
+      @test prox!(Y, f, X, 0.7) ≈ prox(f, X, 0.7)
+      @test all(iszero, parent(Y)[2:2:end, :])
+      Xv = rows(n, n); Xv .= X
+      @test prox(f, Xv, 0.7) ≈ prox(f, X, 0.7)
+    end
+  end
+end
+
 end

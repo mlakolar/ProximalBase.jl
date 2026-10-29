@@ -281,6 +281,7 @@ _sparse_precompose(y, x) = (y isa SparseIterate && x isa SparseIterate) ||
 function _checkwrite(op::O, h::_ArrayPrecompose, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
   _checksize(y, x)
   _checkparams(h, x)
+  _check_symmetric_source(y, h.a)
   if (op === prox! || op === value_and_prox!) && isseparable(h) && _sparse_precompose(y, x)
     return _checkwrite(op, h.f, y, x)
   end

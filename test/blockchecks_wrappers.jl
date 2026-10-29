@@ -177,8 +177,10 @@ end
     dot_y = c isa Matrix ? y isa Union{SymmetricSparseIterate, SparseMatrixCSC} : y isa Union{Matrix, SparseMatrixCSC, SubArray}
     dot_x = c isa Matrix ? x isa Union{SymmetricSparseIterate, SparseMatrixCSC} : x isa Union{Matrix, SparseMatrixCSC, SubArray}
     for op in oracles
-      bad = op === value_and_prox! ? dot_y : op === value_and_gradient! ? dot_x || y isa SymmetricSparseIterate :
-            op === gradient! && y isa SymmetricSparseIterate
+      # Every oracle writes c into y, which a SymmetricSparseIterate accepts
+      # only with its own axes.
+      bad = y isa SymmetricSparseIterate ||
+            (op === value_and_prox! ? dot_y : op === value_and_gradient! && dot_x)
       bad || continue
       # Cross distinct representations, and alias when their representations agree.
       block_failure(f, x, (op => DimensionMismatch,); output = y,
@@ -206,8 +208,9 @@ function dot_case(c, x)
   expected[1] === nothing || @test g == fill(7.0, size(x))
   y = deepcopy(x)
   p = deepcopy(x)
-  prox!(p, f, x, 1.0)
-  expected = outcome(dot, c, p)
+  # c of another shape cannot be written into a SymmetricSparseIterate
+  proxed = outcome(prox!, p, f, x, 1.0)
+  expected = proxed[1] === nothing ? outcome(dot, c, p) : proxed
   @test isequal(outcome(value_and_prox!, y, f, x, 1.0), expected)
   @test isequal(y, expected[1] === nothing ? p : x)
 end
@@ -273,8 +276,8 @@ end
     same_as_blocks(op, f, x; alias)
   end
   for c in (ones(4), view(ones(2, 4), [1], :)), x in representation_cases(), op in oracles
-    # A matrix copied into a symmetric iterate still needs matching shapes.
-    c isa SubArray && x isa SymmetricSparseIterate && op in smooth && continue
+    # A symmetric iterate takes c only with its own axes.
+    x isa SymmetricSparseIterate && continue
     c isa SubArray && x isa SparseMatrixCSC && op in (value_and_prox!, value_and_gradient!) && continue
     same_as_blocks(op, LinearFunction(c), x; alias = true)
   end

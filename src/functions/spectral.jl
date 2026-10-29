@@ -14,10 +14,11 @@ const _SPECTRAL_NOTE = """
 The proximal operator throws an `ArgumentError` at a matrix with a non-finite
 entry, before writing.
 
-The function caches a LAPACK workspace for the size and element type
-(`Float32` or `Float64`) of its input, so that repeated calls allocate nothing;
-do not share one function object between threads. Other element types, such as
-`Float16` or `BigFloat`, raise an `ArgumentError`."""
+The function caches a LAPACK workspace for the matrix size and working element
+type (`Float32` or `Float64`), so that repeated calls allocate nothing; do not
+share one function object between threads. `Float16` and `BigFloat` entries
+raise an `ArgumentError` for values and proximal outputs, except for the identity
+shortcuts `NuclearNorm(0)` and `IndBallRank(r)` with `r ≥ min(size(X)...)`."""
 
 const _PARTIAL_NOTE = """
 With `partial = true` the proximal operator computes only the leading singular

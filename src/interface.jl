@@ -343,6 +343,8 @@ additive constant and, for a smooth function, has gradient `∇f(x)[S]`. Centere
 [`SqrNormL2`](@ref), [`Regularize`](@ref) and separable [`Translate`](@ref) may
 drop terms belonging to excluded coordinates. These constants do not change the
 minimizer; evaluate the original function when comparing full objective values.
+`MoreauEnvelope` and `SqrDistL2` restrict only a separable function or set,
+respectively, and throw otherwise.
 
 A nonseparable `Translate` requires its translation to vanish outside `S`;
 otherwise restricting its underlying function would change more than a constant,

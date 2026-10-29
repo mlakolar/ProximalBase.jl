@@ -16,7 +16,8 @@ from [`value_and_prox!`](@ref)).
 
 It is also proximable, by
 `prox_{te}(x) = x + t/(γ + t) ⋅ (prox_{(γ + t)f}(x) - x)`, and separable when
-`f` is, so coordinate descent applies to it. The envelope of `δ|⋅|` is the
+`f` is, so coordinate descent applies to it. `prox_entry`, `kkt_violation` and
+`restrict` require a separable `f`. The envelope of `δ|⋅|` is the
 Huber function, that of the indicator function of a set `C` the squared
 distance to `C` divided by `2γ`; [`SqrDistL2`](@ref) also supports nonconvex
 sets. The value, the gradient and the proximal
@@ -157,6 +158,7 @@ function value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, 
 end
 
 Base.@propagate_inbounds function prox_entry(e::MoreauEnvelope, v::Real, i::Integer, t::Real)
+  isseparable(e) || throw(ArgumentError("prox_entry of MoreauEnvelope requires a separable function"))
   T = typeof(float(v))
   γ, step = convert(T, e.γ), convert(T, t)
   combined = _envelope_step(γ, step)
@@ -168,10 +170,14 @@ _checkparams(e::MoreauEnvelope, x) = _checkparams(e.f, x)
 # the envelope is smooth: a coordinate at zero is optimal when the gradient of
 # the smooth part cancels the envelope's derivative there, -prox_{γfᵢ}(0)/γ
 function kkt_violation(e::MoreauEnvelope, g::AbstractArray, i::Integer)
+  isseparable(e) || throw(ArgumentError("kkt_violation of MoreauEnvelope requires a separable function"))
   γ = e.γ
   abs(g[i] - prox_entry(e.f, zero(float(eltype(g))), i, γ) / γ)
 end
-restrict(e::MoreauEnvelope, S::AbstractVector{<:Integer}) = MoreauEnvelope(restrict(e.f, S), e.γ)
+function restrict(e::MoreauEnvelope, S::AbstractVector{<:Integer})
+  isseparable(e) || throw(ArgumentError("restrict of MoreauEnvelope requires a separable function"))
+  MoreauEnvelope(restrict(e.f, S), e.γ)
+end
 
 lipschitz(e::MoreauEnvelope) = inv(float(e.γ))
 

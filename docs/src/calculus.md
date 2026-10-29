@@ -666,6 +666,8 @@ a linear predictor, `ProximalBase.Smoothed(φ, μ)` is the envelope of a scalar
 function of the residual as a scalar loss of [`GLMLoss`](@ref), with curvature
 at most ``1/\mu``, so that coordinate descent and proximal Newton apply to a
 smoothed check loss (quantile regression) or hinge.
+`prox_entry`, `kkt_violation` and `restrict` of a `MoreauEnvelope` are supported
+only for a separable function.
 
 ```@example calculus
 const PB = ProximalBase

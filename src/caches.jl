@@ -47,9 +47,6 @@ function reset_cache!(c::AffineConstrained{T}) where {T}
   c
 end
 
-reset_cache!(::IndAffine) = throw(ArgumentError("construct a new IndAffine after changing its data"))
-reset_cache!(::IndGraph) = throw(ArgumentError("construct a new IndGraph after changing its data"))
-
 function reset_cache!(h::_QuadraticLinearImage)
   _check_image_data(h.L)
   _check_image_quadratic(h.f, h.L)
@@ -63,6 +60,9 @@ function reset_cache!(h::_QuadraticLinearImage)
 end
 
 reset_cache!(h::_OrthogonalLinearImage) = (reset_cache!(h.f); h)
+
+reset_cache!(::IndAffine) = throw(ArgumentError("construct a new IndAffine after changing its data"))
+reset_cache!(::IndGraph) = throw(ArgumentError("construct a new IndGraph after changing its data"))
 
 for F in (:Scaled, :Tilt, :Translate, :Conjugate, :Precompose, :_ArrayPrecompose, :Regularize,
           :MoreauEnvelope, :SqrDistL2, :DistL2, :Spectral, :SingularValue,

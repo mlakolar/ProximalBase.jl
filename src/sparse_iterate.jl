@@ -42,9 +42,11 @@ first evaluated at both positions of each off-diagonal entry, so a function
 with side effects runs more often and may give a value that is not symmetric.
 `copyto!` with offsets or index ranges and the indexed `axpy!` throw an
 `ArgumentError`. `fill!`, `rmul!` and `lmul!` by a number keep `x` symmetric.
+`replace` and `replace!` visit each entry of the lower triangle once, and their
+`count` counts those entries, column by column.
 
 Other functions update the entries of `x` one position at a time and are not
-checked: `replace!`, `mul!` into `x`, indexed and view assignment such as
+checked: `mul!` into `x`, indexed and view assignment such as
 `x[:, :] = A`, `copyto!` from an iterator, `transpose!`, `permutedims!`,
 `reverse!`, `triu!`, `tril!`, and scaling by a `Diagonal`. They can update an off-diagonal
 entry twice or store one of two different values. Functions that build a result
@@ -1067,6 +1069,28 @@ function LinearAlgebra.axpby!(α::Number, x::AbstractArray, β::Number, y::Symme
   _check_axes(y, x)
   iszero(α) && isone(β) && return y
   y .= α .* x .+ β .* y
+end
+
+# replace and replace!, with a function or with pairs, reach this method, which
+# base/set.jl names as the one a new container type implements. Each entry of
+# the lower triangle is visited once, and count counts those entries.
+function Base._replace!(new::Base.Callable, res::SymmetricSparseIterate, A::SymmetricSparseIterate,
+                        count::Int)
+  size(res) == size(A) || throw(DimensionMismatch("destination size $(size(res)) does not match $(size(A))"))
+  p = A.p
+  n = 0
+  @inbounds for c = 1:p, r = c:p
+    k = tril_index(p, r, c)
+    a = _getstored(A, k)
+    if n < count
+      v = new(a)
+      _setstored!(res, v, k)
+      n += (a !== v)
+    elseif res !== A
+      _setstored!(res, a, k)
+    end
+  end
+  res
 end
 # The indexed axpy! adds twice to an entry whose two positions are both in ry.
 LinearAlgebra.axpy!(::Number, ::AbstractArray, ::AbstractArray{<:Integer}, ::SymmetricSparseIterate,

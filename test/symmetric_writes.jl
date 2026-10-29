@@ -80,6 +80,21 @@ const WRITERS = (
   ("axpby!", (x, A) -> axpby!(2, A, 3, x), (X, A) -> 2 .* A .+ 3 .* X, DimensionMismatch),
 )
 
+# replace on the lower triangle of the dense M: entries in coordinate order,
+# at most count of them changed
+function replace_lower(f, M, count = typemax(Int))
+  R = copy(M)
+  n = 0
+  for c in axes(M, 2), r in c:size(M, 1)
+    n < count || break
+    v = f(M[r, c])
+    R[r, c] = R[c, r] = v
+    n += (M[r, c] !== v)
+  end
+  R
+end
+pairs_function(old_new...) = v -> something(get(Dict(old_new...), v, nothing), v)
+
 # Warm the exact measured call.
 allocations(f::F, x::X) where {F, X} = (f(x); @allocated f(x))
 allocations(f::F, x::X, A::TA) where {F, X, TA} = (f(x, A); @allocated f(x, A))
@@ -371,6 +386,74 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
     @test allocations(map1!, x, A) == 0
     @test allocations(axpy2!, x, A) == 0
     @test allocations(axpby23!, x, A) == 0
+  end
+
+  @testset "#235: replace visits each entry once" begin
+    y = SymmetricSparseIterate([1.0 1.0; 1.0 1.0])
+    @test replace!(double, y) === y
+    @test Matrix(y) == [2 2; 2 2]
+    y = SymmetricSparseIterate([1.0 1.0; 1.0 2.0])
+    @test replace!(y, 1.0 => 2.0, 2.0 => 5.0) === y
+    @test Matrix(y) == [2 2; 2 5]
+    y = SymmetricSparseIterate([1.0 1.0; 1.0 2.0])
+    @test Matrix(replace(y, 1.0 => 2.0, 2.0 => 5.0)) == [2 2; 2 5]
+    @test Matrix(y) == [1 1; 1 2]
+    # count counts entries of the lower triangle, in coordinate order
+    y = SymmetricSparseIterate([1.0 1.0; 1.0 1.0])
+    @test Matrix(replace(y, 1.0 => 2.0; count = 2)) == [2 2; 2 1]
+    @test Matrix(replace(double, y; count = 1)) == [2 1; 1 1]
+    @test Matrix(replace!(y, 1.0 => 2.0; count = 2)) == [2 2; 2 1]
+    @test Matrix(replace!(y, 2.0 => 3.0; count = 0)) == [2 2; 2 1]
+    @test_throws DomainError replace!(y, 2.0 => 3.0; count = -1)
+    @test_throws DomainError replace(y, 2.0 => 3.0; count = -1)
+    @test Matrix(y) == [2 2; 2 1]
+    # as in Base, a result that is not === counts even if it converts back
+    y = SymmetricSparseIterate([1.0 1.0; 1.0 1.0])
+    calls = Ref(0)
+    @test Matrix(replace!(v -> (calls[] += 1; Int(v)), y; count = 1)) == [1 1; 1 1]
+    @test calls[] == 1
+    @test size(replace(double, SymmetricSparseIterate(0); count = 1)) == (0, 0)
+  end
+
+  @testset "#235: replace against the lower triangle, $T" for T in (Float64, ComplexF64)
+    M = T.(rand(-2:2, 5, 5)); M = M + transpose(M)
+    for f in (double, increment, v -> real(v) > 0 ? zero(v) : v, pairs_function(T(0) => T(7), T(2) => T(-2))),
+        count in (0, 1, 3, 8, 15, 100)
+      want = replace_lower(f, M, count)
+      @test Matrix(replace(f, SymmetricSparseIterate(M); count)) == want
+      y = SymmetricSparseIterate(M)
+      @test replace!(f, y; count) === y
+      @test Matrix(y) == want
+    end
+    for count in (1, 4, 100)
+      want = replace_lower(pairs_function(T(0) => T(7), T(2) => T(-2)), M, count)
+      @test Matrix(replace(SymmetricSparseIterate(M), T(0) => T(7), T(2) => T(-2); count)) == want
+      y = SymmetricSparseIterate(M)
+      @test Matrix(replace!(y, T(0) => T(7), T(2) => T(-2); count)) == want
+    end
+  end
+
+  @testset "#235: replace, stored entries and calls" begin
+    # replacing a zero fills the entries that are not stored
+    y = SymmetricSparseIterate([1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0])
+    replace!(y, 0.0 => 3.0)
+    @test Matrix(y) == [1 3 3; 3 1 3; 3 3 1] && nnz(y) == 6
+    # a zero result keeps the stored entry as a stored zero
+    y = SymmetricSparseIterate([1.0 2.0; 2.0 1.0])
+    replace!(vanish, y)
+    @test iszero(Matrix(y)) && nnz(y) == 3
+    # the copying form promotes; the result is symmetric
+    y = SymmetricSparseIterate([1.0 2.0; 2.0 1.0])
+    z = replace(y, 2.0 => 2im)
+    @test z isa SymmetricSparseIterate{ComplexF64}
+    @test Matrix(z) == [1 2im; 2im 1]
+    for p in (0, 1, 4)
+      calls = Ref(0)
+      y = SymmetricSparseIterate(p)
+      @test replace!(v -> (calls[] += 1; v + 1), y) === y
+      @test calls[] == p * (p + 1) ÷ 2
+      @test Matrix(y) == fill(1, p, p)
+    end
   end
 
   @testset "allocations" begin

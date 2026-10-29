@@ -55,6 +55,22 @@ end
 
 errors(ops, E) = map(op -> op => E, ops)
 
+# Julia 1.10 compiled a sum's check for an abstract closure once a sum nesting it
+# had been checked first, and that check allocated; this runs before the file
+# compiles the inner sum on its own.
+@testset "Nested sums keep the inner check allocation free" begin
+  inner = SeparableSum(SqrNormL2(2.0), MoreauEnvelope(NormL1(1.0), 0.5))
+  outer = SeparableSum(inner, SqrNormL2(1.0))
+  x = (([3.0], [3.0, 4.0]), [2.0])
+  y = deepcopy(x)
+  value_and_prox!(y, outer, x, 1.0)
+  value_and_gradient!(y, outer, x)
+  for op in oracles
+    args = op in proximal ? (1.0,) : ()
+    @test PB.Testing.allocations(op, y[1], inner, x[1], args...) == 0
+  end
+end
+
 @testset "Wrapper checks before writes" begin
   v = [3.0, 4.0]
   M = [2.0 1.0; 1.0 3.0]

@@ -205,7 +205,8 @@ end
 hashessian(::Type{<:LogDetLoss}) = true
 
 # w X⁻¹ V X⁻¹, from the Cholesky factor of X; the eigenvalue workspace, which
-# only the proximal operator uses, holds X⁻¹ V
+# only the proximal operator uses, holds X⁻¹ V, and the product goes through
+# f.out when BLAS cannot write Hv
 function hessian_vec!(Hv::StridedMatrix{T}, f::LogDetLoss{T}, X::AbstractMatrix, V::AbstractMatrix) where {T}
   _checksize(Hv, X)
   _checkdirection(V, X)
@@ -215,9 +216,12 @@ function hessian_vec!(Hv::StridedMatrix{T}, f::LogDetLoss{T}, X::AbstractMatrix,
   end
   C, M = f.C, f.eig.A
   _potri!('U', C)                                         # the upper triangle of X⁻¹
-  copyto!(Hv, V)
-  BLAS.symm!('L', 'U', one(T), C, Hv, zero(T), M)
-  BLAS.symm!('R', 'U', f.w, C, M, zero(T), Hv)
+  B = _blas_ready(Hv) ? Hv : _array_buffer!(f.out, T, size(Hv))
+  copyto!(B, V)
+  BLAS.symm!('L', 'U', one(T), C, B, zero(T), M)
+  BLAS.symm!('R', 'U', f.w, C, M, zero(T), B)
+  B === Hv || copyto!(Hv, B)
+  Hv
 end
 hessian_vec!(::AbstractMatrix, ::LogDetLoss{T}, ::AbstractMatrix, ::AbstractMatrix) where {T} =
   throw(ArgumentError("hessian_vec! of a LogDetLoss writes a dense Matrix{$T}"))

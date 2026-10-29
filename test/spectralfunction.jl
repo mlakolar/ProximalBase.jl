@@ -121,6 +121,13 @@ end
   Y = zeros(n, n)
   ProximalBase._rebuild_sym_signed!(Y, copy(V), z, Y)
   @test Y ≈ V * Diagonal(z) * V'
+  # an output whose columns are not contiguous goes through the buffer: syr
+  # would write past it (issue #214)
+  for h in (F, g)
+    Yv = view(zeros(2n, n), 1:2:2n, :)
+    @test prox!(Yv, h, A, 0.5) ≈ prox(h, A, 0.5)
+    @test all(iszero, parent(Yv)[2:2:end, :])
+  end
 end
 
 end

@@ -58,14 +58,25 @@ function value_entry end
 prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) = _prox_sep!(y, f, x, γ)
 value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) = _value_and_prox_sep!(y, f, x, γ)
 
-# the value, entry by entry over the dense array
-function _value_dense(f, x::AbstractArray)
-  T = float(eltype(x))
+# The value, entry by entry over the dense array. A weighted family sums its
+# ordinary products, which vectorize; a NaN sum (a NaN entry, or a 0⋅Inf
+# product of a zero or infinite weight) is summed again with value_entry.
+_value_entry_ordinary(f, v, i) = value_entry(f, v, i)
+_has_ordinary_value(::Type) = false
+
+@inline function _sum_entries(g, f, x::AbstractArray, ::Type{T}) where {T}
   s = zero(T)
   @inbounds @simd for i in eachindex(IndexLinear(), x)
-    s += convert(T, value_entry(f, x[i], i))
+    s += convert(T, g(f, x[i], i))
   end
   s
+end
+
+function _value_dense(f, x::AbstractArray)
+  T = float(eltype(x))
+  _has_ordinary_value(typeof(f)) || return _sum_entries(value_entry, f, x, T)
+  s = _sum_entries(_value_entry_ordinary, f, x, T)
+  isnan(s) ? _sum_entries(value_entry, f, x, T) : s
 end
 
 _value_sep(f, x::AbstractArray) = (_checkparams(f, x); _value_dense(f, x))
@@ -196,7 +207,9 @@ only the stored entries. On a [`SymmetricSparseIterate`](@ref) the weights are a
 `p × p` matrix (or anything indexed by the linear indices of one), as for a
 dense matrix.
 When an intermediate sum overflows although the weighted value is representable,
-the value is computed in scaled units.
+the value is computed in scaled units. An infinite weight fixes the entry at
+zero at every level (the value is `Inf` away from zero), and a zero weight
+leaves it unpenalized at every level.
 """
 struct NormL1{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ0::T
@@ -214,11 +227,16 @@ isconvex(::Type{<:NormL1}) = true
 iszeropreserving(::NormL1) = true
 _checkparams(f::NormL1, x) = (_checkparam(f.w, x); true)
 
-Base.@propagate_inbounds value_entry(f::NormL1, v::Real, i::Integer) = _positive_product(f.λ0, _entry(f.w, i), abs(float(v)))
+Base.@propagate_inbounds function value_entry(f::NormL1, v::Real, i::Integer)
+  a = abs(float(v))
+  w = _entry(f.w, i)
+  p = _positive_product(f.λ0, w, a)
+  ifelse(isinf(w) & !iszero(a), oftype(p, Inf) * a, p)
+end
 Base.@propagate_inbounds prox_entry(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
-  shrink(v, convert(float(T), _positive_product(γ, f.λ0, _entry(f.w, i))))
+  shrink(v, convert(float(T), _weight_product(γ, f.λ0, _entry(f.w, i))))
 
-kkt_violation(f::NormL1, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ0 * _entry(f.w, i)
+kkt_violation(f::NormL1, g::AbstractArray, i::Integer) = abs(g[i]) - _weight_coefficient(f.λ0, _entry(f.w, i))
 restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entries(f.w, S))
 
 # without weights, Base's vectorized sum (a sum with init takes a slow sequential path)
@@ -259,13 +277,20 @@ _checkparams(f::NormL1Nonneg, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::NormL1Nonneg, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  v >= -_tol(S) ? _positive_product(f.λ0, _entry(f.w, i), max(S(v), zero(S))) : S(Inf)
+  if v >= -_tol(S)
+    a = max(S(v), zero(S))
+    w = _entry(f.w, i)
+    p = _positive_product(f.λ0, w, a)
+    ifelse(isinf(w) & !iszero(a), oftype(p, Inf) * a, p)
+  else
+    S(Inf)
+  end
 end
 Base.@propagate_inbounds prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
-  max(v - convert(float(T), _positive_product(γ, f.λ0, _entry(f.w, i))), zero(float(T)))
+  max(v - convert(float(T), _weight_product(γ, f.λ0, _entry(f.w, i))), zero(float(T)))
 
 # moving up from zero decreases the objective when -gᵢ exceeds λ0 wᵢ
-kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer) = -g[i] - f.λ0 * _entry(f.w, i)
+kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer) = -g[i] - _weight_coefficient(f.λ0, _entry(f.w, i))
 restrict(f::NormL1Nonneg, S::AbstractVector{<:Integer}) = NormL1Nonneg(f.λ0, _restrict_entries(f.w, S))
 
 @inline _l1_value(::NormL1, v, a) = a * abs(v)
@@ -331,13 +356,18 @@ isconvex(::Type{<:ElasticNet}) = true
 iszeropreserving(::ElasticNet) = true
 _checkparams(f::ElasticNet, x) = (_checkparam(f.w, x); true)
 
-Base.@propagate_inbounds value_entry(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
+Base.@propagate_inbounds function value_entry(f::ElasticNet, v::Real, i::Integer)
+  a = abs(v)
+  _weighted_value(_weight_coefficient(f.λ1, _entry(f.w, i)) * a, a) + f.λ2 * abs2(v) / 2
+end
+Base.@propagate_inbounds _value_entry_ordinary(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
+_has_ordinary_value(::Type{<:ElasticNet}) = true
 Base.@propagate_inbounds function prox_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  shrink(v, convert(S, γ * f.λ1 * _entry(f.w, i))) / (1 + convert(S, γ * f.λ2))
+  shrink(v, convert(S, _weight_coefficient(γ, f.λ1, _entry(f.w, i)))) / (1 + convert(S, γ * f.λ2))
 end
 
-kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ1 * _entry(f.w, i)
+kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer) = abs(g[i]) - _weight_coefficient(f.λ1, _entry(f.w, i))
 restrict(f::ElasticNet, S::AbstractVector{<:Integer}) = ElasticNet(f.λ1, f.λ2, _restrict_entries(f.w, S))
 
 ####################################

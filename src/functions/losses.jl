@@ -100,6 +100,168 @@ kkt_violation(f::HingeLoss, g::AbstractArray, i::Integer) = abs(g[i] - _entry(f.
 restrict(f::HingeLoss, S::AbstractVector{<:Integer}) = HingeLoss(_restrict_entries(f.y, S), _restrict_entries(f.w, S))
 
 """
+    SqrHingeLoss()
+    SqrHingeLoss(y)
+    SqrHingeLoss(y, w)
+    SqrHingeLoss(nothing, w)
+
+The squared hinge loss `f(x) = Σᵢ wᵢ max(0, 1 - yᵢxᵢ)²`, for finite nonzero
+labels `yᵢ`, usually `±1`, and finite nonnegative weights `wᵢ`, all 1 when
+omitted. Without labels, `x` holds the margins; `SqrHingeLoss(nothing, w)`
+weights those margins. A zero weight gives the zero function in that entry.
+
+For the label `1`, its proximal operator keeps `v ≥ 1` and otherwise gives
+`(v + 2γwᵢ)/(1 + 2γwᵢ)`. A label acts on the margin `yᵢv`, with the step
+`γwᵢyᵢ²`. Steps are positive finite reals, including a step per entry.
+The loss is convex and smooth, with gradient
+`gᵢ = -2wᵢyᵢ max(0, 1 - yᵢxᵢ)` and Lipschitz constant `2 maxᵢ wᵢyᵢ²`.
+Its conjugate is `Σᵢ (sᵢ/yᵢ + sᵢ²/(4wᵢyᵢ²))` on `sᵢ/yᵢ ≤ 0`, with a
+zero-weight term the indicator of `sᵢ = 0`.
+
+Use this separable loss in splitting methods. [`ProximalBase.SquaredHinge`](@ref)
+is the scalar loss of a linear predictor for [`GLMLoss`](@ref).
+"""
+struct SqrHingeLoss{Y<:Union{Nothing, AbstractArray}, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
+  y::Y
+  w::W
+
+  function SqrHingeLoss{Y, W}(y::Y, w::W) where {Y<:Union{Nothing, AbstractArray}, W<:Union{Nothing, AbstractArray}}
+    y === nothing || all(t -> t isa Real && isfinite(t) && !iszero(t), y) ||
+      throw(ArgumentError("the labels must be finite and nonzero"))
+    w === nothing || all(t -> t isa Real && isfinite(t) && t >= 0, w) ||
+      throw(ArgumentError("the weights must be finite and nonnegative"))
+    new{Y, W}(y, w)
+  end
+end
+SqrHingeLoss(y::Union{Nothing, AbstractArray} = nothing, w::Union{Nothing, AbstractArray} = nothing) =
+  SqrHingeLoss{typeof(y), typeof(w)}(y, w)
+
+isconvex(::Type{<:SqrHingeLoss}) = true
+issmooth(::Type{<:SqrHingeLoss}) = true
+_checkparams(f::SqrHingeLoss, x) = (_checkparam(f.y, x); _checkparam(f.w, x); true)
+restrict(f::SqrHingeLoss, S::AbstractVector{<:Integer}) = SqrHingeLoss(_restrict_entries(f.y, S), _restrict_entries(f.w, S))
+
+# Keep an overflowing active residual as r ⋅ 2^e until the weight is applied.
+@inline function _sqrhinge_residual(y::T, v::T) where {T}
+  r = max(one(T) - y * v, zero(T))
+  isfinite(r) && return r, 0
+  my, ey = frexp(y)
+  mv, ev = frexp(v)
+  e = ey + ev
+  ldexp(one(T), -e) - my * mv, e
+end
+
+@inline function _sqrhinge_value(w::T, r::T, e::Int) where {T}
+  e == 0 && return _positive_product(w, r, r)
+  mw, ew = frexp(w)
+  mr, er = frexp(r)
+  ldexp(mw * mr * mr, ew + 2 * (er + e))
+end
+
+# The factor 2 must also survive when w|y|r is below the subnormal range.
+@inline function _sqrhinge_slope(y::T, w::T, r::T, e::Int) where {T}
+  (iszero(w) || iszero(r)) && return zero(T)
+  p = _positive_product(w, abs(y), r)
+  e == 0 && floatmin(T) <= p <= floatmax(T) && return 2p
+  mw, ew = frexp(w)
+  my, ey = frexp(abs(y))
+  mr, er = frexp(r)
+  ldexp(2 * mw * my * mr, ew + ey + er + e)
+end
+
+Base.@propagate_inbounds function value_entry(f::SqrHingeLoss, v::Real, i::Integer)
+  u, y, w = promote(float(v), float(_entry(f.y, i)), float(_entry(f.w, i)))
+  iszero(w) && return zero(u)
+  r, e = _sqrhinge_residual(y, u)
+  _sqrhinge_value(w, r, e)
+end
+
+# Scale the numerator and denominator separately when a blend weight or its
+# endpoint is outside the floating-point range, but their product need not be.
+@noinline function _sqrhinge_prox(v::T, y::T, w::T, γ::T) where {T}
+  mv, ev = frexp(v)
+  my, ey = frexp(y)
+  mw, ew = frexp(w)
+  mg, eg = frexp(γ)
+  et = eg + ew + 2ey
+  ed = max(0, et)
+  d = ldexp(one(T), -ed) + ldexp(2 * mg * mw * my^2, et - ed)
+  en = eg + ew + ey
+  ep = max(ev, en)
+  n = ldexp(mv, ev - ep) + ldexp(2 * mg * mw * my, en - ep)
+  ldexp(n / d, ep - ed)
+end
+
+Base.@propagate_inbounds function prox_entry(f::SqrHingeLoss, v::Real, i::Integer, γ::Real)
+  S = float(typeof(v))
+  u, y, w, step = promote(float(v), float(_entry(f.y, i)), float(_entry(f.w, i)), float(γ))
+  (iszero(w) || iszero(step)) && return S(v)
+  c = inv(y)
+  (y > 0 ? u >= c : u <= c) && return S(v)
+  h = _positive_product(step, w, abs(y))
+  s = h * abs(y)
+  if floatmin(typeof(u)) <= h <= floatmax(typeof(u)) &&
+     floatmin(typeof(u)) <= s <= floatmax(typeof(u)) && isfinite(c)
+    a, b = _ridge_weights(s, oftype(s, 2))
+    return S(_ridge_blend(u, c, a, b))
+  end
+  S(_sqrhinge_prox(u, y, w, step))
+end
+
+function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::SqrHingeLoss, g::AbstractArray, x::AbstractArray)
+  _checksize(g, x)
+  _checkparams(f, x)
+  true
+end
+
+Base.@propagate_inbounds function _sqrhinge_gradient(f::SqrHingeLoss, v::Real, i::Integer)
+  u, y, w = promote(float(v), float(_entry(f.y, i)), float(_entry(f.w, i)))
+  iszero(w) && return zero(u)
+  r, e = _sqrhinge_residual(y, u)
+  -copysign(_sqrhinge_slope(y, w, r, e), y)
+end
+
+function gradient!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray)
+  _checkwrite(gradient!, f, g, x)
+  @inbounds for i in eachindex(IndexLinear(), g, x)
+    g[i] = _sqrhinge_gradient(f, x[i], i)
+  end
+  g
+end
+
+function value_and_gradient!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray)
+  _checkwrite(value_and_gradient!, f, g, x)
+  T = float(eltype(x))
+  v = zero(T)
+  @inbounds for i in eachindex(IndexLinear(), g, x)
+    u, y, w = promote(float(x[i]), float(_entry(f.y, i)), float(_entry(f.w, i)))
+    r, e = iszero(w) ? (zero(u), 0) : _sqrhinge_residual(y, u)
+    v += convert(T, _sqrhinge_value(w, r, e))
+    g[i] = -copysign(_sqrhinge_slope(y, w, r, e), y)
+  end
+  v
+end
+
+# f is differentiable at zero, with derivative -2wᵢyᵢ.
+function kkt_violation(f::SqrHingeLoss, g::AbstractArray, i::Integer)
+  y, w = promote(float(_entry(f.y, i)), float(_entry(f.w, i)))
+  abs(g[i] - copysign(_sqrhinge_slope(y, w, one(y), 0), y))
+end
+
+function lipschitz(f::SqrHingeLoss)
+  a = f.y === nothing ? f.w : f.y
+  a === nothing && return 2.0
+  _checkparams(f, a)
+  T = float(promote_type(f.y === nothing ? Bool : eltype(f.y), f.w === nothing ? Bool : eltype(f.w)))
+  L = zero(T)
+  @inbounds for i in eachindex(IndexLinear(), a)
+    y, w = T(_entry(f.y, i)), T(_entry(f.w, i))
+    L = max(L, _sqrhinge_slope(y, w, abs(y), 0))
+  end
+  L
+end
+
+"""
     EpsInsensitiveLoss(ε)
     EpsInsensitiveLoss(ε, w)
 
@@ -164,6 +326,28 @@ function _conjugate_value(f::HingeLoss, s::AbstractArray)
   end
   v
 end
+function _conjugate_value(f::SqrHingeLoss, s::AbstractArray)
+  _checkparams(f, s)
+  T = float(eltype(s))
+  v = zero(T)
+  @inbounds for i in eachindex(IndexLinear(), s)
+    u, y, w = promote(float(s[i]), float(_entry(f.y, i)), float(_entry(f.w, i)))
+    if iszero(w)
+      _within(abs(u), zero(u), T) || return T(Inf)
+    else
+      _within(u / y, zero(u), T) || return T(Inf)
+      # Add the linear and quadratic terms at one scale before rounding.
+      ms, es = frexp(u)
+      my, ey = frexp(y)
+      mw, ew = frexp(w)
+      q, eq = ms / my, es - ey
+      e = max(eq, 2eq - ew)
+      z = ldexp(q, eq - e) + ldexp(q^2 / (4mw), 2eq - ew - e)
+      v += convert(T, ldexp(z, e))
+    end
+  end
+  v
+end
 function _conjugate_value(f::EpsInsensitiveLoss, s::AbstractArray)
   _checkparams(f, s)
   T = float(eltype(s))
@@ -190,6 +374,7 @@ The squared hinge loss `ℓ(η, y) = max(0, 1 - yη)²` for a label `y ∈ {-1, 
 the loss of the L2-loss support vector machine. Smooth, with curvature 2, so
 coordinate descent and gradient methods minimize a [`GLMLoss`](@ref) with it
 directly.
+For a separable loss with a proximal operator, use [`SqrHingeLoss`](@ref).
 """
 struct SquaredHinge <: ScalarLoss end
 @inline function value_and_deriv(::SquaredHinge, η::Real, y::Real)

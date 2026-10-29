@@ -63,7 +63,7 @@ _finite_parameter(x::AbstractArray) = all(isfinite, x)
 _finite_zero(f, parameters...) = all(_finite_parameter, parameters) ? ZeroFunction() : _zero_scale_error(f)
 _zero_scaled(f::Union{NormL1, GroupNormL2, GroupNormLinf}) = _finite_zero(f, f.λ0, f.w)
 _zero_scaled(f::SparseGroupNormL2) = _finite_zero(f, f.λ0, f.λ1, f.w)
-_zero_scaled(f::Union{NormL2, NormLinf, NormL0}) = _finite_zero(f, f.λ)
+_zero_scaled(f::Union{NormL2, CubeNormL2, NormLinf, NormL0}) = _finite_zero(f, f.λ)
 _zero_scaled(::SumLargest) = ZeroFunction()
 _zero_scaled(f::Union{MCP, SCAD}) = _finite_zero(f, f.λ, f.a)
 _zero_scaled(f::Union{GroupMCP, GroupSCAD}) = _finite_zero(f, f.λ0, f.w, f.a)
@@ -259,8 +259,8 @@ for a separable `f` so does [`prox_entry`](@ref). Its value is known for the
 norms (the indicators of the dual balls), the balls (their support functions),
 the box, [`IndSimplex`](@ref), [`SumLargest`](@ref), the nonnegative orthant,
 [`SqrNormL2`](@ref), [`LinearFunction`](@ref),
-[`ZeroFunction`](@ref), and the losses [`CheckLoss`](@ref), [`HingeLoss`](@ref)
-and [`EpsInsensitiveLoss`](@ref), and for translations and strictly positive
+[`ZeroFunction`](@ref), and the losses [`CheckLoss`](@ref), [`HingeLoss`](@ref),
+[`SqrHingeLoss`](@ref) and [`EpsInsensitiveLoss`](@ref), and for translations and strictly positive
 rescalings of these functions; for other functions, evaluating the conjugate
 throws an `ArgumentError`. [`value_and_prox!`](@ref) returns the value at the
 proximal point for every proximable `f`: where no closed form is known, it uses
@@ -303,9 +303,9 @@ end
 # At a proximal point y = x - γp, Fenchel equality gives f*(y) = <p,y> - f(p).
 # Keep the direct value for known closed forms, especially exact indicator zeros.
 _has_conjugate_value(::AbstractFunction) = false
-_has_conjugate_value(::Union{NormL1, NormL2, NormLinf, IndBallL1, IndBallL2,
+_has_conjugate_value(::Union{NormL1, NormL2, NormLinf, IndBallL1, IndBallL2, IndSOC,
                             ZeroFunction, IndNonnegative, IndBox, IndSimplex, SumLargest, SqrNormL2,
-                            LinearFunction, CheckLoss, HingeLoss, EpsInsensitiveLoss}) = true
+                            LinearFunction, CheckLoss, HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}) = true
 _has_conjugate_value(f::Union{Scaled, Translate}) = _has_conjugate_value(f.f)
 _has_conjugate_value(f::SingularValue) = _has_conjugate_value(f.f)
 
@@ -423,6 +423,8 @@ _conjugate_value(f::NormLinf, y::AbstractArray) = (T = float(eltype(y)); _ind(_w
 _conjugate_value(f::IndBallL1, y::AbstractArray) = convert(float(eltype(y)), f.r) * norm(y, Inf)
 _conjugate_value(f::IndBallL2, y::AbstractArray) =
   (T = float(eltype(y)); iszero(f.r) ? zero(T) : convert(T, f.r) * _norm2(y))
+_conjugate_value(f::IndSOC, y::AbstractArray) =
+  (_checkparams(f, y); _soc_value(f, y, true))
 function _conjugate_value(f::IndSimplex, y::AbstractArray)
   T = float(eltype(y))
   isempty(y) && return f.equality && f.r > 0 ? T(-Inf) : zero(T)

@@ -31,6 +31,7 @@ tests = [
   "intersection",
   "sets",
   "soc",
+  "rotatedsoc",
   "hyperslab",
   "extreme_normals",
   "large_inputs",

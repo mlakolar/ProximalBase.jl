@@ -21,6 +21,7 @@ feasibility certificate.
 | [`IndBallLinf`](@ref)`(r)` | ``\lVert x\rVert_\infty \le r`` | ``\operatorname{clamp}(v, -r, r)`` |
 | [`IndBallL2`](@ref)`(r)` | ``\lVert x\rVert_2 \le r`` | ``\min(1, r/\lVert v\rVert_2)\,v`` |
 | [`IndSOC`](@ref)`()` | ``\lVert x_{2:n}\rVert_2 \le x_1`` | closed form in the head and the tail norm |
+| [`IndRotatedSOC`](@ref)`()` | ``\lVert x_{3:n}\rVert_2^2 \le 2x_1x_2``, ``x_1,x_2 \ge 0`` | an orthogonal change of coordinates to the second-order cone |
 | [`IndSphereL2`](@ref)`(r)` | ``\lVert x\rVert_2 = r``, nonconvex | ``r\,v/\lVert v\rVert_2`` |
 | [`IndBallL1`](@ref)`(r)` | ``\lVert x\rVert_1 \le r`` | ``\operatorname{sign}(v)\odot P_{\Delta_r}(\lvert v\rvert)``, by Condat's algorithm |
 | [`IndSimplex`](@ref)`(r)` | ``x \ge 0,\ \sum_i x_i = r`` | ``\max(v - \tau, 0)`` |
@@ -117,6 +118,35 @@ and remain unchanged; an empty collection of groups leaves all entries free.
 cone on each group and zero on every free entry, within the indicator's
 tolerance. With a single cone the polar is its negative, since the
 second-order cone is self-dual.
+
+[`IndRotatedSOC`](@ref)`()` uses the order ``(u,v,z)`` for the cone
+``\{(u,v,z) : \|z\|_2^2 \le 2uv,\ u,v \ge 0\}``. The orthogonal map
+``Q(u,v,z) = ((u+v)/\sqrt{2}, (u-v)/\sqrt{2}, z)`` takes it to the
+second-order cone, so its projection is ``Q^\top P_K Q``. The implementation
+computes this projection without forming ``Q`` and preserves small heads
+when the two heads have very different magnitudes. An array needs at least
+two entries. `IndRotatedSOC(groups)` uses the first two listed indices of
+each group as its heads. Each group needs at least two indices; a group of
+two is the nonnegative quadrant. Group ownership, free entries, linear
+indexing, non-finite entries and scalar steps follow `IndSOC`. Its conjugate
+is the polar indicator, with the negative cone on each group and zero on
+free entries. The single rotated cone is self-dual.
+
+For the value oracle, `tol = √eps(float(eltype(x)))`. The heads may be as
+small as ``-\mathtt{tol}\max(1,|u|,|v|)``. In a frame divided by ``2^k``,
+write ``a=u/2^k``, ``b=v/2^k`` and ``s=\|z/2^k\|_2``. The quadratic
+inequality is checked without squaring as
+``\operatorname{hypot}(a-b,\sqrt{2}s) \le a+b+\mathtt{tol}\max(2^{-k},|a|,|b|)``.
+
+The cone is the epigraph of the perspective ``\|z\|_2^2/(2u) \le v``
+for ``u>0``, with its closed extension at ``u=0``. It represents a
+quadratic divided by a scale, as in concomitant scale estimation, or by a
+selection variable shared by several coefficients. For a scalar coefficient,
+``\beta^2 \le as`` is `IndRotatedSOC()` on `(a, s/2, β)`, stored as an
+array. When the selection variables are uncoupled, minimizing
+``\lambda_0 a + \lambda_2\beta^2/a`` over ``0 \le a \le 1`` gives
+[`Berhu`](@ref)`(2√(λ₀λ₂), √(λ₀/λ₂))`. With coupled selection variables,
+such as a shared budget, the cone retains their joint constraint.
 
 ## Intersections
 

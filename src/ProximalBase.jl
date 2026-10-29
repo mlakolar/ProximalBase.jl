@@ -61,7 +61,7 @@ export
   IndBox, IndNonnegative, IndBinary, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
   IndIntersection,
   IndHyperplane, IndHalfspace, IndHyperslab, IndPSD, IndBallRank, IndStiefel, IndIsotonic, IndSOC,
-  IndSphereL2,
+  IndRotatedSOC, IndSphereL2,
   IndBallGroupL0,
   IndPattern, IndBanded, IndToeplitz,
   IndAffine, IndGraph,

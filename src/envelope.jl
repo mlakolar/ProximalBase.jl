@@ -18,7 +18,8 @@ It is also proximable, by
 `prox_{te}(x) = x + t/(γ + t) ⋅ (prox_{(γ + t)f}(x) - x)`, and separable when
 `f` is, so coordinate descent applies to it. The envelope of `δ|⋅|` is the
 Huber function, that of the indicator function of a set `C` the squared
-distance to `C` divided by `2γ`. The value, the gradient and the proximal
+distance to `C` divided by `2γ`; [`SqrDistL2`](@ref) also supports nonconvex
+sets. The value, the gradient and the proximal
 operator use a buffer that `e` owns; do not share `e` between threads, and pass
 a gradient output that is not `x`. For a proximal step `t`, `γ` and `t` are
 converted to the element type of the output. Their sum must be finite and

@@ -19,6 +19,7 @@ and ``\gamma`` is the step of the proximal operator.
 | [`LogPenalty`](@ref)`(λ, ε, w)` | ``\lambda\sum_i w_i\log(1 + \lvert x_i\rvert/\varepsilon)`` | zero or the root of a quadratic | ✓ |
 | [`NormLq`](@ref)`(λ, q, w)` | ``\lambda\sum_i w_i\lvert x_i\rvert^q``, ``0 < q < 1`` | ℓq thresholding | ✓ |
 | [`NormL2`](@ref)`(λ)` | ``\lambda\lVert x\rVert_2`` | ``\max(1 - \gamma\lambda/\lVert v\rVert_2, 0)\,v`` | |
+| [`CubeNormL2`](@ref)`(λ)` | ``\tfrac{\lambda}{3}\lVert x\rVert_2^3`` | ``2v/(1 + \sqrt{1 + 4\gamma\lambda\lVert v\rVert_2})`` | |
 | [`NormLinf`](@ref)`(λ)` | ``\lambda\lVert x\rVert_\infty`` | ``v - P_{\lVert\cdot\rVert_1 \le \gamma\lambda}(v)`` | |
 | [`GroupNormL2`](@ref)`(λ0, groups, w)` | ``\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_2`` | block soft thresholding of each group | |
 | [`SparseGroupNormL2`](@ref)`(λ1, λ2, groups, w)` | ``\lambda_1\lVert x\rVert_1 + \lambda_2\sum_k w_k\lVert x_{G_k}\rVert_2`` | soft thresholding, then block soft thresholding | |
@@ -32,6 +33,7 @@ and ``\gamma`` is the step of the proximal operator.
 | [`TracePSD`](@ref)`(λ)` | ``\lambda\operatorname{tr}(X)`` on ``X \succeq 0`` | ``U\max(\Lambda - \gamma\lambda, 0)U^\top`` | |
 | [`CheckLoss`](@ref)`(τ, w)` | ``\sum_i w_i\rho_\tau(x_i)`` | see below | ✓ |
 | [`HingeLoss`](@ref)`(y, w)` | ``\sum_i w_i\max(0, 1 - y_i x_i)`` | see below | ✓ |
+| [`SqrHingeLoss`](@ref)`(y, w)` | ``\sum_i w_i\max(0, 1 - y_i x_i)^2`` | see below | ✓ |
 | [`EpsInsensitiveLoss`](@ref)`(ε, w)` | ``\sum_i w_i\max(0, \lvert x_i\rvert - \varepsilon)`` | see below | ✓ |
 | [`SingularValue`](@ref)`(f)` | ``f(\sigma(X))`` | ``U\operatorname{diag}(\operatorname{prox}_{\gamma f}(\sigma))V^\top`` | |
 
@@ -251,6 +253,14 @@ from ``0`` to ``v``. Minimizing over its length gives *block soft thresholding*,
 ``\max(1 - \gamma\lambda/\|v\|_2, 0)\,v``, which sets the whole vector to zero
 when ``\|v\|_2 \le \gamma\lambda``.
 
+**Cubed ℓ2.** [`CubeNormL2`](@ref)`(λ)` is the convex, smooth regularizer
+``(\lambda/3)\|x\|_2^3``, with gradient ``\lambda\|x\|_2 x``. For matrices
+it uses the Frobenius norm. In a cubic-regularized Newton model
+``g^\top d + d^\top H d/2 + (M/6)\|d\|_2^3``, take ``\lambda = M/2``.
+Its proximal operator supplies the backward step when the quadratic part is
+handled by a forward step. Its gradient has no global Lipschitz constant for
+``\lambda > 0``; both Lipschitz queries return ``0`` when ``\lambda = 0``.
+
 **ℓ∞.** The conjugate of ``\lambda\|\cdot\|_\infty`` is the indicator of the
 ℓ1 ball of radius ``\lambda``. So by Moreau's decomposition its proximal operator
 is ``v - P_{\|\cdot\|_1 \le \gamma\lambda}(v)``, through the ℓ1-ball projection
@@ -384,8 +394,8 @@ prox(SLOPE([1.0, 0.8, 0.5, 0.2]), v, 1.0)    # magnitudes 3, 2, 1, 0.5 minus λ
 ## Losses of residuals and margins
 
 Quantile regression, support vector machines and support vector regression
-have losses that are nonsmooth but separable, with closed-form proximal
-operators. So splitting methods such as ADMM apply them to ``z = X\beta`` exactly.
+have separable losses with closed-form proximal operators. So splitting
+methods such as ADMM apply them to ``z = X\beta`` exactly.
 
 **The check loss.** [`CheckLoss`](@ref)`(τ)` is
 ``\sum_i \rho_\tau(x_i)`` with ``\rho_\tau(u) = \max(\tau u, (\tau - 1)u)``, for
@@ -411,13 +421,27 @@ for labels ``y_i = \pm 1``. At the margin ``u = y_i v``, the proximal operator o
 ``\gamma\max(0, 1 - u)`` is ``u + \gamma`` for ``u < 1 - \gamma``, ``1`` for
 ``1 - \gamma \le u \le 1``, and ``u`` above. Without labels, ``x`` holds the margins.
 
+**The squared hinge loss.** [`SqrHingeLoss`](@ref)`(y, w)` is
+``\sum_i w_i\max(0, 1 - y_i x_i)^2``. It is smooth, with gradient
+``-2w_i y_i\max(0, 1 - y_i x_i)`` and Lipschitz constant
+``2\max_i w_i y_i^2``. For label 1, its proximal operator keeps ``v \ge 1``
+and otherwise returns ``(v + 2\gamma w_i)/(1 + 2\gamma w_i)``. A general label
+acts on the margin ``y_i v`` with step ``\gamma w_i y_i^2``. Labels must be
+finite and nonzero, and weights finite and nonnegative. `SqrHingeLoss()` takes
+margins directly; `SqrHingeLoss(nothing, w)` weights those margins. A zero
+weight leaves the entry unchanged. The conjugate term is
+``s_i/y_i + s_i^2/(4w_i y_i^2)`` for ``s_i/y_i \le 0``, and ``+\infty``
+otherwise; a zero weight gives the indicator of ``s_i = 0``. Splitting methods
+can apply this loss to a separate margin variable; the scalar loss
+[`ProximalBase.SquaredHinge`](@ref) is for [`GLMLoss`](@ref).
+
 **The ε-insensitive loss.** [`EpsInsensitiveLoss`](@ref)`(ε)` is
 ``\sum_i \max(0, |x_i| - \varepsilon)``. Its proximal operator keeps ``v`` for
 ``|v| \le \varepsilon``, puts it at ``\pm\varepsilon`` for
 ``\varepsilon < |v| \le \varepsilon + \gamma``, and moves it toward zero by
 ``\gamma`` beyond. With ``\varepsilon = 0`` it is soft thresholding.
 
-All three take weights ``w_i``, which multiply the step. For coordinate descent
+All four take weights ``w_i``, which multiply the step. For coordinate descent
 and Newton steps, the scalar losses `ProximalBase.SquaredHinge`,
 `ProximalBase.SmoothCheck` and `ProximalBase.ConvolutionCheck` of
 [`GLMLoss`](@ref) are smooth versions with bounded curvature; see

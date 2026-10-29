@@ -44,6 +44,9 @@ the one [`value_and_prox!`](@ref) returns, also for a discontinuous `f` such as
 that of `Conjugate(f)` is, as for the nuclear-norm ball and the spectral norm,
 which are conjugate to each other.
 
+The zero mask stays correct when the largest singular value overflows.
+Whether `f` evaluates an overflowing spectrum correctly depends on `f`.
+
 $_SPECTRAL_NOTE
 """
 mutable struct SingularValue{F<:AbstractFunction} <: AbstractFunction
@@ -82,13 +85,29 @@ end
 
 # the value, with the singular values within rounding of zero set to zero
 function (F::SingularValue)(X::AbstractMatrix)
+  T = float(eltype(X))
+  _isindicator(F.f) && !all(isfinite, X) && return T(Inf)
   s = _singular_values!(F, X)
-  T = eltype(s)
   t = _vector_buffer(F.t, T, length(s))
   F.t = t
+  if !isempty(s) && !_finite_value(s[1]) && all(isfinite, X)
+    return _singular_scaled_value(F, X, s, t)
+  end
   c = isempty(s) ? zero(T) : _tol(T) * s[1]       # relative, so that F scales with X
   @inbounds for j in eachindex(s)
     t[j] = s[j] <= c ? zero(T) : s[j]
+  end
+  convert(T, F.f(t))
+end
+
+@noinline function _singular_scaled_value(F::SingularValue, X::AbstractMatrix, s::Vector{T}, t::Vector{T}) where {T}
+  copyto!(t, s)
+  ws = _svd_workspace(F.ws, T, size(X)...)
+  _scaled_spectral_input!(ws.A, X)
+  s, = _svd!(ws; vectors = false)
+  c = _tol(T) * s[1]
+  @inbounds for j in eachindex(s)
+    s[j] <= c && (t[j] = zero(T))
   end
   convert(T, F.f(t))
 end

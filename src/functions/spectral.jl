@@ -155,6 +155,8 @@ is returned as `±floatmax`.
 When an intermediate sum overflows although the weighted value is representable,
 the value is computed in scaled units. The domain is the finite matrices: the
 value is `Inf` at a matrix with a non-finite entry, also for `λ = 0`.
+At such an input, the proximal output is all `NaN` and the returned value is
+`NaN`, also for `λ = 0`.
 
 $_PARTIAL_NOTE The value `f(X)` alone needs every singular value and always
 takes the full decomposition.
@@ -218,11 +220,11 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
+  all(isfinite, X) || (fill!(Y, T(NaN)); return T(NaN))
   if iszero(f.λ)
     Y === X || copyto!(Y, X)
     return zero(T)
   end
-  all(isfinite, X) || (fill!(Y, T(NaN)); return T(NaN))
   c = convert(T, γ) * convert(T, f.λ)
   if f.partial
     pv = _partial_nuclear!(Y, f, X, c)
@@ -267,7 +269,9 @@ entry exceeding `floatmax` by less than the reconstruction's rounding bound
 is returned as `±floatmax`.
 
 Membership is reliable for every finite input within the floating-point
-tolerance; non-finite entries are not members.
+tolerance; non-finite entries are not members. At such an input, the proximal
+output is all `NaN` and `value_and_prox!` returns zero, also when `r` allows
+full rank.
 
 $_PARTIAL_NOTE
 
@@ -316,11 +320,11 @@ end
 function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
   _checkwrite(prox!, f, Y, X)
   T = float(eltype(Y))
+  all(isfinite, X) || return fill!(Y, T(NaN))
   if minimum(size(X)) <= f.r
     Y === X || copyto!(Y, X)
     return Y
   end
-  all(isfinite, X) || return fill!(Y, T(NaN))
   f.partial && _partial_rank!(Y, f, X, T) !== nothing && return Y
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws

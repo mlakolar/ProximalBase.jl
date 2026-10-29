@@ -158,4 +158,72 @@ end
   end
 end
 
+@testset "Equivalent spectral proximal oracles on nonfinite inputs" begin
+  for T in (Float32, Float64), v in (T(NaN), T(Inf), -T(Inf)),
+      I in (CartesianIndex(1, 1), CartesianIndex(1, 2), CartesianIndex(2, 1))
+    input = T[2 0; 0 1]
+    input[I] = v
+    pairs = ((SingularValue(NormL1(one(T))), NuclearNorm(one(T))),
+             (SingularValue(NormL1(zero(T))), NuclearNorm(zero(T))),
+             (Spectral(NormL1Nonneg(one(T))), TracePSD(one(T))),
+             (Spectral(NormL1Nonneg(zero(T))), TracePSD(zero(T))),
+             (Spectral(IndNonnegative()), IndPSD()),
+             (SingularValue(IndBallL0(1)), IndBallRank(1)),
+             (SingularValue(IndBallL0(2)), IndBallRank(2)))
+    for (f, g) in pairs, op in (prox!, value_and_prox!), alias in (false, true)
+      x, z = copy(input), copy(input)
+      y, w = alias ? (x, z) : (zeros(T, 2, 2), zeros(T, 2, 2))
+      vf = op(y, f, x, one(T))
+      vg = op(w, g, z, one(T))
+      @test isequal(y, w)
+      @test isequal(y, fill(T(NaN), 2, 2))
+      if op === value_and_prox!
+        @test vf === vg
+        @test vf === (PB._isindicator(f) ? zero(T) : T(NaN))
+      else
+        @test vf === y
+        @test vg === w
+      end
+      if !alias
+        @test isequal(x, input)
+        @test isequal(z, input)
+      end
+      # No decomposition workspace is created for a nonfinite argument.
+      f isa Spectral && @test f.eig === nothing
+      f isa SingularValue && @test f.ws === nothing
+    end
+    for f in (Spectral(NormL1(one(T))), LogDetLoss(Matrix{T}(LinearAlgebra.I, 2, 2), one(T))),
+        op in (prox!, value_and_prox!), alias in (false, true)
+      x = copy(input)
+      y = alias ? x : zeros(T, 2, 2)
+      result = op(y, f, x, one(T))
+      @test isequal(y, fill(T(NaN), 2, 2))
+      op === value_and_prox! && @test result === T(NaN)
+      alias || @test isequal(x, input)
+      f isa Spectral && @test f.eig === nothing
+      f isa LogDetLoss && @test iszero(f.eig.A)
+    end
+  end
+end
+
+@testset "Spectral proximal history and warmed allocations" begin
+  for T in (Float32, Float64), f in (Spectral(NormL1(T(0.3))),
+      Spectral(IndNonnegative()), SingularValue(NormL1(T(0.3))),
+      SingularValue(IndBallL0(1)), LogDetLoss(Matrix{T}(I, 2, 2), one(T)))
+    x = T[2 0.25; 0.25 1]
+    y = similar(x)
+    expected = prox(deepcopy(f), x, one(T))
+    for op in (prox!, value_and_prox!)
+      op(y, f, x, one(T))
+      @test allocs(op, y, f, x, one(T)) == 0
+      bad = copy(x)
+      bad[2, 1] = T(NaN)
+      op(y, f, bad, one(T))
+      @test allocs(op, y, f, bad, one(T)) == 0
+      op(y, f, x, one(T))
+      @test isequal(y, expected)
+    end
+  end
+end
+
 end

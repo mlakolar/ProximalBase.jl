@@ -38,8 +38,10 @@ not absolutely symmetric.
 
 `isconvex` and the indicator property come from `f`. The domain of `F` is the
 finite matrices: a matrix with a non-finite entry has value `Inf`, also for a
-bounded `f` such as `NormL0`. In the value `F(X)`, singular values within a
-relative `√ε` of the largest count as zero, as they do for `IndBallRank`: the
+bounded `f` such as `NormL0`. At a non-finite input, the proximal output is
+all `NaN`; `value_and_prox!` returns zero for an indicator and `NaN` otherwise.
+In the value `F(X)`, singular values within a relative `√ε` of the largest
+count as zero, as they do for `IndBallRank`: the
 value at a proximal point of low rank then agrees with the one
 [`value_and_prox!`](@ref) returns, also for a discontinuous `f` such as
 `NormL0`. The value of `Conjugate(SingularValue(f))` is `f*` at the masked
@@ -143,6 +145,10 @@ end
 function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, F, Y, X)
   T = float(eltype(Y))
+  if !all(isfinite, X)
+    fill!(Y, T(NaN))
+    return _isindicator(F) ? zero(T) : T(NaN)
+  end
   ws = _svd_workspace(F.ws, T, size(X)...)
   F.ws = ws
   copyto!(ws.A, X)

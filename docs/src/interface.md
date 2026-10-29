@@ -13,10 +13,11 @@ The proximal operator of a function ``g`` with step ``\gamma > 0`` is
 \operatorname{prox}_{\gamma g}(x) = \operatorname*{argmin}_z \; g(z) + \frac{1}{2\gamma}\|z - x\|^2 .
 ```
 
-The proximal oracles for linear sets, `IndPolyhedron`, `IndStiefel` and
-`SumLargest` do not reject non-finite input values: closed forms use IEEE
-arithmetic, and algorithms that cannot process them return `NaN` in every
-coupled output entry.
+The proximal oracles for linear sets, `IndPolyhedron`, `SumLargest`, the
+spectral functions (`NuclearNorm`, `IndBallRank`, `IndStiefel`, `IndPSD`,
+`TracePSD`, `Spectral` and `SingularValue`) and `LogDetLoss` do not reject
+non-finite input values: closed forms use IEEE arithmetic, and algorithms that
+cannot process them return `NaN` in every coupled output entry.
 
 It balances decreasing ``g`` against staying near ``x``, and ``\gamma`` sets the
 balance. Two cases explain the name and its uses.

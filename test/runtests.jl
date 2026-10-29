@@ -26,6 +26,7 @@ tests = [
   "sparsegroup",
   "fibers",
   "spectral",
+  "stiefel",
   "singular",
   "intersection",
   "sets",

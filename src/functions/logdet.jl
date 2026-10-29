@@ -25,7 +25,9 @@ For a nonsymmetric proximal input, `X` is replaced by its symmetric part:
 the skew part contributes only a constant to the proximal objective.
 Both use workspaces that `f` owns, sized by `S`, and
 allocate nothing; do not share `f` between threads. The workspace has the data's
-precision (`Float32` or `Float64`); outputs of any precision are written by rounding.
+precision (`Float32` or `Float64`); outputs of any precision are written by rounding,
+and values are rounded to the type of the argument (see the Precision section
+of the manual).
 When an intermediate sum overflows although the weighted value is representable,
 the value is computed in scaled units.
 """
@@ -53,9 +55,11 @@ _argument_type(::Type{<:LogDetLoss}) = AbstractMatrix
 isproximable(::Type{<:LogDetLoss}) = true
 isconvex(::Type{<:LogDetLoss}) = true
 
-function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::LogDetLoss{T}, Y::AbstractMatrix, X::AbstractMatrix) where {T}
+function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::LogDetLoss{T}, Y::AbstractMatrix, X::AbstractMatrix) where {T}
   _checksize(Y, X)
   size(X) == size(f.S) || throw(DimensionMismatch("X has size $(size(X)) and S $(size(f.S))"))
+  _checkreal(f, X)
+  op === value_and_prox! && _checkreal(f, Y)
   true
 end
 
@@ -63,6 +67,7 @@ end
 # positive definite
 function _logdet_chol!(f::LogDetLoss{T}, X::AbstractMatrix) where {T}
   size(X) == size(f.S) || throw(DimensionMismatch("X has size $(size(X)) and S $(size(f.S))"))
+  _checkreal(f, X)
   all(isfinite, X) && _issymmetric_tol(X) || return nothing
   C = f.C
   copyto!(C, X)
@@ -77,7 +82,7 @@ end
 
 function (f::LogDetLoss{T})(X::AbstractMatrix) where {T}
   ld = _logdet_chol!(f, X)
-  ld === nothing ? promote_type(T, eltype(X))(Inf) : _logdet_value(f, X, ld)
+  ld === nothing ? _valtype(X)(Inf) : _value_at(_logdet_value(f, X, ld), X)
 end
 
 @inline function _logdet_value(f::LogDetLoss, X::AbstractMatrix, ld)
@@ -107,7 +112,7 @@ function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMat
   ld = _logdet_chol!(f, X)
   if ld === nothing
     fill!(G, T(NaN))
-    return T(Inf)
+    return _valtype(X)(Inf)
   end
   v = _logdet_value(f, X, ld)
   C, S, w = f.C, f.S, f.w
@@ -117,7 +122,7 @@ function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMat
     G[i, j] = g
     G[j, i] = g
   end
-  v
+  _value_at(v, X)
 end
 
 function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix, γ::Real) where {T}
@@ -138,7 +143,7 @@ function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix,
     t, U = _eigen!(f.eig)
     _rebuild_sym_out!(Y, U, t, s -> _logbarrier_root_half(s, root_step), f.C; logs = true)
   end
-  _logdet_value(f, Y, logdet_Y)
+  _value_at(_logdet_value(f, Y, logdet_Y), Y)
 end
 
 # The positive root of z² - 2half*z - root_step² = 0. Keeping the square root

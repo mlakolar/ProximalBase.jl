@@ -62,12 +62,13 @@ on real vectors. Its proximal operator is `Lx`, where `x` minimizes
   as in [`IndAffine`](@ref); infeasible arguments have value `Inf`.
 
 Quadratic factorizations and buffers use the promoted floating type of `Q`
-and `L`, and scalar values have that type. Sparse and structured band
+and `L`; scalar values are rounded to the argument's type, as everywhere in
+the package (see the Precision section of the manual). Sparse and structured band
 matrices (`Diagonal`, `Bidiagonal`, `Tridiagonal`, `SymTridiagonal`) use sparse
 factorizations, which compute in `Float64` on Julia 1.10 and allocate during
 solves. Other matrices are converted to dense matrices for factorization.
 The standalone quadratic value densifies sparse data. Orthogonal-image
-buffers and scalar values promote the floating types of `L` and the argument.
+buffers promote the floating types of `L` and the argument.
 Outputs keep their element type. An orthogonal image widens its inner workspace
 when the transformed step falls outside its normal range; exceptional `BigFloat`
 computations may allocate. Dense `prox!` and `value_and_prox!` allocate nothing
@@ -163,6 +164,7 @@ function _checkparams(h::LinearImage, x::AbstractArray)
   length(z) == size(h.L, 2) || throw(DimensionMismatch("data sizes changed; construct a new LinearImage"))
   _checkparams(h.f, z)
   if h.f isa QuadraticFunction
+    _checkreal(h, x)
     size(h.f.A) == (length(z), length(z)) || throw(DimensionMismatch("Q must match the columns of L"))
     _checkparam(h.f.b, z)
   end
@@ -249,12 +251,12 @@ end
 function (h::_OrthogonalLinearImage)(x::AbstractArray)
   _checkparams(h, x)
   T = _image_type(h, x)
-  isfinite(_maximum_abs(x)) || return T(Inf)
+  isfinite(_maximum_abs(x)) || return _valtype(x)(Inf)
   z = _image_orthogonal_coordinates!(_image_latent(h, x), h, x)
   scaled = _array_buffer!(h.cache.scaled, T, size(x))
   residual = _array_buffer!(h.cache.residual, T, size(x))
-  _image_in_range!(residual, scaled, h.L, z, x, float(eltype(h.L))) || return T(Inf)
-  convert(T, h.f(z))
+  _image_in_range!(residual, scaled, h.L, z, x, float(eltype(h.L))) || return _valtype(x)(Inf)
+  _value_at(h.f(z), x)
 end
 
 function _image_prox!(y, h::_OrthogonalLinearImage, x, γ, withvalue::Bool)
@@ -413,9 +415,9 @@ function value_and_prox!(y::AbstractArray, h::LinearImage, x::AbstractArray, γ:
   isfinite(γ) && γ > 0 || throw(ArgumentError("γ must be finite and positive"))
   if !isfinite(_maximum_abs(x))
     fill!(y, NaN)
-    return _image_type(h, x)(NaN)
+    return _valtype(y)(NaN)
   end
-  _image_prox!(y, h, x, γ, true)
+  _value_at(_image_prox!(y, h, x, γ, true), y)
 end
 
 function _image_value_cache!(h::_QuadraticLinearImage)
@@ -441,7 +443,7 @@ function (h::_QuadraticLinearImage)(x::AbstractArray)
   _checkparams(h, x)
   c = h.cache
   T = eltype(c.latent)
-  isfinite(_maximum_abs(x)) || return T(Inf)
+  isfinite(_maximum_abs(x)) || return _valtype(x)(Inf)
   v = _image_value_cache!(h)
   @inbounds for j in eachindex(v.coefficients, v.s)
     scale = _image_inverse_scale(v.s[j], T)
@@ -461,7 +463,7 @@ function (h::_QuadraticLinearImage)(x::AbstractArray)
     nx = hypot(nx, a)
     c.ambient[i] -= a
   end
-  _norm2(c.ambient) <= _tol(T) * max(ldexp(one(T), -k), nx) || return T(Inf)
+  _norm2(c.ambient) <= _tol(T) * max(ldexp(one(T), -k), nx) || return _valtype(x)(Inf)
   if !isempty(v.nullwork)
     mul!(c.work, h.f.A, c.latent)
     h.f.b === nothing || (c.work .+= h.f.b)
@@ -469,5 +471,5 @@ function (h::_QuadraticLinearImage)(x::AbstractArray)
     ldiv!(v.factor, v.nullwork)
     mul!(c.latent, v.N, v.nullwork, -one(T), one(T))
   end
-  _image_quadratic_value(h, c.latent)
+  _value_at(_image_quadratic_value(h, c.latent), x)
 end

@@ -128,6 +128,16 @@ _checkparam(w::AbstractArray, x) = length(w) == length(x) ||
 # the value of an indicator function
 _ind(ok::Bool, ::Type{T}) where {T} = ok ? zero(T) : T(Inf)
 
+# The type of a value at x: the real floating type of its entries, promoted
+# over the blocks of a tuple. A value computed in another type is rounded to it.
+_valtype(x) = real(float(eltype(x)))
+_valtype(x::Tuple) = promote_type(map(_valtype, x)...)
+_value_at(v, x) = convert(_valtype(x), v)
+# A function whose value is not real at complex entries rejects them.
+_checkreal(f, x) = eltype(x) <: Real || _real_error(f)
+_checkreal(f, x::Tuple) = (map(xk -> _checkreal(f, xk), x); true)
+@noinline _real_error(f) = throw(ArgumentError("$(nameof(typeof(f))) requires real entries"))
+
 # A buffer of zeros of type T and size dims, next to the array a: an Array,
 # and a device array of the type of a GPU array a (see the GPU extension).
 _zeros_like(a, ::Type{T}, dims) where {T} = zeros(T, dims)

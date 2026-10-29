@@ -14,7 +14,7 @@ using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, Sq
                     GroupNormL2, GroupNormLinf, SparseGroupNormL2, IndBallGroupL0, AbstractFunction,
                     LeastSquaresLoss, GLMLoss,
                     prox_entry, value_entry, shrink, _checksize, _checkparams, _checkgroups, _tol, _ind,
-                    _kth_largest!, _positive_product
+                    _kth_largest!, _positive_product, _value_at, _checkreal
 using GPUArraysCore: AbstractGPUArray
 using LinearAlgebra: mul!
 using Base.Broadcast: broadcasted, instantiate
@@ -630,8 +630,9 @@ const _DeviceGLM{L, T} = GLMLoss{L, T, <:AbstractVector, <:AbstractMatrix, <:Uni
                                  <:Union{Nothing, AbstractVector}, <:GPUArray{T, 1}}
 
 function (f::_DeviceLeastSquares{T})(β::AbstractVecOrMat) where {T}
+  _checkreal(f, β)
   mul!(f.tmp, f.X, β)
-  return convert(T, ProximalBase._sumabs2_diff(f.Y, f.tmp)) / 2
+  return _value_at(convert(T, ProximalBase._sumabs2_diff(f.Y, f.tmp)) / 2, β)
 end
 
 # value_and_gradient!, gradient! and hessian_vec! are products and broadcasts,
@@ -659,7 +660,7 @@ end
 
 function (f::_DeviceGLM{L, T})(β::AbstractVector) where {L, T}
   η = ProximalBase._linear_predictor!(f, β)
-  return _sum(T, _ObsValue{T}(f.loss), η, f.y, _param(f.weights))
+  return _value_at(_sum(T, _ObsValue{T}(f.loss), η, f.y, _param(f.weights)), β)
 end
 
 function ProximalBase.value_and_gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::AbstractVector) where {L, T}
@@ -669,7 +670,7 @@ function ProximalBase.value_and_gradient!(g::AbstractVector, f::_DeviceGLM{L, T}
   f.d .= _ObsDeriv{T}(f.loss).(η, f.y, w)
   s = _sum(T, _ObsValue{T}(f.loss), η, f.y, w)
   mul!(g, transpose(f.X), f.d)
-  return s
+  return _value_at(s, β)
 end
 
 function ProximalBase.gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::AbstractVector) where {L, T}

@@ -13,7 +13,8 @@
 const _SPECTRAL_NOTE = """
 The function caches a LAPACK workspace for the size and element type
 (`Float32` or `Float64`) of its input, so that repeated calls allocate nothing;
-do not share one function object between threads."""
+do not share one function object between threads. Other element types, such as
+`Float16` or `BigFloat`, raise an `ArgumentError`."""
 
 const _PARTIAL_NOTE = """
 With `partial = true` the proximal operator computes only the leading singular
@@ -105,6 +106,7 @@ isconvex(::Type{<:NuclearNorm}) = true
 
 function (f::NuclearNorm)(X::AbstractMatrix)
   T = float(eltype(X))
+  _checkblas(f, T)
   all(isfinite, X) || return T(Inf)              # the domain is the finite matrices
   iszero(f.λ) && return zero(T)
   ws = _svd_workspace(f.ws, T, size(X)...)
@@ -139,6 +141,7 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
+  _checkblas(f, T)
   if iszero(f.λ)
     Y === X || copyto!(Y, X)
     return zero(T)
@@ -207,6 +210,7 @@ _isindicator(::Type{IndBallRank}) = true
 
 function (f::IndBallRank)(X::AbstractMatrix)
   T = float(eltype(X))
+  _checkblas(f, T)
   all(isfinite, X) || return T(Inf)
   minimum(size(X)) <= f.r && return zero(T)
   ws = _svd_workspace(f.ws, T, size(X)...)
@@ -226,6 +230,7 @@ end
 function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, ::Real)
   _checkwrite(prox!, f, Y, X)
   T = float(eltype(Y))
+  _checkblas(f, T)
   if minimum(size(X)) <= f.r
     Y === X || copyto!(Y, X)
     return Y
@@ -393,6 +398,7 @@ _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::Union{IndPSD{Not
 # nothing, within the tolerance of the indicator functions; f caches the workspace
 function _ispsd!(f, X::AbstractMatrix, r::Union{Nothing, Int})
   T = float(eltype(X))
+  _checkblas(f, T)
   n = checksquare(X)
   _issymmetric_tol(X) || return false
   ws = _eig_workspace(f.eig, T, n)
@@ -433,6 +439,7 @@ end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real)
   _checkwrite(prox!, f, Y, X)
+  _checkblas(f, float(eltype(Y)))
   if f.partial
     _partial_psd!(Y, f, X, zero(float(eltype(Y))), 0) === nothing || return Y
   end
@@ -441,6 +448,7 @@ end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
   _checkwrite(prox!, f, Y, X)
+  _checkblas(f, float(eltype(Y)))
   n = checksquare(X)
   f.rank >= n && return _project_psd!(Y, f, X)
   T = float(eltype(Y))
@@ -528,6 +536,7 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
+  _checkblas(f, T)
   c = convert(T, γ) * convert(T, f.λ)
   if f.partial
     pv = _partial_psd!(Y, f, X, c, 0, convert(T, f.λ))

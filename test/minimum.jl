@@ -158,8 +158,8 @@ end
     g = PointwiseMinimum(NormL1(1f0), LinearFunction(Float32[0], 1.75))
     for x in (Float32[2], Float32[0.5], Float32[3])
       y = similar(x)
-      @test g(x) isa Float64
-      @test value_and_prox!(y, g, x, 1f0) isa Float64
+      @test g(x) isa Float32
+      @test value_and_prox!(y, g, x, 1f0) isa Float32
       @test value_and_prox!(y, g, x, 1f0) == g(y)
       @test isequal(y, first(reference(g.fs, x, 1f0)))
     end

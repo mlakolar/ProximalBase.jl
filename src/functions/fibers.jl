@@ -80,11 +80,11 @@ function _sumslices(fun::G, fs::AbstractVector) where {G}
   v
 end
 
-(s::SliceSum)(x::AbstractArray) = (_checkslices(s, x); _sumslices((f, k) -> f(_slice(x, k)), s.fs))
+(s::SliceSum)(x::AbstractArray) = (_checkslices(s, x); _value_at(_sumslices((f, k) -> f(_slice(x, k)), s.fs), x))
 
 function value_and_prox!(y::AbstractArray, s::SliceSum, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, s, y, x)
-  _sumslices((f, k) -> value_and_prox!(_slice(y, k), f, _slice(x, k), γ), s.fs)
+  _value_at(_sumslices((f, k) -> value_and_prox!(_slice(y, k), f, _slice(x, k), γ), s.fs), y)
 end
 prox!(y::AbstractArray, s::SliceSum, x::AbstractArray, γ::Real) =
   (_checkwrite(prox!, s, y, x); value_and_prox!(y, s, x, γ); y)
@@ -105,7 +105,7 @@ end
 
 function value_and_gradient!(g::AbstractArray, s::SliceSum, x::AbstractArray)
   _checkwrite(value_and_gradient!, s, g, x)
-  _sumslices((f, k) -> value_and_gradient!(_slice(g, k), f, _slice(x, k)), s.fs)
+  _value_at(_sumslices((f, k) -> value_and_gradient!(_slice(g, k), f, _slice(x, k)), s.fs), x)
 end
 
 lipschitz(s::SliceSum) = maximum(lipschitz, s.fs)
@@ -183,7 +183,7 @@ _isdiagonal(::CartesianIndex) = false
 
 function (fb::FiberSum)(x::AbstractArray)
   own = _owndiagonal(fb, x)
-  T = float(eltype(x))
+  T = _valtype(x)
   v = zero(T)
   for I in _fiberindices(fb, x)
     fb.symmetric && I[1] < I[2] && continue
@@ -236,7 +236,7 @@ _fiberprox!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real, v::Val) 
 function _fiberprox_views!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real, ::Val{V}) where {V}
   _checksize(y, x)
   own = _owndiagonal(fb, x)
-  T = float(eltype(y))
+  T = _valtype(y)
   v = zero(T)
   for I in _fiberindices(fb, x)
     fb.symmetric && I[1] < I[2] && continue

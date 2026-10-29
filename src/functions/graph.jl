@@ -47,9 +47,11 @@ with `S` the promoted floating type of `A` and both input blocks. For operators
 the bound instead uses `max(1, ‖y‖, ‖Ax‖)`. Nonfinite operator images give `Inf`.
 Matrix entries and the input vector are converted to `S` before the value's
 product. Operators must support products in this promoted type. The value
-buffers are reused while this promoted type stays unchanged.
-[`value_and_prox!`](@ref) returns a typed zero in the promoted floating type of
-the data and all input and output blocks, without checking feasibility.
+buffers are reused while this promoted type stays unchanged. The value itself
+has the floating type of the input pair, promoted over its blocks (see the
+Precision section of the manual).
+[`value_and_prox!`](@ref) returns a zero of the floating type of the output
+pair, without checking feasibility.
 Allocating [`prox`](@ref) preserves each block's floating type.
 
 Outputs may alias inputs. Both pairs' shapes are checked before any write.
@@ -149,7 +151,8 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndGrap
   true
 end
 
-function (f::IndGraph{T})(z) where {T}
+(f::IndGraph)(z) = _value_at(_graph_value(f, z), z)
+function _graph_value(f::IndGraph{T}, z) where {T}
   _checkparams(f, z)
   x, y = z
   S = float(promote_type(T, eltype(x), eltype(y)))
@@ -368,8 +371,8 @@ function prox!(out, f::IndGraph, z, ::Real)
   out
 end
 
-function value_and_prox!(out, f::IndGraph{T}, z, γ::Real = 1) where {T}
+function value_and_prox!(out, f::IndGraph, z, γ::Real = 1)
   _checkwrite(value_and_prox!, f, out, z)
   prox!(out, f, z, γ)
-  zero(float(promote_type(T, eltype(z[1]), eltype(z[2]), eltype(out[1]), eltype(out[2]))))
+  zero(_valtype(out))
 end

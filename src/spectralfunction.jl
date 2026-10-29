@@ -76,6 +76,7 @@ end
 # symmetry test and any decomposition.
 function (s::Spectral)(X::AbstractMatrix)
   T = float(eltype(X))
+  _checkblas(s, T)
   n = checksquare(X)
   all(isfinite, X) || return T(Inf)
   _issymmetric_tol(X) || return T(Inf)
@@ -100,6 +101,7 @@ end
 function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, s, Y, X)
   T = float(eltype(Y))
+  _checkblas(s, T)
   n = checksquare(X)
   ws = _eig_workspace(s.eig, T, n)
   s.eig = ws

@@ -85,14 +85,14 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Scaled{F}}) where {F} = $trait(F)
 end
 
-(s::Scaled)(x) = s.α * s.f(x)
+(s::Scaled)(x) = _value_at(s.α * s.f(x), x)
 _checkvalue(s::Scaled, x) = _checkvalue(s.f, x)
 _scale!(g::AbstractArray, α) = (g .*= α)
 _scale!(g::Tuple, α) = (map(gk -> _scale!(gk, α), g); g)
-value_and_gradient!(g, s::Scaled, x) = (_checkwrite(value_and_gradient!, s, g, x); v = value_and_gradient!(g, s.f, x); _scale!(g, s.α); s.α * v)
+value_and_gradient!(g, s::Scaled, x) = (_checkwrite(value_and_gradient!, s, g, x); v = value_and_gradient!(g, s.f, x); _scale!(g, s.α); _value_at(s.α * v, x))
 gradient!(g, s::Scaled, x) = (_checkwrite(gradient!, s, g, x); gradient!(g, s.f, x); _scale!(g, s.α))
 prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(prox!, s, y, x); prox!(y, s.f, x, s.α * γ))
-value_and_prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); s.α * value_and_prox!(y, s.f, x, s.α * γ))
+value_and_prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); _value_at(s.α * value_and_prox!(y, s.f, x, s.α * γ), y))
 Base.@propagate_inbounds prox_entry(s::Scaled, v::Real, i::Integer, γ::Real) = prox_entry(s.f, v, i, s.α * γ)
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
 _checkwrite(op::O, s::Scaled, y, x) where {O} = _checkwrite(op, s.f, y, x)
@@ -130,9 +130,9 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Tilt{F}}) where {F} = $trait(F)
 end
 
-(t::Tilt)(x) = t.f(x) + dot(t.c, x) + t.d
+(t::Tilt)(x) = (_checkreal(t, x); _value_at(t.f(x) + dot(t.c, x) + t.d, x))
 _checkvalue(t::Tilt, x) = (_checkvalue(t.f, x); _checkdot(t.c, x); true)
-value_and_gradient!(g, t::Tilt, x) = (_checkwrite(value_and_gradient!, t, g, x); v = value_and_gradient!(g, t.f, x); g .+= t.c; v + dot(t.c, x) + t.d)
+value_and_gradient!(g, t::Tilt, x) = (_checkwrite(value_and_gradient!, t, g, x); v = value_and_gradient!(g, t.f, x); g .+= t.c; _value_at(v + dot(t.c, x) + t.d, x))
 gradient!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, x); g .+= t.c)
 
 function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}}
@@ -156,10 +156,10 @@ end
 function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
   y .= x .- convert(float(eltype(y)), γ) .* t.c
-  value_and_prox!(y, t.f, y, γ) + dot(t.c, y) + t.d
+  _value_at(value_and_prox!(y, t.f, y, γ) + dot(t.c, y) + t.d, y)
 end
 Base.@propagate_inbounds prox_entry(t::Tilt, v::Real, i::Integer, γ::Real) = prox_entry(t.f, v - γ * t.c[i], i, γ)
-_checkparams(t::Tilt, x) = (_checkparam(t.c, x); _checkparams(t.f, x))
+_checkparams(t::Tilt, x) = (_checkparam(t.c, x); _checkreal(t, x); _checkparams(t.f, x))
 kkt_violation(t::Tilt, g::AbstractArray, i::Integer) = kkt_violation(t.f, _ShiftedArray(g, t.c), i)
 restrict(t::Tilt, S::AbstractVector{<:Integer}) = Tilt(restrict(t.f, S), t.c[S], t.d)
 
@@ -198,9 +198,9 @@ function _shifted(t::Translate, x::AbstractArray)
   z .= x .- t.b
 end
 
-(t::Translate)(x::AbstractArray) = t.f(_shifted(t, x))
+(t::Translate)(x::AbstractArray) = _value_at(t.f(_shifted(t, x)), x)
 value_and_gradient!(g, t::Translate, x::AbstractArray) =
-  (_checkwrite(value_and_gradient!, t, g, x); value_and_gradient!(g, t.f, _shifted(t, x)))
+  (_checkwrite(value_and_gradient!, t, g, x); _value_at(value_and_gradient!(g, t.f, _shifted(t, x)), x))
 gradient!(g, t::Translate, x::AbstractArray) =
   (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, _shifted(t, x)))
 
@@ -232,7 +232,7 @@ function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::R
   y .= x .- t.b
   v = value_and_prox!(y, t.f, y, γ)
   y .+= t.b
-  v
+  _value_at(v, y)
 end
 Base.@propagate_inbounds prox_entry(t::Translate, v::Real, i::Integer, γ::Real) = t.b[i] + prox_entry(t.f, v - t.b[i], i, γ)
 _checkparams(t::Translate, x) = (_checkparam(t.b, x); _checkparams(t.f, x))
@@ -326,8 +326,7 @@ _conjugate_isindicator(::Type{<:Conjugate{F}}) where {F} = _isindicator(F)
 _isindicator(::Type{<:Conjugate{F}}) where {F} = _conjugate_isindicator(F)
 
 # the value of an indicator at its projection
-_zero_value(y::AbstractArray) = zero(float(eltype(y)))
-_zero_value(y::Tuple) = sum(map(_zero_value, y))
+_zero_value(y) = zero(_valtype(y))
 
 isproximable(::Type{<:Conjugate{F}}) where {F} = isproximable(F)
 isseparable(::Type{<:Conjugate{F}}) where {F} = isseparable(F)
@@ -358,7 +357,7 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::R
   _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
-    return _conjugate_value(c.f, y)
+    return _value_at(_conjugate_value(c.f, y), y)
   end
   _checksize(y, x)
   T = float(eltype(y))
@@ -367,7 +366,7 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::R
   p .= x ./ step
   fp = value_and_prox!(p, c.f, p, inv(step))
   y .= x .- step .* p
-  dot(p, y) - fp
+  _value_at(dot(p, y) - fp, y)
 end
 Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real) = v - γ * prox_entry(c.f, v / γ, i, inv(γ))
 _checkparams(c::Conjugate, x) = _checkparams(c.f, x)
@@ -382,11 +381,13 @@ function _checkwrite(op::O, c::Conjugate, y::Union{AbstractArray, Tuple}, x::Uni
   withvalue = op === value_and_prox! && !_isindicator(c)
   _checkwrite(withvalue && !_has_conjugate_value(c.f) ? value_and_prox! : prox!, c.f, p, p)
   withvalue && _has_conjugate_value(c.f) && _checkconjugate(c.f, y)
+  # the Fenchel equality ⟨p, y⟩ - f(p) is not real at complex entries
+  withvalue && !_has_conjugate_value(c.f) && _checkreal(c, y)
   true
 end
 _conjugate_checkbuffer(s::Scratch, y::AbstractArray, x::AbstractArray) = _checkbuffer(s, float(eltype(y)), size(x))
 
-(c::Conjugate)(y::Union{AbstractArray, Tuple}) = (_checkparams(c, y); _conjugate_value(c.f, y))
+(c::Conjugate)(y::Union{AbstractArray, Tuple}) = (_checkparams(c, y); _value_at(_conjugate_value(c.f, y), y))
 
 _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, c::Conjugate{<:SumLargest}, y::AbstractArray, x::AbstractArray) =
   _checkwrite(op, c.f, y, x)
@@ -442,13 +443,13 @@ function value_and_prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
-    return _conjugate_value(c.f, y)
+    return _value_at(_conjugate_value(c.f, y), y)
   end
   p = _tuple_buffer!(c.scratch, y, x)
   _divide!(p, x, γ)
   fp = value_and_prox!(p, c.f, p, inv(γ))
   _moreau_output!(y, x, p, γ)
-  _tuple_dot(p, y) - fp
+  _value_at(_tuple_dot(p, y) - fp, y)
 end
 
 # (αf)*(y) = α f*(y/α), and (f(⋅-b))*(y) = f*(y) + ⟨b,y⟩.
@@ -477,11 +478,11 @@ function _checkconjugate(f::Scaled, y::Tuple)
   f.α > 0 || throw(ArgumentError("conjugate values of Scaled require a positive scale"))
   _checkscaledconjugate(f.f, y, f.α)
 end
-_checkconjugate(f::Translate, y::AbstractArray) = (_checksize(f.b, y); _checkconjugate(f.f, y))
+_checkconjugate(f::Translate, y::AbstractArray) = (_checksize(f.b, y); _checkreal(f, y); _checkconjugate(f.f, y))
 _checkconjugate(f::Union{NormL1, IndBox, IndSOC, IndRotatedSOC, IndExpPrimal, IndExpDual, SumLargest,
                           CheckLoss, HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}, y::AbstractArray) = _checkparams(f, y)
 _checkconjugate(f::LinearFunction, y::AbstractArray) = size(y) == size(f.c) || throw(DimensionMismatch())
-_checkconjugate(f::SqrNormL2, y::AbstractArray) = (iszero(f.λ) || f.y === nothing || _checkdot(f.y, y); true)
+_checkconjugate(f::SqrNormL2, y::AbstractArray) = (iszero(f.λ) || f.y === nothing || (_checkreal(f, y); _checkdot(f.y, y)); true)
 
 @noinline _conjugate_value(f::AbstractFunction, y) =
   throw(ArgumentError("the value of the conjugate of $(typeof(f)) is not implemented; its proximal operator is"))
@@ -566,7 +567,7 @@ function _conjugate_value(f::IndBox, y::AbstractArray)
   s = zero(T)
   @inbounds for i in eachindex(IndexLinear(), y)
     v = y[i]
-    s += v >= 0 ? (iszero(v) ? zero(T) : v * _entry(f.u, i)) : v * _entry(f.l, i)
+    s += convert(T, v >= 0 ? (iszero(v) ? zero(T) : v * _entry(f.u, i)) : v * _entry(f.l, i))
   end
   s
 end
@@ -651,13 +652,13 @@ _scaled_conjugate_value(s::SeparableSum, y::Tuple, α) =
   (_checkscaledconjugate(s, y, α); sum(map((f, yk) -> _conjugate_value(Scaled(f, α), yk), s.fs, y)))
 _checkvalue(s::SeparableSum, x::Tuple) = (_checkparams(s, x); map(_checkvalue, s.fs, x); true)
 
-(s::SeparableSum)(x::Tuple) = (_checkparams(s, x); sum(map((f, xk) -> f(xk), s.fs, x)))
+(s::SeparableSum)(x::Tuple) = (_checkparams(s, x); _value_at(sum(map((f, xk) -> f(xk), s.fs, x)), x))
 prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
   (_checkwrite(prox!, s, y, x); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
 value_and_prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(value_and_prox!, s, y, x); sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)))
+  (_checkwrite(value_and_prox!, s, y, x); _value_at(sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)), y))
 value_and_gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
-  (_checkwrite(value_and_gradient!, s, g, x); sum(map((f, gk, xk) -> value_and_gradient!(gk, f, xk), s.fs, g, x)))
+  (_checkwrite(value_and_gradient!, s, g, x); _value_at(sum(map((f, gk, xk) -> value_and_gradient!(gk, f, xk), s.fs, g, x)), x))
 gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
   (_checkwrite(gradient!, s, g, x); map((f, gk, xk) -> gradient!(gk, f, xk), s.fs, g, x); g)
 
@@ -682,7 +683,7 @@ issmooth(::Type{<:Sum{F}}) where {F} = all(issmooth, fieldtypes(F))
 isconvex(::Type{<:Sum{F}}) where {F} = all(isconvex, fieldtypes(F))
 _checkparams(s::Sum, x) = (map(f -> _checkparams(f, x), s.fs); true)
 
-(s::Sum)(x) = sum(f -> f(x), s.fs)
+(s::Sum)(x) = _value_at(sum(f -> f(x), s.fs), x)
 _checkvalue(s::Sum, x) = (map(f -> _checkvalue(f, x), s.fs); true)
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::Sum, g::AbstractArray, x::AbstractArray)
@@ -707,9 +708,9 @@ end
 function value_and_gradient!(g::AbstractArray, s::Sum, x::AbstractArray)
   _checkwrite(value_and_gradient!, s, g, x)
   v = value_and_gradient!(g, first(s.fs), x)
-  length(s.fs) == 1 && return v
+  length(s.fs) == 1 && return _value_at(v, x)
   b = _array_buffer!(s.scratch, eltype(g), size(g))
-  _add_gradients!(g, b, x, v, Base.tail(s.fs))
+  _value_at(_add_gradients!(g, b, x, v, Base.tail(s.fs)), x)
 end
 
 ####################################

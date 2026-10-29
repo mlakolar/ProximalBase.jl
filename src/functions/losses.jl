@@ -322,7 +322,7 @@ function _conjugate_value(f::HingeLoss, s::AbstractArray)
   @inbounds for i in eachindex(IndexLinear(), s)
     q = s[i] / _entry(f.y, i)
     (_within(q, zero(T), T) && _within(-q, convert(T, _entry(f.w, i)), T)) || return T(Inf)
-    v += q
+    v += convert(T, q)
   end
   v
 end

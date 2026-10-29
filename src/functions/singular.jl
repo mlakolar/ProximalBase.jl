@@ -84,6 +84,7 @@ end
 # the singular values of X, in descending order, owned by the workspace of F
 function _singular_values!(F::SingularValue, X::AbstractMatrix)
   T = float(eltype(X))
+  _checkblas(F, T)
   ws = _svd_workspace(F.ws, T, size(X)...)
   F.ws = ws
   copyto!(ws.A, X)
@@ -141,6 +142,7 @@ end
 function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, F, Y, X)
   T = float(eltype(Y))
+  _checkblas(F, T)
   ws = _svd_workspace(F.ws, T, size(X)...)
   F.ws = ws
   copyto!(ws.A, X)

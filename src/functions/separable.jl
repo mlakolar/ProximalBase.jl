@@ -175,7 +175,7 @@ end
 # several times faster than one that stores and sums, which does not vectorize;
 # an indicator function is 0 at its projection
 _value_and_prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Union{Real, AbstractArray}) =
-  _isindicator(f) ? (_prox_sep!(y, f, x, γ); zero(float(eltype(y)))) : _value_sep(f, _prox_sep!(y, f, x, γ))
+  _isindicator(f) ? (_prox_sep!(y, f, x, γ); zero(_valtype(y))) : _value_sep(f, _prox_sep!(y, f, x, γ))
 
 _restrict_entries(w::Union{Nothing, Real}, ::AbstractVector{<:Integer}) = w
 _restrict_entries(w::AbstractArray, S::AbstractVector{<:Integer}) = w[S]

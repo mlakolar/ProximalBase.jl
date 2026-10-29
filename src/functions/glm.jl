@@ -209,7 +209,7 @@ _argument_type(::Type{<:GLMLoss}) = AbstractVector
 isconvex(::Type{<:GLMLoss}) = true
 
 _checkpredictor(f::GLMLoss, β::AbstractVector) =
-  length(β) == size(f.X, 2) || throw(DimensionMismatch("β has length $(length(β)) and X has $(size(f.X, 2)) columns"))
+  (length(β) == size(f.X, 2) || throw(DimensionMismatch("β has length $(length(β)) and X has $(size(f.X, 2)) columns")); _checkreal(f, β))
 
 _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::GLMLoss{L, T}, g::AbstractVector, β::AbstractVector) where {L, T} =
   (_checksize(g, β); _checkpredictor(f, β); true)
@@ -229,7 +229,7 @@ function (f::GLMLoss{L, T})(β::AbstractVector) where {L, T}
     iszero(w) && continue
     s += w * convert(T, f.loss(η[i], f.y[i]))
   end
-  s
+  _value_at(s, β)
 end
 
 function value_and_gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVector) where {L, T}
@@ -248,7 +248,7 @@ function value_and_gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVe
     d[i] = w * dv
   end
   mul!(g, transpose(f.X), d)
-  s
+  _value_at(s, β)
 end
 
 function gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVector) where {L, T}

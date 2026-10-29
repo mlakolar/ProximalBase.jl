@@ -15,7 +15,13 @@ then accept it like the built-in functions.
 
 Override `value_and_prox!` when the proximal computation gives the value more
 cheaply, and define [`lipschitz`](@ref) when a smooth function's constant is
-known. The traits are defined on the type:
+known.
+
+Values follow the rule in [Precision](@ref): `f(x)` and
+`value_and_gradient!(g, f, x)` return `T = real(float(eltype(x)))`, and
+`value_and_prox!(y, f, x, γ)` returns `T` of `y`, whatever the precision of
+the parameters. Convert a value computed with wider parameters to `T` before
+returning it. The traits are defined on the type:
 
 ```@example extending
 using ProximalBase, LinearAlgebra
@@ -24,7 +30,10 @@ using ProximalBase, LinearAlgebra
 struct CenteredBox <: AbstractFunction end
 ProximalBase.isproximable(::Type{CenteredBox}) = true
 ProximalBase.isconvex(::Type{CenteredBox}) = true
-(::CenteredBox)(x) = all(abs.(x) .<= 1 + 1e-12) && abs(sum(x)) <= 1e-9 ? 0.0 : Inf
+function (::CenteredBox)(x)
+    T = real(float(eltype(x)))
+    all(abs.(x) .<= 1 + 1e-12) && abs(sum(x)) <= 1e-9 ? zero(T) : T(Inf)
+end
 
 # the projection: x = clamp.(v .- τ, -1, 1), with τ chosen by bisection so that Σᵢ xᵢ = 0
 function ProximalBase.prox!(y::AbstractVector, ::CenteredBox, v::AbstractVector, ::Real)
@@ -79,6 +88,8 @@ x = [1.0, 1.0, 1.0]
 (f(x), prox(f, x, 0.5))
 ```
 
+The generic methods add the entry values in the argument's precision, so
+`f(Float32[1, 1, 1])` returns a `Float32` although the weights are `Float64`.
 The optional [`ProximalBase.check_parameters`](@ref) method checks that the
 weights fit the argument. The generic methods call it before writing any
 output, so a mismatched argument leaves outputs and iterates untouched.

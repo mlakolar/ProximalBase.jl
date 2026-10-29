@@ -20,6 +20,7 @@ tests = [
   "sqrhinge",
   "entropy",
   "norms",
+  "cubenorm",
   "sparsegroup",
   "fibers",
   "spectral",

@@ -187,8 +187,9 @@ function _partial_svd_workspace(cache, ::Type{T}, m::Integer, n::Integer, need::
   ws
 end
 
-# Reject non-finite derived data only when the original input is finite.
-_partial_overflow(B, X) = !_finite_value(_maximum_abs(B)) && _finite_value(_maximum_abs(X))
+# The dense input has already been converted to the iteration's precision.
+_partial_overflow(B, X::StridedMatrix{T}) where {T} =
+  !_finite_value(_maximum_abs(B)) && _finite_value(convert(T, _maximum_abs(X)))
 
 # The leading singular triplets of X: the r largest when r > 0, otherwise all
 # the singular values above τ (by more than the tolerance δ). Returns the number k of triplets kept, with the

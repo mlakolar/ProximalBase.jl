@@ -68,7 +68,8 @@ function _rebuild_sym_out!(Y::AbstractMatrix, V::StridedMatrix, λ, f::F, buffer
 end
 
 # Only finite inputs can recover from an overflowing decomposition.
-_spectral_overflow(s, X) = !all(isfinite, s) && _finite_value(_maximum_abs(X))
+_spectral_overflow(s::AbstractVector{T}, X) where {T} =
+  !all(isfinite, s) && _finite_value(convert(T, _maximum_abs(X)))
 
 # Rescale before the single copy to an output BLAS cannot write.
 function _spectral_rescale!(Y, B::AbstractMatrix{T}, k::Int, p::Int, σ::T) where {T}
@@ -86,7 +87,8 @@ function _spectral_rescale!(Y, B::AbstractMatrix{T}, k::Int, p::Int, σ::T) wher
 end
 
 @noinline function _scaled_svd_prox!(Y, f, X, γ, ws::SVDWorkspace{T}) where {T}
-  e = _magnitude_exponent(_maximum_abs(X))
+  # Use the same exponent as the converted copy scaled below.
+  e = _magnitude_exponent(convert(T, _maximum_abs(X)))
   _scaled_spectral_input!(ws.A, X)
   s, U, Vt = _svd!(ws)
   λ = f isa NuclearNorm ? convert(T, f.λ) : zero(T)
@@ -96,7 +98,7 @@ end
   v = zero(T)
   @inbounds for j in 1:r
     t = s[j] - c
-    t > 0 || break
+    f isa NuclearNorm && !(t > 0) && break
     k = j
     v += t
     @simd for i in axes(U, 1)
@@ -114,7 +116,8 @@ _scaled_eigen!(ws::SymEigenWorkspace) = _eigen!(ws)
 _scaled_eigen!(ws::SymEigenTopWorkspace) = _eigen_top!(ws)
 
 @noinline function _scaled_eigen_prox!(Y, f, X, γ, ws::Union{SymEigenWorkspace{T}, SymEigenTopWorkspace{T}}) where {T}
-  e = _magnitude_exponent(_maximum_abs(X))
+  # Use the same exponent as the converted copy scaled below.
+  e = _magnitude_exponent(convert(T, _maximum_abs(X)))
   _scaled_spectral_input!(ws.A, X)
   s, V = _scaled_eigen!(ws)
   λ = f isa TracePSD ? convert(T, f.λ) : zero(T)

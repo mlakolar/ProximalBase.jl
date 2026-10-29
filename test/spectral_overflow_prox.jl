@@ -182,6 +182,28 @@ end
           A = (A + A') / 2
           push!(inputs, M .* A)
         end
+        # Mixed signs with a dominant singular value and finite output headroom.
+        for (m, n) in ((4, 3), (3, 5), (5, 4), (4, 4)), rep in 1:3
+          u = (T(3)/4 .+ rand(rng, T, m)/8) .* T[isodd(i) ? 1 : -1 for i in 1:m]
+          v = (T(3)/4 .+ rand(rng, T, n)/8) .* T[isodd(i) ? -1 : 1 for i in 1:n]
+          A = u * v' + randn(rng, T, m, n)/100
+          @test opnorm(A) > one(T)
+          @test !issymmetric(A)
+          push!(inputs, M .* A)
+        end
+        # Positive and negative overflowing eigenvalues in separate blocks.
+        for n in 4:6, rep in 1:3
+          a = n ÷ 2
+          u = T(4)/5 .+ rand(rng, T, a)/10
+          v = T(4)/5 .+ rand(rng, T, n-a)/10
+          A = randn(rng, T, n, n)/100
+          A = (A + A')/2
+          A[1:a, 1:a] .+= u * u'
+          A[a+1:end, a+1:end] .-= v * v'
+          θ = eigvals(Symmetric(A))
+          @test first(θ) < -one(T) && last(θ) > one(T)
+          push!(inputs, M .* A)
+        end
         for X in inputs, partial in (false, true), f in functions(T, partial)
           symmetric = issymmetric(X)
           f isa Union{TracePSD, IndPSD} && !symmetric && continue
@@ -210,6 +232,21 @@ end
             @test usedfull(f)
           end
         end
+      end
+
+      @testset "zero singular columns in a scaled rank projection" begin
+        X = zeros(T, 64, 64)
+        f = IndBallRank(3; partial = true)
+        ws = PB.SVDWorkspace(T, 64, 64)
+        cache = PB._partial_svd_workspace(nothing, T, 64, 64, f.r)
+        f.ws, f.pws = ws, cache
+        Y = similar(X)
+        # Exact zero weights isolate the retained-column rule from LAPACK rounding.
+        PB._scaled_svd_prox!(Y, f, X, one(T), ws)
+        @test ws.s[3] == zero(T)
+        @test cache.rank == f.r
+        @test all(iszero, view(ws.U, :, 3))
+        @test cache.Y[:, 1:f.r] == ws.U[:, 1:f.r]
       end
 
       @testset "unchanged finite spectra and non-finite entries" begin
@@ -254,6 +291,43 @@ end
         end
       end
     end
+  end
+end
+
+@testset "mixed precision spectral overflow" begin
+  T = Float32
+  a = T(2)^127
+  X = fill(prevfloat(2.0^127), 3, 3)
+  @test Float32.(X) == fill(a, 3, 3)
+  @test exponent(maximum(X)) != exponent(a)
+  for partial in (false, true), γ in (one(T), a)
+    for f in (NuclearNorm(T(1)/4; partial), TracePSD(T(1)/4; partial),
+              IndPSD(; partial), IndPSD(; rank = 2, partial), IndBallRank(1; partial))
+      Y = zeros(T, 3, 3)
+      value = value_and_prox!(Y, f, X, γ)
+      λ = f isa Union{NuclearNorm, TracePSD} ? f.λ : zero(T)
+      reference = big(a) - big(γ)*big(λ)/3
+      @test all(isfinite, Y)
+      @test all(y -> abs(big(y) - reference) <= 4big(eps(a)), Y)
+      rounded(value, big(λ) * (3big(a) - big(γ)*big(λ)))
+      R = similar(Y)
+      preconverted = value_and_prox!(R, f, Float32.(X), γ)
+      @test isequal(Y, R)
+      @test isequal(value, preconverted)
+      @test measured(Y, f, X, γ) == 0
+    end
+  end
+  # Entries that overflow on conversion keep the original non-finite path.
+  X = fill(1e39, 2, 2)
+  for partial in (false, true), f in (NuclearNorm(T(0.3); partial), TracePSD(T(0.3); partial),
+                                     IndPSD(; partial), IndPSD(; rank = 2, partial), IndBallRank(1; partial))
+    Y, R, B = zeros(T, 2, 2), zeros(T, 2, 2), zeros(T, 2, 2)
+    value = value_and_prox!(Y, f, X, one(T))
+    reference = value_and_prox!(R, f, Float32.(X), one(T))
+    legacy!(B, f, X, one(T))
+    @test isequal(value, reference)
+    @test isequal(Y, R)
+    @test isequal(Y, B)
   end
 end
 

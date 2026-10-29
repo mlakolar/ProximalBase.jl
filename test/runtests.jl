@@ -19,6 +19,7 @@ tests = [
   "losses",
   "sqrhinge",
   "entropy",
+  "bernoulli",
   "norms",
   "cubenorm",
   "sparsegroup",

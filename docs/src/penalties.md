@@ -15,6 +15,7 @@ and ``\gamma`` is the step of the proximal operator.
 | [`NegEntropy`](@ref)`(λ)` | ``\lambda\sum_i x_i\log x_i`` on ``x \ge 0`` | ``\mu\,\omega(v_i/\mu - 1 - \log\mu)``, ``\mu = \gamma\lambda`` | ✓ |
 | [`KLDivergence`](@ref)`(q; λ)` | ``\lambda\sum_i (x_i\log(x_i/q_i) - x_i + q_i)`` on ``x \ge 0`` | ``\mu\,\omega(v_i/\mu + \log(q_i/\mu))`` | ✓ |
 | [`NegLog`](@ref)`(λ)` | ``-\lambda\sum_i\log x_i`` on ``x > 0`` | ``(v_i + \sqrt{v_i^2 + 4\gamma\lambda})/2`` | ✓ |
+| [`BernoulliLoss`](@ref)`(b, w)` | the Bernoulli negative log-likelihood on probabilities | a safeguarded scalar Newton iteration | ✓ |
 | [`CappedL1`](@ref)`(λ, a, w)` | ``\lambda\sum_i w_i\min(\lvert x_i\rvert, a)`` | the better of two clipped candidates | ✓ |
 | [`LogPenalty`](@ref)`(λ, ε, w)` | ``\lambda\sum_i w_i\log(1 + \lvert x_i\rvert/\varepsilon)`` | zero or the root of a quadratic | ✓ |
 | [`NormLq`](@ref)`(λ, q, w)` | ``\lambda\sum_i w_i\lvert x_i\rvert^q``, ``0 < q < 1`` | ℓq thresholding | ✓ |
@@ -239,6 +240,11 @@ the step is small and ``u = v/\mu - 1 - \log\mu`` is large, so the proximal
 operators stay accurate there. The log barrier's scalar problem is the
 quadratic ``z^2 - vz - \gamma\lambda = 0``, whose positive root is the one the
 proximal operator of [`LogDetLoss`](@ref) takes for each eigenvalue.
+
+[`BernoulliLoss`](@ref) applies the log barriers to probabilities and their
+complements, with the endpoint conventions of the Bernoulli likelihood.
+It is also smooth on the interior; see [Smooth functions](@ref) for its
+domain, weights and use in identity-link binomial models.
 
 **The reverse Huber penalty** [`Berhu`](@ref) (Owen, 2007) is the ℓ1 norm up to
 ``M`` and a ridge penalty beyond, with matching slopes at ``\pm M``. It is

@@ -67,7 +67,7 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectra
   n = checksquare(X)
   T = float(eltype(Y))
   ws = s.eig
-  _checkworkspace(_eig_workspace, ws, T, n)
+  _checkblas(s, T)
   λ = T <: _BlasReal && ws isa SymEigenWorkspace{T} && ws.n == n ? ws.w : Vector{T}(undef, n)
   z = _checkbuffer(s.z, T, (n,))
   _checkwrite(value_and_prox!, s.f, z, λ)
@@ -102,7 +102,6 @@ end
 function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, s, Y, X)
   T = float(eltype(Y))
-  _checkblas(s, T)
   n = checksquare(X)
   ws = _eig_workspace(s.eig, T, n)
   s.eig = ws

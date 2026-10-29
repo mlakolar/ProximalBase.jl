@@ -143,7 +143,6 @@ end
 function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, F, Y, X)
   T = float(eltype(Y))
-  _checkblas(F, T)
   ws = _svd_workspace(F.ws, T, size(X)...)
   F.ws = ws
   copyto!(ws.A, X)
@@ -175,7 +174,7 @@ end
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, F::SingularValue, Y::AbstractMatrix, X::AbstractMatrix)
   _checksize(Y, X)
   T = float(eltype(Y))
-  _checkworkspace(_svd_workspace, F.ws, T, size(X)...)
+  _checkblas(F, T)
   s = _checkspectrum(F, T, size(X))
   t = _checkbuffer(F.t, T, size(s))
   _checkwrite(value_and_prox!, F.f, t, s)

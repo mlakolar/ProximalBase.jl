@@ -177,9 +177,7 @@ _argument_type(::Type{<:NuclearNorm}) = AbstractMatrix
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NuclearNorm, Y::AbstractMatrix, X::AbstractMatrix)
   _checksize(Y, X)
   iszero(f.λ) && return true
-  T = float(eltype(Y))
-  f.partial && return _checkpartial_svd_workspace(T, size(X)..., 0)
-  _checkworkspace(_svd_workspace, f.ws, T, size(X)...)
+  _checkblas(f, float(eltype(Y)))
 end
 isconvex(::Type{<:NuclearNorm}) = true
 
@@ -220,7 +218,6 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
-  _checkblas(f, T)
   if iszero(f.λ)
     Y === X || copyto!(Y, X)
     return zero(T)
@@ -292,9 +289,7 @@ _argument_type(::Type{<:IndBallRank}) = AbstractMatrix
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndBallRank, Y::AbstractMatrix, X::AbstractMatrix)
   _checksize(Y, X)
   minimum(size(X)) <= f.r && return true
-  T = float(eltype(Y))
-  f.partial && return _checkpartial_svd_workspace(T, size(X)..., f.r)
-  _checkworkspace(_svd_workspace, f.ws, T, size(X)...)
+  _checkblas(f, float(eltype(Y)))
 end
 _isindicator(::Type{IndBallRank}) = true
 
@@ -320,7 +315,6 @@ end
 function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
   _checkwrite(prox!, f, Y, X)
   T = float(eltype(Y))
-  _checkblas(f, T)
   if minimum(size(X)) <= f.r
     Y === X || copyto!(Y, X)
     return Y
@@ -492,13 +486,8 @@ isconvex(::Type{IndPSD{Nothing}}) = true
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndPSD, Y::AbstractMatrix, X::AbstractMatrix)
   _checksize(Y, X)
-  n = checksquare(X)
-  T = float(eltype(Y))
-  if f.rank === nothing || f.rank < n
-    f.partial && return _checkpartial_eigen_workspace(T, n, f.rank === nothing ? 0 : f.rank)
-    f.rank === nothing || return _checkworkspace(_eigtop_workspace, f.top, T, n, f.rank)
-  end
-  _checkworkspace(_eig_workspace, f.eig, T, n)
+  checksquare(X)
+  _checkblas(f, float(eltype(Y)))
 end
 
 # whether X is symmetric positive semidefinite, and of rank at most r unless r is
@@ -550,7 +539,6 @@ end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real)
   _checkwrite(prox!, f, Y, X)
-  _checkblas(f, float(eltype(Y)))
   if f.partial
     _partial_psd!(Y, f, X, zero(float(eltype(Y))), 0) === nothing || return Y
   end
@@ -559,7 +547,6 @@ end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
   _checkwrite(prox!, f, Y, X)
-  _checkblas(f, float(eltype(Y)))
   n = checksquare(X)
   f.rank >= n && return _project_psd!(Y, f, X)
   T = float(eltype(Y))
@@ -623,10 +610,8 @@ isconvex(::Type{<:TracePSD}) = true
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::TracePSD, Y::AbstractMatrix, X::AbstractMatrix)
   _checksize(Y, X)
-  n = checksquare(X)
-  T = float(eltype(Y))
-  f.partial && return _checkpartial_eigen_workspace(T, n, 0)
-  _checkworkspace(_eig_workspace, f.eig, T, n)
+  checksquare(X)
+  _checkblas(f, float(eltype(Y)))
 end
 
 _trace!(::TracePSD, X::AbstractMatrix) = tr(X)
@@ -661,7 +646,6 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
-  _checkblas(f, T)
   c = convert(T, γ) * convert(T, f.λ)
   if f.partial
     pv = _partial_psd!(Y, f, X, c, 0, convert(T, f.λ))

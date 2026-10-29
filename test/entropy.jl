@@ -132,6 +132,10 @@ end
   check_prox(f, x, 0.8)
   check_traits(f; proximable = true, separable = true, convex = true)
   @test_throws ArgumentError NegLog(-1.)
+  # zero lies outside the domain, so a dropped term would be infinite
+  for S in ([1], [1, 2]), g in (f, Scaled(f, 2.))
+    @test_throws ArgumentError restrict(g, S)
+  end
   for T in (Float32, Float64)
     tiny = T == Float32 ? T(1e-20) : T(1e-200)
     f = NegLog(one(T))

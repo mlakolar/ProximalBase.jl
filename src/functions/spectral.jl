@@ -174,8 +174,13 @@ NuclearNorm(λ::Real = 1; partial::Bool = false) = NuclearNorm{typeof(λ)}(λ; p
 
 isproximable(::Type{<:NuclearNorm}) = true
 _argument_type(::Type{<:NuclearNorm}) = AbstractMatrix
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NuclearNorm, Y::AbstractMatrix, X::AbstractMatrix) =
-  (_checksize(Y, X); true)
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NuclearNorm, Y::AbstractMatrix, X::AbstractMatrix)
+  _checksize(Y, X)
+  iszero(f.λ) && return true
+  T = float(eltype(Y))
+  f.partial && return _checkpartial_svd_workspace(T, size(X)..., 0)
+  _checkworkspace(_svd_workspace, f.ws, T, size(X)...)
+end
 isconvex(::Type{<:NuclearNorm}) = true
 
 function (f::NuclearNorm)(X::AbstractMatrix)
@@ -284,8 +289,13 @@ end
 
 isproximable(::Type{IndBallRank}) = true
 _argument_type(::Type{<:IndBallRank}) = AbstractMatrix
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::IndBallRank, Y::AbstractMatrix, X::AbstractMatrix) =
-  (_checksize(Y, X); true)
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndBallRank, Y::AbstractMatrix, X::AbstractMatrix)
+  _checksize(Y, X)
+  minimum(size(X)) <= f.r && return true
+  T = float(eltype(Y))
+  f.partial && return _checkpartial_svd_workspace(T, size(X)..., f.r)
+  _checkworkspace(_svd_workspace, f.ws, T, size(X)...)
+end
 _isindicator(::Type{IndBallRank}) = true
 
 function (f::IndBallRank)(X::AbstractMatrix)
@@ -480,8 +490,16 @@ _argument_type(::Type{<:IndPSD}) = AbstractMatrix
 _isindicator(::Type{<:IndPSD}) = true
 isconvex(::Type{IndPSD{Nothing}}) = true
 
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::Union{IndPSD{Nothing}, IndPSD{Int}}, Y::AbstractMatrix, X::AbstractMatrix) =
-  (_checksize(Y, X); checksquare(X); true)
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndPSD, Y::AbstractMatrix, X::AbstractMatrix)
+  _checksize(Y, X)
+  n = checksquare(X)
+  T = float(eltype(Y))
+  if f.rank === nothing || f.rank < n
+    f.partial && return _checkpartial_eigen_workspace(T, n, f.rank === nothing ? 0 : f.rank)
+    f.rank === nothing || return _checkworkspace(_eigtop_workspace, f.top, T, n, f.rank)
+  end
+  _checkworkspace(_eig_workspace, f.eig, T, n)
+end
 
 # whether X is symmetric positive semidefinite, and of rank at most r unless r is
 # nothing, within the tolerance of the indicator functions; f caches the workspace
@@ -603,8 +621,13 @@ isproximable(::Type{<:TracePSD}) = true
 _argument_type(::Type{<:TracePSD}) = AbstractMatrix
 isconvex(::Type{<:TracePSD}) = true
 
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::TracePSD, Y::AbstractMatrix, X::AbstractMatrix) =
-  (_checksize(Y, X); checksquare(X); true)
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::TracePSD, Y::AbstractMatrix, X::AbstractMatrix)
+  _checksize(Y, X)
+  n = checksquare(X)
+  T = float(eltype(Y))
+  f.partial && return _checkpartial_eigen_workspace(T, n, 0)
+  _checkworkspace(_eig_workspace, f.eig, T, n)
+end
 
 _trace!(::TracePSD, X::AbstractMatrix) = tr(X)
 function _trace!(f::TracePSD, X::Union{SparseIterate{<:Any, 2}, SymmetricSparseIterate})

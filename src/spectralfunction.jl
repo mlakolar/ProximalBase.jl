@@ -67,6 +67,7 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectra
   n = checksquare(X)
   T = float(eltype(Y))
   ws = s.eig
+  _checkworkspace(_eig_workspace, ws, T, n)
   λ = T <: _BlasReal && ws isa SymEigenWorkspace{T} && ws.n == n ? ws.w : Vector{T}(undef, n)
   z = _checkbuffer(s.z, T, (n,))
   _checkwrite(value_and_prox!, s.f, z, λ)

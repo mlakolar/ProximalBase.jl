@@ -175,6 +175,7 @@ end
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, F::SingularValue, Y::AbstractMatrix, X::AbstractMatrix)
   _checksize(Y, X)
   T = float(eltype(Y))
+  _checkworkspace(_svd_workspace, F.ws, T, size(X)...)
   s = _checkspectrum(F, T, size(X))
   t = _checkbuffer(F.t, T, size(s))
   _checkwrite(value_and_prox!, F.f, t, s)

@@ -25,7 +25,9 @@ f = IndIsotonic()
 θw = prox(f, ā, γ)
 θu = prox(f, ā)
 rss(θ) = sum(sum(abs2, a[b] .- θ[b]) for b in 1:K)
-# By the identity above, θw minimizes raw RSS among monotone fits with one value per bin, while θu treats a bin of 1 observation like a bin of 30.
+# By the identity above, θw minimizes the raw residual sum of squares among
+# monotone fits with one value per bin; θu treats a bin of 1 observation like
+# a bin of 30.
 @assert rss(θw) <= rss(θu)
 println("binned data: ", sum(n), " observations in ", K, " bins")
 println("raw residual sum of squares: ", round(rss(θw); digits = 4),

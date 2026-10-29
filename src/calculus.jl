@@ -44,10 +44,11 @@ the ℓ1 and ℓ2 balls.
 
 At zero scale, supported finite-parameter penalties and losses simplify to
 [`ZeroFunction`](@ref), while an indicator retains its domain and is returned
-unchanged. A weighted ℓ1-type penalty (`NormL1`, `NormL1Nonneg`, `ElasticNet`)
-whose weights include `Inf` becomes the same penalty at a zero level, keeping
-those entries fixed at zero; it is not an indicator type, so wrappers that
-require one still reject it. Zero scaling of other functions is rejected when
+unchanged. A weighted penalty (`NormL1`, `NormL1Nonneg`, `ElasticNet`,
+`GroupNormL2`, `GroupNormLinf`, `SparseGroupNormL2`, `GroupMCP`, `GroupSCAD`)
+whose weights include `Inf` becomes the same penalty at zero levels, keeping
+those entries or groups fixed at zero; it is not an indicator type, so wrappers
+that require one still reject it. Zero scaling of other functions is rejected when
 the package has no domain-preserving proximal representation.
 """
 struct Scaled{F<:AbstractFunction, T<:Real} <: AbstractFunction
@@ -74,12 +75,21 @@ function _zero_scaled(f::NormL1)
   isfinite(f.λ0) || _zero_scale_error(f)
   _finite_parameter(f.w) ? ZeroFunction() : NormL1(zero(f.λ0), f.w)
 end
-_zero_scaled(f::Union{GroupNormL2, GroupNormLinf}) = _finite_zero(f, f.λ0, f.w)
-_zero_scaled(f::SparseGroupNormL2) = _finite_zero(f, f.λ0, f.λ1, f.w)
+function _zero_scaled(f::Union{GroupNormL2, GroupNormLinf})
+  isfinite(f.λ0) || _zero_scale_error(f)
+  _finite_parameter(f.w) ? ZeroFunction() : _rebuild(f, zero(f.λ0), f.groups, f.w)
+end
+function _zero_scaled(f::SparseGroupNormL2)
+  isfinite(f.λ0) && isfinite(f.λ1) || _zero_scale_error(f)
+  _finite_parameter(f.w) ? ZeroFunction() : SparseGroupNormL2(zero(f.λ1), zero(f.λ0), f.groups, f.w)
+end
 _zero_scaled(f::Union{NormL2, CubeNormL2, NormLinf, NormL0}) = _finite_zero(f, f.λ)
 _zero_scaled(::SumLargest) = ZeroFunction()
 _zero_scaled(f::Union{MCP, SCAD}) = _finite_zero(f, f.λ, f.a)
-_zero_scaled(f::Union{GroupMCP, GroupSCAD}) = _finite_zero(f, f.λ0, f.w, f.a)
+function _zero_scaled(f::Union{GroupMCP, GroupSCAD})
+  isfinite(f.λ0) && isfinite(f.a) || _zero_scale_error(f)
+  _finite_parameter(f.w) ? ZeroFunction() : _rebuild(f, zero(f.λ0), f.groups, f.w)
+end
 function _zero_scaled(f::ElasticNet)
   isfinite(f.λ1) && isfinite(f.λ2) || _zero_scale_error(f)
   _finite_parameter(f.w) ? ZeroFunction() : ElasticNet(zero(f.λ1), zero(f.λ2), f.w)

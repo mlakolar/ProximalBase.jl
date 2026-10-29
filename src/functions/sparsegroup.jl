@@ -173,7 +173,7 @@ function (f::SparseGroupNormL2)(x::AbstractArray)
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
     G = f.groups[k]
-    (iszero(f.λ0) || iszero(f.w[k])) || (v2 += _group_value(f, f.λ0, f.w[k], _group_norm2(x, G), x, G, T))
+    ((iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])) || (v2 += _group_value(f, f.λ0, f.w[k], _group_norm2(x, G), x, G, T))
     iszero(f.λ1) || (v1 += _sumabs(x, G))
   end
   v2 +
@@ -193,10 +193,10 @@ function _value_and_prox_groups!(y::AbstractArray, f::SparseGroupNormL2, x::Abst
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
     γk = _entry(γ, k)
-    if iszero(f.λ0) || iszero(f.w[k])
+    if (iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])
       n1 = _soft_group_only!(y, x, f.groups[k], convert(T, γk * f.λ1))
     else
-      n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], convert(T, γk * f.λ1), convert(T, _positive_product(γk, f.λ0, f.w[k])))
+      n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], convert(T, γk * f.λ1), convert(T, _weight_product(γk, f.λ0, f.w[k])))
       v2 += _group_value(f, f.λ0, f.w[k], n2, y, f.groups[k], T)
     end
     iszero(f.λ1) || (v1 += convert(T, n1))
@@ -213,7 +213,7 @@ function (f::SparseGroupNormL2)(x::AtomIterate)
   for a in 1:x.nactive
     k = x.active[a]
     G = f.groups[k]
-    (iszero(f.λ0) || iszero(f.w[k])) || (v2 += _group_value(f, f.λ0, f.w[k], _group_norm2(x.storage, G), x.storage, G, T))
+    ((iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])) || (v2 += _group_value(f, f.λ0, f.w[k], _group_norm2(x.storage, G), x.storage, G, T))
     iszero(f.λ1) || (v1 += _sumabs(x.storage, G))
   end
   v2 +
@@ -233,10 +233,10 @@ function _value_and_prox_groups!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIt
   for a in 1:y.nactive
     k = y.active[a]
     γk = _entry(γ, k)
-    if iszero(f.λ0) || iszero(f.w[k])
+    if (iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])
       n1 = _soft_group_only!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1))
     else
-      n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1), convert(T, _positive_product(γk, f.λ0, f.w[k])))
+      n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1), convert(T, _weight_product(γk, f.λ0, f.w[k])))
       v2 += _group_value(f, f.λ0, f.w[k], n2, y.storage, f.groups[k], T)
     end
     iszero(f.λ1) || (v1 += convert(T, n1))
@@ -249,12 +249,12 @@ end
 function prox_coordinate!(x::AtomIterate, f::SparseGroupNormL2, k::Integer, γ::Real)
   _checksamegroups(f, x)
   T = float(eltype(x))
-  if iszero(f.λ0) || iszero(f.w[k])
+  if (iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])
     _soft_group_only!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1))
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
     return atom(x, k)
   end
-  n2, _ = _sparse_shrink_group!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1), convert(T, _positive_product(γ, f.λ0, f.w[k])))
+  n2, _ = _sparse_shrink_group!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1), convert(T, _weight_product(γ, f.λ0, f.w[k])))
   iszero(n2) || activate!(x, k)
   atom(x, k)
 end
@@ -267,9 +267,9 @@ function kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray,
   k = _group(f, i)
   k == 0 && return abs(g[i])
   G = f.groups[k]
-  _allzero(x, G) ? _dual_norm(f, g, G) - f.λ0 * f.w[k] : abs(g[i]) - f.λ1
+  _allzero(x, G) ? _dual_norm(f, g, G) - _weight_coefficient(f.λ0, f.w[k]) : abs(g[i]) - f.λ1
 end
 kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AtomIterate, k::Integer) =
-  (_checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - f.λ0 * f.w[k])
+  (_checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _weight_coefficient(f.λ0, f.w[k]))
 kkt_violation(f::SparseGroupNormL2, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate"))

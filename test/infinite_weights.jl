@@ -153,13 +153,10 @@ end
       @test Scaled(ElasticNet(one(T), one(T), w), zero(T)) isa ZeroFunction
       @test Scaled(NormL1Nonneg(one(T), w), zero(T)) isa IndNonnegative
     end
-    # non-finite levels and group weights retain the exact error
+    # non-finite levels retain the exact error
     w, groups = T[1, Inf], [[1], [2]]
     for f in (NormL1(T(Inf), w), NormL1Nonneg(T(Inf), w),
-              ElasticNet(one(T), T(Inf), w), ElasticNet(T(Inf), one(T), w),
-              GroupNormL2(one(T), groups, w), GroupNormLinf(one(T), groups, w),
-              SparseGroupNormL2(one(T), one(T), groups, w),
-              GroupMCP(one(T), groups, w), GroupSCAD(one(T), groups, w))
+              ElasticNet(one(T), T(Inf), w), ElasticNet(T(Inf), one(T), w))
       @test_throws ArgumentError("zero scaling of $(typeof(f)) has no supported domain-preserving representation") Scaled(f, zero(T))
     end
     # a zero quadratic level must not multiply an overflowing square

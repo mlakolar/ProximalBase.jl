@@ -359,8 +359,8 @@ _rebuild(f::GroupMCP, λ0, groups, w) = GroupMCP(λ0, groups, w; a = f.a)
 _rebuild(f::GroupSCAD, λ0, groups, w) = GroupSCAD(λ0, groups, w; a = f.a)
 
 # the scalar penalty of group k, in the element type S
-_group_scalar(f::GroupMCP, ::Type{S}, k::Integer) where {S} = MCP{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
-_group_scalar(f::GroupSCAD, ::Type{S}, k::Integer) where {S} = SCAD{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
+_group_scalar(f::GroupMCP, ::Type{S}, k::Integer) where {S} = MCP{S}(convert(S, _weight_coefficient(f.λ0, f.w[k])), convert(S, f.a))
+_group_scalar(f::GroupSCAD, ::Type{S}, k::Integer) where {S} = SCAD{S}(convert(S, _weight_coefficient(f.λ0, f.w[k])), convert(S, f.a))
 
 _group_norm(::_RadialGroupPenalty, x, G) = _group_norm2(x, G)
 _dual_norm(::_RadialGroupPenalty, g, G) = _group_norm2(g, G)
@@ -382,6 +382,10 @@ function (f::_RadialGroupPenalty)(x::AbstractArray)
   T = float(eltype(x))
   v = zero(T)
   for k in eachindex(f.groups)
+    if isinf(_weight_coefficient(f.λ0, f.w[k]))
+      _allzero(x, f.groups[k]) || return T(Inf)
+      continue
+    end
     p = _group_scalar(f, T, k)
     iszero(p.λ) && continue
     v += value_entry(p, _group_norm(f, x, f.groups[k]), 1)
@@ -396,6 +400,10 @@ function (f::_RadialGroupPenalty)(x::AtomIterate)
   v = zero(T)
   for a in 1:x.nactive
     k = x.active[a]
+    if isinf(_weight_coefficient(f.λ0, f.w[k]))
+      _allzero(x.storage, f.groups[k]) || return T(Inf)
+      continue
+    end
     p = _group_scalar(f, T, k)
     iszero(p.λ) && continue
     v += value_entry(p, _group_norm(f, x.storage, f.groups[k]), 1)
@@ -411,6 +419,11 @@ function _value_and_prox_groups!(y::AbstractArray, f::_RadialGroupPenalty, x::Ab
   _copy_ungrouped!(y, f, x)
   v = zero(T)
   for k in eachindex(f.groups)
+    if isinf(_weight_coefficient(f.λ0, f.w[k]))
+      n = _shrink_group!(NormL2(one(T)), y, x, f.groups[k], convert(T, _weight_product(_entry(γ, k), f.λ0, f.w[k])))
+      iszero(n) || (v = T(Inf))
+      continue
+    end
     p = _group_scalar(f, T, k)
     if iszero(p.λ)
       @inbounds for i in f.groups[k]
@@ -432,6 +445,11 @@ function _value_and_prox_groups!(y::AtomIterate, f::_RadialGroupPenalty, x::Atom
   v = zero(T)
   for a in 1:y.nactive
     k = y.active[a]
+    if isinf(_weight_coefficient(f.λ0, f.w[k]))
+      n = _shrink_group!(NormL2(one(T)), y.storage, y.storage, f.groups[k], convert(T, _weight_product(_entry(γ, k), f.λ0, f.w[k])))
+      iszero(n) || (v = T(Inf))
+      continue
+    end
     p = _group_scalar(f, T, k)
     iszero(p.λ) && continue
     v += convert(T, value_entry(p, _radial_shrink!(p, y.storage, y.storage, f.groups[k], convert(T, _entry(γ, k))), 1))
@@ -444,6 +462,11 @@ end
 function prox_coordinate!(x::AtomIterate, f::_RadialGroupPenalty, k::Integer, γ::Real)
   _checksamegroups(f, x)
   T = float(eltype(x))
+  if isinf(_weight_coefficient(f.λ0, f.w[k]))
+    n = _shrink_group!(NormL2(one(T)), x.storage, x.storage, x.groups[k], convert(T, _weight_product(γ, f.λ0, f.w[k])))
+    iszero(n) || activate!(x, k)
+    return atom(x, k)
+  end
   p = _group_scalar(f, T, k)
   if iszero(p.λ)
     _allzero(x.storage, x.groups[k]) || activate!(x, k)

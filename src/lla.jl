@@ -141,9 +141,9 @@ lla_weights(f::AbstractFunction, x::AbstractArray) = lla_weights!(_gradient_buff
 #  group penalties
 ####################################
 
-lla_weight(f::GroupNormL2, v::T, k::Integer) where {T<:Real} = float(T)(f.λ0 * f.w[k])
+lla_weight(f::GroupNormL2, v::T, k::Integer) where {T<:Real} = float(T)(_weight_coefficient(f.λ0, f.w[k]))
 lla_weight(f::_RadialGroupPenalty, v::T, k::Integer) where {T<:Real} =
-  lla_weight(_group_scalar(f, float(T), k), v, 1)
+  isinf(_weight_coefficient(f.λ0, f.w[k])) ? float(T)(Inf) : lla_weight(_group_scalar(f, float(T), k), v, 1)
 
 function lla_weights!(w::AbstractArray, f::Union{GroupNormL2, _RadialGroupPenalty}, x::AbstractArray)
   length(w) == length(f.groups) ||

@@ -1,0 +1,143 @@
+module InfiniteGroupWeightsTest
+
+using Test, ProximalBase, LinearAlgebra, SparseArrays
+const PB = ProximalBase
+
+families(T, λ, groups, w) = (GroupNormL2(T(λ), groups, w),
+  GroupNormLinf(T(λ), groups, w), SparseGroupNormL2(zero(T), T(λ), groups, w),
+  SparseGroupNormL2(T(0.25), T(λ), groups, w),
+  GroupMCP(T(λ), groups, w), GroupSCAD(T(λ), groups, w))
+
+@testset "infinite group weights" begin
+  for T in (Float32, Float64), groups in ([[1, 2], [3]], [[1], [2, 3]]),
+      w in (T[0, Inf], T[Inf, 0], T[1, Inf], T[Inf, 1]), λ in (0, 1, Inf)
+    fixed = findfirst(isinf, w)
+    other = 3 - fixed
+    x = T[3, 4, 2]
+    x0 = copy(x)
+    x0[groups[fixed]] .= 0
+    for f in families(T, λ, groups, w)
+      l1 = f isa SparseGroupNormL2 ? f.λ1 : zero(T)
+      # Isolate the ordinary group as a reference for its unchanged arithmetic.
+      ref = PB.restrict(f, groups[other])
+      expected_value = ref(x0[groups[other]])
+      @test f(x) == T(Inf)
+      @test f(x0) ≈ expected_value
+      @test f(SparseIterate(sparsevec(x))) == T(Inf)
+      @test f(SparseIterate(sparsevec(x0))) ≈ expected_value
+      @test PB.kkt_violation(f, ones(T, 3), x0, first(groups[fixed])) == T(-Inf)
+      if f isa Union{GroupNormL2, GroupMCP, GroupSCAD}
+        @test PB.lla_weight(f, zero(T), fixed) == T(Inf)
+        @test PB.lla_weight(f, one(T), fixed) == T(Inf)
+        @test PB.lla_weights(f, x0)[fixed] == T(Inf)
+      end
+      for γ in (zero(T), one(T), T[0, 1], T[1, 0])
+        expected = copy(x)
+        expected[groups[fixed]] .= 0
+        step = γ isa Real ? γ : γ[other]
+        expected[groups[other]] = prox(ref, x[groups[other]], step)
+        if iszero(w[other])
+          @test expected[groups[other]] ≈ sign.(x[groups[other]]) .* max.(abs.(x[groups[other]]) .- step*l1, 0)
+        elseif iszero(λ)
+          @test expected[groups[other]] ≈ max.(x[groups[other]] .- step*l1, 0)
+        end
+        @test prox(f, x, γ) ≈ expected
+        y = copy(x)
+        @test value_and_prox!(y, f, y, γ) ≈ f(expected)
+        @test y ≈ expected
+        for input in (x, x0, zeros(T, 3))
+          a = AtomIterate(input, f)
+          input === x0 && PB.activate!(a, fixed)
+          target = prox(f, input, γ)
+          @test f(a) ≈ f(input)
+          @test PB.kkt_violation(f, ones(T, 3), a, fixed) == T(-Inf)
+          b = AtomIterate(T, 3, f)
+          @test value_and_prox!(b, f, a, γ) ≈ f(target)
+          @test Vector(b) ≈ target
+          @test value_and_prox!(a, f, a, γ) ≈ f(target)
+          @test Vector(a) ≈ target
+        end
+      end
+      a = AtomIterate(x, f)
+      PB.prox_coordinate!(a, f, fixed, zero(T))
+      @test all(iszero, Vector(a)[groups[fixed]])
+      # A different atom partition uses the generic group path.
+      a = AtomIterate(x, [[1], [2], [3]])
+      @test f(a) == T(Inf)
+      @test Vector(prox(f, a, one(T))) ≈ prox(f, x, one(T))
+      for S in ([3, 1], [2], [3, 2, 1], groups[other])
+        r = PB.restrict(f, S)
+        @test r(x[S]) ≈ f(T[i in S ? x[i] : 0 for i in eachindex(x)])
+        z = prox(r, x[S], zero(T))
+        for (j, i) in enumerate(S)
+          @test z[j] ≈ (i in groups[fixed] ? zero(T) : x[i])
+        end
+      end
+      if isfinite(λ)
+        for z in (Scaled(f, zero(T)), Scaled(Scaled(f, T(2)), zero(T)))
+          @test typeof(z) == typeof(f)
+          @test z(x0) == zero(T)
+          @test z(x) == T(Inf)
+          @test prox(z, x, zero(T)) == x0
+        end
+        @test prox(Scaled(Scaled(f, T(2)), T(0.5)), x, one(T)) ≈ prox(f, x, one(T))
+      end
+      r = Regularize(f, one(T), ones(T, 3))
+      @test prox(r, x, one(T)) ≈ prox(f, (x .+ one(T)) ./ 2, T(0.5))
+    end
+  end
+end
+
+@testset "group reproduction and zero scaling" begin
+  for T in (Float32, Float64)
+    groups = [[1], [2]]
+    for f in families(T, 0, groups, T[1, Inf])
+      f isa SparseGroupNormL2 && !iszero(f.λ1) && continue
+      @test f(T[0.5, 2]) == T(Inf)
+      @test f(T[0.5, 0]) == zero(T)
+      @test prox(f, T[0.5, 2], one(T)) == T[0.5, 0]
+    end
+    for F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2, GroupMCP, GroupSCAD)
+      f = F === SparseGroupNormL2 ? F(one(T), one(T), groups, T[1, Inf]) : F(one(T), groups, T[1, Inf])
+      v = F === GroupMCP ? T(0.5 - 0.25/6) : F === SparseGroupNormL2 ? one(T) : T(0.5)
+      @test f(T[0.5, 0]) ≈ v
+      @test f(T[0.5, 2]) == T(Inf)
+      @test prox(f, T[0.5, 2], one(T)) == T[0, 0]
+    end
+    @test GroupMCP(one(T), groups, T[1, Inf])(T[0.5, 0]) ≈ T(0.5 - 0.25/6)
+    @test GroupSCAD(one(T), groups, T[1, Inf])(T[0.5, 0]) == T(0.5)
+    for f in families(T, 1, groups, T[1, 0])
+      @test Scaled(f, zero(T)) isa ZeroFunction
+      @test prox(f, T[0.5, 2], one(T))[2] == (f isa SparseGroupNormL2 ? 2 - f.λ1 : 2)
+    end
+  end
+end
+
+@testset "sphere with fixed groups" begin
+  for T in (Float32, Float64), w in (T[Inf, 0], T[0, Inf]), λ in (0, 1)
+    f = GroupNormL2(T(λ), [[1, 2], [3]], w)
+    fixed = findfirst(isinf, w)
+    other = 3 - fixed
+    for x in (T[3, 4, 2], zeros(T, 3)), γ in (zero(T), one(T))
+      c = Constrained(f, IndSphereL2(one(T)))
+      y = similar(x)
+      @test value_and_prox!(y, c, x, γ) == zero(T)
+      @test all(iszero, y[f.groups[fixed]])
+      @test norm(y) ≈ one(T)
+      expected = zeros(T, 3)
+      G = f.groups[other]
+      if iszero(norm(x[G]))
+        expected[first(G)] = one(T)
+      else
+        expected[G] = x[G] / norm(x[G])
+      end
+      @test y ≈ expected
+    end
+    f = GroupNormL2(T(λ), [[1], [2]], T[Inf, Inf])
+    @test_throws ArgumentError prox(Constrained(f, IndSphereL2(one(T))), T[1, 2], one(T))
+    c = Constrained(f, IndSphereL2(one(T)))
+    @test prox(c, T[0, 0, 0], zero(T)) == T[0, 0, 1]
+  end
+end
+
+end

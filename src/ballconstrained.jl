@@ -176,8 +176,8 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, 
   kbest, ibest, bestn, bestc = 0, 0, zero(U), zero(U)
   for k in eachindex(f.groups)
     n = convert(U, _group_norm2(x, f.groups[k]))
-    threshold = convert(U, convert(T, _positive_product(γ, f.λ0, f.w[k])))
-    (kbest == 0 || n - bestn > threshold - bestc) && ((kbest, bestn, bestc) = (k, n, threshold))
+    threshold = convert(U, convert(T, _weight_product(γ, f.λ0, f.w[k])))
+    (kbest == 0 || isinf(bestc) || (!isinf(threshold) && n - bestn > threshold - bestc)) && ((kbest, bestn, bestc) = (k, n, threshold))
   end
   @inbounds for i in eachindex(IndexLinear(), x)
     _group(f, i) == 0 || continue
@@ -202,7 +202,7 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, 
       _group(f, i) == kbest || (y[i] = zero(eltype(y)))
     end
   end
-  convert(T, _positive_product(f.λ0, f.w[kbest], r))
+  convert(T, _group_value(f, f.λ0, f.w[kbest], r, y, G, T))
 end
 
 # On the sphere a point with at most s nonzero entries has ⟨z, x⟩ ≤ r‖x_S‖ on its

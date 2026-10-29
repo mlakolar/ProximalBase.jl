@@ -421,7 +421,7 @@ struct _Level{T}
   step::T
   λ::T
 end
-(l::_Level{T})(w) where {T} = _positive_product(l.step, l.λ, convert(T, w))
+(l::_Level{T})(w) where {T} = _weight_product(l.step, l.λ, convert(T, w))
 
 # Exact conversions retain subnormal factors for the kernel's product recovery.
 _level_preserved(::Type{T}, a) where {T} = _level_fits(T, a) || convert(T, a) == a
@@ -468,19 +468,19 @@ end
 struct _Weighted{T}
   λ::T
 end
-(l::_Weighted{T})(v, w) where {T} = _positive_product(l.λ, convert(T, w), v)
+(l::_Weighted{T})(v, w) where {T} = _WeightValue(l.λ)(v, w)
 struct _L2Factor{T}
   step::T
   λ::T
 end
 (l::_L2Factor{T})(n, w) where {T} = iszero(w) ? one(T) :
-  (c = _positive_product(l.step, l.λ, convert(T, w)); n > c ? one(T) - c / n : zero(T))
+  (c = _weight_product(l.step, l.λ, convert(T, w)); n > c ? one(T) - c / n : zero(T))
 struct _L2Value{T}
   step::T
   λ::T
 end
 (l::_L2Value{T})(n, w) where {T} = iszero(w) ? zero(T) :
-  (c = _positive_product(l.step, l.λ, convert(T, w)); n > c ? _positive_product(l.λ, convert(T, w), n - c) : zero(T))
+  (c = _weight_product(l.step, l.λ, convert(T, w)); n > c ? _Weighted(l.λ)(n - c, w) : zero(T))
 
 # Scale each group before squaring. A direct sum of squares can overflow or
 # underflow even when its norm, and hence its proximal factor, is representable.
@@ -506,7 +506,7 @@ end
 function (l::_L2Factor{T})(n, w, m, s) where {T}
   isfinite(n) && return l(n, w)
   iszero(w) && return one(T)
-  c = _positive_product(l.step, l.λ, convert(T, w))
+  c = _weight_product(l.step, l.λ, convert(T, w))
   isfinite(m) && isfinite(c) ? max(one(T) - (c / m) / sqrt(s), zero(T)) : l(n, w)
 end
 
@@ -533,7 +533,8 @@ struct _ScaledGroupValue{T}
 end
 function (f::_ScaledGroupValue{T})(m, s, w) where {T}
   w = convert(T, w)
-  (iszero(m) || !isfinite(m)) && return _positive_product(f.λ, w, m)
+  isinf(w) && return _Weighted(f.λ)(m, w)
+  (iszero(m) || !isfinite(m)) && return _Weighted(f.λ)(m, w)
   a, e = frexp(m)
   _scaled_product(f.λ, w, a * sqrt(s), e - f.k)
 end
@@ -578,7 +579,7 @@ end
 
 # GroupNormL2: block soft thresholding
 _value(f::GroupNormL2, lay, x) =
-  (_checkgroups(f, x); T = float(eltype(x)); iszero(f.λ0) ? zero(T) : _l2_part(T, vec(x), lay, f.λ0))
+  (_checkgroups(f, x); T = float(eltype(x)); (iszero(f.λ0) && all(isfinite, f.w)) ? zero(T) : _l2_part(T, vec(x), lay, f.λ0))
 
 _scale(v, t, _) = t * v
 
@@ -589,7 +590,7 @@ function _group_prox!(y, f::GroupNormL2, lay, x, γ::Real, ::Val{V}) where {V}
   _checkgroups(f, x)
   S = float(eltype(y))
   y === x || copyto!(y, x)
-  iszero(f.λ0) && return zero(S)
+  (iszero(f.λ0) && all(isfinite, f.w)) && return zero(S)
   yv = vec(y)
   fac = _group_buffer(yv, S, lay, one(S))
   step, λ = _group_levels(S, γ, f.λ0)
@@ -609,7 +610,7 @@ function _value(f::SparseGroupNormL2, lay, x)
   _checkgroups(f, x)
   T = float(eltype(x))
   xv = vec(x)
-  return (iszero(f.λ0) ? zero(T) : _l2_part(T, xv, lay, f.λ0)) +
+  return ((iszero(f.λ0) && all(isfinite, f.w)) ? zero(T) : _l2_part(T, xv, lay, f.λ0)) +
          (iszero(f.λ1) ? zero(T) : _weighted_grouped_l1(T, f.λ1, xv, lay))
 end
 
@@ -628,10 +629,10 @@ function _group_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real, ::Val{V}) where
   _checkgroups(f, x)
   S = float(eltype(y))
   y === x || copyto!(y, x)
-  iszero(f.λ0) && iszero(f.λ1) && return zero(S)
+  (iszero(f.λ0) && all(isfinite, f.w)) && iszero(f.λ1) && return zero(S)
   yv = vec(y)
   c1 = _level_preserved(S, γ) && _level_preserved(S, f.λ1) ? convert(S, γ * f.λ1) : _level_product_device(S, γ, f.λ1)
-  if iszero(f.λ0)
+  if (iszero(f.λ0) && all(isfinite, f.w))
     yl = view(yv, 1:length(lay.gid))
     yl .= _SparseScale(c1, length(lay.pos)).(yl, one(S), lay.gid)
     return V ? _weighted_grouped_l1(S, f.λ1, yv, lay) : zero(S)
@@ -658,7 +659,7 @@ end
 function _value(f::GroupNormLinf, lay, x)
   _checkgroups(f, x)
   T = float(eltype(x))
-  iszero(f.λ0) && return zero(T)
+  (iszero(f.λ0) && all(isfinite, f.w)) && return zero(T)
   xv = vec(x)
   v = zero(T)
   for b in lay.blocks
@@ -696,7 +697,7 @@ function _group_prox!(y, f::GroupNormLinf, lay, x, γ::Real, ::Val{V}) where {V}
   _checkgroups(f, x)
   S = float(eltype(y))
   y === x || copyto!(y, x)
-  iszero(f.λ0) && return zero(S)
+  (iszero(f.λ0) && all(isfinite, f.w)) && return zero(S)
   yv = vec(y)
   levels = _group_buffer(yv, S, lay, S(Inf))
   step, λ = _group_levels(S, γ, f.λ0)

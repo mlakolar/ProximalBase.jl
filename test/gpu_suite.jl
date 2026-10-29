@@ -687,3 +687,59 @@ end
     end
   end
 end
+
+@testset "infinite group weights on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types, F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2),
+      groups in ([[1, 2], [3]], [[1], [2, 3]]), λ in (0, 1, Inf),
+      w in (T[0, Inf], T[Inf, 0], T[1, Inf], T[Inf, 1])
+    for λ1 in (F === SparseGroupNormL2 ? (T(0), T(0.25)) : (T(0),))
+      f = F === SparseGroupNormL2 ? F(λ1, T(λ), groups, w) : F(T(λ), groups, w)
+      fixed = findfirst(isinf, w)
+      other = 3 - fixed
+      x = T[3, 4, 2]
+      x0 = copy(x)
+      x0[groups[fixed]] .= 0
+      G = groups[other]
+      n = F === GroupNormLinf ? maximum(abs, x0[G]) : norm(x0[G])
+      value = iszero(w[other]) || iszero(λ) ? λ1 * sum(abs, x0) : T(λ) * w[other] * n + λ1 * sum(abs, x0)
+      for d in (f, Adapt.adapt(DeviceArray, f))
+        @test d(DeviceArray(x)) == T(Inf)
+        @test same(d(DeviceArray(x0)), value)
+        for γ in (zero(T), one(T))
+          expected = copy(x)
+          expected[groups[fixed]] .= 0
+          z = max.(x[G] .- γ * λ1, 0)
+          c = iszero(γ) || iszero(w[other]) || iszero(λ) ? zero(T) : T(λ) * w[other]
+          if isinf(c)
+            z .= 0
+          elseif F === GroupNormLinf
+            # These groups have at most two positive entries.
+            if sum(z) <= c
+              z .= 0
+            else
+              τ = length(z) == 1 ? z[1] - c : max((sum(z) - c)/2, maximum(z) - c)
+              z = min.(z, τ)
+            end
+          elseif !iszero(norm(z))
+            z *= max(1 - c/norm(z), 0)
+          end
+          expected[G] = z
+          xd = DeviceArray(x)
+          @test host(prox(d, xd, γ)) ≃ expected
+          yd = copy(xd)
+          @test same(value_and_prox!(yd, d, yd, γ), f(expected))
+          @test host(yd) ≃ expected
+        end
+      end
+      if isfinite(λ)
+        z = Scaled(f, zero(T))
+        for d in (z, Adapt.adapt(DeviceArray, z))
+          @test d(DeviceArray(x)) == T(Inf)
+          @test d(DeviceArray(x0)) == zero(T)
+          @test host(prox(d, DeviceArray(x), zero(T))) == x0
+        end
+      end
+    end
+  end
+end

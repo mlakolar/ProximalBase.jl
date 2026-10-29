@@ -374,7 +374,11 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::R
 end
 Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real) = v - γ * prox_entry(c.f, v / γ, i, inv(γ))
 _checkparams(c::Conjugate, x) = _checkparams(c.f, x)
-_checkvalue(c::Conjugate, x) = (_checkparams(c, x); _checkconjugate(c.f, x))
+function _checkvalue(c::Conjugate, x)
+  _checkparams(c, x)
+  _has_conjugate_value(c.f) || invoke(_conjugate_value, Tuple{AbstractFunction, Any}, c.f, x)
+  _checkconjugate(c.f, x)
+end
 
 function _checkwrite(op::O, c::Conjugate, y::Union{AbstractArray, Tuple}, x::Union{AbstractArray, Tuple}) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   op === value_and_prox! && y isa AbstractArray && _checkparams(c, x)
@@ -609,12 +613,11 @@ Blocks may themselves be tuples for nested sums. Allocating oracles and
 [`Conjugate`](@ref) preserve this block structure.
 Before writing any output, the oracles check all blocks, including functions
 inside wrappers, against the checks their own oracles run before writing.
-A failure during computation, a check that depends on the step (such as
-`MoreauEnvelope`'s sum of its parameter and step), or a user-defined function
-whose oracles reject an argument that its `check_parameters` accepts can still
-leave earlier blocks written, and so can a few nested wrappers and structured
-matrices whose checks are not yet complete, such as a box constraint inside
-another one.
+A failure during computation, a check that depends on the step, a user-defined
+function whose oracles reject an argument its `check_parameters` accepts, or a
+check that depends on argument values can still leave earlier blocks written.
+Value-dependent checks include a hyperslab's finite inputs and whether a box's
+output lies inside an inner box (issue #274).
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F

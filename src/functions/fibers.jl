@@ -37,12 +37,11 @@ the traits that all the `fₖ` share. The `fₖ` are given as arguments, or as a
 vector when there are many of one type.
 Before writing any output, the oracles check all slices, including functions
 inside wrappers, against the checks their own oracles run before writing.
-A failure during computation, a check that depends on the step (such as
-`MoreauEnvelope`'s sum of its parameter and step), or a user-defined function
-whose oracles reject an argument that its `check_parameters` accepts can still
-leave earlier slices written, and so can a few nested wrappers and structured
-matrices whose checks are not yet complete, such as a box constraint inside
-another one.
+A failure during computation, a check that depends on the step, a user-defined
+function whose oracles reject an argument its `check_parameters` accepts, or a
+check that depends on argument values can still leave earlier slices written.
+Value-dependent checks include a hyperslab's finite inputs and whether a box's
+output lies inside an inner box (issue #274).
 
 With `fₖ = LogDetLoss(Sₖ, nₖ/n)` it is the smooth part of the joint graphical
 lasso of K classes, whose penalty on the entries across the classes is a
@@ -127,12 +126,11 @@ on views, and allocates nothing beyond what that of `f` does. On a matrix, the
 fibers are its rows.
 Before writing any output, the oracles check all fibers, including functions
 inside wrappers, against the checks their own oracles run before writing.
-A failure during computation, a check that depends on the step (such as
-`MoreauEnvelope`'s sum of its parameter and step), or a user-defined function
-whose oracles reject an argument that its `check_parameters` accepts can still
-leave earlier fibers written, and so can a few nested wrappers and structured
-matrices whose checks are not yet complete, such as a box constraint inside
-another one.
+A failure during computation, a check that depends on the step, a user-defined
+function whose oracles reject an argument its `check_parameters` accepts, or a
+check that depends on argument values can still leave earlier fibers written.
+Value-dependent checks include a hyperslab's finite inputs and whether a box's
+output lies inside an inner box (issue #274).
 
 With `symmetric = true` the slices are taken to be symmetric, as precision
 matrices are: only the fibers with `i ≥ j` are read, and the proximal operator

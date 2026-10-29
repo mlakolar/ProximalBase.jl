@@ -68,13 +68,16 @@ isconvex(::Type{<:LinearFunction}) = true
 
 (f::LinearFunction)(x::AbstractArray) = (_checkvalue(f, x); dot(f.c, x) + f.d)
 
-# The shape checks of dot(::StridedMatrix, ::SymmetricSparseIterate) and
-# SparseArrays' matrix dot methods; generic dot only needs equal lengths.
+# Generic dot only needs equal lengths; specialized matrix methods check shapes.
 _dot_checks_size(::Type{C}, ::Type{X}) where {C, X} =
+  (C <: Diagonal && X <: AbstractMatrix) ||
+  (C <: AbstractMatrix && X <: Diagonal) ||
   (C <: StridedMatrix && X <: SymmetricSparseIterate) ||
   (C <: SymmetricSparseIterate && X <: StridedMatrix) ||
   (C <: _SparseDotCSC && X <: Union{_SparseDotCSC, _SparseDotMatrix}) ||
   (C <: _SparseDotMatrix && X <: _SparseDotCSC)
+_dot_checks_size(::Type{<:Adjoint{<:Union{Real, Complex}, C}}, ::Type{<:Adjoint{<:Union{Real, Complex}, X}}) where {C, X} = _dot_checks_size(C, X)
+_dot_checks_size(::Type{<:Transpose{<:Any, C}}, ::Type{<:Transpose{<:Any, X}}) where {C, X} = _dot_checks_size(C, X)
 _checkdot(c::C, x::X) where {C, X} = (_dot_checks_size(C, X) ? _checksize(c, x) : _checkparam(c, x))
 _checkvalue(f::LinearFunction, x) = _checkdot(f.c, x)
 

@@ -52,6 +52,8 @@ tests = [
   "calculus",
   "blockchecks",
   "blockchecks_wrappers",
+  "blockchecks_values",
+  "blockchecks_workspace",
   "constrained",
   "spectralfunction",
   "ballconstrained",

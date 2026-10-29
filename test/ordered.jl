@@ -114,7 +114,7 @@ end
 function weighted_isotonic_reference(x, γ)
   v = BigFloat.(x)
   w = inv.(BigFloat.(γ))
-  [maximum(minimum(sum(w[j:k] .* v[j:k]) / sum(w[j:k]) for k in i:length(x)) for j in 1:i) for i in eachindex(x)]
+  BigFloat[maximum(minimum(sum(w[j:k] .* v[j:k]) / sum(w[j:k]) for k in i:length(x)) for j in 1:i) for i in eachindex(x)]
 end
 
 function check_isotonic_kkt(x, γ, θ, σ)

@@ -362,6 +362,9 @@ then takes its mean, the projection of the block onto the constants. With a
 stack of blocks in buffers that the function owns, it runs in O(n) time.
 `IndIsotonic(decreasing = true)` projects onto the nonincreasing vectors, and
 the same pooling gives the proximal operator of [`SLOPE`](@ref).
+An array of steps `γ` gives weighted isotonic regression, minimizing
+`Σᵢ wᵢ(θᵢ − vᵢ)²` with `wᵢ = 1/γᵢ`, by the same pooling with weighted means.
+See the [weighted isotonic regression example](examples/19_weighted_isotonic_regression.md).
 
 ## Positive semidefinite and low-rank matrices
 

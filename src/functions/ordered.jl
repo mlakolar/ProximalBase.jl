@@ -253,7 +253,7 @@ O(n) time, in buffers that the function owns.
 An array of steps `γ` gives weighted isotonic regression, minimizing
 `Σᵢ wᵢ(θᵢ − xᵢ)²` with `wᵢ = 1/γᵢ`. Only the ratios of the steps matter.
 The steps must be positive and finite with a representable ratio; nonfinite
-data are outside the guarantee. See the example "Weighted isotonic regression".
+data are outside the guarantee. See [Weighted isotonic regression](@ref) for an example.
 """
 struct IndIsotonic <: AbstractFunction
   decreasing::Bool

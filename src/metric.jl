@@ -127,6 +127,9 @@ end
 #  sets in a diagonal metric
 ####################################
 
+# The projection onto monotone vectors in the metric of Diagonal(1 ./ γ) is
+# weighted isotonic regression with weights γmin/γᵢ; constant steps take the
+# unweighted pooling.
 function prox!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)

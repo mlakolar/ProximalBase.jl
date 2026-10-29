@@ -54,6 +54,7 @@ println("isotonic regression: ", length(unique(z)), " blocks for 100 points")
 r = cumsum(y - z)
 ends = [findall(!iszero, diff(z)); 100]
 @assert all(r .>= -1e-10) && all(abs.(r[ends]) .< 1e-10)
+# See example 19 for weighted isotonic regression.
 
 # --- SLOPE regression -------------------------------------------------------------
 # Three columns of X are nearly equal. The lasso splits their effect unevenly;

@@ -683,7 +683,10 @@ end
         @test isfinite(v)
         check_rounded(v, ref)
         @test v ≃ f(host(X))
-
+      end
+    end
+  end
+end
 
 @testset "conjugate scalar steps on GPU arrays" begin
   allowscalar(false)
@@ -720,6 +723,25 @@ end
       @test host(prox(Conjugate(f), v, T(0.5))) ≃ prox(Conjugate(f), T[0.5, -2, 1.5], T(0.5))
     end
   end
+  # Parameters with the right length keep the CPU's linear pairing.
+  for T in test_types, dims in ((2,), (2, 2))
+    x = reshape(repeat(T[0.5, 2], prod(dims) ÷ 2), dims)
+    w = ndims(x) == 1 ? reshape(T[1, 3], 1, 2) : T[1, 3, 2, 4]
+    xg = DeviceArray(x)
+    for f in (NormL1(1, w), NormL1Nonneg(1, w), ElasticNet(1, 1, w), IndBox(zero.(w), w))
+      fg = Adapt.adapt(DeviceArray, f)
+      # The CPU box Moreau helper requires bounds shaped like x.
+      reference = f isa IndBox ? IndBox(reshape(f.l, size(x)), reshape(f.u, size(x))) : f
+      c, cg = Conjugate(reference), Conjugate(fg)
+      expected = prox(c, x, T(0.5))
+      y = similar(xg)
+      @test host(prox!(y, cg, xg, T(0.5))) ≃ expected
+      @test same(value_and_prox!(y, cg, xg, T(0.5)), value_and_prox!(similar(x), c, x, T(0.5)))
+      @test host(y) ≃ expected
+      @test same(fg(xg), f(x))
+    end
+  end
+
 end
 
 @testset "conjugate values on GPU arrays" begin
@@ -734,6 +756,22 @@ end
       end
     end
   end
+  for T in test_types, dims in ((2,), (2, 2))
+    x = reshape(repeat(T[0.5, 2], prod(dims) ÷ 2), dims)
+    w = ndims(x) == 1 ? reshape(T[1, 3], 1, 2) : T[1, 3, 2, 4]
+    for f in (NormL1(1, w), IndBox(zero.(w), w))
+      @test same(Conjugate(Adapt.adapt(DeviceArray, f))(DeviceArray(x)), Conjugate(f)(x))
+    end
+  end
+  if Float32 in test_types
+    x = Float32[0.5, 2]
+    w = reshape(Float32[0, Inf], 1, 2)
+    for λ in (BigFloat(0), BigFloat(1), BigFloat(Inf)), weights in (nothing, w)
+      f = NormL1(λ, weights)
+      @test same(Conjugate(Adapt.adapt(DeviceArray, f))(DeviceArray(x)), Conjugate(f)(x))
+    end
+  end
+
 end
 
 @testset "conjugate array steps on GPU arrays" begin
@@ -764,6 +802,39 @@ end
       @test_throws MethodError prox(Conjugate(f), xg, γg)
     end
   end
+  for T in test_types, dims in ((2,), (2, 2))
+    x = reshape(repeat(T[0.5, 2], prod(dims) ÷ 2), dims)
+    w = ndims(x) == 1 ? reshape(T[1, 3], 1, 2) : T[1, 3, 2, 4]
+    γ = reshape(repeat(T[0.5, 1], prod(dims) ÷ 2), dims)
+    xg, γg = DeviceArray(x), DeviceArray(γ)
+    for f in (NormL1(1, w), IndBox(zero.(w), w), ElasticNet(1, 1, w), Berhu(1, 1))
+      reference = f isa IndBox ? IndBox(reshape(f.l, size(x)), reshape(f.u, size(x))) : f
+      c, cg = Conjugate(reference), Conjugate(Adapt.adapt(DeviceArray, f))
+      expected = prox(c, x, γ)
+      y = similar(xg)
+      @test host(prox!(y, cg, xg, γg)) ≃ expected
+      @test same(value_and_prox!(y, cg, xg, γg), value_and_prox!(similar(x), c, x, γ))
+      @test host(y) ≃ expected
+    end
+    # Direct separable proxes also accept steps with another shape.
+    γother = reshape(γ, size(w))
+    @test host(prox(Berhu(1, 1), xg, DeviceArray(γother))) ≃ prox(Berhu(1, 1), x, γother)
+    f = ElasticNet(1, 1, w)
+    @test host(prox(Adapt.adapt(DeviceArray, f), xg, DeviceArray(γother))) ≃ prox(f, x, γother)
+  end
+  if Float32 in test_types
+    x, γ = Float32[0.5, 2], Float32[0.5, 1]
+    for λ in (BigFloat(0), BigFloat(1), BigFloat(Inf)), weights in (nothing, reshape(Float32[0, Inf], 1, 2))
+      f = ElasticNet(λ, BigFloat(1), weights)
+      c, cg = Conjugate(f), Conjugate(Adapt.adapt(DeviceArray, f))
+      xg, γg = DeviceArray(x), DeviceArray(γ)
+      @test host(prox(cg, xg, γg)) ≃ prox(c, x, γ)
+      y = similar(xg)
+      @test same(value_and_prox!(y, cg, xg, γg), value_and_prox!(similar(x), c, x, γ))
+      @test host(y) ≃ prox(c, x, γ)
+    end
+  end
+
 end
 
 conjugate_blocks_match(a::AbstractArray, b::AbstractArray) = host(a) ≃ b

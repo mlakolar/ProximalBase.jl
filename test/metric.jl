@@ -464,6 +464,42 @@ end
       @test y == fill(17.0, n)
     end
   end
+
+  # Symmetric outputs update each stored entry once, including in place.
+  r = Regularize(ZeroFunction(), 1.0)
+  for op in (prox!, value_and_prox!)
+    Y = SymmetricSparseIterate([0.0 4.0; 4.0 0.0])
+    result = op(Y, r, Y, ones(2, 2))
+    @test Matrix(Y) ≈ [0.0 2.0; 2.0 0.0]
+    op === value_and_prox! && @test result ≈ 4.0
+    Z = SymmetricSparseIterate([0.0 4.0; 4.0 0.0])
+    op(Z, r, Z, 1.0)
+    @test Matrix(Y) ≈ Matrix(Z)
+  end
+
+  # Asymmetric centres and steps are rejected before changing the output.
+  rc = Regularize(ZeroFunction(), 1.0, [0.0 10.0; 2.0 0.0])
+  for op in (prox!, value_and_prox!)
+    for steps in (1.0, ones(2, 2))
+      Y = SymmetricSparseIterate(fill(7.0, 2, 2))
+      @test_throws ArgumentError op(Y, rc, zeros(2, 2), steps)
+      @test Matrix(Y) == fill(7.0, 2, 2)
+    end
+    Y = SymmetricSparseIterate(fill(7.0, 2, 2))
+    @test_throws ArgumentError op(Y, r, zeros(2, 2), [1.0 2.0; 3.0 1.0])
+    @test Matrix(Y) == fill(7.0, 2, 2)
+  end
+
+  # Scalar composition converts every step to the image's working precision.
+  h32 = Precompose(Conjugate(ElasticNet(1f0, 0.5f0)), 1f0)
+  for steps in (1e300, [1e300])
+    y32 = Float32[7]
+    @test_throws ArgumentError value_and_prox!(y32, h32, Float32[2], steps)
+    @test y32 == Float32[7]
+  end
+  for (g, scale) in ((Float32[0.3, 2], 0.7), ([0.3, 2.0], 0.7f0), ([1, 3], 0.7f0))
+    @test collect(ProximalBase._ScaledArray(g, scale)) == [scale * v for v in g]
+  end
 end
 
 @testset "zero allocations" begin

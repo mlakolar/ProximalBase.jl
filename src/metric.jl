@@ -76,7 +76,7 @@ function _value_and_prox_precompose!(y, h::_ScalarPrecompose, x, γ::AbstractArr
   z = _image!(h, x)
   _checkparams(h.f, z)
   T = eltype(z)
-  steps = _ScaledArray(γ, convert(T, h.μ))
+  steps = _ScaledArray{T}(γ, h.μ)
   v = withvalue ? value_and_prox!(z, h.f, z, steps) : (prox!(z, h.f, z, steps); zero(T))
   y .= z ./ h.A
   withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _precompose_prox_value(h, y) : v
@@ -94,13 +94,20 @@ Base.IndexStyle(::Type{<:_RegularizeSteps}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(a::_RegularizeSteps{T}, i::Int) where {T} =
   _regularize_step(convert(T, a.γ[i]), a.ρ)
 
+@inline function _regularize_shrink(v, γ, ρ::T) where {T}
+  a, b = _ridge_weights(convert(T, γ), ρ)
+  a * v
+end
+@inline function _regularize_shrink(v, c, γ, ρ::T) where {T}
+  a, b = _ridge_weights(convert(T, γ), ρ)
+  _ridge_blend(v, c, a, b)
+end
+
 function _shrunk!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
   T = float(eltype(y))
   ρ = convert(T, r.ρ)
-  @inbounds for i in eachindex(IndexLinear(), y)
-    a, b = _ridge_weights(convert(T, γ[i]), ρ)
-    y[i] = r.c === nothing ? a * x[i] : _ridge_blend(x[i], r.c[i], a, b)
-  end
+  r.c === nothing ? (y .= _regularize_shrink.(x, γ, ρ)) :
+                    (y .= _regularize_shrink.(x, r.c, γ, ρ))
   _RegularizeSteps(γ, ρ)
 end
 
@@ -108,6 +115,8 @@ function prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractAr
   isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function"))
   _checkwrite(prox!, r, y, x)
   _checkparam(γ, x)
+  Base.Broadcast.check_broadcast_axes(axes(y), γ)
+  _check_symmetric_source(y, γ)
   z = _output_buffer!(r.scratch, y)
   prox!(y, r.f, z, _shrunk!(z, r, x, γ))
 end
@@ -115,6 +124,8 @@ function value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::
   isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function"))
   _checkwrite(value_and_prox!, r, y, x)
   _checkparam(γ, x)
+  Base.Broadcast.check_broadcast_axes(axes(y), γ)
+  _check_symmetric_source(y, γ)
   z = _output_buffer!(r.scratch, y)
   v = value_and_prox!(y, r.f, z, _shrunk!(z, r, x, γ))
   _value_at(v + _ridge(r, y), y)

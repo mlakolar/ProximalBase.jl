@@ -435,6 +435,84 @@ kkt_violation(::IndNonnegative, g::AbstractArray, i::Integer) = -g[i]
 restrict(f::IndNonnegative, ::AbstractVector{<:Integer}) = f
 
 ####################################
+#  binary values
+####################################
+
+"""
+    IndBinary(l, u)
+
+The indicator of the nonconvex set `{x : xᵢ ∈ {lᵢ, uᵢ}}`: `0` on the set
+and `Inf` outside, with the membership tolerance of [`IndBox`](@ref). The
+bounds are finite scalars or arrays with the length of `x`, indexed linearly,
+and must satisfy `lᵢ < uᵢ`. Array bounds are stored without copying; construct
+a new `IndBinary` after changing them, since whether every pair contains zero
+is computed at construction.
+
+Its proximal operator selects the nearer bound, with ties going to `lᵢ`,
+independently of the step. The comparison uses the promoted floating type of
+the input and bounds; writing the result converts it to the output type.
+`NaN` propagates, and `-Inf` and `Inf` project to the lower and upper bounds.
+Nonfinite entries are never members. For `IndBinary(-1, 1)`, zero projects to
+`-1`, unlike `sign(0) = 0`. For `IndBinary(0, 1)`, zero is preserved, so sparse
+iterates visit only stored entries. [`restrict`](@ref) requires zero-preserving
+bounds. No gradient-only [`kkt_violation`](@ref) is provided: a proximal
+gradient update from zero projects `-γg`, so whether it stays zero depends on
+the step.
+"""
+struct IndBinary{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: SeparableFunction
+  l::L
+  u::U
+  zp::Bool
+
+  function IndBinary{L, U}(l::L, u::U) where {L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}}
+    l isa AbstractArray && u isa AbstractArray && _checkparam(l, u)
+    all(isfinite, l) && all(isfinite, u) || throw(ArgumentError("the bounds must be finite"))
+    n = l isa AbstractArray ? length(l) : u isa AbstractArray ? length(u) : 1
+    all(i -> _entry(l, i) < _entry(u, i), 1:n) ||
+      throw(ArgumentError("the lower bounds must be strictly less than the upper bounds"))
+    zp = all(i -> iszero(_entry(l, i)) || iszero(_entry(u, i)), 1:n)
+    new{L, U}(l, u, zp)
+  end
+end
+IndBinary(l::Union{Real, AbstractArray}, u::Union{Real, AbstractArray}) = IndBinary{typeof(l), typeof(u)}(l, u)
+
+iszeropreserving(f::IndBinary) = f.zp
+_isindicator(::Type{<:IndBinary}) = true
+_checkparams(f::IndBinary, x) = (_checkparam(f.l, x); _checkparam(f.u, x); true)
+
+Base.@propagate_inbounds function value_entry(f::IndBinary, v::T, i::Integer) where {T<:Real}
+  S = float(T)
+  isfinite(v) || return S(Inf)
+  w, l, u = promote(float(v), float(_entry(f.l, i)), float(_entry(f.u, i)))
+  t = _tol(S)
+  _ind(abs(w - l) <= t * max(one(l), abs(l)) || abs(w - u) <= t * max(one(u), abs(u)), S)
+end
+
+# The residual of a finite difference distinguishes distances that round to
+# the same float, without rounding a midpoint or halving subnormal bounds.
+@inline function _binary_distance_error(a, b, d)
+  z = d - a
+  (a - (d - z)) - (b + z)
+end
+
+Base.@propagate_inbounds function prox_entry(f::IndBinary, v::Real, i::Integer, ::Real)
+  w, l, u = promote(float(v), float(_entry(f.l, i)), float(_entry(f.u, i)))
+  isnan(w) && return w
+  w <= l && return l
+  w >= u && return u
+  dl, du = w - l, u - w
+  dl < du && return l
+  dl > du && return u
+  # At most one distance can overflow for finite bounds and an interior w.
+  _binary_distance_error(w, l, dl) <= _binary_distance_error(u, w, du) ? l : u
+end
+
+function restrict(f::IndBinary, S::AbstractVector{<:Integer})
+  iszeropreserving(f) || throw(ArgumentError("restrict requires zero-preserving binary bounds"))
+  IndBinary(_restrict_entries(f.l, S), _restrict_entries(f.u, S))
+end
+
+####################################
 #  ℓ0 penalty
 ####################################
 

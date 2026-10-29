@@ -57,10 +57,10 @@ end
 _issymmetric_tol(::SymmetricSparseIterate) = true
 
 # the symmetric Y = Σⱼ f(λⱼ) vⱼvⱼ' from the eigendecomposition V, λ, through the
-# n × n matrix buffer when Y is not strided (a SymmetricSparseIterate, say)
+# n × n matrix buffer when Y is not strided or has a different element type
 function _rebuild_sym_out!(Y::AbstractMatrix, V::StridedMatrix, λ, f::F, buffer::StridedMatrix;
                            logs::Bool = false) where {F}
-  Y isa StridedMatrix && return _rebuild_sym!(Y, V, λ, f; logs)
+  Y isa StridedMatrix{eltype(V)} && return _rebuild_sym!(Y, V, λ, f; logs)
   s = _rebuild_sym!(buffer, V, λ, f; logs)
   copyto!(Y, buffer)
   s

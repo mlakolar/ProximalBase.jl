@@ -24,8 +24,8 @@ cone. It is also proximable: with `μ = γw` and the eigendecomposition
 For a nonsymmetric proximal input, `X` is replaced by its symmetric part:
 the skew part contributes only a constant to the proximal objective.
 Both use workspaces that `f` owns, sized by `S`, and
-allocate nothing; do not share `f` between threads. The element type of `X`
-must be that of `S`, `Float32` or `Float64`.
+allocate nothing; do not share `f` between threads. The workspace has the data's
+precision (`Float32` or `Float64`); outputs of any precision are written by rounding.
 When an intermediate sum overflows although the weighted value is representable,
 the value is computed in scaled units.
 """
@@ -76,12 +76,12 @@ end
 
 function (f::LogDetLoss{T})(X::AbstractMatrix) where {T}
   ld = _logdet_chol!(f, X)
-  ld === nothing ? T(Inf) : _logdet_value(f, X, ld)
+  ld === nothing ? promote_type(T, eltype(X))(Inf) : _logdet_value(f, X, ld)
 end
 
 @inline function _logdet_value(f::LogDetLoss, X::AbstractMatrix, ld)
   v = f.w * (dot(f.S, X) - ld)
-  isfinite(v) || !(all(isfinite, f.S) && all(isfinite, X)) ? v : _scaled_logdet_value(f, X, ld)
+  isfinite(v) || !(all(isfinite, f.S) && all(isfinite, X)) ? v : oftype(v, _scaled_logdet_value(f, X, ld))
 end
 
 @noinline function _scaled_logdet_value(f::LogDetLoss{T}, X::AbstractMatrix, ld::T) where {T}

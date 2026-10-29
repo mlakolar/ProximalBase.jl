@@ -210,6 +210,34 @@ function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{In
   y
 end
 
+# Weighted isotonic regression of x into y, with weights γmin/γᵢ and direction
+# σ. Blocks sit on a stack, their means in m, weights in W and sizes in c;
+# adjacent blocks are pooled while their means violate the order. O(n); y may be x.
+function _wpava!(y, x, γ, γmin, m::Vector{S}, W::Vector{S}, c::Vector{Int}, σ::Int) where {S}
+  n = length(x)
+  nb = 0
+  @inbounds for i in 1:n
+    nb += 1
+    m[nb] = convert(S, x[i])
+    W[nb] = convert(S, γmin) / convert(S, γ[i])
+    c[nb] = 1
+    while nb > 1 && σ * (m[nb - 1] - m[nb]) > 0
+      m[nb - 1] += (m[nb] - m[nb - 1]) * (W[nb] / (W[nb - 1] + W[nb]))
+      W[nb - 1] += W[nb]
+      c[nb - 1] += c[nb]
+      nb -= 1
+    end
+  end
+  i = 0
+  @inbounds for b in 1:nb
+    for _ in 1:c[b]
+      i += 1
+      y[i] = convert(eltype(y), m[b])
+    end
+  end
+  y
+end
+
 ####################################
 #  isotonic regression
 ####################################
@@ -221,13 +249,20 @@ The indicator of the nondecreasing vectors `{x : x₁ ≤ x₂ ≤ … ≤ xₙ}
 `decreasing = true` of the nonincreasing ones. Its proximal operator, the
 projection, is isotonic regression, computed by pooling adjacent violators in
 O(n) time, in buffers that the function owns.
+
+An array of steps `γ` gives weighted isotonic regression, minimizing
+`Σᵢ wᵢ(θᵢ − xᵢ)²` with `wᵢ = 1/γᵢ`. Only the ratios of the steps matter.
+The steps must be positive and finite with a representable ratio; nonfinite
+data are outside the guarantee. See the example "Weighted isotonic regression".
 """
 struct IndIsotonic <: AbstractFunction
   decreasing::Bool
   sums::Scratch
   sizes::Scratch
+  means::Scratch
+  weights::Scratch
 end
-IndIsotonic(; decreasing::Bool = false) = IndIsotonic(decreasing, Scratch(), Scratch())
+IndIsotonic(; decreasing::Bool = false) = IndIsotonic(decreasing, Scratch(), Scratch(), Scratch(), Scratch())
 
 isproximable(::Type{IndIsotonic}) = true
 _argument_type(::Type{<:IndIsotonic}) = AbstractVector
@@ -289,8 +324,18 @@ isconvex(::Type{<:SLOPE}) = true
 _checkparams(f::SLOPE, x) = (_checkparam(f.λ, x); true)
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)},
-                     f::Union{TotalVariation1D, FusedLasso, IndIsotonic, SLOPE}, y::AbstractVector, x::AbstractVector)
+                     f::Union{TotalVariation1D, FusedLasso, SLOPE}, y::AbstractVector, x::AbstractVector)
   _checksize(y, x)
+  _checkparams(f, x)
+  Base.require_one_based_indexing(y, x)
+  true
+end
+
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)},
+                     f::IndIsotonic, y::AbstractArray, x::AbstractArray)
+  _checksize(y, x)
+  _checkargument(f, y)
+  _checkargument(f, x)
   _checkparams(f, x)
   Base.require_one_based_indexing(y, x)
   true

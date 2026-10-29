@@ -298,7 +298,7 @@ function _partial_svd_out!(Y::AbstractMatrix, ws::PartialSVDWorkspace{T}, k::Int
   end
   if k == 0
     fill!(Y, zero(eltype(Y)))
-  elseif Y isa StridedMatrix
+  elseif _blas_ready(Y)
     mul!(Y, view(U, :, 1:k), transpose(view(V, :, 1:k)))
   else
     B = _array_buffer!(ws.dense, T, size(Y))

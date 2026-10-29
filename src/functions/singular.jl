@@ -82,12 +82,12 @@ function _vector_buffer(cache, ::Type{T}, k::Integer) where {T}
 end
 
 # the singular values of X, in descending order, owned by the workspace of F
-function _singular_values!(F::SingularValue, X::AbstractMatrix)
+function _singular_values!(F::SingularValue, X::AbstractMatrix; copied::Bool = false)
   T = float(eltype(X))
   _checkblas(F, T)
   ws = _svd_workspace(F.ws, T, size(X)...)
   F.ws = ws
-  copyto!(ws.A, X)
+  copied || copyto!(ws.A, X)
   s, = _svd!(ws; vectors = false)
   s
 end
@@ -98,8 +98,15 @@ end
 function (F::SingularValue)(X::AbstractMatrix)
   T = float(eltype(X))
   _checkblas(F, T)
-  all(isfinite, X) || return T(Inf)
-  t, scaled, k = _masked_singular_values!(F, X)
+  if !_host_strided(X)
+    ws = _svd_workspace(F.ws, T, size(X)...)
+    F.ws = ws
+    copyto!(ws.A, X)
+    all(isfinite, ws.A) || return T(Inf)
+  else
+    all(isfinite, X) || return T(Inf)
+  end
+  t, scaled, k = _masked_singular_values!(F, X; copied = !_host_strided(X))
   k > 0 && _scales_membership(F.f) && return _scaled_membership(F.f, scaled, k)
   convert(T, F.f(t))
 end
@@ -108,9 +115,9 @@ end
 # to zero, in the buffer F.t. When the largest one overflows, or the threshold
 # is not a normal number, the mask comes from the singular values of X scaled
 # by 2^-k, which are returned, masked, with k.
-function _masked_singular_values!(F::SingularValue, X::AbstractMatrix)
+function _masked_singular_values!(F::SingularValue, X::AbstractMatrix; copied::Bool = false)
   T = float(eltype(X))
-  s = _singular_values!(F, X)
+  s = _singular_values!(F, X; copied)
   t = _vector_buffer(F.t, T, length(s))
   F.t = t
   if !isempty(s) && (!_finite_value(s[1]) || (s[1] > zero(T) && _tol(T) * s[1] <= floatmin(T)))
@@ -128,7 +135,7 @@ end
   ws = _svd_workspace(F.ws, T, size(X)...)
   copyto!(ws.A, X)
   k = _magnitude_exponent(_maximum_abs(ws.A))
-  _scaled_spectral_input!(ws.A, X)
+  _scaled_spectral_input!(ws.A, _host_strided(X) ? X : ws.A)
   s, = _svd!(ws; vectors = false)
   c = _tol(T) * s[1]
   @inbounds for j in eachindex(s)

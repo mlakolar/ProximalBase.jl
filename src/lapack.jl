@@ -195,7 +195,8 @@ end
 # whether BLAS can read or write Y in place: a StridedMatrix such as
 # view(A, 1:2:n, :) has columns that are not contiguous, which Julia's syrk and
 # symm reject and its syr, which does not check, writes past
-_blas_ready(Y::AbstractMatrix) = Y isa StridedMatrix && stride(Y, 1) == 1
+_host_strided(X::AbstractMatrix) = X isa StridedMatrix
+_blas_ready(Y::AbstractMatrix) = _host_strided(Y) && stride(Y, 1) == 1
 
 # Y = Σⱼ μⱼ vⱼvⱼ' for the eigenvectors vⱼ in the columns of V and the
 # nonnegative weights μⱼ = f(λⱼ), λⱼ = λ[j]: moves the columns with μⱼ > 0 to

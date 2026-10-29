@@ -79,11 +79,15 @@ function (s::Spectral)(X::AbstractMatrix)
   T = float(eltype(X))
   _checkblas(s, T)
   n = checksquare(X)
-  all(isfinite, X) || return T(Inf)
-  _issymmetric_tol(X) || return T(Inf)
+  if _host_strided(X)
+    all(isfinite, X) || return T(Inf)
+    _issymmetric_tol(X) || return T(Inf)
+  end
   ws = _eig_workspace(s.eig, T, n)
   s.eig = ws
   copyto!(ws.A, X)
+  _host_strided(X) || all(isfinite, ws.A) || return T(Inf)
+  _host_strided(X) || _issymmetric_tol(ws.A) || return T(Inf)
   λ = _eigvals!(ws)
   if !isempty(λ) && !(_finite_value(λ[1]) && _finite_value(λ[end])) && _scales_membership(s.f)
     return _scaled_spectral_membership!(s, ws, X)
@@ -95,7 +99,7 @@ end
 @noinline function _scaled_spectral_membership!(s::Spectral, ws, X::AbstractMatrix)
   copyto!(ws.A, X)
   k = _magnitude_exponent(_maximum_abs(ws.A))
-  _scaled_spectral_input!(ws.A, X)
+  _scaled_spectral_input!(ws.A, _host_strided(X) ? X : ws.A)
   _scaled_membership(s.f, _eigvals!(ws), k)
 end
 

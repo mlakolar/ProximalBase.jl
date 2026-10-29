@@ -69,6 +69,25 @@ Base.@propagate_inbounds function prox_entry(f::CappedL1, v::T, i::Integer, γ::
   sign(S(v)) * ifelse(isinf(c) | (h1 <= h2), z1, z2)
 end
 
+_certified_weight_steps(y::Array{T}, f::CappedL1{T, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}} =
+  _certified_weight_scales(γ, f.λ)
+
+_prox_sep_dense!(y::Array{T}, f::CappedL1{T, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}} =
+  _prox_weight_steps!(y, f, x, γ)
+
+Base.@propagate_inbounds function _prox_entry_ordinary(f::CappedL1, v::T, i::Integer, γ::Real) where {T<:Real}
+  S = float(T)
+  c = (S(γ) * S(f.λ)) * S(_entry(f.w, i))
+  a, t = S(f.a), abs(S(v))
+  z1 = min(max(t - c, zero(S)), a)          # the ℓ1 piece |z| ≤ a: soft thresholding, clipped at a
+  z2 = max(t, a)                             # the constant piece |z| ≥ a
+  # γ times the objective at each; a tie goes to the smaller entry, and an
+  # infinite coefficient (z1 = 0, where h1 is Inf⋅0) to z1
+  h1 = c * z1 + (z1 - t)^2 / 2
+  h2 = c * a + (z2 - t)^2 / 2
+  sign(S(v)) * ifelse(isinf(c) | (h1 <= h2), z1, z2)
+end
+
 kkt_violation(f::CappedL1, g::AbstractArray, i::Integer) = abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i))
 restrict(f::CappedL1, S::AbstractVector{<:Integer}) = CappedL1(f.λ, f.a, _restrict_entries(f.w, S))
 

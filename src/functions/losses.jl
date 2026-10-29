@@ -56,6 +56,19 @@ Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ:
   u > s * τ ? u - s * τ : (u < -s * (1 - τ) ? u + s * (1 - τ) : zero(S))
 end
 
+_certified_weight_steps(y::Array{T}, f::CheckLoss{T, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}} =
+  _certified_weight_scales(γ, one(T))
+
+_prox_sep_dense!(y::Array{T}, f::CheckLoss{T, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}} =
+  _prox_weight_steps!(y, f, x, γ)
+
+Base.@propagate_inbounds function _prox_entry_ordinary(f::CheckLoss, v::T, i::Integer, γ::Real) where {T<:Real}
+  S = float(T)
+  w = _entry(f.w, i)
+  s, τ, u = convert(S, γ * w), convert(S, f.τ), S(v)
+  u > s * τ ? u - s * τ : (u < -s * (1 - τ) ? u + s * (1 - τ) : zero(S))
+end
+
 # from zero, the objective decreases upward at rate -gᵢ - wᵢτ and downward at
 # rate gᵢ - wᵢ(1 - τ)
 function kkt_violation(f::CheckLoss, g::AbstractArray, i::Integer)
@@ -108,6 +121,22 @@ Base.@propagate_inbounds function prox_entry(f::HingeLoss, v::T, i::Integer, γ:
   s = convert(S, _weight_coefficient(γ, w)) * y^2
   u = y * S(v)
   (u >= 1 ? u : (u < 1 - s ? u + s : one(S))) / y
+end
+
+_certified_weight_steps(y::Array{T}, f::HingeLoss{Y, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}, Y<:Union{Nothing,Array{T}}} =
+  _certified_weight_scales(γ, one(T))
+
+_prox_sep_dense!(y::Array{T}, f::HingeLoss{Y, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}, Y<:Union{Nothing,Array{T}}} =
+  _prox_weight_steps!(y, f, x, γ)
+
+Base.@propagate_inbounds function _prox_entry_ordinary(f::HingeLoss, v::T, i::Integer, γ::Real) where {T<:Real}
+  S = float(T)
+  y = convert(S, _entry(f.y, i))
+  w = _entry(f.w, i)
+  s = convert(S, γ * w) * y^2
+  u = y * S(v)
+  # Eager selection keeps the certified loop vectorizable.
+  ifelse(u >= 1, u, ifelse(u < 1 - s, u + s, one(S))) / y
 end
 
 # f is differentiable at zero, with derivative -wᵢyᵢ
@@ -316,6 +345,20 @@ Base.@propagate_inbounds function prox_entry(f::EpsInsensitiveLoss, v::T, i::Int
   S = float(T)
   w = _entry(f.w, i)
   s, ε, u = convert(S, _weight_coefficient(γ, w)), convert(S, f.ε), S(v)
+  a = abs(u)
+  a <= ε ? u : (a <= ε + s ? copysign(ε, u) : u - copysign(s, u))
+end
+
+_certified_weight_steps(y::Array{T}, f::EpsInsensitiveLoss{T, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}} =
+  _certified_weight_scales(γ, one(T))
+
+_prox_sep_dense!(y::Array{T}, f::EpsInsensitiveLoss{T, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}} =
+  _prox_weight_steps!(y, f, x, γ)
+
+Base.@propagate_inbounds function _prox_entry_ordinary(f::EpsInsensitiveLoss, v::T, i::Integer, γ::Real) where {T<:Real}
+  S = float(T)
+  w = _entry(f.w, i)
+  s, ε, u = convert(S, γ * w), convert(S, f.ε), S(v)
   a = abs(u)
   a <= ε ? u : (a <= ε + s ? copysign(ε, u) : u - copysign(s, u))
 end

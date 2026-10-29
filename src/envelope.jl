@@ -171,7 +171,8 @@ function kkt_violation(e::MoreauEnvelope, g::AbstractArray, i::Integer)
   γ = e.γ
   abs(g[i] - prox_entry(e.f, zero(float(eltype(g))), i, γ) / γ)
 end
-restrict(e::MoreauEnvelope, S::AbstractVector{<:Integer}) = MoreauEnvelope(restrict(e.f, S), e.γ)
+# the dropped terms are minᵧ fᵢ(y) + y²/(2γ), finite for a proper fᵢ
+restrict(e::MoreauEnvelope, S::AbstractVector{<:Integer}) = MoreauEnvelope(_restrict_unchecked(e.f, S), e.γ)
 
 lipschitz(e::MoreauEnvelope) = inv(float(e.γ))
 

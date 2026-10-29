@@ -84,6 +84,31 @@ function _scaled_dot(a, x::SymmetricSparseIterate, s)
   v
 end
 
+function _split_dot(a::AbstractArray, x::SparseIterate, sa, sx)
+  _checksize(a, x)
+  R = typeof(sx[1])
+  t = floatmax(R) / (2 * max(x.nnz, 1))
+  big = eb = small = es = zero(R)
+  @inbounds for k in 1:x.nnz
+    big, eb, small, es = _split_add(big, eb, small, es, a[x.nzval2ind[k]], x.nzval[k], sa, sx, t)
+  end
+  big + eb, small + es
+end
+# each off-diagonal product separately: a[r, c] + a[c, r] can overflow on its own
+function _split_dot(a::AbstractArray, x::SymmetricSparseIterate, sa, sx)
+  _checksize(a, x)
+  R = typeof(sx[1])
+  t = floatmax(R) / (4 * max(x.nnz, 1))
+  big = eb = small = es = zero(R)
+  @inbounds for k in 1:x.nnz
+    r, c = tril_cartesian(x.p, x.nzval2ind[k])
+    u = x.nzval[k]
+    big, eb, small, es = _split_add(big, eb, small, es, a[r, c], u, sa, sx, t)
+    r == c || ((big, eb, small, es) = _split_add(big, eb, small, es, a[c, r], u, sa, sx, t))
+  end
+  big + eb, small + es
+end
+
 
 ####################################
 #

@@ -17,10 +17,12 @@ order of the entries. Its proximal operator acts on the eigenvalues: for
   the Fantope `{X : 0 ⪯ X ⪯ I, tr(X) = k}`, the convex hull of the projections of
   rank `k`, as in sparse principal component analysis (Vu, Cho, Lei and Rohe,
   2013);
-- `Spectral(Conjugate(Constrained(IndBox(0, 1), IndHyperplane(1, k))))` is the
+- `Spectral(SumLargest(k))` is the
   sum of the `k` largest eigenvalues, the support function of the Fantope;
 - `Spectral(IndBox(l, u))` is the indicator of the matrices with eigenvalues in
   `[l, u]`;
+- `Spectral(IndBinary(0, 1))` is the indicator of the orthogonal projection
+  matrices, whose eigenvalues are zero or one;
 - `Spectral(IndSimplex(1))` is the indicator of the density matrices,
   `{X ⪰ 0 : tr(X) = 1}`;
 - `Spectral(NormL1(λ))` is `λ` times the trace norm, the nuclear norm of a
@@ -28,8 +30,13 @@ order of the entries. Its proximal operator acts on the eigenvalues: for
 
 `Spectral(IndNonnegative())` is [`IndPSD`](@ref)`()`, and
 `Spectral(NormL1Nonneg(λ))` is [`TracePSD`](@ref)`(λ)`. The proximal operator
-reads the upper triangle of its input, which should be symmetric, and the value
-is `Inf` at a matrix that is not. A function with weights, bounds or normals
+reads the upper triangle of its input, which should be symmetric. The domain of
+`F` is the finite symmetric matrices: the value is `Inf` at a matrix with a
+non-finite entry, also for a bounded `f`, and at a matrix that is not
+symmetric. When an extreme eigenvalue overflows, membership in `IndBallL1`,
+`IndBallL2`, `IndBallLinf` and `IndBox` is decided on the eigenvalues of the
+matrix scaled to unit range, with the tolerance of the original units. A
+function with weights, bounds or normals
 that differ between entries depends on their order and is rejected.
 
 $_SPECTRAL_NOTE
@@ -50,21 +57,44 @@ end
 Spectral(f::AbstractFunction) = Spectral{typeof(f)}(f)
 
 isproximable(::Type{<:Spectral}) = true
+_argument_type(::Type{<:Spectral}) = AbstractMatrix
 isconvex(::Type{<:Spectral{F}}) where {F} = isconvex(F)
 _isindicator(::Type{<:Spectral{F}}) where {F} = _isindicator(F)
+_conjugate_isindicator(::Type{<:Spectral{F}}) where {F} = _conjugate_isindicator(F)
 
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix) =
-  (_checksize(Y, X); checksquare(X); true)
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix)
+  _checksize(Y, X)
+  n = checksquare(X)
+  T = float(eltype(Y))
+  ws = s.eig
+  λ = T <: _BlasReal && ws isa SymEigenWorkspace{T} && ws.n == n ? ws.w : Vector{T}(undef, n)
+  z = _checkbuffer(s.z, T, (n,))
+  _checkwrite(value_and_prox!, s.f, z, λ)
+end
 
+# The domain is the finite matrices: a non-finite entry gives Inf, before the
+# symmetry test and any decomposition.
 function (s::Spectral)(X::AbstractMatrix)
   T = float(eltype(X))
   n = checksquare(X)
+  all(isfinite, X) || return T(Inf)
   _issymmetric_tol(X) || return T(Inf)
   ws = _eig_workspace(s.eig, T, n)
   s.eig = ws
   copyto!(ws.A, X)
-  _isindicator(s.f) && !all(isfinite, ws.A) && return T(Inf)
-  convert(T, s.f(_eigvals!(ws)))
+  λ = _eigvals!(ws)
+  if !isempty(λ) && !(_finite_value(λ[1]) && _finite_value(λ[end])) && _scales_membership(s.f)
+    return _scaled_spectral_membership!(s, ws, X)
+  end
+  convert(T, s.f(λ))
+end
+
+# the balls and boxes at an overflowing spectrum, on the eigenvalues of X/2^k
+@noinline function _scaled_spectral_membership!(s::Spectral, ws, X::AbstractMatrix)
+  copyto!(ws.A, X)
+  k = _magnitude_exponent(_maximum_abs(ws.A))
+  _scaled_spectral_input!(ws.A, X)
+  _scaled_membership(s.f, _eigvals!(ws), k)
 end
 
 function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real)
@@ -75,7 +105,9 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   s.eig = ws
   copyto!(ws.A, X)
   λ, V = _eigen!(ws)
+  # the eigenvalues of the result, exactly as many as those of X
   z = _buffer!(s.z, T, n)
+  length(z) == n || resize!(z, n)
   v = value_and_prox!(z, s.f, λ, γ)
   _rebuild_sym_signed!(Y, V, z, Y isa StridedMatrix ? Y : _array_buffer!(s.out, T, (n, n)))
   convert(T, v)
@@ -128,12 +160,13 @@ end
 # whether f(x) does not depend on the order of the entries of x: no weights,
 # bounds, centers or normals that vary between the entries
 _ispermutationinvariant(::AbstractFunction) = false
-_ispermutationinvariant(::Union{ZeroFunction, NormL0, MCP, SCAD, IndNonnegative, NormL2, NormLinf,
-                                IndBallL0, IndBallL1, IndBallL2, IndSimplex}) = true
+_ispermutationinvariant(::Union{ZeroFunction, NormL0, MCP, SCAD, IndNonnegative, NormL2, CubeNormL2, NormLinf,
+                                IndBallL0, IndBallL1, IndBallL2, IndSimplex, SumLargest}) = true
 _ispermutationinvariant(::Union{NormL1{<:Real, Nothing}, NormL1Nonneg{<:Real, Nothing},
                                 ElasticNet{<:Real, Nothing}, SqrNormL2{<:Real, Nothing}}) = true
 _ispermutationinvariant(::IndBox{<:Real, <:Real}) = true
-_ispermutationinvariant(::Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}) = true
+_ispermutationinvariant(::IndBinary{<:Real, <:Real}) = true
+_ispermutationinvariant(::Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}, IndHyperslab{<:Real}}) = true
 _ispermutationinvariant(s::Union{Scaled, Conjugate}) = _ispermutationinvariant(s.f)
 _ispermutationinvariant(c::BoxConstrained) = _ispermutationinvariant(c.f) && _ispermutationinvariant(c.box)
 _ispermutationinvariant(c::LinearConstrained) = _ispermutationinvariant(c.f) && _ispermutationinvariant(c.set)

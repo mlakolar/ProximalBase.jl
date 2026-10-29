@@ -18,7 +18,8 @@ It is also proximable, by
 `prox_{te}(x) = x + t/(γ + t) ⋅ (prox_{(γ + t)f}(x) - x)`, and separable when
 `f` is, so coordinate descent applies to it. The envelope of `δ|⋅|` is the
 Huber function, that of the indicator function of a set `C` the squared
-distance to `C` divided by `2γ`. The value, the gradient and the proximal
+distance to `C` divided by `2γ`; [`SqrDistL2`](@ref) also supports nonconvex
+sets. The value, the gradient and the proximal
 operator use a buffer that `e` owns; do not share `e` between threads, and pass
 a gradient output that is not `x`. For a proximal step `t`, `γ` and `t` are
 converted to the element type of the output. Their sum must be finite and
@@ -46,6 +47,22 @@ isconvex(::Type{<:MoreauEnvelope{F}}) where {F} = isconvex(F)
 
 # the proximal point of f, in the buffer that e owns
 _envelope_buffer(e::MoreauEnvelope, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(e.scratch, T, size(x))
+
+function _checkwrite(op::O, e::MoreauEnvelope, y::AbstractArray, x::AbstractArray) where {O}
+  _checksize(y, x)
+  if op === gradient! || op === value_and_gradient!
+    y === x && throw(ArgumentError("the gradient must not overwrite x"))
+    _checkparams(e, x)
+    _checkwrite(op === gradient! ? prox! : value_and_prox!, e.f, y, x)
+  else
+    _checkparams(e, x)
+    p = _checkbuffer(e.scratch, float(eltype(y)), size(x))
+    _checkwrite(op, e.f, p, x)
+  end
+  true
+end
+_checkvalue(e::MoreauEnvelope, x::AbstractArray) =
+  _checkwrite(value_and_prox!, e.f, _checkbuffer(e.scratch, float(eltype(x)), size(x)), x)
 
 # Form the distance in units of sqrt(2γ) before squaring it: an unscaled
 # squared distance can overflow or underflow although its energy is finite.
@@ -86,20 +103,16 @@ function (e::MoreauEnvelope)(x::AbstractArray)
 end
 
 function value_and_gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
-  _checksize(g, x)
-  g === x && throw(ArgumentError("the gradient must not overwrite x"))
-  _checkparams(e, x)
+  _checkwrite(value_and_gradient!, e, g, x)
   γ = convert(float(eltype(g)), e.γ)
   v = value_and_prox!(g, e.f, x, γ)
   energy = _envelope_energy(x, g, γ)
   g .= _envelope_derivative.(x, g, γ)
-  v + energy
+  eltype(g) === eltype(x) ? v + energy : e(x)
 end
 
 function gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
-  _checksize(g, x)
-  g === x && throw(ArgumentError("the gradient must not overwrite x"))
-  _checkparams(e, x)
+  _checkwrite(gradient!, e, g, x)
   γ = convert(float(eltype(g)), e.γ)
   prox!(g, e.f, x, γ)
   g .= _envelope_derivative.(x, g, γ)
@@ -115,12 +128,15 @@ end
 # With P = prox_{(γ+t)f}(x), the result is y = x + t/(γ + t) (P - x); since
 # (y - P)/γ = (x - P)/(γ + t) ∈ ∂f(P), P is also prox_{γf}(y), so the value at y
 # is f(P) + ‖y - P‖²/(2γ), with ‖y - P‖ = γ/(γ + t) ‖x - P‖
+# The step is checked after the sizes and parameters and before the inner
+# function, as before the pre-write checks.
 function prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
   _checksize(y, x)
   _checkparams(e, x)
   T = float(eltype(y))
   γ, t = convert(T, e.γ), convert(T, t)
   combined = _envelope_step(γ, t)
+  _checkwrite(prox!, e, y, x)
   P = _envelope_buffer(e, T, x)
   prox!(P, e.f, x, combined)
   y .= _ridge_blend.(x, P, γ / combined, t / combined)
@@ -132,6 +148,7 @@ function value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, 
   T = float(eltype(y))
   γ, t = convert(T, e.γ), convert(T, t)
   combined = _envelope_step(γ, t)
+  _checkwrite(value_and_prox!, e, y, x)
   P = _envelope_buffer(e, T, x)
   v = value_and_prox!(P, e.f, x, combined)
   a, b = γ / combined, t / combined

@@ -57,10 +57,10 @@ end
 _issymmetric_tol(::SymmetricSparseIterate) = true
 
 # the symmetric Y = Σⱼ f(λⱼ) vⱼvⱼ' from the eigendecomposition V, λ, through the
-# n × n matrix buffer when Y is not strided (a SymmetricSparseIterate, say)
+# n × n matrix buffer when Y is not strided or has a different element type
 function _rebuild_sym_out!(Y::AbstractMatrix, V::StridedMatrix, λ, f::F, buffer::StridedMatrix;
                            logs::Bool = false) where {F}
-  Y isa StridedMatrix && return _rebuild_sym!(Y, V, λ, f; logs)
+  Y isa StridedMatrix{eltype(V)} && return _rebuild_sym!(Y, V, λ, f; logs)
   s = _rebuild_sym!(buffer, V, λ, f; logs)
   copyto!(Y, buffer)
   s
@@ -77,6 +77,9 @@ The nuclear norm `f(X) = λ ‖X‖_*`, the sum of the singular values of `X`. I
 proximal operator soft-thresholds the singular values, and
 [`value_and_prox!`](@ref) returns the value from the thresholded singular values
 without a second decomposition.
+When an intermediate sum overflows although the weighted value is representable,
+the value is computed in scaled units. The domain is the finite matrices: the
+value is `Inf` at a matrix with a non-finite entry, also for `λ = 0`.
 
 $_PARTIAL_NOTE The value `f(X)` alone needs every singular value and always
 takes the full decomposition.
@@ -95,20 +98,46 @@ end
 NuclearNorm(λ::Real = 1; partial::Bool = false) = NuclearNorm{typeof(λ)}(λ; partial)
 
 isproximable(::Type{<:NuclearNorm}) = true
+_argument_type(::Type{<:NuclearNorm}) = AbstractMatrix
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NuclearNorm, Y::AbstractMatrix, X::AbstractMatrix) =
+  (_checksize(Y, X); true)
 isconvex(::Type{<:NuclearNorm}) = true
 
 function (f::NuclearNorm)(X::AbstractMatrix)
   T = float(eltype(X))
+  all(isfinite, X) || return T(Inf)              # the domain is the finite matrices
   iszero(f.λ) && return zero(T)
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
   copyto!(ws.A, X)
   s, = _svd!(ws; vectors = false)
-  convert(T, f.λ) * sum(s)
+  v = convert(T, f.λ) * sum(s)
+  isfinite(v) || !isfinite(f.λ) || !all(isfinite, X) ? v : _scaled_nuclear_value!(ws, X, convert(T, f.λ))
+end
+
+# the exponent from the workspace's copy, which also serves inputs on devices
+@noinline function _scaled_nuclear_value!(ws::SVDWorkspace{T}, X::AbstractMatrix, λ::T) where {T}
+  copyto!(ws.A, X)
+  k = _magnitude_exponent(_maximum_abs(ws.A))
+  _scaled_spectral_input!(ws.A, X)
+  s, = _svd!(ws; vectors = false)
+  _scaled_product(λ, sum(s), k)
+end
+
+@inline function _spectral_prox_value(v, λ::T, s::AbstractVector{T}, c::T) where {T}
+  isfinite(v) || !isfinite(λ) || !isfinite(c) || !all(isfinite, s) ? v : _scaled_spectral_prox_value(λ, s, c)
+end
+
+@noinline function _scaled_spectral_prox_value(λ::T, s::AbstractVector{T}, c::T) where {T}
+  k = _magnitude_exponent(_maximum_abs(s))
+  scale = _power_factors(T, -k)
+  threshold = _scale_value(c, scale)
+  v = _scaled_value_sum(s, scale, t -> max(t - threshold, zero(T)))
+  _scaled_product(λ, v, k)
 end
 
 function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real)
-  _checksize(Y, X)
+  _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
   if iszero(f.λ)
     Y === X || copyto!(Y, X)
@@ -117,7 +146,7 @@ function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, �
   c = convert(T, γ) * convert(T, f.λ)
   if f.partial
     pv = _partial_nuclear!(Y, f, X, c)
-    pv === nothing || return convert(T, f.λ) * pv
+    pv === nothing || return pv
   end
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
@@ -136,7 +165,7 @@ function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, �
   end
   f.partial && _warm_start_svd!(f, U, k)
   _mul_lowrank!(Y, U, Vt, k, ws)
-  convert(T, f.λ) * v
+  _spectral_prox_value(convert(T, f.λ) * v, convert(T, f.λ), s, c)
 end
 prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, f, X, γ); Y)
 
@@ -171,6 +200,9 @@ mutable struct IndBallRank <: AbstractFunction
 end
 
 isproximable(::Type{IndBallRank}) = true
+_argument_type(::Type{<:IndBallRank}) = AbstractMatrix
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::IndBallRank, Y::AbstractMatrix, X::AbstractMatrix) =
+  (_checksize(Y, X); true)
 _isindicator(::Type{IndBallRank}) = true
 
 function (f::IndBallRank)(X::AbstractMatrix)
@@ -192,7 +224,7 @@ end
 end
 
 function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, ::Real)
-  _checksize(Y, X)
+  _checkwrite(prox!, f, Y, X)
   T = float(eltype(Y))
   if minimum(size(X)) <= f.r
     Y === X || copyto!(Y, X)
@@ -211,6 +243,104 @@ function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, ::Real)
   end
   f.partial && _warm_start_svd!(f, U, f.r)
   _mul_lowrank!(Y, U, Vt, f.r, ws)
+end
+
+####################################
+#  orthonormal columns
+####################################
+
+"""
+    IndStiefel()
+
+The indicator of `St(p, k) = {X ∈ ℝ^{p×k} : XᵀX = I_k}`, for `k ≤ p`,
+nonconvex. Its proximal operator is the Frobenius projection `UVᵀ` from the
+thin SVD `X = UΣVᵀ`, independent of the step. For `k = p` this is the
+orthogonal group, including reflections. Use [`IndSphereL2`](@ref)`(1)` for
+vectors. Matrices with no columns belong to the set.
+
+The projection is unique at full column rank, but becomes sensitive as the
+smallest singular value approaches zero. At rank-deficient inputs it uses
+the orthonormal completion returned by LAPACK's SVD. This choice is
+deterministic for a given input, LAPACK backend and configuration, but need
+not be continuous across rank-deficient inputs.
+
+The value is `0` when `‖XᵀX - I‖_F ≤ sqrt(eps(T)) √k`, with
+`T = float(eltype(X))`, and `Inf` otherwise. This tolerance is not a
+feasibility certificate. Nonfinite entries give value `Inf`; projection
+throws an `ArgumentError` before writing the output. Arguments must be real
+matrices, and projection outputs must have element type `Float32` or
+`Float64`. Integer arguments are converted. Inputs are scaled before
+conversion to the output's precision, since positive scaling leaves the
+projection unchanged.
+
+The function owns its SVD and Gram buffers. Warmed calls to the value,
+[`prox!`](@ref) and [`value_and_prox!`](@ref) allocate nothing for dense
+`Float32` or `Float64` CPU matrices of fixed types and sizes, including
+proximal calls whose output is the input. A new size replaces the buffers;
+do not share one function object between threads.
+"""
+mutable struct IndStiefel <: AbstractFunction
+  ws::Any
+  input::Scratch
+  gram::Scratch
+end
+IndStiefel() = IndStiefel(nothing, Scratch(), Scratch())
+
+isproximable(::Type{IndStiefel}) = true
+_isindicator(::Type{IndStiefel}) = true
+
+function _checkparams(::IndStiefel, X)
+  X isa AbstractMatrix || throw(ArgumentError("IndStiefel requires a matrix"))
+  eltype(X) <: Real || throw(ArgumentError("IndStiefel requires real entries"))
+  p, k = size(X)
+  k <= p || throw(DimensionMismatch("IndStiefel requires k ≤ p, got $p × $k"))
+  true
+end
+
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndStiefel, Y, X)
+  _checkparams(f, X)
+  Y isa AbstractMatrix || throw(DimensionMismatch("the output must be a matrix"))
+  _checksize(Y, X)
+  T = eltype(Y)
+  T === Float32 || T === Float64 || throw(ArgumentError("IndStiefel requires a Float32 or Float64 output"))
+  true
+end
+
+function (f::IndStiefel)(X)
+  _checkparams(f, X)
+  T = float(eltype(X))
+  isfinite(_maximum_abs(X)) || return T(Inf)
+  k = size(X, 2)
+  k == 0 && return zero(T)
+  A = _array_buffer!(f.input, T, size(X))
+  copyto!(A, X)                       # convert integers before their products
+  G = _array_buffer!(f.gram, T, (k, k))
+  mul!(G, transpose(A), A)
+  @inbounds for j in 1:k
+    G[j, j] -= one(T)
+  end
+  _ind(_norm2(G) <= _tol(T) * sqrt(T(k)), T)
+end
+
+function prox!(Y, f::IndStiefel, X, ::Real)
+  _checkwrite(prox!, f, Y, X)
+  m = _maximum_abs(X)
+  isfinite(m) || throw(ArgumentError("IndStiefel requires finite entries for projection"))
+  k = size(X, 2)
+  k == 0 && return Y
+  ws = _svd_workspace(f.ws, eltype(Y), size(X)...)
+  f.ws = ws
+  if iszero(m)
+    fill!(ws.A, zero(eltype(Y)))
+  else
+    e = _magnitude_exponent(m)
+    # Scale before conversion so a narrower output keeps the input's direction.
+    @inbounds for i in eachindex(ws.A, X)
+      ws.A[i] = ldexp(float(X[i]), -e)
+    end
+  end
+  _, U, Vt = _svd!(ws)
+  _mul_lowrank!(Y, U, Vt, k, ws)
 end
 
 ####################################
@@ -252,6 +382,7 @@ function IndPSD(; rank::Union{Nothing, Integer} = nothing, partial::Bool = false
 end
 
 isproximable(::Type{<:IndPSD}) = true
+_argument_type(::Type{<:IndPSD}) = AbstractMatrix
 _isindicator(::Type{<:IndPSD}) = true
 isconvex(::Type{IndPSD{Nothing}}) = true
 
@@ -335,6 +466,8 @@ The function `f(X) = λ tr(X)` on the positive semidefinite matrices, `Inf`
 elsewhere: the nuclear norm restricted to them, as in the low-rank part of
 latent-variable graphical models. Its proximal operator shifts the eigenvalues
 of a symmetric matrix down by `γλ` and sets the negative ones to zero.
+When an intermediate sum overflows although the weighted value is representable,
+the value is computed in scaled units.
 
 Membership in the positive semidefinite cone is reliable for every finite input
 within the floating-point tolerance; non-finite entries are not members.
@@ -349,28 +482,56 @@ mutable struct TracePSD{T<:Real} <: AbstractFunction
   eig::Any
   pws::Any        # the workspace of the partial eigendecomposition
   out::Scratch
+  diag::Scratch
 
   TracePSD{T}(λ::T; partial::Bool = false) where {T<:Real} =
-    (_checknonneg("λ", λ); new{T}(λ, partial, nothing, nothing, Scratch()))
+    (_checknonneg("λ", λ); new{T}(λ, partial, nothing, nothing, Scratch(), Scratch()))
 end
 TracePSD(λ::Real = 1; partial::Bool = false) = TracePSD{typeof(λ)}(λ; partial)
 
 isproximable(::Type{<:TracePSD}) = true
+_argument_type(::Type{<:TracePSD}) = AbstractMatrix
 isconvex(::Type{<:TracePSD}) = true
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::TracePSD, Y::AbstractMatrix, X::AbstractMatrix) =
   (_checksize(Y, X); checksquare(X); true)
 
-(f::TracePSD)(X::AbstractMatrix) =
-  _ispsd!(f, X, nothing) ? convert(float(eltype(X)), f.λ) * tr(X) : float(eltype(X))(Inf)
+_trace!(::TracePSD, X::AbstractMatrix) = tr(X)
+function _trace!(f::TracePSD, X::Union{SparseIterate{<:Any, 2}, SymmetricSparseIterate})
+  n = checksquare(X)
+  d = _buffer!(f.diag, eltype(X), n)
+  length(d) == n || resize!(d, n)
+  @inbounds for i in 1:n
+    d[i] = X[i, i]
+  end
+  sum(d)
+end
+
+function (f::TracePSD)(X::AbstractMatrix)
+  T = float(eltype(X))
+  _ispsd!(f, X, nothing) || return T(Inf)
+  v = convert(T, f.λ) * _trace!(f, X)
+  isfinite(v) || !isfinite(f.λ) ? v : _scaled_trace_value(f, X)
+end
+
+@noinline function _scaled_trace_value(f::TracePSD, X::AbstractMatrix)
+  T = float(eltype(X))
+  k = _magnitude_exponent(_maximum_abs(X))
+  scale = _power_factors(T, -k)
+  v = e = zero(T)
+  @inbounds for i in axes(X, 1)
+    v, e = _compensated_add(v, e, _scale_value(X[i, i], scale))
+  end
+  _scaled_product(convert(T, f.λ), v + e, k)
+end
 
 function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
   c = convert(T, γ) * convert(T, f.λ)
   if f.partial
-    pv = _partial_psd!(Y, f, X, c, 0)
-    pv === nothing || return convert(T, f.λ) * pv
+    pv = _partial_psd!(Y, f, X, c, 0, convert(T, f.λ))
+    pv === nothing || return pv
   end
   ws = _eig_workspace(f.eig, T, checksquare(X))
   f.eig = ws
@@ -383,7 +544,7 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
   n = size(V, 1)
   _rebuild_sym_out!(Y, V, λ, t -> max(t - c, zero(t)), Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
   f.partial && _warm_start_eigen!(f, V, count(>(c), λ))
-  convert(T, f.λ) * s
+  _spectral_prox_value(convert(T, f.λ) * s, convert(T, f.λ), λ, c)
 end
 prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real) =
   (_checkwrite(prox!, f, Y, X); value_and_prox!(Y, f, X, γ); Y)

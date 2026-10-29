@@ -124,6 +124,29 @@ end
   @test host(prox(NormLinf(0.5), DeviceArray([3., -3., 3.]))) ≃ fill(3 - 0.5 / 3, 3) .* [1, -1, 1]
 end
 
+@testset "NormLinf precision on GPU arrays" begin
+  allowscalar(false)
+  ext = Base.get_extension(ProximalBase, :ProximalBaseGPUArraysCoreExt)
+  for P in test_types, Tx in test_types, Ty in test_types, S in test_types, λ in (0, 0.3, 100)
+    f = NormLinf(P(λ))
+    x = DeviceArray(Tx[0.3, 1.7, -2.2])
+    y = DeviceArray(zeros(Ty, 3))
+    v = value_and_prox!(y, f, x, S(0.4))
+    @test typeof(v) === typeof(f(y))
+    @test isapprox(host(y), prox(f, Tx[0.3, 1.7, -2.2], S(0.4)); rtol = 8sqrt(max(eps(Tx), eps(Ty))))
+    if P === Tx === Ty === S && λ == 0.3
+      # The level and product used by the original same-precision kernel.
+      τ = ext._level(x, S(0.4) * f.λ, abs)
+      expected = f.λ * τ
+      expected_y = sign.(host(x)) .* min.(abs.(host(x)), τ)
+      U = Tx === Float32 ? UInt32 : UInt64
+      @test reinterpret(U, v) == reinterpret(U, expected)
+      @test reinterpret(U, host(y)) == reinterpret(U, expected_y)
+      @test reinterpret(U, host(prox!(y, f, x, S(0.4)))) == reinterpret(U, expected_y)
+    end
+  end
+end
+
 @testset "group norms on GPU arrays" begin
   allowscalar(false)
   # groups of sizes 1 to 26 in six size classes, out of order and not all
@@ -242,6 +265,12 @@ end
     @test NormL2(one(T))(DeviceArray(xv)) / scale ≃ T(5)
     for f in (NormL2(scale * T(2.5)), IndBallL2(scale * T(2.5)))
       @test host(prox(f, DeviceArray(xv))) ./ scale ≃ T[1.5, 2]
+      if f isa NormL2 && scale > one(T)
+        xg = DeviceArray(xv)
+        yg = similar(xg)
+        @test value_and_prox!(yg, f, xg, one(T)) === T(Inf)
+        @test host(yg) ./ scale ≃ T[1.5, 2]
+      end
     end
     x = scale .* T[1, 0, 2, 0]
     for f in (GroupNormL2(scale / T(2), groups, ones(T, 2)),
@@ -257,6 +286,38 @@ end
     # groups even when every nonzero squared norm overflows or underflows.
     h = Adapt.adapt(DeviceArray, IndBallGroupL0(1, [1:1, 2:2, 3:3]))
     @test host(prox(h, DeviceArray(scale .* T[0, 1, 2]))) ./ scale == T[0, 0, 2]
+  end
+end
+
+@testset "weighted norms at device overflow" begin
+  allowscalar(false)
+  for T in test_types
+    M = floatmax(T)
+    x = DeviceArray(T[M, M])
+    f = NormL2(T(1) / 4)
+    reference = sqrt(big(2)) * big(M) / 4
+    tolerance = 2big(eps(T(reference)))
+    v = f(x)
+    @test isfinite(v) && abs(big(v) - reference) <= tolerance
+    y = similar(x)
+    v = value_and_prox!(y, f, x, T(1) / 8)
+    @test isfinite(v) && abs(big(v) - reference) <= tolerance
+    expected = host(prox(f, x, T(1) / 8))
+    @test expected ≈ prox(f, T[M, M], T(1) / 8)       # the device shrink agrees with the host one
+    @test reinterpret(UInt8, host(y)) == reinterpret(UInt8, expected)
+    z = copy(x)
+    v = value_and_prox!(z, f, z, T(1) / 8)
+    @test isfinite(v) && abs(big(v) - reference) <= tolerance
+    @test reinterpret(UInt8, host(z)) == reinterpret(UInt8, expected)
+    v = NormL1(T(1) / 4)(x)
+    @test isfinite(v) && abs(big(v) - big(M) / 2) <= 2big(eps(M / 2))
+    u = nextfloat(zero(T))
+    reference = big(u) * sqrt(big(2)) * big(M)
+    v = NormL2(u)(x)
+    @test isfinite(v) && abs(big(v) - reference) <= 2big(eps(T(reference)))
+    # the spectral functions decompose on the host; the overflow fallback too
+    v = NuclearNorm(T(1) / 4)(DeviceArray(Matrix{T}(M * I, 2, 2)))
+    @test isfinite(v) && abs(big(v) - big(M) / 2) <= 2big(eps(M / 2))
   end
 end
 

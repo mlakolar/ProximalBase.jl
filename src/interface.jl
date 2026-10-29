@@ -125,7 +125,8 @@ operator: a nuclear norm from the singular values that it thresholds. For the
 package's indicator functions, return `0` without checking membership. This
 equals `f(y)` when the projection is exact, but is not a feasibility certificate
 for an inexact projection such as [`IndIntersection`](@ref). Computing the value this
-way can be cheaper than `prox!` followed by `f(y)`. A [`Conjugate`](@ref) whose
+way can be cheaper than `prox!` followed by `f(y)`. The conjugates that
+[`Conjugate`](@ref) lists as indicators also return `0`; another conjugate whose
 value uses the Fenchel equality can return a small nonzero value even when it
 represents an indicator.
 """
@@ -160,7 +161,20 @@ check_parameters(::AbstractFunction, x) = nothing
 _isindicator(::Type{<:AbstractFunction}) = false
 _isindicator(f::AbstractFunction) = _isindicator(typeof(f))
 _checkparams(f::AbstractFunction, x) = (check_parameters(f, x); true)
-_checkwrite(op, f, y, x) = _checkparams(f, x)
+_argument_type(::Type{<:AbstractFunction}) = Any
+_checkargument(f, x) = x isa _argument_type(typeof(f)) || throw(MethodError(f, (x,)))
+function _checkwrite(op, f, y, x)
+  if op === value_and_prox! || op === gradient!
+    _checkparams(f, x)
+    _checkargument(f, x)
+  else
+    _checkargument(f, x)
+    _checkparams(f, x)
+  end
+  true
+end
+_checkvalue(f, x) = _checkparams(f, x)
+_checkconjugate(f, y) = true
 
 ####################################
 #  Gradients

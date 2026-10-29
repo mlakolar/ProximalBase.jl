@@ -9,7 +9,7 @@ module ProximalBaseGPUArraysCoreExt
 # broadcast over those arrays instead, and never enter a kernel themselves.
 
 using ProximalBase
-using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, SqrNormL2,
+using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, SqrNormL2, NormL2,
                     NormLinf, IndBallL1, IndSimplex,
                     GroupNormL2, GroupNormLinf, SparseGroupNormL2, IndBallGroupL0, AbstractFunction,
                     LeastSquaresLoss, GLMLoss,
@@ -60,6 +60,7 @@ function ProximalBase._prox_sep!(y::GPUArray, f::NormL1, x::GPUArray, γ::Real)
   _checkparams(f, x)
   y .= shrink.(x, _Level(_scalar(y, γ), _scalar(y, f.λ0)).(_param(f.w)))
 end
+# Also the retry of the unweighted dense value when its sum overflows.
 ProximalBase._value_dense(f::NormL1, x::GPUArray) =
   (T = float(eltype(x)); iszero(f.λ0) ? zero(T) :
    _sum(T, _Weighted(_scalar(x, f.λ0)), instantiate(broadcasted(abs, x)), _param(f.w)))
@@ -98,7 +99,7 @@ end
 struct _InBox{T}
   t::T
 end
-(b::_InBox)(v, l, u) = (v >= l - b.t * max(one(b.t), abs(l))) & (v <= u + b.t * max(one(b.t), abs(u)))
+(b::_InBox)(v, l, u) = ProximalBase._inbox(v, l, u, b.t)
 
 function ProximalBase._value_dense(f::IndBox, x::GPUArray)
   T = float(eltype(x))
@@ -132,14 +133,42 @@ end
 #  Norms, balls and the simplex
 ####################################
 
-# NormL2 and IndBallL2 need only the sum of squares, a reduction, and a
-# broadcast, and run on the generic methods. The ℓ∞ norm, the ℓ1 ball and the
-# simplex clip or shrink the entries at the level τ with
+# NormL2 and IndBallL2 use the generic methods and GPUArrays' scaled norm.
+# NormL2 also needs device reductions for an overflowing norm or weighted value.
+# The ℓ∞ norm, the ℓ1 ball and the simplex clip or shrink the entries at the level τ with
 # Σᵢ max(g(xᵢ) - τ, 0) = r, for g = abs or the identity, which the CPU finds by
 # a selection. Michelot's algorithm finds it with reductions alone: τ is the
 # level that makes the entries above the last level sum to r, so it only
 # grows, and the entries at or below it drop out until none does, after at
 # most n passes and in practice a few.
+
+function ProximalBase._scaled_norm2_value(λ::T, x::GPUArray) where {T}
+  m = mapreduce(abs, max, x; init = zero(T))
+  k = ProximalBase._magnitude_exponent(m)
+  s = ProximalBase._power_factors(T, -k)
+  n = sqrt(_sum(T, v -> abs2(ProximalBase._scale_value(v, s)), x))
+  ProximalBase._scaled_product(λ, n, k)
+end
+
+function ProximalBase._norm2_shrink!(::NormL2, y::GPUArray, x::GPUArray, c)
+  T = float(eltype(x))
+  scale = mapreduce(abs, max, x; init = zero(T))
+  if isfinite(scale) && scale > one(T)
+    inverse = inv(scale)
+    nx = sqrt(_sum(T, v -> abs2(v * inverse), x))
+    threshold = c / scale
+    if nx > threshold
+      t = one(nx) - threshold / nx
+      y .= t .* (x .* inverse)
+      y .*= scale
+      return (nx - threshold) * scale
+    end
+    fill!(y, zero(eltype(y)))
+    return zero(T)
+  end
+  y .= (one(T) - c / scale) .* x
+  scale - c
+end
 
 # g(v) when it exceeds τ, and 0 otherwise; whether it exceeds τ
 struct _Above{G, T}
@@ -180,7 +209,7 @@ function ProximalBase.value_and_prox!(y::GPUArray, f::NormLinf, x::GPUArray, γ:
   end
   τ = _level(x, c, abs)
   y .= sign.(x) .* min.(abs.(x), τ)
-  return convert(T, f.λ) * τ
+  return convert(T, convert(T, f.λ) * τ)
 end
 
 function (f::IndBallL1)(x::GPUArray)

@@ -27,6 +27,7 @@ end
 TotalVariation1D(λ::Real = 1) = TotalVariation1D{typeof(λ)}(λ)
 
 isproximable(::Type{<:TotalVariation1D}) = true
+_argument_type(::Type{<:TotalVariation1D}) = AbstractVector
 isconvex(::Type{<:TotalVariation1D}) = true
 
 function _tv(x::AbstractVector)
@@ -42,7 +43,7 @@ end
   (T = float(eltype(x)); iszero(f.λ) ? zero(T) : convert(T, f.λ) * _tv(x))
 
 prox!(y::AbstractVector, f::TotalVariation1D, x::AbstractVector, γ::Real) =
-  _tv_denoise!(y, x, convert(float(eltype(y)), γ * f.λ))
+  (_checkwrite(prox!, f, y, x); _tv_denoise!(y, x, convert(float(eltype(y)), γ * f.λ)))
 value_and_prox!(y::AbstractVector, f::TotalVariation1D, x::AbstractVector, γ::Real) =
   f(prox!(y, f, x, γ))
 
@@ -158,6 +159,7 @@ end
 FusedLasso(λ1::Real, λ2::Real) = (p = promote(λ1, λ2); FusedLasso{typeof(p[1])}(p...))
 
 isproximable(::Type{<:FusedLasso}) = true
+_argument_type(::Type{<:FusedLasso}) = AbstractVector
 isconvex(::Type{<:FusedLasso}) = true
 
 function (f::FusedLasso)(x::AbstractVector)
@@ -167,6 +169,7 @@ function (f::FusedLasso)(x::AbstractVector)
 end
 
 function prox!(y::AbstractVector, f::FusedLasso, x::AbstractVector, γ::Real)
+  _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   _tv_denoise!(y, x, convert(T, γ * f.λ2))
   c = convert(T, γ * f.λ1)
@@ -227,6 +230,7 @@ end
 IndIsotonic(; decreasing::Bool = false) = IndIsotonic(decreasing, Scratch(), Scratch())
 
 isproximable(::Type{IndIsotonic}) = true
+_argument_type(::Type{<:IndIsotonic}) = AbstractVector
 isconvex(::Type{IndIsotonic}) = true
 _isindicator(::Type{IndIsotonic}) = true
 
@@ -241,8 +245,7 @@ function (f::IndIsotonic)(x::AbstractVector)
 end
 
 function prox!(y::AbstractVector, f::IndIsotonic, x::AbstractVector, ::Real)
-  _checksize(y, x)
-  Base.require_one_based_indexing(y, x)
+  _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   n = length(x)
   _pava!(y, x, _buffer!(f.sums, T, n), _buffer!(f.sizes, Int, n), f.decreasing ? -1 : 1)
@@ -281,8 +284,17 @@ end
 SLOPE(λ::AbstractVector{<:Real}) = SLOPE{typeof(λ)}(λ)
 
 isproximable(::Type{<:SLOPE}) = true
+_argument_type(::Type{<:SLOPE}) = AbstractVector
 isconvex(::Type{<:SLOPE}) = true
 _checkparams(f::SLOPE, x) = (_checkparam(f.λ, x); true)
+
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)},
+                     f::Union{TotalVariation1D, FusedLasso, IndIsotonic, SLOPE}, y::AbstractVector, x::AbstractVector)
+  _checksize(y, x)
+  _checkparams(f, x)
+  Base.require_one_based_indexing(y, x)
+  true
+end
 
 # the magnitudes a of x and the indices p that sort them in decreasing order,
 # in the buffers of f, allocating nothing: an in-place quicksort for short
@@ -317,9 +329,7 @@ function (f::SLOPE)(x::AbstractVector)
 end
 
 function value_and_prox!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Real)
-  _checksize(y, x)
-  _checkparams(f, x)
-  Base.require_one_based_indexing(y, x)
+  _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
   n = length(x)
   p, a = _sortperm_abs!(f, x, T)
@@ -341,3 +351,242 @@ function value_and_prox!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Rea
   v
 end
 prox!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Real) = (value_and_prox!(y, f, x, γ); y)
+
+####################################
+#  the sum of the largest entries
+####################################
+
+"""
+    SumLargest(k, λ = 1)
+
+The convex, positively homogeneous function `f(x) = λ Σᵢ₌₁ᵏ x₍ᵢ₎`, where
+`x₍₁₎ ≥ x₍₂₎ ≥ …` are the signed entries of an array in decreasing order.
+`k` is an integer with `1 ≤ k ≤ length(x)` and `λ` is finite and nonnegative.
+For `k = 1` this is `λ maximum(x)`, and for `k = length(x)` it is `λ sum(x)`.
+
+Its proximal operator is `x - P_C(x)` for the capped simplex
+`C = {w : 0 ≤ wᵢ ≤ γλ, Σᵢ wᵢ = kγλ}`. Selection among its breakpoints finds
+the projection in O(n) expected time. Proximal inputs must be finite. Values
+and proximal operators use buffers that the function owns; give each thread
+its own `deepcopy`. Values have the argument's floating-point type, and
+[`value_and_prox!`](@ref) returns a value in the output's precision.
+"""
+struct SumLargest{T<:Real} <: AbstractFunction
+  k::Int
+  λ::T
+  vals::Scratch
+  work::Scratch
+  breaks::Scratch
+  sums::Scratch
+
+  function SumLargest{T}(k::Integer, λ::T) where {T<:Real}
+    1 <= k <= typemax(Int) || throw(ArgumentError("k must be a positive integer representable as Int"))
+    _checknonneg("λ", λ)
+    isfinite(λ) || throw(ArgumentError("λ must be finite"))
+    new{T}(Int(k), λ, Scratch(), Scratch(), Scratch(), Scratch())
+  end
+end
+SumLargest(k::Integer, λ::Real = 1) = SumLargest{typeof(λ)}(k, λ)
+
+isproximable(::Type{<:SumLargest}) = true
+isconvex(::Type{<:SumLargest}) = true
+_checkparams(f::SumLargest, x) = f.k <= length(x) ||
+  throw(DimensionMismatch("k = $(f.k) exceeds the argument's length $(length(x))"))
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SumLargest, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); _checkparams(f, x); Base.require_one_based_indexing(y, x); true)
+
+# Compensation preserves cancellation when the selected entries have both signs.
+@inline function _sumlargest_add(s, e, v)
+  t = s + v
+  e += abs(s) >= abs(v) ? (s - t) + v : (v - t) + s
+  t, e
+end
+
+function _sumlargest_sum(v::AbstractVector{T}, k::Int, λ) where {T}
+  m = zero(T)
+  @inbounds for i in 1:k
+    m = max(m, abs(v[i]))
+  end
+  iszero(m) && return zero(T)
+  if !isfinite(m)
+    s = zero(T)
+    @inbounds for i in 1:k
+      s += v[i]
+    end
+    return convert(T, λ * s)
+  end
+  # Cancel opposite signs first. Scaling every entry immediately could erase
+  # a tiny remainder, as in [floatmax, -floatmax, nextfloat(0)].
+  lo, hi = 1, k
+  @inbounds while lo <= hi
+    if v[lo] >= 0
+      lo += 1
+    else
+      v[lo], v[hi] = v[hi], v[lo]
+      hi -= 1
+    end
+  end
+  p, q = 1, lo
+  s = e = zero(T)
+  @inbounds while p < lo || q <= k
+    if q <= k && (s >= 0 || p == lo)
+      z = v[q]
+      q += 1
+    else
+      z = v[p]
+      p += 1
+    end
+    s, e = _sumlargest_add(s, e, z)
+    isfinite(s) || break
+  end
+  S = float(promote_type(T, typeof(λ)))
+  isfinite(s + e) && return convert(T, S(λ) * S(s + e))
+  # Apply the scale after summing: neither the sum nor λ times it need fit
+  # separately, even when their product does.
+  a = exponent(m)
+  s = e = zero(T)
+  @inbounds for i in 1:k
+    s, e = _sumlargest_add(s, e, ldexp(v[i], -a))
+  end
+  u, b = frexp(S(λ))
+  w, c = frexp(S(s + e))
+  convert(T, ldexp(u * w, a + b + c))
+end
+
+function (f::SumLargest)(x::AbstractArray{<:Real})
+  _checkparams(f, x)
+  T = float(eltype(x))
+  iszero(f.λ) && return zero(T)
+  n = length(x)
+  v = _buffer!(f.sums, T, n)
+  @inbounds for (i, xi) in enumerate(x)
+    v[i] = xi
+    isnan(v[i]) && return T(NaN)
+  end
+  f.k < n && _kth_largest!(view(v, 1:n), f.k)
+  _sumlargest_sum(v, f.k, f.λ)
+end
+
+# In units of the cap c, center at the k-th largest entry a. The threshold
+# lies in [a-c, a], so only breakpoints in (-1, 0) can matter. This narrower
+# bracket also keeps a small step visible at a large common offset.
+@inline function _sumlargest_difference(x::T, a::T, c::T, m::T, e::Int) where {T}
+  d = x - a
+  if floatmin(T) <= c <= floatmax(T)
+    return clamp(d / c, -one(T), one(T))
+  end
+  z = isfinite(d) ? ldexp(d, -e) : ldexp(x, -e) - ldexp(a, -e)
+  clamp(z / m, -one(T), one(T))
+end
+
+# The remaining breakpoints represent Σ sⱼ(bⱼ-t)₊ plus an affine part r-qt.
+# A median discards at least half of them; discarded active terms join the
+# affine part. Once none remain, solve the last linear piece exactly.
+function _sumlargest_level!(v::AbstractVector{T}, n::Int, k::Int, points) where {T}
+  full = q = nb = 0
+  s = err = zero(T)
+  @inbounds for i in 1:n
+    d = v[i]
+    if d >= one(T)
+      full += 1
+    elseif d >= zero(T)
+      s, err = _sumlargest_add(s, err, d)
+      q += 1
+      if d > zero(T)
+        nb += 1
+        points[nb] = (d - one(T), -1)
+      end
+    elseif d > -one(T)
+      nb += 1
+      points[nb] = (d, 1)
+    end
+  end
+  r, re = _sumlargest_add(s, err, T(full - k))
+  lo, hi = -one(T), zero(T)
+  @inbounds while nb > 0
+    t = _kth_largest!(view(points, 1:nb), (nb + 1) ÷ 2)[1]
+    g, ge = _sumlargest_add(r, re, -q * t)
+    for j in 1:nb
+      b, sign = points[j]
+      if b > t
+        g, ge = _sumlargest_add(g, ge, sign * (b - t))
+      end
+    end
+    gap = g + ge
+    iszero(gap) && return t
+    live = 0
+    if gap > 0
+      lo = t
+      for j in 1:nb
+        if points[j][1] > t
+          live += 1
+          points[live] = points[j]
+        end
+      end
+    else
+      hi = t
+      for j in 1:nb
+        b, sign = points[j]
+        if b >= t
+          r, re = _sumlargest_add(r, re, sign * b)
+          q += sign
+        else
+          live += 1
+          points[live] = points[j]
+        end
+      end
+    end
+    nb = live
+  end
+  iszero(q) ? (lo + hi) / 2 : clamp((r + re) / q, lo, hi)
+end
+
+@inline function _sumlargest_output(x, g, λ, w, m, e, ::Val{false})
+  p = _positive_product(g, λ, w)
+  isfinite(p) ? x - p : ldexp(ldexp(x, -e) - m * w, e)
+end
+@inline _sumlargest_output(x, g, λ, w, m, e, ::Val{true}) = _positive_product(g, λ, w)
+
+# Also used by the conjugate's projection, without a Moreau subtraction.
+function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val)
+  _checkwrite(prox!, f, y, x)
+  T = float(eltype(y))
+  S = float(promote_type(T, eltype(x), typeof(γ), typeof(f.λ)))
+  g, λ = S(γ), S(f.λ)
+  isfinite(g) && g > 0 || throw(ArgumentError("γ must be finite and positive"))
+  n = length(x)
+  v = _buffer!(f.vals, S, n)
+  @inbounds for (i, xi) in enumerate(x)
+    isfinite(xi) || throw(ArgumentError("SumLargest proximal inputs must be finite"))
+    v[i] = xi
+  end
+  if iszero(λ)
+    @inbounds for (i, j) in enumerate(eachindex(IndexLinear(), y))
+      y[j] = projection isa Val{true} ? zero(T) : v[i]
+    end
+    return y
+  end
+  mg, eg = frexp(g)
+  ml, el = frexp(λ)
+  m, e = mg * ml, eg + el
+  c = _positive_product(g, λ, one(S))
+  t = zero(S)
+  w = _buffer!(f.work, S, n)
+  if f.k < n
+    copyto!(w, 1, v, 1, n)
+    a = _kth_largest!(view(w, 1:n), f.k)
+    @inbounds for i in 1:n
+      w[i] = _sumlargest_difference(v[i], a, c, m, e)
+    end
+    t = _sumlargest_level!(w, n, f.k, _buffer!(f.breaks, Tuple{S, Int}, n))
+  end
+  @inbounds for (i, j) in enumerate(eachindex(IndexLinear(), y))
+    z = f.k == n ? one(S) : clamp(w[i] - t, zero(S), one(S))
+    y[j] = _sumlargest_output(v[i], g, λ, z, m, e, projection)
+  end
+  y
+end
+
+prox!(y::AbstractArray{<:Real}, f::SumLargest, x::AbstractArray{<:Real}, γ::Real) =
+  _sumlargest_prox!(y, f, x, γ, Val(false))
+value_and_prox!(y::AbstractArray{<:Real}, f::SumLargest, x::AbstractArray{<:Real}, γ::Real) = f(prox!(y, f, x, γ))

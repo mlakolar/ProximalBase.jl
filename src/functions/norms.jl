@@ -15,6 +15,8 @@ The Euclidean norm `f(x) = λ ‖x‖₂` (the Frobenius norm for a matrix). Its
 proximal operator shrinks `x` towards zero: `max(1 - γλ/‖x‖, 0) x`. For the
 group lasso, a sum of such norms over groups of entries, use
 [`GroupNormL2`](@ref).
+When an intermediate sum overflows although the weighted value is representable,
+the value is computed in scaled units.
 """
 struct NormL2{T<:Real} <: AbstractFunction
   λ::T
@@ -25,12 +27,27 @@ NormL2(λ::Real = 1) = NormL2{typeof(λ)}(λ)
 
 isproximable(::Type{<:NormL2}) = true
 isconvex(::Type{<:NormL2}) = true
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL2, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); true)
 
-(f::NormL2)(x::AbstractArray) =
-  (T = float(eltype(x)); iszero(f.λ) ? zero(T) : convert(T, f.λ) * _norm2(x))
+function (f::NormL2)(x::AbstractArray)
+  T = float(eltype(x))
+  iszero(f.λ) && return zero(T)
+  _norm2_value(convert(T, f.λ) * _norm2(x), convert(T, f.λ), x)
+end
 
-function value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real)
-  _checksize(y, x)
+@inline function _norm2_value(v, λ::T, x::AbstractArray) where {T}
+  isfinite(v) || !isfinite(λ) || !(eltype(x) <: Real) || !all(isfinite, x) ? v : _scaled_norm2_value(λ, x)
+end
+
+@noinline function _scaled_norm2_value(λ::T, x::AbstractArray) where {T}
+  k = _magnitude_exponent(_maximum_abs(x))
+  n = sqrt(_scaled_value_sum(x, _power_factors(T, -k), abs2))
+  _scaled_product(λ, n, k)
+end
+
+function _norm2_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real, ::Val{V}) where {V}
+  _checkwrite(V ? value_and_prox! : prox!, f, y, x)
   T = float(eltype(y))
   if iszero(f.λ)
     y === x || copyto!(y, x)
@@ -40,18 +57,197 @@ function value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real
   nx = convert(T, _norm2(x))
   if nx > c
     if isinf(nx) && isfinite(c)
-      n = _shrink_group!(f, y, x, eachindex(IndexLinear(), x), c)
-      return convert(T, f.λ) * n
+      n = _norm2_shrink!(f, y, x, c)
+      return V ? _norm2_value(convert(T, f.λ) * n, convert(T, f.λ), y) : zero(T)
     end
     t = 1 - c / nx
     y .= t .* x
-    return convert(T, f.λ) * (nx - c)
+    return V ? _norm2_value(convert(T, f.λ) * (nx - c), convert(T, f.λ), y) : zero(T)
   else
     fill!(y, zero(eltype(y)))
     return zero(T)
   end
 end
-prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = (value_and_prox!(y, f, x, γ); y)
+value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = _norm2_prox!(y, f, x, γ, Val(true))
+prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = (_norm2_prox!(y, f, x, γ, Val(false)); y)
+
+@inline _norm2_shrink!(f::NormL2, y::AbstractArray, x::AbstractArray, c) =
+  _shrink_group!(f, y, x, eachindex(IndexLinear(), x), c)
+
+# A finite input scaled by its maximum cannot need another rescaling. Keeping
+# that branch out of this call also keeps the scaled array from escaping.
+function _rescaled_group_prox!(::NormL2, y, x, G, c::S, scale)::S where {S}
+  z = _ScaledArray(x, inv(scale))
+  nx = _group_norm2(z, G)
+  threshold = c / scale
+  n = zero(nx)
+  if nx > threshold
+    t = one(nx) - threshold / nx
+    @inbounds for i in G
+      y[i] = t * z[i]
+    end
+    n = nx - threshold
+  else
+    @inbounds for i in G
+      y[i] = zero(eltype(y))
+    end
+  end
+  @inbounds for i in G
+    y[i] *= scale
+  end
+  n * scale
+end
+
+####################################
+#  cubed Euclidean norm
+####################################
+
+"""
+    CubeNormL2(λ = 1)
+
+The cubed Euclidean norm `f(x) = (λ/3) ‖x‖₂³` for finite `λ ≥ 0` (the
+Frobenius norm for a matrix). Convex and smooth, with gradient `λ ‖x‖₂ x`,
+and proximable, with proximal operator `2x / (1 + √(1 + 4γλ‖x‖₂))`.
+The gradient has no global Lipschitz constant unless `λ = 0`.
+
+The argument may be an array of any shape. The gradient and proximal operator
+may overwrite it: `gradient!(x, f, x)` and `prox!(x, f, x, γ)` are supported.
+"""
+struct CubeNormL2{T<:Real} <: AbstractFunction
+  λ::T
+
+  function CubeNormL2{T}(λ::T) where {T<:Real}
+    _checknonneg("λ", λ)
+    isfinite(λ) || throw(ArgumentError("λ must be finite, got $λ"))
+    new{T}(λ)
+  end
+end
+CubeNormL2(λ::Real = 1) = CubeNormL2{typeof(λ)}(λ)
+
+issmooth(::Type{<:CubeNormL2}) = true
+isproximable(::Type{<:CubeNormL2}) = true
+isconvex(::Type{<:CubeNormL2}) = true
+
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)},
+            ::CubeNormL2, y::AbstractArray, x::AbstractArray) = _checksize(y, x)
+
+# A finite array can have an unrepresentable norm. Only the norm calculation
+# uses scaled entries; the final factor is applied to the original entries.
+# A norm whose square is subnormal can also lose precision in norm's fallback.
+_cube_norm_ordinary(n) = sqrt(floatmin(typeof(n))) <= n <= sqrt(floatmax(typeof(n)))
+
+function _cube_norm_parts(x, n, ::Type{T}) where {T}
+  _cube_norm_ordinary(n) && return frexp(convert(T, n))
+  m = _maximum_abs(x)
+  (iszero(m) || !isfinite(m)) && return (convert(T, m), 0)
+  _, e = frexp(m)
+  s = _power_factors(T, -e)
+  a, k = frexp(sqrt(_scaled_sumabs2(x, s)))
+  a, e + k
+end
+
+# Keep all four factors in range until the final rounding, as _positive_product
+# does for three. In particular, neither λ/3 nor n³ needs to be representable.
+function _cube_value_parts(λ::T, m::T, e::Int) where {T}
+  (iszero(m) || !isfinite(m)) && return λ * m
+  a, k = frexp(λ)
+  ldexp(((a * m) * m) * (m / 3), k + 3e)
+end
+
+function (f::CubeNormL2)(x::AbstractArray)
+  T = real(float(eltype(x)))
+  iszero(f.λ) && return zero(T)
+  S = promote_type(T, float(typeof(f.λ)))
+  λ = convert(S, f.λ)
+  n = _norm2(x)
+  if _cube_norm_ordinary(n)
+    a = _positive_product(λ, convert(S, n), convert(S, n))
+    b = convert(S, n) / 3
+    if floatmin(S) <= a <= floatmax(S) && b >= floatmin(S)
+      return convert(T, a * b)
+    end
+  end
+  m, e = _cube_norm_parts(x, n, S)
+  convert(T, _cube_value_parts(λ, m, e))
+end
+
+# A scale may not fit even when its product with an entry does. Round only
+# after combining the exponents, preserving zeros beside overflowing entries.
+@inline function _cube_scale(v::Real, m::T, e::Int) where {T}
+  a = convert(T, v)
+  iszero(a) && return a
+  b, k = frexp(a)
+  ldexp(b * m, k + e)
+end
+@inline _cube_scale(v::Complex, m, e) = complex(_cube_scale(real(v), m, e), _cube_scale(imag(v), m, e))
+
+function gradient!(g::AbstractArray, f::CubeNormL2, x::AbstractArray)
+  _checkwrite(gradient!, f, g, x)
+  iszero(f.λ) && return fill!(g, zero(eltype(g)))
+  T = promote_type(real(float(eltype(g))), real(float(eltype(x))), float(typeof(f.λ)))
+  λ = convert(T, f.λ)
+  n = _norm2(x)
+  a = λ * convert(T, n)
+  if _cube_norm_ordinary(n) && floatmin(T) <= a <= floatmax(T)
+    return g .= a .* x
+  end
+  m, e = _cube_norm_parts(x, n, T)
+  (iszero(m) || !isfinite(m)) && return g .= (λ * m) .* x
+  b, k = frexp(λ)
+  g .= _cube_scale.(x, b * m, k + e)
+end
+
+function value_and_gradient!(g::AbstractArray, f::CubeNormL2, x::AbstractArray)
+  _checkwrite(value_and_gradient!, f, g, x)
+  v = f(x)                                 # x may be the gradient's output
+  gradient!(g, f, x)
+  v
+end
+
+# With z = γλn, write 1/(1/2 + √(z + 1/4)) as a bounded factor times a
+# power of two. Neither z nor the shrinkage factor has to fit in T.
+function _cube_prox_parts(γ::T, λ::T, m::T, e::Int) where {T}
+  if !isfinite(m) || !isfinite(γ) || iszero(γ)
+    return (2 / (1 + sqrt(1 + 4 * γ * λ * m)), 0)
+  end
+  a, k = frexp(γ)
+  b, j = frexp(λ)
+  c, i = frexp((a * b) * m)
+  h = k + j + e + i
+  if h <= 0
+    return (2 / (1 + sqrt(1 + 4 * ldexp(c, h))), 0)
+  end
+  q = fld(h, 2)
+  s = sqrt(ldexp(c, h - 2q))
+  t = ldexp(inv(s), -q)
+  (inv(s) / (sqrt(1 + (t / 2)^2) + t / 2), -q)
+end
+
+function prox!(y::AbstractArray, f::CubeNormL2, x::AbstractArray, γ::Real)
+  _checkwrite(prox!, f, y, x)
+  if iszero(f.λ)
+    y === x || copyto!(y, x)
+    return y
+  end
+  T = promote_type(real(float(eltype(y))), real(float(eltype(x))), float(typeof(f.λ)), float(typeof(γ)))
+  λ, step = convert(T, f.λ), convert(T, γ)
+  n = _norm2(x)
+  iszero(n) && return fill!(y, zero(eltype(y)))
+  z = _positive_product(step, λ, convert(T, n))
+  if _cube_norm_ordinary(n) && isfinite(z) && z <= floatmax(T) / 4
+    t = 2 / (1 + sqrt(1 + 4z))
+    return y .= t .* x
+  end
+  m, e = _cube_norm_parts(x, n, T)
+  a, k = _cube_prox_parts(step, λ, m, e)
+  isfinite(m) || return y .= a .* x
+  y .= _cube_scale.(x, a, k)
+end
+
+value_and_prox!(y::AbstractArray, f::CubeNormL2, x::AbstractArray, γ::Real) =
+  (prox!(y, f, x, γ); f(y))
+
+lipschitz(f::CubeNormL2) = _ind(iszero(f.λ), float(typeof(f.λ)))
 
 ####################################
 #  ℓ∞ norm
@@ -75,11 +271,13 @@ NormLinf(λ::Real = 1) = NormLinf{typeof(λ)}(λ)
 
 isproximable(::Type{<:NormLinf}) = true
 isconvex(::Type{<:NormLinf}) = true
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormLinf, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); true)
 
 (f::NormLinf)(x::AbstractArray) = convert(float(eltype(x)), f.λ) * norm(x, Inf)
 
 function value_and_prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Real)
-  _checksize(y, x)
+  _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
   c = convert(T, γ) * convert(T, f.λ)
   if norm(x, 1) <= c
@@ -376,7 +574,7 @@ function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::A
       continue
     end
     nrm = _shrink_group!(f, y, x, f.groups[k], convert(T, _positive_product(_entry(γ, k), f.λ0, f.w[k])))
-    v += _positive_product(convert(T, f.λ0), w, nrm)
+    v += convert(T, _positive_product(convert(T, f.λ0), w, nrm))
   end
   v
 end
@@ -458,7 +656,7 @@ function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::Ato
     w = convert(T, f.w[k])
     iszero(w) && continue
     nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, _positive_product(_entry(γ, k), f.λ0, f.w[k])))
-    v += _positive_product(convert(T, f.λ0), w, nrm)
+    v += convert(T, _positive_product(convert(T, f.λ0), w, nrm))
   end
   v
 end
@@ -519,6 +717,7 @@ end
 NormL1Fused(λ1::Real, λ2::Real) = (p = promote(λ1, λ2); NormL1Fused{typeof(p[1])}(p...))
 
 isproximable(::Type{<:NormL1Fused}) = true
+_argument_type(::Type{<:NormL1Fused}) = Union{AbstractVector, Tuple{AbstractArray, AbstractArray}}
 isconvex(::Type{<:NormL1Fused}) = true
 
 (f::NormL1Fused)(xy::Tuple{Real, Real}) =
@@ -563,7 +762,7 @@ function prox(f::NormL1Fused, xy::Tuple{Real, Real}, γ::Real = 1)
 end
 
 function prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real)
-  size(y[1]) == size(x[1]) == size(y[2]) == size(x[2]) || throw(DimensionMismatch("the arrays of the pairs must have one size"))
+  _checkwrite(prox!, f, y, x)
   T = float(promote_type(eltype(y[1]), eltype(y[2])))
   λ1, λ2, γ = T(f.λ1), T(f.λ2), T(γ)
   @inbounds for i in eachindex(x[1])
@@ -571,6 +770,11 @@ function prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused, x::Tuple{
   end
   y
 end
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL1Fused,
+            y::Tuple{AbstractArray, AbstractArray}, x::Tuple{AbstractArray, AbstractArray}) =
+  size(y[1]) == size(x[1]) == size(y[2]) == size(x[2]) || throw(DimensionMismatch("the arrays of the pairs must have one size"))
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL1Fused, y::AbstractVector, x::AbstractVector) =
+  (_checksize(y, x); Base.require_one_based_indexing(y, x); true)
 prox(f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real = 1) =
   prox!((similar(x[1], float(eltype(x[1]))), similar(x[2], float(eltype(x[2])))), f, x, γ)
 
@@ -617,14 +821,13 @@ prox!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real) = (_prox_f
 
 # the proximal operator of all pairs fused, and the value at the result if V
 function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real, ::Val{V}) where {V}
-  _checksize(y, x)
-  Base.require_one_based_indexing(y, x)
+  _checkwrite(V ? value_and_prox! : prox!, f, y, x)
   T = float(eltype(y))
   λ1, λ2 = convert(T, f.λ1), convert(T, f.λ2)
   n = length(x)
   if iszero(λ1) && iszero(λ2)
     y === x || copyto!(y, x)
-    return zero(T)
+    return V ? zero(f(y)) : zero(T)
   end
   if n == 2
     @inbounds y[1], y[2] = _prox_l1fused(convert(T, x[1]), convert(T, x[2]), λ1, λ2, convert(T, γ))

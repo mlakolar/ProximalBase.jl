@@ -111,9 +111,11 @@ end
 # the proximal operator, entry by entry; y may be x
 _prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Union{Real, AbstractArray}) = _prox_sep_dense!(y, f, x, γ)
 
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SeparableFunction, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); _checkparams(f, x); true)
+
 function _prox_sep_dense!(y::AbstractArray, f, x::AbstractArray, γ)
-  _checksize(y, x)
-  _checkparams(f, x)
+  _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   T = eltype(y)
   @inbounds for i in eachindex(IndexLinear(), y, x)
@@ -125,8 +127,7 @@ end
 # on sparse iterates, only the stored entries when f preserves zeros; as for a
 # dense array, an entry stored in y stays stored, possibly as a zero
 function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::Union{Real, AbstractArray})
-  _checksize(y, x)
-  _checkparams(f, x)
+  _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   iszeropreserving(f) || return _prox_sep_dense!(y, f, x, γ)
   T = eltype(y)
@@ -145,8 +146,7 @@ end
 # each coordinate (an entry of the lower triangle) once, and from a
 # SymmetricSparseIterate only its stored coordinates when f preserves zeros
 function _prox_sep!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::Union{Real, AbstractArray})
-  _checksize(y, x)
-  _checkparams(f, x)
+  _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   T = eltype(y)
   p = y.p
@@ -195,6 +195,8 @@ coordinate, and on a sparse iterate the value and the proximal operator touch
 only the stored entries. On a [`SymmetricSparseIterate`](@ref) the weights are a
 `p × p` matrix (or anything indexed by the linear indices of one), as for a
 dense matrix.
+When an intermediate sum overflows although the weighted value is representable,
+the value is computed in scaled units.
 """
 struct NormL1{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ0::T
@@ -222,7 +224,9 @@ restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entr
 # without weights, Base's vectorized sum (a sum with init takes a slow sequential path)
 function (f::NormL1{<:Real, Nothing})(x::DenseArray{<:AbstractFloat})
   T = float(eltype(x))
-  iszero(f.λ0) ? zero(T) : convert(T, f.λ0) * sum(abs, x)
+  iszero(f.λ0) && return zero(T)
+  v = convert(T, f.λ0) * sum(abs, x)
+  isfinite(v) || !isfinite(f.λ0) || !all(isfinite, x) ? v : _value_dense(f, x)
 end
 
 ####################################
@@ -374,23 +378,42 @@ _checkparams(f::IndBox, x) = (_checkparam(f.l, x); _checkparam(f.u, x); true)
 
 _isindicator(::Type{<:IndBox}) = true
 
-# feasibility with a branch-free loop that vectorizes, then the value
+# the limits of l ≤ v ≤ u within the tolerance t·max(floor, |bound|). A finite
+# bound whose inflated limit overflows is clamped to the finite range instead:
+# every finite entry lies within its tolerance, and an infinite one does not.
+# Branch free, so that the loops below vectorize.
+@inline function _box_limits(l, u, t, floor = one(t))
+  lo, hi = l - t * max(floor, abs(l)), u + t * max(floor, abs(u))
+  ifelse(isinf(l), lo, max(lo, -floatmax(lo))), ifelse(isinf(u), hi, min(hi, floatmax(hi)))
+end
+@inline function _inbox(v, l, u, t, floor = one(t))
+  lo, hi = _box_limits(l, u, t, floor)
+  (v >= lo) & (v <= hi)
+end
+
+# feasibility with a branch-free loop that vectorizes, then the value; scalar
+# limits are computed once
 function _value_dense(f::IndBox, x::AbstractArray)
   T = float(eltype(x))
   t = _tol(T)
   ok = true
-  @inbounds @simd for i in eachindex(IndexLinear(), x)
-    l, u, v = _entry(f.l, i), _entry(f.u, i), x[i]
-    ok &= (v >= l - t * max(one(T), abs(l))) & (v <= u + t * max(one(T), abs(u)))
+  if f.l isa AbstractArray || f.u isa AbstractArray
+    @inbounds @simd for i in eachindex(IndexLinear(), x)
+      ok &= _inbox(x[i], _entry(f.l, i), _entry(f.u, i), t)
+    end
+  else
+    lo, hi = _box_limits(f.l, f.u, t)
+    @inbounds @simd for i in eachindex(IndexLinear(), x)
+      v = x[i]
+      ok &= (v >= lo) & (v <= hi)
+    end
   end
   ok ? zero(T) : T(Inf)
 end
 
 Base.@propagate_inbounds function value_entry(f::IndBox, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  l, u = _entry(f.l, i), _entry(f.u, i)
-  t = _tol(S)
-  (v >= l - t * max(one(S), abs(l)) && v <= u + t * max(one(S), abs(u))) ? zero(S) : S(Inf)
+  _inbox(v, _entry(f.l, i), _entry(f.u, i), _tol(S)) ? zero(S) : S(Inf)
 end
 # the bounds in the type of the result: a clamp between integer bounds compares
 # a float with an integer exactly, which does not vectorize
@@ -429,6 +452,84 @@ _value_dense(::IndNonnegative, x::AbstractArray) =
 @inline prox_entry(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} = max(float(v), zero(float(T)))
 kkt_violation(::IndNonnegative, g::AbstractArray, i::Integer) = -g[i]
 restrict(f::IndNonnegative, ::AbstractVector{<:Integer}) = f
+
+####################################
+#  binary values
+####################################
+
+"""
+    IndBinary(l, u)
+
+The indicator of the nonconvex set `{x : xᵢ ∈ {lᵢ, uᵢ}}`: `0` on the set
+and `Inf` outside, with the membership tolerance of [`IndBox`](@ref). The
+bounds are finite scalars or arrays with the length of `x`, indexed linearly,
+and must satisfy `lᵢ < uᵢ`. Array bounds are stored without copying; construct
+a new `IndBinary` after changing them, since whether every pair contains zero
+is computed at construction.
+
+Its proximal operator selects the nearer bound, with ties going to `lᵢ`,
+independently of the step. The comparison uses the promoted floating type of
+the input and bounds; writing the result converts it to the output type.
+`NaN` propagates, and `-Inf` and `Inf` project to the lower and upper bounds.
+Nonfinite entries are never members. For `IndBinary(-1, 1)`, zero projects to
+`-1`, unlike `sign(0) = 0`. For `IndBinary(0, 1)`, zero is preserved, so sparse
+iterates visit only stored entries. [`restrict`](@ref) requires zero-preserving
+bounds. No gradient-only [`kkt_violation`](@ref) is provided: a proximal
+gradient update from zero projects `-γg`, so whether it stays zero depends on
+the step.
+"""
+struct IndBinary{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: SeparableFunction
+  l::L
+  u::U
+  zp::Bool
+
+  function IndBinary{L, U}(l::L, u::U) where {L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}}
+    l isa AbstractArray && u isa AbstractArray && _checkparam(l, u)
+    all(isfinite, l) && all(isfinite, u) || throw(ArgumentError("the bounds must be finite"))
+    n = l isa AbstractArray ? length(l) : u isa AbstractArray ? length(u) : 1
+    all(i -> _entry(l, i) < _entry(u, i), 1:n) ||
+      throw(ArgumentError("the lower bounds must be strictly less than the upper bounds"))
+    zp = all(i -> iszero(_entry(l, i)) || iszero(_entry(u, i)), 1:n)
+    new{L, U}(l, u, zp)
+  end
+end
+IndBinary(l::Union{Real, AbstractArray}, u::Union{Real, AbstractArray}) = IndBinary{typeof(l), typeof(u)}(l, u)
+
+iszeropreserving(f::IndBinary) = f.zp
+_isindicator(::Type{<:IndBinary}) = true
+_checkparams(f::IndBinary, x) = (_checkparam(f.l, x); _checkparam(f.u, x); true)
+
+Base.@propagate_inbounds function value_entry(f::IndBinary, v::T, i::Integer) where {T<:Real}
+  S = float(T)
+  isfinite(v) || return S(Inf)
+  w, l, u = promote(float(v), float(_entry(f.l, i)), float(_entry(f.u, i)))
+  t = _tol(S)
+  _ind(abs(w - l) <= t * max(one(l), abs(l)) || abs(w - u) <= t * max(one(u), abs(u)), S)
+end
+
+# The residual of a finite difference distinguishes distances that round to
+# the same float, without rounding a midpoint or halving subnormal bounds.
+@inline function _binary_distance_error(a, b, d)
+  z = d - a
+  (a - (d - z)) - (b + z)
+end
+
+Base.@propagate_inbounds function prox_entry(f::IndBinary, v::Real, i::Integer, ::Real)
+  w, l, u = promote(float(v), float(_entry(f.l, i)), float(_entry(f.u, i)))
+  isnan(w) && return w
+  w <= l && return l
+  w >= u && return u
+  dl, du = w - l, u - w
+  dl < du && return l
+  dl > du && return u
+  # At most one distance can overflow for finite bounds and an interior w.
+  _binary_distance_error(w, l, dl) <= _binary_distance_error(u, w, du) ? l : u
+end
+
+function restrict(f::IndBinary, S::AbstractVector{<:Integer})
+  iszeropreserving(f) || throw(ArgumentError("restrict requires zero-preserving binary bounds"))
+  IndBinary(_restrict_entries(f.l, S), _restrict_entries(f.u, S))
+end
 
 ####################################
 #  ℓ0 penalty

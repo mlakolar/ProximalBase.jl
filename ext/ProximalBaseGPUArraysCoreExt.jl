@@ -80,7 +80,7 @@ _enet_prox(v::T, γ, λ1, λ2, w) where {T} =
 function ProximalBase._prox_sep!(y::AnyGPUArray, f::ElasticNet, x::AnyGPUArray, γ::AbstractArray)
   ProximalBase._checkwrite(prox!, f, y, x)
   ProximalBase._checkparam(γ, x)
-  y .= _enet_prox.(x, _steps(γ, x), _scalar(y, f.λ1), _scalar(y, f.λ2), _param(f.w, x))
+  y .= _enet_prox.(x, _steps(γ, x), _device_level(float(eltype(y)), f.λ1), _device_level(float(eltype(y)), f.λ2), _param(f.w, x))
   y
 end
 
@@ -95,6 +95,14 @@ ProximalBase._value_dense(f, x::GPUArray) =
 # the step and level in the element type of the output, so that a Float32
 # array is not computed in Float64
 _scalar(y, a) = convert(float(eltype(y)), a)
+
+# Keep a wider isbits level until its weight or step has been applied.
+function _device_level(::Type{T}, λ) where {T}
+  converted = convert(T, λ)
+  _level_preserved(T, λ) && converted == λ && return converted
+  R = promote_type(T, float(typeof(λ)))
+  convert(isbitstype(R) ? R : promote_type(T, Float64), λ)
+end
 
 function ProximalBase._prox_sep!(y::AnyGPUArray, f::NormL1, x::AnyGPUArray, γ::Real)
   _checksize(y, x)
@@ -139,7 +147,9 @@ end
 function ProximalBase._prox_sep!(y::AnyGPUArray, f::ElasticNet, x::AnyGPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= shrink.(x, _weight_coefficient.(_scalar(y, γ * f.λ1), _param(f.w, x))) ./ (1 + _scalar(y, γ * f.λ2))
+  T = float(eltype(y))
+  λ1 = _device_level(T, γ * f.λ1)
+  y .= _enet_prox.(x, one(T), λ1, _scalar(y, γ * f.λ2), _param(f.w, x))
 end
 function ProximalBase._value_dense(f::ElasticNet, x::GPUArray)
   T = float(eltype(x))
@@ -207,8 +217,8 @@ function ProximalBase._moreau_set!(z::AnyGPUArray, f::IndBox, x::AnyGPUArray, γ
 end
 
 # Conjugate values use the CPU tolerances and support-function conventions.
-struct _InConjugateL1{T}
-  λ::T
+struct _InConjugateL1{T, L}
+  λ::L
 end
 (p::_InConjugateL1{T})(v, w) where {T} = ProximalBase._within(abs(v), _weight_coefficient(p.λ, w), T)
 struct _BoxSupport{T} end
@@ -216,7 +226,8 @@ struct _BoxSupport{T} end
 function ProximalBase._conjugate_value(f::NormL1, y::AnyGPUArray)
   ProximalBase._checkconjugate(f, y)
   T = float(eltype(y))
-  _ind(_all(_InConjugateL1{T}(_scalar(y, f.λ0)), y, _param(f.w, y)), T)
+  λ = _device_level(T, f.λ0)
+  _ind(_all(_InConjugateL1{T, typeof(λ)}(λ), y, _param(f.w, y)), T)
 end
 function ProximalBase._conjugate_value(f::IndNonnegative, y::AnyGPUArray)
   ProximalBase._checkconjugate(f, y)

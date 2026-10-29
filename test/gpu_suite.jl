@@ -741,6 +741,18 @@ end
       @test same(fg(xg), f(x))
     end
   end
+  if Float32 in test_types
+    for λ in (1e40, BigFloat(1e40))
+      x = Float32[2e10]
+      f = ElasticNet(λ, 1, Float32[1e-30])
+      c, cg = Conjugate(f), Conjugate(Adapt.adapt(DeviceArray, f))
+      xg = DeviceArray(x)
+      y = similar(xg)
+      @test host(prox!(y, cg, xg, 1f0)) ≃ prox(c, x, 1f0)
+      @test same(value_and_prox!(y, cg, xg, 1f0), value_and_prox!(similar(x), c, x, 1f0))
+      @test host(y) ≃ prox(c, x, 1f0)
+    end
+  end
 
 end
 
@@ -768,6 +780,12 @@ end
     w = reshape(Float32[0, Inf], 1, 2)
     for λ in (BigFloat(0), BigFloat(1), BigFloat(Inf)), weights in (nothing, w)
       f = NormL1(λ, weights)
+      @test same(Conjugate(Adapt.adapt(DeviceArray, f))(DeviceArray(x)), Conjugate(f)(x))
+    end
+  end
+  if Float32 in test_types
+    for λ in (1e40, BigFloat(1e40)), x in (Float32[1e20], Float32[1e9])
+      f = NormL1(λ, Float32[1e-30])
       @test same(Conjugate(Adapt.adapt(DeviceArray, f))(DeviceArray(x)), Conjugate(f)(x))
     end
   end
@@ -830,6 +848,18 @@ end
       xg, γg = DeviceArray(x), DeviceArray(γ)
       @test host(prox(cg, xg, γg)) ≃ prox(c, x, γ)
       y = similar(xg)
+      @test same(value_and_prox!(y, cg, xg, γg), value_and_prox!(similar(x), c, x, γ))
+      @test host(y) ≃ prox(c, x, γ)
+    end
+  end
+  if Float32 in test_types
+    for λ in (1e40, BigFloat(1e40))
+      x, γ = Float32[2e10], Float32[1]
+      f = ElasticNet(λ, 1, Float32[1e-30])
+      c, cg = Conjugate(f), Conjugate(Adapt.adapt(DeviceArray, f))
+      xg, γg = DeviceArray(x), DeviceArray(γ)
+      y = similar(xg)
+      @test host(prox!(y, cg, xg, γg)) ≃ prox(c, x, γ)
       @test same(value_and_prox!(y, cg, xg, γg), value_and_prox!(similar(x), c, x, γ))
       @test host(y) ≃ prox(c, x, γ)
     end

@@ -54,6 +54,11 @@ PointwiseMinimum(fs::AbstractFunction...) = PointwiseMinimum{typeof(fs)}(fs)
 isproximable(::Type{<:PointwiseMinimum}) = true
 isconvex(::Type{<:PointwiseMinimum{F}}) where {F} = length(fieldtypes(F)) == 1 && isconvex(first(fieldtypes(F)))
 _isindicator(::Type{<:PointwiseMinimum{F}}) where {F} = all(_isindicator, fieldtypes(F))
+# The proximal path asks the instance: Julia 1.10 does not fold `all` over
+# `fieldtypes` and allocates, while recursion over the tuple folds.
+_isindicator(g::PointwiseMinimum) = _all_indicators(g.fs)
+_all_indicators(::Tuple{}) = true
+_all_indicators(fs::Tuple) = _isindicator(first(fs)) && _all_indicators(Base.tail(fs))
 _checkparams(g::PointwiseMinimum, x) = (map(f -> _checkparams(f, x), g.fs); true)
 
 function (g::PointwiseMinimum)(x::AbstractArray)

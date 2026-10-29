@@ -44,7 +44,7 @@ end
   _scaled_product(λ, n, k)
 end
 
-function value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real)
+function _norm2_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real, ::Val{V}) where {V}
   _checksize(y, x)
   T = float(eltype(y))
   if iszero(f.λ)
@@ -55,18 +55,22 @@ function value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real
   nx = convert(T, _norm2(x))
   if nx > c
     if isinf(nx) && isfinite(c)
-      n = _shrink_group!(f, y, x, eachindex(IndexLinear(), x), c)
-      return _norm2_value(convert(T, f.λ) * n, convert(T, f.λ), y)
+      n = _norm2_shrink!(f, y, x, c)
+      return V ? _norm2_value(convert(T, f.λ) * n, convert(T, f.λ), y) : zero(T)
     end
     t = 1 - c / nx
     y .= t .* x
-    return _norm2_value(convert(T, f.λ) * (nx - c), convert(T, f.λ), y)
+    return V ? _norm2_value(convert(T, f.λ) * (nx - c), convert(T, f.λ), y) : zero(T)
   else
     fill!(y, zero(eltype(y)))
     return zero(T)
   end
 end
-prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = (value_and_prox!(y, f, x, γ); y)
+value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = _norm2_prox!(y, f, x, γ, Val(true))
+prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = (_norm2_prox!(y, f, x, γ, Val(false)); y)
+
+@inline _norm2_shrink!(f::NormL2, y::AbstractArray, x::AbstractArray, c) =
+  _shrink_group!(f, y, x, eachindex(IndexLinear(), x), c)
 
 # A finite input scaled by its maximum cannot need another rescaling. Keeping
 # that branch out of this call also keeps the scaled array from escaping.

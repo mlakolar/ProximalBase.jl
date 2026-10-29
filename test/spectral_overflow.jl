@@ -369,6 +369,10 @@ end
             v = value_and_prox!(Y, f, X, γ)
             legacy_prox!(expected, f, X, γ)
             @test samebits(Y, expected)
+            if f isa NormL2
+              @test prox!(Y, f, X, γ) === Y
+              @test samebits(Y, expected)
+            end
             reference = f isa NormL2 ? big(λ) * sqrt(sum(abs2, big.(Y))) : big(λ) * tr(big.(Y))
             check_rounded(v, reference)
           end
@@ -478,6 +482,10 @@ end
           x = randn(rng, T, n)
           @test samebits(NormL1(λ)(x), λ * sum(abs, x))
           @test samebits(NormL2(λ)(x), λ * PB._norm2(x))
+          y, expected = similar(x), similar(x)
+          legacy_prox!(expected, NormL2(λ), x, T(1) / 3)
+          @test prox!(y, NormL2(λ), x, T(1) / 3) === y
+          @test samebits(y, expected)
         end
         δ = eps(T) / 4
         X = sparse(Diagonal(vcat(one(T), fill(δ, 2047))))
@@ -500,6 +508,9 @@ end
               @test allocs(f, X) == 0
               Y = zeros(T, 2, 2)
               @test allocs(value_and_prox!, Y, f, X, γ) == 0
+              if f isa NormL2
+                @test allocs(prox!, Y, f, X, γ) == 0
+              end
               if f isa LogDetLoss
                 @test allocs(value_and_gradient!, Y, f, X) == 0
               end

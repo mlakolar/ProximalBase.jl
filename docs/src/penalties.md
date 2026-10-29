@@ -53,6 +53,8 @@ finite argument and `kkt_violation` is ``-\infty``. The same holds for the
 weights of `NormL1Nonneg`, `ElasticNet`, `CappedL1`, `LogPenalty`, `NormLq` and
 `Berhu`. For `NormL1`, `CappedL1` and `LogPenalty`, which have LLA weights, the
 LLA weight of such an entry is ``\infty``.
+Zero scaling of `NormL1`, `NormL1Nonneg` and `ElasticNet` with an infinite
+weight gives the same penalty at a zero level.
 The subdifferential of
 ``|\cdot|`` at zero is ``[-1, 1]``, so given the gradient ``g_i`` of the smooth
 part, the coordinate ``x_i = 0`` is optimal exactly when

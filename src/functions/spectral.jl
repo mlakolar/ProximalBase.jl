@@ -25,7 +25,8 @@ next three computed pairs must lie below the threshold within this tolerance,
 or below the smallest retained value for a fixed rank, accounting for their
 residuals. Otherwise, or when the pairs kept
 would be more than about a quarter of the dimension, it falls back to the full
-decomposition. These checks cannot detect a leading singular value or
+decomposition. An input whose spectrum overflows takes the full decomposition.
+These checks cannot detect a leading singular value or
 eigenvalue that the iteration missed, so the result is an approximation. It
 pays when the result has low rank and the calls use nearby matrices; keep the
 default full decomposition when an exact proximal step is needed. See
@@ -66,6 +67,74 @@ function _rebuild_sym_out!(Y::AbstractMatrix, V::StridedMatrix, λ, f::F, buffer
   s
 end
 
+# Only finite inputs can recover from an overflowing decomposition.
+_spectral_overflow(s::AbstractVector{T}, X) where {T} =
+  !all(isfinite, s) && _finite_value(convert(T, _maximum_abs(X)))
+
+# Rescale before the single copy to an output BLAS cannot write.
+function _spectral_rescale!(Y, B::AbstractMatrix{T}, k::Int, p::Int, σ::T) where {T}
+  scale = _power_factors(T, k)
+  m = ldexp(floatmax(T), -k)
+  band = 4 * p * eps(T) * σ
+  @inbounds for i in eachindex(B)
+    b = B[i]
+    a = abs(b)
+    # Saturate only an overshoot within the reconstruction's rounding bound.
+    B[i] = a > m && a - m <= band ? copysign(floatmax(T), b) : _scale_value(b, scale)
+  end
+  Y === B || _copyto_rounded!(Y, B)
+  Y
+end
+
+@noinline function _scaled_svd_prox!(Y, f, X, γ, ws::SVDWorkspace{T}) where {T}
+  # Use the same exponent as the converted copy scaled below.
+  e = _magnitude_exponent(convert(T, _maximum_abs(X)))
+  _scaled_spectral_input!(ws.A, X)
+  s, U, Vt = _svd!(ws)
+  λ = f isa NuclearNorm ? convert(T, f.λ) : zero(T)
+  c = f isa NuclearNorm ? _scaled_product(convert(T, γ), λ, -e) : zero(T)
+  r = f isa IndBallRank ? f.r : length(s)
+  k = 0
+  v = zero(T)
+  @inbounds for j in 1:r
+    t = s[j] - c
+    f isa NuclearNorm && !(t > 0) && break
+    k = j
+    v += t
+    @simd for i in axes(U, 1)
+      U[i, j] *= t
+    end
+  end
+  f.partial && _warm_start_svd!(f, U, f isa IndBallRank ? f.r : k)
+  B = Y isa StridedMatrix{T} && _blas_ready(Y) ? Y : ws.A
+  _mul_lowrank!(B, U, Vt, k, ws)
+  _spectral_rescale!(Y, B, e, max(size(X)...), _maximum_abs(s))
+  _scaled_product(λ, v, e)
+end
+
+_scaled_eigen!(ws::SymEigenWorkspace) = _eigen!(ws)
+_scaled_eigen!(ws::SymEigenTopWorkspace) = _eigen_top!(ws)
+
+@noinline function _scaled_eigen_prox!(Y, f, X, γ, ws::Union{SymEigenWorkspace{T}, SymEigenTopWorkspace{T}}) where {T}
+  # Use the same exponent as the converted copy scaled below.
+  e = _magnitude_exponent(convert(T, _maximum_abs(X)))
+  _scaled_spectral_input!(ws.A, X)
+  s, V = _scaled_eigen!(ws)
+  λ = f isa TracePSD ? convert(T, f.λ) : zero(T)
+  c = f isa TracePSD ? _scaled_product(convert(T, γ), λ, -e) : zero(T)
+  v = zero(T)
+  @inbounds for t in s
+    v += max(t - c, zero(T))
+  end
+  k = count(>(c), s)
+  n = size(V, 1)
+  B = Y isa StridedMatrix{T} && _blas_ready(Y) ? Y : _array_buffer!(f.out, T, (n, n))
+  _rebuild_sym!(B, V, s, t -> max(t - c, zero(t)))
+  f.partial && _warm_start_eigen!(f, V, k)
+  _spectral_rescale!(Y, B, e, max(size(X)...), _maximum_abs(s))
+  _scaled_product(λ, v, e)
+end
+
 ####################################
 #  nuclear norm
 ####################################
@@ -77,6 +146,11 @@ The nuclear norm `f(X) = λ ‖X‖_*`, the sum of the singular values of `X`. I
 proximal operator soft-thresholds the singular values, and
 [`value_and_prox!`](@ref) returns the value from the thresholded singular values
 without a second decomposition.
+At a finite input whose spectrum overflows, the proximal output is computed
+in units scaled by a power of two; its error relative to `‖X‖` matches an
+ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
+entry exceeding `floatmax` by less than the reconstruction's rounding bound
+is returned as `±floatmax`.
 When an intermediate sum overflows although the weighted value is representable,
 the value is computed in scaled units. The domain is the finite matrices: the
 value is `Inf` at a matrix with a non-finite entry, also for `λ = 0`.
@@ -157,6 +231,7 @@ function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, �
   f.ws = ws
   copyto!(ws.A, X)
   s, U, Vt = _svd!(ws)
+  _spectral_overflow(s, X) && return _scaled_svd_prox!(Y, f, X, γ, ws)
   k = 0
   v = zero(T)
   @inbounds for j in eachindex(s)
@@ -184,6 +259,11 @@ prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real) = (value_a
 The indicator of the matrices of rank at most `r`, nonconvex. Its proximal
 operator is the truncated singular value decomposition, which keeps the `r`
 largest singular triplets.
+At a finite input whose spectrum overflows, the proximal output is computed
+in units scaled by a power of two; its error relative to `‖X‖` matches an
+ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
+entry exceeding `floatmax` by less than the reconstruction's rounding bound
+is returned as `±floatmax`.
 
 Membership is reliable for every finite input within the floating-point
 tolerance; non-finite entries are not members.
@@ -233,7 +313,7 @@ end
   s[r + 1] <= _tol(T) * max(α, s[1]) ? zero(T) : T(Inf)
 end
 
-function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, ::Real)
+function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
   _checkwrite(prox!, f, Y, X)
   T = float(eltype(Y))
   if minimum(size(X)) <= f.r
@@ -245,6 +325,10 @@ function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, ::Real)
   f.ws = ws
   copyto!(ws.A, X)
   s, U, Vt = _svd!(ws)
+  if _spectral_overflow(s, X)
+    _scaled_svd_prox!(Y, f, X, γ, ws)
+    return Y
+  end
   @inbounds for j in 1:f.r
     t = s[j]
     @simd for i in axes(U, 1)
@@ -368,6 +452,11 @@ eigendecomposition with the negative eigenvalues set to zero, and for a rank
 `r` only the `r` largest eigenpairs, which LAPACK computes without the others.
 The result is rebuilt from the eigenvectors that remain, in O(n²k) for k of
 them.
+At a finite input whose spectrum overflows, the proximal output is computed
+in units scaled by a power of two; its error relative to `‖X‖` matches an
+ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
+entry exceeding `floatmax` by less than the reconstruction's rounding bound
+is returned as `±floatmax`.
 
 Membership is reliable for every finite input within the floating-point
 tolerance; non-finite entries are not members.
@@ -443,6 +532,10 @@ function _project_psd!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix)
   f.eig = ws
   copyto!(ws.A, X)
   λ, V = _eigen!(ws)
+  if _spectral_overflow(λ, X)
+    _scaled_eigen_prox!(Y, f, X, zero(T), ws)
+    return Y
+  end
   n = size(V, 1)
   _rebuild_sym_out!(Y, V, λ, t -> max(t, zero(t)), _blas_ready(Y) ? Y : _array_buffer!(f.out, T, (n, n)))
   f.partial && _warm_start_eigen!(f, V, count(>(zero(T)), λ))
@@ -467,6 +560,10 @@ function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
   f.top = ws
   copyto!(ws.A, X)
   λ, Z = _eigen_top!(ws)
+  if _spectral_overflow(λ, X)
+    _scaled_eigen_prox!(Y, f, X, zero(T), ws)
+    return Y
+  end
   _rebuild_sym_out!(Y, Z, λ, t -> max(t, zero(t)), _blas_ready(Y) ? Y : _array_buffer!(f.out, T, (n, n)))
   f.partial && _warm_start_eigen!(f, Z, count(>(zero(T)), λ))
   Y
@@ -484,6 +581,11 @@ The function `f(X) = λ tr(X)` on the positive semidefinite matrices, `Inf`
 elsewhere: the nuclear norm restricted to them, as in the low-rank part of
 latent-variable graphical models. Its proximal operator shifts the eigenvalues
 of a symmetric matrix down by `γλ` and sets the negative ones to zero.
+At a finite input whose spectrum overflows, the proximal output is computed
+in units scaled by a power of two; its error relative to `‖X‖` matches an
+ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
+entry exceeding `floatmax` by less than the reconstruction's rounding bound
+is returned as `±floatmax`.
 When an intermediate sum overflows although the weighted value is representable,
 the value is computed in scaled units.
 
@@ -560,6 +662,7 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
   f.eig = ws
   copyto!(ws.A, X)
   λ, V = _eigen!(ws)
+  _spectral_overflow(λ, X) && return _scaled_eigen_prox!(Y, f, X, γ, ws)
   s = zero(T)
   @inbounds for t in λ
     s += max(t - c, zero(T))

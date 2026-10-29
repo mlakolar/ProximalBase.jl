@@ -438,18 +438,25 @@ On an [`AtomIterate`](@ref) a regularized
 group norm updates a group. `Regularize(NormL1(λ), ρ)` is `ElasticNet(λ, ρ)`,
 `Regularize(GroupNormL2(λ, groups), ρ)` the group elastic net,
 `Regularize(NuclearNorm(λ), ρ)` the matrix elastic net, and with a center `c`
-it is the strongly convex subproblem of proximal-point methods.
+it is the strongly convex subproblem of proximal-point methods. The proximal
+operator passes the shrunk point to `f` in a buffer that the function owns, so do
+not share one object between threads; when `f` throws, the output is unchanged,
+except for a `SparseIterate` or `SymmetricSparseIterate` output. A copy made for
+the device by `Adapt.adapt` has no buffer and writes the output before calling `f`.
 """
-struct Regularize{F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}} <: AbstractFunction
+struct Regularize{F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}, S<:Union{Nothing, Scratch}} <: AbstractFunction
   f::F
   ρ::T
   c::C
+  scratch::S      # nothing on the device, where f must be a bits type
 
-  function Regularize{F, T, C}(f::F, ρ::T, c::C) where {F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}}
+  function Regularize{F, T, C, S}(f::F, ρ::T, c::C, scratch::S) where {F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}, S<:Union{Nothing, Scratch}}
     _checknonneg("ρ", ρ)
-    new{F, T, C}(f, ρ, c)
+    new{F, T, C, S}(f, ρ, c, scratch)
   end
 end
+Regularize{F, T, C}(f::F, ρ::T, c::C) where {F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}} =
+  Regularize{F, T, C, Scratch}(f, ρ, c, Scratch())
 Regularize(f::AbstractFunction, ρ::Real, c::Union{Nothing, AbstractArray} = nothing) =
   Regularize{typeof(f), typeof(ρ), typeof(c)}(f, ρ, c)
 
@@ -507,13 +514,16 @@ function _shrunk!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
   _regularize_step(step, ρ)
 end
 
+# the shrunk point in a buffer owned by r, so that y is unchanged when f throws
 function prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
   _checkwrite(prox!, r, y, x)
-  prox!(y, r.f, y, _shrunk!(y, r, x, γ))
+  z = _output_buffer!(r.scratch, y)
+  prox!(y, r.f, z, _shrunk!(z, r, x, γ))
 end
 function value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, r, y, x)
-  v = value_and_prox!(y, r.f, y, _shrunk!(y, r, x, γ))
+  z = _output_buffer!(r.scratch, y)
+  v = value_and_prox!(y, r.f, z, _shrunk!(z, r, x, γ))
   v + _ridge(r, y)
 end
 

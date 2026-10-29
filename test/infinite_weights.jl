@@ -80,6 +80,99 @@ entry1(::Type{T}) where {T} = (
   end
 end
 
+@testset "zero scaling with infinite weights" begin
+  for T in (Float32, Float64), w in (T[1, Inf], T[0, Inf])
+    for f in (NormL1(one(T), w), NormL1Nonneg(one(T), w), ElasticNet(one(T), one(T), w))
+      nonneg = f isa NormL1Nonneg
+      family = nonneg ? NormL1Nonneg : f isa ElasticNet ? ElasticNet : NormL1
+      for z in (Scaled(f, zero(T)), Scaled{typeof(f), T}(f, zero(T)),
+                zero(T) * f, Scaled(Scaled(f, T(2)), zero(T)))
+        @test z isa family
+        @test z.w === w
+        if z isa ElasticNet
+          @test z.λ1 === zero(T) && z.λ2 === zero(T)
+        else
+          @test z.λ0 === zero(T)
+        end
+        # entry 2 is fixed; entry 1 is free, with an orthant constraint
+        @test z(T[1, 0]) === zero(T)
+        @test z(T[1, 2]) === T(Inf)
+        for huge in (T(1e30), floatmax(T))
+          @test z(T[huge, 0]) === zero(T)
+        end
+        @test z(T[-1, 0]) === (nonneg ? T(Inf) : zero(T))
+        for x in (T[1, 3], T[-1, 3]), γ in (T(1), T[0.5, 2], zero(T))
+          expected = T[nonneg ? max(x[1], 0) : x[1], 0]
+          @test prox(z, x, γ) == expected
+          y = similar(x)
+          @test value_and_prox!(y, z, x, γ) === zero(T)
+          @test y == expected
+        end
+        # the fixed entry is unstored in the sparse vector
+        xsp = sparsevec([1], T[2], 2)
+        @test nnz(xsp) == 1
+        @test z(xsp) === zero(T)
+        @test prox(z, xsp, one(T)) == T[2, 0]
+        xi = SparseIterate(sparsevec(T[2, 3]))
+        @test PB.prox_coordinate!(xi, z, 2, one(T)) === zero(T)
+        @test xi[2] === zero(T)
+        g = T[0.5, -0.5]
+        expected = nonneg ? -g[1] : abs(g[1])
+        @test PB.kkt_violation(z, g, 1) === expected
+        @test PB.kkt_violation(z, g, 2) === T(-Inf)
+        for x in (T[2, 0], xsp)
+          @test PB.kkt_violation(z, g, x, 1) === expected
+          @test PB.kkt_violation(z, g, x, 2) === T(-Inf)
+        end
+        for (indices, weights) in (([2], T[Inf]), ([1], T[w[1]]), ([2, 1], T[Inf, w[1]]))
+          r = PB.restrict(z, indices)
+          @test r isa family
+          @test r.w == weights
+          if r isa ElasticNet
+            @test r.λ1 === zero(T) && r.λ2 === zero(T)
+          else
+            @test r.λ0 === zero(T)
+          end
+        end
+        for y in (T[2, 3], T[-2, -3])
+          polar = T[nonneg ? min(y[1], 0) : 0, y[2]]
+          @test prox(Conjugate(z), y, one(T)) == polar
+        end
+        if z isa NormL1
+          @test Conjugate(z)(T[0, 3]) === zero(T)
+          @test Conjugate(z)(T[1, 0]) === T(Inf)
+        end
+      end
+    end
+  end
+
+  for T in (Float32, Float64)
+    # finite weights retain the existing simplifications
+    for w in (nothing, T[1, 2], T[0, 1])
+      @test Scaled(NormL1(one(T), w), zero(T)) isa ZeroFunction
+      @test Scaled(ElasticNet(one(T), one(T), w), zero(T)) isa ZeroFunction
+      @test Scaled(NormL1Nonneg(one(T), w), zero(T)) isa IndNonnegative
+    end
+    # non-finite levels and group weights retain the exact error
+    w, groups = T[1, Inf], [[1], [2]]
+    for f in (NormL1(T(Inf), w), NormL1Nonneg(T(Inf), w),
+              ElasticNet(one(T), T(Inf), w), ElasticNet(T(Inf), one(T), w),
+              GroupNormL2(one(T), groups, w), GroupNormLinf(one(T), groups, w),
+              SparseGroupNormL2(one(T), one(T), groups, w),
+              GroupMCP(one(T), groups, w), GroupSCAD(one(T), groups, w))
+      @test_throws ArgumentError("zero scaling of $(typeof(f)) has no supported domain-preserving representation") Scaled(f, zero(T))
+    end
+    # a zero quadratic level must not multiply an overflowing square
+    huge = floatmax(T) / 4
+    for f in (ElasticNet(one(T), zero(T)), ElasticNet(one(T), zero(T), T[1, 2]))
+      @test PB._has_ordinary_value(typeof(f))
+      @test PB.value_entry(f, huge, 1) == huge
+      @test f(T[huge, 0]) == huge
+      @test isnan(f(T[NaN, 0]))
+    end
+  end
+end
+
 @testset "infinite weight, lla weights" begin
   for T in (Float32, Float64), λ in (0, 1)
     fs = penalties(T, λ, T[1, Inf])

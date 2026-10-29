@@ -38,7 +38,10 @@ and `(1/n) * f` averages one.
 
 At zero scale, supported finite-parameter penalties and losses simplify to
 [`ZeroFunction`](@ref), while an indicator retains its domain and is returned
-unchanged. Zero scaling of other functions is rejected when
+unchanged. A weighted ℓ1-type penalty (`NormL1`, `NormL1Nonneg`, `ElasticNet`)
+whose weights include `Inf` becomes the same penalty at a zero level, keeping
+those entries fixed at zero; it is not an indicator type, so wrappers that
+require one still reject it. Zero scaling of other functions is rejected when
 the package has no domain-preserving proximal representation.
 """
 struct Scaled{F<:AbstractFunction, T<:Real} <: AbstractFunction
@@ -61,21 +64,28 @@ _finite_parameter(::Nothing) = true
 _finite_parameter(x::Real) = isfinite(x)
 _finite_parameter(x::AbstractArray) = all(isfinite, x)
 _finite_zero(f, parameters...) = all(_finite_parameter, parameters) ? ZeroFunction() : _zero_scale_error(f)
-_zero_scaled(f::Union{NormL1, GroupNormL2, GroupNormLinf}) = _finite_zero(f, f.λ0, f.w)
+function _zero_scaled(f::NormL1)
+  isfinite(f.λ0) || _zero_scale_error(f)
+  _finite_parameter(f.w) ? ZeroFunction() : NormL1(zero(f.λ0), f.w)
+end
+_zero_scaled(f::Union{GroupNormL2, GroupNormLinf}) = _finite_zero(f, f.λ0, f.w)
 _zero_scaled(f::SparseGroupNormL2) = _finite_zero(f, f.λ0, f.λ1, f.w)
 _zero_scaled(f::Union{NormL2, CubeNormL2, NormLinf, NormL0}) = _finite_zero(f, f.λ)
 _zero_scaled(::SumLargest) = ZeroFunction()
 _zero_scaled(f::Union{MCP, SCAD}) = _finite_zero(f, f.λ, f.a)
 _zero_scaled(f::Union{GroupMCP, GroupSCAD}) = _finite_zero(f, f.λ0, f.w, f.a)
-_zero_scaled(f::ElasticNet) = _finite_zero(f, f.λ1, f.λ2, f.w)
+function _zero_scaled(f::ElasticNet)
+  isfinite(f.λ1) && isfinite(f.λ2) || _zero_scale_error(f)
+  _finite_parameter(f.w) ? ZeroFunction() : ElasticNet(zero(f.λ1), zero(f.λ2), f.w)
+end
 _zero_scaled(f::SqrNormL2) = _finite_zero(f, f.λ, f.y)
 _zero_scaled(f::QuadraticFunction) = _finite_zero(f, f.A, f.b, f.c)
 _zero_scaled(f::LeastSquaresLoss) = _finite_zero(f, f.X, f.Y)
 _zero_scaled(f::LinearFunction) = _finite_zero(f, f.c, f.d)
 _zero_scaled(f::Scaled) = (_finite_parameter(f.α) || _zero_scale_error(f); _zero_scaled(f.f))
 function _zero_scaled(f::NormL1Nonneg)
-  _finite_zero(f, f.λ0, f.w)
-  IndNonnegative()
+  isfinite(f.λ0) || _zero_scale_error(f)
+  _finite_parameter(f.w) ? IndNonnegative() : NormL1Nonneg(zero(f.λ0), f.w)
 end
 
 Base.:*(α::Real, f::AbstractFunction) = Scaled(f, α)
@@ -118,12 +128,18 @@ restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.�
 The function `f(x) + ⟨c, x⟩ + d`, with the roles of `f`. Its proximal operator
 is that of `f` at `x - γc`, and its gradient `∇f + c`. The linear terms of
 augmented Lagrangians and of duality take this form.
+The proximal operator passes `x - γc` to `f` in a buffer that the function owns,
+so do not share one object between threads; when `f` throws, the output is unchanged,
+except for a `SparseIterate` or `SymmetricSparseIterate` output.
 """
 struct Tilt{F<:AbstractFunction, C<:AbstractArray, D<:Real} <: AbstractFunction
   f::F
   c::C
   d::D
+  scratch::Scratch
 end
+Tilt{F, C, D}(f::F, c::C, d::D) where {F<:AbstractFunction, C<:AbstractArray, D<:Real} = Tilt{F, C, D}(f, c, d, Scratch())
+Tilt(f::AbstractFunction, c::AbstractArray, d::Real) = Tilt(f, c, d, Scratch())
 Tilt(f::AbstractFunction, c::AbstractArray) = Tilt(f, c, zero(float(eltype(c))))
 
 for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
@@ -150,15 +166,22 @@ function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray) where {
   _checkwrite(op, t.f, y, y)
 end
 
+# A stored iterate keeps its stored entries, so a result through a buffer could
+# store fewer and sum in another order; the input is written in y, as before.
+_output_buffer!(::Scratch, y::Union{SparseIterate, SymmetricSparseIterate}) = y
+
+# x - γc in a buffer owned by t, so that y is unchanged when f throws
 function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checkwrite(prox!, t, y, x)
-  y .= x .- convert(float(eltype(y)), γ) .* t.c
-  prox!(y, t.f, y, γ)
+  z = _output_buffer!(t.scratch, y)
+  z .= x .- convert(float(eltype(y)), γ) .* t.c
+  prox!(y, t.f, z, γ)
 end
 function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
-  y .= x .- convert(float(eltype(y)), γ) .* t.c
-  value_and_prox!(y, t.f, y, γ) + dot(t.c, y) + t.d
+  z = _output_buffer!(t.scratch, y)
+  z .= x .- convert(float(eltype(y)), γ) .* t.c
+  value_and_prox!(y, t.f, z, γ) + dot(t.c, y) + t.d
 end
 Base.@propagate_inbounds prox_entry(t::Tilt, v::Real, i::Integer, γ::Real) = prox_entry(t.f, v - γ * t.c[i], i, γ)
 _checkparams(t::Tilt, x) = (_checkparam(t.c, x); _checkparams(t.f, x))
@@ -175,14 +198,19 @@ restrict(t::Tilt, S::AbstractVector{<:Integer}) = Tilt(restrict(t.f, S), t.c[S],
 The function `f(x - b)`, with the roles of `f`: its gradient is `∇f(x - b)` and
 its proximal operator `b + prox_{γf}(x - b)`. For example, `Translate(NormL1(λ), β₀)`
 is the penalty `λ ‖β - β₀‖₁` that shrinks towards `β₀`.
-Values and gradients use a shifted buffer in the argument's precision.
+Values and gradients use a shifted buffer in the argument's precision, and the
+proximal operator one in the output's, so do not share one object between threads;
+when `f` throws, the output is unchanged, except for a `SparseIterate` or
+`SymmetricSparseIterate` output.
 """
 struct Translate{F<:AbstractFunction, B<:AbstractArray} <: AbstractFunction
   f::F
   b::B
   scratch::Scratch
+  proxscratch::Scratch
 end
-Translate(f::AbstractFunction, b::AbstractArray) = Translate(f, b, Scratch())
+Translate{F, B}(f::F, b::B) where {F<:AbstractFunction, B<:AbstractArray} = Translate{F, B}(f, b, Scratch(), Scratch())
+Translate(f::AbstractFunction, b::AbstractArray) = Translate(f, b, Scratch(), Scratch())
 
 for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Translate{F}}) where {F} = $trait(F)
@@ -224,16 +252,19 @@ function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) wh
   _checkwrite(op, t.f, y, y)
 end
 
+# x - b in a buffer owned by t, so that y is unchanged when f throws
 function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checkwrite(prox!, t, y, x)
-  y .= x .- t.b
-  prox!(y, t.f, y, γ)
+  z = _output_buffer!(t.proxscratch, y)
+  z .= x .- t.b
+  prox!(y, t.f, z, γ)
   y .+= t.b
 end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
-  y .= x .- t.b
-  v = value_and_prox!(y, t.f, y, γ)
+  z = _output_buffer!(t.proxscratch, y)
+  z .= x .- t.b
+  v = value_and_prox!(y, t.f, z, γ)
   y .+= t.b
   v
 end

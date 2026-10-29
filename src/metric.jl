@@ -66,27 +66,31 @@ function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, t, y, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)
-  y .= x .- γ .* t.c
-  prox!(y, t.f, y, γ)
+  z = _output_buffer!(t.scratch, y)
+  z .= x .- γ .* t.c
+  prox!(y, t.f, z, γ)
 end
 function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
   _checkwrite(value_and_prox!, t, y, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)
-  y .= x .- γ .* t.c
-  value_and_prox!(y, t.f, y, γ) + dot(t.c, y) + t.d
+  z = _output_buffer!(t.scratch, y)
+  z .= x .- γ .* t.c
+  value_and_prox!(y, t.f, z, γ) + dot(t.c, y) + t.d
 end
 
 function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, t, y, x)
-  y .= x .- t.b
-  prox!(y, t.f, y, γ)
+  z = _output_buffer!(t.proxscratch, y)
+  z .= x .- t.b
+  prox!(y, t.f, z, γ)
   y .+= t.b
 end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
   _checkwrite(value_and_prox!, t, y, x)
-  y .= x .- t.b
-  v = value_and_prox!(y, t.f, y, γ)
+  z = _output_buffer!(t.proxscratch, y)
+  z .= x .- t.b
+  v = value_and_prox!(y, t.f, z, γ)
   y .+= t.b
   v
 end

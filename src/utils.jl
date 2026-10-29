@@ -89,6 +89,20 @@ function _array_buffer!(s::Scratch, ::Type{T}, dims::NTuple{N, Int}) where {T, N
   b
 end
 
+# A buffer like the output y for the input that a wrapper passes on: an Array
+# for a dense output on the CPU and similar(y) for other dense arrays, such as GPU
+# arrays, reused while their type and size do not change; and otherwise a copy of
+# y, which writing leaves as it would leave y, such as the active groups of an AtomIterate.
+_output_buffer!(s::Scratch, y::Union{Array, SubArray{<:Any, <:Any, <:Array}}) = _array_buffer!(s, eltype(y), size(y))
+function _output_buffer!(s::Scratch, y::A) where {A<:DenseArray}
+  b = s.buf
+  b isa A && size(b) == size(y) && return b
+  b = similar(y)
+  s.buf = b
+  b
+end
+_output_buffer!(::Scratch, y::AbstractArray) = copy(y)
+
 # Inspect the buffers an oracle will use without changing its cache history.
 function _checkbuffer(cache, ::Type{T}, dims::NTuple{N, Int}) where {T, N}
   cache isa Array{T, N} && size(cache) == dims && return cache

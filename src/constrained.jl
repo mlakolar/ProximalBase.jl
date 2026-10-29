@@ -830,17 +830,17 @@ Base.@propagate_inbounds function _prox_entry_slope(f::SqrNormL2, v::T, i::Integ
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = convert(S, _positive_product(γ, f.λ0, _entry(f.w, i)))
+  t = convert(S, _weight_product(γ, f.λ0, _entry(f.w, i)))
   shrink(v, t), _slope(abs(v) > t, one(S))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = convert(S, _positive_product(γ, f.λ0, _entry(f.w, i)))
+  t = convert(S, _weight_product(γ, f.λ0, _entry(f.w, i)))
   max(v - t, zero(S)), _slope(v > t, one(S))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = convert(S, γ * f.λ1 * _entry(f.w, i))
+  t = convert(S, _weight_coefficient(γ, f.λ1, _entry(f.w, i)))
   d = 1 + convert(S, γ * f.λ2)
   shrink(v, t) / d, _slope(abs(v) > t, inv(d))
 end

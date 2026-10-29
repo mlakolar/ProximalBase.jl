@@ -42,6 +42,7 @@ tests = [
   "sumlargest",
   "nonconvex",
   "lla",
+  "infinite_weights",
   "matrixsets",
   "affine",
   "polyhedron",

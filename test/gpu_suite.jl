@@ -468,3 +468,61 @@ end
     end
   end
 end
+
+@testset "infinite and zero weights on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types, λ in (0, 1)
+    w = T[1, Inf, 0, 2]
+    for f in (NormL1(T(λ), w), NormL1Nonneg(T(λ), w), ElasticNet(T(λ), T(0.5), w))
+      fg = Adapt.adapt(DeviceArray, f)
+      for x in (T[0.5, 0, -0.3, 1], T[0.5, 0.2, -0.3, 1])
+        xg = DeviceArray(x)
+        # the value: finite when entry 2 is zero (and, for NormL1Nonneg, x ≥ 0),
+        # Inf otherwise
+        vc, vg = f(x), fg(xg)
+        @test typeof(vg) == typeof(vc)
+        if x[2] == 0 && !(f isa NormL1Nonneg)
+          @test isfinite(vc) && vg ≈ vc
+        else
+          @test vc === T(Inf) && vg === T(Inf)
+        end
+        # the proximal operator at step one fixes entry 2 at zero
+        yc = prox(f, x, T(1))
+        yg = similar(xg)
+        @test prox!(yg, fg, xg, T(1)) === yg
+        @test eltype(yg) == T
+        @test Array(yg) ≈ yc
+        @test Array(yg)[2] === T(0)
+        # the value and the proximal operator together
+        yv = similar(xg)
+        valg = value_and_prox!(yv, fg, xg, T(1))
+        valc = value_and_prox!(similar(x), f, x, T(1))
+        @test typeof(valg) == T
+        @test eltype(yv) == T
+        @test isfinite(valg) && valg ≈ valc
+        @test Array(yv) ≈ yc
+        @test Array(yv)[2] === T(0)
+      end
+    end
+  end
+
+  for T in test_types
+    f = ElasticNet(T(Inf), T(0.5), T[0, 1, Inf, 0])
+    for x in (T[0.5, 0, 0, 1], T[0.5, 0, 0.2, 1])
+      vc, vg = f(x), Adapt.adapt(DeviceArray, f)(DeviceArray(x))
+      @test typeof(vg) == T
+      if x[3] == 0
+        @test isfinite(vc) && vg ≈ vc
+      else
+        @test vc === T(Inf) && vg === T(Inf)
+      end
+    end
+    # weights of another precision
+    x = T[0.5, 0, -0.3, 1]
+    for f in (ElasticNet(0.3, 0.5, Float64[1, Inf, 0, 2]), NormL1(0.3, Float64[1, Inf, 0, 2]))
+      vg = Adapt.adapt(DeviceArray, f)(DeviceArray(x))
+      @test typeof(vg) == T
+      @test vg ≈ f(x)
+    end
+  end
+end

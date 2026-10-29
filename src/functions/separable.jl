@@ -378,23 +378,42 @@ _checkparams(f::IndBox, x) = (_checkparam(f.l, x); _checkparam(f.u, x); true)
 
 _isindicator(::Type{<:IndBox}) = true
 
-# feasibility with a branch-free loop that vectorizes, then the value
+# the limits of l ≤ v ≤ u within the tolerance t·max(floor, |bound|). A finite
+# bound whose inflated limit overflows is clamped to the finite range instead:
+# every finite entry lies within its tolerance, and an infinite one does not.
+# Branch free, so that the loops below vectorize.
+@inline function _box_limits(l, u, t, floor = one(t))
+  lo, hi = l - t * max(floor, abs(l)), u + t * max(floor, abs(u))
+  ifelse(isinf(l), lo, max(lo, -floatmax(lo))), ifelse(isinf(u), hi, min(hi, floatmax(hi)))
+end
+@inline function _inbox(v, l, u, t, floor = one(t))
+  lo, hi = _box_limits(l, u, t, floor)
+  (v >= lo) & (v <= hi)
+end
+
+# feasibility with a branch-free loop that vectorizes, then the value; scalar
+# limits are computed once
 function _value_dense(f::IndBox, x::AbstractArray)
   T = float(eltype(x))
   t = _tol(T)
   ok = true
-  @inbounds @simd for i in eachindex(IndexLinear(), x)
-    l, u, v = _entry(f.l, i), _entry(f.u, i), x[i]
-    ok &= (v >= l - t * max(one(T), abs(l))) & (v <= u + t * max(one(T), abs(u)))
+  if f.l isa AbstractArray || f.u isa AbstractArray
+    @inbounds @simd for i in eachindex(IndexLinear(), x)
+      ok &= _inbox(x[i], _entry(f.l, i), _entry(f.u, i), t)
+    end
+  else
+    lo, hi = _box_limits(f.l, f.u, t)
+    @inbounds @simd for i in eachindex(IndexLinear(), x)
+      v = x[i]
+      ok &= (v >= lo) & (v <= hi)
+    end
   end
   ok ? zero(T) : T(Inf)
 end
 
 Base.@propagate_inbounds function value_entry(f::IndBox, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  l, u = _entry(f.l, i), _entry(f.u, i)
-  t = _tol(S)
-  (v >= l - t * max(one(S), abs(l)) && v <= u + t * max(one(S), abs(u))) ? zero(S) : S(Inf)
+  _inbox(v, _entry(f.l, i), _entry(f.u, i), _tol(S)) ? zero(S) : S(Inf)
 end
 # the bounds in the type of the result: a clamp between integer bounds compares
 # a float with an integer exactly, which does not vectorize

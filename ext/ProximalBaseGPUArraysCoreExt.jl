@@ -99,7 +99,7 @@ end
 struct _InBox{T}
   t::T
 end
-(b::_InBox)(v, l, u) = (v >= l - b.t * max(one(b.t), abs(l))) & (v <= u + b.t * max(one(b.t), abs(u)))
+(b::_InBox)(v, l, u) = ProximalBase._inbox(v, l, u, b.t)
 
 function ProximalBase._value_dense(f::IndBox, x::GPUArray)
   T = float(eltype(x))

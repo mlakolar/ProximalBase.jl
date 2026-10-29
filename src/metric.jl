@@ -106,6 +106,7 @@ end
 
 function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
   _checkwrite(value_and_prox!, c, y, x)
+  _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
     return _conjugate_value(c.f, y)

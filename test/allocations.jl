@@ -210,6 +210,7 @@ end
         if f isa IndIsotonic
           zero_alloc_prox(f, x; γ = γv)
           zero_alloc_prox(f, Float32.(x); γ = Float32.(γv))
+          zero_alloc_prox(f, x; γ = fill(0.7, p))
         end
       end
     end

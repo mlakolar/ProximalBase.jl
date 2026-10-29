@@ -24,6 +24,7 @@ GPUArraysCore = "0.1.6, 0.2"
 JLArrays = "0.2, 0.3, 0.4"
 LambertW = "0.4.5, 1"
 LinearAlgebra = "1"
+ParallelTestRunner = "2.7"
 PrecompileTools = "1"
 Random = "1"
 SparseArrays = "1"
@@ -37,9 +38,10 @@ Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
 JLArrays = "27aeb0d3-9eb9-45fb-866b-73c2ecf80fcb"
 LambertW = "984bce1d-4616-540c-a9ee-88d1112d94c9"
+ParallelTestRunner = "d3525ed8-44d0-4b2c-a655-542cee43accc"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Adapt", "Aqua", "GPUArraysCore", "JLArrays", "LambertW", "Random", "Statistics", "Test"]
+test = ["Adapt", "Aqua", "GPUArraysCore", "JLArrays", "LambertW", "ParallelTestRunner", "Random", "Statistics", "Test"]

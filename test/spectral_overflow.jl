@@ -435,7 +435,8 @@ end
         for v in (T(Inf), T(-Inf), T(NaN)), λ in (zero(T), -zero(T))
           X = T[v 0; 0 1]
           for f in (NormL1(λ), NormL2(λ), NuclearNorm(λ))
-            @test f(X) === zero(T)
+            # the domain of the spectral functions is the finite matrices
+            @test f(X) === (f isa NuclearNorm ? T(Inf) : zero(T))
             Y = similar(X)
             @test value_and_prox!(Y, f, X, γ) === zero(T)
             @test samebits(Y, X)

@@ -78,7 +78,8 @@ proximal operator soft-thresholds the singular values, and
 [`value_and_prox!`](@ref) returns the value from the thresholded singular values
 without a second decomposition.
 When an intermediate sum overflows although the weighted value is representable,
-the value is computed in scaled units.
+the value is computed in scaled units. The domain is the finite matrices: the
+value is `Inf` at a matrix with a non-finite entry, also for `λ = 0`.
 
 $_PARTIAL_NOTE The value `f(X)` alone needs every singular value and always
 takes the full decomposition.
@@ -104,6 +105,7 @@ isconvex(::Type{<:NuclearNorm}) = true
 
 function (f::NuclearNorm)(X::AbstractMatrix)
   T = float(eltype(X))
+  all(isfinite, X) || return T(Inf)              # the domain is the finite matrices
   iszero(f.λ) && return zero(T)
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws

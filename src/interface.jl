@@ -125,7 +125,8 @@ operator: a nuclear norm from the singular values that it thresholds. For the
 package's indicator functions, return `0` without checking membership. This
 equals `f(y)` when the projection is exact, but is not a feasibility certificate
 for an inexact projection such as [`IndIntersection`](@ref). Computing the value this
-way can be cheaper than `prox!` followed by `f(y)`. A [`Conjugate`](@ref) whose
+way can be cheaper than `prox!` followed by `f(y)`. The conjugates that
+[`Conjugate`](@ref) lists as indicators also return `0`; another conjugate whose
 value uses the Fenchel equality can return a small nonzero value even when it
 represents an indicator.
 """

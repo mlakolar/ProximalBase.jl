@@ -30,8 +30,13 @@ order of the entries. Its proximal operator acts on the eigenvalues: for
 
 `Spectral(IndNonnegative())` is [`IndPSD`](@ref)`()`, and
 `Spectral(NormL1Nonneg(λ))` is [`TracePSD`](@ref)`(λ)`. The proximal operator
-reads the upper triangle of its input, which should be symmetric, and the value
-is `Inf` at a matrix that is not. A function with weights, bounds or normals
+reads the upper triangle of its input, which should be symmetric. The domain of
+`F` is the finite symmetric matrices: the value is `Inf` at a matrix with a
+non-finite entry, also for a bounded `f`, and at a matrix that is not
+symmetric. When an extreme eigenvalue overflows, membership in `IndBallL1`,
+`IndBallL2`, `IndBallLinf` and `IndBox` is decided on the eigenvalues of the
+matrix scaled to unit range, with the tolerance of the original units. A
+function with weights, bounds or normals
 that differ between entries depends on their order and is rejected.
 
 $_SPECTRAL_NOTE
@@ -55,6 +60,7 @@ isproximable(::Type{<:Spectral}) = true
 _argument_type(::Type{<:Spectral}) = AbstractMatrix
 isconvex(::Type{<:Spectral{F}}) where {F} = isconvex(F)
 _isindicator(::Type{<:Spectral{F}}) where {F} = _isindicator(F)
+_conjugate_isindicator(::Type{<:Spectral{F}}) where {F} = _conjugate_isindicator(F)
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix)
   _checksize(Y, X)
@@ -66,15 +72,29 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectra
   _checkwrite(value_and_prox!, s.f, z, λ)
 end
 
+# The domain is the finite matrices: a non-finite entry gives Inf, before the
+# symmetry test and any decomposition.
 function (s::Spectral)(X::AbstractMatrix)
   T = float(eltype(X))
   n = checksquare(X)
+  all(isfinite, X) || return T(Inf)
   _issymmetric_tol(X) || return T(Inf)
   ws = _eig_workspace(s.eig, T, n)
   s.eig = ws
   copyto!(ws.A, X)
-  _isindicator(s.f) && !all(isfinite, ws.A) && return T(Inf)
-  convert(T, s.f(_eigvals!(ws)))
+  λ = _eigvals!(ws)
+  if !isempty(λ) && !(_finite_value(λ[1]) && _finite_value(λ[end])) && _scales_membership(s.f)
+    return _scaled_spectral_membership!(s, ws, X)
+  end
+  convert(T, s.f(λ))
+end
+
+# the balls and boxes at an overflowing spectrum, on the eigenvalues of X/2^k
+@noinline function _scaled_spectral_membership!(s::Spectral, ws, X::AbstractMatrix)
+  copyto!(ws.A, X)
+  k = _magnitude_exponent(_maximum_abs(ws.A))
+  _scaled_spectral_input!(ws.A, X)
+  _scaled_membership(s.f, _eigvals!(ws), k)
 end
 
 function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real)

@@ -151,6 +151,76 @@ function spectral_case(A, kind, γ; mass=1.0)
         " solution_error=", norm(Y - H), " kkt=", residuals)
 end
 
+# These inequalities are independent of the package's membership kernels.
+function expcone_feasible(x, dual, tol)
+  r, s, t = dual ? (-x[1], -x[2], -x[3]) : x
+  if dual
+    return (abs(r) <= tol && s <= tol && t <= tol) ||
+      (r > 0 && t <= tol && tol - t > 0 && s <= r * (1 + log((tol - t) / r)) + tol)
+  end
+  (abs(s) <= tol && r <= tol && t >= -tol) ||
+    (s > 0 && t >= -tol && t + tol > 0 && r <= s * log((t + tol) / s) + tol)
+end
+
+function expcone_case(x, dual)
+  model = Model(() -> conic_optimizer(SOLVER_TOL))
+  @variable(model, z[1:3])
+  @variable(model, q)
+  @constraint(model, [q; 1.0; z - x] in MOI.RotatedSecondOrderCone(5))
+  # The linear map represents -u exp(v/u) <= e*w directly, with no
+  # projection or Moreau formula from the implementation under test.
+  cone = if dual
+    @constraint(model, [-z[2], -z[1], exp(1.0) * z[3]] in MOI.ExponentialCone())
+  else
+    @constraint(model, z in MOI.ExponentialCone())
+  end
+  @objective(model, Min, q)
+  status = solve_or_fail!(model)
+  h = JuMP.value.(z)
+  multiplier = JuMP.dual(cone)
+  normal = dual ? [-multiplier[2], -multiplier[1], exp(1.0) * multiplier[3]] : multiplier
+  f = dual ? IndExpDual() : IndExpPrimal()
+  y = similar(x)
+  @test value_and_prox!(y, f, x, 0.7) === 0.0
+  objective(v) = sum(abs2, v - x) / 2
+  @test objective(h) ≈ objective_value(model) atol=OBJECTIVE_TOL rtol=OBJECTIVE_TOL
+  @test objective(y) ≈ objective(h) atol=OBJECTIVE_TOL rtol=OBJECTIVE_TOL
+  @test norm(y - h) <= SOLUTION_TOL * max(1, norm(h))
+  magnitude = max(1, norm(x))
+  for v in (h, y)
+    @test expcone_feasible(v / magnitude, dual, FEAS_TOL)
+    @test expcone_feasible((v - x) / magnitude, !dual, FEAS_TOL)
+    @test abs(dot(v, v - x)) / magnitude^2 <= KKT_TOL
+  end
+  @test expcone_feasible(normal / magnitude, !dual, FEAS_TOL)
+  @test norm(h - x - normal) / magnitude <= KKT_TOL
+  @test abs(dot(h, normal)) / magnitude^2 <= KKT_TOL
+  println("CASE expcone dual=$dual x=$x status=$status",
+    " objective_error=", abs(objective(y) - objective(h)),
+    " solution_error=", norm(y - h),
+    " oracle_kkt=", norm(h - x - normal) / magnitude)
+end
+
+function run_expcone_oracles()
+  rng = Xoshiro(1712026)
+  println("EXP_ORACLE seed=1712026 feasibility_tol=$FEAS_TOL",
+    " solution_tol=$SOLUTION_TOL kkt_tol=$KKT_TOL")
+  cases = [[0.0, 1, 2], [-1.0, 0, 1], [0.0, 0, 0],
+           [1.0, 1, 1], [0.01, -8, 8], [-8.0, 0.01, -8]]
+  for delta in (-1e-6, 0.0, 1e-6)
+    append!(cases, [[-1.0, delta, 1], [delta, 1.0, 1], [1.0, 1, delta]])
+  end
+  append!(cases, [randn(rng, 3) for _ in 1:20])
+  @testset "Independent Hypatia exponential cone projections" begin
+    for dual in (false, true), (i, v) in enumerate(cases)
+      scale = (0.1, 1.0, 10.0)[mod1(i, 3)]
+      @testset "dual=$dual case=$i scale=$scale" begin
+        expcone_case(scale .* v, dual)
+      end
+    end
+  end
+end
+
 function run_oracles()
     LinearAlgebra.BLAS.set_num_threads(1)
     root = normpath(joinpath(@__DIR__, "../.."))
@@ -187,6 +257,7 @@ function run_oracles()
             spectral_case(inputs[2], :fantope, 0.7; mass=1.5)
         end
     end
+    run_expcone_oracles()
 end
 
 run_oracles()

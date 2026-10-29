@@ -22,6 +22,8 @@ feasibility certificate.
 | [`IndBallL2`](@ref)`(r)` | ``\lVert x\rVert_2 \le r`` | ``\min(1, r/\lVert v\rVert_2)\,v`` |
 | [`IndSOC`](@ref)`()` | ``\lVert x_{2:n}\rVert_2 \le x_1`` | closed form in the head and the tail norm |
 | [`IndRotatedSOC`](@ref)`()` | ``\lVert x_{3:n}\rVert_2^2 \le 2x_1x_2``, ``x_1,x_2 \ge 0`` | an orthogonal change of coordinates to the second-order cone |
+| [`IndExpPrimal`](@ref)`()` | ``\operatorname{cl}\{(r,s,t):s>0,\ s e^{r/s}\le t\}`` | a bracketed univariate root problem |
+| [`IndExpDual`](@ref)`()` | the dual exponential cone | Moreau decomposition with the primal cone |
 | [`IndSphereL2`](@ref)`(r)` | ``\lVert x\rVert_2 = r``, nonconvex | ``r\,v/\lVert v\rVert_2`` |
 | [`IndBallL1`](@ref)`(r)` | ``\lVert x\rVert_1 \le r`` | ``\operatorname{sign}(v)\odot P_{\Delta_r}(\lvert v\rvert)``, by Condat's algorithm |
 | [`IndSimplex`](@ref)`(r)` | ``x \ge 0,\ \sum_i x_i = r`` | ``\max(v - \tau, 0)`` |
@@ -148,6 +150,44 @@ array. When the selection variables are uncoupled, minimizing
 ``\lambda_0 a + \lambda_2\beta^2/a`` over ``0 \le a \le 1`` gives
 [`Berhu`](@ref)`(2√(λ₀λ₂), √(λ₀/λ₂))`. With coupled selection variables,
 such as a shared budget, the cone retains their joint constraint.
+
+## Exponential cones
+
+[`IndExpPrimal`](@ref)`()` projects a triple in the order ``(r,s,t)`` onto
+``K_{\exp} = \operatorname{cl}\{(r,s,t):s>0,\ s\exp(r/s)\le t\}``.
+The face at ``s=0`` is ``r\le0,\ t\ge0``.
+[`IndExpDual`](@ref)`()` projects onto
+``K_{\exp}^* = \operatorname{cl}\{(u,v,w):u<0,\ -u\exp(v/u)\le e w\}``,
+whose face at ``u=0`` is ``v\ge0,\ w\ge0``.
+Arrays use one-based linear indexing and must have exactly three entries.
+
+Both constructors accept disjoint triples of indices, for example
+`IndExpPrimal([[3, 1, 2], [6, 4, 5]])`. Each triple uses its listed order.
+Groups are copied. Entries outside the groups are free and are copied by the
+projection; an empty collection leaves all entries free. Only scalar steps
+are supported. The two grouped constructors are not duals when free entries
+exist: [`Conjugate`](@ref) requires zero on those entries and the polar cone
+on each triple. The docstrings specify the tolerant membership inequalities.
+Projection branches use exact inequalities, separately from that tolerance.
+
+The projection follows Section 5 and Algorithm 1 of
+[Friberg (2023)](https://doi.org/10.1080/10556788.2021.2022147).
+Closed-form and heuristic candidates handle the faces and extreme root
+parameters. Otherwise, a finite bracket bounds damped Newton steps, followed
+by bisection after twenty steps. The search stops at floating-point resolution
+or after one hundred steps and compares the last candidate with the heuristics
+by distance. The paper writes the coordinates as ``(t,s,r)``.
+The dual projection uses ``P_{K^*}(x)=x+P_K(-x)``; direct reconstruction of
+the polar component avoids cancellation. Scaled equations and exponential
+products avoid intermediate overflow, including when ``\exp(r/s)`` alone
+is unrepresentable. A component can overflow if the projection itself is
+unrepresentable in the output type. Non-finite entries give value `Inf` and
+project to `NaN` within their triple; free entries are copied unchanged.
+
+These cones represent exponential and relative-entropy constraints in conic
+splitting methods. Direct proximal operators such as [`NegEntropy`](@ref),
+[`KLDivergence`](@ref), [`NegLog`](@ref), and the GLM losses are usually cheaper
+when the model admits them directly.
 
 ## Intersections
 

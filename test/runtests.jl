@@ -32,6 +32,7 @@ tests = [
   "sets",
   "soc",
   "rotatedsoc",
+  "expcone",
   "hyperslab",
   "extreme_normals",
   "large_inputs",

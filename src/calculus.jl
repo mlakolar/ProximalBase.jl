@@ -304,7 +304,8 @@ end
 # Keep the direct value for known closed forms, especially exact indicator zeros.
 _has_conjugate_value(::AbstractFunction) = false
 _has_conjugate_value(::Union{NormL1, NormL2, NormLinf, IndBallL1, IndBallL2, IndSOC, IndRotatedSOC,
-                            ZeroFunction, IndNonnegative, IndBox, IndSimplex, SumLargest, SqrNormL2,
+                            IndExpPrimal, IndExpDual, ZeroFunction, IndNonnegative, IndBox, IndSimplex,
+                            SumLargest, SqrNormL2,
                             LinearFunction, CheckLoss, HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}) = true
 _has_conjugate_value(f::Union{Scaled, Translate}) = _has_conjugate_value(f.f)
 _has_conjugate_value(f::SingularValue) = _has_conjugate_value(f.f)
@@ -427,6 +428,10 @@ _conjugate_value(f::IndSOC, y::AbstractArray) =
   (_checkparams(f, y); _soc_value(f, y, true))
 _conjugate_value(f::IndRotatedSOC, y::AbstractArray) =
   (_checkparams(f, y); _rotatedsoc_value(f, y, true))
+_conjugate_value(f::IndExpPrimal, y::AbstractArray) =
+  (_checkparams(f, y); _exp_value(f, y, true))
+_conjugate_value(f::IndExpDual, y::AbstractArray) =
+  (_checkparams(f, y); _exp_value(f, y, true))
 function _conjugate_value(f::IndSimplex, y::AbstractArray)
   T = float(eltype(y))
   isempty(y) && return f.equality && f.r > 0 ? T(-Inf) : zero(T)

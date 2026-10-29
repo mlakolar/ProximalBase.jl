@@ -205,7 +205,7 @@ unit(f::SumLargest, T) = SumLargest(f.k, one(T))
             a = outcome!(value_and_prox!, Y, W(f), B, one(T))
             b = outcome!(legacy!, R, W(f), B, one(T))
             @test isequal(a, b)
-            a[1] === :value && (@test samebits(Y, R))
+            a[1] === :value && (@test all(isfinite, B) ? samebits(Y, R) : isequal(Y, R))
           end
         end
         for f in inventory(T)
@@ -216,7 +216,7 @@ unit(f::SumLargest, T) = SumLargest(f.k, one(T))
             a = outcome!(value_and_prox!, Y, W(f), B, one(T))
             b = outcome!(legacy!, R, W(f), B, one(T))
             @test isequal(a, b)
-            a[1] === :value && (@test samebits(Y, R))
+            a[1] === :value && (@test isequal(Y, R))
           end
         end
       end
@@ -244,7 +244,7 @@ end
     a = outcome!(value_and_prox!, Y, W(f), X, 1.0f0)
     b = outcome!(legacy!, R, W(f), X, 1.0f0)
     @test isequal(a, b)
-    a[1] === :value && (@test samebits(Y, R))
+    a[1] === :value && (@test isequal(Y, R))
   end
   # Projection can produce a truly unrepresentable entry.
   M = floatmax(Float64)

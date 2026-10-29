@@ -139,6 +139,7 @@ gradient!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, x
 function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}}
   _checkparams(t, x)
   Base.Broadcast.check_broadcast_axes(axes(g), t.c)
+  _check_symmetric_source(g, t.c)
   _checkwrite(op, t.f, g, x)
 end
 
@@ -146,6 +147,7 @@ function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray) where {
   _checksize(y, x)
   _checkparams(t, x)
   Base.Broadcast.check_broadcast_axes(axes(y), x, t.c)
+  _check_symmetric_source(y, t.c)
   _checkwrite(op, t.f, y, y)
 end
 
@@ -207,7 +209,7 @@ gradient!(g, t::Translate, x::AbstractArray) =
   (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, _shifted(t, x)))
 
 _checkwrite(op::O, t::Translate, g, x::AbstractArray) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
-  _checkwrite(op, t.f, g, _checkshifted(t, x))
+  (_check_symmetric_source(g, t.b); _checkwrite(op, t.f, g, _checkshifted(t, x)))
 
 function _checkshifted(t::Translate, x::AbstractArray)
   size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
@@ -220,6 +222,7 @@ function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) wh
   _checksize(y, x)
   _checksize(t.b, x)
   _checkparams(t, x)
+  _check_symmetric_source(y, t.b)
   _checkwrite(op, t.f, y, y)
 end
 
@@ -506,7 +509,7 @@ function _conjugate_value(f::NormL1, y::AbstractArray)
   _checkconjugate(f, y)
   T = float(eltype(y))
   @inbounds for i in eachindex(IndexLinear(), y)
-    _within(abs(y[i]), f.λ0 * _entry(f.w, i), T) || return T(Inf)
+    _within(abs(y[i]), _weight_coefficient(f.λ0, _entry(f.w, i)), T) || return T(Inf)
   end
   zero(T)
 end

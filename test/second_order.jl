@@ -189,6 +189,12 @@ end
   @test all(isnan, hessian_vec(f, N, Matrix(1.0I, p, p)))
   @test_throws ArgumentError quadratic_model(f, N)
   @test_throws ArgumentError hessian_vec!(zeros(Float32, p, p), f, X, X)
+  # an output whose columns are not contiguous (issue #214)
+  V = Matrix(Symmetric(randn(p, p)))
+  Hv = view(zeros(2p, p), 1:2:2p, :)
+  @test hessian_vec!(Hv, f, X, V) === Hv
+  @test Hv ≈ hessian_vec(f, X, V)
+  @test all(iszero, parent(Hv)[2:2:end, :])
 
   @testset "Float32" begin
     f32 = LogDetLoss(Float32.(S))

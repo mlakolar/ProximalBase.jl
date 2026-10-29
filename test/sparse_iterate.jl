@@ -521,7 +521,8 @@ end
         @test Matrix(rmul!(copy(S), 2.)) == 2M && Matrix(lmul!(2., copy(S))) == 2M
         @test Matrix(rdiv!(copy(S), 2.)) == M / 2 && Matrix(ldiv!(2., copy(S))) == M / 2
         @test Matrix(axpy!(2., M, copy(S))) ≈ 3M && Matrix(axpby!(2., M, 3., copy(S))) ≈ 5M
-        @test Matrix(axpy!(2., S, copy(S))) ≈ 3M && Matrix(axpy!(2., vec(M), copy(S))) ≈ 3M
+        @test Matrix(axpy!(2., S, copy(S))) ≈ 3M
+        @test_throws DimensionMismatch axpy!(2., vec(M), copy(S))
         @test Matrix(axpy!(0., fill(NaN, p, p), copy(S))) == M
         @test_throws DimensionMismatch axpy!(1., ones(3, 3), copy(S))
         @test_throws DimensionMismatch axpby!(1., ones(3, 3), 1., copy(S))
@@ -575,9 +576,11 @@ end
       @test Matrix(x) == Matrix(M)
       @test Array(x) == Matrix(M)
       @test typeof(SymmetricSparseIterate(2)) == SymmetricSparseIterate{Float64}
-      # from a dense matrix, its lower triangle
+      # from a matrix that is not symmetric, only through Symmetric(D, :L)
       D = randn(4, 4)
-      y = SymmetricSparseIterate(D)
+      @test_throws ArgumentError SymmetricSparseIterate(D)
+      @test_throws ArgumentError SymmetricSparseIterate(sparse(D))
+      y = SymmetricSparseIterate(Symmetric(D, :L))
       @test Matrix(y) == Matrix(Symmetric(D, :L))
       @test nnz(y) == 10
       @test size(SymmetricSparseIterate(0)) == (0, 0)
@@ -597,26 +600,34 @@ end
       t = similar(s)
       t .= s .+ D
       @test Matrix(t) ≈ abs.(2D) .- 1 .+ D
-      # copyto! and broadcasting from a matrix read its lower triangle
+      # copyto! and broadcasting take a symmetric matrix, and one triangle of
+      # a matrix that is not symmetric only through Symmetric
       E = randn(5, 5)
-      @test Matrix(copyto!(t, E)) == Matrix(Symmetric(E, :L))
+      F = E + E'
+      @test_throws ArgumentError copyto!(t, E)
+      @test Matrix(copyto!(t, Symmetric(E, :L))) == Matrix(Symmetric(E, :L))
       for source in (view(E, :, :), transpose(E), sparse(E), UpperTriangular(E))
+        @test_throws ArgumentError copyto!(t, source)
+      end
+      for source in (view(F, :, :), transpose(F), sparse(F), Symmetric(sparse(E), :U))
         @test copyto!(t, source) === t
-        @test Matrix(t) == Matrix(Symmetric(Matrix(source), :L))
+        @test Matrix(t) == Matrix(source)
       end
       for T in (Float64, ComplexF64)
-        source = SparseArrays.CHOLMOD.Dense(T.(E))
+        @test_throws ArgumentError copyto!(SymmetricSparseIterate(T, 5), SparseArrays.CHOLMOD.Dense(T.(E)))
+        source = SparseArrays.CHOLMOD.Dense(T.(F))
         dest = SymmetricSparseIterate(T, 5)
         @test copyto!(dest, source) === dest
-        @test Matrix(dest) == Matrix(Symmetric(T.(E), :L))
+        @test Matrix(dest) == T.(F)
         # The differently typed destination takes CHOLMOD's untyped
         # intersection rather than its element-type-matched method.
         mixed = SymmetricSparseIterate(ComplexF64, 5)
         @test copyto!(mixed, source) === mixed
-        @test Matrix(mixed) == Matrix(Symmetric(ComplexF64.(E), :L))
+        @test Matrix(mixed) == ComplexF64.(F)
       end
-      @test_throws DimensionMismatch copyto!(t, view(E, 1:4, 1:4))
-      t .= E
+      @test_throws DimensionMismatch copyto!(t, view(F, 1:4, 1:4))
+      @test_throws ArgumentError t .= E
+      t .= Symmetric(E, :L)
       @test Matrix(t) == Matrix(Symmetric(E, :L))
       fill!(t, 0)
       @test nnz(t) == 0
@@ -625,15 +636,19 @@ end
     end
 
     @testset "copyto! from sparse wrappers" begin
-      A = sparse(ComplexF64[1+2im 3-4im; 5+6im 0])
-      sources = Any[transpose(A), adjoint(A)]
+      A = sparse(ComplexF64[1+2im 3-4im; 5+6im 0])      # not symmetric
+      B = sparse(ComplexF64[1+2im 3-4im; 3-4im 0])      # symmetric
+      wraps = Any[transpose, adjoint]
       @static if isdefined(SparseArrays, :SparseMatrixCSCOrView)
-        push!(sources, view(A, :, 1:2))
+        push!(wraps, M -> view(M, :, 1:2))
       end
-      for source in sources
+      for wrap in wraps
         dest = fill!(SymmetricSparseIterate(ComplexF64, 2), 9)
+        @test_throws ArgumentError copyto!(dest, wrap(A))
+        @test Matrix(dest) == fill(9, 2, 2)
+        source = wrap(B)
         @test copyto!(dest, source) === dest
-        @test Matrix(dest) == Matrix(Symmetric(Matrix(source), :L))
+        @test Matrix(dest) == Matrix(source)
         @test_throws DimensionMismatch copyto!(SymmetricSparseIterate(3), source)
       end
       @static if isdefined(SparseArrays, :AdjOrTransSparseVectorOrView)

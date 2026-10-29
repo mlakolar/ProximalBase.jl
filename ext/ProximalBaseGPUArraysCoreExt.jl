@@ -118,7 +118,7 @@ function ProximalBase._value_dense(f::ElasticNet, x::GPUArray)
     l2 = _scaled_square_value(f.λ2, x)
   end
   # NaN entries propagate even when both levels vanish.
-  iszero(f.λ1) && iszero(f.λ2) && return _all(!isnan, x) ? zero(T) : T(NaN)
+  f.w === nothing && iszero(f.λ1) && iszero(f.λ2) && return _all(!isnan, x) ? zero(T) : T(NaN)
   l1 + l2
 end
 
@@ -262,14 +262,14 @@ function ProximalBase.value_and_prox!(y::GPUArray, f::NormLinf, x::GPUArray, γ:
     y === x || copyto!(y, x)
     return zero(T)
   end
-  c = _level_product(T, γ, f.λ)
+  c = _level_product_device(T, γ, f.λ)
   if _sum(T, abs, x) <= c
     fill!(y, zero(eltype(y)))
     return zero(T)
   end
   τ = _level(x, c, abs)
   y .= sign.(x) .* min.(abs.(x), τ)
-  return _level_fits(T, f.λ) ? convert(T, convert(T, f.λ) * τ) : f(y)
+  return _level_preserved(T, f.λ) ? convert(T, convert(T, f.λ) * τ) : f(y)
 end
 
 function (f::IndBallL1)(x::GPUArray)
@@ -423,9 +423,14 @@ struct _Level{T}
 end
 (l::_Level{T})(w) where {T} = _positive_product(l.step, l.λ, convert(T, w))
 
+# Exact conversions retain subnormal factors for the kernel's product recovery.
+_level_preserved(::Type{T}, a) where {T} = _level_fits(T, a) || convert(T, a) == a
+_level_product_device(::Type{T}, γ, λ) where {T} =
+  _level_preserved(T, γ) && _level_preserved(T, λ) ? convert(T, γ) * convert(T, λ) : _level_product(T, γ, λ)
+
 # Combine converted step/level factors before entering a kernel.
 function _group_levels(::Type{T}, γ, λ) where {T}
-  _level_fits(T, γ) && _level_fits(T, λ) && return (convert(T, γ), convert(T, λ))
+  _level_preserved(T, γ) && _level_preserved(T, λ) && return (convert(T, γ), convert(T, λ))
   R = promote_type(T, float(typeof(γ)), float(typeof(λ)))
   c = convert(R, γ) * convert(R, λ)
   _level_fits(T, c) && return (one(T), convert(T, c))
@@ -590,7 +595,7 @@ function _group_prox!(y, f::GroupNormL2, lay, x, γ::Real, ::Val{V}) where {V}
     V && (v += _sum(S, _L2Value(step, λ), s, b.w))
   end
   _scatter_back!(_scale, yv, lay, fac)
-  return V && (!_level_fits(S, γ) || !_level_fits(S, f.λ0) || !isfinite(v)) ? _l2_part(S, yv, lay, f.λ0) : v
+  return V && (!_level_preserved(S, γ) || !_level_preserved(S, f.λ0) || !isfinite(v)) ? _l2_part(S, yv, lay, f.λ0) : v
 end
 
 # SparseGroupNormL2: soft thresholding, then block soft thresholding
@@ -619,7 +624,7 @@ function _group_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real, ::Val{V}) where
   y === x || copyto!(y, x)
   iszero(f.λ0) && iszero(f.λ1) && return zero(S)
   yv = vec(y)
-  c1 = _level_fits(S, γ) && _level_fits(S, f.λ1) ? convert(S, γ * f.λ1) : _level_product(S, γ, f.λ1)
+  c1 = _level_preserved(S, γ) && _level_preserved(S, f.λ1) ? convert(S, γ * f.λ1) : _level_product_device(S, γ, f.λ1)
   if iszero(f.λ0)
     yl = view(yv, 1:length(lay.gid))
     yl .= _SparseScale(c1, length(lay.pos)).(yl, one(S), lay.gid)
@@ -635,7 +640,7 @@ function _group_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real, ::Val{V}) where
     V && (v2 += _sum(S, _L2Value(step, λ), s, b.w))
   end
   _scatter_back!(_SparseScale(c1, length(lay.pos)), yv, lay, fac)
-  if V && (!_level_fits(S, γ) || !_level_fits(S, f.λ0) || !isfinite(v2))
+  if V && (!_level_preserved(S, γ) || !_level_preserved(S, f.λ0) || !isfinite(v2))
     v2 = _l2_part(S, yv, lay, f.λ0)
   end
   return v2 + (V && !iszero(f.λ1) ? _weighted_grouped_l1(S, f.λ1, yv, lay) : zero(S))
@@ -696,7 +701,7 @@ function _group_prox!(y, f::GroupNormLinf, lay, x, γ::Real, ::Val{V}) where {V}
     V && (v += _sum(S, _Weighted(λ), τ, b.w))
   end
   _scatter_back!(_clip, yv, lay, levels)
-  return V && (!_level_fits(S, γ) || !_level_fits(S, f.λ0) || !isfinite(v)) ? _value(f, lay, y) : v
+  return V && (!_level_preserved(S, γ) || !_level_preserved(S, f.λ0) || !isfinite(v)) ? _value(f, lay, y) : v
 end
 
 # IndBallGroupL0: the number of nonzero groups, and of nonzero entries in a group

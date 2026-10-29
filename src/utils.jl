@@ -120,6 +120,10 @@ function _array_buffer!(s::Scratch, ::Type{T}, dims::NTuple{N, Int}) where {T, N
   b
 end
 
+# CPU prototypes keep the existing dense buffer and cache checks.
+_array_buffer!(s::Scratch, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(s, T, size(x))
+_checkbuffer(s::Scratch, ::Type{T}, x::AbstractArray) where {T} = _checkbuffer(s, T, size(x))
+
 # A buffer like the output y for the input that a wrapper passes on: an Array
 # for a dense output on the CPU and similar(y) for other dense arrays, such as GPU
 # arrays, reused while their type and size do not change; and otherwise a copy of

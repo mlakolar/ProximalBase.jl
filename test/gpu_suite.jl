@@ -538,3 +538,119 @@ end
     end
   end
 end
+
+@testset "conjugate scalar steps on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types, dims in ((3,), (3, 2))
+    x = reshape(repeat(T[0.5, -2, 1.5], prod(dims) ÷ 3), dims)
+    xg = DeviceArray(x)
+    for f in (NormL1(), NormL1(T(0.7), fill(T(0.8), dims)), IndNonnegative(),
+              IndBox(-1, 1), IndBallL2(1), SqrNormL2(), ElasticNet(1, 1))
+      c = Conjugate(f)
+      cg = Conjugate(Adapt.adapt(DeviceArray, f))
+      expected = prox(c, x, T(0.5))
+      y = similar(xg)
+      @test prox!(y, cg, xg, T(0.5)) === y
+      @test host(y) ≃ expected
+      buffer = cg.scratch.buf
+      @test same(value_and_prox!(y, cg, xg, T(0.5)), value_and_prox!(similar(x), c, x, T(0.5)))
+      @test cg.scratch.buf === buffer
+      @test host(y) ≃ expected
+      alias = copy(xg)
+      @test host(prox!(alias, cg, alias, T(0.5))) ≃ expected
+      alias = copy(xg)
+      @test same(value_and_prox!(alias, cg, alias, T(0.5)), value_and_prox!(similar(x), c, x, T(0.5)))
+      @test host(alias) ≃ expected
+    end
+    # A single cache can move between array kinds and sizes.
+    c = Conjugate(SqrNormL2())
+    @test prox(c, x, T(0.5)) ≃ x ./ T(1.5)
+    @test host(prox(c, xg, T(0.5))) ≃ x ./ T(1.5)
+    @test prox(c, x, T(0.5)) ≃ x ./ T(1.5)
+    small = DeviceArray(T[1, 2])
+    @test host(prox(c, small, T(0.5))) ≃ T[1, 2] ./ T(1.5)
+    v = view(DeviceArray(T[0.5, -2, 1.5, 9]), 1:3)
+    for f in (NormL1(), SqrNormL2(), IndBox(-1, 1))
+      @test host(prox(Conjugate(f), v, T(0.5))) ≃ prox(Conjugate(f), T[0.5, -2, 1.5], T(0.5))
+    end
+  end
+end
+
+@testset "conjugate values on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types, dims in ((3,), (3, 2))
+    for f in (NormL1(), NormL1(T(0.7), fill(T(0.8), dims)), IndNonnegative(),
+              IndBox(-1, 1), IndBox(fill(T(-2), dims), fill(T(3), dims)), IndBox(-Inf, Inf))
+      c, cg = Conjugate(f), Conjugate(Adapt.adapt(DeviceArray, f))
+      for v in (T(-0.2), T(0), T(2))
+        x = fill(v, dims)
+        @test same(cg(DeviceArray(x)), c(x))
+      end
+    end
+  end
+end
+
+@testset "conjugate array steps on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types, dims in ((3,), (3, 2))
+    x = reshape(repeat(T[0.5, -2, 1.5], prod(dims) ÷ 3), dims)
+    γ = reshape(repeat(T[0.5, 1, 2], prod(dims) ÷ 3), dims)
+    xg, γg = DeviceArray(x), DeviceArray(γ)
+    @test host(prox(Berhu(1, 1), xg, γg)) ≃ prox(Berhu(1, 1), x, γ)
+    for f in (NormL1(), IndNonnegative(), IndBox(-1, 1), ElasticNet(1, 1), Berhu(1, 1),
+              ElasticNet(1, 1, fill(T(0.8), dims)))
+      c, cg = Conjugate(f), Conjugate(Adapt.adapt(DeviceArray, f))
+      expected = prox(c, x, γ)
+      y = similar(xg)
+      @test host(prox!(y, cg, xg, γg)) ≃ expected
+      buffer = cg.scratch.buf
+      @test same(value_and_prox!(y, cg, xg, γg), value_and_prox!(similar(x), c, x, γ))
+      @test host(y) ≃ expected
+      @test cg.scratch.buf === buffer
+      alias = copy(xg)
+      @test host(prox!(alias, cg, alias, γg)) ≃ expected
+      alias = copy(xg)
+      @test same(value_and_prox!(alias, cg, alias, γg), value_and_prox!(similar(x), c, x, γ))
+      @test host(alias) ≃ expected
+    end
+    for f in (SqrNormL2(), IndBallL2(1))
+      @test_throws MethodError prox(Conjugate(f), x, γ)
+      @test_throws MethodError prox(Conjugate(f), xg, γg)
+    end
+  end
+end
+
+conjugate_blocks_match(a::AbstractArray, b::AbstractArray) = host(a) ≃ b
+conjugate_blocks_match(a::Tuple, b::Tuple) = all(map(conjugate_blocks_match, a, b))
+
+@testset "conjugate checks and tuples on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types
+    x = T[0.5, -2, 1.5]
+    xg = DeviceArray(x)
+    for γ in (nextfloat(zero(T)), DeviceArray(fill(nextfloat(zero(T)), 3))),
+        op in (prox!, value_and_prox!), alias in (false, true)
+      y = alias ? copy(xg) : DeviceArray(fill(T(19), 3))
+      before = host(y)
+      c = Conjugate(ElasticNet(1, 1))
+      @test_throws ArgumentError op(y, c, alias ? y : xg, γ)
+      @test host(y) == before
+    end
+    for (f, blocks, deviceblocks) in (
+        (SeparableSum(NormL1(), SqrNormL2()), (x, copy(x)), (xg, copy(xg))),
+        (SeparableSum(NormL1(), SeparableSum(SqrNormL2(), NormL1())),
+         (x, (copy(x), copy(x))), (xg, (copy(xg), copy(xg)))))
+      c = Conjugate(f)
+      expected = prox(Conjugate(f), blocks, T(0.5))
+      y = map(ProximalBase._gradient_buffer, deviceblocks)
+      for _ in 1:2
+        @test prox!(y, c, deviceblocks, T(0.5)) === y
+        @test ProximalBase._tuple_buffer_type(typeof(y)) === typeof(c.scratch.buf[3])
+        buffer = c.scratch.buf
+        @test same(value_and_prox!(y, c, deviceblocks, T(0.5)), value_and_prox!(map(ProximalBase._gradient_buffer, blocks), Conjugate(f), blocks, T(0.5)))
+        @test c.scratch.buf === buffer
+        @test conjugate_blocks_match(y, expected)
+      end
+    end
+  end
+end

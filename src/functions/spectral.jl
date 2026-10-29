@@ -57,10 +57,10 @@ end
 _issymmetric_tol(::SymmetricSparseIterate) = true
 
 # the symmetric Y = Σⱼ f(λⱼ) vⱼvⱼ' from the eigendecomposition V, λ, through the
-# n × n matrix buffer when Y is not strided or has a different element type
+# n × n matrix buffer when BLAS cannot write Y or Y has a different element type
 function _rebuild_sym_out!(Y::AbstractMatrix, V::StridedMatrix, λ, f::F, buffer::StridedMatrix;
                            logs::Bool = false) where {F}
-  Y isa StridedMatrix{eltype(V)} && return _rebuild_sym!(Y, V, λ, f; logs)
+  Y isa StridedMatrix{eltype(V)} && _blas_ready(Y) && return _rebuild_sym!(Y, V, λ, f; logs)
   s = _rebuild_sym!(buffer, V, λ, f; logs)
   copyto!(Y, buffer)
   s
@@ -373,7 +373,7 @@ mutable struct IndPSD{R<:Union{Nothing, Int}} <: AbstractFunction
   eig::Any        # all eigenvalues: the value, and the projection onto the cone
   top::Any        # the largest r eigenpairs: the projection with a rank
   pws::Any        # the workspace of the partial eigendecomposition
-  out::Scratch    # the result, for an output that is not strided
+  out::Scratch    # the result, for an output BLAS cannot write
 end
 function IndPSD(; rank::Union{Nothing, Integer} = nothing, partial::Bool = false)
   rank === nothing && return IndPSD{Nothing}(nothing, partial, nothing, nothing, nothing, Scratch())
@@ -426,7 +426,7 @@ function _project_psd!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix)
   copyto!(ws.A, X)
   λ, V = _eigen!(ws)
   n = size(V, 1)
-  _rebuild_sym_out!(Y, V, λ, t -> max(t, zero(t)), Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
+  _rebuild_sym_out!(Y, V, λ, t -> max(t, zero(t)), _blas_ready(Y) ? Y : _array_buffer!(f.out, T, (n, n)))
   f.partial && _warm_start_eigen!(f, V, count(>(zero(T)), λ))
   Y
 end
@@ -449,7 +449,7 @@ function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
   f.top = ws
   copyto!(ws.A, X)
   λ, Z = _eigen_top!(ws)
-  _rebuild_sym_out!(Y, Z, λ, t -> max(t, zero(t)), Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
+  _rebuild_sym_out!(Y, Z, λ, t -> max(t, zero(t)), _blas_ready(Y) ? Y : _array_buffer!(f.out, T, (n, n)))
   f.partial && _warm_start_eigen!(f, Z, count(>(zero(T)), λ))
   Y
 end
@@ -542,7 +542,7 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
     s += max(t - c, zero(T))
   end
   n = size(V, 1)
-  _rebuild_sym_out!(Y, V, λ, t -> max(t - c, zero(t)), Y isa StridedMatrix ? Y : _array_buffer!(f.out, T, (n, n)))
+  _rebuild_sym_out!(Y, V, λ, t -> max(t - c, zero(t)), _blas_ready(Y) ? Y : _array_buffer!(f.out, T, (n, n)))
   f.partial && _warm_start_eigen!(f, V, count(>(c), λ))
   _spectral_prox_value(convert(T, f.λ) * s, convert(T, f.λ), λ, c)
 end

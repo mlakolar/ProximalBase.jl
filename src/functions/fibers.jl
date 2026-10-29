@@ -194,9 +194,15 @@ function (fb::FiberSum)(x::AbstractArray)
   v
 end
 
+# NormL1Fused on two slices runs entry by entry, with no fiber oracle to check
+_pairfibers(::FiberSum, y, x) = false
+_pairfibers(::FiberSum{<:NormL1Fused, <:Union{Nothing, NormL1Fused}}, y::AbstractArray{<:Any, 3}, x::AbstractArray{<:Any, 3}) =
+  size(x, 3) == 2
+
 function _checkwrite(op::O, fb::FiberSum, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checksize(y, x)
   own = _owndiagonal(fb, x)
+  _pairfibers(fb, y, x) && return true
   ordinary, diagonal = false, !own || fb.diagonal === nothing
   for I in _fiberindices(fb, x)
     fb.symmetric && I[1] < I[2] && continue

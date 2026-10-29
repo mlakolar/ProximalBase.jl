@@ -80,11 +80,6 @@ function _checkbuffer(cache, ::Type{T}, dims::NTuple{N, Int}) where {T, N}
   Array{T, N}(undef, dims)
 end
 _checkbuffer(s::Scratch, ::Type{T}, dims::NTuple{N, Int}) where {T, N} = _checkbuffer(s.buf, T, dims)
-function _checkvector(s::Scratch, ::Type{T}, n::Integer) where {T}
-  b = s.buf
-  b isa Vector{T} && length(b) >= n && return b
-  Vector{T}(undef, n)
-end
 
 # Scratch is an implementation detail: copies of a function object share no buffer
 Base.copy(s::Scratch) = Scratch()

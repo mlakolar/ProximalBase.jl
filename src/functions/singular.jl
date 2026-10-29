@@ -142,7 +142,7 @@ prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real) = (value
 function _checkspectrum(F::SingularValue, ::Type{T}, dims::Tuple) where {T}
   ws = F.ws
   k = min(dims...)
-  ws isa SVDWorkspace{T} && (ws.m, ws.n) == dims ? ws.s : Vector{T}(undef, k)
+  T <: _BlasReal && ws isa SVDWorkspace{T} && (ws.m, ws.n) == dims ? ws.s : Vector{T}(undef, k)
 end
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, F::SingularValue, Y::AbstractMatrix, X::AbstractMatrix)
   _checksize(Y, X)

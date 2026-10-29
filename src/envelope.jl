@@ -128,21 +128,27 @@ end
 # With P = prox_{(γ+t)f}(x), the result is y = x + t/(γ + t) (P - x); since
 # (y - P)/γ = (x - P)/(γ + t) ∈ ∂f(P), P is also prox_{γf}(y), so the value at y
 # is f(P) + ‖y - P‖²/(2γ), with ‖y - P‖ = γ/(γ + t) ‖x - P‖
+# The step is checked after the sizes and parameters and before the inner
+# function, as before the pre-write checks.
 function prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
-  _checkwrite(prox!, e, y, x)
+  _checksize(y, x)
+  _checkparams(e, x)
   T = float(eltype(y))
   γ, t = convert(T, e.γ), convert(T, t)
   combined = _envelope_step(γ, t)
+  _checkwrite(prox!, e, y, x)
   P = _envelope_buffer(e, T, x)
   prox!(P, e.f, x, combined)
   y .= _ridge_blend.(x, P, γ / combined, t / combined)
 end
 
 function value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
-  _checkwrite(value_and_prox!, e, y, x)
+  _checksize(y, x)
+  _checkparams(e, x)
   T = float(eltype(y))
   γ, t = convert(T, e.γ), convert(T, t)
   combined = _envelope_step(γ, t)
+  _checkwrite(value_and_prox!, e, y, x)
   P = _envelope_buffer(e, T, x)
   v = value_and_prox!(P, e.f, x, combined)
   a, b = γ / combined, t / combined

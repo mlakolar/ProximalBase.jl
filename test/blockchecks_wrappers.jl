@@ -264,6 +264,43 @@ end
   end
 end
 
+@testset "Checks that follow their oracles' shortcuts and order" begin
+  # SqrDistL2 projects into its own dense buffer, so the set sees no
+  # SymmetricSparseIterate output.
+  d, M = SqrDistL2(IndToeplitz()), [2.0 1; 1 3]
+  for op in oracles
+    @test isequal(oracle!(op, SymmetricSparseIterate(2), d, M), oracle!(op, zeros(2, 2), d, M)) ||
+          op in (prox!, gradient!)
+    @test oracle!(op, SymmetricSparseIterate(2), d, M) !== nothing
+  end
+  # A zero weight skips the projection but not the structural checks.
+  z = SqrDistL2(IndBox(-1.0, 1.0), 0.0)
+  x = [3.0, -4.0]
+  @test z(x) == 0
+  @test prox!(zeros(2), z, x, 1.0) == x
+  @test gradient!(ones(2), z, x) == zeros(2)
+  @test_throws MethodError prox!(zeros(2), SqrDistL2(IndPSD(), 0.0), x, 1.0)
+  # NormL1Fused on two slices runs entry by entry, also on an offset class axis.
+  A = collect(reshape(1.0:12, 2, 2, 3))
+  x = view(A, :, :, Base.IdentityUnitRange(2:3))
+  for diagonal in (NormL1Fused(1.0, 1.0), nothing)
+    fb = FiberSum(NormL1Fused(1.0, 1.0); diagonal)
+    y = view(zeros(2, 2, 3), :, :, Base.IdentityUnitRange(2:3))
+    expected = zeros(2, 2, 2)
+    @test value_and_prox!(y, fb, x, 1.0) == value_and_prox!(expected, fb, collect(x), 1.0)
+    @test collect(y) == expected
+  end
+  # Element types that LAPACK does not support still fail at dispatch.
+  for T in (Float16, BigFloat), f in (SingularValue(NormL1(1.0)), Spectral(NormL1(1.0)))
+    X = T.([2 1; 1 3])
+    @test_throws MethodError prox!(similar(X), f, X, 1.0)
+  end
+  # The step is checked before the inner function, and an array step before it too.
+  @test_throws ArgumentError prox!(zeros(2), MoreauEnvelope(SqrNormL2(1.0, ones(1, 2)), 0.5), [3.0, 4.0], -1.0)
+  @test_throws ArgumentError prox!(zeros(2), MoreauEnvelope(NuclearNorm(1.0), 0.5), [3.0, 4.0], Inf)
+  @test_throws DimensionMismatch prox!(zeros(2), Conjugate(NuclearNorm(1.0)), [3.0, 4.0], ones(3))
+end
+
 @testset "Shared cache history" begin
   D = IndIntersection(IndNonnegative(), IndHyperplane(1.0, 1.0); maxiter = 1)
   prox!(zeros(2), D, [2.0, -1.0], 1.0)
@@ -273,9 +310,11 @@ end
   out = (zeros(2), zeros(3))
   prox!(out, SeparableSum(D, D), ([2.0, -1.0], ones(3)), 1.0)
   @test isequal(out[1], [1.25, -0.25])
+  # a smaller matrix after a larger one on one function object
   s = Spectral(NormL1(1.0))
-  prox(s, Matrix(2.0I, 3, 3))
-  block_failure(s, Matrix(2.0I, 2, 2), errors(proximal, DimensionMismatch))
+  @test prox(s, Matrix(2.0I, 3, 3)) ≈ Matrix(1.0I, 3, 3)
+  @test prox(s, Matrix(2.0I, 2, 2)) ≈ Matrix(1.0I, 2, 2)
+  @test prox(SeparableSum(SqrNormL2(2.0), s), ([3.0], Matrix(2.0I, 2, 2)))[2] ≈ Matrix(1.0I, 2, 2)
 end
 
 _allocation_prox!(y, f, x, γ) = prox!(y, f, x, γ)

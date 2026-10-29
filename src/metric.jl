@@ -83,8 +83,10 @@ end
 
 # Moreau's identity in each entry: prox_{γᵢfᵢ*}(xᵢ) = xᵢ - γᵢ prox_{fᵢ/γᵢ}(xᵢ/γᵢ)
 function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
-  _checkwrite(prox!, c, y, x)
+  _checksize(y, x)
+  _checkparams(c, x)
   _checkparam(γ, x)
+  _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
   z = _array_buffer!(c.scratch, T, size(x))
   z .= x ./ γ

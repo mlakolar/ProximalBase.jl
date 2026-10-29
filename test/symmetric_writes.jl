@@ -311,6 +311,12 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
     @test_throws DomainError replace!(y, 2.0 => 3.0; count = -1)
     @test_throws DomainError replace(y, 2.0 => 3.0; count = -1)
     @test Matrix(y) == [2 2; 2 1]
+    # as in Base, a result that is not === counts even if it converts back
+    y = SymmetricSparseIterate([1.0 1.0; 1.0 1.0])
+    calls = Ref(0)
+    @test Matrix(replace!(v -> (calls[] += 1; Int(v)), y; count = 1)) == [1 1; 1 1]
+    @test calls[] == 1
+    @test size(replace(double, SymmetricSparseIterate(0); count = 1)) == (0, 0)
   end
 
   @testset "#235: replace against the lower triangle, $T" for T in (Float64, ComplexF64)

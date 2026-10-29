@@ -114,6 +114,18 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArr
   end
 end
 
+# f** = f, with the steps and checks of f's own oracles
+function prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::AbstractArray)
+  _checkwrite(prox!, c, y, x)
+  _checkparam(γ, x)
+  prox!(y, c.f.f, x, γ)
+end
+function value_and_prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::AbstractArray)
+  _checkwrite(value_and_prox!, c, y, x)
+  _checkparam(γ, x)
+  value_and_prox!(y, c.f.f, x, γ)
+end
+
 function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
   _checkwrite(value_and_prox!, c, y, x)
   _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))

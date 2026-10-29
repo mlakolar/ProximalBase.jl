@@ -307,10 +307,11 @@ cancel, and errors in the inner proximal point also affect the value. For a
 conjugate that is an indicator, the result can be a small nonzero number
 rather than zero; it is not a feasibility certificate. For a positively
 homogeneous ``f`` or a cone, ``\gamma\operatorname{prox}_{f/\gamma}(x/\gamma) =
-\operatorname{prox}_f(x)``, and for the ball and box indicators, their
+\operatorname{prox}_f(x)``, and for the ℓ2 ball and box indicators, their
 translations and positive rescalings, it is the projection onto ``\gamma C``,
-so these conjugates take every step without dividing by ``\gamma``; for the
-others, `prox!` and `value_and_prox!` throw an `ArgumentError` when a finite
+so these conjugates take every step without dividing by ``\gamma``, with the
+accuracy of a unit step, about ``\epsilon`` times the largest input entry; for
+the others, `prox!` and `value_and_prox!` throw an `ArgumentError` when a finite
 input gives a result that is not finite in working precision.
 
 ```@example calculus

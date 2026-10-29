@@ -82,14 +82,80 @@ end
       @test isfinite(v)
     end
   end
-  # inputs up to 1e300 at a small step
+  # inputs up to 1e300 at a small step. The balls, boxes, translations and the
+  # double conjugate are accurate entry by entry, so the moderate entries match
+  # the reference to 8 eps. The norms and cones are accurate only to about
+  # eps max|x|: Moreau's identity subtracts prox_f(x) from x, which cancels in
+  # the moderate entries against an error set by the huge ones, so for them
+  # only finiteness is asserted.
   γ = 1e-10
   x = [1e300, -3e299, 2.0, 0.0, 5e150]
+  moderate = abs.(x) .<= 1e3
   for f in exact
     y = prox(Conjugate(f), x, γ)
     @test all(isfinite, y)
-    @test isapprox(y, Float64.(reference(f, x, γ)); rtol = 0, atol = tolerance(f, x, γ))
+    if f isa Union{IndBallL2, IndBox, Translate, Scaled, Conjugate}
+      @test isapprox(y[moderate], Float64.(reference(f, x, γ))[moderate]; rtol = 0, atol = 8eps(Float64))
+    end
   end
+end
+
+@testset "empty inputs" begin
+  @test prox(Conjugate(SqrNormL2()), Float64[], 1.0) == Float64[]
+  @test value_and_prox!(Float64[], Conjugate(SqrNormL2()), Float64[], 1.0) == 0.0
+  @test prox!(Float32[], Conjugate(NormL1()), Float64[], 1.0) == Float32[]
+  @test prox(Conjugate(SeparableSum(SqrNormL2(), SqrNormL2())), (Float64[], [1.0]), 1.0) == (Float64[], [0.5])
+  y = prox(Conjugate(SqrNormL2()), zeros(0, 3), 1.0)
+  @test y isa Matrix{Float64} && size(y) == (0, 3)
+  # SqrNormL2 has no array steps, at the base as now; a separable fallback does
+  @test_throws MethodError prox(Conjugate(SqrNormL2()), Float64[], Float64[])
+  @test prox(Conjugate(ElasticNet(0.4, 0.7)), Float64[], Float64[]) == Float64[]
+  @test value_and_prox!(Float64[], Conjugate(ElasticNet(0.4, 0.7)), Float64[], Float64[]) == 0.0
+end
+
+@testset "dilated bounds in the wider precision" begin
+  # γ = 1e-10 dilates a bound of 1e39, outside Float32, to 1e29, inside it
+  for f in (IndBallL2(1e39), IndBox(-1e39, 1e39))
+    y = prox!(zeros(Float32, 1), Conjugate(f), Float32[1f30], 1e-10)
+    @test y ≈ Float32[9f29] rtol = 4eps(Float32)
+    @test prox_entry(Conjugate(IndBox(-1e39, 1e39)), 1f30, 1, 1f-10) ≈ 9f29 rtol = 4eps(Float32)
+  end
+  # at γ = 1 the dilated radius overflows to Inf32: x is inside, the result is 0
+  @test prox!(zeros(Float32, 1), Conjugate(IndBallL2(1e39)), Float32[1f30], 1.0) == Float32[0]
+  @test prox!(zeros(Float32, 1), Conjugate(IndBox(-1e39, 1e39)), Float32[1f30], 1.0) == Float32[0]
+end
+
+@testset "translations at a step that overflows" begin
+  # γ = 1e300 is Inf32. With b = 0 the set is the ball of radius γ, which
+  # contains x, so the result is 0, and a zero entry of b never forms 0 * Inf.
+  x = Float32[0.5, 0.5]
+  @test prox!(zeros(Float32, 2), Conjugate(Translate(IndBallL2(1.0), [0.0, 0.0])), x, 1e300) == Float32[0, 0]
+  # With b = (0, 1), |x - γb|² = γ² - γ + 1/2 < γ², so x is in γ(b + B) and the
+  # exact result is 0 again, but γb = (0, Inf32) is not finite in working
+  # precision: the result is not finite and the check throws.
+  c = Conjugate(Translate(IndBallL2(1.0), [0.0, 1.0]))
+  y = zeros(Float32, 2)
+  @test_throws "is not finite at a finite input" prox!(y, c, x, 1e300)
+  @test y == Float32[0, 0]
+  # in Float64, γb is finite and the result is 0 to about eps γ|b|
+  @test isapprox(prox(c, [0.5, 0.5], 1e300), [0.0, 0.0]; atol = 8eps(Float64) * 1e300)
+end
+
+@testset "double conjugates with array steps and entries" begin
+  twice = Conjugate(Conjugate(NormL1()))
+  x, γ = [3.0, 0.5], [1e-310, 1.0]
+  @test prox(twice, x, γ) == [3.0, 0.0]
+  @test prox(twice, x, γ) == prox(NormL1(), x, γ)
+  y, expected = similar(x), similar(x)
+  @test value_and_prox!(y, twice, x, γ) == value_and_prox!(expected, NormL1(), x, γ)
+  @test y == expected
+  @test_throws DimensionMismatch prox!(similar(x), twice, x, [1.0])
+  for v in (3.0, 0.5, -2.0), step in (1e-310, 1.0, 7.0)
+    @test prox_entry(twice, v, 1, step) == prox_entry(NormL1(), v, 1, step)
+  end
+  # array steps for a double conjugate of a fallback: f** = f, no division
+  f = Conjugate(Conjugate(ElasticNet(0.4, 0.7)))
+  @test prox(f, x, γ) == prox(ElasticNet(0.4, 0.7), x, γ)
 end
 
 @testset "tuples" begin

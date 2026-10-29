@@ -297,13 +297,19 @@ this is not a feasibility certificate.
 Where the conjugate is an indicator as above, and for the conjugates of
 [`IndBallL2`](@ref), [`IndBox`](@ref) and [`IndBallLinf`](@ref), their
 translations and strictly positive rescalings, and `Conjugate(Conjugate(g))`,
-the proximal operator is computed without dividing by the step, so every step,
-however small or large, is supported (a translation by `b` still needs `γb` to
-be finite in working precision, and is checked as below). For the other conjugates, the supported
-range is a finite result at finite inputs: outside it, [`prox!`](@ref) and
-[`value_and_prox!`](@ref) throw an `ArgumentError` before writing, while
-[`prox_entry`](@ref) returns the non-finite value; underflow of `x/γ` at huge
-steps is not detected.
+the proximal operator is computed without dividing by the step: every step
+gives the result of a computation at unit step, accurate to about `eps` times
+the largest input entry. Moreau's identity cancels where `|x|` is far larger
+than the result, so `Conjugate(NormL1())` at `[1e300, 2.0]` gives `[0.0, 1.0]`
+at every step, `γ = 1` included. A translation by `b` also needs `γb` to be
+finite in working precision, and is checked as below. This holds for scalar
+steps; with array steps and in [`prox_entry`](@ref), only for the conjugates
+that are indicators of a separable `f`, for the box itself and for
+`Conjugate(Conjugate(g))`. The other conjugates divide by the step, and their
+supported range is a finite result at finite inputs: outside it,
+[`prox!`](@ref) and [`value_and_prox!`](@ref) throw an `ArgumentError` before
+writing, while [`prox_entry`](@ref) returns the non-finite value; underflow of
+`x/γ` at huge steps is not detected.
 
 Supported zero rescalings simplify in [`Scaled`](@ref) while preserving the
 underlying domain. Each conjugate owns a working buffer; do not share it
@@ -363,20 +369,22 @@ _moreau_checked(::Type{<:Scaled{F}}) where {F} = _moreau_checked(F)
 # Pγ(f, x) into z, for _moreau_free(typeof(f)), with γ in the precision of z;
 # z may be x
 _moreau_point!(z, f, x, γ) = _conjugate_isindicator(typeof(f)) ? prox!(z, f, x, one(γ)) : _moreau_set!(z, f, x, γ)
-# γ times a bound, keeping an infinite or zero bound, so that a step that
-# underflows to 0 or overflows to Inf never forms 0 * Inf
+# γ times a bound in the precision of γ, keeping an infinite or zero bound, so
+# that a step that underflows to 0 or overflows to Inf never forms 0 * Inf; the
+# product is formed in the wider of the two types, so that a bound outside the
+# range of γ's type still dilates to a representable one
 @inline function _dilate(γ, b)
-  S = float(typeof(γ))
-  c = convert(S, b)
-  ifelse(isinf(c) | iszero(c), c, convert(S, γ) * c)
+  P = float(promote_type(typeof(γ), typeof(b)))
+  c = convert(P, b)
+  convert(float(typeof(γ)), ifelse(isinf(c) | iszero(c), c, convert(P, γ) * c))
 end
 _moreau_set!(z, f::IndBallL2, x, γ) = prox!(z, IndBallL2(_dilate(γ, f.r)), x, one(γ))
 _moreau_set!(z, f::IndBox, x, γ) = (z .= clamp.(x, _dilate.(γ, f.l), _dilate.(γ, f.u)))
 _moreau_set!(z, s::Scaled, x, γ) = _moreau_point!(z, s.f, x, γ)
 function _moreau_set!(z, t::Translate, x, γ)
-  z .= x .- γ .* t.b
+  z .= x .- _dilate.(γ, t.b)
   _moreau_point!(z, t.f, z, γ)
-  z .+= γ .* t.b
+  z .+= _dilate.(γ, t.b)
 end
 
 # NaN exactly when x is finite and x - γz in the precision T of the output is
@@ -391,15 +399,22 @@ _moreau_step(γ::AbstractArray, ::Type) = γ
 function _moreau_nonfinite(y::AbstractArray, x::AbstractArray, z::AbstractArray, γ, always::Bool)
   T = float(eltype(y))
   always || promote_type(eltype(x), T) != T || return false
-  bc = Base.Broadcast.broadcasted(_NonfiniteMoreau{T}(), x, _moreau_step(γ, T), z)
-  isnan(sum(Base.Broadcast.instantiate(bc)))
+  term = Base.Broadcast.broadcasted(_NonfiniteMoreau{T}(), x, _moreau_step(γ, T), z)
+  bc = Base.Broadcast.instantiate(term)
+  # an empty array has nothing to check; a sum without an initial value is
+  # pairwise and vectorizes, where one with an initial value is a sequential fold
+  !isempty(bc) && isnan(sum(bc))
 end
 _moreau_nonfinite(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, always::Bool) = false
 _moreau_nonfinite(y::Tuple, x::Tuple, z::Tuple, γ, always::Bool) =
   _moreau_nonfinite(first(y), first(x), first(z), γ, always) ||
   _moreau_nonfinite(Base.tail(y), Base.tail(x), Base.tail(z), γ, always)
-@noinline _moreau_error(γ) = throw(ArgumentError("the proximal point of the conjugate is not finite at a finite input for the step γ = $(γ isa AbstractArray ? summary(γ) : γ) in working precision; rescale the step or the input"))
-_checkmoreau(y, x, z, step, γ, always::Bool) = (_moreau_nonfinite(y, x, z, step, always) && _moreau_error(γ); true)
+@noinline _moreau_error(γ) =
+  throw(ArgumentError("the proximal point of the conjugate is not finite at a finite input " *
+                      "for the step γ = $(γ isa AbstractArray ? summary(γ) : γ) in working " *
+                      "precision; rescale the step or the input"))
+_checkmoreau(y, x, z, step, γ, always::Bool) =
+  (_moreau_nonfinite(y, x, z, step, always) && _moreau_error(γ); true)
 
 function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _checkwrite(prox!, c, y, x)
@@ -429,6 +444,8 @@ function value_and_prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::Abstrac
   _checkwrite(value_and_prox!, c, y, x)
   value_and_prox!(y, c.f.f, x, γ)
 end
+Base.@propagate_inbounds prox_entry(c::Conjugate{<:Conjugate}, v::Real, i::Integer, γ::Real) =
+  prox_entry(c.f.f, v, i, γ)
 # At a proximal point y = x - γp, Fenchel equality gives f*(y) = <p,y> - f(p).
 # Keep the direct value for known closed forms, especially exact indicator zeros.
 _has_conjugate_value(::AbstractFunction) = false

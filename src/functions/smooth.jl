@@ -283,6 +283,10 @@ end
 
 function value_and_gradient!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector)
   _checkwrite(value_and_gradient!, f, g, x)
+  if eltype(g) !== eltype(x)
+    gradient!(g, f, x)
+    return f(x)
+  end
   mul!(g, f.A, x)
   v = dot(g, x) / 2 + f.c
   if f.b !== nothing

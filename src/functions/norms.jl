@@ -527,7 +527,7 @@ function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::A
       continue
     end
     nrm = _shrink_group!(f, y, x, f.groups[k], convert(T, _positive_product(_entry(γ, k), f.λ0, f.w[k])))
-    v += _positive_product(convert(T, f.λ0), w, nrm)
+    v += convert(T, _positive_product(convert(T, f.λ0), w, nrm))
   end
   v
 end
@@ -609,7 +609,7 @@ function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::Ato
     w = convert(T, f.w[k])
     iszero(w) && continue
     nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, _positive_product(_entry(γ, k), f.λ0, f.w[k])))
-    v += _positive_product(convert(T, f.λ0), w, nrm)
+    v += convert(T, _positive_product(convert(T, f.λ0), w, nrm))
   end
   v
 end
@@ -775,7 +775,7 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
   n = length(x)
   if iszero(λ1) && iszero(λ2)
     y === x || copyto!(y, x)
-    return zero(T)
+    return V ? zero(f(y)) : zero(T)
   end
   if n == 2
     @inbounds y[1], y[2] = _prox_l1fused(convert(T, x[1]), convert(T, x[2]), λ1, λ2, convert(T, γ))

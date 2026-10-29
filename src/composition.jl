@@ -63,7 +63,7 @@ struct Precompose{F<:AbstractFunction, M, T<:Real} <: AbstractFunction
   μ::T
   image::Scratch        # Ax
   inner::Scratch        # the proximal point or the gradient of f at Ax
-  direction::Scratch    # Av for a Hessian-vector product
+  direction::Scratch    # Av, or Ay for a mixed-precision proximal value
 
   function Precompose{F, M, T}(f::F, A::M, μ::T) where {F<:AbstractFunction, M, T<:Real}
     μ > 0 || throw(ArgumentError("μ must be positive, got $μ"))
@@ -152,7 +152,7 @@ function _value_and_prox_precompose!(y, h::Precompose, x, γ, withvalue::Bool)
   P .-= z
   y === x || copyto!(y, x)
   mul!(y, h.A', P, inv(convert(T, h.μ)), one(T))
-  v
+  withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _precompose_prox_value(h, y) : v
 end
 function _value_and_prox_precompose!(y, h::_ScalarPrecompose, x, γ, withvalue::Bool)
   z = _image!(h, x)
@@ -161,7 +161,12 @@ function _value_and_prox_precompose!(y, h::_ScalarPrecompose, x, γ, withvalue::
   μγ = convert(T, h.μ) * convert(T, γ)
   v = withvalue ? value_and_prox!(z, h.f, z, μγ) : (prox!(z, h.f, z, μγ); zero(T))
   y .= z ./ h.A
-  v
+  withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _precompose_prox_value(h, y) : v
+end
+
+function _precompose_prox_value(h::Precompose, y)
+  v = h.f(_linear_image!(h.direction, h.A, y))
+  _isindicator(h.f) ? zero(v) : v
 end
 
 Base.@propagate_inbounds prox_entry(h::_ScalarPrecompose, v::Real, i::Integer, γ::Real) =
@@ -286,7 +291,7 @@ end
 function _value_and_prox_array!(y, h::_ArrayPrecompose, x, γ, withvalue::Bool)
   if isseparable(h) && _sparse_precompose(y, x)
     _prox_sep!(y, h, x, γ)
-    T = float(promote_type(eltype(x), eltype(h.a)))
+    T = float(promote_type(eltype(y), eltype(h.a)))
     return withvalue ? (_isindicator(h) ? zero(T) : h(y)) : zero(T)
   end
   z = _image!(h, x)
@@ -302,7 +307,13 @@ function _value_and_prox_array!(y, h::_ArrayPrecompose, x, γ, withvalue::Bool)
   @inbounds for i in eachindex(IndexLinear(), y, x)
     y[i] = b[i] == z[i] ? x[i] : b[i] / h.a[i]
   end
-  v
+  withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _array_precompose_value(h, y) : v
+end
+
+# In mixed precision, the value at the output, through the lazy image of y
+function _array_precompose_value(h::_ArrayPrecompose, y)
+  v = h.f(_PrecomposeArray(y, h.a, Val(false)))
+  _isindicator(h.f) ? zero(v) : v
 end
 
 function prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real)
@@ -558,3 +569,7 @@ function quadratic_model!(q::Regularize, r::Regularize, x)
   quadratic_model!(q.f, r.f, x)
   q
 end
+
+# These wrappers, defined after calculus.jl, also evaluate the inner value.
+_has_value(f::Union{Precompose, _ArrayPrecompose, Regularize, Spectral, BoxConstrained, LinearConstrained,
+                   BallConstrained, SphereConstrained, AffineConstrained}) = _has_value(f.f)

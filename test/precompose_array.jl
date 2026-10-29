@@ -309,7 +309,8 @@ end
     @test prox!(y, h, x, γ) === y
     @test y ≈ expected rtol = 5e-7
     @test eltype(prox(h, x, γ)) == float(X)
-    @test value_and_prox!(y, h, x, γ) isa T
+    v = value_and_prox!(y, h, x, γ)
+    @test v isa typeof(h(y))
     smooth = Precompose(SqrNormL2(0.7), a)
     @test gradient!(y, smooth, x) === y
     @test y ≈ 0.7 .* Float64.(a).^2 .* x rtol = 5e-7

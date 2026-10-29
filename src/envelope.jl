@@ -94,7 +94,7 @@ function value_and_gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArr
   v = value_and_prox!(g, e.f, x, γ)
   energy = _envelope_energy(x, g, γ)
   g .= _envelope_derivative.(x, g, γ)
-  v + energy
+  eltype(g) === eltype(x) ? v + energy : e(x)
 end
 
 function gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)

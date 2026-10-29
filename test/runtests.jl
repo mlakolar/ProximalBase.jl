@@ -13,6 +13,7 @@ tests = [
   "symmetric_products",
   "interface",
   "precision",
+  "precision_mixed",
   "smooth",
   "separable",
   "binary",

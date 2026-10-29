@@ -452,27 +452,28 @@ end
         @test samebits(TracePSD(zero(T))(fill(-eps(T), 1, 1)), -zero(T))
       end
 
-      @testset "nonfinite accepted partial values use the full path" begin
+      @testset "accepted partial values keep the partial path" begin
         X = zeros(T, 64, 64)
         X[1, 1] = T(4)
-        for F in (NuclearNorm, TracePSD)
-          f = F(M; partial = true)
+        for F in (NuclearNorm, TracePSD), λ in (M, T(1) / 4)
+          f = F(λ; partial = true)
           Y = fill(-one(T), size(X))
           if f isa NuclearNorm
             @test PB._leading_svd!(f, X, T, one(T), 0) == 1
-            @test PB._partial_nuclear!(Y, f, X, one(T)) === nothing
-            @test f.ws === nothing
+            v = PB._partial_nuclear!(Y, f, X, one(T))
           else
             @test PB._leading_eigen!(f, X, T, one(T), 0) == 1
-            @test PB._partial_psd!(Y, f, X, one(T), 0, M) === nothing
-            @test f.eig === nothing
+            v = PB._partial_psd!(Y, f, X, one(T), 0, λ)
           end
-          @test all(==(-one(T)), Y)
+          # a partial decomposition is approximate: the value overflows for real
+          # at λ = M, and is close to 3λ otherwise
+          check(v) = λ == M ? (@test v === T(Inf)) : (@test isapprox(v, 3λ; rtol = 100eps(T)))
+          check(v)
+          @test (f isa NuclearNorm ? f.ws : f.eig) === nothing
           Z = copy(X)
-          @test value_and_prox!(Z, f, Z, inv(M)) === T(Inf)
-          @test (f isa NuclearNorm ? f.ws : f.eig) !== nothing
-          legacy_prox!(Y, f, X, inv(M))
-          @test samebits(Z, Y)
+          check(value_and_prox!(Z, f, Z, inv(λ)))
+          @test (f isa NuclearNorm ? f.ws : f.eig) === nothing
+          @test isapprox(Z, Y; rtol = 100eps(T))
         end
       end
 
@@ -522,6 +523,46 @@ end
       end
     end
   end
+end
+
+
+@testset "scaled values: cancellation, mixed precision, non-finite weights" begin
+  M = floatmax(Float64)
+  D = Matrix(Diagonal([1.0, -1.0]))
+  # Huge products that cancel keep the moderate products and the log-determinant.
+  for (S, X) in ((M * D, Matrix(M * I(2))), (2.0^100 * D, Matrix(2.0^1000 * I(2))),
+                 ([2.0^100 1; 1 -2.0^100], [2.0^1000 500; 500 2.0^1000]),
+                 (2.0^40 * D, Matrix(2.0^1000 * I(2))), (2.0^60 * D, Matrix(2.0^1000 * I(2))))
+    f = LogDetLoss(S, 0.25)
+    reference = setprecision(4096) do
+      big(0.25) * (dot(big.(S), big.(X)) - logdet(Symmetric(big.(X))))
+    end
+    check_rounded(f(X), reference)
+    check_rounded(f(SymmetricSparseIterate(X)), reference)
+    G = similar(X)
+    check_rounded(value_and_gradient!(G, f, X), reference)
+  end
+  S, X = 2f0^40 * Matrix{Float32}(Diagonal([1, -1])), 2f0^120 * Matrix{Float32}(I, 2, 2)
+  check_rounded(LogDetLoss(S, 0.25f0)(X), big(0.25f0) * -logdet(big.(X)))
+  f = LogDetLoss(M * D, 1e-3)
+  Y = zeros(2, 2)
+  v = value_and_prox!(Y, f, Matrix(2.0^60 * I(2)), 1e-307)
+  check_rounded(v, setprecision(() -> big(1e-3) * (dot(big.(f.S), big.(Y)) - logdet(Symmetric(big.(Y)))), 4096))
+  # Inputs of another type than the data keep a finite value, or the base value.
+  M32 = floatmax(Float32)
+  f32 = LogDetLoss(M32 * Matrix{Float32}(I, 2, 2), 0.25f0)
+  for X in (Matrix(I(2)), Matrix(I(2)) .* 1, Matrix(1.0I, 2, 2))
+    v = f32(X)
+    @test v isa typeof(LogDetLoss(Matrix{Float32}(I, 2, 2), 0.25f0)(X))   # the type of the ordinary value
+    check_rounded(v, big(M32) / 2)
+  end
+  @test LogDetLoss(Matrix{Float32}(I, 2, 2), 0.25f0)(1e300 * Matrix(1.0I, 2, 2)) === -Inf
+  # Non-finite weights and complex entries keep their base values.
+  @test isnan(NormL1(Inf)(zeros(2)))
+  @test isnan(NormL2(Inf)(zeros(2)))
+  @test isnan(NuclearNorm(Inf)(zeros(2, 2)))
+  z = ComplexF64[M, M]
+  @test isequal(NormL2(0.25)(z), convert(ComplexF64, 0.25) * PB._norm2(z))
 end
 
 end

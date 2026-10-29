@@ -35,7 +35,7 @@ function (f::NormL2)(x::AbstractArray)
 end
 
 @inline function _norm2_value(v, λ::T, x::AbstractArray) where {T}
-  isfinite(v) || !all(isfinite, x) ? v : _scaled_norm2_value(λ, x)
+  isfinite(v) || !isfinite(λ) || !(eltype(x) <: Real) || !all(isfinite, x) ? v : _scaled_norm2_value(λ, x)
 end
 
 @noinline function _scaled_norm2_value(λ::T, x::AbstractArray) where {T}

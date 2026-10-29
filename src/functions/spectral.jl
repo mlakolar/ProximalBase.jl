@@ -107,18 +107,20 @@ function (f::NuclearNorm)(X::AbstractMatrix)
   copyto!(ws.A, X)
   s, = _svd!(ws; vectors = false)
   v = convert(T, f.λ) * sum(s)
-  isfinite(v) || !all(isfinite, X) ? v : _scaled_nuclear_value!(ws, X, convert(T, f.λ))
+  isfinite(v) || !isfinite(f.λ) || !all(isfinite, X) ? v : _scaled_nuclear_value!(ws, X, convert(T, f.λ))
 end
 
+# the exponent from the workspace's copy, which also serves inputs on devices
 @noinline function _scaled_nuclear_value!(ws::SVDWorkspace{T}, X::AbstractMatrix, λ::T) where {T}
-  k = _magnitude_exponent(_maximum_abs(X))
+  copyto!(ws.A, X)
+  k = _magnitude_exponent(_maximum_abs(ws.A))
   _scaled_spectral_input!(ws.A, X)
   s, = _svd!(ws; vectors = false)
   _scaled_product(λ, sum(s), k)
 end
 
 @inline function _spectral_prox_value(v, λ::T, s::AbstractVector{T}, c::T) where {T}
-  isfinite(v) || !isfinite(c) || !all(isfinite, s) ? v : _scaled_spectral_prox_value(λ, s, c)
+  isfinite(v) || !isfinite(λ) || !isfinite(c) || !all(isfinite, s) ? v : _scaled_spectral_prox_value(λ, s, c)
 end
 
 @noinline function _scaled_spectral_prox_value(λ::T, s::AbstractVector{T}, c::T) where {T}
@@ -139,7 +141,7 @@ function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, �
   c = convert(T, γ) * convert(T, f.λ)
   if f.partial
     pv = _partial_nuclear!(Y, f, X, c)
-    pv === nothing || return convert(T, f.λ) * pv
+    pv === nothing || return pv
   end
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
@@ -401,7 +403,7 @@ function (f::TracePSD)(X::AbstractMatrix)
   T = float(eltype(X))
   _ispsd!(f, X, nothing) || return T(Inf)
   v = convert(T, f.λ) * _trace!(f, X)
-  isfinite(v) ? v : _scaled_trace_value(f, X)
+  isfinite(v) || !isfinite(f.λ) ? v : _scaled_trace_value(f, X)
 end
 
 @noinline function _scaled_trace_value(f::TracePSD, X::AbstractMatrix)
@@ -421,7 +423,7 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
   c = convert(T, γ) * convert(T, f.λ)
   if f.partial
     pv = _partial_psd!(Y, f, X, c, 0, convert(T, f.λ))
-    pv === nothing || return convert(T, f.λ) * pv
+    pv === nothing || return pv
   end
   ws = _eig_workspace(f.eig, T, checksquare(X))
   f.eig = ws

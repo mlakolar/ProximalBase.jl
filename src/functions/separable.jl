@@ -226,7 +226,7 @@ function (f::NormL1{<:Real, Nothing})(x::DenseArray{<:AbstractFloat})
   T = float(eltype(x))
   iszero(f.λ0) && return zero(T)
   v = convert(T, f.λ0) * sum(abs, x)
-  isfinite(v) || !all(isfinite, x) ? v : _value_dense(f, x)
+  isfinite(v) || !isfinite(f.λ0) || !all(isfinite, x) ? v : _value_dense(f, x)
 end
 
 ####################################

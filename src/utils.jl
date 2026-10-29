@@ -197,14 +197,24 @@ function _scaled_dot(a, x::AbstractArray, s)
   v
 end
 
-function _scaled_dot(a::AbstractArray, x::AbstractArray, sa, sx)
+# Σᵢ aᵢxᵢ over n products as two compensated sums in the type of the scales:
+# the large products, those that overflow or exceed floatmax/2n, in units of
+# the two scales, and the others in their own units, whose sum cannot overflow
+function _split_dot(a::AbstractArray, x::AbstractArray, sa, sx)
   _checksize(a, x)
-  v = e = zero(sx[1])
+  R = typeof(sx[1])
+  t = floatmax(R) / (2 * max(length(a), 1))
+  big = eb = small = es = zero(R)
   @inbounds for i in eachindex(IndexLinear(), a, x)
-    u = _scale_value(a[i], sa) * _scale_value(x[i], sx)
-    v, e = _compensated_add(v, e, u)
+    big, eb, small, es = _split_add(big, eb, small, es, a[i], x[i], sa, sx, t)
   end
-  v + e
+  big + eb, small + es
+end
+@inline function _split_add(big::R, eb::R, small::R, es::R, a, x, sa, sx, t::R) where {R}
+  p = convert(R, a) * convert(R, x)
+  abs(p) <= t && return (big, eb, _compensated_add(small, es, p)...)
+  u = ((convert(R, a) * sa[1]) * sa[2]) * ((convert(R, x) * sx[1]) * sx[2])
+  (_compensated_add(big, eb, u)..., small, es)
 end
 
 ####################################

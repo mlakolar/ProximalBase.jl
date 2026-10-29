@@ -292,6 +292,9 @@ end
     reference = big(u) * sqrt(big(2)) * big(M)
     v = NormL2(u)(x)
     @test isfinite(v) && abs(big(v) - reference) <= 2big(eps(T(reference)))
+    # the spectral functions decompose on the host; the overflow fallback too
+    v = NuclearNorm(T(1) / 4)(DeviceArray(Matrix{T}(M * I, 2, 2)))
+    @test isfinite(v) && abs(big(v) - big(M) / 2) <= 2big(eps(M / 2))
   end
 end
 

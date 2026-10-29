@@ -81,15 +81,24 @@ end
 
 @inline function _logdet_value(f::LogDetLoss, X::AbstractMatrix, ld)
   v = f.w * (dot(f.S, X) - ld)
-  isfinite(v) || !(all(isfinite, f.S) && all(isfinite, X)) ? v : oftype(v, _scaled_logdet_value(f, X, ld))
+  isfinite(v) || !isfinite(ld) || !(all(isfinite, f.S) && all(isfinite, X)) ? v :
+    oftype(v, _scaled_logdet_value(f, X, ld))
 end
 
-@noinline function _scaled_logdet_value(f::LogDetLoss{T}, X::AbstractMatrix, ld::T) where {T}
+# The products that overflow are summed in units of 2^(ks + kx) and the others
+# in their own units, so that huge products that cancel keep the moderate ones
+# and the log-determinant; the two parts are combined exactly when the dot is
+# representable.
+@noinline function _scaled_logdet_value(f::LogDetLoss{T}, X::AbstractMatrix, ld) where {T}
+  R = float(promote_type(T, eltype(X)))
   ks = _magnitude_exponent(_maximum_abs(f.S))
   kx = _magnitude_exponent(_maximum_abs(X))
-  d = _scaled_dot(f.S, X, _power_factors(T, -ks), _power_factors(T, -kx))
-  v = d - _scale_value(ld, _power_factors(T, -ks - kx))
-  _scaled_product(f.w, v, ks + kx)
+  k = ks + kx
+  big, small = _split_dot(f.S, X, _power_factors(R, -ks), _power_factors(R, -kx))
+  w, l = convert(R, f.w), convert(R, ld)
+  d = ldexp(big, k) + small
+  isfinite(d) && return w * (d - l)
+  _scaled_product(w, big + _scale_value(small - l, _power_factors(R, -k)), k)
 end
 
 function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix) where {T}

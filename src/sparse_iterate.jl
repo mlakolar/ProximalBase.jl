@@ -83,25 +83,29 @@ function _scaled_dot(a, x::SymmetricSparseIterate, s)
   v
 end
 
-function _scaled_dot(a::AbstractArray, x::SparseIterate, sa, sx)
+function _split_dot(a::AbstractArray, x::SparseIterate, sa, sx)
   _checksize(a, x)
-  v = e = zero(sx[1])
+  R = typeof(sx[1])
+  t = floatmax(R) / (2 * max(x.nnz, 1))
+  big = eb = small = es = zero(R)
   @inbounds for k in 1:x.nnz
-    u = _scale_value(a[x.nzval2ind[k]], sa) * _scale_value(x.nzval[k], sx)
-    v, e = _compensated_add(v, e, u)
+    big, eb, small, es = _split_add(big, eb, small, es, a[x.nzval2ind[k]], x.nzval[k], sa, sx, t)
   end
-  v + e
+  big + eb, small + es
 end
-function _scaled_dot(a::AbstractArray, x::SymmetricSparseIterate, sa, sx)
+# each off-diagonal product separately: a[r, c] + a[c, r] can overflow on its own
+function _split_dot(a::AbstractArray, x::SymmetricSparseIterate, sa, sx)
   _checksize(a, x)
-  v = e = zero(sx[1])
+  R = typeof(sx[1])
+  t = floatmax(R) / (4 * max(x.nnz, 1))
+  big = eb = small = es = zero(R)
   @inbounds for k in 1:x.nnz
     r, c = tril_cartesian(x.p, x.nzval2ind[k])
-    u = _scale_value(x.nzval[k], sx)
-    v, e = _compensated_add(v, e, _scale_value(a[r, c], sa) * u)
-    r == c || ((v, e) = _compensated_add(v, e, _scale_value(a[c, r], sa) * u))
+    u = x.nzval[k]
+    big, eb, small, es = _split_add(big, eb, small, es, a[r, c], u, sa, sx, t)
+    r == c || ((big, eb, small, es) = _split_add(big, eb, small, es, a[c, r], u, sa, sx, t))
   end
-  v + e
+  big + eb, small + es
 end
 
 

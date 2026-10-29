@@ -490,7 +490,8 @@ end
 # computation does, or nothing when it falls back; the caller then runs the
 # full decomposition, which starts the next partial call.
 
-# NuclearNorm: Y = U max(Σ - c, 0) Vᵀ; returns Σᵢ max(σᵢ - c, 0)
+# NuclearNorm: Y = U max(Σ - c, 0) Vᵀ; returns the value λ Σᵢ max(σᵢ - c, 0),
+# in scaled units when the weighted sum overflows
 function _partial_nuclear!(Y::AbstractMatrix, f, X::AbstractMatrix, c::T) where {T}
   k = _leading_svd!(f, X, T, c, 0)
   k < 0 && return nothing
@@ -499,9 +500,9 @@ function _partial_nuclear!(Y::AbstractMatrix, f, X::AbstractMatrix, c::T) where 
   @inbounds for j in 1:k
     v += ws.s[j] - c
   end
-  isfinite(convert(T, f.λ) * v) || return nothing
   _partial_svd_out!(Y, ws, k, σ -> σ - c)
-  v
+  λ = convert(T, f.λ)
+  _spectral_prox_value(λ * v, λ, view(ws.s, 1:k), c)
 end
 
 # IndBallRank: the r largest triplets; returns Y, or nothing to fall back
@@ -512,18 +513,14 @@ function _partial_rank!(Y::AbstractMatrix, f, X::AbstractMatrix, ::Type{T}) wher
 end
 
 # IndPSD and TracePSD: Y = Σⱼ max(θⱼ - c, 0) uⱼuⱼᵀ over the eigenvalues above
-# c, or over the r largest when r > 0; returns Σⱼ max(θⱼ - c, 0)
+# c, or over the r largest when r > 0; returns Σⱼ max(θⱼ - c, 0), or with a
+# weight λ the value λ Σⱼ max(θⱼ - c, 0), in scaled units when it overflows
 function _partial_psd!(Y::AbstractMatrix, f, X::AbstractMatrix, c::T, r::Int,
                        λ::Union{Nothing, T} = nothing) where {T}
   k = _leading_eigen!(f, X, T, c, r)
   k < 0 && return nothing
   ws = f.pws::PartialEigenWorkspace{T}
-  if λ !== nothing
-    v = zero(T)
-    @inbounds for j in ws.ℓ-k+1:ws.ℓ
-      v += max(ws.θ[j] - c, zero(T))
-    end
-    isfinite(λ * v) || return nothing
-  end
-  _partial_eigen_out!(Y, ws, k, t -> max(t - c, zero(t)))
+  v = _partial_eigen_out!(Y, ws, k, t -> max(t - c, zero(t)))
+  λ === nothing && return v
+  _spectral_prox_value(λ * v, λ, view(ws.θ, ws.ℓ-k+1:ws.ℓ), c)
 end

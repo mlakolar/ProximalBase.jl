@@ -15,7 +15,7 @@ using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, Sq
                     LeastSquaresLoss, GLMLoss, Regularize, BoxConstrained,
                     prox_entry, value_entry, shrink, _checksize, _checkparams, _checkgroups, _tol, _ind,
                     _kth_largest!, _positive_product, _weight_coefficient, _weight_product, _weighted_value,
-                    _value_at, _valtype, _checkreal
+                    _value_at, _valtype, _checkreal, _reshapeparam
 using GPUArraysCore: AbstractGPUArray
 using LinearAlgebra: mul!
 using Base.Broadcast: broadcasted, instantiate
@@ -59,30 +59,30 @@ _scalar(y, a) = convert(float(eltype(y)), a)
 function ProximalBase._prox_sep!(y::GPUArray, f::NormL1, x::GPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= shrink.(x, _WeightLevel(_scalar(y, γ), _scalar(y, f.λ0)).(_param(f.w)))
+  y .= shrink.(x, _WeightLevel(_scalar(y, γ), _scalar(y, f.λ0)).(_reshapeparam(_param(f.w), x)))
 end
 # Also the retry of the unweighted dense value when its sum overflows.
 ProximalBase._value_dense(f::NormL1, x::GPUArray) =
   (T = float(eltype(x)); (f.w === nothing && iszero(f.λ0)) ? zero(T) :
-   _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(abs, x)), _param(f.w)))
+   _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(abs, x)), _reshapeparam(_param(f.w), x)))
 
 function ProximalBase._prox_sep!(y::GPUArray, f::NormL1Nonneg, x::GPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= max.(x .- _WeightLevel(_scalar(y, γ), _scalar(y, f.λ0)).(_param(f.w)), 0)
+  y .= max.(x .- _WeightLevel(_scalar(y, γ), _scalar(y, f.λ0)).(_reshapeparam(_param(f.w), x)), 0)
 end
 function ProximalBase._value_dense(f::NormL1Nonneg, x::GPUArray)
   T = float(eltype(x))
   t = _tol(T)
   _all(v -> v >= -t, x) || return T(Inf)
   f.w === nothing && iszero(f.λ0) && return zero(T)
-  _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(max, x, zero(T))), _param(f.w))
+  _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(max, x, zero(T))), _reshapeparam(_param(f.w), x))
 end
 
 function ProximalBase._prox_sep!(y::GPUArray, f::ElasticNet, x::GPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= shrink.(x, _weight_coefficient.(_scalar(y, γ * f.λ1), _param(f.w))) ./ (1 + _scalar(y, γ * f.λ2))
+  y .= shrink.(x, _weight_coefficient.(_scalar(y, γ * f.λ1), _reshapeparam(_param(f.w), x))) ./ (1 + _scalar(y, γ * f.λ2))
 end
 function ProximalBase._value_dense(f::ElasticNet, x::GPUArray)
   T = float(eltype(x))
@@ -90,15 +90,15 @@ function ProximalBase._value_dense(f::ElasticNet, x::GPUArray)
   # the weights in the element type; a level that is not positive and finite
   # enters every coefficient
   l1 = f.w === nothing && iszero(f.λ1) ? zero(T) :
-       (λ1 > 0) & isfinite(λ1) ? λ1 * _sum(T, _EnetValue(one(T)), instantiate(broadcasted(abs, x)), _param(f.w)) :
-       _sum(T, _EnetValue(λ1), instantiate(broadcasted(abs, x)), _param(f.w))
+       (λ1 > 0) & isfinite(λ1) ? λ1 * _sum(T, _EnetValue(one(T)), instantiate(broadcasted(abs, x)), _reshapeparam(_param(f.w), x)) :
+       _sum(T, _EnetValue(λ1), instantiate(broadcasted(abs, x)), _reshapeparam(_param(f.w), x))
   l1 + (iszero(f.λ2) ? zero(T) : _scalar(x, f.λ2) * _sum(T, abs2, x) / 2)
 end
 
 function ProximalBase._prox_sep!(y::GPUArray, f::IndBox, x::GPUArray, ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= clamp.(x, f.l, f.u)
+  y .= clamp.(x, _reshapeparam(f.l, x), _reshapeparam(f.u, x))
 end
 # whether l ≤ v ≤ u within the tolerance t of the indicator functions, as on
 # the CPU; a functor rather than a closure, so that Julia 1.10 infers its type
@@ -109,7 +109,7 @@ end
 
 function ProximalBase._value_dense(f::IndBox, x::GPUArray)
   T = float(eltype(x))
-  _all(_InBox(_tol(T)), x, f.l, f.u) ? zero(T) : T(Inf)
+  _all(_InBox(_tol(T)), x, _reshapeparam(f.l, x), _reshapeparam(f.u, x)) ? zero(T) : T(Inf)
 end
 
 ProximalBase._prox_sep!(y::GPUArray, ::IndNonnegative, x::GPUArray, ::Real) = (_checksize(y, x); y .= max.(x, 0))

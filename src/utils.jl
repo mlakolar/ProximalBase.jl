@@ -38,6 +38,21 @@ end
 end
 @inline _positive_product(a::Real, b::Real, c::Real) = _positive_product(promote(float(a), float(b), float(c))...)
 
+# Keep the power outside the floating-point range until the final rounding.
+@inline function _scaled_product(w::T, v::T, k::Int) where {T<:AbstractFloat}
+  (iszero(w) || iszero(v)) && return w * v
+  (isfinite(w) && isfinite(v)) || return w * v
+  mw, ew = frexp(w)
+  mv, ev = frexp(abs(v))
+  copysign(ldexp(_positive_product(mw, mv, one(T)), ew + ev + k), v)
+end
+
+@inline function _compensated_add(s, e, v)
+  t = s + v
+  e += abs(s) >= abs(v) ? (s - t) + v : (v - t) + s
+  t, e
+end
+
 ####################################
 #
 #  Buffers
@@ -170,6 +185,15 @@ function _scaled_sum(x::AbstractArray, s, f::F = identity) where {F}
 end
 _scaled_sumabs2(x, s) = _scaled_sum(x, s, abs2)
 
+# Exceptional values need the small terms even after a large one was added.
+function _scaled_value_sum(x::AbstractArray, s, f::F = identity) where {F}
+  v = e = zero(s[1])
+  @inbounds for u in x
+    v, e = _compensated_add(v, e, f(_scale_value(u, s)))
+  end
+  v + e
+end
+
 # Floating-point products also cover integer entries and integer coefficients.
 function _scaled_dot(a, x::AbstractArray, s)
   _checkparam(a, x)
@@ -178,6 +202,26 @@ function _scaled_dot(a, x::AbstractArray, s)
     v += float(_entry(a, i)) * _scale_value(x[i], s)
   end
   v
+end
+
+# Σᵢ aᵢxᵢ over n products as two compensated sums in the type of the scales:
+# the large products, those that overflow or exceed floatmax/2n, in units of
+# the two scales, and the others in their own units, whose sum cannot overflow
+function _split_dot(a::AbstractArray, x::AbstractArray, sa, sx)
+  _checksize(a, x)
+  R = typeof(sx[1])
+  t = floatmax(R) / (2 * max(length(a), 1))
+  big = eb = small = es = zero(R)
+  @inbounds for i in eachindex(IndexLinear(), a, x)
+    big, eb, small, es = _split_add(big, eb, small, es, a[i], x[i], sa, sx, t)
+  end
+  big + eb, small + es
+end
+@inline function _split_add(big::R, eb::R, small::R, es::R, a, x, sa, sx, t::R) where {R}
+  p = convert(R, a) * convert(R, x)
+  abs(p) <= t && return (big, eb, _compensated_add(small, es, p)...)
+  u = ((convert(R, a) * sa[1]) * sa[2]) * ((convert(R, x) * sx[1]) * sx[2])
+  (_compensated_add(big, eb, u)..., small, es)
 end
 
 ####################################

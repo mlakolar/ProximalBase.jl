@@ -195,6 +195,8 @@ coordinate, and on a sparse iterate the value and the proximal operator touch
 only the stored entries. On a [`SymmetricSparseIterate`](@ref) the weights are a
 `p × p` matrix (or anything indexed by the linear indices of one), as for a
 dense matrix.
+When an intermediate sum overflows although the weighted value is representable,
+the value is computed in scaled units.
 """
 struct NormL1{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ0::T
@@ -222,7 +224,9 @@ restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entr
 # without weights, Base's vectorized sum (a sum with init takes a slow sequential path)
 function (f::NormL1{<:Real, Nothing})(x::DenseArray{<:AbstractFloat})
   T = float(eltype(x))
-  iszero(f.λ0) ? zero(T) : convert(T, f.λ0) * sum(abs, x)
+  iszero(f.λ0) && return zero(T)
+  v = convert(T, f.λ0) * sum(abs, x)
+  isfinite(v) || !isfinite(f.λ0) || !all(isfinite, x) ? v : _value_dense(f, x)
 end
 
 ####################################

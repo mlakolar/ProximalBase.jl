@@ -796,3 +796,48 @@ end
     end
   end
 end
+
+@testset "zero scaling before and after group adaptation" begin
+  allowscalar(false)
+  for T in test_types, F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2),
+      w in (T[1, 2], T[Inf, 1], T[1, Inf])
+    groups = [[1, 2], [3]]
+    f = F === SparseGroupNormL2 ? F(T(0.25), one(T), groups, w) : F(one(T), groups, w)
+    d = Adapt.adapt(DeviceArray, f)
+    x = T[3, -4, 2]
+    expected = copy(x)
+    for k in eachindex(w)
+      isinf(w[k]) && (expected[groups[k]] .= 0)
+    end
+    zeroed = Scaled(d, zero(T))
+    if all(isfinite, w)
+      @test zeroed isa ZeroFunction
+    else
+      @test typeof(zeroed) == typeof(d)
+      @test zeroed.layout === d.layout
+      @test iszero(zeroed.f.λ0)
+      if F === SparseGroupNormL2
+        @test iszero(zeroed.f.λ1)
+      end
+    end
+    for z in (zeroed, Adapt.adapt(DeviceArray, Scaled(f, zero(T))),
+              Scaled{typeof(d), T}(d, zero(T)), Scaled(Scaled(d, T(2)), zero(T)),
+              Scaled(Adapt.adapt(DeviceArray, Scaled(f, T(2))), zero(T)),
+              Adapt.adapt(DeviceArray, Scaled(Scaled(f, T(2)), zero(T))))
+      @test z(DeviceArray(x)) == (all(isfinite, w) ? zero(T) : T(Inf))
+      @test z(DeviceArray(expected)) == zero(T)
+      for γ in (zero(T), one(T)), inplace in (false, true)
+        xd = DeviceArray(x)
+        yd = inplace ? xd : similar(xd)
+        v = value_and_prox!(yd, z, xd, γ)
+        @test host(yd) == expected
+        @test v == zero(T)
+        @test v == z(yd)
+        xd = DeviceArray(x)
+        yd = inplace ? xd : similar(xd)
+        prox!(yd, z, xd, γ)
+        @test host(yd) == expected
+      end
+    end
+  end
+end

@@ -375,6 +375,11 @@ ProximalBase.isproximable(::Type{<:DeviceGroups{F}}) where {F} = ProximalBase.is
 ProximalBase.isconvex(::Type{<:DeviceGroups{F}}) where {F} = ProximalBase.isconvex(F)
 ProximalBase._isindicator(::Type{<:DeviceGroups{F}}) where {F} = ProximalBase._isindicator(F)
 
+function ProximalBase._zero_scaled(d::DeviceGroups)
+  f = ProximalBase._zero_scaled(d.f)
+  f isa ZeroFunction ? f : DeviceGroups(f, d.layout)
+end
+
 (d::DeviceGroups)(x::AbstractArray) = d.f(x)
 ProximalBase.prox!(y::AbstractArray, d::DeviceGroups, x::AbstractArray, γ::Real) = prox!(y, d.f, x, γ)
 ProximalBase.value_and_prox!(y::AbstractArray, d::DeviceGroups, x::AbstractArray, γ::Real) = value_and_prox!(y, d.f, x, γ)

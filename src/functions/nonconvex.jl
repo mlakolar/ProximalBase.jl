@@ -111,6 +111,8 @@ _checkparams(f::LogPenalty, x) = (_checkparam(f.w, x); true)
 Base.@propagate_inbounds function value_entry(f::LogPenalty, v::T, i::Integer) where {T<:Real}
   S = float(T)
   λ, w, φ = S(f.λ), S(_entry(f.w, i)), log1p(abs(S(v)) / S(f.ε))
+  # The ratio can round to zero away from the fixed point.
+  isinf(w) && return isnan(v) ? S(v) : iszero(v) ? zero(S) : S(Inf)
   _weighted_value(_weight_coefficient(λ, w) * φ, φ)
 end
 Base.@propagate_inbounds function _value_entry_ordinary(f::LogPenalty, v::T, i::Integer) where {T<:Real}
@@ -164,11 +166,12 @@ where zero and the nonzero candidate tie, and above it the root `z > 0` of
 and Zhang, 2012), and a dimensionless Newton iteration otherwise, avoiding
 overflow and underflow in the quartic closed form at `q = 2/3`.
 
-Its slope at zero is infinite, so zero is a local minimizer of every problem
-`h + f`, and [`kkt_violation`](@ref) is `-Inf`: an active-set method that grows
-the support from zero by that test never adds a coordinate. Start such a method
-from a nonzero point, or use the proximal operator of the whole vector, as
-proximal gradient methods do.
+At a penalized entry its slope at zero is infinite, so zero is a local
+minimizer of `h + f`, and [`kkt_violation`](@ref) is `-Inf`: an active-set method
+that grows the support from zero by that test never adds a penalized coordinate.
+A zero weight, or a zero level with finite weight, gives `abs(g[i])` instead.
+Start such a method from a nonzero point, or use the proximal operator of the
+whole vector, as proximal gradient methods do.
 """
 struct NormLq{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ::T
@@ -206,7 +209,7 @@ Base.@propagate_inbounds function prox_entry(f::NormLq, v::T, i::Integer, γ::Re
   step, λ, w = S(γ), S(f.λ), S(_entry(f.w, i))
   q, t = S(f.q), abs(S(v))
   isinf(w) && return isnan(v) ? S(v) : zero(S)
-  (iszero(λ) || iszero(w)) && return S(v)
+  (iszero(step) || iszero(λ) || iszero(w)) && return S(v)
   μ = _positive_product(step, λ, w)
   ordinary = isfinite(μ) && μ >= floatmin(S)
   # When μ cannot retain its precision, take the bounded powers of its factors
@@ -270,7 +273,10 @@ function _lq_root(t::S, μ::S, q::S, τ::S) where {S<:AbstractFloat}
   t * r
 end
 
-kkt_violation(f::NormLq, g::AbstractArray, ::Integer) = float(eltype(g))(-Inf)
+function kkt_violation(f::NormLq, g::AbstractArray, i::Integer)
+  w = _entry(f.w, i)
+  !isinf(w) && (iszero(f.λ) || iszero(w)) ? abs(g[i]) : float(eltype(g))(-Inf)
+end
 restrict(f::NormLq, S::AbstractVector{<:Integer}) = NormLq(f.λ, f.q, _restrict_entries(f.w, S))
 
 ####################################

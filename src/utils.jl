@@ -78,6 +78,30 @@ end
   copysign(ldexp(_positive_product(mw, mv, one(T)), ew + ev + k), v)
 end
 
+# A converted parameter must retain normal precision on the ordinary path.
+@inline _level_fits(::Type, ::Real) = true
+@inline function _level_fits(::Type{T}, λ::Real)::Bool where {T<:AbstractFloat}
+  iszero(λ) || !isfinite(λ) || floatmin(T) <= abs(convert(T, λ)) <= floatmax(T)
+end
+
+@inline _level_product(::Type{T}, γ, λ) where {T} = convert(T, γ) * convert(T, λ)
+@inline function _level_product(::Type{T}, γ, λ) where {T<:AbstractFloat}
+  _level_fits(T, γ) && _level_fits(T, λ) && return convert(T, γ) * convert(T, λ)
+  R = promote_type(T, float(typeof(γ)), float(typeof(λ)))
+  convert(T, convert(R, γ) * convert(R, λ))
+end
+
+# Three bounded significands, with the power applied after all factors.
+@inline function _scaled_product(a::Real, b::Real, c::Real, k::Int)
+  a, b, c = promote(float(a), float(b), float(c))
+  (iszero(a) || iszero(b) || iszero(c)) && return zero(a)
+  (isfinite(a) && isfinite(b) && isfinite(c)) || return (a * b) * c
+  ma, ea = frexp(a)
+  mb, eb = frexp(b)
+  mc, ec = frexp(c)
+  ldexp((ma * mb) * mc, ea + eb + ec + k)
+end
+
 @inline function _compensated_add(s, e, v)
   t = s + v
   e += abs(s) >= abs(v) ? (s - t) + v : (v - t) + s

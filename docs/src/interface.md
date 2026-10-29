@@ -139,6 +139,17 @@ method from the left, which ends at the exact root. [`Constrained`](@ref) on a
 box, a hyperplane, a halfspace, a hyperslab or a simplex takes the steps into
 its multiplier search, with ``z_i(\nu) = \operatorname{prox}_{\gamma_i f_i}(x_i - \gamma_i\nu a_i)``.
 
+The step contract takes a limit only where it is unique; otherwise steps must
+be positive and finite. For the coupling sets above and the multiplier searches
+of `Constrained` on a hyperplane, halfspace, hyperslab or simplex, every array
+step must be positive and finite. Invalid steps raise an `ArgumentError` before
+writing caller-owned arrays in these methods. This is a chosen contract:
+degenerate diagonal metrics need not have a unique limiting projection, since
+different sequences of steps can give different limits. `IndIsotonic` also
+requires a representable ratio of the largest to the smallest step. Scalar
+steps on indicators leave the projection unchanged. The existing behavior of
+separable functions, box constraints and per-group steps is unchanged.
+
 The curvature of a smooth ``f`` along each coordinate, a Lipschitz constant of
 ``\partial f/\partial x_k``, comes from [`coordinate_lipschitz`](@ref) and
 [`coordinate_lipschitz!`](@ref): ``\lVert X_{:,j}\rVert^2`` for least squares,
@@ -230,8 +241,8 @@ The spectral functions and sets, `Spectral`, `SingularValue`, `NuclearNorm`,
 `IndPSD`, `IndBallRank` and `TracePSD`, accept `Float32` and `Float64`
 arguments only. Other element types raise an `ArgumentError`.
 
-Steps may be any positive real. Operations that write an output keep its
-element type: `prox!(y, f, x, γ)` with a `Float32` output writes `Float32`
+Steps follow the contract in [Steps per entry and diagonal metrics](@ref).
+Operations that write an output keep its element type: `prox!(y, f, x, γ)` with a `Float32` output writes `Float32`
 entries even when the argument, parameters and step are `Float64`. The
 allocating forms `prox`, `gradient`, `value_and_gradient` and `hessian_vec`
 make their arrays with element type `float(eltype(x))`.

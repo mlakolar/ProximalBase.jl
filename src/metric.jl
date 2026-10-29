@@ -164,12 +164,21 @@ end
 #  sets in a diagonal metric
 ####################################
 
+function _check_metric_steps(f, γ::AbstractArray)
+  for g in γ
+    g > zero(g) && isfinite(g) ||
+      throw(ArgumentError("the steps of $(nameof(typeof(f))) must be positive and finite"))
+  end
+  nothing
+end
+
 # The projection onto monotone vectors in the metric of Diagonal(1 ./ γ) is
 # weighted isotonic regression with weights γmin/γᵢ; constant steps take the
 # unweighted pooling.
 function prox!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
+  _check_metric_steps(f, γ)
   Base.require_one_based_indexing(γ)
   n = length(x)
   n == 0 && return y
@@ -179,8 +188,6 @@ function prox!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractA
   equal = true
   @inbounds for i in 1:n
     g = γ[i]
-    g > zero(g) && isfinite(g) ||
-      throw(ArgumentError("the steps of IndIsotonic must be positive and finite"))
     equal &= g == γmin
     γmin = min(γmin, g)
     γmax = max(γmax, g)
@@ -203,6 +210,7 @@ function prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace}, x::Abstr
   _checksize(y, x)
   _checkparams(f, x)
   _checkparam(γ, x)
+  _check_metric_steps(f, γ)
   T = float(eltype(y))
   if _isscaled(f)
     a = _normalized_normal(f.a, f.s)
@@ -221,6 +229,7 @@ function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, γ::Abstract
   _checkwrite(prox!, f, y, x)
   _checkparams(f, x)
   _checkparam(γ, x)
+  _check_metric_steps(f, γ)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)
   _hyperslab_input(f, x)
   isempty(x) && return y
@@ -243,6 +252,7 @@ end
 function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, γ::AbstractArray)
   _checksize(y, x)
   _checkparam(γ, x)
+  _check_metric_steps(f, γ)
   T = float(eltype(y))
   r = convert(T, f.r)
   if !f.equality
@@ -260,6 +270,7 @@ end
 function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, γ::AbstractArray)
   _checksize(y, x)
   _checkparam(γ, x)
+  _check_metric_steps(f, γ)
   T = float(eltype(y))
   r = convert(T, f.r)
   norm(x, 1) <= r && return (y === x ? y : copyto!(y, x))

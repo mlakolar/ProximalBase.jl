@@ -144,6 +144,7 @@ LinearImage(f::AbstractFunction, L) = throw(ArgumentError(
 
 const _OrthogonalLinearImage = LinearImage{<:AbstractFunction, M, <:_OrthogonalImage} where {M}
 const _QuadraticLinearImage = LinearImage{<:QuadraticFunction, <:AbstractMatrix, <:_QuadraticImage}
+_checkentries(h::_QuadraticLinearImage, x) = _checkreal(h, x)
 
 isproximable(::Type{<:LinearImage}) = true
 isconvex(::Type{<:LinearImage{F}}) where {F} = isconvex(F)

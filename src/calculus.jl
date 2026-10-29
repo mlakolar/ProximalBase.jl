@@ -249,6 +249,7 @@ function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) wh
   _checksize(t.b, x)
   _checkparams(t, x)
   _check_symmetric_source(y, t.b)
+  _checkentries(t.f, x)
   _checkwrite(op, t.f, y, y)
 end
 
@@ -893,6 +894,20 @@ function value_and_gradient!(g::AbstractArray, s::Sum, x::AbstractArray)
   b = _array_buffer!(s.scratch, eltype(g), size(g))
   _value_at(_add_gradients!(g, b, x, v, Base.tail(s.fs)), x)
 end
+
+####################################
+#  The real-entry checks of inner functions
+####################################
+
+# The check that rejects complex entries in a function whose value is not real
+# at them, for the oracles whose other checks see only the output or another
+# point: wrappers that pass an output-typed buffer, and second-order oracles.
+_checkentries(f, x) = true
+_checkentries(f::Union{LinearFunction, QuadraticFunction, KronQuadratic, LeastSquaresLoss, GLMLoss, LogDetLoss,
+                       IndAffine, Tilt}, x) = _checkreal(f, x)
+_checkentries(f::Union{Scaled, Translate}, x) = _checkentries(f.f, x)
+_checkentries(s::Sum, x) = (map(f -> _checkentries(f, x), s.fs); true)
+_checkentries(s::SeparableSum, x::Tuple) = (map(_checkentries, s.fs, x); true)
 
 ####################################
 #  Availability of standalone values

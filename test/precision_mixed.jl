@@ -12,6 +12,11 @@ stack(T) = cat(matrix(T), 2matrix(T); dims = 3)
 other(T) = T === Float32 ? Float64 : Float32
 buffer(x::AbstractArray) = similar(x)
 buffer(x::Tuple) = map(buffer, x)
+# a user separable function whose entries have real values at complex entries
+struct AbsSquare <: SeparableFunction end
+PB.value_entry(::AbsSquare, v, ::Integer) = abs2(v)
+PB.iszeropreserving(::AbsSquare) = true
+
 # The value type of the precision rule: real(float(eltype)), promoted over blocks.
 rule_type(x::AbstractArray) = real(float(eltype(x)))
 rule_type(x::Tuple) = promote_type(map(rule_type, x)...)
@@ -574,6 +579,12 @@ if occursin(selection, "edge types")
         @test_throws "needs Float32 or Float64 entries, got" call()
       end
     end
+    # the element type is checked before a non-finite input gives Inf
+    inf16 = fill(Float16(Inf), 1, 1)
+    for call in (() -> SingularValue(NormL1(1.0))(inf16), () -> Conjugate(SingularValue(NormL2(1.0)))(inf16),
+                 () -> NuclearNorm(1.0)(inf16), () -> Spectral(NormL1(1.0))(inf16), () -> IndBallRank(1)(inf16))
+      @test_throws "needs Float32 or Float64 entries, got Float16" call()
+    end
   end
 end
 
@@ -608,8 +619,36 @@ if occursin(selection, "complex")
         @test all(==(7), y)
       end
     end
+    # wrappers that pass the input to f through an output-typed buffer
+    for h in (Translate(LinearFunction(ones(2)), zeros(2)), Regularize(LinearFunction(ones(2)), 0.5),
+              Translate(Scaled(LinearFunction(ones(2)), 2.0), zeros(2)))
+      for op in (prox!, value_and_prox!)
+        y = [7.0, 7.0]
+        rejects("LinearFunction", () -> op(y, h, ComplexF64[2, 3], 1.0))
+        @test y == [7.0, 7.0]
+      end
+    end
+    # second-order oracles, at the evaluation point
+    for (name, f, x) in (("LinearFunction", LinearFunction([1.0]), ComplexF64[1im]),
+                         ("QuadraticFunction", QuadraticFunction([2.0;;]), ComplexF64[1im]),
+                         ("LeastSquaresLoss", LeastSquaresLoss([1.0], [1.0;;]), ComplexF64[1im]),
+                         ("GLMLoss", LogisticLoss([1.0], [1.0;;]), ComplexF64[1im]),
+                         ("KronQuadratic", KronQuadratic([1.0;;], [1.0;;]), ComplexF64[1im;;]),
+                         ("LogDetLoss", LogDetLoss([1.0;;]), ComplexF64[1 + 1im;;]),
+                         ("LinearFunction", Sum(SqrNormL2(1.0), LinearFunction([1.0])), ComplexF64[1im]))
+      H = fill(7.0, size(x))
+      rejects(name, () -> hessian_vec!(H, f, x, ones(size(x))))
+      @test all(==(7), H)
+      rejects(name, () -> quadratic_model(f, x))
+    end
+    # real values where the function gives one
     @test NormL2(1.0)(z) isa Float64
     @test SqrNormL2(1.0, b)(z) isa Float64
+    @test AbsSquare()(ComplexF32[1 + 1im]) === 2f0
+    @test AbsSquare()(SparseIterate(ComplexF32[1 + 1im, 0])) === 2f0
+    @test AbsSquare()(Float32[1, 2]) === 5f0
+    @test value_and_prox!(zeros(ComplexF32, 1), NormL2(0f0), ComplexF32[1im], 1f0) === 0f0
+    @test IndIntersection(IndPattern(trues(1)))(ComplexF32[1im]) === 0f0
     @test FiberSum(NormL2(1.0))(ComplexF64.(stack(Float64)) .* (1 + 1im)) isa Float64
   end
 end

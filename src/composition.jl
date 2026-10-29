@@ -494,6 +494,7 @@ function _checkwrite(op::O, r::Regularize, y::AbstractArray, x::AbstractArray) w
     r.c === nothing || size(x) == size(r.c) ||
       throw(DimensionMismatch("the arrays have sizes $(size(x)) and $(size(r.c))"))
   end
+  _checkentries(r.f, x)
   _checkwrite(op, r.f, y, op === prox! || op === value_and_prox! ? y : x)
 end
 
@@ -609,5 +610,6 @@ function quadratic_model!(q::Regularize, r::Regularize, x)
 end
 
 # These wrappers, defined after calculus.jl, also evaluate the inner value.
+_checkentries(f::Union{Precompose, _ArrayPrecompose, Regularize}, x) = _checkentries(f.f, x)
 _has_value(f::Union{Precompose, _ArrayPrecompose, Regularize, Spectral, BoxConstrained, LinearConstrained,
                    BallConstrained, SphereConstrained, AffineConstrained}) = _has_value(f.f)

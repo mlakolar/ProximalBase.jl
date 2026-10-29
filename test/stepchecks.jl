@@ -212,7 +212,8 @@ end
       for h in hs, γ in (h isa Regularize || f isa NormL2 ? (0.7,) : (0.7, steps)), T in types
         y1, y2 = mk(T), mk(T)
         v1, v2 = value_and_prox!(y1, h, x, γ), old!(y2, h, x, γ)
-        @test isequal(v1, v2) && isequal(parent(y1), parent(y2))
+        # the value has the output's type: the reference rounded once
+        @test isequal(v1, convert(T, v2)) && isequal(parent(y1), parent(y2))
         y1 = mk(T)
         prox!(y1, h, x, γ)
         @test isequal(parent(y1), parent(y2))

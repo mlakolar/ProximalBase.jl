@@ -97,6 +97,7 @@ end
 # a subnormal one has k < 0) decides membership in scaled units.
 function (F::SingularValue)(X::AbstractMatrix)
   T = float(eltype(X))
+  _checkblas(F, T)
   all(isfinite, X) || return T(Inf)
   t, scaled, k = _masked_singular_values!(F, X)
   k > 0 && _scales_membership(F.f) && return _scaled_membership(F.f, scaled, k)
@@ -186,6 +187,7 @@ _checkconjugate(F::SingularValue, Y::AbstractMatrix) = _checkconjugate(F.f, _che
 # with the zero mask of the value, and the same domain
 function _conjugate_value(F::SingularValue, Y::AbstractMatrix)
   _checkconjugate(F, Y)
+  _checkblas(F, float(eltype(Y)))
   all(isfinite, Y) || return float(eltype(Y))(Inf)
   t, = _masked_singular_values!(F, Y)
   _conjugate_value(F.f, t)

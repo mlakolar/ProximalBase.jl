@@ -15,7 +15,7 @@ using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, Sq
                     LeastSquaresLoss, GLMLoss, Regularize, BoxConstrained,
                     prox_entry, value_entry, shrink, _checksize, _checkparams, _checkgroups, _tol, _ind,
                     _kth_largest!, _positive_product, _weight_coefficient, _weight_product, _weighted_value,
-                    _value_at, _checkreal
+                    _value_at, _valtype, _checkreal
 using GPUArraysCore: AbstractGPUArray
 using LinearAlgebra: mul!
 using Base.Broadcast: broadcasted, instantiate
@@ -46,7 +46,7 @@ end
 
 _term(f, v, i, ::Type{T}) where {T} = convert(T, value_entry(f, v, i))
 ProximalBase._value_dense(f, x::GPUArray) =
-  (T = float(eltype(x)); _sum(T, _term, Ref(f), x, LinearIndices(x), T))
+  (T = _valtype(x); _sum(T, _term, Ref(f), x, LinearIndices(x), T))
 
 ####################################
 #  The built-in functions with parameter arrays

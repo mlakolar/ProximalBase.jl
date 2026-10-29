@@ -51,7 +51,7 @@ function _norm2_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real, :
   T = float(eltype(y))
   if iszero(f.λ)
     y === x || copyto!(y, x)
-    return zero(T)
+    return zero(_valtype(y))
   end
   c = convert(T, γ) * convert(T, f.λ)
   nx = convert(T, _norm2(x))

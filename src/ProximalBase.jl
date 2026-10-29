@@ -42,12 +42,12 @@ export
 
   # smooth functions
   ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, KronQuadratic,
-  LeastSquaresLoss, GLMLoss, LogisticLoss, PoissonLoss, HuberLoss, LogDetLoss,
+  LeastSquaresLoss, GLMLoss, LogisticLoss, PoissonLoss, HuberLoss, LogDetLoss, BernoulliLoss,
 
   # penalties
-  NormL1, NormL1Nonneg, ElasticNet, NormL2, NormLinf, GroupNormL2, GroupNormLinf,
+  NormL1, NormL1Nonneg, ElasticNet, NormL2, CubeNormL2, NormLinf, GroupNormL2, GroupNormLinf,
   SparseGroupNormL2,
-  NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD, TotalVariation1D, FusedLasso, SLOPE,
+  NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD, TotalVariation1D, FusedLasso, SLOPE, SumLargest,
   NegEntropy, KLDivergence, NegLog, Berhu,
 
   # separable losses
@@ -60,7 +60,7 @@ export
   # indicator functions
   IndBox, IndNonnegative, IndBinary, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
   IndIntersection,
-  IndHyperplane, IndHalfspace, IndPSD, IndBallRank, IndIsotonic, IndSOC,
+  IndHyperplane, IndHalfspace, IndHyperslab, IndPSD, IndBallRank, IndStiefel, IndIsotonic, IndSOC,
   IndSphereL2,
   IndBallGroupL0,
   IndPattern, IndBanded, IndToeplitz,
@@ -68,7 +68,7 @@ export
 
   # functions built from functions
   Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum, Constrained, Spectral,
-  MoreauEnvelope, SqrDistL2, DistL2, Precompose, Regularize,
+  MoreauEnvelope, SqrDistL2, DistL2, Precompose, Regularize, PointwiseMinimum,
 
   # functions of stacked arrays
   SliceSum, FiberSum,
@@ -128,6 +128,7 @@ include("second_order.jl")
 include("envelope.jl")
 include("distance.jl")
 include("composition.jl")
+include("minimum.jl")
 include("metric.jl")
 include("caches.jl")
 include("deprecated.jl")

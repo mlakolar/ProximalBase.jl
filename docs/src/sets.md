@@ -28,12 +28,14 @@ feasibility certificate.
 | [`IndBallGroupL0`](@ref)`(s, groups)` | at most ``s`` nonzero groups | keep the ``s`` groups of largest norm |
 | [`IndHyperplane`](@ref)`(a, b)` | ``\langle a, x\rangle = b`` | ``v - \frac{\langle a, v\rangle - b}{\lVert a\rVert^2}\,a`` |
 | [`IndHalfspace`](@ref)`(a, b)` | ``\langle a, x\rangle \le b`` | the same when ``\langle a, v\rangle > b`` |
+| [`IndHyperslab`](@ref)`(a, l, u)` | ``l \le \langle a, x\rangle \le u`` | project onto the violated bound, or keep ``v`` inside |
 | [`IndIsotonic`](@ref)`()` | ``x_1 \le x_2 \le \dots \le x_n`` | isotonic regression, by pool adjacent violators |
 | [`IndIntersection`](@ref)`(C₁, C₂, …)` | ``C_1 \cap C_2 \cap \cdots`` | Dykstra's algorithm, iterative |
 | [`IndAffine`](@ref)`(A, b)` | ``Ax = b`` | ``v - A^\top(AA^\top)^{-1}(Av - b)``, from a factorization cached at construction |
 | [`IndPSD`](@ref)`()` | ``X \succeq 0`` | ``U\max(\Lambda, 0)U^\top`` |
 | [`IndPSD`](@ref)`(rank = r)` | ``X \succeq 0``, rank at most ``r`` | the ``r`` largest positive eigenpairs |
 | [`IndBallRank`](@ref)`(r)` | rank at most ``r`` | the truncated SVD |
+| [`IndStiefel`](@ref)`()` | ``X^\top X = I_k``, ``k \le p``, nonconvex | ``UV^\top`` from the thin SVD |
 | [`SingularValue`](@ref)`(IndBallL1(r))` | ``\lVert X\rVert_* \le r`` | the ℓ1-ball projection of the singular values |
 | [`SingularValue`](@ref)`(IndBallLinf(r))` | ``\lVert X\rVert_2 \le r`` | ``U\min(\Sigma, r)V^\top`` |
 | [`IndPattern`](@ref)`(P)` | ``x_i = 0`` off the pattern ``P`` | zero the entries off ``P`` |
@@ -183,7 +185,7 @@ least-squares loss or a quadratic to the set, the ``f`` of ADMM for
 equality-constrained estimators such as log-contrast regression with several
 subcompositions.
 
-## Hyperplanes and halfspaces
+## Hyperplanes, halfspaces and hyperslabs
 
 Minimizing ``\|z - v\|^2`` subject to ``\langle a, z\rangle = b`` gives
 ``z = v - \mu a`` with ``\mu = (\langle a, v\rangle - b)/\|a\|^2``. For the
@@ -193,7 +195,22 @@ violates the inequality, and ``z = v`` otherwise.
 A scalar `a` stands for an array of `a`s of the size of the argument, so
 `IndHyperplane(1, r)` is the set of arrays whose entries sum to ``r``, of any
 size. [`Constrained`](@ref) restricts a convex separable function to a
-hyperplane or a halfspace.
+hyperplane, a halfspace or a hyperslab.
+
+[`IndHyperslab`](@ref)`(a, l, u)` bounds one linear functional on both sides.
+Its projection keeps a point inside the slab and otherwise projects onto the
+violated bound, in one pass over the entries for the correction. Equal bounds
+give a hyperplane, one infinite bound gives a halfspace, and two infinite
+bounds give the whole space. Membership checks each finite bound with its own
+floating-point tolerance, so a distant bound does not hide a violation of the
+other. The normal and each finite bound use the overflow-safe scaling of
+`IndHyperplane`; see the docstring for its representability conditions.
+
+For example, `IndHyperslab(1, l, u)` bounds the sum of the coefficients, and
+`IndHyperslab(a, -c, c)` bounds the magnitude of a contrast. For a linear model,
+`a` can be the difference between two groups' mean covariates to bound their
+gap in mean predictions. `Spectral(IndHyperslab(1, l, u))` bounds the trace of
+a symmetric matrix.
 
 ## Monotone vectors
 
@@ -224,6 +241,34 @@ Projected gradient with them is hard-impute in matrix completion.
 
 With `partial = true`, [`IndPSD`](@ref) and [`IndBallRank`](@ref) compute only
 the eigenpairs or singular triplets they keep; see [Partial decompositions](@ref).
+
+## Orthonormal columns
+
+[`IndStiefel`](@ref)`()` projects a real ``p \times k`` matrix onto the
+matrices with orthonormal columns, for ``k \le p``. If
+``X = U\Sigma V^\top`` is a thin SVD, the Frobenius projection is
+``UV^\top``. All ``k`` singular-vector columns are used, including an
+orthonormal completion at rank-deficient inputs. The projection is unique
+at full column rank. Otherwise the SVD chooses a minimizer, deterministically
+for a fixed input, LAPACK backend and configuration. The choice need not be
+continuous across rank-deficient inputs. With ``k = p`` the set is the
+orthogonal group, including reflections; with ``k = 1`` it is the unit
+sphere written as a column matrix.
+
+This projection gives gradient projection steps for factor rotation and
+k-component PCA. Projecting ``A^\top B`` gives a minimizer of the orthogonal
+Procrustes problem ``\min_{Q^\top Q = I}\|AQ - B\|_F``. The step size does
+not affect the projection. The alternative formula
+``X(X^\top X)^{-1/2}`` requires full column rank and squares the condition
+number when forming the Gram matrix, so this implementation uses the SVD.
+There is no general closed form for `Constrained(f, IndStiefel())`.
+
+The value checks ``\|X^\top X - I\|_F \le \sqrt{\varepsilon}\sqrt{k}``
+in the argument's floating precision. A value of zero only reports this
+tolerance check. Nonfinite inputs have value `Inf` and cannot be projected.
+The proximal workspace follows the output's precision, which must be
+`Float32` or `Float64`; scaling precedes conversion to preserve direction
+at extreme magnitudes. Buffers are reused for fixed types and sizes.
 
 ## Structured matrices
 

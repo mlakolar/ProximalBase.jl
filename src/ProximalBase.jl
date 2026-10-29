@@ -61,14 +61,14 @@ export
   IndBox, IndNonnegative, IndBinary, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
   IndIntersection,
   IndHyperplane, IndHalfspace, IndHyperslab, IndPSD, IndBallRank, IndStiefel, IndIsotonic, IndSOC,
-  IndSphereL2,
+  IndRotatedSOC, IndSphereL2,
   IndBallGroupL0,
   IndPattern, IndBanded, IndToeplitz,
-  IndAffine,
+  IndAffine, IndGraph,
 
   # functions built from functions
   Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum, Constrained, Spectral,
-  MoreauEnvelope, SqrDistL2, Precompose, LinearImage, Regularize, PointwiseMinimum,
+  MoreauEnvelope, SqrDistL2, DistL2, Precompose, LinearImage, Regularize, PointwiseMinimum,
 
   # functions of stacked arrays
   SliceSum, FiberSum,
@@ -116,6 +116,7 @@ include("functions/ordered.jl")
 include("functions/nonconvex.jl")
 include("functions/matrixsets.jl")
 include("functions/affine.jl")
+include("functions/graph.jl")
 include("lla.jl")
 
 include("calculus.jl")

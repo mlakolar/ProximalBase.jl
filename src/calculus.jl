@@ -303,7 +303,7 @@ end
 # At a proximal point y = x - γp, Fenchel equality gives f*(y) = <p,y> - f(p).
 # Keep the direct value for known closed forms, especially exact indicator zeros.
 _has_conjugate_value(::AbstractFunction) = false
-_has_conjugate_value(::Union{NormL1, NormL2, NormLinf, IndBallL1, IndBallL2, IndSOC,
+_has_conjugate_value(::Union{NormL1, NormL2, NormLinf, IndBallL1, IndBallL2, IndSOC, IndRotatedSOC,
                             ZeroFunction, IndNonnegative, IndBox, IndSimplex, SumLargest, SqrNormL2,
                             LinearFunction, CheckLoss, HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}) = true
 _has_conjugate_value(f::Union{Scaled, Translate}) = _has_conjugate_value(f.f)
@@ -425,6 +425,8 @@ _conjugate_value(f::IndBallL2, y::AbstractArray) =
   (T = float(eltype(y)); iszero(f.r) ? zero(T) : convert(T, f.r) * _norm2(y))
 _conjugate_value(f::IndSOC, y::AbstractArray) =
   (_checkparams(f, y); _soc_value(f, y, true))
+_conjugate_value(f::IndRotatedSOC, y::AbstractArray) =
+  (_checkparams(f, y); _rotatedsoc_value(f, y, true))
 function _conjugate_value(f::IndSimplex, y::AbstractArray)
   T = float(eltype(y))
   isempty(y) && return f.equality && f.r > 0 ? T(-Inf) : zero(T)

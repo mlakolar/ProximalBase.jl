@@ -17,6 +17,7 @@ from known ones.
 | [`Spectral`](@ref)`(f)` | ``f(\lambda(X))`` for a symmetric ``X`` | ``V\operatorname{diag}(\operatorname{prox}_{\gamma f}(\lambda))V^\top`` | |
 | [`MoreauEnvelope`](@ref)`(f, μ)` | ``\min_z f(z) + \tfrac{1}{2\mu}\lVert z - x\rVert^2`` | ``x + \tfrac{\gamma}{\mu + \gamma}\big(\operatorname{prox}_{(\mu+\gamma) f}(x) - x\big)`` | ``\big(x - \operatorname{prox}_{\mu f}(x)\big)/\mu`` |
 | [`SqrDistL2`](@ref)`(C, λ)` | ``\tfrac{\lambda}{2}\operatorname{dist}(x,C)^2`` | ``(x + \gamma\lambda P_C(x))/(1 + \gamma\lambda)`` | ``\lambda(x - P_C(x))`` where the projection is unique |
+| [`DistL2`](@ref)`(C, λ)` | ``\lambda\operatorname{dist}(x,C)`` | ``p`` if ``d \le \gamma\lambda``, otherwise ``x + (\gamma\lambda/d)(p-x)``, with ``p=P_C(x)``, ``d=\|x-p\|_2`` | |
 | [`Precompose`](@ref)`(f, A, μ)`, ``AA^\top = \mu I`` | ``f(Ax)`` | ``x + \tfrac1\mu A^\top\big(\operatorname{prox}_{\mu\gamma f}(Ax) - Ax\big)`` | ``A^\top\nabla f(Ax)`` |
 | [`Precompose`](@ref)`(f, a)`, array `a`, separable `f` | ``f(a \odot x)`` | ``\operatorname{prox}_{\gamma a_i^2 f_i}(a_i x_i)/a_i`` in entry ``i`` | ``a \odot \nabla f(a \odot x)`` |
 | [`LinearImage`](@ref)`(f, L)` | ``\inf_{Lx=y} f(x)`` | ``L\operatorname*{argmin}_x\{f(x) + \lVert Lx-y\rVert^2/(2\gamma)\}`` in the supported cases | |
@@ -534,6 +535,71 @@ P = prox(Spectral(Constrained(IndBox(0, 1), IndHyperplane(1, 2))), (B + B') / 2)
 ```
 
 ## Distances to sets
+
+[`DistL2`](@ref)`(C, λ)` is ``\lambda\operatorname{dist}(x,C)`` for finite
+``\lambda \ge 0``. With one projection ``p \in P_C(x)`` and
+``d = \|x-p\|_2``, its proximal operator is
+```math
+\operatorname{prox}_{\gamma f}(x) =
+\begin{cases}
+p, & d \le \gamma\lambda,\\
+x + (\gamma\lambda/d)(p-x), & d > \gamma\lambda.
+\end{cases}
+```
+The value in exact arithmetic is ``\lambda(d-\gamma\lambda)_+``. The
+implementation measures the distance from the written output to the retained
+projection, so its returned value accounts for rounding, with no second
+projection. Distances and steps are scaled before comparison and interpolation
+to preserve finite results even when ``d`` or ``\gamma\lambda`` exceeds the
+floating-point range.
+
+This penalty moves an estimate toward a structured submodel and can select it
+exactly, to the projection's accuracy. For ``C=\{0\}`` it is
+[`NormL2`](@ref)`(λ)`. For ``C=\operatorname{span}\{\mathbf 1\}`` it is
+``\lambda\|x-\bar x\mathbf 1\|_2``, which fuses all coefficients at once.
+[`IndIsotonic`](@ref) shrinks toward a monotone pattern, and
+[`IndNonnegative`](@ref) toward the nonnegative orthant. For a convex set and
+``\lambda>0``, the distance is nonsmooth on the boundary of ``C`` and zero,
+hence smooth, in its interior. The function is not separable, even when the
+set is. Its `issmooth` trait is false, no gradient oracles are provided, and
+`lipschitz` throws because that interface concerns the gradient's constant.
+
+For an ``L``-Lipschitz loss with a constrained minimizer on ``C``,
+``\lambda>L`` puts every minimizer of the penalized problem in ``C``. Indeed,
+projecting an infeasible ``x`` reduces its penalty by ``\lambda d`` and
+increases its loss by at most ``Ld``. Equality ``\lambda=L`` need not suffice:
+with ``C=\{0\}`` and loss ``-Lx``, every ``x\ge0`` minimizes the penalty at
+equality. The squared distance below generally only pulls toward the set.
+
+The proximal formula also holds for a nonconvex nonempty closed set with an
+exact projection; `isconvex` follows the set. For fixed ``c\in C``, minimizing
+``\lambda\|z-c\|_2+\|z-x\|_2^2/(2\gamma)`` over ``z`` gives the reduced
+objective ``\phi(\|x-c\|_2)``, where ``\phi(r)=r^2/(2\gamma)`` for
+``r\le\gamma\lambda`` and ``\phi(r)=\lambda r-\gamma\lambda^2/2`` otherwise
+(Beck, *First-Order Methods in Optimization*, 2017, Chapter 6). This is
+nondecreasing in ``r``, so any nearest point minimizes it. The projection
+remains nearest along the segment from ``x`` to ``p`` by the triangle
+inequality. At ties, such as sparse supports or the sphere at zero, the oracle
+uses the projection selected by the set.
+
+At zero scale the value vanishes and the proximal operator is the identity,
+after structural checks, without a projection. Only scalar steps are
+supported. The function owns its projection buffer and must not be shared
+between threads. The buffer follows the argument's precision for values and
+the output's for proximal operators; the output may alias the input.
+`Conjugate(DistL2(C, λ))` provides a proximal operator for convex ``C``
+through Moreau's identity, without a standalone conjugate value.
+`Spectral(DistL2(...))`, `Constrained(DistL2(...), box)`, scalar proximal
+operators, restriction and coordinate curvatures are unsupported. The
+projection qualifications stated below for `SqrDistL2` apply to `DistL2` too.
+
+```@example calculus
+d = DistL2(IndNonnegative(), 2.0)
+x = [-3.0, 1.0, -4.0]
+@assert d(x) == 10 # hide
+@assert prox(d, x, 3.0) == [0.0, 1.0, 0.0] # hide
+(d(x), prox(d, x, 1.0), prox(d, x, 3.0))
+```
 
 [`SqrDistL2`](@ref)`(C, λ)` is ``(\lambda/2)\operatorname{dist}(x,C)^2``
 for finite ``\lambda \ge 0`` and a proximable indicator function ``C``. It

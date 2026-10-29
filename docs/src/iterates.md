@@ -46,7 +46,22 @@ values in sorted order, including stored zeros.
 A [`SymmetricSparseIterate`](@ref) is a sparse symmetric ``p \times p`` matrix
 that stores its lower triangle. For indexing, length, iteration and
 broadcasting it is an ordinary ``p \times p`` matrix, except that writing
-``x_{rc}`` also writes ``x_{cr}``. Its coordinates are the
+``x_{rc}`` also writes ``x_{cr}``.
+
+Only symmetric values go in. The constructor, `copyto!`, `copy!`, broadcasting
+into ``x``, `map!`, `axpy!` and `axpby!` take a value with the axes of ``x``
+whose entries ``(r, c)`` and ``(c, r)`` are equal, with `NaN` equal to `NaN`,
+and they throw before writing anything otherwise. `Symmetric(A, :L)` stores
+the lower triangle of a matrix ``A`` that is not symmetric, and
+`Symmetric(A, :U)` its upper triangle. These functions write each entry of
+the lower triangle once. Sources that are symmetric by their type, such as
+another `SymmetricSparseIterate`, a `Symmetric` or a `Diagonal`, skip the
+check; a broadcast whose arguments do not show that its value is symmetric is
+first evaluated at both positions of each off-diagonal entry.
+Functions that update entries one position at a time, such as `replace!`,
+`mul!` into ``x`` or `x[:, :] = A`, are not checked; the docstring lists them.
+
+Its coordinates are the
 ``p(p+1)/2`` entries ``(r, c)``, ``r \ge c``, of the lower triangle, numbered
 column by column:
 

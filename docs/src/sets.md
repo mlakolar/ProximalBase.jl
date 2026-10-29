@@ -28,6 +28,7 @@ feasibility certificate.
 | [`IndBallGroupL0`](@ref)`(s, groups)` | at most ``s`` nonzero groups | keep the ``s`` groups of largest norm |
 | [`IndHyperplane`](@ref)`(a, b)` | ``\langle a, x\rangle = b`` | ``v - \frac{\langle a, v\rangle - b}{\lVert a\rVert^2}\,a`` |
 | [`IndHalfspace`](@ref)`(a, b)` | ``\langle a, x\rangle \le b`` | the same when ``\langle a, v\rangle > b`` |
+| [`IndHyperslab`](@ref)`(a, l, u)` | ``l \le \langle a, x\rangle \le u`` | project onto the violated bound, or keep ``v`` inside |
 | [`IndIsotonic`](@ref)`()` | ``x_1 \le x_2 \le \dots \le x_n`` | isotonic regression, by pool adjacent violators |
 | [`IndIntersection`](@ref)`(C₁, C₂, …)` | ``C_1 \cap C_2 \cap \cdots`` | Dykstra's algorithm, iterative |
 | [`IndAffine`](@ref)`(A, b)` | ``Ax = b`` | ``v - A^\top(AA^\top)^{-1}(Av - b)``, from a factorization cached at construction |
@@ -184,7 +185,7 @@ least-squares loss or a quadratic to the set, the ``f`` of ADMM for
 equality-constrained estimators such as log-contrast regression with several
 subcompositions.
 
-## Hyperplanes and halfspaces
+## Hyperplanes, halfspaces and hyperslabs
 
 Minimizing ``\|z - v\|^2`` subject to ``\langle a, z\rangle = b`` gives
 ``z = v - \mu a`` with ``\mu = (\langle a, v\rangle - b)/\|a\|^2``. For the
@@ -194,7 +195,22 @@ violates the inequality, and ``z = v`` otherwise.
 A scalar `a` stands for an array of `a`s of the size of the argument, so
 `IndHyperplane(1, r)` is the set of arrays whose entries sum to ``r``, of any
 size. [`Constrained`](@ref) restricts a convex separable function to a
-hyperplane or a halfspace.
+hyperplane, a halfspace or a hyperslab.
+
+[`IndHyperslab`](@ref)`(a, l, u)` bounds one linear functional on both sides.
+Its projection keeps a point inside the slab and otherwise projects onto the
+violated bound, in one pass over the entries for the correction. Equal bounds
+give a hyperplane, one infinite bound gives a halfspace, and two infinite
+bounds give the whole space. Membership checks each finite bound with its own
+floating-point tolerance, so a distant bound does not hide a violation of the
+other. The normal and each finite bound use the overflow-safe scaling of
+`IndHyperplane`; see the docstring for its representability conditions.
+
+For example, `IndHyperslab(1, l, u)` bounds the sum of the coefficients, and
+`IndHyperslab(a, -c, c)` bounds the magnitude of a contrast. For a linear model,
+`a` can be the difference between two groups' mean covariates to bound their
+gap in mean predictions. `Spectral(IndHyperslab(1, l, u))` bounds the trace of
+a symmetric matrix.
 
 ## Monotone vectors
 

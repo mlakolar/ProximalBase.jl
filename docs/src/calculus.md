@@ -223,8 +223,8 @@ prox(h, [3.0, 4.0], 0.5) ≈ [0.6, 0.8]
 
 [`Constrained`](@ref)`(f, C)` is ``f + \iota_C`` for a convex separable
 ``f(x) = \sum_i f_i(x_i)`` and a set ``C`` that is a box, a hyperplane, a
-halfspace or a simplex. Its proximal operator reduces to the scalar proximal
-operators of ``f``.
+halfspace, a hyperslab or a simplex. Its proximal operator reduces to the scalar
+proximal operators of ``f``.
 
 **On a box.** The problem that defines the proximal operator separates over the
 entries, into the scalar problems
@@ -268,6 +268,13 @@ every root. For the halfspace ``\langle a, z\rangle \le b`` the multiplier is
 nonnegative and vanishes when the constraint is inactive: ``\nu^\star = 0`` when
 ``\varphi(0) \le 0``.
 
+For a hyperslab [`IndHyperslab`](@ref)`(a, l, u)`, the multiplier vanishes
+when the unconstrained proximal point satisfies both bounds. Otherwise the
+search meets the violated bound, with a negative multiplier at the lower bound
+or a positive one at the upper bound. The selected bound stays fixed throughout
+that call. A warm start from the other side, or from an inactive call, is
+discarded. This also applies when `f` is itself constrained to a box.
+
 `Constrained` finds the root by a search over the scalar ``\nu``, and each step
 of the search is one pass over the entries.
 
@@ -299,14 +306,15 @@ A box enters through the scalar proximal operators, so ``f`` may itself be
 ``\sum_i x_i = r``. The caller must ensure that the set meets the domain of
 ``f``. A box clamps the unconstrained proximal point without checking this
 intersection; for an indicator, `value_and_prox!` returns zero even when the
-intersection is empty. The multiplier search on a hyperplane or halfspace
-throws an `ArgumentError` if it cannot bracket a multiplier. It is not a
+intersection is empty. The multiplier search on a hyperplane, halfspace or
+hyperslab throws an `ArgumentError` if it cannot bracket a multiplier. It is not a
 general feasibility test: rounding can reach the closure of an open domain,
 and a finite multiplier need not exist at the boundary of a closed domain.
 
 | Call | Function |
 |:-----|:---------|
 | `Constrained(NormL1(λ), IndHyperplane(1, 0))` | the lasso penalty on coefficients that sum to zero, as in regression on compositional data |
+| `Constrained(NormL1(λ), IndHyperslab(a, l, u))` | the lasso penalty with a bounded contrast ``l \le \langle a, x\rangle \le u`` |
 | `Constrained(NormL1(λ), IndBox(0, u))` | the nonnegative lasso penalty with upper bounds |
 | `Constrained(IndBox(0, 1), IndHyperplane(1, k))` | the indicator of the capped simplex ``\{x : 0 \le x \le 1,\ \sum_i x_i = k\}`` |
 | `Constrained(SqrNormL2(λ), IndSimplex(1))` | the ridge penalty on the probability simplex |

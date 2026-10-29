@@ -60,7 +60,7 @@ export
   # indicator functions
   IndBox, IndNonnegative, IndBinary, IndBallLinf, IndBallL0, IndBallL1, IndBallL2, IndSimplex,
   IndIntersection,
-  IndHyperplane, IndHalfspace, IndPSD, IndBallRank, IndStiefel, IndIsotonic, IndSOC,
+  IndHyperplane, IndHalfspace, IndHyperslab, IndPSD, IndBallRank, IndStiefel, IndIsotonic, IndSOC,
   IndSphereL2,
   IndBallGroupL0,
   IndPattern, IndBanded, IndToeplitz,

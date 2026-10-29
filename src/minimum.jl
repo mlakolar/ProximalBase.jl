@@ -63,7 +63,7 @@ _checkparams(g::PointwiseMinimum, x) = (map(f -> _checkparams(f, x), g.fs); true
 
 function (g::PointwiseMinimum)(x::AbstractArray)
   _checkparams(g, x)
-  minimum(map(f -> f(x), g.fs))
+  _value_at(minimum(map(f -> f(x), g.fs)), x)
 end
 
 function _checkwrite(op::O, g::PointwiseMinimum, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
@@ -178,7 +178,7 @@ function value_and_prox!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray
   score = _minimum_score(v, x, best, γ, indicator)
   v, score = _minimum_candidates!(best, current, x, γ, indicator, v, score, Base.tail(g.fs))
   copyto!(y, best)
-  isnan(first(score)) ? oftype(float(v), NaN) : (indicator ? zero(v) : v)
+  _value_at(isnan(first(score)) ? oftype(float(v), NaN) : (indicator ? zero(v) : v), y)
 end
 
 function prox!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real)

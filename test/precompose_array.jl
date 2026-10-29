@@ -300,21 +300,22 @@ end
                        (Int, Int, Float64, Float64))
     x, a = X[2, -3], A[-2, 1]
     h = Precompose(NormL1(0.3), a)
-    T = float(promote_type(X, A))
+    T, R = float(promote_type(X, A)), float(X)
     image = T.(a) .* T.(x)
-    @test h(x) isa T
-    @test h(x) == h.f(image)
+    @test h(x) isa R
+    @test h(x) == R(h.f(image))
     y, γ = zeros(Y, 2), G(0.4)
     expected = shrink.(Float64.(x), Float64(γ) .* 0.3 .* abs.(a))
     @test prox!(y, h, x, γ) === y
     @test y ≈ expected rtol = 5e-7
     @test eltype(prox(h, x, γ)) == float(X)
     v = value_and_prox!(y, h, x, γ)
+    @test v isa Y
     @test v isa typeof(h(y))
     smooth = Precompose(SqrNormL2(0.7), a)
     @test gradient!(y, smooth, x) === y
     @test y ≈ 0.7 .* Float64.(a).^2 .* x rtol = 5e-7
-    @test value_and_gradient!(y, smooth, x) isa T
+    @test value_and_gradient!(y, smooth, x) isa R
   end
   h = Precompose(NormL1(), Float64[])
   @test h(Float64[]) == 0.0

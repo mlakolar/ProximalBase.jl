@@ -48,8 +48,9 @@ is constant on each group, for values, full-array proximal operators and the
 four-argument `kkt_violation`; coordinate updates and restriction of a group
 penalty are not supported. Other nonseparable functions are rejected.
 
-The array image uses the promoted floating type of `x` and `a`, and values
-have `f`'s type at that image. Effective steps are formed without first
+The array image uses the promoted floating type of `x` and `a`; values are
+rounded to the argument's type, as everywhere in the package (see the
+Precision section of the manual). Effective steps are formed without first
 rounding `aᵢ²`. The scaled input, effective step and result must be
 representable in the working precision, and the inner oracle must support
 their range. The array form provides no Hessian products.
@@ -129,7 +130,7 @@ function _linear_image!(scratch::Scratch, a::Real, x)
 end
 _inner_buffer(h::Precompose, z::AbstractArray) = _array_buffer!(h.inner, eltype(z), size(z))
 
-(h::Precompose)(x::AbstractArray) = h.f(_image!(h, x))
+(h::Precompose)(x::AbstractArray) = _value_at(h.f(_image!(h, x)), x)
 
 function value_and_gradient!(g::AbstractArray, h::Precompose, x::AbstractArray)
   _checkwrite(value_and_gradient!, h, g, x)
@@ -138,7 +139,7 @@ function value_and_gradient!(g::AbstractArray, h::Precompose, x::AbstractArray)
   b = _inner_buffer(h, z)
   v = value_and_gradient!(b, h.f, z)
   _adjoint_apply!(g, h, b)
-  v
+  _value_at(v, x)
 end
 function gradient!(g::AbstractArray, h::Precompose, x::AbstractArray)
   _checkwrite(gradient!, h, g, x)
@@ -160,7 +161,7 @@ function prox!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real)
   y
 end
 value_and_prox!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real) =
-  (_checkwrite(value_and_prox!, h, y, x); _value_and_prox_precompose!(y, h, x, γ, true))
+  (_checkwrite(value_and_prox!, h, y, x); _value_at(_value_and_prox_precompose!(y, h, x, γ, true), y))
 
 function _value_and_prox_precompose!(y, h::Precompose, x, γ, withvalue::Bool)
   z = _image!(h, x)
@@ -273,7 +274,7 @@ function _image!(h::_ArrayPrecompose, x::AbstractArray)
   copyto!(z, _PrecomposeArray(x, h.a, Val(false)))
 end
 _inner_buffer(h::_ArrayPrecompose, z::AbstractArray) = _array_buffer!(h.inner, eltype(z), size(z))
-(h::_ArrayPrecompose)(x::AbstractArray) = (_checkparams(h, x); h.f(_image!(h, x)))
+(h::_ArrayPrecompose)(x::AbstractArray) = (_checkparams(h, x); _value_at(h.f(_image!(h, x)), x))
 
 _sparse_precompose(y, x) = (y isa SparseIterate && x isa SparseIterate) ||
   (y isa SymmetricSparseIterate && x isa AbstractMatrix)
@@ -345,7 +346,7 @@ function prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real
 end
 function value_and_prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, h, y, x)
-  _value_and_prox_array!(y, h, x, γ, true)
+  _value_at(_value_and_prox_array!(y, h, x, γ, true), y)
 end
 
 Base.@propagate_inbounds function prox_entry(h::_ArrayPrecompose, v::Real, i::Integer, γ::Real)
@@ -374,7 +375,7 @@ function value_and_gradient!(g::AbstractArray, h::_ArrayPrecompose, x::AbstractA
   b = _inner_buffer(h, z)
   v = value_and_gradient!(b, h.f, z)
   g .= h.a .* b
-  v
+  _value_at(v, x)
 end
 
 function kkt_violation(h::_ArrayPrecompose, g::AbstractArray, i::Integer)
@@ -471,9 +472,9 @@ end
 iszeropreserving(r::Regularize) = r.c === nothing && isfinite(r.ρ) && iszeropreserving(r.f)
 
 _ridge(r::Regularize, x::AbstractArray) =
-  convert(float(eltype(x)), r.ρ) * (r.c === nothing ? _sumabs2(x) : _sumabs2_diff(x, r.c)) / 2
+  convert(_valtype(x), r.ρ) * (r.c === nothing ? _sumabs2(x) : _sumabs2_diff(x, r.c)) / 2
 
-(r::Regularize)(x::AbstractArray) = (_checkparams(r, x); r.f(x) + _ridge(r, x))
+(r::Regularize)(x::AbstractArray) = (_checkparams(r, x); _value_at(r.f(x) + _ridge(r, x), x))
 function _checkvalue(r::Regularize, x::AbstractArray)
   _checkparams(r, x)
   _checkvalue(r.f, x)
@@ -485,7 +486,7 @@ function value_and_gradient!(g::AbstractArray, r::Regularize, x::AbstractArray)
   _checkwrite(value_and_gradient!, r, g, x)
   v = value_and_gradient!(g, r.f, x)
   _add_ridge_gradient!(g, r, x)
-  v + _ridge(r, x)
+  _value_at(v + _ridge(r, x), x)
 end
 gradient!(g::AbstractArray, r::Regularize, x::AbstractArray) =
   (_checkwrite(gradient!, r, g, x); gradient!(g, r.f, x); _add_ridge_gradient!(g, r, x))
@@ -498,6 +499,7 @@ function _checkwrite(op::O, r::Regularize, y::AbstractArray, x::AbstractArray) w
     r.c === nothing || size(x) == size(r.c) ||
       throw(DimensionMismatch("the arrays have sizes $(size(x)) and $(size(r.c))"))
   end
+  _checkentries(r.f, x)
   _checkwrite(op, r.f, y, op === prox! || op === value_and_prox! ? y : x)
 end
 
@@ -529,7 +531,7 @@ function value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::
   _checkwrite(value_and_prox!, r, y, x)
   z = _output_buffer!(r.scratch, y)
   v = value_and_prox!(y, r.f, z, _shrunk!(z, r, x, γ))
-  v + _ridge(r, y)
+  _value_at(v + _ridge(r, y), y)
 end
 
 Base.@propagate_inbounds function prox_entry(r::Regularize, v::Real, i::Integer, γ::Real)
@@ -615,5 +617,6 @@ function quadratic_model!(q::Regularize, r::Regularize, x)
 end
 
 # These wrappers, defined after calculus.jl, also evaluate the inner value.
+_checkentries(f::Union{Precompose, _ArrayPrecompose, Regularize}, x) = _checkentries(f.f, x)
 _has_value(f::Union{Precompose, _ArrayPrecompose, Regularize, Spectral, BoxConstrained, LinearConstrained,
                    BallConstrained, SphereConstrained, AffineConstrained}) = _has_value(f.f)

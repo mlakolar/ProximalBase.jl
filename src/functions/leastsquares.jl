@@ -51,12 +51,13 @@ isproximable(::Type{<:LeastSquaresLoss}) = true
 isconvex(::Type{<:LeastSquaresLoss}) = true
 
 function (f::LeastSquaresLoss{T})(β::AbstractVecOrMat) where {T}
+  _checkreal(f, β)
   mul!(f.tmp, f.X, β)
   v = zero(T)
   @inbounds @simd for i in eachindex(f.tmp, f.Y)
     v += abs2(f.Y[i] - f.tmp[i])
   end
-  v / 2
+  _value_at(v / 2, β)
 end
 
 function value_and_gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)
@@ -64,7 +65,7 @@ function value_and_gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::Abstr
   mul!(f.tmp, f.X, β)
   f.tmp .-= f.Y
   mul!(g, transpose(f.X), f.tmp)
-  sum(abs2, f.tmp) / 2
+  _value_at(sum(abs2, f.tmp) / 2, β)
 end
 
 function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)
@@ -78,14 +79,16 @@ function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f:
   _checksize(g, β)
   # Preserve the dimension error of the product, which checks before writing.
   size(β, 1) == size(f.X, 2) && size(β, 2) == size(f.tmp, 2) || mul!(f.tmp, f.X, β)
-  true
+  _checkreal(f, β)
 end
 
-function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::LeastSquaresLoss{T}, β::AbstractVecOrMat, v::AbstractVecOrMat) where {T}
+function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, f::LeastSquaresLoss{T}, β::AbstractVecOrMat, v::AbstractVecOrMat) where {T}
   _checksize(β, v)
   size(β, 1) == size(f.X, 2) || throw(DimensionMismatch("β must have $(size(f.X, 2)) rows"))
   ndims(β) == ndims(f.Y) && size(β, 2) == size(f.Y, 2) ||
     throw(DimensionMismatch("β must have the same number of responses as Y"))
+  _checkreal(f, v)
+  op === value_and_prox! && _checkreal(f, β)
   true
 end
 

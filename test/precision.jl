@@ -133,9 +133,7 @@ end
           if issmooth(f)
             @test typeof(value_and_gradient!(y, f, x)) === typeof(f(x))
           end
-          if f isa FiberSum || f isa SingularValue || f isa Spectral
-            @test typeof(f(x)) === T
-          end
+          @test typeof(f(x)) === T
         end
       end
     end
@@ -198,12 +196,12 @@ end
 
     X, y = Float32[1 0.5; -0.5 1; 1 1], Float32[0, 1, 0]
     ls = LeastSquaresLoss(y, X)
-    check_precision(ls, [1.0, 2.0], Float32)
+    check_precision(ls, [1.0, 2.0], Float64)
     @test typeof(ls.tmp) === Vector{Float32}
     @test typeof(ls.V) === Matrix{Float32}
     @test typeof(ls.s2) === Vector{Float32}
     for loss in (LogisticLoss(y, X), GLMLoss(PB.Huber(0.5f0), y, X))
-      check_precision(loss, [1.0, 2.0], Float32)
+      check_precision(loss, [1.0, 2.0], Float64)
       @test typeof(loss.η) === Vector{Float32}
       @test typeof(loss.d) === Vector{Float32}
     end
@@ -219,8 +217,8 @@ end
     x = Float32[1, 2]
     @test typeof(NormL1(1.0)(x)) === Float32
     @test typeof(SqrNormL2(1.0)(x)) === Float32
-    @test typeof(Scaled(NormL1(1f0), 2.0)(x)) === Float64
-    @test typeof(SqrNormL2(1f0, Float64[0, 1])(x)) === Float64
+    @test typeof(Scaled(NormL1(1f0), 2.0)(x)) === Float32
+    @test typeof(SqrNormL2(1f0, Float64[0, 1])(x)) === Float32
     f = Translate(NormL1(1f0), Float64[0.25, -0.5])
     @test typeof(f(x)) === Float32
     @test typeof(value_and_prox!(similar(x), f, x, 0.5)) === Float32

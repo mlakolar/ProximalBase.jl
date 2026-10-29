@@ -208,6 +208,28 @@ its data; its factorization type can change with the rank of `A`.
 
 ## Precision
 
+Every scalar value has the argument's precision, `T = real(float(eltype(x)))`.
+`f(x)` and `value_and_gradient!(g, f, x)` return `T` of `x`, and
+`value_and_prox!(y, f, x, γ)` returns `T` of the output `y`. For tuple
+arguments and outputs, `T` is the promotion over the blocks. An integer
+argument gives `Float64`. A complex argument gives its real floating type
+where the function's value is real, as for the norms and `SqrNormL2`.
+Functions whose value is not real for a complex argument, such as
+`LinearFunction`, `QuadraticFunction`, `Tilt`, the data losses and
+`IndAffine`, raise an `ArgumentError` in every oracle before writing any
+output.
+The value is accurate to the lower of `T` and the precision the function was
+built in: a function built in `Float32` and applied to a `Float64` argument
+returns a `Float64` value with `Float32` accuracy. Build a function in
+`Float64` for `Float64` accuracy. The rule covers every function in the
+package, including data losses, wrappers and functions with a proximal value
+but no standalone value, such as `Conjugate(ElasticNet(...))`. It is also the
+contract for functions users write.
+
+The spectral functions and sets, `Spectral`, `SingularValue`, `NuclearNorm`,
+`IndPSD`, `IndBallRank` and `TracePSD`, accept `Float32` and `Float64`
+arguments only. Other element types raise an `ArgumentError`.
+
 Steps may be any positive real. Operations that write an output keep its
 element type: `prox!(y, f, x, γ)` with a `Float32` output writes `Float32`
 entries even when the argument, parameters and step are `Float64`. The
@@ -223,39 +245,18 @@ the response and design matrix, independently of the argument's precision.
 any precision by rounding.
 The shifted buffer for values and gradients of `Translate(f, b)` uses the
 argument's precision, `float(eltype(x))`; the proximal buffers of `Translate`,
-`Tilt` and `Regularize` follow the output's type. `Spectral`, `SingularValue` and
-`FiberSum` give their values in the argument's precision, and in the output's
-precision for the proximal operators.
-`IndAffine` returns the argument's floating precision, like the other
-indicators. Its feasibility calculation and tolerance still use the promoted
-precision of the argument and data.
+`Tilt` and `Regularize` follow the output's type. The feasibility calculation and
+tolerance of `IndAffine` use the promoted precision of the argument and data.
+`IndAffine` and `IndGraph` keep their feasibility tests; only the type of the
+returned zero or infinity follows the rule.
 
 Constructors also differ. `NormL1(λ, w)` stores the scale and weights as given;
 `GroupNormL2(λ, groups, w)` converts both to their common floating type.
 
-Scalar values need not have the output array's element type. For example,
-`NormL1(1.0)(Float32[1, 2])` and `SqrNormL2(1.0)(Float32[1, 2])` return
-`Float32`, since these methods convert the scale. An unconverted parameter
-can widen the result: `Scaled(NormL1(1f0), 2.0)(Float32[1, 2])` returns
-`Float64`, as does `SqrNormL2(1f0, Float64[0, 1])(Float32[1, 2])`.
-For `LeastSquaresLoss`, `LogisticLoss` and `GLMLoss`, the value and the scalar
-returned by `value_and_gradient!` have the buffers' precision. With `Float32`
-data, these are `Float32` even for a `Float64` argument.
-
-For any precisions of the argument, output, parameters and step,
-`value_and_prox!(y, f, x, γ)` returns a scalar of the type of `f(y)`, and
-`value_and_gradient!(g, f, x)` returns a scalar of the type of `f(x)`.
-The rule applies wherever the corresponding standalone value is defined,
-which excludes functions such as `Conjugate(ElasticNet(...))` that have a
-proximal value but no standalone value. It is a rule about types: the
-returned value can be computed from the proximal or gradient intermediates,
-so a proximal value can differ from `f(y)`. In mixed
-precision, some functions evaluate their value at the output for a proximal
-oracle, or at the argument for a gradient oracle. With
-`x = Float32[1, 2]` and
-`f = Translate(NormL1(1f0), Float64[0.25, -0.5])`, the translation does not
-widen the value: both `f(x)` and
-`value_and_prox!(similar(x), f, x, 0.5)` return `Float32`.
+The value returned by `value_and_prox!` or `value_and_gradient!` can be
+computed from the proximal or gradient intermediates, so a proximal value can
+differ from `f(y)` in its last bits. Its type is that of `f(y)`, and the type
+of the value from `value_and_gradient!` is that of `f(x)`.
 
 In mixed precision, array proximal operators of wrappers such as `Translate`
 and `Tilt` round to the output's element type at each stage. Consequently,
@@ -268,8 +269,8 @@ inner function's cached precision. For example,
 precisions with a `Float32` argument and a `Float64` output.
 
 To compute in `Float32` throughout, give the argument, the parameters, the
-data and the step in `Float32`; the functions above then return `Float32`
-values and arrays.
+data and the step in `Float32`; the functions then return `Float32` values and
+arrays.
 
 ## GPU arrays
 

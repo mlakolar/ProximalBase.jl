@@ -11,11 +11,10 @@
 
 const _BlasReal = Union{Float32, Float64}
 
-# Match factory dispatch before a block sum writes an earlier block.
-@inline function _checkworkspace(factory::F, cache, ::Type{T}, dims::Vararg{Integer, N}) where {F, T, N}
-  T <: _BlasReal || throw(MethodError(factory, (cache, T, dims...)))
-  true
-end
+# the functions built on LAPACK take Float32 and Float64 entries only
+_checkblas(f, ::Type{<:_BlasReal}) = true
+@noinline _checkblas(f, ::Type{T}) where {T} =
+  throw(ArgumentError("$(nameof(typeof(f))) needs Float32 or Float64 entries, got $T"))
 
 ####################################
 #  Symmetric eigendecomposition, all eigenpairs (divide and conquer, syevd)

@@ -74,7 +74,7 @@ function _count_nonzero(f::IndBallL0, x::SparseIterate)
   count(!iszero, view(x.nzval, 1:x.nnz))
 end
 
-(f::IndBallL0)(x::AbstractArray) = _ind(_count_nonzero(f, x) <= f.s, float(eltype(x)))
+(f::IndBallL0)(x::AbstractArray) = _ind(_count_nonzero(f, x) <= f.s, _valtype(x))
 
 # the entries of the lower triangle of a symmetric matrix, the diagonal unless
 # it does not count
@@ -84,7 +84,7 @@ function (f::IndBallL0)(x::Union{Symmetric, SymmetricSparseIterate})
   @inbounds for c in 1:p, r in (f.diagonal ? c : c + 1):p
     k += !iszero(x[r, c])
   end
-  _ind(k <= f.s, float(eltype(x)))
+  _ind(k <= f.s, _valtype(x))
 end
 
 function prox!(y::AbstractArray, f::IndBallL0, x::AbstractArray, ::Real)

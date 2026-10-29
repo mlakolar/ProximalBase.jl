@@ -133,7 +133,7 @@ represents an indicator.
 function value_and_prox!(y, f::AbstractFunction, x, γ::Real = 1)
   _checkwrite(value_and_prox!, f, y, x)
   prox!(y, f, x, γ)
-  _isindicator(f) ? zero(float(eltype(y))) : f(y)
+  _isindicator(f) ? zero(_valtype(y)) : _value_at(f(y), y)
 end
 
 """

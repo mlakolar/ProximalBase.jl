@@ -168,5 +168,5 @@ function value_and_prox!(y::AbstractVector, c::AffineConstrained{T}, x::Abstract
   # Reuse the dense destination for the value too: structured matrix products
   # with sparse iterates can allocate. Copy back any rounding in y's element type.
   point = y isa StridedVector ? y : copyto!(_array_buffer!(c.output, T, size(y)), y)
-  convert(float(eltype(y)), c.f(point))
+  _value_at(c.f(point), y)
 end

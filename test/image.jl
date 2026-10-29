@@ -244,15 +244,16 @@ end
     for S in (Float32, Float64)
       x, z = ones(S, 2), zeros(S, 2)
       @test eltype(prox(qimage, x, 0.4)) === S
-      @test typeof(qimage(x)) === typeof(value_and_prox!(z, qimage, x, 0.4)) === T
+      @test typeof(qimage(x)) === typeof(value_and_prox!(z, qimage, x, 0.4)) === S
       oimage = LinearImage(SqrNormL2(1.0), Matrix{T}(I, 2, 2), 1.0)
-      @test typeof(oimage(x)) === typeof(value_and_prox!(z, oimage, x, 0.4))
+      @test typeof(oimage(x)) === typeof(value_and_prox!(z, oimage, x, 0.4)) === S
     end
   end
-  # Only Q and L determine the precision of a quadratic image's buffers.
+  # Only Q and L determine the precision of a quadratic image's buffers; the
+  # value has the argument's precision.
   mixed = LinearImage(QuadraticFunction(Float32[2 0; 0 3], [0.2, 0.3], 0.4), Float32[1 0])
-  @test mixed([1.0]) isa Float32
-  @test value_and_prox!([0.0], mixed, [1.0], 0.5) isa Float32
+  @test mixed([1.0]) isa Float64
+  @test value_and_prox!([0.0], mixed, [1.0], 0.5) isa Float64
 end
 
 @testset "cache reset through wrappers" begin

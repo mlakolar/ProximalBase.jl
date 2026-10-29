@@ -12,6 +12,14 @@ stack(T) = cat(matrix(T), 2matrix(T); dims = 3)
 other(T) = T === Float32 ? Float64 : Float32
 buffer(x::AbstractArray) = similar(x)
 buffer(x::Tuple) = map(buffer, x)
+# a user separable function whose entries have real values at complex entries
+struct AbsSquare <: SeparableFunction end
+PB.value_entry(::AbsSquare, v, ::Integer) = abs2(v)
+PB.iszeropreserving(::AbsSquare) = true
+
+# The value type of the precision rule: real(float(eltype)), promoted over blocks.
+rule_type(x::AbstractArray) = real(float(eltype(x)))
+rule_type(x::Tuple) = promote_type(map(rule_type, x)...)
 
 case(name, f, input = vector; output = input, metric = :none) =
   (; name, f, input, output, metric)
@@ -41,6 +49,9 @@ function rule_cases(P)
     case("LinearFunction", LinearFunction(b)),
     case("QuadraticFunction", QuadraticFunction(Matrix(P(1)I, 3, 3), b)),
     case("QuadraticFunction uncentered", QuadraticFunction(Matrix(P(1)I, 3, 3))),
+    case("QuadraticFunction offset", QuadraticFunction(Matrix(P(1)I, 3, 3), b, P(0.5))),
+    case("LinearFunction offset", LinearFunction(b, P(0.5))),
+    case("KronQuadratic", KronQuadratic(P[2 0; 0 1], P[1 0; 0 3]), T -> T[1 2; -0.5 1]),
     case("GroupNormL2", GroupNormL2(P(1), groups); metric = :group),
     case("GroupNormLinf", GroupNormLinf(P(1), groups); metric = :group),
     case("SparseGroupNormL2", SparseGroupNormL2(P(1), P(0.5), groups); metric = :group),
@@ -71,6 +82,18 @@ function rule_cases(P)
     case("LeastSquaresLoss", LeastSquaresLoss(response, X)),
     case("LogisticLoss", LogisticLoss(response, X)),
     case("GLMLoss", GLMLoss(PB.Huber(P(0.5)), response, X)),
+    case("PoissonLoss", PoissonLoss(P[0, 1, 2, 1], X)),
+    case("HuberLoss", HuberLoss(response, X, P(0.5))),
+    case("Scaled(LeastSquaresLoss)", Scaled(LeastSquaresLoss(response, X), P(2))),
+    case("Sum(LeastSquaresLoss)", Sum(LeastSquaresLoss(response, X), SqrNormL2(P(1)))),
+    case("IndGraph", IndGraph(P[1 0.5; 0 1]), T -> (T[1, 2], T[0.5, 0.1])),
+    case("Conjugate(IndBox)", Conjugate(IndBox(-P(1), P(1))); metric = :entry),
+    case("Conjugate(IndBox array)", Conjugate(IndBox(-ones(P, 3), ones(P, 3))); metric = :entry),
+    case("Conjugate(SqrNormL2 centered)", Conjugate(SqrNormL2(P(1), b))),
+    case("Conjugate(Translate)", Conjugate(Translate(SqrNormL2(P(1)), b))),
+    case("Conjugate(Tilt)", Conjugate(Tilt(SqrNormL2(P(1)), b))),
+    case("Conjugate(HingeLoss)", Conjugate(HingeLoss(P[1, -1, 1])), T -> T[-0.5, 0.3, -0.2]),
+    case("Tilt offset", Tilt(NormL1(P(1)), b, P(0.5))),
     case("NuclearNorm", NuclearNorm(P(1)), matrix),
     case("IndPSD", IndPSD(), matrix),
     case("TracePSD", TracePSD(P(1)), matrix),
@@ -81,6 +104,8 @@ function rule_cases(P)
   ]
   # The rectangular frame has orthogonal rows of squared norm nine.
   frame = P[1 2 2; 2 1 -2]
+  push!(cases, case("LinearImage orthogonal", LinearImage(NormL1(P(1)), permutedims(frame), P(9))))
+  push!(cases, case("LinearImage quadratic", LinearImage(QuadraticFunction(Matrix(P(1)I, 2, 2)), P[1 0.5; 0 1]), T -> T[1, 2]))
   for (name, inner) in (("NormL1", NormL1(P(1))), ("SqrNormL2", SqrNormL2(P(1))))
     metric = inner isa SeparableFunction ? :entry : :none
     push!(cases, case("Scaled($name)", Scaled(inner, P(2)); metric))
@@ -156,25 +181,34 @@ function rule_cases(P)
 end
 
 const unsupported_values = ("Conjugate unsupported", "Conjugate tuple unsupported",
-                            "Precompose unsupported", "Scaled Precompose unsupported")
+                            "Precompose unsupported", "Scaled Precompose unsupported",
+                            "Conjugate(Tilt)")
 
 function check_rule(c, Tx, Ty, S)
   @nospecialize c
   f, x, y = c.f, c.input(Tx), buffer(c.output(Ty))
+  Vx, Vy = rule_type(x), rule_type(y)
+  supported = !(c.name in unsupported_values)
+  supported && @test typeof(f(x)) === Vx
   if isproximable(f)
-    if c.name in unsupported_values
-      @test value_and_prox!(y, f, x, S(0.5)) isa Real
-      @test_throws ArgumentError f(y)
+    v = value_and_prox!(y, f, x, S(0.5))
+    @test typeof(v) === Vy
+    if supported
+      @test typeof(v) === typeof(f(y))
     else
-      @test typeof(value_and_prox!(y, f, x, S(0.5))) === typeof(f(y))
+      @test_throws ArgumentError f(y)
     end
     if c.metric != :none
       steps = c.metric == :group ? fill(S(0.5), length(f.groups)) : fill(S(0.5), size(x))
-      @test typeof(value_and_prox!(y, f, x, steps)) === typeof(f(y))
+      v = value_and_prox!(y, f, x, steps)
+      @test typeof(v) === Vy
+      supported && @test typeof(v) === typeof(f(y))
     end
   end
   if issmooth(f)
-    @test typeof(value_and_gradient!(y, f, x)) === typeof(f(x))
+    v = value_and_gradient!(y, f, x)
+    @test typeof(v) === Vx
+    @test typeof(v) === typeof(f(x))
   end
 end
 
@@ -429,10 +463,10 @@ if occursin(selection, "regressions")
         expected = similar(y)
         ref = master_prox!(expected, f, x, 0.5f0)
         v = value_and_prox!(y, f, x, 0.5f0)
-        @test v === ref
+        @test v === convert(Ty, ref)
         @test y == expected
         @test_throws ArgumentError f(y)
-        P === Float32 && Tx === Float64 && f === h && @test v === 0.3999999999999999
+        P === Float32 && Tx === Float64 && f === h && @test v === Float32(0.3999999999999999)
       end
     end
     translated = Translate(NormL1(1.0), [1e8])
@@ -520,11 +554,157 @@ if occursin(selection, "value allocations")
   end
 end
 
+if occursin(selection, "edge types")
+  @testset "Edge element types" begin
+    b = [0.25, -0.5, 0.1]
+    fs = (NormL1(1.0), SqrNormL2(1.0, b), Tilt(NormL1(1.0), b), Scaled(NormL1(1.0), 2.0),
+          LinearFunction(b), IndBox(-1.0, 1.0))
+    for f in fs, x in ([1, 2, -1], Float16[1, 2, -0.5], BigFloat[1, 2, -0.5])
+      @testset "$(nameof(typeof(f))), x=$(eltype(x))" begin
+        V = float(eltype(x))
+        y = similar(x, V)
+        @test typeof(f(x)) === V
+        isproximable(f) && @test typeof(value_and_prox!(y, f, x, 0.5)) === V
+        issmooth(f) && @test typeof(value_and_gradient!(y, f, x)) === V
+      end
+    end
+    @test typeof(NormL2(1.0)(ComplexF32[1 + 2im, 3])) === Float32
+    @test typeof(NormL2(1f0)(ComplexF64[1 + 2im, 3])) === Float64
+    for T in (Float16, BigFloat)
+      X = T.(matrix(Float64))
+      calls = (() -> Spectral(NormL1(1.0))(X), () -> prox!(similar(X), Spectral(NormL1(1.0)), X, 0.5),
+               () -> NuclearNorm(1.0)(X), () -> prox!(similar(X), NuclearNorm(1.0), X, 0.5))
+      for call in calls
+        @test_throws ArgumentError call()
+        @test_throws "needs Float32 or Float64 entries, got" call()
+      end
+    end
+    # the element type is checked before a non-finite input gives Inf
+    inf16 = fill(Float16(Inf), 1, 1)
+    for call in (() -> SingularValue(NormL1(1.0))(inf16), () -> Conjugate(SingularValue(NormL2(1.0)))(inf16),
+                 () -> NuclearNorm(1.0)(inf16), () -> Spectral(NormL1(1.0))(inf16), () -> IndBallRank(1)(inf16))
+      @test_throws "needs Float32 or Float64 entries, got Float16" call()
+    end
+  end
+end
+
+if occursin(selection, "complex")
+  @testset "Complex arguments" begin
+    function rejects(name, call)
+      @test_throws ArgumentError call()
+      @test_throws "$name requires real entries" call()
+    end
+    z = ComplexF64[1 + 2im, 3, -1im]
+    Z = ComplexF64[2 1im 0; -1im 1 0.1; 0 0.1 3]
+    X, response, b = [1 0.5 0; -0.5 1 0.2; 1 1 1; 0 1 -1], [0.0, 1, 0, 1], [0.25, -0.5, 0.1]
+    cases = [
+      ("LinearFunction", LinearFunction(b), z),
+      ("QuadraticFunction", QuadraticFunction(Matrix(1.0I, 3, 3), b), z),
+      ("Tilt", Tilt(SqrNormL2(1.0), b), z),
+      ("LeastSquaresLoss", LeastSquaresLoss(response, X), z),
+      ("GLMLoss", LogisticLoss(response, X), z),
+      ("LogDetLoss", LogDetLoss(matrix(Float64)), Z),
+      ("IndAffine", IndAffine([1.0 0.5 0; -0.5 1 0.2], [1.0, 0]), z),
+      ("LinearFunction", Scaled(LinearFunction(b), 2.0), z),
+    ]
+    for (name, f, x) in cases
+      @testset "$(nameof(typeof(f)))" begin
+        rejects(name, () -> f(x))
+        y = fill(ComplexF64(7), size(x))
+        if isproximable(f)
+          rejects(name, () -> prox!(y, f, x, 0.5))
+          rejects(name, () -> value_and_prox!(y, f, x, 0.5))
+        end
+        issmooth(f) && rejects(name, () -> gradient!(y, f, x))
+        @test all(==(7), y)
+      end
+    end
+    # wrappers that pass the input to f through an output-typed buffer
+    for h in (Translate(LinearFunction(ones(2)), zeros(2)), Regularize(LinearFunction(ones(2)), 0.5),
+              Translate(Scaled(LinearFunction(ones(2)), 2.0), zeros(2)))
+      for op in (prox!, value_and_prox!)
+        y = [7.0, 7.0]
+        rejects("LinearFunction", () -> op(y, h, ComplexF64[2, 3], 1.0))
+        @test y == [7.0, 7.0]
+      end
+    end
+    # second-order oracles, at the evaluation point
+    for (name, f, x) in (("LinearFunction", LinearFunction([1.0]), ComplexF64[1im]),
+                         ("QuadraticFunction", QuadraticFunction([2.0;;]), ComplexF64[1im]),
+                         ("LeastSquaresLoss", LeastSquaresLoss([1.0], [1.0;;]), ComplexF64[1im]),
+                         ("GLMLoss", LogisticLoss([1.0], [1.0;;]), ComplexF64[1im]),
+                         ("KronQuadratic", KronQuadratic([1.0;;], [1.0;;]), ComplexF64[1im;;]),
+                         ("LogDetLoss", LogDetLoss([1.0;;]), ComplexF64[1 + 1im;;]),
+                         ("LinearFunction", Sum(SqrNormL2(1.0), LinearFunction([1.0])), ComplexF64[1im]))
+      H = fill(7.0, size(x))
+      rejects(name, () -> hessian_vec!(H, f, x, ones(size(x))))
+      @test all(==(7), H)
+      rejects(name, () -> quadratic_model(f, x))
+    end
+    # real values where the function gives one
+    @test NormL2(1.0)(z) isa Float64
+    @test SqrNormL2(1.0, b)(z) isa Float64
+    @test AbsSquare()(ComplexF32[1 + 1im]) === 2f0
+    @test AbsSquare()(SparseIterate(ComplexF32[1 + 1im, 0])) === 2f0
+    @test AbsSquare()(Float32[1, 2]) === 5f0
+    @test value_and_prox!(zeros(ComplexF32, 1), NormL2(0f0), ComplexF32[1im], 1f0) === 0f0
+    @test IndIntersection(IndPattern(trues(1)))(ComplexF32[1im]) === 0f0
+    @test FiberSum(NormL2(1.0))(ComplexF64.(stack(Float64)) .* (1 + 1im)) isa Float64
+  end
+end
+
+if occursin(selection, "narrower")
+  @testset "Float32 functions at Float64 arguments" begin
+    X, response = Float32[1 0.5 0; -0.5 1 0.2; 1 1 1; 0 1 -1], Float32[0, 1, 0, 1]
+    A, b = Float32[2 0.5 0; 0.5 1 0; 0 0 3], Float32[0.1, -0.2, 0.3]
+    x = [0.3, 1.7, -2.2]
+    cases = [
+      (LeastSquaresLoss(response, X), LeastSquaresLoss(Float64.(response), Float64.(X)), x),
+      (LogisticLoss(response, X), LogisticLoss(Float64.(response), Float64.(X)), x),
+      (QuadraticFunction(A, b, 0.5f0), QuadraticFunction(Float64.(A), Float64.(b), 0.5), x),
+      (KronQuadratic(A, A), KronQuadratic(Float64.(A), Float64.(A)), matrix(Float64)),
+      (LogDetLoss(A), LogDetLoss(Float64.(A)), matrix(Float64)),
+      (LinearImage(QuadraticFunction(A[1:2, 1:2]), A[1:2, 1:2]),
+       LinearImage(QuadraticFunction(Float64.(A[1:2, 1:2])), Float64.(A[1:2, 1:2])), x[1:2]),
+    ]
+    for (f32, f64, z) in cases
+      @testset "$(nameof(typeof(f32)))" begin
+        v = f32(z)
+        @test typeof(v) === Float64
+        @test isapprox(v, f64(z); rtol = 10eps(Float32))
+        if issmooth(f32)
+          v = value_and_gradient!(similar(z), f32, z)
+          @test typeof(v) === Float64
+          @test isapprox(v, f64(z); rtol = 10eps(Float32))
+        end
+        if isproximable(f32)
+          y = similar(z)
+          v = value_and_prox!(y, f32, z, 0.5)
+          @test typeof(v) === Float64
+          @test isapprox(v, f64(y); rtol = 10eps(Float32))
+        end
+      end
+    end
+  end
+end
+
+# (parameters, argument, output, step): one precision throughout, a step of the
+# other precision, and an output of the other precision.
+const combinations = (
+  (Float32, Float32, Float32, Float32), (Float32, Float64, Float64, Float64),
+  (Float64, Float32, Float32, Float32), (Float64, Float64, Float64, Float64),
+  (Float32, Float32, Float32, Float64), (Float64, Float64, Float64, Float32),
+  (Float32, Float32, Float64, Float32), (Float64, Float64, Float32, Float64),
+)
+
 @testset "Mixed precision value types" begin
-  for P in (Float32, Float64), c in rule_cases(P), Tx in (Float32, Float64), Ty in (Float32, Float64), S in (Float32, Float64)
+  for P in (Float32, Float64), c in rule_cases(P)
     occursin(selection, "$P/$(c.name)") || continue
-    @testset "$(c.name), parameters=$P, x=$Tx, output=$Ty, step=$S" begin
-      check_rule(c, Tx, Ty, S)
+    for (Q, Tx, Ty, S) in combinations
+      Q === P || continue
+      @testset "$(c.name), parameters=$P, x=$Tx, output=$Ty, step=$S" begin
+        check_rule(c, Tx, Ty, S)
+      end
     end
   end
 end

@@ -525,7 +525,7 @@ function (f::IndBallGroupL0)(x::AbstractArray)
     nz += !z
     ok &= fits
   end
-  _ind(ok && nz <= f.s, float(eltype(x)))
+  _ind(ok && nz <= f.s, _valtype(x))
 end
 
 function (f::IndBallGroupL0)(x::AtomIterate)
@@ -536,7 +536,7 @@ function (f::IndBallGroupL0)(x::AtomIterate)
     nz += !z
     ok &= fits
   end
-  _ind(ok && nz <= f.s, float(eltype(x)))
+  _ind(ok && nz <= f.s, _valtype(x))
 end
 
 function prox!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray, ::Real)

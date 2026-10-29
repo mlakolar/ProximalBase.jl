@@ -31,7 +31,7 @@ _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL2, y::Abstra
   (_checksize(y, x); true)
 
 function (f::NormL2)(x::AbstractArray)
-  T = float(eltype(x))
+  T = _valtype(x)
   iszero(f.λ) && return zero(T)
   _norm2_value(convert(T, f.λ) * _norm2(x), convert(T, f.λ), x)
 end
@@ -51,7 +51,7 @@ function _norm2_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real, :
   T = float(eltype(y))
   if iszero(f.λ)
     y === x || copyto!(y, x)
-    return zero(T)
+    return zero(_valtype(y))
   end
   c = convert(T, γ) * convert(T, f.λ)
   nx = convert(T, _norm2(x))
@@ -274,7 +274,7 @@ isconvex(::Type{<:NormLinf}) = true
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormLinf, y::AbstractArray, x::AbstractArray) =
   (_checksize(y, x); true)
 
-(f::NormLinf)(x::AbstractArray) = convert(float(eltype(x)), f.λ) * norm(x, Inf)
+(f::NormLinf)(x::AbstractArray) = convert(_valtype(x), f.λ) * norm(x, Inf)
 
 function value_and_prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, f, y, x)
@@ -720,9 +720,9 @@ isproximable(::Type{<:NormL1Fused}) = true
 _argument_type(::Type{<:NormL1Fused}) = Union{AbstractVector, Tuple{AbstractArray, AbstractArray}}
 isconvex(::Type{<:NormL1Fused}) = true
 
-(f::NormL1Fused)(xy::Tuple{Real, Real}) =
+(f::NormL1Fused)(xy::Tuple{Real, Real}) = _value_at(
   (iszero(f.λ1) ? zero(float(xy[1])) : f.λ1 * (abs(xy[1]) + abs(xy[2]))) +
-  (iszero(f.λ2) ? zero(float(xy[1])) : f.λ2 * abs(xy[1] - xy[2]))
+  (iszero(f.λ2) ? zero(float(xy[1])) : f.λ2 * abs(xy[1] - xy[2])), xy)
 
 function (f::NormL1Fused)(x::Tuple{AbstractArray, AbstractArray})
   x1, x2 = x

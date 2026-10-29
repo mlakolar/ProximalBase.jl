@@ -98,7 +98,7 @@ end
 function (F::SingularValue)(X::AbstractMatrix)
   T = float(eltype(X))
   _checkblas(F, T)
-  if !_host_strided(X)
+  if _is_device_array(X)
     ws = _svd_workspace(F.ws, T, size(X)...)
     F.ws = ws
     copyto!(ws.A, X)
@@ -106,7 +106,7 @@ function (F::SingularValue)(X::AbstractMatrix)
   else
     all(isfinite, X) || return T(Inf)
   end
-  t, scaled, k = _masked_singular_values!(F, X; copied = !_host_strided(X))
+  t, scaled, k = _masked_singular_values!(F, X; copied = _is_device_array(X))
   k > 0 && _scales_membership(F.f) && return _scaled_membership(F.f, scaled, k)
   convert(T, F.f(t))
 end
@@ -135,7 +135,7 @@ end
   ws = _svd_workspace(F.ws, T, size(X)...)
   copyto!(ws.A, X)
   k = _magnitude_exponent(_maximum_abs(ws.A))
-  _scaled_spectral_input!(ws.A, _host_strided(X) ? X : ws.A)
+  _scaled_spectral_input!(ws.A, _is_device_array(X) ? ws.A : X)
   s, = _svd!(ws; vectors = false)
   c = _tol(T) * s[1]
   @inbounds for j in eachindex(s)

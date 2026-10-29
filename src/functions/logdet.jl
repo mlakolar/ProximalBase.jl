@@ -91,7 +91,7 @@ function _logdet_scratch!(f::LogDetLoss)
 end
 
 function (f::LogDetLoss{T})(X::AbstractMatrix) where {T}
-  X = _host_strided(X) ? X : copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X)
+  X = _is_device_array(X) ? copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X) : X
   ld = _logdet_chol!(f, X)
   ld === nothing ? _valtype(X)(Inf) : _value_at(_logdet_value(f, X, ld), X)
 end
@@ -120,7 +120,7 @@ end
 
 function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix) where {T}
   _checkwrite(value_and_gradient!, f, G, X)
-  X = _host_strided(X) ? X : copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X)
+  X = _is_device_array(X) ? copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X) : X
   ld = _logdet_chol!(f, X)
   if ld === nothing
     fill!(G, T(NaN))
@@ -142,7 +142,7 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix, γ::Real) where {T}
   _checkwrite(value_and_prox!, f, Y, X)
   root_step = sqrt(convert(T, γ)) * sqrt(f.w)
-  X = _host_strided(X) ? X : copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X)
+  X = _is_device_array(X) ? copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X) : X
   B = _blas_ready(Y) ? Y : f.C
   A = f.eig.A
   # The domain is symmetric: the skew part contributes only a constant

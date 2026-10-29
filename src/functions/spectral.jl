@@ -71,7 +71,7 @@ end
 # Only finite inputs can recover from an overflowing decomposition.
 function _spectral_overflow(s::AbstractVector{T}, X, ws, cache = nothing) where {T}
   all(isfinite, s) && return false
-  A = if _host_strided(X)
+  A = if !_is_device_array(X)
     X
   else
     B = cache === nothing ? ws.A : _array_buffer!(cache, T, size(X))
@@ -98,7 +98,7 @@ end
 @noinline function _scaled_svd_prox!(Y, f, X, γ, ws::SVDWorkspace{T}) where {T}
   # Use the same exponent as the converted copy scaled below.
   # The overflow check has restored the device input in ws.A.
-  A = _host_strided(X) ? X : ws.A
+  A = _is_device_array(X) ? ws.A : X
   e = _magnitude_exponent(convert(T, _maximum_abs(A)))
   _scaled_spectral_input!(ws.A, A)
   s, U, Vt = _svd!(ws)
@@ -129,7 +129,7 @@ _scaled_eigen!(ws::SymEigenTopWorkspace) = _eigen_top!(ws)
 @noinline function _scaled_eigen_prox!(Y, f, X, γ, ws::Union{SymEigenWorkspace{T}, SymEigenTopWorkspace{T}}) where {T}
   # Use the same exponent as the converted copy scaled below.
   # Keep the device input separate from the eigenvectors until scaling.
-  A = _host_strided(X) ? X : _array_buffer!(f.out, T, size(X))
+  A = _is_device_array(X) ? _array_buffer!(f.out, T, size(X)) : X
   e = _magnitude_exponent(convert(T, _maximum_abs(A)))
   _scaled_spectral_input!(ws.A, A)
   s, V = _scaled_eigen!(ws)
@@ -197,14 +197,14 @@ isconvex(::Type{<:NuclearNorm}) = true
 function (f::NuclearNorm)(X::AbstractMatrix)
   T = float(eltype(X))
   _checkblas(f, T)
-  if _host_strided(X)
+  if !_is_device_array(X)
     all(isfinite, X) || return T(Inf)
     iszero(f.λ) && return zero(T)
   end
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
   copyto!(ws.A, X)
-  _host_strided(X) || all(isfinite, ws.A) || return T(Inf)
+  !_is_device_array(X) || all(isfinite, ws.A) || return T(Inf)
   iszero(f.λ) && return zero(T)
   s, = _svd!(ws; vectors = false)
   _level_fits(T, f.λ) || return convert(T, _scaled_nuclear_value!(ws, X, float(f.λ)))
@@ -216,7 +216,7 @@ end
 @noinline function _scaled_nuclear_value!(ws::SVDWorkspace{T}, X::AbstractMatrix, λ::Real) where {T}
   copyto!(ws.A, X)
   k = _magnitude_exponent(_maximum_abs(ws.A))
-  _scaled_spectral_input!(ws.A, _host_strided(X) ? X : ws.A)
+  _scaled_spectral_input!(ws.A, _is_device_array(X) ? ws.A : X)
   s, = _svd!(ws; vectors = false)
   R = promote_type(T, float(typeof(λ)))
   _scaled_product(convert(R, λ), (R === T ? sum(s) : sum(R, s)), k)
@@ -330,14 +330,14 @@ _isindicator(::Type{IndBallRank}) = true
 function (f::IndBallRank)(X::AbstractMatrix)
   T = float(eltype(X))
   _checkblas(f, T)
-  if _host_strided(X)
+  if !_is_device_array(X)
     all(isfinite, X) || return T(Inf)
     minimum(size(X)) <= f.r && return zero(T)
   end
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
   copyto!(ws.A, X)
-  _host_strided(X) || all(isfinite, ws.A) || return T(Inf)
+  !_is_device_array(X) || all(isfinite, ws.A) || return T(Inf)
   minimum(size(X)) <= f.r && return zero(T)
   s, = _svd!(ws; vectors = false)
   _finite_value(s[1]) || return _rank_scaled_value(ws, X, f.r)
@@ -440,7 +440,7 @@ end
 function (f::IndStiefel)(X)
   _checkparams(f, X)
   T = float(eltype(X))
-  A = _host_strided(X) ? X : copyto!(_array_buffer!(f.input, T, size(X)), X)
+  A = _is_device_array(X) ? copyto!(_array_buffer!(f.input, T, size(X)), X) : X
   isfinite(_maximum_abs(A)) || return T(Inf)
   X = A
   k = size(X, 2)
@@ -457,7 +457,7 @@ end
 
 function prox!(Y, f::IndStiefel, X, ::Real)
   _checkwrite(prox!, f, Y, X)
-  X = _host_strided(X) ? X : copyto!(_array_buffer!(f.input, eltype(X), size(X)), X)
+  X = _is_device_array(X) ? copyto!(_array_buffer!(f.input, eltype(X), size(X)), X) : X
   m = _maximum_abs(X)
   isfinite(m) || throw(ArgumentError("IndStiefel requires finite entries for projection"))
   k = size(X, 2)
@@ -537,11 +537,11 @@ function _ispsd!(f, X::AbstractMatrix, r::Union{Nothing, Int})
   T = float(eltype(X))
   _checkblas(f, T)
   n = checksquare(X)
-  _host_strided(X) && !_issymmetric_tol(X) && return false
+  !_is_device_array(X) && !_issymmetric_tol(X) && return false
   ws = _eig_workspace(f.eig, T, n)
   f.eig = ws
   copyto!(ws.A, X)
-  _host_strided(X) || _issymmetric_tol(ws.A) || return false
+  !_is_device_array(X) || _issymmetric_tol(ws.A) || return false
   all(isfinite, ws.A) || return false
   λ = _eigvals!(ws)
   n == 0 && return true
@@ -669,7 +669,7 @@ function _trace!(f::TracePSD, X::Union{SparseIterate{<:Any, 2}, SymmetricSparseI
 end
 
 function (f::TracePSD)(X::AbstractMatrix)
-  X = _host_strided(X) ? X : copyto!(_array_buffer!(f.out, eltype(X), size(X)), X)
+  X = _is_device_array(X) ? copyto!(_array_buffer!(f.out, eltype(X), size(X)), X) : X
   T = float(eltype(X))
   _ispsd!(f, X, nothing) || return T(Inf)
   _level_fits(T, f.λ) || return _scaled_trace_value(f, X)

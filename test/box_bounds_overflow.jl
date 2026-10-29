@@ -141,6 +141,12 @@ end
 
 @testset "device construction and adaptation" begin
   allowscalar(false)
+  l32, u32 = JLArray(Float32[-Inf, -1]), JLArray(Float32[Inf, 1])
+  @test PB._box_bound_max(l32) === 1f0
+  @test PB._box_bound_max(u32) === 1f0
+  @test PB._box_bound_max(JLArray(Float32[])) === 0f0
+  @test IndBox(l32, u32).bmax === 1.0
+  @test Adapt.adapt(JLArray, IndBox(Float32[-1], Float32[1])).bmax === 1.0
   for T in (Float32, Float64), b in (T(2), floatmax(T))
     l, u = T[-Inf, -b], T[Inf, b]
     f = IndBox(l, u)

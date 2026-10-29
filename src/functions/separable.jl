@@ -400,15 +400,16 @@ struct IndBox{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: S
     TL, TU = l isa Real ? typeof(l) : eltype(l), u isa Real ? typeof(u) : eltype(u)
     bmax = NaN
     if TL === TU && (TL === Float32 || TL === Float64)
-      magnitude(v) = isfinite(v) ? Float64(abs(v)) : 0.0
-      lm = l isa Real ? magnitude(l) : mapreduce(magnitude, max, l; init = 0.0)
-      um = u isa Real ? magnitude(u) : mapreduce(magnitude, max, u; init = 0.0)
-      bmax = max(lm, um)
+      bmax = Float64(max(_box_bound_max(l), _box_bound_max(u)))
     end
     new{L, U}(l, u, all(l .<= 0) && all(u .>= 0), bmax)
   end
 end
 IndBox(l::Union{Real, AbstractArray}, u::Union{Real, AbstractArray}) = IndBox{typeof(l), typeof(u)}(l, u)
+
+_box_bound_max(v::Real) = isfinite(v) ? abs(v) : zero(v)
+# Reduce in the bounds' type for devices without Float64 support.
+_box_bound_max(b::AbstractArray) = mapreduce(_box_bound_max, max, b; init = zero(eltype(b)))
 
 """
     IndBallLinf(r)

@@ -30,8 +30,13 @@ order of the entries. Its proximal operator acts on the eigenvalues: for
 
 `Spectral(IndNonnegative())` is [`IndPSD`](@ref)`()`, and
 `Spectral(NormL1Nonneg(λ))` is [`TracePSD`](@ref)`(λ)`. The proximal operator
-reads the upper triangle of its input, which should be symmetric, and the value
-is `Inf` at a matrix that is not. A function with weights, bounds or normals
+reads the upper triangle of its input, which should be symmetric. The domain of
+`F` is the finite symmetric matrices: the value is `Inf` at a matrix with a
+non-finite entry, also for a bounded `f`, and at a matrix that is not
+symmetric. When an extreme eigenvalue overflows, membership in `IndBallL1`,
+`IndBallL2`, `IndBallLinf` and `IndBox` is decided on the eigenvalues of the
+matrix scaled to unit range, with the tolerance of the original units. A
+function with weights, bounds or normals
 that differ between entries depends on their order and is rejected.
 
 $_SPECTRAL_NOTE

@@ -36,16 +36,23 @@ singular values. It needs the halfspace: the conjugate of the capped simplex,
 with the hyperplane `Σᵢ wᵢ = k`, is the sum of the `k` largest entries, which is
 not absolutely symmetric.
 
-`isconvex` and the indicator property come from `f`. In the value `F(X)`,
-singular values within a relative `√ε` of the largest count as zero, as they do
-for `IndBallRank`: the value at a proximal point of low rank then agrees with
-the one [`value_and_prox!`](@ref) returns, also for a discontinuous `f` such as
-`NormL0`. The value of `Conjugate(SingularValue(f))` is `f*(σ(Y))`, known when
-that of `Conjugate(f)` is, as for the nuclear-norm ball and the spectral norm,
-which are conjugate to each other.
+`isconvex` and the indicator property come from `f`. The domain of `F` is the
+finite matrices: a matrix with a non-finite entry has value `Inf`, also for a
+bounded `f` such as `NormL0`. In the value `F(X)`, singular values within a
+relative `√ε` of the largest count as zero, as they do for `IndBallRank`: the
+value at a proximal point of low rank then agrees with the one
+[`value_and_prox!`](@ref) returns, also for a discontinuous `f` such as
+`NormL0`. The value of `Conjugate(SingularValue(f))` is `f*` at the masked
+singular values of `Y`, with the same domain, known when that of `Conjugate(f)`
+is, as for the nuclear-norm ball and the spectral norm, which are conjugate to
+each other.
 
-The zero mask stays correct when the largest singular value overflows.
-Whether `f` evaluates an overflowing spectrum correctly depends on `f`.
+The zero mask stays correct when the largest singular value overflows, and
+when the threshold `√ε σ₁` is not a normal number: the mask then comes from the
+singular values of `X` scaled to unit range. At an overflowing spectrum,
+membership in `IndBallL1`, `IndBallL2`, `IndBallLinf` and `IndBox` is decided in
+the scaled units, with the tolerance of the original ones. Whether another `f`
+evaluates an overflowing spectrum correctly depends on `f`.
 
 $_SPECTRAL_NOTE
 """

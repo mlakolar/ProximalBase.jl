@@ -275,9 +275,25 @@ throws an `ArgumentError`. [`value_and_prox!`](@ref) returns the value at the
 proximal point for every proximable `f`: where no closed form is known, it uses
 the Fenchel equality `f*(y) = ⟨p, y⟩ - f(p)`, with `p` the corresponding
 proximal point of `f`. Cancellation in this subtraction and errors in the inner
-proximal point affect the reported value. A conjugate that is an indicator
-can return a small nonzero value instead of zero; this is not a feasibility
-certificate.
+proximal point affect the reported value.
+
+The conjugate is an indicator, and [`value_and_prox!`](@ref) returns `0` after
+the proximal step, when `f` is positively homogeneous (the norms,
+[`NuclearNorm`](@ref), the homogeneous group norms, [`SLOPE`](@ref),
+[`NormL1Nonneg`](@ref), [`TracePSD`](@ref), [`TotalVariation1D`](@ref),
+[`FusedLasso`](@ref), [`NormL1Fused`](@ref), [`SumLargest`](@ref),
+[`CheckLoss`](@ref), [`ZeroFunction`](@ref)) or the indicator of a convex cone
+([`IndNonnegative`](@ref), `IndPSD()`, [`IndIsotonic`](@ref),
+[`IndPattern`](@ref), [`IndBanded`](@ref), [`IndToeplitz`](@ref), the
+second-order and exponential cones). So is the conjugate of a positive
+[`Scaled`](@ref), [`SingularValue`](@ref), [`Spectral`](@ref) or
+[`SeparableSum`](@ref) of these, and `Conjugate(Conjugate(g))`, which is `g`,
+for an indicator `g`. Not
+[`LinearFunction`](@ref), whose conjugate is `-d` on its set. Another conjugate
+that is an indicator, such as that of a precomposed norm, takes its value from
+the Fenchel equality and can return a small nonzero value instead of zero;
+this is not a feasibility certificate.
+
 Supported zero rescalings simplify in [`Scaled`](@ref) while preserving the
 underlying domain. Each conjugate owns a working buffer; do not share it
 between threads. Tuples, including nested tuples, use one buffer per array

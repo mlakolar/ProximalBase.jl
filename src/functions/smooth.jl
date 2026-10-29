@@ -75,9 +75,16 @@ _dot_checks_size(::Type{C}, ::Type{X}) where {C, X} =
   (C <: StridedMatrix && X <: SymmetricSparseIterate) ||
   (C <: SymmetricSparseIterate && X <: StridedMatrix) ||
   (C <: _SparseDotCSC && X <: Union{_SparseDotCSC, _SparseDotMatrix}) ||
-  (C <: _SparseDotMatrix && X <: _SparseDotCSC)
+  (C <: _SparseDotMatrix && X <: _SparseDotCSC) ||
+  (_SparseWrappedColumnDotChecksSize &&
+   ((C <: _SparseDotWrappedCSC && X <: _SparseDotCSC) ||
+    (C <: _SparseDotCSC && X <: _SparseDotWrappedCSC)))
 _dot_checks_size(::Type{<:Adjoint{<:Union{Real, Complex}, C}}, ::Type{<:Adjoint{<:Union{Real, Complex}, X}}) where {C, X} = _dot_checks_size(C, X)
 _dot_checks_size(::Type{<:Transpose{<:Any, C}}, ::Type{<:Transpose{<:Any, X}}) where {C, X} = _dot_checks_size(C, X)
+_dot_checks_size(::Type{<:Adjoint{<:Any, C}}, ::Type{<:Transpose{<:Any, X}}) where {C, X} =
+  _SparseMixedDotChecksSize && C <: _SparseDotCSC && X <: _SparseDotCSC
+_dot_checks_size(::Type{<:Transpose{<:Any, C}}, ::Type{<:Adjoint{<:Any, X}}) where {C, X} =
+  _SparseMixedDotChecksSize && C <: _SparseDotCSC && X <: _SparseDotCSC
 _checkdot(c::C, x::X) where {C, X} = (_dot_checks_size(C, X) ? _checksize(c, x) : _checkparam(c, x))
 _checkvalue(f::LinearFunction, x) = _checkdot(f.c, x)
 

@@ -96,9 +96,11 @@ end
 function representations(dims)
   A = reshape(collect(1.0:16.0), dims)
   S = sparse(A)
-  result = Any[A, S, view(copy(A), :, :), view(sparse(hcat(A, A)), :, collect(1:size(A, 2))),
+  result = Any[A, S, view(sparse(hcat(A, A)), :, collect(1:size(A, 2))),
     adjoint(copy(transpose(A))), transpose(copy(transpose(A))), adjoint(sparse(transpose(A))),
-    transpose(sparse(transpose(A))), vec(copy(A)), sparse(vec(A)), view(vec(copy(A)), :)]
+    transpose(sparse(transpose(A))), vec(copy(A)), sparse(vec(A))]
+  columns = view(sparse(transpose(A)), :, collect(1:size(A, 1)))
+  append!(result, (adjoint(columns), transpose(columns)))
   if dims[1] == dims[2]
     for B in (A, S)
       append!(result, (Symmetric(B), Hermitian(B), UpperTriangular(B), LowerTriangular(B),
@@ -136,8 +138,22 @@ end
   square, rectangle = representations((4, 4)), representations((2, 8))
   grid = vcat(square, rectangle)
   for c in grid, x in grid
-    expected = outcome(dot, c, x)[1]
-    @test outcome(PB._checkvalue, LinearFunction(c), x)[1] === expected
+    @testset "$(typeof(c)) $(size(c)) vs $(typeof(x)) $(size(x))" begin
+      expected = outcome(dot, c, x)[1]
+      @test outcome(PB._checkvalue, LinearFunction(c), x)[1] === expected
+    end
+  end
+  # Mixed sparse wrappers also specialize dot for column-subset parents.
+  for cdims in ((4, 4), (2, 8)), xdims in ((4, 4), (2, 8))
+    c = sparse(reshape(collect(1.0:16.0), cdims))
+    x = sparse(reshape(collect(1.0:16.0), xdims))
+    for cp in (c, view(c, :, collect(1:size(c, 2)))),
+        xp in (x, view(x, :, collect(1:size(x, 2)))),
+        (cw, xw) in ((adjoint(cp), transpose(xp)), (transpose(cp), adjoint(xp)))
+      @testset "$(typeof(cw)) $(size(cw)) vs $(typeof(xw)) $(size(xw))" begin
+        @test outcome(PB._checkvalue, LinearFunction(cw), xw)[1] === outcome(dot, cw, xw)[1]
+      end
+    end
   end
   A, B = reshape(collect(1.0:16.0), 4, 4), reshape(collect(1.0:16.0), 2, 8)
   @test dot(A, B) == dot(vec(A), B) == 1496.0
@@ -168,6 +184,16 @@ function allocations(op::O, y, f, x) where {O}
   (check, call)
 end
 
+function check_allocations(op::O, y, f, x) where {O}
+  PB._checkwrite(op, f, y, x)
+  @allocated PB._checkwrite(op, f, y, x)
+end
+
+function value_check_allocations(f, x)
+  PB._checkvalue(f, x)
+  @allocated PB._checkvalue(f, x)
+end
+
 @testset "Allocation free value checks" begin
   A = reshape(collect(1.0:16.0), 4, 4)
   # Diagonal destinations avoid dot's allocating diagonal view of a dense matrix.
@@ -177,6 +203,25 @@ end
       y = copy(x)
       allocations(op, y, f, x)
       @test allocations(op, y, f, x) == (0, 0)
+    end
+  end
+  for (c, x) in ((adjoint(sparse(A)), transpose(sparse(A))),
+                 (transpose(sparse(A)), adjoint(sparse(A))))
+    f, y = LinearFunction(c), copy(A)
+    for op in (prox!, value_and_prox!, value_and_gradient!)
+      allocations(op, y, f, x)
+      @test allocations(op, y, f, x) == (0, 0)
+    end
+  end
+  S = sparse(A)
+  columns = view(S, :, collect(1:size(S, 2)))
+  for a in (S, columns), b in (adjoint(columns), transpose(columns)), (c, x) in ((a, b), (b, a))
+    f, y = LinearFunction(c), deepcopy(x)
+    value_check_allocations(f, x)
+    @test value_check_allocations(f, x) == 0
+    for op in (value_and_prox!, value_and_gradient!)
+      check_allocations(op, y, f, x)
+      @test check_allocations(op, y, f, x) == 0
     end
   end
   f = LinearFunction(Diagonal(diag(A)))

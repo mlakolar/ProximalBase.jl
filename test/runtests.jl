@@ -41,6 +41,7 @@ tests = [
   "lla",
   "matrixsets",
   "affine",
+  "graph",
   "calculus",
   "blockchecks",
   "constrained",

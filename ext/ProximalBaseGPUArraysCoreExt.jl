@@ -12,7 +12,7 @@ using ProximalBase
 using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, SqrNormL2, NormL2,
                     NormLinf, IndBallL1, IndSimplex,
                     GroupNormL2, GroupNormLinf, SparseGroupNormL2, IndBallGroupL0, AbstractFunction,
-                    LeastSquaresLoss, GLMLoss,
+                    LeastSquaresLoss, GLMLoss, Regularize, BoxConstrained,
                     prox_entry, value_entry, shrink, _checksize, _checkparams, _checkgroups, _tol, _ind,
                     _kth_largest!, _level_fits, _level_product, _scaled_product, _positive_product,
                     _weight_coefficient, _weight_product, _weighted_value
@@ -841,6 +841,15 @@ Adapt.adapt_structure(to, f::NormL1Nonneg) = NormL1Nonneg(f.λ0, Adapt.adapt(to,
 Adapt.adapt_structure(to, f::ElasticNet) = ElasticNet(f.λ1, f.λ2, Adapt.adapt(to, f.w))
 Adapt.adapt_structure(to, f::IndBox) = IndBox(Adapt.adapt(to, f.l), Adapt.adapt(to, f.u))
 Adapt.adapt_structure(to, f::SqrNormL2) = SqrNormL2(f.λ, Adapt.adapt(to, f.y))
+# Without the host buffer of its proximal operator, a regularized bits type is a
+# bits type that enters a kernel.
+function Adapt.adapt_structure(to, r::Regularize)
+  f, c = Adapt.adapt(to, r.f), Adapt.adapt(to, r.c)
+  Regularize{typeof(f), typeof(r.ρ), typeof(c), Nothing}(f, r.ρ, c, nothing)
+end
+# Back on the host, it gets a buffer again.
+Adapt.adapt_structure(to::Type{<:Array}, r::Regularize) = Regularize(Adapt.adapt(to, r.f), r.ρ, Adapt.adapt(to, r.c))
+Adapt.adapt_structure(to, c::BoxConstrained) = BoxConstrained(Adapt.adapt(to, c.f), Adapt.adapt(to, c.box))
 
 # The group functions keep their groups on the host and get the layout of the
 # groups on the device; adapt(Array, ⋅) gives back the function itself.

@@ -26,6 +26,10 @@ This calls `Pkg.test()` with array bounds checking enabled. No separate setup
 command is needed. Set `JULIA_TEST_COVERAGE=true` to collect coverage, as CI
 does, or `JULIA_TEST_DEPWARN=error` to treat deprecation warnings as errors.
 
+Test files run in parallel worker processes. Extra arguments list tests, select a subset,
+or set the workers: `julia scripts/test.jl --list`, `julia scripts/test.jl lapack caches`,
+or `julia scripts/test.jl --jobs=2`. The same arguments work through `Pkg.test(; test_args=...)`.
+
 Documentation, benchmarks and optional conic tests each have their own
 `Project.toml` with additional tools. The setup script installs those tools
 and calls `Pkg.develop` to select this local ProximalBase checkout, including

@@ -67,28 +67,32 @@ function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)
   _check_symmetric_source(y, γ)
-  y .= x .- γ .* t.c
-  prox!(y, t.f, y, γ)
+  z = _output_buffer!(t.scratch, y)
+  z .= x .- γ .* t.c
+  prox!(y, t.f, z, γ)
 end
 function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
   _checkwrite(value_and_prox!, t, y, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)
   _check_symmetric_source(y, γ)
-  y .= x .- γ .* t.c
-  value_and_prox!(y, t.f, y, γ) + dot(t.c, y) + t.d
+  z = _output_buffer!(t.scratch, y)
+  z .= x .- γ .* t.c
+  value_and_prox!(y, t.f, z, γ) + dot(t.c, y) + t.d
 end
 
 function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, t, y, x)
-  y .= x .- t.b
-  prox!(y, t.f, y, γ)
+  z = _output_buffer!(t.proxscratch, y)
+  z .= x .- t.b
+  prox!(y, t.f, z, γ)
   y .+= t.b
 end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
   _checkwrite(value_and_prox!, t, y, x)
-  y .= x .- t.b
-  v = value_and_prox!(y, t.f, y, γ)
+  z = _output_buffer!(t.proxscratch, y)
+  z .= x .- t.b
+  v = value_and_prox!(y, t.f, z, γ)
   y .+= t.b
   v
 end
@@ -101,9 +105,31 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArr
   _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
   z = _array_buffer!(c.scratch, T, size(x))
-  z .= x ./ γ
-  prox!(z, c.f, z, _ReciprocalArray(γ))
-  y .= x .- γ .* z
+  F = typeof(c.f)
+  # without dividing by γ: a separable positively homogeneous fᵢ or cone gives
+  # prox_{fᵢ}(xᵢ), and the box the projection onto [γᵢlᵢ, γᵢuᵢ]
+  if (isseparable(F) && _conjugate_isindicator(F)) || c.f isa IndBox
+    c.f isa IndBox ? _moreau_set!(z, c.f, x, γ) : prox!(z, c.f, x, one(T))
+    _checkmoreau(y, x, z, one(T), γ, false)
+    y .= x .- z
+  else
+    z .= x ./ γ
+    prox!(z, c.f, z, _ReciprocalArray(γ))
+    _checkmoreau(y, x, z, γ, γ, true)
+    y .= x .- γ .* z
+  end
+end
+
+# f** = f, with the steps and checks of f's own oracles
+function prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::AbstractArray)
+  _checkwrite(prox!, c, y, x)
+  _checkparam(γ, x)
+  prox!(y, c.f.f, x, γ)
+end
+function value_and_prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::AbstractArray)
+  _checkwrite(value_and_prox!, c, y, x)
+  _checkparam(γ, x)
+  value_and_prox!(y, c.f.f, x, γ)
 end
 
 function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
@@ -119,6 +145,7 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::A
   p = _array_buffer!(c.scratch, T, size(x))
   p .= x ./ γ
   fp = value_and_prox!(p, c.f, p, _ReciprocalArray(γ))
+  _checkmoreau(y, x, p, γ, γ, true)
   y .= x .- γ .* p
   dot(p, y) - fp
 end

@@ -766,11 +766,6 @@ end
 end
 
 function _checkwrite(op::O, f::Union{IndHyperplane, IndHalfspace, IndHyperslab}, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
-  _checknormal(op, f, y, x)
-  f isa IndHyperslab && _hyperslab_input(f, x)
-  true
-end
-function _checknormal(op, f, y::AbstractArray, x::AbstractArray)
   _checksize(y, x)
   op === value_and_prox! && _checkparams(f, x)
   if f.a isa AbstractArray
@@ -807,6 +802,7 @@ end
 
 function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
+  _hyperslab_input(f, x)
   isempty(x) && return y
   g = _hyperslab_residual(f, x)
   iszero(g) && return (y === x ? y : copyto!(y, x))

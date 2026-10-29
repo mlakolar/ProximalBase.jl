@@ -79,7 +79,7 @@ ProximalBase._converted_l1_value(λ, x::GPUArray) = _scaled_l1_value(λ, x, true
   isfinite(m) || return convert(T, convert(R, λ) * _sum(T, _WeightValue(one(T)), instantiate(broadcasted(abs, x)), w))
   k = ProximalBase._magnitude_exponent(m)
   scales = ProximalBase._power_factors(T, -k)
-  n = _sum(T, (v, w) -> _WeightValue(one(T))(abs(ProximalBase._scale_value(v, scales)), w), x, w)
+  n = _sum(T, _ScaledWeightValue(_WeightValue(one(T)), scales), x, w)
   convert(T, _scaled_product(convert(R, λ), convert(R, n), k))
 end
 
@@ -451,6 +451,12 @@ struct _WeightValue{T}
   λ::T
 end
 (l::_WeightValue{T})(v, w) where {T} = (w = convert(T, w); p = _positive_product(l.λ, w, v); ifelse(isinf(w) & !iszero(v), oftype(p, Inf) * v, p))
+# A functor keeps the scaled weighted reduction inferred on Julia 1.10.
+struct _ScaledWeightValue{T, S}
+  weight::_WeightValue{T}
+  scales::S
+end
+(l::_ScaledWeightValue)(v, w) = l.weight(abs(ProximalBase._scale_value(v, l.scales)), w)
 # the ℓ1 term of ElasticNet at |v|, as its value_entry; the level is one when
 # it multiplies the sum instead
 struct _EnetValue{T}

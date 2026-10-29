@@ -17,10 +17,12 @@ order of the entries. Its proximal operator acts on the eigenvalues: for
   the Fantope `{X : 0 ⪯ X ⪯ I, tr(X) = k}`, the convex hull of the projections of
   rank `k`, as in sparse principal component analysis (Vu, Cho, Lei and Rohe,
   2013);
-- `Spectral(Conjugate(Constrained(IndBox(0, 1), IndHyperplane(1, k))))` is the
+- `Spectral(SumLargest(k))` is the
   sum of the `k` largest eigenvalues, the support function of the Fantope;
 - `Spectral(IndBox(l, u))` is the indicator of the matrices with eigenvalues in
   `[l, u]`;
+- `Spectral(IndBinary(0, 1))` is the indicator of the orthogonal projection
+  matrices, whose eigenvalues are zero or one;
 - `Spectral(IndSimplex(1))` is the indicator of the density matrices,
   `{X ⪰ 0 : tr(X) = 1}`;
 - `Spectral(NormL1(λ))` is `λ` times the trace norm, the nuclear norm of a
@@ -63,6 +65,7 @@ function (s::Spectral)(X::AbstractMatrix)
   ws = _eig_workspace(s.eig, T, n)
   s.eig = ws
   copyto!(ws.A, X)
+  _isindicator(s.f) && !all(isfinite, ws.A) && return T(Inf)
   convert(T, s.f(_eigvals!(ws)))
 end
 
@@ -127,11 +130,12 @@ end
 # whether f(x) does not depend on the order of the entries of x: no weights,
 # bounds, centers or normals that vary between the entries
 _ispermutationinvariant(::AbstractFunction) = false
-_ispermutationinvariant(::Union{ZeroFunction, NormL0, MCP, SCAD, IndNonnegative, NormL2, NormLinf,
-                                IndBallL0, IndBallL1, IndBallL2, IndSimplex}) = true
+_ispermutationinvariant(::Union{ZeroFunction, NormL0, MCP, SCAD, IndNonnegative, NormL2, CubeNormL2, NormLinf,
+                                IndBallL0, IndBallL1, IndBallL2, IndSimplex, SumLargest}) = true
 _ispermutationinvariant(::Union{NormL1{<:Real, Nothing}, NormL1Nonneg{<:Real, Nothing},
                                 ElasticNet{<:Real, Nothing}, SqrNormL2{<:Real, Nothing}}) = true
 _ispermutationinvariant(::IndBox{<:Real, <:Real}) = true
+_ispermutationinvariant(::IndBinary{<:Real, <:Real}) = true
 _ispermutationinvariant(::Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}) = true
 _ispermutationinvariant(s::Union{Scaled, Conjugate}) = _ispermutationinvariant(s.f)
 _ispermutationinvariant(c::BoxConstrained) = _ispermutationinvariant(c.f) && _ispermutationinvariant(c.box)

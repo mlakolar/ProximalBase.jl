@@ -215,6 +215,8 @@ follows the argument's precision, and the proximal workspace follows the
 output's. The proximal buffer of `Conjugate` also follows the output.
 `LeastSquaresLoss` and `GLMLoss` keep buffers in the promoted floating type of
 the response and design matrix, independently of the argument's precision.
+`LogDetLoss` keeps its workspace in the data's precision and writes outputs of
+any precision by rounding.
 The shifted buffer for values and gradients of `Translate(f, b)` uses the
 argument's precision, `float(eltype(x))`. `Spectral`, `SingularValue` and
 `FiberSum` give their values in the argument's precision, and in the output's

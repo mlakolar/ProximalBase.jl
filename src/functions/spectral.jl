@@ -57,10 +57,10 @@ end
 _issymmetric_tol(::SymmetricSparseIterate) = true
 
 # the symmetric Y = Σⱼ f(λⱼ) vⱼvⱼ' from the eigendecomposition V, λ, through the
-# n × n matrix buffer when Y is not strided (a SymmetricSparseIterate, say)
+# n × n matrix buffer when Y is not strided or has a different element type
 function _rebuild_sym_out!(Y::AbstractMatrix, V::StridedMatrix, λ, f::F, buffer::StridedMatrix;
                            logs::Bool = false) where {F}
-  Y isa StridedMatrix && return _rebuild_sym!(Y, V, λ, f; logs)
+  Y isa StridedMatrix{eltype(V)} && return _rebuild_sym!(Y, V, λ, f; logs)
   s = _rebuild_sym!(buffer, V, λ, f; logs)
   copyto!(Y, buffer)
   s
@@ -151,6 +151,9 @@ The indicator of the matrices of rank at most `r`, nonconvex. Its proximal
 operator is the truncated singular value decomposition, which keeps the `r`
 largest singular triplets.
 
+Membership is reliable for every finite input within the floating-point
+tolerance; non-finite entries are not members.
+
 $_PARTIAL_NOTE
 
 $_SPECTRAL_NOTE
@@ -172,12 +175,20 @@ _isindicator(::Type{IndBallRank}) = true
 
 function (f::IndBallRank)(X::AbstractMatrix)
   T = float(eltype(X))
+  all(isfinite, X) || return T(Inf)
   minimum(size(X)) <= f.r && return zero(T)
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
   copyto!(ws.A, X)
   s, = _svd!(ws; vectors = false)
+  _finite_value(s[1]) || return _rank_scaled_value(ws, X, f.r)
   s[f.r + 1] <= _tol(T) * max(one(T), s[1]) ? zero(T) : T(Inf)
+end
+
+@noinline function _rank_scaled_value(ws::SVDWorkspace{T}, X::AbstractMatrix, r::Int) where {T}
+  α = _scaled_spectral_input!(ws.A, X)
+  s, = _svd!(ws; vectors = false)
+  s[r + 1] <= _tol(T) * max(α, s[1]) ? zero(T) : T(Inf)
 end
 
 function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, ::Real)
@@ -316,6 +327,9 @@ eigendecomposition with the negative eigenvalues set to zero, and for a rank
 The result is rebuilt from the eigenvectors that remain, in O(n²k) for k of
 them.
 
+Membership is reliable for every finite input within the floating-point
+tolerance; non-finite entries are not members.
+
 $_PARTIAL_NOTE Without a rank, the partial projection pays when few
 eigenvalues are positive.
 
@@ -351,9 +365,19 @@ function _ispsd!(f, X::AbstractMatrix, r::Union{Nothing, Int})
   ws = _eig_workspace(f.eig, T, n)
   f.eig = ws
   copyto!(ws.A, X)
+  all(isfinite, ws.A) || return false
   λ = _eigvals!(ws)
   n == 0 && return true
+  _finite_value(λ[1]) && _finite_value(λ[n]) || return _scaled_ispsd!(ws, X, r)
   tol = _tol(T) * max(one(T), abs(λ[1]), abs(λ[n]))
+  λ[1] >= -tol || return false
+  r === nothing || count(>(tol), λ) <= r
+end
+
+@noinline function _scaled_ispsd!(ws::SymEigenWorkspace{T}, X::AbstractMatrix, r::Union{Nothing, Int}) where {T}
+  α = _scaled_spectral_input!(ws.A, X)
+  λ = _eigvals!(ws)
+  tol = _tol(T) * max(α, abs(λ[1]), abs(λ[end]))
   λ[1] >= -tol || return false
   r === nothing || count(>(tol), λ) <= r
 end
@@ -409,6 +433,9 @@ The function `f(X) = λ tr(X)` on the positive semidefinite matrices, `Inf`
 elsewhere: the nuclear norm restricted to them, as in the low-rank part of
 latent-variable graphical models. Its proximal operator shifts the eigenvalues
 of a symmetric matrix down by `γλ` and sets the negative ones to zero.
+
+Membership in the positive semidefinite cone is reliable for every finite input
+within the floating-point tolerance; non-finite entries are not members.
 
 $_PARTIAL_NOTE
 

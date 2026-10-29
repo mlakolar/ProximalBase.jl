@@ -44,8 +44,10 @@ end
 
 function minimum_value_time(f, x)
   membership_batch(f, x, 1)
-  single = @elapsed membership_batch(f, x, 1)
-  n = single < 1e-5 ? 64 : 1
+  n = 1
+  while @elapsed(membership_batch(f, x, n)) < 1e-4 && n < 2^20
+    n *= 2
+  end
   minimum(@elapsed(membership_batch(f, x, n)) for _ in 1:5) / n
 end
 
@@ -374,7 +376,9 @@ end
           @test f(x) == Inf
           minimum_value_time(f, x)
         end
-        @test times[2] <= 2times[1]
+        # Evaluation is O(nnz); a dense p x p scan costs about 64x from p = 500 to 4000.
+        # Allowing 4x leaves room for timer noise and still catches a dense scan.
+        @test times[2] <= 4times[1]
       end
     end
   end

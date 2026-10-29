@@ -111,7 +111,8 @@ with an array their center, shift or scale, the same way when they write into a
 ## Coordinate operations of a nonseparable `MoreauEnvelope` (0.6)
 
 `restrict` of a [`MoreauEnvelope`](@ref) of a nonseparable function, including
-any `Scaled`, `Tilt` or `Translate` around it, now throws an `ArgumentError`.
+through any wrapper that forwards it (`Scaled`, `Tilt`, `Translate`, `Regularize`,
+`Precompose`), now throws an `ArgumentError`.
 Previously it returned a function whose values and gradients were generally
 wrong, except for group penalties. `prox_entry` and `kkt_violation` now throw
 an `ArgumentError` instead of a `MethodError`. Restricting a group-penalty

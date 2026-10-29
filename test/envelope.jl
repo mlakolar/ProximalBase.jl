@@ -90,6 +90,8 @@ PB.isconvex(::Type{Quad}) = true
     @test_throws ArgumentError(restrict_msg) restrict(Scaled(e, 2.0), [1])
     @test_throws ArgumentError(restrict_msg) restrict(Tilt(e, [1.0, 1.0], 0.0), [1])
     @test_throws ArgumentError(restrict_msg) restrict(Translate(e, [0.3, 0.0]), [1])
+    # wrappers that restrict without the zero check reach the same guard
+    @test_throws ArgumentError(restrict_msg) PB._restrict_unchecked(e, [1])
 
     eg = MoreauEnvelope(GroupNormL2(1.0, [[1, 2], [3, 4]]), 0.7)
     @test_throws ArgumentError(restrict_msg) restrict(eg, [1, 3, 4])

@@ -291,7 +291,7 @@ end
 function _value_and_prox_array!(y, h::_ArrayPrecompose, x, γ, withvalue::Bool)
   if isseparable(h) && _sparse_precompose(y, x)
     _prox_sep!(y, h, x, γ)
-    T = float(promote_type(eltype(x), eltype(h.a)))
+    T = float(promote_type(eltype(y), eltype(h.a)))
     return withvalue ? (_isindicator(h) ? zero(T) : h(y)) : zero(T)
   end
   z = _image!(h, x)
@@ -307,7 +307,13 @@ function _value_and_prox_array!(y, h::_ArrayPrecompose, x, γ, withvalue::Bool)
   @inbounds for i in eachindex(IndexLinear(), y, x)
     y[i] = b[i] == z[i] ? x[i] : b[i] / h.a[i]
   end
-  v
+  withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _array_precompose_value(h, y) : v
+end
+
+# In mixed precision, the value at the output, through the lazy image of y
+function _array_precompose_value(h::_ArrayPrecompose, y)
+  v = h.f(_PrecomposeArray(y, h.a, Val(false)))
+  _isindicator(h.f) ? zero(v) : v
 end
 
 function prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real)
@@ -565,5 +571,5 @@ function quadratic_model!(q::Regularize, r::Regularize, x)
 end
 
 # These wrappers, defined after calculus.jl, also evaluate the inner value.
-_has_value(f::Union{Precompose, Regularize, Spectral, BoxConstrained, LinearConstrained,
+_has_value(f::Union{Precompose, _ArrayPrecompose, Regularize, Spectral, BoxConstrained, LinearConstrained,
                    BallConstrained, SphereConstrained, AffineConstrained}) = _has_value(f.f)

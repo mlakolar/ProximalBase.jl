@@ -129,6 +129,16 @@ function rule_cases(P)
   missing = Precompose(Conjugate(ElasticNet(P(1), P(0.5))), P(2))
   push!(cases, case("Precompose unsupported", missing))
   push!(cases, case("Scaled Precompose unsupported", Scaled(missing, P(2))))
+  scale = P[2, -0.5, 1.5]
+  for inner in (NormL1(P(1)), ElasticNet(P(1), P(0.5)), IndBox(-P(1), P(1)))
+    name = nameof(typeof(inner))
+    push!(cases, case("Precompose array($name)", Precompose(inner, scale)))
+    push!(cases, case("SparseIterate Precompose array($name)", Precompose(inner, scale), T -> SparseIterate(T[1, 0, -0.5])))
+  end
+  push!(cases, case("Precompose array(GroupNormL2)", Precompose(GroupNormL2(P(1), groups), P[2, 2, 1.5])))
+  push!(cases, case("CubeNormL2", CubeNormL2(P(1))))
+  push!(cases, case("SqrDistL2(IndBox)", SqrDistL2(IndBox(-P(1), P(1)), P(1))))
+  push!(cases, case("SqrDistL2(IndBallL0)", SqrDistL2(IndBallL0(1), P(1))))
   for f in (NormL1(P(1)), ElasticNet(P(1), P(0.5)), SqrNormL2(P(1)), MCP(P(1)), SCAD(P(1)), IndBox(-P(1), P(1)))
     name = nameof(typeof(f))
     metric = f isa SeparableFunction ? :entry : :none
@@ -473,6 +483,11 @@ if occursin(selection, "allocations")
     end
     f = NormL1Fused(1e-50, 0.0)
     @test PB.Testing.allocations(value_and_prox!, zeros(Float32, 2), f, Float32[1, 2], 0.5f0) == 0
+    # The array scale evaluates a mixed value through a lazy image of the output.
+    for Tx in (Float32, Float64), Ty in (Float32, Float64), inner in (NormL1(1f0), IndBox(-1f0, 1f0))
+      h = Precompose(inner, Float32[2, -0.5, 1.5])
+      @test PB.Testing.allocations(value_and_prox!, zeros(Ty, 3), h, Tx[1, 2, -0.5], Tx(0.4)) == 0
+    end
   end
 end
 

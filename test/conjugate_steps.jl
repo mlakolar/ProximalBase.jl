@@ -4,6 +4,8 @@ using Test
 using ProximalBase
 using LinearAlgebra
 using Random
+using JLArrays
+using GPUArraysCore: ScalarDisallowed
 
 using ..TestUtils
 
@@ -305,6 +307,43 @@ end
   prox!(y, twice, x, 1e-310)
   @test allocs(prox!, y, twice, x, 1e-310) == 0
   @test allocs(value_and_prox!, y, twice, x, 1e-310) == 0
+  # wide bounds are dilated in the precision of the step
+  c = Conjugate(IndBox(big"-1", big"1"))
+  x, y = randn(100), zeros(100)
+  prox!(y, c, x, 0.5)
+  @test allocs(prox!, y, c, x, 0.5) == 0
+  @test y == x .- clamp.(x, -0.5, 0.5)
+end
+
+@testset "dilation of a bound" begin
+  dilate = ProximalBase._dilate
+  @test dilate(1f-10, 1e39) === 1f29
+  @test dilate(1f0, 1e39) === Inf32
+  @test dilate(Inf32, 0.0) === 0f0
+  @test dilate(0f0, -Inf) === -Inf32
+  @test dilate(1f-10, 3) === 3f-10
+  @test dilate(0.5, big"3") === 1.5
+  # a nonzero bound that underflows in the precision of the step
+  # 1f30 is 1.000000015e30, so the exact γb rounds to 1.00000005f-20, one ulp above 1f-20
+  @test dilate(1f30, 1e-50) === Float32(big(1f30) * big(1e-50))
+  @test dilate(1f30, 1e-50) ≈ 1f-20 rtol = 2eps(Float32)
+  @test dilate(1f0, 1e-50) === 0f0
+  @test dilate(1f0, 0.0) === 0f0
+  for (γ, b) in ((1f-10, 1e39), (1f0, 3), (0.5, big"3"), (0.5, 2f0), (1f30, 1e-50))
+    @test Base.return_types(dilate, (typeof(γ), typeof(b))) == [float(typeof(γ))]
+  end
+end
+
+@testset "the finiteness check on a GPU array" begin
+  # with scalar indexing disallowed, for this task only
+  task_local_storage(:ScalarIndexing, ScalarDisallowed) do
+    nonfinite = ProximalBase._moreau_nonfinite
+    x = JLArray([0.0, 1.0])
+    @test nonfinite(x, x, JLArray([0.0, Inf]), 0.3, true)
+    @test !nonfinite(x, x, JLArray([0.0, 0.5]), 0.3, true)
+    e = JLArray(Float64[])
+    @test !nonfinite(e, e, JLArray(Float64[]), 0.3, true)
+  end
 end
 
 end

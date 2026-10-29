@@ -299,9 +299,10 @@ Where the conjugate is an indicator as above, and for the conjugates of
 translations and strictly positive rescalings, and `Conjugate(Conjugate(g))`,
 the proximal operator is computed without dividing by the step: every step
 gives the result of a computation at unit step, accurate to about `eps` times
-the largest input entry. Moreau's identity cancels where `|x|` is far larger
-than the result, so `Conjugate(NormL1())` at `[1e300, 2.0]` gives `[0.0, 1.0]`
-at every step, `γ = 1` included. A translation by `b` also needs `γb` to be
+the largest input entry, plus `eps γ‖b‖` for a translation by `b`. Moreau's
+identity cancels where `|x|` is far larger than the result, so
+`Conjugate(NormL1())` at `[1e300, 2.0]` gives `[0.0, 1.0]` at every step,
+`γ = 1` included. A translation by `b` also needs `γb` to be
 finite in working precision, and is checked as below. This holds for scalar
 steps; with array steps and in [`prox_entry`](@ref), only for the conjugates
 that are indicators of a separable `f`, for the box itself and for
@@ -369,14 +370,21 @@ _moreau_checked(::Type{<:Scaled{F}}) where {F} = _moreau_checked(F)
 # Pγ(f, x) into z, for _moreau_free(typeof(f)), with γ in the precision of z;
 # z may be x
 _moreau_point!(z, f, x, γ) = _conjugate_isindicator(typeof(f)) ? prox!(z, f, x, one(γ)) : _moreau_set!(z, f, x, γ)
-# γ times a bound in the precision of γ, keeping an infinite or zero bound, so
-# that a step that underflows to 0 or overflows to Inf never forms 0 * Inf; the
-# product is formed in the wider of the two types, so that a bound outside the
-# range of γ's type still dilates to a representable one
+# γ times a bound in the precision S of γ, keeping an infinite or zero bound, so
+# that a step that underflows to 0 or overflows to Inf never forms 0 * Inf. A
+# finite bound that overflows in S, or a nonzero one that underflows, is
+# dilated in the wider of the two types, so that it can still give a
+# representable bound; only then, so that a bound of a wide type such as
+# BigFloat does not allocate
 @inline function _dilate(γ, b)
-  P = float(promote_type(typeof(γ), typeof(b)))
-  c = convert(P, b)
-  convert(float(typeof(γ)), ifelse(isinf(c) | iszero(c), c, convert(P, γ) * c))
+  S = float(typeof(γ))
+  c = convert(S, b)
+  if (isinf(c) & !isinf(b)) | (iszero(c) & !iszero(b))
+    P = float(promote_type(typeof(γ), typeof(b)))
+    convert(S, convert(P, γ) * convert(P, b))
+  else
+    ifelse(isinf(c) | iszero(c), c, convert(S, γ) * c)
+  end
 end
 _moreau_set!(z, f::IndBallL2, x, γ) = prox!(z, IndBallL2(_dilate(γ, f.r)), x, one(γ))
 _moreau_set!(z, f::IndBox, x, γ) = (z .= clamp.(x, _dilate.(γ, f.l), _dilate.(γ, f.u)))
@@ -403,7 +411,7 @@ function _moreau_nonfinite(y::AbstractArray, x::AbstractArray, z::AbstractArray,
   bc = Base.Broadcast.instantiate(term)
   # an empty array has nothing to check; a sum without an initial value is
   # pairwise and vectorizes, where one with an initial value is a sequential fold
-  !isempty(bc) && isnan(sum(bc))
+  !isempty(x) && isnan(sum(bc))
 end
 _moreau_nonfinite(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, always::Bool) = false
 _moreau_nonfinite(y::Tuple, x::Tuple, z::Tuple, γ, always::Bool) =

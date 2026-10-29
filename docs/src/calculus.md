@@ -310,7 +310,9 @@ homogeneous ``f`` or a cone, ``\gamma\operatorname{prox}_{f/\gamma}(x/\gamma) =
 \operatorname{prox}_f(x)``, and for the ℓ2 ball and box indicators, their
 translations and positive rescalings, it is the projection onto ``\gamma C``,
 so these conjugates take every step without dividing by ``\gamma``, with the
-accuracy of a unit step, about ``\epsilon`` times the largest input entry; for
+accuracy of a unit step, about ``\epsilon`` times the largest input entry
+(with array steps and in `prox_entry`, only for the conjugates that are
+indicators of separable functions, the box itself and the double conjugate); for
 the others, `prox!` and `value_and_prox!` throw an `ArgumentError` when a finite
 input gives a result that is not finite in working precision.
 

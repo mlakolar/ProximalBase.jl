@@ -39,6 +39,7 @@ tests = [
   "extreme_normals",
   "large_inputs",
   "spectral_overflow",
+  "spectral_overflow_prox",
   "spectral_domain",
   "ordered",
   "sumlargest",

@@ -40,7 +40,9 @@ inside wrappers, against the checks their own oracles run before writing.
 A failure during computation, a check that depends on the step (such as
 `MoreauEnvelope`'s sum of its parameter and step), or a user-defined function
 whose oracles reject an argument that its `check_parameters` accepts can still
-leave earlier slices written.
+leave earlier slices written, and so can a few nested wrappers and structured
+matrices whose checks are not yet complete, such as a box constraint inside
+another one.
 
 With `fₖ = LogDetLoss(Sₖ, nₖ/n)` it is the smooth part of the joint graphical
 lasso of K classes, whose penalty on the entries across the classes is a
@@ -128,7 +130,9 @@ inside wrappers, against the checks their own oracles run before writing.
 A failure during computation, a check that depends on the step (such as
 `MoreauEnvelope`'s sum of its parameter and step), or a user-defined function
 whose oracles reject an argument that its `check_parameters` accepts can still
-leave earlier fibers written.
+leave earlier fibers written, and so can a few nested wrappers and structured
+matrices whose checks are not yet complete, such as a box constraint inside
+another one.
 
 With `symmetric = true` the slices are taken to be symmetric, as precision
 matrices are: only the fibers with `i ≥ j` are read, and the proximal operator

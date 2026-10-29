@@ -88,7 +88,8 @@ checks their own oracles run before writing. Earlier outputs can still be
 written if a failure occurs during computation, if a check depends on the
 step (such as `MoreauEnvelope`'s sum of its parameter and step), or if a
 user-defined function's oracles reject an argument that its `check_parameters`
-accepts.
+accepts. A few nested wrappers and structured matrices whose checks are not yet
+complete, such as a box constraint inside another one, can also leave them written.
 
 ```@example extending
 xs = SparseIterate(3)                          # a coordinate step on a sparse iterate

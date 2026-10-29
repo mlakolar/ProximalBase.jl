@@ -572,7 +572,9 @@ inside wrappers, against the checks their own oracles run before writing.
 A failure during computation, a check that depends on the step (such as
 `MoreauEnvelope`'s sum of its parameter and step), or a user-defined function
 whose oracles reject an argument that its `check_parameters` accepts can still
-leave earlier blocks written.
+leave earlier blocks written, and so can a few nested wrappers and structured
+matrices whose checks are not yet complete, such as a box constraint inside
+another one.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F

@@ -47,21 +47,28 @@ _checkparams(f::CappedL1, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::CappedL1, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  S(f.λ) * S(_entry(f.w, i)) * min(abs(S(v)), S(f.a))
+  λ, w, m = S(f.λ), S(_entry(f.w, i)), min(abs(S(v)), S(f.a))
+  _weighted_value(λ * w * m, w, iszero(λ), m)
 end
 
 Base.@propagate_inbounds function prox_entry(f::CappedL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  c, a, t = S(γ) * S(f.λ) * S(_entry(f.w, i)), S(f.a), abs(S(v))
+  w = S(_entry(f.w, i))
+  c = _weight_coefficient(S(γ) * S(f.λ) * w, w, iszero(γ) | iszero(f.λ))
+  a, t = S(f.a), abs(S(v))
   z1 = min(max(t - c, zero(S)), a)          # the ℓ1 piece |z| ≤ a: soft thresholding, clipped at a
   z2 = max(t, a)                             # the constant piece |z| ≥ a
   # γ times the objective at each; a tie goes to the smaller entry
   h1 = c * z1 + (z1 - t)^2 / 2
   h2 = c * a + (z2 - t)^2 / 2
-  sign(S(v)) * ifelse(h1 <= h2, z1, z2)
+  # an infinite coefficient fixes the entry at zero, where h1 is Inf⋅0
+  _fixed_entry(S(v), c, sign(S(v)) * ifelse(h1 <= h2, z1, z2))
 end
 
-kkt_violation(f::CappedL1, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ * _entry(f.w, i)
+function kkt_violation(f::CappedL1, g::AbstractArray, i::Integer)
+  w = _entry(f.w, i)
+  abs(g[i]) - _weight_coefficient(f.λ * w, w, iszero(f.λ))
+end
 restrict(f::CappedL1, S::AbstractVector{<:Integer}) = CappedL1(f.λ, f.a, _restrict_entries(f.w, S))
 
 ####################################
@@ -102,13 +109,17 @@ _checkparams(f::LogPenalty, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::LogPenalty, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  S(f.λ) * S(_entry(f.w, i)) * log1p(abs(S(v)) / S(f.ε))
+  λ, w, φ = S(f.λ), S(_entry(f.w, i)), log1p(abs(S(v)) / S(f.ε))
+  _weighted_value(λ * w * φ, w, iszero(λ), φ)
 end
 
 Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  c, ε, t = S(γ) * S(f.λ) * S(_entry(f.w, i)), S(f.ε), abs(S(v))
+  w = S(_entry(f.w, i))
+  c = _weight_coefficient(S(γ) * S(f.λ) * w, w, iszero(γ) | iszero(f.λ))
+  ε, t = S(f.ε), abs(S(v))
   iszero(c) && return S(v)
+  isinf(c) && return isnan(v) ? S(v) : zero(S)
   # the stationary points of c log(1 + z/ε) + (z - t)²/2 on z > 0 are the roots
   # of z² + (ε - t)z + c - εt; the larger is a local minimum. Without real roots
   # the objective increases on [0, ∞)
@@ -122,7 +133,10 @@ Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ
   c * log1p(z / ε) + (z - t)^2 / 2 < t^2 / 2 ? sign(S(v)) * z : zero(S)
 end
 
-kkt_violation(f::LogPenalty, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ * _entry(f.w, i) / f.ε
+function kkt_violation(f::LogPenalty, g::AbstractArray, i::Integer)
+  w = _entry(f.w, i)
+  abs(g[i]) - _weight_coefficient(f.λ * w, w, iszero(f.λ)) / f.ε
+end
 restrict(f::LogPenalty, S::AbstractVector{<:Integer}) = LogPenalty(f.λ, f.ε, _restrict_entries(f.w, S))
 
 ####################################
@@ -175,13 +189,15 @@ _checkparams(f::NormLq, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::NormLq, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  S(f.λ) * S(_entry(f.w, i)) * abs(S(v))^S(f.q)
+  λ, w, φ = S(f.λ), S(_entry(f.w, i)), abs(S(v))^S(f.q)
+  _weighted_value(λ * w * φ, w, iszero(λ), φ)
 end
 
 Base.@propagate_inbounds function prox_entry(f::NormLq, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   step, λ, w = S(γ), S(f.λ), S(_entry(f.w, i))
   q, t = S(f.q), abs(S(v))
+  isinf(w) && return isnan(v) ? S(v) : zero(S)
   (iszero(λ) || iszero(w)) && return S(v)
   μ = _positive_product(step, λ, w)
   ordinary = isfinite(μ) && μ >= floatmin(S)

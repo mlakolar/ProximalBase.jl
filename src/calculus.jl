@@ -495,7 +495,8 @@ function _conjugate_value(f::NormL1, y::AbstractArray)
   _checkconjugate(f, y)
   T = float(eltype(y))
   @inbounds for i in eachindex(IndexLinear(), y)
-    _within(abs(y[i]), f.λ0 * _entry(f.w, i), T) || return T(Inf)
+    w = _entry(f.w, i)
+    _within(abs(y[i]), _weight_coefficient(f.λ0 * w, w, iszero(f.λ0)), T) || return T(Inf)
   end
   zero(T)
 end

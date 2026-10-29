@@ -196,7 +196,9 @@ only the stored entries. On a [`SymmetricSparseIterate`](@ref) the weights are a
 `p × p` matrix (or anything indexed by the linear indices of one), as for a
 dense matrix.
 When an intermediate sum overflows although the weighted value is representable,
-the value is computed in scaled units.
+the value is computed in scaled units. An infinite weight fixes the entry at
+zero at every level (the value is `Inf` away from zero), and a zero weight
+leaves it unpenalized at every level.
 """
 struct NormL1{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ0::T
@@ -214,11 +216,21 @@ isconvex(::Type{<:NormL1}) = true
 iszeropreserving(::NormL1) = true
 _checkparams(f::NormL1, x) = (_checkparam(f.w, x); true)
 
-Base.@propagate_inbounds value_entry(f::NormL1, v::Real, i::Integer) = _positive_product(f.λ0, _entry(f.w, i), abs(float(v)))
-Base.@propagate_inbounds prox_entry(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
-  shrink(v, convert(float(T), _positive_product(γ, f.λ0, _entry(f.w, i))))
+Base.@propagate_inbounds function value_entry(f::NormL1, v::Real, i::Integer)
+  a = abs(float(v))
+  w = _entry(f.w, i)
+  _weighted_value(_positive_product(f.λ0, w, a), w, false, a)
+end
+Base.@propagate_inbounds function prox_entry(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real}
+  w = _entry(f.w, i)
+  t = convert(float(T), _weight_coefficient(_positive_product(γ, f.λ0, w), w))
+  _fixed_entry(v, t, shrink(v, t))
+end
 
-kkt_violation(f::NormL1, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ0 * _entry(f.w, i)
+function kkt_violation(f::NormL1, g::AbstractArray, i::Integer)
+  w = _entry(f.w, i)
+  abs(g[i]) - _weight_coefficient(f.λ0 * w, w, iszero(f.λ0))
+end
 restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entries(f.w, S))
 
 # without weights, Base's vectorized sum (a sum with init takes a slow sequential path)
@@ -259,13 +271,25 @@ _checkparams(f::NormL1Nonneg, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::NormL1Nonneg, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  v >= -_tol(S) ? _positive_product(f.λ0, _entry(f.w, i), max(S(v), zero(S))) : S(Inf)
+  if v >= -_tol(S)
+    a = max(S(v), zero(S))
+    w = _entry(f.w, i)
+    _weighted_value(_positive_product(f.λ0, w, a), w, false, a)
+  else
+    S(Inf)
+  end
 end
-Base.@propagate_inbounds prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
-  max(v - convert(float(T), _positive_product(γ, f.λ0, _entry(f.w, i))), zero(float(T)))
+Base.@propagate_inbounds function prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real}
+  w = _entry(f.w, i)
+  t = convert(float(T), _weight_coefficient(_positive_product(γ, f.λ0, w), w))
+  _fixed_entry(v, t, max(v - t, zero(float(T))))
+end
 
 # moving up from zero decreases the objective when -gᵢ exceeds λ0 wᵢ
-kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer) = -g[i] - f.λ0 * _entry(f.w, i)
+function kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer)
+  w = _entry(f.w, i)
+  -g[i] - _weight_coefficient(f.λ0 * w, w, iszero(f.λ0))
+end
 restrict(f::NormL1Nonneg, S::AbstractVector{<:Integer}) = NormL1Nonneg(f.λ0, _restrict_entries(f.w, S))
 
 @inline _l1_value(::NormL1, v, a) = a * abs(v)
@@ -331,13 +355,22 @@ isconvex(::Type{<:ElasticNet}) = true
 iszeropreserving(::ElasticNet) = true
 _checkparams(f::ElasticNet, x) = (_checkparam(f.w, x); true)
 
-Base.@propagate_inbounds value_entry(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
+Base.@propagate_inbounds function value_entry(f::ElasticNet, v::Real, i::Integer)
+  a = abs(v)
+  w = _entry(f.w, i)
+  _weighted_value(f.λ1 * w * a, w, iszero(f.λ1), a) + f.λ2 * abs2(v) / 2
+end
 Base.@propagate_inbounds function prox_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  shrink(v, convert(S, γ * f.λ1 * _entry(f.w, i))) / (1 + convert(S, γ * f.λ2))
+  w = _entry(f.w, i)
+  t = convert(S, _weight_coefficient(γ * f.λ1 * w, w, iszero(γ) | iszero(f.λ1)))
+  _fixed_entry(v, t, shrink(v, t) / (1 + convert(S, γ * f.λ2)))
 end
 
-kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ1 * _entry(f.w, i)
+function kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer)
+  w = _entry(f.w, i)
+  abs(g[i]) - _weight_coefficient(f.λ1 * w, w, iszero(f.λ1))
+end
 restrict(f::ElasticNet, S::AbstractVector{<:Integer}) = ElasticNet(f.λ1, f.λ2, _restrict_entries(f.w, S))
 
 ####################################

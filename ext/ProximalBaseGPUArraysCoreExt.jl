@@ -14,7 +14,7 @@ using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, Sq
                     GroupNormL2, GroupNormLinf, SparseGroupNormL2, IndBallGroupL0, AbstractFunction,
                     LeastSquaresLoss, GLMLoss,
                     prox_entry, value_entry, shrink, _checksize, _checkparams, _checkgroups, _tol, _ind,
-                    _kth_largest!, _positive_product
+                    _kth_largest!, _positive_product, _weight_coefficient, _weighted_value, _fixed_entry
 using GPUArraysCore: AbstractGPUArray
 using LinearAlgebra: mul!
 using Base.Broadcast: broadcasted, instantiate
@@ -58,34 +58,35 @@ _scalar(y, a) = convert(float(eltype(y)), a)
 function ProximalBase._prox_sep!(y::GPUArray, f::NormL1, x::GPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= shrink.(x, _Level(_scalar(y, γ), _scalar(y, f.λ0)).(_param(f.w)))
+  y .= _shrink_fixed.(x, _WeightLevel(_scalar(y, γ), _scalar(y, f.λ0)).(_param(f.w)))
 end
 # Also the retry of the unweighted dense value when its sum overflows.
 ProximalBase._value_dense(f::NormL1, x::GPUArray) =
-  (T = float(eltype(x)); iszero(f.λ0) ? zero(T) :
-   _sum(T, _Weighted(_scalar(x, f.λ0)), instantiate(broadcasted(abs, x)), _param(f.w)))
+  (T = float(eltype(x)); (f.w === nothing && iszero(f.λ0)) ? zero(T) :
+   _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(abs, x)), _param(f.w)))
 
 function ProximalBase._prox_sep!(y::GPUArray, f::NormL1Nonneg, x::GPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= max.(x .- _Level(_scalar(y, γ), _scalar(y, f.λ0)).(_param(f.w)), 0)
+  y .= _nonneg_fixed.(x, _WeightLevel(_scalar(y, γ), _scalar(y, f.λ0)).(_param(f.w)))
 end
 function ProximalBase._value_dense(f::NormL1Nonneg, x::GPUArray)
   T = float(eltype(x))
   t = _tol(T)
   _all(v -> v >= -t, x) || return T(Inf)
-  iszero(f.λ0) && return zero(T)
-  _sum(T, _Weighted(_scalar(x, f.λ0)), instantiate(broadcasted(max, x, zero(T))), _param(f.w))
+  f.w === nothing && iszero(f.λ0) && return zero(T)
+  _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(max, x, zero(T))), _param(f.w))
 end
 
 function ProximalBase._prox_sep!(y::GPUArray, f::ElasticNet, x::GPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= shrink.(x, _scalar(y, γ * f.λ1) .* _param(f.w)) ./ (1 + _scalar(y, γ * f.λ2))
+  y .= _enet_fixed.(x, _scalar(y, γ * f.λ1), _param(f.w), 1 + _scalar(y, γ * f.λ2))
 end
 function ProximalBase._value_dense(f::ElasticNet, x::GPUArray)
   T = float(eltype(x))
-  (iszero(f.λ1) ? zero(T) : _scalar(x, f.λ1) * _sum(T, (w, v) -> w * abs(v), _param(f.w), x)) +
+  (iszero(f.λ1) ? (f.w === nothing ? zero(T) : _sum(T, (w, v) -> _weighted_value(zero(T), w, true, abs(v)), _param(f.w), x)) :
+   _scalar(x, f.λ1) * _sum(T, (w, v) -> _weighted_value(w * abs(v), w, false, abs(v)), _param(f.w), x)) +
   (iszero(f.λ2) ? zero(T) : _scalar(x, f.λ2) * _sum(T, abs2, x) / 2)
 end
 
@@ -362,6 +363,21 @@ struct _Level{T}
   λ::T
 end
 (l::_Level{T})(w) where {T} = _positive_product(l.step, l.λ, convert(T, w))
+
+# the threshold and value of an entry of a weighted ℓ1 norm, with infinite and
+# zero weights as in prox_entry and value_entry
+struct _WeightLevel{T}
+  step::T
+  λ::T
+end
+(l::_WeightLevel{T})(w) where {T} = (w = convert(T, w); _weight_coefficient(_positive_product(l.step, l.λ, w), w))
+struct _WeightValue{T}
+  λ::T
+end
+(l::_WeightValue{T})(v, w) where {T} = (w = convert(T, w); _weighted_value(_positive_product(l.λ, w, v), w, false, v))
+_shrink_fixed(v, t) = _fixed_entry(v, t, shrink(v, t))
+_nonneg_fixed(v, t) = _fixed_entry(v, t, max(v - t, zero(v)))
+_enet_fixed(v, c, w, d) = (t = _weight_coefficient(c * w, w, iszero(c)); _fixed_entry(v, t, shrink(v, t) / d))
 
 # λwₖ ⋅ v and group shrinkage at γλwₖ: its factor and value at the proximal point
 struct _Weighted{T}

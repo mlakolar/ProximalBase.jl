@@ -38,6 +38,29 @@ end
 end
 @inline _positive_product(a::Real, b::Real, c::Real) = _positive_product(promote(float(a), float(b), float(c))...)
 
+# Weights of separable functions: an infinite weight fixes the entry at zero,
+# at every level and step, and a zero weight leaves it unpenalized at every
+# level. p is the product of the level (or the step and the level) and the
+# weight w, computed as before, so that other weights keep their results; z
+# says whether another factor is zero. A zero factor turns a NaN product
+# (0⋅Inf, 0⋅NaN) into zero and keeps a signed zero. For floats, selects without
+# branches keep the loops over entries vectorized; other products (an integer
+# level times a Bool weight) take the branches, which never convert Inf to them.
+@inline _weight_coefficient(p::AbstractFloat, w, z::Bool = false) =
+  ifelse(isinf(w), oftype(p, Inf), ifelse((z | iszero(w)) & isnan(p), zero(p), p))
+@inline _weight_coefficient(p, w, z::Bool = false) =
+  isinf(w) ? oftype(p, Inf) : ((z | iszero(w)) & isnan(p)) ? zero(p) : p
+
+# the value p of a term with the weight w whose unweighted value is φ ≥ 0
+@inline _weighted_value(p::AbstractFloat, w, z::Bool, φ) =
+  ifelse(isinf(w), ifelse(iszero(φ), zero(p), oftype(p, Inf) * φ), ifelse((z | iszero(w)) & isnan(p), zero(p), p))
+@inline _weighted_value(p, w, z::Bool, φ) =
+  isinf(w) ? (iszero(φ) ? zero(p) : oftype(p, Inf) * φ) : ((z | iszero(w)) & isnan(p)) ? zero(p) : p
+
+# the proximal point r of an entry whose threshold t may be infinite: zero,
+# also at an infinite v, where soft thresholding gives NaN; NaN propagates
+@inline _fixed_entry(v, t, r) = ifelse(isinf(t) & !isnan(v), zero(r), r)
+
 # Keep the power outside the floating-point range until the final rounding.
 @inline function _scaled_product(w::T, v::T, k::Int) where {T<:AbstractFloat}
   (iszero(w) || iszero(v)) && return w * v

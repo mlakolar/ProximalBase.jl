@@ -45,7 +45,13 @@ For [`NormL1`](@ref), ``g(x) = \lambda_0\sum_i w_i|x_i|``, the problem defining
 the proximal operator separates over the coordinates. Each scalar problem
 ``\min_z \gamma\lambda_0 w_i|z| + \tfrac12(z - v_i)^2`` is solved by soft
 thresholding at ``\gamma\lambda_0 w_i``. A weight ``w_i = 0`` leaves the
-coordinate unpenalized, as for an intercept. The subdifferential of
+coordinate unpenalized, as for an intercept, at every level, an infinite one
+included. A weight ``w_i = \infty`` fixes the coordinate at zero, at every level
+and step including ``\lambda_0 = 0``, as for a variable excluded from the model:
+the value is ``\infty`` away from zero, the proximal operator returns 0,
+`kkt_violation` is ``-\infty`` and the LLA weight is ``\infty``. The same holds
+for the weights of `ElasticNet`, `CappedL1`, `LogPenalty`, `NormLq` and `Berhu`.
+The subdifferential of
 ``|\cdot|`` at zero is ``[-1, 1]``, so given the gradient ``g_i`` of the smooth
 part, the coordinate ``x_i = 0`` is optimal exactly when
 ``|g_i| \le \lambda_0 w_i``. [`kkt_violation`](@ref) returns
@@ -423,7 +429,10 @@ largest eigenvalues of a symmetric matrix.
 
 Quantile regression, support vector machines and support vector regression
 have separable losses with closed-form proximal operators. So splitting
-methods such as ADMM apply them to ``z = X\beta`` exactly.
+methods such as ADMM apply them to ``z = X\beta`` exactly. An infinite weight
+restricts the entry to the zero set of its term: a zero residual for `CheckLoss`,
+``|x_i| \le \varepsilon`` for `EpsInsensitiveLoss`, a margin ``y_i x_i \ge 1`` for
+`HingeLoss`.
 
 **The check loss.** [`CheckLoss`](@ref)`(τ)` is
 ``\sum_i \rho_\tau(x_i)`` with ``\rho_\tau(u) = \max(\tau u, (\tau - 1)u)``, for

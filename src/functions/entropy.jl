@@ -446,15 +446,21 @@ _checkparams(f::Berhu, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::Berhu, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  c, M, t = S(f.λ) * S(_entry(f.w, i)), S(f.M), abs(S(v))
-  t <= M ? c * t : c * (t^2 + M^2) / (2M)
+  λ, w = S(f.λ), S(_entry(f.w, i))
+  c, M, t = λ * w, S(f.M), abs(S(v))
+  _weighted_value(t <= M ? c * t : c * (t^2 + M^2) / (2M), w, iszero(λ), t)
 end
 
 Base.@propagate_inbounds function prox_entry(f::Berhu, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  c, M, t = S(γ) * S(f.λ) * S(_entry(f.w, i)), S(f.M), abs(S(v))
-  t <= M + c ? shrink(S(v), c) : S(v) * M / (M + c)
+  w = S(_entry(f.w, i))
+  c = _weight_coefficient(S(γ) * S(f.λ) * w, w, iszero(γ) | iszero(f.λ))
+  M, t = S(f.M), abs(S(v))
+  _fixed_entry(S(v), c, t <= M + c ? shrink(S(v), c) : S(v) * M / (M + c))
 end
 
-kkt_violation(f::Berhu, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ * _entry(f.w, i)
+function kkt_violation(f::Berhu, g::AbstractArray, i::Integer)
+  w = _entry(f.w, i)
+  abs(g[i]) - _weight_coefficient(f.λ * w, w, iszero(f.λ))
+end
 restrict(f::Berhu, S::AbstractVector{<:Integer}) = Berhu(f.λ, f.M, _restrict_entries(f.w, S))

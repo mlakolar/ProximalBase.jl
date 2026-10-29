@@ -97,7 +97,7 @@ end
       reference = sum(value_entry(f, z[i], i) for i in eachindex(z))
       @test isfinite(reference) ? isapprox(f(z), reference; rtol=length(z)*eps(T)) : isequal(f(z), reference)
       if iszero(level)
-        weights[1] = T(Inf)  # 0*Inf must still contribute exact zero
+        weights[1] = T(Inf)  # an infinite weight fixes the entry at zero, even at a zero level
         f = F(level, weights)
         reference = sum(value_entry(f, z[i], i) for i in eachindex(z))
         @test isfinite(reference) ? isapprox(f(z), reference; rtol=length(z)*eps(T)) : isequal(f(z), reference)

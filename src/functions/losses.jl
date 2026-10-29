@@ -40,11 +40,14 @@ _checkparams(f::CheckLoss, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::CheckLoss, v::T, i::Integer) where {T<:Real}
   τ = convert(float(T), f.τ)
-  _entry(f.w, i) * (v >= 0 ? τ * v : (τ - 1) * v)
+  w = _entry(f.w, i)
+  φ = v >= 0 ? τ * v : (τ - 1) * v
+  _weighted_value(w * φ, w, false, φ)
 end
 Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  s, τ, u = convert(S, γ * _entry(f.w, i)), convert(S, f.τ), S(v)
+  s = convert(S, _weight_coefficient(γ * _entry(f.w, i), _entry(f.w, i), iszero(γ)))
+  τ, u = convert(S, f.τ), S(v)
   u > s * τ ? u - s * τ : (u < -s * (1 - τ) ? u + s * (1 - τ) : zero(S))
 end
 
@@ -84,13 +87,16 @@ HingeLoss(y::Union{Nothing, AbstractArray} = nothing, w::Union{Nothing, Abstract
 isconvex(::Type{<:HingeLoss}) = true
 _checkparams(f::HingeLoss, x) = (_checkparam(f.y, x); _checkparam(f.w, x); true)
 
-Base.@propagate_inbounds value_entry(f::HingeLoss, v::T, i::Integer) where {T<:Real} =
-  _entry(f.w, i) * max(1 - _entry(f.y, i) * v, zero(float(T)))
+Base.@propagate_inbounds function value_entry(f::HingeLoss, v::T, i::Integer) where {T<:Real}
+  w = _entry(f.w, i)
+  φ = max(1 - _entry(f.y, i) * v, zero(float(T)))
+  _weighted_value(w * φ, w, false, φ)
+end
 # the proximal operator of γwᵢ max(0, 1 - u) at the margin u = yᵢv, mapped back
 Base.@propagate_inbounds function prox_entry(f::HingeLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   y = convert(S, _entry(f.y, i))
-  s = convert(S, γ * _entry(f.w, i)) * y^2
+  s = convert(S, _weight_coefficient(γ * _entry(f.w, i), _entry(f.w, i), iszero(γ))) * y^2
   u = y * S(v)
   (u >= 1 ? u : (u < 1 - s ? u + s : one(S))) / y
 end
@@ -289,11 +295,15 @@ isconvex(::Type{<:EpsInsensitiveLoss}) = true
 iszeropreserving(::EpsInsensitiveLoss) = true
 _checkparams(f::EpsInsensitiveLoss, x) = (_checkparam(f.w, x); true)
 
-Base.@propagate_inbounds value_entry(f::EpsInsensitiveLoss, v::T, i::Integer) where {T<:Real} =
-  _entry(f.w, i) * max(abs(v) - convert(float(T), f.ε), zero(float(T)))
+Base.@propagate_inbounds function value_entry(f::EpsInsensitiveLoss, v::T, i::Integer) where {T<:Real}
+  w = _entry(f.w, i)
+  φ = max(abs(v) - convert(float(T), f.ε), zero(float(T)))
+  _weighted_value(w * φ, w, false, φ)
+end
 Base.@propagate_inbounds function prox_entry(f::EpsInsensitiveLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  s, ε, u = convert(S, γ * _entry(f.w, i)), convert(S, f.ε), S(v)
+  s = convert(S, _weight_coefficient(γ * _entry(f.w, i), _entry(f.w, i), iszero(γ)))
+  ε, u = convert(S, f.ε), S(v)
   a = abs(u)
   a <= ε ? u : (a <= ε + s ? copysign(ε, u) : u - copysign(s, u))
 end
@@ -357,7 +367,7 @@ function _conjugate_value(f::EpsInsensitiveLoss, s::AbstractArray)
     _within(a, convert(T, _entry(f.w, i)), T) || return T(Inf)
     v += a
   end
-  convert(T, f.ε) * v
+  iszero(f.ε) ? zero(T) : convert(T, f.ε) * v
 end
 
 ####################################

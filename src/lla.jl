@@ -34,6 +34,8 @@ At zero the slope is `pᵢ′(0+)`, so the first stage of LLA from `x = 0` is th
 lasso. For the capped ℓ1 penalty at `|v| = a` the weight is `0`, the rule of
 the multi-stage convex relaxation of T. Zhang (2010): `λwᵢ` for `|v| < a` and `0`
 otherwise. The slopes of the MCP and SCAD are continuous away from zero.
+An infinite entry weight gives the LLA weight `Inf` at every point, so the next
+stage keeps that entry at zero, as the penalty does.
 
 [`NormLq`](@ref) has an infinite slope at zero, so every stage would keep the
 zero entries at zero; it throws an `ArgumentError`, as do functions that are
@@ -92,17 +94,22 @@ lla_weights!(::AbstractArray, f::AbstractFunction, ::AbstractArray) = _no_lla(f)
 
 Base.@propagate_inbounds function lla_weight(f::NormL1, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  return S(f.λ0) * S(_entry(f.w, i))
+  w = S(_entry(f.w, i))
+  return _weight_coefficient(S(f.λ0) * w, w, iszero(f.λ0))
 end
 
 Base.@propagate_inbounds function lla_weight(f::CappedL1, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  return abs(S(v)) < S(f.a) ? S(f.λ) * S(_entry(f.w, i)) : zero(S)
+  w = S(_entry(f.w, i))
+  c = _weight_coefficient(S(f.λ) * w, w, iszero(f.λ))
+  return abs(S(v)) < S(f.a) || isinf(w) ? c : zero(S)
 end
 
 Base.@propagate_inbounds function lla_weight(f::LogPenalty, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  return S(f.λ) * S(_entry(f.w, i)) / (S(f.ε) + abs(S(v)))
+  w = S(_entry(f.w, i))
+  c = _weight_coefficient(S(f.λ) * w, w, iszero(f.λ))
+  return isinf(w) ? c : c / (S(f.ε) + abs(S(v)))
 end
 
 function lla_weight(f::MCP, v::T, ::Integer) where {T<:Real}

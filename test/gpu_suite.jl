@@ -644,6 +644,21 @@ end
     @test same(value_and_gradient!(DY, f, D), value_and_gradient!(Y, f, A))
     @test host(DY) ≃ Y
     M = floatmax(T)
+    # Mapped roots and the half spectrum can overflow at finite inputs.
+    for n in (2, 3), (w, γ) in ((one(T), one(T)), (T(1)/4, T(4)))
+      Xlarge = fill(M, n, n)
+      Slarge = Matrix{T}(I, n, n)
+      Ylarge = similar(Xlarge)
+      vc = value_and_prox!(Ylarge, LogDetLoss(Slarge, w), Xlarge, γ)
+      Dlarge = DeviceArray(Xlarge)
+      DYlarge = similar(Dlarge)
+      vd = value_and_prox!(DYlarge, LogDetLoss(Slarge, w), Dlarge, γ)
+      @test vd === vc
+      @test host(DYlarge) == Ylarge
+      if n == 2
+        @test isone(w) ? vc === T(Inf) : isapprox(vc, M / 2)
+      end
+    end
     f = TracePSD(T(0.25))
     Xlarge = Matrix{T}(M * I, 2, 2)
     @test f(DeviceArray(Xlarge)) == f(Xlarge) == M / 2

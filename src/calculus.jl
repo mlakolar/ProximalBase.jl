@@ -63,7 +63,8 @@ _finite_parameter(x::AbstractArray) = all(isfinite, x)
 _finite_zero(f, parameters...) = all(_finite_parameter, parameters) ? ZeroFunction() : _zero_scale_error(f)
 _zero_scaled(f::Union{NormL1, GroupNormL2, GroupNormLinf}) = _finite_zero(f, f.λ0, f.w)
 _zero_scaled(f::SparseGroupNormL2) = _finite_zero(f, f.λ0, f.λ1, f.w)
-_zero_scaled(f::Union{NormL2, NormLinf, NormL0}) = _finite_zero(f, f.λ)
+_zero_scaled(f::Union{NormL2, CubeNormL2, NormLinf, NormL0}) = _finite_zero(f, f.λ)
+_zero_scaled(::SumLargest) = ZeroFunction()
 _zero_scaled(f::Union{MCP, SCAD}) = _finite_zero(f, f.λ, f.a)
 _zero_scaled(f::Union{GroupMCP, GroupSCAD}) = _finite_zero(f, f.λ0, f.w, f.a)
 _zero_scaled(f::ElasticNet) = _finite_zero(f, f.λ1, f.λ2, f.w)
@@ -256,7 +257,8 @@ operator follows from that of `f` by Moreau's identity,
 `prox_{γf*}(x) = x - γ prox_{f/γ}(x/γ)`, so every proximable function gives one;
 for a separable `f` so does [`prox_entry`](@ref). Its value is known for the
 norms (the indicators of the dual balls), the balls (their support functions),
-the box, the nonnegative orthant, [`SqrNormL2`](@ref), [`LinearFunction`](@ref),
+the box, [`IndSimplex`](@ref), [`SumLargest`](@ref), the nonnegative orthant,
+[`SqrNormL2`](@ref), [`LinearFunction`](@ref),
 [`ZeroFunction`](@ref), and the losses [`CheckLoss`](@ref), [`HingeLoss`](@ref),
 [`SqrHingeLoss`](@ref) and [`EpsInsensitiveLoss`](@ref), and for translations and strictly positive
 rescalings of these functions; for other functions, evaluating the conjugate
@@ -301,8 +303,9 @@ end
 # At a proximal point y = x - γp, Fenchel equality gives f*(y) = <p,y> - f(p).
 # Keep the direct value for known closed forms, especially exact indicator zeros.
 _has_conjugate_value(::AbstractFunction) = false
-_has_conjugate_value(::Union{NormL1, NormL2, NormLinf, IndBallL1, IndBallL2, IndSOC, IndExpPrimal, IndExpDual,
-                            ZeroFunction, IndNonnegative, IndBox, SqrNormL2,
+_has_conjugate_value(::Union{NormL1, NormL2, NormLinf, IndBallL1, IndBallL2, IndSOC, IndRotatedSOC,
+                            IndExpPrimal, IndExpDual, ZeroFunction, IndNonnegative, IndBox, IndSimplex,
+                            SumLargest, SqrNormL2,
                             LinearFunction, CheckLoss, HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}) = true
 _has_conjugate_value(f::Union{Scaled, Translate}) = _has_conjugate_value(f.f)
 _has_conjugate_value(f::SingularValue) = _has_conjugate_value(f.f)
@@ -326,6 +329,12 @@ Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real)
 _checkparams(c::Conjugate, x) = _checkparams(c.f, x)
 
 (c::Conjugate)(y::Union{AbstractArray, Tuple}) = (_checkparams(c, y); _conjugate_value(c.f, y))
+
+_isindicator(::Type{<:Conjugate{<:SumLargest}}) = true
+_checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, c::Conjugate{<:SumLargest}, y::AbstractArray, x::AbstractArray) =
+  _checkwrite(op, c.f, y, x)
+prox!(y::AbstractArray{<:Real}, c::Conjugate{<:SumLargest}, x::AbstractArray{<:Real}, ::Real) =
+  _sumlargest_prox!(y, c.f, x, 1, Val(true))
 
 _tuple_buffer_type(::Type{<:AbstractArray{T, N}}) where {T, N} = Array{float(T), N}
 _tuple_buffer_type(::Type{X}) where {X<:Tuple} = Tuple{map(_tuple_buffer_type, fieldtypes(X))...}
@@ -417,10 +426,42 @@ _conjugate_value(f::IndBallL2, y::AbstractArray) =
   (T = float(eltype(y)); iszero(f.r) ? zero(T) : convert(T, f.r) * _norm2(y))
 _conjugate_value(f::IndSOC, y::AbstractArray) =
   (_checkparams(f, y); _soc_value(f, y, true))
+_conjugate_value(f::IndRotatedSOC, y::AbstractArray) =
+  (_checkparams(f, y); _rotatedsoc_value(f, y, true))
 _conjugate_value(f::IndExpPrimal, y::AbstractArray) =
   (_checkparams(f, y); _exp_value(f, y, true))
 _conjugate_value(f::IndExpDual, y::AbstractArray) =
   (_checkparams(f, y); _exp_value(f, y, true))
+function _conjugate_value(f::IndSimplex, y::AbstractArray)
+  T = float(eltype(y))
+  isempty(y) && return f.equality && f.r > 0 ? T(-Inf) : zero(T)
+  iszero(f.r) && return zero(T)
+  if isinf(f.r)
+    f.equality && return T(-Inf)
+    return _conjugate_value(IndNonnegative(), y)
+  end
+  m = maximum(y)
+  convert(T, float(f.r) * (f.equality ? m : max(m, zero(T))))
+end
+
+function _conjugate_value(f::SumLargest, y::AbstractArray)
+  _checkparams(f, y)
+  T = float(eltype(y))
+  S = float(promote_type(T, typeof(f.λ)))
+  λ = S(f.λ)
+  t = _tol(T)
+  m = abs(λ)
+  @inbounds for yi in y
+    isfinite(yi) || return T(Inf)
+    yi >= -t * max(one(S), λ) && _within(yi, λ, T) || return T(Inf)
+    m = max(m, abs(yi))
+  end
+  e = _comparison_exponent(_magnitude_exponent(m))
+  s = _scaled_sum(y, _power_factors(S, -e))
+  mass = f.k * ldexp(λ, -e)
+  _ind(abs(s - mass) <= t * max(ldexp(one(S), -e), abs(s), mass), T)
+end
+
 function _conjugate_value(::ZeroFunction, y::AbstractArray)
   T = float(eltype(y))
   for v in y
@@ -560,6 +601,16 @@ function value_and_gradient!(g::AbstractArray, s::Sum, x::AbstractArray)
   b = _array_buffer!(s.scratch, eltype(g), size(g))
   _add_gradients!(g, b, x, v, Base.tail(s.fs))
 end
+
+####################################
+#  Availability of standalone values
+####################################
+
+_has_value(::AbstractFunction) = true
+_has_value(c::Conjugate) = _has_conjugate_value(c.f)
+_has_value(f::Union{Scaled, Tilt, Translate, SingularValue}) = _has_value(f.f)
+_has_value(s::Union{SeparableSum, Sum, SliceSum}) = all(_has_value, s.fs)
+_has_value(fb::FiberSum) = _has_value(fb.f) && (fb.diagonal === nothing || _has_value(fb.diagonal))
 
 ####################################
 #  Lipschitz constants of the gradients

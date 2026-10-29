@@ -460,11 +460,16 @@ Base.@propagate_inbounds function _value_entry_ordinary(f::Berhu, v::T, i::Integ
 end
 _has_ordinary_value(::Type{<:Berhu}) = true
 
+@inline function _berhu_prox_entry(f::Berhu, v::T, c) where {T<:Real}
+  S = float(T)
+  M, t = S(f.M), abs(S(v))
+  t <= M + c ? shrink(S(v), c) : S(v) * M / (M + c)
+end
+
 Base.@propagate_inbounds function prox_entry(f::Berhu, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   c = _weight_coefficient(S(γ), S(f.λ), S(_entry(f.w, i)))
-  M, t = S(f.M), abs(S(v))
-  t <= M + c ? shrink(S(v), c) : S(v) * M / (M + c)
+  _berhu_prox_entry(f, v, c)
 end
 
 _certified_weight_steps(y::Array{T}, f::Berhu{T, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}} =
@@ -476,8 +481,7 @@ _prox_sep_dense!(y::Array{T}, f::Berhu{T, W}, x::Array{T}, γ::Array{T}) where {
 Base.@propagate_inbounds function _prox_entry_ordinary(f::Berhu, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   c = (S(γ) * S(f.λ)) * S(_entry(f.w, i))
-  M, t = S(f.M), abs(S(v))
-  t <= M + c ? shrink(S(v), c) : S(v) * M / (M + c)
+  _berhu_prox_entry(f, v, c)
 end
 
 kkt_violation(f::Berhu, g::AbstractArray, i::Integer) = abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i))

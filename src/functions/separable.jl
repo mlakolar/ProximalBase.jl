@@ -455,9 +455,11 @@ end
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
 _has_ordinary_value(::Type{<:ElasticNet}) = true
+@inline _elastic_prox_entry(v, c, q) = shrink(v, c) / (1 + q)
+
 Base.@propagate_inbounds function prox_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  shrink(v, convert(S, _weight_coefficient(γ, f.λ1, _entry(f.w, i)))) / (1 + convert(S, γ * f.λ2))
+  _elastic_prox_entry(v, convert(S, _weight_coefficient(γ, f.λ1, _entry(f.w, i))), convert(S, γ * f.λ2))
 end
 
 _certified_weight_steps(y::Array{T}, f::ElasticNet{T, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}} =
@@ -468,7 +470,7 @@ _prox_sep_dense!(y::Array{T}, f::ElasticNet{T, W}, x::Array{T}, γ::Array{T}) wh
 
 Base.@propagate_inbounds function _prox_entry_ordinary(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  shrink(v, convert(S, (γ * f.λ1) * _entry(f.w, i))) / (1 + convert(S, γ * f.λ2))
+  _elastic_prox_entry(v, convert(S, (γ * f.λ1) * _entry(f.w, i)), convert(S, γ * f.λ2))
 end
 
 kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer) = abs(g[i]) - _weight_coefficient(f.λ1, _entry(f.w, i))

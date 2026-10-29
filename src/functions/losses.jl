@@ -49,11 +49,16 @@ Base.@propagate_inbounds function _value_entry_ordinary(f::CheckLoss, v::T, i::I
   _entry(f.w, i) * (v >= 0 ? τ * v : (τ - 1) * v)
 end
 _has_ordinary_value(::Type{<:CheckLoss}) = true
+@inline function _check_prox_entry(f::CheckLoss, v::T, s) where {T<:Real}
+  S = float(T)
+  τ, u = convert(S, f.τ), S(v)
+  u > s * τ ? u - s * τ : (u < -s * (1 - τ) ? u + s * (1 - τ) : zero(S))
+end
+
 Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
-  s, τ, u = convert(S, _weight_coefficient(γ, w)), convert(S, f.τ), S(v)
-  u > s * τ ? u - s * τ : (u < -s * (1 - τ) ? u + s * (1 - τ) : zero(S))
+  _check_prox_entry(f, v, convert(S, _weight_coefficient(γ, w)))
 end
 
 _certified_weight_steps(y::Array{T}, f::CheckLoss{T, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}} =
@@ -65,8 +70,7 @@ _prox_sep_dense!(y::Array{T}, f::CheckLoss{T, W}, x::Array{T}, γ::Array{T}) whe
 Base.@propagate_inbounds function _prox_entry_ordinary(f::CheckLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
-  s, τ, u = convert(S, γ * w), convert(S, f.τ), S(v)
-  u > s * τ ? u - s * τ : (u < -s * (1 - τ) ? u + s * (1 - τ) : zero(S))
+  _check_prox_entry(f, v, convert(S, γ * w))
 end
 
 # from zero, the objective decreases upward at rate -gᵢ - wᵢτ and downward at
@@ -135,7 +139,7 @@ Base.@propagate_inbounds function _prox_entry_ordinary(f::HingeLoss, v::T, i::In
   w = _entry(f.w, i)
   s = convert(S, γ * w) * y^2
   u = y * S(v)
-  # Eager selection keeps the certified loop vectorizable.
+  # Keep this form separate: eager selection vectorizes the certified loop.
   ifelse(u >= 1, u, ifelse(u < 1 - s, u + s, one(S))) / y
 end
 
@@ -341,12 +345,17 @@ end
 Base.@propagate_inbounds _value_entry_ordinary(f::EpsInsensitiveLoss, v::T, i::Integer) where {T<:Real} =
   _entry(f.w, i) * max(abs(v) - convert(float(T), f.ε), zero(float(T)))
 _has_ordinary_value(::Type{<:EpsInsensitiveLoss}) = true
+@inline function _eps_prox_entry(f::EpsInsensitiveLoss, v::T, s) where {T<:Real}
+  S = float(T)
+  ε, u = convert(S, f.ε), S(v)
+  a = abs(u)
+  a <= ε ? u : (a <= ε + s ? copysign(ε, u) : u - copysign(s, u))
+end
+
 Base.@propagate_inbounds function prox_entry(f::EpsInsensitiveLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
-  s, ε, u = convert(S, _weight_coefficient(γ, w)), convert(S, f.ε), S(v)
-  a = abs(u)
-  a <= ε ? u : (a <= ε + s ? copysign(ε, u) : u - copysign(s, u))
+  _eps_prox_entry(f, v, convert(S, _weight_coefficient(γ, w)))
 end
 
 _certified_weight_steps(y::Array{T}, f::EpsInsensitiveLoss{T, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}} =
@@ -358,9 +367,7 @@ _prox_sep_dense!(y::Array{T}, f::EpsInsensitiveLoss{T, W}, x::Array{T}, γ::Arra
 Base.@propagate_inbounds function _prox_entry_ordinary(f::EpsInsensitiveLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
-  s, ε, u = convert(S, γ * w), convert(S, f.ε), S(v)
-  a = abs(u)
-  a <= ε ? u : (a <= ε + s ? copysign(ε, u) : u - copysign(s, u))
+  _eps_prox_entry(f, v, convert(S, γ * w))
 end
 
 # zero is inside the flat part when ε > 0; with ε = 0 the loss is wᵢ|xᵢ|

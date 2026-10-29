@@ -38,10 +38,14 @@ and `(1/n) * f` averages one.
 
 At zero scale, supported finite-parameter penalties and losses simplify to
 [`ZeroFunction`](@ref), while an indicator retains its domain and is returned
-unchanged. A weighted ℓ1-type penalty (`NormL1`, `NormL1Nonneg`, `ElasticNet`)
-whose weights include `Inf` becomes the same penalty at a zero level, keeping
-those entries fixed at zero; it is not an indicator type, so wrappers that
-require one still reject it. Zero scaling of other functions is rejected when
+unchanged. Zero scaling removes finite penalty terms and keeps domain
+constraints. For `NormL1`, `NormL1Nonneg`, `ElasticNet`, `CappedL1`,
+`LogPenalty`, `NormLq` and `Berhu`, an infinite weight retains the same family
+with all levels zero, keeping those entries fixed at zero. With finite weights,
+`NormL1Nonneg` becomes `IndNonnegative()` and the others become `ZeroFunction()`.
+Non-finite levels or shape parameters are rejected. The retained zero-level
+family is not an indicator type, so wrappers that require one still reject it.
+Zero scaling of other functions is rejected when
 the package has no domain-preserving proximal representation.
 """
 struct Scaled{F<:AbstractFunction, T<:Real} <: AbstractFunction
@@ -67,6 +71,12 @@ _finite_zero(f, parameters...) = all(_finite_parameter, parameters) ? ZeroFuncti
 function _zero_scaled(f::NormL1)
   isfinite(f.λ0) || _zero_scale_error(f)
   _finite_parameter(f.w) ? ZeroFunction() : NormL1(zero(f.λ0), f.w)
+end
+for (F, shape) in ((CappedL1, :a), (LogPenalty, :ε), (NormLq, :q), (Berhu, :M))
+  @eval function _zero_scaled(f::$F)
+    isfinite(f.λ) && isfinite(f.$shape) || _zero_scale_error(f)
+    _finite_parameter(f.w) ? ZeroFunction() : $F(zero(f.λ), f.$shape, f.w)
+  end
 end
 _zero_scaled(f::Union{GroupNormL2, GroupNormLinf}) = _finite_zero(f, f.λ0, f.w)
 _zero_scaled(f::SparseGroupNormL2) = _finite_zero(f, f.λ0, f.λ1, f.w)

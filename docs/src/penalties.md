@@ -53,8 +53,11 @@ finite argument and `kkt_violation` is ``-\infty``. The same holds for the
 weights of `NormL1Nonneg`, `ElasticNet`, `CappedL1`, `LogPenalty`, `NormLq` and
 `Berhu`. For `NormL1`, `CappedL1` and `LogPenalty`, which have LLA weights, the
 LLA weight of such an entry is ``\infty``.
-Zero scaling of `NormL1`, `NormL1Nonneg` and `ElasticNet` with an infinite
-weight gives the same penalty at a zero level.
+Zero scaling removes finite penalty terms and keeps domain constraints.
+For `NormL1`, `NormL1Nonneg`, `ElasticNet`, `CappedL1`, `LogPenalty`, `NormLq`
+and `Berhu`, infinite weights retain the same family with all levels zero.
+With finite weights, `NormL1Nonneg` becomes `IndNonnegative()` and the others
+become `ZeroFunction()`. Non-finite levels or shape parameters are rejected.
 The subdifferential of
 ``|\cdot|`` at zero is ``[-1, 1]``, so given the gradient ``g_i`` of the smooth
 part, the coordinate ``x_i = 0`` is optimal exactly when
@@ -132,9 +135,12 @@ it the root ``z > \beta`` of ``z + \mu q z^{q - 1} = |v|``, with the sign of ``v
 The implementation uses a closed form for ``q = 1/2`` (half thresholding:
 Xu, Chang, Xu and Zhang, 2012). Otherwise it solves the dimensionless equation
 for ``z/|v|`` by Newton's method from one, avoiding overflow in the quartic
-closed form for ``q = 2/3`` (Cao, Sun and Xu, 2013). The slope at zero
-is infinite, so zero is a local minimizer of every problem and `kkt_violation`
+closed form for ``q = 2/3`` (Cao, Sun and Xu, 2013). At a penalized entry the
+slope at zero is infinite, so zero is a local minimizer and `kkt_violation`
 is ``-\infty``.
+A zero weight, or a zero level with finite weight, gives ``|g_i|`` instead.
+This changes the previous KKT behaviour for both zero levels and zero weights.
+Positive factors whose product underflows still give ``-\infty``.
 
 **Group MCP and group SCAD** (Huang, Breheny and Ma, 2012) apply the MCP or SCAD
 with level ``\lambda w_k`` to the Euclidean norm of each group. For any ``p``,

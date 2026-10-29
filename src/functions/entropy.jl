@@ -1,6 +1,6 @@
 ####################################
 #
-#  Entropy, KL divergence, the log barrier, and the reverse Huber penalty
+#  Entropy, KL divergence, log and Bernoulli losses, and the reverse Huber penalty
 #
 ####################################
 
@@ -205,6 +205,202 @@ end
 end
 
 restrict(f::NegLog, ::AbstractVector{<:Integer}) = f
+
+####################################
+#  Bernoulli loss on the probability scale
+####################################
+
+"""
+    BernoulliLoss(b, w = 1)
+
+The Bernoulli negative log-likelihood
+`f(p) = -Σᵢ wᵢ [bᵢ log pᵢ + (1 - bᵢ) log(1 - pᵢ)]` on the probability scale,
+for `bᵢ ∈ [0, 1]` and finite `wᵢ ≥ 0`. Each parameter is a scalar or an array
+with one entry per entry of `p`. Fractional responses with trial counts as
+weights give the binomial loss. A zero weight masks a coordinate: its value
+and gradient are zero everywhere and its proximal operator is the identity.
+NaN inputs propagate.
+
+For a positive weight the domain is `0 < pᵢ < 1`, with `0 log 0 = 0`: `pᵢ = 0`
+is allowed for `bᵢ = 0`, and `pᵢ = 1` for `bᵢ = 1`. The value is `Inf` outside
+the domain, and the gradient is `NaN` there. Separable, convex and smooth on
+the interior, with gradient `-wᵢbᵢ/pᵢ + wᵢ(1 - bᵢ)/(1 - pᵢ)`. The gradient
+is not globally Lipschitz; [`lipschitz`](@ref) and
+[`coordinate_lipschitz`](@ref) return `Inf` for positive weights, or zero
+when all relevant weights are zero.
+
+With `μ = γwᵢ` and `0 < bᵢ < 1`, its scalar proximal point is the root in `(0, 1)` of
+`p³ - (1 + v)p² + (v - μ)p + μbᵢ = 0`, computed by safeguarded Newton
+iteration. For `bᵢ = 1` it is the proximal point of [`NegLog`](@ref), clipped
+at 1; for `bᵢ = 0` it is its reflection. For a fractional response, a result
+that rounds to an excluded endpoint is replaced by the nearest interior
+float in the argument's floating type. A narrower output type may still round
+it to the endpoint. [`value_and_prox!`](@ref) evaluates the stored result.
+"""
+struct BernoulliLoss{B<:Union{Real, AbstractArray}, W<:Union{Real, AbstractArray}} <: SeparableFunction
+  b::B
+  w::W
+
+  function BernoulliLoss{B, W}(b::B, w::W) where {B<:Union{Real, AbstractArray}, W<:Union{Real, AbstractArray}}
+    all(t -> t isa Real && 0 <= t <= 1, b) || throw(ArgumentError("the responses b must be in [0, 1]"))
+    all(t -> t isa Real && isfinite(t) && t >= 0, w) || throw(ArgumentError("the weights must be finite and nonnegative"))
+    new{B, W}(b, w)
+  end
+end
+BernoulliLoss(b::Union{Real, AbstractArray}, w::Union{Real, AbstractArray} = 1) =
+  BernoulliLoss{typeof(b), typeof(w)}(b, w)
+
+isconvex(::Type{<:BernoulliLoss}) = true
+issmooth(::Type{<:BernoulliLoss}) = true
+_checkparams(f::BernoulliLoss, x) = (_checkparam(f.b, x); _checkparam(f.w, x); true)
+
+@inline _bernoulli_domain(p, b, w) = iszero(w) ||
+  (0 <= p <= 1 && (!iszero(p) || iszero(b)) && (p != 1 || b == 1))
+
+@inline function _bernoulli_value(p::T, b::T, w::T) where {T<:AbstractFloat}
+  isnan(p) && return p
+  iszero(w) && return zero(T)
+  _bernoulli_domain(p, b, w) || return T(Inf)
+  left = iszero(b) ? zero(T) : _positive_product(w, b, -log(p))
+  right = b == 1 ? zero(T) : _positive_product(w, 1 - b, -log1p(-p))
+  left + right
+end
+
+Base.@propagate_inbounds function value_entry(f::BernoulliLoss, v::T, i::Integer) where {T<:Real}
+  b, w = _entry(f.b, i), _entry(f.w, i)
+  p, b, w = promote(float(v), float(b), float(w))
+  float(T)(_bernoulli_value(p, b, w))
+end
+
+# Multiplying before dividing can underflow, and 1/p can overflow at a
+# subnormal probability even when the weighted derivative is finite.
+@inline function _bernoulli_ratio(w::T, b::T, p::T) where {T<:AbstractFloat}
+  r = inv(p)
+  isfinite(r) && return _positive_product(w, b, r)
+  mw, ew = frexp(w)
+  mb, eb = frexp(b)
+  mp, ep = frexp(p)
+  ldexp((mw * mb) / mp, ew + eb - ep)
+end
+
+@inline function _bernoulli_gradient(p::T, b::T, w::T) where {T<:AbstractFloat}
+  isnan(p) && return p
+  iszero(w) && return zero(T)
+  _bernoulli_domain(p, b, w) || return T(NaN)
+  left = iszero(b) ? zero(T) : _bernoulli_ratio(w, b, p)
+  right = b == 1 ? zero(T) : _bernoulli_ratio(w, 1 - b, 1 - p)
+  right - left
+end
+
+function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::BernoulliLoss, g::AbstractArray, x::AbstractArray)
+  _checksize(g, x)
+  _checkparams(f, x)
+end
+
+function value_and_gradient!(g::AbstractArray, f::BernoulliLoss, x::AbstractArray)
+  _checkwrite(value_and_gradient!, f, g, x)
+  T = float(eltype(x))
+  value = zero(T)
+  valid = true
+  @inbounds for i in eachindex(IndexLinear(), g, x)
+    p, b, w = promote(float(x[i]), float(_entry(f.b, i)), float(_entry(f.w, i)))
+    value += T(_bernoulli_value(p, b, w))
+    gi = _bernoulli_gradient(p, b, w)
+    valid &= !isnan(gi)
+    g[i] = gi
+  end
+  valid || fill!(g, eltype(g)(NaN))
+  value
+end
+
+lipschitz(f::BernoulliLoss) = all(iszero, f.w) ? zero(float(eltype(f.w))) : float(eltype(f.w))(Inf)
+
+# The positive root of a*t² + δ*t - c², capped at 1/2. Keeping sqrt(C)
+# avoids underflow of C when the root is still representable.
+@inline function _bernoulli_quadratic(a::T, δ::T, c::T) where {T<:AbstractFloat}
+  half = -δ / 2
+  iszero(half) && return min(one(T) / 2, c / sqrt(a))
+  radius = hypot(half, sqrt(a) * c)
+  root = half > 0 ? (half + radius) / a : c * (c / (radius - half))
+  min(one(T) / 2, root)
+end
+
+function _bernoulli_prox(v::T, b::T, γ::T, w::T) where {T<:AbstractFloat}
+  if b == 1 || iszero(b)
+    root_step = sqrt(γ) * sqrt(w)
+    b == 1 && return min(one(T), _logbarrier_root_half(v / 2, root_step))
+    difference = fma(-γ, w, v)
+    difference <= 0 && return zero(T)
+    p = difference / (one(T) / 2 + v / 2 + hypot((1 - v) / 2, root_step))
+    # Subtract the small reflected root only when p is nearer 1.
+    return p <= one(T) / 2 ? p : 1 - _logbarrier_root_half((1 - v) / 2, root_step)
+  end
+
+  # Scale by a power of two at least as large as μ = γw, without forming μ.
+  mg0, eg = frexp(γ)
+  mw, ew = frexp(w)
+  power = eg + ew
+  shift = max(0, power)
+  unit = ldexp(one(T), -shift)
+  mg = ldexp(mg0, power - shift)
+  μ = mg * mw
+  error = fma(mg, mw, -μ)
+  vs = ldexp(v, -shift)
+  reflected = unit / 2 - vs + 2μ * (1 - 2b) < 0
+  c, d = reflected ? (1 - b, b) : (b, 1 - b)
+  u = reflected ? 1 - v : v
+  # An error-free sum keeps the unit term in 1-v even for a large v.
+  remainder = reflected ? (abs(v) >= 1 ? 1 - (u + v) : -v - (u - 1)) : zero(T)
+  us = ldexp(u, -shift)
+  # Retain μc in μ(1-c)-u when 1-c rounds to 1, and use an FMA for
+  # cancellation between the step and u near an endpoint threshold.
+  δ = c <= one(T) / 2 ? fma(-μ, c, fma(mg, mw, -us)) - error * c :
+    fma(μ, d, -us) + error * d
+  δ -= ldexp(remainder, -shift)
+  md = μ * d
+  # Reconstruct sqrt(μc / 2^shift) from mantissas and an integer exponent.
+  rc = sqrt(mg0) * sqrt(mw) * sqrt(c)
+  exponent = power - shift
+  rc = ldexp(isodd(exponent) ? rc * sqrt(T(2)) : rc, fld(exponent, 2))
+
+  # On 0 < t ≤ 1/2 the equation is
+  # (1 + μd/(1-t))*t² + (μd-u)*t - μc = 0. Replacing 1/(1-t)
+  # by 2 and 1 gives bounds whose ratio is at most two.
+  tiny = nextfloat(zero(T))
+  lo = max(tiny, prevfloat(_bernoulli_quadratic(unit + 2md, δ, rc), 4))
+  hi = min(one(T) / 2, nextfloat(_bernoulli_quadratic(unit + md, δ, rc), 4))
+  t = lo + (hi - lo) / 2
+  for _ in 1:100
+    a = unit + md / (1 - t)
+    q = _bernoulli_quadratic(a, δ, rc)
+    # t-q has the sign of the stationarity residual and is increasing.
+    t == q && return reflected ? 1 - t : t
+    t < q ? (lo = t) : (hi = t)
+    if hi - lo <= 4eps(t)
+      t = clamp(q, lo, hi)
+      return reflected ? 1 - t : t
+    end
+    radius = hypot(δ / 2, sqrt(a) * rc)
+    # q'(t) = -md*q²/(2radius*(1-t)²); ratios retain tiny q.
+    derivative = 1 + ((md / a) / (1 - t)^2) * (q / (radius / a) / 2) * q
+    candidate = t - (t - q) / derivative
+    width = hi - lo
+    t = lo + width / 4 < candidate < hi - width / 4 ? candidate : lo + width / 2
+  end
+  t = lo + (hi - lo) / 2
+  reflected ? 1 - t : t
+end
+
+Base.@propagate_inbounds function prox_entry(f::BernoulliLoss, v::T, i::Integer, γ::Real) where {T<:Real}
+  R = float(T)
+  b, w = _entry(f.b, i), _entry(f.w, i)
+  (isnan(v) || isnan(γ)) && return R(NaN)
+  iszero(w) && return R(v)
+  isinf(v) && return v > 0 ? (b == 1 ? one(R) : prevfloat(one(R))) : (iszero(b) ? zero(R) : nextfloat(zero(R)))
+  p, b, step, w = promote(float(v), float(b), float(γ), float(w))
+  result = R(_bernoulli_prox(p, b, step, w))
+  0 < b < 1 ? clamp(result, nextfloat(zero(R)), prevfloat(one(R))) : result
+end
 
 ####################################
 #  reverse Huber (Berhu)

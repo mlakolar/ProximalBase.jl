@@ -36,14 +36,17 @@ entries `(r, c)` and `(c, r)` are equal, with `NaN` equal to `NaN`, compared
 before conversion to the element type of `x`. Otherwise they throw a
 `DimensionMismatch` or an `ArgumentError` before writing anything. To store one
 triangle of a matrix `A` that is not symmetric, write `Symmetric(A, :L)` or
-`Symmetric(A, :U)`. These functions compute each entry of the lower triangle
-once; `copyto!` with offsets or index ranges and the indexed `axpy!` throw an
+`Symmetric(A, :U)`. These functions write each entry of the lower triangle
+once. A broadcast whose arguments do not show that its value is symmetric is
+first evaluated at both positions of each off-diagonal entry, so a function
+with side effects runs more often and may give a value that is not symmetric.
+`copyto!` with offsets or index ranges and the indexed `axpy!` throw an
 `ArgumentError`. `fill!`, `rmul!` and `lmul!` by a number keep `x` symmetric.
 
 Other functions update the entries of `x` one position at a time and are not
 checked: `replace!`, `mul!` into `x`, indexed and view assignment such as
 `x[:, :] = A`, `copyto!` from an iterator, `transpose!`, `permutedims!`,
-`triu!`, `tril!`, and scaling by a `Diagonal`. They can update an off-diagonal
+`reverse!`, `triu!`, `tril!`, and scaling by a `Diagonal`. They can update an off-diagonal
 entry twice or store one of two different values. Functions that build a result
 that is not symmetric in `similar(x)`, such as `cumsum` or `circshift`, need
 `Matrix(x)`. `triu`, `tril` and `sparse` return a `SparseMatrixCSC`.
@@ -965,10 +968,11 @@ end
 Base.copyto!(x::SymmetricSparseIterate, y::AbstractArray) = _throw_axes(x, y)
 
 # A partial copy would write one position of an off-diagonal entry and not the
-# other. The 3- and 4-argument copyto! forward to the 5-argument one.
+# other, or update it twice. The 3- and 4-argument copyto! forward to the
+# 5-argument one.
 @noinline _throw_partial(f) = throw(ArgumentError(
-  "$f cannot write part of a SymmetricSparseIterate, which would set one position of " *
-  "an off-diagonal entry and not the other; copy a symmetric matrix with copyto!(x, A)"))
+  "$f cannot write part of a SymmetricSparseIterate, whose positions (r, c) and (c, r) " *
+  "are one entry; write a symmetric matrix with copyto!(x, A) or axpy!(α, A, x)"))
 Base.copyto!(x::SymmetricSparseIterate, ::Integer, ::AbstractArray, ::Integer, ::Integer) =
   _throw_partial("copyto! with offsets")
 Base.copyto!(x::SymmetricSparseIterate, ::CartesianIndices, ::AbstractArray, ::CartesianIndices) =

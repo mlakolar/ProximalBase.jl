@@ -57,6 +57,19 @@ usedfull(f) = any(s -> hasproperty(f, s) && getproperty(f, s) !== nothing, FULL)
   @test_throws ArgumentError PB.QRWorkspace(Float64, 3, 4)
 end
 
+@testset "partial SVD into a symmetric iterate" begin
+  # U Σ Vᵀ of a symmetric matrix is symmetric only up to rounding: the iterate
+  # keeps its lower triangle
+  S = symlowrank(80, 3)
+  for f in (() -> NuclearNorm(1.0; partial = true), () -> IndBallRank(3; partial = true))
+    Y = prox!(zeros(80, 80), f(), S, 1.0)
+    g = f()
+    Z = prox!(SymmetricSparseIterate(80), g, S, 1.0)
+    @test !usedfull(g)
+    @test Matrix(Z) == Matrix(Symmetric(Y, :L))
+  end
+end
+
 @testset "the random block" begin
   ws1, ws2 = PB.PartialSVDWorkspace(Float64, 40, 30, 12), PB.PartialSVDWorkspace(Float64, 40, 30, 12)
   A, B = zeros(40, 12), zeros(40, 12)

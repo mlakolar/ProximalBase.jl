@@ -219,7 +219,7 @@ end
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::SqrNormL2, y::AbstractArray, x::AbstractArray)
   _checksize(y, x)
   _checkparams(f, x)
-  f.y === nothing || _checksize(f.y, x)
+  f.y === nothing || (_checksize(f.y, x); _check_symmetric_source(y, f.y))
   true
 end
 

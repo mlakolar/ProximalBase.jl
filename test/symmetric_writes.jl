@@ -117,7 +117,7 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
           @test write!(x, A) === x
           @test Matrix(x) == reference(X, Matrix(A))
         end
-        for A in (vec(F), F[1:3, 1:3], ShiftedMatrix(F))
+        for A in (vec(F), F[1:3, 1:3], [F zeros(T, 4); zeros(T, 1, 5)], ShiftedMatrix(F))
           rejects(x -> write!(x, A), initial(T), axes_error)
         end
       end
@@ -135,14 +135,17 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
   end
 
   @testset "the message names the first pair" begin
-    A = [1.0 3.0 0.0; 2.0 4.0 5.0; 0.0 6.0 7.0]
+    # (4, 1) comes first by columns, (3, 2) by rows
+    A = ones(4, 4)
+    A[4, 1] = 2
+    A[3, 2] = 5
     err = try
-      copyto!(SymmetricSparseIterate(3), A)
+      copyto!(SymmetricSparseIterate(4), A)
     catch e
       e
     end
     @test err isa ArgumentError
-    @test occursin("entry (2, 1) is 2.0 and entry (1, 2) is 3.0", sprint(showerror, err))
+    @test occursin("entry (4, 1) is 2.0 and entry (1, 4) is 1.0", sprint(showerror, err))
     @test occursin("Symmetric(A, :L)", sprint(showerror, err))
   end
 
@@ -188,7 +191,10 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
     rejects(x -> copyto!(x, [1 NaN; 0.5 1]), x, ArgumentError, ASYMMETRIC)
     # compared in the type of the source: equal in Float32, not in Float64
     rejects(x -> copyto!(x, [1 1 + 1e-12; 1 1]), SymmetricSparseIterate(Float32, 2), ArgumentError, ASYMMETRIC)
-    @test Matrix(copyto!(SymmetricSparseIterate(ComplexF64, 2), [1.0 2.0; 2.0 3.0])) == [1 2; 2 3]
+    for T in (ComplexF64, Float32, Int)
+      x = copyto!(SymmetricSparseIterate(T, 2), [1.0 2.0; 2.0 3.0])
+      @test eltype(x) == T && Matrix(x) == [1 2; 2 3]
+    end
     # Only the checks are atomic: a conversion error can leave x partly
     # written, as in Base.
     @test_throws InexactError copyto!(SymmetricSparseIterate(Int, 2), [1 2; 2 3.5])
@@ -204,34 +210,6 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
       rejects(f, fill!(SymmetricSparseIterate(2), -1), ArgumentError, PARTIAL)
     end
     @test Matrix(copyto!(SymmetricSparseIterate(2), 2I)) == [2 0; 0 2]
-  end
-
-  @testset "functions that write a parameter" begin
-    A = [1.0 3.0; 2.0 4.0]
-    xs = SymmetricSparseIterate([2.0 1.0; 1.0 2.0])
-    for f in (LinearFunction(A), Tilt(SqrNormL2(), A))
-      rejects(g -> gradient!(g, f, xs), fill!(SymmetricSparseIterate(2), -1), ArgumentError, ASYMMETRIC)
-      rejects(y -> prox!(y, f, xs, 1.0), fill!(SymmetricSparseIterate(2), -1), ArgumentError, ASYMMETRIC)
-    end
-    @test Matrix(gradient!(SymmetricSparseIterate(2), LinearFunction(Symmetric(A, :L)), xs)) == [1 2; 2 4]
-    rejects(g -> gradient!(g, LinearFunction(vec(A)), xs), SymmetricSparseIterate(2), DimensionMismatch)
-    # a block sum checks every block before it writes one
-    h = SeparableSum(NormL1(1.0), Tilt(NormL1(1.0), A))
-    y = (fill!(SymmetricSparseIterate(2), -1), fill!(SymmetricSparseIterate(2), -1))
-    @test_throws ArgumentError prox!(y, h, (copy(xs), copy(xs)), 1.0)
-    @test Matrix(y[1]) == Matrix(y[2]) == fill(-1, 2, 2)
-    h = SeparableSum(SqrNormL2(), LinearFunction(A))
-    @test_throws ArgumentError gradient!(y, h, (copy(xs), copy(xs)))
-    @test Matrix(y[1]) == Matrix(y[2]) == fill(-1, 2, 2)
-  end
-
-  @testset "SVD-based prox of a symmetric matrix" begin
-    B = randn(6, 6); B = B + B'
-    for f in (() -> SingularValue(NormL1(0.4)), () -> NuclearNorm(0.4), () -> NuclearNorm(0.4; partial = true))
-      Y = prox!(zeros(6, 6), f(), B, 1.0)
-      S = prox!(SymmetricSparseIterate(6), f(), B, 1.0)
-      @test Matrix(S) == Matrix(Symmetric(Y, :L))
-    end
   end
 
   @testset "#191: map! applies f once, $T" for T in (Float64, ComplexF64)

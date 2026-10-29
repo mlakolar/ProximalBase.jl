@@ -53,9 +53,11 @@ into ``x``, `map!`, `axpy!` and `axpby!` take a value with the axes of ``x``
 whose entries ``(r, c)`` and ``(c, r)`` are equal, with `NaN` equal to `NaN`,
 and they throw before writing anything otherwise. `Symmetric(A, :L)` stores
 the lower triangle of a matrix ``A`` that is not symmetric, and
-`Symmetric(A, :U)` its upper triangle. These functions compute each entry of
-the lower triangle once; sources that are symmetric by their type, such as
-another `SymmetricSparseIterate`, a `Symmetric` or a `Diagonal`, skip the check.
+`Symmetric(A, :U)` its upper triangle. These functions write each entry of
+the lower triangle once. Sources that are symmetric by their type, such as
+another `SymmetricSparseIterate`, a `Symmetric` or a `Diagonal`, skip the
+check; a broadcast whose arguments do not show that its value is symmetric is
+first evaluated at both positions of each off-diagonal entry.
 Functions that update entries one position at a time, such as `replace!`,
 `mul!` into ``x`` or `x[:, :] = A`, are not checked; the docstring lists them.
 

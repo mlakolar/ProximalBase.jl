@@ -207,7 +207,7 @@ gradient!(g, t::Translate, x::AbstractArray) =
   (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, _shifted(t, x)))
 
 _checkwrite(op::O, t::Translate, g, x::AbstractArray) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
-  _checkwrite(op, t.f, g, _checkshifted(t, x))
+  (_check_symmetric_source(g, t.b); _checkwrite(op, t.f, g, _checkshifted(t, x)))
 
 function _checkshifted(t::Translate, x::AbstractArray)
   size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
@@ -220,6 +220,7 @@ function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) wh
   _checksize(y, x)
   _checksize(t.b, x)
   _checkparams(t, x)
+  _check_symmetric_source(y, t.b)
   _checkwrite(op, t.f, y, y)
 end
 

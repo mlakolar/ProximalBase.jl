@@ -56,14 +56,15 @@ assumes every exported constructor name is a concrete type.
 ## Writes into a `SymmetricSparseIterate` (0.6)
 
 A [`SymmetricSparseIterate`](@ref) now accepts only symmetric values. Before
-0.6, the constructor, `copyto!`, broadcasting into it, `map!`, `axpy!` and
-`axpby!` kept the lower triangle of a matrix that was not symmetric, and some
-of them reshaped a vector of `p²` entries or copied a prefix of a shorter
-source. They now throw an `ArgumentError` for a value whose entries `(r, c)`
+0.6, the constructor, `copyto!`, broadcasting into it, `axpy!` and `axpby!` kept
+the lower triangle of a matrix that was not symmetric, and `axpy!` and `axpby!`
+reshaped a vector of `p²` entries. `map!`, and `copyto!` from a vector, wrote
+entry by entry, so the upper position won and a shorter source filled a prefix. They now throw an `ArgumentError` for a value whose entries `(r, c)`
 and `(c, r)` differ, and a `DimensionMismatch` for a source without the axes of
 the destination, before writing anything. `copyto!` with offsets or index
 ranges and the indexed `axpy!` throw an `ArgumentError`. `LinearFunction` and
-`Tilt` check their parameter the same way when they write into a
+`Tilt` check their parameter, and `SqrNormL2`, `Translate` and `Precompose`
+with an array their center, shift or scale, the same way when they write into a
 `SymmetricSparseIterate`.
 
 | Before 0.6 | Now |

@@ -77,8 +77,9 @@ The nuclear norm `f(X) = λ ‖X‖_*`, the sum of the singular values of `X`. I
 proximal operator soft-thresholds the singular values, and
 [`value_and_prox!`](@ref) returns the value from the thresholded singular values
 without a second decomposition.
-When an intermediate sum overflows although the weighted value is representable,
-the value is computed in scaled units. The domain is the finite matrices: the
+When an intermediate sum overflows, or a weight is not representable in the
+argument's precision although the weighted value is representable, the value
+is computed in scaled units. The domain is the finite matrices: the
 value is `Inf` at a matrix with a non-finite entry, also for `λ = 0`.
 
 $_PARTIAL_NOTE The value `f(X)` alone needs every singular value and always
@@ -111,21 +112,38 @@ function (f::NuclearNorm)(X::AbstractMatrix)
   f.ws = ws
   copyto!(ws.A, X)
   s, = _svd!(ws; vectors = false)
+  _level_fits(T, f.λ) || return convert(T, _scaled_nuclear_value!(ws, X, float(f.λ)))
   v = convert(T, f.λ) * sum(s)
   isfinite(v) || !isfinite(f.λ) || !all(isfinite, X) ? v : _scaled_nuclear_value!(ws, X, convert(T, f.λ))
 end
 
 # the exponent from the workspace's copy, which also serves inputs on devices
-@noinline function _scaled_nuclear_value!(ws::SVDWorkspace{T}, X::AbstractMatrix, λ::T) where {T}
+@noinline function _scaled_nuclear_value!(ws::SVDWorkspace{T}, X::AbstractMatrix, λ::Real) where {T}
   copyto!(ws.A, X)
   k = _magnitude_exponent(_maximum_abs(ws.A))
   _scaled_spectral_input!(ws.A, X)
   s, = _svd!(ws; vectors = false)
-  _scaled_product(λ, sum(s), k)
+  R = promote_type(T, float(typeof(λ)))
+  _scaled_product(convert(R, λ), (R === T ? sum(s) : sum(R, s)), k)
 end
 
 @inline function _spectral_prox_value(v, λ::T, s::AbstractVector{T}, c::T) where {T}
   isfinite(v) || !isfinite(λ) || !isfinite(c) || !all(isfinite, s) ? v : _scaled_spectral_prox_value(λ, s, c)
+end
+
+# A spectral sum in the level's precision before conversion to the output.
+@inline function _spectral_level_value(λ, v::T, s, c::T) where {T}
+  _level_fits(T, λ) && return _spectral_prox_value(convert(T, λ) * v, convert(T, λ), s, c)
+  _converted_spectral_prox_value(λ, s, c)
+end
+
+@noinline function _converted_spectral_prox_value(λ, s, c::T) where {T}
+  R = promote_type(T, float(typeof(λ)))
+  k = _magnitude_exponent(_maximum_abs(s))
+  scale = _power_factors(R, -k)
+  threshold = _scale_value(convert(R, c), scale)
+  n = _scaled_value_sum(s, scale, t -> max(t - threshold, zero(R)))
+  convert(T, _scaled_product(convert(R, λ), n, k))
 end
 
 @noinline function _scaled_spectral_prox_value(λ::T, s::AbstractVector{T}, c::T) where {T}
@@ -143,7 +161,7 @@ function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, �
     Y === X || copyto!(Y, X)
     return zero(T)
   end
-  c = convert(T, γ) * convert(T, f.λ)
+  c = _level_product(T, γ, f.λ)
   if f.partial
     pv = _partial_nuclear!(Y, f, X, c)
     pv === nothing || return pv
@@ -165,7 +183,7 @@ function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, �
   end
   f.partial && _warm_start_svd!(f, U, k)
   _mul_lowrank!(Y, U, Vt, k, ws)
-  _spectral_prox_value(convert(T, f.λ) * v, convert(T, f.λ), s, c)
+  _spectral_level_value(f.λ, v, s, c)
 end
 prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, f, X, γ); Y)
 
@@ -466,8 +484,9 @@ The function `f(X) = λ tr(X)` on the positive semidefinite matrices, `Inf`
 elsewhere: the nuclear norm restricted to them, as in the low-rank part of
 latent-variable graphical models. Its proximal operator shifts the eigenvalues
 of a symmetric matrix down by `γλ` and sets the negative ones to zero.
-When an intermediate sum overflows although the weighted value is representable,
-the value is computed in scaled units.
+When an intermediate sum overflows, or a weight is not representable in the
+argument's precision although the weighted value is representable, the value
+is computed in scaled units.
 
 Membership in the positive semidefinite cone is reliable for every finite input
 within the floating-point tolerance; non-finite entries are not members.
@@ -510,27 +529,29 @@ end
 function (f::TracePSD)(X::AbstractMatrix)
   T = float(eltype(X))
   _ispsd!(f, X, nothing) || return T(Inf)
+  _level_fits(T, f.λ) || return _scaled_trace_value(f, X)
   v = convert(T, f.λ) * _trace!(f, X)
   isfinite(v) || !isfinite(f.λ) ? v : _scaled_trace_value(f, X)
 end
 
 @noinline function _scaled_trace_value(f::TracePSD, X::AbstractMatrix)
   T = float(eltype(X))
+  R = _level_fits(T, f.λ) ? T : promote_type(T, float(typeof(f.λ)))
   k = _magnitude_exponent(_maximum_abs(X))
-  scale = _power_factors(T, -k)
-  v = e = zero(T)
+  scale = _power_factors(R, -k)
+  v = e = zero(R)
   @inbounds for i in axes(X, 1)
     v, e = _compensated_add(v, e, _scale_value(X[i, i], scale))
   end
-  _scaled_product(convert(T, f.λ), v + e, k)
+  convert(T, _scaled_product(convert(R, f.λ), v + e, k))
 end
 
 function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
-  c = convert(T, γ) * convert(T, f.λ)
+  c = _level_product(T, γ, f.λ)
   if f.partial
-    pv = _partial_psd!(Y, f, X, c, 0, convert(T, f.λ))
+    pv = _partial_psd!(Y, f, X, c, 0, f.λ)
     pv === nothing || return pv
   end
   ws = _eig_workspace(f.eig, T, checksquare(X))
@@ -544,7 +565,7 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
   n = size(V, 1)
   _rebuild_sym_out!(Y, V, λ, t -> max(t - c, zero(t)), _blas_ready(Y) ? Y : _array_buffer!(f.out, T, (n, n)))
   f.partial && _warm_start_eigen!(f, V, count(>(c), λ))
-  _spectral_prox_value(convert(T, f.λ) * s, convert(T, f.λ), λ, c)
+  _spectral_level_value(f.λ, s, λ, c)
 end
 prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real) =
   (_checkwrite(prox!, f, Y, X); value_and_prox!(Y, f, X, γ); Y)

@@ -187,6 +187,9 @@ function _partial_svd_workspace(cache, ::Type{T}, m::Integer, n::Integer, need::
   ws
 end
 
+# Reject non-finite derived data only when the original input is finite.
+_partial_overflow(B, X) = !_finite_value(_maximum_abs(B)) && _finite_value(_maximum_abs(X))
+
 # The leading singular triplets of X: the r largest when r > 0, otherwise all
 # the singular values above τ (by more than the tolerance δ). Returns the number k of triplets kept, with the
 # values in ws.s[1:k] and the vectors in the first k columns of ws.U and ws.V;
@@ -204,15 +207,19 @@ function _partial_svd!(ws::PartialSVDWorkspace{T}, X::StridedMatrix{T}, τ::T, r
   w = min(ws.warm, ℓ - _PARTIAL_FRESH)
   _copycols!(Q, 1:w, Y, 1:w)
   _randomize!(Q, w+1:ℓ, ws)
+  _partial_overflow(Q, X) && return -1
   _thin_qr!(Q, ws.qrm)
   tol = _partial_rtol(T, max(ws.m, ws.n))
   minit = w == 0 ? 3 : 1             # a random block takes two power steps before it can be accepted
   for it in 1:_PARTIAL_MAXITER
     mul!(W, X', Q)
+    _partial_overflow(W, X) && return -1
     _thin_qr!(W, ws.qrn, ws.small.A)
+    _partial_overflow(ws.small.A, X) && return -1
     sR, UR, VRt = _svd!(ws.small)
     mul!(U, Q, transpose(VRt))
     mul!(V, W, UR)
+    _partial_overflow(sR, X) && return -1
     copyto!(s, sR)
     mul!(Y, X, V)
     δ = tol * s[1]                     # values within δ of τ weigh at most δ: not kept
@@ -228,6 +235,7 @@ function _partial_svd!(ws::PartialSVDWorkspace{T}, X::StridedMatrix{T}, τ::T, r
       return k
     end
     copyto!(Q, Y)                                          # one more power step
+    _partial_overflow(Q, X) && return -1
     _thin_qr!(Q, ws.qrm)
   end
   ws.warm = ℓ
@@ -367,6 +375,7 @@ function _partial_eigen!(ws::PartialEigenWorkspace{T}, A::StridedMatrix{T}, τ::
   w = min(ws.warm, ℓ - _PARTIAL_FRESH)
   _copycols!(V, ℓ-w+1:ℓ, Z, ℓ-w+1:ℓ)
   _randomize!(V, 1:ℓ-w, ws)
+  _partial_overflow(V, A) && return -1
   _thin_qr!(V, ws.qr)
   tol = _partial_rtol(T, ws.n)
   minit = w == 0 ? 5 : 1             # a random block takes four power steps before it can be accepted
@@ -374,7 +383,9 @@ function _partial_eigen!(ws::PartialEigenWorkspace{T}, A::StridedMatrix{T}, τ::
   for it in 1:2_PARTIAL_MAXITER
     BLAS.symm!('L', 'U', one(T), A, V, zero(T), Z)
     mul!(ws.small.A, transpose(V), Z)
+    _partial_overflow(ws.small.A, A) && return -1
     θR, WR = _eigen!(ws.small)
+    _partial_overflow(θR, A) && return -1
     copyto!(θ, θR)
     mul!(U, V, WR)
     mul!(AU, Z, WR)
@@ -400,6 +411,7 @@ function _partial_eigen!(ws::PartialEigenWorkspace{T}, A::StridedMatrix{T}, τ::
       return k
     end
     copyto!(V, Z)
+    _partial_overflow(V, A) && return -1
     _thin_qr!(V, ws.qr)
   end
   ws.warm = ℓ

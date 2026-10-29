@@ -67,7 +67,7 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectra
   n = checksquare(X)
   T = float(eltype(Y))
   ws = s.eig
-  _checkworkspace(_eig_workspace, ws, T, n)
+  _checkblas(s, T)
   λ = T <: _BlasReal && ws isa SymEigenWorkspace{T} && ws.n == n ? ws.w : Vector{T}(undef, n)
   z = _checkbuffer(s.z, T, (n,))
   _checkwrite(value_and_prox!, s.f, z, λ)
@@ -77,6 +77,7 @@ end
 # symmetry test and any decomposition.
 function (s::Spectral)(X::AbstractMatrix)
   T = float(eltype(X))
+  _checkblas(s, T)
   n = checksquare(X)
   all(isfinite, X) || return T(Inf)
   _issymmetric_tol(X) || return T(Inf)

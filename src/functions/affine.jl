@@ -85,8 +85,8 @@ _argument_type(::Type{<:IndAffine}) = AbstractVector
 _isindicator(::Type{<:IndAffine}) = true
 isconvex(::Type{<:IndAffine}) = true
 
-_checkaffine(f::IndAffine, x::AbstractArray) = length(x) == size(f.A, 2) ||
-  throw(DimensionMismatch("x has length $(length(x)) and A has $(size(f.A, 2)) columns"))
+_checkaffine(f::IndAffine, x::AbstractArray) = (length(x) == size(f.A, 2) ||
+  throw(DimensionMismatch("x has length $(length(x)) and A has $(size(f.A, 2)) columns")); _checkreal(f, x))
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndAffine{T, M, <:Cholesky}, y::AbstractVector, x::AbstractVector) where {T<:AbstractFloat, M} =
   (_checksize(y, x); _checkaffine(f, x); true)

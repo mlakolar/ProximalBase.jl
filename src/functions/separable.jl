@@ -73,7 +73,7 @@ _has_ordinary_value(::Type) = false
 end
 
 function _value_dense(f, x::AbstractArray)
-  T = float(eltype(x))
+  T = _valtype(x)
   _has_ordinary_value(typeof(f)) || return _sum_entries(value_entry, f, x, T)
   s = _sum_entries(_value_entry_ordinary, f, x, T)
   isnan(s) ? _sum_entries(value_entry, f, x, T) : s
@@ -84,7 +84,7 @@ _value_sep(f, x::AbstractArray) = (_checkparams(f, x); _value_dense(f, x))
 function _value_sep(f, x::SparseIterate)
   _checkparams(f, x)
   iszeropreserving(f) || return _value_dense(f, x)
-  T = float(eltype(x))
+  T = _valtype(x)
   s = zero(T)
   @inbounds for k in 1:x.nnz
     s += convert(T, value_entry(f, x.nzval[k], x.nzval2ind[k]))
@@ -96,7 +96,7 @@ end
 function _value_sep(f, x::SymmetricSparseIterate)
   _checkparams(f, x)
   iszeropreserving(f) || return _value_dense(f, x)
-  T = float(eltype(x))
+  T = _valtype(x)
   p = x.p
   s = zero(T)
   @inbounds for k in 1:x.nnz
@@ -111,7 +111,7 @@ end
 function _value_sep(f, x::AtomIterate)
   _checkparams(f, x)
   iszeropreserving(f) || return _value_dense(f, x)
-  T = float(eltype(x))
+  T = _valtype(x)
   s = zero(T)
   @inbounds for a in 1:x.nactive, i in x.groups[x.active[a]]
     s += convert(T, value_entry(f, x.storage[i], i))
@@ -186,7 +186,7 @@ end
 # several times faster than one that stores and sums, which does not vectorize;
 # an indicator function is 0 at its projection
 _value_and_prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Union{Real, AbstractArray}) =
-  _isindicator(f) ? (_prox_sep!(y, f, x, γ); zero(float(eltype(y)))) : _value_sep(f, _prox_sep!(y, f, x, γ))
+  _isindicator(f) ? (_prox_sep!(y, f, x, γ); zero(_valtype(y))) : _value_sep(f, _prox_sep!(y, f, x, γ))
 
 _restrict_entries(w::Union{Nothing, Real}, ::AbstractVector{<:Integer}) = w
 _restrict_entries(w::AbstractArray, S::AbstractVector{<:Integer}) = w[S]

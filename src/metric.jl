@@ -19,7 +19,7 @@ function prox!(y::AbstractArray, ::ZeroFunction, x::AbstractArray, γ::AbstractA
   y === x ? y : copyto!(y, x)
 end
 value_and_prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::AbstractArray) =
-  (prox!(y, f, x, γ); zero(float(eltype(y))))
+  (prox!(y, f, x, γ); zero(_valtype(y)))
 
 # separable functions: the step of each entry; on a SymmetricSparseIterate the
 # steps are a p × p array read at the lower triangle, so give a symmetric one.
@@ -40,7 +40,7 @@ function value_and_prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray
   isseparable(h) || throw(ArgumentError("array steps for an array scale require a separable function"))
   _checkwrite(value_and_prox!, h, y, x)
   _checkparam(γ, x)
-  _value_and_prox_array!(y, h, x, γ, true)
+  _value_at(_value_and_prox_array!(y, h, x, γ, true), y)
 end
 
 # group penalties: a step per group, constant on the group, keeps the closed form
@@ -60,7 +60,7 @@ Base.@propagate_inbounds Base.getindex(a::_ReciprocalArray{T}, i::Int) where {T}
 # functions built from functions pass the steps on, entry by entry
 prox!(y, s::Scaled, x, γ::AbstractArray) = (_checkparams(s, x); prox!(y, s.f, x, _ScaledArray(γ, s.α)))
 value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
-  (_checkparams(s, x); s.α * value_and_prox!(y, s.f, x, _ScaledArray(γ, s.α)))
+  (_checkparams(s, x); _value_at(s.α * value_and_prox!(y, s.f, x, _ScaledArray(γ, s.α)), y))
 
 function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, t, y, x)
@@ -78,7 +78,7 @@ function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Abstra
   _check_symmetric_source(y, γ)
   z = _output_buffer!(t.scratch, y)
   z .= x .- γ .* t.c
-  value_and_prox!(y, t.f, z, γ) + dot(t.c, y) + t.d
+  _value_at(value_and_prox!(y, t.f, z, γ) + dot(t.c, y) + t.d, y)
 end
 
 function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
@@ -94,7 +94,7 @@ function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::A
   z .= x .- t.b
   v = value_and_prox!(y, t.f, z, γ)
   y .+= t.b
-  v
+  _value_at(v, y)
 end
 
 # Moreau's identity in each entry: prox_{γᵢfᵢ*}(xᵢ) = xᵢ - γᵢ prox_{fᵢ/γᵢ}(xᵢ/γᵢ)
@@ -137,7 +137,7 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::A
   _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
-    return _conjugate_value(c.f, y)
+    return _value_at(_conjugate_value(c.f, y), y)
   end
   _checksize(y, x)
   _checkparam(γ, x)
@@ -147,7 +147,7 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::A
   fp = value_and_prox!(p, c.f, p, _ReciprocalArray(γ))
   _checkmoreau(y, x, p, γ, γ, true)
   y .= x .- γ .* p
-  dot(p, y) - fp
+  _value_at(dot(p, y) - fp, y)
 end
 
 ####################################
@@ -259,7 +259,7 @@ function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, γ::AbstractArr
 end
 
 value_and_prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndHyperslab, IndSimplex, IndBallL1, IndIsotonic}, x::AbstractArray, γ::AbstractArray) =
-  (prox!(y, f, x, γ); zero(float(eltype(y))))
+  (prox!(y, f, x, γ); zero(_valtype(y)))
 
 # The level ν with Σᵢ max(uᵢ - γᵢν, 0) = r for uᵢ = h(xᵢ), by Newton's method
 # from the left on this convex, decreasing, piecewise linear function. From

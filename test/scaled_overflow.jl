@@ -79,8 +79,13 @@ PB.issmooth(::Type{Probe}) = true
           y = similar(z)
           # Keep the proximal threshold below the tiny input.
           γ = nextfloat(zero(T))
+          inner = value_and_prox!(similar(z), f, z, s.α * γ)
           v = value_and_prox!(y, s, z, γ)
-          check_value(v, big(huge) * big(tiny) * sum(abs, big.(y)), T)
+          if iszero(inner)
+            @test samebits(v, s.α * inner)
+          else
+            check_value(v, big(huge) * big(tiny) * sum(abs, big.(y)), T)
+          end
         end
         a = T === Float64 ? T(1e200) : T(1e25)
         b = T === Float64 ? T(1e-100) : T(1e-12)
@@ -159,6 +164,21 @@ PB.issmooth(::Type{Probe}) = true
       @test isequal(value_and_gradient!(g, s, x), α * v)
       @test g == [α]
     end
+  end
+  @testset "proximal shortcuts and BigFloat values" begin
+    for partial in (false, true), X in (Float16[1 2; 3 4], zeros(Float16, 0, 0))
+      s = Scaled(NuclearNorm(0.0; partial), 2.0)
+      Y = similar(X)
+      @test value_and_prox!(Y, s, X, 1.0) === Float16(0)
+      @test Y == X
+    end
+    X = BigFloat[1, -2, 3]
+    s = Scaled(NormL1(0.3), 2.0)
+    @test s(X) == s.α * s.f(X)
+    Y, expected = similar(X), similar(X)
+    ordinary = s.α * value_and_prox!(expected, s.f, X, s.α * 0.1)
+    @test value_and_prox!(Y, s, X, 0.1) == ordinary
+    @test Y == expected
   end
   @testset "spectral workspace sharing" begin
     for f in (NuclearNorm(1.0; partial = true), TracePSD(1.0; partial = true))

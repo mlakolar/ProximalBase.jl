@@ -78,7 +78,7 @@ _isindicator(::Type{<:IndIntersection}) = true
 isconvex(::Type{IndIntersection{S}}) where {S} = all(isconvex, fieldtypes(S))
 
 # 0 when x is in every set, within the tolerance of each
-(f::IndIntersection)(x::AbstractArray) = _ind(_in_every_set(f.sets, x), float(eltype(x)))
+(f::IndIntersection)(x::AbstractArray) = _ind(_in_every_set(f.sets, x), _valtype(x))
 _in_every_set(::Tuple{}, x) = true
 _in_every_set(sets::Tuple, x) = iszero(first(sets)(x)) && _in_every_set(Base.tail(sets), x)
 

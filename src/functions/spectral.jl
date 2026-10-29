@@ -13,7 +13,8 @@
 const _SPECTRAL_NOTE = """
 The function caches a LAPACK workspace for the size and element type
 (`Float32` or `Float64`) of its input, so that repeated calls allocate nothing;
-do not share one function object between threads."""
+do not share one function object between threads. Other element types, such as
+`Float16` or `BigFloat`, raise an `ArgumentError`."""
 
 const _PARTIAL_NOTE = """
 With `partial = true` the proximal operator computes only the leading singular
@@ -177,14 +178,13 @@ _argument_type(::Type{<:NuclearNorm}) = AbstractMatrix
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NuclearNorm, Y::AbstractMatrix, X::AbstractMatrix)
   _checksize(Y, X)
   iszero(f.λ) && return true
-  T = float(eltype(Y))
-  f.partial && return _checkpartial_svd_workspace(T, size(X)..., 0)
-  _checkworkspace(_svd_workspace, f.ws, T, size(X)...)
+  _checkblas(f, float(eltype(Y)))
 end
 isconvex(::Type{<:NuclearNorm}) = true
 
 function (f::NuclearNorm)(X::AbstractMatrix)
   T = float(eltype(X))
+  _checkblas(f, T)
   all(isfinite, X) || return T(Inf)              # the domain is the finite matrices
   iszero(f.λ) && return zero(T)
   ws = _svd_workspace(f.ws, T, size(X)...)
@@ -307,14 +307,13 @@ _argument_type(::Type{<:IndBallRank}) = AbstractMatrix
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndBallRank, Y::AbstractMatrix, X::AbstractMatrix)
   _checksize(Y, X)
   minimum(size(X)) <= f.r && return true
-  T = float(eltype(Y))
-  f.partial && return _checkpartial_svd_workspace(T, size(X)..., f.r)
-  _checkworkspace(_svd_workspace, f.ws, T, size(X)...)
+  _checkblas(f, float(eltype(Y)))
 end
 _isindicator(::Type{IndBallRank}) = true
 
 function (f::IndBallRank)(X::AbstractMatrix)
   T = float(eltype(X))
+  _checkblas(f, T)
   all(isfinite, X) || return T(Inf)
   minimum(size(X)) <= f.r && return zero(T)
   ws = _svd_workspace(f.ws, T, size(X)...)
@@ -505,19 +504,15 @@ isconvex(::Type{IndPSD{Nothing}}) = true
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndPSD, Y::AbstractMatrix, X::AbstractMatrix)
   _checksize(Y, X)
-  n = checksquare(X)
-  T = float(eltype(Y))
-  if f.rank === nothing || f.rank < n
-    f.partial && return _checkpartial_eigen_workspace(T, n, f.rank === nothing ? 0 : f.rank)
-    f.rank === nothing || return _checkworkspace(_eigtop_workspace, f.top, T, n, f.rank)
-  end
-  _checkworkspace(_eig_workspace, f.eig, T, n)
+  checksquare(X)
+  _checkblas(f, float(eltype(Y)))
 end
 
 # whether X is symmetric positive semidefinite, and of rank at most r unless r is
 # nothing, within the tolerance of the indicator functions; f caches the workspace
 function _ispsd!(f, X::AbstractMatrix, r::Union{Nothing, Int})
   T = float(eltype(X))
+  _checkblas(f, T)
   n = checksquare(X)
   _issymmetric_tol(X) || return false
   ws = _eig_workspace(f.eig, T, n)
@@ -634,10 +629,8 @@ isconvex(::Type{<:TracePSD}) = true
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::TracePSD, Y::AbstractMatrix, X::AbstractMatrix)
   _checksize(Y, X)
-  n = checksquare(X)
-  T = float(eltype(Y))
-  f.partial && return _checkpartial_eigen_workspace(T, n, 0)
-  _checkworkspace(_eig_workspace, f.eig, T, n)
+  checksquare(X)
+  _checkblas(f, float(eltype(Y)))
 end
 
 _trace!(::TracePSD, X::AbstractMatrix) = tr(X)

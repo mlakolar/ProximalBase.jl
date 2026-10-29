@@ -34,7 +34,7 @@ _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL2, y::Abstra
 (f::NormL2)(x::AbstractArray) = _weighted_norm2(f.λ, x)
 
 function _weighted_norm2(λ::Real, x::AbstractArray)
-  T = float(eltype(x))
+  T = _valtype(x)
   iszero(λ) && return zero(T)
   _level_fits(T, λ) || return _converted_norm2(λ, x)
   _norm2_value(convert(T, λ) * _norm2(x), convert(T, λ), x)
@@ -42,7 +42,7 @@ end
 
 # Scale in the parameter's precision, without narrowing its level first.
 @noinline function _converted_norm2(λ, x)
-  T = float(eltype(x))
+  T = _valtype(x)
   R = promote_type(T, float(typeof(λ)))
   all(isfinite, x) || return convert(T, convert(R, λ) * _norm2(x))
   convert(T, _scaled_norm2_value(convert(R, λ), x))
@@ -63,7 +63,7 @@ function _norm2_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real, :
   T = float(eltype(y))
   if iszero(f.λ)
     y === x || copyto!(y, x)
-    return zero(T)
+    return zero(_valtype(y))
   end
   c = _level_product(T, γ, f.λ)
   nx = convert(T, _norm2(x))
@@ -292,13 +292,13 @@ _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormLinf, y::Abst
 (f::NormLinf)(x::AbstractArray) = _weighted_normlinf(f.λ, x)
 
 function _weighted_normlinf(λ::Real, x::AbstractArray)
-  T = float(eltype(x))
+  T = _valtype(x)
   _level_fits(T, λ) && return convert(T, λ) * norm(x, Inf)
   _converted_normlinf(λ, x)
 end
 
 @noinline function _converted_normlinf(λ, x)
-  T = float(eltype(x))
+  T = _valtype(x)
   R = promote_type(T, float(typeof(λ)))
   convert(T, convert(R, λ) * convert(R, norm(x, Inf)))
 end
@@ -778,9 +778,9 @@ isproximable(::Type{<:NormL1Fused}) = true
 _argument_type(::Type{<:NormL1Fused}) = Union{AbstractVector, Tuple{AbstractArray, AbstractArray}}
 isconvex(::Type{<:NormL1Fused}) = true
 
-(f::NormL1Fused)(xy::Tuple{Real, Real}) =
+(f::NormL1Fused)(xy::Tuple{Real, Real}) = _value_at(
   (iszero(f.λ1) ? zero(float(xy[1])) : f.λ1 * (abs(xy[1]) + abs(xy[2]))) +
-  (iszero(f.λ2) ? zero(float(xy[1])) : f.λ2 * abs(xy[1] - xy[2]))
+  (iszero(f.λ2) ? zero(float(xy[1])) : f.λ2 * abs(xy[1] - xy[2])), xy)
 
 function (f::NormL1Fused)(x::Tuple{AbstractArray, AbstractArray})
   x1, x2 = x

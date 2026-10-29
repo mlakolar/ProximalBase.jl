@@ -30,6 +30,41 @@ The legacy abstract-type bindings alias `AbstractFunction`; they do not
 identify smooth or proximable subsets. Query [`issmooth`](@ref) and
 [`isproximable`](@ref) instead.
 
+## Values in mixed precision
+
+Every scalar value now has the argument's precision, as stated in
+[Precision](@ref). Results with parameters, argument, output and step all in
+one precision are unchanged. Arrays are unchanged, except that
+`PointwiseMinimum` chooses its candidate by comparing the rounded values. The following return types
+change.
+
+- Values that widened with parameters of another precision now have the
+  argument's precision. `Scaled(NormL1(1f0), 2.0)(Float32[1, 2])` and
+  `SqrNormL2(1f0, Float64[0, 1])(Float32[1, 2])` return `Float32`, where they
+  returned `Float64`. This covers centred `SqrNormL2` and `Regularize`,
+  `LinearFunction`, `QuadraticFunction`, `KronQuadratic`, `Scaled`, `Tilt`,
+  `Sum`, `SeparableSum`, `Precompose`, `LinearImage`, `IndGraph`,
+  `NormL1Fused` on pairs and tuples, `PointwiseMinimum`, and the conjugates of
+  `IndBox`, `Translate`, centred `SqrNormL2` and `HingeLoss(y)`.
+- The data losses `LeastSquaresLoss`, `GLMLoss` and its specializations, and
+  `LogDetLoss` return the argument's precision instead of their data's. A loss
+  built from `Float32` data returns a `Float64` value, with `Float32`
+  accuracy, for a `Float64` argument.
+- Wrappers of data losses, such as `Scaled` and `Sum`, follow the same rule.
+- The spectral functions and sets (`Spectral`, `SingularValue`,
+  `NuclearNorm`, `IndPSD`, `IndBallRank`, `TracePSD`) raise an
+  `ArgumentError` for element types other than `Float32` and `Float64`, where
+  they raised a `MethodError`.
+- Complex arguments give real values: `NormL2(1.0)(ComplexF32[1 + 2im, 3])`
+  returns a `Float32`.
+- Functions whose value is not real for a complex argument, such as
+  `LinearFunction`, `QuadraticFunction`, `KronQuadratic`, `Tilt`, the data
+  losses, `IndAffine` and the quadratic `LinearImage`, raise
+  `ArgumentError("<Name> requires real entries")`, also from their wrappers.
+  `LinearFunction` and `Tilt` previously returned complex values, and
+  `prox!` of `LinearFunction` accepted complex input; the others failed with
+  other errors.
+
 ## Matrix products
 
 Use `dot(view(A, row, :), b)` in place of `A_mul_B_row`, and

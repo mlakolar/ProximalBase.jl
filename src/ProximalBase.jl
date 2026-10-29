@@ -64,7 +64,7 @@ export
   IndSphereL2,
   IndBallGroupL0,
   IndPattern, IndBanded, IndToeplitz,
-  IndAffine, IndPolyhedron,
+  IndAffine, IndPolyhedron, IndGraph,
 
   # functions built from functions
   Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum, Constrained, Spectral,
@@ -117,6 +117,7 @@ include("functions/nonconvex.jl")
 include("functions/matrixsets.jl")
 include("functions/affine.jl")
 include("functions/polyhedron.jl")
+include("functions/graph.jl")
 include("lla.jl")
 
 include("calculus.jl")

@@ -12,9 +12,10 @@ and an affine-constrained loss also resets the cache of its constrained solve.
 If several wrappers share the same loss, reset each wrapper after a data
 change. Values and gradients read the data directly and need no reset.
 
-An [`IndAffine`](@ref) must instead be reconstructed when its data change:
-its factorization type depends on the rank of `A`. For an affine-constrained
-loss, `reset_cache!` supports changes to the loss data with the set unchanged.
+An [`IndAffine`](@ref) or [`IndGraph`](@ref) must instead be reconstructed when
+its data change. For `IndAffine`, the factorization type depends on the rank
+of `A`. For an affine-constrained loss, `reset_cache!` supports changes to the
+loss data with the set unchanged.
 Other functions without data-dependent caches return themselves. Custom
 functions that cache derived data should implement this method.
 
@@ -48,6 +49,7 @@ function reset_cache!(c::AffineConstrained{T}) where {T}
 end
 
 reset_cache!(::IndAffine) = throw(ArgumentError("construct a new IndAffine after changing its data"))
+reset_cache!(::IndGraph) = throw(ArgumentError("construct a new IndGraph after changing its data"))
 
 function reset_cache!(f::IndPolyhedron)
   f.valid = false

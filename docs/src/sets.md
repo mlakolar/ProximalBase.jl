@@ -33,6 +33,7 @@ feasibility certificate.
 | [`IndIntersection`](@ref)`(C₁, C₂, …)` | ``C_1 \cap C_2 \cap \cdots`` | Dykstra's algorithm, iterative |
 | [`IndAffine`](@ref)`(A, b)` | ``Ax = b`` | ``v - A^\top(AA^\top)^{-1}(Av - b)``, from a factorization cached at construction |
 | [`IndPolyhedron`](@ref)`(A, l, u, xmin, xmax)` | ``l \le Ax \le u,\ x_{\min} \le x \le x_{\max}`` | a dual active-set method, with a cached working set |
+| [`IndGraph`](@ref)`(A)` | ``y = Ax``, on pairs ``(x, y)`` | factor the smaller of ``I + A^\top A`` and ``I + AA^\top`` once |
 | [`IndPSD`](@ref)`()` | ``X \succeq 0`` | ``U\max(\Lambda, 0)U^\top`` |
 | [`IndPSD`](@ref)`(rank = r)` | ``X \succeq 0``, rank at most ``r`` | the ``r`` largest positive eigenpairs |
 | [`IndBallRank`](@ref)`(r)` | rank at most ``r`` | the truncated SVD |
@@ -231,6 +232,29 @@ Numerical failure and the iteration limit (`maxiter`, default
 [`IndIntersection`](@ref), `value_and_prox!` returns zero without a feasibility
 certificate. It does not replace checking the constraints of an ill-conditioned
 problem. `Constrained(f, IndPolyhedron(...))` is not provided.
+
+## Graphs of linear maps
+
+[`IndGraph`](@ref)`(A)` projects a tuple `(c, d)` onto ``\{(x, y) : y = Ax\}``.
+For an ``m \times n`` matrix, it factors ``I + A^\top A`` when ``n \le m`` and
+``I + AA^\top`` otherwise. Dense projections allocate nothing after
+construction. Sparse matrices keep a sparse factorization, but each solve
+allocates and may compute in `Float64` before conversion to the data's floating
+type. The Gram matrix must be representable and retain positive definiteness
+after adding the identity; unsupported numerical ranges throw at construction.
+An operator with `size`, a real `eltype`, and products with itself and its
+adjoint uses conjugate gradients on the smaller system. Its `rtol` bounds the
+relative true residual of that system, and `maxiter` can stop before convergence;
+check `f.converged` and `f.iterations`. The matrix or operator is stored by
+reference and must stay unchanged. Construct a new function after changing it.
+
+Graph-form splitting writes ``\min_x \ell(Ax) + r(x)`` as
+``\min_{x,y} \ell(y) + r(x)`` subject to ``y = Ax`` (Parikh and Boyd, 2014;
+Fougner and Boyd, 2018). ADMM then uses the proximal operators of the loss and
+penalty and this graph projection. The same factorization serves squared,
+Huber, check, hinge, logistic and Poisson losses of the predictor ``X\beta``,
+different penalties, and every regularization parameter on a path.
+Row and column equilibration belongs in the solver.
 
 ## Hyperplanes, halfspaces and hyperslabs
 

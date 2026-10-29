@@ -42,6 +42,7 @@ tests = [
   "matrixsets",
   "affine",
   "polyhedron",
+  "graph",
   "calculus",
   "blockchecks",
   "constrained",

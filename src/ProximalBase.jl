@@ -47,7 +47,7 @@ export
   # penalties
   NormL1, NormL1Nonneg, ElasticNet, NormL2, CubeNormL2, NormLinf, GroupNormL2, GroupNormLinf,
   SparseGroupNormL2,
-  NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD, TotalVariation1D, FusedLasso, SLOPE,
+  NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD, TotalVariation1D, FusedLasso, SLOPE, SumLargest,
   NegEntropy, KLDivergence, NegLog, Berhu,
 
   # separable losses

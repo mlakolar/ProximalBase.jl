@@ -33,6 +33,7 @@ tests = [
   "large_inputs",
   "spectral_overflow",
   "ordered",
+  "sumlargest",
   "nonconvex",
   "lla",
   "matrixsets",

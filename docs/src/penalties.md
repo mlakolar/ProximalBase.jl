@@ -30,6 +30,7 @@ and ``\gamma`` is the step of the proximal operator.
 | [`TotalVariation1D`](@ref)`(λ)` | ``\lambda\sum_i\lvert x_{i+1} - x_i\rvert`` | Condat's direct algorithm | |
 | [`FusedLasso`](@ref)`(λ1, λ2)` | ``\lambda_1\lVert x\rVert_1 + \lambda_2\sum_i\lvert x_{i+1} - x_i\rvert`` | ``S_{\gamma\lambda_1}`` of the total-variation denoising | |
 | [`SLOPE`](@ref)`(λ)` | ``\sum_i\lambda_i\lvert x\rvert_{(i)}`` | pool adjacent violators on the sorted magnitudes | |
+| [`SumLargest`](@ref)`(k, λ)` | ``\lambda\sum_{i=1}^k x_{(i)}``, signed entries in decreasing order | ``v - P_{\{0 \le w \le \gamma\lambda,\,\sum w_i = k\gamma\lambda\}}(v)`` | |
 | [`NuclearNorm`](@ref)`(λ)` | ``\lambda\sum_i \sigma_i(X)`` | ``U\max(\Sigma - \gamma\lambda, 0)V^\top`` | |
 | [`TracePSD`](@ref)`(λ)` | ``\lambda\operatorname{tr}(X)`` on ``X \succeq 0`` | ``U\max(\Lambda - \gamma\lambda, 0)U^\top`` | |
 | [`CheckLoss`](@ref)`(τ, w)` | ``\sum_i w_i\rho_\tau(x_i)`` | see below | ✓ |
@@ -396,6 +397,27 @@ using ProximalBase
 v = [3.0, -1.0, 0.5, 2.0]
 prox(SLOPE([1.0, 0.8, 0.5, 0.2]), v, 1.0)    # magnitudes 3, 2, 1, 0.5 minus λ
 ```
+
+**The sum of the largest entries.** [`SumLargest`](@ref)`(k, λ)` sums the `k`
+largest signed entries of an array. It is convex and positively homogeneous.
+`SumLargest(1, λ)` is the scaled maximum, and `SumLargest(length(x), λ)` is
+the scaled sum. Its conjugate is the indicator of the capped simplex
+``\{w : 0 \le w_i \le \lambda,\ \sum_i w_i = k\lambda\}``. Moreau's identity
+gives its proximal operator by a projection onto the same set with cap
+``\gamma\lambda``. Selection among the breakpoints of
+``\sum_i\operatorname{clamp}(v_i-\tau,0,\gamma\lambda)=k\gamma\lambda``
+finds the threshold in O(n) expected time, in reusable buffers. Both the value
+and the proximal operator accept arrays of any shape. `k` must be a positive
+integer no larger than the number of entries, and `λ` must be finite and
+nonnegative. Proximal inputs must be finite.
+
+For losses `L`, `SumLargest(k, 1/k)(L)` is the average top-k loss (Fan, Lyu,
+Ying and Hu, 2017). When the worst fraction ``\alpha`` has integer size
+``k = \alpha n``, it is also the empirical conditional value-at-risk of the
+losses (Rockafellar and Uryasev, 2000). With linear losses such as `L = -R*w`,
+a splitting method applies this proximal operator to the loss variable.
+`Spectral(SumLargest(k, λ))` gives ``\lambda`` times the sum of the `k`
+largest eigenvalues of a symmetric matrix.
 
 ## Losses of residuals and margins
 

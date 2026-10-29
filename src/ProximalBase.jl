@@ -45,7 +45,7 @@ export
   LeastSquaresLoss, GLMLoss, LogisticLoss, PoissonLoss, HuberLoss, LogDetLoss,
 
   # penalties
-  NormL1, NormL1Nonneg, ElasticNet, NormL2, NormLinf, GroupNormL2, GroupNormLinf,
+  NormL1, NormL1Nonneg, ElasticNet, NormL2, CubeNormL2, NormLinf, GroupNormL2, GroupNormLinf,
   SparseGroupNormL2,
   NormL1Fused, NuclearNorm, TracePSD, NormL0, MCP, SCAD, TotalVariation1D, FusedLasso, SLOPE,
   NegEntropy, KLDivergence, NegLog, Berhu,
@@ -68,7 +68,7 @@ export
 
   # functions built from functions
   Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum, Constrained, Spectral,
-  MoreauEnvelope, Precompose, Regularize,
+  MoreauEnvelope, SqrDistL2, Precompose, Regularize,
 
   # functions of stacked arrays
   SliceSum, FiberSum,
@@ -126,6 +126,7 @@ include("affineconstrained.jl")
 include("constrained_nonconvex.jl")
 include("second_order.jl")
 include("envelope.jl")
+include("distance.jl")
 include("composition.jl")
 include("metric.jl")
 include("caches.jl")

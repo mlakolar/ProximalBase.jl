@@ -19,6 +19,7 @@ and ``\gamma`` is the step of the proximal operator.
 | [`LogPenalty`](@ref)`(λ, ε, w)` | ``\lambda\sum_i w_i\log(1 + \lvert x_i\rvert/\varepsilon)`` | zero or the root of a quadratic | ✓ |
 | [`NormLq`](@ref)`(λ, q, w)` | ``\lambda\sum_i w_i\lvert x_i\rvert^q``, ``0 < q < 1`` | ℓq thresholding | ✓ |
 | [`NormL2`](@ref)`(λ)` | ``\lambda\lVert x\rVert_2`` | ``\max(1 - \gamma\lambda/\lVert v\rVert_2, 0)\,v`` | |
+| [`CubeNormL2`](@ref)`(λ)` | ``\tfrac{\lambda}{3}\lVert x\rVert_2^3`` | ``2v/(1 + \sqrt{1 + 4\gamma\lambda\lVert v\rVert_2})`` | |
 | [`NormLinf`](@ref)`(λ)` | ``\lambda\lVert x\rVert_\infty`` | ``v - P_{\lVert\cdot\rVert_1 \le \gamma\lambda}(v)`` | |
 | [`GroupNormL2`](@ref)`(λ0, groups, w)` | ``\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_2`` | block soft thresholding of each group | |
 | [`SparseGroupNormL2`](@ref)`(λ1, λ2, groups, w)` | ``\lambda_1\lVert x\rVert_1 + \lambda_2\sum_k w_k\lVert x_{G_k}\rVert_2`` | soft thresholding, then block soft thresholding | |
@@ -251,6 +252,14 @@ correlated coefficients together. Its proximal operator soft-thresholds up to
 from ``0`` to ``v``. Minimizing over its length gives *block soft thresholding*,
 ``\max(1 - \gamma\lambda/\|v\|_2, 0)\,v``, which sets the whole vector to zero
 when ``\|v\|_2 \le \gamma\lambda``.
+
+**Cubed ℓ2.** [`CubeNormL2`](@ref)`(λ)` is the convex, smooth regularizer
+``(\lambda/3)\|x\|_2^3``, with gradient ``\lambda\|x\|_2 x``. For matrices
+it uses the Frobenius norm. In a cubic-regularized Newton model
+``g^\top d + d^\top H d/2 + (M/6)\|d\|_2^3``, take ``\lambda = M/2``.
+Its proximal operator supplies the backward step when the quadratic part is
+handled by a forward step. Its gradient has no global Lipschitz constant for
+``\lambda > 0``; both Lipschitz queries return ``0`` when ``\lambda = 0``.
 
 **ℓ∞.** The conjugate of ``\lambda\|\cdot\|_\infty`` is the indicator of the
 ℓ1 ball of radius ``\lambda``. So by Moreau's decomposition its proximal operator

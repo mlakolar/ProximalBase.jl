@@ -29,7 +29,32 @@ second-order oracles, so does `h`, with Hessian product `A'∇²f(Ax)Av`.
 With a scalar `a ≠ 0`, `Precompose(f, a)` is `f(ax)` on arrays of any shape
 (`μ = a²`), separable when `f` is, with coordinate curvatures scaled by `a²`;
 with [`Translate`](@ref) it gives TFOCS's
-`f(ax + b)`. The value, the gradient and the proximal operator use buffers that
+`f(ax + b)`.
+
+With a real array `a`, `Precompose(f, a)` is `f(a ⊙ x)`, scaling entry by
+entry, including when `a` and `x` are matrices. Use `Precompose(f, A, μ)` for
+a linear map. Every entry of `a` must be finite and nonzero, and `size(a)`
+must equal `size(x)`. The scale is stored without copying; construct a new
+function after changing it. For a separable `f`,
+
+    prox_{γh}(x)ᵢ = prox_entry(f, aᵢxᵢ, i, γaᵢ²) / aᵢ.
+
+Array steps are supported, with `γᵢaᵢ²` in each entry. Coordinate curvatures
+are scaled by `aᵢ²`, and the gradient is `a ⊙ ∇f(a ⊙ x)`. Entrywise values
+are available when `f` is a [`SeparableFunction`](@ref). Sparse proximal
+calls use the separable kernels; symmetric iterates need symmetric scales
+and symmetric inner parameters. A group penalty is also supported when `a`
+is constant on each group, for values, full-array proximal operators and the
+four-argument `kkt_violation`; coordinate updates and restriction of a group
+penalty are not supported. Other nonseparable functions are rejected.
+
+The array image uses the promoted floating type of `x` and `a`, and values
+have `f`'s type at that image. Effective steps are formed without first
+rounding `aᵢ²`. The scaled input, effective step and result must be
+representable in the working precision, and the inner oracle must support
+their range. The array form provides no Hessian products.
+
+The value, the gradient and the proximal operator use buffers that
 `h` owns; do not share `h` between threads.
 """
 struct Precompose{F<:AbstractFunction, M, T<:Real} <: AbstractFunction
@@ -160,6 +185,210 @@ kkt_violation(h::_ScalarPrecompose, g::AbstractArray, i::Integer) =
 restrict(h::_ScalarPrecompose, S::AbstractVector{<:Integer}) = Precompose(restrict(h.f, S), h.A)
 
 lipschitz(h::Precompose) = h.μ * lipschitz(h.f)
+
+####################################
+#  f(a ⊙ x)
+####################################
+
+struct _ArrayPrecompose{F<:AbstractFunction, A<:AbstractArray{<:Real}} <: AbstractFunction
+  f::F
+  a::A
+  image::Scratch
+  inner::Scratch
+  steps::Scratch
+end
+
+function Precompose(f::AbstractFunction, a::AbstractArray{<:Real})
+  isseparable(f) || f isa AbstractGroupPenalty ||
+    throw(ArgumentError("an array scale requires a separable function or a group penalty with a scale constant on each group"))
+  all(v -> isfinite(v) && !iszero(v), a) ||
+    throw(ArgumentError("every entry of the scale must be finite and nonzero"))
+  if f isa AbstractGroupPenalty
+    _checkgroups(f, a)
+    for G in f.groups
+      c = a[first(G)]
+      all(i -> a[i] == c, G) ||
+        throw(ArgumentError("the scale must be constant on each group"))
+    end
+  end
+  _ArrayPrecompose(f, a, Scratch(), Scratch(), Scratch())
+end
+Precompose(::AbstractFunction, ::AbstractArray) =
+  throw(ArgumentError("an array scale must have real entries"))
+
+for trait in (:issmooth, :isproximable, :isconvex, :isseparable)
+  @eval $trait(::Type{<:_ArrayPrecompose{F}}) where {F} = $trait(F)
+end
+iszeropreserving(h::_ArrayPrecompose) = iszeropreserving(h.f)
+_isindicator(::Type{<:_ArrayPrecompose{F}}) where {F} = _isindicator(F)
+hashessian(::Type{<:_ArrayPrecompose}) = false
+
+function check_parameters(h::_ArrayPrecompose, x)
+  _checksize(h.a, x)
+  _checkparams(h.f, x)
+  h.f isa AbstractGroupPenalty && _checkgroups(h.f, x)
+  nothing
+end
+
+# Direct division avoids an overflowing reciprocal for subnormal scales.
+struct _PrecomposeArray{T, N, X<:AbstractArray, A<:AbstractArray, D} <: AbstractArray{T, N}
+  x::X
+  a::A
+end
+function _PrecomposeArray(x::AbstractArray{T, N}, a::AbstractArray, ::Val{D}) where {T, N, D}
+  S = float(promote_type(T, eltype(a)))
+  _PrecomposeArray{S, N, typeof(x), typeof(a), D}(x, a)
+end
+Base.size(z::_PrecomposeArray) = size(z.x)
+Base.IndexStyle(::Type{<:_PrecomposeArray}) = IndexLinear()
+Base.@propagate_inbounds function Base.getindex(z::_PrecomposeArray{T, N, X, A, D}, i::Int) where {T, N, X, A, D}
+  x, a = convert(T, z.x[i]), convert(T, z.a[i])
+  D ? x / a : a * x
+end
+
+function _image!(h::_ArrayPrecompose, x::AbstractArray)
+  T = float(promote_type(eltype(x), eltype(h.a)))
+  z = _array_buffer!(h.image, T, size(x))
+  copyto!(z, _PrecomposeArray(x, h.a, Val(false)))
+end
+_inner_buffer(h::_ArrayPrecompose, z::AbstractArray) = _array_buffer!(h.inner, eltype(z), size(z))
+(h::_ArrayPrecompose)(x::AbstractArray) = (_checkparams(h, x); h.f(_image!(h, x)))
+
+_sparse_precompose(y, x) = (y isa SparseIterate && x isa SparseIterate) ||
+  (y isa SymmetricSparseIterate && x isa AbstractMatrix)
+
+function _checkwrite(op::O, h::_ArrayPrecompose, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+  _checksize(y, x)
+  _checkparams(h, x)
+  if (op === prox! || op === value_and_prox!) && isseparable(h) && _sparse_precompose(y, x)
+    return _checkwrite(op, h.f, y, x)
+  end
+  T = float(promote_type(eltype(x), eltype(h.a)))
+  z = _array_buffer!(h.image, T, size(x))
+  _checkwrite(op, h.f, _inner_buffer(h, z), z)
+end
+
+@inline _precompose_step(γ, a, ::Type{T}) where {T} =
+  convert(T, _positive_product(γ, abs(float(a)), abs(float(a))))
+
+function _precompose_steps!(h::_ArrayPrecompose, z, γ)
+  T = eltype(z)
+  steps = _array_buffer!(h.steps, T, size(z))
+  @inbounds for i in eachindex(IndexLinear(), steps)
+    steps[i] = _precompose_step(_entry(γ, i), h.a[i], T)
+  end
+  steps
+end
+function _precompose_steps!(h::_ArrayPrecompose{<:AbstractGroupPenalty}, z, γ::Real)
+  T = eltype(z)
+  steps = _array_buffer!(h.steps, T, (length(h.f.groups),))
+  @inbounds for k in eachindex(steps)
+    steps[k] = _precompose_step(γ, h.a[first(h.f.groups[k])], T)
+  end
+  steps
+end
+
+function _value_and_prox_array!(y, h::_ArrayPrecompose, x, γ, withvalue::Bool)
+  if isseparable(h) && _sparse_precompose(y, x)
+    _prox_sep!(y, h, x, γ)
+    T = float(promote_type(eltype(x), eltype(h.a)))
+    return withvalue ? (_isindicator(h) ? zero(T) : h(y)) : zero(T)
+  end
+  z = _image!(h, x)
+  b = _inner_buffer(h, z)
+  steps = _precompose_steps!(h, z, γ)
+  if h.f isa AbstractGroupPenalty
+    v = value_and_prox!(b, h.f, z, steps)
+  else
+    _prox_sep!(b, h.f, z, steps)
+    v = withvalue ? (_isindicator(h) ? zero(eltype(z)) : h.f(b)) : zero(eltype(z))
+  end
+  # Unchanged image entries include free indices and zero-weight groups.
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    y[i] = b[i] == z[i] ? x[i] : b[i] / h.a[i]
+  end
+  v
+end
+
+function prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real)
+  _checkwrite(prox!, h, y, x)
+  _value_and_prox_array!(y, h, x, γ, false)
+  y
+end
+function value_and_prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real)
+  _checkwrite(value_and_prox!, h, y, x)
+  _value_and_prox_array!(y, h, x, γ, true)
+end
+
+Base.@propagate_inbounds function prox_entry(h::_ArrayPrecompose, v::Real, i::Integer, γ::Real)
+  isseparable(h) || _array_group_operations()
+  T = float(promote_type(typeof(v), eltype(h.a)))
+  a = convert(T, h.a[i])
+  z = a * convert(T, v)
+  p = convert(T, prox_entry(h.f, z, i, _precompose_step(γ, a, T)))
+  p == z ? convert(T, v) : p / a
+end
+Base.@propagate_inbounds function value_entry(h::_ArrayPrecompose{<:SeparableFunction}, v::Real, i::Integer)
+  T = float(promote_type(typeof(v), eltype(h.a)))
+  value_entry(h.f, convert(T, h.a[i]) * convert(T, v), i)
+end
+
+function gradient!(g::AbstractArray, h::_ArrayPrecompose, x::AbstractArray)
+  _checkwrite(gradient!, h, g, x)
+  z = _image!(h, x)
+  b = _inner_buffer(h, z)
+  gradient!(b, h.f, z)
+  g .= h.a .* b
+end
+function value_and_gradient!(g::AbstractArray, h::_ArrayPrecompose, x::AbstractArray)
+  _checkwrite(value_and_gradient!, h, g, x)
+  z = _image!(h, x)
+  b = _inner_buffer(h, z)
+  v = value_and_gradient!(b, h.f, z)
+  g .= h.a .* b
+  v
+end
+
+function kkt_violation(h::_ArrayPrecompose, g::AbstractArray, i::Integer)
+  isseparable(h) || _array_group_operations()
+  _checkparams(h, g)
+  abs(float(h.a[i])) * kkt_violation(h.f, _PrecomposeArray(g, h.a, Val(true)), i)
+end
+function _array_group_kkt(h, g, x, i)
+  _checkparams(h, g)
+  _checkparams(h, x)
+  checkbounds(x, i)
+  _group(h.f, i) == 0 && return abs(g[i])
+  c = abs(float(h.a[i]))
+  c * kkt_violation(h.f, _PrecomposeArray(g, h.a, Val(true)), _PrecomposeArray(x, h.a, Val(false)), i)
+end
+kkt_violation(h::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, x::AbstractArray, i::Integer) =
+  _array_group_kkt(h, g, x, i)
+kkt_violation(::_ArrayPrecompose{<:AbstractGroupPenalty}, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
+  _array_group_operations()
+function kkt_violation(h::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, x::AtomIterate, k::Integer)
+  _checkparams(h, g)
+  _checkparams(h, x)
+  _checksamegroups(h.f, x)
+  checkbounds(x.groups, k)
+  c = abs(float(h.a[first(x.groups[k])]))
+  c * kkt_violation(h.f, _PrecomposeArray(g, h.a, Val(true)), x, k)
+end
+
+@noinline _array_group_operations() = throw(ArgumentError("an array-scaled group penalty supports values, full-array proximal operators and four-argument kkt_violation on arrays; coordinate updates and restrict are not supported"))
+prox_coordinate!(::AtomIterate, ::_ArrayPrecompose{<:AbstractGroupPenalty}, ::Integer, ::Real) =
+  _array_group_operations()
+function restrict(h::_ArrayPrecompose, S::AbstractVector{<:Integer})
+  isseparable(h) || _array_group_operations()
+  Precompose(restrict(h.f, S), h.a[S])
+end
+
+function lipschitz(h::_ArrayPrecompose)
+  L = lipschitz(h.f)
+  isempty(h.a) && return zero(promote_type(typeof(float(L)), float(eltype(h.a))))
+  a = _maximum_abs(h.a)
+  _positive_product(L, a, a)
+end
 
 ####################################
 #  f + ρ‖⋅ - c‖²/2

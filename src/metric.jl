@@ -29,6 +29,20 @@ prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArra
 value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) =
   _value_and_prox_sep!(y, f, x, γ)
 
+function prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::AbstractArray)
+  isseparable(h) || throw(ArgumentError("array steps for an array scale require a separable function"))
+  _checkwrite(prox!, h, y, x)
+  _checkparam(γ, x)
+  _value_and_prox_array!(y, h, x, γ, false)
+  y
+end
+function value_and_prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::AbstractArray)
+  isseparable(h) || throw(ArgumentError("array steps for an array scale require a separable function"))
+  _checkwrite(value_and_prox!, h, y, x)
+  _checkparam(γ, x)
+  _value_and_prox_array!(y, h, x, γ, true)
+end
+
 # group penalties: a step per group, constant on the group, keeps the closed form
 value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = _value_and_prox_groups!(y, f, x, γ)
 prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (value_and_prox!(y, f, x, γ); y)
@@ -213,6 +227,7 @@ for [`GLMLoss`](@ref), and `Inf` where none exists:
 | [`KronQuadratic`](@ref) | `A[r, r] B[c, c]` for entry `(r, c)` of `Θ` |
 | [`SqrNormL2`](@ref)`(λ)` | `λ` |
 | [`SqrHingeLoss`](@ref)`(y, w)` | `2wₖyₖ²` |
+| [`CubeNormL2`](@ref)`(λ)` | `Inf` for `λ > 0`, `0` for `λ = 0` |
 | [`LogDetLoss`](@ref) | `Inf` |
 
 `Scaled` scales the constants, `Tilt` and `Translate` keep them, and `Sum` adds
@@ -265,6 +280,10 @@ end
 coordinate_lipschitz(::ZeroFunction, ::Integer) = 0.0
 coordinate_lipschitz(f::LinearFunction, ::Integer) = zero(float(eltype(f.c)))
 coordinate_lipschitz(f::SqrNormL2, ::Integer) = float(f.λ)
+function coordinate_lipschitz(f::SqrDistL2, k::Integer)
+  isseparable(f) && (iszero(f.λ) || isconvex(f)) && return float(f.λ)
+  invoke(coordinate_lipschitz, Tuple{AbstractFunction, Integer}, f, k)
+end
 
 function coordinate_lipschitz(f::SqrHingeLoss, k::Integer)
   y, w = promote(float(_entry(f.y, k)), float(_entry(f.w, k)))
@@ -278,6 +297,7 @@ function coordinate_lipschitz!(L::AbstractArray, f::SqrHingeLoss)
   end
   L
 end
+coordinate_lipschitz(f::CubeNormL2, ::Integer) = lipschitz(f)
 
 function coordinate_lipschitz(f::QuadraticFunction{T}, k::Integer) where {T}
   checkbounds(f.A, k, k)
@@ -336,3 +356,15 @@ end
 coordinate_lipschitz(h::_ScalarPrecompose, k::Integer) = h.μ * coordinate_lipschitz(h.f, k)
 coordinate_lipschitz!(L::AbstractArray, h::_ScalarPrecompose) =
   (coordinate_lipschitz!(L, h.f); L .*= h.μ)
+
+Base.@propagate_inbounds function coordinate_lipschitz(h::_ArrayPrecompose, k::Integer)
+  a = abs(float(h.a[k]))
+  _positive_product(coordinate_lipschitz(h.f, k), a, a)
+end
+function coordinate_lipschitz!(L::AbstractArray, h::_ArrayPrecompose)
+  _checkparams(h, L)
+  @inbounds for k in eachindex(IndexLinear(), L)
+    L[k] = coordinate_lipschitz(h, k)
+  end
+  L
+end

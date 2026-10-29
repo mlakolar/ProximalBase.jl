@@ -211,7 +211,8 @@ end
     @test Scaled{typeof(positive), T}(positive, zero(T)) isa ZeroFunction
     infinite = Scaled(NormL1(one(T)), T(Inf))
     @test_throws ArgumentError Scaled{typeof(infinite), T}(infinite, zero(T))
-    @test_throws ArgumentError Scaled(NormL1(one(T), T[1, Inf]), zero(T))
+    z = Scaled(NormL1(one(T), T[1, Inf]), zero(T))
+    @test z isa NormL1 && iszero(z.λ0)
     x, steps = T[2, -1], T[0.2, 0.8]
     out = similar(x)
     @test value_and_prox!(out, ZeroFunction(), x, steps) == zero(T)

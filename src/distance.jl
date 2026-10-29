@@ -196,7 +196,8 @@ end
 
 function restrict(f::SqrDistL2, S::AbstractVector{<:Integer})
   isseparable(f) || throw(ArgumentError("restrict of SqrDistL2 requires a separable set"))
-  SqrDistL2(restrict(f.f, S), f.λ)
+  # the dropped terms are λ dist²(0, Cᵢ)/2, finite for a nonempty Cᵢ
+  SqrDistL2(_restrict_unchecked(f.f, S), f.λ)
 end
 
 function lipschitz(f::SqrDistL2)

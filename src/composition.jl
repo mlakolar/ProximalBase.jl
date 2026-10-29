@@ -203,6 +203,7 @@ end
 kkt_violation(h::_ScalarPrecompose, g::AbstractArray, i::Integer) =
   abs(h.A) * kkt_violation(h.f, _ScaledArray(g, inv(h.A)), i)
 restrict(h::_ScalarPrecompose, S::AbstractVector{<:Integer}) = Precompose(restrict(h.f, S), h.A)
+_restrict_unchecked(h::_ScalarPrecompose, S::AbstractVector{<:Integer}) = Precompose(_restrict_unchecked(h.f, S), h.A)
 
 lipschitz(h::Precompose) = h.μ * lipschitz(h.f)
 
@@ -408,6 +409,10 @@ function restrict(h::_ArrayPrecompose, S::AbstractVector{<:Integer})
   isseparable(h) || _array_group_operations()
   Precompose(restrict(h.f, S), h.a[S])
 end
+function _restrict_unchecked(h::_ArrayPrecompose, S::AbstractVector{<:Integer})
+  isseparable(h) || _array_group_operations()
+  Precompose(_restrict_unchecked(h.f, S), h.a[S])
+end
 
 function lipschitz(h::_ArrayPrecompose)
   L = lipschitz(h.f)
@@ -548,6 +553,8 @@ for X in (:AbstractArray, :AtomIterate, :SymmetricSparseIterate)
   @eval kkt_violation(r::Regularize, g::AbstractArray, x::$X, k::Integer) = kkt_violation(r.f, _ridge_shifted(g, r), x, k)
 end
 restrict(r::Regularize, S::AbstractVector{<:Integer}) = Regularize(restrict(r.f, S), r.ρ, r.c === nothing ? nothing : r.c[S])
+_restrict_unchecked(r::Regularize, S::AbstractVector{<:Integer}) =
+  Regularize(_restrict_unchecked(r.f, S), r.ρ, r.c === nothing ? nothing : r.c[S])
 
 lipschitz(r::Regularize) = lipschitz(r.f) + r.ρ
 

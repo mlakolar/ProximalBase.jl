@@ -107,6 +107,7 @@ for X in (:AbstractArray, :AtomIterate, :SymmetricSparseIterate)
     iszero(s.α) ? kkt_violation(ZeroFunction(), g, x, k) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), x, k)
 end
 restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.α)
+_restrict_unchecked(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(_restrict_unchecked(s.f, S), s.α)
 
 ####################################
 #  f + ⟨c, ⋅⟩ + d
@@ -162,6 +163,7 @@ Base.@propagate_inbounds prox_entry(t::Tilt, v::Real, i::Integer, γ::Real) = pr
 _checkparams(t::Tilt, x) = (_checkparam(t.c, x); _checkparams(t.f, x))
 kkt_violation(t::Tilt, g::AbstractArray, i::Integer) = kkt_violation(t.f, _ShiftedArray(g, t.c), i)
 restrict(t::Tilt, S::AbstractVector{<:Integer}) = Tilt(restrict(t.f, S), t.c[S], t.d)
+_restrict_unchecked(t::Tilt, S::AbstractVector{<:Integer}) = Tilt(_restrict_unchecked(t.f, S), t.c[S], t.d)
 
 ####################################
 #  f(⋅ - b)
@@ -237,21 +239,27 @@ end
 Base.@propagate_inbounds prox_entry(t::Translate, v::Real, i::Integer, γ::Real) = t.b[i] + prox_entry(t.f, v - t.b[i], i, γ)
 _checkparams(t::Translate, x) = (_checkparam(t.b, x); _checkparams(t.f, x))
 _isindicator(::Type{<:Translate{F}}) where {F} = _isindicator(F)
+# a nonseparable f requires zero translation outside S, which is about more
+# than a dropped constant
+_check_translation_outside(t::Translate, excluded) =
+  any(i -> !iszero(t.b[i]), excluded) &&
+    throw(ArgumentError("restrict of a nonseparable Translate requires zero translation outside S"))
+# the dropped terms of a separable f are evaluated at -b, not at zero, so f is
+# restricted unchecked once they are known to be finite
 function restrict(t::Translate, S::AbstractVector{<:Integer})
-  selected = falses(length(t.b))
-  selected[S] .= true
-  excluded = findall(!, selected)
+  excluded = _excluded_coordinates(length(t.b), S)
+  isseparable(t.f) || (_check_translation_outside(t, excluded); return Translate(restrict(t.f, S), t.b[S]))
   if !isempty(excluded)
-    if isseparable(t.f)
-      # Dropping finite terms is harmless for minimization, but dropping an
-      # infinite term would turn an infeasible supported problem into a feasible one.
-      v = restrict(t.f, excluded)(-t.b[excluded])
-      isfinite(v) || throw(ArgumentError("excluded translated coordinates are outside the function's domain"))
-    elseif any(i -> !iszero(t.b[i]), excluded)
-      throw(ArgumentError("restrict of a nonseparable Translate requires zero translation outside S"))
-    end
+    # Dropping finite terms is harmless for minimization, but dropping an
+    # infinite term would turn an infeasible supported problem into a feasible one.
+    v = _restrict_unchecked(t.f, excluded)(-t.b[excluded])
+    isfinite(v) || throw(ArgumentError("excluded translated coordinates are outside the function's domain"))
   end
-  Translate(restrict(t.f, S), t.b[S])
+  Translate(_restrict_unchecked(t.f, S), t.b[S])
+end
+function _restrict_unchecked(t::Translate, S::AbstractVector{<:Integer})
+  isseparable(t.f) || _check_translation_outside(t, _excluded_coordinates(length(t.b), S))
+  Translate(_restrict_unchecked(t.f, S), t.b[S])
 end
 
 ####################################

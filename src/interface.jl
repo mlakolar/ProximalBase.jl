@@ -340,16 +340,30 @@ The function of `x[S]` that `f` becomes on the vectors `x` supported on the
 coordinates `S`, where supported: an active-set solver minimizes the restriction
 over those coordinates. The restriction preserves the objective up to a finite
 additive constant and, for a smooth function, has gradient `∇f(x)[S]`. Centered
-[`SqrNormL2`](@ref), [`Regularize`](@ref) and separable [`Translate`](@ref) may
-drop terms belonging to excluded coordinates. These constants do not change the
-minimizer; evaluate the original function when comparing full objective values.
+[`SqrNormL2`](@ref), [`Regularize`](@ref), separable [`Translate`](@ref),
+[`MoreauEnvelope`](@ref) and [`SqrDistL2`](@ref) may drop terms belonging to
+excluded coordinates. These constants do not change the minimizer; evaluate the
+original function when comparing full objective values.
 
-A nonseparable `Translate` requires its translation to vanish outside `S`;
-otherwise restricting its underlying function would change more than a constant,
-and the operation throws. Excluded terms outside a translated separable
-function's domain also cause an error.
+The dropped terms must be finite at zero, or at `-b` under `Translate`;
+otherwise every vector supported on `S` is infeasible, and `restrict` throws an
+`ArgumentError`. This rules out an [`IndBox`](@ref) with an excluded coordinate
+whose bounds exclude zero, an `IndBox` with scalar bounds that exclude zero, and
+[`NegLog`](@ref). A nonseparable `Translate` requires its translation to vanish
+outside `S`; otherwise restricting its underlying function would change more
+than a constant, and the operation throws.
 """
 function restrict end
+# the restriction without the check that the dropped terms are finite at zero,
+# for wrappers that evaluate those terms elsewhere
+_restrict_unchecked(f::AbstractFunction, S::AbstractVector{<:Integer}) = restrict(f, S)
+# the coordinates of 1:n outside S, through a mask so that ranges, duplicates
+# and Boolean masks select as indexing does
+function _excluded_coordinates(n::Integer, S::AbstractVector{<:Integer})
+  selected = falses(n)
+  selected[S] .= true
+  findall(!, selected)
+end
 
 """
     gradient_mapping!(G, f, g, x, γ)

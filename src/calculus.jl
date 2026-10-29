@@ -387,7 +387,12 @@ _moreau_point!(z, f, x, γ) = _conjugate_isindicator(typeof(f)) ? prox!(z, f, x,
   end
 end
 _moreau_set!(z, f::IndBallL2, x, γ) = prox!(z, IndBallL2(_dilate(γ, f.r)), x, one(γ))
-_moreau_set!(z, f::IndBox, x, γ) = (z .= clamp.(x, _dilate.(γ, f.l), _dilate.(γ, f.u)))
+# the dilated bounds: a scalar step and bound once, outside the broadcast, since
+# converting a wide bound such as a BigFloat can allocate; otherwise lazily,
+# entry by entry, inside it
+_dilated(γ::Real, b::Real) = _dilate(γ, b)
+_dilated(γ, b) = Base.Broadcast.broadcasted(_dilate, γ, b)
+_moreau_set!(z, f::IndBox, x, γ) = (z .= clamp.(x, _dilated(γ, f.l), _dilated(γ, f.u)))
 _moreau_set!(z, s::Scaled, x, γ) = _moreau_point!(z, s.f, x, γ)
 function _moreau_set!(z, t::Translate, x, γ)
   z .= x .- _dilate.(γ, t.b)

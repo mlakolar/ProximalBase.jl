@@ -307,12 +307,20 @@ end
   prox!(y, twice, x, 1e-310)
   @test allocs(prox!, y, twice, x, 1e-310) == 0
   @test allocs(value_and_prox!, y, twice, x, 1e-310) == 0
-  # wide bounds are dilated in the precision of the step
+  # wide bounds are dilated once per call, in the precision of the step: what
+  # converting a BigFloat allocates depends on the platform, but not on the length
   c = Conjugate(IndBox(big"-1", big"1"))
-  x, y = randn(100), zeros(100)
-  prox!(y, c, x, 0.5)
-  @test allocs(prox!, y, c, x, 0.5) == 0
-  @test y == x .- clamp.(x, -0.5, 0.5)
+  x10, y10, x1000, y1000 = randn(10), zeros(10), randn(1000), zeros(1000)
+  prox!(y10, c, x10, 0.5)
+  prox!(y1000, c, x1000, 0.5)
+  @test allocs(prox!, y1000, c, x1000, 0.5) == allocs(prox!, y10, c, x10, 0.5)
+  @test y1000 == x1000 .- clamp.(x1000, -0.5, 0.5)
+  # array bounds and array steps dilate entry by entry
+  b = IndBox(fill(-1.0, 1000), fill(1.0, 1000))
+  γ = fill(0.5, 1000)
+  @test prox(Conjugate(b), x1000, 0.5) == x1000 .- clamp.(x1000, -0.5, 0.5)
+  @test prox(Conjugate(IndBox(-1.0, 1.0)), x1000, γ) == x1000 .- clamp.(x1000, -0.5, 0.5)
+  @test prox(Conjugate(b), x1000, γ) == x1000 .- clamp.(x1000, -0.5, 0.5)
 end
 
 @testset "dilation of a bound" begin

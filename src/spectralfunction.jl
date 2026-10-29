@@ -33,10 +33,10 @@ order of the entries. Its proximal operator acts on the eigenvalues: for
 reads the upper triangle of its input, which should be symmetric. The domain of
 `F` is the finite symmetric matrices: the value is `Inf` at a matrix with a
 non-finite entry, also for a bounded `f`, and at a matrix that is not
-symmetric. At any non-finite entry, including one in the lower triangle, the
-proximal output is all `NaN`; `value_and_prox!` returns zero for an indicator
-and `NaN` otherwise. When an extreme eigenvalue overflows, membership in
-`IndBallL1`, `IndBallL2`, `IndBallLinf` and `IndBox` is decided on the eigenvalues
+symmetric. When a decomposition is needed, any non-finite entry, including one
+in the lower triangle, gives an all-`NaN` proximal output; `value_and_prox!`
+returns zero for an indicator and `NaN` otherwise. When an extreme eigenvalue
+overflows, membership in `IndBallL1`, `IndBallL2`, `IndBallLinf` and `IndBox` is decided on the eigenvalues
 of the matrix scaled to unit range, with the tolerance of the original units. A
 function with weights, bounds or normals
 that differ between entries depends on their order and is rejected.

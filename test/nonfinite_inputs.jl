@@ -175,10 +175,12 @@ end
       y, w = alias ? (x, z) : (zeros(T, 2, 2), zeros(T, 2, 2))
       vf = op(y, f, x, one(T))
       vg = op(w, g, z, one(T))
-      @test isequal(y, w)
+      identity = g isa NuclearNorm && iszero(g.λ) || g isa IndBallRank && g.r >= minimum(size(input))
       @test isequal(y, fill(T(NaN), 2, 2))
+      # The native identity shortcut needs no decomposition; the wrapper does.
+      @test isequal(w, identity ? input : y)
       if op === value_and_prox!
-        @test vf === vg
+        @test vg === (identity ? zero(T) : vf)
         @test vf === (PB._isindicator(f) ? zero(T) : T(NaN))
       else
         @test vf === y

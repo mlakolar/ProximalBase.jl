@@ -38,8 +38,9 @@ not absolutely symmetric.
 
 `isconvex` and the indicator property come from `f`. The domain of `F` is the
 finite matrices: a matrix with a non-finite entry has value `Inf`, also for a
-bounded `f` such as `NormL0`. At a non-finite input, the proximal output is
-all `NaN`; `value_and_prox!` returns zero for an indicator and `NaN` otherwise.
+bounded `f` such as `NormL0`. When a decomposition is needed, a non-finite
+input gives an all-`NaN` proximal output; `value_and_prox!` returns zero for an
+indicator and `NaN` otherwise.
 In the value `F(X)`, singular values within a relative `√ε` of the largest
 count as zero, as they do for `IndBallRank`: the
 value at a proximal point of low rank then agrees with the one

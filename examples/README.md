@@ -37,6 +37,7 @@ runs all scripts.
 | [`16_constrained_penalties.jl`](16_constrained_penalties.jl) | constrained penalties | `Constrained`: the lasso on coefficients that sum to zero for compositional data, the lasso on a box by coordinate descent, the capped simplex |
 | [`17_sparse_pca_fantope.jl`](17_sparse_pca_fantope.jl) | sparse principal components | `Spectral` of a constrained function: the Fantope; ADMM with `Tilt` for the linear term, against plain PCA |
 | [`18_ordered_penalties.jl`](18_ordered_penalties.jl) | piecewise-constant and monotone fits, SLOPE | `TotalVariation1D` and `FusedLasso` on a signal with jumps, `IndIsotonic`, `SLOPE` against the lasso on correlated predictors |
+| [`19_weighted_isotonic_regression.jl`](19_weighted_isotonic_regression.jl) | weighted isotonic (monotone) regression | `IndIsotonic` with an array of steps `1 ./ w` on binned data, its optimality conditions, the decreasing case |
 
 For complete solvers built on these pieces, including coordinate descent with
 penalty paths, see [ProximalSolvers.jl](https://github.com/mlakolar/ProximalSolvers.jl).

@@ -129,8 +129,9 @@ the three iterates. Group norms and the nonconvex [`GroupMCP`](@ref) and
 each group, which keeps the closed form. `Scaled`, `Tilt`, `Translate` and
 `Conjugate` pass the steps on.
 
-The projections onto a hyperplane, a halfspace, a hyperslab, a simplex and an
-ℓ1 ball take an array of steps as well, as projections in the metric. The hyperplane has the
+The projections onto a hyperplane, a halfspace, a hyperslab, a simplex, an
+ℓ1 ball and the monotone vectors ([`IndIsotonic`](@ref), weighted isotonic
+regression) take an array of steps as well, as projections in the metric. The hyperplane has the
 closed form ``x - \gamma \odot a\,(\langle a, x\rangle - b)/\sum_i \gamma_i a_i^2``.
 The simplex and the ℓ1 ball are ``\max(x_i - \gamma_i\nu, 0)`` and the soft
 thresholding of ``x_i`` at ``\gamma_i\nu`` for a level ``\nu`` found by Newton's

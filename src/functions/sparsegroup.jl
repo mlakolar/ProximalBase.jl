@@ -169,9 +169,9 @@ function _value_and_prox_groups!(y::AbstractArray, f::SparseGroupNormL2, x::Abst
       n1 = _soft_group_only!(y, x, f.groups[k], convert(T, γk * f.λ1))
     else
       n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], convert(T, γk * f.λ1), convert(T, _positive_product(γk, f.λ0, f.w[k])))
-      v2 += _positive_product(convert(T, f.λ0), w, n2)
+      v2 += convert(T, _positive_product(convert(T, f.λ0), w, n2))
     end
-    iszero(f.λ1) || (v1 += n1)
+    iszero(f.λ1) || (v1 += convert(T, n1))
   end
   v2 +
   (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1)
@@ -211,9 +211,9 @@ function _value_and_prox_groups!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIt
       n1 = _soft_group_only!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1))
     else
       n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1), convert(T, _positive_product(γk, f.λ0, f.w[k])))
-      v2 += _positive_product(convert(T, f.λ0), w, n2)
+      v2 += convert(T, _positive_product(convert(T, f.λ0), w, n2))
     end
-    iszero(f.λ1) || (v1 += n1)
+    iszero(f.λ1) || (v1 += convert(T, n1))
   end
   v2 +
   (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1)

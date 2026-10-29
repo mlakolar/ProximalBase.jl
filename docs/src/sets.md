@@ -17,8 +17,10 @@ feasibility certificate.
 |:---------|:----|:-----------|
 | [`IndBox`](@ref)`(l, u)` | ``l \le x \le u`` | ``\operatorname{clamp}(v, l, u)`` |
 | [`IndNonnegative`](@ref)`()` | ``x \ge 0`` | ``\max(v, 0)`` |
+| [`IndBinary`](@ref)`(l, u)` | ``x_i \in \{l_i, u_i\}``, nonconvex | nearer endpoint, ties to ``l_i`` |
 | [`IndBallLinf`](@ref)`(r)` | ``\lVert x\rVert_\infty \le r`` | ``\operatorname{clamp}(v, -r, r)`` |
 | [`IndBallL2`](@ref)`(r)` | ``\lVert x\rVert_2 \le r`` | ``\min(1, r/\lVert v\rVert_2)\,v`` |
+| [`IndSOC`](@ref)`()` | ``\lVert x_{2:n}\rVert_2 \le x_1`` | closed form in the head and the tail norm |
 | [`IndSphereL2`](@ref)`(r)` | ``\lVert x\rVert_2 = r``, nonconvex | ``r\,v/\lVert v\rVert_2`` |
 | [`IndBallL1`](@ref)`(r)` | ``\lVert x\rVert_1 \le r`` | ``\operatorname{sign}(v)\odot P_{\Delta_r}(\lvert v\rvert)``, by Condat's algorithm |
 | [`IndSimplex`](@ref)`(r)` | ``x \ge 0,\ \sum_i x_i = r`` | ``\max(v - \tau, 0)`` |
@@ -33,6 +35,7 @@ feasibility certificate.
 | [`IndPSD`](@ref)`()` | ``X \succeq 0`` | ``U\max(\Lambda, 0)U^\top`` |
 | [`IndPSD`](@ref)`(rank = r)` | ``X \succeq 0``, rank at most ``r`` | the ``r`` largest positive eigenpairs |
 | [`IndBallRank`](@ref)`(r)` | rank at most ``r`` | the truncated SVD |
+| [`IndStiefel`](@ref)`()` | ``X^\top X = I_k``, ``k \le p``, nonconvex | ``UV^\top`` from the thin SVD |
 | [`SingularValue`](@ref)`(IndBallL1(r))` | ``\lVert X\rVert_* \le r`` | the ℓ1-ball projection of the singular values |
 | [`SingularValue`](@ref)`(IndBallLinf(r))` | ``\lVert X\rVert_2 \le r`` | ``U\min(\Sigma, r)V^\top`` |
 | [`IndPattern`](@ref)`(P)` | ``x_i = 0`` off the pattern ``P`` | zero the entries off ``P`` |
@@ -47,6 +50,21 @@ operators for coordinate descent. A box whose bounds exclude zero does not
 preserve zeros (see [`iszeropreserving`](@ref)), so on a sparse iterate it
 visits every entry. [`Constrained`](@ref) restricts a convex separable function
 to a box, and the result is again separable.
+
+[`IndBinary`](@ref)`(l, u)` instead allows two finite values per entry, with
+``l_i < u_i``. Its projection selects the nearer endpoint, independently of the
+step, with ties going to the lower endpoint. Alternating multiplication by a
+matrix and projection onto ``\{-1, 1\}^n`` gives the projected power method
+for community detection and synchronization (Chen and Candès, 2018). Zero
+projects to ``-1``, unlike `sign(0) = 0`. Bounds may be scalars or arrays,
+indexed linearly as for `IndBox`. Array bounds are stored without copying;
+construct a new `IndBinary` after changing them. Zero is preserved exactly when
+each pair contains zero, including mixed pairs such as ``\{0, 1\}`` and
+``\{-1, 0\}``; then sparse iterates visit only stored entries, and `restrict`
+is supported. A proximal gradient update from zero projects ``-\gamma g``,
+so whether it stays zero depends on the step, and no gradient-only
+`kkt_violation` is provided. With scalar bounds,
+`Spectral(IndBinary(0, 1))` projects onto the orthogonal projection matrices.
 
 ## The simplex and the ℓ1 ball
 
@@ -77,6 +95,27 @@ Projecting onto the ℓ1 ball ``\{\|x\|_1 \le r\}`` is trivial when
 ``\|v\|_1 \le r``. Otherwise the projection has the signs of ``v`` and solves
 the simplex problem for ``|v|``. The ℓ∞ norms use this projection through
 Moreau's decomposition.
+
+## Second-order cones
+
+[`IndSOC`](@ref)`()` is the epigraph of the Euclidean norm: the first entry
+is a variable bound on the norm of the remaining entries. With head ``t`` and
+tail norm ``s``, the projection keeps the point when ``s \le t``, returns zero
+when ``s \le -t``, and otherwise returns
+``(\alpha, (\alpha/s)x_{2:n})`` with ``\alpha = (t+s)/2``.
+Arrays are read by one-based linear index, including matrices. An empty array
+has no head and is rejected. Only scalar steps are supported.
+
+`IndSOC(groups)` projects each disjoint group onto its own cone. The first
+listed index is the head, even when the indices are out of order; a group of
+one index imposes nonnegativity. For example, `IndSOC([[3, 1, 2], [5, 4]])`
+bounds the norm of entries 1 and 2 by entry 3, and the magnitude of entry 4 by
+entry 5. Groups are copied and must be nonempty. Entries in no group are free
+and remain unchanged; an empty collection of groups leaves all entries free.
+[`Conjugate`](@ref) gives the polar indicator, which requires the negative
+cone on each group and zero on every free entry, within the indicator's
+tolerance. With a single cone the polar is its negative, since the
+second-order cone is self-dual.
 
 ## Intersections
 
@@ -210,6 +249,34 @@ Projected gradient with them is hard-impute in matrix completion.
 
 With `partial = true`, [`IndPSD`](@ref) and [`IndBallRank`](@ref) compute only
 the eigenpairs or singular triplets they keep; see [Partial decompositions](@ref).
+
+## Orthonormal columns
+
+[`IndStiefel`](@ref)`()` projects a real ``p \times k`` matrix onto the
+matrices with orthonormal columns, for ``k \le p``. If
+``X = U\Sigma V^\top`` is a thin SVD, the Frobenius projection is
+``UV^\top``. All ``k`` singular-vector columns are used, including an
+orthonormal completion at rank-deficient inputs. The projection is unique
+at full column rank. Otherwise the SVD chooses a minimizer, deterministically
+for a fixed input, LAPACK backend and configuration. The choice need not be
+continuous across rank-deficient inputs. With ``k = p`` the set is the
+orthogonal group, including reflections; with ``k = 1`` it is the unit
+sphere written as a column matrix.
+
+This projection gives gradient projection steps for factor rotation and
+k-component PCA. Projecting ``A^\top B`` gives a minimizer of the orthogonal
+Procrustes problem ``\min_{Q^\top Q = I}\|AQ - B\|_F``. The step size does
+not affect the projection. The alternative formula
+``X(X^\top X)^{-1/2}`` requires full column rank and squares the condition
+number when forming the Gram matrix, so this implementation uses the SVD.
+There is no general closed form for `Constrained(f, IndStiefel())`.
+
+The value checks ``\|X^\top X - I\|_F \le \sqrt{\varepsilon}\sqrt{k}``
+in the argument's floating precision. A value of zero only reports this
+tolerance check. Nonfinite inputs have value `Inf` and cannot be projected.
+The proximal workspace follows the output's precision, which must be
+`Float32` or `Float64`; scaling precedes conversion to preserve direction
+at extreme magnitudes. Buffers are reused for fixed types and sizes.
 
 ## Structured matrices
 

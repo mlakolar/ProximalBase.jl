@@ -97,13 +97,14 @@ _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndAffine{T, M, 
 function (f::IndAffine{T})(x::AbstractVector) where {T}
   _checkaffine(f, x)
   S = float(promote_type(T, eltype(x)))
-  eltype(x) <: Integer && return _affine_scaled_value(f, x, S)
+  R = float(eltype(x))
+  eltype(x) <: Integer && return convert(R, _affine_scaled_value(f, x, S))
   r = mul!(f.rb, f.A, x)
   r .-= f.b
   nr = norm(r)
   slack = _tol(S) * max(one(S), norm(f.b), f.scale * norm(x))
-  isfinite(nr) && isfinite(slack) && return _ind(nr <= slack, S)
-  _affine_scaled_value(f, x, S)
+  isfinite(nr) && isfinite(slack) && return _ind(nr <= slack, R)
+  convert(R, _affine_scaled_value(f, x, S))
 end
 
 # Normalize the matrix separately, then put its product and b in common units.

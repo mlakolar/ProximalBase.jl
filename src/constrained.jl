@@ -669,17 +669,27 @@ end
 # Σᵢ wᵢ ≤ κ, it is the same sum of the positive parts. For the capped simplex it
 # is the sum of the k largest entries, and with the halfspace on the singular
 # values the Ky Fan k-norm.
-function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}},
+_constant_normal(a::Real) = a
+function _constant_normal(a::AbstractArray)
+  isempty(a) && return nothing
+  v = first(a)
+  all(==(v), a) ? v : nothing
+end
+
+function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane, IndHalfspace}},
                           y::AbstractArray)
+  _checkparams(c, y)
   T = float(eltype(y))
   box, set = c.f, c.set
+  a = _constant_normal(set.a)
+  a === nothing && throw(ArgumentError("the value of the conjugate of a box with a linear constraint needs a constant normal"))
   n = length(y)
-  upper = set isa IndHyperplane || set.a > 0
+  upper = set isa IndHyperplane || a > 0
   s = upper ? one(T) : -one(T)
   l, u = upper ? (convert(T, box.l), convert(T, box.u)) : (-convert(T, box.u), -convert(T, box.l))
   isfinite(l) && isfinite(u) ||
     throw(ArgumentError("the value of the conjugate of Constrained(IndBox(l, u), $(nameof(typeof(set)))(a, b)) needs finite bounds"))
-  β = _isscaled(set) ? s * convert(T, set.b / float(set.a)) : s * convert(T, set.b) / convert(T, set.a)
+  β = _isscaled(set) ? s * convert(T, set.b / float(a)) : s * convert(T, set.b) / convert(T, a)
   slack = _tol(T) * max(one(T), abs(β), n * abs(l))
   v = _buffer!(c.scratch, T, n)
   total = zero(T)
@@ -695,8 +705,8 @@ function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union
   return l * total + (u - l) * _top_sum!(view(v, 1:n), κ)
 end
 
-_has_conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}}) =
-  isfinite(c.f.l) && isfinite(c.f.u)
+_has_conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane, IndHalfspace}}) =
+  isfinite(c.f.l) && isfinite(c.f.u) && _constant_normal(c.set.a) !== nothing
 
 # the sum of the ⌊κ⌋ largest entries of v and the fraction κ - ⌊κ⌋ of the next
 # one, for 0 ≤ κ ≤ length(v); reorders v

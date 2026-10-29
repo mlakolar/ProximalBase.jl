@@ -18,6 +18,9 @@ of `A`. For an affine-constrained loss, `reset_cache!` supports changes to the
 loss data with the set unchanged.
 Other functions without data-dependent caches return themselves. Custom
 functions that cache derived data should implement this method.
+
+For an [`IndPolyhedron`](@ref), clear the working set of the previous
+projection. Its constraint data are copied at construction.
 """
 reset_cache!(f::AbstractFunction) = f
 
@@ -47,6 +50,13 @@ end
 
 reset_cache!(::IndAffine) = throw(ArgumentError("construct a new IndAffine after changing its data"))
 reset_cache!(::IndGraph) = throw(ArgumentError("construct a new IndGraph after changing its data"))
+
+function reset_cache!(f::IndPolyhedron)
+  f.valid = false
+  f.count = 0
+  fill!(f.used, false)
+  f
+end
 
 for F in (:Scaled, :Tilt, :Translate, :Conjugate, :Precompose, :_ArrayPrecompose, :Regularize,
           :MoreauEnvelope, :SqrDistL2, :DistL2, :Spectral, :SingularValue,

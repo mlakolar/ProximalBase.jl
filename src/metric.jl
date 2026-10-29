@@ -154,6 +154,38 @@ end
 #  sets in a diagonal metric
 ####################################
 
+# The projection onto monotone vectors in the metric of Diagonal(1 ./ γ) is
+# weighted isotonic regression with weights γmin/γᵢ; constant steps take the
+# unweighted pooling.
+function prox!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractArray)
+  _checkwrite(prox!, f, y, x)
+  _checkparam(γ, x)
+  Base.require_one_based_indexing(γ)
+  n = length(x)
+  n == 0 && return y
+  T = float(eltype(y))
+  S = promote_type(T, float(eltype(γ)))
+  γmin = γmax = γ[1]
+  equal = true
+  @inbounds for i in 1:n
+    g = γ[i]
+    g > zero(g) && isfinite(g) ||
+      throw(ArgumentError("the steps of IndIsotonic must be positive and finite"))
+    equal &= g == γmin
+    γmin = min(γmin, g)
+    γmax = max(γmax, g)
+  end
+  iszero(convert(S, γmin) / convert(S, γmax)) &&
+    throw(ArgumentError("the ratio of the largest to the smallest step of IndIsotonic is too large to represent"))
+  σ = f.decreasing ? -1 : 1
+  if equal
+    _pava!(y, x, _buffer!(f.sums, T, n), _buffer!(f.sizes, Int, n), σ)
+  else
+    _wpava!(y, x, γ, γmin, _buffer!(f.means, S, n), _buffer!(f.weights, S, n), _buffer!(f.sizes, Int, n), σ)
+  end
+  y
+end
+
 # The projection onto a hyperplane in the metric of Diagonal(1 ./ γ),
 #   x - γ .* a (⟨a, x⟩ - b) / Σᵢ γᵢaᵢ²,
 # and onto a halfspace the same step when x violates the inequality
@@ -226,7 +258,7 @@ function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, γ::AbstractArr
   y .= shrink.(x, γ .* ν)
 end
 
-value_and_prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndHyperslab, IndSimplex, IndBallL1}, x::AbstractArray, γ::AbstractArray) =
+value_and_prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndHyperslab, IndSimplex, IndBallL1, IndIsotonic}, x::AbstractArray, γ::AbstractArray) =
   (prox!(y, f, x, γ); zero(_valtype(y)))
 
 # The level ν with Σᵢ max(uᵢ - γᵢν, 0) = r for uᵢ = h(xᵢ), by Newton's method

@@ -110,6 +110,125 @@ end
   check_traits(IndIsotonic(); proximable = true, convex = true)
 end
 
+# Weighted isotonic regression by the max-min formula in higher precision.
+function weighted_isotonic_reference(x, γ)
+  v = BigFloat.(x)
+  w = inv.(BigFloat.(γ))
+  BigFloat[maximum(minimum(sum(w[j:k] .* v[j:k]) / sum(w[j:k]) for k in i:length(x)) for j in 1:i) for i in eachindex(x)]
+end
+
+function check_isotonic_kkt(x, γ, θ, σ)
+  w = 1 ./ γ
+  tol = 1e-10 * sum(w .* abs.(x))
+  λ = 0.0
+  for k in eachindex(x)
+    λ += w[k] * (x[k] - θ[k])
+    @test σ * λ ≥ -tol
+    if k < length(x)
+      @test σ * (θ[k + 1] - θ[k]) ≥ 0
+    end
+    if k == length(x) || θ[k + 1] != θ[k]
+      @test abs(λ) ≤ tol
+    end
+  end
+end
+
+struct OffsetSteps{T} <: AbstractVector{T}
+  data::Vector{T}
+end
+Base.size(a::OffsetSteps) = size(a.data)
+Base.axes(a::OffsetSteps) = (0:length(a.data)-1,)
+Base.getindex(a::OffsetSteps, i::Int) = a.data[i + 1]
+
+@testset "weighted isotonic regression" begin
+  for decreasing in (false, true)
+    f = IndIsotonic(; decreasing)
+    σ = decreasing ? -1 : 1
+    reference(x, γ) = σ .* weighted_isotonic_reference(σ .* x, γ)
+    for n in (0, 1, 2, 7, 15)
+      x = randn(n)
+      γ = 10 .^ (4 .* rand(n) .- 2)
+      θ = prox(f, x, γ)
+      @test isapprox(θ, reference(x, γ); rtol = 1e-10)
+      check_isotonic_kkt(x, γ, θ, σ)
+      @test prox(f, x, 5 .* γ) ≈ θ
+      @test reinterpret(UInt64, prox(f, x, fill(0.3, n))) == reinterpret(UInt64, prox(f, x, 1.0))
+      z = copy(x)
+      @test prox!(z, f, z, γ) === z
+      @test z ≈ θ
+      y = similar(x)
+      @test value_and_prox!(y, f, x, γ) === 0.0
+      @test y ≈ θ
+    end
+    # Normalized weights preserve the projection across scales.
+    x = σ .* [2.0, 1.0]
+    for s in (1e-200, 1.0, 1e200)
+      @test prox(f, x, fill(s, 2)) == σ .* [1.5, 1.5]
+      @test isapprox(prox(f, x, [s, 2s]), reference(x, [s, 2s]); rtol = 1e-10)
+    end
+    for x in (σ .* [1.0, 2.0, 3.0], fill(1.3, 3), σ .* [1.0, 1.0, 2.0])
+      @test prox(f, x, [1/3, 2.0, 0.7]) == x
+    end
+    x = σ .* [3.0, 1.0, 1.0, 2.0]
+    γ = [0.3, 2.0, 0.5, 1.0]
+    θ = prox(f, x, γ)
+    @test isapprox(θ, reference(x, γ); rtol = 1e-10)
+    x2 = repeat(x; inner = 2)
+    @test prox(f, view(x2, 1:2:length(x2)), view(γ, :)) ≈ θ
+    @test prox(f, x2[1:2:end], γ) ≈ θ
+    y2 = similar(x2)
+    @test prox!(view(y2, 1:2:length(y2)), f, view(x2, 1:2:length(x2)), γ) ≈ θ
+    @test prox(f, x, reshape(γ, 2, 2)) ≈ θ
+    z32 = prox(f, Float32.(x), γ)
+    @test eltype(z32) == Float32
+    @test isapprox(z32, θ; rtol = 1e-5)
+    @test isapprox(prox(f, x, Float32.(γ)), θ; rtol = 1e-5)
+    @test prox(f, σ .* [2.0, 0.0], [1, 3]) ≈ σ .* [1.5, 1.5]
+
+    # Wrappers pass the diagonal metric to the underlying projection.
+    b, c = randn(4), randn(4)
+    @test prox(Scaled(f, 2.0), x, γ) ≈ θ
+    @test prox(Translate(f, b), x, γ) ≈ b .+ prox(f, x .- b, γ)
+    @test prox(Tilt(f, c), x, γ) ≈ prox(f, x .- γ .* c, γ)
+    y = prox(Conjugate(f), x, γ)
+    @test y ≈ x .- γ .* prox(f, x ./ γ, 1 ./ γ)
+    # The polar cone has zero sum and signed nonpositive tail sums.
+    tol = 1e-10 * sum(abs, x)
+    @test abs(sum(y)) ≤ tol
+    for k in eachindex(y)
+      @test σ * sum(y[k:end]) ≤ tol
+    end
+    r = (x .- y) ./ γ
+    @test all(σ .* diff(r) .≥ -tol)
+    @test abs(dot(r, y)) ≤ tol
+  end
+  @test prox(IndIsotonic(), [2.0, 0.0], [1.0, 3.0]) ≈ [1.5, 1.5]
+  check_isotonic_kkt([2.0, 0.0], [1.0, 3.0], [1.5, 1.5], 1)
+  check_isotonic_kkt([0.0, 2.0], [3.0, 1.0], [1.5, 1.5], -1)
+  @test prox(Conjugate(IndIsotonic()), [1.0, -1.0], ones(2)) ≈ [1.0, -1.0]
+  @test prox(Conjugate(IndIsotonic()), [-1.0, 1.0], ones(2)) ≈ zeros(2)
+  @test prox(IndIsotonic(), [2.0, 0.0], [1e10, 1e-10]) ≈ Float64.(weighted_isotonic_reference([2.0, 0.0], [1e10, 1e-10])) atol = 1e-15
+
+  f = IndIsotonic()
+  x = [2.0, 0.0]
+  y = fill(7.0, 2)
+  @test_throws DimensionMismatch prox!(y, f, x, ones(3))
+  @test_throws DimensionMismatch prox!(zeros(3), f, x, ones(2))
+  @test_throws MethodError prox!(zeros(2, 1), f, reshape(x, 2, 1), ones(2))
+  @test_throws ArgumentError prox!(y, f, x, OffsetSteps(ones(2)))
+  @test_throws ArgumentError prox!(OffsetSteps(copy(y)), f, x, ones(2))
+  @test_throws ArgumentError prox!(y, f, OffsetSteps(copy(x)), ones(2))
+  for bad in (0.0, -1.0, Inf, NaN), γ in ([bad, 1.0], [1.0, bad])
+    @test_throws ArgumentError("the steps of IndIsotonic must be positive and finite") prox!(y, f, x, γ)
+    @test y == fill(7.0, 2)
+    z = copy(x)
+    @test_throws ArgumentError("the steps of IndIsotonic must be positive and finite") prox!(z, f, z, γ)
+    @test z == x
+  end
+  @test_throws ArgumentError("the ratio of the largest to the smallest step of IndIsotonic is too large to represent") prox!(y, f, x, [floatmax(Float64), 1e-300])
+  @test y == fill(7.0, 2)
+end
+
 @testset "SLOPE" begin
   n = 10
   x = 2 .* randn(n)

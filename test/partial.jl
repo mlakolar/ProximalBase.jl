@@ -239,6 +239,14 @@ end
   g32 = IndPSD(partial = true)
   @test prox(g32, Float32.(Sm)) ≈ psd_proj(Float32.(Sm)) rtol = 1e-4
   @test g32.pws isa PB.PartialEigenWorkspace{Float32} && !usedfull(g32)
+  # inputs and outputs whose columns are not contiguous (issue #214)
+  for (h, Xh, P) in ((f, S, psd_rank_proj(S, 4)), (g, Sm, psd_proj(Sm)))
+    Xv = view(zeros(2n, n), 1:2:2n, :); Xv .= Xh
+    Yv = view(zeros(2n, n), 1:2:2n, :)
+    @test prox!(Yv, forget!(h), Xv, 1.0) ≈ P rtol = 1e-10
+    @test all(iszero, parent(Yv)[2:2:end, :])
+    @test !usedfull(h)
+  end
 end
 
 @testset "TracePSD, partial" begin

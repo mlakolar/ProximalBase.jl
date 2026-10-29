@@ -222,6 +222,7 @@ function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, �
     Y === X || copyto!(Y, X)
     return zero(T)
   end
+  all(isfinite, X) || (fill!(Y, T(NaN)); return T(NaN))
   c = convert(T, γ) * convert(T, f.λ)
   if f.partial
     pv = _partial_nuclear!(Y, f, X, c)
@@ -319,6 +320,7 @@ function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
     Y === X || copyto!(Y, X)
     return Y
   end
+  all(isfinite, X) || return fill!(Y, T(NaN))
   f.partial && _partial_rank!(Y, f, X, T) !== nothing && return Y
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
@@ -418,7 +420,7 @@ end
 function prox!(Y, f::IndStiefel, X, ::Real)
   _checkwrite(prox!, f, Y, X)
   m = _maximum_abs(X)
-  isfinite(m) || throw(ArgumentError("IndStiefel requires finite entries for projection"))
+  isfinite(m) || return fill!(Y, convert(eltype(Y), NaN))
   k = size(X, 2)
   k == 0 && return Y
   ws = _svd_workspace(f.ws, eltype(Y), size(X)...)
@@ -539,6 +541,7 @@ end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real)
   _checkwrite(prox!, f, Y, X)
+  all(isfinite, X) || return fill!(Y, convert(eltype(Y), NaN))
   if f.partial
     _partial_psd!(Y, f, X, zero(float(eltype(Y))), 0) === nothing || return Y
   end
@@ -547,6 +550,7 @@ end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
   _checkwrite(prox!, f, Y, X)
+  all(isfinite, X) || return fill!(Y, convert(eltype(Y), NaN))
   n = checksquare(X)
   f.rank >= n && return _project_psd!(Y, f, X)
   T = float(eltype(Y))
@@ -646,6 +650,7 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
+  all(isfinite, X) || (fill!(Y, T(NaN)); return T(NaN))
   c = convert(T, γ) * convert(T, f.λ)
   if f.partial
     pv = _partial_psd!(Y, f, X, c, 0, convert(T, f.λ))

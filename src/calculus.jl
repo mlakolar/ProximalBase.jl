@@ -806,9 +806,8 @@ inside wrappers, against the checks their own oracles run before writing.
 A failure during computation, a check that depends on the step (such as
 `MoreauEnvelope`'s sum of its parameter and step, or [`Conjugate`](@ref)'s
 finite result at a finite input), a user-defined function whose oracles reject
-an argument that its `check_parameters` accepts, or a check that depends on the
-values of the argument (such as a hyperslab's finite inputs, or whether a box's
-output lies inside an inner box) can still leave earlier blocks written.
+an argument that its `check_parameters` accepts can still leave earlier blocks
+written.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
@@ -850,9 +849,9 @@ _checkvalue(s::SeparableSum, x::Tuple) = (_checkparams(s, x); map(_checkvalue, s
 
 (s::SeparableSum)(x::Tuple) = (_checkparams(s, x); _value_at(sum(map((f, xk) -> f(xk), s.fs, x)), x))
 prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(prox!, s, y, x); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
+  (_checkwrite(prox!, s, y, x, γ); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
 value_and_prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(value_and_prox!, s, y, x); _value_at(sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)), y))
+  (_checkwrite(value_and_prox!, s, y, x, γ); _value_at(sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)), y))
 value_and_gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
   (_checkwrite(value_and_gradient!, s, g, x); _value_at(sum(map((f, gk, xk) -> value_and_gradient!(gk, f, xk), s.fs, g, x)), x))
 gradient!(g::Tuple, s::SeparableSum, x::Tuple) =

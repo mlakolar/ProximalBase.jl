@@ -411,8 +411,8 @@ For `k = 1` this is `λ maximum(x)`, and for `k = length(x)` it is `λ sum(x)`.
 
 Its proximal operator is `x - P_C(x)` for the capped simplex
 `C = {w : 0 ≤ wᵢ ≤ γλ, Σᵢ wᵢ = kγλ}`. Selection among its breakpoints finds
-the projection in O(n) expected time. Proximal inputs must be finite. Values
-and proximal operators use buffers that the function owns; give each thread
+the projection in O(n) expected time. Nonfinite proximal inputs give `NaN`
+in every output entry. Values and proximal operators use buffers that the function owns; give each thread
 its own `deepcopy`. Values have the argument's floating-point type, and
 [`value_and_prox!`](@ref) returns a value in the output's precision.
 """
@@ -602,7 +602,7 @@ function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val)
   n = length(x)
   v = _buffer!(f.vals, S, n)
   @inbounds for (i, xi) in enumerate(x)
-    isfinite(xi) || throw(ArgumentError("SumLargest proximal inputs must be finite"))
+    isfinite(xi) || return fill!(y, T(NaN))
     v[i] = xi
   end
   if iszero(λ)

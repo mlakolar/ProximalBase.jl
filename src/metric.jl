@@ -212,7 +212,6 @@ function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, γ::Abstract
   _checkparams(f, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)
-  _hyperslab_input(f, x)
   isempty(x) && return y
   g = _hyperslab_residual(f, x)
   iszero(g) && return (y === x ? y : copyto!(y, x))

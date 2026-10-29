@@ -347,11 +347,14 @@ original function when comparing full objective values.
 
 The dropped terms must be finite at zero, or at `-b` under `Translate`;
 otherwise every vector supported on `S` is infeasible, and `restrict` throws an
-`ArgumentError`. This rules out an [`IndBox`](@ref) with an excluded coordinate
-whose bounds exclude zero, an `IndBox` with scalar bounds that exclude zero, and
-[`NegLog`](@ref). A nonseparable `Translate` requires its translation to vanish
-outside `S`; otherwise restricting its underlying function would change more
-than a constant, and the operation throws.
+`ArgumentError`. So `restrict` of an [`IndBox`](@ref) throws when an excluded
+coordinate's bounds exclude zero. `restrict` of [`NegLog`](@ref), or of an
+`IndBox` with scalar bounds that exclude zero, throws for every `S`, even one
+that drops nothing, because it does not know the dimension. Wrappers that
+evaluate the dropped terms elsewhere, such as `Translate`, `MoreauEnvelope` and
+`SqrDistL2`, can still restrict these functions. A nonseparable `Translate`
+requires its translation to vanish outside `S`; otherwise restricting its
+underlying function would change more than a constant, and the operation throws.
 """
 function restrict end
 # the restriction without the check that the dropped terms are finite at zero,

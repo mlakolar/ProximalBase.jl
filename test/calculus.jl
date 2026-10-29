@@ -194,6 +194,13 @@ end
     @test agrees(t, restrict(t, [2]), [2], 2, (T[1], T[3]), 0)
     t = Translate(Constrained(NormL1(one(T)), box), T[-1.5, 0])
     @test agrees(t, restrict(t, [2]), [2], 2, (T[1], T[3]), T(1.5))
+    # forwarding wrappers under Translate, whose dropped coordinate is feasible
+    for (g, b, c) in ((Tilt(box, T[1, 1]), T[-1.5, 0], T(1.5)), (Regularize(box, one(T)), T[-1.5, 0], T(1.125)),
+                      (Precompose(box, T(2)), T[-0.75, 0], 0), (Precompose(box, T[2, 1]), T[-0.75, 0], 0))
+      t = Translate(g, b)
+      @test agrees(t, restrict(t, [2]), [2], 2, (T[1], T[3]), c)
+    end
+    @test_throws ArgumentError restrict(Translate(Precompose(box, T(2)), zeros(T, 2)), [2])
     # the zero-translation check of a nonseparable function still applies
     coupled = MoreauEnvelope(Translate(GroupNormL2(one(T), [1:2], T[1]), T[0, 1]), T(0.5))
     @test_throws ArgumentError restrict(coupled, [1])

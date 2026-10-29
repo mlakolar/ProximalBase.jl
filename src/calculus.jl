@@ -248,7 +248,10 @@ _check_translation_outside(t::Translate, excluded) =
 # restricted unchecked once they are known to be finite
 function restrict(t::Translate, S::AbstractVector{<:Integer})
   excluded = _excluded_coordinates(length(t.b), S)
-  isseparable(t.f) || (_check_translation_outside(t, excluded); return Translate(restrict(t.f, S), t.b[S]))
+  if !isseparable(t.f)
+    _check_translation_outside(t, excluded)
+    return Translate(restrict(t.f, S), t.b[S])
+  end
   if !isempty(excluded)
     # Dropping finite terms is harmless for minimization, but dropping an
     # infinite term would turn an infeasible supported problem into a feasible one.

@@ -352,8 +352,8 @@ bounds are scalars or arrays of the size of `x`, and may be infinite. Its
 proximal operator is the projection `clamp.(x, l, u)`. Array bounds are stored
 without copying; construct a new `IndBox` after changing them in place, since
 whether the box contains zero is computed at construction. [`restrict`](@ref)
-requires `0 ∈ [lᵢ, uᵢ]` for every coordinate outside `S`, and throws for scalar
-bounds that exclude zero.
+of the box itself requires `0 ∈ [lᵢ, uᵢ]` for every coordinate outside `S`, and
+throws for scalar bounds that exclude zero.
 """
 struct IndBox{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: SeparableFunction
   l::L

@@ -362,6 +362,33 @@ _rebuild(f::GroupSCAD, λ0, groups, w) = GroupSCAD(λ0, groups, w; a = f.a)
 _group_scalar(f::GroupMCP, ::Type{S}, k::Integer) where {S} = MCP{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
 _group_scalar(f::GroupSCAD, ::Type{S}, k::Integer) where {S} = SCAD{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
 
+function _check_group_coordinate(f::_RadialGroupPenalty, x::AtomIterate, k::Integer)
+  _checksamegroups(f, x)
+  checkbounds(x.groups, k)
+  _group_scalar(f, float(eltype(x)), k)
+end
+
+# Construct every scalar penalty that the kernel will use before it writes.
+function _check_group_scalars(f::_RadialGroupPenalty, ::Type{T}, groups, n::Int = length(groups)) where {T}
+  for a in 1:n
+    _group_scalar(f, T, groups[a])
+  end
+  true
+end
+_check_prox_group_scalars(f::_RadialGroupPenalty, ::Type{T}, y, x) where {T} =
+  _check_group_scalars(f, T, eachindex(f.groups))
+function _check_prox_group_scalars(f::_RadialGroupPenalty, ::Type{T}, y::AtomIterate, x::AtomIterate) where {T}
+  if _samelayout(f, x) && _samelayout(f, y)
+    return _check_group_scalars(f, T, x.active, x.nactive)
+  end
+  _check_group_scalars(f, T, eachindex(f.groups))
+end
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::_RadialGroupPenalty, y::AbstractArray, x::AbstractArray)
+  _checksize(y, x)
+  _checkgroups(f, x)
+  _check_prox_group_scalars(f, float(eltype(y)), y, x)
+end
+
 _group_norm(::_RadialGroupPenalty, x, G) = _group_norm2(x, G)
 _dual_norm(::_RadialGroupPenalty, g, G) = _group_norm2(g, G)
 
@@ -408,6 +435,7 @@ function _value_and_prox_groups!(y::AbstractArray, f::_RadialGroupPenalty, x::Ab
   _checkgroups(f, x)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
+  _check_group_scalars(f, T, eachindex(f.groups))
   _copy_ungrouped!(y, f, x)
   v = zero(T)
   for k in eachindex(f.groups)
@@ -428,6 +456,7 @@ function _value_and_prox_groups!(y::AtomIterate, f::_RadialGroupPenalty, x::Atom
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, _RadialGroupPenalty, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
+  _check_group_scalars(f, T, x.active, x.nactive)
   copyto!(y, x)
   v = zero(T)
   for a in 1:y.nactive
@@ -442,9 +471,8 @@ end
 # group k of x through the proximal operator in place; the group becomes active
 # if it is nonzero, as after writing to it through atom(x, k)
 function prox_coordinate!(x::AtomIterate, f::_RadialGroupPenalty, k::Integer, γ::Real)
-  _checksamegroups(f, x)
+  p = _check_group_coordinate(f, x, k)
   T = float(eltype(x))
-  p = _group_scalar(f, T, k)
   if iszero(p.λ)
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
     return atom(x, k)

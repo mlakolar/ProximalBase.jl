@@ -661,8 +661,12 @@ end
 
 # value_and_gradient!, gradient! and hessian_vec! are products and broadcasts,
 # and run as they are; the proximal operator needs the SVD of X
-ProximalBase.prox!(::AbstractVecOrMat, ::_DeviceLeastSquares, ::AbstractVecOrMat, ::Real) =
+_reject_device_leastsquares() =
   throw(ArgumentError("the proximal operator of LeastSquaresLoss uses the SVD of X, by LAPACK, and runs on the CPU only"))
+ProximalBase.prox!(::AbstractVecOrMat, ::_DeviceLeastSquares, ::AbstractVecOrMat, ::Real) =
+  _reject_device_leastsquares()
+ProximalBase._checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::_DeviceLeastSquares,
+                        ::AbstractVecOrMat, ::AbstractVecOrMat) = _reject_device_leastsquares()
 
 # wᵢ ℓ(ηᵢ, yᵢ) and wᵢ ℓ'(ηᵢ, yᵢ) in type T, as the loops of the CPU compute them
 struct _ObsValue{T, L}

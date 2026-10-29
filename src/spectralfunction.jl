@@ -21,6 +21,8 @@ order of the entries. Its proximal operator acts on the eigenvalues: for
   sum of the `k` largest eigenvalues, the support function of the Fantope;
 - `Spectral(IndBox(l, u))` is the indicator of the matrices with eigenvalues in
   `[l, u]`;
+- `Spectral(IndBinary(0, 1))` is the indicator of the orthogonal projection
+  matrices, whose eigenvalues are zero or one;
 - `Spectral(IndSimplex(1))` is the indicator of the density matrices,
   `{X ⪰ 0 : tr(X) = 1}`;
 - `Spectral(NormL1(λ))` is `λ` times the trace norm, the nuclear norm of a
@@ -141,6 +143,7 @@ _ispermutationinvariant(::Union{ZeroFunction, NormL0, MCP, SCAD, IndNonnegative,
 _ispermutationinvariant(::Union{NormL1{<:Real, Nothing}, NormL1Nonneg{<:Real, Nothing},
                                 ElasticNet{<:Real, Nothing}, SqrNormL2{<:Real, Nothing}}) = true
 _ispermutationinvariant(::IndBox{<:Real, <:Real}) = true
+_ispermutationinvariant(::IndBinary{<:Real, <:Real}) = true
 _ispermutationinvariant(::Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}) = true
 _ispermutationinvariant(s::Union{Scaled, Conjugate}) = _ispermutationinvariant(s.f)
 _ispermutationinvariant(c::BoxConstrained) = _ispermutationinvariant(c.f) && _ispermutationinvariant(c.box)

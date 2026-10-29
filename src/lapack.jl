@@ -11,6 +11,12 @@
 
 const _BlasReal = Union{Float32, Float64}
 
+# Match factory dispatch before a block sum writes an earlier block.
+@inline function _checkworkspace(factory::F, cache, ::Type{T}, dims::Vararg{Integer, N}) where {F, T, N}
+  T <: _BlasReal || throw(MethodError(factory, (cache, T, dims...)))
+  true
+end
+
 ####################################
 #  Symmetric eigendecomposition, all eigenpairs (divide and conquer, syevd)
 ####################################

@@ -26,6 +26,27 @@ elseif isdefined(SparseArrays, :AbstractSparseMatrixCSC)
 else
   const _SparseDotCSC = SparseMatrixCSC
 end
+# Mixed sparse wrappers check shapes only when SparseArrays specializes dot.
+@static if isdefined(SparseArrays, :SparseMatrixCSCOrColumnSubset)
+  const _SparseMixedDotChecksSize =
+    which(dot, Tuple{Adjoint{Float64, SparseMatrixCSC{Float64, Int}},
+                     Transpose{Float64, SparseMatrixCSC{Float64, Int}}}).module === SparseArrays &&
+    which(dot, Tuple{Transpose{Float64, SparseMatrixCSC{Float64, Int}},
+                     Adjoint{Float64, SparseMatrixCSC{Float64, Int}}}).module === SparseArrays
+else
+  const _SparseMixedDotChecksSize = false
+end
+const _SparseDotWrappedCSC = Union{Adjoint{<:Any, <:_SparseDotCSC}, Transpose{<:Any, <:_SparseDotCSC}}
+# Column-subset parents gained the transposed sparse dot family later than CSC.
+@static if isdefined(SparseArrays, :SparseMatrixCSCColumnSubset)
+  const _SparseWrappedColumnDotChecksSize =
+    which(dot, Tuple{Adjoint{Float64, SparseArrays.SparseMatrixCSCColumnSubset{Float64, Int}},
+                     SparseMatrixCSC{Float64, Int}}).module === SparseArrays &&
+    which(dot, Tuple{SparseMatrixCSC{Float64, Int},
+                     Adjoint{Float64, SparseArrays.SparseMatrixCSCColumnSubset{Float64, Int}}}).module === SparseArrays
+else
+  const _SparseWrappedColumnDotChecksSize = false
+end
 @static if isdefined(SparseArrays, :SparseMatrixCSCOrView)
   const _SparseMatrixCSCOrView = SparseArrays.SparseMatrixCSCOrView
 end

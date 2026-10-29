@@ -167,6 +167,10 @@ This calls `Pkg.test()` with array bounds checking enabled. Julia prepares
 an environment containing ProximalBase and its test dependencies automatically.
 There is no need to run `scripts/instantiate.jl` first.
 
+Test files run in parallel worker processes. Extra arguments list tests, select a subset,
+or set the workers: `julia scripts/test.jl --list`, `julia scripts/test.jl lapack caches`,
+or `julia scripts/test.jl --jobs=2`. The same arguments work through `Pkg.test(; test_args=...)`.
+
 To build the documentation or run benchmarks, use `scripts/instantiate.jl`
 to install the tools for that task and select your local ProximalBase code.
 For example, `julia scripts/instantiate.jl docs` sets up the documentation

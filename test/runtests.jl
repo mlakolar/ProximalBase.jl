@@ -1,84 +1,17 @@
-using Test
+using ProximalBase
+using ParallelTestRunner
 
-include("testutils.jl")
-
-tests = [
-  "utils",
-  "lapack",
-  "compat",
-  "partial",
-  "sparse_iterate",
-  "symmetric_writes",
-  "symmetric_parameters",
-  "iterate_queries",
-  "atom_iterate",
-  "symmetric_products",
-  "interface",
-  "precision",
-  "precision_mixed",
-  "smooth",
-  "separable",
-  "binary",
-  "losses",
-  "sqrhinge",
-  "entropy",
-  "bernoulli",
-  "norms",
-  "cubenorm",
-  "sparsegroup",
-  "fibers",
-  "spectral",
-  "stiefel",
-  "singular",
-  "intersection",
-  "sets",
-  "soc",
-  "rotatedsoc",
-  "expcone",
-  "hyperslab",
-  "extreme_normals",
-  "large_inputs",
-  "spectral_overflow",
-  "spectral_domain",
-  "ordered",
-  "sumlargest",
-  "nonconvex",
-  "lla",
-  "infinite_weights",
-  "matrixsets",
-  "affine",
-  "polyhedron",
-  "graph",
-  "calculus",
-  "blockchecks",
-  "blockchecks_wrappers",
-  "constrained",
-  "spectralfunction",
-  "ballconstrained",
-  "constrained_nonconvex",
-  "testing",
-  "second_order",
-  "envelope",
-  "distance",
-  "distl2",
-  "composition",
-  "image",
-  "precompose_array",
-  "minimum",
-  "caches",
-  "metric",
-  "allocations",
-  "gpu",
-  "deprecated",
-  "examples",
-  "readme",
-  "docstrings",
-  "aqua"
-]
-
-for t in tests
-  f = "$t.jl"
-  println("* running $f ...")
-  t = @elapsed include(f)
-  println("done (took $t seconds).")
+testsuite = find_tests(@__DIR__)
+# Exclude helpers and suites with their own environments; new tests are picked up automatically.
+filter!(testsuite) do (name, _)
+  name ∉ ("testutils", "gpu_suite") && !startswith(name, "cuda/") && !startswith(name, "oracles/")
 end
+
+init_code = quote
+  include(joinpath(@__DIR__, "testutils.jl"))
+end
+
+serial = ["allocations", "large_inputs"]
+serial_position = :after
+
+runtests(ProximalBase, ARGS; testsuite, init_code, serial, serial_position)

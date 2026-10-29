@@ -50,6 +50,8 @@ jobs:
           - version: '1'
             os: macos-latest
             arch: aarch64
+            # The free-memory default gives one worker on the macOS runner.
+            ptr_jobs: '2'
           - version: '1'
             os: windows-latest
             arch: x64
@@ -69,6 +71,7 @@ jobs:
         run: julia --color=yes scripts/test.jl
         env:
           JULIA_TEST_COVERAGE: "${{ matrix.version == '1' && matrix.os == 'ubuntu-latest' }}"
+          PTR_NUM_JOBS: ${{ matrix.ptr_jobs }}
       - uses: julia-actions/julia-processcoverage@v1
         if: matrix.version == '1' && matrix.os == 'ubuntu-latest'
       - uses: codecov/codecov-action@v7

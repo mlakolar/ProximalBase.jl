@@ -119,7 +119,8 @@ The function `f(x) + ⟨c, x⟩ + d`, with the roles of `f`. Its proximal operat
 is that of `f` at `x - γc`, and its gradient `∇f + c`. The linear terms of
 augmented Lagrangians and of duality take this form.
 The proximal operator passes `x - γc` to `f` in a buffer that the function owns,
-so do not share one object between threads; when `f` throws, the output is unchanged.
+so do not share one object between threads; when `f` throws, the output is unchanged,
+except for a `SparseIterate` or `SymmetricSparseIterate` output.
 """
 struct Tilt{F<:AbstractFunction, C<:AbstractArray, D<:Real} <: AbstractFunction
   f::F
@@ -127,6 +128,7 @@ struct Tilt{F<:AbstractFunction, C<:AbstractArray, D<:Real} <: AbstractFunction
   d::D
   scratch::Scratch
 end
+Tilt{F, C, D}(f::F, c::C, d::D) where {F<:AbstractFunction, C<:AbstractArray, D<:Real} = Tilt{F, C, D}(f, c, d, Scratch())
 Tilt(f::AbstractFunction, c::AbstractArray, d::Real) = Tilt(f, c, d, Scratch())
 Tilt(f::AbstractFunction, c::AbstractArray) = Tilt(f, c, zero(float(eltype(c))))
 
@@ -186,7 +188,8 @@ its proximal operator `b + prox_{γf}(x - b)`. For example, `Translate(NormL1(λ
 is the penalty `λ ‖β - β₀‖₁` that shrinks towards `β₀`.
 Values and gradients use a shifted buffer in the argument's precision, and the
 proximal operator one in the output's, so do not share one object between threads;
-when `f` throws, the output is unchanged.
+when `f` throws, the output is unchanged, except for a `SparseIterate` or
+`SymmetricSparseIterate` output.
 """
 struct Translate{F<:AbstractFunction, B<:AbstractArray} <: AbstractFunction
   f::F
@@ -194,6 +197,7 @@ struct Translate{F<:AbstractFunction, B<:AbstractArray} <: AbstractFunction
   scratch::Scratch
   proxscratch::Scratch
 end
+Translate{F, B}(f::F, b::B) where {F<:AbstractFunction, B<:AbstractArray} = Translate{F, B}(f, b, Scratch(), Scratch())
 Translate(f::AbstractFunction, b::AbstractArray) = Translate(f, b, Scratch(), Scratch())
 
 for trait in (:issmooth, :isproximable, :isseparable, :isconvex)

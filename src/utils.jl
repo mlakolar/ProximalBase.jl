@@ -93,7 +93,30 @@ end
 # for a dense output on the CPU and similar(y) for other dense arrays, such as GPU
 # arrays, reused while their type and size do not change; and otherwise a copy of
 # y, which writing leaves as it would leave y, such as the active groups of an AtomIterate.
+# Without a Scratch (a function adapted to the device), the input is written in y.
 _output_buffer!(s::Scratch, y::Union{Array, SubArray{<:Any, <:Any, <:Array}}) = _array_buffer!(s, eltype(y), size(y))
+_output_buffer!(::Nothing, y::AbstractArray) = y
+
+# A view of an Array whose indices shift to start at 1 keeping their types gets
+# a view of the same type into an owned Array, so that f sees the same layout;
+# a view with other indices, such as a vector of indices, gets an Array.
+const _ShiftableIndex = Union{Int, UnitRange{Int}, StepRange{Int, Int}, Base.Slice{Base.OneTo{Int}}, Base.OneTo{Int}}
+function _output_buffer!(s::Scratch, y::SubArray{T, N, Array{T, M}, I}) where {T, N, M, I<:NTuple{M, _ShiftableIndex}}
+  shifted = map(_shifted_index, y.indices)
+  P = _array_buffer!(s, T, map(last, shifted))
+  view(P, map(first, shifted)...)
+end
+
+# an index shifted to start at 1, and the extent of the parent dimension that it spans
+_shifted_index(i::Int) = (1, 1)
+_shifted_index(r::UnitRange{Int}) = (1:length(r), length(r))
+_shifted_index(r::Union{Base.Slice{Base.OneTo{Int}}, Base.OneTo{Int}}) = (r, length(r))
+function _shifted_index(r::StepRange{Int, Int})
+  s = step(r)
+  isempty(r) && return (StepRange(1, s, s > 0 ? 0 : 2), 0)
+  lo = min(first(r), last(r))
+  (StepRange(first(r) - lo + 1, s, last(r) - lo + 1), abs(last(r) - first(r)) + 1)
+end
 function _output_buffer!(s::Scratch, y::A) where {A<:DenseArray}
   b = s.buf
   b isa A && size(b) == size(y) && return b

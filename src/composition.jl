@@ -439,19 +439,23 @@ group norm updates a group. `Regularize(NormL1(λ), ρ)` is `ElasticNet(λ, ρ)`
 `Regularize(NuclearNorm(λ), ρ)` the matrix elastic net, and with a center `c`
 it is the strongly convex subproblem of proximal-point methods. The proximal
 operator passes the shrunk point to `f` in a buffer that the function owns, so do
-not share one object between threads; when `f` throws, the output is unchanged.
+not share one object between threads; when `f` throws, the output is unchanged,
+except for a `SparseIterate` or `SymmetricSparseIterate` output. A copy made for
+the device by `Adapt.adapt` has no buffer and writes the output before calling `f`.
 """
-struct Regularize{F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}} <: AbstractFunction
+struct Regularize{F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}, S<:Union{Nothing, Scratch}} <: AbstractFunction
   f::F
   ρ::T
   c::C
-  scratch::Scratch
+  scratch::S      # nothing on the device, where f must be a bits type
 
-  function Regularize{F, T, C}(f::F, ρ::T, c::C) where {F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}}
+  function Regularize{F, T, C, S}(f::F, ρ::T, c::C, scratch::S) where {F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}, S<:Union{Nothing, Scratch}}
     _checknonneg("ρ", ρ)
-    new{F, T, C}(f, ρ, c, Scratch())
+    new{F, T, C, S}(f, ρ, c, scratch)
   end
 end
+Regularize{F, T, C}(f::F, ρ::T, c::C) where {F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}} =
+  Regularize{F, T, C, Scratch}(f, ρ, c, Scratch())
 Regularize(f::AbstractFunction, ρ::Real, c::Union{Nothing, AbstractArray} = nothing) =
   Regularize{typeof(f), typeof(ρ), typeof(c)}(f, ρ, c)
 

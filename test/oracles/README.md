@@ -39,6 +39,7 @@ Coverage:
 - `Spectral(IndSimplex(1; equality=false))`: PSD trace ball.
 - `Spectral(Constrained(IndBox(0, 1), IndHyperplane(1, mass)))`:
   Fantope with trace 1 or 1.5.
+- `IndExpPrimal()` and `IndExpDual()`: exponential cone projections on triples.
 
 Every case checks the point from `value_and_prox!` and its returned **function
 value**, which excludes the quadratic term. It compares independently evaluated
@@ -72,7 +73,22 @@ separate from solver stopping tolerances. Per-case output reports statuses,
 objective and solution differences, and first-order residuals. The header
 records commit, working-tree status, seed and Julia/JuMP/Hypatia/MOI versions.
 
-These are independent numerical checks on small, moderately scaled real
+The exponential cone checks use `Xoshiro(1712026)` and 35 triples for each
+cone, at scales 0.1, 1 and 10. They include interior and face points, both
+sides of `s = 0`, `r = 0` and `t = 0`, large root parameters, and 20 random
+points. A rotated second-order cone represents the squared distance. The
+primal constraint uses `MOI.ExponentialCone()` in `(r,s,t)` order. The dual
+constraint maps `(u,v,w)` to `(-v,-u,e*w)` in that cone, independently of the
+package's projection algorithm. Objective, solution, feasibility, normalized
+stationarity and complementarity use the separate thresholds in the table
+above. The conic multiplier supplies the normal vector for stationarity;
+primal and polar inequalities are also checked directly on both solutions.
+These checks do not cover extreme magnitudes, underflow or Float32; the
+ordinary `test/expcone.jl` covers those with manufactured projections and
+independent Moreau checks. The historical results linked below predate these
+additional cone checks until a new validation run is recorded.
+
+These are independent numerical checks on small, moderately scaled triples and real
 symmetric matrices. They do not establish analytic guarantees, accuracy for
 ill-conditioned or large matrices, Float32 accuracy, or nonconvex rank
 constraints and penalties. The Fantope is a convex relaxation, including at

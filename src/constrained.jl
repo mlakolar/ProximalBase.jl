@@ -11,7 +11,8 @@ The function `f(x)` on the set `C`, and `Inf` outside it, for a convex separable
 `f` and a set `C` that is
 
 - a box: [`IndBox`](@ref), [`IndNonnegative`](@ref) or [`IndBallLinf`](@ref);
-- a hyperplane or a halfspace: [`IndHyperplane`](@ref) or [`IndHalfspace`](@ref);
+- a hyperplane, halfspace or hyperslab: [`IndHyperplane`](@ref),
+  [`IndHalfspace`](@ref) or [`IndHyperslab`](@ref);
 - a simplex, [`IndSimplex`](@ref): the box `x ≥ 0` with the hyperplane
   `Σᵢ xᵢ = r`, or with the halfspace `Σᵢ xᵢ ≤ r`;
 - for a norm, an ℓ2 ball or sphere, [`IndBallL2`](@ref) or
@@ -36,8 +37,13 @@ in the tail of the entries, as for a simplex of radius 1, such a call takes
 about six passes and is 1.6 to 2.9 times faster. Do not share one function
 object between threads.
 
-On a box, a hyperplane, a halfspace or a simplex, `γ` may also be an array of
-steps, one per entry: the proximal operator in the metric of `Diagonal(1 ./ γ)`,
+On a hyperslab `l ≤ ⟨a, x⟩ ≤ u`, the multiplier is zero when the unconstrained
+proximal point lies between the bounds. Otherwise the same search meets the
+violated bound, with a negative multiplier at the lower bound and a positive
+one at the upper bound. A previous multiplier from the other side is discarded.
+
+On a box, a hyperplane, a halfspace, a hyperslab or a simplex, `γ` may also be
+an array of steps, one per entry: the proximal operator in the metric of `Diagonal(1 ./ γ)`,
 by the same search with `prox_{γᵢfᵢ}(xᵢ - γᵢνaᵢ)` in entry `i`. For example:
 
 - `Constrained(NormL1(λ), IndHyperplane(1, 0))` is the lasso penalty on
@@ -65,8 +71,8 @@ The caller must ensure that the set meets the domain of `f`. For a convex
 function on a box, the method clamps the unconstrained proximal point even
 when the intersection is empty. Neither that point nor the returned value
 certifies feasibility; `value_and_prox!` returns zero for an indicator even in
-this improper case. On a hyperplane or halfspace, the search throws an
-`ArgumentError` if it cannot bracket a multiplier. This is not a general test
+this improper case. On a hyperplane, halfspace or hyperslab, the search throws
+an `ArgumentError` if it cannot bracket a multiplier. This is not a general test
 for an empty intersection: rounding may put a point on the closure of an open
 domain, and a finite multiplier may not exist when the set meets only the
 boundary of a closed domain.
@@ -83,9 +89,9 @@ struct BoxConstrained{F<:AbstractFunction, B<:IndBox} <: AbstractFunction
 end
 BoxConstrained(f::AbstractFunction, box::IndBox) = BoxConstrained{typeof(f), typeof(box)}(f, box)
 
-# f on a hyperplane or a halfspace; the search for the multiplier starts where
+# f on a linear constraint; the search for the multiplier starts where
 # the last one ended
-struct LinearConstrained{F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspace}} <: AbstractFunction
+struct LinearConstrained{F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspace, IndHyperslab}} <: AbstractFunction
   f::F
   set::H
   last::Base.RefValue{Float64}      # the multiplier for the normalized constraint
@@ -93,10 +99,10 @@ struct LinearConstrained{F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspa
   scratch::Scratch                  # for the value of the conjugate
   live::NTuple{6, Scratch}          # the entries the search still evaluates: x, a, γ, index; bits; state
 
-  LinearConstrained{F, H}(f::F, set::H) where {F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspace}} =
+  LinearConstrained{F, H}(f::F, set::H) where {F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspace, IndHyperslab}} =
     (_check_constrainable(f); new{F, H}(f, set, Ref(NaN), Ref(NaN), Scratch(), ntuple(_ -> Scratch(), 6)))
 end
-LinearConstrained(f::AbstractFunction, set::Union{IndHyperplane, IndHalfspace}) =
+LinearConstrained(f::AbstractFunction, set::Union{IndHyperplane, IndHalfspace, IndHyperslab}) =
   LinearConstrained{typeof(f), typeof(set)}(f, set)
 
 @noinline function _check_constrainable(f)
@@ -118,14 +124,14 @@ _has_box_prox(::AbstractFunction) = false
 
 Constrained(f::AbstractFunction, C::IndBox) = BoxConstrained(f, C)
 Constrained(f::AbstractFunction, ::IndNonnegative) = BoxConstrained(f, IndBox(0.0, Inf))
-Constrained(f::AbstractFunction, C::Union{IndHyperplane, IndHalfspace}) = LinearConstrained(f, C)
+Constrained(f::AbstractFunction, C::Union{IndHyperplane, IndHalfspace, IndHyperslab}) = LinearConstrained(f, C)
 Constrained(f::AbstractFunction, C::IndSimplex) =
   LinearConstrained(Constrained(f, IndNonnegative()), C.equality ? IndHyperplane(1, C.r) : IndHalfspace(1, C.r))
 # a box goes under the linear constraint, where the function stays separable
 Constrained(c::LinearConstrained, C::IndBox) = LinearConstrained(Constrained(c.f, C), c.set)
 Constrained(c::LinearConstrained, C::IndNonnegative) = LinearConstrained(Constrained(c.f, C), c.set)
 Constrained(::AbstractFunction, C::AbstractFunction) =
-  throw(ArgumentError("Constrained takes a box, a hyperplane, a halfspace, a simplex, an ℓ2 ball, an ℓ2 sphere or an affine set, not $(nameof(typeof(C)))"))
+  throw(ArgumentError("Constrained takes a box, a hyperplane, a halfspace, a hyperslab, a simplex, an ℓ2 ball, an ℓ2 sphere or an affine set, not $(nameof(typeof(C)))"))
 
 isproximable(::Type{<:Union{BoxConstrained, LinearConstrained}}) = true
 isconvex(::Type{<:LinearConstrained}) = true
@@ -159,7 +165,7 @@ function _value_and_prox_box!(y, c, x, γ)
 end
 
 _checkparams(c::BoxConstrained, x) = (_checkparams(c.f, x); _checkparams(c.box, x); true)
-function _checkwrite(op::O, c::Union{BoxConstrained, LinearConstrained}, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checksize(y, x)
   _checkparams(c, x)
   op === value_and_prox! && !_isindicator(c) && _checkvalue(c.f, y)
@@ -182,12 +188,19 @@ end
 restrict(c::BoxConstrained, S::AbstractVector{<:Integer}) = BoxConstrained(restrict(c.f, S), restrict(c.box, S))
 
 ####################################
-#  on a hyperplane or a halfspace
+#  on a hyperplane, halfspace or hyperslab
 ####################################
 
-(c::LinearConstrained)(x::AbstractArray) = (T = float(eltype(x)); iszero(c.set(x)) ? convert(T, c.f(x)) : T(Inf))
+(c::LinearConstrained)(x::AbstractArray) = (_checkparams(c, x); T = float(eltype(x)); iszero(c.set(x)) ? convert(T, c.f(x)) : T(Inf))
 
 _checkparams(c::LinearConstrained, x) = (_checkparams(c.f, x); _checkparams(c.set, x); true)
+function _checkwrite(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checksize(y, x)
+  _checkparams(c, x)
+  c.set isa IndHyperslab && _checkwrite(op, c.set, y, x)
+  op === value_and_prox! && !_isindicator(c) && _checkvalue(c.f, y)
+  true
+end
 
 # γ is a scalar step, or an array of steps, one per entry: the proximal operator
 # in the metric of Diagonal(1 ./ γ), where z(ν) has the entries
@@ -202,6 +215,7 @@ function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::Ab
   T = float(eltype(y))
   ν = _multiplier(c, x, γ, T)
   set = c.set
+  set isa IndHyperslab && iszero(ν) && return _prox_sep!(y, c.f, x, γ)
   if _isscaled(set)
     return _linear_constrained_output!(y, c.f, _normalized_normal(set.a, set.s), x, γ, ν)
   end
@@ -229,12 +243,12 @@ end
 # error; with Val(true), also the slope of φ, -Σᵢ γᵢaᵢ² Pᵢ', where Pᵢ' is the
 # slope of the scalar proximal operator at its argument. c is the function, or
 # a named tuple with its f and set, as for the live entries of variable fixing.
-function _constraint_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ, v::Val = Val(false)) where {T}
+function _constraint_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ, b::Real, v::Val = Val(false)) where {T}
   set = c.set
   if _isscaled(set)
-    return _constraint_gap(c.f, _normalized_normal(set.a, set.s), _scaled_offset(set), x, ν, γ, v)
+    return _constraint_gap(c.f, _normalized_normal(set.a, set.s), b, x, ν, γ, v)
   end
-  _constraint_gap(c.f, set.a, set.b, x, ν, γ, v)
+  _constraint_gap(c.f, set.a, b, x, ν, γ, v)
 end
 _constraint_gap(c, x::AbstractArray, ν::T, γ, v::Val = Val(false)) where {T} =
   _constraint_gap(c.f, c.set.a, c.set.b, x, ν, γ, v)
@@ -256,13 +270,21 @@ function _constraint_gap(f, a, b, x::AbstractArray, ν::T, γ, ::Val{S}) where {
 end
 
 # Σᵢ γᵢaᵢ², the steepest slope of φ
-_metric_sqnorm(set::Union{IndHyperplane, IndHalfspace}, x::AbstractArray, γ::Real) = γ * _normal_sqnorm(set, x)
-function _metric_sqnorm(set::Union{IndHyperplane, IndHalfspace}, x::AbstractArray, γ::AbstractArray)
+_metric_sqnorm(set::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::AbstractArray, γ::Real) = γ * _normal_sqnorm(set, x)
+function _metric_sqnorm(set::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::AbstractArray, γ::AbstractArray)
   T = float(promote_type(eltype(γ), typeof(set.q)))
   set.a isa Real && return convert(T, set.q) * convert(T, sum(γ))
   _isscaled(set) && return _metric_sqnorm(_normalized_normal(set.a, set.s), γ, T)
   _metric_sqnorm(set.a, γ, T)
 end
+
+# Convert integer steps before summing, as for the products in the array pass.
+function _metric_sqnorm(set::IndHyperslab, x::AbstractArray, γ::AbstractArray{<:Integer})
+  T = float(promote_type(eltype(γ), typeof(set.q)))
+  set.a isa Real && return convert(T, set.q) * sum(T, γ)
+  _metric_sqnorm(_scaled_normal(set), γ, T)
+end
+
 function _metric_sqnorm(a::AbstractArray, γ::AbstractArray, ::Type{T}) where {T}
   s = zero(T)
   @inbounds for i in eachindex(IndexLinear(), γ)
@@ -279,12 +301,12 @@ const _MAX_SECANTS = 100
 
 # φ and the scale of its rounding error at ν, and its slope when the scalar
 # proximal operators of f have known slopes, NaN otherwise
-_gap_and_slope(c::LinearConstrained{F}, x::AbstractArray, ν::T, γ) where {F, T} =
-  _gap_and_slope(c, x, ν, γ, Val(_has_prox_slope(F)))
-_gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ, ::Val{true}) where {T} =
-  _constraint_gap(c, x, ν, γ, Val(true))
-_gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ, ::Val{false}) where {T} =
-  ((φ, m) = _constraint_gap(c, x, ν, γ); (φ, m, T(NaN)))
+_gap_and_slope(c::LinearConstrained{F}, x::AbstractArray, ν::T, γ, b) where {F, T} =
+  _gap_and_slope(c, x, ν, γ, b, Val(_has_prox_slope(F)))
+_gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, ::Val{true}) where {T} =
+  _constraint_gap(c, x, ν, γ, b, Val(true))
+_gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, ::Val{false}) where {T} =
+  ((φ, m) = _constraint_gap(c, x, ν, γ, b); (φ, m, T(NaN)))
 
 # The multiplier of the constraint, a root of φ, which is nonincreasing because
 # each prox_entry is nondecreasing in its argument; for a halfspace, 0 when the
@@ -292,9 +314,37 @@ _gap_and_slope(c::LinearConstrained, x::AbstractArray, ν::T, γ, ::Val{false}) 
 # multiplier of the last call, and from 0 at the first call or when that was
 # an inactive halfspace.
 function _multiplier(c::LinearConstrained, x::AbstractArray, γ, ::Type{T}) where {T}
+  c.set isa IndHyperslab && return _hyperslab_multiplier(c, x, γ, T)
   ν0 = convert(T, c.last[])
   warm = isfinite(ν0) && !(c.set isa IndHalfspace && !(ν0 > 0))
-  ν = _search(c, x, γ, warm ? ν0 : zero(T), warm)
+  ν = _search(c, x, γ, warm ? ν0 : zero(T), warm, _scaled_offset(c.set), c.set isa IndHalfspace ? 1 : 0)
+  c.last[] = ν
+  ν
+end
+
+# Keep the selected finite bound through every pass, including variable fixing.
+function _hyperslab_multiplier(c::LinearConstrained, x::AbstractArray, γ, ::Type{T}) where {T}
+  set = c.set
+  if isfinite(set.l)
+    b = _scaled_offset(set, set.l)
+    φ, _ = _constraint_gap(c, x, zero(T), γ, b)
+    φ < 0 && return _slab_multiplier(c, x, γ, T, b, -1)
+  end
+  if isfinite(set.u)
+    b = _scaled_offset(set, set.u)
+    φ, _ = _constraint_gap(c, x, zero(T), γ, b)
+    φ > 0 && return _slab_multiplier(c, x, γ, T, b, 1)
+  end
+  c.last[] = 0
+  c.slope[] = NaN
+  zero(T)
+end
+
+function _slab_multiplier(c, x, γ, ::Type{T}, b, side) where {T}
+  ν0 = convert(T, c.last[])
+  warm = isfinite(ν0) && side * ν0 > 0
+  warm || (c.slope[] = NaN)
+  ν = _search(c, x, γ, warm ? ν0 : zero(T), warm, b, side)
   c.last[] = ν
   ν
 end
@@ -311,34 +361,34 @@ end
 # points, which passes the root when that secant predicts it well, or twice the
 # last step where φ is flat. Regula falsi with the Illinois rule then shrinks
 # the bracket; it is exact once both ends lie on one linear piece of φ.
-_search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool) where {T} =
-  warm || length(x) < _FIX_NMIN ? _search(c, x, γ, start, warm, nothing) : _search(c, x, γ, start, false, _live(c, x, T))
+_search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool, b, side) where {T} =
+  warm || length(x) < _FIX_NMIN ? _search(c, x, γ, start, warm, b, side, nothing) : _search(c, x, γ, start, false, b, side, _live(c, x, T))
 
-function _search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool, L) where {T}
-  φs, ms, dφ = warm ? _gap_and_slope(c, x, start, γ) : (_constraint_gap(c, x, start, γ)..., T(NaN))
+function _search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool, b, side, L) where {T}
+  φs, ms, dφ = warm ? _gap_and_slope(c, x, start, γ, b) : (_constraint_gap(c, x, start, γ, b)..., T(NaN))
   abs(φs) <= 2eps(T) * ms && return start
-  if c.set isa IndHalfspace && φs < 0
+  if side != 0 && side * φs < 0
     iszero(start) && return zero(T)                           # the constraint is inactive
-    # the root lies below the start, where the constraint may be inactive
-    φ0, m0 = _constraint_gap(c, x, zero(T), γ)
-    (φ0 <= 0 || abs(φ0) <= 2eps(T) * m0) && return zero(T)
-    return _refine(c, x, γ, zero(T), φ0, start, φs, nothing)
+    # Check zero when the root lies between it and the previous multiplier.
+    φ0, m0 = _constraint_gap(c, x, zero(T), γ, b)
+    (side * φ0 <= 0 || abs(φ0) <= 2eps(T) * m0) && return zero(T)
+    return _refine(c, x, γ, b, zero(T), φ0, start, φs, nothing)
   end
   a2 = convert(T, _metric_sqnorm(c.set, x, γ))
   step = abs(φs) / a2
   L = _seen(L, start, φs, a2)
   σ = dφ < 0 ? dφ : (warm ? convert(T, c.slope[]) : T(NaN))
   σ < 0 && (step = max(step, abs(φs) / -σ))
-  _bracket_and_refine(c, x, γ, start, φs, step, L)
+  _bracket_and_refine(c, x, γ, b, start, φs, step, L)
 end
 
-function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, ν0::T, φ0::T, step::T, L) where {T}
+function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, b, ν0::T, φ0::T, step::T, L) where {T}
   dir = φ0 > 0 ? one(T) : -one(T)
   lo, φlo = ν0, φ0                          # φlo has the sign of φ(ν₀), φhi the other
   hi, φhi = lo, φlo
   for k in 1:_MAX_BRACKET_STEPS
     hi = lo + dir * step
-    φhi, mhi, L = _gap!(c, x, hi, γ, L)
+    φhi, mhi, L = _gap!(c, x, hi, γ, b, L)
     if abs(φhi) <= 2eps(T) * mhi
       c.slope[] = (φhi - φlo) / (hi - lo)
       return hi
@@ -351,19 +401,19 @@ function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, ν0::T,
   end
   # regula falsi passes over the live entries once some are fixed, and searches
   # as before otherwise
-  L isa Base.RefValue && L[].compact && return _refine(c, x, γ, lo, φlo, hi, φhi, L)
-  _refine(c, x, γ, lo, φlo, hi, φhi, nothing)
+  L isa Base.RefValue && L[].compact && return _refine(c, x, γ, b, lo, φlo, hi, φhi, L)
+  _refine(c, x, γ, b, lo, φlo, hi, φhi, nothing)
 end
 
 # regula falsi with the Illinois rule on the bracket [lo, hi], where φlo and φhi
 # have opposite signs; keeps the slope of the last secant for the next call
-function _refine(c::LinearConstrained, x::AbstractArray, γ, lo::T, φlo::T, hi::T, φhi::T, L) where {T}
+function _refine(c::LinearConstrained, x::AbstractArray, γ, b, lo::T, φlo::T, hi::T, φhi::T, L) where {T}
   best, φbest = abs(φlo) < abs(φhi) ? (lo, φlo) : (hi, φhi)
   νp, φp = hi, φhi                          # the last point evaluated, for the slope
   side = 0                                  # which end the last step kept
   for _ in 1:_MAX_SECANTS
     ν = (lo * φhi - hi * φlo) / (φhi - φlo)
-    φν, mν, L = _gap!(c, x, ν, γ, L, Val(false))
+    φν, mν, L = _gap!(c, x, ν, γ, b, L, Val(false))
     ν != νp && (c.slope[] = (φν - φp) / (ν - νp))
     νp, φp = ν, φν
     abs(φν) < abs(φbest) && ((best, φbest) = (ν, φν))
@@ -453,15 +503,15 @@ end
 # φ, the scale of its rounding error, and the state; with Val(true), the point
 # may fix entries, as while the search brackets the root: regula falsi then
 # passes over the entries left live
-@inline _gap!(c::LinearConstrained, x::AbstractArray, ν::T, γ, ::Nothing, ::Val = Val(true)) where {T} =
-  (_constraint_gap(c, x, ν, γ)..., nothing)
-@inline _gap!(c::LinearConstrained, x::AbstractArray, ν::T, γ, R::Base.RefValue{_Live{T}}, fix::Val = Val(true)) where {T} =
-  (_fixing_gap!(c, x, ν, γ, R, fix)..., R)
+@inline _gap!(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, ::Nothing, ::Val = Val(true)) where {T} =
+  (_constraint_gap(c, x, ν, γ, b)..., nothing)
+@inline _gap!(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, R::Base.RefValue{_Live{T}}, fix::Val = Val(true)) where {T} =
+  (_fixing_gap!(c, x, ν, γ, b, R, fix)..., R)
 
 # A call, so that the loop of the pass keeps the registers that the state of
 # the search would take
-@noinline function _fixing_gap!(c::LinearConstrained, x::AbstractArray, ν::T, γ, R::Base.RefValue{_Live{T}}, ::Val{F}) where {T, F}
-  φ, M = R[].compact ? _live_gap(c, x, ν, γ, R[]) : _constraint_gap(c, x, ν, γ)
+@noinline function _fixing_gap!(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, R::Base.RefValue{_Live{T}}, ::Val{F}) where {T, F}
+  φ, M = R[].compact ? _live_gap(c, x, ν, γ, b, R[]) : _constraint_gap(c, x, ν, γ, b)
   F && _note!(c, x, ν, γ, R, φ, M)
   φ, M
 end
@@ -481,9 +531,9 @@ end
 end
 
 # φ and the scale of its rounding error, from the live entries in the buffers
-@noinline function _live_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ, L::_Live{T}) where {T}
+@noinline function _live_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, L::_Live{T}) where {T}
   X, A, G, I = _live_buffers(c, x, γ, T)
-  φ, M = _live_pass(c.f, _scaled_offset(c.set), X, A, G, I, L.n, ν)
+  φ, M = _live_pass(c.f, b, X, A, G, I, L.n, ν)
   φ + L.s, M + L.m
 end
 
@@ -679,16 +729,24 @@ end
 # Σᵢ wᵢ ≤ κ, it is the same sum of the positive parts. For the capped simplex it
 # is the sum of the k largest entries, and with the halfspace on the singular
 # values the Ky Fan k-norm.
-function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}},
+_constant_normal(a::Real) = a
+function _constant_normal(a::AbstractArray)
+  isempty(a) && return nothing
+  v = first(a)
+  all(==(v), a) ? v : nothing
+end
+
+function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane, IndHalfspace}},
                           y::AbstractArray)
   _checkconjugate(c, y)
   T = float(eltype(y))
   box, set = c.f, c.set
+  a = _constant_normal(set.a)
   n = length(y)
-  upper = set isa IndHyperplane || set.a > 0
+  upper = set isa IndHyperplane || a > 0
   s = upper ? one(T) : -one(T)
   l, u = upper ? (convert(T, box.l), convert(T, box.u)) : (-convert(T, box.u), -convert(T, box.l))
-  β = _isscaled(set) ? s * convert(T, set.b / float(set.a)) : s * convert(T, set.b) / convert(T, set.a)
+  β = _isscaled(set) ? s * convert(T, set.b / float(a)) : s * convert(T, set.b) / convert(T, a)
   v = _buffer!(c.scratch, T, n)
   total = zero(T)
   @inbounds for (i, yi) in enumerate(y)
@@ -702,24 +760,28 @@ function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union
   return l * total + (u - l) * _top_sum!(view(v, 1:n), κ)
 end
 
-function _checkconjugate(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}}, y::AbstractArray)
+# the checks of the conjugate value above, before it computes
+function _checkconjugate(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane, IndHalfspace}}, y::AbstractArray)
+  _checkparams(c, y)
   T = float(eltype(y))
   box, set = c.f, c.set
+  a = _constant_normal(set.a)
+  a === nothing && throw(ArgumentError("the value of the conjugate of a box with a linear constraint needs a constant normal"))
   n = length(y)
-  upper = set isa IndHyperplane || set.a > 0
+  upper = set isa IndHyperplane || a > 0
   s = upper ? one(T) : -one(T)
   l, u = upper ? (convert(T, box.l), convert(T, box.u)) : (-convert(T, box.u), -convert(T, box.l))
   isfinite(l) && isfinite(u) ||
     throw(ArgumentError("the value of the conjugate of Constrained(IndBox(l, u), $(nameof(typeof(set)))(a, b)) needs finite bounds"))
-  β = _isscaled(set) ? s * convert(T, set.b / float(set.a)) : s * convert(T, set.b) / convert(T, set.a)
+  β = _isscaled(set) ? s * convert(T, set.b / float(a)) : s * convert(T, set.b) / convert(T, a)
   slack = _tol(T) * max(one(T), abs(β), n * abs(l))
   m = β - n * l
   (m < -slack || (set isa IndHyperplane && m > n * (u - l) + slack)) && _infeasible(c)
   true
 end
 
-_has_conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}}}) =
-  isfinite(c.f.l) && isfinite(c.f.u)
+_has_conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane, IndHalfspace}}) =
+  isfinite(c.f.l) && isfinite(c.f.u) && _constant_normal(c.set.a) !== nothing
 
 # the sum of the ⌊κ⌋ largest entries of v and the fraction κ - ⌊κ⌋ of the next
 # one, for 0 ≤ κ ≤ length(v); reorders v

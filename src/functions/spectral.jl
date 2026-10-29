@@ -220,6 +220,104 @@ function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, ::Real)
 end
 
 ####################################
+#  orthonormal columns
+####################################
+
+"""
+    IndStiefel()
+
+The indicator of `St(p, k) = {X ∈ ℝ^{p×k} : XᵀX = I_k}`, for `k ≤ p`,
+nonconvex. Its proximal operator is the Frobenius projection `UVᵀ` from the
+thin SVD `X = UΣVᵀ`, independent of the step. For `k = p` this is the
+orthogonal group, including reflections. Use [`IndSphereL2`](@ref)`(1)` for
+vectors. Matrices with no columns belong to the set.
+
+The projection is unique at full column rank, but becomes sensitive as the
+smallest singular value approaches zero. At rank-deficient inputs it uses
+the orthonormal completion returned by LAPACK's SVD. This choice is
+deterministic for a given input, LAPACK backend and configuration, but need
+not be continuous across rank-deficient inputs.
+
+The value is `0` when `‖XᵀX - I‖_F ≤ sqrt(eps(T)) √k`, with
+`T = float(eltype(X))`, and `Inf` otherwise. This tolerance is not a
+feasibility certificate. Nonfinite entries give value `Inf`; projection
+throws an `ArgumentError` before writing the output. Arguments must be real
+matrices, and projection outputs must have element type `Float32` or
+`Float64`. Integer arguments are converted. Inputs are scaled before
+conversion to the output's precision, since positive scaling leaves the
+projection unchanged.
+
+The function owns its SVD and Gram buffers. Warmed calls to the value,
+[`prox!`](@ref) and [`value_and_prox!`](@ref) allocate nothing for dense
+`Float32` or `Float64` CPU matrices of fixed types and sizes, including
+proximal calls whose output is the input. A new size replaces the buffers;
+do not share one function object between threads.
+"""
+mutable struct IndStiefel <: AbstractFunction
+  ws::Any
+  input::Scratch
+  gram::Scratch
+end
+IndStiefel() = IndStiefel(nothing, Scratch(), Scratch())
+
+isproximable(::Type{IndStiefel}) = true
+_isindicator(::Type{IndStiefel}) = true
+
+function _checkparams(::IndStiefel, X)
+  X isa AbstractMatrix || throw(ArgumentError("IndStiefel requires a matrix"))
+  eltype(X) <: Real || throw(ArgumentError("IndStiefel requires real entries"))
+  p, k = size(X)
+  k <= p || throw(DimensionMismatch("IndStiefel requires k ≤ p, got $p × $k"))
+  true
+end
+
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndStiefel, Y, X)
+  _checkparams(f, X)
+  Y isa AbstractMatrix || throw(DimensionMismatch("the output must be a matrix"))
+  _checksize(Y, X)
+  T = eltype(Y)
+  T === Float32 || T === Float64 || throw(ArgumentError("IndStiefel requires a Float32 or Float64 output"))
+  true
+end
+
+function (f::IndStiefel)(X)
+  _checkparams(f, X)
+  T = float(eltype(X))
+  isfinite(_maximum_abs(X)) || return T(Inf)
+  k = size(X, 2)
+  k == 0 && return zero(T)
+  A = _array_buffer!(f.input, T, size(X))
+  copyto!(A, X)                       # convert integers before their products
+  G = _array_buffer!(f.gram, T, (k, k))
+  mul!(G, transpose(A), A)
+  @inbounds for j in 1:k
+    G[j, j] -= one(T)
+  end
+  _ind(_norm2(G) <= _tol(T) * sqrt(T(k)), T)
+end
+
+function prox!(Y, f::IndStiefel, X, ::Real)
+  _checkwrite(prox!, f, Y, X)
+  m = _maximum_abs(X)
+  isfinite(m) || throw(ArgumentError("IndStiefel requires finite entries for projection"))
+  k = size(X, 2)
+  k == 0 && return Y
+  ws = _svd_workspace(f.ws, eltype(Y), size(X)...)
+  f.ws = ws
+  if iszero(m)
+    fill!(ws.A, zero(eltype(Y)))
+  else
+    e = _magnitude_exponent(m)
+    # Scale before conversion so a narrower output keeps the input's direction.
+    @inbounds for i in eachindex(ws.A, X)
+      ws.A[i] = ldexp(float(X[i]), -e)
+    end
+  end
+  _, U, Vt = _svd!(ws)
+  _mul_lowrank!(Y, U, Vt, k, ws)
+end
+
+####################################
 #  positive semidefinite cone
 ####################################
 

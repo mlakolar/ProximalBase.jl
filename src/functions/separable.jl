@@ -358,7 +358,7 @@ _checkparams(f::ElasticNet, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::ElasticNet, v::Real, i::Integer)
   a = abs(v)
-  _weighted_value(_weight_coefficient(f.λ1, _entry(f.w, i)) * a, a) + f.λ2 * abs2(v) / 2
+  _weighted_value(_weight_coefficient(f.λ1, _entry(f.w, i)) * a, a) + _weighted_value(f.λ2 * abs2(v) / 2, abs2(v))
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
 _has_ordinary_value(::Type{<:ElasticNet}) = true

@@ -46,6 +46,7 @@ function LeastSquaresLoss(Y::AbstractVecOrMat, X::AbstractMatrix)
 end
 
 issmooth(::Type{<:LeastSquaresLoss}) = true
+_argument_type(::Type{<:LeastSquaresLoss}) = AbstractVecOrMat
 isproximable(::Type{<:LeastSquaresLoss}) = true
 isconvex(::Type{<:LeastSquaresLoss}) = true
 

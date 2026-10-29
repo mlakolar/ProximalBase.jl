@@ -22,6 +22,8 @@ feasibility certificate.
 | [`IndBallL2`](@ref)`(r)` | ``\lVert x\rVert_2 \le r`` | ``\min(1, r/\lVert v\rVert_2)\,v`` |
 | [`IndSOC`](@ref)`()` | ``\lVert x_{2:n}\rVert_2 \le x_1`` | closed form in the head and the tail norm |
 | [`IndRotatedSOC`](@ref)`()` | ``\lVert x_{3:n}\rVert_2^2 \le 2x_1x_2``, ``x_1,x_2 \ge 0`` | an orthogonal change of coordinates to the second-order cone |
+| [`IndExpPrimal`](@ref)`()` | ``\operatorname{cl}\{(r,s,t):s>0,\ s e^{r/s}\le t\}`` | a bracketed univariate root problem |
+| [`IndExpDual`](@ref)`()` | the dual exponential cone | Moreau decomposition with the primal cone |
 | [`IndSphereL2`](@ref)`(r)` | ``\lVert x\rVert_2 = r``, nonconvex | ``r\,v/\lVert v\rVert_2`` |
 | [`IndBallL1`](@ref)`(r)` | ``\lVert x\rVert_1 \le r`` | ``\operatorname{sign}(v)\odot P_{\Delta_r}(\lvert v\rvert)``, by Condat's algorithm |
 | [`IndSimplex`](@ref)`(r)` | ``x \ge 0,\ \sum_i x_i = r`` | ``\max(v - \tau, 0)`` |
@@ -33,6 +35,7 @@ feasibility certificate.
 | [`IndIsotonic`](@ref)`()` | ``x_1 \le x_2 \le \dots \le x_n`` | isotonic regression, by pool adjacent violators |
 | [`IndIntersection`](@ref)`(C₁, C₂, …)` | ``C_1 \cap C_2 \cap \cdots`` | Dykstra's algorithm, iterative |
 | [`IndAffine`](@ref)`(A, b)` | ``Ax = b`` | ``v - A^\top(AA^\top)^{-1}(Av - b)``, from a factorization cached at construction |
+| [`IndPolyhedron`](@ref)`(A, l, u, xmin, xmax)` | ``l \le Ax \le u,\ x_{\min} \le x \le x_{\max}`` | a dual active-set method, with a cached working set |
 | [`IndGraph`](@ref)`(A)` | ``y = Ax``, on pairs ``(x, y)`` | factor the smaller of ``I + A^\top A`` and ``I + AA^\top`` once |
 | [`IndPSD`](@ref)`()` | ``X \succeq 0`` | ``U\max(\Lambda, 0)U^\top`` |
 | [`IndPSD`](@ref)`(rank = r)` | ``X \succeq 0``, rank at most ``r`` | the ``r`` largest positive eigenpairs |
@@ -148,6 +151,44 @@ array. When the selection variables are uncoupled, minimizing
 [`Berhu`](@ref)`(2√(λ₀λ₂), √(λ₀/λ₂))`. With coupled selection variables,
 such as a shared budget, the cone retains their joint constraint.
 
+## Exponential cones
+
+[`IndExpPrimal`](@ref)`()` projects a triple in the order ``(r,s,t)`` onto
+``K_{\exp} = \operatorname{cl}\{(r,s,t):s>0,\ s\exp(r/s)\le t\}``.
+The face at ``s=0`` is ``r\le0,\ t\ge0``.
+[`IndExpDual`](@ref)`()` projects onto
+``K_{\exp}^* = \operatorname{cl}\{(u,v,w):u<0,\ -u\exp(v/u)\le e w\}``,
+whose face at ``u=0`` is ``v\ge0,\ w\ge0``.
+Arrays use one-based linear indexing and must have exactly three entries.
+
+Both constructors accept disjoint triples of indices, for example
+`IndExpPrimal([[3, 1, 2], [6, 4, 5]])`. Each triple uses its listed order.
+Groups are copied. Entries outside the groups are free and are copied by the
+projection; an empty collection leaves all entries free. Only scalar steps
+are supported. The two grouped constructors are not duals when free entries
+exist: [`Conjugate`](@ref) requires zero on those entries and the polar cone
+on each triple. The docstrings specify the tolerant membership inequalities.
+Projection branches use exact inequalities, separately from that tolerance.
+
+The projection follows Section 5 and Algorithm 1 of
+[Friberg (2023)](https://doi.org/10.1080/10556788.2021.2022147).
+Closed-form and heuristic candidates handle the faces and extreme root
+parameters. Otherwise, a finite bracket bounds damped Newton steps, followed
+by bisection after twenty steps. The search stops at floating-point resolution
+or after one hundred steps and compares the last candidate with the heuristics
+by distance. The paper writes the coordinates as ``(t,s,r)``.
+The dual projection uses ``P_{K^*}(x)=x+P_K(-x)``; direct reconstruction of
+the polar component avoids cancellation. Scaled equations and exponential
+products avoid intermediate overflow, including when ``\exp(r/s)`` alone
+is unrepresentable. A component can overflow if the projection itself is
+unrepresentable in the output type. Non-finite entries give value `Inf` and
+project to `NaN` within their triple; free entries are copied unchanged.
+
+These cones represent exponential and relative-entropy constraints in conic
+splitting methods. Direct proximal operators such as [`NegEntropy`](@ref),
+[`KLDivergence`](@ref), [`NegLog`](@ref), and the GLM losses are usually cheaper
+when the model admits them directly.
+
 ## Intersections
 
 The projection onto a nonempty intersection ``C_1 \cap \cdots \cap C_m`` of
@@ -215,6 +256,52 @@ nothing. With ADMM, it gives basis pursuit, ``\min \|x\|_1`` subject to
 least-squares loss or a quadratic to the set, the ``f`` of ADMM for
 equality-constrained estimators such as log-contrast regression with several
 subcompositions.
+
+## Polyhedra
+
+[`IndPolyhedron`](@ref)`(A, l, u)` projects onto several linear equalities
+and inequalities at once. Optional coordinate bounds give
+`IndPolyhedron(A, l, u, xmin, xmax)`. Bounds may be scalars or vectors;
+infinite sides are omitted. Equal finite bounds are equalities. Dense and
+sparse matrices are supported, and the constructor copies the data.
+
+This projection adds linear constraints to a loss through splitting. For
+example, constrained lasso combines a least-squares loss and an ℓ1 penalty
+with equalities and inequalities on the coefficients. Ordered effects,
+nonnegativity with a budget, and sign constraints on compositional coefficients
+all have this form. For order restrictions on a partial order, a row with
+``1`` at ``i`` and ``-1`` at ``j``, with upper bound zero, enforces
+``\theta_i \le \theta_j``. [`IndIsotonic`](@ref) provides a faster specialized
+projection when the order is a chain.
+
+The dual active-set method adds violated sides and drops inequalities when
+their multipliers reach zero. Native equalities have free multipliers and
+are never dropped. A thin orthogonal factorization avoids forming ``AA^\top``
+and handles redundant rows. Successive calls reuse the working set;
+[`reset_cache!`](@ref) clears it. Calls on one function share buffers and must
+be sequential. The workspace uses ``O(n^2)`` storage. Each search costs
+``O(mn)`` for dense data or ``O(\operatorname{nnz}(A) + m + n)`` for sparse data,
+and factor updates cost ``O(n|S|)``. A large working set can be expensive.
+
+Membership uses a relative ``\sqrt{\varepsilon}`` tolerance, with an absolute
+floor in the original constraint units. Projection decisions use the tighter
+``8\varepsilon`` scale of normalized rows. Thus a point accepted by the value
+can still move under projection. The dependence threshold is
+``8n\varepsilon`` times the normal's norm. Rows are scaled by powers of two;
+scaled nonzero coefficients, finite offsets and the projection arithmetic
+must remain representable. Accuracy is limited by numerical rank and output
+precision.
+
+An infeasibility certificate, checked to ``64n\varepsilon`` relative to its
+normal and offset scales and verified exactly on the stored data, causes an
+`ArgumentError` identifying an empty set. This exceptional verification
+allocates. It preserves genuine small directions when the rank test is
+inconclusive, rather than declaring a feasible set empty.
+Numerical failure and the iteration limit (`maxiter`, default
+`100 * (sum(size(A)) + 1)`) instead cause distinct errors. As for
+[`IndIntersection`](@ref), `value_and_prox!` returns zero without a feasibility
+certificate. It does not replace checking the constraints of an ill-conditioned
+problem. `Constrained(f, IndPolyhedron(...))` is not provided.
 
 ## Graphs of linear maps
 

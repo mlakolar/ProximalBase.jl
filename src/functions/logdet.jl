@@ -26,6 +26,8 @@ the skew part contributes only a constant to the proximal objective.
 Both use workspaces that `f` owns, sized by `S`, and
 allocate nothing; do not share `f` between threads. The workspace has the data's
 precision (`Float32` or `Float64`); outputs of any precision are written by rounding.
+When an intermediate sum overflows although the weighted value is representable,
+the value is computed in scaled units.
 """
 struct LogDetLoss{T<:_BlasReal} <: AbstractFunction
   S::Matrix{T}
@@ -47,6 +49,7 @@ function LogDetLoss(S::AbstractMatrix, w::Real = 1)
 end
 
 issmooth(::Type{<:LogDetLoss}) = true
+_argument_type(::Type{<:LogDetLoss}) = AbstractMatrix
 isproximable(::Type{<:LogDetLoss}) = true
 isconvex(::Type{<:LogDetLoss}) = true
 
@@ -74,7 +77,29 @@ end
 
 function (f::LogDetLoss{T})(X::AbstractMatrix) where {T}
   ld = _logdet_chol!(f, X)
-  ld === nothing ? promote_type(T, eltype(X))(Inf) : f.w * (dot(f.S, X) - ld)
+  ld === nothing ? promote_type(T, eltype(X))(Inf) : _logdet_value(f, X, ld)
+end
+
+@inline function _logdet_value(f::LogDetLoss, X::AbstractMatrix, ld)
+  v = f.w * (dot(f.S, X) - ld)
+  isfinite(v) || !isfinite(ld) || !(all(isfinite, f.S) && all(isfinite, X)) ? v :
+    oftype(v, _scaled_logdet_value(f, X, ld))
+end
+
+# The products that overflow are summed in units of 2^(ks + kx) and the others
+# in their own units, so that huge products that cancel keep the moderate ones
+# and the log-determinant; the two parts are combined exactly when the dot is
+# representable.
+@noinline function _scaled_logdet_value(f::LogDetLoss{T}, X::AbstractMatrix, ld) where {T}
+  R = float(promote_type(T, eltype(X)))
+  ks = _magnitude_exponent(_maximum_abs(f.S))
+  kx = _magnitude_exponent(_maximum_abs(X))
+  k = ks + kx
+  big, small = _split_dot(f.S, X, _power_factors(R, -ks), _power_factors(R, -kx))
+  w, l = convert(R, f.w), convert(R, ld)
+  d = ldexp(big, k) + small
+  isfinite(d) && return w * (d - l)
+  _scaled_product(w, big + _scale_value(small - l, _power_factors(R, -k)), k)
 end
 
 function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix) where {T}
@@ -84,7 +109,7 @@ function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMat
     fill!(G, T(NaN))
     return T(Inf)
   end
-  v = f.w * (dot(f.S, X) - ld)
+  v = _logdet_value(f, X, ld)
   C, S, w = f.C, f.S, f.w
   _potri!('U', C)             # the upper triangle of X⁻¹
   @inbounds for j in axes(C, 2), i in 1:j
@@ -113,7 +138,7 @@ function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix,
     t, U = _eigen!(f.eig)
     _rebuild_sym_out!(Y, U, t, s -> _logbarrier_root_half(s, root_step), f.C; logs = true)
   end
-  f.w * (dot(f.S, Y) - logdet_Y)
+  _logdet_value(f, Y, logdet_Y)
 end
 
 # The positive root of z² - 2half*z - root_step² = 0. Keeping the square root

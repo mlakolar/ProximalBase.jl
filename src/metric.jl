@@ -96,6 +96,7 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArr
   _checksize(y, x)
   _checkparams(c, x)
   _checkparam(γ, x)
+  _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
   z = _array_buffer!(c.scratch, T, size(x))
   z .= x ./ γ
@@ -104,7 +105,7 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArr
 end
 
 function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
-  _checkparams(c, x)
+  _checkwrite(value_and_prox!, c, y, x)
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
     return _conjugate_value(c.f, y)
@@ -145,7 +146,7 @@ function prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace}, x::Abstr
 end
 
 function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, γ::AbstractArray)
-  _checkwrite(prox!, f, y, x)
+  _checknormal(prox!, f, y, x)
   _checkparams(f, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)

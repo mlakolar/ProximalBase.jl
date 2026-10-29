@@ -111,9 +111,11 @@ end
 # the proximal operator, entry by entry; y may be x
 _prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Union{Real, AbstractArray}) = _prox_sep_dense!(y, f, x, γ)
 
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SeparableFunction, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); _checkparams(f, x); true)
+
 function _prox_sep_dense!(y::AbstractArray, f, x::AbstractArray, γ)
-  _checksize(y, x)
-  _checkparams(f, x)
+  _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   T = eltype(y)
   @inbounds for i in eachindex(IndexLinear(), y, x)
@@ -125,8 +127,7 @@ end
 # on sparse iterates, only the stored entries when f preserves zeros; as for a
 # dense array, an entry stored in y stays stored, possibly as a zero
 function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::Union{Real, AbstractArray})
-  _checksize(y, x)
-  _checkparams(f, x)
+  _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   iszeropreserving(f) || return _prox_sep_dense!(y, f, x, γ)
   T = eltype(y)
@@ -145,8 +146,7 @@ end
 # each coordinate (an entry of the lower triangle) once, and from a
 # SymmetricSparseIterate only its stored coordinates when f preserves zeros
 function _prox_sep!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::Union{Real, AbstractArray})
-  _checksize(y, x)
-  _checkparams(f, x)
+  _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   T = eltype(y)
   p = y.p
@@ -195,6 +195,8 @@ coordinate, and on a sparse iterate the value and the proximal operator touch
 only the stored entries. On a [`SymmetricSparseIterate`](@ref) the weights are a
 `p × p` matrix (or anything indexed by the linear indices of one), as for a
 dense matrix.
+When an intermediate sum overflows although the weighted value is representable,
+the value is computed in scaled units.
 """
 struct NormL1{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ0::T
@@ -222,7 +224,9 @@ restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entr
 # without weights, Base's vectorized sum (a sum with init takes a slow sequential path)
 function (f::NormL1{<:Real, Nothing})(x::DenseArray{<:AbstractFloat})
   T = float(eltype(x))
-  iszero(f.λ0) ? zero(T) : convert(T, f.λ0) * sum(abs, x)
+  iszero(f.λ0) && return zero(T)
+  v = convert(T, f.λ0) * sum(abs, x)
+  isfinite(v) || !isfinite(f.λ0) || !all(isfinite, x) ? v : _value_dense(f, x)
 end
 
 ####################################

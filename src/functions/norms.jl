@@ -15,6 +15,8 @@ The Euclidean norm `f(x) = λ ‖x‖₂` (the Frobenius norm for a matrix). Its
 proximal operator shrinks `x` towards zero: `max(1 - γλ/‖x‖, 0) x`. For the
 group lasso, a sum of such norms over groups of entries, use
 [`GroupNormL2`](@ref).
+When an intermediate sum overflows although the weighted value is representable,
+the value is computed in scaled units.
 """
 struct NormL2{T<:Real} <: AbstractFunction
   λ::T
@@ -25,12 +27,27 @@ NormL2(λ::Real = 1) = NormL2{typeof(λ)}(λ)
 
 isproximable(::Type{<:NormL2}) = true
 isconvex(::Type{<:NormL2}) = true
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL2, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); true)
 
-(f::NormL2)(x::AbstractArray) =
-  (T = float(eltype(x)); iszero(f.λ) ? zero(T) : convert(T, f.λ) * _norm2(x))
+function (f::NormL2)(x::AbstractArray)
+  T = float(eltype(x))
+  iszero(f.λ) && return zero(T)
+  _norm2_value(convert(T, f.λ) * _norm2(x), convert(T, f.λ), x)
+end
 
-function value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real)
-  _checksize(y, x)
+@inline function _norm2_value(v, λ::T, x::AbstractArray) where {T}
+  isfinite(v) || !isfinite(λ) || !(eltype(x) <: Real) || !all(isfinite, x) ? v : _scaled_norm2_value(λ, x)
+end
+
+@noinline function _scaled_norm2_value(λ::T, x::AbstractArray) where {T}
+  k = _magnitude_exponent(_maximum_abs(x))
+  n = sqrt(_scaled_value_sum(x, _power_factors(T, -k), abs2))
+  _scaled_product(λ, n, k)
+end
+
+function _norm2_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real, ::Val{V}) where {V}
+  _checkwrite(V ? value_and_prox! : prox!, f, y, x)
   T = float(eltype(y))
   if iszero(f.λ)
     y === x || copyto!(y, x)
@@ -40,18 +57,46 @@ function value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real
   nx = convert(T, _norm2(x))
   if nx > c
     if isinf(nx) && isfinite(c)
-      n = _shrink_group!(f, y, x, eachindex(IndexLinear(), x), c)
-      return convert(T, f.λ) * n
+      n = _norm2_shrink!(f, y, x, c)
+      return V ? _norm2_value(convert(T, f.λ) * n, convert(T, f.λ), y) : zero(T)
     end
     t = 1 - c / nx
     y .= t .* x
-    return convert(T, f.λ) * (nx - c)
+    return V ? _norm2_value(convert(T, f.λ) * (nx - c), convert(T, f.λ), y) : zero(T)
   else
     fill!(y, zero(eltype(y)))
     return zero(T)
   end
 end
-prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = (value_and_prox!(y, f, x, γ); y)
+value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = _norm2_prox!(y, f, x, γ, Val(true))
+prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = (_norm2_prox!(y, f, x, γ, Val(false)); y)
+
+@inline _norm2_shrink!(f::NormL2, y::AbstractArray, x::AbstractArray, c) =
+  _shrink_group!(f, y, x, eachindex(IndexLinear(), x), c)
+
+# A finite input scaled by its maximum cannot need another rescaling. Keeping
+# that branch out of this call also keeps the scaled array from escaping.
+function _rescaled_group_prox!(::NormL2, y, x, G, c::S, scale)::S where {S}
+  z = _ScaledArray(x, inv(scale))
+  nx = _group_norm2(z, G)
+  threshold = c / scale
+  n = zero(nx)
+  if nx > threshold
+    t = one(nx) - threshold / nx
+    @inbounds for i in G
+      y[i] = t * z[i]
+    end
+    n = nx - threshold
+  else
+    @inbounds for i in G
+      y[i] = zero(eltype(y))
+    end
+  end
+  @inbounds for i in G
+    y[i] *= scale
+  end
+  n * scale
+end
 
 ####################################
 #  cubed Euclidean norm
@@ -226,11 +271,13 @@ NormLinf(λ::Real = 1) = NormLinf{typeof(λ)}(λ)
 
 isproximable(::Type{<:NormLinf}) = true
 isconvex(::Type{<:NormLinf}) = true
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormLinf, y::AbstractArray, x::AbstractArray) =
+  (_checksize(y, x); true)
 
 (f::NormLinf)(x::AbstractArray) = convert(float(eltype(x)), f.λ) * norm(x, Inf)
 
 function value_and_prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Real)
-  _checksize(y, x)
+  _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
   c = convert(T, γ) * convert(T, f.λ)
   if norm(x, 1) <= c
@@ -670,6 +717,7 @@ end
 NormL1Fused(λ1::Real, λ2::Real) = (p = promote(λ1, λ2); NormL1Fused{typeof(p[1])}(p...))
 
 isproximable(::Type{<:NormL1Fused}) = true
+_argument_type(::Type{<:NormL1Fused}) = Union{AbstractVector, Tuple{AbstractArray, AbstractArray}}
 isconvex(::Type{<:NormL1Fused}) = true
 
 (f::NormL1Fused)(xy::Tuple{Real, Real}) =
@@ -714,7 +762,7 @@ function prox(f::NormL1Fused, xy::Tuple{Real, Real}, γ::Real = 1)
 end
 
 function prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real)
-  size(y[1]) == size(x[1]) == size(y[2]) == size(x[2]) || throw(DimensionMismatch("the arrays of the pairs must have one size"))
+  _checkwrite(prox!, f, y, x)
   T = float(promote_type(eltype(y[1]), eltype(y[2])))
   λ1, λ2, γ = T(f.λ1), T(f.λ2), T(γ)
   @inbounds for i in eachindex(x[1])
@@ -722,6 +770,11 @@ function prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused, x::Tuple{
   end
   y
 end
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL1Fused,
+            y::Tuple{AbstractArray, AbstractArray}, x::Tuple{AbstractArray, AbstractArray}) =
+  size(y[1]) == size(x[1]) == size(y[2]) == size(x[2]) || throw(DimensionMismatch("the arrays of the pairs must have one size"))
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL1Fused, y::AbstractVector, x::AbstractVector) =
+  (_checksize(y, x); Base.require_one_based_indexing(y, x); true)
 prox(f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real = 1) =
   prox!((similar(x[1], float(eltype(x[1]))), similar(x[2], float(eltype(x[2])))), f, x, γ)
 
@@ -768,8 +821,7 @@ prox!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real) = (_prox_f
 
 # the proximal operator of all pairs fused, and the value at the result if V
 function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real, ::Val{V}) where {V}
-  _checksize(y, x)
-  Base.require_one_based_indexing(y, x)
+  _checkwrite(V ? value_and_prox! : prox!, f, y, x)
   T = float(eltype(y))
   λ1, λ2 = convert(T, f.λ1), convert(T, f.λ2)
   n = length(x)

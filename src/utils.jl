@@ -234,6 +234,7 @@ end
 # The stored values suffice for maxima; symmetric multiplicities do not matter.
 _stored_values(x::AbstractArray) = x
 _stored_values(x::SparseArrays.AbstractSparseArray) = nonzeros(x)
+
 function _maximum_abs(x::AbstractArray)
   m = zero(real(float(eltype(x))))
   @inbounds for v in _stored_values(x)
@@ -241,6 +242,10 @@ function _maximum_abs(x::AbstractArray)
   end
   m
 end
+
+# Reject non-finite proximal inputs before writing the output.
+_check_finite_input(f, X) = all(isfinite, _stored_values(X)) ||
+  throw(ArgumentError("the proximal operator of $(nameof(typeof(f))) needs finite entries"))
 
 # Recopy before scaling: LAPACK destroys the input of the first decomposition.
 function _scaled_spectral_input!(A::AbstractMatrix{T}, X::AbstractMatrix) where {T<:AbstractFloat}

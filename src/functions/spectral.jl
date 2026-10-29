@@ -11,6 +11,9 @@
 # operator comes from the spectrum it computes.
 
 const _SPECTRAL_NOTE = """
+The proximal operator throws an `ArgumentError` at a matrix with a non-finite
+entry, before writing.
+
 The function caches a LAPACK workspace for the size and element type
 (`Float32` or `Float64`) of its input, so that repeated calls allocate nothing;
 do not share one function object between threads. Other element types, such as
@@ -217,6 +220,7 @@ end
 
 function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, f, Y, X)
+  _check_finite_input(f, X)
   T = float(eltype(Y))
   if iszero(f.λ)
     Y === X || copyto!(Y, X)
@@ -314,6 +318,7 @@ end
 
 function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
   _checkwrite(prox!, f, Y, X)
+  _check_finite_input(f, X)
   T = float(eltype(Y))
   if minimum(size(X)) <= f.r
     Y === X || copyto!(Y, X)
@@ -539,6 +544,7 @@ end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real)
   _checkwrite(prox!, f, Y, X)
+  _check_finite_input(f, X)
   if f.partial
     _partial_psd!(Y, f, X, zero(float(eltype(Y))), 0) === nothing || return Y
   end
@@ -547,6 +553,7 @@ end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
   _checkwrite(prox!, f, Y, X)
+  _check_finite_input(f, X)
   n = checksquare(X)
   f.rank >= n && return _project_psd!(Y, f, X)
   T = float(eltype(Y))
@@ -645,6 +652,7 @@ end
 
 function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, f, Y, X)
+  _check_finite_input(f, X)
   T = float(eltype(Y))
   c = convert(T, γ) * convert(T, f.λ)
   if f.partial

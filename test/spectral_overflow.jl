@@ -435,12 +435,20 @@ end
       @testset "nonfinite entries and zero weights" begin
         for v in (T(Inf), T(-Inf), T(NaN)), λ in (zero(T), -zero(T))
           X = T[v 0; 0 1]
-          for f in (NormL1(λ), NormL2(λ), NuclearNorm(λ))
-            # the domain of the spectral functions is the finite matrices
-            @test f(X) === (f isa NuclearNorm ? T(Inf) : zero(T))
+          for f in (NormL1(λ), NormL2(λ))
+            @test f(X) === zero(T)
             Y = similar(X)
             @test value_and_prox!(Y, f, X, γ) === zero(T)
             @test samebits(Y, X)
+          end
+          # Spectral functions have the finite matrices as their domain, also at zero weight.
+          f = NuclearNorm(λ)
+          @test f(X) === T(Inf)
+          for op in (value_and_prox!, prox!)
+            Y = fill(T(17), size(X))
+            before = copy(Y)
+            @test_throws ArgumentError("the proximal operator of NuclearNorm needs finite entries") op(Y, f, X, γ)
+            @test isequal(Y, before)
           end
           @test TracePSD(λ)(X) === T(Inf)
           @test LogDetLoss(E, one(T))(X) === T(Inf)

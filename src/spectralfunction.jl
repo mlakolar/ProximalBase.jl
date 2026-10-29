@@ -101,6 +101,7 @@ end
 
 function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, s, Y, X)
+  _check_finite_input(s, X)
   T = float(eltype(Y))
   n = checksquare(X)
   ws = _eig_workspace(s.eig, T, n)

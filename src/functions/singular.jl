@@ -142,6 +142,7 @@ end
 
 function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, F, Y, X)
+  _check_finite_input(F, X)
   T = float(eltype(Y))
   ws = _svd_workspace(F.ws, T, size(X)...)
   F.ws = ws

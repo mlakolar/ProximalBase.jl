@@ -62,14 +62,6 @@ function legacy!(Y::AbstractMatrix{T}, f, X, γ) where {T}
   end
   Y
 end
-function outcome!(op, Y, f, X, γ)
-  try
-    op(Y, f, X, γ)
-    nothing
-  catch err
-    typeof(err)
-  end
-end
 
 @testset "overflowing spectral proximal operators" begin
   for T in (Float32, Float64)
@@ -249,7 +241,7 @@ end
         @test cache.Y[:, 1:f.r] == ws.U[:, 1:f.r]
       end
 
-      @testset "unchanged finite spectra and non-finite entries" begin
+      @testset "unchanged finite spectra and rejected non-finite entries" begin
         rng = Xoshiro(235)
         B = randn(rng, T, 5, 5)
         for X in (B, B + B', B * B'), f in functions(T, false)
@@ -260,11 +252,10 @@ end
         end
         for v in (T(NaN), T(Inf), T(-Inf)), f in functions(T, false)
           for X in (T[v 0; 0 1], T[1 v; v 1])
-            Y, R = similar(X), similar(X)
-            a = outcome!(legacy!, R, f, X, one(T))
-            b = outcome!(prox!, Y, f, X, one(T))
-            @test a === b
-            a === nothing && (@test isequal(Y, R))
+            Y = fill(T(17), size(X))
+            before = copy(Y)
+            @test_throws ArgumentError prox!(Y, f, X, one(T))
+            @test isequal(Y, before)
           end
         end
       end
@@ -317,16 +308,17 @@ end
       @test measured(Y, f, X, γ) == 0
     end
   end
-  # Entries that overflow on conversion keep the original non-finite path.
+  # Finite inputs keep their conversion behavior; non-finite inputs are rejected.
   X = fill(1e39, 2, 2)
   for partial in (false, true), f in (NuclearNorm(T(0.3); partial), TracePSD(T(0.3); partial),
                                      IndPSD(; partial), IndPSD(; rank = 2, partial), IndBallRank(1; partial))
     Y, R, B = zeros(T, 2, 2), zeros(T, 2, 2), zeros(T, 2, 2)
-    value = value_and_prox!(Y, f, X, one(T))
-    reference = value_and_prox!(R, f, Float32.(X), one(T))
+    value_and_prox!(Y, f, X, one(T))
+    fill!(R, T(17))
+    before = copy(R)
+    @test_throws ArgumentError value_and_prox!(R, f, Float32.(X), one(T))
+    @test isequal(R, before)
     legacy!(B, f, X, one(T))
-    @test isequal(value, reference)
-    @test isequal(Y, R)
     @test isequal(Y, B)
   end
 end

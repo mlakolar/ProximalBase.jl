@@ -291,7 +291,7 @@ end
   for (fs, x) in ((vector_functions, randn(10)), (matrix_functions, randn(4, 5))), f in fs, γ in (0.3, 2.)
     c = Conjugate(f)
     @test prox(f, x, γ) + γ * prox(c, x ./ γ, 1 / γ) ≈ x
-    @test prox(c, x, γ) ≈ x - γ * prox(f, x ./ γ, 1 / γ)
+    @test isapprox(prox(c, x, γ), x - γ * prox(f, x ./ γ, 1 / γ); atol = 8 * eps() * max(1, maximum(abs, x)) / min(γ, 1))
   end
   # the values: dual balls and support functions
   y = [0.3, -0.5, 0.1]

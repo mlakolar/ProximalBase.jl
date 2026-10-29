@@ -133,7 +133,7 @@ represents an indicator.
 function value_and_prox!(y, f::AbstractFunction, x, γ::Real = 1)
   _checkwrite(value_and_prox!, f, y, x)
   prox!(y, f, x, γ)
-  _isindicator(f) ? zero(float(eltype(y))) : f(y)
+  _isindicator(f) ? zero(_valtype(y)) : _value_at(f(y), y)
 end
 
 """
@@ -340,18 +340,35 @@ The function of `x[S]` that `f` becomes on the vectors `x` supported on the
 coordinates `S`, where supported: an active-set solver minimizes the restriction
 over those coordinates. The restriction preserves the objective up to a finite
 additive constant and, for a smooth function, has gradient `∇f(x)[S]`. Centered
-[`SqrNormL2`](@ref), [`Regularize`](@ref) and separable [`Translate`](@ref) may
-drop terms belonging to excluded coordinates. These constants do not change the
-minimizer; evaluate the original function when comparing full objective values.
+[`SqrNormL2`](@ref), [`Regularize`](@ref), separable [`Translate`](@ref),
+[`MoreauEnvelope`](@ref) and [`SqrDistL2`](@ref) may drop terms belonging to
+excluded coordinates. These constants do not change the minimizer; evaluate the
+original function when comparing full objective values.
 `MoreauEnvelope` and `SqrDistL2` restrict only a separable function or set,
 respectively, and throw otherwise.
 
-A nonseparable `Translate` requires its translation to vanish outside `S`;
-otherwise restricting its underlying function would change more than a constant,
-and the operation throws. Excluded terms outside a translated separable
-function's domain also cause an error.
+The dropped terms must be finite at zero, or at `-b` under `Translate`;
+otherwise every vector supported on `S` is infeasible, and `restrict` throws an
+`ArgumentError`. So `restrict` of an [`IndBox`](@ref) throws when an excluded
+coordinate's bounds exclude zero. `restrict` of [`NegLog`](@ref), or of an
+`IndBox` with scalar bounds that exclude zero, throws for every `S`, even one
+that drops nothing, because it does not know the dimension. Wrappers that
+evaluate the dropped terms elsewhere, such as `Translate`, `MoreauEnvelope` and
+`SqrDistL2`, can still restrict these functions. A nonseparable `Translate`
+requires its translation to vanish outside `S`; otherwise restricting its
+underlying function would change more than a constant, and the operation throws.
 """
 function restrict end
+# the restriction without the check that the dropped terms are finite at zero,
+# for wrappers that evaluate those terms elsewhere
+_restrict_unchecked(f::AbstractFunction, S::AbstractVector{<:Integer}) = restrict(f, S)
+# the coordinates of 1:n outside S, through a mask so that ranges, duplicates
+# and Boolean masks select as indexing does
+function _excluded_coordinates(n::Integer, S::AbstractVector{<:Integer})
+  selected = falses(n)
+  selected[S] .= true
+  findall(!, selected)
+end
 
 """
     gradient_mapping!(G, f, g, x, γ)

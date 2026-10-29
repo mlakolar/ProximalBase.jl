@@ -38,7 +38,10 @@ and `(1/n) * f` averages one.
 
 At zero scale, supported finite-parameter penalties and losses simplify to
 [`ZeroFunction`](@ref), while an indicator retains its domain and is returned
-unchanged. Zero scaling of other functions is rejected when
+unchanged. A weighted ℓ1-type penalty (`NormL1`, `NormL1Nonneg`, `ElasticNet`)
+whose weights include `Inf` becomes the same penalty at a zero level, keeping
+those entries fixed at zero; it is not an indicator type, so wrappers that
+require one still reject it. Zero scaling of other functions is rejected when
 the package has no domain-preserving proximal representation.
 """
 struct Scaled{F<:AbstractFunction, T<:Real} <: AbstractFunction
@@ -61,21 +64,28 @@ _finite_parameter(::Nothing) = true
 _finite_parameter(x::Real) = isfinite(x)
 _finite_parameter(x::AbstractArray) = all(isfinite, x)
 _finite_zero(f, parameters...) = all(_finite_parameter, parameters) ? ZeroFunction() : _zero_scale_error(f)
-_zero_scaled(f::Union{NormL1, GroupNormL2, GroupNormLinf}) = _finite_zero(f, f.λ0, f.w)
+function _zero_scaled(f::NormL1)
+  isfinite(f.λ0) || _zero_scale_error(f)
+  _finite_parameter(f.w) ? ZeroFunction() : NormL1(zero(f.λ0), f.w)
+end
+_zero_scaled(f::Union{GroupNormL2, GroupNormLinf}) = _finite_zero(f, f.λ0, f.w)
 _zero_scaled(f::SparseGroupNormL2) = _finite_zero(f, f.λ0, f.λ1, f.w)
 _zero_scaled(f::Union{NormL2, CubeNormL2, NormLinf, NormL0}) = _finite_zero(f, f.λ)
 _zero_scaled(::SumLargest) = ZeroFunction()
 _zero_scaled(f::Union{MCP, SCAD}) = _finite_zero(f, f.λ, f.a)
 _zero_scaled(f::Union{GroupMCP, GroupSCAD}) = _finite_zero(f, f.λ0, f.w, f.a)
-_zero_scaled(f::ElasticNet) = _finite_zero(f, f.λ1, f.λ2, f.w)
+function _zero_scaled(f::ElasticNet)
+  isfinite(f.λ1) && isfinite(f.λ2) || _zero_scale_error(f)
+  _finite_parameter(f.w) ? ZeroFunction() : ElasticNet(zero(f.λ1), zero(f.λ2), f.w)
+end
 _zero_scaled(f::SqrNormL2) = _finite_zero(f, f.λ, f.y)
 _zero_scaled(f::QuadraticFunction) = _finite_zero(f, f.A, f.b, f.c)
 _zero_scaled(f::LeastSquaresLoss) = _finite_zero(f, f.X, f.Y)
 _zero_scaled(f::LinearFunction) = _finite_zero(f, f.c, f.d)
 _zero_scaled(f::Scaled) = (_finite_parameter(f.α) || _zero_scale_error(f); _zero_scaled(f.f))
 function _zero_scaled(f::NormL1Nonneg)
-  _finite_zero(f, f.λ0, f.w)
-  IndNonnegative()
+  isfinite(f.λ0) || _zero_scale_error(f)
+  _finite_parameter(f.w) ? IndNonnegative() : NormL1Nonneg(zero(f.λ0), f.w)
 end
 
 Base.:*(α::Real, f::AbstractFunction) = Scaled(f, α)
@@ -85,14 +95,14 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Scaled{F}}) where {F} = $trait(F)
 end
 
-(s::Scaled)(x) = s.α * s.f(x)
+(s::Scaled)(x) = _value_at(s.α * s.f(x), x)
 _checkvalue(s::Scaled, x) = _checkvalue(s.f, x)
 _scale!(g::AbstractArray, α) = (g .*= α)
 _scale!(g::Tuple, α) = (map(gk -> _scale!(gk, α), g); g)
-value_and_gradient!(g, s::Scaled, x) = (_checkwrite(value_and_gradient!, s, g, x); v = value_and_gradient!(g, s.f, x); _scale!(g, s.α); s.α * v)
+value_and_gradient!(g, s::Scaled, x) = (_checkwrite(value_and_gradient!, s, g, x); v = value_and_gradient!(g, s.f, x); _scale!(g, s.α); _value_at(s.α * v, x))
 gradient!(g, s::Scaled, x) = (_checkwrite(gradient!, s, g, x); gradient!(g, s.f, x); _scale!(g, s.α))
 prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(prox!, s, y, x); prox!(y, s.f, x, s.α * γ))
-value_and_prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); s.α * value_and_prox!(y, s.f, x, s.α * γ))
+value_and_prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); _value_at(s.α * value_and_prox!(y, s.f, x, s.α * γ), y))
 Base.@propagate_inbounds prox_entry(s::Scaled, v::Real, i::Integer, γ::Real) = prox_entry(s.f, v, i, s.α * γ)
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
 _checkwrite(op::O, s::Scaled, y, x) where {O} = _checkwrite(op, s.f, y, x)
@@ -107,6 +117,7 @@ for X in (:AbstractArray, :AtomIterate, :SymmetricSparseIterate)
     iszero(s.α) ? kkt_violation(ZeroFunction(), g, x, k) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), x, k)
 end
 restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.α)
+_restrict_unchecked(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(_restrict_unchecked(s.f, S), s.α)
 
 ####################################
 #  f + ⟨c, ⋅⟩ + d
@@ -118,21 +129,27 @@ restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.�
 The function `f(x) + ⟨c, x⟩ + d`, with the roles of `f`. Its proximal operator
 is that of `f` at `x - γc`, and its gradient `∇f + c`. The linear terms of
 augmented Lagrangians and of duality take this form.
+The proximal operator passes `x - γc` to `f` in a buffer that the function owns,
+so do not share one object between threads; when `f` throws, the output is unchanged,
+except for a `SparseIterate` or `SymmetricSparseIterate` output.
 """
 struct Tilt{F<:AbstractFunction, C<:AbstractArray, D<:Real} <: AbstractFunction
   f::F
   c::C
   d::D
+  scratch::Scratch
 end
+Tilt{F, C, D}(f::F, c::C, d::D) where {F<:AbstractFunction, C<:AbstractArray, D<:Real} = Tilt{F, C, D}(f, c, d, Scratch())
+Tilt(f::AbstractFunction, c::AbstractArray, d::Real) = Tilt(f, c, d, Scratch())
 Tilt(f::AbstractFunction, c::AbstractArray) = Tilt(f, c, zero(float(eltype(c))))
 
 for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Tilt{F}}) where {F} = $trait(F)
 end
 
-(t::Tilt)(x) = t.f(x) + dot(t.c, x) + t.d
+(t::Tilt)(x) = (_checkreal(t, x); _value_at(t.f(x) + dot(t.c, x) + t.d, x))
 _checkvalue(t::Tilt, x) = (_checkvalue(t.f, x); _checkdot(t.c, x); true)
-value_and_gradient!(g, t::Tilt, x) = (_checkwrite(value_and_gradient!, t, g, x); v = value_and_gradient!(g, t.f, x); g .+= t.c; v + dot(t.c, x) + t.d)
+value_and_gradient!(g, t::Tilt, x) = (_checkwrite(value_and_gradient!, t, g, x); v = value_and_gradient!(g, t.f, x); g .+= t.c; _value_at(v + dot(t.c, x) + t.d, x))
 gradient!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, x); g .+= t.c)
 
 function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}}
@@ -150,20 +167,28 @@ function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray) where {
   _checkwrite(op, t.f, y, y)
 end
 
+# A stored iterate keeps its stored entries, so a result through a buffer could
+# store fewer and sum in another order; the input is written in y, as before.
+_output_buffer!(::Scratch, y::Union{SparseIterate, SymmetricSparseIterate}) = y
+
+# x - γc in a buffer owned by t, so that y is unchanged when f throws
 function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checkwrite(prox!, t, y, x)
-  y .= x .- convert(float(eltype(y)), γ) .* t.c
-  prox!(y, t.f, y, γ)
+  z = _output_buffer!(t.scratch, y)
+  z .= x .- convert(float(eltype(y)), γ) .* t.c
+  prox!(y, t.f, z, γ)
 end
 function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
-  y .= x .- convert(float(eltype(y)), γ) .* t.c
-  value_and_prox!(y, t.f, y, γ) + dot(t.c, y) + t.d
+  z = _output_buffer!(t.scratch, y)
+  z .= x .- convert(float(eltype(y)), γ) .* t.c
+  _value_at(value_and_prox!(y, t.f, z, γ) + dot(t.c, y) + t.d, y)
 end
 Base.@propagate_inbounds prox_entry(t::Tilt, v::Real, i::Integer, γ::Real) = prox_entry(t.f, v - γ * t.c[i], i, γ)
-_checkparams(t::Tilt, x) = (_checkparam(t.c, x); _checkparams(t.f, x))
+_checkparams(t::Tilt, x) = (_checkparam(t.c, x); _checkreal(t, x); _checkparams(t.f, x))
 kkt_violation(t::Tilt, g::AbstractArray, i::Integer) = kkt_violation(t.f, _ShiftedArray(g, t.c), i)
 restrict(t::Tilt, S::AbstractVector{<:Integer}) = Tilt(restrict(t.f, S), t.c[S], t.d)
+_restrict_unchecked(t::Tilt, S::AbstractVector{<:Integer}) = Tilt(_restrict_unchecked(t.f, S), t.c[S], t.d)
 
 ####################################
 #  f(⋅ - b)
@@ -175,14 +200,19 @@ restrict(t::Tilt, S::AbstractVector{<:Integer}) = Tilt(restrict(t.f, S), t.c[S],
 The function `f(x - b)`, with the roles of `f`: its gradient is `∇f(x - b)` and
 its proximal operator `b + prox_{γf}(x - b)`. For example, `Translate(NormL1(λ), β₀)`
 is the penalty `λ ‖β - β₀‖₁` that shrinks towards `β₀`.
-Values and gradients use a shifted buffer in the argument's precision.
+Values and gradients use a shifted buffer in the argument's precision, and the
+proximal operator one in the output's, so do not share one object between threads;
+when `f` throws, the output is unchanged, except for a `SparseIterate` or
+`SymmetricSparseIterate` output.
 """
 struct Translate{F<:AbstractFunction, B<:AbstractArray} <: AbstractFunction
   f::F
   b::B
   scratch::Scratch
+  proxscratch::Scratch
 end
-Translate(f::AbstractFunction, b::AbstractArray) = Translate(f, b, Scratch())
+Translate{F, B}(f::F, b::B) where {F<:AbstractFunction, B<:AbstractArray} = Translate{F, B}(f, b, Scratch(), Scratch())
+Translate(f::AbstractFunction, b::AbstractArray) = Translate(f, b, Scratch(), Scratch())
 
 for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Translate{F}}) where {F} = $trait(F)
@@ -200,9 +230,9 @@ function _shifted(t::Translate, x::AbstractArray)
   z .= x .- t.b
 end
 
-(t::Translate)(x::AbstractArray) = t.f(_shifted(t, x))
+(t::Translate)(x::AbstractArray) = _value_at(t.f(_shifted(t, x)), x)
 value_and_gradient!(g, t::Translate, x::AbstractArray) =
-  (_checkwrite(value_and_gradient!, t, g, x); value_and_gradient!(g, t.f, _shifted(t, x)))
+  (_checkwrite(value_and_gradient!, t, g, x); _value_at(value_and_gradient!(g, t.f, _shifted(t, x)), x))
 gradient!(g, t::Translate, x::AbstractArray) =
   (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, _shifted(t, x)))
 
@@ -221,40 +251,53 @@ function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) wh
   _checksize(t.b, x)
   _checkparams(t, x)
   _check_symmetric_source(y, t.b)
+  _checkentries(t.f, x)
   _checkwrite(op, t.f, y, y)
 end
 
+# x - b in a buffer owned by t, so that y is unchanged when f throws
 function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checkwrite(prox!, t, y, x)
-  y .= x .- t.b
-  prox!(y, t.f, y, γ)
+  z = _output_buffer!(t.proxscratch, y)
+  z .= x .- t.b
+  prox!(y, t.f, z, γ)
   y .+= t.b
 end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
-  y .= x .- t.b
-  v = value_and_prox!(y, t.f, y, γ)
+  z = _output_buffer!(t.proxscratch, y)
+  z .= x .- t.b
+  v = value_and_prox!(y, t.f, z, γ)
   y .+= t.b
-  v
+  _value_at(v, y)
 end
 Base.@propagate_inbounds prox_entry(t::Translate, v::Real, i::Integer, γ::Real) = t.b[i] + prox_entry(t.f, v - t.b[i], i, γ)
 _checkparams(t::Translate, x) = (_checkparam(t.b, x); _checkparams(t.f, x))
 _isindicator(::Type{<:Translate{F}}) where {F} = _isindicator(F)
+# a nonseparable f requires zero translation outside S, which is about more
+# than a dropped constant
+_check_translation_outside(t::Translate, excluded) =
+  any(i -> !iszero(t.b[i]), excluded) &&
+    throw(ArgumentError("restrict of a nonseparable Translate requires zero translation outside S"))
+# the dropped terms of a separable f are evaluated at -b, not at zero, so f is
+# restricted unchecked once they are known to be finite
 function restrict(t::Translate, S::AbstractVector{<:Integer})
-  selected = falses(length(t.b))
-  selected[S] .= true
-  excluded = findall(!, selected)
-  if !isempty(excluded)
-    if isseparable(t.f)
-      # Dropping finite terms is harmless for minimization, but dropping an
-      # infinite term would turn an infeasible supported problem into a feasible one.
-      v = restrict(t.f, excluded)(-t.b[excluded])
-      isfinite(v) || throw(ArgumentError("excluded translated coordinates are outside the function's domain"))
-    elseif any(i -> !iszero(t.b[i]), excluded)
-      throw(ArgumentError("restrict of a nonseparable Translate requires zero translation outside S"))
-    end
+  excluded = _excluded_coordinates(length(t.b), S)
+  if !isseparable(t.f)
+    _check_translation_outside(t, excluded)
+    return Translate(restrict(t.f, S), t.b[S])
   end
-  Translate(restrict(t.f, S), t.b[S])
+  if !isempty(excluded)
+    # Dropping finite terms is harmless for minimization, but dropping an
+    # infinite term would turn an infeasible supported problem into a feasible one.
+    v = _restrict_unchecked(t.f, excluded)(-t.b[excluded])
+    isfinite(v) || throw(ArgumentError("excluded translated coordinates are outside the function's domain"))
+  end
+  Translate(_restrict_unchecked(t.f, S), t.b[S])
+end
+function _restrict_unchecked(t::Translate, S::AbstractVector{<:Integer})
+  isseparable(t.f) || _check_translation_outside(t, _excluded_coordinates(length(t.b), S))
+  Translate(_restrict_unchecked(t.f, S), t.b[S])
 end
 
 ####################################
@@ -297,6 +340,24 @@ that is an indicator, such as that of a precomposed norm, takes its value from
 the Fenchel equality and can return a small nonzero value instead of zero;
 this is not a feasibility certificate.
 
+Where the conjugate is an indicator as above, and for the conjugates of
+[`IndBallL2`](@ref), [`IndBox`](@ref) and [`IndBallLinf`](@ref), their
+translations and strictly positive rescalings, and `Conjugate(Conjugate(g))`,
+the proximal operator is computed without dividing by the step: every step
+gives the result of a computation at unit step, accurate to about `eps` times
+the largest input entry, plus `eps γ‖b‖` for a translation by `b`. Moreau's
+identity cancels where `|x|` is far larger than the result, so
+`Conjugate(NormL1())` at `[1e300, 2.0]` gives `[0.0, 1.0]` at every step,
+`γ = 1` included. A translation by `b` also needs `γb` to be
+finite in working precision, and is checked as below. This holds for scalar
+steps; with array steps and in [`prox_entry`](@ref), only for the conjugates
+that are indicators of a separable `f`, for the box itself and for
+`Conjugate(Conjugate(g))`. The other conjugates divide by the step, and their
+supported range is a finite result at finite inputs: outside it,
+[`prox!`](@ref) and [`value_and_prox!`](@ref) throw an `ArgumentError` before
+writing, while [`prox_entry`](@ref) returns the non-finite value; underflow of
+`x/γ` at huge steps is not detected.
+
 Supported zero rescalings simplify in [`Scaled`](@ref) while preserving the
 underlying domain. Each conjugate owns a working buffer; do not share it
 between threads. Tuples, including nested tuples, use one buffer per array
@@ -329,23 +390,120 @@ _conjugate_isindicator(::Type{<:Conjugate{F}}) where {F} = _isindicator(F)
 _isindicator(::Type{<:Conjugate{F}}) where {F} = _conjugate_isindicator(F)
 
 # the value of an indicator at its projection
-_zero_value(y::AbstractArray) = zero(float(eltype(y)))
-_zero_value(y::Tuple) = sum(map(_zero_value, y))
+_zero_value(y) = zero(_valtype(y))
 
 isproximable(::Type{<:Conjugate{F}}) where {F} = isproximable(F)
 isseparable(::Type{<:Conjugate{F}}) where {F} = isseparable(F)
 isconvex(::Type{<:Conjugate}) = true
 iszeropreserving(c::Conjugate) = iszeropreserving(c.f)
 
+# With Pγ(f, x) = γ prox_{f/γ}(x/γ), prox_{γf*}(x) = x - Pγ(f, x). For a
+# positively homogeneous f, or the indicator of a cone, Pγ(f, x) = prox_f(x) at
+# every step; for the indicator of a set C, Pγ is the projection onto γC, which
+# for the ℓ2 ball and the box needs no division by γ; Pγ(f(⋅ - b), x) =
+# γb + Pγ(f, x - γb), and Pγ(αg) = Pγ(g) for an indicator g and α > 0.
+_moreau_scaled(::Type) = false
+_moreau_scaled(::Type{<:Union{IndBallL2, IndBox}}) = true
+_moreau_scaled(::Type{<:Translate{F}}) where {F} = _moreau_free(F)
+_moreau_scaled(::Type{<:Scaled{F}}) where {F} = _isindicator(F) && _moreau_free(F)
+_moreau_free(::Type{F}) where {F} = _conjugate_isindicator(F) || _moreau_scaled(F)
+# a translation forms γb, which can overflow, so its result is checked
+_moreau_checked(::Type) = false
+_moreau_checked(::Type{<:Translate}) = true
+_moreau_checked(::Type{<:Scaled{F}}) where {F} = _moreau_checked(F)
+
+# Pγ(f, x) into z, for _moreau_free(typeof(f)), with γ in the precision of z;
+# z may be x
+_moreau_point!(z, f, x, γ) = _conjugate_isindicator(typeof(f)) ? prox!(z, f, x, one(γ)) : _moreau_set!(z, f, x, γ)
+# γ times a bound in the precision S of γ, keeping an infinite or zero bound, so
+# that a step that underflows to 0 or overflows to Inf never forms 0 * Inf. A
+# finite bound that overflows in S, or a nonzero one that underflows, is
+# dilated in the wider of the two types, so that it can still give a
+# representable bound; only then, so that a bound of a wide type such as
+# BigFloat does not allocate
+@inline function _dilate(γ, b)
+  S = float(typeof(γ))
+  c = convert(S, b)
+  if (isinf(c) & !isinf(b)) | (iszero(c) & !iszero(b))
+    P = float(promote_type(typeof(γ), typeof(b)))
+    convert(S, convert(P, γ) * convert(P, b))
+  else
+    ifelse(isinf(c) | iszero(c), c, convert(S, γ) * c)
+  end
+end
+_moreau_set!(z, f::IndBallL2, x, γ) = prox!(z, IndBallL2(_dilate(γ, f.r)), x, one(γ))
+# the dilated bounds: a scalar step and bound once, outside the broadcast, since
+# converting a wide bound such as a BigFloat can allocate; otherwise lazily,
+# entry by entry, inside it
+_dilated(γ::Real, b::Real) = _dilate(γ, b)
+_dilated(γ, b) = Base.Broadcast.broadcasted(_dilate, γ, b)
+_moreau_set!(z, f::IndBox, x, γ) = (z .= clamp.(x, _dilated(γ, f.l), _dilated(γ, f.u)))
+_moreau_set!(z, s::Scaled, x, γ) = _moreau_point!(z, s.f, x, γ)
+function _moreau_set!(z, t::Translate, x, γ)
+  z .= x .- _dilate.(γ, t.b)
+  _moreau_point!(z, t.f, z, γ)
+  z .+= _dilate.(γ, t.b)
+end
+
+# NaN exactly when x is finite and x - γz in the precision T of the output is
+# not (Inf * 0 and NaN * 0 are NaN, a finite value times 0 is 0), so that the
+# check is a sum without branches, which vectorizes
+struct _NonfiniteMoreau{T} end
+@inline (::_NonfiniteMoreau{T})(x, γ, z) where {T} = ifelse(isfinite(x), convert(T, x - γ * z) * zero(T), zero(T))
+_moreau_step(γ::Real, ::Type{T}) where {T} = convert(T, γ)
+_moreau_step(γ::AbstractArray, ::Type) = γ
+# whether y = x - γz, block by block, is not finite at a finite input; with
+# always = false, only an input wider than the output is checked
+function _moreau_nonfinite(y::AbstractArray, x::AbstractArray, z::AbstractArray, γ, always::Bool)
+  T = float(eltype(y))
+  always || promote_type(eltype(x), T) != T || return false
+  term = Base.Broadcast.broadcasted(_NonfiniteMoreau{T}(), x, _moreau_step(γ, T), z)
+  bc = Base.Broadcast.instantiate(term)
+  # an empty array has nothing to check; a sum without an initial value is
+  # pairwise and vectorizes, where one with an initial value is a sequential fold
+  !isempty(x) && isnan(sum(bc))
+end
+_moreau_nonfinite(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, always::Bool) = false
+_moreau_nonfinite(y::Tuple, x::Tuple, z::Tuple, γ, always::Bool) =
+  _moreau_nonfinite(first(y), first(x), first(z), γ, always) ||
+  _moreau_nonfinite(Base.tail(y), Base.tail(x), Base.tail(z), γ, always)
+@noinline _moreau_error(γ) =
+  throw(ArgumentError("the proximal point of the conjugate is not finite at a finite input " *
+                      "for the step γ = $(γ isa AbstractArray ? summary(γ) : γ) in working " *
+                      "precision; rescale the step or the input"))
+_checkmoreau(y, x, z, step, γ, always::Bool) =
+  (_moreau_nonfinite(y, x, z, step, always) && _moreau_error(γ); true)
+
 function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
-  γ = convert(T, γ)
+  step = convert(T, γ)
   z = _array_buffer!(c.scratch, T, size(x))
-  z .= x ./ γ
-  prox!(z, c.f, z, inv(γ))
-  y .= x .- γ .* z
+  F = typeof(c.f)
+  if _moreau_free(F)
+    _moreau_point!(z, c.f, x, step)
+    _checkmoreau(y, x, z, one(T), γ, _moreau_checked(F))
+    y .= x .- z
+  else
+    z .= x ./ step
+    prox!(z, c.f, z, inv(step))
+    _checkmoreau(y, x, z, step, γ, true)
+    y .= x .- step .* z
+  end
 end
+# f** = f, with the checks of f's own oracles
+_checkwrite(op::O, c::Conjugate{<:Conjugate}, y::Union{AbstractArray, Tuple}, x::Union{AbstractArray, Tuple}) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}} =
+  _checkwrite(op, c.f.f, y, x)
+function prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::Real)
+  _checkwrite(prox!, c, y, x)
+  prox!(y, c.f.f, x, γ)
+end
+function value_and_prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::Real)
+  _checkwrite(value_and_prox!, c, y, x)
+  value_and_prox!(y, c.f.f, x, γ)
+end
+Base.@propagate_inbounds prox_entry(c::Conjugate{<:Conjugate}, v::Real, i::Integer, γ::Real) =
+  prox_entry(c.f.f, v, i, γ)
 # At a proximal point y = x - γp, Fenchel equality gives f*(y) = <p,y> - f(p).
 # Keep the direct value for known closed forms, especially exact indicator zeros.
 _has_conjugate_value(::AbstractFunction) = false
@@ -361,7 +519,7 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::R
   _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
-    return _conjugate_value(c.f, y)
+    return _value_at(_conjugate_value(c.f, y), y)
   end
   _checksize(y, x)
   T = float(eltype(y))
@@ -369,12 +527,33 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::R
   p = _array_buffer!(c.scratch, T, size(x))
   p .= x ./ step
   fp = value_and_prox!(p, c.f, p, inv(step))
+  _checkmoreau(y, x, p, step, γ, true)
   y .= x .- step .* p
-  dot(p, y) - fp
+  _value_at(dot(p, y) - fp, y)
 end
-Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real) = v - γ * prox_entry(c.f, v / γ, i, inv(γ))
+# entrywise Pγ without dividing by γ where the arrays do; never throws, since
+# entrywise wrappers write entry by entry
+Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real) = _conjugate_entry(c.f, v, i, γ)
+Base.@propagate_inbounds function _conjugate_entry(f, v, i, γ)
+  if isseparable(typeof(f)) && _conjugate_isindicator(typeof(f))
+    S = float(promote_type(typeof(v), typeof(γ)))
+    w = convert(S, v)
+    w - prox_entry(f, w, i, one(S))
+  else
+    v - γ * prox_entry(f, v / γ, i, inv(γ))
+  end
+end
+Base.@propagate_inbounds function _conjugate_entry(f::IndBox, v, i, γ)
+  S = float(promote_type(typeof(v), typeof(γ)))
+  w, g = convert(S, v), convert(S, γ)
+  w - clamp(w, _dilate(g, _entry(f.l, i)), _dilate(g, _entry(f.u, i)))
+end
 _checkparams(c::Conjugate, x) = _checkparams(c.f, x)
-_checkvalue(c::Conjugate, x) = (_checkparams(c, x); _checkconjugate(c.f, x))
+function _checkvalue(c::Conjugate, x)
+  _checkparams(c, x)
+  _has_conjugate_value(c.f) || invoke(_conjugate_value, Tuple{AbstractFunction, Any}, c.f, x)
+  _checkconjugate(c.f, x)
+end
 
 function _checkwrite(op::O, c::Conjugate, y::Union{AbstractArray, Tuple}, x::Union{AbstractArray, Tuple}) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   op === value_and_prox! && y isa AbstractArray && _checkparams(c, x)
@@ -385,11 +564,13 @@ function _checkwrite(op::O, c::Conjugate, y::Union{AbstractArray, Tuple}, x::Uni
   withvalue = op === value_and_prox! && !_isindicator(c)
   _checkwrite(withvalue && !_has_conjugate_value(c.f) ? value_and_prox! : prox!, c.f, p, p)
   withvalue && _has_conjugate_value(c.f) && _checkconjugate(c.f, y)
+  # the Fenchel equality ⟨p, y⟩ - f(p) is not real at complex entries
+  withvalue && !_has_conjugate_value(c.f) && _checkreal(c, y)
   true
 end
 _conjugate_checkbuffer(s::Scratch, y::AbstractArray, x::AbstractArray) = _checkbuffer(s, float(eltype(y)), size(x))
 
-(c::Conjugate)(y::Union{AbstractArray, Tuple}) = (_checkparams(c, y); _conjugate_value(c.f, y))
+(c::Conjugate)(y::Union{AbstractArray, Tuple}) = (_checkparams(c, y); _value_at(_conjugate_value(c.f, y), y))
 
 _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, c::Conjugate{<:SumLargest}, y::AbstractArray, x::AbstractArray) =
   _checkwrite(op, c.f, y, x)
@@ -432,26 +613,39 @@ _moreau_output!(y::Tuple, x::Tuple, p::Tuple, γ) =
 _tuple_dot(x::AbstractArray, y::AbstractArray) = dot(x, y)
 _tuple_dot(x::Tuple, y::Tuple) = sum(map(_tuple_dot, x, y))
 
+# as for arrays, with every block checked before any block is written
 function prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _checkwrite(prox!, c, y, x)
   p = _tuple_buffer!(c.scratch, y, x)
-  _divide!(p, x, γ)
-  prox!(p, c.f, p, inv(γ))
-  _moreau_output!(y, x, p, γ)
+  if _conjugate_isindicator(typeof(c.f))
+    unit = one(float(typeof(γ)))
+    prox!(p, c.f, x, unit)
+    _checkmoreau(y, x, p, unit, γ, false)
+    _moreau_output!(y, x, p, unit)
+  else
+    _divide!(p, x, γ)
+    prox!(p, c.f, p, inv(γ))
+    _checkmoreau(y, x, p, γ, γ, true)
+    _moreau_output!(y, x, p, γ)
+  end
 end
+prox!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) = (_checkwrite(prox!, c, y, x); prox!(y, c.f.f, x, γ))
+value_and_prox!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) =
+  (_checkwrite(value_and_prox!, c, y, x); value_and_prox!(y, c.f.f, x, γ))
 
 function value_and_prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
-    return _conjugate_value(c.f, y)
+    return _value_at(_conjugate_value(c.f, y), y)
   end
   p = _tuple_buffer!(c.scratch, y, x)
   _divide!(p, x, γ)
   fp = value_and_prox!(p, c.f, p, inv(γ))
+  _checkmoreau(y, x, p, γ, γ, true)
   _moreau_output!(y, x, p, γ)
-  _tuple_dot(p, y) - fp
+  _value_at(_tuple_dot(p, y) - fp, y)
 end
 
 # (αf)*(y) = α f*(y/α), and (f(⋅-b))*(y) = f*(y) + ⟨b,y⟩.
@@ -480,11 +674,11 @@ function _checkconjugate(f::Scaled, y::Tuple)
   f.α > 0 || throw(ArgumentError("conjugate values of Scaled require a positive scale"))
   _checkscaledconjugate(f.f, y, f.α)
 end
-_checkconjugate(f::Translate, y::AbstractArray) = (_checksize(f.b, y); _checkconjugate(f.f, y))
+_checkconjugate(f::Translate, y::AbstractArray) = (_checksize(f.b, y); _checkreal(f, y); _checkconjugate(f.f, y))
 _checkconjugate(f::Union{NormL1, IndBox, IndSOC, IndRotatedSOC, IndExpPrimal, IndExpDual, SumLargest,
                           CheckLoss, HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}, y::AbstractArray) = _checkparams(f, y)
 _checkconjugate(f::LinearFunction, y::AbstractArray) = size(y) == size(f.c) || throw(DimensionMismatch())
-_checkconjugate(f::SqrNormL2, y::AbstractArray) = (iszero(f.λ) || f.y === nothing || _checkdot(f.y, y); true)
+_checkconjugate(f::SqrNormL2, y::AbstractArray) = (iszero(f.λ) || f.y === nothing || (_checkreal(f, y); _checkdot(f.y, y)); true)
 
 @noinline _conjugate_value(f::AbstractFunction, y) =
   throw(ArgumentError("the value of the conjugate of $(typeof(f)) is not implemented; its proximal operator is"))
@@ -569,7 +763,7 @@ function _conjugate_value(f::IndBox, y::AbstractArray)
   s = zero(T)
   @inbounds for i in eachindex(IndexLinear(), y)
     v = y[i]
-    s += v >= 0 ? (iszero(v) ? zero(T) : v * _entry(f.u, i)) : v * _entry(f.l, i)
+    s += convert(T, v >= 0 ? (iszero(v) ? zero(T) : v * _entry(f.u, i)) : v * _entry(f.l, i))
   end
   s
 end
@@ -610,11 +804,11 @@ Blocks may themselves be tuples for nested sums. Allocating oracles and
 Before writing any output, the oracles check all blocks, including functions
 inside wrappers, against the checks their own oracles run before writing.
 A failure during computation, a check that depends on the step (such as
-`MoreauEnvelope`'s sum of its parameter and step), or a user-defined function
-whose oracles reject an argument that its `check_parameters` accepts can still
-leave earlier blocks written, and so can a few nested wrappers and structured
-matrices whose checks are not yet complete, such as a box constraint inside
-another one.
+`MoreauEnvelope`'s sum of its parameter and step, or [`Conjugate`](@ref)'s
+finite result at a finite input), a user-defined function whose oracles reject
+an argument that its `check_parameters` accepts, or a check that depends on the
+values of the argument (such as a hyperslab's finite inputs, or whether a box's
+output lies inside an inner box) can still leave earlier blocks written.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
@@ -654,13 +848,13 @@ _scaled_conjugate_value(s::SeparableSum, y::Tuple, α) =
   (_checkscaledconjugate(s, y, α); sum(map((f, yk) -> _conjugate_value(Scaled(f, α), yk), s.fs, y)))
 _checkvalue(s::SeparableSum, x::Tuple) = (_checkparams(s, x); map(_checkvalue, s.fs, x); true)
 
-(s::SeparableSum)(x::Tuple) = (_checkparams(s, x); sum(map((f, xk) -> f(xk), s.fs, x)))
+(s::SeparableSum)(x::Tuple) = (_checkparams(s, x); _value_at(sum(map((f, xk) -> f(xk), s.fs, x)), x))
 prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
   (_checkwrite(prox!, s, y, x); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
 value_and_prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(value_and_prox!, s, y, x); sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)))
+  (_checkwrite(value_and_prox!, s, y, x); _value_at(sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)), y))
 value_and_gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
-  (_checkwrite(value_and_gradient!, s, g, x); sum(map((f, gk, xk) -> value_and_gradient!(gk, f, xk), s.fs, g, x)))
+  (_checkwrite(value_and_gradient!, s, g, x); _value_at(sum(map((f, gk, xk) -> value_and_gradient!(gk, f, xk), s.fs, g, x)), x))
 gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
   (_checkwrite(gradient!, s, g, x); map((f, gk, xk) -> gradient!(gk, f, xk), s.fs, g, x); g)
 
@@ -685,7 +879,7 @@ issmooth(::Type{<:Sum{F}}) where {F} = all(issmooth, fieldtypes(F))
 isconvex(::Type{<:Sum{F}}) where {F} = all(isconvex, fieldtypes(F))
 _checkparams(s::Sum, x) = (map(f -> _checkparams(f, x), s.fs); true)
 
-(s::Sum)(x) = sum(f -> f(x), s.fs)
+(s::Sum)(x) = _value_at(sum(f -> f(x), s.fs), x)
 _checkvalue(s::Sum, x) = (map(f -> _checkvalue(f, x), s.fs); true)
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::Sum, g::AbstractArray, x::AbstractArray)
@@ -710,10 +904,24 @@ end
 function value_and_gradient!(g::AbstractArray, s::Sum, x::AbstractArray)
   _checkwrite(value_and_gradient!, s, g, x)
   v = value_and_gradient!(g, first(s.fs), x)
-  length(s.fs) == 1 && return v
+  length(s.fs) == 1 && return _value_at(v, x)
   b = _array_buffer!(s.scratch, eltype(g), size(g))
-  _add_gradients!(g, b, x, v, Base.tail(s.fs))
+  _value_at(_add_gradients!(g, b, x, v, Base.tail(s.fs)), x)
 end
+
+####################################
+#  The real-entry checks of inner functions
+####################################
+
+# The check that rejects complex entries in a function whose value is not real
+# at them, for the oracles whose other checks see only the output or another
+# point: wrappers that pass an output-typed buffer, and second-order oracles.
+_checkentries(f, x) = true
+_checkentries(f::Union{LinearFunction, QuadraticFunction, KronQuadratic, LeastSquaresLoss, GLMLoss, LogDetLoss,
+                       IndAffine, Tilt}, x) = _checkreal(f, x)
+_checkentries(f::Union{Scaled, Translate}, x) = _checkentries(f.f, x)
+_checkentries(s::Sum, x) = (map(f -> _checkentries(f, x), s.fs); true)
+_checkentries(s::SeparableSum, x::Tuple) = (map(_checkentries, s.fs, x); true)
 
 ####################################
 #  Availability of standalone values

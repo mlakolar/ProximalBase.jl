@@ -69,8 +69,8 @@ _isindicator(::Type{<:IndPattern}) = true
 _checkparams(f::IndPattern, x) = (_checkparam(f.P, x); true)
 
 function _value_dense(f::IndPattern, x::AbstractArray)
-  T = float(eltype(x))
-  t = _tol(T)
+  T = _valtype(x)
+  t = _tol(float(eltype(x)))
   ok = true
   @inbounds for i in eachindex(IndexLinear(), x)
     ok &= f.P[i] | (abs(x[i]) <= t)
@@ -155,8 +155,8 @@ restrict(f::IndBanded, S::AbstractVector{<:Integer}) = IndPattern(BitVector(_inb
 
 # on a dense matrix, by columns: the rows c - ku to c + kl of column c are in the band
 function _value_dense(f::IndBanded, x::AbstractMatrix)
-  T = float(eltype(x))
-  t = _tol(T)
+  T = _valtype(x)
+  t = _tol(float(eltype(x)))
   m, n = size(x)
   ok = true
   @inbounds for c in 1:n

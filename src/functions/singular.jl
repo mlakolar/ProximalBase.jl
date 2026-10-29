@@ -84,6 +84,7 @@ end
 # the singular values of X, in descending order, owned by the workspace of F
 function _singular_values!(F::SingularValue, X::AbstractMatrix)
   T = float(eltype(X))
+  _checkblas(F, T)
   ws = _svd_workspace(F.ws, T, size(X)...)
   F.ws = ws
   copyto!(ws.A, X)
@@ -96,6 +97,7 @@ end
 # a subnormal one has k < 0) decides membership in scaled units.
 function (F::SingularValue)(X::AbstractMatrix)
   T = float(eltype(X))
+  _checkblas(F, T)
   all(isfinite, X) || return T(Inf)
   t, scaled, k = _masked_singular_values!(F, X)
   k > 0 && _scales_membership(F.f) && return _scaled_membership(F.f, scaled, k)
@@ -172,6 +174,7 @@ end
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, F::SingularValue, Y::AbstractMatrix, X::AbstractMatrix)
   _checksize(Y, X)
   T = float(eltype(Y))
+  _checkblas(F, T)
   s = _checkspectrum(F, T, size(X))
   t = _checkbuffer(F.t, T, size(s))
   _checkwrite(value_and_prox!, F.f, t, s)
@@ -184,6 +187,7 @@ _checkconjugate(F::SingularValue, Y::AbstractMatrix) = _checkconjugate(F.f, _che
 # with the zero mask of the value, and the same domain
 function _conjugate_value(F::SingularValue, Y::AbstractMatrix)
   _checkconjugate(F, Y)
+  _checkblas(F, float(eltype(Y)))
   all(isfinite, Y) || return float(eltype(Y))(Inf)
   t, = _masked_singular_values!(F, Y)
   _conjugate_value(F.f, t)

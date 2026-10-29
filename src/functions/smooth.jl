@@ -24,7 +24,7 @@ iszeropreserving(::ZeroFunction) = true
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)},
             ::ZeroFunction, y::AbstractArray, x::AbstractArray) = (_checksize(y, x); true)
 
-(::ZeroFunction)(x::AbstractArray) = zero(float(eltype(x)))
+(::ZeroFunction)(x::AbstractArray) = zero(_valtype(x))
 
 function prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
@@ -32,12 +32,12 @@ function prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, ::Real)
   y
 end
 value_and_prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::Real) =
-  (prox!(y, f, x, γ); zero(float(eltype(y))))
+  (prox!(y, f, x, γ); zero(_valtype(y)))
 
 function value_and_gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
   fill!(g, zero(eltype(g)))
-  zero(float(eltype(x)))
+  zero(_valtype(x))
 end
 gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray) = (value_and_gradient!(g, f, x); g)
 
@@ -66,22 +66,33 @@ isproximable(::Type{<:LinearFunction}) = true
 isseparable(::Type{<:LinearFunction}) = true
 isconvex(::Type{<:LinearFunction}) = true
 
-(f::LinearFunction)(x::AbstractArray) = (_checkvalue(f, x); dot(f.c, x) + f.d)
+(f::LinearFunction)(x::AbstractArray) = (_checkvalue(f, x); _value_at(dot(f.c, x) + f.d, x))
 
-# The shape checks of dot(::StridedMatrix, ::SymmetricSparseIterate) and
-# SparseArrays' matrix dot methods; generic dot only needs equal lengths.
+# Generic dot only needs equal lengths; specialized matrix methods check shapes.
 _dot_checks_size(::Type{C}, ::Type{X}) where {C, X} =
+  (C <: Diagonal && X <: AbstractMatrix) ||
+  (C <: AbstractMatrix && X <: Diagonal) ||
   (C <: StridedMatrix && X <: SymmetricSparseIterate) ||
   (C <: SymmetricSparseIterate && X <: StridedMatrix) ||
   (C <: _SparseDotCSC && X <: Union{_SparseDotCSC, _SparseDotMatrix}) ||
-  (C <: _SparseDotMatrix && X <: _SparseDotCSC)
+  (C <: _SparseDotMatrix && X <: _SparseDotCSC) ||
+  (_SparseWrappedColumnDotChecksSize &&
+   ((C <: _SparseDotWrappedCSC && X <: _SparseDotCSC) ||
+    (C <: _SparseDotCSC && X <: _SparseDotWrappedCSC)))
+_dot_checks_size(::Type{<:Adjoint{<:Union{Real, Complex}, C}}, ::Type{<:Adjoint{<:Union{Real, Complex}, X}}) where {C, X} = _dot_checks_size(C, X)
+_dot_checks_size(::Type{<:Transpose{<:Any, C}}, ::Type{<:Transpose{<:Any, X}}) where {C, X} = _dot_checks_size(C, X)
+_dot_checks_size(::Type{<:Adjoint{<:Any, C}}, ::Type{<:Transpose{<:Any, X}}) where {C, X} =
+  _SparseMixedDotChecksSize && C <: _SparseDotCSC && X <: _SparseDotCSC
+_dot_checks_size(::Type{<:Transpose{<:Any, C}}, ::Type{<:Adjoint{<:Any, X}}) where {C, X} =
+  _SparseMixedDotChecksSize && C <: _SparseDotCSC && X <: _SparseDotCSC
 _checkdot(c::C, x::X) where {C, X} = (_dot_checks_size(C, X) ? _checksize(c, x) : _checkparam(c, x))
-_checkvalue(f::LinearFunction, x) = _checkdot(f.c, x)
+_checkvalue(f::LinearFunction, x) = (_checkreal(f, x); _checkdot(f.c, x))
 
 function _checkwrite(op::O, f::LinearFunction, y::AbstractArray, x::AbstractArray) where {O}
   _checksize(y, x)
   _checkparams(f, x)
-  op === value_and_prox! && _checkdot(f.c, y)
+  _checkreal(f, x)
+  op === value_and_prox! && (_checkreal(f, y); _checkdot(f.c, y))
   op === value_and_gradient! && _checkdot(f.c, x)
   # c is written into y: copied by the gradient, subtracted by the prox
   _check_symmetric_source(y, f.c)
@@ -189,10 +200,10 @@ end
 
 function (f::SqrNormL2)(x::AbstractArray)
   _checkvalue(f, x)
-  T = float(eltype(x))
+  T = _valtype(x)
   iszero(f.λ) && return zero(T)
   s = f.y === nothing ? _sumabs2(x) : _sumabs2_diff(x, f.y)
-  convert(T, f.λ) * s / 2
+  _value_at(convert(T, f.λ) * s / 2, x)
 end
 
 _checkvalue(f::SqrNormL2, x) = (_checkparams(f, x); f.y === nothing || _checksize(f.y, x); true)
@@ -298,9 +309,10 @@ isproximable(::Type{<:QuadraticFunction}) = true
 isconvex(::Type{<:QuadraticFunction}) = true
 
 function (f::QuadraticFunction)(x::AbstractVector)
+  _checkreal(f, x)
   mul!(f.tmp, f.A, x)
   v = dot(x, f.tmp) / 2 + f.c
-  f.b === nothing ? v : v + dot(f.b, x)
+  _value_at(f.b === nothing ? v : v + dot(f.b, x), x)
 end
 
 function value_and_gradient!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector)
@@ -315,7 +327,7 @@ function value_and_gradient!(g::AbstractVector, f::QuadraticFunction, x::Abstrac
     g .+= f.b
     v += dot(f.b, x)
   end
-  v
+  _value_at(v, x)
 end
 
 function gradient!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector)
@@ -345,9 +357,11 @@ function prox!(y::AbstractVector, f::QuadraticFunction{T}, x::AbstractVector, γ
   copyto!(y, t)
 end
 
-function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::QuadraticFunction{T}, y::AbstractVector, x::AbstractVector) where {T}
+function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, f::QuadraticFunction{T}, y::AbstractVector, x::AbstractVector) where {T}
   _checksize(y, x)
   length(x) == length(f.tmp) || throw(DimensionMismatch())
+  _checkreal(f, x)
+  op === value_and_prox! && _checkreal(f, y)
   true
 end
 
@@ -355,7 +369,7 @@ function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f:
   _checksize(g, x)
   # Preserve the dimension error of the product, which checks before writing.
   length(x) == size(f.A, 2) || mul!(g, f.A, x)
-  true
+  _checkreal(f, x)
 end
 
 restrict(f::QuadraticFunction, S::AbstractVector{<:Integer}) =
@@ -461,11 +475,12 @@ function _densify!(f::KronQuadratic, Θ::SymmetricSparseIterate)
 end
 
 function (f::KronQuadratic)(Θ::AbstractArray)
+  _checkreal(f, Θ)
   D = _densify!(f, Θ)
   mul!(f.AD, f.A, D)
   mul!(f.W, f.AD, f.B)
   v = dot(D, f.W) / 2
-  f.C === nothing ? v : v + dot(f.C, D)
+  _value_at(f.C === nothing ? v : v + dot(f.C, D), Θ)
 end
 
 function value_and_gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray)
@@ -481,14 +496,14 @@ function value_and_gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArr
   end
   Θ isa SymmetricSparseIterate && _symmetrize!(W)
   copyto!(G, W)
-  v
+  _value_at(v, Θ)
 end
 
 gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =
   (_checkwrite(gradient!, f, G, Θ); value_and_gradient!(G, f, Θ); G)
 
 _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::KronQuadratic, G::AbstractArray, Θ::AbstractArray) =
-  (_checkshape(f, G); _checkshape(f, Θ); true)
+  (_checkshape(f, G); _checkshape(f, Θ); _checkreal(f, Θ))
 
 # (W + W')/2 in place
 function _symmetrize!(W::Matrix)

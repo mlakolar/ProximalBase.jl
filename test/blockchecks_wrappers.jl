@@ -309,10 +309,11 @@ end
     @test value_and_prox!(y, fb, x, 1.0) == value_and_prox!(expected, fb, collect(x), 1.0)
     @test collect(y) == expected
   end
-  # Element types that LAPACK does not support still fail at dispatch.
+  # Element types that LAPACK does not support raise an ArgumentError.
   for T in (Float16, BigFloat), f in (SingularValue(NormL1(1.0)), Spectral(NormL1(1.0)))
     X = T.([2 1; 1 3])
-    @test_throws MethodError prox!(similar(X), f, X, 1.0)
+    @test_throws ArgumentError prox!(similar(X), f, X, 1.0)
+    @test_throws "needs Float32 or Float64 entries, got" prox!(similar(X), f, X, 1.0)
   end
   # The step is checked before the inner function, and an array step before it too.
   @test_throws ArgumentError prox!(zeros(2), MoreauEnvelope(SqrNormL2(1.0, ones(1, 2)), 0.5), [3.0, 4.0], -1.0)

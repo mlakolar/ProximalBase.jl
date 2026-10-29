@@ -339,8 +339,8 @@ end
                          (T, T, S, S), (S, S, T, T))
       z = (C.(1:n), -D.(1:m))
       out = (zeros(X, n), zeros(Y, m))
-      @test typeof(f(z)) === float(promote_type(T, C, D))
-      @test typeof(value_and_prox!(out, f, z)) === float(promote_type(T, C, D, X, Y))
+      @test typeof(f(z)) === float(promote_type(C, D))
+      @test typeof(value_and_prox!(out, f, z)) === float(promote_type(X, Y))
       @test eltype(out[1]) === X && eltype(out[2]) === Y
       p = prox(f, z)
       @test eltype(p[1]) === C && eltype(p[2]) === D

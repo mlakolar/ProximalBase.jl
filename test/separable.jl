@@ -318,6 +318,84 @@ end
   @test IndNonnegative()([-1e-12, 1.]) == 0 && IndNonnegative()([-1e-3, 1.]) == Inf
   @test_throws ArgumentError IndBox(1, 0)
   @test_throws ArgumentError IndBallLinf(-1.)
+
+  @test_throws ArgumentError("the lower bounds must be below Inf and the upper bounds above -Inf") IndBox(Inf, Inf)
+  @test_throws ArgumentError("the lower bounds must be below Inf and the upper bounds above -Inf") IndBox([0.0, Inf], [1.0, Inf])
+  @test_throws ArgumentError IndBox(-Inf, -Inf)
+  @test_throws ArgumentError IndBox(Inf32, Inf32)
+  @test_throws ArgumentError IndBox(Inf, Inf32)
+  @test_throws ArgumentError IndBox(Float16(Inf), Float16(Inf))
+  @test_throws ArgumentError IndBox(big(Inf), big(Inf))
+  @test_throws ArgumentError IndBox(1//0, 1//0)
+  @test_throws ArgumentError IndBox([-Inf, 0.0], [-Inf, 1.0])
+  @test_throws ArgumentError IndBox(-Inf, [Inf, -Inf])
+  @test_throws ArgumentError IndBox([0.0, Inf], Inf)
+  @test_throws ArgumentError IndBox([0.0 Inf; 0.0 0.0], [1.0 Inf; 1.0 1.0])
+  @test_throws ArgumentError IndBox(view([0.0, Inf, 2.0], 1:2), [1.0, Inf])
+  @test_throws ArgumentError("the lower bounds must not exceed the upper bounds") IndBox(NaN, 1.0)
+  @test_throws ArgumentError("the lower bounds must not exceed the upper bounds") IndBox([0.0, NaN], 1.0)
+  @test_throws ArgumentError("the lower bounds must not exceed the upper bounds") IndBox(1, 0)
+  @test_throws ArgumentError("the lower bounds must not exceed the upper bounds") IndBox([Inf, 2.0], [Inf, 1.0])
+
+  for (l, u) in ((-Inf, Inf), (0.0, Inf), (-Inf, 0.0), ([-Inf, 0.0], [Inf, Inf]),
+                 (0, 0), (-2.0, -2.0), (floatmax(Float64), floatmax(Float64)),
+                 (false, true), (-1//2, 1//2), (big(-1.0), big(1.0)))
+    f = IndBox(l, u)
+    x = [-3.0, 2.0]
+    @test prox(f, x) == clamp.(x, l, u)
+    @test f(clamp.(x, l, u)) == 0
+  end
+  @test IndBox(Inf, Float64[])(Float64[]) == 0           # zero coordinates
+  @test prox(IndBox(Inf, Float64[]), Float64[]) == Float64[]
+  @test IndBallLinf(Inf)([-3.0, 2.0]) == 0
+  @test prox(IndBallLinf(Inf), [-3.0, 2.0]) == [-3.0, 2.0]
+  @test IndBox(0.0, Inf)([Inf]) == 0                    # infinite entries remain members
+  @test IndBox(-Inf, Inf)([Inf]) == 0
+end
+
+@testset "restrict of a box drops terms that must be finite at zero" begin
+  padded(z, S, n) = (x = zeros(eltype(z), n); x[S] = z; x)
+  for T in (Float32, Float64)
+    f = IndBox(T[1, 0], T[2, 2])
+    @test f(T[0, 1]) == Inf
+    @test_throws ArgumentError restrict(f, [2])
+    @test_throws ArgumentError restrict(f, 2:2)
+    @test_throws ArgumentError restrict(f, BitVector([false, true]))
+    @test_throws ArgumentError restrict(f, Int[])
+    r = restrict(f, [1, 2])                            # nothing is dropped
+    @test r.l == f.l && r.u == f.u
+    @test restrict(f, [1])(T[1.5]) == f(T[1.5, 0]) == 0
+    @test_throws ArgumentError restrict(IndBox(T[-2, 0], T[-1, 2]), [2])
+    @test_throws ArgumentError restrict(IndBox(T(1), T(2)), [1, 2])
+    @test restrict(IndBox(T(-1), T(2)), [1]) == IndBox(T(-1), T(2))
+  end
+  @test_throws ArgumentError restrict(IndBox(1, [2, 2]), [2])
+  @test restrict(IndBox(1, [2, 2]), [1, 2])([1.5, 1.5]) == 0
+  # every excluded coordinate contains zero, with a bound at zero or infinite bounds
+  for f in (IndBox([0., -1., -Inf], [1., 0., Inf]), IndBox(-1., 2.), IndBox(-Inf, 0.)),
+      S in ([1], [2], [3], [1, 3])
+    for v in (-0.5, 0.5, 3.)
+      z = fill(v, length(S))
+      @test restrict(f, S)(z) == f(padded(z, S, 3))
+    end
+  end
+  # the excluded coordinates contain zero, however S selects the rest
+  f = IndBox([0., 1.], [2., 2.])
+  for S in ([2], 2:2, [2, 2], BitVector([false, true]))
+    r = restrict(f, S)
+    @test r.l == f.l[S] && r.u == f.u[S]
+  end
+  M = IndBox([1. 0.; 2. 0.], [2. 1.; 3. 1.])        # zero lies outside the first column only
+  @test restrict(M, [1, 2])([1.5, 2.5]) == 0
+  @test restrict(M, [1, 2, 3])([1.5, 2.5, 2.]) == Inf
+  @test_throws ArgumentError restrict(M, [2, 3])
+  # wrappers pass the check on
+  box = IndBox([1., 0.], [2., 2.])
+  for g in (Scaled(box, 2.), Tilt(box, [1., 1.]), Regularize(box, 1.), Precompose(box, [1., 2.]),
+            Precompose(box, 2.), Constrained(NormL1(1.), box))
+    @test_throws ArgumentError restrict(g, [2])
+    @test all(v -> restrict(g, [1])([v]) ≈ g([v, 0.]), (0.75, 1.5, 3.))
+  end
 end
 
 @testset "NormL0" begin

@@ -35,6 +35,8 @@ operator.
 - **Scaling.** ``\gamma(\alpha f) = (\gamma\alpha) f``, so the proximal operator
   of ``\alpha f`` with step ``\gamma`` is that of ``f`` with step
   ``\gamma\alpha``. The Lipschitz constant scales by ``\alpha``.
+  Zero scaling of `NormL1`, `NormL1Nonneg` and `ElasticNet` with an infinite
+  weight gives the same penalty at a zero level.
 - **Tilting.** Completing the square,
   ``f(z) + \langle c, z\rangle + \frac{1}{2\gamma}\|z - x\|^2 = f(z) + \frac{1}{2\gamma}\|z - (x - \gamma c)\|^2 + \text{const}``.
 - **Translation.** Substituting ``u = z - b`` turns the problem for
@@ -85,7 +87,8 @@ and restriction. Its coordinate curvatures are ``a_i^2 L_i``, and its gradient
 has Lipschitz constant at most ``\max_i a_i^2 L_f``. Entrywise values require
 `f` to be a `SeparableFunction`. On a `SymmetricSparseIterate`, both `a` and
 the inner parameters must be symmetric. The image uses the promoted floating
-type of `x` and `a`; values have the inner function's type at that image.
+type of `x` and `a`; values are computed at that image and have the
+argument's precision, as in [Precision](@ref).
 The scaled inputs, effective steps and results must fit
 in that precision and in the range supported by the inner oracle; effective
 steps are formed without first rounding ``a_i^2``.
@@ -174,8 +177,8 @@ Steps must be positive scalars; tuple inputs and arrays of steps are unsupported
 The standalone value `g(x)` evaluates every component's value in order, and
 propagates `NaN` as `minimum` does. Every component must provide a value oracle;
 `Conjugate(ElasticNet(0.5, 0.2))`, for example, has no standalone value. The proximal
-operator instead obtains each candidate value from `value_and_prox!`, and
-promotes the returned scalar across all candidate values. It is exact when
+operator instead obtains each candidate value from `value_and_prox!`, which
+has the output's precision, and compares these values. It is exact when
 every component's proximal operator and reported value are exact. Approximate
 projections, partial decompositions and cancellation in `Conjugate` values can
 change the selected branch. In particular, the package's indicators return
@@ -234,9 +237,10 @@ This path densifies sparse data and accepts dependent
 rows and rank-zero maps. Range membership uses a scaled residual and the tolerance
 ``\sqrt{\operatorname{eps}(T)}\max(1,\lVert y\rVert)``.
 
-Quadratic buffers and scalar values use the promoted floating type of `Q`
-and `L`. Orthogonal-image buffers and scalar values use the promoted floating
-type of `L` and the argument. When the transformed step falls outside its
+Quadratic buffers use the promoted floating type of `Q` and `L`.
+Orthogonal-image buffers use the promoted floating type of `L` and the
+argument. Scalar values have the argument's precision, as in
+[Precision](@ref). When the transformed step falls outside its
 normal range, the orthogonal proximal computation widens its inner workspace;
 exceptional `BigFloat` computations may allocate. Powers of two carry extreme
 scales without first narrowing them to the workspace type. Outputs keep their
@@ -305,7 +309,16 @@ the Fenchel equality ``f^*(y) = \langle p, y\rangle - f(p)``, with ``p`` the cor
 proximal point of ``f``. Subtraction can lose accuracy when these terms nearly
 cancel, and errors in the inner proximal point also affect the value. For a
 conjugate that is an indicator, the result can be a small nonzero number
-rather than zero; it is not a feasibility certificate.
+rather than zero; it is not a feasibility certificate. For a positively
+homogeneous ``f`` or a cone, ``\gamma\operatorname{prox}_{f/\gamma}(x/\gamma) =
+\operatorname{prox}_f(x)``, and for the ℓ2 ball and box indicators, their
+translations and positive rescalings, it is the projection onto ``\gamma C``,
+so these conjugates take every step without dividing by ``\gamma``, with the
+accuracy of a unit step, about ``\epsilon`` times the largest input entry
+(with array steps and in `prox_entry`, only for the conjugates that are
+indicators of separable functions, the box itself and the double conjugate); for
+the others, `prox!` and `value_and_prox!` throw an `ArgumentError` when a finite
+input gives a result that is not finite in working precision.
 
 ```@example calculus
 h = Conjugate(NormL2(1.0))                     # the indicator of the unit ℓ2 ball

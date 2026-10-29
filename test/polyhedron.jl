@@ -267,14 +267,14 @@ end
   @test prox(f, [2, 2]) ≈ [0.5, 0.5] rtol = 0 atol = 4eps(Float32)
   for x in (Float32[2, 2], [2., 2], Float32[0, 0], [2., 2])
     y = zeros(Float32, 2)
-    @test value_and_prox!(y, f, x, 1) === zero(float(eltype(x)))
+    @test value_and_prox!(y, f, x, 1) === 0f0
     @test y == Float32.(prox(f, x))
     @test eltype(f.origin) === Float32
   end
   mixed = IndPolyhedron(Float32[1 1], 0.0, 1.0)
   @test eltype(mixed.point) === Float64
   y = zeros(Float32, 2)
-  @test value_and_prox!(y, mixed, [2., 2], 1) === 0.0
+  @test value_and_prox!(y, mixed, [2., 2], 1) === 0f0
   @test y == Float32[0.5, 0.5]
   @test prox(IndPolyhedron([typemin(Int) 0], -Inf, 0), [-1., 2]) == [0., 2]
   @test_throws ArgumentError IndPolyhedron([NaN;;], -Inf, 1)

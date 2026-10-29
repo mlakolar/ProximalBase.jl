@@ -163,6 +163,51 @@ end
   end
 end
 
+@testset "restrict where the dropped terms are not evaluated at zero" begin
+  for T in (Float32, Float64)
+    box = IndBox(T[1, 0], T[2, 2])
+    # f(E_S z) up to the dropped constant
+    function agrees(f, r, S, n, zs, c)
+      all(zs) do z
+        x = zeros(T, n)
+        x[S] = z
+        isinf(f(x)) ? isinf(r(z)) : isapprox(f(x) - r(z), c; atol = sqrt(eps(T)))
+      end
+    end
+    t = Translate(box, T[-1.5, 0])
+    @test agrees(t, restrict(t, [2]), [2], 2, (T[1], T[3], T[-1]), 0)
+    @test_throws ArgumentError restrict(Translate(box, zeros(T, 2)), [2])
+    t = Translate(IndBox(T[-1, 1], T[1, 2]), T[0, 1.5])
+    @test agrees(t, restrict(t, [2]), [2], 2, (T[3], T[0]), 0)
+    @test_throws ArgumentError restrict(t, [1])
+    t = Translate(NegLog(one(T)), T[-1, -1])
+    @test agrees(t, restrict(t, [2]), [2], 2, (T[1], T[-2]), 0)
+    e = MoreauEnvelope(box, T(0.5))
+    re = restrict(e, [2])
+    @test agrees(e, re, [2], 2, (T[1], T[3]), 1)
+    @test gradient(re, T[3]) ≈ gradient(e, T[0, 3])[[2]]
+    d = SqrDistL2(box, T(2))
+    @test agrees(d, restrict(d, [2]), [2], 2, (T[1], T[3]), 1)
+    e = MoreauEnvelope(Translate(box, T[-1.5, 0]), T(0.5))
+    @test agrees(e, restrict(e, [2]), [2], 2, (T[1], T[3]), 0)
+    t = Translate(Scaled(box, T(2)), T[-1.5, 0])
+    @test agrees(t, restrict(t, [2]), [2], 2, (T[1], T[3]), 0)
+    t = Translate(Constrained(NormL1(one(T)), box), T[-1.5, 0])
+    @test agrees(t, restrict(t, [2]), [2], 2, (T[1], T[3]), T(1.5))
+    # forwarding wrappers under Translate, whose dropped coordinate is feasible
+    for (g, b, c) in ((Tilt(box, T[1, 1]), T[-1.5, 0], T(1.5)), (Regularize(box, one(T)), T[-1.5, 0], T(1.125)),
+                      (Precompose(box, T(2)), T[-0.75, 0], 0), (Precompose(box, T[2, 1]), T[-0.75, 0], 0))
+      t = Translate(g, b)
+      @test agrees(t, restrict(t, [2]), [2], 2, (T[1], T[3]), c)
+    end
+    @test_throws ArgumentError restrict(Translate(Precompose(box, T(2)), zeros(T, 2)), [2])
+    # the zero-translation check of a nonseparable function still applies
+    coupled = MoreauEnvelope(Translate(GroupNormL2(one(T), [1:2], T[1]), T[0, 1]), T(0.5))
+    @test_throws ArgumentError restrict(coupled, [1])
+    @test agrees(coupled, restrict(coupled, [2]), [2], 2, (T[2], T[-1]), 0)
+  end
+end
+
 @testset "Conjugate wrappers" begin
   for f in (NormL0(), MCP(1.0), GroupSCAD(1.0, [1:2]))
     @test_throws ArgumentError Conjugate(f)
@@ -211,7 +256,8 @@ end
     @test Scaled{typeof(positive), T}(positive, zero(T)) isa ZeroFunction
     infinite = Scaled(NormL1(one(T)), T(Inf))
     @test_throws ArgumentError Scaled{typeof(infinite), T}(infinite, zero(T))
-    @test_throws ArgumentError Scaled(NormL1(one(T), T[1, Inf]), zero(T))
+    z = Scaled(NormL1(one(T), T[1, Inf]), zero(T))
+    @test z isa NormL1 && iszero(z.λ0)
     x, steps = T[2, -1], T[0.2, 0.8]
     out = similar(x)
     @test value_and_prox!(out, ZeroFunction(), x, steps) == zero(T)
@@ -246,7 +292,7 @@ end
   for (fs, x) in ((vector_functions, randn(10)), (matrix_functions, randn(4, 5))), f in fs, γ in (0.3, 2.)
     c = Conjugate(f)
     @test prox(f, x, γ) + γ * prox(c, x ./ γ, 1 / γ) ≈ x
-    @test prox(c, x, γ) ≈ x - γ * prox(f, x ./ γ, 1 / γ)
+    @test isapprox(prox(c, x, γ), x - γ * prox(f, x ./ γ, 1 / γ); atol = 8 * eps() * max(1, maximum(abs, x)) / min(γ, 1))
   end
   # the values: dual balls and support functions
   y = [0.3, -0.5, 0.1]

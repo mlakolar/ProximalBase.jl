@@ -100,7 +100,7 @@ function (e::MoreauEnvelope)(x::AbstractArray)
   γ = convert(T, e.γ)
   p = _envelope_buffer(e, T, x)
   v = value_and_prox!(p, e.f, x, γ)
-  v + _envelope_energy(x, p, γ)
+  _value_at(v + _envelope_energy(x, p, γ), x)
 end
 
 function value_and_gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
@@ -109,7 +109,7 @@ function value_and_gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArr
   v = value_and_prox!(g, e.f, x, γ)
   energy = _envelope_energy(x, g, γ)
   g .= _envelope_derivative.(x, g, γ)
-  eltype(g) === eltype(x) ? v + energy : e(x)
+  eltype(g) === eltype(x) ? _value_at(v + energy, x) : e(x)
 end
 
 function gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
@@ -154,7 +154,7 @@ function value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, 
   v = value_and_prox!(P, e.f, x, combined)
   a, b = γ / combined, t / combined
   y .= _ridge_blend.(x, P, a, b)
-  v + _envelope_energy(y, P, γ)
+  _value_at(v + _envelope_energy(y, P, γ), y)
 end
 
 Base.@propagate_inbounds function prox_entry(e::MoreauEnvelope, v::Real, i::Integer, t::Real)
@@ -174,9 +174,10 @@ function kkt_violation(e::MoreauEnvelope, g::AbstractArray, i::Integer)
   γ = e.γ
   abs(g[i] - prox_entry(e.f, zero(float(eltype(g))), i, γ) / γ)
 end
+# the dropped terms are minᵧ fᵢ(y) + y²/(2γ), finite for a proper fᵢ
 function restrict(e::MoreauEnvelope, S::AbstractVector{<:Integer})
   isseparable(e) || throw(ArgumentError("restrict of MoreauEnvelope requires a separable function"))
-  MoreauEnvelope(restrict(e.f, S), e.γ)
+  MoreauEnvelope(_restrict_unchecked(e.f, S), e.γ)
 end
 
 lipschitz(e::MoreauEnvelope) = inv(float(e.γ))

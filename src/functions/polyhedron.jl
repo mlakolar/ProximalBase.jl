@@ -738,5 +738,5 @@ end
 
 function value_and_prox!(y::AbstractArray, f::IndPolyhedron, x::AbstractArray, γ::Real = 1)
   prox!(y, f, x, γ)
-  zero(float(eltype(x)))
+  zero(_valtype(y))
 end

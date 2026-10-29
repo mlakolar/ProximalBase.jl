@@ -73,7 +73,7 @@ _has_ordinary_value(::Type) = false
 end
 
 function _value_dense(f, x::AbstractArray)
-  T = float(eltype(x))
+  T = _valtype(x)
   _has_ordinary_value(typeof(f)) || return _sum_entries(value_entry, f, x, T)
   s = _sum_entries(_value_entry_ordinary, f, x, T)
   isnan(s) ? _sum_entries(value_entry, f, x, T) : s
@@ -84,7 +84,7 @@ _value_sep(f, x::AbstractArray) = (_checkparams(f, x); _value_dense(f, x))
 function _value_sep(f, x::SparseIterate)
   _checkparams(f, x)
   iszeropreserving(f) || return _value_dense(f, x)
-  T = float(eltype(x))
+  T = _valtype(x)
   s = zero(T)
   @inbounds for k in 1:x.nnz
     s += convert(T, value_entry(f, x.nzval[k], x.nzval2ind[k]))
@@ -96,7 +96,7 @@ end
 function _value_sep(f, x::SymmetricSparseIterate)
   _checkparams(f, x)
   iszeropreserving(f) || return _value_dense(f, x)
-  T = float(eltype(x))
+  T = _valtype(x)
   p = x.p
   s = zero(T)
   @inbounds for k in 1:x.nnz
@@ -111,7 +111,7 @@ end
 function _value_sep(f, x::AtomIterate)
   _checkparams(f, x)
   iszeropreserving(f) || return _value_dense(f, x)
-  T = float(eltype(x))
+  T = _valtype(x)
   s = zero(T)
   @inbounds for a in 1:x.nactive, i in x.groups[x.active[a]]
     s += convert(T, value_entry(f, x.storage[i], i))
@@ -186,7 +186,7 @@ end
 # several times faster than one that stores and sums, which does not vectorize;
 # an indicator function is 0 at its projection
 _value_and_prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Union{Real, AbstractArray}) =
-  _isindicator(f) ? (_prox_sep!(y, f, x, γ); zero(float(eltype(y)))) : _value_sep(f, _prox_sep!(y, f, x, γ))
+  _isindicator(f) ? (_prox_sep!(y, f, x, γ); zero(_valtype(y))) : _value_sep(f, _prox_sep!(y, f, x, γ))
 
 _restrict_entries(w::Union{Nothing, Real}, ::AbstractVector{<:Integer}) = w
 _restrict_entries(w::AbstractArray, S::AbstractVector{<:Integer}) = w[S]
@@ -358,7 +358,7 @@ _checkparams(f::ElasticNet, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::ElasticNet, v::Real, i::Integer)
   a = abs(v)
-  _weighted_value(_weight_coefficient(f.λ1, _entry(f.w, i)) * a, a) + f.λ2 * abs2(v) / 2
+  _weighted_value(_weight_coefficient(f.λ1, _entry(f.w, i)) * a, a) + _weighted_value(f.λ2 * abs2(v) / 2, abs2(v))
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
 _has_ordinary_value(::Type{<:ElasticNet}) = true
@@ -378,10 +378,14 @@ restrict(f::ElasticNet, S::AbstractVector{<:Integer}) = ElasticNet(f.λ1, f.λ2,
     IndBox(l, u)
 
 The indicator of the box `{x : l ≤ x ≤ u}`: `0` inside and `Inf` outside. The
-bounds are scalars or arrays of the size of `x`, and may be infinite. Its
-proximal operator is the projection `clamp.(x, l, u)`. Array bounds are stored
-without copying; construct a new `IndBox` after changing them in place, since
-whether the box contains zero is computed at construction.
+bounds are scalars or arrays of the size of `x`, and may be infinite. They
+satisfy `l ≤ u`, `l < Inf` and `u > -Inf` coordinatewise: equal finite bounds
+are allowed, but equal infinite bounds are rejected because the coordinate is
+empty. Its proximal operator is the projection `clamp.(x, l, u)`. Array bounds
+are stored without copying; construct a new `IndBox` after changing them in
+place, since whether the box contains zero is computed at construction.
+[`restrict`](@ref) of the box itself requires `0 ∈ [lᵢ, uᵢ]` for every
+coordinate outside `S`, and throws for scalar bounds that exclude zero.
 """
 struct IndBox{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: SeparableFunction
   l::L
@@ -390,6 +394,7 @@ struct IndBox{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: S
 
   function IndBox{L, U}(l::L, u::U) where {L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}}
     all(l .<= u) || throw(ArgumentError("the lower bounds must not exceed the upper bounds"))
+    any((l .== Inf) .| (u .== -Inf)) && throw(ArgumentError("the lower bounds must be below Inf and the upper bounds above -Inf"))
     new{L, U}(l, u, all(l .<= 0) && all(u .>= 0))
   end
 end
@@ -460,7 +465,20 @@ function kkt_violation(f::IndBox, g::AbstractArray, i::Integer)
   down = _entry(f.l, i) < 0 ? g[i] : T(-Inf)
   max(up, down)
 end
-restrict(f::IndBox, S::AbstractVector{<:Integer}) = IndBox(_restrict_entries(f.l, S), _restrict_entries(f.u, S))
+# an excluded coordinate whose bounds exclude zero is infinite at zero
+function restrict(f::IndBox, S::AbstractVector{<:Integer})
+  if !f.zp
+    f.l isa AbstractArray || f.u isa AbstractArray ||
+      throw(ArgumentError("restrict of IndBox with scalar bounds requires 0 ∈ [l, u]"))
+    n = length(f.l isa AbstractArray ? f.l : f.u)
+    for i in _excluded_coordinates(n, S)
+      _entry(f.l, i) <= 0 <= _entry(f.u, i) ||
+        throw(ArgumentError("restrict of IndBox requires 0 ∈ [lᵢ, uᵢ] for every coordinate outside S"))
+    end
+  end
+  _restrict_unchecked(f, S)
+end
+_restrict_unchecked(f::IndBox, S::AbstractVector{<:Integer}) = IndBox(_restrict_entries(f.l, S), _restrict_entries(f.u, S))
 
 """
     IndNonnegative()

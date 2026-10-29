@@ -38,11 +38,11 @@ vector when there are many of one type.
 Before writing any output, the oracles check all slices, including functions
 inside wrappers, against the checks their own oracles run before writing.
 A failure during computation, a check that depends on the step (such as
-`MoreauEnvelope`'s sum of its parameter and step), or a user-defined function
-whose oracles reject an argument that its `check_parameters` accepts can still
-leave earlier slices written, and so can a few nested wrappers and structured
-matrices whose checks are not yet complete, such as a box constraint inside
-another one.
+`MoreauEnvelope`'s sum of its parameter and step, or [`Conjugate`](@ref)'s
+finite result at a finite input), a user-defined function whose oracles reject
+an argument that its `check_parameters` accepts, or a check that depends on the
+values of the argument (such as a hyperslab's finite inputs, or whether a box's
+output lies inside an inner box) can still leave earlier slices written.
 
 With `fₖ = LogDetLoss(Sₖ, nₖ/n)` it is the smooth part of the joint graphical
 lasso of K classes, whose penalty on the entries across the classes is a
@@ -80,11 +80,11 @@ function _sumslices(fun::G, fs::AbstractVector) where {G}
   v
 end
 
-(s::SliceSum)(x::AbstractArray) = (_checkslices(s, x); _sumslices((f, k) -> f(_slice(x, k)), s.fs))
+(s::SliceSum)(x::AbstractArray) = (_checkslices(s, x); _value_at(_sumslices((f, k) -> f(_slice(x, k)), s.fs), x))
 
 function value_and_prox!(y::AbstractArray, s::SliceSum, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, s, y, x)
-  _sumslices((f, k) -> value_and_prox!(_slice(y, k), f, _slice(x, k), γ), s.fs)
+  _value_at(_sumslices((f, k) -> value_and_prox!(_slice(y, k), f, _slice(x, k), γ), s.fs), y)
 end
 prox!(y::AbstractArray, s::SliceSum, x::AbstractArray, γ::Real) =
   (_checkwrite(prox!, s, y, x); value_and_prox!(y, s, x, γ); y)
@@ -105,7 +105,7 @@ end
 
 function value_and_gradient!(g::AbstractArray, s::SliceSum, x::AbstractArray)
   _checkwrite(value_and_gradient!, s, g, x)
-  _sumslices((f, k) -> value_and_gradient!(_slice(g, k), f, _slice(x, k)), s.fs)
+  _value_at(_sumslices((f, k) -> value_and_gradient!(_slice(g, k), f, _slice(x, k)), s.fs), x)
 end
 
 lipschitz(s::SliceSum) = maximum(lipschitz, s.fs)
@@ -128,11 +128,11 @@ fibers are its rows.
 Before writing any output, the oracles check all fibers, including functions
 inside wrappers, against the checks their own oracles run before writing.
 A failure during computation, a check that depends on the step (such as
-`MoreauEnvelope`'s sum of its parameter and step), or a user-defined function
-whose oracles reject an argument that its `check_parameters` accepts can still
-leave earlier fibers written, and so can a few nested wrappers and structured
-matrices whose checks are not yet complete, such as a box constraint inside
-another one.
+`MoreauEnvelope`'s sum of its parameter and step, or [`Conjugate`](@ref)'s
+finite result at a finite input), a user-defined function whose oracles reject
+an argument that its `check_parameters` accepts, or a check that depends on the
+values of the argument (such as a hyperslab's finite inputs, or whether a box's
+output lies inside an inner box) can still leave earlier fibers written.
 
 With `symmetric = true` the slices are taken to be symmetric, as precision
 matrices are: only the fibers with `i ≥ j` are read, and the proximal operator
@@ -183,7 +183,7 @@ _isdiagonal(::CartesianIndex) = false
 
 function (fb::FiberSum)(x::AbstractArray)
   own = _owndiagonal(fb, x)
-  T = float(eltype(x))
+  T = _valtype(x)
   v = zero(T)
   for I in _fiberindices(fb, x)
     fb.symmetric && I[1] < I[2] && continue
@@ -236,7 +236,7 @@ _fiberprox!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real, v::Val) 
 function _fiberprox_views!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real, ::Val{V}) where {V}
   _checksize(y, x)
   own = _owndiagonal(fb, x)
-  T = float(eltype(y))
+  T = _valtype(y)
   v = zero(T)
   for I in _fiberindices(fb, x)
     fb.symmetric && I[1] < I[2] && continue

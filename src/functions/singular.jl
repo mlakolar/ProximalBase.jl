@@ -92,12 +92,13 @@ function _singular_values!(F::SingularValue, X::AbstractMatrix)
 end
 
 # The domain is the finite matrices: a non-finite entry gives Inf. Singular
-# values within rounding of zero count as zero.
+# values within rounding of zero count as zero. An overflowing spectrum (k > 0;
+# a subnormal one has k < 0) decides membership in scaled units.
 function (F::SingularValue)(X::AbstractMatrix)
   T = float(eltype(X))
   all(isfinite, X) || return T(Inf)
   t, scaled, k = _masked_singular_values!(F, X)
-  scaled === nothing || !_scales_membership(F.f) || return _scaled_membership(F.f, scaled, k)
+  k > 0 && _scales_membership(F.f) && return _scaled_membership(F.f, scaled, k)
   convert(T, F.f(t))
 end
 

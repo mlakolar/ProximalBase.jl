@@ -378,24 +378,35 @@ _checkparams(f::IndBox, x) = (_checkparam(f.l, x); _checkparam(f.u, x); true)
 
 _isindicator(::Type{<:IndBox}) = true
 
-# l ≤ v ≤ u within the tolerance t·max(floor, |bound|). A bound inflated by its
-# tolerance can overflow although the bound is finite: then the difference is
-# compared instead. Branch free, so that the loops below vectorize.
+# the limits of l ≤ v ≤ u within the tolerance t·max(floor, |bound|). A finite
+# bound whose inflated limit overflows is clamped to the finite range instead:
+# every finite entry lies within its tolerance, and an infinite one does not.
+# Branch free, so that the loops below vectorize.
+@inline function _box_limits(l, u, t, floor = one(t))
+  lo, hi = l - t * max(floor, abs(l)), u + t * max(floor, abs(u))
+  ifelse(isinf(l), lo, max(lo, -floatmax(lo))), ifelse(isinf(u), hi, min(hi, floatmax(hi)))
+end
 @inline function _inbox(v, l, u, t, floor = one(t))
-  sl, su = t * max(floor, abs(l)), t * max(floor, abs(u))
-  lo, hi = l - sl, u + su
-  above = ifelse(isfinite(lo) | isinf(l), v >= lo, (v >= l) | (l - v <= sl))
-  below = ifelse(isfinite(hi) | isinf(u), v <= hi, (v <= u) | (v - u <= su))
-  above & below
+  lo, hi = _box_limits(l, u, t, floor)
+  (v >= lo) & (v <= hi)
 end
 
-# feasibility with a branch-free loop that vectorizes, then the value
+# feasibility with a branch-free loop that vectorizes, then the value; scalar
+# limits are computed once
 function _value_dense(f::IndBox, x::AbstractArray)
   T = float(eltype(x))
   t = _tol(T)
   ok = true
-  @inbounds @simd for i in eachindex(IndexLinear(), x)
-    ok &= _inbox(x[i], _entry(f.l, i), _entry(f.u, i), t)
+  if f.l isa AbstractArray || f.u isa AbstractArray
+    @inbounds @simd for i in eachindex(IndexLinear(), x)
+      ok &= _inbox(x[i], _entry(f.l, i), _entry(f.u, i), t)
+    end
+  else
+    lo, hi = _box_limits(f.l, f.u, t)
+    @inbounds @simd for i in eachindex(IndexLinear(), x)
+      v = x[i]
+      ok &= (v >= lo) & (v <= hi)
+    end
   end
   ok ? zero(T) : T(Inf)
 end

@@ -228,6 +228,11 @@ end
       @test SingularValue(IndBallL1(4.0 * floatmax(Float32)))(A) === 0f0
       @test SingularValue(IndBallL1(2.0 * floatmax(Float32)))(A) === Inf32
     end
+    # array bounds are checked against the spectrum, as at a finite one
+    @test_throws DimensionMismatch SingularValue(IndBox(T[0], T[Inf]))(A)
+    @test_throws DimensionMismatch SingularValue(IndBox(zeros(T, 5), fill(T(Inf), 5)))(A)
+    @test SingularValue(IndBox(zeros(T, 2), fill(M, 2)))(A) === T(Inf)
+    @test SingularValue(IndBox(zeros(T, 2), fill(T(Inf), 2)))(A) === zero(T)
     # empty inputs
     @test SingularValue(IndBallL1(one(T)))(zeros(T, 0, 0)) === zero(T)
     @test Spectral(IndBox(zero(T), one(T)))(zeros(T, 0, 0)) === zero(T)
@@ -252,6 +257,14 @@ end
   @test s2 > big(PB._tol(Float64)) * big(s1)
   @test SingularValue(NormL0(1.0))([s1 0; 0 s2]) === 2.0
   @test SingularValue(IndBallL0(1))([s1 0; 0 s2]) === Inf
+  # balls and boxes decide membership in the original units there
+  X = [2.0^-1030 0; 0 2.0^-1031]
+  @test SingularValue(IndBox(1e-3, 1.0))(X) === Inf
+  @test SingularValue(IndBox(-1.0, -1e-3))(X) === Inf
+  @test SingularValue(IndBox(0.0, 1.0))(X) === 0.0
+  @test SingularValue(IndBallLinf(1e-300))(X) === 0.0
+  @test SingularValue(IndBox(5f-4, 1f0))(Float32[2f0^-138 0; 0 2f0^-139]) === Inf32
+  @test SingularValue(IndBox(0f0, 1f0))(Float32[2f0^-138 0; 0 2f0^-139]) === 0f0
 end
 
 @testset "the conjugate value of SingularValue applies the mask" begin

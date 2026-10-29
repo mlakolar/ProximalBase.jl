@@ -335,6 +335,7 @@ function _scaled_membership(f::Union{IndBallL1, IndBallL2}, v::AbstractVector{T}
   _ind(n <= r + _tol(T) * max(α, r), T)
 end
 function _scaled_membership(f::IndBox, v::AbstractVector{T}, k::Int) where {T}
+  _checkparams(f, v)
   S = float(promote_type(T, eltype(f.l), eltype(f.u)))
   α, t = ldexp(one(S), -k), S(_tol(T))
   @inbounds for i in eachindex(v)

@@ -15,10 +15,12 @@ and ``\gamma`` is the step of the proximal operator.
 | [`NegEntropy`](@ref)`(λ)` | ``\lambda\sum_i x_i\log x_i`` on ``x \ge 0`` | ``\mu\,\omega(v_i/\mu - 1 - \log\mu)``, ``\mu = \gamma\lambda`` | ✓ |
 | [`KLDivergence`](@ref)`(q; λ)` | ``\lambda\sum_i (x_i\log(x_i/q_i) - x_i + q_i)`` on ``x \ge 0`` | ``\mu\,\omega(v_i/\mu + \log(q_i/\mu))`` | ✓ |
 | [`NegLog`](@ref)`(λ)` | ``-\lambda\sum_i\log x_i`` on ``x > 0`` | ``(v_i + \sqrt{v_i^2 + 4\gamma\lambda})/2`` | ✓ |
+| [`BernoulliLoss`](@ref)`(b, w)` | the Bernoulli negative log-likelihood on probabilities | a safeguarded scalar Newton iteration | ✓ |
 | [`CappedL1`](@ref)`(λ, a, w)` | ``\lambda\sum_i w_i\min(\lvert x_i\rvert, a)`` | the better of two clipped candidates | ✓ |
 | [`LogPenalty`](@ref)`(λ, ε, w)` | ``\lambda\sum_i w_i\log(1 + \lvert x_i\rvert/\varepsilon)`` | zero or the root of a quadratic | ✓ |
 | [`NormLq`](@ref)`(λ, q, w)` | ``\lambda\sum_i w_i\lvert x_i\rvert^q``, ``0 < q < 1`` | ℓq thresholding | ✓ |
 | [`NormL2`](@ref)`(λ)` | ``\lambda\lVert x\rVert_2`` | ``\max(1 - \gamma\lambda/\lVert v\rVert_2, 0)\,v`` | |
+| [`CubeNormL2`](@ref)`(λ)` | ``\tfrac{\lambda}{3}\lVert x\rVert_2^3`` | ``2v/(1 + \sqrt{1 + 4\gamma\lambda\lVert v\rVert_2})`` | |
 | [`NormLinf`](@ref)`(λ)` | ``\lambda\lVert x\rVert_\infty`` | ``v - P_{\lVert\cdot\rVert_1 \le \gamma\lambda}(v)`` | |
 | [`GroupNormL2`](@ref)`(λ0, groups, w)` | ``\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_2`` | block soft thresholding of each group | |
 | [`SparseGroupNormL2`](@ref)`(λ1, λ2, groups, w)` | ``\lambda_1\lVert x\rVert_1 + \lambda_2\sum_k w_k\lVert x_{G_k}\rVert_2`` | soft thresholding, then block soft thresholding | |
@@ -28,10 +30,12 @@ and ``\gamma`` is the step of the proximal operator.
 | [`TotalVariation1D`](@ref)`(λ)` | ``\lambda\sum_i\lvert x_{i+1} - x_i\rvert`` | Condat's direct algorithm | |
 | [`FusedLasso`](@ref)`(λ1, λ2)` | ``\lambda_1\lVert x\rVert_1 + \lambda_2\sum_i\lvert x_{i+1} - x_i\rvert`` | ``S_{\gamma\lambda_1}`` of the total-variation denoising | |
 | [`SLOPE`](@ref)`(λ)` | ``\sum_i\lambda_i\lvert x\rvert_{(i)}`` | pool adjacent violators on the sorted magnitudes | |
+| [`SumLargest`](@ref)`(k, λ)` | ``\lambda\sum_{i=1}^k x_{(i)}``, signed entries in decreasing order | ``v - P_{\{0 \le w \le \gamma\lambda,\,\sum w_i = k\gamma\lambda\}}(v)`` | |
 | [`NuclearNorm`](@ref)`(λ)` | ``\lambda\sum_i \sigma_i(X)`` | ``U\max(\Sigma - \gamma\lambda, 0)V^\top`` | |
 | [`TracePSD`](@ref)`(λ)` | ``\lambda\operatorname{tr}(X)`` on ``X \succeq 0`` | ``U\max(\Lambda - \gamma\lambda, 0)U^\top`` | |
 | [`CheckLoss`](@ref)`(τ, w)` | ``\sum_i w_i\rho_\tau(x_i)`` | see below | ✓ |
 | [`HingeLoss`](@ref)`(y, w)` | ``\sum_i w_i\max(0, 1 - y_i x_i)`` | see below | ✓ |
+| [`SqrHingeLoss`](@ref)`(y, w)` | ``\sum_i w_i\max(0, 1 - y_i x_i)^2`` | see below | ✓ |
 | [`EpsInsensitiveLoss`](@ref)`(ε, w)` | ``\sum_i w_i\max(0, \lvert x_i\rvert - \varepsilon)`` | see below | ✓ |
 | [`SingularValue`](@ref)`(f)` | ``f(\sigma(X))`` | ``U\operatorname{diag}(\operatorname{prox}_{\gamma f}(\sigma))V^\top`` | |
 
@@ -238,6 +242,11 @@ operators stay accurate there. The log barrier's scalar problem is the
 quadratic ``z^2 - vz - \gamma\lambda = 0``, whose positive root is the one the
 proximal operator of [`LogDetLoss`](@ref) takes for each eigenvalue.
 
+[`BernoulliLoss`](@ref) applies the log barriers to probabilities and their
+complements, with the endpoint conventions of the Bernoulli likelihood.
+It is also smooth on the interior; see [Smooth functions](@ref) for its
+domain, weights and use in identity-link binomial models.
+
 **The reverse Huber penalty** [`Berhu`](@ref) (Owen, 2007) is the ℓ1 norm up to
 ``M`` and a ridge penalty beyond, with matching slopes at ``\pm M``. It is
 convex and keeps the sparsity of the lasso near zero while shrinking large,
@@ -250,6 +259,14 @@ correlated coefficients together. Its proximal operator soft-thresholds up to
 from ``0`` to ``v``. Minimizing over its length gives *block soft thresholding*,
 ``\max(1 - \gamma\lambda/\|v\|_2, 0)\,v``, which sets the whole vector to zero
 when ``\|v\|_2 \le \gamma\lambda``.
+
+**Cubed ℓ2.** [`CubeNormL2`](@ref)`(λ)` is the convex, smooth regularizer
+``(\lambda/3)\|x\|_2^3``, with gradient ``\lambda\|x\|_2 x``. For matrices
+it uses the Frobenius norm. In a cubic-regularized Newton model
+``g^\top d + d^\top H d/2 + (M/6)\|d\|_2^3``, take ``\lambda = M/2``.
+Its proximal operator supplies the backward step when the quadratic part is
+handled by a forward step. Its gradient has no global Lipschitz constant for
+``\lambda > 0``; both Lipschitz queries return ``0`` when ``\lambda = 0``.
 
 **ℓ∞.** The conjugate of ``\lambda\|\cdot\|_\infty`` is the indicator of the
 ℓ1 ball of radius ``\lambda``. So by Moreau's decomposition its proximal operator
@@ -381,11 +398,32 @@ v = [3.0, -1.0, 0.5, 2.0]
 prox(SLOPE([1.0, 0.8, 0.5, 0.2]), v, 1.0)    # magnitudes 3, 2, 1, 0.5 minus λ
 ```
 
+**The sum of the largest entries.** [`SumLargest`](@ref)`(k, λ)` sums the `k`
+largest signed entries of an array. It is convex and positively homogeneous.
+`SumLargest(1, λ)` is the scaled maximum, and `SumLargest(length(x), λ)` is
+the scaled sum. Its conjugate is the indicator of the capped simplex
+``\{w : 0 \le w_i \le \lambda,\ \sum_i w_i = k\lambda\}``. Moreau's identity
+gives its proximal operator by a projection onto the same set with cap
+``\gamma\lambda``. Selection among the breakpoints of
+``\sum_i\operatorname{clamp}(v_i-\tau,0,\gamma\lambda)=k\gamma\lambda``
+finds the threshold in O(n) expected time, in reusable buffers. Both the value
+and the proximal operator accept arrays of any shape. `k` must be a positive
+integer no larger than the number of entries, and `λ` must be finite and
+nonnegative. Proximal inputs must be finite.
+
+For losses `L`, `SumLargest(k, 1/k)(L)` is the average top-k loss (Fan, Lyu,
+Ying and Hu, 2017). When the worst fraction ``\alpha`` has integer size
+``k = \alpha n``, it is also the empirical conditional value-at-risk of the
+losses (Rockafellar and Uryasev, 2000). With linear losses such as `L = -R*w`,
+a splitting method applies this proximal operator to the loss variable.
+`Spectral(SumLargest(k, λ))` gives ``\lambda`` times the sum of the `k`
+largest eigenvalues of a symmetric matrix.
+
 ## Losses of residuals and margins
 
 Quantile regression, support vector machines and support vector regression
-have losses that are nonsmooth but separable, with closed-form proximal
-operators. So splitting methods such as ADMM apply them to ``z = X\beta`` exactly.
+have separable losses with closed-form proximal operators. So splitting
+methods such as ADMM apply them to ``z = X\beta`` exactly.
 
 **The check loss.** [`CheckLoss`](@ref)`(τ)` is
 ``\sum_i \rho_\tau(x_i)`` with ``\rho_\tau(u) = \max(\tau u, (\tau - 1)u)``, for
@@ -411,13 +449,27 @@ for labels ``y_i = \pm 1``. At the margin ``u = y_i v``, the proximal operator o
 ``\gamma\max(0, 1 - u)`` is ``u + \gamma`` for ``u < 1 - \gamma``, ``1`` for
 ``1 - \gamma \le u \le 1``, and ``u`` above. Without labels, ``x`` holds the margins.
 
+**The squared hinge loss.** [`SqrHingeLoss`](@ref)`(y, w)` is
+``\sum_i w_i\max(0, 1 - y_i x_i)^2``. It is smooth, with gradient
+``-2w_i y_i\max(0, 1 - y_i x_i)`` and Lipschitz constant
+``2\max_i w_i y_i^2``. For label 1, its proximal operator keeps ``v \ge 1``
+and otherwise returns ``(v + 2\gamma w_i)/(1 + 2\gamma w_i)``. A general label
+acts on the margin ``y_i v`` with step ``\gamma w_i y_i^2``. Labels must be
+finite and nonzero, and weights finite and nonnegative. `SqrHingeLoss()` takes
+margins directly; `SqrHingeLoss(nothing, w)` weights those margins. A zero
+weight leaves the entry unchanged. The conjugate term is
+``s_i/y_i + s_i^2/(4w_i y_i^2)`` for ``s_i/y_i \le 0``, and ``+\infty``
+otherwise; a zero weight gives the indicator of ``s_i = 0``. Splitting methods
+can apply this loss to a separate margin variable; the scalar loss
+[`ProximalBase.SquaredHinge`](@ref) is for [`GLMLoss`](@ref).
+
 **The ε-insensitive loss.** [`EpsInsensitiveLoss`](@ref)`(ε)` is
 ``\sum_i \max(0, |x_i| - \varepsilon)``. Its proximal operator keeps ``v`` for
 ``|v| \le \varepsilon``, puts it at ``\pm\varepsilon`` for
 ``\varepsilon < |v| \le \varepsilon + \gamma``, and moves it toward zero by
 ``\gamma`` beyond. With ``\varepsilon = 0`` it is soft thresholding.
 
-All three take weights ``w_i``, which multiply the step. For coordinate descent
+All four take weights ``w_i``, which multiply the step. For coordinate descent
 and Newton steps, the scalar losses `ProximalBase.SquaredHinge`,
 `ProximalBase.SmoothCheck` and `ProximalBase.ConvolutionCheck` of
 [`GLMLoss`](@ref) are smooth versions with bounded curvature; see

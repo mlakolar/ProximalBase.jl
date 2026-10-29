@@ -10,6 +10,7 @@
 | [`LeastSquaresLoss`](@ref)`(Y, X)` | ``\tfrac12\lVert Y - X\beta\rVert ^2`` | ``X^\top(X\beta - Y)`` | ``\lVert X\rVert _2^2`` | ✓ |
 | [`GLMLoss`](@ref)`(ℓ, y, X)` | ``\sum_i w_i\,\ell(\eta_i, y_i)``, ``\eta = X\beta + o`` | ``X^\top(w \odot \ell'(\eta, y))`` | ``c_\ell\,\lVert W^{1/2}X\rVert _2^2`` | |
 | [`LogDetLoss`](@ref)`(S, w)` | ``w(\operatorname{tr}(SX) - \log\det X)`` | ``w(S - X^{-1})`` | ``\infty`` | ✓ |
+| [`BernoulliLoss`](@ref)`(b, w)` | ``-\sum_i w_i[b_i\log p_i + (1-b_i)\log(1-p_i)]`` | ``-w_i b_i/p_i + w_i(1-b_i)/(1-p_i)`` | ``\infty`` for positive weights | ✓ |
 
 ## Linear and quadratic functions
 
@@ -138,6 +139,44 @@ smoothing of the conquer estimator (He, Pan, Tan and Zhou, 2023). With the
 uniform or the Epanechnikov kernel (`kernel = :uniform` or `:epanechnikov`) it
 equals ``\rho_\tau`` for ``|u| \ge h`` and is a polynomial in between: with
 ``m(s) = \int|s - t|K(t)\,dt``, it is ``(\tau - \tfrac12)u + \tfrac{h}{2}m(u/h)``.
+
+## The Bernoulli log-likelihood on probabilities
+
+[`BernoulliLoss`](@ref)`(b, w)` takes probabilities directly. Its parameters
+are scalars or arrays with one entry per probability: responses
+``0 \le b_i \le 1`` and finite weights ``w_i \ge 0``, with `w = 1` by default.
+Fractional responses with weights equal to trial counts give the binomial
+negative log-likelihood. For a positive weight, an endpoint is finite only
+when ``p_i = b_i \in \{0,1\}``, with ``0\log 0 = 0``; the value is ``+\infty``
+elsewhere outside ``(0,1)``. A zero weight masks the coordinate, even outside
+``[0,1]``: its value and gradient are zero and its proximal operator is the
+identity. NaN inputs propagate. The gradient is `NaN` outside the domain.
+The gradient has no global Lipschitz bound. Its coordinate constant is
+`Inf` for a positive weight and zero for a masked coordinate; `lipschitz(f)`
+is zero only when every weight is zero.
+
+In an identity-link binomial model, ``p = X\beta`` and the coefficients give
+adjusted risk differences. Splitting the graph constraint ``p = X\beta``
+lets one apply `BernoulliLoss(b, w)` to ``p`` and any penalty to ``\beta``.
+Its proximal operator handles the probability boundary directly, including
+boundary maximum-likelihood estimates. Applying a shape constraint or a
+total-variation penalty to ``p`` instead fits monotone or piecewise-constant
+risks. [`LogisticLoss`](@ref) takes the linear predictor on the logit scale.
+
+For ``\mu = \gamma w_i`` and a fractional response, the scalar proximal
+point is the unique root in ``(0,1)`` of
+
+```math
+p^3 - (1+v)p^2 + (v-\mu)p + \mu b_i = 0.
+```
+
+A safeguarded Newton iteration solves the stationarity equation, using
+``p`` near zero and ``1-p`` near one. For ``b_i = 1`` the result is the
+[`NegLog`](@ref) proximal point clipped at one; ``b_i = 0`` gives its
+reflection, evaluated without cancellation near zero. If a fractional
+response's result rounds to an endpoint, the nearest interior float in the
+argument's floating type is returned. A narrower output may still round to
+the endpoint. `value_and_prox!` evaluates the stored result.
 
 ## The Gaussian log-likelihood
 

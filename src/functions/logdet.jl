@@ -47,6 +47,7 @@ function LogDetLoss(S::AbstractMatrix, w::Real = 1)
 end
 
 issmooth(::Type{<:LogDetLoss}) = true
+_argument_type(::Type{<:LogDetLoss}) = AbstractMatrix
 isproximable(::Type{<:LogDetLoss}) = true
 isconvex(::Type{<:LogDetLoss}) = true
 

@@ -86,6 +86,7 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
 end
 
 (s::Scaled)(x) = s.α * s.f(x)
+_checkvalue(s::Scaled, x) = _checkvalue(s.f, x)
 _scale!(g::AbstractArray, α) = (g .*= α)
 _scale!(g::Tuple, α) = (map(gk -> _scale!(gk, α), g); g)
 value_and_gradient!(g, s::Scaled, x) = (_checkwrite(value_and_gradient!, s, g, x); v = value_and_gradient!(g, s.f, x); _scale!(g, s.α); s.α * v)
@@ -130,6 +131,7 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
 end
 
 (t::Tilt)(x) = t.f(x) + dot(t.c, x) + t.d
+_checkvalue(t::Tilt, x) = (_checkvalue(t.f, x); _checkdot(t.c, x); true)
 value_and_gradient!(g, t::Tilt, x) = (_checkwrite(value_and_gradient!, t, g, x); v = value_and_gradient!(g, t.f, x); g .+= t.c; v + dot(t.c, x) + t.d)
 gradient!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, x); g .+= t.c)
 
@@ -203,7 +205,14 @@ gradient!(g, t::Translate, x::AbstractArray) =
   (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, _shifted(t, x)))
 
 _checkwrite(op::O, t::Translate, g, x::AbstractArray) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
-  _checkwrite(op, t.f, g, _shifted_buffer(t, x))
+  _checkwrite(op, t.f, g, _checkshifted(t, x))
+
+function _checkshifted(t::Translate, x::AbstractArray)
+  size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
+  _checkparams(t, x)
+  _checkbuffer(t.scratch, float(eltype(x)), size(x))
+end
+_checkvalue(t::Translate, x::AbstractArray) = _checkvalue(t.f, _checkshifted(t, x))
 
 function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checksize(y, x)
@@ -291,8 +300,7 @@ isconvex(::Type{<:Conjugate}) = true
 iszeropreserving(c::Conjugate) = iszeropreserving(c.f)
 
 function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
-  _checksize(y, x)
-  _checkparams(c, x)
+  _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
   γ = convert(T, γ)
   z = _array_buffer!(c.scratch, T, size(x))
@@ -311,7 +319,7 @@ _has_conjugate_value(f::Union{Scaled, Translate}) = _has_conjugate_value(f.f)
 _has_conjugate_value(f::SingularValue) = _has_conjugate_value(f.f)
 
 function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
-  _checkparams(c, x)
+  _checkwrite(value_and_prox!, c, y, x)
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
     return _conjugate_value(c.f, y)
@@ -327,6 +335,19 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::R
 end
 Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real) = v - γ * prox_entry(c.f, v / γ, i, inv(γ))
 _checkparams(c::Conjugate, x) = _checkparams(c.f, x)
+_checkvalue(c::Conjugate, x) = (_checkparams(c, x); _checkconjugate(c.f, x))
+
+function _checkwrite(op::O, c::Conjugate, y::Union{AbstractArray, Tuple}, x::Union{AbstractArray, Tuple}) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  op === value_and_prox! && y isa AbstractArray && _checkparams(c, x)
+  _checksize(y, x)
+  _checkparams(c, x)
+  p = _conjugate_checkbuffer(c.scratch, y, x)
+  inner = op === value_and_prox! && !_has_conjugate_value(c.f) ? value_and_prox! : prox!
+  _checkwrite(inner, c.f, p, p)
+  op === value_and_prox! && _has_conjugate_value(c.f) && _checkconjugate(c.f, y)
+  true
+end
+_conjugate_checkbuffer(s::Scratch, y::AbstractArray, x::AbstractArray) = _checkbuffer(s, float(eltype(y)), size(x))
 
 (c::Conjugate)(y::Union{AbstractArray, Tuple}) = (_checkparams(c, y); _conjugate_value(c.f, y))
 
@@ -353,6 +374,16 @@ function _tuple_buffer!(s::Scratch, y::Y, x::X) where {Y<:Tuple, X<:Tuple}
   b::B
 end
 
+function _conjugate_checkbuffer(s::Scratch, y::Y, x::X) where {Y<:Tuple, X<:Tuple}
+  B = _tuple_buffer_type(Y)
+  cached = s.buf
+  if cached isa Tuple{Val{X}, Val{Y}, B}
+    b = cached[3]
+    _same_buffer_sizes(b, y) && return b
+  end
+  _gradient_buffer(y)::B
+end
+
 _divide!(z::AbstractArray, x::AbstractArray, γ) = (z .= x ./ convert(float(eltype(z)), γ))
 _divide!(z::Tuple, x::Tuple, γ) = (map((zk, xk) -> _divide!(zk, xk, γ), z, x); z)
 _moreau_output!(y::AbstractArray, x::AbstractArray, p::AbstractArray, γ) =
@@ -363,8 +394,7 @@ _tuple_dot(x::AbstractArray, y::AbstractArray) = dot(x, y)
 _tuple_dot(x::Tuple, y::Tuple) = sum(map(_tuple_dot, x, y))
 
 function prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
-  _checksize(y, x)
-  _checkparams(c, x)
+  _checkwrite(prox!, c, y, x)
   p = _tuple_buffer!(c.scratch, y, x)
   _divide!(p, x, γ)
   prox!(p, c.f, p, inv(γ))
@@ -372,8 +402,7 @@ function prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
 end
 
 function value_and_prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
-  _checksize(y, x)
-  _checkparams(c, x)
+  _checkwrite(value_and_prox!, c, y, x)
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
     return _conjugate_value(c.f, y)
@@ -389,19 +418,33 @@ end
 # Zero scaling of an extended-valued function depends on its domain, so the
 # positive-scaling formula deliberately does not cover it.
 function _conjugate_value(f::Scaled, y::AbstractArray)
-  f.α > 0 || throw(ArgumentError("conjugate values of Scaled require a positive scale"))
+  _checkconjugate(f, y)
   T = float(eltype(y))
   α = convert(T, f.α)
   α * _conjugate_value(f.f, _ScaledArray(y, inv(α)))
 end
 function _conjugate_value(f::Scaled, y::Tuple)
-  f.α > 0 || throw(ArgumentError("conjugate values of Scaled require a positive scale"))
+  _checkconjugate(f, y)
   _scaled_conjugate_value(f.f, y, f.α)
 end
 function _conjugate_value(f::Translate, y::AbstractArray)
-  _checksize(f.b, y)
+  _checkconjugate(f, y)
   _conjugate_value(f.f, y) + dot(f.b, y)
 end
+
+function _checkconjugate(f::Scaled, y::AbstractArray)
+  f.α > 0 || throw(ArgumentError("conjugate values of Scaled require a positive scale"))
+  _checkconjugate(f.f, _ScaledArray(y, inv(convert(float(eltype(y)), f.α))))
+end
+function _checkconjugate(f::Scaled, y::Tuple)
+  f.α > 0 || throw(ArgumentError("conjugate values of Scaled require a positive scale"))
+  _checkscaledconjugate(f.f, y, f.α)
+end
+_checkconjugate(f::Translate, y::AbstractArray) = (_checksize(f.b, y); _checkconjugate(f.f, y))
+_checkconjugate(f::Union{NormL1, IndBox, IndSOC, IndRotatedSOC, IndExpPrimal, IndExpDual, SumLargest,
+                          CheckLoss, HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}, y::AbstractArray) = _checkparams(f, y)
+_checkconjugate(f::LinearFunction, y::AbstractArray) = size(y) == size(f.c) || throw(DimensionMismatch())
+_checkconjugate(f::SqrNormL2, y::AbstractArray) = (iszero(f.λ) || f.y === nothing || _checkdot(f.y, y); true)
 
 @noinline _conjugate_value(f::AbstractFunction, y) =
   throw(ArgumentError("the value of the conjugate of $(typeof(f)) is not implemented; its proximal operator is"))
@@ -412,27 +455,28 @@ end
 _within(a, b, ::Type{T}) where {T} = a <= b || a - b <= _tol(T) * max(one(T), abs(b))
 
 function _conjugate_value(f::NormL1, y::AbstractArray)
-  _checkparams(f, y)
+  _checkconjugate(f, y)
   T = float(eltype(y))
   @inbounds for i in eachindex(IndexLinear(), y)
     _within(abs(y[i]), f.λ0 * _entry(f.w, i), T) || return T(Inf)
   end
   zero(T)
 end
-_conjugate_value(f::NormL2, y::AbstractArray) = (T = float(eltype(y)); _ind(_within(_norm2(y), f.λ, T), T))
-_conjugate_value(f::NormLinf, y::AbstractArray) = (T = float(eltype(y)); _ind(_within(norm(y, 1), f.λ, T), T))
-_conjugate_value(f::IndBallL1, y::AbstractArray) = convert(float(eltype(y)), f.r) * norm(y, Inf)
+_conjugate_value(f::NormL2, y::AbstractArray) = (_checkconjugate(f, y); T = float(eltype(y)); _ind(_within(_norm2(y), f.λ, T), T))
+_conjugate_value(f::NormLinf, y::AbstractArray) = (_checkconjugate(f, y); T = float(eltype(y)); _ind(_within(norm(y, 1), f.λ, T), T))
+_conjugate_value(f::IndBallL1, y::AbstractArray) = (_checkconjugate(f, y); convert(float(eltype(y)), f.r) * norm(y, Inf))
 _conjugate_value(f::IndBallL2, y::AbstractArray) =
-  (T = float(eltype(y)); iszero(f.r) ? zero(T) : convert(T, f.r) * _norm2(y))
+  (_checkconjugate(f, y); T = float(eltype(y)); iszero(f.r) ? zero(T) : convert(T, f.r) * _norm2(y))
 _conjugate_value(f::IndSOC, y::AbstractArray) =
-  (_checkparams(f, y); _soc_value(f, y, true))
+  (_checkconjugate(f, y); _soc_value(f, y, true))
 _conjugate_value(f::IndRotatedSOC, y::AbstractArray) =
-  (_checkparams(f, y); _rotatedsoc_value(f, y, true))
+  (_checkconjugate(f, y); _rotatedsoc_value(f, y, true))
 _conjugate_value(f::IndExpPrimal, y::AbstractArray) =
-  (_checkparams(f, y); _exp_value(f, y, true))
+  (_checkconjugate(f, y); _exp_value(f, y, true))
 _conjugate_value(f::IndExpDual, y::AbstractArray) =
-  (_checkparams(f, y); _exp_value(f, y, true))
+  (_checkconjugate(f, y); _exp_value(f, y, true))
 function _conjugate_value(f::IndSimplex, y::AbstractArray)
+  _checkconjugate(f, y)
   T = float(eltype(y))
   isempty(y) && return f.equality && f.r > 0 ? T(-Inf) : zero(T)
   iszero(f.r) && return zero(T)
@@ -445,7 +489,7 @@ function _conjugate_value(f::IndSimplex, y::AbstractArray)
 end
 
 function _conjugate_value(f::SumLargest, y::AbstractArray)
-  _checkparams(f, y)
+  _checkconjugate(f, y)
   T = float(eltype(y))
   S = float(promote_type(T, typeof(f.λ)))
   λ = S(f.λ)
@@ -462,14 +506,16 @@ function _conjugate_value(f::SumLargest, y::AbstractArray)
   _ind(abs(s - mass) <= t * max(ldexp(one(S), -e), abs(s), mass), T)
 end
 
-function _conjugate_value(::ZeroFunction, y::AbstractArray)
+function _conjugate_value(f::ZeroFunction, y::AbstractArray)
+  _checkconjugate(f, y)
   T = float(eltype(y))
   for v in y
     _within(abs(v), zero(T), T) || return T(Inf)
   end
   zero(T)
 end
-function _conjugate_value(::IndNonnegative, y::AbstractArray)
+function _conjugate_value(f::IndNonnegative, y::AbstractArray)
+  _checkconjugate(f, y)
   T = float(eltype(y))
   t = _tol(T)
   for v in y
@@ -478,7 +524,7 @@ function _conjugate_value(::IndNonnegative, y::AbstractArray)
   zero(T)
 end
 function _conjugate_value(f::IndBox, y::AbstractArray)
-  _checkparams(f, y)
+  _checkconjugate(f, y)
   T = float(eltype(y))
   s = zero(T)
   @inbounds for i in eachindex(IndexLinear(), y)
@@ -488,6 +534,7 @@ function _conjugate_value(f::IndBox, y::AbstractArray)
   s
 end
 function _conjugate_value(f::SqrNormL2, y::AbstractArray)
+  _checkconjugate(f, y)
   iszero(f.λ) && return _conjugate_value(ZeroFunction(), y)
   T = float(eltype(y))
   S = float(promote_type(typeof(real(zero(T))), typeof(f.λ)))
@@ -499,8 +546,8 @@ function _conjugate_value(f::SqrNormL2, y::AbstractArray)
   f.y === nothing ? v : v + dot(f.y, y)
 end
 function _conjugate_value(f::LinearFunction, y::AbstractArray)
+  _checkconjugate(f, y)
   T = float(eltype(y))
-  size(y) == size(f.c) || throw(DimensionMismatch())
   @inbounds for i in eachindex(IndexLinear(), y)
     _within(abs(y[i] - f.c[i]), zero(T), T) || return T(Inf)
   end
@@ -520,16 +567,21 @@ block by block on tuples. Sparse plus low-rank models, for example, take
 `SeparableSum(NormL1(λ), TracePSD(μ))` on the pair `(S, L)`.
 Blocks may themselves be tuples for nested sums. Allocating oracles and
 [`Conjugate`](@ref) preserve this block structure.
-Before writing any output, the oracles check the sizes of all blocks and the
-parameters, data dimensions and squareness that the block functions' own
-oracles check before writing. A function that transforms its argument, such as
-`Precompose` or `Constrained`, or fails during computation can still leave
-earlier blocks written.
+Before writing any output, the oracles check all blocks, including functions
+inside wrappers, against the checks their own oracles run before writing.
+A failure during computation, a check that depends on the step (such as
+`MoreauEnvelope`'s sum of its parameter and step), or a user-defined function
+whose oracles reject an argument that its `check_parameters` accepts can still
+leave earlier blocks written, and so can a few nested wrappers and structured
+matrices whose checks are not yet complete, such as a box constraint inside
+another one.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
 end
 SeparableSum(fs::AbstractFunction...) = SeparableSum(fs)
+
+_argument_type(::Type{<:SeparableSum}) = Tuple
 
 for trait in (:issmooth, :isproximable, :isconvex)
   @eval $trait(::Type{SeparableSum{F}}) where {F} = all($trait, fieldtypes(F))
@@ -543,14 +595,23 @@ _checkparams(s::SeparableSum, x::Tuple) = (_checkblocks(s, x); map(_checkparams,
 function _checkwrite(op::O, s::SeparableSum, y::Tuple, x::Tuple) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
   _checksize(y, x)
   _checkblocks(s, x)
-  map((f, yk, xk) -> _checkwrite(op, f, yk, xk), s.fs, y, x)
-  true
+  _checkwrite_blocks(op, s.fs, y, x)
 end
+# block by block, by recursion on the tuples rather than a map over a closure:
+# once a nested sum has been checked, Julia 1.10 compiles the inner sum's map
+# for an abstract closure, and that map allocates
+_checkwrite_blocks(op, ::Tuple{}, ::Tuple{}, ::Tuple{}) = true
+_checkwrite_blocks(op::O, fs::Tuple, y::Tuple, x::Tuple) where {O} =
+  (_checkwrite(op, first(fs), first(y), first(x)); _checkwrite_blocks(op, Base.tail(fs), Base.tail(y), Base.tail(x)))
 _has_conjugate_value(s::SeparableSum) = all(_has_conjugate_value, s.fs)
+_checkconjugate(s::SeparableSum, y::Tuple) = (_checkparams(s, y); map(_checkconjugate, s.fs, y); true)
+_checkscaledconjugate(s::SeparableSum, y::Tuple, α) =
+  (_checkparams(s, y); map((f, yk) -> _checkconjugate(Scaled(f, α), yk), s.fs, y); true)
 _conjugate_value(s::SeparableSum, y::Tuple) =
-  (_checkparams(s, y); sum(map(_conjugate_value, s.fs, y)))
+  (_checkconjugate(s, y); sum(map(_conjugate_value, s.fs, y)))
 _scaled_conjugate_value(s::SeparableSum, y::Tuple, α) =
-  (_checkparams(s, y); sum(map((f, yk) -> _conjugate_value(Scaled(f, α), yk), s.fs, y)))
+  (_checkscaledconjugate(s, y, α); sum(map((f, yk) -> _conjugate_value(Scaled(f, α), yk), s.fs, y)))
+_checkvalue(s::SeparableSum, x::Tuple) = (_checkparams(s, x); map(_checkvalue, s.fs, x); true)
 
 (s::SeparableSum)(x::Tuple) = (_checkparams(s, x); sum(map((f, xk) -> f(xk), s.fs, x)))
 prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
@@ -584,6 +645,18 @@ isconvex(::Type{<:Sum{F}}) where {F} = all(isconvex, fieldtypes(F))
 _checkparams(s::Sum, x) = (map(f -> _checkparams(f, x), s.fs); true)
 
 (s::Sum)(x) = sum(f -> f(x), s.fs)
+_checkvalue(s::Sum, x) = (map(f -> _checkvalue(f, x), s.fs); true)
+
+function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::Sum, g::AbstractArray, x::AbstractArray)
+  _checksize(g, x)
+  _checkparams(s, x)
+  _checkwrite(value_and_gradient!, first(s.fs), g, x)
+  if length(s.fs) > 1
+    b = _checkbuffer(s.scratch, eltype(g), size(g))
+    map(f -> _checkwrite(value_and_gradient!, f, b, x), Base.tail(s.fs))
+  end
+  true
+end
 
 # the remaining functions' gradients added into g through the buffer b
 _add_gradients!(g, b, x, v, ::Tuple{}) = v
@@ -594,8 +667,7 @@ function _add_gradients!(g, b, x, v, fs::Tuple)
 end
 
 function value_and_gradient!(g::AbstractArray, s::Sum, x::AbstractArray)
-  _checksize(g, x)
-  _checkparams(s, x)
+  _checkwrite(value_and_gradient!, s, g, x)
   v = value_and_gradient!(g, first(s.fs), x)
   length(s.fs) == 1 && return v
   b = _array_buffer!(s.scratch, eltype(g), size(g))

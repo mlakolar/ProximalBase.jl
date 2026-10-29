@@ -52,11 +52,19 @@ end
 Spectral(f::AbstractFunction) = Spectral{typeof(f)}(f)
 
 isproximable(::Type{<:Spectral}) = true
+_argument_type(::Type{<:Spectral}) = AbstractMatrix
 isconvex(::Type{<:Spectral{F}}) where {F} = isconvex(F)
 _isindicator(::Type{<:Spectral{F}}) where {F} = _isindicator(F)
 
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix) =
-  (_checksize(Y, X); checksquare(X); true)
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix)
+  _checksize(Y, X)
+  n = checksquare(X)
+  T = float(eltype(Y))
+  ws = s.eig
+  λ = T <: _BlasReal && ws isa SymEigenWorkspace{T} && ws.n == n ? ws.w : Vector{T}(undef, n)
+  z = _checkbuffer(s.z, T, (n,))
+  _checkwrite(value_and_prox!, s.f, z, λ)
+end
 
 function (s::Spectral)(X::AbstractMatrix)
   T = float(eltype(X))
@@ -77,7 +85,9 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   s.eig = ws
   copyto!(ws.A, X)
   λ, V = _eigen!(ws)
+  # the eigenvalues of the result, exactly as many as those of X
   z = _buffer!(s.z, T, n)
+  length(z) == n || resize!(z, n)
   v = value_and_prox!(z, s.f, λ, γ)
   _rebuild_sym_signed!(Y, V, z, Y isa StridedMatrix ? Y : _array_buffer!(s.out, T, (n, n)))
   convert(T, v)

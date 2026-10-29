@@ -73,6 +73,32 @@ _isindicator(::Type{<:BallConstrained{F}}) where {F} = _isindicator(F)
 _isindicator(::Type{<:SphereConstrained{F}}) where {F} = _isindicator(F)
 _checkparams(c::Union{BallConstrained, SphereConstrained}, x) = _checkparams(c.f, x)
 
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, c::BallConstrained, y::AbstractArray, x::AbstractArray)
+  _checkwrite(_isindicator(c.f) ? prox! : value_and_prox!, c.f, y, x)
+  _isindicator(c.f) || _checkvalue(c.f, y)
+  true
+end
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, c::SphereConstrained{<:NormL1}, y::AbstractArray, x::AbstractArray)
+  _checksize(y, x)
+  _checkparams(c, x)
+  isempty(x) && throw(ArgumentError("the sphere has no point of size $(size(x))"))
+  _checkwrite(value_and_prox!, c.f, y, x)
+end
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, c::SphereConstrained{<:GroupNormL2}, y::AbstractArray, x::AbstractArray)
+  _checksize(y, x)
+  _checkgroups(c.f, x)
+  isempty(x) && isempty(c.f.groups) && throw(ArgumentError("the sphere has no point of size $(size(x))"))
+  _checkwrite(value_and_prox!, c.f, y, x)
+end
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, c::SphereConstrained{IndBallL0}, y::AbstractArray, x::AbstractArray)
+  _checksize(y, x)
+  c.f.s == 0 && _allcount(c.f, x) &&
+    throw(ArgumentError("the sphere misses the ℓ0 ball of no nonzero entries"))
+  _checkwrite(prox!, c.f, y, x)
+end
+_checkvalue(c::BallConstrained, x::AbstractArray) = _checkvalue(c.ball, x)
+_checkvalue(c::SphereConstrained, x::AbstractArray) = _checkvalue(c.sphere, x)
+
 (c::BallConstrained)(x::AbstractArray) = (T = float(eltype(x)); iszero(c.ball(x)) ? convert(T, c.f(x)) : T(Inf))
 (c::SphereConstrained)(x::AbstractArray) = (T = float(eltype(x)); iszero(c.sphere(x)) ? convert(T, c.f(x)) : T(Inf))
 
@@ -86,6 +112,7 @@ function _value_and_inner_prox!(y, f, x, γ, ::Type{T}) where {T}
 end
 
 function value_and_prox!(y::AbstractArray, c::BallConstrained, x::AbstractArray, γ::Real)
+  _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))
   v = _value_and_inner_prox!(y, c.f, x, γ, T)
   ny = convert(T, _norm2(y))
@@ -118,8 +145,7 @@ end
 # since Σᵢ|zᵢ| ≥ ‖z‖₂ the maximum r ⋅ maxᵢ(|xᵢ| - γλwᵢ) is at one entry. The
 # thresholds are those of prox_entry, so that the two cases agree with it.
 function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real)
-  _checksize(y, x)
-  _checkparams(c, x)
+  _checkwrite(value_and_prox!, c, y, x)
   T, S = float(eltype(y)), float(eltype(x))
   f, r = c.f, convert(T, c.sphere.r)
   k, bestn, bestc = 0, zero(S), zero(S)
@@ -130,7 +156,6 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::Ab
     # the thresholds are equal and much larger.
     (k == 0 || n - bestn > threshold - bestc) && ((k, bestn, bestc) = (i, n, threshold))
   end
-  k == 0 && throw(ArgumentError("the sphere has no point of size $(size(x))"))
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
   bestn > bestc && return _onto_sphere!(y, f, convert(T, value_and_prox!(y, f, x, γ)), r)
   negative = signbit(x[k])
@@ -144,8 +169,7 @@ end
 # threshold, and an index in no group has the coefficient |xᵢ|. The norms and
 # thresholds are those of the group shrinkage.
 function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, x::AbstractArray, γ::Real)
-  _checksize(y, x)
-  _checkgroups(c.f, x)
+  _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))
   U = promote_type(float(eltype(x)), T)       # the type in which the shrinkage compares
   f, r = c.f, convert(T, c.sphere.r)
@@ -160,7 +184,6 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, 
     n = convert(U, abs(x[i]))
     ((kbest == 0 && ibest == 0) || n - bestn > -bestc) && ((kbest, ibest, bestn, bestc) = (0, i, n, zero(U)))
   end
-  (kbest != 0 || ibest != 0) || throw(ArgumentError("the sphere has no point of size $(size(x))"))
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
   bestn > bestc && return _onto_sphere!(y, f, convert(T, value_and_prox!(y, f, x, γ)), r)
   if ibest != 0                         # an index in no group, where x is zero
@@ -186,10 +209,8 @@ end
 # support S, so the best support carries the most of x: the s largest entries
 # (and the free diagonal), the proximal point of the ℓ0 ball.
 function value_and_prox!(y::AbstractArray, c::SphereConstrained{IndBallL0}, x::AbstractArray, γ::Real)
-  _checksize(y, x)
+  _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))
-  c.f.s == 0 && _allcount(c.f, x) &&
-    throw(ArgumentError("the sphere misses the ℓ0 ball of no nonzero entries"))
   prox!(y, c.f, x, γ)
   r = convert(T, c.sphere.r)
   if iszero(_norm2(y))

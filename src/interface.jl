@@ -160,7 +160,20 @@ check_parameters(::AbstractFunction, x) = nothing
 _isindicator(::Type{<:AbstractFunction}) = false
 _isindicator(f::AbstractFunction) = _isindicator(typeof(f))
 _checkparams(f::AbstractFunction, x) = (check_parameters(f, x); true)
-_checkwrite(op, f, y, x) = _checkparams(f, x)
+_argument_type(::Type{<:AbstractFunction}) = Any
+_checkargument(f, x) = x isa _argument_type(typeof(f)) || throw(MethodError(f, (x,)))
+function _checkwrite(op, f, y, x)
+  if op === value_and_prox! || op === gradient!
+    _checkparams(f, x)
+    _checkargument(f, x)
+  else
+    _checkargument(f, x)
+    _checkparams(f, x)
+  end
+  true
+end
+_checkvalue(f, x) = _checkparams(f, x)
+_checkconjugate(f, y) = true
 
 ####################################
 #  Gradients

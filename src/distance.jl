@@ -69,7 +69,10 @@ function _checkwrite(op::O, f::SqrDistL2, y::AbstractArray, x::AbstractArray) wh
   if op === gradient! || op === value_and_gradient!
     y === x && throw(ArgumentError("the gradient must not overwrite x"))
   end
-  _checkwrite(prox!, f.f, y, x)
+  # the set's check on what its projection receives, the distance buffer; it
+  # runs at a zero weight too, as the structural checks do
+  T = float(eltype(op === prox! || op === value_and_prox! ? y : x))
+  _checkwrite(prox!, f.f, _checkbuffer(f.scratch, T, size(x)), x)
   f.f isa IndSphereL2 && isempty(x) &&
     throw(ArgumentError("the sphere has no point of size $(size(x))"))
   true

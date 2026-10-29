@@ -47,6 +47,7 @@ tests = [
   "graph",
   "calculus",
   "blockchecks",
+  "blockchecks_wrappers",
   "constrained",
   "spectralfunction",
   "ballconstrained",

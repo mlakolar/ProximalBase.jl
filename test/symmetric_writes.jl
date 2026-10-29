@@ -295,10 +295,12 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
       ("axpy!", (x, A, B) -> axpy!(1, A, x), (X, A, B) -> X .+ A),
       ("axpby!", (x, A, B) -> axpby!(1, A, 2, x), (X, A, B) -> A .+ 2 .* X),
     )
+    idx = [tril_index(3, max(4 - r, 4 - c), min(4 - r, 4 - c)) for c in 1:3 for r in 1:3]
     sources = (
       (2, x -> reshape(view(coordinates(x), [3, 2, 2, 1]), 2, 2)),
-      (3, x -> reshape(view(coordinates(x), [1, 2, 3, 2, 4, 5, 3, 5, 6]), 3, 3)),
+      (3, x -> reshape(view(coordinates(x), idx), 3, 3)),
       (2, x -> view(x, [2, 1], [2, 1])),
+      (3, x -> view(x, 3:-1:1, 3:-1:1)),
     )
     for (p, source) in sources, (name, write!, reference) in writers
       @testset "$name, p = $p, $(typeof(source))" begin

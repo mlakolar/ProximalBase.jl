@@ -78,7 +78,7 @@ end
       nearmax = T === Float64 ? T(1e308) : floatmax(T)
       smallnormal = T === Float64 ? T(1e-300) : floatmin(T)
       gs = (nextfloat(zero(T)), tiny, floatmin(T), smallnormal, one(T), large, nearmax,
-            fill(tiny, 3), fill(large, 3), T[tiny, 1, 1])
+            fill(tiny, 3), fill(large, 3), T[floatmin(T), 1, 1])
       fs = ((IndBox(T(-1), T(1)), (0, 0, -1, 1)),
             (Conjugate(NormL1(one(T))), (0, 0, -1, 1)),
             (NormL1(one(T)), (1, 0, -Inf, Inf)),
@@ -105,7 +105,7 @@ end
         check_case(fs[1][1], IndHyperplane(mixed, T(0.2)), x, γ, mixed, T(0.2), T(0.2), fs[1][2])
       end
       c = Constrained(IndBox(T(-1), T(1)), IndHyperplane(one(T), one(T)))
-      for γ in (one(T), large, tiny, one(T), fill(large, 3), T[tiny, 1, 1])
+      for γ in (one(T), large, tiny, one(T), fill(large, 3), T[floatmin(T), 1, 1])
         check_case(c.f, c.set, x, γ, a, one(T), one(T), (0, 0, -1, 1); c)
       end
       c = Constrained(IndBox(T(-1), T(1)), IndHyperslab(one(T), T(-1), T(1)))
@@ -135,7 +135,7 @@ end
   end
   @test prox(Constrained(SqrNormL2(), IndHalfspace(1, 1)), x, 1e-310) ≈ [4 / 15, -37 / 30, 59 / 30]
   @test prox(Constrained(IndBox(-1, 1), IndHalfspace(ones(3), -1)), x, 1e-310) ≈ [-0.85, -1, 0.85]
-  @test prox(Constrained(IndBox(-1, 1), IndHyperplane(1, 1)), x, [1e-310, 1, 1]) ≈ [0.3, -0.3, 1]
+  @test_throws ArgumentError prox(Constrained(IndBox(-1, 1), IndHyperplane(1, 1)), x, [1e-310, 1, 1])
   c = Constrained(IndBox(-1, 1), IndHyperplane(1, 1))
   for γ in (1.0, 1e300, 1.0, fill(1e300, 3))
     @test prox(c, x, γ) ≈ [0.75, -0.75, 1]
@@ -149,7 +149,8 @@ end
   for T in (Float32, Float64), op in (prox!, value_and_prox!), alias in (false, true)
     x = T[0.3, -1.2, 2]
     for γ in (zero(T), -one(T), T(Inf), T(NaN), T[1, 0, 1], T[1, -1, 1],
-              T[1, Inf, 1], T[1, NaN, 1], T[nextfloat(zero(T)), floatmax(T), 1])
+              T[1, Inf, 1], T[1, NaN, 1], T[prevfloat(floatmin(T)), 1, 1],
+              T[nextfloat(zero(T)), floatmax(T), 1])
       c = Constrained(IndBox(-1, 1), IndHyperplane(1, 1))
       y = alias ? copy(x) : fill(T(19), 3)
       before = copy(y)
@@ -158,6 +159,33 @@ end
     end
   end
   @test_throws ArgumentError prox(Constrained(IndBox(-1, 1), IndHyperplane(1, 1)), [0.3, -1.2, 2], [1e-300, 1e300, 1])
+end
+
+@testset "subnormal ratios and mixed precision" begin
+  x = [1e-10, 1e-10, 0.0]
+  c = Constrained(IndBox(0, 1), IndHyperplane([1e10, 1e10, 0.0], 1))
+  for γ in ([2.0^-50, 1.5 * 2.0^-50, floatmax(Float64)],
+            [2.0^-51, 1.0, floatmax(Float64)]), op in (prox!, value_and_prox!), alias in (false, true)
+    y = alias ? copy(x) : fill(19.0, 3)
+    before = copy(y)
+    @test_throws ArgumentError op(y, c, alias ? y : x, γ)
+    @test y == before
+  end
+  setprecision(BigFloat, 4096) do
+    # The minimum normal ratio is accepted, including after exact rescaling.
+    for T in (Float32, Float64), scale in (one(T), T(2), T(0.5))
+      γ = T[floatmin(T), 1] .* scale
+      check_case(IndBox(T(0), T(1)), IndHyperplane(one(T), one(T)),
+        T[0.3, 0.3], γ, ones(T, 2), one(T), one(T), (0, 0, 0, 1))
+    end
+  end
+  for γ in (1 + 2.0^-25, [1 + 2.0^-25]), op in (prox!, value_and_prox!)
+    c = Constrained(LinearFunction([1e8]), IndHyperslab(1, 1, 3))
+    y = zeros(Float32, 1)
+    op(y, c, [1e8 + 2], γ)
+    @test y == Float32[2]
+    @test 1 <= only(y) <= 3
+  end
 end
 
 @testset "ratio rule and validation reductions" begin

@@ -68,8 +68,9 @@ comparing the minimizers of their convex pieces with the ends of the interval;
 the result is separable but not convex.
 
 For a linear constraint (including a simplex), steps must be positive and
-finite. Array steps are divided by their maximum; a ratio that underflows to
-zero in working precision is rejected with `ArgumentError`, before writing.
+finite. Array steps are normalized by their maximum; a ratio below the
+smallest normal number in working precision is rejected with `ArgumentError`,
+before writing.
 The search uses the scaled multiplier `μ = max(γ)ν`. It returns a point only
 when it is finite and satisfies the constraint to the search tolerance.
 Otherwise it throws `ArgumentError`: the multiplier could not be bracketed or
@@ -231,7 +232,7 @@ _with_steps(g::_SearchSteps{G, T, M}, steps) where {G, T, M} =
   _SearchSteps{typeof(steps), T, M}(steps, g.scale, g.factor)
 
 @noinline _invalid_linear_step() =
-  throw(ArgumentError("Constrained needs positive finite steps with nonzero ratios to their maximum in working precision"))
+  throw(ArgumentError("Constrained needs positive finite steps with normal ratios to their maximum in working precision"))
 @inline _search_steps(γ, ::Type{T}) where {T} = _search_steps(identity, γ, T)
 @inline function _search_steps(done::F, γ::Real, ::Type{T}) where {F, T}
   g = convert(T, γ)
@@ -248,11 +249,13 @@ end
     scale = max(scale, t)
   end
   isempty(γ) && (scale = one(T))
-  valid && least / scale > 0 || _invalid_linear_step()
+  valid || _invalid_linear_step()
   factor = inv(scale)
   if isfinite(factor)
+    least * factor >= floatmin(T) || _invalid_linear_step()
     return done(_SearchSteps{typeof(γ), T, true}(γ, scale, factor))
   end
+  least / scale >= floatmin(T) || _invalid_linear_step()
   done(_SearchSteps{typeof(γ), T, false}(γ, scale, factor))
 end
 
@@ -282,11 +285,20 @@ function _linear_constrained_search!(y, c, x, γ::_SearchSteps{G, T}) where {G, 
   ν = _multiplier(c, x, γ, T)
   c.scale[] = γ.scale
   set = c.set
-  set isa IndHyperslab && iszero(ν) && return _prox_sep!(y, c.f, x, γ.steps)
+  set isa IndHyperslab && iszero(ν) && return _linear_constrained_inactive_output!(y, c.f, x, γ)
   if _isscaled(set)
     return _linear_constrained_output!(y, c.f, _normalized_normal(set.a, set.s), x, γ, ν)
   end
   _linear_constrained_output!(y, c.f, set.a, x, γ, ν)
+end
+
+# Use the same converted steps as the inactive-point check.
+function _linear_constrained_inactive_output!(y, f, x, γ::_SearchSteps{G, T}) where {G, T}
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    γᵢ = convert(T, _entry(γ, i))
+    y[i] = convert(eltype(y), prox_entry(f, x[i], i, γᵢ))
+  end
+  y
 end
 
 function _linear_constrained_output!(y, f, a, x, γ, ν::T) where {T}

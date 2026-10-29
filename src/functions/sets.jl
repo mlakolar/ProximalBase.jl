@@ -753,8 +753,11 @@ function _hyperslab_input(f, x)
 end
 
 # Choose the active bound from the residual, independently of membership slack.
-function _hyperslab_residual(f, x)
-  a = _scaled_normal(f)
+# Branch before passing the normal: the scaled and unscaled normals have
+# different types, and a Union of them allocates on Julia 1.10 and under coverage.
+_hyperslab_residual(f, x) = _isscaled(f) ?
+  _hyperslab_residual(f, x, _normalized_normal(f.a, f.s)) : _hyperslab_residual(f, x, f.a)
+function _hyperslab_residual(f, x, a)
   # Floating-point products avoid wraparound for integer inputs and normals.
   s = eltype(x) <: Integer ? _stored_dot_normal(a, x) : _dot_normal(a, x)
   if isfinite(f.l)
@@ -775,8 +778,9 @@ function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, ::Real)
   g = _hyperslab_residual(f, x)
   iszero(g) && return (y === x ? y : copyto!(y, x))
   t = g / _normal_sqnorm(f, x)
-  y .= x .- t .* _scaled_normal(f)
+  _isscaled(f) ? _hyperslab_output!(y, x, _normalized_normal(f.a, f.s), t) : _hyperslab_output!(y, x, f.a, t)
 end
+_hyperslab_output!(y, x, a, t) = (y .= x .- t .* a)
 
 function prox!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)

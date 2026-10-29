@@ -211,7 +211,7 @@ end
   f = ElasticNet(0.3, 0.7, wi)
   y = similar(x_rand, Float32)
   v = value_and_prox!(y, f, x_rand, 0.7)
-  @test reinterpret(UInt32, v) == 0x404d6060
+  @test samebits(v, PB._sum_entries(PB._elastic_base_value_entry, f, y, Float32))
   @test samebits(f(y), v)
   expected_y = Float32[shrink(x_rand[i], PB._weight_coefficient(0.7, f.λ1, wi[i])) / (1 + 0.7 * f.λ2) for i in eachindex(y)]
   @test reinterpret.(UInt32, y) == reinterpret.(UInt32, expected_y)

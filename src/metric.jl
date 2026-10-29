@@ -99,9 +99,19 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArr
   _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
   z = _array_buffer!(c.scratch, T, size(x))
-  z .= x ./ γ
-  prox!(z, c.f, z, _ReciprocalArray(γ))
-  y .= x .- γ .* z
+  F = typeof(c.f)
+  # without dividing by γ: a separable positively homogeneous fᵢ or cone gives
+  # prox_{fᵢ}(xᵢ), and the box the projection onto [γᵢlᵢ, γᵢuᵢ]
+  if (isseparable(F) && _conjugate_isindicator(F)) || c.f isa IndBox
+    c.f isa IndBox ? _moreau_set!(z, c.f, x, γ) : prox!(z, c.f, x, one(T))
+    _checkmoreau(y, x, z, one(T), γ, false)
+    y .= x .- z
+  else
+    z .= x ./ γ
+    prox!(z, c.f, z, _ReciprocalArray(γ))
+    _checkmoreau(y, x, z, γ, γ, true)
+    y .= x .- γ .* z
+  end
 end
 
 function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
@@ -117,6 +127,7 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::A
   p = _array_buffer!(c.scratch, T, size(x))
   p .= x ./ γ
   fp = value_and_prox!(p, c.f, p, _ReciprocalArray(γ))
+  _checkmoreau(y, x, p, γ, γ, true)
   y .= x .- γ .* p
   dot(p, y) - fp
 end

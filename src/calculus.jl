@@ -294,6 +294,17 @@ that is an indicator, such as that of a precomposed norm, takes its value from
 the Fenchel equality and can return a small nonzero value instead of zero;
 this is not a feasibility certificate.
 
+Where the conjugate is an indicator as above, and for the conjugates of
+[`IndBallL2`](@ref), [`IndBox`](@ref) and [`IndBallLinf`](@ref), their
+translations and strictly positive rescalings, and `Conjugate(Conjugate(g))`,
+the proximal operator is computed without dividing by the step, so every step,
+however small or large, is supported (a translation by `b` still needs `γb` to
+be finite in working precision, and is checked as below). For the other conjugates, the supported
+range is a finite result at finite inputs: outside it, [`prox!`](@ref) and
+[`value_and_prox!`](@ref) throw an `ArgumentError` before writing, while
+[`prox_entry`](@ref) returns the non-finite value; underflow of `x/γ` at huge
+steps is not detected.
+
 Supported zero rescalings simplify in [`Scaled`](@ref) while preserving the
 underlying domain. Each conjugate owns a working buffer; do not share it
 between threads. Tuples, including nested tuples, use one buffer per array
@@ -334,14 +345,89 @@ isseparable(::Type{<:Conjugate{F}}) where {F} = isseparable(F)
 isconvex(::Type{<:Conjugate}) = true
 iszeropreserving(c::Conjugate) = iszeropreserving(c.f)
 
+# With Pγ(f, x) = γ prox_{f/γ}(x/γ), prox_{γf*}(x) = x - Pγ(f, x). For a
+# positively homogeneous f, or the indicator of a cone, Pγ(f, x) = prox_f(x) at
+# every step; for the indicator of a set C, Pγ is the projection onto γC, which
+# for the ℓ2 ball and the box needs no division by γ; Pγ(f(⋅ - b), x) =
+# γb + Pγ(f, x - γb), and Pγ(αg) = Pγ(g) for an indicator g and α > 0.
+_moreau_scaled(::Type) = false
+_moreau_scaled(::Type{<:Union{IndBallL2, IndBox}}) = true
+_moreau_scaled(::Type{<:Translate{F}}) where {F} = _moreau_free(F)
+_moreau_scaled(::Type{<:Scaled{F}}) where {F} = _isindicator(F) && _moreau_free(F)
+_moreau_free(::Type{F}) where {F} = _conjugate_isindicator(F) || _moreau_scaled(F)
+# a translation forms γb, which can overflow, so its result is checked
+_moreau_checked(::Type) = false
+_moreau_checked(::Type{<:Translate}) = true
+_moreau_checked(::Type{<:Scaled{F}}) where {F} = _moreau_checked(F)
+
+# Pγ(f, x) into z, for _moreau_free(typeof(f)), with γ in the precision of z;
+# z may be x
+_moreau_point!(z, f, x, γ) = _conjugate_isindicator(typeof(f)) ? prox!(z, f, x, one(γ)) : _moreau_set!(z, f, x, γ)
+# γ times a bound, keeping an infinite or zero bound, so that a step that
+# underflows to 0 or overflows to Inf never forms 0 * Inf
+@inline function _dilate(γ, b)
+  S = float(typeof(γ))
+  c = convert(S, b)
+  ifelse(isinf(c) | iszero(c), c, convert(S, γ) * c)
+end
+_moreau_set!(z, f::IndBallL2, x, γ) = prox!(z, IndBallL2(_dilate(γ, f.r)), x, one(γ))
+_moreau_set!(z, f::IndBox, x, γ) = (z .= clamp.(x, _dilate.(γ, f.l), _dilate.(γ, f.u)))
+_moreau_set!(z, s::Scaled, x, γ) = _moreau_point!(z, s.f, x, γ)
+function _moreau_set!(z, t::Translate, x, γ)
+  z .= x .- γ .* t.b
+  _moreau_point!(z, t.f, z, γ)
+  z .+= γ .* t.b
+end
+
+# NaN exactly when x is finite and x - γz in the precision T of the output is
+# not (Inf * 0 and NaN * 0 are NaN, a finite value times 0 is 0), so that the
+# check is a sum without branches, which vectorizes
+struct _NonfiniteMoreau{T} end
+@inline (::_NonfiniteMoreau{T})(x, γ, z) where {T} = ifelse(isfinite(x), convert(T, x - γ * z) * zero(T), zero(T))
+_moreau_step(γ::Real, ::Type{T}) where {T} = convert(T, γ)
+_moreau_step(γ::AbstractArray, ::Type) = γ
+# whether y = x - γz, block by block, is not finite at a finite input; with
+# always = false, only an input wider than the output is checked
+function _moreau_nonfinite(y::AbstractArray, x::AbstractArray, z::AbstractArray, γ, always::Bool)
+  T = float(eltype(y))
+  always || promote_type(eltype(x), T) != T || return false
+  bc = Base.Broadcast.broadcasted(_NonfiniteMoreau{T}(), x, _moreau_step(γ, T), z)
+  isnan(sum(Base.Broadcast.instantiate(bc)))
+end
+_moreau_nonfinite(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, always::Bool) = false
+_moreau_nonfinite(y::Tuple, x::Tuple, z::Tuple, γ, always::Bool) =
+  _moreau_nonfinite(first(y), first(x), first(z), γ, always) ||
+  _moreau_nonfinite(Base.tail(y), Base.tail(x), Base.tail(z), γ, always)
+@noinline _moreau_error(γ) = throw(ArgumentError("the proximal point of the conjugate is not finite at a finite input for the step γ = $(γ isa AbstractArray ? summary(γ) : γ) in working precision; rescale the step or the input"))
+_checkmoreau(y, x, z, step, γ, always::Bool) = (_moreau_nonfinite(y, x, z, step, always) && _moreau_error(γ); true)
+
 function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
-  γ = convert(T, γ)
+  step = convert(T, γ)
   z = _array_buffer!(c.scratch, T, size(x))
-  z .= x ./ γ
-  prox!(z, c.f, z, inv(γ))
-  y .= x .- γ .* z
+  F = typeof(c.f)
+  if _moreau_free(F)
+    _moreau_point!(z, c.f, x, step)
+    _checkmoreau(y, x, z, one(T), γ, _moreau_checked(F))
+    y .= x .- z
+  else
+    z .= x ./ step
+    prox!(z, c.f, z, inv(step))
+    _checkmoreau(y, x, z, step, γ, true)
+    y .= x .- step .* z
+  end
+end
+# f** = f, with the checks of f's own oracles
+_checkwrite(op::O, c::Conjugate{<:Conjugate}, y::Union{AbstractArray, Tuple}, x::Union{AbstractArray, Tuple}) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}} =
+  _checkwrite(op, c.f.f, y, x)
+function prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::Real)
+  _checkwrite(prox!, c, y, x)
+  prox!(y, c.f.f, x, γ)
+end
+function value_and_prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::Real)
+  _checkwrite(value_and_prox!, c, y, x)
+  value_and_prox!(y, c.f.f, x, γ)
 end
 # At a proximal point y = x - γp, Fenchel equality gives f*(y) = <p,y> - f(p).
 # Keep the direct value for known closed forms, especially exact indicator zeros.
@@ -366,10 +452,27 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::R
   p = _array_buffer!(c.scratch, T, size(x))
   p .= x ./ step
   fp = value_and_prox!(p, c.f, p, inv(step))
+  _checkmoreau(y, x, p, step, γ, true)
   y .= x .- step .* p
   dot(p, y) - fp
 end
-Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real) = v - γ * prox_entry(c.f, v / γ, i, inv(γ))
+# entrywise Pγ without dividing by γ where the arrays do; never throws, since
+# entrywise wrappers write entry by entry
+Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real) = _conjugate_entry(c.f, v, i, γ)
+Base.@propagate_inbounds function _conjugate_entry(f, v, i, γ)
+  if isseparable(typeof(f)) && _conjugate_isindicator(typeof(f))
+    S = float(promote_type(typeof(v), typeof(γ)))
+    w = convert(S, v)
+    w - prox_entry(f, w, i, one(S))
+  else
+    v - γ * prox_entry(f, v / γ, i, inv(γ))
+  end
+end
+Base.@propagate_inbounds function _conjugate_entry(f::IndBox, v, i, γ)
+  S = float(promote_type(typeof(v), typeof(γ)))
+  w, g = convert(S, v), convert(S, γ)
+  w - clamp(w, _dilate(g, _entry(f.l, i)), _dilate(g, _entry(f.u, i)))
+end
 _checkparams(c::Conjugate, x) = _checkparams(c.f, x)
 _checkvalue(c::Conjugate, x) = (_checkparams(c, x); _checkconjugate(c.f, x))
 
@@ -429,13 +532,25 @@ _moreau_output!(y::Tuple, x::Tuple, p::Tuple, γ) =
 _tuple_dot(x::AbstractArray, y::AbstractArray) = dot(x, y)
 _tuple_dot(x::Tuple, y::Tuple) = sum(map(_tuple_dot, x, y))
 
+# as for arrays, with every block checked before any block is written
 function prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _checkwrite(prox!, c, y, x)
   p = _tuple_buffer!(c.scratch, y, x)
-  _divide!(p, x, γ)
-  prox!(p, c.f, p, inv(γ))
-  _moreau_output!(y, x, p, γ)
+  if _conjugate_isindicator(typeof(c.f))
+    unit = one(float(typeof(γ)))
+    prox!(p, c.f, x, unit)
+    _checkmoreau(y, x, p, unit, γ, false)
+    _moreau_output!(y, x, p, unit)
+  else
+    _divide!(p, x, γ)
+    prox!(p, c.f, p, inv(γ))
+    _checkmoreau(y, x, p, γ, γ, true)
+    _moreau_output!(y, x, p, γ)
+  end
 end
+prox!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) = (_checkwrite(prox!, c, y, x); prox!(y, c.f.f, x, γ))
+value_and_prox!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) =
+  (_checkwrite(value_and_prox!, c, y, x); value_and_prox!(y, c.f.f, x, γ))
 
 function value_and_prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
@@ -447,6 +562,7 @@ function value_and_prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   p = _tuple_buffer!(c.scratch, y, x)
   _divide!(p, x, γ)
   fp = value_and_prox!(p, c.f, p, inv(γ))
+  _checkmoreau(y, x, p, γ, γ, true)
   _moreau_output!(y, x, p, γ)
   _tuple_dot(p, y) - fp
 end
@@ -607,7 +723,8 @@ Blocks may themselves be tuples for nested sums. Allocating oracles and
 Before writing any output, the oracles check all blocks, including functions
 inside wrappers, against the checks their own oracles run before writing.
 A failure during computation, a check that depends on the step (such as
-`MoreauEnvelope`'s sum of its parameter and step), or a user-defined function
+`MoreauEnvelope`'s sum of its parameter and step, or [`Conjugate`](@ref)'s
+finite result at a finite input), or a user-defined function
 whose oracles reject an argument that its `check_parameters` accepts can still
 leave earlier blocks written, and so can a few nested wrappers and structured
 matrices whose checks are not yet complete, such as a box constraint inside

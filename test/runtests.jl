@@ -47,6 +47,7 @@ tests = [
   "polyhedron",
   "graph",
   "calculus",
+  "conjugate_steps",
   "blockchecks",
   "blockchecks_wrappers",
   "constrained",

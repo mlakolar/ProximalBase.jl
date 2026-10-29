@@ -173,6 +173,17 @@ function _checkwrite(op, f, y, x)
   end
   true
 end
+# Scalar-step checks inspect types and shapes; transformed inputs have no values.
+_checkstep(op, f, y, x, γ) = true
+struct _StepInput{T, N, A<:AbstractArray{T, N}} <: AbstractArray{T, N}
+  array::A
+end
+Base.size(x::_StepInput) = size(x.array)
+Base.axes(x::_StepInput) = axes(x.array)
+_step_values(x::AbstractArray) = true
+_step_values(x::_StepInput) = false
+_step_values(x::SubArray) = _step_values(parent(x))
+
 _checkvalue(f, x) = _checkparams(f, x)
 _checkconjugate(f, y) = true
 

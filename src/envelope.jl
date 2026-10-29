@@ -238,3 +238,10 @@ function _prox_slope(φ::SeparableFunction, r::T, γ::T) where {T}
   s = (prox_entry(φ, r + h, 1, γ) - prox_entry(φ, r - h, 1, γ)) / (2h)
   clamp(convert(T, s), zero(T), one(T))
 end
+
+function _checkstep(op::O, e::MoreauEnvelope, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  T = float(eltype(y))
+  combined = _envelope_step(convert(T, e.γ), convert(T, γ))
+  p = _checkbuffer(e.scratch, T, size(x))
+  _checkstep(op, e.f, p, x, combined)
+end

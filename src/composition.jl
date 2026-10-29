@@ -620,3 +620,14 @@ end
 _checkentries(f::Union{Precompose, _ArrayPrecompose, Regularize}, x) = _checkentries(f.f, x)
 _has_value(f::Union{Precompose, _ArrayPrecompose, Regularize, Spectral, BoxConstrained, LinearConstrained,
                    BallConstrained, SphereConstrained, AffineConstrained}) = _has_value(f.f)
+
+function _checkstep(op::O, r::Regularize, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  T = float(eltype(y))
+  _checkstep(op, r.f, y, _StepInput(y), _regularize_step(convert(T, γ), convert(T, r.ρ)))
+end
+function _checkstep(op::O, h::Precompose, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  z = _checkimage(h, x)
+  b = h isa _ScalarPrecompose ? z : _checkbuffer(h.inner, eltype(z), size(z))
+  T = eltype(z)
+  _checkstep(op, h.f, b, _StepInput(z), convert(T, h.μ) * convert(T, γ))
+end

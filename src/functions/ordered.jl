@@ -635,3 +635,11 @@ end
 prox!(y::AbstractArray{<:Real}, f::SumLargest, x::AbstractArray{<:Real}, γ::Real) =
   _sumlargest_prox!(y, f, x, γ, Val(false))
 value_and_prox!(y::AbstractArray{<:Real}, f::SumLargest, x::AbstractArray{<:Real}, γ::Real) = f(prox!(y, f, x, γ))
+
+function _checkstep(op::O, f::SumLargest, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  T = float(eltype(y))
+  S = float(promote_type(T, eltype(x), typeof(γ), typeof(f.λ)))
+  g = S(γ)
+  isfinite(g) && g > 0 || throw(ArgumentError("γ must be finite and positive"))
+  true
+end

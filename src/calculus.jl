@@ -803,12 +803,13 @@ Blocks may themselves be tuples for nested sums. Allocating oracles and
 [`Conjugate`](@ref) preserve this block structure.
 Before writing any output, the oracles check all blocks, including functions
 inside wrappers, against the checks their own oracles run before writing.
-A failure during computation, a check that depends on the step (such as
-`MoreauEnvelope`'s sum of its parameter and step, or [`Conjugate`](@ref)'s
-finite result at a finite input), a user-defined function whose oracles reject
-an argument that its `check_parameters` accepts, or a check that depends on the
-values of the argument (such as a hyperslab's finite inputs, or whether a box's
-output lies inside an inner box) can still leave earlier blocks written.
+Scalar-step checks also follow supported wrappers before writing. Remaining
+gaps include array steps, entrywise steps inside box and linear constraints,
+spectral and singular-value wrappers, distance wrappers, intersections, ball,
+sphere and affine constraints, `NegLog`'s square root, and `Conjugate`'s finite
+result check. Failures during computation, user-defined oracle checks beyond
+`check_parameters`, and checks of argument values (including hyperslab inputs
+and membership in an inner box) can still leave earlier blocks written.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
@@ -850,9 +851,9 @@ _checkvalue(s::SeparableSum, x::Tuple) = (_checkparams(s, x); map(_checkvalue, s
 
 (s::SeparableSum)(x::Tuple) = (_checkparams(s, x); _value_at(sum(map((f, xk) -> f(xk), s.fs, x)), x))
 prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(prox!, s, y, x); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
+  (_checkwrite(prox!, s, y, x); _checkstep(prox!, s, y, x, γ); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
 value_and_prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(value_and_prox!, s, y, x); _value_at(sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)), y))
+  (_checkwrite(value_and_prox!, s, y, x); _checkstep(value_and_prox!, s, y, x, γ); _value_at(sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)), y))
 value_and_gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
   (_checkwrite(value_and_gradient!, s, g, x); _value_at(sum(map((f, gk, xk) -> value_and_gradient!(gk, f, xk), s.fs, g, x)), x))
 gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
@@ -942,3 +943,49 @@ lipschitz(t::Tilt) = lipschitz(t.f)
 lipschitz(t::Translate) = lipschitz(t.f)
 lipschitz(s::Sum) = sum(lipschitz, s.fs)
 lipschitz(s::SeparableSum) = maximum(lipschitz, s.fs)
+
+_checkstep(op::O, s::Scaled, y, x, γ::Real) where {O} = _checkstep(op, s.f, y, x, s.α * γ)
+_checkstep(op::O, t::Union{Tilt, Translate}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
+  _checkstep(op, t.f, y, _StepInput(y), γ)
+
+_checkstep(op::O, s::SeparableSum, y::Tuple, x::Tuple, γ::Real) where {O} =
+  _checkstep_blocks(op, s.fs, y, x, γ)
+_checkstep_blocks(op, ::Tuple{}, ::Tuple{}, ::Tuple{}, γ) = true
+_checkstep_blocks(op::O, fs::Tuple, y::Tuple, x::Tuple, γ) where {O} =
+  (_checkstep(op, first(fs), first(y), first(x), γ); _checkstep_blocks(op, Base.tail(fs), Base.tail(y), Base.tail(x), γ))
+
+_checkstep(op::O, c::Conjugate{<:Conjugate}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
+  _checkstep(op, c.f.f, y, x, γ)
+_checkstep(op::O, c::Conjugate{<:Conjugate}, y::Tuple, x::Tuple, γ::Real) where {O} =
+  _checkstep(op, c.f.f, y, x, γ)
+function _checkstep(op::O, c::Conjugate, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  T = float(eltype(y))
+  step = convert(T, γ)
+  p = _conjugate_checkbuffer(c.scratch, y, x)
+  if op === value_and_prox! && !_isindicator(c) && !_has_conjugate_value(c.f)
+    return _checkstep(value_and_prox!, c.f, p, _StepInput(p), inv(step))
+  end
+  _moreau_free(typeof(c.f)) && return _checkstep_moreau(c.f, p, x, step)
+  _checkstep(prox!, c.f, p, _StepInput(p), inv(step))
+end
+_checkstep(op::O, c::Conjugate{<:SumLargest}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
+  _checkstep(prox!, c.f, y, x, 1)
+function _checkstep_moreau(f, y, x, γ)
+  _conjugate_isindicator(typeof(f)) && return _checkstep(prox!, f, y, x, one(γ))
+  _checkstep_moreau_set(f, y, x, γ)
+end
+_checkstep_moreau_set(f::Union{IndBox, IndBallL2}, y, x, γ) = true
+_checkstep_moreau_set(s::Scaled, y, x, γ) = _checkstep_moreau(s.f, y, x, γ)
+_checkstep_moreau_set(t::Translate, y, x, γ) = _checkstep_moreau(t.f, y, _StepInput(y), γ)
+
+_step_input(x::AbstractArray) = _StepInput(x)
+_step_input(::Tuple{}) = ()
+_step_input(x::Tuple) = (_step_input(first(x)), _step_input(Base.tail(x))...)
+function _checkstep(op::O, c::Conjugate, y::Tuple, x::Tuple, γ::Real) where {O}
+  p = _conjugate_checkbuffer(c.scratch, y, x)
+  if op === value_and_prox! && !_isindicator(c) && !_has_conjugate_value(c.f)
+    return _checkstep(value_and_prox!, c.f, p, _step_input(p), inv(γ))
+  end
+  _conjugate_isindicator(typeof(c.f)) && return _checkstep(prox!, c.f, p, x, one(float(typeof(γ))))
+  _checkstep(prox!, c.f, p, _step_input(p), inv(γ))
+end

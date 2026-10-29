@@ -633,9 +633,14 @@ _checkparams(s::SeparableSum, x::Tuple) = (_checkblocks(s, x); map(_checkparams,
 function _checkwrite(op::O, s::SeparableSum, y::Tuple, x::Tuple) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
   _checksize(y, x)
   _checkblocks(s, x)
-  map((f, yk, xk) -> _checkwrite(op, f, yk, xk), s.fs, y, x)
-  true
+  _checkwrite_blocks(op, s.fs, y, x)
 end
+# block by block, by recursion on the tuples rather than a map over a closure:
+# once a nested sum has been checked, Julia 1.10 compiles the inner sum's map
+# for an abstract closure, and that map allocates
+_checkwrite_blocks(op, ::Tuple{}, ::Tuple{}, ::Tuple{}) = true
+_checkwrite_blocks(op::O, fs::Tuple, y::Tuple, x::Tuple) where {O} =
+  (_checkwrite(op, first(fs), first(y), first(x)); _checkwrite_blocks(op, Base.tail(fs), Base.tail(y), Base.tail(x)))
 _has_conjugate_value(s::SeparableSum) = all(_has_conjugate_value, s.fs)
 _checkconjugate(s::SeparableSum, y::Tuple) = (_checkparams(s, y); map(_checkconjugate, s.fs, y); true)
 _checkscaledconjugate(s::SeparableSum, y::Tuple, α) =

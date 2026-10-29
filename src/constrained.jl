@@ -186,6 +186,8 @@ function kkt_violation(c::BoxConstrained, g::AbstractArray, i::Integer)
 end
 
 restrict(c::BoxConstrained, S::AbstractVector{<:Integer}) = BoxConstrained(restrict(c.f, S), restrict(c.box, S))
+_restrict_unchecked(c::BoxConstrained, S::AbstractVector{<:Integer}) =
+  BoxConstrained(_restrict_unchecked(c.f, S), _restrict_unchecked(c.box, S))
 
 ####################################
 #  on a hyperplane, halfspace or hyperslab

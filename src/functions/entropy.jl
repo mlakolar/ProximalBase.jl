@@ -204,7 +204,10 @@ end
   _logbarrier_root_half(S(v) / 2, root_step)
 end
 
-restrict(f::NegLog, ::AbstractVector{<:Integer}) = f
+# the dimension is unknown, so a dropped term, infinite at zero, cannot be ruled out
+restrict(::NegLog, ::AbstractVector{<:Integer}) =
+  throw(ArgumentError("restrict of NegLog is not supported: zero is outside its domain"))
+_restrict_unchecked(f::NegLog, ::AbstractVector{<:Integer}) = f
 
 ####################################
 #  Bernoulli loss on the probability scale

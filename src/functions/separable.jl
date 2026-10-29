@@ -463,6 +463,8 @@ are allowed, but equal infinite bounds are rejected because the coordinate is
 empty. Its proximal operator is the projection `clamp.(x, l, u)`. Array bounds
 are stored without copying; construct a new `IndBox` after changing them in
 place, since whether the box contains zero is computed at construction.
+[`restrict`](@ref) of the box itself requires `0 ∈ [lᵢ, uᵢ]` for every
+coordinate outside `S`, and throws for scalar bounds that exclude zero.
 """
 struct IndBox{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: SeparableFunction
   l::L
@@ -542,7 +544,20 @@ function kkt_violation(f::IndBox, g::AbstractArray, i::Integer)
   down = _entry(f.l, i) < 0 ? g[i] : T(-Inf)
   max(up, down)
 end
-restrict(f::IndBox, S::AbstractVector{<:Integer}) = IndBox(_restrict_entries(f.l, S), _restrict_entries(f.u, S))
+# an excluded coordinate whose bounds exclude zero is infinite at zero
+function restrict(f::IndBox, S::AbstractVector{<:Integer})
+  if !f.zp
+    f.l isa AbstractArray || f.u isa AbstractArray ||
+      throw(ArgumentError("restrict of IndBox with scalar bounds requires 0 ∈ [l, u]"))
+    n = length(f.l isa AbstractArray ? f.l : f.u)
+    for i in _excluded_coordinates(n, S)
+      _entry(f.l, i) <= 0 <= _entry(f.u, i) ||
+        throw(ArgumentError("restrict of IndBox requires 0 ∈ [lᵢ, uᵢ] for every coordinate outside S"))
+    end
+  end
+  _restrict_unchecked(f, S)
+end
+_restrict_unchecked(f::IndBox, S::AbstractVector{<:Integer}) = IndBox(_restrict_entries(f.l, S), _restrict_entries(f.u, S))
 
 """
     IndNonnegative()

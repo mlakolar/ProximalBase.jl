@@ -3,14 +3,16 @@
 
 Invalidate data-dependent caches of `f` and return `f`. Call this after changing
 the entries of data stored by reference in a [`LeastSquaresLoss`](@ref) (`X`
-or `Y`) or [`QuadraticFunction`](@ref) (`A`). Array sizes must stay unchanged;
+or `Y`), [`QuadraticFunction`](@ref) (`A`), or [`LinearImage`](@ref) (`L` and
+the inner quadratic's data). Array sizes must stay unchanged;
 construct a new function for different dimensions. The next proximal call
 rebuilds the decomposition and may allocate; subsequent calls reuse it.
 
 Call this on the outermost function you use: it descends through compositions,
 and an affine-constrained loss also resets the cache of its constrained solve.
 If several wrappers share the same loss, reset each wrapper after a data
-change. Values and gradients read the data directly and need no reset.
+change. Values and gradients read the data directly and need no reset, except
+the standalone value of a quadratic `LinearImage`, which also uses cached data.
 
 An [`IndAffine`](@ref) or [`IndGraph`](@ref) must instead be reconstructed when
 its data change. For `IndAffine`, the factorization type depends on the rank
@@ -47,6 +49,20 @@ function reset_cache!(c::AffineConstrained{T}) where {T}
   c.γ = T(NaN)
   c
 end
+
+function reset_cache!(h::_QuadraticLinearImage)
+  _check_image_data(h.L)
+  _check_image_quadratic(h.f, h.L)
+  size(h.L) == (length(h.cache.ambient), length(h.cache.latent)) ||
+    throw(DimensionMismatch("data sizes changed; construct a new LinearImage"))
+  reset_cache!(h.f)
+  h.cache.factor = nothing
+  h.cache.γ = eltype(h.cache.latent)(NaN)
+  h.cache.valuecache = nothing
+  h
+end
+
+reset_cache!(h::_OrthogonalLinearImage) = (reset_cache!(h.f); h)
 
 reset_cache!(::IndAffine) = throw(ArgumentError("construct a new IndAffine after changing its data"))
 reset_cache!(::IndGraph) = throw(ArgumentError("construct a new IndGraph after changing its data"))

@@ -56,6 +56,7 @@ tests = [
   "distance",
   "distl2",
   "composition",
+  "image",
   "precompose_array",
   "minimum",
   "caches",

@@ -433,6 +433,75 @@ end
   end
   @test f32(Float32.(X)) isa Float32
   @test prox(f32, Float32.(X), 0.5f0) ≈ prox(f, X, 0.5) rtol = 1e-4
+
+  @testset "precision" begin
+    for Td in (Float32, Float64), Tx in (Float32, Float64)
+      f = LogDetLoss(Td[2 0.5 0.1; 0.5 3 0; 0.1 0 1], one(Td))
+      X = Tx[1.1 0.2 0; 0.2 2.1 0.3; 0 0.3 1.5]
+      original = copy(X)
+      finite = @inferred f(X)
+      @test isfinite(finite)
+      for bad in (-X, zeros(Tx, 3, 3), Tx[1 1 0; 0 1 0; 0 0 1], fill(Tx(Inf), 3, 3), fill(Tx(NaN), 3, 3))
+        @test (@inferred f(bad)) === oftype(finite, Inf)
+      end
+      for γ in (Tx(0.25), one(Tx), Tx(4))
+        Y_data = zeros(Td, 3, 3)
+        v_data = value_and_prox!(Y_data, f, X, γ)
+        for Ty in (Float32, Float64)
+          expected = Ty.(Y_data)
+          tol = 32max(eps(Td), eps(Ty))
+          Y = zeros(Ty, 3, 3)
+          @test prox!(Y, f, X, γ) === Y
+          @test Y == expected
+          @test value_and_prox!(Y, f, X, γ) ≈ v_data rtol = tol
+          @test Y == expected
+          @test allocs(prox!, Y, f, X, γ) == 0
+          @test allocs(value_and_prox!, Y, f, X, γ) == 0
+
+          storage = fill(Ty(-7), 3, 5)
+          output = view(storage, :, 2:4)
+          @test prox!(output, f, X, γ) === output
+          @test output == expected
+          @test value_and_prox!(output, f, X, γ) ≈ v_data rtol = tol
+          @test output == expected
+          @test all(==(-7), storage[:, [1, 5]])
+
+          blocks = SeparableSum(f, ZeroFunction())
+          input = (X, Tx[1, -2])
+          output = (Y, zeros(Ty, 2))
+          @test prox!(output, blocks, input, γ) === output
+          @test Y == expected && output[2] == input[2]
+          @test value_and_prox!(output, blocks, input, γ) ≈ v_data rtol = tol
+          @test Y == expected && output[2] == input[2]
+
+          # Moreau's identity uses the conjugate output's precision for its buffer.
+          c = Conjugate(f)
+          step = Ty(γ)
+          P = Ty.(X ./ step)
+          fp = value_and_prox!(P, f, P, inv(step))
+          conjugate_expected = Ty.(X .- step .* P)
+          conjugate_value = dot(P, conjugate_expected) - fp
+          for output in (Y, SymmetricSparseIterate(zeros(Ty, 3, 3)))
+            @test prox!(output, c, X, γ) === output
+            @test Matrix(output) == conjugate_expected
+            @test value_and_prox!(output, c, X, γ) ≈ conjugate_value rtol = tol
+            @test Matrix(output) == conjugate_expected
+          end
+          if Ty == Tx
+            alias = copy(X)
+            @test prox!(alias, f, alias, γ) === alias
+            @test alias == expected
+            copyto!(alias, X)
+            @test value_and_prox!(alias, f, alias, γ) ≈ v_data rtol = tol
+            @test alias == expected
+          end
+          @test X == original
+        end
+        @test prox(f, X, γ) == Tx.(Y_data)
+        @test X == original
+      end
+    end
+  end
 end
 
 @testset "zero-weight observations are ignored" begin

@@ -24,8 +24,8 @@ cone. It is also proximable: with `μ = γw` and the eigendecomposition
 For a nonsymmetric proximal input, `X` is replaced by its symmetric part:
 the skew part contributes only a constant to the proximal objective.
 Both use workspaces that `f` owns, sized by `S`, and
-allocate nothing; do not share `f` between threads. The element type of `X`
-must be that of `S`, `Float32` or `Float64`.
+allocate nothing; do not share `f` between threads. The workspace has the data's
+precision (`Float32` or `Float64`); outputs of any precision are written by rounding.
 """
 struct LogDetLoss{T<:_BlasReal} <: AbstractFunction
   S::Matrix{T}
@@ -74,7 +74,7 @@ end
 
 function (f::LogDetLoss{T})(X::AbstractMatrix) where {T}
   ld = _logdet_chol!(f, X)
-  ld === nothing ? T(Inf) : f.w * (dot(f.S, X) - ld)
+  ld === nothing ? promote_type(T, eltype(X))(Inf) : f.w * (dot(f.S, X) - ld)
 end
 
 function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix) where {T}

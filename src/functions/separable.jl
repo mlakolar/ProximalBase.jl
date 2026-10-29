@@ -358,7 +358,7 @@ _checkparams(f::ElasticNet, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::ElasticNet, v::Real, i::Integer)
   a = abs(v)
-  _weighted_value(_weight_coefficient(f.λ1, _entry(f.w, i)) * a, a) + f.λ2 * abs2(v) / 2
+  _weighted_value(_weight_coefficient(f.λ1, _entry(f.w, i)) * a, a) + _weighted_value(f.λ2 * abs2(v) / 2, abs2(v))
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
 _has_ordinary_value(::Type{<:ElasticNet}) = true
@@ -378,10 +378,12 @@ restrict(f::ElasticNet, S::AbstractVector{<:Integer}) = ElasticNet(f.λ1, f.λ2,
     IndBox(l, u)
 
 The indicator of the box `{x : l ≤ x ≤ u}`: `0` inside and `Inf` outside. The
-bounds are scalars or arrays of the size of `x`, and may be infinite. Its
-proximal operator is the projection `clamp.(x, l, u)`. Array bounds are stored
-without copying; construct a new `IndBox` after changing them in place, since
-whether the box contains zero is computed at construction.
+bounds are scalars or arrays of the size of `x`, and may be infinite. They
+satisfy `l ≤ u`, `l < Inf` and `u > -Inf` coordinatewise: equal finite bounds
+are allowed, but equal infinite bounds are rejected because the coordinate is
+empty. Its proximal operator is the projection `clamp.(x, l, u)`. Array bounds
+are stored without copying; construct a new `IndBox` after changing them in
+place, since whether the box contains zero is computed at construction.
 """
 struct IndBox{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: SeparableFunction
   l::L
@@ -390,6 +392,7 @@ struct IndBox{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: S
 
   function IndBox{L, U}(l::L, u::U) where {L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}}
     all(l .<= u) || throw(ArgumentError("the lower bounds must not exceed the upper bounds"))
+    any((l .== Inf) .| (u .== -Inf)) && throw(ArgumentError("the lower bounds must be below Inf and the upper bounds above -Inf"))
     new{L, U}(l, u, all(l .<= 0) && all(u .>= 0))
   end
 end

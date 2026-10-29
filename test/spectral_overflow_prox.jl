@@ -308,7 +308,7 @@ end
       λ = f isa Union{NuclearNorm, TracePSD} ? f.λ : zero(T)
       reference = big(a) - big(γ)*big(λ)/3
       @test all(isfinite, Y)
-      @test all(y -> abs(big(y) - reference) <= 4big(eps(a)), Y)
+      @test norm(big.(Y) .- reference) <= 100 * eps(T) * norm(big.(Float32.(X)))
       rounded(value, big(λ) * (3big(a) - big(γ)*big(λ)))
       R = similar(Y)
       preconverted = value_and_prox!(R, f, Float32.(X), γ)

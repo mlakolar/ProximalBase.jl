@@ -212,6 +212,7 @@ prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArra
 
 function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ)
   _checkwrite(prox!, c, y, x)
+  c.set isa IndHyperslab && _hyperslab_input(c.set, x)
   T = float(eltype(y))
   ν = _multiplier(c, x, γ, T)
   set = c.set

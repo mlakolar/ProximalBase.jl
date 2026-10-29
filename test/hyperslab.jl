@@ -138,6 +138,9 @@ end
   s = Spectral(IndHyperslab(1, 0, 1))
   @test prox(s, Matrix(Diagonal([3.0, 0]))) ≈ Diagonal([2.0, -1]) rtol = 1e-12
   @test s(Matrix(Diagonal([0.2, 0.3]))) == 0
+  # the check before the decomposition reads no eigenvalues
+  fill!(s.eig.w, NaN)
+  @test prox(s, Matrix(Diagonal([3.0, 0]))) ≈ Diagonal([2.0, -1]) rtol = 1e-12
   @test_throws ArgumentError Spectral(IndHyperslab([1, 2], 0, 1))
 end
 

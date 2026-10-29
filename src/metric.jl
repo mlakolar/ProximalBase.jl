@@ -146,7 +146,7 @@ function prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace}, x::Abstr
 end
 
 function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, γ::AbstractArray)
-  _checknormal(prox!, f, y, x)
+  _checkwrite(prox!, f, y, x)
   _checkparams(f, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)

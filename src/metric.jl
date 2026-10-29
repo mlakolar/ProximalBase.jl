@@ -58,6 +58,68 @@ Base.IndexStyle(::Type{<:_ReciprocalArray}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(a::_ReciprocalArray{T}, i::Int) where {T} = inv(convert(T, a.γ[i]))
 
 # functions built from functions pass the steps on, entry by entry
+function prox!(y::AbstractArray, h::_ScalarPrecompose, x::AbstractArray, γ::AbstractArray)
+  isseparable(h) || throw(ArgumentError("array steps for a scalar scale require a separable function"))
+  _checkwrite(prox!, h, y, x)
+  _checkparam(γ, x)
+  _value_and_prox_precompose!(y, h, x, γ, false)
+  y
+end
+function value_and_prox!(y::AbstractArray, h::_ScalarPrecompose, x::AbstractArray, γ::AbstractArray)
+  isseparable(h) || throw(ArgumentError("array steps for a scalar scale require a separable function"))
+  _checkwrite(value_and_prox!, h, y, x)
+  _checkparam(γ, x)
+  _value_at(_value_and_prox_precompose!(y, h, x, γ, true), y)
+end
+
+function _value_and_prox_precompose!(y, h::_ScalarPrecompose, x, γ::AbstractArray, withvalue::Bool)
+  z = _image!(h, x)
+  _checkparams(h.f, z)
+  T = eltype(z)
+  steps = _ScaledArray(γ, convert(T, h.μ))
+  v = withvalue ? value_and_prox!(z, h.f, z, steps) : (prox!(z, h.f, z, steps); zero(T))
+  y .= z ./ h.A
+  withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _precompose_prox_value(h, y) : v
+end
+
+# the ridge-adjusted steps, without a second buffer
+struct _RegularizeSteps{T, N, A<:AbstractArray} <: AbstractArray{T, N}
+  γ::A
+  ρ::T
+end
+_RegularizeSteps(γ::AbstractArray{<:Any, N}, ρ::T) where {T, N} =
+  _RegularizeSteps{T, N, typeof(γ)}(γ, ρ)
+Base.size(a::_RegularizeSteps) = size(a.γ)
+Base.IndexStyle(::Type{<:_RegularizeSteps}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(a::_RegularizeSteps{T}, i::Int) where {T} =
+  _regularize_step(convert(T, a.γ[i]), a.ρ)
+
+function _shrunk!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
+  T = float(eltype(y))
+  ρ = convert(T, r.ρ)
+  @inbounds for i in eachindex(IndexLinear(), y)
+    a, b = _ridge_weights(convert(T, γ[i]), ρ)
+    y[i] = r.c === nothing ? a * x[i] : _ridge_blend(x[i], r.c[i], a, b)
+  end
+  _RegularizeSteps(γ, ρ)
+end
+
+function prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
+  isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function"))
+  _checkwrite(prox!, r, y, x)
+  _checkparam(γ, x)
+  z = _output_buffer!(r.scratch, y)
+  prox!(y, r.f, z, _shrunk!(z, r, x, γ))
+end
+function value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
+  isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function"))
+  _checkwrite(value_and_prox!, r, y, x)
+  _checkparam(γ, x)
+  z = _output_buffer!(r.scratch, y)
+  v = value_and_prox!(y, r.f, z, _shrunk!(z, r, x, γ))
+  _value_at(v + _ridge(r, y), y)
+end
+
 prox!(y, s::Scaled, x, γ::AbstractArray) = (_checkparams(s, x); prox!(y, s.f, x, _ScaledArray(γ, s.α)))
 value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
   (_checkparams(s, x); _value_at(s.α * value_and_prox!(y, s.f, x, _ScaledArray(γ, s.α)), y))

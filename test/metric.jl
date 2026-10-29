@@ -400,6 +400,72 @@ end
   end
 end
 
+@testset "array steps for scalar compositions and regularization" begin
+  n = 3
+  x = [1.0, 2.0, -0.5]
+  γ = rand(n) .+ 0.1
+  c = Conjugate(ElasticNet(1.0, 0.5))
+  cvec = randn(n)
+  for f in (Precompose(NormL1(0.3), 2.0), Precompose(c, -1.5),
+            Regularize(NormL1(0.3), 0.7), Regularize(NormL1(0.3), 0.7, cvec),
+            Regularize(c, 0.3))
+    p = prox(f, x, γ)
+    @test p ≈ [prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+    @test prox(f, x, fill(0.4, n)) ≈ prox(f, x, 0.4)
+    @test value_and_prox!(similar(x), f, x, fill(0.4, n)) ≈
+          value_and_prox!(similar(x), f, x, 0.4)
+    y = similar(x)
+    v = value_and_prox!(y, f, x, γ)
+    @test y ≈ p
+    z = copy(x)
+    @test value_and_prox!(z, f, z, γ) ≈ v
+    @test z ≈ y
+    z = copy(x)
+    @test prox!(z, f, z, γ) ≈ p
+    for op in (prox!, value_and_prox!)
+      fill!(y, 17.0)
+      @test_throws DimensionMismatch op(y, f, x, γ[1:2])
+      @test y == fill(17.0, n)
+    end
+  end
+
+  # The inner conjugate supplies its value only through the proximal oracle.
+  h = Precompose(c, 2.0)
+  y = zeros(1)
+  v = value_and_prox!(y, Precompose(h, [1.0]), [2.0], 0.5)
+  @test y ≈ [0.8]
+  @test v ≈ 0.36
+  z = similar(y)
+  @test value_and_prox!(z, h, [2.0], 0.5) ≈ v
+  @test z ≈ y
+
+  a = [2.0, -0.5, 1.5]
+  for inner in (h, Regularize(c, 0.3))
+    f = Precompose(inner, a)
+    y = similar(x)
+    @test isfinite(value_and_prox!(y, f, x, 0.5))
+    @test y ≈ prox(f, x, 0.5)
+    for s in (2.0, -1.5)
+      fa, fs = Precompose(inner, fill(s, n)), Precompose(inner, s)
+      ya, ys = similar(x), similar(x)
+      @test value_and_prox!(ya, fa, x, 0.5) ≈ value_and_prox!(ys, fs, x, 0.5)
+      @test ya ≈ ys
+      @test ya ≈ prox(fa, x, 0.5)
+    end
+  end
+
+  for (f, message) in ((Precompose(NormL2(1.0), 2.0),
+                       "array steps for a scalar scale require a separable function"),
+                      (Regularize(NormL2(1.0), 0.3),
+                       "array steps for Regularize require a separable function"))
+    for op in (prox!, value_and_prox!)
+      y = fill(17.0, n)
+      @test_throws ArgumentError(message) op(y, f, x, γ)
+      @test y == fill(17.0, n)
+    end
+  end
+end
+
 @testset "zero allocations" begin
   a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
   a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)

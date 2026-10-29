@@ -515,8 +515,7 @@ function _partial_nuclear!(Y::AbstractMatrix, f, X::AbstractMatrix, c::T) where 
     v += ws.s[j] - c
   end
   _partial_svd_out!(Y, ws, k, σ -> σ - c)
-  λ = convert(T, f.λ)
-  _spectral_prox_value(λ * v, λ, view(ws.s, 1:k), c)
+  _spectral_level_value(f.λ, v, view(ws.s, 1:k), c)
 end
 
 # IndBallRank: the r largest triplets; returns Y, or nothing to fall back
@@ -530,11 +529,11 @@ end
 # c, or over the r largest when r > 0; returns Σⱼ max(θⱼ - c, 0), or with a
 # weight λ the value λ Σⱼ max(θⱼ - c, 0), in scaled units when it overflows
 function _partial_psd!(Y::AbstractMatrix, f, X::AbstractMatrix, c::T, r::Int,
-                       λ::Union{Nothing, T} = nothing) where {T}
+                       λ::Union{Nothing, Real} = nothing) where {T}
   k = _leading_eigen!(f, X, T, c, r)
   k < 0 && return nothing
   ws = f.pws::PartialEigenWorkspace{T}
   v = _partial_eigen_out!(Y, ws, k, t -> max(t - c, zero(t)))
   λ === nothing && return v
-  _spectral_prox_value(λ * v, λ, view(ws.θ, ws.ℓ-k+1:ws.ℓ), c)
+  _spectral_level_value(λ, v, view(ws.θ, ws.ℓ-k+1:ws.ℓ), c)
 end

@@ -703,3 +703,153 @@ end
            Set((device_prox, which(ProximalBase._prox_sep!, Tuple{Matrix{Float64}, IndBanded, Matrix{Float64}, Float64}))))
   @test all(pair -> Set(pair) in known, Test.detect_ambiguities(ProximalBase))
 end
+
+@testset "weighted values at overflow on GPU arrays" begin
+  allowscalar(false)
+  # The same two-ulp reference check as spectral_overflow.jl.
+  function check_rounded(v::T, reference) where {T}
+    r = big(reference)
+    k = iszero(r) ? exponent(floatmin(T)) : max(exponent(abs(r)), exponent(floatmin(T)))
+    δ = 2ldexp(one(r), k - precision(T) + 1)
+    lo, hi = r - δ, r + δ
+    if isfinite(T(hi))
+      @test isfinite(v) && lo <= big(v) <= hi
+    elseif T(lo) === T(Inf)
+      @test v === T(Inf)
+    else
+      @test v === T(Inf) || (isfinite(v) && lo <= big(v) <= hi)
+    end
+  end
+  for T in test_types
+    M = floatmax(T)
+    x = DeviceArray(T[M, M])
+    for (f, ref) in ((ElasticNet(T(1)/4, zero(T)), big(M)/2),
+                     (NormL1(T(1)/4), big(M)/2),
+                     (GroupNormL2(T(1)/4, [1:2]), big(M)/2),
+                     (SparseGroupNormL2(T(1)/4, zero(T), [1:2]), big(M)/2),
+                     (SparseGroupNormL2(zero(T), T(1)/4, [1:2]), big(M)/2),
+                     (Scaled(NormL1(one(T)), T(1)/4), big(M)/2),
+                     (Scaled(NormL2(one(T)), T(1)/4), sqrt(big(2))*big(M)/4),
+                     (Scaled(GroupNormL2(one(T), [1:2]), T(1)/4), big(M)/2),
+                     (Conjugate(IndBallL1(T(1)/4)), big(M)/4),
+                     (Conjugate(IndBallL2(T(1)/4)), sqrt(big(2))*big(M)/4))
+      for fg in (f, Adapt.adapt(DeviceArray, f))
+        v = fg(x)
+        @test v isa T
+        @test isfinite(v)
+        check_rounded(v, ref)
+        @test v ≃ f(host(x))
+        y = similar(x)
+        if f isa Union{ElasticNet, NormL1, GroupNormL2, SparseGroupNormL2}
+          v = value_and_prox!(y, fg, x, T(1)/8)
+          @test isfinite(v)
+          check_rounded(v, ref)
+          @test v ≃ f(host(y))
+        end
+      end
+    end
+    for a in (T(Inf), T(NaN)), f in (ElasticNet(T(1)/4, zero(T)), ElasticNet(zero(T), zero(T)))
+      z = DeviceArray(T[a])
+      @test isequal(f(z), isnan(a) ? T(NaN) : iszero(f.λ1) ? zero(T) : T(Inf))
+      @test isequal(f(z), f(host(z)))
+    end
+    small = T === Float32 ? T(1e-20) : T(1e-200)
+    large = T === Float32 ? T(1e30) : T(1e200)
+    for (λ, a) in ((T === Float32 ? 1e-50 : 1e-300, large),
+                   (T === Float32 ? 1e30 : 1e300, small))
+      f = ElasticNet(0, λ)
+      z = DeviceArray(T[a])
+      ref = big(λ)*big(a)^2/2
+      @test isfinite(f(z))
+      check_rounded(f(z), ref)
+      @test f(z) ≃ f(host(z))
+    end
+    for f in (GroupNormL2(T(1)/4, [1:2]), SparseGroupNormL2(zero(T), T(1)/4, [1:2]))
+      y = similar(x)
+      v = value_and_prox!(y, f, x, M)
+      @test host(y) ≃ prox(f, host(x), M)
+      @test v ≃ f(host(y))
+      @test isfinite(v)
+    end
+    for f in (NuclearNorm(T(1)/4),)
+      X = DeviceArray(Matrix{T}(M * I, 2, 2))
+      v = f(X)
+      @test isfinite(v)
+      check_rounded(v, big(M)/2)
+      @test v ≃ f(host(X))
+    end
+    # Legacy reductions on exact binary inputs retain their ordinary bits.
+    z = DeviceArray(T[1, 2, 3, 4])
+    ext = Base.get_extension(ProximalBase, :ProximalBaseGPUArraysCoreExt)
+    for f in (NormL1(T(1)/4), ElasticNet(T(1)/4, T(1)/2), NormLinf(T(1)/4),
+              GroupNormL2(T(1)/4, [1:2, 3:4]), GroupNormLinf(T(1)/4, [1:2, 3:4]),
+              SparseGroupNormL2(T(1)/4, T(1)/4, [1:2, 3:4]))
+      old = if f isa NormL1
+        ext._sum(T, ext._WeightValue(T(1)/4), abs.(z), true)
+      elseif f isa ElasticNet
+        T(1)/4 * ext._sum(T, ext._EnetValue(one(T)), abs.(z), true) + T(1)/2 * ext._sum(T, abs2, z)/2
+      elseif f isa NormLinf
+        T(1)/4 * mapreduce(abs, max, z; init=zero(T))
+      else
+        d = ext._on_device(f, z)
+        v = zero(T)
+        for b in d.layout.blocks
+          X = ext._gather(z, b)
+          n = f isa GroupNormLinf ? ext._segreduce(abs, max, zero(T), X, b) : ext._group_norms(X, b, T)
+          v += ext._sum(T, ext._Weighted(T(1)/4), n, b.w)
+        end
+        f isa SparseGroupNormL2 ? v + T(1)/4 * ext._grouped_l1(T, z, d.layout) : v
+      end
+      @test isequal(f(z), old)
+    end
+  end
+  if Float32 in test_types
+    T = Float32
+    for f in (NormL1(1f-10), NormLinf(1f-10), GroupNormL2(1f-10, [1:1]),
+              GroupNormLinf(1f-10, [1:1]), SparseGroupNormL2(0f0, 1f-10, [1:1]))
+      x = DeviceArray(T[2f30])
+      y = similar(x)
+      v = value_and_prox!(y, f, x, 1e40)
+      @test host(y) ≃ prox(f, host(x), 1e40)
+      @test v ≃ f(host(y))
+    end
+    for F in (GroupNormL2, GroupNormLinf)
+      f = F(1f-10, [1:1], T[1f-30])
+      x = DeviceArray(T[2f20])
+      y = similar(x)
+      v = value_and_prox!(y, f, x, 1e60)
+      @test host(y) ≃ prox(f, host(x), 1e60)
+      @test v ≃ f(host(y))
+    end
+    for (λ, a) in ((1e40, 1f-20), (1e-50, 1f30))
+      x = DeviceArray(T[a])
+      ref = big(λ)*big(a)
+      for f in (NormL1(λ), NormL2(λ), NormLinf(λ), ElasticNet(λ, 0),
+                GroupNormL2(λ, [1:1]), GroupNormLinf(λ, [1:1]),
+                SparseGroupNormL2(λ, 0, [1:1]), SparseGroupNormL2(0, λ, [1:1]),
+                Conjugate(IndBallL1(λ)), Conjugate(IndBallL2(λ)))
+        for fg in (f, Adapt.adapt(DeviceArray, f))
+          v = fg(x)
+          @test v isa T
+          @test isfinite(v)
+          check_rounded(v, ref)
+          @test v ≃ f(host(x))
+          if f isa Union{ElasticNet, NormL1, NormL2, NormLinf, GroupNormL2, GroupNormLinf, SparseGroupNormL2}
+            γ = λ > 1 ? 1e-60 : 1e40
+            y = similar(x)
+            v = value_and_prox!(y, fg, x, γ)
+            @test host(y) ≃ prox(f, host(x), γ)
+            @test v ≃ f(host(y))
+          end
+        end
+      end
+      X = DeviceArray(reshape(T[a], 1, 1))
+      for f in (NuclearNorm(λ), TracePSD(λ))
+        v = f(X)
+        @test isfinite(v)
+        check_rounded(v, ref)
+        @test v ≃ f(host(X))
+      end
+    end
+  end
+end

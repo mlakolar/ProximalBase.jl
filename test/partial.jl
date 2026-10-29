@@ -232,7 +232,8 @@ end
   @test prox(h, D) ≈ psd_proj(D) rtol = 1e-10
   @test usedfull(h)
   # symmetric sparse iterates in and out, in place, and Float32
-  @test prox(g, SymmetricSparseIterate(Sm)) ≈ psd_proj(Sm) rtol = 1e-10
+  # Sm is symmetric only up to rounding; an iterate takes its lower triangle explicitly
+  @test prox(g, SymmetricSparseIterate(Symmetric(Sm, :L))) ≈ psd_proj(Sm) rtol = 1e-10
   @test Matrix(prox!(SymmetricSparseIterate(n), g, Sm, 1.0)) ≈ psd_proj(Sm) rtol = 1e-10
   Z = copy(Sm)
   @test prox!(Z, g, Z, 1.0) ≈ psd_proj(Sm) rtol = 1e-10

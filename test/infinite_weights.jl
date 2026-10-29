@@ -51,7 +51,7 @@ entry1(::Type{T}) where {T} = (
           @test PB.value_entry(f, T(-0.5), 2) === T(Inf)
           @test isnan(PB.value_entry(f, T(NaN), 2))
         end
-        for v in T[1, -1, Inf, -Inf], γ in T[0, 0.5, 1]
+        for v in T[1, -1, floatmax(T), -floatmax(T)], γ in T[0, 0.5, 1]
           @test iszero(PB.prox_entry(f, v, 2, γ))
         end
         for γ in T[0, 0.5, 1]
@@ -144,13 +144,11 @@ end
       nonneg = name === :NormL1Nonneg
       enet = name === :ElasticNet
       @testset "$name, $T, λ = $λ" begin
-        for v in T[0.5, -0.5, Inf, NaN]
+        for v in T[0.5, -0.5, Inf]
           expected = enet ? T(0.5) * v^2 / 2 : T(0)
           val = PB.value_entry(f, v, 2)
-          if nonneg && (v < 0 || isnan(v))
+          if nonneg && v < 0
             @test val === T(Inf)
-          elseif isnan(expected)
-            @test isnan(val)
           else
             @test val == expected
           end
@@ -172,7 +170,7 @@ end
 @testset "zero weight, losses" begin
   for T in (Float32, Float64), w in (T[1, 0],)
     for f in (CheckLoss(T(0.3), w), EpsInsensitiveLoss(T(0.1), w), HingeLoss(nothing, w), HingeLoss(T[1, -1], w))
-      for v in T[0.5, -0.5, Inf, NaN]
+      for v in T[0.5, -0.5, Inf]
         @test PB.value_entry(f, v, 2) === T(0)
       end
       for v in T[0.5, -0.5, 3]
@@ -256,6 +254,61 @@ end
     # conjugate of the epsilon-insensitive loss
     @test Conjugate(EpsInsensitiveLoss(T(0), T[1, Inf]))(T[0.5, Inf]) === T(0)
   end
+end
+
+@testset "infinite levels and weights, kkt of the losses, types" begin
+  for T in (Float32, Float64)
+    # an infinite level
+    fs = penalties(T, Inf, T[1, Inf])
+    for name in keys(fs)
+      f = fs[name]
+      @test PB.value_entry(f, T(0), 2) === T(0)
+      @test PB.value_entry(f, T(0.5), 2) === T(Inf)
+      @test iszero(PB.prox_entry(f, T(1), 2, T(1)))
+    end
+
+    # a zero level with an infinite argument
+    for f in (CappedL1(T(0), T(1), T[1, 1]), LogPenalty(T(0), T(0.5), T[1, 1]),
+              NormLq(T(0), T(0.5), T[1, 1]), Berhu(T(0), T(1), T[1, 1]))
+      @test PB.value_entry(f, T(Inf), 2) === T(0)
+    end
+    @test PB.value_entry(ElasticNet(T(0), T(0.5), T[1, 1]), T(Inf), 2) === T(Inf)
+
+    # kkt of the losses
+    @test PB.kkt_violation(HingeLoss(nothing, T[1, Inf]), T[0.5, 0.5], 2) === T(Inf)
+    @test PB.kkt_violation(EpsInsensitiveLoss(T(0.1), T[1, Inf]), T[0.5, -0.5], 2) ≈ T(0.5)
+
+    # dense sums agree with the entrywise values
+    w = T[1, Inf, 0, 2]
+    ps = penalties(T, 1, w)
+    cases = [
+      (ps.NormL1, T[0.5, 0, 3, -1], T[0.5, 0.1, 3, -1]),
+      (ps.NormL1Nonneg, T[0.5, 0, 3, 1], T[0.5, 0.1, 3, 1]),
+      (ps.ElasticNet, T[0.5, 0, 3, -1], T[0.5, 0.1, 3, -1]),
+      (ps.CappedL1, T[0.5, 0, 3, -1], T[0.5, 0.1, 3, -1]),
+      (ps.LogPenalty, T[0.5, 0, 3, -1], T[0.5, 0.1, 3, -1]),
+      (ps.NormLq, T[0.5, 0, 3, -1], T[0.5, 0.1, 3, -1]),
+      (ps.Berhu, T[0.5, 0, 3, -1], T[0.5, 0.1, 3, -1]),
+      (CheckLoss(T(0.3), w), T[0.5, 0, 3, -1], T[0.5, 0.1, 3, -1]),
+      (EpsInsensitiveLoss(T(0.1), w), T[0.5, 0.05, 3, -1], T[0.5, 0.2, 3, -1]),
+      (HingeLoss(nothing, w), T[0.5, 2, 3, -1], T[0.5, 0.5, 3, -1]),
+    ]
+    for (f, xfinite, xinf) in cases
+      @test isfinite(f(xfinite))
+      @test f(xfinite) ≈ sum(PB.value_entry(f, xfinite[i], i) for i in 1:4)
+      @test f(xinf) === T(Inf)
+    end
+  end
+
+  # integer levels keep integer kkt values
+  @test PB.kkt_violation(ElasticNet(2, 1), [3], 1) === 1
+  @test PB.kkt_violation(NormL1(2), [3], 1) === 1
+
+  # BigFloat
+  f = NormL1(big(0), BigFloat[1, Inf])
+  @test iszero(PB.prox_entry(f, big(1), 2, big(1)))
+  @test PB.value_entry(f, big(0.5), 2) == Inf
+  @test PB.kkt_violation(f, BigFloat[1, 1], 2) == -Inf
 end
 
 end # module

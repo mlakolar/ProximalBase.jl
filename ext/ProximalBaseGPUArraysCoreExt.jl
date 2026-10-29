@@ -14,7 +14,7 @@ using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, Sq
                     GroupNormL2, GroupNormLinf, SparseGroupNormL2, IndBallGroupL0, AbstractFunction,
                     LeastSquaresLoss, GLMLoss,
                     prox_entry, value_entry, shrink, _checksize, _checkparams, _checkgroups, _tol, _ind,
-                    _kth_largest!, _positive_product, _weight_coefficient, _weighted_value, _fixed_entry
+                    _kth_largest!, _positive_product, _weight_coefficient, _weight_product, _weighted_value
 using GPUArraysCore: AbstractGPUArray
 using LinearAlgebra: mul!
 using Base.Broadcast: broadcasted, instantiate
@@ -58,7 +58,7 @@ _scalar(y, a) = convert(float(eltype(y)), a)
 function ProximalBase._prox_sep!(y::GPUArray, f::NormL1, x::GPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= _shrink_fixed.(x, _WeightLevel(_scalar(y, γ), _scalar(y, f.λ0)).(_param(f.w)))
+  y .= shrink.(x, _WeightLevel(_scalar(y, γ), _scalar(y, f.λ0)).(_param(f.w)))
 end
 # Also the retry of the unweighted dense value when its sum overflows.
 ProximalBase._value_dense(f::NormL1, x::GPUArray) =
@@ -68,7 +68,7 @@ ProximalBase._value_dense(f::NormL1, x::GPUArray) =
 function ProximalBase._prox_sep!(y::GPUArray, f::NormL1Nonneg, x::GPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= _nonneg_fixed.(x, _WeightLevel(_scalar(y, γ), _scalar(y, f.λ0)).(_param(f.w)))
+  y .= max.(x .- _WeightLevel(_scalar(y, γ), _scalar(y, f.λ0)).(_param(f.w)), 0)
 end
 function ProximalBase._value_dense(f::NormL1Nonneg, x::GPUArray)
   T = float(eltype(x))
@@ -81,13 +81,17 @@ end
 function ProximalBase._prox_sep!(y::GPUArray, f::ElasticNet, x::GPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= _enet_fixed.(x, _scalar(y, γ * f.λ1), _param(f.w), 1 + _scalar(y, γ * f.λ2))
+  y .= shrink.(x, _weight_coefficient.(_scalar(y, γ * f.λ1), _param(f.w))) ./ (1 + _scalar(y, γ * f.λ2))
 end
 function ProximalBase._value_dense(f::ElasticNet, x::GPUArray)
   T = float(eltype(x))
-  (iszero(f.λ1) ? (f.w === nothing ? zero(T) : _sum(T, (w, v) -> _weighted_value(zero(T), w, true, abs(v)), _param(f.w), x)) :
-   _scalar(x, f.λ1) * _sum(T, (w, v) -> _weighted_value(w * abs(v), w, false, abs(v)), _param(f.w), x)) +
-  (iszero(f.λ2) ? zero(T) : _scalar(x, f.λ2) * _sum(T, abs2, x) / 2)
+  λ1 = _scalar(x, f.λ1)
+  # the weights in the element type; a level that is not positive and finite
+  # enters every coefficient
+  l1 = f.w === nothing && iszero(f.λ1) ? zero(T) :
+       (λ1 > 0) & isfinite(λ1) ? λ1 * _sum(T, _EnetValue(one(T)), instantiate(broadcasted(abs, x)), _param(f.w)) :
+       _sum(T, _EnetValue(λ1), instantiate(broadcasted(abs, x)), _param(f.w))
+  l1 + (iszero(f.λ2) ? zero(T) : _scalar(x, f.λ2) * _sum(T, abs2, x) / 2)
 end
 
 function ProximalBase._prox_sep!(y::GPUArray, f::IndBox, x::GPUArray, ::Real)
@@ -370,14 +374,17 @@ struct _WeightLevel{T}
   step::T
   λ::T
 end
-(l::_WeightLevel{T})(w) where {T} = (w = convert(T, w); _weight_coefficient(_positive_product(l.step, l.λ, w), w))
+(l::_WeightLevel{T})(w) where {T} = _weight_product(l.step, l.λ, convert(T, w))
 struct _WeightValue{T}
   λ::T
 end
-(l::_WeightValue{T})(v, w) where {T} = (w = convert(T, w); _weighted_value(_positive_product(l.λ, w, v), w, false, v))
-_shrink_fixed(v, t) = _fixed_entry(v, t, shrink(v, t))
-_nonneg_fixed(v, t) = _fixed_entry(v, t, max(v - t, zero(v)))
-_enet_fixed(v, c, w, d) = (t = _weight_coefficient(c * w, w, iszero(c)); _fixed_entry(v, t, shrink(v, t) / d))
+(l::_WeightValue{T})(v, w) where {T} = (w = convert(T, w); p = _positive_product(l.λ, w, v); ifelse(isinf(w) & !iszero(v), oftype(p, Inf) * v, p))
+# the ℓ1 term of ElasticNet at |v|, as its value_entry; the level is one when
+# it multiplies the sum instead
+struct _EnetValue{T}
+  λ::T
+end
+(l::_EnetValue{T})(a, w) where {T} = (w = convert(T, w); _weighted_value(_weight_coefficient(l.λ, w) * a, a))
 
 # λwₖ ⋅ v and group shrinkage at γλwₖ: its factor and value at the proximal point
 struct _Weighted{T}

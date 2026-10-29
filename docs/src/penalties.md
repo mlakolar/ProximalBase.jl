@@ -48,9 +48,11 @@ thresholding at ``\gamma\lambda_0 w_i``. A weight ``w_i = 0`` leaves the
 coordinate unpenalized, as for an intercept, at every level, an infinite one
 included. A weight ``w_i = \infty`` fixes the coordinate at zero, at every level
 and step including ``\lambda_0 = 0``, as for a variable excluded from the model:
-the value is ``\infty`` away from zero, the proximal operator returns 0,
-`kkt_violation` is ``-\infty`` and the LLA weight is ``\infty``. The same holds
-for the weights of `ElasticNet`, `CappedL1`, `LogPenalty`, `NormLq` and `Berhu`.
+the value is ``\infty`` away from zero, the proximal operator returns 0 at a
+finite argument and `kkt_violation` is ``-\infty``. The same holds for the
+weights of `NormL1Nonneg`, `ElasticNet`, `CappedL1`, `LogPenalty`, `NormLq` and
+`Berhu`. For `NormL1`, `CappedL1` and `LogPenalty`, which have LLA weights, the
+LLA weight of such an entry is ``\infty``.
 The subdifferential of
 ``|\cdot|`` at zero is ``[-1, 1]``, so given the gradient ``g_i`` of the smooth
 part, the coordinate ``x_i = 0`` is optimal exactly when

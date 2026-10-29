@@ -151,19 +151,17 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::Ab
   k, bestn, bestc = 0, zero(S), zero(S)
   @inbounds for i in eachindex(IndexLinear(), x)
     n = abs(convert(S, x[i]))
-    w = _entry(f.w, i)
-    threshold = convert(S, _weight_coefficient(_positive_product(γ, f.λ0, w), w))
+    threshold = convert(S, _weight_product(γ, f.λ0, _entry(f.w, i)))
     # Compare margins by differences, retaining small differences in |x| when
     # the thresholds are equal and much larger.
-    (k == 0 || n - bestn > threshold - bestc) && ((k, bestn, bestc) = (i, n, threshold))
+    (k == 0 || isinf(bestc) || (!isinf(threshold) && n - bestn > threshold - bestc)) && ((k, bestn, bestc) = (i, n, threshold))
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
   bestn > bestc && return _onto_sphere!(y, f, convert(T, value_and_prox!(y, f, x, γ)), r)
   negative = signbit(x[k])
   fill!(y, zero(eltype(y)))
   y[k] = negative ? -r : r
-  w = _entry(f.w, k)
-  convert(T, _weighted_value(_positive_product(f.λ0, w, r), w, false, r))
+  convert(T, _positive_product(f.λ0, _entry(f.w, k), r))
 end
 
 # The same with groups: ⟨z_G, x_G⟩ - γλ0w_G‖z_G‖ ≤ ‖z_G‖(‖x_G‖ - γλ0w_G), with

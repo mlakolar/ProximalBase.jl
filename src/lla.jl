@@ -94,22 +94,19 @@ lla_weights!(::AbstractArray, f::AbstractFunction, ::AbstractArray) = _no_lla(f)
 
 Base.@propagate_inbounds function lla_weight(f::NormL1, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  w = S(_entry(f.w, i))
-  return _weight_coefficient(S(f.λ0) * w, w, iszero(f.λ0))
+  return _weight_coefficient(S(f.λ0), S(_entry(f.w, i)))
 end
 
 Base.@propagate_inbounds function lla_weight(f::CappedL1, v::T, i::Integer) where {T<:Real}
   S = float(T)
   w = S(_entry(f.w, i))
-  c = _weight_coefficient(S(f.λ) * w, w, iszero(f.λ))
-  return abs(S(v)) < S(f.a) || isinf(w) ? c : zero(S)
+  c = _weight_coefficient(S(f.λ), w)
+  return ifelse((abs(S(v)) < S(f.a)) | isinf(w), c, zero(S))
 end
 
 Base.@propagate_inbounds function lla_weight(f::LogPenalty, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  w = S(_entry(f.w, i))
-  c = _weight_coefficient(S(f.λ) * w, w, iszero(f.λ))
-  return isinf(w) ? c : c / (S(f.ε) + abs(S(v)))
+  return _weight_coefficient(S(f.λ), S(_entry(f.w, i))) / (S(f.ε) + abs(S(v)))
 end
 
 function lla_weight(f::MCP, v::T, ::Integer) where {T<:Real}

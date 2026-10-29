@@ -40,26 +40,34 @@ end
 
 # Weights of separable functions: an infinite weight fixes the entry at zero,
 # at every level and step, and a zero weight leaves it unpenalized at every
-# level. p is the product of the level (or the step and the level) and the
-# weight w, computed as before, so that other weights keep their results; z
-# says whether another factor is zero. A zero factor turns a NaN product
-# (0⋅Inf, 0⋅NaN) into zero and keeps a signed zero. For floats, selects without
-# branches keep the loops over entries vectorized; other products (an integer
-# level times a Bool weight) take the branches, which never convert Inf to them.
-@inline _weight_coefficient(p::AbstractFloat, w, z::Bool = false) =
-  ifelse(isinf(w), oftype(p, Inf), ifelse((z | iszero(w)) & isnan(p), zero(p), p))
-@inline _weight_coefficient(p, w, z::Bool = false) =
-  isinf(w) ? oftype(p, Inf) : ((z | iszero(w)) & isnan(p)) ? zero(p) : p
+# level. These helpers keep the ordinary products of positive finite scales,
+# so that loops over entries are unchanged.
 
-# the value p of a term with the weight w whose unweighted value is φ ≥ 0
-@inline _weighted_value(p::AbstractFloat, w, z::Bool, φ) =
-  ifelse(isinf(w), ifelse(iszero(φ), zero(p), oftype(p, Inf) * φ), ifelse((z | iszero(w)) & isnan(p), zero(p), p))
-@inline _weighted_value(p, w, z::Bool, φ) =
-  isinf(w) ? (iszero(φ) ? zero(p) : oftype(p, Inf) * φ) : ((z | iszero(w)) & isnan(p)) ? zero(p) : p
+# the coefficient s⋅w of an entry with the weight w ≥ 0 at the scale s ≥ 0 (a
+# level, or a step times a level); the test of s does not depend on the entry.
+# Otherwise s⋅w is NaN only as 0⋅Inf, where the weight decides: Inf for an
+# infinite weight, 0 for a zero one.
+@inline function _weight_coefficient(s, w)
+  p = s * w
+  (s > zero(s)) & isfinite(s) && return p
+  ifelse(isnan(p) & !isnan(s), oftype(p, w), p)
+end
+@inline _weight_coefficient(γ, λ, w) = _weight_coefficient(γ * λ, w)
 
-# the proximal point r of an entry whose threshold t may be infinite: zero,
-# also at an infinite v, where soft thresholding gives NaN; NaN propagates
-@inline _fixed_entry(v, t, r) = ifelse(isinf(t) & !isnan(v), zero(r), r)
+# γλw as _positive_product, where an infinite weight gives Inf also when γλ is
+# zero; only the exceptional path tests the weight
+@inline function _weight_product(a::T, b::T, w::T) where {T<:AbstractFloat}
+  ab = a * b
+  p = ab * w
+  floatmin(T) <= ab <= floatmax(T) && return p
+  isinf(w) ? T(Inf) : _exceptional_product(a, b, w, p)
+end
+@inline _weight_product(a::Real, b::Real, w::Real) = _weight_product(promote(float(a), float(b), float(w))...)
+
+# the value p = c⋅φ of a term with the coefficient c and the unweighted value
+# φ ≥ 0: zero where c⋅φ is 0⋅Inf (an infinite weight at a zero entry, a zero
+# coefficient at an infinite entry); NaN arguments propagate
+@inline _weighted_value(p, φ) = ifelse(isnan(p) & !isnan(φ), zero(p), p)
 
 # Keep the power outside the floating-point range until the final rounding.
 @inline function _scaled_product(w::T, v::T, k::Int) where {T<:AbstractFloat}

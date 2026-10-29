@@ -121,10 +121,11 @@ end
         (T(0), T[1, Inf], T[7, Inf], step),
         (T(Inf), T[0, 1], T[7, 3], T(0)))
       f = F(level, weights)
+      # an infinite threshold at an infinite entry gives NaN, as soft thresholding does
       reference = [prox_entry(f, z[i], i, γ) for i in eachindex(z)]
-      @test prox(f, z, γ) == reference
+      @test isequal(prox(f, z, γ), reference)
       out = copy(z)
-      @test prox!(out, f, out, γ) == reference
+      @test isequal(prox!(out, f, out, γ), reference)
       reference = sum(value_entry(f, z[i], i) for i in eachindex(z))
       @test isfinite(reference) ? isapprox(f(z), reference; rtol=length(z)*eps(T)) : isequal(f(z), reference)
     end

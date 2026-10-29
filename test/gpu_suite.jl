@@ -505,4 +505,24 @@ end
       end
     end
   end
+
+  for T in test_types
+    f = ElasticNet(T(Inf), T(0.5), T[0, 1, Inf, 0])
+    for x in (T[0.5, 0, 0, 1], T[0.5, 0, 0.2, 1])
+      vc, vg = f(x), Adapt.adapt(DeviceArray, f)(DeviceArray(x))
+      @test typeof(vg) == T
+      if x[3] == 0
+        @test isfinite(vc) && vg ≈ vc
+      else
+        @test vc === T(Inf) && vg === T(Inf)
+      end
+    end
+    # weights of another precision
+    x = T[0.5, 0, -0.3, 1]
+    for f in (ElasticNet(0.3, 0.5, Float64[1, Inf, 0, 2]), NormL1(0.3, Float64[1, Inf, 0, 2]))
+      vg = Adapt.adapt(DeviceArray, f)(DeviceArray(x))
+      @test typeof(vg) == T
+      @test vg ≈ f(x)
+    end
+  end
 end

@@ -388,33 +388,56 @@ end
 
 Base.@propagate_inbounds function value_entry(f::ElasticNet, v::Real, i::Integer)
   if _elastic_ordinary(f, v, i)
-    a = abs(v)
-    return _weighted_value(_weight_coefficient(f.λ1, _entry(f.w, i)) * a, a) + f.λ2 * abs2(float(v)) / 2
+    return _elastic_base_value_entry(f, v, i)
   end
   _elastic_exceptional(f, v, i)
+end
+
+# The original entry expression also preserves the retry's SIMD association.
+Base.@propagate_inbounds function _elastic_base_value_entry(f::ElasticNet, v::Real, i::Integer)
+  a = abs(v)
+  _weighted_value(_weight_coefficient(f.λ1, _entry(f.w, i)) * a, a) + f.λ2 * abs2(float(v)) / 2
 end
 
 # Recover the linear coefficient and the square before either loses range.
 @noinline function _elastic_exceptional(f::ElasticNet, v::Real, i::Integer)
   a = abs(float(v))
   w = _entry(f.w, i)
+  R = promote_type(typeof(a), typeof(f.λ1), typeof(f.λ2), typeof(w))
+  isnan(a) && return convert(R, a)
   p = _positive_product(f.λ1, w, a)
   linear = ifelse(isinf(w) & !iszero(a), oftype(p, Inf) * a, p)
-  R = promote_type(typeof(a), typeof(f.λ1), typeof(f.λ2), typeof(w))
   quadratic = iszero(f.λ2) || iszero(a) ? zero(R) : _scaled_product(convert(R, f.λ2), convert(R, a), convert(R, a), -1)
   convert(R, linear) + quadratic
 end
 
-# Keep the sum in its original loop: a flag reduction changes LLVM's
-# accumulator count and hence the ordinary value's last bits.
+# Scalar levels and a bound on hidden underflow suffice after a finite sum.
+@inline function _elastic_level_safe(::Type{T}, λ) where {T}
+  (_normal_or_zero(float(λ), iszero(λ)) || !isfinite(λ)) && _level_fits(T, λ)
+end
+
 function _value_dense(f::ElasticNet, x::AbstractArray)
   T = float(eltype(x))
   eltype(x) <: Integer && return _sum_entries(value_entry, f, x, T)
-  ordinary = true
-  @inbounds @simd for i in eachindex(IndexLinear(), x)
-    ordinary &= _elastic_ordinary(f, x[i], i)
+  s = _sum_entries(_value_entry_ordinary, f, x, T)
+  if isfinite(s) && _elastic_level_safe(T, f.λ1) && _elastic_level_safe(T, f.λ2)
+    bound = _positive_product(float(length(x)), max(float(f.λ2), one(T)), floatmin(T) / eps(T))
+    s >= bound && return s
   end
-  ordinary ? _sum_entries(_value_entry_ordinary, f, x, T) : _sum_entries(value_entry, f, x, T)
+  _elastic_exact_sum(f, x, T)
+end
+
+# Recovery can change vectorization even when each entry is unchanged. In
+# that case, retain the original entry loop and its reduction order.
+@noinline function _elastic_exact_sum(f, x, ::Type{T}) where {T}
+  s = zero(T)
+  unchanged = true
+  @inbounds @simd for i in eachindex(IndexLinear(), x)
+    v = value_entry(f, x[i], i)
+    s += convert(T, v)
+    unchanged &= isequal(v, _elastic_base_value_entry(f, x[i], i))
+  end
+  unchanged ? _sum_entries(_elastic_base_value_entry, f, x, T) : s
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
 _has_ordinary_value(::Type{<:ElasticNet}) = true

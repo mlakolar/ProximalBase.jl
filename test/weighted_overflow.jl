@@ -159,14 +159,66 @@ end
   for T in (Float32, Float64)
     x, w = randn(T, 200), rand(T, 200)
     f = ElasticNet(T(0.7), T(0.7), w)
-    legacy = PB._sum_entries((g,v,i) -> g.λ1*g.w[i]*abs(v) + g.λ2*abs2(v)/2, f, x, T)
+    legacy = PB._sum_entries(PB._value_entry_ordinary, f, x, T)
     @test samebits(f(x), legacy)
+    unweighted = ElasticNet(T(0.3), T(0.7))
+    @test samebits(unweighted(x), PB._sum_entries(PB._value_entry_ordinary, unweighted, x, T))
     for z in (x, SparseIterate(x), AtomIterate(x, GroupNormL2(one(T), [1:200])))
       for i in eachindex(x)
         @test samebits(value_entry(f,z[i],i), f.λ1*w[i]*abs(z[i]) + f.λ2*abs2(z[i])/2)
       end
     end
     @test allocs(f, x) == 0
+  end
+end
+
+@testset "elastic underflow bound" begin
+  for T in (Float32, Float64)
+    a = floatmin(T)
+    λ = floatmax(T)
+    check_rounded(ElasticNet(zero(T), λ)(fill(a, 2)), big(λ)*big(a)^2)
+    λ = floatmin(T) / 2
+    x = T[T === Float64 ? 1e150 : 1e18]
+    check_rounded(ElasticNet(λ, zero(T))(x), big(λ)*big(x[1]))
+    check_rounded(ElasticNet(zero(T), λ)(x), big(λ)*big(x[1])^2/2)
+  end
+  check_rounded(ElasticNet(0, 1e300)([1e-200]), big(1e300)*big(1e-200)^2/2)
+end
+
+@testset "elastic NaN arguments" begin
+  for T in (Float32, Float64), (λ1, λ2) in ((0, 0), (0.25, 0), (0, 0.7), (Inf, Inf))
+    f = ElasticNet(T(λ1), T(λ2))
+    x = T[NaN]
+    @test isnan(value_entry(f, x[1], 1))
+    for z in (x, SparseIterate(x), AtomIterate(x, GroupNormL2(one(T), [1:1])), SymmetricSparseIterate(reshape(x, 1, 1)))
+      @test isnan(f(z))
+      @test isnan(value_and_prox!(copy(z), f, z, T(0.7)))
+    end
+    @test ElasticNet(zero(T), zero(T))(T[Inf]) === zero(T)
+    @test ElasticNet(T(0.25), zero(T))(T[Inf]) === T(Inf)
+  end
+end
+
+@testset "elastic mixed precision retry" begin
+  rng = Xoshiro(20261029)
+  n = 12
+  x_rand = randn(rng, Float64, n)
+  x_sparse = Float64[iseven(i) ? 0 : randn(rng) for i in 1:n]
+  x_tiny = randn(rng, Float64, n) .* floatmin(Float64)
+  x_big = randn(rng, Float64, n) .* (floatmax(Float64) / 64)
+  w = abs.(randn(rng, Float64, n)); w[3] = 0
+  wi = copy(w); wi[5] = Inf
+  f = ElasticNet(0.3, 0.7, wi)
+  y = similar(x_rand, Float32)
+  v = value_and_prox!(y, f, x_rand, 0.7)
+  @test reinterpret(UInt32, v) == 0x404d6060
+  @test samebits(f(y), v)
+  expected_y = Float32[shrink(x_rand[i], PB._weight_coefficient(0.7, f.λ1, wi[i])) / (1 + 0.7 * f.λ2) for i in eachindex(y)]
+  @test reinterpret.(UInt32, y) == reinterpret.(UInt32, expected_y)
+  for i in eachindex(y)
+    a = abs(y[i])
+    legacy = PB._weighted_value(PB._weight_coefficient(f.λ1, wi[i]) * a, a) + f.λ2 * abs2(y[i]) / 2
+    @test samebits(value_entry(f, y[i], i), legacy)
   end
 end
 

@@ -68,7 +68,7 @@ export
 
   # functions built from functions
   Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum, Constrained, Spectral,
-  MoreauEnvelope, SqrDistL2, Precompose, Regularize,
+  MoreauEnvelope, SqrDistL2, Precompose, Regularize, PointwiseMinimum,
 
   # functions of stacked arrays
   SliceSum, FiberSum,
@@ -128,6 +128,7 @@ include("second_order.jl")
 include("envelope.jl")
 include("distance.jl")
 include("composition.jl")
+include("minimum.jl")
 include("metric.jl")
 include("caches.jl")
 include("deprecated.jl")

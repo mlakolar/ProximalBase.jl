@@ -52,6 +52,7 @@ tests = [
   "distance",
   "composition",
   "precompose_array",
+  "minimum",
   "caches",
   "metric",
   "allocations",

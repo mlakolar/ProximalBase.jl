@@ -537,3 +537,13 @@ function _partial_psd!(Y::AbstractMatrix, f, X::AbstractMatrix, c::T, r::Int,
   λ === nothing && return v
   _spectral_level_value(λ, v, view(ws.θ, ws.ℓ-k+1:ws.ℓ), c)
 end
+
+# Unsupported types cannot have a typed partial cache, even after a warm call.
+@inline function _checkpartial_svd_workspace(::Type{T}, m::Integer, n::Integer, r::Int) where {T}
+  T <: _BlasReal && return true
+  _checkworkspace(_partial_svd_workspace, nothing, T, m, n, r > 0 ? r : _PARTIAL_GUARD)
+end
+@inline function _checkpartial_eigen_workspace(::Type{T}, n::Integer, r::Int) where {T}
+  T <: _BlasReal && return true
+  _checkworkspace(_partial_eigen_workspace, nothing, T, n, r > 0 ? r : _PARTIAL_GUARD)
+end

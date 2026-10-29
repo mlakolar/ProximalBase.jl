@@ -201,11 +201,16 @@ end
   end
 
   @testset "functions of the order of the entries" begin
+    γv = rand(p) .+ 0.1
     for f in (TotalVariation1D(0.4), FusedLasso(0.2, 0.4), IndIsotonic(), IndIsotonic(decreasing = true),
               SLOPE(sort(rand(p); rev = true)))
       @testset "$(nameof(typeof(f)))" begin
         zero_alloc_prox(f, x)
         zero_alloc_prox(f, Float32.(x))
+        if f isa IndIsotonic
+          zero_alloc_prox(f, x; γ = γv)
+          zero_alloc_prox(f, Float32.(x); γ = Float32.(γv))
+        end
       end
     end
   end

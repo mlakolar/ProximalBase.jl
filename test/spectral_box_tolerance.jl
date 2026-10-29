@@ -47,6 +47,16 @@ allocations(f, X) = (f(X); @allocated f(X))
       end
     end
 
+    @testset "$T: an overflowing spectrum, singular values" begin
+      M = floatmax(T)
+      L = M / 4
+      t = sqrt(eps(T))
+      X(d) = T[M M 0; M -M 0; 0 0 d]
+      # singular values √2·M overflow; 3√ε·L < √ε·√2·M < 8√ε·L = 2√ε·M
+      @test SingularValue(IndBox(L, T(Inf)))(X(L * (1 - 3t))) === zero(T)
+      @test SingularValue(IndBox(L, T(Inf)))(X(L * (1 - 8t))) === T(Inf)
+    end
+
     @testset "$T: a small eigenvalue next to a large one" begin
       rng = Xoshiro(24)
       big = T === Float64 ? T(1e10) : T(1e5)
@@ -89,6 +99,8 @@ allocations(f, X) = (f(X); @allocated f(X))
       X = Matrix(Diagonal(λ))
       @test Spectral(IndBox(one(T), T(2)))(X) === zero(T)
       @test Spectral(IndBox(one(T), T(2)))(Matrix(Diagonal(T[2, 1 - 3t]))) === T(Inf)
+      @test SingularValue(IndBox(1, 2))(Matrix(Diagonal(T[2, 1 - T(1.5) * t]))) === zero(T)
+      @test SingularValue(IndBox(1, 2))(Matrix(Diagonal(T[2, 1 - 3t]))) === T(Inf)
       @test Spectral(IndNonnegative())(Matrix(Diagonal(T[2, -T(1.5) * t]))) === zero(T)
       @test Spectral(IndNonnegative())(Matrix(Diagonal(T[2, -3t]))) === T(Inf)
     end

@@ -517,6 +517,18 @@ end
         @test vc === T(Inf) && vg === T(Inf)
       end
     end
+    # zero scaling before and after adaptation preserves the fixed entry
+    w = T[1, Inf, 0, 2]
+    for f in (NormL1(one(T), w), NormL1Nonneg(one(T), w), ElasticNet(one(T), one(T), w))
+      z = Scaled(f, zero(T))
+      for zg in (Adapt.adapt(DeviceArray, z), Scaled(Adapt.adapt(DeviceArray, f), zero(T)))
+        for x in (T[0.5, 0, 3, 1], T[0.5, 2, 3, 1], T[-0.5, 0, 3, 1])
+          xg = DeviceArray(x)
+          @test zg(xg) == z(x)
+          @test Array(prox(zg, xg, one(T))) ≈ prox(z, x, one(T))
+        end
+      end
+    end
     # weights of another precision
     x = T[0.5, 0, -0.3, 1]
     for f in (ElasticNet(0.3, 0.5, Float64[1, Inf, 0, 2]), NormL1(0.3, Float64[1, Inf, 0, 2]))

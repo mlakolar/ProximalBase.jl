@@ -396,7 +396,7 @@ end
 # The original entry expression also preserves the retry's SIMD association.
 Base.@propagate_inbounds function _elastic_base_value_entry(f::ElasticNet, v::Real, i::Integer)
   a = abs(v)
-  _weighted_value(_weight_coefficient(f.λ1, _entry(f.w, i)) * a, a) + f.λ2 * abs2(float(v)) / 2
+  _weighted_value(_weight_coefficient(f.λ1, _entry(f.w, i)) * a, a) + _weighted_value(f.λ2 * abs2(float(v)) / 2, abs2(float(v)))
 end
 
 # Recover the linear coefficient and the square before either loses range.

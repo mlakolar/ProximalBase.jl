@@ -84,33 +84,50 @@ function _singular_values!(F::SingularValue, X::AbstractMatrix)
   s
 end
 
-# the value, with the singular values within rounding of zero set to zero
+# The domain is the finite matrices: a non-finite entry gives Inf. Singular
+# values within rounding of zero count as zero.
 function (F::SingularValue)(X::AbstractMatrix)
   T = float(eltype(X))
-  _isindicator(F.f) && !all(isfinite, X) && return T(Inf)
+  all(isfinite, X) || return T(Inf)
+  t, scaled, k = _masked_singular_values!(F, X)
+  scaled === nothing || !_scales_membership(F.f) || return _scaled_membership(F.f, scaled, k)
+  convert(T, F.f(t))
+end
+
+# The singular values with those within a relative tolerance of the largest set
+# to zero, in the buffer F.t. When the largest one overflows, or the threshold
+# is not a normal number, the mask comes from the singular values of X scaled
+# by 2^-k, which are returned, masked, with k.
+function _masked_singular_values!(F::SingularValue, X::AbstractMatrix)
+  T = float(eltype(X))
   s = _singular_values!(F, X)
   t = _vector_buffer(F.t, T, length(s))
   F.t = t
-  if !isempty(s) && !_finite_value(s[1]) && all(isfinite, X)
-    return _singular_scaled_value(F, X, s, t)
+  if !isempty(s) && (!_finite_value(s[1]) || (s[1] > zero(T) && _tol(T) * s[1] <= floatmin(T)))
+    return _scaled_singular_mask!(F, X, s, t)
   end
   c = isempty(s) ? zero(T) : _tol(T) * s[1]       # relative, so that F scales with X
   @inbounds for j in eachindex(s)
     t[j] = s[j] <= c ? zero(T) : s[j]
   end
-  convert(T, F.f(t))
+  t, nothing, 0
 end
 
-@noinline function _singular_scaled_value(F::SingularValue, X::AbstractMatrix, s::Vector{T}, t::Vector{T}) where {T}
+@noinline function _scaled_singular_mask!(F::SingularValue, X::AbstractMatrix, s::Vector{T}, t::Vector{T}) where {T}
   copyto!(t, s)
   ws = _svd_workspace(F.ws, T, size(X)...)
+  copyto!(ws.A, X)
+  k = _magnitude_exponent(_maximum_abs(ws.A))
   _scaled_spectral_input!(ws.A, X)
   s, = _svd!(ws; vectors = false)
   c = _tol(T) * s[1]
   @inbounds for j in eachindex(s)
-    s[j] <= c && (t[j] = zero(T))
+    if s[j] <= c
+      t[j] = zero(T)
+      s[j] = zero(T)
+    end
   end
-  convert(T, F.f(t))
+  t, s, k
 end
 
 function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real)
@@ -156,4 +173,10 @@ _checkvalue(F::SingularValue, X::AbstractMatrix) =
 
 # the conjugate of f ∘ σ is f* ∘ σ (Lewis, 1995)
 _checkconjugate(F::SingularValue, Y::AbstractMatrix) = _checkconjugate(F.f, _checkspectrum(F, float(eltype(Y)), size(Y)))
-_conjugate_value(F::SingularValue, Y::AbstractMatrix) = (_checkconjugate(F, Y); _conjugate_value(F.f, _singular_values!(F, Y)))
+# with the zero mask of the value, and the same domain
+function _conjugate_value(F::SingularValue, Y::AbstractMatrix)
+  _checkconjugate(F, Y)
+  all(isfinite, Y) || return float(eltype(Y))(Inf)
+  t, = _masked_singular_values!(F, Y)
+  _conjugate_value(F.f, t)
+end

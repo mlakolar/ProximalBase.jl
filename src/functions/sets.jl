@@ -322,6 +322,27 @@ function (f::IndBallL2)(x::AbstractArray)
   _ball_scaled_value(f, x, T)
 end
 
+# The balls and boxes on a spectrum v of X/2^k, as SingularValue and Spectral
+# evaluate them when the spectrum of X overflows: bounds scaled by 2^-k, before
+# any narrowing, and tolerances kept in the original units.
+_scales_membership(::AbstractFunction) = false
+_scales_membership(::Union{IndBallL1, IndBallL2, IndBox}) = true
+function _scaled_membership(f::Union{IndBallL1, IndBallL2}, v::AbstractVector{T}, k::Int) where {T}
+  isfinite(f.r) || return _ind(isinf(f.r), T)
+  S = float(promote_type(T, typeof(f.r)))
+  α, r = ldexp(one(S), -k), ldexp(S(f.r), -k)
+  n = f isa IndBallL1 ? sum(abs, v) : sqrt(sum(abs2, v))
+  _ind(n <= r + _tol(T) * max(α, r), T)
+end
+function _scaled_membership(f::IndBox, v::AbstractVector{T}, k::Int) where {T}
+  S = float(promote_type(T, eltype(f.l), eltype(f.u)))
+  α, t = ldexp(one(S), -k), S(_tol(T))
+  @inbounds for i in eachindex(v)
+    _inbox(v[i], ldexp(S(_entry(f.l, i)), -k), ldexp(S(_entry(f.u, i)), -k), t, α) || return T(Inf)
+  end
+  zero(T)
+end
+
 @noinline function _ball_scaled_value(f, x, ::Type{T}) where {T}
   m = _maximum_abs(x)
   isfinite(m) || return T(Inf)

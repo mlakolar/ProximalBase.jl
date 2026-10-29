@@ -104,6 +104,7 @@ isconvex(::Type{<:NuclearNorm}) = true
 
 function (f::NuclearNorm)(X::AbstractMatrix)
   T = float(eltype(X))
+  all(isfinite, X) || return T(Inf)              # the domain is the finite matrices
   iszero(f.λ) && return zero(T)
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws

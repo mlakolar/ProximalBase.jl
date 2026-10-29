@@ -294,6 +294,25 @@ struct Conjugate{F<:AbstractFunction} <: AbstractFunction
 end
 Conjugate(f::AbstractFunction) = Conjugate{typeof(f)}(f)
 
+# The conjugate of a positively homogeneous convex function, a support function
+# such as a norm, is the indicator of a set; that of the indicator of a convex
+# cone is the indicator of its polar cone. Not LinearFunction: its conjugate is
+# -d on its set.
+_conjugate_isindicator(::Type) = false
+_conjugate_isindicator(::Type{<:Union{NormL1, NormL2, NormLinf, NuclearNorm, HomogeneousGroupNorm, SLOPE,
+                                      NormL1Nonneg, TracePSD, TotalVariation1D, FusedLasso, NormL1Fused,
+                                      CheckLoss, ZeroFunction, SumLargest,
+                                      IndNonnegative, IndPSD{Nothing}, IndIsotonic, IndPattern, IndBanded,
+                                      IndToeplitz, IndSOC, IndRotatedSOC, IndExpPrimal, IndExpDual}}) = true
+# positive rescalings and the singular values keep it; f** = f
+_conjugate_isindicator(::Type{<:Union{Scaled{F}, SingularValue{F}}}) where {F} = _conjugate_isindicator(F)
+_conjugate_isindicator(::Type{<:Conjugate{F}}) where {F} = _isindicator(F)
+_isindicator(::Type{<:Conjugate{F}}) where {F} = _conjugate_isindicator(F)
+
+# the value of an indicator at its projection
+_zero_value(y::AbstractArray) = zero(float(eltype(y)))
+_zero_value(y::Tuple) = sum(map(_zero_value, y))
+
 isproximable(::Type{<:Conjugate{F}}) where {F} = isproximable(F)
 isseparable(::Type{<:Conjugate{F}}) where {F} = isseparable(F)
 isconvex(::Type{<:Conjugate}) = true
@@ -320,6 +339,7 @@ _has_conjugate_value(f::SingularValue) = _has_conjugate_value(f.f)
 
 function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
+  _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
     return _conjugate_value(c.f, y)
@@ -342,16 +362,16 @@ function _checkwrite(op::O, c::Conjugate, y::Union{AbstractArray, Tuple}, x::Uni
   _checksize(y, x)
   _checkparams(c, x)
   p = _conjugate_checkbuffer(c.scratch, y, x)
-  inner = op === value_and_prox! && !_has_conjugate_value(c.f) ? value_and_prox! : prox!
-  _checkwrite(inner, c.f, p, p)
-  op === value_and_prox! && _has_conjugate_value(c.f) && _checkconjugate(c.f, y)
+  # an indicator returns zero after the projection, without the inner value
+  withvalue = op === value_and_prox! && !_isindicator(c)
+  _checkwrite(withvalue && !_has_conjugate_value(c.f) ? value_and_prox! : prox!, c.f, p, p)
+  withvalue && _has_conjugate_value(c.f) && _checkconjugate(c.f, y)
   true
 end
 _conjugate_checkbuffer(s::Scratch, y::AbstractArray, x::AbstractArray) = _checkbuffer(s, float(eltype(y)), size(x))
 
 (c::Conjugate)(y::Union{AbstractArray, Tuple}) = (_checkparams(c, y); _conjugate_value(c.f, y))
 
-_isindicator(::Type{<:Conjugate{<:SumLargest}}) = true
 _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, c::Conjugate{<:SumLargest}, y::AbstractArray, x::AbstractArray) =
   _checkwrite(op, c.f, y, x)
 prox!(y::AbstractArray{<:Real}, c::Conjugate{<:SumLargest}, x::AbstractArray{<:Real}, ::Real) =
@@ -403,6 +423,7 @@ end
 
 function value_and_prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
+  _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
     return _conjugate_value(c.f, y)
@@ -580,6 +601,7 @@ struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
 end
 SeparableSum(fs::AbstractFunction...) = SeparableSum(fs)
+_conjugate_isindicator(::Type{SeparableSum{F}}) where {F} = all(_conjugate_isindicator, fieldtypes(F))
 
 _argument_type(::Type{<:SeparableSum}) = Tuple
 

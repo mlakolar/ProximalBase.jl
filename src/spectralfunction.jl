@@ -55,6 +55,7 @@ isproximable(::Type{<:Spectral}) = true
 _argument_type(::Type{<:Spectral}) = AbstractMatrix
 isconvex(::Type{<:Spectral{F}}) where {F} = isconvex(F)
 _isindicator(::Type{<:Spectral{F}}) where {F} = _isindicator(F)
+_conjugate_isindicator(::Type{<:Spectral{F}}) where {F} = _conjugate_isindicator(F)
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix)
   _checksize(Y, X)
@@ -66,15 +67,29 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectra
   _checkwrite(value_and_prox!, s.f, z, λ)
 end
 
+# The domain is the finite matrices: a non-finite entry gives Inf, before the
+# symmetry test and any decomposition.
 function (s::Spectral)(X::AbstractMatrix)
   T = float(eltype(X))
   n = checksquare(X)
+  all(isfinite, X) || return T(Inf)
   _issymmetric_tol(X) || return T(Inf)
   ws = _eig_workspace(s.eig, T, n)
   s.eig = ws
   copyto!(ws.A, X)
-  _isindicator(s.f) && !all(isfinite, ws.A) && return T(Inf)
-  convert(T, s.f(_eigvals!(ws)))
+  λ = _eigvals!(ws)
+  if !isempty(λ) && !(_finite_value(λ[1]) && _finite_value(λ[end])) && _scales_membership(s.f)
+    return _scaled_spectral_membership!(s, ws, X)
+  end
+  convert(T, s.f(λ))
+end
+
+# the balls and boxes at an overflowing spectrum, on the eigenvalues of X/2^k
+@noinline function _scaled_spectral_membership!(s::Spectral, ws, X::AbstractMatrix)
+  copyto!(ws.A, X)
+  k = _magnitude_exponent(_maximum_abs(ws.A))
+  _scaled_spectral_input!(ws.A, X)
+  _scaled_membership(s.f, _eigvals!(ws), k)
 end
 
 function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real)

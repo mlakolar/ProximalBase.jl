@@ -49,8 +49,8 @@ reset_cache!(::IndAffine) = throw(ArgumentError("construct a new IndAffine after
 reset_cache!(::IndGraph) = throw(ArgumentError("construct a new IndGraph after changing its data"))
 
 for F in (:Scaled, :Tilt, :Translate, :Conjugate, :Precompose, :_ArrayPrecompose, :Regularize,
-          :MoreauEnvelope, :SqrDistL2, :Spectral, :SingularValue, :BallConstrained,
-          :SphereConstrained, :BoxConstrained, :LinearConstrained)
+          :MoreauEnvelope, :SqrDistL2, :DistL2, :Spectral, :SingularValue,
+          :BallConstrained, :SphereConstrained, :BoxConstrained, :LinearConstrained)
   @eval reset_cache!(f::$F) = (reset_cache!(f.f); f)
 end
 

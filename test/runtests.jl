@@ -53,6 +53,7 @@ tests = [
   "second_order",
   "envelope",
   "distance",
+  "distl2",
   "composition",
   "precompose_array",
   "minimum",

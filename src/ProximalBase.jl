@@ -68,7 +68,7 @@ export
 
   # functions built from functions
   Scaled, Tilt, Translate, Conjugate, SeparableSum, Sum, Constrained, Spectral,
-  MoreauEnvelope, SqrDistL2, Precompose, Regularize, PointwiseMinimum,
+  MoreauEnvelope, SqrDistL2, DistL2, Precompose, Regularize, PointwiseMinimum,
 
   # functions of stacked arrays
   SliceSum, FiberSum,

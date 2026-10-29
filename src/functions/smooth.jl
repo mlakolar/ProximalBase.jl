@@ -75,7 +75,6 @@ _dot_checks_size(::Type{C}, ::Type{X}) where {C, X} =
   (C <: SymmetricSparseIterate && X <: StridedMatrix) ||
   (C <: _SparseDotCSC && X <: Union{_SparseDotCSC, _SparseDotMatrix}) ||
   (C <: _SparseDotMatrix && X <: _SparseDotCSC)
-_copyto_checks_size(::Type{G}, ::Type{C}) where {G, C} = G <: SymmetricSparseIterate && C <: AbstractMatrix
 _checkdot(c::C, x::X) where {C, X} = (_dot_checks_size(C, X) ? _checksize(c, x) : _checkparam(c, x))
 _checkvalue(f::LinearFunction, x) = _checkdot(f.c, x)
 
@@ -84,9 +83,8 @@ function _checkwrite(op::O, f::LinearFunction, y::AbstractArray, x::AbstractArra
   _checkparams(f, x)
   op === value_and_prox! && _checkdot(f.c, y)
   op === value_and_gradient! && _checkdot(f.c, x)
-  if op === gradient! || op === value_and_gradient!
-    _copyto_checks_size(typeof(y), typeof(f.c)) && _checksize(y, f.c)
-  end
+  # c is written into y: copied by the gradient, subtracted by the prox
+  _check_symmetric_source(y, f.c)
   true
 end
 
@@ -221,7 +219,7 @@ end
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::SqrNormL2, y::AbstractArray, x::AbstractArray)
   _checksize(y, x)
   _checkparams(f, x)
-  f.y === nothing || _checksize(f.y, x)
+  f.y === nothing || (_checksize(f.y, x); _check_symmetric_source(y, f.y))
   true
 end
 

@@ -57,6 +57,19 @@ usedfull(f) = any(s -> hasproperty(f, s) && getproperty(f, s) !== nothing, FULL)
   @test_throws ArgumentError PB.QRWorkspace(Float64, 3, 4)
 end
 
+@testset "partial SVD into a symmetric iterate" begin
+  # U Σ Vᵀ of a symmetric matrix is symmetric only up to rounding: the iterate
+  # keeps its lower triangle
+  S = symlowrank(80, 3)
+  for f in (() -> NuclearNorm(1.0; partial = true), () -> IndBallRank(3; partial = true))
+    Y = prox!(zeros(80, 80), f(), S, 1.0)
+    g = f()
+    Z = prox!(SymmetricSparseIterate(80), g, S, 1.0)
+    @test !usedfull(g)
+    @test Matrix(Z) == Matrix(Symmetric(Y, :L))
+  end
+end
+
 @testset "the random block" begin
   ws1, ws2 = PB.PartialSVDWorkspace(Float64, 40, 30, 12), PB.PartialSVDWorkspace(Float64, 40, 30, 12)
   A, B = zeros(40, 12), zeros(40, 12)
@@ -232,7 +245,8 @@ end
   @test prox(h, D) ≈ psd_proj(D) rtol = 1e-10
   @test usedfull(h)
   # symmetric sparse iterates in and out, in place, and Float32
-  @test prox(g, SymmetricSparseIterate(Sm)) ≈ psd_proj(Sm) rtol = 1e-10
+  # Sm is symmetric only up to rounding; an iterate takes its lower triangle explicitly
+  @test prox(g, SymmetricSparseIterate(Symmetric(Sm, :L))) ≈ psd_proj(Sm) rtol = 1e-10
   @test Matrix(prox!(SymmetricSparseIterate(n), g, Sm, 1.0)) ≈ psd_proj(Sm) rtol = 1e-10
   Z = copy(Sm)
   @test prox!(Z, g, Z, 1.0) ≈ psd_proj(Sm) rtol = 1e-10

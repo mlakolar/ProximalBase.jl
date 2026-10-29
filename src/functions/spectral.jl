@@ -39,7 +39,7 @@ function _mul_lowrank!(Y::AbstractMatrix, U::Matrix, Vt::Matrix, k::Integer, ws:
     mul!(Y, view(U, :, 1:k), view(Vt, 1:k, :))
   else
     mul!(ws.A, view(U, :, 1:k), view(Vt, 1:k, :))     # ws.A is free after the SVD
-    copyto!(Y, ws.A)
+    _copyto_rounded!(Y, ws.A)
   end
   Y
 end

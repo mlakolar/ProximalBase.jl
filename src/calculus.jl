@@ -138,6 +138,7 @@ gradient!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, x
 function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}}
   _checkparams(t, x)
   Base.Broadcast.check_broadcast_axes(axes(g), t.c)
+  _check_symmetric_source(g, t.c)
   _checkwrite(op, t.f, g, x)
 end
 
@@ -145,6 +146,7 @@ function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray) where {
   _checksize(y, x)
   _checkparams(t, x)
   Base.Broadcast.check_broadcast_axes(axes(y), x, t.c)
+  _check_symmetric_source(y, t.c)
   _checkwrite(op, t.f, y, y)
 end
 

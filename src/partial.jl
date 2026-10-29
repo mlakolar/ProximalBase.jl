@@ -293,7 +293,7 @@ function _partial_svd_out!(Y::AbstractMatrix, ws::PartialSVDWorkspace{T}, k::Int
   else
     B = _array_buffer!(ws.dense, T, size(Y))
     mul!(B, view(U, :, 1:k), transpose(view(V, :, 1:k)))
-    copyto!(Y, B)
+    _copyto_rounded!(Y, B)
   end
   Y
 end

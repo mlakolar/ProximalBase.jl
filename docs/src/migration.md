@@ -52,3 +52,22 @@ does not imply convexity or positive homogeneity.
 [`GLMLoss`](@ref). `IndBallLinf` and [`Constrained`](@ref) are constructor
 functions that return suitable concrete functions. Avoid dispatch that
 assumes every exported constructor name is a concrete type.
+
+## Writes into a `SymmetricSparseIterate` (0.6)
+
+A [`SymmetricSparseIterate`](@ref) now accepts only symmetric values. Before
+0.6, the constructor, `copyto!`, broadcasting into it, `map!`, `axpy!` and
+`axpby!` kept the lower triangle of a matrix that was not symmetric, and some
+of them reshaped a vector of `p²` entries or copied a prefix of a shorter
+source. They now throw an `ArgumentError` for a value whose entries `(r, c)`
+and `(c, r)` differ, and a `DimensionMismatch` for a source without the axes of
+the destination, before writing anything. `copyto!` with offsets or index
+ranges and the indexed `axpy!` throw an `ArgumentError`. `LinearFunction` and
+`Tilt` check their parameter the same way when they write into a
+`SymmetricSparseIterate`.
+
+| Before 0.6 | Now |
+|:---|:---|
+| `SymmetricSparseIterate(A)`, `copyto!(x, A)` or `x .= A` with `A` not symmetric | `Symmetric(A, :L)` in place of `A` keeps the old lower-triangle values |
+| a matrix symmetric only up to rounding, such as `X' * (w .* X)` or `inv(S)` | symmetrize it, or compute it exactly symmetric: `inv(cholesky(S))`, `inv(Symmetric(S))` |
+| `copyto!(x, v)`, `map!(f, x, v)` or `axpy!(α, v, x)` with a vector `v` of `p²` entries | `reshape(v, p, p)`, which must be symmetric |

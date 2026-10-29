@@ -29,14 +29,24 @@ same O(1) access as [`SparseIterate`](@ref). It is an ordinary `p × p` matrix:
 and iteration follow the dense matrix, so that an off-diagonal entry is visited
 twice.
 
-Writing `x[r, c]` writes `x[c, r]` too. Broadcasting into `x`, `copyto!`, `fill!`,
-`rmul!`, `lmul!`, `axpy!`, `axpby!` and `map!` from sources with as many entries
-as `x` update each entry once, from the lower triangle of a source that is not
-symmetric. Other functions that update the entries of `x` one at a time, such
-as `replace!` or `mul!` into `x`, would update an off-diagonal entry twice, and
-those that build a result that is not symmetric in `similar(x)`, such as
-`cumsum` or `circshift`, need `Matrix(x)`. `triu`, `tril` and `sparse` return a
-`SparseMatrixCSC`.
+Writing `x[r, c]` writes `x[c, r]` too. The functions that write a matrix into
+`x` (the constructor, `copyto!`, `copy!`, broadcasting into `x`, `map!`, `axpy!`
+and `axpby!`) take a value with the axes of `x` that is exactly symmetric:
+entries `(r, c)` and `(c, r)` are equal, with `NaN` equal to `NaN`, compared
+before conversion to the element type of `x`. Otherwise they throw a
+`DimensionMismatch` or an `ArgumentError` before writing anything. To store one
+triangle of a matrix `A` that is not symmetric, write `Symmetric(A, :L)` or
+`Symmetric(A, :U)`. These functions compute each entry of the lower triangle
+once; `copyto!` with offsets or index ranges and the indexed `axpy!` throw an
+`ArgumentError`. `fill!`, `rmul!` and `lmul!` by a number keep `x` symmetric.
+
+Other functions update the entries of `x` one position at a time and are not
+checked: `replace!`, `mul!` into `x`, indexed and view assignment such as
+`x[:, :] = A`, `copyto!` from an iterator, `transpose!`, `permutedims!`,
+`triu!`, `tril!`, and scaling by a `Diagonal`. They can update an off-diagonal
+entry twice or store one of two different values. Functions that build a result
+that is not symmetric in `similar(x)`, such as `cumsum` or `circshift`, need
+`Matrix(x)`. `triu`, `tril` and `sparse` return a `SparseMatrixCSC`.
 
 Its coordinates are the `p(p+1)/2` entries of the lower triangle, numbered
 column by column ([`tril_index`](@ref)): [`prox_coordinate!`](@ref) updates
@@ -801,9 +811,70 @@ Base.@propagate_inbounds Base.setindex!(c::SymmetricCoordinates, v, k::Int) = (_
 
 coordinates(x::SymmetricSparseIterate) = SymmetricCoordinates(x)
 
+# A matrix written into x must have the axes of x and be exactly symmetric; the
+# checks run before anything is written. Symmetric(A, :L) keeps one triangle of
+# a matrix that is not symmetric.
+
+# NaN matches NaN and 0.0 matches -0.0
+_symequal(a, b) = isequal(a, b) || (a == b) === true
+
+# sources whose entries (r, c) and (c, r) are equal by construction
+_symmetric_by_type(A) = false
+_symmetric_by_type(::Union{SymmetricSparseIterate, Symmetric{<:Number}, Hermitian{<:Real},
+                           Diagonal{<:Number}, SymTridiagonal{<:Number}}) = true
+_symmetric_by_type(A::Union{Adjoint, Transpose}) = _symmetric_by_type(parent(A))
+
+# the first pair (r, c), r > c, in column-major order, at which the square,
+# one-based A is not symmetric
+function _asymmetric_pair(A::AbstractMatrix, eq::E) where {E}
+  p = size(A, 1)
+  @inbounds for c in 1:p, r in c+1:p
+    eq(A[r, c], A[c, r]) || return (r, c)
+  end
+  nothing
+end
+_issymmetric_exact(A::AbstractMatrix, eq::E) where {E} = _asymmetric_pair(A, eq) === nothing
+# in O(nnz): each stored entry against its transpose
+function _issymmetric_exact(A::SparseMatrixCSC, eq::E) where {E}
+  rows, vals = rowvals(A), nonzeros(A)
+  @inbounds for c in axes(A, 2), k in nzrange(A, c)
+    r = rows[k]
+    r == c || eq(vals[k], A[c, r]) || return false
+  end
+  true
+end
+
+_check_symmetric(A::AbstractMatrix) =
+  _symmetric_by_type(A) || _issymmetric_exact(A, _symequal) || _throw_asymmetric(A)
+@noinline function _throw_asymmetric(A::AbstractMatrix)
+  r, c = _asymmetric_pair(A, _symequal)
+  _throw_asymmetric(r, c, A[r, c], A[c, r])
+end
+@noinline _throw_asymmetric(r, c, a, b) = throw(ArgumentError(
+  "the value written into a SymmetricSparseIterate must be symmetric, but entry ($r, $c) " *
+  "is $a and entry ($c, $r) is $b; use Symmetric(A, :L) to store the lower triangle of A"))
+
+_check_axes(x::SymmetricSparseIterate, A::AbstractArray) = axes(A) == axes(x) || _throw_axes(x, A)
+@noinline _throw_axes(x, A) =
+  throw(DimensionMismatch("source axes $(axes(A)) do not match destination axes $(axes(x))"))
+
+# B, a product such as U Σ Vᵀ whose triangles agree only up to rounding when its
+# input is symmetric: a SymmetricSparseIterate keeps the lower one
+_copyto_rounded!(Y, B) = copyto!(Y, B)
+_copyto_rounded!(Y::SymmetricSparseIterate, B) = copyto!(Y, Symmetric(B, :L))
+
+# c, a parameter written into y: when y is a SymmetricSparseIterate, it must
+# have the axes of y and be symmetric
+_check_symmetric_source(y, c) = true
+_check_symmetric_source(y::SymmetricSparseIterate, c::AbstractArray) = _check_axes(y, c)
+_check_symmetric_source(y::SymmetricSparseIterate, c::AbstractMatrix) =
+  _check_axes(y, c) && _check_symmetric(c)
+
+# X must be symmetric
 function SymmetricSparseIterate(X::SparseMatrixCSC{T}) where {T}
   n, m = size(X)
   n == m || throw(ArgumentError("X needs to be square matrix"))
+  _check_symmetric(X)
   out = SymmetricSparseIterate(T, n)
 
   I, J, V = findnz(X)
@@ -816,10 +887,12 @@ function SymmetricSparseIterate(X::SparseMatrixCSC{T}) where {T}
   out
 end
 
-# the lower triangle of a dense matrix
+# a symmetric matrix, or one triangle of a matrix as Symmetric(X, :L)
 function SymmetricSparseIterate(X::AbstractMatrix{T}) where {T}
   p = checksquare(X)
   out = SymmetricSparseIterate(T, p)
+  _check_axes(out, X)
+  _check_symmetric(X)
   @inbounds for c = 1:p, r = c:p
     v = X[r, c]
     iszero(v) || _store!(out, tril_index(p, r, c), v)
@@ -855,7 +928,7 @@ function Base.copyto!(x::SymmetricSparseIterate, y::SymmetricSparseIterate)
     _copyto_stored!(x, y)
 end
 
-# From a matrix source, its lower triangle.
+# From a matrix source, which must be symmetric.
 Base.copyto!(x::SymmetricSparseIterate, y::AbstractMatrix) = _copyto_lower!(x, y)
 # Resolve sparse-source copyto! ambiguities.
 @static if isdefined(@__MODULE__, :_AbstractSparseMatrixCSC)
@@ -871,7 +944,7 @@ end
   Base.copyto!(x::SymmetricSparseIterate, y::_AdjOrTransSparseVectorOrView) = _copyto_lower!(x, y)
 end
 # Sparse factorizations define typed matrix and untyped array copy methods.
-# Preserve the same triangle rule for their dense matrix wrapper.
+# Apply the same checks to their dense matrix wrapper.
 @static if isdefined(@__MODULE__, :_CHOLMODDense)
   Base.copyto!(x::SymmetricSparseIterate, y::_CHOLMODDense) = _copyto_lower!(x, y)
   @static if isdefined(@__MODULE__, :_CHOLMODVTypes)
@@ -880,70 +953,87 @@ end
   end
 end
 function _copyto_lower!(x::SymmetricSparseIterate, y::AbstractMatrix)
-  size(x) == size(y) || throw(DimensionMismatch())
+  _check_axes(x, y)
+  _check_symmetric(y)
   p = x.p
   @inbounds for c = 1:p, r = c:p
     _setstored!(x, y[r, c], tril_index(p, r, c))
   end
   x
 end
+# A source with another number of dimensions cannot have the axes of x.
+Base.copyto!(x::SymmetricSparseIterate, y::AbstractArray) = _throw_axes(x, y)
+
+# A partial copy would write one position of an off-diagonal entry and not the
+# other. The 3- and 4-argument copyto! forward to the 5-argument one.
+@noinline _throw_partial(f) = throw(ArgumentError(
+  "$f cannot write part of a SymmetricSparseIterate, which would set one position of " *
+  "an off-diagonal entry and not the other; copy a symmetric matrix with copyto!(x, A)"))
+Base.copyto!(x::SymmetricSparseIterate, ::Integer, ::AbstractArray, ::Integer, ::Integer) =
+  _throw_partial("copyto! with offsets")
+Base.copyto!(x::SymmetricSparseIterate, ::CartesianIndices, ::AbstractArray, ::CartesianIndices) =
+  _throw_partial("copyto! with index ranges")
+Base.copyto!(x::SymmetricSparseIterate, ::AbstractRange{Int}, ::AbstractRange{Int}, ::AbstractVecOrMat,
+             ::AbstractRange{Int}, ::AbstractRange{Int}) = _throw_partial("copyto! with index ranges")
+# Resolve the ambiguity with SparseArrays' method for a sparse source.
+@static if isdefined(@__MODULE__, :_AbstractSparseMatrixCSC)
+  Base.copyto!(x::SymmetricSparseIterate,
+               ::CartesianIndices{2, <:Tuple{OrdinalRange{Int, Int}, OrdinalRange{Int, Int}}},
+               ::_AbstractSparseMatrixCSC,
+               ::CartesianIndices{2, <:Tuple{OrdinalRange{Int, Int}, OrdinalRange{Int, Int}}}) =
+    _throw_partial("copyto! with index ranges")
+end
 
 # Broadcasting into x computes each entry of the lower triangle once: visiting
 # both (r, c) and (c, r) would cost twice as much and, as they share storage,
-# apply an in-place update such as x .= 2 .* x twice.
+# apply an in-place update such as x .= 2 .* x twice. When the leaves do not
+# show that the value is symmetric, a first pass compares (r, c) with (c, r)
+# before anything is written.
 function Base.copyto!(x::SymmetricSparseIterate, bc::Broadcast.Broadcasted{Nothing})
   axes(x) == axes(bc) || throw(DimensionMismatch("destination axes $(axes(x)) do not match $(axes(bc))"))
+  symmetric = _bc_symmetric(x, bc)    # before preprocess, which wraps the leaves
   bc′ = Broadcast.preprocess(x, bc)
   p = x.p
+  if !symmetric
+    @inbounds for c = 1:p, r = c+1:p
+      a, b = bc′[CartesianIndex(r, c)], bc′[CartesianIndex(c, r)]
+      _symequal(a, b) || _throw_asymmetric(r, c, a, b)
+    end
+  end
   @inbounds for c = 1:p, r = c:p
     _setstored!(x, bc′[CartesianIndex(r, c)], tril_index(p, r, c))
   end
   x
 end
 
-# Full-length sources use the lower triangle once, as broadcasting does.
-# Otherwise preserve map!'s iteration order and shortest-source rule.
-# Matching axes avoid carrying reshaped-source unions into the broadcast.
+# Whether the leaves show that a broadcast of a pure function is symmetric: each
+# is a scalar, symmetric by type, or a matrix with the axes of x that is
+# symmetric under isequal, which keeps -0.0 apart from 0.0, as 1 ./ A does.
+_bc_symmetric(x, bc::Broadcast.Broadcasted) = _bc_args_symmetric(x, bc.args)
+_bc_args_symmetric(x, args::Tuple) = _bc_symmetric(x, first(args)) && _bc_args_symmetric(x, Base.tail(args))
+_bc_args_symmetric(x, ::Tuple{}) = true
+_bc_symmetric(x, a) = axes(a) == () || _symmetric_by_type(a) ||
+  (a isa AbstractMatrix && axes(a) == axes(x) && _issymmetric_exact(a, isequal))
+
+# map! into x broadcasts from sources with the axes of x.
 function Base.map!(f::F, x::SymmetricSparseIterate, A::AbstractArray) where {F}
-  if axes(A) == axes(x)
-    return x .= f.(A)
-  elseif length(A) == length(x)
-    A′ = _reshape_like(A, x)
-    if axes(A′) == axes(x)
-      return x .= f.(A′)
-    end
-  end
-  invoke(Base.map!, Tuple{F, AbstractArray, AbstractArray}, f, x, A)
+  _check_axes(x, A)
+  x .= f.(A)
 end
 
 function Base.map!(f::F, x::SymmetricSparseIterate, A::AbstractArray, B::AbstractArray) where {F}
-  if axes(A) == axes(B) == axes(x)
-    return x .= f.(A, B)
-  elseif length(A) == length(B) == length(x)
-    A′, B′ = _reshape_like(A, x), _reshape_like(B, x)
-    if axes(A′) == axes(B′) == axes(x)
-      return x .= f.(A′, B′)
-    end
-  end
-  invoke(Base.map!, Tuple{F, AbstractArray, AbstractArray, AbstractArray}, f, x, A, B)
+  _check_axes(x, A)
+  _check_axes(x, B)
+  x .= f.(A, B)
 end
 
 function Base.map!(f::F, x::SymmetricSparseIterate, A::AbstractArray, B::AbstractArray,
                    C::AbstractArray, Ds::Vararg{AbstractArray, N}) where {F, N}
-  As = (A, B, C, Ds...)
-  if all(a -> axes(a) == axes(x), As)
-    x .= f.(A, B, C, Ds...)
-    return x
-  elseif all(a -> length(a) == length(x), As)
-    A′, B′, C′ = _reshape_like(A, x), _reshape_like(B, x), _reshape_like(C, x)
-    Ds′ = map(a -> _reshape_like(a, x), Ds)
-    if axes(A′) == axes(B′) == axes(C′) == axes(x) && all(a -> axes(a) == axes(x), Ds′)
-      x .= f.(A′, B′, C′, Ds′...)
-      return x
-    end
-  end
-  invoke(Base.map!, Tuple{F, AbstractArray, Vararg{AbstractArray}}, f, x, As...)
-  x
+  _check_axes(x, A)
+  _check_axes(x, B)
+  _check_axes(x, C)
+  foreach(D -> _check_axes(x, D), Ds)
+  x .= f.(A, B, C, Ds...)
 end
 
 function Base.fill!(x::SymmetricSparseIterate, v)
@@ -958,24 +1048,20 @@ function Base.fill!(x::SymmetricSparseIterate, v)
   x
 end
 
-# axpy! and axpby! update each entry once, as broadcasting does, from the lower
-# triangle of x when x is not symmetric
+# axpy! and axpby! broadcast, from a source with the axes of y
 function LinearAlgebra.axpy!(α::Number, x::AbstractArray, y::SymmetricSparseIterate)
-  x′ = _reshape_like(x, y)
+  _check_axes(y, x)
   iszero(α) && return y
-  y .+= α .* x′
+  y .+= α .* x
 end
 function LinearAlgebra.axpby!(α::Number, x::AbstractArray, β::Number, y::SymmetricSparseIterate)
-  x′ = _reshape_like(x, y)
+  _check_axes(y, x)
   iszero(α) && isone(β) && return y
-  y .= α .* x′ .+ β .* y
+  y .= α .* x .+ β .* y
 end
-
-# x, which has as many entries as y, in the shape of y
-_reshape_like(x::AbstractArray, y::SymmetricSparseIterate) =
-  size(x) == size(y) ? x :
-  length(x) == length(y) ? reshape(x, size(y)) :
-  throw(DimensionMismatch(lazy"x has length $(length(x)), but y has length $(length(y))"))
+# The indexed axpy! adds twice to an entry whose two positions are both in ry.
+LinearAlgebra.axpy!(::Number, ::AbstractArray, ::AbstractArray{<:Integer}, ::SymmetricSparseIterate,
+                    ::AbstractArray{<:Integer}) = _throw_partial("the indexed axpy!")
 
 # The stored entries as a SparseMatrixCSC, in O(nnz): each nonzero (r, c) of the
 # lower triangle gives the entries (r, c) and (c, r) for which keep holds. The

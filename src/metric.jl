@@ -29,6 +29,20 @@ prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArra
 value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) =
   _value_and_prox_sep!(y, f, x, γ)
 
+function prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::AbstractArray)
+  isseparable(h) || throw(ArgumentError("array steps for an array scale require a separable function"))
+  _checkwrite(prox!, h, y, x)
+  _checkparam(γ, x)
+  _value_and_prox_array!(y, h, x, γ, false)
+  y
+end
+function value_and_prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::AbstractArray)
+  isseparable(h) || throw(ArgumentError("array steps for an array scale require a separable function"))
+  _checkwrite(value_and_prox!, h, y, x)
+  _checkparam(γ, x)
+  _value_and_prox_array!(y, h, x, γ, true)
+end
+
 # group penalties: a step per group, constant on the group, keeps the closed form
 value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = _value_and_prox_groups!(y, f, x, γ)
 prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (value_and_prox!(y, f, x, γ); y)
@@ -49,32 +63,28 @@ value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
   (_checkparams(s, x); s.α * value_and_prox!(y, s.f, x, _ScaledArray(γ, s.α)))
 
 function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
-  _checksize(y, x)
-  _checkparams(t, x)
+  _checkwrite(prox!, t, y, x)
   _checkparam(γ, x)
+  Base.Broadcast.check_broadcast_axes(axes(y), γ)
   y .= x .- γ .* t.c
   prox!(y, t.f, y, γ)
 end
 function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
-  _checksize(y, x)
-  _checkparams(t, x)
+  _checkwrite(value_and_prox!, t, y, x)
   _checkparam(γ, x)
+  Base.Broadcast.check_broadcast_axes(axes(y), γ)
   y .= x .- γ .* t.c
   value_and_prox!(y, t.f, y, γ) + dot(t.c, y) + t.d
 end
 
 function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
-  _checksize(y, x)
-  _checksize(t.b, x)
-  _checkparams(t, x)
+  _checkwrite(prox!, t, y, x)
   y .= x .- t.b
   prox!(y, t.f, y, γ)
   y .+= t.b
 end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
-  _checksize(y, x)
-  _checksize(t.b, x)
-  _checkparams(t, x)
+  _checkwrite(value_and_prox!, t, y, x)
   y .= x .- t.b
   v = value_and_prox!(y, t.f, y, γ)
   y .+= t.b
@@ -134,6 +144,27 @@ function prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace}, x::Abstr
   y .= x .- t .* γ .* f.a
 end
 
+function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, γ::AbstractArray)
+  _checkwrite(prox!, f, y, x)
+  _checkparams(f, x)
+  _checkparam(γ, x)
+  Base.Broadcast.check_broadcast_axes(axes(y), γ)
+  _hyperslab_input(f, x)
+  isempty(x) && return y
+  g = _hyperslab_residual(f, x)
+  iszero(g) && return (y === x ? y : copyto!(y, x))
+  t = g / _metric_sqnorm(f, x, γ)
+  if _isscaled(f)
+    return _hyperslab_metric_output!(y, x, _normalized_normal(f.a, f.s), γ, t)
+  end
+  _hyperslab_metric_output!(y, x, f.a, γ, t)
+end
+
+# Inline so that passing the scaled normal does not allocate a view.
+@inline function _hyperslab_metric_output!(y, x, a, γ, t::T) where {T}
+  y .= x .- t .* (T.(γ) .* a)
+end
+
 # The simplex and the ℓ1 ball: max(xᵢ - γᵢν, 0) and shrink(xᵢ, γᵢν) for the
 # level ν that meets the constraint
 function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, γ::AbstractArray)
@@ -164,7 +195,7 @@ function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, γ::AbstractArr
   y .= shrink.(x, γ .* ν)
 end
 
-value_and_prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndSimplex, IndBallL1}, x::AbstractArray, γ::AbstractArray) =
+value_and_prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndHyperslab, IndSimplex, IndBallL1}, x::AbstractArray, γ::AbstractArray) =
   (prox!(y, f, x, γ); zero(float(eltype(y))))
 
 # The level ν with Σᵢ max(uᵢ - γᵢν, 0) = r for uᵢ = h(xᵢ), by Newton's method
@@ -212,6 +243,8 @@ for [`GLMLoss`](@ref), and `Inf` where none exists:
 | [`QuadraticFunction`](@ref) | `A[k, k]` |
 | [`KronQuadratic`](@ref) | `A[r, r] B[c, c]` for entry `(r, c)` of `Θ` |
 | [`SqrNormL2`](@ref)`(λ)` | `λ` |
+| [`SqrHingeLoss`](@ref)`(y, w)` | `2wₖyₖ²` |
+| [`CubeNormL2`](@ref)`(λ)` | `Inf` for `λ > 0`, `0` for `λ = 0` |
 | [`LogDetLoss`](@ref) | `Inf` |
 
 `Scaled` scales the constants, `Tilt` and `Translate` keep them, and `Sum` adds
@@ -264,6 +297,24 @@ end
 coordinate_lipschitz(::ZeroFunction, ::Integer) = 0.0
 coordinate_lipschitz(f::LinearFunction, ::Integer) = zero(float(eltype(f.c)))
 coordinate_lipschitz(f::SqrNormL2, ::Integer) = float(f.λ)
+function coordinate_lipschitz(f::SqrDistL2, k::Integer)
+  isseparable(f) && (iszero(f.λ) || isconvex(f)) && return float(f.λ)
+  invoke(coordinate_lipschitz, Tuple{AbstractFunction, Integer}, f, k)
+end
+
+function coordinate_lipschitz(f::SqrHingeLoss, k::Integer)
+  y, w = promote(float(_entry(f.y, k)), float(_entry(f.w, k)))
+  _sqrhinge_slope(y, w, abs(y), 0)
+end
+
+function coordinate_lipschitz!(L::AbstractArray, f::SqrHingeLoss)
+  _checkparams(f, L)
+  @inbounds for k in eachindex(IndexLinear(), L)
+    L[k] = coordinate_lipschitz(f, k)
+  end
+  L
+end
+coordinate_lipschitz(f::CubeNormL2, ::Integer) = lipschitz(f)
 
 function coordinate_lipschitz(f::QuadraticFunction{T}, k::Integer) where {T}
   checkbounds(f.A, k, k)
@@ -303,6 +354,10 @@ function coordinate_lipschitz(f::GLMLoss{L, T}, k::Integer) where {L, T}
 end
 
 coordinate_lipschitz(::LogDetLoss{T}, ::Integer) where {T} = T(Inf)
+Base.@propagate_inbounds function coordinate_lipschitz(f::BernoulliLoss, k::Integer)
+  w = float(_entry(f.w, k))
+  iszero(w) ? zero(w) : oftype(w, Inf)
+end
 
 coordinate_lipschitz(s::Scaled, k::Integer) = s.α * coordinate_lipschitz(s.f, k)
 coordinate_lipschitz!(L::AbstractArray, s::Scaled) = (coordinate_lipschitz!(L, s.f); L .*= s.α)
@@ -322,3 +377,15 @@ end
 coordinate_lipschitz(h::_ScalarPrecompose, k::Integer) = h.μ * coordinate_lipschitz(h.f, k)
 coordinate_lipschitz!(L::AbstractArray, h::_ScalarPrecompose) =
   (coordinate_lipschitz!(L, h.f); L .*= h.μ)
+
+Base.@propagate_inbounds function coordinate_lipschitz(h::_ArrayPrecompose, k::Integer)
+  a = abs(float(h.a[k]))
+  _positive_product(coordinate_lipschitz(h.f, k), a, a)
+end
+function coordinate_lipschitz!(L::AbstractArray, h::_ArrayPrecompose)
+  _checkparams(h, L)
+  @inbounds for k in eachindex(IndexLinear(), L)
+    L[k] = coordinate_lipschitz(h, k)
+  end
+  L
+end

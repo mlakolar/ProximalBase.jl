@@ -129,14 +129,14 @@ the three iterates. Group norms and the nonconvex [`GroupMCP`](@ref) and
 each group, which keeps the closed form. `Scaled`, `Tilt`, `Translate` and
 `Conjugate` pass the steps on.
 
-The projections onto a hyperplane, a halfspace, a simplex and an ℓ1 ball take an
-array of steps as well, as projections in the metric. The hyperplane has the
+The projections onto a hyperplane, a halfspace, a hyperslab, a simplex and an
+ℓ1 ball take an array of steps as well, as projections in the metric. The hyperplane has the
 closed form ``x - \gamma \odot a\,(\langle a, x\rangle - b)/\sum_i \gamma_i a_i^2``.
 The simplex and the ℓ1 ball are ``\max(x_i - \gamma_i\nu, 0)`` and the soft
 thresholding of ``x_i`` at ``\gamma_i\nu`` for a level ``\nu`` found by Newton's
 method from the left, which ends at the exact root. [`Constrained`](@ref) on a
-box, a hyperplane, a halfspace or a simplex takes the steps into its multiplier
-search, with ``z_i(\nu) = \operatorname{prox}_{\gamma_i f_i}(x_i - \gamma_i\nu a_i)``.
+box, a hyperplane, a halfspace, a hyperslab or a simplex takes the steps into
+its multiplier search, with ``z_i(\nu) = \operatorname{prox}_{\gamma_i f_i}(x_i - \gamma_i\nu a_i)``.
 
 The curvature of a smooth ``f`` along each coordinate, a Lipschitz constant of
 ``\partial f/\partial x_k``, comes from [`coordinate_lipschitz`](@ref) and
@@ -221,6 +221,9 @@ The shifted buffer for values and gradients of `Translate(f, b)` uses the
 argument's precision, `float(eltype(x))`. `Spectral`, `SingularValue` and
 `FiberSum` give their values in the argument's precision, and in the output's
 precision for the proximal operators.
+`IndAffine` returns the argument's floating precision, like the other
+indicators. Its feasibility calculation and tolerance still use the promoted
+precision of the argument and data.
 
 Constructors also differ. `NormL1(λ, w)` stores the scale and weights as given;
 `GroupNormL2(λ, groups, w)` converts both to their common floating type.
@@ -234,17 +237,30 @@ For `LeastSquaresLoss`, `LogisticLoss` and `GLMLoss`, the value and the scalar
 returned by `value_and_gradient!` have the buffers' precision. With `Float32`
 data, these are `Float32` even for a `Float64` argument.
 
-When the argument and the output or gradient have the same element type,
-`value_and_prox!(y, f, x, γ)` and `value_and_gradient!(g, f, x)` return
-scalars of the type of `f(x)`. The rule applies wherever `f(x)` is defined,
+For any precisions of the argument, output, parameters and step,
+`value_and_prox!(y, f, x, γ)` returns a scalar of the type of `f(y)`, and
+`value_and_gradient!(g, f, x)` returns a scalar of the type of `f(x)`.
+The rule applies wherever the corresponding standalone value is defined,
 which excludes functions such as `Conjugate(ElasticNet(...))` that have a
 proximal value but no standalone value. It is a rule about types: the
-returned value is computed from the proximal or gradient intermediates,
-so a proximal value can differ from `f(y)` in the last bits. With
+returned value can be computed from the proximal or gradient intermediates,
+so a proximal value can differ from `f(y)`. In mixed
+precision, some functions evaluate their value at the output for a proximal
+oracle, or at the argument for a gradient oracle. With
 `x = Float32[1, 2]` and
 `f = Translate(NormL1(1f0), Float64[0.25, -0.5])`, the translation does not
 widen the value: both `f(x)` and
 `value_and_prox!(similar(x), f, x, 0.5)` return `Float32`.
+
+In mixed precision, array proximal operators of wrappers such as `Translate`
+and `Tilt` round to the output's element type at each stage. Consequently,
+`prox!` and entrywise calls to `prox_entry` can give different results; no
+bound on this difference is claimed.
+
+A mixed call can allocate when the additional value evaluation changes an
+inner function's cached precision. For example,
+`Precompose(NuclearNorm(0.5f0), 2f0)` switches its inner SVD workspace between
+precisions with a `Float32` argument and a `Float64` output.
 
 To compute in `Float32` throughout, give the argument, the parameters, the
 data and the step in `Float32`; the functions above then return `Float32`

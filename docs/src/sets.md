@@ -20,6 +20,8 @@ feasibility certificate.
 | [`IndBinary`](@ref)`(l, u)` | ``x_i \in \{l_i, u_i\}``, nonconvex | nearer endpoint, ties to ``l_i`` |
 | [`IndBallLinf`](@ref)`(r)` | ``\lVert x\rVert_\infty \le r`` | ``\operatorname{clamp}(v, -r, r)`` |
 | [`IndBallL2`](@ref)`(r)` | ``\lVert x\rVert_2 \le r`` | ``\min(1, r/\lVert v\rVert_2)\,v`` |
+| [`IndSOC`](@ref)`()` | ``\lVert x_{2:n}\rVert_2 \le x_1`` | closed form in the head and the tail norm |
+| [`IndRotatedSOC`](@ref)`()` | ``\lVert x_{3:n}\rVert_2^2 \le 2x_1x_2``, ``x_1,x_2 \ge 0`` | an orthogonal change of coordinates to the second-order cone |
 | [`IndSphereL2`](@ref)`(r)` | ``\lVert x\rVert_2 = r``, nonconvex | ``r\,v/\lVert v\rVert_2`` |
 | [`IndBallL1`](@ref)`(r)` | ``\lVert x\rVert_1 \le r`` | ``\operatorname{sign}(v)\odot P_{\Delta_r}(\lvert v\rvert)``, by Condat's algorithm |
 | [`IndSimplex`](@ref)`(r)` | ``x \ge 0,\ \sum_i x_i = r`` | ``\max(v - \tau, 0)`` |
@@ -27,12 +29,15 @@ feasibility certificate.
 | [`IndBallGroupL0`](@ref)`(s, groups)` | at most ``s`` nonzero groups | keep the ``s`` groups of largest norm |
 | [`IndHyperplane`](@ref)`(a, b)` | ``\langle a, x\rangle = b`` | ``v - \frac{\langle a, v\rangle - b}{\lVert a\rVert^2}\,a`` |
 | [`IndHalfspace`](@ref)`(a, b)` | ``\langle a, x\rangle \le b`` | the same when ``\langle a, v\rangle > b`` |
+| [`IndHyperslab`](@ref)`(a, l, u)` | ``l \le \langle a, x\rangle \le u`` | project onto the violated bound, or keep ``v`` inside |
 | [`IndIsotonic`](@ref)`()` | ``x_1 \le x_2 \le \dots \le x_n`` | isotonic regression, by pool adjacent violators |
 | [`IndIntersection`](@ref)`(C₁, C₂, …)` | ``C_1 \cap C_2 \cap \cdots`` | Dykstra's algorithm, iterative |
 | [`IndAffine`](@ref)`(A, b)` | ``Ax = b`` | ``v - A^\top(AA^\top)^{-1}(Av - b)``, from a factorization cached at construction |
+| [`IndGraph`](@ref)`(A)` | ``y = Ax``, on pairs ``(x, y)`` | factor the smaller of ``I + A^\top A`` and ``I + AA^\top`` once |
 | [`IndPSD`](@ref)`()` | ``X \succeq 0`` | ``U\max(\Lambda, 0)U^\top`` |
 | [`IndPSD`](@ref)`(rank = r)` | ``X \succeq 0``, rank at most ``r`` | the ``r`` largest positive eigenpairs |
 | [`IndBallRank`](@ref)`(r)` | rank at most ``r`` | the truncated SVD |
+| [`IndStiefel`](@ref)`()` | ``X^\top X = I_k``, ``k \le p``, nonconvex | ``UV^\top`` from the thin SVD |
 | [`SingularValue`](@ref)`(IndBallL1(r))` | ``\lVert X\rVert_* \le r`` | the ℓ1-ball projection of the singular values |
 | [`SingularValue`](@ref)`(IndBallLinf(r))` | ``\lVert X\rVert_2 \le r`` | ``U\min(\Sigma, r)V^\top`` |
 | [`IndPattern`](@ref)`(P)` | ``x_i = 0`` off the pattern ``P`` | zero the entries off ``P`` |
@@ -92,6 +97,56 @@ Projecting onto the ℓ1 ball ``\{\|x\|_1 \le r\}`` is trivial when
 ``\|v\|_1 \le r``. Otherwise the projection has the signs of ``v`` and solves
 the simplex problem for ``|v|``. The ℓ∞ norms use this projection through
 Moreau's decomposition.
+
+## Second-order cones
+
+[`IndSOC`](@ref)`()` is the epigraph of the Euclidean norm: the first entry
+is a variable bound on the norm of the remaining entries. With head ``t`` and
+tail norm ``s``, the projection keeps the point when ``s \le t``, returns zero
+when ``s \le -t``, and otherwise returns
+``(\alpha, (\alpha/s)x_{2:n})`` with ``\alpha = (t+s)/2``.
+Arrays are read by one-based linear index, including matrices. An empty array
+has no head and is rejected. Only scalar steps are supported.
+
+`IndSOC(groups)` projects each disjoint group onto its own cone. The first
+listed index is the head, even when the indices are out of order; a group of
+one index imposes nonnegativity. For example, `IndSOC([[3, 1, 2], [5, 4]])`
+bounds the norm of entries 1 and 2 by entry 3, and the magnitude of entry 4 by
+entry 5. Groups are copied and must be nonempty. Entries in no group are free
+and remain unchanged; an empty collection of groups leaves all entries free.
+[`Conjugate`](@ref) gives the polar indicator, which requires the negative
+cone on each group and zero on every free entry, within the indicator's
+tolerance. With a single cone the polar is its negative, since the
+second-order cone is self-dual.
+
+[`IndRotatedSOC`](@ref)`()` uses the order ``(u,v,z)`` for the cone
+``\{(u,v,z) : \|z\|_2^2 \le 2uv,\ u,v \ge 0\}``. The orthogonal map
+``Q(u,v,z) = ((u+v)/\sqrt{2}, (u-v)/\sqrt{2}, z)`` takes it to the
+second-order cone, so its projection is ``Q^\top P_K Q``. The implementation
+computes this projection without forming ``Q`` and preserves small heads
+when the two heads have very different magnitudes. An array needs at least
+two entries. `IndRotatedSOC(groups)` uses the first two listed indices of
+each group as its heads. Each group needs at least two indices; a group of
+two is the nonnegative quadrant. Group ownership, free entries, linear
+indexing, non-finite entries and scalar steps follow `IndSOC`. Its conjugate
+is the polar indicator, with the negative cone on each group and zero on
+free entries. The single rotated cone is self-dual.
+
+For the value oracle, `tol = √eps(float(eltype(x)))`. The heads may be as
+small as ``-\mathtt{tol}\max(1,|u|,|v|)``. In a frame divided by ``2^k``,
+write ``a=u/2^k``, ``b=v/2^k`` and ``s=\|z/2^k\|_2``. The quadratic
+inequality is checked without squaring as
+``\operatorname{hypot}(a-b,\sqrt{2}s) \le a+b+\mathtt{tol}\max(2^{-k},|a|,|b|)``.
+
+The cone is the epigraph of the perspective ``\|z\|_2^2/(2u) \le v``
+for ``u>0``, with its closed extension at ``u=0``. It represents a
+quadratic divided by a scale, as in concomitant scale estimation, or by a
+selection variable shared by several coefficients. For a scalar coefficient,
+``\beta^2 \le as`` is `IndRotatedSOC()` on `(a, s/2, β)`, stored as an
+array. When the selection variables are uncoupled, minimizing
+``\lambda_0 a + \lambda_2\beta^2/a`` over ``0 \le a \le 1`` gives
+[`Berhu`](@ref)`(2√(λ₀λ₂), √(λ₀/λ₂))`. With coupled selection variables,
+such as a shared budget, the cone retains their joint constraint.
 
 ## Intersections
 
@@ -161,7 +216,30 @@ least-squares loss or a quadratic to the set, the ``f`` of ADMM for
 equality-constrained estimators such as log-contrast regression with several
 subcompositions.
 
-## Hyperplanes and halfspaces
+## Graphs of linear maps
+
+[`IndGraph`](@ref)`(A)` projects a tuple `(c, d)` onto ``\{(x, y) : y = Ax\}``.
+For an ``m \times n`` matrix, it factors ``I + A^\top A`` when ``n \le m`` and
+``I + AA^\top`` otherwise. Dense projections allocate nothing after
+construction. Sparse matrices keep a sparse factorization, but each solve
+allocates and may compute in `Float64` before conversion to the data's floating
+type. The Gram matrix must be representable and retain positive definiteness
+after adding the identity; unsupported numerical ranges throw at construction.
+An operator with `size`, a real `eltype`, and products with itself and its
+adjoint uses conjugate gradients on the smaller system. Its `rtol` bounds the
+relative true residual of that system, and `maxiter` can stop before convergence;
+check `f.converged` and `f.iterations`. The matrix or operator is stored by
+reference and must stay unchanged. Construct a new function after changing it.
+
+Graph-form splitting writes ``\min_x \ell(Ax) + r(x)`` as
+``\min_{x,y} \ell(y) + r(x)`` subject to ``y = Ax`` (Parikh and Boyd, 2014;
+Fougner and Boyd, 2018). ADMM then uses the proximal operators of the loss and
+penalty and this graph projection. The same factorization serves squared,
+Huber, check, hinge, logistic and Poisson losses of the predictor ``X\beta``,
+different penalties, and every regularization parameter on a path.
+Row and column equilibration belongs in the solver.
+
+## Hyperplanes, halfspaces and hyperslabs
 
 Minimizing ``\|z - v\|^2`` subject to ``\langle a, z\rangle = b`` gives
 ``z = v - \mu a`` with ``\mu = (\langle a, v\rangle - b)/\|a\|^2``. For the
@@ -171,7 +249,22 @@ violates the inequality, and ``z = v`` otherwise.
 A scalar `a` stands for an array of `a`s of the size of the argument, so
 `IndHyperplane(1, r)` is the set of arrays whose entries sum to ``r``, of any
 size. [`Constrained`](@ref) restricts a convex separable function to a
-hyperplane or a halfspace.
+hyperplane, a halfspace or a hyperslab.
+
+[`IndHyperslab`](@ref)`(a, l, u)` bounds one linear functional on both sides.
+Its projection keeps a point inside the slab and otherwise projects onto the
+violated bound, in one pass over the entries for the correction. Equal bounds
+give a hyperplane, one infinite bound gives a halfspace, and two infinite
+bounds give the whole space. Membership checks each finite bound with its own
+floating-point tolerance, so a distant bound does not hide a violation of the
+other. The normal and each finite bound use the overflow-safe scaling of
+`IndHyperplane`; see the docstring for its representability conditions.
+
+For example, `IndHyperslab(1, l, u)` bounds the sum of the coefficients, and
+`IndHyperslab(a, -c, c)` bounds the magnitude of a contrast. For a linear model,
+`a` can be the difference between two groups' mean covariates to bound their
+gap in mean predictions. `Spectral(IndHyperslab(1, l, u))` bounds the trace of
+a symmetric matrix.
 
 ## Monotone vectors
 
@@ -202,6 +295,34 @@ Projected gradient with them is hard-impute in matrix completion.
 
 With `partial = true`, [`IndPSD`](@ref) and [`IndBallRank`](@ref) compute only
 the eigenpairs or singular triplets they keep; see [Partial decompositions](@ref).
+
+## Orthonormal columns
+
+[`IndStiefel`](@ref)`()` projects a real ``p \times k`` matrix onto the
+matrices with orthonormal columns, for ``k \le p``. If
+``X = U\Sigma V^\top`` is a thin SVD, the Frobenius projection is
+``UV^\top``. All ``k`` singular-vector columns are used, including an
+orthonormal completion at rank-deficient inputs. The projection is unique
+at full column rank. Otherwise the SVD chooses a minimizer, deterministically
+for a fixed input, LAPACK backend and configuration. The choice need not be
+continuous across rank-deficient inputs. With ``k = p`` the set is the
+orthogonal group, including reflections; with ``k = 1`` it is the unit
+sphere written as a column matrix.
+
+This projection gives gradient projection steps for factor rotation and
+k-component PCA. Projecting ``A^\top B`` gives a minimizer of the orthogonal
+Procrustes problem ``\min_{Q^\top Q = I}\|AQ - B\|_F``. The step size does
+not affect the projection. The alternative formula
+``X(X^\top X)^{-1/2}`` requires full column rank and squares the condition
+number when forming the Gram matrix, so this implementation uses the SVD.
+There is no general closed form for `Constrained(f, IndStiefel())`.
+
+The value checks ``\|X^\top X - I\|_F \le \sqrt{\varepsilon}\sqrt{k}``
+in the argument's floating precision. A value of zero only reports this
+tolerance check. Nonfinite inputs have value `Inf` and cannot be projected.
+The proximal workspace follows the output's precision, which must be
+`Float32` or `Float64`; scaling precedes conversion to preserve direction
+at extreme magnitudes. Buffers are reused for fixed types and sizes.
 
 ## Structured matrices
 

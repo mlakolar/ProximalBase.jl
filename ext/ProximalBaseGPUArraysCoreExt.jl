@@ -14,8 +14,8 @@ using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, Sq
                     GroupNormL2, GroupNormLinf, SparseGroupNormL2, IndBallGroupL0, AbstractFunction,
                     LeastSquaresLoss, GLMLoss, Regularize, BoxConstrained,
                     prox_entry, value_entry, shrink, _checksize, _checkparams, _checkgroups, _tol, _ind,
-                    _kth_largest!, _positive_product, _weight_coefficient, _weight_product, _weighted_value,
-                    _value_at, _valtype, _checkreal
+                    _kth_largest!, _level_fits, _level_product, _scaled_product, _positive_product,
+                    _weight_coefficient, _weight_product, _weighted_value, _value_at, _valtype, _checkreal
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
 using LinearAlgebra: mul!
 using Base.Broadcast: broadcasted, instantiate
@@ -96,17 +96,34 @@ _scalar(y, a) = convert(float(eltype(y)), a)
 function ProximalBase._prox_sep!(y::AnyGPUArray, f::NormL1, x::AnyGPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= shrink.(x, _WeightLevel(_scalar(y, γ), _scalar(y, f.λ0)).(_param(f.w)))
+  y .= shrink.(x, _WeightLevel(_group_levels(float(eltype(y)), γ, f.λ0)...).(_param(f.w)))
 end
-# Also the retry of the unweighted dense value when its sum overflows.
-ProximalBase._value_dense(f::NormL1, x::GPUArray) =
-  (T = float(eltype(x)); (f.w === nothing && iszero(f.λ0)) ? zero(T) :
-   _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(abs, x)), _param(f.w)))
+# Keep the ordinary reduction; recover exceptional sums in power-of-two units.
+function ProximalBase._value_dense(f::NormL1, x::GPUArray)
+  T = float(eltype(x))
+  f.w === nothing && iszero(f.λ0) && return zero(T)
+  _level_fits(T, f.λ0) || return _scaled_l1_value(f.λ0, x, _param(f.w))
+  v = _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(abs, x)), _param(f.w))
+  isfinite(v) || iszero(f.λ0) || !isfinite(f.λ0) || !_all(isfinite, x) ? v : _scaled_l1_value(f.λ0, x, _param(f.w))
+end
+
+# The device accumulates in T; only the host combines an unconverted level.
+ProximalBase._converted_l1_value(λ, x::GPUArray) = _scaled_l1_value(λ, x, true)
+@noinline function _scaled_l1_value(λ, x, w)
+  T = float(eltype(x))
+  R = promote_type(T, float(typeof(λ)))
+  m = mapreduce(abs, max, x; init = zero(T))
+  isfinite(m) || return convert(T, convert(R, λ) * _sum(T, _WeightValue(one(T)), instantiate(broadcasted(abs, x)), w))
+  k = ProximalBase._magnitude_exponent(m)
+  scales = ProximalBase._power_factors(T, -k)
+  n = _sum(T, _ScaledWeightValue(_WeightValue(one(T)), scales), x, w)
+  convert(T, _scaled_product(convert(R, λ), convert(R, n), k))
+end
 
 function ProximalBase._prox_sep!(y::AnyGPUArray, f::NormL1Nonneg, x::AnyGPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= max.(x .- _WeightLevel(_scalar(y, γ), _scalar(y, f.λ0)).(_param(f.w)), 0)
+  y .= max.(x .- _WeightLevel(_group_levels(float(eltype(y)), γ, f.λ0)...).(_param(f.w)), 0)
 end
 function ProximalBase._value_dense(f::NormL1Nonneg, x::GPUArray)
   T = float(eltype(x))
@@ -129,7 +146,17 @@ function ProximalBase._value_dense(f::ElasticNet, x::GPUArray)
   l1 = f.w === nothing && iszero(f.λ1) ? zero(T) :
        (λ1 > 0) & isfinite(λ1) ? λ1 * _sum(T, _EnetValue(one(T)), instantiate(broadcasted(abs, x)), _param(f.w)) :
        _sum(T, _EnetValue(λ1), instantiate(broadcasted(abs, x)), _param(f.w))
-  l1 + (iszero(f.λ2) ? zero(T) : _scalar(x, f.λ2) * _sum(T, abs2, x) / 2)
+  if isfinite(f.λ1) && !iszero(f.λ1) && (!_level_fits(T, f.λ1) || !isfinite(l1))
+    l1 = _scaled_l1_value(f.λ1, x, _param(f.w))
+  end
+  q = iszero(f.λ2) ? zero(T) : _sum(T, abs2, x)
+  l2 = iszero(f.λ2) ? zero(T) : _scalar(x, f.λ2) * q / 2
+  if !iszero(f.λ2) && (!_level_fits(T, f.λ2) || !isfinite(l2) || iszero(l2) || issubnormal(l2) || issubnormal(q))
+    l2 = _scaled_square_value(f.λ2, x)
+  end
+  # NaN entries propagate even when both levels vanish.
+  f.w === nothing && iszero(f.λ1) && iszero(f.λ2) && return _all(!isnan, x) ? zero(T) : T(NaN)
+  l1 + l2
 end
 
 function ProximalBase._prox_sep!(y::AnyGPUArray, f::IndBox, x::AnyGPUArray, ::Real)
@@ -202,6 +229,11 @@ end
 
 # NormL2 and IndBallL2 use the generic methods and GPUArrays' scaled norm.
 # NormL2 also needs device reductions for an overflowing norm or weighted value.
+# Spectral decompositions already run on the host; retain that boundary for
+# the exceptional trace reduction too.
+ProximalBase._scaled_trace_value(f::ProximalBase.TracePSD, X::GPUArray{<:Any, 2}) =
+  ProximalBase._scaled_trace_value(f, Array(X))
+
 # The ℓ∞ norm, the ℓ1 ball and the simplex clip or shrink the entries at the level τ with
 # Σᵢ max(g(xᵢ) - τ, 0) = r, for g = abs or the identity, which the CPU finds by
 # a selection. Michelot's algorithm finds it with reductions alone: τ is the
@@ -209,12 +241,27 @@ end
 # grows, and the entries at or below it drop out until none does, after at
 # most n passes and in practice a few.
 
-function ProximalBase._scaled_norm2_value(λ::T, x::GPUArray) where {T}
+function ProximalBase._scaled_norm2_value(λ, x::GPUArray)
+  T = float(eltype(x))
+  R = promote_type(T, float(typeof(λ)))
   m = mapreduce(abs, max, x; init = zero(T))
+  isfinite(m) || return convert(T, convert(R, λ) * m)
   k = ProximalBase._magnitude_exponent(m)
   s = ProximalBase._power_factors(T, -k)
   n = sqrt(_sum(T, v -> abs2(ProximalBase._scale_value(v, s)), x))
-  ProximalBase._scaled_product(λ, n, k)
+  convert(T, _scaled_product(convert(R, λ), convert(R, n), k))
+end
+
+# Apply the squared norm's power and half-weight on the host.
+@noinline function _scaled_square_value(λ, x)
+  T = float(eltype(x))
+  R = promote_type(T, float(typeof(λ)))
+  m = mapreduce(abs, max, x; init = zero(T))
+  isfinite(m) || return convert(T, _positive_product(convert(R, λ), convert(R, m), convert(R, m)))
+  k = ProximalBase._magnitude_exponent(m)
+  s = ProximalBase._power_factors(T, -k)
+  n = _sum(T, v -> abs2(ProximalBase._scale_value(v, s)), x)
+  convert(T, _scaled_product(convert(R, λ), convert(R, n) / 2, 2k))
 end
 
 function ProximalBase._norm2_shrink!(::NormL2, y::GPUArray, x::GPUArray, c)
@@ -260,7 +307,14 @@ function _level(x::GPUArray, r::T, g::G) where {T, G}
   end
 end
 
-(f::NormLinf)(x::GPUArray) = (T = float(eltype(x)); convert(T, f.λ) * mapreduce(abs, max, x; init = zero(T)))
+(f::NormLinf)(x::GPUArray) = ProximalBase._weighted_normlinf(f.λ, x)
+function ProximalBase._weighted_normlinf(λ::Real, x::GPUArray)
+  T = float(eltype(x))
+  n = mapreduce(abs, max, x; init = zero(T))
+  _level_fits(T, λ) && return convert(T, λ) * n
+  R = promote_type(T, float(typeof(λ)))
+  convert(T, convert(R, λ) * convert(R, n))
+end
 
 function ProximalBase.value_and_prox!(y::GPUArray, f::NormLinf, x::GPUArray, γ::Real)
   _checksize(y, x)
@@ -269,14 +323,14 @@ function ProximalBase.value_and_prox!(y::GPUArray, f::NormLinf, x::GPUArray, γ:
     y === x || copyto!(y, x)
     return zero(T)
   end
-  c = convert(T, γ) * convert(T, f.λ)
+  c = _level_product_device(T, γ, f.λ)
   if _sum(T, abs, x) <= c
     fill!(y, zero(eltype(y)))
     return zero(T)
   end
   τ = _level(x, c, abs)
   y .= sign.(x) .* min.(abs.(x), τ)
-  return convert(T, convert(T, f.λ) * τ)
+  return _level_preserved(T, f.λ) ? convert(T, convert(T, f.λ) * τ) : f(y)
 end
 
 function (f::IndBallL1)(x::GPUArray)
@@ -430,6 +484,23 @@ struct _Level{T}
 end
 (l::_Level{T})(w) where {T} = _positive_product(l.step, l.λ, convert(T, w))
 
+# Exact conversions retain subnormal factors for the kernel's product recovery.
+_level_preserved(::Type{T}, a) where {T} = _level_fits(T, a) || convert(T, a) == a
+_level_product_device(::Type{T}, γ, λ) where {T} =
+  _level_preserved(T, γ) && _level_preserved(T, λ) ? convert(T, γ) * convert(T, λ) : _level_product(T, γ, λ)
+
+# Combine converted step/level factors before entering a kernel.
+function _group_levels(::Type{T}, γ, λ) where {T}
+  _level_preserved(T, γ) && _level_preserved(T, λ) && return (convert(T, γ), convert(T, λ))
+  R = promote_type(T, float(typeof(γ)), float(typeof(λ)))
+  c = convert(R, γ) * convert(R, λ)
+  _level_fits(T, c) && return (one(T), convert(T, c))
+  m, e = frexp(c)
+  a = ldexp(one(R), fld(e, 2))
+  b = ldexp(m, e - fld(e, 2))
+  _level_fits(T, a) && _level_fits(T, b) ? (convert(T, a), convert(T, b)) : (one(T), convert(T, c))
+end
+
 # the threshold and value of an entry of a weighted ℓ1 norm, with infinite and
 # zero weights as in prox_entry and value_entry
 struct _WeightLevel{T}
@@ -441,6 +512,12 @@ struct _WeightValue{T}
   λ::T
 end
 (l::_WeightValue{T})(v, w) where {T} = (w = convert(T, w); p = _positive_product(l.λ, w, v); ifelse(isinf(w) & !iszero(v), oftype(p, Inf) * v, p))
+# A functor keeps the scaled weighted reduction inferred on Julia 1.10.
+struct _ScaledWeightValue{T, S}
+  weight::_WeightValue{T}
+  scales::S
+end
+(l::_ScaledWeightValue)(v, w) = l.weight(abs(ProximalBase._scale_value(v, l.scales)), w)
 # the ℓ1 term of ElasticNet at |v|, as its value_entry; the level is one when
 # it multiplies the sum instead
 struct _EnetValue{T}
@@ -476,10 +553,22 @@ struct _ScaledNormSquare{H}
   h::H
 end
 (a::_ScaledNormSquare)(v, m) = iszero(m) ? zero(m) : abs2(a.h(v) / m)
-function _group_norms(X, b::_GroupBlock, ::Type{T}, h::H = identity) where {T, H}
+function _group_norm_parts(X, b::_GroupBlock, ::Type{T}, h::H = identity) where {T, H}
   m = _segreduce(_AbsMapped(h), max, zero(T), X, b)
   s = _segreduce(_ScaledNormSquare(h), +, zero(T), X, b, m)
+  m, s
+end
+function _group_norms(X, b::_GroupBlock, ::Type{T}, h::H = identity) where {T, H}
+  m, s = _group_norm_parts(X, b, T, h)
   m .* sqrt.(s)
+end
+
+# An overflowing finite norm still has a representable shrink factor.
+function (l::_L2Factor{T})(n, w, m, s) where {T}
+  isfinite(n) && return l(n, w)
+  iszero(w) && return one(T)
+  c = _positive_product(l.step, l.λ, convert(T, w))
+  isfinite(m) && isfinite(c) ? max(one(T) - (c / m) / sqrt(s), zero(T)) : l(n, w)
 end
 
 # |v| for an index in one of the K groups
@@ -489,13 +578,55 @@ end
 (a::_AbsIn{T})(v, g) where {T} = g <= a.K ? convert(T, abs(v)) : zero(T)
 
 # λΣₖ wₖ ‖x[Gₖ]‖₂ and the ℓ1 norm of the entries in groups
-function _l2_part(::Type{T}, xv, lay::_GroupLayout, λ::T) where {T}
+function _l2_part(::Type{T}, xv, lay::_GroupLayout, λ) where {T}
   v = zero(T)
   for b in lay.blocks
-    v += _sum(T, _Weighted(λ), _group_norms(_gather(xv, b), b, T), b.w)
+    X = _gather(xv, b)
+    q = _level_fits(T, λ) ? _sum(T, _Weighted(convert(T, λ)), _group_norms(X, b, T), b.w) : T(Inf)
+    v += isfinite(q) ? q : _scaled_group_sum(T, λ, X, b, false)
   end
   return v
 end
+# Keep each group's norm as a significand and power until weighting it.
+struct _ScaledGroupValue{T}
+  λ::T
+  k::Int
+end
+function (f::_ScaledGroupValue{T})(m, s, w) where {T}
+  w = convert(T, w)
+  (iszero(m) || !isfinite(m)) && return _positive_product(f.λ, w, m)
+  a, e = frexp(m)
+  _scaled_product(f.λ, w, a * sqrt(s), e - f.k)
+end
+function _group_exponent(m::T, w) where {T}
+  w = convert(T, w)
+  iszero(m) || iszero(w) || !isfinite(m) || !isfinite(w) ? 0 :
+    ProximalBase._magnitude_exponent(m) + ProximalBase._magnitude_exponent(w)
+end
+
+@noinline function _scaled_group_sum(::Type{T}, λ, X, b, linf) where {T}
+  m = _segreduce(abs, max, zero(T), X, b)
+  s = linf ? one(T) : _segreduce(_ScaledNormSquare(identity), +, zero(T), X, b, m)
+  if _level_fits(T, λ)
+    return _sum(T, _ScaledGroupValue(convert(T, λ), 0), m, s, b.w)
+  end
+  k = mapreduce(identity, max, instantiate(broadcasted(_group_exponent, m, b.w)); init = typemin(Int))
+  q = _sum(T, _ScaledGroupValue(one(T), k), m, s, b.w)
+  R = promote_type(T, float(typeof(λ)))
+  convert(T, _scaled_product(convert(R, λ), convert(R, q), k))
+end
+
+@noinline function _scaled_grouped_l1(::Type{T}, λ, xv, lay) where {T}
+  K = length(lay.pos)
+  z = _AbsIn{T}(K).(view(xv, 1:length(lay.gid)), lay.gid)
+  _scaled_l1_value(λ, z, true)
+end
+function _weighted_grouped_l1(::Type{T}, λ, xv, lay) where {T}
+  iszero(λ) && return zero(T)
+  v = _level_fits(T, λ) ? convert(T, λ) * _grouped_l1(T, xv, lay) : T(Inf)
+  isfinite(v) ? v : _scaled_grouped_l1(T, λ, xv, lay)
+end
+
 _grouped_l1(::Type{T}, xv, lay::_GroupLayout) where {T} =
   _sum(T, _AbsIn{T}(length(lay.pos)), view(xv, 1:length(lay.gid)), lay.gid)
 
@@ -508,7 +639,7 @@ end
 
 # GroupNormL2: block soft thresholding
 _value(f::GroupNormL2, lay, x) =
-  (_checkgroups(f, x); T = float(eltype(x)); iszero(f.λ0) ? zero(T) : _l2_part(T, vec(x), lay, convert(T, f.λ0)))
+  (_checkgroups(f, x); T = float(eltype(x)); iszero(f.λ0) ? zero(T) : _l2_part(T, vec(x), lay, f.λ0))
 
 _scale(v, t, _) = t * v
 
@@ -522,15 +653,16 @@ function _group_prox!(y, f::GroupNormL2, lay, x, γ::Real, ::Val{V}) where {V}
   iszero(f.λ0) && return zero(S)
   yv = vec(y)
   fac = _group_buffer(yv, S, lay, one(S))
-  step, λ = convert(S, γ), convert(S, f.λ0)
+  step, λ = _group_levels(S, γ, f.λ0)
   v = zero(S)
   for b in lay.blocks
-    s = _group_norms(_gather(yv, b), b, S)
-    view(fac, b.pos) .= _L2Factor(step, λ).(vec(s), vec(b.w))
+    m, q = _group_norm_parts(_gather(yv, b), b, S)
+    s = m .* sqrt.(q)
+    view(fac, b.pos) .= _L2Factor(step, λ).(vec(s), vec(b.w), vec(m), vec(q))
     V && (v += _sum(S, _L2Value(step, λ), s, b.w))
   end
   _scatter_back!(_scale, yv, lay, fac)
-  return v
+  return V && (!_level_preserved(S, γ) || !_level_preserved(S, f.λ0) || !isfinite(v)) ? _l2_part(S, yv, lay, f.λ0) : v
 end
 
 # SparseGroupNormL2: soft thresholding, then block soft thresholding
@@ -538,8 +670,8 @@ function _value(f::SparseGroupNormL2, lay, x)
   _checkgroups(f, x)
   T = float(eltype(x))
   xv = vec(x)
-  return (iszero(f.λ0) ? zero(T) : _l2_part(T, xv, lay, convert(T, f.λ0))) +
-         (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * _grouped_l1(T, xv, lay))
+  return (iszero(f.λ0) ? zero(T) : _l2_part(T, xv, lay, f.λ0)) +
+         (iszero(f.λ1) ? zero(T) : _weighted_grouped_l1(T, f.λ1, xv, lay))
 end
 
 struct _Shrink{T}
@@ -559,22 +691,26 @@ function _group_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real, ::Val{V}) where
   y === x || copyto!(y, x)
   iszero(f.λ0) && iszero(f.λ1) && return zero(S)
   yv = vec(y)
-  c1 = convert(S, γ * f.λ1)
+  c1 = _level_preserved(S, γ) && _level_preserved(S, f.λ1) ? convert(S, γ * f.λ1) : _level_product_device(S, γ, f.λ1)
   if iszero(f.λ0)
     yl = view(yv, 1:length(lay.gid))
     yl .= _SparseScale(c1, length(lay.pos)).(yl, one(S), lay.gid)
-    return V ? convert(S, f.λ1) * _grouped_l1(S, yv, lay) : zero(S)
+    return V ? _weighted_grouped_l1(S, f.λ1, yv, lay) : zero(S)
   end
   fac = _group_buffer(yv, S, lay, one(S))
-  step, λ = convert(S, γ), convert(S, f.λ0)
+  step, λ = _group_levels(S, γ, f.λ0)
   v2 = zero(S)
   for b in lay.blocks
-    s = _group_norms(_gather(yv, b), b, S, _Shrink(c1))
-    view(fac, b.pos) .= _L2Factor(step, λ).(vec(s), vec(b.w))
+    m, q = _group_norm_parts(_gather(yv, b), b, S, _Shrink(c1))
+    s = m .* sqrt.(q)
+    view(fac, b.pos) .= _L2Factor(step, λ).(vec(s), vec(b.w), vec(m), vec(q))
     V && (v2 += _sum(S, _L2Value(step, λ), s, b.w))
   end
   _scatter_back!(_SparseScale(c1, length(lay.pos)), yv, lay, fac)
-  return v2 + (V && !iszero(f.λ1) ? convert(S, f.λ1) * _grouped_l1(S, yv, lay) : zero(S))
+  if V && (!_level_preserved(S, γ) || !_level_preserved(S, f.λ0) || !isfinite(v2))
+    v2 = _l2_part(S, yv, lay, f.λ0)
+  end
+  return v2 + (V && !iszero(f.λ1) ? _weighted_grouped_l1(S, f.λ1, yv, lay) : zero(S))
 end
 
 # GroupNormLinf: each group clipped at a level, by Moreau's identity with the
@@ -587,7 +723,9 @@ function _value(f::GroupNormLinf, lay, x)
   xv = vec(x)
   v = zero(T)
   for b in lay.blocks
-    v += _sum(T, _Weighted(convert(T, f.λ0)), _segreduce(abs, max, zero(T), _gather(xv, b), b), b.w)
+    X = _gather(xv, b)
+    q = _level_fits(T, f.λ0) ? _sum(T, _Weighted(convert(T, f.λ0)), _segreduce(abs, max, zero(T), X, b), b.w) : T(Inf)
+    v += isfinite(q) ? q : _scaled_group_sum(T, f.λ0, X, b, true)
   end
   return v
 end
@@ -622,7 +760,7 @@ function _group_prox!(y, f::GroupNormLinf, lay, x, γ::Real, ::Val{V}) where {V}
   iszero(f.λ0) && return zero(S)
   yv = vec(y)
   levels = _group_buffer(yv, S, lay, S(Inf))
-  step, λ = convert(S, γ), convert(S, f.λ0)
+  step, λ = _group_levels(S, γ, f.λ0)
   v = zero(S)
   for b in lay.blocks
     τ = _linf_levels(_gather(yv, b), b, _Level(step, λ).(b.w))
@@ -630,7 +768,7 @@ function _group_prox!(y, f::GroupNormLinf, lay, x, γ::Real, ::Val{V}) where {V}
     V && (v += _sum(S, _Weighted(λ), τ, b.w))
   end
   _scatter_back!(_clip, yv, lay, levels)
-  return v
+  return V && (!_level_preserved(S, γ) || !_level_preserved(S, f.λ0) || !isfinite(v)) ? _value(f, lay, y) : v
 end
 
 # IndBallGroupL0: the number of nonzero groups, and of nonzero entries in a group

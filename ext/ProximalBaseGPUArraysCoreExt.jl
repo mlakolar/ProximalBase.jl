@@ -414,14 +414,22 @@ function _scatter_back!(op::O, yv, lay::_GroupLayout, a) where {O}
   return yv
 end
 
-# The thresholds c wₖ of the groups, the norms and the factors are computed in
-# the element type T of the output, with the step and level converted on the host, so that a
-# Float32 array is not computed in Float64 inside a kernel.
+# Ordinary group thresholds, norms and factors use the output type T, with
+# step and level converted on the host. Exceptional weights retain their
+# stored precision until the complete product is rounded.
 struct _Level{T}
   step::T
   λ::T
 end
-(l::_Level{T})(w) where {T} = _weight_product(l.step, l.λ, convert(T, w))
+# Only a stored infinite weight fixes a group. Retry finite weights that do
+# not fit the kernel type before rounding the complete product.
+@inline function _group_threshold(step::T, λ::T, w) where {T}
+  isinf(w) && return T(Inf)
+  _level_fits(T, w) && return _positive_product(step, λ, convert(T, w))
+  R = promote_type(T, float(typeof(w)))
+  convert(T, _positive_product(convert(R, step), convert(R, λ), convert(R, w)))
+end
+(l::_Level{T})(w) where {T} = _group_threshold(l.step, l.λ, w)
 
 # Exact conversions retain subnormal factors for the kernel's product recovery.
 _level_preserved(::Type{T}, a) where {T} = _level_fits(T, a) || convert(T, a) == a
@@ -468,19 +476,24 @@ end
 struct _Weighted{T}
   λ::T
 end
-(l::_Weighted{T})(v, w) where {T} = _WeightValue(l.λ)(v, w)
+function (l::_Weighted{T})(v, w) where {T}
+  isinf(w) && return convert(T, _weighted_value(w * v, v))
+  _level_fits(T, w) && return _positive_product(l.λ, convert(T, w), v)
+  R = promote_type(T, float(typeof(w)))
+  convert(T, _positive_product(convert(R, l.λ), convert(R, w), convert(R, v)))
+end
 struct _L2Factor{T}
   step::T
   λ::T
 end
 (l::_L2Factor{T})(n, w) where {T} = iszero(w) ? one(T) :
-  (c = _weight_product(l.step, l.λ, convert(T, w)); n > c ? one(T) - c / n : zero(T))
+  (c = _group_threshold(l.step, l.λ, w); n > c ? one(T) - c / n : zero(T))
 struct _L2Value{T}
   step::T
   λ::T
 end
 (l::_L2Value{T})(n, w) where {T} = iszero(w) ? zero(T) :
-  (c = _weight_product(l.step, l.λ, convert(T, w)); n > c ? _Weighted(l.λ)(n - c, w) : zero(T))
+  (c = _group_threshold(l.step, l.λ, w); n > c ? _Weighted(l.λ)(n - c, w) : zero(T))
 
 # Scale each group before squaring. A direct sum of squares can overflow or
 # underflow even when its norm, and hence its proximal factor, is representable.
@@ -506,7 +519,7 @@ end
 function (l::_L2Factor{T})(n, w, m, s) where {T}
   isfinite(n) && return l(n, w)
   iszero(w) && return one(T)
-  c = _weight_product(l.step, l.λ, convert(T, w))
+  c = _group_threshold(l.step, l.λ, w)
   isfinite(m) && isfinite(c) ? max(one(T) - (c / m) / sqrt(s), zero(T)) : l(n, w)
 end
 
@@ -532,14 +545,14 @@ struct _ScaledGroupValue{T}
   k::Int
 end
 function (f::_ScaledGroupValue{T})(m, s, w) where {T}
-  w = convert(T, w)
   isinf(w) && return _Weighted(f.λ)(m, w)
   (iszero(m) || !isfinite(m)) && return _Weighted(f.λ)(m, w)
   a, e = frexp(m)
-  _scaled_product(f.λ, w, a * sqrt(s), e - f.k)
+  _level_fits(T, w) && return _scaled_product(f.λ, convert(T, w), a * sqrt(s), e - f.k)
+  R = promote_type(T, float(typeof(w)))
+  convert(T, _scaled_product(convert(R, f.λ), convert(R, w), convert(R, a) * sqrt(convert(R, s)), e - f.k))
 end
 function _group_exponent(m::T, w) where {T}
-  w = convert(T, w)
   iszero(m) || iszero(w) || !isfinite(m) || !isfinite(w) ? 0 :
     ProximalBase._magnitude_exponent(m) + ProximalBase._magnitude_exponent(w)
 end
@@ -581,7 +594,7 @@ end
 _value(f::GroupNormL2, lay, x) =
   (_checkgroups(f, x); T = float(eltype(x)); (iszero(f.λ0) && all(isfinite, f.w)) ? zero(T) : _l2_part(T, vec(x), lay, f.λ0))
 
-_scale(v, t, _) = t * v
+_scale(v, t, _) = iszero(t) ? zero(v) : t * v
 
 # Value reductions return host scalars and can synchronize the device. Compile
 # them out for prox!, while sharing the actual proximal calculation.
@@ -622,7 +635,7 @@ struct _SparseScale{T}
   c::T
   K::Int
 end
-(s::_SparseScale{T})(v, t, g) where {T} = g <= s.K ? t * shrink(convert(T, v), s.c) : v
+(s::_SparseScale{T})(v, t, g) where {T} = g <= s.K ? (iszero(t) ? zero(T) : t * shrink(convert(T, v), s.c)) : v
 
 function _group_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real, ::Val{V}) where {V}
   _checksize(y, x)

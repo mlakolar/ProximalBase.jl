@@ -743,3 +743,56 @@ end
     end
   end
 end
+
+@testset "stored group weights before device narrowing" begin
+  allowscalar(false)
+  for F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2)
+    for λ1 in (F === SparseGroupNormL2 ? (0.0, 0.25) : (0.0,))
+      for (λ, w, x, γ, expected, value) in (
+          (1.0, [1e100], Float32[2], 0f0, Float32[2], Inf32),
+          (0.0, [Inf, 1e100], Float32[2, 2], 0f0, Float32[0, 2], Float32(2λ1)),
+          (0.0, [Inf, 1e100], Float32[2, 2], 1f0, Float32[0, 2-λ1], Float32(λ1*(2-λ1))),
+          (1e-20, [1e40], Float32[2], 0f0, Float32[2], 2f20),
+          (1e-20, [1e40], Float32[2], 1f-20, Float32[1], 1f20))
+        groups = [[i] for i in eachindex(x)]
+        f = F === SparseGroupNormL2 ? F(λ1, λ, groups, w) : F(λ, groups, w)
+        for d in (f, Adapt.adapt(DeviceArray, f))
+          @test same(d(DeviceArray(expected)), value)
+          for inplace in (false, true)
+            xd = DeviceArray(x)
+            yd = inplace ? xd : similar(xd)
+            v = value_and_prox!(yd, d, xd, γ)
+            @test host(yd) ≃ expected
+            @test same(v, value)
+            @test same(v, d(yd))
+            xd = DeviceArray(x)
+            yd = inplace ? xd : similar(xd)
+            prox!(yd, d, xd, γ)
+            @test host(yd) ≃ expected
+          end
+        end
+      end
+    end
+  end
+end
+
+@testset "infinite inputs in fixed device groups" begin
+  allowscalar(false)
+  for T in test_types, F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2),
+      λ in (zero(T), one(T)), γ in (zero(T), one(T)),
+      input in (T[Inf, -Inf], T[-Inf, Inf])
+    f = F === SparseGroupNormL2 ? F(T(0.25), λ, [[1, 2]], T[Inf]) : F(λ, [[1, 2]], T[Inf])
+    for d in (f, Adapt.adapt(DeviceArray, f)), inplace in (false, true)
+      xd = DeviceArray(input)
+      yd = inplace ? xd : similar(xd)
+      v = value_and_prox!(yd, d, xd, γ)
+      @test host(yd) == zeros(T, 2)
+      @test v == zero(T)
+      @test v == d(yd)
+      xd = DeviceArray(input)
+      yd = inplace ? xd : similar(xd)
+      prox!(yd, d, xd, γ)
+      @test host(yd) == zeros(T, 2)
+    end
+  end
+end

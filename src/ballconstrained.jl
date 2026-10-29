@@ -182,7 +182,7 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, 
   @inbounds for i in eachindex(IndexLinear(), x)
     _group(f, i) == 0 || continue
     n = convert(U, abs(x[i]))
-    ((kbest == 0 && ibest == 0) || n - bestn > -bestc) && ((kbest, ibest, bestn, bestc) = (0, i, n, zero(U)))
+    ((kbest == 0 && ibest == 0) || isinf(bestc) || n - bestn > -bestc) && ((kbest, ibest, bestn, bestc) = (0, i, n, zero(U)))
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
   bestn > bestc && return _onto_sphere!(y, f, convert(T, value_and_prox!(y, f, x, γ)), r)

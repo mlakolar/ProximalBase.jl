@@ -140,4 +140,20 @@ end
   end
 end
 
+@testset "sphere with an overflowing fixed group" begin
+  for T in (Float32, Float64), γ in (zero(T), one(T))
+    M = floatmax(T)
+    f = GroupNormL2(zero(T), [[1, 2]], T[Inf])
+    c = Constrained(f, IndSphereL2(one(T)))
+    x = T[M, M, 0]
+    y = similar(x)
+    @test value_and_prox!(y, c, x, γ) == zero(T)
+    @test y == T[0, 0, 1]
+    @test c(y) == zero(T)
+    # A finite-threshold group can also replace the overflowing fixed group.
+    f = GroupNormL2(zero(T), [[1, 2], [3]], T[Inf, 1])
+    @test prox(Constrained(f, IndSphereL2(one(T))), x, γ) == T[0, 0, 1]
+  end
+end
+
 end

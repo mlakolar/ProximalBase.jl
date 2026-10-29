@@ -17,6 +17,7 @@ from known ones.
 | [`MoreauEnvelope`](@ref)`(f, μ)` | ``\min_z f(z) + \tfrac{1}{2\mu}\lVert z - x\rVert^2`` | ``x + \tfrac{\gamma}{\mu + \gamma}\big(\operatorname{prox}_{(\mu+\gamma) f}(x) - x\big)`` | ``\big(x - \operatorname{prox}_{\mu f}(x)\big)/\mu`` |
 | [`SqrDistL2`](@ref)`(C, λ)` | ``\tfrac{\lambda}{2}\operatorname{dist}(x,C)^2`` | ``(x + \gamma\lambda P_C(x))/(1 + \gamma\lambda)`` | ``\lambda(x - P_C(x))`` where the projection is unique |
 | [`Precompose`](@ref)`(f, A, μ)`, ``AA^\top = \mu I`` | ``f(Ax)`` | ``x + \tfrac1\mu A^\top\big(\operatorname{prox}_{\mu\gamma f}(Ax) - Ax\big)`` | ``A^\top\nabla f(Ax)`` |
+| [`Precompose`](@ref)`(f, a)`, array `a`, separable `f` | ``f(a \odot x)`` | ``\operatorname{prox}_{\gamma a_i^2 f_i}(a_i x_i)/a_i`` in entry ``i`` | ``a \odot \nabla f(a \odot x)`` |
 | [`Regularize`](@ref)`(f, ρ, c)` | ``f(x) + \tfrac{\rho}{2}\lVert x - c\rVert^2`` | ``\operatorname{prox}_{\frac{\gamma}{1+\gamma\rho} f}\big(\tfrac{x + \gamma\rho c}{1 + \gamma\rho}\big)`` | ``\nabla f(x) + \rho(x - c)`` |
 
 The allocating forms `prox`, `gradient`, `value_and_gradient` and `hessian_vec`
@@ -60,6 +61,62 @@ using ProximalBase, LinearAlgebra
 x, c, γ = [2.0, -1.0, 0.5], [0.3, 0.3, -0.3], 0.7
 @assert prox(Tilt(NormL1(1.0), c, 0.0), x, γ) ≈ prox(NormL1(1.0), x - γ * c, γ) # hide
 prox(Tilt(NormL1(1.0), c, 0.0), x, γ) ≈ prox(NormL1(1.0), x - γ * c, γ)
+```
+
+## Entrywise scaling
+
+[`Precompose`](@ref)`(f, a)` with a real array `a` represents
+``h(x) = f(a \odot x)``. This is entrywise scaling even for a matrix `a`;
+use the three-argument form for a linear map. The scale must have the same
+size as `x`, with finite, nonzero entries. It is stored by reference, so
+construct a new function after changing it.
+
+For a separable ``f``, substituting ``u = a_i z_i`` in each scalar proximal
+problem gives
+```math
+\operatorname{prox}_{\gamma h}(x)_i
+= \frac{\operatorname{prox}_{\gamma a_i^2 f_i}(a_i x_i)}{a_i}.
+```
+The wrapper supports diagonal steps, coordinate updates, optimality tests
+and restriction. Its coordinate curvatures are ``a_i^2 L_i``, and its gradient
+has Lipschitz constant at most ``\max_i a_i^2 L_f``. Entrywise values require
+`f` to be a `SeparableFunction`. On a `SymmetricSparseIterate`, both `a` and
+the inner parameters must be symmetric. The image uses the promoted floating
+type of `x` and `a`; values have the inner function's type at that image.
+The scaled inputs, effective steps and results must fit
+in that precision and in the range supported by the inner oracle; effective
+steps are formed without first rounding ``a_i^2``.
+
+For a group penalty, `a` must be constant on each group. Full-array values
+and proximal operators then use the step ``\gamma c_k^2`` for group ``k``,
+where ``c_k`` is its scale. Indices outside the groups remain unchanged.
+The four-argument `kkt_violation` works on arrays and on matching groups of an
+`AtomIterate`; group coordinate updates and `restrict` are not supported.
+Other nonseparable functions are rejected, and the array wrapper supplies no
+Hessian products.
+
+Penalizing standardized regression coefficients can be done without
+rescaling the design: with column scales `s`, use `Precompose(f, s)` on
+the coefficients. For the ℓ1 norm this gives weights `s`. For MCP it changes
+both the level and the concavity, entry by entry:
+```math
+\operatorname{MCP}_{\lambda, b}(s\beta)
+= \operatorname{MCP}_{s\lambda, b/s^2}(\beta), \qquad s > 0.
+```
+Similarly, `Precompose(IndBox(l, u), s)` imposes a box on the standardized
+coefficients.
+
+Known residual scales also enter this way. The separable Huber function
+`MoreauEnvelope(NormL1(1), δ)` has quadratic part ``t^2/(2\delta)`` for
+``|t| \le \delta`` and linear part ``|t| - \delta/2`` otherwise.
+Thus `Precompose(MoreauEnvelope(NormL1(1), δ), 1 ./ σ)` gives
+``\sum_i \rho(r_i/\sigma_i)``. Both the quadratic curvature and the transition
+point change with ``\sigma_i``.
+
+```@example calculus
+s = [0.5, 2.0, 1.5]
+h = Precompose(MCP(0.3), s)
+prox(h, [2.0, -1.0, 0.2], 0.4)
 ```
 
 ## Conjugates

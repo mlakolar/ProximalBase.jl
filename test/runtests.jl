@@ -47,6 +47,7 @@ tests = [
   "envelope",
   "distance",
   "composition",
+  "precompose_array",
   "caches",
   "metric",
   "allocations",

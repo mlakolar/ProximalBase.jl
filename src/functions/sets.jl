@@ -602,8 +602,8 @@ whole space. An empty input has a projection only when `l ≤ 0 ≤ u`.
 The projection is accurate when the scaled active bound, residual and output
 are representable; inputs near `floatmax` are outside this guarantee. Accuracy
 is limited by the less precise of the function's floating-point type and the
-output type. An array of positive steps `γ` gives the projection in the metric
-of `Diagonal(1 ./ γ)`, with the correction along `γ .* a`. This uses the
+output type. An array of positive finite steps `γ` gives the projection in the
+metric of `Diagonal(1 ./ γ)`, with the correction along `γ .* a`. This uses the
 hyperplane's formula and also requires its weighted squared norm and correction
 to be representable; extreme steps may overflow.
 """

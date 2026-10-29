@@ -205,13 +205,6 @@ function _checkwrite(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractA
   _checkparams(c, x)
   c.set isa IndHyperslab && _checkwrite(op, c.set, y, x)
   op === value_and_prox! && !_isindicator(c) && _checkvalue(c.f, y)
-  if isempty(x) && !(c.set isa IndHyperslab)
-    T = float(eltype(y))
-    φ = -convert(T, _scaled_offset(c.set))
-    if c.set isa IndHyperplane || φ > 0
-      abs(φ) <= 2eps(T) * abs(φ) || _infeasible(c)
-    end
-  end
   true
 end
 
@@ -881,8 +874,17 @@ end
 
 function _checkstep(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
   f, set = c.f, c.set
+  if isempty(x)
+    if !(set isa IndHyperslab)
+      T = float(eltype(y))
+      φ = -convert(T, _scaled_offset(set))
+      if set isa IndHyperplane || φ > 0
+        abs(φ) <= 2eps(T) * abs(φ) || _infeasible(c)
+      end
+    end
+    return true
+  end
   f isa IndBox && f.l isa Real && f.u isa Real && set.a isa Real || return true
-  isempty(x) && return true
   T = float(eltype(y))
   T <: Union{Float32, Float64} && eltype(x) <: Union{Float32, Float64} || return true
   step = convert(T, γ)

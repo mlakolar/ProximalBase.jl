@@ -578,7 +578,8 @@ prox!(y::AbstractArray{<:Real}, c::Conjugate{<:SumLargest}, x::AbstractArray{<:R
   _sumlargest_prox!(y, c.f, x, 1, Val(true))
 
 _tuple_buffer_type(::Type{<:AbstractArray{T, N}}) where {T, N} = Array{float(T), N}
-_tuple_buffer_type(::Type{X}) where {X<:Tuple} = Tuple{map(_tuple_buffer_type, fieldtypes(X))...}
+# Keep nested buffer types constant during inference.
+Base.@assume_effects :foldable _tuple_buffer_type(::Type{X}) where {X<:Tuple} = Tuple{map(_tuple_buffer_type, fieldtypes(X))...}
 _same_buffer_sizes(b::AbstractArray, x::AbstractArray) = size(b) == size(x)
 _same_buffer_sizes(b::Tuple, x::Tuple) = all(map(_same_buffer_sizes, b, x))
 
@@ -981,8 +982,13 @@ _checkstep_moreau_set(t::Translate, y, x, γ) = _checkstep_moreau(t.f, y, _StepI
 _step_input(x::AbstractArray) = _StepInput(x)
 _step_input(::Tuple{}) = ()
 _step_input(x::Tuple) = (_step_input(first(x)), _step_input(Base.tail(x))...)
+
+_step_unwrap(x::AbstractArray) = x
+_step_unwrap(x::_StepInput) = _step_unwrap(x.array)
+_step_unwrap(::Tuple{}) = ()
+_step_unwrap(x::Tuple) = (_step_unwrap(first(x)), _step_unwrap(Base.tail(x))...)
 function _checkstep(op::O, c::Conjugate, y::Tuple, x::Tuple, γ::Real) where {O}
-  p = _conjugate_checkbuffer(c.scratch, y, x)
+  p = _conjugate_checkbuffer(c.scratch, y, _step_unwrap(x))
   if op === value_and_prox! && !_isindicator(c) && !_has_conjugate_value(c.f)
     return _checkstep(value_and_prox!, c.f, p, _step_input(p), inv(γ))
   end

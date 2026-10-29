@@ -142,6 +142,23 @@ end
 end
 
 @testset "Checks are never stricter than their oracles" begin
+  empty = Constrained(IndBox(-1e100, 1e100), IndHyperplane(1.0, 1.0))
+  for op in proximal
+    ref = thrown(op, Float64[], empty, Float64[], [1.0])
+    @test ref isa DimensionMismatch
+    @test PB._checkstep(op, empty, Float64[], Float64[], [1.0]) === true
+    @test same_exception(ref, DimensionMismatch("a parameter array has length 1 and the argument has length 0"))
+    scalar_ref = thrown(op, Float64[], empty, Float64[], 1.0)
+    checked = try
+      PB._checkstep(op, empty, Float64[], PB._StepInput(Float64[]), 1.0)
+    catch e
+      e
+    end
+    @test same_exception(checked, scalar_ref)
+  end
+  for (Tx, Ty) in ((ComplexF64, ComplexF64), (Float64, ComplexF64), (ComplexF64, Float64))
+    same_outcome(SumLargest(1), Tx[2, 3], -1.0; output = zeros(Ty, 2))
+  end
   for (Tx, Ty) in ((Float32, Float64), (Float64, Float32)), alias in (false, true)
     e = MoreauEnvelope(NormL1(), 1.0)
     x, y = Tx[2, 3], zeros(Ty, 2)
@@ -184,6 +201,14 @@ _allocation_check(op::O, y, f, x, γ) where {O} = PB._checkstep(op, f, y, x, γ)
 _allocation_prox!(y, f, x, γ) = prox!(y, f, x, γ)
 
 @testset "Warmed checks allocate nothing" begin
+  nested = SeparableSum(SqrNormL2(2.0), Conjugate(SeparableSum(Conjugate(SeparableSum(SqrNormL2(1.0))))))
+  point = ([3.0], (([2.0, 3.0],),))
+  dest = deepcopy(point)
+  for op in proximal
+    op(dest, nested, point, 1.0)
+    @test PB.Testing.allocations(_allocation_check, op, dest, nested, point, 1.0) == 0
+    @test PB.Testing.allocations(op, dest, nested, point, 1.0) <= (VERSION < v"1.11" ? 80 : 0)
+  end
   inner = SeparableSum(Precompose(MoreauEnvelope(NormL1(), 0.5), 2.0), SumLargest(1))
   f = SeparableSum(SqrNormL2(2.0), inner)
   x = ([3.0], ([2.0, 3.0], [4.0, 5.0]))

@@ -26,7 +26,10 @@ same(a, b) = isinf(b) ? a == b : a ≃ b
                IndBallL1(1), IndBallL1(0), IndSimplex(1), IndSimplex(0),
                GroupNormL2(0.3, groups), GroupNormL2(0, groups),
                GroupNormLinf(0.3, groups), SparseGroupNormL2(0.2, 0.3, groups),
-               IndBallGroupL0(1, groups), GroupNormL2(0.3, UnitRange{Int}[]))
+               IndBallGroupL0(1, groups), GroupNormL2(0.3, UnitRange{Int}[]),
+               GroupNormL2(0, groups, [Inf, 1.0]),
+               GroupNormLinf(0, groups, [Inf, 1.0]),
+               SparseGroupNormL2(0, 0, groups, [Inf, 1.0]))
   for f in functions, fg in (f, Adapt.adapt(DeviceArray, f))
     error = ArgumentError("$(nameof(typeof(fg))) requires real entries")
     for imaginary in (0, 1)
@@ -1026,6 +1029,160 @@ end
         @test isfinite(v)
         check_rounded(v, ref)
         @test v ≃ f(host(X))
+      end
+    end
+  end
+end
+
+@testset "infinite group weights on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types, F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2),
+      groups in ([[1, 2], [3]], [[1], [2, 3]]), λ in (0, 1, Inf),
+      w in (T[0, Inf], T[Inf, 0], T[1, Inf], T[Inf, 1])
+    for λ1 in (F === SparseGroupNormL2 ? (T(0), T(0.25)) : (T(0),))
+      f = F === SparseGroupNormL2 ? F(λ1, T(λ), groups, w) : F(T(λ), groups, w)
+      fixed = findfirst(isinf, w)
+      other = 3 - fixed
+      x = T[3, 4, 2]
+      x0 = copy(x)
+      x0[groups[fixed]] .= 0
+      G = groups[other]
+      n = F === GroupNormLinf ? maximum(abs, x0[G]) : norm(x0[G])
+      value = iszero(w[other]) || iszero(λ) ? λ1 * sum(abs, x0) : T(λ) * w[other] * n + λ1 * sum(abs, x0)
+      for d in (f, Adapt.adapt(DeviceArray, f))
+        @test d(DeviceArray(x)) == T(Inf)
+        @test same(d(DeviceArray(x0)), value)
+        for γ in (zero(T), one(T))
+          expected = copy(x)
+          expected[groups[fixed]] .= 0
+          z = max.(x[G] .- γ * λ1, 0)
+          c = iszero(γ) || iszero(w[other]) || iszero(λ) ? zero(T) : T(λ) * w[other]
+          if isinf(c)
+            z .= 0
+          elseif F === GroupNormLinf
+            # These groups have at most two positive entries.
+            if sum(z) <= c
+              z .= 0
+            else
+              τ = length(z) == 1 ? z[1] - c : max((sum(z) - c)/2, maximum(z) - c)
+              z = min.(z, τ)
+            end
+          elseif !iszero(norm(z))
+            z *= max(1 - c/norm(z), 0)
+          end
+          expected[G] = z
+          xd = DeviceArray(x)
+          @test host(prox(d, xd, γ)) ≃ expected
+          yd = copy(xd)
+          @test same(value_and_prox!(yd, d, yd, γ), f(expected))
+          @test host(yd) ≃ expected
+        end
+      end
+      if isfinite(λ)
+        z = Scaled(f, zero(T))
+        for d in (z, Adapt.adapt(DeviceArray, z))
+          @test d(DeviceArray(x)) == T(Inf)
+          @test d(DeviceArray(x0)) == zero(T)
+          @test host(prox(d, DeviceArray(x), zero(T))) == x0
+        end
+      end
+    end
+  end
+end
+
+@testset "stored group weights before device narrowing" begin
+  allowscalar(false)
+  for F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2)
+    for λ1 in (F === SparseGroupNormL2 ? (0.0, 0.25) : (0.0,))
+      for (λ, w, x, γ, expected, value) in (
+          (1.0, [1e100], Float32[2], 0f0, Float32[2], Inf32),
+          (0.0, [Inf, 1e100], Float32[2, 2], 0f0, Float32[0, 2], Float32(2λ1)),
+          (0.0, [Inf, 1e100], Float32[2, 2], 1f0, Float32[0, 2-λ1], Float32(λ1*(2-λ1))),
+          (1e-20, [1e40], Float32[2], 0f0, Float32[2], 2f20),
+          (1e-20, [1e40], Float32[2], 1f-20, Float32[1], 1f20))
+        groups = [[i] for i in eachindex(x)]
+        f = F === SparseGroupNormL2 ? F(λ1, λ, groups, w) : F(λ, groups, w)
+        for d in (f, Adapt.adapt(DeviceArray, f))
+          @test same(d(DeviceArray(expected)), value)
+          for inplace in (false, true)
+            xd = DeviceArray(x)
+            yd = inplace ? xd : similar(xd)
+            v = value_and_prox!(yd, d, xd, γ)
+            @test host(yd) ≃ expected
+            @test same(v, value)
+            @test same(v, d(yd))
+            xd = DeviceArray(x)
+            yd = inplace ? xd : similar(xd)
+            prox!(yd, d, xd, γ)
+            @test host(yd) ≃ expected
+          end
+        end
+      end
+    end
+  end
+end
+
+@testset "infinite inputs in fixed device groups" begin
+  allowscalar(false)
+  for T in test_types, F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2),
+      λ in (zero(T), one(T)), γ in (zero(T), one(T)),
+      input in (T[Inf, -Inf], T[-Inf, Inf])
+    f = F === SparseGroupNormL2 ? F(T(0.25), λ, [[1, 2]], T[Inf]) : F(λ, [[1, 2]], T[Inf])
+    for d in (f, Adapt.adapt(DeviceArray, f)), inplace in (false, true)
+      xd = DeviceArray(input)
+      yd = inplace ? xd : similar(xd)
+      v = value_and_prox!(yd, d, xd, γ)
+      @test host(yd) == zeros(T, 2)
+      @test v == zero(T)
+      @test v == d(yd)
+      xd = DeviceArray(input)
+      yd = inplace ? xd : similar(xd)
+      prox!(yd, d, xd, γ)
+      @test host(yd) == zeros(T, 2)
+    end
+  end
+end
+
+@testset "zero scaling before and after group adaptation" begin
+  allowscalar(false)
+  for T in test_types, F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2),
+      w in (T[1, 2], T[Inf, 1], T[1, Inf])
+    groups = [[1, 2], [3]]
+    f = F === SparseGroupNormL2 ? F(T(0.25), one(T), groups, w) : F(one(T), groups, w)
+    d = Adapt.adapt(DeviceArray, f)
+    x = T[3, -4, 2]
+    expected = copy(x)
+    for k in eachindex(w)
+      isinf(w[k]) && (expected[groups[k]] .= 0)
+    end
+    zeroed = Scaled(d, zero(T))
+    if all(isfinite, w)
+      @test zeroed isa ZeroFunction
+    else
+      @test typeof(zeroed) == typeof(d)
+      @test zeroed.layout === d.layout
+      @test iszero(zeroed.f.λ0)
+      if F === SparseGroupNormL2
+        @test iszero(zeroed.f.λ1)
+      end
+    end
+    for z in (zeroed, Adapt.adapt(DeviceArray, Scaled(f, zero(T))),
+              Scaled{typeof(d), T}(d, zero(T)), Scaled(Scaled(d, T(2)), zero(T)),
+              Scaled(Adapt.adapt(DeviceArray, Scaled(f, T(2))), zero(T)),
+              Adapt.adapt(DeviceArray, Scaled(Scaled(f, T(2)), zero(T))))
+      @test z(DeviceArray(x)) == (all(isfinite, w) ? zero(T) : T(Inf))
+      @test z(DeviceArray(expected)) == zero(T)
+      for γ in (zero(T), one(T)), inplace in (false, true)
+        xd = DeviceArray(x)
+        yd = inplace ? xd : similar(xd)
+        v = value_and_prox!(yd, z, xd, γ)
+        @test host(yd) == expected
+        @test v == zero(T)
+        @test v == z(yd)
+        xd = DeviceArray(x)
+        yd = inplace ? xd : similar(xd)
+        prox!(yd, z, xd, γ)
+        @test host(yd) == expected
       end
     end
   end

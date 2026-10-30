@@ -39,8 +39,7 @@ not absolutely symmetric.
 `isconvex` and the indicator property come from `f`. The domain of `F` is the
 finite matrices: a matrix with a non-finite entry has value `Inf`, also for a
 bounded `f` such as `NormL0`. When a decomposition is needed, a non-finite
-input gives an all-`NaN` proximal output; `value_and_prox!` returns zero for an
-indicator and `NaN` otherwise.
+input gives an all-`NaN` proximal output; `value_and_prox!` returns `Inf`.
 In the value `F(X)`, singular values within a relative `√ε` of the largest
 count as zero, as they do for `IndBallRank`: the
 value at a proximal point of low rank then agrees with the one
@@ -167,7 +166,7 @@ function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix,
   T = float(eltype(Y))
   if !all(isfinite, X)
     fill!(Y, T(NaN))
-    return _isindicator(F) ? zero(T) : T(NaN)
+    return T(Inf)
   end
   ws = _svd_workspace(F.ws, T, size(X)...)
   F.ws = ws

@@ -122,11 +122,55 @@ function _shrunk!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Abstrac
   _RegularizeSteps(γ, ρ)
 end
 
+function _value_and_prox_regularize_groups!(y, r::Regularize{<:AbstractGroupPenalty}, x, γ::AbstractVector, op::O) where {O}
+  # Check shapes before the group layout, deferring the inner output checks.
+  _check_wrapper_output(y)
+  _checksize(y, x)
+  _checkparams(r, x)
+  r.c === nothing || Base.Broadcast.check_broadcast_axes(axes(y), x, r.c)
+  if op === value_and_prox!
+    r.c === nothing || _checksize(x, r.c)
+  end
+  _checkgroups(r.f, x)
+  _checkgroupsteps(r.f, γ)
+  isempty(r.f.free) && length(r.f.group_of) == length(x) ||
+    throw(ArgumentError("per-group steps for Regularize require groups that cover every entry"))
+  if y isa AtomIterate || y isa SymmetricSparseIterate
+    name = y isa AtomIterate ? "AtomIterate" : "SymmetricSparseIterate"
+    throw(ArgumentError("per-group steps for Regularize do not support $name outputs"))
+  end
+  _checkwrite(op, r, y, x)
+  z = _output_buffer!(r.scratch, y)
+  T = float(eltype(z))
+  ρ = convert(T, r.ρ)
+  for k in eachindex(r.f.groups)
+    step = convert(T, γ[k])
+    @inbounds for i in r.f.groups[k]
+      z[i] = r.c === nothing ? _regularize_shrink(x[i], step, ρ) :
+                              _regularize_shrink(x[i], r.c[i], step, ρ)
+    end
+  end
+  # Run in the buffer even for dense outputs, committing only after success.
+  w = _wrapper_output(z, z)
+  steps = _RegularizeSteps(γ, ρ)
+  if op === prox!
+    prox!(w, r.f, z, steps)
+    return _wrapper_commit!(y, w)
+  end
+  v = value_and_prox!(w, r.f, z, steps)
+  v = _value_at(v + _ridge(r, w), w)
+  _wrapper_commit!(y, w)
+  v
+end
+
 function prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
   _checkreal(r, y)
   _checkreal(r, x)
   _checkreal(r, γ)
-  isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function"))
+  if γ isa AbstractVector && r.f isa AbstractGroupPenalty
+    return _value_and_prox_regularize_groups!(y, r, x, γ, prox!)
+  end
+  isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function or a group penalty"))
   _checkwrite(prox!, r, y, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)
@@ -138,7 +182,10 @@ function value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::
   _checkreal(r, y)
   _checkreal(r, x)
   _checkreal(r, γ)
-  isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function"))
+  if γ isa AbstractVector && r.f isa AbstractGroupPenalty
+    return _value_and_prox_regularize_groups!(y, r, x, γ, value_and_prox!)
+  end
+  isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function or a group penalty"))
   _checkwrite(value_and_prox!, r, y, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)

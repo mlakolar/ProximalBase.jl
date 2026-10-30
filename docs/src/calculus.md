@@ -36,8 +36,9 @@ operator.
   of ``\alpha f`` with step ``\gamma`` is that of ``f`` with step
   ``\gamma\alpha``. The Lipschitz constant scales by ``\alpha``.
   Zero scaling removes finite penalty terms and keeps domain constraints.
-  For `NormL1`, `NormL1Nonneg`, `ElasticNet`, `CappedL1`, `LogPenalty`, `NormLq`
-  and `Berhu`, infinite weights retain the same family with all levels zero.
+  For `NormL1`, `NormL1Nonneg`, `ElasticNet`, `CappedL1`, `LogPenalty`, `NormLq`,
+  `Berhu`, `GroupNormL2`, `GroupNormLinf`, `SparseGroupNormL2`, `GroupMCP` and
+  `GroupSCAD`, infinite weights retain the same family with all levels zero.
   With finite weights, `NormL1Nonneg` becomes `IndNonnegative()` and the others
   become `ZeroFunction()`. Non-finite levels or shape parameters are rejected.
 - **Tilting.** Completing the square,

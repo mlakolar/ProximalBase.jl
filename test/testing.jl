@@ -200,6 +200,7 @@ PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
     for f in (NormL1(0.5, w), ElasticNet(0.3, 0.6), MCP(0.4), IndBox(-1.0, 2.0), NormL0(0.2))
       @test passes(() -> PT.test_separable(f, x, γ; groups))
     end
+    @test passes(() -> PT.test_separable(SqrHingeLoss(), x, 0.4; groups = 2))
     for f in (Scaled(NormL1(1.0), 2.0), Conjugate(NormL1(1.0)), Conjugate(ElasticNet(0.3, 0.6)))
       @test passes(() -> PT.test_separable(f, x, γ; rng = Xoshiro(2)))
     end

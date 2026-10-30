@@ -293,7 +293,7 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
     y = AtomIterate(float(eltype(x)), length(x), groups)
     for k in 1:ncoordinates(a)
       prox_coordinate!(a, f, k, γ)
-      prox_coordinate!(y, f, k, xz[groups[k]], γ)
+      prox_coordinate!(y, f, k, xz[a.groups[k]], γ)
     end
     @test _dense(a) ≈ _dense(pz)
     @test _dense(y) ≈ _dense(pz)

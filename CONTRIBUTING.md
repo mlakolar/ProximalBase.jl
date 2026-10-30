@@ -16,7 +16,7 @@ Julia installs the declared dependencies and test dependencies automatically.
 No clones of ProximalSolvers or other related packages are required, and you
 can work on any Git branch.
 
-To run the tests with the same options as continuous integration (CI):
+To run the full suite through the test script used by continuous integration (CI):
 
 ```sh
 julia scripts/test.jl
@@ -29,6 +29,25 @@ does, or `JULIA_TEST_DEPWARN=error` to treat deprecation warnings as errors.
 Test files run in parallel worker processes. Extra arguments list tests, select a subset,
 or set the workers: `julia scripts/test.jl --list`, `julia scripts/test.jl lapack caches`,
 or `julia scripts/test.jl --jobs=2`. The same arguments work through `Pkg.test(; test_args=...)`.
+
+`julia scripts/test.jl --core` skips the extended tier (`precision_mixed`,
+`large_inputs`, `spectral_overflow`); plain `julia scripts/test.jl` runs everything.
+`--list` shows the full catalog, including with `--core`. The core switch combines
+with test names, for example `julia scripts/test.jl --core spectral`.
+
+CI runs the following tests:
+
+- Pull requests run Julia lts and Julia 1 on Ubuntu with the core tier (`--core`).
+  Coverage from Julia 1 counts only the core tier, so Codecov may report lower
+  coverage on a PR than on master. Codecov merges uploads for the same commit,
+  so a full run on the same head adds to the report.
+- Pull requests labelled `full-tests` run all jobs and the full suite, including
+  Julia 1 on macOS and Windows and Julia pre on Ubuntu. The label is read when
+  a run starts: add it, then push or close and reopen the PR. Re-running an old
+  run does not pick it up. A PR whose final commit needs a full-suite pass on
+  every platform should carry the label for its final push.
+- Pushes to master, tags and manual runs use all jobs and the full suite.
+  A newer pending master run can replace an older pending one.
 
 Documentation, benchmarks and optional conic tests each have their own
 `Project.toml` with additional tools. The setup script installs those tools

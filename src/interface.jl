@@ -18,6 +18,10 @@ outside its domain. Its traits say which oracles it provides:
 | [`isseparable`](@ref) | [`prox_entry`](@ref), and [`prox_coordinate!`](@ref) on every iterate |
 | [`hashessian`](@ref) | [`hessian_vec!`](@ref), [`quadratic_model`](@ref) |
 
+Checks that depend only on types, shapes and parameters run before any output
+write; failures that depend on the step, argument values or computation may
+leave outputs, and inputs that alias them, changed.
+
 A function can have several roles: [`SqrNormL2`](@ref), [`QuadraticFunction`](@ref),
 [`LeastSquaresLoss`](@ref) and [`LogDetLoss`](@ref) are both smooth and
 proximable. [`isconvex`](@ref) tells a solver whether convex theory applies.
@@ -393,13 +397,15 @@ are convex it is zero exactly at the minimizers, for every `γ > 0`; with
 `g = 0` it is `∇f(x)`. Its norm is a stopping rule that needs neither the
 optimal value nor the structure of `g`, and a proximal gradient step from `x` is
 `x - γG`. `G` must not be `x`; `gradient_mapping!` allocates nothing beyond
-what `gradient!` and `prox!` do.
+what `gradient!` and `prox!` do. Overlapping views of `G` and `x` are unsupported.
 """
 function gradient_mapping!(G::AbstractArray, f::AbstractFunction, g::AbstractFunction, x::AbstractArray, γ::Real)
   G === x && throw(ArgumentError("G must not be x"))
   _checksize(G, x)
   _checkparams(f, x)
   _checkparams(g, x)
+  _checkwrite(gradient!, f, G, x)
+  _checkwrite(prox!, g, G, G)
   gradient!(G, f, x)
   G .= x .- γ .* G
   prox!(G, g, G, γ)

@@ -308,3 +308,18 @@ function Base.show(io::IO, ::MIME"text/plain", x::AtomIterate)
     end
   end
 end
+
+# The cache owns the entries and active state, but shares the immutable layout.
+function _output_buffer!(s::Scratch, y::Y) where {Y<:AtomIterate}
+  b = s.buf
+  if b isa Y && b.groups === y.groups && length(b) == length(y)
+    copyto!(b.storage, y.storage)
+    copyto!(b.active, y.active)
+    copyto!(b.position, y.position)
+    b.nactive = y.nactive
+    return b
+  end
+  b = copy(y)
+  s.buf = b
+  b
+end

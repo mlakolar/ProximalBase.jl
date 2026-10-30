@@ -59,6 +59,36 @@ same(a, b) = isinf(b) ? a == b : a ≃ b
   @test_throws ArgumentError Adapt.adapt(DeviceArray, NormL1(0.3, -w))
 end
 
+@testset "linear separable parameters on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types
+    x = T[5, -5]
+    w = T[1 2]
+    l, u = T[0 2], T[1, 3]
+    xg = DeviceArray(x)
+    for (f, direct) in ((IndBox(l, u), IndBox(DeviceArray(l), DeviceArray(u))),
+                        (NormL1(T(0.3), w), NormL1(T(0.3), DeviceArray(w))),
+                        (NormL1Nonneg(T(0.3), w), NormL1Nonneg(T(0.3), DeviceArray(w))),
+                        (ElasticNet(T(0.3), T(0.5), w), ElasticNet(T(0.3), T(0.5), DeviceArray(w))))
+      for fg in (Adapt.adapt(DeviceArray, f), direct, Adapt.adapt(DeviceArray, direct))
+        @test same(fg(xg), f(x))
+        yc = prox(f, x, T(0.8))
+        yg = similar(xg)
+        @test prox!(yg, fg, xg, T(0.8)) === yg
+        @test host(yg) ≃ yc
+        @test same(value_and_prox!(yg, fg, xg, T(0.8)), f(yc))
+        @test host(yg) ≃ yc
+        for op in (prox!, value_and_prox!)
+          z = copy(xg)
+          op(z, fg, z, T(0.8))
+          @test host(z) ≃ yc
+        end
+      end
+    end
+    @test_throws DimensionMismatch IndBox(DeviceArray(T[0 0]), DeviceArray(T[1]))
+  end
+end
+
 @testset "compensated separable L1 coefficients" begin
   allowscalar(false)
   for T in test_types, F in (NormL1, NormL1Nonneg)
@@ -418,6 +448,9 @@ end
   @test gh.η isa Vector{Float64} && gh.weights isa Vector{Float64} && gh(b) ≃ LogisticLoss(yb, X; weights = w)(b)
   # a negative weight is caught on the device, as on the host
   @test_throws ArgumentError GLMLoss(ProximalBase.Squared(), DeviceArray(y), DeviceArray(X); weights = DeviceArray(-w))
+  # and so are infinite weights and offsets (#251)
+  @test_throws ArgumentError GLMLoss(ProximalBase.Squared(), DeviceArray(y), DeviceArray(X); weights = DeviceArray([w[1:end-1]; Inf]))
+  @test_throws ArgumentError GLMLoss(ProximalBase.Squared(), DeviceArray(y), DeviceArray(X); offset = DeviceArray([w[1:end-1]; NaN]))
 end
 
 @testset "compensated group coefficients on GPU arrays" begin

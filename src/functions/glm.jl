@@ -140,7 +140,9 @@ curvature(::Huber) = 1.0
 
 The loss `f(β) = Σᵢ wᵢ ℓ(ηᵢ, yᵢ)` of the linear predictor `η = Xβ + offset`, for
 a [`ProximalBase.ScalarLoss`](@ref) `ℓ`, with all `wᵢ = 1` and no offset when
-omitted. Smooth, with gradient `X' (wᵢ ℓ'(ηᵢ, yᵢ))ᵢ`. [`LogisticLoss`](@ref),
+omitted. The weights must be finite and nonnegative, and the offset finite, in
+the working precision of `y` and `X`; the constructor throws an `ArgumentError`
+otherwise. Smooth, with gradient `X' (wᵢ ℓ'(ηᵢ, yᵢ))ᵢ`. [`LogisticLoss`](@ref),
 [`PoissonLoss`](@ref) and [`HuberLoss`](@ref) construct the common ones.
 
 `f` keeps `X` (field `X`) and a buffer for `η` (field `η`), so
@@ -167,8 +169,12 @@ function GLMLoss(loss::ScalarLoss, y::AbstractVector, X::AbstractMatrix;
   size(X, 1) == n || throw(DimensionMismatch("X has $(size(X, 1)) rows and y has length $n"))
   weights === nothing || length(weights) == n || throw(DimensionMismatch("weights must have length $n"))
   offset === nothing || length(offset) == n || throw(DimensionMismatch("offset must have length $n"))
-  weights === nothing || _checknonneg("the weights", weights)
   T = float(promote_type(eltype(y), eltype(X)))
+  # finite in the working precision, where the oracles use them
+  weights === nothing || all(t -> t isa Real && t >= 0 && isfinite(convert(T, t)), weights) ||
+    throw(ArgumentError("the weights must be finite and nonnegative"))
+  offset === nothing || all(t -> t isa Real && isfinite(convert(T, t)), offset) ||
+    throw(ArgumentError("the offset must be finite"))
   η, d = _zeros_like(y, T, n), _zeros_like(y, T, n)
   GLMLoss{typeof(loss), T, typeof(y), typeof(X), typeof(weights), typeof(offset), typeof(η)}(
     loss, y, X, weights, offset, η, d)

@@ -463,7 +463,10 @@ _has_ordinary_value(::Type{<:Berhu}) = true
 
 Base.@propagate_inbounds function prox_entry(f::Berhu, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  c = _weight_coefficient(S(γ), S(f.λ), S(_entry(f.w, i)))
+  step, λ, w = S(γ), S(f.λ), S(_entry(f.w, i))
+  # Avoid rounding or overflow in the upper branch of an identity prox.
+  !isinf(w) && (iszero(step) || iszero(λ) || iszero(w)) && return S(v)
+  c = _weight_coefficient(step, λ, w)
   M, t = S(f.M), abs(S(v))
   t <= M + c ? shrink(S(v), c) : S(v) * M / (M + c)
 end

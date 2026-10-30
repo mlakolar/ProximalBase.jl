@@ -144,13 +144,10 @@ function _array_buffer!(s::Scratch, ::Type{T}, dims::NTuple{N, Int}) where {T, N
   b
 end
 
-# A buffer like the output y for the input that a wrapper passes on: an Array
-# for a dense output on the CPU and similar(y) for other dense arrays, such as GPU
-# arrays, reused while their type and size do not change; and otherwise a copy of
-# y, which writing leaves as it would leave y, such as the active groups of an AtomIterate.
-# Without a Scratch (a function adapted to the device), the input is written in y.
+# A buffer for the transformed input, reused while its type and size agree.
+# Adapted functions have no cache and allocate a device buffer on each call.
 _output_buffer!(s::Scratch, y::Union{Array, SubArray{<:Any, <:Any, <:Array}}) = _array_buffer!(s, eltype(y), size(y))
-_output_buffer!(::Nothing, y::AbstractArray) = y
+_output_buffer!(::Nothing, y::AbstractArray) = similar(y)
 
 # A view of an Array whose indices shift to start at 1 keeping their types gets
 # a view of the same type into an owned Array, so that f sees the same layout;
@@ -180,6 +177,15 @@ function _output_buffer!(s::Scratch, y::A) where {A<:DenseArray}
   b
 end
 _output_buffer!(::Scratch, y::AbstractArray) = copy(y)
+
+# Most kernels read scratch and write y. Stored iterates must run in place to
+# preserve their stored zeros and summation order, then publish the full state.
+_wrapper_output(y, z) = y
+_wrapper_commit!(y, result) = y === result ? y : copyto!(y, result)
+
+_check_wrapper_output(y) = true
+_check_wrapper_output(::Union{Symmetric, Hermitian}) =
+  throw(ArgumentError("wrapper proximal operators need an output that accepts off-diagonal writes; use a dense matrix"))
 
 # Inspect the buffers an oracle will use without changing its cache history.
 function _checkbuffer(cache, ::Type{T}, dims::NTuple{N, Int}) where {T, N}

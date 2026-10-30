@@ -108,6 +108,62 @@ end
   @test prox!(z, IndIsotonic(), z, 1.0) == prox(IndIsotonic(), x)
   @test prox(IndIsotonic(), sort(x)) == sort(x)                            # already monotone
   check_traits(IndIsotonic(); proximable = true, convex = true)
+  for decreasing in (false, true)
+    f = IndIsotonic(; decreasing)
+    for (v, increasing_value, decreasing_value) in (
+      ([Inf, 0], Inf, 0),
+      ([0, -Inf], Inf, 0),
+      ([-Inf, Inf], 0, Inf),
+      ([Inf, -Inf], Inf, 0),
+      ([Inf, Inf], 0, 0),
+      ([-Inf, -Inf], 0, 0),
+      ([0, Inf], 0, Inf),
+      ([-Inf, 0], 0, Inf),
+      ([1, Inf, 0], Inf, Inf),
+      ([0, Inf, Inf], 0, Inf),
+      ([NaN, 0], Inf, Inf),
+      ([0, NaN], Inf, Inf),
+      ([NaN, NaN], Inf, Inf),
+      ([Inf, NaN], Inf, Inf),
+      ([NaN], Inf, Inf),
+      ([Inf], 0, 0),
+      ([-Inf], 0, 0),
+      (Float64[], 0, 0),
+      (Float32[Inf, 0], Inf, 0),
+      (Float16[Inf, 0], Inf, 0),
+      (BigFloat[Inf, 0], Inf, 0),
+      ([typemax(Int), typemin(Int)], Inf, 0),
+      ([typemin(Int), typemax(Int)], 0, Inf),
+      (Int32[typemax(Int32), typemin(Int32)], Inf, 0),
+      (Int8[127, -128], Inf, 0),
+      (UInt[1, 2], 0, Inf),
+      (UInt[2, 1], Inf, 0),
+      (UInt8[0, 255], 0, Inf),
+      (UInt8[255, 0], Inf, 0),
+    )
+      @test f(v) == (decreasing ? decreasing_value : increasing_value)
+    end
+    @test f([Inf, Inf]) == 0
+    t = sqrt(eps(Float64))
+    for (v, expected) in (
+      ([0, -prevfloat(t)], 0),
+      ([0, -t], 0),
+      ([0, -nextfloat(t)], Inf),
+      ([2.0^20, 2.0^20 - 2.0^-6], 0),
+      ([2.0^20, 2.0^20 - 2.0^-6 - 2.0^-33], Inf),
+      ([2^62, 2^62 - 2^36 - 1], Inf),
+      ([1//1, 1 - 1//2^26 - 1//2^60], Inf),
+      (Rational{Int8}[1//127, 1//126], 0),
+    )
+      @test f(decreasing ? reverse(v) : v) == expected
+    end
+    v = Rational{Int8}[1//126, 1//127]
+    @test_throws OverflowError f(decreasing ? reverse(v) : v)
+    for T in (Float32, Float64), v in (T[1, 2, 3], T[1, 0, 2], T[Inf, Inf], T[Inf, 0], T[NaN])
+      @test allocs(f, v) == 0
+    end
+  end
+  @test PointwiseMinimum(IndIsotonic(), IndIsotonic(decreasing = true))([Inf, 0.0, Inf]) == Inf
 end
 
 # Weighted isotonic regression by the max-min formula in higher precision.

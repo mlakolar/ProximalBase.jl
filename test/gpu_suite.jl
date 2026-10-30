@@ -1096,6 +1096,8 @@ end
     for λ1 in (F === SparseGroupNormL2 ? (0.0, 0.25) : (0.0,))
       for (λ, w, x, γ, expected, value) in (
           (1.0, [1e100], Float32[2], 0f0, Float32[2], Inf32),
+          (1.0, [1e40], Float32[1f-20], 0f0, Float32[1f-20], Float32(1e40 * Float64(1f-20))),
+          (1.0, [1e40], Float32[1f-20], 1f-30, Float32[0], 0f0),
           (0.0, [Inf, 1e100], Float32[2, 2], 0f0, Float32[0, 2], Float32(2λ1)),
           (0.0, [Inf, 1e100], Float32[2, 2], 1f0, Float32[0, 2-λ1], Float32(λ1*(2-λ1))),
           (1e-20, [1e40], Float32[2], 0f0, Float32[2], 2f20),

@@ -277,8 +277,8 @@ end
         y = prox(c, x, γ)
         @test y ≈ ref rtol = 1e-8 atol = 1e-10
         @test λ * norm(y, 1) + sum((y .- x).^2 ./ (2 .* γ)) ≈ obj rtol = 1e-10 atol = 1e-12
-        @test c.last[] ≈ ν atol = 1e-9
-        check_kkt(y, c.last[], x, γ, a, l, u, λ, bl, bu)
+        @test c.last[] / maximum(γ) ≈ ν atol = 1e-9
+        check_kkt(y, c.last[] / maximum(γ), x, γ, a, l, u, λ, bl, bu)
         if all(==(γ[1]), γ)
           @test prox(c, x, γ[1]) ≈ ref rtol = 1e-8 atol = 1e-10
           trial == 1 && check_prox(c, x, γ[1])
@@ -303,8 +303,8 @@ end
       end
       y = prox(c, x, γ)
       @test y ≈ ref rtol = 1e-8 atol = 1e-10
-      @test c.last[] ≈ ν atol = 1e-10
-      @test D * y + c.last[] .* a ≈ x ./ γ rtol = 1e-12 atol = 1e-12
+      @test c.last[] / maximum(γ) ≈ ν atol = 1e-10
+      @test D * y + (c.last[] / maximum(γ)) .* a ≈ x ./ γ rtol = 1e-12 atol = 1e-12
       @test l - 1e-10 <= dot(a, y) <= u + 1e-10
       @test c.f(y) + sum((y .- x).^2 ./ (2 .* γ)) ≈ c.f(ref) + sum((ref .- x).^2 ./ (2 .* γ)) rtol = 1e-12
       ν < 0 && @test dot(a, y) ≈ l atol = 1e-10

@@ -25,7 +25,7 @@ descent. On a hyperplane `⟨a, x⟩ = b`, the proximal operator is
 `prox_{γf}(x - γνa)` for the multiplier `ν` at which it satisfies the
 constraint, found by a search over the scalar `ν`; `f` may itself be
 constrained to a box. Each step of the search is a pass over `x`. It starts
-from the multiplier of the previous call, which the function keeps, with a
+from the previous multiplier when the maximum step is unchanged, with a
 first step from the exact slope of the constraint where the scalar proximal
 operators of `f` are piecewise linear, as for every function below. The calls
 of a solver on slowly changing points then take three to five passes, against
@@ -77,6 +77,18 @@ Mixed integer and floating-point bounds can still round integers beyond the
 floating-point type's precision. Convex nested box constraints retain their
 composition and the empty-domain behaviour described below.
 
+For a linear constraint (including a simplex), steps must be positive and
+finite. Array steps are normalized by their maximum; a ratio below the
+smallest normal number in working precision is rejected with `ArgumentError`,
+before writing.
+The search uses the scaled multiplier `μ = max(γ)ν`. For finite inputs, it
+returns a point only when it is finite and satisfies the constraint to the search tolerance.
+Otherwise it throws `ArgumentError`: the multiplier could not be bracketed or
+resolved in working precision. Huge steps for non-indicators can lose the
+information needed to resolve a multiplier, even when the problem is feasible.
+Nonfinite inputs follow the package's IEEE policy. A NaN search residual
+returns a NaN multiplier without replacing the stored search history.
+
 The caller must ensure that the set meets the domain of `f`. For a convex
 function on a box, the method clamps the unconstrained proximal point even
 when the intersection is empty. Neither that point nor the returned value
@@ -108,13 +120,16 @@ BoxConstrained(f::AbstractFunction, box::IndBox) = BoxConstrained{typeof(f), typ
 struct LinearConstrained{F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspace, IndHyperslab}} <: AbstractFunction
   f::F
   set::H
-  last::Base.RefValue{Float64}      # the multiplier for the normalized constraint
+  last::Base.RefValue{Float64}      # μ = max(γ)ν for the normalized constraint
+  scale::Base.RefValue{Float64}     # the step scale of the stored multiplier
   slope::Base.RefValue{Float64}     # its residual's slope, from the last secant
+  verify::Base.RefValue{Bool}       # certify fixed sums or unresolved refinement in output
   scratch::Scratch                  # for the value of the conjugate
+  output::Scratch                   # candidate point, committed only after verification
   live::NTuple{6, Scratch}          # the entries the search still evaluates: x, a, γ, index; bits; state
 
   LinearConstrained{F, H}(f::F, set::H) where {F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspace, IndHyperslab}} =
-    (_check_constrainable(f); new{F, H}(f, set, Ref(NaN), Ref(NaN), Scratch(), ntuple(_ -> Scratch(), 6)))
+    (_check_constrainable(f); new{F, H}(f, set, Ref(NaN), Ref(NaN), Ref(NaN), Ref(false), Scratch(), Scratch(), ntuple(_ -> Scratch(), 6)))
 end
 LinearConstrained(f::AbstractFunction, set::Union{IndHyperplane, IndHalfspace, IndHyperslab}) =
   LinearConstrained{typeof(f), typeof(set)}(f, set)
@@ -318,45 +333,256 @@ function _checkwrite(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractA
   true
 end
 
+# Keep the true steps for prox_entry and normalize only the multiplier shift.
+struct _SearchSteps{G, T, M}
+  steps::G
+  scale::T
+  factor::T
+end
+Base.@propagate_inbounds _entry(g::_SearchSteps, i) = _entry(g.steps, i)
+@inline _ratio(g::_SearchSteps{<:Real}, i, ::Type{T}) where {T} = one(T)
+# Select the division fallback once, when the reciprocal would overflow.
+Base.@propagate_inbounds _ratio(g::_SearchSteps{<:AbstractArray, S, true}, i, ::Type{T}) where {S, T} =
+  convert(T, _entry(g, i)) * g.factor
+Base.@propagate_inbounds _ratio(g::_SearchSteps{<:AbstractArray, S, false}, i, ::Type{T}) where {S, T} =
+  convert(T, _entry(g, i)) / g.scale
+_with_steps(g::_SearchSteps{G, T, M}, steps) where {G, T, M} =
+  _SearchSteps{typeof(steps), T, M}(steps, g.scale, g.factor)
+
+# Move the step normalization out of ordinary array passes. Keep the scaled
+# expression when the unscaled shifts overflow or lose relative precision.
+struct _PassSteps{G, T}
+  steps::G
+  multiplier::T
+end
+Base.@propagate_inbounds _entry(g::_PassSteps, i) = _entry(g.steps, i)
+Base.@propagate_inbounds _shift(g, μ, i, ::Type{T}) where {T} = _ratio(g, i, T) * μ
+Base.@propagate_inbounds _shift(g::_PassSteps, μ, i, ::Type{T}) where {T} =
+  convert(T, _entry(g, i)) * g.multiplier
+Base.@propagate_inbounds _ratio(g::_PassSteps, i, ::Type{T}) where {T} = _ratio(g.steps, i, T)
+@inline _pass_steps(done::F, g, μ) where {F} = done(g)
+@inline function _pass_steps(done::F, g::_SearchSteps{<:AbstractArray, T, true}, μ::T) where {F, T}
+  ν = μ * g.factor
+  if isfinite(ν) && isfinite(g.scale * ν) && (abs(ν) >= floatmin(T) || iszero(μ))
+    return done(_PassSteps(g, ν))
+  end
+  done(g)
+end
+
+@inline _pass_steps(done::F, g, μ::T, a) where {F, T} = _pass_steps(done, g, μ)
+# Round the step times the multiplier before subtracting, including unit normals.
+Base.@propagate_inbounds _shifted_entry(g, μ, a, x, i, ::Type{T}) where {T} =
+  muladd(-_shift(g, μ, i, T), a, x)
+
+@noinline _invalid_linear_step() =
+  throw(ArgumentError("the steps of LinearConstrained must be positive and finite"))
+@noinline _invalid_linear_ratio() =
+  throw(ArgumentError("Constrained needs normal step ratios to their maximum in working precision"))
+@inline _search_steps(γ, ::Type{T}) where {T} = _search_steps(identity, γ, T)
+@inline function _search_steps(done::F, γ::Real, ::Type{T}) where {F, T}
+  g = convert(T, γ)
+  isfinite(g) && g > 0 || _invalid_linear_step()
+  done(_SearchSteps{typeof(g), T, true}(g, g, one(T)))
+end
+@inline function _search_steps(done::F, γ::AbstractArray, ::Type{T}) where {F, T}
+  least, scale = T(Inf), zero(T)
+  valid = true
+  @inbounds @simd for i in eachindex(IndexLinear(), γ)
+    t = convert(T, γ[i])
+    valid &= isfinite(t) & (t > 0)
+    least = min(least, t)
+    scale = max(scale, t)
+  end
+  isempty(γ) && (scale = one(T))
+  valid || _invalid_linear_step()
+  factor = inv(scale)
+  if isfinite(factor)
+    least * factor >= floatmin(T) || _invalid_linear_ratio()
+    return done(_SearchSteps{typeof(γ), T, true}(γ, scale, factor))
+  end
+  least / scale >= floatmin(T) || _invalid_linear_ratio()
+  done(_SearchSteps{typeof(γ), T, false}(γ, scale, factor))
+end
+
 # γ is a scalar step, or an array of steps, one per entry: the proximal operator
 # in the metric of Diagonal(1 ./ γ), where z(ν) has the entries
 # prox_{γᵢfᵢ}(xᵢ - γᵢνaᵢ)
 prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
   (_checkreal(c, y); _checkreal(c, x); _linear_constrained_prox!(y, c, x, convert(float(eltype(y)), γ)))
 prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
-  (_checkreal(c, y); _checkreal(c, x); _checkreal(c, γ); _checkparam(γ, x); _check_metric_steps(c, γ); _linear_constrained_prox!(y, c, x, γ))
+  _linear_constrained_prox!(y, c, x, γ)
 
-function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ)
-  _checkwrite(prox!, c, y, x)
+_linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ) =
+  _linear_constrained_prox!(prox!, y, c, x, γ)
+function _linear_constrained_prox!(op::O, y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ) where {O}
+  _checkwrite(op, c, y, x, γ)
+  _checkparam(γ, x)
   T = float(eltype(y))
-  ν = _multiplier(c, x, γ, T)
-  set = c.set
-  set isa IndHyperslab && iszero(ν) && return _prox_sep!(y, c.f, x, γ)
-  if _isscaled(set)
-    return _linear_constrained_output!(y, c.f, _normalized_normal(set.a, set.s), x, γ, ν)
+  # Keep the ratio mode concrete so the step wrapper need not be boxed.
+  _search_steps(γ, T) do steps
+    _linear_constrained_search!(y, c, x, steps)
   end
-  _linear_constrained_output!(y, c.f, set.a, x, γ, ν)
 end
 
-function _linear_constrained_output!(y, f, a, x, γ, ν::T) where {T}
+@noinline function _linear_constrained_search!(y, c, x, γ::_SearchSteps{G, T}) where {G, T}
+  last, slope, scale = c.last[], c.slope[], c.scale[]
+  if !isequal(c.scale[], Float64(γ.scale))
+    c.last[] = NaN
+    c.slope[] = NaN
+  end
+  c.verify[] = false
+  ν = _multiplier(c, x, γ, T)
+  if isnan(ν)
+    c.last[], c.slope[], c.scale[] = last, slope, scale
+  else
+    c.scale[] = γ.scale
+  end
+  set = c.set
+  set isa IndHyperslab && iszero(ν) && !c.verify[] && return _linear_constrained_inactive_output!(y, c.f, x, γ)
+  if _isscaled(set)
+    return _linear_constrained_finish!(y, c, _normalized_normal(set.a, set.s), x, γ, ν)
+  end
+  _linear_constrained_finish!(y, c, set.a, x, γ, ν)
+end
+
+function _linear_constrained_finish!(y, c, a, x, γ, ν)
+  c.verify[] && return _linear_constrained_verified_finish!(y, c, a, x, γ, ν)
+  _linear_constrained_output!(y, c.f, a, x, γ, ν, Val(false))
+  y
+end
+
+# Keep buffer preparation out of the ordinary full-pass hit.
+@noinline function _linear_constrained_verified_finish!(y, c, a, x, γ, ν)
+  candidate = _linear_constrained_output_buffer!(c.output, y)
+  s, m = _linear_constrained_output!(candidate, c.f, a, x, γ, ν, Val(true))
+  _verify_output(c, s, m, ν)
+  _linear_constrained_commit!(y, candidate)
+  y
+end
+
+# Compile the copy once per output layout, independently of f and the set.
+@noinline _linear_constrained_commit!(y, candidate) = copyto!(y, candidate)
+
+@noinline _linear_constrained_output_buffer!(s::Scratch, y::AbstractArray) =
+  _array_buffer!(s, eltype(y), size(y))
+@noinline function _linear_constrained_output_buffer!(s::Scratch, y::SymmetricSparseIterate{T}) where {T}
+  b = s.buf
+  if b isa SymmetricSparseIterate{T} && size(b) == size(y)
+    return b
+  end
+  b = SymmetricSparseIterate(T, y.p)
+  s.buf = b
+  b
+end
+
+# Full passes already certify ordinary hits. For fixed sums or a refinement
+# fallback, certify the buffered point before committing it to the output.
+function _verify_output(c, s, m, ν::T) where {T}
+  isfinite(s) && isfinite(m) || _infeasible(c)
+  set = c.set
+  if set isa IndHyperslab
+    ν < 0 && return _verify_output_bound(c, s, m, _scaled_offset(set, set.l), 0, T)
+    ν > 0 && return _verify_output_bound(c, s, m, _scaled_offset(set, set.u), 0, T)
+    isfinite(set.l) && _verify_output_bound(c, s, m, _scaled_offset(set, set.l), -1, T)
+    isfinite(set.u) && _verify_output_bound(c, s, m, _scaled_offset(set, set.u), 1, T)
+  else
+    _verify_output_bound(c, s, m, _scaled_offset(set), set isa IndHyperplane || !iszero(ν) ? 0 : 1, T)
+  end
+  nothing
+end
+function _verify_output_bound(c, s, m, b, side, ::Type{T}) where {T}
+  φ, scale = s - b, m + abs(b)
+  isfinite(φ) && isfinite(scale) &&
+    (side == 0 ? abs(φ) : side * φ) <= 8eps(T) * scale || _infeasible(c)
+  nothing
+end
+
+# Match the promoted argument and converted steps of the inactive-point check.
+function _linear_constrained_inactive_output!(y, f, x, γ::_SearchSteps{G, T}) where {G, T}
   @inbounds for i in eachindex(IndexLinear(), y, x)
     γᵢ = convert(T, _entry(γ, i))
-    y[i] = convert(eltype(y), prox_entry(f, x[i] - γᵢ * ν * convert(T, _entry(a, i)), i, γᵢ))
+    y[i] = convert(eltype(y), prox_entry(f, x[i] - zero(T), i, γᵢ))
   end
   y
+end
+
+@noinline function _linear_constrained_output!(y, f, a, x, γ, ν::T, v::Val = Val(false)) where {T}
+  _pass_steps(γ, ν, a) do steps
+    _linear_constrained_output_pass!(y, f, a, x, steps, ν, v)
+  end
+end
+function _linear_constrained_output_pass!(y, f, a, x, γ, ν::T, ::Val{C}) where {T, C}
+  A = T === Float32 ? Float64 : T
+  s, m = zero(A), zero(A)
+  @inbounds @simd for i in eachindex(IndexLinear(), y, x)
+    γᵢ = convert(T, _entry(γ, i))
+    aᵢ = convert(T, _entry(a, i))
+    z = convert(eltype(y), prox_entry(f, _shifted_entry(γ, ν, aᵢ, x[i], i, T), i, γᵢ))
+    y[i] = z
+    if C
+      t = convert(A, aᵢ) * convert(A, z)
+      s += t
+      m += abs(t)
+    end
+  end
+  C ? (s, m) : nothing
+end
+
+# The two matrix positions of a symmetric coordinate share storage.
+function _linear_constrained_inactive_output!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::_SearchSteps{G, T}) where {G, T}
+  p = y.p
+  @inbounds for c in 1:p, r in c:p
+    i = (c - 1) * p + r
+    γᵢ = convert(T, _entry(γ, i))
+    z = prox_entry(f, x[r, c] - zero(T), i, γᵢ)
+    _setstored!(y, convert(eltype(y), z), tril_index(p, r, c))
+  end
+  y
+end
+
+@noinline function _linear_constrained_output!(y::SymmetricSparseIterate, f, a, x::AbstractMatrix, γ, ν::T, v::Val = Val(false)) where {T}
+  _pass_steps(γ, ν, a) do steps
+    _linear_constrained_output_pass!(y, f, a, x, steps, ν, v)
+  end
+end
+function _linear_constrained_output_pass!(y::SymmetricSparseIterate, f, a, x::AbstractMatrix, γ, ν::T, ::Val{C}) where {T, C}
+  p = y.p
+  A = T === Float32 ? Float64 : T
+  s, m = zero(A), zero(A)
+  @inbounds for c in 1:p, r in c:p
+    i = (c - 1) * p + r
+    γᵢ = convert(T, _entry(γ, i))
+    aᵢ = convert(T, _entry(a, i))
+    v = _shifted_entry(γ, ν, aᵢ, x[r, c], i, T)
+    z = convert(eltype(y), prox_entry(f, v, i, γᵢ))
+    _setstored!(y, z, tril_index(p, r, c))
+    if C
+      t = convert(A, aᵢ) * convert(A, z)
+      s += t
+      m += abs(t)
+      if r != c
+        t = convert(A, convert(T, _entry(a, (r - 1) * p + c))) * convert(A, z)
+        s += t
+        m += abs(t)
+      end
+    end
+  end
+  C ? (s, m) : nothing
 end
 
 value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) = _value_and_prox_linear!(y, c, x, γ)
 value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_linear!(y, c, x, γ)
 function _value_and_prox_linear!(y, c, x, γ)
-  _checkwrite(value_and_prox!, c, y, x, γ)
-  prox!(y, c, x, γ)
+  _linear_constrained_prox!(value_and_prox!, y, c, x, γ)
   T = float(eltype(y))
-  _isindicator(c) ? zero(T) : convert(T, c.f(y))
+  _isindicator(c) ? zero(T) : _linear_constrained_value(c.f, y, T)
 end
 
+# Share value computation across constraint and step types.
+@noinline _linear_constrained_value(f, y, ::Type{T}) where {T} = convert(T, f(y))
+
 # φ(ν) = ⟨a, z⟩ - b at z = z(ν), and Σᵢ |aᵢzᵢ| + |b|, the scale of its rounding
-# error; with Val(true), also the slope of φ, -Σᵢ γᵢaᵢ² Pᵢ', where Pᵢ' is the
+# error; with Val(true), also the slope of φ, -Σᵢ rᵢaᵢ² Pᵢ', where Pᵢ' is the
 # slope of the scalar proximal operator at its argument. c is the function, or
 # a named tuple with its f and set, as for the live entries of variable fixing.
 function _constraint_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ, b::Real, v::Val = Val(false)) where {T}
@@ -369,20 +595,141 @@ end
 _constraint_gap(c, x::AbstractArray, ν::T, γ, v::Val = Val(false)) where {T} =
   _constraint_gap(c.f, c.set.a, c.set.b, x, ν, γ, v)
 
-function _constraint_gap(f, a, b, x::AbstractArray, ν::T, γ, ::Val{S}) where {T, S}
-  s, m, d = zero(T), zero(T), zero(T)
+_gap_accumulator(f, ::Type{T}) where {T} = T
+_gap_result_type(f, ::Type{T}) where {T} = T
+_sum_type(::Type{T}) where {T} = T === Float32 ? Float64 : T
+function _constraint_gap(f, a, b, x::AbstractArray, ν::T, γ, v::Val,
+                         fixed = zero(_sum_type(T)), mass = zero(_sum_type(T))) where {T}
+  _pass_steps(γ, ν, a) do steps
+    _constraint_gap_pass(f, a, b, x, ν, steps, v, fixed, mass)
+  end
+end
+Base.@propagate_inbounds function _gap_term(f, a, x, ν::T, γ, i, ::Type{A}, ::Val{S}, ::Val{W} = Val(false)) where {T, A, S, W}
+  aᵢ = convert(T, _entry(a, i))
+  γᵢ = convert(T, _entry(γ, i))
+  v = _shifted_entry(γ, ν, aᵢ, x[i], i, T)
+  z, dz = S ? _prox_entry_slope(f, v, i, γᵢ) : (prox_entry(f, v, i, γᵢ), zero(T))
+  t = convert(A, aᵢ) * convert(A, convert(T, z))
+  d = S ? _ratio(γ, i, T) * aᵢ * aᵢ * convert(T, dz) : zero(T)
+  tiny = W && (abs(t) < floatmin(T)) & !iszero(aᵢ) & !iszero(z)
+  t, d, tiny
+end
+function _constraint_gap_pass(f, a, b, x::AbstractArray, ν::T, γ, v::Val, fixed, mass) where {T}
+  A = _gap_accumulator(f, T)
+  _constraint_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, Val(T === Float32 && A === Float32))
+end
+function _constraint_gap_pass(f, a, b, x::AbstractArray, ν::T, γ, v::Val{S}, fixed, mass, ::Val{false}) where {T, S}
+  _accumulated_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, _gap_accumulator(f, T))
+end
+function _accumulated_gap_pass(f, a, b, x, ν::T, γ, v::Val{S}, fixed, mass, ::Type{A}) where {T, S, A}
+  s, m, d = zero(A), zero(A), zero(T)
   @inbounds @simd for i in eachindex(IndexLinear(), x)
-    aᵢ = convert(T, _entry(a, i))
-    γᵢ = convert(T, _entry(γ, i))
-    v = x[i] - γᵢ * ν * aᵢ
-    z, dz = S ? _prox_entry_slope(f, v, i, γᵢ) : (prox_entry(f, v, i, γᵢ), zero(T))
-    t = aᵢ * convert(T, z)
+    t, di, _ = _gap_term(f, a, x, ν, γ, i, A, v)
     s += t
     m += abs(t)
-    S && (d += γᵢ * aᵢ * aᵢ * convert(T, dz))
+    S && (d += di)
   end
-  b = convert(T, b)
-  S ? (s - b, m + abs(b), -d) : (s - b, m + abs(b))
+  _gap_result(f, s, m, d, b, fixed, mass, T, v)
+end
+_nonnegative_range(f) = false
+_nonnegative_range(f::IndBox{<:Real, <:Real}) = f.l >= 0
+_nonnegative_range(::Union{IndNonnegative, NormL1Nonneg}) = true
+_nonnegative_range(f::BoxConstrained) = _nonnegative_range(f.box)
+function _constraint_gap_pass(f, a, b, x::AbstractArray, ν::Float32, γ, v::Val, fixed, mass, ::Val{true})
+  if a isa Real && _nonnegative_range(f)
+    return _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, Val(true))
+  end
+  _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, Val(false))
+end
+function _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, p::Val)
+  # Multiplication by a unit normal cannot underflow a nonzero point.
+  if a isa Real && isone(abs(Float32(a)))
+    return _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, p, Val(false))
+  end
+  _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, p, Val(true))
+end
+# Eight-term sums have at most seven additions; pairing two adds one more.
+# Include product rounding and the serial wide totals, with outward bounds.
+@inline function _gap_error(n, m, ::Val{B} = Val(8)) where {B}
+  iszero(m) && return 0.0, 0.0
+  u, v = Float64(eps(Float32)) / 2, eps(Float64) / 2
+  depth = B == 8 ? 8 : 9
+  g = nextfloat((depth * u) / (1 - depth * u))
+  k = cld(n, B) + B + 2
+  k * v < 0.5 || return Inf, 0.0
+  h = nextfloat((k * v) / (1 - k * v))
+  η = nextfloat(nextfloat(g + h) + nextfloat(g * h))
+  η < 1 || return Inf, 0.0
+  error = nextfloat(nextfloat(η / prevfloat(1 - η)) * m)
+  error, prevfloat(m / nextfloat(1 + η))
+end
+function _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, p, w)
+  # The shorter block keeps cheap box passes vectorizable without extra lanes.
+  if f isa IndBox
+    return _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, p, w, Val(8))
+  end
+  _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, p, w, Val(16))
+end
+function _float32_gap_pass(f, a, b, x, ν, γ, v::Val{S}, fixed, mass, p::Val{P}, w::Val{W}, bs::Val{B}) where {S, P, W, B}
+  s, m, d = 0.0, 0.0, 0f0
+  tiny = false
+  n = length(x)
+  # Bound the native depth even when bounds checking disables reassociation.
+  @inbounds for block in 0:(n ÷ B - 1)
+    q, r, e = 0f0, 0f0, 0f0
+    q2, r2, e2 = 0f0, 0f0, 0f0
+    @simd for i in (B * block + 1):(B * block + 8)
+      t, di, underflow = _gap_term(f, a, x, ν, γ, i, Float32, v, w)
+      q += t
+      !P && (r += abs(t))
+      S && (e += di)
+      tiny |= underflow
+      if B == 16
+        t2, di2, underflow2 = _gap_term(f, a, x, ν, γ, i + 8, Float32, v, w)
+        q2 += t2
+        !P && (r2 += abs(t2))
+        S && (e2 += di2)
+        tiny |= underflow2
+      end
+    end
+    s += Float64(B == 8 ? q : q + q2)
+    !P && (m += Float64(B == 8 ? r : r + r2))
+    S && (d += B == 8 ? e : e + e2)
+  end
+  # The short tail is wide already, and cannot increase the native depth.
+  @inbounds @simd for i in (B * (n ÷ B) + 1):n
+    t, di, underflow = _gap_term(f, a, x, ν, γ, i, Float32, v, w)
+    tiny |= underflow
+    s += Float64(t)
+    !P && (m += Float64(abs(t)))
+    S && (d += di)
+  end
+  m = P ? abs(s) : m
+  bT = Float64(Float32(b))
+  residual = (s + fixed) - bT
+  scale = (m + mass) + abs(bT)
+  error, lower = _gap_error(n, scale, bs)
+  tolerance = 8Float64(eps(Float32)) * lower
+  # The scale is rounded too: lower bounds its exact value, while error bounds
+  # the signed sum. Only the ambiguous band needs another pass.
+  ambiguous = !iszero(scale) && nextfloat(abs(residual) + error) > tolerance &&
+              prevfloat(abs(residual) - error) <= tolerance
+  if tiny || ambiguous
+    return _accumulated_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, Float64)
+  end
+  _gap_result(f, s, m, d, b, fixed, mass, Float32, v)
+end
+@inline function _gap_result(f, s, m, d, b, fixed, mass, ::Type{T}, ::Val{S}) where {T, S}
+  A = typeof(s)
+  b = convert(A, convert(T, b))
+  R = _gap_result_type(f, T)
+  residual = (s + fixed) - b
+  φ, M = R(residual), R((m + mass) + abs(b))
+  # A nonzero wide residual must not become an exact hit when converted back.
+  if R === Float32 && iszero(φ) && !iszero(residual)
+    φ = copysign(nextfloat(0f0), residual)
+  end
+  S ? (φ, M, -d) : (φ, M)
 end
 
 # Σᵢ γᵢaᵢ², the steepest slope of φ
@@ -409,11 +756,32 @@ function _metric_sqnorm(a::AbstractArray, γ::AbstractArray, ::Type{T}) where {T
   return s
 end
 
+# Σᵢ rᵢaᵢ², the steepest slope with respect to μ.
+_metric_sqnorm(set, x, γ::_SearchSteps{<:Real}) = _normal_sqnorm(set, x)
+function _metric_sqnorm(set, x, γ::_SearchSteps)
+  T = typeof(γ.scale)
+  a = _scaled_normal(set)
+  s = zero(T)
+  @inbounds @simd for i in eachindex(IndexLinear(), x)
+    s += _ratio(γ, i, T) * abs2(convert(T, _entry(a, i)))
+  end
+  s
+end
+
+@inline _resolved(φ::T, m, ulps = 2) where {T} = isfinite(φ) && isfinite(m) && abs(φ) <= ulps * eps(T) * m
+
 const _MAX_BRACKET_STEPS = 64
 const _MAX_SECANTS = 100
 
 @noinline _infeasible(c::LinearConstrained) =
-  throw(ArgumentError("the $(nameof(typeof(c.set))) misses the domain of $(nameof(typeof(c.f)))"))
+  throw(ArgumentError("the multiplier for $(nameof(typeof(c.set))) could not be bracketed or resolved in working precision: the set may miss the domain of $(nameof(typeof(c.f))), or the step is outside the range the search resolves"))
+
+# Only nonfinite caller inputs take the package's IEEE path. Overflow or NaN
+# generated by the search at finite inputs remains a precision failure.
+@noinline function _nonfinite_linear_input(c, x)
+  any(v -> !isfinite(v), x) || _infeasible(c)
+  nothing
+end
 
 # φ and the scale of its rounding error at ν, and its slope when the scalar
 # proximal operators of f have known slopes, NaN otherwise
@@ -444,15 +812,30 @@ function _hyperslab_multiplier(c::LinearConstrained, x::AbstractArray, γ, ::Typ
   set = c.set
   if isfinite(set.l)
     b = _scaled_offset(set, set.l)
-    φ, _ = _constraint_gap(c, x, zero(T), γ, b)
-    isnan(φ) && return T(NaN)
+    φ, m = _constraint_gap(c, x, zero(T), γ, b)
+    if !(isfinite(φ) && isfinite(m))
+      _nonfinite_linear_input(c, x)
+      isnan(φ) && return T(NaN)
+    end
     φ < 0 && return _slab_multiplier(c, x, γ, T, b, -1)
   end
   if isfinite(set.u)
     b = _scaled_offset(set, set.u)
-    φ, _ = _constraint_gap(c, x, zero(T), γ, b)
-    isnan(φ) && return T(NaN)
+    φ, m = _constraint_gap(c, x, zero(T), γ, b)
+    if !(isfinite(φ) && isfinite(m))
+      _nonfinite_linear_input(c, x)
+      isnan(φ) && return T(NaN)
+    end
     φ > 0 && return _slab_multiplier(c, x, γ, T, b, 1)
+  end
+  if !isfinite(set.l) && !isfinite(set.u)
+    # The unused normal need not be representable in the output's precision.
+    finite = true
+    @inbounds @simd for i in eachindex(IndexLinear(), x)
+      z = prox_entry(c.f, x[i] - zero(T), i, convert(T, _entry(γ, i)))
+      finite &= isfinite(convert(T, z))
+    end
+    finite || _nonfinite_linear_input(c, x)
   end
   c.last[] = 0
   c.slope[] = NaN
@@ -469,8 +852,8 @@ function _slab_multiplier(c, x, γ, ::Type{T}, b, side) where {T}
   ν
 end
 
-# The search from start. The first step is at least |φ(start)|/Σᵢ γᵢaᵢ², a lower
-# bound on the distance to the root, as the slope of φ is at least -Σᵢ γᵢaᵢ². From
+# The search from start. The first step is at least |φ(start)|/Σᵢ rᵢaᵢ², a lower
+# bound on the distance to the root, as the slope of φ is at least -Σᵢ rᵢaᵢ². From
 # the multiplier of the last call, it goes to the root of the line through
 # (start, φ(start)) with the slope of φ there, exact where the scalar proximal
 # operators of f have known slopes and otherwise that of the last call's
@@ -486,62 +869,108 @@ _search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool, b, sid
 
 function _search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool, b, side, L) where {T}
   φs, ms, dφ = warm ? _gap_and_slope(c, x, start, γ, b) : (_constraint_gap(c, x, start, γ, b)..., T(NaN))
-  isnan(φs) && return T(NaN)
-  abs(φs) <= 2eps(T) * ms && return start
+  if !(isfinite(φs) && isfinite(ms))
+    _nonfinite_linear_input(c, x)
+    return isnan(φs) ? T(NaN) : start
+  end
+  _resolved(φs, ms) && return start
   if side != 0 && side * φs < 0
     iszero(start) && return zero(T)                           # the constraint is inactive
     # Check zero when the root lies between it and the previous multiplier.
     φ0, m0 = _constraint_gap(c, x, zero(T), γ, b)
-    isnan(φ0) && return T(NaN)
-    (side * φ0 <= 0 || abs(φ0) <= 2eps(T) * m0) && return zero(T)
-    return _refine(c, x, γ, b, zero(T), φ0, start, φs, nothing)
+    if isnan(φ0)
+      _nonfinite_linear_input(c, x)
+      return T(NaN)
+    end
+    (isfinite(φ0) && isfinite(m0) && (side * φ0 <= 0 || _resolved(φ0, m0))) && return zero(T)
+    certified = _retain_certificate(T(NaN), start, φs, ms, nothing)
+    certified = _retain_certificate(certified, zero(T), φ0, m0, nothing)
+    return _refine(c, x, γ, b, zero(T), φ0, start, φs, nothing, certified)
   end
   a2 = convert(T, _metric_sqnorm(c.set, x, γ))
   step = abs(φs) / a2
   L = _seen(L, start, φs, a2)
   σ = dφ < 0 ? dφ : (warm ? convert(T, c.slope[]) : T(NaN))
   σ < 0 && (step = max(step, abs(φs) / -σ))
-  _bracket_and_refine(c, x, γ, b, start, φs, step, L)
+  certified = _retain_certificate(T(NaN), start, φs, ms, L)
+  _bracket_and_refine(c, x, γ, b, start, φs, step, L, certified)
 end
 
-function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, b, ν0::T, φ0::T, step::T, L) where {T}
+_bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ::Real, b, ν0::T, φ0::T, step::T, L) where {T} =
+  _bracket_and_refine(c, x, _search_steps(γ, T), b, ν0, φ0, step, L)
+_refine(c::LinearConstrained, x::AbstractArray, γ::Real, b, lo::T, φlo::T, hi::T, φhi::T, L) where {T} =
+  _refine(c, x, _search_steps(γ, T), b, lo, φlo, hi, φhi, L)
+
+function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, b, ν0::T, φ0::T, step::T, L, certified::T = T(NaN)) where {T}
   dir = φ0 > 0 ? one(T) : -one(T)
   lo, φlo = ν0, φ0                          # φlo has the sign of φ(ν₀), φhi the other
   hi, φhi = lo, φlo
   for k in 1:_MAX_BRACKET_STEPS
     hi = lo + dir * step
+    isfinite(hi) || _infeasible(c)
     φhi, mhi, L = _gap!(c, x, hi, γ, b, L)
-    isnan(φhi) && return T(NaN)
-    if abs(φhi) <= 2eps(T) * mhi
-      c.slope[] = (φhi - φlo) / (hi - lo)
-      return hi
+    if isnan(φhi)
+      _nonfinite_linear_input(c, x)
+      return T(NaN)
     end
+    isfinite(φhi) && isfinite(mhi) || _infeasible(c)
+    if _resolved(φhi, mhi)
+      c.slope[] = (φhi - φlo) / (hi - lo)
+      return _search_result(c, hi, L)
+    end
+    certified = _retain_certificate(certified, hi, φhi, mhi, L)
     signbit(φhi) == signbit(φ0) || break
     k == _MAX_BRACKET_STEPS && _infeasible(c)
-    s = step * φhi / (φlo - φhi)
+    s = step * (φhi / (φlo - φhi))
     step = isfinite(s) && s > 0 ? min(2s, 64step) : 2step
     lo, φlo = hi, φhi
   end
   # regula falsi passes over the live entries once some are fixed, and searches
   # as before otherwise
-  L isa Base.RefValue && L[].compact && return _refine(c, x, γ, b, lo, φlo, hi, φhi, L)
-  _refine(c, x, γ, b, lo, φlo, hi, φhi, nothing)
+  L isa Base.RefValue && L[].compact && return _refine(c, x, γ, b, lo, φlo, hi, φhi, L, certified)
+  _refine(c, x, γ, b, lo, φlo, hi, φhi, nothing, certified)
+end
+
+# Reserve room for rounded Float32 products in the full-pass certificate.
+@inline _retain_certificate(old, ν::T, φ, m, L) where {T} =
+  T === Float32 && L === nothing && _resolved(φ, m, 4) ? ν : old
+
+# Fixed sums can round differently from the output's full residual.
+@inline _search_result(c, μ, ::Nothing) = μ
+@inline function _search_result(c, μ, L::Base.RefValue)
+  c.verify[] = L[].compact
+  μ
 end
 
 # regula falsi with the Illinois rule on the bracket [lo, hi], where φlo and φhi
 # have opposite signs; keeps the slope of the last secant for the next call
-function _refine(c::LinearConstrained, x::AbstractArray, γ, b, lo::T, φlo::T, hi::T, φhi::T, L) where {T}
+function _refine(c::LinearConstrained, x::AbstractArray, γ, b, lo::T, φlo::T, hi::T, φhi::T, L, certified::T = T(NaN)) where {T}
   best, φbest = abs(φlo) < abs(φhi) ? (lo, φlo) : (hi, φhi)
   νp, φp = hi, φhi                          # the last point evaluated, for the slope
   side = 0                                  # which end the last step kept
   for _ in 1:_MAX_SECANTS
+    # Preserve ordinary interpolation rounding; scale only when it breaks down.
     ν = (lo * φhi - hi * φlo) / (φhi - φlo)
+    if !isfinite(ν) || !(min(lo, hi) < ν < max(lo, hi))
+      w = abs(φlo) / max(abs(φlo), abs(φhi))
+      v = abs(φhi) / max(abs(φlo), abs(φhi))
+      t = w / (w + v)
+      ν = (one(T) - t) * lo + t * hi
+      if !isfinite(ν) || !(min(lo, hi) < ν < max(lo, hi))
+        ν = lo / 2 + hi / 2
+      end
+    end
     φν, mν, L = _gap!(c, x, ν, γ, b, L, Val(false))
-    isnan(φν) && return T(NaN)
+    if isnan(φν)
+      _nonfinite_linear_input(c, x)
+      return T(NaN)
+    end
+    isfinite(φν) && isfinite(mν) || _infeasible(c)
     ν != νp && (c.slope[] = (φν - φp) / (ν - νp))
     νp, φp = ν, φν
     abs(φν) < abs(φbest) && ((best, φbest) = (ν, φν))
-    abs(φν) <= 2eps(T) * mν && return ν
+    _resolved(φν, mν) && return _search_result(c, ν, L)
+    certified = _retain_certificate(certified, ν, φν, mν, L)
     if signbit(φν) == signbit(φhi)
       hi, φhi = ν, φν
       side == 1 && (φlo /= 2)
@@ -551,8 +980,15 @@ function _refine(c::LinearConstrained, x::AbstractArray, γ, b, lo::T, φlo::T, 
       side == -1 && (φhi /= 2)
       side = -1
     end
-    abs(hi - lo) <= 2eps(T) * max(abs(lo), abs(hi)) && break
+    # Keep the original bracket-width stop when a full pass already certifies it.
+    isfinite(certified) && abs(hi - lo) <= 2eps(T) * max(abs(lo), abs(hi)) && return certified
+    # Otherwise resolve the remaining floats before the buffered certificate.
+    nextfloat(min(lo, hi)) >= max(lo, hi) && break
   end
+  # Reuse the Float32 full residual instead of summing the same point again.
+  isfinite(certified) && return certified
+  # Compact passes still require the buffered output certificate.
+  c.verify[] = true
   best
 end
 
@@ -582,17 +1018,20 @@ end
 # a call on fewer than 4096 entries would lose about a percent where the root is
 # not in the tail; both search as before.
 # The sums, slopes and multipliers use the same normalized constraint.
-struct _Live{T}
+struct _Live{T, A}
   n::Int          # the live entries: the first n in the buffers, or all of x
   compact::Bool   # whether they are in the buffers
-  s::T            # Σᵢ aᵢzᵢ over the fixed entries, with the normalized normal
-  m::T            # Σᵢ |aᵢzᵢ| over them
+  s::A            # Σᵢ aᵢzᵢ over the fixed entries, with the normalized normal
+  m::A            # Σᵢ |aᵢzᵢ| over them
   νp::T           # the last point evaluated, and φ there
   φp::T
   a2::T           # Σᵢ γᵢaᵢ² over all entries, the steepest slope of φ
   ρmax::T         # the flattest secant that calls for a sample, against the
                   # steepest slope of the live entries
 end
+
+_Live{T}(n, compact, s, m, νp, φp, a2, ρmax) where {T} =
+  _Live{T, _sum_type(T)}(n, compact, s, m, νp, φp, a2, ρmax)
 
 const _FIX_NMIN = 4096          # the least n with fixing
 const _FIX_MIN = 256            # the least live entries worth a copy
@@ -607,8 +1046,8 @@ function _live(c::LinearConstrained{F}, x::AbstractArray, ::Type{T}) where {F, T
   _has_prox_range(F) || return nothing
   holder = c.live[6]
   R = holder.buf
-  if !(R isa Base.RefValue{_Live{T}})
-    R = Ref{_Live{T}}()
+  if !(R isa Base.RefValue{_Live{T, _sum_type(T)}})
+    R = Ref{_Live{T, _sum_type(T)}}()
     holder.buf = R
   end
   n = length(x)
@@ -618,7 +1057,7 @@ end
 
 # the first point and the steepest slope, once known
 _seen(::Nothing, ν, φ, a2) = nothing
-function _seen(R::Base.RefValue{_Live{T}}, ν, φ, a2) where {T}
+function _seen(R::Base.RefValue{<:_Live{T}}, ν, φ, a2) where {T}
   L = R[]
   R[] = _Live{T}(L.n, L.compact, L.s, L.m, ν, φ, a2, L.ρmax)
   return R
@@ -629,12 +1068,12 @@ end
 # passes over the entries left live
 @inline _gap!(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, ::Nothing, ::Val = Val(true)) where {T} =
   (_constraint_gap(c, x, ν, γ, b)..., nothing)
-@inline _gap!(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, R::Base.RefValue{_Live{T}}, fix::Val = Val(true)) where {T} =
+@inline _gap!(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, R::Base.RefValue{<:_Live{T}}, fix::Val = Val(true)) where {T} =
   (_fixing_gap!(c, x, ν, γ, b, R, fix)..., R)
 
 # A call, so that the loop of the pass keeps the registers that the state of
 # the search would take
-@noinline function _fixing_gap!(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, R::Base.RefValue{_Live{T}}, ::Val{F}) where {T, F}
+@noinline function _fixing_gap!(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, R::Base.RefValue{<:_Live{T}}, ::Val{F}) where {T, F}
   φ, M = R[].compact ? _live_gap(c, x, ν, γ, b, R[]) : _constraint_gap(c, x, ν, γ, b)
   F && _note!(c, x, ν, γ, R, φ, M)
   φ, M
@@ -643,7 +1082,7 @@ end
 # keeps the point, and fixes entries when the secant through the last two
 # points is flat against the steepest slope of the live entries, unless
 # rounding dominates it
-@noinline function _note!(c::LinearConstrained, x::AbstractArray, ν::T, γ, R::Base.RefValue{_Live{T}}, φ::T, M::T) where {T}
+@noinline function _note!(c::LinearConstrained, x::AbstractArray, ν::T, γ, R::Base.RefValue{<:_Live{T}}, φ::T, M::T) where {T}
   L = R[]
   Δ = abs(L.φp - φ)
   if abs(φ) > 2eps(T) * M && L.n >= _FIX_MIN && Δ > 8eps(T) * M &&
@@ -657,14 +1096,14 @@ end
 # φ and the scale of its rounding error, from the live entries in the buffers
 @noinline function _live_gap(c::LinearConstrained, x::AbstractArray, ν::T, γ, b, L::_Live{T}) where {T}
   X, A, G, I = _live_buffers(c, x, γ, T)
-  φ, M = _live_pass(c.f, b, X, A, G, I, L.n, ν)
-  φ + L.s, M + L.m
+  _live_pass(c.f, b, X, A, G, I, L.n, ν, L.s, L.m)
 end
 
 # the pass of _constraint_gap over the first n entries of the buffers, with the
 # indices I in f
-_live_pass(f, b, X, A, G, I, n, ν) =
-  _constraint_gap((f = _Reindexed(f, I), set = (a = _head(A, n), b = b)), view(X, Base.OneTo(n)), ν, _head(G, n))
+_live_pass(f, b, X, A, G, I, n, ν::T, fixed = zero(_sum_type(T)), mass = zero(_sum_type(T))) where {T} =
+  _constraint_gap(_Reindexed(f, I), _head(A, n), b, view(X, Base.OneTo(n)), ν, _head(G, n), Val(false), fixed, mass)
+_head(g::_SearchSteps, n::Integer) = _with_steps(g, _head(g.steps, n))
 _head(a::Real, ::Integer) = a
 _head(a::AbstractVector, n::Integer) = view(a, Base.OneTo(n))
 
@@ -702,7 +1141,7 @@ function _live_buffers(c::LinearConstrained, x::AbstractArray, γ, ::Type{T}) wh
   a = c.set.a
   X = _buffer!(bx, promote_type(eltype(x), T), n)
   A = a isa Real ? _scaled_normal(c.set) : _buffer!(ba, T, n)
-  G = γ isa Real ? γ : _buffer!(bg, T, n)
+  G = _with_steps(γ, γ.steps isa Real ? γ.steps : _buffer!(bg, T, n))
   X, A, G, _buffer!(bi, Int, n)
 end
 
@@ -718,7 +1157,7 @@ Base.@propagate_inbounds function _at_end(f, Xs, As, Gs, Is, j, ν::T, low::Bool
   i = Is === nothing ? j : Is[j]
   aᵢ = convert(T, _entry(As, j))
   γᵢ = convert(T, _entry(Gs, j))
-  _at_end(f, prox_entry(f, Xs[j] - γᵢ * ν * aᵢ, i, γᵢ), aᵢ, i, low)
+  _at_end(f, prox_entry(f, _shifted_entry(Gs, ν, aᵢ, Xs[j], j, T), i, γᵢ), aᵢ, i, low)
 end
 
 # the scalar proximal operator of f where it sits at an end, and 0 elsewhere:
@@ -728,6 +1167,11 @@ struct _AtEnd{F, A}
   a::A          # the normal, by index
   low::Bool
 end
+# These sums are subtracted from the nearly equal constraint offset.
+_gap_accumulator(::_AtEnd, ::Type{T}) where {T} = T === Float32 ? Float64 : T
+_gap_accumulator(g::_Reindexed, ::Type{T}) where {T} = _gap_accumulator(g.f, T)
+_gap_result_type(::_AtEnd, ::Type{T}) where {T} = _sum_type(T)
+_gap_result_type(g::_Reindexed, ::Type{T}) where {T} = _gap_result_type(g.f, T)
 Base.@propagate_inbounds function prox_entry(g::_AtEnd, v::Real, i::Integer, γ::Real)
   z = prox_entry(g.f, v, i, γ)
   ifelse(_at_end(g.f, z, _entry(g.a, i), i, g.low), z, zero(z))
@@ -736,6 +1180,11 @@ end
 # whether at most a share _FIX_KEEP of an evenly spaced sample of the live
 # entries r stays live
 function _few_stay(c::LinearConstrained, Xs, As, Gs, Is, r, ν::T, low::Bool) where {T}
+  _pass_steps(Gs, ν, As) do steps
+    _few_stay_pass(c, Xs, As, steps, Is, r, ν, low)
+  end
+end
+function _few_stay_pass(c, Xs, As, Gs, Is, r, ν::T, low::Bool) where {T}
   n = length(r)
   step = max(1, n ÷ _FIX_SAMPLE)
   stay = total = 0
@@ -758,8 +1207,9 @@ function _fix!(c::LinearConstrained{F}, a, X, A, G, I, Xs, As, Gs, Is, r, ν::T,
     w = _copy_live!(X, A, G, I, B, Xs, As, Gs, Is, r, T)
     l, u = _prox_range(f, 1, T)
     aT = convert(T, a)
-    t = aT * ifelse((aT > 0) == low, l, u)
-    return w, (length(r) - w) * t, (length(r) - w) * abs(t)
+    A = _sum_type(T)
+    t = A(aT) * A(ifelse((aT > 0) == low, l, u))
+    return w, A(length(r) - w) * t, A(length(r) - w) * abs(t)
   end
   g = _AtEnd(f, a, low)
   s, m = Is === nothing ? _constraint_gap((f = g, set = (a = As, b = zero(T))), Xs, ν, Gs) :
@@ -770,6 +1220,11 @@ end
 # the entries r as bits, 64 to a word, set where an entry stays live (the
 # inner loop on one line, which coverage counts as run)
 function _keep_bits!(B::Vector{UInt64}, f, Xs, As, Gs, Is, r, ν::T, low::Bool) where {T}
+  _pass_steps(Gs, ν, As) do steps
+    _keep_bits_pass!(B, f, Xs, As, steps, Is, r, ν, low)
+  end
+end
+function _keep_bits_pass!(B, f, Xs, As, Gs, Is, r, ν::T, low::Bool) where {T}
   n, j0 = length(r), first(r) - 1
   @inbounds for k in 1:cld(n, 64)
     o = j0 + 64(k - 1)
@@ -795,7 +1250,7 @@ function _copy_live!(X, A, G, I, B::Vector{UInt64}, Xs, As, Gs, Is, r, ::Type{T}
       X[w] = Xs[j]
       I[w] = Is === nothing ? j : Is[j]
       A isa AbstractArray && (A[w] = convert(T, As[j]))
-      G isa AbstractArray && (G[w] = convert(T, Gs[j]))
+      G.steps isa AbstractArray && (G.steps[w] = convert(T, _entry(Gs, j)))
       keep &= keep - 1
     end
   end
@@ -950,7 +1405,7 @@ Base.@propagate_inbounds _prox_entry_slope(f::LinearFunction, v::T, i::Integer, 
   (prox_entry(f, v, i, γ), one(float(T)))
 Base.@propagate_inbounds function _prox_entry_slope(f::SqrNormL2, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  prox_entry(f, v, i, γ), inv(one(S) + convert(S, γ * f.λ))
+  prox_entry(f, v, i, γ), first(_ridge_weights(S(γ), S(f.λ)))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
@@ -991,13 +1446,14 @@ Base.@propagate_inbounds function _prox_entry_slope(c::BoxConstrained, v::T, i::
 end
 
 function _checkstep(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  _search_steps(γ, float(eltype(y)))
   f, set = c.f, c.set
   if isempty(x)
     if !(set isa IndHyperslab)
       T = float(eltype(y))
       φ = -convert(T, _scaled_offset(set))
       if set isa IndHyperplane || φ > 0
-        abs(φ) <= 2eps(T) * abs(φ) || _infeasible(c)
+        _resolved(φ, abs(φ)) || _infeasible(c)
       end
     end
     return true

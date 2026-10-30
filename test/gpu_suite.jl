@@ -657,8 +657,10 @@ end
       @test gradient!(DG, f, D) === DG
       @test isequal(host(DG), G) || host(DG) ≃ G
       if R === T
-        @test same(value_and_gradient!(D, f, D), value_and_gradient!(G, f, A))
-        @test isequal(host(D), G) || host(D) ≃ G
+        before = copy(A)
+        @test_throws ArgumentError("the gradient must not overwrite x") value_and_gradient!(A, f, A)
+        @test_throws ArgumentError("the gradient must not overwrite x") value_and_gradient!(D, f, D)
+        @test host(D) == before
       end
     end
     f = LogDetLoss(Matrix{Float32}(I, 3, 3))
@@ -674,6 +676,18 @@ end
     @test same(value_and_gradient!(DY, f, D), value_and_gradient!(Y, f, A))
     @test host(DY) ≃ Y
     M = floatmax(T)
+    # Wrapper proximal operators also recover an overflowing spectrum on the host.
+    for make in (() -> Spectral(NormL1(T(1)/4)), () -> SingularValue(NormL1(T(1)/4)),
+                 () -> Spectral(IndNonnegative()))
+      Xoverflow = fill(M, 2, 2)
+      Yoverflow = similar(Xoverflow)
+      vc = value_and_prox!(Yoverflow, make(), Xoverflow, one(T))
+      Doverflow = DeviceArray(Xoverflow)
+      DYoverflow = similar(Doverflow)
+      vd = value_and_prox!(DYoverflow, make(), Doverflow, one(T))
+      @test vd === vc
+      @test host(DYoverflow) == Yoverflow
+    end
     # Mapped roots and the half spectrum can overflow at finite inputs.
     for n in (2, 3), (w, γ) in ((one(T), one(T)), (T(1)/4, T(4)))
       Xlarge = fill(M, n, n)
@@ -735,8 +749,9 @@ end
     end
     A = DeviceArray(T[Inf 0; 0 1])
     Y = DeviceArray(fill(T(17), 2, 2))
-    @test_throws ArgumentError prox!(Y, IndStiefel(), A, 1)
-    @test host(Y) == fill(T(17), 2, 2)
+    @test prox!(Y, IndStiefel(), A, 1) === Y
+    @test all(isnan, host(Y))
+    @test isequal(host(Y), prox(IndStiefel(), host(A), 1))
     Y = DeviceArray(fill(T(17), 3, 3))
     @test_throws DomainError prox!(Y, LogDetLoss(Matrix{T}(I, 3, 3)), D, -1)
     @test host(Y) == fill(T(17), 3, 3)

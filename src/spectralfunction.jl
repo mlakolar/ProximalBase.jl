@@ -134,7 +134,7 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   # the eigenvalues of the result, exactly as many as those of X
   z = _buffer!(s.z, T, n)
   length(z) == n || resize!(z, n)
-  if _scales_spectral_prox(s.f) && _spectral_overflow(λ, X)
+  if _scales_spectral_prox(s.f) && _spectral_overflow(λ, X, ws, s.out)
     return _scaled_wrapper_eigen_prox!(Y, s, X, γ, ws, z)
   end
   v = value_and_prox!(z, s.f, λ, γ)
@@ -249,8 +249,10 @@ function _scaled_spectrum_prox!(z::Vector{T}, f::SumLargest, x, γ, e) where {T}
 end
 
 @noinline function _scaled_wrapper_eigen_prox!(Y, s::Spectral, X, γ, ws::SymEigenWorkspace{T}, z) where {T}
-  e = _magnitude_exponent(convert(T, _maximum_abs(X)))
-  _scaled_spectral_input!(ws.A, X)
+  # The overflow check keeps the device input separate from the eigenvectors.
+  A = _is_device_array(X) ? _array_buffer!(s.out, T, size(X)) : X
+  e = _magnitude_exponent(convert(T, _maximum_abs(A)))
+  _scaled_spectral_input!(ws.A, A)
   λ, V = _eigen!(ws)
   σ = _maximum_abs(λ)
   v = _scaled_spectrum_prox!(z, s.f, λ, γ, e)

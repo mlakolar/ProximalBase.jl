@@ -174,7 +174,7 @@ function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix,
   s, U, Vt = _svd!(ws)
   t = _vector_buffer(F.t, T, length(s))
   F.t = t
-  if _scales_spectral_prox(F.f) && _spectral_overflow(s, X)
+  if _scales_spectral_prox(F.f) && _spectral_overflow(s, X, ws)
     return _scaled_wrapper_svd_prox!(Y, F, X, γ, ws, t)
   end
   v = value_and_prox!(t, F.f, s, γ)
@@ -222,8 +222,10 @@ function _conjugate_value(F::SingularValue, Y::AbstractMatrix)
 end
 
 @noinline function _scaled_wrapper_svd_prox!(Y, F::SingularValue, X, γ, ws::SVDWorkspace{T}, t) where {T}
-  e = _magnitude_exponent(convert(T, _maximum_abs(X)))
-  _scaled_spectral_input!(ws.A, X)
+  # The overflow check has restored the device input in ws.A.
+  A = _is_device_array(X) ? ws.A : X
+  e = _magnitude_exponent(convert(T, _maximum_abs(A)))
+  _scaled_spectral_input!(ws.A, A)
   s, U, Vt = _svd!(ws)
   σ = _maximum_abs(s)
   v = _scaled_spectrum_prox!(t, F.f, s, γ, e)

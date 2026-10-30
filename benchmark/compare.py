@@ -9,27 +9,30 @@ import statistics
 import tomllib
 
 from summarize import mean_interval
-from validate import MATCH_SETTINGS, validate
+from validate import MATCH_SETTINGS, check_timer_limit_multiple, timer_limited, validate
 
 
 def load(root, expected):
     checked = validate(root, expected)
     if not checked["valid"]:
         raise ValueError(f"Invalid results {root}: {checked['issues']}")
-    rows, configs = {}, set()
+    rows, configs, metadata = {}, set(), {}
     for path in sorted(Path(root).glob("*-metadata.toml")):
         with path.open("rb") as stream:
             meta = tomllib.load(stream)
+        metadata[path.name.removesuffix("-metadata.toml")] = meta
         configs.add(tuple(str(meta[key]) for key in MATCH_SETTINGS))
     for path in sorted(Path(root).glob("*-metrics.tsv")):
         version = path.name.split("-rep")[0]
         with path.open(newline="") as stream:
             for row in csv.DictReader(stream, delimiter="\t"):
+                row["_metadata"] = metadata[path.name.removesuffix("-metrics.tsv")]
                 rows[(version, row["id"], int(row["rep"]))] = row
     return rows, configs
 
 
-def compare(before_root, after_root, output, expected=1):
+def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10):
+    check_timer_limit_multiple(timer_limit_multiple)
     output = Path(output)
     if output.exists() and any(output.iterdir()):
         raise ValueError("Use a fresh comparison directory to avoid stale reports")
@@ -62,10 +65,23 @@ def compare(before_root, after_root, output, expected=1):
             new_max = max(float(new["max_bytes"]) for _, new in pairs)
             unexpected = any(new["expected_zero"] == "true" and float(new["max_bytes"]) > 0
                              for _, new in pairs)
+            limited_by = []
+            for side, index in (("before", 0), ("after", 1)):
+                reps = [f"rep{int(pair[index]['rep']):02d}" for pair in pairs
+                        if timer_limited(pair[index], pair[index]["_metadata"], timer_limit_multiple)]
+                if reps:
+                    limited_by.append(side + ":" + ",".join(reps))
+            limited = bool(limited_by)
             assessment = ("single run; exploratory" if expected == 1 else
                           "inconclusive" if mu-half <= 0 <= mu+half else
                           "faster" if mu > 0 else "slower")
+            if limited:
+                assessment = "single run; exploratory; timer-limited" if expected == 1 else "timer-limited"
             results.append(dict(julia=version, id=case, paired_runs=expected,
+                timer_limited=limited, timer_limited_by=";".join(limited_by),
+                timer_limit_multiple=timer_limit_multiple,
+                before_evals="/".join(str(v) for v in sorted({int(old["evals"]) for old, _ in pairs})),
+                after_evals="/".join(str(v) for v in sorted({int(new["evals"]) for _, new in pairs})),
                 before_mean_ns=statistics.mean(old_times), after_mean_ns=statistics.mean(new_times),
                 paired_geometric_speedup=math.exp(mu), ci95_low=math.exp(mu-half),
                 ci95_high=math.exp(mu+half), timing_assessment=assessment,
@@ -79,6 +95,7 @@ def compare(before_root, after_root, output, expected=1):
         lines = ["# ProximalBase revision comparison", "",
                  "Ratios above one favor the proposed revision. Intervals use paired log ratios across fresh process/input draws; they do not correct for correlated machine noise or multiple comparisons. Interleave revisions when confirming small differences.", "",
                  "Single-run ratios are exploratory and have no confidence interval. Allocation counts measure Julia heap bytes, not native allocations or peak memory.", "",
+                 f"A measurement is timer-limited when median_ns * evals < {timer_limit_multiple:g} * timer_floor_ns (strict). With an unusable calibration (NaN floor), only evals == 1 is limited. A case is limited if any repetition on either side is limited. Timer-limited cases are not to be used for ratio gates.", "",
                  "| Case | Julia | Before / after (µs) | Speedup [95% interval] | Mean bytes before / after | Maximum bytes before / after | Assessment |",
                  "|---|---|---:|---:|---:|---:|---|"]
         for row in results:
@@ -99,8 +116,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("before"); parser.add_argument("after"); parser.add_argument("output")
     parser.add_argument("--expected-runs", type=int, choices=range(1, 11), default=1)
+    parser.add_argument("--timer-limit-multiple", type=float, default=10)
     args = parser.parse_args()
     try:
-        compare(args.before, args.after, args.output, args.expected_runs)
+        compare(args.before, args.after, args.output, args.expected_runs, args.timer_limit_multiple)
     except (ValueError, OSError, KeyError) as error:
         parser.exit(2, f"{error}\n")

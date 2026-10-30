@@ -5,7 +5,7 @@ struct PerfCase{F,S,V,M}
     operation::F
     prepare::S
     validate::V
-    evals::Int
+    evals::Union{Int,Nothing}
     profile::Bool
 end
 
@@ -28,7 +28,7 @@ function close_enough(x, y)
 end
 
 function addcase!(cases, family, name, op, validate; T=Float64, shape="", layout="dense",
-                  phase="warm", prepare=noop, evals=1, profile=false, work=0,
+                  phase="warm", prepare=noop, evals=prepare===noop ? nothing : 1, profile=false, work=0,
                   zero_alloc=phase == "warm")
     id = join((family, name, string(T), shape, layout, phase), "/")
     meta = (;id, family, name, dtype=string(T), shape, layout, phase, work, zero_alloc)
@@ -38,7 +38,6 @@ end
 function addprox!(cases, family, name, f, x; γ=eltype(x)(0.7), layout="dense",
                   prepare=noop, profile=false, alias=false, value=true, reference_function=f)
     T = eltype(x)
-    evals = length(x)<=512 && prepare===noop ? 25 : 1
     y = similar(x)
     reference = Ref{Any}(nothing)
     # Reference construction and checks are deliberately outside all measurements.
@@ -51,7 +50,7 @@ function addprox!(cases, family, name, f, x; γ=eltype(x)(0.7), layout="dense",
         nothing
     end
     addcase!(cases, family, name * "/prox!", () -> prox!(y, f, x, γ), check!;
-             T, shape=join(size(x), "x"), layout, prepare, profile, evals, work=length(x))
+             T, shape=join(size(x), "x"), layout, prepare, profile, work=length(x))
     if value
         function checkvalue!()
             check!()
@@ -63,7 +62,7 @@ function addprox!(cases, family, name, f, x; γ=eltype(x)(0.7), layout="dense",
                 error("returned value differs from f(prox): $v versus $expected")
         end
         addcase!(cases, family, name * "/value_and_prox!", () -> value_and_prox!(y, f, x, γ), checkvalue!;
-                 T, shape=join(size(x), "x"), layout, prepare, evals, work=length(x))
+                 T, shape=join(size(x), "x"), layout, prepare, work=length(x))
     end
     if alias
         z = copy(x)

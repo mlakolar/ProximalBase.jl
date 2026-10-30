@@ -184,12 +184,18 @@ end
 
 function (f::SparseGroupNormL2)(x::AbstractArray)
   _checkreal(f, x)
+  isfinite(f.λ0) && !iszero(f.λ0) && return _sparse_group_value(f, x, Val(true))
+  isfinite(f.λ1) && _ordinary_group_weights(f, float(eltype(x))) ?
+    _sparse_group_value(f, x, Val(true)) : _sparse_group_value(f, x, Val(false))
+end
+
+function _sparse_group_value(f::SparseGroupNormL2, x::AbstractArray, ordinary::Val{O}) where {O}
   _checkgroups(f, x)
   T = float(eltype(x))
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
     G = f.groups[k]
-    (iszero(f.λ0) || iszero(f.w[k])) || (v2 += _group_value(f, f.λ0, f.w[k], _group_norm2(x, G), x, G, T))
+    ((O && iszero(f.λ0)) || iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))) || (v2 += _group_value(f, f.λ0, f.w[k], _group_norm2(x, G), x, G, T, ordinary))
     iszero(f.λ1) || (v1 += _sumabs(x, G))
   end
   v2 +
@@ -201,6 +207,11 @@ value_and_prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Re
 
 # the step γ is a scalar or a vector with a step per group (see metric.jl)
 function _value_and_prox_groups!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Union{Real, AbstractVector})
+  isfinite(f.λ1) && _ordinary_group_weights(f, float(eltype(y))) ?
+    _sparse_group_prox!(y, f, x, γ, Val(true)) : _sparse_group_prox!(y, f, x, γ, Val(false))
+end
+
+function _sparse_group_prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
   _checksize(y, x)
   _checkgroups(f, x)
   _checkgroupsteps(f, γ)
@@ -209,11 +220,11 @@ function _value_and_prox_groups!(y::AbstractArray, f::SparseGroupNormL2, x::Abst
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
     γk = _entry(γ, k)
-    if iszero(f.λ0) || iszero(f.w[k])
+    if (O && iszero(f.λ0)) || iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))
       n1 = _soft_group_only!(y, x, f.groups[k], convert(T, γk * f.λ1), _group_writes(y, f.groups[k]))
     else
-      n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], convert(T, γk * f.λ1), convert(T, _positive_product(γk, f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
-      v2 += _group_value(f, f.λ0, f.w[k], n2, y, f.groups[k], T)
+      n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], convert(T, γk * f.λ1), convert(T, O ? _positive_product(γk, f.λ0, f.w[k]) : _weight_product(γk, f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+      v2 += _group_value(f, f.λ0, f.w[k], n2, y, f.groups[k], T, ordinary)
     end
     iszero(f.λ1) || (v1 += convert(T, n1))
   end
@@ -225,12 +236,19 @@ end
 function (f::SparseGroupNormL2)(x::AtomIterate)
   _checkreal(f, x)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
+  isfinite(f.λ0) && !iszero(f.λ0) && return _sparse_group_value(f, x, Val(true))
+  isfinite(f.λ1) && _ordinary_group_weights(f, float(eltype(x)), x.active, x.nactive) ?
+    _sparse_group_value(f, x, Val(true)) : _sparse_group_value(f, x, Val(false))
+end
+
+function _sparse_group_value(f::SparseGroupNormL2, x::AtomIterate, ordinary::Val{O}) where {O}
+  _samelayout(f, x) || return invoke(_sparse_group_value, Tuple{SparseGroupNormL2, AbstractArray, Val{O}}, f, x, ordinary)
   T = float(eltype(x))
   v2, v1 = zero(T), zero(T)
   for a in 1:x.nactive
     k = x.active[a]
     G = f.groups[k]
-    (iszero(f.λ0) || iszero(f.w[k])) || (v2 += _group_value(f, f.λ0, f.w[k], _group_norm2(x.storage, G), x.storage, G, T))
+    ((O && iszero(f.λ0)) || iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))) || (v2 += _group_value(f, f.λ0, f.w[k], _group_norm2(x.storage, G), x.storage, G, T, ordinary))
     iszero(f.λ1) || (v1 += _sumabs(x.storage, G))
   end
   v2 +
@@ -243,6 +261,13 @@ value_and_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Real) 
 function _value_and_prox_groups!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Union{Real, AbstractVector})
   _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, SparseGroupNormL2, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
+  isfinite(f.λ1) && _ordinary_group_weights(f, float(eltype(y)), x.active, x.nactive) ?
+    _sparse_group_prox!(y, f, x, γ, Val(true)) : _sparse_group_prox!(y, f, x, γ, Val(false))
+end
+
+function _sparse_group_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
+  _samelayout(f, x) && _samelayout(f, y) ||
+    return invoke(_sparse_group_prox!, Tuple{AbstractArray, SparseGroupNormL2, AbstractArray, Union{Real, AbstractVector}, Val{O}}, y, f, x, γ, ordinary)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
   copyto!(y, x)
@@ -250,11 +275,11 @@ function _value_and_prox_groups!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIt
   for a in 1:y.nactive
     k = y.active[a]
     γk = _entry(γ, k)
-    if iszero(f.λ0) || iszero(f.w[k])
+    if (O && iszero(f.λ0)) || iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))
       n1 = _soft_group_only!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1))
     else
-      n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1), convert(T, _positive_product(γk, f.λ0, f.w[k])))
-      v2 += _group_value(f, f.λ0, f.w[k], n2, y.storage, f.groups[k], T)
+      n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1), convert(T, O ? _positive_product(γk, f.λ0, f.w[k]) : _weight_product(γk, f.λ0, f.w[k])))
+      v2 += _group_value(f, f.λ0, f.w[k], n2, y.storage, f.groups[k], T, ordinary)
     end
     iszero(f.λ1) || (v1 += convert(T, n1))
   end
@@ -266,12 +291,12 @@ end
 function prox_coordinate!(x::AtomIterate, f::SparseGroupNormL2, k::Integer, γ::Real)
   _checksamegroups(f, x)
   T = float(eltype(x))
-  if iszero(f.λ0) || iszero(f.w[k])
+  if (iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])
     _soft_group_only!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1))
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
     return atom(x, k)
   end
-  n2, _ = _sparse_shrink_group!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1), convert(T, _positive_product(γ, f.λ0, f.w[k])))
+  n2, _ = _sparse_shrink_group!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1), convert(T, isinf(f.w[k]) ? _weight_product(γ, f.λ0, f.w[k]) : _positive_product(γ, f.λ0, f.w[k])))
   iszero(n2) || activate!(x, k)
   atom(x, k)
 end
@@ -286,9 +311,9 @@ function kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray,
   k = _group(f, i)
   k == 0 && return abs(g[i])
   G = f.groups[k]
-  _allzero(x, G) ? _dual_norm(f, g, G) - f.λ0 * f.w[k] : abs(g[i]) - f.λ1
+  _allzero(x, G) ? _dual_norm(f, g, G) - _weight_coefficient(f.λ0, f.w[k]) : abs(g[i]) - f.λ1
 end
 kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AtomIterate, k::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); _checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - f.λ0 * f.w[k])
+  (eltype(g) <: Real || _real_error(:kkt_violation); _checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _weight_coefficient(f.λ0, f.w[k]))
 kkt_violation(f::SparseGroupNormL2, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate")))

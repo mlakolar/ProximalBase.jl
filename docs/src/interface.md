@@ -301,6 +301,62 @@ To compute in `Float32` throughout, give the argument, the parameters, the
 data and the step in `Float32`; the functions then return `Float32` values and
 arrays.
 
+### Overflow and underflow of values
+
+This rule covers `f(x)` and the values returned by `value_and_prox!` and
+`value_and_gradient!`. It does not cover proximal points, gradients or other
+outputs.
+
+When the value `v` is a finite normal number in the value type `T`,
+`floatmin(T) ≤ |v| ≤ floatmax(T)`, it is returned with the accuracy of the
+ordinary computation, even when an intermediate leaves the range of `T`.
+Intermediates include a sum, a difference, a square, a product with a fixed
+factor such as `1/2`, and a level or weight that is not representable in `T`.
+
+The ordinary expression is evaluated first. Only when its result is out of
+range, or a sum of squares could have lost terms to underflow, is the value
+recomputed in units of a power of two, with the level applied last. Ordinary
+inputs therefore give the same bits as the ordinary expression.
+
+For example, the ordinary expression overflows in the sum of squares:
+
+```julia
+julia> SqrNormL2(1e-300)([1e200])
+5.0e99
+
+julia> (1e-300 / 2) * sum(abs2, [1e200])
+Inf
+```
+
+The guarantee covers normal values only. A value below `floatmin(T)` may be
+off by about `floatmin(T)` in absolute terms, for example `0.0` for
+`nextfloat(0.0)`. Underflow before a weight that scales the value into the
+normal range is covered. For example, `SqrNormL2(2.0^1000)` at
+`[2.0^-511; fill(2.0^-538, 32)]` returns its value to full relative accuracy.
+
+The rule concerns finite data and finite parameters. Non-finite input keeps
+each function's documented behaviour.
+
+The guarantee has a small cost, accepted by design. The range check after the
+ordinary expression adds a few nanoseconds per call: about 2 to 5 ns on
+vectors of up to a thousand entries, which is 5 to 35 percent of the
+cheapest values (`SqrNormL2`, the ridge term of `Regularize`,
+`TotalVariation1D`), and no measurable cost from a few thousand entries on.
+The alternative, the usual one in optimization software, is to leave the
+ordinary expression unchecked and ask users to scale their data. ProximalBase
+instead follows numerical linear algebra, where BLAS `nrm2`, LAPACK and
+Julia's `norm` pay a similar fixed cost so that a representable result is
+never lost to an intermediate. Keeping the ordinary expression on the fast
+path, rather than scaling every evaluation, keeps ordinary results bit for bit
+what they were and confines the slower computation to inputs that need it.
+
+The rule applies to every function in the package, as does the precision rule
+above. Known exceptions being brought under the rule are the values of
+functions of the spectrum (`Spectral`, `SingularValue` and their sets) at an
+overflowing spectrum, SLOPE weights given in another precision, group weights
+on GPU arrays, and `Scaled` without a level. Other remaining exceptions are
+tracked in the [issue tracker](https://github.com/mlakolar/ProximalBase.jl/issues/283).
+
 ## GPU arrays
 
 The separable functions work on GPU arrays: CUDA.jl's `CuArray`, and the other

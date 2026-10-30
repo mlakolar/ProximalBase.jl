@@ -31,9 +31,7 @@ As for `GroupNormL2`, on an [`AtomIterate`](@ref) that shares its groups
 on a group and [`kkt_violation`](@ref) measures a group at zero, which is
 optimal when `‖soft(g[Gₖ], λ1)‖₂ ≤ λ2wₖ`. Inside a nonzero group, an entry at
 zero is optimal when `|gᵢ| ≤ λ1`.
-When an intermediate overflows or underflows, or a weight is not representable
-in the argument's precision although the weighted value is representable,
-the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct SparseGroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: HomogeneousGroupNorm
   λ1::T                   # the level of the ℓ1 term

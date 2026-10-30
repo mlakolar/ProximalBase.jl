@@ -80,6 +80,8 @@ end
 
 # A converted parameter must retain normal precision on the ordinary path.
 @inline _level_fits(::Type, ::Real) = true
+# A level already stored in this precision needs no conversion check.
+@inline _level_fits(::Type{T}, λ::T) where {T<:Union{Float32, Float64}} = true
 @inline function _level_fits(::Type{T}, λ::Real)::Bool where {T<:AbstractFloat}
   iszero(λ) || !isfinite(λ) || floatmin(T) <= abs(convert(T, λ)) <= floatmax(T)
 end
@@ -208,8 +210,9 @@ Base.deepcopy_internal(::Scratch, ::IdDict) = Scratch()
 #
 ####################################
 
-_checksize(y, x) = size(y) == size(x) ||
-  throw(DimensionMismatch("the output has size $(size(y)) and the input $(size(x))"))
+_checksize(y, x) = size(y) == size(x) || _size_mismatch(size(y), size(x))
+@noinline _size_mismatch(sy, sx) =
+  throw(DimensionMismatch("the output has size $sy and the input $sx"))
 
 _checknonneg(name, v::Real) = v >= 0 || throw(ArgumentError("$name must be nonnegative, got $v"))
 _checknonneg(name, v::AbstractArray) = all(>=(0), v) || throw(ArgumentError("$name must be nonnegative"))
@@ -224,8 +227,9 @@ Base.@propagate_inbounds _entry(w::AbstractArray, i::Integer) = w[i]
 
 # a parameter array has an entry for every entry of x
 _checkparam(::Union{Nothing, Real}, x) = true
-_checkparam(w::AbstractArray, x) = length(w) == length(x) ||
-  throw(DimensionMismatch("a parameter array has length $(length(w)) and the argument has length $(length(x))"))
+_checkparam(w::AbstractArray, x) = length(w) == length(x) || _parameter_length_mismatch(length(w), length(x))
+@noinline _parameter_length_mismatch(nw, nx) =
+  throw(DimensionMismatch("a parameter array has length $nw and the argument has length $nx"))
 
 # the value of an indicator function
 _ind(ok::Bool, ::Type{T}) where {T} = ok ? zero(T) : T(Inf)
@@ -627,13 +631,96 @@ end
 
 # Σᵢ (xᵢ - yᵢ)², without allocating x - y
 function _sumabs2_diff(x::AbstractArray, y::AbstractArray)
-  size(x) == size(y) || throw(DimensionMismatch("the arrays have sizes $(size(x)) and $(size(y))"))
+  size(x) == size(y) || _difference_size_mismatch(size(x), size(y))
   T = float(promote_type(eltype(x), eltype(y)))
   s = zero(T)
   @inbounds @simd for i in eachindex(x, y)
     s += abs2(T(_norm_difference(x[i], y[i])))
   end
   s
+end
+
+@noinline _difference_size_mismatch(sx, sy) =
+  throw(DimensionMismatch("the arrays have sizes $sx and $sy"))
+
+# Count the terms actually reduced, rather than the ambient sparse dimension.
+_square_term_count(x) = length(x)
+_square_term_count(x::SparseArrays.AbstractSparseArray) = length(nonzeros(x))
+_square_multiplicity(x, i) = 1
+
+@inline function _square_value(λ, x, y)
+  T = _valtype(x)
+  s = y === nothing ? _sumabs2(x) : _sumabs2_diff(x, y)
+  v = convert(T, λ) * s / 2
+  n = y === nothing ? _square_term_count(x) : length(x)
+  if (isfinite(v) & (real(s) >= n * (floatmin(T) / eps(T)))) && _level_fits(T, λ)
+    return _value_at(v, x)
+  end
+  _exceptional_square_value(λ, x, y, real(s), v)
+end
+
+@noinline function _exceptional_square_value(λ, x, y, s, v)
+  T = _valtype(x)
+  !isfinite(λ) && return _value_at(v, x)
+  iszero(λ) && isfinite(s) && return _value_at(v, x)
+  _level_fits(T, λ) && iszero(s) && y === nothing && x isa DenseArray && iszero(sum(abs, x)) && return _value_at(v, x)
+  _scaled_square_value(λ, x, y, v)
+end
+
+@inline _square_difference(a, b, ::Type{R}) where {R} = R(a) - R(b)
+@inline _square_difference(a::Integer, b::Integer, ::Type{R}) where {R} = R(_norm_difference(a, b))
+
+# A finite difference is formed before scaling, so cancellation retains its units.
+@inline function _residual_exponent(a, b, ::Type{R}) where {R}
+  (isfinite(a) && isfinite(b)) || return typemax(Int)
+  d = _square_difference(a, b, R)
+  iszero(d) && return typemin(Int)
+  isfinite(d) && return exponent(abs(d))
+  exponent(abs(R(a) / 2 - R(b) / 2)) + 1
+end
+
+@inline function _scaled_residual(a, b, s, h, ::Type{R}) where {R}
+  d = _square_difference(a, b, R)
+  isfinite(d) ? _scale_value(d, s) : _scale_value(R(a) / 2 - R(b) / 2, h)
+end
+
+function _square_exponent(x, y, ::Type{R}) where {R}
+  k = typemin(Int)
+  if y === nothing
+    for a in _stored_values(x)
+      k = max(k, _residual_exponent(a, zero(R), R))
+    end
+  else
+    @inbounds for i in eachindex(x, y)
+      k = max(k, _residual_exponent(x[i], y[i], R))
+    end
+  end
+  k
+end
+
+function _square_scaled_sum(x, y, k, ::Type{R}) where {R}
+  s, h = _power_factors(R, -k), _power_factors(R, 1-k)
+  v = e = zero(R)
+  if y === nothing
+    @inbounds for (i, a) in enumerate(_stored_values(x))
+      q = _square_multiplicity(x, i) * abs2(_scaled_residual(a, zero(R), s, h, R))
+      v, e = _compensated_add(v, e, q)
+    end
+  else
+    @inbounds for i in eachindex(x, y)
+      v, e = _compensated_add(v, e, abs2(_scaled_residual(x[i], y[i], s, h, R)))
+    end
+  end
+  v + e
+end
+
+@noinline function _scaled_square_value(λ, x, y, ordinary)
+  R = promote_type(_valtype(x), y === nothing ? _valtype(x) : _valtype(y), float(typeof(λ)))
+  k = _square_exponent(x, y, R)
+  k == typemax(Int) && return _value_at(ordinary, x)
+  k == typemin(Int) && return _value_at(convert(R, λ) * zero(R), x)
+  s = _square_scaled_sum(x, y, k, R)
+  _value_at(_scaled_product(convert(R, λ), s, 2k - 1), x)
 end
 
 ####################################

@@ -220,6 +220,23 @@ function ProximalBase._sumabs2_diff(x::GPUArray, y::GPUArray)
   _sum(T, (a, b) -> abs2(a - b), x, y)
 end
 
+function ProximalBase._square_exponent(x::GPUArray, y, ::Type{R}) where {R}
+  f = ProximalBase._residual_exponent
+  d = y === nothing ? broadcasted(a -> f(a, zero(R), R), x) : broadcasted((a, b) -> f(a, b, R), x, y)
+  mapreduce(identity, max, instantiate(d); init = typemin(Int))
+end
+
+function ProximalBase._square_scaled_sum(x::GPUArray, y, k, ::Type{R}) where {R}
+  s, h = ProximalBase._power_factors(R, -k), ProximalBase._power_factors(R, 1-k)
+  f = ProximalBase._scaled_residual
+  d = y === nothing ? broadcasted(a -> abs2(f(a, zero(R), s, h, R)), x) :
+    broadcasted((a, b) -> abs2(f(a, b, s, h, R)), x, y)
+  # Keep small squares when the device reduction adds a large term first.
+  v, e = mapreduce(q -> (q, zero(R)), _square_combine, instantiate(d); init = (zero(R), zero(R)))
+  v + e
+end
+@inline _square_combine(a, b) = ProximalBase._compensated_add(a[1], a[2] + b[2], b[1])
+
 function ProximalBase._norm_diff2(x::GPUArray, y::GPUArray)
   s = ProximalBase._sumabs2_diff(x, y)
   isfinite(s) && s >= floatmin(typeof(s)) && return sqrt(s)
@@ -476,6 +493,10 @@ DeviceGroups(f::_GroupFunction, dev) = DeviceGroups(f, _layout(f.groups, f.group
 ProximalBase.isproximable(::Type{<:DeviceGroups{F}}) where {F} = ProximalBase.isproximable(F)
 ProximalBase.isconvex(::Type{<:DeviceGroups{F}}) where {F} = ProximalBase.isconvex(F)
 ProximalBase._isindicator(::Type{<:DeviceGroups{F}}) where {F} = ProximalBase._isindicator(F)
+function ProximalBase._fold_level(d::DeviceGroups, α)
+  f = ProximalBase._fold_level(d.f, α)
+  f === nothing ? nothing : DeviceGroups(f, d.layout)
+end
 
 function ProximalBase._zero_scaled(d::DeviceGroups)
   f = ProximalBase._zero_scaled(d.f)
@@ -803,7 +824,7 @@ end
 
 _sum_above(v, τ) = (a = abs(v); a > τ ? a : zero(a))
 _count_above(v, τ) = abs(v) > τ
-_clip(v, τ, _) = sign(v) * min(abs(v), τ)
+_clip(v, τ, _) = iszero(τ) ? zero(v) : sign(v) * min(abs(v), τ)
 
 # the levels of the groups of block b, from its gather X, with thresholds c (a
 # 1 × K_c row): 0 for a group whose ℓ1 norm is at most its threshold
@@ -1022,5 +1043,101 @@ Adapt.adapt_structure(::Type{<:Array}, d::DeviceGroups) = d.f
 Adapt.adapt_structure(to, f::LeastSquaresLoss) = LeastSquaresLoss(Adapt.adapt(to, f.Y), Adapt.adapt(to, f.X))
 Adapt.adapt_structure(to, f::GLMLoss) =
   GLMLoss(f.loss, Adapt.adapt(to, f.y), Adapt.adapt(to, f.X); weights = Adapt.adapt(to, f.weights), offset = Adapt.adapt(to, f.offset))
+
+# Normalize scalar parameters on the host; exceptional exponents stay separate.
+function _device_projection_scale(::Type{T}, a::Real) where {T}
+  c = _device_level(T, a)
+  if isfinite(a) && !iszero(a) && (iszero(c) || isinf(c))
+    m, e = frexp(float(a))
+    return ProximalBase._ProjectionScale(_device_level(T, m), Int(e))
+  end
+  c
+end
+_device_projection_scale(::Type{T}, a::ProximalBase._ProjectionScale) where {T} =
+  ProximalBase._ProjectionScale(_device_level(T, a.m), a.e)
+_device_projection_check(v, l, u, w) = clamp(v,
+  -ProximalBase._projection_coefficient(l, 1, w), ProximalBase._projection_coefficient(u, 1, w))
+
+# Direct dual projections broadcast parameters separately from the function.
+for (F, op, level) in ((NormL1, ProximalBase._projection_clip, :λ0),
+                      (NormL1Nonneg, ProximalBase._projection_upper, :λ0),
+                      (ProximalBase.CheckLoss, ProximalBase._projection_check, :τ))
+  @eval function ProximalBase._conjugate_projection!(z::AnyGPUArray, f::$F, x::AnyGPUArray, γ, α = 1)
+    T = float(eltype(x))
+    w = _reshapeparam(_param(f.w), x)
+    if f isa ProximalBase.CheckLoss
+      l = _device_projection_scale(T, ProximalBase._projection_accumulate(α, 1 - f.τ))
+      u = _device_projection_scale(T, ProximalBase._projection_accumulate(α, f.τ))
+      z .= _device_projection_check.(x, l, u, w)
+    else
+      a = _device_projection_scale(T, ProximalBase._projection_accumulate(α, f.$level))
+      z .= $op.(x, a, one(T), w)
+    end
+  end
+end
+Adapt.adapt_structure(to, f::ProximalBase.CheckLoss) = ProximalBase.CheckLoss(f.τ, Adapt.adapt(to, f.w))
+Adapt.adapt_structure(to, f::ProximalBase.SeparableSum) = ProximalBase.SeparableSum(map(g -> Adapt.adapt(to, g), f.fs))
+Adapt.adapt_structure(to, f::ProximalBase.Conjugate) = ProximalBase.Conjugate(Adapt.adapt(to, f.f))
+Adapt.adapt_structure(to, f::ProximalBase.Scaled) = ProximalBase.Scaled(Adapt.adapt(to, f.f), f.α)
+Adapt.adapt_structure(to, f::ProximalBase.Translate) = ProximalBase.Translate(Adapt.adapt(to, f.f), Adapt.adapt(to, f.b))
+
+ProximalBase._maximum_abs(x::AnyGPUArray) = mapreduce(abs, max, x; init = zero(float(eltype(x))))
+
+function ProximalBase._project_l2!(y::AnyGPUArray, x::AnyGPUArray, λ, α = 1, w = 1)
+  isinf(w) && return copyto!(y, x)
+  (iszero(λ) || iszero(w)) && return fill!(y, zero(eltype(y)))
+  T = float(eltype(x))
+  α = _device_projection_scale(T, ProximalBase._projection_accumulate(α, λ))
+  λ = one(T)
+  c = ProximalBase._projection_product(α, λ, w)
+  # Device reductions avoid scalar indexing even for wrapped array views.
+  m = ProximalBase._maximum_abs(x)
+  iszero(m) && return copyto!(y, x)
+  n = sqrt(_sum(typeof(m), abs2, x))
+  t = min(one(n), c / n)
+  if isfinite(n) && n >= floatmin(typeof(n)) && isfinite(c) && t >= floatmin(typeof(t))
+    y .= t .* x
+  else
+    ProximalBase._project_l2_scaled!(y, x, λ, α, w, c, n)
+  end
+  y
+end
+
+ProximalBase._conjugate_isindicator(::Type{<:DeviceGroups{F}}) where {F} = ProximalBase._conjugate_isindicator(F)
+ProximalBase._direct_conjugate(::Type{<:DeviceGroups{GroupNormL2{T, G}}}) where {T, G} = true
+ProximalBase._checkparams(d::DeviceGroups, x) = _checkparams(d.f, x)
+
+# Store a significand and exponent per group, so even an underflowing factor
+# can be applied to the original coordinates in the scatter kernel.
+function _projection_parts(m::T, q, λ, α, w)::Tuple{T, Int} where {T}
+  isinf(w) && return (one(m), 0)
+  (iszero(λ) || iszero(α) || iszero(w)) && return (zero(m), 0)
+  (iszero(m) || isinf(λ) || isinf(α)) && return (one(m), 0)
+  a, e = frexp(m)
+  r1, e1 = ProximalBase._projection_scale_parts(α)
+  r2, e2 = frexp(float(λ))
+  r3, e3 = frexp(float(w))
+  r, k = frexp(((r1 * r2) * r3) / (a * sqrt(q)))
+  k += e1 + e2 + e3 - e
+  k > 1 || (k == 1 && r >= 0.5) ? (one(r), 0) : (r, k)
+end
+_projection_scatter(v, p, _) = iszero(p[1]) ? zero(v) : ProximalBase._projection_scale(v, p[1], p[2])
+function ProximalBase._conjugate_projection!(z::AnyGPUArray, d::DeviceGroups{<:GroupNormL2}, x::AnyGPUArray, γ, α = 1)
+  lay, f = d.layout, d.f
+  T = float(eltype(x))
+  (iszero(f.λ0) && !_has_infinite_group_weight(lay)) && return fill!(z, zero(eltype(z)))
+  α = _device_projection_scale(T, ProximalBase._projection_accumulate(α, f.λ0))
+  parts = _group_buffer(vec(x), Tuple{T, Int}, lay, Ref((zero(T), 0)))
+  for b in lay.blocks
+    m, q = _group_norm_parts(_gather(vec(x), b), b, T)
+    view(parts, b.pos) .= vec(_projection_parts.(m, q, one(T), α, b.w))
+  end
+  n = length(lay.gid)
+  view(vec(z), 1:n) .= _projection_scatter.(view(vec(x), 1:n), parts[lay.gid], lay.gid)
+  view(vec(z), (length(lay.gid) + 1):length(z)) .= zero(eltype(z))
+  z
+end
+ProximalBase._conjugate_projection!(z::AnyGPUArray, f::GroupNormL2, x::AnyGPUArray, γ, α = 1) =
+  ProximalBase._conjugate_projection!(z, _on_device(f, x), x, γ, α)
 
 end

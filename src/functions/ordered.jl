@@ -18,6 +18,7 @@
 The total variation `f(x) = λ Σᵢ |xᵢ₊₁ - xᵢ|` of a vector. Its proximal operator,
 total-variation denoising, is computed exactly and in place by Condat's direct
 algorithm (2013), in O(n) time on most inputs and O(n²) in the worst case.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct TotalVariation1D{T<:Real} <: AbstractFunction
   λ::T
@@ -34,12 +35,33 @@ function _tv(x::AbstractVector)
   T = _valtype(x)
   s = zero(T)
   @inbounds @simd for i in firstindex(x):lastindex(x)-1
-    s += abs(x[i + 1] - x[i])
+    s += abs(T(x[i + 1]) - T(x[i]))
   end
   s
 end
 
-(f::TotalVariation1D)(x::AbstractVector) = (_checkreal(f, x); T = _valtype(x); iszero(f.λ) ? zero(T) : convert(T, f.λ) * _tv(x))
+function (f::TotalVariation1D)(x::AbstractVector)
+  _checkreal(f, x)
+  T = _valtype(x)
+  iszero(f.λ) && return zero(T)
+  s = _tv(x)
+  v = convert(T, f.λ) * s
+  isfinite(v) && _fused_level_fits(T, f.λ) && return v
+  isfinite(f.λ) && all(isfinite, x) ? _recover_ordered_value(zero(f.λ), f.λ, x, T) : v
+end
+
+@noinline function _recover_ordered_value(λ1, λ2, x, ::Type{T}) where {T}
+  R = promote_type(T, float(typeof(λ1)), float(typeof(λ2)))
+  k = _magnitude_exponent(_maximum_abs(x))
+  scale = _power_factors(R, -k)
+  s1 = _scaled_value_sum(x, scale, abs)
+  s2 = c = zero(R)
+  @inbounds for i in firstindex(x):lastindex(x)-1
+    gap = abs(_scale_value(R(x[i + 1]), scale) - _scale_value(R(x[i]), scale))
+    s2, c = _compensated_add(s2, c, gap)
+  end
+  _fused_scaled_value(((λ1, s1), (λ2, s2 + c)), k, T)
+end
 
 prox!(y::AbstractVector, f::TotalVariation1D, x::AbstractVector, γ::Real) =
   (_checkwrite(prox!, f, y, x); _tv_denoise!(y, x, convert(float(eltype(y)), γ * f.λ)))
@@ -144,6 +166,7 @@ The penalty `f(x) = λ1 Σᵢ |xᵢ| + λ2 Σᵢ |xᵢ₊₁ - xᵢ|` of the fus
 approximator, on a vector. Its proximal operator soft-thresholds the
 total-variation denoising of `x` by `γλ1` (Friedman, Hastie, Höfling and
 Tibshirani, 2007).
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct FusedLasso{T<:Real} <: AbstractFunction
   λ1::T
@@ -164,8 +187,14 @@ isconvex(::Type{<:FusedLasso}) = true
 function (f::FusedLasso)(x::AbstractVector)
   _checkreal(f, x)
   T = _valtype(x)
-  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * convert(T, sum(abs, x; init = zero(T)))) +
-  (iszero(f.λ2) ? zero(T) : convert(T, f.λ2) * _tv(x))
+  s1 = iszero(f.λ1) ? zero(T) : convert(T, eltype(x) <: Integer ?
+    sum(v -> abs(T(v)), x; init = zero(T)) : sum(abs, x; init = zero(T)))
+  s2 = iszero(f.λ2) ? zero(T) : _tv(x)
+  v1 = iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * s1
+  v2 = iszero(f.λ2) ? zero(T) : convert(T, f.λ2) * s2
+  v = v1 + v2
+  isfinite(v) && _fused_level_fits(T, f.λ1) && _fused_level_fits(T, f.λ2) && return v
+  all(isfinite, x) && isfinite(f.λ1) && isfinite(f.λ2) ? _recover_ordered_value(f.λ1, f.λ2, x, T) : v
 end
 
 function prox!(y::AbstractVector, f::FusedLasso, x::AbstractVector, γ::Real)

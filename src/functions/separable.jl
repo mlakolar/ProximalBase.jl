@@ -222,9 +222,8 @@ only the stored entries. On a [`SymmetricSparseIterate`](@ref) the weights are a
 dense matrix. When symmetry is required, mirrored weights must agree at each
 coordinate the operation reads. Wrap a matrix in `Symmetric(W, :L)` to use its
 lower triangle.
-When an intermediate sum overflows, or a weight is not representable in the
-argument's precision although the weighted value is representable, the value
-is computed in scaled units. An infinite weight fixes the entry at
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
+An infinite weight fixes the entry at
 zero at every level (the value is `Inf` away from zero), and a zero weight
 leaves it unpenalized at every level.
 """
@@ -367,9 +366,7 @@ end
 The elastic-net penalty `f(x) = λ1 Σᵢ wᵢ |xᵢ| + (λ2/2) ‖x‖²`, with all `wᵢ = 1`
 when `w` is omitted. Its proximal operator is
 `shrink(x, γλ1w) / (1 + γλ2)`.
-When an intermediate overflows or underflows, or a weight is not representable
-in the argument's precision although the weighted value is representable,
-the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct ElasticNet{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ1::T

@@ -36,8 +36,7 @@ allocate nothing; do not share `f` between threads. The workspace has the data's
 precision (`Float32` or `Float64`); outputs of any precision are written by rounding,
 and values are rounded to the type of the argument (see the Precision section
 of the manual).
-When an intermediate sum overflows although the weighted value is representable,
-the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct LogDetLoss{T<:_BlasReal} <: AbstractFunction
   S::Matrix{T}

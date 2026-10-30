@@ -678,29 +678,17 @@ end
   isfinite(d) && return exponent(abs(d))
   exponent(abs(R(a) / 2 - R(b) / 2)) + 1
 end
-@inline function _residual_exponent(a::Complex, b, ::Type{R}) where {R}
-  max(_residual_exponent(real(a), real(b), R), _residual_exponent(imag(a), imag(b), R))
-end
-@inline function _residual_exponent(a::Real, b::Complex, ::Type{R}) where {R}
-  max(_residual_exponent(a, real(b), R), _residual_exponent(0, imag(b), R))
-end
 
 @inline function _scaled_residual(a, b, s, h, ::Type{R}) where {R}
   d = _square_difference(a, b, R)
   isfinite(d) ? _scale_value(d, s) : _scale_value(R(a) / 2 - R(b) / 2, h)
-end
-@inline function _scaled_residual(a::Complex, b, s, h, ::Type{R}) where {R}
-  complex(_scaled_residual(real(a), real(b), s, h, R), _scaled_residual(imag(a), imag(b), s, h, R))
-end
-@inline function _scaled_residual(a::Real, b::Complex, s, h, ::Type{R}) where {R}
-  complex(_scaled_residual(a, real(b), s, h, R), _scaled_residual(0, imag(b), s, h, R))
 end
 
 function _square_exponent(x, y, ::Type{R}) where {R}
   k = typemin(Int)
   if y === nothing
     for a in _stored_values(x)
-      k = max(k, _residual_exponent(a, zero(a), R))
+      k = max(k, _residual_exponent(a, zero(R), R))
     end
   else
     @inbounds for i in eachindex(x, y)
@@ -715,7 +703,7 @@ function _square_scaled_sum(x, y, k, ::Type{R}) where {R}
   v = e = zero(R)
   if y === nothing
     @inbounds for (i, a) in enumerate(_stored_values(x))
-      q = _square_multiplicity(x, i) * abs2(_scaled_residual(a, zero(a), s, h, R))
+      q = _square_multiplicity(x, i) * abs2(_scaled_residual(a, zero(R), s, h, R))
       v, e = _compensated_add(v, e, q)
     end
   else

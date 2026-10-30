@@ -222,14 +222,14 @@ end
 
 function ProximalBase._square_exponent(x::GPUArray, y, ::Type{R}) where {R}
   f = ProximalBase._residual_exponent
-  d = y === nothing ? broadcasted(a -> f(a, zero(a), R), x) : broadcasted((a, b) -> f(a, b, R), x, y)
+  d = y === nothing ? broadcasted(a -> f(a, zero(R), R), x) : broadcasted((a, b) -> f(a, b, R), x, y)
   mapreduce(identity, max, instantiate(d); init = typemin(Int))
 end
 
 function ProximalBase._square_scaled_sum(x::GPUArray, y, k, ::Type{R}) where {R}
   s, h = ProximalBase._power_factors(R, -k), ProximalBase._power_factors(R, 1-k)
   f = ProximalBase._scaled_residual
-  d = y === nothing ? broadcasted(a -> abs2(f(a, zero(a), s, h, R)), x) :
+  d = y === nothing ? broadcasted(a -> abs2(f(a, zero(R), s, h, R)), x) :
     broadcasted((a, b) -> abs2(f(a, b, s, h, R)), x, y)
   # Keep small squares when the device reduction adds a large term first.
   v, e = mapreduce(q -> (q, zero(R)), _square_combine, instantiate(d); init = (zero(R), zero(R)))

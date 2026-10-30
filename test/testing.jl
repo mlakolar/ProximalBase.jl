@@ -100,11 +100,79 @@ PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
 
   @testset "public helpers" begin
     if VERSION >= v"1.11"
-      for name in (:test_prox, :test_gradient, :test_separable, :test_conjugate, :test_kkt, :test_traits,
+      for name in (:test_prox, :test_gradient, :test_separable, :test_conjugate, :test_kkt, :test_iterate, :test_traits,
                    :allocations, :brute_force_prox)
         @test Base.ispublic(PT, name)
         @test !Base.isexported(PT, name)
       end
+    end
+  end
+
+  @testset "iterate bookkeeping" begin
+    groups = [1:2, 3:4, 5:6]
+    state(x) = deepcopy(ntuple(i -> getfield(x, i), fieldcount(typeof(x))))
+    for x in (AtomIterate(6, groups), AtomIterate([1., 0, 0, 0, 2, 0], groups),
+              SparseIterate(4), SparseIterate([1., 0, 2, 0]),
+              SparseIterate(2, 2), SparseIterate([1. 0; 0 2]),
+              SymmetricSparseIterate(2), SymmetricSparseIterate([1. 2; 2 0]))
+      x[1] = 1
+      x[1] = 0
+      before = state(x)
+      @test passes(() -> @test PT.test_iterate(x) === x)
+      @test isequal(state(x), before)
+    end
+
+    corruptions = Any[]
+    a = AtomIterate(6, groups)
+    a.storage[3] = 1
+    push!(corruptions, a)
+    for mutate! in (a -> (a.active[2] = a.active[1]),
+                    a -> (a.active[1] = 4),
+                    a -> (a.nactive = -1),
+                    a -> (a.nactive = 4),
+                    a -> (a.group_of[1] = 2),
+                    a -> resize!(a.group_of, 5),
+                    a -> resize!(a.position, 2))
+      a = AtomIterate(ones(6), groups)
+      mutate!(a)
+      push!(corruptions, a)
+    end
+    a = AtomIterate(6, [[1, 2], [3, 4], [5, 6]])
+    a.groups[3][2] = 7
+    push!(corruptions, a)
+    for make in (() -> SparseIterate([1., 0, 2, 0]),
+                 () -> SparseIterate([1. 2; 0 0]),
+                 () -> SymmetricSparseIterate([1. 2; 2 0]))
+      for mutate! in (a -> (a.ind2nzval[a.nzval2ind[1]] = 0),
+                      a -> (a.ind2nzval[end] = 1),
+                      a -> (a.nzval2ind[1] = length(a.ind2nzval)),
+                      a -> (a.nzval2ind[2] = a.nzval2ind[1]),
+                      a -> (a.nzval2ind[1] = length(a.ind2nzval) + 1),
+                      a -> (a.ind2nzval[end] = a.nnz + 1),
+                      a -> (a.nnz = -1),
+                      a -> (a.nnz = length(a.ind2nzval) + 1),
+                      a -> resize!(a.nzval, 1))
+        a = make()
+        mutate!(a)
+        push!(corruptions, a)
+      end
+    end
+    a = SymmetricSparseIterate(2)
+    resize!(a.ind2nzval, 2)
+    push!(corruptions, a)
+    a = SymmetricSparseIterate(2)
+    resize!(a.nzval, 2)
+    resize!(a.nzval2ind, 2)
+    resize!(a.ind2nzval, 2)
+    push!(corruptions, a)
+    for x in corruptions
+      before = state(x)
+      ts = @testset Collect "corrupted iterate" begin
+        @test PT.test_iterate(x) === x
+      end
+      @test count(r -> r isa Test.Fail, ts.results) > 0
+      @test count(r -> r isa Test.Error, ts.results) == 0
+      @test isequal(state(x), before)
     end
   end
 

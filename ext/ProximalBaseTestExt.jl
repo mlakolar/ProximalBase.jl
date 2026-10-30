@@ -7,7 +7,7 @@ using LinearAlgebra
 using SparseArrays
 using Test
 import ProximalBase.Testing: test_prox, test_gradient, test_separable, test_conjugate, test_kkt, test_traits,
-                             allocations, brute_force_prox
+                             test_iterate, allocations, brute_force_prox
 
 # random points from the global generator, or from rng
 _randn(::Nothing, dims...) = randn(dims...)
@@ -67,6 +67,80 @@ function test_traits(f; smooth = false, proximable = false, separable = false, c
   @test isproximable(typeof(f)) == proximable
   @test isseparable(typeof(f)) == separable
   @test isconvex(typeof(f)) == convex
+end
+
+####################################
+#  iterate bookkeeping
+####################################
+
+function test_iterate(x::AtomIterate)
+  ok = length(x.group_of) == length(x.storage)
+  @test length(x.group_of) == length(x.storage)
+  ok || return x
+  ok = length(x.position) == length(x.groups) == length(x.active)
+  @test length(x.position) == length(x.groups) == length(x.active)
+  ok || return x
+  ok = 0 <= x.nactive <= length(x.groups)
+  @test 0 <= x.nactive <= length(x.groups)
+  ok || return x
+  for (k, G) in enumerate(x.groups), i in G
+    ok = 1 <= i <= length(x.storage)
+    @test 1 <= i <= length(x.storage)
+    ok || return x
+    @test x.group_of[i] == k
+  end
+  active = x.active[1:x.nactive]
+  @test length(unique(active)) == x.nactive
+  for a in 1:x.nactive
+    k = x.active[a]
+    ok = 1 <= k <= length(x.groups)
+    @test 1 <= k <= length(x.groups)
+    ok || return x
+    @test x.position[x.active[a]] == a
+  end
+  for k in eachindex(x.groups)
+    if k ∉ active
+      @test x.position[k] == 0
+    end
+  end
+  for k in eachindex(x.groups)
+    if k ∉ active
+      for i in x.groups[k]
+        @test iszero(x.storage[i])
+      end
+    end
+  end
+  x
+end
+
+function test_iterate(x::Union{SparseIterate, SymmetricSparseIterate})
+  ok = length(x.nzval) == length(x.nzval2ind) == length(x.ind2nzval)
+  @test length(x.nzval) == length(x.nzval2ind) == length(x.ind2nzval)
+  ok || return x
+  if x isa SymmetricSparseIterate
+    ok = length(x.ind2nzval) == x.p * (x.p + 1) ÷ 2
+    @test length(x.ind2nzval) == x.p * (x.p + 1) ÷ 2
+    ok || return x
+  end
+  ok = 0 <= x.nnz <= length(x.ind2nzval)
+  @test 0 <= x.nnz <= length(x.ind2nzval)
+  ok || return x
+  stored = x.nzval2ind[1:x.nnz]
+  @test length(unique(stored)) == x.nnz
+  for j in 1:x.nnz
+    i = x.nzval2ind[j]
+    ok = 1 <= i <= length(x.ind2nzval)
+    @test 1 <= i <= length(x.ind2nzval)
+    ok || return x
+    @test x.ind2nzval[x.nzval2ind[j]] == j
+  end
+  for i in eachindex(x.ind2nzval)
+    @test 0 <= x.ind2nzval[i] <= x.nnz
+    if i ∉ stored
+      @test x.ind2nzval[i] == 0
+    end
+  end
+  x
 end
 
 ####################################
@@ -177,10 +251,15 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
   xz = _with_zeros(x, rng)
   pz = prox(f, xz, γ)
   xs = SparseIterate(xz)
+  y = SparseIterate(float(eltype(x)), size(x)...)
   for k in 1:ncoordinates(xs)
     prox_coordinate!(xs, f, k, γ)
+    prox_coordinate!(y, f, k, xz[k], γ)
   end
   @test _dense(xs) ≈ _dense(pz)
+  @test _dense(y) ≈ _dense(pz)
+  @test nnz(y) == count(!iszero, y.nzval[1:nnz(y)])
+  test_iterate(y)
 
   # the stored entries only, when zero is preserved
   if iszeropreserving(f)
@@ -199,20 +278,31 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
   if groups !== nothing
     x isa AbstractVector || throw(ArgumentError("groups need a vector x"))
     a = AtomIterate(xz, groups)
+    y = AtomIterate(float(eltype(x)), length(x), groups)
     for k in 1:ncoordinates(a)
       prox_coordinate!(a, f, k, γ)
+      prox_coordinate!(y, f, k, xz[groups[k]], γ)
     end
     @test _dense(a) ≈ _dense(pz)
+    @test _dense(y) ≈ _dense(pz)
+    @test nactive(y) == count(k -> any(!iszero, atom(y, k)), activecoordinates(y))
+    test_iterate(y)
   end
 
   if symmetric
     size(x, 1) == size(x, 2) || throw(ArgumentError("symmetric = true needs a square x"))
     X = (_dense(x) .+ _dense(x)') ./ 2
     S = SymmetricSparseIterate(X)
+    y = SymmetricSparseIterate(float(eltype(x)), size(x, 1))
     for k in 1:ncoordinates(S)
       prox_coordinate!(S, f, k, γ)
+      r, c = tril_cartesian(size(x, 1), k)
+      prox_coordinate!(y, f, k, X[r, c], γ)
     end
     @test Matrix(S) ≈ _dense(prox(f, X, γ))
+    @test Matrix(y) ≈ _dense(prox(f, X, γ))
+    @test nnz(y) == count(!iszero, y.nzval[1:nnz(y)])
+    test_iterate(y)
   end
   p
 end

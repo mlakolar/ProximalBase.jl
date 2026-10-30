@@ -148,6 +148,7 @@ The squared Euclidean norm `f(x) = (λ/2) ‖x - y‖²`, with `y = 0` when omit
 the ridge penalty, and for `λ = 1` the loss `‖x - y‖² / 2`. Smooth, with
 gradient `λ(x - y)`, separable, and proximable, with proximal operator
 `(x + γλy) / (1 + γλ)`. For a matrix `x`, `‖⋅‖` is the Frobenius norm.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct SqrNormL2{T<:Real, Y<:Union{Nothing, AbstractArray}} <: AbstractFunction
   λ::T
@@ -186,6 +187,13 @@ function _sumabs2(x::SymmetricSparseIterate{T}) where {T}
 end
 _sumabs2(x::AtomIterate) = _sumabs2(x.storage)
 
+_square_term_count(x::Union{SparseIterate, SymmetricSparseIterate}) = x.nnz
+_square_term_count(x::AtomIterate) = _square_term_count(x.storage)
+function _square_multiplicity(x::SymmetricSparseIterate, i)
+  r, c = tril_cartesian(x.p, x.nzval2ind[i])
+  r == c ? 1 : 2
+end
+
 # Keep the vectorized sum-of-squares path for ordinary magnitudes; use a
 # scaled norm when squaring overflows or loses the subnormal entries.
 function _norm2(x::AbstractArray)
@@ -212,8 +220,7 @@ function (f::SqrNormL2)(x::AbstractArray)
   _checkvalue(f, x)
   T = _valtype(x)
   iszero(f.λ) && return zero(T)
-  s = f.y === nothing ? _sumabs2(x) : _sumabs2_diff(x, f.y)
-  _value_at(convert(T, f.λ) * s / 2, x)
+  _square_value(f.λ, x, f.y)
 end
 
 _checkvalue(f::SqrNormL2, x) = (_checkreal(f, x); _checkparams(f, x); f.y === nothing || _checksize(f.y, x); true)

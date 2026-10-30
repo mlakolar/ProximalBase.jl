@@ -165,7 +165,7 @@ PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
         @test count(r -> r isa Test.Error, ts.results) == 0
       end
     end
-    for T in (Float64, ComplexF64)
+    for T in (Float64,)
       @test passes(() -> PT.test_gradient(SqrNormL2(), T[1, 2]; rng = Xoshiro(4)))
       @test passes(() -> PT.test_gradient(SqrNormL2(), T[1, 2]; h = 1e-6, rtol = 1e-5,
                                          atol = 1e-6, rng = Xoshiro(4)))

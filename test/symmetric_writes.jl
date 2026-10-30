@@ -112,7 +112,7 @@ axpy2!(x, A) = axpy!(2.0, A, x)
 axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
 
 @testset "Writes into a SymmetricSparseIterate" begin
-  @testset "every entry point, $T" for T in (Float64, ComplexF64)
+  @testset "every entry point, $T" for T in (Float64,)
     E = randn(T, 4, 4)                     # not symmetric
     F = E + transpose(E)                   # exactly symmetric
     # every source type through copyto!, the path of matrix sources, and
@@ -190,11 +190,6 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
     rejects(x -> (x .= (1.0, 2.0, 3.0, 4.0) .+ M), initial(), ArgumentError, ASYMMETRIC)
     rejects(x -> (x .= Bidiagonal(v, w[1:3], :U)), initial(), ArgumentError, ASYMMETRIC)
     rejects(x -> (x .= UpperTriangular(M)), initial(), ArgumentError, ASYMMETRIC)
-    C = randn(ComplexF64, 4, 4); C = C + transpose(C)
-    xc = SymmetricSparseIterate(ComplexF64, 4)
-    @test Matrix(xc .= SymmetricSparseIterate(C)') == conj(C)
-    @test Matrix(xc .= Symmetric(C)') == conj(C)
-    rejects(x -> copyto!(x, Hermitian(C)), xc, ArgumentError, ASYMMETRIC)
     @test Matrix(copyto!(x, Hermitian(M))) == M
   end
 
@@ -206,7 +201,7 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
     rejects(x -> copyto!(x, [1 NaN; 0.5 1]), x, ArgumentError, ASYMMETRIC)
     # compared in the type of the source: equal in Float32, not in Float64
     rejects(x -> copyto!(x, [1 1 + 1e-12; 1 1]), SymmetricSparseIterate(Float32, 2), ArgumentError, ASYMMETRIC)
-    for T in (ComplexF64, Float32, Int)
+    for T in (Float32, Int)
       x = copyto!(SymmetricSparseIterate(T, 2), [1.0 2.0; 2.0 3.0])
       @test eltype(x) == T && Matrix(x) == [1 2; 2 3]
     end
@@ -227,7 +222,7 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
     @test Matrix(copyto!(SymmetricSparseIterate(2), 2I)) == [2 0; 0 2]
   end
 
-  @testset "#191: map! applies f once, $T" for T in (Float64, ComplexF64)
+  @testset "#191: map! applies f once, $T" for T in (Float64,)
     x = SymmetricSparseIterate(Symmetric(randn(T, 4, 4), :L))
     check_map(double, x, x)
     check_map(+, x, x, x)
@@ -269,7 +264,6 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
       check_map(+, initial(), A, M)
       check_map(+, initial(), A, sparse(M), A)
     end
-    check_map(identity, SymmetricSparseIterate(ComplexF64, 4), M)
   end
 
   @testset "aliased sources" begin
@@ -292,7 +286,7 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
     @test nnz(x) == 10
   end
 
-  @testset "#236: aliased writers, $T" for T in (Float64, ComplexF64)
+  @testset "#236: aliased writers, $T" for T in (Float64,)
     writers = (
       ("copyto!", (x, A, B) -> copyto!(x, A), (X, A, B) -> A),
       ("copy!", (x, A, B) -> copy!(x, A), (X, A, B) -> A),
@@ -320,7 +314,6 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
     for (p, source) in sources, (name, write!, reference) in writers
       @testset "$name, p = $p, $(typeof(source))" begin
         values = T.(1:p*(p+1)÷2)
-        T === ComplexF64 && (values .*= 1 + 2im)
         x = SymmetricSparseIterate(T, p)
         coordinates(x) .= values
         A = source(x)
@@ -333,7 +326,7 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
     end
   end
 
-  @testset "#236: aliasing hooks, $T" for T in (Float64, ComplexF64)
+  @testset "#236: aliasing hooks, $T" for T in (Float64,)
     x = initial(T)
     c = coordinates(x)
     v = view(c, [10, 6, 6, 1])
@@ -362,7 +355,7 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
     end
   end
 
-  @testset "#236: rejected aliased sources, $T" for T in (Float64, ComplexF64)
+  @testset "#236: rejected aliased sources, $T" for T in (Float64,)
     for write! in ((x, A) -> copyto!(x, A), (x, A) -> (x .= A),
                    (x, A) -> map!(identity, x, A), (x, A) -> axpy!(1, A, x),
                    (x, A) -> axpby!(1, A, 2, x))
@@ -415,7 +408,7 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
     @test size(replace(double, SymmetricSparseIterate(0); count = 1)) == (0, 0)
   end
 
-  @testset "#235: replace against the lower triangle, $T" for T in (Float64, ComplexF64)
+  @testset "#235: replace against the lower triangle, $T" for T in (Float64,)
     M = T.(rand(-2:2, 5, 5)); M = M + transpose(M)
     for f in (double, increment, v -> real(v) > 0 ? zero(v) : v, pairs_function(T(0) => T(7), T(2) => T(-2))),
         count in (0, 1, 3, 8, 15, 100)
@@ -442,11 +435,11 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
     y = SymmetricSparseIterate([1.0 2.0; 2.0 1.0])
     replace!(vanish, y)
     @test iszero(Matrix(y)) && nnz(y) == 3
-    # the copying form promotes; the result is symmetric
+    # the copying form preserves symmetry
     y = SymmetricSparseIterate([1.0 2.0; 2.0 1.0])
-    z = replace(y, 2.0 => 2im)
-    @test z isa SymmetricSparseIterate{ComplexF64}
-    @test Matrix(z) == [1 2im; 2im 1]
+    z = replace(y, 2.0 => 3.0)
+    @test z isa SymmetricSparseIterate{Float64}
+    @test Matrix(z) == [1 3; 3 1]
     for p in (0, 1, 4)
       calls = Ref(0)
       y = SymmetricSparseIterate(p)

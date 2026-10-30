@@ -84,7 +84,26 @@ mutable struct IndPolyhedron{T<:AbstractFloat, M<:AbstractMatrix{T}} <: Abstract
   residual::Vector{T}
   valid::Bool
   iterations::Int
+
+  function IndPolyhedron{T, M}(At, l, u, xmin, xmax, scale, norms, rows, bounds, equalities, n, m, maxiter,
+      active, used, count, Q, R, multipliers, origin, point, normal, direction, coeff, dual, residual, valid,
+      iterations) where {T<:AbstractFloat, M<:AbstractMatrix{T}}
+    all(a -> a === nothing || eltype(a) <: Real,
+        (At, l, u, xmin, xmax, scale, norms, rows, bounds, active, used, Q, R, multipliers, origin, point,
+         normal, direction, coeff, dual, residual)) || _real_error(:IndPolyhedron)
+    new{T, M}(At, l, u, xmin, xmax, scale, norms, rows, bounds, equalities, n, m, maxiter, active, used, count,
+      Q, R, multipliers, origin, point, normal, direction, coeff, dual, residual, valid, iterations)
+  end
 end
+IndPolyhedron(At::M, l::Vector{T}, u::Vector{T}, xmin::Vector{T}, xmax::Vector{T}, scale::Vector{Int},
+    norms::Vector{T}, rows::Vector{Int}, bounds::Vector{T}, equalities::Int, n::Int, m::Int, maxiter::Int,
+    active::Vector{Int}, used::BitVector, count::Int, Q::Matrix{T}, R::Matrix{T}, multipliers::Vector{T},
+    origin::Vector{T}, point::Vector{T}, normal::Vector{T}, direction::Vector{T}, coeff::Vector{T},
+    dual::Vector{T}, residual::Vector{T}, valid::Bool, iterations::Int) where {T<:AbstractFloat,
+    M<:AbstractMatrix{T}} =
+  IndPolyhedron{T, M}(At, l, u, xmin, xmax, scale, norms, rows, bounds, equalities, n, m, maxiter, active,
+      used, count, Q, R, multipliers, origin, point, normal, direction, coeff, dual, residual, valid,
+      iterations)
 
 function _poly_bound_type(::Type{T}, b::Real) where {T}
   isnan(b) && throw(ArgumentError("polyhedron bounds cannot contain NaN"))
@@ -117,8 +136,13 @@ function _poly_order(l, u)
   end
 end
 
-function IndPolyhedron(A::AbstractMatrix{<:Real}, l, u, xmin = -Inf, xmax = Inf;
+function IndPolyhedron(A::AbstractMatrix, l, u, xmin = -Inf, xmax = Inf;
                        maxiter::Integer = 100 * (sum(size(A)) + 1))
+  eltype(A) <: Real || _real_error(:IndPolyhedron)
+  eltype(l) <: Real || _real_error(:IndPolyhedron)
+  eltype(u) <: Real || _real_error(:IndPolyhedron)
+  eltype(xmin) <: Real || _real_error(:IndPolyhedron)
+  eltype(xmax) <: Real || _real_error(:IndPolyhedron)
   m, n = size(A)
   maxiter > 0 || throw(ArgumentError("maxiter must be positive"))
   T = float(eltype(A))
@@ -215,6 +239,8 @@ function _checkparams(f::IndPolyhedron, x)
 end
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndPolyhedron, y, x)
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checkparams(f, x)
   y isa AbstractVector || throw(DimensionMismatch("IndPolyhedron requires a vector output"))
   _checksize(y, x)
@@ -239,6 +265,7 @@ function _poly_dot(A::SparseMatrixCSC, i, x, s)
 end
 
 function (f::IndPolyhedron{T})(x::AbstractArray) where {T}
+  _checkreal(f, x)
   _checkparams(f, x)
   V = float(eltype(x))
   S = promote_type(T, V)

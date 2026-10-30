@@ -120,7 +120,7 @@ end
 
 function test_gradient(f, x::AbstractArray; h = nothing, rtol = nothing, atol = nothing, directions = 3,
                        rng = nothing)
-  R = real(float(eltype(x)))
+  R = float(eltype(x))
   c = cbrt(eps(R) / eps(Float64))
   h === nothing && (h = 1e-6c)
   rtol === nothing && (rtol = 1e-5c)
@@ -145,7 +145,7 @@ function test_gradient(f, x::AbstractArray; h = nothing, rtol = nothing, atol = 
     fp, fm = f(xp), f(xm)
     fd = (fp - fm) / (2h)
     round_err = 8 * eps(R) * max(abs(fp), abs(fm)) / (2h)
-    @test fd ≈ real(dot(g, d)) rtol = rtol atol = max(atol * max(1, abs(fd)), round_err)
+    @test fd ≈ dot(g, d) rtol = rtol atol = max(atol * max(1, abs(fd)), round_err)
   end
   g
 end

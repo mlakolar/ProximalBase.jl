@@ -42,9 +42,21 @@ struct IndAffine{T<:AbstractFloat, M, F} <: AbstractFunction
   r::Vector{T}          # Ax - b for the projection, or Vᵀx - c on the rank-deficient path
   rb::Vector{T}         # Ax - b for the value
   scale::T              # ‖A‖_F, for the tolerance of the value
+
+  function IndAffine{T, M, F}(A, b, fact, r, rb, scale) where {T<:AbstractFloat, M, F}
+    all(a -> a === nothing || eltype(a) <: Real,
+        (A, b, r, rb)) || _real_error(:IndAffine)
+    (fact === nothing || (fact isa Tuple ? all(a -> eltype(a) <: Real, fact) : eltype(fact) <: Real)) ||
+      _real_error(:IndAffine)
+    new{T, M, F}(A, b, fact, r, rb, scale)
+  end
 end
+IndAffine(A::M, b::Vector{T}, fact::F, r::Vector{T}, rb::Vector{T}, scale::T) where {T<:AbstractFloat, M, F} =
+  IndAffine{T, M, F}(A, b, fact, r, rb, scale)
 
 function IndAffine(A::AbstractMatrix, b::AbstractVector; μ::Union{Nothing, Real} = nothing)
+  eltype(A) <: Real || _real_error(:IndAffine)
+  eltype(b) <: Real || _real_error(:IndAffine)
   m, n = size(A)
   length(b) == m || throw(DimensionMismatch("A has $m rows and b has length $(length(b))"))
   T = float(promote_type(eltype(A), eltype(b)))
@@ -86,16 +98,17 @@ _isindicator(::Type{<:IndAffine}) = true
 isconvex(::Type{<:IndAffine}) = true
 
 _checkaffine(f::IndAffine, x::AbstractArray) = (length(x) == size(f.A, 2) ||
-  throw(DimensionMismatch("x has length $(length(x)) and A has $(size(f.A, 2)) columns")); _checkreal(f, x))
+  throw(DimensionMismatch("x has length $(length(x)) and A has $(size(f.A, 2)) columns")))
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndAffine{T, M, <:Cholesky}, y::AbstractVector, x::AbstractVector) where {T<:AbstractFloat, M} =
-  (_checksize(y, x); _checkaffine(f, x); true)
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkaffine(f, x); true)
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndAffine{T, M, T}, y::AbstractVector, x::AbstractVector) where {T<:AbstractFloat, M} =
-  (_checksize(y, x); _checkaffine(f, x); true)
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkaffine(f, x); true)
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndAffine{T, M, Tuple{Matrix{T}, Vector{T}}}, y::AbstractVector, x::AbstractVector) where {T<:AbstractFloat, M} =
-  (_checksize(y, x); _checkaffine(f, x); true)
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkaffine(f, x); true)
 
 function (f::IndAffine{T})(x::AbstractVector) where {T}
+  _checkreal(f, x)
   _checkaffine(f, x)
   S = float(promote_type(T, eltype(x)))
   R = float(eltype(x))

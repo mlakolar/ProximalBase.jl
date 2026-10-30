@@ -589,13 +589,14 @@ end
   step, ρ = convert(S, γ), convert(S, r.ρ)
   a, b = _ridge_weights(step, ρ)
   if T <: AbstractFloat
-    # the floating-point blend cannot fail; the inner step settles activation
+    # activate before reads or the inner step can fail
     was = isactive(x, k)
+    was || activate!(x, k)
     @inbounds for i in x.groups[k]
       x.storage[i] = r.c === nothing ? a * x.storage[i] : _ridge_blend(x.storage[i], r.c[i], a, b)
     end
     _unchecked_coordinate!(x, r.f, k, _regularize_step(step, ρ), ctx)
-    if !was && isactive(x, k) && _allzero(x.storage, x.groups[k])
+    if !was && isactive(x, k) && !_anynonzero(x.storage, x.groups[k])
       _deactivate!(x, k)
     end
     return atom(x, k)
@@ -612,7 +613,7 @@ end
   end
   _unchecked_coordinate!(x, r.f, k, _regularize_step(step, ρ), ctx)
   # the group was appended last and no other group changed; restore the list
-  if !was && isactive(x, k) && _allzero(x.storage, x.groups[k])
+  if !was && isactive(x, k) && !_anynonzero(x.storage, x.groups[k])
     _deactivate!(x, k)
   end
   atom(x, k)

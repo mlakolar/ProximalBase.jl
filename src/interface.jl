@@ -393,16 +393,12 @@ function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, γ::R
   _unchecked_coordinate!(x, f, k, γ, ctx)
 end
 
-@inline _atom_alias(x::AtomIterate, u::Array) = u === x.storage
-@inline _atom_alias(x::AtomIterate, u::SubArray) = parent(u) === x || _atom_alias(x, parent(u))
-@inline _atom_alias(x::AtomIterate, u::AbstractArray) = Base.mightalias(x, u)
-
 function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, u::AbstractVector, γ::Real)
   ctx = _check_coordinate(x, f, k)
   _checkreal(f, u)
   length(u) == length(x.groups[k]) ||
     throw(DimensionMismatch("u has length $(length(u)), group $k has size $(length(x.groups[k]))"))
-  if _atom_alias(x, u)
+  if Base.mightalias(x, u)
     u = collect(u)
   end
   _block_step!(x, f, k, u, γ, ctx)
@@ -413,15 +409,19 @@ end
 
 @inline function _stage_and_step!(x::AtomIterate{T}, f, k, u, γ, ctx) where {T}
   if T <: AbstractFloat && eltype(u) <: Union{AbstractFloat, Integer} && u isa StridedVector
-    # strided reads, conversion and checked group kernels cannot fail
+    # strided reads and conversion cannot fail
     was = isactive(x, k)
     G = x.groups[k]
     @inbounds for a in eachindex(G)
       x.storage[G[a]] = u[firstindex(u) + a - 1]
     end
     result = _unchecked_coordinate!(x, f, k, γ, ctx)
-    if !was && isactive(x, k) && _allzero(x.storage, x.groups[k])
-      _deactivate!(x, k)
+    if !was
+      if _anynonzero(x.storage, G)
+        activate!(x, k)
+      else
+        _deactivate!(x, k)
+      end
     end
     return result
   end
@@ -438,8 +438,12 @@ end
   end
   result = _unchecked_coordinate!(x, f, k, γ, ctx)
   # the group was appended last and no other group changed; restore the list
-  if !was && isactive(x, k) && _allzero(x.storage, G)
-    _deactivate!(x, k)
+  if !was
+    if _anynonzero(x.storage, G)
+      activate!(x, k)
+    else
+      _deactivate!(x, k)
+    end
   end
   result
 end

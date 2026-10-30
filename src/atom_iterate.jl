@@ -181,7 +181,15 @@ function activate!(x::AtomIterate, k::Integer)
   x
 end
 
-function _deactivate!(x::AtomIterate, k::Integer)
+@inline function _anynonzero(storage, G)
+  s = false
+  @inbounds for i in G
+    s |= !iszero(storage[i])
+  end
+  s
+end
+
+@inline function _deactivate!(x::AtomIterate, k::Integer)
   i = x.position[k]
   if i != 0
     last = x.active[x.nactive]

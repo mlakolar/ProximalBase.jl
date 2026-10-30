@@ -237,7 +237,8 @@ _valtype(x::Tuple) = promote_type(map(_valtype, x)...)
 _value_at(v, x) = convert(_valtype(x), v)
 # Arguments, outputs and parameters are real; complex entries are rejected.
 _checkreal(f, x) = eltype(x) <: Real || _real_error(nameof(typeof(f)))
-_checkreal(f, x::Tuple) = (map(xk -> _checkreal(f, xk), x); true)
+_checkreal(f, x::Tuple) = (_checkreal(f, first(x)); _checkreal(f, Base.tail(x)))
+_checkreal(f, ::Tuple{}) = true
 @noinline _real_error(name) = throw(ArgumentError("$name requires real entries"))
 
 # A buffer of zeros of type T and size dims, next to the array a: an Array,

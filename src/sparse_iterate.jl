@@ -1066,7 +1066,9 @@ function Base.copyto!(x::SymmetricSparseIterate, bc::Broadcast.Broadcasted{Nothi
   x
 end
 
-_checkreal_broadcast(x, bc::Broadcast.Broadcasted) = foreach(a -> _checkreal_broadcast(x, a), bc.args)
+_checkreal_broadcast(x, bc::Broadcast.Broadcasted) = _checkreal_args(x, bc.args)
+_checkreal_args(x, args::Tuple) = (_checkreal_broadcast(x, first(args)); _checkreal_args(x, Base.tail(args)))
+_checkreal_args(x, ::Tuple{}) = true
 # Broadcast leaves can be control arguments, such as functions or rounding modes.
 _checkreal_broadcast(x, a) = true
 _checkreal_broadcast(x, a::Union{AbstractArray, Ref, Number}) =
@@ -1098,7 +1100,7 @@ end
 function Base.map!(f::F, x::SymmetricSparseIterate, A::AbstractArray, B::AbstractArray,
                    C::AbstractArray, Ds::Vararg{AbstractArray, N}) where {F, N}
   _checkreal_broadcast(x, A); _checkreal_broadcast(x, B); _checkreal_broadcast(x, C)
-  foreach(D -> _checkreal_broadcast(x, D), Ds)
+  _checkreal_args(x, Ds)
   _check_axes(x, A)
   _check_axes(x, B)
   _check_axes(x, C)
@@ -1399,6 +1401,12 @@ end
 function LinearAlgebra.mul!(C::AbstractMatrix, A::SymmetricSparseIterate, B::LinearAlgebra.AbstractTriangular, α::Number, β::Number)
   _checkreal(A, C); _checkreal(A, B); _checkreal(A, α); _checkreal(A, β)
   invoke(mul!, Tuple{AbstractMatrix, AbstractMatrix, LinearAlgebra.AbstractTriangular, Number, Number}, C, A, B, α, β)
+end
+function LinearAlgebra.mul!(C::AbstractMatrix, A::SymmetricSparseIterate,
+                            B::Union{Bidiagonal, Diagonal, SymTridiagonal, Tridiagonal}, α::Number, β::Number)
+  _checkreal(A, C); _checkreal(A, B); _checkreal(A, α); _checkreal(A, β)
+  invoke(mul!, Tuple{AbstractMatrix, AbstractMatrix, Union{Bidiagonal, Diagonal, SymTridiagonal, Tridiagonal}, Number, Number},
+         C, A, B, α, β)
 end
 LinearAlgebra.mul!(C::SymmetricSparseIterate, A::SymmetricSparseIterate, B::AbstractMatrix, α::Number, β::Number) =
   _mul_symmetric!(C, A, B, α, β)

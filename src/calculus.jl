@@ -167,7 +167,7 @@ prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(prox!, s, y, x); prox!(y, s.f, x
 value_and_prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); v = value_and_prox!(y, s.f, x, s.α * γ); _value_at(_scaled_value(s, y, v, false), y))
 Base.@propagate_inbounds prox_entry(s::Scaled, v::Real, i::Integer, γ::Real) = prox_entry(s.f, v, i, s.α * γ)
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
-_checkwrite(op::O, s::Scaled, y, x) where {O} = _checkwrite(op, s.f, y, x)
+_checkwrite(op::O, s::Scaled, y, x) where {O} = ((op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checkwrite(op, s.f, y, x))
 iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 # a scaled group penalty updates a group of an AtomIterate with a scaled step
@@ -215,6 +215,7 @@ value_and_gradient!(g, t::Tilt, x) = (_checkwrite(value_and_gradient!, t, g, x);
 gradient!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, x); g .+= t.c)
 
 function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}}
+  _checkgradient_output(g, x)
   _checkparams(t, x)
   Base.Broadcast.check_broadcast_axes(axes(g), t.c)
   _check_symmetric_source(g, t.c)
@@ -299,7 +300,7 @@ gradient!(g, t::Translate, x::AbstractArray) =
   (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, _shifted(t, x)))
 
 _checkwrite(op::O, t::Translate, g, x::AbstractArray) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
-  (_check_symmetric_source(g, t.b); _checkwrite(op, t.f, g, _checkshifted(t, x)))
+  (_checkgradient_output(g, x); _check_symmetric_source(g, t.b); _checkwrite(op, t.f, g, _checkshifted(t, x)))
 
 function _checkshifted(t::Translate, x::AbstractArray)
   size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
@@ -900,6 +901,7 @@ _checkparams(s::SeparableSum, x::Tuple) = (_checkblocks(s, x); map(_checkparams,
 function _checkwrite(op::O, s::SeparableSum, y::Tuple, x::Tuple) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
   _checksize(y, x)
   _checkblocks(s, x)
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checkwrite_blocks(op, s.fs, y, x)
 end
 # block by block, by recursion on the tuples rather than a map over a closure:
@@ -953,6 +955,7 @@ _checkparams(s::Sum, x) = (map(f -> _checkparams(f, x), s.fs); true)
 _checkvalue(s::Sum, x) = (map(f -> _checkvalue(f, x), s.fs); true)
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::Sum, g::AbstractArray, x::AbstractArray)
+  _checkgradient_output(g, x)
   _checksize(g, x)
   _checkparams(s, x)
   _checkwrite(value_and_gradient!, first(s.fs), g, x)

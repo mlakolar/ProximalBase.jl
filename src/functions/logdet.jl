@@ -57,6 +57,7 @@ isproximable(::Type{<:LogDetLoss}) = true
 isconvex(::Type{<:LogDetLoss}) = true
 
 function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::LogDetLoss{T}, Y::AbstractMatrix, X::AbstractMatrix) where {T}
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(Y, X)
   _checksize(Y, X)
   size(X) == size(f.S) || throw(DimensionMismatch("X has size $(size(X)) and S $(size(f.S))"))
   _checkreal(f, X)

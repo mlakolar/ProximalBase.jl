@@ -826,6 +826,7 @@ function (f::_DeviceGLM{L, T})(β::AbstractVector) where {L, T}
 end
 
 function ProximalBase.value_and_gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::AbstractVector) where {L, T}
+  ProximalBase._checkgradient_output(g, β)
   _checksize(g, β)
   η = ProximalBase._linear_predictor!(f, β)
   w = _param(f.weights)
@@ -836,6 +837,7 @@ function ProximalBase.value_and_gradient!(g::AbstractVector, f::_DeviceGLM{L, T}
 end
 
 function ProximalBase.gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::AbstractVector) where {L, T}
+  ProximalBase._checkgradient_output(g, β)
   _checksize(g, β)
   η = ProximalBase._linear_predictor!(f, β)
   f.d .= _ObsDeriv{T}(f.loss).(η, f.y, _param(f.weights))

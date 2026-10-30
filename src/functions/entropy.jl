@@ -296,6 +296,7 @@ end
 end
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::BernoulliLoss, g::AbstractArray, x::AbstractArray)
+  _checkgradient_output(g, x)
   _checksize(g, x)
   _checkparams(f, x)
 end

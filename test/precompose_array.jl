@@ -254,6 +254,8 @@ end
       before = copy(y)
       if op === prox! || op === value_and_prox!
         @test_throws DimensionMismatch op(y, h, input, 0.4)
+      elseif alias
+        @test_throws ArgumentError op(y, h, input)
       else
         @test_throws DimensionMismatch op(y, h, input)
       end

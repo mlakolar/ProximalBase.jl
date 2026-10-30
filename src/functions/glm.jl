@@ -212,7 +212,7 @@ _checkpredictor(f::GLMLoss, β::AbstractVector) =
   (length(β) == size(f.X, 2) || throw(DimensionMismatch("β has length $(length(β)) and X has $(size(f.X, 2)) columns")); _checkreal(f, β))
 
 _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::GLMLoss{L, T}, g::AbstractVector, β::AbstractVector) where {L, T} =
-  (_checksize(g, β); _checkpredictor(f, β); true)
+  (_checkgradient_output(g, β); _checksize(g, β); _checkpredictor(f, β); true)
 
 function _linear_predictor!(f::GLMLoss, β::AbstractVector)
   _checkpredictor(f, β)

@@ -1043,6 +1043,113 @@ Base.copyto!(x::SymmetricSparseIterate, ::AbstractRange{Int}, ::AbstractRange{In
     _throw_partial("copyto! with index ranges")
 end
 
+# Indexed array assignments must cover every position in storage order.
+_full_index(::Colon, ax) = true
+_full_index(I::AbstractVector{<:Integer}, ax) =
+  !(eltype(I) <: Bool) && length(I) == length(ax) && all(isequal(a, b) for (a, b) in zip(I, ax))
+_full_index(I, ax) = false
+_full_linear(I, x) = _full_index(I, 1:length(x))
+_full_linear(I::AbstractArray{CartesianIndex{2}}, x) =
+  size(I) == size(x) && all(isequal(a, b) for (a, b) in zip(I, CartesianIndices(x)))
+
+function _setindex_symmetric!(x, X, I...)
+  checkbounds(x, Base.to_indices(x, I)...)
+  if length(I) == 2
+    all(_full_index(I[d], axes(x, d)) for d in 1:2) || _throw_partial("setindex!")
+    return copyto!(x, X)
+  elseif length(I) == 1 && _full_linear(I[1], x)
+    length(X) == length(x) || _throw_axes(x, X)
+    return copyto!(x, reshape(X, size(x)))
+  end
+  _throw_partial("setindex!")
+end
+function Base.setindex!(x::SymmetricSparseIterate, X::AbstractArray, I...)
+  if any(i -> i isa Union{Colon, AbstractArray}, I)
+    return _setindex_symmetric!(x, X, I...)
+  end
+  invoke(setindex!, Tuple{AbstractArray, Any, Vararg{Any}}, x, X, I...)
+end
+# Preserve scalar assignment (and its conversion error for an array value).
+Base.setindex!(x::SymmetricSparseIterate, X::AbstractArray, r::Int, c::Int) =
+  invoke(setindex!, Tuple{SymmetricSparseIterate, Any, Int, Int}, x, X, r, c)
+
+# Iterators can fail after a partial write; retain array, broadcast and scaling routes.
+Base.copyto!(x::SymmetricSparseIterate, src) = _throw_partial("copyto! from an iterator")
+Base.copyto!(x::SymmetricSparseIterate, ::Integer, ::AbstractArray) = _throw_partial("copyto! with offsets")
+Base.copyto!(x::SymmetricSparseIterate, ::Integer, ::AbstractArray, ::Integer) = _throw_partial("copyto! with offsets")
+Base.copyto!(x::SymmetricSparseIterate, ::Integer, src) = _throw_partial("copyto! with offsets")
+Base.copyto!(x::SymmetricSparseIterate, ::Integer, src, ::Integer) = _throw_partial("copyto! with offsets")
+Base.copyto!(x::SymmetricSparseIterate, ::Integer, src, ::Integer, ::Integer) =
+  _throw_partial("copyto! with offsets")
+Base.copyto!(x::SymmetricSparseIterate, J::UniformScaling) =
+  invoke(copyto!, Tuple{AbstractMatrix, UniformScaling}, x, J)
+Base.copyto!(x::SymmetricSparseIterate, Q::LinearAlgebra.AbstractQ) =
+  invoke(copyto!, Tuple{AbstractMatrix, LinearAlgebra.AbstractQ}, x, Q)
+Base.copyto!(x::SymmetricSparseIterate, bc::Broadcast.Broadcasted) =
+  invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted}, x, bc)
+Base.copyto!(x::SymmetricSparseIterate, bc::Broadcast.Broadcasted{S}) where
+    {S<:Broadcast.AbstractArrayStyle{0}} =
+  invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{S}}, x, bc)
+Base.copyto!(x::SymmetricSparseIterate, bc::Broadcast.Broadcasted{S}) where
+    {S<:Broadcast.DefaultArrayStyle{0}} =
+  invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{S}}, x, bc)
+
+# Broadcasting through a full view or reshape must use the checked matrix writer.
+const _SymmetricReshape = Base.ReshapedArray{T, N, P} where {T, N, P<:SymmetricSparseIterate}
+const _SymmetricView = SubArray{T, N, P} where {T, N, P<:SymmetricSparseIterate}
+const _SymmetricReshapeView = SubArray{T, N, P} where {T, N, P<:_SymmetricReshape}
+const _SymmetricBroadcastDest = Union{_SymmetricView, _SymmetricReshape, _SymmetricReshapeView}
+
+function _broadcast_symmetric!(dest::_SymmetricView, bc)
+  x = parent(dest)
+  I = parentindices(dest)
+  length(I) == 2 && all(_full_index(I[d], axes(x, d)) for d in 1:2) ||
+    _throw_partial("broadcast! into a view")
+  copyto!(x, convert(Broadcast.Broadcasted{Nothing}, bc))
+  dest
+end
+function _broadcast_symmetric!(dest::_SymmetricReshapeView, bc)
+  R = parent(dest)
+  inds = view(LinearIndices(R), parentindices(dest)...)
+  length(dest) == length(R) && all(i == k for (i, k) in zip(inds, 1:length(R))) ||
+    _throw_partial("broadcast! into a reshaped view")
+  _broadcast_reshaped!(dest, parent(R), bc)
+end
+_broadcast_symmetric!(dest::_SymmetricReshape, bc) = _broadcast_reshaped!(dest, parent(dest), bc)
+function _broadcast_reshaped!(dest, x, bc)
+  axes(dest) == axes(bc) || throw(DimensionMismatch("broadcast! axes do not match destination"))
+  # Collect before conversion and before writing, including aliased updates.
+  vals = collect(bc)
+  copyto!(x, reshape(vals, size(x)))
+  dest
+end
+Base.copyto!(dest::_SymmetricBroadcastDest, bc::Broadcast.Broadcasted) = _broadcast_symmetric!(dest, bc)
+Base.copyto!(dest::_SymmetricBroadcastDest, bc::Broadcast.Broadcasted{Nothing}) = _broadcast_symmetric!(dest, bc)
+Base.copyto!(dest::_SymmetricBroadcastDest, bc::Broadcast.Broadcasted{<:Broadcast.AbstractArrayStyle{0}}) =
+  _broadcast_symmetric!(dest, bc)
+
+# Transposition and dimension permutation still require exactly symmetric values.
+LinearAlgebra.transpose!(x::SymmetricSparseIterate, A::AbstractMatrix) = copyto!(x, transpose(A))
+LinearAlgebra.transpose!(x::SymmetricSparseIterate, A::AbstractVector) = copyto!(x, transpose(A))
+LinearAlgebra.adjoint!(x::SymmetricSparseIterate, A::AbstractMatrix) = copyto!(x, adjoint(A))
+LinearAlgebra.adjoint!(x::SymmetricSparseIterate, A::AbstractVector) = copyto!(x, adjoint(A))
+function Base.permutedims!(x::SymmetricSparseIterate, A::AbstractArray, perm)
+  Base.checkdims_perm(x, A, perm)
+  copyto!(x, perm[1] == 1 ? A : transpose(A))
+end
+
+# Scalar multiplication must not fall back to length-only, position-wise writes.
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractArray, s::Number) = mul!(x, A, s, true, false)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, s::Number, A::AbstractArray) = mul!(x, s, A, true, false)
+function LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractArray, s::Number, α::Number, β::Number)
+  _check_axes(x, A)
+  invoke(mul!, Tuple{AbstractArray, AbstractArray, Number, Number, Number}, x, A, s, α, β)
+end
+function LinearAlgebra.mul!(x::SymmetricSparseIterate, s::Number, A::AbstractArray, α::Number, β::Number)
+  _check_axes(x, A)
+  invoke(mul!, Tuple{AbstractArray, Number, AbstractArray, Number, Number}, x, s, A, α, β)
+end
+
 # Broadcasting into x computes each entry of the lower triangle once: visiting
 # both (r, c) and (c, r) would cost twice as much and, as they share storage,
 # apply an in-place update such as x .= 2 .* x twice. When the leaves do not

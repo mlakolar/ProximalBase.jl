@@ -797,6 +797,7 @@ operator sorts `v`, subtracts `γλ2 (2i - K - 1)` from the `i`-th smallest entr
 pools adjacent violators into a nondecreasing sequence, restores the order, and
 soft-thresholds by `γλ1`: exact, in O(K log K), in buffers that the function
 owns.
+When an intermediate overflows, the value is computed in scaled units.
 """
 struct NormL1Fused{T<:Real} <: AbstractFunction
   λ1::T
@@ -818,9 +819,87 @@ isproximable(::Type{<:NormL1Fused}) = true
 _argument_type(::Type{<:NormL1Fused}) = Union{AbstractVector, Tuple{AbstractArray, AbstractArray}}
 isconvex(::Type{<:NormL1Fused}) = true
 
-(f::NormL1Fused)(xy::Tuple{Real, Real}) = _value_at(
-  (iszero(f.λ1) ? zero(float(xy[1])) : f.λ1 * (abs(xy[1]) + abs(xy[2]))) +
-  (iszero(f.λ2) ? zero(float(xy[1])) : f.λ2 * abs(xy[1] - xy[2])), xy)
+# A level already stored in the value type loses no precision on conversion.
+@inline _fused_level_fits(::Type{T}, λ::T) where {T<:AbstractFloat} = true
+@inline _fused_level_fits(::Type{T}, λ::Real) where {T} = _level_fits(T, λ)
+@inline _fused_levels_fit(::Type{T}, f::NormL1Fused) where {T} =
+  _fused_level_fits(T, f.λ1) && _fused_level_fits(T, f.λ2)
+
+# Normalize weighted terms together, so subnormal contributions round once.
+@noinline function _fused_scaled_value(terms, k, ::Type{T}) where {T}
+  R = typeof(first(terms)[2])
+  e = typemin(Int)
+  for term in terms
+    λ, v = term[1], term[2]
+    units = length(term) == 2 ? k : term[3]
+    if !iszero(λ) && !iszero(v)
+      e = max(e, exponent(R(λ)) + exponent(v) + units)
+    end
+  end
+  e == typemin(Int) && return zero(T)
+  s = c = zero(R)
+  for term in terms
+    λ, v = term[1], term[2]
+    units = length(term) == 2 ? k : term[3]
+    s, c = _compensated_add(s, c, _scaled_product(R(λ), v, units - e))
+  end
+  convert(T, _scaled_product(one(R), s + c, e))
+end
+
+@noinline function _recover_fused_pair(f, xy, ::Type{T}) where {T}
+  R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
+  k = _magnitude_exponent(max(abs(R(xy[1])), abs(R(xy[2]))))
+  scale = _power_factors(R, -k)
+  u, v = _scale_value(R(xy[1]), scale), _scale_value(R(xy[2]), scale)
+  _fused_scaled_value(((f.λ1, abs(u) + abs(v)), (f.λ2, abs(u - v))), k, T)
+end
+
+# The unchecked pair expression also serves the aggregate array reduction.
+@inline function _fused_pair_value(f, xy)
+  T = _valtype(xy)
+  u, w = xy[1] isa Integer ? T(xy[1]) : xy[1], xy[2] isa Integer ? T(xy[2]) : xy[2]
+  _value_at((iszero(f.λ1) ? zero(float(xy[1])) : f.λ1 * (abs(u) + abs(w))) +
+    (iszero(f.λ2) ? zero(float(xy[1])) : f.λ2 * abs(u - w)), xy)
+end
+
+# A nonnegative finite result precedes infinity in the IEEE bit ordering.
+@inline function _fused_finite(v::T) where {T<:Union{Float16, Float32, Float64}}
+  U = T === Float64 ? UInt64 : T === Float32 ? UInt32 : UInt16
+  reinterpret(U, v) < reinterpret(U, T(Inf))
+end
+@inline _fused_finite(v) = isfinite(v) && !signbit(v)
+
+@inline function (f::NormL1Fused)(xy::Tuple{Real, Real})
+  T = _valtype(xy)
+  v = _fused_pair_value(f, xy)
+  _fused_finite(v) && _fused_levels_fit(T, f) && return v
+  _checked_fused_pair_value(f, xy, T)
+end
+
+@noinline function _checked_fused_pair_value(f, xy, ::Type{T}) where {T}
+  ordinary = _fused_pair_value(f, xy)
+  all(isfinite, xy) && isfinite(f.λ1) && isfinite(f.λ2) ? _recover_fused_pair(f, xy, T) : ordinary
+end
+
+@noinline function _recover_fused_arrays(f, x, ::Type{T}, ordinary) where {T}
+  R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
+  isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
+  m = zero(R)
+  for i in eachindex(x[1], x[2])
+    m = max(m, abs(R(x[1][i])), abs(R(x[2][i])))
+  end
+  isfinite(m) || return ordinary
+  iszero(m) && return zero(T)
+  # Independent pairs may have very different scales and zero fusion gaps.
+  terms = (begin
+    u, w = R(x[1][i]), R(x[2][i])
+    k = _magnitude_exponent(max(abs(u), abs(w)))
+    scale = _power_factors(R, -k)
+    u, w = _scale_value(u, scale), _scale_value(w, scale)
+    h == 1 ? (f.λ1, abs(u) + abs(w), k) : (f.λ2, abs(u - w), k)
+  end for i in eachindex(x[1], x[2]), h in 1:2)
+  _fused_scaled_value(terms, 0, T)
+end
 
 function (f::NormL1Fused)(x::Tuple{AbstractArray, AbstractArray})
   x1, x2 = x
@@ -828,13 +907,14 @@ function (f::NormL1Fused)(x::Tuple{AbstractArray, AbstractArray})
   T = float(promote_type(eltype(x1), eltype(x2)))
   s = zero(T)
   @inbounds for i in eachindex(x1, x2)
-    s += f((x1[i], x2[i]))
+    s += _fused_pair_value(f, (x1[i], x2[i]))
   end
-  s
+  isfinite(s) && _fused_levels_fit(T, f) && return s
+  _recover_fused_arrays(f, x, T, s)
 end
 
 # argmin (1/2γ) ((u - x)² + (v - y)²) + λ1 (|u| + |v|) + λ2 |u - v|: fuse, then shrink
-function _prox_l1fused(x::T, y::T, λ1::T, λ2::T, γ::T) where {T<:AbstractFloat}
+@inline function _prox_l1fused(x::T, y::T, λ1::T, λ2::T, γ::T, ::Val{C} = Val(true)) where {T<:AbstractFloat, C}
   if λ2 > zero(T)
     t = λ2 * γ
     if x > y + 2 * t
@@ -844,7 +924,8 @@ function _prox_l1fused(x::T, y::T, λ1::T, λ2::T, γ::T) where {T<:AbstractFloa
       u = x + t
       v = y - t
     else
-      u = v = (x + y) / 2
+      z = x + y
+      u = v = C ? ifelse(isinf(z), x / 2 + y / 2, z / 2) : z / 2
     end
   else
     u = x
@@ -861,13 +942,34 @@ end
 
 function prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real)
   _checkwrite(prox!, f, y, x)
+  _prox_fused_arrays!(y, f, x, γ, Val(true))
+end
+
+@noinline function _prox_fused_arrays!(y, f, x, γ, ::Val{C}) where {C}
   T = float(promote_type(eltype(y[1]), eltype(y[2])))
   λ1, λ2, γ = T(f.λ1), T(f.λ2), T(γ)
   @inbounds for i in eachindex(x[1])
-    y[1][i], y[2][i] = _prox_l1fused(T(x[1][i]), T(x[2][i]), λ1, λ2, γ)
+    y[1][i], y[2][i] = _prox_l1fused(T(x[1][i]), T(x[2][i]), λ1, λ2, γ, Val(C))
   end
   y
 end
+
+function value_and_prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused,
+                         x::Tuple{AbstractArray, AbstractArray}, γ::Real)
+  _checkwrite(value_and_prox!, f, y, x)
+  alias = Base.mightalias(y[1], x[1]) || Base.mightalias(y[1], x[2]) ||
+    Base.mightalias(y[2], x[1]) || Base.mightalias(y[2], x[2])
+  alias && return f(prox!(y, f, x, γ))
+  _prox_fused_arrays!(y, f, x, γ, Val(false))
+  v = f(y)
+  isfinite(v) ? v : _recover_fused_arrayprox!(y, f, x, γ, v)
+end
+
+@noinline function _recover_fused_arrayprox!(y, f, x, γ, ordinary)
+  isfinite(f.λ1) && isfinite(f.λ2) && all(isfinite, x[1]) && all(isfinite, x[2]) || return ordinary
+  f(prox!(y, f, x, γ))
+end
+
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL1Fused,
             y::Tuple{AbstractArray, AbstractArray}, x::Tuple{AbstractArray, AbstractArray}) =
   size(y[1]) == size(x[1]) == size(y[2]) == size(x[2]) || throw(DimensionMismatch("the arrays of the pairs must have one size"))
@@ -898,7 +1000,34 @@ function _sortperm_fused!(f::NormL1Fused, x::AbstractVector, ::Type{T}) where {T
   p, a
 end
 
-function (f::NormL1Fused)(x::AbstractVector)
+@noinline function _recover_fused_vector(f, x, ::Type{T}, ordinary) where {T}
+  all(isfinite, x) && isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
+  R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
+  p, a = _sortperm_fused!(f, x, R)
+  n = length(x)
+  k = _magnitude_exponent(_maximum_abs(x))
+  scale = _power_factors(R, -k)
+  s1 = s2 = c1 = c2 = zero(R)
+  @inbounds for i in 1:n
+    u = _scale_value(a[p[i]], scale)
+    s1, c1 = _compensated_add(s1, c1, abs(u))
+    if i < n
+      gap = _scale_value(a[p[i + 1]], scale) - u
+      s2, c2 = _compensated_add(s2, c2, (R(i) * R(n - i)) * gap)
+    end
+  end
+  _fused_scaled_value(((f.λ1, s1 + c1), (f.λ2, s2 + c2)), k, T)
+end
+
+@inline function _fused_vector_value(f, x, v1, v2, ::Type{T}) where {T}
+  w1 = iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1
+  w2 = iszero(f.λ2) ? zero(T) : convert(T, f.λ2) * v2
+  v = w1 + w2
+  (_fused_finite(v) & (iszero(f.λ2) | (v2 >= 0)) & _fused_levels_fit(T, f)) && return v
+  _recover_fused_vector(f, x, T, v)
+end
+
+@inline function (f::NormL1Fused)(x::AbstractVector)
   Base.require_one_based_indexing(x)
   T = float(eltype(x))
   iszero(f.λ1) && iszero(f.λ2) && return zero(T)
@@ -910,8 +1039,7 @@ function (f::NormL1Fused)(x::AbstractVector)
     v1 += abs(a[p[k]])
     v2 += (2k - n - 1) * a[p[k]]
   end
-  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1) +
-  (iszero(f.λ2) ? zero(T) : convert(T, f.λ2) * v2)
+  _fused_vector_value(f, x, v1, v2, T)
 end
 
 value_and_prox!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real) = _prox_fused!(y, f, x, γ, Val(true))
@@ -925,7 +1053,7 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
   n = length(x)
   if iszero(λ1) && iszero(λ2)
     y === x || copyto!(y, x)
-    return V ? zero(f(y)) : zero(T)
+    return V ? f(y) : zero(T)
   end
   if n == 2
     @inbounds y[1], y[2] = _prox_l1fused(convert(T, x[1]), convert(T, x[2]), λ1, λ2, convert(T, γ))
@@ -949,5 +1077,5 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     v1 += abs(wk)
     v2 += (2k - n - 1) * wk
   end
-  V ? (iszero(λ1) ? zero(T) : λ1 * v1) + (iszero(λ2) ? zero(T) : λ2 * v2) : zero(T)
+  V ? _fused_vector_value(f, y, v1, v2, T) : zero(T)
 end

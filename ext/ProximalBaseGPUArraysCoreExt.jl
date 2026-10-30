@@ -203,6 +203,23 @@ function ProximalBase._sumabs2_diff(x::GPUArray, y::GPUArray)
   _sum(T, (a, b) -> abs2(a - b), x, y)
 end
 
+function ProximalBase._square_exponent(x::GPUArray, y, ::Type{R}) where {R}
+  f = ProximalBase._residual_exponent
+  d = y === nothing ? broadcasted(a -> f(a, zero(a), R), x) : broadcasted((a, b) -> f(a, b, R), x, y)
+  mapreduce(identity, max, instantiate(d); init = typemin(Int))
+end
+
+function ProximalBase._square_scaled_sum(x::GPUArray, y, k, ::Type{R}) where {R}
+  s, h = ProximalBase._power_factors(R, -k), ProximalBase._power_factors(R, 1-k)
+  f = ProximalBase._scaled_residual
+  d = y === nothing ? broadcasted(a -> abs2(f(a, zero(a), s, h, R)), x) :
+    broadcasted((a, b) -> abs2(f(a, b, s, h, R)), x, y)
+  # Keep small squares when the device reduction adds a large term first.
+  v, e = mapreduce(q -> (q, zero(R)), _square_combine, instantiate(d); init = (zero(R), zero(R)))
+  v + e
+end
+@inline _square_combine(a, b) = ProximalBase._compensated_add(a[1], a[2] + b[2], b[1])
+
 function ProximalBase._norm_diff2(x::GPUArray, y::GPUArray)
   s = ProximalBase._sumabs2_diff(x, y)
   isfinite(s) && s >= floatmin(typeof(s)) && return sqrt(s)

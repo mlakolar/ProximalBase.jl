@@ -99,10 +99,10 @@ end
                     ([typemin(Int)], [typemax(Int)], [typemax(Int)]),
                     ([zero(UInt128)], [typemax(UInt128)], [typemax(UInt128)]),
                     ([-1//2], [1//2], [1//3]),
-                    (Real[-1f0, -2.0], Real[1.0, 2f0], Float32[0, Inf]),
-                    (Any[-1, -2.0], Any[1f0, 2], [NaN, 0.0]))
+                    (Real[-1f0, -2.0], Real[1.0, 2f0], Float32[0, Inf]))
     @test isnan(check_box(l, u, x).bmax)
   end
+  @test_throws ArgumentError("IndBox requires real entries") IndBox(Any[-1, -2.0], Any[1f0, 2])
   # Integer inputs and mixed bounds must fall back even if the cache is finite.
   check_box([-1.0], [1.0], [1])
   check_box([-1.0], [floatmax(Float64)], Float32[Inf])

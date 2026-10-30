@@ -507,6 +507,10 @@ _isindicator(::Type{<:Conjugate{F}}) where {F} = _conjugate_isindicator(F)
 
 # the value of an indicator at its projection
 _zero_value(y) = zero(_valtype(y))
+function _zero_value(y::Tuple)
+  T = _valtype(y)
+  T === Union{} ? 0 : zero(T)
+end
 
 isproximable(::Type{<:Conjugate{F}}) where {F} = isproximable(F)
 isseparable(::Type{<:Conjugate{F}}) where {F} = isseparable(F)

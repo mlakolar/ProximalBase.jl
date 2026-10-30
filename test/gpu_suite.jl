@@ -1734,3 +1734,27 @@ end
     end
   end
 end
+
+@testset "direct device group projections in scaled tuples" begin
+  allowscalar(false)
+  setprecision(BigFloat, 4096) do
+    for T in test_types, α in (one(T), T(2)), γ in (T(0.5), T(2))
+      f = Adapt.adapt(DeviceArray, GroupNormL2(T(2), [[1, 2]], T[1]))
+      c = Conjugate(Scaled(SeparableSum(f, NormL1()), α))
+      # The block's radius is 2α and the ungrouped third entry is zero.
+      expected = BigFloat[3, 4, 0] .* (2BigFloat(α) / 5)
+      for op in (prox!, value_and_prox!), alias in (false, true)
+        x = (DeviceArray(T[3, 4, 7]), DeviceArray(T[-3, 4]))
+        y = alias ? x : map(copy, x)
+        value = op(y, c, x, γ)
+        result = host(y[1])
+        for i in eachindex(result)
+          @test abs(BigFloat(result[i]) - expected[i]) <= 8BigFloat(eps(T)) * abs(expected[i]) + 2BigFloat(nextfloat(zero(T)))
+        end
+        @test iszero(result[3])
+        @test host(y[2]) == T[-α, α]
+        op === value_and_prox! && @test value === zero(T)
+      end
+    end
+  end
+end

@@ -663,4 +663,143 @@ end
 end
 
 
+@testset "generic group projection norm fallbacks" begin
+  setprecision(BigFloat, 4096) do
+    for T in (Float32, Float64)
+      for (input, λ) in ((T[floatmax(T) / 2, floatmax(T) / 2], one(T)),
+                         (T[floatmax(T) * T(0.8), floatmax(T) * T(0.8)], one(T)),
+                         (T[floatmin(T), floatmin(T) / 2], floatmin(T)),
+                         (T[0, 0], one(T)))
+        # Box the entries to select the generic real-array reduction.
+        x = Real[input...]
+        X = BigFloat.(input)
+        n = norm(X)
+        expected = iszero(n) ? X : X .* min(BigFloat(1), BigFloat(λ) / n)
+        c = Conjugate(GroupNormL2(λ, [[1, 2]], T[1]))
+        for op in (prox!, value_and_prox!)
+          y = zeros(T, 2)
+          value = op(y, c, x, one(T))
+          accurate(y, expected, 8)
+          op === value_and_prox! && @test value == 0
+          @test x == input
+        end
+      end
+      # A singleton NaN stays NaN; the ungrouped coordinate is exactly zero.
+      c = Conjugate(GroupNormL2(one(T), [[1]], T[1]))
+      for op in (prox!, value_and_prox!)
+        y = zeros(T, 2)
+        value = op(y, c, Real[T(NaN), T(3)], one(T))
+        @test isnan(y[1])
+        @test iszero(y[2])
+        op === value_and_prox! && @test value == 0
+      end
+    end
+  end
+end
+
+@testset "double conjugate tuples and nested step checks" begin
+  for T in (Float32, Float64), op in (prox!, value_and_prox!), alias in (false, true)
+    f = SeparableSum(SqrNormL2(T(2)), SeparableSum(NormL1(T(0.5))))
+    c = Conjugate(Conjugate(f))
+    input = (T[3, -4], (T[2, -1],))
+    expected = (T[1.5, -2], (T[1.75, -0.75],))
+    x = deepcopy(input)
+    y = alias ? x : deepcopy(input)
+    value = op(y, c, x, T(0.5))
+    @test y == expected
+    @test prox(c, input, T(0.5)) == expected
+    op === value_and_prox! && @test value == T(7.5)
+
+    # The outer sum validates the double conjugate's tuple step as a block.
+    s = SeparableSum(c, NormL1())
+    x = (deepcopy(input), T[3])
+    y = alias ? x : deepcopy(x)
+    value = op(y, s, x, T(0.5))
+    @test y == (expected, T[2.5])
+    op === value_and_prox! && @test value == T(10)
+  end
+end
+
+@testset "tuple indicator fallback and empty blocks" begin
+  for T in (Float32, Float64), α in (one(T), T(2)), γ in (T(0.5), T(2))
+    support = Conjugate(SeparableSum(IndBox(T(-2), T(2)), IndBox(one(T), T(3))))
+    c = Conjugate(Scaled(SeparableSum(NormL1(), support), α))
+    input = (T[3], (T[-4, 1, 4], T[-2, 2, 4]))
+    expected = (clamp.(input[1], -α, α),
+                (clamp.(input[2][1], -2α, 2α), clamp.(input[2][2], α, 3α)))
+    @test prox(c, input, γ) == expected
+    for op in (prox!, value_and_prox!), alias in (false, true)
+      x = deepcopy(input)
+      y = alias ? x : deepcopy(input)
+      value = op(y, c, x, γ)
+      @test y == expected
+      op === value_and_prox! && @test value == 0
+    end
+  end
+  for op in (prox!, value_and_prox!)
+    for (f, x) in ((SeparableSum(), ()),
+                   (SeparableSum(SeparableSum()), ((),)),
+                   (SeparableSum(SeparableSum(), SeparableSum(SeparableSum())), ((), ((),))))
+      c = Conjugate(f)
+      @test prox(c, x, 1.0) == x
+      value = op(deepcopy(x), c, x, 1.0)
+      op === value_and_prox! && @test value == 0
+    end
+    c = Conjugate(SeparableSum())
+    @test prox(c, (), 1.0) == ()
+    value = op((), c, (), 1.0)
+    op === value_and_prox! && @test value == 0
+    c = Conjugate(SeparableSum(SeparableSum(), NormL1(), SqrNormL2(2)))
+    x, y = ((), [3.0], [4.0]), ((), [0.0], [0.0])
+    value = op(y, c, x, 1.0)
+    @test y[1] == ()
+    @test y[2] == [1.0]
+    @test y[3] ≈ [8/3]
+    op === value_and_prox! && @test value ≈ 16/9
+    for T in (Float32, Float64), alias in (false, true)
+      c = Conjugate(SeparableSum(NormL1(), SeparableSum(SeparableSum(), NormL2(T(5)))))
+      x = (T[3, -4], ((), T[6, 8]))
+      y = alias ? x : deepcopy(x)
+      value = op(y, c, x, one(T))
+      @test y == (T[1, -1], ((), T[3, 4]))
+      op === value_and_prox! && @test value === zero(T)
+    end
+  end
+end
+
+@testset "scaled fallback entries and mixed values" begin
+  setprecision(BigFloat, 4096) do
+    for T in (Float32, Float64), α in (one(T), T(2))
+      γ = T(0.5)
+      c = Conjugate(Scaled(SqrNormL2(T(2)), α))
+      for v in (T(-3), zero(T), T(6))
+        expected = BigFloat(v) * (2BigFloat(α)) / (2BigFloat(α) + BigFloat(γ))
+        accurate(T[prox_entry(c, v, 1, γ)], [expected], 8)
+      end
+      for f in (ZeroFunction(), IndNonnegative()), v in (T(-3), zero(T), T(6))
+        c = Conjugate(Scaled(f, α))
+        @test prox_entry(c, v, 1, γ) == (f isa ZeroFunction ? zero(T) : min(v, zero(T)))
+      end
+      for tuple_block in (false, true)
+        f = tuple_block ? Conjugate(SeparableSum(SqrNormL2(T(2)))) : SqrNormL2(T(2), T[1, -2])
+        c = Conjugate(Scaled(SeparableSum(NormL1(), f), α))
+        input = tuple_block ? (T[3], (T[3, -6],)) : (T[3], T[3, -6])
+        A, G = BigFloat(α), BigFloat(γ)
+        expected = tuple_block ? BigFloat[3, -6] .* A ./ (A + 2G) :
+          (BigFloat[3, -6] .- G .* BigFloat[1, -2]) .* (2A) ./ (2A + G)
+        expected_value = tuple_block ? sum(abs2, expected) / A :
+          sum(abs2, expected) / (4A) + dot(BigFloat[1, -2], expected)
+        for op in (prox!, value_and_prox!), alias in (false, true)
+          x = deepcopy(input)
+          y = alias ? x : deepcopy(input)
+          value = op(y, c, x, γ)
+          @test y[1] == T[min(T(3), α)]
+          accurate(tuple_block ? y[2][1] : y[2], expected, 8)
+          op === value_and_prox! && accurate(T[value], [expected_value], 8)
+        end
+      end
+    end
+  end
+end
+
 end

@@ -171,8 +171,8 @@ end
     PT.test_gradient(f, x; rng)
     PT.test_prox(f, x, 0.7; rng)
     g = copy(x)
-    @test value_and_gradient!(g, f, g) ≈ f(x)
-    @test g ≈ gradient(f, x)
+    @test_throws ArgumentError value_and_gradient!(g, f, g)
+    @test g == x
   end
 end
 

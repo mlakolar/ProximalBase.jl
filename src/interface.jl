@@ -167,7 +167,18 @@ _isindicator(f::AbstractFunction) = _isindicator(typeof(f))
 _checkparams(f::AbstractFunction, x) = (check_parameters(f, x); true)
 _argument_type(::Type{<:AbstractFunction}) = Any
 _checkargument(f, x) = x isa _argument_type(typeof(f)) || throw(MethodError(f, (x,)))
+_checkgradient_output(g, x) = (g === x && throw(ArgumentError("the gradient must not overwrite x")); nothing)
+# blocks pair up to the shorter tuple; the size checks report a length mismatch
+_checkgradient_output(::Tuple{}, ::Tuple) = nothing
+_checkgradient_output(::Tuple, ::Tuple{}) = nothing
+_checkgradient_output(::Tuple{}, ::Tuple{}) = nothing
+function _checkgradient_output(g::Tuple, x::Tuple)
+  _checkgradient_output(first(g), first(x))
+  _checkgradient_output(Base.tail(g), Base.tail(x))
+end
+
 function _checkwrite(op, f, y, x)
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   if op === value_and_prox! || op === gradient!
     _checkparams(f, x)
     _checkargument(f, x)
@@ -177,6 +188,17 @@ function _checkwrite(op, f, y, x)
   end
   true
 end
+# Scalar-step checks inspect types and shapes; transformed inputs have no values.
+_checkstep(op, f, y, x, γ) = true
+struct _StepInput{T, N, A<:AbstractArray{T, N}} <: AbstractArray{T, N}
+  array::A
+end
+Base.size(x::_StepInput) = size(x.array)
+Base.axes(x::_StepInput) = axes(x.array)
+_step_values(x::AbstractArray) = true
+_step_values(x::_StepInput) = false
+_step_values(x::SubArray) = _step_values(parent(x))
+
 _checkvalue(f, x) = _checkparams(f, x)
 _checkconjugate(f, y) = true
 
@@ -188,6 +210,8 @@ _checkconjugate(f, y) = true
     gradient!(g, f, x)
 
 Store the gradient of `f` at `x` in `g` and return `g`.
+`g` must not be `x` unless the function documents otherwise; built-in functions
+throw an `ArgumentError`.
 """
 gradient!(g, f::AbstractFunction, x) = (_checkwrite(gradient!, f, g, x); value_and_gradient!(g, f, x); g)
 
@@ -196,6 +220,8 @@ gradient!(g, f::AbstractFunction, x) = (_checkwrite(gradient!, f, g, x); value_a
 
 Store the gradient of `f` at `x` in `g` and return `f(x)`. Usually cheaper than
 calling `f(x)` and [`gradient!`](@ref) separately.
+`g` must not be `x` unless the function documents otherwise; built-in functions
+throw an `ArgumentError`.
 """
 function value_and_gradient! end
 
@@ -348,6 +374,8 @@ additive constant and, for a smooth function, has gradient `∇f(x)[S]`. Centere
 [`MoreauEnvelope`](@ref) and [`SqrDistL2`](@ref) may drop terms belonging to
 excluded coordinates. These constants do not change the minimizer; evaluate the
 original function when comparing full objective values.
+`MoreauEnvelope` and `SqrDistL2` restrict only a separable function or set,
+respectively, and throw otherwise.
 
 The dropped terms must be finite at zero, or at `-b` under `Translate`;
 otherwise every vector supported on `S` is infeasible, and `restrict` throws an

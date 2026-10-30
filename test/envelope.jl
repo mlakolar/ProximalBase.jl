@@ -78,6 +78,45 @@ PB.isconvex(::Type{Quad}) = true
     @test restrict(e, [2, 5])(x[[2, 5]]) ≈ e([0, x[2], 0, 0, x[5], 0, 0, 0])
   end
 
+  @testset "restrict requires a separable function" begin
+    restrict_msg = "restrict of MoreauEnvelope requires a separable function"
+    kkt_msg = "kkt_violation of MoreauEnvelope requires a separable function"
+    prox_msg = "prox_entry of MoreauEnvelope requires a separable function"
+    e = MoreauEnvelope(QuadraticFunction([2.0 1.0; 1.0 2.0], zeros(2)), 0.5)
+    @test_throws ArgumentError(restrict_msg) restrict(e, [1])
+    @test_throws ArgumentError(kkt_msg) kkt_violation(e, zeros(2), 1)
+    @test_throws ArgumentError(kkt_msg) kkt_violation(e, zeros(2), zeros(2), 1)
+    @test_throws ArgumentError(prox_msg) prox_entry(e, 0.5, 1, 1.0)
+    @test_throws ArgumentError(restrict_msg) restrict(Scaled(e, 2.0), [1])
+    @test_throws ArgumentError(restrict_msg) restrict(Tilt(e, [1.0, 1.0], 0.0), [1])
+    @test_throws ArgumentError(restrict_msg) restrict(Translate(e, [0.3, 0.0]), [1])
+    # wrappers that restrict without the zero check reach the same guard
+    @test_throws ArgumentError(restrict_msg) PB._restrict_unchecked(e, [1])
+
+    eg = MoreauEnvelope(GroupNormL2(1.0, [[1, 2], [3, 4]]), 0.7)
+    @test_throws ArgumentError(restrict_msg) restrict(eg, [1, 3, 4])
+    @test_throws ArgumentError(kkt_msg) kkt_violation(eg, zeros(4), 1)
+    @test_throws ArgumentError(prox_msg) prox_entry(eg, 0.5, 1, 1.0)
+
+    for f in (NormL1(0.8, [0.5, 1.0, 2.0, 1.5]),
+              IndBox([-1.0, 0.5, -2.0, 1.0], [1.0, 2.0, 0.0, 3.0]))
+      e = MoreauEnvelope(f, 0.6)
+      S = [3, 1]
+      x = [2.5, -0.7, -3.0, 4.0]
+      r = restrict(e, S)
+      supported = zeros(4)
+      supported[S] = x[S]
+      @test gradient(r, x[S]) ≈ gradient(e, supported)[S] rtol = 1e-12
+      @test r(x[S]) - r(zeros(2)) ≈ e(supported) - e(zeros(4)) rtol = 1e-12
+      if f isa IndBox
+        constant = e(zeros(4)) - r(zeros(2))
+        @test isfinite(constant) && !iszero(constant)
+      end
+      g = randn(4)
+      @test kkt_violation(e, g, 1) ≈ kkt_violation(e, g, zeros(4), 1)
+    end
+  end
+
   @test_throws ArgumentError MoreauEnvelope(NormL1(1.0), 0.0)
   for f in (NormL0(), MCP(1.0), GroupSCAD(1.0, [1:2]))
     @test_throws ArgumentError MoreauEnvelope(f, 1.0)

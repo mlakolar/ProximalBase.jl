@@ -76,6 +76,7 @@ function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMa
 end
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::LeastSquaresLoss, g::AbstractVecOrMat, β::AbstractVecOrMat)
+  _checkgradient_output(g, β)
   _checksize(g, β)
   # Preserve the dimension error of the product, which checks before writing.
   size(β, 1) == size(f.X, 2) && size(β, 2) == size(f.tmp, 2) || mul!(f.tmp, f.X, β)

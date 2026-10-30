@@ -254,6 +254,8 @@ end
       before = copy(y)
       if op === prox! || op === value_and_prox!
         @test_throws DimensionMismatch op(y, h, input, 0.4)
+      elseif alias
+        @test_throws ArgumentError op(y, h, input)
       else
         @test_throws DimensionMismatch op(y, h, input)
       end
@@ -350,6 +352,47 @@ end
     @test p[2:3] == [Inf, -Inf]
     @test isnan(h([NaN, Inf, -Inf]))
   end
+end
+
+@testset "inner functions without a standalone value" begin
+  # Conjugate(ElasticNet(λ1, λ2))(v) = Σ max(|vᵢ| - λ1, 0)² / (2λ2), from the proximal point
+  λ1, λ2 = 1.0, 0.5
+  en(v) = sum(t -> max(abs(t) - λ1, 0)^2, v) / (2λ2)
+  f = Conjugate(ElasticNet(λ1, λ2))
+  @test !PB._has_value(f)
+  a, x = [2.0, -0.5, 1.5, 3.0], [1.0, 2.0, -0.5, 0.4]
+  h = Precompose(f, a)
+  for γ in (0.5, [0.5, 0.2, 1.0, 0.3])
+    p = prox(h, x, γ)
+    y = fill(NaN, 4)
+    @test value_and_prox!(y, h, x, γ) ≈ en(a .* p) rtol = 1e-14
+    @test y == p
+    z = copy(x)
+    @test value_and_prox!(z, h, z, γ) ≈ en(a .* p) rtol = 1e-14
+    @test z == p
+    ys = SparseIterate(4)
+    @test value_and_prox!(ys, h, SparseIterate(x), γ) ≈ en(a .* p) rtol = 1e-14
+    @test Vector(ys) == p
+  end
+  # a constant scale agrees with the scalar scale, which already gave the value
+  @test value_and_prox!(similar(x), Precompose(f, fill(2.0, 4)), x, 0.5) ≈
+        value_and_prox!(similar(x), Precompose(f, 2.0), x, 0.5) rtol = 1e-14
+  # Float32 keeps its precision
+  h32 = Precompose(Conjugate(ElasticNet(1f0, 0.5f0)), Float32[2, -0.5, 1.5])
+  y32 = similar(Float32[1, 2, -0.5])
+  @test value_and_prox!(y32, h32, Float32[1, 2, -0.5], 0.5f0) isa Float32
+  @test y32 ≈ Float32[0.6, 2, -0.5]
+  # a symmetric iterate reads the lower triangle of the argument
+  A, X = [2.0 1.0; 1.0 3.0], [1.0 5.0; 2.0 -0.5]
+  hS = Precompose(f, A)
+  P = prox(hS, Symmetric(X, :L) |> Matrix, 0.5)
+  Y = SymmetricSparseIterate(2)
+  @test value_and_prox!(Y, hS, X, 0.5) ≈ en(A .* P) rtol = 1e-14
+  @test Matrix(Y) ≈ P rtol = 1e-14
+  # errors of the inner value still come before the output is written
+  y = fill(7.0, 4)
+  @test_throws DimensionMismatch value_and_prox!(y, h, x, [0.5, 0.2])
+  @test y == fill(7.0, 4)
 end
 
 @testset "zero allocations after warming" begin

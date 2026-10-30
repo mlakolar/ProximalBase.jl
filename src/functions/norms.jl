@@ -86,25 +86,41 @@ prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = (_norm2_prox!(y
 @inline _norm2_shrink!(f::NormL2, y::AbstractArray, x::AbstractArray, c) =
   _shrink_group!(f, y, x, eachindex(IndexLinear(), x), c)
 
+# write each stored symmetric entry once, while reductions read the whole group
+struct _LowerGroupPosition
+  p::Int
+end
+@inline (lower::_LowerGroupPosition)(i) = mod1(i, lower.p) >= (i - 1) ÷ lower.p + 1
+# ordinary outputs carry no second group argument through recursive rescaling
+@inline _writes(::Nothing, G) = G
+@inline _writes(W, G) = W
+_group_writes(y::AbstractArray, G) = nothing
+_group_writes(y::SymmetricSparseIterate, G) = Iterators.filter(_LowerGroupPosition(size(y, 1)), G)
+
+@inline function _norm2_shrink!(f::NormL2, y::SymmetricSparseIterate, x::AbstractArray, c)
+  G = eachindex(IndexLinear(), x)
+  _shrink_group!(f, y, x, G, c, _group_writes(y, G))
+end
+
 # A finite input scaled by its maximum cannot need another rescaling. Keeping
 # that branch out of this call also keeps the scaled array from escaping.
-function _rescaled_group_prox!(::NormL2, y, x, G, c::S, scale)::S where {S}
+function _rescaled_group_prox!(::NormL2, y, x, G, c::S, scale, W = nothing)::S where {S}
   z = _ScaledArray(x, inv(scale))
   nx = _group_norm2(z, G)
   threshold = c / scale
   n = zero(nx)
   if nx > threshold
     t = one(nx) - threshold / nx
-    @inbounds for i in G
+    @inbounds for i in _writes(W, G)
       y[i] = t * z[i]
     end
     n = nx - threshold
   else
-    @inbounds for i in G
+    @inbounds for i in _writes(W, G)
       y[i] = zero(eltype(y))
     end
   end
-  @inbounds for i in G
+  @inbounds for i in _writes(W, G)
     y[i] *= scale
   end
   n * scale
@@ -525,20 +541,20 @@ _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_
   length(x) >= length(f.group_of) || throw(BoundsError(x, length(f.group_of)))
 
 # y[G] ← prox_{c‖⋅‖₂}(x[G]), which may be in place; returns the new norm of the group
-@inline function _shrink_group!(f::Union{NormL2, GroupNormL2}, y::AbstractArray{T}, x::AbstractArray, G, c) where {T}
+@inline function _shrink_group!(f::Union{NormL2, GroupNormL2}, y::AbstractArray{T}, x::AbstractArray, G, c, W = nothing) where {T}
   nx = _group_norm2(x, G)
   if nx > c
     if isinf(nx) && isfinite(c)
       scale = _maxabs(x, G)
-      isfinite(scale) && scale > 1 && return _rescaled_group_prox!(f, y, x, G, c, scale)
+      isfinite(scale) && scale > 1 && return _rescaled_group_prox!(f, y, x, G, c, scale, W)
     end
     t = one(nx) - c / nx
-    @inbounds for i in G
+    @inbounds for i in _writes(W, G)
       y[i] = t * x[i]
     end
     return nx - c
   else
-    @inbounds for i in G
+    @inbounds for i in _writes(W, G)
       y[i] = zero(T)
     end
     return zero(nx)
@@ -547,21 +563,21 @@ end
 
 # y[G] ← prox_{c‖⋅‖∞}(x[G]), which may be in place: the entries clipped at τ;
 # returns τ, the new norm of the group
-function _shrink_group!(f::GroupNormLinf, y::AbstractArray{T}, x::AbstractArray, G, c) where {T}
+function _shrink_group!(f::GroupNormLinf, y::AbstractArray{T}, x::AbstractArray, G, c, W = nothing) where {T}
   S = float(T)
   s = _sumabs(x, G)
   if s <= c
-    @inbounds for i in G
+    @inbounds for i in _writes(W, G)
       y[i] = zero(T)
     end
     return zero(S)
   end
   if isinf(s) && isfinite(c)
     scale = _maxabs(x, G)
-    isfinite(scale) && scale > 1 && return _rescaled_group_prox!(f, y, x, G, c, scale)
+    isfinite(scale) && scale > 1 && return _rescaled_group_prox!(f, y, x, G, c, scale, W)
   end
   τ = _simplex_threshold!(_buffer!(f.scratch, S, length(G)), x, G, convert(S, c), abs)
-  @inbounds for i in G
+  @inbounds for i in _writes(W, G)
     v = x[i]
     y[i] = sign(v) * min(abs(v), τ)
   end
@@ -571,9 +587,9 @@ end
 # A finite input can have a norm (or simplex sum) outside the working range.
 # Homogeneity lets the same kernel operate in smaller units, without losing
 # the shrinkage to c/Inf. This path is only needed for large finite entries.
-function _rescaled_group_prox!(f, y, x, G, c::S, scale)::S where {S}
-  n = _shrink_group!(f, y, _ScaledArray(x, inv(scale)), G, c / scale)
-  @inbounds for i in G
+function _rescaled_group_prox!(f, y, x, G, c::S, scale, W = nothing)::S where {S}
+  n = _shrink_group!(f, y, _ScaledArray(x, inv(scale)), G, c / scale, W)
+  @inbounds for i in _writes(W, G)
     y[i] *= scale
   end
   n * scale
@@ -592,7 +608,24 @@ function (f::HomogeneousGroupNorm)(x::AbstractArray)
 end
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::AbstractGroupPenalty, y::AbstractArray, x::AbstractArray) =
-  (_checksize(y, x); _checkgroups(f, x); true)
+  (_checksize(y, x); _checkgroups(f, x); _check_symmetric_groups(f, y))
+
+_check_symmetric_groups(f, y::AbstractArray) = true
+
+function _check_symmetric_groups(f, y::SymmetricSparseIterate)
+  p = size(y, 1)
+  @inbounds for i in eachindex(f.group_of)
+    k = f.group_of[i]
+    iszero(k) && continue
+    r, c = mod1(i, p), (i - 1) ÷ p + 1
+    mirror = _group(f, c + (r - 1) * p)
+    if k != mirror
+      other = iszero(mirror) ? "in no group" : "in group $mirror"
+      throw(ArgumentError("the groups of $(typeof(f)) must be symmetric for a SymmetricSparseIterate output, but position ($r, $c) is in group $k and position ($c, $r) is $other"))
+    end
+  end
+  true
+end
 
 value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::Real) =
   (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
@@ -633,7 +666,7 @@ function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::A
       end
       continue
     end
-    nrm = _shrink_group!(f, y, x, f.groups[k], convert(T, _positive_product(_entry(γ, k), f.λ0, f.w[k])))
+    nrm = _shrink_group!(f, y, x, f.groups[k], convert(T, _positive_product(_entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
     v += _group_value(f, f.λ0, f.w[k], nrm, y, f.groups[k], T)
   end
   v

@@ -400,6 +400,108 @@ end
   end
 end
 
+@testset "array steps for scalar compositions and regularization" begin
+  n = 3
+  x = [1.0, 2.0, -0.5]
+  γ = rand(n) .+ 0.1
+  c = Conjugate(ElasticNet(1.0, 0.5))
+  cvec = randn(n)
+  for f in (Precompose(NormL1(0.3), 2.0), Precompose(c, -1.5),
+            Regularize(NormL1(0.3), 0.7), Regularize(NormL1(0.3), 0.7, cvec),
+            Regularize(c, 0.3))
+    p = prox(f, x, γ)
+    @test p ≈ [prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+    @test prox(f, x, fill(0.4, n)) ≈ prox(f, x, 0.4)
+    @test value_and_prox!(similar(x), f, x, fill(0.4, n)) ≈
+          value_and_prox!(similar(x), f, x, 0.4)
+    y = similar(x)
+    v = value_and_prox!(y, f, x, γ)
+    @test y ≈ p
+    z = copy(x)
+    @test value_and_prox!(z, f, z, γ) ≈ v
+    @test z ≈ y
+    z = copy(x)
+    @test prox!(z, f, z, γ) ≈ p
+    for op in (prox!, value_and_prox!)
+      fill!(y, 17.0)
+      @test_throws DimensionMismatch op(y, f, x, γ[1:2])
+      @test y == fill(17.0, n)
+    end
+  end
+
+  # The inner conjugate supplies its value only through the proximal oracle.
+  h = Precompose(c, 2.0)
+  y = zeros(1)
+  v = value_and_prox!(y, Precompose(h, [1.0]), [2.0], 0.5)
+  @test y ≈ [0.8]
+  @test v ≈ 0.36
+  z = similar(y)
+  @test value_and_prox!(z, h, [2.0], 0.5) ≈ v
+  @test z ≈ y
+
+  a = [2.0, -0.5, 1.5]
+  for inner in (h, Regularize(c, 0.3))
+    f = Precompose(inner, a)
+    y = similar(x)
+    @test isfinite(value_and_prox!(y, f, x, 0.5))
+    @test y ≈ prox(f, x, 0.5)
+    for s in (2.0, -1.5)
+      fa, fs = Precompose(inner, fill(s, n)), Precompose(inner, s)
+      ya, ys = similar(x), similar(x)
+      @test value_and_prox!(ya, fa, x, 0.5) ≈ value_and_prox!(ys, fs, x, 0.5)
+      @test ya ≈ ys
+      @test ya ≈ prox(fa, x, 0.5)
+    end
+  end
+
+  for (f, message) in ((Precompose(NormL2(1.0), 2.0),
+                       "array steps for a scalar scale require a separable function"),
+                      (Regularize(NormL2(1.0), 0.3),
+                       "array steps for Regularize require a separable function"))
+    for op in (prox!, value_and_prox!)
+      y = fill(17.0, n)
+      @test_throws ArgumentError(message) op(y, f, x, γ)
+      @test y == fill(17.0, n)
+    end
+  end
+
+  # Symmetric outputs update each stored entry once, including in place.
+  r = Regularize(ZeroFunction(), 1.0)
+  for op in (prox!, value_and_prox!)
+    Y = SymmetricSparseIterate([0.0 4.0; 4.0 0.0])
+    result = op(Y, r, Y, ones(2, 2))
+    @test Matrix(Y) ≈ [0.0 2.0; 2.0 0.0]
+    op === value_and_prox! && @test result ≈ 4.0
+    Z = SymmetricSparseIterate([0.0 4.0; 4.0 0.0])
+    op(Z, r, Z, 1.0)
+    @test Matrix(Y) ≈ Matrix(Z)
+  end
+
+  # Asymmetric centres and steps are rejected before changing the output.
+  rc = Regularize(ZeroFunction(), 1.0, [0.0 10.0; 2.0 0.0])
+  for op in (prox!, value_and_prox!)
+    for steps in (1.0, ones(2, 2))
+      Y = SymmetricSparseIterate(fill(7.0, 2, 2))
+      @test_throws ArgumentError op(Y, rc, zeros(2, 2), steps)
+      @test Matrix(Y) == fill(7.0, 2, 2)
+    end
+    Y = SymmetricSparseIterate(fill(7.0, 2, 2))
+    @test_throws ArgumentError op(Y, r, zeros(2, 2), [1.0 2.0; 3.0 1.0])
+    @test Matrix(Y) == fill(7.0, 2, 2)
+  end
+
+  # Scalar composition converts every step to the image's working precision.
+  h32 = Precompose(Conjugate(ElasticNet(1f0, 0.5f0)), 1f0)
+  for steps in (1e300, [1e300])
+    y32 = Float32[7]
+    @test_throws ArgumentError value_and_prox!(y32, h32, Float32[2], steps)
+    @test y32 == Float32[7]
+  end
+  for (g, scale) in ((Float32[0.3, 2], 0.7), ([0.3, 2.0], 0.7f0), ([1, 3], 0.7f0))
+    @test collect(ProximalBase._ScaledArray(g, scale)) == [scale * v for v in g]
+  end
+end
+
 @testset "zero allocations" begin
   a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
   a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)

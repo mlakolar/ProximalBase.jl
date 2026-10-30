@@ -35,6 +35,26 @@ end
     @test activecoordinates(x) == activecoordinates(y) && consistent(x)
   end
 
+  @testset "reference-valued trial points" begin
+    x = AtomIterate(2, [1:2])
+    f = GroupNormL2(1., x.groups)
+    u = Vector{BigInt}(undef, 2)
+    u[1] = big(3)
+    @test_throws UndefRefError prox_coordinate!(x, f, 1, u, 1.)
+    @test x.storage == [3., 0.]
+    @test isactive(x, 1) && consistent(x)
+
+    x = AtomIterate(2, [1:2])
+    y = copy(x)
+    u = BigFloat[3, 4]
+    before = copy(u)
+    result = prox_coordinate!(x, f, 1, u, 1.)
+    reference = prox_coordinate!(y, f, 1, Float64.(u), 1.)
+    @test result == reference && x == y
+    @test activecoordinates(x) == activecoordinates(y) && consistent(x)
+    @test u == before
+  end
+
   @testset "throwing regularization centers" begin
     for trial in (false, true)
       x = AtomIterate(2, [1:2])

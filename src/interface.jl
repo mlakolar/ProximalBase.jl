@@ -408,8 +408,8 @@ end
 @inline _block_step!(x::AtomIterate, f, k, u, γ, ctx) = _separable_group_step!(x, f, k, u, γ)
 
 @inline function _stage_and_step!(x::AtomIterate{T}, f, k, u, γ, ctx) where {T}
-  if T <: AbstractFloat && eltype(u) <: Union{AbstractFloat, Integer} && u isa StridedVector
-    # strided reads and conversion cannot fail
+  if T <: AbstractFloat && eltype(u) <: Union{AbstractFloat, Integer} && isbitstype(eltype(u)) && u isa StridedVector
+    # in-bounds strided reads of bits entries and their conversion cannot fail
     was = isactive(x, k)
     G = x.groups[k]
     @inbounds for a in eachindex(G)

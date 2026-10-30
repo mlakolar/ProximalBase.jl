@@ -899,7 +899,8 @@ isconvex(::Type{<:NormL1Fused}) = true
     units = length(term) == 2 ? k : term[3]
     s, c = _compensated_add(s, c, _scaled_product(R(λ), v, units - e))
   end
-  convert(T, _scaled_product(one(R), s + c, e))
+  # Generator inference can lose the term type on Julia 1.10.
+  convert(T, _scaled_product(one(R), s + c, e))::T
 end
 
 @noinline function _recover_fused_pair(f, xy, ::Type{T}) where {T}

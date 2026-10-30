@@ -17,6 +17,87 @@ ProximalBase.iszeropreserving(::ScaledSquare) = true
 # the values agree, including Inf for a point outside a set
 same(a, b) = isinf(b) ? a == b : a ≃ b
 
+@testset "real entries on GPU arrays" begin
+  allowscalar(false)
+  groups = [1:2, 3:4]
+  functions = (ScaledSquare(0.6), NormL1(0.3), NormL1(0), NormL1Nonneg(0.3),
+               ElasticNet(0.3, 0.5), IndBox(-1, 1), IndNonnegative(),
+               SqrNormL2(0.7, ones(4)), NormL2(0.3), NormLinf(0.3), NormLinf(0),
+               IndBallL1(1), IndBallL1(0), IndSimplex(1), IndSimplex(0),
+               GroupNormL2(0.3, groups), GroupNormL2(0, groups),
+               GroupNormLinf(0.3, groups), SparseGroupNormL2(0.2, 0.3, groups),
+               IndBallGroupL0(1, groups), GroupNormL2(0.3, UnitRange{Int}[]),
+               GroupNormL2(0, groups, [Inf, 1.0]),
+               GroupNormLinf(0, groups, [Inf, 1.0]),
+               SparseGroupNormL2(0, 0, groups, [Inf, 1.0]))
+  for f in functions, fg in (f, Adapt.adapt(DeviceArray, f))
+    error = ArgumentError("$(nameof(typeof(fg))) requires real entries")
+    for imaginary in (0, 1)
+      x = DeviceArray(fill(0.5, 4))
+      z = DeviceArray(fill(complex(0.5, imaginary), 4))
+      @test_throws error fg(z)
+      @test_throws error prox(fg, z, 0.8)
+      for op in (prox!, value_and_prox!)
+        for (input, output) in ((z, DeviceArray(fill(17.0, 4))),
+                                (x, DeviceArray(fill(17.0 + 2im, 4))),
+                                (z, DeviceArray(fill(17.0 + 2im, 4))), (z, z))
+          before = host(output)
+          @test_throws error op(output, fg, input, 0.8)
+          @test host(output) == before
+        end
+      end
+    end
+    # Adapted group functions also accept host arrays.
+    if fg !== f
+      x, z = fill(0.5, 4), fill(0.5 + 0im, 4)
+      @test_throws error fg(z)
+      for op in (prox!, value_and_prox!), (input, output) in ((z, fill(17.0, 4)), (x, fill(17.0 + 2im, 4)))
+        before = copy(output)
+        @test_throws error op(output, fg, input, 0.8)
+        @test output == before
+      end
+    end
+  end
+  # Diagonal and group step arrays are checked before the CPU fallback writes.
+  for f in (NormL1(0.3), GroupNormL2(0.3, groups)), op in (prox!, value_and_prox!)
+    x, y = DeviceArray(fill(0.5, 4)), DeviceArray(fill(17.0, 4))
+    step = DeviceArray(fill(0.8 + 0im, f isa GroupNormL2 ? 2 : 4))
+    @test_throws ArgumentError("$(nameof(typeof(f))) requires real entries") op(y, f, x, step)
+    @test host(y) == fill(17.0, 4)
+  end
+  for f in (LeastSquaresLoss(ones(3), ones(3, 4)), LogisticLoss(ones(3), ones(3, 4)))
+    fg = Adapt.adapt(DeviceArray, f)
+    error = ArgumentError("$(nameof(typeof(fg))) requires real entries")
+    # Initialize every cache so preservation does not depend on uninitialized data.
+    fg(DeviceArray(fill(0.5, 4)))
+    buffers = fg isa GLMLoss ? (fg.η, fg.d) : (fg.tmp,)
+    foreach(b -> fill!(b, 13), buffers)
+    saved = map(host, buffers)
+    for imaginary in (0, 1)
+      x, z = DeviceArray(fill(0.5, 4)), DeviceArray(fill(complex(0.5, imaginary), 4))
+      @test_throws error fg(z)
+      for op in (gradient!, value_and_gradient!),
+          (input, output) in ((z, DeviceArray(fill(17.0, 4))),
+                              (x, DeviceArray(fill(17.0 + 2im, 4))),
+                              (z, DeviceArray(fill(17.0 + 2im, 4))), (z, z))
+        before = host(output)
+        @test_throws error op(output, fg, input)
+        @test host(output) == before
+        @test map(host, buffers) == saved
+      end
+      if fg isa LeastSquaresLoss
+        for op in (prox!, value_and_prox!),
+            (input, output) in ((z, DeviceArray(fill(17.0, 4))), (x, DeviceArray(fill(17.0 + 2im, 4))))
+          before = host(output)
+          @test_throws error op(output, fg, input, 0.8)
+          @test host(output) == before
+          @test map(host, buffers) == saved
+        end
+      end
+    end
+  end
+end
+
 @testset "separable functions on GPU arrays" begin
   allowscalar(false)
   n = 300
@@ -326,10 +407,6 @@ end
   groups = [1:2, 3:4]
   for T in test_types, scale in (floatmin(T), floatmax(T) / T(16))
     @test norm_diff(DeviceArray(scale .* T[3, 4]), DeviceArray(zeros(T, 2))) / scale ≃ T(5)
-    cx = DeviceArray(complex.(scale .* T[3, 4], scale .* T[3, 4]))
-    cy = DeviceArray(zeros(Complex{T}, 2))
-    @test norm_diff(cx, cy) isa T
-    @test norm_diff(cx, cy) / scale ≃ sqrt(T(50))
     # The shared Euclidean routines fall back to GPUArrays' scaled norm.
     xv = scale .* T[3, 4]
     @test NormL2(one(T))(DeviceArray(xv)) / scale ≃ T(5)
@@ -952,6 +1029,239 @@ end
         @test isfinite(v)
         check_rounded(v, ref)
         @test v ≃ f(host(X))
+      end
+    end
+  end
+end
+
+@testset "infinite group weights on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types, F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2),
+      groups in ([[1, 2], [3]], [[1], [2, 3]]), λ in (0, 1, Inf),
+      w in (T[0, Inf], T[Inf, 0], T[1, Inf], T[Inf, 1])
+    for λ1 in (F === SparseGroupNormL2 ? (T(0), T(0.25)) : (T(0),))
+      f = F === SparseGroupNormL2 ? F(λ1, T(λ), groups, w) : F(T(λ), groups, w)
+      fixed = findfirst(isinf, w)
+      other = 3 - fixed
+      x = T[3, 4, 2]
+      x0 = copy(x)
+      x0[groups[fixed]] .= 0
+      G = groups[other]
+      n = F === GroupNormLinf ? maximum(abs, x0[G]) : norm(x0[G])
+      value = iszero(w[other]) || iszero(λ) ? λ1 * sum(abs, x0) : T(λ) * w[other] * n + λ1 * sum(abs, x0)
+      for d in (f, Adapt.adapt(DeviceArray, f))
+        @test d(DeviceArray(x)) == T(Inf)
+        @test same(d(DeviceArray(x0)), value)
+        for γ in (zero(T), one(T))
+          expected = copy(x)
+          expected[groups[fixed]] .= 0
+          z = max.(x[G] .- γ * λ1, 0)
+          c = iszero(γ) || iszero(w[other]) || iszero(λ) ? zero(T) : T(λ) * w[other]
+          if isinf(c)
+            z .= 0
+          elseif F === GroupNormLinf
+            # These groups have at most two positive entries.
+            if sum(z) <= c
+              z .= 0
+            else
+              τ = length(z) == 1 ? z[1] - c : max((sum(z) - c)/2, maximum(z) - c)
+              z = min.(z, τ)
+            end
+          elseif !iszero(norm(z))
+            z *= max(1 - c/norm(z), 0)
+          end
+          expected[G] = z
+          xd = DeviceArray(x)
+          @test host(prox(d, xd, γ)) ≃ expected
+          yd = copy(xd)
+          @test same(value_and_prox!(yd, d, yd, γ), f(expected))
+          @test host(yd) ≃ expected
+        end
+      end
+      if isfinite(λ)
+        z = Scaled(f, zero(T))
+        for d in (z, Adapt.adapt(DeviceArray, z))
+          @test d(DeviceArray(x)) == T(Inf)
+          @test d(DeviceArray(x0)) == zero(T)
+          @test host(prox(d, DeviceArray(x), zero(T))) == x0
+        end
+      end
+    end
+  end
+end
+
+@testset "stored group weights before device narrowing" begin
+  allowscalar(false)
+  for F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2)
+    for λ1 in (F === SparseGroupNormL2 ? (0.0, 0.25) : (0.0,))
+      for (λ, w, x, γ, expected, value) in (
+          (1.0, [1e100], Float32[2], 0f0, Float32[2], Inf32),
+          (0.0, [Inf, 1e100], Float32[2, 2], 0f0, Float32[0, 2], Float32(2λ1)),
+          (0.0, [Inf, 1e100], Float32[2, 2], 1f0, Float32[0, 2-λ1], Float32(λ1*(2-λ1))),
+          (1e-20, [1e40], Float32[2], 0f0, Float32[2], 2f20),
+          (1e-20, [1e40], Float32[2], 1f-20, Float32[1], 1f20))
+        groups = [[i] for i in eachindex(x)]
+        f = F === SparseGroupNormL2 ? F(λ1, λ, groups, w) : F(λ, groups, w)
+        for d in (f, Adapt.adapt(DeviceArray, f))
+          @test same(d(DeviceArray(expected)), value)
+          for inplace in (false, true)
+            xd = DeviceArray(x)
+            yd = inplace ? xd : similar(xd)
+            v = value_and_prox!(yd, d, xd, γ)
+            @test host(yd) ≃ expected
+            @test same(v, value)
+            @test same(v, d(yd))
+            xd = DeviceArray(x)
+            yd = inplace ? xd : similar(xd)
+            prox!(yd, d, xd, γ)
+            @test host(yd) ≃ expected
+          end
+        end
+      end
+    end
+  end
+end
+
+@testset "infinite inputs in fixed device groups" begin
+  allowscalar(false)
+  for T in test_types, F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2),
+      λ in (zero(T), one(T)), γ in (zero(T), one(T)),
+      input in (T[Inf, -Inf], T[-Inf, Inf])
+    f = F === SparseGroupNormL2 ? F(T(0.25), λ, [[1, 2]], T[Inf]) : F(λ, [[1, 2]], T[Inf])
+    for d in (f, Adapt.adapt(DeviceArray, f)), inplace in (false, true)
+      xd = DeviceArray(input)
+      yd = inplace ? xd : similar(xd)
+      v = value_and_prox!(yd, d, xd, γ)
+      @test host(yd) == zeros(T, 2)
+      @test v == zero(T)
+      @test v == d(yd)
+      xd = DeviceArray(input)
+      yd = inplace ? xd : similar(xd)
+      prox!(yd, d, xd, γ)
+      @test host(yd) == zeros(T, 2)
+    end
+  end
+end
+
+@testset "zero scaling before and after group adaptation" begin
+  allowscalar(false)
+  for T in test_types, F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2),
+      w in (T[1, 2], T[Inf, 1], T[1, Inf])
+    groups = [[1, 2], [3]]
+    f = F === SparseGroupNormL2 ? F(T(0.25), one(T), groups, w) : F(one(T), groups, w)
+    d = Adapt.adapt(DeviceArray, f)
+    x = T[3, -4, 2]
+    expected = copy(x)
+    for k in eachindex(w)
+      isinf(w[k]) && (expected[groups[k]] .= 0)
+    end
+    zeroed = Scaled(d, zero(T))
+    if all(isfinite, w)
+      @test zeroed isa ZeroFunction
+    else
+      @test typeof(zeroed) == typeof(d)
+      @test zeroed.layout === d.layout
+      @test iszero(zeroed.f.λ0)
+      if F === SparseGroupNormL2
+        @test iszero(zeroed.f.λ1)
+      end
+    end
+    for z in (zeroed, Adapt.adapt(DeviceArray, Scaled(f, zero(T))),
+              Scaled{typeof(d), T}(d, zero(T)), Scaled(Scaled(d, T(2)), zero(T)),
+              Scaled(Adapt.adapt(DeviceArray, Scaled(f, T(2))), zero(T)),
+              Adapt.adapt(DeviceArray, Scaled(Scaled(f, T(2)), zero(T))))
+      @test z(DeviceArray(x)) == (all(isfinite, w) ? zero(T) : T(Inf))
+      @test z(DeviceArray(expected)) == zero(T)
+      for γ in (zero(T), one(T)), inplace in (false, true)
+        xd = DeviceArray(x)
+        yd = inplace ? xd : similar(xd)
+        v = value_and_prox!(yd, z, xd, γ)
+        @test host(yd) == expected
+        @test v == zero(T)
+        @test v == z(yd)
+        xd = DeviceArray(x)
+        yd = inplace ? xd : similar(xd)
+        prox!(yd, z, xd, γ)
+        @test host(yd) == expected
+      end
+    end
+  end
+end
+
+@testset "conjugate real entries on GPU arrays" begin
+  allowscalar(false)
+  error = ArgumentError("Conjugate requires real entries")
+  for wrap in (identity, a -> view(a, 2:4))
+    for f in (NormL1(1, ones(3)), IndNonnegative(), IndBox(-ones(3), ones(3)),
+              ElasticNet(1, 1, ones(3)), Berhu(1, 1))
+      c = Conjugate(Adapt.adapt(DeviceArray, f))
+      for imaginary in (0, 1)
+        x = wrap(DeviceArray(fill(0.5, wrap === identity ? 3 : 5)))
+        z = wrap(DeviceArray(fill(complex(0.5, imaginary), wrap === identity ? 3 : 5)))
+        # A rejected value must not initialize the working buffer.
+        @test_throws error c(z)
+        @test c.scratch.buf === nothing
+        for step in (0.5, wrap(DeviceArray(fill(0.5, wrap === identity ? 3 : 5)))),
+            op in (prox!, value_and_prox!)
+          for (input, output) in ((z, wrap(DeviceArray(fill(17.0, wrap === identity ? 3 : 5)))),
+                                  (x, wrap(DeviceArray(fill(17.0 + 2im, wrap === identity ? 3 : 5)))),
+                                  (z, wrap(DeviceArray(fill(17.0 + 2im, wrap === identity ? 3 : 5)))), (z, z))
+            storage = wrap === identity ? output : parent(output)
+            before = host(storage)
+            @test_throws error op(output, c, input, step)
+            @test host(storage) == before
+            @test c.scratch.buf === nothing
+          end
+          output = wrap(DeviceArray(fill(17.0, wrap === identity ? 3 : 5)))
+          storage = wrap === identity ? output : parent(output)
+          before = host(storage)
+          complexstep = wrap(DeviceArray(fill(0.5 + 0im, wrap === identity ? 3 : 5)))
+          @test_throws error op(output, c, x, complexstep)
+          @test host(storage) == before
+          @test c.scratch.buf === nothing
+        end
+      end
+    end
+  end
+  # A late complex block must leave every earlier block and cache unchanged.
+  c = Conjugate(SeparableSum(NormL1(), SeparableSum(SqrNormL2(), NormL1())))
+  for imaginary in (0, 1)
+    x = (DeviceArray(fill(0.5, 3)), (DeviceArray(fill(0.5, 3)), DeviceArray(fill(0.5, 3))))
+    z = (x[1], (x[2][1], DeviceArray(fill(complex(0.5, imaginary), 3))))
+    @test_throws error c(z)
+    for op in (prox!, value_and_prox!)
+      for (input, output) in ((z, (DeviceArray(fill(17.0, 3)), (DeviceArray(fill(17.0, 3)), DeviceArray(fill(17.0, 3))))),
+                              (x, (DeviceArray(fill(17.0, 3)), (DeviceArray(fill(17.0, 3)), DeviceArray(fill(17.0 + 2im, 3))))),
+                              (z, (DeviceArray(fill(17.0 + 2im, 3)), (DeviceArray(fill(17.0, 3)), DeviceArray(fill(17.0 + 2im, 3))))), (z, z))
+        blocks = (output[1], output[2]...)
+        before = map(host, blocks)
+        @test_throws error op(output, c, input, 0.5)
+        @test map(host, blocks) == before
+        @test c.scratch.buf === nothing
+      end
+    end
+  end
+end
+
+@testset "separable array-step real entries on GPU arrays" begin
+  allowscalar(false)
+  for f in (Berhu(1, 1), ElasticNet(1, 1, ones(3))),
+      wrap in (identity, a -> view(a, 2:4))
+    fg = Adapt.adapt(DeviceArray, f)
+    error = ArgumentError("$(nameof(typeof(fg))) requires real entries")
+    device(v) = wrap(DeviceArray(fill(v, wrap === identity ? 3 : 5)))
+    x, step = device(0.5), device(0.5)
+    for imaginary in (0, 1)
+      z = device(complex(0.5, imaginary))
+      for op in (prox!, value_and_prox!, ProximalBase._prox_sep!)
+        for (input, output, γ) in ((z, device(17.0), step), (x, device(17.0 + 2im), step),
+                                   (z, device(17.0 + 2im), step), (z, z, step),
+                                   (x, device(17.0), device(complex(0.5, imaginary))))
+          storage = wrap === identity ? output : parent(output)
+          before = host(storage)
+          @test_throws error op(output, fg, input, γ)
+          @test host(storage) == before
+        end
       end
     end
   end

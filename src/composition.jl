@@ -67,12 +67,14 @@ struct Precompose{F<:AbstractFunction, M, T<:Real} <: AbstractFunction
   direction::Scratch    # Av, or Ay for a mixed-precision proximal value
 
   function Precompose{F, M, T}(f::F, A::M, μ::T) where {F<:AbstractFunction, M, T<:Real}
+    eltype(A) <: Real || _real_error(:Precompose)
     μ > 0 || throw(ArgumentError("μ must be positive, got $μ"))
     new{F, M, T}(f, A, μ, Scratch(), Scratch(), Scratch())
   end
 end
 
 function Precompose(f::AbstractFunction, A, μ::Real; check::Bool = true)
+  eltype(A) <: Real || _real_error(:Precompose)
   A isa Real && throw(ArgumentError("for a scalar, use Precompose(f, a)"))
   if check && A isa AbstractMatrix
     m = size(A, 1)
@@ -100,6 +102,7 @@ end
 _checkimage(h::_ScalarPrecompose, x) = _checkbuffer(h.image, float(promote_type(eltype(x), typeof(h.A))), size(x))
 
 function _checkwrite(op::O, h::Precompose, y::AbstractArray, x::AbstractArray) where {O}
+  _checkreal(h, y); _checkreal(h, x)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   z = _checkimage(h, x)
@@ -108,7 +111,7 @@ function _checkwrite(op::O, h::Precompose, y::AbstractArray, x::AbstractArray) w
       _checkbuffer(h.inner, eltype(z), size(z))
   _checkwrite(op, h.f, b, z)
 end
-_checkvalue(h::Precompose, x::AbstractArray) = _checkvalue(h.f, _checkimage(h, x))
+_checkvalue(h::Precompose, x::AbstractArray) = (_checkreal(h, x); _checkvalue(h.f, _checkimage(h, x)))
 
 for trait in (:issmooth, :isproximable, :isconvex)
   @eval $trait(::Type{<:Precompose{F}}) where {F} = $trait(F)
@@ -131,7 +134,7 @@ function _linear_image!(scratch::Scratch, a::Real, x)
 end
 _inner_buffer(h::Precompose, z::AbstractArray) = _array_buffer!(h.inner, eltype(z), size(z))
 
-(h::Precompose)(x::AbstractArray) = _value_at(h.f(_image!(h, x)), x)
+(h::Precompose)(x::AbstractArray) = (_checkreal(h, x); _value_at(h.f(_image!(h, x)), x))
 
 function value_and_gradient!(g::AbstractArray, h::Precompose, x::AbstractArray)
   _checkwrite(value_and_gradient!, h, g, x)
@@ -203,7 +206,7 @@ function _checkparams(h::Precompose{<:AbstractFunction, <:AbstractMatrix}, x::Ab
 end
 # 0 ∈ gᵢ + a∂fᵢ(0) when 0 ∈ gᵢ/a + ∂fᵢ(0)
 kkt_violation(h::_ScalarPrecompose, g::AbstractArray, i::Integer) =
-  abs(h.A) * kkt_violation(h.f, _ScaledArray(g, inv(h.A)), i)
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(h.A) * kkt_violation(h.f, _ScaledArray(g, inv(h.A)), i))
 restrict(h::_ScalarPrecompose, S::AbstractVector{<:Integer}) = Precompose(restrict(h.f, S), h.A)
 _restrict_unchecked(h::_ScalarPrecompose, S::AbstractVector{<:Integer}) = Precompose(_restrict_unchecked(h.f, S), h.A)
 
@@ -237,7 +240,7 @@ function Precompose(f::AbstractFunction, a::AbstractArray{<:Real})
   _ArrayPrecompose(f, a, Scratch(), Scratch(), Scratch())
 end
 Precompose(::AbstractFunction, ::AbstractArray) =
-  throw(ArgumentError("an array scale must have real entries"))
+  _real_error(:Precompose)
 
 for trait in (:issmooth, :isproximable, :isconvex, :isseparable)
   @eval $trait(::Type{<:_ArrayPrecompose{F}}) where {F} = $trait(F)
@@ -275,12 +278,13 @@ function _image!(h::_ArrayPrecompose, x::AbstractArray)
   copyto!(z, _PrecomposeArray(x, h.a, Val(false)))
 end
 _inner_buffer(h::_ArrayPrecompose, z::AbstractArray) = _array_buffer!(h.inner, eltype(z), size(z))
-(h::_ArrayPrecompose)(x::AbstractArray) = (_checkparams(h, x); _value_at(h.f(_image!(h, x)), x))
+(h::_ArrayPrecompose)(x::AbstractArray) = (_checkreal(h, x); _checkparams(h, x); _value_at(h.f(_image!(h, x)), x))
 
 _sparse_precompose(y, x) = (y isa SparseIterate && x isa SparseIterate) ||
   (y isa SymmetricSparseIterate && x isa AbstractMatrix)
 
 function _checkwrite(op::O, h::_ArrayPrecompose, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+  _checkreal(h, y); _checkreal(h, x)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   _checkparams(h, x)
@@ -390,11 +394,13 @@ function value_and_gradient!(g::AbstractArray, h::_ArrayPrecompose, x::AbstractA
 end
 
 function kkt_violation(h::_ArrayPrecompose, g::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
   isseparable(h) || _array_group_operations()
   _checkparams(h, g)
   abs(float(h.a[i])) * kkt_violation(h.f, _PrecomposeArray(g, h.a, Val(true)), i)
 end
 function _array_group_kkt(h, g, x, i)
+  eltype(g) <: Real && eltype(x) <: Real || _real_error(:kkt_violation)
   _checkparams(h, g)
   _checkparams(h, x)
   checkbounds(x, i)
@@ -404,9 +410,10 @@ function _array_group_kkt(h, g, x, i)
 end
 kkt_violation(h::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, x::AbstractArray, i::Integer) =
   _array_group_kkt(h, g, x, i)
-kkt_violation(::_ArrayPrecompose{<:AbstractGroupPenalty}, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
-  _array_group_operations()
+kkt_violation(::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
+  (eltype(g) <: Real || _real_error(:kkt_violation); _array_group_operations())
 function kkt_violation(h::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, x::AtomIterate, k::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation)
   _checkparams(h, g)
   _checkparams(h, x)
   _checksamegroups(h.f, x)
@@ -471,6 +478,7 @@ struct Regularize{F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}
   scratch::S      # nothing on the device, where f must be a bits type
 
   function Regularize{F, T, C, S}(f::F, ρ::T, c::C, scratch::S) where {F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}, S<:Union{Nothing, Scratch}}
+    c === nothing || eltype(c) <: Real || _real_error(:Regularize)
     _checknonneg("ρ", ρ)
     new{F, T, C, S}(f, ρ, c, scratch)
   end
@@ -487,8 +495,9 @@ iszeropreserving(r::Regularize) = r.c === nothing && isfinite(r.ρ) && iszeropre
 
 _ridge(r::Regularize, x::AbstractArray) = _square_value(r.ρ, x, r.c)
 
-(r::Regularize)(x::AbstractArray) = (_checkparams(r, x); _value_at(r.f(x) + _ridge(r, x), x))
+(r::Regularize)(x::AbstractArray) = (_checkreal(r, x); _checkparams(r, x); _value_at(r.f(x) + _ridge(r, x), x))
 function _checkvalue(r::Regularize, x::AbstractArray)
+  _checkreal(r, x)
   _checkparams(r, x)
   _checkvalue(r.f, x)
   r.c === nothing || _checksize(x, r.c)
@@ -505,6 +514,7 @@ gradient!(g::AbstractArray, r::Regularize, x::AbstractArray) =
   (_checkwrite(gradient!, r, g, x); gradient!(g, r.f, x); _add_ridge_gradient!(g, r, x))
 
 function _checkwrite(op::O, r::Regularize, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+  _checkreal(r, y); _checkreal(r, x)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   (op === prox! || op === value_and_prox!) && _check_wrapper_output(y)
   _checksize(y, x)
@@ -514,7 +524,6 @@ function _checkwrite(op::O, r::Regularize, y::AbstractArray, x::AbstractArray) w
     r.c === nothing || size(x) == size(r.c) ||
       throw(DimensionMismatch("the arrays have sizes $(size(x)) and $(size(r.c))"))
   end
-  _checkentries(r.f, x)
   _checkwrite(op, r.f, y, op === prox! || op === value_and_prox! ? y : x)
 end
 
@@ -580,9 +589,9 @@ end
 # the ridge term adds ρ(xᵢ - cᵢ) to the gradient, -ρcᵢ at a coordinate at zero
 _ridge_shifted(g::AbstractArray, r::Regularize) =
   r.c === nothing ? g : _ShiftedArray(g, _ScaledArray(r.c, -r.ρ))
-kkt_violation(r::Regularize, g::AbstractArray, i::Integer) = kkt_violation(r.f, _ridge_shifted(g, r), i)
+kkt_violation(r::Regularize, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); kkt_violation(r.f, _ridge_shifted(g, r), i))
 for X in (:AbstractArray, :AtomIterate, :SymmetricSparseIterate)
-  @eval kkt_violation(r::Regularize, g::AbstractArray, x::$X, k::Integer) = kkt_violation(r.f, _ridge_shifted(g, r), x, k)
+  @eval kkt_violation(r::Regularize, g::AbstractArray, x::$X, k::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation); kkt_violation(r.f, _ridge_shifted(g, r), x, k))
 end
 restrict(r::Regularize, S::AbstractVector{<:Integer}) = Regularize(restrict(r.f, S), r.ρ, r.c === nothing ? nothing : r.c[S])
 _restrict_unchecked(r::Regularize, S::AbstractVector{<:Integer}) =
@@ -598,6 +607,7 @@ hashessian(::Type{<:Precompose{F}}) where {F} = hashessian(F)
 hashessian(::Type{<:Regularize{F}}) where {F} = hashessian(F)
 
 function hessian_vec!(Hv::AbstractArray, h::Precompose, x::AbstractArray, v::AbstractArray)
+  _checkreal(h, Hv); _checkreal(h, x); _checkreal(h, v)
   _checksize(Hv, x)
   _checkdirection(v, x)
   z = _image!(h, x)
@@ -609,6 +619,7 @@ function hessian_vec!(Hv::AbstractArray, h::Precompose, x::AbstractArray, v::Abs
 end
 
 function hessian_vec!(Hv::AbstractArray, r::Regularize, x::AbstractArray, v::AbstractArray)
+  _checkreal(r, Hv); _checkreal(r, x); _checkreal(r, v)
   _checksize(Hv, x)
   _checkdirection(v, x)
   _checkparams(r, x)
@@ -617,18 +628,21 @@ function hessian_vec!(Hv::AbstractArray, r::Regularize, x::AbstractArray, v::Abs
 end
 
 function quadratic_model(h::Precompose, x::AbstractArray)
+  _checkreal(h, x)
   f = quadratic_model(h.f, _image!(h, x))
   Precompose{typeof(f), typeof(h.A), typeof(h.μ)}(f, h.A, h.μ)
 end
 quadratic_model(r::Regularize, x) =
-  (_checkparam(r.c, x); Regularize(quadratic_model(r.f, x), r.ρ, r.c))
+  (_checkreal(r, x); _checkparam(r.c, x); Regularize(quadratic_model(r.f, x), r.ρ, r.c))
 
 function quadratic_model!(q::Precompose, h::Precompose, x::AbstractArray)
+  _checkreal(h, x)
   q.A === h.A && q.μ == h.μ || throw(ArgumentError("the model must come from the same Precompose"))
   quadratic_model!(q.f, h.f, _image!(h, x))
   q
 end
 function quadratic_model!(q::Regularize, r::Regularize, x)
+  _checkreal(r, x)
   q.c === r.c && q.ρ == r.ρ || throw(ArgumentError("the model must come from the same Regularize"))
   _checkparam(r.c, x)
   quadratic_model!(q.f, r.f, x)
@@ -636,7 +650,6 @@ function quadratic_model!(q::Regularize, r::Regularize, x)
 end
 
 # These wrappers, defined after calculus.jl, also evaluate the inner value.
-_checkentries(f::Union{Precompose, _ArrayPrecompose, Regularize}, x) = _checkentries(f.f, x)
 _has_value(f::Union{Precompose, _ArrayPrecompose, Regularize, Spectral, BoxConstrained, LinearConstrained,
                    BallConstrained, SphereConstrained, AffineConstrained}) = _has_value(f.f)
 

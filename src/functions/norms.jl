@@ -28,10 +28,10 @@ NormL2(λ::Real = 1) = NormL2{typeof(λ)}(λ)
 
 isproximable(::Type{<:NormL2}) = true
 isconvex(::Type{<:NormL2}) = true
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL2, y::AbstractArray, x::AbstractArray) =
-  (_checksize(y, x); true)
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NormL2, y::AbstractArray, x::AbstractArray) =
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); true)
 
-(f::NormL2)(x::AbstractArray) = _weighted_norm2(f.λ, x)
+(f::NormL2)(x::AbstractArray) = (_checkreal(f, x); _weighted_norm2(f.λ, x))
 
 function _weighted_norm2(λ::Real, x::AbstractArray)
   T = _valtype(x)
@@ -49,7 +49,7 @@ end
 end
 
 @inline function _norm2_value(v, λ::T, x::AbstractArray) where {T}
-  isfinite(v) || !isfinite(λ) || !(eltype(x) <: Real) || !all(isfinite, x) ? v : _scaled_norm2_value(λ, x)
+  isfinite(v) || !isfinite(λ) || !all(isfinite, x) ? v : _scaled_norm2_value(λ, x)
 end
 
 @noinline function _scaled_norm2_value(λ::T, x::AbstractArray) where {T}
@@ -157,7 +157,8 @@ isproximable(::Type{<:CubeNormL2}) = true
 isconvex(::Type{<:CubeNormL2}) = true
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)},
-            ::CubeNormL2, y::AbstractArray, x::AbstractArray) = _checksize(y, x)
+            f::CubeNormL2, y::AbstractArray, x::AbstractArray) =
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x))
 
 # A finite array can have an unrepresentable norm. Only the norm calculation
 # uses scaled entries; the final factor is applied to the original entries.
@@ -183,7 +184,8 @@ function _cube_value_parts(λ::T, m::T, e::Int) where {T}
 end
 
 function (f::CubeNormL2)(x::AbstractArray)
-  T = real(float(eltype(x)))
+  _checkreal(f, x)
+  T = float(eltype(x))
   iszero(f.λ) && return zero(T)
   S = promote_type(T, float(typeof(f.λ)))
   λ = convert(S, f.λ)
@@ -207,12 +209,11 @@ end
   b, k = frexp(a)
   ldexp(b * m, k + e)
 end
-@inline _cube_scale(v::Complex, m, e) = complex(_cube_scale(real(v), m, e), _cube_scale(imag(v), m, e))
 
 function gradient!(g::AbstractArray, f::CubeNormL2, x::AbstractArray)
   _checkwrite(gradient!, f, g, x)
   iszero(f.λ) && return fill!(g, zero(eltype(g)))
-  T = promote_type(real(float(eltype(g))), real(float(eltype(x))), float(typeof(f.λ)))
+  T = promote_type(float(eltype(g)), float(eltype(x)), float(typeof(f.λ)))
   λ = convert(T, f.λ)
   n = _norm2(x)
   a = λ * convert(T, n)
@@ -257,7 +258,7 @@ function prox!(y::AbstractArray, f::CubeNormL2, x::AbstractArray, γ::Real)
     y === x || copyto!(y, x)
     return y
   end
-  T = promote_type(real(float(eltype(y))), real(float(eltype(x))), float(typeof(f.λ)), float(typeof(γ)))
+  T = promote_type(float(eltype(y)), float(eltype(x)), float(typeof(f.λ)), float(typeof(γ)))
   λ, step = convert(T, f.λ), convert(T, γ)
   n = _norm2(x)
   iszero(n) && return fill!(y, zero(eltype(y)))
@@ -302,10 +303,10 @@ NormLinf(λ::Real = 1) = NormLinf{typeof(λ)}(λ)
 
 isproximable(::Type{<:NormLinf}) = true
 isconvex(::Type{<:NormLinf}) = true
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormLinf, y::AbstractArray, x::AbstractArray) =
-  (_checksize(y, x); true)
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NormLinf, y::AbstractArray, x::AbstractArray) =
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); true)
 
-(f::NormLinf)(x::AbstractArray) = _weighted_normlinf(f.λ, x)
+(f::NormLinf)(x::AbstractArray) = (_checkreal(f, x); _weighted_normlinf(f.λ, x))
 
 function _weighted_normlinf(λ::Real, x::AbstractArray)
   T = _valtype(x)
@@ -439,7 +440,8 @@ struct GroupNormLinf{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <:
 end
 
 for F in (:GroupNormL2, :GroupNormLinf)
-  @eval function $F(λ0::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}, w::AbstractVector{<:Real})
+  @eval function $F(λ0::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}, w::AbstractVector)
+    eltype(w) <: Real || _real_error(nameof($F))
     T = float(promote_type(typeof(λ0), eltype(w)))
     G = _own_groups(groups)
     $F{T, typeof(G)}(convert(T, λ0), G, convert(Vector{T}, w))
@@ -504,14 +506,47 @@ _group_norm(::GroupNormLinf, x, G) = _maxabs(x, G)
 _dual_norm(::GroupNormL2, g, G) = _group_norm2(g, G)
 _dual_norm(::GroupNormLinf, g, G) = _sumabs(g, G)
 
+# A full reduction lets finite-weight scans vectorize.
+_has_infinite_group_weight(w) = mapreduce(isinf, |, w; init = false)
+
+# Classify once; matching atom layouts inspect only their active groups.
+function _ordinary_group_weights(f, ::Type{T}) where {T}
+  isfinite(f.λ0) || return false
+  # Nonnegative weights make the largest product bound every coefficient.
+  w = maximum(f.w; init = zero(eltype(f.w)))
+  isfinite(w) && isfinite(convert(T, f.λ0 * w))
+end
+function _ordinary_group_weights(f, ::Type{T}, ks, n) where {T}
+  isfinite(f.λ0) || return false
+  ordinary = true
+  @inbounds @simd for a in 1:n
+    w = f.w[ks[a]]
+    ordinary &= isfinite(w) & isfinite(convert(T, f.λ0 * w))
+  end
+  ordinary
+end
+
 # Keep the ordinary group product; recover a finite group in scaled units.
 @inline function _group_value(f, λ, w, n, x, G, ::Type{T}) where {T}
+  isinf(w) && return convert(T, _weighted_value(w * n, n))
+  (iszero(λ) || iszero(w) || iszero(n)) && return zero(T)
   if _level_fits(T, λ) && _level_fits(T, w)
     v = _positive_product(convert(T, λ), convert(T, w), n)
     isfinite(v) && return convert(T, v)
   end
   convert(T, _scaled_group_value(f, λ, w, x, G, n))
 end
+
+@inline function _group_value(f, λ, w, n, x, G, ::Type{T}, ::Val{true}) where {T}
+  if _level_fits(T, λ) && _level_fits(T, w)
+    v = _positive_product(convert(T, λ), convert(T, w), n)
+    isfinite(v) && return convert(T, v)
+  end
+  convert(T, _scaled_group_value(f, λ, w, x, G, n))
+end
+
+@inline _group_value(f, λ, w, n, x, G, ::Type{T}, ::Val{false}) where {T} =
+  _group_value(f, λ, w, n, x, G, T)
 
 @noinline function _scaled_group_value(f, λ, w, x, G, ordinary_norm)
   T = float(eltype(x))
@@ -596,19 +631,26 @@ function _rescaled_group_prox!(f, y, x, G, c::S, scale, W = nothing)::S where {S
 end
 
 function (f::HomogeneousGroupNorm)(x::AbstractArray)
+  _checkreal(f, x)
+  isfinite(f.λ0) && !iszero(f.λ0) && return _homogeneous_group_value(f, x, Val(true))
+  _ordinary_group_weights(f, float(eltype(x))) ?
+    _homogeneous_group_value(f, x, Val(true)) : _homogeneous_group_value(f, x, Val(false))
+end
+
+function _homogeneous_group_value(f::HomogeneousGroupNorm, x::AbstractArray, ordinary::Val{O}) where {O}
   _checkgroups(f, x)
   T = float(eltype(x))
-  iszero(f.λ0) && return zero(T)
+  O && iszero(f.λ0) && return zero(T)
   v = zero(T)
   for k in eachindex(f.groups)
     iszero(f.w[k]) && continue
-    v += _group_value(f, f.λ0, f.w[k], _group_norm(f, x, f.groups[k]), x, f.groups[k], T)
+    v += _group_value(f, f.λ0, f.w[k], _group_norm(f, x, f.groups[k]), x, f.groups[k], T, ordinary)
   end
   v
 end
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::AbstractGroupPenalty, y::AbstractArray, x::AbstractArray) =
-  (_checksize(y, x); _checkgroups(f, x); _check_symmetric_groups(f, y))
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkgroups(f, x); _check_symmetric_groups(f, y))
 
 _check_symmetric_groups(f, y::AbstractArray) = true
 
@@ -649,11 +691,16 @@ end
 
 # the step γ is a scalar or a vector with a step per group (see metric.jl)
 function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::AbstractArray, γ::Union{Real, AbstractVector})
+  _ordinary_group_weights(f, float(eltype(y))) ?
+    _homogeneous_group_prox!(y, f, x, γ, Val(true)) : _homogeneous_group_prox!(y, f, x, γ, Val(false))
+end
+
+function _homogeneous_group_prox!(y::AbstractArray, f::HomogeneousGroupNorm, x::AbstractArray, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
   _checksize(y, x)
   _checkgroups(f, x)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
-  if iszero(f.λ0)
+  if O && iszero(f.λ0)
     y === x || copyto!(y, x)
     return zero(T)
   end
@@ -666,8 +713,8 @@ function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::A
       end
       continue
     end
-    nrm = _shrink_group!(f, y, x, f.groups[k], convert(T, _positive_product(_entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
-    v += _group_value(f, f.λ0, f.w[k], nrm, y, f.groups[k], T)
+    nrm = _shrink_group!(f, y, x, f.groups[k], convert(T, O ? _positive_product(_entry(γ, k), f.λ0, f.w[k]) : _weight_product(_entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+    v += _group_value(f, f.λ0, f.w[k], nrm, y, f.groups[k], T, ordinary)
   end
   v
 end
@@ -689,23 +736,25 @@ function restrict(f::AbstractGroupPenalty, S::AbstractVector{<:Integer})
 end
 
 function kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
+  eltype(x) <: Real || _real_error(:kkt_violation)
   _checkgroups(f, g)
   _checkgroups(f, x)
   k = _group(f, i)
   k == 0 && return abs(g[i])
   G = f.groups[k]
-  _allzero(x, G) ? _dual_norm(f, g, G) - f.λ0 * f.w[k] : abs(g[i])
+  _allzero(x, G) ? _dual_norm(f, g, G) - _weight_coefficient(f.λ0, f.w[k]) : abs(g[i])
 end
 
 # on an AtomIterate, k is a group
 kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AtomIterate, k::Integer) =
-  (_checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - f.λ0 * f.w[k])
+  (eltype(g) <: Real || _real_error(:kkt_violation); _checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _weight_coefficient(f.λ0, f.w[k]))
 
 # the coordinates of x are the groups of f
 _checksamegroups(f::AbstractGroupPenalty, x::AtomIterate) = _samelayout(f, x) ||
   throw(DimensionMismatch("f and x must have the same groups."))
-kkt_violation(f::AbstractGroupPenalty, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
-  throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate"))
+kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
+  (eltype(g) <: Real || _real_error(:kkt_violation); throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate")))
 
 # an AtomIterate that shares the groups of f, which must partition 1:p
 AtomIterate(p::Integer, f::AbstractGroupPenalty) = AtomIterate(Float64, p, f)
@@ -720,14 +769,22 @@ end
 
 # with the groups of f, only the active groups count
 function (f::HomogeneousGroupNorm)(x::AtomIterate)
+  _checkreal(f, x)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
+  isfinite(f.λ0) && !iszero(f.λ0) && return _homogeneous_group_value(f, x, Val(true))
+  _ordinary_group_weights(f, float(eltype(x)), x.active, x.nactive) ?
+    _homogeneous_group_value(f, x, Val(true)) : _homogeneous_group_value(f, x, Val(false))
+end
+
+function _homogeneous_group_value(f::HomogeneousGroupNorm, x::AtomIterate, ordinary::Val{O}) where {O}
+  _samelayout(f, x) || return invoke(_homogeneous_group_value, Tuple{HomogeneousGroupNorm, AbstractArray, Val{O}}, f, x, ordinary)
   T = float(eltype(x))
-  iszero(f.λ0) && return zero(T)
+  O && iszero(f.λ0) && return zero(T)
   v = zero(T)
   for a in 1:x.nactive
     k = x.active[a]
-    iszero(f.w[k]) && continue
-    v += _group_value(f, f.λ0, f.w[k], _group_norm(f, x.storage, f.groups[k]), x.storage, f.groups[k], T)
+    (iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))) && continue
+    v += _group_value(f, f.λ0, f.w[k], _group_norm(f, x.storage, f.groups[k]), x.storage, f.groups[k], T, ordinary)
   end
   v
 end
@@ -738,16 +795,23 @@ value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::Rea
 function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::AtomIterate, γ::Union{Real, AbstractVector})
   _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, HomogeneousGroupNorm, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
+  _ordinary_group_weights(f, float(eltype(y)), x.active, x.nactive) ?
+    _homogeneous_group_prox!(y, f, x, γ, Val(true)) : _homogeneous_group_prox!(y, f, x, γ, Val(false))
+end
+
+function _homogeneous_group_prox!(y::AtomIterate, f::HomogeneousGroupNorm, x::AtomIterate, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
+  _samelayout(f, x) && _samelayout(f, y) ||
+    return invoke(_homogeneous_group_prox!, Tuple{AbstractArray, HomogeneousGroupNorm, AbstractArray, Union{Real, AbstractVector}, Val{O}}, y, f, x, γ, ordinary)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
   copyto!(y, x)
-  iszero(f.λ0) && return zero(T)
+  O && iszero(f.λ0) && return zero(T)
   v = zero(T)
   for a in 1:y.nactive
     k = y.active[a]
-    iszero(f.w[k]) && continue
-    nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, _positive_product(_entry(γ, k), f.λ0, f.w[k])))
-    v += _group_value(f, f.λ0, f.w[k], nrm, y.storage, f.groups[k], T)
+    (iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))) && continue
+    nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, O ? _positive_product(_entry(γ, k), f.λ0, f.w[k]) : _weight_product(_entry(γ, k), f.λ0, f.w[k])))
+    v += _group_value(f, f.λ0, f.w[k], nrm, y.storage, f.groups[k], T, ordinary)
   end
   v
 end
@@ -764,11 +828,11 @@ end
 function prox_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k::Integer, γ::Real)
   _check_group_coordinate(f, x, k)
   T = float(eltype(x))
-  if iszero(f.λ0) || iszero(f.w[k])
+  if (iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
     return atom(x, k)
   end
-  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], convert(T, _positive_product(γ, f.λ0, f.w[k])))
+  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], convert(T, isinf(f.w[k]) ? _weight_product(γ, f.λ0, f.w[k]) : _positive_product(γ, f.λ0, f.w[k])))
   iszero(nrm) || activate!(x, k)
   atom(x, k)
 end
@@ -902,6 +966,7 @@ end
 end
 
 function (f::NormL1Fused)(x::Tuple{AbstractArray, AbstractArray})
+  _checkreal(f, x)
   x1, x2 = x
   size(x1) == size(x2) || throw(DimensionMismatch("the arrays of the pair have sizes $(size(x1)) and $(size(x2))"))
   T = float(promote_type(eltype(x1), eltype(x2)))
@@ -970,11 +1035,11 @@ end
   f(prox!(y, f, x, γ))
 end
 
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL1Fused,
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NormL1Fused,
             y::Tuple{AbstractArray, AbstractArray}, x::Tuple{AbstractArray, AbstractArray}) =
-  size(y[1]) == size(x[1]) == size(y[2]) == size(x[2]) || throw(DimensionMismatch("the arrays of the pairs must have one size"))
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL1Fused, y::AbstractVector, x::AbstractVector) =
-  (_checksize(y, x); Base.require_one_based_indexing(y, x); true)
+  (_checkreal(f, x); _checkreal(f, y); size(y[1]) == size(x[1]) == size(y[2]) == size(x[2]) || throw(DimensionMismatch("the arrays of the pairs must have one size")))
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NormL1Fused, y::AbstractVector, x::AbstractVector) =
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); Base.require_one_based_indexing(y, x); true)
 prox(f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real = 1) =
   prox!((similar(x[1], float(eltype(x[1]))), similar(x[2], float(eltype(x[2])))), f, x, γ)
 
@@ -1028,6 +1093,7 @@ end
 end
 
 @inline function (f::NormL1Fused)(x::AbstractVector)
+  _checkreal(f, x)
   Base.require_one_based_indexing(x)
   T = float(eltype(x))
   iszero(f.λ1) && iszero(f.λ2) && return zero(T)

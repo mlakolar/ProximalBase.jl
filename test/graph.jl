@@ -158,7 +158,7 @@ end
     @test stack(prox(f, z)) ≈ qr_reference(A, z) rtol = 1e-14
     @test f((z[1], [0])) == Inf
   end
-  @test_throws ArgumentError IndGraph(ones(ComplexF64, 2, 2))
+  @test_throws ArgumentError("IndGraph requires real entries") IndGraph(ones(ComplexF64, 2, 2))
   for bad in (NaN, Inf, -Inf)
     @test_throws ArgumentError IndGraph(fill(bad, 2, 3))
     @test_throws ArgumentError IndGraph(sparse(fill(bad, 2, 3)))
@@ -260,7 +260,7 @@ end
       @test nested_out == nested_before
     end
   end
-  @test_throws ArgumentError f((ones(ComplexF64, 2), ones(3)))
+  @test_throws ArgumentError("IndGraph requires real entries") f((ones(ComplexF64, 2), ones(3)))
   out = deepcopy(z)
   @test_throws MethodError prox!(out, f, z, (1.0, 2.0))
   @test out == z

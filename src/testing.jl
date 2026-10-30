@@ -77,13 +77,13 @@ differences along random directions, and [`gradient!`](@ref),
 [`value_and_gradient`](@ref) against each other and against `f(x)`. Returns the
 gradient.
 
-For Float64 and ComplexF64, the defaults are `h = 1e-6`, `rtol = 1e-5` and
+For Float64, the defaults are `h = 1e-6`, `rtol = 1e-5` and
 `atol = 1e-6`. For other precisions they are multiplied by
-`c = cbrt(eps(real(float(eltype(x)))) / eps(Float64))`. For Float32 this gives
+`c = cbrt(eps(float(eltype(x))) / eps(Float64))`. For Float32 this gives
 `h ≈ 8.1e-4`, `rtol ≈ 8.1e-3` and `atol ≈ 8.1e-4`. The absolute tolerance is
 the larger of `atol * max(1, abs(fd))` and the finite difference's rounding
 error allowance `8 eps(R) max|f(x ± hd)| / (2h)`, where `fd` is the finite
-difference and `R = real(float(eltype(x)))`. This allowance also applies when
+difference and `R = float(eltype(x))`. This allowance also applies when
 `atol` is supplied, so a loss with a large value relative to its directional
 derivative does not fail in Float32. Supplied keywords override the defaults.
 Directions and perturbed points keep the floating element type of `x`.

@@ -74,33 +74,37 @@ _isindicator(::Type{<:SphereConstrained{F}}) where {F} = _isindicator(F)
 _checkparams(c::Union{BallConstrained, SphereConstrained}, x) = _checkparams(c.f, x)
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, c::BallConstrained, y::AbstractArray, x::AbstractArray)
+  _checkreal(c, y); _checkreal(c, x)
   _checkwrite(_isindicator(c.f) ? prox! : value_and_prox!, c.f, y, x)
   _isindicator(c.f) || _checkvalue(c.f, y)
   true
 end
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, c::SphereConstrained{<:NormL1}, y::AbstractArray, x::AbstractArray)
+  _checkreal(c, y); _checkreal(c, x)
   _checksize(y, x)
   _checkparams(c, x)
   isempty(x) && throw(ArgumentError("the sphere has no point of size $(size(x))"))
   _checkwrite(value_and_prox!, c.f, y, x)
 end
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, c::SphereConstrained{<:GroupNormL2}, y::AbstractArray, x::AbstractArray)
+  _checkreal(c, y); _checkreal(c, x)
   _checksize(y, x)
   _checkgroups(c.f, x)
   isempty(x) && isempty(c.f.groups) && throw(ArgumentError("the sphere has no point of size $(size(x))"))
   _checkwrite(value_and_prox!, c.f, y, x)
 end
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, c::SphereConstrained{IndBallL0}, y::AbstractArray, x::AbstractArray)
+  _checkreal(c, y); _checkreal(c, x)
   _checksize(y, x)
   c.f.s == 0 && _allcount(c.f, x) &&
     throw(ArgumentError("the sphere misses the ℓ0 ball of no nonzero entries"))
   _checkwrite(prox!, c.f, y, x)
 end
-_checkvalue(c::BallConstrained, x::AbstractArray) = _checkvalue(c.ball, x)
-_checkvalue(c::SphereConstrained, x::AbstractArray) = _checkvalue(c.sphere, x)
+_checkvalue(c::BallConstrained, x::AbstractArray) = (_checkreal(c, x); _checkvalue(c.ball, x))
+_checkvalue(c::SphereConstrained, x::AbstractArray) = (_checkreal(c, x); _checkvalue(c.sphere, x))
 
-(c::BallConstrained)(x::AbstractArray) = (T = float(eltype(x)); iszero(c.ball(x)) ? convert(T, c.f(x)) : T(Inf))
-(c::SphereConstrained)(x::AbstractArray) = (T = float(eltype(x)); iszero(c.sphere(x)) ? convert(T, c.f(x)) : T(Inf))
+(c::BallConstrained)(x::AbstractArray) = (_checkreal(c, x); T = float(eltype(x)); iszero(c.ball(x)) ? convert(T, c.f(x)) : T(Inf))
+(c::SphereConstrained)(x::AbstractArray) = (_checkreal(c, x); T = float(eltype(x)); iszero(c.sphere(x)) ? convert(T, c.f(x)) : T(Inf))
 
 prox!(y::AbstractArray, c::Union{BallConstrained, SphereConstrained}, x::AbstractArray, γ::Real) =
   (value_and_prox!(y, c, x, γ); y)
@@ -176,13 +180,13 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, 
   kbest, ibest, bestn, bestc = 0, 0, zero(U), zero(U)
   for k in eachindex(f.groups)
     n = convert(U, _group_norm2(x, f.groups[k]))
-    threshold = convert(U, convert(T, _positive_product(γ, f.λ0, f.w[k])))
-    (kbest == 0 || n - bestn > threshold - bestc) && ((kbest, bestn, bestc) = (k, n, threshold))
+    threshold = convert(U, convert(T, _weight_product(γ, f.λ0, f.w[k])))
+    (kbest == 0 || isinf(bestc) || (!isinf(threshold) && n - bestn > threshold - bestc)) && ((kbest, bestn, bestc) = (k, n, threshold))
   end
   @inbounds for i in eachindex(IndexLinear(), x)
     _group(f, i) == 0 || continue
     n = convert(U, abs(x[i]))
-    ((kbest == 0 && ibest == 0) || n - bestn > -bestc) && ((kbest, ibest, bestn, bestc) = (0, i, n, zero(U)))
+    ((kbest == 0 && ibest == 0) || isinf(bestc) || n - bestn > -bestc) && ((kbest, ibest, bestn, bestc) = (0, i, n, zero(U)))
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
   bestn > bestc && return _onto_sphere!(y, f, convert(T, value_and_prox!(y, f, x, γ)), r)
@@ -202,7 +206,7 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, 
       _group(f, i) == kbest || (y[i] = zero(eltype(y)))
     end
   end
-  convert(T, _positive_product(f.λ0, f.w[kbest], r))
+  convert(T, _group_value(f, f.λ0, f.w[kbest], r, y, G, T))
 end
 
 # On the sphere a point with at most s nonzero entries has ⟨z, x⟩ ≤ r‖x_S‖ on its

@@ -60,7 +60,7 @@ term of entry `i` at the scalar `v`. `i` is a linear index of the array, as in
 """
 function value_entry end
 
-(f::SeparableFunction)(x::AbstractArray) = _value_sep(f, x)
+(f::SeparableFunction)(x::AbstractArray) = (_checkreal(f, x); _value_sep(f, x))
 prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) = _prox_sep!(y, f, x, γ)
 value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) = _value_and_prox_sep!(y, f, x, γ)
 
@@ -129,7 +129,7 @@ end
 _prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Union{Real, AbstractArray}) = _prox_sep_dense!(y, f, x, γ)
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SeparableFunction, y::AbstractArray, x::AbstractArray) =
-  (_checksize(y, x); _checkparams(f, x); true)
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkparams(f, x); true)
 
 function _prox_sep_dense!(y::AbstractArray, f, x::AbstractArray, γ)
   _checkwrite(prox!, f, y, x)
@@ -223,6 +223,7 @@ struct NormL1{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   w::W
 
   function NormL1{T, W}(λ0::T, w::W) where {T<:Real, W<:Union{Nothing, AbstractArray}}
+    w === nothing || eltype(w) <: Real || _real_error(:NormL1)
     _checknonneg("λ0", λ0)
     _checknonneg("the weights", w)
     new{T, W}(λ0, w)
@@ -243,7 +244,8 @@ end
 Base.@propagate_inbounds prox_entry(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
   shrink(v, convert(float(T), _weight_product(γ, f.λ0, _entry(f.w, i))))
 
-kkt_violation(f::NormL1, g::AbstractArray, i::Integer) = abs(g[i]) - _weight_coefficient(f.λ0, _entry(f.w, i))
+kkt_violation(f::NormL1, g::AbstractArray, i::Integer) =
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ0, _entry(f.w, i)))
 restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entries(f.w, S))
 
 # without weights, Base's vectorized sum (a sum with init takes a slow sequential path)
@@ -283,6 +285,7 @@ struct NormL1Nonneg{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunct
   w::W
 
   function NormL1Nonneg{T, W}(λ0::T, w::W) where {T<:Real, W<:Union{Nothing, AbstractArray}}
+    w === nothing || eltype(w) <: Real || _real_error(:NormL1Nonneg)
     _checknonneg("λ0", λ0)
     _checknonneg("the weights", w)
     new{T, W}(λ0, w)
@@ -309,7 +312,8 @@ Base.@propagate_inbounds prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real)
   max(v - convert(float(T), _weight_product(γ, f.λ0, _entry(f.w, i))), zero(float(T)))
 
 # moving up from zero decreases the objective when -gᵢ exceeds λ0 wᵢ
-kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer) = -g[i] - _weight_coefficient(f.λ0, _entry(f.w, i))
+kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer) =
+  (eltype(g) <: Real || _real_error(:kkt_violation); -g[i] - _weight_coefficient(f.λ0, _entry(f.w, i)))
 restrict(f::NormL1Nonneg, S::AbstractVector{<:Integer}) = NormL1Nonneg(f.λ0, _restrict_entries(f.w, S))
 
 @inline _l1_value(::NormL1, v, a) = a * abs(v)
@@ -363,6 +367,7 @@ struct ElasticNet{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunctio
   w::W
 
   function ElasticNet{T, W}(λ1::T, λ2::T, w::W) where {T<:Real, W<:Union{Nothing, AbstractArray}}
+    w === nothing || eltype(w) <: Real || _real_error(:ElasticNet)
     _checknonneg("λ1", λ1)
     _checknonneg("λ2", λ2)
     _checknonneg("the weights", w)
@@ -452,7 +457,8 @@ Base.@propagate_inbounds function prox_entry(f::ElasticNet, v::T, i::Integer, γ
   shrink(v, convert(S, _weight_coefficient(γ, f.λ1, _entry(f.w, i)))) / (1 + convert(S, γ * f.λ2))
 end
 
-kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer) = abs(g[i]) - _weight_coefficient(f.λ1, _entry(f.w, i))
+kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer) =
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ1, _entry(f.w, i)))
 restrict(f::ElasticNet, S::AbstractVector{<:Integer}) = ElasticNet(f.λ1, f.λ2, _restrict_entries(f.w, S))
 
 ####################################
@@ -469,7 +475,8 @@ They satisfy `l ≤ u`, `l < Inf` and `u > -Inf` coordinatewise: equal finite bo
 are allowed, but equal infinite bounds are rejected because the coordinate is
 empty. Its proximal operator clamps each coordinate to its corresponding bounds.
 Array bounds are stored without copying; construct a new `IndBox` after changing them in
-place, since whether the box contains zero is computed at construction.
+place, since whether the box contains zero and the data for its membership test
+are computed at construction.
 [`restrict`](@ref) of the box itself requires `0 ∈ [lᵢ, uᵢ]` for every
 coordinate outside `S`, and throws for scalar bounds that exclude zero.
 """
@@ -477,17 +484,29 @@ struct IndBox{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: S
   l::L
   u::U
   zp::Bool          # l ≤ 0 ≤ u, so that zero is feasible and its own projection
+  bmax::Float64
 
   function IndBox{L, U}(l::L, u::U) where {L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}}
+    eltype(l) <: Real || _real_error(:IndBox)
+    eltype(u) <: Real || _real_error(:IndBox)
     l isa AbstractArray && u isa AbstractArray && _checkparam(l, u)
     lv = l isa AbstractArray ? vec(l) : l
     uv = u isa AbstractArray ? vec(u) : u
     all(lv .<= uv) || throw(ArgumentError("the lower bounds must not exceed the upper bounds"))
     any((lv .== Inf) .| (uv .== -Inf)) && throw(ArgumentError("the lower bounds must be below Inf and the upper bounds above -Inf"))
-    new{L, U}(l, u, all(l .<= 0) && all(u .>= 0))
+    TL, TU = l isa Real ? typeof(l) : eltype(l), u isa Real ? typeof(u) : eltype(u)
+    bmax = NaN
+    if TL === TU && (TL === Float32 || TL === Float64)
+      bmax = Float64(max(_box_bound_max(l), _box_bound_max(u)))
+    end
+    new{L, U}(l, u, all(l .<= 0) && all(u .>= 0), bmax)
   end
 end
 IndBox(l::Union{Real, AbstractArray}, u::Union{Real, AbstractArray}) = IndBox{typeof(l), typeof(u)}(l, u)
+
+_box_bound_max(v::Real) = isfinite(v) ? abs(v) : zero(v)
+# Reduce in the bounds' type for devices without Float64 support.
+_box_bound_max(b::AbstractArray) = mapreduce(_box_bound_max, max, b; init = zero(eltype(b)))
 
 """
     IndBallLinf(r)
@@ -522,8 +541,19 @@ function _value_dense(f::IndBox, x::AbstractArray)
   t = _tol(T)
   ok = true
   if f.l isa AbstractArray || f.u isa AbstractArray
-    @inbounds @simd for i in eachindex(IndexLinear(), x)
-      ok &= _inbox(x[i], _entry(f.l, i), _entry(f.u, i), t)
+    TL = f.l isa Real ? typeof(f.l) : eltype(f.l)
+    TU = f.u isa Real ? typeof(f.u) : eltype(f.u)
+    # Matching IEEE types and finite inflation exclude overflow at every bound.
+    if (eltype(x) === T === TL === TU) && (T === Float32 || T === Float64) &&
+       (m = T(f.bmax); isfinite(m + t * max(one(T), m)))
+      @inbounds @simd for i in eachindex(IndexLinear(), x)
+        v, l, u = x[i], _entry(f.l, i), _entry(f.u, i)
+        ok &= (v >= l - t * max(one(T), abs(l))) & (v <= u + t * max(one(T), abs(u)))
+      end
+    else
+      @inbounds @simd for i in eachindex(IndexLinear(), x)
+        ok &= _inbox(x[i], _entry(f.l, i), _entry(f.u, i), t)
+      end
     end
   else
     lo, hi = _box_limits(f.l, f.u, t)
@@ -549,6 +579,7 @@ end
 # from zero, the objective decreases upward at rate -gᵢ if u > 0, and downward
 # at rate gᵢ if l < 0; zero must be feasible
 function kkt_violation(f::IndBox, g::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
   T = float(eltype(g))
   up = _entry(f.u, i) > 0 ? -g[i] : T(-Inf)
   down = _entry(f.l, i) < 0 ? g[i] : T(-Inf)
@@ -587,7 +618,7 @@ _value_dense(::IndNonnegative, x::AbstractArray) =
 @inline value_entry(::IndNonnegative, v::T, ::Integer) where {T<:Real} =
   v >= -_tol(float(T)) ? zero(float(T)) : float(T)(Inf)
 @inline prox_entry(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} = max(float(v), zero(float(T)))
-kkt_violation(::IndNonnegative, g::AbstractArray, i::Integer) = -g[i]
+kkt_violation(::IndNonnegative, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); -g[i])
 restrict(f::IndNonnegative, ::AbstractVector{<:Integer}) = f
 
 ####################################
@@ -621,6 +652,8 @@ struct IndBinary{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <
   zp::Bool
 
   function IndBinary{L, U}(l::L, u::U) where {L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}}
+    eltype(l) <: Real || _real_error(:IndBinary)
+    eltype(u) <: Real || _real_error(:IndBinary)
     l isa AbstractArray && u isa AbstractArray && _checkparam(l, u)
     all(isfinite, l) && all(isfinite, u) || throw(ArgumentError("the bounds must be finite"))
     n = l isa AbstractArray ? length(l) : u isa AbstractArray ? length(u) : 1
@@ -739,7 +772,7 @@ Base.@propagate_inbounds function prox_entry(f::MCP, v::T, i::Integer, γ::Real)
   h(u) < h(zero(S)) ? sign(S(v)) * u : zero(S)
 end
 
-kkt_violation(f::MCP, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ
+kkt_violation(f::MCP, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - f.λ)
 restrict(f::MCP, ::AbstractVector{<:Integer}) = f
 
 """
@@ -792,5 +825,5 @@ Base.@propagate_inbounds function prox_entry(f::SCAD, v::T, i::Integer, γ::Real
   sign(S(v)) * best
 end
 
-kkt_violation(f::SCAD, g::AbstractArray, i::Integer) = abs(g[i]) - f.λ
+kkt_violation(f::SCAD, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - f.λ)
 restrict(f::SCAD, ::AbstractVector{<:Integer}) = f

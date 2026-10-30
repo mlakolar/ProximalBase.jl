@@ -178,6 +178,8 @@ function _checkgradient_output(g::Tuple, x::Tuple)
 end
 
 function _checkwrite(op, f, y, x)
+  _checkreal(f, x)
+  _checkreal(f, y)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   if op === value_and_prox! || op === gradient!
     _checkparams(f, x)
@@ -199,8 +201,8 @@ _step_values(x::AbstractArray) = true
 _step_values(x::_StepInput) = false
 _step_values(x::SubArray) = _step_values(parent(x))
 
-_checkvalue(f, x) = _checkparams(f, x)
-_checkconjugate(f, y) = true
+_checkvalue(f, x) = (_checkreal(f, x); _checkparams(f, x))
+_checkconjugate(f, y) = (_checkreal(f, y); true)
 
 ####################################
 #  Gradients
@@ -354,14 +356,14 @@ function kkt_violation end
 
 # for a separable function, the optimality of a coordinate at zero does not
 # depend on the rest of x
-kkt_violation(f::AbstractFunction, g::AbstractArray, ::AbstractArray, i::Integer) = kkt_violation(f, g, i)
+kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation); kkt_violation(f, g, i))
 function kkt_violation(f::AbstractFunction, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
   r, c = tril_cartesian(x.p, k)
   kkt_violation(f, g, (c - 1) * x.p + r)
 end
 # a group at zero violates optimality as much as its worst index
-kkt_violation(f::AbstractFunction, g::AbstractArray, x::AtomIterate, k::Integer) =
-  maximum(i -> kkt_violation(f, g, i), x.groups[k])
+kkt_violation(f::AbstractFunction, g::AbstractArray, x::AtomIterate, k::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); maximum(i -> kkt_violation(f, g, i), x.groups[k]))
 
 """
     restrict(f, S)
@@ -413,6 +415,7 @@ optimal value nor the structure of `g`, and a proximal gradient step from `x` is
 what `gradient!` and `prox!` do. Overlapping views of `G` and `x` are unsupported.
 """
 function gradient_mapping!(G::AbstractArray, f::AbstractFunction, g::AbstractFunction, x::AbstractArray, γ::Real)
+  eltype(G) <: Real && eltype(x) <: Real || _real_error(:gradient_mapping!)
   G === x && throw(ArgumentError("G must not be x"))
   _checksize(G, x)
   _checkparams(f, x)

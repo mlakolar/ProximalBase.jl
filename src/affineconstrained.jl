@@ -67,12 +67,13 @@ _argument_type(::Type{<:AffineConstrained}) = AbstractVector
 isconvex(::Type{<:AffineConstrained}) = true
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, c::AffineConstrained, y::AbstractVector, x::AbstractVector)
+  _checkreal(c, y); _checkreal(c, x)
   _checksize(y, x)
   _checkaffine(c.set, x)
   _checkwrite(prox!, c.f, y, x)
 end
 
-(c::AffineConstrained)(x::AbstractVector) = (T = float(eltype(x)); iszero(c.set(x)) ? convert(T, c.f(x)) : T(Inf))
+(c::AffineConstrained)(x::AbstractVector) = (_checkreal(c, x); T = float(eltype(x)); iszero(c.set(x)) ? convert(T, c.f(x)) : T(Inf))
 
 # the constraint Cx = d, of full row rank: Vᵀx = c on the rank-deficient path
 _constraint(s::IndAffine) = (s.A, s.b)

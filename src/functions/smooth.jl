@@ -22,9 +22,10 @@ isseparable(::Type{ZeroFunction}) = true
 isconvex(::Type{ZeroFunction}) = true
 iszeropreserving(::ZeroFunction) = true
 _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)},
-            ::ZeroFunction, y::AbstractArray, x::AbstractArray) = ((op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checksize(y, x); true)
+            f::ZeroFunction, y::AbstractArray, x::AbstractArray) =
+  (_checkreal(f, x); _checkreal(f, y); (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checksize(y, x); true)
 
-(::ZeroFunction)(x::AbstractArray) = zero(_valtype(x))
+(f::ZeroFunction)(x::AbstractArray) = (_checkreal(f, x); zero(_valtype(x)))
 
 function prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
@@ -42,7 +43,7 @@ end
 gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray) = (value_and_gradient!(g, f, x); g)
 
 prox_entry(::ZeroFunction, v::Real, ::Integer, ::Real) = v
-kkt_violation(::ZeroFunction, g::AbstractArray, i::Integer) = abs(g[i])
+kkt_violation(::ZeroFunction, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]))
 restrict(f::ZeroFunction, ::AbstractVector{<:Integer}) = f
 
 ####################################
@@ -58,8 +59,14 @@ is the shift `x - γc`.
 struct LinearFunction{C<:AbstractArray, D<:Real} <: AbstractFunction
   c::C
   d::D
+  function LinearFunction{C, D}(c, d) where {C<:AbstractArray, D<:Real}
+    eltype(c) <: Real || _real_error(:LinearFunction)
+    new{C, D}(c, d)
+  end
 end
-LinearFunction(c::AbstractArray) = LinearFunction(c, zero(float(eltype(c))))
+LinearFunction(c::AbstractArray, d::Real) = LinearFunction{typeof(c), typeof(d)}(c, d)
+
+LinearFunction(c::AbstractArray) = (eltype(c) <: Real || _real_error(:LinearFunction); LinearFunction(c, zero(float(eltype(c)))))
 
 issmooth(::Type{<:LinearFunction}) = true
 isproximable(::Type{<:LinearFunction}) = true
@@ -79,7 +86,7 @@ _dot_checks_size(::Type{C}, ::Type{X}) where {C, X} =
   (_SparseWrappedColumnDotChecksSize &&
    ((C <: _SparseDotWrappedCSC && X <: _SparseDotCSC) ||
     (C <: _SparseDotCSC && X <: _SparseDotWrappedCSC)))
-_dot_checks_size(::Type{<:Adjoint{<:Union{Real, Complex}, C}}, ::Type{<:Adjoint{<:Union{Real, Complex}, X}}) where {C, X} = _dot_checks_size(C, X)
+_dot_checks_size(::Type{<:Adjoint{<:Real, C}}, ::Type{<:Adjoint{<:Real, X}}) where {C, X} = _dot_checks_size(C, X)
 _dot_checks_size(::Type{<:Transpose{<:Any, C}}, ::Type{<:Transpose{<:Any, X}}) where {C, X} = _dot_checks_size(C, X)
 _dot_checks_size(::Type{<:Adjoint{<:Any, C}}, ::Type{<:Transpose{<:Any, X}}) where {C, X} =
   _SparseMixedDotChecksSize && C <: _SparseDotCSC && X <: _SparseDotCSC
@@ -89,11 +96,12 @@ _checkdot(c::C, x::X) where {C, X} = (_dot_checks_size(C, X) ? _checksize(c, x) 
 _checkvalue(f::LinearFunction, x) = (_checkreal(f, x); _checkdot(f.c, x))
 
 function _checkwrite(op::O, f::LinearFunction, y::AbstractArray, x::AbstractArray) where {O}
+  _checkreal(f, x)
+  _checkreal(f, y)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   _checkparams(f, x)
-  _checkreal(f, x)
-  op === value_and_prox! && (_checkreal(f, y); _checkdot(f.c, y))
+  op === value_and_prox! && _checkdot(f.c, y)
   op === value_and_gradient! && _checkdot(f.c, x)
   # c is written into y: copied by the gradient, subtracted by the prox
   _check_symmetric_source(y, f.c)
@@ -125,7 +133,7 @@ gradient!(g::AbstractArray, f::LinearFunction, x::AbstractArray) =
 
 Base.@propagate_inbounds prox_entry(f::LinearFunction, v::Real, i::Integer, γ::Real) = v - γ * f.c[i]
 _checkparams(f::LinearFunction, x) = _checkparam(f.c, x)
-kkt_violation(f::LinearFunction, g::AbstractArray, i::Integer) = abs(g[i] + f.c[i])
+kkt_violation(f::LinearFunction, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] + f.c[i]))
 restrict(f::LinearFunction, S::AbstractVector{<:Integer}) = LinearFunction(f.c[S], f.d)
 
 ####################################
@@ -148,6 +156,7 @@ struct SqrNormL2{T<:Real, Y<:Union{Nothing, AbstractArray}} <: AbstractFunction
   y::Y
 
   function SqrNormL2{T, Y}(λ::T, y::Y) where {T<:Real, Y<:Union{Nothing, AbstractArray}}
+    y === nothing || eltype(y) <: Real || _real_error(:SqrNormL2)
     _checknonneg("λ", λ)
     new{T, Y}(λ, y)
   end
@@ -215,7 +224,7 @@ function (f::SqrNormL2)(x::AbstractArray)
   _square_value(f.λ, x, f.y)
 end
 
-_checkvalue(f::SqrNormL2, x) = (_checkparams(f, x); f.y === nothing || _checksize(f.y, x); true)
+_checkvalue(f::SqrNormL2, x) = (_checkreal(f, x); _checkparams(f, x); f.y === nothing || _checksize(f.y, x); true)
 
 function value_and_gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
@@ -237,6 +246,8 @@ function prox!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real)
 end
 
 function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::SqrNormL2, y::AbstractArray, x::AbstractArray)
+  _checkreal(f, x)
+  _checkreal(f, y)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   _checkparams(f, x)
@@ -277,8 +288,8 @@ Base.@propagate_inbounds function prox_entry(f::SqrNormL2, v::Real, i::Integer, 
 end
 _checkparams(f::SqrNormL2, x) = _checkparam(f.y, x)
 
-kkt_violation(::SqrNormL2{<:Real, Nothing}, g::AbstractArray, i::Integer) = abs(g[i])
-kkt_violation(f::SqrNormL2, g::AbstractArray, i::Integer) = abs(g[i] - f.λ * f.y[i])
+kkt_violation(::SqrNormL2{<:Real, Nothing}, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]))
+kkt_violation(f::SqrNormL2, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] - f.λ * f.y[i]))
 
 restrict(f::SqrNormL2{<:Real, Nothing}, ::AbstractVector{<:Integer}) = f
 restrict(f::SqrNormL2, S::AbstractVector{<:Integer}) = SqrNormL2(f.λ, f.y[S])
@@ -304,9 +315,21 @@ mutable struct QuadraticFunction{T<:AbstractFloat, M<:AbstractMatrix, V<:Union{N
   Λ::Vector{T}          # A = Q Diagonal(Λ) Q', computed by the first prox
   Q::Matrix{T}
   w::Vector{T}
+
+  function QuadraticFunction{T, M, V}(A, b, c, tmp, Λ, Q, w) where {T<:AbstractFloat, M<:AbstractMatrix,
+      V<:Union{Nothing, AbstractVector}}
+    all(a -> a === nothing || eltype(a) <: Real,
+        (A, b, tmp, Λ, Q, w)) || _real_error(:QuadraticFunction)
+    new{T, M, V}(A, b, c, tmp, Λ, Q, w)
+  end
 end
+QuadraticFunction(A::M, b::V, c::T, tmp::Vector{T}, Λ::Vector{T}, Q::Matrix{T}, w::Vector{T}) where {T<:AbstractFloat,
+    M<:AbstractMatrix, V<:Union{Nothing, AbstractVector}} =
+  QuadraticFunction{T, M, V}(A, b, c, tmp, Λ, Q, w)
 
 function QuadraticFunction(A::AbstractMatrix, b::Union{Nothing, AbstractVector} = nothing, c::Real = 0)
+  eltype(A) <: Real || _real_error(:QuadraticFunction)
+  b === nothing || eltype(b) <: Real || _real_error(:QuadraticFunction)
   n = checksquare(A)
   b === nothing || length(b) == n || throw(DimensionMismatch("A is $n × $n and b has length $(length(b))"))
   T = float(promote_type(eltype(A), b === nothing ? eltype(A) : eltype(b), typeof(c)))
@@ -368,19 +391,20 @@ function prox!(y::AbstractVector, f::QuadraticFunction{T}, x::AbstractVector, γ
 end
 
 function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, f::QuadraticFunction{T}, y::AbstractVector, x::AbstractVector) where {T}
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   length(x) == length(f.tmp) || throw(DimensionMismatch())
-  _checkreal(f, x)
-  op === value_and_prox! && _checkreal(f, y)
   true
 end
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::QuadraticFunction, g::AbstractVector, x::AbstractVector)
+  _checkreal(f, x)
+  _checkreal(f, g)
   _checkgradient_output(g, x)
   _checksize(g, x)
   # Preserve the dimension error of the product, which checks before writing.
   length(x) == size(f.A, 2) || mul!(g, f.A, x)
-  _checkreal(f, x)
 end
 
 restrict(f::QuadraticFunction, S::AbstractVector{<:Integer}) =
@@ -423,9 +447,21 @@ struct KronQuadratic{T<:AbstractFloat, MC<:Union{Nothing, Matrix{T}}} <: Abstrac
   D::Matrix{T}          # Θ as a dense p × q matrix
   AD::Matrix{T}         # A Θ
   W::Matrix{T}          # A Θ B, and the gradient
+
+  function KronQuadratic{T, MC}(A, B, C, D, AD, W) where {T<:AbstractFloat, MC<:Union{Nothing, Matrix{T}}}
+    all(a -> a === nothing || eltype(a) <: Real,
+        (A, B, C, D, AD, W)) || _real_error(:KronQuadratic)
+    new{T, MC}(A, B, C, D, AD, W)
+  end
 end
+KronQuadratic(A::Matrix{T}, B::Matrix{T}, C::MC, D::Matrix{T}, AD::Matrix{T}, W::Matrix{T}) where {T<:AbstractFloat,
+    MC<:Union{Nothing, Matrix{T}}} =
+  KronQuadratic{T, MC}(A, B, C, D, AD, W)
 
 function KronQuadratic(A::AbstractMatrix, B::AbstractMatrix, C::Union{Nothing, AbstractMatrix} = nothing)
+  eltype(A) <: Real || _real_error(:KronQuadratic)
+  eltype(B) <: Real || _real_error(:KronQuadratic)
+  C === nothing || eltype(C) <: Real || _real_error(:KronQuadratic)
   p, q = checksquare(A), checksquare(B)
   C === nothing || size(C) == (p, q) ||
     throw(DimensionMismatch("A is $p × $p and B is $q × $q, so C must be $p × $q, not $(size(C, 1)) × $(size(C, 2))"))
@@ -435,7 +471,8 @@ function KronQuadratic(A::AbstractMatrix, B::AbstractMatrix, C::Union{Nothing, A
   Cd = C === nothing ? nothing : Matrix{T}(C)
   all(isfinite, Ad) && all(isfinite, Bd) && (Cd === nothing || all(isfinite, Cd)) ||
     throw(ArgumentError("A, B and C must be finite"))
-  KronQuadratic{T, typeof(Cd)}(_symmetrized!(Ad, "A"), _symmetrized!(Bd, "B"), Cd, zeros(T, p, q), zeros(T, p, q), zeros(T, p, q))
+  KronQuadratic{T, typeof(Cd)}(_symmetrized!(Ad, "A"), _symmetrized!(Bd, "B"), Cd, zeros(T, p, q), zeros(T, p,
+      q), zeros(T, p, q))
 end
 
 # M, which must be symmetric; one that is symmetric up to rounding, such as an
@@ -511,10 +548,10 @@ function value_and_gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArr
 end
 
 gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =
-  (_checkwrite(gradient!, f, G, Θ); value_and_gradient!(G, f, Θ); G)
+  (value_and_gradient!(G, f, Θ); G)
 
 _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::KronQuadratic, G::AbstractArray, Θ::AbstractArray) =
-  (_checkgradient_output(G, Θ); _checkshape(f, G); _checkshape(f, Θ); _checkreal(f, Θ))
+  (_checkreal(f, Θ); _checkreal(f, G); _checkgradient_output(G, Θ); _checkshape(f, G); _checkshape(f, Θ))
 
 # (W + W')/2 in place
 function _symmetrize!(W::Matrix)

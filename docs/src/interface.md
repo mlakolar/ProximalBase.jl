@@ -228,16 +228,17 @@ its data; its factorization type can change with the rank of `A`.
 
 ## Precision
 
-Every scalar value has the argument's precision, `T = real(float(eltype(x)))`.
+Arguments, outputs, parameters and iterates are real. Complex input is not
+implemented: a complex argument, output, direction, step or parameter array
+raises `ArgumentError("<Name> requires real entries")` before anything is
+written, where `<Name>` is the function called, the iterate type or the
+utility.
+
+Every scalar value has the argument's precision, `T = float(eltype(x))`.
 `f(x)` and `value_and_gradient!(g, f, x)` return `T` of `x`, and
 `value_and_prox!(y, f, x, γ)` returns `T` of the output `y`. For tuple
 arguments and outputs, `T` is the promotion over the blocks. An integer
-argument gives `Float64`. A complex argument gives its real floating type
-where the function's value is real, as for the norms and `SqrNormL2`.
-Functions whose value is not real for a complex argument, such as
-`LinearFunction`, `QuadraticFunction`, `Tilt`, the data losses and
-`IndAffine`, raise an `ArgumentError` in every oracle before writing any
-output.
+argument gives `Float64`.
 The value is accurate to the lower of `T` and the precision the function was
 built in: a function built in `Float32` and applied to a `Float64` argument
 returns a `Float64` value with `Float32` accuracy. Build a function in

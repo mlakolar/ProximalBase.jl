@@ -80,7 +80,7 @@ function _sumslices(fun::G, fs::AbstractVector) where {G}
   v
 end
 
-(s::SliceSum)(x::AbstractArray) = (_checkslices(s, x); _value_at(_sumslices((f, k) -> f(_slice(x, k)), s.fs), x))
+(s::SliceSum)(x::AbstractArray) = (_checkreal(s, x); _checkslices(s, x); _value_at(_sumslices((f, k) -> f(_slice(x, k)), s.fs), x))
 
 function value_and_prox!(y::AbstractArray, s::SliceSum, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, s, y, x, γ)
@@ -91,6 +91,8 @@ prox!(y::AbstractArray, s::SliceSum, x::AbstractArray, γ::Real) =
   (_checkwrite(prox!, s, y, x); _checkstep(prox!, s, y, x, γ); value_and_prox!(y, s, x, γ); y)
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::SliceSum, y::AbstractArray, x::AbstractArray)
+  _checkreal(s, x)
+  _checkreal(s, y)
   _checksize(y, x)
   _checkslices(s, x)
   _sumslices((f, k) -> _checkwrite(value_and_prox!, f, _slice(y, k), _slice(x, k)), s.fs)
@@ -98,6 +100,9 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::SliceSu
 end
 
 function _checkwrite(op::O, s::SliceSum, y::AbstractArray, x::AbstractArray, γ) where {O}
+  _checkreal(s, x)
+  _checkreal(s, y)
+  _checkreal(s, γ)
   _checksize(y, x)
   _checkslices(s, x)
   _sumslices((f, k) -> _checkwrite(value_and_prox!, f, _slice(y, k), _slice(x, k), γ), s.fs)
@@ -105,6 +110,8 @@ function _checkwrite(op::O, s::SliceSum, y::AbstractArray, x::AbstractArray, γ)
 end
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::SliceSum, g::AbstractArray, x::AbstractArray)
+  _checkreal(s, x)
+  _checkreal(s, g)
   _checkgradient_output(g, x)
   _checksize(g, x)
   _checkslices(s, x)
@@ -191,6 +198,7 @@ _isdiagonal(I::CartesianIndex{2}) = I[1] == I[2]
 _isdiagonal(::CartesianIndex) = false
 
 function (fb::FiberSum)(x::AbstractArray)
+  _checkreal(fb, x)
   own = _owndiagonal(fb, x)
   T = _valtype(x)
   v = zero(T)
@@ -213,6 +221,8 @@ _pairfibers(::FiberSum{<:NormL1Fused, <:Union{Nothing, NormL1Fused}}, y::Abstrac
   size(x, 3) == 2
 
 function _checkwrite(op::O, fb::FiberSum, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checkreal(fb, x)
+  _checkreal(fb, y)
   _checksize(y, x)
   own = _owndiagonal(fb, x)
   _pairfibers(fb, y, x) && return true
@@ -234,6 +244,7 @@ function _checkwrite(op::O, fb::FiberSum, y::AbstractArray, x::AbstractArray) wh
 end
 
 function _checkwrite(op::O, fb::FiberSum, y::AbstractArray, x::AbstractArray, γ) where {O}
+  _checkreal(fb, γ)
   _checkwrite(op, fb, y, x)
   _pairfibers(fb, y, x) && return true
   own = _owndiagonal(fb, x)

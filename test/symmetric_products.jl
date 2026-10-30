@@ -6,7 +6,7 @@ using ..TestUtils
 Random.seed!(35)
 
 @testset "Symmetric products over active coordinates" begin
-  for T in (Float32, Float64, ComplexF32, ComplexF64), uplo in (:U, :L)
+  for T in (Float32, Float64), uplo in (:U, :L)
     n = 12
     M = randn(T, n, n)
     A = Symmetric(M, uplo)

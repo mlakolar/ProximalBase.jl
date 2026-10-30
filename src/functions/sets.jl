@@ -322,11 +322,18 @@ function (f::IndBallL2)(x::AbstractArray)
   _ball_scaled_value(f, x, T)
 end
 
-# The balls and boxes on a spectrum v of X/2^k, as SingularValue and Spectral
-# evaluate them when the spectrum of X overflows: bounds scaled by 2^-k, before
-# any narrowing, and tolerances kept in the original units.
+# The balls, boxes and the nonnegative orthant on a spectrum v of X/2^k, as
+# SingularValue and Spectral evaluate them when the spectrum of X overflows:
+# bounds scaled by 2^-k, before any narrowing, and tolerances kept in the
+# original units. Boxes and the orthant also take k = 0 for an ordinary spectrum
+# (_relative_membership): a computed spectrum carries errors of order ε‖v‖∞, so
+# their tolerance is √ε·max(1, |bound|, ‖v‖∞), relative to the spectrum as
+# IndPSD's is. On the boundary of a ball ‖v‖∞ is at most the radius, so balls
+# keep their own tolerance.
 _scales_membership(::AbstractFunction) = false
-_scales_membership(::Union{IndBallL1, IndBallL2, IndBox}) = true
+_scales_membership(::Union{IndBallL1, IndBallL2, IndBox, IndNonnegative}) = true
+_relative_membership(::AbstractFunction) = false
+_relative_membership(::Union{IndBox, IndNonnegative}) = true
 function _scaled_membership(f::Union{IndBallL1, IndBallL2}, v::AbstractVector{T}, k::Int) where {T}
   isfinite(f.r) || return _ind(isinf(f.r), T)
   S = float(promote_type(T, typeof(f.r)))
@@ -337,12 +344,14 @@ end
 function _scaled_membership(f::IndBox, v::AbstractVector{T}, k::Int) where {T}
   _checkparams(f, v)
   S = float(promote_type(T, eltype(f.l), eltype(f.u)))
-  α, t = ldexp(one(S), -k), S(_tol(T))
+  floor, t = max(ldexp(one(S), -k), S(_maximum_abs(v))), S(_tol(T))
   @inbounds for i in eachindex(v)
-    _inbox(v[i], ldexp(S(_entry(f.l, i)), -k), ldexp(S(_entry(f.u, i)), -k), t, α) || return T(Inf)
+    _inbox(v[i], ldexp(S(_entry(f.l, i)), -k), ldexp(S(_entry(f.u, i)), -k), t, floor) || return T(Inf)
   end
   zero(T)
 end
+_scaled_membership(::IndNonnegative, v::AbstractVector{T}, k::Int) where {T} =
+  _ind(isempty(v) || minimum(v) >= -_tol(T) * max(ldexp(one(T), -k), _maximum_abs(v)), T)
 
 @noinline function _ball_scaled_value(f, x, ::Type{T}) where {T}
   m = _maximum_abs(x)
@@ -594,8 +603,8 @@ a projection only when `l ≤ 0 ≤ u`.
 The projection is accurate when the scaled active bound, residual and output
 are representable; inputs near `floatmax` are outside this guarantee. Accuracy
 is limited by the less precise of the function's floating-point type and the
-output type. An array of positive steps `γ` gives the projection in the metric
-of `Diagonal(1 ./ γ)`, with the correction along `γ .* a`. This uses the
+output type. An array of positive finite steps `γ` gives the projection in the
+metric of `Diagonal(1 ./ γ)`, with the correction along `γ .* a`. This uses the
 hyperplane's formula and also requires its weighted squared norm and correction
 to be representable; extreme steps may overflow.
 """

@@ -33,13 +33,26 @@ order of the entries. Its proximal operator acts on the eigenvalues: for
 reads the upper triangle of its input, which should be symmetric. The domain of
 `F` is the finite symmetric matrices: the value is `Inf` at a matrix with a
 non-finite entry, also for a bounded `f`, and at a matrix that is not
-symmetric. When a decomposition is needed, any non-finite entry, including one
-in the lower triangle, gives an all-`NaN` proximal output; `value_and_prox!`
-returns zero for an indicator and `NaN` otherwise. When an extreme eigenvalue
-overflows, membership in `IndBallL1`, `IndBallL2`, `IndBallLinf` and `IndBox` is decided on the eigenvalues
-of the matrix scaled to unit range, with the tolerance of the original units. A
+symmetric. When a decomposition is needed, any non-finite entry, including one in the
+lower triangle, gives an all-`NaN` proximal output; `value_and_prox!` returns
+zero for an indicator and `NaN` otherwise. Membership in `IndBox`, `IndBallLinf` and `IndNonnegative` is
+decided with the tolerance `√ε·max(1, |bound|, ‖λ‖∞)`, relative to the
+spectrum, since computed eigenvalues carry errors of order `ε‖λ‖∞`: a
+positive semidefinite matrix of low rank and any scale lies in
+`Spectral(IndBox(0, Inf))`, as it does in `IndPSD()`. When an extreme
+eigenvalue overflows, membership in `IndBallL1`, `IndBallL2`, `IndBallLinf`,
+`IndBox` and `IndNonnegative` is decided on the eigenvalues of the matrix
+scaled to unit range, with the tolerance of the original units. A
 function with weights, bounds or normals
 that differ between entries depends on their order and is rejected.
+
+At a finite input whose spectrum overflows, the proximal output and the value
+returned by `value_and_prox!` are computed in scaled units for unweighted
+`NormL1`, `NormL1Nonneg`, `NormL2`, `NormLinf`, `SumLargest`,
+`ElasticNet(λ, 0)`, `IndNonnegative`, `IndBallL0`, `ZeroFunction`, and boxes
+whose bounds are all zero or infinite. Other functions keep the ordinary
+result, which may be infinite, including `SqrNormL2`, bounded balls, weighted
+penalties and compositions. This rule does not change the standalone value.
 
 $_SPECTRAL_NOTE
 """
@@ -90,6 +103,7 @@ function (s::Spectral)(X::AbstractMatrix)
   if !isempty(λ) && !(_finite_value(λ[1]) && _finite_value(λ[end])) && _scales_membership(s.f)
     return _scaled_spectral_membership!(s, ws, X)
   end
+  _relative_membership(s.f) && return _scaled_membership(s.f, λ, 0)
   convert(T, s.f(λ))
 end
 
@@ -116,6 +130,9 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   # the eigenvalues of the result, exactly as many as those of X
   z = _buffer!(s.z, T, n)
   length(z) == n || resize!(z, n)
+  if _scales_spectral_prox(s.f) && _spectral_overflow(λ, X)
+    return _scaled_wrapper_eigen_prox!(Y, s, X, γ, ws, z)
+  end
   v = value_and_prox!(z, s.f, λ, γ)
   _rebuild_sym_signed!(Y, V, z, _blas_ready(Y) ? Y : _array_buffer!(s.out, T, (n, n)))
   convert(T, v)
@@ -178,3 +195,67 @@ _ispermutationinvariant(::Union{IndHyperplane{<:Real}, IndHalfspace{<:Real}, Ind
 _ispermutationinvariant(s::Union{Scaled, Conjugate}) = _ispermutationinvariant(s.f)
 _ispermutationinvariant(c::BoxConstrained) = _ispermutationinvariant(c.f) && _ispermutationinvariant(c.box)
 _ispermutationinvariant(c::LinearConstrained) = _ispermutationinvariant(c.f) && _ispermutationinvariant(c.set)
+
+# Scaling is a capability of these proximal operations, separate from admission.
+_scales_spectral_prox(::AbstractFunction) = false
+_scales_spectral_prox(::Union{IndNonnegative, IndBallL0, ZeroFunction, NormL2, NormLinf, SumLargest,
+                             NormL1{<:Real, Nothing}, NormL1Nonneg{<:Real, Nothing}}) = true
+_scales_spectral_prox(f::ElasticNet{<:Real, Nothing}) = iszero(f.λ2)
+_cone_bound(x::Real) = iszero(x) || isinf(x)
+_cone_bound(x::AbstractArray) = all(_cone_bound, x)
+_scales_spectral_prox(f::IndBox) = _cone_bound(f.l) && _cone_bound(f.u)
+
+function _scaled_spectrum_prox!(z, f::Union{IndNonnegative, IndBallL0, ZeroFunction, IndBox}, x, γ, e)
+  value_and_prox!(z, f, x, γ)
+end
+
+_spectral_level(f::Union{NormL1, NormL1Nonneg}) = f.λ0
+_spectral_level(f::ElasticNet) = f.λ1
+_spectral_level(f::Union{NormL2, NormLinf, SumLargest}) = f.λ
+
+_spectral_unit(f::Union{NormL1, ElasticNet}, ::Type{T}) where {T} = NormL1(one(T))
+_spectral_unit(f::NormL1Nonneg, ::Type{T}) where {T} = NormL1Nonneg(one(T))
+_spectral_unit(f::NormL2, ::Type{T}) where {T} = NormL2(one(T))
+
+function _scaled_spectrum_prox!(z::Vector{T}, f::Union{NormL1, NormL1Nonneg, ElasticNet, NormL2}, x, γ, e) where {T}
+  λ = convert(T, _spectral_level(f))
+  c = iszero(λ) ? zero(T) : _scaled_product(convert(T, γ), λ, -e)
+  v = value_and_prox!(z, _spectral_unit(f, T), x, c)
+  iszero(λ) ? zero(T) : _scaled_product(λ, v, e)
+end
+
+function _scaled_spectrum_prox!(z::Vector{T}, f::NormLinf, x, γ, e) where {T}
+  λ = convert(T, f.λ)
+  c = iszero(λ) ? zero(T) : _scaled_product(convert(T, γ), λ, -e)
+  if norm(x, 1) <= c
+    fill!(z, zero(T))
+    return zero(T)
+  end
+  τ = _simplex_threshold!(_buffer!(f.scratch, T, length(x)), x, eachindex(IndexLinear(), x), c, abs)
+  z .= sign.(x) .* min.(abs.(x), τ)
+  iszero(λ) ? zero(T) : _scaled_product(λ, τ, e)
+end
+
+function _scaled_spectrum_prox!(z::Vector{T}, f::SumLargest, x, γ, e) where {T}
+  _sumlargest_prox!(z, f, x, γ, Val(false), -e)
+  v = _buffer!(f.sums, T, length(z))
+  copyto!(v, z)
+  f.k < length(v) && _kth_largest!(view(v, 1:length(v)), f.k)
+  iszero(f.λ) ? zero(T) : _scaled_product(convert(T, f.λ), _sumlargest_sum(v, f.k, one(T)), e)
+end
+
+@noinline function _scaled_wrapper_eigen_prox!(Y, s::Spectral, X, γ, ws::SymEigenWorkspace{T}, z) where {T}
+  e = _magnitude_exponent(convert(T, _maximum_abs(X)))
+  _scaled_spectral_input!(ws.A, X)
+  λ, V = _eigen!(ws)
+  σ = _maximum_abs(λ)
+  v = _scaled_spectrum_prox!(z, s.f, λ, γ, e)
+  # SumLargest can increase the magnitude of negative components.
+  a = _maximum_abs(z)
+  σ = isfinite(a) ? max(σ, a) : σ
+  n = size(X, 1)
+  B = Y isa StridedMatrix{T} && _blas_ready(Y) ? Y : _array_buffer!(s.out, T, (n, n))
+  _rebuild_sym_signed!(B, V, z, B)
+  _spectral_rescale!(Y, B, e, n, σ)
+  convert(T, v)
+end

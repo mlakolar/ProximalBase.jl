@@ -303,7 +303,7 @@ end
 prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
   _linear_constrained_prox!(y, c, x, convert(float(eltype(y)), γ))
 prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
-  (_checkparam(γ, x); _linear_constrained_prox!(y, c, x, γ))
+  (_checkparam(γ, x); _check_metric_steps(c, γ); _linear_constrained_prox!(y, c, x, γ))
 
 function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ)
   _checkwrite(prox!, c, y, x)

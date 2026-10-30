@@ -593,7 +593,8 @@ end
 @inline _sumlargest_output(x, g, λ, w, m, e, ::Val{true}) = _positive_product(g, λ, w)
 
 # Also used by the conjugate's projection, without a Moreau subtraction.
-function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val)
+# Spectral wrappers shift the product exponent before rounding the threshold.
+function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val, shift::Int = 0)
   _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   S = float(promote_type(T, eltype(x), typeof(γ), typeof(f.λ)))
@@ -613,8 +614,8 @@ function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val)
   end
   mg, eg = frexp(g)
   ml, el = frexp(λ)
-  m, e = mg * ml, eg + el
-  c = _positive_product(g, λ, one(S))
+  m, e = mg * ml, eg + el + shift
+  c = iszero(shift) ? _positive_product(g, λ, one(S)) : _scaled_product(g, λ, shift)
   t = zero(S)
   w = _buffer!(f.work, S, n)
   if f.k < n
@@ -627,7 +628,8 @@ function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val)
   end
   @inbounds for (i, j) in enumerate(eachindex(IndexLinear(), y))
     z = f.k == n ? one(S) : clamp(w[i] - t, zero(S), one(S))
-    y[j] = _sumlargest_output(v[i], g, λ, z, m, e, projection)
+    y[j] = iszero(shift) ? _sumlargest_output(v[i], g, λ, z, m, e, projection) :
+      _sumlargest_output(v[i], one(S), c, z, m, e, projection)
   end
   y
 end

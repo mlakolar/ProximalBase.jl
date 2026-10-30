@@ -586,10 +586,15 @@ function prox_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty},
   a, b = _ridge_weights(step, ρ)
   if T <: AbstractFloat
     # the floating-point blend cannot fail; the inner step settles activation
+    was = isactive(x, k)
     @inbounds for i in x.groups[k]
       x.storage[i] = r.c === nothing ? a * x.storage[i] : _ridge_blend(x.storage[i], r.c[i], a, b)
     end
-    return prox_coordinate!(x, r.f, k, _regularize_step(step, ρ))
+    prox_coordinate!(x, r.f, k, _regularize_step(step, ρ))
+    if !was && isactive(x, k) && _allzero(x.storage, x.groups[k])
+      _deactivate!(x, k)
+    end
+    return atom(x, k)
   end
   # other conversions may fail; activate each stored nonzero before continuing
   was = isactive(x, k)

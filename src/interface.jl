@@ -403,13 +403,17 @@ end
 _block_step!(x::AtomIterate, f, k, u, γ) = _separable_group_step!(x, f, k, u, γ)
 
 function _stage_and_step!(x::AtomIterate{T}, f, k, u, γ) where {T}
-  if T <: AbstractFloat && eltype(u) <: Union{AbstractFloat, Integer}
-    # conversion and checked group kernels cannot fail; the result settles activation
+  if T <: AbstractFloat && eltype(u) <: Union{AbstractFloat, Integer} && u isa StridedVector
+    # strided reads, conversion and checked group kernels cannot fail
+    was = isactive(x, k)
     copyto!(_atom_storage(x, k), u)
     prox_coordinate!(x, f, k, γ)
+    if !was && isactive(x, k) && _allzero(x.storage, x.groups[k])
+      _deactivate!(x, k)
+    end
     return x
   end
-  # other conversions may fail; activate each stored nonzero before continuing
+  # other reads or conversions may fail; activate each stored nonzero before continuing
   was = isactive(x, k)
   active = was
   G = x.groups[k]

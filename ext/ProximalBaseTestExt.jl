@@ -87,6 +87,13 @@ function test_iterate(x::AtomIterate)
          if !(1 <= i <= length(x.storage))]
   @test isempty(bad)
   isempty(bad) || return x
+  memberships = zeros(Int, length(x.storage))
+  for G in x.groups, i in G
+    memberships[i] += 1
+  end
+  bad = (missing = findall(iszero, memberships), repeated = findall(>(1), memberships))
+  @test bad == (missing = Int[], repeated = Int[])
+  isempty(bad.missing) && isempty(bad.repeated) || return x
   bad = [(k, i) for (k, G) in enumerate(x.groups) for i in G if x.group_of[i] != k]
   @test isempty(bad)
   active = falses(length(x.groups))

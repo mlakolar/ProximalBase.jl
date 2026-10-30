@@ -146,6 +146,13 @@ PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
     a = AtomIterate(6, [[1, 2], [3, 4], [5, 6]])
     a.groups[3][2] = 7
     push!(corruptions, a)
+    a = AtomIterate(4, [[1, 2], [3, 4]])
+    a.groups[1][2] = 1
+    a.storage[2] = 1
+    push!(corruptions, a)
+    a = AtomIterate(4, [[1, 2], [3, 4]])
+    a.groups[2][1] = 2
+    push!(corruptions, a)
     for make in (() -> SparseIterate([1., 0, 2, 0]),
                  () -> SparseIterate([1. 2; 0 0]),
                  () -> SymmetricSparseIterate([1. 2; 2 0]))

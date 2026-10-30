@@ -4,6 +4,10 @@ using Test
 using ProximalBase
 using SparseArrays
 
+struct Flaky <: AbstractVector{Float64} end
+Base.size(::Flaky) = (2,)
+Base.getindex(::Flaky, i::Int) = i == 1 ? 3.0 : error("boom")
+
 function consistent(x::AtomIterate)
   act = collect(activecoordinates(x))
   length(unique(act)) == nactive(x) &&
@@ -157,6 +161,46 @@ end
         @test activecoordinates(x) == (nonzero ? [3, 2, 1] : [3, 2])
         @test consistent(x)
       end
+    end
+  end
+
+  @testset "group staging reads and stored zeros" begin
+    x = AtomIterate(2, [1:2])
+    @test_throws ErrorException("boom") prox_coordinate!(x, GroupNormL2(1., x.groups), 1, Flaky(), 1.)
+    @test consistent(x)
+    @test x.storage == [3., 0.] && isactive(x, 1)
+
+    q = nextfloat(0f0)
+    for active in (false, true)
+      x = AtomIterate(Float32, 4, [1:4])
+      active && activate!(x, 1)
+      prox_coordinate!(x, GroupNormL2(3q, x.groups, Float32[1]), 1, fill(2q, 4), 1f0)
+      @test all(iszero, x.storage)
+      @test isactive(x, 1) == active && consistent(x)
+
+      x = AtomIterate(Float32, 4, [1:4])
+      active && activate!(x, 1)
+      f = GroupNormL2(6q, x.groups, Float32[1])
+      r = Regularize(f, 1f0, fill(4q, 4))
+      prox_coordinate!(x, r, 1, 1f0)
+      @test all(iszero, x.storage)
+      @test isactive(x, 1) == active && consistent(x)
+    end
+
+    gs = [1:2, 3:4, 5:6]
+    buf = [3., -4., 0.]
+    u = view(buf, 1:2)
+    @test u isa StridedVector
+    for f in (GroupNormL2(1., gs), GroupNormLinf(1., gs), SparseGroupNormL2(0.2, 1., gs),
+              GroupMCP(1., gs), GroupSCAD(1., gs))
+      x = AtomIterate(6, gs)
+      activate!(x, 3)
+      activate!(x, 2)
+      y = copy(x)
+      prox_coordinate!(x, f, 1, u, 1.)
+      prox_coordinate!(y, f, 1, copy(u), 1.)
+      @test state(x) == state(y) && consistent(x)
+      @test buf == [3., -4., 0.]
     end
   end
 

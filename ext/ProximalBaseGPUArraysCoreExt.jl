@@ -17,12 +17,30 @@ using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, Sq
                     _kth_largest!, _level_fits, _level_product, _scaled_product, _positive_product,
                     _weight_coefficient, _weight_product, _weighted_value, _value_at, _valtype, _checkreal,
                     _reshapeparam
-using GPUArraysCore: AbstractGPUArray
+using GPUArraysCore: AbstractGPUArray, AnyGPUArray
 using LinearAlgebra: mul!
 using Base.Broadcast: broadcasted, instantiate
 import Adapt
 
 const GPUArray = AbstractGPUArray
+
+# similar allocates the parent array kind even for a wrapped device input.
+_device_buffer(x, ::Type{T}) where {T} = similar(x, T, size(x))
+_device_buffer_type(::Type{X}, ::Type{T}) where {X, T} = Base.promote_op(_device_buffer, X, Type{T})
+function ProximalBase._checkbuffer(s::ProximalBase.Scratch, ::Type{T}, x::AnyGPUArray) where {T}
+  B = _device_buffer_type(typeof(x), T)
+  b = s.buf
+  b isa B && size(b) == size(x) && return b
+  _device_buffer(x, T)::B
+end
+function ProximalBase._array_buffer!(s::ProximalBase.Scratch, ::Type{T}, x::AnyGPUArray) where {T}
+  b = ProximalBase._checkbuffer(s, T, x)
+  s.buf = b
+  b
+end
+ProximalBase._tuple_buffer_type(::Type{X}) where {T, N, X<:AnyGPUArray{T, N}} =
+  _device_buffer_type(X, float(T))
+ProximalBase._gradient_buffer(x::AnyGPUArray) = _device_buffer(x, float(eltype(x)))
 
 # Device storage can be dense without being accessible to host BLAS.
 ProximalBase._is_device_array(::GPUArray) = true
@@ -42,10 +60,29 @@ _param(w) = w
 #  Any separable function that is a bits type, through its scalar proxes
 ####################################
 
-function ProximalBase._prox_sep!(y::GPUArray, f, x::GPUArray, γ::Real)
+function ProximalBase._prox_sep!(y::AnyGPUArray, f, x::AnyGPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
   y .= prox_entry.(Ref(f), x, LinearIndices(x), γ)
+  y
+end
+
+# Reciprocal steps stay a lazy device broadcast, without indexing their wrapper.
+_steps(γ::AbstractArray, x) = _reshapeparam(γ, x)
+_steps(γ::ProximalBase._ReciprocalArray, x) = broadcasted(inv, _steps(γ.γ, x))
+function ProximalBase._prox_sep!(y::AnyGPUArray, f, x::AnyGPUArray, γ::AbstractArray)
+  ProximalBase._checkwrite(prox!, f, y, x)
+  ProximalBase._checkparam(γ, x)
+  y .= prox_entry.(Ref(f), x, LinearIndices(x), _steps(γ, x))
+  y
+end
+# Parameter arrays cannot be captured in the kernel's function object.
+_enet_prox(v::T, γ, λ1, λ2, w) where {T} =
+  shrink(v, convert(float(T), _weight_coefficient(γ, λ1, w))) / (1 + convert(float(T), γ * λ2))
+function ProximalBase._prox_sep!(y::AnyGPUArray, f::ElasticNet, x::AnyGPUArray, γ::AbstractArray)
+  ProximalBase._checkwrite(prox!, f, y, x)
+  ProximalBase._checkparam(γ, x)
+  y .= _enet_prox.(x, _steps(γ, x), _device_level(float(eltype(y)), f.λ1), _device_level(float(eltype(y)), f.λ2), _reshapeparam(_param(f.w), x))
   y
 end
 
@@ -61,7 +98,15 @@ ProximalBase._value_dense(f, x::GPUArray) =
 # array is not computed in Float64
 _scalar(y, a) = convert(float(eltype(y)), a)
 
-function ProximalBase._prox_sep!(y::GPUArray, f::NormL1, x::GPUArray, γ::Real)
+# Keep a wider isbits level until its weight or step has been applied.
+function _device_level(::Type{T}, λ) where {T}
+  converted = convert(T, λ)
+  _level_preserved(T, λ) && converted == λ && return converted
+  R = promote_type(T, float(typeof(λ)))
+  convert(isbitstype(R) ? R : promote_type(T, Float64), λ)
+end
+
+function ProximalBase._prox_sep!(y::AnyGPUArray, f::NormL1, x::AnyGPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
   y .= shrink.(x, _WeightLevel(_group_levels(float(eltype(y)), γ, f.λ0)...).(_reshapeparam(_param(f.w), x)))
@@ -88,7 +133,7 @@ ProximalBase._converted_l1_value(λ, x::GPUArray) = _scaled_l1_value(λ, x, true
   convert(T, _scaled_product(convert(R, λ), convert(R, n), k))
 end
 
-function ProximalBase._prox_sep!(y::GPUArray, f::NormL1Nonneg, x::GPUArray, γ::Real)
+function ProximalBase._prox_sep!(y::AnyGPUArray, f::NormL1Nonneg, x::AnyGPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
   y .= max.(x .- _WeightLevel(_group_levels(float(eltype(y)), γ, f.λ0)...).(_reshapeparam(_param(f.w), x)), 0)
@@ -101,7 +146,7 @@ function ProximalBase._value_dense(f::NormL1Nonneg, x::GPUArray)
   _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(max, x, zero(T))), _reshapeparam(_param(f.w), x))
 end
 
-function ProximalBase._prox_sep!(y::GPUArray, f::ElasticNet, x::GPUArray, γ::Real)
+function ProximalBase._prox_sep!(y::AnyGPUArray, f::ElasticNet, x::AnyGPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
   y .= shrink.(x, _weight_coefficient.(_scalar(y, γ * f.λ1), _reshapeparam(_param(f.w), x))) ./ (1 + _scalar(y, γ * f.λ2))
@@ -127,7 +172,7 @@ function ProximalBase._value_dense(f::ElasticNet, x::GPUArray)
   l1 + l2
 end
 
-function ProximalBase._prox_sep!(y::GPUArray, f::IndBox, x::GPUArray, ::Real)
+function ProximalBase._prox_sep!(y::AnyGPUArray, f::IndBox, x::AnyGPUArray, ::Real)
   _checksize(y, x)
   _checkparams(f, x)
   y .= clamp.(x, _reshapeparam(f.l, x), _reshapeparam(f.u, x))
@@ -144,7 +189,7 @@ function ProximalBase._value_dense(f::IndBox, x::GPUArray)
   _all(_InBox(_tol(T)), x, _reshapeparam(f.l, x), _reshapeparam(f.u, x)) ? zero(T) : T(Inf)
 end
 
-ProximalBase._prox_sep!(y::GPUArray, ::IndNonnegative, x::GPUArray, ::Real) = (_checksize(y, x); y .= max.(x, 0))
+ProximalBase._prox_sep!(y::AnyGPUArray, ::IndNonnegative, x::AnyGPUArray, ::Real) = (_checksize(y, x); y .= max.(x, 0))
 function ProximalBase._value_dense(::IndNonnegative, x::GPUArray)
   T = float(eltype(x))
   t = _tol(T)
@@ -165,6 +210,32 @@ function ProximalBase._norm_diff2(x::GPUArray, y::GPUArray)
   m = mapreduce(identity, max, instantiate(broadcasted((a, b) -> abs(a - b), x, y)); init = zero(T))
   (iszero(m) || !isfinite(m)) && return m
   m * sqrt(_sum(T, (a, b) -> abs2((a - b) / m), x, y))
+end
+
+
+# Conjugate values use the CPU tolerances and support-function conventions.
+struct _InConjugateL1{T, L}
+  λ::L
+end
+(p::_InConjugateL1{T})(v, w) where {T} = ProximalBase._within(abs(v), _weight_coefficient(p.λ, w), T)
+struct _BoxSupport{T} end
+(::_BoxSupport{T})(v, l, u) where {T} = convert(T, v >= 0 ? (iszero(v) ? zero(T) : v * u) : v * l)
+function ProximalBase._conjugate_value(f::NormL1, y::AnyGPUArray)
+  ProximalBase._checkconjugate(f, y)
+  T = float(eltype(y))
+  λ = _device_level(T, f.λ0)
+  _ind(_all(_InConjugateL1{T, typeof(λ)}(λ), y, _reshapeparam(_param(f.w), y)), T)
+end
+function ProximalBase._conjugate_value(f::IndNonnegative, y::AnyGPUArray)
+  ProximalBase._checkconjugate(f, y)
+  T = float(eltype(y))
+  t = _tol(T)
+  _ind(_all(v -> v <= t, y), T)
+end
+function ProximalBase._conjugate_value(f::IndBox, y::AnyGPUArray)
+  ProximalBase._checkconjugate(f, y)
+  T = float(eltype(y))
+  _sum(T, _BoxSupport{T}(), y, _reshapeparam(_param(f.l), y), _reshapeparam(_param(f.u), y))
 end
 
 ####################################
@@ -786,8 +857,6 @@ end
 
 ProximalBase._zeros_like(a::GPUArray, ::Type{T}, dims) where {T} = fill!(similar(a, T, dims), zero(T))
 
-# the gradient at a device array is a device array
-ProximalBase._gradient_buffer(x::GPUArray) = similar(x, float(eltype(x)))
 
 # The losses with their buffers on the device. The parameters keep the bounds
 # of the types, so that the methods here are more specific than those of the

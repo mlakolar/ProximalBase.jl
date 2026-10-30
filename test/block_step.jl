@@ -8,6 +8,16 @@ struct Flaky <: AbstractVector{Float64} end
 Base.size(::Flaky) = (2,)
 Base.getindex(::Flaky, i::Int) = i == 1 ? 3.0 : error("boom")
 
+struct CustomGroupPenalty <: ProximalBase.AbstractGroupPenalty
+  groups::Vector{UnitRange{Int}}
+end
+
+function ProximalBase.prox_coordinate!(x::AtomIterate, f::CustomGroupPenalty, k::Integer, γ::Real)
+  ProximalBase._check_group_coordinate(f, x, k)
+  atom(x, k) ./= 1 + γ
+  atom(x, k)
+end
+
 function consistent(x::AtomIterate)
   act = collect(activecoordinates(x))
   length(unique(act)) == nactive(x) &&
@@ -220,6 +230,55 @@ end
     end
   end
 
+  @testset "four-argument wrappers support custom group penalties" begin
+    gs = [1:2, 3:4, 5:6]
+    f = CustomGroupPenalty(gs)
+    initial = [3., -6., 0., 0., 2., 0.]
+    for h in (Scaled(f, 2.), Regularize(f, 1.), Regularize(f, 1., ones(6)))
+      x = AtomIterate(initial, gs)
+      y = copy(x)
+      if h isa Scaled
+        prox_coordinate!(y, f, 1, 2.)
+      else
+        atom(y, 1) .= h.c === nothing ? initial[gs[1]] ./ 2 : (initial[gs[1]] .+ 1) ./ 2
+        prox_coordinate!(y, f, 1, 0.5)
+      end
+      result = prox_coordinate!(x, h, 1, 1.)
+      @test state(x) == state(y) && consistent(x)
+      @test parent(result) === x && result == atom(x, 1)
+      before = state(x)
+      msg = "$(typeof(f)) is not separable: prox_coordinate! needs a separable function or a group penalty on matching groups"
+      @test_throws ArgumentError(msg) prox_coordinate!(x, h, 1, [4., -8.], 1.)
+      @test state(x) == before && consistent(x)
+    end
+  end
+
+  @testset "rational regularized group steps" begin
+    gs = [1:2, 3:4, 5:6]
+    f = GroupNormL2(1., gs, ones(3))
+    for c in (nothing, [0.1, 0.1, 0., 0., 0., 0.], [6., 8., 0., 0., 0., 0.])
+      x = AtomIterate(Rational{Int}, 6, gs)
+      activate!(x, 3)
+      activate!(x, 2)
+      y = AtomIterate(Float64, 6, gs)
+      activate!(y, 3)
+      activate!(y, 2)
+      r = Regularize(f, 1., c)
+      prox_coordinate!(x, r, 1, 1.)
+      prox_coordinate!(y, r, 1, 1.)
+      @test Vector(x) == Rational{Int}.(Vector(y))
+      @test activecoordinates(x) == activecoordinates(y)
+      @test activecoordinates(x) == (c !== nothing && c[1] == 6 ? [3, 2, 1] : [3, 2])
+      @test consistent(x)
+    end
+    x = AtomIterate(Rational{Int}, 6, gs)
+    activate!(x, 3)
+    activate!(x, 2)
+    prox_coordinate!(x, Regularize(f, 1.), 1, [1//10, 1//10], 1.)
+    @test all(iszero, atom(x, 1)) && !isactive(x, 1)
+    @test activecoordinates(x) == [3, 2] && consistent(x)
+  end
+
   @testset "steps at zero" begin
     for f in (IndBox(1., 2.), Translate(NormL1(0.3), ones(4)))
       for x in (SparseIterate(zeros(4)), SymmetricSparseIterate(2), AtomIterate(4, [1:2, 3:4]))
@@ -309,7 +368,8 @@ end
 
   @testset "aliased trial points" begin
     for f in (NormL1(0.3), GroupNormL2(0.3, [1:2, 3:4]))
-      for source in (x -> atom(x, 1), x -> atom(x, 2), x -> view(x, 2:3))
+      for source in (x -> atom(x, 1), x -> atom(x, 2), x -> view(x, 2:3),
+                     x -> view(x.storage, 1:2))
         x = AtomIterate([1., 2., 3., 4.], [1:2, 3:4])
         y = copy(x)
         u = source(x)

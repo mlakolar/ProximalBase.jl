@@ -289,7 +289,11 @@ end
 
 # the block step on group k, in place; the group becomes active if it is nonzero
 function prox_coordinate!(x::AtomIterate, f::SparseGroupNormL2, k::Integer, γ::Real)
-  _checksamegroups(f, x)
+  ctx = _check_coordinate(x, f, k)
+  _unchecked_coordinate!(x, f, k, γ, ctx)
+end
+
+function _unchecked_coordinate!(x::AtomIterate, f::SparseGroupNormL2, k, γ, ctx)
   T = float(eltype(x))
   if (iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])
     _soft_group_only!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1))

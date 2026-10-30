@@ -347,7 +347,7 @@ function prox_coordinate!(x::SymmetricSparseIterate, f::AbstractFunction, k::Int
   T = eltype(x)
   r, c = tril_cartesian(x.p, k)
   v = prox_entry(f, convert(T, u), (c - 1) * x.p + r, γ)
-  _setstored!(x, v, k)
+  @inbounds _setstored!(x, v, k)
   v
 end
 
@@ -355,6 +355,7 @@ function _check_coordinate(x::AtomIterate, f::AbstractFunction, k)
   isseparable(f) || _not_separable(f)
   _checkparams(f, x)
   checkbounds(x.groups, k)
+  nothing
 end
 
 # activate before writing; remove a newly active group only after a zero result
@@ -388,29 +389,34 @@ function _separable_group_step!(x::AtomIterate{T}, f, k, src::AbstractVector, γ
 end
 
 function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, γ::Real)
-  _check_coordinate(x, f, k)
-  _separable_group_step!(x, f, k, nothing, γ)
+  ctx = _check_coordinate(x, f, k)
+  _unchecked_coordinate!(x, f, k, γ, ctx)
 end
 
+_atom_alias(x::AtomIterate, u::Array) = u === x.storage
+_atom_alias(x::AtomIterate, u::SubArray) = parent(u) === x || _atom_alias(x, parent(u))
+_atom_alias(x::AtomIterate, u::AbstractArray) = Base.mightalias(x, u)
+
 function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, u::AbstractVector, γ::Real)
-  _check_coordinate(x, f, k)
+  ctx = _check_coordinate(x, f, k)
   _checkreal(f, u)
   length(u) == length(x.groups[k]) ||
     throw(DimensionMismatch("u has length $(length(u)), group $k has size $(length(x.groups[k]))"))
-  if Base.mightalias(x, u)
+  if _atom_alias(x, u)
     u = collect(u)
   end
-  _block_step!(x, f, k, u, γ)
+  _block_step!(x, f, k, u, γ, ctx)
 end
 
-_block_step!(x::AtomIterate, f, k, u, γ) = _separable_group_step!(x, f, k, u, γ)
+_unchecked_coordinate!(x::AtomIterate, f, k, γ, ctx) = _separable_group_step!(x, f, k, nothing, γ)
+_block_step!(x::AtomIterate, f, k, u, γ, ctx) = _separable_group_step!(x, f, k, u, γ)
 
-function _stage_and_step!(x::AtomIterate{T}, f, k, u, γ) where {T}
+function _stage_and_step!(x::AtomIterate{T}, f, k, u, γ, ctx) where {T}
   if T <: AbstractFloat && eltype(u) <: Union{AbstractFloat, Integer} && u isa StridedVector
     # strided reads, conversion and checked group kernels cannot fail
     was = isactive(x, k)
     copyto!(_atom_storage(x, k), u)
-    result = prox_coordinate!(x, f, k, γ)
+    result = _unchecked_coordinate!(x, f, k, γ, ctx)
     if !was && isactive(x, k) && _allzero(x.storage, x.groups[k])
       _deactivate!(x, k)
     end
@@ -427,7 +433,7 @@ function _stage_and_step!(x::AtomIterate{T}, f, k, u, γ) where {T}
       active = true
     end
   end
-  result = prox_coordinate!(x, f, k, γ)
+  result = _unchecked_coordinate!(x, f, k, γ, ctx)
   # the group was appended last and no other group changed; restore the list
   if !was && isactive(x, k) && _allzero(x.storage, G)
     _deactivate!(x, k)

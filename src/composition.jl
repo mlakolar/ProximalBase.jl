@@ -572,14 +572,18 @@ end
 _checkparams(r::Regularize, x) = (_checkparam(r.c, x); _checkparams(r.f, x))
 
 _check_coordinate(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k) = (_checkparams(r, x); _check_coordinate(x, r.f, k))
-_block_step!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k, u, γ) = _stage_and_step!(x, r, k, u, γ)
+_block_step!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k, u, γ, ctx) = _stage_and_step!(x, r, k, u, γ, ctx)
 _check_coordinate(::AtomIterate, ::_ArrayPrecompose{<:AbstractGroupPenalty}, ::Integer) = _array_group_operations()
 
 # a regularized group penalty on an AtomIterate: shrink the group towards c,
 # then take the step of the group penalty
 function prox_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k::Integer, γ::Real)
   _checkparams(r, x)
-  _check_group_coordinate(r.f, x, k)
+  ctx = _check_group_coordinate(r.f, x, k)
+  _unchecked_coordinate!(x, r, k, γ, ctx)
+end
+
+function _unchecked_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k, γ, ctx)
   T = eltype(x)
   S = float(T)
   step, ρ = convert(S, γ), convert(S, r.ρ)
@@ -590,7 +594,7 @@ function prox_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty},
     @inbounds for i in x.groups[k]
       x.storage[i] = r.c === nothing ? a * x.storage[i] : _ridge_blend(x.storage[i], r.c[i], a, b)
     end
-    prox_coordinate!(x, r.f, k, _regularize_step(step, ρ))
+    _unchecked_coordinate!(x, r.f, k, _regularize_step(step, ρ), ctx)
     if !was && isactive(x, k) && _allzero(x.storage, x.groups[k])
       _deactivate!(x, k)
     end
@@ -606,7 +610,7 @@ function prox_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty},
       active = true
     end
   end
-  prox_coordinate!(x, r.f, k, _regularize_step(step, ρ))
+  _unchecked_coordinate!(x, r.f, k, _regularize_step(step, ρ), ctx)
   # the group was appended last and no other group changed; restore the list
   if !was && isactive(x, k) && _allzero(x.storage, x.groups[k])
     _deactivate!(x, k)

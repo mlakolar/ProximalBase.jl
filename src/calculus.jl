@@ -457,8 +457,9 @@ projections, including positive scaling, translations and separable sums.
 Clipping is accurate to the rounding of each coefficient. Euclidean projections
 use scaled significands at exceptional magnitudes, preserving small coordinates
 when the norm overflows or the projection factor underflows. Ungrouped dual
-coordinates of `GroupNormL2` are zero. Array steps and `prox_entry` use the same
-clipping formulas for separable families. Translations require `γb` to be finite
+coordinates of `GroupNormL2` are zero. Infinite weights leave the corresponding
+dual coordinates or groups free, including at zero level. Array steps and
+`prox_entry` use the same clipping formulas for separable families. Translations require `γb` to be finite
 in working precision.
 
 Other families use Moreau's identity, including `NormLinf`, `GroupNormLinf`,
@@ -1138,6 +1139,7 @@ end
 Base.broadcastable(a::_ProjectionScale) = Ref(a)
 Base.isfinite(a::_ProjectionScale) = isfinite(a.m)
 Base.isinf(a::_ProjectionScale) = isinf(a.m)
+Base.iszero(a::_ProjectionScale) = iszero(a.m)
 Base.isone(a::_ProjectionScale) = a.m == 0.5 && a.e == 1
 _projection_real(a::Real) = a
 _projection_real(a::_ProjectionScale) = ldexp(a.m, a.e)

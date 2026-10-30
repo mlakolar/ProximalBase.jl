@@ -1559,7 +1559,7 @@ end
       for (λ, a, w, expected) in ((Inf, 1.0, 1.0, T[3, 4]),
                                 (1.0, Inf, 1.0, T[3, 4]),
                                 (Inf, 1.0, 0.0, T[0, 0]),
-                                (0.0, Inf, Inf, T[0, 0]),
+                                (0.0, Inf, Inf, T[3, 4]),
                                 (1.0, Inf, 0.0, T[0, 0]))
         f = Adapt.adapt(DeviceArray, Scaled(GroupNormL2(λ, [1:2], [w]), a))
         y = DeviceArray(zeros(T, 2))
@@ -1626,5 +1626,50 @@ end
     v = op(blocks, Conjugate(SeparableSum(c.f)), (dx,), 1.0)
     @test host(blocks[1]) == expected
     op === value_and_prox! && @test v == 0
+  end
+end
+
+@testset "direct conjugate infinite-weight domains on device arrays" begin
+  allowscalar(false)
+  for T in test_types, λ in (zero(T), T(0.5), T(Inf)),
+      w in (T[1, Inf, 0], T[Inf, Inf, Inf], T[0, 1, 2], T[floatmax(T) / 4, 1, Inf])
+    x = T[3, 4, 1, -2, 0.5, 0.5, 7]
+    for groups in ([1:2, 3:4, 5:6], [[1, 3], [4, 5], [6]])
+      base = GroupNormL2(λ, groups, w)
+      functions = isfinite(λ) ? (base, Scaled(base, zero(T)), Scaled(Scaled(base, T(2)), zero(T))) : (base,)
+      for f in functions
+        expected = x .- prox(f, x, one(T))
+        c = Conjugate(Adapt.adapt(DeviceArray, f))
+        for op in (prox!, value_and_prox!), alias in (false, true)
+          source = DeviceArray(x)
+          y = alias ? source : similar(source)
+          v = op(y, c, source, one(T))
+          result = host(y)
+          @test result ≈ expected rtol = 8eps(T) atol = 8eps(T)
+          op === value_and_prox! && @test v == 0
+          for k in eachindex(groups)
+            isinf(w[k]) && @test result[groups[k]] == x[groups[k]]
+          end
+          @test all(i -> any(G -> i in G, groups) || iszero(result[i]), eachindex(x))
+        end
+      end
+    end
+    for base in (GroupNormL2(λ, [[1], [2], [3]], w), NormL1(λ, w), NormL1Nonneg(λ, w))
+      functions = isfinite(λ) ? (base, Scaled(base, zero(T))) : (base,)
+      # Device group penalties support scalar steps; clipping also supports arrays.
+      steps = base isa GroupNormL2 ? (one(T),) : (one(T), T[0.5, 1, 2])
+      for f in functions, γ in steps
+        input = T[3, -4, 2]
+        expected = input .- γ .* prox(f, input ./ γ, inv.(γ))
+        c = Conjugate(Adapt.adapt(DeviceArray, f))
+        step = γ isa Real ? γ : DeviceArray(γ)
+        for op in (prox!, value_and_prox!)
+          y = DeviceArray(zeros(T, 3))
+          v = op(y, c, DeviceArray(input), step)
+          @test host(y) ≈ expected rtol = 8eps(T) atol = 8eps(T)
+          op === value_and_prox! && @test v == 0
+        end
+      end
+    end
   end
 end

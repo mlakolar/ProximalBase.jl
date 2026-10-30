@@ -1067,8 +1067,8 @@ Adapt.adapt_structure(to, f::ProximalBase.Translate) = ProximalBase.Translate(Ad
 ProximalBase._maximum_abs(x::AnyGPUArray) = mapreduce(abs, max, x; init = zero(float(eltype(x))))
 
 function ProximalBase._project_l2!(y::AnyGPUArray, x::AnyGPUArray, λ, α = 1, w = 1)
-  (iszero(λ) || iszero(w)) && return fill!(y, zero(eltype(y)))
   isinf(w) && return copyto!(y, x)
+  (iszero(λ) || iszero(w)) && return fill!(y, zero(eltype(y)))
   T = float(eltype(x))
   α = _device_projection_scale(T, ProximalBase._projection_accumulate(α, λ))
   λ = one(T)
@@ -1093,8 +1093,9 @@ ProximalBase._checkparams(d::DeviceGroups, x) = _checkparams(d.f, x)
 # Store a significand and exponent per group, so even an underflowing factor
 # can be applied to the original coordinates in the scatter kernel.
 function _projection_parts(m::T, q, λ, α, w)::Tuple{T, Int} where {T}
-  (iszero(λ) || iszero(w)) && return (zero(m), 0)
-  (iszero(m) || isinf(w) || isinf(λ) || isinf(α)) && return (one(m), 0)
+  isinf(w) && return (one(m), 0)
+  (iszero(λ) || iszero(α) || iszero(w)) && return (zero(m), 0)
+  (iszero(m) || isinf(λ) || isinf(α)) && return (one(m), 0)
   a, e = frexp(m)
   r1, e1 = ProximalBase._projection_scale_parts(α)
   r2, e2 = frexp(float(λ))
@@ -1107,7 +1108,7 @@ _projection_scatter(v, p, _) = ProximalBase._projection_scale(v, p[1], p[2])
 function ProximalBase._conjugate_projection!(z::AnyGPUArray, d::DeviceGroups{<:GroupNormL2}, x::AnyGPUArray, γ, α = 1)
   lay, f = d.layout, d.f
   T = float(eltype(x))
-  iszero(f.λ0) && return fill!(z, zero(eltype(z)))
+  (iszero(f.λ0) && !_has_infinite_group_weight(lay)) && return fill!(z, zero(eltype(z)))
   α = _device_projection_scale(T, ProximalBase._projection_accumulate(α, f.λ0))
   parts = _group_buffer(vec(x), Tuple{T, Int}, lay, Ref((zero(T), 0)))
   for b in lay.blocks

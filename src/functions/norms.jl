@@ -1021,8 +1021,8 @@ end
 # Project onto an L2 ball without subtracting two nearly equal coordinates.
 # Only exceptional norms or factors need exponent arithmetic.
 function _project_l2!(y, x, λ, α = 1, w = 1)
-  (iszero(λ) || iszero(w)) && return fill!(y, zero(eltype(y)))
   isinf(w) && return copyto!(y, x)
+  (iszero(λ) || iszero(w)) && return fill!(y, zero(eltype(y)))
   c = _projection_product(α, λ, w)
   n = _norm2(x)
   R = promote_type(float(eltype(x)), float(eltype(y)))
@@ -1060,13 +1060,13 @@ _projection_scale(v::Real, r, k) = _scaled_product(promote(float(r), float(v))..
 
 # Linear group indices address the original matrix without reshape headers.
 function _project_l2_group!(y, x, G, λ, α = 1, w = 1)
+  isinf(w) && return _project_l2_group_scale!(y, x, G, 1)
   if iszero(λ) || iszero(w)
     @inbounds @simd for i in G
       y[i] = zero(eltype(y))
     end
     return y
   end
-  isinf(w) && return _project_l2_group_scale!(y, x, G, 1)
   c = _projection_product(α, λ, w)
   n = _projection_group_norm2(x, G)
   R = promote_type(float(eltype(x)), float(eltype(y)))

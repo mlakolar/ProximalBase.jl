@@ -5,7 +5,8 @@ using ..TestUtils
 
 # Build every intermediate at the reference precision, including coefficients.
 weight(w, i) = w === nothing ? BigFloat(1) : BigFloat(w[i])
-coefficient(α, λ, w) = isinf(w) ? BigFloat(Inf) : α * BigFloat(λ) * w
+coefficient(α, λ, w) = isinf(w) ? BigFloat(Inf) :
+  iszero(λ) || iszero(w) ? BigFloat(0) : α * BigFloat(λ) * w
 function reference(f, x, γ, α = BigFloat(1))
   X = BigFloat.(x)
   if f isa Scaled
@@ -33,7 +34,7 @@ function reference(f, x, γ, α = BigFloat(1))
     Y = zero(X)
     for (k, G) in enumerate(f.groups)
       isempty(G) && continue
-      r = iszero(f.λ0) || iszero(f.w[k]) ? BigFloat(0) : α * BigFloat(f.λ0) * BigFloat(f.w[k])
+      r = coefficient(α, f.λ0, BigFloat(f.w[k]))
       n = norm(X[G])
       Y[G] .= iszero(n) ? X[G] : X[G] .* min(BigFloat(1), r / n)
     end
@@ -63,7 +64,7 @@ function feasible(f, y, α = BigFloat(1))
     @test norm(Y) <= c + length(y) * slack(c)
   elseif f isa GroupNormL2
     for (k, G) in enumerate(f.groups)
-      c = iszero(f.λ0) || iszero(f.w[k]) ? BigFloat(0) : α * BigFloat(f.λ0) * BigFloat(f.w[k])
+      c = coefficient(α, f.λ0, BigFloat(f.w[k]))
       @test norm(Y[G]) <= c + length(G) * slack(c)
     end
     for i in eachindex(y)
@@ -140,6 +141,55 @@ end
     @test prox!(zeros(Float32, 2), Conjugate(NormL2()), [1e39, 0.0], 1.0) == Float32[1, 0]
     @test prox(Conjugate(GroupNormL2(1.0, Vector{Int}[], Float64[])), [2.0, 3.0], 1.0) == zeros(2)
     @test_throws ArgumentError GroupNormL2(1.0, [Int[]], [1.0])
+  end
+end
+
+@testset "conjugate projections retain infinite-weight domains" begin
+  for T in (Float32, Float64), λ in (zero(T), T(0.5), T(Inf)),
+      w in (T[1, Inf, 0], T[Inf, Inf, Inf], T[0, 1, 2], T[floatmax(T) / 4, 1, Inf])
+    x = T[3, 4, 1, -2, 0.5, 0.5, 7]
+    for groups in ([1:2, 3:4, 5:6], [[1, 3], [4, 5], [6]])
+      base = GroupNormL2(λ, groups, w)
+      functions = isfinite(λ) ? (base, Scaled(base, zero(T)), Scaled(Scaled(base, T(2)), zero(T))) : (base,)
+      for f in functions, γ in (T(0.5), one(T))
+        expected = x .- γ .* prox(f, x ./ γ, inv(γ))
+        c = Conjugate(f)
+        for op in (prox!, value_and_prox!), atom in (false, true), alias in (false, true)
+          # The atom partition also represents holes and trailing coordinates.
+          source = atom ? AtomIterate(x, [[1, 2], [3, 4], [5, 6, 7]]) : copy(x)
+          y = alias ? source : copy(source)
+          v = op(y, c, source, γ)
+          @test Vector(y) ≈ expected rtol = 8eps(T) atol = 8eps(T)
+          @test all(i -> any(G -> i in G, groups) || iszero(y[i]), eachindex(x))
+          op === value_and_prox! && @test v == 0
+          for k in eachindex(groups)
+            isinf(w[k]) && @test Vector(y)[groups[k]] == x[groups[k]]
+          end
+        end
+      end
+    end
+    # Array steps for the group fallback require a step per group and entry.
+    groups = [[1], [2], [3]]
+    for base in (GroupNormL2(λ, groups, w), NormL1(λ, w), NormL1Nonneg(λ, w))
+      functions = isfinite(λ) ? (base, Scaled(base, zero(T))) : (base,)
+      isinf(λ) && @test_throws ArgumentError Scaled(base, zero(T))
+      for f in functions, γ in (T(0.5), T[0.5, 1, 2])
+        input = T[3, -4, 2]
+        expected = input .- γ .* prox(f, input ./ γ, inv.(γ))
+        c = Conjugate(f)
+        atoms = base isa GroupNormL2 ? (false, true) : (false,)
+        for op in (prox!, value_and_prox!), atom in atoms, alias in (false, true)
+          source = atom ? AtomIterate(input, groups) : copy(input)
+          y = alias ? source : copy(source)
+          v = op(y, c, source, γ)
+          @test Vector(y) ≈ expected rtol = 8eps(T) atol = 8eps(T)
+          op === value_and_prox! && @test v == 0
+        end
+        if isseparable(f)
+          @test T[prox_entry(c, input[i], i, γ isa Real ? γ : γ[i]) for i in eachindex(input)] ≈ expected
+        end
+      end
+    end
   end
 end
 

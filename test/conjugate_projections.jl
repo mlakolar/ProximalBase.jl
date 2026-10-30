@@ -1667,4 +1667,84 @@ end
   end
 end
 
+@testset "exceptional conjugate oracles return their destination" begin
+  for T in (Float32, Float64), base in (NormLinf(one(T)), GroupNormLinf(one(T), [1:2])),
+      scaled in (false, true), tuple_block in (false, true), alias in (false, true)
+    f = scaled ? Scaled(base, T(2)) : base
+    c = Conjugate(tuple_block ? SeparableSum(f, NormLinf(one(T))) : f)
+    x = tuple_block ? (T[Inf, 1], T[2]) : T[Inf, 1]
+    y = alias ? x : deepcopy(x)
+    @test prox!(y, c, x, one(T)) === y
+    expected = tuple_block ? (T[NaN, 0], T[1]) : T[NaN, 0]
+    @test isequal(y, expected)
+    input = tuple_block ? (T[Inf, 1], T[2]) : T[Inf, 1]
+    @test isequal(prox(c, input, one(T)), expected)
+  end
+end
+
+@testset "exceptional translations retain original Moreau arithmetic" begin
+  # These literal points and NaN values were checked on archived master.
+  for T in (Float32, Float64), F in (NormLinf, GroupNormLinf),
+      mode in (:bare, :scaled, :nested), tuple_block in (false, true),
+      op in (prox!, value_and_prox!), alias in (false, true)
+    base = F === NormLinf ? F(one(T)) : F(one(T), [1:2])
+    b = T[0.5, 2.0^100]
+    f = Translate(base, b)
+    f = mode === :scaled ? Scaled(f, T(2)) : mode === :nested ?
+      Scaled(Translate(Scaled(f, T(3)), T[0.25, 0.25]), T(2)) : f
+    c = Conjugate(tuple_block ? SeparableSum(f, NormLinf(one(T))) : f)
+    input = tuple_block ? (T[Inf, 1], T[2]) : T[Inf, 1]
+    y = alias ? input : deepcopy(input)
+    v = op(y, c, input, one(T))
+    # The outer 0.25 survives the inner huge cancellation on master.
+    second = mode === :nested ? T(0.75) : one(T)
+    expected = tuple_block ? (T[NaN, second], T[1]) : T[NaN, second]
+    @test isequal(y, expected)
+    if op === prox!
+      @test v === y
+      x = tuple_block ? (T[Inf, 1], T[2]) : T[Inf, 1]
+      @test isequal(prox(c, x, one(T)), expected)
+    else
+      @test isnan(v)
+    end
+  end
+end
+
+@testset "tuple recovery preserves protected L1 groups" begin
+  for T in (Float32, Float64), λ in (zero(T), one(T), T(Inf)),
+      translated in (false, true), op in (prox!, value_and_prox!), alias in (false, true)
+    base = GroupNormLinf(λ, [[1, 2], [3], [4], [5, 6]], T[Inf, 1, 0, 1])
+    f = translated ? Translate(base, fill(T(0.25), 6)) : base
+    c = Conjugate(SeparableSum(f, NormLinf(one(T))))
+    input = (T[NaN, 1, Inf, NaN, 4, 2], T[2])
+    y = alias ? input : deepcopy(input)
+    shift = translated ? T(0.25) : zero(T)
+    tail = iszero(λ) ? T[0, 0] : isinf(λ) ? T[4-shift, 2-shift] : T[1, 0]
+    # Master contaminates the free NaN group; #300 instead keeps it free,
+    # including λ0=0. Zero groups and finite shortcuts must not be rerun.
+    expected = (vcat(T[NaN, 1-shift, iszero(λ) ? 0 : isinf(λ) ? Inf : NaN, 0], tail), T[1])
+    v = op(y, c, input, one(T))
+    @test isequal(y, expected)
+    op === prox! ? (@test v === y) : (@test isequal(v, translated ? T(NaN) : zero(T)))
+  end
+end
+
+@testset "exceptional unit groups recover only their own input" begin
+  # Master's original translated group computation returns 1 after the
+  # huge cancellation. Finite groups retain their direct projections.
+  for T in (Float32, Float64), translated in (false, true), tuple_block in (false, true),
+      op in (prox!, value_and_prox!), alias in (false, true)
+    base = GroupNormLinf(one(T), [1:2, 3:4, 5:6])
+    f = translated ? Translate(base, T[0.25, 0.25, 0.5, 2.0^100, 0.25, 0.25]) : base
+    c = Conjugate(tuple_block ? SeparableSum(f, NormLinf(one(T))) : f)
+    input = tuple_block ? (T[4, 2, Inf, 1, 3, 1], T[2]) : T[4, 2, Inf, 1, 3, 1]
+    y = alias ? input : deepcopy(input)
+    point = T[1, 0, NaN, translated ? 1 : 0, 1, 0]
+    expected = tuple_block ? (point, T[1]) : point
+    v = op(y, c, input, one(T))
+    @test isequal(y, expected)
+    op === prox! ? (@test v === y) : (@test isequal(v, translated ? T(NaN) : zero(T)))
+  end
+end
+
 end

@@ -621,10 +621,15 @@ _checkmoreau(y, x, z, step, γ, always::Bool) =
 
 function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _checkwrite(prox!, c, y, x)
-  _projection_direct_output(c.f, y, x) && return _conjugate_projection!(y, c.f, x, γ)
+  if _projection_direct_output(c.f, y, x)
+    result = _conjugate_projection!(y, c.f, x, γ)
+    result isa _L1ProjectionFallback && _projection_l1_moreau_blocks!(y, c.f, x, γ, 1, result, Val(false), prox!)
+    return y
+  end
   T = float(eltype(y))
   z = _array_buffer!(c.scratch, T, x)
-  _projection_fallback(c.f, y, x) ? _conjugate_moreau!(z, c.f, x, γ) : _conjugate_projection!(z, c.f, x, γ)
+  result = _projection_fallback(c.f, y, x) ? _conjugate_moreau!(z, c.f, x, γ) : _conjugate_projection!(z, c.f, x, γ)
+  result isa _L1ProjectionFallback && _projection_l1_moreau_blocks!(z, c.f, x, γ, 1, result, Val(false), prox!)
   _check_projection_result(z, x, γ)
   copyto!(y, z)
 end
@@ -1452,9 +1457,7 @@ _conjugate_projection!(z, f::Scaled, x, γ, α = 1) =
 function _conjugate_projection!(z, f::Translate, x, γ, α = 1)
   _direct_projection(f.f, x) || return _conjugate_moreau!(z, f, x, γ, α)
   p = _projection_shifted!(f, z, x, γ)
-  result = _conjugate_projection!(z, f.f, p, γ, α)
-  result === nothing && _checkmoreau(z, x, z, one(float(eltype(z))), γ, true)
-  result
+  _conjugate_projection!(z, f.f, p, γ, α)
 end
 _conjugate_entry(f::Scaled, v, i, γ) =
   convert(float(promote_type(typeof(v), typeof(γ))), _scaled_conjugate_entry(f.f, v, i, γ, f.α))
@@ -1493,10 +1496,10 @@ function _conjugate_projection_block!(z, f, x, γ, α, output = z)
   _projection_fallback(f, output, x) && return _conjugate_projection_target!(z, f, output, x, γ, x isa Tuple ? a : α)
   result = _any_direct_projection(f, x) || f isa SeparableSum ?
     _conjugate_projection!(z, f, x, γ, a) : _conjugate_moreau_block!(z, f, x, γ, a)
-  if result === nothing && _projection_l1_leaf(typeof(f))
-    _projection_l1_moreau_blocks!(z, f, x, γ, a, Val(true), prox!)
+  if result isa _L1ProjectionFallback
+    _projection_l1_moreau_blocks!(z, f, x, γ, α, result, Val(true), prox!)
   end
-  result
+  z
 end
 _conjugate_projection_blocks!(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, α, ::Tuple{}) = nothing
 function _conjugate_projection_blocks!(z::Tuple, fs::Tuple, x::Tuple, γ, α, output)
@@ -1529,16 +1532,14 @@ function _conjugate_projection!(z, f::GroupNormL2, x, γ, α = 1)
   z
 end
 
-# Exceptional blocks retain the legacy arithmetic, including when x aliases z.
-function _projection_l1_moreau!(z, f, x, γ, α)
-  input = Base.mightalias(z, x) ? copy(x) : x
-  _conjugate_moreau!(z, f, input, γ, _projection_l1_plain(α))
-  nothing
+# Only exceptional groups allocate a recovery request.
+struct _L1ProjectionFallback
+  groups::Vector{Int}
 end
 function _conjugate_projection!(z, f::NormLinf, x, γ, α = 1)
   (_projection_host(x) && _projection_host(z)) || return _conjugate_moreau!(z, f, x, γ, α)
   _project_l1!(z, x, eachindex(IndexLinear(), x), f.scratch, f.λ, α) !== nothing && return z
-  _projection_l1_moreau!(z, f, x, γ, α)
+  _L1ProjectionFallback([1])
 end
 function _conjugate_projection!(z, f::GroupNormLinf, x, γ, α = 1)
   (_projection_host(x) && _projection_host(z)) || return _conjugate_moreau!(z, f, x, γ, α)
@@ -1550,17 +1551,16 @@ function _conjugate_projection!(z, f::GroupNormLinf, x, γ, α = 1)
   end
   result = _projection_l1_unit_groups!(z, x, f, α, γ)
   result === true && return z
-  result === nothing && return nothing
-  nonfinite = false
+  result isa _L1ProjectionFallback && return result
+  fallback = nothing
   @inbounds for k in eachindex(f.groups)
     G = f.groups[k]
     if _project_l1!(z, x, G, f.scratch, f.λ0, α, f.w[k]) === nothing
-      block = GroupNormLinf(f.λ0, [1:length(G)], [f.w[k]])
-      _projection_l1_moreau!(view(z, G), block, view(x, G), γ, α)
-      nonfinite = true
+      fallback === nothing && (fallback = Int[])
+      push!(fallback, k)
     end
   end
-  nonfinite ? nothing : z
+  fallback === nothing ? z : _L1ProjectionFallback(fallback)
 end
 
 _scaled_conjugate_entry(::ZeroFunction, v, i, γ, α) = zero(float(v))
@@ -1652,23 +1652,26 @@ _projection_fenchel_value(z::Tuple, x::Tuple, γ) = sum(map((zk, xk) -> _project
 _projection_l1_groups(f::NormLinf, x) = (eachindex(IndexLinear(), x),)
 _projection_l1_groups(f::GroupNormLinf, x) = f.groups
 _projection_l1_groups(f::Union{Scaled,Translate}, x) = _projection_l1_groups(f.f, x)
-_projection_l1_block(f::NormLinf, k, G, strip) = f
-_projection_l1_block(f::GroupNormLinf, k, G, strip) = GroupNormLinf(f.λ0, [1:length(G)], [f.w[k]])
-_projection_l1_block(f::Scaled, k, G, strip) = strip ?
-  _projection_l1_block(f.f, k, G, strip) : Scaled(_projection_l1_block(f.f, k, G, strip), f.α)
-_projection_l1_block(f::Translate, k, G, strip) = Translate(_projection_l1_block(f.f, k, G, strip), view(f.b, G))
-# The translated value oracle uses the reciprocal step on master. Retain that
-# arithmetic only for exceptional groups; finite groups keep their projection.
-@noinline function _projection_l1_moreau_blocks!(z, f, x, γ, α, context, op)::_valtype(z)
+_projection_l1_block(f::NormLinf, k, G) = f
+_projection_l1_block(f::GroupNormLinf, k, G) = GroupNormLinf(f.λ0, [1:length(G)], [f.w[k]])
+_projection_l1_block(f::Scaled, k, G) = _conjugate_block_scaled(_projection_l1_block(f.f, k, G), f.α)
+_projection_l1_block(f::Translate, k, G) = Translate(_projection_l1_block(f.f, k, G), view(f.b, G))
+# Keep the original wrappers and Moreau oracle. Only requested groups may
+# be written; infinite-weight and zero-radius shortcuts remain untouched.
+@noinline function _projection_l1_moreau_blocks!(z, f, x, γ, α, request, context, op)::_valtype(z)
   v = _zero_value(z)
   for (k, G) in enumerate(_projection_l1_groups(f, x))
     isempty(G) && continue
-    block = _projection_l1_block(f, k, G, α isa _L1ProjectionFactors)
+    block = _projection_l1_block(f, k, G)
     output = view(z, G)
-    if !isfinite(_projection_group_maxabs(x, G))
+    if k in request.groups
       input = Base.mightalias(z, x) ? copy(view(x, G)) : view(x, G)
       if op === prox!
-        _conjugate_moreau_block!(output, block, input, γ, _projection_l1_plain(α))
+        if context isa Val{true}
+          _conjugate_moreau_block!(output, block, input, γ, _projection_l1_plain(α))
+        else
+          _conjugate_moreau!(output, block, input, γ, _projection_l1_plain(α))
+        end
       else
         v += _conjugate_moreau_value!(output, block, input, γ, _projection_l1_plain(α), context)
       end
@@ -1681,17 +1684,20 @@ end
 _projection_l1_value(f::Union{NormLinf,GroupNormLinf}, z) = _zero_value(z)
 _projection_l1_value(f::Scaled, z) = _projection_l1_value(f.f, z)
 _projection_l1_value(f::Translate, z) = _projection_l1_value(f.f, z) + dot(f.b, z)
+@inline function _conjugate_l1_value!(z, f, x, γ, α, context)
+  result = _conjugate_projection!(z, f, x, γ, _projection_block_scale(f, α, x))
+  result isa _L1ProjectionFallback && return _projection_l1_moreau_blocks!(z, f, x, γ, α, result, context, value_and_prox!)
+  _projection_l1_value(f, z)
+end
 function _conjugate_projection_value!(z, f::Translate, x, γ, α = 1)
+  _projection_l1_leaf(typeof(f)) && return _conjugate_l1_value!(z, f, x, γ, α, Val(false))
   p = _projection_shifted!(f, z, x, γ)
-  if _projection_l1_leaf(typeof(f.f))
-    result = _conjugate_projection!(z, f.f, p, γ, α)
-    result === nothing && return _projection_l1_moreau_blocks!(z, f, x, γ, α, Val(false), value_and_prox!)
-    return _projection_l1_value(f.f, z) + dot(f.b, z)
-  end
   v = _conjugate_projection_value!(z, f.f, p, γ, α)
   v + dot(f.b, z)
 end
-_conjugate_projection_value!(z, f::Scaled, x, γ, α = 1) = _conjugate_projection_value!(z, f.f, x, γ, _projection_wrapper_scale(f.f, α, f.α, x))
+_conjugate_projection_value!(z, f::Scaled, x, γ, α = 1) = _projection_l1_leaf(typeof(f)) ?
+  _conjugate_l1_value!(z, f, x, γ, α, Val(false)) :
+  _conjugate_projection_value!(z, f.f, x, γ, _projection_wrapper_scale(f.f, α, f.α, x))
 _conjugate_projection_value!(z::Tuple, f::SeparableSum, x::Tuple, γ, α = 1) =
   _conjugate_projection_values!(z, f.fs, x, γ, α)
 function _conjugate_projection_value_block!(z, f, x, γ, α, output = z)
@@ -1707,9 +1713,7 @@ function _conjugate_projection_value_block!(z, f, x, γ, α, output = z)
     return _zero_value(z)
   end
   if _projection_l1_leaf(typeof(f))
-    result = _conjugate_projection!(z, f, x, γ, a)
-    result === nothing && return _projection_l1_moreau_blocks!(z, f, x, γ, a, Val(true), value_and_prox!)
-    return _projection_l1_value(f, z)
+    return _conjugate_l1_value!(z, f, x, γ, α, Val(true))
   end
   _any_direct_projection(f, x) || f isa SeparableSum ?
     _conjugate_projection_value!(z, f, x, γ, a) : _conjugate_moreau_value!(z, f, x, γ, a, Val(true))

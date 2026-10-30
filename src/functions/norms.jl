@@ -1264,24 +1264,40 @@ function _projection_group_maxabs(x::AbstractArray, G)
   m
 end
 
+@inline _projection_l1_scale(v, e) = ldexp(v, e)
+function _projection_l1_scale(v::BigFloat, e)
+  # Windows Int exponents otherwise select ldexp's rounded exp2 fallback.
+  # MPFR's full exponent span fits Clong; wider shifts necessarily saturate.
+  ldexp(v, Clong(clamp(e, typemin(Clong), typemax(Clong))))
+end
+
 # Julia 1.10's ldexp truncates some values below the smallest subnormal.
 # A normal power-of-two scaling followed by multiplication rounds only once.
 @inline function _projection_l1_ldexp(v::R, e) where {R}
   e < exponent(floatmin(R)) ? ldexp(v, e + precision(R)) * ldexp(one(R), -precision(R)) : ldexp(v, e)
 end
 
+_projection_l1_ldexp(v::BigFloat, e) = _projection_l1_scale(v, e)
+
+# Products of finite BigFloat factors can exceed a machine exponent.
+struct _L1ProjectionBigScale
+  m::BigFloat
+  e::BigInt
+end
+_projection_scale_parts(a::_L1ProjectionBigScale) = (a.m, a.e)
+
 # Offsets at or beyond the radius cannot enter the support. Apply the exponent
 # after subtraction: huge tied maxima must still have exactly zero offset.
 @inline function _projection_l1_offset(v, m, r, scale, e, ::Type{R}) where {R}
   d = m - abs(convert(R, v))
-  min(r, isfinite(scale) && !iszero(scale) ? d * scale : ldexp(d, -e))
+  min(r, isfinite(scale) && !iszero(scale) ? d * scale : _projection_l1_scale(d, -e))
 end
 
 # Preserve integer offsets before rounding, including at typemin.
 @inline _projection_l1_magnitude(v::Base.BitInteger) = v < 0 ? -unsigned(v) : unsigned(v)
 @inline function _projection_l1_offset(v::Base.BitInteger, m::Unsigned, r, scale, e, ::Type{R}) where {R}
   d = convert(R, m - _projection_l1_magnitude(v))
-  min(r, isfinite(scale) && !iszero(scale) ? d * scale : ldexp(d, -e))
+  min(r, isfinite(scale) && !iszero(scale) ? d * scale : _projection_l1_scale(d, -e))
 end
 function _projection_l1_max(x, G, ::Type{R}) where {R}
   m = zero(R)
@@ -1318,7 +1334,7 @@ function _projection_l1_product(fs::Tuple, h, l, e, δ, ::Type{R}) where {R}
     if b isa Real && !(b isa AbstractFloat) && convert(R, b) != b
       δ = nextfloat(δ + (1 + δ) * eps(R))
     end
-    h, l, e = hi, ldexp(lo, -shift), e + eb + shift
+    h, l, e = hi, _projection_l1_scale(lo, -shift), e + eb + shift
   end
   _projection_l1_product(Base.tail(fs), h, l, e, δ, R)
 end
@@ -1326,10 +1342,11 @@ end
 function _projection_l1_coefficient(α, λ, w, x, y)
   fs = (_projection_l1_factors(α)..., λ, w)
   R = promote_type(Float64, float(eltype(x)), float(eltype(y)), map(_projection_l1_type, fs)...)
-  h, l, e, δ = _projection_l1_product(fs, R(0.5), zero(R), 1, zero(R), R)
+  h, l, e, δ = _projection_l1_product(fs, R(0.5), zero(R), R === BigFloat ? BigInt(1) : 1, zero(R), R)
   error = iszero(δ) ? abs(l) : nextfloat(abs(l) + nextfloat(δ * h))
   lower = iszero(error) ? h : max(zero(R), prevfloat(h - error))
-  _ProjectionScale(h, e), error, lower
+  a = R === BigFloat ? _L1ProjectionBigScale(h, e) : _ProjectionScale(h, e)
+  a, error, lower
 end
 
 function _projection_l1_fast_buffer!(s, ::Type{Float32}, n)
@@ -1516,7 +1533,7 @@ function _projection_l1_inside(x, G, r::R, scale, e) where {R}
   s = zero(R)
   @inbounds @simd for i in G
     v = abs(convert(R, x[i]))
-    s += isfinite(scale) && !iszero(scale) ? v * scale : ldexp(v, -e)
+    s += isfinite(scale) && !iszero(scale) ? v * scale : _projection_l1_scale(v, -e)
   end
   δ = length(G) * eps(R)
   if δ < R(0.125)
@@ -1533,7 +1550,7 @@ function _projection_l1_inside(x, G, r::R, scale, e) where {R}
     if x[i] isa Base.BitInteger && v < _projection_l1_magnitude(x[i])
       v = nextfloat(v)
     end
-    v = isfinite(scale) && !iszero(scale) ? v * scale : ldexp(v, -e)
+    v = isfinite(scale) && !iszero(scale) ? v * scale : _projection_l1_scale(v, -e)
     if !isfinite(v)
       s = R(Inf)
       break
@@ -1554,8 +1571,8 @@ function _project_l1_radius!(y, x, G, scratch, a, coefficient_error, lower)
   r0, e = _projection_scale_parts(a)
   R = promote_type(Float64, typeof(r0), float(eltype(y)))
   r = convert(R, r0)
-  scale = ldexp(one(R), -e)
-  outscale = ldexp(one(R), e)
+  scale = _projection_l1_scale(one(R), -e)
+  outscale = _projection_l1_scale(one(R), e)
   m = _projection_l1_max(x, G, R)
   # Let the caller retain Moreau's non-finite behaviour for this block.
   !isfinite(m) && return nothing

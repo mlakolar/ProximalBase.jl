@@ -1779,4 +1779,75 @@ end
   end
 end
 
+@testset "BigFloat L1 projections across MPFR exponent ranges" begin
+  mp = Base.MPFR
+  saved = (mp.get_emin(), mp.get_emax())
+  # MPFR uses half the signed C-long range; Windows has a 32-bit C long.
+  windows = Int(typemax(Int32) >> 1)
+  ranges = unique((saved, (-windows, windows), (-64, 32), (-32, 64)))
+  for (emin, emax) in ranges
+    try
+      mp.set_emin!(emin)
+      mp.set_emax!(emax)
+      for bits in (4, 16, 256)
+        bits >= -emin && continue
+        setprecision(BigFloat, bits) do
+          lo, hi = floatmin(BigFloat), floatmax(BigFloat)
+          for r in (lo, hi), sign in (-1, 1), op in (prox!, value_and_prox!)
+            x, y = [sign * hi], [BigFloat(7)]
+            v = op(y, Conjugate(NormLinf(r)), x, BigFloat(1))
+            # Scalar clipping avoids a reference subtraction across the
+            # entire exponent range, which even 4096 bits cannot resolve.
+            @test y == [sign * min(abs(only(x)), r)]
+            op === prox! ? (@test v === y) : (@test iszero(v))
+          end
+          for r in (32lo, hi), op in (prox!, value_and_prox!)
+            x, y = [hi, -hi], zeros(BigFloat, 2)
+            v = op(y, Conjugate(NormLinf(r)), x, BigFloat(1))
+            ref = [r / 2, -r / 2]
+            @test all(abs.(y .- ref) .<= 8eps(BigFloat) * r)
+            @test sum(abs, y) <= r
+            op === prox! ? (@test v === y) : (@test iszero(v))
+          end
+          for op in (prox!, value_and_prox!)
+            r = 32lo
+            x, y = [hi, hi / 2, lo], zeros(BigFloat, 3)
+            v = op(y, Conjugate(NormLinf(r)), x, BigFloat(1))
+            @test all(abs.(y .- [r, 0, 0]) .<= 12eps(BigFloat) * r)
+            @test iszero(y[2]) && iszero(y[3])
+            @test sum(abs, y) <= r
+            op === prox! ? (@test v === y) : (@test iszero(v))
+          end
+          for factor in (lo, hi), op in (prox!, value_and_prox!)
+            # Keep stored factors instead of simplifying their product.
+            # At platform limits, three exponents exceed a machine integer
+            # on native MPFR, or a C long on Windows. All factors are finite.
+            f = NormLinf(factor)
+            for _ in 1:2
+              f = Scaled{typeof(f),BigFloat}(f, factor)
+            end
+            x, y = BigFloat[1, -1], zeros(BigFloat, 2)
+            v = op(y, Conjugate(f), x, BigFloat(1))
+            # A huge radius certifies membership; the tiny projection is
+            # below half the least representable magnitude and rounds to 0.
+            @test y == (factor == hi ? x : zeros(BigFloat, 2))
+            op === prox! ? (@test v === y) : (@test iszero(v))
+          end
+          f = GroupNormLinf(lo, [1:1, 2:2])
+          x, y = [hi, -hi], zeros(BigFloat, 2)
+          for op in (prox!, value_and_prox!)
+            v = op(y, Conjugate(f), x, BigFloat(1))
+            @test y == [lo, -lo]
+            op === prox! ? (@test v === y) : (@test iszero(v))
+          end
+        end
+      end
+    finally
+      mp.set_emin!(saved[1])
+      mp.set_emax!(saved[2])
+    end
+    @test (mp.get_emin(), mp.get_emax()) == saved
+  end
+end
+
 end

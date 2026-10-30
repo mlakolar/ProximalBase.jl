@@ -171,6 +171,11 @@ Test files run in parallel worker processes. Extra arguments list tests, select 
 or set the workers: `julia scripts/test.jl --list`, `julia scripts/test.jl lapack caches`,
 or `julia scripts/test.jl --jobs=2`. The same arguments work through `Pkg.test(; test_args=...)`.
 
+`julia scripts/test.jl --core` skips the extended tier (`precision_mixed`,
+`large_inputs`, `spectral_overflow`); plain `julia scripts/test.jl` runs everything.
+PR CI runs the core tier and master runs everything; see [CONTRIBUTING.md](CONTRIBUTING.md)
+for CI details and the `full-tests` label.
+
 To build the documentation or run benchmarks, use `scripts/instantiate.jl`
 to install the tools for that task and select your local ProximalBase code.
 For example, `julia scripts/instantiate.jl docs` sets up the documentation

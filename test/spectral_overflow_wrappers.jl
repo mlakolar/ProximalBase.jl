@@ -210,7 +210,7 @@ unit(f::SumLargest, T) = SumLargest(f.k, one(T))
               @test isequal(a, b)
               a[1] === :value && (@test samebits(Y, R))
             else
-              expected = PB._isindicator(f) ? zero(T) : T(NaN)
+              expected = T(Inf)
               @test value_and_prox!(Y, W(f), B, one(T)) === expected
               @test all(isnan, Y)
             end
@@ -221,7 +221,7 @@ unit(f::SumLargest, T) = SumLargest(f.k, one(T))
           f isa IndBox && f.l isa AbstractArray && continue
           for q in (T(Inf), T(-Inf), T(NaN)), B in (T[q 0; 0 1], T[1 q; q 1], T[1 q; 0 1], T[1 0; q 1])
             Y = similar(B)
-            expected = PB._isindicator(f) ? zero(T) : T(NaN)
+            expected = T(Inf)
             @test value_and_prox!(Y, W(f), B, one(T)) === expected
             @test all(isnan, Y)
           end

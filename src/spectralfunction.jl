@@ -35,7 +35,7 @@ reads the upper triangle of its input, which should be symmetric. The domain of
 non-finite entry, also for a bounded `f`, and at a matrix that is not
 symmetric. When a decomposition is needed, any non-finite entry, including one in the
 lower triangle, gives an all-`NaN` proximal output; `value_and_prox!` returns
-zero for an indicator and `NaN` otherwise. Membership in `IndBox`, `IndBallLinf` and `IndNonnegative` is
+`Inf`. Membership in `IndBox`, `IndBallLinf` and `IndNonnegative` is
 decided with the tolerance `√ε·max(1, |bound|, ‖λ‖∞)`, relative to the
 spectrum, since computed eigenvalues carry errors of order `ε‖λ‖∞`: a
 positive semidefinite matrix of low rank and any scale lies in
@@ -127,7 +127,7 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   T = float(eltype(Y))
   if !all(isfinite, X)
     fill!(Y, T(NaN))
-    return _isindicator(s) ? zero(T) : T(NaN)
+    return T(Inf)
   end
   n = checksquare(X)
   ws = _eig_workspace(s.eig, T, n)

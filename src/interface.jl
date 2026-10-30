@@ -374,6 +374,8 @@ additive constant and, for a smooth function, has gradient `∇f(x)[S]`. Centere
 [`MoreauEnvelope`](@ref) and [`SqrDistL2`](@ref) may drop terms belonging to
 excluded coordinates. These constants do not change the minimizer; evaluate the
 original function when comparing full objective values.
+`MoreauEnvelope` and `SqrDistL2` restrict only a separable function or set,
+respectively, and throw otherwise.
 
 The dropped terms must be finite at zero, or at `-b` under `Translate`;
 otherwise every vector supported on `S` is infeasible, and `restrict` throws an

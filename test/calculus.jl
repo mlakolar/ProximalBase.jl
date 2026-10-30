@@ -201,10 +201,12 @@ end
       @test agrees(t, restrict(t, [2]), [2], 2, (T[1], T[3]), c)
     end
     @test_throws ArgumentError restrict(Translate(Precompose(box, T(2)), zeros(T, 2)), [2])
-    # the zero-translation check of a nonseparable function still applies
-    coupled = MoreauEnvelope(Translate(GroupNormL2(one(T), [1:2], T[1]), T[0, 1]), T(0.5))
-    @test_throws ArgumentError restrict(coupled, [1])
-    @test agrees(coupled, restrict(coupled, [2]), [2], 2, (T[2], T[-1]), 0)
+    # the zero-translation check of a nonseparable function still applies on
+    # the unchecked path; an envelope of it requires a separable function
+    coupled = Translate(GroupNormL2(one(T), [1:2], T[1]), T[0, 1])
+    @test_throws ArgumentError ProximalBase._restrict_unchecked(coupled, [1])
+    @test agrees(coupled, ProximalBase._restrict_unchecked(coupled, [2]), [2], 2, (T[2], T[-1]), 0)
+    @test_throws ArgumentError("restrict of MoreauEnvelope requires a separable function") restrict(MoreauEnvelope(coupled, T(0.5)), [2])
   end
 end
 

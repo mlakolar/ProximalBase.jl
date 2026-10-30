@@ -245,6 +245,7 @@ _kkt_violation(r::Regularize, g::AbstractArray, x::SymmetricSparseIterate, k::In
 
 # Fallbacks for functions outside the entry-array kernels.
 _prox_unchecked!(y, f::AbstractFunction, x, γ) = prox!(y, f, x, γ)
+_value_and_prox_unchecked!(y, f::AbstractFunction, x, γ) = value_and_prox!(y, f, x, γ)
 _value_and_gradient_unchecked!(y, f::AbstractFunction, x) = value_and_gradient!(y, f, x)
 _hessian_vec_unchecked!(y, f, x, v) = hessian_vec!(y, f, x, v)
 _quadratic_model_unchecked!(q, f, x) = quadratic_model!(q, f, x)

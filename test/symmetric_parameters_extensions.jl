@@ -188,4 +188,22 @@ end
   end
 end
 
+struct ArrayStepSquare <: AbstractFunction end
+PB.value_and_prox!(y::AbstractArray, ::ArrayStepSquare, x::AbstractArray, γ::AbstractArray) =
+  (calls[3] += 1; y .= x ./ (1 .+ γ); sum(abs2, y) / 2)
+
+@testset "Unchecked array-step fallback reaches public extensions" begin
+  X = [.5 .2; .2 .8]; γ = ones(2, 2)
+  for x in (copy(X), SymmetricSparseIterate(X)),
+      h in (Scaled(ArrayStepSquare(), 2.), Translate(ArrayStepSquare(), zeros(2, 2)),
+            Tilt(ArrayStepSquare(), zeros(2, 2)))
+    fill!(calls, 0); y = similar(x)
+    divisor = h isa Scaled ? 3 : 2
+    scale = h isa Scaled ? 2 : 1
+    @test value_and_prox!(y, h, x, γ) ≈ scale * sum(abs2, X / divisor) / 2
+    @test Matrix(y) ≈ X / divisor
+    @test calls[3] == 1
+  end
+end
+
 end

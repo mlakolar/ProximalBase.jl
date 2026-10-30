@@ -173,4 +173,28 @@ end
   end
 end
 
+@testset "Unsupported inner array steps preserve public exceptions" begin
+  snapshot = x -> x isa SymmetricSparseIterate ? state(x) : copy(x)
+  X = [.5 .2; .2 .8]
+  for f in (NormL2(), PointwiseMinimum(NormL1(), NormL2()), MoreauEnvelope(NormL1(), 1.)),
+      x in (copy(X), SymmetricSparseIterate(X)), op in (prox!, value_and_prox!)
+    γ = ones(2, 2)
+    for (h, z) in ((Translate(f, fill(.1, 2, 2)), Matrix(x) .- .1),
+                   (Tilt(f, fill(.1, 2, 2)), Matrix(x) .- γ .* .1))
+      point = x isa SymmetricSparseIterate ? SymmetricSparseIterate(z) : z
+      ref = try op(similar(point), f, point, γ); nothing catch e; e end
+      @test ref !== nothing
+      for alias in (false, true)
+        input = copy(x); y = alias ? input : fill!(similar(x), 7.)
+        before = snapshot(y); xbefore = snapshot(input)
+        e = try op(y, h, input, γ); nothing catch e; e end
+        @test typeof(e) === typeof(ref)
+        @test first(split(sprint(showerror, e), '\n')) == first(split(sprint(showerror, ref), '\n'))
+        @test isequal(snapshot(y), before)
+        @test isequal(snapshot(input), xbefore)
+      end
+    end
+  end
+end
+
 end

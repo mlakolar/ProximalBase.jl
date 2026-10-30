@@ -1484,8 +1484,9 @@ function _conjugate_projection!(z::Tuple, s::SeparableSum, x::Tuple, γ, α = 1,
   z
 end
 function _conjugate_projection_block!(z, f, x, γ, α, output = z)
-  _projection_fallback(f, output, x) && return _conjugate_projection_target!(z, f, output, x, γ, α)
   a = _projection_block_scale(f, α, x)
+  # Tuple targets unwrap their scales; array targets retain their wrappers.
+  _projection_fallback(f, output, x) && return _conjugate_projection_target!(z, f, output, x, γ, x isa Tuple ? a : α)
   _any_direct_projection(f, x) || f isa SeparableSum ?
     _conjugate_projection!(z, f, x, γ, a) : _conjugate_moreau_block!(z, f, x, γ, a)
 end
@@ -1634,16 +1635,17 @@ _conjugate_projection_value!(z, f::Scaled, x, γ, α = 1) = _conjugate_projectio
 _conjugate_projection_value!(z::Tuple, f::SeparableSum, x::Tuple, γ, α = 1) =
   _conjugate_projection_values!(z, f.fs, x, γ, α)
 function _conjugate_projection_value_block!(z, f, x, γ, α, output = z)
+  a = _projection_block_scale(f, α, x)
   if _projection_fallback(f, output, x)
-    _conjugate_isindicator(typeof(f)) || return _conjugate_projection_target_value!(z, f, output, x, γ, α)
-    _conjugate_projection_target!(z, f, output, x, γ, α)
+    scale = x isa Tuple ? a : α
+    _conjugate_isindicator(typeof(f)) || return _conjugate_projection_target_value!(z, f, output, x, γ, scale)
+    _conjugate_projection_target!(z, f, output, x, γ, scale)
     return _zero_value(z)
   end
   if _conjugate_isindicator(typeof(f))
     _conjugate_projection_block!(z, f, x, γ, α)
     return _zero_value(z)
   end
-  a = _projection_block_scale(f, α, x)
   _any_direct_projection(f, x) || f isa SeparableSum ?
     _conjugate_projection_value!(z, f, x, γ, a) : _conjugate_moreau_value!(z, f, x, γ, a, Val(true))
 end

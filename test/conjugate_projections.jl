@@ -1409,4 +1409,46 @@ end
   end
 end
 
+@testset "tuple fallback retains nested scales" begin
+  for op in (prox!, value_and_prox!)
+    inner = Scaled(SeparableSum(NormLinf(1.0), SqrNormL2()), 3.0)
+    c = Conjugate(Scaled(SeparableSum(NormL1(), inner), 2.0))
+    x = ([10.0], ([10.0], [14.0]))
+    y = (zeros(1), (ProjectionUnknown(zeros(1)), zeros(1)))
+    v = op(y, c, x, 1.0)
+    @test y[1] == [2.0]
+    @test y[2][1] == [6.0]
+    @test y[2][2] == [12.0]
+    op === value_and_prox! && @test v ≈ 12.0
+  end
+  setprecision(BigFloat, 4096) do
+    for T in (Float32, Float64), mode in (:sum, :array, :translated), depth in (1, 2),
+        unknown_input in (false, true), op in (prox!, value_and_prox!)
+      shift = mode === :translated ? T(0.5) : zero(T)
+      ball = mode === :translated ? Translate(NormLinf(one(T)), T[shift]) : NormLinf(one(T))
+      inner = mode === :sum ? SeparableSum(ball, SqrNormL2()) : ball
+      factors = depth == 1 ? (T(3),) : (T(3), T(5))
+      for a in factors
+        inner = Scaled{typeof(inner),T}(inner, a)
+      end
+      mode === :sum || (inner = SeparableSum(inner, SqrNormL2()))
+      c = Conjugate(Scaled(SeparableSum(NormL1(), inner), T(2)))
+      block = unknown_input ? (ProjectionUnknown(T[10]), ProjectionUnknown(T[14])) : (T[10], T[14])
+      x = (T[10], block)
+      y = (zeros(T, 1), (ProjectionUnknown(zeros(T, 1)), zeros(T, 1)))
+      v = op(y, c, x, one(T))
+      # Independent scalar ball and quadratic conjugates, with exact factors.
+      radius = BigFloat(2) * prod(BigFloat.(factors))
+      ball_ref = min(BigFloat(10) - BigFloat(shift), radius)
+      coefficient = mode === :sum ? radius : BigFloat(2)
+      quadratic_ref = 14coefficient / (coefficient + 1)
+      value_ref = BigFloat(shift) * ball_ref + quadratic_ref^2 / (2coefficient)
+      accurate(y[1], BigFloat[2], 8)
+      accurate(y[2][1], [ball_ref], 8)
+      accurate(y[2][2], [quadratic_ref], 8)
+      op === value_and_prox! && accurate(T[v], [value_ref], 8)
+    end
+  end
+end
+
 end

@@ -161,7 +161,19 @@ struct GLMLoss{L<:ScalarLoss, T<:AbstractFloat, Ty<:AbstractVector, TX<:Abstract
   offset::O
   η::V             # the buffers live next to y
   d::V             # wᵢ ℓ'(ηᵢ, yᵢ)
+
+  function GLMLoss{L, T, Ty, TX, W, O, V}(loss, y, X, weights, offset, η, d) where {L<:ScalarLoss,
+      T<:AbstractFloat, Ty<:AbstractVector, TX<:AbstractMatrix, W<:Union{Nothing, AbstractVector},
+      O<:Union{Nothing, AbstractVector}, V<:AbstractVector{T}}
+    all(a -> a === nothing || eltype(a) <: Real,
+        (y, X, weights, offset, η, d)) || _real_error(:GLMLoss)
+    new{L, T, Ty, TX, W, O, V}(loss, y, X, weights, offset, η, d)
+  end
 end
+GLMLoss(loss::L, y::Ty, X::TX, weights::W, offset::O, η::V, d::V) where {L<:ScalarLoss, T<:AbstractFloat,
+    Ty<:AbstractVector, TX<:AbstractMatrix, W<:Union{Nothing, AbstractVector},
+    O<:Union{Nothing, AbstractVector}, V<:AbstractVector{T}} =
+  GLMLoss{L, T, Ty, TX, W, O, V}(loss, y, X, weights, offset, η, d)
 
 function GLMLoss(loss::ScalarLoss, y::AbstractVector, X::AbstractMatrix;
                  weights::Union{Nothing, AbstractVector} = nothing, offset::Union{Nothing, AbstractVector} = nothing)

@@ -6,6 +6,14 @@ using LinearAlgebra
 
 const PB = ProximalBase
 
+struct AbsSquare <: SeparableFunction end
+PB.value_entry(::AbsSquare, v::Real, ::Integer) = abs2(v)
+PB.iszeropreserving(::AbsSquare) = true
+
+@testset "User separable value precision" begin
+  @test AbsSquare()(Float32[1, 2]) === 5f0
+end
+
 vector(T) = T[1, 2, -0.5]
 matrix(T) = T[2 0.25 0; 0.25 1 0.1; 0 0.1 3]
 stack(T) = cat(matrix(T), 2matrix(T); dims = 3)

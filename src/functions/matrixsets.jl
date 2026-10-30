@@ -27,7 +27,13 @@ must be symmetric.
 """
 struct IndPattern{N} <: SeparableFunction
   P::BitArray{N}
+
+  function IndPattern{N}(P) where {N}
+    eltype(P) <: Real || _real_error(:IndPattern)
+    new{N}(P)
+  end
 end
+IndPattern(P::BitArray{N}) where {N} = IndPattern{N}(P)
 IndPattern(P::Array{Bool}) = IndPattern(BitArray(P))
 
 # the nonzero entries of X, which for an array of Bools are its true entries
@@ -177,8 +183,6 @@ end
 
 function _prox_sep!(y::StridedMatrix, f::IndBanded, x::AbstractMatrix, ::Real)
   _checkwrite(prox!, f, y, x)
-  _checksize(y, x)
-  _checkparams(f, x)
   T = eltype(y)
   m, n = size(y)
   @inbounds for c in 1:n

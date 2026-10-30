@@ -144,6 +144,61 @@ end
   @test mul!(out, x, Float32.(A)) ≈ Matrix(x) * A
 end
 
+@testset "broadcast data and control arguments" begin
+  A = [1.2 2.8; 2.8 3.1]
+  for x in (SparseIterate(A), SymmetricSparseIterate(A), AtomIterate(vec(A), 2))
+    data = reshape(A, size(x))
+    @test (x .= round.(x, RoundDown)) == floor.(data)
+    @test (x .= ((v, f) -> f(v)).(data, identity)) == data
+    @test (x .= ((v, label) -> label === :keep ? v : -v).(data, Ref(:keep))) == data
+    @test (x .= ((v, T) -> T(v)).(data, Float64)) == data
+    @test (x .= ((v, pair) -> v + sum(pair)).(data, Ref((1, 2)))) == data .+ 3
+    for scale in (true, 2, 1//2), value in (scale, Ref(scale))
+      @test (x .= data .* value) == data .* scale
+      @test (x .= value) == fill(scale, size(x))
+    end
+    for value in (1 + 2im, Ref(1 + 2im))
+      rejects(() -> (x .= value), nameof(typeof(x)), x)
+      rejects(() -> (x .= data .+ value), nameof(typeof(x)), x)
+      rejects(() -> (x .= real.(data .+ value)), nameof(typeof(x)), x)
+    end
+  end
+  x = SymmetricSparseIterate(2)
+  modes = fill(RoundDown, 2, 2)
+  labels = fill(:keep, 2, 2)
+  @test map!((v, mode) -> round(v, mode), x, A, modes) == floor.(A)
+  @test map!(mode -> round(1.2, mode), x, modes) == ones(2, 2)
+  @test map!((a, b, mode) -> round(a + b, mode), x, A, A, modes) == floor.(2A)
+  @test map!((a, b, mode, label) -> label === :keep ? round(a + b, mode) : 0,
+             x, A, A, modes, labels) == floor.(2A)
+end
+
+@testset "real scalar and structured operands" begin
+  A = [1. 2.; 2. 3.]
+  for x in (SparseIterate([1., 2.]), AtomIterate([1., 2.], 2))
+    for B in (A, Diagonal([1., 2.]), transpose(A), adjoint(A))
+      for (α, β) in ((true, false), (2, 1), (1//2, 1//3))
+        out = fill(3., 2)
+        @test mul!(out, B, x, α, β) ≈ α .* (B * Vector(x)) .+ β .* 3
+      end
+    end
+  end
+  x = SymmetricSparseIterate(A)
+  for B in (Diagonal([1., 2.]), transpose(A), adjoint(A))
+    @test mul!(zeros(2, 2), x, B) == A * B
+  end
+  for scale in (true, 2, 1//2)
+    @test Matrix(rmul!(copy(x), scale)) == A .* scale
+    @test Matrix(lmul!(scale, copy(x))) == scale .* A
+    @test Matrix(rdiv!(copy(x), scale)) == A ./ scale
+    @test Matrix(ldiv!(scale, copy(x))) == A ./ scale
+    for (L, R) in ((A, scale * I), (scale * I, A))
+      y = copy(x)
+      @test mul!(y, L, R, true, false) == A .* scale
+    end
+  end
+end
+
 @testset "iterate dispatch" begin
   ambiguities = Test.detect_ambiguities(ProximalBase, LinearAlgebra; recursive = true)
   owned = filter(ambiguities) do pair

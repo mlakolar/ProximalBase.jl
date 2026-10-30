@@ -42,7 +42,17 @@ struct IndAffine{T<:AbstractFloat, M, F} <: AbstractFunction
   r::Vector{T}          # Ax - b for the projection, or Vᵀx - c on the rank-deficient path
   rb::Vector{T}         # Ax - b for the value
   scale::T              # ‖A‖_F, for the tolerance of the value
+
+  function IndAffine{T, M, F}(A, b, fact, r, rb, scale) where {T<:AbstractFloat, M, F}
+    all(a -> a === nothing || eltype(a) <: Real,
+        (A, b, r, rb)) || _real_error(:IndAffine)
+    (fact === nothing || (fact isa Tuple ? all(a -> eltype(a) <: Real, fact) : eltype(fact) <: Real)) ||
+      _real_error(:IndAffine)
+    new{T, M, F}(A, b, fact, r, rb, scale)
+  end
 end
+IndAffine(A::M, b::Vector{T}, fact::F, r::Vector{T}, rb::Vector{T}, scale::T) where {T<:AbstractFloat, M, F} =
+  IndAffine{T, M, F}(A, b, fact, r, rb, scale)
 
 function IndAffine(A::AbstractMatrix, b::AbstractVector; μ::Union{Nothing, Real} = nothing)
   eltype(A) <: Real || _real_error(:IndAffine)

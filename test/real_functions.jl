@@ -13,7 +13,13 @@ const REAL_FUNCTION_TYPES = [
   IndHyperslab, IndPSD, IndBallRank, IndStiefel, IndIsotonic, IndSOC,
   IndRotatedSOC, IndExpPrimal, IndExpDual, IndSphereL2, IndBallGroupL0,
   IndPattern, IndBanded, IndToeplitz, IndAffine, IndPolyhedron, IndGraph,
-  SliceSum, FiberSum, Spectral, SqrDistL2, DistL2,
+  SliceSum, FiberSum,
+]
+
+# These wrappers have rejection tests in test/real_wrappers.jl.
+const WRAPPER_TYPES = [
+  Conjugate, DistL2, LinearImage, MoreauEnvelope, PointwiseMinimum, Precompose,
+  Regularize, Scaled, SeparableSum, Spectral, SqrDistL2, Sum, Tilt, Translate,
 ]
 
 struct RealCatalogSeparable <: SeparableFunction end
@@ -39,7 +45,7 @@ function _real_reject(call, name)
   @test err isa ArgumentError && err.msg == "$name requires real entries"
 end
 
-function _real_write_rejections(op, f, x, args...)
+function _real_write_rejections(op, f, x, args...; snapshot = nothing)
   Base.@nospecialize op f x args
   name = nameof(typeof(f))
   for imaginary in (0, 1), (complex_input, complex_output) in ((true, false), (false, true), (true, true))
@@ -47,12 +53,18 @@ function _real_write_rejections(op, f, x, args...)
     output = _real_fill(x, complex_output ? ComplexF64 : Float64)
     before, input_before = _real_copy(output), _real_copy(input)
     _real_reject(() -> op(output, f, input, args...), name)
+    if snapshot !== nothing
+      @test isequal(_real_cache_snapshot(f), snapshot)
+    end
     @test isequal(output, before)
     @test isequal(input, input_before)
   end
   aliased = _real_complex(x)
   before = _real_copy(aliased)
   _real_reject(() -> op(aliased, f, aliased, args...), name)
+  if snapshot !== nothing
+    @test isequal(_real_cache_snapshot(f), snapshot)
+  end
   @test isequal(aliased, before)
 end
 
@@ -242,5 +254,116 @@ end
     q = quadratic_model(f, x)
     _real_reject(() -> quadratic_model(f, complex.(x)), nameof(typeof(f)))
     _real_reject(() -> quadratic_model!(q, f, complex.(x)), nameof(typeof(f)))
+  end
+end
+
+function _real_cache_snapshot(x)
+  Base.@nospecialize x
+  if x isa AbstractArray
+    return (typeof(x), objectid(x), size(x), copy(x))
+  elseif x isa Tuple
+    return map(_real_cache_snapshot, x)
+  elseif x isa Number || x === nothing || x isa Type || x isa Symbol || x isa AbstractString
+    return x
+  end
+  (typeof(x), ismutabletype(typeof(x)) ? objectid(x) : nothing,
+   ntuple(i -> _real_cache_snapshot(getfield(x, i)), fieldcount(typeof(x))))
+end
+
+@testset "real field constructors" begin
+  @test RealCatalogSeparable()(Float32[1, 2]) === 5f0
+  M = Matrix{Float64}(I, 2, 2)
+  cases = [(QuadraticFunction(M, ones(2)), (:A, :b)),
+           (LeastSquaresLoss(ones(2), M), (:Y, :X)),
+           (LogisticLoss(ones(2), M; weights = ones(2), offset = zeros(2)), (:y, :X, :weights, :offset)),
+           (IndAffine(M, ones(2)), (:A,)), (IndGraph(M), (:A,)),
+           (KronQuadratic(M, M, M), ()), (IndPolyhedron(M, -1, 1), ()),
+           (IndPattern(trues(2)), ())]
+  for (f, inferred_fields) in cases
+    F = typeof(f)
+    wrapper = Base.typename(F).wrapper
+    fields = ntuple(i -> getfield(f, i), fieldcount(F))
+    for constructor in (F, wrapper)
+      clone = constructor(fields...)
+      @test typeof(clone) === F
+      @test all(i -> getfield(clone, i) === fields[i], eachindex(fields))
+    end
+    for (i, field) in enumerate(fieldnames(F))
+      fields[i] isa AbstractArray || continue
+      for imaginary in (0, 1)
+        args = Base.setindex(fields, _real_complex(fields[i], imaginary), i)
+        _real_reject(() -> F(args...), nameof(F))
+        field in inferred_fields && _real_reject(() -> wrapper(args...), nameof(F))
+      end
+    end
+  end
+  _real_reject(() -> QuadraticFunction(ones(1, 1), ComplexF64[im], 0.0,
+                                     zeros(1), Float64[], zeros(0, 0), zeros(1)), :QuadraticFunction)
+end
+
+@testset "real gradient mapping entries" begin
+  f, g = SqrNormL2(), NormL1()
+  for imaginary in (0, 1), (complex_input, complex_output) in ((true, false), (false, true), (true, true))
+    x = complex_input ? _real_complex(ones(2), imaginary) : ones(2)
+    G = complex_output ? fill(17.0 + 0im, 2) : fill(17.0, 2)
+    before, input = copy(G), copy(x)
+    _real_reject(() -> gradient_mapping!(G, f, g, x, 0.5), :gradient_mapping!)
+    @test isequal(G, before)
+    @test isequal(x, input)
+  end
+  x = complex.(ones(2))
+  _real_reject(() -> gradient_mapping!(x, f, g, x, 0.5), :gradient_mapping!)
+  @test x == ones(2)
+  _real_reject(() -> gradient_mapping!(zeros(1), f, g, x, 0.5), :gradient_mapping!)
+  _real_reject(() -> gradient_mapping!(complex.(zeros(2)), SqrNormL2(1, ones(3)), g, ones(2), 0.5), :gradient_mapping!)
+  _real_reject(() -> gradient_mapping(f, g, x, 0.5), :gradient_mapping!)
+end
+
+@testset "real rejection preserves warmed caches" begin
+  M = [2.0 0.1; 0.1 1.0]
+  cases = [(LeastSquaresLoss(ones(2), M), ones(2)),
+           (LogisticLoss([0.0, 1.0], M), ones(2)),
+           (LogDetLoss(M), M), (QuadraticFunction(M, ones(2)), ones(2)),
+           (NuclearNorm(), M)]
+  for (f, x) in cases
+    y = zeros(size(x))
+    f(x)
+    isproximable(f) && prox!(y, f, x, 0.5)
+    issmooth(f) && gradient!(y, f, x)
+    hashessian(f) && hessian_vec!(y, f, x, x)
+    before = _real_cache_snapshot(f)
+    for imaginary in (0, 1)
+      z = _real_complex(x, imaginary)
+      _real_reject(() -> f(z), nameof(typeof(f)))
+      @test isequal(_real_cache_snapshot(f), before)
+      if isproximable(f)
+        for op in (prox!, value_and_prox!)
+          _real_write_rejections(op, f, x, 0.5; snapshot = before)
+        end
+      end
+      if issmooth(f)
+        for op in (gradient!, value_and_gradient!)
+          _real_write_rejections(op, f, x; snapshot = before)
+        end
+      end
+      if hashessian(f)
+        _real_reject(() -> hessian_vec!(y, f, z, x), nameof(typeof(f)))
+        @test isequal(_real_cache_snapshot(f), before)
+        _real_reject(() -> quadratic_model(f, z), nameof(typeof(f)))
+        @test isequal(_real_cache_snapshot(f), before)
+      end
+    end
+  end
+end
+
+@testset "real exported type coverage" begin
+  exported = [getfield(ProximalBase, n) for n in names(ProximalBase)]
+  filter!(T -> T isa Type && T <: AbstractFunction && !isabstracttype(T), exported)
+  @test Set(exported) == union(Set(REAL_FUNCTION_TYPES), Set(WRAPPER_TYPES))
+  @test isdisjoint(Set(REAL_FUNCTION_TYPES), Set(WRAPPER_TYPES))
+  # aliases such as LogisticLoss = GLMLoss{Logistic} are matched by isa
+  cases = _real_function_cases()
+  for T in REAL_FUNCTION_TYPES
+    @test any(c -> first(c) isa T, cases)
   end
 end

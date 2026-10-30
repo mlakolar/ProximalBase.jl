@@ -73,6 +73,7 @@ end
 _steps(γ::AbstractArray, x) = _reshapeparam(γ, x)
 _steps(γ::ProximalBase._ReciprocalArray, x) = broadcasted(inv, _steps(γ.γ, x))
 function ProximalBase._prox_sep!(y::AnyGPUArray, f, x::AnyGPUArray, γ::AbstractArray)
+  _checkreal(f, γ)
   ProximalBase._checkwrite(prox!, f, y, x)
   ProximalBase._checkparam(γ, x)
   y .= prox_entry.(Ref(f), x, LinearIndices(x), _steps(γ, x))
@@ -82,6 +83,7 @@ end
 _enet_prox(v::T, γ, λ1, λ2, w) where {T} =
   shrink(v, convert(float(T), _weight_coefficient(γ, λ1, w))) / (1 + convert(float(T), γ * λ2))
 function ProximalBase._prox_sep!(y::AnyGPUArray, f::ElasticNet, x::AnyGPUArray, γ::AbstractArray)
+  _checkreal(f, γ)
   ProximalBase._checkwrite(prox!, f, y, x)
   ProximalBase._checkparam(γ, x)
   y .= _enet_prox.(x, _steps(γ, x), _device_level(float(eltype(y)), f.λ1), _device_level(float(eltype(y)), f.λ2), _reshapeparam(_param(f.w), x))

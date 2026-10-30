@@ -244,8 +244,6 @@ function _checkwrite(op::O, fb::FiberSum, y::AbstractArray, x::AbstractArray) wh
 end
 
 function _checkwrite(op::O, fb::FiberSum, y::AbstractArray, x::AbstractArray, γ) where {O}
-  _checkreal(fb, x)
-  _checkreal(fb, y)
   _checkreal(fb, γ)
   _checkwrite(op, fb, y, x)
   _pairfibers(fb, y, x) && return true

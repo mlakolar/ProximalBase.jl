@@ -32,7 +32,18 @@ mutable struct LeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVecOrMat, Tx<:Abst
   w::Array{T, N}
   output::Scratch         # dense output for a non-strided destination
   svd_ready::Bool
+
+  function LeastSquaresLoss{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, XtY, sUtY, w, output, svd_ready) where {T<:AbstractFloat,
+      Ty<:AbstractVecOrMat, Tx<:AbstractMatrix, N, A<:AbstractArray{T, N}}
+    all(a -> a === nothing || eltype(a) <: Real,
+        (Y, X, tmp, V, s2, XtY, sUtY, w)) || _real_error(:LeastSquaresLoss)
+    new{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, XtY, sUtY, w, output, svd_ready)
+  end
 end
+LeastSquaresLoss(Y::Ty, X::Tx, tmp::A, V::Matrix{T}, s2::Vector{T}, XtY::Array{T, N}, sUtY::Array{T, N},
+    w::Array{T, N}, output::Scratch, svd_ready::Bool) where {T<:AbstractFloat, Ty<:AbstractVecOrMat,
+    Tx<:AbstractMatrix, N, A<:AbstractArray{T, N}} =
+  LeastSquaresLoss{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, XtY, sUtY, w, output, svd_ready)
 
 function LeastSquaresLoss(Y::AbstractVecOrMat, X::AbstractMatrix)
   eltype(Y) <: Real || _real_error(:LeastSquaresLoss)

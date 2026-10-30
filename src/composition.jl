@@ -409,7 +409,7 @@ function _array_group_kkt(h, g, x, i)
   c * kkt_violation(h.f, _PrecomposeArray(g, h.a, Val(true)), _PrecomposeArray(x, h.a, Val(false)), i)
 end
 kkt_violation(h::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, x::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation); _array_group_kkt(h, g, x, i))
+  _array_group_kkt(h, g, x, i)
 kkt_violation(::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); _array_group_operations())
 function kkt_violation(h::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, x::AtomIterate, k::Integer)

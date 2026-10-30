@@ -307,7 +307,17 @@ mutable struct QuadraticFunction{T<:AbstractFloat, M<:AbstractMatrix, V<:Union{N
   Λ::Vector{T}          # A = Q Diagonal(Λ) Q', computed by the first prox
   Q::Matrix{T}
   w::Vector{T}
+
+  function QuadraticFunction{T, M, V}(A, b, c, tmp, Λ, Q, w) where {T<:AbstractFloat, M<:AbstractMatrix,
+      V<:Union{Nothing, AbstractVector}}
+    all(a -> a === nothing || eltype(a) <: Real,
+        (A, b, tmp, Λ, Q, w)) || _real_error(:QuadraticFunction)
+    new{T, M, V}(A, b, c, tmp, Λ, Q, w)
+  end
 end
+QuadraticFunction(A::M, b::V, c::T, tmp::Vector{T}, Λ::Vector{T}, Q::Matrix{T}, w::Vector{T}) where {T<:AbstractFloat,
+    M<:AbstractMatrix, V<:Union{Nothing, AbstractVector}} =
+  QuadraticFunction{T, M, V}(A, b, c, tmp, Λ, Q, w)
 
 function QuadraticFunction(A::AbstractMatrix, b::Union{Nothing, AbstractVector} = nothing, c::Real = 0)
   eltype(A) <: Real || _real_error(:QuadraticFunction)
@@ -429,7 +439,16 @@ struct KronQuadratic{T<:AbstractFloat, MC<:Union{Nothing, Matrix{T}}} <: Abstrac
   D::Matrix{T}          # Θ as a dense p × q matrix
   AD::Matrix{T}         # A Θ
   W::Matrix{T}          # A Θ B, and the gradient
+
+  function KronQuadratic{T, MC}(A, B, C, D, AD, W) where {T<:AbstractFloat, MC<:Union{Nothing, Matrix{T}}}
+    all(a -> a === nothing || eltype(a) <: Real,
+        (A, B, C, D, AD, W)) || _real_error(:KronQuadratic)
+    new{T, MC}(A, B, C, D, AD, W)
+  end
 end
+KronQuadratic(A::Matrix{T}, B::Matrix{T}, C::MC, D::Matrix{T}, AD::Matrix{T}, W::Matrix{T}) where {T<:AbstractFloat,
+    MC<:Union{Nothing, Matrix{T}}} =
+  KronQuadratic{T, MC}(A, B, C, D, AD, W)
 
 function KronQuadratic(A::AbstractMatrix, B::AbstractMatrix, C::Union{Nothing, AbstractMatrix} = nothing)
   eltype(A) <: Real || _real_error(:KronQuadratic)
@@ -444,7 +463,8 @@ function KronQuadratic(A::AbstractMatrix, B::AbstractMatrix, C::Union{Nothing, A
   Cd = C === nothing ? nothing : Matrix{T}(C)
   all(isfinite, Ad) && all(isfinite, Bd) && (Cd === nothing || all(isfinite, Cd)) ||
     throw(ArgumentError("A, B and C must be finite"))
-  KronQuadratic{T, typeof(Cd)}(_symmetrized!(Ad, "A"), _symmetrized!(Bd, "B"), Cd, zeros(T, p, q), zeros(T, p, q), zeros(T, p, q))
+  KronQuadratic{T, typeof(Cd)}(_symmetrized!(Ad, "A"), _symmetrized!(Bd, "B"), Cd, zeros(T, p, q), zeros(T, p,
+      q), zeros(T, p, q))
 end
 
 # M, which must be symmetric; one that is symmetric up to rounding, such as an
@@ -520,7 +540,7 @@ function value_and_gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArr
 end
 
 gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =
-  (_checkwrite(gradient!, f, G, Θ); value_and_gradient!(G, f, Θ); G)
+  (value_and_gradient!(G, f, Θ); G)
 
 _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::KronQuadratic, G::AbstractArray, Θ::AbstractArray) =
   (_checkreal(f, Θ); _checkreal(f, G); _checkgradient_output(G, Θ); _checkshape(f, G); _checkshape(f, Θ))

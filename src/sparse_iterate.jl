@@ -478,6 +478,16 @@ function Base.copyto!(x::SparseIterate, y::SparseIterate)
     _copyto_stored!(x, y)
 end
 
+function Base.copyto!(x::SparseIterate, bc::Broadcast.Broadcasted{Nothing})
+  _checkreal_broadcast(x, bc)
+  invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{Nothing}}, x, bc)
+end
+
+function Base.copyto!(x::_StoredIterate, bc::Broadcast.Broadcasted{S}) where {S<:Broadcast.AbstractArrayStyle{0}}
+  _checkreal_broadcast(x, bc)
+  invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{S}}, x, bc)
+end
+
 # fill!(x, 0) removes the stored entries, as zeros are not stored
 function Base.fill!(x::SparseIterate, v)
   if iszero(v)
@@ -1057,8 +1067,10 @@ function Base.copyto!(x::SymmetricSparseIterate, bc::Broadcast.Broadcasted{Nothi
 end
 
 _checkreal_broadcast(x, bc::Broadcast.Broadcasted) = foreach(a -> _checkreal_broadcast(x, a), bc.args)
-_checkreal_broadcast(x, a) = _checkreal(x, a)
-_checkreal_broadcast(x, a::Ref) = _checkreal(x, a[])
+# Broadcast leaves can be control arguments, such as functions or rounding modes.
+_checkreal_broadcast(x, a) = true
+_checkreal_broadcast(x, a::Union{AbstractArray, Ref, Number}) =
+  !(eltype(a) <: Complex) || _real_error(nameof(typeof(x)))
 
 # Whether the leaves show that a broadcast of a pure function is symmetric: each
 # is a scalar, symmetric by type, or a matrix with the axes of x that is
@@ -1071,13 +1083,13 @@ _bc_symmetric(x, a) = axes(a) == () || _symmetric_by_type(a) ||
 
 # map! into x broadcasts from sources with the axes of x.
 function Base.map!(f::F, x::SymmetricSparseIterate, A::AbstractArray) where {F}
-  _checkreal(x, A)
+  _checkreal_broadcast(x, A)
   _check_axes(x, A)
   x .= f.(A)
 end
 
 function Base.map!(f::F, x::SymmetricSparseIterate, A::AbstractArray, B::AbstractArray) where {F}
-  _checkreal(x, A); _checkreal(x, B)
+  _checkreal_broadcast(x, A); _checkreal_broadcast(x, B)
   _check_axes(x, A)
   _check_axes(x, B)
   x .= f.(A, B)
@@ -1085,8 +1097,8 @@ end
 
 function Base.map!(f::F, x::SymmetricSparseIterate, A::AbstractArray, B::AbstractArray,
                    C::AbstractArray, Ds::Vararg{AbstractArray, N}) where {F, N}
-  _checkreal(x, A); _checkreal(x, B); _checkreal(x, C)
-  foreach(D -> _checkreal(x, D), Ds)
+  _checkreal_broadcast(x, A); _checkreal_broadcast(x, B); _checkreal_broadcast(x, C)
+  foreach(D -> _checkreal_broadcast(x, D), Ds)
   _check_axes(x, A)
   _check_axes(x, B)
   _check_axes(x, C)

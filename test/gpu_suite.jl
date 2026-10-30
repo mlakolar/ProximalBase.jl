@@ -1031,6 +1031,85 @@ end
   end
 end
 
+@testset "conjugate real entries on GPU arrays" begin
+  allowscalar(false)
+  error = ArgumentError("Conjugate requires real entries")
+  for wrap in (identity, a -> view(a, 2:4))
+    for f in (NormL1(1, ones(3)), IndNonnegative(), IndBox(-ones(3), ones(3)),
+              ElasticNet(1, 1, ones(3)), Berhu(1, 1))
+      c = Conjugate(Adapt.adapt(DeviceArray, f))
+      for imaginary in (0, 1)
+        x = wrap(DeviceArray(fill(0.5, wrap === identity ? 3 : 5)))
+        z = wrap(DeviceArray(fill(complex(0.5, imaginary), wrap === identity ? 3 : 5)))
+        # A rejected value must not initialize the working buffer.
+        @test_throws error c(z)
+        @test c.scratch.buf === nothing
+        for step in (0.5, wrap(DeviceArray(fill(0.5, wrap === identity ? 3 : 5)))),
+            op in (prox!, value_and_prox!)
+          for (input, output) in ((z, wrap(DeviceArray(fill(17.0, wrap === identity ? 3 : 5)))),
+                                  (x, wrap(DeviceArray(fill(17.0 + 2im, wrap === identity ? 3 : 5)))),
+                                  (z, wrap(DeviceArray(fill(17.0 + 2im, wrap === identity ? 3 : 5)))), (z, z))
+            storage = wrap === identity ? output : parent(output)
+            before = host(storage)
+            @test_throws error op(output, c, input, step)
+            @test host(storage) == before
+            @test c.scratch.buf === nothing
+          end
+          output = wrap(DeviceArray(fill(17.0, wrap === identity ? 3 : 5)))
+          storage = wrap === identity ? output : parent(output)
+          before = host(storage)
+          complexstep = wrap(DeviceArray(fill(0.5 + 0im, wrap === identity ? 3 : 5)))
+          @test_throws error op(output, c, x, complexstep)
+          @test host(storage) == before
+          @test c.scratch.buf === nothing
+        end
+      end
+    end
+  end
+  # A late complex block must leave every earlier block and cache unchanged.
+  c = Conjugate(SeparableSum(NormL1(), SeparableSum(SqrNormL2(), NormL1())))
+  for imaginary in (0, 1)
+    x = (DeviceArray(fill(0.5, 3)), (DeviceArray(fill(0.5, 3)), DeviceArray(fill(0.5, 3))))
+    z = (x[1], (x[2][1], DeviceArray(fill(complex(0.5, imaginary), 3))))
+    @test_throws error c(z)
+    for op in (prox!, value_and_prox!)
+      for (input, output) in ((z, (DeviceArray(fill(17.0, 3)), (DeviceArray(fill(17.0, 3)), DeviceArray(fill(17.0, 3))))),
+                              (x, (DeviceArray(fill(17.0, 3)), (DeviceArray(fill(17.0, 3)), DeviceArray(fill(17.0 + 2im, 3))))),
+                              (z, (DeviceArray(fill(17.0 + 2im, 3)), (DeviceArray(fill(17.0, 3)), DeviceArray(fill(17.0 + 2im, 3))))), (z, z))
+        blocks = (output[1], output[2]...)
+        before = map(host, blocks)
+        @test_throws error op(output, c, input, 0.5)
+        @test map(host, blocks) == before
+        @test c.scratch.buf === nothing
+      end
+    end
+  end
+end
+
+@testset "separable array-step real entries on GPU arrays" begin
+  allowscalar(false)
+  for f in (Berhu(1, 1), ElasticNet(1, 1, ones(3))),
+      wrap in (identity, a -> view(a, 2:4))
+    fg = Adapt.adapt(DeviceArray, f)
+    error = ArgumentError("$(nameof(typeof(fg))) requires real entries")
+    device(v) = wrap(DeviceArray(fill(v, wrap === identity ? 3 : 5)))
+    x, step = device(0.5), device(0.5)
+    for imaginary in (0, 1)
+      z = device(complex(0.5, imaginary))
+      for op in (prox!, value_and_prox!, ProximalBase._prox_sep!)
+        for (input, output, γ) in ((z, device(17.0), step), (x, device(17.0 + 2im), step),
+                                   (z, device(17.0 + 2im), step), (z, z, step),
+                                   (x, device(17.0), device(complex(0.5, imaginary))))
+          storage = wrap === identity ? output : parent(output)
+          before = host(storage)
+          @test_throws error op(output, fg, input, γ)
+          @test host(storage) == before
+        end
+      end
+    end
+  end
+end
+
 @testset "conjugate scalar steps on GPU arrays" begin
   allowscalar(false)
   for T in test_types, dims in ((3,), (3, 2))

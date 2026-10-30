@@ -736,4 +736,4 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
   _spectral_level_value(f.λ, s, λ, c)
 end
 prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real) =
-  (_checkwrite(prox!, f, Y, X); value_and_prox!(Y, f, X, γ); Y)
+  (value_and_prox!(Y, f, X, γ); Y)

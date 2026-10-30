@@ -187,11 +187,11 @@ function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArra
   true
 end
 # A step is needed only for conditional values of nested box constraints.
-_checkwrite(op::O, f, y, x, γ) where {O} = (_checkreal(f, y); _checkreal(f, x); _checkreal(f, γ); _checkwrite(op, f, y, x))
-_checkwrite(op::O, s::Scaled, y, x, γ::Real) where {O} = (_checkreal(s, y); _checkreal(s, x); _checkreal(s, γ); _checkwrite(op, s.f, y, x, s.α * γ))
+_checkwrite(op::O, f, y, x, γ) where {O} = (_checkreal(f, γ); _checkwrite(op, f, y, x))
+_checkwrite(op::O, s::Scaled, y, x, γ::Real) where {O} = (_checkreal(s, y); _checkreal(s, x); _checkwrite(op, s.f, y, x, s.α * γ))
 _checkwrite(op::O, s::Scaled, y, x, γ::AbstractArray) where {O} = (_checkreal(s, y); _checkreal(s, x); _checkreal(s, γ); _checkwrite(op, s.f, y, x, _ScaledArray(γ, s.α)))
 function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray, γ) where {O}
-  _checkreal(t, y); _checkreal(t, x); _checkreal(t, γ)
+  _checkreal(t, γ)
   _checkwrite(op, t, y, x)
   if op === value_and_prox! && !_box_value_available(t.f, y)
     z = _array_buffer!(t.scratch, float(eltype(y)), size(y))
@@ -202,7 +202,7 @@ function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray, γ) whe
   true
 end
 function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray, γ) where {O}
-  _checkreal(t, y); _checkreal(t, x); _checkreal(t, γ)
+  _checkreal(t, γ)
   _checkwrite(op, t, y, x)
   if op === value_and_prox! && !_box_value_available(t.f, y)
     z = _array_buffer!(t.proxscratch, float(eltype(y)), size(y))
@@ -274,7 +274,7 @@ _box_value_available(c::BoxConstrained, y) = _box_value_available(c.f, y)
   true
 end
 @inline function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArray, γ) where {O}
-  _checkreal(c, y); _checkreal(c, x); _checkreal(c, γ)
+  _checkreal(c, γ)
   _checkwrite(op, c, y, x)
   if op === value_and_prox! && !_isindicator(c)
     _checkparam(γ, x)

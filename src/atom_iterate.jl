@@ -225,6 +225,16 @@ function Base.copyto!(dest::AtomIterate, src::AtomIterate)
   dest
 end
 
+function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{Nothing})
+  _checkreal_broadcast(x, bc)
+  invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{Nothing}}, x, bc)
+end
+
+function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{S}) where {S<:Broadcast.AbstractArrayStyle{0}}
+  _checkreal_broadcast(x, bc)
+  invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{S}}, x, bc)
+end
+
 function Base.fill!(x::AtomIterate, v)
   if iszero(v)
     _zero_active!(x)

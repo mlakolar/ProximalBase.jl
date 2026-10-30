@@ -17,17 +17,16 @@ function prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::Abstract
   _checkreal(f, γ)
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
-  _checksize(y, x)
   y === x ? y : copyto!(y, x)
 end
-value_and_prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::AbstractArray) = (_checkreal(f, y); _checkreal(f, x); _checkreal(f, γ); prox!(y, f, x, γ); zero(_valtype(y)))
+value_and_prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::AbstractArray) = (prox!(y, f, x, γ); zero(_valtype(y)))
 
 # separable functions: the step of each entry; on a SymmetricSparseIterate the
 # steps are a p × p array read at the lower triangle, so give a symmetric one.
 # Scalar and array steps share the loops of separable.jl; _entry specializes
 # to the scalar or to γ[i] without a branch inside the loop.
-prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) = (_checkreal(f, y); _checkreal(f, x); _checkreal(f, γ); _prox_sep!(y, f, x, γ))
-value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) = (_checkreal(f, y); _checkreal(f, x); _checkreal(f, γ); _value_and_prox_sep!(y, f, x, γ))
+prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) = (_checkreal(f, γ); _prox_sep!(y, f, x, γ))
+value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) = (_checkreal(f, γ); _value_and_prox_sep!(y, f, x, γ))
 
 function prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::AbstractArray)
   _checkreal(h, y)
@@ -51,7 +50,7 @@ end
 
 # group penalties: a step per group, constant on the group, keeps the closed form
 value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (_checkreal(f, γ); _checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
-prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (_checkreal(f, y); _checkreal(f, x); _checkreal(f, γ); value_and_prox!(y, f, x, γ); y)
+prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (value_and_prox!(y, f, x, γ); y)
 value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::AbstractVector) = (_checkreal(f, γ); _checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 
 # the entrywise reciprocal of an array of steps, without allocating
@@ -389,7 +388,7 @@ function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, γ::AbstractArr
   y .= shrink.(x, γ .* ν)
 end
 
-value_and_prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndHyperslab, IndSimplex, IndBallL1, IndIsotonic}, x::AbstractArray, γ::AbstractArray) = (_checkreal(f, y); _checkreal(f, x); _checkreal(f, γ); prox!(y, f, x, γ); zero(_valtype(y)))
+value_and_prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndHyperslab, IndSimplex, IndBallL1, IndIsotonic}, x::AbstractArray, γ::AbstractArray) = (prox!(y, f, x, γ); zero(_valtype(y)))
 
 # The level ν with Σᵢ max(uᵢ - γᵢν, 0) = r for uᵢ = h(xᵢ), by Newton's method
 # from the left on this convex, decreasing, piecewise linear function. From

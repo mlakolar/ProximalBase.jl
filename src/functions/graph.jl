@@ -80,7 +80,23 @@ mutable struct IndGraph{T<:AbstractFloat, M, F} <: AbstractFunction
   maxiter::Int
   iterations::Int
   converged::Bool
+
+  function IndGraph{T, M, F}(A, fact, tall, rhs, solution, residual, direction, product, x, y, c, d, value,
+      value_input, value_matrix, scale, rtol, maxiter, iterations, converged) where {T<:AbstractFloat, M, F}
+    all(a -> a === nothing || eltype(a) <: Real,
+        (A, rhs, solution, residual, direction, product, x, y, c, d)) || _real_error(:IndGraph)
+    (fact === nothing || (fact isa Tuple ? all(a -> eltype(a) <: Real, fact) : eltype(fact) <: Real)) ||
+      _real_error(:IndGraph)
+    new{T, M, F}(A, fact, tall, rhs, solution, residual, direction, product, x, y, c, d, value, value_input,
+      value_matrix, scale, rtol, maxiter, iterations, converged)
+  end
 end
+IndGraph(A::M, fact::F, tall::Bool, rhs::Vector{T}, solution::Vector{T}, residual::Vector{T},
+    direction::Vector{T}, product::Vector{T}, x::Vector{T}, y::Vector{T}, c::Vector{T}, d::Vector{T},
+    value::Scratch, value_input::Scratch, value_matrix::Scratch, scale::T, rtol::T, maxiter::Int,
+    iterations::Int, converged::Bool) where {T<:AbstractFloat, M, F} =
+  IndGraph{T, M, F}(A, fact, tall, rhs, solution, residual, direction, product, x, y, c, d, value, value_input,
+      value_matrix, scale, rtol, maxiter, iterations, converged)
 
 function IndGraph(A; operator::Bool = !(A isa AbstractMatrix),
                   rtol::Real = _tol(float(eltype(A))),

@@ -294,7 +294,7 @@ end
   isinf(denominator) ? (one(T) / 2) / (r / 2 - half / 2) : inv(denominator)
 end
 prox!(Y::AbstractMatrix, f::LogDetLoss, X::AbstractMatrix, γ::Real) =
-  (_checkwrite(prox!, f, Y, X); value_and_prox!(Y, f, X, γ); Y)
+  (value_and_prox!(Y, f, X, γ); Y)
 
 # the gradient S - X⁻¹ is not Lipschitz on the positive definite matrices
 lipschitz(::LogDetLoss{T}) where {T} = T(Inf)

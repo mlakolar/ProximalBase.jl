@@ -415,6 +415,7 @@ optimal value nor the structure of `g`, and a proximal gradient step from `x` is
 what `gradient!` and `prox!` do. Overlapping views of `G` and `x` are unsupported.
 """
 function gradient_mapping!(G::AbstractArray, f::AbstractFunction, g::AbstractFunction, x::AbstractArray, γ::Real)
+  eltype(G) <: Real && eltype(x) <: Real || _real_error(:gradient_mapping!)
   G === x && throw(ArgumentError("G must not be x"))
   _checksize(G, x)
   _checkparams(f, x)

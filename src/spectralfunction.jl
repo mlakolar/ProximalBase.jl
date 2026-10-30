@@ -145,7 +145,7 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   convert(T, v)
 end
 prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real) =
-  (_checkwrite(prox!, s, Y, X); value_and_prox!(Y, s, X, γ); Y)
+  (value_and_prox!(Y, s, X, γ); Y)
 
 # Y = Σⱼ zⱼ vⱼvⱼ' for the eigenvectors vⱼ in the columns of V, through B, which
 # is Y when BLAS can write Y and an n × n buffer otherwise; destroys V. The proximal

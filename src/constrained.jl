@@ -75,7 +75,11 @@ this improper case. On a hyperplane, halfspace or hyperslab, the search throws
 an `ArgumentError` if it cannot bracket a multiplier. This is not a general test
 for an empty intersection: rounding may put a point on the closure of an open
 domain, and a finite multiplier may not exist when the set meets only the
-boundary of a closed domain.
+boundary of a closed domain. Empty arguments that fail the search's own
+acceptance test are rejected before writing. Block oracles also reject clearly
+infeasible scalar boxes with scalar linear normals at finite positive scalar
+steps, when finite inputs and conservative rounding bounds certify that the
+search throws. Overflowing ranges and transformed inputs remain unchecked.
 """
 function Constrained end
 
@@ -866,4 +870,47 @@ Base.@propagate_inbounds function _prox_entry_slope(c::BoxConstrained, v::T, i::
   z, dz = _prox_entry_slope(c.f, v, i, γ)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
   clamp(convert(S, z), l, u), _slope((z > l) & (z < u), convert(S, dz))
+end
+
+function _checkstep(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  f, set = c.f, c.set
+  if isempty(x)
+    if !(set isa IndHyperslab)
+      T = float(eltype(y))
+      φ = -convert(T, _scaled_offset(set))
+      if set isa IndHyperplane || φ > 0
+        abs(φ) <= 2eps(T) * abs(φ) || _infeasible(c)
+      end
+    end
+    return true
+  end
+  f isa IndBox && f.l isa Real && f.u isa Real && set.a isa Real || return true
+  T = float(eltype(y))
+  T <: Union{Float32, Float64} && eltype(x) <: Union{Float32, Float64} || return true
+  step = convert(T, γ)
+  isfinite(step) && step > 0 || return true
+  a = convert(T, _scaled_normal(set))
+  l, u = convert(T, f.l), convert(T, f.u)
+  isfinite(a) && !iszero(a) && isfinite(l) && isfinite(u) || return true
+  n = convert(T, length(x))
+  lo, hi = n * min(a * l, a * u), n * max(a * l, a * u)
+  if set isa IndHyperslab
+    lower, upper = convert(T, _scaled_offset(set, set.l)), convert(T, _scaled_offset(set, set.u))
+    b = hi < lower ? lower : lo > upper ? upper : zero(T)
+    gap = max(lower - hi, lo - upper)
+  else
+    b = convert(T, _scaled_offset(set))
+    gap = set isa IndHalfspace ? lo - b : max(lo - b, b - hi)
+  end
+  M = n * abs(a) * max(abs(l), abs(u)) + abs(b)
+  isfinite(M) && M < floatmax(T) / 16 || return true
+  # Cover accumulation, endpoint rounding and the search's acceptance threshold.
+  r = 32eps(T) * max(n, one(T))
+  r < T(0.25) || return true
+  gap > r * max(M, floatmin(T)) || return true
+  _step_values(x) || return true
+  for v in x
+    isfinite(v) || return true
+  end
+  _infeasible(c)
 end

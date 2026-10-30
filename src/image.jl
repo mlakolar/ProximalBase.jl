@@ -474,3 +474,8 @@ function (h::_QuadraticLinearImage)(x::AbstractArray)
   end
   _value_at(_image_quadratic_value(h, c.latent), x)
 end
+
+function _checkstep(op::O, h::LinearImage, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  isfinite(γ) && γ > 0 || throw(ArgumentError("γ must be finite and positive"))
+  true
+end

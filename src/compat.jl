@@ -61,3 +61,38 @@ end
     const _CHOLMODVTypes = SparseArrays.CHOLMOD.VTypes
   end
 end
+
+# Orthogonal factors and rotations have specialized in-place matrix writers.
+@static if isdefined(LinearAlgebra, :AbstractQ)
+  const _AbstractQ = LinearAlgebra.AbstractQ
+end
+@static if isdefined(LinearAlgebra, :AbstractRotation)
+  const _AbstractRotation = LinearAlgebra.AbstractRotation
+end
+@static if isdefined(Base, :AbstractBroadcasted)
+  const _AbstractBroadcasted = Base.AbstractBroadcasted
+end
+@static if isdefined(Base, :RangeVecIntList)
+  const _RangeVecIntList = Base.RangeVecIntList
+end
+@static if isdefined(LinearAlgebra, :QRPackedQ)
+  const _QRPackedQ = LinearAlgebra.QRPackedQ
+end
+@static if isdefined(LinearAlgebra, :AdjointQ)
+  const _AdjointQ = LinearAlgebra.AdjointQ
+end
+@static if isdefined(LinearAlgebra, :Rotation)
+  const _Rotation = LinearAlgebra.Rotation
+end
+@static if isdefined(LinearAlgebra, :AdjointRotation)
+  const _AdjointRotation = LinearAlgebra.AdjointRotation
+end
+@static if isdefined(LinearAlgebra, :QRCompactWY)
+  const _QRCompactWY = LinearAlgebra.QRCompactWY
+end
+@static if isdefined(LinearAlgebra, :AdjointFactorization)
+  const _AdjointFactorization = LinearAlgebra.AdjointFactorization
+end
+@static if isdefined(LinearAlgebra, :TransposeFactorization)
+  const _TransposeFactorization = LinearAlgebra.TransposeFactorization
+end

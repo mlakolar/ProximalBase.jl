@@ -256,8 +256,16 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArr
   _checkparams(c, x)
   _checkparam(γ, x)
   _checkwrite(prox!, c, y, x)
+  if isseparable(c.f) && _projection_direct_output(c.f, y, x)
+    return _conjugate_projection!(y, c.f, x, γ)
+  end
   T = float(eltype(y))
   z = _array_buffer!(c.scratch, T, x)
+  if isseparable(c.f) && _direct_conjugate(typeof(c.f))
+    _conjugate_projection!(z, c.f, x, γ)
+    _check_projection_result(z, x, γ)
+    return copyto!(y, z)
+  end
   F = typeof(c.f)
   # without dividing by γ: a separable positively homogeneous fᵢ or cone gives
   # prox_{fᵢ}(xᵢ), and the box the projection onto [γᵢlᵢ, γᵢuᵢ]
@@ -291,6 +299,14 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::A
   _checkreal(c, γ)
   _checkwrite(value_and_prox!, c, y, x)
   _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
+  if isseparable(c.f) && _any_direct_conjugate(typeof(c.f))
+    _checkparam(γ, x)
+    z = _array_buffer!(c.scratch, float(eltype(y)), x)
+    v = _conjugate_projection_value!(z, c.f, x, γ)
+    _check_projection_result(z, x, γ)
+    copyto!(y, z)
+    return _value_at(v, y)
+  end
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
     return _value_at(_conjugate_value(c.f, y), y)

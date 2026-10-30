@@ -228,7 +228,7 @@ end
   @test Conjugate(Scaled(NormL1(), 0.0))(zeros(3)) == 0
   @test Conjugate(Scaled(NormL1(), 0.0))(ones(3)) == Inf
   # Deep copies own their numerical workspace.
-  c = Conjugate(NormL1(0.4))
+  c = Conjugate(IndBallL2(0.4))
   expected = prox(c, [2.0, -1.0])
   d = deepcopy(c)
   @test d.scratch !== c.scratch

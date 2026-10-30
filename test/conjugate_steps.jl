@@ -281,8 +281,8 @@ end
 @testset "mixed precision" begin
   c = Conjugate(NormL2())
   y = zeros(Float32, 2)
-  @test_throws "is not finite at a finite input" prox!(y, c, [1e39, 0.0], 1.0)
-  @test y == zeros(Float32, 2)
+  @test prox!(y, c, [1e39, 0.0], 1.0) == Float32[1, 0]
+  @test y == Float32[1, 0]
   x = [0.3, -2.0, 1.0]
   for γ in steps
     y = prox!(zeros(Float32, 3), c, x, γ)

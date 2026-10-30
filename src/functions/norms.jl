@@ -1138,3 +1138,128 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
   end
   V ? _fused_vector_value(f, y, v1, v2, T) : zero(T)
 end
+
+# Project onto an L2 ball without subtracting two nearly equal coordinates.
+# Only exceptional norms or factors need exponent arithmetic.
+function _project_l2!(y, x, λ, α = 1, w = 1)
+  isinf(w) && return copyto!(y, x)
+  (iszero(λ) || iszero(w)) && return fill!(y, zero(eltype(y)))
+  c = _projection_product(α, λ, w)
+  n = _norm2(x)
+  R = promote_type(float(eltype(x)), float(eltype(y)))
+  bound = convert(R, c)
+  t = min(one(n), bound / n)
+  if isfinite(n) && (iszero(n) || (isfinite(bound) && t >= floatmin(typeof(t))))
+    iszero(n) && return copyto!(y, x)
+    y .= t .* x
+    return y
+  end
+  _project_l2_scaled!(y, x, λ, α, w, c, n)
+end
+
+function _project_l2_scaled!(y, x, λ, α, w, c, n)
+  m = _maximum_abs(x)
+  (!isfinite(m) || !isfinite(λ) || !isfinite(α)) && return (y .= min(one(n), c / n) .* x)
+  iszero(m) && return copyto!(y, x)
+  # Scaling only the reduction avoids losing tiny original coordinates.
+  a, e = frexp(m)
+  q = sqrt(mapreduce(identity, +, Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_square, x, m)); init = zero(m)))
+  r1, e1 = _projection_scale_parts(α)
+  r2, e2 = frexp(float(λ))
+  r3, e3 = frexp(float(w))
+  r = ((r1 * r2) * r3) / (a * q)
+  k = e1 + e2 + e3 - e
+  fr, er = frexp(r)
+  k += er
+  (k > 1 || (k == 1 && fr >= 0.5)) && return copyto!(y, x)
+  y .= _projection_scale.(x, fr, k)
+end
+
+_projection_square(v, m) = abs2(v / m)
+_projection_scale(v::Real, r, k) = _scaled_product(promote(float(r), float(v))..., k)
+
+
+# Linear group indices address the original matrix without reshape headers.
+function _project_l2_group!(y, x, G, λ, α = 1, w = 1)
+  isinf(w) && return _project_l2_group_scale!(y, x, G, 1)
+  if iszero(λ) || iszero(w)
+    @inbounds @simd for i in G
+      y[i] = zero(eltype(y))
+    end
+    return y
+  end
+  c = _projection_product(α, λ, w)
+  n = _projection_group_norm2(x, G)
+  R = promote_type(float(eltype(x)), float(eltype(y)))
+  bound = convert(R, c)
+  t = min(one(n), bound / n)
+  if isfinite(n) && (iszero(n) || (isfinite(bound) && t >= floatmin(typeof(t))))
+    return _project_l2_group_scale!(y, x, G, iszero(n) ? one(n) : t)
+  end
+  _project_l2_group_scaled!(y, x, G, λ, α, w, c, n)
+end
+
+function _project_l2_group_scale!(y, x, G, t)
+  @inbounds @simd for i in G
+    y[i] = t * x[i]
+  end
+  y
+end
+
+function _project_l2_group_scaled!(y, x, G, λ, α, w, c, n)
+  m = _projection_group_maxabs(x, G)
+  (!isfinite(m) || !isfinite(λ) || !isfinite(α)) &&
+    return _project_l2_group_scale!(y, x, G, min(one(n), c / n))
+  iszero(m) && return _project_l2_group_scale!(y, x, G, 1)
+  s = err = zero(m)
+  @inbounds for i in G
+    s, err = _compensated_add(s, err, _projection_square(x[i], m))
+  end
+  a, e = frexp(m)
+  r1, e1 = _projection_scale_parts(α)
+  r2, e2 = frexp(float(λ))
+  r3, e3 = frexp(float(w))
+  r = ((r1 * r2) * r3) / (a * sqrt(s + err))
+  fr, er = frexp(r)
+  k = e1 + e2 + e3 - e + er
+  (k > 1 || (k == 1 && fr >= 0.5)) && return _project_l2_group_scale!(y, x, G, 1)
+  @inbounds for i in G
+    y[i] = _projection_scale(x[i], fr, k)
+  end
+  y
+end
+
+
+# Preserve the existing real-float reductions and their ordinary arithmetic.
+@inline _projection_group_norm2(x::AbstractArray{<:AbstractFloat}, G) = _group_norm2(x, G)
+@inline _projection_group_maxabs(x::AbstractArray{<:AbstractFloat}, G) = _maxabs(x, G)
+
+function _projection_group_norm2(x::AbstractArray, G)
+  T = float(eltype(x))
+  s = zero(T)
+  @inbounds @simd for i in G
+    s += abs2(float(x[i]))
+  end
+  isfinite(s) && s >= floatmin(T) && return sqrt(s)
+  if iszero(s)
+    a = zero(T)
+    @inbounds @simd for i in G
+      a += abs(float(x[i]))
+    end
+    iszero(a) && return s
+  end
+  n = zero(T)
+  @inbounds for i in G
+    isnan(x[i]) && return T(NaN)
+    n = hypot(n, abs(float(x[i])))
+  end
+  n
+end
+
+function _projection_group_maxabs(x::AbstractArray, G)
+  m = zero(float(eltype(x)))
+  @inbounds for i in G
+    m = max(m, abs(float(x[i])))
+  end
+  m
+end

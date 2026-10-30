@@ -45,6 +45,12 @@ abstract type SeparableFunction <: AbstractFunction end
 isseparable(::Type{<:SeparableFunction}) = true
 isproximable(::Type{<:SeparableFunction}) = true
 
+# Broadcast parameters in the argument's shape to preserve linear pairing.
+_reshapeparam(p, x) = p
+_reshapeparam(p::AbstractArray, x) = reshape(p, size(x))
+# The wrapper avoids allocating an Array header on CPU broadcasts.
+_reshapeparam(p::Array, x) = Base.ReshapedArray(p, size(x), ())
+
 """
     value_entry(f, v, i)
 
@@ -206,8 +212,9 @@ coordinate, and on a sparse iterate the value and the proximal operator touch
 only the stored entries. On a [`SymmetricSparseIterate`](@ref) the weights are a
 `p × p` matrix (or anything indexed by the linear indices of one), as for a
 dense matrix.
-When an intermediate sum overflows although the weighted value is representable,
-the value is computed in scaled units. An infinite weight fixes the entry at
+When an intermediate sum overflows, or a weight is not representable in the
+argument's precision although the weighted value is representable, the value
+is computed in scaled units. An infinite weight fixes the entry at
 zero at every level (the value is `Inf` away from zero), and a zero weight
 leaves it unpenalized at every level.
 """
@@ -243,8 +250,20 @@ restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entr
 function (f::NormL1{<:Real, Nothing})(x::DenseArray{<:AbstractFloat})
   T = float(eltype(x))
   iszero(f.λ0) && return zero(T)
+  _level_fits(T, f.λ0) || return _converted_l1_value(f.λ0, x)
   v = convert(T, f.λ0) * sum(abs, x)
   isfinite(v) || !isfinite(f.λ0) || !all(isfinite, x) ? v : _value_dense(f, x)
+end
+
+# A level outside the argument's precision is applied before final conversion.
+@noinline function _converted_l1_value(λ, x)
+  T = float(eltype(x))
+  R = promote_type(T, float(typeof(λ)))
+  m = _maximum_abs(x)
+  isfinite(m) || return convert(T, convert(R, λ) * sum(abs, x))
+  e = _magnitude_exponent(m)
+  s = _scaled_value_sum(x, _power_factors(R, -e), abs)
+  convert(T, _scaled_product(convert(R, λ), s, e))
 end
 
 ####################################
@@ -334,6 +353,9 @@ end
 The elastic-net penalty `f(x) = λ1 Σᵢ wᵢ |xᵢ| + (λ2/2) ‖x‖²`, with all `wᵢ = 1`
 when `w` is omitted. Its proximal operator is
 `shrink(x, γλ1w) / (1 + γλ2)`.
+When an intermediate overflows or underflows, or a weight is not representable
+in the argument's precision although the weighted value is representable,
+the value is computed in scaled units.
 """
 struct ElasticNet{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ1::T
@@ -356,9 +378,72 @@ isconvex(::Type{<:ElasticNet}) = true
 iszeropreserving(::ElasticNet) = true
 _checkparams(f::ElasticNet, x) = (_checkparam(f.w, x); true)
 
+# Check every intermediate; exact zero factors do not conceal underflow.
+@inline _normal_or_zero(v, z) = (z & iszero(v)) | ((floatmin(typeof(float(v))) <= v) & (v <= floatmax(typeof(float(v)))))
+Base.@propagate_inbounds function _elastic_ordinary(f::ElasticNet, v::Real, i::Integer)
+  v isa Integer && abs(v) < 0 && return false
+  a = abs(float(v))
+  w = _entry(f.w, i)
+  c = f.λ1 * w
+  q = abs2(float(v))
+  _normal_or_zero(c, iszero(f.λ1) | iszero(w)) &
+  _normal_or_zero(c * a, iszero(f.λ1) | iszero(w) | iszero(a)) &
+  _normal_or_zero(q, iszero(a)) &
+  _normal_or_zero(f.λ2 * q, iszero(f.λ2) | iszero(a))
+end
+
 Base.@propagate_inbounds function value_entry(f::ElasticNet, v::Real, i::Integer)
+  if _elastic_ordinary(f, v, i)
+    return _elastic_base_value_entry(f, v, i)
+  end
+  _elastic_exceptional(f, v, i)
+end
+
+# The original entry expression also preserves the retry's SIMD association.
+Base.@propagate_inbounds function _elastic_base_value_entry(f::ElasticNet, v::Real, i::Integer)
   a = abs(v)
-  _weighted_value(_weight_coefficient(f.λ1, _entry(f.w, i)) * a, a) + _weighted_value(f.λ2 * abs2(v) / 2, abs2(v))
+  _weighted_value(_weight_coefficient(f.λ1, _entry(f.w, i)) * a, a) + _weighted_value(f.λ2 * abs2(float(v)) / 2, abs2(float(v)))
+end
+
+# Recover the linear coefficient and the square before either loses range.
+@noinline function _elastic_exceptional(f::ElasticNet, v::Real, i::Integer)
+  a = abs(float(v))
+  w = _entry(f.w, i)
+  R = promote_type(typeof(a), typeof(f.λ1), typeof(f.λ2), typeof(w))
+  isnan(a) && return convert(R, a)
+  p = _positive_product(f.λ1, w, a)
+  linear = ifelse(isinf(w) & !iszero(a), oftype(p, Inf) * a, p)
+  quadratic = iszero(f.λ2) || iszero(a) ? zero(R) : _scaled_product(convert(R, f.λ2), convert(R, a), convert(R, a), -1)
+  convert(R, linear) + quadratic
+end
+
+# Scalar levels and a bound on hidden underflow suffice after a finite sum.
+@inline function _elastic_level_safe(::Type{T}, λ) where {T}
+  (_normal_or_zero(float(λ), iszero(λ)) || !isfinite(λ)) && _level_fits(T, λ)
+end
+
+function _value_dense(f::ElasticNet, x::AbstractArray)
+  T = float(eltype(x))
+  eltype(x) <: Integer && return _sum_entries(value_entry, f, x, T)
+  s = _sum_entries(_value_entry_ordinary, f, x, T)
+  if isfinite(s) && _elastic_level_safe(T, f.λ1) && _elastic_level_safe(T, f.λ2)
+    bound = _positive_product(float(length(x)), max(float(f.λ2), one(T)), floatmin(T) / eps(T))
+    s >= bound && return s
+  end
+  _elastic_exact_sum(f, x, T)
+end
+
+# Recovery can change vectorization even when each entry is unchanged. In
+# that case, retain the original entry loop and its reduction order.
+@noinline function _elastic_exact_sum(f, x, ::Type{T}) where {T}
+  s = zero(T)
+  unchanged = true
+  @inbounds @simd for i in eachindex(IndexLinear(), x)
+    v = value_entry(f, x[i], i)
+    s += convert(T, v)
+    unchanged &= isequal(v, _elastic_base_value_entry(f, x[i], i))
+  end
+  unchanged ? _sum_entries(_elastic_base_value_entry, f, x, T) : s
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
 _has_ordinary_value(::Type{<:ElasticNet}) = true
@@ -378,11 +463,12 @@ restrict(f::ElasticNet, S::AbstractVector{<:Integer}) = ElasticNet(f.λ1, f.λ2,
     IndBox(l, u)
 
 The indicator of the box `{x : l ≤ x ≤ u}`: `0` inside and `Inf` outside. The
-bounds are scalars or arrays of the size of `x`, and may be infinite. They
-satisfy `l ≤ u`, `l < Inf` and `u > -Inf` coordinatewise: equal finite bounds
+bounds are scalars or arrays read in linear order, and may be infinite. Array
+bounds must have the length of `x`, and two array bounds must have equal length.
+They satisfy `l ≤ u`, `l < Inf` and `u > -Inf` coordinatewise: equal finite bounds
 are allowed, but equal infinite bounds are rejected because the coordinate is
-empty. Its proximal operator is the projection `clamp.(x, l, u)`. Array bounds
-are stored without copying; construct a new `IndBox` after changing them in
+empty. Its proximal operator clamps each coordinate to its corresponding bounds.
+Array bounds are stored without copying; construct a new `IndBox` after changing them in
 place, since whether the box contains zero is computed at construction.
 [`restrict`](@ref) of the box itself requires `0 ∈ [lᵢ, uᵢ]` for every
 coordinate outside `S`, and throws for scalar bounds that exclude zero.
@@ -393,8 +479,11 @@ struct IndBox{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: S
   zp::Bool          # l ≤ 0 ≤ u, so that zero is feasible and its own projection
 
   function IndBox{L, U}(l::L, u::U) where {L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}}
-    all(l .<= u) || throw(ArgumentError("the lower bounds must not exceed the upper bounds"))
-    any((l .== Inf) .| (u .== -Inf)) && throw(ArgumentError("the lower bounds must be below Inf and the upper bounds above -Inf"))
+    l isa AbstractArray && u isa AbstractArray && _checkparam(l, u)
+    lv = l isa AbstractArray ? vec(l) : l
+    uv = u isa AbstractArray ? vec(u) : u
+    all(lv .<= uv) || throw(ArgumentError("the lower bounds must not exceed the upper bounds"))
+    any((lv .== Inf) .| (uv .== -Inf)) && throw(ArgumentError("the lower bounds must be below Inf and the upper bounds above -Inf"))
     new{L, U}(l, u, all(l .<= 0) && all(u .>= 0))
   end
 end

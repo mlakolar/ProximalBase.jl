@@ -483,7 +483,7 @@ function Base.copyto!(x::SparseIterate, bc::Broadcast.Broadcasted{Nothing})
   invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{Nothing}}, x, bc)
 end
 
-function Base.copyto!(x::_StoredIterate, bc::Broadcast.Broadcasted{S}) where {S<:Broadcast.AbstractArrayStyle{0}}
+function Base.copyto!(x::_StoredIterate, bc::Broadcast.Broadcasted{S}) where {S<:Broadcast.DefaultArrayStyle{0}}
   _checkreal_broadcast(x, bc)
   invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{S}}, x, bc)
 end

@@ -10,6 +10,10 @@ which are derived in [Coordinate descent](@ref).
 | [`SymmetricSparseIterate`](@ref) | A sparse symmetric matrix | One lower-triangular entry and its symmetric counterpart |
 | [`AtomIterate`](@ref) | A vector partitioned into groups | One group of entries |
 
+The entries of an iterate are real. A complex element type, or a complex
+operand of an iterate product, raises an `ArgumentError`; see
+[Precision](@ref).
+
 ## Entries and coordinates
 
 [`prox_entry`](@ref)`(g, v, i, γ)` computes the scalar proximal operator of

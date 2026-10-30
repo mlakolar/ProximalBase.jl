@@ -27,11 +27,18 @@ must be symmetric.
 """
 struct IndPattern{N} <: SeparableFunction
   P::BitArray{N}
+
+  function IndPattern{N}(P) where {N}
+    eltype(P) <: Real || _real_error(:IndPattern)
+    new{N}(P)
+  end
 end
+IndPattern(P::BitArray{N}) where {N} = IndPattern{N}(P)
 IndPattern(P::Array{Bool}) = IndPattern(BitArray(P))
 
 # the nonzero entries of X, which for an array of Bools are its true entries
 function IndPattern(X::AbstractArray)
+  eltype(X) <: Real || _real_error(:IndPattern)
   P = falses(size(X))
   for I in CartesianIndices(X)
     P[I] = !iszero(X[I])
@@ -39,6 +46,7 @@ function IndPattern(X::AbstractArray)
   IndPattern(P)
 end
 function IndPattern(X::SparseMatrixCSC)
+  eltype(X) <: Real || _real_error(:IndPattern)
   P = falses(size(X))
   rows, vals = rowvals(X), nonzeros(X)
   for c in axes(X, 2), k in nzrange(X, c)
@@ -47,6 +55,7 @@ function IndPattern(X::SparseMatrixCSC)
   IndPattern(P)
 end
 function IndPattern(X::SymmetricSparseIterate)
+  eltype(X) <: Real || _real_error(:IndPattern)
   P = falses(size(X))
   for k in 1:X.nnz
     iszero(X.nzval[k]) && continue
@@ -56,6 +65,7 @@ function IndPattern(X::SymmetricSparseIterate)
   IndPattern(P)
 end
 function IndPattern(X::SparseIterate)
+  eltype(X) <: Real || _real_error(:IndPattern)
   P = falses(size(X))
   for k in 1:X.nnz
     iszero(X.nzval[k]) || (P[X.nzval2ind[k]] = true)
@@ -85,7 +95,7 @@ Base.@propagate_inbounds prox_entry(f::IndPattern, v::T, i::Integer, ::Real) whe
 
 # an entry on the pattern is free, and one off it is fixed at zero
 kkt_violation(f::IndPattern, g::AbstractArray, i::Integer) =
-  (T = float(eltype(g)); f.P[i] ? T(abs(g[i])) : T(-Inf))
+  (eltype(g) <: Real || _real_error(:kkt_violation); T = float(eltype(g)); f.P[i] ? T(abs(g[i])) : T(-Inf))
 restrict(f::IndPattern, S::AbstractVector{<:Integer}) = IndPattern(f.P[S])
 
 ####################################
@@ -149,7 +159,7 @@ Base.@propagate_inbounds prox_entry(f::IndBanded, v::T, i::Integer, ::Real) wher
   ifelse(_inband(f, i), float(v), zero(float(T)))
 
 kkt_violation(f::IndBanded, g::AbstractArray, i::Integer) =
-  (T = float(eltype(g)); _inband(f, i) ? T(abs(g[i])) : T(-Inf))
+  (eltype(g) <: Real || _real_error(:kkt_violation); T = float(eltype(g)); _inband(f, i) ? T(abs(g[i])) : T(-Inf))
 # a function of x[S], a vector: the pattern of the band on S
 restrict(f::IndBanded, S::AbstractVector{<:Integer}) = IndPattern(BitVector(_inband(f, i) for i in S))
 
@@ -172,8 +182,7 @@ function _value_dense(f::IndBanded, x::AbstractMatrix)
 end
 
 function _prox_sep!(y::StridedMatrix, f::IndBanded, x::AbstractMatrix, ::Real)
-  _checksize(y, x)
-  _checkparams(f, x)
+  _checkwrite(prox!, f, y, x)
   T = eltype(y)
   m, n = size(y)
   @inbounds for c in 1:n
@@ -227,6 +236,7 @@ isconvex(::Type{IndToeplitz}) = true
 _symmetric_toeplitz(f::IndToeplitz, x::AbstractMatrix) = f.symmetric || x isa Union{Symmetric, SymmetricSparseIterate}
 
 function (f::IndToeplitz)(x::AbstractMatrix)
+  _checkreal(f, x)
   T = float(eltype(x))
   t = _tol(T)
   m, n = size(x)
@@ -340,6 +350,8 @@ function prox!(y::AbstractMatrix, f::IndToeplitz, x::AbstractMatrix, ::Real)
 end
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndToeplitz, y::AbstractMatrix, x::AbstractMatrix)
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   m, n = size(x)
   if _symmetric_toeplitz(f, x)

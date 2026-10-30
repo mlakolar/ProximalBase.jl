@@ -157,7 +157,12 @@ end
     @test same_exception(checked, scalar_ref)
   end
   for (Tx, Ty) in ((ComplexF64, ComplexF64), (Float64, ComplexF64), (ComplexF64, Float64))
-    same_outcome(SumLargest(1), Tx[2, 3], -1.0; output = zeros(Ty, 2))
+    f = SumLargest(1)
+    x, y = Tx[2, 3], zeros(Ty, 2)
+    for op in (prox!, value_and_prox!)
+      @test_throws ArgumentError("SumLargest requires real entries") op(y, f, x, -1.0)
+      @test iszero(y)
+    end
   end
   for (Tx, Ty) in ((Float32, Float64), (Float64, Float32)), alias in (false, true)
     e = MoreauEnvelope(NormL1(), 1.0)

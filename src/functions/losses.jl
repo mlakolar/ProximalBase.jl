@@ -27,6 +27,7 @@ struct CheckLoss{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   w::W
 
   function CheckLoss{T, W}(τ::T, w::W) where {T<:Real, W<:Union{Nothing, AbstractArray}}
+    w === nothing || eltype(w) <: Real || _real_error(:CheckLoss)
     0 < τ < 1 || throw(ArgumentError("τ must be in (0, 1), got $τ"))
     _checknonneg("the weights", w)
     new{T, W}(τ, w)
@@ -59,6 +60,7 @@ end
 # from zero, the objective decreases upward at rate -gᵢ - wᵢτ and downward at
 # rate gᵢ - wᵢ(1 - τ)
 function kkt_violation(f::CheckLoss, g::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
   w = _entry(f.w, i)
   max(-g[i] - w * f.τ, g[i] - w * (1 - f.τ))
 end
@@ -81,6 +83,8 @@ struct HingeLoss{Y<:Union{Nothing, AbstractArray}, W<:Union{Nothing, AbstractArr
   w::W
 
   function HingeLoss{Y, W}(y::Y, w::W) where {Y<:Union{Nothing, AbstractArray}, W<:Union{Nothing, AbstractArray}}
+    y === nothing || eltype(y) <: Real || _real_error(:HingeLoss)
+    w === nothing || eltype(w) <: Real || _real_error(:HingeLoss)
     y === nothing || all(!iszero, y) || throw(ArgumentError("the labels must be nonzero"))
     _checknonneg("the weights", w)
     new{Y, W}(y, w)
@@ -111,7 +115,8 @@ Base.@propagate_inbounds function prox_entry(f::HingeLoss, v::T, i::Integer, γ:
 end
 
 # f is differentiable at zero, with derivative -wᵢyᵢ
-kkt_violation(f::HingeLoss, g::AbstractArray, i::Integer) = abs(g[i] - _entry(f.w, i) * _entry(f.y, i))
+kkt_violation(f::HingeLoss, g::AbstractArray, i::Integer) =
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] - _entry(f.w, i) * _entry(f.y, i)))
 restrict(f::HingeLoss, S::AbstractVector{<:Integer}) = HingeLoss(_restrict_entries(f.y, S), _restrict_entries(f.w, S))
 
 """
@@ -141,6 +146,8 @@ struct SqrHingeLoss{Y<:Union{Nothing, AbstractArray}, W<:Union{Nothing, Abstract
   w::W
 
   function SqrHingeLoss{Y, W}(y::Y, w::W) where {Y<:Union{Nothing, AbstractArray}, W<:Union{Nothing, AbstractArray}}
+    y === nothing || eltype(y) <: Real || _real_error(:SqrHingeLoss)
+    w === nothing || eltype(w) <: Real || _real_error(:SqrHingeLoss)
     y === nothing || all(t -> t isa Real && isfinite(t) && !iszero(t), y) ||
       throw(ArgumentError("the labels must be finite and nonzero"))
     w === nothing || all(t -> t isa Real && isfinite(t) && t >= 0, w) ||
@@ -224,6 +231,8 @@ Base.@propagate_inbounds function prox_entry(f::SqrHingeLoss, v::Real, i::Intege
 end
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::SqrHingeLoss, g::AbstractArray, x::AbstractArray)
+  _checkreal(f, x)
+  _checkreal(f, g)
   _checkgradient_output(g, x)
   _checksize(g, x)
   _checkparams(f, x)
@@ -260,6 +269,7 @@ end
 
 # f is differentiable at zero, with derivative -2wᵢyᵢ.
 function kkt_violation(f::SqrHingeLoss, g::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
   y, w = promote(float(_entry(f.y, i)), float(_entry(f.w, i)))
   abs(g[i] - copysign(_sqrhinge_slope(y, w, one(y), 0), y))
 end
@@ -294,6 +304,7 @@ struct EpsInsensitiveLoss{T<:Real, W<:Union{Nothing, AbstractArray}} <: Separabl
   w::W
 
   function EpsInsensitiveLoss{T, W}(ε::T, w::W) where {T<:Real, W<:Union{Nothing, AbstractArray}}
+    w === nothing || eltype(w) <: Real || _real_error(:EpsInsensitiveLoss)
     _checknonneg("ε", ε)
     _checknonneg("the weights", w)
     new{T, W}(ε, w)
@@ -323,7 +334,7 @@ end
 
 # zero is inside the flat part when ε > 0; with ε = 0 the loss is wᵢ|xᵢ|
 kkt_violation(f::EpsInsensitiveLoss, g::AbstractArray, i::Integer) =
-  f.ε > 0 ? abs(g[i]) : abs(g[i]) - _entry(f.w, i)
+  (eltype(g) <: Real || _real_error(:kkt_violation); f.ε > 0 ? abs(g[i]) : abs(g[i]) - _entry(f.w, i))
 restrict(f::EpsInsensitiveLoss, S::AbstractVector{<:Integer}) = EpsInsensitiveLoss(f.ε, _restrict_entries(f.w, S))
 
 # the values of their conjugates, for Conjugate, within the tolerance of the

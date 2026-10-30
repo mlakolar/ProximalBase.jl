@@ -112,6 +112,7 @@ end
 # At zero, MCP and SCAD have the kink of λ|t|: leaving zero pays when |gᵢ| > λ,
 # in the direction of -gᵢ, which the box must allow.
 function kkt_violation(c::BoxConstrained{<:Union{MCP, SCAD}}, g::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
   v = kkt_violation(c.f, g, i)
   v > 0 || return v
   (g[i] < 0 ? _entry(c.box.u, i) > 0 : _entry(c.box.l, i) < 0) ? v : zero(v)

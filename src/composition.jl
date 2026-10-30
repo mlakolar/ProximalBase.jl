@@ -454,7 +454,10 @@ a shrunk point,
 
     prox_{γ(f + ρ‖⋅ - c‖²/2)}(v) = prox_{γ/(1 + γρ) f}((v + γρc) / (1 + γρ)),
 
-and the value at the result comes from that of `f`. Smooth when `f` is, with
+and the value at the result comes from that of `f`. Array steps are per entry
+for separable `f`, or per group for group penalties whose groups cover every
+entry. Per-group steps do not support `AtomIterate` or `SymmetricSparseIterate`
+outputs. Smooth when `f` is, with
 gradient `∇f + ρ(x - c)` and Lipschitz constant `L_f + ρ`; separable when `f`
 is, so coordinate descent applies. Hessian products and quadratic models are
 available when `f` provides them, and coordinate curvatures increase by `ρ`.

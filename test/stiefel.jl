@@ -142,7 +142,7 @@ end
           Z = similar(Y)
           result = op(Z, f, Y, one(T))
           @test all(isnan, Z)
-          op === value_and_prox! && @test result === zero(T)
+          op === value_and_prox! && @test result === T(Inf)
         end
       end
     end

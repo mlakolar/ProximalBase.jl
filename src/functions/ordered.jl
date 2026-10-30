@@ -250,6 +250,10 @@ The indicator of the nondecreasing vectors `{x : x₁ ≤ x₂ ≤ … ≤ xₙ}
 projection, is isotonic regression, computed by pooling adjacent violators in
 O(n) time, in buffers that the function owns.
 
+The value accepts adjacent entries within the relative tolerance `√eps`, compares
+pairs with an infinite entry exactly (`[Inf, Inf]` and `[-Inf, Inf]` are
+nondecreasing, `[Inf, 0]` is not), and excludes inputs with a `NaN` entry.
+
 An array of steps `γ` gives weighted isotonic regression, minimizing
 `Σᵢ wᵢ(θᵢ − xᵢ)²` with `wᵢ = 1/γᵢ`. Only the ratios of the steps matter.
 The steps must be positive and finite with a representable ratio; nonfinite
@@ -273,9 +277,15 @@ function (f::IndIsotonic)(x::AbstractVector)
   _checkreal(f, x)
   T = float(eltype(x))
   t = _tol(T)
-  σ = f.decreasing ? -1 : 1
+  length(x) == 1 && isnan(first(x)) && return T(Inf)
+  # accept ordered pairs exactly; unordered pairs with a non-finite entry violate the order
+  # for a > b the true difference is positive, so 0 < d rejects integer wraparound
   @inbounds for i in firstindex(x):lastindex(x)-1
-    σ * (x[i] - x[i + 1]) <= t * max(one(T), abs(x[i]), abs(x[i + 1])) || return T(Inf)
+    a, b = f.decreasing ? (x[i + 1], x[i]) : (x[i], x[i + 1])
+    a <= b && continue
+    isfinite(a) && isfinite(b) || return T(Inf)
+    d = a - b
+    0 < d <= t * max(one(T), abs(a), abs(b)) || return T(Inf)
   end
   zero(T)
 end

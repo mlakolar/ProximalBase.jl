@@ -445,6 +445,8 @@ for an indicator `g`. Not
 that is an indicator, such as that of a precomposed norm, takes its value from
 the Fenchel equality and can return a small nonzero value instead of zero;
 this is not a feasibility certificate.
+At an input with a non-finite entry, a direct `Conjugate(SingularValue(f))`
+returns `Inf` if the proximal step returns.
 
 The support functions of the ℓ1 and ℓ2 balls follow the overflow handling of
 `NormLinf` and `NormL2`, including a radius not representable in the argument's precision.
@@ -648,6 +650,13 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::R
   y .= x .- step .* p
   _value_at(dot(p, y) - fp, y)
 end
+function value_and_prox!(y::AbstractArray, c::Conjugate{<:SingularValue}, x::AbstractArray, γ::Real)
+  _checkwrite(value_and_prox!, c, y, x)
+  finite = all(isfinite, x)
+  value = invoke(value_and_prox!, Tuple{AbstractArray, Conjugate, AbstractArray, Real}, y, c, x, γ)
+  finite ? value : typeof(value)(Inf)
+end
+
 # entrywise Pγ without dividing by γ where the arrays do; never throws, since
 # entrywise wrappers write entry by entry
 Base.@propagate_inbounds prox_entry(c::Conjugate, v::Real, i::Integer, γ::Real) = _conjugate_entry(c.f, v, i, γ)

@@ -353,8 +353,7 @@ what they were and confines the slower computation to inputs that need it.
 The rule applies to every function in the package, as does the precision rule
 above. Known exceptions being brought under the rule are the values of
 functions of the spectrum (`Spectral`, `SingularValue` and their sets) at an
-overflowing spectrum, SLOPE weights given in another precision, group weights
-on GPU arrays, and `Scaled` without a level. Other remaining exceptions are
+overflowing spectrum and `Scaled` without a level. Other remaining exceptions are
 tracked in the [issue tracker](https://github.com/mlakolar/ProximalBase.jl/issues/283).
 
 ## GPU arrays

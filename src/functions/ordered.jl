@@ -342,6 +342,7 @@ with `λ = (λ₁, 0, …, 0)` the ℓ∞ norm. Its proximal operator sorts the
 magnitudes, subtracts `γλ`, pools adjacent violators into a nonincreasing
 sequence, clips it at zero, and restores the order and the signs: O(n log n),
 in buffers that the function owns.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct SLOPE{V<:AbstractVector{<:Real}} <: AbstractFunction
   λ::V
@@ -412,10 +413,53 @@ function (f::SLOPE)(x::AbstractVector)
   T = float(eltype(x))
   p, a = _sortperm_abs!(f, x, T)
   s = zero(T)
+  fits = true
   @inbounds for k in eachindex(p)
     s += convert(T, f.λ[k]) * a[p[k]]
+    eltype(f.λ) === T || (fits &= _level_fits(T, f.λ[k]))
   end
-  s
+  _slope_value(s, fits, f.λ, k -> a[p[k]])
+end
+
+# Only an out-of-range sum needs a scan for nonfinite inputs.
+function _slope_value(s::T, fits, λ, magnitude::F) where {T, F}
+  nonfinite = false
+  if !isfinite(s)
+    # Ignore zero times infinity without taxing the ordinary loop.
+    if isnan(s)
+      s = zero(T)
+      @inbounds for k in eachindex(λ)
+        m = magnitude(k)
+        s += _weighted_value(convert(T, λ[k]) * m, m)
+      end
+    end
+    @inbounds for k in eachindex(λ)
+      if !isfinite(magnitude(k)) || !isfinite(λ[k])
+        nonfinite = true
+        break
+      end
+    end
+  end
+  fits && (isfinite(s) || nonfinite) && s >= length(λ) * floatmin(T) && return s
+  _recover_slope_value(s, λ, magnitude, nonfinite)
+end
+
+# Scale both factors before summing, then round to the argument's precision once.
+@noinline function _recover_slope_value(ordinary::T, λ, magnitude::F, nonfinite) where {T, F}
+  nonfinite && return ordinary
+  isempty(λ) && return zero(T)
+  (iszero(magnitude(1)) || iszero(λ[1])) && return zero(T)
+  isfinite(λ[1]) || return ordinary
+  R = promote_type(T, float(eltype(λ)))
+  ea = _magnitude_exponent(magnitude(1))
+  eλ = _magnitude_exponent(convert(R, λ[1]))
+  sa, sλ = _power_factors(R, -ea), _power_factors(R, -eλ)
+  s = err = zero(R)
+  @inbounds for k in eachindex(λ)
+    term = _scale_value(convert(R, magnitude(k)), sa) * _scale_value(convert(R, λ[k]), sλ)
+    s, err = _compensated_add(s, err, term)
+  end
+  convert(T, _scaled_product(one(R), s + err, ea + eλ))::T
 end
 
 function value_and_prox!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Real)
@@ -425,8 +469,19 @@ function value_and_prox!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Rea
   p, a = _sortperm_abs!(f, x, T)
   w = _buffer!(f.vals, T, n)
   g = convert(T, γ)
+  stepfits = _level_fits(T, γ)
+  fits = true
+  R = promote_type(T, float(typeof(γ)), float(eltype(f.λ)))
   @inbounds for k in 1:n
-    w[k] = a[p[k]] - g * convert(T, f.λ[k])
+    weightfits = eltype(f.λ) === T || _level_fits(T, f.λ[k])
+    fits &= weightfits
+    λk = convert(T, f.λ[k])
+    c = g * λk
+    w[k] = if stepfits && weightfits && (isfinite(c) || isinf(g) || isinf(λk))
+      a[p[k]] - c
+    else
+      convert(T, convert(R, a[p[k]]) - convert(R, γ) * convert(R, f.λ[k]))
+    end
   end
   # the nearest nonincreasing sequence, clipped at zero, is the projection onto
   # the nonincreasing nonnegative sequences
@@ -438,7 +493,7 @@ function value_and_prox!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Rea
     j = p[k]
     y[j] = signbit(x[j]) ? -wk : wk         # each entry once, so y may be x
   end
-  v
+  _slope_value(v, fits, f.λ, k -> max(w[k], zero(eltype(w))))
 end
 prox!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Real) = (value_and_prox!(y, f, x, γ); y)
 

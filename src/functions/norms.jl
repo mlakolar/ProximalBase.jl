@@ -688,7 +688,7 @@ function restrict(f::AbstractGroupPenalty, S::AbstractVector{<:Integer})
   _rebuild(f, f.λ0, [members[k] for k in ks], f.w[ks])
 end
 
-function kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AbstractArray, i::Integer)
+function _kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AbstractArray, i::Integer)
   _checkgroups(f, g)
   _checkgroups(f, x)
   k = _group(f, i)
@@ -698,13 +698,13 @@ function kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AbstractArr
 end
 
 # on an AtomIterate, k is a group
-kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AtomIterate, k::Integer) =
+_kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AtomIterate, k::Integer) =
   (_checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - f.λ0 * f.w[k])
 
 # the coordinates of x are the groups of f
 _checksamegroups(f::AbstractGroupPenalty, x::AtomIterate) = _samelayout(f, x) ||
   throw(DimensionMismatch("f and x must have the same groups."))
-kkt_violation(f::AbstractGroupPenalty, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
+_kkt_violation(f::AbstractGroupPenalty, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate"))
 
 # an AtomIterate that shares the groups of f, which must partition 1:p

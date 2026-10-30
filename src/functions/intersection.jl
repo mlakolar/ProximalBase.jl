@@ -78,7 +78,9 @@ _isindicator(::Type{<:IndIntersection}) = true
 isconvex(::Type{IndIntersection{S}}) where {S} = all(isconvex, fieldtypes(S))
 
 # 0 when x is in every set, within the tolerance of each
-(f::IndIntersection)(x::AbstractArray) = _ind(_in_every_set(f.sets, x), _valtype(x))
+(f::IndIntersection)(x::AbstractArray) =
+  (_check_value_arrays(f, x); _value_unchecked(f, x))
+_value_unchecked(f::IndIntersection, x::AbstractArray) = _ind(_in_every_set(f.sets, x), _valtype(x))
 _in_every_set(::Tuple{}, x) = true
 _in_every_set(sets::Tuple, x) = iszero(first(sets)(x)) && _in_every_set(Base.tail(sets), x)
 
@@ -121,7 +123,7 @@ _dykstra_round!(::Tuple{}, P, k, y, w, s) = s
 function _dykstra_round!(sets::Tuple, P, k, y, w, s)
   p = P[k]
   w .= y .+ p
-  prox!(y, first(sets), w, one(eltype(y)))
+  _prox_unchecked!(y, first(sets), w, one(eltype(y)))
   @inbounds for i in eachindex(y, w, p)
     q = w[i] - y[i]
     s += abs2(q - p[i])
@@ -130,7 +132,9 @@ function _dykstra_round!(sets::Tuple, P, k, y, w, s)
   _dykstra_round!(Base.tail(sets), P, k + 1, y, w, s)
 end
 
-function prox!(out::AbstractArray, f::IndIntersection, x::AbstractArray, ::Real)
+prox!(out::AbstractArray, f::IndIntersection, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, f, out, x, γ); _prox_unchecked!(out, f, x, γ))
+function _prox_unchecked!(out::AbstractArray, f::IndIntersection, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, out, x)
   T = float(eltype(out))
   b = _dykstra_buffers!(f, T, size(x))

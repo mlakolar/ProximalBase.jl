@@ -301,7 +301,9 @@ function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f:
   _checkparams(f, x)
 end
 
-function value_and_gradient!(g::AbstractArray, f::BernoulliLoss, x::AbstractArray)
+value_and_gradient!(g::AbstractArray, f::BernoulliLoss, x::AbstractArray) =
+  (_check_oracle_arrays(value_and_gradient!, f, g, x); _value_and_gradient_unchecked!(g, f, x))
+function _value_and_gradient_unchecked!(g::AbstractArray, f::BernoulliLoss, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
   T = float(eltype(x))
   value = zero(T)

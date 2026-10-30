@@ -7,7 +7,7 @@ Random.seed!(191)
 const ASYMMETRIC = "must be symmetric"
 
 # everything a failed write must leave unchanged, in storage order
-state(x) = (Matrix(x), nnz(x), copy(activecoordinates(x)), x.nzval[1:nnz(x)])
+state(x) = map(name -> deepcopy(getfield(x, name)), fieldnames(typeof(x)))
 
 # f(x) throws E, with msg in its message, and leaves x unchanged
 function rejects(f::F, x, E, msg = nothing) where {F}

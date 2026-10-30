@@ -98,35 +98,41 @@ end
   isfinite(d) ? λ * d : λ * x - λ * p
 end
 
-function (f::SqrDistL2)(x::AbstractArray)
+(f::SqrDistL2)(x::AbstractArray) =
+  (_check_value_arrays(f, x); _value_unchecked(f, x))
+function _value_unchecked(f::SqrDistL2, x::AbstractArray)
   _checkwrite(prox!, f, x, x)
   T = float(eltype(x))
   λ = convert(T, f.λ)
   iszero(λ) && return zero(T)
   p = _distance_buffer(f, T, x)
-  prox!(p, f.f, x, one(T))
+  _prox_unchecked!(p, f.f, x, one(T))
   _distance_energy(x, p, λ)
 end
 
-function value_and_gradient!(g::AbstractArray, f::SqrDistL2, x::AbstractArray)
+value_and_gradient!(g::AbstractArray, f::SqrDistL2, x::AbstractArray) =
+  (_check_oracle_arrays(value_and_gradient!, f, g, x); _value_and_gradient_unchecked!(g, f, x))
+function _value_and_gradient_unchecked!(g::AbstractArray, f::SqrDistL2, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
   T = float(eltype(x))
   λ = convert(T, f.λ)
   iszero(λ) && (fill!(g, zero(eltype(g))); return zero(T))
   p = _distance_buffer(f, T, x)
-  prox!(p, f.f, x, one(T))
+  _prox_unchecked!(p, f.f, x, one(T))
   v = _distance_energy(x, p, λ)
   g .= _distance_derivative.(x, p, λ)
   v
 end
 
-function gradient!(g::AbstractArray, f::SqrDistL2, x::AbstractArray)
+gradient!(g::AbstractArray, f::SqrDistL2, x::AbstractArray) =
+  (_check_oracle_arrays(gradient!, f, g, x); _gradient_unchecked!(g, f, x))
+function _gradient_unchecked!(g::AbstractArray, f::SqrDistL2, x::AbstractArray)
   _checkwrite(gradient!, f, g, x)
   T = float(eltype(x))
   λ = convert(T, f.λ)
   iszero(λ) && return fill!(g, zero(eltype(g)))
   p = _distance_buffer(f, T, x)
-  prox!(p, f.f, x, one(T))
+  _prox_unchecked!(p, f.f, x, one(T))
   g .= _distance_derivative.(x, p, λ)
 end
 
@@ -155,23 +161,27 @@ end
   p + correction
 end
 
-function prox!(y::AbstractArray, f::SqrDistL2, x::AbstractArray, γ::Real)
+prox!(y::AbstractArray, f::SqrDistL2, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+function _prox_unchecked!(y::AbstractArray, f::SqrDistL2, x::AbstractArray, γ::Real)
   _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   λ, step = convert(T, f.λ), convert(T, γ)
   (iszero(λ) || iszero(step)) && return copyto!(y, x)
   p = _distance_buffer(f, T, x)
-  prox!(p, f.f, x, one(T))
+  _prox_unchecked!(p, f.f, x, one(T))
   y .= _distance_blend.(x, p, step, λ)
 end
 
-function value_and_prox!(y::AbstractArray, f::SqrDistL2, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, f::SqrDistL2, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_unchecked!(y, f, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, f::SqrDistL2, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
   λ, step = convert(T, f.λ), convert(T, γ)
   iszero(λ) && (copyto!(y, x); return zero(T))
   p = _distance_buffer(f, T, x)
-  prox!(p, f.f, x, one(T))
+  _prox_unchecked!(p, f.f, x, one(T))
   y .= _distance_blend.(x, p, step, λ)
   _distance_energy(y, p, λ)
 end
@@ -299,12 +309,14 @@ end
   T(ldexp(a * m, k + e))
 end
 
-function (f::DistL2)(x::AbstractArray)
+(f::DistL2)(x::AbstractArray) =
+  (_check_value_arrays(f, x); _value_unchecked(f, x))
+function _value_unchecked(f::DistL2, x::AbstractArray)
   _checkwrite(prox!, f, x, x)
   T = float(eltype(x))
   iszero(f.λ) && return zero(real(T))
   p = _distance_buffer(f, T, x)
-  prox!(p, f.f, x, one(real(T)))
+  _prox_unchecked!(p, f.f, x, one(real(T)))
   m, e = _distl2_parts(x, p)
   _distl2_value(real(T), f.λ, m, e)
 end
@@ -397,21 +409,25 @@ function _distl2_prox!(y::AbstractArray, x::AbstractArray, p::AbstractArray, γ:
   y .= _distl2_blend.(x, p, a, b, m, e)
 end
 
-function prox!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real)
+prox!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+function _prox_unchecked!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real)
   _checkwrite(prox!, f, y, x)
   (iszero(f.λ) || iszero(γ)) && return copyto!(y, x)
   T = float(eltype(y))
   p = _distance_buffer(f, T, x)
-  prox!(p, f.f, x, one(real(T)))
+  _prox_unchecked!(p, f.f, x, one(real(T)))
   _distl2_prox!(y, x, p, γ, f.λ)
 end
 
-function value_and_prox!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_unchecked!(y, f, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
   iszero(f.λ) && (copyto!(y, x); return zero(real(T)))
   p = _distance_buffer(f, T, x)
-  prox!(p, f.f, x, one(real(T)))
+  _prox_unchecked!(p, f.f, x, one(real(T)))
   _distl2_prox!(y, x, p, γ, f.λ)
   m, e = _distl2_parts(y, p)
   _distl2_value(real(T), f.λ, m, e)

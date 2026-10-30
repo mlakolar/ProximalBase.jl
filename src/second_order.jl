@@ -84,9 +84,18 @@ function quadratic_model! end
   throw(ArgumentError(issmooth(f) ? "no Hessian is known for $(nameof(typeof(f)))" :
                                     "$(nameof(typeof(f))) is not smooth"))
 
-hessian_vec!(Hv, f::AbstractFunction, x, v) = _no_hessian(f)
-quadratic_model(f::AbstractFunction, x) = _no_hessian(f)
-quadratic_model!(q, f::AbstractFunction, x) = _no_hessian(f)
+hessian_vec!(Hv, f::AbstractFunction, x, v) =
+  (_check_entry_arrays(f, x); _no_hessian(f))
+_hessian_vec_unchecked!(Hv, f::AbstractFunction, x, v) =
+  _isbuiltin(f) ? _no_hessian(f) : hessian_vec!(Hv, f, x, v)
+quadratic_model(f::AbstractFunction, x) =
+  (_check_entry_arrays(f, x); _no_hessian(f))
+_quadratic_model_unchecked(f::AbstractFunction, x) =
+  _isbuiltin(f) ? _no_hessian(f) : quadratic_model(f, x)
+quadratic_model!(q, f::AbstractFunction, x) =
+  (_check_entry_arrays(f, x); _no_hessian(f))
+_quadratic_model_unchecked!(q, f::AbstractFunction, x) =
+  _isbuiltin(f) ? _no_hessian(f) : quadratic_model!(q, f, x)
 
 _checkdirection(v, x) = size(v) == size(x) ||
   throw(DimensionMismatch("the direction has size $(size(v)) and the point $(size(x))"))
@@ -103,12 +112,18 @@ end
 for F in (:ZeroFunction, :LinearFunction, :SqrNormL2, :QuadraticFunction, :KronQuadratic, :LeastSquaresLoss)
   @eval begin
     hashessian(::Type{<:$F}) = true
-    quadratic_model(f::$F, x) = (_checkentries(f, x); f)
-    quadratic_model!(q::$F, f::$F, x) = (_checkentries(f, x); q)
+    quadratic_model(f::$F, x) =
+      (_check_entry_arrays(f, x); _quadratic_model_unchecked(f, x))
+    _quadratic_model_unchecked(f::$F, x) = (_checkentries(f, x); f)
+    quadratic_model!(q::$F, f::$F, x) =
+      (_check_entry_arrays(f, x); _quadratic_model_unchecked!(q, f, x))
+    _quadratic_model_unchecked!(q::$F, f::$F, x) = (_checkentries(f, x); q)
   end
 end
 
-function hessian_vec!(Hv::AbstractArray, f::Union{ZeroFunction, LinearFunction}, x::AbstractArray, v::AbstractArray)
+hessian_vec!(Hv::AbstractArray, f::Union{ZeroFunction, LinearFunction}, x::AbstractArray, v::AbstractArray) =
+  (_check_entry_arrays(f, x); _hessian_vec_unchecked!(Hv, f, x, v))
+function _hessian_vec_unchecked!(Hv::AbstractArray, f::Union{ZeroFunction, LinearFunction}, x::AbstractArray, v::AbstractArray)
   _checksize(Hv, x)
   _checkdirection(v, x)
   _checkparams(f, x)
@@ -116,7 +131,9 @@ function hessian_vec!(Hv::AbstractArray, f::Union{ZeroFunction, LinearFunction},
   fill!(Hv, zero(eltype(Hv)))
 end
 
-function hessian_vec!(Hv::AbstractArray, f::SqrNormL2, x::AbstractArray, v::AbstractArray)
+hessian_vec!(Hv::AbstractArray, f::SqrNormL2, x::AbstractArray, v::AbstractArray) =
+  (_check_entry_arrays(f, x); _hessian_vec_unchecked!(Hv, f, x, v))
+function _hessian_vec_unchecked!(Hv::AbstractArray, f::SqrNormL2, x::AbstractArray, v::AbstractArray)
   _checksize(Hv, x)
   _checkdirection(v, x)
   _checkparams(f, x)
@@ -140,7 +157,9 @@ function hessian_vec!(Hv::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVec
 end
 
 # A V B, symmetrized when the variable is a symmetric matrix
-function hessian_vec!(Hv::AbstractArray, f::KronQuadratic, Θ::AbstractArray, V::AbstractArray)
+hessian_vec!(Hv::AbstractArray, f::KronQuadratic, Θ::AbstractArray, V::AbstractArray) =
+  (_check_entry_arrays(f, Θ); _hessian_vec_unchecked!(Hv, f, Θ, V))
+function _hessian_vec_unchecked!(Hv::AbstractArray, f::KronQuadratic, Θ::AbstractArray, V::AbstractArray)
   _checkshape(f, Hv)
   _checkshape(f, Θ)
   _checkreal(f, Θ)
@@ -175,7 +194,7 @@ end
 
 function quadratic_model(f::GLMLoss{L, T}, β::AbstractVector) where {L, T}
   n = length(f.y)
-  quadratic_model!(GLMLoss(Squared(), zeros(T, n), f.X; weights = zeros(T, n), offset = f.offset), f, β)
+  _quadratic_model_unchecked!(GLMLoss(Squared(), zeros(T, n), f.X; weights = zeros(T, n), offset = f.offset), f, β)
 end
 
 # the IRLS model: weights wᵢℓ''ᵢ and working responses ηᵢ - ℓ'ᵢ/ℓ''ᵢ, with ℓ''
@@ -232,13 +251,15 @@ hessian_vec!(::AbstractMatrix, ::LogDetLoss{T}, ::AbstractMatrix, ::AbstractMatr
 
 function quadratic_model(f::LogDetLoss{T}, X::AbstractMatrix) where {T}
   p = size(f.S, 1)
-  quadratic_model!(KronQuadratic(Matrix{T}(I, p, p), Matrix{T}(I, p, p), zeros(T, p, p)), f, X)
+  _quadratic_model_unchecked!(KronQuadratic(Matrix{T}(I, p, p), Matrix{T}(I, p, p), zeros(T, p, p)), f, X)
 end
 
 # KronQuadratic(wW, W, w(S - 2W)), W = X⁻¹: w(tr(WZWZ)/2 + tr((S - 2W)Z)) is the
 # second-order expansion of w(tr(SZ) - log det Z) at X, since WXW = W; the
 # matrices are written exactly symmetric, from the upper triangle of W
-function quadratic_model!(q::KronQuadratic{T, Matrix{T}}, f::LogDetLoss{T}, X::AbstractMatrix) where {T}
+quadratic_model!(q::KronQuadratic{T, Matrix{T}}, f::LogDetLoss{T}, X::AbstractMatrix) where {T} =
+  (_check_entry_arrays(f, X); _quadratic_model_unchecked!(q, f, X))
+function _quadratic_model_unchecked!(q::KronQuadratic{T, Matrix{T}}, f::LogDetLoss{T}, X::AbstractMatrix) where {T}
   size(q) == size(f.S) || throw(DimensionMismatch("the model is for $(size(q)) matrices and S is $(size(f.S))"))
   _logdet_chol!(f, X) === nothing &&
     throw(ArgumentError("X is not positive definite: LogDetLoss has no quadratic model there"))
@@ -264,49 +285,79 @@ end
 hashessian(::Type{<:Sum{F}}) where {F} = all(hashessian, fieldtypes(F))
 hashessian(::Type{SeparableSum{F}}) where {F} = all(hashessian, fieldtypes(F))
 
-hessian_vec!(Hv, s::Scaled, x, v) = (_checkparams(s, x); hessian_vec!(Hv, s.f, x, v); _scale!(Hv, s.α))
-hessian_vec!(Hv, t::Tilt, x, v) = (_checkparams(t, x); hessian_vec!(Hv, t.f, x, v))
-hessian_vec!(Hv, t::Translate, x::AbstractArray, v) = hessian_vec!(Hv, t.f, _shifted(t, x), v)
+hessian_vec!(Hv, s::Scaled, x, v) =
+  (_check_entry_arrays(s, x); _hessian_vec_unchecked!(Hv, s, x, v))
+_hessian_vec_unchecked!(Hv, s::Scaled, x, v) = (_checkparams(s, x); _hessian_vec_unchecked!(Hv, s.f, x, v); _scale!(Hv, s.α))
+hessian_vec!(Hv, t::Tilt, x, v) =
+  (_check_entry_arrays(t, x); _hessian_vec_unchecked!(Hv, t, x, v))
+_hessian_vec_unchecked!(Hv, t::Tilt, x, v) = (_checkparams(t, x); _hessian_vec_unchecked!(Hv, t.f, x, v))
+hessian_vec!(Hv, t::Translate, x::AbstractArray, v) =
+  (_check_entry_arrays(t, x); _hessian_vec_unchecked!(Hv, t, x, v))
+_hessian_vec_unchecked!(Hv, t::Translate, x::AbstractArray, v) = _hessian_vec_unchecked!(Hv, t.f, _shifted(t, x), v)
 
 # the remaining functions' products added into Hv through the buffer b
 _add_hessian_vecs!(Hv, b, x, v, ::Tuple{}) = Hv
 function _add_hessian_vecs!(Hv, b, x, v, fs::Tuple)
-  hessian_vec!(b, first(fs), x, v)
+  _hessian_vec_unchecked!(b, first(fs), x, v)
   Hv .+= b
   _add_hessian_vecs!(Hv, b, x, v, Base.tail(fs))
 end
 
-function hessian_vec!(Hv::AbstractArray, s::Sum, x::AbstractArray, v::AbstractArray)
+hessian_vec!(Hv::AbstractArray, s::Sum, x::AbstractArray, v::AbstractArray) =
+  (_check_entry_arrays(s, x); _hessian_vec_unchecked!(Hv, s, x, v))
+function _hessian_vec_unchecked!(Hv::AbstractArray, s::Sum, x::AbstractArray, v::AbstractArray)
   _checksize(Hv, x)
   _checkdirection(v, x)
   _checkparams(s, x)
   _checkentries(s, x)
-  hessian_vec!(Hv, first(s.fs), x, v)
+  _hessian_vec_unchecked!(Hv, first(s.fs), x, v)
   length(s.fs) == 1 && return Hv
   b = _array_buffer!(s.scratch, eltype(Hv), size(Hv))
   _add_hessian_vecs!(Hv, b, x, v, Base.tail(s.fs))
 end
 
 hessian_vec!(Hv::Tuple, s::SeparableSum, x::Tuple, v::Tuple) =
+  (_check_entry_arrays(s, x); _hessian_vec_unchecked!(Hv, s, x, v))
+_hessian_vec_unchecked!(Hv::Tuple, s::SeparableSum, x::Tuple, v::Tuple) =
   (_checksize(Hv, x); _checkdirection(v, x); _checkparams(s, x); _checkentries(s, x);
-   map((f, Hk, xk, vk) -> hessian_vec!(Hk, f, xk, vk), s.fs, Hv, x, v); Hv)
+   map((f, Hk, xk, vk) -> _hessian_vec_unchecked!(Hk, f, xk, vk), s.fs, Hv, x, v); Hv)
 
-quadratic_model(s::Scaled, x) = Scaled(quadratic_model(s.f, x), s.α)
-quadratic_model(t::Tilt, x) = (_checkreal(t, x); Tilt(quadratic_model(t.f, x), t.c, t.d))
-quadratic_model(t::Translate, x::AbstractArray) = Translate(quadratic_model(t.f, _shifted(t, x)), t.b)
-quadratic_model(s::Sum, x) = Sum(map(f -> quadratic_model(f, x), s.fs)...)
+quadratic_model(s::Scaled, x) =
+  (_check_entry_arrays(s, x); _quadratic_model_unchecked(s, x))
+_quadratic_model_unchecked(s::Scaled, x) = Scaled(_quadratic_model_unchecked(s.f, x), s.α)
+quadratic_model(t::Tilt, x) =
+  (_check_entry_arrays(t, x); _quadratic_model_unchecked(t, x))
+_quadratic_model_unchecked(t::Tilt, x) = (_checkreal(t, x); Tilt(_quadratic_model_unchecked(t.f, x), t.c, t.d))
+quadratic_model(t::Translate, x::AbstractArray) =
+  (_check_entry_arrays(t, x); _quadratic_model_unchecked(t, x))
+_quadratic_model_unchecked(t::Translate, x::AbstractArray) = Translate(_quadratic_model_unchecked(t.f, _shifted(t, x)), t.b)
+quadratic_model(s::Sum, x) =
+  (_check_entry_arrays(s, x); _quadratic_model_unchecked(s, x))
+_quadratic_model_unchecked(s::Sum, x) = Sum(map(f -> _quadratic_model_unchecked(f, x), s.fs)...)
 quadratic_model(s::SeparableSum, x::Tuple) =
-  (_checkblocks(s, x); SeparableSum(map((f, xk) -> quadratic_model(f, xk), s.fs, x)))
+  (_check_entry_arrays(s, x); _quadratic_model_unchecked(s, x))
+_quadratic_model_unchecked(s::SeparableSum, x::Tuple) =
+  (_checkblocks(s, x); SeparableSum(map((f, xk) -> _quadratic_model_unchecked(f, xk), s.fs, x)))
 
-quadratic_model!(q::Scaled, s::Scaled, x) = (quadratic_model!(q.f, s.f, x); q)
-quadratic_model!(q::Tilt, t::Tilt, x) = (_checkreal(t, x); quadratic_model!(q.f, t.f, x); q)
-quadratic_model!(q::Translate, t::Translate, x::AbstractArray) = (quadratic_model!(q.f, t.f, _shifted(t, x)); q)
-quadratic_model!(q::Sum, s::Sum, x) = (_model_parts!(q.fs, s.fs, x); q)
+quadratic_model!(q::Scaled, s::Scaled, x) =
+  (_check_entry_arrays(s, x); _quadratic_model_unchecked!(q, s, x))
+_quadratic_model_unchecked!(q::Scaled, s::Scaled, x) = (_quadratic_model_unchecked!(q.f, s.f, x); q)
+quadratic_model!(q::Tilt, t::Tilt, x) =
+  (_check_entry_arrays(t, x); _quadratic_model_unchecked!(q, t, x))
+_quadratic_model_unchecked!(q::Tilt, t::Tilt, x) = (_checkreal(t, x); _quadratic_model_unchecked!(q.f, t.f, x); q)
+quadratic_model!(q::Translate, t::Translate, x::AbstractArray) =
+  (_check_entry_arrays(t, x); _quadratic_model_unchecked!(q, t, x))
+_quadratic_model_unchecked!(q::Translate, t::Translate, x::AbstractArray) = (_quadratic_model_unchecked!(q.f, t.f, _shifted(t, x)); q)
+quadratic_model!(q::Sum, s::Sum, x) =
+  (_check_entry_arrays(s, x); _quadratic_model_unchecked!(q, s, x))
+_quadratic_model_unchecked!(q::Sum, s::Sum, x) = (_model_parts!(q.fs, s.fs, x); q)
 quadratic_model!(q::SeparableSum, s::SeparableSum, x::Tuple) =
-  (_checkblocks(s, x); map((qk, f, xk) -> quadratic_model!(qk, f, xk), q.fs, s.fs, x); q)
+  (_check_entry_arrays(s, x); _quadratic_model_unchecked!(q, s, x))
+_quadratic_model_unchecked!(q::SeparableSum, s::SeparableSum, x::Tuple) =
+  (_checkblocks(s, x); map((qk, f, xk) -> _quadratic_model_unchecked!(qk, f, xk), q.fs, s.fs, x); q)
 
 _model_parts!(::Tuple{}, ::Tuple{}, x) = nothing
 function _model_parts!(qs::Tuple, fs::Tuple, x)
-  quadratic_model!(first(qs), first(fs), x)
+  _quadratic_model_unchecked!(first(qs), first(fs), x)
   _model_parts!(Base.tail(qs), Base.tail(fs), x)
 end

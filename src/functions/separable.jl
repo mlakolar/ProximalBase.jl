@@ -60,9 +60,17 @@ term of entry `i` at the scalar `v`. `i` is a linear index of the array, as in
 """
 function value_entry end
 
-(f::SeparableFunction)(x::AbstractArray) = _value_sep(f, x)
-prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) = _prox_sep!(y, f, x, γ)
-value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) = _value_and_prox_sep!(y, f, x, γ)
+(f::SeparableFunction)(x::AbstractArray) =
+  (_check_value_arrays(f, x); _value_sep(f, x))
+_value_unchecked(f::SeparableFunction, x::AbstractArray) = _isbuiltin(f) ? _value_sep(f, x) : f(x)
+prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_sep!(y, f, x, γ))
+_prox_unchecked!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
+  _isbuiltin(f) ? _prox_sep!(y, f, x, γ) : prox!(y, f, x, γ)
+value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_sep!(y, f, x, γ))
+_value_and_prox_unchecked!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
+  _isbuiltin(f) ? _value_and_prox_sep!(y, f, x, γ) : value_and_prox!(y, f, x, γ)
 
 # The value, entry by entry over the dense array. A weighted family sums its
 # ordinary products, which vectorize; a NaN sum (a NaN entry, or a 0⋅Inf
@@ -211,7 +219,8 @@ omitted. Its proximal operator is entry-wise soft thresholding
 coordinate, and on a sparse iterate the value and the proximal operator touch
 only the stored entries. On a [`SymmetricSparseIterate`](@ref) the weights are a
 `p × p` matrix (or anything indexed by the linear indices of one), as for a
-dense matrix.
+dense matrix, and must be exactly symmetric. Wrap a matrix in
+`Symmetric(W, :L)` to use its lower triangle.
 When an intermediate sum overflows, or a weight is not representable in the
 argument's precision although the weighted value is representable, the value
 is computed in scaled units. An infinite weight fixes the entry at

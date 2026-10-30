@@ -99,19 +99,27 @@ end
 _checkvalue(c::BallConstrained, x::AbstractArray) = _checkvalue(c.ball, x)
 _checkvalue(c::SphereConstrained, x::AbstractArray) = _checkvalue(c.sphere, x)
 
-(c::BallConstrained)(x::AbstractArray) = (T = float(eltype(x)); iszero(c.ball(x)) ? convert(T, c.f(x)) : T(Inf))
-(c::SphereConstrained)(x::AbstractArray) = (T = float(eltype(x)); iszero(c.sphere(x)) ? convert(T, c.f(x)) : T(Inf))
+(c::BallConstrained)(x::AbstractArray) =
+  (_check_value_arrays(c, x); _value_unchecked(c, x))
+_value_unchecked(c::BallConstrained, x::AbstractArray) = (T = float(eltype(x)); iszero(_value_unchecked(c.ball, x)) ? convert(T, _value_unchecked(c.f, x)) : T(Inf))
+(c::SphereConstrained)(x::AbstractArray) =
+  (_check_value_arrays(c, x); _value_unchecked(c, x))
+_value_unchecked(c::SphereConstrained, x::AbstractArray) = (T = float(eltype(x)); iszero(_value_unchecked(c.sphere, x)) ? convert(T, _value_unchecked(c.f, x)) : T(Inf))
 
 prox!(y::AbstractArray, c::Union{BallConstrained, SphereConstrained}, x::AbstractArray, γ::Real) =
-  (value_and_prox!(y, c, x, γ); y)
+  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+_prox_unchecked!(y::AbstractArray, c::Union{BallConstrained, SphereConstrained}, x::AbstractArray, γ::Real) =
+  (_value_and_prox_unchecked!(y, c, x, γ); y)
 
 # the proximal point of f in y and its value, without the value for an indicator
 function _value_and_inner_prox!(y, f, x, γ, ::Type{T}) where {T}
-  _isindicator(f) && return (prox!(y, f, x, γ); zero(T))
-  convert(T, value_and_prox!(y, f, x, γ))
+  _isindicator(f) && return (_prox_unchecked!(y, f, x, γ); zero(T))
+  convert(T, _value_and_prox_unchecked!(y, f, x, γ))
 end
 
-function value_and_prox!(y::AbstractArray, c::BallConstrained, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, c::BallConstrained, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, c::BallConstrained, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))
   v = _value_and_inner_prox!(y, c.f, x, γ, T)
@@ -120,7 +128,7 @@ function value_and_prox!(y::AbstractArray, c::BallConstrained, x::AbstractArray,
   if ny > r
     t = _scale_l2!(y, y, r, ny)
     v = isfinite(v) && ny >= floatmin(T) && isfinite(t) && t >= floatmin(T) ? v * t :
-        (_isindicator(c.f) ? zero(T) : convert(T, c.f(y)))
+        (_isindicator(c.f) ? zero(T) : convert(T, _value_unchecked(c.f, y)))
   end
   v
 end
@@ -135,7 +143,7 @@ function _onto_sphere!(y, f, v::T, r::T) where {T}
   n = convert(T, _norm2(y))
   t = _scale_l2!(y, y, r, n)
   isfinite(v) && n >= floatmin(T) && isfinite(t) && t >= floatmin(T) ? v * t :
-    (_isindicator(f) ? zero(T) : convert(T, f(y)))
+    (_isindicator(f) ? zero(T) : convert(T, _value_unchecked(f, y)))
 end
 
 # On the sphere ‖z‖² is fixed, so the proximal operator maximizes
@@ -144,7 +152,9 @@ end
 # when an entry exceeds its threshold. Otherwise every coefficient is ≤ 0, and
 # since Σᵢ|zᵢ| ≥ ‖z‖₂ the maximum r ⋅ maxᵢ(|xᵢ| - γλwᵢ) is at one entry. The
 # thresholds are those of prox_entry, so that the two cases agree with it.
-function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   T, S = float(eltype(y)), float(eltype(x))
   f, r = c.f, convert(T, c.sphere.r)
@@ -157,7 +167,7 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::Ab
     (k == 0 || isinf(bestc) || (!isinf(threshold) && n - bestn > threshold - bestc)) && ((k, bestn, bestc) = (i, n, threshold))
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
-  bestn > bestc && return _onto_sphere!(y, f, convert(T, value_and_prox!(y, f, x, γ)), r)
+  bestn > bestc && return _onto_sphere!(y, f, convert(T, _value_and_prox_unchecked!(y, f, x, γ)), r)
   negative = signbit(x[k])
   fill!(y, zero(eltype(y)))
   y[k] = negative ? -r : r
@@ -168,7 +178,9 @@ end
 # equality along x_G, so the coefficient of a group is its margin over the
 # threshold, and an index in no group has the coefficient |xᵢ|. The norms and
 # thresholds are those of the group shrinkage.
-function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))
   U = promote_type(float(eltype(x)), T)       # the type in which the shrinkage compares
@@ -185,7 +197,7 @@ function value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, 
     ((kbest == 0 && ibest == 0) || n - bestn > -bestc) && ((kbest, ibest, bestn, bestc) = (0, i, n, zero(U)))
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
-  bestn > bestc && return _onto_sphere!(y, f, convert(T, value_and_prox!(y, f, x, γ)), r)
+  bestn > bestc && return _onto_sphere!(y, f, convert(T, _value_and_prox_unchecked!(y, f, x, γ)), r)
   if ibest != 0                         # an index in no group, where x is zero
     fill!(y, zero(eltype(y)))
     y[ibest] = r
@@ -208,10 +220,12 @@ end
 # On the sphere a point with at most s nonzero entries has ⟨z, x⟩ ≤ r‖x_S‖ on its
 # support S, so the best support carries the most of x: the s largest entries
 # (and the free diagonal), the proximal point of the ℓ0 ball.
-function value_and_prox!(y::AbstractArray, c::SphereConstrained{IndBallL0}, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, c::SphereConstrained{IndBallL0}, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{IndBallL0}, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))
-  prox!(y, c.f, x, γ)
+  _prox_unchecked!(y, c.f, x, γ)
   r = convert(T, c.sphere.r)
   if iszero(_norm2(y))
     # x is zero on the entries that count and on the free ones, so it is zero

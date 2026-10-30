@@ -275,7 +275,7 @@ end
 
 # an index of a group at zero violates optimality as much as its group; an
 # index at zero inside a nonzero group by |gᵢ| - λ1
-function kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray, i::Integer)
+function _kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray, i::Integer)
   _checkgroups(f, g)
   _checkgroups(f, x)
   k = _group(f, i)
@@ -283,7 +283,7 @@ function kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray,
   G = f.groups[k]
   _allzero(x, G) ? _dual_norm(f, g, G) - f.λ0 * f.w[k] : abs(g[i]) - f.λ1
 end
-kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AtomIterate, k::Integer) =
+_kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AtomIterate, k::Integer) =
   (_checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - f.λ0 * f.w[k])
-kkt_violation(f::SparseGroupNormL2, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
+_kkt_violation(f::SparseGroupNormL2, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate"))

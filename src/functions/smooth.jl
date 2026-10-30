@@ -32,14 +32,14 @@ function prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, ::Real)
   y
 end
 value_and_prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::Real) =
-  (prox!(y, f, x, γ); zero(_valtype(y)))
+  (_prox_unchecked!(y, f, x, γ); zero(_valtype(y)))
 
 function value_and_gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
   fill!(g, zero(eltype(g)))
   zero(_valtype(x))
 end
-gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray) = (value_and_gradient!(g, f, x); g)
+gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray) = (_value_and_gradient_unchecked!(g, f, x); g)
 
 prox_entry(::ZeroFunction, v::Real, ::Integer, ::Real) = v
 kkt_violation(::ZeroFunction, g::AbstractArray, i::Integer) = abs(g[i])
@@ -66,7 +66,9 @@ isproximable(::Type{<:LinearFunction}) = true
 isseparable(::Type{<:LinearFunction}) = true
 isconvex(::Type{<:LinearFunction}) = true
 
-(f::LinearFunction)(x::AbstractArray) = (_checkvalue(f, x); _value_at(dot(f.c, x) + f.d, x))
+(f::LinearFunction)(x::AbstractArray) =
+  (_check_value_arrays(f, x); _value_unchecked(f, x))
+_value_unchecked(f::LinearFunction, x::AbstractArray) = (_checkvalue(f, x); _value_at(dot(f.c, x) + f.d, x))
 
 # Generic dot only needs equal lengths; specialized matrix methods check shapes.
 _dot_checks_size(::Type{C}, ::Type{X}) where {C, X} =
@@ -96,15 +98,17 @@ function _checkwrite(op::O, f::LinearFunction, y::AbstractArray, x::AbstractArra
   op === value_and_prox! && (_checkreal(f, y); _checkdot(f.c, y))
   op === value_and_gradient! && _checkdot(f.c, x)
   # c is written into y: copied by the gradient, subtracted by the prox
-  _check_symmetric_source(y, f.c)
+  _check_parameter_axes(y, f.c)
   true
 end
 
-function prox!(y::AbstractArray, f::LinearFunction, x::AbstractArray, γ::Real)
+prox!(y::AbstractArray, f::LinearFunction, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+function _prox_unchecked!(y::AbstractArray, f::LinearFunction, x::AbstractArray, γ::Real)
   _checkwrite(prox!, f, y, x)
   γ = convert(float(eltype(y)), γ)
   if size(f.c) == size(x)
-    y .= x .- γ .* f.c
+    y .= x .- γ .* _checked_parameter(y, f.c)
   else
     # dot accepts equal-length arrays even when their shapes differ.
     @inbounds for i in eachindex(IndexLinear(), y, x)
@@ -114,14 +118,18 @@ function prox!(y::AbstractArray, f::LinearFunction, x::AbstractArray, γ::Real)
   y
 end
 
-function value_and_gradient!(g::AbstractArray, f::LinearFunction, x::AbstractArray)
+value_and_gradient!(g::AbstractArray, f::LinearFunction, x::AbstractArray) =
+  (_check_oracle_arrays(value_and_gradient!, f, g, x); _value_and_gradient_unchecked!(g, f, x))
+function _value_and_gradient_unchecked!(g::AbstractArray, f::LinearFunction, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
-  v = f(x)
-  copyto!(g, f.c)
+  v = _value_unchecked(f, x)
+  _copy_parameter!(g, f.c)
   v
 end
 gradient!(g::AbstractArray, f::LinearFunction, x::AbstractArray) =
-  (_checkwrite(gradient!, f, g, x); copyto!(g, f.c))
+  (_check_oracle_arrays(gradient!, f, g, x); _gradient_unchecked!(g, f, x))
+_gradient_unchecked!(g::AbstractArray, f::LinearFunction, x::AbstractArray) =
+  (_checkwrite(gradient!, f, g, x); _copy_parameter!(g, f.c))
 
 Base.@propagate_inbounds prox_entry(f::LinearFunction, v::Real, i::Integer, γ::Real) = v - γ * f.c[i]
 _checkparams(f::LinearFunction, x) = _checkparam(f.c, x)
@@ -199,7 +207,9 @@ function _norm2_scaled(x::SymmetricSparseIterate{T}) where {T}
   n
 end
 
-function (f::SqrNormL2)(x::AbstractArray)
+(f::SqrNormL2)(x::AbstractArray) =
+  (_check_value_arrays(f, x); _value_unchecked(f, x))
+function _value_unchecked(f::SqrNormL2, x::AbstractArray)
   _checkvalue(f, x)
   T = _valtype(x)
   iszero(f.λ) && return zero(T)
@@ -209,30 +219,36 @@ end
 
 _checkvalue(f::SqrNormL2, x) = (_checkparams(f, x); f.y === nothing || _checksize(f.y, x); true)
 
-function value_and_gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
+value_and_gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray) =
+  (_check_oracle_arrays(value_and_gradient!, f, g, x); _value_and_gradient_unchecked!(g, f, x))
+function _value_and_gradient_unchecked!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
   λ = convert(float(eltype(g)), f.λ)
-  f.y === nothing ? (g .= λ .* x) : (g .= λ .* (x .- f.y))
-  f(x)
+  f.y === nothing ? (g .= λ .* x) : (g .= λ .* (x .- _checked_parameter(g, f.y)))
+  _value_unchecked(f, x)
 end
-function gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
+gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray) =
+  (_check_oracle_arrays(gradient!, f, g, x); _gradient_unchecked!(g, f, x))
+function _gradient_unchecked!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
   _checkwrite(gradient!, f, g, x)
   λ = convert(float(eltype(g)), f.λ)
-  f.y === nothing ? (g .= λ .* x) : (g .= λ .* (x .- f.y))
+  f.y === nothing ? (g .= λ .* x) : (g .= λ .* (x .- _checked_parameter(g, f.y)))
 end
 
-function prox!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real)
+prox!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, f, z, x, γ); _prox_unchecked!(z, f, x, γ))
+function _prox_unchecked!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real)
   _checkwrite(prox!, f, z, x)
   T = float(eltype(z))
   a, b = _ridge_weights(T(γ), T(f.λ))
-  f.y === nothing ? (z .= a .* x) : (z .= _ridge_blend.(x, f.y, a, b))
+  f.y === nothing ? (z .= a .* x) : (z .= _ridge_blend.(x, _checked_parameter(z, f.y), a, b))
 end
 
 function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::SqrNormL2, y::AbstractArray, x::AbstractArray)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   _checkparams(f, x)
-  f.y === nothing || (_checksize(f.y, x); _check_symmetric_source(y, f.y))
+  f.y === nothing || (_checksize(f.y, x); _check_parameter_axes(y, f.y))
   true
 end
 
@@ -320,8 +336,8 @@ end
 function value_and_gradient!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector)
   _checkwrite(value_and_gradient!, f, g, x)
   if eltype(g) !== eltype(x)
-    gradient!(g, f, x)
-    return f(x)
+    _gradient_unchecked!(g, f, x)
+    return _value_unchecked(f, x)
   end
   mul!(g, f.A, x)
   v = dot(g, x) / 2 + f.c
@@ -396,8 +412,10 @@ to rounding, such as an inverse computed by `inv`, is symmetrized.
 either shape or, when `p = q`, a [`SymmetricSparseIterate`](@ref). On a
 `SymmetricSparseIterate` the gradient is the one over symmetric matrices,
 `(AΘB + BΘA + C + C')/2`, so that a solver that steps on one triangle moves
-correctly. The value and the gradient use buffers that `f` owns and allocate
-nothing; do not share `f` between threads.
+correctly. `C` must be exactly symmetric for a value or second-order oracle at
+a symmetric iterate, and for a gradient written into one. The value and the
+gradient use buffers that `f` owns and allocate nothing; do not share `f`
+between threads.
 
 Examples:
 - the direct difference (D-trace) loss `tr(ΣxΔΣyΔ)/2 - tr(Δ(Σy - Σx))` of a
@@ -406,7 +424,8 @@ Examples:
   column `(b - 1)p + a` of `(Σy ⊗ Σx)⁻¹`, is `KronQuadratic(Σx, Σy, -E)`, with
   `E` the indicator of the entry `(a, b)`; DiffPrecTest's reduced loss on
   `svec(Θ)` is this function on a symmetric `Θ`, in coordinates that scale the
-  off-diagonal entries by `√2`.
+  off-diagonal entries by `√2`. For a symmetric iterate, use `-(E + E')/2`
+  as the linear term.
 """
 struct KronQuadratic{T<:AbstractFloat, MC<:Union{Nothing, Matrix{T}}} <: AbstractFunction
   A::Matrix{T}
@@ -477,7 +496,11 @@ function _densify!(f::KronQuadratic, Θ::SymmetricSparseIterate)
   D
 end
 
-function (f::KronQuadratic)(Θ::AbstractArray)
+_checkvalue(f::KronQuadratic, Θ) = (_checkreal(f, Θ); _checkshape(f, Θ))
+
+(f::KronQuadratic)(Θ::AbstractArray) =
+  (_check_value_arrays(f, Θ); _value_unchecked(f, Θ))
+function _value_unchecked(f::KronQuadratic, Θ::AbstractArray)
   _checkreal(f, Θ)
   D = _densify!(f, Θ)
   mul!(f.AD, f.A, D)
@@ -486,7 +509,9 @@ function (f::KronQuadratic)(Θ::AbstractArray)
   _value_at(f.C === nothing ? v : v + dot(f.C, D), Θ)
 end
 
-function value_and_gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray)
+value_and_gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =
+  (_check_oracle_arrays(value_and_gradient!, f, G, Θ); _value_and_gradient_unchecked!(G, f, Θ))
+function _value_and_gradient_unchecked!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray)
   _checkwrite(value_and_gradient!, f, G, Θ)
   D = _densify!(f, Θ)
   W = f.W
@@ -503,7 +528,9 @@ function value_and_gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArr
 end
 
 gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =
-  (_checkwrite(gradient!, f, G, Θ); value_and_gradient!(G, f, Θ); G)
+  (_check_oracle_arrays(gradient!, f, G, Θ); _gradient_unchecked!(G, f, Θ))
+_gradient_unchecked!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =
+  (_checkwrite(gradient!, f, G, Θ); _value_and_gradient_unchecked!(G, f, Θ); G)
 
 _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::KronQuadratic, G::AbstractArray, Θ::AbstractArray) =
   (_checkgradient_output(G, Θ); _checkshape(f, G); _checkshape(f, Θ); _checkreal(f, Θ))

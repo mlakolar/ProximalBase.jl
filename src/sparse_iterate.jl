@@ -866,6 +866,14 @@ end
   "the value written into a SymmetricSparseIterate must be symmetric, but entry ($r, $c) " *
   "is $a and entry ($c, $r) is $b; use Symmetric(A, :L) to store the lower triangle of A"))
 
+@noinline function _throw_asymmetric_parameter(f, name, r, c, a, b)
+  owner = f === nothing ? "the steps γ" : "the array $name of $(nameof(typeof(f)))"
+  rounding = a isa AbstractFloat && b isa AbstractFloat && isfinite(a) && isfinite(b) &&
+    abs(a - b) <= 8eps(max(abs(a), abs(b)))
+  message = "$owner must be symmetric on a SymmetricSparseIterate, but entry ($r, $c) is $a and entry ($c, $r) is $b; use Symmetric(A, :L) to keep the lower triangle of A, or (A + A')/2 for its symmetric part"
+  throw(ArgumentError(rounding ? message * " (they differ only by rounding)" : message))
+end
+
 _check_axes(x::SymmetricSparseIterate, A::AbstractArray) = axes(A) == axes(x) || _throw_axes(x, A)
 @noinline _throw_axes(x, A) =
   throw(DimensionMismatch("source axes $(axes(A)) do not match destination axes $(axes(x))"))
@@ -874,13 +882,6 @@ _check_axes(x::SymmetricSparseIterate, A::AbstractArray) = axes(A) == axes(x) ||
 # input is symmetric: a SymmetricSparseIterate keeps the lower one
 _copyto_rounded!(Y, B) = copyto!(Y, B)
 _copyto_rounded!(Y::SymmetricSparseIterate, B) = copyto!(Y, Symmetric(B, :L))
-
-# c, a parameter written into y: when y is a SymmetricSparseIterate, it must
-# have the axes of y and be symmetric
-_check_symmetric_source(y, c) = true
-_check_symmetric_source(y::SymmetricSparseIterate, c::AbstractArray) = _check_axes(y, c)
-_check_symmetric_source(y::SymmetricSparseIterate, c::AbstractMatrix) =
-  _check_axes(y, c) && _check_symmetric(c)
 
 # X must be symmetric
 function SymmetricSparseIterate(X::SparseMatrixCSC{T}) where {T}

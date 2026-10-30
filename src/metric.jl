@@ -13,30 +13,43 @@
 
 prox(f::AbstractFunction, x::AbstractArray, γ::AbstractArray) = prox!(similar(x, float(eltype(x))), f, x, γ)
 
-function prox!(y::AbstractArray, ::ZeroFunction, x::AbstractArray, γ::AbstractArray)
+prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+function _prox_unchecked!(y::AbstractArray, ::ZeroFunction, x::AbstractArray, γ::AbstractArray)
   _checkparam(γ, x)
   _checksize(y, x)
   y === x ? y : copyto!(y, x)
 end
 value_and_prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::AbstractArray) =
-  (prox!(y, f, x, γ); zero(_valtype(y)))
+  (_check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_unchecked!(y, f, x, γ))
+_value_and_prox_unchecked!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::AbstractArray) =
+  (_prox_unchecked!(y, f, x, γ); zero(_valtype(y)))
 
 # separable functions: the step of each entry; on a SymmetricSparseIterate the
 # steps are a p × p array read at the lower triangle, so give a symmetric one.
 # Scalar and array steps share the loops of separable.jl; _entry specializes
 # to the scalar or to γ[i] without a branch inside the loop.
-prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) = _prox_sep!(y, f, x, γ)
+prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_sep!(y, f, x, γ))
+_prox_unchecked!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) =
+  _isbuiltin(f) ? _prox_sep!(y, f, x, γ) : prox!(y, f, x, γ)
 value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) =
-  _value_and_prox_sep!(y, f, x, γ)
+  (_check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_sep!(y, f, x, γ))
+_value_and_prox_unchecked!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::AbstractArray) =
+  _isbuiltin(f) ? _value_and_prox_sep!(y, f, x, γ) : value_and_prox!(y, f, x, γ)
 
-function prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::AbstractArray)
+prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, h, y, x, γ); _prox_unchecked!(y, h, x, γ))
+function _prox_unchecked!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::AbstractArray)
   isseparable(h) || throw(ArgumentError("array steps for an array scale require a separable function"))
   _checkwrite(prox!, h, y, x)
   _checkparam(γ, x)
   _value_and_prox_array!(y, h, x, γ, false)
   y
 end
-function value_and_prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::AbstractArray)
+value_and_prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(value_and_prox!, h, y, x, γ); _value_and_prox_unchecked!(y, h, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::AbstractArray)
   isseparable(h) || throw(ArgumentError("array steps for an array scale require a separable function"))
   _checkwrite(value_and_prox!, h, y, x)
   _checkparam(γ, x)
@@ -45,7 +58,7 @@ end
 
 # group penalties: a step per group, constant on the group, keeps the closed form
 value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
-prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (value_and_prox!(y, f, x, γ); y)
+prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (_value_and_prox_unchecked!(y, f, x, γ); y)
 value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::AbstractVector) = (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 
 # the entrywise reciprocal of an array of steps, without allocating
@@ -58,14 +71,18 @@ Base.IndexStyle(::Type{<:_ReciprocalArray}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(a::_ReciprocalArray{T}, i::Int) where {T} = inv(convert(T, a.γ[i]))
 
 # functions built from functions pass the steps on, entry by entry
-function prox!(y::AbstractArray, h::_ScalarPrecompose, x::AbstractArray, γ::AbstractArray)
+prox!(y::AbstractArray, h::_ScalarPrecompose, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, h, y, x, γ); _prox_unchecked!(y, h, x, γ))
+function _prox_unchecked!(y::AbstractArray, h::_ScalarPrecompose, x::AbstractArray, γ::AbstractArray)
   isseparable(h) || throw(ArgumentError("array steps for a scalar scale require a separable function"))
   _checkwrite(prox!, h, y, x)
   _checkparam(γ, x)
   _value_and_prox_precompose!(y, h, x, γ, false)
   y
 end
-function value_and_prox!(y::AbstractArray, h::_ScalarPrecompose, x::AbstractArray, γ::AbstractArray)
+value_and_prox!(y::AbstractArray, h::_ScalarPrecompose, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(value_and_prox!, h, y, x, γ); _value_and_prox_unchecked!(y, h, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, h::_ScalarPrecompose, x::AbstractArray, γ::AbstractArray)
   isseparable(h) || throw(ArgumentError("array steps for a scalar scale require a separable function"))
   _checkwrite(value_and_prox!, h, y, x)
   _checkparam(γ, x)
@@ -77,7 +94,7 @@ function _value_and_prox_precompose!(y, h::_ScalarPrecompose, x, γ::AbstractArr
   _checkparams(h.f, z)
   T = eltype(z)
   steps = _ScaledArray{T}(γ, h.μ)
-  v = withvalue ? value_and_prox!(z, h.f, z, steps) : (prox!(z, h.f, z, steps); zero(T))
+  v = withvalue ? _value_and_prox_unchecked!(z, h.f, z, steps) : (_prox_unchecked!(z, h.f, z, steps); zero(T))
   y .= z ./ h.A
   withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _precompose_prox_value(h, y) : v
 end
@@ -106,82 +123,100 @@ end
 function _shrunk!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
   T = float(eltype(y))
   ρ = convert(T, r.ρ)
-  r.c === nothing ? (y .= _regularize_shrink.(x, γ, ρ)) :
-                    (y .= _regularize_shrink.(x, r.c, γ, ρ))
+  r.c === nothing ? (y .= _regularize_shrink.(x, _checked_parameter(y, γ), ρ)) :
+                    (y .= _regularize_shrink.(x, _checked_parameter(y, r.c), _checked_parameter(y, γ), ρ))
   _RegularizeSteps(γ, ρ)
 end
 
-function prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
+prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, r, y, x, γ); _prox_unchecked!(y, r, x, γ))
+function _prox_unchecked!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
   isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function"))
   _checkwrite(prox!, r, y, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)
-  _check_symmetric_source(y, γ)
+  _check_parameter_axes(y, γ)
   z = _output_buffer!(r.scratch, y)
-  prox!(y, r.f, z, _shrunk!(z, r, x, γ))
+  _prox_unchecked!(y, r.f, z, _shrunk!(z, r, x, γ))
 end
-function value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
+value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(value_and_prox!, r, y, x, γ); _value_and_prox_unchecked!(y, r, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
   isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function"))
   _checkwrite(value_and_prox!, r, y, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)
-  _check_symmetric_source(y, γ)
+  _check_parameter_axes(y, γ)
   z = _output_buffer!(r.scratch, y)
-  v = value_and_prox!(y, r.f, z, _shrunk!(z, r, x, γ))
+  v = _value_and_prox_unchecked!(y, r.f, z, _shrunk!(z, r, x, γ))
   _value_at(v + _ridge(r, y), y)
 end
 
-prox!(y, s::Scaled, x, γ::AbstractArray) = (_checkparams(s, x); prox!(y, s.f, x, _ScaledArray(γ, s.α)))
+prox!(y, s::Scaled, x, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
+_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) = (_checkparams(s, x); _prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)))
 value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
-  (_checkparams(s, x); _value_at(s.α * value_and_prox!(y, s.f, x, _ScaledArray(γ, s.α)), y))
+  (_check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
+_value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
+  (_checkparams(s, x); _value_at(s.α * _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)), y))
 
-function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
+prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, t, y, x, γ); _prox_unchecked!(y, t, x, γ))
+function _prox_unchecked!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, t, y, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)
-  _check_symmetric_source(y, γ)
+  _check_parameter_axes(y, γ)
   z = _output_buffer!(t.scratch, y)
-  z .= x .- γ .* t.c
+  z .= x .- _checked_parameter(z, γ) .* _checked_parameter(z, t.c)
   w = _wrapper_output(y, z)
-  prox!(w, t.f, z, γ)
+  _prox_unchecked!(w, t.f, z, γ)
   _wrapper_commit!(y, w)
 end
-function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
+value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(value_and_prox!, t, y, x, γ); _value_and_prox_unchecked!(y, t, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
   _checkwrite(value_and_prox!, t, y, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)
-  _check_symmetric_source(y, γ)
+  _check_parameter_axes(y, γ)
   z = _output_buffer!(t.scratch, y)
-  z .= x .- γ .* t.c
+  z .= x .- _checked_parameter(z, γ) .* _checked_parameter(z, t.c)
   w = _wrapper_output(y, z)
-  v = value_and_prox!(w, t.f, z, γ)
+  v = _value_and_prox_unchecked!(w, t.f, z, γ)
   v = _value_at(v + dot(t.c, w) + t.d, w)
   _wrapper_commit!(y, w)
   v
 end
 
-function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
+prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, t, y, x, γ); _prox_unchecked!(y, t, x, γ))
+function _prox_unchecked!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
-  z .= x .- t.b
+  z .= x .- _checked_parameter(z, t.b)
   w = _wrapper_output(y, z)
-  prox!(w, t.f, z, γ)
-  w .+= t.b
+  _prox_unchecked!(w, t.f, z, γ)
+  w .+= _checked_parameter(w, t.b)
   _wrapper_commit!(y, w)
 end
-function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
+value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(value_and_prox!, t, y, x, γ); _value_and_prox_unchecked!(y, t, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
   _checkwrite(value_and_prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
-  z .= x .- t.b
+  z .= x .- _checked_parameter(z, t.b)
   w = _wrapper_output(y, z)
-  v = value_and_prox!(w, t.f, z, γ)
-  w .+= t.b
+  v = _value_and_prox_unchecked!(w, t.f, z, γ)
+  w .+= _checked_parameter(w, t.b)
   _wrapper_commit!(y, w)
   _value_at(v, y)
 end
 
 # Moreau's identity in each entry: prox_{γᵢfᵢ*}(xᵢ) = xᵢ - γᵢ prox_{fᵢ/γᵢ}(xᵢ/γᵢ)
-function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
+prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+function _prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
   _checksize(y, x)
   _checkparams(c, x)
   _checkparam(γ, x)
@@ -192,34 +227,40 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArr
   # without dividing by γ: a separable positively homogeneous fᵢ or cone gives
   # prox_{fᵢ}(xᵢ), and the box the projection onto [γᵢlᵢ, γᵢuᵢ]
   if (isseparable(F) && _conjugate_isindicator(F)) || c.f isa IndBox
-    c.f isa IndBox ? _moreau_set!(z, c.f, x, γ) : prox!(z, c.f, x, one(T))
+    c.f isa IndBox ? _moreau_set!(z, c.f, x, γ) : _prox_unchecked!(z, c.f, x, one(T))
     _checkmoreau(y, x, z, one(T), γ, false)
     y .= x .- z
   else
     z .= x ./ γ
-    prox!(z, c.f, z, _ReciprocalArray(γ))
+    _prox_unchecked!(z, c.f, z, _ReciprocalArray(γ))
     _checkmoreau(y, x, z, γ, γ, true)
-    y .= x .- γ .* z
+    y .= x .- _checked_parameter(y, γ) .* z
   end
 end
 
 # f** = f, with the steps and checks of f's own oracles
-function prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::AbstractArray)
+prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+function _prox_unchecked!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, c, y, x)
   _checkparam(γ, x)
-  prox!(y, c.f.f, x, γ)
+  _prox_unchecked!(y, c.f.f, x, γ)
 end
-function value_and_prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::AbstractArray)
+value_and_prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::AbstractArray)
   _checkwrite(value_and_prox!, c, y, x)
   _checkparam(γ, x)
-  value_and_prox!(y, c.f.f, x, γ)
+  _value_and_prox_unchecked!(y, c.f.f, x, γ)
 end
 
-function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
+value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
   _checkwrite(value_and_prox!, c, y, x)
-  _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
+  _isindicator(c) && (_prox_unchecked!(y, c, x, γ); return _zero_value(y))
   if _has_conjugate_value(c.f)
-    prox!(y, c, x, γ)
+    _prox_unchecked!(y, c, x, γ)
     return _value_at(_conjugate_value(c.f, y), y)
   end
   _checksize(y, x)
@@ -227,9 +268,9 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::A
   T = float(eltype(y))
   p = _array_buffer!(c.scratch, T, x)
   p .= x ./ γ
-  fp = value_and_prox!(p, c.f, p, _ReciprocalArray(γ))
+  fp = _value_and_prox_unchecked!(p, c.f, p, _ReciprocalArray(γ))
   _checkmoreau(y, x, p, γ, γ, true)
-  y .= x .- γ .* p
+  y .= x .- _checked_parameter(y, γ) .* p
   _value_at(dot(p, y) - fp, y)
 end
 
@@ -248,7 +289,9 @@ end
 # The projection onto monotone vectors in the metric of Diagonal(1 ./ γ) is
 # weighted isotonic regression with weights γmin/γᵢ; constant steps take the
 # unweighted pooling.
-function prox!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractArray)
+prox!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+function _prox_unchecked!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   _check_metric_steps(f, γ)
@@ -279,7 +322,9 @@ end
 # The projection onto a hyperplane in the metric of Diagonal(1 ./ γ),
 #   x - γ .* a (⟨a, x⟩ - b) / Σᵢ γᵢaᵢ²,
 # and onto a halfspace the same step when x violates the inequality
-function prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace}, x::AbstractArray, γ::AbstractArray)
+prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace}, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+function _prox_unchecked!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace}, x::AbstractArray, γ::AbstractArray)
   _checksize(y, x)
   _checkparams(f, x)
   _checkparam(γ, x)
@@ -290,15 +335,17 @@ function prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace}, x::Abstr
     g = _dot_normal(a, x) - _scaled_offset(f)
     f isa IndHalfspace && (g = max(g, zero(g)))
     t = convert(T, g / _metric_sqnorm(f, x, γ))
-    return y .= x .- t .* (γ .* a)
+    return y .= x .- t .* (_checked_parameter(y, γ) .* _checked_parameter(y, a))
   end
   g = _dot_normal(f.a, x) - f.b
   f isa IndHalfspace && (g = max(g, zero(g)))
   t = convert(T, g / _metric_sqnorm(f, x, γ))
-  y .= x .- t .* γ .* f.a
+  y .= x .- t .* _checked_parameter(y, γ) .* _checked_parameter(y, f.a)
 end
 
-function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, γ::AbstractArray)
+prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+function _prox_unchecked!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, f, y, x)
   _checkparams(f, x)
   _checkparam(γ, x)
@@ -316,12 +363,14 @@ end
 
 # Inline so that passing the scaled normal does not allocate a view.
 @inline function _hyperslab_metric_output!(y, x, a, γ, t::T) where {T}
-  y .= x .- t .* (T.(γ) .* a)
+  y .= x .- t .* (T.(_checked_parameter(y, γ)) .* _checked_parameter(y, a))
 end
 
 # The simplex and the ℓ1 ball: max(xᵢ - γᵢν, 0) and shrink(xᵢ, γᵢν) for the
 # level ν that meets the constraint
-function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, γ::AbstractArray)
+prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+function _prox_unchecked!(y::AbstractArray, f::IndSimplex, x::AbstractArray, γ::AbstractArray)
   _checksize(y, x)
   _checkparam(γ, x)
   _check_metric_steps(f, γ)
@@ -336,10 +385,12 @@ function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, γ::AbstractAr
   end
   iszero(r) && return fill!(y, zero(eltype(y)))
   ν = _metric_simplex_level(x, γ, r, identity)
-  y .= max.(x .- γ .* ν, zero(T))
+  y .= max.(x .- _checked_parameter(y, γ) .* ν, zero(T))
 end
 
-function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, γ::AbstractArray)
+prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+function _prox_unchecked!(y::AbstractArray, f::IndBallL1, x::AbstractArray, γ::AbstractArray)
   _checksize(y, x)
   _checkparam(γ, x)
   _check_metric_steps(f, γ)
@@ -348,11 +399,13 @@ function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, γ::AbstractArr
   norm(x, 1) <= r && return (y === x ? y : copyto!(y, x))
   iszero(r) && return fill!(y, zero(eltype(y)))
   ν = _metric_simplex_level(x, γ, r, abs)
-  y .= shrink.(x, γ .* ν)
+  y .= shrink.(x, _checked_parameter(y, γ) .* ν)
 end
 
 value_and_prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndHyperslab, IndSimplex, IndBallL1, IndIsotonic}, x::AbstractArray, γ::AbstractArray) =
-  (prox!(y, f, x, γ); zero(_valtype(y)))
+  (_check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_unchecked!(y, f, x, γ))
+_value_and_prox_unchecked!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndHyperslab, IndSimplex, IndBallL1, IndIsotonic}, x::AbstractArray, γ::AbstractArray) =
+  (_prox_unchecked!(y, f, x, γ); zero(_valtype(y)))
 
 # The level ν with Σᵢ max(uᵢ - γᵢν, 0) = r for uᵢ = h(xᵢ), by Newton's method
 # from the left on this convex, decreasing, piecewise linear function. From
@@ -424,7 +477,11 @@ Fill `L`, an array of the size of the argument of `f`, with the per-coordinate
 Lipschitz constants [`coordinate_lipschitz`](@ref)`(f, k)`, and return `L`. It
 allocates nothing.
 """
-function coordinate_lipschitz!(L::AbstractArray, f::AbstractFunction)
+coordinate_lipschitz!(L::AbstractArray, f::AbstractFunction) =
+  (_check_entry_arrays(f, L); _coordinate_lipschitz_body!(L, f))
+_coordinate_lipschitz_unchecked!(L::AbstractArray, f::AbstractFunction) =
+  _isbuiltin(f) ? _coordinate_lipschitz_body!(L, f) : coordinate_lipschitz!(L, f)
+function _coordinate_lipschitz_body!(L::AbstractArray, f::AbstractFunction)
   @inbounds for k in eachindex(IndexLinear(), L)
     L[k] = coordinate_lipschitz(f, k)
   end
@@ -463,7 +520,9 @@ function coordinate_lipschitz(f::SqrHingeLoss, k::Integer)
   _sqrhinge_slope(y, w, abs(y), 0)
 end
 
-function coordinate_lipschitz!(L::AbstractArray, f::SqrHingeLoss)
+coordinate_lipschitz!(L::AbstractArray, f::SqrHingeLoss) =
+  (_check_entry_arrays(f, L); _coordinate_lipschitz_unchecked!(L, f))
+function _coordinate_lipschitz_unchecked!(L::AbstractArray, f::SqrHingeLoss)
   _checkparams(f, L)
   @inbounds for k in eachindex(IndexLinear(), L)
     L[k] = coordinate_lipschitz(f, k)
@@ -516,29 +575,39 @@ Base.@propagate_inbounds function coordinate_lipschitz(f::BernoulliLoss, k::Inte
 end
 
 coordinate_lipschitz(s::Scaled, k::Integer) = s.α * coordinate_lipschitz(s.f, k)
-coordinate_lipschitz!(L::AbstractArray, s::Scaled) = (coordinate_lipschitz!(L, s.f); L .*= s.α)
+coordinate_lipschitz!(L::AbstractArray, s::Scaled) =
+  (_check_entry_arrays(s, L); _coordinate_lipschitz_unchecked!(L, s))
+_coordinate_lipschitz_unchecked!(L::AbstractArray, s::Scaled) = (_coordinate_lipschitz_unchecked!(L, s.f); L .*= s.α)
 coordinate_lipschitz(t::Union{Tilt, Translate}, k::Integer) = coordinate_lipschitz(t.f, k)
-coordinate_lipschitz!(L::AbstractArray, t::Union{Tilt, Translate}) = coordinate_lipschitz!(L, t.f)
+coordinate_lipschitz!(L::AbstractArray, t::Union{Tilt, Translate}) =
+  (_check_entry_arrays(t, L); _coordinate_lipschitz_unchecked!(L, t))
+_coordinate_lipschitz_unchecked!(L::AbstractArray, t::Union{Tilt, Translate}) = _coordinate_lipschitz_unchecked!(L, t.f)
 coordinate_lipschitz(s::Sum, k::Integer) = sum(f -> coordinate_lipschitz(f, k), s.fs)
 
 function coordinate_lipschitz(r::Regularize, k::Integer)
   r.c === nothing || checkbounds(r.c, k)
   coordinate_lipschitz(r.f, k) + r.ρ
 end
-function coordinate_lipschitz!(L::AbstractArray, r::Regularize)
+coordinate_lipschitz!(L::AbstractArray, r::Regularize) =
+  (_check_entry_arrays(r, L); _coordinate_lipschitz_unchecked!(L, r))
+function _coordinate_lipschitz_unchecked!(L::AbstractArray, r::Regularize)
   _checkparam(r.c, L)
-  coordinate_lipschitz!(L, r.f)
+  _coordinate_lipschitz_unchecked!(L, r.f)
   L .+= r.ρ
 end
 coordinate_lipschitz(h::_ScalarPrecompose, k::Integer) = h.μ * coordinate_lipschitz(h.f, k)
 coordinate_lipschitz!(L::AbstractArray, h::_ScalarPrecompose) =
-  (coordinate_lipschitz!(L, h.f); L .*= h.μ)
+  (_check_entry_arrays(h, L); _coordinate_lipschitz_unchecked!(L, h))
+_coordinate_lipschitz_unchecked!(L::AbstractArray, h::_ScalarPrecompose) =
+  (_coordinate_lipschitz_unchecked!(L, h.f); L .*= h.μ)
 
 Base.@propagate_inbounds function coordinate_lipschitz(h::_ArrayPrecompose, k::Integer)
   a = abs(float(h.a[k]))
   _positive_product(coordinate_lipschitz(h.f, k), a, a)
 end
-function coordinate_lipschitz!(L::AbstractArray, h::_ArrayPrecompose)
+coordinate_lipschitz!(L::AbstractArray, h::_ArrayPrecompose) =
+  (_check_entry_arrays(h, L); _coordinate_lipschitz_unchecked!(L, h))
+function _coordinate_lipschitz_unchecked!(L::AbstractArray, h::_ArrayPrecompose)
   _checkparams(h, L)
   @inbounds for k in eachindex(IndexLinear(), L)
     L[k] = coordinate_lipschitz(h, k)

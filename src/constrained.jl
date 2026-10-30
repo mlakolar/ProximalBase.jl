@@ -159,7 +159,9 @@ _isindicator(::Type{<:LinearConstrained{F}}) where {F} = _isindicator(F)
 ####################################
 
 (c::BoxConstrained)(x::AbstractArray) =
-  (_checkparams(c, x); T = float(eltype(x)); iszero(c.box(x)) ? convert(T, c.f(x)) : T(Inf))
+  (_check_value_arrays(c, x); _value_unchecked(c, x))
+_value_unchecked(c::BoxConstrained, x::AbstractArray) =
+  (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.box, x)) ? convert(T, _value_unchecked(c.f, x)) : T(Inf))
 
 # the scalar problem is convex, so its minimizer on an interval is the nearest
 # point to its unconstrained minimizer
@@ -167,15 +169,23 @@ Base.@propagate_inbounds prox_entry(c::BoxConstrained, v::Real, i::Integer, γ::
   prox_entry(c.box, prox_entry(c.f, v, i, γ), i, γ)
 
 # γ is a scalar step or an array of steps, one per entry
-prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = (_checkwrite(prox!, c, y, x); _prox_sep!(y, c, x, γ))
-prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = (_checkwrite(prox!, c, y, x); _prox_sep!(y, c, x, γ))
-value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = _value_and_prox_box!(y, c, x, γ)
-value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_box!(y, c, x, γ)
+prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = (_checkwrite(prox!, c, y, x); _prox_sep!(y, c, x, γ))
+prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = (_checkwrite(prox!, c, y, x); _prox_sep!(y, c, x, γ))
+value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+_value_and_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = _value_and_prox_box!(y, c, x, γ)
+value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+_value_and_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_box!(y, c, x, γ)
 function _value_and_prox_box!(y, c, x, γ)
   _checkwrite(value_and_prox!, c, y, x, γ)
   _prox_sep!(y, c, x, γ)
   T = float(eltype(y))
-  _isindicator(c) ? zero(T) : convert(T, c.f(y))
+  _isindicator(c) ? zero(T) : convert(T, _value_unchecked(c.f, y))
 end
 
 _checkparams(c::BoxConstrained, x) = (_checkparams(c.f, x); _checkparams(c.box, x); true)
@@ -266,7 +276,7 @@ _box_value_available(c::BoxConstrained, y) = _box_value_available(c.f, y)
 @inline function _check_box_value(c::BoxConstrained, y, p)
   _checkparams(c, y)
   _box_value_available(c.f, y) && return true
-  iszero(c.box(p)) && _check_box_value(c.f, y, p)
+  iszero(_value_unchecked(c.box, p)) && _check_box_value(c.f, y, p)
   true
 end
 @inline function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArray, γ) where {O}
@@ -300,7 +310,9 @@ _restrict_unchecked(c::BoxConstrained, S::AbstractVector{<:Integer}) =
 #  on a hyperplane, halfspace or hyperslab
 ####################################
 
-(c::LinearConstrained)(x::AbstractArray) = (_checkparams(c, x); T = float(eltype(x)); iszero(c.set(x)) ? convert(T, c.f(x)) : T(Inf))
+(c::LinearConstrained)(x::AbstractArray) =
+  (_check_value_arrays(c, x); _value_unchecked(c, x))
+_value_unchecked(c::LinearConstrained, x::AbstractArray) = (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.set, x)) ? convert(T, _value_unchecked(c.f, x)) : T(Inf))
 
 _checkparams(c::LinearConstrained, x) = (_checkparams(c.f, x); _checkparams(c.set, x); true)
 function _checkwrite(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
@@ -315,8 +327,12 @@ end
 # in the metric of Diagonal(1 ./ γ), where z(ν) has the entries
 # prox_{γᵢfᵢ}(xᵢ - γᵢνaᵢ)
 prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+_prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
   _linear_constrained_prox!(y, c, x, convert(float(eltype(y)), γ))
 prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+_prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
   (_checkparam(γ, x); _check_metric_steps(c, γ); _linear_constrained_prox!(y, c, x, γ))
 
 function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ)
@@ -339,13 +355,17 @@ function _linear_constrained_output!(y, f, a, x, γ, ν::T) where {T}
   y
 end
 
-value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) = _value_and_prox_linear!(y, c, x, γ)
-value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_linear!(y, c, x, γ)
+value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+_value_and_prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) = _value_and_prox_linear!(y, c, x, γ)
+value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
+  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+_value_and_prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_linear!(y, c, x, γ)
 function _value_and_prox_linear!(y, c, x, γ)
   _checkwrite(value_and_prox!, c, y, x)
-  prox!(y, c, x, γ)
+  _prox_unchecked!(y, c, x, γ)
   T = float(eltype(y))
-  _isindicator(c) ? zero(T) : convert(T, c.f(y))
+  _isindicator(c) ? zero(T) : convert(T, _value_unchecked(c.f, y))
 end
 
 # φ(ν) = ⟨a, z⟩ - b at z = z(ν), and Σᵢ |aᵢzᵢ| + |b|, the scale of its rounding

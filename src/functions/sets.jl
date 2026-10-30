@@ -711,7 +711,9 @@ function _scaled_normal_slack(f, x, ::Type{T}, b = f.b) where {T}
       (tol * sqrt(_normal_sqnorm(f, x))) * _norm2_scaled(x))
 end
 
-function (f::IndHyperplane)(x::AbstractArray)
+(f::IndHyperplane)(x::AbstractArray) =
+  (_check_value_arrays(f, x); _value_unchecked(f, x))
+function _value_unchecked(f::IndHyperplane, x::AbstractArray)
   T = float(eltype(x))
   eltype(x) <: Integer && return _linear_scaled_value(f, x, T)
   _isscaled(f) && return _scaled_normal_value(f, x, T)
@@ -721,7 +723,9 @@ function (f::IndHyperplane)(x::AbstractArray)
     return _linear_scaled_value(f, x, T)
   abs(g) <= slack ? zero(T) : T(Inf)
 end
-function (f::IndHalfspace)(x::AbstractArray)
+(f::IndHalfspace)(x::AbstractArray) =
+  (_check_value_arrays(f, x); _value_unchecked(f, x))
+function _value_unchecked(f::IndHalfspace, x::AbstractArray)
   _halfspace_value(f, x, f.b)
 end
 
@@ -736,7 +740,9 @@ function _halfspace_value(f, x, b, lower::Bool = false)
   _ind(lower ? -g <= slack : g <= slack, T)
 end
 
-function (f::IndHyperslab)(x::AbstractArray)
+(f::IndHyperslab)(x::AbstractArray) =
+  (_check_value_arrays(f, x); _value_unchecked(f, x))
+function _value_unchecked(f::IndHyperslab, x::AbstractArray)
   _checkparams(f, x)
   T = float(eltype(x))
   isfinite(f.l) && !iszero(_halfspace_value(f, x, f.l, true)) && return T(Inf)
@@ -807,7 +813,9 @@ function _hyperslab_residual(f, x, a)
   zero(s)
 end
 
-function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, ::Real)
+prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+function _prox_unchecked!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
   isempty(x) && return y
   g = _hyperslab_residual(f, x)
@@ -815,21 +823,25 @@ function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, ::Real)
   t = g / _normal_sqnorm(f, x)
   _isscaled(f) ? _hyperslab_output!(y, x, _normalized_normal(f.a, f.s), t) : _hyperslab_output!(y, x, f.a, t)
 end
-_hyperslab_output!(y, x, a, t) = (y .= x .- t .* a)
+_hyperslab_output!(y, x, a, t) = (y .= x .- t .* _checked_parameter(y, a))
 
-function prox!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, ::Real)
+prox!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+function _prox_unchecked!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
   _isscaled(f) && return _scaled_normal_prox!(y, f, x)
   T = float(eltype(y))
   t = convert(T, (_dot_normal(f.a, x) - f.b) / _normal_sqnorm(f, x))
-  y .= x .- t .* f.a
+  y .= x .- t .* _checked_parameter(y, f.a)
 end
-function prox!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, ::Real)
+prox!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+function _prox_unchecked!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
   _isscaled(f) && return _scaled_normal_prox!(y, f, x)
   T = float(eltype(y))
   t = convert(T, max(_dot_normal(f.a, x) - f.b, zero(f.b)) / _normal_sqnorm(f, x))
-  y .= x .- t .* f.a
+  y .= x .- t .* _checked_parameter(y, f.a)
 end
 
 function _scaled_normal_prox!(y, f, x)
@@ -838,5 +850,5 @@ function _scaled_normal_prox!(y, f, x)
   g = _dot_normal(a, x) - _scaled_offset(f)
   f isa IndHalfspace && (g = max(g, zero(g)))
   t = convert(T, g / _normal_sqnorm(f, x))
-  y .= x .- t .* a
+  y .= x .- t .* _checked_parameter(y, a)
 end

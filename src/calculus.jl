@@ -157,7 +157,7 @@ _fold_level(f::Scaled, α) = _fold_level(f.f, α * f.α)
 # Retry exceptional products in the function's own units and domain.
 @noinline function _scaled_value_recover(s, x, r)
   g = _fold_level(s.f, s.α)
-  g === nothing ? r : convert(typeof(r), g(x))
+  g === nothing ? r : convert(typeof(r), _value_unchecked(g, x))
 end
 _scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
 @inline function _scaled_value(s, x, v, recover_inner_small = true)
@@ -168,14 +168,24 @@ _scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
   end
   r
 end
-(s::Scaled)(x) = _value_at(_scaled_value(s, x, s.f(x)), x)
+(s::Scaled)(x) =
+  (_check_value_arrays(s, x); _value_unchecked(s, x))
+_value_unchecked(s::Scaled, x) = _value_at(_scaled_value(s, x, _value_unchecked(s.f, x)), x)
 _checkvalue(s::Scaled, x) = _checkvalue(s.f, x)
 _scale!(g::AbstractArray, α) = (g .*= α)
 _scale!(g::Tuple, α) = (map(gk -> _scale!(gk, α), g); g)
-value_and_gradient!(g, s::Scaled, x) = (_checkwrite(value_and_gradient!, s, g, x); v = value_and_gradient!(g, s.f, x); _scale!(g, s.α); _value_at(_scaled_value(s, x, v), x))
-gradient!(g, s::Scaled, x) = (_checkwrite(gradient!, s, g, x); gradient!(g, s.f, x); _scale!(g, s.α))
-prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(prox!, s, y, x); prox!(y, s.f, x, s.α * γ))
-value_and_prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); v = value_and_prox!(y, s.f, x, s.α * γ); _value_at(_scaled_value(s, y, v, false), y))
+value_and_gradient!(g, s::Scaled, x) =
+  (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
+_value_and_gradient_unchecked!(g, s::Scaled, x) = (_checkwrite(value_and_gradient!, s, g, x); v = _value_and_gradient_unchecked!(g, s.f, x); _scale!(g, s.α); _value_at(_scaled_value(s, x, v), x))
+gradient!(g, s::Scaled, x) =
+  (_check_oracle_arrays(gradient!, s, g, x); _gradient_unchecked!(g, s, x))
+_gradient_unchecked!(g, s::Scaled, x) = (_checkwrite(gradient!, s, g, x); _gradient_unchecked!(g, s.f, x); _scale!(g, s.α))
+prox!(y, s::Scaled, x, γ::Real) =
+  (_check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
+_prox_unchecked!(y, s::Scaled, x, γ::Real) = (_checkwrite(prox!, s, y, x); _prox_unchecked!(y, s.f, x, s.α * γ))
+value_and_prox!(y, s::Scaled, x, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
+_value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, s.α * γ); _value_at(_scaled_value(s, y, v, false), y))
 Base.@propagate_inbounds prox_entry(s::Scaled, v::Real, i::Integer, γ::Real) = prox_entry(s.f, v, i, s.α * γ)
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
 _checkwrite(op::O, s::Scaled, y, x) where {O} = ((op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checkwrite(op, s.f, y, x))
@@ -185,9 +195,9 @@ _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 prox_coordinate!(x::AtomIterate, s::Scaled, k::Integer, γ::Real) = prox_coordinate!(x, s.f, k, s.α * γ)
 kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
   iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i)
-for X in (:AbstractArray, :AtomIterate, :SymmetricSparseIterate)
-  @eval kkt_violation(s::Scaled, g::AbstractArray, x::$X, k::Integer) =
-    iszero(s.α) ? kkt_violation(ZeroFunction(), g, x, k) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), x, k)
+for X in (:AbstractArray, :AtomIterate)
+  @eval _kkt_violation(s::Scaled, g::AbstractArray, x::$X, k::Integer) =
+    iszero(s.α) ? _kkt_violation(ZeroFunction(), g, x, k) : s.α * _kkt_violation(s.f, _ScaledArray(g, inv(s.α)), x, k)
 end
 restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.α)
 _restrict_unchecked(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(_restrict_unchecked(s.f, S), s.α)
@@ -220,16 +230,22 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Tilt{F}}) where {F} = $trait(F)
 end
 
-(t::Tilt)(x) = (_checkreal(t, x); _value_at(t.f(x) + dot(t.c, x) + t.d, x))
+(t::Tilt)(x) =
+  (_check_value_arrays(t, x); _value_unchecked(t, x))
+_value_unchecked(t::Tilt, x) = (_checkreal(t, x); _value_at(_value_unchecked(t.f, x) + dot(t.c, x) + t.d, x))
 _checkvalue(t::Tilt, x) = (_checkvalue(t.f, x); _checkdot(t.c, x); true)
-value_and_gradient!(g, t::Tilt, x) = (_checkwrite(value_and_gradient!, t, g, x); v = value_and_gradient!(g, t.f, x); g .+= t.c; _value_at(v + dot(t.c, x) + t.d, x))
-gradient!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, x); g .+= t.c)
+value_and_gradient!(g, t::Tilt, x) =
+  (_check_oracle_arrays(value_and_gradient!, t, g, x); _value_and_gradient_unchecked!(g, t, x))
+_value_and_gradient_unchecked!(g, t::Tilt, x) = (_checkwrite(value_and_gradient!, t, g, x); v = _value_and_gradient_unchecked!(g, t.f, x); g .+= _checked_parameter(g, t.c); _value_at(v + dot(t.c, x) + t.d, x))
+gradient!(g, t::Tilt, x) =
+  (_check_oracle_arrays(gradient!, t, g, x); _gradient_unchecked!(g, t, x))
+_gradient_unchecked!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); _gradient_unchecked!(g, t.f, x); g .+= _checked_parameter(g, t.c))
 
 function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}}
   _checkgradient_output(g, x)
   _checkparams(t, x)
   Base.Broadcast.check_broadcast_axes(axes(g), t.c)
-  _check_symmetric_source(g, t.c)
+  _check_parameter_axes(g, t.c)
   _checkwrite(op, t.f, g, x)
 end
 
@@ -238,25 +254,29 @@ function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray) where {
   _checksize(y, x)
   _checkparams(t, x)
   Base.Broadcast.check_broadcast_axes(axes(y), x, t.c)
-  _check_symmetric_source(y, t.c)
+  _check_parameter_axes(y, t.c)
   _checkwrite(op, t.f, y, y)
 end
 
 # x - γc in a buffer owned by t, so that y is unchanged when f throws
-function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
+prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, t, y, x, γ); _prox_unchecked!(y, t, x, γ))
+function _prox_unchecked!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checkwrite(prox!, t, y, x)
   z = _output_buffer!(t.scratch, y)
-  z .= x .- convert(float(eltype(y)), γ) .* t.c
+  z .= x .- convert(float(eltype(y)), γ) .* _checked_parameter(z, t.c)
   w = _wrapper_output(y, z)
-  prox!(w, t.f, z, γ)
+  _prox_unchecked!(w, t.f, z, γ)
   _wrapper_commit!(y, w)
 end
-function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, t, y, x, γ); _value_and_prox_unchecked!(y, t, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
   z = _output_buffer!(t.scratch, y)
-  z .= x .- convert(float(eltype(y)), γ) .* t.c
+  z .= x .- convert(float(eltype(y)), γ) .* _checked_parameter(z, t.c)
   w = _wrapper_output(y, z)
-  v = value_and_prox!(w, t.f, z, γ)
+  v = _value_and_prox_unchecked!(w, t.f, z, γ)
   v = _value_at(v + dot(t.c, w) + t.d, w)
   _wrapper_commit!(y, w)
   v
@@ -305,17 +325,23 @@ end
 # x - b in a buffer owned by t
 function _shifted(t::Translate, x::AbstractArray)
   z = _shifted_buffer(t, x)
-  z .= x .- t.b
+  z .= x .- _checked_parameter(z, t.b)
 end
 
-(t::Translate)(x::AbstractArray) = _value_at(t.f(_shifted(t, x)), x)
+(t::Translate)(x::AbstractArray) =
+  (_check_value_arrays(t, x); _value_unchecked(t, x))
+_value_unchecked(t::Translate, x::AbstractArray) = _value_at(_value_unchecked(t.f, _shifted(t, x)), x)
 value_and_gradient!(g, t::Translate, x::AbstractArray) =
-  (_checkwrite(value_and_gradient!, t, g, x); _value_at(value_and_gradient!(g, t.f, _shifted(t, x)), x))
+  (_check_oracle_arrays(value_and_gradient!, t, g, x); _value_and_gradient_unchecked!(g, t, x))
+_value_and_gradient_unchecked!(g, t::Translate, x::AbstractArray) =
+  (_checkwrite(value_and_gradient!, t, g, x); _value_at(_value_and_gradient_unchecked!(g, t.f, _shifted(t, x)), x))
 gradient!(g, t::Translate, x::AbstractArray) =
-  (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, _shifted(t, x)))
+  (_check_oracle_arrays(gradient!, t, g, x); _gradient_unchecked!(g, t, x))
+_gradient_unchecked!(g, t::Translate, x::AbstractArray) =
+  (_checkwrite(gradient!, t, g, x); _gradient_unchecked!(g, t.f, _shifted(t, x)))
 
 _checkwrite(op::O, t::Translate, g, x::AbstractArray) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
-  (_checkgradient_output(g, x); _check_symmetric_source(g, t.b); _checkwrite(op, t.f, g, _checkshifted(t, x)))
+  (_checkgradient_output(g, x); _check_parameter_axes(g, t.b); _checkwrite(op, t.f, g, _checkshifted(t, x)))
 
 function _checkshifted(t::Translate, x::AbstractArray)
   size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
@@ -329,28 +355,32 @@ function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) wh
   _checksize(y, x)
   _checksize(t.b, x)
   _checkparams(t, x)
-  _check_symmetric_source(y, t.b)
+  _check_parameter_axes(y, t.b)
   _checkentries(t.f, x)
   _checkwrite(op, t.f, y, y)
 end
 
 # x - b in a buffer owned by t, so that y is unchanged when f throws
-function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
+prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, t, y, x, γ); _prox_unchecked!(y, t, x, γ))
+function _prox_unchecked!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checkwrite(prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
-  z .= x .- t.b
+  z .= x .- _checked_parameter(z, t.b)
   w = _wrapper_output(y, z)
-  prox!(w, t.f, z, γ)
-  w .+= t.b
+  _prox_unchecked!(w, t.f, z, γ)
+  w .+= _checked_parameter(w, t.b)
   _wrapper_commit!(y, w)
 end
-function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, t, y, x, γ); _value_and_prox_unchecked!(y, t, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
-  z .= x .- t.b
+  z .= x .- _checked_parameter(z, t.b)
   w = _wrapper_output(y, z)
-  v = value_and_prox!(w, t.f, z, γ)
-  w .+= t.b
+  v = _value_and_prox_unchecked!(w, t.f, z, γ)
+  w .+= _checked_parameter(w, t.b)
   _wrapper_commit!(y, w)
   _value_at(v, y)
 end
@@ -505,7 +535,7 @@ _moreau_checked(::Type{<:Scaled{F}}) where {F} = _moreau_checked(F)
 
 # Pγ(f, x) into z, for _moreau_free(typeof(f)), with γ in the precision of z;
 # z may be x
-_moreau_point!(z, f, x, γ) = _conjugate_isindicator(typeof(f)) ? prox!(z, f, x, one(γ)) : _moreau_set!(z, f, x, γ)
+_moreau_point!(z, f, x, γ) = _conjugate_isindicator(typeof(f)) ? _prox_unchecked!(z, f, x, one(γ)) : _moreau_set!(z, f, x, γ)
 # γ times a bound in the precision S of γ, keeping an infinite or zero bound, so
 # that a step that underflows to 0 or overflows to Inf never forms 0 * Inf. A
 # finite bound that overflows in S, or a nonzero one that underflows, is
@@ -522,7 +552,7 @@ _moreau_point!(z, f, x, γ) = _conjugate_isindicator(typeof(f)) ? prox!(z, f, x,
     ifelse(isinf(c) | iszero(c), c, convert(S, γ) * c)
   end
 end
-_moreau_set!(z, f::IndBallL2, x, γ) = prox!(z, IndBallL2(_dilate(γ, f.r)), x, one(γ))
+_moreau_set!(z, f::IndBallL2, x, γ) = _prox_unchecked!(z, IndBallL2(_dilate(γ, f.r)), x, one(γ))
 # the dilated bounds: a scalar step and bound once, outside the broadcast, since
 # converting a wide bound such as a BigFloat can allocate; otherwise lazily,
 # entry by entry, inside it
@@ -534,9 +564,9 @@ function _moreau_set!(z, f::IndBox, x, γ)
 end
 _moreau_set!(z, s::Scaled, x, γ) = _moreau_point!(z, s.f, x, γ)
 function _moreau_set!(z, t::Translate, x, γ)
-  z .= x .- _dilate.(γ, t.b)
+  z .= x .- _dilate.(γ, _checked_parameter(z, t.b))
   _moreau_point!(z, t.f, z, γ)
-  z .+= _dilate.(γ, t.b)
+  z .+= _dilate.(γ, _checked_parameter(z, t.b))
 end
 
 # NaN exactly when x is finite and x - γz in the precision T of the output is
@@ -568,7 +598,9 @@ _moreau_nonfinite(y::Tuple, x::Tuple, z::Tuple, γ, always::Bool) =
 _checkmoreau(y, x, z, step, γ, always::Bool) =
   (_moreau_nonfinite(y, x, z, step, always) && _moreau_error(γ); true)
 
-function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
+prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+function _prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
   step = convert(T, γ)
@@ -580,7 +612,7 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
     y .= x .- z
   else
     z .= x ./ step
-    prox!(z, c.f, z, inv(step))
+    _prox_unchecked!(z, c.f, z, inv(step))
     _checkmoreau(y, x, z, step, γ, true)
     y .= x .- step .* z
   end
@@ -588,13 +620,17 @@ end
 # f** = f, with the checks of f's own oracles
 _checkwrite(op::O, c::Conjugate{<:Conjugate}, y::Union{AbstractArray, Tuple}, x::Union{AbstractArray, Tuple}) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}} =
   _checkwrite(op, c.f.f, y, x)
-function prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::Real)
+prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+function _prox_unchecked!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::Real)
   _checkwrite(prox!, c, y, x)
-  prox!(y, c.f.f, x, γ)
+  _prox_unchecked!(y, c.f.f, x, γ)
 end
-function value_and_prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
-  value_and_prox!(y, c.f.f, x, γ)
+  _value_and_prox_unchecked!(y, c.f.f, x, γ)
 end
 Base.@propagate_inbounds prox_entry(c::Conjugate{<:Conjugate}, v::Real, i::Integer, γ::Real) =
   prox_entry(c.f.f, v, i, γ)
@@ -608,11 +644,13 @@ _has_conjugate_value(::Union{NormL1, NormL2, NormLinf, IndBallL1, IndBallL2, Ind
 _has_conjugate_value(f::Union{Scaled, Translate}) = _has_conjugate_value(f.f)
 _has_conjugate_value(f::SingularValue) = _has_conjugate_value(f.f)
 
-function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
-  _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
+  _isindicator(c) && (_prox_unchecked!(y, c, x, γ); return _zero_value(y))
   if _has_conjugate_value(c.f)
-    prox!(y, c, x, γ)
+    _prox_unchecked!(y, c, x, γ)
     return _value_at(_conjugate_value(c.f, y), y)
   end
   _checksize(y, x)
@@ -620,7 +658,7 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::R
   step = convert(T, γ)
   p = _array_buffer!(c.scratch, T, x)
   p .= x ./ step
-  fp = value_and_prox!(p, c.f, p, inv(step))
+  fp = _value_and_prox_unchecked!(p, c.f, p, inv(step))
   _checkmoreau(y, x, p, step, γ, true)
   y .= x .- step .* p
   _value_at(dot(p, y) - fp, y)
@@ -664,11 +702,15 @@ function _checkwrite(op::O, c::Conjugate, y::Union{AbstractArray, Tuple}, x::Uni
 end
 _conjugate_checkbuffer(s::Scratch, y::AbstractArray, x::AbstractArray) = _checkbuffer(s, float(eltype(y)), x)
 
-(c::Conjugate)(y::Union{AbstractArray, Tuple}) = (_checkparams(c, y); _value_at(_conjugate_value(c.f, y), y))
+(c::Conjugate)(y::Union{AbstractArray, Tuple}) =
+  (_check_value_arrays(c, y); _value_unchecked(c, y))
+_value_unchecked(c::Conjugate, y::Union{AbstractArray, Tuple}) = (_checkparams(c, y); _value_at(_conjugate_value(c.f, y), y))
 
 _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, c::Conjugate{<:SumLargest}, y::AbstractArray, x::AbstractArray) =
   _checkwrite(op, c.f, y, x)
-prox!(y::AbstractArray{<:Real}, c::Conjugate{<:SumLargest}, x::AbstractArray{<:Real}, ::Real) =
+prox!(y::AbstractArray{<:Real}, c::Conjugate{<:SumLargest}, x::AbstractArray{<:Real}, γ::Real) =
+  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+_prox_unchecked!(y::AbstractArray{<:Real}, c::Conjugate{<:SumLargest}, x::AbstractArray{<:Real}, ::Real) =
   _sumlargest_prox!(y, c.f, x, 1, Val(true))
 
 _tuple_buffer_type(::Type{<:AbstractArray{T, N}}) where {T, N} = Array{float(T), N}
@@ -708,35 +750,43 @@ _tuple_dot(x::AbstractArray, y::AbstractArray) = dot(x, y)
 _tuple_dot(x::Tuple, y::Tuple) = sum(map(_tuple_dot, x, y))
 
 # as for arrays, with every block checked before any block is written
-function prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
+prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real) =
+  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+function _prox_unchecked!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _checkwrite(prox!, c, y, x)
   p = _tuple_buffer!(c.scratch, y, x)
   if _conjugate_isindicator(typeof(c.f))
     unit = one(float(typeof(γ)))
-    prox!(p, c.f, x, unit)
+    _prox_unchecked!(p, c.f, x, unit)
     _checkmoreau(y, x, p, unit, γ, false)
     _moreau_output!(y, x, p, unit)
   else
     _divide!(p, x, γ)
-    prox!(p, c.f, p, inv(γ))
+    _prox_unchecked!(p, c.f, p, inv(γ))
     _checkmoreau(y, x, p, γ, γ, true)
     _moreau_output!(y, x, p, γ)
   end
 end
-prox!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) = (_checkwrite(prox!, c, y, x); prox!(y, c.f.f, x, γ))
+prox!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) =
+  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+_prox_unchecked!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) = (_checkwrite(prox!, c, y, x); _prox_unchecked!(y, c.f.f, x, γ))
 value_and_prox!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) =
-  (_checkwrite(value_and_prox!, c, y, x); value_and_prox!(y, c.f.f, x, γ))
+  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+_value_and_prox_unchecked!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) =
+  (_checkwrite(value_and_prox!, c, y, x); _value_and_prox_unchecked!(y, c.f.f, x, γ))
 
-function value_and_prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
+value_and_prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+function _value_and_prox_unchecked!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
-  _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
+  _isindicator(c) && (_prox_unchecked!(y, c, x, γ); return _zero_value(y))
   if _has_conjugate_value(c.f)
-    prox!(y, c, x, γ)
+    _prox_unchecked!(y, c, x, γ)
     return _value_at(_conjugate_value(c.f, y), y)
   end
   p = _tuple_buffer!(c.scratch, y, x)
   _divide!(p, x, γ)
-  fp = value_and_prox!(p, c.f, p, inv(γ))
+  fp = _value_and_prox_unchecked!(p, c.f, p, inv(γ))
   _checkmoreau(y, x, p, γ, γ, true)
   _moreau_output!(y, x, p, γ)
   _value_at(_tuple_dot(p, y) - fp, y)
@@ -943,15 +993,25 @@ _scaled_conjugate_value(s::SeparableSum, y::Tuple, α) =
   (_checkscaledconjugate(s, y, α); sum(map((f, yk) -> _conjugate_value(Scaled(f, α), yk), s.fs, y)))
 _checkvalue(s::SeparableSum, x::Tuple) = (_checkparams(s, x); map(_checkvalue, s.fs, x); true)
 
-(s::SeparableSum)(x::Tuple) = (_checkparams(s, x); _value_at(sum(map((f, xk) -> f(xk), s.fs, x)), x))
+(s::SeparableSum)(x::Tuple) =
+  (_check_value_arrays(s, x); _value_unchecked(s, x))
+_value_unchecked(s::SeparableSum, x::Tuple) = (_checkparams(s, x); _value_at(sum(map((f, xk) -> _value_unchecked(f, xk), s.fs, x)), x))
 prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(prox!, s, y, x, γ); _checkstep(prox!, s, y, x, γ); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
+  (_check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
+_prox_unchecked!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
+  (_checkwrite(prox!, s, y, x, γ); _checkstep(prox!, s, y, x, γ); map((f, yk, xk) -> _prox_unchecked!(yk, f, xk, γ), s.fs, y, x); y)
 value_and_prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(value_and_prox!, s, y, x, γ); _checkstep(value_and_prox!, s, y, x, γ); _value_at(sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)), y))
+  (_check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
+_value_and_prox_unchecked!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
+  (_checkwrite(value_and_prox!, s, y, x, γ); _checkstep(value_and_prox!, s, y, x, γ); _value_at(sum(map((f, yk, xk) -> _value_and_prox_unchecked!(yk, f, xk, γ), s.fs, y, x)), y))
 value_and_gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
-  (_checkwrite(value_and_gradient!, s, g, x); _value_at(sum(map((f, gk, xk) -> value_and_gradient!(gk, f, xk), s.fs, g, x)), x))
+  (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
+_value_and_gradient_unchecked!(g::Tuple, s::SeparableSum, x::Tuple) =
+  (_checkwrite(value_and_gradient!, s, g, x); _value_at(sum(map((f, gk, xk) -> _value_and_gradient_unchecked!(gk, f, xk), s.fs, g, x)), x))
 gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
-  (_checkwrite(gradient!, s, g, x); map((f, gk, xk) -> gradient!(gk, f, xk), s.fs, g, x); g)
+  (_check_oracle_arrays(gradient!, s, g, x); _gradient_unchecked!(g, s, x))
+_gradient_unchecked!(g::Tuple, s::SeparableSum, x::Tuple) =
+  (_checkwrite(gradient!, s, g, x); map((f, gk, xk) -> _gradient_unchecked!(gk, f, xk), s.fs, g, x); g)
 
 ####################################
 #  sums of smooth functions
@@ -974,7 +1034,9 @@ issmooth(::Type{<:Sum{F}}) where {F} = all(issmooth, fieldtypes(F))
 isconvex(::Type{<:Sum{F}}) where {F} = all(isconvex, fieldtypes(F))
 _checkparams(s::Sum, x) = (map(f -> _checkparams(f, x), s.fs); true)
 
-(s::Sum)(x) = _value_at(sum(f -> f(x), s.fs), x)
+(s::Sum)(x) =
+  (_check_value_arrays(s, x); _value_unchecked(s, x))
+_value_unchecked(s::Sum, x) = _value_at(sum(f -> _value_unchecked(f, x), s.fs), x)
 _checkvalue(s::Sum, x) = (map(f -> _checkvalue(f, x), s.fs); true)
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::Sum, g::AbstractArray, x::AbstractArray)
@@ -992,14 +1054,16 @@ end
 # the remaining functions' gradients added into g through the buffer b
 _add_gradients!(g, b, x, v, ::Tuple{}) = v
 function _add_gradients!(g, b, x, v, fs::Tuple)
-  w = value_and_gradient!(b, first(fs), x)
+  w = _value_and_gradient_unchecked!(b, first(fs), x)
   g .+= b
   _add_gradients!(g, b, x, v + w, Base.tail(fs))
 end
 
-function value_and_gradient!(g::AbstractArray, s::Sum, x::AbstractArray)
+value_and_gradient!(g::AbstractArray, s::Sum, x::AbstractArray) =
+  (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
+function _value_and_gradient_unchecked!(g::AbstractArray, s::Sum, x::AbstractArray)
   _checkwrite(value_and_gradient!, s, g, x)
-  v = value_and_gradient!(g, first(s.fs), x)
+  v = _value_and_gradient_unchecked!(g, first(s.fs), x)
   length(s.fs) == 1 && return _value_at(v, x)
   b = _array_buffer!(s.scratch, eltype(g), size(g))
   _value_at(_add_gradients!(g, b, x, v, Base.tail(s.fs)), x)

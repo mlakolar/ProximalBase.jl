@@ -18,6 +18,12 @@ outside its domain. Its traits say which oracles it provides:
 | [`isseparable`](@ref) | [`prox_entry`](@ref), and [`prox_coordinate!`](@ref) on every iterate |
 | [`hashessian`](@ref) | [`hessian_vec!`](@ref), [`quadratic_model`](@ref) |
 
+For built-in functions, caller-supplied per-entry arrays must be exactly
+symmetric when a proximal operator or gradient writes a
+[`SymmetricSparseIterate`](@ref), or when a value, coordinate or second-order
+oracle takes one. Computed gradients in [`kkt_violation`](@ref) use their
+symmetric part.
+
 Checks that depend only on types, shapes and parameters run before any output
 write; failures that depend on the step, argument values or computation may
 leave outputs, and inputs that alias them, changed.
@@ -31,6 +37,13 @@ traits for its type, as in `ProximalBase.issmooth(::Type{<:MyLoss}) = true`, and
 implement the oracles of those traits.
 """
 abstract type AbstractFunction end
+
+function value_and_prox! end
+function gradient! end
+function hessian_vec! end
+function quadratic_model end
+function quadratic_model! end
+function coordinate_lipschitz! end
 
 """
     issmooth(f)
@@ -134,10 +147,14 @@ way can be cheaper than `prox!` followed by `f(y)`. The conjugates that
 value uses the Fenchel equality can return a small nonzero value even when it
 represents an indicator.
 """
-function value_and_prox!(y, f::AbstractFunction, x, γ::Real = 1)
+value_and_prox!(y, f::AbstractFunction, x, γ::Real = 1) =
+  (_check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_body!(y, f, x, γ))
+_value_and_prox_unchecked!(y, f::AbstractFunction, x, γ::Real = 1) =
+  _isbuiltin(f) ? _value_and_prox_body!(y, f, x, γ) : value_and_prox!(y, f, x, γ)
+function _value_and_prox_body!(y, f::AbstractFunction, x, γ::Real = 1)
   _checkwrite(value_and_prox!, f, y, x)
-  prox!(y, f, x, γ)
-  _isindicator(f) ? zero(_valtype(y)) : _value_at(f(y), y)
+  _prox_unchecked!(y, f, x, γ)
+  _isindicator(f) ? zero(_valtype(y)) : _value_at(_value_unchecked(f, y), y)
 end
 
 """
@@ -213,7 +230,15 @@ Store the gradient of `f` at `x` in `g` and return `g`.
 `g` must not be `x` unless the function documents otherwise; built-in functions
 throw an `ArgumentError`.
 """
-gradient!(g, f::AbstractFunction, x) = (_checkwrite(gradient!, f, g, x); value_and_gradient!(g, f, x); g)
+gradient!(g, f::AbstractFunction, x) =
+  (_check_oracle_arrays(gradient!, f, g, x); _gradient_body!(g, f, x))
+_gradient_unchecked!(g, f::AbstractFunction, x) =
+  _isbuiltin(f) ? _gradient_body!(g, f, x) : gradient!(g, f, x)
+function _gradient_body!(g, f::AbstractFunction, x)
+  _checkwrite(gradient!, f, g, x)
+  _value_and_gradient_unchecked!(g, f, x)
+  g
+end
 
 """
     value_and_gradient!(g, f, x)
@@ -273,8 +298,9 @@ operator of `γfᵢ` at the scalar `v`: the value that a coordinate-descent step
 gives entry `i` when the gradient step lands at `v`. `i` is a linear index of
 the array, so that weights and bounds may depend on the entry; for a
 [`SymmetricSparseIterate`](@ref), entry `(r, c)` has index `(c - 1)p + r`.
-It touches no iterate: [`prox_coordinate!`](@ref) updates a coordinate of one in
-place.
+It touches no iterate and does not check parameter symmetry; a caller using a
+symmetric iterate must check its parameters first. [`prox_coordinate!`](@ref)
+updates a coordinate of one in place.
 """
 function prox_entry end
 
@@ -311,6 +337,7 @@ function prox_coordinate!(x::SymmetricSparseIterate, f::AbstractFunction, k::Int
   _checkparams(f, x)
   checkbounds(coordinates(x), k)
   r, c = tril_cartesian(x.p, k)
+  _check_entry_arrays(f, x, _CoordinatePair(Int(k)))
   v = prox_entry(f, _getstored(x, k), (c - 1) * x.p + r, γ)
   _setstored!(x, v, k)
   v
@@ -340,7 +367,10 @@ end
     kkt_violation(f, g, x, k)
 
 How much a coordinate at zero violates the optimality conditions of `h + f`,
-where `g = ∇h(x)` is the gradient of the smooth part: a positive value means
+where `g = ∇h(x)` is the gradient of the smooth part. On a
+[`SymmetricSparseIterate`](@ref), use the symmetric part of `g`; an opposing
+pair of infinite entries has no symmetric part and throws `ArgumentError`.
+A positive value means
 that moving the coordinate away from zero decreases the objective, and a value
 `≤ 0` that zero is optimal. For [`NormL1`](@ref) it is `|gᵢ| - λ0 wᵢ`.
 
@@ -354,14 +384,18 @@ function kkt_violation end
 
 # for a separable function, the optimality of a coordinate at zero does not
 # depend on the rest of x
-kkt_violation(f::AbstractFunction, g::AbstractArray, ::AbstractArray, i::Integer) = kkt_violation(f, g, i)
+kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
+  _isbuiltin(f) ? _kkt_violation(f, g, x, i) : kkt_violation(f, g, i)
 function kkt_violation(f::AbstractFunction, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
   r, c = tril_cartesian(x.p, k)
-  kkt_violation(f, g, (c - 1) * x.p + r)
+  view = _SymmetricGradient(g, x.p)
+  view[(c - 1) * x.p + r]  # reject an undefined symmetric part before dispatch
+  _check_entry_arrays(f, x, _CoordinatePair(Int(k)))
+  _kkt_violation(f, view, x, k)
 end
 # a group at zero violates optimality as much as its worst index
 kkt_violation(f::AbstractFunction, g::AbstractArray, x::AtomIterate, k::Integer) =
-  maximum(i -> kkt_violation(f, g, i), x.groups[k])
+  _isbuiltin(f) ? _kkt_violation(f, g, x, k) : maximum(i -> kkt_violation(f, g, i), x.groups[k])
 
 """
     restrict(f, S)
@@ -419,9 +453,11 @@ function gradient_mapping!(G::AbstractArray, f::AbstractFunction, g::AbstractFun
   _checkparams(g, x)
   _checkwrite(gradient!, f, G, x)
   _checkwrite(prox!, g, G, G)
-  gradient!(G, f, x)
+  _check_write_arrays(gradient!, f, G, x)
+  _check_write_arrays(prox!, g, G, G)
+  _gradient_unchecked!(G, f, x)
   G .= x .- γ .* G
-  prox!(G, g, G, γ)
+  _prox_unchecked!(G, g, G, γ)
   G .= (x .- G) ./ γ
 end
 
@@ -452,3 +488,13 @@ that is not smooth. Sums add the constants, `Scaled` scales them, and
 lipschitz(f::AbstractFunction) =
   throw(ArgumentError(issmooth(f) ? "no Lipschitz constant is known for the gradient of $(nameof(typeof(f)))" :
                                     "$(nameof(typeof(f))) is not smooth"))
+
+function _kkt_violation(f::AbstractFunction, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
+  r, c = tril_cartesian(x.p, k)
+  kkt_violation(f, g, (c - 1) * x.p + r)
+end
+
+_kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
+  _isbuiltin(f) ? kkt_violation(f, g, i) : kkt_violation(f, g, x, i)
+_kkt_violation(f::AbstractFunction, g::AbstractArray, x::AtomIterate, k::Integer) =
+  _isbuiltin(f) ? maximum(i -> kkt_violation(f, g, i), x.groups[k]) : kkt_violation(f, g, x, k)

@@ -1,6 +1,6 @@
 module ConjugateProjectionsTest
 
-using Test, ProximalBase, LinearAlgebra, Random
+using Test, ProximalBase, LinearAlgebra, Random, SparseArrays
 using ..TestUtils
 
 # Build every intermediate at the reference precision, including coefficients.
@@ -1469,6 +1469,201 @@ end
     y = [7.0]
     @test_throws ArgumentError op(y, Conjugate(Translate(NormLinf(), b)), x, γ)
     @test y == [7.0]
+  end
+end
+
+@testset "non-finite L1 blocks retain Moreau results" begin
+  # These points and values were checked on master 5edf73f, not a NaN fill.
+  for T in (Float32, Float64), raw in ([Inf, 1], [NaN, 1], [-Inf, 2, 3]),
+      grouped in (false, true), mode in (:bare, :scaled, :translated),
+      tuple_block in (false, true), op in (prox!, value_and_prox!), γ in (one(T), T(0.7))
+    n = length(raw)
+    x = T.(grouped ? vcat(raw, [4, 2]) : raw)
+    base = grouped ? GroupNormLinf(one(T), [1:n, n+1:n+2]) : NormLinf(one(T))
+    f = mode === :bare ? base : mode === :scaled ? Scaled(base, T(2)) : Translate(base, zero(x))
+    c = Conjugate(tuple_block ? SeparableSum(f, NormLinf(one(T))) : f)
+    input = tuple_block ? (x, T[3, 0]) : x
+    y = tuple_block ? (fill(T(7), length(x)), fill(T(7), 2)) : fill(T(7), length(x))
+    if mode === :translated && isnan(first(raw))
+      # Inherited: master's translation check rejects NaN contamination of
+      # an originally finite coordinate, even for a non-finite input.
+      @test_throws ArgumentError op(y, c, input, γ)
+      continue
+    end
+    expected = isnan(first(raw)) ? fill(T(NaN), n) : vcat(T[NaN], zeros(T, n - 1))
+    # Master's reciprocal-step value route leaves this rounding residual.
+    if mode === :translated && (tuple_block || (grouped && op === value_and_prox!)) && γ != one(T) && n == 3
+      expected[3] = 2eps(T)
+    end
+    v = op(y, c, input, γ)
+    output = tuple_block ? y[1] : y
+    @test isequal(output[1:n], expected)
+    # Finite groups/blocks keep the direct path, within its existing bound.
+    if grouped
+      r = mode === :scaled ? T(2) : one(T)
+      setprecision(BigFloat, 4096) do
+        l1accurate(output[n+1:n+2], projl1(T[4, 2], BigFloat(r)), BigFloat(r); support = false)
+      end
+    end
+    if tuple_block
+      setprecision(BigFloat, 4096) do
+        l1accurate(y[2], BigFloat[1, 0], BigFloat(1); support = false)
+      end
+    end
+    op === value_and_prox! && @test isequal(v, mode === :translated ? T(NaN) : zero(T))
+  end
+  for T in (Float32, Float64), op in (prox!, value_and_prox!),
+      f in (NormLinf(one(T)), GroupNormLinf(one(T), [1:2, 3:4]))
+    x = f isa NormLinf ? T[Inf, 1] : T[Inf, 1, 4, 2]
+    expected = f isa NormLinf ? T[NaN, 0] : T[NaN, 0, 1, 0]
+    v = op(x, Conjugate(f), x, one(T))
+    @test isequal(x, expected)
+    op === value_and_prox! && @test iszero(v)
+  end
+end
+
+@testset "L1 projection coefficient and storage coverage" begin
+  setprecision(BigFloat, 4096) do
+    # A machine-integer coefficient rounds on conversion to the working type.
+    for λ in (Int128(2)^60 + 1, Float16(0.5)), op in (prox!, value_and_prox!)
+      x = λ isa Int128 ? [1e300, 0.25] : Float16[1000, 999, 998]
+      y = similar(x)
+      v = op(y, Conjugate(NormLinf(λ)), x, one(eltype(x)))
+      l1accurate(y, projl1(x, BigFloat(λ)), BigFloat(λ))
+      op === value_and_prox! && @test iszero(v)
+    end
+    inputs = (0:2, 0:2:4, 0.0:0.25:1.0, LinRange(0.0, 1.0, 5), Base.OneTo(3),
+      sparsevec([1, 3], [4.0, 2.0], 3),
+      sparse([4.0 0.0; 0.0 2.0]), SparseIterate([4.0, 0.0, 2.0]),
+      SymmetricSparseIterate([4.0 0.0; 0.0 2.0]),
+      AtomIterate([4.0, 0.0, 2.0], [1:2, 3:3]),
+      Bidiagonal([4.0, 2.0], [0.0], :U), SymTridiagonal([4.0, 2.0], [0.0]),
+      Tridiagonal([0.0], [4.0, 2.0], [0.0]))
+    for x in inputs, op in (prox!, value_and_prox!)
+      y = zeros(size(x))
+      v = op(y, Conjugate(NormLinf(0.75)), x, 0.7)
+      l1accurate(vec(y), projl1(vec(Array(x)), BigFloat(0.75)), BigFloat(0.75))
+      op === value_and_prox! && @test iszero(v)
+    end
+    # Bool inputs are outside the documented floating/machine-integer domain.
+    for op in (prox!, value_and_prox!)
+      y = zeros(2)
+      @test_throws ArgumentError op(y, Conjugate(NormLinf()), BitArray([true, false]), 1.0)
+      @test y == zeros(2)
+      bits = falses(2)
+      v = op(bits, Conjugate(NormLinf()), [2.0, 0.0], 1.0)
+      @test bits == BitArray([true, false])
+      op === value_and_prox! && @test iszero(v)
+    end
+    @static if isdefined(Base, :Memory)
+      x = Base.Memory{Float64}(undef, 3)
+      x .= [4, 0, 2]
+      for op in (prox!, value_and_prox!)
+        y = zeros(3)
+        v = op(y, Conjugate(NormLinf(0.75)), x, 0.7)
+        l1accurate(y, projl1(collect(x), BigFloat(0.75)), BigFloat(0.75))
+        op === value_and_prox! && @test iszero(v)
+      end
+    end
+    # Different precision and non-Array groups use the generic dispatch.
+    for op in (prox!, value_and_prox!)
+      x = view(Float32[4, 3, 2, 1], :)
+      y = zeros(4)
+      f = GroupNormLinf(0.75f0, [1:2, 3:4])
+      v = op(y, Conjugate(f), x, 0.7)
+      accurate(y, reference(f, x, 0.7), 4)
+      op === value_and_prox! && @test iszero(v)
+    end
+    # The secondary membership certificate rounds subnormal terms upward.
+    x = [1.0, nextfloat(0.0)]
+    for op in (prox!, value_and_prox!)
+      y = similar(x)
+      v = op(y, Conjugate(NormLinf()), x, 1.0)
+      l1accurate(y, projl1(x, BigFloat(1)), BigFloat(1))
+      op === value_and_prox! && @test iszero(v)
+    end
+  end
+end
+
+@testset "L1 projection tuple conversion coverage" begin
+  for op in (prox!, value_and_prox!)
+    f = Conjugate(SeparableSum(Scaled(NormLinf(0.5), 2.0), NormLinf(0.5)))
+    x = ([3.0], [3.0])
+    y = (Float32[7], Float64[7])
+    v = op(y, f, x, 1.0)
+    @test y == (Float32[1], [0.5])
+    op === value_and_prox! && @test iszero(v)
+    y = (Float32[7], Int[7])
+    @test_throws InexactError op(y, f, x, 1.0)
+    @test y == (Float32[7], Int[7])
+    @test op((), Conjugate(SeparableSum()), (), 1.0) == (op === prox! ? () : 0)
+    # Aliased group weights are staged before the destination is committed.
+    f = GroupNormLinf(1.0, [1:1, 2:2], [1.0, 2.0])
+    v = op(f.w, Conjugate(Scaled(f, 1.0)), [0.5, 4.0], 1.0)
+    @test f.w == [0.5, 2.0]
+    op === value_and_prox! && @test iszero(v)
+  end
+end
+
+@testset "L1 projection Condat reinsertion coverage" begin
+  setprecision(BigFloat, 4096) do
+    # The first two candidates average below 2.5-r, but 1.9 exceeds it.
+    # The reset discards both; finishing must reinsert 1.9.
+    for T in (Float32, Float64), op in (prox!, value_and_prox!)
+      x = vcat(T[1, 1.9, 2.5], zeros(T, 30))
+      y = similar(x)
+      v = op(y, Conjugate(NormLinf(one(T))), x, one(T))
+      l1accurate(y, projl1(x, BigFloat(1)), BigFloat(1); support = false)
+      op === value_and_prox! && @test iszero(v)
+    end
+  end
+  # Scaling a finite MPFR extreme by this tiny radius overflows the
+  # membership scan. The scalar projection is independently min(abs(x), r).
+  for op in (prox!, value_and_prox!)
+    x, y, r = setprecision(BigFloat, 4) do
+      r = floatmin(BigFloat)
+      x, y = [floatmax(BigFloat)], [BigFloat(7)]
+      v = op(y, Conjugate(NormLinf(r)), x, BigFloat(1))
+      op === value_and_prox! && @test iszero(v)
+      x, y, r
+    end
+    setprecision(BigFloat, 4096) do
+      @test y == [min(abs(BigFloat(only(x))), BigFloat(r))]
+    end
+  end
+  # Low-precision BigFloat reaches the n*eps guard with a small public input.
+  for op in (prox!, value_and_prox!)
+    x, y, u = setprecision(BigFloat, 4) do
+      x = fill(BigFloat(2), 8)
+      y = similar(x)
+      v = op(y, Conjugate(NormLinf(BigFloat(1))), x, BigFloat(1))
+      @test all(iszero, y)
+      op === value_and_prox! && @test iszero(v)
+      x, y, eps(BigFloat)
+    end
+    setprecision(BigFloat, 4096) do
+      ref = projl1(x, BigFloat(1))
+      @test all(abs.(y .- ref) .<= 4length(x) * u)
+    end
+  end
+end
+
+@testset "ungrouped conjugate coordinates are always zero" begin
+  for T in (Float32, Float64), entry in (T(Inf), T(-Inf), T(NaN)),
+      F in (GroupNormL2, GroupNormLinf), op in (prox!, value_and_prox!),
+      tuple_block in (false, true), alias in (false, true), mode in (:bare, :scaled, :translated)
+    # Cover a gap inside group_of and an ungrouped tail beyond group_of.
+    base = F(one(T), [1:1, 3:3], ones(T, 2))
+    f = mode === :bare ? base : mode === :scaled ? Scaled(base, T(2)) : Translate(base, zeros(T, 4))
+    x = T[2, entry, -3, entry]
+    c = Conjugate(tuple_block ? SeparableSum(f, NormLinf(one(T))) : f)
+    input = tuple_block ? (x, T[2]) : x
+    y = alias ? input : tuple_block ? (fill(T(7), 4), T[7]) : fill(T(7), 4)
+    v = op(y, c, input, T(0.7))
+    r = mode === :scaled ? T(2) : one(T)
+    @test isequal(tuple_block ? y[1] : y, T[r, 0, -r, 0])
+    tuple_block && @test y[2] == T[1]
+    op === value_and_prox! && @test iszero(v)
   end
 end
 

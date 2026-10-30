@@ -1469,17 +1469,22 @@ end
   true
 end
 
-_projection_l1_unit_groups!(y, x, f, α) = false
-function _projection_l1_unit_groups!(y::Array{T}, x::Array{T}, f::GroupNormLinf{T}, α::Real) where {T<:Union{Float32,Float64}}
+_projection_l1_unit_groups!(y, x, f, α, γ) = false
+function _projection_l1_unit_groups!(y::Array{T}, x::Array{T}, f::GroupNormLinf{T}, α::Real, γ) where {T<:Union{Float32,Float64}}
   r = f.λ0
   (isone(α) && 32floatmin(T) <= r < floatmax(T) / 16 && all(isone, f.w)) || return false
   a, error, lower = _projection_l1_coefficient(1, r, 1, x, y)
+  nonfinite = false
   @inbounds for G in f.groups
     isempty(G) && continue
-    _projection_l1_native!(y, x, G, f.scratch, r) ||
-      _project_l1_radius!(y, x, G, f.scratch, a, error, lower)
+    if !_projection_l1_native!(y, x, G, f.scratch, r)
+      if _project_l1_radius!(y, x, G, f.scratch, a, error, lower) === nothing
+        _projection_l1_moreau!(view(y, G), NormLinf(r), view(x, G), γ, 1)
+        nonfinite = true
+      end
+    end
   end
-  true
+  nonfinite ? nothing : true
 end
 
 function _project_l1!(y, x, G, scratch, λ, α = 1, w = 1)
@@ -1552,12 +1557,8 @@ function _project_l1_radius!(y, x, G, scratch, a, coefficient_error, lower)
   scale = ldexp(one(R), -e)
   outscale = ldexp(one(R), e)
   m = _projection_l1_max(x, G, R)
-  if !isfinite(m)
-    @inbounds @simd for i in G
-      y[i] = oftype(m, NaN)
-    end
-    return y
-  end
+  # Let the caller retain Moreau's non-finite behaviour for this block.
+  !isfinite(m) && return nothing
   if _projection_l1_inside(x, G, lower, scale, e)
     @inbounds @simd for i in G
       y[i] = x[i]

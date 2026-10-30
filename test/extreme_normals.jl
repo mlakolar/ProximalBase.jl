@@ -61,6 +61,111 @@ function check_residual(H, y)
   @test (H isa IndHalfspace ? max(gap, 0) : abs(gap)) <= tol * max(1, abs(b))
 end
 
+function check_exact_projection(H, x, γ, expected)
+  @test prox(H, x, γ) == expected
+  y = similar(x)
+  @test prox!(y, H, x, γ) === y
+  @test y == expected
+  z = copy(x)
+  @test prox!(z, H, z, γ) === z
+  @test z == expected
+  @test value_and_prox!(y, H, x, γ) == 0
+  @test y == expected
+end
+
+@testset "wider projection output compatibility" begin
+  a, b, x = Float32[1, 2], 0.3f0, Float32[0.7, 0.2]
+  for F in (IndHyperplane, IndHalfspace), γ in (1f0, Float32[0.5, 2])
+    g = dot(a, x) - b
+    F === IndHalfspace && (g = max(g, zero(g)))
+    q = γ isa Real ? sum(abs2, a) : sum(γ .* a.^2)
+    t = g / q
+    @test t isa Float32
+    expected = γ isa Real ? Float64.(x) .- Float64(t) .* a :
+      Float64.(x) .- Float64(t) .* γ .* a
+    y = zeros(Float64, length(x))
+    @test prox!(y, F(a, b), x, γ) === y
+    @test y == expected
+    @test value_and_prox!(y, F(a, b), x, γ) == 0
+    @test y == expected
+  end
+end
+
+@testset "projection coefficient precision" begin
+  @testset "mixed normal precision" begin
+    for F in (IndHyperplane, IndHalfspace), sign in (-1, 1),
+        a in (sign * 2.0^100, [sign * 2.0^100]), γ in (1.0, [1.0], Float32[1])
+      H = F(a, 0)
+      # This side violates the halfspace for either sign of the normal.
+      x = Float32[sign * 2.0^-100]
+      check_exact_projection(H, x, γ, Float32[0])
+      F === IndHalfspace && check_exact_projection(H, -x, γ, -x)
+    end
+  end
+
+  @testset "scaled normal subnormal output" begin
+    c = 1.5 * 2.0^300
+    expected = Float32[2.0^-149]
+    @test expected == [nextfloat(0f0)]
+    for F in (IndHyperplane, IndHalfspace)
+      # A negative normal makes zero violate the halfspace with this boundary.
+      a = F === IndHalfspace ? -c : c
+      b = a * 2.0^-149
+      @test Float32(b / a) == only(expected)
+      for normal in (a, [a]), γ in (1.0, [1.0], Float32[1])
+        check_exact_projection(F(normal, b), Float32[0], γ, expected)
+      end
+    end
+  end
+
+  @testset "scaled diagonal product precision" begin
+    a = Float32[2.0^40, 2.0^-40]
+    x = Float64[1, 0]
+    γ = Float32[2.0^-80, 2.0^-80]
+    expected = setprecision(BigFloat, 256) do
+      # x - (a'x / Σ γᵢaᵢ²) .* γ .* a, rounded only at the output.
+      Float32.(projection_ref(a, 0, x, γ))
+    end
+    @test expected[2] == -Float32(2.0^-80)
+    @test !iszero(expected[2])
+    for F in (IndHyperplane, IndHalfspace)
+      y = zeros(Float32, 2)
+      @test prox!(y, F(a, 0f0), x, γ) === y
+      @test y == expected
+      @test value_and_prox!(y, F(a, 0f0), x, γ) == 0
+      @test y == expected
+    end
+  end
+
+  @testset "Float16 projections" begin
+    a, b = 2.0^20, 2.0^10
+    expected = Float16[2.0^-10]
+    @test !iszero(only(expected))
+    for F in (IndHyperplane, IndHalfspace), γ in (1.0, [1.0], Float16[1])
+      H = F(a, b)
+      check_exact_projection(H, Float16[2.0^-9], γ, expected)
+      y = zeros(Float16, 1)
+      @test prox!(y, H, Float32[2.0^-9], γ) === y
+      @test y == expected
+    end
+  end
+
+  @testset "sparse and wrapped projections" begin
+    x = Float32[2.0^-100]
+    for F in (IndHyperplane, IndHalfspace), γ in (1.0, [1.0], Float32[1])
+      H = F([2.0^100], 0)
+      dense = prox(H, x, γ)
+      @test dense == Float32[0]
+      sparse = SparseIterate(x)
+      y = SparseIterate(Float32, 1)
+      @test prox!(y, H, sparse, γ) === y
+      @test Array(y) == dense
+    end
+    H = Translate(IndHyperplane(2.0^100, 0), Float32[0])
+    check_exact_projection(H, x, 1.0, Float32[0])
+  end
+end
+
 @testset "projections with extreme normals" begin
   setprecision(BigFloat, 256) do
     for T in (Float32, Float64)

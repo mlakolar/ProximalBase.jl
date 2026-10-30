@@ -1384,6 +1384,9 @@ end
 _conjugate_moreau_value!(z, f, x, γ, α, context) = isone(α) ?
   _conjugate_moreau_value!(z, f, x, γ, context) :
   _conjugate_moreau_value!(z, Scaled(f, _projection_real(α)), x, γ, context)
+_conjugate_moreau_value!(z::Tuple, f, x::Tuple, γ, α, context::Val{true}) = isone(α) ?
+  _conjugate_moreau_value!(z, f, x, γ, context) :
+  _conjugate_moreau_value!(z, _conjugate_block_scaled(f, _projection_real(α)), x, γ, context)
 # Known block values can keep the scale in the step without a temporary wrapper.
 function _conjugate_moreau_value!(z::AbstractArray, f, x::AbstractArray, γ, α, context::Val{true})
   isone(α) && return _conjugate_moreau_value!(z, f, x, γ, context)
@@ -1397,8 +1400,19 @@ function _conjugate_moreau_value!(z::AbstractArray, f, x::AbstractArray, γ, α,
   end
   _conjugate_moreau_value!(z, _conjugate_block_scaled(f, a), x, γ, context)
 end
+# Combine nested scales before dividing coordinates, retaining exceptional products.
+function _scaled_conjugate_value(f::Scaled, y::AbstractArray, α)::_valtype(y)
+  _scaled_conjugate_value(f.f, y, _projection_accumulate(α, f.α))
+end
+_scaled_conjugate_value(f::Scaled, y::Tuple, α) =
+  _scaled_conjugate_value(f.f, y, _projection_accumulate(α, f.α))
+# Keep exponent parts across a sum until each block's coefficient is complete.
+function _scaled_conjugate_value(s::SeparableSum, y::Tuple, α::_ProjectionScale)::_valtype(y)
+  _checkparams(s, y)
+  sum(map((f, yk) -> _scaled_conjugate_value(f, yk, α), s.fs, y))
+end
 function _scaled_conjugate_value(f, y::AbstractArray, α)
-  a = convert(float(eltype(y)), α)
+  a = convert(float(eltype(y)), _projection_real(α))
   scaled = _ScaledArray(y, inv(a))
   _checkconjugate(f, scaled)
   a * _conjugate_value(f, scaled)
@@ -1407,10 +1421,13 @@ end
 @inline _conjugate_moreau_context!(z, f, x, γ, ::Val{true}) = (_conjugate_moreau_block!(z, f, x, γ); z)
 _conjugate_moreau_step(z, γ, ::Val{false}) = convert(float(eltype(z)), γ)
 _conjugate_moreau_step(z, γ, ::Val{true}) = γ
+_conjugate_moreau_value(f, y) = _conjugate_value(f, y)
+_conjugate_moreau_value(f::Scaled, y::AbstractArray) = _scaled_conjugate_value(f.f, y, f.α)
+_conjugate_moreau_value(f::Scaled, y::Tuple) = _scaled_conjugate_value(f.f, y, f.α)
 function _conjugate_moreau_value!(z, f, x, γ, context)
   if _has_conjugate_value(f)
     _conjugate_moreau_context!(z, f, x, γ, context)
-    return _conjugate_value(f, z)
+    return _conjugate_moreau_value(f, z)
   end
   step = _conjugate_moreau_step(z, γ, context)
   _divide!(z, x, step)

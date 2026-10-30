@@ -524,6 +524,74 @@ function warmed_projection_allocation(op::O, y, c, x, γ) where {O}
   @allocated op(y, c, x, γ)
 end
 
+@testset "scaled fallback sub-sums and compensating coefficients" begin
+  sub = Scaled(SeparableSum(SqrNormL2()), 1e60)
+  α, γ = 1f-30, 1f30
+  c = Conjugate(Scaled(SeparableSum(NormL1(), sub), α))
+  expected = ([Float64(α)], ([0.0],))
+  for op in (prox!, value_and_prox!), alias in (false, true)
+    x = ([3.0], ([1.0],))
+    y = alias ? x : deepcopy(x)
+    v = op(y, c, x, γ)
+    @test y == expected
+    op === value_and_prox! && @test v == 0
+  end
+  for op in (prox!, value_and_prox!)
+    skip = VERSION < v"1.11"
+    @test warmed_projection_allocation(op, deepcopy(expected), c, ([3.0], ([1.0],)), γ) == 0 skip = skip
+  end
+
+  sub = Scaled(SeparableSum(Scaled(SqrNormL2(), 1e-300)), 1e300)
+  c = Conjugate(Scaled(SeparableSum(NormL1(), sub), 1e300))
+  expected = ([3.0], ([1e150],))
+  for op in (prox!, value_and_prox!), alias in (false, true)
+    x = ([3.0], ([1e150],))
+    y = alias ? x : deepcopy(x)
+    v = op(y, c, x, 1.0)
+    @test y == expected
+    op === value_and_prox! && @test v ≈ 0.5 rtol = 8eps(Float64)
+  end
+  for op in (prox!, value_and_prox!)
+    skip = VERSION < v"1.11"
+    @test warmed_projection_allocation(op, deepcopy(expected), c, deepcopy(expected), 1.0) == 0 skip = skip
+  end
+
+  setprecision(BigFloat, 4096) do
+    # The last factor compensates a product that cannot be represented alone.
+    small = Scaled(SqrNormL2(), 1e-300)
+    large = Scaled(SqrNormL2(), 1e300)
+    over = Scaled{typeof(small), Float64}(small, 1e300)
+    under = Scaled{typeof(large), Float64}(large, 1e-300)
+    for (f, α, input, γ, factors) in (
+        (large, 1e-300, 2e100, 1.0, (1e-300, 1e300)),
+        (small, 1e300, 2e100, 1.0, (1e300, 1e-300)),
+        (over, 1e300, 1e150, 1.0, (1e300, 1e300, 1e-300)),
+        (under, 1e-300, 2e-150, 1e-300, (1e-300, 1e-300, 1e300)))
+      c = Conjugate(Scaled(SeparableSum(NormL1(), f), α))
+      coefficient = prod(BigFloat.(factors))
+      point = BigFloat(input) * coefficient / (coefficient + BigFloat(γ))
+      value = point^2 / (2coefficient)
+      expected = ([min(3.0, α)], [Float64(point)])
+      baseline = prox(c, ([3.0], [input]), γ)
+      accurate(baseline[2], [point], 8)
+      @test baseline[1] == expected[1]
+      for op in (prox!, value_and_prox!), alias in (false, true)
+        x = ([3.0], [input])
+        y = alias ? x : deepcopy(x)
+        v = op(y, c, x, γ)
+        @test y == baseline
+        if op === value_and_prox!
+          @test isfinite(v)
+          accurate([v], [value], 8)
+        end
+      end
+      for op in (prox!, value_and_prox!)
+        @test warmed_projection_allocation(op, deepcopy(expected), c, ([3.0], [input]), γ) == 0
+      end
+    end
+  end
+end
+
 @testset "scaled mixed conjugate values allocate nothing" begin
   for T in (Float32, Float64), α in (1.0, 2.0, 0.7)
     for f in (SqrNormL2(0.7, T[1, -2]), HingeLoss(T[1, -1], T[0.5, 1.5]),

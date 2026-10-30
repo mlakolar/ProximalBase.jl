@@ -237,12 +237,37 @@ _ind(ok::Bool, ::Type{T}) where {T} = ok ? zero(T) : T(Inf)
 # The type of a value at x: the real floating type of its entries, promoted
 # over the blocks of a tuple. A value computed in another type is rounded to it.
 _valtype(x) = float(eltype(x))
-_valtype(x::Tuple) = promote_type(map(_valtype, x)...)
+# Bodies of generated functions that visit tuple blocks in order. Recursion with Base.tail
+# is not inferred beyond 32 blocks, and Base's map stops unrolling there.
+_inline(ex) = Expr(:block, Expr(:meta, :inline), ex)
+_blockwise(ex, n, result) = Expr(:block, Expr(:meta, :inline), (ex(k) for k in 1:n)..., result)
+_blockall(ex, n) = _inline(foldl((a, k) -> :($a && $(ex(k))), 1:n; init = true))
+_blockany(ex, n) = _inline(foldl((a, k) -> :($a || $(ex(k))), 1:n; init = false))
+_blocktuple(ex, n) = _inline(Expr(:tuple, (ex(k) for k in 1:n)...))
+function _blockreduce(ex, n, reduce)
+  vars = [gensym(:blockvalue) for _ in 1:n]
+  body = Expr(:block, Expr(:meta, :inline))
+  for k in 1:n
+    push!(body.args, :($(vars[k]) = $(ex(k))))
+  end
+  push!(body.args, reduce(vars))
+  body
+end
+_blocksum(ex, n) = _blockreduce(ex, n, vs -> isempty(vs) ? :(sum(())) :
+  foldl((a, v) -> :(Base.add_sum($a, $v)), vs[2:end]; init = :(Base.reduce_first(Base.add_sum, $(vs[1])))))
+_blockall_eager(ex, n) = _blockreduce(ex, n, vs -> Expr(:call, :all, Expr(:tuple, vs...)))
+@generated function _valtype(x::Tuple)
+  n = fieldcount(x)
+  n == 0 && return _inline(:(Union{}))
+  n == 1 && return _inline(:(promote_type(_valtype(x[1]))))
+  types = [:(_valtype(x[$k])) for k in 1:n]
+  combine(a, b) = :(promote_type($a, $b))
+  _inline(VERSION < v"1.11" ? foldr(combine, types) : foldl(combine, types))
+end
 _value_at(v, x) = convert(_valtype(x), v)
 # Arguments, outputs and parameters are real; complex entries are rejected.
 _checkreal(f, x) = eltype(x) <: Real || _real_error(nameof(typeof(f)))
-_checkreal(f, x::Tuple) = (_checkreal(f, first(x)); _checkreal(f, Base.tail(x)))
-_checkreal(f, ::Tuple{}) = true
+@generated _checkreal(f, x::Tuple) = _blockwise(k -> :(_checkreal(f, x[$k])), fieldcount(x), true)
 @noinline _real_error(name) = throw(ArgumentError("$name requires real entries"))
 
 # A buffer of zeros of type T and size dims, next to the array a: an Array,

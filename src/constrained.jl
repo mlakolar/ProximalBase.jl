@@ -107,11 +107,13 @@ struct LinearConstrained{F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspa
   last::Base.RefValue{Float64}      # μ = max(γ)ν for the normalized constraint
   scale::Base.RefValue{Float64}     # the step scale of the stored multiplier
   slope::Base.RefValue{Float64}     # its residual's slope, from the last secant
+  verify::Base.RefValue{Bool}       # certify fixed sums or unresolved refinement in output
   scratch::Scratch                  # for the value of the conjugate
+  output::Scratch                   # candidate point, committed only after verification
   live::NTuple{6, Scratch}          # the entries the search still evaluates: x, a, γ, index; bits; state
 
   LinearConstrained{F, H}(f::F, set::H) where {F<:AbstractFunction, H<:Union{IndHyperplane, IndHalfspace, IndHyperslab}} =
-    (_check_constrainable(f); new{F, H}(f, set, Ref(NaN), Ref(NaN), Ref(NaN), Scratch(), ntuple(_ -> Scratch(), 6)))
+    (_check_constrainable(f); new{F, H}(f, set, Ref(NaN), Ref(NaN), Ref(NaN), Ref(false), Scratch(), Scratch(), ntuple(_ -> Scratch(), 6)))
 end
 LinearConstrained(f::AbstractFunction, set::Union{IndHyperplane, IndHalfspace, IndHyperslab}) =
   LinearConstrained{typeof(f), typeof(set)}(f, set)
@@ -282,14 +284,67 @@ function _linear_constrained_search!(y, c, x, γ::_SearchSteps{G, T}) where {G, 
     c.last[] = NaN
     c.slope[] = NaN
   end
+  c.verify[] = false
   ν = _multiplier(c, x, γ, T)
   c.scale[] = γ.scale
   set = c.set
-  set isa IndHyperslab && iszero(ν) && return _linear_constrained_inactive_output!(y, c.f, x, γ)
+  set isa IndHyperslab && iszero(ν) && !c.verify[] && return _linear_constrained_inactive_output!(y, c.f, x, γ)
   if _isscaled(set)
-    return _linear_constrained_output!(y, c.f, _normalized_normal(set.a, set.s), x, γ, ν)
+    return _linear_constrained_finish!(y, c, _normalized_normal(set.a, set.s), x, γ, ν)
   end
-  _linear_constrained_output!(y, c.f, set.a, x, γ, ν)
+  _linear_constrained_finish!(y, c, set.a, x, γ, ν)
+end
+
+function _linear_constrained_finish!(y, c, a, x, γ, ν)
+  c.verify[] && return _linear_constrained_verified_finish!(y, c, a, x, γ, ν)
+  _linear_constrained_output!(y, c.f, a, x, γ, ν, Val(false))
+  y
+end
+
+# Keep buffer preparation out of the ordinary full-pass hit.
+@noinline function _linear_constrained_verified_finish!(y, c, a, x, γ, ν)
+  candidate = _linear_constrained_output_buffer!(c.output, y)
+  s, m = _linear_constrained_output!(candidate, c.f, a, x, γ, ν, Val(true))
+  _verify_output(c, s, m, ν)
+  _linear_constrained_commit!(y, candidate)
+  y
+end
+
+# Compile the copy once per output layout, independently of f and the set.
+@noinline _linear_constrained_commit!(y, candidate) = copyto!(y, candidate)
+
+@noinline _linear_constrained_output_buffer!(s::Scratch, y::AbstractArray) =
+  _array_buffer!(s, eltype(y), size(y))
+@noinline function _linear_constrained_output_buffer!(s::Scratch, y::SymmetricSparseIterate{T}) where {T}
+  b = s.buf
+  if b isa SymmetricSparseIterate{T} && size(b) == size(y)
+    return b
+  end
+  b = SymmetricSparseIterate(T, y.p)
+  s.buf = b
+  b
+end
+
+# Full passes already certify ordinary hits. For fixed sums or a refinement
+# fallback, certify the buffered point before committing it to the output.
+function _verify_output(c, s, m, ν)
+  isfinite(s) && isfinite(m) || _infeasible(c)
+  set = c.set
+  if set isa IndHyperslab
+    ν < 0 && return _verify_output_bound(c, s, m, _scaled_offset(set, set.l), 0)
+    ν > 0 && return _verify_output_bound(c, s, m, _scaled_offset(set, set.u), 0)
+    isfinite(set.l) && _verify_output_bound(c, s, m, _scaled_offset(set, set.l), -1)
+    isfinite(set.u) && _verify_output_bound(c, s, m, _scaled_offset(set, set.u), 1)
+  else
+    _verify_output_bound(c, s, m, _scaled_offset(set), set isa IndHyperplane || !iszero(ν) ? 0 : 1)
+  end
+  nothing
+end
+function _verify_output_bound(c, s::T, m, b, side) where {T}
+  φ, scale = s - b, m + abs(b)
+  isfinite(φ) && isfinite(scale) &&
+    (side == 0 ? abs(φ) : side * φ) <= 8eps(T) * scale || _infeasible(c)
+  nothing
 end
 
 # Match the promoted argument and converted steps of the inactive-point check.
@@ -301,12 +356,20 @@ function _linear_constrained_inactive_output!(y, f, x, γ::_SearchSteps{G, T}) w
   y
 end
 
-function _linear_constrained_output!(y, f, a, x, γ, ν::T) where {T}
-  @inbounds for i in eachindex(IndexLinear(), y, x)
+@noinline function _linear_constrained_output!(y, f, a, x, γ, ν::T, ::Val{C} = Val(false)) where {T, C}
+  s, m = zero(T), zero(T)
+  @inbounds @simd for i in eachindex(IndexLinear(), y, x)
     γᵢ = convert(T, _entry(γ, i))
-    y[i] = convert(eltype(y), prox_entry(f, x[i] - _ratio(γ, i, T) * ν * convert(T, _entry(a, i)), i, γᵢ))
+    aᵢ = convert(T, _entry(a, i))
+    z = convert(eltype(y), prox_entry(f, x[i] - _ratio(γ, i, T) * ν * aᵢ, i, γᵢ))
+    y[i] = z
+    if C
+      t = aᵢ * convert(T, z)
+      s += t
+      m += abs(t)
+    end
   end
-  y
+  C ? (s, m) : nothing
 end
 
 # The two matrix positions of a symmetric coordinate share storage.
@@ -321,15 +384,28 @@ function _linear_constrained_inactive_output!(y::SymmetricSparseIterate, f, x::A
   y
 end
 
-function _linear_constrained_output!(y::SymmetricSparseIterate, f, a, x::AbstractMatrix, γ, ν::T) where {T}
+@noinline function _linear_constrained_output!(y::SymmetricSparseIterate, f, a, x::AbstractMatrix, γ, ν::T, ::Val{C} = Val(false)) where {T, C}
   p = y.p
+  s, m = zero(T), zero(T)
   @inbounds for c in 1:p, r in c:p
     i = (c - 1) * p + r
     γᵢ = convert(T, _entry(γ, i))
-    v = x[r, c] - _ratio(γ, i, T) * ν * convert(T, _entry(a, i))
-    _setstored!(y, convert(eltype(y), prox_entry(f, v, i, γᵢ)), tril_index(p, r, c))
+    aᵢ = convert(T, _entry(a, i))
+    v = x[r, c] - _ratio(γ, i, T) * ν * aᵢ
+    z = convert(eltype(y), prox_entry(f, v, i, γᵢ))
+    _setstored!(y, z, tril_index(p, r, c))
+    if C
+      t = aᵢ * convert(T, z)
+      s += t
+      m += abs(t)
+      if r != c
+        t = convert(T, _entry(a, (r - 1) * p + c)) * convert(T, z)
+        s += t
+        m += abs(t)
+      end
+    end
   end
-  y
+  C ? (s, m) : nothing
 end
 
 value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) = _value_and_prox_linear!(y, c, x, γ)
@@ -521,7 +597,7 @@ function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, b, ν0:
     isfinite(φhi) && isfinite(mhi) || _infeasible(c)
     if _resolved(φhi, mhi)
       c.slope[] = (φhi - φlo) / (hi - lo)
-      return _certified(c, x, hi, γ, b, L)
+      return _search_result(c, hi, L)
     end
     signbit(φhi) == signbit(φ0) || break
     k == _MAX_BRACKET_STEPS && _infeasible(c)
@@ -535,13 +611,10 @@ function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, b, ν0:
   _refine(c, x, γ, b, lo, φlo, hi, φhi, nothing)
 end
 
-# Fixed sums can round differently from the full pass used for output.
-@inline _certified(c, x, μ, γ, b, ::Nothing) = μ
-function _certified(c, x, μ, γ, b, L::Base.RefValue)
-  if L[].compact
-    φ, m = _constraint_gap(c, x, μ, γ, b)
-    _resolved(φ, m, 8) || _infeasible(c)
-  end
+# Fixed sums can round differently from the output's full residual.
+@inline _search_result(c, μ, ::Nothing) = μ
+@inline function _search_result(c, μ, L::Base.RefValue)
+  c.verify[] = L[].compact
   μ
 end
 
@@ -552,19 +625,23 @@ function _refine(c::LinearConstrained, x::AbstractArray, γ, b, lo::T, φlo::T, 
   νp, φp = hi, φhi                          # the last point evaluated, for the slope
   side = 0                                  # which end the last step kept
   for _ in 1:_MAX_SECANTS
-    w = abs(φlo) / max(abs(φlo), abs(φhi))
-    v = abs(φhi) / max(abs(φlo), abs(φhi))
-    t = w / (w + v)
-    ν = (one(T) - t) * lo + t * hi
+    # Preserve ordinary interpolation rounding; scale only when it breaks down.
+    ν = (lo * φhi - hi * φlo) / (φhi - φlo)
     if !isfinite(ν) || !(min(lo, hi) < ν < max(lo, hi))
-      ν = lo / 2 + hi / 2
+      w = abs(φlo) / max(abs(φlo), abs(φhi))
+      v = abs(φhi) / max(abs(φlo), abs(φhi))
+      t = w / (w + v)
+      ν = (one(T) - t) * lo + t * hi
+      if !isfinite(ν) || !(min(lo, hi) < ν < max(lo, hi))
+        ν = lo / 2 + hi / 2
+      end
     end
     φν, mν, L = _gap!(c, x, ν, γ, b, L, Val(false))
     isfinite(φν) && isfinite(mν) || _infeasible(c)
     ν != νp && (c.slope[] = (φν - φp) / (ν - νp))
     νp, φp = ν, φν
     abs(φν) < abs(φbest) && ((best, φbest) = (ν, φν))
-    _resolved(φν, mν) && return _certified(c, x, ν, γ, b, L)
+    _resolved(φν, mν) && return _search_result(c, ν, L)
     if signbit(φν) == signbit(φhi)
       hi, φhi = ν, φν
       side == 1 && (φlo /= 2)
@@ -577,9 +654,8 @@ function _refine(c::LinearConstrained, x::AbstractArray, γ, b, lo::T, φlo::T, 
     # Resolve the remaining floats before declaring the residual unresolvable.
     nextfloat(min(lo, hi)) >= max(lo, hi) && break
   end
-  φ, m = _constraint_gap(c, x, best, γ, b)
-  # Adjacent multipliers can straddle the root outside the tighter search test.
-  _resolved(φ, m, 8) || _infeasible(c)
+  # The output pass certifies a fallback, even when neither endpoint resolved.
+  c.verify[] = true
   best
 end
 

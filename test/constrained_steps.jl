@@ -45,9 +45,10 @@ function _reference(X, G, A, L, U, α, β, lo, hi)
   nothing
 end
 
-function check_case(f, set, x::Vector{T}, γ, a, l, u, pars; c = Constrained(f, set)) where {T}
+function check_case(f, set, x::Vector{T}, γ, a, l, u, pars; c = nothing) where {T}
   # Share the assertion code across function and constraint types.
   @nospecialize f set γ pars c
+  c === nothing && (c = Constrained(f, set))
   ref = reference(x, γ, a, l, u, pars...)
   huge = (γ isa Real ? γ : maximum(γ)) >= T(1e20)
   indicator = pars[1] == 0 && pars[2] == 0
@@ -229,6 +230,57 @@ end
     @test y == [ref]
     @test set.l <= only(y) <= set.u
     @test op === prox! ? result === y : result ≈ c.f(y)
+  end
+end
+
+@testset "unresolved output certificate" begin
+  # Adjacent multipliers can straddle a root without resolving the point.
+  for γ in (1.0, [1.0]), op in (prox!, value_and_prox!), alias in (false, true)
+    c = Constrained(IndNonnegative(), IndHyperplane(1, 1e-10))
+    x = [10.0]
+    y = alias ? x : fill(19.0, 1)
+    before = copy(y)
+    @test_throws ArgumentError op(y, c, x, γ)
+    @test y == before
+    @test c.output.buf !== nothing
+    @test prox(Constrained(IndNonnegative(), IndHyperplane(1, 1)), [10.0], γ) == [1.0]
+  end
+  for γ in (1.0, ones(2, 2)), op in (prox!, value_and_prox!), alias in (false, true)
+    c = Constrained(IndNonnegative(), IndHyperplane(1, 1e-10))
+    x = SymmetricSparseIterate([10.0 0.0; 0.0 10.0])
+    y = alias ? x : SymmetricSparseIterate(fill(19.0, 2, 2))
+    before = Matrix(y)
+    @test_throws ArgumentError op(y, c, x, γ)
+    @test Matrix(y) == before
+    @test c.output.buf isa SymmetricSparseIterate
+  end
+end
+
+function cold_oracle!(op::O, y, c, x, γ) where {O}
+  c.last[] = NaN
+  op(y, c, x, γ)
+end
+function cold_aliased_oracle!(op::O, y, c, x, γ) where {O}
+  copyto!(y, x)
+  cold_oracle!(op, y, c, y, γ)
+end
+
+@testset "verified output reuses its buffer" begin
+  rng = Xoshiro(174)
+  for (f, x, b) in ((IndNonnegative(), [10.0], 0.3),
+                    (IndNonnegative(), SymmetricSparseIterate([10.0 0.0; 0.0 10.0]), 0.3),
+                    (IndBox(0, 1), 3randn(rng, 5000), 2.0)),
+      γ in (1.0, ones(length(x))), op in (prox!, value_and_prox!)
+    c = Constrained(f, IndHyperplane(1, b))
+    y = similar(x)
+    cold_oracle!(op, y, c, x, γ)
+    @test c.verify[]
+    buffer = c.output.buf
+    @test buffer !== nothing
+    @test PB.Testing.allocations(cold_oracle!, op, y, c, x, γ) == 0
+    @test PB.Testing.allocations(cold_aliased_oracle!, op, y, c, x, γ) == 0
+    @test c.output.buf === buffer
+    @test abs(sum(y) - b) <= 8eps(Float64) * (sum(abs, y) + abs(b))
   end
 end
 

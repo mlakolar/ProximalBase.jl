@@ -83,33 +83,33 @@ function test_iterate(x::AtomIterate)
   ok = 0 <= x.nactive <= length(x.groups)
   @test 0 <= x.nactive <= length(x.groups)
   ok || return x
-  for (k, G) in enumerate(x.groups), i in G
-    ok = 1 <= i <= length(x.storage)
-    @test 1 <= i <= length(x.storage)
-    ok || return x
-    @test x.group_of[i] == k
-  end
-  active = x.active[1:x.nactive]
-  @test length(unique(active)) == x.nactive
+  bad = [(k, i) for (k, G) in enumerate(x.groups) for i in G
+         if !(1 <= i <= length(x.storage))]
+  @test isempty(bad)
+  isempty(bad) || return x
+  bad = [(k, i) for (k, G) in enumerate(x.groups) for i in G if x.group_of[i] != k]
+  @test isempty(bad)
+  active = falses(length(x.groups))
+  duplicates, out_of_range = Int[], Int[]
   for a in 1:x.nactive
     k = x.active[a]
-    ok = 1 <= k <= length(x.groups)
-    @test 1 <= k <= length(x.groups)
-    ok || return x
-    @test x.position[x.active[a]] == a
-  end
-  for k in eachindex(x.groups)
-    if k ∉ active
-      @test x.position[k] == 0
+    if 1 <= k <= length(x.groups)
+      active[k] && push!(duplicates, a)
+      active[k] = true
+    else
+      push!(out_of_range, a)
     end
   end
-  for k in eachindex(x.groups)
-    if k ∉ active
-      for i in x.groups[k]
-        @test iszero(x.storage[i])
-      end
-    end
-  end
+  @test isempty(duplicates)
+  @test isempty(out_of_range)
+  isempty(out_of_range) || return x
+  bad = [a for a in 1:x.nactive if x.position[x.active[a]] != a]
+  @test isempty(bad)
+  bad = [k for k in eachindex(x.groups) if !active[k] && x.position[k] != 0]
+  @test isempty(bad)
+  bad = [i for k in eachindex(x.groups) if !active[k] for i in x.groups[k]
+         if !iszero(x.storage[i])]
+  @test isempty(bad)
   x
 end
 
@@ -125,21 +125,26 @@ function test_iterate(x::Union{SparseIterate, SymmetricSparseIterate})
   ok = 0 <= x.nnz <= length(x.ind2nzval)
   @test 0 <= x.nnz <= length(x.ind2nzval)
   ok || return x
-  stored = x.nzval2ind[1:x.nnz]
-  @test length(unique(stored)) == x.nnz
+  stored = falses(length(x.ind2nzval))
+  duplicates, out_of_range = Int[], Int[]
   for j in 1:x.nnz
     i = x.nzval2ind[j]
-    ok = 1 <= i <= length(x.ind2nzval)
-    @test 1 <= i <= length(x.ind2nzval)
-    ok || return x
-    @test x.ind2nzval[x.nzval2ind[j]] == j
-  end
-  for i in eachindex(x.ind2nzval)
-    @test 0 <= x.ind2nzval[i] <= x.nnz
-    if i ∉ stored
-      @test x.ind2nzval[i] == 0
+    if 1 <= i <= length(x.ind2nzval)
+      stored[i] && push!(duplicates, j)
+      stored[i] = true
+    else
+      push!(out_of_range, j)
     end
   end
+  @test isempty(duplicates)
+  @test isempty(out_of_range)
+  isempty(out_of_range) || return x
+  bad = [j for j in 1:x.nnz if x.ind2nzval[x.nzval2ind[j]] != j]
+  @test isempty(bad)
+  bad = [i for i in eachindex(x.ind2nzval) if !(0 <= x.ind2nzval[i] <= x.nnz)]
+  @test isempty(bad)
+  bad = [i for i in eachindex(x.ind2nzval) if !stored[i] && x.ind2nzval[i] != 0]
+  @test isempty(bad)
   x
 end
 

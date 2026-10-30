@@ -110,11 +110,17 @@ PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
 
   @testset "iterate bookkeeping" begin
     groups = [1:2, 3:4, 5:6]
+    large_atom = AtomIterate(ones(65_536), [i:i+3 for i in 1:4:65_536])
+    large_sparse = SparseIterate(65_536)
+    for i in 1:16:65_536
+      large_sparse[i] = 1
+    end
     state(x) = deepcopy(ntuple(i -> getfield(x, i), fieldcount(typeof(x))))
     for x in (AtomIterate(6, groups), AtomIterate([1., 0, 0, 0, 2, 0], groups),
               SparseIterate(4), SparseIterate([1., 0, 2, 0]),
               SparseIterate(2, 2), SparseIterate([1. 0; 0 2]),
-              SymmetricSparseIterate(2), SymmetricSparseIterate([1. 2; 2 0]))
+              SymmetricSparseIterate(2), SymmetricSparseIterate([1. 2; 2 0]),
+              large_atom, large_sparse)
       x[1] = 1
       x[1] = 0
       before = state(x)

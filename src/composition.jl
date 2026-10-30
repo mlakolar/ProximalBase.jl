@@ -580,9 +580,18 @@ _check_coordinate(::AtomIterate, ::_ArrayPrecompose{<:AbstractGroupPenalty}, ::I
 function prox_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k::Integer, γ::Real)
   _checkparams(r, x)
   _check_group_coordinate(r.f, x, k)
-  T = float(eltype(x))
-  step, ρ = convert(T, γ), convert(T, r.ρ)
+  T = eltype(x)
+  S = float(T)
+  step, ρ = convert(S, γ), convert(S, r.ρ)
   a, b = _ridge_weights(step, ρ)
+  if T <: AbstractFloat
+    # the floating-point blend cannot fail; the inner step settles activation
+    @inbounds for i in x.groups[k]
+      x.storage[i] = r.c === nothing ? a * x.storage[i] : _ridge_blend(x.storage[i], r.c[i], a, b)
+    end
+    return prox_coordinate!(x, r.f, k, _regularize_step(step, ρ))
+  end
+  # other conversions may fail; activate each stored nonzero before continuing
   was = isactive(x, k)
   active = was
   @inbounds for i in x.groups[k]

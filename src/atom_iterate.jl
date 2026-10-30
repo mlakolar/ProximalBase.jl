@@ -138,8 +138,9 @@ Base.IndexStyle(::Type{<:AtomIterate}) = IndexLinear()
 
 Base.@propagate_inbounds Base.getindex(x::AtomIterate, i::Int) = x.storage[i]
 Base.@propagate_inbounds function Base.setindex!(x::AtomIterate, v, i::Int)
-  x.storage[i] = v
-  iszero(x.storage[i]) || activate!(x, x.group_of[i])     # the entries of inactive groups stay zero
+  s = convert(eltype(x.storage), v)
+  x.storage[i] = s
+  iszero(s) || activate!(x, x.group_of[i])     # the entries of inactive groups stay zero
   x
 end
 
@@ -155,7 +156,7 @@ A view of the entries of group `k`. It is a view of `x` itself, so it aliases
 `x`. Writing through it follows the rule of `x[i] = v`: a nonzero entry
 activates the group and a zero never deactivates it (see [`dropzeros!`](@ref)).
 To take a proximal step at a trial point without activating the group first,
-use [`prox_coordinate!`](@ref) with `prox_coordinate!(x, f, k, u, γ)`.
+use [`prox_coordinate!`](@ref)`(x, f, k, u, γ)`.
 """
 atom(x::AtomIterate, k::Integer) = view(x, x.groups[k])
 

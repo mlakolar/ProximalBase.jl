@@ -357,18 +357,27 @@ function _check_coordinate(x::AtomIterate, f::AbstractFunction, k)
   checkbounds(x.groups, k)
 end
 
+Base.@propagate_inbounds _group_step_input(x::AtomIterate{T}, G, src, a) where {T} =
+  src === nothing ? x.storage[G[a]] : convert(T, src[firstindex(src) + a - 1])
+
 # group k, entry by entry; activate as soon as a stored entry is nonzero
 function _separable_group_step!(x::AtomIterate{T}, f, k, src, γ) where {T}
   G = x.groups[k]
-  active = isactive(x, k)
-  @inbounds for a in 1:length(G)
-    input = src === nothing ? x.storage[G[a]] : convert(T, src[firstindex(src) + a - 1])
-    v = prox_entry(f, input, G[a], γ)
-    x.storage[G[a]] = v
-    if !active && !iszero(x.storage[G[a]])
-      activate!(x, k)
-      active = true
+  a = 1
+  if !isactive(x, k)
+    @inbounds while a <= length(G)
+      s = convert(T, prox_entry(f, _group_step_input(x, G, src, a), G[a], γ))
+      x.storage[G[a]] = s
+      a += 1
+      if !iszero(s)
+        activate!(x, k)
+        break
+      end
     end
+  end
+  @inbounds for b in a:length(G)
+    s = convert(T, prox_entry(f, _group_step_input(x, G, src, b), G[b], γ))
+    x.storage[G[b]] = s
   end
   x
 end
@@ -394,6 +403,13 @@ end
 _block_step!(x::AtomIterate, f, k, u, γ) = _separable_group_step!(x, f, k, u, γ)
 
 function _stage_and_step!(x::AtomIterate{T}, f, k, u, γ) where {T}
+  if T <: AbstractFloat && eltype(u) <: Union{AbstractFloat, Integer}
+    # conversion and checked group kernels cannot fail; the result settles activation
+    copyto!(_atom_storage(x, k), u)
+    prox_coordinate!(x, f, k, γ)
+    return x
+  end
+  # other conversions may fail; activate each stored nonzero before continuing
   was = isactive(x, k)
   active = was
   G = x.groups[k]

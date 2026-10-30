@@ -125,6 +125,41 @@ end
     end
   end
 
+  @testset "eager group staging on floating-point iterates" begin
+    gs = [1:2, 3:4, 5:6]
+    fs = (GroupNormL2(1., gs), GroupNormLinf(1., gs), SparseGroupNormL2(0.2, 1., gs),
+          GroupMCP(1., gs), GroupSCAD(1., gs))
+    for f in fs
+      for h in (f, Regularize(f, 0.3), Regularize(f, 0.3, ones(6)))
+        for u in ([1//100, 1//100], [10//1, -10//1]), active in (false, true)
+          x = AtomIterate(6, gs)
+          activate!(x, 3)
+          activate!(x, 2)
+          active && activate!(x, 1)
+          y = copy(x)
+          prox_coordinate!(x, h, 1, u, 1.)
+          prox_coordinate!(y, h, 1, Float64.(u), 1.)
+          @test x == y
+          @test nactive(x) == nactive(y) && x.position == y.position
+          @test activecoordinates(x) == activecoordinates(y)
+          @test consistent(x) && consistent(y)
+        end
+      end
+      for (c, nonzero) in ((0.01, false), (10., true))
+        x = AtomIterate(6, gs)
+        activate!(x, 3)
+        activate!(x, 2)
+        r = Regularize(f, 1., fill(c, 6))
+        expected = prox(r, Vector(x), 1.)[gs[1]]
+        prox_coordinate!(x, r, 1, 1.)
+        @test atom(x, 1) ≈ expected
+        @test isactive(x, 1) == nonzero
+        @test activecoordinates(x) == (nonzero ? [3, 2, 1] : [3, 2])
+        @test consistent(x)
+      end
+    end
+  end
+
   @testset "steps at zero" begin
     for f in (IndBox(1., 2.), Translate(NormL1(0.3), ones(4)))
       for x in (SparseIterate(zeros(4)), SymmetricSparseIterate(2), AtomIterate(4, [1:2, 3:4]))

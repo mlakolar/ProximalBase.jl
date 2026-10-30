@@ -294,4 +294,32 @@ end
   end
 end
 
+@testset "radial classification visits active groups" begin
+  for F in (GroupMCP, GroupSCAD), T in (Float32, Float64),
+      w in (T[1, Inf], T[1, floatmax(T)])
+    f = F(T(2), [[1, 2], [3, 4]], w)
+    x = AtomIterate(T[3, 4, 0, 0], f)
+    @test PB._ordinary_radial_groups(f, T, x.active, x.nactive)
+    @test !PB._ordinary_radial_groups(f, T)
+    @test f(x) == f(Vector(x))
+    for γ in (zero(T), one(T), T[0, 1]), inplace in (false, true)
+      source = copy(x)
+      y = inplace ? source : copy(x)
+      expected = prox(f, Vector(x), γ)
+      v = value_and_prox!(y, f, source, γ)
+      @test Vector(y) == expected
+      @test v ≈ f(y)
+      source = copy(x)
+      y = inplace ? source : copy(x)
+      prox!(y, f, source, γ)
+      @test Vector(y) == expected
+    end
+    PB.atom(x, 2) .= T[3, 4]
+    PB.activate!(x, 2)
+    @test !PB._ordinary_radial_groups(f, T, x.active, x.nactive)
+    @test f(x) == T(Inf)
+    @test Vector(prox(f, x, one(T)))[3:4] == zeros(T, 2)
+  end
+end
+
 end

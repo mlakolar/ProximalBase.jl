@@ -371,6 +371,16 @@ _group_scalar(f::GroupSCAD, ::Type{S}, k::Integer) where {S} = SCAD{S}(convert(S
 # The ordinary kernels retain the scalar product and loops used for finite weights.
 _ordinary_radial_groups(f, ::Type{T}) where {T} = isfinite(f.λ0) &&
   !mapreduce(w -> isinf(w) | isinf(convert(T, f.λ0 * w)), |, f.w; init = false)
+# Matching atom layouts classify only coefficients the kernels will visit.
+function _ordinary_radial_groups(f, ::Type{T}, groups, n::Int) where {T}
+  isfinite(f.λ0) || return false
+  ordinary = true
+  @inbounds @simd for a in 1:n
+    w = f.w[groups[a]]
+    ordinary &= !isinf(w) & !isinf(convert(T, f.λ0 * w))
+  end
+  ordinary
+end
 _infinite_radial_coefficient(f, ::Type{T}, k) where {T} =
   isinf(convert(T, _weight_coefficient(f.λ0, f.w[k])))
 _group_scalar(f::GroupMCP, ::Type{S}, k::Integer, ::Val{true}) where {S} = MCP{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
@@ -416,7 +426,9 @@ _check_prox_group_scalars(f::_RadialGroupPenalty, ::Type{T}, y, x) where {T} =
   _check_group_scalars(f, T, eachindex(f.groups))
 function _check_prox_group_scalars(f::_RadialGroupPenalty, ::Type{T}, y::AtomIterate, x::AtomIterate) where {T}
   if _samelayout(f, x) && _samelayout(f, y)
-    return _check_group_scalars(f, T, x.active, x.nactive, Val(false))
+    return _ordinary_radial_groups(f, T, x.active, x.nactive) ?
+      _check_group_scalars(f, T, x.active, x.nactive, Val(true)) :
+      _check_group_scalars(f, T, x.active, x.nactive, Val(false))
   end
   _check_group_scalars(f, T, eachindex(f.groups))
 end
@@ -492,7 +504,8 @@ end
 # with the groups of f, only the active groups count
 function (f::_RadialGroupPenalty)(x::AtomIterate)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
-  _radial_group_value(f, x, Val(false))
+  _ordinary_radial_groups(f, float(eltype(x)), x.active, x.nactive) ?
+    _radial_group_value(f, x, Val(true)) : _radial_group_value(f, x, Val(false))
 end
 
 function _radial_group_value(f::_RadialGroupPenalty, x::AtomIterate, ordinary::Val{O}) where {O}
@@ -547,7 +560,8 @@ end
 function _value_and_prox_groups!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::Union{Real, AbstractVector})
   _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, _RadialGroupPenalty, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
-  _radial_group_prox!(y, f, x, γ, Val(false))
+  _ordinary_radial_groups(f, float(eltype(y)), x.active, x.nactive) ?
+    _radial_group_prox!(y, f, x, γ, Val(true)) : _radial_group_prox!(y, f, x, γ, Val(false))
 end
 
 function _radial_group_prox!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}

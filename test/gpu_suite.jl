@@ -1158,3 +1158,76 @@ conjugate_blocks_match(a::Tuple, b::Tuple) = all(map(conjugate_blocks_match, a, 
     end
   end
 end
+
+@testset "direct conjugate projections on device arrays" begin
+  allowscalar(false)
+    setprecision(BigFloat, 4096) do
+      for T in test_types
+        h = T === Float64 ? T(1e300) : T(1e30)
+        x = T[h, -h / 3, 2, 0, T(0.25)]
+        dx = DeviceArray(x)
+        for (f, ref) in (
+            (NormL1(), clamp.(BigFloat.(x), -1, 1)),
+            (NormL1Nonneg(), min.(BigFloat.(x), 1)),
+            (NormL1(T(0), T[Inf, 0, 2, 1, Inf]), BigFloat[x[1], 0, 0, 0, x[5]]),
+            (CheckLoss(T(0.3), T[1, 0, Inf, 2, 1]), clamp.(BigFloat.(x), BigFloat.(T[1, 0, Inf, 2, 1]) .* (BigFloat(T(0.3)) - 1), BigFloat.(T[1, 0, Inf, 2, 1]) .* BigFloat(T(0.3)))),
+            (ZeroFunction(), zeros(BigFloat, 5)),
+            (IndNonnegative(), min.(BigFloat.(x), 0)),
+            (Scaled(NormL1(), 2), clamp.(BigFloat.(x), -2, 2)),
+            (Translate(NormL1(), T[0, 0, 1, 0, 0]), clamp.(BigFloat.(x) .- BigFloat[0, 0, 1, 0, 0], -1, 1)))
+          c = Conjugate(Adapt.adapt(DeviceArray, f))
+          for γ in (1e-310, 1.0, 1e30)
+            expected = f isa Translate ? clamp.(BigFloat.(x) .- BigFloat(γ) .* BigFloat.(f.b), -1, 1) : ref
+            for y in (prox(c, dx, γ), prox(c, dx, DeviceArray(fill(T(γ), 5))))
+              a = host(y)
+              for i in eachindex(a)
+                r = expected[i]
+                @test abs(BigFloat(a[i]) - r) <= 4BigFloat(eps(T)) * abs(r) + 2BigFloat(nextfloat(zero(T)))
+                iszero(r) && @test iszero(a[i])
+              end
+            end
+          end
+        end
+        for x in (T[h, T(0.5), T(0.25)], T[floatmax(T) * T(0.8), floatmax(T) * T(0.8), T(1e-30)])
+          for f in (NormL2(), NormL2(floatmax(T) / 2))
+            X = BigFloat.(x)
+            ref = X .* min(BigFloat(1), BigFloat(f.λ) / norm(X))
+            a = host(prox(Conjugate(f), DeviceArray(x), 1e-310))
+            for i in eachindex(a)
+              @test abs(BigFloat(a[i]) - ref[i]) <= 8BigFloat(eps(T)) * abs(ref[i]) + 2BigFloat(nextfloat(zero(T)))
+            end
+          end
+        end
+        f = GroupNormL2(T(1), [[1, 2], [4]], T[1, 0])
+        X = BigFloat.(host(dx))
+        ref = zeros(BigFloat, 5)
+        ref[1:2] .= X[1:2] ./ norm(X[1:2])
+        c = Conjugate(Adapt.adapt(DeviceArray, f))
+        a = host(prox(c, dx, 1e-310))
+        for i in eachindex(a)
+          @test abs(BigFloat(a[i]) - ref[i]) <= 8BigFloat(eps(T)) * abs(ref[i]) + 2BigFloat(nextfloat(zero(T)))
+          iszero(ref[i]) && @test iszero(a[i])
+        end
+      end
+    end
+end
+
+
+@testset "direct conjugate device views and nested sums" begin
+  allowscalar(false)
+  for T in test_types
+    x = DeviceArray(T[1e30, -2, 3, 4])
+    c = Conjugate(NormL1())
+    @test host(prox(c, view(x, 1:3), 1e-310)) == T[1, -1, 1]
+    y = copy(x)
+    @test value_and_prox!(y, c, y, 1e-310) == 0
+    @test host(y) == T[1, -1, 1, 1]
+    f = NormL1(T(1), reshape(T[0, 1, 2, Inf], 2, 2))
+    @test host(prox(Conjugate(Adapt.adapt(DeviceArray, f)), x, 1.0)) == T[0, -1, 2, 4]
+    f = Adapt.adapt(DeviceArray, SeparableSum(NormL1(), SeparableSum(NormL2(), NormL1Nonneg())))
+    y = prox(Conjugate(f), (x, (DeviceArray(T[3, 4]), DeviceArray(T[-2, 1e30]))), 1e-310)
+    @test host(y[1]) == T[1, -1, 1, 1]
+    @test host(y[2][1]) ≈ T[0.6, 0.8]
+    @test host(y[2][2]) == T[-2, 1]
+  end
+end

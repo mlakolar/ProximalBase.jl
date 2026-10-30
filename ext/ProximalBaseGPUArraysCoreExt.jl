@@ -956,4 +956,71 @@ Adapt.adapt_structure(to, f::LeastSquaresLoss) = LeastSquaresLoss(Adapt.adapt(to
 Adapt.adapt_structure(to, f::GLMLoss) =
   GLMLoss(f.loss, Adapt.adapt(to, f.y), Adapt.adapt(to, f.X); weights = Adapt.adapt(to, f.weights), offset = Adapt.adapt(to, f.offset))
 
+# Direct dual projections broadcast parameters separately from the function.
+for (F, op, level) in ((NormL1, ProximalBase._projection_clip, :λ0),
+                      (NormL1Nonneg, ProximalBase._projection_upper, :λ0),
+                      (ProximalBase.CheckLoss, ProximalBase._projection_check, :τ))
+  @eval function ProximalBase._conjugate_projection!(z::AnyGPUArray, f::$F, x::AnyGPUArray, γ, α = 1)
+    z .= $op.(x, α, f.$level, _reshapeparam(_param(f.w), x))
+  end
+end
+Adapt.adapt_structure(to, f::ProximalBase.CheckLoss) = ProximalBase.CheckLoss(f.τ, Adapt.adapt(to, f.w))
+Adapt.adapt_structure(to, f::ProximalBase.SeparableSum) = ProximalBase.SeparableSum(map(g -> Adapt.adapt(to, g), f.fs))
+Adapt.adapt_structure(to, f::ProximalBase.Conjugate) = ProximalBase.Conjugate(Adapt.adapt(to, f.f))
+Adapt.adapt_structure(to, f::ProximalBase.Scaled) = ProximalBase.Scaled(Adapt.adapt(to, f.f), f.α)
+Adapt.adapt_structure(to, f::ProximalBase.Translate) = ProximalBase.Translate(Adapt.adapt(to, f.f), Adapt.adapt(to, f.b))
+
+ProximalBase._maximum_abs(x::AnyGPUArray) = mapreduce(abs, max, x; init = zero(real(float(eltype(x)))))
+
+function ProximalBase._project_l2!(y::AnyGPUArray, x::AnyGPUArray, λ, α = 1, w = 1)
+  (iszero(λ) || iszero(w)) && return fill!(y, zero(eltype(y)))
+  isinf(w) && return copyto!(y, x)
+  c = _positive_product(α, λ, w)
+  # Device reductions avoid scalar indexing even for wrapped array views.
+  m = ProximalBase._maximum_abs(x)
+  iszero(m) && return copyto!(y, x)
+  n = sqrt(_sum(typeof(m), abs2, x))
+  t = min(one(n), c / n)
+  if isfinite(n) && n >= floatmin(typeof(n)) && isfinite(c) && t >= floatmin(typeof(t))
+    y .= t .* x
+  else
+    ProximalBase._project_l2_scaled!(y, x, λ, α, w, c, n)
+  end
+  y
+end
+
+ProximalBase._conjugate_isindicator(::Type{<:DeviceGroups{F}}) where {F} = ProximalBase._conjugate_isindicator(F)
+ProximalBase._direct_conjugate(::Type{<:DeviceGroups{GroupNormL2{T, G}}}) where {T, G} = true
+ProximalBase._checkparams(d::DeviceGroups, x) = _checkparams(d.f, x)
+
+# Store a significand and exponent per group, so even an underflowing factor
+# can be applied to the original coordinates in the scatter kernel.
+function _projection_parts(m::T, q, λ, α, w)::Tuple{T, Int} where {T}
+  (iszero(λ) || iszero(w)) && return (zero(m), 0)
+  (iszero(m) || isinf(w)) && return (one(m), 0)
+  a, e = frexp(m)
+  r1, e1 = frexp(float(α))
+  r2, e2 = frexp(float(λ))
+  r3, e3 = frexp(float(w))
+  r, k = frexp(((r1 * r2) * r3) / (a * sqrt(q)))
+  k += e1 + e2 + e3 - e
+  k > 1 || (k == 1 && r >= 0.5) ? (one(r), 0) : (r, k)
+end
+_projection_scatter(v, p, _) = ProximalBase._projection_scale(v, p[1], p[2])
+function ProximalBase._conjugate_projection!(z::AnyGPUArray, d::DeviceGroups{<:GroupNormL2}, x::AnyGPUArray, γ, α = 1)
+  lay, f = d.layout, d.f
+  T = real(float(eltype(x)))
+  parts = _group_buffer(vec(x), Tuple{T, Int}, lay, Ref((zero(T), 0)))
+  for b in lay.blocks
+    m, q = _group_norm_parts(_gather(vec(x), b), b, T)
+    view(parts, b.pos) .= vec(_projection_parts.(m, q, f.λ0, α, b.w))
+  end
+  copyto!(z, x)
+  _scatter_back!(_projection_scatter, vec(z), lay, parts)
+  view(vec(z), (length(lay.gid) + 1):length(z)) .= zero(eltype(z))
+  z
+end
+ProximalBase._conjugate_projection!(z::AnyGPUArray, f::GroupNormL2, x::AnyGPUArray, γ, α = 1) =
+  ProximalBase._conjugate_projection!(z, _on_device(f, x), x, γ, α)
+
 end

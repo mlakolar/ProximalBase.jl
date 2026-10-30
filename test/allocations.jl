@@ -505,4 +505,19 @@ end
   end
 end
 
+
+@testset "direct conjugate projection buffers" begin
+  x, y, γ = randn(16), zeros(16), ones(16)
+  for f in (NormL1(), NormL1(0.7, ones(16)), NormL1Nonneg(), CheckLoss(0.3),
+            NormL2(), GroupNormL2(1.0, [1:4, 6:8], ones(2)),
+            Scaled(NormL2(), 2.0), Translate(NormL1(), ones(16)))
+    c = Conjugate(f)
+    @test allocs(prox!, y, c, x, 0.7) == 0
+    @test allocs(value_and_prox!, y, c, x, 0.7) == 0
+    if isseparable(f)
+      @test allocs(prox!, y, c, x, γ) == 0
+    end
+  end
+end
+
 end

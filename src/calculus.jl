@@ -426,23 +426,22 @@ this is not a feasibility certificate.
 The support functions of the ℓ1 and ℓ2 balls follow the overflow handling of
 `NormLinf` and `NormL2`, including a radius not representable in the argument's precision.
 
-Where the conjugate is an indicator as above, and for the conjugates of
-[`IndBallL2`](@ref), [`IndBox`](@ref) and [`IndBallLinf`](@ref), their
-translations and strictly positive rescalings, and `Conjugate(Conjugate(g))`,
-the proximal operator is computed without dividing by the step: every step
-gives the result of a computation at unit step, accurate to about `eps` times
-the largest input entry, plus `eps γ‖b‖` for a translation by `b`. Moreau's
-identity cancels where `|x|` is far larger than the result, so
-`Conjugate(NormL1())` at `[1e300, 2.0]` gives `[0.0, 1.0]` at every step,
-`γ = 1` included. A translation by `b` also needs `γb` to be
-finite in working precision, and is checked as below. This holds for scalar
-steps; with array steps and in [`prox_entry`](@ref), only for the conjugates
-that are indicators of a separable `f`, for the box itself and for
-`Conjugate(Conjugate(g))`. The other conjugates divide by the step, and their
-supported range is a finite result at finite inputs: outside it,
-[`prox!`](@ref) and [`value_and_prox!`](@ref) throw an `ArgumentError` before
-writing, while [`prox_entry`](@ref) returns the non-finite value; underflow of
-`x/γ` at huge steps is not detected.
+The conjugates of `NormL1`, `NormL1Nonneg`, `CheckLoss`, `ZeroFunction`,
+`IndNonnegative`, `NormL2` and `GroupNormL2` use direct box, ball or polar
+projections, including positive scaling, translations and separable sums.
+Clipping is accurate to the rounding of each coefficient. Euclidean projections
+use scaled significands at exceptional magnitudes, preserving small coordinates
+when the norm overflows or the projection factor underflows. Ungrouped dual
+coordinates of `GroupNormL2` are zero. Array steps and `prox_entry` use the same
+clipping formulas for separable families. Translations require `γb` to be finite
+in working precision.
+
+Other families use Moreau's identity, including `NormLinf`, `GroupNormLinf`,
+`NuclearNorm`, singular-value and spectral wrappers, `SLOPE`, TV and fused
+penalties, and cones other than `IndNonnegative`. Cancellation can lose small
+results at large inputs. `SumLargest` retains its dedicated method. Where a
+step-free Moreau computation is available it avoids division by the step;
+otherwise finite inputs require a finite computed result, checked before writing.
 
 Supported zero rescalings simplify in [`Scaled`](@ref) while preserving the
 underlying domain. Each conjugate owns a working buffer; do not share it
@@ -571,19 +570,10 @@ _checkmoreau(y, x, z, step, γ, always::Bool) =
 function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
-  step = convert(T, γ)
   z = _array_buffer!(c.scratch, T, x)
-  F = typeof(c.f)
-  if _moreau_free(F)
-    _moreau_point!(z, c.f, x, step)
-    _checkmoreau(y, x, z, one(T), γ, _moreau_checked(F))
-    y .= x .- z
-  else
-    z .= x ./ step
-    prox!(z, c.f, z, inv(step))
-    _checkmoreau(y, x, z, step, γ, true)
-    y .= x .- step .* z
-  end
+  _conjugate_projection!(z, c.f, x, γ)
+  _check_projection_result(z, x, γ)
+  copyto!(y, z)
 end
 # f** = f, with the checks of f's own oracles
 _checkwrite(op::O, c::Conjugate{<:Conjugate}, y::Union{AbstractArray, Tuple}, x::Union{AbstractArray, Tuple}) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}} =
@@ -611,6 +601,13 @@ _has_conjugate_value(f::SingularValue) = _has_conjugate_value(f.f)
 function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
+  if _any_direct_conjugate(typeof(c.f)) && !_has_conjugate_value(c.f)
+    z = _array_buffer!(c.scratch, float(eltype(y)), x)
+    v = _conjugate_projection_value!(z, c.f, x, γ)
+    _check_projection_result(z, x, γ)
+    _projection_commit!(y, z)
+    return _value_at(v, y)
+  end
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
     return _value_at(_conjugate_value(c.f, y), y)
@@ -672,9 +669,15 @@ prox!(y::AbstractArray{<:Real}, c::Conjugate{<:SumLargest}, x::AbstractArray{<:R
   _sumlargest_prox!(y, c.f, x, 1, Val(true))
 
 _tuple_buffer_type(::Type{<:AbstractArray{T, N}}) where {T, N} = Array{float(T), N}
-_tuple_buffer_type(::Type{X}) where {X<:Tuple} = Tuple{map(_tuple_buffer_type, fieldtypes(X))...}
+# Recursive type construction stays inferred after other nested sums compile.
+_tuple_buffer_type(::Type{Tuple{}}) = Tuple{}
+_tuple_buffer_type(::Type{X}) where {X<:Tuple} =
+  _tuple_buffer_cons(_tuple_buffer_type(fieldtype(X, 1)), _tuple_buffer_type(Base.tuple_type_tail(X)))
+_tuple_buffer_cons(::Type{H}, ::Type{T}) where {H, T<:Tuple} = Tuple{H, fieldtypes(T)...}
 _same_buffer_sizes(b::AbstractArray, x::AbstractArray) = size(b) == size(x)
-_same_buffer_sizes(b::Tuple, x::Tuple) = all(map(_same_buffer_sizes, b, x))
+_same_buffer_sizes(::Tuple{}, ::Tuple{}) = true
+_same_buffer_sizes(b::Tuple, x::Tuple) =
+  _same_buffer_sizes(first(b), first(x)) && _same_buffer_sizes(Base.tail(b), Base.tail(x))
 
 function _tuple_buffer!(s::Scratch, y::Y, x::X) where {Y<:Tuple, X<:Tuple}
   B = _tuple_buffer_type(Y)
@@ -711,17 +714,9 @@ _tuple_dot(x::Tuple, y::Tuple) = sum(map(_tuple_dot, x, y))
 function prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _checkwrite(prox!, c, y, x)
   p = _tuple_buffer!(c.scratch, y, x)
-  if _conjugate_isindicator(typeof(c.f))
-    unit = one(float(typeof(γ)))
-    prox!(p, c.f, x, unit)
-    _checkmoreau(y, x, p, unit, γ, false)
-    _moreau_output!(y, x, p, unit)
-  else
-    _divide!(p, x, γ)
-    prox!(p, c.f, p, inv(γ))
-    _checkmoreau(y, x, p, γ, γ, true)
-    _moreau_output!(y, x, p, γ)
-  end
+  _conjugate_projection!(p, c.f, x, γ)
+  _check_projection_result(p, x, γ)
+  _projection_commit!(y, p)
 end
 prox!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) = (_checkwrite(prox!, c, y, x); prox!(y, c.f.f, x, γ))
 value_and_prox!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) =
@@ -730,6 +725,13 @@ value_and_prox!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) =
 function value_and_prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
+  if _any_direct_conjugate(typeof(c.f)) && !_has_conjugate_value(c.f)
+    z = _tuple_buffer!(c.scratch, y, x)
+    v = _conjugate_projection_value!(z, c.f, x, γ)
+    _check_projection_result(z, x, γ)
+    _projection_commit!(y, z)
+    return _value_at(v, y)
+  end
   if _has_conjugate_value(c.f)
     prox!(y, c, x, γ)
     return _value_at(_conjugate_value(c.f, y), y)
@@ -1054,6 +1056,7 @@ _checkstep(op::O, c::Conjugate{<:Conjugate}, y::AbstractArray, x::AbstractArray,
 _checkstep(op::O, c::Conjugate{<:Conjugate}, y::Tuple, x::Tuple, γ::Real) where {O} =
   _checkstep(op, c.f.f, y, x, γ)
 function _checkstep(op::O, c::Conjugate, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  _direct_conjugate(typeof(c.f)) && return true
   T = float(eltype(y))
   step = convert(T, γ)
   p = _conjugate_checkbuffer(c.scratch, y, x)
@@ -1094,3 +1097,158 @@ function _checkstep(op::O, c::Conjugate, y::Tuple, x::Tuple, γ::Real) where {O}
   _conjugate_isindicator(typeof(c.f)) && return _checkstep(prox!, c.f, p, x, one(float(typeof(γ))))
   _checkstep(prox!, c.f, p, _step_input(p), inv(γ))
 end
+
+# The proximal point itself, separate from the point subtracted in Moreau's identity.
+_direct_conjugate(::Type) = false
+_direct_conjugate(::Type{<:Union{NormL1, NormL1Nonneg, CheckLoss, ZeroFunction,
+                                IndNonnegative, NormL2, GroupNormL2}}) = true
+_direct_conjugate(::Type{<:Union{Scaled{F}, Translate{F}}}) where {F} = _direct_conjugate(F)
+
+_conjugate_projection!(z, f, x, γ, α = 1) = _conjugate_moreau!(z, f, x, γ, α)
+function _conjugate_moreau!(z, f, x, γ, α)
+  g = isone(α) ? f : Scaled(f, α)
+  T = float(eltype(z))
+  step = convert(T, γ)
+  if _moreau_free(typeof(g))
+    _moreau_point!(z, g, x, step)
+    _checkmoreau(z, x, z, one(T), γ, _moreau_checked(typeof(g)))
+    z .= x .- z
+  else
+    z .= x ./ step
+    prox!(z, g, z, inv(step))
+    _checkmoreau(z, x, z, step, γ, true)
+    z .= x .- step .* z
+  end
+  z
+end
+
+# Keep all factors until the coefficient is formed; a free coordinate stays free
+# even at zero level. This differs from the group zero-level convention.
+_projection_coefficient(α, λ, w) = isinf(w) ? oftype(float(w), Inf) : _positive_product(α, λ, w)
+_projection_clip(v, α, λ, w) = (c = _projection_coefficient(α, λ, w); clamp(v, -c, c))
+_projection_upper(v, α, λ, w) = min(v, _projection_coefficient(α, λ, w))
+_projection_check(v, α, τ, w) = clamp(v, -_projection_coefficient(α, 1 - τ, w), _projection_coefficient(α, τ, w))
+
+for (F, op) in ((:NormL1, :_projection_clip), (:NormL1Nonneg, :_projection_upper), (:CheckLoss, :_projection_check))
+  level = F === :CheckLoss ? :τ : :λ0
+  @eval begin
+    function _conjugate_projection!(z, f::$F, x, γ, α = 1)
+      @inbounds @simd for i in eachindex(IndexLinear(), z, x)
+        z[i] = $op(x[i], α, f.$level, _entry(f.w, i))
+      end
+      z
+    end
+    function _conjugate_entry(f::$F, v, i, γ)
+      T = float(promote_type(typeof(v), typeof(γ)))
+      convert(T, $op(v, 1, f.$level, _entry(f.w, i)))
+    end
+  end
+end
+_conjugate_projection!(z, ::ZeroFunction, x, γ, α = 1) = fill!(z, zero(eltype(z)))
+_conjugate_projection!(z, ::IndNonnegative, x, γ, α = 1) = (z .= min.(x, zero(eltype(z))))
+_conjugate_entry(::ZeroFunction, v, i, γ) = zero(float(v))
+_conjugate_entry(::IndNonnegative, v, i, γ) = min(v, zero(v))
+
+_conjugate_projection!(z, f::Scaled, x, γ, α = 1) =
+  _direct_conjugate(typeof(f.f)) || f.f isa SeparableSum ? _conjugate_projection!(z, f.f, x, γ, α * f.α) : _conjugate_moreau!(z, f, x, γ, α)
+function _conjugate_projection!(z, f::Translate, x, γ, α = 1)
+  _direct_conjugate(typeof(f.f)) || return _conjugate_moreau!(z, f, x, γ, α)
+  p = _array_buffer!(f.scratch, float(eltype(z)), x)
+  p .= _dilate.(γ, f.b)
+  all(isfinite, p) || _moreau_error(γ)
+  p .= x .- p
+  all(isfinite, p) || _moreau_error(γ)
+  _conjugate_projection!(z, f.f, p, γ, α)
+end
+_conjugate_entry(f::Scaled, v, i, γ) =
+  convert(float(promote_type(typeof(v), typeof(γ))), _scaled_conjugate_entry(f.f, v, i, γ, f.α))
+_scaled_conjugate_entry(f::NormL1, v, i, γ, α) = _projection_clip(v, α, f.λ0, _entry(f.w, i))
+_scaled_conjugate_entry(f::NormL1Nonneg, v, i, γ, α) = _projection_upper(v, α, f.λ0, _entry(f.w, i))
+_scaled_conjugate_entry(f::CheckLoss, v, i, γ, α) = _projection_check(v, α, f.τ, _entry(f.w, i))
+_scaled_conjugate_entry(f, v, i, γ, α) = v - γ * prox_entry(f, v / γ, i, α / γ)
+_conjugate_entry(f::Translate, v, i, γ) = _direct_conjugate(typeof(f.f)) ?
+  _conjugate_entry(f.f, v - γ * f.b[i], i, γ) : v - γ * prox_entry(f, v / γ, i, inv(γ))
+
+_projection_commit!(y::AbstractArray, z::AbstractArray) = copyto!(y, z)
+_projection_commit!(y::Tuple, z::Tuple) = (map(_projection_commit!, y, z); y)
+_direct_conjugate(::Type{SeparableSum{F}}) where {F} = all(_direct_conjugate, fieldtypes(F))
+function _conjugate_projection!(z::Tuple, s::SeparableSum, x::Tuple, γ, α = 1)
+  _conjugate_projection_blocks!(z, s.fs, x, γ, α)
+  z
+end
+_conjugate_projection_blocks!(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, α) = nothing
+function _conjugate_projection_blocks!(z::Tuple, fs::Tuple, x::Tuple, γ, α)
+  _conjugate_projection!(first(z), first(fs), first(x), γ, α)
+  _conjugate_projection_blocks!(Base.tail(z), Base.tail(fs), Base.tail(x), γ, α)
+end
+
+_conjugate_projection!(z, f::NormL2, x, γ, α = 1) = _project_l2!(z, x, f.λ, α)
+function _conjugate_projection!(z, f::GroupNormL2, x, γ, α = 1)
+  @inbounds @simd for i in eachindex(IndexLinear(), z)
+    iszero(_group(f, i)) && (z[i] = zero(eltype(z)))
+  end
+  @inbounds for k in eachindex(f.groups)
+    G = f.groups[k]
+    isempty(G) && continue
+    _project_l2!(view(z, G), view(x, G), f.λ0, α, f.w[k])
+  end
+  z
+end
+
+_scaled_conjugate_entry(::ZeroFunction, v, i, γ, α) = zero(float(v))
+_scaled_conjugate_entry(::IndNonnegative, v, i, γ, α) = min(v, zero(v))
+_scaled_conjugate_entry(f::Translate, v, i, γ, α) = _scaled_conjugate_entry(f.f, v - γ * f.b[i], i, γ, α)
+_scaled_conjugate_entry(f::Scaled, v, i, γ, α) = _scaled_conjugate_entry(f.f, v, i, γ, _positive_product(α, f.α, 1))
+
+# A translated indicator has a linear value even when its family's standalone
+# conjugate value is unavailable. Mixed sums must keep this blockwise as well.
+_any_direct_conjugate(::Type{F}) where {F} = _direct_conjugate(F)
+_any_direct_conjugate(::Type{SeparableSum{F}}) where {F} = any(_any_direct_conjugate, fieldtypes(F))
+_any_direct_conjugate(::Type{<:Scaled{F}}) where {F} = _any_direct_conjugate(F)
+
+function _conjugate_projection_value!(z, f, x, γ, α = 1)
+  g = isone(α) ? f : Scaled(f, α)
+  if _conjugate_isindicator(typeof(g))
+    _conjugate_projection!(z, f, x, γ, α)
+    return _zero_value(z)
+  elseif _has_conjugate_value(g)
+    _conjugate_projection!(z, f, x, γ, α)
+    return _conjugate_value(g, z)
+  end
+  step = convert(float(eltype(z)), γ)
+  z .= x ./ step
+  fp = value_and_prox!(z, g, z, inv(step))
+  _checkmoreau(z, x, z, step, γ, true)
+  v = mapreduce(identity, +, Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_fenchel, z, x, step)); init = _zero_value(z)) - fp
+  z .= x .- step .* z
+  v
+end
+_projection_fenchel(p, x, γ) = p * (x - γ * p)
+function _conjugate_projection_value!(z, f::Translate, x, γ, α = 1)
+  p = _array_buffer!(f.scratch, float(eltype(z)), x)
+  p .= _dilate.(γ, f.b)
+  all(isfinite, p) || _moreau_error(γ)
+  p .= x .- p
+  all(isfinite, p) || _moreau_error(γ)
+  v = _conjugate_projection_value!(z, f.f, p, γ, α)
+  v + dot(f.b, z)
+end
+_conjugate_projection_value!(z, f::Scaled, x, γ, α = 1) = _conjugate_projection_value!(z, f.f, x, γ, α * f.α)
+_conjugate_projection_value!(z::Tuple, f::SeparableSum, x::Tuple, γ, α = 1) =
+  _conjugate_projection_values!(z, f.fs, x, γ, α)
+_conjugate_projection_values!(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, α) = 0
+function _conjugate_projection_values!(z::Tuple, fs::Tuple, x::Tuple, γ, α)
+  v = _conjugate_projection_value!(first(z), first(fs), first(x), γ, α)
+  v + _conjugate_projection_values!(Base.tail(z), Base.tail(fs), Base.tail(x), γ, α)
+end
+
+_projection_nonfinite(x, z) = isfinite(x) & !isfinite(z)
+function _check_projection_result(z::AbstractArray, x::AbstractArray, γ)
+  promote_type(eltype(x), eltype(z)) == eltype(z) && return true
+  bad = Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_nonfinite, x, z))
+  mapreduce(identity, |, bad; init = false) && _moreau_error(γ)
+  true
+end
+_check_projection_result(::Tuple{}, ::Tuple{}, γ) = true
+_check_projection_result(z::Tuple, x::Tuple, γ) =
+  (_check_projection_result(first(z), first(x), γ); _check_projection_result(Base.tail(z), Base.tail(x), γ))

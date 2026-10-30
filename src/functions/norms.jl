@@ -951,3 +951,41 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
   end
   V ? (iszero(λ1) ? zero(T) : λ1 * v1) + (iszero(λ2) ? zero(T) : λ2 * v2) : zero(T)
 end
+
+# Project onto an L2 ball without subtracting two nearly equal coordinates.
+# Only exceptional norms or factors need exponent arithmetic.
+function _project_l2!(y, x, λ, α = 1, w = 1)
+  (iszero(λ) || iszero(w)) && return fill!(y, zero(eltype(y)))
+  isinf(w) && return copyto!(y, x)
+  c = _positive_product(α, λ, w)
+  n = _norm2(x)
+  t = min(one(n), c / n)
+  if isfinite(n) && (iszero(n) || (isfinite(c) && t >= floatmin(typeof(t))))
+    iszero(n) && return copyto!(y, x)
+    y .= t .* x
+    return y
+  end
+  _project_l2_scaled!(y, x, λ, α, w, c, n)
+end
+
+function _project_l2_scaled!(y, x, λ, α, w, c, n)
+  m = _maximum_abs(x)
+  (!isfinite(m) || !isfinite(λ) || !isfinite(α)) && return (y .= min(one(n), c / n) .* x)
+  iszero(m) && return copyto!(y, x)
+  # Scaling only the reduction avoids losing tiny original coordinates.
+  a, e = frexp(m)
+  q = sqrt(mapreduce(identity, +, Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_square, x, m)); init = zero(real(m))))
+  r1, e1 = frexp(float(α))
+  r2, e2 = frexp(float(λ))
+  r3, e3 = frexp(float(w))
+  r = ((r1 * r2) * r3) / (a * q)
+  k = e1 + e2 + e3 - e
+  fr, er = frexp(r)
+  k += er
+  (k > 1 || (k == 1 && fr >= 0.5)) && return copyto!(y, x)
+  y .= _projection_scale.(x, fr, k)
+end
+
+_projection_square(v, m) = abs2(v / m)
+_projection_scale(v::Real, r, k) = _scaled_product(promote(float(r), float(v))..., k)
+_projection_scale(v::Complex, r, k) = complex(_projection_scale(real(v), r, k), _projection_scale(imag(v), r, k))

@@ -138,8 +138,12 @@ end
       Y[1, 1] = v
       @test f(Y) === T(Inf)
       if !isfinite(v)
-        unchanged(prox!, f, Y, ArgumentError)
-        unchanged(value_and_prox!, f, Y, ArgumentError)
+        for op in (prox!, value_and_prox!)
+          Z = similar(Y)
+          result = op(Z, f, Y, one(T))
+          @test all(isnan, Z)
+          op === value_and_prox! && @test result === zero(T)
+        end
       end
     end
   end

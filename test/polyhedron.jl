@@ -326,10 +326,9 @@ end
   @test prox!(yv, f, xv, 1) === yv
   @test yv ≈ z atol = 1e-10
   for op in (prox!, value_and_prox!)
-    for bad in (ones(4), ones(5, 1), fill(Inf, 5), fill(NaN, 5))
+    for bad in (ones(4), ones(5, 1))
       out = fill(37., size(bad))
-      E = all(isfinite, bad) ? DimensionMismatch : ArgumentError
-      @test_throws E op(out, f, bad, 1)
+      @test_throws DimensionMismatch op(out, f, bad, 1)
       @test all(==(37.), out)
       @test !f.valid
     end

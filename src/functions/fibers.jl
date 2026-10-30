@@ -41,9 +41,8 @@ Scalar-step checks also follow supported wrappers before writing. Remaining
 gaps include array steps, entrywise steps inside box and linear constraints,
 spectral and singular-value wrappers, distance wrappers, intersections, ball,
 sphere and affine constraints, `NegLog`'s square root, and `Conjugate`'s finite
-result check. Failures during computation, user-defined oracle checks beyond
-`check_parameters`, and checks of argument values (including hyperslab inputs
-and membership in an inner box) can still leave earlier slices written.
+result check. Failures during computation and user-defined oracle checks beyond
+`check_parameters` can still leave earlier slices written.
 
 With `fₖ = LogDetLoss(Sₖ, nₖ/n)` it is the smooth part of the joint graphical
 lasso of K classes, whose penalty on the entries across the classes is a
@@ -84,7 +83,7 @@ end
 (s::SliceSum)(x::AbstractArray) = (_checkslices(s, x); _value_at(_sumslices((f, k) -> f(_slice(x, k)), s.fs), x))
 
 function value_and_prox!(y::AbstractArray, s::SliceSum, x::AbstractArray, γ::Real)
-  _checkwrite(value_and_prox!, s, y, x)
+  _checkwrite(value_and_prox!, s, y, x, γ)
   _checkstep(value_and_prox!, s, y, x, γ)
   _value_at(_sumslices((f, k) -> value_and_prox!(_slice(y, k), f, _slice(x, k), γ), s.fs), y)
 end
@@ -95,6 +94,13 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::SliceSu
   _checksize(y, x)
   _checkslices(s, x)
   _sumslices((f, k) -> _checkwrite(value_and_prox!, f, _slice(y, k), _slice(x, k)), s.fs)
+  true
+end
+
+function _checkwrite(op::O, s::SliceSum, y::AbstractArray, x::AbstractArray, γ) where {O}
+  _checksize(y, x)
+  _checkslices(s, x)
+  _sumslices((f, k) -> _checkwrite(value_and_prox!, f, _slice(y, k), _slice(x, k), γ), s.fs)
   true
 end
 
@@ -134,9 +140,8 @@ Scalar-step checks also follow supported wrappers before writing. Remaining
 gaps include array steps, entrywise steps inside box and linear constraints,
 spectral and singular-value wrappers, distance wrappers, intersections, ball,
 sphere and affine constraints, `NegLog`'s square root, and `Conjugate`'s finite
-result check. Failures during computation, user-defined oracle checks beyond
-`check_parameters`, and checks of argument values (including hyperslab inputs
-and membership in an inner box) can still leave earlier fibers written.
+result check. Failures during computation and user-defined oracle checks beyond
+`check_parameters` can still leave earlier fibers written.
 
 With `symmetric = true` the slices are taken to be symmetric, as precision
 matrices are: only the fibers with `i ≥ j` are read, and the proximal operator
@@ -228,10 +233,22 @@ function _checkwrite(op::O, fb::FiberSum, y::AbstractArray, x::AbstractArray) wh
   true
 end
 
+function _checkwrite(op::O, fb::FiberSum, y::AbstractArray, x::AbstractArray, γ) where {O}
+  _checkwrite(op, fb, y, x)
+  _pairfibers(fb, y, x) && return true
+  own = _owndiagonal(fb, x)
+  for I in _fiberindices(fb, x)
+    fb.symmetric && I[1] < I[2] && continue
+    f = own && _isdiagonal(I) ? fb.diagonal : fb.f
+    f === nothing || _checkwrite(op, f, _fiber(y, I), _fiber(x, I), γ)
+  end
+  true
+end
+
 value_and_prox!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real) =
-  (_checkwrite(value_and_prox!, fb, y, x); _checkstep(value_and_prox!, fb, y, x, γ); _fiberprox!(y, fb, x, γ, Val(true)))
+  (_checkwrite(value_and_prox!, fb, y, x, γ); _checkstep(value_and_prox!, fb, y, x, γ); _fiberprox!(y, fb, x, γ, Val(true)))
 prox!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real) =
-  (_checkwrite(prox!, fb, y, x); _checkstep(prox!, fb, y, x, γ); _fiberprox!(y, fb, x, γ, Val(false)); y)
+  (_checkwrite(prox!, fb, y, x, γ); _checkstep(prox!, fb, y, x, γ); _fiberprox!(y, fb, x, γ, Val(false)); y)
 
 _fiberprox!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real, v::Val) = _fiberprox_views!(y, fb, x, γ, v)
 

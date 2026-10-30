@@ -1263,3 +1263,172 @@ function _projection_group_maxabs(x::AbstractArray, G)
   end
   m
 end
+
+# Julia 1.10's ldexp truncates some values below the smallest subnormal.
+# A normal power-of-two scaling followed by multiplication rounds only once.
+@inline function _projection_l1_ldexp(v::R, e) where {R}
+  e < exponent(floatmin(R)) ? ldexp(v, e + precision(R)) * ldexp(one(R), -precision(R)) : ldexp(v, e)
+end
+
+# Offsets at or beyond the radius cannot enter the support. Apply the exponent
+# after subtraction: huge tied maxima must still have exactly zero offset.
+@inline function _projection_l1_offset(v, m, r, scale, e, ::Type{R}) where {R}
+  d = m - abs(convert(R, v))
+  min(r, isfinite(scale) && !iszero(scale) ? d * scale : ldexp(d, -e))
+end
+
+# Preserve integer offsets before rounding, including at typemin.
+@inline _projection_l1_magnitude(v::Base.BitInteger) = v < 0 ? -unsigned(v) : unsigned(v)
+@inline function _projection_l1_offset(v::Base.BitInteger, m::Unsigned, r, scale, e, ::Type{R}) where {R}
+  d = convert(R, m - _projection_l1_magnitude(v))
+  min(r, isfinite(scale) && !iszero(scale) ? d * scale : ldexp(d, -e))
+end
+function _projection_l1_max(x, G, ::Type{R}) where {R}
+  m = zero(R)
+  @inbounds @simd for i in G
+    m = max(m, abs(convert(R, x[i])))
+  end
+  m
+end
+function _projection_l1_max(x::AbstractArray{T}, G, ::Type{R}) where {T<:Base.BitInteger,R}
+  m = zero(unsigned(T))
+  @inbounds @simd for i in G
+    m = max(m, _projection_l1_magnitude(x[i]))
+  end
+  m
+end
+
+function _project_l1!(y, x, G, scratch, λ, α = 1, w = 1)
+  isempty(G) && return y
+  if isinf(w)
+    @inbounds @simd for i in G
+      y[i] = x[i]
+    end
+    return y
+  end
+  if iszero(λ) || iszero(w) || iszero(α)
+    @inbounds @simd for i in G
+      y[i] = zero(eltype(y))
+    end
+    return y
+  end
+  if isinf(λ) || isinf(α)
+    @inbounds @simd for i in G
+      y[i] = x[i]
+    end
+    return y
+  end
+  am, ae = _projection_scale_parts(α)
+  R = promote_type(Float64, float(eltype(x)), float(eltype(y)), typeof(am),
+                   float(typeof(λ)), float(typeof(w)))
+  if !isconcretetype(R)
+    R = promote_type(Float64, typeof(am), float(typeof(λ)), float(typeof(w)))
+    @inbounds for i in G
+      R = promote_type(R, typeof(float(x[i])))
+    end
+  end
+  a = _projection_accumulate(_projection_accumulate(_ProjectionScale(convert(R, am), ae),
+                                                  convert(R, λ)), convert(R, w))
+  _project_l1_radius!(y, x, G, scratch, a)
+end
+
+function _projection_l1_inside(x, G, r::R, scale, e) where {R}
+  s = zero(R)
+  @inbounds @simd for i in G
+    v = abs(convert(R, x[i]))
+    s += isfinite(scale) && !iszero(scale) ? v * scale : ldexp(v, -e)
+  end
+  δ = length(G) * eps(R)
+  if δ < R(0.125)
+    # A reduction's gamma_n bound, including conversion and subnormals.
+    s * (1 + 2δ) + length(G) * nextfloat(zero(R)) <= r && return true
+    s * (1 - 2δ) > r && return false
+  end
+  # An upper bound certifies the identity case, including exact sums on the
+  # boundary. Subnormal scaled terms are rounded upward for this test only.
+  s = err = zero(R)
+  @inbounds for i in G
+    v = abs(convert(R, x[i]))
+    v = isfinite(scale) && !iszero(scale) ? v * scale : ldexp(v, -e)
+    if !isfinite(v)
+      s = R(Inf)
+      break
+    end
+    if v < floatmin(R) && !iszero(x[i])
+      v = nextfloat(v)
+    end
+    t = s + v
+    q = s >= v ? (s - t) + v : (v - t) + s
+    q != 0 && (err = nextfloat(err + q))
+    s = t
+    s > r && break
+  end
+  s <= r && err <= r - s
+end
+
+function _project_l1_radius!(y, x, G, scratch, a)
+  r0, e = _projection_scale_parts(a)
+  R = promote_type(Float64, typeof(r0), float(eltype(y)))
+  r = convert(R, r0)
+  scale = ldexp(one(R), -e)
+  outscale = ldexp(one(R), e)
+  m = _projection_l1_max(x, G, R)
+  if !isfinite(m)
+    @inbounds @simd for i in G
+      y[i] = oftype(m, NaN)
+    end
+    return y
+  end
+  if _projection_l1_inside(x, G, r, scale, e)
+    @inbounds @simd for i in G
+      y[i] = x[i]
+    end
+    return y
+  end
+  # Condat on -d supplies a seed; compensated Newton/Michelot refines it.
+  # The sums contain d<t<=r, so scaling by the radius bounds them by n.
+  t = r
+  if length(G) > 32
+    f = let m = m
+      v -> -_projection_l1_offset(v, m, r, scale, e, typeof(r))
+    end
+    t = min(r, -_simplex_threshold!(_buffer!(scratch, R, length(G)), x, G, r, f))
+  end
+  count = -1
+  for _ in 0:length(G)
+    s = err = zero(R)
+    k = 0
+    last = zero(R)
+    @inbounds for i in G
+      d = _projection_l1_offset(x[i], m, r, scale, e, R)
+      if d < t
+        s, err = _compensated_add(s, err, d)
+        k += 1
+        last = max(last, d)
+      end
+    end
+    k == 0 && break
+    previous = t
+    t = min(r, (r + (s + err)) / k)
+    (k == count || (last <= t && t <= previous)) && break
+    count = k
+  end
+  # Relevant offsets are <=r, with error <=u*r (Sterbenz is exact below
+  # m/2). Neumaier's (2u+O(nu²))*sum(d) bound, sum(d)<=k*t<=k*r, bounds
+  # threshold/reconstruction error by 2n*eps(R)*r, including radius products.
+  # The guard covers spurious support; dropping a small positive result adds
+  # at most that error again. This gives C=4, absorbing final rounding in T,
+  # plus half a destination subnormal; u=eps(R)/2, n*eps(R)<=1/4. For larger
+  # n, zero is within 4n*eps(T)*r. Float32 uses Float64 throughout.
+  guard = 2length(G) * eps(R) * r
+  if length(G) * eps(R) > R(0.25)
+    guard = r
+  end
+  @inbounds @simd for i in G
+    v = convert(R, x[i])
+    q = t - _projection_l1_offset(x[i], m, r, scale, e, R)
+    p = isfinite(outscale) && !iszero(outscale) ? q * outscale : _projection_l1_ldexp(q, e)
+    y[i] = copysign(q <= guard ? zero(R) : min(abs(v), p), v)
+  end
+  y
+end

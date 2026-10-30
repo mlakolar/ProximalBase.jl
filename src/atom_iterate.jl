@@ -349,7 +349,8 @@ LinearAlgebra.dot(x::AtomIterate, v::Union{StridedVector, SparseIterate{<:Any, 1
 
 _atom_view_storage(v::SubArray{<:Real, 1, <:AtomIterate}) =
   @inbounds view(parent(v).storage, parentindices(v)...)
-LinearAlgebra.norm(v::SubArray{<:Real, 1, <:AtomIterate}, p::Real = 2) = norm(_atom_view_storage(v), p)
+LinearAlgebra.norm(v::SubArray{<:Real, 1, <:AtomIterate}) = norm(_atom_view_storage(v))
+LinearAlgebra.norm(v::SubArray{<:Real, 1, <:AtomIterate}, p::Real) = norm(_atom_view_storage(v), p)
 LinearAlgebra.dot(v::SubArray{<:Real, 1, <:AtomIterate}, w::StridedVector) = dot(_atom_view_storage(v), w)
 LinearAlgebra.dot(v::StridedVector, w::SubArray{<:Real, 1, <:AtomIterate}) = dot(v, _atom_view_storage(w))
 LinearAlgebra.dot(v::SubArray{<:Real, 1, <:AtomIterate}, w::SubArray{<:Real, 1, <:AtomIterate}) =

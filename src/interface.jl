@@ -412,15 +412,19 @@ end
     # in-bounds strided reads of bits entries and their conversion cannot fail
     was = isactive(x, k)
     G = x.groups[k]
+    finite = true
     @inbounds for a in eachindex(G)
-      x.storage[G[a]] = u[firstindex(u) + a - 1]
+      v = convert(T, u[firstindex(u) + a - 1])
+      x.storage[G[a]] = v
+      finite &= isfinite(v)
     end
     result = _unchecked_coordinate!(x, f, k, γ, ctx)
+    # with finite inputs, a kernel that stays inactive stores only zeros
     if !was
-      if _anynonzero(x.storage, G)
+      if isactive(x, k)
+        _allzero(x.storage, G) && _deactivate!(x, k)
+      elseif !finite && _anynonzero(x.storage, G)
         activate!(x, k)
-      else
-        _deactivate!(x, k)
       end
     end
     return result

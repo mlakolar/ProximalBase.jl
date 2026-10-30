@@ -77,6 +77,37 @@ end
     @test isactive(x, 1) && consistent(x)
   end
 
+  @testset "finite group results settle activation" begin
+    for T in (Float32, Float64)
+      gs = [1:2, 3:4, 5:6]
+      fs = (GroupNormL2(one(T), gs), GroupNormLinf(one(T), gs),
+            SparseGroupNormL2(T(0.2), one(T), gs), GroupMCP(one(T), gs), GroupSCAD(one(T), gs))
+      for f in fs, h in (f, Regularize(f, one(T)))
+        for (u, nonzero) in ((T[0.01, 0.01], false), (T[10, -10], true))
+          x = AtomIterate(T, 6, gs)
+          activate!(x, 3)
+          activate!(x, 2)
+          prox_coordinate!(x, h, 1, u, one(T))
+          @test isactive(x, 1) == nonzero
+          @test any(!iszero, atom(x, 1)) == nonzero
+          @test activecoordinates(x) == (nonzero ? [3, 2, 1] : [3, 2])
+          @test consistent(x)
+        end
+      end
+    end
+  end
+
+  @testset "subnormal stored zeros stay inactive" begin
+    q = nextfloat(0f0)
+    x = AtomIterate(Float32, 4, [1:4])
+    prox_coordinate!(x, GroupNormL2(3q, x.groups, Float32[1]), 1, fill(2q, 4), 1f0)
+    @test all(iszero, x.storage) && !isactive(x, 1) && consistent(x)
+    x = AtomIterate(Float32, 4, [1:4])
+    r = Regularize(GroupNormL2(6q, x.groups, Float32[1]), 1f0, fill(4q, 4))
+    prox_coordinate!(x, r, 1, zeros(Float32, 4), 1f0)
+    @test all(iszero, x.storage) && !isactive(x, 1) && consistent(x)
+  end
+
   @testset "nonfinite stored results activate" begin
     x = AtomIterate(Float32, 2, [1:2])
     f = GroupMCP(1f0, x.groups, Float32[1])

@@ -285,11 +285,11 @@ end
   end
 
   @testset "group view norms and dots read storage" begin
-    for T in (Float32, Float64), gs in ([1:64, 65:128], [collect(1:2:128), collect(2:2:128)])
-      x = AtomIterate(randn(T, 128), gs)
+    for T in (Float32, Float64), m in (4, 64), gs in ([1:m, (m+1):2m], [collect(1:2:2m), collect(2:2:2m)])
+      x = AtomIterate(randn(T, 2m), gs)
       v, w = atom(x, 1), atom(x, 2)
       rawv, raww = view(x.storage, gs[1]), view(x.storage, gs[2])
-      z = randn(T, 64)
+      z = randn(T, m)
       for p in (1, 2, Inf)
         @test norm(v, p) === norm(rawv, p)
       end

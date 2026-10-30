@@ -1451,4 +1451,25 @@ end
   end
 end
 
+@testset "translated L1 conjugates accept non-finite inputs" begin
+  # Master returns a NaN point and NaN translated value for these inputs.
+  for T in (Float32, Float64), entry in (T(Inf), T(NaN)),
+      base in (NormLinf(one(T)), GroupNormLinf(one(T), [1:1])),
+      op in (prox!, value_and_prox!)
+    f = Conjugate(Translate(base, zeros(T, 1)))
+    y = fill(T(7), 1)
+    v = op(y, f, T[entry], one(T))
+    @test isequal(y, T[NaN])
+    op === value_and_prox! && @test isequal(v, T(NaN))
+  end
+  # Finite inputs still reject overflow in the shift or shifted input.
+  for op in (prox!, value_and_prox!), shift_overflow in (false, true)
+    h = floatmax(Float64)
+    x, b, γ = shift_overflow ? ([0.0], [h], 2.0) : ([h], [-h], 1.0)
+    y = [7.0]
+    @test_throws ArgumentError op(y, Conjugate(Translate(NormLinf(), b)), x, γ)
+    @test y == [7.0]
+  end
+end
+
 end

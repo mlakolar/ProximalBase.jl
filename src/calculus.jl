@@ -1257,7 +1257,8 @@ function _projection_shifted!(f::Translate, z, x, γ)
   p .= _projection_shift.(_reshapeparam(γ, x), _reshapeparam(f.b, x))
   mapreduce(identity, &, Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_FiniteProjectionShift{float(eltype(z))}(), p)); init = true) || _moreau_error(γ)
   p .= x .- p
-  all(isfinite, p) || _moreau_error(γ)
+  bad = Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_nonfinite, x, p))
+  mapreduce(identity, |, bad; init = false) && _moreau_error(γ)
   p
 end
 

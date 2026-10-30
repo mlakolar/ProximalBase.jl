@@ -320,13 +320,25 @@ end
   end
 end
 
+@testset "ordinary array shifts stay finite" begin
+  M, step = floatmax(Float64), 1.1020027628097344e308
+  for γ in (step, [step]), op in (prox!, value_and_prox!), alias in (false, true)
+    c = Constrained(IndBox(-Inf, Inf), IndHyperplane(0.5, 0.0))
+    x = [M / 2]
+    y = alias ? x : [19.0]
+    result = op(y, c, x, γ)
+    @test y == [0.0]
+    @test op === prox! ? result === y : result == 0.0
+  end
+end
+
 @testset "ordinary passes and Float32 warm hits" begin
   for T in (Float32, Float64), scale in (one(T), floatmin(T), floatmax(T))
     steps = PB._search_steps(fill(scale, 2), T)
     for μ in (zero(T), one(T), nextfloat(zero(T)), floatmax(T))
       pass = PB._pass_steps(identity, steps, μ)
       ν = μ * steps.factor
-      fast = isfinite(steps.factor) && isfinite(ν) && (abs(ν) >= floatmin(T) || iszero(μ))
+      fast = isfinite(steps.factor) && isfinite(ν) && isfinite(scale * ν) && (abs(ν) >= floatmin(T) || iszero(μ))
       @test (pass isa PB._PassSteps) == fast
       expected = fast ? scale * ν : PB._ratio(steps, 1, T) * μ
       @test isequal(PB._shift(pass, μ, 1, T), expected)

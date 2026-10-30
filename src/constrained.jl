@@ -343,7 +343,7 @@ _with_steps(g::_SearchSteps{G, T, M}, steps) where {G, T, M} =
   _SearchSteps{typeof(steps), T, M}(steps, g.scale, g.factor)
 
 # Move the step normalization out of ordinary array passes. Keep the scaled
-# expression when the unscaled multiplier would lose relative precision.
+# expression when the unscaled shifts overflow or lose relative precision.
 struct _PassSteps{G, T}
   steps::G
   multiplier::T
@@ -356,7 +356,7 @@ Base.@propagate_inbounds _ratio(g::_PassSteps, i, ::Type{T}) where {T} = _ratio(
 @inline _pass_steps(done::F, g, μ) where {F} = done(g)
 @inline function _pass_steps(done::F, g::_SearchSteps{<:AbstractArray, T, true}, μ::T) where {F, T}
   ν = μ * g.factor
-  if isfinite(ν) && (abs(ν) >= floatmin(T) || iszero(μ))
+  if isfinite(ν) && isfinite(g.scale * ν) && (abs(ν) >= floatmin(T) || iszero(μ))
     return done(_PassSteps(g, ν))
   end
   done(g)

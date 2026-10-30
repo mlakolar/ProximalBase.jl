@@ -401,6 +401,57 @@ PB._has_prox_range(::Type{<:TailRanged{F}}) where {F} = PB._has_prox_range(F)
 PB._prox_range(g::TailRanged, i::Integer, ::Type{T}) where {T} = PB._prox_range(g.f, i, T)
 PB._has_uniform_range(::Type{<:TailRanged{F}}) where {F} = PB._has_uniform_range(F)
 
+@testset "native residual error bound" begin
+  rng = Xoshiro(57)
+  setprecision(BigFloat, 256) do
+    for block in (8, 16), n in (1, 7, 8, 9, 65, 4097), direction in (1, -1)
+      a = randn(rng, Float32, n)
+      x = randn(rng, Float32, n) .* (2f0 .^ rand(rng, -30:30, n))
+      terms = a .* x
+      order = sortperm(abs.(terms); rev = direction < 0)
+      terms = terms[order]
+      exact = BigFloat.(a[order]) .* BigFloat.(x[order])
+      # Serial eight-term sums are the largest permitted native depth.
+      partials, masses = Float32[], Float32[]
+      for i in 1:block:n
+        q = foldl(+, terms[i:min(i + 7, n)]; init = 0f0)
+        r = foldl(+, abs.(terms[i:min(i + 7, n)]); init = 0f0)
+        if block == 16 && i + 8 <= n
+          q += foldl(+, terms[i + 8:min(i + 15, n)]; init = 0f0)
+          r += foldl(+, abs.(terms[i + 8:min(i + 15, n)]); init = 0f0)
+        end
+        push!(partials, q)
+        push!(masses, r)
+      end
+      s = foldl(+, Float64.(partials); init = 0.0)
+      m = foldl(+, Float64.(masses); init = 0.0)
+      error, lower = PB._gap_error(n, m, Val(block))
+      @test abs(BigFloat(s) - sum(exact)) <= BigFloat(error)
+      @test BigFloat(lower) <= sum(abs, exact)
+    end
+  end
+  @test PB._gap_error(0, 0.0) == (0.0, 0.0)
+  @test PB._gap_error(typemax(Int64), 1.0) == (Inf, 0.0)
+  @test PB._gap_error(8 * (Int64(1) << 52) - 88, 1.0) == (Inf, 0.0)
+  for ulps in (0, 12)
+    x = ones(Float32, 64)
+    b = nextfloat(64f0, ulps)
+    c = Constrained(TailRanged(IndBox(0f0, 1f0)), IndHyperplane(1f0, b))
+    TAIL_CALLS[] = 0
+    φ, m = PB._constraint_gap(c, x, 0f0, PB._search_steps(1f0, Float32), b)
+    @test TAIL_CALLS[] == (ulps == 0 ? 64 : 128)
+    @test φ == 64f0 - b
+    @test m == 64f0 + b
+  end
+  for n in (32, 5000)
+    x = randn(rng, Float32, n)
+    c = Constrained(IndBox(0f0, 1f0), IndHyperplane(1f0, Float32(n ÷ 2)))
+    y = similar(x)
+    prox!(y, c, x, 0.7f0)
+    @test PB.Testing.allocations(prox!, y, c, x, 0.7f0) == 0
+  end
+end
+
 @testset "Float32 residuals with serial reductions" begin
   point = fill(1f-7, 10_000)
   point[1] = 1f0

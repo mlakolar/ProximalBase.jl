@@ -643,25 +643,81 @@ function _constraint_gap_pass(f, a, b, x::AbstractArray, ν::Float32, γ, v::Val
 end
 function _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, p::Val)
   # Multiplication by a unit normal cannot underflow a nonzero point.
-  wide = !(a isa Real && isone(abs(Float32(a))))
-  _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, p, Val(wide))
+  if a isa Real && isone(abs(Float32(a)))
+    return _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, p, Val(false))
+  end
+  _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, p, Val(true))
 end
-function _float32_gap_pass(f, a, b, x, ν, γ, v::Val{S}, fixed, mass, ::Val{P}, w::Val{W}) where {S, P, W}
-  # Widen the residual, not the proximal calculation. For a scalar normal and
-  # nonnegative range, its mass is the absolute signed sum.
+# Eight-term sums have at most seven additions; pairing two adds one more.
+# Include product rounding and the serial wide totals, with outward bounds.
+@inline function _gap_error(n, m, ::Val{B} = Val(8)) where {B}
+  iszero(m) && return 0.0, 0.0
+  u, v = Float64(eps(Float32)) / 2, eps(Float64) / 2
+  depth = B == 8 ? 8 : 9
+  g = nextfloat((depth * u) / (1 - depth * u))
+  k = cld(n, B) + B + 2
+  k * v < 0.5 || return Inf, 0.0
+  h = nextfloat((k * v) / (1 - k * v))
+  η = nextfloat(nextfloat(g + h) + nextfloat(g * h))
+  η < 1 || return Inf, 0.0
+  error = nextfloat(nextfloat(η / prevfloat(1 - η)) * m)
+  error, prevfloat(m / nextfloat(1 + η))
+end
+function _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, p, w)
+  # The shorter block keeps cheap box passes vectorizable without extra lanes.
+  if f isa IndBox
+    return _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, p, w, Val(8))
+  end
+  _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, p, w, Val(16))
+end
+function _float32_gap_pass(f, a, b, x, ν, γ, v::Val{S}, fixed, mass, p::Val{P}, w::Val{W}, bs::Val{B}) where {S, P, W, B}
   s, m, d = 0.0, 0.0, 0f0
   tiny = false
-  @inbounds @simd for i in eachindex(IndexLinear(), x)
+  n = length(x)
+  # Bound the native depth even when bounds checking disables reassociation.
+  @inbounds for block in 0:(n ÷ B - 1)
+    q, r, e = 0f0, 0f0, 0f0
+    q2, r2, e2 = 0f0, 0f0, 0f0
+    @simd for i in (B * block + 1):(B * block + 8)
+      t, di, underflow = _gap_term(f, a, x, ν, γ, i, Float32, v, w)
+      q += t
+      !P && (r += abs(t))
+      S && (e += di)
+      tiny |= underflow
+      if B == 16
+        t2, di2, underflow2 = _gap_term(f, a, x, ν, γ, i + 8, Float32, v, w)
+        q2 += t2
+        !P && (r2 += abs(t2))
+        S && (e2 += di2)
+        tiny |= underflow2
+      end
+    end
+    s += Float64(B == 8 ? q : q + q2)
+    !P && (m += Float64(B == 8 ? r : r + r2))
+    S && (d += B == 8 ? e : e + e2)
+  end
+  # The short tail is wide already, and cannot increase the native depth.
+  @inbounds @simd for i in (B * (n ÷ B) + 1):n
     t, di, underflow = _gap_term(f, a, x, ν, γ, i, Float32, v, w)
     tiny |= underflow
     s += Float64(t)
     !P && (m += Float64(abs(t)))
     S && (d += di)
   end
-  # Relative product error is unbounded near underflow. Repeat only those
-  # exceptional passes with wide products, before any residual can certify.
-  tiny && return _accumulated_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, Float64)
-  _gap_result(f, s, P ? abs(s) : m, d, b, fixed, mass, Float32, v)
+  m = P ? abs(s) : m
+  bT = Float64(Float32(b))
+  residual = (s + fixed) - bT
+  scale = (m + mass) + abs(bT)
+  error, lower = _gap_error(n, scale, bs)
+  tolerance = 8Float64(eps(Float32)) * lower
+  # The scale is rounded too: lower bounds its exact value, while error bounds
+  # the signed sum. Only the ambiguous band needs another pass.
+  ambiguous = !iszero(scale) && nextfloat(abs(residual) + error) > tolerance &&
+              prevfloat(abs(residual) - error) <= tolerance
+  if tiny || ambiguous
+    return _accumulated_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, Float64)
+  end
+  _gap_result(f, s, m, d, b, fixed, mass, Float32, v)
 end
 @inline function _gap_result(f, s, m, d, b, fixed, mass, ::Type{T}, ::Val{S}) where {T, S}
   A = typeof(s)

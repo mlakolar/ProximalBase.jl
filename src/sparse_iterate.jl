@@ -1073,26 +1073,15 @@ end
 Base.setindex!(x::SymmetricSparseIterate, X::AbstractArray, r::Int, c::Int) =
   invoke(setindex!, Tuple{SymmetricSparseIterate, Any, Int, Int}, x, X, r, c)
 
-# Iterators can fail after a partial write; retain array, broadcast and scaling routes.
-Base.copyto!(x::SymmetricSparseIterate, src) = _throw_partial("copyto! from an iterator")
+# These common iterator sources can fail after a partial write.
+Base.copyto!(x::SymmetricSparseIterate, ::Union{Tuple, Base.Generator, Number}) =
+  _throw_partial("copyto! from an iterator")
 Base.copyto!(x::SymmetricSparseIterate, ::Integer, ::AbstractArray) = _throw_partial("copyto! with offsets")
 Base.copyto!(x::SymmetricSparseIterate, ::Integer, ::AbstractArray, ::Integer) = _throw_partial("copyto! with offsets")
 Base.copyto!(x::SymmetricSparseIterate, ::Integer, src) = _throw_partial("copyto! with offsets")
 Base.copyto!(x::SymmetricSparseIterate, ::Integer, src, ::Integer) = _throw_partial("copyto! with offsets")
 Base.copyto!(x::SymmetricSparseIterate, ::Integer, src, ::Integer, ::Integer) =
   _throw_partial("copyto! with offsets")
-Base.copyto!(x::SymmetricSparseIterate, J::UniformScaling) =
-  invoke(copyto!, Tuple{AbstractMatrix, UniformScaling}, x, J)
-Base.copyto!(x::SymmetricSparseIterate, Q::LinearAlgebra.AbstractQ) =
-  invoke(copyto!, Tuple{AbstractMatrix, LinearAlgebra.AbstractQ}, x, Q)
-Base.copyto!(x::SymmetricSparseIterate, bc::Broadcast.Broadcasted) =
-  invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted}, x, bc)
-Base.copyto!(x::SymmetricSparseIterate, bc::Broadcast.Broadcasted{S}) where
-    {S<:Broadcast.AbstractArrayStyle{0}} =
-  invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{S}}, x, bc)
-Base.copyto!(x::SymmetricSparseIterate, bc::Broadcast.Broadcasted{S}) where
-    {S<:Broadcast.DefaultArrayStyle{0}} =
-  invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{S}}, x, bc)
 
 # Broadcasting through a full view or reshape must use the checked matrix writer.
 const _SymmetricReshape = Base.ReshapedArray{T, N, P} where {T, N, P<:SymmetricSparseIterate}
@@ -1100,22 +1089,27 @@ const _SymmetricView = SubArray{T, N, P} where {T, N, P<:SymmetricSparseIterate}
 const _SymmetricReshapeView = SubArray{T, N, P} where {T, N, P<:_SymmetricReshape}
 const _SymmetricBroadcastDest = Union{_SymmetricView, _SymmetricReshape, _SymmetricReshapeView}
 
-function _broadcast_symmetric!(dest::_SymmetricView, bc)
+function _checked_symmetric_parent(dest::_SymmetricView, f)
   x = parent(dest)
   I = parentindices(dest)
   length(I) == 2 && all(_full_index(I[d], axes(x, d)) for d in 1:2) ||
-    _throw_partial("broadcast! into a view")
-  copyto!(x, convert(Broadcast.Broadcasted{Nothing}, bc))
-  dest
+    _throw_partial("$f into a view")
+  x
 end
-function _broadcast_symmetric!(dest::_SymmetricReshapeView, bc)
+function _checked_symmetric_parent(dest::_SymmetricReshapeView, f)
   R = parent(dest)
   inds = view(LinearIndices(R), parentindices(dest)...)
   length(dest) == length(R) && all(i == k for (i, k) in zip(inds, 1:length(R))) ||
-    _throw_partial("broadcast! into a reshaped view")
-  _broadcast_reshaped!(dest, parent(R), bc)
+    _throw_partial("$f into a reshaped view")
+  parent(R)
 end
-_broadcast_symmetric!(dest::_SymmetricReshape, bc) = _broadcast_reshaped!(dest, parent(dest), bc)
+_checked_symmetric_parent(dest::_SymmetricReshape, f) = parent(dest)
+function _broadcast_symmetric!(dest::_SymmetricView, bc)
+  copyto!(_checked_symmetric_parent(dest, "broadcast!"), bc)
+  dest
+end
+_broadcast_symmetric!(dest::Union{_SymmetricReshape, _SymmetricReshapeView}, bc) =
+  _broadcast_reshaped!(dest, _checked_symmetric_parent(dest, "broadcast!"), bc)
 function _broadcast_reshaped!(dest, x, bc)
   axes(dest) == axes(bc) || throw(DimensionMismatch("broadcast! axes do not match destination"))
   # Collect before conversion and before writing, including aliased updates.
@@ -1123,10 +1117,14 @@ function _broadcast_reshaped!(dest, x, bc)
   copyto!(x, reshape(vals, size(x)))
   dest
 end
-Base.copyto!(dest::_SymmetricBroadcastDest, bc::Broadcast.Broadcasted) = _broadcast_symmetric!(dest, bc)
 Base.copyto!(dest::_SymmetricBroadcastDest, bc::Broadcast.Broadcasted{Nothing}) = _broadcast_symmetric!(dest, bc)
-Base.copyto!(dest::_SymmetricBroadcastDest, bc::Broadcast.Broadcasted{<:Broadcast.AbstractArrayStyle{0}}) =
-  _broadcast_symmetric!(dest, bc)
+# Scalar broadcast fast paths use fill!, so it checks the same full destinations.
+function Base.fill!(dest::_SymmetricBroadcastDest, v)
+  x = _checked_symmetric_parent(dest, "fill!")
+  _checkreal_broadcast(x, v)
+  fill!(x, v)
+  dest
+end
 
 # Transposition and dimension permutation still require exactly symmetric values.
 LinearAlgebra.transpose!(x::SymmetricSparseIterate, A::AbstractMatrix) = copyto!(x, transpose(A))
@@ -1134,9 +1132,13 @@ LinearAlgebra.transpose!(x::SymmetricSparseIterate, A::AbstractVector) = copyto!
 LinearAlgebra.adjoint!(x::SymmetricSparseIterate, A::AbstractMatrix) = copyto!(x, adjoint(A))
 LinearAlgebra.adjoint!(x::SymmetricSparseIterate, A::AbstractVector) = copyto!(x, adjoint(A))
 function Base.permutedims!(x::SymmetricSparseIterate, A::AbstractArray, perm)
-  Base.checkdims_perm(x, A, perm)
+  ndims(A) == ndims(x) || throw(MethodError(permutedims!, (x, A, perm)))
+  length(perm) == ndims(A) && isperm(perm) || _throw_symmetric_permutation()
   copyto!(x, perm[1] == 1 ? A : transpose(A))
 end
+
+@noinline _throw_symmetric_permutation() = throw(ArgumentError(
+  "permutedims! requires a permutation of two dimensions; use (1, 2) or (2, 1)"))
 
 # Scalar multiplication must not fall back to length-only, position-wise writes.
 LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractArray, s::Number) = mul!(x, A, s, true, false)

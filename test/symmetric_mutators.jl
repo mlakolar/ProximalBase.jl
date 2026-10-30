@@ -97,6 +97,10 @@ struct ScalarStyle <: Base.Broadcast.AbstractArrayStyle{0} end
         @test Matrix(x) == S
         @test broadcast!(identity, dest, 3) === dest
         @test Matrix(x) == fill(3, p, p)
+        @test fill!(dest, 4) === dest
+        @test Matrix(x) == fill(4, p, p)
+        rejects(x -> fill!(make(x), 1 + 2im), x, ArgumentError,
+                "SymmetricSparseIterate requires real entries")
         copyto!(x, S)
         dest .+= 1
         @test Matrix(x) == S .+ 1
@@ -125,7 +129,12 @@ struct ScalarStyle <: Base.Broadcast.AbstractArrayStyle{0} end
         dest = make(x)
         for Style in (Nothing, ScalarStyle, Base.Broadcast.DefaultArrayStyle{0})
           bc = Base.Broadcast.Broadcasted{Style}(identity, (Ref(7),), axes(dest))
-          @test copyto!(dest, bc) === dest
+          result = if Style === Nothing
+            copyto!(dest, bc)
+          else
+            Base.Broadcast.materialize!(Style(), dest, bc)
+          end
+          @test result === dest
           @test Matrix(x) == fill(7, 2, 2)
         end
       end
@@ -141,7 +150,15 @@ struct ScalarStyle <: Base.Broadcast.AbstractArrayStyle{0} end
                 x -> (view(vec(x), [true; falses(8)]) .= 7))
         rejects(f, x, ArgumentError)
       end
+      for make in (x -> view(x, 1:2, 1), x -> view(x, 1:2, 1:2),
+                   x -> view(vec(x), 2:4))
+        rejects(x -> fill!(make(x), 7), x, ArgumentError)
+      end
       x = initial(T, 2)
+      rejects(x -> (x .= 1 + 2im), x, ArgumentError,
+              "SymmetricSparseIterate requires real entries")
+      rejects(x -> (view(x, :, :) .= 1 + 2im), x, ArgumentError,
+              "SymmetricSparseIterate requires real entries")
       A = [1.0 1 + 1e-12; 1 4]
       for make in (x -> view(x, :, :), x -> view(x, :), x -> vec(x),
                    x -> reshape(x, 1, 4), x -> view(reshape(x, 1, 4), :, :))
@@ -221,7 +238,7 @@ struct ScalarStyle <: Base.Broadcast.AbstractArrayStyle{0} end
   @testset "iterator copies" begin
     for T in (Float64, Float32), p in (0, 1, 3)
       x = initial(T, p)
-      for src in ((1.0, 2.0, 3.0, 4.0), (i * 1.0 for i in 1:4), (1.0,))
+      for src in ((1.0, 2.0, 3.0, 4.0), (i * 1.0 for i in 1:4), (1.0,), 1.0)
         for f in (x -> copyto!(x, src), x -> copyto!(x, 1, src),
                   x -> copyto!(x, 1, src, 1), x -> copyto!(x, 1, src, 1, 4))
           rejects(f, x, ArgumentError, "copyto!")

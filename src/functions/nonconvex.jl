@@ -392,6 +392,7 @@ end
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::_RadialGroupPenalty, y::AbstractArray, x::AbstractArray)
   _checksize(y, x)
   _checkgroups(f, x)
+  _check_symmetric_groups(f, y)
   _check_prox_group_scalars(f, float(eltype(y)), y, x)
 end
 
@@ -400,11 +401,11 @@ _dual_norm(::_RadialGroupPenalty, g, G) = _group_norm2(g, G)
 
 # y[G] ← the proximal operator of γp(‖⋅‖₂) at x[G], which may be in place: the
 # scalar proximal operator of p at the norm, along x[G]; returns the new norm
-@inline function _radial_shrink!(p, y::AbstractArray{T}, x::AbstractArray, G, γ) where {T}
+@inline function _radial_shrink!(p, y::AbstractArray{T}, x::AbstractArray, G, γ, W = nothing) where {T}
   nx = _group_norm2(x, G)
   r = iszero(nx) ? nx : prox_entry(p, nx, 1, γ)
   t = iszero(nx) ? nx : r / nx
-  @inbounds for i in G
+  @inbounds for i in _writes(W, G)
     y[i] = t * x[i]
   end
   r
@@ -452,7 +453,7 @@ function _value_and_prox_groups!(y::AbstractArray, f::_RadialGroupPenalty, x::Ab
       end
       continue
     end
-    v += convert(T, value_entry(p, _radial_shrink!(p, y, x, f.groups[k], convert(T, _entry(γ, k))), 1))
+    v += convert(T, value_entry(p, _radial_shrink!(p, y, x, f.groups[k], convert(T, _entry(γ, k)), _group_writes(y, f.groups[k])), 1))
   end
   v
 end

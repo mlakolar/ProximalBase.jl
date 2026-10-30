@@ -44,9 +44,9 @@ function value_and_prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray
 end
 
 # group penalties: a step per group, constant on the group, keeps the closed form
-value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = _value_and_prox_groups!(y, f, x, γ)
+value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (value_and_prox!(y, f, x, γ); y)
-value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::AbstractVector) = _value_and_prox_groups!(y, f, x, γ)
+value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::AbstractVector) = (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 
 # the entrywise reciprocal of an array of steps, without allocating
 struct _ReciprocalArray{T, N, A<:AbstractArray} <: AbstractArray{T, N}
@@ -58,6 +58,79 @@ Base.IndexStyle(::Type{<:_ReciprocalArray}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(a::_ReciprocalArray{T}, i::Int) where {T} = inv(convert(T, a.γ[i]))
 
 # functions built from functions pass the steps on, entry by entry
+function prox!(y::AbstractArray, h::_ScalarPrecompose, x::AbstractArray, γ::AbstractArray)
+  isseparable(h) || throw(ArgumentError("array steps for a scalar scale require a separable function"))
+  _checkwrite(prox!, h, y, x)
+  _checkparam(γ, x)
+  _value_and_prox_precompose!(y, h, x, γ, false)
+  y
+end
+function value_and_prox!(y::AbstractArray, h::_ScalarPrecompose, x::AbstractArray, γ::AbstractArray)
+  isseparable(h) || throw(ArgumentError("array steps for a scalar scale require a separable function"))
+  _checkwrite(value_and_prox!, h, y, x)
+  _checkparam(γ, x)
+  _value_at(_value_and_prox_precompose!(y, h, x, γ, true), y)
+end
+
+function _value_and_prox_precompose!(y, h::_ScalarPrecompose, x, γ::AbstractArray, withvalue::Bool)
+  z = _image!(h, x)
+  _checkparams(h.f, z)
+  T = eltype(z)
+  steps = _ScaledArray{T}(γ, h.μ)
+  v = withvalue ? value_and_prox!(z, h.f, z, steps) : (prox!(z, h.f, z, steps); zero(T))
+  y .= z ./ h.A
+  withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _precompose_prox_value(h, y) : v
+end
+
+# the ridge-adjusted steps, without a second buffer
+struct _RegularizeSteps{T, N, A<:AbstractArray} <: AbstractArray{T, N}
+  γ::A
+  ρ::T
+end
+_RegularizeSteps(γ::AbstractArray{<:Any, N}, ρ::T) where {T, N} =
+  _RegularizeSteps{T, N, typeof(γ)}(γ, ρ)
+Base.size(a::_RegularizeSteps) = size(a.γ)
+Base.IndexStyle(::Type{<:_RegularizeSteps}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(a::_RegularizeSteps{T}, i::Int) where {T} =
+  _regularize_step(convert(T, a.γ[i]), a.ρ)
+
+@inline function _regularize_shrink(v, γ, ρ::T) where {T}
+  a, b = _ridge_weights(convert(T, γ), ρ)
+  a * v
+end
+@inline function _regularize_shrink(v, c, γ, ρ::T) where {T}
+  a, b = _ridge_weights(convert(T, γ), ρ)
+  _ridge_blend(v, c, a, b)
+end
+
+function _shrunk!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
+  T = float(eltype(y))
+  ρ = convert(T, r.ρ)
+  r.c === nothing ? (y .= _regularize_shrink.(x, γ, ρ)) :
+                    (y .= _regularize_shrink.(x, r.c, γ, ρ))
+  _RegularizeSteps(γ, ρ)
+end
+
+function prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
+  isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function"))
+  _checkwrite(prox!, r, y, x)
+  _checkparam(γ, x)
+  Base.Broadcast.check_broadcast_axes(axes(y), γ)
+  _check_symmetric_source(y, γ)
+  z = _output_buffer!(r.scratch, y)
+  prox!(y, r.f, z, _shrunk!(z, r, x, γ))
+end
+function value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
+  isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function"))
+  _checkwrite(value_and_prox!, r, y, x)
+  _checkparam(γ, x)
+  Base.Broadcast.check_broadcast_axes(axes(y), γ)
+  _check_symmetric_source(y, γ)
+  z = _output_buffer!(r.scratch, y)
+  v = value_and_prox!(y, r.f, z, _shrunk!(z, r, x, γ))
+  _value_at(v + _ridge(r, y), y)
+end
+
 prox!(y, s::Scaled, x, γ::AbstractArray) = (_checkparams(s, x); prox!(y, s.f, x, _ScaledArray(γ, s.α)))
 value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
   (_checkparams(s, x); _value_at(s.α * value_and_prox!(y, s.f, x, _ScaledArray(γ, s.α)), y))

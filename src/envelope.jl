@@ -50,9 +50,9 @@ isconvex(::Type{<:MoreauEnvelope{F}}) where {F} = isconvex(F)
 _envelope_buffer(e::MoreauEnvelope, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(e.scratch, T, size(x))
 
 function _checkwrite(op::O, e::MoreauEnvelope, y::AbstractArray, x::AbstractArray) where {O}
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   if op === gradient! || op === value_and_gradient!
-    y === x && throw(ArgumentError("the gradient must not overwrite x"))
     _checkparams(e, x)
     _checkwrite(op === gradient! ? prox! : value_and_prox!, e.f, y, x)
   else
@@ -243,4 +243,11 @@ function _prox_slope(φ::SeparableFunction, r::T, γ::T) where {T}
   h = sqrt(eps(T)) * max(one(T), abs(r))
   s = (prox_entry(φ, r + h, 1, γ) - prox_entry(φ, r - h, 1, γ)) / (2h)
   clamp(convert(T, s), zero(T), one(T))
+end
+
+function _checkstep(op::O, e::MoreauEnvelope, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  T = float(eltype(y))
+  combined = _envelope_step(convert(T, e.γ), convert(T, γ))
+  p = _checkbuffer(e.scratch, T, size(x))
+  _checkstep(op, e.f, p, x, combined)
 end

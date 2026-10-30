@@ -10,9 +10,10 @@ struct _ScaledArray{T, N, A<:AbstractArray} <: AbstractArray{T, N}
   c::T
 end
 _ScaledArray(g::AbstractArray{T, N}, c) where {T, N} = (S = promote_type(T, typeof(c)); _ScaledArray{S, N, typeof(g)}(g, S(c)))
+_ScaledArray{T}(g::AbstractArray{<:Any, N}, c) where {T, N} = _ScaledArray{T, N, typeof(g)}(g, convert(T, c))
 Base.size(a::_ScaledArray) = size(a.g)
 Base.IndexStyle(::Type{<:_ScaledArray}) = IndexLinear()
-Base.@propagate_inbounds Base.getindex(a::_ScaledArray, i::Int) = a.c * a.g[i]
+Base.@propagate_inbounds Base.getindex(a::_ScaledArray{T}, i::Int) where {T} = a.c * convert(T, a.g[i])
 
 struct _ShiftedArray{T, N, A<:AbstractArray, C<:AbstractArray} <: AbstractArray{T, N}
   g::A
@@ -177,7 +178,7 @@ prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(prox!, s, y, x); prox!(y, s.f, x
 value_and_prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); v = value_and_prox!(y, s.f, x, s.α * γ); _value_at(_scaled_value(s, y, v, false), y))
 Base.@propagate_inbounds prox_entry(s::Scaled, v::Real, i::Integer, γ::Real) = prox_entry(s.f, v, i, s.α * γ)
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
-_checkwrite(op::O, s::Scaled, y, x) where {O} = _checkwrite(op, s.f, y, x)
+_checkwrite(op::O, s::Scaled, y, x) where {O} = ((op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checkwrite(op, s.f, y, x))
 iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 # a scaled group penalty updates a group of an AtomIterate with a scaled step
@@ -225,6 +226,7 @@ value_and_gradient!(g, t::Tilt, x) = (_checkwrite(value_and_gradient!, t, g, x);
 gradient!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, x); g .+= t.c)
 
 function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}}
+  _checkgradient_output(g, x)
   _checkparams(t, x)
   Base.Broadcast.check_broadcast_axes(axes(g), t.c)
   _check_symmetric_source(g, t.c)
@@ -313,7 +315,7 @@ gradient!(g, t::Translate, x::AbstractArray) =
   (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, _shifted(t, x)))
 
 _checkwrite(op::O, t::Translate, g, x::AbstractArray) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
-  (_check_symmetric_source(g, t.b); _checkwrite(op, t.f, g, _checkshifted(t, x)))
+  (_checkgradient_output(g, x); _check_symmetric_source(g, t.b); _checkwrite(op, t.f, g, _checkshifted(t, x)))
 
 function _checkshifted(t::Translate, x::AbstractArray)
   size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
@@ -526,7 +528,10 @@ _moreau_set!(z, f::IndBallL2, x, γ) = prox!(z, IndBallL2(_dilate(γ, f.r)), x, 
 # entry by entry, inside it
 _dilated(γ::Real, b::Real) = _dilate(γ, b)
 _dilated(γ, b) = Base.Broadcast.broadcasted(_dilate, γ, b)
-_moreau_set!(z, f::IndBox, x, γ) = (z .= clamp.(x, _dilated(γ, f.l), _dilated(γ, f.u)))
+function _moreau_set!(z, f::IndBox, x, γ)
+  step = _reshapeparam(γ, x)
+  z .= clamp.(x, _dilated(step, _reshapeparam(f.l, x)), _dilated(step, _reshapeparam(f.u, x)))
+end
 _moreau_set!(z, s::Scaled, x, γ) = _moreau_point!(z, s.f, x, γ)
 function _moreau_set!(z, t::Translate, x, γ)
   z .= x .- _dilate.(γ, t.b)
@@ -892,12 +897,13 @@ Blocks may themselves be tuples for nested sums. Allocating oracles and
 [`Conjugate`](@ref) preserve this block structure.
 Before writing any output, the oracles check all blocks, including functions
 inside wrappers, against the checks their own oracles run before writing.
-A failure during computation, a check that depends on the step (such as
-`MoreauEnvelope`'s sum of its parameter and step, or [`Conjugate`](@ref)'s
-finite result at a finite input), a user-defined function whose oracles reject
-an argument that its `check_parameters` accepts, or a check that depends on the
-values of the argument (such as a hyperslab's finite inputs, or whether a box's
-output lies inside an inner box) can still leave earlier blocks written.
+Scalar-step checks also follow supported wrappers before writing. Remaining
+gaps include array steps, entrywise steps inside box and linear constraints,
+spectral and singular-value wrappers, distance wrappers, intersections, ball,
+sphere and affine constraints, `NegLog`'s square root, and `Conjugate`'s finite
+result check. Failures during computation, user-defined oracle checks beyond
+`check_parameters`, and checks of argument values (including hyperslab inputs
+and membership in an inner box) can still leave earlier blocks written.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
@@ -919,6 +925,7 @@ _checkparams(s::SeparableSum, x::Tuple) = (_checkblocks(s, x); map(_checkparams,
 function _checkwrite(op::O, s::SeparableSum, y::Tuple, x::Tuple) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
   _checksize(y, x)
   _checkblocks(s, x)
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checkwrite_blocks(op, s.fs, y, x)
 end
 # block by block, by recursion on the tuples rather than a map over a closure:
@@ -939,9 +946,9 @@ _checkvalue(s::SeparableSum, x::Tuple) = (_checkparams(s, x); map(_checkvalue, s
 
 (s::SeparableSum)(x::Tuple) = (_checkparams(s, x); _value_at(sum(map((f, xk) -> f(xk), s.fs, x)), x))
 prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(prox!, s, y, x); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
+  (_checkwrite(prox!, s, y, x); _checkstep(prox!, s, y, x, γ); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
 value_and_prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(value_and_prox!, s, y, x); _value_at(sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)), y))
+  (_checkwrite(value_and_prox!, s, y, x); _checkstep(value_and_prox!, s, y, x, γ); _value_at(sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)), y))
 value_and_gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
   (_checkwrite(value_and_gradient!, s, g, x); _value_at(sum(map((f, gk, xk) -> value_and_gradient!(gk, f, xk), s.fs, g, x)), x))
 gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
@@ -972,6 +979,7 @@ _checkparams(s::Sum, x) = (map(f -> _checkparams(f, x), s.fs); true)
 _checkvalue(s::Sum, x) = (map(f -> _checkvalue(f, x), s.fs); true)
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::Sum, g::AbstractArray, x::AbstractArray)
+  _checkgradient_output(g, x)
   _checksize(g, x)
   _checkparams(s, x)
   _checkwrite(value_and_gradient!, first(s.fs), g, x)
@@ -1031,3 +1039,59 @@ lipschitz(t::Tilt) = lipschitz(t.f)
 lipschitz(t::Translate) = lipschitz(t.f)
 lipschitz(s::Sum) = sum(lipschitz, s.fs)
 lipschitz(s::SeparableSum) = maximum(lipschitz, s.fs)
+
+_checkstep(op::O, s::Scaled, y, x, γ::Real) where {O} = _checkstep(op, s.f, y, x, s.α * γ)
+_checkstep(op::O, t::Union{Tilt, Translate}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
+  _checkstep(op, t.f, y, _StepInput(y), γ)
+
+_checkstep(op::O, s::SeparableSum, y::Tuple, x::Tuple, γ::Real) where {O} =
+  _checkstep_blocks(op, s.fs, y, x, γ)
+_checkstep_blocks(op, ::Tuple{}, ::Tuple{}, ::Tuple{}, γ) = true
+_checkstep_blocks(op::O, fs::Tuple, y::Tuple, x::Tuple, γ) where {O} =
+  (_checkstep(op, first(fs), first(y), first(x), γ); _checkstep_blocks(op, Base.tail(fs), Base.tail(y), Base.tail(x), γ))
+
+_checkstep(op::O, c::Conjugate{<:Conjugate}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
+  _checkstep(op, c.f.f, y, x, γ)
+_checkstep(op::O, c::Conjugate{<:Conjugate}, y::Tuple, x::Tuple, γ::Real) where {O} =
+  _checkstep(op, c.f.f, y, x, γ)
+function _checkstep(op::O, c::Conjugate, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  T = float(eltype(y))
+  step = convert(T, γ)
+  p = _conjugate_checkbuffer(c.scratch, y, x)
+  if op === value_and_prox! && !_isindicator(c) && !_has_conjugate_value(c.f)
+    return _checkstep(value_and_prox!, c.f, p, _StepInput(p), inv(step))
+  end
+  _moreau_free(typeof(c.f)) && return _checkstep_moreau(c.f, p, x, step)
+  _checkstep(prox!, c.f, p, _StepInput(p), inv(step))
+end
+_checkstep(op::O, c::Conjugate{<:SumLargest}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
+  _checkstep(prox!, c.f, y, x, 1)
+function _checkstep_moreau(f, y, x, γ)
+  _conjugate_isindicator(typeof(f)) && return _checkstep(prox!, f, y, x, one(γ))
+  _checkstep_moreau_set(f, y, x, γ)
+end
+_checkstep_moreau_set(f::Union{IndBox, IndBallL2}, y, x, γ) = true
+_checkstep_moreau_set(s::Scaled, y, x, γ) = _checkstep_moreau(s.f, y, x, γ)
+_checkstep_moreau_set(t::Translate, y, x, γ) = _checkstep_moreau(t.f, y, _StepInput(y), γ)
+
+_step_input(x::AbstractArray) = _StepInput(x)
+_step_input(::Tuple{}) = ()
+_step_input(x::Tuple) = (_step_input(first(x)), _step_input(Base.tail(x))...)
+
+# The step pass needs only the shape and element type of the dense buffer.
+struct _StepBuffer{T, N} <: AbstractArray{T, N}
+  dims::NTuple{N, Int}
+end
+Base.size(x::_StepBuffer) = x.dims
+_step_values(::_StepBuffer) = false
+_step_buffer(x::AbstractArray{T, N}) where {T, N} = _StepBuffer{float(T), N}(size(x))
+_step_buffer(::Tuple{}) = ()
+_step_buffer(x::Tuple) = (_step_buffer(first(x)), _step_buffer(Base.tail(x))...)
+function _checkstep(op::O, c::Conjugate, y::Tuple, x::Tuple, γ::Real) where {O}
+  p = _step_buffer(y)
+  if op === value_and_prox! && !_isindicator(c) && !_has_conjugate_value(c.f)
+    return _checkstep(value_and_prox!, c.f, p, _step_input(p), inv(γ))
+  end
+  _conjugate_isindicator(typeof(c.f)) && return _checkstep(prox!, c.f, p, x, one(float(typeof(γ))))
+  _checkstep(prox!, c.f, p, _step_input(p), inv(γ))
+end

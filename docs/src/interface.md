@@ -191,7 +191,10 @@ its data; its factorization type can change with the rank of `A`.
   output that only partly overlaps the input, such as a shifted view of the
   same array, is not supported. For `gradient!`, `value_and_gradient!` and
   `hessian_vec!`, pass an output separate from the input unless a method's
-  documentation says otherwise.
+  documentation says otherwise. Built-in gradient oracles throw an
+  `ArgumentError` when the gradient output is the input (or a tuple block
+  is its input block), except where the function documents that the output
+  may be the input, as for [`CubeNormL2`](@ref).
 - **The value at the result.** [`value_and_prox!`](@ref) stores the proximal
   point and returns the function's value there. Many functions get that value
   from the computation itself: the nuclear norm from the singular values it

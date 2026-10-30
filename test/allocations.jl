@@ -41,6 +41,18 @@ function zero_alloc_grad(f, x)
   @test allocs(a_grad!, g, f, x) == 0
 end
 
+@testset "linear box bounds allocate nothing" begin
+  for T in (Float32, Float64)
+    x = T[5, -5]
+    f = IndBox(T[0 2], T[1, 3])
+    zero_alloc_prox(f, x; γ=T(0.7))
+    c = Conjugate(f)
+    for γ in (T(0.7), T[0.7, 1.2])
+      zero_alloc_prox(c, x; γ=γ)
+    end
+  end
+end
+
 @testset "distinct group layouts allocate nothing" begin
   ranges = [1:2, 3:5, 6:6, 7:9]
   layouts = (ranges, collect.(ranges))

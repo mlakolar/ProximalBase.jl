@@ -99,6 +99,7 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::SliceSu
 end
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::SliceSum, g::AbstractArray, x::AbstractArray)
+  _checkgradient_output(g, x)
   _checksize(g, x)
   _checkslices(s, x)
   _sumslices((f, k) -> _checkwrite(value_and_gradient!, f, _slice(g, k), _slice(x, k)), s.fs)

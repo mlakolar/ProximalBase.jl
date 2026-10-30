@@ -31,6 +31,9 @@ As for `GroupNormL2`, on an [`AtomIterate`](@ref) that shares its groups
 on a group and [`kkt_violation`](@ref) measures a group at zero, which is
 optimal when `‖soft(g[Gₖ], λ1)‖₂ ≤ λ2wₖ`. Inside a nonzero group, an entry at
 zero is optimal when `|gᵢ| ≤ λ1`.
+When an intermediate overflows or underflows, or a weight is not representable
+in the argument's precision although the weighted value is representable,
+the value is computed in scaled units.
 """
 struct SparseGroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: HomogeneousGroupNorm
   λ1::T                   # the level of the ℓ1 term
@@ -58,6 +61,33 @@ end
 function SparseGroupNormL2(λ1::Real, λ2::Real, groups::AbstractVector{<:AbstractVector{<:Integer}})
   T = float(promote_type(typeof(λ1), typeof(λ2)))
   SparseGroupNormL2(λ1, λ2, groups, [sqrt(T(length(G))) for G in groups])
+end
+
+_group_norm(::SparseGroupNormL2, x, G) = _group_norm2(x, G)
+
+# The L1 sum covers penalized groups only, including for an active iterate.
+@inline function _sparse_l1_value(f, x, v, ::Type{T}) where {T}
+  iszero(f.λ1) && return zero(T)
+  _level_fits(T, f.λ1) && isfinite(v) && return convert(T, f.λ1) * v
+  _scaled_sparse_l1(f, x, T)
+end
+
+@noinline function _scaled_sparse_l1(f, x, ::Type{T}) where {T}
+  R = promote_type(T, float(typeof(f.λ1)))
+  m = zero(R)
+  for G in f.groups
+    m = max(m, convert(R, _maxabs(x, G)))
+  end
+  isfinite(m) || return convert(T, convert(R, f.λ1) * m)
+  e = _magnitude_exponent(m)
+  scales = _power_factors(R, -e)
+  s = err = zero(R)
+  for G in f.groups
+    @inbounds for i in G
+      s, err = _compensated_add(s, err, abs(_scale_value(convert(R, x[i]), scales)))
+    end
+  end
+  convert(T, _scaled_product(convert(R, f.λ1), s + err, e))
 end
 
 _rebuild(f::SparseGroupNormL2, λ0, groups, w) = SparseGroupNormL2(f.λ1, λ0, groups, w)
@@ -143,12 +173,11 @@ function (f::SparseGroupNormL2)(x::AbstractArray)
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
     G = f.groups[k]
-    w = convert(T, f.w[k])
-    (iszero(f.λ0) || iszero(w)) || (v2 += _positive_product(convert(T, f.λ0), w, _group_norm2(x, G)))
+    (iszero(f.λ0) || iszero(f.w[k])) || (v2 += _group_value(f, f.λ0, f.w[k], _group_norm2(x, G), x, G, T))
     iszero(f.λ1) || (v1 += _sumabs(x, G))
   end
   v2 +
-  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1)
+  _sparse_l1_value(f, x, v1, T)
 end
 
 value_and_prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Real) =
@@ -164,17 +193,16 @@ function _value_and_prox_groups!(y::AbstractArray, f::SparseGroupNormL2, x::Abst
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
     γk = _entry(γ, k)
-    w = convert(T, f.w[k])
-    if iszero(f.λ0) || iszero(w)
+    if iszero(f.λ0) || iszero(f.w[k])
       n1 = _soft_group_only!(y, x, f.groups[k], convert(T, γk * f.λ1))
     else
       n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], convert(T, γk * f.λ1), convert(T, _positive_product(γk, f.λ0, f.w[k])))
-      v2 += convert(T, _positive_product(convert(T, f.λ0), w, n2))
+      v2 += _group_value(f, f.λ0, f.w[k], n2, y, f.groups[k], T)
     end
     iszero(f.λ1) || (v1 += convert(T, n1))
   end
   v2 +
-  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1)
+  _sparse_l1_value(f, y, v1, T)
 end
 
 # with the groups of f, only the active groups count
@@ -185,12 +213,11 @@ function (f::SparseGroupNormL2)(x::AtomIterate)
   for a in 1:x.nactive
     k = x.active[a]
     G = f.groups[k]
-    w = convert(T, f.w[k])
-    (iszero(f.λ0) || iszero(w)) || (v2 += _positive_product(convert(T, f.λ0), w, _group_norm2(x.storage, G)))
+    (iszero(f.λ0) || iszero(f.w[k])) || (v2 += _group_value(f, f.λ0, f.w[k], _group_norm2(x.storage, G), x.storage, G, T))
     iszero(f.λ1) || (v1 += _sumabs(x.storage, G))
   end
   v2 +
-  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1)
+  _sparse_l1_value(f, x, v1, T)
 end
 
 value_and_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Real) =
@@ -206,24 +233,23 @@ function _value_and_prox_groups!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIt
   for a in 1:y.nactive
     k = y.active[a]
     γk = _entry(γ, k)
-    w = convert(T, f.w[k])
-    if iszero(f.λ0) || iszero(w)
+    if iszero(f.λ0) || iszero(f.w[k])
       n1 = _soft_group_only!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1))
     else
       n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1), convert(T, _positive_product(γk, f.λ0, f.w[k])))
-      v2 += convert(T, _positive_product(convert(T, f.λ0), w, n2))
+      v2 += _group_value(f, f.λ0, f.w[k], n2, y.storage, f.groups[k], T)
     end
     iszero(f.λ1) || (v1 += convert(T, n1))
   end
   v2 +
-  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1)
+  _sparse_l1_value(f, y, v1, T)
 end
 
 # the block step on group k, in place; the group becomes active if it is nonzero
 function prox_coordinate!(x::AtomIterate, f::SparseGroupNormL2, k::Integer, γ::Real)
   _checksamegroups(f, x)
   T = float(eltype(x))
-  if iszero(f.λ0) || iszero(convert(T, f.w[k]))
+  if iszero(f.λ0) || iszero(f.w[k])
     _soft_group_only!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1))
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
     return atom(x, k)

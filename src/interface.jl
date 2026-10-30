@@ -18,6 +18,10 @@ outside its domain. Its traits say which oracles it provides:
 | [`isseparable`](@ref) | [`prox_entry`](@ref), and [`prox_coordinate!`](@ref) on every iterate |
 | [`hashessian`](@ref) | [`hessian_vec!`](@ref), [`quadratic_model`](@ref) |
 
+Checks that depend only on types, shapes and parameters run before any output
+write; failures that depend on the step, argument values or computation may
+leave outputs, and inputs that alias them, changed.
+
 A function can have several roles: [`SqrNormL2`](@ref), [`QuadraticFunction`](@ref),
 [`LeastSquaresLoss`](@ref) and [`LogDetLoss`](@ref) are both smooth and
 proximable. [`isconvex`](@ref) tells a solver whether convex theory applies.
@@ -163,7 +167,18 @@ _isindicator(f::AbstractFunction) = _isindicator(typeof(f))
 _checkparams(f::AbstractFunction, x) = (check_parameters(f, x); true)
 _argument_type(::Type{<:AbstractFunction}) = Any
 _checkargument(f, x) = x isa _argument_type(typeof(f)) || throw(MethodError(f, (x,)))
+_checkgradient_output(g, x) = (g === x && throw(ArgumentError("the gradient must not overwrite x")); nothing)
+# blocks pair up to the shorter tuple; the size checks report a length mismatch
+_checkgradient_output(::Tuple{}, ::Tuple) = nothing
+_checkgradient_output(::Tuple, ::Tuple{}) = nothing
+_checkgradient_output(::Tuple{}, ::Tuple{}) = nothing
+function _checkgradient_output(g::Tuple, x::Tuple)
+  _checkgradient_output(first(g), first(x))
+  _checkgradient_output(Base.tail(g), Base.tail(x))
+end
+
 function _checkwrite(op, f, y, x)
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   if op === value_and_prox! || op === gradient!
     _checkparams(f, x)
     _checkargument(f, x)
@@ -195,6 +210,8 @@ _checkconjugate(f, y) = true
     gradient!(g, f, x)
 
 Store the gradient of `f` at `x` in `g` and return `g`.
+`g` must not be `x` unless the function documents otherwise; built-in functions
+throw an `ArgumentError`.
 """
 gradient!(g, f::AbstractFunction, x) = (_checkwrite(gradient!, f, g, x); value_and_gradient!(g, f, x); g)
 
@@ -203,6 +220,8 @@ gradient!(g, f::AbstractFunction, x) = (_checkwrite(gradient!, f, g, x); value_a
 
 Store the gradient of `f` at `x` in `g` and return `f(x)`. Usually cheaper than
 calling `f(x)` and [`gradient!`](@ref) separately.
+`g` must not be `x` unless the function documents otherwise; built-in functions
+throw an `ArgumentError`.
 """
 function value_and_gradient! end
 
@@ -389,13 +408,15 @@ are convex it is zero exactly at the minimizers, for every `γ > 0`; with
 `g = 0` it is `∇f(x)`. Its norm is a stopping rule that needs neither the
 optimal value nor the structure of `g`, and a proximal gradient step from `x` is
 `x - γG`. `G` must not be `x`; `gradient_mapping!` allocates nothing beyond
-what `gradient!` and `prox!` do.
+what `gradient!` and `prox!` do. Overlapping views of `G` and `x` are unsupported.
 """
 function gradient_mapping!(G::AbstractArray, f::AbstractFunction, g::AbstractFunction, x::AbstractArray, γ::Real)
   G === x && throw(ArgumentError("G must not be x"))
   _checksize(G, x)
   _checkparams(f, x)
   _checkparams(g, x)
+  _checkwrite(gradient!, f, G, x)
+  _checkwrite(prox!, g, G, G)
   gradient!(G, f, x)
   G .= x .- γ .* G
   prox!(G, g, G, γ)

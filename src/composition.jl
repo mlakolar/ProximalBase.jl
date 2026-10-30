@@ -100,6 +100,7 @@ end
 _checkimage(h::_ScalarPrecompose, x) = _checkbuffer(h.image, float(promote_type(eltype(x), typeof(h.A))), size(x))
 
 function _checkwrite(op::O, h::Precompose, y::AbstractArray, x::AbstractArray) where {O}
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   z = _checkimage(h, x)
   _checkparams(h.f, z)
@@ -280,6 +281,7 @@ _sparse_precompose(y, x) = (y isa SparseIterate && x isa SparseIterate) ||
   (y isa SymmetricSparseIterate && x isa AbstractMatrix)
 
 function _checkwrite(op::O, h::_ArrayPrecompose, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   _checkparams(h, x)
   _check_symmetric_source(y, h.a)
@@ -312,15 +314,19 @@ function _precompose_steps!(h::_ArrayPrecompose{<:AbstractGroupPenalty}, z, γ::
 end
 
 function _value_and_prox_array!(y, h::_ArrayPrecompose, x, γ, withvalue::Bool)
+  # an inner function without a standalone value gives it with its proximal point
+  joint = withvalue && !_isindicator(h) && !_has_value(h.f)
   if isseparable(h) && _sparse_precompose(y, x)
-    _prox_sep!(y, h, x, γ)
     T = float(promote_type(eltype(y), eltype(h.a)))
-    return withvalue ? (_isindicator(h) ? zero(T) : h(y)) : zero(T)
+    # from the dense image of what the sparse loop reads, before y is written
+    v = joint ? _array_precompose_joint_value(h, y isa SymmetricSparseIterate ? Symmetric(x, :L) : x, γ) : zero(T)
+    _prox_sep!(y, h, x, γ)
+    return withvalue && !joint ? (_isindicator(h) ? zero(T) : h(y)) : v
   end
   z = _image!(h, x)
   b = _inner_buffer(h, z)
   steps = _precompose_steps!(h, z, γ)
-  if h.f isa AbstractGroupPenalty
+  if h.f isa AbstractGroupPenalty || joint
     v = value_and_prox!(b, h.f, z, steps)
   else
     _prox_sep!(b, h.f, z, steps)
@@ -331,6 +337,11 @@ function _value_and_prox_array!(y, h::_ArrayPrecompose, x, γ, withvalue::Bool)
     y[i] = b[i] == z[i] ? x[i] : b[i] / h.a[i]
   end
   withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _array_precompose_value(h, y) : v
+end
+
+function _array_precompose_joint_value(h::_ArrayPrecompose, x, γ)
+  z = _image!(h, x)
+  value_and_prox!(_inner_buffer(h, z), h.f, z, _precompose_steps!(h, z, γ))
 end
 
 # In mixed precision, the value at the output, through the lazy image of y
@@ -447,8 +458,9 @@ group norm updates a group. `Regularize(NormL1(λ), ρ)` is `ElasticNet(λ, ρ)`
 it is the strongly convex subproblem of proximal-point methods. The proximal
 operator passes the shrunk point to `f` in a buffer that the function owns, so do
 not share one object between threads; when `f` throws, the output is unchanged,
-except for a `SparseIterate` or `SymmetricSparseIterate` output. A copy made for
-the device by `Adapt.adapt` has no buffer and writes the output before calling `f`.
+including sparse iterate outputs with their stored entries and order preserved.
+`Symmetric` and `Hermitian` outputs are unsupported. A copy made for the device
+by `Adapt.adapt` allocates a device buffer on each proximal call.
 """
 struct Regularize{F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}, S<:Union{Nothing, Scratch}} <: AbstractFunction
   f::F
@@ -492,6 +504,8 @@ gradient!(g::AbstractArray, r::Regularize, x::AbstractArray) =
   (_checkwrite(gradient!, r, g, x); gradient!(g, r.f, x); _add_ridge_gradient!(g, r, x))
 
 function _checkwrite(op::O, r::Regularize, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
+  (op === prox! || op === value_and_prox!) && _check_wrapper_output(y)
   _checksize(y, x)
   _checkparams(r, x)
   r.c === nothing || Base.Broadcast.check_broadcast_axes(axes(y), x, r.c)
@@ -525,13 +539,18 @@ end
 function prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
   _checkwrite(prox!, r, y, x)
   z = _output_buffer!(r.scratch, y)
-  prox!(y, r.f, z, _shrunk!(z, r, x, γ))
+  w = r.scratch === nothing ? z : _wrapper_output(y, z)
+  prox!(w, r.f, z, _shrunk!(z, r, x, γ))
+  _wrapper_commit!(y, w)
 end
 function value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, r, y, x)
   z = _output_buffer!(r.scratch, y)
-  v = value_and_prox!(y, r.f, z, _shrunk!(z, r, x, γ))
-  _value_at(v + _ridge(r, y), y)
+  w = r.scratch === nothing ? z : _wrapper_output(y, z)
+  v = value_and_prox!(w, r.f, z, _shrunk!(z, r, x, γ))
+  v = _value_at(v + _ridge(r, w), w)
+  _wrapper_commit!(y, w)
+  v
 end
 
 Base.@propagate_inbounds function prox_entry(r::Regularize, v::Real, i::Integer, γ::Real)
@@ -547,8 +566,7 @@ _checkparams(r::Regularize, x) = (_checkparam(r.c, x); _checkparams(r.f, x))
 # then take the step of the group penalty
 function prox_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k::Integer, γ::Real)
   _checkparams(r, x)
-  _checksamegroups(r.f, x)
-  checkbounds(x.groups, k)
+  _check_group_coordinate(r.f, x, k)
   T = float(eltype(x))
   step, ρ = convert(T, γ), convert(T, r.ρ)
   a, b = _ridge_weights(step, ρ)

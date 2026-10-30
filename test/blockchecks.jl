@@ -30,7 +30,8 @@ function unchanged(op, f, point, E)
     x = deepcopy(point)
     y = alias ? x : deepcopy(point)
     before, input = deepcopy(y), deepcopy(x)
-    @test_throws E oracle!(op, y, f, x)
+    expected_error = alias && op in smooth && applicable(op, y, f, x) ? ArgumentError : E
+    @test_throws expected_error oracle!(op, y, f, x)
     @test isequal(y, before)
     @test isequal(x, input)
   end
@@ -204,6 +205,15 @@ function same_as_blocks(op, f, point)
       x = ([3.0], copy(point))
       expected_x = deepcopy(x)
       expected = alias ? expected_x : deepcopy(x)
+      if alias && op in smooth
+        s = nested ? SeparableSum(f1, SeparableSum(f)) : SeparableSum(f1, f)
+        scaled && (s = Scaled(s, 2.0))
+        nested && (x = (x[1], (x[2],)))
+        before = deepcopy(x)
+        @test_throws ArgumentError oracle!(op, x, s, x)
+        @test x == before
+        continue
+      end
       a = oracle!(op, expected[1], scaled ? Scaled(f1, 2.0) : f1, expected_x[1])
       b = oracle!(op, expected[2], scaled ? Scaled(f, 2.0) : f, expected_x[2])
       s = nested ? SeparableSum(f1, SeparableSum(f)) : SeparableSum(f1, f)
@@ -229,6 +239,11 @@ function same_as_views(op, f, point, slices)
     x = slices ? cat(point, point; dims = ndims(point) + 1) : reshape(repeat(point, 4), 2, 2, length(point))
     expected_x = copy(x)
     expected = alias ? expected_x : copy(x)
+    if alias && op in smooth
+      @test_throws ArgumentError oracle!(op, x, SliceSum(f1, f), x)
+      @test x == expected_x
+      continue
+    end
     v = 0.0
     if slices
       inner = op === prox! ? value_and_prox! : op === gradient! ? value_and_gradient! : op

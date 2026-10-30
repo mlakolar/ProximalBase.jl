@@ -323,6 +323,27 @@ end
   @test_throws DimensionMismatch LogisticLoss(yb[1:5], X)
   @test_throws DimensionMismatch LogisticLoss(yb, X; weights = w[1:5])
   @test_throws ArgumentError LogisticLoss(yb, X; weights = -w)
+  # observation weights and offsets must be finite in the working precision (#251)
+  wmsg, omsg = "the weights must be finite and nonnegative", "the offset must be finite"
+  for bad in ([Inf, 1.0], [1.0, NaN], [1.0, -Inf]), loss in (PB.Logistic(), PB.Squared(), PB.Poisson(), PB.Huber(1.0))
+    @test_throws ArgumentError(wmsg) GLMLoss(loss, Float64[0, 1], [1.0 0.0; 0.0 1.0]; weights = bad)
+  end
+  @test_throws ArgumentError(wmsg) LogisticLoss(yb, X; weights = [w[1:end-1]; Inf])
+  @test_throws ArgumentError(wmsg) HuberLoss(yr, X, 1.0; weights = [w[1:end-1]; Inf])
+  @test_throws ArgumentError(wmsg) LogisticLoss(yb, X; weights = complex.(w))
+  for bad in ([Inf, 0.0], [0.0, NaN], [-Inf, 0.0])
+    @test_throws ArgumentError(omsg) PoissonLoss(Float64[0, 1], [1.0 0.0; 0.0 1.0]; offset = bad)
+  end
+  # a weight or offset finite in Float64 overflows Float32 data
+  y32, X32 = Float32[1, 0], Float32[1 0; 0 1]
+  @test_throws ArgumentError(wmsg) LogisticLoss(y32, X32; weights = [1.0, 1e39])
+  @test_throws ArgumentError(omsg) LogisticLoss(y32, X32; offset = [0.0, 1e39])
+  @test LogisticLoss(y32, X32; weights = [1.0, 1e38], offset = [0.0, -1e38]) isa GLMLoss
+  # zero weights, -0.0 included, are allowed, and restrict rebuilds through the checks
+  fz = LogisticLoss(yb, X; weights = [zeros(n - 1); -0.0])
+  @test fz(β) == 0 && iszero(gradient(fz, β))
+  @test restrict(LogisticLoss(yb, X; weights = w, offset = w), 1:2)(β[1:2]) ≈
+    LogisticLoss(yb, X[:, 1:2]; weights = w, offset = w)(β[1:2])
   @test_throws DimensionMismatch LogisticLoss(yb, X)(randn(p + 1))
   f32 = LogisticLoss(Float32.(yb), Float32.(X))
   @test f32(Float32.(β)) isa Float32

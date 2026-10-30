@@ -80,6 +80,21 @@ const WRITERS = (
   ("axpby!", (x, A) -> axpby!(2, A, 3, x), (X, A) -> 2 .* A .+ 3 .* X, DimensionMismatch),
 )
 
+# replace on the lower triangle of the dense M: entries in coordinate order,
+# at most count of them changed
+function replace_lower(f, M, count = typemax(Int))
+  R = copy(M)
+  n = 0
+  for c in axes(M, 2), r in c:size(M, 1)
+    n < count || break
+    v = f(M[r, c])
+    R[r, c] = R[c, r] = v
+    n += (M[r, c] !== v)
+  end
+  R
+end
+pairs_function(old_new...) = v -> something(get(Dict(old_new...), v, nothing), v)
+
 # Warm the exact measured call.
 allocations(f::F, x::X) where {F, X} = (f(x); @allocated f(x))
 allocations(f::F, x::X, A::TA) where {F, X, TA} = (f(x, A); @allocated f(x, A))
@@ -275,6 +290,170 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
     x = SymmetricSparseIterate(4)
     check_map(increment, x, zeros(4, 4))
     @test nnz(x) == 10
+  end
+
+  @testset "#236: aliased writers, $T" for T in (Float64, ComplexF64)
+    writers = (
+      ("copyto!", (x, A, B) -> copyto!(x, A), (X, A, B) -> A),
+      ("copy!", (x, A, B) -> copy!(x, A), (X, A, B) -> A),
+      (".=", (x, A, B) -> (x .= A), (X, A, B) -> A),
+      ("identity broadcast", (x, A, B) -> (x .= identity.(A)), (X, A, B) -> A),
+      (".+=", (x, A, B) -> (x .+= A), (X, A, B) -> X .+ A),
+      ("map!, one source", (x, A, B) -> map!(double, x, A), (X, A, B) -> 2 .* A),
+      ("map!, alias first", (x, A, B) -> map!(-, x, A, B), (X, A, B) -> A .- B),
+      ("map!, alias second", (x, A, B) -> map!(-, x, B, A), (X, A, B) -> B .- A),
+      ("map!, repeated alias", (x, A, B) -> map!(+, x, A, A), (X, A, B) -> A .+ A),
+      ("map!, four sources", (x, A, B) -> map!(+, x, A, x, B, A),
+        (X, A, B) -> A .+ X .+ B .+ A),
+      ("map!, alias in middle", (x, A, B) -> map!(+, x, x, A, A, B),
+        (X, A, B) -> X .+ A .+ A .+ B),
+      ("axpy!", (x, A, B) -> axpy!(1, A, x), (X, A, B) -> X .+ A),
+      ("axpby!", (x, A, B) -> axpby!(1, A, 2, x), (X, A, B) -> A .+ 2 .* X),
+    )
+    idx = [tril_index(3, max(4 - r, 4 - c), min(4 - r, 4 - c)) for c in 1:3 for r in 1:3]
+    sources = (
+      (2, x -> reshape(view(coordinates(x), [3, 2, 2, 1]), 2, 2)),
+      (3, x -> reshape(view(coordinates(x), idx), 3, 3)),
+      (2, x -> view(x, [2, 1], [2, 1])),
+      (3, x -> view(x, 3:-1:1, 3:-1:1)),
+    )
+    for (p, source) in sources, (name, write!, reference) in writers
+      @testset "$name, p = $p, $(typeof(source))" begin
+        values = T.(1:p*(p+1)÷2)
+        T === ComplexF64 && (values .*= 1 + 2im)
+        x = SymmetricSparseIterate(T, p)
+        coordinates(x) .= values
+        A = source(x)
+        B = ones(T, p, p)
+        snapshots = map(Matrix, (x, A, B))
+        expected = reference(snapshots...)
+        @test write!(x, A, B) === x
+        @test Matrix(x) == expected
+      end
+    end
+  end
+
+  @testset "#236: aliasing hooks, $T" for T in (Float64, ComplexF64)
+    x = initial(T)
+    c = coordinates(x)
+    v = view(c, [10, 6, 6, 1])
+    A = reshape(v, 2, 2)
+    other = initial(T)
+    @test all(id -> id in Base.dataids(v), Base.dataids(x))
+    for source in (c, v, A, view(x, [4, 1], [4, 1]))
+      @test Base.mightalias(x, source)
+    end
+    @test !Base.mightalias(x, reshape(view(coordinates(other), [10, 6, 6, 1]), 2, 2))
+    copies = map(Base.unaliascopy, (c, v, A))
+    snapshots = map(collect, (c, v, A))
+    for (source, copied, snapshot) in zip((c, v, A), copies, snapshots)
+      @test typeof(copied) === typeof(source)
+      @test axes(copied) == axes(source)
+      @test copied == snapshot
+      @test !Base.mightalias(x, copied)
+    end
+    # copying coordinates preserves the active stored zero as well
+    @test state(copies[1].x) == state(x)
+    @test isactive(copies[1].x, tril_index(4, 3, 2))
+    @test copies[1].x[3, 2] == 0
+    fill!(x, 19)
+    for (copied, snapshot) in zip(copies, snapshots)
+      @test copied == snapshot
+    end
+  end
+
+  @testset "#236: rejected aliased sources, $T" for T in (Float64, ComplexF64)
+    for write! in ((x, A) -> copyto!(x, A), (x, A) -> (x .= A),
+                   (x, A) -> map!(identity, x, A), (x, A) -> axpy!(1, A, x),
+                   (x, A) -> axpby!(1, A, 2, x))
+      x = SymmetricSparseIterate(T.([1 2; 2 3]))
+      A = reshape(view(coordinates(x), [1, 2, 1, 3]), 2, 2)
+      rejects(x -> write!(x, A), x, ArgumentError, ASYMMETRIC)
+      A = reshape(view(coordinates(x), [3, 2, 2, 1]), 1, 4)
+      rejects(x -> write!(x, A), x, DimensionMismatch)
+    end
+  end
+
+  @testset "#236: nonaliased coordinates allocations, p = $p" for p in (2, 4)
+    other = SymmetricSparseIterate(Symmetric(reshape(Float64.(1:p*p), p, p), :L))
+    perm = p:-1:1
+    indices = [tril_index(p, max(r, c), min(r, c)) for c in perm for r in perm]
+    A = reshape(view(coordinates(other), indices), p, p)
+    x = copy(other)
+    @test !Base.mightalias(x, A)
+    @test allocations(copy_into!, x, A) == 0
+    @test allocations((x, A) -> (x .= A), x, A) == 0
+    @test allocations(map1!, x, A) == 0
+    @test allocations(axpy2!, x, A) == 0
+    @test allocations(axpby23!, x, A) == 0
+  end
+
+  @testset "#235: replace visits each entry once" begin
+    y = SymmetricSparseIterate([1.0 1.0; 1.0 1.0])
+    @test replace!(double, y) === y
+    @test Matrix(y) == [2 2; 2 2]
+    y = SymmetricSparseIterate([1.0 1.0; 1.0 2.0])
+    @test replace!(y, 1.0 => 2.0, 2.0 => 5.0) === y
+    @test Matrix(y) == [2 2; 2 5]
+    y = SymmetricSparseIterate([1.0 1.0; 1.0 2.0])
+    @test Matrix(replace(y, 1.0 => 2.0, 2.0 => 5.0)) == [2 2; 2 5]
+    @test Matrix(y) == [1 1; 1 2]
+    # count counts entries of the lower triangle, in coordinate order
+    y = SymmetricSparseIterate([1.0 1.0; 1.0 1.0])
+    @test Matrix(replace(y, 1.0 => 2.0; count = 2)) == [2 2; 2 1]
+    @test Matrix(replace(double, y; count = 1)) == [2 1; 1 1]
+    @test Matrix(replace!(y, 1.0 => 2.0; count = 2)) == [2 2; 2 1]
+    @test Matrix(replace!(y, 2.0 => 3.0; count = 0)) == [2 2; 2 1]
+    @test_throws DomainError replace!(y, 2.0 => 3.0; count = -1)
+    @test_throws DomainError replace(y, 2.0 => 3.0; count = -1)
+    @test Matrix(y) == [2 2; 2 1]
+    # as in Base, a result that is not === counts even if it converts back
+    y = SymmetricSparseIterate([1.0 1.0; 1.0 1.0])
+    calls = Ref(0)
+    @test Matrix(replace!(v -> (calls[] += 1; Int(v)), y; count = 1)) == [1 1; 1 1]
+    @test calls[] == 1
+    @test size(replace(double, SymmetricSparseIterate(0); count = 1)) == (0, 0)
+  end
+
+  @testset "#235: replace against the lower triangle, $T" for T in (Float64, ComplexF64)
+    M = T.(rand(-2:2, 5, 5)); M = M + transpose(M)
+    for f in (double, increment, v -> real(v) > 0 ? zero(v) : v, pairs_function(T(0) => T(7), T(2) => T(-2))),
+        count in (0, 1, 3, 8, 15, 100)
+      want = replace_lower(f, M, count)
+      @test Matrix(replace(f, SymmetricSparseIterate(M); count)) == want
+      y = SymmetricSparseIterate(M)
+      @test replace!(f, y; count) === y
+      @test Matrix(y) == want
+    end
+    for count in (1, 4, 100)
+      want = replace_lower(pairs_function(T(0) => T(7), T(2) => T(-2)), M, count)
+      @test Matrix(replace(SymmetricSparseIterate(M), T(0) => T(7), T(2) => T(-2); count)) == want
+      y = SymmetricSparseIterate(M)
+      @test Matrix(replace!(y, T(0) => T(7), T(2) => T(-2); count)) == want
+    end
+  end
+
+  @testset "#235: replace, stored entries and calls" begin
+    # replacing a zero fills the entries that are not stored
+    y = SymmetricSparseIterate([1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0])
+    replace!(y, 0.0 => 3.0)
+    @test Matrix(y) == [1 3 3; 3 1 3; 3 3 1] && nnz(y) == 6
+    # a zero result keeps the stored entry as a stored zero
+    y = SymmetricSparseIterate([1.0 2.0; 2.0 1.0])
+    replace!(vanish, y)
+    @test iszero(Matrix(y)) && nnz(y) == 3
+    # the copying form promotes; the result is symmetric
+    y = SymmetricSparseIterate([1.0 2.0; 2.0 1.0])
+    z = replace(y, 2.0 => 2im)
+    @test z isa SymmetricSparseIterate{ComplexF64}
+    @test Matrix(z) == [1 2im; 2im 1]
+    for p in (0, 1, 4)
+      calls = Ref(0)
+      y = SymmetricSparseIterate(p)
+      @test replace!(v -> (calls[] += 1; v + 1), y) === y
+      @test calls[] == p * (p + 1) ÷ 2
+      @test Matrix(y) == fill(1, p, p)
+    end
   end
 
   @testset "allocations" begin

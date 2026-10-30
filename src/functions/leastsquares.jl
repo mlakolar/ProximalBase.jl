@@ -35,6 +35,8 @@ mutable struct LeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVecOrMat, Tx<:Abst
 end
 
 function LeastSquaresLoss(Y::AbstractVecOrMat, X::AbstractMatrix)
+  eltype(Y) <: Real || _real_error(:LeastSquaresLoss)
+  eltype(X) <: Real || _real_error(:LeastSquaresLoss)
   size(X, 1) == size(Y, 1) || throw(DimensionMismatch("X has $(size(X, 1)) rows and Y has $(size(Y, 1))"))
   T = float(promote_type(eltype(Y), eltype(X)))
   N = ndims(Y)
@@ -76,20 +78,21 @@ function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMa
 end
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::LeastSquaresLoss, g::AbstractVecOrMat, β::AbstractVecOrMat)
+  _checkreal(f, β)
+  _checkreal(f, g)
   _checkgradient_output(g, β)
   _checksize(g, β)
   # Preserve the dimension error of the product, which checks before writing.
   size(β, 1) == size(f.X, 2) && size(β, 2) == size(f.tmp, 2) || mul!(f.tmp, f.X, β)
-  _checkreal(f, β)
 end
 
 function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, f::LeastSquaresLoss{T}, β::AbstractVecOrMat, v::AbstractVecOrMat) where {T}
+  _checkreal(f, v)
+  _checkreal(f, β)
   _checksize(β, v)
   size(β, 1) == size(f.X, 2) || throw(DimensionMismatch("β must have $(size(f.X, 2)) rows"))
   ndims(β) == ndims(f.Y) && size(β, 2) == size(f.Y, 2) ||
     throw(DimensionMismatch("β must have the same number of responses as Y"))
-  _checkreal(f, v)
-  op === value_and_prox! && _checkreal(f, β)
   true
 end
 

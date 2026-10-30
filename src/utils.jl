@@ -228,7 +228,7 @@ _ind(ok::Bool, ::Type{T}) where {T} = ok ? zero(T) : T(Inf)
 
 # The type of a value at x: the real floating type of its entries, promoted
 # over the blocks of a tuple. A value computed in another type is rounded to it.
-_valtype(x) = real(float(eltype(x)))
+_valtype(x) = float(eltype(x))
 _valtype(x::Tuple) = promote_type(map(_valtype, x)...)
 _value_at(v, x) = convert(_valtype(x), v)
 # Arguments, outputs and parameters are real; complex entries are rejected.
@@ -265,7 +265,7 @@ end
 _stored_values(x::AbstractArray) = x
 _stored_values(x::SparseArrays.AbstractSparseArray) = nonzeros(x)
 function _maximum_abs(x::AbstractArray)
-  m = zero(real(float(eltype(x))))
+  m = zero(float(eltype(x)))
   @inbounds for v in _stored_values(x)
     m = max(m, abs(float(v)))
   end
@@ -568,21 +568,19 @@ end
 @inline _norm_difference(a::Integer, b::Integer) = _wide_signed(a) - _wide_signed(b)
 @inline _wide_signed(a::Integer) = signed(widen(a))
 @inline _wide_signed(a::Bool) = Int(a)          # widen has no method for Bool
-@inline _norm_difference(a::Complex, b::Complex) = complex(_norm_difference(real(a), real(b)), _norm_difference(imag(a), imag(b)))
-@inline _norm_difference(a::Complex, b::Real) = complex(_norm_difference(real(a), b), imag(a))
-@inline _norm_difference(a::Real, b::Complex) = complex(_norm_difference(a, real(b)), _norm_difference(0, imag(b)))
 
 """
     norm_diff(A, B, p = 2)
 
 `‖A - B‖` without allocating `A - B`: the Euclidean (Frobenius) norm for
-`p = 2`, the largest absolute entry for `p = Inf`. The result is real, also
-for complex arrays.
+`p = 2`, the largest absolute entry for `p = Inf`. Both arrays must have
+real entries.
 """
 function norm_diff(A::AbstractArray, B::AbstractArray, p::Real = 2)
+  eltype(A) <: Real && eltype(B) <: Real || _real_error(:norm_diff)
   size(A) == size(B) || throw(DimensionMismatch())
   T = float(promote_type(eltype(A), eltype(B)))
-  v = real(zero(T))
+  v = zero(T)
   if p == 2
     return _norm_diff2(A, B)
   elseif p == Inf
@@ -598,8 +596,8 @@ end
 # Preserve the inexpensive sum-of-squares path at ordinary scales. Outside
 # its representable range, hypot accumulates the norm without squaring the
 # unscaled differences and without constructing a temporary array. Equal
-# arrays also have a zero sum of squares; a vectorized sum of |real| + |imag|
-# of the differences confirms them without hypot.
+# arrays also have a zero sum of squares; a vectorized sum of absolute
+# differences confirms them without hypot.
 function _norm_diff2(A::AbstractArray, B::AbstractArray)
   s = _sumabs2_diff(A, B)
   T = typeof(s)
@@ -609,7 +607,7 @@ function _norm_diff2(A::AbstractArray, B::AbstractArray)
     a = zero(T)
     @inbounds @simd for i in eachindex(A, B)
       d = S(_norm_difference(A[i], B[i]))
-      a += abs(real(d)) + abs(imag(d))
+      a += abs(d)
     end
     iszero(a) && return s
   end
@@ -626,7 +624,7 @@ end
 function _sumabs2_diff(x::AbstractArray, y::AbstractArray)
   size(x) == size(y) || throw(DimensionMismatch("the arrays have sizes $(size(x)) and $(size(y))"))
   T = float(promote_type(eltype(x), eltype(y)))
-  s = real(zero(T))
+  s = zero(T)
   @inbounds @simd for i in eachindex(x, y)
     s += abs2(T(_norm_difference(x[i], y[i])))
   end

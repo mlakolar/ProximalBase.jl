@@ -251,8 +251,7 @@ end
 
   nested = Scaled(SeparableSum(s, SqrNormL2(3)), 2)
   S = Symmetric([1. 2.; 2. 3.])
-  H = Hermitian(ComplexF64[1 2+im; 2-im 3])
-  for matrix in (S, H)
+  for matrix in (S,)
     product = hessian_vec(nested, (point, matrix), (direction, matrix))
     @test all(map(isapprox, product[1], expected))
     @test product[2] isa Matrix

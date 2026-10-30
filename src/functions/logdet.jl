@@ -54,6 +54,7 @@ struct LogDetLoss{T<:_BlasReal} <: AbstractFunction
 end
 
 function LogDetLoss(S::AbstractMatrix, w::Real = 1)
+  eltype(S) <: Real || _real_error(:LogDetLoss)
   T = float(promote_type(eltype(S), typeof(w)))
   T <: _BlasReal || throw(ArgumentError("LogDetLoss needs Float32 or Float64 entries, got $T"))
   LogDetLoss{T}(Matrix{T}(Symmetric(S)), convert(T, w))
@@ -65,11 +66,11 @@ isproximable(::Type{<:LogDetLoss}) = true
 isconvex(::Type{<:LogDetLoss}) = true
 
 function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::LogDetLoss{T}, Y::AbstractMatrix, X::AbstractMatrix) where {T}
+  _checkreal(f, X)
+  _checkreal(f, Y)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(Y, X)
   _checksize(Y, X)
   size(X) == size(f.S) || throw(DimensionMismatch("X has size $(size(X)) and S $(size(f.S))"))
-  _checkreal(f, X)
-  op === value_and_prox! && _checkreal(f, Y)
   true
 end
 
@@ -77,7 +78,6 @@ end
 # positive definite
 function _logdet_chol!(f::LogDetLoss{T}, X::AbstractMatrix) where {T}
   size(X) == size(f.S) || throw(DimensionMismatch("X has size $(size(X)) and S $(size(f.S))"))
-  _checkreal(f, X)
   all(isfinite, X) && _issymmetric_tol(X) || return nothing
   C = f.C
   copyto!(C, X)
@@ -100,6 +100,7 @@ function _logdet_scratch!(f::LogDetLoss)
 end
 
 function (f::LogDetLoss{T})(X::AbstractMatrix) where {T}
+  _checkreal(f, X)
   X = _is_device_array(X) ? copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X) : X
   ld = _logdet_chol!(f, X)
   ld === nothing ? _valtype(X)(Inf) : _value_at(_logdet_value(f, X, ld), X)

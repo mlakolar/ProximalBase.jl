@@ -35,7 +35,13 @@ mutable struct AtomIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <:
   active::Vector{Int}      # active[1:nactive] are the active groups, in the order they joined
   position::Vector{Int}    # position[k] is the index of group k in active, 0 if it is inactive
   nactive::Int
+  function AtomIterate{T, G}(storage, groups, group_of, layout_cache, active, position, nactive) where {T, G<:AbstractVector{<:AbstractVector{<:Integer}}}
+    T <: Real || _real_error(:AtomIterate)
+    new{T, G}(storage, groups, group_of, layout_cache, active, position, nactive)
+  end
 end
+AtomIterate(storage::Vector{T}, groups::G, group_of::Vector{Int}, layout_cache, active::Vector{Int}, position::Vector{Int}, nactive::Int) where {T, G<:AbstractVector{<:AbstractVector{<:Integer}}} =
+  AtomIterate{T, G}(storage, groups, group_of, layout_cache, active, position, nactive)
 
 _stored_values(x::AtomIterate) = x.storage
 _scaled_dot(a, x::AtomIterate, s) = _scaled_dot(a, x.storage, s)
@@ -199,6 +205,8 @@ function Base.similar(x::AtomIterate, ::Type{S}) where {S}
   AtomIterate{S, typeof(x.groups)}(zeros(S, length(x)), x.groups, x.group_of, x.layout_cache, zeros(Int, K), zeros(Int, K), 0)
 end
 
+Base.convert(::Type{<:AtomIterate{T}}, ::AbstractArray) where {T<:Complex} = _real_error(:AtomIterate)
+
 Base.copy(x::AtomIterate{T, G}) where {T, G} =
   AtomIterate{T, G}(copy(x.storage), x.groups, x.group_of, x.layout_cache, copy(x.active), copy(x.position), x.nactive)
 
@@ -236,6 +244,7 @@ Base.Vector(x::AtomIterate) = copy(x.storage)
 ## as BLAS on the active columns whether the groups are contiguous or not
 
 function *(A::StridedMatrix{Ta}, x::AtomIterate{Tx}) where {Ta, Tx}
+  _checkreal(x, A)
   size(A, 2) == length(x) || throw(DimensionMismatch())
   mul!(Vector{promote_type(Ta, Tx)}(undef, size(A, 1)), A, x)
 end
@@ -243,6 +252,7 @@ end
 LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::AtomIterate) =
   mul!(out, A, x, true, false)
 function LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::AtomIterate, α::Number, β::Number)
+  _checkreal(x, out); _checkreal(x, A); _checkreal(x, α); _checkreal(x, β)
   size(A, 2) == length(x) || throw(DimensionMismatch("A has second dimension $(size(A, 2)), length of x is $(length(x))"))
   size(A, 1) == length(out) || throw(DimensionMismatch("A has first dimension $(size(A, 1)), length of out is $(length(out))"))
   _scale_product_output!(out, β)
@@ -260,11 +270,13 @@ function LinearAlgebra.mul!(out::AbstractVector, A::StridedMatrix, x::AtomIterat
 end
 
 function *(A::_StridedSymmetric, x::AtomIterate{T}) where {T}
+  _checkreal(x, A)
   mul!(Vector{promote_type(eltype(A), T)}(undef, size(A, 1)), A, x)
 end
 LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::AtomIterate) =
   mul!(out, A, x, true, false)
 function LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::AtomIterate, α::Number, β::Number)
+  _checkreal(x, out); _checkreal(x, A); _checkreal(x, α); _checkreal(x, β)
   length(x) == size(A, 2) && length(out) == size(A, 1) || throw(DimensionMismatch())
   _scale_product_output!(out, β)
   iszero(α) && return out
@@ -276,10 +288,11 @@ function LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::AtomIte
   out
 end
 
-# dot(v, x) = Σ conj(vⱼ) xⱼ over the entries of the active groups of x; other
+# dot(v, x) = Σ vⱼ xⱼ over the entries of the active groups of x; other
 # vectors than these take the generic method, as SparseArrays has its own for
 # sparse vectors
 function LinearAlgebra.dot(v::Union{StridedVector, SparseIterate{<:Any, 1}, AtomIterate}, x::AtomIterate)
+  _checkreal(x, v)
   length(v) == length(x) || throw(DimensionMismatch())
   s = zero(promote_type(eltype(v), eltype(x)))
   @inbounds for a in 1:x.nactive, j in x.groups[x.active[a]]
@@ -287,7 +300,7 @@ function LinearAlgebra.dot(v::Union{StridedVector, SparseIterate{<:Any, 1}, Atom
   end
   s
 end
-LinearAlgebra.dot(x::AtomIterate, v::Union{StridedVector, SparseIterate{<:Any, 1}}) = conj(dot(v, x))
+LinearAlgebra.dot(x::AtomIterate, v::Union{StridedVector, SparseIterate{<:Any, 1}}) = dot(v, x)
 
 
 function Base.show(io::IO, ::MIME"text/plain", x::AtomIterate)

@@ -117,8 +117,13 @@ function _poly_order(l, u)
   end
 end
 
-function IndPolyhedron(A::AbstractMatrix{<:Real}, l, u, xmin = -Inf, xmax = Inf;
+function IndPolyhedron(A::AbstractMatrix, l, u, xmin = -Inf, xmax = Inf;
                        maxiter::Integer = 100 * (sum(size(A)) + 1))
+  eltype(A) <: Real || _real_error(:IndPolyhedron)
+  eltype(l) <: Real || _real_error(:IndPolyhedron)
+  eltype(u) <: Real || _real_error(:IndPolyhedron)
+  eltype(xmin) <: Real || _real_error(:IndPolyhedron)
+  eltype(xmax) <: Real || _real_error(:IndPolyhedron)
   m, n = size(A)
   maxiter > 0 || throw(ArgumentError("maxiter must be positive"))
   T = float(eltype(A))
@@ -215,6 +220,8 @@ function _checkparams(f::IndPolyhedron, x)
 end
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndPolyhedron, y, x)
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checkparams(f, x)
   y isa AbstractVector || throw(DimensionMismatch("IndPolyhedron requires a vector output"))
   _checksize(y, x)
@@ -239,6 +246,7 @@ function _poly_dot(A::SparseMatrixCSC, i, x, s)
 end
 
 function (f::IndPolyhedron{T})(x::AbstractArray) where {T}
+  _checkreal(f, x)
   _checkparams(f, x)
   V = float(eltype(x))
   S = promote_type(T, V)

@@ -414,9 +414,6 @@ end
   @test blocks_approx(p[1], prox(2s, x, 0.5))
   @test p[2][1] isa Matrix{Float64} && p[2][1] ≈ S / 2
   @test p[2][2] isa Matrix{Float64} && p[2][2] ≈ H / 3
-  Hc = Hermitian(ComplexF64[1 2+im; 2-im 3])
-  p = prox(SeparableSum(ZeroFunction()), (Hc,))
-  @test p[1] isa Matrix{ComplexF64} && p[1] == Hc
 end
 
 @testset "tuple conjugates" begin

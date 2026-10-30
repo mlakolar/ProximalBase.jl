@@ -86,7 +86,7 @@ function IndGraph(A; operator::Bool = !(A isa AbstractMatrix),
                   rtol::Real = _tol(float(eltype(A))),
                   maxiter::Integer = 2 * min(size(A)...) + 10)
   length(size(A)) == 2 || throw(ArgumentError("A must have two dimensions"))
-  eltype(A) <: Real || throw(ArgumentError("IndGraph requires real data"))
+  eltype(A) <: Real || _real_error(:IndGraph)
   T = float(eltype(A))
   isconcretetype(T) && T <: AbstractFloat ||
     throw(ArgumentError("A must have a concrete real floating-point workspace type"))
@@ -139,19 +139,19 @@ function _checkparams(f::IndGraph, z)
     throw(DimensionMismatch("IndGraph blocks must be vectors"))
   length(z[1]) == length(f.x) && length(z[2]) == length(f.y) ||
     throw(DimensionMismatch("IndGraph needs blocks of lengths $(length(f.x)) and $(length(f.y))"))
-  eltype(z[1]) <: Real && eltype(z[2]) <: Real ||
-    throw(ArgumentError("IndGraph requires real blocks"))
   true
 end
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndGraph, out, z)
+  _checkreal(f, z)
+  _checkreal(f, out)
   _checkparams(f, z)
   _checkparams(f, out)
   _checksize(out, z)
   true
 end
 
-(f::IndGraph)(z) = _value_at(_graph_value(f, z), z)
+(f::IndGraph)(z) = (_checkreal(f, z); _value_at(_graph_value(f, z), z))
 function _graph_value(f::IndGraph{T}, z) where {T}
   _checkparams(f, z)
   x, y = z

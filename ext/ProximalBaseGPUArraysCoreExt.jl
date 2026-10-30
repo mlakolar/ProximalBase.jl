@@ -43,6 +43,8 @@ _param(w) = w
 ####################################
 
 function ProximalBase._prox_sep!(y::GPUArray, f, x::GPUArray, γ::Real)
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkparams(f, x)
   y .= prox_entry.(Ref(f), x, LinearIndices(x), γ)
@@ -51,7 +53,7 @@ end
 
 _term(f, v, i, ::Type{T}) where {T} = convert(T, value_entry(f, v, i))
 ProximalBase._value_dense(f, x::GPUArray) =
-  (T = _valtype(x); _sum(T, _term, Ref(f), x, LinearIndices(x), T))
+  (_checkreal(f, x); T = _valtype(x); _sum(T, _term, Ref(f), x, LinearIndices(x), T))
 
 ####################################
 #  The built-in functions with parameter arrays
@@ -62,12 +64,15 @@ ProximalBase._value_dense(f, x::GPUArray) =
 _scalar(y, a) = convert(float(eltype(y)), a)
 
 function ProximalBase._prox_sep!(y::GPUArray, f::NormL1, x::GPUArray, γ::Real)
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkparams(f, x)
   y .= shrink.(x, _WeightLevel(_group_levels(float(eltype(y)), γ, f.λ0)...).(_reshapeparam(_param(f.w), x)))
 end
 # Keep the ordinary reduction; recover exceptional sums in power-of-two units.
 function ProximalBase._value_dense(f::NormL1, x::GPUArray)
+  _checkreal(f, x)
   T = float(eltype(x))
   f.w === nothing && iszero(f.λ0) && return zero(T)
   _level_fits(T, f.λ0) || return _scaled_l1_value(f.λ0, x, _reshapeparam(_param(f.w), x))
@@ -89,11 +94,14 @@ ProximalBase._converted_l1_value(λ, x::GPUArray) = _scaled_l1_value(λ, x, true
 end
 
 function ProximalBase._prox_sep!(y::GPUArray, f::NormL1Nonneg, x::GPUArray, γ::Real)
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkparams(f, x)
   y .= max.(x .- _WeightLevel(_group_levels(float(eltype(y)), γ, f.λ0)...).(_reshapeparam(_param(f.w), x)), 0)
 end
 function ProximalBase._value_dense(f::NormL1Nonneg, x::GPUArray)
+  _checkreal(f, x)
   T = float(eltype(x))
   t = _tol(T)
   _all(v -> v >= -t, x) || return T(Inf)
@@ -102,11 +110,14 @@ function ProximalBase._value_dense(f::NormL1Nonneg, x::GPUArray)
 end
 
 function ProximalBase._prox_sep!(y::GPUArray, f::ElasticNet, x::GPUArray, γ::Real)
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkparams(f, x)
   y .= shrink.(x, _weight_coefficient.(_scalar(y, γ * f.λ1), _reshapeparam(_param(f.w), x))) ./ (1 + _scalar(y, γ * f.λ2))
 end
 function ProximalBase._value_dense(f::ElasticNet, x::GPUArray)
+  _checkreal(f, x)
   T = float(eltype(x))
   λ1 = _scalar(x, f.λ1)
   # the weights in the element type; a level that is not positive and finite
@@ -128,6 +139,8 @@ function ProximalBase._value_dense(f::ElasticNet, x::GPUArray)
 end
 
 function ProximalBase._prox_sep!(y::GPUArray, f::IndBox, x::GPUArray, ::Real)
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkparams(f, x)
   y .= clamp.(x, _reshapeparam(f.l, x), _reshapeparam(f.u, x))
@@ -140,12 +153,14 @@ end
 (b::_InBox)(v, l, u) = ProximalBase._inbox(v, l, u, b.t)
 
 function ProximalBase._value_dense(f::IndBox, x::GPUArray)
+  _checkreal(f, x)
   T = float(eltype(x))
   _all(_InBox(_tol(T)), x, _reshapeparam(f.l, x), _reshapeparam(f.u, x)) ? zero(T) : T(Inf)
 end
 
-ProximalBase._prox_sep!(y::GPUArray, ::IndNonnegative, x::GPUArray, ::Real) = (_checksize(y, x); y .= max.(x, 0))
-function ProximalBase._value_dense(::IndNonnegative, x::GPUArray)
+ProximalBase._prox_sep!(y::GPUArray, f::IndNonnegative, x::GPUArray, ::Real) = (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); y .= max.(x, 0))
+function ProximalBase._value_dense(f::IndNonnegative, x::GPUArray)
+  _checkreal(f, x)
   T = float(eltype(x))
   t = _tol(T)
   _all(v -> v >= -t, x) ? zero(T) : T(Inf)
@@ -154,7 +169,7 @@ end
 # the value of SqrNormL2 with a center: Σ (xᵢ - yᵢ)² as one reduction
 function ProximalBase._sumabs2_diff(x::GPUArray, y::GPUArray)
   size(x) == size(y) || throw(DimensionMismatch("the arrays have sizes $(size(x)) and $(size(y))"))
-  T = typeof(real(zero(float(promote_type(eltype(x), eltype(y))))))
+  T = float(promote_type(eltype(x), eltype(y)))
   _sum(T, (a, b) -> abs2(a - b), x, y)
 end
 
@@ -176,7 +191,7 @@ end
 # Spectral decompositions already run on the host; retain that boundary for
 # the exceptional trace reduction too.
 ProximalBase._scaled_trace_value(f::ProximalBase.TracePSD, X::GPUArray{<:Any, 2}) =
-  ProximalBase._scaled_trace_value(f, Array(X))
+  (_checkreal(f, X); ProximalBase._scaled_trace_value(f, Array(X)))
 
 # The ℓ∞ norm, the ℓ1 ball and the simplex clip or shrink the entries at the level τ with
 # Σᵢ max(g(xᵢ) - τ, 0) = r, for g = abs or the identity, which the CPU finds by
@@ -208,7 +223,9 @@ end
   convert(T, _scaled_product(convert(R, λ), convert(R, n) / 2, 2k))
 end
 
-function ProximalBase._norm2_shrink!(::NormL2, y::GPUArray, x::GPUArray, c)
+function ProximalBase._norm2_shrink!(f::NormL2, y::GPUArray, x::GPUArray, c)
+  _checkreal(f, x)
+  _checkreal(f, y)
   T = float(eltype(x))
   scale = mapreduce(abs, max, x; init = zero(T))
   if isfinite(scale) && scale > one(T)
@@ -251,7 +268,7 @@ function _level(x::GPUArray, r::T, g::G) where {T, G}
   end
 end
 
-(f::NormLinf)(x::GPUArray) = ProximalBase._weighted_normlinf(f.λ, x)
+(f::NormLinf)(x::GPUArray) = (_checkreal(f, x); ProximalBase._weighted_normlinf(f.λ, x))
 function ProximalBase._weighted_normlinf(λ::Real, x::GPUArray)
   T = float(eltype(x))
   n = mapreduce(abs, max, x; init = zero(T))
@@ -261,6 +278,8 @@ function ProximalBase._weighted_normlinf(λ::Real, x::GPUArray)
 end
 
 function ProximalBase.value_and_prox!(y::GPUArray, f::NormLinf, x::GPUArray, γ::Real)
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   T = float(eltype(y))
   if iszero(f.λ)
@@ -278,11 +297,14 @@ function ProximalBase.value_and_prox!(y::GPUArray, f::NormLinf, x::GPUArray, γ:
 end
 
 function (f::IndBallL1)(x::GPUArray)
+  _checkreal(f, x)
   T = float(eltype(x))
   _sum(T, abs, x) <= f.r + _tol(T) * max(one(T), f.r) ? zero(T) : T(Inf)
 end
 
 function ProximalBase.prox!(y::GPUArray, f::IndBallL1, x::GPUArray, ::Real)
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   T = float(eltype(y))
   r = convert(T, f.r)
@@ -295,6 +317,8 @@ function ProximalBase.prox!(y::GPUArray, f::IndBallL1, x::GPUArray, ::Real)
 end
 
 function ProximalBase.prox!(y::GPUArray, f::IndSimplex, x::GPUArray, ::Real)
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   T = float(eltype(y))
   r = convert(T, f.r)
@@ -380,21 +404,21 @@ ProximalBase.isproximable(::Type{<:DeviceGroups{F}}) where {F} = ProximalBase.is
 ProximalBase.isconvex(::Type{<:DeviceGroups{F}}) where {F} = ProximalBase.isconvex(F)
 ProximalBase._isindicator(::Type{<:DeviceGroups{F}}) where {F} = ProximalBase._isindicator(F)
 
-(d::DeviceGroups)(x::AbstractArray) = d.f(x)
-ProximalBase.prox!(y::AbstractArray, d::DeviceGroups, x::AbstractArray, γ::Real) = prox!(y, d.f, x, γ)
-ProximalBase.value_and_prox!(y::AbstractArray, d::DeviceGroups, x::AbstractArray, γ::Real) = value_and_prox!(y, d.f, x, γ)
+(d::DeviceGroups)(x::AbstractArray) = (_checkreal(d, x); d.f(x))
+ProximalBase.prox!(y::AbstractArray, d::DeviceGroups, x::AbstractArray, γ::Real) = (_checkreal(d, x); _checkreal(d, y); prox!(y, d.f, x, γ))
+ProximalBase.value_and_prox!(y::AbstractArray, d::DeviceGroups, x::AbstractArray, γ::Real) = (_checkreal(d, x); _checkreal(d, y); value_and_prox!(y, d.f, x, γ))
 
-(d::DeviceGroups)(x::GPUArray) = _value(d.f, d.layout, x)
-ProximalBase.value_and_prox!(y::GPUArray, d::DeviceGroups, x::GPUArray, γ::Real) = _group_prox!(y, d.f, d.layout, x, γ, Val(true))
-ProximalBase.prox!(y::GPUArray, d::DeviceGroups, x::GPUArray, γ::Real) = (_group_prox!(y, d.f, d.layout, x, γ, Val(false)); y)
+(d::DeviceGroups)(x::GPUArray) = (_checkreal(d, x); _value(d.f, d.layout, x))
+ProximalBase.value_and_prox!(y::GPUArray, d::DeviceGroups, x::GPUArray, γ::Real) = (_checkreal(d, x); _checkreal(d, y); _group_prox!(y, d.f, d.layout, x, γ, Val(true)))
+ProximalBase.prox!(y::GPUArray, d::DeviceGroups, x::GPUArray, γ::Real) = (_checkreal(d, x); _checkreal(d, y); _group_prox!(y, d.f, d.layout, x, γ, Val(false)); y)
 
 # a function left on the host builds the layout on the device of x at each call
 _on_device(f, x) = DeviceGroups(f, A -> copyto!(similar(x, eltype(A), size(A)), A))
 for F in (:GroupNormL2, :GroupNormLinf, :SparseGroupNormL2, :IndBallGroupL0)
   @eval begin
-    (f::$F)(x::GPUArray) = _on_device(f, x)(x)
-    ProximalBase.prox!(y::GPUArray, f::$F, x::GPUArray, γ::Real) = prox!(y, _on_device(f, x), x, γ)
-    ProximalBase.value_and_prox!(y::GPUArray, f::$F, x::GPUArray, γ::Real) = value_and_prox!(y, _on_device(f, x), x, γ)
+    (f::$F)(x::GPUArray) = (_checkreal(f, x); _on_device(f, x)(x))
+    ProximalBase.prox!(y::GPUArray, f::$F, x::GPUArray, γ::Real) = (_checkreal(f, x); _checkreal(f, y); prox!(y, _on_device(f, x), x, γ))
+    ProximalBase.value_and_prox!(y::GPUArray, f::$F, x::GPUArray, γ::Real) = (_checkreal(f, x); _checkreal(f, y); value_and_prox!(y, _on_device(f, x), x, γ))
   end
 end
 
@@ -583,13 +607,15 @@ end
 
 # GroupNormL2: block soft thresholding
 _value(f::GroupNormL2, lay, x) =
-  (_checkgroups(f, x); T = float(eltype(x)); iszero(f.λ0) ? zero(T) : _l2_part(T, vec(x), lay, f.λ0))
+  (_checkreal(f, x); _checkgroups(f, x); T = float(eltype(x)); iszero(f.λ0) ? zero(T) : _l2_part(T, vec(x), lay, f.λ0))
 
 _scale(v, t, _) = t * v
 
 # Value reductions return host scalars and can synchronize the device. Compile
 # them out for prox!, while sharing the actual proximal calculation.
 function _group_prox!(y, f::GroupNormL2, lay, x, γ::Real, ::Val{V}) where {V}
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkgroups(f, x)
   S = float(eltype(y))
@@ -611,6 +637,7 @@ end
 
 # SparseGroupNormL2: soft thresholding, then block soft thresholding
 function _value(f::SparseGroupNormL2, lay, x)
+  _checkreal(f, x)
   _checkgroups(f, x)
   T = float(eltype(x))
   xv = vec(x)
@@ -629,6 +656,8 @@ end
 (s::_SparseScale{T})(v, t, g) where {T} = g <= s.K ? t * shrink(convert(T, v), s.c) : v
 
 function _group_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real, ::Val{V}) where {V}
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkgroups(f, x)
   S = float(eltype(y))
@@ -661,6 +690,7 @@ end
 # projection onto an ℓ1 ball, whose level Michelot's algorithm finds for all
 # the groups of a block at once, as _level does for one vector
 function _value(f::GroupNormLinf, lay, x)
+  _checkreal(f, x)
   _checkgroups(f, x)
   T = float(eltype(x))
   iszero(f.λ0) && return zero(T)
@@ -697,6 +727,8 @@ function _linf_levels(X, b::_GroupBlock, c)
 end
 
 function _group_prox!(y, f::GroupNormLinf, lay, x, γ::Real, ::Val{V}) where {V}
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkgroups(f, x)
   S = float(eltype(y))
@@ -717,6 +749,7 @@ end
 
 # IndBallGroupL0: the number of nonzero groups, and of nonzero entries in a group
 function _value(f::IndBallGroupL0, lay, x)
+  _checkreal(f, x)
   _checkgroups(f, x)
   xv = vec(x)
   nz, ok = 0, true
@@ -735,6 +768,8 @@ _keep(v, keep, _) = keep ? v : zero(v)
 # groups first among ties. With a bound k on the entries of a group, it would
 # need a selection inside each group, which runs on the CPU only.
 function _group_prox!(y, f::IndBallGroupL0, lay, x, ::Real, ::Val)
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkgroups(f, x)
   f.k == typemax(Int) ||
@@ -806,10 +841,11 @@ end
 # and run as they are; the proximal operator needs the SVD of X
 _reject_device_leastsquares() =
   throw(ArgumentError("the proximal operator of LeastSquaresLoss uses the SVD of X, by LAPACK, and runs on the CPU only"))
-ProximalBase.prox!(::AbstractVecOrMat, ::_DeviceLeastSquares, ::AbstractVecOrMat, ::Real) =
-  _reject_device_leastsquares()
-ProximalBase._checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::_DeviceLeastSquares,
-                        ::AbstractVecOrMat, ::AbstractVecOrMat) = _reject_device_leastsquares()
+ProximalBase.prox!(y::AbstractVecOrMat, f::_DeviceLeastSquares, x::AbstractVecOrMat, ::Real) =
+  (_checkreal(f, x); _checkreal(f, y); _reject_device_leastsquares())
+ProximalBase._checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::_DeviceLeastSquares,
+                        y::AbstractVecOrMat, x::AbstractVecOrMat) =
+  (_checkreal(f, x); _checkreal(f, y); _reject_device_leastsquares())
 
 # wᵢ ℓ(ηᵢ, yᵢ) and wᵢ ℓ'(ηᵢ, yᵢ) in type T, as the loops of the CPU compute them
 struct _ObsValue{T, L}
@@ -830,11 +866,14 @@ function (o::_ObsDeriv{T})(η, y, w) where {T}
 end
 
 function (f::_DeviceGLM{L, T})(β::AbstractVector) where {L, T}
+  _checkreal(f, β)
   η = ProximalBase._linear_predictor!(f, β)
   return _value_at(_sum(T, _ObsValue{T}(f.loss), η, f.y, _param(f.weights)), β)
 end
 
 function ProximalBase.value_and_gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::AbstractVector) where {L, T}
+  _checkreal(f, β)
+  _checkreal(f, g)
   ProximalBase._checkgradient_output(g, β)
   _checksize(g, β)
   η = ProximalBase._linear_predictor!(f, β)
@@ -846,6 +885,8 @@ function ProximalBase.value_and_gradient!(g::AbstractVector, f::_DeviceGLM{L, T}
 end
 
 function ProximalBase.gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::AbstractVector) where {L, T}
+  _checkreal(f, β)
+  _checkreal(f, g)
   ProximalBase._checkgradient_output(g, β)
   _checksize(g, β)
   η = ProximalBase._linear_predictor!(f, β)

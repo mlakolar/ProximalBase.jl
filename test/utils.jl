@@ -128,27 +128,13 @@ end
   x = SparseIterate([0., 2., 0.])
   @test norm_diff(x, [1., 1., 1.]) ≈ sqrt(3)
   @test Vector(SparseIterate(0)) == Float64[]
-  for T in (ComplexF32, ComplexF64), dims in ((12,), (3, 4), (0,))
-    A, B = randn(T, dims), randn(T, dims)
-    for C in (B, real.(B)), p in (2, Inf)
-      R = typeof(real(zero(T)))
-      value = norm_diff(A, C, p)
-      @test value isa R
-      @test value ≈ norm(A - C, p)
-      @test ProximalBase.Testing.allocations(norm_diff, A, C, p) == 0
-    end
-    @test ProximalBase._sumabs2_diff(A, B) ≈ sum(abs2, A - B)
-    @test ProximalBase._sumabs2_diff(A, B) isa typeof(real(zero(T)))
-  end
   for T in (Float32, Float64), scale in (floatmin(T), floatmax(T) / T(16))
     a, b = scale .* T[3, 4], zeros(T, 2)
     @test norm_diff(a, b) / scale ≈ T(5)
-    @test norm_diff(complex.(a, a), complex.(b, b)) / scale ≈ sqrt(T(50))
     @test ProximalBase.Testing.allocations(norm_diff, a, b) == 0
   end
   for T in (Float32, Float64), x in (T[NaN, Inf], T[Inf, NaN])
     @test isnan(norm_diff(x, zero(x)))
-    @test isnan(norm_diff(complex.(x, zero(x)), zero(complex.(x, zero(x)))))
   end
 end
 
@@ -161,12 +147,10 @@ end
     expected = Float64(abs(BigInt(a)-BigInt(b)))
     @test norm_diff([a], [b]) == expected
     @test norm_diff([a], [b], Inf) == expected
-    @test norm_diff([complex(a, a)], [complex(b, b)]) ≈ sqrt(2)*expected
   end
   # Bool has no widened type; master accepted Bool arrays.
   @test norm_diff([true, false, true], [false, false, false]) == sqrt(2)
   @test norm_diff([true, false], [false, true], Inf) == 1
-  @test norm_diff([true], [complex(false, true)]) == sqrt(2)
 end
 
 @testset "buffers" begin

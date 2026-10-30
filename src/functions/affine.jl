@@ -45,6 +45,8 @@ struct IndAffine{T<:AbstractFloat, M, F} <: AbstractFunction
 end
 
 function IndAffine(A::AbstractMatrix, b::AbstractVector; μ::Union{Nothing, Real} = nothing)
+  eltype(A) <: Real || _real_error(:IndAffine)
+  eltype(b) <: Real || _real_error(:IndAffine)
   m, n = size(A)
   length(b) == m || throw(DimensionMismatch("A has $m rows and b has length $(length(b))"))
   T = float(promote_type(eltype(A), eltype(b)))
@@ -86,16 +88,17 @@ _isindicator(::Type{<:IndAffine}) = true
 isconvex(::Type{<:IndAffine}) = true
 
 _checkaffine(f::IndAffine, x::AbstractArray) = (length(x) == size(f.A, 2) ||
-  throw(DimensionMismatch("x has length $(length(x)) and A has $(size(f.A, 2)) columns")); _checkreal(f, x))
+  throw(DimensionMismatch("x has length $(length(x)) and A has $(size(f.A, 2)) columns")))
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndAffine{T, M, <:Cholesky}, y::AbstractVector, x::AbstractVector) where {T<:AbstractFloat, M} =
-  (_checksize(y, x); _checkaffine(f, x); true)
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkaffine(f, x); true)
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndAffine{T, M, T}, y::AbstractVector, x::AbstractVector) where {T<:AbstractFloat, M} =
-  (_checksize(y, x); _checkaffine(f, x); true)
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkaffine(f, x); true)
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndAffine{T, M, Tuple{Matrix{T}, Vector{T}}}, y::AbstractVector, x::AbstractVector) where {T<:AbstractFloat, M} =
-  (_checksize(y, x); _checkaffine(f, x); true)
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkaffine(f, x); true)
 
 function (f::IndAffine{T})(x::AbstractVector) where {T}
+  _checkreal(f, x)
   _checkaffine(f, x)
   S = float(promote_type(T, eltype(x)))
   R = float(eltype(x))

@@ -17,6 +17,84 @@ ProximalBase.iszeropreserving(::ScaledSquare) = true
 # the values agree, including Inf for a point outside a set
 same(a, b) = isinf(b) ? a == b : a ≃ b
 
+@testset "real entries on GPU arrays" begin
+  allowscalar(false)
+  groups = [1:2, 3:4]
+  functions = (ScaledSquare(0.6), NormL1(0.3), NormL1(0), NormL1Nonneg(0.3),
+               ElasticNet(0.3, 0.5), IndBox(-1, 1), IndNonnegative(),
+               SqrNormL2(0.7, ones(4)), NormL2(0.3), NormLinf(0.3), NormLinf(0),
+               IndBallL1(1), IndBallL1(0), IndSimplex(1), IndSimplex(0),
+               GroupNormL2(0.3, groups), GroupNormL2(0, groups),
+               GroupNormLinf(0.3, groups), SparseGroupNormL2(0.2, 0.3, groups),
+               IndBallGroupL0(1, groups), GroupNormL2(0.3, UnitRange{Int}[]))
+  for f in functions, fg in (f, Adapt.adapt(DeviceArray, f))
+    error = ArgumentError("$(nameof(typeof(fg))) requires real entries")
+    for imaginary in (0, 1)
+      x = DeviceArray(fill(0.5, 4))
+      z = DeviceArray(fill(complex(0.5, imaginary), 4))
+      @test_throws error fg(z)
+      @test_throws error prox(fg, z, 0.8)
+      for op in (prox!, value_and_prox!)
+        for (input, output) in ((z, DeviceArray(fill(17.0, 4))),
+                                (x, DeviceArray(fill(17.0 + 2im, 4))),
+                                (z, DeviceArray(fill(17.0 + 2im, 4))), (z, z))
+          before = host(output)
+          @test_throws error op(output, fg, input, 0.8)
+          @test host(output) == before
+        end
+      end
+    end
+    # Adapted group functions also accept host arrays.
+    if fg !== f
+      x, z = fill(0.5, 4), fill(0.5 + 0im, 4)
+      @test_throws error fg(z)
+      for op in (prox!, value_and_prox!), (input, output) in ((z, fill(17.0, 4)), (x, fill(17.0 + 2im, 4)))
+        before = copy(output)
+        @test_throws error op(output, fg, input, 0.8)
+        @test output == before
+      end
+    end
+  end
+  # Diagonal and group step arrays are checked before the CPU fallback writes.
+  for f in (NormL1(0.3), GroupNormL2(0.3, groups)), op in (prox!, value_and_prox!)
+    x, y = DeviceArray(fill(0.5, 4)), DeviceArray(fill(17.0, 4))
+    step = DeviceArray(fill(0.8 + 0im, f isa GroupNormL2 ? 2 : 4))
+    @test_throws ArgumentError("$(nameof(typeof(f))) requires real entries") op(y, f, x, step)
+    @test host(y) == fill(17.0, 4)
+  end
+  for f in (LeastSquaresLoss(ones(3), ones(3, 4)), LogisticLoss(ones(3), ones(3, 4)))
+    fg = Adapt.adapt(DeviceArray, f)
+    error = ArgumentError("$(nameof(typeof(fg))) requires real entries")
+    # Initialize every cache so preservation does not depend on uninitialized data.
+    fg(DeviceArray(fill(0.5, 4)))
+    buffers = fg isa GLMLoss ? (fg.η, fg.d) : (fg.tmp,)
+    foreach(b -> fill!(b, 13), buffers)
+    saved = map(host, buffers)
+    for imaginary in (0, 1)
+      x, z = DeviceArray(fill(0.5, 4)), DeviceArray(fill(complex(0.5, imaginary), 4))
+      @test_throws error fg(z)
+      for op in (gradient!, value_and_gradient!),
+          (input, output) in ((z, DeviceArray(fill(17.0, 4))),
+                              (x, DeviceArray(fill(17.0 + 2im, 4))),
+                              (z, DeviceArray(fill(17.0 + 2im, 4))), (z, z))
+        before = host(output)
+        @test_throws error op(output, fg, input)
+        @test host(output) == before
+        @test map(host, buffers) == saved
+      end
+      if fg isa LeastSquaresLoss
+        for op in (prox!, value_and_prox!),
+            (input, output) in ((z, DeviceArray(fill(17.0, 4))), (x, DeviceArray(fill(17.0 + 2im, 4))))
+          before = host(output)
+          @test_throws error op(output, fg, input, 0.8)
+          @test host(output) == before
+          @test map(host, buffers) == saved
+        end
+      end
+    end
+  end
+end
+
 @testset "separable functions on GPU arrays" begin
   allowscalar(false)
   n = 300
@@ -314,10 +392,6 @@ end
   groups = [1:2, 3:4]
   for T in test_types, scale in (floatmin(T), floatmax(T) / T(16))
     @test norm_diff(DeviceArray(scale .* T[3, 4]), DeviceArray(zeros(T, 2))) / scale ≃ T(5)
-    cx = DeviceArray(complex.(scale .* T[3, 4], scale .* T[3, 4]))
-    cy = DeviceArray(zeros(Complex{T}, 2))
-    @test norm_diff(cx, cy) isa T
-    @test norm_diff(cx, cy) / scale ≃ sqrt(T(50))
     # The shared Euclidean routines fall back to GPUArrays' scaled norm.
     xv = scale .* T[3, 4]
     @test NormL2(one(T))(DeviceArray(xv)) / scale ≃ T(5)

@@ -259,8 +259,9 @@ value_and_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Real) 
   (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 
 function _value_and_prox_groups!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Union{Real, AbstractVector})
-  iszero(f.λ0) && !_has_infinite_group_weight(f.w) ?
-    _sparse_group_prox!(y, f, x, γ, Val(true)) : _sparse_group_prox!(y, f, x, γ, Val(false))
+  _samelayout(f, x) && _samelayout(f, y) ||
+    return invoke(_value_and_prox_groups!, Tuple{AbstractArray, SparseGroupNormL2, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
+  _sparse_group_prox!(y, f, x, γ, Val(false))
 end
 
 function _sparse_group_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Union{Real, AbstractVector}, ::Val{Z}) where {Z}

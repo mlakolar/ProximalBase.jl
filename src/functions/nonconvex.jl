@@ -416,7 +416,7 @@ _check_prox_group_scalars(f::_RadialGroupPenalty, ::Type{T}, y, x) where {T} =
   _check_group_scalars(f, T, eachindex(f.groups))
 function _check_prox_group_scalars(f::_RadialGroupPenalty, ::Type{T}, y::AtomIterate, x::AtomIterate) where {T}
   if _samelayout(f, x) && _samelayout(f, y)
-    return _check_group_scalars(f, T, x.active, x.nactive)
+    return _check_group_scalars(f, T, x.active, x.nactive, Val(false))
   end
   _check_group_scalars(f, T, eachindex(f.groups))
 end
@@ -527,8 +527,9 @@ function _radial_group_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::Abstra
 end
 
 function _value_and_prox_groups!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::Union{Real, AbstractVector})
-  _ordinary_radial_groups(f, float(eltype(y))) ?
-    _radial_group_prox!(y, f, x, γ, Val(true)) : _radial_group_prox!(y, f, x, γ, Val(false))
+  _samelayout(f, x) && _samelayout(f, y) ||
+    return invoke(_value_and_prox_groups!, Tuple{AbstractArray, _RadialGroupPenalty, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
+  _radial_group_prox!(y, f, x, γ, Val(false))
 end
 
 function _radial_group_prox!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}

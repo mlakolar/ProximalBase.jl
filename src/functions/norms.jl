@@ -745,11 +745,10 @@ function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::Ato
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
   copyto!(y, x)
-  iszero(f.λ0) && !_has_infinite_group_weight(f.w) && return zero(T)
   v = zero(T)
   for a in 1:y.nactive
     k = y.active[a]
-    iszero(f.w[k]) && continue
+    (iszero(f.w[k]) || (iszero(f.λ0) && !isinf(f.w[k]))) && continue
     nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, _weight_product(_entry(γ, k), f.λ0, f.w[k])))
     v += _group_value(f, f.λ0, f.w[k], nrm, y.storage, f.groups[k], T)
   end

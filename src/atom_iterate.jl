@@ -160,10 +160,9 @@ use [`prox_coordinate!`](@ref)`(x, f, k, u, γ)`.
 `norm` and `dot` of the view read the storage directly (BLAS for contiguous
 groups), while other BLAS routines take generic paths for it.
 """
-# groups are a validated partition; only the group index needs a bounds check
 function atom(x::AtomIterate, k::Integer)
   G = x.groups[k]
-  @inbounds view(x, G)
+  @inbounds view(x, G)    # groups are a validated partition; only k needs a bounds check
 end
 
 # raw storage writes leave activation to the caller

@@ -322,4 +322,33 @@ end
   end
 end
 
+@testset "finite nonzero group levels retain base values" begin
+  for T in (Float32, Float64), w in (T[1, Inf], T[Inf, 1])
+    fixed = findfirst(isinf, w)
+    free = 3 - fixed
+    x0 = zeros(T, 2)
+    x0[free] = T(0.5)
+    x = copy(x0)
+    x[fixed] = T(2)
+    for f in (GroupNormL2(one(T), [[1], [2]], w),
+        GroupNormLinf(one(T), [[1], [2]], w),
+        SparseGroupNormL2(one(T), one(T), [[1], [2]], w))
+      expected = f isa SparseGroupNormL2 ? one(T) : T(0.5)
+      for input in (x0, AtomIterate(x0, f), AtomIterate(x0, [[1, 2]]))
+        @test f(input) == expected
+      end
+      for input in (x, AtomIterate(x, f), AtomIterate(x, [[1, 2]]))
+        @test f(input) == T(Inf)
+      end
+    end
+  end
+  for f in (GroupNormL2(1e300, [[1]], [1e10]),
+      GroupNormLinf(1e300, [[1]], [1e10]),
+      SparseGroupNormL2(1.0, 1e300, [[1]], [1e10]))
+    x = [1e-300]
+    @test f(x) ≈ 1e10
+    @test f(AtomIterate(x, f)) ≈ 1e10
+  end
+end
+
 end

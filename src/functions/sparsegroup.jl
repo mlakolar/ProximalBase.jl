@@ -182,6 +182,7 @@ end
 end
 
 function (f::SparseGroupNormL2)(x::AbstractArray)
+  isfinite(f.λ0) && !iszero(f.λ0) && return _sparse_group_value(f, x, Val(true))
   isfinite(f.λ1) && _ordinary_group_weights(f, float(eltype(x))) ?
     _sparse_group_value(f, x, Val(true)) : _sparse_group_value(f, x, Val(false))
 end
@@ -232,6 +233,7 @@ end
 # with the groups of f, only the active groups count
 function (f::SparseGroupNormL2)(x::AtomIterate)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
+  isfinite(f.λ0) && !iszero(f.λ0) && return _sparse_group_value(f, x, Val(true))
   isfinite(f.λ1) && _ordinary_group_weights(f, float(eltype(x)), x.active, x.nactive) ?
     _sparse_group_value(f, x, Val(true)) : _sparse_group_value(f, x, Val(false))
 end

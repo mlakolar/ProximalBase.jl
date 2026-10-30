@@ -629,6 +629,7 @@ function _rescaled_group_prox!(f, y, x, G, c::S, scale, W = nothing)::S where {S
 end
 
 function (f::HomogeneousGroupNorm)(x::AbstractArray)
+  isfinite(f.λ0) && !iszero(f.λ0) && return _homogeneous_group_value(f, x, Val(true))
   _ordinary_group_weights(f, float(eltype(x))) ?
     _homogeneous_group_value(f, x, Val(true)) : _homogeneous_group_value(f, x, Val(false))
 end
@@ -764,6 +765,7 @@ end
 # with the groups of f, only the active groups count
 function (f::HomogeneousGroupNorm)(x::AtomIterate)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
+  isfinite(f.λ0) && !iszero(f.λ0) && return _homogeneous_group_value(f, x, Val(true))
   _ordinary_group_weights(f, float(eltype(x)), x.active, x.nactive) ?
     _homogeneous_group_value(f, x, Val(true)) : _homogeneous_group_value(f, x, Val(false))
 end

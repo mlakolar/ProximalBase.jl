@@ -332,6 +332,36 @@ end
   end
 end
 
+@testset "zero-target rounded shifts" begin
+  for γ in (3.0, [3.0]), op in (prox!, value_and_prox!), alias in (false, true)
+    c = Constrained(IndBox(-1.0, 1.0), IndHyperplane(1.0, 0.0))
+    x = [1.0]
+    y = alias ? x : [7.0]
+    result = op(y, c, x, γ)
+    @test y == [0.0]
+    @test op === prox! ? result === y : result == 0.0
+  end
+end
+
+@testset "subnormal constraint products" begin
+  δ = nextfloat(0f0)
+  for a in (1.5f0, Float32[1.5]), γ in (1f0, Float32[1]), op in (prox!, value_and_prox!), alias in (false, true)
+    c = Constrained(IndBox(0f0, 1f0), IndHyperplane(a, 2δ))
+    x = Float32[δ]
+    y = alias ? x : Float32[7]
+    saved = copy(y)
+    @test_throws ArgumentError op(y, c, x, γ)
+    @test y == saved
+  end
+  for γ in (1f0, Float32[1]), op in (prox!, value_and_prox!)
+    c = Constrained(IndBox(0f0, 1f0), IndHyperplane(0.25f0, δ))
+    y = Float32[7]
+    op(y, c, Float32[δ], γ)
+    @test y == Float32[4δ]
+    @test 0.25 * Float64(y[1]) == Float64(δ)
+  end
+end
+
 @testset "ordinary passes and Float32 warm hits" begin
   for T in (Float32, Float64), scale in (one(T), floatmin(T), floatmax(T))
     steps = PB._search_steps(fill(scale, 2), T)

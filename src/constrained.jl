@@ -351,11 +351,10 @@ _with_steps(g::_SearchSteps{G, T, M}, steps) where {G, T, M} =
 
 # Move the step normalization out of ordinary array passes. Keep the scaled
 # expression when the unscaled shifts overflow or lose relative precision.
-struct _PassSteps{G, T, U}
+struct _PassSteps{G, T}
   steps::G
   multiplier::T
 end
-_PassSteps(g::G, ν::T) where {G, T} = _PassSteps{G, T, false}(g, ν)
 Base.@propagate_inbounds _entry(g::_PassSteps, i) = _entry(g.steps, i)
 Base.@propagate_inbounds _shift(g, μ, i, ::Type{T}) where {T} = _ratio(g, i, T) * μ
 Base.@propagate_inbounds _shift(g::_PassSteps, μ, i, ::Type{T}) where {T} =
@@ -370,18 +369,10 @@ Base.@propagate_inbounds _ratio(g::_PassSteps, i, ::Type{T}) where {T} = _ratio(
   done(g)
 end
 
-@inline function _pass_steps(done::F, g, μ::T, a) where {F, T}
-  _pass_steps(g, μ) do steps
-    if steps isa _PassSteps && a isa Real && isone(convert(T, a))
-      return done(_PassSteps{typeof(steps.steps), T, true}(steps.steps, steps.multiplier))
-    end
-    done(steps)
-  end
-end
+@inline _pass_steps(done::F, g, μ::T, a) where {F, T} = _pass_steps(done, g, μ)
+# Round the step times the multiplier before subtracting, including unit normals.
 Base.@propagate_inbounds _shifted_entry(g, μ, a, x, i, ::Type{T}) where {T} =
   muladd(-_shift(g, μ, i, T), a, x)
-Base.@propagate_inbounds _shifted_entry(g::_PassSteps{G, S, true}, μ, a, x, i, ::Type{T}) where {G, S, T} =
-  muladd(-convert(T, _entry(g, i)), g.multiplier, x)
 
 @noinline _invalid_linear_step() =
   throw(ArgumentError("the steps of LinearConstrained must be positive and finite"))
@@ -613,24 +604,27 @@ function _constraint_gap(f, a, b, x::AbstractArray, ν::T, γ, v::Val,
     _constraint_gap_pass(f, a, b, x, ν, steps, v, fixed, mass)
   end
 end
-Base.@propagate_inbounds function _gap_term(f, a, x, ν::T, γ, i, ::Type{A}, ::Val{S}) where {T, A, S}
+Base.@propagate_inbounds function _gap_term(f, a, x, ν::T, γ, i, ::Type{A}, ::Val{S}, ::Val{W} = Val(false)) where {T, A, S, W}
   aᵢ = convert(T, _entry(a, i))
   γᵢ = convert(T, _entry(γ, i))
   v = _shifted_entry(γ, ν, aᵢ, x[i], i, T)
   z, dz = S ? _prox_entry_slope(f, v, i, γᵢ) : (prox_entry(f, v, i, γᵢ), zero(T))
   t = convert(A, aᵢ) * convert(A, convert(T, z))
   d = S ? _ratio(γ, i, T) * aᵢ * aᵢ * convert(T, dz) : zero(T)
-  t, d
+  tiny = W && (abs(t) < floatmin(T)) & !iszero(aᵢ) & !iszero(z)
+  t, d, tiny
 end
 function _constraint_gap_pass(f, a, b, x::AbstractArray, ν::T, γ, v::Val, fixed, mass) where {T}
   A = _gap_accumulator(f, T)
   _constraint_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, Val(T === Float32 && A === Float32))
 end
 function _constraint_gap_pass(f, a, b, x::AbstractArray, ν::T, γ, v::Val{S}, fixed, mass, ::Val{false}) where {T, S}
-  A = _gap_accumulator(f, T)
+  _accumulated_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, _gap_accumulator(f, T))
+end
+function _accumulated_gap_pass(f, a, b, x, ν::T, γ, v::Val{S}, fixed, mass, ::Type{A}) where {T, S, A}
   s, m, d = zero(A), zero(A), zero(T)
   @inbounds @simd for i in eachindex(IndexLinear(), x)
-    t, di = _gap_term(f, a, x, ν, γ, i, A, v)
+    t, di, _ = _gap_term(f, a, x, ν, γ, i, A, v)
     s += t
     m += abs(t)
     S && (d += di)
@@ -647,23 +641,38 @@ function _constraint_gap_pass(f, a, b, x::AbstractArray, ν::Float32, γ, v::Val
   end
   _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, Val(false))
 end
-function _float32_gap_pass(f, a, b, x, ν, γ, v::Val{S}, fixed, mass, ::Val{P}) where {S, P}
+function _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, p::Val)
+  # Multiplication by a unit normal cannot underflow a nonzero point.
+  wide = !(a isa Real && isone(abs(Float32(a))))
+  _float32_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, p, Val(wide))
+end
+function _float32_gap_pass(f, a, b, x, ν, γ, v::Val{S}, fixed, mass, ::Val{P}, w::Val{W}) where {S, P, W}
   # Widen the residual, not the proximal calculation. For a scalar normal and
   # nonnegative range, its mass is the absolute signed sum.
   s, m, d = 0.0, 0.0, 0f0
+  tiny = false
   @inbounds @simd for i in eachindex(IndexLinear(), x)
-    t, di = _gap_term(f, a, x, ν, γ, i, Float32, v)
+    t, di, underflow = _gap_term(f, a, x, ν, γ, i, Float32, v, w)
+    tiny |= underflow
     s += Float64(t)
     !P && (m += Float64(abs(t)))
     S && (d += di)
   end
+  # Relative product error is unbounded near underflow. Repeat only those
+  # exceptional passes with wide products, before any residual can certify.
+  tiny && return _accumulated_gap_pass(f, a, b, x, ν, γ, v, fixed, mass, Float64)
   _gap_result(f, s, P ? abs(s) : m, d, b, fixed, mass, Float32, v)
 end
 @inline function _gap_result(f, s, m, d, b, fixed, mass, ::Type{T}, ::Val{S}) where {T, S}
   A = typeof(s)
   b = convert(A, convert(T, b))
   R = _gap_result_type(f, T)
-  φ, M = R((s + fixed) - b), R((m + mass) + abs(b))
+  residual = (s + fixed) - b
+  φ, M = R(residual), R((m + mass) + abs(b))
+  # A nonzero wide residual must not become an exact hit when converted back.
+  if R === Float32 && iszero(φ) && !iszero(residual)
+    φ = copysign(nextfloat(0f0), residual)
+  end
   S ? (φ, M, -d) : (φ, M)
 end
 

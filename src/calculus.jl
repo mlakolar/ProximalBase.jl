@@ -10,9 +10,10 @@ struct _ScaledArray{T, N, A<:AbstractArray} <: AbstractArray{T, N}
   c::T
 end
 _ScaledArray(g::AbstractArray{T, N}, c) where {T, N} = (S = promote_type(T, typeof(c)); _ScaledArray{S, N, typeof(g)}(g, S(c)))
+_ScaledArray{T}(g::AbstractArray{<:Any, N}, c) where {T, N} = _ScaledArray{T, N, typeof(g)}(g, convert(T, c))
 Base.size(a::_ScaledArray) = size(a.g)
 Base.IndexStyle(::Type{<:_ScaledArray}) = IndexLinear()
-Base.@propagate_inbounds Base.getindex(a::_ScaledArray, i::Int) = a.c * a.g[i]
+Base.@propagate_inbounds Base.getindex(a::_ScaledArray{T}, i::Int) where {T} = a.c * convert(T, a.g[i])
 
 struct _ShiftedArray{T, N, A<:AbstractArray, C<:AbstractArray} <: AbstractArray{T, N}
   g::A
@@ -36,12 +37,22 @@ The function `α f(x)` for `α ≥ 0`, with the roles of `f`: its gradient is
 `α ∇f`, and its proximal operator `prox_{γαf}`, so that `0.5 * f` halves a loss
 and `(1/n) * f` averages one.
 
+When `α f(x)` overflows or underflows although it is representable, the value
+is computed with the scale folded into the level for `NormL1`, `NormL1Nonneg`,
+`NormL2`, `NormLinf`, `ElasticNet`, the homogeneous group norms,
+`SparseGroupNormL2`, `NuclearNorm`, `TracePSD`, and the support functions of
+the ℓ1 and ℓ2 balls.
+
 At zero scale, supported finite-parameter penalties and losses simplify to
 [`ZeroFunction`](@ref), while an indicator retains its domain and is returned
-unchanged. A weighted ℓ1-type penalty (`NormL1`, `NormL1Nonneg`, `ElasticNet`)
-whose weights include `Inf` becomes the same penalty at a zero level, keeping
-those entries fixed at zero; it is not an indicator type, so wrappers that
-require one still reject it. Zero scaling of other functions is rejected when
+unchanged. Zero scaling removes finite penalty terms and keeps domain
+constraints. For `NormL1`, `NormL1Nonneg`, `ElasticNet`, `CappedL1`,
+`LogPenalty`, `NormLq` and `Berhu`, an infinite weight retains the same family
+with all levels zero, keeping those entries fixed at zero. With finite weights,
+`NormL1Nonneg` becomes `IndNonnegative()` and the others become `ZeroFunction()`.
+Non-finite levels or shape parameters are rejected. The retained zero-level
+family is not an indicator type, so wrappers that require one still reject it.
+Zero scaling of other functions is rejected when
 the package has no domain-preserving proximal representation.
 """
 struct Scaled{F<:AbstractFunction, T<:Real} <: AbstractFunction
@@ -67,6 +78,12 @@ _finite_zero(f, parameters...) = all(_finite_parameter, parameters) ? ZeroFuncti
 function _zero_scaled(f::NormL1)
   isfinite(f.λ0) || _zero_scale_error(f)
   _finite_parameter(f.w) ? ZeroFunction() : NormL1(zero(f.λ0), f.w)
+end
+for (F, shape) in ((CappedL1, :a), (LogPenalty, :ε), (NormLq, :q), (Berhu, :M))
+  @eval function _zero_scaled(f::$F)
+    isfinite(f.λ) && isfinite(f.$shape) || _zero_scale_error(f)
+    _finite_parameter(f.w) ? ZeroFunction() : $F(zero(f.λ), f.$shape, f.w)
+  end
 end
 _zero_scaled(f::Union{GroupNormL2, GroupNormLinf}) = _finite_zero(f, f.λ0, f.w)
 _zero_scaled(f::SparseGroupNormL2) = _finite_zero(f, f.λ0, f.λ1, f.w)
@@ -95,17 +112,73 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Scaled{F}}) where {F} = $trait(F)
 end
 
-(s::Scaled)(x) = _value_at(s.α * s.f(x), x)
+# Fold a scale into a normal level, retaining exact zero levels.
+function _folded_level(λ, α)
+  iszero(λ) && return λ
+  c = α * λ
+  isfinite(c) && !iszero(c) && _level_fits(typeof(float(c)), c) ? c : nothing
+end
+_fold_level(::AbstractFunction, α) = nothing
+for (F, level) in ((:NormL1, :λ0), (:NormL1Nonneg, :λ0), (:NormL2, :λ), (:NormLinf, :λ))
+  args = F in (:NormL1, :NormL1Nonneg) ? :(c, f.w) : :(c,)
+  @eval function _fold_level(f::$F, α)
+    c = _folded_level(f.$level, α)
+    c === nothing ? nothing : $F($(args.args...))
+  end
+end
+function _fold_level(f::ElasticNet, α)
+  c1, c2 = _folded_level(f.λ1, α), _folded_level(f.λ2, α)
+  c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
+end
+function _fold_level(f::Union{GroupNormL2, GroupNormLinf}, α)
+  c = _folded_level(f.λ0, α)
+  c === nothing ? nothing : _rebuild(f, c, f.groups, f.w)
+end
+function _fold_level(f::SparseGroupNormL2, α)
+  c1, c0 = _folded_level(f.λ1, α), _folded_level(f.λ0, α)
+  c1 === nothing || c0 === nothing ? nothing : SparseGroupNormL2(c1, c0, f.groups, f.w)
+end
+function _fold_level(f::NuclearNorm, α)
+  c = _folded_level(f.λ, α)
+  c === nothing && return nothing
+  g = NuclearNorm(c; partial = f.partial)
+  g.ws, g.pws = f.ws, f.pws
+  g
+end
+function _fold_level(f::TracePSD, α)
+  c = _folded_level(f.λ, α)
+  c === nothing && return nothing
+  g = TracePSD(c; partial = f.partial)
+  g.eig, g.pws, g.out, g.diag = f.eig, f.pws, f.out, f.diag
+  g
+end
+_fold_level(f::Scaled, α) = _fold_level(f.f, α * f.α)
+
+# Retry exceptional products in the function's own units and domain.
+@noinline function _scaled_value_recover(s, x, r)
+  g = _fold_level(s.f, s.α)
+  g === nothing ? r : convert(typeof(r), g(x))
+end
+_scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
+@inline function _scaled_value(s, x, v, recover_inner_small = true)
+  r = s.α * v
+  if (!isfinite(r) && s.α < 1) || (_scaled_small(r) && !iszero(v)) ||
+     (recover_inner_small && _scaled_small(v) && s.α > 1)
+    return _scaled_value_recover(s, x, r)
+  end
+  r
+end
+(s::Scaled)(x) = _value_at(_scaled_value(s, x, s.f(x)), x)
 _checkvalue(s::Scaled, x) = _checkvalue(s.f, x)
 _scale!(g::AbstractArray, α) = (g .*= α)
 _scale!(g::Tuple, α) = (map(gk -> _scale!(gk, α), g); g)
-value_and_gradient!(g, s::Scaled, x) = (_checkwrite(value_and_gradient!, s, g, x); v = value_and_gradient!(g, s.f, x); _scale!(g, s.α); _value_at(s.α * v, x))
+value_and_gradient!(g, s::Scaled, x) = (_checkwrite(value_and_gradient!, s, g, x); v = value_and_gradient!(g, s.f, x); _scale!(g, s.α); _value_at(_scaled_value(s, x, v), x))
 gradient!(g, s::Scaled, x) = (_checkwrite(gradient!, s, g, x); gradient!(g, s.f, x); _scale!(g, s.α))
 prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(prox!, s, y, x); prox!(y, s.f, x, s.α * γ))
-value_and_prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); _value_at(s.α * value_and_prox!(y, s.f, x, s.α * γ), y))
+value_and_prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); v = value_and_prox!(y, s.f, x, s.α * γ); _value_at(_scaled_value(s, y, v, false), y))
 Base.@propagate_inbounds prox_entry(s::Scaled, v::Real, i::Integer, γ::Real) = prox_entry(s.f, v, i, s.α * γ)
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
-_checkwrite(op::O, s::Scaled, y, x) where {O} = _checkwrite(op, s.f, y, x)
+_checkwrite(op::O, s::Scaled, y, x) where {O} = ((op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checkwrite(op, s.f, y, x))
 iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 # a scaled group penalty updates a group of an AtomIterate with a scaled step
@@ -130,8 +203,8 @@ The function `f(x) + ⟨c, x⟩ + d`, with the roles of `f`. Its proximal operat
 is that of `f` at `x - γc`, and its gradient `∇f + c`. The linear terms of
 augmented Lagrangians and of duality take this form.
 The proximal operator passes `x - γc` to `f` in a buffer that the function owns,
-so do not share one object between threads; when `f` throws, the output is unchanged,
-except for a `SparseIterate` or `SymmetricSparseIterate` output.
+so do not share one object between threads. A rejected inner call leaves the output
+unchanged. Sparse iterate buffers preserve stored entries and their order. `Symmetric` and `Hermitian` outputs are unsupported.
 """
 struct Tilt{F<:AbstractFunction, C<:AbstractArray, D<:Real} <: AbstractFunction
   f::F
@@ -153,6 +226,7 @@ value_and_gradient!(g, t::Tilt, x) = (_checkwrite(value_and_gradient!, t, g, x);
 gradient!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, x); g .+= t.c)
 
 function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}}
+  _checkgradient_output(g, x)
   _checkparams(t, x)
   Base.Broadcast.check_broadcast_axes(axes(g), t.c)
   _check_symmetric_source(g, t.c)
@@ -160,6 +234,7 @@ function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), ty
 end
 
 function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _check_wrapper_output(y)
   _checksize(y, x)
   _checkparams(t, x)
   Base.Broadcast.check_broadcast_axes(axes(y), x, t.c)
@@ -167,22 +242,24 @@ function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray) where {
   _checkwrite(op, t.f, y, y)
 end
 
-# A stored iterate keeps its stored entries, so a result through a buffer could
-# store fewer and sum in another order; the input is written in y, as before.
-_output_buffer!(::Scratch, y::Union{SparseIterate, SymmetricSparseIterate}) = y
-
 # x - γc in a buffer owned by t, so that y is unchanged when f throws
 function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checkwrite(prox!, t, y, x)
   z = _output_buffer!(t.scratch, y)
   z .= x .- convert(float(eltype(y)), γ) .* t.c
-  prox!(y, t.f, z, γ)
+  w = _wrapper_output(y, z)
+  prox!(w, t.f, z, γ)
+  _wrapper_commit!(y, w)
 end
 function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
   z = _output_buffer!(t.scratch, y)
   z .= x .- convert(float(eltype(y)), γ) .* t.c
-  _value_at(value_and_prox!(y, t.f, z, γ) + dot(t.c, y) + t.d, y)
+  w = _wrapper_output(y, z)
+  v = value_and_prox!(w, t.f, z, γ)
+  v = _value_at(v + dot(t.c, w) + t.d, w)
+  _wrapper_commit!(y, w)
+  v
 end
 Base.@propagate_inbounds prox_entry(t::Tilt, v::Real, i::Integer, γ::Real) = prox_entry(t.f, v - γ * t.c[i], i, γ)
 _checkparams(t::Tilt, x) = (_checkparam(t.c, x); _checkreal(t, x); _checkparams(t.f, x))
@@ -201,9 +278,10 @@ The function `f(x - b)`, with the roles of `f`: its gradient is `∇f(x - b)` an
 its proximal operator `b + prox_{γf}(x - b)`. For example, `Translate(NormL1(λ), β₀)`
 is the penalty `λ ‖β - β₀‖₁` that shrinks towards `β₀`.
 Values and gradients use a shifted buffer in the argument's precision, and the
-proximal operator one in the output's, so do not share one object between threads;
-when `f` throws, the output is unchanged, except for a `SparseIterate` or
-`SymmetricSparseIterate` output.
+proximal operator one in the output's, so do not share one object between threads.
+A rejected inner call leaves the output unchanged. Sparse iterate buffers preserve
+stored entries and their order.
+`Symmetric` and `Hermitian` outputs are unsupported.
 """
 struct Translate{F<:AbstractFunction, B<:AbstractArray} <: AbstractFunction
   f::F
@@ -237,7 +315,7 @@ gradient!(g, t::Translate, x::AbstractArray) =
   (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, _shifted(t, x)))
 
 _checkwrite(op::O, t::Translate, g, x::AbstractArray) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
-  (_check_symmetric_source(g, t.b); _checkwrite(op, t.f, g, _checkshifted(t, x)))
+  (_checkgradient_output(g, x); _check_symmetric_source(g, t.b); _checkwrite(op, t.f, g, _checkshifted(t, x)))
 
 function _checkshifted(t::Translate, x::AbstractArray)
   size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
@@ -247,6 +325,7 @@ end
 _checkvalue(t::Translate, x::AbstractArray) = _checkvalue(t.f, _checkshifted(t, x))
 
 function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _check_wrapper_output(y)
   _checksize(y, x)
   _checksize(t.b, x)
   _checkparams(t, x)
@@ -260,15 +339,19 @@ function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checkwrite(prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
   z .= x .- t.b
-  prox!(y, t.f, z, γ)
-  y .+= t.b
+  w = _wrapper_output(y, z)
+  prox!(w, t.f, z, γ)
+  w .+= t.b
+  _wrapper_commit!(y, w)
 end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
   z .= x .- t.b
-  v = value_and_prox!(y, t.f, z, γ)
-  y .+= t.b
+  w = _wrapper_output(y, z)
+  v = value_and_prox!(w, t.f, z, γ)
+  w .+= t.b
+  _wrapper_commit!(y, w)
   _value_at(v, y)
 end
 Base.@propagate_inbounds prox_entry(t::Translate, v::Real, i::Integer, γ::Real) = t.b[i] + prox_entry(t.f, v - t.b[i], i, γ)
@@ -340,6 +423,9 @@ that is an indicator, such as that of a precomposed norm, takes its value from
 the Fenchel equality and can return a small nonzero value instead of zero;
 this is not a feasibility certificate.
 
+The support functions of the ℓ1 and ℓ2 balls follow the overflow handling of
+`NormLinf` and `NormL2`, including a radius not representable in the argument's precision.
+
 Where the conjugate is an indicator as above, and for the conjugates of
 [`IndBallL2`](@ref), [`IndBox`](@ref) and [`IndBallLinf`](@ref), their
 translations and strictly positive rescalings, and `Conjugate(Conjugate(g))`,
@@ -373,6 +459,11 @@ struct Conjugate{F<:AbstractFunction} <: AbstractFunction
   end
 end
 Conjugate(f::AbstractFunction) = Conjugate{typeof(f)}(f)
+
+function _fold_level(c::Conjugate{F}, α) where {F<:Union{IndBallL1, IndBallL2}}
+  r = _folded_level(c.f.r, α)
+  r === nothing ? nothing : Conjugate(c.f isa IndBallL1 ? IndBallL1(r) : IndBallL2(r))
+end
 
 # The conjugate of a positively homogeneous convex function, a support function
 # such as a norm, is the indicator of a set; that of the indicator of a convex
@@ -437,7 +528,10 @@ _moreau_set!(z, f::IndBallL2, x, γ) = prox!(z, IndBallL2(_dilate(γ, f.r)), x, 
 # entry by entry, inside it
 _dilated(γ::Real, b::Real) = _dilate(γ, b)
 _dilated(γ, b) = Base.Broadcast.broadcasted(_dilate, γ, b)
-_moreau_set!(z, f::IndBox, x, γ) = (z .= clamp.(x, _dilated(γ, f.l), _dilated(γ, f.u)))
+function _moreau_set!(z, f::IndBox, x, γ)
+  step = _reshapeparam(γ, x)
+  z .= clamp.(x, _dilated(step, _reshapeparam(f.l, x)), _dilated(step, _reshapeparam(f.u, x)))
+end
 _moreau_set!(z, s::Scaled, x, γ) = _moreau_point!(z, s.f, x, γ)
 function _moreau_set!(z, t::Translate, x, γ)
   z .= x .- _dilate.(γ, t.b)
@@ -698,9 +792,9 @@ function _conjugate_value(f::NormL1, y::AbstractArray)
 end
 _conjugate_value(f::NormL2, y::AbstractArray) = (_checkconjugate(f, y); T = float(eltype(y)); _ind(_within(_norm2(y), f.λ, T), T))
 _conjugate_value(f::NormLinf, y::AbstractArray) = (_checkconjugate(f, y); T = float(eltype(y)); _ind(_within(norm(y, 1), f.λ, T), T))
-_conjugate_value(f::IndBallL1, y::AbstractArray) = (_checkconjugate(f, y); convert(float(eltype(y)), f.r) * norm(y, Inf))
+_conjugate_value(f::IndBallL1, y::AbstractArray) = (_checkconjugate(f, y); _weighted_normlinf(f.r, y))
 _conjugate_value(f::IndBallL2, y::AbstractArray) =
-  (_checkconjugate(f, y); T = float(eltype(y)); iszero(f.r) ? zero(T) : convert(T, f.r) * _norm2(y))
+  (_checkconjugate(f, y); _weighted_norm2(f.r, y))
 _conjugate_value(f::IndSOC, y::AbstractArray) =
   (_checkconjugate(f, y); _soc_value(f, y, true))
 _conjugate_value(f::IndRotatedSOC, y::AbstractArray) =
@@ -803,12 +897,12 @@ Blocks may themselves be tuples for nested sums. Allocating oracles and
 [`Conjugate`](@ref) preserve this block structure.
 Before writing any output, the oracles check all blocks, including functions
 inside wrappers, against the checks their own oracles run before writing.
-A failure during computation, a check that depends on the step (such as
-`MoreauEnvelope`'s sum of its parameter and step, or [`Conjugate`](@ref)'s
-finite result at a finite input), a user-defined function whose oracles reject
-an argument that its `check_parameters` accepts, or a check that depends on the
-values of the argument (such as a hyperslab's finite inputs, or whether a box's
-output lies inside an inner box) can still leave earlier blocks written.
+Scalar-step checks also follow supported wrappers before writing. Remaining
+gaps include array steps, entrywise steps inside box and linear constraints,
+spectral and singular-value wrappers, distance wrappers, intersections, ball,
+sphere and affine constraints, `NegLog`'s square root, and `Conjugate`'s finite
+result check. Failures during computation and user-defined oracle checks beyond
+`check_parameters` can still leave earlier blocks written.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
@@ -830,6 +924,7 @@ _checkparams(s::SeparableSum, x::Tuple) = (_checkblocks(s, x); map(_checkparams,
 function _checkwrite(op::O, s::SeparableSum, y::Tuple, x::Tuple) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
   _checksize(y, x)
   _checkblocks(s, x)
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checkwrite_blocks(op, s.fs, y, x)
 end
 # block by block, by recursion on the tuples rather than a map over a closure:
@@ -850,9 +945,9 @@ _checkvalue(s::SeparableSum, x::Tuple) = (_checkparams(s, x); map(_checkvalue, s
 
 (s::SeparableSum)(x::Tuple) = (_checkparams(s, x); _value_at(sum(map((f, xk) -> f(xk), s.fs, x)), x))
 prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(prox!, s, y, x); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
+  (_checkwrite(prox!, s, y, x, γ); _checkstep(prox!, s, y, x, γ); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
 value_and_prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(value_and_prox!, s, y, x); _value_at(sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)), y))
+  (_checkwrite(value_and_prox!, s, y, x, γ); _checkstep(value_and_prox!, s, y, x, γ); _value_at(sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)), y))
 value_and_gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
   (_checkwrite(value_and_gradient!, s, g, x); _value_at(sum(map((f, gk, xk) -> value_and_gradient!(gk, f, xk), s.fs, g, x)), x))
 gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
@@ -883,6 +978,7 @@ _checkparams(s::Sum, x) = (map(f -> _checkparams(f, x), s.fs); true)
 _checkvalue(s::Sum, x) = (map(f -> _checkvalue(f, x), s.fs); true)
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::Sum, g::AbstractArray, x::AbstractArray)
+  _checkgradient_output(g, x)
   _checksize(g, x)
   _checkparams(s, x)
   _checkwrite(value_and_gradient!, first(s.fs), g, x)
@@ -942,3 +1038,59 @@ lipschitz(t::Tilt) = lipschitz(t.f)
 lipschitz(t::Translate) = lipschitz(t.f)
 lipschitz(s::Sum) = sum(lipschitz, s.fs)
 lipschitz(s::SeparableSum) = maximum(lipschitz, s.fs)
+
+_checkstep(op::O, s::Scaled, y, x, γ::Real) where {O} = _checkstep(op, s.f, y, x, s.α * γ)
+_checkstep(op::O, t::Union{Tilt, Translate}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
+  _checkstep(op, t.f, y, _StepInput(y), γ)
+
+_checkstep(op::O, s::SeparableSum, y::Tuple, x::Tuple, γ::Real) where {O} =
+  _checkstep_blocks(op, s.fs, y, x, γ)
+_checkstep_blocks(op, ::Tuple{}, ::Tuple{}, ::Tuple{}, γ) = true
+_checkstep_blocks(op::O, fs::Tuple, y::Tuple, x::Tuple, γ) where {O} =
+  (_checkstep(op, first(fs), first(y), first(x), γ); _checkstep_blocks(op, Base.tail(fs), Base.tail(y), Base.tail(x), γ))
+
+_checkstep(op::O, c::Conjugate{<:Conjugate}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
+  _checkstep(op, c.f.f, y, x, γ)
+_checkstep(op::O, c::Conjugate{<:Conjugate}, y::Tuple, x::Tuple, γ::Real) where {O} =
+  _checkstep(op, c.f.f, y, x, γ)
+function _checkstep(op::O, c::Conjugate, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  T = float(eltype(y))
+  step = convert(T, γ)
+  p = _conjugate_checkbuffer(c.scratch, y, x)
+  if op === value_and_prox! && !_isindicator(c) && !_has_conjugate_value(c.f)
+    return _checkstep(value_and_prox!, c.f, p, _StepInput(p), inv(step))
+  end
+  _moreau_free(typeof(c.f)) && return _checkstep_moreau(c.f, p, x, step)
+  _checkstep(prox!, c.f, p, _StepInput(p), inv(step))
+end
+_checkstep(op::O, c::Conjugate{<:SumLargest}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
+  _checkstep(prox!, c.f, y, x, 1)
+function _checkstep_moreau(f, y, x, γ)
+  _conjugate_isindicator(typeof(f)) && return _checkstep(prox!, f, y, x, one(γ))
+  _checkstep_moreau_set(f, y, x, γ)
+end
+_checkstep_moreau_set(f::Union{IndBox, IndBallL2}, y, x, γ) = true
+_checkstep_moreau_set(s::Scaled, y, x, γ) = _checkstep_moreau(s.f, y, x, γ)
+_checkstep_moreau_set(t::Translate, y, x, γ) = _checkstep_moreau(t.f, y, _StepInput(y), γ)
+
+_step_input(x::AbstractArray) = _StepInput(x)
+_step_input(::Tuple{}) = ()
+_step_input(x::Tuple) = (_step_input(first(x)), _step_input(Base.tail(x))...)
+
+# The step pass needs only the shape and element type of the dense buffer.
+struct _StepBuffer{T, N} <: AbstractArray{T, N}
+  dims::NTuple{N, Int}
+end
+Base.size(x::_StepBuffer) = x.dims
+_step_values(::_StepBuffer) = false
+_step_buffer(x::AbstractArray{T, N}) where {T, N} = _StepBuffer{float(T), N}(size(x))
+_step_buffer(::Tuple{}) = ()
+_step_buffer(x::Tuple) = (_step_buffer(first(x)), _step_buffer(Base.tail(x))...)
+function _checkstep(op::O, c::Conjugate, y::Tuple, x::Tuple, γ::Real) where {O}
+  p = _step_buffer(y)
+  if op === value_and_prox! && !_isindicator(c) && !_has_conjugate_value(c.f)
+    return _checkstep(value_and_prox!, c.f, p, _step_input(p), inv(γ))
+  end
+  _conjugate_isindicator(typeof(c.f)) && return _checkstep(prox!, c.f, p, x, one(float(typeof(γ))))
+  _checkstep(prox!, c.f, p, _step_input(p), inv(γ))
+end

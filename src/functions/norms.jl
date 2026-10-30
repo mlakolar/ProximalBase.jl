@@ -15,7 +15,8 @@ The Euclidean norm `f(x) = λ ‖x‖₂` (the Frobenius norm for a matrix). Its
 proximal operator shrinks `x` towards zero: `max(1 - γλ/‖x‖, 0) x`. For the
 group lasso, a sum of such norms over groups of entries, use
 [`GroupNormL2`](@ref).
-When an intermediate sum overflows although the weighted value is representable,
+When an intermediate overflows or underflows, or a weight is not representable
+in the argument's precision although the weighted value is representable,
 the value is computed in scaled units.
 """
 struct NormL2{T<:Real} <: AbstractFunction
@@ -30,10 +31,21 @@ isconvex(::Type{<:NormL2}) = true
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL2, y::AbstractArray, x::AbstractArray) =
   (_checksize(y, x); true)
 
-function (f::NormL2)(x::AbstractArray)
+(f::NormL2)(x::AbstractArray) = _weighted_norm2(f.λ, x)
+
+function _weighted_norm2(λ::Real, x::AbstractArray)
   T = _valtype(x)
-  iszero(f.λ) && return zero(T)
-  _norm2_value(convert(T, f.λ) * _norm2(x), convert(T, f.λ), x)
+  iszero(λ) && return zero(T)
+  _level_fits(T, λ) || return _converted_norm2(λ, x)
+  _norm2_value(convert(T, λ) * _norm2(x), convert(T, λ), x)
+end
+
+# Scale in the parameter's precision, without narrowing its level first.
+@noinline function _converted_norm2(λ, x)
+  T = _valtype(x)
+  R = promote_type(T, float(typeof(λ)))
+  all(isfinite, x) || return convert(T, convert(R, λ) * _norm2(x))
+  convert(T, _scaled_norm2_value(convert(R, λ), x))
 end
 
 @inline function _norm2_value(v, λ::T, x::AbstractArray) where {T}
@@ -53,16 +65,16 @@ function _norm2_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real, :
     y === x || copyto!(y, x)
     return zero(_valtype(y))
   end
-  c = convert(T, γ) * convert(T, f.λ)
+  c = _level_product(T, γ, f.λ)
   nx = convert(T, _norm2(x))
   if nx > c
     if isinf(nx) && isfinite(c)
       n = _norm2_shrink!(f, y, x, c)
-      return V ? _norm2_value(convert(T, f.λ) * n, convert(T, f.λ), y) : zero(T)
+      return V ? (_level_fits(T, f.λ) ? _norm2_value(convert(T, f.λ) * n, convert(T, f.λ), y) : _weighted_norm2(f.λ, y)) : zero(T)
     end
     t = 1 - c / nx
     y .= t .* x
-    return V ? _norm2_value(convert(T, f.λ) * (nx - c), convert(T, f.λ), y) : zero(T)
+    return V ? (_level_fits(T, f.λ) ? _norm2_value(convert(T, f.λ) * (nx - c), convert(T, f.λ), y) : _weighted_norm2(f.λ, y)) : zero(T)
   else
     fill!(y, zero(eltype(y)))
     return zero(T)
@@ -74,25 +86,41 @@ prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = (_norm2_prox!(y
 @inline _norm2_shrink!(f::NormL2, y::AbstractArray, x::AbstractArray, c) =
   _shrink_group!(f, y, x, eachindex(IndexLinear(), x), c)
 
+# write each stored symmetric entry once, while reductions read the whole group
+struct _LowerGroupPosition
+  p::Int
+end
+@inline (lower::_LowerGroupPosition)(i) = mod1(i, lower.p) >= (i - 1) ÷ lower.p + 1
+# ordinary outputs carry no second group argument through recursive rescaling
+@inline _writes(::Nothing, G) = G
+@inline _writes(W, G) = W
+_group_writes(y::AbstractArray, G) = nothing
+_group_writes(y::SymmetricSparseIterate, G) = Iterators.filter(_LowerGroupPosition(size(y, 1)), G)
+
+@inline function _norm2_shrink!(f::NormL2, y::SymmetricSparseIterate, x::AbstractArray, c)
+  G = eachindex(IndexLinear(), x)
+  _shrink_group!(f, y, x, G, c, _group_writes(y, G))
+end
+
 # A finite input scaled by its maximum cannot need another rescaling. Keeping
 # that branch out of this call also keeps the scaled array from escaping.
-function _rescaled_group_prox!(::NormL2, y, x, G, c::S, scale)::S where {S}
+function _rescaled_group_prox!(::NormL2, y, x, G, c::S, scale, W = nothing)::S where {S}
   z = _ScaledArray(x, inv(scale))
   nx = _group_norm2(z, G)
   threshold = c / scale
   n = zero(nx)
   if nx > threshold
     t = one(nx) - threshold / nx
-    @inbounds for i in G
+    @inbounds for i in _writes(W, G)
       y[i] = t * z[i]
     end
     n = nx - threshold
   else
-    @inbounds for i in G
+    @inbounds for i in _writes(W, G)
       y[i] = zero(eltype(y))
     end
   end
-  @inbounds for i in G
+  @inbounds for i in _writes(W, G)
     y[i] *= scale
   end
   n * scale
@@ -260,6 +288,9 @@ The ℓ∞ norm `f(x) = λ maxᵢ |xᵢ|`. Its proximal operator clips the entri
 level `τ`, `sign(xᵢ) min(|xᵢ|, τ)`: by Moreau's identity it is `x` minus the
 projection onto the ℓ1 ball of radius `γλ`, which takes O(n) expected time
 (Condat's algorithm).
+When an intermediate overflows or underflows, or a weight is not representable
+in the argument's precision although the weighted value is representable,
+the value is computed in scaled units.
 """
 struct NormLinf{T<:Real} <: AbstractFunction
   λ::T
@@ -274,19 +305,31 @@ isconvex(::Type{<:NormLinf}) = true
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormLinf, y::AbstractArray, x::AbstractArray) =
   (_checksize(y, x); true)
 
-(f::NormLinf)(x::AbstractArray) = convert(_valtype(x), f.λ) * norm(x, Inf)
+(f::NormLinf)(x::AbstractArray) = _weighted_normlinf(f.λ, x)
+
+function _weighted_normlinf(λ::Real, x::AbstractArray)
+  T = _valtype(x)
+  _level_fits(T, λ) && return convert(T, λ) * norm(x, Inf)
+  _converted_normlinf(λ, x)
+end
+
+@noinline function _converted_normlinf(λ, x)
+  T = _valtype(x)
+  R = promote_type(T, float(typeof(λ)))
+  convert(T, convert(R, λ) * convert(R, norm(x, Inf)))
+end
 
 function value_and_prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
-  c = convert(T, γ) * convert(T, f.λ)
+  c = _level_product(T, γ, f.λ)
   if norm(x, 1) <= c
     fill!(y, zero(eltype(y)))
     return zero(T)
   end
   τ = _simplex_threshold!(_buffer!(f.scratch, T, length(x)), x, eachindex(IndexLinear(), x), c, abs)
   y .= sign.(x) .* min.(abs.(x), τ)
-  convert(T, f.λ) * τ
+  _level_fits(T, f.λ) ? convert(T, f.λ) * τ : _weighted_normlinf(f.λ, y)
 end
 prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Real) = (value_and_prox!(y, f, x, γ); y)
 
@@ -344,6 +387,9 @@ operator touch only the active groups. On ordinary arrays, active-set solvers ca
 f = GroupNormL2(0.5, [1:3, 4:5, [6, 8]])    # x[7] is not penalized
 prox(f, randn(8))
 ```
+When an intermediate overflows or underflows, or a weight is not representable
+in the argument's precision although the weighted value is representable,
+the value is computed in scaled units.
 """
 struct GroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: HomogeneousGroupNorm
   λ0::T
@@ -371,6 +417,9 @@ selection in multi-task problems. The weights default to `wₖ = 1`. The proxima
 operator clips each group, by Moreau's identity with the projection onto an ℓ1
 ball, and its optimality test ([`kkt_violation`](@ref)) uses the dual norm,
 `‖g[Gₖ]‖₁ - λ0 wₖ`.
+When an intermediate overflows or underflows, or a weight is not representable
+in the argument's precision although the weighted value is representable,
+the value is computed in scaled units.
 """
 struct GroupNormLinf{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: HomogeneousGroupNorm
   λ0::T
@@ -455,6 +504,35 @@ _group_norm(::GroupNormLinf, x, G) = _maxabs(x, G)
 _dual_norm(::GroupNormL2, g, G) = _group_norm2(g, G)
 _dual_norm(::GroupNormLinf, g, G) = _sumabs(g, G)
 
+# Keep the ordinary group product; recover a finite group in scaled units.
+@inline function _group_value(f, λ, w, n, x, G, ::Type{T}) where {T}
+  if _level_fits(T, λ) && _level_fits(T, w)
+    v = _positive_product(convert(T, λ), convert(T, w), n)
+    isfinite(v) && return convert(T, v)
+  end
+  convert(T, _scaled_group_value(f, λ, w, x, G, n))
+end
+
+@noinline function _scaled_group_value(f, λ, w, x, G, ordinary_norm)
+  T = float(eltype(x))
+  R = promote_type(T, float(typeof(λ)), float(typeof(w)))
+  m = convert(R, _maxabs(x, G))
+  isfinite(m) || return _positive_product(convert(R, λ), convert(R, w), convert(R, ordinary_norm))
+  e = _magnitude_exponent(m)
+  scales = _power_factors(R, -e)
+  s = err = zero(R)
+  @inbounds for i in G
+    z = abs(_scale_value(convert(R, x[i]), scales))
+    if f isa GroupNormLinf
+      s = max(s, z)
+    else
+      s, err = _compensated_add(s, err, abs2(z))
+    end
+  end
+  n = f isa GroupNormLinf ? s : sqrt(s + err)
+  _scaled_product(λ, w, n, e)
+end
+
 # the group of index i, 0 if i is in no group
 _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_of[i] : 0
 
@@ -463,20 +541,20 @@ _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_
   length(x) >= length(f.group_of) || throw(BoundsError(x, length(f.group_of)))
 
 # y[G] ← prox_{c‖⋅‖₂}(x[G]), which may be in place; returns the new norm of the group
-@inline function _shrink_group!(f::Union{NormL2, GroupNormL2}, y::AbstractArray{T}, x::AbstractArray, G, c) where {T}
+@inline function _shrink_group!(f::Union{NormL2, GroupNormL2}, y::AbstractArray{T}, x::AbstractArray, G, c, W = nothing) where {T}
   nx = _group_norm2(x, G)
   if nx > c
     if isinf(nx) && isfinite(c)
       scale = _maxabs(x, G)
-      isfinite(scale) && scale > 1 && return _rescaled_group_prox!(f, y, x, G, c, scale)
+      isfinite(scale) && scale > 1 && return _rescaled_group_prox!(f, y, x, G, c, scale, W)
     end
     t = one(nx) - c / nx
-    @inbounds for i in G
+    @inbounds for i in _writes(W, G)
       y[i] = t * x[i]
     end
     return nx - c
   else
-    @inbounds for i in G
+    @inbounds for i in _writes(W, G)
       y[i] = zero(T)
     end
     return zero(nx)
@@ -485,21 +563,21 @@ end
 
 # y[G] ← prox_{c‖⋅‖∞}(x[G]), which may be in place: the entries clipped at τ;
 # returns τ, the new norm of the group
-function _shrink_group!(f::GroupNormLinf, y::AbstractArray{T}, x::AbstractArray, G, c) where {T}
+function _shrink_group!(f::GroupNormLinf, y::AbstractArray{T}, x::AbstractArray, G, c, W = nothing) where {T}
   S = float(T)
   s = _sumabs(x, G)
   if s <= c
-    @inbounds for i in G
+    @inbounds for i in _writes(W, G)
       y[i] = zero(T)
     end
     return zero(S)
   end
   if isinf(s) && isfinite(c)
     scale = _maxabs(x, G)
-    isfinite(scale) && scale > 1 && return _rescaled_group_prox!(f, y, x, G, c, scale)
+    isfinite(scale) && scale > 1 && return _rescaled_group_prox!(f, y, x, G, c, scale, W)
   end
   τ = _simplex_threshold!(_buffer!(f.scratch, S, length(G)), x, G, convert(S, c), abs)
-  @inbounds for i in G
+  @inbounds for i in _writes(W, G)
     v = x[i]
     y[i] = sign(v) * min(abs(v), τ)
   end
@@ -509,9 +587,9 @@ end
 # A finite input can have a norm (or simplex sum) outside the working range.
 # Homogeneity lets the same kernel operate in smaller units, without losing
 # the shrinkage to c/Inf. This path is only needed for large finite entries.
-function _rescaled_group_prox!(f, y, x, G, c::S, scale)::S where {S}
-  n = _shrink_group!(f, y, _ScaledArray(x, inv(scale)), G, c / scale)
-  @inbounds for i in G
+function _rescaled_group_prox!(f, y, x, G, c::S, scale, W = nothing)::S where {S}
+  n = _shrink_group!(f, y, _ScaledArray(x, inv(scale)), G, c / scale, W)
+  @inbounds for i in _writes(W, G)
     y[i] *= scale
   end
   n * scale
@@ -523,15 +601,31 @@ function (f::HomogeneousGroupNorm)(x::AbstractArray)
   iszero(f.λ0) && return zero(T)
   v = zero(T)
   for k in eachindex(f.groups)
-    w = convert(T, f.w[k])
-    iszero(w) && continue
-    v += _positive_product(convert(T, f.λ0), w, _group_norm(f, x, f.groups[k]))
+    iszero(f.w[k]) && continue
+    v += _group_value(f, f.λ0, f.w[k], _group_norm(f, x, f.groups[k]), x, f.groups[k], T)
   end
   v
 end
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::AbstractGroupPenalty, y::AbstractArray, x::AbstractArray) =
-  (_checksize(y, x); _checkgroups(f, x); true)
+  (_checksize(y, x); _checkgroups(f, x); _check_symmetric_groups(f, y))
+
+_check_symmetric_groups(f, y::AbstractArray) = true
+
+function _check_symmetric_groups(f, y::SymmetricSparseIterate)
+  p = size(y, 1)
+  @inbounds for i in eachindex(f.group_of)
+    k = f.group_of[i]
+    iszero(k) && continue
+    r, c = mod1(i, p), (i - 1) ÷ p + 1
+    mirror = _group(f, c + (r - 1) * p)
+    if k != mirror
+      other = iszero(mirror) ? "in no group" : "in group $mirror"
+      throw(ArgumentError("the groups of $(typeof(f)) must be symmetric for a SymmetricSparseIterate output, but position ($r, $c) is in group $k and position ($c, $r) is $other"))
+    end
+  end
+  true
+end
 
 value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::Real) =
   (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
@@ -566,15 +660,14 @@ function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::A
   _copy_ungrouped!(y, f, x)
   v = zero(T)
   for k in eachindex(f.groups)
-    w = convert(T, f.w[k])
-    if iszero(w)
+    if iszero(f.w[k])
       @inbounds for i in f.groups[k]
         y[i] = x[i]
       end
       continue
     end
-    nrm = _shrink_group!(f, y, x, f.groups[k], convert(T, _positive_product(_entry(γ, k), f.λ0, f.w[k])))
-    v += convert(T, _positive_product(convert(T, f.λ0), w, nrm))
+    nrm = _shrink_group!(f, y, x, f.groups[k], convert(T, _positive_product(_entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+    v += _group_value(f, f.λ0, f.w[k], nrm, y, f.groups[k], T)
   end
   v
 end
@@ -633,9 +726,8 @@ function (f::HomogeneousGroupNorm)(x::AtomIterate)
   v = zero(T)
   for a in 1:x.nactive
     k = x.active[a]
-    w = convert(T, f.w[k])
-    iszero(w) && continue
-    v += _positive_product(convert(T, f.λ0), w, _group_norm(f, x.storage, f.groups[k]))
+    iszero(f.w[k]) && continue
+    v += _group_value(f, f.λ0, f.w[k], _group_norm(f, x.storage, f.groups[k]), x.storage, f.groups[k], T)
   end
   v
 end
@@ -653,20 +745,26 @@ function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::Ato
   v = zero(T)
   for a in 1:y.nactive
     k = y.active[a]
-    w = convert(T, f.w[k])
-    iszero(w) && continue
+    iszero(f.w[k]) && continue
     nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, _positive_product(_entry(γ, k), f.λ0, f.w[k])))
-    v += convert(T, _positive_product(convert(T, f.λ0), w, nrm))
+    v += _group_value(f, f.λ0, f.w[k], nrm, y.storage, f.groups[k], T)
   end
   v
+end
+
+# Validate the layout and group before a wrapper changes any entries.
+function _check_group_coordinate(f::AbstractGroupPenalty, x::AtomIterate, k::Integer)
+  _checksamegroups(f, x)
+  checkbounds(x.groups, k)
+  nothing
 end
 
 # group k of x shrunk in place; the group becomes active if it is nonzero, as after
 # writing to it through atom(x, k)
 function prox_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k::Integer, γ::Real)
-  _checksamegroups(f, x)
+  _check_group_coordinate(f, x, k)
   T = float(eltype(x))
-  if iszero(convert(T, f.λ0)) || iszero(convert(T, f.w[k]))
+  if iszero(f.λ0) || iszero(f.w[k])
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
     return atom(x, k)
   end

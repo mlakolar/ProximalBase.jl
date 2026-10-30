@@ -13,6 +13,12 @@ The proximal operator of a function ``g`` with step ``\gamma > 0`` is
 \operatorname{prox}_{\gamma g}(x) = \operatorname*{argmin}_z \; g(z) + \frac{1}{2\gamma}\|z - x\|^2 .
 ```
 
+The proximal oracles for linear sets, `IndPolyhedron`, `SumLargest`, the
+spectral functions (`NuclearNorm`, `IndBallRank`, `IndStiefel`, `IndPSD`,
+`TracePSD`, `Spectral` and `SingularValue`) and `LogDetLoss` do not reject
+non-finite input values: closed forms use IEEE arithmetic, and algorithms that
+cannot process them return `NaN` in every coupled output entry.
+
 It balances decreasing ``g`` against staying near ``x``, and ``\gamma`` sets the
 balance. Two cases explain the name and its uses.
 
@@ -139,6 +145,17 @@ method from the left, which ends at the exact root. [`Constrained`](@ref) on a
 box, a hyperplane, a halfspace, a hyperslab or a simplex takes the steps into
 its multiplier search, with ``z_i(\nu) = \operatorname{prox}_{\gamma_i f_i}(x_i - \gamma_i\nu a_i)``.
 
+The step contract takes a limit only where it is unique; otherwise steps must
+be positive and finite. For the coupling sets above and the multiplier searches
+of `Constrained` on a hyperplane, halfspace, hyperslab or simplex, every array
+step must be positive and finite. Invalid steps raise an `ArgumentError` before
+writing caller-owned arrays in these methods. This is a chosen contract:
+degenerate diagonal metrics need not have a unique limiting projection, since
+different sequences of steps can give different limits. `IndIsotonic` also
+requires a representable ratio of the largest to the smallest step. Scalar
+steps on indicators leave the projection unchanged. The existing behavior of
+separable functions, box constraints and per-group steps is unchanged.
+
 The curvature of a smooth ``f`` along each coordinate, a Lipschitz constant of
 ``\partial f/\partial x_k``, comes from [`coordinate_lipschitz`](@ref) and
 [`coordinate_lipschitz!`](@ref): ``\lVert X_{:,j}\rVert^2`` for least squares,
@@ -180,7 +197,10 @@ its data; its factorization type can change with the rank of `A`.
   output that only partly overlaps the input, such as a shifted view of the
   same array, is not supported. For `gradient!`, `value_and_gradient!` and
   `hessian_vec!`, pass an output separate from the input unless a method's
-  documentation says otherwise.
+  documentation says otherwise. Built-in gradient oracles throw an
+  `ArgumentError` when the gradient output is the input (or a tuple block
+  is its input block), except where the function documents that the output
+  may be the input, as for [`CubeNormL2`](@ref).
 - **The value at the result.** [`value_and_prox!`](@ref) stores the proximal
   point and returns the function's value there. Many functions get that value
   from the computation itself: the nuclear norm from the singular values it
@@ -230,8 +250,8 @@ The spectral functions and sets, `Spectral`, `SingularValue`, `NuclearNorm`,
 `IndPSD`, `IndBallRank` and `TracePSD`, accept `Float32` and `Float64`
 arguments only. Other element types raise an `ArgumentError`.
 
-Steps may be any positive real. Operations that write an output keep its
-element type: `prox!(y, f, x, γ)` with a `Float32` output writes `Float32`
+Steps follow the contract in [Steps per entry and diagonal metrics](@ref).
+Operations that write an output keep its element type: `prox!(y, f, x, γ)` with a `Float32` output writes `Float32`
 entries even when the argument, parameters and step are `Float64`. The
 allocating forms `prox`, `gradient`, `value_and_gradient` and `hessian_vec`
 make their arrays with element type `float(eltype(x))`.
@@ -317,9 +337,22 @@ the observations. The proximal operator of `LeastSquaresLoss` uses the SVD of
   [`value_entry`](@ref) run inside the kernels. One that holds arrays needs an
   `Adapt.adapt_structure` method that rebuilds it with the arrays converted
   and without checks, since inside a kernel its arrays are device arrays.
-- **Not yet.** The spectral functions and [`LogDetLoss`](@ref) (which use
-  LAPACK), the second-order methods of `GLMLoss`, and the sparse iterates run
-  on the CPU only. The GPU extension supports scalar steps; diagonal-step
+- **Host decompositions.** `NuclearNorm`, `IndBallRank`, `IndStiefel`,
+  `TracePSD`, `IndPSD` (including a rank constraint), `Spectral`,
+  `SingularValue` and `LogDetLoss` accept dense device matrices for values and
+  proximal operators, including partial decompositions. `LogDetLoss` also
+  supports `gradient!` and `value_and_gradient!`. They copy the input to cached
+  host storage, compute on the CPU, and copy the output back once. Host buffers
+  are allocated on the first call or when sizes or types change. There is no
+  device-native decomposition; include the transfer cost when choosing a backend.
+  Overflow recovery and partial fallback may copy the input again.
+  Wrapped device storage (`Symmetric`, `Hermitian`, views and transposes) is
+  outside this support; allocating `prox` on `Symmetric` returns a CPU `Matrix`.
+- **Not yet.** `LogDetLoss` Hessian products and quadratic models,
+  `QuadraticFunction` eigendecompositions, the SVD proximal path of
+  `LeastSquaresLoss`, and `Conjugate` of the host-decomposed functions above
+  remain CPU-only. The second-order methods of `GLMLoss` and the sparse iterates
+  also run on the CPU only. The GPU extension supports scalar steps; diagonal-step
   proximal methods currently use CPU loops.
 
 Normal CI checks these operations through JLArrays, a reference backend that

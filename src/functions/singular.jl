@@ -38,8 +38,11 @@ not absolutely symmetric.
 
 `isconvex` and the indicator property come from `f`. The domain of `F` is the
 finite matrices: a matrix with a non-finite entry has value `Inf`, also for a
-bounded `f` such as `NormL0`. In the value `F(X)`, singular values within a
-relative `√ε` of the largest count as zero, as they do for `IndBallRank`: the
+bounded `f` such as `NormL0`. When a decomposition is needed, a non-finite
+input gives an all-`NaN` proximal output; `value_and_prox!` returns zero for an
+indicator and `NaN` otherwise.
+In the value `F(X)`, singular values within a relative `√ε` of the largest
+count as zero, as they do for `IndBallRank`: the
 value at a proximal point of low rank then agrees with the one
 [`value_and_prox!`](@ref) returns, also for a discontinuous `f` such as
 `NormL0`. The value of `Conjugate(SingularValue(f))` is `f*` at the masked
@@ -49,10 +52,20 @@ each other.
 
 The zero mask stays correct when the largest singular value overflows, and
 when the threshold `√ε σ₁` is not a normal number: the mask then comes from the
-singular values of `X` scaled to unit range. At an overflowing spectrum,
+singular values of `X` scaled to unit range. Membership in `IndBox` and
+`IndBallLinf` is decided with the tolerance `√ε·max(1, |bound|, σ₁)`, relative to
+the spectrum. At an overflowing spectrum,
 membership in `IndBallL1`, `IndBallL2`, `IndBallLinf` and `IndBox` is decided in
 the scaled units, with the tolerance of the original ones. Whether another `f`
 evaluates an overflowing spectrum correctly depends on `f`.
+
+At a finite input whose spectrum overflows, the proximal output and the value
+returned by `value_and_prox!` are computed in scaled units for unweighted
+`NormL1`, `NormL1Nonneg`, `NormL2`, `NormLinf`, `SumLargest`,
+`ElasticNet(λ, 0)`, `IndNonnegative`, `IndBallL0`, `ZeroFunction`, and boxes
+whose bounds are all zero or infinite. Other functions keep the ordinary
+result, which may be infinite, including `SqrNormL2`, bounded balls, weighted
+penalties and compositions. This rule does not change the standalone value.
 
 $_SPECTRAL_NOTE
 """
@@ -82,12 +95,12 @@ function _vector_buffer(cache, ::Type{T}, k::Integer) where {T}
 end
 
 # the singular values of X, in descending order, owned by the workspace of F
-function _singular_values!(F::SingularValue, X::AbstractMatrix)
+function _singular_values!(F::SingularValue, X::AbstractMatrix; copied::Bool = false)
   T = float(eltype(X))
   _checkblas(F, T)
   ws = _svd_workspace(F.ws, T, size(X)...)
   F.ws = ws
-  copyto!(ws.A, X)
+  copied || copyto!(ws.A, X)
   s, = _svd!(ws; vectors = false)
   s
 end
@@ -98,9 +111,17 @@ end
 function (F::SingularValue)(X::AbstractMatrix)
   T = float(eltype(X))
   _checkblas(F, T)
-  all(isfinite, X) || return T(Inf)
-  t, scaled, k = _masked_singular_values!(F, X)
+  if _is_device_array(X)
+    ws = _svd_workspace(F.ws, T, size(X)...)
+    F.ws = ws
+    copyto!(ws.A, X)
+    all(isfinite, ws.A) || return T(Inf)
+  else
+    all(isfinite, X) || return T(Inf)
+  end
+  t, scaled, k = _masked_singular_values!(F, X; copied = _is_device_array(X))
   k > 0 && _scales_membership(F.f) && return _scaled_membership(F.f, scaled, k)
+  _relative_membership(F.f) && return _scaled_membership(F.f, t, 0)
   convert(T, F.f(t))
 end
 
@@ -108,9 +129,9 @@ end
 # to zero, in the buffer F.t. When the largest one overflows, or the threshold
 # is not a normal number, the mask comes from the singular values of X scaled
 # by 2^-k, which are returned, masked, with k.
-function _masked_singular_values!(F::SingularValue, X::AbstractMatrix)
+function _masked_singular_values!(F::SingularValue, X::AbstractMatrix; copied::Bool = false)
   T = float(eltype(X))
-  s = _singular_values!(F, X)
+  s = _singular_values!(F, X; copied)
   t = _vector_buffer(F.t, T, length(s))
   F.t = t
   if !isempty(s) && (!_finite_value(s[1]) || (s[1] > zero(T) && _tol(T) * s[1] <= floatmin(T)))
@@ -128,7 +149,7 @@ end
   ws = _svd_workspace(F.ws, T, size(X)...)
   copyto!(ws.A, X)
   k = _magnitude_exponent(_maximum_abs(ws.A))
-  _scaled_spectral_input!(ws.A, X)
+  _scaled_spectral_input!(ws.A, _is_device_array(X) ? ws.A : X)
   s, = _svd!(ws; vectors = false)
   c = _tol(T) * s[1]
   @inbounds for j in eachindex(s)
@@ -143,12 +164,19 @@ end
 function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, F, Y, X)
   T = float(eltype(Y))
+  if !all(isfinite, X)
+    fill!(Y, T(NaN))
+    return _isindicator(F) ? zero(T) : T(NaN)
+  end
   ws = _svd_workspace(F.ws, T, size(X)...)
   F.ws = ws
   copyto!(ws.A, X)
   s, U, Vt = _svd!(ws)
   t = _vector_buffer(F.t, T, length(s))
   F.t = t
+  if _scales_spectral_prox(F.f) && _spectral_overflow(s, X, ws)
+    return _scaled_wrapper_svd_prox!(Y, F, X, γ, ws, t)
+  end
   v = value_and_prox!(t, F.f, s, γ)
   # scale the singular vectors up to the last nonzero singular value
   k = 0
@@ -191,4 +219,28 @@ function _conjugate_value(F::SingularValue, Y::AbstractMatrix)
   all(isfinite, Y) || return float(eltype(Y))(Inf)
   t, = _masked_singular_values!(F, Y)
   _conjugate_value(F.f, t)
+end
+
+@noinline function _scaled_wrapper_svd_prox!(Y, F::SingularValue, X, γ, ws::SVDWorkspace{T}, t) where {T}
+  # The overflow check has restored the device input in ws.A.
+  A = _is_device_array(X) ? ws.A : X
+  e = _magnitude_exponent(convert(T, _maximum_abs(A)))
+  _scaled_spectral_input!(ws.A, A)
+  s, U, Vt = _svd!(ws)
+  σ = _maximum_abs(s)
+  v = _scaled_spectrum_prox!(t, F.f, s, γ, e)
+  # SumLargest can increase the magnitude of negative components.
+  a = _maximum_abs(t)
+  σ = isfinite(a) ? max(σ, a) : σ
+  k = 0
+  @inbounds for j in eachindex(t)
+    iszero(t[j]) || (k = j)
+  end
+  @inbounds for j in 1:k, i in axes(U, 1)
+    U[i, j] *= t[j]
+  end
+  B = Y isa StridedMatrix{T} && _blas_ready(Y) ? Y : ws.A
+  _mul_lowrank!(B, U, Vt, k, ws)
+  _spectral_rescale!(Y, B, e, max(size(X)...), σ)
+  convert(T, v)
 end

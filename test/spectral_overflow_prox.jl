@@ -30,7 +30,7 @@ function measured_alias(Y, f, X, γ)
   @allocated value_and_prox!(Y, f, Y, γ)
 end
 
-# The original full reconstruction, including its non-finite behavior.
+# The original full reconstruction for finite inputs.
 function legacy!(Y::AbstractMatrix{T}, f, X, γ) where {T}
   c = f isa Union{NuclearNorm, TracePSD} ? γ * f.λ : zero(T)
   if f isa Union{NuclearNorm, IndBallRank}
@@ -249,7 +249,7 @@ end
         @test cache.Y[:, 1:f.r] == ws.U[:, 1:f.r]
       end
 
-      @testset "unchanged finite spectra and non-finite entries" begin
+      @testset "unchanged finite spectra and nonfinite proximal rules" begin
         rng = Xoshiro(235)
         B = randn(rng, T, 5, 5)
         for X in (B, B + B', B * B'), f in functions(T, false)
@@ -260,11 +260,10 @@ end
         end
         for v in (T(NaN), T(Inf), T(-Inf)), f in functions(T, false)
           for X in (T[v 0; 0 1], T[1 v; v 1])
-            Y, R = similar(X), similar(X)
-            a = outcome!(legacy!, R, f, X, one(T))
-            b = outcome!(prox!, Y, f, X, one(T))
-            @test a === b
-            a === nothing && (@test isequal(Y, R))
+            Y = similar(X)
+            @test prox!(Y, f, X, one(T)) === Y
+            identity = f isa IndBallRank && f.r >= minimum(size(X))
+            @test isequal(Y, identity ? X : fill(T(NaN), size(X)))
           end
         end
       end
@@ -317,7 +316,8 @@ end
       @test measured(Y, f, X, γ) == 0
     end
   end
-  # Entries that overflow on conversion keep the original non-finite path.
+  # Finite entries that overflow on conversion keep the legacy arithmetic.
+  # Explicitly nonfinite inputs follow the decomposition fallback.
   X = fill(1e39, 2, 2)
   for partial in (false, true), f in (NuclearNorm(T(0.3); partial), TracePSD(T(0.3); partial),
                                      IndPSD(; partial), IndPSD(; rank = 2, partial), IndBallRank(1; partial))
@@ -325,8 +325,8 @@ end
     value = value_and_prox!(Y, f, X, one(T))
     reference = value_and_prox!(R, f, Float32.(X), one(T))
     legacy!(B, f, X, one(T))
-    @test isequal(value, reference)
-    @test isequal(Y, R)
+    @test reference === (PB._isindicator(f) ? zero(T) : T(NaN))
+    @test all(isnan, R)
     @test isequal(Y, B)
   end
 end

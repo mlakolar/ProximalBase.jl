@@ -411,8 +411,8 @@ For `k = 1` this is `λ maximum(x)`, and for `k = length(x)` it is `λ sum(x)`.
 
 Its proximal operator is `x - P_C(x)` for the capped simplex
 `C = {w : 0 ≤ wᵢ ≤ γλ, Σᵢ wᵢ = kγλ}`. Selection among its breakpoints finds
-the projection in O(n) expected time. Proximal inputs must be finite. Values
-and proximal operators use buffers that the function owns; give each thread
+the projection in O(n) expected time. Nonfinite proximal inputs give `NaN`
+in every output entry. Values and proximal operators use buffers that the function owns; give each thread
 its own `deepcopy`. Values have the argument's floating-point type, and
 [`value_and_prox!`](@ref) returns a value in the output's precision.
 """
@@ -593,7 +593,8 @@ end
 @inline _sumlargest_output(x, g, λ, w, m, e, ::Val{true}) = _positive_product(g, λ, w)
 
 # Also used by the conjugate's projection, without a Moreau subtraction.
-function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val)
+# Spectral wrappers shift the product exponent before rounding the threshold.
+function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val, shift::Int = 0)
   _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   S = float(promote_type(T, eltype(x), typeof(γ), typeof(f.λ)))
@@ -602,7 +603,7 @@ function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val)
   n = length(x)
   v = _buffer!(f.vals, S, n)
   @inbounds for (i, xi) in enumerate(x)
-    isfinite(xi) || throw(ArgumentError("SumLargest proximal inputs must be finite"))
+    isfinite(xi) || return fill!(y, T(NaN))
     v[i] = xi
   end
   if iszero(λ)
@@ -613,8 +614,8 @@ function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val)
   end
   mg, eg = frexp(g)
   ml, el = frexp(λ)
-  m, e = mg * ml, eg + el
-  c = _positive_product(g, λ, one(S))
+  m, e = mg * ml, eg + el + shift
+  c = iszero(shift) ? _positive_product(g, λ, one(S)) : _scaled_product(g, λ, shift)
   t = zero(S)
   w = _buffer!(f.work, S, n)
   if f.k < n
@@ -627,7 +628,8 @@ function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val)
   end
   @inbounds for (i, j) in enumerate(eachindex(IndexLinear(), y))
     z = f.k == n ? one(S) : clamp(w[i] - t, zero(S), one(S))
-    y[j] = _sumlargest_output(v[i], g, λ, z, m, e, projection)
+    y[j] = iszero(shift) ? _sumlargest_output(v[i], g, λ, z, m, e, projection) :
+      _sumlargest_output(v[i], one(S), c, z, m, e, projection)
   end
   y
 end
@@ -635,3 +637,11 @@ end
 prox!(y::AbstractArray{<:Real}, f::SumLargest, x::AbstractArray{<:Real}, γ::Real) =
   _sumlargest_prox!(y, f, x, γ, Val(false))
 value_and_prox!(y::AbstractArray{<:Real}, f::SumLargest, x::AbstractArray{<:Real}, γ::Real) = f(prox!(y, f, x, γ))
+
+function _checkstep(op::O, f::SumLargest, y::AbstractArray{<:Real}, x::AbstractArray{<:Real}, γ::Real) where {O}
+  T = float(eltype(y))
+  S = float(promote_type(T, eltype(x), typeof(γ), typeof(f.λ)))
+  g = S(γ)
+  isfinite(g) && g > 0 || throw(ArgumentError("γ must be finite and positive"))
+  true
+end

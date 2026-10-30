@@ -284,6 +284,17 @@ end
   end
 end
 
+@testset "merged empty-input preflight" begin
+  for op in (prox!, value_and_prox!), alias in (false, true)
+    c = Constrained(NormL1(), IndHyperplane(1, 1e100))
+    x = (Float32[3], Float64[])
+    y = alias ? x : (Float32[19], Float32[])
+    before = deepcopy(y)
+    @test_throws ArgumentError op(y, SeparableSum(SqrNormL2(), c), x, 1.0)
+    @test isequal(y, before)
+  end
+end
+
 @testset "ratio rule and validation reductions" begin
   for T in (Float32, Float64), scale in (T(3), floatmax(T), nextfloat(zero(T)))
     γ = fill(scale, 3)

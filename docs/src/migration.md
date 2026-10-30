@@ -107,3 +107,14 @@ with an array their center, shift or scale, the same way when they write into a
 | `SymmetricSparseIterate(A)`, `copyto!(x, A)` or `x .= A` with `A` not symmetric | `Symmetric(A, :L)` in place of `A` keeps the old lower-triangle values |
 | a matrix symmetric only up to rounding, such as `X' * (w .* X)` or `inv(S)` | symmetrize it, or compute it exactly symmetric: `inv(cholesky(S))`, `inv(Symmetric(S))` |
 | `copyto!(x, v)`, `map!(f, x, v)` or `axpy!(α, v, x)` with a vector `v` of `p²` entries | `reshape(v, p, p)`, which must be symmetric |
+
+## Coordinate operations of a nonseparable `MoreauEnvelope` (0.6)
+
+`restrict` of a [`MoreauEnvelope`](@ref) of a nonseparable function, including
+through any wrapper that forwards it (`Scaled`, `Tilt`, `Translate`, `Regularize`,
+`Precompose`), now throws an `ArgumentError`.
+Previously it returned a function whose values and gradients were generally
+wrong, except for group penalties. `prox_entry` and `kkt_violation` now throw
+an `ArgumentError` instead of a `MethodError`. Restricting a group-penalty
+envelope, including as the smooth term of an active-set solver, is no longer
+supported. These coordinate operations require a separable underlying function.

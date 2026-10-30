@@ -67,15 +67,27 @@ and [`NormL0`](@ref) on a box, whose scalar problems are solved exactly by
 comparing the minimizers of their convex pieces with the ends of the interval;
 the result is separable but not convex.
 
+Repeated box constraints on these three penalties are intersected entrywise in
+linear order, including boxes made by `IndBallLinf`. All array bounds must have
+equal length; the resulting array bounds have the shape of the first array
+bound. Endpoints and emptiness are compared before conversion. Same-type bounds
+keep their type. Mixed bounds use their promoted type, widened to the promoted
+floating-point type only if a selected finite endpoint would become infinite.
+Mixed integer and floating-point bounds can still round integers beyond the
+floating-point type's precision. Convex nested box constraints retain their
+composition and the empty-domain behaviour described below.
+
 For a linear constraint (including a simplex), steps must be positive and
 finite. Array steps are normalized by their maximum; a ratio below the
 smallest normal number in working precision is rejected with `ArgumentError`,
 before writing.
-The search uses the scaled multiplier `μ = max(γ)ν`. It returns a point only
-when it is finite and satisfies the constraint to the search tolerance.
+The search uses the scaled multiplier `μ = max(γ)ν`. For finite inputs, it
+returns a point only when it is finite and satisfies the constraint to the search tolerance.
 Otherwise it throws `ArgumentError`: the multiplier could not be bracketed or
 resolved in working precision. Huge steps for non-indicators can lose the
 information needed to resolve a multiplier, even when the problem is feasible.
+Nonfinite inputs follow the package's IEEE policy. A NaN search residual
+returns a NaN multiplier without replacing the stored search history.
 
 The caller must ensure that the set meets the domain of `f`. For a convex
 function on a box, the method clamps the unconstrained proximal point even
@@ -85,7 +97,11 @@ this improper case. On a hyperplane, halfspace or hyperslab, the search throws
 an `ArgumentError` if it cannot bracket a multiplier. This is not a general test
 for an empty intersection: rounding may put a point on the closure of an open
 domain, and a finite multiplier may not exist when the set meets only the
-boundary of a closed domain.
+boundary of a closed domain. Empty arguments that fail the search's own
+acceptance test are rejected before writing. Block oracles also reject clearly
+infeasible scalar boxes with scalar linear normals at finite positive scalar
+steps, when finite inputs and conservative rounding bounds certify that the
+search throws. Overflowing ranges and transformed inputs remain unchecked.
 """
 function Constrained end
 
@@ -171,7 +187,7 @@ prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) 
 value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = _value_and_prox_box!(y, c, x, γ)
 value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_box!(y, c, x, γ)
 function _value_and_prox_box!(y, c, x, γ)
-  _checkwrite(value_and_prox!, c, y, x)
+  _checkwrite(value_and_prox!, c, y, x, γ)
   _prox_sep!(y, c, x, γ)
   T = float(eltype(y))
   _isindicator(c) ? zero(T) : convert(T, c.f(y))
@@ -184,6 +200,99 @@ function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArra
   op === value_and_prox! && !_isindicator(c) && _checkvalue(c.f, y)
   true
 end
+# A step is needed only for conditional values of nested box constraints.
+_checkwrite(op::O, f, y, x, γ) where {O} = _checkwrite(op, f, y, x)
+_checkwrite(op::O, s::Scaled, y, x, γ::Real) where {O} = _checkwrite(op, s.f, y, x, s.α * γ)
+_checkwrite(op::O, s::Scaled, y, x, γ::AbstractArray) where {O} = _checkwrite(op, s.f, y, x, _ScaledArray(γ, s.α))
+function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray, γ) where {O}
+  _checkwrite(op, t, y, x)
+  if op === value_and_prox! && !_box_value_available(t.f, y)
+    z = _array_buffer!(t.scratch, float(eltype(y)), size(y))
+    step = γ isa Real ? convert(float(eltype(y)), γ) : γ
+    z .= x .- step .* t.c
+    _checkwrite(op, t.f, y, z, γ)
+  end
+  true
+end
+function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray, γ) where {O}
+  _checkwrite(op, t, y, x)
+  if op === value_and_prox! && !_box_value_available(t.f, y)
+    z = _array_buffer!(t.proxscratch, float(eltype(y)), size(y))
+    z .= x .- t.b
+    _checkwrite(op, t.f, y, z, γ)
+  end
+  true
+end
+function _checkwrite(op::O, s::SeparableSum, y::Tuple, x::Tuple, γ) where {O}
+  _checksize(y, x)
+  _checkblocks(s, x)
+  _checkwrite_blocks(op, s.fs, y, x, γ)
+end
+_checkwrite_blocks(op, ::Tuple{}, ::Tuple{}, ::Tuple{}, γ) = true
+_checkwrite_blocks(op::O, fs::Tuple, y::Tuple, x::Tuple, γ) where {O} =
+  (_checkwrite(op, first(fs), first(y), first(x), γ); _checkwrite_blocks(op, Base.tail(fs), Base.tail(y), Base.tail(x), γ))
+
+# Read the prospective output only when an inner value check fails.
+struct _BoxProxArray{T, N, C, X, G} <: AbstractArray{T, N}
+  c::C
+  x::X
+  γ::G
+end
+@inline _BoxProxArray(y::AbstractArray{T, N}, c, x, γ) where {T, N} =
+  _BoxProxArray{T, N, typeof(c), typeof(x), typeof(γ)}(c, x, γ)
+Base.size(p::_BoxProxArray) = size(p.x)
+Base.IndexStyle(::Type{<:_BoxProxArray}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(p::_BoxProxArray{T}, i::Int) where {T} =
+  convert(T, prox_entry(p.c, p.x[i], i, _entry(p.γ, i)))
+
+struct _BoxShiftArray{T, N, P, B} <: AbstractArray{T, N}
+  p::P
+  b::B
+end
+_BoxShiftArray(p::AbstractArray{T, N}, b) where {T, N} =
+  _BoxShiftArray{T, N, typeof(p), typeof(b)}(p, b)
+Base.size(p::_BoxShiftArray) = size(p.p)
+Base.IndexStyle(::Type{<:_BoxShiftArray}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(p::_BoxShiftArray{T}, i::Int) where {T} =
+  convert(T, p.p[i] - p.b[i])
+
+@inline _check_box_value(f, y, p) = _checkvalue(f, y)
+@inline _check_box_value(s::Scaled, y, p) = _check_box_value(s.f, y, p)
+@inline _check_box_value(t::Tilt, y, p) = (_checkdot(t.c, y); _check_box_value(t.f, y, p))
+@inline _check_box_value(t::Translate, y, p) =
+  _check_box_value(t.f, _checkshifted(t, y), _BoxShiftArray(p, t.b))
+function _box_value_available(f, y)
+  try
+    _checkvalue(f, y)
+    true
+  catch
+    false
+  end
+end
+# Avoid constructing an exception when the outer box excludes the inner value.
+_box_value_available(f::SqrNormL2, y) = f.y === nothing || size(f.y) == size(y)
+_box_value_available(c::Conjugate, y) =
+  _has_conjugate_value(c.f) && invoke(_box_value_available, Tuple{Any, Any}, c, y)
+_box_value_available(s::Scaled, y) = _box_value_available(s.f, y)
+_box_value_available(t::Tilt, y) =
+  _box_value_available(t.f, y) && invoke(_box_value_available, Tuple{Any, Any}, t, y)
+_box_value_available(t::Translate, y) = _box_value_available(t.f, _checkshifted(t, y))
+_box_value_available(c::BoxConstrained, y) = _box_value_available(c.f, y)
+@inline function _check_box_value(c::BoxConstrained, y, p)
+  _checkparams(c, y)
+  _box_value_available(c.f, y) && return true
+  iszero(c.box(p)) && _check_box_value(c.f, y, p)
+  true
+end
+@inline function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArray, γ) where {O}
+  _checkwrite(op, c, y, x)
+  if op === value_and_prox! && !_isindicator(c)
+    _checkparam(γ, x)
+    _check_box_value(c.f, y, _BoxProxArray(y, c, x, γ))
+  end
+  true
+end
+
 # Membership can return Inf without evaluating the inner value.
 _checkvalue(c::BoxConstrained, x::AbstractArray) = _checkparams(c, x)
 _checkvalue(c::LinearConstrained, x::AbstractArray) = _checkvalue(c.set, x)
@@ -234,7 +343,9 @@ _with_steps(g::_SearchSteps{G, T, M}, steps) where {G, T, M} =
   _SearchSteps{typeof(steps), T, M}(steps, g.scale, g.factor)
 
 @noinline _invalid_linear_step() =
-  throw(ArgumentError("Constrained needs positive finite steps with normal ratios to their maximum in working precision"))
+  throw(ArgumentError("the steps of LinearConstrained must be positive and finite"))
+@noinline _invalid_linear_ratio() =
+  throw(ArgumentError("Constrained needs normal step ratios to their maximum in working precision"))
 @inline _search_steps(γ, ::Type{T}) where {T} = _search_steps(identity, γ, T)
 @inline function _search_steps(done::F, γ::Real, ::Type{T}) where {F, T}
   g = convert(T, γ)
@@ -254,10 +365,10 @@ end
   valid || _invalid_linear_step()
   factor = inv(scale)
   if isfinite(factor)
-    least * factor >= floatmin(T) || _invalid_linear_step()
+    least * factor >= floatmin(T) || _invalid_linear_ratio()
     return done(_SearchSteps{typeof(γ), T, true}(γ, scale, factor))
   end
-  least / scale >= floatmin(T) || _invalid_linear_step()
+  least / scale >= floatmin(T) || _invalid_linear_ratio()
   done(_SearchSteps{typeof(γ), T, false}(γ, scale, factor))
 end
 
@@ -267,11 +378,13 @@ end
 prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
   _linear_constrained_prox!(y, c, x, convert(float(eltype(y)), γ))
 prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
-  (_checkparam(γ, x); _linear_constrained_prox!(y, c, x, γ))
+  _linear_constrained_prox!(y, c, x, γ)
 
-function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ)
-  _checkwrite(prox!, c, y, x)
-  c.set isa IndHyperslab && _hyperslab_input(c.set, x)
+_linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ) =
+  _linear_constrained_prox!(prox!, y, c, x, γ)
+function _linear_constrained_prox!(op::O, y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ) where {O}
+  _checkwrite(op, c, y, x, γ)
+  _checkparam(γ, x)
   T = float(eltype(y))
   # Keep the ratio mode concrete so the step wrapper need not be boxed.
   _search_steps(γ, T) do steps
@@ -279,14 +392,19 @@ function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::Ab
   end
 end
 
-function _linear_constrained_search!(y, c, x, γ::_SearchSteps{G, T}) where {G, T}
+@noinline function _linear_constrained_search!(y, c, x, γ::_SearchSteps{G, T}) where {G, T}
+  last, slope, scale = c.last[], c.slope[], c.scale[]
   if !isequal(c.scale[], Float64(γ.scale))
     c.last[] = NaN
     c.slope[] = NaN
   end
   c.verify[] = false
   ν = _multiplier(c, x, γ, T)
-  c.scale[] = γ.scale
+  if isnan(ν)
+    c.last[], c.slope[], c.scale[] = last, slope, scale
+  else
+    c.scale[] = γ.scale
+  end
   set = c.set
   set isa IndHyperslab && iszero(ν) && !c.verify[] && return _linear_constrained_inactive_output!(y, c.f, x, γ)
   if _isscaled(set)
@@ -411,11 +529,13 @@ end
 value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) = _value_and_prox_linear!(y, c, x, γ)
 value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_linear!(y, c, x, γ)
 function _value_and_prox_linear!(y, c, x, γ)
-  _checkwrite(value_and_prox!, c, y, x)
-  prox!(y, c, x, γ)
+  _linear_constrained_prox!(value_and_prox!, y, c, x, γ)
   T = float(eltype(y))
-  _isindicator(c) ? zero(T) : convert(T, c.f(y))
+  _isindicator(c) ? zero(T) : _linear_constrained_value(c.f, y, T)
 end
+
+# Share value computation across constraint and step types.
+@noinline _linear_constrained_value(f, y, ::Type{T}) where {T} = convert(T, f(y))
 
 # φ(ν) = ⟨a, z⟩ - b at z = z(ν), and Σᵢ |aᵢzᵢ| + |b|, the scale of its rounding
 # error; with Val(true), also the slope of φ, -Σᵢ rᵢaᵢ² Pᵢ', where Pᵢ' is the
@@ -491,6 +611,13 @@ const _MAX_SECANTS = 100
 @noinline _infeasible(c::LinearConstrained) =
   throw(ArgumentError("the multiplier for $(nameof(typeof(c.set))) could not be bracketed or resolved in working precision: the set may miss the domain of $(nameof(typeof(c.f))), or the step is outside the range the search resolves"))
 
+# Only nonfinite caller inputs take the package's IEEE path. Overflow or NaN
+# generated by the search at finite inputs remains a precision failure.
+@noinline function _nonfinite_linear_input(c, x)
+  any(v -> !isfinite(v), x) || _infeasible(c)
+  nothing
+end
+
 # φ and the scale of its rounding error at ν, and its slope when the scalar
 # proximal operators of f have known slopes, NaN otherwise
 _gap_and_slope(c::LinearConstrained{F}, x::AbstractArray, ν::T, γ, b) where {F, T} =
@@ -509,8 +636,9 @@ function _multiplier(c::LinearConstrained, x::AbstractArray, γ, ::Type{T}) wher
   c.set isa IndHyperslab && return _hyperslab_multiplier(c, x, γ, T)
   ν0 = convert(T, c.last[])
   warm = isfinite(ν0) && !(c.set isa IndHalfspace && !(ν0 > 0))
+  slope = c.slope[]
   ν = _search(c, x, γ, warm ? ν0 : zero(T), warm, _scaled_offset(c.set), c.set isa IndHalfspace ? 1 : 0)
-  c.last[] = ν
+  isnan(ν) ? (c.slope[] = slope) : (c.last[] = ν)
   ν
 end
 
@@ -520,13 +648,19 @@ function _hyperslab_multiplier(c::LinearConstrained, x::AbstractArray, γ, ::Typ
   if isfinite(set.l)
     b = _scaled_offset(set, set.l)
     φ, m = _constraint_gap(c, x, zero(T), γ, b)
-    isfinite(φ) && isfinite(m) || _infeasible(c)
+    if !(isfinite(φ) && isfinite(m))
+      _nonfinite_linear_input(c, x)
+      isnan(φ) && return T(NaN)
+    end
     φ < 0 && return _slab_multiplier(c, x, γ, T, b, -1)
   end
   if isfinite(set.u)
     b = _scaled_offset(set, set.u)
     φ, m = _constraint_gap(c, x, zero(T), γ, b)
-    isfinite(φ) && isfinite(m) || _infeasible(c)
+    if !(isfinite(φ) && isfinite(m))
+      _nonfinite_linear_input(c, x)
+      isnan(φ) && return T(NaN)
+    end
     φ > 0 && return _slab_multiplier(c, x, γ, T, b, 1)
   end
   if !isfinite(set.l) && !isfinite(set.u)
@@ -536,7 +670,7 @@ function _hyperslab_multiplier(c::LinearConstrained, x::AbstractArray, γ, ::Typ
       z = prox_entry(c.f, x[i] - zero(T), i, convert(T, _entry(γ, i)))
       finite &= isfinite(convert(T, z))
     end
-    finite || _infeasible(c)
+    finite || _nonfinite_linear_input(c, x)
   end
   c.last[] = 0
   c.slope[] = NaN
@@ -546,9 +680,10 @@ end
 function _slab_multiplier(c, x, γ, ::Type{T}, b, side) where {T}
   ν0 = convert(T, c.last[])
   warm = isfinite(ν0) && side * ν0 > 0
+  slope = c.slope[]
   warm || (c.slope[] = NaN)
   ν = _search(c, x, γ, warm ? ν0 : zero(T), warm, b, side)
-  c.last[] = ν
+  isnan(ν) ? (c.slope[] = slope) : (c.last[] = ν)
   ν
 end
 
@@ -569,12 +704,19 @@ _search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool, b, sid
 
 function _search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool, b, side, L) where {T}
   φs, ms, dφ = warm ? _gap_and_slope(c, x, start, γ, b) : (_constraint_gap(c, x, start, γ, b)..., T(NaN))
-  isfinite(φs) && isfinite(ms) || _infeasible(c)
+  if !(isfinite(φs) && isfinite(ms))
+    _nonfinite_linear_input(c, x)
+    return isnan(φs) ? T(NaN) : start
+  end
   _resolved(φs, ms) && return start
   if side != 0 && side * φs < 0
     iszero(start) && return zero(T)                           # the constraint is inactive
     # Check zero when the root lies between it and the previous multiplier.
     φ0, m0 = _constraint_gap(c, x, zero(T), γ, b)
+    if isnan(φ0)
+      _nonfinite_linear_input(c, x)
+      return T(NaN)
+    end
     (isfinite(φ0) && isfinite(m0) && (side * φ0 <= 0 || _resolved(φ0, m0))) && return zero(T)
     return _refine(c, x, γ, b, zero(T), φ0, start, φs, nothing)
   end
@@ -586,6 +728,11 @@ function _search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Boo
   _bracket_and_refine(c, x, γ, b, start, φs, step, L)
 end
 
+_bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ::Real, b, ν0::T, φ0::T, step::T, L) where {T} =
+  _bracket_and_refine(c, x, _search_steps(γ, T), b, ν0, φ0, step, L)
+_refine(c::LinearConstrained, x::AbstractArray, γ::Real, b, lo::T, φlo::T, hi::T, φhi::T, L) where {T} =
+  _refine(c, x, _search_steps(γ, T), b, lo, φlo, hi, φhi, L)
+
 function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, b, ν0::T, φ0::T, step::T, L) where {T}
   dir = φ0 > 0 ? one(T) : -one(T)
   lo, φlo = ν0, φ0                          # φlo has the sign of φ(ν₀), φhi the other
@@ -594,6 +741,10 @@ function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, b, ν0:
     hi = lo + dir * step
     isfinite(hi) || _infeasible(c)
     φhi, mhi, L = _gap!(c, x, hi, γ, b, L)
+    if isnan(φhi)
+      _nonfinite_linear_input(c, x)
+      return T(NaN)
+    end
     isfinite(φhi) && isfinite(mhi) || _infeasible(c)
     if _resolved(φhi, mhi)
       c.slope[] = (φhi - φlo) / (hi - lo)
@@ -637,6 +788,10 @@ function _refine(c::LinearConstrained, x::AbstractArray, γ, b, lo::T, φlo::T, 
       end
     end
     φν, mν, L = _gap!(c, x, ν, γ, b, L, Val(false))
+    if isnan(φν)
+      _nonfinite_linear_input(c, x)
+      return T(NaN)
+    end
     isfinite(φν) && isfinite(mν) || _infeasible(c)
     ν != νp && (c.slope[] = (φν - φp) / (ν - νp))
     νp, φp = ν, φν
@@ -1091,4 +1246,48 @@ Base.@propagate_inbounds function _prox_entry_slope(c::BoxConstrained, v::T, i::
   z, dz = _prox_entry_slope(c.f, v, i, γ)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
   clamp(convert(S, z), l, u), _slope((z > l) & (z < u), convert(S, dz))
+end
+
+function _checkstep(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  _search_steps(γ, float(eltype(y)))
+  f, set = c.f, c.set
+  if isempty(x)
+    if !(set isa IndHyperslab)
+      T = float(eltype(y))
+      φ = -convert(T, _scaled_offset(set))
+      if set isa IndHyperplane || φ > 0
+        _resolved(φ, abs(φ)) || _infeasible(c)
+      end
+    end
+    return true
+  end
+  f isa IndBox && f.l isa Real && f.u isa Real && set.a isa Real || return true
+  T = float(eltype(y))
+  T <: Union{Float32, Float64} && eltype(x) <: Union{Float32, Float64} || return true
+  step = convert(T, γ)
+  isfinite(step) && step > 0 || return true
+  a = convert(T, _scaled_normal(set))
+  l, u = convert(T, f.l), convert(T, f.u)
+  isfinite(a) && !iszero(a) && isfinite(l) && isfinite(u) || return true
+  n = convert(T, length(x))
+  lo, hi = n * min(a * l, a * u), n * max(a * l, a * u)
+  if set isa IndHyperslab
+    lower, upper = convert(T, _scaled_offset(set, set.l)), convert(T, _scaled_offset(set, set.u))
+    b = hi < lower ? lower : lo > upper ? upper : zero(T)
+    gap = max(lower - hi, lo - upper)
+  else
+    b = convert(T, _scaled_offset(set))
+    gap = set isa IndHalfspace ? lo - b : max(lo - b, b - hi)
+  end
+  M = n * abs(a) * max(abs(l), abs(u)) + abs(b)
+  isfinite(M) && M < floatmax(T) / 16 || return true
+  # Cover accumulation, endpoint rounding and the search's acceptance threshold.
+  r = 32eps(T) * max(n, one(T))
+  r < T(0.25) || return true
+  gap > r * max(M, floatmin(T)) || return true
+  _step_values(x) || return true
+  for v in x
+    isfinite(v) || return true
+  end
+  _infeasible(c)
 end

@@ -226,4 +226,72 @@ end
   end
 end
 
+@testset "overflowing radial coefficients" begin
+  for F in (GroupMCP, GroupSCAD), (T, λ, w) in (
+      (Float32, floatmax(Float32), Float32[2, 0]),
+      (Float64, floatmax(Float64), Float64[2, 0]),
+      (Float32, Float64(floatmax(Float32)), [2.0, 0.0]))
+    f = F(λ, [[1, 2], [3]], w)
+    x = T[3, 4, 2]
+    x0 = T[0, 0, 2]
+    for input in (x, AtomIterate(x, f)), zeroed in (x0, AtomIterate(x0, f))
+      @test f(input) == T(Inf)
+      @test f(zeroed) == zero(T)
+    end
+    for γ in (zero(T), one(T), T[0, 1], T[1, 0])
+      step = γ isa Real ? γ : γ[1]
+      expected = iszero(step) ? x : x0
+      expected_value = iszero(step) ? T(Inf) : zero(T)
+      for input in (x, AtomIterate(x, f)), inplace in (false, true)
+        source = copy(input)
+        y = inplace ? source : copy(input)
+        @test value_and_prox!(y, f, source, γ) == expected_value
+        @test Vector(y) == expected
+        @test f(y) == expected_value
+        source = copy(input)
+        y = inplace ? source : copy(input)
+        prox!(y, f, source, γ)
+        @test Vector(y) == expected
+      end
+    end
+    xi = AtomIterate(x, f)
+    PB.prox_coordinate!(xi, f, 1, one(T))
+    @test Vector(xi) == x0
+  end
+  for F in (GroupMCP, GroupSCAD), T in (Float32, Float64)
+    @test F(floatmax(T), [[1]], T[2])(T[0]) == zero(T)
+  end
+end
+
+@testset "mixed sparse group weights preserve NaN" begin
+  for T in (Float32, Float64), λ1 in (zero(T), T(0.25)),
+      groups in ([[1], [2]], [[1, 2], [3]]), w in (T[1, Inf], T[Inf, 1])
+    f = SparseGroupNormL2(λ1, zero(T), groups, w)
+    fixed = findfirst(isinf, w)
+    free = 3 - fixed
+    x = fill(T(3), maximum(last, groups))
+    x[first(groups[free])] = T(NaN)
+    for γ in (zero(T), one(T), T[0, 1], T[1, 0])
+      step = γ isa Real ? γ : γ[free]
+      expected = copy(x)
+      expected[groups[fixed]] .= 0
+      for j in groups[free]
+        isnan(x[j]) || (expected[j] = max(x[j] - step * λ1, 0))
+      end
+      for input in (x, AtomIterate(x, f)), inplace in (false, true)
+        source = copy(input)
+        y = inplace ? source : copy(input)
+        v = value_and_prox!(y, f, source, γ)
+        @test isequal(Vector(y), expected)
+        @test isequal(v, f(y))
+        @test iszero(λ1) ? iszero(v) : isnan(v)
+        source = copy(input)
+        y = inplace ? source : copy(input)
+        prox!(y, f, source, γ)
+        @test isequal(Vector(y), expected)
+      end
+    end
+  end
+end
+
 end

@@ -727,11 +727,10 @@ end
 function (f::HomogeneousGroupNorm)(x::AtomIterate)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   T = float(eltype(x))
-  iszero(f.λ0) && !_has_infinite_group_weight(f.w) && return zero(T)
   v = zero(T)
   for a in 1:x.nactive
     k = x.active[a]
-    iszero(f.w[k]) && continue
+    (iszero(f.w[k]) || (iszero(f.λ0) && !isinf(f.w[k]))) && continue
     v += _group_value(f, f.λ0, f.w[k], _group_norm(f, x.storage, f.groups[k]), x.storage, f.groups[k], T)
   end
   v

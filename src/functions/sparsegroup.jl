@@ -193,7 +193,7 @@ function _sparse_group_value(f::SparseGroupNormL2, x::AbstractArray, ::Val{Z}) w
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
     G = f.groups[k]
-    (Z || iszero(f.w[k])) || (v2 += _group_value(f, f.λ0, f.w[k], _group_norm2(x, G), x, G, T))
+    (Z || iszero(f.w[k]) || (iszero(f.λ0) && !isinf(f.w[k]))) || (v2 += _group_value(f, f.λ0, f.w[k], _group_norm2(x, G), x, G, T))
     iszero(f.λ1) || (v1 += _sumabs(x, G))
   end
   v2 +
@@ -222,7 +222,7 @@ function _sparse_group_prox!(y::AbstractArray, f::SparseGroupNormL2, x::Abstract
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
     γk = _entry(γ, k)
-    if Z || iszero(f.w[k])
+    if Z || iszero(f.w[k]) || (iszero(f.λ0) && !isinf(f.w[k]))
       n1 = _soft_group_only!(y, x, f.groups[k], convert(T, γk * f.λ1), _group_writes(y, f.groups[k]))
     else
       n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], convert(T, γk * f.λ1), convert(T, _weight_product(γk, f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
@@ -236,8 +236,8 @@ end
 
 # with the groups of f, only the active groups count
 function (f::SparseGroupNormL2)(x::AtomIterate)
-  iszero(f.λ0) && !_has_infinite_group_weight(f.w) ?
-    _sparse_group_value(f, x, Val(true)) : _sparse_group_value(f, x, Val(false))
+  _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
+  _sparse_group_value(f, x, Val(false))
 end
 
 function _sparse_group_value(f::SparseGroupNormL2, x::AtomIterate, ::Val{Z}) where {Z}
@@ -248,7 +248,7 @@ function _sparse_group_value(f::SparseGroupNormL2, x::AtomIterate, ::Val{Z}) whe
   for a in 1:x.nactive
     k = x.active[a]
     G = f.groups[k]
-    (Z || iszero(f.w[k])) || (v2 += _group_value(f, f.λ0, f.w[k], _group_norm2(x.storage, G), x.storage, G, T))
+    (Z || iszero(f.w[k]) || (iszero(f.λ0) && !isinf(f.w[k]))) || (v2 += _group_value(f, f.λ0, f.w[k], _group_norm2(x.storage, G), x.storage, G, T))
     iszero(f.λ1) || (v1 += _sumabs(x.storage, G))
   end
   v2 +
@@ -274,7 +274,7 @@ function _sparse_group_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterat
   for a in 1:y.nactive
     k = y.active[a]
     γk = _entry(γ, k)
-    if Z || iszero(f.w[k])
+    if Z || iszero(f.w[k]) || (iszero(f.λ0) && !isinf(f.w[k]))
       n1 = _soft_group_only!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1))
     else
       n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1), convert(T, _weight_product(γk, f.λ0, f.w[k])))

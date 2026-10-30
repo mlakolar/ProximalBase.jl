@@ -369,7 +369,10 @@ _group_scalar(f::GroupMCP, ::Type{S}, k::Integer) where {S} = MCP{S}(convert(S, 
 _group_scalar(f::GroupSCAD, ::Type{S}, k::Integer) where {S} = SCAD{S}(convert(S, _weight_coefficient(f.λ0, f.w[k])), convert(S, f.a))
 
 # The ordinary kernels retain the scalar product and loops used for finite weights.
-_ordinary_radial_groups(f) = isfinite(f.λ0) && !_has_infinite_group_weight(f.w)
+_ordinary_radial_groups(f, ::Type{T}) where {T} = isfinite(f.λ0) &&
+  !mapreduce(w -> isinf(w) | isinf(convert(T, f.λ0 * w)), |, f.w; init = false)
+_infinite_radial_coefficient(f, ::Type{T}, k) where {T} =
+  isinf(convert(T, _weight_coefficient(f.λ0, f.w[k])))
 _group_scalar(f::GroupMCP, ::Type{S}, k::Integer, ::Val{true}) where {S} = MCP{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
 _group_scalar(f::GroupSCAD, ::Type{S}, k::Integer, ::Val{true}) where {S} = SCAD{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
 _group_scalar(f::_RadialGroupPenalty, ::Type{S}, k::Integer, ::Val{false}) where {S} = _group_scalar(f, S, k)
@@ -377,18 +380,18 @@ _group_scalar(f::_RadialGroupPenalty, ::Type{S}, k::Integer, ::Val{false}) where
 function _check_group_coordinate(f::_RadialGroupPenalty, x::AtomIterate, k::Integer)
   _checksamegroups(f, x)
   checkbounds(x.groups, k)
-  isinf(_weight_coefficient(f.λ0, f.w[k])) && return nothing
+  _infinite_radial_coefficient(f, float(eltype(x)), k) && return nothing
   _group_scalar(f, float(eltype(x)), k)
 end
 
 # Construct every scalar penalty that the kernel will use before it writes.
 _check_group_scalars(f::_RadialGroupPenalty, ::Type{T}, groups, n::Int = length(groups)) where {T} =
-  _ordinary_radial_groups(f) ? _check_group_scalars(f, T, groups, n, Val(true)) :
+  _ordinary_radial_groups(f, T) ? _check_group_scalars(f, T, groups, n, Val(true)) :
     _check_group_scalars(f, T, groups, n, Val(false))
 function _check_group_scalars(f::_RadialGroupPenalty, ::Type{T}, groups, n::Int, ordinary::Val{O}) where {T, O}
   for a in 1:n
     k = groups[a]
-    !O && isinf(_weight_coefficient(f.λ0, f.w[k])) && continue
+    !O && _infinite_radial_coefficient(f, T, k) && continue
     _group_scalar(f, T, k, ordinary)
   end
   true
@@ -448,7 +451,7 @@ _dual_norm(::_RadialGroupPenalty, g, G) = _group_norm2(g, G)
 end
 
 function (f::_RadialGroupPenalty)(x::AbstractArray)
-  _ordinary_radial_groups(f) ?
+  _ordinary_radial_groups(f, float(eltype(x))) ?
     _radial_group_value(f, x, Val(true)) : _radial_group_value(f, x, Val(false))
 end
 
@@ -457,7 +460,7 @@ function _radial_group_value(f::_RadialGroupPenalty, x::AbstractArray, ordinary:
   T = float(eltype(x))
   v = zero(T)
   for k in eachindex(f.groups)
-    if !O && isinf(_weight_coefficient(f.λ0, f.w[k]))
+    if !O && _infinite_radial_coefficient(f, T, k)
       _allzero(x, f.groups[k]) || return T(Inf)
       continue
     end
@@ -470,8 +473,8 @@ end
 
 # with the groups of f, only the active groups count
 function (f::_RadialGroupPenalty)(x::AtomIterate)
-  _ordinary_radial_groups(f) ?
-    _radial_group_value(f, x, Val(true)) : _radial_group_value(f, x, Val(false))
+  _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
+  _radial_group_value(f, x, Val(false))
 end
 
 function _radial_group_value(f::_RadialGroupPenalty, x::AtomIterate, ordinary::Val{O}) where {O}
@@ -480,7 +483,7 @@ function _radial_group_value(f::_RadialGroupPenalty, x::AtomIterate, ordinary::V
   v = zero(T)
   for a in 1:x.nactive
     k = x.active[a]
-    if !O && isinf(_weight_coefficient(f.λ0, f.w[k]))
+    if !O && _infinite_radial_coefficient(f, T, k)
       _allzero(x.storage, f.groups[k]) || return T(Inf)
       continue
     end
@@ -492,7 +495,7 @@ function _radial_group_value(f::_RadialGroupPenalty, x::AtomIterate, ordinary::V
 end
 
 function _value_and_prox_groups!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::Union{Real, AbstractVector})
-  _ordinary_radial_groups(f) ?
+  _ordinary_radial_groups(f, float(eltype(y))) ?
     _radial_group_prox!(y, f, x, γ, Val(true)) : _radial_group_prox!(y, f, x, γ, Val(false))
 end
 
@@ -506,7 +509,7 @@ function _radial_group_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::Abstra
   _copy_ungrouped!(y, f, x)
   v = zero(T)
   for k in eachindex(f.groups)
-    if !O && isinf(_weight_coefficient(f.λ0, f.w[k]))
+    if !O && _infinite_radial_coefficient(f, T, k)
       n = _shrink_group!(NormL2(one(T)), y, x, f.groups[k], convert(T, _weight_product(_entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
       iszero(n) || (v = T(Inf))
       continue
@@ -524,7 +527,7 @@ function _radial_group_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::Abstra
 end
 
 function _value_and_prox_groups!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::Union{Real, AbstractVector})
-  _ordinary_radial_groups(f) ?
+  _ordinary_radial_groups(f, float(eltype(y))) ?
     _radial_group_prox!(y, f, x, γ, Val(true)) : _radial_group_prox!(y, f, x, γ, Val(false))
 end
 
@@ -540,7 +543,7 @@ function _radial_group_prox!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIter
   v = zero(T)
   for a in 1:y.nactive
     k = y.active[a]
-    if !O && isinf(_weight_coefficient(f.λ0, f.w[k]))
+    if !O && _infinite_radial_coefficient(f, T, k)
       n = _shrink_group!(NormL2(one(T)), y.storage, y.storage, f.groups[k], convert(T, _weight_product(_entry(γ, k), f.λ0, f.w[k])))
       iszero(n) || (v = T(Inf))
       continue
@@ -557,7 +560,7 @@ end
 function prox_coordinate!(x::AtomIterate, f::_RadialGroupPenalty, k::Integer, γ::Real)
   p = _check_group_coordinate(f, x, k)
   T = float(eltype(x))
-  if isinf(_weight_coefficient(f.λ0, f.w[k]))
+  if _infinite_radial_coefficient(f, T, k)
     n = _shrink_group!(NormL2(one(T)), x.storage, x.storage, x.groups[k], convert(T, _weight_product(γ, f.λ0, f.w[k])))
     iszero(n) || activate!(x, k)
     return atom(x, k)

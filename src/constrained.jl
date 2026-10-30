@@ -552,19 +552,22 @@ _constraint_gap(c, x::AbstractArray, ν::T, γ, v::Val = Val(false)) where {T} =
   _constraint_gap(c.f, c.set.a, c.set.b, x, ν, γ, v)
 
 function _constraint_gap(f, a, b, x::AbstractArray, ν::T, γ, ::Val{S}) where {T, S}
-  s, m, d = zero(T), zero(T), zero(T)
+  # Tail constraints subtract nearly equal fixed and live sums. Widen Float32
+  # reductions to reduce sensitivity to contraction and normal scaling.
+  A = T === Float32 ? Float64 : T
+  s, m, d = zero(A), zero(A), zero(T)
   @inbounds @simd for i in eachindex(IndexLinear(), x)
     aᵢ = convert(T, _entry(a, i))
     γᵢ = convert(T, _entry(γ, i))
     v = x[i] - _ratio(γ, i, T) * ν * aᵢ
     z, dz = S ? _prox_entry_slope(f, v, i, γᵢ) : (prox_entry(f, v, i, γᵢ), zero(T))
-    t = aᵢ * convert(T, z)
+    t = convert(A, aᵢ) * convert(A, convert(T, z))
     s += t
     m += abs(t)
     S && (d += _ratio(γ, i, T) * aᵢ * aᵢ * convert(T, dz))
   end
-  b = convert(T, b)
-  S ? (s - b, m + abs(b), -d) : (s - b, m + abs(b))
+  b = convert(A, convert(T, b))
+  S ? (T(s - b), T(m + abs(b)), -d) : (T(s - b), T(m + abs(b)))
 end
 
 # Σᵢ γᵢaᵢ², the steepest slope of φ

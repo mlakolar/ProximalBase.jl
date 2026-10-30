@@ -307,6 +307,37 @@ end
   end
 end
 
+# Keep the range visible while counting the scalar oracles, as in the budgets.
+const TAIL_CALLS = Ref(0)
+struct TailRanged{F} <: SeparableFunction
+  f::F
+end
+PB.prox_entry(g::TailRanged, v, i, γ) = (TAIL_CALLS[] += 1; prox_entry(g.f, v, i, γ))
+PB.isconvex(::Type{<:TailRanged}) = true
+PB._has_prox_range(::Type{<:TailRanged{F}}) where {F} = PB._has_prox_range(F)
+PB._prox_range(g::TailRanged, i::Integer, ::Type{T}) where {T} = PB._prox_range(g.f, i, T)
+PB._has_uniform_range(::Type{<:TailRanged{F}}) where {F} = PB._has_uniform_range(F)
+
+@testset "Float32 tail residual reductions" begin
+  rng = Xoshiro(3)
+  n = 20_000
+  x = randn(rng, Float32, n)
+  a = randn(rng, Float32, n)
+  a[1:7:end] .= 0
+  γ = 0.2f0 .+ rand(rng, Float32, n)
+  b = sum(min.(a, 0f0)) + 1f0
+  f = TailRanged(IndBox(0f0, 1f0))
+  ref = prox(Constrained(f, IndHyperplane(a, b)), x, γ)
+  for scale in (2f0^-76, 2f0^76)
+    c = Constrained(f, IndHyperplane(scale .* a, scale * b))
+    y = prox(c, x, γ)
+    @test c.live[6].buf[].compact
+    @test isapprox(y, ref; rtol = 1e-4, atol = 1e-6 * max(1, norm(x)))
+    products = Float64.(a) .* y
+    @test abs(sum(products) - b) <= 8eps(Float32) * (sum(abs, products) + abs(b))
+  end
+end
+
 @testset "scaled variable fixing and ridge slope" begin
   # This tail has no multiplier meeting 2eps, but meets the 8eps certificate.
   rng = Xoshiro(174)

@@ -1332,10 +1332,6 @@ function _projection_l1_coefficient(α, λ, w, x, y)
   _ProjectionScale(h, e), error, lower
 end
 
-struct _L1ProjectionScratch
-  native::Vector{Float32}
-  wide::Vector{Float64}
-end
 function _projection_l1_fast_buffer!(s, ::Type{Float32}, n)
   b = s.buf
   if !(b isa _L1ProjectionScratch)
@@ -1447,11 +1443,21 @@ end
     _projection_l1_threshold!(_projection_l1_fast_buffer!(scratch, T, n), x, G, r, m, s)
   budget = (n * eps(T)) * r
   # For Condat, B=4eps*m plus the bound on its accumulated sum residuals.
-  # Thus m<=K*r, K=min(3n/8,3n/(4k)), suffices when that residual is zero;
-  # the actual B tests include it. Michelot uses gamma_k on its final sum.
-  # An inactive coordinate has native candidate <=B. Zeroing those candidates
-  # costs <=2B per coordinate; only k candidates can survive, so excess mass
-  # is <=k*B. The tests leave n*eps*r for rounding within the C=4 contract.
+  # Ignoring outward inflation, m<=K*r, K=min(3n/8,3n/(4k)), suffices
+  # with zero residual; equality can fall back after inflation. Michelot uses
+  # gamma_k on its final sum. B encloses the selected equation's level error
+  # and native residuals of discarded entries (endpoint level roundings and
+  # the intervening compensated-sum residuals). Its mass residual is <=k*B.
+  # If the level is too high, lowering it retains all k selected entries,
+  # so its error is <=B; suppressing a small candidate costs another B.
+  # If too low, wrongly retained entries can disappear: slope may fall to 1,
+  # giving k*B, not B. At θ+max(k*B,2B) discarded entries vanish
+  # and selected mass is <=r, so the true level is no higher. Thus coordinate
+  # error is <=max(k*B,2B) plus subtraction rounding. B>=2u*m (u=eps/2),
+  # so that rounding is <=B/2<=0.75budget. Both alternatives are <=3budget:
+  # C=4, without a support
+  # guarantee. Suppression removes discarded entries and only reduces mass;
+  # the selected mass excess is <=k*B, plus subtraction rounding.
   (isfinite(θ) && θ >= 32floatmin(T) && B <= T(1.5) * budget && k * B <= 3budget) || return false
   @inbounds @simd for i in G
     v = x[i]
@@ -1516,6 +1522,10 @@ function _projection_l1_inside(x, G, r::R, scale, e) where {R}
   s = err = zero(R)
   @inbounds for i in G
     v = abs(convert(R, x[i]))
+    # Enclose integer conversion before the exact power-of-two scaling.
+    if x[i] isa Base.BitInteger && v < _projection_l1_magnitude(x[i])
+      v = nextfloat(v)
+    end
     v = isfinite(scale) && !iszero(scale) ? v * scale : ldexp(v, -e)
     if !isfinite(v)
       s = R(Inf)

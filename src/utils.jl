@@ -124,11 +124,21 @@ mutable struct Scratch
 end
 Scratch() = Scratch(nothing)
 
+struct _L1ProjectionScratch
+  native::Vector{Float32}
+  wide::Vector{Float64}
+end
+
 function _buffer!(s::Scratch, ::Type{T}, n::Integer) where {T}
   b = s.buf
   if b isa Vector{T}
     length(b) < n && resize!(b, n)
     return b
+  end
+  if b isa _L1ProjectionScratch && (T === Float32 || T === Float64)
+    v = T === Float32 ? b.native : b.wide
+    length(v) < n && resize!(v, n)
+    return v
   end
   b = Vector{T}(undef, n)
   s.buf = b

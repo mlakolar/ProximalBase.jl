@@ -474,7 +474,9 @@ scales, the norm level and the group weight. Outside this regime, add twice
 the explicitly accumulated coefficient error, in radius units, to the accuracy
 and feasibility bounds. CPU inputs must have a concrete floating or
 machine-integer element type; other real arrays require explicit conversion.
-Coordinates outside the exact support are zero. Certified inside-ball inputs
+Coordinates outside the exact support satisfy the same coordinate error bound.
+They are exactly zero where support is certified by the careful path or the
+small-group shortcuts. Certified inside-ball inputs
 and infinite radii return the input unchanged. Feasibility allows
 4n*eps(T)*r plus n*nextfloat(zero(T)). Scalar steps cancel for untranslated
 projections; translations return the linear value ⟨b,y⟩. Array steps retain
@@ -1203,7 +1205,7 @@ _projection_l1_family(::Type) = false
 _projection_l1_family(::Type{<:Union{NormLinf,GroupNormLinf}}) = true
 _projection_l1_family(::Type{<:Union{Scaled{F},Translate{F}}}) where {F} = _projection_l1_family(F)
 _projection_l1_family(::Type{SeparableSum{F}}) where {F} = any(_projection_l1_family, fieldtypes(F))
-_projection_l1_host(x) = _projection_host(typeof(x))
+_projection_l1_host(x) = _projection_host(x)
 _projection_l1_host(x::Tuple) = any(map(_projection_l1_host, x))
 _projection_l1_factors(a) = (a,)
 _projection_l1_factors(a::_L1ProjectionFactors) = a.factors
@@ -1229,7 +1231,7 @@ end
 
 _projection_l1_check_input(f, x) = true
 function _projection_l1_check_input(::Union{NormLinf,GroupNormLinf}, x::AbstractArray)
-  if _projection_host(typeof(x)) &&
+  if _projection_host(x) &&
       !(isconcretetype(eltype(x)) && eltype(x) <: Union{AbstractFloat,Base.BitInteger})
     throw(ArgumentError("L1 conjugate projections require floating or machine-integer input arrays; convert other real inputs explicitly"))
   end
@@ -1279,20 +1281,14 @@ _direct_conjugate(::Type{<:Union{NormL1, NormL1Nonneg, CheckLoss, ZeroFunction,
                                 IndNonnegative, NormL2, GroupNormL2, NormLinf, GroupNormLinf}}) = true
 _direct_conjugate(::Type{<:Union{Scaled{F}, Translate{F}}}) where {F} = _direct_conjugate(F)
 
-# Only host storage opts into the L1 projection. Device arrays retain Moreau.
-_projection_host(::Type) = false
-_projection_host(::Type{<:Array}) = true
-_projection_host(::Type{<:AbstractRange}) = true
-_projection_host(::Type{<:Union{SparseVector, SparseMatrixCSC}}) = true
-_projection_host(::Type{<:Union{Adjoint{T,P}, Transpose{T,P}, Symmetric{T,P}, Hermitian{T,P}}}) where {T,P} =
-  _projection_host(P)
-_projection_host(::Type{<:Union{SparseIterate, SymmetricSparseIterate, AtomIterate}}) = true
-_projection_host(::Type{<:SubArray{T,N,P}}) where {T,N,P} = _projection_host(P)
-_projection_host(::Type{<:Base.ReshapedArray{T,N,P}}) where {T,N,P} = _projection_host(P)
-_projection_host(::Type{<:PermutedDimsArray{T,N,p,ip,P}}) where {T,N,p,ip,P} = _projection_host(P)
-_projection_host(::Type{<:Base.ReinterpretArray{T,N,S,P}}) where {T,N,S,P} = _projection_host(P)
+# Device storage, including wrapped storage, retains Moreau.
+_projection_host(::Array) = true
+@inline _projection_host(x::AbstractArray) = !_is_device_array(x) && (parent(x) === x || _projection_host(parent(x)))
+_projection_host(x::Diagonal) = _projection_host(x.diag)
+_projection_host(x::Union{Bidiagonal, SymTridiagonal}) = _projection_host(x.dv) && _projection_host(x.ev)
+_projection_host(x::Tridiagonal) = _projection_host(x.dl) && _projection_host(x.d) && _projection_host(x.du)
 _direct_projection(f, x) = _direct_conjugate(typeof(f))
-_direct_projection(::Union{NormLinf, GroupNormLinf}, x) = _projection_host(typeof(x))
+_direct_projection(::Union{NormLinf, GroupNormLinf}, x) = _projection_host(x)
 _direct_projection(f::Union{Scaled, Translate}, x) = _direct_projection(f.f, x)
 _direct_projection(s::SeparableSum, x::Tuple) = all(map(_direct_projection, s.fs, x))
 _any_direct_projection(f, x) = _direct_projection(f, x)
@@ -1451,7 +1447,7 @@ _conjugate_entry(f::Translate, v, i, γ) = _direct_conjugate(typeof(f.f)) ?
 _projection_commit!(y::AbstractArray, z::AbstractArray) = copyto!(y, z)
 _projection_check_commit(y, z) = true
 function _projection_check_conversion(y::AbstractArray{T}, z::AbstractArray{S}) where {T,S}
-  if T !== S && _projection_host(typeof(y)) && _projection_host(typeof(z))
+  if T !== S && _projection_host(y) && _projection_host(z)
     @inbounds for v in z
       convert(T, v)
     end
@@ -1498,11 +1494,11 @@ function _conjugate_projection!(z, f::GroupNormL2, x, γ, α = 1)
 end
 
 function _conjugate_projection!(z, f::NormLinf, x, γ, α = 1)
-  _projection_host(typeof(x)) || return _conjugate_moreau!(z, f, x, γ, α)
+  _projection_host(x) || return _conjugate_moreau!(z, f, x, γ, α)
   _project_l1!(z, x, eachindex(IndexLinear(), x), f.scratch, f.λ, α)
 end
 function _conjugate_projection!(z, f::GroupNormLinf, x, γ, α = 1)
-  _projection_host(typeof(x)) || return _conjugate_moreau!(z, f, x, γ, α)
+  _projection_host(x) || return _conjugate_moreau!(z, f, x, γ, α)
   @inbounds for i in f.free
     z[i] = zero(eltype(z))
   end

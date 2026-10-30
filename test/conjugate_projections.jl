@@ -63,12 +63,12 @@ function projl1(x, r)
   sign.(X) .* max.(abs.(X) .- θ, 0)
 end
 
-function l1accurate(y, ref, r, n = length(y))
+function l1accurate(y, ref, r, n = length(y); support = true)
   T = eltype(y)
   allowance = BigFloat(nextfloat(zero(T))) / 2
   bound = 4n * BigFloat(eps(T)) * r
   for i in eachindex(y)
-    iszero(ref[i]) && @test iszero(y[i])
+    support && iszero(ref[i]) && @test iszero(y[i])
     @test abs(BigFloat(y[i]) - ref[i]) <= bound + allowance
   end
   @test norm(BigFloat.(y), 1) <= r * (1 + 4n * BigFloat(eps(T))) + n * 2allowance
@@ -862,7 +862,7 @@ end
           source = copy(x)
           y = alias ? source : similar(source)
           v = op(y, c, source, one(T))
-          l1accurate(y, ref, BigFloat(r))
+          l1accurate(y, ref, BigFloat(r); support = false)
           norm(BigFloat.(x), 1) <= BigFloat(r) && @test y == x
           op === value_and_prox! && @test v == 0
         end
@@ -870,7 +870,7 @@ end
       for v in (prevfloat(T(0.5)), T(0.5), nextfloat(T(0.5)))
         x = T[1, v, -v]
         for r in (prevfloat(one(T)), one(T), nextfloat(one(T)))
-          l1accurate(prox(Conjugate(NormLinf(r)), x), projl1(x, BigFloat(r)), BigFloat(r))
+          l1accurate(prox(Conjugate(NormLinf(r)), x), projl1(x, BigFloat(r)), BigFloat(r); support = false)
         end
       end
       for α in (tiny, T(2), h)
@@ -903,7 +903,7 @@ end
     for T in (Float32, Float64), n in (33, 65, 257), fraction in (0.01, 0.5, 1.0)
       x = T[(-1)^i * (1 + mod(17i, 31)/32) for i in 1:n]
       r = T(fraction * n)
-      l1accurate(prox(Conjugate(NormLinf(r)), x), projl1(x, BigFloat(r)), BigFloat(r))
+      l1accurate(prox(Conjugate(NormLinf(r)), x), projl1(x, BigFloat(r)), BigFloat(r); support = false)
     end
     # Widen parameters before multiplying, even with Float64 source entries.
     r = Float64(0.3f0) * Float64(0.7f0)
@@ -1046,7 +1046,7 @@ end
       x[1] = 1
       r = T(n/2)
       y = prox(Conjugate(NormLinf(r)), x)
-      l1accurate(y, projl1(x, BigFloat(r)), BigFloat(r))
+      l1accurate(y, projl1(x, BigFloat(r)), BigFloat(r); support = false)
     end
   end
 end
@@ -1136,7 +1136,7 @@ end
   for x in (permuted, view(permuted, :, :), reshape(permuted, 4),
             reinterpreted, view(reinterpreted, :, :), reshape(reinterpreted, 4)),
       op in (prox!, value_and_prox!)
-    @test ProximalBase._projection_host(typeof(x))
+    @test ProximalBase._projection_host(x)
     y = zeros(size(x))
     op(y, Conjugate(NormLinf()), x, 1.0)
     @test y == ifelse.(abs.(x) .== 1e300, 1.0, 0.0)
@@ -1172,11 +1172,24 @@ Base.getindex(x::ProjectionReads, i::Int) = (x.reads[] += 1; x.data[i])
         c = Conjugate(NormLinf(r))
         for op in (prox!, value_and_prox!)
           op(y, c, x, one(T))
-          l1accurate(y, projl1(x, BigFloat(r)), BigFloat(r))
+          l1accurate(y, projl1(x, BigFloat(r)), BigFloat(r); support = false)
           @test warmed_projection_allocation(op, y, c, x, one(T)) == 0
         end
       end
       @test accepted > 0
+      # A stable rounded support can retain exact-zero coordinates. Check
+      # the coordinate contract, independent of the reduction's ordering.
+      e, r = eps(T), T(63/64)
+      x = vcat(T[1, 1/64], fill(T(1/64) - T(7/2)*e, 15), zeros(T, 15))
+      ref = projl1(x, BigFloat(r))
+      @test ref == vcat(BigFloat(r), zeros(BigFloat, 31))
+      for op in (prox!, value_and_prox!)
+        y = similar(x)
+        @test ProximalBase._projection_l1_native!(y, x, eachindex(x), ProximalBase.Scratch(), r)
+        l1accurate(y, ref, BigFloat(r); support = false)
+        op(y, Conjugate(NormLinf(r)), x, one(T))
+        l1accurate(y, ref, BigFloat(r); support = false)
+      end
       for (data, r, passes) in ((T[3, 0, 0, 0, 0, 0, 0, 0], T(10), 2),
                                 (T[3, 0, 0, 0, 0, 0, 0, 0], T(1), 3),
                                 (T[3, 2.8, 0, 0, 0, 0, 0, 0], T(1), 3),
@@ -1200,7 +1213,7 @@ Base.getindex(x::ProjectionReads, i::Int) = (x.reads[] += 1; x.data[i])
         v = offset < 0 ? prevfloat(h) : offset > 0 ? nextfloat(h) : h
         x = vcat(T[h, v, -h], fill(h / 4, 61))
         for r in (h / 8, h, 8h)
-          l1accurate(prox(Conjugate(NormLinf(r)), x), projl1(x, BigFloat(r)), BigFloat(r))
+          l1accurate(prox(Conjugate(NormLinf(r)), x), projl1(x, BigFloat(r)), BigFloat(r); support = false)
         end
       end
     end
@@ -1222,6 +1235,60 @@ Base.getindex(x::ProjectionReads, i::Int) = (x.reads[] += 1; x.data[i])
   prox!(similar(x), Conjugate(f), x, 1f0)
   @test f.scratch.buf isa ProximalBase._L1ProjectionScratch
   @test isempty(f.scratch.buf.wide)
+end
+
+function alternating_projection_allocation(op::O, y, p, c, f, x, γ) where {O}
+  for _ in 1:2
+    f(x)
+    op(p, f, x, γ)
+    op(y, c, x, γ)
+  end
+  @allocated begin
+    f(x)
+    op(p, f, x, γ)
+    op(y, c, x, γ)
+  end
+end
+
+@testset "L1 membership, shared scratch and structured storage" begin
+  for I in (Int64, UInt64, Int128), sign in (1, -1)
+    I === UInt64 && sign < 0 && continue
+    x = I[sign * (I(2)^60 + 1)]
+    r = 2.0^60
+    a, _, lower = ProximalBase._projection_l1_coefficient(1, r, 1, x, [0.0])
+    scale = ldexp(1.0, -a.e)
+    @test !ProximalBase._projection_l1_inside(x, eachindex(x), lower, scale, a.e)
+    for op in (prox!, value_and_prox!)
+      y = zeros(1)
+      op(y, Conjugate(NormLinf(r)), x, 1.0)
+      @test y == [sign * r]
+    end
+    x = I[sign * I(2)^60]
+    @test ProximalBase._projection_l1_inside(x, eachindex(x), lower, scale, a.e)
+  end
+  x = Float32.(1:128) ./ 128
+  for f in (NormLinf(1f0), GroupNormLinf(1f0, [1:64, 65:128])),
+      op in (prox!, value_and_prox!)
+    c, y, p = Conjugate(f), similar(x), similar(x)
+    @test alternating_projection_allocation(op, y, p, c, f, x, 0.7f0) == 0
+    cache = f.scratch.buf
+    @test cache isa ProximalBase._L1ProjectionScratch
+    @test alternating_projection_allocation(op, y, p, c, f, x, 0.7f0) == 0
+    @test f.scratch.buf === cache
+    @test p == prox(f, x, 0.7f0)
+    @test y == prox(c, x, 0.7f0)
+  end
+  D = Diagonal([1e300, 0.25])
+  for x in (D, view(D, :, :), reshape(D, 4), UpperTriangular(Matrix(D)),
+            Bidiagonal([1e300, 0.25], [0.0], :U),
+            SymTridiagonal([1e300, 0.25], [0.0]),
+            Tridiagonal([0.0], [1e300, 0.25], [0.0])),
+      op in (prox!, value_and_prox!)
+    @test ProximalBase._projection_host(x)
+    y = zeros(size(x))
+    op(y, Conjugate(NormLinf()), x, 1.0)
+    @test y == ifelse.(abs.(x) .== 1e300, 1.0, 0.0)
+  end
 end
 
 end

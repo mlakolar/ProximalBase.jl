@@ -479,4 +479,30 @@ end
   zero_alloc_large_value(Constrained(NormL1(0.1), IndHyperplane(1.0, 0)), [1e200, 1e200], Inf)
 end
 
+@testset "conjugate buffers allocate nothing on CPU" begin
+  for T in (Float32, Float64)
+    x = T[0.5, -2, 1.5]
+    y = similar(x)
+    γ = T[0.5, 1, 2]
+    for f in (SqrNormL2(), ElasticNet(1, 1))
+      c = Conjugate(f)
+      @test allocs(a_prox!, y, c, x, T(0.5)) == 0
+      @test allocs(a_vprox!, y, c, x, T(0.5)) == 0
+    end
+    c = Conjugate(ElasticNet(1, 1))
+    @test allocs(a_prox!, y, c, x, γ) == 0
+    @test allocs(a_vprox!, y, c, x, γ) == 0
+    for (f, blocks) in (
+        (SeparableSum(NormL1(), SqrNormL2()), (x, copy(x))),
+        (SeparableSum(NormL1(), SeparableSum(SqrNormL2(), NormL1())), (x, (copy(x), copy(x)))))
+      c = Conjugate(f)
+      out = ProximalBase._gradient_buffer(blocks)
+      # Julia 1.10 allocates 176 bytes for nested blocks, as it did before these buffers changed
+      skip = blocks[2] isa Tuple && VERSION < v"1.11"
+      @test allocs(a_prox!, out, c, blocks, T(0.5)) == 0 skip = skip
+      @test allocs(a_vprox!, out, c, blocks, T(0.5)) == 0 skip = skip
+    end
+  end
+end
+
 end

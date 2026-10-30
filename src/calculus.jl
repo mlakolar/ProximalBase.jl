@@ -586,7 +586,7 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
   step = convert(T, γ)
-  z = _array_buffer!(c.scratch, T, size(x))
+  z = _array_buffer!(c.scratch, T, x)
   F = typeof(c.f)
   if _moreau_free(F)
     _moreau_point!(z, c.f, x, step)
@@ -632,7 +632,7 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::R
   _checksize(y, x)
   T = float(eltype(y))
   step = convert(T, γ)
-  p = _array_buffer!(c.scratch, T, size(x))
+  p = _array_buffer!(c.scratch, T, x)
   p .= x ./ step
   fp = value_and_prox!(p, c.f, p, inv(step))
   _checkmoreau(y, x, p, step, γ, true)
@@ -676,7 +676,7 @@ function _checkwrite(op::O, c::Conjugate, y::Union{AbstractArray, Tuple}, x::Uni
   withvalue && _has_conjugate_value(c.f) && _checkconjugate(c.f, y)
   true
 end
-_conjugate_checkbuffer(s::Scratch, y::AbstractArray, x::AbstractArray) = _checkbuffer(s, float(eltype(y)), size(x))
+_conjugate_checkbuffer(s::Scratch, y::AbstractArray, x::AbstractArray) = _checkbuffer(s, float(eltype(y)), x)
 
 (c::Conjugate)(y::Union{AbstractArray, Tuple}) = (_checkreal(c, y); _checkparams(c, y); _value_at(_conjugate_value(c.f, y), y))
 

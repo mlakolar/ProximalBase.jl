@@ -211,7 +211,7 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArr
   _checkparam(γ, x)
   _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
-  z = _array_buffer!(c.scratch, T, size(x))
+  z = _array_buffer!(c.scratch, T, x)
   F = typeof(c.f)
   # without dividing by γ: a separable positively homogeneous fᵢ or cone gives
   # prox_{fᵢ}(xᵢ), and the box the projection onto [γᵢlᵢ, γᵢuᵢ]
@@ -252,7 +252,7 @@ function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::A
   _checksize(y, x)
   _checkparam(γ, x)
   T = float(eltype(y))
-  p = _array_buffer!(c.scratch, T, size(x))
+  p = _array_buffer!(c.scratch, T, x)
   p .= x ./ γ
   fp = value_and_prox!(p, c.f, p, _ReciprocalArray(γ))
   _checkmoreau(y, x, p, γ, γ, true)

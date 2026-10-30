@@ -144,6 +144,10 @@ function _array_buffer!(s::Scratch, ::Type{T}, dims::NTuple{N, Int}) where {T, N
   b
 end
 
+# CPU prototypes keep the existing dense buffer and cache checks.
+_array_buffer!(s::Scratch, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(s, T, size(x))
+_checkbuffer(s::Scratch, ::Type{T}, x::AbstractArray) where {T} = _checkbuffer(s, T, size(x))
+
 # A buffer for the transformed input, reused while its type and size agree.
 # Adapted functions have no cache and allocate a device buffer on each call.
 _output_buffer!(s::Scratch, y::Union{Array, SubArray{<:Any, <:Any, <:Array}}) = _array_buffer!(s, eltype(y), size(y))

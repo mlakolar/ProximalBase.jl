@@ -194,3 +194,11 @@ end
 
 prox(g::PointwiseMinimum, x::AbstractArray, γ::AbstractArray) =
   throw(ArgumentError("PointwiseMinimum requires a scalar step"))
+
+function _checkstep(op::O, g::PointwiseMinimum, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  b = _checkbuffer(g.current, eltype(y), size(y))
+  _checkstep_candidates(g.fs, b, x, γ)
+end
+_checkstep_candidates(::Tuple{}, y, x, γ) = true
+_checkstep_candidates(fs::Tuple, y, x, γ) =
+  (_checkstep(value_and_prox!, first(fs), y, x, γ); _checkstep_candidates(Base.tail(fs), y, x, γ))

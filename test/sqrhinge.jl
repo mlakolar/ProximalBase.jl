@@ -117,10 +117,11 @@ end
     @test z ≈ expected rtol = 1e-12
   end
   z = copy(x)
-  @test value_and_gradient!(z, f, z) ≈ f(x)
-  @test z ≈ gradient(f, x)
+  @test_throws ArgumentError value_and_gradient!(z, f, z)
+  @test z == x
   z = copy(x)
-  @test gradient!(z, f, z) ≈ gradient(f, x)
+  @test_throws ArgumentError gradient!(z, f, z)
+  @test z == x
 end
 
 @testset "sparse and atom iterates" begin

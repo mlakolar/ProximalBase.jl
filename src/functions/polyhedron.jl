@@ -721,11 +721,12 @@ end
 function prox!(y::AbstractArray, f::IndPolyhedron{T}, x::AbstractArray, ::Real) where {T}
   try
     _checkwrite(prox!, f, y, x)
-    # Wrappers preflight with the destination as a placeholder input.
-    # Validate values only after the actual argument reaches this oracle.
+    # The solver needs finite entries in its working precision.
     for a in x
-      a isa Real && isfinite(a) && isfinite(T(a)) ||
-        throw(ArgumentError("polyhedron projection requires finite real inputs representable in $T"))
+      if !isfinite(a) || !isfinite(T(a))
+        f.valid = false
+        return fill!(y, convert(eltype(y), NaN))
+      end
     end
     _poly_solve!(f, x)
     copyto!(y, f.point)

@@ -192,6 +192,9 @@ end
 #  Rebuilding a symmetric matrix from scaled eigenvectors
 ####################################
 
+# Only device inputs need a host copy before entrywise access.
+_is_device_array(::AbstractArray) = false
+
 # whether BLAS can read or write Y in place: a StridedMatrix such as
 # view(A, 1:2:n, :) has columns that are not contiguous, which Julia's syrk and
 # symm reject and its syr, which does not check, writes past

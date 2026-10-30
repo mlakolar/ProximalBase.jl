@@ -42,9 +42,14 @@ first evaluated at both positions of each off-diagonal entry, so a function
 with side effects runs more often and may give a value that is not symmetric.
 `copyto!` with offsets or index ranges and the indexed `axpy!` throw an
 `ArgumentError`. `fill!`, `rmul!` and `lmul!` by a number keep `x` symmetric.
+`replace` and `replace!` visit each entry of the lower triangle once, and their
+`count` counts those entries, column by column.
+`mul!` into `x` checks the unscaled product for exact symmetry in a buffer promoted
+from the destination and operand types, applies scalars and conversion at the final
+write, and leaves the product out when α = 0, as LinearAlgebra does.
 
 Other functions update the entries of `x` one position at a time and are not
-checked: `replace!`, `mul!` into `x`, indexed and view assignment such as
+checked: indexed and view assignment such as
 `x[:, :] = A`, `copyto!` from an iterator, `transpose!`, `permutedims!`,
 `reverse!`, `triu!`, `tril!`, and scaling by a `Diagonal`. They can update an off-diagonal
 entry twice or store one of two different values. Functions that build a result
@@ -807,6 +812,10 @@ end
 struct SymmetricCoordinates{T} <: AbstractVector{T}
   x::SymmetricSparseIterate{T}
 end
+# aliasing hooks from Base (non-public functions)
+Base.dataids(c::SymmetricCoordinates) = Base.dataids(c.x)
+Base.unaliascopy(c::SymmetricCoordinates) = coordinates(copy(c.x))
+
 Base.size(c::SymmetricCoordinates) = (length(c.x.ind2nzval),)
 Base.IndexStyle(::Type{<:SymmetricCoordinates}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(c::SymmetricCoordinates, k::Int) = _getstored(c.x, k)
@@ -958,6 +967,7 @@ end
 function _copyto_lower!(x::SymmetricSparseIterate, y::AbstractMatrix)
   _check_axes(x, y)
   _check_symmetric(y)
+  y = Base.unalias(x, y)
   p = x.p
   @inbounds for c = 1:p, r = c:p
     _setstored!(x, y[r, c], tril_index(p, r, c))
@@ -1063,6 +1073,28 @@ function LinearAlgebra.axpby!(α::Number, x::AbstractArray, β::Number, y::Symme
   iszero(α) && isone(β) && return y
   y .= α .* x .+ β .* y
 end
+
+# replace and replace!, with a function or with pairs, reach this method, which
+# base/set.jl names as the one a new container type implements. Each entry of
+# the lower triangle is visited once, and count counts those entries.
+function Base._replace!(new::Base.Callable, res::SymmetricSparseIterate, A::SymmetricSparseIterate,
+                        count::Int)
+  size(res) == size(A) || throw(DimensionMismatch("destination size $(size(res)) does not match $(size(A))"))
+  p = A.p
+  n = 0
+  @inbounds for c = 1:p, r = c:p
+    k = tril_index(p, r, c)
+    a = _getstored(A, k)
+    if n < count
+      v = new(a)
+      _setstored!(res, v, k)
+      n += (a !== v)
+    elseif res !== A
+      _setstored!(res, a, k)
+    end
+  end
+  res
+end
 # The indexed axpy! adds twice to an entry whose two positions are both in ry.
 LinearAlgebra.axpy!(::Number, ::AbstractArray, ::AbstractArray{<:Integer}, ::SymmetricSparseIterate,
                     ::AbstractArray{<:Integer}) = _throw_partial("the indexed axpy!")
@@ -1093,6 +1125,88 @@ function Base.show(io::IO, ::MIME"text/plain", S::SymmetricSparseIterate)
   xnnz == 0 && return
   print(io, ":")
   _show_entries(io, xnnz, pos -> tril_cartesian(S.p, S.nzval2ind[pos]), pos -> S.nzval[pos], S.p)
+end
+
+# resolve intersections with structured operand methods
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::LinearAlgebra.AbstractTriangular,
+                  B::AbstractVector) = _mul_symmetric!(x, A, B, true, false)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::LinearAlgebra.AbstractTriangular,
+                  B::AbstractMatrix) = _mul_symmetric!(x, A, B, true, false)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractMatrix,
+                  B::LinearAlgebra.AbstractTriangular) = _mul_symmetric!(x, A, B, true, false)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::LinearAlgebra.AbstractTriangular,
+                  B::LinearAlgebra.AbstractTriangular) = _mul_symmetric!(x, A, B, true, false)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::LinearAlgebra.AbstractTriangular,
+                  B::Union{Bidiagonal, Diagonal, SymTridiagonal, Tridiagonal}) = _mul_symmetric!(x, A, B, true, false)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::Union{Bidiagonal, Diagonal, SymTridiagonal, Tridiagonal},
+                  B::LinearAlgebra.AbstractTriangular) = _mul_symmetric!(x, A, B, true, false)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::LinearAlgebra.AbstractTriangular,
+                  B::AbstractVector, α::Number, β::Number) = _mul_symmetric!(x, A, B, α, β)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::LinearAlgebra.AbstractTriangular,
+                  B::AbstractMatrix, α::Number, β::Number) = _mul_symmetric!(x, A, B, α, β)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractMatrix,
+                  B::LinearAlgebra.AbstractTriangular, α::Number, β::Number) = _mul_symmetric!(x, A, B, α, β)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::LinearAlgebra.AbstractTriangular,
+                  B::LinearAlgebra.AbstractTriangular, α::Number, β::Number) = _mul_symmetric!(x, A, B, α, β)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::LinearAlgebra.AbstractTriangular,
+                  B::Union{Bidiagonal, Diagonal, SymTridiagonal, Tridiagonal}, α::Number, β::Number) = _mul_symmetric!(x, A, B, α, β)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::Union{Bidiagonal, Diagonal, SymTridiagonal, Tridiagonal},
+                  B::LinearAlgebra.AbstractTriangular, α::Number, β::Number) = _mul_symmetric!(x, A, B, α, β)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::Union{Bidiagonal, Diagonal, SymTridiagonal, Tridiagonal},
+                  B::AbstractVector, α::Number, β::Number) = _mul_symmetric!(x, A, B, α, β)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::Union{Bidiagonal, Diagonal, SymTridiagonal, Tridiagonal},
+                  B::AbstractMatrix, α::Number, β::Number) = _mul_symmetric!(x, A, B, α, β)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractMatrix,
+                  B::Union{Bidiagonal, Diagonal, SymTridiagonal, Tridiagonal}, α::Number, β::Number) = _mul_symmetric!(x, A, B, α, β)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::Union{Bidiagonal, Diagonal, SymTridiagonal, Tridiagonal},
+                  B::Union{Bidiagonal, Diagonal, SymTridiagonal, Tridiagonal}, α::Number, β::Number) = _mul_symmetric!(x, A, B, α, β)
+LinearAlgebra.mul!(x::SymmetricSparseIterate{T}, A::SymmetricSparseIterate{T},
+                  B::AbstractMatrix{T}) where {T} = _mul_symmetric!(x, A, B, true, false)
+LinearAlgebra.mul!(x::SymmetricSparseIterate{T}, A::SymmetricSparseIterate{T},
+                  B::LinearAlgebra.AbstractTriangular{T}) where {T} = _mul_symmetric!(x, A, B, true, false)
+
+# compute and check the product before writing, including aliased operands
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractVecOrMat, B::AbstractVecOrMat) =
+  _mul_symmetric!(x, A, B, true, false)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractVecOrMat, B::AbstractVecOrMat,
+                  α::Number, β::Number) = _mul_symmetric!(x, A, B, α, β)
+
+# uniform scaling operands use a diagonal with the required inner dimension
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractMatrix, J::UniformScaling,
+                  α::Number, β::Number) =
+  _mul_symmetric!(x, A, Diagonal(fill(J.λ, size(A, 2))), α, β)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, J::UniformScaling, B::AbstractVecOrMat,
+                  α::Number, β::Number) =
+  _mul_symmetric!(x, Diagonal(fill(J.λ, size(B, 1))), B, α, β)
+
+function _mul_symmetric!(x::SymmetricSparseIterate, A, B, α, β)
+  p = size(x, 1)
+  size(A, 1) == size(B, 2) == p && size(A, 2) == size(B, 1) ||
+    throw(DimensionMismatch("operands have sizes $(size(A)) and $(size(B)); destination has size $(size(x))"))
+  if iszero(α)
+    iszero(β) && return fill!(x, 0)
+    isone(β) && return x
+    x .= x .* β
+    return x
+  end
+  T = Base.promote_op(*, eltype(A), eltype(B))
+  U = promote_type(eltype(x), Base.promote_op(+, T, T))
+  P = Matrix{U}(undef, p, p)
+  mul!(P, A, B)
+  pair = _asymmetric_pair(P, _symequal)
+  if pair !== nothing
+    r, c = pair
+    throw(ArgumentError(
+      "the product written into a SymmetricSparseIterate must be symmetric, but entry ($r, $c) " *
+      "is $(P[r, c]) and entry ($c, $r) is $(P[c, r]); " *
+      "use copyto!(x, Symmetric(P, :L)) with P = A * B, or (P + transpose(P)) / 2, to store a product that is not symmetric"))
+  end
+  if iszero(β)
+    x .= P .* α
+  else
+    x .= P .* α .+ x .* β
+  end
+  x
 end
 
 LinearAlgebra.mul!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::AbstractMatrix{T}) where T = _mul_symsparse!(C, A, B)
@@ -1200,3 +1314,14 @@ function *(A::Symmetric{T}, X::SymmetricSparseIterate{T}, B::Symmetric{T}) where
   end
   A[:, K] * (XK * B[K, :])
 end
+
+# Retain the complete stored pattern, including zeros, across wrapper calls.
+function _output_buffer!(s::Scratch, y::Y) where {Y<:_StoredIterate}
+  b = s.buf
+  if !(b isa Y && size(b) == size(y))
+    b = similar(y)
+    s.buf = b
+  end
+  copyto!(b::Y, y)
+end
+_wrapper_output(y::_StoredIterate, z) = z

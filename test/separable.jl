@@ -303,6 +303,64 @@ end
 end
 
 @testset "boxes" begin
+  @testset "linear bounds" begin
+    order_error = ArgumentError("the lower bounds must not exceed the upper bounds")
+    infinite_error = ArgumentError("the lower bounds must be below Inf and the upper bounds above -Inf")
+    @test_throws DimensionMismatch IndBox([0, 0], [1])
+    @test_throws DimensionMismatch IndBox([0], [1, 2])
+    @test_throws DimensionMismatch IndBox(Float64[], [1.])
+    @test_throws DimensionMismatch IndBox([0.], Float64[])
+    @test_throws order_error IndBox([0 2], [1, 1])
+    @test_throws order_error IndBox([0, 2], 1)
+    @test_throws order_error IndBox(2, [1, 3])
+    @test_throws infinite_error IndBox([Inf 0], [Inf, 1])
+    @test iszeropreserving(IndBox([-1 0], [1, 2]))
+    @test !iszeropreserving(IndBox([0 2], [1, 3]))
+    @test !iszeropreserving(IndBox(Inf, Float64[]))
+    for f in (IndBox(Float64[], Float64[]), IndBox(0., Float64[]), IndBox(Float64[], 1.))
+      @test f(Float64[]) == 0
+      @test prox(f, Float64[]) == Float64[]
+      @test iszeropreserving(f)
+    end
+    for T in (Float32, Float64),
+        (l, u) in ((T[0 2], T[1, 3]), (T[0, 2], T[1 3]),
+                   (T[0 2], reshape(T[1, 3], 2, 1)),
+                   (T(0), T[1 3]), (T[0 2], T(3)))
+      f = IndBox(l, u)
+      @test f.l === l && f.u === u
+      @test typeof(f) == IndBox{typeof(l), typeof(u)}
+      lv = l isa AbstractArray ? vec(l) : l
+      uv = u isa AbstractArray ? vec(u) : u
+      base = IndBox(lv, uv)
+      x = T[5, -5]
+      expected = clamp.(x, lv, uv)
+      @test f(T[0.5, 2.5]) == 0
+      @test isequal(f(x), base(x))
+      y = similar(x)
+      @test prox!(y, f, x, T(0.7)) === y
+      @test isequal(y, expected)
+      @test value_and_prox!(y, f, x, T(0.7)) == 0
+      @test isequal(y, expected)
+      for op in (prox!, value_and_prox!)
+        z = copy(x)
+        op(z, f, z, T(0.7))
+        @test isequal(z, expected)
+      end
+      c = Conjugate(f)
+      for γ in (T(0.7), T[0.7, 1.2])
+        expected_c = [prox_entry(c, x[i], i, γ isa Real ? γ : γ[i]) for i in eachindex(x)]
+        @test prox!(y, c, x, γ) === y
+        @test isequal(y, expected_c)
+        @test isequal(value_and_prox!(y, c, x, γ), c(expected_c))
+        @test isequal(y, expected_c)
+        for op in (prox!, value_and_prox!)
+          z = copy(x)
+          op(z, c, z, γ)
+          @test isequal(z, expected_c)
+        end
+      end
+    end
+  end
   x = 3 .* randn(10)
   l, u = -rand(10), rand(10)
   for f in (IndBox(-1., 2.), IndBox(l, u), IndBallLinf(0.8), IndNonnegative(), IndBox(-Inf, 0.5))

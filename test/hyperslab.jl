@@ -403,10 +403,10 @@ end
     @test f([v]) == Inf
     for γ in (0.7, [0.5]), op in (prox!, value_and_prox!)
       y = [19.0]
-      @test_throws ArgumentError op(y, f, [v], γ)
-      @test y == [19.0]
-      @test_throws ArgumentError op(y, Constrained(NormL1(0.2), f), [v], γ)
-      @test y == [19.0]
+      op(y, f, [v], γ)
+      @test isequal(y, l == -Inf ? [v] : [NaN])
+      op(y, Constrained(SqrNormL2(), f), [v], γ)
+      @test isequal(y, [v])
     end
   end
   for slab in (IndHyperslab(1, 4, 5), IndHyperslab(1, -5, -4)), γ in (0.7, [0.5, 1, 2])

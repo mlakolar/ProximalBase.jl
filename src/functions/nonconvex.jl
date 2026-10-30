@@ -451,8 +451,26 @@ _dual_norm(::_RadialGroupPenalty, g, G) = _group_norm2(g, G)
 end
 
 function (f::_RadialGroupPenalty)(x::AbstractArray)
+  iszero(f.λ0) && return _zero_level_radial_value(f, x)
   _ordinary_radial_groups(f, float(eltype(x))) ?
     _radial_group_value(f, x, Val(true)) : _radial_group_value(f, x, Val(false))
+end
+
+# At zero level, classify weights in the scalar loop instead of a separate scan.
+function _zero_level_radial_value(f::_RadialGroupPenalty, x::AbstractArray)
+  _checkgroups(f, x)
+  T = float(eltype(x))
+  v = zero(T)
+  for k in eachindex(f.groups)
+    if isinf(f.w[k])
+      _allzero(x, f.groups[k]) || return T(Inf)
+      continue
+    end
+    p = _group_scalar(f, T, k, Val(true))
+    iszero(p.λ) && continue
+    v += value_entry(p, _group_norm(f, x, f.groups[k]), 1)
+  end
+  v
 end
 
 function _radial_group_value(f::_RadialGroupPenalty, x::AbstractArray, ordinary::Val{O}) where {O}

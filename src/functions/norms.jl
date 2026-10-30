@@ -507,6 +507,23 @@ _dual_norm(::GroupNormLinf, g, G) = _sumabs(g, G)
 # A full reduction lets finite-weight scans vectorize.
 _has_infinite_group_weight(w) = mapreduce(isinf, |, w; init = false)
 
+# Classify once; matching atom layouts inspect only their active groups.
+function _ordinary_group_weights(f, ::Type{T}) where {T}
+  isfinite(f.λ0) || return false
+  # Nonnegative weights make the largest product bound every coefficient.
+  w = maximum(f.w; init = zero(eltype(f.w)))
+  isfinite(w) && isfinite(convert(T, f.λ0 * w))
+end
+function _ordinary_group_weights(f, ::Type{T}, ks, n) where {T}
+  isfinite(f.λ0) || return false
+  ordinary = true
+  @inbounds @simd for a in 1:n
+    w = f.w[ks[a]]
+    ordinary &= isfinite(w) & isfinite(convert(T, f.λ0 * w))
+  end
+  ordinary
+end
+
 # Keep the ordinary group product; recover a finite group in scaled units.
 @inline function _group_value(f, λ, w, n, x, G, ::Type{T}) where {T}
   isinf(w) && return convert(T, _weighted_value(w * n, n))
@@ -517,6 +534,17 @@ _has_infinite_group_weight(w) = mapreduce(isinf, |, w; init = false)
   end
   convert(T, _scaled_group_value(f, λ, w, x, G, n))
 end
+
+@inline function _group_value(f, λ, w, n, x, G, ::Type{T}, ::Val{true}) where {T}
+  if _level_fits(T, λ) && _level_fits(T, w)
+    v = _positive_product(convert(T, λ), convert(T, w), n)
+    isfinite(v) && return convert(T, v)
+  end
+  convert(T, _scaled_group_value(f, λ, w, x, G, n))
+end
+
+@inline _group_value(f, λ, w, n, x, G, ::Type{T}, ::Val{false}) where {T} =
+  _group_value(f, λ, w, n, x, G, T)
 
 @noinline function _scaled_group_value(f, λ, w, x, G, ordinary_norm)
   T = float(eltype(x))
@@ -601,13 +629,18 @@ function _rescaled_group_prox!(f, y, x, G, c::S, scale, W = nothing)::S where {S
 end
 
 function (f::HomogeneousGroupNorm)(x::AbstractArray)
+  _ordinary_group_weights(f, float(eltype(x))) ?
+    _homogeneous_group_value(f, x, Val(true)) : _homogeneous_group_value(f, x, Val(false))
+end
+
+function _homogeneous_group_value(f::HomogeneousGroupNorm, x::AbstractArray, ordinary::Val{O}) where {O}
   _checkgroups(f, x)
   T = float(eltype(x))
-  iszero(f.λ0) && !_has_infinite_group_weight(f.w) && return zero(T)
+  O && iszero(f.λ0) && return zero(T)
   v = zero(T)
   for k in eachindex(f.groups)
     iszero(f.w[k]) && continue
-    v += _group_value(f, f.λ0, f.w[k], _group_norm(f, x, f.groups[k]), x, f.groups[k], T)
+    v += _group_value(f, f.λ0, f.w[k], _group_norm(f, x, f.groups[k]), x, f.groups[k], T, ordinary)
   end
   v
 end
@@ -654,11 +687,16 @@ end
 
 # the step γ is a scalar or a vector with a step per group (see metric.jl)
 function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::AbstractArray, γ::Union{Real, AbstractVector})
+  _ordinary_group_weights(f, float(eltype(y))) ?
+    _homogeneous_group_prox!(y, f, x, γ, Val(true)) : _homogeneous_group_prox!(y, f, x, γ, Val(false))
+end
+
+function _homogeneous_group_prox!(y::AbstractArray, f::HomogeneousGroupNorm, x::AbstractArray, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
   _checksize(y, x)
   _checkgroups(f, x)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
-  if iszero(f.λ0) && !_has_infinite_group_weight(f.w)
+  if O && iszero(f.λ0)
     y === x || copyto!(y, x)
     return zero(T)
   end
@@ -671,8 +709,8 @@ function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::A
       end
       continue
     end
-    nrm = _shrink_group!(f, y, x, f.groups[k], convert(T, _weight_product(_entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
-    v += _group_value(f, f.λ0, f.w[k], nrm, y, f.groups[k], T)
+    nrm = _shrink_group!(f, y, x, f.groups[k], convert(T, O ? _positive_product(_entry(γ, k), f.λ0, f.w[k]) : _weight_product(_entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+    v += _group_value(f, f.λ0, f.w[k], nrm, y, f.groups[k], T, ordinary)
   end
   v
 end
@@ -726,12 +764,19 @@ end
 # with the groups of f, only the active groups count
 function (f::HomogeneousGroupNorm)(x::AtomIterate)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
+  _ordinary_group_weights(f, float(eltype(x)), x.active, x.nactive) ?
+    _homogeneous_group_value(f, x, Val(true)) : _homogeneous_group_value(f, x, Val(false))
+end
+
+function _homogeneous_group_value(f::HomogeneousGroupNorm, x::AtomIterate, ordinary::Val{O}) where {O}
+  _samelayout(f, x) || return invoke(_homogeneous_group_value, Tuple{HomogeneousGroupNorm, AbstractArray, Val{O}}, f, x, ordinary)
   T = float(eltype(x))
+  O && iszero(f.λ0) && return zero(T)
   v = zero(T)
   for a in 1:x.nactive
     k = x.active[a]
-    (iszero(f.w[k]) || (iszero(f.λ0) && !isinf(f.w[k]))) && continue
-    v += _group_value(f, f.λ0, f.w[k], _group_norm(f, x.storage, f.groups[k]), x.storage, f.groups[k], T)
+    (iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))) && continue
+    v += _group_value(f, f.λ0, f.w[k], _group_norm(f, x.storage, f.groups[k]), x.storage, f.groups[k], T, ordinary)
   end
   v
 end
@@ -742,15 +787,23 @@ value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::Rea
 function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::AtomIterate, γ::Union{Real, AbstractVector})
   _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, HomogeneousGroupNorm, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
+  _ordinary_group_weights(f, float(eltype(y)), x.active, x.nactive) ?
+    _homogeneous_group_prox!(y, f, x, γ, Val(true)) : _homogeneous_group_prox!(y, f, x, γ, Val(false))
+end
+
+function _homogeneous_group_prox!(y::AtomIterate, f::HomogeneousGroupNorm, x::AtomIterate, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
+  _samelayout(f, x) && _samelayout(f, y) ||
+    return invoke(_homogeneous_group_prox!, Tuple{AbstractArray, HomogeneousGroupNorm, AbstractArray, Union{Real, AbstractVector}, Val{O}}, y, f, x, γ, ordinary)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
   copyto!(y, x)
+  O && iszero(f.λ0) && return zero(T)
   v = zero(T)
   for a in 1:y.nactive
     k = y.active[a]
-    (iszero(f.w[k]) || (iszero(f.λ0) && !isinf(f.w[k]))) && continue
-    nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, _weight_product(_entry(γ, k), f.λ0, f.w[k])))
-    v += _group_value(f, f.λ0, f.w[k], nrm, y.storage, f.groups[k], T)
+    (iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))) && continue
+    nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, O ? _positive_product(_entry(γ, k), f.λ0, f.w[k]) : _weight_product(_entry(γ, k), f.λ0, f.w[k])))
+    v += _group_value(f, f.λ0, f.w[k], nrm, y.storage, f.groups[k], T, ordinary)
   end
   v
 end
@@ -771,7 +824,7 @@ function prox_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k::Integer, �
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
     return atom(x, k)
   end
-  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], convert(T, _weight_product(γ, f.λ0, f.w[k])))
+  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], convert(T, isinf(f.w[k]) ? _weight_product(γ, f.λ0, f.w[k]) : _positive_product(γ, f.λ0, f.w[k])))
   iszero(nrm) || activate!(x, k)
   atom(x, k)
 end

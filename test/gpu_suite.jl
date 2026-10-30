@@ -1231,3 +1231,63 @@ end
     @test host(y[2][2]) == T[-2, 1]
   end
 end
+
+
+@testset "review regressions: direct device projection parameters" begin
+  allowscalar(false)
+  for T in test_types
+    ext = Base.get_extension(ProximalBase, :ProximalBaseGPUArraysCoreExt)
+    for a in (big"1", big"1e500", big"1e-500")
+      @test isbitstype(typeof(ext._device_projection_scale(T, a)))
+    end
+    for op in (prox!, value_and_prox!)
+      f = Adapt.adapt(DeviceArray, GroupNormL2(1.0, [1:2], [1.0]))
+      y = DeviceArray(zeros(Float32, 2))
+      v = op(y, Conjugate(f), DeviceArray([1e39, 0.0]), 1.0)
+      @test host(y) == Float32[1, 0]
+      op === value_and_prox! && @test v == 0
+      for (λ, a, w, expected) in ((Inf, 1.0, 1.0, T[3, 4]),
+                                (1.0, Inf, 1.0, T[3, 4]),
+                                (Inf, 1.0, 0.0, T[0, 0]),
+                                (0.0, Inf, Inf, T[0, 0]),
+                                (1.0, Inf, 0.0, T[0, 0]))
+        f = Adapt.adapt(DeviceArray, Scaled(GroupNormL2(λ, [1:2], [w]), a))
+        y = DeviceArray(zeros(T, 2))
+        v = op(y, Conjugate(f), DeviceArray(T[3, 4]), 1.0)
+        @test host(y) == expected
+        op === value_and_prox! && @test v == 0
+      end
+      for (f, expected) in ((NormL1(BigFloat(1)), T[1, -1]),
+                            (NormL1Nonneg(BigFloat(1)), T[1, -4]),
+                            (CheckLoss(BigFloat("0.25")), T[0.25, -0.75]),
+                            (Scaled(NormL1(), BigFloat(2)), T[2, -2]),
+                            (NormL2(BigFloat(5)), T[3, -4]))
+        y = DeviceArray(zeros(T, 2))
+        v = op(y, Conjugate(f), DeviceArray(T[3, -4]), 1.0)
+        @test host(y) ≈ expected rtol = 8eps(T)
+        op === value_and_prox! && @test v == 0
+      end
+      for (λ, a, input) in (T === Float64 ? ((T(1e300), T(1e-200), T(1)), (T(1e-300), T(1e200), T(1e200))) :
+                                           ((T(1e30), T(1e-30), T(1)), (T(1e-30), T(1e25), T(1e30))))
+        f = Scaled(SeparableSum(Scaled(NormL1(λ), a)), a)
+        y = (DeviceArray(zeros(T, 1)),)
+        v = op(y, Conjugate(f), (DeviceArray(T[input]),), 1.0)
+        expected = T(min(BigFloat(input), BigFloat(λ) * BigFloat(a)^2))
+        @test host(y[1])[1] ≈ expected rtol = 4eps(T)
+        op === value_and_prox! && @test v == 0
+      end
+      f = NormL1(big"1e330", fill(1e-300, 2))
+      y = DeviceArray(zeros(T, 2))
+      v = op(y, Conjugate(Adapt.adapt(DeviceArray, f)), DeviceArray(T[3e30, -3e30]), 1.0)
+      expected = T(BigFloat(f.λ0) * BigFloat(1e-300))
+      @test host(y) ≈ T[expected, -expected] rtol = 4eps(T)
+      op === value_and_prox! && @test v == 0
+      # A non-isbits scalar outside Float64 still has device-compatible parts.
+      f = Scaled(NormL1(big"1e500"), big"1e-500")
+      y = DeviceArray(zeros(T, 2))
+      v = op(y, Conjugate(f), DeviceArray(T[3, -4]), 1.0)
+      @test host(y) ≈ T[1, -1] rtol = 4eps(T)
+      op === value_and_prox! && @test v == 0
+    end
+  end
+end

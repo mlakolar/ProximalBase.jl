@@ -223,7 +223,7 @@ end
 function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArray)
   _checkwrite(value_and_prox!, c, y, x)
   _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
-  if isseparable(c.f) && _any_direct_conjugate(typeof(c.f)) && !_has_conjugate_value(c.f)
+  if isseparable(c.f) && _any_direct_conjugate(typeof(c.f))
     _checkparam(γ, x)
     z = _array_buffer!(c.scratch, float(eltype(y)), x)
     v = _conjugate_projection_value!(z, c.f, x, γ)

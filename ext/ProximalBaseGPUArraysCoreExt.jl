@@ -956,12 +956,35 @@ Adapt.adapt_structure(to, f::LeastSquaresLoss) = LeastSquaresLoss(Adapt.adapt(to
 Adapt.adapt_structure(to, f::GLMLoss) =
   GLMLoss(f.loss, Adapt.adapt(to, f.y), Adapt.adapt(to, f.X); weights = Adapt.adapt(to, f.weights), offset = Adapt.adapt(to, f.offset))
 
+# Normalize scalar parameters on the host; exceptional exponents stay separate.
+function _device_projection_scale(::Type{T}, a::Real) where {T}
+  c = _device_level(T, a)
+  if isfinite(a) && !iszero(a) && (iszero(c) || isinf(c))
+    m, e = frexp(float(a))
+    return ProximalBase._ProjectionScale(_device_level(T, m), e)
+  end
+  c
+end
+_device_projection_scale(::Type{T}, a::ProximalBase._ProjectionScale) where {T} =
+  ProximalBase._ProjectionScale(_device_level(T, a.m), a.e)
+_device_projection_check(v, l, u, w) = clamp(v,
+  -ProximalBase._projection_coefficient(l, 1, w), ProximalBase._projection_coefficient(u, 1, w))
+
 # Direct dual projections broadcast parameters separately from the function.
 for (F, op, level) in ((NormL1, ProximalBase._projection_clip, :λ0),
                       (NormL1Nonneg, ProximalBase._projection_upper, :λ0),
                       (ProximalBase.CheckLoss, ProximalBase._projection_check, :τ))
   @eval function ProximalBase._conjugate_projection!(z::AnyGPUArray, f::$F, x::AnyGPUArray, γ, α = 1)
-    z .= $op.(x, α, f.$level, _reshapeparam(_param(f.w), x))
+    T = real(float(eltype(x)))
+    w = _reshapeparam(_param(f.w), x)
+    if f isa ProximalBase.CheckLoss
+      l = _device_projection_scale(T, ProximalBase._projection_accumulate(α, 1 - f.τ))
+      u = _device_projection_scale(T, ProximalBase._projection_accumulate(α, f.τ))
+      z .= _device_projection_check.(x, l, u, w)
+    else
+      a = _device_projection_scale(T, ProximalBase._projection_accumulate(α, f.$level))
+      z .= $op.(x, a, one(T), w)
+    end
   end
 end
 Adapt.adapt_structure(to, f::ProximalBase.CheckLoss) = ProximalBase.CheckLoss(f.τ, Adapt.adapt(to, f.w))
@@ -975,7 +998,10 @@ ProximalBase._maximum_abs(x::AnyGPUArray) = mapreduce(abs, max, x; init = zero(r
 function ProximalBase._project_l2!(y::AnyGPUArray, x::AnyGPUArray, λ, α = 1, w = 1)
   (iszero(λ) || iszero(w)) && return fill!(y, zero(eltype(y)))
   isinf(w) && return copyto!(y, x)
-  c = _positive_product(α, λ, w)
+  T = real(float(eltype(x)))
+  α = _device_projection_scale(T, ProximalBase._projection_accumulate(α, λ))
+  λ = one(T)
+  c = ProximalBase._projection_product(α, λ, w)
   # Device reductions avoid scalar indexing even for wrapped array views.
   m = ProximalBase._maximum_abs(x)
   iszero(m) && return copyto!(y, x)
@@ -997,9 +1023,9 @@ ProximalBase._checkparams(d::DeviceGroups, x) = _checkparams(d.f, x)
 # can be applied to the original coordinates in the scatter kernel.
 function _projection_parts(m::T, q, λ, α, w)::Tuple{T, Int} where {T}
   (iszero(λ) || iszero(w)) && return (zero(m), 0)
-  (iszero(m) || isinf(w)) && return (one(m), 0)
+  (iszero(m) || isinf(w) || isinf(λ) || isinf(α)) && return (one(m), 0)
   a, e = frexp(m)
-  r1, e1 = frexp(float(α))
+  r1, e1 = ProximalBase._projection_scale_parts(α)
   r2, e2 = frexp(float(λ))
   r3, e3 = frexp(float(w))
   r, k = frexp(((r1 * r2) * r3) / (a * sqrt(q)))
@@ -1010,13 +1036,15 @@ _projection_scatter(v, p, _) = ProximalBase._projection_scale(v, p[1], p[2])
 function ProximalBase._conjugate_projection!(z::AnyGPUArray, d::DeviceGroups{<:GroupNormL2}, x::AnyGPUArray, γ, α = 1)
   lay, f = d.layout, d.f
   T = real(float(eltype(x)))
+  iszero(f.λ0) && return fill!(z, zero(eltype(z)))
+  α = _device_projection_scale(T, ProximalBase._projection_accumulate(α, f.λ0))
   parts = _group_buffer(vec(x), Tuple{T, Int}, lay, Ref((zero(T), 0)))
   for b in lay.blocks
     m, q = _group_norm_parts(_gather(vec(x), b), b, T)
-    view(parts, b.pos) .= vec(_projection_parts.(m, q, f.λ0, α, b.w))
+    view(parts, b.pos) .= vec(_projection_parts.(m, q, one(T), α, b.w))
   end
-  copyto!(z, x)
-  _scatter_back!(_projection_scatter, vec(z), lay, parts)
+  n = length(lay.gid)
+  view(vec(z), 1:n) .= _projection_scatter.(view(vec(x), 1:n), parts[lay.gid], lay.gid)
   view(vec(z), (length(lay.gid) + 1):length(z)) .= zero(eltype(z))
   z
 end

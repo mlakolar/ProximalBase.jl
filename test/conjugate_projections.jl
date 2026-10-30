@@ -191,4 +191,72 @@ end
   end
 end
 
+
+@testset "review regressions: wrapper scales, shifts and values" begin
+  setprecision(BigFloat, 4096) do
+    for (λ, a, x) in ((1e300, 1e-200, 1.0), (1e-300, 1e200, 1e200)),
+        base in (NormL1(λ), NormL1Nonneg(λ), NormL2(λ), GroupNormL2(λ, [1:1], [1.0]))
+      f = Scaled(SeparableSum(Scaled(base, a)), a)
+      c = Conjugate(f)
+      r = BigFloat(λ) * BigFloat(a)^2
+      for op in (prox!, value_and_prox!)
+        y = ([0.0],)
+        v = op(y, c, ([x],), 1.0)
+        accurate(y[1], [min(BigFloat(x), r)], 8)
+        op === value_and_prox! && @test v == 0
+      end
+    end
+    f = Scaled(Translate(Scaled(NormL1(1e300), 1e-200), [0.0]), 1e-200)
+    r = BigFloat(1e300) * BigFloat(1e-200)^2
+    @test prox_entry(Conjugate(f), 1.0, 1, 1.0) ≈ Float64(r) rtol = 4eps(Float64)
+    f = Scaled(Translate(Scaled(NormL1(1e-300), 1e200), [0.0]), 1e200)
+    r = BigFloat(1e-300) * BigFloat(1e200)^2
+    @test prox_entry(Conjugate(f), 1e200, 1, 1.0) ≈ Float64(r) rtol = 4eps(Float64)
+    for op in (prox!, value_and_prox!), base in (NormL1(), NormL1Nonneg(), NormL2(), GroupNormL2(1.0, [1:1], [1.0]))
+      y = zeros(Float32, 1)
+      v = op(y, Conjugate(Translate(base, [0.0])), [1e39], 1.0)
+      @test y == Float32[1]
+      op === value_and_prox! && @test v == 0
+    end
+    for (λ, a, input) in ((1e300, 1e-200, 1.0), (1e-300, 1e200, 1e200))
+      f = Scaled(Translate(Scaled(NormL1(λ), a), [0.0]), a)
+      for op in (prox!, value_and_prox!)
+        y = [0.0]
+        v = op(y, Conjugate(f), [input], 1.0)
+        accurate(y, [BigFloat(λ) * BigFloat(a)^2], 4)
+        op === value_and_prox! && @test v == 0
+      end
+    end
+    # The shift itself must still fit the output even when clipping is bounded.
+    y = Float32[7]
+    @test_throws ArgumentError prox!(y, Conjugate(Translate(NormL1(), [1e39])), [1e39], 1.0)
+    @test y == Float32[7]
+    c = Conjugate(SeparableSum(Scaled(NormL1(1e300), 1e-310), SqrNormL2()))
+    for op in (prox!, value_and_prox!)
+      y = ([0.0], [0.0])
+      v = op(y, c, ([1.0], [0.0]), 1.0)
+      accurate(y[1], [BigFloat(1e300) * BigFloat(1e-310)], 4)
+      @test y[2] == [0.0]
+      op === value_and_prox! && @test v == 0
+    end
+    # Standalone values also exist for these scalar and array-step wrappers.
+    c = Conjugate(Translate(Scaled(NormL1(1e300), 1e-310), [0.0]))
+    for γ in (1.0, [1.0])
+      y = [0.0]
+      @test value_and_prox!(y, c, [1.0], γ) == 0
+      accurate(y, [BigFloat(1e300) * BigFloat(1e-310)], 4)
+    end
+  end
+end
+
+
+@testset "warmed exceptional wrapper scales" begin
+  for (λ, a) in ((1e300, 1e-200), (1e-300, 1e200))
+    c = Conjugate(Scaled(SeparableSum(Scaled(NormL1(λ), a)), a))
+    x, y = ([1e200],), ([0.0],)
+    @test allocs(prox!, y, c, x, 1.0) == 0
+    @test allocs(value_and_prox!, y, c, x, 1.0) == 0
+  end
+end
+
 end

@@ -246,7 +246,9 @@ Base.@propagate_inbounds function _sqrhinge_gradient(f::SqrHingeLoss, v::Real, i
   -copysign(_sqrhinge_slope(y, w, r, e), y)
 end
 
-function gradient!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray)
+gradient!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray) =
+  (_check_oracle_arrays(gradient!, f, g, x); _gradient_unchecked!(g, f, x))
+function _gradient_unchecked!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray)
   _checkwrite(gradient!, f, g, x)
   @inbounds for i in eachindex(IndexLinear(), g, x)
     g[i] = _sqrhinge_gradient(f, x[i], i)
@@ -254,7 +256,9 @@ function gradient!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray)
   g
 end
 
-function value_and_gradient!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray)
+value_and_gradient!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray) =
+  (_check_oracle_arrays(value_and_gradient!, f, g, x); _value_and_gradient_unchecked!(g, f, x))
+function _value_and_gradient_unchecked!(g::AbstractArray, f::SqrHingeLoss, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
   T = float(eltype(x))
   v = zero(T)

@@ -307,7 +307,7 @@ end
     for z in (randn(p, 4), randn(4p), SparseIterate(sprandn(p, 4, 0.3)), SparseIterate(sprandn(4p, 0.3)))
       zero_alloc_grad(fk, z)
     end
-    zero_alloc_grad(KronQuadratic(S, P, randn(p, p)), SymmetricSparseIterate(P))
+    zero_alloc_grad(KronQuadratic(S, P, Matrix(Symmetric(randn(p, p)))), SymmetricSparseIterate(P))
     # products with sparse iterates
     zero_alloc_grad(LeastSquaresLoss(y, X), xs)
     zero_alloc_grad(LogisticLoss(rand(0:1, n), X), xs)

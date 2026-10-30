@@ -61,10 +61,11 @@ _all_indicators(::Tuple{}) = true
 _all_indicators(fs::Tuple) = _isindicator(first(fs)) && _all_indicators(Base.tail(fs))
 _checkparams(g::PointwiseMinimum, x) = (map(f -> _checkparams(f, x), g.fs); true)
 
-function (g::PointwiseMinimum)(x::AbstractArray)
-  _checkreal(g, x)
+(g::PointwiseMinimum)(x::AbstractArray) =
+  (_check_value_arrays(g, x); _value_checked(g, x))
+function _value_unchecked(g::PointwiseMinimum, x::AbstractArray)
   _checkparams(g, x)
-  _value_at(minimum(map(f -> f(x), g.fs)), x)
+  _value_at(minimum(map(f -> _value_unchecked(f, x), g.fs)), x)
 end
 
 function _checkwrite(op::O, g::PointwiseMinimum, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
@@ -161,7 +162,7 @@ end
 
 _minimum_candidates!(best, current, x, γ, indicator, v, score, ::Tuple{}) = (v, score)
 function _minimum_candidates!(best, current, x, γ, indicator, v, score, fs::Tuple)
-  w = value_and_prox!(current, first(fs), x, γ)
+  w = _value_and_prox_unchecked!(current, first(fs), x, γ)
   next = _minimum_score(w, x, current, γ, indicator)
   v, w = promote(v, w)
   if _minimum_less(next, score)
@@ -171,21 +172,25 @@ function _minimum_candidates!(best, current, x, γ, indicator, v, score, fs::Tup
   _minimum_candidates!(best, current, x, γ, indicator, v, score, Base.tail(fs))
 end
 
-function value_and_prox!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, g, y, x, γ); _value_and_prox_unchecked!(y, g, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, g, y, x)
   best = _array_buffer!(g.best, eltype(y), size(y))
   current = _array_buffer!(g.current, eltype(y), size(y))
   indicator = _isindicator(g)
-  v = value_and_prox!(best, first(g.fs), x, γ)
+  v = _value_and_prox_unchecked!(best, first(g.fs), x, γ)
   score = _minimum_score(v, x, best, γ, indicator)
   v, score = _minimum_candidates!(best, current, x, γ, indicator, v, score, Base.tail(g.fs))
   copyto!(y, best)
   _value_at(isnan(first(score)) ? oftype(float(v), NaN) : (indicator ? zero(v) : v), y)
 end
 
-function prox!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real)
+prox!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, g, y, x, γ); _prox_unchecked!(y, g, x, γ))
+function _prox_unchecked!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real)
   _checkwrite(prox!, g, y, x)
-  value_and_prox!(y, g, x, γ)
+  _value_and_prox_unchecked!(y, g, x, γ)
   y
 end
 

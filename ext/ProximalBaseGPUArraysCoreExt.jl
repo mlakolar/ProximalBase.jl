@@ -600,9 +600,13 @@ function _group_buffer(yv, ::Type{T}, lay::_GroupLayout, free) where {T}
   return a
 end
 
+# Reduce the layout weights on their device without short-circuiting.
+_has_infinite_group_weight(lay::_GroupLayout) = mapreduce(b -> _any_infinite_group_weight(b.w), |, lay.blocks; init = false)
+_any_infinite_group_weight(w) = mapreduce(isinf, |, w; init = false)
+
 # GroupNormL2: block soft thresholding
 _value(f::GroupNormL2, lay, x) =
-  (_checkgroups(f, x); T = float(eltype(x)); (iszero(f.λ0) && all(isfinite, f.w)) ? zero(T) : _l2_part(T, vec(x), lay, f.λ0))
+  (_checkgroups(f, x); T = float(eltype(x)); (iszero(f.λ0) && !_has_infinite_group_weight(lay)) ? zero(T) : _l2_part(T, vec(x), lay, f.λ0))
 
 _scale(v, t, _) = iszero(t) ? zero(v) : t * v
 
@@ -613,7 +617,7 @@ function _group_prox!(y, f::GroupNormL2, lay, x, γ::Real, ::Val{V}) where {V}
   _checkgroups(f, x)
   S = float(eltype(y))
   y === x || copyto!(y, x)
-  (iszero(f.λ0) && all(isfinite, f.w)) && return zero(S)
+  (iszero(f.λ0) && !_has_infinite_group_weight(lay)) && return zero(S)
   yv = vec(y)
   fac = _group_buffer(yv, S, lay, one(S))
   step, λ = _group_levels(S, γ, f.λ0)
@@ -633,7 +637,7 @@ function _value(f::SparseGroupNormL2, lay, x)
   _checkgroups(f, x)
   T = float(eltype(x))
   xv = vec(x)
-  return ((iszero(f.λ0) && all(isfinite, f.w)) ? zero(T) : _l2_part(T, xv, lay, f.λ0)) +
+  return ((iszero(f.λ0) && !_has_infinite_group_weight(lay)) ? zero(T) : _l2_part(T, xv, lay, f.λ0)) +
          (iszero(f.λ1) ? zero(T) : _weighted_grouped_l1(T, f.λ1, xv, lay))
 end
 
@@ -652,10 +656,11 @@ function _group_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real, ::Val{V}) where
   _checkgroups(f, x)
   S = float(eltype(y))
   y === x || copyto!(y, x)
-  (iszero(f.λ0) && all(isfinite, f.w)) && iszero(f.λ1) && return zero(S)
+  zero_group = iszero(f.λ0) && !_has_infinite_group_weight(lay)
+  zero_group && iszero(f.λ1) && return zero(S)
   yv = vec(y)
   c1 = _level_preserved(S, γ) && _level_preserved(S, f.λ1) ? convert(S, γ * f.λ1) : _level_product_device(S, γ, f.λ1)
-  if (iszero(f.λ0) && all(isfinite, f.w))
+  if zero_group
     yl = view(yv, 1:length(lay.gid))
     yl .= _SparseScale(c1, length(lay.pos)).(yl, one(S), lay.gid)
     return V ? _weighted_grouped_l1(S, f.λ1, yv, lay) : zero(S)
@@ -682,7 +687,7 @@ end
 function _value(f::GroupNormLinf, lay, x)
   _checkgroups(f, x)
   T = float(eltype(x))
-  (iszero(f.λ0) && all(isfinite, f.w)) && return zero(T)
+  (iszero(f.λ0) && !_has_infinite_group_weight(lay)) && return zero(T)
   xv = vec(x)
   v = zero(T)
   for b in lay.blocks
@@ -720,7 +725,7 @@ function _group_prox!(y, f::GroupNormLinf, lay, x, γ::Real, ::Val{V}) where {V}
   _checkgroups(f, x)
   S = float(eltype(y))
   y === x || copyto!(y, x)
-  (iszero(f.λ0) && all(isfinite, f.w)) && return zero(S)
+  (iszero(f.λ0) && !_has_infinite_group_weight(lay)) && return zero(S)
   yv = vec(y)
   levels = _group_buffer(yv, S, lay, S(Inf))
   step, λ = _group_levels(S, γ, f.λ0)

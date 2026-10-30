@@ -504,6 +504,9 @@ _group_norm(::GroupNormLinf, x, G) = _maxabs(x, G)
 _dual_norm(::GroupNormL2, g, G) = _group_norm2(g, G)
 _dual_norm(::GroupNormLinf, g, G) = _sumabs(g, G)
 
+# A full reduction lets finite-weight scans vectorize.
+_has_infinite_group_weight(w) = mapreduce(isinf, |, w; init = false)
+
 # Keep the ordinary group product; recover a finite group in scaled units.
 @inline function _group_value(f, λ, w, n, x, G, ::Type{T}) where {T}
   isinf(w) && return convert(T, _weighted_value(w * n, n))
@@ -600,7 +603,7 @@ end
 function (f::HomogeneousGroupNorm)(x::AbstractArray)
   _checkgroups(f, x)
   T = float(eltype(x))
-  iszero(f.λ0) && all(isfinite, f.w) && return zero(T)
+  iszero(f.λ0) && !_has_infinite_group_weight(f.w) && return zero(T)
   v = zero(T)
   for k in eachindex(f.groups)
     iszero(f.w[k]) && continue
@@ -655,7 +658,7 @@ function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::A
   _checkgroups(f, x)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
-  if iszero(f.λ0) && all(isfinite, f.w)
+  if iszero(f.λ0) && !_has_infinite_group_weight(f.w)
     y === x || copyto!(y, x)
     return zero(T)
   end
@@ -724,7 +727,7 @@ end
 function (f::HomogeneousGroupNorm)(x::AtomIterate)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   T = float(eltype(x))
-  iszero(f.λ0) && all(isfinite, f.w) && return zero(T)
+  iszero(f.λ0) && !_has_infinite_group_weight(f.w) && return zero(T)
   v = zero(T)
   for a in 1:x.nactive
     k = x.active[a]
@@ -743,7 +746,7 @@ function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::Ato
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
   copyto!(y, x)
-  iszero(f.λ0) && all(isfinite, f.w) && return zero(T)
+  iszero(f.λ0) && !_has_infinite_group_weight(f.w) && return zero(T)
   v = zero(T)
   for a in 1:y.nactive
     k = y.active[a]

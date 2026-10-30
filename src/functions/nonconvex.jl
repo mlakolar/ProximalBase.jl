@@ -368,6 +368,12 @@ _rebuild(f::GroupSCAD, λ0, groups, w) = GroupSCAD(λ0, groups, w; a = f.a)
 _group_scalar(f::GroupMCP, ::Type{S}, k::Integer) where {S} = MCP{S}(convert(S, _weight_coefficient(f.λ0, f.w[k])), convert(S, f.a))
 _group_scalar(f::GroupSCAD, ::Type{S}, k::Integer) where {S} = SCAD{S}(convert(S, _weight_coefficient(f.λ0, f.w[k])), convert(S, f.a))
 
+# The ordinary kernels retain the scalar product and loops used for finite weights.
+_ordinary_radial_groups(f) = isfinite(f.λ0) && !_has_infinite_group_weight(f.w)
+_group_scalar(f::GroupMCP, ::Type{S}, k::Integer, ::Val{true}) where {S} = MCP{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
+_group_scalar(f::GroupSCAD, ::Type{S}, k::Integer, ::Val{true}) where {S} = SCAD{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
+_group_scalar(f::_RadialGroupPenalty, ::Type{S}, k::Integer, ::Val{false}) where {S} = _group_scalar(f, S, k)
+
 function _check_group_coordinate(f::_RadialGroupPenalty, x::AtomIterate, k::Integer)
   _checksamegroups(f, x)
   checkbounds(x.groups, k)
@@ -376,11 +382,30 @@ function _check_group_coordinate(f::_RadialGroupPenalty, x::AtomIterate, k::Inte
 end
 
 # Construct every scalar penalty that the kernel will use before it writes.
-function _check_group_scalars(f::_RadialGroupPenalty, ::Type{T}, groups, n::Int = length(groups)) where {T}
+_check_group_scalars(f::_RadialGroupPenalty, ::Type{T}, groups, n::Int = length(groups)) where {T} =
+  _ordinary_radial_groups(f) ? _check_group_scalars(f, T, groups, n, Val(true)) :
+    _check_group_scalars(f, T, groups, n, Val(false))
+function _check_group_scalars(f::_RadialGroupPenalty, ::Type{T}, groups, n::Int, ordinary::Val{O}) where {T, O}
   for a in 1:n
     k = groups[a]
-    isinf(_weight_coefficient(f.λ0, f.w[k])) && continue
-    _group_scalar(f, T, k)
+    !O && isinf(_weight_coefficient(f.λ0, f.w[k])) && continue
+    _group_scalar(f, T, k, ordinary)
+  end
+  true
+end
+# The shape is shared by every scalar. Check it once, then reduce the same
+# converted coefficient checks; an invalid coefficient takes the ordered errors.
+function _check_group_scalars(f::_RadialGroupPenalty, ::Type{T}, groups, n::Int, ordinary::Val{true}) where {T}
+  iszero(n) && return true
+  _group_scalar(f, T, groups[1], ordinary)
+  valid = true
+  @inbounds @simd for a in 1:n
+    valid &= convert(T, f.λ0 * f.w[groups[a]]) >= zero(T)
+  end
+  if !valid
+    for a in 1:n
+      _group_scalar(f, T, groups[a], ordinary)
+    end
   end
   true
 end
@@ -399,6 +424,14 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::_Radial
   _check_prox_group_scalars(f, float(eltype(y)), y, x)
 end
 
+for Step in (Real, AbstractVector)
+  @eval begin
+    value_and_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::$Step) = _value_and_prox_groups!(y, f, x, γ)
+    value_and_prox!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::$Step) = _value_and_prox_groups!(y, f, x, γ)
+    prox!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::$Step) = (_value_and_prox_groups!(y, f, x, γ); y)
+  end
+end
+
 _group_norm(::_RadialGroupPenalty, x, G) = _group_norm2(x, G)
 _dual_norm(::_RadialGroupPenalty, g, G) = _group_norm2(g, G)
 
@@ -415,15 +448,20 @@ _dual_norm(::_RadialGroupPenalty, g, G) = _group_norm2(g, G)
 end
 
 function (f::_RadialGroupPenalty)(x::AbstractArray)
+  _ordinary_radial_groups(f) ?
+    _radial_group_value(f, x, Val(true)) : _radial_group_value(f, x, Val(false))
+end
+
+function _radial_group_value(f::_RadialGroupPenalty, x::AbstractArray, ordinary::Val{O}) where {O}
   _checkgroups(f, x)
   T = float(eltype(x))
   v = zero(T)
   for k in eachindex(f.groups)
-    if isinf(_weight_coefficient(f.λ0, f.w[k]))
+    if !O && isinf(_weight_coefficient(f.λ0, f.w[k]))
       _allzero(x, f.groups[k]) || return T(Inf)
       continue
     end
-    p = _group_scalar(f, T, k)
+    p = _group_scalar(f, T, k, ordinary)
     iszero(p.λ) && continue
     v += value_entry(p, _group_norm(f, x, f.groups[k]), 1)
   end
@@ -432,16 +470,21 @@ end
 
 # with the groups of f, only the active groups count
 function (f::_RadialGroupPenalty)(x::AtomIterate)
-  _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
+  _ordinary_radial_groups(f) ?
+    _radial_group_value(f, x, Val(true)) : _radial_group_value(f, x, Val(false))
+end
+
+function _radial_group_value(f::_RadialGroupPenalty, x::AtomIterate, ordinary::Val{O}) where {O}
+  _samelayout(f, x) || return invoke(_radial_group_value, Tuple{_RadialGroupPenalty, AbstractArray, Val{O}}, f, x, Val(O))
   T = float(eltype(x))
   v = zero(T)
   for a in 1:x.nactive
     k = x.active[a]
-    if isinf(_weight_coefficient(f.λ0, f.w[k]))
+    if !O && isinf(_weight_coefficient(f.λ0, f.w[k]))
       _allzero(x.storage, f.groups[k]) || return T(Inf)
       continue
     end
-    p = _group_scalar(f, T, k)
+    p = _group_scalar(f, T, k, ordinary)
     iszero(p.λ) && continue
     v += value_entry(p, _group_norm(f, x.storage, f.groups[k]), 1)
   end
@@ -449,20 +492,26 @@ function (f::_RadialGroupPenalty)(x::AtomIterate)
 end
 
 function _value_and_prox_groups!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::Union{Real, AbstractVector})
+  _ordinary_radial_groups(f) ?
+    _radial_group_prox!(y, f, x, γ, Val(true)) : _radial_group_prox!(y, f, x, γ, Val(false))
+end
+
+function _radial_group_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
   _checksize(y, x)
   _checkgroups(f, x)
+  _check_symmetric_groups(f, y)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
-  _check_group_scalars(f, T, eachindex(f.groups))
+  _check_group_scalars(f, T, eachindex(f.groups), length(f.groups), ordinary)
   _copy_ungrouped!(y, f, x)
   v = zero(T)
   for k in eachindex(f.groups)
-    if isinf(_weight_coefficient(f.λ0, f.w[k]))
+    if !O && isinf(_weight_coefficient(f.λ0, f.w[k]))
       n = _shrink_group!(NormL2(one(T)), y, x, f.groups[k], convert(T, _weight_product(_entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
       iszero(n) || (v = T(Inf))
       continue
     end
-    p = _group_scalar(f, T, k)
+    p = _group_scalar(f, T, k, ordinary)
     if iszero(p.λ)
       @inbounds for i in f.groups[k]
         y[i] = x[i]
@@ -475,21 +524,28 @@ function _value_and_prox_groups!(y::AbstractArray, f::_RadialGroupPenalty, x::Ab
 end
 
 function _value_and_prox_groups!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::Union{Real, AbstractVector})
+  _ordinary_radial_groups(f) ?
+    _radial_group_prox!(y, f, x, γ, Val(true)) : _radial_group_prox!(y, f, x, γ, Val(false))
+end
+
+function _radial_group_prox!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
   _samelayout(f, x) && _samelayout(f, y) ||
-    return invoke(_value_and_prox_groups!, Tuple{AbstractArray, _RadialGroupPenalty, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
+    return invoke(_radial_group_prox!, Tuple{AbstractArray, _RadialGroupPenalty, AbstractArray, Union{Real, AbstractVector}, Val{O}}, y, f, x, γ, Val(O))
+  _checksize(y, x)
+  _checkgroups(f, x)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
-  _check_group_scalars(f, T, x.active, x.nactive)
+  _check_group_scalars(f, T, x.active, x.nactive, ordinary)
   copyto!(y, x)
   v = zero(T)
   for a in 1:y.nactive
     k = y.active[a]
-    if isinf(_weight_coefficient(f.λ0, f.w[k]))
+    if !O && isinf(_weight_coefficient(f.λ0, f.w[k]))
       n = _shrink_group!(NormL2(one(T)), y.storage, y.storage, f.groups[k], convert(T, _weight_product(_entry(γ, k), f.λ0, f.w[k])))
       iszero(n) || (v = T(Inf))
       continue
     end
-    p = _group_scalar(f, T, k)
+    p = _group_scalar(f, T, k, ordinary)
     iszero(p.λ) && continue
     v += convert(T, value_entry(p, _radial_shrink!(p, y.storage, y.storage, f.groups[k], convert(T, _entry(γ, k))), 1))
   end

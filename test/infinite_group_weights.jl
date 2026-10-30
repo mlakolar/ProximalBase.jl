@@ -214,4 +214,16 @@ end
   end
 end
 
+@testset "ordinary radial validation before writes" begin
+  for F in (GroupMCP, GroupSCAD), bad in (NaN, -1.0),
+      op in (prox!, value_and_prox!), γ in (0f0, Float32[0, 1]), atom in (false, true)
+    f = F(0.3, [[1], [2]], [1.0, 1.0])
+    f.w[2] = bad
+    x = atom ? AtomIterate(Float32[1, 2], f) : Float32[1, 2]
+    y = atom ? AtomIterate(Float32[9, 9], f) : Float32[9, 9]
+    @test_throws ArgumentError op(y, f, x, γ)
+    @test Vector(y) == Float32[9, 9]
+  end
+end
+
 end

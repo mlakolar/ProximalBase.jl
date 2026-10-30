@@ -56,6 +56,14 @@ membership in `IndBallL1`, `IndBallL2`, `IndBallLinf` and `IndBox` is decided in
 the scaled units, with the tolerance of the original ones. Whether another `f`
 evaluates an overflowing spectrum correctly depends on `f`.
 
+At a finite input whose spectrum overflows, the proximal output and the value
+returned by `value_and_prox!` are computed in scaled units for unweighted
+`NormL1`, `NormL1Nonneg`, `NormL2`, `NormLinf`, `SumLargest`,
+`ElasticNet(λ, 0)`, `IndNonnegative`, `IndBallL0`, `ZeroFunction`, and boxes
+whose bounds are all zero or infinite. Other functions keep the ordinary
+result, which may be infinite, including `SqrNormL2`, bounded balls, weighted
+penalties and compositions. This rule does not change the standalone value.
+
 $_SPECTRAL_NOTE
 """
 mutable struct SingularValue{F<:AbstractFunction} <: AbstractFunction
@@ -152,6 +160,9 @@ function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix,
   s, U, Vt = _svd!(ws)
   t = _vector_buffer(F.t, T, length(s))
   F.t = t
+  if _scales_spectral_prox(F.f) && _spectral_overflow(s, X)
+    return _scaled_wrapper_svd_prox!(Y, F, X, γ, ws, t)
+  end
   v = value_and_prox!(t, F.f, s, γ)
   # scale the singular vectors up to the last nonzero singular value
   k = 0
@@ -194,4 +205,26 @@ function _conjugate_value(F::SingularValue, Y::AbstractMatrix)
   all(isfinite, Y) || return float(eltype(Y))(Inf)
   t, = _masked_singular_values!(F, Y)
   _conjugate_value(F.f, t)
+end
+
+@noinline function _scaled_wrapper_svd_prox!(Y, F::SingularValue, X, γ, ws::SVDWorkspace{T}, t) where {T}
+  e = _magnitude_exponent(convert(T, _maximum_abs(X)))
+  _scaled_spectral_input!(ws.A, X)
+  s, U, Vt = _svd!(ws)
+  σ = _maximum_abs(s)
+  v = _scaled_spectrum_prox!(t, F.f, s, γ, e)
+  # SumLargest can increase the magnitude of negative components.
+  a = _maximum_abs(t)
+  σ = isfinite(a) ? max(σ, a) : σ
+  k = 0
+  @inbounds for j in eachindex(t)
+    iszero(t[j]) || (k = j)
+  end
+  @inbounds for j in 1:k, i in axes(U, 1)
+    U[i, j] *= t[j]
+  end
+  B = Y isa StridedMatrix{T} && _blas_ready(Y) ? Y : ws.A
+  _mul_lowrank!(B, U, Vt, k, ws)
+  _spectral_rescale!(Y, B, e, max(size(X)...), σ)
+  convert(T, v)
 end

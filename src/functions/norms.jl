@@ -719,10 +719,17 @@ function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::Ato
   v
 end
 
+# Validate the layout and group before a wrapper changes any entries.
+function _check_group_coordinate(f::AbstractGroupPenalty, x::AtomIterate, k::Integer)
+  _checksamegroups(f, x)
+  checkbounds(x.groups, k)
+  nothing
+end
+
 # group k of x shrunk in place; the group becomes active if it is nonzero, as after
 # writing to it through atom(x, k)
 function prox_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k::Integer, γ::Real)
-  _checksamegroups(f, x)
+  _check_group_coordinate(f, x, k)
   T = float(eltype(x))
   if iszero(f.λ0) || iszero(f.w[k])
     _allzero(x.storage, x.groups[k]) || activate!(x, k)

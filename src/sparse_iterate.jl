@@ -1314,3 +1314,14 @@ function *(A::Symmetric{T}, X::SymmetricSparseIterate{T}, B::Symmetric{T}) where
   end
   A[:, K] * (XK * B[K, :])
 end
+
+# Retain the complete stored pattern, including zeros, across wrapper calls.
+function _output_buffer!(s::Scratch, y::Y) where {Y<:_StoredIterate}
+  b = s.buf
+  if !(b isa Y && size(b) == size(y))
+    b = similar(y)
+    s.buf = b
+  end
+  copyto!(b::Y, y)
+end
+_wrapper_output(y::_StoredIterate, z) = z

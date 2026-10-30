@@ -1291,4 +1291,122 @@ end
   end
 end
 
+# Minimal offset axes without another test dependency.
+struct ProjectionOffset{T} <: AbstractVector{T}
+  data::Vector{T}
+end
+Base.size(x::ProjectionOffset) = size(x.data)
+Base.axes(x::ProjectionOffset) = (Base.IdentityUnitRange(0:(length(x)-1)),)
+Base.IndexStyle(::Type{<:ProjectionOffset}) = IndexLinear()
+Base.eachindex(::IndexLinear, x::ProjectionOffset) = axes(x, 1)
+Base.parent(x::ProjectionOffset) = x.data
+Base.@propagate_inbounds function Base.getindex(x::ProjectionOffset, i::Int)
+  @boundscheck checkbounds(x, i)
+  x.data[i + 1]
+end
+Base.@propagate_inbounds function Base.setindex!(x::ProjectionOffset, v, i::Int)
+  @boundscheck checkbounds(x, i)
+  x.data[i + 1] = v
+end
+Base.copyto!(y::ProjectionOffset, x::AbstractArray) = (copyto!(y.data, x); y)
+
+# Unknown storage deliberately inherits self-parenting, like sparse devices.
+struct ProjectionUnknown{T} <: AbstractVector{T}
+  data::Vector{T}
+end
+Base.size(x::ProjectionUnknown) = size(x.data)
+Base.IndexStyle(::Type{<:ProjectionUnknown}) = IndexLinear()
+Base.getindex(x::ProjectionUnknown, i::Int) = x.data[i]
+Base.setindex!(x::ProjectionUnknown, v, i::Int) = (x.data[i] = v)
+
+function l1_moreau_result!(op, y, f, x, γ)
+  # Master's scalar-step Moreau route, including its dense scratch and commit.
+  T = float(eltype(y))
+  p = Array{T}(undef, size(x))
+  prox!(p, f, x, one(T))
+  p .= x .- p
+  copyto!(y, p)
+  op === prox! ? y : zero(T)
+end
+function l1_route_result!(op, y, f, x, γ, master)
+  try
+    v = master ? l1_moreau_result!(op, y, f, x, γ) : op(y, Conjugate(f), x, γ)
+    (nothing, op === prox! ? nothing : v)
+  catch e
+    (typeof(e), nothing)
+  end
+end
+
+@testset "L1 projections require known one-based host storage" begin
+  for op in (prox!, value_and_prox!), base in (NormLinf(), GroupNormLinf(1, [1:2])),
+      offset_input in (false, true), offset_output in (false, true)
+    offset_input || offset_output || continue
+    x = offset_input ? ProjectionOffset([0.1, 0.2]) : [1e300, 0.25]
+    y = offset_output ? ProjectionOffset([7.0, 7.0]) : [7.0, 7.0]
+    expected = offset_output ? ProjectionOffset([7.0, 7.0]) : [7.0, 7.0]
+    @test ProximalBase._projection_fallback(base, y, x)
+    offset_input && @test !ProximalBase._projection_host(x)
+    offset_output && @test !ProximalBase._projection_host(y)
+    result = l1_route_result!(op, y, base, x, 0.7, false)
+    reference = l1_route_result!(op, expected, base, x, 0.7, true)
+    @test result == reference
+    @test parent(y) == parent(expected)
+    result[1] !== nothing && offset_input && @test parent(y) == [7, 7]
+  end
+  for op in (prox!, value_and_prox!), base in (NormLinf(), GroupNormLinf(1, [1:2]))
+    x = ProjectionUnknown([1e300, 0.25])
+    @test parent(x) === x
+    @test !ProximalBase._projection_host(x)
+    @test !ProximalBase._direct_projection(base, x)
+    @test !ProximalBase._projection_host(view(x, :))
+    y, expected = zeros(2), zeros(2)
+    @test l1_route_result!(op, y, base, x, 1.0, false) == l1_route_result!(op, expected, base, x, 1.0, true)
+    @test y == expected == zeros(2)
+  end
+  # Fallback is blockwise: an unsupported L1 block must not turn another
+  # block's direct box projection into cancellation in Moreau's identity.
+  for op in (prox!, value_and_prox!), unknown_input in (false, true)
+    f = Scaled(SeparableSum(NormL1(), SeparableSum(NormLinf(), SqrNormL2(2))), 0.7)
+    block = unknown_input ? ProjectionUnknown([1e300, 0.25]) : [1e300, 0.25]
+    x = ([1e300], (block, [3.0]))
+    target = unknown_input ? zeros(2) : ProjectionUnknown(zeros(2))
+    y = (zeros(1), (target, zeros(1)))
+    v = op(y, Conjugate(f), x, 0.7)
+    p = zeros(1)
+    expected = value_and_prox!(p, Conjugate(Scaled(SqrNormL2(2), 0.7)), [3.0], 0.7)
+    @test y[1] == [0.7]
+    @test target == zeros(2)
+    @test y[2][2] == p
+    op === value_and_prox! && @test v == expected
+  end
+  A = [1e300 0.0; 0.0 0.25]
+  for x in (Diagonal([1e300, 0.25]), PermutedDimsArray(A, (2, 1)),
+            view(A, :, :), reshape(A, 4), reinterpret(Float64, reinterpret(UInt64, A))),
+      op in (prox!, value_and_prox!)
+    @test ProximalBase._projection_host(x)
+    @test ProximalBase._direct_projection(NormLinf(), x)
+    y = zeros(size(x))
+    @test !ProximalBase._projection_fallback(NormLinf(), y, x)
+    op(y, Conjugate(NormLinf()), x, 1.0)
+    @test y == ifelse.(abs.(x) .== 1e300, 1.0, 0.0)
+  end
+end
+
+@testset "Condat discarded-level enclosure" begin
+  setprecision(BigFloat, 4096) do
+    for T in (Float32, Float64), n in (64, 257)
+      data = T[1 + mod(17i, 31)/32 for i in 1:n]
+      for x in (data, sort(data), sort(data; rev = true), vcat(data[end:end], data[1:end-1])),
+          frac in (0.001, 0.1, 0.9)
+        r = T(frac * sum(abs, Float64.(x)))
+        for op in (prox!, value_and_prox!)
+          y = similar(x)
+          op(y, Conjugate(NormLinf(r)), x, one(T))
+          l1accurate(y, projl1(x, BigFloat(r)), BigFloat(r); support = false)
+        end
+      end
+    end
+  end
+end
+
 end

@@ -575,6 +575,7 @@ function _projection_l1_threshold!(buf::AbstractVector{T}, x, G, r::T, m::T, tot
   nt, nv, q = 0, 1, 0
   e = a = zero(T)
   θ = s - r
+  h = θ
   cap = max(1024, n ÷ 8)
   many = false
   j, jend = j0 + 1, j0 + n - 1
@@ -583,15 +584,20 @@ function _projection_l1_threshold!(buf::AbstractVector{T}, x, G, r::T, m::T, tot
     y₃, y₄ = abs(x[G[j + 2]]), abs(x[G[j + 3]])
     if (y₁ > θ) | (y₂ > θ) | (y₃ > θ) | (y₄ > θ)
       nt, nv, s, e, a, q, θ, many = _projection_l1_step!(buf, y₁, nt, nv, s, e, a, q, θ, r, cap)
+      h = max(h, θ)
       many || ((nt, nv, s, e, a, q, θ, many) = _projection_l1_step!(buf, y₂, nt, nv, s, e, a, q, θ, r, cap))
+      h = max(h, θ)
       many || ((nt, nv, s, e, a, q, θ, many) = _projection_l1_step!(buf, y₃, nt, nv, s, e, a, q, θ, r, cap))
+      h = max(h, θ)
       many || ((nt, nv, s, e, a, q, θ, many) = _projection_l1_step!(buf, y₄, nt, nv, s, e, a, q, θ, r, cap))
+      h = max(h, θ)
       many && break
     end
     j += 4
   end
   @inbounds while !many && j <= jend
     nt, nv, s, e, a, q, θ, many = _projection_l1_step!(buf, abs(x[G[j]]), nt, nv, s, e, a, q, θ, r, cap)
+    h = max(h, θ)
     j += 1
   end
   many && return _projection_l1_michelot(x, G, r, m, total)
@@ -603,6 +609,7 @@ function _projection_l1_threshold!(buf::AbstractVector{T}, x, G, r::T, m::T, tot
       buf[w] = v
       s, e, a, q = _projection_l1_add(s, e, a, q, v)
       θ = _projection_l1_level(s, e, r, w + nv)
+      h = max(h, θ)
     end
   end
   @inbounds for i in 1:nv
@@ -621,6 +628,7 @@ function _projection_l1_threshold!(buf::AbstractVector{T}, x, G, r::T, m::T, tot
         k -= 1
         s, e, a, q = _projection_l1_add(s, e, a, q, -v)
         θ = _projection_l1_level(s, e, r, k)
+        h = max(h, θ)
         changed = true
       else
         i += 1
@@ -630,7 +638,13 @@ function _projection_l1_threshold!(buf::AbstractVector{T}, x, G, r::T, m::T, tot
   u = eps(T) / 2
   δ = (q + 8) * u
   B = δ < T(0.125) ? 4eps(T) * m + δ * a / (1 - 2δ) : T(Inf)
-  θ, k, nextfloat(B * (1 + 16eps(T)))
+  B = nextfloat(B * (1 + 16eps(T)))
+  # Every skipped or removed value was <= a tested level, hence <=h.
+  # Resets keep their old candidates for reinsertion; each is either kept
+  # or tested again. h includes all levels before/after those tests, so
+  # monotonic subtraction makes this an enclosure of every discarded native
+  # residual at the final level, without assuming rounded levels increase.
+  θ, k, h - θ <= B ? B : T(Inf)
 end
 function _projection_l1_michelot(x, G, r::T, m, total) where {T}
   θ, count = (total - r) / length(G), -1

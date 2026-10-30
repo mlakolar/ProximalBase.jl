@@ -463,7 +463,8 @@ leave the corresponding dual coordinates or groups free, including at zero
 level. Array steps and `prox_entry` use the same clipping formulas for separable
 families. Translations require `γb` to be finite in working precision.
 
-On CPU, the ℓ1-ball projections use a certified native threshold path for
+On known CPU storage with one-based input and output axes, the ℓ1-ball
+projections use a certified native threshold path for
 ordinary radii, and maximum-relative offsets with compensated scaled sums
 otherwise. For a group of size n and radius r, the coordinate error is at
 most 4n*eps(T)*r, with an additional half-subnormal rounding allowance.
@@ -480,8 +481,8 @@ small-group shortcuts. Certified inside-ball inputs
 and infinite radii return the input unchanged. Feasibility allows
 4n*eps(T)*r plus n*nextfloat(zero(T)). Scalar steps cancel for untranslated
 projections; translations return the linear value ⟨b,y⟩. Array steps retain
-their existing behaviour for these nonseparable families. Device ℓ∞ conjugates
-retain Moreau's identity.
+their existing behaviour for these nonseparable families. Other storage and
+axes, including device ℓ∞ conjugates, retain Moreau's identity.
 
 Other families use Moreau's identity, including `NuclearNorm`, singular-value
 and spectral wrappers, `SLOPE`, TV and fused penalties, and cones other than
@@ -622,7 +623,7 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _projection_direct_output(c.f, y, x) && return _conjugate_projection!(y, c.f, x, γ)
   T = float(eltype(y))
   z = _array_buffer!(c.scratch, T, x)
-  _conjugate_projection!(z, c.f, x, γ)
+  _projection_fallback(c.f, y, x) ? _conjugate_moreau!(z, c.f, x, γ) : _conjugate_projection!(z, c.f, x, γ)
   _check_projection_result(z, x, γ)
   copyto!(y, z)
 end
@@ -652,7 +653,7 @@ _has_conjugate_value(f::SingularValue) = _has_conjugate_value(f.f)
 function value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
-  if _any_direct_projection(c.f, x)
+  if _any_direct_projection(c.f, x) && !_projection_fallback(c.f, y, x)
     z = _array_buffer!(c.scratch, float(eltype(y)), x)
     v = _conjugate_projection_value!(z, c.f, x, γ)
     _check_projection_result(z, x, γ)
@@ -710,7 +711,7 @@ function _checkwrite(op::O, c::Conjugate, y::Union{AbstractArray, Tuple}, x::Uni
   op === value_and_prox! && y isa AbstractArray && _checkparams(c, x)
   _checksize(y, x)
   _checkparams(c, x)
-  _projection_l1_check_input(c.f, x)
+  _projection_l1_check_input(c.f, y, x)
   if _projection_direct_output(c.f, y, x)
     _checkwrite(prox!, c.f, y, x)
     return true
@@ -779,7 +780,7 @@ _tuple_dot(x::Tuple, y::Tuple) = sum(map(_tuple_dot, x, y))
 function prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _checkwrite(prox!, c, y, x)
   p = _tuple_buffer!(c.scratch, y, x)
-  _conjugate_projection!(p, c.f, x, γ)
+  _projection_fallback(c.f, y, x) ? _conjugate_projection_target!(p, c.f, y, x, γ) : _conjugate_projection!(p, c.f, x, γ)
   _check_projection_result(p, x, γ)
   _projection_commit!(y, p)
 end
@@ -792,7 +793,8 @@ function value_and_prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _isindicator(c) && (prox!(y, c, x, γ); return _zero_value(y))
   if _any_direct_projection(c.f, x)
     z = _tuple_buffer!(c.scratch, y, x)
-    v = _conjugate_projection_value!(z, c.f, x, γ)
+    v = _projection_fallback(c.f, y, x) ? _conjugate_projection_target_value!(z, c.f, y, x, γ) :
+      _conjugate_projection_value!(z, c.f, x, γ)
     _check_projection_result(z, x, γ)
     _projection_commit!(y, z)
     return _value_at(v, y)
@@ -1116,7 +1118,7 @@ _checkstep(op::O, c::Conjugate{<:Conjugate}, y::AbstractArray, x::AbstractArray,
 _checkstep(op::O, c::Conjugate{<:Conjugate}, y::Tuple, x::Tuple, γ::Real) where {O} =
   _checkstep(op, c.f.f, y, x, γ)
 function _checkstep(op::O, c::Conjugate, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
-  _direct_projection(c.f, x) && return true
+  _direct_projection(c.f, x) && !_projection_fallback(c.f, y, x) && return true
   T = float(eltype(y))
   step = convert(T, γ)
   p = _conjugate_checkbuffer(c.scratch, y, x)
@@ -1239,6 +1241,9 @@ function _projection_l1_check_input(::Union{NormLinf,GroupNormLinf}, x::Abstract
 end
 _projection_l1_check_input(f::Union{Scaled,Translate}, x) = _projection_l1_check_input(f.f, x)
 _projection_l1_check_input(f::SeparableSum, x::Tuple) = (map(_projection_l1_check_input, f.fs, x); true)
+_projection_l1_check_input(f, y, x) = _projection_fallback(f, y, x) || _projection_l1_check_input(f, x)
+_projection_l1_check_input(f::Union{Scaled,Translate}, y, x) = _projection_l1_check_input(f.f, y, x)
+_projection_l1_check_input(f::SeparableSum, y::Tuple, x::Tuple) = (map(_projection_l1_check_input, f.fs, y, x); true)
 
 # The shift may be wider than the output even when the projection is bounded.
 struct _FiniteProjectionShift{T} end
@@ -1281,12 +1286,24 @@ _direct_conjugate(::Type{<:Union{NormL1, NormL1Nonneg, CheckLoss, ZeroFunction,
                                 IndNonnegative, NormL2, GroupNormL2, NormLinf, GroupNormLinf}}) = true
 _direct_conjugate(::Type{<:Union{Scaled{F}, Translate{F}}}) where {F} = _direct_conjugate(F)
 
-# Device storage, including wrapped storage, retains Moreau.
+# Unknown storage and unsupported axes retain Moreau, including on devices.
 _projection_host(::Array) = true
-@inline _projection_host(x::AbstractArray) = !_is_device_array(x) && (parent(x) === x || _projection_host(parent(x)))
-_projection_host(x::Diagonal) = _projection_host(x.diag)
-_projection_host(x::Union{Bidiagonal, SymTridiagonal}) = _projection_host(x.dv) && _projection_host(x.ev)
-_projection_host(x::Tridiagonal) = _projection_host(x.dl) && _projection_host(x.d) && _projection_host(x.du)
+_projection_host(x::Union{BitArray, UnitRange, StepRange, StepRangeLen, LinRange, Base.OneTo,
+                          SparseVector, SparseMatrixCSC, SparseIterate, SymmetricSparseIterate, AtomIterate}) =
+  !Base.has_offset_axes(x)
+@static if isdefined(Base, :Memory)
+  _projection_host(::Base.Memory) = true
+end
+@inline _projection_host(x::AbstractArray) = !Base.has_offset_axes(x) &&
+  !_is_device_array(x) && parent(x) !== x && _projection_host(parent(x))
+_projection_host(x::Diagonal) = !Base.has_offset_axes(x) && _projection_host(x.diag)
+_projection_host(x::Union{Bidiagonal, SymTridiagonal}) = !Base.has_offset_axes(x) && _projection_host(x.dv) && _projection_host(x.ev)
+_projection_host(x::Tridiagonal) = !Base.has_offset_axes(x) && _projection_host(x.dl) && _projection_host(x.d) && _projection_host(x.du)
+_projection_fallback(f, y, x) = false
+_projection_fallback(::Union{NormLinf, GroupNormLinf}, y::AbstractArray, x::AbstractArray) =
+  !(_projection_host(y) && _projection_host(x))
+_projection_fallback(f::Union{Scaled, Translate}, y, x) = _projection_fallback(f.f, y, x)
+_projection_fallback(f::SeparableSum, y::Tuple, x::Tuple) = any(map(_projection_fallback, f.fs, y, x))
 _direct_projection(f, x) = _direct_conjugate(typeof(f))
 _direct_projection(::Union{NormLinf, GroupNormLinf}, x) = _projection_host(x)
 _direct_projection(f::Union{Scaled, Translate}, x) = _direct_projection(f.f, x)
@@ -1462,20 +1479,30 @@ _projection_copy!(y::AbstractArray, z::AbstractArray) = copyto!(y, z)
 _projection_copy!(y::Tuple, z::Tuple) = (map(_projection_copy!, y, z); y)
 _projection_commit!(y::Tuple, z::Tuple) = (_projection_check_commit(y, z); _projection_copy!(y, z))
 _direct_conjugate(::Type{SeparableSum{F}}) where {F} = all(_direct_conjugate, fieldtypes(F))
-function _conjugate_projection!(z::Tuple, s::SeparableSum, x::Tuple, γ, α = 1)
-  _conjugate_projection_blocks!(z, s.fs, x, γ, α)
+function _conjugate_projection!(z::Tuple, s::SeparableSum, x::Tuple, γ, α = 1, output = z)
+  _conjugate_projection_blocks!(z, s.fs, x, γ, α, output)
   z
 end
-function _conjugate_projection_block!(z, f, x, γ, α)
+function _conjugate_projection_block!(z, f, x, γ, α, output = z)
+  _projection_fallback(f, output, x) && return _conjugate_projection_target!(z, f, output, x, γ, α)
   a = _projection_block_scale(f, α, x)
   _any_direct_projection(f, x) || f isa SeparableSum ?
     _conjugate_projection!(z, f, x, γ, a) : _conjugate_moreau_block!(z, f, x, γ, a)
 end
-_conjugate_projection_blocks!(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, α) = nothing
-function _conjugate_projection_blocks!(z::Tuple, fs::Tuple, x::Tuple, γ, α)
-  _conjugate_projection_block!(first(z), first(fs), first(x), γ, α)
-  _conjugate_projection_blocks!(Base.tail(z), Base.tail(fs), Base.tail(x), γ, α)
+_conjugate_projection_blocks!(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, α, ::Tuple{}) = nothing
+function _conjugate_projection_blocks!(z::Tuple, fs::Tuple, x::Tuple, γ, α, output)
+  _conjugate_projection_block!(first(z), first(fs), first(x), γ, α, first(output))
+  _conjugate_projection_blocks!(Base.tail(z), Base.tail(fs), Base.tail(x), γ, α, Base.tail(output))
 end
+
+# Carry original targets only for unsupported tuple blocks; other blocks retain
+# their direct projections and coefficient chains.
+_conjugate_projection_target!(z, f, y, x, γ, α = 1) =
+  _conjugate_moreau_block!(z, f, x, γ, _projection_l1_plain(α))
+_conjugate_projection_target!(z::Tuple, f::SeparableSum, y::Tuple, x::Tuple, γ, α = 1) =
+  _conjugate_projection!(z, f, x, γ, α, y)
+_conjugate_projection_target!(z::Tuple, f::Scaled, y::Tuple, x::Tuple, γ, α = 1) =
+  _conjugate_projection_target!(z, f.f, y, x, γ, _projection_wrapper_scale(f.f, α, f.α, x))
 
 _conjugate_projection!(z, f::NormL2, x, γ, α = 1) = _project_l2!(z, x, f.λ, α)
 function _conjugate_projection!(z, f::GroupNormL2, x, γ, α = 1)
@@ -1494,11 +1521,11 @@ function _conjugate_projection!(z, f::GroupNormL2, x, γ, α = 1)
 end
 
 function _conjugate_projection!(z, f::NormLinf, x, γ, α = 1)
-  _projection_host(x) || return _conjugate_moreau!(z, f, x, γ, α)
+  (_projection_host(x) && _projection_host(z)) || return _conjugate_moreau!(z, f, x, γ, α)
   _project_l1!(z, x, eachindex(IndexLinear(), x), f.scratch, f.λ, α)
 end
 function _conjugate_projection!(z, f::GroupNormLinf, x, γ, α = 1)
-  _projection_host(x) || return _conjugate_moreau!(z, f, x, γ, α)
+  (_projection_host(x) && _projection_host(z)) || return _conjugate_moreau!(z, f, x, γ, α)
   @inbounds for i in f.free
     z[i] = zero(eltype(z))
   end
@@ -1606,7 +1633,12 @@ end
 _conjugate_projection_value!(z, f::Scaled, x, γ, α = 1) = _conjugate_projection_value!(z, f.f, x, γ, _projection_wrapper_scale(f.f, α, f.α, x))
 _conjugate_projection_value!(z::Tuple, f::SeparableSum, x::Tuple, γ, α = 1) =
   _conjugate_projection_values!(z, f.fs, x, γ, α)
-function _conjugate_projection_value_block!(z, f, x, γ, α)
+function _conjugate_projection_value_block!(z, f, x, γ, α, output = z)
+  if _projection_fallback(f, output, x)
+    _conjugate_isindicator(typeof(f)) || return _conjugate_projection_target_value!(z, f, output, x, γ, α)
+    _conjugate_projection_target!(z, f, output, x, γ, α)
+    return _zero_value(z)
+  end
   if _conjugate_isindicator(typeof(f))
     _conjugate_projection_block!(z, f, x, γ, α)
     return _zero_value(z)
@@ -1615,11 +1647,18 @@ function _conjugate_projection_value_block!(z, f, x, γ, α)
   _any_direct_projection(f, x) || f isa SeparableSum ?
     _conjugate_projection_value!(z, f, x, γ, a) : _conjugate_moreau_value!(z, f, x, γ, a, Val(true))
 end
-_conjugate_projection_values!(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, α) = 0
-function _conjugate_projection_values!(z::Tuple, fs::Tuple, x::Tuple, γ, α)
-  v = _conjugate_projection_value_block!(first(z), first(fs), first(x), γ, α)
-  v + _conjugate_projection_values!(Base.tail(z), Base.tail(fs), Base.tail(x), γ, α)
+_conjugate_projection_values!(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, α, ::Tuple{}) = 0
+_conjugate_projection_values!(z::Tuple, fs::Tuple, x::Tuple, γ, α) = _conjugate_projection_values!(z, fs, x, γ, α, z)
+function _conjugate_projection_values!(z::Tuple, fs::Tuple, x::Tuple, γ, α, output)
+  v = _conjugate_projection_value_block!(first(z), first(fs), first(x), γ, α, first(output))
+  v + _conjugate_projection_values!(Base.tail(z), Base.tail(fs), Base.tail(x), γ, α, Base.tail(output))
 end
+_conjugate_projection_target_value!(z, f, y, x, γ, α = 1) =
+  _conjugate_moreau_value!(z, f, x, γ, _projection_l1_plain(α), Val(true))
+_conjugate_projection_target_value!(z::Tuple, f::SeparableSum, y::Tuple, x::Tuple, γ, α = 1) =
+  _conjugate_projection_values!(z, f.fs, x, γ, α, y)
+_conjugate_projection_target_value!(z::Tuple, f::Scaled, y::Tuple, x::Tuple, γ, α = 1) =
+  _conjugate_projection_target_value!(z, f.f, y, x, γ, _projection_wrapper_scale(f.f, α, f.α, x))
 
 _projection_nonfinite(x, z) = isfinite(x) & !isfinite(z)
 function _check_projection_result(z::AbstractArray, x::AbstractArray, γ)

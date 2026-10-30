@@ -1445,9 +1445,11 @@ end
   # For Condat, B=4eps*m plus the bound on its accumulated sum residuals.
   # Ignoring outward inflation, m<=K*r, K=min(3n/8,3n/(4k)), suffices
   # with zero residual; equality can fall back after inflation. Michelot uses
-  # gamma_k on its final sum. B encloses the selected equation's level error
-  # and native residuals of discarded entries (endpoint level roundings and
-  # the intervening compensated-sum residuals). Its mass residual is <=k*B.
+  # gamma_k on its final sum. B encloses the selected equation's level error;
+  # Condat separately checks discarded residuals against its largest tested
+  # level. Michelot's last two equal counts give the same thresholded set,
+  # hence the same sum and level; its discarded entries are <=that level.
+  # The selected equation's mass residual is <=k*B.
   # If the level is too high, lowering it retains all k selected entries,
   # so its error is <=B; suppressing a small candidate costs another B.
   # If too low, wrongly retained entries can disappear: slope may fall to 1,

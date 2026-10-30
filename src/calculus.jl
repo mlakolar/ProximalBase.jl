@@ -1153,14 +1153,23 @@ function _projection_shifted!(f::Translate, z, x, γ)
 end
 
 # Pure projections on equal-precision dense arrays cannot fail a finite-result
-# check. Keep scratch for translations, mixed precision and overlapping storage.
+# check. Keep scratch for translations, mixed precision and aliased parameters.
 _projection_writes_safe(::Type) = false
 _projection_writes_safe(::Type{<:Union{NormL1, NormL1Nonneg, CheckLoss, NormL2, GroupNormL2,
                                       ZeroFunction, IndNonnegative}}) = true
 _projection_writes_safe(::Type{<:Scaled{F}}) where {F} = _projection_writes_safe(F)
+_projection_parameter_alias(y, ::Union{Nothing, Real}) = false
+_projection_parameter_alias(y, p::AbstractArray) = Base.mightalias(y, p)
+_projection_parameters_alias(f, y) = false
+_projection_parameters_alias(f::Union{NormL1, NormL1Nonneg, CheckLoss, GroupNormL2}, y) =
+  _projection_parameter_alias(y, f.w)
+_projection_parameters_alias(f::IndBox, y) =
+  _projection_parameter_alias(y, f.l) || _projection_parameter_alias(y, f.u)
+_projection_parameters_alias(f::Scaled, y) = _projection_parameters_alias(f.f, y)
 _projection_direct_output(f, y, x) = false
 _projection_direct_output(f, y::Array{T}, x::Array{T}) where {T<:Union{AbstractFloat, Complex{<:AbstractFloat}}} =
-  _projection_writes_safe(typeof(f)) && (y === x || !Base.mightalias(y, x))
+  _projection_writes_safe(typeof(f)) && (y === x || !Base.mightalias(y, x)) &&
+    !_projection_parameters_alias(f, y)
 
 # The proximal point itself, separate from the point subtracted in Moreau's identity.
 _direct_conjugate(::Type) = false
@@ -1196,26 +1205,35 @@ _projection_check(v, α, τ, w) = clamp(v, -_projection_coefficient(α, 1 - τ, 
 @inline _projection_bound(v, c, ::Val{false}) = clamp(v, -c, c)
 @inline _projection_bound(v, c, ::Val{true}) = min(v, c)
 function _projection_clipping!(z, x, c::Real, w, upper)
-  T = promote_type(float(eltype(x)), float(eltype(z)))
+  T = real(promote_type(float(eltype(x)), float(eltype(z))))
   if w === nothing
     bound = convert(T, c)
     @inbounds @simd for i in eachindex(IndexLinear(), z, x)
       z[i] = _projection_bound(x[i], bound, upper)
     end
-  elseif c > 0 && isfinite(c)
-    # Classify the scalar once; finite positive levels need only a multiply.
-    @inbounds @simd for i in eachindex(IndexLinear(), z, x)
-      z[i] = _projection_bound(x[i], convert(T, c * w[i]), upper)
+  elseif !isconcretetype(eltype(w))
+    @inbounds for i in eachindex(IndexLinear(), z, x)
+      bound = convert(T, _projection_coefficient(c, 1, w[i]))
+      z[i] = _projection_bound(x[i], bound, upper)
     end
   else
-    @inbounds @simd for i in eachindex(IndexLinear(), z, x)
-      z[i] = _projection_bound(x[i], convert(T, _weight_coefficient(c, w[i])), upper)
+    P = promote_type(float(typeof(c)), float(eltype(w)))
+    level = convert(P, c)
+    if level > 0 && isfinite(level)
+      # Promote parameters before multiplying, then narrow the completed bound.
+      @inbounds @simd for i in eachindex(IndexLinear(), z, x)
+        z[i] = _projection_bound(x[i], convert(T, level * convert(P, w[i])), upper)
+      end
+    else
+      @inbounds @simd for i in eachindex(IndexLinear(), z, x)
+        z[i] = _projection_bound(x[i], convert(T, _weight_coefficient(level, convert(P, w[i]))), upper)
+      end
     end
   end
   z
 end
 function _projection_clipping!(z, x, c, w, upper)
-  T = promote_type(float(eltype(x)), float(eltype(z)))
+  T = real(promote_type(float(eltype(x)), float(eltype(z))))
   if w === nothing
     bound = convert(T, _projection_coefficient(c, 1, 1))
     @inbounds @simd for i in eachindex(IndexLinear(), z, x)

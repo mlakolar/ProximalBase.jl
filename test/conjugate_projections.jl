@@ -79,8 +79,7 @@ end
 function accurate(y, ref, ulps)
   T = eltype(y)
   for i in eachindex(y)
-    r = T(ref[i])
-    if iszero(r)
+    if iszero(ref[i])
       @test iszero(y[i])
     else
       @test abs(BigFloat(y[i]) - ref[i]) <= ulps * BigFloat(eps(T)) * abs(ref[i]) + 2BigFloat(nextfloat(zero(T)))
@@ -366,6 +365,81 @@ end
       @test_throws error op(y, Conjugate(f), x, 0.7)
       @test y == fill(T(7), 8)
     end
+  end
+end
+
+
+@testset "promoted clipping coefficients and complex outputs" begin
+  setprecision(BigFloat, 4096) do
+    for F in (NormL1, NormL1Nonneg), (λ, w) in ((2, [typemax(Int64)]),
+        (Float32(0.3), [typemax(Int64) ÷ 3]), (Float32(0.3), Real[typemax(Int64) ÷ 3]),
+        (0.3, [typemax(Int128)]),
+        (2, [typemax(UInt64)])), op in (prox!, value_and_prox!), γ in (1.0, [1.0])
+      f = F(λ, w)
+      x, y = [1e40], [0.0]
+      v = op(y, Conjugate(f), x, γ)
+      accurate(y, reference(f, x, 1.0), 4)
+      op === value_and_prox! && @test v == 0
+    end
+    for F in (NormL1, NormL1Nonneg), op in (prox!, value_and_prox!)
+      f = F()
+      x = [2.0, -2.0, 0.5]
+      ref = reference(f, x, 1.0)
+      for γ in (1.0, ones(3))
+        y = zeros(ComplexF64, 3)
+        v = op(y, Conjugate(f), x, γ)
+        accurate(real.(y), ref, 4)
+        @test all(iszero, imag.(y))
+        op === value_and_prox! && @test v == 0
+      end
+      y = (zeros(ComplexF64, 3),)
+      v = op(y, Conjugate(SeparableSum(f)), (x,), 1.0)
+      accurate(real.(y[1]), ref, 4)
+      @test all(iszero, imag.(y[1]))
+      op === value_and_prox! && @test v == 0
+      # Nested blocks exercise clipping with a retained exponent scale.
+      f = Scaled(SeparableSum(Scaled(F(1e300), 1e-200)), 1e-200)
+      y = (zeros(ComplexF64, 1),)
+      v = op(y, Conjugate(f), ([2.0],), 1.0)
+      accurate(real.(y[1]), [BigFloat(1e300) * BigFloat(1e-200)^2], 4)
+      @test iszero(imag(y[1][1]))
+      op === value_and_prox! && @test v == 0
+    end
+    δ = nextfloat(0f0)
+    x = Float32[2, 3δ, 0]
+    f = NormL2(1/3 - 1e-10)
+    ref = reference(f, x, 1.0)
+    @test !iszero(ref[2]) && iszero(Float32(ref[2]))
+    for op in (prox!, value_and_prox!)
+      y = zero(x)
+      op(y, Conjugate(f), x, 1.0)
+      # A nonzero reference rounded to zero still gets the subnormal allowance.
+      accurate(y, ref, 8)
+      @test iszero(y[3])
+    end
+  end
+end
+
+@testset "projection output aliases retained parameters" begin
+  for op in (prox!, value_and_prox!), α in (1.0, 2.0)
+    x = [3.0, 2.0]
+    f = Scaled(GroupNormL2(0.5, [[2], [1]], x), α)
+    expected = α == 1 ? [1.0, 1.5] : [2.0, 2.0]
+    v = op(x, Conjugate(f), x, 1.0)
+    @test x == expected
+    op === value_and_prox! && @test v == 0
+    for F in (NormL1, NormL1Nonneg), alias_input in (false, true), γ in (1.0, ones(2))
+      y = [3.0, 2.0]
+      x = alias_input ? y : [9.0, 9.0]
+      f = Scaled(F(0.5, view(y, 2:-1:1)), α)
+      expected = min.(copy(x), (α * 0.5) .* reverse(copy(y)))
+      v = op(y, Conjugate(f), x, γ)
+      @test y == expected
+      op === value_and_prox! && @test v == 0
+    end
+    y = [1.0, 2.0]
+    v = op(y, Conjugate(IndBox(-copy(y), y)), [3.0, 4.0], 1.0)
+    @test y == [2.0, 2.0]
   end
 end
 

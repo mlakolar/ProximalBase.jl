@@ -89,6 +89,34 @@ end
   end
 end
 
+@testset "nonconvex box intersections on GPU arrays" begin
+  allowscalar(false)
+  for f in (MCP(1.), SCAD(1.), NormL0(1.))
+    for (a, b) in ((IndBox([0 10], 20), IndBox(-1, [5, 15])),
+                   (IndBox([100_000 100_001], Float16(Inf)), IndBox(Float16(0), Float16[Inf, Inf])),
+                   (IndBox(Float16(-Inf), [-100_000 -100_001]), IndBox(Float16[-Inf, -Inf], Float16(0))),
+                   (IndBox(zeros(0, 2), 3), IndBox(0, Int[])))
+      for (first, second) in ((a, b), (b, a))
+        c = Constrained(Constrained(f, first), second)
+        before = Adapt.adapt(DeviceArray, c)
+        after = Constrained(Adapt.adapt(DeviceArray, Constrained(f, first)), Adapt.adapt(DeviceArray, second))
+        for cg in (before, after)
+          @test isequal(host(cg.box.l), c.box.l)
+          @test isequal(host(cg.box.u), c.box.u)
+          @test size(cg.box.l) == size(cg.box.u) == size(c.box.l)
+          @test eltype(cg.box.l) == eltype(c.box.l)
+          @test eltype(cg.box.u) == eltype(c.box.u)
+        end
+      end
+    end
+    @test_throws DimensionMismatch Constrained(
+      Constrained(f, IndBox(DeviceArray([0, 1]), 3)), IndBox(0, DeviceArray([3, 4, 5])))
+    k = 2^53
+    @test_throws ArgumentError Constrained(
+      Constrained(f, IndBox(DeviceArray([k + 1]), k + 1)), IndBox(k, DeviceArray([k])))
+  end
+end
+
 @testset "compensated separable L1 coefficients" begin
   allowscalar(false)
   for T in test_types, F in (NormL1, NormL1Nonneg)

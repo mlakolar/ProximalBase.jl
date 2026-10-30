@@ -67,6 +67,16 @@ and [`NormL0`](@ref) on a box, whose scalar problems are solved exactly by
 comparing the minimizers of their convex pieces with the ends of the interval;
 the result is separable but not convex.
 
+Repeated box constraints on these three penalties are intersected entrywise in
+linear order, including boxes made by `IndBallLinf`. All array bounds must have
+equal length; the resulting array bounds have the shape of the first array
+bound. Endpoints and emptiness are compared before conversion. Same-type bounds
+keep their type. Mixed bounds use their promoted type, widened to the promoted
+floating-point type only if a selected finite endpoint would become infinite.
+Mixed integer and floating-point bounds can still round integers beyond the
+floating-point type's precision. Convex nested box constraints retain their
+composition and the empty-domain behaviour described below.
+
 The caller must ensure that the set meets the domain of `f`. For a convex
 function on a box, the method clamps the unconstrained proximal point even
 when the intersection is empty. Neither that point nor the returned value

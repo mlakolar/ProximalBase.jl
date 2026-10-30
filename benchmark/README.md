@@ -80,12 +80,31 @@ a comparison and retain diagnostics. An interval containing one is inconclusive.
 ## Measurement and evidence
 
 Compilation, numerical checks and input/cache preparation are outside timing.
-Stateful calls use one evaluation per sample and reset their starting state.
+Cases without a prepare step use automatic evaluations per sample, tuned within
+`PB_SECONDS`. Cases with a prepare step use one evaluation and reset their
+starting state before each sample.
 `PB_SAMPLES` and `PB_SECONDS` override the sample/time limits; keep them matched
 between revisions. Intervals describe variation across process/input draws,
 including machine noise; they do not correct for correlated noise or multiple
 comparisons. Julia heap bytes exclude native library allocations and peak memory.
 Profiles include preparation callbacks and are diagnostic, not latency estimates.
+
+Each process retains a `-calibration.tsv` file with raw no-op timer readings at
+`start` and `end`. Metadata records each phase's median, minimum and rounded
+integer timer step, plus `timer_floor_ns`: the maximum of the medians and usable
+steps. Fewer than 100 readings in either phase, or two sub-nanosecond medians
+with no steps, gives an unusable calibration (NaN floor).
+
+A measurement is timer-limited when `median_ns * evals < K * timer_floor_ns`
+(strict). With a NaN floor, only `evals == 1` is limited. Both analysis tools
+accept `--timer-limit-multiple K` (positive and finite; default 10). Any limited
+repetition marks the case/version's `timer_limited` column; comparisons check
+both sides. A ratio gate must filter on `timer_limited`. Comparisons retain
+ratios, intervals and allocation warnings, with a `timer-limited` assessment.
+Their CSV also records `timer_limited_by` (for example,
+`before:rep01,rep03;after:rep02`), `timer_limit_multiple`, and distinct
+`before_evals` / `after_evals` joined with `/`. Summary reports give the timer
+floor range and unusable calibration count per Julia version.
 
 Results retain all samples, checks, allocation observations, settings, package
 revision, dirty status and source/harness content hashes. Preserve manifests and

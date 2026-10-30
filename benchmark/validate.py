@@ -11,7 +11,8 @@ import tomllib
 # Source may change in a comparison; instrumentation and measurement settings may not.
 MATCH_SETTINGS = ("julia", "cpu", "cpu_model", "blas", "blas_threads", "julia_threads",
                   "benchmarktools", "seed_scheme", "samples_target", "seconds_limit",
-                  "profile_seconds", "harness_hash", "suite", "groups")
+                  "profile_seconds", "harness_hash", "suite", "groups",
+                  "calibration_samples", "calibration_seconds", "tune_seconds")
 
 
 def discover_versions(root):
@@ -22,6 +23,35 @@ def discover_versions(root):
 def records(path):
     with path.open(newline="") as stream:
         return list(csv.DictReader(stream, delimiter="\t"))
+
+
+def calibration_metadata(phases):
+    result = {}
+    for phase, values in phases.items():
+        rounded = sorted({round(value) for value in values})
+        result[f"timer_{phase}_median_ns"] = statistics.median(values)
+        result[f"timer_{phase}_min_ns"] = min(values)
+        result[f"timer_{phase}_step_ns"] = min(
+            (b-a for a, b in zip(rounded, rounded[1:])), default=float("nan"))
+    steps = [result[f"timer_{phase}_step_ns"] for phase in ("start", "end")]
+    medians = [result[f"timer_{phase}_median_ns"] for phase in ("start", "end")]
+    unusable = (any(len(values) < 100 for values in phases.values()) or
+                all(math.isnan(step) for step in steps) and all(value < 1 for value in medians))
+    result["timer_floor_ns"] = (float("nan") if unusable else
+                               max(medians + [step for step in steps if not math.isnan(step)]))
+    return result
+
+
+def check_timer_limit_multiple(value):
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("timer limit multiple must be positive and finite")
+
+
+def timer_limited(row, meta, multiple=10):
+    check_timer_limit_multiple(multiple)
+    floor = float(meta["timer_floor_ns"])
+    evals = int(row["evals"])
+    return evals == 1 if math.isnan(floor) else float(row["median_ns"]) * evals < multiple * floor
 
 
 def validate(root, expected=1, versions=None):
@@ -57,7 +87,25 @@ def validate(root, expected=1, versions=None):
             if version in configurations and configurations[version] != config:
                 raise ValueError("settings changed within a Julia version")
             configurations[version] = config
+            phases = {"start": {}, "end": {}}
+            for row in records(root / (prefix + "-calibration.tsv")):
+                phase = row["phase"]
+                index, value = int(row["sample"]), float(row["time_ns"])
+                if phase not in phases or index in phases[phase] or not math.isfinite(value) or value < 0:
+                    raise ValueError("invalid calibration observation")
+                phases[phase][index] = value
+            for values in phases.values():
+                if not values or set(values) != set(range(1, len(values)+1)):
+                    raise ValueError("calibration sample coverage mismatch")
+            calibrated = calibration_metadata({phase: list(values.values()) for phase, values in phases.items()})
+            for key, value in calibrated.items():
+                recorded = float(meta[key])
+                if not (math.isnan(recorded) and math.isnan(value) or
+                        math.isclose(recorded, value, rel_tol=1e-12, abs_tol=1e-7)):
+                    raise ValueError(f"{key} disagrees with raw calibration")
             catalog_rows = records(root / (prefix + "-catalog.tsv"))
+            if any(r["evals_policy"] not in ("auto", "fixed") for r in catalog_rows):
+                raise ValueError("unknown evals_policy in catalog")
             catalog = {r["id"] for r in catalog_rows}
             if not catalog or len(catalog) != len(catalog_rows) or len(catalog) != meta["cases"]:
                 raise ValueError("catalog duplicates or case-count mismatch")
@@ -86,6 +134,8 @@ def validate(root, expected=1, versions=None):
                 case = row["id"]
                 if int(row["rep"]) != int(repetition):
                     raise ValueError(f"wrong repetition in {case}")
+                if int(row["evals"]) <= 0:
+                    raise ValueError(f"evals must be a positive integer in {case}")
                 nsamples = int(row["samples"])
                 times = raw["samples"].get(case, {})
                 allocs = raw["allocations"].get(case, {})
@@ -93,6 +143,9 @@ def validate(root, expected=1, versions=None):
                     raise ValueError(f"timing sample coverage mismatch in {case}")
                 if set(allocs) != set(range(1, 11)):
                     raise ValueError(f"allocation sample coverage mismatch in {case}")
+                if not math.isclose(float(row["median_ns"]), statistics.median(times.values()),
+                                    rel_tol=1e-12, abs_tol=1e-7):
+                    raise ValueError(f"median_ns disagrees with raw data in {case}")
                 for values, keys in ((list(times.values()), ("mean_ns", "min_ns", "max_ns")),
                                      (list(allocs.values()), ("mean_bytes", "min_bytes", "max_bytes"))):
                     for key, observed in zip(keys, (statistics.mean(values), min(values), max(values))):

@@ -292,11 +292,11 @@ function _linear_constrained_search!(y, c, x, γ::_SearchSteps{G, T}) where {G, 
   _linear_constrained_output!(y, c.f, set.a, x, γ, ν)
 end
 
-# Use the same converted steps as the inactive-point check.
+# Match the promoted argument and converted steps of the inactive-point check.
 function _linear_constrained_inactive_output!(y, f, x, γ::_SearchSteps{G, T}) where {G, T}
   @inbounds for i in eachindex(IndexLinear(), y, x)
     γᵢ = convert(T, _entry(γ, i))
-    y[i] = convert(eltype(y), prox_entry(f, x[i], i, γᵢ))
+    y[i] = convert(eltype(y), prox_entry(f, x[i] - zero(T), i, γᵢ))
   end
   y
 end
@@ -305,6 +305,29 @@ function _linear_constrained_output!(y, f, a, x, γ, ν::T) where {T}
   @inbounds for i in eachindex(IndexLinear(), y, x)
     γᵢ = convert(T, _entry(γ, i))
     y[i] = convert(eltype(y), prox_entry(f, x[i] - _ratio(γ, i, T) * ν * convert(T, _entry(a, i)), i, γᵢ))
+  end
+  y
+end
+
+# The two matrix positions of a symmetric coordinate share storage.
+function _linear_constrained_inactive_output!(y::SymmetricSparseIterate, f, x::AbstractMatrix, γ::_SearchSteps{G, T}) where {G, T}
+  p = y.p
+  @inbounds for c in 1:p, r in c:p
+    i = (c - 1) * p + r
+    γᵢ = convert(T, _entry(γ, i))
+    z = prox_entry(f, x[r, c] - zero(T), i, γᵢ)
+    _setstored!(y, convert(eltype(y), z), tril_index(p, r, c))
+  end
+  y
+end
+
+function _linear_constrained_output!(y::SymmetricSparseIterate, f, a, x::AbstractMatrix, γ, ν::T) where {T}
+  p = y.p
+  @inbounds for c in 1:p, r in c:p
+    i = (c - 1) * p + r
+    γᵢ = convert(T, _entry(γ, i))
+    v = x[r, c] - _ratio(γ, i, T) * ν * convert(T, _entry(a, i))
+    _setstored!(y, convert(eltype(y), prox_entry(f, v, i, γᵢ)), tril_index(p, r, c))
   end
   y
 end
@@ -434,7 +457,7 @@ function _hyperslab_multiplier(c::LinearConstrained, x::AbstractArray, γ, ::Typ
     # The unused normal need not be representable in the output's precision.
     finite = true
     @inbounds @simd for i in eachindex(IndexLinear(), x)
-      z = prox_entry(c.f, x[i], i, convert(T, _entry(γ, i)))
+      z = prox_entry(c.f, x[i] - zero(T), i, convert(T, _entry(γ, i)))
       finite &= isfinite(convert(T, z))
     end
     finite || _infeasible(c)

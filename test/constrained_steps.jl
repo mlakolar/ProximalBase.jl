@@ -46,6 +46,8 @@ function _reference(X, G, A, L, U, α, β, lo, hi)
 end
 
 function check_case(f, set, x::Vector{T}, γ, a, l, u, pars; c = Constrained(f, set)) where {T}
+  # Share the assertion code across function and constraint types.
+  @nospecialize f set γ pars c
   ref = reference(x, γ, a, l, u, pars...)
   huge = (γ isa Real ? γ : maximum(γ)) >= T(1e20)
   indicator = pars[1] == 0 && pars[2] == 0
@@ -185,6 +187,48 @@ end
     op(y, c, [1e8 + 2], γ)
     @test y == Float32[2]
     @test 1 <= only(y) <= 3
+  end
+end
+
+@testset "symmetric constrained outputs" begin
+  setprecision(BigFloat, 4096) do
+    X = [0.0 1.0; 1.0 0.0]
+    for (set, l, u) in ((IndHyperplane(1, 1), 1, 1),
+                        (IndHalfspace(1, 1), -Inf, 1),
+                        (IndHyperslab(1, 0.5, 0.6), 0.5, 0.6),
+                        (IndHyperslab(1, 1.7, 1.9), 1.7, 1.9)),
+        γ in (1.0, [0.5 1.0; 1.0 0.75])
+      steps = γ isa Real ? γ : vec(γ)
+      ref = reshape(Float64.(reference(vec(X), steps, ones(4), l, u, 0.1, 0, -Inf, Inf)), 2, 2)
+      c = Constrained(NormL1(0.1), set)
+      @test Matrix(prox(c, SymmetricSparseIterate(X), γ)) ≈ ref atol = 1e-15 rtol = 64eps(Float64)
+      for op in (prox!, value_and_prox!), alias in (false, true)
+        x = SymmetricSparseIterate(X)
+        y = alias ? x : similar(x)
+        result = op(y, c, x, γ)
+        @test Matrix(y) ≈ ref atol = 1e-15 rtol = 64eps(Float64)
+        s, m = sum(y), sum(abs, y)
+        @test !isfinite(l) || s >= l - 8eps(Float64) * (m + abs(l))
+        @test s <= u + 8eps(Float64) * (m + abs(u))
+        @test op === prox! ? result === y : result ≈ 0.1sum(abs, ref)
+        alias || @test Matrix(x) == X
+      end
+    end
+  end
+end
+
+@testset "inactive input promotion" begin
+  for (T, U) in ((Float64, Float32), (Float32, Float64)),
+      γ in (1.0, [1.0]), op in (prox!, value_and_prox!)
+    x = U[0.3]
+    set = IndHyperslab(1, 0.2, 0.200000015)
+    c = Constrained(NormL1(0.1), set)
+    y = zeros(T, 1)
+    result = op(y, c, x, γ)
+    ref = T(prox_entry(c.f, x[1] - zero(T), 1, one(T)))
+    @test y == [ref]
+    @test set.l <= only(y) <= set.u
+    @test op === prox! ? result === y : result ≈ c.f(y)
   end
 end
 

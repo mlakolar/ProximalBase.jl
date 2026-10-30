@@ -44,9 +44,9 @@ function value_and_prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray
 end
 
 # group penalties: a step per group, constant on the group, keeps the closed form
-value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = _value_and_prox_groups!(y, f, x, γ)
+value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (value_and_prox!(y, f, x, γ); y)
-value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::AbstractVector) = _value_and_prox_groups!(y, f, x, γ)
+value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::AbstractVector) = (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 
 # the entrywise reciprocal of an array of steps, without allocating
 struct _ReciprocalArray{T, N, A<:AbstractArray} <: AbstractArray{T, N}

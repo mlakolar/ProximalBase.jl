@@ -24,6 +24,10 @@ import Adapt
 
 const GPUArray = AbstractGPUArray
 
+# Device storage can be dense without being accessible to host BLAS.
+ProximalBase._is_device_array(::GPUArray) = true
+ProximalBase._blas_ready(::GPUArray{<:Any, 2}) = false
+
 # the sum of the lazily broadcast f.(args...), as one reduction on the device
 _sum(::Type{T}, f::F, args...) where {T, F} = mapreduce(identity, +, instantiate(broadcasted(f, args...)); init = zero(T))
 

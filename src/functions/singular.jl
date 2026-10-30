@@ -95,12 +95,12 @@ function _vector_buffer(cache, ::Type{T}, k::Integer) where {T}
 end
 
 # the singular values of X, in descending order, owned by the workspace of F
-function _singular_values!(F::SingularValue, X::AbstractMatrix)
+function _singular_values!(F::SingularValue, X::AbstractMatrix; copied::Bool = false)
   T = float(eltype(X))
   _checkblas(F, T)
   ws = _svd_workspace(F.ws, T, size(X)...)
   F.ws = ws
-  copyto!(ws.A, X)
+  copied || copyto!(ws.A, X)
   s, = _svd!(ws; vectors = false)
   s
 end
@@ -111,8 +111,15 @@ end
 function (F::SingularValue)(X::AbstractMatrix)
   T = float(eltype(X))
   _checkblas(F, T)
-  all(isfinite, X) || return T(Inf)
-  t, scaled, k = _masked_singular_values!(F, X)
+  if _is_device_array(X)
+    ws = _svd_workspace(F.ws, T, size(X)...)
+    F.ws = ws
+    copyto!(ws.A, X)
+    all(isfinite, ws.A) || return T(Inf)
+  else
+    all(isfinite, X) || return T(Inf)
+  end
+  t, scaled, k = _masked_singular_values!(F, X; copied = _is_device_array(X))
   k > 0 && _scales_membership(F.f) && return _scaled_membership(F.f, scaled, k)
   _relative_membership(F.f) && return _scaled_membership(F.f, t, 0)
   convert(T, F.f(t))
@@ -122,9 +129,9 @@ end
 # to zero, in the buffer F.t. When the largest one overflows, or the threshold
 # is not a normal number, the mask comes from the singular values of X scaled
 # by 2^-k, which are returned, masked, with k.
-function _masked_singular_values!(F::SingularValue, X::AbstractMatrix)
+function _masked_singular_values!(F::SingularValue, X::AbstractMatrix; copied::Bool = false)
   T = float(eltype(X))
-  s = _singular_values!(F, X)
+  s = _singular_values!(F, X; copied)
   t = _vector_buffer(F.t, T, length(s))
   F.t = t
   if !isempty(s) && (!_finite_value(s[1]) || (s[1] > zero(T) && _tol(T) * s[1] <= floatmin(T)))
@@ -142,7 +149,7 @@ end
   ws = _svd_workspace(F.ws, T, size(X)...)
   copyto!(ws.A, X)
   k = _magnitude_exponent(_maximum_abs(ws.A))
-  _scaled_spectral_input!(ws.A, X)
+  _scaled_spectral_input!(ws.A, _is_device_array(X) ? ws.A : X)
   s, = _svd!(ws; vectors = false)
   c = _tol(T) * s[1]
   @inbounds for j in eachindex(s)
@@ -167,7 +174,7 @@ function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix,
   s, U, Vt = _svd!(ws)
   t = _vector_buffer(F.t, T, length(s))
   F.t = t
-  if _scales_spectral_prox(F.f) && _spectral_overflow(s, X)
+  if _scales_spectral_prox(F.f) && _spectral_overflow(s, X, ws)
     return _scaled_wrapper_svd_prox!(Y, F, X, γ, ws, t)
   end
   v = value_and_prox!(t, F.f, s, γ)
@@ -215,8 +222,10 @@ function _conjugate_value(F::SingularValue, Y::AbstractMatrix)
 end
 
 @noinline function _scaled_wrapper_svd_prox!(Y, F::SingularValue, X, γ, ws::SVDWorkspace{T}, t) where {T}
-  e = _magnitude_exponent(convert(T, _maximum_abs(X)))
-  _scaled_spectral_input!(ws.A, X)
+  # The overflow check has restored the device input in ws.A.
+  A = _is_device_array(X) ? ws.A : X
+  e = _magnitude_exponent(convert(T, _maximum_abs(A)))
+  _scaled_spectral_input!(ws.A, A)
   s, U, Vt = _svd!(ws)
   σ = _maximum_abs(s)
   v = _scaled_spectrum_prox!(t, F.f, s, γ, e)

@@ -44,7 +44,7 @@ struct LogDetLoss{T<:_BlasReal} <: AbstractFunction
   w::T
   eig::SymEigenWorkspace{T}     # the proximal operator
   C::Matrix{T}                  # Cholesky factors and inverses
-  out::Scratch                  # the Hessian product, for an output BLAS cannot write
+  out::Scratch                  # host input, rounded output and Hessian product
 
   function LogDetLoss{T}(S::Matrix{T}, w::T) where {T<:_BlasReal}
     isfinite(w) && w > 0 || throw(ArgumentError("w must be finite and positive, got $w"))
@@ -90,7 +90,17 @@ function _logdet_chol!(f::LogDetLoss{T}, X::AbstractMatrix) where {T}
   2ld
 end
 
+# Input and rounded output need separate caches when their precisions differ.
+function _logdet_scratch!(f::LogDetLoss)
+  b = f.out.buf
+  b isa Tuple{Scratch, Scratch} && return b
+  b = (Scratch(), Scratch())
+  f.out.buf = b
+  b
+end
+
 function (f::LogDetLoss{T})(X::AbstractMatrix) where {T}
+  X = _is_device_array(X) ? copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X) : X
   ld = _logdet_chol!(f, X)
   ld === nothing ? _valtype(X)(Inf) : _value_at(_logdet_value(f, X, ld), X)
 end
@@ -119,6 +129,7 @@ end
 
 function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix) where {T}
   _checkwrite(value_and_gradient!, f, G, X)
+  X = _is_device_array(X) ? copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X) : X
   ld = _logdet_chol!(f, X)
   if ld === nothing
     fill!(G, T(NaN))
@@ -127,11 +138,13 @@ function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMat
   v = _logdet_value(f, X, ld)
   C, S, w = f.C, f.S, f.w
   _potri!('U', C)             # the upper triangle of X⁻¹
+  B = _blas_ready(G) ? G : _array_buffer!(_logdet_scratch!(f)[2], eltype(G), size(G))
   @inbounds for j in axes(C, 2), i in 1:j
     g = w * (S[i, j] - C[i, j])
-    G[i, j] = g
-    G[j, i] = g
+    B[i, j] = g
+    B[j, i] = g
   end
+  B === G || copyto!(G, B)
   _value_at(v, X)
 end
 
@@ -139,6 +152,8 @@ function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix,
   _checkwrite(value_and_prox!, f, Y, X)
   all(isfinite, X) || (fill!(Y, _valtype(Y)(NaN)); return _valtype(Y)(NaN))
   root_step = sqrt(convert(T, γ)) * sqrt(f.w)
+  X = _is_device_array(X) ? copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X) : X
+  B = _blas_ready(Y) ? Y : f.C
   A = f.eig.A
   # The domain is symmetric: the skew part contributes only a constant
   # to the proximal objective, so use the symmetric part of any input.
@@ -149,14 +164,21 @@ function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix,
     _logdet_shift_overflow(f, X) && return _scaled_logdet_prox!(Y, f, X, root_step)
     t, U = _eigen!(f.eig)
     _logdet_root_overflow(t, f, X, root_step) && return _scaled_logdet_prox!(Y, f, X, root_step)
-    _rebuild_sym_out!(Y, U, t, s -> _logdet_scaled_root_half(s, root_step), f.C; logs = true)
+    _rebuild_sym_out!(B, U, t, s -> _logdet_scaled_root_half(s, root_step), f.C; logs = true)
   else
     # Half of X - γwS, without forming a possibly underflowed γw.
     A .= X ./ 4 .+ transpose(X) ./ 4 .- ((f.S ./ 2 .* root_step) .* root_step)
     _logdet_shift_overflow(f, X) && return _scaled_logdet_prox!(Y, f, X, root_step)
     t, U = _eigen!(f.eig)
     _logdet_root_overflow(t, f, X, root_step) && return _scaled_logdet_prox!(Y, f, X, root_step)
-    _rebuild_sym_out!(Y, U, t, s -> _logbarrier_root_half(s, root_step), f.C; logs = true)
+    _rebuild_sym_out!(B, U, t, s -> _logbarrier_root_half(s, root_step), f.C; logs = true)
+  end
+  if B !== Y
+    R = _array_buffer!(_logdet_scratch!(f)[2], eltype(Y), size(Y))
+    copyto!(R, B)
+    v = _logdet_value(f, R, logdet_Y)
+    copyto!(Y, R)
+    return _value_at(v, Y)
   end
   _value_at(_logdet_value(f, Y, logdet_Y), Y)
 end
@@ -243,6 +265,8 @@ end
   end
   _rebuild_sym!(f.C, U, t, root)
   _spectral_rescale!(Y, f.C, k, size(A, 1), σ)
+  # A device output is read through the rescaled host copy.
+  _is_device_array(Y) && return _value_at(_logdet_value(f, f.C, ld), Y)
   _value_at(_logdet_value(f, Y, ld), Y)
 end
 

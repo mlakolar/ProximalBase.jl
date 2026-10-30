@@ -37,7 +37,7 @@ default full decomposition when an exact proximal step is needed. See
 function _mul_lowrank!(Y::AbstractMatrix, U::Matrix, Vt::Matrix, k::Integer, ws::SVDWorkspace)
   if k == 0
     fill!(Y, zero(eltype(Y)))
-  elseif Y isa StridedMatrix
+  elseif _blas_ready(Y)
     mul!(Y, view(U, :, 1:k), view(Vt, 1:k, :))
   else
     mul!(ws.A, view(U, :, 1:k), view(Vt, 1:k, :))     # ws.A is free after the SVD
@@ -69,8 +69,16 @@ function _rebuild_sym_out!(Y::AbstractMatrix, V::StridedMatrix, λ, f::F, buffer
 end
 
 # Only finite inputs can recover from an overflowing decomposition.
-_spectral_overflow(s::AbstractVector{T}, X) where {T} =
-  !all(isfinite, s) && _finite_value(convert(T, _maximum_abs(X)))
+function _spectral_overflow(s::AbstractVector{T}, X, ws, cache = nothing) where {T}
+  all(isfinite, s) && return false
+  A = if !_is_device_array(X)
+    X
+  else
+    B = cache === nothing ? ws.A : _array_buffer!(cache, T, size(X))
+    copyto!(B, X)
+  end
+  _finite_value(convert(T, _maximum_abs(A)))
+end
 
 # Rescale before the single copy to an output BLAS cannot write.
 function _spectral_rescale!(Y, B::AbstractMatrix{T}, k::Int, p::Int, σ::T) where {T}
@@ -89,8 +97,10 @@ end
 
 @noinline function _scaled_svd_prox!(Y, f, X, γ, ws::SVDWorkspace{T}) where {T}
   # Use the same exponent as the converted copy scaled below.
-  e = _magnitude_exponent(convert(T, _maximum_abs(X)))
-  _scaled_spectral_input!(ws.A, X)
+  # The overflow check has restored the device input in ws.A.
+  A = _is_device_array(X) ? ws.A : X
+  e = _magnitude_exponent(convert(T, _maximum_abs(A)))
+  _scaled_spectral_input!(ws.A, A)
   s, U, Vt = _svd!(ws)
   λ = f isa NuclearNorm ? convert(T, f.λ) : zero(T)
   c = f isa NuclearNorm ? _scaled_product(convert(T, γ), λ, -e) : zero(T)
@@ -118,8 +128,10 @@ _scaled_eigen!(ws::SymEigenTopWorkspace) = _eigen_top!(ws)
 
 @noinline function _scaled_eigen_prox!(Y, f, X, γ, ws::Union{SymEigenWorkspace{T}, SymEigenTopWorkspace{T}}) where {T}
   # Use the same exponent as the converted copy scaled below.
-  e = _magnitude_exponent(convert(T, _maximum_abs(X)))
-  _scaled_spectral_input!(ws.A, X)
+  # Keep the device input separate from the eigenvectors until scaling.
+  A = _is_device_array(X) ? _array_buffer!(f.out, T, size(X)) : X
+  e = _magnitude_exponent(convert(T, _maximum_abs(A)))
+  _scaled_spectral_input!(ws.A, A)
   s, V = _scaled_eigen!(ws)
   λ = f isa TracePSD ? convert(T, f.λ) : zero(T)
   c = f isa TracePSD ? _scaled_product(convert(T, γ), λ, -e) : zero(T)
@@ -188,22 +200,26 @@ isconvex(::Type{<:NuclearNorm}) = true
 function (f::NuclearNorm)(X::AbstractMatrix)
   T = float(eltype(X))
   _checkblas(f, T)
-  all(isfinite, X) || return T(Inf)              # the domain is the finite matrices
-  iszero(f.λ) && return zero(T)
+  if !_is_device_array(X)
+    all(isfinite, X) || return T(Inf)
+    iszero(f.λ) && return zero(T)
+  end
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
   copyto!(ws.A, X)
+  !_is_device_array(X) || all(isfinite, ws.A) || return T(Inf)
+  iszero(f.λ) && return zero(T)
   s, = _svd!(ws; vectors = false)
   _level_fits(T, f.λ) || return convert(T, _scaled_nuclear_value!(ws, X, float(f.λ)))
   v = convert(T, f.λ) * sum(s)
-  isfinite(v) || !isfinite(f.λ) || !all(isfinite, X) ? v : _scaled_nuclear_value!(ws, X, convert(T, f.λ))
+  isfinite(v) || !isfinite(f.λ) ? v : _scaled_nuclear_value!(ws, X, convert(T, f.λ))
 end
 
 # the exponent from the workspace's copy, which also serves inputs on devices
 @noinline function _scaled_nuclear_value!(ws::SVDWorkspace{T}, X::AbstractMatrix, λ::Real) where {T}
   copyto!(ws.A, X)
   k = _magnitude_exponent(_maximum_abs(ws.A))
-  _scaled_spectral_input!(ws.A, X)
+  _scaled_spectral_input!(ws.A, _is_device_array(X) ? ws.A : X)
   s, = _svd!(ws; vectors = false)
   R = promote_type(T, float(typeof(λ)))
   _scaled_product(convert(R, λ), (R === T ? sum(s) : sum(R, s)), k)
@@ -253,7 +269,7 @@ function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, �
   f.ws = ws
   copyto!(ws.A, X)
   s, U, Vt = _svd!(ws)
-  _spectral_overflow(s, X) && return _scaled_svd_prox!(Y, f, X, γ, ws)
+  _spectral_overflow(s, X, ws) && return _scaled_svd_prox!(Y, f, X, γ, ws)
   k = 0
   v = zero(T)
   @inbounds for j in eachindex(s)
@@ -321,11 +337,15 @@ _isindicator(::Type{IndBallRank}) = true
 function (f::IndBallRank)(X::AbstractMatrix)
   T = float(eltype(X))
   _checkblas(f, T)
-  all(isfinite, X) || return T(Inf)
-  minimum(size(X)) <= f.r && return zero(T)
+  if !_is_device_array(X)
+    all(isfinite, X) || return T(Inf)
+    minimum(size(X)) <= f.r && return zero(T)
+  end
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
   copyto!(ws.A, X)
+  !_is_device_array(X) || all(isfinite, ws.A) || return T(Inf)
+  minimum(size(X)) <= f.r && return zero(T)
   s, = _svd!(ws; vectors = false)
   _finite_value(s[1]) || return _rank_scaled_value(ws, X, f.r)
   s[f.r + 1] <= _tol(T) * max(one(T), s[1]) ? zero(T) : T(Inf)
@@ -350,7 +370,7 @@ function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
   f.ws = ws
   copyto!(ws.A, X)
   s, U, Vt = _svd!(ws)
-  if _spectral_overflow(s, X)
+  if _spectral_overflow(s, X, ws)
     _scaled_svd_prox!(Y, f, X, γ, ws)
     return Y
   end
@@ -428,7 +448,9 @@ end
 function (f::IndStiefel)(X)
   _checkparams(f, X)
   T = float(eltype(X))
-  isfinite(_maximum_abs(X)) || return T(Inf)
+  A = _is_device_array(X) ? copyto!(_array_buffer!(f.input, T, size(X)), X) : X
+  isfinite(_maximum_abs(A)) || return T(Inf)
+  X = A
   k = size(X, 2)
   k == 0 && return zero(T)
   A = _array_buffer!(f.input, T, size(X))
@@ -443,6 +465,7 @@ end
 
 function prox!(Y, f::IndStiefel, X, ::Real)
   _checkwrite(prox!, f, Y, X)
+  X = _is_device_array(X) ? copyto!(_array_buffer!(f.input, eltype(X), size(X)), X) : X
   m = _maximum_abs(X)
   isfinite(m) || return fill!(Y, convert(eltype(Y), NaN))
   k = size(X, 2)
@@ -522,10 +545,11 @@ function _ispsd!(f, X::AbstractMatrix, r::Union{Nothing, Int})
   T = float(eltype(X))
   _checkblas(f, T)
   n = checksquare(X)
-  _issymmetric_tol(X) || return false
+  !_is_device_array(X) && !_issymmetric_tol(X) && return false
   ws = _eig_workspace(f.eig, T, n)
   f.eig = ws
   copyto!(ws.A, X)
+  !_is_device_array(X) || _issymmetric_tol(ws.A) || return false
   all(isfinite, ws.A) || return false
   λ = _eigvals!(ws)
   n == 0 && return true
@@ -553,7 +577,7 @@ function _project_psd!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix)
   f.eig = ws
   copyto!(ws.A, X)
   λ, V = _eigen!(ws)
-  if _spectral_overflow(λ, X)
+  if _spectral_overflow(λ, X, ws, f.out)
     _scaled_eigen_prox!(Y, f, X, zero(T), ws)
     return Y
   end
@@ -583,7 +607,7 @@ function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
   f.top = ws
   copyto!(ws.A, X)
   λ, Z = _eigen_top!(ws)
-  if _spectral_overflow(λ, X)
+  if _spectral_overflow(λ, X, ws, f.out)
     _scaled_eigen_prox!(Y, f, X, zero(T), ws)
     return Y
   end
@@ -655,6 +679,7 @@ function _trace!(f::TracePSD, X::Union{SparseIterate{<:Any, 2}, SymmetricSparseI
 end
 
 function (f::TracePSD)(X::AbstractMatrix)
+  X = _is_device_array(X) ? copyto!(_array_buffer!(f.out, eltype(X), size(X)), X) : X
   T = float(eltype(X))
   _ispsd!(f, X, nothing) || return T(Inf)
   _level_fits(T, f.λ) || return _scaled_trace_value(f, X)
@@ -687,7 +712,7 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
   f.eig = ws
   copyto!(ws.A, X)
   λ, V = _eigen!(ws)
-  _spectral_overflow(λ, X) && return _scaled_eigen_prox!(Y, f, X, γ, ws)
+  _spectral_overflow(λ, X, ws, f.out) && return _scaled_eigen_prox!(Y, f, X, γ, ws)
   s = zero(T)
   @inbounds for t in λ
     s += max(t - c, zero(T))

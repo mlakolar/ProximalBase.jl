@@ -337,9 +337,22 @@ the observations. The proximal operator of `LeastSquaresLoss` uses the SVD of
   [`value_entry`](@ref) run inside the kernels. One that holds arrays needs an
   `Adapt.adapt_structure` method that rebuilds it with the arrays converted
   and without checks, since inside a kernel its arrays are device arrays.
-- **Not yet.** The spectral functions and [`LogDetLoss`](@ref) (which use
-  LAPACK), the second-order methods of `GLMLoss`, and the sparse iterates run
-  on the CPU only. The GPU extension supports scalar steps; diagonal-step
+- **Host decompositions.** `NuclearNorm`, `IndBallRank`, `IndStiefel`,
+  `TracePSD`, `IndPSD` (including a rank constraint), `Spectral`,
+  `SingularValue` and `LogDetLoss` accept dense device matrices for values and
+  proximal operators, including partial decompositions. `LogDetLoss` also
+  supports `gradient!` and `value_and_gradient!`. They copy the input to cached
+  host storage, compute on the CPU, and copy the output back once. Host buffers
+  are allocated on the first call or when sizes or types change. There is no
+  device-native decomposition; include the transfer cost when choosing a backend.
+  Overflow recovery and partial fallback may copy the input again.
+  Wrapped device storage (`Symmetric`, `Hermitian`, views and transposes) is
+  outside this support; allocating `prox` on `Symmetric` returns a CPU `Matrix`.
+- **Not yet.** `LogDetLoss` Hessian products and quadratic models,
+  `QuadraticFunction` eigendecompositions, the SVD proximal path of
+  `LeastSquaresLoss`, and `Conjugate` of the host-decomposed functions above
+  remain CPU-only. The second-order methods of `GLMLoss` and the sparse iterates
+  also run on the CPU only. The GPU extension supports scalar steps; diagonal-step
   proximal methods currently use CPU loops.
 
 Normal CI checks these operations through JLArrays, a reference backend that

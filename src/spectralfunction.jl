@@ -107,11 +107,47 @@ function (s::Spectral)(X::AbstractMatrix)
   !_is_device_array(X) || all(isfinite, ws.A) || return T(Inf)
   !_is_device_array(X) || _issymmetric_tol(ws.A) || return T(Inf)
   λ = _eigvals!(ws)
+  if _counts_nonzeros(s.f)
+    if !isempty(λ)
+      m = max(abs(λ[1]), abs(λ[end]))
+      if !isfinite(m) || (m > zero(T) && _tol(T) * m <= floatmin(T))
+        return _scaled_spectral_mask!(s, ws, X)
+      end
+    end
+    _mask_eigenvalues!(λ)
+  end
   if !isempty(λ) && !(_finite_value(λ[1]) && _finite_value(λ[end])) && _scales_membership(s.f)
     return _scaled_spectral_membership!(s, ws, X)
   end
   _relative_membership(s.f) && return _scaled_membership(s.f, λ, 0)
   convert(T, s.f(λ))
+end
+
+# Keep the signs of eigenvalues that are separated from numerical zero.
+function _mask_eigenvalues!(λ::Vector{T}) where {T}
+  c = isempty(λ) ? zero(T) : _tol(T) * max(abs(λ[1]), abs(λ[end]))
+  @inbounds for j in eachindex(λ)
+    abs(λ[j]) <= c && (λ[j] = zero(T))
+  end
+  λ
+end
+
+@noinline function _scaled_spectral_mask!(s::Spectral, ws, X::AbstractMatrix)
+  invariant = _scale_invariant(s.f)
+  # Bounds that do not scale with X need the spectrum in the original units.
+  t = invariant ? nothing : _buffer!(s.z, eltype(ws.w), length(ws.w))
+  if !invariant
+    length(t) == length(ws.w) || resize!(t, length(ws.w))
+    copyto!(t, ws.w)
+  end
+  copyto!(ws.A, X)
+  _scaled_spectral_input!(ws.A, _is_device_array(X) ? ws.A : X)
+  λ = _mask_eigenvalues!(_eigvals!(ws))
+  invariant && return convert(eltype(λ), s.f(λ))
+  @inbounds for j in eachindex(λ)
+    iszero(λ[j]) && (t[j] = zero(eltype(λ)))
+  end
+  convert(eltype(λ), s.f(t))
 end
 
 # the balls and boxes at an overflowing spectrum, on the eigenvalues of X/2^k

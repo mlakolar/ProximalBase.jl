@@ -165,6 +165,8 @@ check_parameters(::AbstractFunction, x) = nothing
 # arrays privately; the fallback calls the public extension hook before writes.
 _isindicator(::Type{<:AbstractFunction}) = false
 _isindicator(f::AbstractFunction) = _isindicator(typeof(f))
+_counts_nonzeros(::AbstractFunction) = false
+_scale_invariant(::AbstractFunction) = false
 _checkparams(f::AbstractFunction, x) = (check_parameters(f, x); true)
 _argument_type(::Type{<:AbstractFunction}) = Any
 _checkargument(f, x) = x isa _argument_type(typeof(f)) || throw(MethodError(f, (x,)))

@@ -49,6 +49,8 @@ isproximable(::Type{IndBallL0}) = true
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndBallL0, y::AbstractArray, x::AbstractArray) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); true)
 _isindicator(::Type{IndBallL0}) = true
+_counts_nonzeros(::IndBallL0) = true
+_scale_invariant(::IndBallL0) = true
 
 # whether entry i of x is one that counts
 @inline _counts(f::IndBallL0, x::AbstractArray, i::Integer) = true

@@ -105,8 +105,8 @@ function _singular_values!(F::SingularValue, X::AbstractMatrix; copied::Bool = f
 end
 
 # The domain is the finite matrices: a non-finite entry gives Inf. Singular
-# values within rounding of zero count as zero. An overflowing spectrum (k > 0;
-# a subnormal one has k < 0) decides membership in scaled units.
+# values within rounding of zero count as zero for counting functions. An
+# overflowing spectrum decides membership in scaled units.
 function (F::SingularValue)(X::AbstractMatrix)
   _checkreal(F, X)
   T = float(eltype(X))
@@ -120,22 +120,22 @@ function (F::SingularValue)(X::AbstractMatrix)
     all(isfinite, X) || return T(Inf)
   end
   t, scaled, k = _masked_singular_values!(F, X; copied = _is_device_array(X))
+  _counts_nonzeros(F.f) && _scale_invariant(F.f) && scaled !== nothing && return convert(T, F.f(scaled))
   k > 0 && _scales_membership(F.f) && return _scaled_membership(F.f, scaled, k)
   _relative_membership(F.f) && return _scaled_membership(F.f, t, 0)
   convert(T, F.f(t))
 end
 
-# The singular values with those within a relative tolerance of the largest set
-# to zero, in the buffer F.t. When the largest one overflows, or the threshold
-# is not a normal number, the mask comes from the singular values of X scaled
-# by 2^-k, which are returned, masked, with k.
-function _masked_singular_values!(F::SingularValue, X::AbstractMatrix; copied::Bool = false)
+# Only counting functions mask numerical zeros. At extreme scales, return
+# both the original units and the resolved spectrum of X scaled by 2^-k.
+function _masked_singular_values!(F::SingularValue, X::AbstractMatrix; copied::Bool = false, mask::Bool = _counts_nonzeros(F.f))
   T = float(eltype(X))
   s = _singular_values!(F, X; copied)
+  !mask && (isempty(s) || _finite_value(s[1])) && return s, nothing, 0
   t = _vector_buffer(F.t, T, length(s))
   F.t = t
   if !isempty(s) && (!_finite_value(s[1]) || (s[1] > zero(T) && _tol(T) * s[1] <= floatmin(T)))
-    return _scaled_singular_mask!(F, X, s, t)
+    return _scaled_singular_mask!(F, X, s, t, mask)
   end
   c = isempty(s) ? zero(T) : _tol(T) * s[1]       # relative, so that F scales with X
   @inbounds for j in eachindex(s)
@@ -144,7 +144,7 @@ function _masked_singular_values!(F::SingularValue, X::AbstractMatrix; copied::B
   t, nothing, 0
 end
 
-@noinline function _scaled_singular_mask!(F::SingularValue, X::AbstractMatrix, s::Vector{T}, t::Vector{T}) where {T}
+@noinline function _scaled_singular_mask!(F::SingularValue, X::AbstractMatrix, s::Vector{T}, t::Vector{T}, mask::Bool) where {T}
   copyto!(t, s)
   ws = _svd_workspace(F.ws, T, size(X)...)
   copyto!(ws.A, X)
@@ -153,7 +153,7 @@ end
   s, = _svd!(ws; vectors = false)
   c = _tol(T) * s[1]
   @inbounds for j in eachindex(s)
-    if s[j] <= c
+    if mask && s[j] <= c
       t[j] = zero(T)
       s[j] = zero(T)
     end
@@ -213,12 +213,12 @@ _checkvalue(F::SingularValue, X::AbstractMatrix) = (_checkreal(F, X); _checkvalu
 
 # the conjugate of f ∘ σ is f* ∘ σ (Lewis, 1995)
 _checkconjugate(F::SingularValue, Y::AbstractMatrix) = (_checkreal(F, Y); _checkconjugate(F.f, _checkspectrum(F, float(eltype(Y)), size(Y))))
-# with the zero mask of the value, and the same domain
+# The conjugate has its own counting trait and the same domain.
 function _conjugate_value(F::SingularValue, Y::AbstractMatrix)
   _checkconjugate(F, Y)
   _checkblas(F, float(eltype(Y)))
   all(isfinite, Y) || return float(eltype(Y))(Inf)
-  t, = _masked_singular_values!(F, Y)
+  t, = _masked_singular_values!(F, Y; mask = _counts_nonzeros(Conjugate(F.f)))
   _conjugate_value(F.f, t)
 end
 

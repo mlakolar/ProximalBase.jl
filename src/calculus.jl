@@ -190,6 +190,8 @@ _checkparams(s::Scaled, x) = _checkparams(s.f, x)
 _checkwrite(op::O, s::Scaled, y, x) where {O} = (_checkreal(s, y); _checkreal(s, x); (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checkwrite(op, s.f, y, x))
 iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
+_counts_nonzeros(f::Scaled) = _counts_nonzeros(f.f)
+_scale_invariant(f::Scaled) = _scale_invariant(f.f)
 # a scaled group penalty updates a group of an AtomIterate with a scaled step
 prox_coordinate!(x::AtomIterate, s::Scaled, k::Integer, γ::Real) = prox_coordinate!(x, s.f, k, s.α * γ)
 kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =

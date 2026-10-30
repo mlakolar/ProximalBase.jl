@@ -153,6 +153,8 @@ isconvex(::Type{<:BoxConstrained{F}}) where {F} = isconvex(F)
 isseparable(::Type{<:BoxConstrained}) = true
 _isindicator(::Type{<:BoxConstrained{F}}) where {F} = _isindicator(F)
 _isindicator(::Type{<:LinearConstrained{F}}) where {F} = _isindicator(F)
+_counts_nonzeros(f::Union{BoxConstrained, LinearConstrained}) = _counts_nonzeros(f.f)
+_scale_invariant(f::BoxConstrained) = _scale_invariant(f.f) && _cone_bound(f.box.l) && _cone_bound(f.box.u)
 
 ####################################
 #  on a box

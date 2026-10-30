@@ -231,10 +231,10 @@ _ind(ok::Bool, ::Type{T}) where {T} = ok ? zero(T) : T(Inf)
 _valtype(x) = real(float(eltype(x)))
 _valtype(x::Tuple) = promote_type(map(_valtype, x)...)
 _value_at(v, x) = convert(_valtype(x), v)
-# A function whose value is not real at complex entries rejects them.
-_checkreal(f, x) = eltype(x) <: Real || _real_error(f)
+# Arguments, outputs and parameters are real; complex entries are rejected.
+_checkreal(f, x) = eltype(x) <: Real || _real_error(nameof(typeof(f)))
 _checkreal(f, x::Tuple) = (map(xk -> _checkreal(f, xk), x); true)
-@noinline _real_error(f) = throw(ArgumentError("$(nameof(typeof(f))) requires real entries"))
+@noinline _real_error(name) = throw(ArgumentError("$name requires real entries"))
 
 # A buffer of zeros of type T and size dims, next to the array a: an Array,
 # and a device array of the type of a GPU array a (see the GPU extension).

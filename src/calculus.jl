@@ -10,9 +10,10 @@ struct _ScaledArray{T, N, A<:AbstractArray} <: AbstractArray{T, N}
   c::T
 end
 _ScaledArray(g::AbstractArray{T, N}, c) where {T, N} = (S = promote_type(T, typeof(c)); _ScaledArray{S, N, typeof(g)}(g, S(c)))
+_ScaledArray{T}(g::AbstractArray{<:Any, N}, c) where {T, N} = _ScaledArray{T, N, typeof(g)}(g, convert(T, c))
 Base.size(a::_ScaledArray) = size(a.g)
 Base.IndexStyle(::Type{<:_ScaledArray}) = IndexLinear()
-Base.@propagate_inbounds Base.getindex(a::_ScaledArray, i::Int) = a.c * a.g[i]
+Base.@propagate_inbounds Base.getindex(a::_ScaledArray{T}, i::Int) where {T} = a.c * convert(T, a.g[i])
 
 struct _ShiftedArray{T, N, A<:AbstractArray, C<:AbstractArray} <: AbstractArray{T, N}
   g::A
@@ -177,7 +178,7 @@ prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(prox!, s, y, x); prox!(y, s.f, x
 value_and_prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); v = value_and_prox!(y, s.f, x, s.α * γ); _value_at(_scaled_value(s, y, v, false), y))
 Base.@propagate_inbounds prox_entry(s::Scaled, v::Real, i::Integer, γ::Real) = prox_entry(s.f, v, i, s.α * γ)
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
-_checkwrite(op::O, s::Scaled, y, x) where {O} = _checkwrite(op, s.f, y, x)
+_checkwrite(op::O, s::Scaled, y, x) where {O} = ((op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checkwrite(op, s.f, y, x))
 iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 # a scaled group penalty updates a group of an AtomIterate with a scaled step
@@ -225,6 +226,7 @@ value_and_gradient!(g, t::Tilt, x) = (_checkwrite(value_and_gradient!, t, g, x);
 gradient!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, x); g .+= t.c)
 
 function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}}
+  _checkgradient_output(g, x)
   _checkparams(t, x)
   Base.Broadcast.check_broadcast_axes(axes(g), t.c)
   _check_symmetric_source(g, t.c)
@@ -313,7 +315,7 @@ gradient!(g, t::Translate, x::AbstractArray) =
   (_checkwrite(gradient!, t, g, x); gradient!(g, t.f, _shifted(t, x)))
 
 _checkwrite(op::O, t::Translate, g, x::AbstractArray) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
-  (_check_symmetric_source(g, t.b); _checkwrite(op, t.f, g, _checkshifted(t, x)))
+  (_checkgradient_output(g, x); _check_symmetric_source(g, t.b); _checkwrite(op, t.f, g, _checkshifted(t, x)))
 
 function _checkshifted(t::Translate, x::AbstractArray)
   size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
@@ -526,7 +528,10 @@ _moreau_set!(z, f::IndBallL2, x, γ) = prox!(z, IndBallL2(_dilate(γ, f.r)), x, 
 # entry by entry, inside it
 _dilated(γ::Real, b::Real) = _dilate(γ, b)
 _dilated(γ, b) = Base.Broadcast.broadcasted(_dilate, γ, b)
-_moreau_set!(z, f::IndBox, x, γ) = (z .= clamp.(x, _dilated(γ, f.l), _dilated(γ, f.u)))
+function _moreau_set!(z, f::IndBox, x, γ)
+  step = _reshapeparam(γ, x)
+  z .= clamp.(x, _dilated(step, _reshapeparam(f.l, x)), _dilated(step, _reshapeparam(f.u, x)))
+end
 _moreau_set!(z, s::Scaled, x, γ) = _moreau_point!(z, s.f, x, γ)
 function _moreau_set!(z, t::Translate, x, γ)
   z .= x .- _dilate.(γ, t.b)
@@ -919,6 +924,7 @@ _checkparams(s::SeparableSum, x::Tuple) = (_checkblocks(s, x); map(_checkparams,
 function _checkwrite(op::O, s::SeparableSum, y::Tuple, x::Tuple) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
   _checksize(y, x)
   _checkblocks(s, x)
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checkwrite_blocks(op, s.fs, y, x)
 end
 # block by block, by recursion on the tuples rather than a map over a closure:
@@ -972,6 +978,7 @@ _checkparams(s::Sum, x) = (map(f -> _checkparams(f, x), s.fs); true)
 _checkvalue(s::Sum, x) = (map(f -> _checkvalue(f, x), s.fs); true)
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::Sum, g::AbstractArray, x::AbstractArray)
+  _checkgradient_output(g, x)
   _checksize(g, x)
   _checkparams(s, x)
   _checkwrite(value_and_gradient!, first(s.fs), g, x)

@@ -100,6 +100,7 @@ end
 _checkimage(h::_ScalarPrecompose, x) = _checkbuffer(h.image, float(promote_type(eltype(x), typeof(h.A))), size(x))
 
 function _checkwrite(op::O, h::Precompose, y::AbstractArray, x::AbstractArray) where {O}
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   z = _checkimage(h, x)
   _checkparams(h.f, z)
@@ -280,6 +281,7 @@ _sparse_precompose(y, x) = (y isa SparseIterate && x isa SparseIterate) ||
   (y isa SymmetricSparseIterate && x isa AbstractMatrix)
 
 function _checkwrite(op::O, h::_ArrayPrecompose, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   _checkparams(h, x)
   _check_symmetric_source(y, h.a)
@@ -312,15 +314,19 @@ function _precompose_steps!(h::_ArrayPrecompose{<:AbstractGroupPenalty}, z, γ::
 end
 
 function _value_and_prox_array!(y, h::_ArrayPrecompose, x, γ, withvalue::Bool)
+  # an inner function without a standalone value gives it with its proximal point
+  joint = withvalue && !_isindicator(h) && !_has_value(h.f)
   if isseparable(h) && _sparse_precompose(y, x)
-    _prox_sep!(y, h, x, γ)
     T = float(promote_type(eltype(y), eltype(h.a)))
-    return withvalue ? (_isindicator(h) ? zero(T) : h(y)) : zero(T)
+    # from the dense image of what the sparse loop reads, before y is written
+    v = joint ? _array_precompose_joint_value(h, y isa SymmetricSparseIterate ? Symmetric(x, :L) : x, γ) : zero(T)
+    _prox_sep!(y, h, x, γ)
+    return withvalue && !joint ? (_isindicator(h) ? zero(T) : h(y)) : v
   end
   z = _image!(h, x)
   b = _inner_buffer(h, z)
   steps = _precompose_steps!(h, z, γ)
-  if h.f isa AbstractGroupPenalty
+  if h.f isa AbstractGroupPenalty || joint
     v = value_and_prox!(b, h.f, z, steps)
   else
     _prox_sep!(b, h.f, z, steps)
@@ -331,6 +337,11 @@ function _value_and_prox_array!(y, h::_ArrayPrecompose, x, γ, withvalue::Bool)
     y[i] = b[i] == z[i] ? x[i] : b[i] / h.a[i]
   end
   withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _array_precompose_value(h, y) : v
+end
+
+function _array_precompose_joint_value(h::_ArrayPrecompose, x, γ)
+  z = _image!(h, x)
+  value_and_prox!(_inner_buffer(h, z), h.f, z, _precompose_steps!(h, z, γ))
 end
 
 # In mixed precision, the value at the output, through the lazy image of y
@@ -493,6 +504,7 @@ gradient!(g::AbstractArray, r::Regularize, x::AbstractArray) =
   (_checkwrite(gradient!, r, g, x); gradient!(g, r.f, x); _add_ridge_gradient!(g, r, x))
 
 function _checkwrite(op::O, r::Regularize, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   (op === prox! || op === value_and_prox!) && _check_wrapper_output(y)
   _checksize(y, x)
   _checkparams(r, x)

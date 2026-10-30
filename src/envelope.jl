@@ -49,9 +49,9 @@ isconvex(::Type{<:MoreauEnvelope{F}}) where {F} = isconvex(F)
 _envelope_buffer(e::MoreauEnvelope, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(e.scratch, T, size(x))
 
 function _checkwrite(op::O, e::MoreauEnvelope, y::AbstractArray, x::AbstractArray) where {O}
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   if op === gradient! || op === value_and_gradient!
-    y === x && throw(ArgumentError("the gradient must not overwrite x"))
     _checkparams(e, x)
     _checkwrite(op === gradient! ? prox! : value_and_prox!, e.f, y, x)
   else

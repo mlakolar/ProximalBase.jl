@@ -224,6 +224,7 @@ Base.@propagate_inbounds function prox_entry(f::SqrHingeLoss, v::Real, i::Intege
 end
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::SqrHingeLoss, g::AbstractArray, x::AbstractArray)
+  _checkgradient_output(g, x)
   _checksize(g, x)
   _checkparams(f, x)
   true

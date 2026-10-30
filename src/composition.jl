@@ -100,6 +100,7 @@ end
 _checkimage(h::_ScalarPrecompose, x) = _checkbuffer(h.image, float(promote_type(eltype(x), typeof(h.A))), size(x))
 
 function _checkwrite(op::O, h::Precompose, y::AbstractArray, x::AbstractArray) where {O}
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   z = _checkimage(h, x)
   _checkparams(h.f, z)
@@ -280,6 +281,7 @@ _sparse_precompose(y, x) = (y isa SparseIterate && x isa SparseIterate) ||
   (y isa SymmetricSparseIterate && x isa AbstractMatrix)
 
 function _checkwrite(op::O, h::_ArrayPrecompose, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   _checkparams(h, x)
   _check_symmetric_source(y, h.a)
@@ -502,6 +504,7 @@ gradient!(g::AbstractArray, r::Regularize, x::AbstractArray) =
   (_checkwrite(gradient!, r, g, x); gradient!(g, r.f, x); _add_ridge_gradient!(g, r, x))
 
 function _checkwrite(op::O, r::Regularize, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   (op === prox! || op === value_and_prox!) && _check_wrapper_output(y)
   _checksize(y, x)
   _checkparams(r, x)

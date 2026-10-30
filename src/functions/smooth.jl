@@ -21,8 +21,8 @@ isproximable(::Type{ZeroFunction}) = true
 isseparable(::Type{ZeroFunction}) = true
 isconvex(::Type{ZeroFunction}) = true
 iszeropreserving(::ZeroFunction) = true
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)},
-            ::ZeroFunction, y::AbstractArray, x::AbstractArray) = (_checksize(y, x); true)
+_checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)},
+            ::ZeroFunction, y::AbstractArray, x::AbstractArray) = ((op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checksize(y, x); true)
 
 (::ZeroFunction)(x::AbstractArray) = zero(_valtype(x))
 
@@ -89,6 +89,7 @@ _checkdot(c::C, x::X) where {C, X} = (_dot_checks_size(C, X) ? _checksize(c, x) 
 _checkvalue(f::LinearFunction, x) = (_checkreal(f, x); _checkdot(f.c, x))
 
 function _checkwrite(op::O, f::LinearFunction, y::AbstractArray, x::AbstractArray) where {O}
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   _checkparams(f, x)
   _checkreal(f, x)
@@ -227,7 +228,8 @@ function prox!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real)
   f.y === nothing ? (z .= a .* x) : (z .= _ridge_blend.(x, f.y, a, b))
 end
 
-function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::SqrNormL2, y::AbstractArray, x::AbstractArray)
+function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::SqrNormL2, y::AbstractArray, x::AbstractArray)
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   _checkparams(f, x)
   f.y === nothing || (_checksize(f.y, x); _check_symmetric_source(y, f.y))
@@ -366,6 +368,7 @@ function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, f::Quadr
 end
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::QuadraticFunction, g::AbstractVector, x::AbstractVector)
+  _checkgradient_output(g, x)
   _checksize(g, x)
   # Preserve the dimension error of the product, which checks before writing.
   length(x) == size(f.A, 2) || mul!(g, f.A, x)
@@ -503,7 +506,7 @@ gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =
   (_checkwrite(gradient!, f, G, Θ); value_and_gradient!(G, f, Θ); G)
 
 _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::KronQuadratic, G::AbstractArray, Θ::AbstractArray) =
-  (_checkshape(f, G); _checkshape(f, Θ); _checkreal(f, Θ))
+  (_checkgradient_output(G, Θ); _checkshape(f, G); _checkshape(f, Θ); _checkreal(f, Θ))
 
 # (W + W')/2 in place
 function _symmetrize!(W::Matrix)

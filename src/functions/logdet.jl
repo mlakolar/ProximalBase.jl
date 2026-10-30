@@ -28,6 +28,7 @@ log-determinant is not accurate. Entries exceeding `floatmax` within the
 reconstruction's rounding bound saturate. The log-determinant uses the mapped
 roots and the trace uses the stored output. That output can round to a singular
 matrix, so the returned value can be finite even when `f(Y)` is `Inf`.
+At a non-finite input, the proximal output is all `NaN` and the returned value is `NaN`.
 For a nonsymmetric proximal input, `X` is replaced by its symmetric part:
 the skew part contributes only a constant to the proximal objective.
 Both use workspaces that `f` owns, sized by `S`, and
@@ -136,6 +137,7 @@ end
 
 function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix, γ::Real) where {T}
   _checkwrite(value_and_prox!, f, Y, X)
+  all(isfinite, X) || (fill!(Y, _valtype(Y)(NaN)); return _valtype(Y)(NaN))
   root_step = sqrt(convert(T, γ)) * sqrt(f.w)
   A = f.eig.A
   # The domain is symmetric: the skew part contributes only a constant

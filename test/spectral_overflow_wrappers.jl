@@ -200,23 +200,30 @@ unit(f::SumLargest, T) = SumLargest(f.k, one(T))
                   ElasticNet(one(T), one(T)), NormL1(one(T), ones(T, 4)),
                   IndBox(-one(T), one(T)), Scaled(NormL1(), one(T)))
           W === Spectral && !PB._ispermutationinvariant(f) && continue
-          for B in (X, A, T[Inf 0; 0 1], T[NaN 0; 0 1])
-            Y, R = similar(B), similar(B)
-            a = outcome!(value_and_prox!, Y, W(f), B, one(T))
-            b = outcome!(legacy!, R, W(f), B, one(T))
-            @test isequal(a, b)
-            a[1] === :value && (@test all(isfinite, B) ? samebits(Y, R) : isequal(Y, R))
+          # Four singular values keep the weighted function's dimensions valid.
+          for B in (X, A, Matrix(Diagonal(T[Inf, 0, 0, 1])), Matrix(Diagonal(T[NaN, 0, 0, 1])))
+            Y = similar(B)
+            if all(isfinite, B)
+              R = similar(B)
+              a = outcome!(value_and_prox!, Y, W(f), B, one(T))
+              b = outcome!(legacy!, R, W(f), B, one(T))
+              @test isequal(a, b)
+              a[1] === :value && (@test samebits(Y, R))
+            else
+              expected = PB._isindicator(f) ? zero(T) : T(NaN)
+              @test value_and_prox!(Y, W(f), B, one(T)) === expected
+              @test all(isnan, Y)
+            end
           end
         end
         for f in inventory(T)
           W === Spectral && !PB._ispermutationinvariant(f) && continue
           f isa IndBox && f.l isa AbstractArray && continue
-          for q in (T(Inf), T(-Inf), T(NaN)), B in (T[q 0; 0 1], T[1 q; q 1])
-            Y, R = similar(B), similar(B)
-            a = outcome!(value_and_prox!, Y, W(f), B, one(T))
-            b = outcome!(legacy!, R, W(f), B, one(T))
-            @test isequal(a, b)
-            a[1] === :value && (@test isequal(Y, R))
+          for q in (T(Inf), T(-Inf), T(NaN)), B in (T[q 0; 0 1], T[1 q; q 1], T[1 q; 0 1], T[1 0; q 1])
+            Y = similar(B)
+            expected = PB._isindicator(f) ? zero(T) : T(NaN)
+            @test value_and_prox!(Y, W(f), B, one(T)) === expected
+            @test all(isnan, Y)
           end
         end
       end

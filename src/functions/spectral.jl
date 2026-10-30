@@ -156,6 +156,9 @@ When an intermediate sum overflows, or a weight is not representable in the
 argument's precision although the weighted value is representable, the value
 is computed in scaled units. The domain is the finite matrices: the
 value is `Inf` at a matrix with a non-finite entry, also for `λ = 0`.
+For `λ = 0`, the proximal operator copies its input and returns zero, including
+at non-finite inputs. When a decomposition is needed, a non-finite input gives
+an all-`NaN` proximal output and a returned value of `NaN`.
 
 $_PARTIAL_NOTE The value `f(X)` alone needs every singular value and always
 takes the full decomposition.
@@ -240,6 +243,7 @@ function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, �
     Y === X || copyto!(Y, X)
     return zero(T)
   end
+  all(isfinite, X) || (fill!(Y, T(NaN)); return T(NaN))
   c = _level_product(T, γ, f.λ)
   if f.partial
     pv = _partial_nuclear!(Y, f, X, c)
@@ -284,7 +288,10 @@ entry exceeding `floatmax` by less than the reconstruction's rounding bound
 is returned as `±floatmax`.
 
 Membership is reliable for every finite input within the floating-point
-tolerance; non-finite entries are not members.
+tolerance; non-finite entries are not members. When `r ≥ minimum(size(X))`,
+the proximal operator copies its input, including at non-finite inputs.
+When a decomposition is needed, a non-finite input gives an all-`NaN` output.
+`value_and_prox!` returns zero in both cases.
 
 $_PARTIAL_NOTE
 
@@ -337,6 +344,7 @@ function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
     Y === X || copyto!(Y, X)
     return Y
   end
+  all(isfinite, X) || return fill!(Y, T(NaN))
   f.partial && _partial_rank!(Y, f, X, T) !== nothing && return Y
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
@@ -436,7 +444,7 @@ end
 function prox!(Y, f::IndStiefel, X, ::Real)
   _checkwrite(prox!, f, Y, X)
   m = _maximum_abs(X)
-  isfinite(m) || throw(ArgumentError("IndStiefel requires finite entries for projection"))
+  isfinite(m) || return fill!(Y, convert(eltype(Y), NaN))
   k = size(X, 2)
   k == 0 && return Y
   ws = _svd_workspace(f.ws, eltype(Y), size(X)...)
@@ -557,6 +565,7 @@ end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real)
   _checkwrite(prox!, f, Y, X)
+  all(isfinite, X) || return fill!(Y, convert(eltype(Y), NaN))
   if f.partial
     _partial_psd!(Y, f, X, zero(float(eltype(Y))), 0) === nothing || return Y
   end
@@ -565,6 +574,7 @@ end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
   _checkwrite(prox!, f, Y, X)
+  all(isfinite, X) || return fill!(Y, convert(eltype(Y), NaN))
   n = checksquare(X)
   f.rank >= n && return _project_psd!(Y, f, X)
   T = float(eltype(Y))
@@ -667,6 +677,7 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
+  all(isfinite, X) || (fill!(Y, T(NaN)); return T(NaN))
   c = _level_product(T, γ, f.λ)
   if f.partial
     pv = _partial_psd!(Y, f, X, c, 0, f.λ)

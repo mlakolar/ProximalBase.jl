@@ -596,8 +596,9 @@ each finite bound when needed. Membership checks each bound independently,
 within `sqrt(eps(T)) * max(1, abs(b), ‖a‖ ‖x‖)` in the original units, where
 `T = float(eltype(x))`. For scaled normals the tolerance uses the less precise
 of `T` and the function's floating-point type. The membership value is reliable
-for all finite inputs. Nonfinite inputs are rejected even for the
-whole space. An empty input has a projection only when `l ≤ 0 ≤ u`.
+for all finite inputs. Nonfinite inputs follow the projection formula
+using IEEE arithmetic; the whole space copies its input. An empty input has
+a projection only when `l ≤ 0 ≤ u`.
 
 The projection is accurate when the scaled active bound, residual and output
 are representable; inputs near `floatmax` are outside this guarantee. Accuracy
@@ -782,13 +783,9 @@ function _checkwrite(op::O, f::Union{IndHyperplane, IndHalfspace, IndHyperslab},
     length(f.a) == length(x) || _dot_normal(_scaled_normal(f), x)
     Base.Broadcast.check_broadcast_axes(axes(y), x, f.a)
   end
+  f isa IndHyperslab && isempty(x) && !(f.l <= 0 <= f.u) &&
+    throw(ArgumentError("the hyperslab contains no empty array"))
   true
-end
-
-function _hyperslab_input(f, x)
-  isfinite(_maximum_abs(x)) || throw(ArgumentError("a hyperslab projection needs finite inputs"))
-  isempty(x) && !(f.l <= 0 <= f.u) && throw(ArgumentError("the hyperslab contains no empty array"))
-  nothing
 end
 
 # Choose the active bound from the residual, independently of membership slack.
@@ -801,18 +798,17 @@ function _hyperslab_residual(f, x, a)
   s = eltype(x) <: Integer ? _stored_dot_normal(a, x) : _dot_normal(a, x)
   if isfinite(f.l)
     g = s - _scaled_offset(f, f.l)
-    g < 0 && return g
+    (isnan(g) || g < 0) && return g
   end
   if isfinite(f.u)
     g = s - _scaled_offset(f, f.u)
-    g > 0 && return g
+    (isnan(g) || g > 0) && return g
   end
   zero(s)
 end
 
 function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
-  _hyperslab_input(f, x)
   isempty(x) && return y
   g = _hyperslab_residual(f, x)
   iszero(g) && return (y === x ? y : copyto!(y, x))

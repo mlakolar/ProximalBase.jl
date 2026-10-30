@@ -901,9 +901,8 @@ Scalar-step checks also follow supported wrappers before writing. Remaining
 gaps include array steps, entrywise steps inside box and linear constraints,
 spectral and singular-value wrappers, distance wrappers, intersections, ball,
 sphere and affine constraints, `NegLog`'s square root, and `Conjugate`'s finite
-result check. Failures during computation, user-defined oracle checks beyond
-`check_parameters`, and checks of argument values (including hyperslab inputs
-and membership in an inner box) can still leave earlier blocks written.
+result check. Failures during computation and user-defined oracle checks beyond
+`check_parameters` can still leave earlier blocks written.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
@@ -946,9 +945,9 @@ _checkvalue(s::SeparableSum, x::Tuple) = (_checkparams(s, x); map(_checkvalue, s
 
 (s::SeparableSum)(x::Tuple) = (_checkparams(s, x); _value_at(sum(map((f, xk) -> f(xk), s.fs, x)), x))
 prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(prox!, s, y, x); _checkstep(prox!, s, y, x, γ); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
+  (_checkwrite(prox!, s, y, x, γ); _checkstep(prox!, s, y, x, γ); map((f, yk, xk) -> prox!(yk, f, xk, γ), s.fs, y, x); y)
 value_and_prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(value_and_prox!, s, y, x); _checkstep(value_and_prox!, s, y, x, γ); _value_at(sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)), y))
+  (_checkwrite(value_and_prox!, s, y, x, γ); _checkstep(value_and_prox!, s, y, x, γ); _value_at(sum(map((f, yk, xk) -> value_and_prox!(yk, f, xk, γ), s.fs, y, x)), y))
 value_and_gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
   (_checkwrite(value_and_gradient!, s, g, x); _value_at(sum(map((f, gk, xk) -> value_and_gradient!(gk, f, xk), s.fs, g, x)), x))
 gradient!(g::Tuple, s::SeparableSum, x::Tuple) =

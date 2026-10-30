@@ -142,7 +142,9 @@ function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
   _check_symmetric_source(y, γ)
   z = _output_buffer!(t.scratch, y)
   z .= x .- γ .* t.c
-  prox!(y, t.f, z, γ)
+  w = _wrapper_output(y, z)
+  prox!(w, t.f, z, γ)
+  _wrapper_commit!(y, w)
 end
 function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray)
   _checkwrite(value_and_prox!, t, y, x)
@@ -151,22 +153,30 @@ function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Abstra
   _check_symmetric_source(y, γ)
   z = _output_buffer!(t.scratch, y)
   z .= x .- γ .* t.c
-  _value_at(value_and_prox!(y, t.f, z, γ) + dot(t.c, y) + t.d, y)
+  w = _wrapper_output(y, z)
+  v = value_and_prox!(w, t.f, z, γ)
+  v = _value_at(v + dot(t.c, w) + t.d, w)
+  _wrapper_commit!(y, w)
+  v
 end
 
 function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
   z .= x .- t.b
-  prox!(y, t.f, z, γ)
-  y .+= t.b
+  w = _wrapper_output(y, z)
+  prox!(w, t.f, z, γ)
+  w .+= t.b
+  _wrapper_commit!(y, w)
 end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::AbstractArray)
   _checkwrite(value_and_prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
   z .= x .- t.b
-  v = value_and_prox!(y, t.f, z, γ)
-  y .+= t.b
+  w = _wrapper_output(y, z)
+  v = value_and_prox!(w, t.f, z, γ)
+  w .+= t.b
+  _wrapper_commit!(y, w)
   _value_at(v, y)
 end
 

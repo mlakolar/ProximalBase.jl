@@ -323,4 +323,111 @@ end
   @test prox(hr, x, 0.7) == prox(r, x, 0.7)
 end
 
+@testset "Group validation before writes" begin
+  groups = [1:2, 3:4]
+  f = GroupSCAD(1.0, groups; a = nextfloat(2.0))
+  r = Regularize(f, 0.5)
+  for penalty in (f, r)
+    x = AtomIterate(Float32[1, 2, 3, 4], groups)
+    before = copy(x)
+    @test_throws ArgumentError prox_coordinate!(x, penalty, 1, 0.75f0)
+    @test x.storage == before.storage
+    @test x.active == before.active
+    @test x.position == before.position
+  end
+  for op in (prox!, value_and_prox!), atom in (false, true), aliased in (false, true), step in (0.75f0, Float32[0.75, 0.5])
+    x = atom ? AtomIterate(Float32[1, 2, 3, 4], groups) : Float32[1, 2, 3, 4]
+    y = aliased ? x : (atom ? AtomIterate(Float32[4, 3, 2, 1], groups) : Float32[4, 3, 2, 1])
+    before, input = copy(y), copy(x)
+    @test_throws ArgumentError op(y, f, x, step)
+    @test y == before
+    @test x == input
+  end
+  # Free coordinates used to be copied before the scalar penalty was built.
+  ffree = GroupSCAD(1.0, [1:2]; a = nextfloat(2.0))
+  for op in (prox!, value_and_prox!), step in (0.75f0, Float32[0.75])
+    x, y = Float32[1, 2, 3, 4], Float32[4, 3, 2, 1]
+    @test_throws ArgumentError op(y, ffree, x, step)
+    @test y == Float32[4, 3, 2, 1]
+  end
+  # An inactive group does not construct its scalar penalty.
+  x = AtomIterate(Float32, 4, groups)
+  @test value_and_prox!(copy(x), f, x, 0.75f0) === 0.0f0
+  for f in (GroupNormL2(1.0, groups), GroupSCAD(1.0, groups)), k in (0, 3)
+    x = AtomIterate(ones(4), groups)
+    @test_throws BoundsError prox_coordinate!(x, Regularize(f, 0.5), k, 0.75)
+    @test x == ones(4)
+  end
+  x = AtomIterate(Float32[1, 2, 3, 4], groups)
+  f = GroupSCAD(1.0, groups)
+  r = Regularize(f, 0.5)
+  expected = prox(r, Vector(x), 0.75f0)
+  prox_coordinate!(x, r, 1, 0.75f0)
+  @test x.storage[1:2] == expected[1:2]
+  @test allocs(prox_coordinate!, x, r, 1, 0.75f0) == 0
+  @test allocs(value_and_prox!, copy(x), f, x, 0.75f0) == 0
+  @test allocs(value_and_prox!, Vector(x), f, Vector(x), 0.75f0) == 0
+end
+
+# The proximal call in the mapping aliases its input even when G and x differ.
+struct SeparateProx <: AbstractFunction end
+function ProximalBase._checkwrite(::typeof(prox!), ::SeparateProx, y, x)
+  y === x && throw(ArgumentError("separate input required"))
+  true
+end
+function ProximalBase.prox!(y, f::SeparateProx, x, γ::Real)
+  ProximalBase._checkwrite(prox!, f, y, x)
+  copyto!(y, x)
+end
+
+@testset "Gradient mapping structural checks" begin
+  x = ones(3)
+  G = fill(7.0, 3)
+  @test prox!(similar(x), SeparateProx(), x, 0.5) == x
+  @test_throws ArgumentError gradient_mapping!(G, SqrNormL2(), SeparateProx(), x, 0.5)
+  @test G == fill(7.0, 3)
+  G = fill(7.0, 3)
+  @test_throws BoundsError gradient_mapping!(G, SqrNormL2(), GroupNormL2(1.0, [1:4]), x, 0.5)
+  @test G == fill(7.0, 3)
+  @test x == ones(3)
+  @test allocs(gradient_mapping!, G, SqrNormL2(), NormL1(), x, 0.5) == 0
+  expected = similar(x)
+  gradient!(expected, SqrNormL2(), x)
+  expected .= x .- 0.5 .* expected
+  prox!(expected, NormL1(), expected, 0.5)
+  expected .= (x .- expected) ./ 0.5
+  @test gradient_mapping!(G, SqrNormL2(), NormL1(), x, 0.5) == expected
+  @test_throws ArgumentError gradient_mapping!(x, SqrNormL2(), NormL1(), x, 0.5)
+  @test x == ones(3)
+end
+
+# A bits-type inner oracle can reject a step before launching its computation.
+struct RejectStep <: AbstractFunction end
+(::RejectStep)(x) = sum(abs2, x)
+function ProximalBase.prox!(y::AbstractArray, ::RejectStep, x::AbstractArray, γ::Real)
+  γ < 0 && throw(ArgumentError("negative step"))
+  copyto!(y, x)
+end
+
+@testset "Adapted Regularize buffers" begin
+  for op in (prox!, value_and_prox!), aliased in (false, true)
+    x = JLArray([1.0, 2.0, 3.0])
+    y = aliased ? x : JLArray([4.0, 5.0, 6.0])
+    before, input = Array(y), Array(x)
+    r = Adapt.adapt(JLArray, Regularize(RejectStep(), 0.5))
+    @test_throws ArgumentError op(y, r, x, -0.5)
+    @test Array(y) == before
+    @test Array(x) == input
+    @test op(y, r, x, 0.5) isa (op === prox! ? typeof(y) : Real)
+    @test Array(y) ≈ input ./ 1.25
+
+    loss = Adapt.adapt(JLArray, LeastSquaresLoss(ones(3), Matrix{Float64}(I, 3, 3)))
+    r = Adapt.adapt(JLArray, Regularize(loss, 0.5))
+    before = Array(y)
+    @test_throws ArgumentError ProximalBase._checkwrite(op, r, y, x)
+    @test_throws ArgumentError op(y, r, x, 0.5)
+    @test Array(y) == before
+  end
+end
+
 end

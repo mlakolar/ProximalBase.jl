@@ -71,6 +71,64 @@ same(a, b) = isinf(b) ? a == b : a ≃ b
 
 end
 
+@testset "linear separable parameters on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types
+    x = T[5, -5]
+    w = T[1 2]
+    l, u = T[0 2], T[1, 3]
+    xg = DeviceArray(x)
+    for (f, direct) in ((IndBox(l, u), IndBox(DeviceArray(l), DeviceArray(u))),
+                        (NormL1(T(0.3), w), NormL1(T(0.3), DeviceArray(w))),
+                        (NormL1Nonneg(T(0.3), w), NormL1Nonneg(T(0.3), DeviceArray(w))),
+                        (ElasticNet(T(0.3), T(0.5), w), ElasticNet(T(0.3), T(0.5), DeviceArray(w))))
+      for fg in (Adapt.adapt(DeviceArray, f), direct, Adapt.adapt(DeviceArray, direct))
+        @test same(fg(xg), f(x))
+        yc = prox(f, x, T(0.8))
+        yg = similar(xg)
+        @test prox!(yg, fg, xg, T(0.8)) === yg
+        @test host(yg) ≃ yc
+        @test same(value_and_prox!(yg, fg, xg, T(0.8)), f(yc))
+        @test host(yg) ≃ yc
+        for op in (prox!, value_and_prox!)
+          z = copy(xg)
+          op(z, fg, z, T(0.8))
+          @test host(z) ≃ yc
+        end
+      end
+    end
+    @test_throws DimensionMismatch IndBox(DeviceArray(T[0 0]), DeviceArray(T[1]))
+  end
+end
+
+@testset "nonconvex box intersections on GPU arrays" begin
+  allowscalar(false)
+  for f in (MCP(1.), SCAD(1.), NormL0(1.))
+    for (a, b) in ((IndBox([0 10], 20), IndBox(-1, [5, 15])),
+                   (IndBox([100_000 100_001], Float16(Inf)), IndBox(Float16(0), Float16[Inf, Inf])),
+                   (IndBox(Float16(-Inf), [-100_000 -100_001]), IndBox(Float16[-Inf, -Inf], Float16(0))),
+                   (IndBox(zeros(0, 2), 3), IndBox(0, Int[])))
+      for (first, second) in ((a, b), (b, a))
+        c = Constrained(Constrained(f, first), second)
+        before = Adapt.adapt(DeviceArray, c)
+        after = Constrained(Adapt.adapt(DeviceArray, Constrained(f, first)), Adapt.adapt(DeviceArray, second))
+        for cg in (before, after)
+          @test isequal(host(cg.box.l), c.box.l)
+          @test isequal(host(cg.box.u), c.box.u)
+          @test size(cg.box.l) == size(cg.box.u) == size(c.box.l)
+          @test eltype(cg.box.l) == eltype(c.box.l)
+          @test eltype(cg.box.u) == eltype(c.box.u)
+        end
+      end
+    end
+    @test_throws DimensionMismatch Constrained(
+      Constrained(f, IndBox(DeviceArray([0, 1]), 3)), IndBox(0, DeviceArray([3, 4, 5])))
+    k = 2^53
+    @test_throws ArgumentError Constrained(
+      Constrained(f, IndBox(DeviceArray([k + 1]), k + 1)), IndBox(k, DeviceArray([k])))
+  end
+end
+
 @testset "compensated separable L1 coefficients" begin
   allowscalar(false)
   for T in test_types, F in (NormL1, NormL1Nonneg)
@@ -430,6 +488,9 @@ end
   @test gh.η isa Vector{Float64} && gh.weights isa Vector{Float64} && gh(b) ≃ LogisticLoss(yb, X; weights = w)(b)
   # a negative weight is caught on the device, as on the host
   @test_throws ArgumentError GLMLoss(ProximalBase.Squared(), DeviceArray(y), DeviceArray(X); weights = DeviceArray(-w))
+  # and so are infinite weights and offsets (#251)
+  @test_throws ArgumentError GLMLoss(ProximalBase.Squared(), DeviceArray(y), DeviceArray(X); weights = DeviceArray([w[1:end-1]; Inf]))
+  @test_throws ArgumentError GLMLoss(ProximalBase.Squared(), DeviceArray(y), DeviceArray(X); offset = DeviceArray([w[1:end-1]; NaN]))
 end
 
 @testset "compensated group coefficients on GPU arrays" begin
@@ -550,6 +611,202 @@ end
     end
   end
 end
+
+@testset "host spectral oracles on device matrices" begin
+  allowscalar(false)
+  square = [3.0 1 0; 1 4 1; 0 1 5]
+  factories = (() -> NuclearNorm(0.5), () -> NuclearNorm(0),
+               () -> IndBallRank(1), () -> IndBallRank(3), () -> IndStiefel(),
+               () -> TracePSD(0.5), () -> TracePSD(0), () -> IndPSD(),
+               () -> IndPSD(rank = 1), () -> IndPSD(rank = 3),
+               () -> Spectral(NormL1(0.5)), () -> SingularValue(NormL1(0.5)),
+               () -> LogDetLoss(Matrix{Float64}(I, 3, 3)))
+  for T in test_types, make in factories
+    X = T.(square)
+    f, fd = make(), make()
+    D = DeviceArray(X)
+    @test same(fd(D), f(X))
+    for R in (T, Float32)
+      Y, DY = R.(X), DeviceArray(R.(X))
+      vc = value_and_prox!(Y, f, X, 0.8)
+      @test same(value_and_prox!(DY, fd, D, 0.8), vc)
+      @test host(DY) ≃ Y
+      @test prox!(DY, fd, D, 0.8) === DY
+      @test host(DY) ≃ Y
+      @test host(D) == X
+    end
+    @test host(prox(fd, D, 0.8)) ≃ prox(f, X, 0.8)
+    Y = prox(f, X, 0.8)
+    @test prox!(D, fd, D, 0.8) === D
+    @test host(D) ≃ Y
+    D = DeviceArray(X)
+    @test same(value_and_prox!(D, fd, D, 0.8), value_and_prox!(Y, f, X, 0.8))
+    @test host(D) ≃ Y
+    # Shape errors must not write even part of the output.
+    bad = DeviceArray(fill(T(17), 2, 3))
+    for op in (prox!, value_and_prox!)
+      @test_throws DimensionMismatch op(bad, fd, DeviceArray(X), 0.8)
+      @test host(bad) == fill(T(17), 2, 3)
+    end
+  end
+  for T in test_types, X in (T[2 1; -1 3], T[-2 0; 0 1],
+                              fill(T(2), 1, 1), zeros(T, 2, 2), T[-2 0; 0 -1], T[Inf 0; 0 1], T[NaN 0; 0 1])
+    n = size(X, 1)
+    for f in (NuclearNorm(0.5), IndBallRank(1), IndStiefel(), TracePSD(0.5),
+              IndPSD(), IndPSD(rank = 1), Spectral(NormL1(0.5)),
+              SingularValue(NormL1(0.5)), LogDetLoss(Matrix{T}(I, n, n)))
+      @test same(f(DeviceArray(X)), f(X))
+      if !all(isfinite, X)
+        Y = fill(T(17), size(X))
+        DY = DeviceArray(Y)
+        cpu = try
+          (:value, value_and_prox!(Y, f, X, 0.8))
+        catch e
+          (:error, typeof(e), sprint(showerror, e))
+        end
+        device = try
+          (:value, value_and_prox!(DY, f, DeviceArray(X), 0.8))
+        catch e
+          (:error, typeof(e), sprint(showerror, e))
+        end
+        @test isequal(device, cpu) || (device[1] === cpu[1] === :value && same(device[2], cpu[2]))
+        @test isequal(host(DY), Y) || host(DY) ≃ Y
+      else
+        @test host(prox(f, DeviceArray(X), 0.8)) ≃ prox(f, X, 0.8)
+      end
+    end
+  end
+  for T in test_types, dims in ((3, 2), (2, 3))
+    X = reshape(T.(1:prod(dims)), dims)
+    for f in (NuclearNorm(0.5), IndBallRank(1), IndBallRank(3), SingularValue(NormL1(0.5)))
+      @test same(f(DeviceArray(X)), f(X))
+      Y, D, DY = similar(X), DeviceArray(X), DeviceArray(zeros(T, dims))
+      @test same(value_and_prox!(DY, f, D, 0.8), value_and_prox!(Y, f, X, 0.8))
+      @test host(DY) ≃ Y
+      @test prox!(DY, f, D, 0.8) === DY
+    end
+  end
+  for T in test_types
+    X = T.(square)
+    f = LogDetLoss(Matrix{T}(I, 3, 3))
+    for R in (T, Float32), A in (X, -X)
+      G, D = zeros(R, 3, 3), DeviceArray(A)
+      DG = DeviceArray(G)
+      @test same(value_and_gradient!(DG, f, D), value_and_gradient!(G, f, A))
+      @test isequal(host(DG), G) || host(DG) ≃ G
+      @test gradient!(DG, f, D) === DG
+      @test isequal(host(DG), G) || host(DG) ≃ G
+      if R === T
+        before = copy(A)
+        @test_throws ArgumentError("the gradient must not overwrite x") value_and_gradient!(A, f, A)
+        @test_throws ArgumentError("the gradient must not overwrite x") value_and_gradient!(D, f, D)
+        @test host(D) == before
+      end
+    end
+    f = LogDetLoss(Matrix{Float32}(I, 3, 3))
+    A = Float64.(X)
+    D, DY = DeviceArray(A), DeviceArray(zeros(Float32, 3, 3))
+    Y = zeros(Float32, 3, 3)
+    @test same(value_and_prox!(DY, f, D, 0.8), value_and_prox!(Y, f, A, 0.8))
+    @test host(DY) ≃ Y
+    input_buffer, output_buffer = f.out.buf[1].buf, f.out.buf[2].buf
+    value_and_prox!(DY, f, D, 0.8)
+    @test f.out.buf[1].buf === input_buffer
+    @test f.out.buf[2].buf === output_buffer
+    @test same(value_and_gradient!(DY, f, D), value_and_gradient!(Y, f, A))
+    @test host(DY) ≃ Y
+    M = floatmax(T)
+    # Wrapper proximal operators also recover an overflowing spectrum on the host.
+    for make in (() -> Spectral(NormL1(T(1)/4)), () -> SingularValue(NormL1(T(1)/4)),
+                 () -> Spectral(IndNonnegative()))
+      Xoverflow = fill(M, 2, 2)
+      Yoverflow = similar(Xoverflow)
+      vc = value_and_prox!(Yoverflow, make(), Xoverflow, one(T))
+      Doverflow = DeviceArray(Xoverflow)
+      DYoverflow = similar(Doverflow)
+      vd = value_and_prox!(DYoverflow, make(), Doverflow, one(T))
+      @test vd === vc
+      @test host(DYoverflow) == Yoverflow
+    end
+    # Mapped roots and the half spectrum can overflow at finite inputs.
+    for n in (2, 3), (w, γ) in ((one(T), one(T)), (T(1)/4, T(4)))
+      Xlarge = fill(M, n, n)
+      Slarge = Matrix{T}(I, n, n)
+      Ylarge = similar(Xlarge)
+      vc = value_and_prox!(Ylarge, LogDetLoss(Slarge, w), Xlarge, γ)
+      Dlarge = DeviceArray(Xlarge)
+      DYlarge = similar(Dlarge)
+      vd = value_and_prox!(DYlarge, LogDetLoss(Slarge, w), Dlarge, γ)
+      @test vd === vc
+      @test host(DYlarge) == Ylarge
+      if n == 2
+        @test isone(w) ? vc === T(Inf) : isapprox(vc, M / 2)
+      end
+    end
+    f = TracePSD(T(0.25))
+    Xlarge = Matrix{T}(M * I, 2, 2)
+    @test f(DeviceArray(Xlarge)) == f(Xlarge) == M / 2
+    Xoverflow = fill(M / 2, 3, 3)
+    for f in (NuclearNorm(T(0.25)), IndBallRank(1), TracePSD(T(0.25)),
+              IndPSD(), IndPSD(rank = 1), Spectral(IndBox(-M, M)),
+              SingularValue(IndBallLinf(M)))
+      @test same(f(DeviceArray(Xoverflow)), f(Xoverflow))
+      Y, D = similar(Xoverflow), DeviceArray(Xoverflow)
+      DY = similar(D)
+      @test same(value_and_prox!(DY, f, D, 0.8), value_and_prox!(Y, f, Xoverflow, 0.8))
+      @test host(DY) ≃ Y
+    end
+    # Partial objects start independently, with the same deterministic seed.
+    Xpartial = Matrix(Diagonal(vcat(T[5, 3], fill(T(-1), 94))))
+    for make in (() -> NuclearNorm(2; partial = true), () -> IndBallRank(1; partial = true),
+                 () -> TracePSD(2; partial = true), () -> IndPSD(partial = true),
+                 () -> IndPSD(rank = 1, partial = true))
+      fc, fd = make(), make()
+      for _ in 1:2
+        Y, D = similar(Xpartial), DeviceArray(Xpartial)
+        DY = similar(D)
+        @test same(value_and_prox!(DY, fd, D, 1), value_and_prox!(Y, fc, Xpartial, 1))
+        @test host(DY) ≃ Y
+      end
+    end
+    D = DeviceArray(X)
+    c = fill(T(0.1), 3, 3)
+    for make in (a -> Scaled(TracePSD(0.5), 2), a -> Tilt(TracePSD(0.5), a),
+                 a -> Translate(TracePSD(0.5), a), a -> Regularize(TracePSD(0.5), 0.3, a))
+      fc, fd = make(c), make(DeviceArray(c))
+      Y, DY = similar(X), similar(D)
+      @test same(value_and_prox!(DY, fd, D, 0.8), value_and_prox!(Y, fc, X, 0.8))
+      @test host(DY) ≃ Y
+      @test prox!(DY, fd, D, 0.8) === DY
+    end
+    adapted = Adapt.adapt(DeviceArray, Regularize(TracePSD(0.5), 0.3))
+    @test host(prox(adapted, D, 0.8)) ≃ prox(Regularize(TracePSD(0.5), 0.3), X, 0.8)
+    for f in (Spectral(NormL1()), IndStiefel())
+      A = DeviceArray(zeros(T, 2, 3))
+      Y = DeviceArray(fill(T(17), 2, 3))
+      @test_throws DimensionMismatch value_and_prox!(Y, f, A, 1)
+      @test host(Y) == fill(T(17), 2, 3)
+    end
+    A = DeviceArray(T[Inf 0; 0 1])
+    Y = DeviceArray(fill(T(17), 2, 2))
+    @test prox!(Y, IndStiefel(), A, 1) === Y
+    @test all(isnan, host(Y))
+    @test isequal(host(Y), prox(IndStiefel(), host(A), 1))
+    Y = DeviceArray(fill(T(17), 3, 3))
+    @test_throws DomainError prox!(Y, LogDetLoss(Matrix{T}(I, 3, 3)), D, -1)
+    @test host(Y) == fill(T(17), 3, 3)
+  end
+  # These matrix-set intersections predate the host decomposition paths.
+  D = typeof(DeviceArray(zeros(Float32, 1)))
+  F = Nothing
+  device_value = which(ProximalBase._value_dense, Tuple{F, D})
+  device_prox = which(ProximalBase._prox_sep!, Tuple{D, F, D, Float64})
+  known = (Set((device_value, which(ProximalBase._value_dense, Tuple{IndPattern, Vector{Float64}}))),
+           Set((device_value, which(ProximalBase._value_dense, Tuple{IndBanded, Matrix{Float64}}))),
+           Set((device_prox, which(ProximalBase._prox_sep!, Tuple{Matrix{Float64}, IndBanded, Matrix{Float64}, Float64}))))
+  @test all(pair -> Set(pair) in known, Test.detect_ambiguities(ProximalBase))
+end
+
 @testset "weighted values at overflow on GPU arrays" begin
   allowscalar(false)
   # The same two-ulp reference check as spectral_overflow.jl.

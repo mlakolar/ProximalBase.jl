@@ -15,7 +15,8 @@ using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, Sq
                     LeastSquaresLoss, GLMLoss, Regularize, BoxConstrained,
                     prox_entry, value_entry, shrink, _checksize, _checkparams, _checkgroups, _tol, _ind,
                     _kth_largest!, _level_fits, _level_product, _scaled_product, _positive_product,
-                    _weight_coefficient, _weight_product, _weighted_value, _value_at, _valtype, _checkreal
+                    _weight_coefficient, _weight_product, _weighted_value, _value_at, _valtype, _checkreal,
+                    _reshapeparam
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
 using LinearAlgebra: mul!
 using Base.Broadcast: broadcasted, instantiate
@@ -41,6 +42,10 @@ ProximalBase._tuple_buffer_type(::Type{X}) where {T, N, X<:AnyGPUArray{T, N}} =
   _device_buffer_type(X, float(T))
 ProximalBase._gradient_buffer(x::AnyGPUArray) = _device_buffer(x, float(eltype(x)))
 
+# Device storage can be dense without being accessible to host BLAS.
+ProximalBase._is_device_array(::GPUArray) = true
+ProximalBase._blas_ready(::GPUArray{<:Any, 2}) = false
+
 # the sum of the lazily broadcast f.(args...), as one reduction on the device
 _sum(::Type{T}, f::F, args...) where {T, F} = mapreduce(identity, +, instantiate(broadcasted(f, args...)); init = zero(T))
 
@@ -50,9 +55,6 @@ _all(p::P, args...) where {P} = mapreduce(identity, &, instantiate(broadcasted(p
 # a parameter array, or `true` (a scalar 1 in a broadcast) when there is none
 _param(::Nothing) = true
 _param(w) = w
-# Separable parameters follow linear indices, regardless of their shape.
-_param(w, x) = _param(w)
-_param(w::AbstractArray, x) = reshape(w, size(x))
 
 ####################################
 #  Any separable function that is a bits type, through its scalar proxes
@@ -66,7 +68,7 @@ function ProximalBase._prox_sep!(y::AnyGPUArray, f, x::AnyGPUArray, γ::Real)
 end
 
 # Reciprocal steps stay a lazy device broadcast, without indexing their wrapper.
-_steps(γ::AbstractArray, x) = reshape(γ, size(x))
+_steps(γ::AbstractArray, x) = _reshapeparam(γ, x)
 _steps(γ::ProximalBase._ReciprocalArray, x) = broadcasted(inv, _steps(γ.γ, x))
 function ProximalBase._prox_sep!(y::AnyGPUArray, f, x::AnyGPUArray, γ::AbstractArray)
   ProximalBase._checkwrite(prox!, f, y, x)
@@ -80,7 +82,7 @@ _enet_prox(v::T, γ, λ1, λ2, w) where {T} =
 function ProximalBase._prox_sep!(y::AnyGPUArray, f::ElasticNet, x::AnyGPUArray, γ::AbstractArray)
   ProximalBase._checkwrite(prox!, f, y, x)
   ProximalBase._checkparam(γ, x)
-  y .= _enet_prox.(x, _steps(γ, x), _device_level(float(eltype(y)), f.λ1), _device_level(float(eltype(y)), f.λ2), _param(f.w, x))
+  y .= _enet_prox.(x, _steps(γ, x), _device_level(float(eltype(y)), f.λ1), _device_level(float(eltype(y)), f.λ2), _reshapeparam(_param(f.w), x))
   y
 end
 
@@ -107,15 +109,15 @@ end
 function ProximalBase._prox_sep!(y::AnyGPUArray, f::NormL1, x::AnyGPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= shrink.(x, _WeightLevel(_group_levels(float(eltype(y)), γ, f.λ0)...).(_param(f.w, x)))
+  y .= shrink.(x, _WeightLevel(_group_levels(float(eltype(y)), γ, f.λ0)...).(_reshapeparam(_param(f.w), x)))
 end
 # Keep the ordinary reduction; recover exceptional sums in power-of-two units.
 function ProximalBase._value_dense(f::NormL1, x::GPUArray)
   T = float(eltype(x))
   f.w === nothing && iszero(f.λ0) && return zero(T)
-  _level_fits(T, f.λ0) || return _scaled_l1_value(f.λ0, x, _param(f.w, x))
-  v = _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(abs, x)), _param(f.w, x))
-  isfinite(v) || iszero(f.λ0) || !isfinite(f.λ0) || !_all(isfinite, x) ? v : _scaled_l1_value(f.λ0, x, _param(f.w, x))
+  _level_fits(T, f.λ0) || return _scaled_l1_value(f.λ0, x, _reshapeparam(_param(f.w), x))
+  v = _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(abs, x)), _reshapeparam(_param(f.w), x))
+  isfinite(v) || iszero(f.λ0) || !isfinite(f.λ0) || !_all(isfinite, x) ? v : _scaled_l1_value(f.λ0, x, _reshapeparam(_param(f.w), x))
 end
 
 # The device accumulates in T; only the host combines an unconverted level.
@@ -134,20 +136,20 @@ end
 function ProximalBase._prox_sep!(y::AnyGPUArray, f::NormL1Nonneg, x::AnyGPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= max.(x .- _WeightLevel(_group_levels(float(eltype(y)), γ, f.λ0)...).(_param(f.w, x)), 0)
+  y .= max.(x .- _WeightLevel(_group_levels(float(eltype(y)), γ, f.λ0)...).(_reshapeparam(_param(f.w), x)), 0)
 end
 function ProximalBase._value_dense(f::NormL1Nonneg, x::GPUArray)
   T = float(eltype(x))
   t = _tol(T)
   _all(v -> v >= -t, x) || return T(Inf)
   f.w === nothing && iszero(f.λ0) && return zero(T)
-  _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(max, x, zero(T))), _param(f.w, x))
+  _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(max, x, zero(T))), _reshapeparam(_param(f.w), x))
 end
 
 function ProximalBase._prox_sep!(y::AnyGPUArray, f::ElasticNet, x::AnyGPUArray, γ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= shrink.(x, _weight_coefficient.(_scalar(y, γ * f.λ1), _param(f.w, x))) ./ (1 + _scalar(y, γ * f.λ2))
+  y .= shrink.(x, _weight_coefficient.(_scalar(y, γ * f.λ1), _reshapeparam(_param(f.w), x))) ./ (1 + _scalar(y, γ * f.λ2))
 end
 function ProximalBase._value_dense(f::ElasticNet, x::GPUArray)
   T = float(eltype(x))
@@ -155,10 +157,10 @@ function ProximalBase._value_dense(f::ElasticNet, x::GPUArray)
   # the weights in the element type; a level that is not positive and finite
   # enters every coefficient
   l1 = f.w === nothing && iszero(f.λ1) ? zero(T) :
-       (λ1 > 0) & isfinite(λ1) ? λ1 * _sum(T, _EnetValue(one(T)), instantiate(broadcasted(abs, x)), _param(f.w, x)) :
-       _sum(T, _EnetValue(λ1), instantiate(broadcasted(abs, x)), _param(f.w, x))
+       (λ1 > 0) & isfinite(λ1) ? λ1 * _sum(T, _EnetValue(one(T)), instantiate(broadcasted(abs, x)), _reshapeparam(_param(f.w), x)) :
+       _sum(T, _EnetValue(λ1), instantiate(broadcasted(abs, x)), _reshapeparam(_param(f.w), x))
   if isfinite(f.λ1) && !iszero(f.λ1) && (!_level_fits(T, f.λ1) || !isfinite(l1))
-    l1 = _scaled_l1_value(f.λ1, x, _param(f.w, x))
+    l1 = _scaled_l1_value(f.λ1, x, _reshapeparam(_param(f.w), x))
   end
   q = iszero(f.λ2) ? zero(T) : _sum(T, abs2, x)
   l2 = iszero(f.λ2) ? zero(T) : _scalar(x, f.λ2) * q / 2
@@ -173,7 +175,7 @@ end
 function ProximalBase._prox_sep!(y::AnyGPUArray, f::IndBox, x::AnyGPUArray, ::Real)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= clamp.(x, _param(f.l, x), _param(f.u, x))
+  y .= clamp.(x, _reshapeparam(f.l, x), _reshapeparam(f.u, x))
 end
 # whether l ≤ v ≤ u within the tolerance t of the indicator functions, as on
 # the CPU; a functor rather than a closure, so that Julia 1.10 infers its type
@@ -184,7 +186,7 @@ end
 
 function ProximalBase._value_dense(f::IndBox, x::GPUArray)
   T = float(eltype(x))
-  _all(_InBox(_tol(T)), x, _param(f.l, x), _param(f.u, x)) ? zero(T) : T(Inf)
+  _all(_InBox(_tol(T)), x, _reshapeparam(f.l, x), _reshapeparam(f.u, x)) ? zero(T) : T(Inf)
 end
 
 ProximalBase._prox_sep!(y::AnyGPUArray, ::IndNonnegative, x::AnyGPUArray, ::Real) = (_checksize(y, x); y .= max.(x, 0))
@@ -210,9 +212,6 @@ function ProximalBase._norm_diff2(x::GPUArray, y::GPUArray)
   m * sqrt(_sum(T, (a, b) -> abs2((a - b) / m), x, y))
 end
 
-function ProximalBase._moreau_set!(z::AnyGPUArray, f::IndBox, x::AnyGPUArray, γ)
-  z .= clamp.(x, ProximalBase._dilated(γ, _param(f.l, x)), ProximalBase._dilated(γ, _param(f.u, x)))
-end
 
 # Conjugate values use the CPU tolerances and support-function conventions.
 struct _InConjugateL1{T, L}
@@ -225,7 +224,7 @@ function ProximalBase._conjugate_value(f::NormL1, y::AnyGPUArray)
   ProximalBase._checkconjugate(f, y)
   T = float(eltype(y))
   λ = _device_level(T, f.λ0)
-  _ind(_all(_InConjugateL1{T, typeof(λ)}(λ), y, _param(f.w, y)), T)
+  _ind(_all(_InConjugateL1{T, typeof(λ)}(λ), y, _reshapeparam(_param(f.w), y)), T)
 end
 function ProximalBase._conjugate_value(f::IndNonnegative, y::AnyGPUArray)
   ProximalBase._checkconjugate(f, y)
@@ -236,7 +235,7 @@ end
 function ProximalBase._conjugate_value(f::IndBox, y::AnyGPUArray)
   ProximalBase._checkconjugate(f, y)
   T = float(eltype(y))
-  _sum(T, _BoxSupport{T}(), y, _param(f.l, y), _param(f.u, y))
+  _sum(T, _BoxSupport{T}(), y, _reshapeparam(_param(f.l), y), _reshapeparam(_param(f.u), y))
 end
 
 ####################################
@@ -874,8 +873,12 @@ end
 
 # value_and_gradient!, gradient! and hessian_vec! are products and broadcasts,
 # and run as they are; the proximal operator needs the SVD of X
-ProximalBase.prox!(::AbstractVecOrMat, ::_DeviceLeastSquares, ::AbstractVecOrMat, ::Real) =
+_reject_device_leastsquares() =
   throw(ArgumentError("the proximal operator of LeastSquaresLoss uses the SVD of X, by LAPACK, and runs on the CPU only"))
+ProximalBase.prox!(::AbstractVecOrMat, ::_DeviceLeastSquares, ::AbstractVecOrMat, ::Real) =
+  _reject_device_leastsquares()
+ProximalBase._checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::_DeviceLeastSquares,
+                        ::AbstractVecOrMat, ::AbstractVecOrMat) = _reject_device_leastsquares()
 
 # wᵢ ℓ(ηᵢ, yᵢ) and wᵢ ℓ'(ηᵢ, yᵢ) in type T, as the loops of the CPU compute them
 struct _ObsValue{T, L}
@@ -901,6 +904,7 @@ function (f::_DeviceGLM{L, T})(β::AbstractVector) where {L, T}
 end
 
 function ProximalBase.value_and_gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::AbstractVector) where {L, T}
+  ProximalBase._checkgradient_output(g, β)
   _checksize(g, β)
   η = ProximalBase._linear_predictor!(f, β)
   w = _param(f.weights)
@@ -911,6 +915,7 @@ function ProximalBase.value_and_gradient!(g::AbstractVector, f::_DeviceGLM{L, T}
 end
 
 function ProximalBase.gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::AbstractVector) where {L, T}
+  ProximalBase._checkgradient_output(g, β)
   _checksize(g, β)
   η = ProximalBase._linear_predictor!(f, β)
   f.d .= _ObsDeriv{T}(f.loss).(η, f.y, _param(f.weights))

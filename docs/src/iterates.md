@@ -58,8 +58,13 @@ the lower triangle once. Sources that are symmetric by their type, such as
 another `SymmetricSparseIterate`, a `Symmetric` or a `Diagonal`, skip the
 check; a broadcast whose arguments do not show that its value is symmetric is
 first evaluated at both positions of each off-diagonal entry.
-Functions that update entries one position at a time, such as `replace!`,
-`mul!` into ``x`` or `x[:, :] = A`, are not checked; the docstring lists them.
+`replace` and `replace!` visit each entry of the lower triangle once, and
+their `count` counts those entries.
+`mul!` into ``x`` checks the unscaled product for exact symmetry in a buffer promoted
+from the destination and operand types, applies scalars and conversion at the final
+write, and leaves the product out when α = 0, as LinearAlgebra does.
+Functions that update entries one position at a time, such as `x[:, :] = A`,
+are not checked; the docstring lists them.
 
 Its coordinates are the
 ``p(p+1)/2`` entries ``(r, c)``, ``r \ge c``, of the lower triangle, numbered

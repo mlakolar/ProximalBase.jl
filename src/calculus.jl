@@ -959,8 +959,13 @@ _checkwrite_blocks(op::O, fs::Tuple, y::Tuple, x::Tuple) where {O} =
   (_checkwrite(op, first(fs), first(y), first(x)); _checkwrite_blocks(op, Base.tail(fs), Base.tail(y), Base.tail(x)))
 _has_conjugate_value(s::SeparableSum) = all(_has_conjugate_value, s.fs)
 _checkconjugate(s::SeparableSum, y::Tuple) = (_checkreal(s, y); _checkparams(s, y); map(_checkconjugate, s.fs, y); true)
+# Inline the temporary wrapper so parameter arrays do not escape on Julia 1.10.
+@inline _checkscaledconjugate_block(f, y, α) =
+  _checkconjugate((@inline Scaled{typeof(f), typeof(α)}(f, α)), y)
+@inline _checkscaledconjugate_block(f::Scaled, y, α) =
+  _checkscaledconjugate_block(f.f, y, f.α * α)
 _checkscaledconjugate(s::SeparableSum, y::Tuple, α) =
-  (_checkparams(s, y); map((f, yk) -> _checkconjugate(Scaled(f, α), yk), s.fs, y); true)
+  (_checkparams(s, y); map((f, yk) -> _checkscaledconjugate_block(f, yk, α), s.fs, y); true)
 _conjugate_value(s::SeparableSum, y::Tuple) =
   (_checkconjugate(s, y); sum(map(_conjugate_value, s.fs, y)))
 _scaled_conjugate_value(s::SeparableSum, y::Tuple, α) =
@@ -1202,7 +1207,7 @@ function _conjugate_moreau!(z::AbstractArray, f, x::AbstractArray, γ)
 end
 _conjugate_moreau!(z::Tuple, f, x::Tuple, γ) = _conjugate_moreau_block!(z, f, x, γ)
 # Keep a block's own scale inside the sum's scaled reciprocal step.
-_conjugate_block_scaled(f, α) = Scaled{typeof(f), typeof(α)}(f, α)
+@inline _conjugate_block_scaled(f, α) = @inline Scaled{typeof(f), typeof(α)}(f, α)
 _conjugate_moreau_block!(z, f, x, γ, α) = isone(α) ?
   _conjugate_moreau_block!(z, f, x, γ) : _conjugate_moreau_block!(z, _conjugate_block_scaled(f, _projection_real(α)), x, γ)
 # Tuple blocks narrow their arithmetic, but retain the original reciprocal step.
@@ -1402,7 +1407,12 @@ function _conjugate_moreau_value!(z::AbstractArray, f, x::AbstractArray, γ, α,
 end
 # Combine nested scales before dividing coordinates, retaining exceptional products.
 function _scaled_conjugate_value(f::Scaled, y::AbstractArray, α)::_valtype(y)
-  _scaled_conjugate_value(f.f, y, _projection_accumulate(α, f.α))
+  a = _projection_accumulate(α, f.α)
+  # Split before recursion so Julia 1.10 does not box the scale or value.
+  if a isa _ProjectionScale
+    return _scaled_conjugate_value(f.f, y, a)
+  end
+  _scaled_conjugate_value(f.f, y, a)
 end
 _scaled_conjugate_value(f::Scaled, y::Tuple, α) =
   _scaled_conjugate_value(f.f, y, _projection_accumulate(α, f.α))

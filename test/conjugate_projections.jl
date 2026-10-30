@@ -600,9 +600,12 @@ end
       x = (T[3, -4], block)
       y = deepcopy(x)
       c = Conjugate(Scaled(SeparableSum(NormL1(), f), α))
+      expected = prox(c, x, 0.7)
       # Retain the existing Julia 1.10 exception for nested tuple buffers.
       skip = block isa Tuple && VERSION < v"1.11"
       for op in (prox!, value_and_prox!)
+        op(y, c, x, 0.7)
+        @test y == expected
         @test warmed_projection_allocation(op, y, c, x, 0.7) == 0 skip = skip
       end
     end

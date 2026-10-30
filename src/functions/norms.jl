@@ -91,7 +91,10 @@ struct _LowerGroupPosition
   p::Int
 end
 @inline (lower::_LowerGroupPosition)(i) = mod1(i, lower.p) >= (i - 1) ÷ lower.p + 1
-_group_writes(y::AbstractArray, G) = G
+# ordinary outputs carry no second group argument through recursive rescaling
+@inline _writes(::Nothing, G) = G
+@inline _writes(W, G) = W
+_group_writes(y::AbstractArray, G) = nothing
 _group_writes(y::SymmetricSparseIterate, G) = Iterators.filter(_LowerGroupPosition(size(y, 1)), G)
 
 @inline function _norm2_shrink!(f::NormL2, y::SymmetricSparseIterate, x::AbstractArray, c)
@@ -101,23 +104,23 @@ end
 
 # A finite input scaled by its maximum cannot need another rescaling. Keeping
 # that branch out of this call also keeps the scaled array from escaping.
-function _rescaled_group_prox!(::NormL2, y, x, G, c::S, scale, W = G)::S where {S}
+function _rescaled_group_prox!(::NormL2, y, x, G, c::S, scale, W = nothing)::S where {S}
   z = _ScaledArray(x, inv(scale))
   nx = _group_norm2(z, G)
   threshold = c / scale
   n = zero(nx)
   if nx > threshold
     t = one(nx) - threshold / nx
-    @inbounds for i in W
+    @inbounds for i in _writes(W, G)
       y[i] = t * z[i]
     end
     n = nx - threshold
   else
-    @inbounds for i in W
+    @inbounds for i in _writes(W, G)
       y[i] = zero(eltype(y))
     end
   end
-  @inbounds for i in W
+  @inbounds for i in _writes(W, G)
     y[i] *= scale
   end
   n * scale
@@ -538,7 +541,7 @@ _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_
   length(x) >= length(f.group_of) || throw(BoundsError(x, length(f.group_of)))
 
 # y[G] ← prox_{c‖⋅‖₂}(x[G]), which may be in place; returns the new norm of the group
-@inline function _shrink_group!(f::Union{NormL2, GroupNormL2}, y::AbstractArray{T}, x::AbstractArray, G, c, W = G) where {T}
+@inline function _shrink_group!(f::Union{NormL2, GroupNormL2}, y::AbstractArray{T}, x::AbstractArray, G, c, W = nothing) where {T}
   nx = _group_norm2(x, G)
   if nx > c
     if isinf(nx) && isfinite(c)
@@ -546,12 +549,12 @@ _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_
       isfinite(scale) && scale > 1 && return _rescaled_group_prox!(f, y, x, G, c, scale, W)
     end
     t = one(nx) - c / nx
-    @inbounds for i in W
+    @inbounds for i in _writes(W, G)
       y[i] = t * x[i]
     end
     return nx - c
   else
-    @inbounds for i in W
+    @inbounds for i in _writes(W, G)
       y[i] = zero(T)
     end
     return zero(nx)
@@ -560,11 +563,11 @@ end
 
 # y[G] ← prox_{c‖⋅‖∞}(x[G]), which may be in place: the entries clipped at τ;
 # returns τ, the new norm of the group
-function _shrink_group!(f::GroupNormLinf, y::AbstractArray{T}, x::AbstractArray, G, c, W = G) where {T}
+function _shrink_group!(f::GroupNormLinf, y::AbstractArray{T}, x::AbstractArray, G, c, W = nothing) where {T}
   S = float(T)
   s = _sumabs(x, G)
   if s <= c
-    @inbounds for i in W
+    @inbounds for i in _writes(W, G)
       y[i] = zero(T)
     end
     return zero(S)
@@ -574,7 +577,7 @@ function _shrink_group!(f::GroupNormLinf, y::AbstractArray{T}, x::AbstractArray,
     isfinite(scale) && scale > 1 && return _rescaled_group_prox!(f, y, x, G, c, scale, W)
   end
   τ = _simplex_threshold!(_buffer!(f.scratch, S, length(G)), x, G, convert(S, c), abs)
-  @inbounds for i in W
+  @inbounds for i in _writes(W, G)
     v = x[i]
     y[i] = sign(v) * min(abs(v), τ)
   end
@@ -584,9 +587,9 @@ end
 # A finite input can have a norm (or simplex sum) outside the working range.
 # Homogeneity lets the same kernel operate in smaller units, without losing
 # the shrinkage to c/Inf. This path is only needed for large finite entries.
-function _rescaled_group_prox!(f, y, x, G, c::S, scale, W = G)::S where {S}
+function _rescaled_group_prox!(f, y, x, G, c::S, scale, W = nothing)::S where {S}
   n = _shrink_group!(f, y, _ScaledArray(x, inv(scale)), G, c / scale, W)
-  @inbounds for i in W
+  @inbounds for i in _writes(W, G)
     y[i] *= scale
   end
   n * scale

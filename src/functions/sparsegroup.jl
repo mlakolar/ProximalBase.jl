@@ -126,14 +126,14 @@ end
 
 # y[G] ← the soft threshold of x[G] at c1, shrunk by c2 in Euclidean norm, which
 # may be in place; returns the ℓ2 and ℓ1 norms of the result
-@inline function _sparse_shrink_group!(y::AbstractArray{T}, x::AbstractArray, G, c1::S, c2::S, W = G)::Tuple{S, S} where {T, S}
+@inline function _sparse_shrink_group!(y::AbstractArray{T}, x::AbstractArray, G, c1::S, c2::S, W = nothing)::Tuple{S, S} where {T, S}
   ns = _soft_group_norm(x, G, c1)
   if ns > c2
     if isinf(ns) && isfinite(c2)
       scale = convert(S, _maxabs(x, G))
       if isfinite(scale) && scale > 1
         n2, n1 = _sparse_shrink_group!(y, _ScaledArray(x, inv(scale)), G, c1 / scale, c2 / scale, W)
-        @inbounds for i in W
+        @inbounds for i in _writes(W, G)
           y[i] *= scale
         end
         return n2 * scale, n1 * scale
@@ -142,20 +142,20 @@ end
     t = one(S) - c2 / ns
     l1 = zero(S)
     # sum before aliased writes, retaining both positions of a symmetric pair
-    if W !== G
+    if W !== nothing && W !== G
       @inbounds for i in G
         v = t * shrink(convert(S, x[i]), c1)
         l1 += abs(v)
       end
     end
-    @inbounds for i in W
+    @inbounds for i in _writes(W, G)
       v = t * shrink(convert(S, x[i]), c1)
       y[i] = v
-      W === G && (l1 += abs(v))
+      (W === nothing || W === G) && (l1 += abs(v))
     end
     return ns - c2, l1
   else
-    @inbounds for i in W
+    @inbounds for i in _writes(W, G)
       y[i] = zero(T)
     end
     return zero(S), zero(S)
@@ -164,19 +164,19 @@ end
 
 # Independent soft thresholding when the group term vanishes. Do not
 # compute a Euclidean norm only to multiply it by a zero group weight.
-@inline function _soft_group_only!(y::AbstractArray, x::AbstractArray, G, c::S, W = G) where {S}
+@inline function _soft_group_only!(y::AbstractArray, x::AbstractArray, G, c::S, W = nothing) where {S}
   l1 = zero(S)
   # sum before aliased writes, retaining both positions of a symmetric pair
-  if W !== G
+  if W !== nothing && W !== G
     @inbounds for i in G
       z = shrink(convert(S, x[i]), c)
       l1 += abs(z)
     end
   end
-  @inbounds for i in W
+  @inbounds for i in _writes(W, G)
     z = shrink(convert(S, x[i]), c)
     y[i] = z
-    W === G && (l1 += abs(z))
+    (W === nothing || W === G) && (l1 += abs(z))
   end
   l1
 end

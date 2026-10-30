@@ -93,6 +93,13 @@ function rejects_group_steps(f, A, γ)
   end
 end
 
+function overflow_allocations(f::F, y::Y, x::X) where {F, Y, X}
+  for _ in 1:3
+    prox!(y, f, x, 1.0)
+  end
+  @allocated prox!(y, f, x, 1.0)
+end
+
 @testset "symmetric group writes" begin
   @testset "$T" for T in (Float64, Float32)
     M = floatmax(T)
@@ -169,6 +176,16 @@ end
           rejects_group_steps(f, A, fill(one(T), length(groups)))
         end
       end
+    end
+  end
+  @testset "overflow allocations match the original kernels" begin
+    x = fill(floatmax(Float64), 2, 2)
+    y = similar(x)
+    # these base counts agree on both supported julia versions
+    for (f, bytes) in ((GroupNormL2(0.25, [1:4]), 144),
+                       (GroupNormLinf(0.25, [1:4]), 160),
+                       (SparseGroupNormL2(0.0625, 0.25, [1:4]), 128))
+      @test overflow_allocations(f, y, x) == bytes
     end
   end
   @testset "mixed precision preserves the intermediate store" begin

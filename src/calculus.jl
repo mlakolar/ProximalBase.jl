@@ -44,10 +44,14 @@ the ℓ1 and ℓ2 balls.
 
 At zero scale, supported finite-parameter penalties and losses simplify to
 [`ZeroFunction`](@ref), while an indicator retains its domain and is returned
-unchanged. A weighted ℓ1-type penalty (`NormL1`, `NormL1Nonneg`, `ElasticNet`)
-whose weights include `Inf` becomes the same penalty at a zero level, keeping
-those entries fixed at zero; it is not an indicator type, so wrappers that
-require one still reject it. Zero scaling of other functions is rejected when
+unchanged. Zero scaling removes finite penalty terms and keeps domain
+constraints. For `NormL1`, `NormL1Nonneg`, `ElasticNet`, `CappedL1`,
+`LogPenalty`, `NormLq` and `Berhu`, an infinite weight retains the same family
+with all levels zero, keeping those entries fixed at zero. With finite weights,
+`NormL1Nonneg` becomes `IndNonnegative()` and the others become `ZeroFunction()`.
+Non-finite levels or shape parameters are rejected. The retained zero-level
+family is not an indicator type, so wrappers that require one still reject it.
+Zero scaling of other functions is rejected when
 the package has no domain-preserving proximal representation.
 """
 struct Scaled{F<:AbstractFunction, T<:Real} <: AbstractFunction
@@ -73,6 +77,12 @@ _finite_zero(f, parameters...) = all(_finite_parameter, parameters) ? ZeroFuncti
 function _zero_scaled(f::NormL1)
   isfinite(f.λ0) || _zero_scale_error(f)
   _finite_parameter(f.w) ? ZeroFunction() : NormL1(zero(f.λ0), f.w)
+end
+for (F, shape) in ((CappedL1, :a), (LogPenalty, :ε), (NormLq, :q), (Berhu, :M))
+  @eval function _zero_scaled(f::$F)
+    isfinite(f.λ) && isfinite(f.$shape) || _zero_scale_error(f)
+    _finite_parameter(f.w) ? ZeroFunction() : $F(zero(f.λ), f.$shape, f.w)
+  end
 end
 _zero_scaled(f::Union{GroupNormL2, GroupNormLinf}) = _finite_zero(f, f.λ0, f.w)
 _zero_scaled(f::SparseGroupNormL2) = _finite_zero(f, f.λ0, f.λ1, f.w)
@@ -192,8 +202,8 @@ The function `f(x) + ⟨c, x⟩ + d`, with the roles of `f`. Its proximal operat
 is that of `f` at `x - γc`, and its gradient `∇f + c`. The linear terms of
 augmented Lagrangians and of duality take this form.
 The proximal operator passes `x - γc` to `f` in a buffer that the function owns,
-so do not share one object between threads; when `f` throws, the output is unchanged,
-except for a `SparseIterate` or `SymmetricSparseIterate` output.
+so do not share one object between threads. A rejected inner call leaves the output
+unchanged. Sparse iterate buffers preserve stored entries and their order. `Symmetric` and `Hermitian` outputs are unsupported.
 """
 struct Tilt{F<:AbstractFunction, C<:AbstractArray, D<:Real} <: AbstractFunction
   f::F
@@ -222,6 +232,7 @@ function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), ty
 end
 
 function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _check_wrapper_output(y)
   _checksize(y, x)
   _checkparams(t, x)
   Base.Broadcast.check_broadcast_axes(axes(y), x, t.c)
@@ -229,22 +240,24 @@ function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray) where {
   _checkwrite(op, t.f, y, y)
 end
 
-# A stored iterate keeps its stored entries, so a result through a buffer could
-# store fewer and sum in another order; the input is written in y, as before.
-_output_buffer!(::Scratch, y::Union{SparseIterate, SymmetricSparseIterate}) = y
-
 # x - γc in a buffer owned by t, so that y is unchanged when f throws
 function prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checkwrite(prox!, t, y, x)
   z = _output_buffer!(t.scratch, y)
   z .= x .- convert(float(eltype(y)), γ) .* t.c
-  prox!(y, t.f, z, γ)
+  w = _wrapper_output(y, z)
+  prox!(w, t.f, z, γ)
+  _wrapper_commit!(y, w)
 end
 function value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
   z = _output_buffer!(t.scratch, y)
   z .= x .- convert(float(eltype(y)), γ) .* t.c
-  _value_at(value_and_prox!(y, t.f, z, γ) + dot(t.c, y) + t.d, y)
+  w = _wrapper_output(y, z)
+  v = value_and_prox!(w, t.f, z, γ)
+  v = _value_at(v + dot(t.c, w) + t.d, w)
+  _wrapper_commit!(y, w)
+  v
 end
 Base.@propagate_inbounds prox_entry(t::Tilt, v::Real, i::Integer, γ::Real) = prox_entry(t.f, v - γ * t.c[i], i, γ)
 _checkparams(t::Tilt, x) = (_checkparam(t.c, x); _checkreal(t, x); _checkparams(t.f, x))
@@ -263,9 +276,10 @@ The function `f(x - b)`, with the roles of `f`: its gradient is `∇f(x - b)` an
 its proximal operator `b + prox_{γf}(x - b)`. For example, `Translate(NormL1(λ), β₀)`
 is the penalty `λ ‖β - β₀‖₁` that shrinks towards `β₀`.
 Values and gradients use a shifted buffer in the argument's precision, and the
-proximal operator one in the output's, so do not share one object between threads;
-when `f` throws, the output is unchanged, except for a `SparseIterate` or
-`SymmetricSparseIterate` output.
+proximal operator one in the output's, so do not share one object between threads.
+A rejected inner call leaves the output unchanged. Sparse iterate buffers preserve
+stored entries and their order.
+`Symmetric` and `Hermitian` outputs are unsupported.
 """
 struct Translate{F<:AbstractFunction, B<:AbstractArray} <: AbstractFunction
   f::F
@@ -309,6 +323,7 @@ end
 _checkvalue(t::Translate, x::AbstractArray) = _checkvalue(t.f, _checkshifted(t, x))
 
 function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _check_wrapper_output(y)
   _checksize(y, x)
   _checksize(t.b, x)
   _checkparams(t, x)
@@ -322,15 +337,19 @@ function prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checkwrite(prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
   z .= x .- t.b
-  prox!(y, t.f, z, γ)
-  y .+= t.b
+  w = _wrapper_output(y, z)
+  prox!(w, t.f, z, γ)
+  w .+= t.b
+  _wrapper_commit!(y, w)
 end
 function value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
   z .= x .- t.b
-  v = value_and_prox!(y, t.f, z, γ)
-  y .+= t.b
+  w = _wrapper_output(y, z)
+  v = value_and_prox!(w, t.f, z, γ)
+  w .+= t.b
+  _wrapper_commit!(y, w)
   _value_at(v, y)
 end
 Base.@propagate_inbounds prox_entry(t::Translate, v::Real, i::Integer, γ::Real) = t.b[i] + prox_entry(t.f, v - t.b[i], i, γ)

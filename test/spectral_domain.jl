@@ -213,10 +213,19 @@ end
     @test Spectral(IndBox(zero(T), T(Inf)))(-P) === T(Inf)
     @test Spectral(IndBox(-T(Inf), zero(T)))(-P) === zero(T)
     @test Spectral(IndBox(-T(Inf), zero(T)))(P) === T(Inf)
-    # an isolated eigenvalue -1 beside a huge positive block stays outside
+    # an isolated eigenvalue beside a huge positive block: -1 lies within the
+    # tolerance √ε·2M, relative to the spectrum, as for IndPSD; -4√ε·M does not
     Q = T[M M 0; M M 0; 0 0 -1]
-    @test Spectral(IndBox(zero(T), T(Inf)))(Q) === T(Inf)
+    @test IndPSD()(Q) === zero(T)
+    @test Spectral(IndBox(zero(T), T(Inf)))(Q) === zero(T)
+    @test Spectral(IndNonnegative())(Q) === zero(T)
     @test Spectral(IndBox(-one(T), T(Inf)))(Q) === zero(T)
+    δ = 4 * sqrt(eps(T)) * M
+    Q = T[M M 0; M M 0; 0 0 -δ]
+    @test IndPSD()(Q) === T(Inf)
+    @test Spectral(IndBox(zero(T), T(Inf)))(Q) === T(Inf)
+    @test Spectral(IndNonnegative())(Q) === T(Inf)
+    @test Spectral(IndBox(-δ, T(Inf)))(Q) === zero(T)
     # members at the largest finite spectrum
     @test SingularValue(IndBallLinf(M))(T[M 0; 0 M]) === zero(T)
     @test SingularValue(IndBallL2(M))(T[M 0; 0 0]) === zero(T)

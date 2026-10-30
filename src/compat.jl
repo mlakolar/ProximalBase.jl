@@ -78,6 +78,15 @@ end
 @static if isdefined(LinearAlgebra, :QRPackedQ)
   const _QRPackedQ = LinearAlgebra.QRPackedQ
 end
+@static if isdefined(LinearAlgebra, :QRCompactWYQ)
+  const _QRCompactWYQ = LinearAlgebra.QRCompactWYQ
+end
+@static if isdefined(LinearAlgebra, :LQPackedQ)
+  const _LQPackedQ = LinearAlgebra.LQPackedQ
+end
+@static if isdefined(LinearAlgebra, :HessenbergQ)
+  const _HessenbergQ = LinearAlgebra.HessenbergQ
+end
 @static if isdefined(LinearAlgebra, :AdjointQ)
   const _AdjointQ = LinearAlgebra.AdjointQ
 end

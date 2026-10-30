@@ -140,6 +140,11 @@ end
           rejects(call, x, ArgumentError, f)
         end
       end
+      for Q in (qr(A).Q, lq(A).Q, hessenberg(A).Q), op in (Q, adjoint(Q))
+        x = initial(T, 3)
+        rejects(x -> lmul!(op, x), x, ArgumentError, "lmul!")
+        rejects(x -> rmul!(x, op), x, ArgumentError, "rmul!")
+      end
       # A symmetric solution still requires a dense destination for the solve.
       rejects(x -> ldiv!(x, lu(P), P), initial(T, 3), ArgumentError, "ldiv!")
       for p in Any[0, 1, 3], s in Any[T(2), T(2)I], f in Any[lmul!, rmul!, ldiv!, rdiv!]

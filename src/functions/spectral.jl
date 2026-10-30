@@ -191,6 +191,8 @@ NuclearNorm(λ::Real = 1; partial::Bool = false) = NuclearNorm{typeof(λ)}(λ; p
 isproximable(::Type{<:NuclearNorm}) = true
 _argument_type(::Type{<:NuclearNorm}) = AbstractMatrix
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NuclearNorm, Y::AbstractMatrix, X::AbstractMatrix)
+  _checkreal(f, X)
+  _checkreal(f, Y)
   _checksize(Y, X)
   iszero(f.λ) && return true
   _checkblas(f, float(eltype(Y)))
@@ -198,6 +200,7 @@ end
 isconvex(::Type{<:NuclearNorm}) = true
 
 function (f::NuclearNorm)(X::AbstractMatrix)
+  _checkreal(f, X)
   T = float(eltype(X))
   _checkblas(f, T)
   if !_is_device_array(X)
@@ -328,6 +331,8 @@ end
 isproximable(::Type{IndBallRank}) = true
 _argument_type(::Type{<:IndBallRank}) = AbstractMatrix
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndBallRank, Y::AbstractMatrix, X::AbstractMatrix)
+  _checkreal(f, X)
+  _checkreal(f, Y)
   _checksize(Y, X)
   minimum(size(X)) <= f.r && return true
   _checkblas(f, float(eltype(Y)))
@@ -335,6 +340,7 @@ end
 _isindicator(::Type{IndBallRank}) = true
 
 function (f::IndBallRank)(X::AbstractMatrix)
+  _checkreal(f, X)
   T = float(eltype(X))
   _checkblas(f, T)
   if !_is_device_array(X)
@@ -430,13 +436,14 @@ _isindicator(::Type{IndStiefel}) = true
 
 function _checkparams(::IndStiefel, X)
   X isa AbstractMatrix || throw(ArgumentError("IndStiefel requires a matrix"))
-  eltype(X) <: Real || throw(ArgumentError("IndStiefel requires real entries"))
   p, k = size(X)
   k <= p || throw(DimensionMismatch("IndStiefel requires k ≤ p, got $p × $k"))
   true
 end
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndStiefel, Y, X)
+  _checkreal(f, X)
+  _checkreal(f, Y)
   _checkparams(f, X)
   Y isa AbstractMatrix || throw(DimensionMismatch("the output must be a matrix"))
   _checksize(Y, X)
@@ -446,6 +453,7 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndStie
 end
 
 function (f::IndStiefel)(X)
+  _checkreal(f, X)
   _checkparams(f, X)
   T = float(eltype(X))
   A = _is_device_array(X) ? copyto!(_array_buffer!(f.input, T, size(X)), X) : X
@@ -534,6 +542,8 @@ _isindicator(::Type{<:IndPSD}) = true
 isconvex(::Type{IndPSD{Nothing}}) = true
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndPSD, Y::AbstractMatrix, X::AbstractMatrix)
+  _checkreal(f, X)
+  _checkreal(f, Y)
   _checksize(Y, X)
   checksquare(X)
   _checkblas(f, float(eltype(Y)))
@@ -567,7 +577,7 @@ end
   r === nothing || count(>(tol), λ) <= r
 end
 
-(f::IndPSD)(X::AbstractMatrix) = _ispsd!(f, X, f.rank) ? zero(float(eltype(X))) : float(eltype(X))(Inf)
+(f::IndPSD)(X::AbstractMatrix) = (_checkreal(f, X); _ispsd!(f, X, f.rank) ? zero(float(eltype(X))) : float(eltype(X))(Inf))
 
 # the projection onto the cone through all eigenpairs, in the workspace f.eig
 function _project_psd!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix)
@@ -662,6 +672,8 @@ _argument_type(::Type{<:TracePSD}) = AbstractMatrix
 isconvex(::Type{<:TracePSD}) = true
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::TracePSD, Y::AbstractMatrix, X::AbstractMatrix)
+  _checkreal(f, X)
+  _checkreal(f, Y)
   _checksize(Y, X)
   checksquare(X)
   _checkblas(f, float(eltype(Y)))
@@ -679,6 +691,7 @@ function _trace!(f::TracePSD, X::Union{SparseIterate{<:Any, 2}, SymmetricSparseI
 end
 
 function (f::TracePSD)(X::AbstractMatrix)
+  _checkreal(f, X)
   X = _is_device_array(X) ? copyto!(_array_buffer!(f.out, eltype(X), size(X)), X) : X
   T = float(eltype(X))
   _ispsd!(f, X, nothing) || return T(Inf)
@@ -723,4 +736,4 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
   _spectral_level_value(f.λ, s, λ, c)
 end
 prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real) =
-  (_checkwrite(prox!, f, Y, X); value_and_prox!(Y, f, X, γ); Y)
+  (value_and_prox!(Y, f, X, γ); Y)

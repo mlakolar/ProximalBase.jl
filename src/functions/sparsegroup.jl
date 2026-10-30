@@ -53,7 +53,8 @@ struct SparseGroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}
   end
 end
 
-function SparseGroupNormL2(λ1::Real, λ2::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}, w::AbstractVector{<:Real})
+function SparseGroupNormL2(λ1::Real, λ2::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}, w::AbstractVector)
+  eltype(w) <: Real || _real_error(:SparseGroupNormL2)
   T = float(promote_type(typeof(λ1), typeof(λ2), eltype(w)))
   G = _own_groups(groups)
   SparseGroupNormL2{T, typeof(G)}(convert(T, λ1), convert(T, λ2), G, convert(Vector{T}, w))
@@ -182,6 +183,7 @@ end
 end
 
 function (f::SparseGroupNormL2)(x::AbstractArray)
+  _checkreal(f, x)
   isfinite(f.λ0) && !iszero(f.λ0) && return _sparse_group_value(f, x, Val(true))
   isfinite(f.λ1) && _ordinary_group_weights(f, float(eltype(x))) ?
     _sparse_group_value(f, x, Val(true)) : _sparse_group_value(f, x, Val(false))
@@ -232,6 +234,7 @@ end
 
 # with the groups of f, only the active groups count
 function (f::SparseGroupNormL2)(x::AtomIterate)
+  _checkreal(f, x)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   isfinite(f.λ0) && !iszero(f.λ0) && return _sparse_group_value(f, x, Val(true))
   isfinite(f.λ1) && _ordinary_group_weights(f, float(eltype(x)), x.active, x.nactive) ?
@@ -301,6 +304,8 @@ end
 # an index of a group at zero violates optimality as much as its group; an
 # index at zero inside a nonzero group by |gᵢ| - λ1
 function kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
+  eltype(x) <: Real || _real_error(:kkt_violation)
   _checkgroups(f, g)
   _checkgroups(f, x)
   k = _group(f, i)
@@ -309,6 +314,6 @@ function kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray,
   _allzero(x, G) ? _dual_norm(f, g, G) - _weight_coefficient(f.λ0, f.w[k]) : abs(g[i]) - f.λ1
 end
 kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AtomIterate, k::Integer) =
-  (_checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _weight_coefficient(f.λ0, f.w[k]))
-kkt_violation(f::SparseGroupNormL2, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
-  throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate"))
+  (eltype(g) <: Real || _real_error(:kkt_violation); _checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _weight_coefficient(f.λ0, f.w[k]))
+kkt_violation(f::SparseGroupNormL2, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
+  (eltype(g) <: Real || _real_error(:kkt_violation); throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate")))

@@ -230,18 +230,18 @@ Base.getindex(x::ZeroBased, i::Int) = x.data[i + 1]
     @test y == fill(17.0, 1, 3)
     @test_throws MethodError op(similar(x), f, x, ones(3))
     y = fill(17.0, 3)
-    @test_throws ArgumentError op(y, f, complex.(x), 1.0)
+    @test_throws ArgumentError("IndSOC requires real entries") op(y, f, complex.(x), 1.0)
     @test y == fill(17.0, 3)
     @test_throws ArgumentError op(y, f, ZeroBased(x), 1.0)
     @test y == fill(17.0, 3)
-    @test_throws ArgumentError op(complex.(y), f, x, 1.0)
+    @test_throws ArgumentError("IndSOC requires real entries") op(complex.(y), f, x, 1.0)
     @test_throws ArgumentError op(ZeroBased(y), f, x, 1.0)
     x = ([3.0, 4], ones(6))
     y = deepcopy(x)
     @test_throws BoundsError op(y, SeparableSum(NormL1(), bad), x, 1.0)
     @test y == x
   end
-  @test_throws ArgumentError f(ComplexF64[0, 1])
+  @test_throws ArgumentError("IndSOC requires real entries") f(ComplexF64[0, 1])
   @test_throws ArgumentError f(ZeroBased([0.0, 1]))
 
   for T in (Float64, Float32), nonfinite in (T(NaN), T(Inf), T(-Inf)), i in 1:3

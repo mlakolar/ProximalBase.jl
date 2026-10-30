@@ -78,6 +78,8 @@ _isindicator(::Type{<:Spectral{F}}) where {F} = _isindicator(F)
 _conjugate_isindicator(::Type{<:Spectral{F}}) where {F} = _conjugate_isindicator(F)
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix)
+  _checkreal(s, X)
+  _checkreal(s, Y)
   _checksize(Y, X)
   n = checksquare(X)
   T = float(eltype(Y))
@@ -91,6 +93,7 @@ end
 # The domain is the finite matrices: a non-finite entry gives Inf, before the
 # symmetry test and any decomposition.
 function (s::Spectral)(X::AbstractMatrix)
+  _checkreal(s, X)
   T = float(eltype(X))
   _checkblas(s, T)
   n = checksquare(X)
@@ -142,7 +145,7 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   convert(T, v)
 end
 prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real) =
-  (_checkwrite(prox!, s, Y, X); value_and_prox!(Y, s, X, γ); Y)
+  (value_and_prox!(Y, s, X, γ); Y)
 
 # Y = Σⱼ zⱼ vⱼvⱼ' for the eigenvectors vⱼ in the columns of V, through B, which
 # is Y when BLAS can write Y and an n × n buffer otherwise; destroys V. The proximal

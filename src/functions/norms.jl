@@ -28,10 +28,10 @@ NormL2(λ::Real = 1) = NormL2{typeof(λ)}(λ)
 
 isproximable(::Type{<:NormL2}) = true
 isconvex(::Type{<:NormL2}) = true
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL2, y::AbstractArray, x::AbstractArray) =
-  (_checksize(y, x); true)
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NormL2, y::AbstractArray, x::AbstractArray) =
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); true)
 
-(f::NormL2)(x::AbstractArray) = _weighted_norm2(f.λ, x)
+(f::NormL2)(x::AbstractArray) = (_checkreal(f, x); _weighted_norm2(f.λ, x))
 
 function _weighted_norm2(λ::Real, x::AbstractArray)
   T = _valtype(x)
@@ -49,7 +49,7 @@ end
 end
 
 @inline function _norm2_value(v, λ::T, x::AbstractArray) where {T}
-  isfinite(v) || !isfinite(λ) || !(eltype(x) <: Real) || !all(isfinite, x) ? v : _scaled_norm2_value(λ, x)
+  isfinite(v) || !isfinite(λ) || !all(isfinite, x) ? v : _scaled_norm2_value(λ, x)
 end
 
 @noinline function _scaled_norm2_value(λ::T, x::AbstractArray) where {T}
@@ -157,7 +157,8 @@ isproximable(::Type{<:CubeNormL2}) = true
 isconvex(::Type{<:CubeNormL2}) = true
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)},
-            ::CubeNormL2, y::AbstractArray, x::AbstractArray) = _checksize(y, x)
+            f::CubeNormL2, y::AbstractArray, x::AbstractArray) =
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x))
 
 # A finite array can have an unrepresentable norm. Only the norm calculation
 # uses scaled entries; the final factor is applied to the original entries.
@@ -183,7 +184,8 @@ function _cube_value_parts(λ::T, m::T, e::Int) where {T}
 end
 
 function (f::CubeNormL2)(x::AbstractArray)
-  T = real(float(eltype(x)))
+  _checkreal(f, x)
+  T = float(eltype(x))
   iszero(f.λ) && return zero(T)
   S = promote_type(T, float(typeof(f.λ)))
   λ = convert(S, f.λ)
@@ -207,12 +209,11 @@ end
   b, k = frexp(a)
   ldexp(b * m, k + e)
 end
-@inline _cube_scale(v::Complex, m, e) = complex(_cube_scale(real(v), m, e), _cube_scale(imag(v), m, e))
 
 function gradient!(g::AbstractArray, f::CubeNormL2, x::AbstractArray)
   _checkwrite(gradient!, f, g, x)
   iszero(f.λ) && return fill!(g, zero(eltype(g)))
-  T = promote_type(real(float(eltype(g))), real(float(eltype(x))), float(typeof(f.λ)))
+  T = promote_type(float(eltype(g)), float(eltype(x)), float(typeof(f.λ)))
   λ = convert(T, f.λ)
   n = _norm2(x)
   a = λ * convert(T, n)
@@ -257,7 +258,7 @@ function prox!(y::AbstractArray, f::CubeNormL2, x::AbstractArray, γ::Real)
     y === x || copyto!(y, x)
     return y
   end
-  T = promote_type(real(float(eltype(y))), real(float(eltype(x))), float(typeof(f.λ)), float(typeof(γ)))
+  T = promote_type(float(eltype(y)), float(eltype(x)), float(typeof(f.λ)), float(typeof(γ)))
   λ, step = convert(T, f.λ), convert(T, γ)
   n = _norm2(x)
   iszero(n) && return fill!(y, zero(eltype(y)))
@@ -302,10 +303,10 @@ NormLinf(λ::Real = 1) = NormLinf{typeof(λ)}(λ)
 
 isproximable(::Type{<:NormLinf}) = true
 isconvex(::Type{<:NormLinf}) = true
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormLinf, y::AbstractArray, x::AbstractArray) =
-  (_checksize(y, x); true)
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NormLinf, y::AbstractArray, x::AbstractArray) =
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); true)
 
-(f::NormLinf)(x::AbstractArray) = _weighted_normlinf(f.λ, x)
+(f::NormLinf)(x::AbstractArray) = (_checkreal(f, x); _weighted_normlinf(f.λ, x))
 
 function _weighted_normlinf(λ::Real, x::AbstractArray)
   T = _valtype(x)
@@ -439,7 +440,8 @@ struct GroupNormLinf{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <:
 end
 
 for F in (:GroupNormL2, :GroupNormLinf)
-  @eval function $F(λ0::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}, w::AbstractVector{<:Real})
+  @eval function $F(λ0::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}, w::AbstractVector)
+    eltype(w) <: Real || _real_error(nameof($F))
     T = float(promote_type(typeof(λ0), eltype(w)))
     G = _own_groups(groups)
     $F{T, typeof(G)}(convert(T, λ0), G, convert(Vector{T}, w))
@@ -629,6 +631,7 @@ function _rescaled_group_prox!(f, y, x, G, c::S, scale, W = nothing)::S where {S
 end
 
 function (f::HomogeneousGroupNorm)(x::AbstractArray)
+  _checkreal(f, x)
   isfinite(f.λ0) && !iszero(f.λ0) && return _homogeneous_group_value(f, x, Val(true))
   _ordinary_group_weights(f, float(eltype(x))) ?
     _homogeneous_group_value(f, x, Val(true)) : _homogeneous_group_value(f, x, Val(false))
@@ -647,7 +650,7 @@ function _homogeneous_group_value(f::HomogeneousGroupNorm, x::AbstractArray, ord
 end
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::AbstractGroupPenalty, y::AbstractArray, x::AbstractArray) =
-  (_checksize(y, x); _checkgroups(f, x); _check_symmetric_groups(f, y))
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkgroups(f, x); _check_symmetric_groups(f, y))
 
 _check_symmetric_groups(f, y::AbstractArray) = true
 
@@ -733,6 +736,8 @@ function restrict(f::AbstractGroupPenalty, S::AbstractVector{<:Integer})
 end
 
 function kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
+  eltype(x) <: Real || _real_error(:kkt_violation)
   _checkgroups(f, g)
   _checkgroups(f, x)
   k = _group(f, i)
@@ -743,13 +748,13 @@ end
 
 # on an AtomIterate, k is a group
 kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AtomIterate, k::Integer) =
-  (_checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _weight_coefficient(f.λ0, f.w[k]))
+  (eltype(g) <: Real || _real_error(:kkt_violation); _checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _weight_coefficient(f.λ0, f.w[k]))
 
 # the coordinates of x are the groups of f
 _checksamegroups(f::AbstractGroupPenalty, x::AtomIterate) = _samelayout(f, x) ||
   throw(DimensionMismatch("f and x must have the same groups."))
-kkt_violation(f::AbstractGroupPenalty, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
-  throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate"))
+kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
+  (eltype(g) <: Real || _real_error(:kkt_violation); throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate")))
 
 # an AtomIterate that shares the groups of f, which must partition 1:p
 AtomIterate(p::Integer, f::AbstractGroupPenalty) = AtomIterate(Float64, p, f)
@@ -764,6 +769,7 @@ end
 
 # with the groups of f, only the active groups count
 function (f::HomogeneousGroupNorm)(x::AtomIterate)
+  _checkreal(f, x)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   isfinite(f.λ0) && !iszero(f.λ0) && return _homogeneous_group_value(f, x, Val(true))
   _ordinary_group_weights(f, float(eltype(x)), x.active, x.nactive) ?
@@ -881,6 +887,7 @@ isconvex(::Type{<:NormL1Fused}) = true
   (iszero(f.λ2) ? zero(float(xy[1])) : f.λ2 * abs(xy[1] - xy[2])), xy)
 
 function (f::NormL1Fused)(x::Tuple{AbstractArray, AbstractArray})
+  _checkreal(f, x)
   x1, x2 = x
   size(x1) == size(x2) || throw(DimensionMismatch("the arrays of the pair have sizes $(size(x1)) and $(size(x2))"))
   T = float(promote_type(eltype(x1), eltype(x2)))
@@ -926,11 +933,11 @@ function prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused, x::Tuple{
   end
   y
 end
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL1Fused,
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NormL1Fused,
             y::Tuple{AbstractArray, AbstractArray}, x::Tuple{AbstractArray, AbstractArray}) =
-  size(y[1]) == size(x[1]) == size(y[2]) == size(x[2]) || throw(DimensionMismatch("the arrays of the pairs must have one size"))
-_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, ::NormL1Fused, y::AbstractVector, x::AbstractVector) =
-  (_checksize(y, x); Base.require_one_based_indexing(y, x); true)
+  (_checkreal(f, x); _checkreal(f, y); size(y[1]) == size(x[1]) == size(y[2]) == size(x[2]) || throw(DimensionMismatch("the arrays of the pairs must have one size")))
+_checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NormL1Fused, y::AbstractVector, x::AbstractVector) =
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); Base.require_one_based_indexing(y, x); true)
 prox(f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real = 1) =
   prox!((similar(x[1], float(eltype(x[1]))), similar(x[2], float(eltype(x[2])))), f, x, γ)
 
@@ -957,6 +964,7 @@ function _sortperm_fused!(f::NormL1Fused, x::AbstractVector, ::Type{T}) where {T
 end
 
 function (f::NormL1Fused)(x::AbstractVector)
+  _checkreal(f, x)
   Base.require_one_based_indexing(x)
   T = float(eltype(x))
   iszero(f.λ1) && iszero(f.λ2) && return zero(T)

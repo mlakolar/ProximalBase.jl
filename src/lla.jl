@@ -86,7 +86,7 @@ function lla_weights! end
   throw(ArgumentError("NormLq has an infinite slope at zero, so its LLA weights at zero are infinite and every stage keeps the zero entries at zero; use LogPenalty, whose slope at zero is finite, or the proximal operator of NormLq"))
 
 lla_weight(f::AbstractFunction, ::Real, ::Integer) = _no_lla(f)
-lla_weights!(::AbstractArray, f::AbstractFunction, ::AbstractArray) = _no_lla(f)
+lla_weights!(w::AbstractArray, f::AbstractFunction, x::AbstractArray) = (eltype(w) <: Real && eltype(x) <: Real || _real_error(:lla_weights!); _no_lla(f))
 
 ####################################
 #  separable penalties
@@ -125,10 +125,11 @@ function lla_weight(f::SCAD, v::T, ::Integer) where {T<:Real}
 end
 
 lla_weight(f::NormLq, ::Real, ::Integer) = _no_lla(f)
-lla_weights!(::AbstractArray, f::NormLq, ::AbstractArray) = _no_lla(f)
+lla_weights!(w::AbstractArray, f::NormLq, x::AbstractArray) = (eltype(w) <: Real && eltype(x) <: Real || _real_error(:lla_weights!); _no_lla(f))
 
 # entry by entry over the dense array; a sparse iterate reads its entries in O(1)
 function lla_weights!(w::AbstractArray, f::SeparableFunction, x::AbstractArray)
+  eltype(w) <: Real && eltype(x) <: Real || _real_error(:lla_weights!)
   _checksize(w, x)
   _checkparams(f, x)
   T = eltype(w)
@@ -149,6 +150,7 @@ lla_weight(f::_RadialGroupPenalty, v::T, k::Integer) where {T<:Real} =
   isinf(_weight_coefficient(f.λ0, f.w[k])) ? float(T)(Inf) : lla_weight(_group_scalar(f, float(T), k), v, 1)
 
 function lla_weights!(w::AbstractArray, f::Union{GroupNormL2, _RadialGroupPenalty}, x::AbstractArray)
+  eltype(w) <: Real && eltype(x) <: Real || _real_error(:lla_weights!)
   length(w) == length(f.groups) ||
     throw(DimensionMismatch("the weights have length $(length(w)) and there are $(length(f.groups)) groups"))
   _checkgroups(f, x)

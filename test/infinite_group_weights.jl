@@ -351,4 +351,26 @@ end
   end
 end
 
+@testset "fixed groups require real entries before shortcuts" begin
+  for f in families(Float64, 0, [[1, 2], [3]], [Inf, 1.0])
+    error = ArgumentError("$(nameof(typeof(f))) requires real entries")
+    x = [3.0, -4.0, 2.0]
+    for imaginary in (0, 1)
+      z = complex.(x, imaginary)
+      @test_throws error f(z)
+      for op in (prox!, value_and_prox!), γ in (0.0, [0.0, 1.0]),
+          (input, output) in ((z, fill(17.0, 3)), (x, fill(17.0 + 0im, 3)), (z, z))
+        before = copy(output)
+        @test_throws error op(output, f, input, γ)
+        @test output == before
+      end
+    end
+    for op in (prox!, value_and_prox!)
+      y = fill(17.0, 3)
+      @test_throws error op(y, f, x, ComplexF64[0, 1])
+      @test y == fill(17.0, 3)
+    end
+  end
+end
+
 end

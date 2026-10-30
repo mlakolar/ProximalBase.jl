@@ -334,7 +334,7 @@ end
   @test_throws ArgumentError LinearImage(NormL1(), [1.0 1; 0 1], 1)
   @test LinearImage(NormL1(), [1.0 1; 0 1], 1; check = false) isa LinearImage
   @test_throws ArgumentError LinearImage(NormL1(), [Inf 0; 0 1], 1; check = false)
-  @test_throws ArgumentError LinearImage(NormL1(), complex.(L), 1; check = false)
+  @test_throws ArgumentError("LinearImage requires real entries") LinearImage(NormL1(), complex.(L), 1; check = false)
   @test_throws ArgumentError LinearImage(NormL0(), L, 1)
   @test_throws ArgumentError LinearImage(NormL1(), L)
   @test_throws ArgumentError LinearImage(LeastSquaresLoss(ones(2), L), L)

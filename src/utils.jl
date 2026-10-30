@@ -124,11 +124,21 @@ mutable struct Scratch
 end
 Scratch() = Scratch(nothing)
 
+struct _L1ProjectionScratch
+  native::Vector{Float32}
+  wide::Vector{Float64}
+end
+
 function _buffer!(s::Scratch, ::Type{T}, n::Integer) where {T}
   b = s.buf
   if b isa Vector{T}
     length(b) < n && resize!(b, n)
     return b
+  end
+  if b isa _L1ProjectionScratch && (T === Float32 || T === Float64)
+    v = T === Float32 ? b.native : b.wide
+    length(v) < n && resize!(v, n)
+    return v
   end
   b = Vector{T}(undef, n)
   s.buf = b
@@ -530,6 +540,136 @@ function _simplex_threshold_michelot(x::AbstractArray, idx::AbstractVector{<:Int
     cnt = c
   end
   τ
+end
+
+# The conjugate's native search keeps sum residuals; other callers retain the
+# original Condat arithmetic. a bounds the absolute residuals accumulated in e.
+@inline function _projection_l1_add(s, e, a, q, v)
+  t = s + v
+  z = abs(s) >= abs(v) ? (s - t) + v : (v - t) + s
+  t, e + z, a + abs(z), q + 1
+end
+@inline function _projection_l1_level(s, e, r, k)
+  t = s - r
+  z = s >= r ? (s - t) - r : (-r - t) + s
+  (t + (e + z)) / k
+end
+@inline function _projection_l1_step!(buf, y, nt, nv, s, e, a, q, θ, r, cap)
+  y > θ || return nt, nv, s, e, a, q, θ, false
+  if s + e > (y - r) * nv
+    nv += 1
+    nv > cap && return nt, nv, s, e, a, q, θ, true
+    s, e, a, q = _projection_l1_add(s, e, a, q, y)
+    @inbounds buf[nt + nv] = y
+    return nt, nv, s, e, a, q, _projection_l1_level(s, e, r, nv), false
+  end
+  nt += nv
+  @inbounds buf[nt + 1] = y
+  nt, 1, y, zero(e), a, q, y - r, false
+end
+function _projection_l1_threshold!(buf::AbstractVector{T}, x, G, r::T, m::T, total::T) where {T}
+  n = length(G)
+  j0 = firstindex(G)
+  @inbounds s = abs(x[G[j0]])
+  buf[1] = s
+  nt, nv, q = 0, 1, 0
+  e = a = zero(T)
+  θ = s - r
+  h = θ
+  cap = max(1024, n ÷ 8)
+  many = false
+  j, jend = j0 + 1, j0 + n - 1
+  @inbounds while j + 3 <= jend
+    y₁, y₂ = abs(x[G[j]]), abs(x[G[j + 1]])
+    y₃, y₄ = abs(x[G[j + 2]]), abs(x[G[j + 3]])
+    if (y₁ > θ) | (y₂ > θ) | (y₃ > θ) | (y₄ > θ)
+      nt, nv, s, e, a, q, θ, many = _projection_l1_step!(buf, y₁, nt, nv, s, e, a, q, θ, r, cap)
+      h = max(h, θ)
+      many || ((nt, nv, s, e, a, q, θ, many) = _projection_l1_step!(buf, y₂, nt, nv, s, e, a, q, θ, r, cap))
+      h = max(h, θ)
+      many || ((nt, nv, s, e, a, q, θ, many) = _projection_l1_step!(buf, y₃, nt, nv, s, e, a, q, θ, r, cap))
+      h = max(h, θ)
+      many || ((nt, nv, s, e, a, q, θ, many) = _projection_l1_step!(buf, y₄, nt, nv, s, e, a, q, θ, r, cap))
+      h = max(h, θ)
+      many && break
+    end
+    j += 4
+  end
+  @inbounds while !many && j <= jend
+    nt, nv, s, e, a, q, θ, many = _projection_l1_step!(buf, abs(x[G[j]]), nt, nv, s, e, a, q, θ, r, cap)
+    h = max(h, θ)
+    j += 1
+  end
+  many && return _projection_l1_michelot(x, G, r, m, total)
+  w = 0
+  @inbounds for i in 1:nt
+    v = buf[i]
+    if v > θ
+      w += 1
+      buf[w] = v
+      s, e, a, q = _projection_l1_add(s, e, a, q, v)
+      θ = _projection_l1_level(s, e, r, w + nv)
+      h = max(h, θ)
+    end
+  end
+  @inbounds for i in 1:nv
+    buf[w + i] = buf[nt + i]
+  end
+  k = w + nv
+  changed = true
+  @inbounds while changed
+    changed = false
+    i = 1
+    while i <= k
+      v = buf[i]
+      if v <= θ
+        k == 1 && break
+        buf[i] = buf[k]
+        k -= 1
+        s, e, a, q = _projection_l1_add(s, e, a, q, -v)
+        θ = _projection_l1_level(s, e, r, k)
+        h = max(h, θ)
+        changed = true
+      else
+        i += 1
+      end
+    end
+  end
+  u = eps(T) / 2
+  δ = (q + 8) * u
+  B = δ < T(0.125) ? 4eps(T) * m + δ * a / (1 - 2δ) : T(Inf)
+  B = nextfloat(B * (1 + 16eps(T)))
+  # Every skipped or removed value was <= a tested level, hence <=h.
+  # Resets keep their old candidates for reinsertion; each is either kept
+  # or tested again. h includes all levels before/after those tests, so
+  # monotonic subtraction makes this an enclosure of every discarded native
+  # residual at the final level, without assuming rounded levels increase.
+  θ, k, h - θ <= B ? B : T(Inf)
+end
+function _projection_l1_michelot(x, G, r::T, m, total) where {T}
+  θ, count = (total - r) / length(G), -1
+  s, k = zero(T), 0
+  converged = false
+  for _ in 0:length(G)
+    s, k = zero(T), 0
+    @inbounds @simd for i in G
+      v = abs(x[i])
+      above = v > θ
+      s += ifelse(above, v, zero(T))
+      k += above
+    end
+    θ = (s - r) / k
+    if k == count
+      converged = true
+      break
+    end
+    count = k
+  end
+  converged || return θ, k, T(Inf)
+  u = eps(T) / 2
+  δ = k * u
+  B = δ < T(0.125) ? δ * (s / k) / (1 - 2δ) + (eps(T) / (1 - 2eps(T))) * abs(θ) + u * m : T(Inf)
+  θ, k, nextfloat(B * (1 + 16eps(T)))
 end
 
 ####################################

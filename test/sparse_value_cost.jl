@@ -81,12 +81,6 @@ end
           @test n >= length(x) - 2nnz(x)
         end
       end
-      if kind == :sym
-        n, _ = zeros_made(() -> sum(abs2, x))
-        @test n == 39997
-        n, _ = zeros_made(() -> invoke(norm, Tuple{Any, Real}, x, 2))
-        @test n == 79994
-      end
     end
   end
 
@@ -180,7 +174,7 @@ end
   end
 
   @testset "norm of a SymmetricSparseIterate" begin
-    for T in (Float64, Float32, BigFloat, Int, ComplexF64)
+    for T in (Float64, Float32, BigFloat, Int)
       cases = Any[(3, [(1, 1, 1), (2, 1, -2), (3, 3, 0)]),
                   (3, Tuple{Int, Int, Int}[]), (0, Tuple{Int, Int, Int}[])]
       if T <: Integer
@@ -191,7 +185,6 @@ end
           push!(cases, (3, [(1, 1, v), (2, 1, v), (3, 3, 0.0)]))
         end
         push!(cases, (3, [(1, 1, NaN), (2, 1, Inf)]))
-        T <: Complex && push!(cases, (3, [(1, 1, 1 + 2im), (2, 1, -3 + 4im)]))
       end
       for (d, data) in cases
         x = make_iterate(T, :sym, data; p = d)

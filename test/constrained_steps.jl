@@ -307,6 +307,47 @@ end
   end
 end
 
+@testset "full-pass fallback reuses its certificate" begin
+  for γ in (1f0, Float32[1]), op in (prox!, value_and_prox!), alias in (false, true)
+    c = Constrained(IndNonnegative(), IndHyperplane(1f0, 0.3f0))
+    x = Float32[10]
+    y = alias ? x : Float32[19]
+    op(y, c, x, γ)
+    gap, scale = abs(y[1] - 0.3f0), abs(y[1]) + 0.3f0
+    @test 2eps(Float32) * scale < gap <= 8eps(Float32) * scale
+    @test !c.verify[]
+    @test c.output.buf === nothing
+  end
+end
+
+@testset "ordinary passes and Float32 warm hits" begin
+  for T in (Float32, Float64), scale in (one(T), floatmin(T), floatmax(T))
+    steps = PB._search_steps(fill(scale, 2), T)
+    for μ in (zero(T), one(T), nextfloat(zero(T)), floatmax(T))
+      pass = PB._pass_steps(identity, steps, μ)
+      ν = μ * steps.factor
+      fast = isfinite(steps.factor) && isfinite(ν) && (abs(ν) >= floatmin(T) || iszero(μ))
+      @test (pass isa PB._PassSteps) == fast
+      expected = fast ? scale * ν : PB._ratio(steps, 1, T) * μ
+      @test isequal(PB._shift(pass, μ, 1, T), expected)
+    end
+  end
+  rng = Xoshiro(1)
+  n = 10_000
+  x, noise = randn(rng, Float32, n), randn(rng, Float32, n)
+  for (f, set, b) in ((IndBox(0f0, 1f0), IndHyperplane(1f0, Float32(n ÷ 2)), Float32(n ÷ 2)),
+                      (ElasticNet(0.3f0, 0.4f0), IndSimplex(Float32(n / 10)), Float32(n / 10)))
+    c = Constrained(f, set)
+    y = prox(c, x, 0.7f0)
+    for j in 1:30
+      xt = x .+ Float32(0.001j) .* noise
+      prox!(y, c, xt, 0.7f0)
+      @test !c.verify[]
+      @test abs(sum(Float64, y) - b) <= 8eps(Float32) * (sum(abs, Float64.(y)) + b)
+    end
+  end
+end
+
 # Keep the range visible while counting the scalar oracles, as in the budgets.
 const TAIL_CALLS = Ref(0)
 struct TailRanged{F} <: SeparableFunction

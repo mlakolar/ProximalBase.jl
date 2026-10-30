@@ -45,6 +45,12 @@ abstract type SeparableFunction <: AbstractFunction end
 isseparable(::Type{<:SeparableFunction}) = true
 isproximable(::Type{<:SeparableFunction}) = true
 
+# Broadcast parameters in the argument's shape to preserve linear pairing.
+_reshapeparam(p, x) = p
+_reshapeparam(p::AbstractArray, x) = reshape(p, size(x))
+# The wrapper avoids allocating an Array header on CPU broadcasts.
+_reshapeparam(p::Array, x) = Base.ReshapedArray(p, size(x), ())
+
 """
     value_entry(f, v, i)
 
@@ -457,11 +463,12 @@ restrict(f::ElasticNet, S::AbstractVector{<:Integer}) = ElasticNet(f.λ1, f.λ2,
     IndBox(l, u)
 
 The indicator of the box `{x : l ≤ x ≤ u}`: `0` inside and `Inf` outside. The
-bounds are scalars or arrays of the size of `x`, and may be infinite. They
-satisfy `l ≤ u`, `l < Inf` and `u > -Inf` coordinatewise: equal finite bounds
+bounds are scalars or arrays read in linear order, and may be infinite. Array
+bounds must have the length of `x`, and two array bounds must have equal length.
+They satisfy `l ≤ u`, `l < Inf` and `u > -Inf` coordinatewise: equal finite bounds
 are allowed, but equal infinite bounds are rejected because the coordinate is
-empty. Its proximal operator is the projection `clamp.(x, l, u)`. Array bounds
-are stored without copying; construct a new `IndBox` after changing them in
+empty. Its proximal operator clamps each coordinate to its corresponding bounds.
+Array bounds are stored without copying; construct a new `IndBox` after changing them in
 place, since whether the box contains zero is computed at construction.
 [`restrict`](@ref) of the box itself requires `0 ∈ [lᵢ, uᵢ]` for every
 coordinate outside `S`, and throws for scalar bounds that exclude zero.
@@ -472,8 +479,11 @@ struct IndBox{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: S
   zp::Bool          # l ≤ 0 ≤ u, so that zero is feasible and its own projection
 
   function IndBox{L, U}(l::L, u::U) where {L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}}
-    all(l .<= u) || throw(ArgumentError("the lower bounds must not exceed the upper bounds"))
-    any((l .== Inf) .| (u .== -Inf)) && throw(ArgumentError("the lower bounds must be below Inf and the upper bounds above -Inf"))
+    l isa AbstractArray && u isa AbstractArray && _checkparam(l, u)
+    lv = l isa AbstractArray ? vec(l) : l
+    uv = u isa AbstractArray ? vec(u) : u
+    all(lv .<= uv) || throw(ArgumentError("the lower bounds must not exceed the upper bounds"))
+    any((lv .== Inf) .| (uv .== -Inf)) && throw(ArgumentError("the lower bounds must be below Inf and the upper bounds above -Inf"))
     new{L, U}(l, u, all(l .<= 0) && all(u .>= 0))
   end
 end

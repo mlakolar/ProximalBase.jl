@@ -292,6 +292,102 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
     @test nnz(x) == 10
   end
 
+  @testset "#236: aliased writers, $T" for T in (Float64, ComplexF64)
+    writers = (
+      ("copyto!", (x, A, B) -> copyto!(x, A), (X, A, B) -> A),
+      ("copy!", (x, A, B) -> copy!(x, A), (X, A, B) -> A),
+      (".=", (x, A, B) -> (x .= A), (X, A, B) -> A),
+      ("identity broadcast", (x, A, B) -> (x .= identity.(A)), (X, A, B) -> A),
+      (".+=", (x, A, B) -> (x .+= A), (X, A, B) -> X .+ A),
+      ("map!, one source", (x, A, B) -> map!(double, x, A), (X, A, B) -> 2 .* A),
+      ("map!, alias first", (x, A, B) -> map!(-, x, A, B), (X, A, B) -> A .- B),
+      ("map!, alias second", (x, A, B) -> map!(-, x, B, A), (X, A, B) -> B .- A),
+      ("map!, repeated alias", (x, A, B) -> map!(+, x, A, A), (X, A, B) -> A .+ A),
+      ("map!, four sources", (x, A, B) -> map!(+, x, A, x, B, A),
+        (X, A, B) -> A .+ X .+ B .+ A),
+      ("map!, alias in middle", (x, A, B) -> map!(+, x, x, A, A, B),
+        (X, A, B) -> X .+ A .+ A .+ B),
+      ("axpy!", (x, A, B) -> axpy!(1, A, x), (X, A, B) -> X .+ A),
+      ("axpby!", (x, A, B) -> axpby!(1, A, 2, x), (X, A, B) -> A .+ 2 .* X),
+    )
+    idx = [tril_index(3, max(4 - r, 4 - c), min(4 - r, 4 - c)) for c in 1:3 for r in 1:3]
+    sources = (
+      (2, x -> reshape(view(coordinates(x), [3, 2, 2, 1]), 2, 2)),
+      (3, x -> reshape(view(coordinates(x), idx), 3, 3)),
+      (2, x -> view(x, [2, 1], [2, 1])),
+      (3, x -> view(x, 3:-1:1, 3:-1:1)),
+    )
+    for (p, source) in sources, (name, write!, reference) in writers
+      @testset "$name, p = $p, $(typeof(source))" begin
+        values = T.(1:p*(p+1)÷2)
+        T === ComplexF64 && (values .*= 1 + 2im)
+        x = SymmetricSparseIterate(T, p)
+        coordinates(x) .= values
+        A = source(x)
+        B = ones(T, p, p)
+        snapshots = map(Matrix, (x, A, B))
+        expected = reference(snapshots...)
+        @test write!(x, A, B) === x
+        @test Matrix(x) == expected
+      end
+    end
+  end
+
+  @testset "#236: aliasing hooks, $T" for T in (Float64, ComplexF64)
+    x = initial(T)
+    c = coordinates(x)
+    v = view(c, [10, 6, 6, 1])
+    A = reshape(v, 2, 2)
+    other = initial(T)
+    @test all(id -> id in Base.dataids(v), Base.dataids(x))
+    for source in (c, v, A, view(x, [4, 1], [4, 1]))
+      @test Base.mightalias(x, source)
+    end
+    @test !Base.mightalias(x, reshape(view(coordinates(other), [10, 6, 6, 1]), 2, 2))
+    copies = map(Base.unaliascopy, (c, v, A))
+    snapshots = map(collect, (c, v, A))
+    for (source, copied, snapshot) in zip((c, v, A), copies, snapshots)
+      @test typeof(copied) === typeof(source)
+      @test axes(copied) == axes(source)
+      @test copied == snapshot
+      @test !Base.mightalias(x, copied)
+    end
+    # copying coordinates preserves the active stored zero as well
+    @test state(copies[1].x) == state(x)
+    @test isactive(copies[1].x, tril_index(4, 3, 2))
+    @test copies[1].x[3, 2] == 0
+    fill!(x, 19)
+    for (copied, snapshot) in zip(copies, snapshots)
+      @test copied == snapshot
+    end
+  end
+
+  @testset "#236: rejected aliased sources, $T" for T in (Float64, ComplexF64)
+    for write! in ((x, A) -> copyto!(x, A), (x, A) -> (x .= A),
+                   (x, A) -> map!(identity, x, A), (x, A) -> axpy!(1, A, x),
+                   (x, A) -> axpby!(1, A, 2, x))
+      x = SymmetricSparseIterate(T.([1 2; 2 3]))
+      A = reshape(view(coordinates(x), [1, 2, 1, 3]), 2, 2)
+      rejects(x -> write!(x, A), x, ArgumentError, ASYMMETRIC)
+      A = reshape(view(coordinates(x), [3, 2, 2, 1]), 1, 4)
+      rejects(x -> write!(x, A), x, DimensionMismatch)
+    end
+  end
+
+  @testset "#236: nonaliased coordinates allocations, p = $p" for p in (2, 4)
+    other = SymmetricSparseIterate(Symmetric(reshape(Float64.(1:p*p), p, p), :L))
+    perm = p:-1:1
+    indices = [tril_index(p, max(r, c), min(r, c)) for c in perm for r in perm]
+    A = reshape(view(coordinates(other), indices), p, p)
+    x = copy(other)
+    @test !Base.mightalias(x, A)
+    @test allocations(copy_into!, x, A) == 0
+    @test allocations((x, A) -> (x .= A), x, A) == 0
+    @test allocations(map1!, x, A) == 0
+    @test allocations(axpy2!, x, A) == 0
+    @test allocations(axpby23!, x, A) == 0
+  end
+
   @testset "#235: replace visits each entry once" begin
     y = SymmetricSparseIterate([1.0 1.0; 1.0 1.0])
     @test replace!(double, y) === y

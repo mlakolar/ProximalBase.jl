@@ -322,11 +322,18 @@ function (f::IndBallL2)(x::AbstractArray)
   _ball_scaled_value(f, x, T)
 end
 
-# The balls and boxes on a spectrum v of X/2^k, as SingularValue and Spectral
-# evaluate them when the spectrum of X overflows: bounds scaled by 2^-k, before
-# any narrowing, and tolerances kept in the original units.
+# The balls, boxes and the nonnegative orthant on a spectrum v of X/2^k, as
+# SingularValue and Spectral evaluate them when the spectrum of X overflows:
+# bounds scaled by 2^-k, before any narrowing, and tolerances kept in the
+# original units. Boxes and the orthant also take k = 0 for an ordinary spectrum
+# (_relative_membership): a computed spectrum carries errors of order ε‖v‖∞, so
+# their tolerance is √ε·max(1, |bound|, ‖v‖∞), relative to the spectrum as
+# IndPSD's is. On the boundary of a ball ‖v‖∞ is at most the radius, so balls
+# keep their own tolerance.
 _scales_membership(::AbstractFunction) = false
-_scales_membership(::Union{IndBallL1, IndBallL2, IndBox}) = true
+_scales_membership(::Union{IndBallL1, IndBallL2, IndBox, IndNonnegative}) = true
+_relative_membership(::AbstractFunction) = false
+_relative_membership(::Union{IndBox, IndNonnegative}) = true
 function _scaled_membership(f::Union{IndBallL1, IndBallL2}, v::AbstractVector{T}, k::Int) where {T}
   isfinite(f.r) || return _ind(isinf(f.r), T)
   S = float(promote_type(T, typeof(f.r)))
@@ -337,12 +344,14 @@ end
 function _scaled_membership(f::IndBox, v::AbstractVector{T}, k::Int) where {T}
   _checkparams(f, v)
   S = float(promote_type(T, eltype(f.l), eltype(f.u)))
-  α, t = ldexp(one(S), -k), S(_tol(T))
+  floor, t = max(ldexp(one(S), -k), S(_maximum_abs(v))), S(_tol(T))
   @inbounds for i in eachindex(v)
-    _inbox(v[i], ldexp(S(_entry(f.l, i)), -k), ldexp(S(_entry(f.u, i)), -k), t, α) || return T(Inf)
+    _inbox(v[i], ldexp(S(_entry(f.l, i)), -k), ldexp(S(_entry(f.u, i)), -k), t, floor) || return T(Inf)
   end
   zero(T)
 end
+_scaled_membership(::IndNonnegative, v::AbstractVector{T}, k::Int) where {T} =
+  _ind(isempty(v) || minimum(v) >= -_tol(T) * max(ldexp(one(T), -k), _maximum_abs(v)), T)
 
 @noinline function _ball_scaled_value(f, x, ::Type{T}) where {T}
   m = _maximum_abs(x)
@@ -587,8 +596,9 @@ each finite bound when needed. Membership checks each bound independently,
 within `sqrt(eps(T)) * max(1, abs(b), ‖a‖ ‖x‖)` in the original units, where
 `T = float(eltype(x))`. For scaled normals the tolerance uses the less precise
 of `T` and the function's floating-point type. The membership value is reliable
-for all finite inputs. Nonfinite inputs are rejected even for the
-whole space. An empty input has a projection only when `l ≤ 0 ≤ u`.
+for all finite inputs. Nonfinite inputs follow the projection formula
+using IEEE arithmetic; the whole space copies its input. An empty input has
+a projection only when `l ≤ 0 ≤ u`.
 
 The projection is accurate when the scaled active bound, residual and output
 are representable; inputs near `floatmax` are outside this guarantee. Accuracy
@@ -773,13 +783,9 @@ function _checkwrite(op::O, f::Union{IndHyperplane, IndHalfspace, IndHyperslab},
     length(f.a) == length(x) || _dot_normal(_scaled_normal(f), x)
     Base.Broadcast.check_broadcast_axes(axes(y), x, f.a)
   end
+  f isa IndHyperslab && isempty(x) && !(f.l <= 0 <= f.u) &&
+    throw(ArgumentError("the hyperslab contains no empty array"))
   true
-end
-
-function _hyperslab_input(f, x)
-  isfinite(_maximum_abs(x)) || throw(ArgumentError("a hyperslab projection needs finite inputs"))
-  isempty(x) && !(f.l <= 0 <= f.u) && throw(ArgumentError("the hyperslab contains no empty array"))
-  nothing
 end
 
 # Choose the active bound from the residual, independently of membership slack.
@@ -792,18 +798,17 @@ function _hyperslab_residual(f, x, a)
   s = eltype(x) <: Integer ? _stored_dot_normal(a, x) : _dot_normal(a, x)
   if isfinite(f.l)
     g = s - _scaled_offset(f, f.l)
-    g < 0 && return g
+    (isnan(g) || g < 0) && return g
   end
   if isfinite(f.u)
     g = s - _scaled_offset(f, f.u)
-    g > 0 && return g
+    (isnan(g) || g > 0) && return g
   end
   zero(s)
 end
 
 function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
-  _hyperslab_input(f, x)
   isempty(x) && return y
   g = _hyperslab_residual(f, x)
   iszero(g) && return (y === x ? y : copyto!(y, x))

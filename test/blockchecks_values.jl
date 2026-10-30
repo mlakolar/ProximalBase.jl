@@ -1,6 +1,7 @@
 module BlockChecksValuesTest
 
 using Test, ProximalBase, LinearAlgebra, SparseArrays
+using ..TestUtils
 
 const PB = ProximalBase
 const proximal = (prox!, value_and_prox!)
@@ -230,6 +231,65 @@ end
     y = copy(A)
     @test (@allocated PB._checkwrite(op, f, y, A)) == 0
   end
+end
+
+@testset "Nested boxes check the prospective value before writes" begin
+  for inner in (Conjugate(ElasticNet(1.0, 1.0)), SqrNormL2(1.0, ones(1, 2))),
+      wrap in (identity, f -> Scaled(f, 2.0), f -> Tilt(f, zeros(2)), f -> Translate(f, zeros(2)))
+    inside = wrap(Constrained(inner, IndBox(0.0, 1.0)))
+    f = Constrained(inside, IndBox(-1.0, 2.0))
+    E = inner isa Conjugate ? ArgumentError : DimensionMismatch
+    x = [0.5, 0.5]
+    block_failure(value_and_prox!, f, x, E)
+    # The outer box moves the result outside the inner value's domain.
+    outside = Constrained(inside, IndBox(2.0, 3.0))
+    y = zeros(2)
+    @test value_and_prox!(y, outside, x, 1.0) === Inf
+    @test y == [2.0, 2.0]
+    @test prox!(y, f, x, 1.0) === y
+
+    point = hcat([3.0, 3.0], x)
+    unchanged(value_and_prox!, SliceSum(SqrNormL2(2.0), f), point, E)
+    unchanged(prox!, SliceSum(SqrNormL2(2.0), f), point, E)
+    fibers = zeros(2, 2, 2)
+    fibers[1, 1, :] .= 3
+    fibers[2, 1, :] .= 0.5
+    fb = FiberSum(f; diagonal = SqrNormL2(2.0), symmetric = true)
+    unchanged(value_and_prox!, fb, fibers, E)
+  end
+  for inner in (SqrNormL2(1.0, ones(2)), SqrNormL2(1.0, ones(1, 2)), Conjugate(ElasticNet(1.0, 1.0)))
+    f = Constrained(Constrained(inner, IndBox(0, 1)), IndBox(2, 3))
+    x, y = [0.5, 0.5], zeros(2)
+    @test allocs(value_and_prox!, y, f, x, 1.0) == 0
+    s = SeparableSum(SqrNormL2(2.0), f)
+    point = ([3.0], x)
+    dest = ([7.0], y)
+    @test allocs(value_and_prox!, dest, s, point, 1.0) == 0
+  end
+  # Membership uses the converted output and its precision's tolerance.
+  f = Constrained(Constrained(SqrNormL2(1.0, ones(1, 2)), IndBox(0, 1)), IndBox(1 + 2e-8, 2))
+  x = [0.5, 0.5]
+  y = Float32[7, 9]
+  @test_throws DimensionMismatch value_and_prox!(y, f, x, [0.5, 1.0])
+  @test y == Float32[7, 9]
+  y64 = zeros(2)
+  @test value_and_prox!(y64, f, x, [0.5, 1.0]) === Inf
+  @test y64 == fill(1 + 2e-8, 2)
+  # The first ordinary fiber is outside, but a later active fiber needs the value.
+  f = Constrained(Constrained(SqrNormL2(1.0, ones(1, 2)), IndBox(0, 1)), IndBox(-1, 2))
+  x = fill(NaN, 3, 3, 2)
+  x[3, 1, :] .= 0.5
+  fb = FiberSum(f; diagonal = nothing, symmetric = true)
+  unchanged(value_and_prox!, fb, x, DimensionMismatch)
+  # Upper triangles and free diagonals do not evaluate the function.
+  x[3, 1, :] .= NaN
+  x[1, 3, :] .= 0.5
+  for i in 1:3
+    x[i, i, :] .= 0.5
+  end
+  y = copy(x)
+  @test value_and_prox!(y, fb, x, 1.0) === Inf
+  @test [y[i, i, 1] for i in 1:3] == fill(0.5, 3)
 end
 
 end

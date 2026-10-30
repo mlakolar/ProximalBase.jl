@@ -2,7 +2,7 @@ module WeightStepsTest
 using Test, ProximalBase, Random
 const PB = ProximalBase
 
-# Frozen 546dc86 coefficient and entry formulas, independent of the new kernels.
+# Frozen coefficient and entry formulas (546dc86, and Berhu since #289), independent of the new kernels.
 entry(w::Nothing, i) = 1
 entry(w::AbstractArray, i) = w[i]
 shrink_ref(v::T, c::T) where {T<:AbstractFloat} = max(v - c, zero(T)) + min(v + c, zero(T))
@@ -18,9 +18,12 @@ function reference_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Re
   shrink_ref(v, convert(S, coefficient(γ, f.λ1, entry(f.w, i)))) / (1 + convert(S, γ * f.λ2))
 end
 
+# as since #289: an identity prox for a zero step, level or finite weight
 function reference_entry(f::Berhu, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  c = coefficient(S(γ), S(f.λ), S(entry(f.w, i)))
+  step, λ, w = S(γ), S(f.λ), S(entry(f.w, i))
+  !isinf(w) && (iszero(step) || iszero(λ) || iszero(w)) && return S(v)
+  c = coefficient(step, λ, w)
   M, t = S(f.M), abs(S(v))
   t <= M + c ? shrink_ref(S(v), c) : S(v) * M / (M + c)
 end

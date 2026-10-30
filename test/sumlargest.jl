@@ -247,10 +247,12 @@ end
   @test_throws DimensionMismatch Conjugate(SumLargest(1))(Float64[])
   for λ in (0.0, 1.0), bad in (NaN, Inf, -Inf), op in (prox!, value_and_prox!)
     y = fill(99.0, 3)
-    @test_throws ArgumentError op(y, SumLargest(1, λ), [1, bad, 2], 0.7)
-    @test y == fill(99.0, 3)
-    @test_throws ArgumentError op(y, Conjugate(SumLargest(1, λ)), [1, bad, 2], 0.7)
-    @test y == fill(99.0, 3)
+    result = op(y, SumLargest(1, λ), [1, bad, 2], 0.7)
+    @test all(isnan, y)
+    op === value_and_prox! && @test result === (iszero(λ) ? 0.0 : NaN)
+    result = op(y, Conjugate(SumLargest(1, λ)), [1, bad, 2], 0.7)
+    @test all(isnan, y)
+    op === value_and_prox! && @test result === 0.0
   end
   @test SumLargest(1)([Inf, -1]) == Inf
   @test SumLargest(1)([-Inf, -Inf]) == -Inf

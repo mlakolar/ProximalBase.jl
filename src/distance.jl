@@ -64,11 +64,9 @@ _zero_scaled(::SqrDistL2) = ZeroFunction()
 _checkparams(f::SqrDistL2, x) = _checkparams(f.f, x)
 
 function _checkwrite(op::O, f::SqrDistL2, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   _checkparams(f, x)
-  if op === gradient! || op === value_and_gradient!
-    y === x && throw(ArgumentError("the gradient must not overwrite x"))
-  end
   # the set's check on what its projection receives, the distance buffer; it
   # runs at a zero weight too, as the structural checks do
   T = float(eltype(op === prox! || op === value_and_prox! ? y : x))

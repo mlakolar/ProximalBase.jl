@@ -128,6 +128,8 @@ _checkparams(f::LogPenalty, x) = (_checkparam(f.w, x); true)
 Base.@propagate_inbounds function value_entry(f::LogPenalty, v::T, i::Integer) where {T<:Real}
   S = float(T)
   λ, w, φ = S(f.λ), S(_entry(f.w, i)), log1p(abs(S(v)) / S(f.ε))
+  # The ratio can round to zero away from the fixed point.
+  isinf(w) && return isnan(v) ? S(v) : iszero(v) ? zero(S) : S(Inf)
   _weighted_value(_weight_coefficient(λ, w) * φ, φ)
 end
 Base.@propagate_inbounds function _value_entry_ordinary(f::LogPenalty, v::T, i::Integer) where {T<:Real}
@@ -181,11 +183,12 @@ where zero and the nonzero candidate tie, and above it the root `z > 0` of
 and Zhang, 2012), and a dimensionless Newton iteration otherwise, avoiding
 overflow and underflow in the quartic closed form at `q = 2/3`.
 
-Its slope at zero is infinite, so zero is a local minimizer of every problem
-`h + f`, and [`kkt_violation`](@ref) is `-Inf`: an active-set method that grows
-the support from zero by that test never adds a coordinate. Start such a method
-from a nonzero point, or use the proximal operator of the whole vector, as
-proximal gradient methods do.
+At a penalized entry its slope at zero is infinite, so zero is a local
+minimizer of `h + f`, and [`kkt_violation`](@ref) is `-Inf`: an active-set method
+that grows the support from zero by that test never adds a penalized coordinate.
+A zero weight, or a zero level with finite weight, gives `abs(g[i])` instead.
+Start such a method from a nonzero point, or use the proximal operator of the
+whole vector, as proximal gradient methods do.
 """
 struct NormLq{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ::T
@@ -223,7 +226,7 @@ Base.@propagate_inbounds function prox_entry(f::NormLq, v::T, i::Integer, γ::Re
   step, λ, w = S(γ), S(f.λ), S(_entry(f.w, i))
   q, t = S(f.q), abs(S(v))
   isinf(w) && return isnan(v) ? S(v) : zero(S)
-  (iszero(λ) || iszero(w)) && return S(v)
+  (iszero(step) || iszero(λ) || iszero(w)) && return S(v)
   μ = _positive_product(step, λ, w)
   ordinary = isfinite(μ) && μ >= floatmin(S)
   # When μ cannot retain its precision, take the bounded powers of its factors
@@ -287,7 +290,10 @@ function _lq_root(t::S, μ::S, q::S, τ::S) where {S<:AbstractFloat}
   t * r
 end
 
-kkt_violation(f::NormLq, g::AbstractArray, ::Integer) = float(eltype(g))(-Inf)
+function kkt_violation(f::NormLq, g::AbstractArray, i::Integer)
+  w = _entry(f.w, i)
+  !isinf(w) && (iszero(f.λ) || iszero(w)) ? abs(g[i]) : float(eltype(g))(-Inf)
+end
 restrict(f::NormLq, S::AbstractVector{<:Integer}) = NormLq(f.λ, f.q, _restrict_entries(f.w, S))
 
 ####################################
@@ -379,16 +385,44 @@ _rebuild(f::GroupSCAD, λ0, groups, w) = GroupSCAD(λ0, groups, w; a = f.a)
 _group_scalar(f::GroupMCP, ::Type{S}, k::Integer) where {S} = MCP{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
 _group_scalar(f::GroupSCAD, ::Type{S}, k::Integer) where {S} = SCAD{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
 
+function _check_group_coordinate(f::_RadialGroupPenalty, x::AtomIterate, k::Integer)
+  _checksamegroups(f, x)
+  checkbounds(x.groups, k)
+  _group_scalar(f, float(eltype(x)), k)
+end
+
+# Construct every scalar penalty that the kernel will use before it writes.
+function _check_group_scalars(f::_RadialGroupPenalty, ::Type{T}, groups, n::Int = length(groups)) where {T}
+  for a in 1:n
+    _group_scalar(f, T, groups[a])
+  end
+  true
+end
+_check_prox_group_scalars(f::_RadialGroupPenalty, ::Type{T}, y, x) where {T} =
+  _check_group_scalars(f, T, eachindex(f.groups))
+function _check_prox_group_scalars(f::_RadialGroupPenalty, ::Type{T}, y::AtomIterate, x::AtomIterate) where {T}
+  if _samelayout(f, x) && _samelayout(f, y)
+    return _check_group_scalars(f, T, x.active, x.nactive)
+  end
+  _check_group_scalars(f, T, eachindex(f.groups))
+end
+function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::_RadialGroupPenalty, y::AbstractArray, x::AbstractArray)
+  _checksize(y, x)
+  _checkgroups(f, x)
+  _check_symmetric_groups(f, y)
+  _check_prox_group_scalars(f, float(eltype(y)), y, x)
+end
+
 _group_norm(::_RadialGroupPenalty, x, G) = _group_norm2(x, G)
 _dual_norm(::_RadialGroupPenalty, g, G) = _group_norm2(g, G)
 
 # y[G] ← the proximal operator of γp(‖⋅‖₂) at x[G], which may be in place: the
 # scalar proximal operator of p at the norm, along x[G]; returns the new norm
-@inline function _radial_shrink!(p, y::AbstractArray{T}, x::AbstractArray, G, γ) where {T}
+@inline function _radial_shrink!(p, y::AbstractArray{T}, x::AbstractArray, G, γ, W = nothing) where {T}
   nx = _group_norm2(x, G)
   r = iszero(nx) ? nx : prox_entry(p, nx, 1, γ)
   t = iszero(nx) ? nx : r / nx
-  @inbounds for i in G
+  @inbounds for i in _writes(W, G)
     y[i] = t * x[i]
   end
   r
@@ -425,6 +459,7 @@ function _value_and_prox_groups!(y::AbstractArray, f::_RadialGroupPenalty, x::Ab
   _checkgroups(f, x)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
+  _check_group_scalars(f, T, eachindex(f.groups))
   _copy_ungrouped!(y, f, x)
   v = zero(T)
   for k in eachindex(f.groups)
@@ -435,7 +470,7 @@ function _value_and_prox_groups!(y::AbstractArray, f::_RadialGroupPenalty, x::Ab
       end
       continue
     end
-    v += convert(T, value_entry(p, _radial_shrink!(p, y, x, f.groups[k], convert(T, _entry(γ, k))), 1))
+    v += convert(T, value_entry(p, _radial_shrink!(p, y, x, f.groups[k], convert(T, _entry(γ, k)), _group_writes(y, f.groups[k])), 1))
   end
   v
 end
@@ -445,6 +480,7 @@ function _value_and_prox_groups!(y::AtomIterate, f::_RadialGroupPenalty, x::Atom
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, _RadialGroupPenalty, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
+  _check_group_scalars(f, T, x.active, x.nactive)
   copyto!(y, x)
   v = zero(T)
   for a in 1:y.nactive
@@ -459,9 +495,8 @@ end
 # group k of x through the proximal operator in place; the group becomes active
 # if it is nonzero, as after writing to it through atom(x, k)
 function prox_coordinate!(x::AtomIterate, f::_RadialGroupPenalty, k::Integer, γ::Real)
-  _checksamegroups(f, x)
+  p = _check_group_coordinate(f, x, k)
   T = float(eltype(x))
-  p = _group_scalar(f, T, k)
   if iszero(p.λ)
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
     return atom(x, k)

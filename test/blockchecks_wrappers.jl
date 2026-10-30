@@ -21,7 +21,8 @@ function unchanged(op, f, point, E; output = point, modes = (false, true))
     x = deepcopy(point)
     y = alias ? x : deepcopy(output)
     input, before = deepcopy(x), deepcopy(y)
-    @test_throws E oracle!(op, y, f, x)
+    expected_error = alias && op in smooth && applicable(op, y, f, x) ? ArgumentError : E
+    @test_throws expected_error oracle!(op, y, f, x)
     @test isequal(x, input)
     @test isequal(y, before)
   end
@@ -233,6 +234,11 @@ function same_as_blocks(op, f, point; output = point, alias = false)
   x = ([3.0], deepcopy(point))
   y = alias ? x : ([7.0], deepcopy(output))
   input = deepcopy(x)
+  if alias && op in smooth
+    @test_throws ArgumentError oracle!(op, y, SeparableSum(SqrNormL2(2.0), deepcopy(f)), x)
+    @test x == input
+    return
+  end
   expected = alias ? input : deepcopy(y)
   a = oracle!(op, expected[1], SqrNormL2(2.0), input[1])
   b = oracle!(op, expected[2], deepcopy(f), input[2])

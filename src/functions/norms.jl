@@ -1001,7 +1001,7 @@ function _project_l2_group!(y, x, G, λ, α = 1, w = 1)
   end
   isinf(w) && return _project_l2_group_scale!(y, x, G, 1)
   c = _projection_product(α, λ, w)
-  n = _group_norm2(x, G)
+  n = _projection_group_norm2(x, G)
   t = min(one(n), c / n)
   if isfinite(n) && (iszero(n) || (isfinite(c) && t >= floatmin(typeof(t))))
     return _project_l2_group_scale!(y, x, G, iszero(n) ? one(n) : t)
@@ -1017,7 +1017,7 @@ function _project_l2_group_scale!(y, x, G, t)
 end
 
 function _project_l2_group_scaled!(y, x, G, λ, α, w, c, n)
-  m = _maxabs(x, G)
+  m = _projection_group_maxabs(x, G)
   (!isfinite(m) || !isfinite(λ) || !isfinite(α)) &&
     return _project_l2_group_scale!(y, x, G, min(one(n), c / n))
   iszero(m) && return _project_l2_group_scale!(y, x, G, 1)
@@ -1037,4 +1037,39 @@ function _project_l2_group_scaled!(y, x, G, λ, α, w, c, n)
     y[i] = _projection_scale(x[i], fr, k)
   end
   y
+end
+
+
+# Preserve the existing real-float reductions and their ordinary arithmetic.
+@inline _projection_group_norm2(x::AbstractArray{<:AbstractFloat}, G) = _group_norm2(x, G)
+@inline _projection_group_maxabs(x::AbstractArray{<:AbstractFloat}, G) = _maxabs(x, G)
+
+function _projection_group_norm2(x::AbstractArray, G)
+  T = real(float(eltype(x)))
+  s = zero(T)
+  @inbounds @simd for i in G
+    s += abs2(float(x[i]))
+  end
+  isfinite(s) && s >= floatmin(T) && return sqrt(s)
+  if iszero(s)
+    a = zero(T)
+    @inbounds @simd for i in G
+      a += abs(float(x[i]))
+    end
+    iszero(a) && return s
+  end
+  n = zero(T)
+  @inbounds for i in G
+    isnan(x[i]) && return T(NaN)
+    n = hypot(n, abs(float(x[i])))
+  end
+  n
+end
+
+function _projection_group_maxabs(x::AbstractArray, G)
+  m = zero(real(float(eltype(x))))
+  @inbounds for i in G
+    m = max(m, abs(float(x[i])))
+  end
+  m
 end

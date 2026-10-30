@@ -294,4 +294,54 @@ end
   end
 end
 
+
+@testset "indexed complex and integer group projections" begin
+  setprecision(BigFloat, 4096) do
+    for T in (Float32, Float64)
+      h = floatmax(T) * T(0.7)
+      tiny = T === Float32 ? T(1e-30) : T(1e-300)
+      huge = T === Float32 ? T(1e30) : T(1e300)
+      for (x, λ) in ((Complex{T}[3, 4, 0, 7], one(T)),
+                     (Complex{T}[3 + 4im, 12im, 0, 7 - 2im], one(T)),
+                     (Complex{T}[0, 0, 0, 7], one(T)),
+                     (Complex{T}[complex(tiny, tiny), complex(tiny, -tiny), 0, 7], tiny),
+                     (Complex{T}[complex(h, h), complex(h, -h), complex(tiny, -tiny), 7], one(T)),
+                     (Complex{T}[complex(h, h), complex(h, -h), complex(tiny, -tiny), 7], floatmax(T) / 2),
+                     (Complex{T}[complex(huge, huge), complex(huge, -huge), 0, 7], tiny))
+        f = GroupNormL2(λ, [[1, 2, 3]], ones(T, 1))
+        X = Complex{BigFloat}.(x)
+        n = norm(X[1:3])
+        ref = zero(X)
+        ref[1:3] .= X[1:3] .* (iszero(n) ? BigFloat(1) : min(BigFloat(1), BigFloat(λ) / n))
+        for op in (prox!, value_and_prox!)
+          y = similar(x)
+          v = op(y, Conjugate(f), x, 1.0)
+          accurate(real.(y), real.(ref), 8)
+          accurate(imag.(y), imag.(ref), 8)
+          op === value_and_prox! && @test v == 0
+          blocks = (similar(x),)
+          v = op(blocks, Conjugate(SeparableSum(f)), (x,), 1.0)
+          @test blocks[1] == y
+          op === value_and_prox! && @test v == 0
+          alias = copy(x)
+          op(alias, Conjugate(f), alias, 1.0)
+          @test alias == y
+        end
+      end
+    end
+    for I in (Int32, Int64, Int128), op in (prox!, value_and_prox!)
+      x = I[typemin(I)]
+      f = GroupNormL2(1e-300, [[1]], [1.0])
+      y = [0.0]
+      v = op(y, Conjugate(f), x, 1.0)
+      accurate(y, [-BigFloat(f.λ0)], 8)
+      op === value_and_prox! && @test v == 0
+      blocks = ([0.0],)
+      v = op(blocks, Conjugate(SeparableSum(f)), (x,), 1.0)
+      @test blocks[1] == y
+      op === value_and_prox! && @test v == 0
+    end
+  end
+end
+
 end

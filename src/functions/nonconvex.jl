@@ -371,13 +371,16 @@ _group_scalar(f::GroupSCAD, ::Type{S}, k::Integer) where {S} = SCAD{S}(convert(S
 function _check_group_coordinate(f::_RadialGroupPenalty, x::AtomIterate, k::Integer)
   _checksamegroups(f, x)
   checkbounds(x.groups, k)
+  isinf(_weight_coefficient(f.λ0, f.w[k])) && return nothing
   _group_scalar(f, float(eltype(x)), k)
 end
 
 # Construct every scalar penalty that the kernel will use before it writes.
 function _check_group_scalars(f::_RadialGroupPenalty, ::Type{T}, groups, n::Int = length(groups)) where {T}
   for a in 1:n
-    _group_scalar(f, T, groups[a])
+    k = groups[a]
+    isinf(_weight_coefficient(f.λ0, f.w[k])) && continue
+    _group_scalar(f, T, k)
   end
   true
 end

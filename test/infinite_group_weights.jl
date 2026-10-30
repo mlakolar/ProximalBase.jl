@@ -156,4 +156,62 @@ end
   end
 end
 
+@testset "fixed radial groups skip unused scalar validation" begin
+  for (F, a) in ((GroupSCAD, nextfloat(2.0)), (GroupMCP, 1e-100)),
+      groups in ([[1]], [[1, 2], [3]]), λ in (0.0, 1.0, Inf)
+    f = F(λ, groups, fill(Inf, length(groups)); a)
+    x = Float32.(1:maximum(last, groups))
+    expected = zeros(Float32, length(x))
+    for γ in (0f0, 1f0, zeros(Float32, length(groups)), ones(Float32, length(groups)))
+      @test prox(f, x, γ) == expected
+      for input in (x, AtomIterate(x, f)), inplace in (false, true)
+        source = copy(input)
+        y = inplace ? source : copy(input)
+        @test value_and_prox!(y, f, source, γ) == 0f0
+        @test Vector(y) == expected
+        @test f(y) == 0f0
+        source = copy(input)
+        y = inplace ? source : copy(input)
+        prox!(y, f, source, γ)
+        @test Vector(y) == expected
+      end
+    end
+    for γ in (0f0, 1f0)
+      xi = AtomIterate(x, f)
+      for k in eachindex(groups)
+        PB.prox_coordinate!(xi, f, k, γ)
+        @test all(iszero, Vector(xi)[groups[k]])
+      end
+      @test Vector(xi) == expected
+    end
+  end
+  for (F, a) in ((GroupSCAD, nextfloat(2.0)), (GroupMCP, 1e-100))
+    # Infinite levels also bypass the scalar when the stored weight is finite.
+    f = F(Inf, [[1]], [1.0]; a)
+    @test prox(f, Float32[1], 1f0) == Float32[0]
+    @test prox(f, Float32[1], 0f0) == Float32[1]
+    # A later ordinary group must still fail before an earlier group is written.
+    f = F(0.0, [[1], [2]], [Inf, 1.0]; a)
+    for op in (prox!, value_and_prox!), γ in (0f0, Float32[0, 1]),
+        atom in (false, true)
+      x = atom ? AtomIterate(Float32[1, 2], f) : Float32[1, 2]
+      y = atom ? AtomIterate(Float32[9, 9], f) : Float32[9, 9]
+      @test_throws ArgumentError op(y, f, x, γ)
+      @test Vector(y) == Float32[9, 9]
+    end
+    xi = AtomIterate(Float32[1, 2], f)
+    PB.prox_coordinate!(xi, f, 1, 0f0)
+    @test Vector(xi) == Float32[0, 2]
+    @test_throws ArgumentError PB.prox_coordinate!(xi, f, 2, 0f0)
+    @test Vector(xi) == Float32[0, 2]
+    for k in (0, 3)
+      @test_throws BoundsError PB.prox_coordinate!(xi, f, k, 0f0)
+      @test Vector(xi) == Float32[0, 2]
+    end
+    other = AtomIterate(Float32[1, 2], [[1, 2]])
+    @test_throws DimensionMismatch PB.prox_coordinate!(other, f, 1, 0f0)
+    @test Vector(other) == Float32[1, 2]
+  end
+end
+
 end

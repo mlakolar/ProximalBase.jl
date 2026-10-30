@@ -278,6 +278,8 @@ function (f::IndIsotonic)(x::AbstractVector)
   T = float(eltype(x))
   t = _tol(T)
   length(x) == 1 && isnan(first(x)) && return T(Inf)
+  # accept ordered pairs exactly; unordered pairs with a non-finite entry violate the order
+  # for a > b the true difference is positive, so 0 < d rejects integer wraparound
   @inbounds for i in firstindex(x):lastindex(x)-1
     a, b = f.decreasing ? (x[i + 1], x[i]) : (x[i], x[i + 1])
     a <= b && continue

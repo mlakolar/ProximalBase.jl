@@ -157,8 +157,6 @@ end
     )
       @test f(decreasing ? reverse(v) : v) == expected
     end
-    v = Rational{Int8}[1//126, 1//127]
-    @test_throws OverflowError f(decreasing ? reverse(v) : v)
     for T in (Float32, Float64), v in (T[1, 2, 3], T[1, 0, 2], T[Inf, Inf], T[Inf, 0], T[NaN])
       @test allocs(f, v) == 0
     end

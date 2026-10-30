@@ -173,6 +173,129 @@ end
   end
 end
 
+@testset "zero scaling of shaped separable penalties" begin
+  for T in (Float32, Float64), F in (CappedL1, LogPenalty, NormLq, Berhu)
+    shape = T(0.5)
+    for w in (nothing, T[1, 0, 2, 3])
+      f = F(one(T), shape, w)
+      for z in (Scaled(f, zero(T)), Scaled{typeof(f), T}(f, zero(T)),
+                zero(T) * f, f * zero(T), Scaled(Scaled(f, T(2)), zero(T)))
+        @test z isa ZeroFunction
+      end
+    end
+    @test_throws ArgumentError Scaled(F(T(Inf), shape), zero(T))
+    if F === NormLq
+      @test_throws ArgumentError F(one(T), T(Inf))
+    else
+      @test_throws ArgumentError Scaled(F(one(T), T(Inf)), zero(T))
+    end
+    w = T[1, Inf, 0, 2]
+    f = F(one(T), shape, w)
+    for z in (Scaled(f, zero(T)), Scaled{typeof(f), T}(f, zero(T)),
+              zero(T) * f, f * zero(T), Scaled(Scaled(f, T(2)), zero(T)))
+      @test z isa F
+      @test z.λ === zero(T)
+      @test getfield(z, 2) === shape
+      @test z.w === w
+      @test z(T[0.5, 0, 3, 1]) === zero(T)
+      @test z(T[0.5, 2, 3, 1]) === T(Inf)
+      g = T[0.5, -2, 3, -1]
+      for i in 1:4
+        @test value_entry(z, zero(T), i) === zero(T)
+        @test value_entry(z, T(3), i) === (i == 2 ? T(Inf) : zero(T))
+        @test isnan(value_entry(z, T(NaN), i))
+        @test kkt_violation(z, g, i) === (i == 2 ? T(-Inf) : abs(g[i]))
+        @test allocs(value_entry, z, T(3), i) == 0
+        @test allocs(prox_entry, z, T(3), i, one(T)) == 0
+        @test allocs(kkt_violation, z, g, i) == 0
+      end
+      for x in (T[0.5, 2, 3, -1], T[floatmax(T)/4, 2, -0.0, 1]),
+          γ in (zero(T), one(T), T[0, 0.5, 2, 1])
+        expected = copy(x)
+        expected[2] = zero(T)
+        @test isequal(prox(z, x, γ), expected)
+        y = similar(x)
+        @test value_and_prox!(y, z, x, γ) === zero(T)
+        @test isequal(y, expected)
+        @test allocs(prox!, y, z, x, γ) == 0
+        @test allocs(value_and_prox!, y, z, x, γ) == 0
+      end
+      xi = SparseIterate(T[0.5, 2, 3, 1])
+      for i in 1:4
+        @test PB.prox_coordinate!(xi, z, i, one(T)) === (i == 2 ? zero(T) : T[0.5, 2, 3, 1][i])
+      end
+      for indices in ([2], [1, 3, 4], [2, 1])
+        r = PB.restrict(z, indices)
+        @test r isa F
+        @test r.λ === zero(T)
+        @test getfield(r, 2) === shape
+        @test r.w == w[indices]
+      end
+      @test allocs(z, T[0.5, 0, 3, 1]) == 0
+    end
+  end
+end
+
+@testset "ordinary positive-level bit patterns" begin
+  snapshots32 = (
+    (0x3f0d9168, 0x3e8f5c29, 0x4019999a, 0x3feb8520),
+    (0x3fb4bfd1, 0x3f7c01ab, 0x40148472, 0x3fa3d70b),
+    (0x3faed84c, 0x3f5e17a5, 0x4014e68f, 0xff800000),
+    (0x4068ded3, 0x405765fe, 0x3fd4279b, 0x3feb8520),
+  )
+  snapshots64 = (
+    (0x3fe1b22d0e560418, 0x3fd1eb851eb851eb, 0x4003333333333333, 0x3ffd70a3d70a3d70),
+    (0x3ff697fa16694f54, 0x3fef803556aee2c3, 0x4002908e3f946050, 0x3ff47ae147ae147b),
+    (0x3ff5db096feba538, 0x3febc2f496ad75c0, 0x40029cd1f4415716, 0xfff0000000000000),
+    (0x400d1bda5119ce07, 0x400aecbfb15b573e, 0x3ffa84f3454dca41, 0x3ffd70a3d70a3d70),
+  )
+  for (T, U, snapshots) in ((Float32, UInt32, snapshots32), (Float64, UInt64, snapshots64))
+    for (F, expected) in zip((CappedL1, LogPenalty, NormLq, Berhu), snapshots)
+      f = F(T(0.7), T(0.5), T[1.3, 0.8])
+      x = T[0.3, 2.4]
+      values = (f(x), value_entry(f, x[2], 2), prox_entry(f, x[2], 2, T(0.4)), kkt_violation(f, x, 2))
+      @test reinterpret.(U, values) == expected
+      @test value_entry(f, x[2], 2) === PB._value_entry_ordinary(f, x[2], 2)
+      if F === LogPenalty
+        @test lla_weight(f, x[2], 2) === f.λ * f.w[2] / (f.ε + abs(x[2]))
+      end
+    end
+  end
+end
+
+@testset "extreme fixed and unpenalized entries" begin
+  for T in (Float32, Float64)
+    tiny, huge = nextfloat(zero(T)), floatmax(T)
+    for λ in (zero(T), one(T))
+      f = LogPenalty(λ, huge, T[Inf])
+      @test value_entry(f, tiny, 1) === T(Inf)
+      @test f(T[tiny]) === T(Inf)
+      @test value_entry(f, zero(T), 1) === zero(T)
+      @test lla_weight(f, huge, 1) === T(Inf)
+      @test allocs(lla_weight, f, huge, 1) == 0
+    end
+    for f in (Berhu(zero(T), T(8)), Berhu(one(T), T(8), T[0]), Berhu(one(T), T(8)))
+      steps = iszero(f.λ) || f.w !== nothing ? (zero(T), one(T)) : (zero(T),)
+      for v in (T(9.3), huge / 4, -huge / 4, -zero(T)), γ in steps
+        @test isequal(prox_entry(f, v, 1, γ), v)
+      end
+    end
+    for λ in (zero(T), one(T)), w in (zero(T), one(T))
+      f = NormLq(λ, T(0.5), T[w])
+      expected = iszero(λ) || iszero(w) ? T(2) : T(-Inf)
+      @test kkt_violation(f, T[-2], 1) === expected
+    end
+    @test kkt_violation(NormLq(zero(T), T(0.5)), T[-2], 1) === kkt_violation(ZeroFunction(), T[-2], 1)
+    @test iszero(tiny * tiny)
+    @test kkt_violation(NormLq(tiny, T(0.5), T[tiny]), T[2], 1) === T(-Inf)
+    for F in (CappedL1, LogPenalty)
+      f = F(zero(T), T(0.5), T[1, Inf, 0, 2])
+      @test lla_weights(f, T[huge, huge, huge, huge]) == T[0, Inf, 0, 0]
+      @test allocs(lla_weights!, zeros(T, 4), f, ones(T, 4)) == 0
+    end
+  end
+end
+
 @testset "infinite weight, lla weights" begin
   for T in (Float32, Float64), λ in (0, 1)
     fs = penalties(T, λ, T[1, Inf])
@@ -250,8 +373,7 @@ end
           expected = nonneg ? max(v, 0) : enet ? v / T(1.25) : v
           @test PB.prox_entry(f, v, 2, T(0.5)) ≈ expected
         end
-        # the slope of NormLq at zero is infinite, whatever its weight
-        @test PB.kkt_violation(f, T[0.5, 0.5], 2) ≈ (name === :NormLq ? T(-Inf) : nonneg ? T(-0.5) : T(0.5))
+        @test PB.kkt_violation(f, T[0.5, 0.5], 2) ≈ (nonneg ? T(-0.5) : T(0.5))
         if name in (:NormL1, :CappedL1, :LogPenalty)
           @test PB.lla_weight(f, T(0.3), 2) === T(0)
         end
@@ -282,7 +404,7 @@ end
       enet = name === :ElasticNet
       @test PB.value_entry(f, T(0.5), 2) ≈ (enet ? T(0.5 * 0.25 / 2) : T(0))
       @test PB.prox_entry(f, T(0.7), 2, T(1)) ≈ (enet ? T(0.7 / 1.5) : T(0.7))
-      @test PB.kkt_violation(f, T[0.5, 0.5], 2) ≈ (name === :NormLq ? T(-Inf) : nonneg ? T(-0.5) : T(0.5))
+      @test PB.kkt_violation(f, T[0.5, 0.5], 2) ≈ (nonneg ? T(-0.5) : T(0.5))
       if name in (:NormL1, :CappedL1, :LogPenalty)
         @test PB.lla_weight(f, T(0.3), 2) === T(0)
       end

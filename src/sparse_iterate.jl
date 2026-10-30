@@ -87,7 +87,7 @@ The position-wise writers `reverse!`, `sort!`, `accumulate!`, `kron!` and
 `copytrito!` (when available) throw an `ArgumentError` before writing.
 This also rejects `reverse(x)` with or without `dims`, `cumsum!`, `cumprod!`,
 and allocating `cumsum`, `cumprod` and `accumulate` with `dims`.
-`circshift!` and `circshift` of a nonempty `x` throw too.
+`circshift!` and `circshift` of a nonempty `x` by a nonempty shift throw too.
 `triu!(x, k)` and `tril!(x, k)` return `x` unchanged only when every position
 is kept: `k ≤ 1 - p` for `triu!`, `k ≥ p - 1` for `tril!`, or any `k` when
 `p = 0`. Otherwise they throw an `ArgumentError` before writing.

@@ -106,7 +106,7 @@ writing. Out-of-bounds indices still throw a `BoundsError`.
 throw an `ArgumentError` before writing. This also rejects `reverse(x)`
 with or without `dims`, `cumsum!`, `cumprod!`, and allocating `cumsum`,
 `cumprod` and `accumulate` with `dims`. `circshift!` and `circshift` of a
-nonempty ``x`` throw too.
+nonempty ``x`` by a nonempty shift throw too.
 `triu!(x, k)` returns ``x`` unchanged when ``k \le 1-p``, and `tril!(x, k)`
 when ``k \ge p-1``. Both return ``x`` for every `k` when ``p=0``. Otherwise
 they throw an `ArgumentError` before writing.

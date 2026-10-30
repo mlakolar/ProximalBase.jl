@@ -445,6 +445,8 @@ for an indicator `g`. Not
 that is an indicator, such as that of a precomposed norm, takes its value from
 the Fenchel equality and can return a small nonzero value instead of zero;
 this is not a feasibility certificate.
+At an input with a non-finite entry, a direct `Conjugate(SingularValue(f))`
+returns `Inf` if the proximal step returns.
 
 The support functions of the ℓ1 and ℓ2 balls follow the overflow handling of
 `NormLinf` and `NormL2`, including a radius not representable in the argument's precision.

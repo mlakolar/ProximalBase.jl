@@ -60,8 +60,8 @@ check; a broadcast whose arguments do not show that its value is symmetric is
 first evaluated at both positions of each off-diagonal entry.
 `replace` and `replace!` visit each entry of the lower triangle once, and
 their `count` counts those entries.
-`mul!` into ``x`` computes the product in the element type of ``x``, requires it to
-be exactly symmetric, and leaves the product out when α = 0, as LinearAlgebra does.
+`mul!` into ``x`` checks the product for exact symmetry in a promoted buffer,
+converts at the final write, and leaves the product out when α = 0, as LinearAlgebra does.
 Functions that update entries one position at a time, such as `x[:, :] = A`,
 are not checked; the docstring lists them.
 

@@ -44,8 +44,8 @@ with side effects runs more often and may give a value that is not symmetric.
 `ArgumentError`. `fill!`, `rmul!` and `lmul!` by a number keep `x` symmetric.
 `replace` and `replace!` visit each entry of the lower triangle once, and their
 `count` counts those entries, column by column.
-`mul!` into `x` computes the product in the element type of `x`, requires it to
-be exactly symmetric, and leaves the product out when α = 0, as LinearAlgebra does.
+`mul!` into `x` checks the product for exact symmetry in a promoted buffer,
+converts at the final write, and leaves the product out when α = 0, as LinearAlgebra does.
 
 Other functions update the entries of `x` one position at a time and are not
 checked: indexed and view assignment such as
@@ -1165,6 +1165,14 @@ LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractVecOrMat, B::AbstractVe
 LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractVecOrMat, B::AbstractVecOrMat,
                   α::Number, β::Number) = _mul_symmetric!(x, A, B, α, β)
 
+# uniform scaling operands use a diagonal with the required inner dimension
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractMatrix, J::UniformScaling,
+                  α::Number, β::Number) =
+  _mul_symmetric!(x, A, Diagonal(fill(J.λ, size(A, 2))), α, β)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, J::UniformScaling, B::AbstractVecOrMat,
+                  α::Number, β::Number) =
+  _mul_symmetric!(x, Diagonal(fill(J.λ, size(B, 1))), B, α, β)
+
 function _mul_symmetric!(x::SymmetricSparseIterate, A, B, α, β)
   p = size(x, 1)
   size(A, 1) == size(B, 2) == p && size(A, 2) == size(B, 1) ||
@@ -1175,7 +1183,9 @@ function _mul_symmetric!(x::SymmetricSparseIterate, A, B, α, β)
     x .= x .* β
     return x
   end
-  P = Matrix{eltype(x)}(undef, p, p)
+  T = Base.promote_op(*, eltype(A), eltype(B))
+  U = promote_type(eltype(x), Base.promote_op(+, T, T), typeof(α), typeof(β))
+  P = Matrix{U}(undef, p, p)
   mul!(P, A, B, α, false)
   pair = _asymmetric_pair(P, _symequal)
   if pair !== nothing

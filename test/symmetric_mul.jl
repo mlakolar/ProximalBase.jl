@@ -17,14 +17,13 @@ function rejects(f::F, x, E, msg = nothing) where {F}
   @test isequal(state(x), before)
 end
 
-# use the same operands and destination precision for the dense reference
-function check_mul(x, A, B, scalars...)
+# the dense reference accumulates before converting to the destination type
+@noinline function check_mul(x, A, B, scalars...)
+  Base.@nospecialize x A B scalars
   α, β = isempty(scalars) ? (true, false) : scalars
-  P = Matrix{eltype(x)}(undef, size(x)...)
-  mul!(P, A, B, α, false)
-  @test ProximalBase._issymmetric_exact(P, ProximalBase._symequal)
   R = Matrix(x)
   mul!(R, A, B, α, β)
+  @test ProximalBase._issymmetric_exact(R, ProximalBase._symequal)
   @test mul!(x, A, B, scalars...) === x
   @test isequal(Matrix(x), R) || Matrix(x) == R
   x
@@ -91,9 +90,30 @@ end
   end
 
   @testset "precision" begin
-    A = Float32[1e8 1 -1e8]
-    x = check_mul(SymmetricSparseIterate(Float64, 1), A, ones(Float32, 3, 1))
-    @test x[1, 1] == 1.0
+    A = Float32[1e8 1 -1e8; 1e8 1 -1e8]
+    x = check_mul(SymmetricSparseIterate(Float64, 2), A, ones(Float32, 3, 2))
+    @test Matrix(x) == ones(2, 2)
+    check_mul(SymmetricSparseIterate(ones(Int, 2, 2)), Diagonal(ones(Int, 2)),
+              ones(Int, 2, 2), 0.5, 0.5)
+    x = check_mul(SymmetricSparseIterate(ones(2, 2)), Diagonal(ones(2)),
+                  ones(2, 2), 1 + im, 1 - im)
+    @test Matrix(x) == fill(2.0, 2, 2)
+    # a conversion failure at the final write may leave a partial write
+    @test_throws InexactError mul!(SymmetricSparseIterate(ones(Int, 2, 2)),
+                                  Diagonal(ones(Int, 2)), ones(Int, 2, 2), 0.5, 0)
+  end
+
+  @testset "uniform scaling" begin
+    A = [1.0 2; 0 1]
+    M = [1.0 2; 2 3]
+    for (L, R) in ((A, I), (I, A))
+      rejects(x -> mul!(x, L, R, 1, 1),
+              fill!(SymmetricSparseIterate(2), 1e20), ArgumentError)
+    end
+    for (L, R) in ((M, 2I), (2I, M))
+      check_mul(fill!(SymmetricSparseIterate(2), 1), L, R, 2, 3)
+      check_mul(fill!(SymmetricSparseIterate(2), NaN), L, R, 1, 0)
+    end
   end
 
   @testset "operands and aliasing" begin

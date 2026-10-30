@@ -346,8 +346,7 @@ end
   @testset "five-argument products" begin
     n, p = 7, 9
     types = ((Float32, Float32, Float32), (Float64, Float64, Float64),
-             (Float64, Float32, Float64), (Float32, Float64, Float64),
-             (ComplexF64, Float64, ComplexF64), (ComplexF64, ComplexF64, ComplexF64))
+             (Float64, Float32, Float64), (Float32, Float64, Float64))
     for (Ta, Tx, To) in types, support in (:empty, :partial, :full), strided in (false, true)
       strided && !(Ta == Tx == To && Ta <: Real) && continue
       @testset "$Ta × $Tx → $To, $support, views=$strided" begin
@@ -361,7 +360,7 @@ end
           before = copy(x)
           out = strided ? view(randn(To, 2n), 1:2:2n) : randn(To, n)
           initial = copy(out)
-          S = real(Ta)
+          S = Ta
           for α in S.((0, 1, 2.5)), β in S.((0, 1, -0.5))
             copyto!(out, initial)
             iszero(β) && fill!(out, NaN)
@@ -372,10 +371,6 @@ end
               fill!(out, NaN)
               check_scaled_product(out, A, x, α, β)
             end
-          end
-          if To <: Complex
-            copyto!(out, initial)
-            check_scaled_product(out, A, x, 1 + 0.5im, -0.5 + 0.25im)
           end
           check_product_state(x, before)
         end

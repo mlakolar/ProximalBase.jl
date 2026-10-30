@@ -109,6 +109,7 @@ end
 # values within rounding of zero count as zero. An overflowing spectrum (k > 0;
 # a subnormal one has k < 0) decides membership in scaled units.
 function (F::SingularValue)(X::AbstractMatrix)
+  _checkreal(F, X)
   T = float(eltype(X))
   _checkblas(F, T)
   if _is_device_array(X)
@@ -200,6 +201,8 @@ function _checkspectrum(F::SingularValue, ::Type{T}, dims::Tuple) where {T}
   T <: _BlasReal && ws isa SVDWorkspace{T} && (ws.m, ws.n) == dims ? ws.s : Vector{T}(undef, k)
 end
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, F::SingularValue, Y::AbstractMatrix, X::AbstractMatrix)
+  _checkreal(F, X)
+  _checkreal(F, Y)
   _checksize(Y, X)
   T = float(eltype(Y))
   _checkblas(F, T)
@@ -207,11 +210,10 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, F::Singula
   t = _checkbuffer(F.t, T, size(s))
   _checkwrite(value_and_prox!, F.f, t, s)
 end
-_checkvalue(F::SingularValue, X::AbstractMatrix) =
-  _checkvalue(F.f, _checkbuffer(F.t, float(eltype(X)), (min(size(X)...),)))
+_checkvalue(F::SingularValue, X::AbstractMatrix) = (_checkreal(F, X); _checkvalue(F.f, _checkbuffer(F.t, float(eltype(X)), (min(size(X)...),))))
 
 # the conjugate of f ∘ σ is f* ∘ σ (Lewis, 1995)
-_checkconjugate(F::SingularValue, Y::AbstractMatrix) = _checkconjugate(F.f, _checkspectrum(F, float(eltype(Y)), size(Y)))
+_checkconjugate(F::SingularValue, Y::AbstractMatrix) = (_checkreal(F, Y); _checkconjugate(F.f, _checkspectrum(F, float(eltype(Y)), size(Y))))
 # with the zero mask of the value, and the same domain
 function _conjugate_value(F::SingularValue, Y::AbstractMatrix)
   _checkconjugate(F, Y)

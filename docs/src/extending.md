@@ -18,7 +18,7 @@ cheaply, and define [`lipschitz`](@ref) when a smooth function's constant is
 known.
 
 Values follow the rule in [Precision](@ref): `f(x)` and
-`value_and_gradient!(g, f, x)` return `T = real(float(eltype(x)))`, and
+`value_and_gradient!(g, f, x)` return `T = float(eltype(x))`, and
 `value_and_prox!(y, f, x, γ)` returns `T` of `y`, whatever the precision of
 the parameters. Convert a value computed with wider parameters to `T` before
 returning it. The traits are defined on the type:
@@ -31,7 +31,7 @@ struct CenteredBox <: AbstractFunction end
 ProximalBase.isproximable(::Type{CenteredBox}) = true
 ProximalBase.isconvex(::Type{CenteredBox}) = true
 function (::CenteredBox)(x)
-    T = real(float(eltype(x)))
+    T = float(eltype(x))
     all(abs.(x) .<= 1 + 1e-12) && abs(sum(x)) <= 1e-9 ? zero(T) : T(Inf)
 end
 

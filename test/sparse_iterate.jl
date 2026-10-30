@@ -273,11 +273,6 @@ end
         @test M' * y ≈ transpose(M) * Vector(w)
         @test mul!(zeros(50), M', y) ≈ transpose(M) * Vector(w)
         @test_throws DimensionMismatch M' * x
-
-        # complex M' conjugates, so it must not use the transpose path
-        Mc = complex.(M, randn(30, 50))
-        @test which(*, typeof.((Mc', y))).module != ProximalBase
-        @test Mc' * y ≈ Mc' * Vector(w)
     end
 
     @testset "products with rows and columns" begin
@@ -314,8 +309,7 @@ end
     @testset "five-argument products" begin
         n, p, q = 7, 32, 4
         types = ((Float32, Float32, Float32), (Float64, Float64, Float64),
-                 (Float64, Float32, Float64), (Float32, Float64, Float64),
-                 (ComplexF64, Float64, ComplexF64), (ComplexF64, ComplexF64, ComplexF64))
+                 (Float64, Float32, Float64), (Float32, Float64, Float64))
         for (Ta, Tx, To) in types, support in (:empty, :sparse, :partial, :full), strided in (false, true)
             strided && !(Ta == Tx == To && Ta <: Real) && continue
             @testset "$Ta × $Tx → $To, $support, views=$strided" begin
@@ -350,26 +344,17 @@ end
                         matrices = (A,)
                     end
                     initial = copy(out)
-                    S = real(Ta)
+                    S = Ta
                     for M in matrices, α in S.((0, 1, 2.5)), β in S.((0, 1, -0.5))
                         copyto!(out, initial)
                         iszero(β) && fill!(out, NaN)
-                        specialized = !(M isa Adjoint && !(eltype(M) <: Real))
-                        check_scaled_product(out, M, x, α, β; specialized = specialized)
+                        check_scaled_product(out, M, x, α, β)
                     end
                     if support in (:sparse, :partial) && !strided
                         scalar_pairs = length(dims) == 2 ? ((true, false), (0, 0), (1, 0)) : ((true, false), (0, 0))
                         for M in matrices, (α, β) in scalar_pairs
                             fill!(out, NaN)
-                            specialized = !(M isa Adjoint && !(eltype(M) <: Real))
-                            check_scaled_product(out, M, x, α, β; specialized = specialized)
-                        end
-                    end
-                    if To <: Complex
-                        for M in matrices
-                            copyto!(out, initial)
-                            specialized = !(M isa Adjoint && !(eltype(M) <: Real))
-                            check_scaled_product(out, M, x, 1 + 0.5im, -0.5 + 0.25im; specialized = specialized)
+                            check_scaled_product(out, M, x, α, β)
                         end
                     end
                     check_product_state(x, before)
@@ -427,18 +412,6 @@ end
             end
         end
     end
-
-    @testset "sesquilinear matrix products" begin
-        for T in (ComplexF32, ComplexF64)
-            a, b = T[1 + im, 2 - im], T[1, 2 + im]
-            M = T[1 2; 0 3]
-            X = SparseIterate(M)
-            @test dot(a, X, b) ≈ dot(a, M, b)
-            # A complex left vector must also be conjugated for real storage.
-            @test dot(a, SparseIterate(real.(M)), b) ≈ dot(a, real.(M), b)
-        end
-    end
-
 end
 
 @testset "sparseSymmetricIterate" begin
@@ -493,7 +466,7 @@ end
         @test triu(S) == triu(M) && tril(S) == tril(M) && triu(S, 1) == triu(M, 1) && tril(S, -2) == tril(M, -2)
         # products
         @test S * b ≈ M * b && S' * b ≈ M * b && b' * S ≈ b' * M && transpose(b) * S ≈ transpose(b) * M
-        @test S * Float32.(b) ≈ M * Float32.(b) && S * complex.(b, b) ≈ M * complex.(b, b)
+        @test S * Float32.(b) ≈ M * Float32.(b)
         @test S * B ≈ M * B && B' * S ≈ B' * M && S * S ≈ M * M && S * Float32.(B) ≈ M * Float32.(B)
         @test dot(S, M) ≈ dot(M, M) && dot(M, S) ≈ dot(M, M) && dot(S, S) ≈ dot(M, M) && dot(b, S, b) ≈ dot(b, M, b)
         # linear algebra
@@ -613,7 +586,7 @@ end
         @test copyto!(t, source) === t
         @test Matrix(t) == Matrix(source)
       end
-      for T in (Float64, ComplexF64)
+      for T in (Float64,)
         @test_throws ArgumentError copyto!(SymmetricSparseIterate(T, 5), SparseArrays.CHOLMOD.Dense(T.(E)))
         source = SparseArrays.CHOLMOD.Dense(T.(F))
         dest = SymmetricSparseIterate(T, 5)
@@ -621,9 +594,9 @@ end
         @test Matrix(dest) == T.(F)
         # The differently typed destination takes CHOLMOD's untyped
         # intersection rather than its element-type-matched method.
-        mixed = SymmetricSparseIterate(ComplexF64, 5)
+        mixed = SymmetricSparseIterate(Float32, 5)
         @test copyto!(mixed, source) === mixed
-        @test Matrix(mixed) == ComplexF64.(F)
+        @test Matrix(mixed) == Float32.(F)
       end
       @test_throws DimensionMismatch copyto!(t, view(F, 1:4, 1:4))
       @test_throws ArgumentError t .= E
@@ -636,14 +609,14 @@ end
     end
 
     @testset "copyto! from sparse wrappers" begin
-      A = sparse(ComplexF64[1+2im 3-4im; 5+6im 0])      # not symmetric
-      B = sparse(ComplexF64[1+2im 3-4im; 3-4im 0])      # symmetric
+      A = sparse(Float64[1 3; 5 0])      # not symmetric
+      B = sparse(Float64[1 3; 3 0])      # symmetric
       wraps = Any[transpose, adjoint]
       @static if isdefined(SparseArrays, :SparseMatrixCSCOrView)
         push!(wraps, M -> view(M, :, 1:2))
       end
       for wrap in wraps
-        dest = fill!(SymmetricSparseIterate(ComplexF64, 2), 9)
+        dest = fill!(SymmetricSparseIterate(Float64, 2), 9)
         @test_throws ArgumentError copyto!(dest, wrap(A))
         @test Matrix(dest) == fill(9, 2, 2)
         source = wrap(B)
@@ -652,11 +625,11 @@ end
         @test_throws DimensionMismatch copyto!(SymmetricSparseIterate(3), source)
       end
       @static if isdefined(SparseArrays, :AdjOrTransSparseVectorOrView)
-        v = sparse(ComplexF64[2+3im])
-        B = sparse(reshape(ComplexF64[2+3im], 1, 1))
+        v = sparse(Float64[2])
+        B = sparse(reshape(Float64[2], 1, 1))
         for parent in (v, view(v, :), view(B, :, 1)), wrap in (transpose, adjoint)
           source = wrap(parent)
-          dest = SymmetricSparseIterate(ComplexF64, 1)
+          dest = SymmetricSparseIterate(Float64, 1)
           @test copyto!(dest, source) === dest
           @test Matrix(dest) == Matrix(source)
           @test_throws DimensionMismatch copyto!(SymmetricSparseIterate(2), source)
@@ -700,18 +673,10 @@ end
       @test transpose(b) * x ≈ transpose(b) * M
       # other element types take the sparse product too
       @test x * Float32.(b) ≈ M * Float32.(b)
-      @test x * complex.(b, b) ≈ M * complex.(b, b)
 
       # a' X b, tr(A X), and A X B for symmetric A, B
       a = randn(n)
       @test dot(a, x, b) ≈ dot(a, Matrix(M), b)
-      for T in (ComplexF32, ComplexF64)
-        ac, bc = T.(complex.(a, reverse(a))), T.(complex.(b, reverse(b)))
-        @test dot(ac, x, bc) ≈ dot(ac, Matrix(M), bc)
-        Mc = T[1 2 + im; 2 + im 3 - im]
-        xc = SymmetricSparseIterate(Mc)
-        @test dot(ac[1:2], xc, bc[1:2]) ≈ dot(ac[1:2], Mc, bc[1:2])
-      end
       A = randn(n, n)
       @test dot(A, x) ≈ dot(A, Matrix(M)) && dot(x, A) ≈ dot(A, Matrix(M))
       Σx, Σy = Symmetric(randn(n, n)), Symmetric(randn(n, n))

@@ -74,33 +74,37 @@ _isindicator(::Type{<:SphereConstrained{F}}) where {F} = _isindicator(F)
 _checkparams(c::Union{BallConstrained, SphereConstrained}, x) = _checkparams(c.f, x)
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, c::BallConstrained, y::AbstractArray, x::AbstractArray)
+  _checkreal(c, y); _checkreal(c, x)
   _checkwrite(_isindicator(c.f) ? prox! : value_and_prox!, c.f, y, x)
   _isindicator(c.f) || _checkvalue(c.f, y)
   true
 end
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, c::SphereConstrained{<:NormL1}, y::AbstractArray, x::AbstractArray)
+  _checkreal(c, y); _checkreal(c, x)
   _checksize(y, x)
   _checkparams(c, x)
   isempty(x) && throw(ArgumentError("the sphere has no point of size $(size(x))"))
   _checkwrite(value_and_prox!, c.f, y, x)
 end
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, c::SphereConstrained{<:GroupNormL2}, y::AbstractArray, x::AbstractArray)
+  _checkreal(c, y); _checkreal(c, x)
   _checksize(y, x)
   _checkgroups(c.f, x)
   isempty(x) && isempty(c.f.groups) && throw(ArgumentError("the sphere has no point of size $(size(x))"))
   _checkwrite(value_and_prox!, c.f, y, x)
 end
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, c::SphereConstrained{IndBallL0}, y::AbstractArray, x::AbstractArray)
+  _checkreal(c, y); _checkreal(c, x)
   _checksize(y, x)
   c.f.s == 0 && _allcount(c.f, x) &&
     throw(ArgumentError("the sphere misses the ℓ0 ball of no nonzero entries"))
   _checkwrite(prox!, c.f, y, x)
 end
-_checkvalue(c::BallConstrained, x::AbstractArray) = _checkvalue(c.ball, x)
-_checkvalue(c::SphereConstrained, x::AbstractArray) = _checkvalue(c.sphere, x)
+_checkvalue(c::BallConstrained, x::AbstractArray) = (_checkreal(c, x); _checkvalue(c.ball, x))
+_checkvalue(c::SphereConstrained, x::AbstractArray) = (_checkreal(c, x); _checkvalue(c.sphere, x))
 
-(c::BallConstrained)(x::AbstractArray) = (T = float(eltype(x)); iszero(c.ball(x)) ? convert(T, c.f(x)) : T(Inf))
-(c::SphereConstrained)(x::AbstractArray) = (T = float(eltype(x)); iszero(c.sphere(x)) ? convert(T, c.f(x)) : T(Inf))
+(c::BallConstrained)(x::AbstractArray) = (_checkreal(c, x); T = float(eltype(x)); iszero(c.ball(x)) ? convert(T, c.f(x)) : T(Inf))
+(c::SphereConstrained)(x::AbstractArray) = (_checkreal(c, x); T = float(eltype(x)); iszero(c.sphere(x)) ? convert(T, c.f(x)) : T(Inf))
 
 prox!(y::AbstractArray, c::Union{BallConstrained, SphereConstrained}, x::AbstractArray, γ::Real) =
   (value_and_prox!(y, c, x, γ); y)

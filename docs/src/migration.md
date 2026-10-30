@@ -55,15 +55,6 @@ change.
   `NuclearNorm`, `IndPSD`, `IndBallRank`, `TracePSD`) raise an
   `ArgumentError` for element types other than `Float32` and `Float64`, where
   they raised a `MethodError`.
-- Complex arguments give real values: `NormL2(1.0)(ComplexF32[1 + 2im, 3])`
-  returns a `Float32`.
-- Functions whose value is not real for a complex argument, such as
-  `LinearFunction`, `QuadraticFunction`, `KronQuadratic`, `Tilt`, the data
-  losses, `IndAffine` and the quadratic `LinearImage`, raise
-  `ArgumentError("<Name> requires real entries")`, also from their wrappers.
-  `LinearFunction` and `Tilt` previously returned complex values, and
-  `prox!` of `LinearFunction` accepted complex input; the others failed with
-  other errors.
 
 ## Matrix products
 

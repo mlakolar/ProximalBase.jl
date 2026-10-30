@@ -294,40 +294,42 @@ end
 end
 
 
-@testset "indexed complex and integer group projections" begin
-  setprecision(BigFloat, 4096) do
-    for T in (Float32, Float64)
-      h = floatmax(T) * T(0.7)
-      tiny = T === Float32 ? T(1e-30) : T(1e-300)
-      huge = T === Float32 ? T(1e30) : T(1e300)
-      for (x, λ) in ((Complex{T}[3, 4, 0, 7], one(T)),
-                     (Complex{T}[3 + 4im, 12im, 0, 7 - 2im], one(T)),
-                     (Complex{T}[0, 0, 0, 7], one(T)),
-                     (Complex{T}[complex(tiny, tiny), complex(tiny, -tiny), 0, 7], tiny),
-                     (Complex{T}[complex(h, h), complex(h, -h), complex(tiny, -tiny), 7], one(T)),
-                     (Complex{T}[complex(h, h), complex(h, -h), complex(tiny, -tiny), 7], floatmax(T) / 2),
-                     (Complex{T}[complex(huge, huge), complex(huge, -huge), 0, 7], tiny))
-        f = GroupNormL2(λ, [[1, 2, 3]], ones(T, 1))
-        X = Complex{BigFloat}.(x)
-        n = norm(X[1:3])
-        ref = zero(X)
-        ref[1:3] .= X[1:3] .* (iszero(n) ? BigFloat(1) : min(BigFloat(1), BigFloat(λ) / n))
-        for op in (prox!, value_and_prox!)
-          y = similar(x)
-          v = op(y, Conjugate(f), x, 1.0)
-          accurate(real.(y), real.(ref), 8)
-          accurate(imag.(y), imag.(ref), 8)
-          op === value_and_prox! && @test v == 0
-          blocks = (similar(x),)
-          v = op(blocks, Conjugate(SeparableSum(f)), (x,), 1.0)
-          @test blocks[1] == y
-          op === value_and_prox! && @test v == 0
-          alias = copy(x)
-          op(alias, Conjugate(f), alias, 1.0)
-          @test alias == y
-        end
-      end
+copyblocks(x::AbstractArray) = copy(x)
+copyblocks(x::Tuple) = map(copyblocks, x)
+function reject_complex_projection(op, c, y, x, γ)
+  before_y, before_x = copyblocks(y), copyblocks(x)
+  @test_throws ArgumentError("Conjugate requires real entries") op(y, c, x, γ)
+  @test isequal(y, before_y)
+  @test isequal(x, before_x)
+end
+
+@testset "direct projections reject complex entries before writing" begin
+  for T in (Float32, Float64), imaginary in (0, 1), op in (prox!, value_and_prox!)
+    h = floatmax(T) * T(0.7)
+    tiny = T === Float32 ? T(1e-30) : T(1e-300)
+    for (x, λ) in ((Complex{T}[3, 4, 0, 7], one(T)),
+                   (Complex{T}[3 + imaginary * im, 12im, 0, 7], one(T)),
+                   (zeros(Complex{T}, 4), one(T)),
+                   (Complex{T}[complex(tiny, tiny), tiny, 0, 7], tiny),
+                   (Complex{T}[complex(h, h), complex(h, -h), tiny, 7], one(T)),
+                   (Complex{T}[complex(h, h), complex(h, -h), tiny, 7], floatmax(T) / 2))
+      f = GroupNormL2(λ, [[1, 2, 3]], ones(T, 1))
+      c = Conjugate(f)
+      reject_complex_projection(op, c, fill(T(73), 4), x, 1.0)
+      reject_complex_projection(op, c, fill(Complex{T}(73), 4), real.(x), 1.0)
+      reject_complex_projection(op, c, x, x, 1.0)
+      # A late complex block must leave the earlier real block untouched.
+      blocks = Conjugate(SeparableSum(NormL1(), f))
+      reject_complex_projection(op, blocks, (fill(T(73), 1), fill(T(73), 4)),
+                                (T[2], x), 1.0)
+      reject_complex_projection(op, blocks, (fill(T(73), 1), fill(Complex{T}(73), 4)),
+                                (T[2], real.(x)), 1.0)
     end
+  end
+end
+
+@testset "indexed integer group projections" begin
+  setprecision(BigFloat, 4096) do
     for I in (Int32, Int64, Int128), op in (prox!, value_and_prox!)
       x = I[typemin(I)]
       f = GroupNormL2(1e-300, [[1]], [1.0])
@@ -369,7 +371,7 @@ end
 end
 
 
-@testset "promoted clipping coefficients and complex outputs" begin
+@testset "promoted clipping coefficients and real output boundaries" begin
   setprecision(BigFloat, 4096) do
     for F in (NormL1, NormL1Nonneg), (λ, w) in ((2, [typemax(Int64)]),
         (Float32(0.3), [typemax(Int64) ÷ 3]), (Float32(0.3), Real[typemax(Int64) ÷ 3]),
@@ -384,26 +386,21 @@ end
     for F in (NormL1, NormL1Nonneg), op in (prox!, value_and_prox!)
       f = F()
       x = [2.0, -2.0, 0.5]
-      ref = reference(f, x, 1.0)
+      c = Conjugate(f)
       for γ in (1.0, ones(3))
-        y = zeros(ComplexF64, 3)
-        v = op(y, Conjugate(f), x, γ)
-        accurate(real.(y), ref, 4)
-        @test all(iszero, imag.(y))
-        op === value_and_prox! && @test v == 0
+        reject_complex_projection(op, c, fill(73.0 + 0im, 3), x, γ)
+        reject_complex_projection(op, c, fill(73.0, 3), complex.(x), γ)
       end
-      y = (zeros(ComplexF64, 3),)
-      v = op(y, Conjugate(SeparableSum(f)), (x,), 1.0)
-      accurate(real.(y[1]), ref, 4)
-      @test all(iszero, imag.(y[1]))
-      op === value_and_prox! && @test v == 0
-      # Nested blocks exercise clipping with a retained exponent scale.
+      reject_complex_projection(op, c, fill(73.0, 3), x, complex.(ones(3)))
+      reject_complex_projection(op, Conjugate(SeparableSum(f)),
+                                (fill(73.0 + 0im, 3),), (x,), 1.0)
+      # Nested blocks exercise the retained exponent scale with real entries.
       f = Scaled(SeparableSum(Scaled(F(1e300), 1e-200)), 1e-200)
-      y = (zeros(ComplexF64, 1),)
+      y = ([0.0],)
       v = op(y, Conjugate(f), ([2.0],), 1.0)
-      accurate(real.(y[1]), [BigFloat(1e300) * BigFloat(1e-200)^2], 4)
-      @test iszero(imag(y[1][1]))
+      accurate(y[1], [BigFloat(1e300) * BigFloat(1e-200)^2], 4)
       op === value_and_prox! && @test v == 0
+      reject_complex_projection(op, Conjugate(f), (fill(73.0 + 0im, 1),), ([2.0],), 1.0)
     end
     δ = nextfloat(0f0)
     x = Float32[2, 3δ, 0]

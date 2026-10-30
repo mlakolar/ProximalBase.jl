@@ -1018,7 +1018,7 @@ for (F, op, level) in ((NormL1, ProximalBase._projection_clip, :λ0),
                       (NormL1Nonneg, ProximalBase._projection_upper, :λ0),
                       (ProximalBase.CheckLoss, ProximalBase._projection_check, :τ))
   @eval function ProximalBase._conjugate_projection!(z::AnyGPUArray, f::$F, x::AnyGPUArray, γ, α = 1)
-    T = real(float(eltype(x)))
+    T = float(eltype(x))
     w = _reshapeparam(_param(f.w), x)
     if f isa ProximalBase.CheckLoss
       l = _device_projection_scale(T, ProximalBase._projection_accumulate(α, 1 - f.τ))
@@ -1036,12 +1036,12 @@ Adapt.adapt_structure(to, f::ProximalBase.Conjugate) = ProximalBase.Conjugate(Ad
 Adapt.adapt_structure(to, f::ProximalBase.Scaled) = ProximalBase.Scaled(Adapt.adapt(to, f.f), f.α)
 Adapt.adapt_structure(to, f::ProximalBase.Translate) = ProximalBase.Translate(Adapt.adapt(to, f.f), Adapt.adapt(to, f.b))
 
-ProximalBase._maximum_abs(x::AnyGPUArray) = mapreduce(abs, max, x; init = zero(real(float(eltype(x)))))
+ProximalBase._maximum_abs(x::AnyGPUArray) = mapreduce(abs, max, x; init = zero(float(eltype(x))))
 
 function ProximalBase._project_l2!(y::AnyGPUArray, x::AnyGPUArray, λ, α = 1, w = 1)
   (iszero(λ) || iszero(w)) && return fill!(y, zero(eltype(y)))
   isinf(w) && return copyto!(y, x)
-  T = real(float(eltype(x)))
+  T = float(eltype(x))
   α = _device_projection_scale(T, ProximalBase._projection_accumulate(α, λ))
   λ = one(T)
   c = ProximalBase._projection_product(α, λ, w)
@@ -1078,7 +1078,7 @@ end
 _projection_scatter(v, p, _) = ProximalBase._projection_scale(v, p[1], p[2])
 function ProximalBase._conjugate_projection!(z::AnyGPUArray, d::DeviceGroups{<:GroupNormL2}, x::AnyGPUArray, γ, α = 1)
   lay, f = d.layout, d.f
-  T = real(float(eltype(x)))
+  T = float(eltype(x))
   iszero(f.λ0) && return fill!(z, zero(eltype(z)))
   α = _device_projection_scale(T, ProximalBase._projection_accumulate(α, f.λ0))
   parts = _group_buffer(vec(x), Tuple{T, Int}, lay, Ref((zero(T), 0)))

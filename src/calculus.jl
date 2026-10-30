@@ -1171,7 +1171,7 @@ _projection_parameters_alias(f::IndBox, y) =
   _projection_parameter_alias(y, f.l) || _projection_parameter_alias(y, f.u)
 _projection_parameters_alias(f::Scaled, y) = _projection_parameters_alias(f.f, y)
 _projection_direct_output(f, y, x) = false
-_projection_direct_output(f, y::Array{T}, x::Array{T}) where {T<:Union{AbstractFloat, Complex{<:AbstractFloat}}} =
+_projection_direct_output(f, y::Array{T}, x::Array{T}) where {T<:AbstractFloat} =
   _projection_writes_safe(typeof(f)) && (y === x || !Base.mightalias(y, x)) &&
     !_projection_parameters_alias(f, y)
 
@@ -1209,7 +1209,7 @@ _projection_check(v, α, τ, w) = clamp(v, -_projection_coefficient(α, 1 - τ, 
 @inline _projection_bound(v, c, ::Val{false}) = clamp(v, -c, c)
 @inline _projection_bound(v, c, ::Val{true}) = min(v, c)
 function _projection_clipping!(z, x, c::Real, w, upper)
-  T = real(promote_type(float(eltype(x)), float(eltype(z))))
+  T = promote_type(float(eltype(x)), float(eltype(z)))
   if w === nothing
     bound = convert(T, c)
     @inbounds @simd for i in eachindex(IndexLinear(), z, x)
@@ -1237,7 +1237,7 @@ function _projection_clipping!(z, x, c::Real, w, upper)
   z
 end
 function _projection_clipping!(z, x, c, w, upper)
-  T = real(promote_type(float(eltype(x)), float(eltype(z))))
+  T = promote_type(float(eltype(x)), float(eltype(z)))
   if w === nothing
     bound = convert(T, _projection_coefficient(c, 1, 1))
     @inbounds @simd for i in eachindex(IndexLinear(), z, x)

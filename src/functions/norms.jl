@@ -967,7 +967,7 @@ function _project_l2!(y, x, λ, α = 1, w = 1)
   isinf(w) && return copyto!(y, x)
   c = _projection_product(α, λ, w)
   n = _norm2(x)
-  R = real(promote_type(float(eltype(x)), float(eltype(y))))
+  R = promote_type(float(eltype(x)), float(eltype(y)))
   bound = convert(R, c)
   t = min(one(n), bound / n)
   if isfinite(n) && (iszero(n) || (isfinite(bound) && t >= floatmin(typeof(t))))
@@ -984,7 +984,7 @@ function _project_l2_scaled!(y, x, λ, α, w, c, n)
   iszero(m) && return copyto!(y, x)
   # Scaling only the reduction avoids losing tiny original coordinates.
   a, e = frexp(m)
-  q = sqrt(mapreduce(identity, +, Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_square, x, m)); init = zero(real(m))))
+  q = sqrt(mapreduce(identity, +, Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_square, x, m)); init = zero(m)))
   r1, e1 = _projection_scale_parts(α)
   r2, e2 = frexp(float(λ))
   r3, e3 = frexp(float(w))
@@ -998,7 +998,6 @@ end
 
 _projection_square(v, m) = abs2(v / m)
 _projection_scale(v::Real, r, k) = _scaled_product(promote(float(r), float(v))..., k)
-_projection_scale(v::Complex, r, k) = complex(_projection_scale(real(v), r, k), _projection_scale(imag(v), r, k))
 
 
 # Linear group indices address the original matrix without reshape headers.
@@ -1012,7 +1011,7 @@ function _project_l2_group!(y, x, G, λ, α = 1, w = 1)
   isinf(w) && return _project_l2_group_scale!(y, x, G, 1)
   c = _projection_product(α, λ, w)
   n = _projection_group_norm2(x, G)
-  R = real(promote_type(float(eltype(x)), float(eltype(y))))
+  R = promote_type(float(eltype(x)), float(eltype(y)))
   bound = convert(R, c)
   t = min(one(n), bound / n)
   if isfinite(n) && (iszero(n) || (isfinite(bound) && t >= floatmin(typeof(t))))
@@ -1057,7 +1056,7 @@ end
 @inline _projection_group_maxabs(x::AbstractArray{<:AbstractFloat}, G) = _maxabs(x, G)
 
 function _projection_group_norm2(x::AbstractArray, G)
-  T = real(float(eltype(x)))
+  T = float(eltype(x))
   s = zero(T)
   @inbounds @simd for i in G
     s += abs2(float(x[i]))
@@ -1079,7 +1078,7 @@ function _projection_group_norm2(x::AbstractArray, G)
 end
 
 function _projection_group_maxabs(x::AbstractArray, G)
-  m = zero(real(float(eltype(x))))
+  m = zero(float(eltype(x)))
   @inbounds for i in G
     m = max(m, abs(float(x[i])))
   end

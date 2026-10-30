@@ -33,6 +33,7 @@ _check_parameter_axes(y, a) = true
 _check_parameter_axes(y::SymmetricSparseIterate, a::AbstractArray) = _check_axes(y, a)
 
 struct _AllPairs end
+struct _StoredValuePairs end
 struct _StoredPairs{X, Y}
   x::X
   y::Y
@@ -59,7 +60,8 @@ function _check_inner_arrays(fs::Tuple, x, domain)
 end
 function _check_entry_arrays(f::SeparableSum, x::Tuple, domain = _AllPairs())
   _checkblocks(f, x)
-  map((fk, xk) -> _check_entry_arrays(fk, xk), f.fs, x)
+  map((fk, xk) -> _check_entry_arrays(fk, xk,
+      domain isa _StoredValuePairs ? _stored_value_pairs(xk) : _AllPairs()), f.fs, x)
   true
 end
 function _check_entry_arrays(f::AbstractFunction, x::Tuple, domain = _AllPairs())
@@ -119,16 +121,29 @@ function _check_pairs(f, name, a, p, d::_StoredPairs)
 end
 
 # Only kernels that actually stay on stored coordinates use a sparse domain.
-_stored_value(::AbstractFunction) = false
-_stored_value(::SeparableFunction) = true
-_stored_value(f::Scaled) = _stored_value(f.f)
+_stored_value(f::AbstractFunction) = isempty(_entry_arrays(f)) && isempty(_inner_functions(f))
+_stored_value(f::SeparableFunction) = iszeropreserving(f)
+_stored_value(::Union{LinearFunction, IndHyperplane, IndHalfspace, IndHyperslab}) = true
+_stored_value(f::SqrNormL2) = f.y === nothing
+_stored_value(f::Union{Scaled, Tilt, BallConstrained, SphereConstrained}) = _stored_value(f.f)
 _stored_value(f::BoxConstrained) = _stored_value(f.f) && _stored_value(f.box)
+_stored_value(f::LinearConstrained) = _stored_value(f.f) && _stored_value(f.set)
 _stored_value(f::Regularize) = f.c === nothing && _stored_value(f.f)
+_stored_value(f::Union{Sum, SeparableSum, PointwiseMinimum}) = all(_stored_value, f.fs)
+_stored_value(f::IndIntersection) = all(_stored_value, f.sets)
+_stored_value_pairs(x::SymmetricSparseIterate) = _StoredPairs(x, x)
+_stored_value_pairs(x::Tuple) = _StoredValuePairs()
+_stored_value_pairs(x) = _AllPairs()
 _stored_write(op, ::AbstractFunction) = false
 _stored_write(op, ::SeparableFunction) = true
 _stored_write(op::O, f::Scaled) where {O} = _stored_write(op, f.f)
 _stored_write(op::O, f::Conjugate{<:Conjugate}) where {O} = _stored_write(op, f.f.f)
-_stored_write(op::O, f::BoxConstrained) where {O} = op === prox! || _stored_value(f.f)
+_stored_box_value(::AbstractFunction) = false
+_stored_box_value(::SeparableFunction) = true
+_stored_box_value(f::Scaled) = _stored_box_value(f.f)
+_stored_box_value(f::BoxConstrained) = _stored_box_value(f.f) && _stored_box_value(f.box)
+_stored_box_value(f::Regularize) = f.c === nothing && _stored_box_value(f.f)
+_stored_write(op::O, f::BoxConstrained) where {O} = op === prox! || _stored_box_value(f.f)
 _stored_write(op::O, f::_ArrayPrecompose) where {O} = op === prox!
 _stored_domain(op::O, f) where {O} =
   (op === prox! || op === value_and_prox!) && isseparable(f) && iszeropreserving(f) && _stored_write(op, f)
@@ -147,11 +162,14 @@ function _check_value_shape(f::SeparableSum, x::Tuple)
   map(_check_value_shape, f.fs, x)
   true
 end
-_check_value_arrays(f, x::Tuple) = (_check_value_shape(f, x); _check_entry_arrays(f, x))
-_check_value_arrays(f, x) = _check_entry_arrays(f, x)
+_check_value_arrays(f, x::Tuple) =
+  (_checkreal(f, x); _check_value_shape(f, x);
+   _check_entry_arrays(f, x, _stored_value(f) ? _StoredValuePairs() : _AllPairs()))
+_check_value_arrays(f, x) = (_checkreal(f, x); _check_entry_arrays(f, x))
 function _check_value_arrays(f, x::SymmetricSparseIterate)
+  _checkreal(f, x)
   _check_value_shape(f, x)
-  if isseparable(f) && iszeropreserving(f) && _stored_value(f)
+  if _stored_value(f)
     _check_entry_arrays(f, x, _StoredPairs(x, x))
   else
     _check_entry_arrays(f, x)
@@ -190,8 +208,11 @@ _has_symmetric(x::Tuple) = any(_has_symmetric, x)
 # Only public boundaries check arrays. Inner kernels retain the existing shape
 # preflights, but never scan a caller's arrays a second time.
 function _check_oracle_arrays(op::O, f, y, x, γ = nothing) where {O}
+  _checkreal(f, y)
+  _checkreal(f, x)
+  γ === nothing || _checkreal(f, γ)
   if _has_symmetric(y)
-    _checkwrite(op, f, y, x)
+    γ === nothing ? _checkwrite(op, f, y, x) : _checkwrite(op, f, y, x, γ)
     _check_write_arrays(op, f, y, x)
     _check_steps(op, f, y, x, γ)
   end
@@ -265,3 +286,94 @@ _quadratic_model_unchecked!(q::GLMLoss{Squared, T, Vector{T}, <:Any, Vector{T}},
 _value_and_prox_unchecked!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) =
   value_and_prox!(y, f, x, γ)
 _value_unchecked(f::NormL1{<:Real, Nothing}, x::DenseArray{<:AbstractFloat}) = f(x)
+
+_check_second_order_arrays(f, x) = (_checkreal(f, x); _check_entry_arrays(f, x))
+function _check_second_order_arrays(f, x, Hv, v)
+  _checkreal(f, Hv)
+  _checkreal(f, x)
+  _checkreal(f, v)
+  _check_hessian_shape(f, x, Hv, v)
+  _check_entry_arrays(f, x)
+end
+_check_lipschitz_arrays(f, L) =
+  (eltype(L) <: Real || _real_error(:coordinate_lipschitz!); _check_entry_arrays(f, L))
+_value_and_prox_unchecked!(y::AbstractMatrix, f::Union{IndPSD, IndBallRank}, x::AbstractMatrix, γ::Real) =
+  value_and_prox!(y, f, x, γ)
+_value_and_prox_unchecked!(y, f::IndStiefel, x, γ::Real) = value_and_prox!(y, f, x, γ)
+
+_hessian_vec_unchecked!(Hv::AbstractVector, f::QuadraticFunction, x::AbstractVector, v::AbstractVector) =
+  hessian_vec!(Hv, f, x, v)
+_check_hessian_shape(f, x, Hv, v) = true
+_check_hessian_shape(f::Union{ZeroFunction, LinearFunction, SqrNormL2}, x, Hv, v) =
+  (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x))
+_check_hessian_shape(f::KronQuadratic, x, Hv, v) = (_checkshape(f, Hv); _checkshape(f, x))
+_check_hessian_shape(f::Union{Scaled, Tilt}, x, Hv, v) =
+  (_checkparams(f, x); _check_hessian_shape(f.f, x, Hv, v))
+_check_hessian_shape(f::Translate, x, Hv, v) = _check_hessian_shape(f.f, _checkshifted(f, x), Hv, v)
+_check_hessian_shape(f::Precompose, x, Hv, v) = (_checksize(Hv, x); _checkdirection(v, x))
+_check_hessian_shape(f::Regularize, x, Hv, v) =
+  (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x); _check_hessian_shape(f.f, x, Hv, v))
+_check_hessian_shape(f::Sum, x, Hv, v) = (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x))
+_check_hessian_shape(f::SeparableSum, x, Hv, v) = (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x))
+
+_gradient_unchecked!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector) = gradient!(g, f, x)
+
+# Public value preflights prove the pairs used by these reductions equal.
+_value_checked(f, x) = _value_unchecked(f, x)
+function _checked_value_dot(a, x::SymmetricSparseIterate)
+  s = zero(promote_type(eltype(a), eltype(x)))
+  @inbounds for k in 1:x.nnz
+    r, c = tril_cartesian(x.p, x.nzval2ind[k])
+    v = a[(c - 1) * x.p + r]
+    s += (r == c ? v : v + v) * x.nzval[k]
+  end
+  s
+end
+function _checked_scaled_dot(a, x::SymmetricSparseIterate, factors)
+  v = zero(factors[1])
+  @inbounds for k in 1:x.nnz
+    r, c = tril_cartesian(x.p, x.nzval2ind[k])
+    u = _scale_value(x.nzval[k], factors)
+    ar = float(_entry(a, (c - 1) * x.p + r))
+    ac = r == c ? zero(ar) : ar
+    v += (ar + ac) * u
+  end
+  v
+end
+_value_dot_normal(a, x, ::Val{false}) = _dot_normal(a, x)
+function _value_dot_normal(a, x::SymmetricSparseIterate, ::Val{true})
+  T = float(promote_type(eltype(a), eltype(x)))
+  _checked_scaled_dot(a, x, (one(T), one(T)))
+end
+_value_scaled_dot(a, x, s, ::Val{false}) = _scaled_dot(a, x, s)
+_value_scaled_dot(a, x::SymmetricSparseIterate, s, ::Val{true}) = _checked_scaled_dot(a, x, s)
+_value_checked(f::LinearFunction, x::SymmetricSparseIterate) =
+  (_checkvalue(f, x); _value_at(_checked_value_dot(f.c, x) + f.d, x))
+_value_checked(f::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::SymmetricSparseIterate) =
+  _normal_value(f, x, Val(true))
+_value_checked(f::Tilt, x::SymmetricSparseIterate) =
+  _value_at(_value_checked(f.f, x) + _checked_value_dot(f.c, x) + f.d, x)
+_value_checked(f::Scaled, x::Union{SymmetricSparseIterate, Tuple}) =
+  _value_at(_scaled_value(f, x, _value_checked(f.f, x)), x)
+_value_checked(f::Regularize, x::SymmetricSparseIterate) =
+  (_checkparams(f, x); _value_at(_value_checked(f.f, x) + _ridge(f, x), x))
+_value_checked(f::Sum, x::Union{SymmetricSparseIterate, Tuple}) =
+  _value_at(sum(g -> _value_checked(g, x), f.fs), x)
+_value_checked(f::SeparableSum, x::Tuple) =
+  (_checkparams(f, x); _value_at(sum(map(_value_checked, f.fs, x)), x))
+_value_checked(f::PointwiseMinimum, x::SymmetricSparseIterate) =
+  (_checkparams(f, x); _value_at(minimum(map(g -> _value_checked(g, x), f.fs)), x))
+_value_checked(f::BoxConstrained, x::SymmetricSparseIterate) =
+  (_checkparams(f, x); T = float(eltype(x));
+   iszero(_value_checked(f.box, x)) ? convert(T, _value_checked(f.f, x)) : T(Inf))
+_value_checked(f::LinearConstrained, x::SymmetricSparseIterate) =
+  (_checkparams(f, x); T = float(eltype(x));
+   iszero(_value_checked(f.set, x)) ? convert(T, _value_checked(f.f, x)) : T(Inf))
+_value_checked(f::BallConstrained, x::SymmetricSparseIterate) =
+  (T = float(eltype(x)); iszero(_value_checked(f.ball, x)) ? convert(T, _value_checked(f.f, x)) : T(Inf))
+_value_checked(f::SphereConstrained, x::SymmetricSparseIterate) =
+  (T = float(eltype(x)); iszero(_value_checked(f.sphere, x)) ? convert(T, _value_checked(f.f, x)) : T(Inf))
+_value_checked(f::IndIntersection, x::SymmetricSparseIterate) =
+  _ind(_in_checked_sets(f.sets, x), _valtype(x))
+_in_checked_sets(::Tuple{}, x) = true
+_in_checked_sets(sets::Tuple, x) = iszero(_value_checked(first(sets), x)) && _in_checked_sets(Base.tail(sets), x)

@@ -39,8 +39,7 @@ function _tv(x::AbstractVector)
   s
 end
 
-(f::TotalVariation1D)(x::AbstractVector) =
-  (T = _valtype(x); iszero(f.λ) ? zero(T) : convert(T, f.λ) * _tv(x))
+(f::TotalVariation1D)(x::AbstractVector) = (_checkreal(f, x); T = _valtype(x); iszero(f.λ) ? zero(T) : convert(T, f.λ) * _tv(x))
 
 prox!(y::AbstractVector, f::TotalVariation1D, x::AbstractVector, γ::Real) =
   (_checkwrite(prox!, f, y, x); _tv_denoise!(y, x, convert(float(eltype(y)), γ * f.λ)))
@@ -163,6 +162,7 @@ _argument_type(::Type{<:FusedLasso}) = AbstractVector
 isconvex(::Type{<:FusedLasso}) = true
 
 function (f::FusedLasso)(x::AbstractVector)
+  _checkreal(f, x)
   T = _valtype(x)
   (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * convert(T, sum(abs, x; init = zero(T)))) +
   (iszero(f.λ2) ? zero(T) : convert(T, f.λ2) * _tv(x))
@@ -250,6 +250,10 @@ The indicator of the nondecreasing vectors `{x : x₁ ≤ x₂ ≤ … ≤ xₙ}
 projection, is isotonic regression, computed by pooling adjacent violators in
 O(n) time, in buffers that the function owns.
 
+The value accepts adjacent entries within the relative tolerance `√eps`, compares
+pairs with an infinite entry exactly (`[Inf, Inf]` and `[-Inf, Inf]` are
+nondecreasing, `[Inf, 0]` is not), and excludes inputs with a `NaN` entry.
+
 An array of steps `γ` gives weighted isotonic regression, minimizing
 `Σᵢ wᵢ(θᵢ − xᵢ)²` with `wᵢ = 1/γᵢ`. Only the ratios of the steps matter.
 The steps must be positive and finite with a representable ratio; nonfinite
@@ -270,11 +274,18 @@ isconvex(::Type{IndIsotonic}) = true
 _isindicator(::Type{IndIsotonic}) = true
 
 function (f::IndIsotonic)(x::AbstractVector)
+  _checkreal(f, x)
   T = float(eltype(x))
   t = _tol(T)
-  σ = f.decreasing ? -1 : 1
+  length(x) == 1 && isnan(first(x)) && return T(Inf)
+  # accept ordered pairs exactly; unordered pairs with a non-finite entry violate the order
+  # for a > b the true difference is positive, so 0 < d rejects integer wraparound
   @inbounds for i in firstindex(x):lastindex(x)-1
-    σ * (x[i] - x[i + 1]) <= t * max(one(T), abs(x[i]), abs(x[i + 1])) || return T(Inf)
+    a, b = f.decreasing ? (x[i + 1], x[i]) : (x[i], x[i + 1])
+    a <= b && continue
+    isfinite(a) && isfinite(b) || return T(Inf)
+    d = a - b
+    0 < d <= t * max(one(T), abs(a), abs(b)) || return T(Inf)
   end
   zero(T)
 end
@@ -316,7 +327,7 @@ struct SLOPE{V<:AbstractVector{<:Real}} <: AbstractFunction
     new{V}(λ, Scratch(), Scratch(), Scratch(), Scratch())
   end
 end
-SLOPE(λ::AbstractVector{<:Real}) = SLOPE{typeof(λ)}(λ)
+SLOPE(λ::AbstractVector) = (eltype(λ) <: Real || _real_error(:SLOPE); SLOPE{typeof(λ)}(λ))
 
 isproximable(::Type{<:SLOPE}) = true
 _argument_type(::Type{<:SLOPE}) = AbstractVector
@@ -325,6 +336,8 @@ _checkparams(f::SLOPE, x) = (_checkparam(f.λ, x); true)
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)},
                      f::Union{TotalVariation1D, FusedLasso, SLOPE}, y::AbstractVector, x::AbstractVector)
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkparams(f, x)
   Base.require_one_based_indexing(y, x)
@@ -333,6 +346,8 @@ end
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)},
                      f::IndIsotonic, y::AbstractArray, x::AbstractArray)
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkargument(f, y)
   _checkargument(f, x)
@@ -362,6 +377,7 @@ function _sortperm_abs!(f::SLOPE, x::AbstractVector, ::Type{T}) where {T}
 end
 
 function (f::SLOPE)(x::AbstractVector)
+  _checkreal(f, x)
   _checkparams(f, x)
   Base.require_one_based_indexing(x)
   T = float(eltype(x))
@@ -438,7 +454,7 @@ isconvex(::Type{<:SumLargest}) = true
 _checkparams(f::SumLargest, x) = f.k <= length(x) ||
   throw(DimensionMismatch("k = $(f.k) exceeds the argument's length $(length(x))"))
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SumLargest, y::AbstractArray, x::AbstractArray) =
-  (_checksize(y, x); _checkparams(f, x); Base.require_one_based_indexing(y, x); true)
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkparams(f, x); Base.require_one_based_indexing(y, x); true)
 
 # Compensation preserves cancellation when the selected entries have both signs.
 @inline function _sumlargest_add(s, e, v)
@@ -498,7 +514,8 @@ function _sumlargest_sum(v::AbstractVector{T}, k::Int, λ) where {T}
   convert(T, ldexp(u * w, a + b + c))
 end
 
-function (f::SumLargest)(x::AbstractArray{<:Real})
+function (f::SumLargest)(x::AbstractArray)
+  _checkreal(f, x)
   _checkparams(f, x)
   T = float(eltype(x))
   iszero(f.λ) && return zero(T)
@@ -634,11 +651,11 @@ function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val, shift::Int 
   y
 end
 
-prox!(y::AbstractArray{<:Real}, f::SumLargest, x::AbstractArray{<:Real}, γ::Real) =
+prox!(y::AbstractArray, f::SumLargest, x::AbstractArray, γ::Real) =
   _sumlargest_prox!(y, f, x, γ, Val(false))
-value_and_prox!(y::AbstractArray{<:Real}, f::SumLargest, x::AbstractArray{<:Real}, γ::Real) = f(prox!(y, f, x, γ))
+value_and_prox!(y::AbstractArray, f::SumLargest, x::AbstractArray, γ::Real) = f(prox!(y, f, x, γ))
 
-function _checkstep(op::O, f::SumLargest, y::AbstractArray{<:Real}, x::AbstractArray{<:Real}, γ::Real) where {O}
+function _checkstep(op::O, f::SumLargest, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
   T = float(eltype(y))
   S = float(promote_type(T, eltype(x), typeof(γ), typeof(f.λ)))
   g = S(γ)

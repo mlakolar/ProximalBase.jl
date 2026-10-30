@@ -142,7 +142,7 @@ end
           Z = similar(Y)
           result = op(Z, f, Y, one(T))
           @test all(isnan, Z)
-          op === value_and_prox! && @test result === zero(T)
+          op === value_and_prox! && @test result === T(Inf)
         end
       end
     end
@@ -205,14 +205,16 @@ end
   f = IndStiefel()
   for (X, E) in ((zeros(2, 3), DimensionMismatch), (zeros(0, 1), DimensionMismatch),
                  (ones(3), ArgumentError), (ones(2, 2, 1), ArgumentError),
-                 (ones(ComplexF64, 3, 2), ArgumentError))
+                 (ones(ComplexF64, 3, 2), ArgumentError("IndStiefel requires real entries")))
     @test_throws E f(X)
     for op in (prox!, value_and_prox!)
       unchanged(op, f, X, E)
       fs = SeparableSum(SqrNormL2(2.0), f)
-      unchanged(op, fs, ([3.0], X), E)
+      expected = eltype(X) <: Real ? E : ArgumentError("SeparableSum requires real entries")
+      unchanged(op, fs, ([3.0], X), expected)
       for wrapper in (Tilt(f, zeros(size(X))), Translate(f, zeros(size(X))), Regularize(f, 0.5))
-        unchanged(op, wrapper, X, E)
+        expected = eltype(X) <: Real ? E : ArgumentError("$(nameof(typeof(wrapper))) requires real entries")
+        unchanged(op, wrapper, X, expected)
       end
     end
   end
@@ -227,7 +229,7 @@ end
       @test_throws DimensionMismatch op(Y, f, X, 1)
       @test Y == before
     end
-    for T in (Float16, BigFloat, Int, ComplexF64)
+    for T in (Float16, BigFloat, Int)
       Y = fill(T(9), 4, 2)
       before = copy(Y)
       @test_throws ArgumentError op(Y, f, X, 1)

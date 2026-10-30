@@ -141,6 +141,7 @@ struct KLDivergence{T<:Real, Q<:Union{Real, AbstractArray}} <: SeparableFunction
   λ::T
 
   function KLDivergence{T, Q}(q::Q, λ::T) where {T<:Real, Q<:Union{Real, AbstractArray}}
+    eltype(q) <: Real || _real_error(:KLDivergence)
     all(>(0), q) || throw(ArgumentError("the reference q must be positive"))
     λ > 0 || throw(ArgumentError("λ must be positive, got $λ"))
     new{T, Q}(q, λ)
@@ -245,6 +246,8 @@ struct BernoulliLoss{B<:Union{Real, AbstractArray}, W<:Union{Real, AbstractArray
   w::W
 
   function BernoulliLoss{B, W}(b::B, w::W) where {B<:Union{Real, AbstractArray}, W<:Union{Real, AbstractArray}}
+    eltype(b) <: Real || _real_error(:BernoulliLoss)
+    w === nothing || eltype(w) <: Real || _real_error(:BernoulliLoss)
     all(t -> t isa Real && 0 <= t <= 1, b) || throw(ArgumentError("the responses b must be in [0, 1]"))
     all(t -> t isa Real && isfinite(t) && t >= 0, w) || throw(ArgumentError("the weights must be finite and nonnegative"))
     new{B, W}(b, w)
@@ -296,6 +299,8 @@ end
 end
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::BernoulliLoss, g::AbstractArray, x::AbstractArray)
+  _checkreal(f, x)
+  _checkreal(f, g)
   _checkgradient_output(g, x)
   _checksize(g, x)
   _checkparams(f, x)
@@ -435,6 +440,7 @@ struct Berhu{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   w::W
 
   function Berhu{T, W}(λ::T, M::T, w::W) where {T<:Real, W<:Union{Nothing, AbstractArray}}
+    w === nothing || eltype(w) <: Real || _real_error(:Berhu)
     _checknonneg("λ", λ)
     M > 0 || throw(ArgumentError("M must be positive, got $M"))
     _checknonneg("the weights", w)
@@ -473,5 +479,6 @@ Base.@propagate_inbounds function prox_entry(f::Berhu, v::T, i::Integer, γ::Rea
   t <= M + c ? shrink(S(v), c) : S(v) * M / (M + c)
 end
 
-kkt_violation(f::Berhu, g::AbstractArray, i::Integer) = abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i))
+kkt_violation(f::Berhu, g::AbstractArray, i::Integer) =
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i)))
 restrict(f::Berhu, S::AbstractVector{<:Integer}) = Berhu(f.λ, f.M, _restrict_entries(f.w, S))

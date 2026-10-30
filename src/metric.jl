@@ -15,15 +15,15 @@ prox(f::AbstractFunction, x::AbstractArray, γ::AbstractArray) = prox!(similar(x
 
 prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::AbstractArray) =
   (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
-function _prox_unchecked!(y::AbstractArray, ::ZeroFunction, x::AbstractArray, γ::AbstractArray)
+function _prox_unchecked!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::AbstractArray)
+  _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
-  _checksize(y, x)
   y === x ? y : copyto!(y, x)
 end
 value_and_prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::AbstractArray) =
   (_check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_unchecked!(y, f, x, γ))
 _value_and_prox_unchecked!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::AbstractArray) =
-  (_prox_unchecked!(y, f, x, γ); zero(_valtype(y)))
+  (_checkreal(f, γ); _prox_unchecked!(y, f, x, γ); zero(_valtype(y)))
 
 # separable functions: the step of each entry; on a SymmetricSparseIterate the
 # steps are a p × p array read at the lower triangle, so give a symmetric one.
@@ -57,9 +57,9 @@ function _value_and_prox_unchecked!(y::AbstractArray, h::_ArrayPrecompose, x::Ab
 end
 
 # group penalties: a step per group, constant on the group, keeps the closed form
-value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
+value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (_checkreal(f, γ); _checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (_value_and_prox_unchecked!(y, f, x, γ); y)
-value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::AbstractVector) = (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
+value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::AbstractVector) = (_checkreal(f, γ); _checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 
 # the entrywise reciprocal of an array of steps, without allocating
 struct _ReciprocalArray{T, N, A<:AbstractArray} <: AbstractArray{T, N}
@@ -128,10 +128,62 @@ function _shrunk!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Abstrac
   _RegularizeSteps(γ, ρ)
 end
 
+function _check_regularize_group_steps(op, r, y, x, γ)
+  # Check shapes before the group layout, deferring the inner output checks.
+  _check_wrapper_output(y)
+  _checksize(y, x)
+  _checkparams(r, x)
+  r.c === nothing || Base.Broadcast.check_broadcast_axes(axes(y), x, r.c)
+  if op === value_and_prox!
+    r.c === nothing || _checksize(x, r.c)
+  end
+  _checkgroups(r.f, x)
+  _checkgroupsteps(r.f, γ)
+  isempty(r.f.free) && length(r.f.group_of) == length(x) ||
+    throw(ArgumentError("per-group steps for Regularize require groups that cover every entry"))
+  if y isa AtomIterate || y isa SymmetricSparseIterate
+    name = y isa AtomIterate ? "AtomIterate" : "SymmetricSparseIterate"
+    throw(ArgumentError("per-group steps for Regularize do not support $name outputs"))
+  end
+  true
+end
+
+_checkwrite(op, r::Regularize{<:AbstractGroupPenalty}, y::AbstractArray, x::AbstractArray, γ::AbstractVector) =
+  (_check_regularize_group_steps(op, r, y, x, γ); _checkwrite(op, r, y, x))
+
+function _value_and_prox_regularize_groups!(y, r::Regularize{<:AbstractGroupPenalty}, x, γ::AbstractVector, op::O) where {O}
+  _check_regularize_group_steps(op, r, y, x, γ)
+  _checkwrite(op, r, y, x)
+  z = _output_buffer!(r.scratch, y)
+  T = float(eltype(z))
+  ρ = convert(T, r.ρ)
+  for k in eachindex(r.f.groups)
+    step = convert(T, γ[k])
+    @inbounds for i in r.f.groups[k]
+      z[i] = r.c === nothing ? _regularize_shrink(x[i], step, ρ) :
+                              _regularize_shrink(x[i], r.c[i], step, ρ)
+    end
+  end
+  # Run in the buffer even for dense outputs, committing only after success.
+  w = _wrapper_output(z, z)
+  steps = _RegularizeSteps(γ, ρ)
+  if op === prox!
+    _prox_unchecked!(w, r.f, z, steps)
+    return _wrapper_commit!(y, w)
+  end
+  v = _value_and_prox_unchecked!(w, r.f, z, steps)
+  v = _value_at(v + _ridge(r, w), w)
+  _wrapper_commit!(y, w)
+  v
+end
+
 prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray) =
   (_check_oracle_arrays(prox!, r, y, x, γ); _prox_unchecked!(y, r, x, γ))
 function _prox_unchecked!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
-  isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function"))
+  if γ isa AbstractVector && r.f isa AbstractGroupPenalty
+    return _value_and_prox_regularize_groups!(y, r, x, γ, prox!)
+  end
+  isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function or a group penalty"))
   _checkwrite(prox!, r, y, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)
@@ -142,7 +194,10 @@ end
 value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray) =
   (_check_oracle_arrays(value_and_prox!, r, y, x, γ); _value_and_prox_unchecked!(y, r, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
-  isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function"))
+  if γ isa AbstractVector && r.f isa AbstractGroupPenalty
+    return _value_and_prox_regularize_groups!(y, r, x, γ, value_and_prox!)
+  end
+  isseparable(r) || throw(ArgumentError("array steps for Regularize require a separable function or a group penalty"))
   _checkwrite(value_and_prox!, r, y, x)
   _checkparam(γ, x)
   Base.Broadcast.check_broadcast_axes(axes(y), γ)
@@ -478,7 +533,7 @@ Lipschitz constants [`coordinate_lipschitz`](@ref)`(f, k)`, and return `L`. It
 allocates nothing.
 """
 coordinate_lipschitz!(L::AbstractArray, f::AbstractFunction) =
-  (_check_entry_arrays(f, L); _coordinate_lipschitz_body!(L, f))
+  (_check_lipschitz_arrays(f, L); _coordinate_lipschitz_body!(L, f))
 _coordinate_lipschitz_unchecked!(L::AbstractArray, f::AbstractFunction) =
   _isbuiltin(f) ? _coordinate_lipschitz_body!(L, f) : coordinate_lipschitz!(L, f)
 function _coordinate_lipschitz_body!(L::AbstractArray, f::AbstractFunction)
@@ -521,7 +576,7 @@ function coordinate_lipschitz(f::SqrHingeLoss, k::Integer)
 end
 
 coordinate_lipschitz!(L::AbstractArray, f::SqrHingeLoss) =
-  (_check_entry_arrays(f, L); _coordinate_lipschitz_unchecked!(L, f))
+  (_check_lipschitz_arrays(f, L); _coordinate_lipschitz_unchecked!(L, f))
 function _coordinate_lipschitz_unchecked!(L::AbstractArray, f::SqrHingeLoss)
   _checkparams(f, L)
   @inbounds for k in eachindex(IndexLinear(), L)
@@ -551,6 +606,7 @@ end
 
 # the squared norm of each column of X once, for every column of β
 function coordinate_lipschitz!(L::AbstractArray, f::LeastSquaresLoss)
+  eltype(L) <: Real || _real_error(:coordinate_lipschitz!)
   p, m = size(f.X, 2), size(f.Y, 2)
   length(L) == p * m || throw(DimensionMismatch("L has $(length(L)) entries and β has $(p * m)"))
   @inbounds for j in 1:p
@@ -576,11 +632,11 @@ end
 
 coordinate_lipschitz(s::Scaled, k::Integer) = s.α * coordinate_lipschitz(s.f, k)
 coordinate_lipschitz!(L::AbstractArray, s::Scaled) =
-  (_check_entry_arrays(s, L); _coordinate_lipschitz_unchecked!(L, s))
+  (_check_lipschitz_arrays(s, L); _coordinate_lipschitz_unchecked!(L, s))
 _coordinate_lipschitz_unchecked!(L::AbstractArray, s::Scaled) = (_coordinate_lipschitz_unchecked!(L, s.f); L .*= s.α)
 coordinate_lipschitz(t::Union{Tilt, Translate}, k::Integer) = coordinate_lipschitz(t.f, k)
 coordinate_lipschitz!(L::AbstractArray, t::Union{Tilt, Translate}) =
-  (_check_entry_arrays(t, L); _coordinate_lipschitz_unchecked!(L, t))
+  (_check_lipschitz_arrays(t, L); _coordinate_lipschitz_unchecked!(L, t))
 _coordinate_lipschitz_unchecked!(L::AbstractArray, t::Union{Tilt, Translate}) = _coordinate_lipschitz_unchecked!(L, t.f)
 coordinate_lipschitz(s::Sum, k::Integer) = sum(f -> coordinate_lipschitz(f, k), s.fs)
 
@@ -589,7 +645,7 @@ function coordinate_lipschitz(r::Regularize, k::Integer)
   coordinate_lipschitz(r.f, k) + r.ρ
 end
 coordinate_lipschitz!(L::AbstractArray, r::Regularize) =
-  (_check_entry_arrays(r, L); _coordinate_lipschitz_unchecked!(L, r))
+  (_check_lipschitz_arrays(r, L); _coordinate_lipschitz_unchecked!(L, r))
 function _coordinate_lipschitz_unchecked!(L::AbstractArray, r::Regularize)
   _checkparam(r.c, L)
   _coordinate_lipschitz_unchecked!(L, r.f)
@@ -597,7 +653,7 @@ function _coordinate_lipschitz_unchecked!(L::AbstractArray, r::Regularize)
 end
 coordinate_lipschitz(h::_ScalarPrecompose, k::Integer) = h.μ * coordinate_lipschitz(h.f, k)
 coordinate_lipschitz!(L::AbstractArray, h::_ScalarPrecompose) =
-  (_check_entry_arrays(h, L); _coordinate_lipschitz_unchecked!(L, h))
+  (_check_lipschitz_arrays(h, L); _coordinate_lipschitz_unchecked!(L, h))
 _coordinate_lipschitz_unchecked!(L::AbstractArray, h::_ScalarPrecompose) =
   (_coordinate_lipschitz_unchecked!(L, h.f); L .*= h.μ)
 
@@ -606,7 +662,7 @@ Base.@propagate_inbounds function coordinate_lipschitz(h::_ArrayPrecompose, k::I
   _positive_product(coordinate_lipschitz(h.f, k), a, a)
 end
 coordinate_lipschitz!(L::AbstractArray, h::_ArrayPrecompose) =
-  (_check_entry_arrays(h, L); _coordinate_lipschitz_unchecked!(L, h))
+  (_check_lipschitz_arrays(h, L); _coordinate_lipschitz_unchecked!(L, h))
 function _coordinate_lipschitz_unchecked!(L::AbstractArray, h::_ArrayPrecompose)
   _checkparams(h, L)
   @inbounds for k in eachindex(IndexLinear(), L)

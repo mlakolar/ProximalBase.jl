@@ -64,6 +64,8 @@ _zero_scaled(::SqrDistL2) = ZeroFunction()
 _checkparams(f::SqrDistL2, x) = _checkparams(f.f, x)
 
 function _checkwrite(op::O, f::SqrDistL2, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
+  _checkreal(f, x)
+  _checkreal(f, y)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   _checkparams(f, x)
@@ -99,7 +101,7 @@ end
 end
 
 (f::SqrDistL2)(x::AbstractArray) =
-  (_check_value_arrays(f, x); _value_unchecked(f, x))
+  (_check_value_arrays(f, x); _value_checked(f, x))
 function _value_unchecked(f::SqrDistL2, x::AbstractArray)
   _checkwrite(prox!, f, x, x)
   T = float(eltype(x))
@@ -196,6 +198,7 @@ Base.@propagate_inbounds function prox_entry(f::SqrDistL2, v::Real, i::Integer, 
 end
 
 function kkt_violation(f::SqrDistL2, g::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
   isseparable(f) || throw(ArgumentError("kkt_violation of SqrDistL2 requires a separable set"))
   iszero(f.λ) && return abs(g[i])
   T = float(eltype(g))
@@ -268,6 +271,8 @@ _zero_scaled(::DistL2) = ZeroFunction()
 _checkparams(f::DistL2, x) = _checkparams(f.f, x)
 
 function _checkwrite(op::O, f::DistL2, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkparams(f, x)
   _checkwrite(prox!, f.f, y, x)
@@ -279,7 +284,6 @@ end
 _distance_buffer(f::DistL2, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(f.scratch, T, size(x))
 
 @inline _distl2_ldexp(x::Real, e::Int) = ldexp(x, e)
-@inline _distl2_ldexp(x::Complex, e::Int) = complex(ldexp(real(x), e), ldexp(imag(x), e))
 
 # Keep distances beyond floatmax in units of a power of two. Scaling the
 # endpoints before subtraction also covers an overflowing single residual.
@@ -287,10 +291,9 @@ function _distl2_parts(x::AbstractArray, p::AbstractArray)
   r = norm_diff(x, p)
   isfinite(r) && return frexp(r)
   S = float(promote_type(eltype(x), eltype(p)))
-  m = zero(real(S))
+  m = zero(S)
   @inbounds for i in eachindex(x, p)
-    m = max(m, abs(real(S(x[i]))), abs(imag(S(x[i]))),
-      abs(real(S(p[i]))), abs(imag(S(p[i]))))
+    m = max(m, abs(S(x[i])), abs(S(p[i])))
   end
   isfinite(m) || return (r, 0)
   k = _magnitude_exponent(m)
@@ -310,15 +313,15 @@ end
 end
 
 (f::DistL2)(x::AbstractArray) =
-  (_check_value_arrays(f, x); _value_unchecked(f, x))
+  (_check_value_arrays(f, x); _value_checked(f, x))
 function _value_unchecked(f::DistL2, x::AbstractArray)
   _checkwrite(prox!, f, x, x)
   T = float(eltype(x))
-  iszero(f.λ) && return zero(real(T))
+  iszero(f.λ) && return zero(T)
   p = _distance_buffer(f, T, x)
-  _prox_unchecked!(p, f.f, x, one(real(T)))
+  _prox_unchecked!(p, f.f, x, one(T))
   m, e = _distl2_parts(x, p)
-  _distl2_value(real(T), f.λ, m, e)
+  _distl2_value(T, f.λ, m, e)
 end
 
 # A subnormal interpolation weight can still move a large endpoint. Apply
@@ -335,9 +338,6 @@ end
   r, j = frexp(d)
   x + ldexp(m * r, e + j + k)
 end
-@inline _distl2_blend(x::Complex, p::Complex, a, b, m, e) =
-  complex(_distl2_blend(real(x), real(p), a, b, m, e),
-    _distl2_blend(imag(x), imag(p), a, b, m, e))
 
 # Near the threshold, subtract squared distances with their rounding errors
 # retained. Subtracting a rounded norm would lose the small remaining distance.
@@ -360,13 +360,11 @@ end
 function _distl2_margin(x, p, gm::S, lm::S, k::Int, e::Int) where {S}
   s, err = zero(S), zero(S)
   @inbounds for i in eachindex(x, p)
-    for (a, b) in ((real(x[i]), real(p[i])), (imag(x[i]), imag(p[i])))
-      q, r = _distl2_square_parts(a, b, e, S)
-      v = s + q
-      z = v - s
-      err += (s - (v - z)) + (q - z) + r
-      s = v
-    end
+    q, r = _distl2_square_parts(x[i], p[i], e, S)
+    v = s + q
+    z = v - s
+    err += (s - (v - z)) + (q - z) + r
+    s = v
   end
   u = gm * lm
   t = ldexp(u, k - e)
@@ -377,7 +375,7 @@ end
 
 function _distl2_prox!(y::AbstractArray, x::AbstractArray, p::AbstractArray, γ::Real, λ::Real)
   iszero(γ) && return copyto!(y, x)
-  S = promote_type(real(float(eltype(x))), real(float(eltype(y))), typeof(float(γ)), typeof(float(λ)))
+  S = promote_type(float(eltype(x)), float(eltype(y)), typeof(float(γ)), typeof(float(λ)))
   dm, de = _distl2_parts(x, p)
   gm, ge = frexp(S(γ))
   lm, le = frexp(S(λ))
@@ -416,7 +414,7 @@ function _prox_unchecked!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Rea
   (iszero(f.λ) || iszero(γ)) && return copyto!(y, x)
   T = float(eltype(y))
   p = _distance_buffer(f, T, x)
-  _prox_unchecked!(p, f.f, x, one(real(T)))
+  _prox_unchecked!(p, f.f, x, one(T))
   _distl2_prox!(y, x, p, γ, f.λ)
 end
 
@@ -425,10 +423,10 @@ value_and_prox!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real) =
 function _value_and_prox_unchecked!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
-  iszero(f.λ) && (copyto!(y, x); return zero(real(T)))
+  iszero(f.λ) && (copyto!(y, x); return zero(T))
   p = _distance_buffer(f, T, x)
-  _prox_unchecked!(p, f.f, x, one(real(T)))
+  _prox_unchecked!(p, f.f, x, one(T))
   _distl2_prox!(y, x, p, γ, f.λ)
   m, e = _distl2_parts(y, p)
-  _distl2_value(real(T), f.λ, m, e)
+  _distl2_value(T, f.λ, m, e)
 end

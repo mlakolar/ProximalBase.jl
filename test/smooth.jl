@@ -330,7 +330,7 @@ end
   end
   @test_throws ArgumentError(wmsg) LogisticLoss(yb, X; weights = [w[1:end-1]; Inf])
   @test_throws ArgumentError(wmsg) HuberLoss(yr, X, 1.0; weights = [w[1:end-1]; Inf])
-  @test_throws ArgumentError(wmsg) LogisticLoss(yb, X; weights = complex.(w))
+  @test_throws ArgumentError("GLMLoss requires real entries") LogisticLoss(yb, X; weights = complex.(w))
   for bad in ([Inf, 0.0], [0.0, NaN], [-Inf, 0.0])
     @test_throws ArgumentError(omsg) PoissonLoss(Float64[0, 1], [1.0 0.0; 0.0 1.0]; offset = bad)
   end

@@ -272,14 +272,14 @@ Base.getindex(x::ZeroBased, i::Int) = x.data[i + 1]
     for op in (prox!, value_and_prox!)
       x, y = [1.0, 1, 1], fill(17.0, 3)
       @test_throws MethodError op(y, f, x, ones(3))
-      @test_throws ArgumentError op(y, f, complex.(x), 1.0)
+      @test_throws ArgumentError("$(nameof(typeof(f))) requires real entries") op(y, f, complex.(x), 1.0)
       @test_throws ArgumentError op(y, f, ZeroBased(x), 1.0)
       @test y == fill(17.0, 3)
-      @test_throws ArgumentError op(complex.(y), f, x, 1.0)
+      @test_throws ArgumentError("$(nameof(typeof(f))) requires real entries") op(complex.(y), f, x, 1.0)
       @test_throws ArgumentError op(ZeroBased(y), f, x, 1.0)
       @test_throws DimensionMismatch op(reshape(y, 1, 3), f, x, 1.0)
     end
-    @test_throws ArgumentError f(complex.(ones(3)))
+    @test_throws ArgumentError("$(nameof(typeof(f))) requires real entries") f(complex.(ones(3)))
     @test_throws ArgumentError f(ZeroBased(ones(3)))
     for T in (Float64, Float32), nonfinite in (T(NaN), T(Inf), T(-Inf)), i in 1:3
       x = T[1, 1, 1]

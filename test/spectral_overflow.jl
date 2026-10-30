@@ -439,7 +439,7 @@ end
             # the domain of the spectral functions is the finite matrices
             @test f(X) === (f isa NuclearNorm ? T(Inf) : zero(T))
             Y = similar(X)
-            @test value_and_prox!(Y, f, X, γ) === zero(T)
+            @test value_and_prox!(Y, f, X, γ) === (f isa NuclearNorm ? T(Inf) : zero(T))
             @test samebits(Y, X)
           end
           @test TracePSD(λ)(X) === T(Inf)
@@ -559,12 +559,10 @@ end
     check_rounded(v, big(M32) / 2)
   end
   @test LogDetLoss(Matrix{Float32}(I, 2, 2), 0.25f0)(1e300 * Matrix(1.0I, 2, 2)) === -Inf
-  # Non-finite weights keep their base values; complex entries give a real value.
+  # Non-finite weights keep their base values.
   @test isnan(NormL1(Inf)(zeros(2)))
   @test isnan(NormL2(Inf)(zeros(2)))
   @test isnan(NuclearNorm(Inf)(zeros(2, 2)))
-  z = ComplexF64[M, M]
-  @test NormL2(0.25)(z) === Inf
 end
 
 end

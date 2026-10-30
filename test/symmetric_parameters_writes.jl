@@ -29,7 +29,7 @@ Base.getindex(A::CountingMatrix,i::Int) = (A.reads[] += 1; A.data[i])
       @test Matrix(y) == Matrix(z)
     end
   end
-  A=CountingMatrix(Any[1 1.0 1;1.0 1 1;1 1.0 1])
+  A=CountingMatrix(Real[1 1.0 1;1.0 1 1;1 1.0 1])
   f=LinearFunction(A,0.); y=copy(x)
   gradient!(y,f,x); A.reads[]=0
   gradient!(y,f,x)

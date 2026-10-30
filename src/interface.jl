@@ -19,10 +19,11 @@ outside its domain. Its traits say which oracles it provides:
 | [`hashessian`](@ref) | [`hessian_vec!`](@ref), [`quadratic_model`](@ref) |
 
 For built-in functions, caller-supplied per-entry arrays must be exactly
-symmetric when a proximal operator or gradient writes a
+symmetric at the pairs read when a proximal operator or gradient writes a
 [`SymmetricSparseIterate`](@ref), or when a value, coordinate or second-order
-oracle takes one. Computed gradients in [`kkt_violation`](@ref) use their
-symmetric part.
+oracle takes one. A value checks the pairs its kernel reads; kernels restricted
+to stored entries check only stored pairs. Computed gradients in
+[`kkt_violation`](@ref) use their symmetric part.
 
 Checks that depend only on types, shapes and parameters run before any output
 write; failures that depend on the step, argument values or computation may
@@ -139,11 +140,12 @@ prox(f::AbstractFunction, x::Union{Symmetric, Hermitian}, γ::Real = 1) =
 Store `prox_{γf}(x)` in `y`, as [`prox!`](@ref) does, and return the value at the
 result. Many functions get the value from the computation of the proximal
 operator: a nuclear norm from the singular values that it thresholds. For the
-package's indicator functions, return `0` without checking membership. This
+package's indicator functions, return `0` without checking membership, except
+for spectral indicators at non-finite inputs, which return `Inf`. This
 equals `f(y)` when the projection is exact, but is not a feasibility certificate
 for an inexact projection such as [`IndIntersection`](@ref). Computing the value this
 way can be cheaper than `prox!` followed by `f(y)`. The conjugates that
-[`Conjugate`](@ref) lists as indicators also return `0`; another conjugate whose
+[`Conjugate`](@ref) lists as indicators follow the same convention; another conjugate whose
 value uses the Fenchel equality can return a small nonzero value even when it
 represents an indicator.
 """
@@ -195,6 +197,8 @@ function _checkgradient_output(g::Tuple, x::Tuple)
 end
 
 function _checkwrite(op, f, y, x)
+  _checkreal(f, x)
+  _checkreal(f, y)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   if op === value_and_prox! || op === gradient!
     _checkparams(f, x)
@@ -216,8 +220,8 @@ _step_values(x::AbstractArray) = true
 _step_values(x::_StepInput) = false
 _step_values(x::SubArray) = _step_values(parent(x))
 
-_checkvalue(f, x) = _checkparams(f, x)
-_checkconjugate(f, y) = true
+_checkvalue(f, x) = (_checkreal(f, x); _checkparams(f, x))
+_checkconjugate(f, y) = (_checkreal(f, y); true)
 
 ####################################
 #  Gradients
@@ -385,8 +389,10 @@ function kkt_violation end
 # for a separable function, the optimality of a coordinate at zero does not
 # depend on the rest of x
 kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integer) =
-  _isbuiltin(f) ? _kkt_violation(f, g, x, i) : kkt_violation(f, g, i)
+  (eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation);
+   _isbuiltin(f) ? _kkt_violation(f, g, x, i) : kkt_violation(f, g, i))
 function kkt_violation(f::AbstractFunction, g::AbstractArray, x::SymmetricSparseIterate, k::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
   r, c = tril_cartesian(x.p, k)
   view = _SymmetricGradient(g, x.p)
   view[(c - 1) * x.p + r]  # reject an undefined symmetric part before dispatch
@@ -395,7 +401,8 @@ function kkt_violation(f::AbstractFunction, g::AbstractArray, x::SymmetricSparse
 end
 # a group at zero violates optimality as much as its worst index
 kkt_violation(f::AbstractFunction, g::AbstractArray, x::AtomIterate, k::Integer) =
-  _isbuiltin(f) ? _kkt_violation(f, g, x, k) : maximum(i -> kkt_violation(f, g, i), x.groups[k])
+  (eltype(g) <: Real || _real_error(:kkt_violation);
+   _isbuiltin(f) ? _kkt_violation(f, g, x, k) : maximum(i -> kkt_violation(f, g, i), x.groups[k]))
 
 """
     restrict(f, S)
@@ -447,6 +454,7 @@ optimal value nor the structure of `g`, and a proximal gradient step from `x` is
 what `gradient!` and `prox!` do. Overlapping views of `G` and `x` are unsupported.
 """
 function gradient_mapping!(G::AbstractArray, f::AbstractFunction, g::AbstractFunction, x::AbstractArray, γ::Real)
+  eltype(G) <: Real && eltype(x) <: Real || _real_error(:gradient_mapping!)
   G === x && throw(ArgumentError("G must not be x"))
   _checksize(G, x)
   _checkparams(f, x)

@@ -21,7 +21,7 @@ function check_query_copies(x)
 end
 
 @testset "SparseIterate queries" begin
-  @testset "$T" for T in (Float64, Float32, Int, ComplexF32)
+  @testset "$T" for T in (Float64, Float32, Int)
     @testset "vector" begin
       x = SparseIterate(T, 7)
       x[6] = 4

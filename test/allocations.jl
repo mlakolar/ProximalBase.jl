@@ -96,7 +96,7 @@ end
 
   @testset "five-argument iterate products" begin
     types = ((Float32, Float32, Float32), (Float64, Float64, Float64),
-             (Float64, Float32, Float64), (ComplexF64, ComplexF64, ComplexF64))
+             (Float64, Float32, Float64))
     for (Ta, Tx, To) in types, strided in (false, true)
       A = strided ? view(randn(Ta, 2n, 2p), 1:2:2n, 1:2:2p) : randn(Ta, n, p)
       B = strided ? view(randn(Ta, 2p, 2n), 1:2:2p, 1:2:2n) : randn(Ta, p, n)

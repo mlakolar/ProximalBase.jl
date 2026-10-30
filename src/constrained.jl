@@ -159,7 +159,7 @@ _isindicator(::Type{<:LinearConstrained{F}}) where {F} = _isindicator(F)
 ####################################
 
 (c::BoxConstrained)(x::AbstractArray) =
-  (_check_value_arrays(c, x); _value_unchecked(c, x))
+  (_check_value_arrays(c, x); _value_checked(c, x))
 _value_unchecked(c::BoxConstrained, x::AbstractArray) =
   (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.box, x)) ? convert(T, _value_unchecked(c.f, x)) : T(Inf))
 
@@ -171,10 +171,10 @@ Base.@propagate_inbounds prox_entry(c::BoxConstrained, v::Real, i::Integer, γ::
 # γ is a scalar step or an array of steps, one per entry
 prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) =
   (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
-_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = (_checkwrite(prox!, c, y, x); _prox_sep!(y, c, x, γ))
+_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = (_checkwrite(prox!, c, y, x, γ); _prox_sep!(y, c, x, γ))
 prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) =
   (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
-_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = (_checkwrite(prox!, c, y, x); _prox_sep!(y, c, x, γ))
+_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = (_checkwrite(prox!, c, y, x, γ); _prox_sep!(y, c, x, γ))
 value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) =
   (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 _value_and_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = _value_and_prox_box!(y, c, x, γ)
@@ -190,16 +190,18 @@ end
 
 _checkparams(c::BoxConstrained, x) = (_checkparams(c.f, x); _checkparams(c.box, x); true)
 function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checkreal(c, y); _checkreal(c, x)
   _checksize(y, x)
   _checkparams(c, x)
   op === value_and_prox! && !_isindicator(c) && _checkvalue(c.f, y)
   true
 end
 # A step is needed only for conditional values of nested box constraints.
-_checkwrite(op::O, f, y, x, γ) where {O} = _checkwrite(op, f, y, x)
-_checkwrite(op::O, s::Scaled, y, x, γ::Real) where {O} = _checkwrite(op, s.f, y, x, s.α * γ)
-_checkwrite(op::O, s::Scaled, y, x, γ::AbstractArray) where {O} = _checkwrite(op, s.f, y, x, _ScaledArray(γ, s.α))
+_checkwrite(op::O, f, y, x, γ) where {O} = (_checkreal(f, γ); _checkwrite(op, f, y, x))
+_checkwrite(op::O, s::Scaled, y, x, γ::Real) where {O} = (_checkreal(s, y); _checkreal(s, x); _checkwrite(op, s.f, y, x, s.α * γ))
+_checkwrite(op::O, s::Scaled, y, x, γ::AbstractArray) where {O} = (_checkreal(s, y); _checkreal(s, x); _checkreal(s, γ); _checkwrite(op, s.f, y, x, _ScaledArray(γ, s.α)))
 function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray, γ) where {O}
+  _checkreal(t, γ)
   _checkwrite(op, t, y, x)
   if op === value_and_prox! && !_box_value_available(t.f, y)
     z = _array_buffer!(t.scratch, float(eltype(y)), size(y))
@@ -210,6 +212,7 @@ function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray, γ) whe
   true
 end
 function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray, γ) where {O}
+  _checkreal(t, γ)
   _checkwrite(op, t, y, x)
   if op === value_and_prox! && !_box_value_available(t.f, y)
     z = _array_buffer!(t.proxscratch, float(eltype(y)), size(y))
@@ -219,6 +222,7 @@ function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray, γ
   true
 end
 function _checkwrite(op::O, s::SeparableSum, y::Tuple, x::Tuple, γ) where {O}
+  _checkreal(s, y); _checkreal(s, x); _checkreal(s, γ)
   _checksize(y, x)
   _checkblocks(s, x)
   _checkwrite_blocks(op, s.fs, y, x, γ)
@@ -280,6 +284,7 @@ _box_value_available(c::BoxConstrained, y) = _box_value_available(c.f, y)
   true
 end
 @inline function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArray, γ) where {O}
+  _checkreal(c, γ)
   _checkwrite(op, c, y, x)
   if op === value_and_prox! && !_isindicator(c)
     _checkparam(γ, x)
@@ -289,13 +294,14 @@ end
 end
 
 # Membership can return Inf without evaluating the inner value.
-_checkvalue(c::BoxConstrained, x::AbstractArray) = _checkparams(c, x)
-_checkvalue(c::LinearConstrained, x::AbstractArray) = _checkvalue(c.set, x)
+_checkvalue(c::BoxConstrained, x::AbstractArray) = (_checkreal(c, x); _checkparams(c, x))
+_checkvalue(c::LinearConstrained, x::AbstractArray) = (_checkreal(c, x); _checkvalue(c.set, x))
 iszeropreserving(c::BoxConstrained) = iszeropreserving(c.f) && iszeropreserving(c.box)
 
 # For a convex f with 0 in its domain, the proximal step of f from -gᵢ moves in
 # the direction that improves on zero, if one does; the box must allow it.
 function kkt_violation(c::BoxConstrained, g::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
   v = kkt_violation(c.f, g, i)
   v > 0 || return v
   d = prox_entry(c.f, -g[i], i, one(float(eltype(g))))
@@ -311,11 +317,12 @@ _restrict_unchecked(c::BoxConstrained, S::AbstractVector{<:Integer}) =
 ####################################
 
 (c::LinearConstrained)(x::AbstractArray) =
-  (_check_value_arrays(c, x); _value_unchecked(c, x))
+  (_check_value_arrays(c, x); _value_checked(c, x))
 _value_unchecked(c::LinearConstrained, x::AbstractArray) = (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.set, x)) ? convert(T, _value_unchecked(c.f, x)) : T(Inf))
 
 _checkparams(c::LinearConstrained, x) = (_checkparams(c.f, x); _checkparams(c.set, x); true)
 function _checkwrite(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checkreal(c, y); _checkreal(c, x)
   _checksize(y, x)
   _checkparams(c, x)
   c.set isa IndHyperslab && _checkwrite(op, c.set, y, x)
@@ -362,7 +369,7 @@ value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Ab
   (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 _value_and_prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_linear!(y, c, x, γ)
 function _value_and_prox_linear!(y, c, x, γ)
-  _checkwrite(value_and_prox!, c, y, x)
+  _checkwrite(value_and_prox!, c, y, x, γ)
   _prox_unchecked!(y, c, x, γ)
   T = float(eltype(y))
   _isindicator(c) ? zero(T) : convert(T, _value_unchecked(c.f, y))
@@ -899,6 +906,7 @@ end
 
 # the checks of the conjugate value above, before it computes
 function _checkconjugate(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane, IndHalfspace}}, y::AbstractArray)
+  _checkreal(c, y)
   _checkparams(c, y)
   T = float(eltype(y))
   box, set = c.f, c.set

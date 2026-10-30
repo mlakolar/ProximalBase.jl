@@ -35,7 +35,7 @@ reads the upper triangle of its input, which should be symmetric. The domain of
 non-finite entry, also for a bounded `f`, and at a matrix that is not
 symmetric. When a decomposition is needed, any non-finite entry, including one in the
 lower triangle, gives an all-`NaN` proximal output; `value_and_prox!` returns
-zero for an indicator and `NaN` otherwise. Membership in `IndBox`, `IndBallLinf` and `IndNonnegative` is
+`Inf`. Membership in `IndBox`, `IndBallLinf` and `IndNonnegative` is
 decided with the tolerance `√ε·max(1, |bound|, ‖λ‖∞)`, relative to the
 spectrum, since computed eigenvalues carry errors of order `ε‖λ‖∞`: a
 positive semidefinite matrix of low rank and any scale lies in
@@ -78,6 +78,8 @@ _isindicator(::Type{<:Spectral{F}}) where {F} = _isindicator(F)
 _conjugate_isindicator(::Type{<:Spectral{F}}) where {F} = _conjugate_isindicator(F)
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix)
+  _checkreal(s, X)
+  _checkreal(s, Y)
   _checksize(Y, X)
   n = checksquare(X)
   T = float(eltype(Y))
@@ -91,6 +93,7 @@ end
 # The domain is the finite matrices: a non-finite entry gives Inf, before the
 # symmetry test and any decomposition.
 function (s::Spectral)(X::AbstractMatrix)
+  _checkreal(s, X)
   T = float(eltype(X))
   _checkblas(s, T)
   n = checksquare(X)
@@ -124,7 +127,7 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   T = float(eltype(Y))
   if !all(isfinite, X)
     fill!(Y, T(NaN))
-    return _isindicator(s) ? zero(T) : T(NaN)
+    return T(Inf)
   end
   n = checksquare(X)
   ws = _eig_workspace(s.eig, T, n)
@@ -142,7 +145,7 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   convert(T, v)
 end
 prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real) =
-  (_checkwrite(prox!, s, Y, X); value_and_prox!(Y, s, X, γ); Y)
+  (value_and_prox!(Y, s, X, γ); Y)
 
 # Y = Σⱼ zⱼ vⱼvⱼ' for the eigenvectors vⱼ in the columns of V, through B, which
 # is Y when BLAS can write Y and an n × n buffer otherwise; destroys V. The proximal

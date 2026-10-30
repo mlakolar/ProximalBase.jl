@@ -50,6 +50,7 @@ isconvex(::Type{<:MoreauEnvelope{F}}) where {F} = isconvex(F)
 _envelope_buffer(e::MoreauEnvelope, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(e.scratch, T, size(x))
 
 function _checkwrite(op::O, e::MoreauEnvelope, y::AbstractArray, x::AbstractArray) where {O}
+  _checkreal(e, y); _checkreal(e, x)
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   if op === gradient! || op === value_and_gradient!
@@ -63,7 +64,7 @@ function _checkwrite(op::O, e::MoreauEnvelope, y::AbstractArray, x::AbstractArra
   true
 end
 _checkvalue(e::MoreauEnvelope, x::AbstractArray) =
-  _checkwrite(value_and_prox!, e.f, _checkbuffer(e.scratch, float(eltype(x)), size(x)), x)
+  (_checkreal(e, x); _checkwrite(value_and_prox!, e.f, _checkbuffer(e.scratch, float(eltype(x)), size(x)), x))
 
 # Form the distance in units of sqrt(2γ) before squaring it: an unscaled
 # squared distance can overflow or underflow although its energy is finite.
@@ -96,7 +97,7 @@ end
 end
 
 (e::MoreauEnvelope)(x::AbstractArray) =
-  (_check_value_arrays(e, x); _value_unchecked(e, x))
+  (_check_value_arrays(e, x); _value_checked(e, x))
 function _value_unchecked(e::MoreauEnvelope, x::AbstractArray)
   T = float(eltype(x))
   γ = convert(T, e.γ)
@@ -180,6 +181,7 @@ _checkparams(e::MoreauEnvelope, x) = _checkparams(e.f, x)
 # the envelope is smooth: a coordinate at zero is optimal when the gradient of
 # the smooth part cancels the envelope's derivative there, -prox_{γfᵢ}(0)/γ
 function kkt_violation(e::MoreauEnvelope, g::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
   isseparable(e) || throw(ArgumentError("kkt_violation of MoreauEnvelope requires a separable function"))
   γ = e.γ
   abs(g[i] - prox_entry(e.f, zero(float(eltype(g))), i, γ) / γ)

@@ -34,22 +34,15 @@ function check_shapes(a::Vector{T}, b::T, x::Vector{T}) where {T}
   all(==(first(a)), a) && check_linear(first(a), b, x)
 end
 
-@noinline function membership_batch(f, x, n)
-  count = 0
-  for _ in 1:n
-    count += isfinite(f(x))
-  end
-  count
+# Count reads of a normal to check that a sparse value reads only stored entries.
+mutable struct CountedArray{T, N, A<:AbstractArray{T, N}} <: AbstractArray{T, N}
+  data::A
+  reads::Int
 end
-
-function minimum_value_time(f, x)
-  membership_batch(f, x, 1)
-  n = 1
-  while @elapsed(membership_batch(f, x, n)) < 1e-4 && n < 2^20
-    n *= 2
-  end
-  minimum(@elapsed(membership_batch(f, x, n)) for _ in 1:5) / n
-end
+CountedArray(data::AbstractArray) = CountedArray{eltype(data), ndims(data), typeof(data)}(data, 0)
+Base.size(a::CountedArray) = size(a.data)
+Base.IndexStyle(::Type{<:CountedArray}) = IndexLinear()
+Base.getindex(a::CountedArray, i::Int) = (a.reads += 1; a.data[i])
 
 @testset "large inputs" begin
   setprecision(BigFloat, 256) do
@@ -223,7 +216,11 @@ end
               normal = (sign * c) .* a
               f = F(normal, zero(T))
               @test f(X) == linear_value(normal, zero(T), X; half = F === IndHalfspace)
-              @test f(S) == f(X)
+              if issymmetric(normal)
+                @test f(S) == f(X)
+              else
+                @test_throws ArgumentError f(S)
+              end
             end
             for off in (false, true)
               X = T[large large / 2; large / 2 (off ? large : -2large)]
@@ -367,18 +364,19 @@ end
   @testset "sparse symmetric value cost" begin
     for c in (1.0, 1e200)
       @testset "normal $c" begin
-        times = map((500, 4000)) do p
+        for p in (100, 1000), (s, expected) in ((0.5, Inf), (-0.5, 0.0))
           x = SymmetricSparseIterate(p)
           x[1, 1] = 1.0
-          x[2, 1] = 0.5
+          x[2, 1] = s
           @test nnz(x) == 2
-          f = IndHyperplane(fill(c, p, p), 0.0)
-          @test f(x) == Inf
-          minimum_value_time(f, x)
+          a = CountedArray(fill(c, p, p))
+          f = IndHyperplane(a, 0.0)
+          a.reads = 0
+          @test f(x) == expected
+          # Dense evaluation reads all p^2 entries of the normal; sparse evaluation
+          # reads at most the two mirrored entries per stored entry.
+          @test 0 < a.reads <= 2nnz(x)
         end
-        # Evaluation is O(nnz); a dense p x p scan costs about 64x from p = 500 to 4000.
-        # Allowing 4x leaves room for timer noise and still catches a dense scan.
-        @test times[2] <= 4times[1]
       end
     end
   end

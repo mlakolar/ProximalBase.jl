@@ -989,3 +989,52 @@ end
 _projection_square(v, m) = abs2(v / m)
 _projection_scale(v::Real, r, k) = _scaled_product(promote(float(r), float(v))..., k)
 _projection_scale(v::Complex, r, k) = complex(_projection_scale(real(v), r, k), _projection_scale(imag(v), r, k))
+
+
+# Linear group indices address the original matrix without reshape headers.
+function _project_l2_group!(y, x, G, λ, α = 1, w = 1)
+  if iszero(λ) || iszero(w)
+    @inbounds @simd for i in G
+      y[i] = zero(eltype(y))
+    end
+    return y
+  end
+  isinf(w) && return _project_l2_group_scale!(y, x, G, 1)
+  c = _projection_product(α, λ, w)
+  n = _group_norm2(x, G)
+  t = min(one(n), c / n)
+  if isfinite(n) && (iszero(n) || (isfinite(c) && t >= floatmin(typeof(t))))
+    return _project_l2_group_scale!(y, x, G, iszero(n) ? one(n) : t)
+  end
+  _project_l2_group_scaled!(y, x, G, λ, α, w, c, n)
+end
+
+function _project_l2_group_scale!(y, x, G, t)
+  @inbounds @simd for i in G
+    y[i] = t * x[i]
+  end
+  y
+end
+
+function _project_l2_group_scaled!(y, x, G, λ, α, w, c, n)
+  m = _maxabs(x, G)
+  (!isfinite(m) || !isfinite(λ) || !isfinite(α)) &&
+    return _project_l2_group_scale!(y, x, G, min(one(n), c / n))
+  iszero(m) && return _project_l2_group_scale!(y, x, G, 1)
+  s = err = zero(m)
+  @inbounds for i in G
+    s, err = _compensated_add(s, err, _projection_square(x[i], m))
+  end
+  a, e = frexp(m)
+  r1, e1 = _projection_scale_parts(α)
+  r2, e2 = frexp(float(λ))
+  r3, e3 = frexp(float(w))
+  r = ((r1 * r2) * r3) / (a * sqrt(s + err))
+  fr, er = frexp(r)
+  k = e1 + e2 + e3 - e + er
+  (k > 1 || (k == 1 && fr >= 0.5)) && return _project_l2_group_scale!(y, x, G, 1)
+  @inbounds for i in G
+    y[i] = _projection_scale(x[i], fr, k)
+  end
+  y
+end

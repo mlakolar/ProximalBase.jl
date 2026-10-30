@@ -1113,6 +1113,7 @@ _projection_scale_parts(a::Real) = frexp(float(a))
 _projection_scale_parts(a::_ProjectionScale) = (a.m, a.e)
 function _projection_accumulate(a::Real, b::Real)
   isone(a) && return b
+  (iszero(a) || iszero(b)) && return zero(float(a) + float(b))
   p = float(a) * float(b)
   (!isfinite(a) || !isfinite(b) || iszero(a) || iszero(b)) && return p
   floatmin(typeof(float(p))) <= abs(p) <= floatmax(typeof(float(p))) && return p
@@ -1234,7 +1235,7 @@ function _conjugate_projection!(z, f::GroupNormL2, x, γ, α = 1)
   @inbounds for k in eachindex(f.groups)
     G = f.groups[k]
     isempty(G) && continue
-    _project_l2!(view(z, G), view(x, G), f.λ0, α, f.w[k])
+    _project_l2_group!(z, x, G, f.λ0, α, f.w[k])
   end
   z
 end

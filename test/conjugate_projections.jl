@@ -259,4 +259,39 @@ end
   end
 end
 
+
+@testset "indexed matrix group projections and allocations" begin
+  setprecision(BigFloat, 4096) do
+    for T in (Float32, Float64), groups in ([1:3, 5:8], [[1, 3, 5], [2, 7, 9]])
+      f = GroupNormL2(one(T), groups, ones(T, 2))
+      c = Conjugate(f)
+      x = reshape(T.(1:12), 3, 4)
+      ref = reference(f, x, 1.0)
+      y = similar(x)
+      for op in (prox!, value_and_prox!)
+        v = op(y, c, x, 1.0)
+        accurate(y, ref, 8)
+        op === value_and_prox! && @test v == 0
+        @test allocs(op, y, c, x, 1.0) == 0
+        alias = copy(x)
+        op(alias, c, alias, 1.0)
+        @test alias == y
+      end
+    end
+    for T in (Float32, Float64)
+      x = zeros(T, 2, 3)
+      x[[1, 4]] .= floatmax(T) * T(0.8)
+      x[2] = T === Float32 ? T(1e-30) : T(1e-300)
+      f = GroupNormL2(floatmax(T) / 2, [[1, 2, 4]], ones(T, 1))
+      ref = reference(f, x, 1.0)
+      c, y = Conjugate(f), similar(x)
+      for op in (prox!, value_and_prox!)
+        op(y, c, x, 1.0)
+        accurate(y, ref, 8)
+        @test allocs(op, y, c, x, 1.0) == 0
+      end
+    end
+  end
+end
+
 end

@@ -1291,3 +1291,30 @@ end
     end
   end
 end
+
+
+@testset "infinite device scales preserve zero clipping coefficients" begin
+  allowscalar(false)
+  for T in test_types, op in (prox!, value_and_prox!),
+      base in (NormL1(zero(T)), NormL1Nonneg(zero(T)),
+               NormL1(zero(T), T[0, 2, Inf]), NormL1Nonneg(zero(T), T[0, 2, Inf]),
+               NormL1(one(T), T[0, 2, Inf]), NormL1Nonneg(one(T), T[0, 2, Inf]),
+               CheckLoss(T(0.25), T[0, 2, Inf]))
+    f = Scaled(base, T(Inf))
+    c = Conjugate(Adapt.adapt(DeviceArray, f))
+    x, dx = T[-3, 2, -4], DeviceArray(T[-3, 2, -4])
+    expected = prox(Conjugate(f), x, 1.0)
+    @test expected == T[prox_entry(Conjugate(f), x[i], i, 1.0) for i in eachindex(x)]
+    for γ in (1.0, DeviceArray(ones(T, 3)))
+      y = DeviceArray(zeros(T, 3))
+      v = op(y, c, dx, γ)
+      @test host(y) == expected
+      @test all(isfinite, host(y))
+      op === value_and_prox! && @test v == 0
+    end
+    blocks = (DeviceArray(zeros(T, 3)),)
+    v = op(blocks, Conjugate(SeparableSum(c.f)), (dx,), 1.0)
+    @test host(blocks[1]) == expected
+    op === value_and_prox! && @test v == 0
+  end
+end

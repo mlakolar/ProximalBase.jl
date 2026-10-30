@@ -30,19 +30,11 @@ end
 end
 
 @testset "mul! into a SymmetricSparseIterate" begin
-  @testset "issue calls and scalars, $T" for T in (Float64, Float32, ComplexF64)
+  @testset "issue calls and scalars, $T" for T in (Float64, Float32)
     X = T[1 2 0; 0 1 1; 1 0 1; 2 1 1]
     for A in (Matrix(X'), X', transpose(X)), scalars in ((), (1, 1), (1, 2), (2, 0), (-1, 2), (true, false), (1.0, 0.0))
       check_mul(fill!(SymmetricSparseIterate(T, 3), 1), A, X, scalars...)
     end
-  end
-
-  @testset "complex symmetry" begin
-    Z = ComplexF64[1 im; 0 1]
-    check_mul(SymmetricSparseIterate(ComplexF64, 2), transpose(Z), Z)
-    check_mul(fill!(SymmetricSparseIterate(ComplexF64, 2), 1), transpose(Z), Z, 1 + im, 2 - im)
-    rejects(x -> mul!(x, Z', Z), SymmetricSparseIterate(ComplexF64, 2), ArgumentError,
-            "use copyto!(x, Symmetric(P, :L)) with P = A * B, or (P + transpose(P)) / 2, to store a product that is not symmetric")
   end
 
   @testset "zero scalars" begin
@@ -99,9 +91,6 @@ end
     @test Matrix(x) == ones(2, 2)
     check_mul(SymmetricSparseIterate(ones(Int, 2, 2)), Diagonal(ones(Int, 2)),
               ones(Int, 2, 2), 0.5, 0.5)
-    x = check_mul(SymmetricSparseIterate(ones(2, 2)), Diagonal(ones(2)),
-                  ones(2, 2), 1 + im, 1 - im)
-    @test Matrix(x) == fill(2.0, 2, 2)
     # a conversion failure at the final write may leave a partial write
     @test_throws InexactError mul!(SymmetricSparseIterate(ones(Int, 2, 2)),
                                   Diagonal(ones(Int, 2)), ones(Int, 2, 2), 0.5, 0)

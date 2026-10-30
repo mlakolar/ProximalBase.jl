@@ -17,6 +17,84 @@ ProximalBase.iszeropreserving(::ScaledSquare) = true
 # the values agree, including Inf for a point outside a set
 same(a, b) = isinf(b) ? a == b : a ≃ b
 
+@testset "real entries on GPU arrays" begin
+  allowscalar(false)
+  groups = [1:2, 3:4]
+  functions = (ScaledSquare(0.6), NormL1(0.3), NormL1(0), NormL1Nonneg(0.3),
+               ElasticNet(0.3, 0.5), IndBox(-1, 1), IndNonnegative(),
+               SqrNormL2(0.7, ones(4)), NormL2(0.3), NormLinf(0.3), NormLinf(0),
+               IndBallL1(1), IndBallL1(0), IndSimplex(1), IndSimplex(0),
+               GroupNormL2(0.3, groups), GroupNormL2(0, groups),
+               GroupNormLinf(0.3, groups), SparseGroupNormL2(0.2, 0.3, groups),
+               IndBallGroupL0(1, groups), GroupNormL2(0.3, UnitRange{Int}[]))
+  for f in functions, fg in (f, Adapt.adapt(DeviceArray, f))
+    error = ArgumentError("$(nameof(typeof(fg))) requires real entries")
+    for imaginary in (0, 1)
+      x = DeviceArray(fill(0.5, 4))
+      z = DeviceArray(fill(complex(0.5, imaginary), 4))
+      @test_throws error fg(z)
+      @test_throws error prox(fg, z, 0.8)
+      for op in (prox!, value_and_prox!)
+        for (input, output) in ((z, DeviceArray(fill(17.0, 4))),
+                                (x, DeviceArray(fill(17.0 + 2im, 4))),
+                                (z, DeviceArray(fill(17.0 + 2im, 4))), (z, z))
+          before = host(output)
+          @test_throws error op(output, fg, input, 0.8)
+          @test host(output) == before
+        end
+      end
+    end
+    # Adapted group functions also accept host arrays.
+    if fg !== f
+      x, z = fill(0.5, 4), fill(0.5 + 0im, 4)
+      @test_throws error fg(z)
+      for op in (prox!, value_and_prox!), (input, output) in ((z, fill(17.0, 4)), (x, fill(17.0 + 2im, 4)))
+        before = copy(output)
+        @test_throws error op(output, fg, input, 0.8)
+        @test output == before
+      end
+    end
+  end
+  # Diagonal and group step arrays are checked before the CPU fallback writes.
+  for f in (NormL1(0.3), GroupNormL2(0.3, groups)), op in (prox!, value_and_prox!)
+    x, y = DeviceArray(fill(0.5, 4)), DeviceArray(fill(17.0, 4))
+    step = DeviceArray(fill(0.8 + 0im, f isa GroupNormL2 ? 2 : 4))
+    @test_throws ArgumentError("$(nameof(typeof(f))) requires real entries") op(y, f, x, step)
+    @test host(y) == fill(17.0, 4)
+  end
+  for f in (LeastSquaresLoss(ones(3), ones(3, 4)), LogisticLoss(ones(3), ones(3, 4)))
+    fg = Adapt.adapt(DeviceArray, f)
+    error = ArgumentError("$(nameof(typeof(fg))) requires real entries")
+    # Initialize every cache so preservation does not depend on uninitialized data.
+    fg(DeviceArray(fill(0.5, 4)))
+    buffers = fg isa GLMLoss ? (fg.η, fg.d) : (fg.tmp,)
+    foreach(b -> fill!(b, 13), buffers)
+    saved = map(host, buffers)
+    for imaginary in (0, 1)
+      x, z = DeviceArray(fill(0.5, 4)), DeviceArray(fill(complex(0.5, imaginary), 4))
+      @test_throws error fg(z)
+      for op in (gradient!, value_and_gradient!),
+          (input, output) in ((z, DeviceArray(fill(17.0, 4))),
+                              (x, DeviceArray(fill(17.0 + 2im, 4))),
+                              (z, DeviceArray(fill(17.0 + 2im, 4))), (z, z))
+        before = host(output)
+        @test_throws error op(output, fg, input)
+        @test host(output) == before
+        @test map(host, buffers) == saved
+      end
+      if fg isa LeastSquaresLoss
+        for op in (prox!, value_and_prox!),
+            (input, output) in ((z, DeviceArray(fill(17.0, 4))), (x, DeviceArray(fill(17.0 + 2im, 4))))
+          before = host(output)
+          @test_throws error op(output, fg, input, 0.8)
+          @test host(output) == before
+          @test map(host, buffers) == saved
+        end
+      end
+    end
+  end
+end
+
 @testset "separable functions on GPU arrays" begin
   allowscalar(false)
   n = 300
@@ -57,6 +135,18 @@ same(a, b) = isinf(b) ? a == b : a ≃ b
   @test Adapt.adapt(DeviceArray, IndBox(l, u)).u isa DeviceArray
   @test Adapt.adapt(DeviceArray, NormL1(0.3)) == NormL1(0.3)
   @test_throws ArgumentError Adapt.adapt(DeviceArray, NormL1(0.3, -w))
+  if Float32 in test_types
+    for (w, x) in (([1 - 2.0^-26], Float32[1]), ([1e40], Float32[Inf]))
+      f = ElasticNet(1, 0, w)
+      fg = Adapt.adapt(DeviceArray, f)
+      # The broadcast retains the weights' precision until writing Float32.
+      expected = Float32.(prox(f, Float64.(x), 1.0))
+      xg = DeviceArray(x)
+      @test host(prox(fg, xg, 1f0)) == expected
+      @test host(prox!(xg, fg, xg, 1f0)) == expected
+    end
+  end
+
 end
 
 @testset "linear separable parameters on GPU arrays" begin
@@ -314,10 +404,6 @@ end
   groups = [1:2, 3:4]
   for T in test_types, scale in (floatmin(T), floatmax(T) / T(16))
     @test norm_diff(DeviceArray(scale .* T[3, 4]), DeviceArray(zeros(T, 2))) / scale ≃ T(5)
-    cx = DeviceArray(complex.(scale .* T[3, 4], scale .* T[3, 4]))
-    cy = DeviceArray(zeros(Complex{T}, 2))
-    @test norm_diff(cx, cy) isa T
-    @test norm_diff(cx, cy) / scale ≃ sqrt(T(50))
     # The shared Euclidean routines fall back to GPUArrays' scaled norm.
     xv = scale .* T[3, 4]
     @test NormL2(one(T))(DeviceArray(xv)) / scale ≃ T(5)
@@ -940,6 +1026,287 @@ end
         @test isfinite(v)
         check_rounded(v, ref)
         @test v ≃ f(host(X))
+      end
+    end
+  end
+end
+
+@testset "conjugate real entries on GPU arrays" begin
+  allowscalar(false)
+  error = ArgumentError("Conjugate requires real entries")
+  for wrap in (identity, a -> view(a, 2:4))
+    for f in (NormL1(1, ones(3)), IndNonnegative(), IndBox(-ones(3), ones(3)),
+              ElasticNet(1, 1, ones(3)), Berhu(1, 1))
+      c = Conjugate(Adapt.adapt(DeviceArray, f))
+      for imaginary in (0, 1)
+        x = wrap(DeviceArray(fill(0.5, wrap === identity ? 3 : 5)))
+        z = wrap(DeviceArray(fill(complex(0.5, imaginary), wrap === identity ? 3 : 5)))
+        # A rejected value must not initialize the working buffer.
+        @test_throws error c(z)
+        @test c.scratch.buf === nothing
+        for step in (0.5, wrap(DeviceArray(fill(0.5, wrap === identity ? 3 : 5)))),
+            op in (prox!, value_and_prox!)
+          for (input, output) in ((z, wrap(DeviceArray(fill(17.0, wrap === identity ? 3 : 5)))),
+                                  (x, wrap(DeviceArray(fill(17.0 + 2im, wrap === identity ? 3 : 5)))),
+                                  (z, wrap(DeviceArray(fill(17.0 + 2im, wrap === identity ? 3 : 5)))), (z, z))
+            storage = wrap === identity ? output : parent(output)
+            before = host(storage)
+            @test_throws error op(output, c, input, step)
+            @test host(storage) == before
+            @test c.scratch.buf === nothing
+          end
+          output = wrap(DeviceArray(fill(17.0, wrap === identity ? 3 : 5)))
+          storage = wrap === identity ? output : parent(output)
+          before = host(storage)
+          complexstep = wrap(DeviceArray(fill(0.5 + 0im, wrap === identity ? 3 : 5)))
+          @test_throws error op(output, c, x, complexstep)
+          @test host(storage) == before
+          @test c.scratch.buf === nothing
+        end
+      end
+    end
+  end
+  # A late complex block must leave every earlier block and cache unchanged.
+  c = Conjugate(SeparableSum(NormL1(), SeparableSum(SqrNormL2(), NormL1())))
+  for imaginary in (0, 1)
+    x = (DeviceArray(fill(0.5, 3)), (DeviceArray(fill(0.5, 3)), DeviceArray(fill(0.5, 3))))
+    z = (x[1], (x[2][1], DeviceArray(fill(complex(0.5, imaginary), 3))))
+    @test_throws error c(z)
+    for op in (prox!, value_and_prox!)
+      for (input, output) in ((z, (DeviceArray(fill(17.0, 3)), (DeviceArray(fill(17.0, 3)), DeviceArray(fill(17.0, 3))))),
+                              (x, (DeviceArray(fill(17.0, 3)), (DeviceArray(fill(17.0, 3)), DeviceArray(fill(17.0 + 2im, 3))))),
+                              (z, (DeviceArray(fill(17.0 + 2im, 3)), (DeviceArray(fill(17.0, 3)), DeviceArray(fill(17.0 + 2im, 3))))), (z, z))
+        blocks = (output[1], output[2]...)
+        before = map(host, blocks)
+        @test_throws error op(output, c, input, 0.5)
+        @test map(host, blocks) == before
+        @test c.scratch.buf === nothing
+      end
+    end
+  end
+end
+
+@testset "separable array-step real entries on GPU arrays" begin
+  allowscalar(false)
+  for f in (Berhu(1, 1), ElasticNet(1, 1, ones(3))),
+      wrap in (identity, a -> view(a, 2:4))
+    fg = Adapt.adapt(DeviceArray, f)
+    error = ArgumentError("$(nameof(typeof(fg))) requires real entries")
+    device(v) = wrap(DeviceArray(fill(v, wrap === identity ? 3 : 5)))
+    x, step = device(0.5), device(0.5)
+    for imaginary in (0, 1)
+      z = device(complex(0.5, imaginary))
+      for op in (prox!, value_and_prox!, ProximalBase._prox_sep!)
+        for (input, output, γ) in ((z, device(17.0), step), (x, device(17.0 + 2im), step),
+                                   (z, device(17.0 + 2im), step), (z, z, step),
+                                   (x, device(17.0), device(complex(0.5, imaginary))))
+          storage = wrap === identity ? output : parent(output)
+          before = host(storage)
+          @test_throws error op(output, fg, input, γ)
+          @test host(storage) == before
+        end
+      end
+    end
+  end
+end
+
+@testset "conjugate scalar steps on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types, dims in ((3,), (3, 2))
+    x = reshape(repeat(T[0.5, -2, 1.5], prod(dims) ÷ 3), dims)
+    xg = DeviceArray(x)
+    for f in (NormL1(), NormL1(T(0.7), fill(T(0.8), dims)), IndNonnegative(),
+              IndBox(-1, 1), IndBallL2(1), SqrNormL2(), ElasticNet(1, 1))
+      c = Conjugate(f)
+      cg = Conjugate(Adapt.adapt(DeviceArray, f))
+      expected = prox(c, x, T(0.5))
+      y = similar(xg)
+      @test prox!(y, cg, xg, T(0.5)) === y
+      @test host(y) ≃ expected
+      buffer = cg.scratch.buf
+      @test same(value_and_prox!(y, cg, xg, T(0.5)), value_and_prox!(similar(x), c, x, T(0.5)))
+      @test cg.scratch.buf === buffer
+      @test host(y) ≃ expected
+      alias = copy(xg)
+      @test host(prox!(alias, cg, alias, T(0.5))) ≃ expected
+      alias = copy(xg)
+      @test same(value_and_prox!(alias, cg, alias, T(0.5)), value_and_prox!(similar(x), c, x, T(0.5)))
+      @test host(alias) ≃ expected
+    end
+    # A single cache can move between array kinds and sizes.
+    c = Conjugate(SqrNormL2())
+    @test prox(c, x, T(0.5)) ≃ x ./ T(1.5)
+    @test host(prox(c, xg, T(0.5))) ≃ x ./ T(1.5)
+    @test prox(c, x, T(0.5)) ≃ x ./ T(1.5)
+    small = DeviceArray(T[1, 2])
+    @test host(prox(c, small, T(0.5))) ≃ T[1, 2] ./ T(1.5)
+    v = view(DeviceArray(T[0.5, -2, 1.5, 9]), 1:3)
+    for f in (NormL1(), SqrNormL2(), IndBox(-1, 1))
+      @test host(prox(Conjugate(f), v, T(0.5))) ≃ prox(Conjugate(f), T[0.5, -2, 1.5], T(0.5))
+    end
+  end
+  # Parameters with the right length keep the CPU's linear pairing.
+  for T in test_types, dims in ((2,), (2, 2))
+    x = reshape(repeat(T[0.5, 2], prod(dims) ÷ 2), dims)
+    w = ndims(x) == 1 ? reshape(T[1, 3], 1, 2) : T[1, 3, 2, 4]
+    xg = DeviceArray(x)
+    for f in (NormL1(1, w), NormL1Nonneg(1, w), ElasticNet(1, 1, w), IndBox(zero.(w), w))
+      fg = Adapt.adapt(DeviceArray, f)
+      # The CPU box Moreau helper requires bounds shaped like x.
+      reference = f isa IndBox ? IndBox(reshape(f.l, size(x)), reshape(f.u, size(x))) : f
+      c, cg = Conjugate(reference), Conjugate(fg)
+      expected = prox(c, x, T(0.5))
+      y = similar(xg)
+      @test host(prox!(y, cg, xg, T(0.5))) ≃ expected
+      @test same(value_and_prox!(y, cg, xg, T(0.5)), value_and_prox!(similar(x), c, x, T(0.5)))
+      @test host(y) ≃ expected
+      @test same(fg(xg), f(x))
+    end
+  end
+
+end
+
+@testset "conjugate values on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types, dims in ((3,), (3, 2))
+    for f in (NormL1(), NormL1(T(0.7), fill(T(0.8), dims)), IndNonnegative(),
+              IndBox(-1, 1), IndBox(fill(T(-2), dims), fill(T(3), dims)), IndBox(-Inf, Inf))
+      c, cg = Conjugate(f), Conjugate(Adapt.adapt(DeviceArray, f))
+      for v in (T(-0.2), T(0), T(2))
+        x = fill(v, dims)
+        @test same(cg(DeviceArray(x)), c(x))
+      end
+    end
+  end
+  for T in test_types, dims in ((2,), (2, 2))
+    x = reshape(repeat(T[0.5, 2], prod(dims) ÷ 2), dims)
+    w = ndims(x) == 1 ? reshape(T[1, 3], 1, 2) : T[1, 3, 2, 4]
+    for f in (NormL1(1, w), IndBox(zero.(w), w))
+      @test same(Conjugate(Adapt.adapt(DeviceArray, f))(DeviceArray(x)), Conjugate(f)(x))
+    end
+  end
+  if Float32 in test_types
+    x = Float32[0.5, 2]
+    w = reshape(Float32[0, Inf], 1, 2)
+    for λ in (BigFloat(0), BigFloat(1), BigFloat(Inf)), weights in (nothing, w)
+      f = NormL1(λ, weights)
+      @test same(Conjugate(Adapt.adapt(DeviceArray, f))(DeviceArray(x)), Conjugate(f)(x))
+    end
+  end
+  if Float32 in test_types
+    for λ in (1e40, BigFloat(1e40)), x in (Float32[1e20], Float32[1e9])
+      f = NormL1(λ, Float32[1e-30])
+      @test same(Conjugate(Adapt.adapt(DeviceArray, f))(DeviceArray(x)), Conjugate(f)(x))
+    end
+  end
+
+end
+
+@testset "conjugate array steps on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types, dims in ((3,), (3, 2))
+    x = reshape(repeat(T[0.5, -2, 1.5], prod(dims) ÷ 3), dims)
+    γ = reshape(repeat(T[0.5, 1, 2], prod(dims) ÷ 3), dims)
+    xg, γg = DeviceArray(x), DeviceArray(γ)
+    @test host(prox(Berhu(1, 1), xg, γg)) ≃ prox(Berhu(1, 1), x, γ)
+    for f in (NormL1(), IndNonnegative(), IndBox(-1, 1), ElasticNet(1, 1), Berhu(1, 1),
+              ElasticNet(1, 1, fill(T(0.8), dims)))
+      c, cg = Conjugate(f), Conjugate(Adapt.adapt(DeviceArray, f))
+      expected = prox(c, x, γ)
+      y = similar(xg)
+      @test host(prox!(y, cg, xg, γg)) ≃ expected
+      buffer = cg.scratch.buf
+      @test same(value_and_prox!(y, cg, xg, γg), value_and_prox!(similar(x), c, x, γ))
+      @test host(y) ≃ expected
+      @test cg.scratch.buf === buffer
+      alias = copy(xg)
+      @test host(prox!(alias, cg, alias, γg)) ≃ expected
+      alias = copy(xg)
+      @test same(value_and_prox!(alias, cg, alias, γg), value_and_prox!(similar(x), c, x, γ))
+      @test host(alias) ≃ expected
+    end
+    for f in (SqrNormL2(), IndBallL2(1))
+      @test_throws MethodError prox(Conjugate(f), x, γ)
+      @test_throws MethodError prox(Conjugate(f), xg, γg)
+    end
+  end
+  for T in test_types, dims in ((2,), (2, 2))
+    x = reshape(repeat(T[0.5, 2], prod(dims) ÷ 2), dims)
+    w = ndims(x) == 1 ? reshape(T[1, 3], 1, 2) : T[1, 3, 2, 4]
+    γ = reshape(repeat(T[0.5, 1], prod(dims) ÷ 2), dims)
+    xg, γg = DeviceArray(x), DeviceArray(γ)
+    for f in (NormL1(1, w), IndBox(zero.(w), w), ElasticNet(1, 1, w), Berhu(1, 1))
+      reference = f isa IndBox ? IndBox(reshape(f.l, size(x)), reshape(f.u, size(x))) : f
+      c, cg = Conjugate(reference), Conjugate(Adapt.adapt(DeviceArray, f))
+      expected = prox(c, x, γ)
+      y = similar(xg)
+      @test host(prox!(y, cg, xg, γg)) ≃ expected
+      @test same(value_and_prox!(y, cg, xg, γg), value_and_prox!(similar(x), c, x, γ))
+      @test host(y) ≃ expected
+    end
+    # Direct separable proxes also accept steps with another shape.
+    γother = reshape(γ, size(w))
+    @test host(prox(Berhu(1, 1), xg, DeviceArray(γother))) ≃ prox(Berhu(1, 1), x, γother)
+    f = ElasticNet(1, 1, w)
+    @test host(prox(Adapt.adapt(DeviceArray, f), xg, DeviceArray(γother))) ≃ prox(f, x, γother)
+  end
+  if Float32 in test_types
+    x, γ = Float32[0.5, 2], Float32[0.5, 1]
+    for λ in (BigFloat(0), BigFloat(1), BigFloat(Inf)), weights in (nothing, reshape(Float32[0, Inf], 1, 2))
+      f = ElasticNet(λ, BigFloat(1), weights)
+      c, cg = Conjugate(f), Conjugate(Adapt.adapt(DeviceArray, f))
+      xg, γg = DeviceArray(x), DeviceArray(γ)
+      @test host(prox(cg, xg, γg)) ≃ prox(c, x, γ)
+      y = similar(xg)
+      @test same(value_and_prox!(y, cg, xg, γg), value_and_prox!(similar(x), c, x, γ))
+      @test host(y) ≃ prox(c, x, γ)
+    end
+  end
+  if Float32 in test_types
+    for λ in (1e40, BigFloat(1e40))
+      x, γ = Float32[2e10], Float32[1]
+      f = ElasticNet(λ, 1, Float32[1e-30])
+      c, cg = Conjugate(f), Conjugate(Adapt.adapt(DeviceArray, f))
+      xg, γg = DeviceArray(x), DeviceArray(γ)
+      y = similar(xg)
+      @test host(prox!(y, cg, xg, γg)) ≃ prox(c, x, γ)
+      @test same(value_and_prox!(y, cg, xg, γg), value_and_prox!(similar(x), c, x, γ))
+      @test host(y) ≃ prox(c, x, γ)
+    end
+  end
+
+end
+
+conjugate_blocks_match(a::AbstractArray, b::AbstractArray) = host(a) ≃ b
+conjugate_blocks_match(a::Tuple, b::Tuple) = all(map(conjugate_blocks_match, a, b))
+
+@testset "conjugate checks and tuples on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types
+    x = T[0.5, -2, 1.5]
+    xg = DeviceArray(x)
+    for γ in (nextfloat(zero(T)), DeviceArray(fill(nextfloat(zero(T)), 3))),
+        op in (prox!, value_and_prox!), alias in (false, true)
+      y = alias ? copy(xg) : DeviceArray(fill(T(19), 3))
+      before = host(y)
+      c = Conjugate(ElasticNet(1, 1))
+      @test_throws ArgumentError op(y, c, alias ? y : xg, γ)
+      @test host(y) == before
+    end
+    for (f, blocks, deviceblocks) in (
+        (SeparableSum(NormL1(), SqrNormL2()), (x, copy(x)), (xg, copy(xg))),
+        (SeparableSum(NormL1(), SeparableSum(SqrNormL2(), NormL1())),
+         (x, (copy(x), copy(x))), (xg, (copy(xg), copy(xg)))))
+      c = Conjugate(f)
+      expected = prox(Conjugate(f), blocks, T(0.5))
+      y = map(ProximalBase._gradient_buffer, deviceblocks)
+      for _ in 1:2
+        @test prox!(y, c, deviceblocks, T(0.5)) === y
+        @test ProximalBase._tuple_buffer_type(typeof(y)) === typeof(c.scratch.buf[3])
+        buffer = c.scratch.buf
+        @test same(value_and_prox!(y, c, deviceblocks, T(0.5)), value_and_prox!(map(ProximalBase._gradient_buffer, blocks), Conjugate(f), blocks, T(0.5)))
+        @test c.scratch.buf === buffer
+        @test conjugate_blocks_match(y, expected)
       end
     end
   end

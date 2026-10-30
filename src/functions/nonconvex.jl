@@ -31,6 +31,7 @@ struct CappedL1{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   w::W
 
   function CappedL1{T, W}(λ::T, a::T, w::W) where {T<:Real, W<:Union{Nothing, AbstractArray}}
+    w === nothing || eltype(w) <: Real || _real_error(:CappedL1)
     _checknonneg("λ", λ)
     a > 0 || throw(ArgumentError("a must be positive, got $a"))
     _checknonneg("the weights", w)
@@ -69,7 +70,8 @@ Base.@propagate_inbounds function prox_entry(f::CappedL1, v::T, i::Integer, γ::
   sign(S(v)) * ifelse(isinf(c) | (h1 <= h2), z1, z2)
 end
 
-kkt_violation(f::CappedL1, g::AbstractArray, i::Integer) = abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i))
+kkt_violation(f::CappedL1, g::AbstractArray, i::Integer) =
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i)))
 restrict(f::CappedL1, S::AbstractVector{<:Integer}) = CappedL1(f.λ, f.a, _restrict_entries(f.w, S))
 
 ####################################
@@ -94,6 +96,7 @@ struct LogPenalty{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunctio
   w::W
 
   function LogPenalty{T, W}(λ::T, ε::T, w::W) where {T<:Real, W<:Union{Nothing, AbstractArray}}
+    w === nothing || eltype(w) <: Real || _real_error(:LogPenalty)
     _checknonneg("λ", λ)
     ε > 0 || throw(ArgumentError("ε must be positive, got $ε"))
     _checknonneg("the weights", w)
@@ -141,7 +144,8 @@ Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ
   c * log1p(z / ε) + (z - t)^2 / 2 < t^2 / 2 ? sign(S(v)) * z : zero(S)
 end
 
-kkt_violation(f::LogPenalty, g::AbstractArray, i::Integer) = abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i)) / f.ε
+kkt_violation(f::LogPenalty, g::AbstractArray, i::Integer) =
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i)) / f.ε)
 restrict(f::LogPenalty, S::AbstractVector{<:Integer}) = LogPenalty(f.λ, f.ε, _restrict_entries(f.w, S))
 
 ####################################
@@ -179,6 +183,7 @@ struct NormLq{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   w::W
 
   function NormLq{T, W}(λ::T, q::T, w::W) where {T<:Real, W<:Union{Nothing, AbstractArray}}
+    w === nothing || eltype(w) <: Real || _real_error(:NormLq)
     _checknonneg("λ", λ)
     0 < q < 1 || throw(ArgumentError("q must be in (0, 1), got $q; use NormL0 for q = 0 and NormL1 for q = 1"))
     _checknonneg("the weights", w)
@@ -274,6 +279,7 @@ function _lq_root(t::S, μ::S, q::S, τ::S) where {S<:AbstractFloat}
 end
 
 function kkt_violation(f::NormLq, g::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
   w = _entry(f.w, i)
   !isinf(w) && (iszero(f.λ) || iszero(w)) ? abs(g[i]) : float(eltype(g))(-Inf)
 end
@@ -347,7 +353,8 @@ function _group_penalty_checks(λ0, groups, w)
 end
 
 for (F, a0) in ((:GroupMCP, 3), (:GroupSCAD, 3.7))
-  @eval function $F(λ::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}, w::AbstractVector{<:Real}; a::Real = $a0)
+  @eval function $F(λ::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}, w::AbstractVector; a::Real = $a0)
+    eltype(w) <: Real || _real_error(nameof($F))
     T = float(promote_type(typeof(λ), eltype(w)))     # a takes the type of λ, as its default must not promote
     G = _own_groups(groups)
     $F{T, typeof(G)}(convert(T, λ), convert(T, a), G, convert(Vector{T}, w))
@@ -390,6 +397,8 @@ function _check_prox_group_scalars(f::_RadialGroupPenalty, ::Type{T}, y::AtomIte
   _check_group_scalars(f, T, eachindex(f.groups))
 end
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::_RadialGroupPenalty, y::AbstractArray, x::AbstractArray)
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkgroups(f, x)
   _check_symmetric_groups(f, y)
@@ -412,6 +421,7 @@ _dual_norm(::_RadialGroupPenalty, g, G) = _group_norm2(g, G)
 end
 
 function (f::_RadialGroupPenalty)(x::AbstractArray)
+  _checkreal(f, x)
   _checkgroups(f, x)
   T = float(eltype(x))
   v = zero(T)
@@ -425,6 +435,7 @@ end
 
 # with the groups of f, only the active groups count
 function (f::_RadialGroupPenalty)(x::AtomIterate)
+  _checkreal(f, x)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   T = float(eltype(x))
   v = zero(T)
@@ -536,7 +547,7 @@ _checkgroups(f::IndBallGroupL0, x::AbstractArray) =
   length(x) >= length(f.group_of) || throw(BoundsError(x, length(f.group_of)))
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndBallGroupL0, y::AbstractArray, x::AbstractArray) =
-  (_checksize(y, x); _checkgroups(f, x); true)
+  (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkgroups(f, x); true)
 
 _samegroups(f::IndBallGroupL0, x::AtomIterate) = _samelayout(f, x)
 
@@ -553,6 +564,7 @@ function _group_status(x::AbstractArray, G, k::Int)
 end
 
 function (f::IndBallGroupL0)(x::AbstractArray)
+  _checkreal(f, x)
   _checkgroups(f, x)
   nz, ok = 0, true
   for G in f.groups
@@ -564,6 +576,7 @@ function (f::IndBallGroupL0)(x::AbstractArray)
 end
 
 function (f::IndBallGroupL0)(x::AtomIterate)
+  _checkreal(f, x)
   _samegroups(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   nz, ok = 0, true
   for a in 1:x.nactive

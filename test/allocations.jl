@@ -96,7 +96,7 @@ end
 
   @testset "five-argument iterate products" begin
     types = ((Float32, Float32, Float32), (Float64, Float64, Float64),
-             (Float64, Float32, Float64), (ComplexF64, ComplexF64, ComplexF64))
+             (Float64, Float32, Float64))
     for (Ta, Tx, To) in types, strided in (false, true)
       A = strided ? view(randn(Ta, 2n, 2p), 1:2:2n, 1:2:2p) : randn(Ta, n, p)
       B = strided ? view(randn(Ta, 2p, 2n), 1:2:2p, 1:2:2n) : randn(Ta, p, n)
@@ -477,6 +477,32 @@ end
   zero_alloc_large_value(IndSimplex(1e40; equality = false), fill(1f38, 4), 0f0)
   zero_alloc_large_value(IndHyperplane(Int64[4], 0), [Int64(1) << 62], Inf)
   zero_alloc_large_value(Constrained(NormL1(0.1), IndHyperplane(1.0, 0)), [1e200, 1e200], Inf)
+end
+
+@testset "conjugate buffers allocate nothing on CPU" begin
+  for T in (Float32, Float64)
+    x = T[0.5, -2, 1.5]
+    y = similar(x)
+    γ = T[0.5, 1, 2]
+    for f in (SqrNormL2(), ElasticNet(1, 1))
+      c = Conjugate(f)
+      @test allocs(a_prox!, y, c, x, T(0.5)) == 0
+      @test allocs(a_vprox!, y, c, x, T(0.5)) == 0
+    end
+    c = Conjugate(ElasticNet(1, 1))
+    @test allocs(a_prox!, y, c, x, γ) == 0
+    @test allocs(a_vprox!, y, c, x, γ) == 0
+    for (f, blocks) in (
+        (SeparableSum(NormL1(), SqrNormL2()), (x, copy(x))),
+        (SeparableSum(NormL1(), SeparableSum(SqrNormL2(), NormL1())), (x, (copy(x), copy(x)))))
+      c = Conjugate(f)
+      out = ProximalBase._gradient_buffer(blocks)
+      # Julia 1.10 allocates 176 bytes for nested blocks, as it did before these buffers changed
+      skip = blocks[2] isa Tuple && VERSION < v"1.11"
+      @test allocs(a_prox!, out, c, blocks, T(0.5)) == 0 skip = skip
+      @test allocs(a_vprox!, out, c, blocks, T(0.5)) == 0 skip = skip
+    end
+  end
 end
 
 end

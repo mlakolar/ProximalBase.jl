@@ -68,22 +68,26 @@ With two array operands, `mul!` into `x` checks the unscaled product for exact
 symmetry in a buffer promoted from the destination and operand types, applies
 scalars and conversion at the final write, and leaves the product out when
 α = 0, as LinearAlgebra does. For `mul!` by a number, the array operand must
-have the axes of `x`.
+have the axes of `x`. The seven-argument `mul!(x, tA, tB, A, B, α, β)`,
+when available, uses the same checks with flags `'N'`, `'T'` and `'C'` for
+unchanged, transposed and adjoint operands; other flags throw before writing.
+`fillband!(x, v, l, u)` checks that `v` is real and writes a symmetric band
+(`l == -u`) through the lower triangle once. An empty band (`l > u`) returns
+`x` unchanged.
 
 Indexed array assignment, broadcasting and `fill!` into part of `x`, such as
 a row, a column, a block or a partial mask, throw an `ArgumentError` before
 writing. Logical-mask indexed assignment is rejected even for an all-true
-mask. `copyto!` with offsets or index ranges, `copyto!` from a tuple, a
+mask. `copyto!` with offsets or index ranges (including transpose flags),
+`copy_transpose!` and `copy_adjoint!` with index ranges, `copyto!` from a tuple, a
 generator or a number, and the indexed `axpy!` also throw before writing.
 Out-of-bounds indices still throw a `BoundsError`.
 
 The position-wise writers `reverse!`, `sort!`, `accumulate!`, `kron!` and
 `copytrito!` (when available) throw an `ArgumentError` before writing.
 This also rejects `reverse(x)` with or without `dims`, `cumsum!`, `cumprod!`,
-and allocating `cumsum`, `cumprod` and `accumulate` with `dims`. Circular
-shifts of nonempty data with a nonempty shift tuple reach the rejected
-index-range copy, so `circshift!` and allocating `circshift` throw too.
-Empty data can return without writing; an empty shift tuple uses `copyto!`.
+and allocating `cumsum`, `cumprod` and `accumulate` with `dims`.
+`circshift!` and `circshift` of a nonempty `x` throw too.
 `triu!(x, k)` and `tril!(x, k)` return `x` unchanged only when every position
 is kept: `k ≤ 1 - p` for `triu!`, `k ≥ p - 1` for `tril!`, or any `k` when
 `p = 0`. Otherwise they throw an `ArgumentError` before writing.
@@ -92,10 +96,12 @@ is kept: `k ≤ 1 - p` for `triu!`, `k ≥ p - 1` for `tril!`, or any `k` when
 orthogonal factor or a rotation throw an `ArgumentError` before writing, as
 does `ldiv!(x, A, B)` for such an operator `A`. Reductions into `x` (`sum!`,
 `prod!`, `maximum!`, `minimum!`, `count!`, `all!`, `any!`, `extrema!`,
-`findmax!` and `findmin!`), in-place factorizations (`lu!`, `qr!`,
-`cholesky!` and `bunchkaufman!`), `get!` and `sortperm!` also throw before
-writing. Use `Matrix(x)` for these operations, or compute into a dense
-matrix and `copyto!` a symmetric result.
+`findmax!` and `findmin!` with `x` as either destination), in-place
+factorizations (`lu!`, `qr!`, `cholesky!` and `bunchkaufman!`), `get!` and
+`sortperm!` also throw before writing. So do `fillband!` with a nonempty band
+that is not symmetric, and `read!`, `readbytes!` and `hex2bytes!`, which do
+not consume their input. Use `Matrix(x)` for these operations, or compute
+into a dense matrix and `copyto!` a symmetric result.
 
 `fill!`, and `rmul!`, `lmul!`, `rdiv!` and `ldiv!` by a number or a
 `UniformScaling`, keep `x` symmetric. `replace` and `replace!` visit each
@@ -104,10 +110,12 @@ column by column. `triu`, `tril` and `sparse` return a `SparseMatrixCSC`.
 `sort(x; dims)` and `accumulate(op, x)` without `dims` keep their dense
 results. Allocating `lu`, `qr`, `cholesky` and `bunchkaufman` use dense copies.
 
-Scalar-write loops over every position stay unchecked. Other writes through
-a view or reshape, such as `copyto!` into a view and scalar writes through a
-view, stay unchecked too. The checks do not extend to other nested wrappers,
-such as `vec(view(x, :, :))`, including broadcasts and fills through them.
+Other functions that write an arbitrary array position by position are not
+checked; apply them to `Matrix(x)`. Scalar-write loops over every position
+stay unchecked. Other writes through a view or reshape, such as `copyto!`
+into a view and scalar writes through a view, stay unchecked too. The checks
+do not extend to other nested wrappers, such as `vec(view(x, :, :))`,
+including broadcasts and fills through them.
 Two-argument `copyto!(x, itr)` from other non-array iterators is unchecked.
 A Base function can write part of `x` before reaching a check. `rand!` and
 `randn!` give a symmetric matrix but draw each off-diagonal entry twice.
@@ -1098,6 +1106,32 @@ Base.copyto!(x::SymmetricSparseIterate, ::AbstractRange{Int}, ::AbstractRange{In
     _throw_partial("copyto! with index ranges")
 end
 
+# Transposed range copies still write individual matrix positions.
+Base.copyto!(x::SymmetricSparseIterate, ::AbstractUnitRange{Int}, ::AbstractUnitRange{Int},
+             ::AbstractChar, ::AbstractVecOrMat, ::AbstractUnitRange{Int}, ::AbstractUnitRange{Int}) =
+  _throw_partial("copyto! with a transpose flag and index ranges")
+_copy_transpose!(x::SymmetricSparseIterate, ::AbstractRange{Int}, ::AbstractRange{Int},
+                 ::AbstractVecOrMat, ::AbstractRange{Int}, ::AbstractRange{Int}) =
+  _throw_partial("copy_transpose! with index ranges")
+_copy_transpose!(x::SymmetricSparseIterate, ::AbstractUnitRange{Int}, ::AbstractUnitRange{Int},
+                 ::AbstractChar, ::AbstractVecOrMat, ::AbstractUnitRange{Int}, ::AbstractUnitRange{Int}) =
+  _throw_partial("copy_transpose! with a transpose flag and index ranges")
+@static if isdefined(@__MODULE__, :_copy_adjoint!)
+  _copy_adjoint!(x::SymmetricSparseIterate, ::AbstractRange{Int}, ::AbstractRange{Int},
+                ::AbstractVecOrMat, ::AbstractRange{Int}, ::AbstractRange{Int}) =
+    _throw_partial("copy_adjoint! with index ranges")
+end
+
+# Reading or decoding must reject the destination before consuming the input.
+Base.read!(io::IO, x::SymmetricSparseIterate) =
+  _throw_positionwise("read!", "read into a dense array, then call copyto!(x, A) with a symmetric result")
+Base.readbytes!(io::IO, x::SymmetricSparseIterate{UInt8}, nb = length(x)) =
+  _throw_positionwise("readbytes!", "read into a dense array, then call copyto!(x, A) with a symmetric result")
+Base.hex2bytes!(x::SymmetricSparseIterate{UInt8}, itr) =
+  _throw_positionwise("hex2bytes!", "decode into a dense array, then call copyto!(x, A) with a symmetric result")
+Base.hex2bytes!(x::SymmetricSparseIterate{UInt8}, itr::String) =
+  _throw_positionwise("hex2bytes!", "decode into a dense array, then call copyto!(x, A) with a symmetric result")
+
 # These position-wise writers cannot preserve shared symmetric entries.
 Base.reverse!(x::SymmetricSparseIterate; dims = :) =
   _throw_positionwise("reverse!", "use reverse(Matrix(x); dims)")
@@ -1228,8 +1262,14 @@ Base.count!(x::SymmetricSparseIterate, A::Union{_AbstractBroadcasted, AbstractAr
 Base.count!(f, x::SymmetricSparseIterate, A::Union{_AbstractBroadcasted, AbstractArray}; kws...) =
   _throw_positionwise("count!", "reduce into a dense array, then call copyto!(x, A)")
 for f in (:findmax!, :findmin!)
-  @eval Base.$f(x::SymmetricSparseIterate, inds::AbstractArray, A::AbstractArray; kws...) =
-    _throw_positionwise($(string(f)), "reduce into a dense array, then call copyto!(x, A)")
+  @eval begin
+    Base.$f(x::SymmetricSparseIterate, inds::AbstractArray, A::AbstractArray; kws...) =
+      _throw_positionwise($(string(f)), "reduce into a dense array, then call copyto!(x, A)")
+    Base.$f(vals::AbstractArray, x::SymmetricSparseIterate, A::AbstractArray; kws...) =
+      _throw_positionwise($(string(f)), "reduce into dense arrays, then call copyto!(x, A)")
+    Base.$f(vals::SymmetricSparseIterate, x::SymmetricSparseIterate, A::AbstractArray; kws...) =
+      _throw_positionwise($(string(f)), "reduce into dense arrays, then call copyto!(x, A)")
+  end
 end
 
 # In-place factorizations overwrite the symmetry shared by the two triangles.
@@ -1456,6 +1496,19 @@ function Base.fill!(x::SymmetricSparseIterate, v)
   x
 end
 
+# A symmetric band visits each stored entry once; other nonempty bands cannot.
+function _fillband!(x::SymmetricSparseIterate{T}, v, l, u) where {T}
+  l > u && return x
+  l == -u || _throw_positionwise("fillband!", "fill a band in Matrix(x), then call copyto!(x, A) with a symmetric result")
+  _checkreal(x, v)
+  value = convert(T, v)
+  p = size(x, 1)
+  for c in 1:p, r in c:(c + min(u, p - c))
+    x[r, c] = value
+  end
+  x
+end
+
 # axpy! and axpby! broadcast, from a source with the axes of y
 function LinearAlgebra.axpy!(α::Number, x::AbstractArray, y::SymmetricSparseIterate)
   _checkreal(y, x); _checkreal(y, α)
@@ -1566,6 +1619,18 @@ LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractVecOrMat, B::AbstractVe
   _mul_symmetric!(x, A, B, true, false)
 LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractVecOrMat, B::AbstractVecOrMat,
                   α::Number, β::Number) = _mul_symmetric!(x, A, B, α, β)
+
+# Flagged products use the same buffered symmetry and alias checks as mul!.
+@static if hasmethod(mul!, Tuple{AbstractMatrix, Char, Char, AbstractMatrix, AbstractMatrix, Number, Number})
+  @noinline _throw_mul_flag() = throw(ArgumentError(
+    "mul! into a SymmetricSparseIterate supports only flags 'N', 'T' and 'C'; use those flags or compute into a dense matrix"))
+  _symmetric_mul_operand(A, flag) = isequal(flag, 'N') ? A :
+    isequal(flag, 'T') ? transpose(A) : isequal(flag, 'C') ? adjoint(A) : _throw_mul_flag()
+  function LinearAlgebra.mul!(x::SymmetricSparseIterate, tA, tB,
+                             A::AbstractVecOrMat, B::AbstractVecOrMat, α::Number, β::Number)
+    mul!(x, _symmetric_mul_operand(A, tA), _symmetric_mul_operand(B, tB), α, β)
+  end
+end
 
 # uniform scaling operands use a diagonal with the required inner dimension
 LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractMatrix, J::UniformScaling,

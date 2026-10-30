@@ -222,6 +222,104 @@ end
     end
   end
 
+  @testset "flagged products" begin
+    @static if hasmethod(mul!, Tuple{AbstractMatrix, Char, Char, AbstractMatrix, AbstractMatrix, Number, Number})
+      for T in DataType[Float64, Float32]
+        x = SymmetricSparseIterate(T[1 2; 2 4])
+        M = Matrix(x)
+        @test mul!(x, 'N', 'N', x, Matrix{T}(I, 2, 2), T(2), T(1)) === x
+        @test Matrix(x) == 3M
+        A = T[1 3; 2 4]
+        for (ta, tb, a, b) in Any[('T', 'N', A, A), ('C', 'N', A, A),
+                                 ('N', 'T', A, A), ('N', 'C', A, A)]
+          M = Matrix(x)
+          @test mul!(x, ta, tb, a, b, T(2), T(1)) === x
+          @test Matrix(x) == mul!(M, ta, tb, a, b, T(2), T(1))
+        end
+        for (ta, tb) in Any[('X', 'N'), ('N', 'X'), (missing, 'N'), ('N', nothing)]
+          rejects(x -> mul!(x, ta, tb, A, A, T(2), T(1)), x, ArgumentError, "mul!")
+        end
+        rejects(x -> mul!(x, 'N', 'N', A, Matrix{T}(I, 2, 2), T(1), T(0)),
+                x, ArgumentError, "symmetric")
+        # A product that becomes symmetric only on conversion is still rejected.
+        A64 = [1.0 1.0 + eps(); 1.0 2.0]
+        rejects(x -> mul!(x, 'N', 'N', A64, Matrix{Float64}(I, 2, 2), 1, 0),
+                initial(Float32, 2), ArgumentError, "symmetric")
+      end
+    end
+  end
+
+  @testset "range copies and index destinations" begin
+    for T in DataType[Float64, Float32], p in Any[0, 1, 2, 3]
+      x = initial(T, p)
+      A = reshape(T.(1:p^2), p, p)
+      for flag in Any['N', 'T', 'C']
+        rejects(x -> copyto!(x, 1:p, 1:p, flag, A, 1:p, 1:p), x, ArgumentError, "copyto!")
+        rejects(x -> LinearAlgebra.copy_transpose!(x, 1:p, 1:p, flag, A, 1:p, 1:p),
+                x, ArgumentError, "copy_transpose!")
+      end
+      rejects(x -> LinearAlgebra.copy_transpose!(x, 1:p, 1:p, A, 1:p, 1:p),
+              x, ArgumentError, "copy_transpose!")
+      @static if isdefined(LinearAlgebra, :copy_adjoint!)
+        rejects(x -> LinearAlgebra.copy_adjoint!(x, 1:p, 1:p, A, 1:p, 1:p),
+                x, ArgumentError, "copy_adjoint!")
+      end
+      for f in Any[findmax!, findmin!], init in Any[true, false]
+        inds = fill!(SymmetricSparseIterate(Int, p), 9)
+        vals = fill(T(7), p, p)
+        before = copy(vals)
+        rejects(x -> f(vals, x, collect(1:p^2); init), inds, ArgumentError, string(f))
+        @test vals == before
+        before_inds = state(inds)
+        rejects(x -> f(x, inds, A; init), x, ArgumentError, string(f))
+        @test isequal(state(inds), before_inds)
+      end
+    end
+    # The original two-by-two reproductions must reject before either initialization.
+    for f in Any[findmax!, findmin!]
+      inds = fill!(SymmetricSparseIterate(Int, 2), 9)
+      vals = zeros(Int, 2, 2)
+      rejects(x -> f(vals, x, [1, 2, 3, 4]), inds, ArgumentError, string(f))
+      @test vals == zeros(Int, 2, 2)
+    end
+  end
+
+  @testset "band fills and byte writes" begin
+    for T in DataType[Float64, Float32], p in Any[0, 1, 2, 3]
+      x = initial(T, p)
+      for (l, u) in Any[(1, 0), (0, 0), (-1, 1), (-p, p)]
+        M = Matrix(x)
+        @test LinearAlgebra.fillband!(x, T(7), l, u) === x
+        @test Matrix(x) == LinearAlgebra.fillband!(M, T(7), l, u)
+      end
+      M = Matrix(x)
+      expected = [c - r == -1 ? T(7) : M[r, c] for r in 1:p, c in 1:p]
+      @test LinearAlgebra.fillband!(M, T(7), -1, -1) == expected
+      rejects(x -> LinearAlgebra.fillband!(x, T(7), -1, -1), x, ArgumentError, "fillband!")
+      rejects(x -> LinearAlgebra.fillband!(x, 1 + 2im, -1, 1), x, ArgumentError, "real entries")
+      before = state(x)
+      @test LinearAlgebra.fillband!(x, 1 + 2im, 1, 0) === x
+      @test isequal(state(x), before)
+    end
+    for p in Any[0, 1, 2, 3]
+      x = fill!(SymmetricSparseIterate(UInt8, p), 9)
+      for bytes in Any[UInt8[1], UInt8[1, 2, 3, 4]]
+        io = IOBuffer(bytes)
+        rejects(x -> read!(io, x), x, ArgumentError, "read!")
+        @test position(io) == 0
+        rejects(x -> readbytes!(io, x), x, ArgumentError, "readbytes!")
+        @test position(io) == 0
+        rejects(x -> readbytes!(io, x, 4), x, ArgumentError, "readbytes!")
+        @test position(io) == 0
+      end
+      rejects(x -> hex2bytes!(x, "01020304"), x, ArgumentError, "hex2bytes!")
+      consumed = Ref(0)
+      itr = ((consumed[] += 1; c) for c in "01020304")
+      rejects(x -> hex2bytes!(x, itr), x, ArgumentError, "hex2bytes!")
+      @test consumed[] == 0
+    end
+  end
+
   @testset "other named destinations" begin
     A = [4.0 1; 2 5]
     P = [4.0 1; 1 5]

@@ -96,3 +96,14 @@ end
 @static if isdefined(LinearAlgebra, :TransposeFactorization)
   const _TransposeFactorization = LinearAlgebra.TransposeFactorization
 end
+
+# Range copies and band fills are not public on every supported Julia version.
+@static if isdefined(LinearAlgebra, :copy_transpose!)
+  const _copy_transpose! = LinearAlgebra.copy_transpose!
+end
+@static if isdefined(LinearAlgebra, :copy_adjoint!)
+  const _copy_adjoint! = LinearAlgebra.copy_adjoint!
+end
+@static if isdefined(LinearAlgebra, :fillband!)
+  const _fillband! = LinearAlgebra.fillband!
+end

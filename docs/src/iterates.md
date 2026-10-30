@@ -87,22 +87,26 @@ With two array operands, `mul!` into ``x`` checks the unscaled product for
 exact symmetry in a buffer promoted from the destination and operand types,
 applies scalars and conversion at the final write, and leaves the product
 out when α = 0, as LinearAlgebra does. For `mul!` by a number, the array
-operand must have the axes of ``x``.
+operand must have the axes of ``x``. The seven-argument
+`mul!(x, tA, tB, A, B, α, β)`, when available, uses the same checks with
+flags `'N'`, `'T'` and `'C'` for unchanged, transposed and adjoint operands;
+other flags throw before writing. `fillband!(x, v, l, u)` checks that `v` is
+real and writes a symmetric band (`l == -u`) through the lower triangle
+once. An empty band (`l > u`) returns ``x`` unchanged.
 
 Indexed array assignment, broadcasting and `fill!` into part of ``x``, such
 as a row, a column, a block or a partial mask, throw an `ArgumentError`
 before writing. Logical-mask indexed assignment is rejected even for an
-all-true mask. `copyto!` with offsets or index ranges, `copyto!` from a
+all-true mask. `copyto!` with offsets or index ranges (including transpose
+flags), `copy_transpose!` and `copy_adjoint!` with index ranges, `copyto!` from a
 tuple, a generator or a number, and the indexed `axpy!` also throw before
 writing. Out-of-bounds indices still throw a `BoundsError`.
 
 `reverse!`, `sort!`, `accumulate!`, `kron!` and `copytrito!` (when available)
 throw an `ArgumentError` before writing. This also rejects `reverse(x)`
 with or without `dims`, `cumsum!`, `cumprod!`, and allocating `cumsum`,
-`cumprod` and `accumulate` with `dims`. Circular shifts of nonempty data
-with a nonempty shift tuple reach the rejected index-range copy, so
-`circshift!` and allocating `circshift` throw too. Empty data can return
-without writing; an empty shift tuple uses `copyto!`.
+`cumprod` and `accumulate` with `dims`. `circshift!` and `circshift` of a
+nonempty ``x`` throw too.
 `triu!(x, k)` returns ``x`` unchanged when ``k \le 1-p``, and `tril!(x, k)`
 when ``k \ge p-1``. Both return ``x`` for every `k` when ``p=0``. Otherwise
 they throw an `ArgumentError` before writing.
@@ -111,10 +115,13 @@ they throw an `ArgumentError` before writing.
 orthogonal factor or a rotation throw an `ArgumentError` before writing.
 So does `ldiv!(x, A, B)` for such an operator ``A``. Reductions into ``x``
 (`sum!`, `prod!`, `maximum!`, `minimum!`, `count!`, `all!`, `any!`,
-`extrema!`, `findmax!` and `findmin!`), in-place factorizations (`lu!`,
-`qr!`, `cholesky!` and `bunchkaufman!`), `get!` and `sortperm!` also throw
-before writing. Apply these operations to `Matrix(x)`, or compute into a
-dense matrix and `copyto!` a symmetric result.
+`extrema!`, `findmax!` and `findmin!` with ``x`` as either destination),
+in-place factorizations (`lu!`, `qr!`, `cholesky!` and `bunchkaufman!`),
+`get!` and `sortperm!` also throw before writing. Nonempty bands of `fillband!` that are not symmetric,
+`read!`, `readbytes!` and `hex2bytes!` also throw before writing; these
+reading and decoding calls do not consume their input. Apply these
+operations to `Matrix(x)`, or compute into a dense matrix and `copyto!` a
+symmetric result.
 
 `fill!`, and `rmul!`, `lmul!`, `rdiv!` and `ldiv!` by a number or a
 `UniformScaling`, keep ``x`` symmetric. `replace` and `replace!` visit each
@@ -123,9 +130,10 @@ column by column. `triu`, `tril` and `sparse` return a `SparseMatrixCSC`.
 `sort(x; dims)` and `accumulate(op, x)` without `dims` keep their dense
 results. Allocating `lu`, `qr`, `cholesky` and `bunchkaufman` use dense copies.
 
-Loops of scalar writes over every position stay unchecked. Other writes
-through a view or reshape, such as `copyto!` into a view and scalar writes
-through a view, stay unchecked too. Broadcasts and fills through other
+Other functions that write an arbitrary array position by position are not
+checked; apply them to `Matrix(x)`. Loops of scalar writes over every
+position stay unchecked. Other writes through a view or reshape, such as
+`copyto!` into a view and scalar writes through a view, stay unchecked too. Broadcasts and fills through other
 nested wrappers, such as `vec(view(x, :, :))`, are also unchecked.
 Two-argument `copyto!(x, itr)` from other non-array iterators is unchecked.
 A Base function can write part of ``x`` before reaching a check. `rand!`

@@ -44,8 +44,9 @@ with side effects runs more often and may give a value that is not symmetric.
 `ArgumentError`. `fill!`, `rmul!` and `lmul!` by a number keep `x` symmetric.
 `replace` and `replace!` visit each entry of the lower triangle once, and their
 `count` counts those entries, column by column.
-`mul!` into `x` checks the product for exact symmetry in a promoted buffer,
-converts at the final write, and leaves the product out when α = 0, as LinearAlgebra does.
+`mul!` into `x` checks the unscaled product for exact symmetry in a buffer promoted
+from the destination and operand types, applies scalars and conversion at the final
+write, and leaves the product out when α = 0, as LinearAlgebra does.
 
 Other functions update the entries of `x` one position at a time and are not
 checked: indexed and view assignment such as
@@ -1184,21 +1185,21 @@ function _mul_symmetric!(x::SymmetricSparseIterate, A, B, α, β)
     return x
   end
   T = Base.promote_op(*, eltype(A), eltype(B))
-  U = promote_type(eltype(x), Base.promote_op(+, T, T), typeof(α), typeof(β))
+  U = promote_type(eltype(x), Base.promote_op(+, T, T))
   P = Matrix{U}(undef, p, p)
-  mul!(P, A, B, α, false)
+  mul!(P, A, B)
   pair = _asymmetric_pair(P, _symequal)
   if pair !== nothing
     r, c = pair
     throw(ArgumentError(
       "the product written into a SymmetricSparseIterate must be symmetric, but entry ($r, $c) " *
       "is $(P[r, c]) and entry ($c, $r) is $(P[c, r]); " *
-      "use copyto!(x, Symmetric(P, :L)) with P = A * B * α, or (P + transpose(P)) / 2, to store a product that is not symmetric"))
+      "use copyto!(x, Symmetric(P, :L)) with P = A * B, or (P + transpose(P)) / 2, to store a product that is not symmetric"))
   end
   if iszero(β)
-    x .= P
+    x .= P .* α
   else
-    x .= P .+ x .* β
+    x .= P .* α .+ x .* β
   end
   x
 end

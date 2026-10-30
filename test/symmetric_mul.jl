@@ -42,7 +42,7 @@ end
     check_mul(SymmetricSparseIterate(ComplexF64, 2), transpose(Z), Z)
     check_mul(fill!(SymmetricSparseIterate(ComplexF64, 2), 1), transpose(Z), Z, 1 + im, 2 - im)
     rejects(x -> mul!(x, Z', Z), SymmetricSparseIterate(ComplexF64, 2), ArgumentError,
-            "use copyto!(x, Symmetric(P, :L)) with P = A * B * α, or (P + transpose(P)) / 2, to store a product that is not symmetric")
+            "use copyto!(x, Symmetric(P, :L)) with P = A * B, or (P + transpose(P)) / 2, to store a product that is not symmetric")
   end
 
   @testset "zero scalars" begin
@@ -91,6 +91,10 @@ end
 
   @testset "precision" begin
     A = Float32[1e8 1 -1e8; 1e8 1 -1e8]
+    for (α, β) in ((1.0, 0.0), (true, false))
+      x = check_mul(SymmetricSparseIterate(Float32, 2), A, ones(Float32, 3, 2), α, β)
+      @test iszero(Matrix(x))
+    end
     x = check_mul(SymmetricSparseIterate(Float64, 2), A, ones(Float32, 3, 2))
     @test Matrix(x) == ones(2, 2)
     check_mul(SymmetricSparseIterate(ones(Int, 2, 2)), Diagonal(ones(Int, 2)),

@@ -1,6 +1,6 @@
 module ConjugateProjectionsTest
 
-using Test, ProximalBase, LinearAlgebra
+using Test, ProximalBase, LinearAlgebra, Random
 using ..TestUtils
 
 # Build every intermediate at the reference precision, including coefficients.
@@ -1149,6 +1149,79 @@ end
     @test_throws InexactError op(y, Conjugate(f), x, 1.0)
     @test y == before
   end
+end
+
+struct ProjectionReads{T} <: AbstractVector{T}
+  data::Vector{T}
+  reads::Base.RefValue{Int}
+end
+Base.size(x::ProjectionReads) = size(x.data)
+Base.IndexStyle(::Type{<:ProjectionReads}) = IndexLinear()
+Base.getindex(x::ProjectionReads, i::Int) = (x.reads[] += 1; x.data[i])
+
+@testset "native L1 projection certificates and passes" begin
+  setprecision(BigFloat, 4096) do
+    for T in (Float32, Float64)
+      rng = MersenneTwister(271828)
+      accepted = 0
+      for n in (8, 64, 257), frac in (1e-4, 0.1, 0.9, 2.0)
+        x = randn(rng, T, n)
+        r = T(frac * sum(abs, Float64.(x)))
+        y = similar(x)
+        accepted += ProximalBase._projection_l1_native!(y, x, eachindex(x), ProximalBase.Scratch(), r)
+        c = Conjugate(NormLinf(r))
+        for op in (prox!, value_and_prox!)
+          op(y, c, x, one(T))
+          l1accurate(y, projl1(x, BigFloat(r)), BigFloat(r))
+          @test warmed_projection_allocation(op, y, c, x, one(T)) == 0
+        end
+      end
+      @test accepted > 0
+      for (data, r, passes) in ((T[3, 0, 0, 0, 0, 0, 0, 0], T(10), 2),
+                                (T[3, 0, 0, 0, 0, 0, 0, 0], T(1), 3),
+                                (T[3, 2.8, 0, 0, 0, 0, 0, 0], T(1), 3),
+                                (T[3, 2.8, 2.7, 0, 0, 0, 0, 0], T(1), 4))
+        x = ProjectionReads(data, Ref(0))
+        y = similar(data)
+        @test ProximalBase._projection_l1_native!(y, x, eachindex(x), ProximalBase.Scratch(), r)
+        @test x.reads[] == passes * length(x)
+        l1accurate(y, projl1(data, BigFloat(r)), BigFloat(r))
+      end
+      # Native absolute levels cannot certify tiny radii at tied maxima.
+      x = ones(T, 8)
+      r = T(0.001)
+      y = fill(T(73), 8)
+      @test !ProximalBase._projection_l1_native!(y, x, eachindex(x), ProximalBase.Scratch(), r)
+      @test y == fill(T(73), 8)
+      l1accurate(prox(Conjugate(NormLinf(r)), x), projl1(x, BigFloat(r)), BigFloat(r))
+      # Neighbouring floats around support changes and radius-scale boundaries.
+      for e in (-20, 0, 20), offset in (-1, 0, 1)
+        h = T(2)^e
+        v = offset < 0 ? prevfloat(h) : offset > 0 ? nextfloat(h) : h
+        x = vcat(T[h, v, -h], fill(h / 4, 61))
+        for r in (h / 8, h, 8h)
+          l1accurate(prox(Conjugate(NormLinf(r)), x), projl1(x, BigFloat(r)), BigFloat(r))
+        end
+      end
+    end
+  end
+  # A single function alternates native and careful groups without replacing
+  # the other precision's scratch on each group or each warmed call.
+  x = vcat(Float32[1e30], ones(Float32, 48), fill(0.1f0, 49))
+  f = GroupNormLinf(1f0, [1:49, 50:98])
+  c = Conjugate(f)
+  y = similar(x)
+  for op in (prox!, value_and_prox!)
+    @test warmed_projection_allocation(op, y, c, x, 1f0) == 0
+  end
+  @test f.scratch.buf isa ProximalBase._L1ProjectionScratch
+  @test length(f.scratch.buf.native) >= 49
+  @test length(f.scratch.buf.wide) >= 49
+  f = NormLinf(1f0)
+  x = Float32.(1:64) ./ 64
+  prox!(similar(x), Conjugate(f), x, 1f0)
+  @test f.scratch.buf isa ProximalBase._L1ProjectionScratch
+  @test isempty(f.scratch.buf.wide)
 end
 
 end

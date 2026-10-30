@@ -463,8 +463,9 @@ leave the corresponding dual coordinates or groups free, including at zero
 level. Array steps and `prox_entry` use the same clipping formulas for separable
 families. Translations require `γb` to be finite in working precision.
 
-On CPU, the ℓ1-ball projections use maximum-relative offsets and compensated
-scaled sums. For a group of size n and radius r, the coordinate error is at
+On CPU, the ℓ1-ball projections use a certified native threshold path for
+ordinary radii, and maximum-relative offsets with compensated scaled sums
+otherwise. For a group of size n and radius r, the coordinate error is at
 most 4n*eps(T)*r, with an additional half-subnormal rounding allowance.
 Coefficient factors are compensated through wrapper depth; membership uses a
 conservative lower radius bound. With working type R (at least Float64), floating
@@ -1508,6 +1509,7 @@ function _conjugate_projection!(z, f::GroupNormLinf, x, γ, α = 1)
   @inbounds @simd for i in (length(f.group_of) + 1):length(z)
     z[i] = zero(eltype(z))
   end
+  _projection_l1_unit_groups!(z, x, f, α) && return z
   @inbounds for k in eachindex(f.groups)
     _project_l1!(z, x, f.groups[k], f.scratch, f.λ0, α, f.w[k])
   end

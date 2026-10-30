@@ -1332,6 +1332,148 @@ function _projection_l1_coefficient(α, λ, w, x, y)
   _ProjectionScale(h, e), error, lower
 end
 
+struct _L1ProjectionScratch
+  native::Vector{Float32}
+  wide::Vector{Float64}
+end
+function _projection_l1_fast_buffer!(s, ::Type{Float32}, n)
+  b = s.buf
+  if !(b isa _L1ProjectionScratch)
+    native = b isa Vector{Float32} ? b : Float32[]
+    wide = b isa Vector{Float64} ? b : Float64[]
+    b = _L1ProjectionScratch(native, wide)
+    s.buf = b
+  end
+  length(b.native) < n && resize!(b.native, n)
+  b.native
+end
+_projection_l1_fast_buffer!(s, ::Type{Float64}, n) = _projection_l1_careful_buffer!(s, Float64, n)
+function _projection_l1_careful_buffer!(s, ::Type{R}, n) where {R}
+  b = s.buf
+  if R === Float64 && b isa _L1ProjectionScratch
+    length(b.wide) < n && resize!(b.wide, n)
+    return b.wide
+  end
+  _buffer!(s, R, n)
+end
+
+@inline function _projection_l1_stats(x, G)
+  T = eltype(x)
+  s = m = zero(T)
+  @inbounds @simd for i in G
+    v = abs(x[i])
+    m = max(m, v)
+    s += v
+  end
+  s, m
+end
+function _projection_l1_extrema(x, G, m)
+  second = third = zero(m)
+  count = 0
+  @inbounds for i in G
+    v = abs(x[i])
+    if v == m
+      count += 1
+    else
+      third = max(third, min(second, v))
+      second = max(second, v)
+    end
+  end
+  count == 1 ? (second, third, count) : count == 2 ? (m, second, count) : (m, m, count)
+end
+_projection_l1_fast!(y, x, G, scratch, λ, α, w) = false
+function _projection_l1_fast!(y::AbstractArray{T}, x::AbstractArray{T}, G, scratch, r::T, α::Real, w) where {T<:Union{Float32,Float64}}
+  (isone(α) && isone(w) && 32floatmin(T) <= r < floatmax(T) / 16) || return false
+  _projection_l1_native!(y, x, G, scratch, r)
+end
+@inline function _projection_l1_native!(y::AbstractArray{T}, x::AbstractArray{T}, G, scratch, r::T) where {T<:Union{Float32,Float64}}
+  n = length(G)
+  s, m = _projection_l1_stats(x, G)
+  (isfinite(s) && isfinite(m) && s < floatmax(T) / 16) || return false
+  δ = (n + 8) * (eps(T) / 2)
+  δ < T(0.125) || return false
+  if s <= r * (1 - 2δ)
+    @inbounds @simd for i in G
+      y[i] = x[i]
+    end
+    return true
+  end
+  (s * (1 - δ) > r && m >= 32floatmin(T)) || return false
+  if n <= 32 && m > r
+    second, third, count = _projection_l1_extrema(x, G, m)
+    d = m - second
+    if count == 1 && prevfloat(d) >= r
+      @inbounds @simd for i in G
+        v = x[i]
+        y[i] = copysign(abs(v) == m ? r : zero(T), v)
+      end
+      return true
+    end
+    # Sterbenz makes these offsets exact. Outward comparisons certify the
+    # support; sums of at most three radius-sized terms cost <=4eps*r.
+    if count <= 2 && second >= m / 2 && d < r
+      t = (r + d) / 2
+      if prevfloat(m - third) >= nextfloat(t)
+        @inbounds @simd for i in G
+          v = x[i]
+          y[i] = copysign(abs(v) >= second ? t - (m - abs(v)) : zero(T), v)
+        end
+        return true
+      end
+    end
+    if count <= 3 && third >= m / 2
+      d₂, d₃ = m - second, m - third
+      t = ((r + d₂) + d₃) / 3
+      E = 4eps(T) * r
+      if d₃ < t - E
+        fourth = zero(T)
+        above = 0
+        @inbounds @simd for i in G
+          v = abs(x[i])
+          fourth = max(fourth, ifelse(v < third, v, zero(T)))
+          above += v >= third
+        end
+        if above == 3 && prevfloat(m - fourth) >= t + E
+          @inbounds @simd for i in G
+            v = x[i]
+            y[i] = copysign(abs(v) >= third ? t - (m - abs(v)) : zero(T), v)
+          end
+          return true
+        end
+      end
+    end
+  end
+  θ, k, B = n <= 32 ? _projection_l1_michelot(x, G, r, m, s) :
+    _projection_l1_threshold!(_projection_l1_fast_buffer!(scratch, T, n), x, G, r, m, s)
+  budget = (n * eps(T)) * r
+  # For Condat, B=4eps*m plus the bound on its accumulated sum residuals.
+  # Thus m<=K*r, K=min(3n/8,3n/(4k)), suffices when that residual is zero;
+  # the actual B tests include it. Michelot uses gamma_k on its final sum.
+  # An inactive coordinate has native candidate <=B. Zeroing those candidates
+  # costs <=2B per coordinate; only k candidates can survive, so excess mass
+  # is <=k*B. The tests leave n*eps*r for rounding within the C=4 contract.
+  (isfinite(θ) && θ >= 32floatmin(T) && B <= T(1.5) * budget && k * B <= 3budget) || return false
+  @inbounds @simd for i in G
+    v = x[i]
+    q = abs(v) - θ
+    y[i] = copysign(q <= B ? zero(T) : q, v)
+  end
+  true
+end
+
+_projection_l1_unit_groups!(y, x, f, α) = false
+function _projection_l1_unit_groups!(y::Array{T}, x::Array{T}, f::GroupNormLinf{T}, α::Real) where {T<:Union{Float32,Float64}}
+  r = f.λ0
+  (isone(α) && 32floatmin(T) <= r < floatmax(T) / 16 && all(isone, f.w)) || return false
+  a, error, lower = _projection_l1_coefficient(1, r, 1, x, y)
+  @inbounds for G in f.groups
+    isempty(G) && continue
+    _projection_l1_native!(y, x, G, f.scratch, r) ||
+      _project_l1_radius!(y, x, G, f.scratch, a, error, lower)
+  end
+  true
+end
+
 function _project_l1!(y, x, G, scratch, λ, α = 1, w = 1)
   isempty(G) && return y
   if isinf(w)
@@ -1352,6 +1494,7 @@ function _project_l1!(y, x, G, scratch, λ, α = 1, w = 1)
     end
     return y
   end
+  _projection_l1_fast!(y, x, G, scratch, λ, α, w) && return y
   a, error, lower = _projection_l1_coefficient(α, λ, w, x, y)
   _project_l1_radius!(y, x, G, scratch, a, error, lower)
 end
@@ -1416,7 +1559,7 @@ function _project_l1_radius!(y, x, G, scratch, a, coefficient_error, lower)
     f = let m = m
       v -> -_projection_l1_offset(v, m, r, scale, e, typeof(r))
     end
-    t = min(r, -_simplex_threshold!(_buffer!(scratch, R, length(G)), x, G, r, f))
+    t = min(r, -_simplex_threshold!(_projection_l1_careful_buffer!(scratch, R, length(G)), x, G, r, f))
   end
   count = -1
   for _ in 0:length(G)

@@ -468,8 +468,7 @@ not share one object between threads; when `f` throws, the output is unchanged,
 including sparse iterate outputs with their stored entries and order preserved.
 `Symmetric` and `Hermitian` outputs are unsupported. A copy made for the device
 by `Adapt.adapt` allocates a device buffer on each proximal call.
-When an intermediate overflows or underflows although the value is representable
-as a normal number, the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct Regularize{F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}, S<:Union{Nothing, Scratch}} <: AbstractFunction
   f::F

@@ -164,9 +164,8 @@ in units scaled by a power of two; its error relative to `‖X‖` matches an
 ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
 entry exceeding `floatmax` by less than the reconstruction's rounding bound
 is returned as `±floatmax`.
-When an intermediate sum overflows, or a weight is not representable in the
-argument's precision although the weighted value is representable, the value
-is computed in scaled units. The domain is the finite matrices: the
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
+The domain is the finite matrices: the
 value is `Inf` at a matrix with a non-finite entry, also for `λ = 0`.
 For `λ = 0`, the proximal operator copies its input and returns zero, including
 at non-finite inputs. When a decomposition is needed, a non-finite input gives
@@ -643,9 +642,7 @@ in units scaled by a power of two; its error relative to `‖X‖` matches an
 ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
 entry exceeding `floatmax` by less than the reconstruction's rounding bound
 is returned as `±floatmax`.
-When an intermediate sum overflows, or a weight is not representable in the
-argument's precision although the weighted value is representable, the value
-is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 
 Membership in the positive semidefinite cone is reliable for every finite input
 within the floating-point tolerance; non-finite entries are not members.

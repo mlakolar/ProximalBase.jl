@@ -18,7 +18,7 @@
 The total variation `f(x) = λ Σᵢ |xᵢ₊₁ - xᵢ|` of a vector. Its proximal operator,
 total-variation denoising, is computed exactly and in place by Condat's direct
 algorithm (2013), in O(n) time on most inputs and O(n²) in the worst case.
-When an intermediate overflows, the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct TotalVariation1D{T<:Real} <: AbstractFunction
   λ::T
@@ -166,7 +166,7 @@ The penalty `f(x) = λ1 Σᵢ |xᵢ| + λ2 Σᵢ |xᵢ₊₁ - xᵢ|` of the fus
 approximator, on a vector. Its proximal operator soft-thresholds the
 total-variation denoising of `x` by `γλ1` (Friedman, Hastie, Höfling and
 Tibshirani, 2007).
-When an intermediate overflows, the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct FusedLasso{T<:Real} <: AbstractFunction
   λ1::T

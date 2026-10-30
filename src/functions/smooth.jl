@@ -148,8 +148,7 @@ The squared Euclidean norm `f(x) = (λ/2) ‖x - y‖²`, with `y = 0` when omit
 the ridge penalty, and for `λ = 1` the loss `‖x - y‖² / 2`. Smooth, with
 gradient `λ(x - y)`, separable, and proximable, with proximal operator
 `(x + γλy) / (1 + γλ)`. For a matrix `x`, `‖⋅‖` is the Frobenius norm.
-When an intermediate overflows or underflows although the value is representable
-as a normal number, the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct SqrNormL2{T<:Real, Y<:Union{Nothing, AbstractArray}} <: AbstractFunction
   λ::T

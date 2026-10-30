@@ -15,9 +15,7 @@ The Euclidean norm `f(x) = λ ‖x‖₂` (the Frobenius norm for a matrix). Its
 proximal operator shrinks `x` towards zero: `max(1 - γλ/‖x‖, 0) x`. For the
 group lasso, a sum of such norms over groups of entries, use
 [`GroupNormL2`](@ref).
-When an intermediate overflows or underflows, or a weight is not representable
-in the argument's precision although the weighted value is representable,
-the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct NormL2{T<:Real} <: AbstractFunction
   λ::T
@@ -289,9 +287,7 @@ The ℓ∞ norm `f(x) = λ maxᵢ |xᵢ|`. Its proximal operator clips the entri
 level `τ`, `sign(xᵢ) min(|xᵢ|, τ)`: by Moreau's identity it is `x` minus the
 projection onto the ℓ1 ball of radius `γλ`, which takes O(n) expected time
 (Condat's algorithm).
-When an intermediate overflows or underflows, or a weight is not representable
-in the argument's precision although the weighted value is representable,
-the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct NormLinf{T<:Real} <: AbstractFunction
   λ::T
@@ -388,9 +384,7 @@ operator touch only the active groups. On ordinary arrays, active-set solvers ca
 f = GroupNormL2(0.5, [1:3, 4:5, [6, 8]])    # x[7] is not penalized
 prox(f, randn(8))
 ```
-When an intermediate overflows or underflows, or a weight is not representable
-in the argument's precision although the weighted value is representable,
-the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct GroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: HomogeneousGroupNorm
   λ0::T
@@ -418,9 +412,7 @@ selection in multi-task problems. The weights default to `wₖ = 1`. The proxima
 operator clips each group, by Moreau's identity with the projection onto an ℓ1
 ball, and its optimality test ([`kkt_violation`](@ref)) uses the dual norm,
 `‖g[Gₖ]‖₁ - λ0 wₖ`.
-When an intermediate overflows or underflows, or a weight is not representable
-in the argument's precision although the weighted value is representable,
-the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct GroupNormLinf{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: HomogeneousGroupNorm
   λ0::T
@@ -861,7 +853,7 @@ operator sorts `v`, subtracts `γλ2 (2i - K - 1)` from the `i`-th smallest entr
 pools adjacent violators into a nondecreasing sequence, restores the order, and
 soft-thresholds by `γλ1`: exact, in O(K log K), in buffers that the function
 owns.
-When an intermediate overflows, the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct NormL1Fused{T<:Real} <: AbstractFunction
   λ1::T

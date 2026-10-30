@@ -43,7 +43,7 @@ def summarize(root, output, expected=1, versions=None, timer_limit_multiple=10):
         with path.open("rb") as stream:
             meta = tomllib.load(stream)
         metadata[path.name.removesuffix("-metadata.toml")] = meta
-        floors.setdefault(path.name.split("-rep")[0], []).append(float(meta["timer_floor_ns"]))
+        floors.setdefault(path.name.split("-rep")[0], []).append(float(meta.get("timer_floor_ns", float("nan"))))
     groups = {}
     catalogs = {}
     for row in read_rows(str(root / "*-catalog.tsv")):
@@ -65,7 +65,7 @@ def summarize(root, output, expected=1, versions=None, timer_limit_multiple=10):
         first = group[0]
         result = {key:first[key] for key in ("id","family","name","dtype","shape","layout","phase","expected_zero")}
         result.update(julia=version, runs=len(values), complete=len(reps)==expected and set(reps)==set(range(1,expected+1)),
-            timer_limited=any(timer_limited(r, metadata[Path(r["_file"]).name.removesuffix("-metrics.tsv")],
+            timer_limited=any(timer_limited(r, metadata.get(Path(r["_file"]).name.removesuffix("-metrics.tsv"), {}),
                                             timer_limit_multiple) for r in group),
             mean_ns=average, sd_between_runs_ns=sd, ci95_low_ns=max(0,average-interval) if math.isfinite(interval) else float("nan"),
             ci95_high_ns=average+interval, cv=sd/average if average else 0,
@@ -107,7 +107,7 @@ def summarize(root, output, expected=1, versions=None, timer_limit_multiple=10):
         "Within each run, BenchmarkTools collects up to the configured sample/time limit. Compilation, validation and prepare callbacks are excluded. Cold cases include construction and the first proximal call. CPU profiles include prepare callbacks; allocation profiles isolate the measured operation. These CPU measurements do not cover GPU hardware or every parameter combination.", "",
         f"Validation errors: {len(errors)}. Incomplete case/version groups: {len(incomplete)}. Duplicate groups: {len(duplicate_groups)}. Record validation passed: {checked['valid']}.", "",
         *calibration_lines, "",
-        f"Timer-limited measurements have median_ns * evals < {timer_limit_multiple:g} * timer_floor_ns (strict); a NaN floor limits only evals == 1. Any limited repetition limits the case/version. Ratio gates must filter on timer_limited.", "",
+        f"Timer-limited measurements have median_ns * evals < {timer_limit_multiple:g} * timer_floor_ns (strict); a missing or NaN floor limits only evals == 1. Missing evals is timer-limited. Any limited repetition limits the case/version. Ratio gates must filter on timer_limited.", "",
         "## Unexpected warmed allocations", "",
         "These are candidates for inspection, not automatically confirmed implementation defects.", "",
         "| Case | Julia | Mean bytes | Maximum bytes | Runs |", "|---|---|---:|---:|---:|"]

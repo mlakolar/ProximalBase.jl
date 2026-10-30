@@ -47,8 +47,8 @@ function calibrate!(io, phase)
 end
 
 function timer_summary(times)
-    values=sort!(unique(round.(Int,times)))
-    step=length(values)<2 ? NaN : minimum(diff(values))
+    values=filter(>(0),round.(Int,times))
+    step=isempty(values) ? NaN : minimum(values)
     (;samples=length(times), median=isempty(times) ? NaN : median(times),
       minimum=isempty(times) ? NaN : minimum(times), step)
 end

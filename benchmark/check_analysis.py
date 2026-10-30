@@ -46,8 +46,8 @@ def fixture(folder, factor, runs=10, allocated=0, case="analytic/control", evals
             'blas_threads=1\njulia_threads=1\nbenchmarktools="control"\n'
             'seed_scheme="control"\nsamples_target=3\nseconds_limit=0.1\n'
             'calibration_samples=1000\ncalibration_seconds=1.0\ntune_seconds=0.1\n'
-            'timer_start_median_ns=30.0\ntimer_start_min_ns=30.0\ntimer_start_step_ns=nan\n'
-            'timer_end_median_ns=30.0\ntimer_end_min_ns=30.0\ntimer_end_step_ns=nan\ntimer_floor_ns=30.0\n'
+            'timer_start_median_ns=30.0\ntimer_start_min_ns=30.0\ntimer_start_step_ns=30.0\n'
+            'timer_end_median_ns=30.0\ntimer_end_min_ns=30.0\ntimer_end_step_ns=30.0\ntimer_floor_ns=30.0\n'
             'profile_seconds=0\nsuite="quick"\ngroups="vectors"\ncases=1\nfailures=0\n'
             f'harness_hash="{"a"*40}"\nsource_hash="{"b"*40}"\n')
 
@@ -123,16 +123,24 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
     for evals, median, limited in ((1, 120, True), (1, 450, False), (10, 100, False),
                                     (200, 60, False), (1, 300, False)):
         assert timer_limited(dict(evals=evals, median_ns=median), dict(timer_floor_ns=30)) == limited
-    for values in ([30.0]*100, [0.001, 41.0, 41.0, 83.0]*25):
-        calibrated = calibration_metadata(dict(start=values, end=values))
-        assert calibrated["timer_floor_ns"] == (30 if values[0] == 30 else 41)
-        if values[0] == 30:
-            assert math.isnan(calibrated["timer_start_step_ns"])
-        else:
-            assert calibrated["timer_start_step_ns"] == 41
-    skewed = calibration_metadata(dict(start=[0.001]*100 + [41.0, 83.0],
-                                        end=[0.001]*100 + [41.0, 83.0]))
-    assert skewed["timer_start_median_ns"] == 0.001 and skewed["timer_floor_ns"] == 41
+    for values, step in (([0.001, 41.0, 42.0, 83.0], 41), ([30.0], 30),
+                         ([25.0, 31.0, 30.0], 25), ([0.001], float("nan")),
+                         ([0.4, 0.001], float("nan"))):
+        calibrated = calibration_metadata(dict(start=values*100, end=values*100))
+        for phase in ("start", "end"):
+            observed = calibrated[f"timer_{phase}_step_ns"]
+            assert math.isnan(observed) if math.isnan(step) else observed == step
+        if values == [30.0]:
+            assert calibrated["timer_floor_ns"] == 30
+        if math.isnan(step):
+            assert math.isnan(calibrated["timer_floor_ns"])
+    skewed = calibration_metadata(dict(start=[0.001]*766 + [41.0]*78 + [42.0]*155,
+                                       end=[0.001]*766 + [41.0]*78 + [42.0]*155))
+    assert skewed["timer_start_median_ns"] == skewed["timer_end_median_ns"] == 0.001
+    assert skewed["timer_start_step_ns"] == skewed["timer_end_step_ns"] == 41
+    assert skewed["timer_floor_ns"] == 41
+    for median in (83, 125):
+        assert timer_limited(dict(evals=1, median_ns=median), skewed)
     example = calibration_metadata(dict(start=[20, 30, 40]*100, end=[40]*100))
     assert example["timer_floor_ns"] == 40
     for values in ([30.0]*99, [0.0]*100, [0.001]*100):
@@ -226,7 +234,7 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
         path.write_text(saved.replace(key+"=30.0", key+"=31.0"))
         assert not validate(folder)["valid"]
     for key in ("timer_start_step_ns", "timer_end_step_ns"):
-        path.write_text(saved.replace(key+"=nan", key+"=0.0"))
+        path.write_text(saved.replace(key+"=30.0", key+"=0.0"))
         assert not validate(folder)["valid"]
     path.write_text(saved)
     catalog = folder/"julia-1.13.2-rep01-catalog.tsv"
@@ -239,7 +247,8 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
     calibration = folder/"julia-1.13.2-rep01-calibration.tsv"
     saved_calibration = calibration.read_text()
     calibration.unlink()
-    assert not validate(folder)["valid"]
+    checked = validate(folder)
+    assert not checked["valid"] and "missing calibration file" in "\n".join(checked["issues"])
     calibration.write_text(saved_calibration)
     for old, new in (("start\t1\t30", "start\t2\t30"), ("start\t1\t30", "other\t1\t30"),
                      ("start\t1\t30", "start\t1\tnan"), ("start\t1\t30", "start\t1\t-1"),
@@ -247,7 +256,7 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
         calibration.write_text(saved_calibration.replace(old, new, 1))
         assert not validate(folder)["valid"]
     calibration.write_text(saved_calibration)
-    for values in ([30.0]*99, [0.0]*100, [0.001, 41.0, 41.0, 83.0]*25):
+    for values in ([30.0]*99, [0.0]*100, [0.001, 41.0, 42.0, 83.0]*25):
         write_rows(calibration, [dict(phase=phase, sample=i, time_ns=value)
                                 for phase in ("start", "end") for i, value in enumerate(values, 1)])
         calibrated = calibration_metadata(dict(start=values, end=values))
@@ -262,4 +271,39 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
         with (output/"summary.csv").open() as stream:
             assert next(csv.DictReader(stream))["timer_limited"] == "True"
         metric_edit(folder, 1, evals=1000)
-print("ANALYSIS_CONTROLS_PASSED repetitions=1,3,5,10; means,SD,t-intervals,paired-ratios,allocations,missing/wrong-repetitions,raw-corruption,unmatched-cases,settings-mismatch; timer-rule,boundary,mixed-evals,limited-sides,K-overrides,invalid-K,process-floors,unusable/constant/stepped-calibration,missing-calibration,corrupt-median/evals/floor,eligible-2x,limited-ratio/allocation-warning")
+    # Older records remain inspectable, but cannot support a comparison.
+    legacy = root/"legacy"
+    fixture(legacy, 120, 1)
+    prefix = legacy/"julia-1.13.2-rep01"
+    meta_path = Path(str(prefix)+"-metadata.toml")
+    saved_meta = meta_path.read_text()
+    meta_path.write_text("\n".join(line for line in saved_meta.splitlines()
+                                   if not line.startswith(("timer_", "calibration_", "tune_seconds")))+"\n")
+    Path(str(prefix)+"-calibration.tsv").unlink()
+    metrics = Path(str(prefix)+"-metrics.tsv")
+    with metrics.open(newline="") as stream:
+        row = next(csv.DictReader(stream, delimiter="\t"))
+    del row["evals"]
+    write_rows(metrics, [row])
+    checked = validate(legacy)
+    assert not checked["valid"]
+    messages = "\n".join(checked["issues"])
+    assert "missing metadata key calibration_samples (results without timer calibration)" in messages
+    assert "missing calibration file" in messages
+    assert not summarize(legacy, root/"legacy-summary")
+    status = json.loads((root/"legacy-summary"/"status.json").read_text())
+    assert status["record_validation"] == checked
+    with (root/"legacy-summary"/"summary.csv").open() as stream:
+        assert next(csv.DictReader(stream))["timer_limited"] == "True"
+    assert "unusable calibration in 1 processes" in (root/"legacy-summary"/"REPORT.md").read_text()
+    reject(legacy, legacy, root/"legacy-comparison", "missing metadata key calibration_samples", expected=1)
+    for evals, limited in ((1, True), (2, False)):
+        assert timer_limited(dict(evals=evals, median_ns=120), {}) == limited
+        metric_edit(legacy, 1, evals=evals)
+        output = root/f"legacy-evals{evals}"
+        assert not summarize(legacy, output)
+        with (output/"summary.csv").open() as stream:
+            assert next(csv.DictReader(stream))["timer_limited"] == str(limited)
+    assert timer_limited(dict(median_ns=120), dict(timer_floor_ns=30))
+
+print("ANALYSIS_CONTROLS_PASSED repetitions=1,3,5,10; means,SD,t-intervals,paired-ratios,allocations,missing/wrong-repetitions,raw-corruption,unmatched-cases,settings-mismatch; timer-rule,boundary,mixed-evals,limited-sides,K-overrides,invalid-K,process-floors,unusable/constant/stepped-calibration,missing-calibration,legacy-records,quantized-tick,corrupt-median/evals/floor,eligible-2x,limited-ratio/allocation-warning")

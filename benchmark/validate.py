@@ -28,11 +28,11 @@ def records(path):
 def calibration_metadata(phases):
     result = {}
     for phase, values in phases.items():
-        rounded = sorted({round(value) for value in values})
+        rounded = [round(value) for value in values]
         result[f"timer_{phase}_median_ns"] = statistics.median(values)
         result[f"timer_{phase}_min_ns"] = min(values)
         result[f"timer_{phase}_step_ns"] = min(
-            (b-a for a, b in zip(rounded, rounded[1:])), default=float("nan"))
+            (value for value in rounded if value > 0), default=float("nan"))
     steps = [result[f"timer_{phase}_step_ns"] for phase in ("start", "end")]
     medians = [result[f"timer_{phase}_median_ns"] for phase in ("start", "end")]
     unusable = (any(len(values) < 100 for values in phases.values()) or
@@ -49,7 +49,9 @@ def check_timer_limit_multiple(value):
 
 def timer_limited(row, meta, multiple=10):
     check_timer_limit_multiple(multiple)
-    floor = float(meta["timer_floor_ns"])
+    if "evals" not in row:
+        return True
+    floor = float(meta.get("timer_floor_ns", float("nan")))
     evals = int(row["evals"])
     return evals == 1 if math.isnan(floor) else float(row["median_ns"]) * evals < multiple * floor
 
@@ -71,6 +73,17 @@ def validate(root, expected=1, versions=None):
         try:
             with (root / (prefix + "-metadata.toml")).open("rb") as stream:
                 meta = tomllib.load(stream)
+            required = MATCH_SETTINGS + ("rep", "failures", "source_hash", "cases", "timer_floor_ns") + tuple(
+                f"timer_{phase}_{stat}_ns" for phase in ("start", "end") for stat in ("median", "min", "step"))
+            missing = [key for key in required if key not in meta]
+            for key in missing:
+                note = " (results without timer calibration)" if key.startswith(("timer_", "calibration_", "tune_")) else ""
+                issues.append(f"{prefix}: missing metadata key {key}{note}")
+            calibration = root / (prefix + "-calibration.tsv")
+            if not calibration.is_file():
+                issues.append(f"{prefix}: missing calibration file {calibration.name}")
+            if missing or not calibration.is_file():
+                continue
             version, repetition = prefix.removeprefix("julia-").split("-rep")
             if str(meta["julia"]) != version or int(meta["rep"]) != int(repetition):
                 raise ValueError("metadata version/repetition disagrees with filename")
@@ -88,7 +101,7 @@ def validate(root, expected=1, versions=None):
                 raise ValueError("settings changed within a Julia version")
             configurations[version] = config
             phases = {"start": {}, "end": {}}
-            for row in records(root / (prefix + "-calibration.tsv")):
+            for row in records(calibration):
                 phase = row["phase"]
                 index, value = int(row["sample"]), float(row["time_ns"])
                 if phase not in phases or index in phases[phase] or not math.isfinite(value) or value < 0:

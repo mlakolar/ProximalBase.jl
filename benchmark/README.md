@@ -90,14 +90,16 @@ comparisons. Julia heap bytes exclude native library allocations and peak memory
 Profiles include preparation callbacks and are diagnostic, not latency estimates.
 
 Each process retains a `-calibration.tsv` file with raw no-op timer readings at
-`start` and `end`. Metadata records each phase's median, minimum and rounded
-integer timer step, plus `timer_floor_ns`: the maximum of the medians and usable
-steps. Fewer than 100 readings in either phase, or two sub-nanosecond medians
+`start` and `end`. Metadata records each phase's median, minimum and timer
+step: the smallest positive reading after rounding to whole nanoseconds, which
+is one tick on a coarse timer. It also records `timer_floor_ns`: the maximum
+of the medians and usable steps. Fewer than 100 readings in either phase, or two sub-nanosecond medians
 with no steps, gives an unusable calibration (NaN floor).
 
 A measurement is timer-limited when `median_ns * evals < K * timer_floor_ns`
-(strict). With a NaN floor, only `evals == 1` is limited. Both analysis tools
-accept `--timer-limit-multiple K` (positive and finite; default 10). Any limited
+(strict). With a missing or NaN floor, only `evals == 1` is limited. Missing
+`evals` is also timer-limited. Older records can be summarized but fail record
+validation. Both analysis tools accept `--timer-limit-multiple K` (positive and finite; default 10). Any limited
 repetition marks the case/version's `timer_limited` column; comparisons check
 both sides. A ratio gate must filter on `timer_limited`. Comparisons retain
 ratios, intervals and allocation warnings, with a `timer-limited` assessment.

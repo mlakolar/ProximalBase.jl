@@ -141,20 +141,6 @@ function _prox_sep_dense!(y::AbstractArray, f, x::AbstractArray, γ)
   y
 end
 
-# Only same-precision CPU arrays opt in; lazy steps keep their existing loop.
-_certified_weight_steps(y, f, x, γ) = false
-
-function _prox_weight_steps!(y, f, x, γ)
-  _checkwrite(prox!, f, y, x)
-  _checkparam(γ, x)
-  _certified_weight_steps(y, f, x, γ) ||
-    return invoke(_prox_sep_dense!, Tuple{AbstractArray,Any,AbstractArray,Any}, y, f, x, γ)
-  @inbounds @simd for i in eachindex(IndexLinear(), y, x)
-    y[i] = _prox_entry_ordinary(f, x[i], i, γ[i])
-  end
-  y
-end
-
 # on sparse iterates, only the stored entries when f preserves zeros; as for a
 # dense array, an entry stored in y stays stored, possibly as a zero
 function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::Union{Real, AbstractArray})
@@ -461,22 +447,9 @@ end
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
 _has_ordinary_value(::Type{<:ElasticNet}) = true
-@inline _elastic_prox_entry(v, c, q) = shrink(v, c) / (1 + q)
-
 Base.@propagate_inbounds function prox_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  _elastic_prox_entry(v, convert(S, _weight_coefficient(γ, f.λ1, _entry(f.w, i))), convert(S, γ * f.λ2))
-end
-
-_certified_weight_steps(y::Array{T}, f::ElasticNet{T, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}} =
-  _certified_weight_scales(γ, f.λ1)
-
-_prox_sep_dense!(y::Array{T}, f::ElasticNet{T, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}} =
-  _prox_weight_steps!(y, f, x, γ)
-
-Base.@propagate_inbounds function _prox_entry_ordinary(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
-  S = float(T)
-  _elastic_prox_entry(v, convert(S, (γ * f.λ1) * _entry(f.w, i)), convert(S, γ * f.λ2))
+  shrink(v, convert(S, _weight_coefficient(γ, f.λ1, _entry(f.w, i)))) / (1 + convert(S, γ * f.λ2))
 end
 
 kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer) = abs(g[i]) - _weight_coefficient(f.λ1, _entry(f.w, i))

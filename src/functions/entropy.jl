@@ -461,32 +461,14 @@ Base.@propagate_inbounds function _value_entry_ordinary(f::Berhu, v::T, i::Integ
 end
 _has_ordinary_value(::Type{<:Berhu}) = true
 
-@inline function _berhu_prox_entry(f::Berhu, v::T, c) where {T<:Real}
-  S = float(T)
-  M, t = S(f.M), abs(S(v))
-  t <= M + c ? shrink(S(v), c) : S(v) * M / (M + c)
-end
-
 Base.@propagate_inbounds function prox_entry(f::Berhu, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   step, λ, w = S(γ), S(f.λ), S(_entry(f.w, i))
   # Avoid rounding or overflow in the upper branch of an identity prox.
   !isinf(w) && (iszero(step) || iszero(λ) || iszero(w)) && return S(v)
-  _berhu_prox_entry(f, v, _weight_coefficient(step, λ, w))
-end
-
-_certified_weight_steps(y::Array{T}, f::Berhu{T, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}} =
-  _certified_weight_scales(γ, f.λ)
-
-_prox_sep_dense!(y::Array{T}, f::Berhu{T, W}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}, W<:Union{Nothing,Array{T}}} =
-  _prox_weight_steps!(y, f, x, γ)
-
-# the certified scale γλ is positive and finite, so only a zero weight gives the
-# identity; selected without a branch to keep the loop vectorized
-Base.@propagate_inbounds function _prox_entry_ordinary(f::Berhu, v::T, i::Integer, γ::Real) where {T<:Real}
-  S = float(T)
-  w = S(_entry(f.w, i))
-  ifelse(iszero(w), S(v), _berhu_prox_entry(f, v, (S(γ) * S(f.λ)) * w))
+  c = _weight_coefficient(step, λ, w)
+  M, t = S(f.M), abs(S(v))
+  t <= M + c ? shrink(S(v), c) : S(v) * M / (M + c)
 end
 
 kkt_violation(f::Berhu, g::AbstractArray, i::Integer) = abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i))

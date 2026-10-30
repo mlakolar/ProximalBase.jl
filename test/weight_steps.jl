@@ -2,7 +2,7 @@ module WeightStepsTest
 using Test, ProximalBase, Random
 const PB = ProximalBase
 
-# Frozen coefficient and entry formulas (546dc86, and Berhu since #289), independent of the new kernels.
+# Frozen coefficient and entry formulas (546dc86, and Berhu since #289), independent of the package kernels.
 entry(w::Nothing, i) = 1
 entry(w::AbstractArray, i) = w[i]
 shrink_ref(v::T, c::T) where {T<:AbstractFloat} = max(v - c, zero(T)) + min(v + c, zero(T))
@@ -92,7 +92,7 @@ PB.iszeropreserving(f::Frozen) = PB.iszeropreserving(f.f)
 PB._checkparams(f::Frozen, x) = PB._checkparams(f.f, x)
 PB._conjugate_isindicator(::Type{Frozen{F}}) where {F} = PB._conjugate_isindicator(F)
 
-@testset "certified weighted array steps" begin
+@testset "weighted array steps" begin
   rng = MersenneTwister(252)
   for T in (Float32, Float64)
     x = vcat(randn(rng, T, 24), T[0, -0.0, nextfloat(zero(T)), -nextfloat(zero(T)), Inf, -Inf, NaN, floatmax(T)])
@@ -100,21 +100,14 @@ PB._conjugate_isindicator(::Type{Frozen{F}}) where {F} = PB._conjugate_isindicat
     ordinary = T(0.2) .+ rand(rng, T, length(x))
     for weights in (w, nothing, [i == 1 ? zero(T) : i == 2 ? T(Inf) : w[i] for i in eachindex(w)])
       for f in families(T, weights)
-        @test PB._certified_weight_steps(similar(x), f, x, ordinary)
         check_case(f, x, ordinary)
         for bad in (zero(T), -one(T), nextfloat(zero(T)), T(Inf), T(NaN), floatmax(T))
           steps = copy(ordinary); steps[3] = bad
           check_case(f, x, steps)
-          level = f isa ElasticNet ? f.λ1 : f isa Union{Berhu,CappedL1} ? f.λ : one(T)
-          expected = all(g -> g * level > 0 && isfinite(g * level), steps)
-          @test PB._certified_weight_steps(similar(x), f, x, steps) == expected
         end
         X = reshape(copy(x), 4, 8); G = reshape(copy(ordinary), 4, 8)
         check_case(f, X, G)
         check_case(f, x, Float64.(ordinary))
-        @test !PB._certified_weight_steps(similar(x), f, view(x, :), ordinary)
-        @test !PB._certified_weight_steps(similar(x), f, x, PB._ScaledArray(ordinary, one(T)))
-        @test !PB._certified_weight_steps(similar(x), f, x, PB._ReciprocalArray(ordinary))
       end
     end
     for λ in (zero(T), T(Inf), T(0.5), T(2))
@@ -122,19 +115,14 @@ PB._conjugate_isindicator(::Type{Frozen{F}}) where {F} = PB._conjugate_isindicat
         for steps in (fill(nextfloat(zero(T)), length(x)), fill(floatmax(T), length(x)))
           check_case(f, x, steps)
         end
-        if f isa Union{ElasticNet,Berhu,CappedL1}
-          @test !PB._certified_weight_steps(similar(x), f, x, fill(λ == T(2) ? floatmax(T) : nextfloat(zero(T)), length(x)))
-        end
       end
     end
     # Mixed factors must retain their conversion order.
     for f in (families(Float64, Float64.(w))..., families(T, Float64.(w))...)
       check_case(f, x, ordinary)
-      T === Float32 && @test !PB._certified_weight_steps(similar(x), f, x, ordinary)
     end
     for f in families(T, T[])
       check_case(f, T[], T[])
-      @test !PB._certified_weight_steps(T[], f, T[], T[])
     end
     for f in families(T, w)
       z = randn(rng, T, length(x))
@@ -151,7 +139,6 @@ PB._conjugate_isindicator(::Type{Frozen{F}}) where {F} = PB._conjugate_isindicat
       expected = reference(f, x, ordinary)
       for z in (SparseIterate(x), AtomIterate(x, GroupNormL2(one(T), [1:length(x)])))
         y = copy(z)
-        @test !PB._certified_weight_steps(y, f, z, ordinary)
         reference_y = copy(z)
         prox!(reference_y, Frozen(f), z, ordinary)
         prox!(y, f, z, ordinary)
@@ -166,9 +153,7 @@ PB._conjugate_isindicator(::Type{Frozen{F}}) where {F} = PB._conjugate_isindicat
     end
     labels = T[isodd(i) ? -2 : 3 for i in eachindex(x)]
     check_case(HingeLoss(labels, w), x, ordinary)
-    @test !PB._certified_weight_steps(similar(x), HingeLoss(Int.(labels), w), x, ordinary)
-    @test !PB._certified_weight_steps(Float64.(x), first(families(T, w)), x, ordinary) || T === Float64
-    @test !PB._certified_weight_steps(similar(x), NormL1(T(0.3), w), x, ordinary)
+    check_case(HingeLoss(Int.(labels), w), x, ordinary)
   end
   @test_throws DimensionMismatch prox!(zeros(2), ElasticNet(0.3, 0.4, ones(2)), ones(2), ones(3))
   @test_throws DimensionMismatch prox!(zeros(3), ElasticNet(0.3, 0.4, ones(2)), ones(2), ones(2))

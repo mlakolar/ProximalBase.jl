@@ -54,17 +54,6 @@ end
 end
 @inline _weight_coefficient(γ, λ, w) = _weight_coefficient(γ * λ, w)
 
-# Rounding is monotone: the endpoint products bound every computed scale.
-# Empty or exceptional steps retain the entrywise coefficient semantics.
-_certified_weight_scales(γ, λ) = false
-function _certified_weight_scales(γ::Array{T}, λ::T) where {T<:Union{Float32,Float64}}
-  isempty(γ) && return false
-  (λ > zero(T)) & isfinite(λ) || return false
-  lo, hi = extrema(γ)
-  (lo * λ > zero(T)) & isfinite(hi * λ)
-end
-
-
 # γλw as _positive_product, where an infinite weight gives Inf also when γλ is
 # zero; only the exceptional path tests the weight
 @inline function _weight_product(a::T, b::T, w::T) where {T<:AbstractFloat}

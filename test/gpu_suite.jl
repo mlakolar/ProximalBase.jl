@@ -418,6 +418,9 @@ end
   @test gh.η isa Vector{Float64} && gh.weights isa Vector{Float64} && gh(b) ≃ LogisticLoss(yb, X; weights = w)(b)
   # a negative weight is caught on the device, as on the host
   @test_throws ArgumentError GLMLoss(ProximalBase.Squared(), DeviceArray(y), DeviceArray(X); weights = DeviceArray(-w))
+  # and so are infinite weights and offsets (#251)
+  @test_throws ArgumentError GLMLoss(ProximalBase.Squared(), DeviceArray(y), DeviceArray(X); weights = DeviceArray([w[1:end-1]; Inf]))
+  @test_throws ArgumentError GLMLoss(ProximalBase.Squared(), DeviceArray(y), DeviceArray(X); offset = DeviceArray([w[1:end-1]; NaN]))
 end
 
 @testset "compensated group coefficients on GPU arrays" begin

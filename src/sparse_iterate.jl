@@ -812,6 +812,10 @@ end
 struct SymmetricCoordinates{T} <: AbstractVector{T}
   x::SymmetricSparseIterate{T}
 end
+# aliasing hooks from Base (non-public functions)
+Base.dataids(c::SymmetricCoordinates) = Base.dataids(c.x)
+Base.unaliascopy(c::SymmetricCoordinates) = coordinates(copy(c.x))
+
 Base.size(c::SymmetricCoordinates) = (length(c.x.ind2nzval),)
 Base.IndexStyle(::Type{<:SymmetricCoordinates}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(c::SymmetricCoordinates, k::Int) = _getstored(c.x, k)
@@ -963,6 +967,7 @@ end
 function _copyto_lower!(x::SymmetricSparseIterate, y::AbstractMatrix)
   _check_axes(x, y)
   _check_symmetric(y)
+  y = Base.unalias(x, y)
   p = x.p
   @inbounds for c = 1:p, r = c:p
     _setstored!(x, y[r, c], tril_index(p, r, c))

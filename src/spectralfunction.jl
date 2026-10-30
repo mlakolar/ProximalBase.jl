@@ -33,7 +33,9 @@ order of the entries. Its proximal operator acts on the eigenvalues: for
 reads the upper triangle of its input, which should be symmetric. The domain of
 `F` is the finite symmetric matrices: the value is `Inf` at a matrix with a
 non-finite entry, also for a bounded `f`, and at a matrix that is not
-symmetric. Membership in `IndBox`, `IndBallLinf` and `IndNonnegative` is
+symmetric. When a decomposition is needed, any non-finite entry, including one in the
+lower triangle, gives an all-`NaN` proximal output; `value_and_prox!` returns
+zero for an indicator and `NaN` otherwise. Membership in `IndBox`, `IndBallLinf` and `IndNonnegative` is
 decided with the tolerance `√ε·max(1, |bound|, ‖λ‖∞)`, relative to the
 spectrum, since computed eigenvalues carry errors of order `ε‖λ‖∞`: a
 positive semidefinite matrix of low rank and any scale lies in
@@ -76,6 +78,8 @@ _isindicator(::Type{<:Spectral{F}}) where {F} = _isindicator(F)
 _conjugate_isindicator(::Type{<:Spectral{F}}) where {F} = _conjugate_isindicator(F)
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix)
+  _checkreal(s, X)
+  _checkreal(s, Y)
   _checksize(Y, X)
   n = checksquare(X)
   T = float(eltype(Y))
@@ -89,14 +93,19 @@ end
 # The domain is the finite matrices: a non-finite entry gives Inf, before the
 # symmetry test and any decomposition.
 function (s::Spectral)(X::AbstractMatrix)
+  _checkreal(s, X)
   T = float(eltype(X))
   _checkblas(s, T)
   n = checksquare(X)
-  all(isfinite, X) || return T(Inf)
-  _issymmetric_tol(X) || return T(Inf)
+  if !_is_device_array(X)
+    all(isfinite, X) || return T(Inf)
+    _issymmetric_tol(X) || return T(Inf)
+  end
   ws = _eig_workspace(s.eig, T, n)
   s.eig = ws
   copyto!(ws.A, X)
+  !_is_device_array(X) || all(isfinite, ws.A) || return T(Inf)
+  !_is_device_array(X) || _issymmetric_tol(ws.A) || return T(Inf)
   λ = _eigvals!(ws)
   if !isempty(λ) && !(_finite_value(λ[1]) && _finite_value(λ[end])) && _scales_membership(s.f)
     return _scaled_spectral_membership!(s, ws, X)
@@ -109,13 +118,17 @@ end
 @noinline function _scaled_spectral_membership!(s::Spectral, ws, X::AbstractMatrix)
   copyto!(ws.A, X)
   k = _magnitude_exponent(_maximum_abs(ws.A))
-  _scaled_spectral_input!(ws.A, X)
+  _scaled_spectral_input!(ws.A, _is_device_array(X) ? ws.A : X)
   _scaled_membership(s.f, _eigvals!(ws), k)
 end
 
 function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, s, Y, X)
   T = float(eltype(Y))
+  if !all(isfinite, X)
+    fill!(Y, T(NaN))
+    return _isindicator(s) ? zero(T) : T(NaN)
+  end
   n = checksquare(X)
   ws = _eig_workspace(s.eig, T, n)
   s.eig = ws
@@ -124,7 +137,7 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   # the eigenvalues of the result, exactly as many as those of X
   z = _buffer!(s.z, T, n)
   length(z) == n || resize!(z, n)
-  if _scales_spectral_prox(s.f) && _spectral_overflow(λ, X)
+  if _scales_spectral_prox(s.f) && _spectral_overflow(λ, X, ws, s.out)
     return _scaled_wrapper_eigen_prox!(Y, s, X, γ, ws, z)
   end
   v = value_and_prox!(z, s.f, λ, γ)
@@ -132,7 +145,7 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   convert(T, v)
 end
 prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real) =
-  (_checkwrite(prox!, s, Y, X); value_and_prox!(Y, s, X, γ); Y)
+  (value_and_prox!(Y, s, X, γ); Y)
 
 # Y = Σⱼ zⱼ vⱼvⱼ' for the eigenvectors vⱼ in the columns of V, through B, which
 # is Y when BLAS can write Y and an n × n buffer otherwise; destroys V. The proximal
@@ -239,8 +252,10 @@ function _scaled_spectrum_prox!(z::Vector{T}, f::SumLargest, x, γ, e) where {T}
 end
 
 @noinline function _scaled_wrapper_eigen_prox!(Y, s::Spectral, X, γ, ws::SymEigenWorkspace{T}, z) where {T}
-  e = _magnitude_exponent(convert(T, _maximum_abs(X)))
-  _scaled_spectral_input!(ws.A, X)
+  # The overflow check keeps the device input separate from the eigenvectors.
+  A = _is_device_array(X) ? _array_buffer!(s.out, T, size(X)) : X
+  e = _magnitude_exponent(convert(T, _maximum_abs(A)))
+  _scaled_spectral_input!(ws.A, A)
   λ, V = _eigen!(ws)
   σ = _maximum_abs(λ)
   v = _scaled_spectrum_prox!(z, s.f, λ, γ, e)

@@ -62,11 +62,13 @@ _all_indicators(fs::Tuple) = _isindicator(first(fs)) && _all_indicators(Base.tai
 _checkparams(g::PointwiseMinimum, x) = (map(f -> _checkparams(f, x), g.fs); true)
 
 function (g::PointwiseMinimum)(x::AbstractArray)
+  _checkreal(g, x)
   _checkparams(g, x)
   _value_at(minimum(map(f -> f(x), g.fs)), x)
 end
 
 function _checkwrite(op::O, g::PointwiseMinimum, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checkreal(g, y); _checkreal(g, x)
   _checksize(y, x)
   _checkparams(g, x)
   b = _array_buffer!(g.current, eltype(y), size(y))
@@ -85,7 +87,7 @@ function _minimum_distance(x::AbstractArray, p::AbstractArray)
   isnan(r) && return (r, 0)
   scale = zero(r)
   @inbounds for i in eachindex(x, p)
-    scale = max(scale, abs(real(x[i])), abs(imag(x[i])), abs(real(p[i])), abs(imag(p[i])))
+    scale = max(scale, abs(x[i]), abs(p[i]))
   end
   isfinite(scale) || return (r, 0)
   _, e = frexp(scale)
@@ -189,8 +191,16 @@ end
 
 for op in (:prox!, :value_and_prox!)
   @eval $op(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::AbstractArray) =
-    throw(ArgumentError("PointwiseMinimum requires a scalar step"))
+    (_checkreal(g, y); _checkreal(g, x); _checkreal(g, γ); throw(ArgumentError("PointwiseMinimum requires a scalar step")))
 end
 
 prox(g::PointwiseMinimum, x::AbstractArray, γ::AbstractArray) =
-  throw(ArgumentError("PointwiseMinimum requires a scalar step"))
+  (_checkreal(g, x); _checkreal(g, γ); throw(ArgumentError("PointwiseMinimum requires a scalar step")))
+
+function _checkstep(op::O, g::PointwiseMinimum, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  b = _checkbuffer(g.current, eltype(y), size(y))
+  _checkstep_candidates(g.fs, b, x, γ)
+end
+_checkstep_candidates(::Tuple{}, y, x, γ) = true
+_checkstep_candidates(fs::Tuple, y, x, γ) =
+  (_checkstep(value_and_prox!, first(fs), y, x, γ); _checkstep_candidates(Base.tail(fs), y, x, γ))

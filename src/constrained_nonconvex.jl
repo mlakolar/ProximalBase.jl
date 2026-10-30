@@ -18,10 +18,44 @@
 # concave one at an end.
 _has_box_prox(::Union{MCP, SCAD, NormL0}) = true
 
-# a box on such a penalty on a box: the penalty on the intersection, since
-# clamping the inner proximal operator would not give the constrained one
+# Choose before promotion, since promotion can round or overflow an endpoint.
+_pick_bound(a, b, ::typeof(max)) = a > b ? a : b > a ? b : max(a, b)
+_pick_bound(a, b, ::typeof(min)) = a < b ? a : b < a ? b : min(a, b)
+_bound_overflows(a, b, pick, ::Type{T}) where {T} =
+  isfinite(_pick_bound(a, b, pick)) && isinf(convert(T, _pick_bound(a, b, pick)))
+_convert_bound(a, b, pick, ::Type{T}) where {T} = convert(T, _pick_bound(a, b, pick))
+
+function _intersect_boxes(A::IndBox, B::IndBox)
+  bounds = (A.l, A.u, B.l, B.u)
+  shape = nothing
+  for p in bounds
+    if p isa AbstractArray
+      if shape === nothing
+        shape = p
+      else
+        _checkparam(p, shape)
+      end
+    end
+  end
+  l1, u1, l2, u2 = map(p -> p isa AbstractArray ? vec(p) : p, bounds)
+  # Test the exact intersection before rounded endpoints can conceal an empty box.
+  all((l1 .<= u2) .& (l2 .<= u1)) ||
+    throw(ArgumentError("the lower bounds must not exceed the upper bounds"))
+  T = promote_type(map(eltype, bounds)...)
+  if any(_bound_overflows.(l1, l2, max, T)) || any(_bound_overflows.(u1, u2, min, T))
+    T = promote_type(map(p -> float(eltype(p)), bounds)...)
+  end
+  l = _convert_bound.(l1, l2, max, T)
+  u = _convert_bound.(u1, u2, min, T)
+  l = l isa AbstractArray ? reshape(l, size(shape)) : l
+  u = u isa AbstractArray ? reshape(u, size(shape)) : u
+  return IndBox(l, u)
+end
+
+# Intersect in linear order and keep finite endpoints finite; clamping the
+# inner proximal operator would not give the constrained one.
 Constrained(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, C::IndBox) =
-  BoxConstrained(c.f, IndBox(max.(c.box.l, C.l), min.(c.box.u, C.u)))
+  BoxConstrained(c.f, _intersect_boxes(c.box, C))
 Constrained(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, ::IndNonnegative) = Constrained(c, IndBox(0.0, Inf))
 
 Base.@propagate_inbounds function prox_entry(c::BoxConstrained{<:MCP}, v::T, i::Integer, γ::Real) where {T<:Real}
@@ -78,6 +112,7 @@ end
 # At zero, MCP and SCAD have the kink of λ|t|: leaving zero pays when |gᵢ| > λ,
 # in the direction of -gᵢ, which the box must allow.
 function kkt_violation(c::BoxConstrained{<:Union{MCP, SCAD}}, g::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
   v = kkt_violation(c.f, g, i)
   v > 0 || return v
   (g[i] < 0 ? _entry(c.box.u, i) > 0 : _entry(c.box.l, i) < 0) ? v : zero(v)

@@ -16,7 +16,8 @@ from [`value_and_prox!`](@ref)).
 
 It is also proximable, by
 `prox_{te}(x) = x + t/(γ + t) ⋅ (prox_{(γ + t)f}(x) - x)`, and separable when
-`f` is, so coordinate descent applies to it. The envelope of `δ|⋅|` is the
+`f` is, so coordinate descent applies to it. `prox_entry`, `kkt_violation` and
+`restrict` require a separable `f`. The envelope of `δ|⋅|` is the
 Huber function, that of the indicator function of a set `C` the squared
 distance to `C` divided by `2γ`; [`SqrDistL2`](@ref) also supports nonconvex
 sets. The value, the gradient and the proximal
@@ -49,9 +50,10 @@ isconvex(::Type{<:MoreauEnvelope{F}}) where {F} = isconvex(F)
 _envelope_buffer(e::MoreauEnvelope, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(e.scratch, T, size(x))
 
 function _checkwrite(op::O, e::MoreauEnvelope, y::AbstractArray, x::AbstractArray) where {O}
+  _checkreal(e, y); _checkreal(e, x)
+  (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   if op === gradient! || op === value_and_gradient!
-    y === x && throw(ArgumentError("the gradient must not overwrite x"))
     _checkparams(e, x)
     _checkwrite(op === gradient! ? prox! : value_and_prox!, e.f, y, x)
   else
@@ -62,7 +64,7 @@ function _checkwrite(op::O, e::MoreauEnvelope, y::AbstractArray, x::AbstractArra
   true
 end
 _checkvalue(e::MoreauEnvelope, x::AbstractArray) =
-  _checkwrite(value_and_prox!, e.f, _checkbuffer(e.scratch, float(eltype(x)), size(x)), x)
+  (_checkreal(e, x); _checkwrite(value_and_prox!, e.f, _checkbuffer(e.scratch, float(eltype(x)), size(x)), x))
 
 # Form the distance in units of sqrt(2γ) before squaring it: an unscaled
 # squared distance can overflow or underflow although its energy is finite.
@@ -95,6 +97,7 @@ end
 end
 
 function (e::MoreauEnvelope)(x::AbstractArray)
+  _checkreal(e, x)
   T = float(eltype(x))
   γ = convert(T, e.γ)
   p = _envelope_buffer(e, T, x)
@@ -131,6 +134,7 @@ end
 # The step is checked after the sizes and parameters and before the inner
 # function, as before the pre-write checks.
 function prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
+  _checkreal(e, y); _checkreal(e, x)
   _checksize(y, x)
   _checkparams(e, x)
   T = float(eltype(y))
@@ -143,6 +147,7 @@ function prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
 end
 
 function value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
+  _checkreal(e, y); _checkreal(e, x)
   _checksize(y, x)
   _checkparams(e, x)
   T = float(eltype(y))
@@ -157,6 +162,7 @@ function value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, 
 end
 
 Base.@propagate_inbounds function prox_entry(e::MoreauEnvelope, v::Real, i::Integer, t::Real)
+  isseparable(e) || throw(ArgumentError("prox_entry of MoreauEnvelope requires a separable function"))
   T = typeof(float(v))
   γ, step = convert(T, e.γ), convert(T, t)
   combined = _envelope_step(γ, step)
@@ -168,11 +174,16 @@ _checkparams(e::MoreauEnvelope, x) = _checkparams(e.f, x)
 # the envelope is smooth: a coordinate at zero is optimal when the gradient of
 # the smooth part cancels the envelope's derivative there, -prox_{γfᵢ}(0)/γ
 function kkt_violation(e::MoreauEnvelope, g::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
+  isseparable(e) || throw(ArgumentError("kkt_violation of MoreauEnvelope requires a separable function"))
   γ = e.γ
   abs(g[i] - prox_entry(e.f, zero(float(eltype(g))), i, γ) / γ)
 end
 # the dropped terms are minᵧ fᵢ(y) + y²/(2γ), finite for a proper fᵢ
-restrict(e::MoreauEnvelope, S::AbstractVector{<:Integer}) = MoreauEnvelope(_restrict_unchecked(e.f, S), e.γ)
+function restrict(e::MoreauEnvelope, S::AbstractVector{<:Integer})
+  isseparable(e) || throw(ArgumentError("restrict of MoreauEnvelope requires a separable function"))
+  MoreauEnvelope(_restrict_unchecked(e.f, S), e.γ)
+end
 
 lipschitz(e::MoreauEnvelope) = inv(float(e.γ))
 
@@ -237,4 +248,11 @@ function _prox_slope(φ::SeparableFunction, r::T, γ::T) where {T}
   h = sqrt(eps(T)) * max(one(T), abs(r))
   s = (prox_entry(φ, r + h, 1, γ) - prox_entry(φ, r - h, 1, γ)) / (2h)
   clamp(convert(T, s), zero(T), one(T))
+end
+
+function _checkstep(op::O, e::MoreauEnvelope, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  T = float(eltype(y))
+  combined = _envelope_step(convert(T, e.γ), convert(T, γ))
+  p = _checkbuffer(e.scratch, T, size(x))
+  _checkstep(op, e.f, p, x, combined)
 end

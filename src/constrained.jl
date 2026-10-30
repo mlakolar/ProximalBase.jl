@@ -67,6 +67,16 @@ and [`NormL0`](@ref) on a box, whose scalar problems are solved exactly by
 comparing the minimizers of their convex pieces with the ends of the interval;
 the result is separable but not convex.
 
+Repeated box constraints on these three penalties are intersected entrywise in
+linear order, including boxes made by `IndBallLinf`. All array bounds must have
+equal length; the resulting array bounds have the shape of the first array
+bound. Endpoints and emptiness are compared before conversion. Same-type bounds
+keep their type. Mixed bounds use their promoted type, widened to the promoted
+floating-point type only if a selected finite endpoint would become infinite.
+Mixed integer and floating-point bounds can still round integers beyond the
+floating-point type's precision. Convex nested box constraints retain their
+composition and the empty-domain behaviour described below.
+
 The caller must ensure that the set meets the domain of `f`. For a convex
 function on a box, the method clamps the unconstrained proximal point even
 when the intersection is empty. Neither that point nor the returned value
@@ -75,7 +85,11 @@ this improper case. On a hyperplane, halfspace or hyperslab, the search throws
 an `ArgumentError` if it cannot bracket a multiplier. This is not a general test
 for an empty intersection: rounding may put a point on the closure of an open
 domain, and a finite multiplier may not exist when the set meets only the
-boundary of a closed domain.
+boundary of a closed domain. Empty arguments that fail the search's own
+acceptance test are rejected before writing. Block oracles also reject clearly
+infeasible scalar boxes with scalar linear normals at finite positive scalar
+steps, when finite inputs and conservative rounding bounds certify that the
+search throws. Overflowing ranges and transformed inputs remain unchecked.
 """
 function Constrained end
 
@@ -145,7 +159,7 @@ _isindicator(::Type{<:LinearConstrained{F}}) where {F} = _isindicator(F)
 ####################################
 
 (c::BoxConstrained)(x::AbstractArray) =
-  (_checkparams(c, x); T = float(eltype(x)); iszero(c.box(x)) ? convert(T, c.f(x)) : T(Inf))
+  (_checkreal(c, x); _checkparams(c, x); T = float(eltype(x)); iszero(c.box(x)) ? convert(T, c.f(x)) : T(Inf))
 
 # the scalar problem is convex, so its minimizer on an interval is the nearest
 # point to its unconstrained minimizer
@@ -153,12 +167,12 @@ Base.@propagate_inbounds prox_entry(c::BoxConstrained, v::Real, i::Integer, γ::
   prox_entry(c.box, prox_entry(c.f, v, i, γ), i, γ)
 
 # γ is a scalar step or an array of steps, one per entry
-prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = (_checkwrite(prox!, c, y, x); _prox_sep!(y, c, x, γ))
-prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = (_checkwrite(prox!, c, y, x); _prox_sep!(y, c, x, γ))
+prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = (_checkwrite(prox!, c, y, x, γ); _prox_sep!(y, c, x, γ))
+prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = (_checkwrite(prox!, c, y, x, γ); _prox_sep!(y, c, x, γ))
 value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = _value_and_prox_box!(y, c, x, γ)
 value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_box!(y, c, x, γ)
 function _value_and_prox_box!(y, c, x, γ)
-  _checkwrite(value_and_prox!, c, y, x)
+  _checkwrite(value_and_prox!, c, y, x, γ)
   _prox_sep!(y, c, x, γ)
   T = float(eltype(y))
   _isindicator(c) ? zero(T) : convert(T, c.f(y))
@@ -166,19 +180,118 @@ end
 
 _checkparams(c::BoxConstrained, x) = (_checkparams(c.f, x); _checkparams(c.box, x); true)
 function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checkreal(c, y); _checkreal(c, x)
   _checksize(y, x)
   _checkparams(c, x)
   op === value_and_prox! && !_isindicator(c) && _checkvalue(c.f, y)
   true
 end
+# A step is needed only for conditional values of nested box constraints.
+_checkwrite(op::O, f, y, x, γ) where {O} = (_checkreal(f, γ); _checkwrite(op, f, y, x))
+_checkwrite(op::O, s::Scaled, y, x, γ::Real) where {O} = (_checkreal(s, y); _checkreal(s, x); _checkwrite(op, s.f, y, x, s.α * γ))
+_checkwrite(op::O, s::Scaled, y, x, γ::AbstractArray) where {O} = (_checkreal(s, y); _checkreal(s, x); _checkreal(s, γ); _checkwrite(op, s.f, y, x, _ScaledArray(γ, s.α)))
+function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray, γ) where {O}
+  _checkreal(t, γ)
+  _checkwrite(op, t, y, x)
+  if op === value_and_prox! && !_box_value_available(t.f, y)
+    z = _array_buffer!(t.scratch, float(eltype(y)), size(y))
+    step = γ isa Real ? convert(float(eltype(y)), γ) : γ
+    z .= x .- step .* t.c
+    _checkwrite(op, t.f, y, z, γ)
+  end
+  true
+end
+function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray, γ) where {O}
+  _checkreal(t, γ)
+  _checkwrite(op, t, y, x)
+  if op === value_and_prox! && !_box_value_available(t.f, y)
+    z = _array_buffer!(t.proxscratch, float(eltype(y)), size(y))
+    z .= x .- t.b
+    _checkwrite(op, t.f, y, z, γ)
+  end
+  true
+end
+function _checkwrite(op::O, s::SeparableSum, y::Tuple, x::Tuple, γ) where {O}
+  _checkreal(s, y); _checkreal(s, x); _checkreal(s, γ)
+  _checksize(y, x)
+  _checkblocks(s, x)
+  _checkwrite_blocks(op, s.fs, y, x, γ)
+end
+_checkwrite_blocks(op, ::Tuple{}, ::Tuple{}, ::Tuple{}, γ) = true
+_checkwrite_blocks(op::O, fs::Tuple, y::Tuple, x::Tuple, γ) where {O} =
+  (_checkwrite(op, first(fs), first(y), first(x), γ); _checkwrite_blocks(op, Base.tail(fs), Base.tail(y), Base.tail(x), γ))
+
+# Read the prospective output only when an inner value check fails.
+struct _BoxProxArray{T, N, C, X, G} <: AbstractArray{T, N}
+  c::C
+  x::X
+  γ::G
+end
+@inline _BoxProxArray(y::AbstractArray{T, N}, c, x, γ) where {T, N} =
+  _BoxProxArray{T, N, typeof(c), typeof(x), typeof(γ)}(c, x, γ)
+Base.size(p::_BoxProxArray) = size(p.x)
+Base.IndexStyle(::Type{<:_BoxProxArray}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(p::_BoxProxArray{T}, i::Int) where {T} =
+  convert(T, prox_entry(p.c, p.x[i], i, _entry(p.γ, i)))
+
+struct _BoxShiftArray{T, N, P, B} <: AbstractArray{T, N}
+  p::P
+  b::B
+end
+_BoxShiftArray(p::AbstractArray{T, N}, b) where {T, N} =
+  _BoxShiftArray{T, N, typeof(p), typeof(b)}(p, b)
+Base.size(p::_BoxShiftArray) = size(p.p)
+Base.IndexStyle(::Type{<:_BoxShiftArray}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(p::_BoxShiftArray{T}, i::Int) where {T} =
+  convert(T, p.p[i] - p.b[i])
+
+@inline _check_box_value(f, y, p) = _checkvalue(f, y)
+@inline _check_box_value(s::Scaled, y, p) = _check_box_value(s.f, y, p)
+@inline _check_box_value(t::Tilt, y, p) = (_checkdot(t.c, y); _check_box_value(t.f, y, p))
+@inline _check_box_value(t::Translate, y, p) =
+  _check_box_value(t.f, _checkshifted(t, y), _BoxShiftArray(p, t.b))
+function _box_value_available(f, y)
+  try
+    _checkvalue(f, y)
+    true
+  catch
+    false
+  end
+end
+# Avoid constructing an exception when the outer box excludes the inner value.
+_box_value_available(f::SqrNormL2, y) = f.y === nothing || size(f.y) == size(y)
+_box_value_available(c::Conjugate, y) =
+  _has_conjugate_value(c.f) && invoke(_box_value_available, Tuple{Any, Any}, c, y)
+_box_value_available(s::Scaled, y) = _box_value_available(s.f, y)
+_box_value_available(t::Tilt, y) =
+  _box_value_available(t.f, y) && invoke(_box_value_available, Tuple{Any, Any}, t, y)
+_box_value_available(t::Translate, y) = _box_value_available(t.f, _checkshifted(t, y))
+_box_value_available(c::BoxConstrained, y) = _box_value_available(c.f, y)
+@inline function _check_box_value(c::BoxConstrained, y, p)
+  _checkparams(c, y)
+  _box_value_available(c.f, y) && return true
+  iszero(c.box(p)) && _check_box_value(c.f, y, p)
+  true
+end
+@inline function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArray, γ) where {O}
+  _checkreal(c, γ)
+  _checkwrite(op, c, y, x)
+  if op === value_and_prox! && !_isindicator(c)
+    _checkparam(γ, x)
+    _check_box_value(c.f, y, _BoxProxArray(y, c, x, γ))
+  end
+  true
+end
+
 # Membership can return Inf without evaluating the inner value.
-_checkvalue(c::BoxConstrained, x::AbstractArray) = _checkparams(c, x)
-_checkvalue(c::LinearConstrained, x::AbstractArray) = _checkvalue(c.set, x)
+_checkvalue(c::BoxConstrained, x::AbstractArray) = (_checkreal(c, x); _checkparams(c, x))
+_checkvalue(c::LinearConstrained, x::AbstractArray) = (_checkreal(c, x); _checkvalue(c.set, x))
 iszeropreserving(c::BoxConstrained) = iszeropreserving(c.f) && iszeropreserving(c.box)
 
 # For a convex f with 0 in its domain, the proximal step of f from -gᵢ moves in
 # the direction that improves on zero, if one does; the box must allow it.
 function kkt_violation(c::BoxConstrained, g::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
   v = kkt_violation(c.f, g, i)
   v > 0 || return v
   d = prox_entry(c.f, -g[i], i, one(float(eltype(g))))
@@ -193,10 +306,11 @@ _restrict_unchecked(c::BoxConstrained, S::AbstractVector{<:Integer}) =
 #  on a hyperplane, halfspace or hyperslab
 ####################################
 
-(c::LinearConstrained)(x::AbstractArray) = (_checkparams(c, x); T = float(eltype(x)); iszero(c.set(x)) ? convert(T, c.f(x)) : T(Inf))
+(c::LinearConstrained)(x::AbstractArray) = (_checkreal(c, x); _checkparams(c, x); T = float(eltype(x)); iszero(c.set(x)) ? convert(T, c.f(x)) : T(Inf))
 
 _checkparams(c::LinearConstrained, x) = (_checkparams(c.f, x); _checkparams(c.set, x); true)
 function _checkwrite(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checkreal(c, y); _checkreal(c, x)
   _checksize(y, x)
   _checkparams(c, x)
   c.set isa IndHyperslab && _checkwrite(op, c.set, y, x)
@@ -208,13 +322,12 @@ end
 # in the metric of Diagonal(1 ./ γ), where z(ν) has the entries
 # prox_{γᵢfᵢ}(xᵢ - γᵢνaᵢ)
 prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
-  _linear_constrained_prox!(y, c, x, convert(float(eltype(y)), γ))
+  (_checkreal(c, y); _checkreal(c, x); _linear_constrained_prox!(y, c, x, convert(float(eltype(y)), γ)))
 prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
-  (_checkparam(γ, x); _check_metric_steps(c, γ); _linear_constrained_prox!(y, c, x, γ))
+  (_checkreal(c, y); _checkreal(c, x); _checkreal(c, γ); _checkparam(γ, x); _check_metric_steps(c, γ); _linear_constrained_prox!(y, c, x, γ))
 
 function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ)
   _checkwrite(prox!, c, y, x)
-  c.set isa IndHyperslab && _hyperslab_input(c.set, x)
   T = float(eltype(y))
   ν = _multiplier(c, x, γ, T)
   set = c.set
@@ -236,7 +349,7 @@ end
 value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) = _value_and_prox_linear!(y, c, x, γ)
 value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_linear!(y, c, x, γ)
 function _value_and_prox_linear!(y, c, x, γ)
-  _checkwrite(value_and_prox!, c, y, x)
+  _checkwrite(value_and_prox!, c, y, x, γ)
   prox!(y, c, x, γ)
   T = float(eltype(y))
   _isindicator(c) ? zero(T) : convert(T, c.f(y))
@@ -320,8 +433,9 @@ function _multiplier(c::LinearConstrained, x::AbstractArray, γ, ::Type{T}) wher
   c.set isa IndHyperslab && return _hyperslab_multiplier(c, x, γ, T)
   ν0 = convert(T, c.last[])
   warm = isfinite(ν0) && !(c.set isa IndHalfspace && !(ν0 > 0))
+  slope = c.slope[]
   ν = _search(c, x, γ, warm ? ν0 : zero(T), warm, _scaled_offset(c.set), c.set isa IndHalfspace ? 1 : 0)
-  c.last[] = ν
+  isnan(ν) ? (c.slope[] = slope) : (c.last[] = ν)
   ν
 end
 
@@ -331,11 +445,13 @@ function _hyperslab_multiplier(c::LinearConstrained, x::AbstractArray, γ, ::Typ
   if isfinite(set.l)
     b = _scaled_offset(set, set.l)
     φ, _ = _constraint_gap(c, x, zero(T), γ, b)
+    isnan(φ) && return T(NaN)
     φ < 0 && return _slab_multiplier(c, x, γ, T, b, -1)
   end
   if isfinite(set.u)
     b = _scaled_offset(set, set.u)
     φ, _ = _constraint_gap(c, x, zero(T), γ, b)
+    isnan(φ) && return T(NaN)
     φ > 0 && return _slab_multiplier(c, x, γ, T, b, 1)
   end
   c.last[] = 0
@@ -346,9 +462,10 @@ end
 function _slab_multiplier(c, x, γ, ::Type{T}, b, side) where {T}
   ν0 = convert(T, c.last[])
   warm = isfinite(ν0) && side * ν0 > 0
+  slope = c.slope[]
   warm || (c.slope[] = NaN)
   ν = _search(c, x, γ, warm ? ν0 : zero(T), warm, b, side)
-  c.last[] = ν
+  isnan(ν) ? (c.slope[] = slope) : (c.last[] = ν)
   ν
 end
 
@@ -369,11 +486,13 @@ _search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool, b, sid
 
 function _search(c::LinearConstrained, x::AbstractArray, γ, start::T, warm::Bool, b, side, L) where {T}
   φs, ms, dφ = warm ? _gap_and_slope(c, x, start, γ, b) : (_constraint_gap(c, x, start, γ, b)..., T(NaN))
+  isnan(φs) && return T(NaN)
   abs(φs) <= 2eps(T) * ms && return start
   if side != 0 && side * φs < 0
     iszero(start) && return zero(T)                           # the constraint is inactive
     # Check zero when the root lies between it and the previous multiplier.
     φ0, m0 = _constraint_gap(c, x, zero(T), γ, b)
+    isnan(φ0) && return T(NaN)
     (side * φ0 <= 0 || abs(φ0) <= 2eps(T) * m0) && return zero(T)
     return _refine(c, x, γ, b, zero(T), φ0, start, φs, nothing)
   end
@@ -392,6 +511,7 @@ function _bracket_and_refine(c::LinearConstrained, x::AbstractArray, γ, b, ν0:
   for k in 1:_MAX_BRACKET_STEPS
     hi = lo + dir * step
     φhi, mhi, L = _gap!(c, x, hi, γ, b, L)
+    isnan(φhi) && return T(NaN)
     if abs(φhi) <= 2eps(T) * mhi
       c.slope[] = (φhi - φlo) / (hi - lo)
       return hi
@@ -417,6 +537,7 @@ function _refine(c::LinearConstrained, x::AbstractArray, γ, b, lo::T, φlo::T, 
   for _ in 1:_MAX_SECANTS
     ν = (lo * φhi - hi * φlo) / (φhi - φlo)
     φν, mν, L = _gap!(c, x, ν, γ, b, L, Val(false))
+    isnan(φν) && return T(NaN)
     ν != νp && (c.slope[] = (φν - φp) / (ν - νp))
     νp, φp = ν, φν
     abs(φν) < abs(φbest) && ((best, φbest) = (ν, φν))
@@ -765,6 +886,7 @@ end
 
 # the checks of the conjugate value above, before it computes
 function _checkconjugate(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane, IndHalfspace}}, y::AbstractArray)
+  _checkreal(c, y)
   _checkparams(c, y)
   T = float(eltype(y))
   box, set = c.f, c.set
@@ -866,4 +988,47 @@ Base.@propagate_inbounds function _prox_entry_slope(c::BoxConstrained, v::T, i::
   z, dz = _prox_entry_slope(c.f, v, i, γ)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
   clamp(convert(S, z), l, u), _slope((z > l) & (z < u), convert(S, dz))
+end
+
+function _checkstep(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  f, set = c.f, c.set
+  if isempty(x)
+    if !(set isa IndHyperslab)
+      T = float(eltype(y))
+      φ = -convert(T, _scaled_offset(set))
+      if set isa IndHyperplane || φ > 0
+        abs(φ) <= 2eps(T) * abs(φ) || _infeasible(c)
+      end
+    end
+    return true
+  end
+  f isa IndBox && f.l isa Real && f.u isa Real && set.a isa Real || return true
+  T = float(eltype(y))
+  T <: Union{Float32, Float64} && eltype(x) <: Union{Float32, Float64} || return true
+  step = convert(T, γ)
+  isfinite(step) && step > 0 || return true
+  a = convert(T, _scaled_normal(set))
+  l, u = convert(T, f.l), convert(T, f.u)
+  isfinite(a) && !iszero(a) && isfinite(l) && isfinite(u) || return true
+  n = convert(T, length(x))
+  lo, hi = n * min(a * l, a * u), n * max(a * l, a * u)
+  if set isa IndHyperslab
+    lower, upper = convert(T, _scaled_offset(set, set.l)), convert(T, _scaled_offset(set, set.u))
+    b = hi < lower ? lower : lo > upper ? upper : zero(T)
+    gap = max(lower - hi, lo - upper)
+  else
+    b = convert(T, _scaled_offset(set))
+    gap = set isa IndHalfspace ? lo - b : max(lo - b, b - hi)
+  end
+  M = n * abs(a) * max(abs(l), abs(u)) + abs(b)
+  isfinite(M) && M < floatmax(T) / 16 || return true
+  # Cover accumulation, endpoint rounding and the search's acceptance threshold.
+  r = 32eps(T) * max(n, one(T))
+  r < T(0.25) || return true
+  gap > r * max(M, floatmin(T)) || return true
+  _step_values(x) || return true
+  for v in x
+    isfinite(v) || return true
+  end
+  _infeasible(c)
 end

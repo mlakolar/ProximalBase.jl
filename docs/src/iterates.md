@@ -10,6 +10,10 @@ which are derived in [Coordinate descent](@ref).
 | [`SymmetricSparseIterate`](@ref) | A sparse symmetric matrix | One lower-triangular entry and its symmetric counterpart |
 | [`AtomIterate`](@ref) | A vector partitioned into groups | One group of entries |
 
+The entries of an iterate are real. A complex element type, or a complex
+operand of an iterate product, raises an `ArgumentError`; see
+[Precision](@ref).
+
 ## Entries and coordinates
 
 [`prox_entry`](@ref)`(g, v, i, γ)` computes the scalar proximal operator of
@@ -60,8 +64,11 @@ check; a broadcast whose arguments do not show that its value is symmetric is
 first evaluated at both positions of each off-diagonal entry.
 `replace` and `replace!` visit each entry of the lower triangle once, and
 their `count` counts those entries.
-Functions that update entries one position at a time, such as `mul!` into
-``x`` or `x[:, :] = A`, are not checked; the docstring lists them.
+`mul!` into ``x`` checks the unscaled product for exact symmetry in a buffer promoted
+from the destination and operand types, applies scalars and conversion at the final
+write, and leaves the product out when α = 0, as LinearAlgebra does.
+Functions that update entries one position at a time, such as `x[:, :] = A`,
+are not checked; the docstring lists them.
 
 Its coordinates are the
 ``p(p+1)/2`` entries ``(r, c)``, ``r \ge c``, of the lower triangle, numbered

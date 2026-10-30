@@ -49,7 +49,6 @@ _isindicator(::Type{<:IndSOC}) = true
 
 function _checkparams(f::IndSOC, x::AbstractArray)
   Base.require_one_based_indexing(x)
-  eltype(x) <: Real || throw(ArgumentError("IndSOC requires real entries"))
   if f.groups === nothing
     isempty(x) && throw(ArgumentError("the second-order cone needs a head entry"))
   else
@@ -59,10 +58,11 @@ function _checkparams(f::IndSOC, x::AbstractArray)
 end
 
 function _checkwrite(op::O, f::IndSOC, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkparams(f, x)
   Base.require_one_based_indexing(y)
-  eltype(y) <: Real || throw(ArgumentError("IndSOC requires real entries"))
   true
 end
 
@@ -115,7 +115,7 @@ end
 _soc_value(f::IndSOC, x::AbstractArray, polar::Bool) =
   _cone_value(f, x, polar, _soc_contains)
 
-(f::IndSOC)(x::AbstractArray) = (_checkparams(f, x); _soc_value(f, x, false))
+(f::IndSOC)(x::AbstractArray) = (_checkreal(f, x); _checkparams(f, x); _soc_value(f, x, false))
 
 function _soc_project!(y, x::AbstractArray{T}, G) where {T}
   t, s, k = _soc_frame(x, G)
@@ -220,7 +220,6 @@ _isindicator(::Type{<:IndRotatedSOC}) = true
 
 function _checkparams(f::IndRotatedSOC, x::AbstractArray)
   Base.require_one_based_indexing(x)
-  eltype(x) <: Real || throw(ArgumentError("IndRotatedSOC requires real entries"))
   if f.groups === nothing
     length(x) >= 2 || throw(ArgumentError("the rotated second-order cone needs two head entries"))
   else
@@ -230,10 +229,11 @@ function _checkparams(f::IndRotatedSOC, x::AbstractArray)
 end
 
 function _checkwrite(op::O, f::IndRotatedSOC, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkparams(f, x)
   Base.require_one_based_indexing(y)
-  eltype(y) <: Real || throw(ArgumentError("IndRotatedSOC requires real entries"))
   true
 end
 
@@ -259,7 +259,7 @@ end
 
 _rotatedsoc_value(f::IndRotatedSOC, x::AbstractArray, polar::Bool) =
   _cone_value(f, x, polar, _rotatedsoc_contains)
-(f::IndRotatedSOC)(x::AbstractArray) = (_checkparams(f, x); _rotatedsoc_value(f, x, false))
+(f::IndRotatedSOC)(x::AbstractArray) = (_checkreal(f, x); _checkparams(f, x); _rotatedsoc_value(f, x, false))
 
 # Compare with sqrt(2uv) in the norm's frame, retaining small original heads.
 function _rotatedsoc_inside(u::T, v::T, s::T, k) where {T}
@@ -437,7 +437,6 @@ _isindicator(::Type{<:_ExpCone}) = true
 
 function _checkparams(f::_ExpCone, x::AbstractArray)
   Base.require_one_based_indexing(x)
-  eltype(x) <: Real || throw(ArgumentError("exponential cones require real entries"))
   if f.groups === nothing
     length(x) == 3 || throw(ArgumentError("an exponential cone needs exactly three entries"))
   else
@@ -447,10 +446,11 @@ function _checkparams(f::_ExpCone, x::AbstractArray)
 end
 
 function _checkwrite(op::O, f::_ExpCone, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checkreal(f, x)
+  _checkreal(f, y)
   _checksize(y, x)
   _checkparams(f, x)
   Base.require_one_based_indexing(y)
-  eltype(y) <: Real || throw(ArgumentError("exponential cones require real entries"))
   true
 end
 
@@ -505,7 +505,7 @@ function _exp_value(f::_ExpCone, x::AbstractArray, conjugate::Bool)
   zero(T)
 end
 
-(f::_ExpCone)(x::AbstractArray) = (_checkparams(f, x); _exp_value(f, x, false))
+(f::_ExpCone)(x::AbstractArray) = (_checkreal(f, x); _checkparams(f, x); _exp_value(f, x, false))
 
 # Evaluate a exp(b), even when exp(b) alone is outside the numerical range.
 function _exp_product(a::T, b::T) where {T}

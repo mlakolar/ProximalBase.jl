@@ -86,11 +86,17 @@ struct LinearImage{F<:AbstractFunction, M, C} <: AbstractFunction
   f::F
   L::M
   cache::C
+
+  function LinearImage{F, M, C}(f::F, L::M, cache::C) where {F<:AbstractFunction, M, C}
+    eltype(L) <: Real || _real_error(:LinearImage)
+    new{F, M, C}(f, L, cache)
+  end
 end
+LinearImage(f::F, L::M, cache::C) where {F<:AbstractFunction, M, C} = LinearImage{F, M, C}(f, L, cache)
 
 function _check_image_data(L)
   L isa Real && throw(ArgumentError("L must be a matrix or a linear operator"))
-  eltype(L) <: Real || throw(ArgumentError("L must have real data"))
+  eltype(L) <: Real || _real_error(:LinearImage)
   L isa AbstractMatrix && !all(isfinite, _stored_values(L)) &&
     throw(ArgumentError("L must have finite data"))
   nothing
@@ -121,7 +127,7 @@ function _check_image_quadratic(f::QuadraticFunction, L)
   size(f.A) == (n, n) && (f.b === nothing || length(f.b) == n) ||
     throw(DimensionMismatch("Q and q must match the $(n) columns of L"))
   eltype(f.A) <: Real && (f.b === nothing || eltype(f.b) <: Real) ||
-    throw(ArgumentError("Q and q must have real data"))
+    _real_error(:LinearImage)
   all(isfinite, _stored_values(f.A)) &&
     (f.b === nothing || all(isfinite, f.b)) && isfinite(f.c) ||
     throw(ArgumentError("Q, q and c must be finite"))
@@ -139,12 +145,14 @@ function LinearImage(f::QuadraticFunction, L::AbstractMatrix)
   LinearImage(f, L, cache)
 end
 
-LinearImage(f::AbstractFunction, L) = throw(ArgumentError(
-  "LinearImage supports QuadraticFunction with a matrix L, or a convex proximable f with L'L = μI (supply μ); use the equivalent QuadraticFunction for LeastSquaresLoss"))
+function LinearImage(f::AbstractFunction, L)
+  L isa AbstractArray && (eltype(L) <: Real || _real_error(:LinearImage))
+  throw(ArgumentError(
+    "LinearImage supports QuadraticFunction with a matrix L, or a convex proximable f with L'L = μI (supply μ); use the equivalent QuadraticFunction for LeastSquaresLoss"))
+end
 
 const _OrthogonalLinearImage = LinearImage{<:AbstractFunction, M, <:_OrthogonalImage} where {M}
 const _QuadraticLinearImage = LinearImage{<:QuadraticFunction, <:AbstractMatrix, <:_QuadraticImage}
-_checkentries(h::_QuadraticLinearImage, x) = _checkreal(h, x)
 
 isproximable(::Type{<:LinearImage}) = true
 isconvex(::Type{<:LinearImage{F}}) where {F} = isconvex(F)
@@ -165,7 +173,6 @@ function _checkparams(h::LinearImage, x::AbstractArray)
   length(z) == size(h.L, 2) || throw(DimensionMismatch("data sizes changed; construct a new LinearImage"))
   _checkparams(h.f, z)
   if h.f isa QuadraticFunction
-    _checkreal(h, x)
     size(h.f.A) == (length(z), length(z)) || throw(DimensionMismatch("Q must match the columns of L"))
     _checkparam(h.f.b, z)
   end
@@ -173,6 +180,7 @@ function _checkparams(h::LinearImage, x::AbstractArray)
 end
 
 function _checkwrite(op::O, h::LinearImage, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checkreal(h, y); _checkreal(h, x)
   _checksize(y, x)
   _checkparams(h, x)
   y isa AbstractVector || throw(DimensionMismatch("LinearImage needs a vector output"))
@@ -250,6 +258,7 @@ function _image_in_range!(residual, scaled, L, z, x, ::Type{T}) where {T}
 end
 
 function (h::_OrthogonalLinearImage)(x::AbstractArray)
+  _checkreal(h, x)
   _checkparams(h, x)
   T = _image_type(h, x)
   isfinite(_maximum_abs(x)) || return _valtype(x)(Inf)
@@ -441,6 +450,7 @@ function _image_value_cache!(h::_QuadraticLinearImage)
 end
 
 function (h::_QuadraticLinearImage)(x::AbstractArray)
+  _checkreal(h, x)
   _checkparams(h, x)
   c = h.cache
   T = eltype(c.latent)
@@ -473,4 +483,9 @@ function (h::_QuadraticLinearImage)(x::AbstractArray)
     mul!(c.latent, v.N, v.nullwork, -one(T), one(T))
   end
   _value_at(_image_quadratic_value(h, c.latent), x)
+end
+
+function _checkstep(op::O, h::LinearImage, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  isfinite(γ) && γ > 0 || throw(ArgumentError("γ must be finite and positive"))
+  true
 end

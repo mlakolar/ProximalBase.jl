@@ -161,10 +161,26 @@ struct GLMLoss{L<:ScalarLoss, T<:AbstractFloat, Ty<:AbstractVector, TX<:Abstract
   offset::O
   η::V             # the buffers live next to y
   d::V             # wᵢ ℓ'(ηᵢ, yᵢ)
+
+  function GLMLoss{L, T, Ty, TX, W, O, V}(loss, y, X, weights, offset, η, d) where {L<:ScalarLoss,
+      T<:AbstractFloat, Ty<:AbstractVector, TX<:AbstractMatrix, W<:Union{Nothing, AbstractVector},
+      O<:Union{Nothing, AbstractVector}, V<:AbstractVector{T}}
+    all(a -> a === nothing || eltype(a) <: Real,
+        (y, X, weights, offset, η, d)) || _real_error(:GLMLoss)
+    new{L, T, Ty, TX, W, O, V}(loss, y, X, weights, offset, η, d)
+  end
 end
+GLMLoss(loss::L, y::Ty, X::TX, weights::W, offset::O, η::V, d::V) where {L<:ScalarLoss, T<:AbstractFloat,
+    Ty<:AbstractVector, TX<:AbstractMatrix, W<:Union{Nothing, AbstractVector},
+    O<:Union{Nothing, AbstractVector}, V<:AbstractVector{T}} =
+  GLMLoss{L, T, Ty, TX, W, O, V}(loss, y, X, weights, offset, η, d)
 
 function GLMLoss(loss::ScalarLoss, y::AbstractVector, X::AbstractMatrix;
                  weights::Union{Nothing, AbstractVector} = nothing, offset::Union{Nothing, AbstractVector} = nothing)
+  y === nothing || eltype(y) <: Real || _real_error(:GLMLoss)
+  eltype(X) <: Real || _real_error(:GLMLoss)
+  weights === nothing || eltype(weights) <: Real || _real_error(:GLMLoss)
+  offset === nothing || eltype(offset) <: Real || _real_error(:GLMLoss)
   n = length(y)
   size(X, 1) == n || throw(DimensionMismatch("X has $(size(X, 1)) rows and y has length $n"))
   weights === nothing || length(weights) == n || throw(DimensionMismatch("weights must have length $n"))
@@ -215,10 +231,10 @@ _argument_type(::Type{<:GLMLoss}) = AbstractVector
 isconvex(::Type{<:GLMLoss}) = true
 
 _checkpredictor(f::GLMLoss, β::AbstractVector) =
-  (length(β) == size(f.X, 2) || throw(DimensionMismatch("β has length $(length(β)) and X has $(size(f.X, 2)) columns")); _checkreal(f, β))
+  (length(β) == size(f.X, 2) || throw(DimensionMismatch("β has length $(length(β)) and X has $(size(f.X, 2)) columns")))
 
 _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::GLMLoss{L, T}, g::AbstractVector, β::AbstractVector) where {L, T} =
-  (_checksize(g, β); _checkpredictor(f, β); true)
+  (_checkreal(f, β); _checkreal(f, g); _checkgradient_output(g, β); _checksize(g, β); _checkpredictor(f, β); true)
 
 function _linear_predictor!(f::GLMLoss, β::AbstractVector)
   _checkpredictor(f, β)
@@ -228,6 +244,7 @@ function _linear_predictor!(f::GLMLoss, β::AbstractVector)
 end
 
 function (f::GLMLoss{L, T})(β::AbstractVector) where {L, T}
+  _checkreal(f, β)
   η = _linear_predictor!(f, β)
   s = zero(T)
   @inbounds for i in eachindex(η)

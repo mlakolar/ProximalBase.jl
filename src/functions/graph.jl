@@ -80,13 +80,29 @@ mutable struct IndGraph{T<:AbstractFloat, M, F} <: AbstractFunction
   maxiter::Int
   iterations::Int
   converged::Bool
+
+  function IndGraph{T, M, F}(A, fact, tall, rhs, solution, residual, direction, product, x, y, c, d, value,
+      value_input, value_matrix, scale, rtol, maxiter, iterations, converged) where {T<:AbstractFloat, M, F}
+    all(a -> a === nothing || eltype(a) <: Real,
+        (A, rhs, solution, residual, direction, product, x, y, c, d)) || _real_error(:IndGraph)
+    (fact === nothing || (fact isa Tuple ? all(a -> eltype(a) <: Real, fact) : eltype(fact) <: Real)) ||
+      _real_error(:IndGraph)
+    new{T, M, F}(A, fact, tall, rhs, solution, residual, direction, product, x, y, c, d, value, value_input,
+      value_matrix, scale, rtol, maxiter, iterations, converged)
+  end
 end
+IndGraph(A::M, fact::F, tall::Bool, rhs::Vector{T}, solution::Vector{T}, residual::Vector{T},
+    direction::Vector{T}, product::Vector{T}, x::Vector{T}, y::Vector{T}, c::Vector{T}, d::Vector{T},
+    value::Scratch, value_input::Scratch, value_matrix::Scratch, scale::T, rtol::T, maxiter::Int,
+    iterations::Int, converged::Bool) where {T<:AbstractFloat, M, F} =
+  IndGraph{T, M, F}(A, fact, tall, rhs, solution, residual, direction, product, x, y, c, d, value, value_input,
+      value_matrix, scale, rtol, maxiter, iterations, converged)
 
 function IndGraph(A; operator::Bool = !(A isa AbstractMatrix),
                   rtol::Real = _tol(float(eltype(A))),
                   maxiter::Integer = 2 * min(size(A)...) + 10)
   length(size(A)) == 2 || throw(ArgumentError("A must have two dimensions"))
-  eltype(A) <: Real || throw(ArgumentError("IndGraph requires real data"))
+  eltype(A) <: Real || _real_error(:IndGraph)
   T = float(eltype(A))
   isconcretetype(T) && T <: AbstractFloat ||
     throw(ArgumentError("A must have a concrete real floating-point workspace type"))
@@ -139,19 +155,19 @@ function _checkparams(f::IndGraph, z)
     throw(DimensionMismatch("IndGraph blocks must be vectors"))
   length(z[1]) == length(f.x) && length(z[2]) == length(f.y) ||
     throw(DimensionMismatch("IndGraph needs blocks of lengths $(length(f.x)) and $(length(f.y))"))
-  eltype(z[1]) <: Real && eltype(z[2]) <: Real ||
-    throw(ArgumentError("IndGraph requires real blocks"))
   true
 end
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndGraph, out, z)
+  _checkreal(f, z)
+  _checkreal(f, out)
   _checkparams(f, z)
   _checkparams(f, out)
   _checksize(out, z)
   true
 end
 
-(f::IndGraph)(z) = _value_at(_graph_value(f, z), z)
+(f::IndGraph)(z) = (_checkreal(f, z); _value_at(_graph_value(f, z), z))
 function _graph_value(f::IndGraph{T}, z) where {T}
   _checkparams(f, z)
   x, y = z

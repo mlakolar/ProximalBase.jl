@@ -239,9 +239,10 @@ end
 end
 
 @testset "validation before writes" begin
-  for a in ([0.0, 1.0], [NaN], [Inf], [-Inf], ComplexF64[1, 2])
+  for a in ([0.0, 1.0], [NaN], [Inf], [-Inf])
     @test_throws ArgumentError Precompose(NormL1(), a)
   end
+  @test_throws ArgumentError("Precompose requires real entries") Precompose(NormL1(), ComplexF64[1, 2])
   @test_throws ArgumentError Precompose(NormL2(), ones(2))
   x = reshape([1.0, -2.0, 3.0, -4.0], 2, 2)
   for h in (Precompose(NormL1(), ones(4)),
@@ -254,6 +255,8 @@ end
       before = copy(y)
       if op === prox! || op === value_and_prox!
         @test_throws DimensionMismatch op(y, h, input, 0.4)
+      elseif alias
+        @test_throws ArgumentError op(y, h, input)
       else
         @test_throws DimensionMismatch op(y, h, input)
       end

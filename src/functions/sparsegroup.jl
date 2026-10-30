@@ -53,7 +53,8 @@ struct SparseGroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}
   end
 end
 
-function SparseGroupNormL2(λ1::Real, λ2::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}, w::AbstractVector{<:Real})
+function SparseGroupNormL2(λ1::Real, λ2::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}, w::AbstractVector)
+  eltype(w) <: Real || _real_error(:SparseGroupNormL2)
   T = float(promote_type(typeof(λ1), typeof(λ2), eltype(w)))
   G = _own_groups(groups)
   SparseGroupNormL2{T, typeof(G)}(convert(T, λ1), convert(T, λ2), G, convert(Vector{T}, w))
@@ -126,14 +127,14 @@ end
 
 # y[G] ← the soft threshold of x[G] at c1, shrunk by c2 in Euclidean norm, which
 # may be in place; returns the ℓ2 and ℓ1 norms of the result
-@inline function _sparse_shrink_group!(y::AbstractArray{T}, x::AbstractArray, G, c1::S, c2::S)::Tuple{S, S} where {T, S}
+@inline function _sparse_shrink_group!(y::AbstractArray{T}, x::AbstractArray, G, c1::S, c2::S, W = nothing)::Tuple{S, S} where {T, S}
   ns = _soft_group_norm(x, G, c1)
   if ns > c2
     if isinf(ns) && isfinite(c2)
       scale = convert(S, _maxabs(x, G))
       if isfinite(scale) && scale > 1
-        n2, n1 = _sparse_shrink_group!(y, _ScaledArray(x, inv(scale)), G, c1 / scale, c2 / scale)
-        @inbounds for i in G
+        n2, n1 = _sparse_shrink_group!(y, _ScaledArray(x, inv(scale)), G, c1 / scale, c2 / scale, W)
+        @inbounds for i in _writes(W, G)
           y[i] *= scale
         end
         return n2 * scale, n1 * scale
@@ -141,14 +142,21 @@ end
     end
     t = one(S) - c2 / ns
     l1 = zero(S)
-    @inbounds for i in G
+    # sum before aliased writes, retaining both positions of a symmetric pair
+    if W !== nothing && W !== G
+      @inbounds for i in G
+        v = t * shrink(convert(S, x[i]), c1)
+        l1 += abs(v)
+      end
+    end
+    @inbounds for i in _writes(W, G)
       v = t * shrink(convert(S, x[i]), c1)
       y[i] = v
-      l1 += abs(v)
+      (W === nothing || W === G) && (l1 += abs(v))
     end
     return ns - c2, l1
   else
-    @inbounds for i in G
+    @inbounds for i in _writes(W, G)
       y[i] = zero(T)
     end
     return zero(S), zero(S)
@@ -157,17 +165,25 @@ end
 
 # Independent soft thresholding when the group term vanishes. Do not
 # compute a Euclidean norm only to multiply it by a zero group weight.
-@inline function _soft_group_only!(y::AbstractArray, x::AbstractArray, G, c::S) where {S}
+@inline function _soft_group_only!(y::AbstractArray, x::AbstractArray, G, c::S, W = nothing) where {S}
   l1 = zero(S)
-  @inbounds for i in G
+  # sum before aliased writes, retaining both positions of a symmetric pair
+  if W !== nothing && W !== G
+    @inbounds for i in G
+      z = shrink(convert(S, x[i]), c)
+      l1 += abs(z)
+    end
+  end
+  @inbounds for i in _writes(W, G)
     z = shrink(convert(S, x[i]), c)
     y[i] = z
-    l1 += abs(z)
+    (W === nothing || W === G) && (l1 += abs(z))
   end
   l1
 end
 
 function (f::SparseGroupNormL2)(x::AbstractArray)
+  _checkreal(f, x)
   _checkgroups(f, x)
   T = float(eltype(x))
   v2, v1 = zero(T), zero(T)
@@ -194,9 +210,9 @@ function _value_and_prox_groups!(y::AbstractArray, f::SparseGroupNormL2, x::Abst
   for k in eachindex(f.groups)
     γk = _entry(γ, k)
     if iszero(f.λ0) || iszero(f.w[k])
-      n1 = _soft_group_only!(y, x, f.groups[k], convert(T, γk * f.λ1))
+      n1 = _soft_group_only!(y, x, f.groups[k], convert(T, γk * f.λ1), _group_writes(y, f.groups[k]))
     else
-      n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], convert(T, γk * f.λ1), convert(T, _positive_product(γk, f.λ0, f.w[k])))
+      n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], convert(T, γk * f.λ1), convert(T, _positive_product(γk, f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
       v2 += _group_value(f, f.λ0, f.w[k], n2, y, f.groups[k], T)
     end
     iszero(f.λ1) || (v1 += convert(T, n1))
@@ -207,6 +223,7 @@ end
 
 # with the groups of f, only the active groups count
 function (f::SparseGroupNormL2)(x::AtomIterate)
+  _checkreal(f, x)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   T = float(eltype(x))
   v2, v1 = zero(T), zero(T)
@@ -262,6 +279,8 @@ end
 # an index of a group at zero violates optimality as much as its group; an
 # index at zero inside a nonzero group by |gᵢ| - λ1
 function kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray, i::Integer)
+  eltype(g) <: Real || _real_error(:kkt_violation)
+  eltype(x) <: Real || _real_error(:kkt_violation)
   _checkgroups(f, g)
   _checkgroups(f, x)
   k = _group(f, i)
@@ -270,6 +289,6 @@ function kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray,
   _allzero(x, G) ? _dual_norm(f, g, G) - f.λ0 * f.w[k] : abs(g[i]) - f.λ1
 end
 kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AtomIterate, k::Integer) =
-  (_checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - f.λ0 * f.w[k])
-kkt_violation(f::SparseGroupNormL2, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
-  throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate"))
+  (eltype(g) <: Real || _real_error(:kkt_violation); _checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - f.λ0 * f.w[k])
+kkt_violation(f::SparseGroupNormL2, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
+  (eltype(g) <: Real || _real_error(:kkt_violation); throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate")))

@@ -192,8 +192,8 @@ iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 # a scaled group penalty updates a group of an AtomIterate with a scaled step
 prox_coordinate!(x::AtomIterate, s::Scaled, k::Integer, γ::Real) = prox_coordinate!(x, s.f, k, s.α * γ)
-_check_coordinate(x::AtomIterate, s::Scaled, k) = _check_coordinate(x, s.f, k)
-_block_step!(x::AtomIterate, s::Scaled, k, u, γ, ctx) = _block_step!(x, s.f, k, u, s.α * γ, ctx)
+@inline _check_coordinate(x::AtomIterate, s::Scaled, k) = _check_coordinate(x, s.f, k)
+@inline _block_step!(x::AtomIterate, s::Scaled, k, u, γ, ctx) = _block_step!(x, s.f, k, u, s.α * γ, ctx)
 kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i))
 for X in (:AbstractArray, :AtomIterate, :SymmetricSparseIterate)

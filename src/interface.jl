@@ -328,7 +328,7 @@ function prox_coordinate!(x::SymmetricSparseIterate, f::AbstractFunction, k::Int
   v
 end
 
-function prox_coordinate!(x::SparseIterate, f::AbstractFunction, k::Integer, u::Number, γ::Real)
+@inline function prox_coordinate!(x::SparseIterate, f::AbstractFunction, k::Integer, u::Number, γ::Real)
   isseparable(f) || _not_separable(f)
   _checkparams(f, x)
   checkbounds(x, k)
@@ -339,7 +339,7 @@ function prox_coordinate!(x::SparseIterate, f::AbstractFunction, k::Integer, u::
   v
 end
 
-function prox_coordinate!(x::SymmetricSparseIterate, f::AbstractFunction, k::Integer, u::Number, γ::Real)
+@inline function prox_coordinate!(x::SymmetricSparseIterate, f::AbstractFunction, k::Integer, u::Number, γ::Real)
   isseparable(f) || _not_separable(f)
   _checkparams(f, x)
   checkbounds(x.ind2nzval, k)
@@ -351,7 +351,7 @@ function prox_coordinate!(x::SymmetricSparseIterate, f::AbstractFunction, k::Int
   v
 end
 
-function _check_coordinate(x::AtomIterate, f::AbstractFunction, k)
+@inline function _check_coordinate(x::AtomIterate, f::AbstractFunction, k)
   isseparable(f) || _not_separable(f)
   _checkparams(f, x)
   checkbounds(x.groups, k)
@@ -359,7 +359,7 @@ function _check_coordinate(x::AtomIterate, f::AbstractFunction, k)
 end
 
 # activate before writing; remove a newly active group only after a zero result
-function _separable_group_step!(x::AtomIterate{T}, f, k, ::Nothing, γ) where {T}
+@inline function _separable_group_step!(x::AtomIterate{T}, f, k, ::Nothing, γ) where {T}
   G = x.groups[k]
   was = isactive(x, k)
   was || activate!(x, k)
@@ -373,7 +373,7 @@ function _separable_group_step!(x::AtomIterate{T}, f, k, ::Nothing, γ) where {T
   atom(x, k)
 end
 
-function _separable_group_step!(x::AtomIterate{T}, f, k, src::AbstractVector, γ) where {T}
+@inline function _separable_group_step!(x::AtomIterate{T}, f, k, src::AbstractVector, γ) where {T}
   G = x.groups[k]
   was = isactive(x, k)
   was || activate!(x, k)
@@ -393,9 +393,9 @@ function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, γ::R
   _unchecked_coordinate!(x, f, k, γ, ctx)
 end
 
-_atom_alias(x::AtomIterate, u::Array) = u === x.storage
-_atom_alias(x::AtomIterate, u::SubArray) = parent(u) === x || _atom_alias(x, parent(u))
-_atom_alias(x::AtomIterate, u::AbstractArray) = Base.mightalias(x, u)
+@inline _atom_alias(x::AtomIterate, u::Array) = u === x.storage
+@inline _atom_alias(x::AtomIterate, u::SubArray) = parent(u) === x || _atom_alias(x, parent(u))
+@inline _atom_alias(x::AtomIterate, u::AbstractArray) = Base.mightalias(x, u)
 
 function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, u::AbstractVector, γ::Real)
   ctx = _check_coordinate(x, f, k)
@@ -408,14 +408,17 @@ function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, u::Ab
   _block_step!(x, f, k, u, γ, ctx)
 end
 
-_unchecked_coordinate!(x::AtomIterate, f, k, γ, ctx) = _separable_group_step!(x, f, k, nothing, γ)
-_block_step!(x::AtomIterate, f, k, u, γ, ctx) = _separable_group_step!(x, f, k, u, γ)
+@inline _unchecked_coordinate!(x::AtomIterate, f, k, γ, ctx) = _separable_group_step!(x, f, k, nothing, γ)
+@inline _block_step!(x::AtomIterate, f, k, u, γ, ctx) = _separable_group_step!(x, f, k, u, γ)
 
-function _stage_and_step!(x::AtomIterate{T}, f, k, u, γ, ctx) where {T}
+@inline function _stage_and_step!(x::AtomIterate{T}, f, k, u, γ, ctx) where {T}
   if T <: AbstractFloat && eltype(u) <: Union{AbstractFloat, Integer} && u isa StridedVector
     # strided reads, conversion and checked group kernels cannot fail
     was = isactive(x, k)
-    copyto!(_atom_storage(x, k), u)
+    G = x.groups[k]
+    @inbounds for a in eachindex(G)
+      x.storage[G[a]] = u[firstindex(u) + a - 1]
+    end
     result = _unchecked_coordinate!(x, f, k, γ, ctx)
     if !was && isactive(x, k) && _allzero(x.storage, x.groups[k])
       _deactivate!(x, k)

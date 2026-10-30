@@ -394,7 +394,7 @@ _group_scalar(f::GroupMCP, ::Type{S}, k::Integer, ::Val{true}) where {S} = MCP{S
 _group_scalar(f::GroupSCAD, ::Type{S}, k::Integer, ::Val{true}) where {S} = SCAD{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
 _group_scalar(f::_RadialGroupPenalty, ::Type{S}, k::Integer, ::Val{false}) where {S} = _group_scalar(f, S, k)
 
-function _check_group_coordinate(f::_RadialGroupPenalty, x::AtomIterate, k::Integer)
+@inline function _check_group_coordinate(f::_RadialGroupPenalty, x::AtomIterate, k::Integer)
   _checksamegroups(f, x)
   checkbounds(x.groups, k)
   _infinite_radial_coefficient(f, float(eltype(x)), k) && return nothing
@@ -599,8 +599,8 @@ function _radial_group_prox!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIter
   v
 end
 
-_check_coordinate(x::AtomIterate, f::_RadialGroupPenalty, k) = _check_group_coordinate(f, x, k)
-_block_step!(x::AtomIterate, f::_RadialGroupPenalty, k, u, γ, ctx) = _stage_and_step!(x, f, k, u, γ, ctx)
+@inline _check_coordinate(x::AtomIterate, f::_RadialGroupPenalty, k) = _check_group_coordinate(f, x, k)
+@inline _block_step!(x::AtomIterate, f::_RadialGroupPenalty, k, u, γ, ctx) = _stage_and_step!(x, f, k, u, γ, ctx)
 
 # group k of x through the proximal operator in place; the group becomes active
 # if it ends nonzero
@@ -609,7 +609,7 @@ function prox_coordinate!(x::AtomIterate, f::_RadialGroupPenalty, k::Integer, γ
   _unchecked_coordinate!(x, f, k, γ, ctx)
 end
 
-function _unchecked_coordinate!(x::AtomIterate, f::_RadialGroupPenalty, k, γ, p)
+@inline function _unchecked_coordinate!(x::AtomIterate, f::_RadialGroupPenalty, k, γ, p)
   T = float(eltype(x))
   if _infinite_radial_coefficient(f, T, k)
     n = _shrink_group!(NormL2(one(T)), x.storage, x.storage, x.groups[k], convert(T, _weight_product(γ, f.λ0, f.w[k])))

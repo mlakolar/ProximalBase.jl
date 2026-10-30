@@ -1747,4 +1747,36 @@ end
   end
 end
 
+function exceptional_group_time(n)
+  x = fill(NaN, n)
+  y = similar(x)
+  c = Conjugate(GroupNormLinf(1.0, [i:i for i in 1:n]))
+  prox!(y, c, x, 1.0)
+  times = ntuple(3) do _
+    GC.gc()
+    @elapsed prox!(y, c, x, 1.0)
+  end
+  @test all(isnan, y)
+  minimum(times)
+end
+
+@testset "exceptional group recovery scales linearly" begin
+  # A tenfold increase costs about 10x for linear traversal and 100x for
+  # either former search. Warm up and take minima to reduce GC/scheduling noise.
+  small = exceptional_group_time(10^4)
+  large = exceptional_group_time(10^5)
+  @test large < 40small
+
+  # Literal points and values checked on archived master 5edf73f.
+  for T in (Float32, Float64), translated in (false, true), op in (prox!, value_and_prox!)
+    base = GroupNormLinf(one(T), [i:i for i in 1:5])
+    f = translated ? Translate(base, fill(T(0.5), 5)) : base
+    x = T[NaN, -3, NaN, 2, NaN]
+    y = zeros(T, 5)
+    v = op(y, Conjugate(f), x, one(T))
+    @test isequal(y, T[NaN, -1, NaN, 1, NaN])
+    op === prox! ? (@test v === y) : (@test isequal(v, translated ? T(NaN) : zero(T)))
+  end
+end
+
 end

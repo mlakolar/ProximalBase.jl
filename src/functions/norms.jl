@@ -1475,12 +1475,12 @@ function _projection_l1_unit_groups!(y::Array{T}, x::Array{T}, f::GroupNormLinf{
   (isone(α) && 32floatmin(T) <= r < floatmax(T) / 16 && all(isone, f.w)) || return false
   a, error, lower = _projection_l1_coefficient(1, r, 1, x, y)
   fallback = nothing
-  @inbounds for G in f.groups
+  @inbounds for (k, G) in enumerate(f.groups)
     isempty(G) && continue
     if !_projection_l1_native!(y, x, G, f.scratch, r)
       if _project_l1_radius!(y, x, G, f.scratch, a, error, lower) === nothing
         fallback === nothing && (fallback = Int[])
-        push!(fallback, findfirst(g -> g === G, f.groups))
+        push!(fallback, k)
       end
     end
   end

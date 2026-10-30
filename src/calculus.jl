@@ -1660,11 +1660,14 @@ _projection_l1_block(f::Translate, k, G) = Translate(_projection_l1_block(f.f, k
 # be written; infinite-weight and zero-radius shortcuts remain untouched.
 @noinline function _projection_l1_moreau_blocks!(z, f, x, γ, α, request, context, op)::_valtype(z)
   v = _zero_value(z)
+  # Requests arrive in ascending group order.
+  next = firstindex(request.groups)
   for (k, G) in enumerate(_projection_l1_groups(f, x))
     isempty(G) && continue
     block = _projection_l1_block(f, k, G)
     output = view(z, G)
-    if k in request.groups
+    if next <= lastindex(request.groups) && k == request.groups[next]
+      next += 1
       input = Base.mightalias(z, x) ? copy(view(x, G)) : view(x, G)
       if op === prox!
         if context isa Val{true}

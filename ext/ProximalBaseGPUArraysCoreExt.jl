@@ -476,6 +476,10 @@ DeviceGroups(f::_GroupFunction, dev) = DeviceGroups(f, _layout(f.groups, f.group
 ProximalBase.isproximable(::Type{<:DeviceGroups{F}}) where {F} = ProximalBase.isproximable(F)
 ProximalBase.isconvex(::Type{<:DeviceGroups{F}}) where {F} = ProximalBase.isconvex(F)
 ProximalBase._isindicator(::Type{<:DeviceGroups{F}}) where {F} = ProximalBase._isindicator(F)
+function ProximalBase._fold_level(d::DeviceGroups, α)
+  f = ProximalBase._fold_level(d.f, α)
+  f === nothing ? nothing : DeviceGroups(f, d.layout)
+end
 
 (d::DeviceGroups)(x::AbstractArray) = (_checkreal(d, x); d.f(x))
 ProximalBase.prox!(y::AbstractArray, d::DeviceGroups, x::AbstractArray, γ::Real) = (_checkreal(d, x); _checkreal(d, y); prox!(y, d.f, x, γ))
@@ -1004,7 +1008,7 @@ function _device_projection_scale(::Type{T}, a::Real) where {T}
   c = _device_level(T, a)
   if isfinite(a) && !iszero(a) && (iszero(c) || isinf(c))
     m, e = frexp(float(a))
-    return ProximalBase._ProjectionScale(_device_level(T, m), e)
+    return ProximalBase._ProjectionScale(_device_level(T, m), Int(e))
   end
   c
 end

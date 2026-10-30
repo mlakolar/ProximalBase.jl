@@ -1129,13 +1129,13 @@ function _projection_accumulate(a::Real, b::Real)
   ma, ea = frexp(float(a))
   mb, eb = frexp(float(b))
   m, e = frexp(ma * mb)
-  _ProjectionScale(m, ea + eb + e)
+  _ProjectionScale(m, Int(ea + eb + e))
 end
 function _projection_accumulate(a::_ProjectionScale, b::Real)
   (!isfinite(b) || iszero(b)) && return b
   mb, eb = frexp(float(b))
   m, e = frexp(a.m * mb)
-  _ProjectionScale(m, a.e + eb + e)
+  _ProjectionScale(m, Int(a.e + eb + e))
 end
 _projection_product(a, b, w) = _positive_product(a, b, w)
 _projection_product(a::_ProjectionScale, b, w) = _scaled_product(a.m, b, w, a.e)
@@ -1182,19 +1182,35 @@ _direct_conjugate(::Type{<:Union{NormL1, NormL1Nonneg, CheckLoss, ZeroFunction,
 _direct_conjugate(::Type{<:Union{Scaled{F}, Translate{F}}}) where {F} = _direct_conjugate(F)
 
 _conjugate_projection!(z, f, x, γ, α = 1) = _conjugate_moreau!(z, f, x, γ, α)
-function _conjugate_moreau!(z, f, x, γ, α)
-  g = isone(α) ? f : Scaled(f, _projection_real(α))
+# Keep the original function concrete; merging it with Scaled boxes parameters.
+_conjugate_moreau!(z, f, x, γ, α) = isone(α) ?
+  _conjugate_moreau!(z, f, x, γ) : _conjugate_moreau!(z, Scaled(f, _projection_real(α)), x, γ)
+function _conjugate_moreau!(z::AbstractArray, f, x::AbstractArray, γ)
   T = float(eltype(z))
   step = convert(T, γ)
-  if _moreau_free(typeof(g))
-    _moreau_point!(z, g, x, step)
-    _checkmoreau(z, x, z, one(T), γ, _moreau_checked(typeof(g)))
+  if _moreau_free(typeof(f))
+    _moreau_point!(z, f, x, step)
+    _checkmoreau(z, x, z, one(T), γ, _moreau_checked(typeof(f)))
     z .= x .- z
   else
     z .= x ./ step
-    prox!(z, g, z, inv(step))
+    prox!(z, f, z, inv(step))
     _checkmoreau(z, x, z, step, γ, true)
     z .= x .- step .* z
+  end
+  z
+end
+function _conjugate_moreau!(z::Tuple, f, x::Tuple, γ)
+  if _conjugate_isindicator(typeof(f))
+    unit = one(float(typeof(γ)))
+    prox!(z, f, x, unit)
+    _checkmoreau(z, x, z, unit, γ, false)
+    _moreau_output!(z, x, z, unit)
+  else
+    _divide!(z, x, γ)
+    prox!(z, f, z, inv(γ))
+    _checkmoreau(z, x, z, γ, γ, true)
+    _moreau_output!(z, x, z, γ)
   end
   z
 end

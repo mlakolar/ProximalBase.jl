@@ -128,7 +128,21 @@ PB._conjugate_isindicator(::Type{Frozen{F}}) where {F} = PB._conjugate_isindicat
       z = randn(rng, T, length(x))
       @test all(samebits.(prox(Scaled(f, T(2)), z, ordinary), prox(Scaled(Frozen(f), T(2)), z, ordinary)))
       if !(f isa CappedL1)
-        @test all(samebits.(prox(Conjugate(f), z, ordinary), prox(Conjugate(Frozen(f)), z, ordinary)))
+        a = prox(Conjugate(f), z, ordinary)
+        b = prox(Conjugate(Frozen(f)), z, ordinary)
+        if f isa CheckLoss
+          # Direct clipping avoids Moreau cancellation; compare both to the box.
+          setprecision(BigFloat, 4096) do
+            ref = [clamp(BigFloat(z[i]), -BigFloat(entry(f.w, i)) * (1 - BigFloat(f.τ)),
+                         BigFloat(entry(f.w, i)) * BigFloat(f.τ)) for i in eachindex(z)]
+            direct, moreau = abs.(BigFloat.(a) .- ref), abs.(BigFloat.(b) .- ref)
+            @test all(direct .<= 4BigFloat(eps(T)) .* abs.(ref) .+ 2BigFloat(nextfloat(zero(T))))
+            @test maximum(direct) <= maximum(moreau)
+            @test sum(direct) <= sum(moreau)
+          end
+        else
+          @test all(samebits.(a, b))
+        end
       end
     end
     # Cross every exceptional input with zero and infinite weights.

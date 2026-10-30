@@ -203,10 +203,9 @@ end
   rng = MersenneTwister(283)
   for T in (Float32, Float64), n in (0, 1, 2, 3, 4, 7)
     x = randn(rng, T, n)
-    tv = zero(T)
-    @inbounds @simd for i in 1:n-1
-      tv += abs(x[i + 1] - x[i])
-    end
+    # The ordinary kernel itself: a copy of its @simd loop compiled here may
+    # associate the sum differently.
+    tv = ProximalBase._tv(x)
     λ1, λ2 = T(.3), T(.7)
     @test isequal(TotalVariation1D(λ2)(x), λ2 * tv)
     @test isequal(FusedLasso(λ1, λ2)(x), λ1 * sum(abs, x; init = zero(T)) + λ2 * tv)

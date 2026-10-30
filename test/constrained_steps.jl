@@ -371,6 +371,23 @@ PB._has_prox_range(::Type{<:TailRanged{F}}) where {F} = PB._has_prox_range(F)
 PB._prox_range(g::TailRanged, i::Integer, ::Type{T}) where {T} = PB._prox_range(g.f, i, T)
 PB._has_uniform_range(::Type{<:TailRanged{F}}) where {F} = PB._has_uniform_range(F)
 
+@testset "Float32 residuals with serial reductions" begin
+  point = fill(1f-7, 10_000)
+  point[1] = 1f0
+  total = sum(Float64, point)
+  b = Float32(total)
+  @test abs(Float64(foldl(+, point; init = 0f0)) - total) > 8eps(Float32) * (total + b)
+  for γ in (1f0, ones(Float32, length(point))), op in (prox!, value_and_prox!), alias in (false, true)
+    c = Constrained(IndBox(0f0, 2f0), IndHyperplane(1f0, b))
+    x = copy(point)
+    y = alias ? x : similar(x)
+    op(y, c, x, γ)
+    @test y == point
+    @test !c.verify[]
+    @test abs(sum(Float64, y) - b) <= 8eps(Float32) * (sum(abs, Float64.(y)) + b)
+  end
+end
+
 @testset "Float32 tail residual reductions" begin
   rng = Xoshiro(3)
   n = 20_000
@@ -404,7 +421,13 @@ end
     scale = γ isa Real ? γ : maximum(γ)
     factor = inv(scale)
     r = γ isa Real ? ones(length(x)) : isfinite(factor) ? γ .* factor : γ ./ scale
-    @test y == [prox_entry(c.f, x[i] - r[i] * c.last[], i, γ isa Real ? γ : γ[i]) for i in eachindex(x)]
+    # The fast shift γᵢ(μ/γ̄) can round differently from (γᵢ/γ̄)μ.
+    expected = [prox_entry(c.f, x[i] - r[i] * c.last[], i, γ isa Real ? γ : γ[i]) for i in eachindex(x)]
+    if γ isa Real || !isfinite(factor)
+      @test y == expected
+    else
+      @test norm(y - expected, Inf) <= 8eps(Float64) * max(1, norm(x, Inf))
+    end
     z = similar(x)
     @test value_and_prox!(z, c, x, γ) == 0
     @test z ≈ y

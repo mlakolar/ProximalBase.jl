@@ -832,26 +832,25 @@ function prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, ::Real)
 end
 _hyperslab_output!(y, x, a, t) = (y .= x .- t .* a)
 
+@inline _widen_coefficient(y, t) = convert(promote_type(typeof(t), float(eltype(y))), t)
+
 function prox!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
   _isscaled(f) && return _scaled_normal_prox!(y, f, x)
-  T = float(eltype(y))
-  t = convert(T, (_dot_normal(f.a, x) - f.b) / _normal_sqnorm(f, x))
+  t = _widen_coefficient(y, (_dot_normal(f.a, x) - f.b) / _normal_sqnorm(f, x))
   y .= x .- t .* f.a
 end
 function prox!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
   _isscaled(f) && return _scaled_normal_prox!(y, f, x)
-  T = float(eltype(y))
-  t = convert(T, max(_dot_normal(f.a, x) - f.b, zero(f.b)) / _normal_sqnorm(f, x))
+  t = _widen_coefficient(y, max(_dot_normal(f.a, x) - f.b, zero(f.b)) / _normal_sqnorm(f, x))
   y .= x .- t .* f.a
 end
 
 function _scaled_normal_prox!(y, f, x)
-  T = float(eltype(y))
   a = _normalized_normal(f.a, f.s)
   g = _dot_normal(a, x) - _scaled_offset(f)
   f isa IndHalfspace && (g = max(g, zero(g)))
-  t = convert(T, g / _normal_sqnorm(f, x))
+  t = _widen_coefficient(y, g / _normal_sqnorm(f, x))
   y .= x .- t .* a
 end

@@ -35,8 +35,11 @@ operator.
 - **Scaling.** ``\gamma(\alpha f) = (\gamma\alpha) f``, so the proximal operator
   of ``\alpha f`` with step ``\gamma`` is that of ``f`` with step
   ``\gamma\alpha``. The Lipschitz constant scales by ``\alpha``.
-  Zero scaling of `NormL1`, `NormL1Nonneg` and `ElasticNet` with an infinite
-  weight gives the same penalty at a zero level.
+  Zero scaling removes finite penalty terms and keeps domain constraints.
+  For `NormL1`, `NormL1Nonneg`, `ElasticNet`, `CappedL1`, `LogPenalty`, `NormLq`
+  and `Berhu`, infinite weights retain the same family with all levels zero.
+  With finite weights, `NormL1Nonneg` becomes `IndNonnegative()` and the others
+  become `ZeroFunction()`. Non-finite levels or shape parameters are rejected.
 - **Tilting.** Completing the square,
   ``f(z) + \langle c, z\rangle + \frac{1}{2\gamma}\|z - x\|^2 = f(z) + \frac{1}{2\gamma}\|z - (x - \gamma c)\|^2 + \text{const}``.
 - **Translation.** Substituting ``u = z - b`` turns the problem for

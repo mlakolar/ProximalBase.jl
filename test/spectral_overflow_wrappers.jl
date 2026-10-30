@@ -201,22 +201,29 @@ unit(f::SumLargest, T) = SumLargest(f.k, one(T))
                   IndBox(-one(T), one(T)), Scaled(NormL1(), one(T)))
           W === Spectral && !PB._ispermutationinvariant(f) && continue
           for B in (X, A, T[Inf 0; 0 1], T[NaN 0; 0 1])
-            Y, R = similar(B), similar(B)
-            a = outcome!(value_and_prox!, Y, W(f), B, one(T))
-            b = outcome!(legacy!, R, W(f), B, one(T))
-            @test isequal(a, b)
-            a[1] === :value && (@test all(isfinite, B) ? samebits(Y, R) : isequal(Y, R))
+            if all(isfinite, B)
+              Y, R = similar(B), similar(B)
+              a = outcome!(value_and_prox!, Y, W(f), B, one(T))
+              b = outcome!(legacy!, R, W(f), B, one(T))
+              @test isequal(a, b)
+              a[1] === :value && (@test all(isfinite, B) ? samebits(Y, R) : isequal(Y, R))
+            else
+              g = f isa NormL1 && f.w !== nothing ? NormL1(f.λ0, ones(T, 2)) : f
+              Y = fill(T(17), size(B))
+              before = copy(Y)
+              @test_throws ArgumentError("the proximal operator of $(nameof(W)) needs finite entries") value_and_prox!(Y, W(g), B, one(T))
+              @test isequal(Y, before)
+            end
           end
         end
         for f in inventory(T)
           W === Spectral && !PB._ispermutationinvariant(f) && continue
           f isa IndBox && f.l isa AbstractArray && continue
           for q in (T(Inf), T(-Inf), T(NaN)), B in (T[q 0; 0 1], T[1 q; q 1])
-            Y, R = similar(B), similar(B)
-            a = outcome!(value_and_prox!, Y, W(f), B, one(T))
-            b = outcome!(legacy!, R, W(f), B, one(T))
-            @test isequal(a, b)
-            a[1] === :value && (@test isequal(Y, R))
+            Y = fill(T(17), size(B))
+            before = copy(Y)
+            @test_throws ArgumentError("the proximal operator of $(nameof(W)) needs finite entries") value_and_prox!(Y, W(f), B, one(T))
+            @test isequal(Y, before)
           end
         end
       end

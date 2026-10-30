@@ -157,11 +157,20 @@ A view of the entries of group `k`. It is a view of `x` itself, so it aliases
 activates the group and a zero never deactivates it (see [`dropzeros!`](@ref)).
 To take a proximal step at a trial point without activating the group first,
 use [`prox_coordinate!`](@ref)`(x, f, k, u, γ)`.
+`norm` and `dot` of the view read the storage directly (BLAS for contiguous
+groups), while other BLAS routines take generic paths for it.
 """
-atom(x::AtomIterate, k::Integer) = view(x, x.groups[k])
+# groups are a validated partition; only the group index needs a bounds check
+function atom(x::AtomIterate, k::Integer)
+  G = x.groups[k]
+  @inbounds view(x, G)
+end
 
 # raw storage writes leave activation to the caller
-_atom_storage(x::AtomIterate, k::Integer) = view(x.storage, x.groups[k])
+function _atom_storage(x::AtomIterate, k::Integer)
+  G = x.groups[k]
+  @inbounds view(x.storage, G)
+end
 
 function activate!(x::AtomIterate, k::Integer)
   checkbounds(x.position, k)
@@ -329,6 +338,15 @@ function LinearAlgebra.dot(v::Union{StridedVector, SparseIterate{<:Any, 1}, Atom
   s
 end
 LinearAlgebra.dot(x::AtomIterate, v::Union{StridedVector, SparseIterate{<:Any, 1}}) = dot(v, x)
+
+
+_atom_view_storage(v::SubArray{<:Real, 1, <:AtomIterate}) =
+  @inbounds view(parent(v).storage, parentindices(v)...)
+LinearAlgebra.norm(v::SubArray{<:Real, 1, <:AtomIterate}, p::Real = 2) = norm(_atom_view_storage(v), p)
+LinearAlgebra.dot(v::SubArray{<:Real, 1, <:AtomIterate}, w::StridedVector) = dot(_atom_view_storage(v), w)
+LinearAlgebra.dot(v::StridedVector, w::SubArray{<:Real, 1, <:AtomIterate}) = dot(v, _atom_view_storage(w))
+LinearAlgebra.dot(v::SubArray{<:Real, 1, <:AtomIterate}, w::SubArray{<:Real, 1, <:AtomIterate}) =
+  dot(_atom_view_storage(v), _atom_view_storage(w))
 
 
 function Base.show(io::IO, ::MIME"text/plain", x::AtomIterate)

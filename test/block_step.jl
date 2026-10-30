@@ -204,6 +204,22 @@ end
     end
   end
 
+  @testset "zero separable steps preserve active order" begin
+    for trial in (false, true)
+      x = AtomIterate(6, [1:2, 3:4, 5:6])
+      activate!(x, 3)
+      activate!(x, 2)
+      order = collect(activecoordinates(x))
+      if trial
+        prox_coordinate!(x, NormL1(1.), 1, [0.1, -0.1], 1.)
+      else
+        prox_coordinate!(x, NormL1(1.), 1, 1.)
+      end
+      @test activecoordinates(x) == order
+      @test !isactive(x, 1) && consistent(x)
+    end
+  end
+
   @testset "steps at zero" begin
     for f in (IndBox(1., 2.), Translate(NormL1(0.3), ones(4)))
       for x in (SparseIterate(zeros(4)), SymmetricSparseIterate(2), AtomIterate(4, [1:2, 3:4]))

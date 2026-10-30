@@ -126,11 +126,12 @@ prox(f::AbstractFunction, x::Union{Symmetric, Hermitian}, γ::Real = 1) =
 Store `prox_{γf}(x)` in `y`, as [`prox!`](@ref) does, and return the value at the
 result. Many functions get the value from the computation of the proximal
 operator: a nuclear norm from the singular values that it thresholds. For the
-package's indicator functions, return `0` without checking membership. This
+package's indicator functions, return `0` without checking membership, except
+for spectral indicators at non-finite inputs, which return `Inf`. This
 equals `f(y)` when the projection is exact, but is not a feasibility certificate
 for an inexact projection such as [`IndIntersection`](@ref). Computing the value this
 way can be cheaper than `prox!` followed by `f(y)`. The conjugates that
-[`Conjugate`](@ref) lists as indicators also return `0`; another conjugate whose
+[`Conjugate`](@ref) lists as indicators follow the same convention; another conjugate whose
 value uses the Fenchel equality can return a small nonzero value even when it
 represents an indicator.
 """

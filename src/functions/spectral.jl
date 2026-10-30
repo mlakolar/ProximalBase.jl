@@ -168,9 +168,11 @@ When an intermediate sum overflows, or a weight is not representable in the
 argument's precision although the weighted value is representable, the value
 is computed in scaled units. The domain is the finite matrices: the
 value is `Inf` at a matrix with a non-finite entry, also for `λ = 0`.
-For `λ = 0`, the proximal operator copies its input and returns zero, including
-at non-finite inputs. When a decomposition is needed, a non-finite input gives
-an all-`NaN` proximal output and a returned value of `NaN`.
+For `λ = 0`, the proximal operator copies its input. When a decomposition is
+needed, a non-finite input gives an all-`NaN` proximal output.
+`value_and_prox!` returns `Inf` at a non-finite input, also for `λ = 0`.
+Thus the equivalence with `SingularValue(NormL1(λ))` holds for the returned
+value there, but at `λ = 0` its all-`NaN` output differs from the copied input.
 
 $_PARTIAL_NOTE The value `f(X)` alone needs every singular value and always
 takes the full decomposition.
@@ -258,11 +260,12 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
+  finite = all(isfinite, X)
   if iszero(f.λ)
     Y === X || copyto!(Y, X)
-    return zero(T)
+    return finite ? zero(T) : T(Inf)
   end
-  all(isfinite, X) || (fill!(Y, T(NaN)); return T(NaN))
+  finite || (fill!(Y, T(NaN)); return T(Inf))
   c = _level_product(T, γ, f.λ)
   if f.partial
     pv = _partial_nuclear!(Y, f, X, c)
@@ -310,7 +313,7 @@ Membership is reliable for every finite input within the floating-point
 tolerance; non-finite entries are not members. When `r ≥ minimum(size(X))`,
 the proximal operator copies its input, including at non-finite inputs.
 When a decomposition is needed, a non-finite input gives an all-`NaN` output.
-`value_and_prox!` returns zero in both cases.
+`value_and_prox!` returns `Inf` at a non-finite input and zero otherwise.
 
 $_PARTIAL_NOTE
 
@@ -390,6 +393,13 @@ function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
   _mul_lowrank!(Y, U, Vt, f.r, ws)
 end
 
+function value_and_prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
+  _checkwrite(value_and_prox!, f, Y, X)
+  finite = all(isfinite, X)
+  prox!(Y, f, X, γ)
+  finite ? zero(_valtype(Y)) : _valtype(Y)(Inf)
+end
+
 ####################################
 #  orthonormal columns
 ####################################
@@ -411,8 +421,9 @@ not be continuous across rank-deficient inputs.
 
 The value is `0` when `‖XᵀX - I‖_F ≤ sqrt(eps(T)) √k`, with
 `T = float(eltype(X))`, and `Inf` otherwise. This tolerance is not a
-feasibility certificate. Nonfinite entries give value `Inf`; projection
-throws an `ArgumentError` before writing the output. Arguments must be real
+feasibility certificate. Nonfinite entries give value `Inf` and an all-`NaN`
+proximal output;
+`value_and_prox!` returns `Inf` at these inputs. Arguments must be real
 matrices, and projection outputs must have element type `Float32` or
 `Float64`. Integer arguments are converted. Inputs are scaled before
 conversion to the output's precision, since positive scaling leaves the
@@ -493,6 +504,13 @@ function prox!(Y, f::IndStiefel, X, ::Real)
   _mul_lowrank!(Y, U, Vt, k, ws)
 end
 
+function value_and_prox!(Y, f::IndStiefel, X, γ::Real)
+  _checkwrite(value_and_prox!, f, Y, X)
+  finite = all(isfinite, X)
+  prox!(Y, f, X, γ)
+  finite ? zero(_valtype(Y)) : _valtype(Y)(Inf)
+end
+
 ####################################
 #  positive semidefinite cone
 ####################################
@@ -515,7 +533,8 @@ entry exceeding `floatmax` by less than the reconstruction's rounding bound
 is returned as `±floatmax`.
 
 Membership is reliable for every finite input within the floating-point
-tolerance; non-finite entries are not members.
+tolerance; non-finite entries are not members. At a non-finite input, the
+proximal output is all `NaN` and `value_and_prox!` returns `Inf`.
 
 $_PARTIAL_NOTE Without a rank, the partial projection pays when few
 eigenvalues are positive.
@@ -626,6 +645,12 @@ function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
   Y
 end
 
+function value_and_prox!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix, γ::Real)
+  _checkwrite(value_and_prox!, f, Y, X)
+  finite = all(isfinite, X)
+  prox!(Y, f, X, γ)
+  finite ? zero(_valtype(Y)) : _valtype(Y)(Inf)
+end
 
 ####################################
 #  trace on the positive semidefinite cone
@@ -649,6 +674,8 @@ is computed in scaled units.
 
 Membership in the positive semidefinite cone is reliable for every finite input
 within the floating-point tolerance; non-finite entries are not members.
+At a non-finite input, the proximal output is all `NaN` and
+`value_and_prox!` returns `Inf`.
 
 $_PARTIAL_NOTE
 
@@ -715,7 +742,7 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
-  all(isfinite, X) || (fill!(Y, T(NaN)); return T(NaN))
+  all(isfinite, X) || (fill!(Y, T(NaN)); return T(Inf))
   c = _level_product(T, γ, f.λ)
   if f.partial
     pv = _partial_psd!(Y, f, X, c, 0, f.λ)

@@ -471,6 +471,7 @@ not share one object between threads; when `f` throws, the output is unchanged,
 including sparse iterate outputs with their stored entries and order preserved.
 `Symmetric` and `Hermitian` outputs are unsupported. A copy made for the device
 by `Adapt.adapt` allocates a device buffer on each proximal call.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct Regularize{F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}, S<:Union{Nothing, Scratch}} <: AbstractFunction
   f::F
@@ -494,8 +495,7 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
 end
 iszeropreserving(r::Regularize) = r.c === nothing && isfinite(r.ρ) && iszeropreserving(r.f)
 
-_ridge(r::Regularize, x::AbstractArray) =
-  convert(_valtype(x), r.ρ) * (r.c === nothing ? _sumabs2(x) : _sumabs2_diff(x, r.c)) / 2
+_ridge(r::Regularize, x::AbstractArray) = _square_value(r.ρ, x, r.c)
 
 (r::Regularize)(x::AbstractArray) = (_checkreal(r, x); _checkparams(r, x); _value_at(r.f(x) + _ridge(r, x), x))
 function _checkvalue(r::Regularize, x::AbstractArray)

@@ -1200,7 +1200,13 @@ function _conjugate_moreau!(z::AbstractArray, f, x::AbstractArray, γ)
   end
   z
 end
-function _conjugate_moreau!(z::Tuple, f, x::Tuple, γ)
+_conjugate_moreau!(z::Tuple, f, x::Tuple, γ) = _conjugate_moreau_block!(z, f, x, γ)
+# Keep a block's own scale inside the sum's scaled reciprocal step.
+_conjugate_block_scaled(f, α) = Scaled{typeof(f), typeof(α)}(f, α)
+_conjugate_moreau_block!(z, f, x, γ, α) = isone(α) ?
+  _conjugate_moreau_block!(z, f, x, γ) : _conjugate_moreau_block!(z, _conjugate_block_scaled(f, _projection_real(α)), x, γ)
+# Tuple blocks narrow their arithmetic, but retain the original reciprocal step.
+function _conjugate_moreau_block!(z::Tuple, f, x::Tuple, γ)
   if _conjugate_isindicator(typeof(f))
     unit = one(float(typeof(γ)))
     prox!(z, f, x, unit)
@@ -1211,6 +1217,22 @@ function _conjugate_moreau!(z::Tuple, f, x::Tuple, γ)
     prox!(z, f, z, inv(γ))
     _checkmoreau(z, x, z, γ, γ, true)
     _moreau_output!(z, x, z, γ)
+  end
+  z
+end
+
+@inline function _conjugate_moreau_block!(z::AbstractArray, f, x::AbstractArray, γ)
+  step = convert(float(eltype(z)), γ)
+  if _conjugate_isindicator(typeof(f))
+    unit = one(float(typeof(γ)))
+    prox!(z, f, x, unit)
+    _checkmoreau(z, x, z, unit, γ, false)
+    z .= x .- z
+  else
+    z .= x ./ step
+    prox!(z, f, z, inv(γ))
+    _checkmoreau(z, x, z, step, γ, true)
+    z .= x .- step .* z
   end
   z
 end
@@ -1315,9 +1337,12 @@ function _conjugate_projection!(z::Tuple, s::SeparableSum, x::Tuple, γ, α = 1)
   _conjugate_projection_blocks!(z, s.fs, x, γ, α)
   z
 end
+_conjugate_projection_block!(z, f, x, γ, α) =
+  _any_direct_conjugate(typeof(f)) || f isa SeparableSum ?
+    _conjugate_projection!(z, f, x, γ, α) : _conjugate_moreau_block!(z, f, x, γ, α)
 _conjugate_projection_blocks!(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, α) = nothing
 function _conjugate_projection_blocks!(z::Tuple, fs::Tuple, x::Tuple, γ, α)
-  _conjugate_projection!(first(z), first(fs), first(x), γ, α)
+  _conjugate_projection_block!(first(z), first(fs), first(x), γ, α)
   _conjugate_projection_blocks!(Base.tail(z), Base.tail(fs), Base.tail(x), γ, α)
 end
 
@@ -1353,20 +1378,54 @@ function _conjugate_projection_value!(z, f, x, γ, α = 1)
     _conjugate_projection!(z, f, x, γ, α)
     return _zero_value(z)
   end
-  g = isone(α) ? f : Scaled(f, _projection_real(α))
-  if _has_conjugate_value(g)
-    _conjugate_projection!(z, f, x, γ, α)
-    return _conjugate_value(g, z)
+  _conjugate_moreau_value!(z, f, x, γ, α, Val(false))
+end
+# Separate scaled variants before computing a value, just as for the point.
+_conjugate_moreau_value!(z, f, x, γ, α, context) = isone(α) ?
+  _conjugate_moreau_value!(z, f, x, γ, context) :
+  _conjugate_moreau_value!(z, Scaled(f, _projection_real(α)), x, γ, context)
+# Known block values can keep the scale in the step without a temporary wrapper.
+function _conjugate_moreau_value!(z::AbstractArray, f, x::AbstractArray, γ, α, context::Val{true})
+  isone(α) && return _conjugate_moreau_value!(z, f, x, γ, context)
+  a = _projection_real(α)
+  if !iszero(a) && _has_conjugate_value(f)
+    _divide!(z, x, γ)
+    prox!(z, f, z, a * inv(γ))
+    _checkmoreau(z, x, z, γ, γ, true)
+    _moreau_output!(z, x, z, γ)
+    return _scaled_conjugate_value(f, z, a)
   end
-  step = convert(float(eltype(z)), γ)
-  z .= x ./ step
-  fp = value_and_prox!(z, g, z, inv(step))
+  _conjugate_moreau_value!(z, _conjugate_block_scaled(f, a), x, γ, context)
+end
+function _scaled_conjugate_value(f, y::AbstractArray, α)
+  a = convert(float(eltype(y)), α)
+  scaled = _ScaledArray(y, inv(a))
+  _checkconjugate(f, scaled)
+  a * _conjugate_value(f, scaled)
+end
+@inline _conjugate_moreau_context!(z, f, x, γ, ::Val{false}) = (_conjugate_moreau!(z, f, x, γ); z)
+@inline _conjugate_moreau_context!(z, f, x, γ, ::Val{true}) = (_conjugate_moreau_block!(z, f, x, γ); z)
+_conjugate_moreau_step(z, γ, ::Val{false}) = convert(float(eltype(z)), γ)
+_conjugate_moreau_step(z, γ, ::Val{true}) = γ
+function _conjugate_moreau_value!(z, f, x, γ, context)
+  if _has_conjugate_value(f)
+    _conjugate_moreau_context!(z, f, x, γ, context)
+    return _conjugate_value(f, z)
+  end
+  step = _conjugate_moreau_step(z, γ, context)
+  _divide!(z, x, step)
+  fp = value_and_prox!(z, f, z, inv(step))
   _checkmoreau(z, x, z, step, γ, true)
-  v = mapreduce(identity, +, Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_fenchel, z, x, step)); init = _zero_value(z)) - fp
-  z .= x .- step .* z
+  v = _projection_fenchel_value(z, x, step) - fp
+  _moreau_output!(z, x, z, step)
   v
 end
 _projection_fenchel(p, x, γ) = p * (x - γ * p)
+function _projection_fenchel_value(z::AbstractArray, x::AbstractArray, γ)
+  step = convert(float(eltype(z)), γ)
+  mapreduce(identity, +, Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_fenchel, z, x, step)); init = _zero_value(z))
+end
+_projection_fenchel_value(z::Tuple, x::Tuple, γ) = sum(map((zk, xk) -> _projection_fenchel_value(zk, xk, γ), z, x))
 function _conjugate_projection_value!(z, f::Translate, x, γ, α = 1)
   p = _projection_shifted!(f, z, x, γ)
   v = _conjugate_projection_value!(z, f.f, p, γ, α)
@@ -1375,9 +1434,17 @@ end
 _conjugate_projection_value!(z, f::Scaled, x, γ, α = 1) = _conjugate_projection_value!(z, f.f, x, γ, _projection_accumulate(α, f.α))
 _conjugate_projection_value!(z::Tuple, f::SeparableSum, x::Tuple, γ, α = 1) =
   _conjugate_projection_values!(z, f.fs, x, γ, α)
+function _conjugate_projection_value_block!(z, f, x, γ, α)
+  if _conjugate_isindicator(typeof(f))
+    _conjugate_projection_block!(z, f, x, γ, α)
+    return _zero_value(z)
+  end
+  _any_direct_conjugate(typeof(f)) || f isa SeparableSum ?
+    _conjugate_projection_value!(z, f, x, γ, α) : _conjugate_moreau_value!(z, f, x, γ, α, Val(true))
+end
 _conjugate_projection_values!(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, α) = 0
 function _conjugate_projection_values!(z::Tuple, fs::Tuple, x::Tuple, γ, α)
-  v = _conjugate_projection_value!(first(z), first(fs), first(x), γ, α)
+  v = _conjugate_projection_value_block!(first(z), first(fs), first(x), γ, α)
   v + _conjugate_projection_values!(Base.tail(z), Base.tail(fs), Base.tail(x), γ, α)
 end
 

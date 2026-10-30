@@ -440,4 +440,106 @@ end
   end
 end
 
+# Master's tuple route narrows division/output, but not the reciprocal step.
+tuple_divide!(p::AbstractArray, x::AbstractArray, γ) = (p .= x ./ convert(float(eltype(p)), γ))
+tuple_divide!(p::Tuple, x::Tuple, γ) = (map((pk, xk) -> tuple_divide!(pk, xk, γ), p, x); p)
+tuple_subtract(x::AbstractArray, p::AbstractArray, γ) = eltype(p).(x .- convert(float(eltype(p)), γ) .* p)
+tuple_subtract(x::Tuple, p::Tuple, γ) = map((xk, pk) -> tuple_subtract(xk, pk, γ), x, p)
+function tuple_reference(f, x, γ, output = x)
+  p = deepcopy(output)
+  tuple_divide!(p, x, γ)
+  prox!(p, f, p, inv(γ))
+  tuple_subtract(x, p, γ)
+end
+
+function tuple_reference_value(f, x, γ)
+  p = deepcopy(x)
+  tuple_divide!(p, x, γ)
+  fp = value_and_prox!(p, f, p, inv(γ))
+  y = tuple_subtract(x, p, γ)
+  sum(map(dot, p, y)) - fp
+end
+
+@testset "tuple fallback blocks retain the original reciprocal step" begin
+  γ = 1e-39
+  for T in (Float32, Float64), base in (SqrNormL2(), MoreauEnvelope(NormL1(1.0), 1.0)), α in (1.0, 2.0, 0.7)
+    f = Scaled(base, γ)
+    ref = tuple_reference(Scaled(SeparableSum(f), α), (T[γ],), γ)[1]
+    @test ref ≈ T[α * γ / (1 + α)] rtol = 8eps(T) atol = 2nextfloat(zero(T))
+    whole = Scaled(SeparableSum(f), α)
+    value = base isa SqrNormL2 ? Conjugate(whole)((ref,)) : tuple_reference_value(whole, (T[γ],), γ)
+    for layout in (:single, :mixed, :nested)
+      s, x = if layout === :single
+        (SeparableSum(f), (T[γ],))
+      elseif layout === :mixed
+        (SeparableSum(NormL1(), f), (Float64[3], T[γ]))
+      else
+        (SeparableSum(NormL1(), SeparableSum(f)), (Float64[3], (T[γ],)))
+      end
+      c = Conjugate(Scaled(s, α))
+      for op in (prox!, value_and_prox!), alias in (false, true)
+        point = deepcopy(x)
+        y = alias ? point : map(copyblocks, x)
+        v = op(y, c, point, γ)
+        actual = layout === :single ? y[1] : layout === :mixed ? y[2] : y[2][1]
+        @test actual == ref
+        layout === :single || @test y[1] == [α]
+        op === value_and_prox! && @test v ≈ value rtol = 8eps(T) atol = 8nextfloat(zero(T))
+      end
+    end
+  end
+  for base in (SqrNormL2(), MoreauEnvelope(NormL1(), 1.0)), op in (prox!, value_and_prox!)
+    f = SeparableSum(Scaled(base, γ))
+    x, y = ([γ],), (Float32[7],)
+    ref = tuple_reference(f, x, γ, y)
+    op(y, Conjugate(f), x, γ)
+    @test y == ref
+  end
+  # These remain genuine array calls, with the reciprocal of the narrowed step.
+  f = Scaled(SqrNormL2(), γ)
+  @test prox(Conjugate(f), Float32[γ], γ) == Float32[γ]
+  f = Scaled(MoreauEnvelope(NormL1(), 1.0), γ)
+  @test_throws ArgumentError prox(Conjugate(f), Float32[γ], γ)
+
+  # Float32's original reciprocal overflows on master as well.
+  bad = Float32(γ)
+  f = Scaled(MoreauEnvelope(NormL1(), 1.0), γ)
+  @test_throws ArgumentError tuple_reference(SeparableSum(f), (Float32[bad],), bad)
+  for nested in (false, true), op in (prox!, value_and_prox!), warm in (false, true), alias in (false, true)
+    s = nested ? SeparableSum(NormL1(), SeparableSum(f)) : SeparableSum(NormL1(), f)
+    x = nested ? ([3.0], (Float32[bad],)) : ([3.0], Float32[bad])
+    c = Conjugate(s)
+    y = alias ? x : deepcopy(x)
+    warm && op(deepcopy(y), c, deepcopy(x), 1.0)
+    before_y, before_x = deepcopy(y), deepcopy(x)
+    @test_throws ArgumentError op(y, c, x, bad)
+    @test y == before_y
+    @test x == before_x
+  end
+end
+
+function warmed_projection_allocation(op::O, y, c, x, γ) where {O}
+  op(y, c, x, γ)
+  op(y, c, x, γ)
+  @allocated op(y, c, x, γ)
+end
+
+@testset "scaled mixed conjugate values allocate nothing" begin
+  for T in (Float32, Float64), α in (1.0, 2.0, 0.7)
+    for f in (SqrNormL2(0.7, T[1, -2]), HingeLoss(T[1, -1], T[0.5, 1.5]),
+              MoreauEnvelope(NormL1(0.3, T[1, 2]), 0.5), NormLinf(0.7), Conjugate(SeparableSum(SqrNormL2())))
+      block = f isa Conjugate ? (T[2, -3],) : T[2, -3]
+      x = (T[3, -4], block)
+      y = deepcopy(x)
+      c = Conjugate(Scaled(SeparableSum(NormL1(), f), α))
+      # Retain the existing Julia 1.10 exception for nested tuple buffers.
+      skip = block isa Tuple && VERSION < v"1.11"
+      for op in (prox!, value_and_prox!)
+        @test warmed_projection_allocation(op, y, c, x, 0.7) == 0 skip = skip
+      end
+    end
+  end
+end
+
+
 end

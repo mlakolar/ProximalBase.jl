@@ -55,12 +55,12 @@ function check_case(f, A, γ; output_type = eltype(A), finite = true)
   end
 end
 
-function check_vector_steps(f, A, γ)
+function check_symmetric_steps(f, A, γ; finite = true)
   tol = eltype(A) === Float32 ? 3e-6 : 3e-14
   for op in (prox!, value_and_prox!)
     reference = similar(A)
     refvalue = op(reference, f, copy(A), γ)
-    @test all(isfinite, reference)
+    finite && @test all(isfinite, reference)
     for inplace in (false, true)
       x = SymmetricSparseIterate(A)
       y = inplace ? x : SymmetricSparseIterate(eltype(A), size(A, 1))
@@ -147,7 +147,7 @@ end
         for f in (GroupNormL2(T(1)/4, groups), GroupNormLinf(T(1)/4, groups),
                   SparseGroupNormL2(T(1)/16, T(1)/4, groups))
           check_case(f, A, one(T))
-          check_vector_steps(f, A, T.(1:length(groups)) ./ T(4))
+          check_symmetric_steps(f, A, T.(1:length(groups)) ./ T(4))
           check_case(f, A, T(100))
           for γ in (one(T), M)
             check_case(f, huge, γ)
@@ -178,13 +178,46 @@ end
       end
     end
   end
+  @testset "radial groups, $T" for T in (Float64, Float32)
+    A = T[1 2; 2 3]
+    M = floatmax(T)
+    for groups in ([1:4], [[2, 3], [1], [4]])
+      for f in (GroupMCP(one(T), groups), GroupSCAD(one(T), groups))
+        for B in (A, fill(M/4, 2, 2))
+          check_symmetric_steps(f, B, one(T))
+          check_symmetric_steps(f, B, T.(1:length(groups)) ./ T(4))
+        end
+      end
+    end
+    for f in (GroupMCP(one(T), [1:4]), GroupSCAD(one(T), [1:4]))
+      # an unrepresentable norm retains the dense kernel's nonfinite result
+      check_symmetric_steps(f, fill(M, 2, 2), one(T); finite = false)
+      check_symmetric_steps(f, fill(M, 2, 2), T[1]; finite = false)
+    end
+    for f in (GroupMCP(one(T), [[2], [1, 3, 4]]),
+              GroupSCAD(one(T), [[2], [1, 3, 4]]))
+      rejects_group_steps(f, A, one(T))
+      rejects_group_steps(f, A, T[1, 0.5])
+    end
+  end
+  @testset "unambiguous write checks" begin
+    ambiguities = Test.detect_ambiguities(ProximalBase; recursive = true)
+    @test isempty(filter(pair -> any(m -> m.name === :_checkwrite, pair), ambiguities))
+    A = [1.0 2; 2 3]
+    y = SymmetricSparseIterate(zeros(2, 2))
+    f = GroupMCP(1.0, [1:4])
+    @test prox!(y, f, A, 1.0) === y
+    entries_match(Matrix(y), prox(f, A, 1.0); rtol = 3e-14)
+  end
   @testset "overflow allocations match the original kernels" begin
     x = fill(floatmax(Float64), 2, 2)
     y = similar(x)
     # these base counts agree on both supported julia versions
     for (f, bytes) in ((GroupNormL2(0.25, [1:4]), 144),
                        (GroupNormLinf(0.25, [1:4]), 160),
-                       (SparseGroupNormL2(0.0625, 0.25, [1:4]), 128))
+                       (SparseGroupNormL2(0.0625, 0.25, [1:4]), 128),
+                       (GroupMCP(1.0, [1:4]), 0),
+                       (GroupSCAD(1.0, [1:4]), 0))
       @test overflow_allocations(f, y, x) == bytes
     end
   end

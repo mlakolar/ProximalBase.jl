@@ -608,12 +608,11 @@ function (f::HomogeneousGroupNorm)(x::AbstractArray)
 end
 
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::AbstractGroupPenalty, y::AbstractArray, x::AbstractArray) =
-  (_checksize(y, x); _checkgroups(f, x); true)
+  (_checksize(y, x); _checkgroups(f, x); _check_symmetric_groups(f, y))
 
-function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::AbstractGroupPenalty,
-                     y::SymmetricSparseIterate, x::AbstractArray)
-  _checksize(y, x)
-  _checkgroups(f, x)
+_check_symmetric_groups(f, y::AbstractArray) = true
+
+function _check_symmetric_groups(f, y::SymmetricSparseIterate)
   p = size(y, 1)
   @inbounds for i in eachindex(f.group_of)
     k = f.group_of[i]

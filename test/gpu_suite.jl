@@ -1760,3 +1760,36 @@ end
     end
   end
 end
+
+@testset "Linf conjugates retain device Moreau results" begin
+  allowscalar(false)
+  for T in test_types
+    h = T === Float64 ? T(1e300) : T(3e30)
+    input = T[h, 0.5, 0.25]
+    x = DeviceArray(input)
+    for base in (NormLinf(one(T)), GroupNormLinf(one(T), [1:2, 3:3])),
+        f in (base, Scaled(base, T(2)), Translate(base, T[0.5, 0.25, 0]),
+              Scaled(Translate(base, T[0.5, 0.25, 0]), T(2))),
+        device_f in (f, Adapt.adapt(DeviceArray, f)), γ in (one(T), T(0.5))
+      expected = similar(x)
+      # The unchanged Moreau kernel is the pre-part-B device computation.
+      ProximalBase._conjugate_moreau!(expected, device_f, x, γ)
+      for op in (prox!, value_and_prox!)
+        y = similar(x)
+        if op === value_and_prox! && device_f isa Scaled &&
+            device_f.f isa Translate && device_f.f.f isa NormLinf
+          # The pre-existing scaled value path uses a scalar-indexed norm.
+          @test_throws r"Scalar indexing is disallowed" op(y, Conjugate(device_f), x, γ)
+        else
+          op(y, Conjugate(device_f), x, γ)
+        end
+        @test isequal(host(y), host(expected))
+      end
+      # A wrapped device input must also avoid host scalar indexing.
+      y = prox(Conjugate(device_f), view(x, :), γ)
+      @test isequal(host(y), host(expected))
+    end
+    @test host(prox(Conjugate(NormLinf()), x)) == T[0, 0, 0]
+    @test host(prox(Conjugate(Adapt.adapt(DeviceArray, GroupNormLinf(1, [1:2, 3:3]))), x)) == T[0, 0, 0.25]
+  end
+end

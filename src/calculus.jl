@@ -10,9 +10,10 @@ struct _ScaledArray{T, N, A<:AbstractArray} <: AbstractArray{T, N}
   c::T
 end
 _ScaledArray(g::AbstractArray{T, N}, c) where {T, N} = (S = promote_type(T, typeof(c)); _ScaledArray{S, N, typeof(g)}(g, S(c)))
+_ScaledArray{T}(g::AbstractArray{<:Any, N}, c) where {T, N} = _ScaledArray{T, N, typeof(g)}(g, convert(T, c))
 Base.size(a::_ScaledArray) = size(a.g)
 Base.IndexStyle(::Type{<:_ScaledArray}) = IndexLinear()
-Base.@propagate_inbounds Base.getindex(a::_ScaledArray, i::Int) = a.c * a.g[i]
+Base.@propagate_inbounds Base.getindex(a::_ScaledArray{T}, i::Int) where {T} = a.c * convert(T, a.g[i])
 
 struct _ShiftedArray{T, N, A<:AbstractArray, C<:AbstractArray} <: AbstractArray{T, N}
   g::A

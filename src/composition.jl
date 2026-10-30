@@ -312,15 +312,19 @@ function _precompose_steps!(h::_ArrayPrecompose{<:AbstractGroupPenalty}, z, γ::
 end
 
 function _value_and_prox_array!(y, h::_ArrayPrecompose, x, γ, withvalue::Bool)
+  # an inner function without a standalone value gives it with its proximal point
+  joint = withvalue && !_isindicator(h) && !_has_value(h.f)
   if isseparable(h) && _sparse_precompose(y, x)
-    _prox_sep!(y, h, x, γ)
     T = float(promote_type(eltype(y), eltype(h.a)))
-    return withvalue ? (_isindicator(h) ? zero(T) : h(y)) : zero(T)
+    # from the dense image of what the sparse loop reads, before y is written
+    v = joint ? _array_precompose_joint_value(h, y isa SymmetricSparseIterate ? Symmetric(x, :L) : x, γ) : zero(T)
+    _prox_sep!(y, h, x, γ)
+    return withvalue && !joint ? (_isindicator(h) ? zero(T) : h(y)) : v
   end
   z = _image!(h, x)
   b = _inner_buffer(h, z)
   steps = _precompose_steps!(h, z, γ)
-  if h.f isa AbstractGroupPenalty
+  if h.f isa AbstractGroupPenalty || joint
     v = value_and_prox!(b, h.f, z, steps)
   else
     _prox_sep!(b, h.f, z, steps)
@@ -331,6 +335,11 @@ function _value_and_prox_array!(y, h::_ArrayPrecompose, x, γ, withvalue::Bool)
     y[i] = b[i] == z[i] ? x[i] : b[i] / h.a[i]
   end
   withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _array_precompose_value(h, y) : v
+end
+
+function _array_precompose_joint_value(h::_ArrayPrecompose, x, γ)
+  z = _image!(h, x)
+  value_and_prox!(_inner_buffer(h, z), h.f, z, _precompose_steps!(h, z, γ))
 end
 
 # In mixed precision, the value at the output, through the lazy image of y

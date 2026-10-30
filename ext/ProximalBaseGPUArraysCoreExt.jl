@@ -807,7 +807,7 @@ end
 
 _sum_above(v, τ) = (a = abs(v); a > τ ? a : zero(a))
 _count_above(v, τ) = abs(v) > τ
-_clip(v, τ, _) = sign(v) * min(abs(v), τ)
+_clip(v, τ, _) = iszero(τ) ? zero(v) : sign(v) * min(abs(v), τ)
 
 # the levels of the groups of block b, from its gather X, with thresholds c (a
 # 1 × K_c row): 0 for a group whose ℓ1 norm is at most its threshold
@@ -1104,7 +1104,7 @@ function _projection_parts(m::T, q, λ, α, w)::Tuple{T, Int} where {T}
   k += e1 + e2 + e3 - e
   k > 1 || (k == 1 && r >= 0.5) ? (one(r), 0) : (r, k)
 end
-_projection_scatter(v, p, _) = ProximalBase._projection_scale(v, p[1], p[2])
+_projection_scatter(v, p, _) = iszero(p[1]) ? zero(v) : ProximalBase._projection_scale(v, p[1], p[2])
 function ProximalBase._conjugate_projection!(z::AnyGPUArray, d::DeviceGroups{<:GroupNormL2}, x::AnyGPUArray, γ, α = 1)
   lay, f = d.layout, d.f
   T = float(eltype(x))

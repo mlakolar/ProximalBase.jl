@@ -1673,3 +1673,64 @@ end
     end
   end
 end
+
+@testset "device zero projection factors mask nonfinite entries" begin
+  allowscalar(false)
+  for T in test_types, bad in (T(Inf), T(-Inf), T(NaN))
+    for (base, input) in (
+        (GroupNormL2(zero(T), [[1], [2]], T[Inf, 1]), T[3, bad]),
+        (GroupNormL2(one(T), [[1], [2]], T[Inf, 0]), T[3, bad]),
+        (GroupNormL2(zero(T), [[1], [3]], T[Inf, 1]), T[3, bad, bad, bad]),
+        (GroupNormL2(one(T), [[1], [3]], T[Inf, 0]), T[3, bad, bad, bad]),
+        (GroupNormL2(one(T), [[1], [3]], T[Inf, 1]), T[3, bad, 0, bad]),
+        (GroupNormL2(zero(T), [[1]], T[Inf]), T[3, bad]),
+        (GroupNormL2(zero(T), [[1], [2]], T[1, 1]), T[bad, bad]),
+        (NormL2(one(T)), T[bad, bad]))
+      for zero_scale in (false, true)
+        # Only the zero-scaled ordinary ball has an explicit zero radius here.
+        base isa NormL2 && !zero_scale && continue
+        f = zero_scale ? Scaled(base, zero(T)) : base
+        adapted = Adapt.adapt(DeviceArray, base)
+        d = zero_scale ? Scaled(adapted, zero(T)) : adapted
+        for op in (prox!, value_and_prox!)
+          expected = similar(input)
+          reference = op(expected, Conjugate(f), input, one(T))
+          for device_f in (f, d), alias in (false, true)
+            source = DeviceArray(input)
+            y = alias ? source : similar(source)
+            value = op(y, Conjugate(device_f), source, one(T))
+            @test isequal(host(y), expected)
+            op === value_and_prox! && @test isequal(value, reference)
+            alias || @test isequal(host(source), input)
+          end
+        end
+      end
+    end
+  end
+end
+
+@testset "device primal zero factors mask nonfinite entries" begin
+  allowscalar(false)
+  for T in test_types, bad in (T(Inf), T(-Inf), T(NaN)),
+      F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2), zero_scale in (false, true)
+    groups = [[1], [3]]
+    base = F === SparseGroupNormL2 ? F(T(0.25), one(T), groups, T[Inf, 1]) :
+      F(one(T), groups, T[Inf, 1])
+    f = zero_scale ? Scaled(base, zero(T)) : base
+    adapted = Adapt.adapt(DeviceArray, base)
+    d = zero_scale ? Scaled(adapted, zero(T)) : adapted
+    input = T[bad, bad, 3, bad]
+    for op in (prox!, value_and_prox!)
+      expected = similar(input)
+      reference = op(expected, f, input, one(T))
+      for device_f in (f, d), alias in (false, true)
+        source = DeviceArray(input)
+        y = alias ? source : similar(source)
+        value = op(y, device_f, source, one(T))
+        @test isequal(host(y), expected)
+        op === value_and_prox! && @test isequal(value, reference)
+        alias || @test isequal(host(source), input)
+      end
+    end
+  end
+end

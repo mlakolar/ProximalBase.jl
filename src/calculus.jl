@@ -37,12 +37,22 @@ The function `α f(x)` for `α ≥ 0`, with the roles of `f`: its gradient is
 `α ∇f`, and its proximal operator `prox_{γαf}`, so that `0.5 * f` halves a loss
 and `(1/n) * f` averages one.
 
+When `α f(x)` overflows or underflows although it is representable, the value
+is computed with the scale folded into the level for `NormL1`, `NormL1Nonneg`,
+`NormL2`, `NormLinf`, `ElasticNet`, the homogeneous group norms,
+`SparseGroupNormL2`, `NuclearNorm`, `TracePSD`, and the support functions of
+the ℓ1 and ℓ2 balls.
+
 At zero scale, supported finite-parameter penalties and losses simplify to
 [`ZeroFunction`](@ref), while an indicator retains its domain and is returned
-unchanged. A weighted ℓ1-type penalty (`NormL1`, `NormL1Nonneg`, `ElasticNet`)
-whose weights include `Inf` becomes the same penalty at a zero level, keeping
-those entries fixed at zero; it is not an indicator type, so wrappers that
-require one still reject it. Zero scaling of other functions is rejected when
+unchanged. Zero scaling removes finite penalty terms and keeps domain
+constraints. For `NormL1`, `NormL1Nonneg`, `ElasticNet`, `CappedL1`,
+`LogPenalty`, `NormLq` and `Berhu`, an infinite weight retains the same family
+with all levels zero, keeping those entries fixed at zero. With finite weights,
+`NormL1Nonneg` becomes `IndNonnegative()` and the others become `ZeroFunction()`.
+Non-finite levels or shape parameters are rejected. The retained zero-level
+family is not an indicator type, so wrappers that require one still reject it.
+Zero scaling of other functions is rejected when
 the package has no domain-preserving proximal representation.
 """
 struct Scaled{F<:AbstractFunction, T<:Real} <: AbstractFunction
@@ -68,6 +78,12 @@ _finite_zero(f, parameters...) = all(_finite_parameter, parameters) ? ZeroFuncti
 function _zero_scaled(f::NormL1)
   isfinite(f.λ0) || _zero_scale_error(f)
   _finite_parameter(f.w) ? ZeroFunction() : NormL1(zero(f.λ0), f.w)
+end
+for (F, shape) in ((CappedL1, :a), (LogPenalty, :ε), (NormLq, :q), (Berhu, :M))
+  @eval function _zero_scaled(f::$F)
+    isfinite(f.λ) && isfinite(f.$shape) || _zero_scale_error(f)
+    _finite_parameter(f.w) ? ZeroFunction() : $F(zero(f.λ), f.$shape, f.w)
+  end
 end
 _zero_scaled(f::Union{GroupNormL2, GroupNormLinf}) = _finite_zero(f, f.λ0, f.w)
 _zero_scaled(f::SparseGroupNormL2) = _finite_zero(f, f.λ0, f.λ1, f.w)
@@ -96,14 +112,70 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Scaled{F}}) where {F} = $trait(F)
 end
 
-(s::Scaled)(x) = _value_at(s.α * s.f(x), x)
+# Fold a scale into a normal level, retaining exact zero levels.
+function _folded_level(λ, α)
+  iszero(λ) && return λ
+  c = α * λ
+  isfinite(c) && !iszero(c) && _level_fits(typeof(float(c)), c) ? c : nothing
+end
+_fold_level(::AbstractFunction, α) = nothing
+for (F, level) in ((:NormL1, :λ0), (:NormL1Nonneg, :λ0), (:NormL2, :λ), (:NormLinf, :λ))
+  args = F in (:NormL1, :NormL1Nonneg) ? :(c, f.w) : :(c,)
+  @eval function _fold_level(f::$F, α)
+    c = _folded_level(f.$level, α)
+    c === nothing ? nothing : $F($(args.args...))
+  end
+end
+function _fold_level(f::ElasticNet, α)
+  c1, c2 = _folded_level(f.λ1, α), _folded_level(f.λ2, α)
+  c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
+end
+function _fold_level(f::Union{GroupNormL2, GroupNormLinf}, α)
+  c = _folded_level(f.λ0, α)
+  c === nothing ? nothing : _rebuild(f, c, f.groups, f.w)
+end
+function _fold_level(f::SparseGroupNormL2, α)
+  c1, c0 = _folded_level(f.λ1, α), _folded_level(f.λ0, α)
+  c1 === nothing || c0 === nothing ? nothing : SparseGroupNormL2(c1, c0, f.groups, f.w)
+end
+function _fold_level(f::NuclearNorm, α)
+  c = _folded_level(f.λ, α)
+  c === nothing && return nothing
+  g = NuclearNorm(c; partial = f.partial)
+  g.ws, g.pws = f.ws, f.pws
+  g
+end
+function _fold_level(f::TracePSD, α)
+  c = _folded_level(f.λ, α)
+  c === nothing && return nothing
+  g = TracePSD(c; partial = f.partial)
+  g.eig, g.pws, g.out, g.diag = f.eig, f.pws, f.out, f.diag
+  g
+end
+_fold_level(f::Scaled, α) = _fold_level(f.f, α * f.α)
+
+# Retry exceptional products in the function's own units and domain.
+@noinline function _scaled_value_recover(s, x, r)
+  g = _fold_level(s.f, s.α)
+  g === nothing ? r : convert(typeof(r), g(x))
+end
+_scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
+@inline function _scaled_value(s, x, v, recover_inner_small = true)
+  r = s.α * v
+  if (!isfinite(r) && s.α < 1) || (_scaled_small(r) && !iszero(v)) ||
+     (recover_inner_small && _scaled_small(v) && s.α > 1)
+    return _scaled_value_recover(s, x, r)
+  end
+  r
+end
+(s::Scaled)(x) = _value_at(_scaled_value(s, x, s.f(x)), x)
 _checkvalue(s::Scaled, x) = _checkvalue(s.f, x)
 _scale!(g::AbstractArray, α) = (g .*= α)
 _scale!(g::Tuple, α) = (map(gk -> _scale!(gk, α), g); g)
-value_and_gradient!(g, s::Scaled, x) = (_checkwrite(value_and_gradient!, s, g, x); v = value_and_gradient!(g, s.f, x); _scale!(g, s.α); _value_at(s.α * v, x))
+value_and_gradient!(g, s::Scaled, x) = (_checkwrite(value_and_gradient!, s, g, x); v = value_and_gradient!(g, s.f, x); _scale!(g, s.α); _value_at(_scaled_value(s, x, v), x))
 gradient!(g, s::Scaled, x) = (_checkwrite(gradient!, s, g, x); gradient!(g, s.f, x); _scale!(g, s.α))
 prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(prox!, s, y, x); prox!(y, s.f, x, s.α * γ))
-value_and_prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); _value_at(s.α * value_and_prox!(y, s.f, x, s.α * γ), y))
+value_and_prox!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); v = value_and_prox!(y, s.f, x, s.α * γ); _value_at(_scaled_value(s, y, v, false), y))
 Base.@propagate_inbounds prox_entry(s::Scaled, v::Real, i::Integer, γ::Real) = prox_entry(s.f, v, i, s.α * γ)
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
 _checkwrite(op::O, s::Scaled, y, x) where {O} = _checkwrite(op, s.f, y, x)
@@ -341,6 +413,9 @@ that is an indicator, such as that of a precomposed norm, takes its value from
 the Fenchel equality and can return a small nonzero value instead of zero;
 this is not a feasibility certificate.
 
+The support functions of the ℓ1 and ℓ2 balls follow the overflow handling of
+`NormLinf` and `NormL2`, including a radius not representable in the argument's precision.
+
 Where the conjugate is an indicator as above, and for the conjugates of
 [`IndBallL2`](@ref), [`IndBox`](@ref) and [`IndBallLinf`](@ref), their
 translations and strictly positive rescalings, and `Conjugate(Conjugate(g))`,
@@ -374,6 +449,11 @@ struct Conjugate{F<:AbstractFunction} <: AbstractFunction
   end
 end
 Conjugate(f::AbstractFunction) = Conjugate{typeof(f)}(f)
+
+function _fold_level(c::Conjugate{F}, α) where {F<:Union{IndBallL1, IndBallL2}}
+  r = _folded_level(c.f.r, α)
+  r === nothing ? nothing : Conjugate(c.f isa IndBallL1 ? IndBallL1(r) : IndBallL2(r))
+end
 
 # The conjugate of a positively homogeneous convex function, a support function
 # such as a norm, is the indicator of a set; that of the indicator of a convex
@@ -699,9 +779,9 @@ function _conjugate_value(f::NormL1, y::AbstractArray)
 end
 _conjugate_value(f::NormL2, y::AbstractArray) = (_checkconjugate(f, y); T = float(eltype(y)); _ind(_within(_norm2(y), f.λ, T), T))
 _conjugate_value(f::NormLinf, y::AbstractArray) = (_checkconjugate(f, y); T = float(eltype(y)); _ind(_within(norm(y, 1), f.λ, T), T))
-_conjugate_value(f::IndBallL1, y::AbstractArray) = (_checkconjugate(f, y); convert(float(eltype(y)), f.r) * norm(y, Inf))
+_conjugate_value(f::IndBallL1, y::AbstractArray) = (_checkconjugate(f, y); _weighted_normlinf(f.r, y))
 _conjugate_value(f::IndBallL2, y::AbstractArray) =
-  (_checkconjugate(f, y); T = float(eltype(y)); iszero(f.r) ? zero(T) : convert(T, f.r) * _norm2(y))
+  (_checkconjugate(f, y); _weighted_norm2(f.r, y))
 _conjugate_value(f::IndSOC, y::AbstractArray) =
   (_checkconjugate(f, y); _soc_value(f, y, true))
 _conjugate_value(f::IndRotatedSOC, y::AbstractArray) =

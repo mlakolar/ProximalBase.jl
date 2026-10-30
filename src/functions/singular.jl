@@ -49,7 +49,9 @@ each other.
 
 The zero mask stays correct when the largest singular value overflows, and
 when the threshold `√ε σ₁` is not a normal number: the mask then comes from the
-singular values of `X` scaled to unit range. At an overflowing spectrum,
+singular values of `X` scaled to unit range. Membership in `IndBox` and
+`IndBallLinf` is decided with the tolerance `√ε·max(1, |bound|, σ₁)`, relative to
+the spectrum. At an overflowing spectrum,
 membership in `IndBallL1`, `IndBallL2`, `IndBallLinf` and `IndBox` is decided in
 the scaled units, with the tolerance of the original ones. Whether another `f`
 evaluates an overflowing spectrum correctly depends on `f`.
@@ -101,6 +103,7 @@ function (F::SingularValue)(X::AbstractMatrix)
   all(isfinite, X) || return T(Inf)
   t, scaled, k = _masked_singular_values!(F, X)
   k > 0 && _scales_membership(F.f) && return _scaled_membership(F.f, scaled, k)
+  _relative_membership(F.f) && return _scaled_membership(F.f, t, 0)
   convert(T, F.f(t))
 end
 

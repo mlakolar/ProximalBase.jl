@@ -518,7 +518,8 @@ end
     f isa Conjugate || @test allocs(a_vprox!, y, f, x, γ) == 0
   end
   for f in (IndHyperplane(randn(n), 0.3), IndHalfspace(1, -0.3), IndSimplex(1), IndSimplex(1; equality = false),
-            IndBallL1(1), Constrained(NormL1(0.1), IndHyperplane(1, 0)), Constrained(IndBox(0, 1), IndHyperplane(1, 3)),
+            IndBallL1(1), IndHyperslab(randn(n), -0.3, 0.3), Constrained(NormL1(0.1), IndHyperplane(1, 0)),
+            Constrained(IndBox(0, 1), IndHyperplane(1, 3)),
             Constrained(NormL1(0.1), IndHalfspace(randn(n), -0.5)), Constrained(NormL1(0.2), IndBox(-0.3, 0.4)))
     y = similar(x)
     @test allocs(a_prox!, y, f, x, γ) == 0

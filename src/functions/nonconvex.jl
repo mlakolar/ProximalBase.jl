@@ -486,8 +486,11 @@ function _value_and_prox_groups!(y::AtomIterate, f::_RadialGroupPenalty, x::Atom
   v
 end
 
+_check_coordinate(x::AtomIterate, f::_RadialGroupPenalty, k) = _check_group_coordinate(f, x, k)
+_block_step!(x::AtomIterate, f::_RadialGroupPenalty, k, u, γ) = _stage_and_step!(x, f, k, u, γ)
+
 # group k of x through the proximal operator in place; the group becomes active
-# if it is nonzero, as after writing to it through atom(x, k)
+# if it ends nonzero
 function prox_coordinate!(x::AtomIterate, f::_RadialGroupPenalty, k::Integer, γ::Real)
   p = _check_group_coordinate(f, x, k)
   T = float(eltype(x))

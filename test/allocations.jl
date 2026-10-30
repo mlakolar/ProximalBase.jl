@@ -53,6 +53,22 @@ end
   end
 end
 
+a_block!(x, f, k, u, γ) = prox_coordinate!(x, f, k, u, γ)
+
+@testset "block steps allocate nothing" begin
+  for x in (SparseIterate(zeros(4)), SymmetricSparseIterate(2))
+    @test allocs(a_block!, x, NormL1(0.3), 1, 3., 0.7) == 0
+  end
+  for gs in ([1:2, 3:4], [[1, 3], [2, 4]])
+    x = AtomIterate(4, gs)
+    u = [3., -4.]
+    for f in (NormL1(0.3), GroupNormL2(0.4, gs), GroupNormLinf(0.4, gs),
+              SparseGroupNormL2(0.2, 0.4, gs), GroupMCP(0.4, gs), GroupSCAD(0.4, gs))
+      @test allocs(a_block!, x, f, 1, u, 0.7) == 0
+    end
+  end
+end
+
 @testset "distinct group layouts allocate nothing" begin
   ranges = [1:2, 3:5, 6:6, 7:9]
   layouts = (ranges, collect.(ranges))

@@ -765,8 +765,10 @@ function _check_group_coordinate(f::AbstractGroupPenalty, x::AtomIterate, k::Int
   nothing
 end
 
-# group k of x shrunk in place; the group becomes active if it is nonzero, as after
-# writing to it through atom(x, k)
+_check_coordinate(x::AtomIterate, f::HomogeneousGroupNorm, k) = _check_group_coordinate(f, x, k)
+_block_step!(x::AtomIterate, f::HomogeneousGroupNorm, k, u, γ) = _stage_and_step!(x, f, k, u, γ)
+
+# group k of x shrunk in place; the group becomes active if it ends nonzero
 function prox_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k::Integer, γ::Real)
   _check_group_coordinate(f, x, k)
   T = float(eltype(x))

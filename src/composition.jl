@@ -571,6 +571,10 @@ Base.@propagate_inbounds function prox_entry(r::Regularize, v::Real, i::Integer,
 end
 _checkparams(r::Regularize, x) = (_checkparam(r.c, x); _checkparams(r.f, x))
 
+_check_coordinate(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k) = (_checkparams(r, x); _check_coordinate(x, r.f, k))
+_block_step!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k, u, γ) = _stage_and_step!(x, r, k, u, γ)
+_check_coordinate(::AtomIterate, ::_ArrayPrecompose{<:AbstractGroupPenalty}, ::Integer) = _array_group_operations()
+
 # a regularized group penalty on an AtomIterate: shrink the group towards c,
 # then take the step of the group penalty
 function prox_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k::Integer, γ::Real)
@@ -579,10 +583,21 @@ function prox_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty},
   T = float(eltype(x))
   step, ρ = convert(T, γ), convert(T, r.ρ)
   a, b = _ridge_weights(step, ρ)
+  was = isactive(x, k)
+  active = was
   @inbounds for i in x.groups[k]
     x.storage[i] = r.c === nothing ? a * x.storage[i] : _ridge_blend(x.storage[i], r.c[i], a, b)
+    if !active && !iszero(x.storage[i])
+      activate!(x, k)
+      active = true
+    end
   end
   prox_coordinate!(x, r.f, k, _regularize_step(step, ρ))
+  # the group was appended last and no other group changed; restore the list
+  if !was && isactive(x, k) && _allzero(x.storage, x.groups[k])
+    _deactivate!(x, k)
+  end
+  atom(x, k)
 end
 
 # the ridge term adds ρ(xᵢ - cᵢ) to the gradient, -ρcᵢ at a coordinate at zero

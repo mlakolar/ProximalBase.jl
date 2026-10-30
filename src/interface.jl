@@ -282,18 +282,28 @@ function prox_entry end
 
 """
     prox_coordinate!(x, f, k, γ)
+    prox_coordinate!(x, f, k, u, γ)
 
 Apply the proximal operator of `γf` to coordinate `k` of the iterate `x` in
 place, as in one step of coordinate descent, and return the new value of the
 coordinate. The coordinates of a [`SparseIterate`](@ref) are its entries, those
 of a [`SymmetricSparseIterate`](@ref) the entries of its lower triangle, and
 those of an [`AtomIterate`](@ref) its groups, for which `prox_coordinate!`
-returns a view of the group (see [`ncoordinates`](@ref)).
+returns [`atom`](@ref)`(x, k)` (see [`ncoordinates`](@ref)).
 
 A separable `f` updates any coordinate through [`prox_entry`](@ref); a group
 penalty such as [`GroupNormL2`](@ref) updates a group of an `AtomIterate` that
 shares its groups. A coordinate that stays zero does not become stored or
 active; one that becomes nonzero does.
+
+The second form makes coordinate `k` the proximal step at `u`, a number or,
+for an `AtomIterate`, a vector of the group's length. It acts as if `u` were
+written into the coordinate, converted to the element type of `x`, before the
+first form. A solver passes the gradient step `u` without writing it into `x`,
+so a coordinate whose step ends at zero does not become stored or active.
+This form supports separable functions, the group penalties of this package,
+and their [`Scaled`](@ref) and [`Regularize`](@ref) versions. Other functions
+raise an error before writing.
 """
 function prox_coordinate! end
 
@@ -318,19 +328,88 @@ function prox_coordinate!(x::SymmetricSparseIterate, f::AbstractFunction, k::Int
   v
 end
 
-# group k, entry by entry; the group becomes active if it ends nonzero
-function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, γ::Real)
+function prox_coordinate!(x::SparseIterate, f::AbstractFunction, k::Integer, u::Number, γ::Real)
+  isseparable(f) || _not_separable(f)
+  _checkparams(f, x)
+  checkbounds(x, k)
+  _checkreal(f, u)
+  T = eltype(x)
+  v = prox_entry(f, convert(T, u), k, γ)
+  x[k] = v
+  v
+end
+
+function prox_coordinate!(x::SymmetricSparseIterate, f::AbstractFunction, k::Integer, u::Number, γ::Real)
+  isseparable(f) || _not_separable(f)
+  _checkparams(f, x)
+  checkbounds(coordinates(x), k)
+  _checkreal(f, u)
+  T = eltype(x)
+  r, c = tril_cartesian(x.p, k)
+  v = prox_entry(f, convert(T, u), (c - 1) * x.p + r, γ)
+  _setstored!(x, v, k)
+  v
+end
+
+function _check_coordinate(x::AtomIterate, f::AbstractFunction, k)
   isseparable(f) || _not_separable(f)
   _checkparams(f, x)
   checkbounds(x.groups, k)
-  nonzero = false
-  @inbounds for i in x.groups[k]
-    v = prox_entry(f, x.storage[i], i, γ)
-    x.storage[i] = v
-    nonzero |= !iszero(v)
+end
+
+# group k, entry by entry; activate as soon as a stored entry is nonzero
+function _separable_group_step!(x::AtomIterate{T}, f, k, src, γ) where {T}
+  G = x.groups[k]
+  active = isactive(x, k)
+  @inbounds for a in 1:length(G)
+    input = src === nothing ? x.storage[G[a]] : convert(T, src[firstindex(src) + a - 1])
+    v = prox_entry(f, input, G[a], γ)
+    x.storage[G[a]] = v
+    if !active && !iszero(x.storage[G[a]])
+      activate!(x, k)
+      active = true
+    end
   end
-  nonzero && activate!(x, k)
+  x
+end
+
+function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, γ::Real)
+  _check_coordinate(x, f, k)
+  _separable_group_step!(x, f, k, nothing, γ)
   atom(x, k)
+end
+
+function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, u::AbstractVector, γ::Real)
+  _check_coordinate(x, f, k)
+  _checkreal(f, u)
+  length(u) == length(x.groups[k]) ||
+    throw(DimensionMismatch("u has length $(length(u)), group $k has size $(length(x.groups[k]))"))
+  if Base.mightalias(_atom_storage(x, k), u)
+    u = collect(u)
+  end
+  _block_step!(x, f, k, u, γ)
+  atom(x, k)
+end
+
+_block_step!(x::AtomIterate, f, k, u, γ) = _separable_group_step!(x, f, k, u, γ)
+
+function _stage_and_step!(x::AtomIterate{T}, f, k, u, γ) where {T}
+  was = isactive(x, k)
+  active = was
+  G = x.groups[k]
+  @inbounds for a in 1:length(G)
+    x.storage[G[a]] = u[firstindex(u) + a - 1]
+    if !active && !iszero(x.storage[G[a]])
+      activate!(x, k)
+      active = true
+    end
+  end
+  prox_coordinate!(x, f, k, γ)
+  # the group was appended last and no other group changed; restore the list
+  if !was && isactive(x, k) && _allzero(x.storage, G)
+    _deactivate!(x, k)
+  end
+  x
 end
 
 ####################################

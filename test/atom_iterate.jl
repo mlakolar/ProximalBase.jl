@@ -234,6 +234,33 @@ end
     @test atom(x, 2) == [1., 3.]
   end
 
+  @testset "atom views activate writes" begin
+    gs = [1:2, 3:4, 5:6]
+    a = AtomIterate(6, gs)
+    atom(a, 2) .= 1.0
+    @test nactive(a) == 1
+    @test GroupNormL2(1.0, gs)(a) ≈ 2
+    b = similar(a)
+    copyto!(b, a)
+    @test b[3:4] == [1, 1] && a == b
+    @test parent(atom(a, 2)) === a
+    @test Base.mightalias(atom(a, 1), a.storage)
+    @test !Base.mightalias(atom(a, 1), b.storage)
+    atom(a, 2)[1] = 0
+    fill!(atom(a, 2), 0)
+    @test isactive(a, 2)
+    atom(a, 1)[1] = 0
+    @test !isactive(a, 1)
+    @test consistent(a)
+    a = AtomIterate([1., 2., 3., 4., 5., 6.], gs)
+    atom(a, 1) .= atom(a, 2)
+    @test Vector(a) == [3, 4, 3, 4, 5, 6]
+    expected = copy(a.storage)
+    expected[3:4] .= copy(view(a, 2:3))
+    atom(a, 2) .= view(a, 2:3)
+    @test Vector(a) == expected && consistent(a)
+  end
+
   @testset "random operations" begin
     # every step agrees with a plain vector and a set of active groups
     x, v, act = AtomIterate(9, groups), zeros(9), Set{Int}()

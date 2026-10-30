@@ -329,6 +329,19 @@ normal range is covered. For example, `SqrNormL2(2.0^1000)` at
 The rule concerns finite data and finite parameters. Non-finite input keeps
 each function's documented behaviour.
 
+The guarantee has a small cost, accepted by design. The range check after the
+ordinary expression adds a few nanoseconds per call: about 2 to 5 ns on
+vectors of up to a thousand entries, which is 5 to 35 percent of the
+cheapest values (`SqrNormL2`, the ridge term of `Regularize`,
+`TotalVariation1D`), and no measurable cost from a few thousand entries on.
+The alternative, the usual one in optimization software, is to leave the
+ordinary expression unchecked and ask users to scale their data. ProximalBase
+instead follows numerical linear algebra, where BLAS `nrm2`, LAPACK and
+Julia's `norm` pay a similar fixed cost so that a representable result is
+never lost to an intermediate. Keeping the ordinary expression on the fast
+path, rather than scaling every evaluation, keeps ordinary results bit for bit
+what they were and confines the slower computation to inputs that need it.
+
 The rule applies to every function in the package, as does the precision rule
 above. Known exceptions being brought under the rule are the values of
 functions of the spectrum (`Spectral`, `SingularValue` and their sets) at an

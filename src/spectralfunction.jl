@@ -33,9 +33,14 @@ order of the entries. Its proximal operator acts on the eigenvalues: for
 reads the upper triangle of its input, which should be symmetric. The domain of
 `F` is the finite symmetric matrices: the value is `Inf` at a matrix with a
 non-finite entry, also for a bounded `f`, and at a matrix that is not
-symmetric. When an extreme eigenvalue overflows, membership in `IndBallL1`,
-`IndBallL2`, `IndBallLinf` and `IndBox` is decided on the eigenvalues of the
-matrix scaled to unit range, with the tolerance of the original units. A
+symmetric. Membership in `IndBox`, `IndBallLinf` and `IndNonnegative` is
+decided with the tolerance `√ε·max(1, |bound|, ‖λ‖∞)`, relative to the
+spectrum, since computed eigenvalues carry errors of order `ε‖λ‖∞`: a
+positive semidefinite matrix of low rank and any scale lies in
+`Spectral(IndBox(0, Inf))`, as it does in `IndPSD()`. When an extreme
+eigenvalue overflows, membership in `IndBallL1`, `IndBallL2`, `IndBallLinf`,
+`IndBox` and `IndNonnegative` is decided on the eigenvalues of the matrix
+scaled to unit range, with the tolerance of the original units. A
 function with weights, bounds or normals
 that differ between entries depends on their order and is rejected.
 
@@ -96,6 +101,7 @@ function (s::Spectral)(X::AbstractMatrix)
   if !isempty(λ) && !(_finite_value(λ[1]) && _finite_value(λ[end])) && _scales_membership(s.f)
     return _scaled_spectral_membership!(s, ws, X)
   end
+  _relative_membership(s.f) && return _scaled_membership(s.f, λ, 0)
   convert(T, s.f(λ))
 end
 

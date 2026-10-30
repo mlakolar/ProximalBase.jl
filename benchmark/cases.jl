@@ -176,6 +176,28 @@ function separable_cases!(cases, rep; quick=false)
         for f in (NormL1(T(0.3)), ElasticNet(T(0.3), T(0.4)))
             addprox!(cases, "metric", string(nameof(typeof(f))), f, x; γ=steps, layout="diagonal_step")
         end
+        if !quick
+            wi = copy(w)
+            wi[1], wi[2] = zero(T), T(Inf)
+            failed_steps = copy(steps)
+            failed_steps[1] = zero(T)
+            for (suffix, weights, γ) in (("ordinary", w, steps), ("zero_infinite_weights", wi, steps),
+                                         ("uncertified_step", w, failed_steps))
+                for f in (ElasticNet(T(0.3), T(0.4), weights), Berhu(T(0.3), one(T), weights),
+                          CheckLoss(T(0.3), weights), EpsInsensitiveLoss(T(0.2), weights),
+                          HingeLoss(nothing, weights), CappedL1(T(0.3), one(T), weights))
+                    y = similar(x)
+                    function checksteps!()
+                        reference = [prox_entry(f, x[i], i, γ[i]) for i in eachindex(x)]
+                        prox!(y, f, x, γ)
+                        isequal(y, reference) || error("weighted steps differ from entrywise reference")
+                    end
+                    addcase!(cases, "metric", string(nameof(typeof(f)), "_weighted_", suffix, "/prox!"),
+                             () -> prox!(y, f, x, γ), checksteps!;
+                             T, shape=string(n), layout="diagonal_step", work=n)
+                end
+            end
+        end
         xv = view(randn(rng, T, 2n), 1:2:2n)
         addprox!(cases, "layouts", "NormL1", NormL1(T(0.3)), xv; layout="stride2_input", alias=true)
         for f in (NormL2(T(0.3)), NormLinf(T(0.3)), IndBallL0(max(1,n÷10)),

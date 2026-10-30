@@ -1468,3 +1468,21 @@ conjugate_blocks_match(a::Tuple, b::Tuple) = all(map(conjugate_blocks_match, a, 
     end
   end
 end
+
+@testset "33-block sums on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types
+    blocks = ntuple(_ -> T[0.5, -2], 33)
+    deviceblocks = map(DeviceArray, blocks)
+    s = SeparableSum(ntuple(_ -> SqrNormL2(), 33))
+    for f in (s, Conjugate(s))
+      y = prox(f, deviceblocks, T(0.5))
+      expected = prox(f, blocks, T(0.5))
+      @test conjugate_blocks_match(y, expected)
+      @test prox!(y, f, deviceblocks, T(0.5)) === y
+      @test same(value_and_prox!(y, f, deviceblocks, T(0.5)),
+                 value_and_prox!(deepcopy(blocks), f, blocks, T(0.5)))
+      @test conjugate_blocks_match(y, expected)
+    end
+  end
+end

@@ -487,8 +487,7 @@ end
     alias = deepcopy(point)
     @test prox!(alias, c, alias, 0.7) === alias
     @test blocks_approx(alias, expected)
-    # Nested SeparableSum already allocates on Julia 1.10.
-    VERSION >= v"1.11" && @test ProximalBase.Testing.allocations(prox!, out, c, point, 0.7) == 0
+    @test ProximalBase.Testing.allocations(prox!, out, c, point, 0.7) == 0
   end
 
   f = SeparableSum(fallback, SqrNormL2())

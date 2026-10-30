@@ -169,13 +169,8 @@ _argument_type(::Type{<:AbstractFunction}) = Any
 _checkargument(f, x) = x isa _argument_type(typeof(f)) || throw(MethodError(f, (x,)))
 _checkgradient_output(g, x) = (g === x && throw(ArgumentError("the gradient must not overwrite x")); nothing)
 # blocks pair up to the shorter tuple; the size checks report a length mismatch
-_checkgradient_output(::Tuple{}, ::Tuple) = nothing
-_checkgradient_output(::Tuple, ::Tuple{}) = nothing
-_checkgradient_output(::Tuple{}, ::Tuple{}) = nothing
-function _checkgradient_output(g::Tuple, x::Tuple)
-  _checkgradient_output(first(g), first(x))
-  _checkgradient_output(Base.tail(g), Base.tail(x))
-end
+@generated _checkgradient_output(g::Tuple, x::Tuple) =
+  _blockwise(k -> :(_checkgradient_output(g[$k], x[$k])), min(fieldcount(g), fieldcount(x)), nothing)
 
 function _checkwrite(op, f, y, x)
   _checkreal(f, x)
@@ -229,17 +224,17 @@ function value_and_gradient! end
 
 # a dense array for the gradient at x, also when x is a sparse iterate
 _gradient_buffer(x::AbstractArray) = similar(Array{float(eltype(x))}, axes(x))
-_gradient_buffer(x::Tuple) = map(_gradient_buffer, x)
+@generated _gradient_buffer(x::Tuple) = _blocktuple(k -> :(_gradient_buffer(x[$k])), fieldcount(x))
 
 _prox_buffer(x::AbstractArray) = similar(x, float(eltype(x)))
 _prox_buffer(x::Union{Symmetric, Hermitian}) = Matrix{float(eltype(x))}(undef, size(x))
-_prox_buffer(x::Tuple) = map(_prox_buffer, x)
+@generated _prox_buffer(x::Tuple) = _blocktuple(k -> :(_prox_buffer(x[$k])), fieldcount(x))
 
 function _checksize(y::Tuple, x::Tuple)
   length(y) == length(x) || _block_size_error(length(y), length(x))
-  map(_checksize, y, x)
-  true
+  _checksize_blocks(y, x)
 end
+@generated _checksize_blocks(y::Tuple, x::Tuple) = _blockwise(k -> :(_checksize(y[$k], x[$k])), fieldcount(y), true)
 @noinline _block_size_error(n, m) = throw(DimensionMismatch("the output has $n blocks and the input $m"))
 
 prox(f::AbstractFunction, x::Tuple, γ::Real = 1) = prox!(_prox_buffer(x), f, x, γ)

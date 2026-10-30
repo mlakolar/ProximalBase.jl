@@ -14,7 +14,7 @@ JULIA_NUM_THREADS=1 julia --project=benchmark benchmark/run.jl
 python3 benchmark/summarize.py benchmark/results benchmark/results/summary
 ```
 
-The default is one quick run on small Float64 inputs. It is an exploratory
+The default is one quick run on small inputs, mostly Float64. It is an exploratory
 check, with no between-run uncertainty estimate. Use a fresh output directory
 for each measurement series; existing repetitions are never overwritten.
 
@@ -28,9 +28,11 @@ for each measurement series; existing repetitions are never overwritten.
 | `PB_LIST=true` | List selected case IDs without measuring them. |
 | `PB_PROFILE_SECONDS=0.2` | Enable representative profiles; disabled by default. |
 
-Groups are `vectors`, `smooth`, `matrices`, `constraints`, `tensors` and
-`products`. They cover dense/sparse/atom calls, values and derivatives,
+Groups are `vectors`, `smooth`, `matrices`, `constraints`, `tensors`, `products` and
+`blocks`. They cover dense/sparse/atom calls, values and derivatives,
 coordinate operations, ordered penalties, constraints and workspace states.
+The blocks group covers flat and nested tuple oracles, wrappers and long block sums
+on Float32/Float64 inputs, with the same cases in both suites.
 The matrix group includes partial/full decompositions and fallback inputs.
 Construction plus first use is measured separately from workspace reuse.
 

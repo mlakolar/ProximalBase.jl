@@ -38,6 +38,19 @@ using PrecompileTools: @setup_workload, @compile_workload
       f(x)
     end
     gradient(LeastSquaresLoss(b, X), x)
+    # block sums, their conjugate and gradients
+    blocks = (copy(x), copy(x))
+    out = (similar(x), similar(x))
+    s = SeparableSum(NormL1(0.1), SqrNormL2())
+    prox!(out, s, blocks, 1.0)
+    value_and_prox!(out, s, blocks, 1.0)
+    s(blocks)
+    c = Conjugate(s)
+    prox!(out, c, blocks, 1.0)
+    value_and_prox!(out, c, blocks, 1.0)
+    smooth = SeparableSum(SqrNormL2(), SqrNormL2(2.0))
+    gradient!(out, smooth, blocks)
+    value_and_gradient!(out, smooth, blocks)
     # the functions on matrices that call LAPACK
     Y = similar(P)
     for f in (LogDetLoss(P), NuclearNorm(0.1), IndPSD())

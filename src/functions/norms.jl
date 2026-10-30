@@ -1298,6 +1298,40 @@ function _projection_l1_max(x::AbstractArray{T}, G, ::Type{R}) where {T<:Base.Bi
   m
 end
 
+_projection_l1_type(a) = typeof(first(_projection_scale_parts(a)))
+_projection_l1_product(::Tuple{}, h, l, e, δ, ::Type{R}) where {R} = (h, l, e, δ)
+function _projection_l1_product(fs::Tuple, h, l, e, δ, ::Type{R}) where {R}
+  b = first(fs)
+  if !isone(b)
+    mb, eb = b isa Real ? frexp(convert(R, b)) : _projection_scale_parts(b)
+    v = convert(R, mb)
+    p = h * v
+    residual = fma(h, v, -p)
+    q = residual + l * v
+    t = p + q
+    lo = (p - t) + q
+    hi, shift = frexp(t)
+    if !iszero(residual) || !iszero(l)
+      δ = nextfloat(δ + (1 + δ) * 16eps(R)^2)
+    end
+    # Non-floating coefficients may also round during their conversion.
+    if b isa Real && !(b isa AbstractFloat) && convert(R, b) != b
+      δ = nextfloat(δ + (1 + δ) * eps(R))
+    end
+    h, l, e = hi, ldexp(lo, -shift), e + eb + shift
+  end
+  _projection_l1_product(Base.tail(fs), h, l, e, δ, R)
+end
+
+function _projection_l1_coefficient(α, λ, w, x, y)
+  fs = (_projection_l1_factors(α)..., λ, w)
+  R = promote_type(Float64, float(eltype(x)), float(eltype(y)), map(_projection_l1_type, fs)...)
+  h, l, e, δ = _projection_l1_product(fs, R(0.5), zero(R), 1, zero(R), R)
+  error = iszero(δ) ? abs(l) : nextfloat(abs(l) + nextfloat(δ * h))
+  lower = iszero(error) ? h : max(zero(R), prevfloat(h - error))
+  _ProjectionScale(h, e), error, lower
+end
+
 function _project_l1!(y, x, G, scratch, λ, α = 1, w = 1)
   isempty(G) && return y
   if isinf(w)
@@ -1318,18 +1352,8 @@ function _project_l1!(y, x, G, scratch, λ, α = 1, w = 1)
     end
     return y
   end
-  am, ae = _projection_scale_parts(α)
-  R = promote_type(Float64, float(eltype(x)), float(eltype(y)), typeof(am),
-                   float(typeof(λ)), float(typeof(w)))
-  if !isconcretetype(R)
-    R = promote_type(Float64, typeof(am), float(typeof(λ)), float(typeof(w)))
-    @inbounds for i in G
-      R = promote_type(R, typeof(float(x[i])))
-    end
-  end
-  a = _projection_accumulate(_projection_accumulate(_ProjectionScale(convert(R, am), ae),
-                                                  convert(R, λ)), convert(R, w))
-  _project_l1_radius!(y, x, G, scratch, a)
+  a, error, lower = _projection_l1_coefficient(α, λ, w, x, y)
+  _project_l1_radius!(y, x, G, scratch, a, error, lower)
 end
 
 function _projection_l1_inside(x, G, r::R, scale, e) where {R}
@@ -1366,7 +1390,7 @@ function _projection_l1_inside(x, G, r::R, scale, e) where {R}
   s <= r && err <= r - s
 end
 
-function _project_l1_radius!(y, x, G, scratch, a)
+function _project_l1_radius!(y, x, G, scratch, a, coefficient_error, lower)
   r0, e = _projection_scale_parts(a)
   R = promote_type(Float64, typeof(r0), float(eltype(y)))
   r = convert(R, r0)
@@ -1379,7 +1403,7 @@ function _project_l1_radius!(y, x, G, scratch, a)
     end
     return y
   end
-  if _projection_l1_inside(x, G, r, scale, e)
+  if _projection_l1_inside(x, G, lower, scale, e)
     @inbounds @simd for i in G
       y[i] = x[i]
     end
@@ -1414,13 +1438,17 @@ function _project_l1_radius!(y, x, G, scratch, a)
     count = k
   end
   # Relevant offsets are <=r, with error <=u*r (Sterbenz is exact below
-  # m/2). Neumaier's (2u+O(nu²))*sum(d) bound, sum(d)<=k*t<=k*r, bounds
-  # threshold/reconstruction error by 2n*eps(R)*r, including radius products.
-  # The guard covers spurious support; dropping a small positive result adds
-  # at most that error again. This gives C=4, absorbing final rounding in T,
-  # plus half a destination subnormal; u=eps(R)/2, n*eps(R)<=1/4. For larger
-  # n, zero is within 4n*eps(T)*r. Float32 uses Float64 throughout.
-  guard = 2length(G) * eps(R) * r
+  # m/2). Neumaier's sum error and sum(d)<=k*t<=k*r give radius-relative
+  # threshold error. Each inexact coefficient product retains its FMA residual:
+  # after d factors its error is <=|low|+32d*eps(R)^2*r/(1-32d*eps(R)^2),
+  # enclosing the outward-rounded recurrence above. Conversions add their own
+  # bound. coefficient_error also gives the lower membership bound. For
+  # floating factors and d*eps(R)<=1/128 it is <eps(R)*r, already budgeted
+  # in 2n*eps(R)*r. The explicit guard also covers deeper chains/conversions.
+  # Guarding spurious support and final rounding give C=4 plus half a T
+  # subnormal in that regime; otherwise add 2*coefficient_error in original
+  # units. Float32 uses Float64; n*eps(R)>1/4 permits the zero result.
+  guard = 2length(G) * eps(R) * r + max(zero(R), coefficient_error - eps(R) * r)
   if length(G) * eps(R) > R(0.25)
     guard = r
   end

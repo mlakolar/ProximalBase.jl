@@ -1051,4 +1051,104 @@ end
   end
 end
 
+@testset "L1 projection review regressions" begin
+  setprecision(BigFloat, 4096) do
+    for factors in ((0.7f0, 0.3f0), (0.1f0, 0.9f0, 0.7f0),
+                    (0.1, 0.1), (0.7, 0.3, 0.9, 0.13)),
+        base in (NormLinf(), GroupNormLinf(1, [1:2]))
+      f = base
+      for a in factors
+        f = Translate(f, zeros(2))
+        f = Scaled{typeof(f),typeof(a)}(f, a)
+      end
+      r = prod(BigFloat.(factors))
+      x = [1.0, Float64(1-r)]
+      for op in (prox!, value_and_prox!)
+        c = Conjugate(f)
+        y = zeros(2)
+        op(y, c, x, 1.0)
+        l1accurate(y, reference(f, x, 1), r)
+        @test warmed_projection_allocation(op, y, c, x, 1.0) == 0
+      end
+    end
+    a, b = 0.7f0, 0.3f0
+    r = Float64(a) * Float64(b)
+    f = Scaled(Translate(Scaled(NormLinf(), b), zeros(2)), a)
+    for op in (prox!, value_and_prox!)
+      y = zeros(2)
+      op(y, Conjugate(f), [1.0, 1.0-r], 1.0)
+      @test y == [r, 0]
+    end
+    inner = Scaled(Translate(Scaled(GroupNormLinf(1, [1:2], [0.9]), 0.3f0), zeros(2)), 0.7f0)
+    f = Scaled(SeparableSum(inner, SqrNormL2(2)), 0.9f0)
+    r = BigFloat(0.9f0) * BigFloat(0.7f0) * BigFloat(0.3f0) * BigFloat(0.9)
+    x = ([1.0, Float64(1-r)], [3.0])
+    for op in (prox!, value_and_prox!)
+      y = deepcopy(x)
+      c = Conjugate(f)
+      op(y, c, x, 1.0)
+      l1accurate(y[1], reference(inner, x[1], 1, BigFloat(0.9f0)), r)
+      @test y[2] == prox(Conjugate(Scaled(SqrNormL2(2), 0.9f0)), x[2], 1.0)
+      @test warmed_projection_allocation(op, y, c, x, 1.0) == 0
+    end
+    # Retain the unrounded factor chain across raw nested Scaled wrappers too.
+    f = NormLinf()
+    factors = (0.7, 0.3, 0.13, 0.9, 0.11)
+    for a in factors
+      f = Scaled{typeof(f),typeof(a)}(f, a)
+    end
+    r = prod(BigFloat.(factors))
+    x = [1.0, Float64(1-r)]
+    l1accurate(prox(Conjugate(f), x), reference(f, x, 1), r)
+
+    a = 0.1
+    x = [a*a]
+    radius, error, lower = ProximalBase._projection_l1_coefficient(a, a, 1, x, x)
+    @test BigFloat(lower) * BigFloat(2)^radius.e <= BigFloat(a)^2
+    @test !ProximalBase._projection_l1_inside(x, eachindex(x), lower, ldexp(1.0, -radius.e), radius.e)
+    l1accurate(prox(Conjugate(Scaled(NormLinf(a), a)), x), reference(Scaled(NormLinf(a), a), x, 1), BigFloat(a)^2)
+
+    # The compensated radius interval encloses the exact product at each depth.
+    for n in (1, 2, 8, 16)
+      fs = ntuple(i -> isodd(i) ? 0.7 : 0.3, n)
+      α = ProximalBase._L1ProjectionFactors(fs)
+      radius, error, lower = ProximalBase._projection_l1_coefficient(α, 1, 1, [1.0], [0.0])
+      exact = prod(BigFloat.(fs)) / BigFloat(2)^radius.e
+      @test abs(exact - radius.m) <= BigFloat(error)
+      @test BigFloat(lower) <= exact
+    end
+  end
+  for op in (prox!, value_and_prox!), x in (
+      [(2^60)//1, (2^60-1)//1], BigInt[2^60, 2^60-1], Real[2^60, 2^60-1])
+    for f in (NormLinf(), GroupNormLinf(1, [1:2]), Translate(Scaled(NormLinf(), 0.7), zeros(2)))
+      y = fill(7.0, 2)
+      @test_throws r"floating or machine-integer input" op(y, Conjugate(f), x, 1.0)
+      @test y == fill(7.0, 2)
+    end
+    f = Conjugate(SeparableSum(NormLinf(), SeparableSum(GroupNormLinf(1, [1:2]))))
+    y = ([7.0], (fill(7.0, 2),))
+    @test_throws ArgumentError op(y, f, ([3.0], (x,)), 1.0)
+    @test y == ([7.0], (fill(7.0, 2),))
+  end
+  raw = reshape([1e300, 0.25, -0.5, 0.0], 2, 2)
+  permuted = PermutedDimsArray(raw, (2, 1))
+  reinterpreted = reinterpret(Float64, copy(reinterpret(UInt64, raw)))
+  for x in (permuted, view(permuted, :, :), reshape(permuted, 4),
+            reinterpreted, view(reinterpreted, :, :), reshape(reinterpreted, 4)),
+      op in (prox!, value_and_prox!)
+    @test ProximalBase._projection_host(typeof(x))
+    y = zeros(size(x))
+    op(y, Conjugate(NormLinf()), x, 1.0)
+    @test y == ifelse.(abs.(x) .== 1e300, 1.0, 0.0)
+  end
+  for op in (prox!, value_and_prox!), nested in (false, true)
+    f = nested ? SeparableSum(NormLinf(), SeparableSum(NormLinf())) : SeparableSum(NormLinf(), NormLinf())
+    x = nested ? ([2.0], ([1.0, 1.0],)) : ([2.0], [1.0, 1.0])
+    y = nested ? ([7.0], (Int[7, 7],)) : ([7.0], Int[7, 7])
+    before = deepcopy(y)
+    @test_throws InexactError op(y, Conjugate(f), x, 1.0)
+    @test y == before
+  end
+end
+
 end

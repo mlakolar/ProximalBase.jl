@@ -466,6 +466,13 @@ families. Translations require `γb` to be finite in working precision.
 On CPU, the ℓ1-ball projections use maximum-relative offsets and compensated
 scaled sums. For a group of size n and radius r, the coordinate error is at
 most 4n*eps(T)*r, with an additional half-subnormal rounding allowance.
+Coefficient factors are compensated through wrapper depth; membership uses a
+conservative lower radius bound. With working type R (at least Float64), floating
+factors satisfy the stated bound for d*eps(R)<=1/128, where d counts wrapper
+scales, the norm level and the group weight. Outside this regime, add twice
+the explicitly accumulated coefficient error, in radius units, to the accuracy
+and feasibility bounds. CPU inputs must have a concrete floating or
+machine-integer element type; other real arrays require explicit conversion.
 Coordinates outside the exact support are zero. Certified inside-ball inputs
 and infinite radii return the input unchanged. Feasibility allows
 4n*eps(T)*r plus n*nextfloat(zero(T)). Scalar steps cancel for untranslated
@@ -700,6 +707,7 @@ function _checkwrite(op::O, c::Conjugate, y::Union{AbstractArray, Tuple}, x::Uni
   op === value_and_prox! && y isa AbstractArray && _checkparams(c, x)
   _checksize(y, x)
   _checkparams(c, x)
+  _projection_l1_check_input(c.f, x)
   if _projection_direct_output(c.f, y, x)
     _checkwrite(prox!, c.f, y, x)
     return true
@@ -708,7 +716,9 @@ function _checkwrite(op::O, c::Conjugate, y::Union{AbstractArray, Tuple}, x::Uni
   # an indicator returns zero after the projection, without the inner value
   withvalue = op === value_and_prox! && !_isindicator(c)
   _checkwrite(withvalue && !_has_conjugate_value(c.f) ? value_and_prox! : prox!, c.f, p, p)
-  withvalue && _has_conjugate_value(c.f) && _checkconjugate(c.f, y)
+  # Direct L1 values need no scaled standalone-value check; prox checks suffice.
+  withvalue && _has_conjugate_value(c.f) &&
+    !(_projection_l1_leaf(typeof(c.f)) && _projection_l1_host(x)) && _checkconjugate(c.f, y)
   true
 end
 _conjugate_checkbuffer(s::Scratch, y::AbstractArray, x::AbstractArray) = _checkbuffer(s, float(eltype(y)), x)
@@ -1179,6 +1189,54 @@ end
 _projection_product(a, b, w) = _positive_product(a, b, w)
 _projection_product(a::_ProjectionScale, b, w) = _scaled_product(a.m, b, w, a.e)
 
+# Keep L1 coefficients separate from the legacy product used by other blocks.
+struct _L1ProjectionFactors{F}
+  factors::F
+end
+Base.iszero(a::_L1ProjectionFactors) = any(iszero, a.factors)
+Base.isinf(a::_L1ProjectionFactors) = any(isinf, a.factors)
+_projection_l1_leaf(::Type) = false
+_projection_l1_leaf(::Type{<:Union{NormLinf,GroupNormLinf}}) = true
+_projection_l1_leaf(::Type{<:Union{Scaled{F},Translate{F}}}) where {F} = _projection_l1_leaf(F)
+_projection_l1_family(::Type) = false
+_projection_l1_family(::Type{<:Union{NormLinf,GroupNormLinf}}) = true
+_projection_l1_family(::Type{<:Union{Scaled{F},Translate{F}}}) where {F} = _projection_l1_family(F)
+_projection_l1_family(::Type{SeparableSum{F}}) where {F} = any(_projection_l1_family, fieldtypes(F))
+_projection_l1_host(x) = _projection_host(typeof(x))
+_projection_l1_host(x::Tuple) = any(map(_projection_l1_host, x))
+_projection_l1_factors(a) = (a,)
+_projection_l1_factors(a::_L1ProjectionFactors) = a.factors
+_projection_l1_plain(a) = a
+_projection_l1_plain(a::_L1ProjectionFactors) = foldl(_projection_accumulate, a.factors; init = 1)
+_projection_l1_chain(f) = ()
+_projection_l1_chain(f::Scaled) = (f.α, _projection_l1_chain(f.f)...)
+_projection_l1_chain(f::Translate) = _projection_l1_chain(f.f)
+@inline function _projection_wrapper_scale(f, a, b, x)
+  if _projection_l1_family(typeof(f)) && _projection_l1_host(x)
+    return _L1ProjectionFactors((a, b, _projection_l1_chain(f)...))
+  end
+  _projection_accumulate(a, b)
+end
+# Collect once per linear wrapper chain; keep its type fixed during recursion.
+_projection_wrapper_scale(f, a::_L1ProjectionFactors, b, x) = a
+@inline function _projection_block_scale(f, a, x)
+  if _projection_l1_family(typeof(f)) && _projection_l1_host(x)
+    return _L1ProjectionFactors((_projection_l1_factors(a)..., _projection_l1_chain(f)...))
+  end
+  _projection_l1_plain(a)
+end
+
+_projection_l1_check_input(f, x) = true
+function _projection_l1_check_input(::Union{NormLinf,GroupNormLinf}, x::AbstractArray)
+  if _projection_host(typeof(x)) &&
+      !(isconcretetype(eltype(x)) && eltype(x) <: Union{AbstractFloat,Base.BitInteger})
+    throw(ArgumentError("L1 conjugate projections require floating or machine-integer input arrays; convert other real inputs explicitly"))
+  end
+  true
+end
+_projection_l1_check_input(f::Union{Scaled,Translate}, x) = _projection_l1_check_input(f.f, x)
+_projection_l1_check_input(f::SeparableSum, x::Tuple) = (map(_projection_l1_check_input, f.fs, x); true)
+
 # The shift may be wider than the output even when the projection is bounded.
 struct _FiniteProjectionShift{T} end
 (::_FiniteProjectionShift{T})(v) where {T} = isfinite(convert(T, v))
@@ -1230,6 +1288,8 @@ _projection_host(::Type{<:Union{Adjoint{T,P}, Transpose{T,P}, Symmetric{T,P}, He
 _projection_host(::Type{<:Union{SparseIterate, SymmetricSparseIterate, AtomIterate}}) = true
 _projection_host(::Type{<:SubArray{T,N,P}}) where {T,N,P} = _projection_host(P)
 _projection_host(::Type{<:Base.ReshapedArray{T,N,P}}) where {T,N,P} = _projection_host(P)
+_projection_host(::Type{<:PermutedDimsArray{T,N,p,ip,P}}) where {T,N,p,ip,P} = _projection_host(P)
+_projection_host(::Type{<:Base.ReinterpretArray{T,N,S,P}}) where {T,N,S,P} = _projection_host(P)
 _direct_projection(f, x) = _direct_conjugate(typeof(f))
 _direct_projection(::Union{NormLinf, GroupNormLinf}, x) = _projection_host(typeof(x))
 _direct_projection(f::Union{Scaled, Translate}, x) = _direct_projection(f.f, x)
@@ -1372,7 +1432,7 @@ _conjugate_entry(::ZeroFunction, v, i, γ) = zero(float(v))
 _conjugate_entry(::IndNonnegative, v, i, γ) = min(v, zero(v))
 
 _conjugate_projection!(z, f::Scaled, x, γ, α = 1) =
-  _direct_projection(f.f, x) || f.f isa SeparableSum ? _conjugate_projection!(z, f.f, x, γ, _projection_accumulate(α, f.α)) : _conjugate_moreau!(z, f, x, γ, α)
+  _direct_projection(f.f, x) || f.f isa SeparableSum ? _conjugate_projection!(z, f.f, x, γ, _projection_wrapper_scale(f.f, α, f.α, x)) : _conjugate_moreau!(z, f, x, γ, α)
 function _conjugate_projection!(z, f::Translate, x, γ, α = 1)
   _direct_projection(f.f, x) || return _conjugate_moreau!(z, f, x, γ, α)
   p = _projection_shifted!(f, z, x, γ)
@@ -1389,7 +1449,17 @@ _conjugate_entry(f::Translate, v, i, γ) = _direct_conjugate(typeof(f.f)) ?
 
 _projection_commit!(y::AbstractArray, z::AbstractArray) = copyto!(y, z)
 _projection_check_commit(y, z) = true
-_projection_check_commit(y::SymmetricSparseIterate, z::AbstractArray) = _check_symmetric_source(y, z)
+function _projection_check_conversion(y::AbstractArray{T}, z::AbstractArray{S}) where {T,S}
+  if T !== S && _projection_host(typeof(y)) && _projection_host(typeof(z))
+    @inbounds for v in z
+      convert(T, v)
+    end
+  end
+  true
+end
+_projection_check_commit(y::AbstractArray, z::AbstractArray) = _projection_check_conversion(y, z)
+_projection_check_commit(y::SymmetricSparseIterate, z::AbstractArray) =
+  (_check_symmetric_source(y, z); _projection_check_conversion(y, z))
 _projection_check_commit(y::Tuple, z::Tuple) = (map(_projection_check_commit, y, z); true)
 _projection_copy!(y::AbstractArray, z::AbstractArray) = copyto!(y, z)
 _projection_copy!(y::Tuple, z::Tuple) = (map(_projection_copy!, y, z); y)
@@ -1399,9 +1469,11 @@ function _conjugate_projection!(z::Tuple, s::SeparableSum, x::Tuple, γ, α = 1)
   _conjugate_projection_blocks!(z, s.fs, x, γ, α)
   z
 end
-_conjugate_projection_block!(z, f, x, γ, α) =
+function _conjugate_projection_block!(z, f, x, γ, α)
+  a = _projection_block_scale(f, α, x)
   _any_direct_projection(f, x) || f isa SeparableSum ?
-    _conjugate_projection!(z, f, x, γ, α) : _conjugate_moreau_block!(z, f, x, γ, α)
+    _conjugate_projection!(z, f, x, γ, a) : _conjugate_moreau_block!(z, f, x, γ, a)
+end
 _conjugate_projection_blocks!(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, α) = nothing
 function _conjugate_projection_blocks!(z::Tuple, fs::Tuple, x::Tuple, γ, α)
   _conjugate_projection_block!(first(z), first(fs), first(x), γ, α)
@@ -1533,7 +1605,7 @@ function _conjugate_projection_value!(z, f::Translate, x, γ, α = 1)
   v = _conjugate_projection_value!(z, f.f, p, γ, α)
   v + dot(f.b, z)
 end
-_conjugate_projection_value!(z, f::Scaled, x, γ, α = 1) = _conjugate_projection_value!(z, f.f, x, γ, _projection_accumulate(α, f.α))
+_conjugate_projection_value!(z, f::Scaled, x, γ, α = 1) = _conjugate_projection_value!(z, f.f, x, γ, _projection_wrapper_scale(f.f, α, f.α, x))
 _conjugate_projection_value!(z::Tuple, f::SeparableSum, x::Tuple, γ, α = 1) =
   _conjugate_projection_values!(z, f.fs, x, γ, α)
 function _conjugate_projection_value_block!(z, f, x, γ, α)
@@ -1541,8 +1613,9 @@ function _conjugate_projection_value_block!(z, f, x, γ, α)
     _conjugate_projection_block!(z, f, x, γ, α)
     return _zero_value(z)
   end
+  a = _projection_block_scale(f, α, x)
   _any_direct_projection(f, x) || f isa SeparableSum ?
-    _conjugate_projection_value!(z, f, x, γ, α) : _conjugate_moreau_value!(z, f, x, γ, α, Val(true))
+    _conjugate_projection_value!(z, f, x, γ, a) : _conjugate_moreau_value!(z, f, x, γ, a, Val(true))
 end
 _conjugate_projection_values!(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, α) = 0
 function _conjugate_projection_values!(z::Tuple, fs::Tuple, x::Tuple, γ, α)

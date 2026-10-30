@@ -325,7 +325,7 @@ end
     value = value_and_prox!(Y, f, X, one(T))
     reference = value_and_prox!(R, f, Float32.(X), one(T))
     legacy!(B, f, X, one(T))
-    @test reference === (PB._isindicator(f) ? zero(T) : T(NaN))
+    @test reference === T(Inf)
     @test all(isnan, R)
     @test isequal(Y, B)
   end

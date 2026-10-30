@@ -17,7 +17,14 @@ The proximal oracles for linear sets, `IndPolyhedron`, `SumLargest`, the
 spectral functions (`NuclearNorm`, `IndBallRank`, `IndStiefel`, `IndPSD`,
 `TracePSD`, `Spectral` and `SingularValue`) and `LogDetLoss` do not reject
 non-finite input values: closed forms use IEEE arithmetic, and algorithms that
-cannot process them return `NaN` in every coupled output entry.
+cannot process them return `NaN` in every coupled output entry. At an input
+with any non-finite entry, `value_and_prox!` returns `Inf` for `NuclearNorm`,
+`SingularValue`, `Spectral`, `TracePSD`, `IndPSD`, `IndBallRank`, `IndStiefel`
+and `LogDetLoss`. This includes the identity outputs of `NuclearNorm(0)` and
+full-rank `IndBallRank`. A direct `Conjugate(SingularValue(f))` also returns
+`Inf` if its existing proximal path returns; paths that throw still throw.
+This rule is checked on the input; non-finite outputs from finite inputs
+keep their documented returned values.
 
 It balances decreasing ``g`` against staying near ``x``, and ``\gamma`` sets the
 balance. Two cases explain the name and its uses.
@@ -204,7 +211,8 @@ its data; its factorization type can change with the rank of `A`.
 - **The value at the result.** [`value_and_prox!`](@ref) stores the proximal
   point and returns the function's value there. Many functions get that value
   from the computation itself: the nuclear norm from the singular values it
-  thresholds, an indicator function as zero without checking membership. The
+  thresholds, an indicator function as zero without checking membership, except
+  for spectral indicators at non-finite inputs, which return `Inf`. The
   latter equals the value at an exact projection, but does not certify
   feasibility for an inexact projection such as [`IndIntersection`](@ref).
 - **Allocations.** Many built-in operations reuse their buffers for inputs of

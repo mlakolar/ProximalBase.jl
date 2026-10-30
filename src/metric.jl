@@ -186,6 +186,9 @@ function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::AbstractArr
   _checkparams(c, x)
   _checkparam(γ, x)
   _checkwrite(prox!, c, y, x)
+  if isseparable(c.f) && _projection_direct_output(c.f, y, x)
+    return _conjugate_projection!(y, c.f, x, γ)
+  end
   T = float(eltype(y))
   z = _array_buffer!(c.scratch, T, x)
   if isseparable(c.f) && _direct_conjugate(typeof(c.f))

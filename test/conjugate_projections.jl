@@ -344,4 +344,29 @@ end
   end
 end
 
+
+@testset "direct projection storage and validation" begin
+  for T in (Float32, Float64)
+    for f in (NormL1(0.3), NormL1(0.3, T[0, Inf, 1, 1, 1, 1, 1, 1]), NormL1Nonneg(0.3),
+              NormL2(0.3), GroupNormL2(0.3, [1:3, 5:7], ones(T, 2)), Scaled(NormL1(0.3), 2)),
+        op in (prox!, value_and_prox!), reverse in (false, true)
+      parent = T.(range(-4, 4; length = 9))
+      x = view(parent, reverse ? (2:9) : (1:8))
+      y = view(parent, reverse ? (1:8) : (2:9))
+      c = Conjugate(f)
+      expected = prox(c, copy(x), 0.7)
+      v = op(y, c, x, 0.7)
+      @test y ≈ expected rtol = 8eps(T)
+      op === value_and_prox! && @test v == 0
+    end
+    for (f, error) in ((NormL1(0.3, ones(T, 7)), DimensionMismatch),
+                       (GroupNormL2(0.3, [1:9], ones(T, 1)), BoundsError)),
+        op in (prox!, value_and_prox!)
+      x, y = ones(T, 8), fill(T(7), 8)
+      @test_throws error op(y, Conjugate(f), x, 0.7)
+      @test y == fill(T(7), 8)
+    end
+  end
+end
+
 end

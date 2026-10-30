@@ -569,6 +569,7 @@ _checkmoreau(y, x, z, step, γ, always::Bool) =
 
 function prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _checkwrite(prox!, c, y, x)
+  _projection_direct_output(c.f, y, x) && return _conjugate_projection!(y, c.f, x, γ)
   T = float(eltype(y))
   z = _array_buffer!(c.scratch, T, x)
   _conjugate_projection!(z, c.f, x, γ)
@@ -650,6 +651,10 @@ function _checkwrite(op::O, c::Conjugate, y::Union{AbstractArray, Tuple}, x::Uni
   op === value_and_prox! && y isa AbstractArray && _checkparams(c, x)
   _checksize(y, x)
   _checkparams(c, x)
+  if _projection_direct_output(c.f, y, x)
+    _checkwrite(prox!, c.f, y, x)
+    return true
+  end
   p = _conjugate_checkbuffer(c.scratch, y, x)
   # an indicator returns zero after the projection, without the inner value
   withvalue = op === value_and_prox! && !_isindicator(c)
@@ -1147,6 +1152,16 @@ function _projection_shifted!(f::Translate, z, x, γ)
   p
 end
 
+# Pure projections on equal-precision dense arrays cannot fail a finite-result
+# check. Keep scratch for translations, mixed precision and overlapping storage.
+_projection_writes_safe(::Type) = false
+_projection_writes_safe(::Type{<:Union{NormL1, NormL1Nonneg, CheckLoss, NormL2, GroupNormL2,
+                                      ZeroFunction, IndNonnegative}}) = true
+_projection_writes_safe(::Type{<:Scaled{F}}) where {F} = _projection_writes_safe(F)
+_projection_direct_output(f, y, x) = false
+_projection_direct_output(f, y::Array{T}, x::Array{T}) where {T<:Union{AbstractFloat, Complex{<:AbstractFloat}}} =
+  _projection_writes_safe(typeof(f)) && (y === x || !Base.mightalias(y, x))
+
 # The proximal point itself, separate from the point subtracted in Moreau's identity.
 _direct_conjugate(::Type) = false
 _direct_conjugate(::Type{<:Union{NormL1, NormL1Nonneg, CheckLoss, ZeroFunction,
@@ -1178,10 +1193,51 @@ _projection_clip(v, α, λ, w) = (c = _projection_coefficient(α, λ, w); clamp(
 _projection_upper(v, α, λ, w) = min(v, _projection_coefficient(α, λ, w))
 _projection_check(v, α, τ, w) = clamp(v, -_projection_coefficient(α, 1 - τ, w), _projection_coefficient(α, τ, w))
 
+@inline _projection_bound(v, c, ::Val{false}) = clamp(v, -c, c)
+@inline _projection_bound(v, c, ::Val{true}) = min(v, c)
+function _projection_clipping!(z, x, c::Real, w, upper)
+  T = promote_type(float(eltype(x)), float(eltype(z)))
+  if w === nothing
+    bound = convert(T, c)
+    @inbounds @simd for i in eachindex(IndexLinear(), z, x)
+      z[i] = _projection_bound(x[i], bound, upper)
+    end
+  elseif c > 0 && isfinite(c)
+    # Classify the scalar once; finite positive levels need only a multiply.
+    @inbounds @simd for i in eachindex(IndexLinear(), z, x)
+      z[i] = _projection_bound(x[i], convert(T, c * w[i]), upper)
+    end
+  else
+    @inbounds @simd for i in eachindex(IndexLinear(), z, x)
+      z[i] = _projection_bound(x[i], convert(T, _weight_coefficient(c, w[i])), upper)
+    end
+  end
+  z
+end
+function _projection_clipping!(z, x, c, w, upper)
+  T = promote_type(float(eltype(x)), float(eltype(z)))
+  if w === nothing
+    bound = convert(T, _projection_coefficient(c, 1, 1))
+    @inbounds @simd for i in eachindex(IndexLinear(), z, x)
+      z[i] = _projection_bound(x[i], bound, upper)
+    end
+  else
+    @inbounds @simd for i in eachindex(IndexLinear(), z, x)
+      bound = convert(T, _projection_coefficient(c, 1, w[i]))
+      z[i] = _projection_bound(x[i], bound, upper)
+    end
+  end
+  z
+end
+
 for (F, op) in ((:NormL1, :_projection_clip), (:NormL1Nonneg, :_projection_upper), (:CheckLoss, :_projection_check))
   level = F === :CheckLoss ? :τ : :λ0
   @eval begin
     function _conjugate_projection!(z, f::$F, x, γ, α = 1)
+      if f isa Union{NormL1, NormL1Nonneg}
+        c = _projection_accumulate(α, f.$level)
+        return _projection_clipping!(z, x, c, f.w, Val(f isa NormL1Nonneg))
+      end
       @inbounds @simd for i in eachindex(IndexLinear(), z, x)
         z[i] = $op(x[i], α, f.$level, _entry(f.w, i))
       end
@@ -1229,8 +1285,11 @@ end
 
 _conjugate_projection!(z, f::NormL2, x, γ, α = 1) = _project_l2!(z, x, f.λ, α)
 function _conjugate_projection!(z, f::GroupNormL2, x, γ, α = 1)
-  @inbounds @simd for i in eachindex(IndexLinear(), z)
-    iszero(_group(f, i)) && (z[i] = zero(eltype(z)))
+  @inbounds for i in f.free
+    z[i] = zero(eltype(z))
+  end
+  @inbounds @simd for i in (length(f.group_of) + 1):length(z)
+    z[i] = zero(eltype(z))
   end
   @inbounds for k in eachindex(f.groups)
     G = f.groups[k]

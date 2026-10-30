@@ -54,8 +54,9 @@ weights of `NormL1Nonneg`, `ElasticNet`, `CappedL1`, `LogPenalty`, `NormLq` and
 `Berhu`. For `NormL1`, `CappedL1` and `LogPenalty`, which have LLA weights, the
 LLA weight of such an entry is ``\infty``.
 Zero scaling removes finite penalty terms and keeps domain constraints.
-For `NormL1`, `NormL1Nonneg`, `ElasticNet`, `CappedL1`, `LogPenalty`, `NormLq`
-and `Berhu`, infinite weights retain the same family with all levels zero.
+For `NormL1`, `NormL1Nonneg`, `ElasticNet`, `CappedL1`, `LogPenalty`, `NormLq`,
+`Berhu`, `GroupNormL2`, `GroupNormLinf`, `SparseGroupNormL2`, `GroupMCP` and
+`GroupSCAD`, infinite weights retain the same family with all levels zero.
 With finite weights, `NormL1Nonneg` becomes `IndNonnegative()` and the others
 become `ZeroFunction()`. Non-finite levels or shape parameters are rejected.
 The subdifferential of
@@ -288,6 +289,14 @@ handled by a forward step. Its gradient has no global Lipschitz constant for
 ℓ1 ball of radius ``\lambda``. So by Moreau's decomposition its proximal operator
 is ``v - P_{\|\cdot\|_1 \le \gamma\lambda}(v)``, through the ℓ1-ball projection
 of [Sets](@ref).
+
+An infinite group weight in `GroupNormL2`, `GroupNormLinf`,
+`SparseGroupNormL2`, `GroupMCP` or `GroupSCAD` fixes the whole group at zero,
+including at zero level and zero step. Its value is zero at a zero group and
+infinite otherwise. A zero weight removes the group term even at an infinite
+level; the separate ℓ1 term of `SparseGroupNormL2` still applies. At a zero
+group with infinite weight, `kkt_violation` is `-Inf`. The LLA weight is `Inf`
+for the families that support LLA.
 
 **Groups.** [`GroupNormL2`](@ref)`(λ0, groups, w)` is
 ``\lambda_0\sum_k w_k\|x_{G_k}\|_2`` over disjoint groups, the group lasso

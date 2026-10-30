@@ -1754,6 +1754,21 @@ function LinearAlgebra.dot(A::StridedMatrix, X::SymmetricSparseIterate)
 end
 LinearAlgebra.dot(X::SymmetricSparseIterate, A::StridedMatrix) = dot(A, X)
 
+# the 1-norm counts off-diagonal entries twice; the infinity norm needs them once
+function LinearAlgebra.norm(x::SymmetricSparseIterate, p::Real = 2)
+  p == Inf && return norm(view(x.nzval, 1:x.nnz), Inf)
+  if p == 1
+    s = zero(real(float(eltype(x))))
+    @inbounds for k in 1:x.nnz
+      r, c = tril_cartesian(x.p, x.nzval2ind[k])
+      v = norm(x.nzval[k])
+      s += r == c ? v : 2v
+    end
+    return s
+  end
+  invoke(norm, Tuple{Any, Real}, x, p)
+end
+
 function *(A::Symmetric{T}, X::SymmetricSparseIterate{T}, B::Symmetric{T}) where {T}
   _checkreal(X, A); _checkreal(X, B)
   # Dense BLAS products cost O(p³) however sparse X is. Restricted to the rows K where

@@ -475,7 +475,8 @@ They satisfy `l ≤ u`, `l < Inf` and `u > -Inf` coordinatewise: equal finite bo
 are allowed, but equal infinite bounds are rejected because the coordinate is
 empty. Its proximal operator clamps each coordinate to its corresponding bounds.
 Array bounds are stored without copying; construct a new `IndBox` after changing them in
-place, since whether the box contains zero is computed at construction.
+place, since whether the box contains zero and the data for its membership test
+are computed at construction.
 [`restrict`](@ref) of the box itself requires `0 ∈ [lᵢ, uᵢ]` for every
 coordinate outside `S`, and throws for scalar bounds that exclude zero.
 """
@@ -483,6 +484,7 @@ struct IndBox{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: S
   l::L
   u::U
   zp::Bool          # l ≤ 0 ≤ u, so that zero is feasible and its own projection
+  bmax::Float64
 
   function IndBox{L, U}(l::L, u::U) where {L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}}
     eltype(l) <: Real || _real_error(:IndBox)
@@ -492,10 +494,19 @@ struct IndBox{L<:Union{Real, AbstractArray}, U<:Union{Real, AbstractArray}} <: S
     uv = u isa AbstractArray ? vec(u) : u
     all(lv .<= uv) || throw(ArgumentError("the lower bounds must not exceed the upper bounds"))
     any((lv .== Inf) .| (uv .== -Inf)) && throw(ArgumentError("the lower bounds must be below Inf and the upper bounds above -Inf"))
-    new{L, U}(l, u, all(l .<= 0) && all(u .>= 0))
+    TL, TU = l isa Real ? typeof(l) : eltype(l), u isa Real ? typeof(u) : eltype(u)
+    bmax = NaN
+    if TL === TU && (TL === Float32 || TL === Float64)
+      bmax = Float64(max(_box_bound_max(l), _box_bound_max(u)))
+    end
+    new{L, U}(l, u, all(l .<= 0) && all(u .>= 0), bmax)
   end
 end
 IndBox(l::Union{Real, AbstractArray}, u::Union{Real, AbstractArray}) = IndBox{typeof(l), typeof(u)}(l, u)
+
+_box_bound_max(v::Real) = isfinite(v) ? abs(v) : zero(v)
+# Reduce in the bounds' type for devices without Float64 support.
+_box_bound_max(b::AbstractArray) = mapreduce(_box_bound_max, max, b; init = zero(eltype(b)))
 
 """
     IndBallLinf(r)
@@ -530,8 +541,19 @@ function _value_dense(f::IndBox, x::AbstractArray)
   t = _tol(T)
   ok = true
   if f.l isa AbstractArray || f.u isa AbstractArray
-    @inbounds @simd for i in eachindex(IndexLinear(), x)
-      ok &= _inbox(x[i], _entry(f.l, i), _entry(f.u, i), t)
+    TL = f.l isa Real ? typeof(f.l) : eltype(f.l)
+    TU = f.u isa Real ? typeof(f.u) : eltype(f.u)
+    # Matching IEEE types and finite inflation exclude overflow at every bound.
+    if (eltype(x) === T === TL === TU) && (T === Float32 || T === Float64) &&
+       (m = T(f.bmax); isfinite(m + t * max(one(T), m)))
+      @inbounds @simd for i in eachindex(IndexLinear(), x)
+        v, l, u = x[i], _entry(f.l, i), _entry(f.u, i)
+        ok &= (v >= l - t * max(one(T), abs(l))) & (v <= u + t * max(one(T), abs(u)))
+      end
+    else
+      @inbounds @simd for i in eachindex(IndexLinear(), x)
+        ok &= _inbox(x[i], _entry(f.l, i), _entry(f.u, i), t)
+      end
     end
   else
     lo, hi = _box_limits(f.l, f.u, t)

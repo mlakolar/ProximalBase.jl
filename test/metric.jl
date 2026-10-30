@@ -457,7 +457,7 @@ end
   for (f, message) in ((Precompose(NormL2(1.0), 2.0),
                        "array steps for a scalar scale require a separable function"),
                       (Regularize(NormL2(1.0), 0.3),
-                       "array steps for Regularize require a separable function"))
+                       "array steps for Regularize require a separable function or a group penalty"))
     for op in (prox!, value_and_prox!)
       y = fill(17.0, n)
       @test_throws ArgumentError(message) op(y, f, x, γ)
@@ -502,6 +502,109 @@ end
   end
 end
 
+@testset "per-group steps for regularization" begin
+  groups = [1:2, [3, 5], [4, 6]]
+  γ = [0.2, 0.9, 1.4]
+  weights = [1.0, 0.0, 0.7]
+  penalties = ((G, w) -> GroupNormL2(0.5, G, w),
+               (G, w) -> GroupNormLinf(0.5, G, w),
+               (G, w) -> SparseGroupNormL2(0.3, 0.5, G, w),
+               (G, w) -> GroupMCP(0.5, G, w; a = 2.5),
+               (G, w) -> GroupSCAD(0.5, G, w; a = 3.5))
+  for make in penalties, dims in ((6,), (2, 3)), centered in (false, true)
+    x = reshape([3.0, -4.0, 2.0, -1.0, 0.5, 2.5], dims)
+    c = centered ? reshape([0.5, 1.0, -2.0, 3.0, 1.5, -0.5], dims) : nothing
+    r = Regularize(make(groups, weights), 0.7, c)
+    reference = similar(x)
+    γe = similar(x)
+    for k in eachindex(groups)
+      G = groups[k]
+      shrunk = (x[G] .+ γ[k] * r.ρ .* (c === nothing ? zeros(length(G)) : c[G])) ./ (1 + γ[k] * r.ρ)
+      reference[G] = prox(make([1:length(G)], [weights[k]]), shrunk, γ[k] / (1 + γ[k] * r.ρ))
+      γe[G] .= γ[k]
+    end
+    p = prox(r, x, γ)
+    @test p ≈ reference
+    @test prox(r, x, fill(0.6, 3)) ≈ prox(r, x, 0.6)
+    @test prox(r, x, view([0.2, 0.0, 0.9, 0.0, 1.4, 0.0], 1:2:6)) ≈ p
+    for input in (x, SparseIterate(x))
+      y = similar(input)
+      @test prox!(y, r, input, γ) === y
+      @test Array(y) ≈ p
+      @test value_and_prox!(y, r, input, γ) ≈ r(p)
+      @test Array(y) ≈ p
+      alias = copy(input)
+      @test Array(prox!(alias, r, alias, γ)) ≈ p
+      alias = copy(input)
+      @test value_and_prox!(alias, r, alias, γ) ≈ r(p)
+      @test Array(alias) ≈ p
+    end
+    y32 = similar(x, Float32)
+    @test prox!(y32, r, x, γ) === y32
+    @test y32 ≈ p rtol = 1e-5
+    @test value_and_prox!(y32, r, x, γ) isa Float32
+    @test eltype(prox(r, Float32.(x), γ)) == Float32
+    @test prox(r, round.(Int, x), γ) ≈ prox(r, Float64.(round.(Int, x)), γ)
+    isconvex(r) && check_metric_optimality(r, x, γe, p)
+    if centered
+      for op in (prox!, value_and_prox!)
+        centre = copy(c)
+        rc = Regularize(r.f, r.ρ, centre)
+        result = op(centre, rc, x, γ)
+        @test centre ≈ p
+        op === value_and_prox! && @test result ≈ r(p)
+      end
+    end
+  end
+
+  # All steps must be read before publishing any group, including reordered groups.
+  for make in penalties, op in (prox!, value_and_prox!), asview in (false, true)
+    y = [0.2, 0.9]
+    steps = asview ? view(y, :) : y
+    r = Regularize(make([[2], [1]], [1.0, 0.7]), 0.7, [1.0, -0.5])
+    x = [3.0, -4.0]
+    p = prox(r, x, copy(steps))
+    result = op(y, r, x, steps)
+    @test y ≈ p
+    op === value_and_prox! && @test result ≈ r(p)
+  end
+end
+
+@testset "per-group regularization errors leave the output unchanged" begin
+  coverage = "per-group steps for Regularize require groups that cover every entry"
+  x = [3.0, -4.0, 2.0, -1.0]
+  f = GroupNormL2(0.5, [1:2, 3:4])
+  for op in (prox!, value_and_prox!)
+    for steps in ([0.2], [0.2, 0.9, 1.4])
+      y = fill(17.0, 4)
+      before = copy(y)
+      @test_throws DimensionMismatch op(y, Regularize(f, 0.7), x, steps)
+      @test y == before
+    end
+    for G in ([[1], [3, 4]], [1:3], Vector{Int}[]), ρ in (0.0, 0.7)
+      r = Regularize(GroupNormL2(0.5, G), ρ)
+      y = fill(17.0, 4)
+      before = copy(y)
+      @test_throws ArgumentError(coverage) op(y, r, x, fill(0.2, length(G)))
+      @test y == before
+    end
+    r = Regularize(GroupNormL2(0.5, [1:4]), 0.7)
+    for y in (AtomIterate(fill(17.0, 4), [1:4]), SymmetricSparseIterate(fill(17.0, 2, 2)))
+      before = deepcopy(y)
+      name = y isa AtomIterate ? "AtomIterate" : "SymmetricSparseIterate"
+      @test_throws ArgumentError("per-group steps for Regularize do not support $name outputs") op(y, r, reshape(x, size(y)), [0.2])
+      @test isequal(y, before)
+      @test all(isequal(getfield(y, field), getfield(before, field)) for field in fieldnames(typeof(y)))
+    end
+    # Integer shrinkage succeeds, then the inner shrink cannot store its result.
+    y = fill(17, 4)
+    before = copy(y)
+    r = Regularize(f, 0.0)
+    @test_throws InexactError op(y, r, [3, 4, 3, 4], [0.2, 0.9])
+    @test y == before
+  end
+end
+
 @testset "zero allocations" begin
   a_prox!(y, f, x, γ) = prox!(y, f, x, γ)
   a_vprox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
@@ -531,6 +634,13 @@ end
   g = GroupNormL2(0.4, groups)
   γg = rand(4) .+ 0.1
   @test allocs(a_prox!, similar(x), g, x, γg) == 0
+  for f in (g, GroupNormLinf(0.4, groups), SparseGroupNormL2(0.2, 0.4, groups),
+            GroupMCP(0.4, groups), GroupSCAD(0.4, groups)), c in (nothing, randn(n))
+    r = Regularize(f, 0.3, c)
+    y = similar(x)
+    @test allocs(a_prox!, y, r, x, γg) == 0
+    @test allocs(a_vprox!, y, r, x, γg) == 0
+  end
   xa = AtomIterate(randn(n), g)
   @test allocs(a_vprox!, similar(xa), g, xa, γg) == 0
   X = randn(30, n)

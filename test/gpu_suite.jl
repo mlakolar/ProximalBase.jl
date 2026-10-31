@@ -1793,3 +1793,13 @@ end
     @test host(prox(Conjugate(Adapt.adapt(DeviceArray, GroupNormLinf(1, [1:2, 3:3]))), x)) == T[0, 0, 0.25]
   end
 end
+
+@testset "membership tolerance on device spectra" begin
+  allowscalar(false)
+  for T in test_types
+    c = T(1e10)
+    @test Spectral(IndBinary(zero(T), c))(DeviceArray(Matrix(Diagonal(T[c, c * eps(T)])))) == zero(T)
+    @test Spectral(Conjugate(IndNonnegative()))(DeviceArray(Matrix(Diagonal(T[-c, 1e-6])))) == zero(T)
+    @test Conjugate(SingularValue(NormLinf(one(T))))(DeviceArray(Matrix(Diagonal([one(T); fill(sqrt(eps(T)) / 4, 49)])))) == T(Inf)
+  end
+end

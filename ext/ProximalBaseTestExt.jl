@@ -7,7 +7,7 @@ using LinearAlgebra
 using SparseArrays
 using Test
 import ProximalBase.Testing: test_prox, test_gradient, test_separable, test_conjugate, test_kkt, test_traits,
-                             allocations, brute_force_prox
+                             test_iterate, allocations, brute_force_prox
 
 # random points from the global generator, or from rng
 _randn(::Nothing, dims...) = randn(dims...)
@@ -67,6 +67,92 @@ function test_traits(f; smooth = false, proximable = false, separable = false, c
   @test isproximable(typeof(f)) == proximable
   @test isseparable(typeof(f)) == separable
   @test isconvex(typeof(f)) == convex
+end
+
+####################################
+#  iterate bookkeeping
+####################################
+
+function test_iterate(x::AtomIterate)
+  ok = length(x.group_of) == length(x.storage)
+  @test length(x.group_of) == length(x.storage)
+  ok || return x
+  ok = length(x.position) == length(x.groups) == length(x.active)
+  @test length(x.position) == length(x.groups) == length(x.active)
+  ok || return x
+  ok = 0 <= x.nactive <= length(x.groups)
+  @test 0 <= x.nactive <= length(x.groups)
+  ok || return x
+  bad = [(k, i) for (k, G) in enumerate(x.groups) for i in G
+         if !(1 <= i <= length(x.storage))]
+  @test isempty(bad)
+  isempty(bad) || return x
+  memberships = zeros(Int, length(x.storage))
+  for G in x.groups, i in G
+    memberships[i] += 1
+  end
+  bad = (missing = findall(iszero, memberships), repeated = findall(>(1), memberships))
+  @test bad == (missing = Int[], repeated = Int[])
+  isempty(bad.missing) && isempty(bad.repeated) || return x
+  bad = [(k, i) for (k, G) in enumerate(x.groups) for i in G if x.group_of[i] != k]
+  @test isempty(bad)
+  active = falses(length(x.groups))
+  duplicates, out_of_range = Int[], Int[]
+  for a in 1:x.nactive
+    k = x.active[a]
+    if 1 <= k <= length(x.groups)
+      active[k] && push!(duplicates, a)
+      active[k] = true
+    else
+      push!(out_of_range, a)
+    end
+  end
+  @test isempty(duplicates)
+  @test isempty(out_of_range)
+  isempty(out_of_range) || return x
+  bad = [a for a in 1:x.nactive if x.position[x.active[a]] != a]
+  @test isempty(bad)
+  bad = [k for k in eachindex(x.groups) if !active[k] && x.position[k] != 0]
+  @test isempty(bad)
+  bad = [i for k in eachindex(x.groups) if !active[k] for i in x.groups[k]
+         if !iszero(x.storage[i])]
+  @test isempty(bad)
+  x
+end
+
+function test_iterate(x::Union{SparseIterate, SymmetricSparseIterate})
+  ok = length(x.nzval) == length(x.nzval2ind) == length(x.ind2nzval)
+  @test length(x.nzval) == length(x.nzval2ind) == length(x.ind2nzval)
+  ok || return x
+  if x isa SymmetricSparseIterate
+    ok = length(x.ind2nzval) == x.p * (x.p + 1) ÷ 2
+    @test length(x.ind2nzval) == x.p * (x.p + 1) ÷ 2
+    ok || return x
+  end
+  ok = 0 <= x.nnz <= length(x.ind2nzval)
+  @test 0 <= x.nnz <= length(x.ind2nzval)
+  ok || return x
+  stored = falses(length(x.ind2nzval))
+  duplicates, out_of_range = Int[], Int[]
+  for j in 1:x.nnz
+    i = x.nzval2ind[j]
+    if 1 <= i <= length(x.ind2nzval)
+      stored[i] && push!(duplicates, j)
+      stored[i] = true
+    else
+      push!(out_of_range, j)
+    end
+  end
+  @test isempty(duplicates)
+  @test isempty(out_of_range)
+  isempty(out_of_range) || return x
+  bad = [j for j in 1:x.nnz if x.ind2nzval[x.nzval2ind[j]] != j]
+  @test isempty(bad)
+  bad = [i for i in eachindex(x.ind2nzval) if !(0 <= x.ind2nzval[i] <= x.nnz)]
+  @test isempty(bad)
+  bad = [i for i in eachindex(x.ind2nzval) if !stored[i] && x.ind2nzval[i] != 0]
+  @test isempty(bad)
+  x
 end
 
 ####################################
@@ -177,10 +263,15 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
   xz = _with_zeros(x, rng)
   pz = prox(f, xz, γ)
   xs = SparseIterate(xz)
+  y = SparseIterate(float(eltype(x)), size(x)...)
   for k in 1:ncoordinates(xs)
     prox_coordinate!(xs, f, k, γ)
+    prox_coordinate!(y, f, k, xz[k], γ)
   end
   @test _dense(xs) ≈ _dense(pz)
+  @test _dense(y) ≈ _dense(pz)
+  @test nnz(y) == count(!iszero, y.nzval[1:nnz(y)])
+  test_iterate(y)
 
   # the stored entries only, when zero is preserved
   if iszeropreserving(f)
@@ -199,20 +290,31 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
   if groups !== nothing
     x isa AbstractVector || throw(ArgumentError("groups need a vector x"))
     a = AtomIterate(xz, groups)
+    y = AtomIterate(float(eltype(x)), length(x), groups)
     for k in 1:ncoordinates(a)
       prox_coordinate!(a, f, k, γ)
+      prox_coordinate!(y, f, k, xz[a.groups[k]], γ)
     end
     @test _dense(a) ≈ _dense(pz)
+    @test _dense(y) ≈ _dense(pz)
+    @test nactive(y) == count(k -> any(!iszero, atom(y, k)), activecoordinates(y))
+    test_iterate(y)
   end
 
   if symmetric
     size(x, 1) == size(x, 2) || throw(ArgumentError("symmetric = true needs a square x"))
     X = (_dense(x) .+ _dense(x)') ./ 2
     S = SymmetricSparseIterate(X)
+    y = SymmetricSparseIterate(float(eltype(x)), size(x, 1))
     for k in 1:ncoordinates(S)
       prox_coordinate!(S, f, k, γ)
+      r, c = tril_cartesian(size(x, 1), k)
+      prox_coordinate!(y, f, k, X[r, c], γ)
     end
     @test Matrix(S) ≈ _dense(prox(f, X, γ))
+    @test Matrix(y) ≈ _dense(prox(f, X, γ))
+    @test nnz(y) == count(!iszero, y.nzval[1:nnz(y)])
+    test_iterate(y)
   end
   p
 end

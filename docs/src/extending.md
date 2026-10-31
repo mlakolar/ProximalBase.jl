@@ -112,17 +112,25 @@ prox_coordinate!(xs, f, 2, 0.5), nnz(xs)
 ```
 
 On a `SymmetricSparseIterate`, the index ``i`` of entry ``(r, c)`` is
-``(c - 1)p + r``. A function whose parameters depend on the entry must give
-``(r, c)`` and ``(c, r)`` the same parameters, so that its value and its
-proximal operator are those of a symmetric matrix. Active-set solvers can also
-use [`kkt_violation`](@ref) and [`restrict`](@ref), which you define for your
-type when it has the structure they need.
+``(c - 1)p + r``. A user `SeparableFunction` must declare
+[`ProximalBase.entry_parameters`](@ref), for example `(:w => f.w,)`, or `()`
+when it has no per-entry arrays. Mirrored parameters must agree. The generic
+oracles and built-in wrappers check this before writing. An override of a
+public oracle should call [`ProximalBase.check_symmetric_parameters`](@ref)
+itself. This check covers every pair, including unstored entries, and walks
+built-in wrappers and `SeparableSum` tuples. It trusts the declaration to be
+complete. Raw entry oracles and `restrict` have no iterate; solvers should
+validate the original function before using them. Active-set solvers can also
+use [`kkt_violation`](@ref) and [`restrict`](@ref).
 
 ## Testing a new function
 
 [`ProximalBase.Testing`](@ref) has the checks that the package's own test
-suite runs on every built-in function. They are defined once the Test
-standard library is loaded, and they run `@test` inside your `@testset`:
+suite runs on every built-in function. With `symmetric = true`,
+`test_separable` also validates the per-entry declaration and all mirrored
+parameters. It does not construct asymmetric copies of user functions. The
+checks are defined once the Test standard library is loaded, and they run
+`@test` inside your `@testset`:
 
 - [`test_prox`](@ref ProximalBase.Testing.test_prox): `prox`, `prox!` (also in
   place) and `value_and_prox!` agree, and the result is optimal (the

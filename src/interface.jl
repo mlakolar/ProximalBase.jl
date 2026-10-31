@@ -179,6 +179,42 @@ end
 """
 check_parameters(::AbstractFunction, x) = nothing
 
+"""
+    ProximalBase.entry_parameters(f)
+
+Declare the per-entry parameters of `f` as a tuple of `name => value` pairs,
+for example `(:w => f.w,)`. Include arrays indexed like the argument;
+`nothing` and scalar numbers are skipped. Other values throw `ArgumentError`.
+Declare `()` when there are none. Each user [`SeparableFunction`](@ref) must
+supply this method to work on a [`SymmetricSparseIterate`](@ref); its default
+is `nothing` (undeclared). The declaration must include every per-entry array.
+It describes only `f` itself, not the functions inside its wrappers.
+
+The generic array and coordinate oracles check these parameters automatically.
+An override of a public oracle replaces that boundary and should call
+[`ProximalBase.check_symmetric_parameters`](@ref) when accepting a symmetric
+iterate. Built-in wrappers also check their inner functions before writing.
+Raw entry oracles and `restrict` have no iterate to check; validate the original
+function before using them.
+"""
+function entry_parameters end
+
+"""
+    ProximalBase.check_symmetric_parameters(f, x)
+
+Check every off-diagonal pair of each declared per-entry array of `f` and its
+inner functions on a [`SymmetricSparseIterate`](@ref). Return `true`, or throw
+`ArgumentError` for an undeclared user separable function, a malformed
+declaration or an asymmetric pair. A tuple `x` pairs recursively with the
+blocks of [`SeparableSum`](@ref); other iterates return `true`.
+
+This checks all pairs, even those absent from the iterate. Coordinate oracles
+check only their own pair. It does not check separately supplied step arrays
+or certify arrays against later mutation. A user override of a public oracle
+should call this check before writing; the declaration is trusted to be complete.
+"""
+function check_symmetric_parameters end
+
 # An indicator is zero at its projection. Built-ins check their parameter
 # arrays privately; the fallback calls the public extension hook before writes.
 _isindicator(::Type{<:AbstractFunction}) = false

@@ -21,6 +21,7 @@ const QUALIFIED_NAMES = [
   :ScalarLoss, :Squared, :Logistic, :Poisson, :Huber, :SquaredHinge,
   :SmoothCheck, :ConvolutionCheck, :deriv, :deriv2, :curvature,
   :value_and_deriv, :Smoothed, :AbstractGroupPenalty, :check_parameters,
+  :entry_parameters, :check_symmetric_parameters,
 ]
 
 const TESTING_NAMES = [

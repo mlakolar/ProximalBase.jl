@@ -23,6 +23,13 @@ end
 # groups of unequal sizes, two not contiguous
 groups = [1:3, [4, 7], 5:5, [8, 6], [9]]
 
+mutable struct CountedIndices <: AbstractVector{Int}
+  indices::Vector{Int}
+  reads::Int
+end
+Base.size(G::CountedIndices) = size(G.indices)
+Base.getindex(G::CountedIndices, i::Int) = (G.reads += 1; G.indices[i])
+
 mutable struct CountedGroups <: AbstractVector{UnitRange{Int}}
   groups::Vector{UnitRange{Int}}
   comparisons::Int
@@ -232,6 +239,65 @@ end
     @test atom(x, 2) isa SubArray
     x[4], x[7] = 1., 3.
     @test atom(x, 2) == [1., 3.]
+  end
+
+  @testset "atom views activate writes" begin
+    gs = [1:2, 3:4, 5:6]
+    a = AtomIterate(6, gs)
+    atom(a, 2) .= 1.0
+    @test nactive(a) == 1
+    @test GroupNormL2(1.0, gs)(a) ≈ 2
+    b = similar(a)
+    copyto!(b, a)
+    @test b[3:4] == [1, 1] && a == b
+    @test parent(atom(a, 2)) === a
+    @test Base.mightalias(atom(a, 1), a.storage)
+    @test !Base.mightalias(atom(a, 1), b.storage)
+    atom(a, 2)[1] = 0
+    fill!(atom(a, 2), 0)
+    @test isactive(a, 2)
+    atom(a, 1)[1] = 0
+    @test !isactive(a, 1)
+    @test consistent(a)
+    a = AtomIterate([1., 2., 3., 4., 5., 6.], gs)
+    atom(a, 1) .= atom(a, 2)
+    @test Vector(a) == [3, 4, 3, 4, 5, 6]
+    expected = copy(a.storage)
+    expected[3:4] .= copy(view(a, 2:3))
+    atom(a, 2) .= view(a, 2:3)
+    @test Vector(a) == expected && consistent(a)
+  end
+
+  @testset "group views respect bounds-check mode" begin
+    G = CountedIndices([1, 3, 2, 4], 0)
+    x = ProximalBase._AtomIterate(zeros(4), [G], ones(Int, 4))
+    # forced bounds checking overrides @inbounds
+    scans = Base.JLOptions().check_bounds == 1 ? length(G) : 0
+    G.reads = 0
+    v = atom(x, 1)
+    @test G.reads == scans
+    @test parent(v) === x
+    raw = ProximalBase._atom_storage(x, 1)
+    @test G.reads == 2scans
+    @test parent(raw) === x.storage
+    @test_throws BoundsError atom(x, 0)
+    @test_throws BoundsError ProximalBase._atom_storage(x, 2)
+  end
+
+  @testset "group view norms and dots read storage" begin
+    for T in (Float32, Float64), m in (4, 64), gs in ([1:m, (m+1):2m], [collect(1:2:2m), collect(2:2:2m)])
+      x = AtomIterate(randn(T, 2m), gs)
+      v, w = atom(x, 1), atom(x, 2)
+      rawv, raww = view(x.storage, gs[1]), view(x.storage, gs[2])
+      z = randn(T, m)
+      for p in (1, 2, Inf)
+        @test norm(v, p) === norm(rawv, p)
+      end
+      @test norm(v) === norm(rawv)
+      @test dot(v, z) === dot(rawv, z)
+      @test dot(z, v) === dot(z, rawv)
+      @test dot(v, w) === dot(rawv, raww)
+    end
   end
 
   @testset "random operations" begin

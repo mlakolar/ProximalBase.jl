@@ -809,16 +809,24 @@ function _homogeneous_group_prox!(y::AtomIterate, f::HomogeneousGroupNorm, x::At
 end
 
 # Validate the layout and group before a wrapper changes any entries.
-function _check_group_coordinate(f::AbstractGroupPenalty, x::AtomIterate, k::Integer)
+@inline function _check_group_coordinate(f::AbstractGroupPenalty, x::AtomIterate, k::Integer)
   _checksamegroups(f, x)
   checkbounds(x.groups, k)
   nothing
 end
 
-# group k of x shrunk in place; the group becomes active if it is nonzero, as after
-# writing to it through atom(x, k)
+@inline _unchecked_coordinate!(x::AtomIterate, f::AbstractGroupPenalty, k, γ, ctx) = prox_coordinate!(x, f, k, γ)
+
+@inline _check_coordinate(x::AtomIterate, f::HomogeneousGroupNorm, k) = _check_group_coordinate(f, x, k)
+@inline _block_step!(x::AtomIterate, f::HomogeneousGroupNorm, k, u, γ, ctx) = _stage_and_step!(x, f, k, u, γ, ctx)
+
+# group k of x shrunk in place; the group becomes active if it ends nonzero
 function prox_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k::Integer, γ::Real)
-  _check_group_coordinate(f, x, k)
+  ctx = _check_coordinate(x, f, k)
+  _unchecked_coordinate!(x, f, k, γ, ctx)
+end
+
+@inline function _unchecked_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k, γ, ctx)
   T = float(eltype(x))
   if (iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])
     _allzero(x.storage, x.groups[k]) || activate!(x, k)

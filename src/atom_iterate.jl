@@ -24,7 +24,8 @@ zero; an iterate built from a vector `x` starts with the groups that hold a
 nonzero entry. Reading or writing an entry is O(1), and so is activating or
 deactivating a group. [`ncoordinates`](@ref) is the number of groups,
 [`nactive`](@ref), [`activecoordinates`](@ref) and [`isactive`](@ref) give the
-active groups, and [`atom`](@ref) is a view of the entries of a group.
+active groups, and [`atom`](@ref) is a view of `x` at the entries of a group.
+Writing through this view follows the same activation rule as writing to `x`.
 """
 mutable struct AtomIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractVector{T}
   storage::Vector{T}       # the entries; those of inactive groups are zero
@@ -129,14 +130,17 @@ end
 end
 
 
+Base.dataids(x::AtomIterate) = Base.dataids(x.storage)
+
 Base.length(x::AtomIterate) = length(x.storage)
 Base.size(x::AtomIterate) = size(x.storage)
 Base.IndexStyle(::Type{<:AtomIterate}) = IndexLinear()
 
 Base.@propagate_inbounds Base.getindex(x::AtomIterate, i::Int) = x.storage[i]
 Base.@propagate_inbounds function Base.setindex!(x::AtomIterate, v, i::Int)
-  x.storage[i] = v
-  iszero(v) || activate!(x, x.group_of[i])     # the entries of inactive groups stay zero
+  s = convert(eltype(x.storage), v)
+  x.storage[i] = s
+  iszero(s) || activate!(x, x.group_of[i])     # the entries of inactive groups stay zero
   x
 end
 
@@ -148,10 +152,24 @@ isactive(x::AtomIterate, k::Integer) = x.position[k] != 0
 """
     atom(x::AtomIterate, k)
 
-A view of the entries of group `k` of `x`. Writing through it does not activate
-the group; see [`activate!`](@ref).
+A view of the entries of group `k`. It is a view of `x` itself, so it aliases
+`x`. Writing through it follows the rule of `x[i] = v`: a nonzero entry
+activates the group and a zero never deactivates it (see [`dropzeros!`](@ref)).
+To take a proximal step at a trial point without activating the group first,
+use [`prox_coordinate!`](@ref)`(x, f, k, u, γ)`.
+`norm` and `dot` of the view read the storage directly (BLAS for contiguous
+groups), while other BLAS routines take generic paths for it.
 """
-atom(x::AtomIterate, k::Integer) = view(x.storage, x.groups[k])
+function atom(x::AtomIterate, k::Integer)
+  G = x.groups[k]
+  @inbounds view(x, G)    # groups are a validated partition; only k needs a bounds check
+end
+
+# raw storage writes leave activation to the caller
+function _atom_storage(x::AtomIterate, k::Integer)
+  G = x.groups[k]
+  @inbounds view(x.storage, G)
+end
 
 function activate!(x::AtomIterate, k::Integer)
   checkbounds(x.position, k)
@@ -159,6 +177,26 @@ function activate!(x::AtomIterate, k::Integer)
     x.nactive += 1
     x.active[x.nactive] = k
     x.position[k] = x.nactive
+  end
+  x
+end
+
+@inline function _anynonzero(storage, G)
+  s = false
+  @inbounds for i in G
+    s |= !iszero(storage[i])
+  end
+  s
+end
+
+@inline function _deactivate!(x::AtomIterate, k::Integer)
+  i = x.position[k]
+  if i != 0
+    last = x.active[x.nactive]
+    x.active[i] = last
+    x.position[last] = i
+    x.position[k] = 0
+    x.nactive -= 1
   end
   x
 end
@@ -174,12 +212,8 @@ function SparseArrays.dropzeros!(x::AtomIterate)
   i = 1
   while i <= x.nactive
     k = x.active[i]
-    if all(iszero, atom(x, k))
-      last = x.active[x.nactive]
-      x.active[i] = last
-      x.position[last] = i
-      x.position[k] = 0
-      x.nactive -= 1
+    if all(iszero, _atom_storage(x, k))
+      _deactivate!(x, k)
     else
       i += 1
     end
@@ -191,7 +225,7 @@ end
 function _zero_active!(x::AtomIterate{T}) where {T}
   for a in 1:x.nactive
     k = x.active[a]
-    fill!(atom(x, k), zero(T))
+    fill!(_atom_storage(x, k), zero(T))
     x.position[k] = 0
   end
   x.nactive = 0
@@ -219,8 +253,8 @@ function Base.copyto!(dest::AtomIterate, src::AtomIterate)
   _zero_active!(dest)
   for a in 1:src.nactive
     k = src.active[a]
-    copyto!(atom(dest, k), atom(src, k))
     activate!(dest, k)
+    copyto!(_atom_storage(dest, k), _atom_storage(src, k))
   end
   dest
 end
@@ -313,6 +347,16 @@ end
 LinearAlgebra.dot(x::AtomIterate, v::Union{StridedVector, SparseIterate{<:Any, 1}}) = dot(v, x)
 
 
+_atom_view_storage(v::SubArray{<:Real, 1, <:AtomIterate}) =
+  @inbounds view(parent(v).storage, parentindices(v)...)
+LinearAlgebra.norm(v::SubArray{<:Real, 1, <:AtomIterate}) = norm(_atom_view_storage(v))
+LinearAlgebra.norm(v::SubArray{<:Real, 1, <:AtomIterate}, p::Real) = norm(_atom_view_storage(v), p)
+LinearAlgebra.dot(v::SubArray{<:Real, 1, <:AtomIterate}, w::StridedVector) = dot(_atom_view_storage(v), w)
+LinearAlgebra.dot(v::StridedVector, w::SubArray{<:Real, 1, <:AtomIterate}) = dot(v, _atom_view_storage(w))
+LinearAlgebra.dot(v::SubArray{<:Real, 1, <:AtomIterate}, w::SubArray{<:Real, 1, <:AtomIterate}) =
+  dot(_atom_view_storage(v), _atom_view_storage(w))
+
+
 function Base.show(io::IO, ::MIME"text/plain", x::AtomIterate)
   K, na = length(x.groups), x.nactive
   print(io, length(x), "-element ", typeof(x), " with ", na, " of ", K, K == 1 ? " group" : " groups", " active")
@@ -325,7 +369,7 @@ function Base.show(io::IO, ::MIME"text/plain", x::AtomIterate)
   for (a, k) in enumerate(active)
     if a <= half || a > na - half
       print(io, "\n  ", k, ": ", x.groups[k], " => ")
-      show(io, Vector(atom(x, k)))
+      show(io, Vector(_atom_storage(x, k)))
     elseif a == half + 1
       print(io, "\n  ⋮")
     end

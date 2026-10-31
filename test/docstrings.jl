@@ -26,7 +26,7 @@ const QUALIFIED_NAMES = [
 
 const TESTING_NAMES = [
   :Testing, :test_prox, :test_gradient, :test_separable, :test_conjugate,
-  :test_kkt, :test_traits, :allocations, :brute_force_prox,
+  :test_kkt, :test_iterate, :test_traits, :allocations, :brute_force_prox,
 ]
 
 @testset "public qualified names" begin

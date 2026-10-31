@@ -116,7 +116,7 @@ end
   # on a SymmetricSparseIterate, the gradient over symmetric matrices
   Z = randn(30, p)
   Σy = Matrix(Symmetric(Z'Z / 30))
-  Cs = randn(p, p)
+  Cs = Matrix(Symmetric(randn(p, p)))
   g = KronQuadratic(A, Σy, Cs)
   S = SymmetricSparseIterate(Matrix(Symmetric(randn(p, p))))
   D = Matrix(S)

@@ -91,7 +91,7 @@ end
     check_model(f, Θ)
     # over symmetric matrices the product is symmetrized, as the gradient is
     Bp = randn(p, p)
-    fs = KronQuadratic(A, Bp'Bp / p, randn(p, p))
+    fs = KronQuadratic(A, Bp'Bp / p, Matrix(Symmetric(randn(p, p))))
     Θs = SymmetricSparseIterate(Matrix(Symmetric(randn(p, p))))
     Vs = Matrix(Symmetric(randn(p, p)))
     Hs = hessian_vec(fs, Θs, Vs)
@@ -314,7 +314,7 @@ a_qm!(q, f, x) = quadratic_model!(q, f, x)
   f32 = LogDetLoss(Float32.(S))
   @test allocs(a_hv!, Float32.(HV), f32, Float32.(P), Float32.(V)) == 0
 
-  fk = KronQuadratic(S, P, randn(p, p))
+  fk = KronQuadratic(S, P, Matrix(Symmetric(randn(p, p))))
   @test allocs(a_hv!, HV, fk, P, V) == 0
   @test allocs(a_hv!, HV, fk, SymmetricSparseIterate(P), V) == 0
 end

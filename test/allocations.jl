@@ -323,7 +323,7 @@ end
     for z in (randn(p, 4), randn(4p), SparseIterate(sprandn(p, 4, 0.3)), SparseIterate(sprandn(4p, 0.3)))
       zero_alloc_grad(fk, z)
     end
-    zero_alloc_grad(KronQuadratic(S, P, randn(p, p)), SymmetricSparseIterate(P))
+    zero_alloc_grad(KronQuadratic(S, P, Matrix(Symmetric(randn(p, p)))), SymmetricSparseIterate(P))
     # products with sparse iterates
     zero_alloc_grad(LeastSquaresLoss(y, X), xs)
     zero_alloc_grad(LogisticLoss(rand(0:1, n), X), xs)
@@ -517,6 +517,21 @@ end
       skip = blocks[2] isa Tuple && VERSION < v"1.11"
       @test allocs(a_prox!, out, c, blocks, T(0.5)) == 0 skip = skip
       @test allocs(a_vprox!, out, c, blocks, T(0.5)) == 0 skip = skip
+    end
+  end
+end
+
+
+@testset "direct conjugate projection buffers" begin
+  x, y, γ = randn(16), zeros(16), ones(16)
+  for f in (NormL1(), NormL1(0.7, ones(16)), NormL1Nonneg(), CheckLoss(0.3),
+            NormL2(), GroupNormL2(1.0, [1:4, 6:8], ones(2)),
+            Scaled(NormL2(), 2.0), Translate(NormL1(), ones(16)))
+    c = Conjugate(f)
+    @test allocs(prox!, y, c, x, 0.7) == 0
+    @test allocs(value_and_prox!, y, c, x, 0.7) == 0
+    if isseparable(f)
+      @test allocs(prox!, y, c, x, γ) == 0
     end
   end
 end

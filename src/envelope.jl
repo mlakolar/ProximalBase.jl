@@ -96,28 +96,33 @@ end
   isfinite(d) ? d / γ : x / γ - p / γ
 end
 
-function (e::MoreauEnvelope)(x::AbstractArray)
-  _checkreal(e, x)
+(e::MoreauEnvelope)(x::AbstractArray) =
+  (_check_value_arrays(e, x); _value_checked(e, x))
+function _value_unchecked(e::MoreauEnvelope, x::AbstractArray)
   T = float(eltype(x))
   γ = convert(T, e.γ)
   p = _envelope_buffer(e, T, x)
-  v = value_and_prox!(p, e.f, x, γ)
+  v = _value_and_prox_unchecked!(p, e.f, x, γ)
   _value_at(v + _envelope_energy(x, p, γ), x)
 end
 
-function value_and_gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
+value_and_gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray) =
+  (_check_oracle_arrays(value_and_gradient!, e, g, x); _value_and_gradient_unchecked!(g, e, x))
+function _value_and_gradient_unchecked!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
   _checkwrite(value_and_gradient!, e, g, x)
   γ = convert(float(eltype(g)), e.γ)
-  v = value_and_prox!(g, e.f, x, γ)
+  v = _value_and_prox_unchecked!(g, e.f, x, γ)
   energy = _envelope_energy(x, g, γ)
   g .= _envelope_derivative.(x, g, γ)
-  eltype(g) === eltype(x) ? _value_at(v + energy, x) : e(x)
+  eltype(g) === eltype(x) ? _value_at(v + energy, x) : _value_unchecked(e, x)
 end
 
-function gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
+gradient!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray) =
+  (_check_oracle_arrays(gradient!, e, g, x); _gradient_unchecked!(g, e, x))
+function _gradient_unchecked!(g::AbstractArray, e::MoreauEnvelope, x::AbstractArray)
   _checkwrite(gradient!, e, g, x)
   γ = convert(float(eltype(g)), e.γ)
-  prox!(g, e.f, x, γ)
+  _prox_unchecked!(g, e.f, x, γ)
   g .= _envelope_derivative.(x, g, γ)
 end
 
@@ -133,8 +138,9 @@ end
 # is f(P) + ‖y - P‖²/(2γ), with ‖y - P‖ = γ/(γ + t) ‖x - P‖
 # The step is checked after the sizes and parameters and before the inner
 # function, as before the pre-write checks.
-function prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
-  _checkreal(e, y); _checkreal(e, x)
+prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real) =
+  (_check_oracle_arrays(prox!, e, y, x, t); _prox_unchecked!(y, e, x, t))
+function _prox_unchecked!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
   _checksize(y, x)
   _checkparams(e, x)
   T = float(eltype(y))
@@ -142,12 +148,13 @@ function prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
   combined = _envelope_step(γ, t)
   _checkwrite(prox!, e, y, x)
   P = _envelope_buffer(e, T, x)
-  prox!(P, e.f, x, combined)
+  _prox_unchecked!(P, e.f, x, combined)
   y .= _ridge_blend.(x, P, γ / combined, t / combined)
 end
 
-function value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
-  _checkreal(e, y); _checkreal(e, x)
+value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real) =
+  (_check_oracle_arrays(value_and_prox!, e, y, x, t); _value_and_prox_unchecked!(y, e, x, t))
+function _value_and_prox_unchecked!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
   _checksize(y, x)
   _checkparams(e, x)
   T = float(eltype(y))
@@ -155,7 +162,7 @@ function value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, 
   combined = _envelope_step(γ, t)
   _checkwrite(value_and_prox!, e, y, x)
   P = _envelope_buffer(e, T, x)
-  v = value_and_prox!(P, e.f, x, combined)
+  v = _value_and_prox_unchecked!(P, e.f, x, combined)
   a, b = γ / combined, t / combined
   y .= _ridge_blend.(x, P, a, b)
   _value_at(v + _envelope_energy(y, P, γ), y)

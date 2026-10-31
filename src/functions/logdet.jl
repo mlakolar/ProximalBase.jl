@@ -28,7 +28,7 @@ log-determinant is not accurate. Entries exceeding `floatmax` within the
 reconstruction's rounding bound saturate. The log-determinant uses the mapped
 roots and the trace uses the stored output. That output can round to a singular
 matrix, so the returned value can be finite even when `f(Y)` is `Inf`.
-At a non-finite input, the proximal output is all `NaN` and the returned value is `NaN`.
+At a non-finite input, the proximal output is all `NaN` and the returned value is `Inf`.
 For a nonsymmetric proximal input, `X` is replaced by its symmetric part:
 the skew part contributes only a constant to the proximal objective.
 Both use workspaces that `f` owns, sized by `S`, and
@@ -36,8 +36,7 @@ allocate nothing; do not share `f` between threads. The workspace has the data's
 precision (`Float32` or `Float64`); outputs of any precision are written by rounding,
 and values are rounded to the type of the argument (see the Precision section
 of the manual).
-When an intermediate sum overflows although the weighted value is representable,
-the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct LogDetLoss{T<:_BlasReal} <: AbstractFunction
   S::Matrix{T}
@@ -151,7 +150,7 @@ end
 
 function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix, γ::Real) where {T}
   _checkwrite(value_and_prox!, f, Y, X)
-  all(isfinite, X) || (fill!(Y, _valtype(Y)(NaN)); return _valtype(Y)(NaN))
+  all(isfinite, X) || (fill!(Y, _valtype(Y)(NaN)); return _valtype(Y)(Inf))
   root_step = sqrt(convert(T, γ)) * sqrt(f.w)
   X = _is_device_array(X) ? copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X) : X
   B = _blas_ready(Y) ? Y : f.C

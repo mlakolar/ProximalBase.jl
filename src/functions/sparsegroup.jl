@@ -31,9 +31,7 @@ As for `GroupNormL2`, on an [`AtomIterate`](@ref) that shares its groups
 on a group and [`kkt_violation`](@ref) measures a group at zero, which is
 optimal when `‖soft(g[Gₖ], λ1)‖₂ ≤ λ2wₖ`. Inside a nonzero group, an entry at
 zero is optimal when `|gᵢ| ≤ λ1`.
-When an intermediate overflows or underflows, or a weight is not representable
-in the argument's precision although the weighted value is representable,
-the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct SparseGroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: HomogeneousGroupNorm
   λ1::T                   # the level of the ℓ1 term
@@ -307,7 +305,7 @@ end
 
 # an index of a group at zero violates optimality as much as its group; an
 # index at zero inside a nonzero group by |gᵢ| - λ1
-function kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray, i::Integer)
+function _kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray, i::Integer)
   eltype(g) <: Real || _real_error(:kkt_violation)
   eltype(x) <: Real || _real_error(:kkt_violation)
   _checkgroups(f, g)
@@ -317,7 +315,7 @@ function kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray,
   G = f.groups[k]
   _allzero(x, G) ? _dual_norm(f, g, G) - _weight_coefficient(f.λ0, f.w[k]) : abs(g[i]) - f.λ1
 end
-kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AtomIterate, k::Integer) =
+_kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AtomIterate, k::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); _checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _weight_coefficient(f.λ0, f.w[k]))
-kkt_violation(f::SparseGroupNormL2, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
+_kkt_violation(f::SparseGroupNormL2, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate")))

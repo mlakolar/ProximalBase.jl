@@ -20,6 +20,7 @@ ProximalBase.Testing.test_gradient
 ProximalBase.Testing.test_separable
 ProximalBase.Testing.test_conjugate
 ProximalBase.Testing.test_kkt
+ProximalBase.Testing.test_iterate
 ProximalBase.Testing.test_traits
 ProximalBase.Testing.allocations
 ProximalBase.Testing.brute_force_prox

@@ -177,13 +177,15 @@ parameters, such as the weights of `NormL1`, are indexed like the dense
 
 An [`AtomIterate`](@ref) is a vector whose coordinates are groups of entries,
 partitioning ``1{:}p``. Its active groups play the role of the stored entries
-of a `SparseIterate`, and [`atom`](@ref)`(x, k)` is a view of group ``k``.
-Block coordinate descent for the group lasso takes, for group ``k``, a gradient
-step of size ``1/L_k`` (with ``L_k = \|X_{G_k}\|_2^2`` for least squares). It
-then applies the group's proximal step, `prox_coordinate!(x, g, k, 1/L_k)`,
-which is block soft thresholding, and which activates the group when it ends
-nonzero. `AtomIterate(p, g)` builds an iterate that shares the groups of a
-group penalty `g`.
+of a `SparseIterate`, and [`atom`](@ref)`(x, k)` is a view of `x` at group
+``k``. Writes through it follow the rule of `x[i] = v`: a nonzero entry
+activates the group, and a zero never deactivates it.
+Block coordinate descent for the group lasso computes the trial point
+``u = x_{G_k} - \nabla_{G_k} f(x)/L_k`` for group ``k``, with
+``L_k = \|X_{G_k}\|_2^2`` for least squares. It then takes the block step
+`prox_coordinate!(x, g, k, u, 1/L_k)`, which is block soft thresholding and
+activates the group only when it ends nonzero. `AtomIterate(p, g)` builds an
+iterate that shares the groups of a group penalty `g`.
 
 An iterate and a group penalty whose groups are equal but were built separately
 also take the active-group paths. The first check compares the two layouts in

@@ -216,7 +216,11 @@ Base.getindex(a::CountedArray, i::Int) = (a.reads += 1; a.data[i])
               normal = (sign * c) .* a
               f = F(normal, zero(T))
               @test f(X) == linear_value(normal, zero(T), X; half = F === IndHalfspace)
-              @test f(S) == f(X)
+              if issymmetric(normal)
+                @test f(S) == f(X)
+              else
+                @test_throws ArgumentError f(S)
+              end
             end
             for off in (false, true)
               X = T[large large / 2; large / 2 (off ? large : -2large)]

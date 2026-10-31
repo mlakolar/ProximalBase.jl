@@ -123,3 +123,21 @@ wrong, except for group penalties. `prox_entry` and `kkt_violation` now throw
 an `ArgumentError` instead of a `MethodError`. Restricting a group-penalty
 envelope, including as the smooth term of an active-set solver, is no longer
 supported. These coordinate operations require a separable underlying function.
+
+## Writes through `atom(x, k)` (0.6)
+
+Writes through [`atom`](@ref)`(x, k)` now activate the group, as `x[i] = v`
+does. Before 0.6, they left it inactive, and values, `copyto!` and products
+ignored the entries. The type of `atom(x, k)` changes to a view whose parent
+is the iterate. [`prox_coordinate!`](@ref) on an [`AtomIterate`](@ref) returns
+this view.
+
+Code that wrote a trial point into a group before
+`prox_coordinate!(x, f, k, γ)` should call `prox_coordinate!(x, f, k, u, γ)`
+instead. Writing the trial point through `atom` now activates the group even
+when the step ends at zero. The block form activates it only when the step
+ends nonzero.
+
+The `storage` field is internal. Writing into it can leave the iterate
+inconsistent. Activation follows the stored value: a value that rounds to
+zero in the element type does not activate a group or store a coordinate.

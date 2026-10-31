@@ -134,23 +134,29 @@ function _linear_image!(scratch::Scratch, a::Real, x)
 end
 _inner_buffer(h::Precompose, z::AbstractArray) = _array_buffer!(h.inner, eltype(z), size(z))
 
-(h::Precompose)(x::AbstractArray) = (_checkreal(h, x); _value_at(h.f(_image!(h, x)), x))
+(h::Precompose)(x::AbstractArray) =
+  (_check_value_arrays(h, x); _value_checked(h, x))
+_value_unchecked(h::Precompose, x::AbstractArray) = _value_at(_value_unchecked(h.f, _image!(h, x)), x)
 
-function value_and_gradient!(g::AbstractArray, h::Precompose, x::AbstractArray)
+value_and_gradient!(g::AbstractArray, h::Precompose, x::AbstractArray) =
+  (_check_oracle_arrays(value_and_gradient!, h, g, x); _value_and_gradient_unchecked!(g, h, x))
+function _value_and_gradient_unchecked!(g::AbstractArray, h::Precompose, x::AbstractArray)
   _checkwrite(value_and_gradient!, h, g, x)
   z = _image!(h, x)
   _checkparams(h.f, z)
   b = _inner_buffer(h, z)
-  v = value_and_gradient!(b, h.f, z)
+  v = _value_and_gradient_unchecked!(b, h.f, z)
   _adjoint_apply!(g, h, b)
   _value_at(v, x)
 end
-function gradient!(g::AbstractArray, h::Precompose, x::AbstractArray)
+gradient!(g::AbstractArray, h::Precompose, x::AbstractArray) =
+  (_check_oracle_arrays(gradient!, h, g, x); _gradient_unchecked!(g, h, x))
+function _gradient_unchecked!(g::AbstractArray, h::Precompose, x::AbstractArray)
   _checkwrite(gradient!, h, g, x)
   z = _image!(h, x)
   _checkparams(h.f, z)
   b = _inner_buffer(h, z)
-  gradient!(b, h.f, z)
+  _gradient_unchecked!(b, h.f, z)
   _adjoint_apply!(g, h, b)
 end
 
@@ -159,12 +165,16 @@ _adjoint_apply!(g, h::Precompose, b) = mul!(g, h.A', b)
 _adjoint_apply!(g, h::_ScalarPrecompose, b) = (g .= h.A .* b)
 
 # y = x + A'(P - Ax)/μ, with P - Ax in the buffer; for a scalar a, y = P/a
-function prox!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real)
+prox!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, h, y, x, γ); _prox_unchecked!(y, h, x, γ))
+function _prox_unchecked!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real)
   _checkwrite(prox!, h, y, x)
   _value_and_prox_precompose!(y, h, x, γ, false)
   y
 end
 value_and_prox!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, h, y, x, γ); _value_and_prox_unchecked!(y, h, x, γ))
+_value_and_prox_unchecked!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real) =
   (_checkwrite(value_and_prox!, h, y, x); _value_at(_value_and_prox_precompose!(y, h, x, γ, true), y))
 
 function _value_and_prox_precompose!(y, h::Precompose, x, γ, withvalue::Bool)
@@ -173,7 +183,7 @@ function _value_and_prox_precompose!(y, h::Precompose, x, γ, withvalue::Bool)
   P = _inner_buffer(h, z)
   T = eltype(z)
   μγ = convert(T, h.μ) * convert(T, γ)
-  v = withvalue ? value_and_prox!(P, h.f, z, μγ) : (prox!(P, h.f, z, μγ); zero(T))
+  v = withvalue ? _value_and_prox_unchecked!(P, h.f, z, μγ) : (_prox_unchecked!(P, h.f, z, μγ); zero(T))
   P .-= z
   y === x || copyto!(y, x)
   mul!(y, h.A', P, inv(convert(T, h.μ)), one(T))
@@ -184,13 +194,13 @@ function _value_and_prox_precompose!(y, h::_ScalarPrecompose, x, γ, withvalue::
   _checkparams(h.f, z)
   T = eltype(z)
   μγ = convert(T, h.μ) * convert(T, γ)
-  v = withvalue ? value_and_prox!(z, h.f, z, μγ) : (prox!(z, h.f, z, μγ); zero(T))
+  v = withvalue ? _value_and_prox_unchecked!(z, h.f, z, μγ) : (_prox_unchecked!(z, h.f, z, μγ); zero(T))
   y .= z ./ h.A
   withvalue && eltype(y) !== eltype(x) && _has_value(h.f) ? _precompose_prox_value(h, y) : v
 end
 
 function _precompose_prox_value(h::Precompose, y)
-  v = h.f(_linear_image!(h.direction, h.A, y))
+  v = _value_unchecked(h.f, _linear_image!(h.direction, h.A, y))
   _isindicator(h.f) ? zero(v) : v
 end
 
@@ -278,7 +288,9 @@ function _image!(h::_ArrayPrecompose, x::AbstractArray)
   copyto!(z, _PrecomposeArray(x, h.a, Val(false)))
 end
 _inner_buffer(h::_ArrayPrecompose, z::AbstractArray) = _array_buffer!(h.inner, eltype(z), size(z))
-(h::_ArrayPrecompose)(x::AbstractArray) = (_checkreal(h, x); _checkparams(h, x); _value_at(h.f(_image!(h, x)), x))
+(h::_ArrayPrecompose)(x::AbstractArray) =
+  (_check_value_arrays(h, x); _value_checked(h, x))
+_value_unchecked(h::_ArrayPrecompose, x::AbstractArray) = (_checkparams(h, x); _value_at(_value_unchecked(h.f, _image!(h, x)), x))
 
 _sparse_precompose(y, x) = (y isa SparseIterate && x isa SparseIterate) ||
   (y isa SymmetricSparseIterate && x isa AbstractMatrix)
@@ -288,7 +300,7 @@ function _checkwrite(op::O, h::_ArrayPrecompose, y::AbstractArray, x::AbstractAr
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checksize(y, x)
   _checkparams(h, x)
-  _check_symmetric_source(y, h.a)
+  _check_parameter_axes(y, h.a)
   if (op === prox! || op === value_and_prox!) && isseparable(h) && _sparse_precompose(y, x)
     return _checkwrite(op, h.f, y, x)
   end
@@ -325,16 +337,16 @@ function _value_and_prox_array!(y, h::_ArrayPrecompose, x, γ, withvalue::Bool)
     # from the dense image of what the sparse loop reads, before y is written
     v = joint ? _array_precompose_joint_value(h, y isa SymmetricSparseIterate ? Symmetric(x, :L) : x, γ) : zero(T)
     _prox_sep!(y, h, x, γ)
-    return withvalue && !joint ? (_isindicator(h) ? zero(T) : h(y)) : v
+    return withvalue && !joint ? (_isindicator(h) ? zero(T) : _value_unchecked(h, y)) : v
   end
   z = _image!(h, x)
   b = _inner_buffer(h, z)
   steps = _precompose_steps!(h, z, γ)
   if h.f isa AbstractGroupPenalty || joint
-    v = value_and_prox!(b, h.f, z, steps)
+    v = _value_and_prox_unchecked!(b, h.f, z, steps)
   else
     _prox_sep!(b, h.f, z, steps)
-    v = withvalue ? (_isindicator(h) ? zero(eltype(z)) : h.f(b)) : zero(eltype(z))
+    v = withvalue ? (_isindicator(h) ? zero(eltype(z)) : _value_unchecked(h.f, b)) : zero(eltype(z))
   end
   # Unchanged image entries include free indices and zero-weight groups.
   @inbounds for i in eachindex(IndexLinear(), y, x)
@@ -345,21 +357,25 @@ end
 
 function _array_precompose_joint_value(h::_ArrayPrecompose, x, γ)
   z = _image!(h, x)
-  value_and_prox!(_inner_buffer(h, z), h.f, z, _precompose_steps!(h, z, γ))
+  _value_and_prox_unchecked!(_inner_buffer(h, z), h.f, z, _precompose_steps!(h, z, γ))
 end
 
 # In mixed precision, the value at the output, through the lazy image of y
 function _array_precompose_value(h::_ArrayPrecompose, y)
-  v = h.f(_PrecomposeArray(y, h.a, Val(false)))
+  v = _value_unchecked(h.f, _PrecomposeArray(y, h.a, Val(false)))
   _isindicator(h.f) ? zero(v) : v
 end
 
-function prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real)
+prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, h, y, x, γ); _prox_unchecked!(y, h, x, γ))
+function _prox_unchecked!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real)
   _checkwrite(prox!, h, y, x)
   _value_and_prox_array!(y, h, x, γ, false)
   y
 end
-function value_and_prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, h, y, x, γ); _value_and_prox_unchecked!(y, h, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, h, y, x)
   _value_at(_value_and_prox_array!(y, h, x, γ, true), y)
 end
@@ -377,18 +393,22 @@ Base.@propagate_inbounds function value_entry(h::_ArrayPrecompose{<:SeparableFun
   value_entry(h.f, convert(T, h.a[i]) * convert(T, v), i)
 end
 
-function gradient!(g::AbstractArray, h::_ArrayPrecompose, x::AbstractArray)
+gradient!(g::AbstractArray, h::_ArrayPrecompose, x::AbstractArray) =
+  (_check_oracle_arrays(gradient!, h, g, x); _gradient_unchecked!(g, h, x))
+function _gradient_unchecked!(g::AbstractArray, h::_ArrayPrecompose, x::AbstractArray)
   _checkwrite(gradient!, h, g, x)
   z = _image!(h, x)
   b = _inner_buffer(h, z)
-  gradient!(b, h.f, z)
+  _gradient_unchecked!(b, h.f, z)
   g .= h.a .* b
 end
-function value_and_gradient!(g::AbstractArray, h::_ArrayPrecompose, x::AbstractArray)
+value_and_gradient!(g::AbstractArray, h::_ArrayPrecompose, x::AbstractArray) =
+  (_check_oracle_arrays(value_and_gradient!, h, g, x); _value_and_gradient_unchecked!(g, h, x))
+function _value_and_gradient_unchecked!(g::AbstractArray, h::_ArrayPrecompose, x::AbstractArray)
   _checkwrite(value_and_gradient!, h, g, x)
   z = _image!(h, x)
   b = _inner_buffer(h, z)
-  v = value_and_gradient!(b, h.f, z)
+  v = _value_and_gradient_unchecked!(b, h.f, z)
   g .= h.a .* b
   _value_at(v, x)
 end
@@ -408,12 +428,11 @@ function _array_group_kkt(h, g, x, i)
   c = abs(float(h.a[i]))
   c * kkt_violation(h.f, _PrecomposeArray(g, h.a, Val(true)), _PrecomposeArray(x, h.a, Val(false)), i)
 end
-kkt_violation(h::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, x::AbstractArray, i::Integer) =
+_kkt_violation(h::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, x::AbstractArray, i::Integer) =
   _array_group_kkt(h, g, x, i)
-kkt_violation(::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); _array_group_operations())
-function kkt_violation(h::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, x::AtomIterate, k::Integer)
-  eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation)
+_kkt_violation(::_ArrayPrecompose{<:AbstractGroupPenalty}, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
+  _array_group_operations()
+function _kkt_violation(h::_ArrayPrecompose{<:AbstractGroupPenalty}, g::AbstractArray, x::AtomIterate, k::Integer)
   _checkparams(h, g)
   _checkparams(h, x)
   _checksamegroups(h.f, x)
@@ -497,7 +516,9 @@ iszeropreserving(r::Regularize) = r.c === nothing && isfinite(r.ρ) && iszeropre
 
 _ridge(r::Regularize, x::AbstractArray) = _square_value(r.ρ, x, r.c)
 
-(r::Regularize)(x::AbstractArray) = (_checkreal(r, x); _checkparams(r, x); _value_at(r.f(x) + _ridge(r, x), x))
+(r::Regularize)(x::AbstractArray) =
+  (_check_value_arrays(r, x); _value_checked(r, x))
+_value_unchecked(r::Regularize, x::AbstractArray) = (_checkparams(r, x); _value_at(_value_unchecked(r.f, x) + _ridge(r, x), x))
 function _checkvalue(r::Regularize, x::AbstractArray)
   _checkreal(r, x)
   _checkparams(r, x)
@@ -506,14 +527,18 @@ function _checkvalue(r::Regularize, x::AbstractArray)
   true
 end
 
-function value_and_gradient!(g::AbstractArray, r::Regularize, x::AbstractArray)
+value_and_gradient!(g::AbstractArray, r::Regularize, x::AbstractArray) =
+  (_check_oracle_arrays(value_and_gradient!, r, g, x); _value_and_gradient_unchecked!(g, r, x))
+function _value_and_gradient_unchecked!(g::AbstractArray, r::Regularize, x::AbstractArray)
   _checkwrite(value_and_gradient!, r, g, x)
-  v = value_and_gradient!(g, r.f, x)
+  v = _value_and_gradient_unchecked!(g, r.f, x)
   _add_ridge_gradient!(g, r, x)
   _value_at(v + _ridge(r, x), x)
 end
 gradient!(g::AbstractArray, r::Regularize, x::AbstractArray) =
-  (_checkwrite(gradient!, r, g, x); gradient!(g, r.f, x); _add_ridge_gradient!(g, r, x))
+  (_check_oracle_arrays(gradient!, r, g, x); _gradient_unchecked!(g, r, x))
+_gradient_unchecked!(g::AbstractArray, r::Regularize, x::AbstractArray) =
+  (_checkwrite(gradient!, r, g, x); _gradient_unchecked!(g, r.f, x); _add_ridge_gradient!(g, r, x))
 
 function _checkwrite(op::O, r::Regularize, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
   _checkreal(r, y); _checkreal(r, x)
@@ -531,7 +556,7 @@ end
 
 function _add_ridge_gradient!(g, r::Regularize, x)
   ρ = convert(eltype(g), r.ρ)
-  r.c === nothing ? (g .+= ρ .* x) : (g .+= ρ .* (x .- r.c))
+  r.c === nothing ? (g .+= ρ .* x) : (g .+= ρ .* (x .- _checked_parameter(g, r.c)))
 end
 
 # the point (v + γρc)/(1 + γρ) in y, and the step γ/(1 + γρ) of f
@@ -543,23 +568,27 @@ function _shrunk!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
   T = float(eltype(y))
   step, ρ = convert(T, γ), convert(T, r.ρ)
   a, b = _ridge_weights(step, ρ)
-  r.c === nothing ? (y .= a .* x) : (y .= _ridge_blend.(x, r.c, a, b))
+  r.c === nothing ? (y .= a .* x) : (y .= _ridge_blend.(x, _checked_parameter(y, r.c), a, b))
   _regularize_step(step, ρ)
 end
 
 # the shrunk point in a buffer owned by r, so that y is unchanged when f throws
-function prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
+prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(prox!, r, y, x, γ); _prox_unchecked!(y, r, x, γ))
+function _prox_unchecked!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
   _checkwrite(prox!, r, y, x)
   z = _output_buffer!(r.scratch, y)
   w = r.scratch === nothing ? z : _wrapper_output(y, z)
-  prox!(w, r.f, z, _shrunk!(z, r, x, γ))
+  _prox_unchecked!(w, r.f, z, _shrunk!(z, r, x, γ))
   _wrapper_commit!(y, w)
 end
-function value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real) =
+  (_check_oracle_arrays(value_and_prox!, r, y, x, γ); _value_and_prox_unchecked!(y, r, x, γ))
+function _value_and_prox_unchecked!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, r, y, x)
   z = _output_buffer!(r.scratch, y)
   w = r.scratch === nothing ? z : _wrapper_output(y, z)
-  v = value_and_prox!(w, r.f, z, _shrunk!(z, r, x, γ))
+  v = _value_and_prox_unchecked!(w, r.f, z, _shrunk!(z, r, x, γ))
   v = _value_at(v + _ridge(r, w), w)
   _wrapper_commit!(y, w)
   v
@@ -574,26 +603,61 @@ Base.@propagate_inbounds function prox_entry(r::Regularize, v::Real, i::Integer,
 end
 _checkparams(r::Regularize, x) = (_checkparam(r.c, x); _checkparams(r.f, x))
 
+@inline _check_coordinate(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k) = (_checkparams(r, x); _check_coordinate(x, r.f, k))
+@inline _block_step!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k, u, γ, ctx) = _stage_and_step!(x, r, k, u, γ, ctx)
+@inline _check_coordinate(::AtomIterate, ::_ArrayPrecompose{<:AbstractGroupPenalty}, ::Integer) = _array_group_operations()
+
 # a regularized group penalty on an AtomIterate: shrink the group towards c,
 # then take the step of the group penalty
 function prox_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k::Integer, γ::Real)
   _checkparams(r, x)
-  _check_group_coordinate(r.f, x, k)
-  T = float(eltype(x))
-  step, ρ = convert(T, γ), convert(T, r.ρ)
+  ctx = _check_group_coordinate(r.f, x, k)
+  _unchecked_coordinate!(x, r, k, γ, ctx)
+end
+
+@inline function _unchecked_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k, γ, ctx)
+  T = eltype(x)
+  S = float(T)
+  step, ρ = convert(S, γ), convert(S, r.ρ)
   a, b = _ridge_weights(step, ρ)
+  if T <: AbstractFloat
+    # activate before reads or the inner step can fail
+    was = isactive(x, k)
+    was || activate!(x, k)
+    @inbounds for i in x.groups[k]
+      x.storage[i] = r.c === nothing ? a * x.storage[i] : _ridge_blend(x.storage[i], r.c[i], a, b)
+    end
+    _unchecked_coordinate!(x, r.f, k, _regularize_step(step, ρ), ctx)
+    if !was && isactive(x, k) && !_anynonzero(x.storage, x.groups[k])
+      _deactivate!(x, k)
+    end
+    return atom(x, k)
+  end
+  # other conversions may fail; activate each stored nonzero before continuing
+  was = isactive(x, k)
+  active = was
   @inbounds for i in x.groups[k]
     x.storage[i] = r.c === nothing ? a * x.storage[i] : _ridge_blend(x.storage[i], r.c[i], a, b)
+    if !active && !iszero(x.storage[i])
+      activate!(x, k)
+      active = true
+    end
   end
-  prox_coordinate!(x, r.f, k, _regularize_step(step, ρ))
+  _unchecked_coordinate!(x, r.f, k, _regularize_step(step, ρ), ctx)
+  # the group was appended last and no other group changed; restore the list
+  if !was && isactive(x, k) && !_anynonzero(x.storage, x.groups[k])
+    _deactivate!(x, k)
+  end
+  atom(x, k)
 end
 
 # the ridge term adds ρ(xᵢ - cᵢ) to the gradient, -ρcᵢ at a coordinate at zero
 _ridge_shifted(g::AbstractArray, r::Regularize) =
   r.c === nothing ? g : _ShiftedArray(g, _ScaledArray(r.c, -r.ρ))
-kkt_violation(r::Regularize, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); kkt_violation(r.f, _ridge_shifted(g, r), i))
-for X in (:AbstractArray, :AtomIterate, :SymmetricSparseIterate)
-  @eval kkt_violation(r::Regularize, g::AbstractArray, x::$X, k::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); eltype(x) <: Real || _real_error(:kkt_violation); kkt_violation(r.f, _ridge_shifted(g, r), x, k))
+kkt_violation(r::Regularize, g::AbstractArray, i::Integer) =
+  (eltype(g) <: Real || _real_error(:kkt_violation); kkt_violation(r.f, _ridge_shifted(g, r), i))
+for X in (:AbstractArray, :AtomIterate)
+  @eval _kkt_violation(r::Regularize, g::AbstractArray, x::$X, k::Integer) = _kkt_violation(r.f, _ridge_shifted(g, r), x, k)
 end
 restrict(r::Regularize, S::AbstractVector{<:Integer}) = Regularize(restrict(r.f, S), r.ρ, r.c === nothing ? nothing : r.c[S])
 _restrict_unchecked(r::Regularize, S::AbstractVector{<:Integer}) =
@@ -608,46 +672,53 @@ lipschitz(r::Regularize) = lipschitz(r.f) + r.ρ
 hashessian(::Type{<:Precompose{F}}) where {F} = hashessian(F)
 hashessian(::Type{<:Regularize{F}}) where {F} = hashessian(F)
 
-function hessian_vec!(Hv::AbstractArray, h::Precompose, x::AbstractArray, v::AbstractArray)
-  _checkreal(h, Hv); _checkreal(h, x); _checkreal(h, v)
+hessian_vec!(Hv::AbstractArray, h::Precompose, x::AbstractArray, v::AbstractArray) =
+  (_check_second_order_arrays(h, x, Hv, v); _hessian_vec_unchecked!(Hv, h, x, v))
+function _hessian_vec_unchecked!(Hv::AbstractArray, h::Precompose, x::AbstractArray, v::AbstractArray)
   _checksize(Hv, x)
   _checkdirection(v, x)
   z = _image!(h, x)
   _checkparams(h.f, z)
   d = _linear_image!(h.direction, h.A, v)
   b = _inner_buffer(h, z)
-  hessian_vec!(b, h.f, z, d)
+  _hessian_vec_unchecked!(b, h.f, z, d)
   _adjoint_apply!(Hv, h, b)
 end
 
-function hessian_vec!(Hv::AbstractArray, r::Regularize, x::AbstractArray, v::AbstractArray)
-  _checkreal(r, Hv); _checkreal(r, x); _checkreal(r, v)
+hessian_vec!(Hv::AbstractArray, r::Regularize, x::AbstractArray, v::AbstractArray) =
+  (_check_second_order_arrays(r, x, Hv, v); _hessian_vec_unchecked!(Hv, r, x, v))
+function _hessian_vec_unchecked!(Hv::AbstractArray, r::Regularize, x::AbstractArray, v::AbstractArray)
   _checksize(Hv, x)
   _checkdirection(v, x)
   _checkparams(r, x)
-  hessian_vec!(Hv, r.f, x, v)
+  _hessian_vec_unchecked!(Hv, r.f, x, v)
   Hv .+= convert(eltype(Hv), r.ρ) .* v
 end
 
-function quadratic_model(h::Precompose, x::AbstractArray)
-  _checkreal(h, x)
-  f = quadratic_model(h.f, _image!(h, x))
+quadratic_model(h::Precompose, x::AbstractArray) =
+  (_check_second_order_arrays(h, x); _quadratic_model_unchecked(h, x))
+function _quadratic_model_unchecked(h::Precompose, x::AbstractArray)
+  f = _quadratic_model_unchecked(h.f, _image!(h, x))
   Precompose{typeof(f), typeof(h.A), typeof(h.μ)}(f, h.A, h.μ)
 end
 quadratic_model(r::Regularize, x) =
-  (_checkreal(r, x); _checkparam(r.c, x); Regularize(quadratic_model(r.f, x), r.ρ, r.c))
+  (_check_second_order_arrays(r, x); _quadratic_model_unchecked(r, x))
+_quadratic_model_unchecked(r::Regularize, x) =
+  (_checkparam(r.c, x); Regularize(_quadratic_model_unchecked(r.f, x), r.ρ, r.c))
 
-function quadratic_model!(q::Precompose, h::Precompose, x::AbstractArray)
-  _checkreal(h, x)
+quadratic_model!(q::Precompose, h::Precompose, x::AbstractArray) =
+  (_check_second_order_arrays(h, x); _quadratic_model_unchecked!(q, h, x))
+function _quadratic_model_unchecked!(q::Precompose, h::Precompose, x::AbstractArray)
   q.A === h.A && q.μ == h.μ || throw(ArgumentError("the model must come from the same Precompose"))
-  quadratic_model!(q.f, h.f, _image!(h, x))
+  _quadratic_model_unchecked!(q.f, h.f, _image!(h, x))
   q
 end
-function quadratic_model!(q::Regularize, r::Regularize, x)
-  _checkreal(r, x)
+quadratic_model!(q::Regularize, r::Regularize, x) =
+  (_check_second_order_arrays(r, x); _quadratic_model_unchecked!(q, r, x))
+function _quadratic_model_unchecked!(q::Regularize, r::Regularize, x)
   q.c === r.c && q.ρ == r.ρ || throw(ArgumentError("the model must come from the same Regularize"))
   _checkparam(r.c, x)
-  quadratic_model!(q.f, r.f, x)
+  _quadratic_model_unchecked!(q.f, r.f, x)
   q
 end
 

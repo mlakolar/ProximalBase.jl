@@ -106,8 +106,9 @@ x_{G_k}^+=\left(1-\frac{\lambda w_k}{L_k\|v\|_2}\right)_+v,
 with value zero when ``v=0``. We use [`GroupNormL2`](@ref) to represent this
 penalty, whose default weights are ``w_k=\sqrt{|G_k|}``.
 An [`AtomIterate`](@ref) has one coordinate
-per group, and `prox_coordinate!(x, g, k, 1 / Lk)` applies the block
-thresholding after the calling procedure has taken the gradient step.
+per group, and `prox_coordinate!(x, g, k, u, 1 / Lk)` applies the block
+thresholding at the gradient step `u`, which the calling procedure computes
+without writing it into `x`.
 
 Note that this quadratic bound generally differs from the exact block
 least-squares loss, whose Hessian is ``X_{:,G_k}^\top X_{:,G_k}``.

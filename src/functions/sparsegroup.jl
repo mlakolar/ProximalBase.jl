@@ -287,7 +287,11 @@ end
 
 # the block step on group k, in place; the group becomes active if it is nonzero
 function prox_coordinate!(x::AtomIterate, f::SparseGroupNormL2, k::Integer, γ::Real)
-  _checksamegroups(f, x)
+  ctx = _check_coordinate(x, f, k)
+  _unchecked_coordinate!(x, f, k, γ, ctx)
+end
+
+@inline function _unchecked_coordinate!(x::AtomIterate, f::SparseGroupNormL2, k, γ, ctx)
   T = float(eltype(x))
   if (iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])
     _soft_group_only!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1))
@@ -301,7 +305,7 @@ end
 
 # an index of a group at zero violates optimality as much as its group; an
 # index at zero inside a nonzero group by |gᵢ| - λ1
-function kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray, i::Integer)
+function _kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray, i::Integer)
   eltype(g) <: Real || _real_error(:kkt_violation)
   eltype(x) <: Real || _real_error(:kkt_violation)
   _checkgroups(f, g)
@@ -311,7 +315,7 @@ function kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AbstractArray,
   G = f.groups[k]
   _allzero(x, G) ? _dual_norm(f, g, G) - _weight_coefficient(f.λ0, f.w[k]) : abs(g[i]) - f.λ1
 end
-kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AtomIterate, k::Integer) =
+_kkt_violation(f::SparseGroupNormL2, g::AbstractArray, x::AtomIterate, k::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); _checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _weight_coefficient(f.λ0, f.w[k]))
-kkt_violation(f::SparseGroupNormL2, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
+_kkt_violation(f::SparseGroupNormL2, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate")))

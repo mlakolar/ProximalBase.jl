@@ -93,6 +93,12 @@ PB.value_entry(f::WrongKKT, v, i) = f.λ * abs(v)
 PB.prox_entry(f::WrongKKT, v, i, γ) = shrink(v, γ * f.λ)
 PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
 
+struct UserSquare{D} <: SeparableFunction end
+PB.entry_parameters(::UserSquare{true}) = ()
+PB.value_entry(::UserSquare, v, i) = abs2(v) / 2
+PB.prox_entry(::UserSquare, v, i, γ) = v / (1 + γ)
+PB.iszeropreserving(::UserSquare) = true
+
 @testset "ProximalBase.Testing" begin
   x = 2 .* randn(12)
   w = rand(12) .+ 0.5
@@ -106,6 +112,13 @@ PB.kkt_violation(f::WrongKKT, g::AbstractArray, i::Integer) = abs(g[i]) - 2f.λ
         @test !Base.isexported(PT, name)
       end
     end
+  end
+
+  @testset "symmetric declarations" begin
+    X = [1. .2; .2 2.]
+    @test passes(() -> PT.test_separable(UserSquare{true}(), X, γ; symmetric = true))
+    @test failures(() -> PT.test_separable(UserSquare{false}(), X, γ; symmetric = true)) == 1
+    @test passes(() -> PT.test_separable(UserSquare{false}(), X, γ))
   end
 
   @testset "correct functions pass" begin

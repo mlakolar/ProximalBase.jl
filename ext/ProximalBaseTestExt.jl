@@ -209,6 +209,14 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
     size(x, 1) == size(x, 2) || throw(ArgumentError("symmetric = true needs a square x"))
     X = (_dense(x) .+ _dense(x)') ./ 2
     S = SymmetricSparseIterate(X)
+    valid = try
+      ProximalBase.check_symmetric_parameters(f, S)
+    catch err
+      err isa ArgumentError || rethrow()
+      false
+    end
+    @test valid
+    valid || return p
     for k in 1:ncoordinates(S)
       prox_coordinate!(S, f, k, γ)
     end

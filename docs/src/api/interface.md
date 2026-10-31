@@ -8,7 +8,8 @@ ProximalBase
 Modules = [ProximalBase]
 Pages = ["interface.jl", "second_order.jl", "metric.jl", "caches.jl"]
 Private = false
-Filter = t -> !(t in (iszeropreserving, ProximalBase.check_parameters))
+Filter = t -> !(t in (iszeropreserving, ProximalBase.check_parameters,
+  ProximalBase.entry_parameters, ProximalBase.check_symmetric_parameters))
 ```
 
 ## Testing
@@ -32,6 +33,8 @@ SeparableFunction
 value_entry
 iszeropreserving
 ProximalBase.check_parameters
+ProximalBase.entry_parameters
+ProximalBase.check_symmetric_parameters
 ```
 
 ## Matrix norm estimate

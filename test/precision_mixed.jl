@@ -7,6 +7,7 @@ using LinearAlgebra
 const PB = ProximalBase
 
 struct AbsSquare <: SeparableFunction end
+ProximalBase.entry_parameters(f::AbsSquare) = ()
 PB.value_entry(::AbsSquare, v::Real, ::Integer) = abs2(v)
 PB.iszeropreserving(::AbsSquare) = true
 

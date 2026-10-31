@@ -210,7 +210,7 @@ end
       @test allocs(a_lla!, similar(Array(v)), f, v) == 0
     end
   end
-  for f in (CappedL1(0.3, 1.0, rand(36)), LogPenalty(0.3, 0.5), MCP(0.4, 2.0))
+  for f in (CappedL1(0.3, 1.0, Symmetric(rand(6, 6), :L)), LogPenalty(0.3, 0.5), MCP(0.4, 2.0))
     @test allocs(a_lla!, zeros(6, 6), f, S) == 0
   end
   groups = [1:5, 6:10, 11:15, 16:20]

@@ -16,6 +16,7 @@ mutable struct ArraySquare <: SeparableFunction
   w::Vector{Float64}
   resets::Int
 end
+ProximalBase.entry_parameters(f::ArraySquare) = (:w => f.w,)
 PB.value_entry(f::ArraySquare, v::Real, i::Integer) = f.w[i] * v^2 / 2
 PB.prox_entry(f::ArraySquare, v::Real, i::Integer, γ::Real) = v / (1 + γ * f.w[i])
 PB.isconvex(::Type{ArraySquare}) = true

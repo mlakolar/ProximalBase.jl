@@ -85,7 +85,8 @@ export
 VERSION >= v"1.11" && Core.eval(@__MODULE__, Expr(:public,
   :ScalarLoss, :Squared, :Logistic, :Poisson, :Huber, :SquaredHinge,
   :SmoothCheck, :ConvolutionCheck, :deriv, :deriv2, :curvature,
-  :value_and_deriv, :Smoothed, :AbstractGroupPenalty, :Testing, :check_parameters))
+  :value_and_deriv, :Smoothed, :AbstractGroupPenalty, :Testing, :check_parameters,
+  :entry_parameters, :check_symmetric_parameters))
 
 include("compat.jl")
 include("utils.jl")

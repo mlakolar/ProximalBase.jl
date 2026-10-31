@@ -117,4 +117,19 @@ end
   end
 end
 
+@testset "block steps check symmetric parameters before writing" begin
+  A = ones(3, 3)
+  A[2, 1] = nextfloat(1.)
+  f = NormL1(.1, A)
+  k = tril_index(3, 2, 1)
+  x = SymmetricSparseIterate(3)
+  e4 = try prox_coordinate!(copy(x), f, k, .2); nothing catch e; e end
+  e5 = try prox_coordinate!(copy(x), f, k, 1., .2); nothing catch e; e end
+  @test e4 isa ArgumentError && typeof(e5) == typeof(e4)
+  @test sprint(showerror, e5) == sprint(showerror, e4)
+  y = copy(x)
+  @test_throws ArgumentError prox_coordinate!(y, f, k, 1., .2)
+  @test Matrix(y) == Matrix(x) && nnz(y) == 0
+end
+
 end

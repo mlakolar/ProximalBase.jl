@@ -372,9 +372,10 @@ end
   isseparable(f) || _not_separable(f)
   _checkparams(f, x)
   checkbounds(x.ind2nzval, k)
+  r, c = tril_cartesian(x.p, k)
+  _check_entry_arrays(f, x, _CoordinatePair(Int(k)))
   _checkreal(f, u)
   T = eltype(x)
-  r, c = tril_cartesian(x.p, k)
   v = prox_entry(f, convert(T, u), (c - 1) * x.p + r, γ)
   @inbounds _setstored!(x, v, k)
   v

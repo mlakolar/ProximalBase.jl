@@ -80,9 +80,9 @@ end
   @testset "references" begin
     for T in (Float32, Float64)
       fs = (NormL1(T(0.3)), ElasticNet(T(0.3), T(0.2)), IndBox(T(1), T(2)),
-            Translate(NormL1(T(0.3)), T[1, 2, 3, 4]))
+            Translate(NormL1(T(0.3)), T[1, 2, 2, 4]))
       scalarfs = (fs..., Scaled(fs[1], T(2)), nested_scaled(fs[1], T(2)),
-                  Regularize(fs[1], T(0.2)), Regularize(fs[1], T(0.2), T[1, 2, 3, 4]))
+                  Regularize(fs[1], T(0.2)), Regularize(fs[1], T(0.2), T[1, 2, 2, 4]))
       for f in scalarfs
         for x in (SparseIterate(zeros(T, 4)), SparseIterate(zeros(T, 2, 2)))
           check_block(x, f, 2, T(3), T(0.7))

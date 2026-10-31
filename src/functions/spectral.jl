@@ -308,9 +308,11 @@ ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
 entry exceeding `floatmax` by less than the reconstruction's rounding bound
 is returned as `±floatmax`.
 
-Membership is reliable for every finite input within the floating-point
-tolerance; non-finite entries are not members. When `r ≥ minimum(size(X))`,
-the proximal operator copies its input, including at non-finite inputs.
+Numerical rank counts singular values above `√ε σ₁`, with no absolute floor,
+so the rank threshold is relative at every scale. See
+[Functions of a spectrum](@ref). Non-finite entries are not members. When
+`r ≥ minimum(size(X))`, the proximal operator copies its input, including at
+non-finite inputs.
 When a decomposition is needed, a non-finite input gives an all-`NaN` output.
 `value_and_prox!` returns `Inf` at a non-finite input and zero otherwise.
 
@@ -533,9 +535,11 @@ ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
 entry exceeding `floatmax` by less than the reconstruction's rounding bound
 is returned as `±floatmax`.
 
-Membership is reliable for every finite input within the floating-point
-tolerance; non-finite entries are not members. At a non-finite input, the
-proximal output is all `NaN` and `value_and_prox!` returns `Inf`.
+The sign test uses `√ε·max(1, ‖λ‖∞)`. With a rank bound, numerical rank counts
+positive eigenvalues above `√ε·‖λ‖∞`, with no absolute floor. See
+[Functions of a spectrum](@ref). Non-finite entries are not members. At a
+non-finite input, the proximal output is all `NaN` and `value_and_prox!` returns
+`Inf`.
 
 $_PARTIAL_NOTE Without a rank, the partial projection pays when few
 eigenvalues are positive.

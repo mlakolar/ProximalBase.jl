@@ -327,36 +327,58 @@ function (f::IndBallL2)(x::AbstractArray)
   _ball_scaled_value(f, x, T)
 end
 
-# The balls, boxes and the nonnegative orthant on a spectrum v of X/2^k, as
-# SingularValue and Spectral evaluate them when the spectrum of X overflows:
-# bounds scaled by 2^-k, before any narrowing, and tolerances kept in the
-# original units. Boxes and the orthant also take k = 0 for an ordinary spectrum
-# (_relative_membership): a computed spectrum carries errors of order ε‖v‖∞, so
-# their tolerance is √ε·max(1, |bound|, ‖v‖∞), relative to the spectrum as
-# IndPSD's is. On the boundary of a ball ‖v‖∞ is at most the radius, so balls
-# keep their own tolerance.
-_scales_membership(::AbstractFunction) = false
-_scales_membership(::Union{IndBallL1, IndBallL2, IndBox, IndNonnegative}) = true
-_relative_membership(::AbstractFunction) = false
-_relative_membership(::Union{IndBox, IndNonnegative}) = true
-function _scaled_membership(f::Union{IndBallL1, IndBallL2}, v::AbstractVector{T}, k::Int) where {T}
-  isfinite(f.r) || return _ind(isinf(f.r), T)
-  S = float(promote_type(T, typeof(f.r)))
-  α, r = ldexp(one(S), -k), ldexp(S(f.r), -k)
-  n = f isa IndBallL1 ? sum(abs, v) : sqrt(sum(abs2, v))
-  _ind(n <= r + _tol(T) * max(α, r), T)
+# A sorted spectrum gives its scale without another reduction.
+_spectrum_scale(v::AbstractVector{T}) where {T} = isempty(v) ? zero(T) : max(abs(v[1]), abs(v[end]))
+_decided_on_spectrum(::AbstractFunction) = false
+_decided_on_spectrum(::Union{IndBallL1, IndBallL2, IndBox, IndNonnegative, IndBinary, NormL1Nonneg}) = true
+_spectrum_value(f::AbstractFunction, v, k::Int) = f(k == 0 || _scale_invariant(f) ? v : ldexp.(v, k))
+
+# Scale bounds before narrowing, keeping the absolute floor in original units.
+function _spectrum_ball(v::AbstractVector{T}, bound, k::Int, p) where {T}
+  isfinite(bound) || return _ind(isinf(bound) && bound > 0, T)
+  S = float(promote_type(T, typeof(bound)))
+  α, r = ldexp(one(S), -k), ldexp(S(bound), -k)
+  m = S(_spectrum_scale(v))
+  n = p == 1 ? sum(abs, v) : p == 2 ? _norm2(v) : m
+  slack = r + _tol(T) * max(α, abs(r), m)
+  _finite_value(n) && _finite_bound(slack) && return _ind(n <= slack, T)
+  # A norm or the bound plus slack may overflow even at a finite spectrum.
+  e = _comparison_exponent(_magnitude_exponent(m), _magnitude_exponent(abs(r)))
+  factors = _power_factors(S, -e)
+  n = p == 1 ? _scaled_sum(v, factors, abs) :
+    p == 2 ? sqrt(_scaled_sumabs2(v, factors)) : ldexp(m, -e)
+  r = ldexp(S(bound), -k - e)
+  slack = _tol(T) * max(ldexp(one(S), -k - e), abs(r), ldexp(m, -e))
+  _ind(n <= r + slack, T)
 end
-function _scaled_membership(f::IndBox, v::AbstractVector{T}, k::Int) where {T}
+_spectrum_value(f::IndBallL1, v, k::Int) = _spectrum_ball(v, f.r, k, 1)
+_spectrum_value(f::IndBallL2, v, k::Int) = _spectrum_ball(v, f.r, k, 2)
+function _spectrum_value(f::Union{IndBox, IndBinary}, v::AbstractVector{T}, k::Int) where {T}
   _checkparams(f, v)
   S = float(promote_type(T, eltype(f.l), eltype(f.u)))
-  floor, t = max(ldexp(one(S), -k), S(_maximum_abs(v))), S(_tol(T))
+  floor, t = max(ldexp(one(S), -k), S(_spectrum_scale(v))), S(_tol(T))
   @inbounds for i in eachindex(v)
-    _inbox(v[i], ldexp(S(_entry(f.l, i)), -k), ldexp(S(_entry(f.u, i)), -k), t, floor) || return T(Inf)
+    l, u = ldexp(S(_entry(f.l, i)), -k), ldexp(S(_entry(f.u, i)), -k)
+    ok = f isa IndBox ? _inbox(v[i], l, u, t, floor) :
+      abs(v[i] - l) <= t * max(floor, abs(l)) || abs(v[i] - u) <= t * max(floor, abs(u))
+    ok || return T(Inf)
   end
   zero(T)
 end
-_scaled_membership(::IndNonnegative, v::AbstractVector{T}, k::Int) where {T} =
-  _ind(isempty(v) || minimum(v) >= -_tol(T) * max(ldexp(one(T), -k), _maximum_abs(v)), T)
+_spectrum_value(::IndNonnegative, v::AbstractVector{T}, k::Int) where {T} =
+  _ind(isempty(v) || minimum(v) >= -_tol(T) * max(ldexp(one(T), -k), _spectrum_scale(v)), T)
+function _spectrum_value(f::NormL1Nonneg, v::AbstractVector{T}, k::Int) where {T}
+  _checkparams(f, v)
+  # Preserve the ordinary reduction when its domain test already accepts.
+  k == 0 && all(x -> x >= -_tol(T), v) && return f(v)
+  iszero(_spectrum_value(IndNonnegative(), v, k)) || return T(Inf)
+  # Only the domain decision changes; negative rounding contributes zero.
+  s = zero(T)
+  @inbounds @simd for i in eachindex(v)
+    s += convert(T, value_entry(f, ldexp(max(v[i], zero(T)), k), i))
+  end
+  s
+end
 
 @noinline function _ball_scaled_value(f, x, ::Type{T}) where {T}
   m = _maximum_abs(x)
@@ -497,6 +519,28 @@ end
   r = ldexp(S(f.r), -k)
   slack = _tol(T) * max(ldexp(one(S), -k), r, abs(s))
   _ind(f.equality ? abs(s - r) <= slack : s <= r + slack, T)
+end
+
+_decided_on_spectrum(::IndSimplex) = true
+function _spectrum_value(f::IndSimplex, v::AbstractVector{T}, k::Int) where {T}
+  iszero(_spectrum_value(IndNonnegative(), v, k)) || return T(Inf)
+  _spectrum_sum(v, f.r, k, f.equality)
+end
+
+# Sums retain their own relative tolerance, including cancellation.
+function _spectrum_sum(v::AbstractVector{T}, bound, k::Int, equality::Bool) where {T}
+  isfinite(bound) || return _ind(!equality && isinf(bound), T)
+  S = float(promote_type(T, typeof(bound)))
+  r, α = ldexp(S(bound), -k), ldexp(one(S), -k)
+  s = sum(v)
+  slack = _tol(T) * max(α, abs(r), abs(s))
+  if !_finite_bound(slack)
+    e = _comparison_exponent(_magnitude_exponent(S(_spectrum_scale(v))), _magnitude_exponent(abs(r)))
+    s = _scaled_sum(v, _power_factors(S, -e))
+    r, α = ldexp(S(bound), -k - e), ldexp(one(S), -k - e)
+    slack = _tol(T) * max(α, abs(r), abs(s))
+  end
+  _ind(equality ? abs(s - r) <= slack : s <= r + slack, T)
 end
 
 function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, ::Real)
@@ -856,4 +900,29 @@ function _scaled_normal_prox!(y, f, x)
   f isa IndHalfspace && (g = max(g, zero(g)))
   t = convert(T, g / _normal_sqnorm(f, x))
   y .= x .- t .* a
+end
+
+_decided_on_spectrum(::Union{IndHyperplane, IndHalfspace, IndHyperslab}) = true
+function _spectrum_value(f::Union{IndHyperplane, IndHalfspace, IndHyperslab}, v::AbstractVector{T}, k::Int) where {T}
+  k == 0 && return f(v)
+  _checkparams(f, v)
+  if f isa IndHyperslab
+    isfinite(f.l) && !iszero(_spectrum_linear(f, v, k, f.l, true)) && return T(Inf)
+    isfinite(f.u) && return _spectrum_linear(f, v, k, f.u, false)
+    return zero(T)
+  end
+  _spectrum_linear(f, v, k, f.b, false)
+end
+function _spectrum_linear(f, v::AbstractVector{T}, k, b, lower) where {T}
+  S = promote_type(T, typeof(f.q))
+  e = exponent(f.s[1]) + exponent(f.s[2])
+  j = _comparison_exponent(_magnitude_exponent(S(_spectrum_scale(v))),
+    _magnitude_exponent(abs(b)) + e - k)
+  factors = _power_factors(S, -j)
+  offset = ldexp(S(b), e - k - j)
+  g = _scaled_dot(_normalized_normal(f.a, f.s), v, factors) - offset
+  q = f.a isa Real ? sqrt(S(f.q)) * sqrt(S(length(v))) : sqrt(S(f.q))
+  tol = _isscaled(f) ? max(_tol(T), _tol(typeof(f.q))) : _tol(T)
+  slack = tol * max(ldexp(one(S), e - k - j), abs(offset), q * sqrt(_scaled_sumabs2(v, factors)))
+  _ind(f isa IndHyperplane ? abs(g) <= slack : (lower ? -g <= slack : g <= slack), T)
 end

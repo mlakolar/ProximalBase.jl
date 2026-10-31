@@ -1034,3 +1034,26 @@ function _checkstep(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractAr
   end
   _infeasible(c)
 end
+
+_decided_on_spectrum(::BoxConstrained) = true
+function _spectrum_value(c::BoxConstrained, v::AbstractVector{T}, k::Int) where {T}
+  _checkparams(c, v)
+  # A finite ordinary value needs neither relaxed membership nor a new sum.
+  if k == 0 && !_isindicator(c)
+    ordinary = c(v)
+    isfinite(ordinary) && return convert(T, ordinary)
+  end
+  iszero(_spectrum_value(c.box, v, k)) || return T(Inf)
+  convert(T, _spectrum_value(c.f, v, k))
+end
+_decided_on_spectrum(::LinearConstrained) = true
+function _spectrum_value(c::LinearConstrained, v::AbstractVector{T}, k::Int) where {T}
+  _checkparams(c, v)
+  # A finite ordinary value needs neither relaxed membership nor a new sum.
+  if k == 0 && !_isindicator(c)
+    ordinary = c(v)
+    isfinite(ordinary) && return convert(T, ordinary)
+  end
+  iszero(_spectrum_value(c.set, v, k)) || return T(Inf)
+  convert(T, _spectrum_value(c.f, v, k))
+end

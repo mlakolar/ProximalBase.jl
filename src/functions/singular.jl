@@ -40,23 +40,18 @@ not absolutely symmetric.
 finite matrices: a matrix with a non-finite entry has value `Inf`, also for a
 bounded `f` such as `NormL0`. When a decomposition is needed, a non-finite
 input gives an all-`NaN` proximal output; `value_and_prox!` returns `Inf`.
-In the value `F(X)`, singular values within a relative `√ε` of the largest
-count as zero, as they do for `IndBallRank`: the
-value at a proximal point of low rank then agrees with the one
-[`value_and_prox!`](@ref) returns, also for a discontinuous `f` such as
-`NormL0`. The value of `Conjugate(SingularValue(f))` is `f*` at the masked
-singular values of `Y`, with the same domain, known when that of `Conjugate(f)`
-is, as for the nuclear-norm ball and the spectral norm, which are conjugate to
-each other.
+Only functions that count nonzeros, such as `NormL0` and `IndBallL0`, treat
+singular values at most `√ε σ₁` as zero. Other functions see the computed
+spectrum. Membership and domain tests use `√ε·max(1, |bound|, σ₁)`; sum
+constraints keep their own scaled tolerance. The zero mask is resolved in
+scaled units when the largest singular value overflows or its threshold is
+not normal. See [Functions of a spectrum](@ref).
 
-The zero mask stays correct when the largest singular value overflows, and
-when the threshold `√ε σ₁` is not a normal number: the mask then comes from the
-singular values of `X` scaled to unit range. Membership in `IndBox` and
-`IndBallLinf` is decided with the tolerance `√ε·max(1, |bound|, σ₁)`, relative to
-the spectrum. At an overflowing spectrum,
-membership in `IndBallL1`, `IndBallL2`, `IndBallLinf` and `IndBox` is decided in
-the scaled units, with the tolerance of the original ones. Whether another `f`
-evaluates an overflowing spectrum correctly depends on `f`.
+`value_and_prox!` returns `f` at the exact proximal spectrum. Re-evaluation at
+the returned matrix agrees only when retained entries exceed the numerical-zero
+threshold. The value of `Conjugate(SingularValue(f))` is `f*` at the computed
+singular values of `Y`, with the same membership tolerance and finite domain.
+Whether another `f` evaluates an overflowing spectrum correctly depends on `f`.
 
 At a finite input whose spectrum overflows, the proximal output and the value
 returned by `value_and_prox!` are computed in scaled units for unweighted
@@ -120,9 +115,8 @@ function (F::SingularValue)(X::AbstractMatrix)
     all(isfinite, X) || return T(Inf)
   end
   t, scaled, k = _masked_singular_values!(F, X; copied = _is_device_array(X))
+  _decided_on_spectrum(F.f) && return _spectrum_value(F.f, scaled === nothing ? t : scaled, k)
   _counts_nonzeros(F.f) && _scale_invariant(F.f) && scaled !== nothing && return convert(T, F.f(scaled))
-  k > 0 && _scales_membership(F.f) && return _scaled_membership(F.f, scaled, k)
-  _relative_membership(F.f) && return _scaled_membership(F.f, t, 0)
   convert(T, F.f(t))
 end
 
@@ -218,7 +212,9 @@ function _conjugate_value(F::SingularValue, Y::AbstractMatrix)
   _checkconjugate(F, Y)
   _checkblas(F, float(eltype(Y)))
   all(isfinite, Y) || return float(eltype(Y))(Inf)
-  t, = _masked_singular_values!(F, Y; mask = _counts_nonzeros(Conjugate(F.f)))
+  f = Conjugate(F.f)
+  t, scaled, k = _masked_singular_values!(F, Y; mask = _counts_nonzeros(f))
+  _decided_on_spectrum(f) && return _spectrum_value(f, scaled === nothing ? t : scaled, k)
   _conjugate_value(F.f, t)
 end
 

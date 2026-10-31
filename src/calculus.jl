@@ -1746,3 +1746,48 @@ end
 _check_projection_result(::Tuple{}, ::Tuple{}, γ) = true
 _check_projection_result(z::Tuple, x::Tuple, γ) =
   (_check_projection_result(first(z), first(x), γ); _check_projection_result(Base.tail(z), Base.tail(x), γ))
+
+# Spectrum decisions are private to the matrix wrappers.
+_decided_on_spectrum(f::Scaled) = _decided_on_spectrum(f.f)
+function _spectrum_value(f::Scaled, v::AbstractVector{T}, k::Int) where {T}
+  # Keep ordinary value arithmetic when no domain relaxation is needed.
+  if k == 0 && !_isindicator(f)
+    ordinary = f(v)
+    isfinite(ordinary) && return convert(T, ordinary)
+  end
+  a = _spectrum_value(f.f, v, k)
+  r = f.α * a
+  if (!isfinite(r) && f.α < 1) || (_scaled_small(r) && !iszero(a)) ||
+     (_scaled_small(a) && f.α > 1)
+    g = _fold_level(f.f, f.α)
+    g === nothing || return convert(T, _spectrum_value(g, v, k))
+  end
+  convert(T, r)
+end
+_decided_on_spectrum(f::Conjugate) = _conjugate_spectrum_indicator(f.f)
+_conjugate_spectrum_indicator(::AbstractFunction) = false
+_conjugate_spectrum_indicator(::Union{IndNonnegative, ZeroFunction, NormL2, NormLinf, SumLargest}) = true
+_conjugate_spectrum_indicator(::NormL1{<:Real, Nothing}) = true
+function _spectrum_value(f::Conjugate, v::AbstractVector{T}, k::Int) where {T}
+  _checkconjugate(f.f, v)
+  _conjugate_spectrum_value(f.f, v, k)
+end
+_conjugate_spectrum_value(f::NormL1, v, k) = _spectrum_ball(v, f.λ0, k, Inf)
+_conjugate_spectrum_value(f::NormL2, v, k) = _spectrum_ball(v, f.λ, k, 2)
+_conjugate_spectrum_value(f::NormLinf, v, k) = _spectrum_ball(v, f.λ, k, 1)
+function _conjugate_spectrum_value(::IndNonnegative, v::AbstractVector{T}, k) where {T}
+  t = _tol(T) * max(ldexp(one(T), -k), _spectrum_scale(v))
+  _ind(isempty(v) || maximum(v) <= t, T)
+end
+_conjugate_spectrum_value(::ZeroFunction, v, k) = _spectrum_ball(v, zero(eltype(v)), k, Inf)
+function _conjugate_spectrum_value(f::SumLargest, v::AbstractVector{T}, k) where {T}
+  iszero(_spectrum_value(IndBox(0, f.λ), v, k)) || return T(Inf)
+  # Scale the level before multiplying by k to avoid an overflowing mass.
+  S = float(promote_type(T, typeof(f.λ)))
+  e = _comparison_exponent(_magnitude_exponent(S(_spectrum_scale(v))),
+    _magnitude_exponent(S(f.λ)) - k)
+  w = _power_factors(S, -e)
+  s = _scaled_sum(v, w)
+  mass = f.k * ldexp(S(f.λ), -k - e)
+  _ind(abs(s - mass) <= _tol(T) * max(ldexp(one(S), -k - e), abs(s), mass), T)
+end

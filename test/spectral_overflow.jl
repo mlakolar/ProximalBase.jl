@@ -439,7 +439,7 @@ end
             # the domain of the spectral functions is the finite matrices
             @test f(X) === (f isa NuclearNorm ? T(Inf) : zero(T))
             Y = similar(X)
-            @test value_and_prox!(Y, f, X, γ) === zero(T)
+            @test value_and_prox!(Y, f, X, γ) === (f isa NuclearNorm ? T(Inf) : zero(T))
             @test samebits(Y, X)
           end
           @test TracePSD(λ)(X) === T(Inf)

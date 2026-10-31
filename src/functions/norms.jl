@@ -15,9 +15,7 @@ The Euclidean norm `f(x) = λ ‖x‖₂` (the Frobenius norm for a matrix). Its
 proximal operator shrinks `x` towards zero: `max(1 - γλ/‖x‖, 0) x`. For the
 group lasso, a sum of such norms over groups of entries, use
 [`GroupNormL2`](@ref).
-When an intermediate overflows or underflows, or a weight is not representable
-in the argument's precision although the weighted value is representable,
-the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct NormL2{T<:Real} <: AbstractFunction
   λ::T
@@ -289,9 +287,7 @@ The ℓ∞ norm `f(x) = λ maxᵢ |xᵢ|`. Its proximal operator clips the entri
 level `τ`, `sign(xᵢ) min(|xᵢ|, τ)`: by Moreau's identity it is `x` minus the
 projection onto the ℓ1 ball of radius `γλ`, which takes O(n) expected time
 (Condat's algorithm).
-When an intermediate overflows or underflows, or a weight is not representable
-in the argument's precision although the weighted value is representable,
-the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct NormLinf{T<:Real} <: AbstractFunction
   λ::T
@@ -388,9 +384,7 @@ operator touch only the active groups. On ordinary arrays, active-set solvers ca
 f = GroupNormL2(0.5, [1:3, 4:5, [6, 8]])    # x[7] is not penalized
 prox(f, randn(8))
 ```
-When an intermediate overflows or underflows, or a weight is not representable
-in the argument's precision although the weighted value is representable,
-the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct GroupNormL2{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: HomogeneousGroupNorm
   λ0::T
@@ -418,9 +412,7 @@ selection in multi-task problems. The weights default to `wₖ = 1`. The proxima
 operator clips each group, by Moreau's identity with the projection onto an ℓ1
 ball, and its optimality test ([`kkt_violation`](@ref)) uses the dual norm,
 `‖g[Gₖ]‖₁ - λ0 wₖ`.
-When an intermediate overflows or underflows, or a weight is not representable
-in the argument's precision although the weighted value is representable,
-the value is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct GroupNormLinf{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: HomogeneousGroupNorm
   λ0::T
@@ -735,7 +727,7 @@ function restrict(f::AbstractGroupPenalty, S::AbstractVector{<:Integer})
   _rebuild(f, f.λ0, [members[k] for k in ks], f.w[ks])
 end
 
-function kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AbstractArray, i::Integer)
+function _kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AbstractArray, i::Integer)
   eltype(g) <: Real || _real_error(:kkt_violation)
   eltype(x) <: Real || _real_error(:kkt_violation)
   _checkgroups(f, g)
@@ -747,13 +739,13 @@ function kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AbstractArr
 end
 
 # on an AtomIterate, k is a group
-kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AtomIterate, k::Integer) =
+_kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, x::AtomIterate, k::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); _checkgroups(f, g); _checksamegroups(f, x); _dual_norm(f, g, x.groups[k]) - _weight_coefficient(f.λ0, f.w[k]))
 
 # the coordinates of x are the groups of f
 _checksamegroups(f::AbstractGroupPenalty, x::AtomIterate) = _samelayout(f, x) ||
   throw(DimensionMismatch("f and x must have the same groups."))
-kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
+_kkt_violation(f::AbstractGroupPenalty, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); throw(ArgumentError("$(typeof(f)) groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate")))
 
 # an AtomIterate that shares the groups of f, which must partition 1:p
@@ -817,16 +809,24 @@ function _homogeneous_group_prox!(y::AtomIterate, f::HomogeneousGroupNorm, x::At
 end
 
 # Validate the layout and group before a wrapper changes any entries.
-function _check_group_coordinate(f::AbstractGroupPenalty, x::AtomIterate, k::Integer)
+@inline function _check_group_coordinate(f::AbstractGroupPenalty, x::AtomIterate, k::Integer)
   _checksamegroups(f, x)
   checkbounds(x.groups, k)
   nothing
 end
 
-# group k of x shrunk in place; the group becomes active if it is nonzero, as after
-# writing to it through atom(x, k)
+@inline _unchecked_coordinate!(x::AtomIterate, f::AbstractGroupPenalty, k, γ, ctx) = prox_coordinate!(x, f, k, γ)
+
+@inline _check_coordinate(x::AtomIterate, f::HomogeneousGroupNorm, k) = _check_group_coordinate(f, x, k)
+@inline _block_step!(x::AtomIterate, f::HomogeneousGroupNorm, k, u, γ, ctx) = _stage_and_step!(x, f, k, u, γ, ctx)
+
+# group k of x shrunk in place; the group becomes active if it ends nonzero
 function prox_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k::Integer, γ::Real)
-  _check_group_coordinate(f, x, k)
+  ctx = _check_coordinate(x, f, k)
+  _unchecked_coordinate!(x, f, k, γ, ctx)
+end
+
+@inline function _unchecked_coordinate!(x::AtomIterate, f::HomogeneousGroupNorm, k, γ, ctx)
   T = float(eltype(x))
   if (iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
@@ -861,6 +861,7 @@ operator sorts `v`, subtracts `γλ2 (2i - K - 1)` from the `i`-th smallest entr
 pools adjacent violators into a nondecreasing sequence, restores the order, and
 soft-thresholds by `γλ1`: exact, in O(K log K), in buffers that the function
 owns.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct NormL1Fused{T<:Real} <: AbstractFunction
   λ1::T
@@ -882,9 +883,88 @@ isproximable(::Type{<:NormL1Fused}) = true
 _argument_type(::Type{<:NormL1Fused}) = Union{AbstractVector, Tuple{AbstractArray, AbstractArray}}
 isconvex(::Type{<:NormL1Fused}) = true
 
-(f::NormL1Fused)(xy::Tuple{Real, Real}) = _value_at(
-  (iszero(f.λ1) ? zero(float(xy[1])) : f.λ1 * (abs(xy[1]) + abs(xy[2]))) +
-  (iszero(f.λ2) ? zero(float(xy[1])) : f.λ2 * abs(xy[1] - xy[2])), xy)
+# A level already stored in the value type loses no precision on conversion.
+@inline _fused_level_fits(::Type{T}, λ::T) where {T<:AbstractFloat} = true
+@inline _fused_level_fits(::Type{T}, λ::Real) where {T} = _level_fits(T, λ)
+@inline _fused_levels_fit(::Type{T}, f::NormL1Fused) where {T} =
+  _fused_level_fits(T, f.λ1) && _fused_level_fits(T, f.λ2)
+
+# Normalize weighted terms together, so subnormal contributions round once.
+@noinline function _fused_scaled_value(terms, k, ::Type{T}) where {T}
+  R = typeof(first(terms)[2])
+  e = typemin(Int)
+  for term in terms
+    λ, v = term[1], term[2]
+    units = length(term) == 2 ? k : term[3]
+    if !iszero(λ) && !iszero(v)
+      e = max(e, exponent(R(λ)) + exponent(v) + units)
+    end
+  end
+  e == typemin(Int) && return zero(T)
+  s = c = zero(R)
+  for term in terms
+    λ, v = term[1], term[2]
+    units = length(term) == 2 ? k : term[3]
+    s, c = _compensated_add(s, c, _scaled_product(R(λ), v, units - e))
+  end
+  # Generator inference can lose the term type on Julia 1.10.
+  convert(T, _scaled_product(one(R), s + c, e))::T
+end
+
+@noinline function _recover_fused_pair(f, xy, ::Type{T}) where {T}
+  R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
+  k = _magnitude_exponent(max(abs(R(xy[1])), abs(R(xy[2]))))
+  scale = _power_factors(R, -k)
+  u, v = _scale_value(R(xy[1]), scale), _scale_value(R(xy[2]), scale)
+  _fused_scaled_value(((f.λ1, abs(u) + abs(v)), (f.λ2, abs(u - v))), k, T)
+end
+
+# The unchecked pair expression also serves the aggregate array reduction.
+@inline function _fused_pair_value(f, xy)
+  T = _valtype(xy)
+  u, w = xy[1] isa Integer ? T(xy[1]) : xy[1], xy[2] isa Integer ? T(xy[2]) : xy[2]
+  _value_at((iszero(f.λ1) ? zero(float(xy[1])) : f.λ1 * (abs(u) + abs(w))) +
+    (iszero(f.λ2) ? zero(float(xy[1])) : f.λ2 * abs(u - w)), xy)
+end
+
+# A nonnegative finite result precedes infinity in the IEEE bit ordering.
+@inline function _fused_finite(v::T) where {T<:Union{Float16, Float32, Float64}}
+  U = T === Float64 ? UInt64 : T === Float32 ? UInt32 : UInt16
+  reinterpret(U, v) < reinterpret(U, T(Inf))
+end
+@inline _fused_finite(v) = isfinite(v) && !signbit(v)
+
+@inline function (f::NormL1Fused)(xy::Tuple{Real, Real})
+  T = _valtype(xy)
+  v = _fused_pair_value(f, xy)
+  _fused_finite(v) && _fused_levels_fit(T, f) && return v
+  _checked_fused_pair_value(f, xy, T)
+end
+
+@noinline function _checked_fused_pair_value(f, xy, ::Type{T}) where {T}
+  ordinary = _fused_pair_value(f, xy)
+  all(isfinite, xy) && isfinite(f.λ1) && isfinite(f.λ2) ? _recover_fused_pair(f, xy, T) : ordinary
+end
+
+@noinline function _recover_fused_arrays(f, x, ::Type{T}, ordinary) where {T}
+  R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
+  isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
+  m = zero(R)
+  for i in eachindex(x[1], x[2])
+    m = max(m, abs(R(x[1][i])), abs(R(x[2][i])))
+  end
+  isfinite(m) || return ordinary
+  iszero(m) && return zero(T)
+  # Independent pairs may have very different scales and zero fusion gaps.
+  terms = (begin
+    u, w = R(x[1][i]), R(x[2][i])
+    k = _magnitude_exponent(max(abs(u), abs(w)))
+    scale = _power_factors(R, -k)
+    u, w = _scale_value(u, scale), _scale_value(w, scale)
+    h == 1 ? (f.λ1, abs(u) + abs(w), k) : (f.λ2, abs(u - w), k)
+  end for i in eachindex(x[1], x[2]), h in 1:2)
+  _fused_scaled_value(terms, 0, T)
+end
 
 function (f::NormL1Fused)(x::Tuple{AbstractArray, AbstractArray})
   _checkreal(f, x)
@@ -893,13 +973,14 @@ function (f::NormL1Fused)(x::Tuple{AbstractArray, AbstractArray})
   T = float(promote_type(eltype(x1), eltype(x2)))
   s = zero(T)
   @inbounds for i in eachindex(x1, x2)
-    s += f((x1[i], x2[i]))
+    s += _fused_pair_value(f, (x1[i], x2[i]))
   end
-  s
+  isfinite(s) && _fused_levels_fit(T, f) && return s
+  _recover_fused_arrays(f, x, T, s)
 end
 
 # argmin (1/2γ) ((u - x)² + (v - y)²) + λ1 (|u| + |v|) + λ2 |u - v|: fuse, then shrink
-function _prox_l1fused(x::T, y::T, λ1::T, λ2::T, γ::T) where {T<:AbstractFloat}
+@inline function _prox_l1fused(x::T, y::T, λ1::T, λ2::T, γ::T, ::Val{C} = Val(true)) where {T<:AbstractFloat, C}
   if λ2 > zero(T)
     t = λ2 * γ
     if x > y + 2 * t
@@ -909,7 +990,8 @@ function _prox_l1fused(x::T, y::T, λ1::T, λ2::T, γ::T) where {T<:AbstractFloa
       u = x + t
       v = y - t
     else
-      u = v = (x + y) / 2
+      z = x + y
+      u = v = C ? ifelse(isinf(z), x / 2 + y / 2, z / 2) : z / 2
     end
   else
     u = x
@@ -926,13 +1008,34 @@ end
 
 function prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real)
   _checkwrite(prox!, f, y, x)
+  _prox_fused_arrays!(y, f, x, γ, Val(true))
+end
+
+@noinline function _prox_fused_arrays!(y, f, x, γ, ::Val{C}) where {C}
   T = float(promote_type(eltype(y[1]), eltype(y[2])))
   λ1, λ2, γ = T(f.λ1), T(f.λ2), T(γ)
   @inbounds for i in eachindex(x[1])
-    y[1][i], y[2][i] = _prox_l1fused(T(x[1][i]), T(x[2][i]), λ1, λ2, γ)
+    y[1][i], y[2][i] = _prox_l1fused(T(x[1][i]), T(x[2][i]), λ1, λ2, γ, Val(C))
   end
   y
 end
+
+function value_and_prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused,
+                         x::Tuple{AbstractArray, AbstractArray}, γ::Real)
+  _checkwrite(value_and_prox!, f, y, x)
+  alias = Base.mightalias(y[1], x[1]) || Base.mightalias(y[1], x[2]) ||
+    Base.mightalias(y[2], x[1]) || Base.mightalias(y[2], x[2])
+  alias && return f(prox!(y, f, x, γ))
+  _prox_fused_arrays!(y, f, x, γ, Val(false))
+  v = f(y)
+  isfinite(v) ? v : _recover_fused_arrayprox!(y, f, x, γ, v)
+end
+
+@noinline function _recover_fused_arrayprox!(y, f, x, γ, ordinary)
+  isfinite(f.λ1) && isfinite(f.λ2) && all(isfinite, x[1]) && all(isfinite, x[2]) || return ordinary
+  f(prox!(y, f, x, γ))
+end
+
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NormL1Fused,
             y::Tuple{AbstractArray, AbstractArray}, x::Tuple{AbstractArray, AbstractArray}) =
   (_checkreal(f, x); _checkreal(f, y); size(y[1]) == size(x[1]) == size(y[2]) == size(x[2]) || throw(DimensionMismatch("the arrays of the pairs must have one size")))
@@ -963,7 +1066,34 @@ function _sortperm_fused!(f::NormL1Fused, x::AbstractVector, ::Type{T}) where {T
   p, a
 end
 
-function (f::NormL1Fused)(x::AbstractVector)
+@noinline function _recover_fused_vector(f, x, ::Type{T}, ordinary) where {T}
+  all(isfinite, x) && isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
+  R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
+  p, a = _sortperm_fused!(f, x, R)
+  n = length(x)
+  k = _magnitude_exponent(_maximum_abs(x))
+  scale = _power_factors(R, -k)
+  s1 = s2 = c1 = c2 = zero(R)
+  @inbounds for i in 1:n
+    u = _scale_value(a[p[i]], scale)
+    s1, c1 = _compensated_add(s1, c1, abs(u))
+    if i < n
+      gap = _scale_value(a[p[i + 1]], scale) - u
+      s2, c2 = _compensated_add(s2, c2, (R(i) * R(n - i)) * gap)
+    end
+  end
+  _fused_scaled_value(((f.λ1, s1 + c1), (f.λ2, s2 + c2)), k, T)
+end
+
+@inline function _fused_vector_value(f, x, v1, v2, ::Type{T}) where {T}
+  w1 = iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1
+  w2 = iszero(f.λ2) ? zero(T) : convert(T, f.λ2) * v2
+  v = w1 + w2
+  (_fused_finite(v) & (iszero(f.λ2) | (v2 >= 0)) & _fused_levels_fit(T, f)) && return v
+  _recover_fused_vector(f, x, T, v)
+end
+
+@inline function (f::NormL1Fused)(x::AbstractVector)
   _checkreal(f, x)
   Base.require_one_based_indexing(x)
   T = float(eltype(x))
@@ -976,8 +1106,7 @@ function (f::NormL1Fused)(x::AbstractVector)
     v1 += abs(a[p[k]])
     v2 += (2k - n - 1) * a[p[k]]
   end
-  (iszero(f.λ1) ? zero(T) : convert(T, f.λ1) * v1) +
-  (iszero(f.λ2) ? zero(T) : convert(T, f.λ2) * v2)
+  _fused_vector_value(f, x, v1, v2, T)
 end
 
 value_and_prox!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real) = _prox_fused!(y, f, x, γ, Val(true))
@@ -991,7 +1120,7 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
   n = length(x)
   if iszero(λ1) && iszero(λ2)
     y === x || copyto!(y, x)
-    return V ? zero(f(y)) : zero(T)
+    return V ? f(y) : zero(T)
   end
   if n == 2
     @inbounds y[1], y[2] = _prox_l1fused(convert(T, x[1]), convert(T, x[2]), λ1, λ2, convert(T, γ))
@@ -1015,5 +1144,500 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     v1 += abs(wk)
     v2 += (2k - n - 1) * wk
   end
-  V ? (iszero(λ1) ? zero(T) : λ1 * v1) + (iszero(λ2) ? zero(T) : λ2 * v2) : zero(T)
+  V ? _fused_vector_value(f, y, v1, v2, T) : zero(T)
+end
+
+# Project onto an L2 ball without subtracting two nearly equal coordinates.
+# Only exceptional norms or factors need exponent arithmetic.
+function _project_l2!(y, x, λ, α = 1, w = 1)
+  isinf(w) && return copyto!(y, x)
+  (iszero(λ) || iszero(w)) && return fill!(y, zero(eltype(y)))
+  c = _projection_product(α, λ, w)
+  n = _norm2(x)
+  R = promote_type(float(eltype(x)), float(eltype(y)))
+  bound = convert(R, c)
+  t = min(one(n), bound / n)
+  if isfinite(n) && (iszero(n) || (isfinite(bound) && t >= floatmin(typeof(t))))
+    iszero(n) && return copyto!(y, x)
+    y .= t .* x
+    return y
+  end
+  _project_l2_scaled!(y, x, λ, α, w, c, n)
+end
+
+function _project_l2_scaled!(y, x, λ, α, w, c, n)
+  m = _maximum_abs(x)
+  (!isfinite(m) || !isfinite(λ) || !isfinite(α)) && return (y .= min(one(n), c / n) .* x)
+  iszero(m) && return copyto!(y, x)
+  # Scaling only the reduction avoids losing tiny original coordinates.
+  a, e = frexp(m)
+  q = sqrt(mapreduce(identity, +, Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_square, x, m)); init = zero(m)))
+  r1, e1 = _projection_scale_parts(α)
+  r2, e2 = frexp(float(λ))
+  r3, e3 = frexp(float(w))
+  r = ((r1 * r2) * r3) / (a * q)
+  k = e1 + e2 + e3 - e
+  fr, er = frexp(r)
+  k += er
+  (k > 1 || (k == 1 && fr >= 0.5)) && return copyto!(y, x)
+  y .= _projection_scale.(x, fr, k)
+end
+
+_projection_square(v, m) = abs2(v / m)
+_projection_scale(v::Real, r, k) = _scaled_product(promote(float(r), float(v))..., k)
+
+
+# Linear group indices address the original matrix without reshape headers.
+function _project_l2_group!(y, x, G, λ, α = 1, w = 1)
+  isinf(w) && return _project_l2_group_scale!(y, x, G, 1)
+  if iszero(λ) || iszero(w)
+    @inbounds @simd for i in G
+      y[i] = zero(eltype(y))
+    end
+    return y
+  end
+  c = _projection_product(α, λ, w)
+  n = _projection_group_norm2(x, G)
+  R = promote_type(float(eltype(x)), float(eltype(y)))
+  bound = convert(R, c)
+  t = min(one(n), bound / n)
+  if isfinite(n) && (iszero(n) || (isfinite(bound) && t >= floatmin(typeof(t))))
+    return _project_l2_group_scale!(y, x, G, iszero(n) ? one(n) : t)
+  end
+  _project_l2_group_scaled!(y, x, G, λ, α, w, c, n)
+end
+
+function _project_l2_group_scale!(y, x, G, t)
+  @inbounds @simd for i in G
+    y[i] = t * x[i]
+  end
+  y
+end
+
+function _project_l2_group_scaled!(y, x, G, λ, α, w, c, n)
+  m = _projection_group_maxabs(x, G)
+  (!isfinite(m) || !isfinite(λ) || !isfinite(α)) &&
+    return _project_l2_group_scale!(y, x, G, min(one(n), c / n))
+  iszero(m) && return _project_l2_group_scale!(y, x, G, 1)
+  s = err = zero(m)
+  @inbounds for i in G
+    s, err = _compensated_add(s, err, _projection_square(x[i], m))
+  end
+  a, e = frexp(m)
+  r1, e1 = _projection_scale_parts(α)
+  r2, e2 = frexp(float(λ))
+  r3, e3 = frexp(float(w))
+  r = ((r1 * r2) * r3) / (a * sqrt(s + err))
+  fr, er = frexp(r)
+  k = e1 + e2 + e3 - e + er
+  (k > 1 || (k == 1 && fr >= 0.5)) && return _project_l2_group_scale!(y, x, G, 1)
+  @inbounds for i in G
+    y[i] = _projection_scale(x[i], fr, k)
+  end
+  y
+end
+
+
+# Preserve the existing real-float reductions and their ordinary arithmetic.
+@inline _projection_group_norm2(x::AbstractArray{<:AbstractFloat}, G) = _group_norm2(x, G)
+@inline _projection_group_maxabs(x::AbstractArray{<:AbstractFloat}, G) = _maxabs(x, G)
+
+function _projection_group_norm2(x::AbstractArray, G)
+  T = float(eltype(x))
+  s = zero(T)
+  @inbounds @simd for i in G
+    s += abs2(float(x[i]))
+  end
+  isfinite(s) && s >= floatmin(T) && return sqrt(s)
+  if iszero(s)
+    a = zero(T)
+    @inbounds @simd for i in G
+      a += abs(float(x[i]))
+    end
+    iszero(a) && return s
+  end
+  n = zero(T)
+  @inbounds for i in G
+    isnan(x[i]) && return T(NaN)
+    n = hypot(n, abs(float(x[i])))
+  end
+  n
+end
+
+function _projection_group_maxabs(x::AbstractArray, G)
+  m = zero(float(eltype(x)))
+  @inbounds for i in G
+    m = max(m, abs(float(x[i])))
+  end
+  m
+end
+
+@inline _projection_l1_scale(v, e) = ldexp(v, e)
+function _projection_l1_scale(v::BigFloat, e)
+  # Windows Int exponents otherwise select ldexp's rounded exp2 fallback.
+  # MPFR's full exponent span fits Clong; wider shifts necessarily saturate.
+  ldexp(v, Clong(clamp(e, typemin(Clong), typemax(Clong))))
+end
+
+# Julia 1.10's ldexp truncates some values below the smallest subnormal.
+# A normal power-of-two scaling followed by multiplication rounds only once.
+@inline function _projection_l1_ldexp(v::R, e) where {R}
+  e < exponent(floatmin(R)) ? ldexp(v, e + precision(R)) * ldexp(one(R), -precision(R)) : ldexp(v, e)
+end
+
+_projection_l1_ldexp(v::BigFloat, e) = _projection_l1_scale(v, e)
+
+# Products of finite BigFloat factors can exceed a machine exponent.
+struct _L1ProjectionBigScale
+  m::BigFloat
+  e::BigInt
+end
+_projection_scale_parts(a::_L1ProjectionBigScale) = (a.m, a.e)
+
+# Offsets at or beyond the radius cannot enter the support. Apply the exponent
+# after subtraction: huge tied maxima must still have exactly zero offset.
+@inline function _projection_l1_offset(v, m, r, scale, e, ::Type{R}) where {R}
+  d = m - abs(convert(R, v))
+  min(r, isfinite(scale) && !iszero(scale) ? d * scale : _projection_l1_scale(d, -e))
+end
+
+# Preserve integer offsets before rounding, including at typemin.
+@inline _projection_l1_magnitude(v::Base.BitInteger) = v < 0 ? -unsigned(v) : unsigned(v)
+@inline function _projection_l1_offset(v::Base.BitInteger, m::Unsigned, r, scale, e, ::Type{R}) where {R}
+  d = convert(R, m - _projection_l1_magnitude(v))
+  min(r, isfinite(scale) && !iszero(scale) ? d * scale : _projection_l1_scale(d, -e))
+end
+function _projection_l1_max(x, G, ::Type{R}) where {R}
+  m = zero(R)
+  @inbounds @simd for i in G
+    m = max(m, abs(convert(R, x[i])))
+  end
+  m
+end
+function _projection_l1_max(x::AbstractArray{T}, G, ::Type{R}) where {T<:Base.BitInteger,R}
+  m = zero(unsigned(T))
+  @inbounds @simd for i in G
+    m = max(m, _projection_l1_magnitude(x[i]))
+  end
+  m
+end
+
+_projection_l1_type(a) = typeof(first(_projection_scale_parts(a)))
+_projection_l1_product(::Tuple{}, h, l, e, δ, ::Type{R}) where {R} = (h, l, e, δ)
+function _projection_l1_product(fs::Tuple, h, l, e, δ, ::Type{R}) where {R}
+  b = first(fs)
+  if !isone(b)
+    mb, eb = b isa Real ? frexp(convert(R, b)) : _projection_scale_parts(b)
+    v = convert(R, mb)
+    p = h * v
+    residual = fma(h, v, -p)
+    q = residual + l * v
+    t = p + q
+    lo = (p - t) + q
+    hi, shift = frexp(t)
+    if !iszero(residual) || !iszero(l)
+      δ = nextfloat(δ + (1 + δ) * 16eps(R)^2)
+    end
+    # Non-floating coefficients may also round during their conversion.
+    if b isa Real && !(b isa AbstractFloat) && convert(R, b) != b
+      δ = nextfloat(δ + (1 + δ) * eps(R))
+    end
+    h, l, e = hi, _projection_l1_scale(lo, -shift), e + eb + shift
+  end
+  _projection_l1_product(Base.tail(fs), h, l, e, δ, R)
+end
+
+function _projection_l1_coefficient(α, λ, w, x, y)
+  fs = (_projection_l1_factors(α)..., λ, w)
+  R = promote_type(Float64, float(eltype(x)), float(eltype(y)), map(_projection_l1_type, fs)...)
+  h, l, e, δ = _projection_l1_product(fs, R(0.5), zero(R), R === BigFloat ? BigInt(1) : 1, zero(R), R)
+  error = iszero(δ) ? abs(l) : nextfloat(abs(l) + nextfloat(δ * h))
+  lower = iszero(error) ? h : max(zero(R), prevfloat(h - error))
+  a = R === BigFloat ? _L1ProjectionBigScale(h, e) : _ProjectionScale(h, e)
+  a, error, lower
+end
+
+function _projection_l1_fast_buffer!(s, ::Type{Float32}, n)
+  b = s.buf
+  if !(b isa _L1ProjectionScratch)
+    native = b isa Vector{Float32} ? b : Float32[]
+    wide = b isa Vector{Float64} ? b : Float64[]
+    b = _L1ProjectionScratch(native, wide)
+    s.buf = b
+  end
+  length(b.native) < n && resize!(b.native, n)
+  b.native
+end
+_projection_l1_fast_buffer!(s, ::Type{Float64}, n) = _projection_l1_careful_buffer!(s, Float64, n)
+function _projection_l1_careful_buffer!(s, ::Type{R}, n) where {R}
+  b = s.buf
+  if R === Float64 && b isa _L1ProjectionScratch
+    length(b.wide) < n && resize!(b.wide, n)
+    return b.wide
+  end
+  _buffer!(s, R, n)
+end
+
+@inline function _projection_l1_stats(x, G)
+  T = eltype(x)
+  s = m = zero(T)
+  @inbounds @simd for i in G
+    v = abs(x[i])
+    m = max(m, v)
+    s += v
+  end
+  s, m
+end
+function _projection_l1_extrema(x, G, m)
+  second = third = zero(m)
+  count = 0
+  @inbounds for i in G
+    v = abs(x[i])
+    if v == m
+      count += 1
+    else
+      third = max(third, min(second, v))
+      second = max(second, v)
+    end
+  end
+  count == 1 ? (second, third, count) : count == 2 ? (m, second, count) : (m, m, count)
+end
+_projection_l1_fast!(y, x, G, scratch, λ, α, w) = false
+function _projection_l1_fast!(y::AbstractArray{T}, x::AbstractArray{T}, G, scratch, r::T, α::Real, w) where {T<:Union{Float32,Float64}}
+  (isone(α) && isone(w) && 32floatmin(T) <= r < floatmax(T) / 16) || return false
+  _projection_l1_native!(y, x, G, scratch, r)
+end
+@inline function _projection_l1_native!(y::AbstractArray{T}, x::AbstractArray{T}, G, scratch, r::T) where {T<:Union{Float32,Float64}}
+  n = length(G)
+  s, m = _projection_l1_stats(x, G)
+  (isfinite(s) && isfinite(m) && s < floatmax(T) / 16) || return false
+  δ = (n + 8) * (eps(T) / 2)
+  δ < T(0.125) || return false
+  if s <= r * (1 - 2δ)
+    @inbounds @simd for i in G
+      y[i] = x[i]
+    end
+    return true
+  end
+  (s * (1 - δ) > r && m >= 32floatmin(T)) || return false
+  if n <= 32 && m > r
+    second, third, count = _projection_l1_extrema(x, G, m)
+    d = m - second
+    if count == 1 && prevfloat(d) >= r
+      @inbounds @simd for i in G
+        v = x[i]
+        y[i] = copysign(abs(v) == m ? r : zero(T), v)
+      end
+      return true
+    end
+    # Sterbenz makes these offsets exact. Outward comparisons certify the
+    # support; sums of at most three radius-sized terms cost <=4eps*r.
+    if count <= 2 && second >= m / 2 && d < r
+      t = (r + d) / 2
+      if prevfloat(m - third) >= nextfloat(t)
+        @inbounds @simd for i in G
+          v = x[i]
+          y[i] = copysign(abs(v) >= second ? t - (m - abs(v)) : zero(T), v)
+        end
+        return true
+      end
+    end
+    if count <= 3 && third >= m / 2
+      d₂, d₃ = m - second, m - third
+      t = ((r + d₂) + d₃) / 3
+      E = 4eps(T) * r
+      if d₃ < t - E
+        fourth = zero(T)
+        above = 0
+        @inbounds @simd for i in G
+          v = abs(x[i])
+          fourth = max(fourth, ifelse(v < third, v, zero(T)))
+          above += v >= third
+        end
+        if above == 3 && prevfloat(m - fourth) >= t + E
+          @inbounds @simd for i in G
+            v = x[i]
+            y[i] = copysign(abs(v) >= third ? t - (m - abs(v)) : zero(T), v)
+          end
+          return true
+        end
+      end
+    end
+  end
+  θ, k, B = n <= 32 ? _projection_l1_michelot(x, G, r, m, s) :
+    _projection_l1_threshold!(_projection_l1_fast_buffer!(scratch, T, n), x, G, r, m, s)
+  budget = (n * eps(T)) * r
+  # For Condat, B=4eps*m plus the bound on its accumulated sum residuals.
+  # Ignoring outward inflation, m<=K*r, K=min(3n/8,3n/(4k)), suffices
+  # with zero residual; equality can fall back after inflation. Michelot uses
+  # gamma_k on its final sum. B encloses the selected equation's level error;
+  # Condat separately checks discarded residuals against its largest tested
+  # level. Michelot's last two equal counts give the same thresholded set,
+  # hence the same sum and level; its discarded entries are <=that level.
+  # The selected equation's mass residual is <=k*B.
+  # If the level is too high, lowering it retains all k selected entries,
+  # so its error is <=B; suppressing a small candidate costs another B.
+  # If too low, wrongly retained entries can disappear: slope may fall to 1,
+  # giving k*B, not B. At θ+max(k*B,2B) discarded entries vanish
+  # and selected mass is <=r, so the true level is no higher. Thus coordinate
+  # error is <=max(k*B,2B) plus subtraction rounding. B>=2u*m (u=eps/2),
+  # so that rounding is <=B/2<=0.75budget. Both alternatives are <=3budget:
+  # C=4, without a support
+  # guarantee. Suppression removes discarded entries and only reduces mass;
+  # the selected mass excess is <=k*B, plus subtraction rounding.
+  (isfinite(θ) && θ >= 32floatmin(T) && B <= T(1.5) * budget && k * B <= 3budget) || return false
+  @inbounds @simd for i in G
+    v = x[i]
+    q = abs(v) - θ
+    y[i] = copysign(q <= B ? zero(T) : q, v)
+  end
+  true
+end
+
+_projection_l1_unit_groups!(y, x, f, α, γ) = false
+function _projection_l1_unit_groups!(y::Array{T}, x::Array{T}, f::GroupNormLinf{T}, α::Real, γ) where {T<:Union{Float32,Float64}}
+  r = f.λ0
+  (isone(α) && 32floatmin(T) <= r < floatmax(T) / 16 && all(isone, f.w)) || return false
+  a, error, lower = _projection_l1_coefficient(1, r, 1, x, y)
+  fallback = nothing
+  @inbounds for (k, G) in enumerate(f.groups)
+    isempty(G) && continue
+    if !_projection_l1_native!(y, x, G, f.scratch, r)
+      if _project_l1_radius!(y, x, G, f.scratch, a, error, lower) === nothing
+        fallback === nothing && (fallback = Int[])
+        push!(fallback, k)
+      end
+    end
+  end
+  fallback === nothing ? true : _L1ProjectionFallback(fallback)
+end
+
+function _project_l1!(y, x, G, scratch, λ, α = 1, w = 1)
+  isempty(G) && return y
+  if isinf(w)
+    @inbounds @simd for i in G
+      y[i] = x[i]
+    end
+    return y
+  end
+  if iszero(λ) || iszero(w) || iszero(α)
+    @inbounds @simd for i in G
+      y[i] = zero(eltype(y))
+    end
+    return y
+  end
+  if isinf(λ) || isinf(α)
+    @inbounds @simd for i in G
+      y[i] = x[i]
+    end
+    return y
+  end
+  _projection_l1_fast!(y, x, G, scratch, λ, α, w) && return y
+  a, error, lower = _projection_l1_coefficient(α, λ, w, x, y)
+  _project_l1_radius!(y, x, G, scratch, a, error, lower)
+end
+
+function _projection_l1_inside(x, G, r::R, scale, e) where {R}
+  s = zero(R)
+  @inbounds @simd for i in G
+    v = abs(convert(R, x[i]))
+    s += isfinite(scale) && !iszero(scale) ? v * scale : _projection_l1_scale(v, -e)
+  end
+  δ = length(G) * eps(R)
+  if δ < R(0.125)
+    # A reduction's gamma_n bound, including conversion and subnormals.
+    s * (1 + 2δ) + length(G) * nextfloat(zero(R)) <= r && return true
+    s * (1 - 2δ) > r && return false
+  end
+  # An upper bound certifies the identity case, including exact sums on the
+  # boundary. Subnormal scaled terms are rounded upward for this test only.
+  s = err = zero(R)
+  @inbounds for i in G
+    v = abs(convert(R, x[i]))
+    # Enclose integer conversion before the exact power-of-two scaling.
+    if x[i] isa Base.BitInteger && v < _projection_l1_magnitude(x[i])
+      v = nextfloat(v)
+    end
+    v = isfinite(scale) && !iszero(scale) ? v * scale : _projection_l1_scale(v, -e)
+    if !isfinite(v)
+      s = R(Inf)
+      break
+    end
+    if v < floatmin(R) && !iszero(x[i])
+      v = nextfloat(v)
+    end
+    t = s + v
+    q = s >= v ? (s - t) + v : (v - t) + s
+    q != 0 && (err = nextfloat(err + q))
+    s = t
+    s > r && break
+  end
+  s <= r && err <= r - s
+end
+
+function _project_l1_radius!(y, x, G, scratch, a, coefficient_error, lower)
+  r0, e = _projection_scale_parts(a)
+  R = promote_type(Float64, typeof(r0), float(eltype(y)))
+  r = convert(R, r0)
+  scale = _projection_l1_scale(one(R), -e)
+  outscale = _projection_l1_scale(one(R), e)
+  m = _projection_l1_max(x, G, R)
+  # Let the caller retain Moreau's non-finite behaviour for this block.
+  !isfinite(m) && return nothing
+  if _projection_l1_inside(x, G, lower, scale, e)
+    @inbounds @simd for i in G
+      y[i] = x[i]
+    end
+    return y
+  end
+  # Condat on -d supplies a seed; compensated Newton/Michelot refines it.
+  # The sums contain d<t<=r, so scaling by the radius bounds them by n.
+  t = r
+  if length(G) > 32
+    f = let m = m
+      v -> -_projection_l1_offset(v, m, r, scale, e, typeof(r))
+    end
+    t = min(r, -_simplex_threshold!(_projection_l1_careful_buffer!(scratch, R, length(G)), x, G, r, f))
+  end
+  count = -1
+  for _ in 0:length(G)
+    s = err = zero(R)
+    k = 0
+    last = zero(R)
+    @inbounds for i in G
+      d = _projection_l1_offset(x[i], m, r, scale, e, R)
+      if d < t
+        s, err = _compensated_add(s, err, d)
+        k += 1
+        last = max(last, d)
+      end
+    end
+    k == 0 && break
+    previous = t
+    t = min(r, (r + (s + err)) / k)
+    (k == count || (last <= t && t <= previous)) && break
+    count = k
+  end
+  # Relevant offsets are <=r, with error <=u*r (Sterbenz is exact below
+  # m/2). Neumaier's sum error and sum(d)<=k*t<=k*r give radius-relative
+  # threshold error. Each inexact coefficient product retains its FMA residual:
+  # after d factors its error is <=|low|+32d*eps(R)^2*r/(1-32d*eps(R)^2),
+  # enclosing the outward-rounded recurrence above. Conversions add their own
+  # bound. coefficient_error also gives the lower membership bound. For
+  # floating factors and d*eps(R)<=1/128 it is <eps(R)*r, already budgeted
+  # in 2n*eps(R)*r. The explicit guard also covers deeper chains/conversions.
+  # Guarding spurious support and final rounding give C=4 plus half a T
+  # subnormal in that regime; otherwise add 2*coefficient_error in original
+  # units. Float32 uses Float64; n*eps(R)>1/4 permits the zero result.
+  guard = 2length(G) * eps(R) * r + max(zero(R), coefficient_error - eps(R) * r)
+  if length(G) * eps(R) > R(0.25)
+    guard = r
+  end
+  @inbounds @simd for i in G
+    v = convert(R, x[i])
+    q = t - _projection_l1_offset(x[i], m, r, scale, e, R)
+    p = isfinite(outscale) && !iszero(outscale) ? q * outscale : _projection_l1_ldexp(q, e)
+    y[i] = copysign(q <= guard ? zero(R) : min(abs(v), p), v)
+  end
+  y
 end

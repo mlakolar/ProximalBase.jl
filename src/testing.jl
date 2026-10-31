@@ -18,6 +18,7 @@ functions that packages build on ProximalBase.
 | [`test_separable`](@ref ProximalBase.Testing.test_separable) | the scalar proximal operators against `prox!`, on every iterate |
 | [`test_conjugate`](@ref ProximalBase.Testing.test_conjugate) | Moreau's decomposition and the Fenchel–Young equality |
 | [`test_kkt`](@ref ProximalBase.Testing.test_kkt) | `kkt_violation` against the proximal operator |
+| [`test_iterate`](@ref ProximalBase.Testing.test_iterate) | the bookkeeping of an iterate against its entries |
 | [`test_traits`](@ref ProximalBase.Testing.test_traits) | the traits, on the instance and on the type |
 | [`allocations`](@ref ProximalBase.Testing.allocations) | the bytes a call allocates, as solvers make it |
 | [`brute_force_prox`](@ref ProximalBase.Testing.brute_force_prox) | a reference for scalar proximal operators |
@@ -47,7 +48,7 @@ using ..ProximalBase
 
 # `public` does not parse on Julia 1.10.
 VERSION >= v"1.11" && Core.eval(@__MODULE__, Expr(:public, :test_prox, :test_gradient, :test_separable,
-  :test_conjugate, :test_kkt, :test_traits, :allocations, :brute_force_prox))
+  :test_conjugate, :test_kkt, :test_iterate, :test_traits, :allocations, :brute_force_prox))
 
 """
     test_prox(f, x, γ; rtol = 1e-8, atol = 1e-10, local_points = true, symmetric = false, rng = nothing)
@@ -115,6 +116,11 @@ Test a separable `f` at the vector or matrix `x` with step `γ`:
   coordinate of a [`SymmetricSparseIterate`](@ref) gives the proximal point of
   the symmetric part of `x`, which needs parameters that are equal at `(r, c)`
   and `(c, r)`.
+
+For each iterate, also test the block form `prox_coordinate!(y, f, k, u, γ)`
+from an iterate with nothing stored or active, at the same input coordinates.
+It gives the same dense proximal point, stores or activates no zero results,
+and passes [`test_iterate`](@ref).
 """
 function test_separable end
 
@@ -143,6 +149,21 @@ group penalty. For a nonconvex `f`, take `γ` below its convexity limit, where
 the scalar proximal operator at zero is the local one.
 """
 function test_kkt end
+
+"""
+    test_iterate(x)
+
+Test the bookkeeping of an [`AtomIterate`](@ref), [`SparseIterate`](@ref) or
+[`SymmetricSparseIterate`](@ref) against its entries. Check the structural
+lengths, the active or stored count, and the maps in both directions. For an
+`AtomIterate`, also check the group indices and that inactive groups hold only
+zeros.
+
+Active groups and stored coordinates holding zeros are valid;
+[`dropzeros!`](@ref) removes them. This check neither changes nor repairs `x`.
+Returns `x`.
+"""
+function test_iterate end
 
 """
     test_traits(f; smooth = false, proximable = false, separable = false, convex = false)

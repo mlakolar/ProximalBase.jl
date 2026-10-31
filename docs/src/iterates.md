@@ -52,23 +52,93 @@ that stores its lower triangle. For indexing, length, iteration and
 broadcasting it is an ordinary ``p \times p`` matrix, except that writing
 ``x_{rc}`` also writes ``x_{cr}``.
 
-Only symmetric values go in. The constructor, `copyto!`, `copy!`, broadcasting
-into ``x``, `map!`, `axpy!` and `axpby!` take a value with the axes of ``x``
-whose entries ``(r, c)`` and ``(c, r)`` are equal, with `NaN` equal to `NaN`,
-and they throw before writing anything otherwise. `Symmetric(A, :L)` stores
-the lower triangle of a matrix ``A`` that is not symmetric, and
-`Symmetric(A, :U)` its upper triangle. These functions write each entry of
-the lower triangle once. Sources that are symmetric by their type, such as
+Read and write entries through the lower triangle, ``r \ge c``, for example
+with `for c in 1:p, r in c:p`. The position `x[c, r]` is the same entry as
+`x[r, c]`, so writing either position writes both. A loop over every position
+writes each off-diagonal entry twice, and the second write wins.
+
+Whole-value writes are checked. These include the constructor, `copyto!`,
+`copy!`, broadcasting into ``x``, `map!`, `axpy!`, `axpby!`, `transpose!`,
+`adjoint!`, `permutedims!` and `mul!`. Indexed array assignment of every
+position in order (`x[:, :] = A`, `x[:] = v`), and broadcasting and `fill!`
+into full, in-order views and reshapes (`x[:, :] .= A`, `vec(x) .= v`), use
+the same checks. They cover a view whose parent is ``x``, a reshape whose
+parent is ``x``, and a view of such a reshape. Use `:` or integer vectors
+matching each axis in order for a full two-index assignment or a full matrix
+view. A full single-index assignment accepts `:`, the integers `1:length(x)`
+in order, or `CartesianIndices(x)` with its shape. `copyto!(x, Q)` from an orthogonal factor is checked too.
+
+Matrix values must have the axes of ``x``, with equal entries ``(r, c)`` and
+``(c, r)`` and `NaN` equal to `NaN`. These comparisons precede conversion to
+the element type of ``x``. Linear full writes reshape their values in
+column-major order for the check; `x[:] = v` needs ``p^2`` values. If the
+axes differ or symmetry fails, the checked writers throw a
+`DimensionMismatch` or an `ArgumentError` before writing anything.
+`Symmetric(A, :L)` stores the lower triangle of a matrix ``A`` that is not
+symmetric, and `Symmetric(A, :U)` its upper triangle. Each entry of the lower
+triangle is written once. Sources that are symmetric by their type, such as
 another `SymmetricSparseIterate`, a `Symmetric` or a `Diagonal`, skip the
-check; a broadcast whose arguments do not show that its value is symmetric is
-first evaluated at both positions of each off-diagonal entry.
-`replace` and `replace!` visit each entry of the lower triangle once, and
-their `count` counts those entries.
-`mul!` into ``x`` checks the unscaled product for exact symmetry in a buffer promoted
-from the destination and operand types, applies scalars and conversion at the final
-write, and leaves the product out when α = 0, as LinearAlgebra does.
-Functions that update entries one position at a time, such as `x[:, :] = A`,
-are not checked; the docstring lists them.
+symmetry check. A broadcast whose arguments do not show that its value is
+symmetric is first evaluated at both positions of each off-diagonal entry.
+A function with side effects can therefore run more often and give a value
+that is not symmetric.
+
+With two array operands, `mul!` into ``x`` checks the unscaled product for
+exact symmetry in a buffer promoted from the destination and operand types,
+applies scalars and conversion at the final write, and leaves the product
+out when α = 0, as LinearAlgebra does. For `mul!` by a number, the array
+operand must have the axes of ``x``. The seven-argument
+`mul!(x, tA, tB, A, B, α, β)`, when available, uses the same checks with
+flags `'N'`, `'T'` and `'C'` for unchanged, transposed and adjoint operands;
+other flags throw before writing. `fillband!(x, v, l, u)` checks that `v` is
+real and writes a symmetric band (`l == -u`) through the lower triangle
+once. An empty band (`l > u`) returns ``x`` unchanged.
+
+Indexed array assignment, broadcasting and `fill!` into part of ``x``, such
+as a row, a column, a block or a partial mask, throw an `ArgumentError`
+before writing. Logical-mask indexed assignment is rejected even for an
+all-true mask. `copyto!` with offsets or index ranges (including transpose
+flags), `copy_transpose!` and `copy_adjoint!` with index ranges, `copyto!` from a
+tuple, a generator or a number, and the indexed `axpy!` also throw before
+writing. Out-of-bounds indices still throw a `BoundsError`.
+
+`reverse!`, `sort!`, `accumulate!`, `kron!` and `copytrito!` (when available)
+throw an `ArgumentError` before writing. This also rejects `reverse(x)`
+with or without `dims`, `cumsum!`, `cumprod!`, and allocating `cumsum`,
+`cumprod` and `accumulate` with `dims`. `circshift!` and `circshift` of a
+nonempty ``x`` by a nonempty shift throw too.
+`triu!(x, k)` returns ``x`` unchanged when ``k \le 1-p``, and `tril!(x, k)`
+when ``k \ge p-1``. Both return ``x`` for every `k` when ``p=0``. Otherwise
+they throw an `ArgumentError` before writing.
+
+`lmul!`, `rmul!`, `ldiv!` and `rdiv!` by a matrix, a factorization, an
+orthogonal factor or a rotation throw an `ArgumentError` before writing.
+So does `ldiv!(x, A, B)` for such an operator ``A``. Reductions into ``x``
+(`sum!`, `prod!`, `maximum!`, `minimum!`, `count!`, `all!`, `any!`,
+`extrema!`, `findmax!` and `findmin!` with ``x`` as either destination),
+in-place factorizations (`lu!`, `qr!`, `cholesky!` and `bunchkaufman!`),
+`get!` and `sortperm!` also throw before writing. Nonempty bands of `fillband!` that are not symmetric,
+`read!`, `readbytes!` and `hex2bytes!` also throw before writing; these
+reading and decoding calls do not consume their input. Apply these
+operations to `Matrix(x)`, or compute into a dense matrix and `copyto!` a
+symmetric result.
+
+`fill!`, and `rmul!`, `lmul!`, `rdiv!` and `ldiv!` by a number or a
+`UniformScaling`, keep ``x`` symmetric. `replace` and `replace!` visit each
+entry of the lower triangle once, and their `count` counts those entries,
+column by column. `triu`, `tril` and `sparse` return a `SparseMatrixCSC`.
+`sort(x; dims)` and `accumulate(op, x)` without `dims` keep their dense
+results. Allocating `lu`, `qr`, `cholesky` and `bunchkaufman` use dense copies.
+
+Other functions that write an arbitrary array position by position are not
+checked; apply them to `Matrix(x)`. Loops of scalar writes over every
+position stay unchecked. Other writes through a view or reshape, such as
+`copyto!` into a view and scalar writes through a view, stay unchecked too. Broadcasts and fills through other
+nested wrappers, such as `vec(view(x, :, :))`, are also unchecked.
+Two-argument `copyto!(x, itr)` from other non-array iterators is unchecked.
+A Base function can write part of ``x`` before reaching a check. `rand!`
+and `randn!` give a symmetric matrix but draw each off-diagonal entry twice.
+`shuffle!` and `shuffle` give wrong values; use `Matrix(x)` instead.
 
 Its coordinates are the
 ``p(p+1)/2`` entries ``(r, c)``, ``r \ge c``, of the lower triangle, numbered
@@ -107,13 +177,15 @@ parameters, such as the weights of `NormL1`, are indexed like the dense
 
 An [`AtomIterate`](@ref) is a vector whose coordinates are groups of entries,
 partitioning ``1{:}p``. Its active groups play the role of the stored entries
-of a `SparseIterate`, and [`atom`](@ref)`(x, k)` is a view of group ``k``.
-Block coordinate descent for the group lasso takes, for group ``k``, a gradient
-step of size ``1/L_k`` (with ``L_k = \|X_{G_k}\|_2^2`` for least squares). It
-then applies the group's proximal step, `prox_coordinate!(x, g, k, 1/L_k)`,
-which is block soft thresholding, and which activates the group when it ends
-nonzero. `AtomIterate(p, g)` builds an iterate that shares the groups of a
-group penalty `g`.
+of a `SparseIterate`, and [`atom`](@ref)`(x, k)` is a view of `x` at group
+``k``. Writes through it follow the rule of `x[i] = v`: a nonzero entry
+activates the group, and a zero never deactivates it.
+Block coordinate descent for the group lasso computes the trial point
+``u = x_{G_k} - \nabla_{G_k} f(x)/L_k`` for group ``k``, with
+``L_k = \|X_{G_k}\|_2^2`` for least squares. It then takes the block step
+`prox_coordinate!(x, g, k, u, 1/L_k)`, which is block soft thresholding and
+activates the group only when it ends nonzero. `AtomIterate(p, g)` builds an
+iterate that shares the groups of a group penalty `g`.
 
 An iterate and a group penalty whose groups are equal but were built separately
 also take the active-group paths. The first check compares the two layouts in

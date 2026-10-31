@@ -128,6 +128,18 @@ ProximalBase._moreau_nonfinite(::VisitProbe{I}, x, z, γ, always::Bool) where {I
 ProximalBase._has_conjugate_value(::VisitProbe{I}) where {I} = (push!(events, I); I != 2)
 ProximalBase._conjugate_isindicator(::Type{VisitProbe{I}}) where {I} = (push!(events, I); I != 2)
 
+ProximalBase._projection_l1_host(::VisitProbe{I}) where {I} = (push!(events, I); I == 1)
+ProximalBase._projection_fallback(::VisitProbe{I}, y, x) where {I} = (push!(events, I); I == 1)
+ProximalBase._direct_projection(::VisitProbe{I}, x) where {I} = (push!(events, I); I != 1)
+ProximalBase._has_symmetric(::VisitProbe{I}) where {I} = (push!(events, I); I == 2)
+ProximalBase._stored_value(::VisitProbe{I}) where {I} = (push!(events, I); I != 2)
+
+struct ProjectionValue <: AbstractFunction
+  value::Float64
+end
+ProximalBase._conjugate_projection_value_block!(z, f::ProjectionValue, x, γ, α, output) =
+  (push!(events, length(events) + 1); f.value)
+
 struct FailingProx <: AbstractFunction end
 ProximalBase.prox!(y, ::FailingProx, x, γ::Real) = throw(ArgumentError("block computation failed"))
 
@@ -205,6 +217,21 @@ ProximalBase.prox!(y, ::FailingProx, x, γ::Real) = throw(ArgumentError("block c
     probes = (VisitProbe{1}(), VisitProbe{2}(), VisitProbe{3}())
     empty!(events)
     @test !PB._same_buffer_sizes(probes, probes)
+    @test events == [1]
+    for (op, args, expected, visits) in (
+        (PB._projection_l1_host, (probes,), true, [1, 2, 3]),
+        (PB._projection_fallback, (SeparableSum(probes), probes, probes), true, [1, 2, 3]),
+        (PB._direct_projection, (SeparableSum(probes), probes), false, [1, 2, 3]),
+        (PB._any_direct_projection, (SeparableSum(probes), probes), true, [1, 2, 3]),
+        (PB._has_symmetric, (probes,), true, [1, 2]),
+        (PB._stored_value, (SeparableSum(probes),), false, [1, 2]))
+      empty!(events)
+      @test op(args...) === expected
+      @test events == visits
+    end
+    empty!(events)
+    values = (ProjectionValue(1e16), ProjectionValue(-1e16), ProjectionValue(1.0))
+    @test PB._conjugate_projection_values!(probes, values, probes, 1.0, 1.0) === 0.0
     @test events == [1, 2, 3]
     empty!(events)
     @test PB._moreau_nonfinite(probes, probes, probes, 1.0, false)

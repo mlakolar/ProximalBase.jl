@@ -93,11 +93,25 @@ ranges and the indexed `axpy!` throw an `ArgumentError`. `LinearFunction` and
 with an array their center, shift or scale, the same way when they write into a
 `SymmetricSparseIterate`.
 
+Indexed array assignment, broadcasts and `fill!` into part of `x`, and the
+position-wise mutators listed in the [`SymmetricSparseIterate`](@ref)
+docstring, now throw an `ArgumentError` before writing. Whole, in-order
+indexed assignments, view and reshape broadcasts, transposition and
+permutation use the symmetry checks too. Before 0.6, these calls could store
+the upper position, update an off-diagonal entry twice, or write outside a
+view. Use scalar writes over the lower triangle, or compute into a dense
+matrix and `copyto!` a symmetric result.
+
 | Before 0.6 | Now |
 |:---|:---|
 | `SymmetricSparseIterate(A)`, `copyto!(x, A)` or `x .= A` with `A` not symmetric | `Symmetric(A, :L)` in place of `A` keeps the old lower-triangle values |
 | a matrix symmetric only up to rounding, such as `X' * (w .* X)` or `inv(S)` | symmetrize it, or compute it exactly symmetric: `inv(cholesky(S))`, `inv(Symmetric(S))` |
 | `copyto!(x, v)`, `map!(f, x, v)` or `axpy!(α, v, x)` with a vector `v` of `p²` entries | `reshape(v, p, p)`, which must be symmetric |
+| `x[:, :] = A`, `view(x, :, :) .= A` or `transpose!(x, A)` with `A` not symmetric | `Symmetric(A, :L)` in place of `A` |
+| `x[i, :] = v`, `x[I, J] = A` or `view(x, I, J) .= …` writing part of `x` | scalar writes over the lower triangle, or a whole symmetric matrix |
+| `cumsum(x; dims)`, `reverse(x)`, `triu!(x)`, `lu!(x)`, `sum!(x, A)`, `lmul!(D, x)` and the other rejected operations listed in the docstring | apply them to `Matrix(x)`, or compute into a dense matrix and `copyto!` a symmetric result |
+| `mul!(x, v, s)` with a vector `v` of `p²` entries | `reshape(v, p, p)`, which must be symmetric |
+| `copyto!(x, itr)` from a tuple or a generator | `copyto!(x, reshape(collect(itr), p, p))`, which must be symmetric |
 
 ## Coordinate operations of a nonseparable `MoreauEnvelope` (0.6)
 
@@ -109,3 +123,21 @@ wrong, except for group penalties. `prox_entry` and `kkt_violation` now throw
 an `ArgumentError` instead of a `MethodError`. Restricting a group-penalty
 envelope, including as the smooth term of an active-set solver, is no longer
 supported. These coordinate operations require a separable underlying function.
+
+## Writes through `atom(x, k)` (0.6)
+
+Writes through [`atom`](@ref)`(x, k)` now activate the group, as `x[i] = v`
+does. Before 0.6, they left it inactive, and values, `copyto!` and products
+ignored the entries. The type of `atom(x, k)` changes to a view whose parent
+is the iterate. [`prox_coordinate!`](@ref) on an [`AtomIterate`](@ref) returns
+this view.
+
+Code that wrote a trial point into a group before
+`prox_coordinate!(x, f, k, γ)` should call `prox_coordinate!(x, f, k, u, γ)`
+instead. Writing the trial point through `atom` now activates the group even
+when the step ends at zero. The block form activates it only when the step
+ends nonzero.
+
+The `storage` field is internal. Writing into it can leave the iterate
+inconsistent. Activation follows the stored value: a value that rounds to
+zero in the element type does not activate a group or store a coordinate.

@@ -53,6 +53,22 @@ end
   end
 end
 
+a_block!(x, f, k, u, γ) = prox_coordinate!(x, f, k, u, γ)
+
+@testset "block steps allocate nothing" begin
+  for x in (SparseIterate(zeros(4)), SymmetricSparseIterate(2))
+    @test allocs(a_block!, x, NormL1(0.3), 1, 3., 0.7) == 0
+  end
+  for gs in ([1:2, 3:4], [[1, 3], [2, 4]])
+    x = AtomIterate(4, gs)
+    u = [3., -4.]
+    for f in (NormL1(0.3), GroupNormL2(0.4, gs), GroupNormLinf(0.4, gs),
+              SparseGroupNormL2(0.2, 0.4, gs), GroupMCP(0.4, gs), GroupSCAD(0.4, gs))
+      @test allocs(a_block!, x, f, 1, u, 0.7) == 0
+    end
+  end
+end
+
 @testset "distinct group layouts allocate nothing" begin
   ranges = [1:2, 3:5, 6:6, 7:9]
   layouts = (ranges, collect.(ranges))
@@ -307,7 +323,7 @@ end
     for z in (randn(p, 4), randn(4p), SparseIterate(sprandn(p, 4, 0.3)), SparseIterate(sprandn(4p, 0.3)))
       zero_alloc_grad(fk, z)
     end
-    zero_alloc_grad(KronQuadratic(S, P, randn(p, p)), SymmetricSparseIterate(P))
+    zero_alloc_grad(KronQuadratic(S, P, Matrix(Symmetric(randn(p, p)))), SymmetricSparseIterate(P))
     # products with sparse iterates
     zero_alloc_grad(LeastSquaresLoss(y, X), xs)
     zero_alloc_grad(LogisticLoss(rand(0:1, n), X), xs)
@@ -499,6 +515,21 @@ end
       out = ProximalBase._gradient_buffer(blocks)
       @test allocs(a_prox!, out, c, blocks, T(0.5)) == 0
       @test allocs(a_vprox!, out, c, blocks, T(0.5)) == 0
+    end
+  end
+end
+
+
+@testset "direct conjugate projection buffers" begin
+  x, y, γ = randn(16), zeros(16), ones(16)
+  for f in (NormL1(), NormL1(0.7, ones(16)), NormL1Nonneg(), CheckLoss(0.3),
+            NormL2(), GroupNormL2(1.0, [1:4, 6:8], ones(2)),
+            Scaled(NormL2(), 2.0), Translate(NormL1(), ones(16)))
+    c = Conjugate(f)
+    @test allocs(prox!, y, c, x, 0.7) == 0
+    @test allocs(value_and_prox!, y, c, x, 0.7) == 0
+    if isseparable(f)
+      @test allocs(prox!, y, c, x, γ) == 0
     end
   end
 end

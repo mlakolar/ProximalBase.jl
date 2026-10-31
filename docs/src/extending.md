@@ -21,7 +21,10 @@ Values follow the rule in [Precision](@ref): `f(x)` and
 `value_and_gradient!(g, f, x)` return `T = float(eltype(x))`, and
 `value_and_prox!(y, f, x, γ)` returns `T` of `y`, whatever the precision of
 the parameters. Convert a value computed with wider parameters to `T` before
-returning it. The traits are defined on the type:
+returning it. The rule in [Overflow and underflow of values](@ref) is part of
+the same contract: when an intermediate can leave the range of `T` although
+the value is representable, check the ordinary result and recompute it in
+scaled units. The traits are defined on the type:
 
 ```@example extending
 using ProximalBase, LinearAlgebra

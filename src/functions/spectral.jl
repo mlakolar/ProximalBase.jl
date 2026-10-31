@@ -308,9 +308,11 @@ ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
 entry exceeding `floatmax` by less than the reconstruction's rounding bound
 is returned as `±floatmax`.
 
-Membership is reliable for every finite input within the floating-point
-tolerance; non-finite entries are not members. When `r ≥ minimum(size(X))`,
-the proximal operator copies its input, including at non-finite inputs.
+Numerical rank counts singular values above `√ε σ₁`, with no absolute floor,
+so the rank threshold is relative at every scale. See
+[Functions of a spectrum](@ref). Non-finite entries are not members. When
+`r ≥ minimum(size(X))`, the proximal operator copies its input, including at
+non-finite inputs.
 When a decomposition is needed, a non-finite input gives an all-`NaN` output.
 `value_and_prox!` returns `Inf` at a non-finite input and zero otherwise.
 
@@ -355,14 +357,16 @@ function (f::IndBallRank)(X::AbstractMatrix)
   !_is_device_array(X) || all(isfinite, ws.A) || return T(Inf)
   minimum(size(X)) <= f.r && return zero(T)
   s, = _svd!(ws; vectors = false)
-  _finite_value(s[1]) || return _rank_scaled_value(ws, X, f.r)
-  s[f.r + 1] <= _tol(T) * max(one(T), s[1]) ? zero(T) : T(Inf)
+  c = _tol(T) * s[1]
+  (!_finite_value(s[1]) || (s[1] > zero(T) && c <= floatmin(T))) &&
+    return _rank_scaled_value(ws, X, f.r)
+  s[f.r + 1] <= c ? zero(T) : T(Inf)
 end
 
 @noinline function _rank_scaled_value(ws::SVDWorkspace{T}, X::AbstractMatrix, r::Int) where {T}
-  α = _scaled_spectral_input!(ws.A, X)
+  _scaled_spectral_input!(ws.A, X)
   s, = _svd!(ws; vectors = false)
-  s[r + 1] <= _tol(T) * max(α, s[1]) ? zero(T) : T(Inf)
+  s[r + 1] <= _tol(T) * s[1] ? zero(T) : T(Inf)
 end
 
 function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
@@ -531,9 +535,11 @@ ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
 entry exceeding `floatmax` by less than the reconstruction's rounding bound
 is returned as `±floatmax`.
 
-Membership is reliable for every finite input within the floating-point
-tolerance; non-finite entries are not members. At a non-finite input, the
-proximal output is all `NaN` and `value_and_prox!` returns `Inf`.
+The sign test uses `√ε·max(1, ‖λ‖∞)`. With a rank bound, numerical rank counts
+positive eigenvalues above `√ε·‖λ‖∞`, with no absolute floor. See
+[Functions of a spectrum](@ref). Non-finite entries are not members. At a
+non-finite input, the proximal output is all `NaN` and `value_and_prox!` returns
+`Inf`.
 
 $_PARTIAL_NOTE Without a rank, the partial projection pays when few
 eigenvalues are positive.
@@ -584,7 +590,12 @@ function _ispsd!(f, X::AbstractMatrix, r::Union{Nothing, Int})
   _finite_value(λ[1]) && _finite_value(λ[n]) || return _scaled_ispsd!(ws, X, r)
   tol = _tol(T) * max(one(T), abs(λ[1]), abs(λ[n]))
   λ[1] >= -tol || return false
-  r === nothing || count(>(tol), λ) <= r
+  r === nothing && return true
+  m = max(abs(λ[1]), abs(λ[n]))
+  c = _tol(T) * m
+  m > zero(T) && c <= floatmin(T) &&
+    return _scaled_ispsd!(ws, X, r)
+  count(>(c), λ) <= r
 end
 
 @noinline function _scaled_ispsd!(ws::SymEigenWorkspace{T}, X::AbstractMatrix, r::Union{Nothing, Int}) where {T}
@@ -592,7 +603,8 @@ end
   λ = _eigvals!(ws)
   tol = _tol(T) * max(α, abs(λ[1]), abs(λ[end]))
   λ[1] >= -tol || return false
-  r === nothing || count(>(tol), λ) <= r
+  c = _tol(T) * max(abs(λ[1]), abs(λ[end]))
+  r === nothing || count(>(c), λ) <= r
 end
 
 (f::IndPSD)(X::AbstractMatrix) = (_checkreal(f, X); _ispsd!(f, X, f.rank) ? zero(float(eltype(X))) : float(eltype(X))(Inf))

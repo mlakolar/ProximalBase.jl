@@ -35,15 +35,12 @@ reads the upper triangle of its input, which should be symmetric. The domain of
 non-finite entry, also for a bounded `f`, and at a matrix that is not
 symmetric. When a decomposition is needed, any non-finite entry, including one in the
 lower triangle, gives an all-`NaN` proximal output; `value_and_prox!` returns
-`Inf`. Membership in `IndBox`, `IndBallLinf` and `IndNonnegative` is
-decided with the tolerance `√ε·max(1, |bound|, ‖λ‖∞)`, relative to the
-spectrum, since computed eigenvalues carry errors of order `ε‖λ‖∞`: a
-positive semidefinite matrix of low rank and any scale lies in
-`Spectral(IndBox(0, Inf))`, as it does in `IndPSD()`. When an extreme
-eigenvalue overflows, membership in `IndBallL1`, `IndBallL2`, `IndBallLinf`,
-`IndBox` and `IndNonnegative` is decided on the eigenvalues of the matrix
-scaled to unit range, with the tolerance of the original units. A
-function with weights, bounds or normals
+`Inf`. Only functions that count nonzeros mask eigenvalues with magnitude at
+most `√ε·‖λ‖∞`. Other functions see the computed spectrum. Membership and
+domain tests use `√ε·max(1, |bound|, ‖λ‖∞)`; sums keep their own scaled
+tolerance. These decisions use scaled units when the spectrum overflows.
+See [Functions of a spectrum](@ref), including the caveat on re-evaluating
+values returned by `value_and_prox!`. A function with weights, bounds or normals
 that differ between entries depends on their order and is rejected.
 
 At a finite input whose spectrum overflows, the proximal output and the value
@@ -107,19 +104,58 @@ function (s::Spectral)(X::AbstractMatrix)
   !_is_device_array(X) || all(isfinite, ws.A) || return T(Inf)
   !_is_device_array(X) || _issymmetric_tol(ws.A) || return T(Inf)
   λ = _eigvals!(ws)
-  if !isempty(λ) && !(_finite_value(λ[1]) && _finite_value(λ[end])) && _scales_membership(s.f)
+  if _counts_nonzeros(s.f)
+    if !isempty(λ)
+      m = max(abs(λ[1]), abs(λ[end]))
+      if !isfinite(m) || (m > zero(T) && _tol(T) * m <= floatmin(T))
+        return _scaled_spectral_mask!(s, ws, X)
+      end
+    end
+    _mask_eigenvalues!(λ)
+  end
+  if !isempty(λ) && !(_finite_value(λ[1]) && _finite_value(λ[end])) && _decided_on_spectrum(s.f)
     return _scaled_spectral_membership!(s, ws, X)
   end
-  _relative_membership(s.f) && return _scaled_membership(s.f, λ, 0)
+  _decided_on_spectrum(s.f) && return _spectrum_value(s.f, λ, 0)
   convert(T, s.f(λ))
 end
 
-# the balls and boxes at an overflowing spectrum, on the eigenvalues of X/2^k
+# Keep the signs of eigenvalues that are separated from numerical zero.
+function _mask_eigenvalues!(λ::Vector{T}) where {T}
+  c = isempty(λ) ? zero(T) : _tol(T) * max(abs(λ[1]), abs(λ[end]))
+  @inbounds for j in eachindex(λ)
+    abs(λ[j]) <= c && (λ[j] = zero(T))
+  end
+  λ
+end
+
+@noinline function _scaled_spectral_mask!(s::Spectral, ws, X::AbstractMatrix)
+  invariant = _scale_invariant(s.f)
+  decided = _decided_on_spectrum(s.f)
+  # Bounds that do not scale with X need the spectrum in the original units.
+  t = invariant || decided ? nothing : _buffer!(s.z, eltype(ws.w), length(ws.w))
+  if !invariant && !decided
+    length(t) == length(ws.w) || resize!(t, length(ws.w))
+    copyto!(t, ws.w)
+  end
+  copyto!(ws.A, X)
+  k = _magnitude_exponent(_maximum_abs(ws.A))
+  _scaled_spectral_input!(ws.A, _is_device_array(X) ? ws.A : X)
+  λ = _mask_eigenvalues!(_eigvals!(ws))
+  decided && return convert(eltype(λ), _spectrum_value(s.f, λ, k))
+  invariant && return convert(eltype(λ), s.f(λ))
+  @inbounds for j in eachindex(λ)
+    iszero(λ[j]) && (t[j] = zero(eltype(λ)))
+  end
+  convert(eltype(λ), _spectrum_value(s.f, t, 0))
+end
+
+# Decide membership on the eigenvalues of X/2^k when original units overflow.
 @noinline function _scaled_spectral_membership!(s::Spectral, ws, X::AbstractMatrix)
   copyto!(ws.A, X)
   k = _magnitude_exponent(_maximum_abs(ws.A))
   _scaled_spectral_input!(ws.A, _is_device_array(X) ? ws.A : X)
-  _scaled_membership(s.f, _eigvals!(ws), k)
+  _spectrum_value(s.f, _eigvals!(ws), k)
 end
 
 function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real)

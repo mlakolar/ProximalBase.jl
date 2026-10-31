@@ -726,6 +726,8 @@ end
 NormL0(λ::Real = 1) = NormL0{typeof(λ)}(λ)
 
 iszeropreserving(::NormL0) = true
+_counts_nonzeros(::NormL0) = true
+_scale_invariant(::NormL0) = true
 
 Base.@propagate_inbounds value_entry(f::NormL0, v::T, ::Integer) where {T<:Real} = iszero(v) ? zero(float(T)) : convert(float(T), f.λ)
 Base.@propagate_inbounds prox_entry(f::NormL0, v::T, ::Integer, γ::Real) where {T<:Real} =

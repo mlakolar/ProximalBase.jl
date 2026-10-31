@@ -356,6 +356,37 @@ functions of the spectrum (`Spectral`, `SingularValue` and their sets) at an
 overflowing spectrum and `Scaled` without a level. Other remaining exceptions are
 tracked in the [issue tracker](https://github.com/mlakolar/ProximalBase.jl/issues/283).
 
+### Functions of a spectrum
+
+`SingularValue(f)` and `Spectral(f)` apply `f` to a computed spectrum. Only
+functions that count nonzeros, such as `NormL0` and `IndBallL0`, mask entries
+with magnitude at most `√ε·max|σ|`, where `ε = eps(T)` for the spectrum's
+floating-point type. Other functions see the computed spectrum. `IndBallRank`
+and the rank bound of `IndPSD(rank = r)` use the same relative threshold;
+numerical rank is invariant under scaling.
+
+Membership and domain tests use `√ε·max(1, |bound|, ‖λ‖∞)` in the original
+units. Sum constraints keep their own scaled tolerance, which accounts for
+cancellation and the normal's magnitude. On the spectrum `v` of `X/2^k`,
+bounds are scaled before narrowing and the tolerance is
+`√ε·max(2^-k, 2^-k|bound|, ‖v‖∞)`. The scale lookup costs O(1): the spectrum
+is sorted, so `‖v‖∞ = max(abs(v[1]), abs(v[end]))`, or zero when empty.
+
+Computed spectra carry errors of order `ε‖λ‖∞` in every entry. Such rounding
+moves a continuous `f` only by rounding, while a zero mask moves it by `√ε`.
+Masking every `f`, as `SingularValue` previously did, discards resolved small
+entries of continuous penalties. An absolute floor `√ε·max(1, σ₁)` on the
+rank threshold instead counts every sufficiently small matrix as rank zero.
+The relative threshold avoids this dependence on scale. When the spectrum
+overflows, or the mask threshold is not normal, the mask is computed in
+units scaled by a power of two.
+
+`value_and_prox!` returns `f` at the exact proximal spectrum. Re-evaluating at
+the returned point agrees only when retained entries lie above the
+numerical-zero threshold. For example, `SingularValue(NormL0(1))` at
+`Diagonal([2.0^60, 2, 0])` with step 1 returns `2`, while re-evaluating at its
+proximal point gives `1`.
+
 ## GPU arrays
 
 The separable functions work on GPU arrays: CUDA.jl's `CuArray`, and the other

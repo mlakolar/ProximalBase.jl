@@ -124,6 +124,16 @@ an `ArgumentError` instead of a `MethodError`. Restricting a group-penalty
 envelope, including as the smooth term of an active-set solver, is no longer
 supported. These coordinate operations require a separable underlying function.
 
+## User separable functions on symmetric iterates
+
+For 0.6, a user `SeparableFunction` used on a `SymmetricSparseIterate` must define
+`ProximalBase.entry_parameters(f::MyFunction) = (:w => f.w,)`, listing every
+per-entry array, or return `()` when it has none. Undeclared functions throw
+`ArgumentError`. Dense arrays, `SparseIterate` and `AtomIterate` are unchanged.
+Public oracle overrides should call `ProximalBase.check_symmetric_parameters(f, x)`
+before writing. Solvers can use this check once before calling raw entry oracles;
+mutating parameter arrays later requires checking them again.
+
 ## Writes through `atom(x, k)` (0.6)
 
 Writes through [`atom`](@ref)`(x, k)` now activate the group, as `x[i] = v`

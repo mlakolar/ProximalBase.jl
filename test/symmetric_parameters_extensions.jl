@@ -6,6 +6,7 @@ const PB=ProximalBase
 const calls=zeros(Int,11)
 struct PublicSquare <: AbstractFunction end
 struct PublicSeparableSquare <: SeparableFunction end
+ProximalBase.entry_parameters(f::PublicSeparableSquare) = ()
 for F in (PublicSquare,PublicSeparableSquare)
   @eval begin
     PB.issmooth(::Type{$F})=true
@@ -74,6 +75,7 @@ PB.isproximable(::Type{ProxOnlySquare}) = true
 PB.prox!(y::AbstractArray, ::ProxOnlySquare, x::AbstractArray, γ::Real) = (y .= x ./ (1 + γ))
 
 struct EntrySquare <: SeparableFunction end
+ProximalBase.entry_parameters(f::EntrySquare) = ()
 PB.value_entry(::EntrySquare, v, i) = v^2 / 2
 PB.prox_entry(::EntrySquare, v, i, γ) = v / (1 + γ)
 PB.kkt_violation(::EntrySquare, g::AbstractArray, i::Integer) = abs(g[i])

@@ -31,6 +31,7 @@ ProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2
 ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
 ProximalBase.iszeropreserving(::WeightedSquare) = true
 ProximalBase.isconvex(::Type{WeightedSquare}) = true
+ProximalBase.entry_parameters(f::WeightedSquare) = (:w => f.w,)
 function ProximalBase.check_parameters(f::WeightedSquare, x)
   length(f.w) == length(x) || throw(DimensionMismatch("a parameter array has length \$(length(f.w)) and the argument has length \$(length(x))"))
   nothing
@@ -38,7 +39,9 @@ end
 ```
 
 The generic kernels call `check_parameters` before writing any output or
-updating a coordinate.
+updating a coordinate. On a `SymmetricSparseIterate`, also declare
+[`ProximalBase.entry_parameters`](@ref); public oracle overrides should call
+[`ProximalBase.check_symmetric_parameters`](@ref) before writing.
 """
 abstract type SeparableFunction <: AbstractFunction end
 

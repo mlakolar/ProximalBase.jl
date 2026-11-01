@@ -166,7 +166,7 @@ owner cannot prevent that and does not claim to. What it removes is the
 |:--|:--|
 | CRD-1 | `coordinates(X)` *must* return an `AbstractVector{T}` of length `q`, live (reads and writes reach `X`), writable, `O(1)` to construct, with no copy of data. |
 | CRD-2 | Reading an absent coordinate *must* return `zero(T)` and *must not* activate it. |
-| CRD-3 | Writing a value `v` with `iszero(v)` to an *absent* coordinate *must not* activate it. Writing a nonzero value (NaN included, since `iszero(NaN)` is false) *must* activate it. Writing to an *active* coordinate *must* store `v`, including zero, and *must not* deactivate it. |
+| CRD-3 | A write first converts `v` to `T`; activation is decided from the **converted stored value**. If `iszero(convert(T, v))` and the coordinate is *absent*, it *must not* be activated: writing `1e-100` to an absent `Float32` coordinate leaves it absent (the audited code already does this). A nonzero converted value (NaN included) *must* activate it. Writing to an *active* coordinate *must* store the converted value, including zero, and *must not* deactivate it. Symmetry of a *mirrored pair* is a different question and is decided on the source values before conversion (VAL-2). |
 | CRD-4 | `θ` *must* be an ordinary vector: `sum(abs, θ)`, `norm(θ)`, `θ .= …`, `fill!(θ, 0)`, `rmul!(θ, 2)` mean what they mean for any vector of `q` numbers. In particular a full traversal of `θ` visits `q` coordinates, not `s`. Linear operations on `θ` are therefore correct for the matrix (doubling every coordinate doubles the matrix); norms and inner products are *not* matrix norms (§2.8). |
 | CRD-5 | Broadcasting `θ .= g.(…)` *must* obey CRD-3 per coordinate. It *must* give the same result as the explicit loop `for k in 1:q; θ[k] = g(…); end`. |
 
@@ -195,9 +195,9 @@ snapshot* (`Matrix(X)`).
 | CPY-1 | `copy(X)` | *must* create independent solver state: same `p`, same values, same set of active coordinates, **active zeros preserved**, and the activation order of `X`. `O(q)`. |
 | CPY-2 | `similar(X)`, `similar(X, S)` | *must* return an empty owner (no active coordinates, all values zero) of the same `p`, with element type `T` or `S`. `O(q)` memory. |
 | CPY-3 | `copyto!(X, Y::SymmetricSparseIterate)` | *must* make `X` a state copy of `Y` (CPY-1), discarding the previous working set of `X`. Different `p` *must* throw `DimensionMismatch` before writing. `copyto!(X, X)` *must* be a no-op. |
-| CPY-4 | `copyto!(X, M::AbstractMatrix)` and `SymmetricSparseIterate(M)` | *must* be a checked import (§2.10): `M` must be square of size `(p, p)` and exactly symmetric. **Default: replace.** After the call `X` equals `M`, the working set is exactly the nonzero coordinates of `M` in increasing ID order, and the previous working set (explicit zeros included) is gone. `O(q)` time (a dense source is read once). |
+| CPY-4 | `copyto!(X, M::AbstractMatrix)` and `SymmetricSparseIterate(M)` | *must* be a checked import (§2.10): `M` must be square of size `(p, p)` and exactly symmetric. **Default: replace.** After the call `X` equals the converted `M`, the working set is exactly the coordinates whose **converted stored value** is nonzero, in increasing ID order (CRD-3 rule), and the previous working set (explicit zeros included) is gone. Symmetry is checked on the source values before conversion (VAL-2). `O(q)` time (a dense source is read once). |
 | CPY-5 | `Matrix(X)` | dense, independent, writable snapshot (§2.4). |
-| CPY-6 | A source that shares memory with `X` (`matrixview(X)` or a derived view) *must* be rejected with an `ArgumentError` before writing. |
+| CPY-6 | an aliasing source | A source that shares memory with `X` (`matrixview(X)` or a derived view) *must* be rejected with an `ArgumentError` before writing. |
 
 *Default for CPY-4:* replace. *Reason:* the result then depends only on the
 argument, not on what `X` held before, so a warm start from a dense matrix has
@@ -222,7 +222,7 @@ Three counts must not be confused:
 | ACT-2 | **`nnz(X)` is not retained.** It *must* be undefined for the owner. `nactive(X)` replaces it. A matrix-view `nnz` is *not* added: no audited caller needs one. `SparseArrays.sparse(A)` is the way to ask a matrix question (*recommended:* `O(p + s)`). |
 | ACT-3 | `activecoordinates(X)` *must* return a read-only `AbstractVector{Int}` of the IDs of the active coordinates in slot order, of length `s` at the call. It is a **handle, not a snapshot**: its entries are valid IDs, in unchanged slots, for as long as the active set is unchanged. It *must* be reacquired after any activation or compaction. Use of a stale handle after `dropzeros!` is not specified (the slots may have moved) but *must not* be memory-unsafe. |
 | ACT-4 | `activevalues(X)` (**new name**) *must* return a writable `AbstractVector{T}` of length `s` whose entry `a` is the value of coordinate `activecoordinates(X)[a]`. Writing zero through it keeps the coordinate active. Same lifetime as ACT-3. It is the supported replacement for reading and writing the first `nnz` stored values by slot. |
-| ACT-5 | Writing a value (CRD-3, `X[i,j] = v`, `activevalues`, `prox_coordinate!`) *must never remove* an active coordinate. Only `dropzeros!` removes, and only coordinates whose value is zero. A sweep over `activecoordinates(X)` that only updates already active coordinates *must* leave `activecoordinates(X)` unchanged, whatever values it writes. |
+| ACT-5 | Writing a value (CRD-3, `X[i,j] = v`, `activevalues`, `prox_coordinate!`) *must never remove* an active coordinate. Only `dropzeros!` removes a single coordinate, and only one whose value is zero. The one exception is **whole-state replacement**: `copyto!(X, Y)` and `copyto!(X, M)` (CPY-3, CPY-4) discard the previous working set by design, and `copy` and state copies *preserve* active zeros. A sweep over `activecoordinates(X)` that only updates already active coordinates *must* leave `activecoordinates(X)` unchanged, whatever values it writes. |
 | ACT-6 | `activate!(X, k)` is the explicit-zero operation: it makes `k` active at value zero if it is absent and changes nothing otherwise. After `X[3,1] = 0.0` (absent) `nactive` is unchanged; after `activate!(X, tril_index(3,3,1))` it is one larger. |
 | ACT-7 | `dropzeros!(X)` *must* keep every value, every owner/view relation and every ID unchanged. It *may* reorder slots (today: the last active coordinate moves into each freed slot). It *must* run in `O(s)` and not allocate. |
 | ACT-8 | What survives compaction: `X`, `θ` and `A` keep denoting the same variables and values; coordinate IDs do not change; slot order and any handle from ACT-3/ACT-4 do not. |
@@ -293,7 +293,24 @@ unit-Frobenius direction.** For the example `a = 2`, `mₖ = 2`: step `1`, givin
 doubled) gives `2.75`; using step `2` (penalty doubled, curvature entry-normalized
 as `1`) gives `2.0`. Both are wrong, silently.
 
-**Public KKT residual.** `kkt_violation(f, g, X, k)` takes the *matrix gradient*
+**Screening is not stationarity.** `kkt_violation` answers one question: does
+coordinate `k`, *at zero*, violate optimality, so that it should enter the
+working set? Its maximum over all coordinates does **not** certify a solution.
+Counterexample: at a coordinate with value `x > 0`, projected matrix gradient
+`G = +1` and `λw = 1`, the screen is `|1| − 1 = 0`, yet the entry-normalized
+derivative of the objective is `G + λw = +2` and the point is not stationary.
+The public screening API is kept. The residual of a *returned solution* is a
+separate quantity, entry-normalized like the screen:
+
+```
+r_k = max(|G_k| − λ w_k, 0)        if x_k = 0
+r_k = |G_k + λ w_k sign(x_k)|      if x_k ≠ 0          (weighted L1 penalty)
+```
+
+and the Frobenius-weighted total is `Σₖ mₖ r_k²`. A solver reports that
+residual, computed independently, when it claims convergence.
+
+**Public screening API.** `kkt_violation(f, g, X, k)` takes the *matrix gradient*
 `g` (its symmetric part is used) and returns the residual in the *entry*
 normalization: `|G[r,c]| − λ w[r,c]` for `NormL1`. It divides out `mₖ`, because
 both the derivative and the penalty carry it. A solver that holds the
@@ -321,7 +338,8 @@ operator: only the rows below, for the families they name, are promised.
 | ORC-6 | `prox_coordinate!(X, f, k, u, γ)` | as ORC-5 for the trial value `u`, which is *not* written first | writes `θₖ`; a coordinate that stays zero stays absent | the new `θₖ` |
 | ORC-7 | `prox_entry(f, v, i, γ)` | raw scalar prox of the entry term at matrix linear index `i` (IDX-3) | none; checks no parameters | the scalar result |
 | ORC-8 | `gradient!(G, f, X)`, `value_and_gradient!` | the gradient restricted to symmetric matrices, i.e. `Gs` with `⟨Gs, H⟩ = df(X)[H]` for symmetric `H` | `G` a dense matrix or an owner, `G !== X`; the oracle writes a symmetric result | `value_and_gradient!`: `f(X)` at the input |
-| ORC-9 | `kkt_violation(f, g, X, k)` | entry normalization (§2.8); `g` an ambient or symmetric matrix | none | the violation at the point `X` for coordinate `k` |
+| ORC-9 | `kkt_violation(f, g, X, k)` | a **screen at zero** (§2.8): whether coordinate `k`, taken at zero, should move; entry normalization; `g` an ambient or symmetric matrix | none | the screening violation for coordinate `k`. It is **not** a stationarity residual of a returned solution |
+| ORC-11 | `prox(f, X, γ)`, `gradient(f, X)`, `value_and_gradient(f, X)` | the allocating forms of ORC-3 and ORC-8. Their present `AbstractArray` dispatch no longer applies to an owner, so each *must* be defined explicitly for the supported families | `prox` returns an **independent owner** (never a view of `X`); `gradient` returns a **dense, exactly symmetric `Matrix`** | as the in-place forms |
 | ORC-10 | `norm(X, p)`, `norm_diff(X, Y, p)`, `dot(M, X)` | matrix reductions: `‖·‖₁` counts both triangles, `‖·‖₂` is Frobenius | none | reduction of the matrices; *recommended* `O(s)` for owners |
 
 **Supported families.** Separable penalties and losses with symmetric
@@ -329,9 +347,8 @@ per-entry parameters; the spectral and `LogDetLoss`/`KronQuadratic` families
 where today's code computes them on a symmetric matrix. **Not designed here,
 tracked elsewhere:** group penalties, cones, `SliceSum`/`FiberSum` on an owner
 (#342); `SphereConstrained{NormL1}` (#336, wrong today); array steps and
-diagonal metrics (an owner has independent entries only under a scalar
-Frobenius step — ProximalSolvers rejects diagonal preconditioning on it,
-src/solvers/diagonal_metric.jl:23); `restrict` and Moreau envelopes of
+diagonal metrics (a **scope choice** of this redesign, not a mathematical claim:
+see VAL-5); `restrict` and Moreau envelopes of
 nonseparable functions. A caller that needs one of these gets an error, not a
 guess.
 
@@ -365,8 +382,8 @@ guess.
 | VAL-1 | Exact symmetry means `_symequal(a, b) = isequal(a, b) \|\| (a == b) === true` ([src/sparse_iterate.jl:932](https://github.com/mlakolar/ProximalBase.jl/blob/abaceda25442bf6cc61601c8c1d3b2a16e1a3492/src/sparse_iterate.jl#L932)): NaN matches NaN, `0.0` matches `−0.0`, `1` matches `1.0`. It is *structural equality* and says nothing about whether a value is *admissible*: a weight `−1` is symmetric and still rejected by the penalty's own domain check. The two checks stay separate. |
 | VAL-2 | The comparison of a mirrored pair *must* be made on the **source** values, before conversion to `T`. A pair unequal in `Float64` that rounds equal in `Float32` *must* be rejected. |
 | VAL-3 | A coordinate oracle (`prox_coordinate!`, `kkt_violation` for `k`) *may* inspect only the pair it uses. A stored-only operation *may* inspect only the pairs it touches. Neither certifies the model. |
-| VAL-4 | The **full validation entry point** is `ProximalBase.check_symmetric_parameters(f, X)`, with `ProximalBase.entry_parameters(f)` as the declaration for extensions. Both *must* keep their roles. A solver calls it once at creation. |
-| VAL-5 | Per-call steps (`γ`) are validated by the step contract (numerics P1–P3), not by `check_symmetric_parameters`. A per-entry step array on an owner *must* be exactly symmetric where read. |
+| VAL-4 | The **full validation entry point** is `ProximalBase.check_symmetric_parameters(f, X)`, with `ProximalBase.entry_parameters(f)` as the declaration for extensions. Both *must* keep their roles. A solver calls it once at creation, on the **original caller-supplied penalty** and before any transformation of its parameters. A solver *must not* silently repair an asymmetric parameter (average, or take one triangle), because the repaired array defines a different penalty from the one the caller supplied; validating the result of such a transformation is too late. The audited ProximalSolvers does the opposite: `_symmetric_penalty(g, x::SymmetricSparseIterate)` defaults to `average = true` (`src/cd/models.jl:540`, `_symmetric_average` `:561`), and both workspace constructors call it (`src/workspaces.jl:76,99`). That behavior conflicts with the amended #142 rule and must change in ProximalSolvers; this contract does not change it. |
+| VAL-5 | **Scope: this redesign promises scalar Frobenius steps `γ` only** for the oracles of §2.9 on an owner. Per-entry step arrays and diagonal metrics on an owner are **out of scope**, and an array `γ` *should* throw an `ArgumentError` there. This is a scope choice, not a claim that a symmetric diagonal metric destroys coordinate independence. **What would be lost:** the audited code accepts an exactly symmetric `γ` matrix in `prox!` into an owner (run: `prox!(Y, NormL1(0.5), [0 3; 3 0], [1 2; 2 1])` gives `2.0`, and an asymmetric `γ` throws), and `Tilt`'s path checks symmetric steps (`src/metric.jl:69,77`); ProximalSolvers already rejects diagonal preconditioning on an owner (`src/solvers/diagonal_metric.jl:23`). Scalar steps are validated by the step contract (numerics P1–P3). |
 | VAL-6 | **What invalidates a validation.** The check is a statement about the arrays at the time of the call. Mutating any array reported by `entry_parameters` afterward, in either triangle, invalidates it (arrays symmetric by type, such as `Symmetric(W, :L)` over a parent the caller mutates, stay symmetric). A caller who mutates parameters re-validates. |
 | VAL-7 | A custom entry function whose result depends on the index `(i, j)` without a parameter array (so `entry_parameters` cannot see it) *must* itself be symmetric. That responsibility is the extension author's. |
 | VAL-8 | No public unchecked API and no validation cache is introduced by this contract. The per-call cost of dense-parameter scans (#374) is left to its own issue. |
@@ -409,7 +426,7 @@ Fixed-width CPU scalar types (`Float32`, `Float64`).
 | PERF-3 | Traversal of the active set (`activecoordinates`, `activevalues`) *must* cost `O(s)` of traversal work. The derivative, cache update and full KKT screening a solver attaches have their own costs and are not covered. |
 | PERF-4 | Constructing `θ`, `A`, `activecoordinates(X)` and `activevalues(X)` *must not* copy `X`'s data. |
 | PERF-5 | After warm-up, these *must not* heap-allocate for `Float32`/`Float64` inputs: `X[i,j]`, `X[i,j] = v`, `θ[k]`, `θ[k] = v`, `isactive`, `activate!` (capacity reserved), `prox_coordinate!` for a built-in separable `f` with scalar or `Symmetric`-typed parameters, and a sweep over `activecoordinates(X)` that calls it. |
-| PERF-6 | `mul!(y, A, v)` for a dense vector `v` *must* cost `O(p + s)` for finite input, **including initialization of `y`**. A no-copy wrapper that falls to the dense `O(p²)` scan does not meet it. (For non-finite `v` a sparse product that skips absent coordinates may differ from a dense product, since `0·Inf`; the sparse reading is the specified one, as numerics M1 says for linear terms.) |
+| PERF-6 | `mul!(y, A, v)` for a dense vector `v` *must* cost `O(p + s)` for finite input, **including initialization of `y`**. A no-copy wrapper that falls to the dense `O(p²)` scan does not meet it. For a non-finite `v` the result *must* be the same, or the same documented error, **before and after `dropzeros!`**: a mathematical product must not depend on whether a zero has a storage slot. (Audited code does not satisfy this: with `v = [Inf, 1, 0]` and one stored explicit zero at `(3,1)` the product has a `NaN` at row 3, and after `dropzeros!` the same entry is `0.0`.) *Recommended default:* one `O(p)` scan of `v` and an `ArgumentError` for any non-finite entry, so the finite case stays `O(p + s)`. Numerics M1 cites *finite* linear coefficients and does not settle `0·Inf`; the rule must be reconciled with the non-finite policy in `docs/src/numerics.md`. |
 | PERF-7 | `dropzeros!` *must* be `O(s)`. `Matrix(X)` is `O(p² + s)`; `copy(X)` and `similar(X)` are `O(q)`. |
 | PERF-8 | No other generic matrix operation on `A` is promised to be sparse-fast. *Recommended* sparse-aware methods: `norm`, `dot`, `sparse(A)`, `sum`. A reader of the specification must not infer more. |
 
@@ -464,6 +481,17 @@ Each gives a recommended default, one reason and one consequence.
     `dot`). *Recommend: keep, as today.* ProximalSolvers' stopping norm and
     trial arithmetic need it, and `norm(θ)` is the wrong number.
     *Consequence:* three named methods on the owner outside `AbstractArray`.
+11. **Scalar Frobenius steps only** (VAL-5). *Recommend: yes.* One scope, stated
+    once; no array-step claim to defend. *Consequence:* symmetric per-entry step
+    arrays that `prox!` accepts into an owner today are rejected in 0.6.
+12. **Solvers validate the caller's original penalty and never repair it**
+    (VAL-4). *Recommend: yes.* An averaged or one-triangle array is a different
+    penalty. *Consequence:* ProximalSolvers' default-averaging
+    `_symmetric_penalty` must change; users who want the mean write it.
+13. **Non-finite `v` in `mul!(y, A, v)`: error, by default** (PERF-6).
+    *Recommend: `ArgumentError` after one `O(p)` scan.* The product then cannot
+    depend on whether a zero has a slot. *Consequence:* a `NaN` or `Inf` in `v`
+    raises instead of propagating; this needs reconciling with numerics.
 
 # Part 4. Where today's code differs (informative)
 
@@ -481,6 +509,12 @@ Checked at the audited commit; "ran" means a script was run against it.
 | `prox!` of a non-symmetric dense argument into an owner is inconsistent across penalties | ran (`NormL1` gives the lower triangle, `SqrNormL2` throws) |
 | ProximalSolvers coordinate updates already use `coordinates(x)`, `activecoordinates(x)`, joint-direction derivative and curvature, and multiplicity 2 on the penalty | src/cd/kron.jl:97–120, src/cd/models.jl:146, `:419–420` |
 | `mul!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector)` loops over the stored entries | `:1716` (read, not timed) |
+| a stored explicit zero changes a product with non-finite `v` (`NaN` against `0.0` after `dropzeros!`) | ran |
+| writing `1e-100` to an absent `Float32` coordinate leaves it absent (activation from the converted value) | ran |
+| symmetric array `γ` accepted by `prox!` into an owner; asymmetric `γ` throws | ran |
+| `prox(f, X, γ)` returns an owner; `gradient(f, X)` a dense `Matrix` | ran (through `AbstractArray` dispatch, `src/interface.jl:134,318`) |
+| ProximalSolvers averages asymmetric weights at the solver boundary | `src/cd/models.jl:540,561`; `src/workspaces.jl:76,99` (read) |
+| `kkt_violation` is a screen at zero, not a stationarity residual | `src/interface.jl:559` and docstring (read) |
 
 *Released versus audited versus proposed.* I did not check what is published in
 the General registry; "0.5.4" is the `Project.toml` of the audited commit.

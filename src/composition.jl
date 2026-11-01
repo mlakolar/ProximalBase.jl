@@ -492,7 +492,7 @@ including sparse iterate outputs with their stored entries and order preserved.
 by `Adapt.adapt` allocates a device buffer on each proximal call.
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
 
-See [Symmetric parameters](@ref) for parameter requirements and checking scope.
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 struct Regularize{F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}, S<:Union{Nothing, Scratch}} <: AbstractFunction
   f::F

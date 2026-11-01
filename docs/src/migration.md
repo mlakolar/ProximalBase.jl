@@ -144,7 +144,7 @@ The linked operation table explains which symmetric arguments trigger checks.
 Averaging `(W + W') / 2` changes both weights and can change the model.
 It is not a general repair for patterns, bounds or labels, and the sum can
 overflow. For extension declarations and public oracle overrides, see
-[Separable functions](@ref). Validation does not protect against later
+[Separable functions](@ref extending-separable). Validation does not protect against later
 mutation; reconstruct functions when their parameter documentation requires it.
 
 These parameter checks complement the checks on values written into an

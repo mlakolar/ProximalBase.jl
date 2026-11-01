@@ -43,7 +43,7 @@ updating a coordinate. On a `SymmetricSparseIterate`, also declare
 [`ProximalBase.entry_parameters`](@ref); public oracle overrides should call
 [`ProximalBase.check_symmetric_parameters`](@ref) before writing.
 
-See [Symmetric parameters](@ref) for parameter requirements and checking scope.
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 abstract type SeparableFunction <: AbstractFunction end
 
@@ -232,7 +232,7 @@ An infinite weight fixes the entry at
 zero at every level (the value is `Inf` away from zero), and a zero weight
 leaves it unpenalized at every level.
 
-See [Symmetric parameters](@ref) for parameter requirements and checking scope.
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 struct NormL1{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ0::T

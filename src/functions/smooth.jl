@@ -458,7 +458,7 @@ Examples:
   off-diagonal entries by `√2`. For a symmetric iterate, use `-(E + E')/2`
   as the linear term.
 
-See [Symmetric parameters](@ref) for parameter requirements and checking scope.
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 struct KronQuadratic{T<:AbstractFloat, MC<:Union{Nothing, Matrix{T}}} <: AbstractFunction
   A::Matrix{T}

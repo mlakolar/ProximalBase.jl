@@ -126,7 +126,7 @@ column by column ([`tril_index`](@ref)): [`prox_coordinate!`](@ref) updates
 them, [`ncoordinates`](@ref) counts them, [`activecoordinates`](@ref) lists the
 stored ones and [`coordinates`](@ref) is a vector view of them.
 
-See [Symmetric parameters](@ref) for parameter requirements and checking scope.
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 mutable struct SymmetricSparseIterate{T} <: AbstractMatrix{T}
     nzval::Vector{T}            # stored nonzero values (1:nnz)

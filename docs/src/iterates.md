@@ -340,7 +340,7 @@ To validate every declared parameter pair before a solver starts, call
 `ProximalBase.check_symmetric_parameters(f, x)`. It returns `true` on success.
 It does not replace arrays, remember earlier checks, or check separately supplied
 steps. Ordinary calls still check; later mutation can invalidate validation. See
-[Separable functions](@ref) for declarations and solver use.
+[Separable functions](@ref extending-separable) for declarations and solver use.
 
 #### When no check happens
 

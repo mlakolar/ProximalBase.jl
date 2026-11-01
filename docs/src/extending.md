@@ -57,7 +57,7 @@ constraint ``\sum_i x_i = 0`` has a multiplier ``\tau``, and for a fixed
 ``\tau`` the box projection is separable. Here a bisection on ``\tau`` replaces
 Condat's exact search.
 
-## Separable functions
+## [Separable functions](@id extending-separable)
 
 A separable function ``f(x) = \sum_i f_i(x_i)`` subtypes
 [`SeparableFunction`](@ref) and implements two scalar functions:

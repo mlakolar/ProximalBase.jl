@@ -82,9 +82,14 @@ transposed products, `coordinates` against `vec`, the matrix loss at the
 `vec(B)` iterate, a trial `u` that throws while it is read, and the ambiguity
 of a checked `copyto!`. Later scripts gave the screens of the built-in group
 penalties, a failed owner import against the clear-then-import recipe, the
-array shorthand with an overlapping source and its unaliased migration, `vec`
-and `reshape` of vectors, a state copy that reorders slots at equal
-membership, and the three-factor mixed fixture. A script on Julia 1.10.12 and 1.13.3 traced which Base
+array shorthand with an overlapping source, `vec` and `reshape` of vectors, a
+state copy that reorders slots at equal membership, and the three-factor mixed
+fixture. The last scripts gave failed state copies on both branches of the
+copy kernel, from empty and non-empty destinations, and for `AtomIterate`; the
+shorthand with a same-kind source and with a fallible conversion; the staged
+replace with each of those sources, an overlapping one and one of another
+length; the ProximalSolvers workspace scatter against both spellings; finite
+overflow in a two-vector `dot`; and the index types of stored groups. A script on Julia 1.10.12 and 1.13.3 traced which Base
 entry points reach `fill!` or `copyto!`. Not run: the package test suite, the
 benchmark suite and any downstream test.
 
@@ -102,11 +107,22 @@ group penalty's own screen (dual norm and default weight), with a table. FD-3
 is withdrawn: the owner keeps #388's CPY-4, a checked, atomic replace, because
 a clear-then-import recipe loses the state when the import's checks fail; the
 array iterates' replace shorthand is limited to an independent, validated
-source, with a safe migration for any other. Three-factor products moved out
+source, with a safe migration for any other (both revised after the second
+review, below). Three-factor products moved out
 of FD-9 into a separate, open decision, FD-16, and the sign-offs are grouped
 (contract §3.1). The rule for views is drawn by the returned object, since
 `vec(x)` of a vector is `x`. A whole-state replacement now ends a handle's
 lifetime (FC-7, FD-7).
+
+**Changes after the maintainer's second review.** A same-kind state copy
+that throws must now leave the destination unchanged (FW-4, FX-1); today it
+can corrupt a `SparseIterate` (#416). The cheap replace shorthand is limited
+to sources with value-write dispatch, independent of `x` and with infallible
+reads and conversions; every other source is staged by value in `similar(x)`
+and then state-copied (FW-6), which replaces the earlier unaliasing
+migration. FN-4 and the M1 amendment state the strong-zero guarantee for
+zeros and non-finite entries only; summation order and finite overflow follow
+A1 (FD-9). `atomindices` returns the stored index type (FC-6, FD-6).
 
 # 2. Reconciliation with the specialized issues
 
@@ -125,6 +141,7 @@ lifetime (FC-7, FD-7).
 | #355 per-group `Regularize` steps on `AtomIterate` | — | its destination follows FW-8 | as is |
 | #405 writable `activecoordinates`, `AtomIterate` `dropzeros!` hang | — | fixed by FD-7 (FC-7) | filed; a 0.5.x bug fix |
 | #406 `dataids` misses the handles | — | fixed by FD-14 (FX-5) | filed; a 0.5.x bug fix |
+| #416 a failed state copy corrupts the destination | — | fixed by FW-4's failure clause (FX-1): the destination is unchanged; recommended, a check before writing only when the conversion can fail | filed; a 0.5.x bug fix |
 
 # 3. Migration recipes (0.5.x → 0.6)
 
@@ -265,35 +282,64 @@ calls `_momentum_reset!`, `:452`). Nothing changes there.
 Without the change, the first two start from the caller's previous working
 set and raise no error; the owner sites fail loudly, since the 0.6 owner has
 no `fill!`. The owner needs two statements, because `fill!` returns the
-coordinate view and `dropzeros!` of that view is a `MethodError` (ran). The
-workspace recipe gives the 0.5.x slot order (FW-6), so a cyclic coordinate
-descent from it follows the same trajectory; its source `ws.x` is a separate
-dense array of the iterate's length (the branch runs only when `xs !== ws.x`),
-so the shorthand applies.
+coordinate view and `dropzeros!` of that view is a `MethodError` (ran).
+
+The workspace site. At 0.5.x, `fill!(xs, 0)` empties the working set and the
+loop then writes the nonzeros of `ws.x` in linear order, so the working set is
+the support of `ws.x` in increasing ID order for a `SparseIterate`, and for an
+`AtomIterate` the groups in the order in which the loop first meets a nonzero
+entry of each. The branch runs only when `xs !== ws.x`, that is, when the
+caller passed a `Vector{T}` with `T <: AbstractFloat`: `_workspace_iterate`
+(ProximalSolvers `src/workspaces.jl:93–95`) returns an iterate unchanged and
+otherwise builds `xs` from a copy of the vector (`SparseIterate(x)`,
+`src/sparse_iterate.jl:513–521`; `AtomIterate(x, groups)`,
+`src/atom_iterate.jl:56–59`), with the same element type. So `ws.x` is never a
+same-kind iterate, shares no memory with `xs`, has its length, and converts
+without failure: the cheap shorthand applies, and the staged replace is not
+needed. Ran: from a working set `[1, 4]` and `ws.x = [0, 3, 0, -0.0, NaN, 1]`,
+the 0.5.x loop, the shorthand and the staged replace all give `[2, 5, 6]`
+with equal values; for groups `[[2, 4], [1, 3]]` and `ws.x = [1, 0, 0, 2]`,
+all three give `[2, 1]`, where the constructor gives `[1, 2]`. Keeping the
+loop after `dropzeros!(fill!(xs, zero(eltype(xs))))` is equivalent. A cyclic
+coordinate descent from either follows the 0.5.x trajectory.
 
 ## 3.6 A replacing import
 
 ```julia
 fill!(x, 0); copyto!(x, A)                    # 0.5.x
-copyto!(dropzeros!(fill!(x, 0)), A)           # 0.6 (FW-6), for A independent of x, of x's length, real
 
-# any other source: validate first, then unalias, then the shorthand
-length(A) == length(x) || throw(DimensionMismatch())
-eltype(A) <: Real || throw(ArgumentError("a real source is needed"))
-A = Base.unalias(x, A)
-copyto!(dropzeros!(fill!(x, 0)), A)
+copyto!(dropzeros!(fill!(x, 0)), A)           # 0.6, cheap (FW-6): A is not a same-kind iterate,
+                                              # shares no memory with x, has x's length,
+                                              # and its reads and conversions cannot fail
+
+t = similar(x)                                # 0.6, general (FW-6): stage by value ...
+for i in eachindex(t, A)
+    t[i] = A[i]
+end
+copyto!(x, t)                                 # ... then state-copy the completed temporary
 
 copyto!(X, M)                                 # the owner: CPY-4's checked, atomic replace (FD-3)
 ```
 
-Without the unaliasing, an overlapping source is read after the clear: with
-`x = SparseIterate([1., 2.])`, `copyto!(dropzeros!(fill!(x, 0)), view(x, 2:-1:1))`
-gives `[0.0, 0.0]`, while the migration above gives `[2.0, 1.0]` (both ran).
-At the audited commit `Base.unalias` detects a `view` of `x` (its `dataids` are
-its parent's object identity) but not the handles `activevalues(x)` and
-`nonzeros(x)`, which FX-5 adds. The shorter `dropzeros!(copyto!(x, A))` gives
-the same set in another slot order (ran: `[3, 2, 9]` against `[2, 3, 9]`),
-which changes the trajectory of a cyclic active pass.
+**Failure guarantee.** The staged replace leaves `x` unchanged if staging
+throws, because `x` is written only by the final state copy, whose element
+types agree: a source of another length makes `eachindex(t, A)` throw
+`DimensionMismatch`, and a failed read or conversion throws inside the loop
+(ran: into `xj = SparseIterate(Int, 2); xj[2] = 5` from `[1.0, 1.5]`, it throws
+`InexactError` and `xj` stays `[0, 5]` with working set `[2]`). Its cost is one
+`similar(x)`, `O(n)` memory and time. The cheap shorthand has no failure
+guarantee: it clears first, so a failure after the clear loses the old state
+(ran: the same `xi` and source leave `[1, 0]` with working set `[1]`).
+
+**Why the cheap shorthand needs its conditions.** A same-kind source
+dispatches to the state copy and brings its explicit zeros: with
+`y = SparseIterate(4); y[4] = 2.; activate!(y, 1)` the shorthand gives `[4, 1]`
+and the staged replace `[4]` (ran). An overlapping source is read after the
+clear: `copyto!(dropzeros!(fill!(x, 0)), view(x, 2:-1:1))` of
+`x = SparseIterate([1., 2.])` gives `[0.0, 0.0]`, while the staged replace
+gives `[2.0, 1.0]` (ran). The shorter `dropzeros!(copyto!(x, A))` gives the
+same set in another slot order (ran: `[3, 2, 9]` against `[2, 3, 9]`), which
+changes the trajectory of a cyclic active pass.
 
 ## 3.7 Code that wrote through `activecoordinates`
 
@@ -331,7 +377,7 @@ coordinate ID; "today" marks a cell where the audited code differs.
 | `x .= c` | VW (today clears for `c = 0`); complex: `ArgumentError` | same | same | none (OWN-3); `θ .= c` (CRD-5) |
 | `x .= v`, `x .= f.(x, v)`, `x .*= 0` | VW, the loop (FW-3) | same | same | `θ .= …` (CRD-5) |
 | `x .= y`, `y` same-kind | VW (today SC) | same | same (today SC) | — |
-| `copyto!`/`copy!` from a same-kind iterate | SC, element type may differ (FX-1); takes the source's slot order and ends old handles (FC-7); `copyto!(x, x)` no-op | same | same layout (FL-4): SC | CPY-3 |
+| `copyto!`/`copy!` from a same-kind iterate | SC, element type may differ (FX-1); takes the source's slot order and ends old handles (FC-7); `copyto!(x, x)` no-op; a failed conversion leaves `x` unchanged (FW-4; today it can corrupt `x`, #416) | same | same layout (FL-4): SC; unchanged on failure (today partly updated, #416) | CPY-3 |
 | from another shape or layout | same length: VW (today `DimensionMismatch` for a matrix source); other length: `DimensionMismatch` (FX-3) | same | same length: VW (today too); other length: `DimensionMismatch` | other `p`: `DimensionMismatch` (CPY-3) |
 | from a plain array | VW in linear order (FX-2); a longer source: `BoundsError`; `copy!` from another length: `MethodError` (`resize!`) | VW; a longer source: `BoundsError`; `copy!` with other axes: `ArgumentError` (Base) | as the vector | checked, atomic replace (CPY-4, FD-3): axes `DimensionMismatch`, asymmetry or complex `ArgumentError`, all before writing, `X` unchanged on failure; then the converted support in increasing ID order (today a value write) |
 | from an aliased source | VW of a copy of the source (FX-5; today `copyto!(x, activevalues(x))` is wrong, #406) | same | same | `ArgumentError` (CPY-6) |
@@ -342,7 +388,7 @@ coordinate ID; "today" marks a cell where the audited code differs.
 | `dot`, `mul!`, `*` | strong zeros (FN-1, FN-2; today storage- and order-dependent); fallbacks and other objects built from `x` IEEE (FN-3) | both walks of `mul!` and `dot(a, X, b)`: strong zeros; `*(A::Symmetric, X, B::Symmetric)`: open (FN-10, FD-16) | `mul!` skips zeros (today too); `dot`: strong zeros (today not); `transpose(A) * x` and `dot` of an `atom` view: IEEE (FN-3) | PERF-6 as amended by FD-9; ORC-10; `A * X * B`: open (FD-16) |
 | scaling `rmul!`, `lmul!`, `rdiv!`, `ldiv!` by a number | IEEE VW equal to `x .*= s` (FN-9; today `[Inf, NaN, 0, 0]` for `rmul!(x, Inf)` with an explicit zero) | same | IEEE VW (today too, through LinearAlgebra's generic method) | `rmul!(coordinates(X), s)`, an ordinary-vector operation (CRD-4) |
 | `prox_coordinate!(x, f, k, γ)` | ID; returns the scalar; FA-3, FA-4 | ID | group ID; returns `atom(x, k)`; layout checked (FL-4) | ORC-5 |
-| `prox_coordinate!(x, f, k, u, γ)` | scalar `u` | scalar `u` | `u` of the group's length, may alias `x` (FA-5); unchanged on failure (FA-7) | ORC-6 |
+| `prox_coordinate!(x, f, k, u, γ)` | scalar `u` | scalar `u` | `u` of the group's length, may alias `x` (FA-5); unchanged after a validation error (FA-4); a partial write is possible if reading `u` throws (FA-7, FT16) | ORC-6 |
 | `kkt_violation(f, g, x, k)` | the scalar screen | same | the group screen (FA-6) | ORC-9 |
 | `prox!(y, f, x, γ)` into the iterate | FW-8: values, every nonzero active, zeros unspecified | same | same; a different layout takes the generic path (FL-5) | ORC-3 |
 
@@ -402,17 +448,17 @@ test. "Fails today" marks a test that fails at the audited commit.
 | test | requirements | setup | exact expectation or independent reference | likely home |
 |:--|:--|:--|:--|:--|
 | **FT01 coordinates and index spaces** | FC-1, FC-2, FC-3, FS-1, FX-5 | `x = SparseIterate(Float64, 2, 3)`; `y = SparseIterate(Float64, 2, 3)` with `y[1, 1] = 3`; `v = SparseIterate(4)` with `v[1] = 1`; `w = SparseIterate([1.0, 2.0, 3.0, 4.0])` | `c = coordinates(x)`: `c isa AbstractVector{Float64}`, `length(c) == 6 == ncoordinates(x)`, `axes(c, 1) == 1:6`, `c !== x`; `c[4] = 2.0` gives `x[2, 2] == 2.0` and `activecoordinates(x) == [4]` (4 = (2 − 1)·2 + 2 by hand); `activate!(x, 6)` makes `x[2, 3]` an explicit zero; for the vector, `cv = coordinates(v)` is not `v`, `cv[1] == 1`, and `cv[3] = 5` gives `v[3] == 5`; `Base.dataids(c) == Base.dataids(x)`; `@allocated coordinates(x) == 0` after warm-up. Products through the view are ordinary-vector products: `dot([1, NaN, 0, 0], cv)` and `dot([1, NaN, 0, 0, 0, 0], c)` are NaN (IEEE, FN-3), unlike `dot([1, NaN, 0, 0], v) == 1.0`; `copyto!(coordinates(x), coordinates(y))` is a value write (working set `[4, 6, 1]`, values those of `y`). Aliased imports copy the source first: `copyto!(w, coordinates(w))` leaves `w == [1, 2, 3, 4]`, and `copyto!(w, 2, coordinates(w), 1, 3)` gives `w == [1, 1, 2, 3]` (by hand: the source is read before the destination changes). *Fails today* (`c` is 2 × 3; for the vector `coordinates(v) === v`) | `test/iterate_queries.jl` |
-| **FT02 groups, entries, multi-response** | FC-4, FC-5, FC-6, FS-4, FP-2 | `p, q = 3, 2`; `B = [1 2; 3 4; 5 6]`; `x = AtomIterate(vec(B), [collect(r:3:6) for r in 1:3])`; `y = AtomIterate(6, 3)`; and, by hand, the expected groups `[1, 4]`, `[2, 5]`, `[3, 6]` | `atomindices(x, r)` equals the hand-written group `r` for `r = 1:3`; `atomindices(y, 2) == 3:4` and is a `UnitRange{Int}`; `atomindices(x, 2)[1] = 9` throws (any exception) and the layout is unchanged; `@allocated atomindices(x, 2) == 0`; `atomindices(x, 0)` and `atomindices(x, 4)` throw `BoundsError`; `atom(x, r) == B[r, :]` and `x[(c − 1)·3 + r] == B[r, c]` for all `r, c` (hand-written expectations); `coordinates(x)` throws `MethodError`. FS-4's gradient mapping is a convention for model authors and is not asserted; what the matrix losses do with `x` today is not tested. A view `w = atom(x, 2)` taken before `activate!(x, 1)` and `dropzeros!(x)` still reads `B[2, :]`, and `w[1] = 0` writes `x[2]`. *Fails today* (no `atomindices`) | `test/atom_iterate.jl` |
+| **FT02 groups, entries, multi-response** | FC-4, FC-5, FC-6, FS-4, FP-2 | `p, q = 3, 2`; `B = [1 2; 3 4; 5 6]`; `x = AtomIterate(vec(B), [collect(r:3:6) for r in 1:3])`; `y = AtomIterate(6, 3)`; and, by hand, the expected groups `[1, 4]`, `[2, 5]`, `[3, 6]` | `atomindices(x, r)` equals the hand-written group `r` for `r = 1:3`; `atomindices(y, 2) == 3:4` and is a `UnitRange{Int}`; `atomindices(x, 2)[1] = 9` throws (any exception) and the layout is unchanged; `@allocated atomindices(x, 2) == 0`; `atomindices(x, 0)` and `atomindices(x, 4)` throw `BoundsError`; `atom(x, r) == B[r, :]` and `x[(c − 1)·3 + r] == B[r, c]` for all `r, c` (hand-written expectations); `coordinates(x)` throws `MethodError`. Index types (FC-6): for `ai = AtomIterate(4, [Int32(1):Int32(2), Int32(3):Int32(4)])`, `atomindices(ai, 1) == 1:2` and is a `UnitRange{Int32}`, the stored range; for `f32 = GroupNormL2(1.0, [Int32(1):Int32(2), Int32(3):Int32(4)])`, `atomindices(AtomIterate(4, f32), 2)` is a `UnitRange{Int32}`; `atomindices(AtomIterate(4, [Int32[1, 3], Int32[2, 4]]), 1)` has element type `Int`. (Were FD-6's option (e) adopted, the first two would be `UnitRange{Int}`.) FS-4's gradient mapping is a convention for model authors and is not asserted; what the matrix losses do with `x` today is not tested. A view `w = atom(x, 2)` taken before `activate!(x, 1)` and `dropzeros!(x)` still reads `B[2, :]`, and `w[1] = 0` writes `x[2]`. *Fails today* (no `atomindices`) | `test/atom_iterate.jl` |
 | **FT03 read-only handles** | FC-7, FW-1 | `x = SparseIterate(4)` with `x[2] = 1`, `x[4] = 3`; `a = AtomIterate(6, [1:2, 3:4, 5:6])` with `a[1] = 1`, `a[5] = 2`; an owner with `X[2, 1] = 1` | `activecoordinates(x)[1] = 3`, `activecoordinates(a)[1] = 2` and the owner's write throw (any exception). Afterwards `Vector(x) == [0, 1, 0, 3]`, `activecoordinates(x) == [2, 4]`, `isactive(x, k) == (k in (2, 4))` for `k = 1:4`; `activecoordinates(a) == [1, 3]` and the consistency helper of `test/atom_iterate.jl:15` holds. Call `dropzeros!(a)` only after asserting that the write threw (today it hangs after a successful write). *Fails today* (#405) | `test/iterate_queries.jl` |
 | **FT04 handles after compaction and replacement** | FC-7, FC-8, FW-5, FN-7 | `x = SparseIterate(5)` with values `1, 2, 3` at `1:3`; then `x[1] = 0`, `dropzeros!(x)`. A second `x` with `x[4] = NaN`, `x[5] = -Inf` and an explicit zero at 1; an `AtomIterate` with an all-zero active group and a NaN group. For the replacement case: `x = SparseIterate(3)` with `x[1] = 1`, `x[2] = 2` (slot order `[1, 2]`) and `y` with `y[2] = 2`, `y[1] = 1` (order `[2, 1]`, `x == y`); the same with two `AtomIterate`s of one layout | `Set(activecoordinates(x)) == Set([2, 3])`; `Dict(zip(activecoordinates(x), activevalues(x))) == Dict(2 => 2.0, 3 => 3.0)`, the same through `nonzeros`; no handle from before the call is used. `dropzeros!` keeps 4 and 5 and removes 1; for the `AtomIterate`, it removes only the all-zero group; values unchanged; `@allocated dropzeros!(x) == 0`. After `copyto!(x, y)`, with handles reacquired: `nactive(x) == 2`, `activecoordinates(x) == [2, 1]` and `activevalues(x) == [2.0, 1.0]` (by hand: `y`'s order); the `AtomIterate` gives `[2, 1]`; after `copyto!(x, x)` the order is unchanged. The test does not read a handle taken before the copy | `test/sparse_iterate.jl`, `test/atom_iterate.jl` |
 | **FT05 value writes never remove** | FW-2, FW-3, FW-7, FX-2, FN-9 | `x = SparseIterate(4); x[4] = 7; activate!(x, 2)` (old set `[4, 2]`), fresh for each call; `v = [3, 0, 0, 0]`; `y = SparseIterate(4)` with `y[1] = 3` and an explicit zero at 3; `A = [0 0 0 0; 0 1 0 0; 0 0 0 0; 0 0 0 0]` and `b = [0, 1, 0, 0]` for `mul!`; `M = [0 0; 1 1; 0 0; 0 0]` for `sum!`; `F = lu(Matrix(1.0I, 4, 4))`. The calls: `x[1] = 3`, `x .= v`, `x .= 0`, `x .= 0 .* x`, `x .= 1 .* v`, `x .= y`, `fill!(x, 0)`, `fill!(x, 2)`, `copyto!(x, v)`, `copy!(x, v)`, `x[:] = v`, `copyto!(x, 1, v, 1, 4)`, `view(x, 1:2) .= [3, 0]`, `vec(x) .= v`, `rmul!(x, 0)`, `x .*= 0`, `map!(identity, x, v)`, `ldiv!(x, F, v)`, `permute!(x, [4, 1, 2, 3])`, `mul!(x, A, b)`, `sum!(x, M)`. The same for `a = AtomIterate(4, [1:2, 3:4]); a[4] = 7`, plus `atom(a, 1) .= [3, 0]` | Reference: the same call on `Vector(x)`, a plain `Vector`. Expect `Vector(x) == ref`; `activecoordinates(x)[1:2] == [4, 2]` (old slots kept, in order); `Set(activecoordinates(x)) == Set([4, 2]) ∪ Set(findall(!iszero, ref))` (for `x .= y`, `y`'s explicit zero at 3 does not join). For the `AtomIterate`, the same with groups. Every broadcast equals the explicit loop over the unaliased right-hand side, run on a copy, values and working set. A sweep over `activecoordinates(x)` writing `x[k] = 0` leaves the handle's contents unchanged. Separately: `ldiv!(x, F, y)` with a same-kind `y` gives `y`'s working set (FW-2's stated exception). *Fails today* for `x .= 0`, `fill!(x, 0)`, `x .= y`, `sum!` | `test/iterate_writes.jl` (new) |
-| **FT06 state copies** | FW-4, FX-1, FX-6, FC-7 | `y = SparseIterate(4); y[3] = 5; activate!(y, 1)`; `x` with coordinate 2 active; `y64 = SparseIterate(Float64, 3); y64[2] = 1e-50`; two `AtomIterate`s with equal but distinct layouts; `x2` and `y2` with equal entries at coordinates 1, 2 and slot orders `[1, 2]` and `[2, 1]` | `copy(y)`, `copyto!(x, y)`, `copy!(x, y)`: `activecoordinates == [3, 1]`, the explicit zero kept, values equal, `x`'s old 2 gone; `similar(y)` empty with the same size, `similar(y, Float32)` of `Float32`; `zero(y)` empty; `copyto!(y, y)` leaves `y` unchanged. `copyto!(SparseIterate(Float32, 3), y64)` gives values `Float32[0, 0, 0]` and working set `[2]` (by hand). The `AtomIterate`s copy as state; `copy`, `similar` and `AtomIterate(4, f)` share the layout object (the test may check identity on the private field). Equal membership, different order: after `copyto!(x2, y2)` and, separately, `copy!(x2, y2)`, the reacquired `activecoordinates(x2) == [2, 1]` with `nactive(x2) == 2` | `test/sparse_iterate.jl`, `test/atom_iterate.jl` |
+| **FT06 state copies** | FW-4, FX-1, FX-6, FC-7 | `y = SparseIterate(4); y[3] = 5; activate!(y, 1)`; `x` with coordinate 2 active; `y64 = SparseIterate(Float64, 3); y64[2] = 1e-50`; two `AtomIterate`s with equal but distinct layouts; `x2` and `y2` with equal entries at coordinates 1, 2 and slot orders `[1, 2]` and `[2, 1]` | `copy(y)`, `copyto!(x, y)`, `copy!(x, y)`: `activecoordinates == [3, 1]`, the explicit zero kept, values equal, `x`'s old 2 gone; `similar(y)` empty with the same size, `similar(y, Float32)` of `Float32`; `zero(y)` empty; `copyto!(y, y)` leaves `y` unchanged. `copyto!(SparseIterate(Float32, 3), y64)` gives values `Float32[0, 0, 0]` and working set `[2]` (by hand). The `AtomIterate`s copy as state; `copy`, `similar` and `AtomIterate(4, f)` share the layout object (the test may check identity on the private field). Equal membership, different order: after `copyto!(x2, y2)` and, separately, `copy!(x2, y2)`, the reacquired `activecoordinates(x2) == [2, 1]` with `nactive(x2) == 2`. **A failed state copy** (FW-4's failure clause): with `snap(z) = (collect(activecoordinates(z)), [isactive(z, k) for k in 1:ncoordinates(z)], [z[i] for i in eachindex(z)], Vector(z))` taken before the call, `copyto!(d, s)` throws (any exception) and `snap(d)` is unchanged, for `s` with `s[1] = 1.0`, `s[2] = 1.5` of `d`'s length and these `Int` destinations: empty of length 16 (sparse branch, `4 · (0 + 2) < 16`) and of length 4 (dense branch); holding 7 at coordinate 5 and 3 at coordinate 9, of length 16 (dense branch, `4 · (2 + 2) = 16`) and of length 32 (sparse branch); and an `AtomIterate(Int, 4, [1:2, 3:4])`, empty and holding 7 at entry 4, from a `Float64` source with 1.0 at entry 1 and 1.5 at entry 3. (Were FW-4's alternative adopted, the test would assert instead that the four parts of `snap(d)` agree with one another.) *Fails today* for the failed copies except the empty length-4 destination: the empty length-16 one ends with `d[1] == 1` and `isactive(d, 1)` but no active coordinate; the length-16 one holding entries ends with coordinate 5 at 1; the length-32 one with `e[5] == 0`, `e[9]` reading 0 while `Vector(e)` holds 3, and active `[1, 9]`; both `AtomIterate`s with `[1, 0, 0, 0]` and active `[1, 2]` (#416) | `test/sparse_iterate.jl`, `test/atom_iterate.jl` |
 | **FT07 imports and lengths** | FX-2, FX-3 | `x = SparseIterate(2, 2)` with `x[1, 1] = 5`; `s = SparseIterate(4)` with `s[4] = 1` and an explicit zero at 2; `d = AtomIterate(4, [[1, 3], [2, 4]])` with `d[2] = 7`; `src = AtomIterate(4, [1:2, 3:4])` with `src[3] = 5` and group 1 active at zero | `copyto!(x, s)`: `Matrix(x) == [0 0; 0 1]`, working set `[1, 4]` (old 1 kept, 4 joins, `s`'s explicit zero does not). `copyto!(SparseIterate(6), SparseIterate(4))` and `copyto!(AtomIterate(6, 3), AtomIterate(4, 2))` throw `DimensionMismatch` with the destination unchanged. `copyto!(d, src)`: `Vector(d) == [0, 0, 5, 0]`, working set `[2, 1]`. All by hand. *Fails today* for `copyto!(x, s)` | `test/iterate_writes.jl` |
-| **FT08 replace and clear** | FW-6 | `x = SparseIterate(10)` with working set `[5, 2, 9]` and `A` nonzero at 2, 3, 9; `a = AtomIterate(8, 4)` with working set `[4, 2, 1]` and `Aa` nonzero at 3, 5; an `AtomIterate` with groups `[[2, 4], [1, 3]]`; `w = SparseIterate([1., 2.])` and its view `view(w, 2:-1:1)`; an owner (`p = 3`) with working set `[5, 2]` and `M` nonzero at coordinates 2, 3, 5; an owner `Z` with `Z[1, 1] = 7` and the asymmetric `M2 = [1 2; 3 4]` | `copyto!(dropzeros!(fill!(x, 0)), A)` gives exactly `[2, 3, 9]`, in this order; `dropzeros!(fill!(x, 0))` gives none; for `a`, `[2, 3]`; with groups `[[2, 4], [1, 3]]`, an import of `[1, 1, 0, 0]` after the clear gives `[2, 1]` (the order in which the import first meets a nonzero entry of each group), while `AtomIterate([1, 1, 0, 0], [[2, 4], [1, 3]])` gives `[1, 2]` (group-ID order); for the strided multi-response layout with `B = [0 1; 1 0; 0 0]`, a replace gives `[2, 1]` and the constructor `[1, 2]`. **Overlapping source:** the migration of FW-6 (length and element-type checks, then `Base.unalias(w, view(w, 2:-1:1))`, then the shorthand) gives `Vector(w) == [2.0, 1.0]` with working set `[1, 2]`; the test records that the bare shorthand would give `[0.0, 0.0]` and does not use it. **Owner:** `copyto!(X, M)` gives exactly `[2, 3, 5]` (CPY-4's increasing ID order), and `fill!(coordinates(X), 0); dropzeros!(X)` gives none; `copyto!(Z, M2)` throws `ArgumentError` and leaves `Matrix(Z) == [7 0; 0 0]` with working set `[1]` (state kept). Reference: the support listed in increasing entry order, by hand. (The shorter `dropzeros!(copyto!(x, A))` gives `[3, 2, 9]`; the test does not use it.) *Fails today* for the owner's `copyto!(X, M)`, a value write that keeps the old slots (`dropzeros!(copyto!(X, M))` gives `[5, 2, 3]`) | `test/iterate_writes.jl`, `test/symmetric_mutators.jl` |
+| **FT08 replace and clear** | FW-6 | `x = SparseIterate(10)` with working set `[5, 2, 9]` and `A` nonzero at 2, 3, 9; `a = AtomIterate(8, 4)` with working set `[4, 2, 1]` and `Aa` nonzero at 3, 5; an `AtomIterate` with groups `[[2, 4], [1, 3]]`; `w = SparseIterate([1., 2.])` and its view `view(w, 2:-1:1)`; an owner (`p = 3`) with working set `[5, 2]` and `M` nonzero at coordinates 2, 3, 5; an owner `Z` with `Z[1, 1] = 7` and the asymmetric `M2 = [1 2; 3 4]` | `copyto!(dropzeros!(fill!(x, 0)), A)` gives exactly `[2, 3, 9]`, in this order; `dropzeros!(fill!(x, 0))` gives none; for `a`, `[2, 3]`; with groups `[[2, 4], [1, 3]]`, an import of `[1, 1, 0, 0]` after the clear gives `[2, 1]` (the order in which the import first meets a nonzero entry of each group), while `AtomIterate([1, 1, 0, 0], [[2, 4], [1, 3]])` gives `[1, 2]` (group-ID order); for the strided multi-response layout with `B = [0 1; 1 0; 0 0]`, a replace gives `[2, 1]` and the constructor `[1, 2]`. **Same-kind source:** with `y = SparseIterate(4); y[4] = 2.; activate!(y, 1)` and `x4 = SparseIterate(4); x4[2] = 9`, the staged replace (`t = similar(x4)`, the loop `for i in eachindex(t, y); t[i] = y[i]; end`, then `copyto!(x4, t)`) gives `Vector(x4) == [0, 0, 0, 2]` with working set exactly `[4]`; for `AtomIterate`s with groups `[1:2, 3:4]`, from a source holding 2 at entry 3 with group 1 active at zero, it gives working set `[2]`. The test records that the shorthand would give `[4, 1]` and `[2, 1]` (it state-copies the explicit zero) and does not use it. **Overlapping source:** the staged replace from `view(w, 2:-1:1)` gives `Vector(w) == [2.0, 1.0]` with working set `[1, 2]`; the shorthand would give `[0.0, 0.0]`. **Fallible conversion:** with `xj = SparseIterate(Int, 2); xj[2] = 5`, the staged replace from `[1.0, 1.5]` throws and leaves `Vector(xj) == [0, 5]` with working set `[2]`; for `xm = SparseIterate(3); xm[2] = 4`, a source of length 2 makes the loop throw `DimensionMismatch` and leaves `xm` unchanged; the test records that the shorthand from `[1.0, 1.5]` would leave `[1, 0]` with working set `[1]`. **Owner:** `copyto!(X, M)` gives exactly `[2, 3, 5]` (CPY-4's increasing ID order), and `fill!(coordinates(X), 0); dropzeros!(X)` gives none; `copyto!(Z, M2)` throws `ArgumentError` and leaves `Matrix(Z) == [7 0; 0 0]` with working set `[1]` (state kept). Reference: the support listed in increasing entry order, by hand. (The shorter `dropzeros!(copyto!(x, A))` gives `[3, 2, 9]`; the test does not use it.) *Fails today* for the owner's `copyto!(X, M)`, a value write that keeps the old slots (`dropzeros!(copyto!(X, M))` gives `[5, 2, 3]`) | `test/iterate_writes.jl`, `test/symmetric_mutators.jl` |
 | **FT09 activation after conversion** | FN-6, FW-2 | `Float32` iterates of both types, fresh for each path; `u = [1e-100, 1e-100]` | Every path of the edge-case list with `1e-100` leaves `nactive == 0` and values `0f0`; the same write to an *active* coordinate stores `0f0` and keeps it active; NaN activates, `−0.0` does not. *Fails today* for `fill!(a, 1e-100)` and `a .= 1e-100` (2 groups) | `test/precision_mixed.jl` |
 | **FT10 oracle destinations** | FW-8 | `y = SparseIterate(4); y[4] = 7`; `prox!(y, NormL2(λ), [3, 0, 0, 0], 1)` for λ = 0, 1, 10; an `AtomIterate` with group 2 active and `GroupNormL2(λ, [1:2, 3:4])`; `prox!(y, IndBallL0(s), SparseIterate([2, 1, 0, 0]), 1)` for `s = 0, 1, 3` | Values from closed forms written in the test: `max(1 − λ/3, 0)·[3, 0, 0, 0]`; for the group, group 1 is `max(1 − λ√2/3, 0)·[3, 0]`, whose first entry at λ = 1 is `3 − √2`, compared with `≈` at relative tolerance `4eps()` (in `Float64`, `3 − √2` is `1.5857864376269049` and the kernel's `(1 − √2/3)·3` is `1.5857864376269046`); `IndBallL0`: `[0, 0, 0, 0]`, `[2, 0, 0, 0]`, `[2, 1, 0, 0]`. Every coordinate with a nonzero value is active, every inactive one is zero, and after `dropzeros!` the working set equals the support. Which zeros stay active is *not* asserted. (Defect 5 of the contract is allowed by FW-8, so this test passes today) | `test/iterate_writes.jl` |
 | **FT11 three-factor products (FD-16, open)** | FN-10 | Four cases, each with `Symmetric` `A` and `B`: **(p1)** `X` 4 × 4 nonzero (1) at `(1, 1)`, `(2, 2)`, `(3, 1)`, `A = Symmetric(Am)` with `Am = Matrix(1.0I, 4, 4)`, `Am[1, 2] = Am[2, 1] = Inf`, `B = Symmetric(ones(4, 4) + 3I)` (sparse path); **(p4)** `X` nonzero at `(1, 1)`, `(2, 2)`, `(3, 3)`, `(1, 2)`, `(2, 3)`, `A = Symmetric(Matrix(1.0I, 4, 4) .+ 1)`, `B` the same with `B[4, 1] = B[1, 4] = NaN` (dense fallback); **(p6)** `X` nonzero at `(1, 1)`, `(1, 2)`, `(2, 1)`, `(3, 1)`, `A = Symmetric(Matrix(Diagonal([Inf, 1, 1, 1])))`, `B = Symmetric(Matrix(1.0I, 4, 4))`; **(R5)** `A = Symmetric([NaN 0 0; 0 1 0; 0 0 1])`, `B = Symmetric(Matrix(1.0I, 3, 3))`, `X1` with one nonzero at `(2, 2)` (sparse path) and `X2` nonzero in rows and columns 2:3 (dense fallback); and the **mixed fixture** `u = 2.0^600`, `A = Symmetric([Inf 0; 0 u])`, `B = Symmetric([1 0; 0 1/u])`, `X` with `X[1, 1] = 1`, `X[2, 2] = u` | Under FD-16's option (a). Reference: for a non-finite entry of the ordinary product, the term-wise loop written in the test, `R[i, j]` summing `(A[i, k] * X[k, l]) * B[l, j]` over the `(k, l)` with `X[k, l] ≠ 0` in column-major order of `X`; a finite entry is the ordinary product's. Compared with `isequal` for the class and `≈` (relative `1e-12`) for finite entries: (p1) row 2 `[Inf, Inf, Inf, Inf]`; (p4) column 1 `[9, 8, 7, 6]`; (p6) row 1 `[NaN, NaN, NaN, NaN]` (under option (c), `A * (Matrix(X) * B)`, it would be `[Inf, Inf, NaN, NaN]`); (R5) row 1 `[0, 0, 0]` for `X1` and `X2`; mixed fixture `[Inf NaN; 0.0 u]`, with `(2, 2) == u` exactly (`4.149515568880993e180`), not `Inf`. The expectations change with the option FD-16 adopts; under option (d) the test is dropped. *Fails today* for p1, p4 and R5's `X2`; p6, R5's `X1` and the mixed fixture pass today | the #387 conformance suite, `test/conformance/failures_storage.jl` (M1 rows, each marked `broken = (group = :G2, baseline = …)` until FD-16 is decided and implemented); `test/sparse_iterate.jl` |
-| **FT12 strong zeros with one iterate operand** | FN-1, FN-2, FN-4 | `s = [1, 0, 0]` stored at 1; `t` with NaN at 2; `A = [NaN 1 0; NaN 1 0]`; `u` with `u[2] = 1` and an explicit zero at 1; `Z = SparseIterate(2, 2)` with `Z[2, 2] = 1` and an explicit zero at `(1, 1)`; `S3 = Symmetric([NaN 0 0; 0 1 0; 0 0 1])`; matrix coefficients `64 × 2` (stored-entry walk) and `3 × 2` (column walk) with an explicit zero against a NaN column; `a = AtomIterate(4, [1:2, 3:4])` with `a[3] = 1` and group 1 active; `v = [NaN, 0, 1, 0]`; an owner with `X[2, 2] = 1` and an explicit zero at `(3, 1)`; `M` with NaN at `(3, 1)` and `(1, 3)` | Reference: an explicit loop over the coordinates where the iterate's coefficient is nonzero. `dot(s, t) == dot(t, s) == 0.0`; `A * u == [1.0, 1.0]` before and after `dropzeros!(u)`, also through `mul!(out, A, u, 2, 0)` (`[2, 2]`), `transpose(permutedims(A)) * u` and `dot(A[1, :], u) == 1.0`; `S3 * u == [0, 1, 0]`; `dot([NaN, 1], Z, [1, 1]) == 1.0` before and after `dropzeros!`; both matrix walks give the loop's result. A non-finite value *in* the iterate meeting a dense zero propagates: with `w[1] = Inf`, `dot([0, 1, 0], w)` is NaN. `dot(v, a) == dot(a, v) == 1.0` before and after `dropzeros!`; `[NaN 0 1 0] * a == [1.0]`; `mul!(y, matrixview(X), [Inf, 1, 0])` and `matrixview(X) * [Inf, 1, 0]` give `[0, 1, 0]` before and after `dropzeros!`; `dot(M, X) == M[2, 2]`; `dot(a3, X, b3)` with a NaN at a zero coordinate equals the loop. *Fails today* for every stored-zero and order case (NaN, `[0, 1, NaN]`) | the #387 conformance suite, `test/conformance/failures_storage.jl` (M1 rows, each marked `broken = (group = :G2, baseline = …)` until FD-9 lands); `test/sparse_iterate.jl`, `test/atom_iterate.jl`, `test/symmetric_mul.jl` |
+| **FT12 strong zeros with one iterate operand** | FN-1, FN-2, FN-4 | `s = [1, 0, 0]` stored at 1; `t` with NaN at 2; `A = [NaN 1 0; NaN 1 0]`; `u` with `u[2] = 1` and an explicit zero at 1; `Z = SparseIterate(2, 2)` with `Z[2, 2] = 1` and an explicit zero at `(1, 1)`; `S3 = Symmetric([NaN 0 0; 0 1 0; 0 0 1])`; matrix coefficients `64 × 2` (stored-entry walk) and `3 × 2` (column walk) with an explicit zero against a NaN column; `a = AtomIterate(4, [1:2, 3:4])` with `a[3] = 1` and group 1 active; `v = [NaN, 0, 1, 0]`; an owner with `X[2, 2] = 1` and an explicit zero at `(3, 1)`; `M` with NaN at `(3, 1)` and `(1, 3)` | Reference: an explicit loop over the coordinates where the iterate's coefficient is nonzero. `dot(s, t) == dot(t, s) == 0.0`; `A * u == [1.0, 1.0]` before and after `dropzeros!(u)`, also through `mul!(out, A, u, 2, 0)` (`[2, 2]`), `transpose(permutedims(A)) * u` and `dot(A[1, :], u) == 1.0`; `S3 * u == [0, 1, 0]`; `dot([NaN, 1], Z, [1, 1]) == 1.0` before and after `dropzeros!`; both matrix walks give the loop's result. A non-finite value *in* the iterate meeting a dense zero propagates: with `w[1] = Inf`, `dot([0, 1, 0], w)` is NaN. `dot(v, a) == dot(a, v) == 1.0` before and after `dropzeros!`; `[NaN 0 1 0] * a == [1.0]`; `mul!(y, matrixview(X), [Inf, 1, 0])` and `matrixview(X) * [Inf, 1, 0]` give `[0, 1, 0]` before and after `dropzeros!`; `dot(M, X) == M[2, 2]`; `dot(a3, X, b3)` with a NaN at a zero coordinate equals the loop. The test asserts the classification for zeros and non-finite entries only; the finite values of these cases are small integers, so every order sums them exactly. It records as allowed to differ (FN-4, A1) the finite-overflow pair `M = floatmax(Float64)`, `x = SparseIterate([M, M, -M])`, `y` with ones activated in the order 1, 3, 2: `dot(x, y) == Inf` and `dot(y, x) == M` today. *Fails today* for every stored-zero and order case (NaN, `[0, 1, NaN]`) | the #387 conformance suite, `test/conformance/failures_storage.jl` (M1 rows, each marked `broken = (group = :G2, baseline = …)` until FD-9 lands); `test/sparse_iterate.jl`, `test/atom_iterate.jl`, `test/symmetric_mul.jl` |
 | **FT13 the fallback boundary and objects built from an iterate** | FN-3 | `s` with `s[2] = 1`; `A = [NaN 1; NaN 1]`; the `AtomIterate` `a` of FT12; `a2 = AtomIterate(4, [1:2, 3:4])` with `a2[2] = 1`; `s0 = SparseIterate([0., 1.])`; `b0 = AtomIterate([0., 1.], [1:1, 2:2])`; `m = SparseIterate(2, 2)` with `m[2, 2] = 1` | `sparse(A) * s`, `Diagonal([NaN, 1]) * s`, `dot(sparsevec([1, 2], [NaN, 1]), s)`, `dot(view([NaN, 1, 0], [1, 2]), s)`, `sum(s .* [NaN, 1])` equal (`isequal`) the same calls on `Vector(s)`: `[NaN, NaN]`, `[NaN, 1.0]`, NaN, NaN, NaN; likewise `sparse([NaN 0 1 0]) * a`, `dot(sparsevec([1, 3], [NaN, 1], 4), a)` and `transpose(permutedims([NaN 0 1 0])) * a` (`[NaN]`). By the returned object: `vec(s0) === s0` and `vec(b0) === b0`, so `dot([NaN, 1], vec(s0)) == dot([NaN, 1], s0) == 1.0` and `dot([NaN, 1], vec(b0)) == 1.0` (the iterate's own rule); `dot([NaN, 1], view(s0, :))` is NaN; for the matrix, `dot([NaN, 0, 0, 1], vec(m))` is NaN (a wrapper). Views are ordinary vectors: `dot(atom(a2, 1), [NaN, 1])` is NaN (it equals `dot([0, 1], [NaN, 1])`), and so is a product through `coordinates` (FT01). For an owner with an explicit zero at `(3, 1)`, the matrix–matrix `mul!(C, matrixview(X), [Inf; 1; 0;;])` and `dot(M, matrixview(X))` with a NaN of `M` there equal the same calls on `Matrix(X)` (`isequal`) | `test/nonfinite_inputs.jl` |
 | **FT14 a data-loss value** | FN-5 | `f = LeastSquaresLoss([1, 1], [NaN 1; NaN 1])`; `s` with `s[2] = 1` and an explicit zero at 1; `fa = LeastSquaresLoss([1], [NaN 0 1 0])` at the `AtomIterate` of FT12 | `f(s) == 0.0` before and after `dropzeros!`; `isnan(f([0, 1]))`; `fa(a) == 0.0`. Reference: the residual `y − Σ_{k: s_k ≠ 0} X[:, k] s_k`, a loop in the test. *Fails today* (`f(s)` is NaN with the stored zero) | the #387 conformance suite, `test/conformance/failures_storage.jl` (M1 rows, each marked `broken = (group = :G2, baseline = …)` until FD-9 lands) |
 | **FT15 coordinate oracles** | FA-1–FA-6, FL-4, FC-1 | `x = AtomIterate([1, 2, 0, 0], [1:2, 3:4])`; `fbad = GroupNormL2(1, [[1, 3], [2, 4]])`; `g = [3, 4, 0, 0]`; `x2 = AtomIterate(2, [1:2])` and `g2 = [5/8, 5/8]`; a `SparseIterate` with `x[1] = 0.5` | Return types: a `Float64` for `SparseIterate`, `atom(x, k)` for `AtomIterate`. `prox_coordinate!(x, fbad, 1, 1)`, `prox_coordinate!(x, fbad, 1, [9, 9], 1)` and `kkt_violation(fbad, g, x, 1)` throw `DimensionMismatch`; `k = 3` throws `BoundsError`; `u = [1]` throws `DimensionMismatch`; a complex `u` and a non-separable non-group `f` throw `ArgumentError`; after each, `Vector(x)` and the working set are unchanged. A group step to zero on an absent group leaves it absent; a scalar step to zero on an active coordinate keeps it active. `prox_coordinate!(y, NormL1(0.5), 1, atom(y, 2), 1)` with `atom(y, 2) == [3, 4]` gives `[2.5, 3.5]` (soft threshold by hand). Screens, each by hand from the penalty's own dual norm and default weight (contract, FA-6's table): `GroupNormL2(1, [1:2, 3:4])` at `g`, `≈ 5 − √2` (ℓ₂ norm 5, weight `√2`); **`GroupNormLinf(1, [1:2])` at `g2`, `== 0.25`** (ℓ₁ norm `5/4`, weight 1: the group must enter), where the ℓ₂ formula would give `−0.11611652351681556`, a screen-out; `GroupNormLinf(1, [1:2, 3:4])` at `g`, `== 6.0` (`7 − 1`); `SparseGroupNormL2(1, 1, [1:2, 3:4])` at `g`, `≈ √13 − √2` (the soft threshold of `[3, 4]` at 1 is `[2, 3]`); `GroupMCP` and `GroupSCAD` at `g`, `≈ 5 − √2`; `Scaled(GroupNormLinf(1, [1:2]), 2)` at `g2`, `== −0.75`; `Regularize(GroupNormL2(1, [1:2]), 1, [1, 1])` at `[3, 4]`, `≈ √13 − √2`; `kkt_violation(NormL1(1), g, x, 1) == 3.0` (largest of `|3|, |4|` minus 1); for a `SparseIterate`, `kkt_violation(NormL1(1), [3, −0.5], x, k)` is `2.0` and `−0.5`. *Fails today:* none (the code already computes each penalty's screen) | `test/block_step.jl`, `test/interface.jl` |
@@ -448,7 +494,7 @@ deliberately does not assert which zeros remain).
 **Tests that fail at the audited commit, by defect** (contract Part 4): the
 writable handles, FT03; defect 1, FT12; defect 2, FT12, FT14; defect 3,
 FT11 (FD-16, open); defect 4, FT05; defect 5, none (allowed by FW-8; FT10 passes); defect 6,
-FT05, FT09; defect 7, FT19; defect 8, FT20; defect 9, FT29.
+FT05, FT09; defect 7, FT19; defect 8, FT20; defect 9, FT29; defect 10, FT06 (#416).
 
 # 6. Benchmark protocol (a future measurement, not a result)
 
@@ -532,6 +578,13 @@ active. Dense operands with 256 and 1024 rows.
 - **FD-11:** the existing `group_layouts` cases (`benchmark/cases.jl:419–486`)
   plus `samegroups` with shared and distinct layout objects;
 - copy and import: `copy`, same-kind `copyto!`, `copyto!` from a dense array;
+- **FW-4's failure clause:** a same-kind `copyto!` with equal element types
+  and `Float64 → Float32` (no check, so no change allowed), and
+  `Float64 → Int` (the `O(s)` check before writing), on both branches of the
+  copy kernel;
+- **FW-6:** the cheap replace `copyto!(dropzeros!(fill!(x, 0)), A)` against
+  the staged replace (`similar(x)`, the value loop, the state copy), which
+  costs `O(n)` memory and time;
 - compaction: `dropzeros!` with 10% and 50% of the active coordinates zero.
 
 **Targets** (future, from FP):
@@ -571,7 +624,7 @@ first, and FT01–FT23 carry the guarantees.
 # 7. Migration and dependency plan
 
 Implementation issues are opened only after the maintainer signs off the
-decisions. #405 and #406 are already filed as 0.5.x bug reports.
+decisions. #405, #406 and #416 are already filed as 0.5.x bug reports.
 
 | item | kind | depends on | integrates with | follow-on issue |
 |:--|:--|:--|:--|:--|
@@ -593,8 +646,9 @@ decisions. #405 and #406 are already filed as 0.5.x bug reports.
 | 16. FN-9 scaling by a number follows IEEE | breaking 0.6 for `SparseIterate` | 1 | #366 G2 | "0.6: scaling a SparseIterate by a number follows IEEE arithmetic" |
 | 17. FD-13's O6 and S4 text, and FD-16's M1 paragraph if option (a) is adopted | 0.6 documentation | sign-off | #366 (numerics page) | part of item 13's numerics change |
 | 18. FD-16 three-factor products | open; breaking 0.6 for options (a)–(c) | its separate sign-off; 1 | #366 G2; #391 Phase 1c (the owner's method) | "0.6: the class of A * X * B for a sparse iterate X", once decided |
+| 19. FW-4's failure clause: a failed state copy leaves the destination unchanged | 0.5.x bug fix | 1 | #391 Phase 1a, whose CPY-3 copy runs through the same kernel (`src/sparse_iterate.jl:1122–1124`) | #416 (filed) |
 
-**Order.** Items 1–9 can run in parallel with #391 Phase 0: they are
+**Order.** Items 1–9 and 19 can run in parallel with #391 Phase 0: they are
 additive, bug fixes or downstream changes that work on 0.5.x, and item 1 comes
 first so that every later item has a baseline. Items 10–18 change 0.6 behavior
 and stack with #391 Phase 1 on its integration branch. Items 10, 11, 12 and

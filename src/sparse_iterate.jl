@@ -249,6 +249,7 @@ end
 Base.size(h::_ActiveIDs) = size(h.ids)
 Base.IndexStyle(::Type{_ActiveIDs}) = IndexLinear()
 Base.dataids(h::_ActiveIDs) = Base.dataids(h.ids)     # as the view it wraps: aliasing checks still see the list
+Base.unaliascopy(h::_ActiveIDs) = _ActiveIDs(Base.unaliascopy(h.ids))   # view(A, h) copies an aliasing index in its own type
 Base.@propagate_inbounds Base.getindex(h::_ActiveIDs, i::Int) = h.ids[i]
 Base.setindex!(::_ActiveIDs, v, i::Int) =
   throw(ArgumentError("activecoordinates(x) is read-only: write values through activevalues(x), or atom(x, k) for an AtomIterate"))

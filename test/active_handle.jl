@@ -45,6 +45,15 @@ sum_ids(x) = (acc = 0; for k in activecoordinates(x); acc += k; end; acc)
     @test sum_ids(x) == sum(before[1])
   end
 
+  @testset "the handle is a valid index into the iterate it belongs to" begin
+    s = SymmetricSparseIterate(3); s[2, 1] = 7
+    @test collect(view(coordinates(s), activecoordinates(s))) == [7.0]
+    x = SparseIterate(4); x[2] = 1; x[4] = 3
+    @test collect(view(x, activecoordinates(x))) == [1.0, 3.0]
+    a = AtomIterate(4, [1:2, 3:4]); a[1] = 1
+    @test collect(view(a, activecoordinates(a))) == [1.0]
+  end
+
   @testset "a new handle sees an activation" begin
     x = SparseIterate(5); x[1] = 1
     h = activecoordinates(x)

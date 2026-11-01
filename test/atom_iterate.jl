@@ -530,4 +530,46 @@ end
 
 end
 
+@testset "aliasing of the views of an AtomIterate" begin
+  function alloc_unaliased(y, x)
+    y .= x .+ 1
+    copyto!(y, x)
+    return nothing
+  end
+  function alloc_aliased(x)
+    copyto!(x, x.storage)
+    return nothing
+  end
+  a = AtomIterate(6, 3)
+  for k in (1, 3)
+    activate!(a, k)
+    a[a.groups[k]] .= k
+  end
+  @test Base.mightalias(a, activecoordinates(a))
+  @test Base.mightalias(activecoordinates(a), a)
+  @test Base.mightalias(a, view(a, 1:2))
+  @test Base.mightalias(a, reshape(a, :))
+  @test all(k -> Base.mightalias(a, atom(a, k)), 1:3)
+  @test all(id -> id in Base.dataids(a), Base.dataids(activecoordinates(a)))
+
+  b = copy(a)    # shares the groups
+  @test !Base.mightalias(a, b)
+  @test !Base.mightalias(a, AtomIterate(6, 3))
+  @test !Base.mightalias(a, zeros(6))
+  @test !Base.mightalias(activecoordinates(a), b)
+  @test !Base.mightalias(atom(a, 1), b)
+
+  source = copy(a)
+  copyto!(a, a)
+  @test a == source
+  a .= a .+ 0
+  @test a == source
+
+  alloc_unaliased(b, a)
+  @test (@allocated alloc_unaliased(b, a)) == 0
+  v = view(a, 1:6)
+  alloc_unaliased(v, a)
+  @test (@allocated alloc_unaliased(v, a)) > 0
+end
+
 end

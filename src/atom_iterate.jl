@@ -130,7 +130,10 @@ end
 end
 
 
-Base.dataids(x::AtomIterate) = Base.dataids(x.storage)
+# storage, active and position are owned by x; groups, group_of and the layout
+# cache are layout shared with copies and output buffers, so they are not reported
+Base.dataids(x::AtomIterate) =
+  (Base.dataids(x.storage)..., Base.dataids(x.active)..., Base.dataids(x.position)...)
 
 Base.length(x::AtomIterate) = length(x.storage)
 Base.size(x::AtomIterate) = size(x.storage)

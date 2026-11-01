@@ -288,6 +288,12 @@ activecoordinates(x::_StoredIterate) = view(x.nzval2ind, 1:x.nnz)
 activevalues(x::_StoredIterate) = view(x.nzval, 1:x.nnz)
 isactive(x::_StoredIterate, k::Integer) = x.ind2nzval[k] != 0
 
+# aliasing hooks from Base (non-public functions); the owner reports its storage
+# arrays, so that activevalues(x), activecoordinates(x) and the views of x are all
+# seen to overlap x
+Base.dataids(x::SparseIterate) =
+  (Base.dataids(x.nzval)..., Base.dataids(x.nzval2ind)..., Base.dataids(x.ind2nzval)...)
+
 # the value of coordinate i
 Base.@propagate_inbounds function _getstored(x::_StoredIterate{T}, i::Integer) where {T}
   @boundscheck checkbounds(x.ind2nzval, i)

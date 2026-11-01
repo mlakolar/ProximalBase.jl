@@ -1043,8 +1043,9 @@ _symmetric_by_type(::_SymmetricPart) = true
 Base.adjoint(S::_SymmetricPart{<:Real}) = S
 Base.transpose(S::_SymmetricPart) = S
 # the products of the decompositions keep the speed of BLAS: ((A + A') / 2) B = (A B + A' B) / 2
-# (a strided output, so that these methods do not meet those of a SymmetricSparseIterate output)
-for (CT, BT) in ((:StridedMatrix, :AbstractVecOrMat), (:StridedVector, :AbstractVector))
+# (strided output and factor, so that these methods meet neither those of a SymmetricSparseIterate
+# output nor the structured-matrix methods of LinearAlgebra, which differ between Julia versions)
+for (CT, BT) in ((:StridedMatrix, :StridedVecOrMat), (:StridedVector, :StridedVector))
   @eval begin
     function LinearAlgebra.mul!(C::$CT, S::_SymmetricPart{<:Real, <:StridedMatrix}, B::$BT, α::Number, β::Number)
       mul!(C, S.A, B, α / 2, β)

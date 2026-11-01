@@ -23,6 +23,11 @@
 # widens both operands): use it only for a genuine high-precision reference.
 # once(f) runs f now and returns a thunk that replays its value or exception, so
 # several rows can assert parts of one invocation (a fused call and its buffer).
+# rank_indicator_ref(Y) is the independent value of IndBallRank(1) at a 2x2
+# Float32 matrix Y (k = 1): 0f0 if the stored Y has numerical rank at most one
+# (sigma2 <= sqrt(eps(Float32))*sigma1, A4, in Float32 scaled units), else
+# Inf32; a zero matrix gives 0f0. Closed-form BigFloat singular values of Y as
+# stored (Gram eigenvalues, sigma2 = |det|/sigma1); no LAPACK, no prox, no f(Y).
 # Reports: CONFORMANCE_REPORT/<julia>-<platform>-<bounds>-<pkgsha>/<test file name>.jsonl.
 module Conformance
 
@@ -30,6 +35,7 @@ using Test
 using ProximalBase
 
 export pow2, bigref, combine, same, near, within_ulps, within_bound, typed_bound, once,
+       rank_indicator_ref,
        Throws, Returned, Threw, @row, @notcovered
 
 pow2(T, k) = ldexp(one(T), k)
@@ -59,6 +65,20 @@ function bigref(f; bits = 256, T = Float64)
   error("BigFloat reference did not stabilize by 4096 bits")
 end
 bigref(f, ::Type{T}; bits = 256) where {T} = bigref(f; bits, T)
+
+function rank_indicator_ref(Y::AbstractMatrix{Float32})
+  size(Y) == (2, 2) || throw(ArgumentError("rank_indicator_ref needs a 2x2 matrix"))
+  setprecision(BigFloat, 256) do
+    scale = maximum(abs, Y)
+    iszero(scale) && return 0f0
+    a, b, c, d = BigFloat.(vec(Y)) ./ BigFloat(scale)
+    trace = a^2 + b^2 + c^2 + d^2
+    determinant = abs(a * d - b * c)
+    sigma1 = sqrt((trace + sqrt(max(zero(trace), trace^2 - 4determinant^2))) / 2)
+    sigma2 = determinant / sigma1
+    sigma2 > BigFloat(sqrt(eps(Float32)) * Float32(sigma1)) ? Inf32 : 0f0
+  end
+end
 
 function combine(::Type{W}, factors...) where {W}
   P = promote_type(W, map(typeof, factors)...)

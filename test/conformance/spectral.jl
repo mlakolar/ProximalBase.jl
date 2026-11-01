@@ -95,10 +95,9 @@ const c = 64
   v = [1.0, 5 / 8]
   X5 = h .* v * transpose(v)
   f5 = IndBallRank(1)
-  # O2: X5 has rank one, so its rank-one projection is X5 and the stored result
-  # is Float32.(X5), the independent stored matrix whose singular values give
-  # the value. One fused call from a sentinel destination: L5.value takes the
-  # scalar, L5.residual the buffer it wrote.
+  # O2: one fused call from a sentinel destination. L5.value relates its two
+  # outputs: the scalar must equal the independent indicator of the matrix the
+  # call stored (rank_indicator_ref of that same Y); L5.residual takes the buffer.
   fused5 = once() do
     Y5 = fill(7f0, 2, 2)
     value = value_and_prox!(Y5, f5, X5, 1.0)
@@ -107,25 +106,14 @@ const c = 64
   @row begin
     id = "L5.value"; case = "L5"; family = :spectral; oracle = :value_and_prox
     types = "Float64 arg, Float32 destination"; backend = :cpu
-    rules = "A4,A5,O2"; problem = "Independent closed-form singular values of the stored 2x2 matrix Float32.(X5); rank threshold sqrt(eps(Float32))*sigma1 in Float32 scaled units; scalar of the fused call"
-    expected = setprecision(BigFloat, 256) do
-      stored = Float32.(X5)
-      scale = maximum(abs, stored)
-      if iszero(scale)
-        0f0
-      else
-        # Eigenvalues of the symmetric Gram matrix, without LAPACK or f5.
-        a, b, cc, d = BigFloat.(stored) ./ BigFloat(scale)
-        trace = a^2 + b^2 + cc^2 + d^2
-        determinant = abs(a * d - b * cc)
-        sigma1 = sqrt((trace + sqrt(max(zero(trace), trace^2 - 4determinant^2))) / 2)
-        sigma2 = determinant / sigma1
-        cutoff = sqrt(eps(Float32)) * Float32(sigma1)
-        sigma2 > BigFloat(cutoff) ? Inf32 : 0f0
-      end
+    rules = "A4,A5,O2"; problem = "O2: scalar of the fused call equals rank_indicator_ref (independent closed-form singular values, threshold sqrt(eps(Float32))*sigma1 in Float32 scaled units) of the matrix that same call stored; observed is the pair (scalar, reference of the stored matrix)"
+    expected = "scalar === reference"
+    observed = let (value, Y) = fused5()
+      (scalar = value, reference = rank_indicator_ref(Y))
     end
-    observed = fused5()[1]
-    broken = (group = :G6, baseline = Returned(v -> same(v, 0f0)))
+    compare = (o, _) -> same(o.scalar, o.reference)
+    # Specific: a zero scalar at a stored matrix of numerical rank two.
+    broken = (group = :G6, baseline = Returned(o -> same(o.scalar, 0f0) && same(o.reference, Inf32)))
   end
   residual5 = Y -> norm(Float64.(Y) - X5)
   @row begin

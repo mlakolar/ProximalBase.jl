@@ -618,13 +618,42 @@ end
   end
 end
 
-@testset "KronQuadratic from matrices symmetric up to rounding" begin
+@testset "LogDetLoss and KronQuadratic check exact symmetry (#269)" begin
   p = 6
   Ω = Matrix(SymTridiagonal(fill(1.0, p), fill(0.3, p - 1)))
   @test !issymmetric(inv(Ω))                          # an inverse computed by inv
-  f = KronQuadratic(inv(Ω), inv(Ω))
-  @test issymmetric(f.A) && f.A ≈ inv(Ω)
+  msg(f, args...) = try f(args...); nothing catch e; e isa ArgumentError ? e.msg : rethrow() end
+  # one ulp off: the message names the matrix, the pair, the size and the repairs
+  S = [2.0 nextfloat(1.0); 1.0 2.0]
+  expected = "S must be symmetric, but entry (2, 1) is 1.0 and entry (1, 2) is 1.0000000000000002 (relative asymmetry 1.1e-16, the size of rounding error); if S is symmetric in exact arithmetic, pass Symmetric(S, :L), or (S + S')/2"
+  @test msg(LogDetLoss, S) == expected
+  A = [1.0 1.0; 2.0 1e5]                              # a difference of 1 between entries of size 1
+  @test startswith(msg(KronQuadratic, A, I(2)), "A must be symmetric, but entry (2, 1) is 2.0 and entry (1, 2) is 1.0 (relative asymmetry 1.0e-5); pass Symmetric(A, :L) to keep the lower triangle of A, or (A + A')/2 for its symmetric part")
+  @test startswith(msg(KronQuadratic, Matrix(1.0I, 2, 2), S), "B must be symmetric")
+  @test_throws ArgumentError LogDetLoss([2 0; 1 2])
+  @test_throws ArgumentError KronQuadratic(inv(Ω), inv(Ω))
   @test_throws ArgumentError KronQuadratic(Ω + [i > j ? 1e-3 : 0. for i in 1:p, j in 1:p], Ω)
+  # the largest pair is reported, and a NaN against a number counts as the largest
+  M = [1.0 0 0; 5 1 0; 0 2 1]
+  @test occursin("entry (2, 1) is 5.0 and entry (1, 2) is 0.0", msg(LogDetLoss, M))
+  N = [1.0 0 0; 5 1 0; NaN 2 1]
+  @test occursin("entry (3, 1) is NaN", msg(LogDetLoss, N))
+  # a triangle of a Symmetric is used, and the result matches the explicit matrix
+  U = [2.0 0.5; 9.0 3.0]
+  @test LogDetLoss(Symmetric(U, :U)).S == [2.0 0.5; 0.5 3.0]
+  @test LogDetLoss(Symmetric(U, :L)).S == [2.0 9.0; 9.0 3.0]
+  @test KronQuadratic(Symmetric(U, :L), I(2)).A == [2.0 9.0; 9.0 3.0]
+  @test KronQuadratic(I(2), Symmetric(U, :U)).B == [2.0 0.5; 0.5 3.0]
+  # exactly symmetric dense and sparse inputs, and inverses computed symmetrically
+  for X in (Ω, sparse(Ω), Diagonal(1.0:p), inv(Symmetric(Ω)), inv(cholesky(Ω)))
+    @test LogDetLoss(X).S == Matrix(X)
+    @test KronQuadratic(X, X).A == Matrix(X)
+  end
+  # the linear term need not be symmetric
+  C = [0.0 1.0; 2.0 0.0]
+  @test KronQuadratic(Matrix(1.0I, 2, 2), Matrix(1.0I, 2, 2), C).C == C
+  # zeros of both signs are symmetric
+  @test LogDetLoss([1.0 0.0; -0.0 1.0]).S == [1.0 0.0; 0.0 1.0]
 end
 
 @testset "centered ridge at large steps" begin

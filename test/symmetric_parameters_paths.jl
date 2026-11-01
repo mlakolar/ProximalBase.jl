@@ -25,7 +25,7 @@ Base.getindex(A::CountingMatrix,i::Int) = (A.reads[] += 1; A.data[i])
 @testset "Issue 142 and exact equality" begin
   W=[0. 1.;3. 0.]; f=NormL1(.1,W)
   x=SymmetricSparseIterate([0. .5;.5 0.]); k=tril_index(2,2,1)
-  message="the array w of NormL1 must be symmetric on a SymmetricSparseIterate, but entry (2, 1) is 3.0 and entry (1, 2) is 1.0; use Symmetric(A, :L) to keep the lower triangle of A, or (A + A')/2 for its symmetric part"
+  message="the array w of NormL1 must be symmetric on a SymmetricSparseIterate, but entry (2, 1) is 3.0 and entry (1, 2) is 1.0 (relative asymmetry 0.67); pass Symmetric(w, :L) to keep the lower triangle of w, or (w + w')/2 for its symmetric part"
   for op in (y -> f(y), y -> prox!(y,f,x,1.), y -> value_and_prox!(y,f,x,1.),
              y -> prox_coordinate!(y,f,k,1.), y -> kkt_violation(f,fill(.25,2,2),y,k))
     before=copy(x)
@@ -63,7 +63,7 @@ Base.getindex(A::CountingMatrix,i::Int) = (A.reads[] += 1; A.data[i])
   end
   A=[1. 1.;nextfloat(1.) 1.]
   err=try NormL1(1.,A)(fill!(similar(x),1)); nothing catch e; e end
-  @test endswith(err.msg," (they differ only by rounding)")
+  @test occursin("(relative asymmetry 2.2e-16, the size of rounding error); if w is symmetric in exact arithmetic, pass Symmetric(w, :L), or (w + w')/2",err.msg)
 end
 
 @testset "Existing value shape messages" begin

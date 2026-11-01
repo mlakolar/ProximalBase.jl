@@ -9,7 +9,9 @@
 
 The Gaussian negative log-likelihood `f(X) = w (tr(SX) - log det X)` for finite
 `w > 0`, of a
-precision matrix `X`, for a symmetric `S` such as a sample covariance, and
+precision matrix `X`, for an exactly symmetric `S` such as a sample covariance (`S` that is not
+symmetric, even by one ulp, throws an `ArgumentError`: pass `Symmetric(S, :L)` or
+`Symmetric(S, :U)` to use a triangle), and
 `Inf` when `X` is not positive definite, has a nonfinite entry, or fails the
 symmetry check `abs(X[i,j] - X[j,i]) ≤ sqrt(eps(T)) * max(1, abs(X[i,j]),
 abs(X[j,i]))`, with `T = eltype(X)`. The loss of the graphical lasso.
@@ -56,7 +58,8 @@ function LogDetLoss(S::AbstractMatrix, w::Real = 1)
   eltype(S) <: Real || _real_error(:LogDetLoss)
   T = float(promote_type(eltype(S), typeof(w)))
   T <: _BlasReal || throw(ArgumentError("LogDetLoss needs Float32 or Float64 entries, got $T"))
-  LogDetLoss{T}(Matrix{T}(Symmetric(S)), convert(T, w))
+  _check_symmetric(S, "S", "S")
+  LogDetLoss{T}(Matrix{T}(S), convert(T, w))
 end
 
 issmooth(::Type{<:LogDetLoss}) = true

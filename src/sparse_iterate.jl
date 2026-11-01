@@ -241,14 +241,32 @@ of an [`AtomIterate`](@ref). Active-set solvers use them as the active set.
 """
 function nactive end
 
+# Read-only handle on the internal list of active IDs. A writable view would let a caller
+# break the agreement between the list and the reverse map of the iterate.
+struct _ActiveIDs <: AbstractVector{Int}
+  ids::SubArray{Int,1,Vector{Int},Tuple{UnitRange{Int}},true}
+end
+Base.size(h::_ActiveIDs) = size(h.ids)
+Base.IndexStyle(::Type{_ActiveIDs}) = IndexLinear()
+Base.dataids(h::_ActiveIDs) = Base.dataids(h.ids)     # as the view it wraps: aliasing checks still see the list
+Base.unaliascopy(h::_ActiveIDs) = _ActiveIDs(Base.unaliascopy(h.ids))   # view(A, h) copies an aliasing index in its own type
+Base.@propagate_inbounds Base.getindex(h::_ActiveIDs, i::Int) = h.ids[i]
+Base.setindex!(::_ActiveIDs, v, i::Int) =
+  throw(ArgumentError("activecoordinates(x) is read-only: write values through activevalues(x), or atom(x, k) for an AtomIterate"))
+
 """
     activecoordinates(x)
 
-A vector of the active coordinates of `x` (see [`nactive`](@ref)), in the order
-in which they became active, except that `dropzeros!` moves the last ones into
-the places of those it removes. The vector is a view of the internal list: it
-does not grow when coordinates become active, so call `activecoordinates` again
-after changing the active set.
+A read-only `AbstractVector{Int}` of the active coordinates of `x` (see
+[`nactive`](@ref)), in the order in which they became active, except that
+`dropzeros!` moves the last ones into the places of those it removes. It is a
+handle on the internal list, not a snapshot: nothing is copied, and it does not
+grow when coordinates become active, so call `activecoordinates` again after
+changing the active set: after an activation, after `dropzeros!`, and after a
+whole-state replacement such as `copyto!(x, y)`, which can reorder the list even
+when the active set and `nactive(x)` stay the same. Writing through it throws an `ArgumentError`, because
+the list and the iterate's reverse map must stay in agreement; write values
+through [`activevalues`](@ref) (or `atom(x, k)` for an [`AtomIterate`](@ref)).
 """
 function activecoordinates end
 
@@ -277,16 +295,23 @@ order of [`activecoordinates`](@ref): entry `a` is the value of coordinate
 `activecoordinates(x)[a]`. Writing zero through it keeps the coordinate active;
 use [`dropzeros!`](@ref) to remove it. The view has the length [`nactive`](@ref)
 had when it was taken and does not grow, so, like `activecoordinates`, take it
-again after a coordinate becomes active or after `dropzeros!`, which can reorder
-the active list. Nothing is copied.
+again after a coordinate becomes active, after `dropzeros!` or after a
+whole-state replacement such as `copyto!(x, y)`, each of which can reorder the
+active list. Nothing is copied.
 """
 function activevalues end
 
 ncoordinates(x::_StoredIterate) = length(x.ind2nzval)
 nactive(x::_StoredIterate) = x.nnz
-activecoordinates(x::_StoredIterate) = view(x.nzval2ind, 1:x.nnz)
+activecoordinates(x::_StoredIterate) = _ActiveIDs(view(x.nzval2ind, 1:x.nnz))
 activevalues(x::_StoredIterate) = view(x.nzval, 1:x.nnz)
 isactive(x::_StoredIterate, k::Integer) = x.ind2nzval[k] != 0
+
+# aliasing hooks from Base (non-public functions); the owner reports its storage
+# arrays, so that activevalues(x), activecoordinates(x) and the views of x are all
+# seen to overlap x
+Base.dataids(x::SparseIterate) =
+  (Base.dataids(x.nzval)..., Base.dataids(x.nzval2ind)..., Base.dataids(x.ind2nzval)...)
 
 # the value of coordinate i
 Base.@propagate_inbounds function _getstored(x::_StoredIterate{T}, i::Integer) where {T}
@@ -361,21 +386,38 @@ function SparseArrays.dropzeros!(x::_StoredIterate)
   x
 end
 
+# Whether converting values of type S to T can throw. It cannot when S is a
+# subtype of T, nor between built-in real types where T is a floating-point type
+# (values round, and Float64 to Float32 overflows to Inf); any other pair is checked.
+const _BuiltinFloat = Union{Float16, Float32, Float64}
+const _BuiltinReal = Union{_BuiltinFloat, Bool, Int8, Int16, Int32, Int64, Int128,
+                           UInt8, UInt16, UInt32, UInt64, UInt128}
+_convert_may_throw(::Type{T}, ::Type{S}) where {T, S} =
+    !(S <: T || (isconcretetype(T) && T <: _BuiltinFloat && isconcretetype(S) && S <: _BuiltinReal))
+
+# The stored values of y as the destination's element type. A fallible conversion
+# runs once, here, before a copy writes anything, so a value that does not convert
+# throws with the destination unchanged; the copy then reads the converted buffer.
+_converted_values(::Type{T}, y::_StoredIterate{S}) where {T, S} =
+    _convert_may_throw(T, S) ? T[convert(T, y.nzval[k]) for k = 1:y.nnz] : y.nzval
+
 # Copy the stored entries of y into x, an iterate of the same size. When both are
 # sparse, touch only their stored entries; otherwise copying whole arrays is faster.
-function _copyto_stored!(x::_StoredIterate, y::_StoredIterate)
+function _copyto_stored!(x::_StoredIterate{T}, y::_StoredIterate) where {T}
+    vals = _converted_values(T, y)
     if 4 * (x.nnz + y.nnz) < length(x.ind2nzval)
         @inbounds for k = 1:x.nnz
             x.ind2nzval[x.nzval2ind[k]] = 0
         end
         @inbounds for k = 1:y.nnz
             i = y.nzval2ind[k]
-            x.nzval[k] = y.nzval[k]
+            x.nzval[k] = vals[k]
             x.nzval2ind[k] = i
             x.ind2nzval[i] = k
         end
     else
-        copyto!(x.nzval, y.nzval)
+        # only the stored values: entries past nnz are stale and may not convert
+        copyto!(x.nzval, 1, vals, 1, y.nnz)
         copyto!(x.nzval2ind, y.nzval2ind)
         copyto!(x.ind2nzval, y.ind2nzval)
     end

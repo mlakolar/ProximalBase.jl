@@ -6,6 +6,19 @@ using ProximalBase
 using Random
 using LinearAlgebra
 using SparseArrays
+
+# a real number with no conversion to a floating-point type
+struct NoFloat <: Real end
+Base.iszero(::NoFloat) = false
+
+# a real number whose conversion to Int succeeds once and then throws, to catch a second conversion
+struct OnceReal <: Real
+  count::Base.RefValue{Int}
+end
+Base.iszero(::OnceReal) = false
+Base.convert(::Type{Int}, x::OnceReal) =
+  (x.count[] += 1) == 1 ? 1 : throw(InexactError(:Int, Int, x))
+
 using Statistics
 
 Random.seed!(1)
@@ -212,6 +225,54 @@ end
             @test Vector(y) == Vector(w)
         end
         @test_throws DimensionMismatch copyto!(SparseIterate(3), SparseIterate(4))
+    end
+
+    @testset "a copy whose conversion throws leaves the destination unchanged" begin
+        # the state of an iterate as the scalar reads, the active list and Vector see it
+        snap(z) = (collect(z), isactive.(Ref(z), 1:length(z)), copy(activecoordinates(z)), Vector(z))
+        # (n, filled): sparse branch when 4 * (nnz(d) + nnz(s)) < n, dense branch otherwise
+        for (n, filled) in ((16, false), (32, true), (16, true), (4, false), (4, true))
+            d = SparseIterate(Int, n)
+            if filled
+                d[n÷2] = 7; d[n] = 3
+            end
+            s = SparseIterate(n); s[1] = 1.0; s[2] = 1.5
+            before = snap(d)
+            @test_throws InexactError copyto!(d, s)
+            @test snap(d) == before
+            d[1] = 5                                   # still usable
+            @test d[1] == 5 && isactive(d, 1)
+        end
+
+        # an integral source converts; stale values past nnz of the source do not matter
+        s = SparseIterate(4); s[1] = 1.0; s[2] = 1.5; s[1] = 0; dropzeros!(s); s[2] = 1   # 1.5 stays in the unused slot
+        d = SparseIterate(Int, 4)
+        @test copyto!(d, s) === d && Vector(d) == [0, 1, 0, 0]
+        s = SparseIterate(16); s[3] = 2.0
+        @test Vector(copyto!(SparseIterate(Int, 16), s)) == Vector(s)
+
+        # a source type with no conversion to the destination's: checked, not assumed to round
+        r = SparseIterate(Real, 16); r[9] = 7; r[1] = 1; r[2] = NoFloat()
+        f = SparseIterate(Float64, 16)
+        f[5] = 4.0
+        before = snap(f)
+        @test_throws Exception copyto!(f, r)
+        @test snap(f) == before
+
+        # a fallible conversion runs once per value, before the destination changes
+        for (n, filled) in ((16, false), (32, true), (4, true))
+            c = Ref(0)
+            r = SparseIterate(Real, n); r[1] = OnceReal(c)
+            d = SparseIterate(Int, n)
+            filled && (d[n] = 3)
+            @test copyto!(d, r) === d && d[1] == 1 && c[] == 1
+        end
+
+        # SymmetricSparseIterate shares the copy
+        S = SymmetricSparseIterate(5); S[2, 1] = 1.0; S[3, 3] = 0.5
+        D = SymmetricSparseIterate(Int, 5); D[1, 1] = 4
+        @test_throws InexactError copyto!(D, S)
+        @test D[1, 1] == 4 && nactive(D) == 1 && Matrix(D) == Matrix(Diagonal([4, 0, 0, 0, 0]))
     end
 
 
@@ -746,5 +807,57 @@ end
     end
 end
 
+@testset "aliasing of the views of a SparseIterate" begin
+  function alloc_unaliased(y, x)
+    y .= x .+ 1
+    copyto!(y, x)
+    return nothing
+  end
+  function alloc_aliased(x)
+    copyto!(x, activevalues(x))
+    return nothing
+  end
+  for x in (SparseIterate(Float64, 6), SparseIterate(Float32, 6), SparseIterate(Float64, 3, 2))
+    T = eltype(x)
+    for i in (2, 1)   # the source starts as [2, 1]: the first write would overwrite the second source value
+      x[i] = T(i)
+    end
+    @test Base.mightalias(x, activevalues(x))
+    @test Base.mightalias(activevalues(x), x)
+    @test Base.mightalias(x, activecoordinates(x))
+    @test Base.mightalias(x, view(x, 1:2))
+    @test Base.mightalias(x, reshape(x, :))
+    @test all(id -> id in Base.dataids(x), Base.dataids(activevalues(x)))
+    @test all(id -> id in Base.dataids(x), Base.dataids(activecoordinates(x)))
+    y = similar(x)
+    @test !Base.mightalias(x, y)
+    @test !Base.mightalias(activevalues(x), y)
+    @test !Base.mightalias(x, zeros(T, size(x)))
+
+    # the source is a view of x: the result is the one for a private copy of the source
+    expected = Array(x)
+    copyto!(expected, copy(activevalues(x)))
+    copyto!(x, activevalues(x))
+    @test Array(x) == expected
+  end
+
+  # a broadcast whose source is a view of the destination
+  x = SparseIterate(Float64, 3)
+  for i in (3, 1, 2)
+    x[i] = Float64(i)
+  end
+  expected = copy(activevalues(x)) .+ 0
+  x .= activevalues(x) .+ 0
+  @test Array(x) == expected
+
+  # unaliased broadcasts and copies do not make a private copy of the source
+  x = SparseIterate(Float64, 6)
+  x[2] = 1.0
+  y = SparseIterate(Float64, 6)
+  alloc_unaliased(y, x)
+  @test (@allocated alloc_unaliased(y, x)) == 0
+  alloc_aliased(x)
+  @test (@allocated alloc_aliased(x)) > 0
+end
 
 end

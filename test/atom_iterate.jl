@@ -20,6 +20,14 @@ function consistent(x::AtomIterate)
   all(k -> x.position[k] != 0 || all(iszero, x.storage[x.groups[k]]), 1:K)
 end
 
+# a real number whose conversion to Int succeeds once and then throws, to catch a second conversion
+struct OnceReal <: Real
+  count::Base.RefValue{Int}
+end
+Base.iszero(::OnceReal) = false
+Base.convert(::Type{Int}, x::OnceReal) =
+  (x.count[] += 1) == 1 ? 1 : throw(InexactError(:Int, Int, x))
+
 # groups of unequal sizes, two not contiguous
 groups = [1:3, [4, 7], 5:5, [8, 6], [9]]
 
@@ -361,6 +369,25 @@ end
     copyto!(u, x)
     @test u == x && active_set(u) == Set([1, 2]) && consistent(u)
 
+    # a conversion that throws leaves the destination unchanged
+    xi = AtomIterate(9, groups); xi[1] = 1.0; xi[7] = 1.5     # groups 1 and 2 active, 1.5 does not convert
+    di = AtomIterate(Int, 9, groups); di[5] = 7; di[9] = 3
+    before = (Vector(di), copy(di.active[1:di.nactive]), copy(di.position), di.nactive)
+    @test_throws InexactError copyto!(di, xi)
+    @test (Vector(di), di.active[1:di.nactive], di.position, di.nactive) == before && consistent(di)
+    de = AtomIterate(Int, 9, groups)                           # an empty destination gains no active group
+    @test_throws InexactError copyto!(de, xi)
+    @test de.nactive == 0 && Vector(de) == zeros(Int, 9) && consistent(de)
+    # a pair with no conversion, built-in types only
+    du = AtomIterate(Union{Float32, Float64}[0f0, 0.0], 2)
+    @test_throws MethodError copyto!(du, AtomIterate([1, 0], 2))
+    @test du.nactive == 0 && consistent(du)
+    c = Ref(0)                                                  # one conversion per value
+    ro = AtomIterate(Real, 9, groups); ro[1] = OnceReal(c)
+    @test copyto!(AtomIterate(Int, 9, groups), ro)[1] == 1 && c[] == 1
+    xi[7] = 2.0
+    @test copyto!(di, xi) === di && Vector(di) == Vector(xi) && consistent(di)
+
     @test fill!(y, 0.) == zeros(9) && y.nactive == 0
     fill!(y, 1.5)
     @test y == fill(1.5, 9) && y.nactive == 5
@@ -528,6 +555,48 @@ end
     @test drop_allocs(x) == 0
   end
 
+end
+
+@testset "aliasing of the views of an AtomIterate" begin
+  function alloc_unaliased(y, x)
+    y .= x .+ 1
+    copyto!(y, x)
+    return nothing
+  end
+  function alloc_aliased(x)
+    copyto!(x, x.storage)
+    return nothing
+  end
+  a = AtomIterate(6, 3)
+  for k in (1, 3)
+    activate!(a, k)
+    a[a.groups[k]] .= k
+  end
+  @test Base.mightalias(a, activecoordinates(a))
+  @test Base.mightalias(activecoordinates(a), a)
+  @test Base.mightalias(a, view(a, 1:2))
+  @test Base.mightalias(a, reshape(a, :))
+  @test all(k -> Base.mightalias(a, atom(a, k)), 1:3)
+  @test all(id -> id in Base.dataids(a), Base.dataids(activecoordinates(a)))
+
+  b = copy(a)    # shares the groups
+  @test !Base.mightalias(a, b)
+  @test !Base.mightalias(a, AtomIterate(6, 3))
+  @test !Base.mightalias(a, zeros(6))
+  @test !Base.mightalias(activecoordinates(a), b)
+  @test !Base.mightalias(atom(a, 1), b)
+
+  source = copy(a)
+  copyto!(a, a)
+  @test a == source
+  a .= a .+ 0
+  @test a == source
+
+  alloc_unaliased(b, a)
+  @test (@allocated alloc_unaliased(b, a)) == 0
+  v = view(a, 1:6)
+  alloc_unaliased(v, a)
+  @test (@allocated alloc_unaliased(v, a)) > 0
 end
 
 end

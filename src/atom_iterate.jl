@@ -130,7 +130,10 @@ end
 end
 
 
-Base.dataids(x::AtomIterate) = Base.dataids(x.storage)
+# storage, active and position are owned by x; groups, group_of and the layout
+# cache are layout shared with copies and output buffers, so they are not reported
+Base.dataids(x::AtomIterate) =
+  (Base.dataids(x.storage)..., Base.dataids(x.active)..., Base.dataids(x.position)...)
 
 Base.length(x::AtomIterate) = length(x.storage)
 Base.size(x::AtomIterate) = size(x.storage)
@@ -146,7 +149,7 @@ end
 
 ncoordinates(x::AtomIterate) = length(x.groups)
 nactive(x::AtomIterate) = x.nactive
-activecoordinates(x::AtomIterate) = view(x.active, 1:x.nactive)
+activecoordinates(x::AtomIterate) = _ActiveIDs(view(x.active, 1:x.nactive))
 isactive(x::AtomIterate, k::Integer) = x.position[k] != 0
 
 """
@@ -245,16 +248,19 @@ Base.copy(x::AtomIterate{T, G}) where {T, G} =
   AtomIterate{T, G}(copy(x.storage), x.groups, x.group_of, x.layout_cache, copy(x.active), copy(x.position), x.nactive)
 
 # with the same groups, only the entries of the active groups are copied
-function Base.copyto!(dest::AtomIterate, src::AtomIterate)
+function Base.copyto!(dest::AtomIterate{T}, src::AtomIterate{S}) where {T, S}
   dest === src && return dest
   length(dest) == length(src) || throw(DimensionMismatch())
   _samelayout(dest, src) ||
     return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
+  # a fallible conversion runs once, before dest is touched, and the copy reads its result
+  bufs = _convert_may_throw(T, S) ?
+    [T[convert(T, v) for v in _atom_storage(src, src.active[a])] for a in 1:src.nactive] : nothing
   _zero_active!(dest)
   for a in 1:src.nactive
     k = src.active[a]
     activate!(dest, k)
-    copyto!(_atom_storage(dest, k), _atom_storage(src, k))
+    copyto!(_atom_storage(dest, k), bufs === nothing ? _atom_storage(src, k) : bufs[a])
   end
   dest
 end

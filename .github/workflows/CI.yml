@@ -33,6 +33,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.version == 'pre' }}
     timeout-minutes: 60
+    env:
+      # Full runs: the same condition as the include list and --core below, as a string.
+      FULL_TESTS: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-tests') }}
     permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
       actions: write
       contents: read
@@ -64,10 +67,34 @@ jobs:
       - name: Check naming conventions
         run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} scripts/check_naming.py
       - name: Run package tests
+        id: tests
         run: julia --color=yes scripts/test.jl ${{ !(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-tests')) && '--core' || '' }}
         env:
           JULIA_TEST_COVERAGE: "${{ matrix.version == '1' && matrix.os == 'ubuntu-latest' }}"
           PTR_NUM_JOBS: ${{ matrix.ptr_jobs }}
+          # Full runs write the conformance reports; an empty value leaves them off.
+          CONFORMANCE_REPORT: ${{ env.FULL_TESTS == 'true' && format('{0}/conformance', runner.temp) || '' }}
+          CONFORMANCE_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.version }}-${{ matrix.os }}
+          CONFORMANCE_PKG_SHA: ${{ github.sha }}
+      - name: Check the conformance coverage map
+        # One job checks the committed map: the moving Julia release must not turn master red.
+        if: ${{ matrix.version == 'lts' && matrix.os == 'ubuntu-latest' && env.FULL_TESTS == 'true' }}
+        shell: bash
+        run: julia --startup-file=no scripts/conformance_map.jl "$RUNNER_TEMP/conformance" --check --run-id "$CONFORMANCE_RUN_ID"
+        env:
+          CONFORMANCE_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.version }}-${{ matrix.os }}
+      - name: Upload the conformance reports
+        # !cancelled() keeps the upload after a failed test or check step. Only a run whose test step
+        # succeeded is named conformance-reports-...: the rows record passes and known breaks, not
+        # unexpected failures, so a matching map alone does not show that the tests passed. A failed
+        # check step after successful tests still gives a usable baseline.
+        if: ${{ !cancelled() && env.FULL_TESTS == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.tests.outcome == 'success' && 'conformance-reports' || 'diagnostic-conformance-reports' }}-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/conformance
+          if-no-files-found: error
+          retention-days: 14
       - uses: julia-actions/julia-processcoverage@v1
         if: matrix.version == '1' && matrix.os == 'ubuntu-latest'
       - uses: codecov/codecov-action@v7

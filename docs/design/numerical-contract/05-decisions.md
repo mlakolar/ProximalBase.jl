@@ -87,6 +87,14 @@ mathematical paper never needs.
 | 37 | where this lives and in what order | this PR, then #366 as tracker | — |
 | 38 | what "unchanged" means | the same accuracy, not the same bits | documentation and tests only |
 | 39 | `LogDetLoss` value at a singular stored output; saturation | value at the stored output (measured); saturation allowed for matrices | yes |
+| 40 | zero level against domain constraints | keeps domain constraints, infinite weights included | no |
+| 41 | exception for sizes | `DimensionMismatch` | no (current code) |
+| 42 | infeasibility found during a search; arithmetic stopgaps | `ArgumentError` before writing; dedicated exception before writing | yes (#323) |
+| 43 | scope of the contract | every oracle, `kkt_violation` and `restrict` included | small |
+| 44 | gradients outside the domain | NaN | small |
+| 45 | values of wrappers around arbitrary functions | public scaled-value hook | new API |
+| 46 | normals and offsets of sets | parameters, rounded to the model precision | yes (hyperplanes) |
+| 47 | non-finite linear coefficients | rejected at construction | yes |
 
 ## Types and precision
 
@@ -256,6 +264,11 @@ match.
 The honest reason for (a) is a deliberate choice of model: one rule, native-precision speed, and the same result for `NormL1(0.1)` and `NormL1(0.1f0)` on Float32 data. Rounding a parameter once changes it by at most `eps/2` relative, the smallest change the result's precision can express. The measurements cover soft thresholding on one Apple M3. They do not establish the cost for centered ridge, for GPUs, or for other implementations.
 
 The rule is now stated per result (decision 5). Each result has a *model precision*, the working type of decision 2 for that result. Combined parameters such as `γλ` are formed in a precision no narrower than the model precision or the factors' promoted type, then rounded once (V10, V11).
+
+*Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* Two changes, both checked at `d00c7b86`.
+
+- *Decimal literals.* The claim that `NormL1(0.1)` and `NormL1(0.1f0)` give identical results on Float32 data was false. With `γ = 9f0`, `0.1·9` rounds to `0.9f0` but `0.1f0·9f0` rounds to `nextfloat(0.9f0)`, so at `x = nextfloat(0.9f0)` one returns `2^-24` and the other `0`. Two calls agree when their effective parameters convert to the same value.
+- *Formation of combined parameters.* They are formed in `promote_type(W, factor types)`, left to right in the order the family documents, and that order defines ties.
 
 **Decided:**
 
@@ -436,6 +449,12 @@ value with `Float32` accuracy") changes accordingly.
 argument become accurate to the argument's precision. `QuadraticFunction`
 values in that case also get faster.
 
+*Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* The rule must also cover a wide argument with a narrow output. `QuadraticFunction(Float32[1;;], Float32[-1])` at the Float64 argument `1 + 2^-28`, with a Float32 gradient output, should give `2^-28`, a normal Float32 number (V12). Master rounds the argument first and returns `0`.
+
+Revised recommendation, for every function, not only those that hold data: the model precision of a result is the widest of its delivery precision, the precision of the argument it is evaluated at (and of the direction, for `hessian_vec!`), and the data's precision (T3). The argument and the data are never rounded below it. The scalar of `value_and_prox!` describes the stored output, so its model precision is that of `f(y)`.
+
+Data, parameters and bookkeeping are now defined in T2 (decision 46). The measurements cover one layout: n = 2000, a wide argument with a wide output. They do not cover every mixed layout, cached factorization or GPU call.
+
 **Decided:**
 
 ### 7. Float16 (T6; #366 D3)
@@ -478,6 +497,8 @@ are option (a).
 supporting Float16 later. Float16 is rare in this domain, and a half-done
 promise is worse than none.
 
+*Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* Float16 is rejected when the model precision would be Float16: a Float16 argument, output, direction or data. A Float16 parameter, scalar or array, in a wider call widens exactly and is accepted. This also removes the collision with #313's Float16 bound tests.
+
 **Decided:**
 
 ### 8. BigFloat, integers and other number types (T1, T7; #366 D9)
@@ -501,7 +522,7 @@ rejecting it.
 
 Integers keep the current rule: a fixed-width integer argument gives
 `Float64`, `BigInt` gives `BigFloat`, and an integer destination is rejected
-for fractional results (#363).
+for fractional results (#366's C7; #363, cited here before, is about integer sums that wrap).
 
 **Decided:**
 
@@ -674,6 +695,15 @@ Recommendation: closed-form decisions are exact comparisons on the operands as c
 
 Certification (decision 18) applies only to iterative searches, where the stopping test can be far from the returned point, as in #151.
 
+*Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* One policy per kind of decision (A2's table):
+
+- an entrywise decision on the model's operands is exact, the same on every path and backend;
+- a closed-form decision on a computed reduction is the same exact comparison, and two paths or backends may differ only within the reductions' error bound;
+- a search decision is certified (decision 18);
+- a spectral decision inside its band follows decision 19.
+
+A6 and G1 are aligned with this. Draft 5's A6 had sent decisions on reductions to A3, and its G1 had promised identical branches across devices, which reductions cannot guarantee.
+
 **Decided:**
 
 ### 15. Sums and reproducibility (A6)
@@ -776,6 +806,8 @@ answers.
 
 The recommendation is unchanged.
 
+*Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* `√eps·σ₁` is not uniformly looser than `p·eps·σ₁`: the order reverses for `p > 1/√eps`, about 2,896 in Float32. The draft now describes the package's convention directly.
+
 **Decided:**
 
 ### 18. Decisions in multiplier searches (A3; #366 D1 and D8)
@@ -845,6 +877,12 @@ and `svd` return results as computed; no common library recomputes.
 Recommendation for rank truncation: promise rank feasibility and near-optimal error, `‖X - Y‖ ≤ ‖X - X_k‖ + c·p·eps·‖X‖`. Promise closeness to a particular best approximation only when the gap `σ_k - σ_{k+1}` is well above `eps·‖X‖`.
 
 Also state that this decision's policy, returning in-band results as computed, takes precedence over decision 18's refine-or-throw for the LAPACK families.
+
+*Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).*
+
+- *Nonexpansiveness bounds only part of the error.* It bounds the propagated input perturbation, not the evaluation of the scalar map, the reconstruction, or the rounding to `D`. Example: `LogDetLoss` with `S = 0`, `w = 1` and `γ = 2` at `X = 0` gives `√2·I`, which is not representable although `‖X‖ = 0`. A5 now states the three sources separately, with the output scale `‖Y‖`.
+- *Rank truncation* names the Frobenius norm and the numerical rank of the *stored* output.
+- *`IndStiefel`* gets its own row: orthonormal to within `c·p·eps`, near-optimal, with closeness to the polar factor depending on the smallest singular value.
 
 **Decided:**
 
@@ -1162,6 +1200,8 @@ the `0.5` (the spacing near `1e8` is 8).
 **Recommendation.** (a). Under decisions 2 and 3, this is backward stable:
 the error is in the scale of the shifted quantity the user built.
 
+*Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* The additive bound holds only for Lipschitz inner maps, with each stage's amplification factor. For a discontinuous inner map the staged model and its tie rule are promised instead. `Translate(NormL0(0.5), [-2^-26])` at `1.0` gives `Float32[-2^-26]` with a Float32 output and `[1.0]` with a Float64 output (checked at `d00c7b86`).
+
 **Decided:**
 
 ### 31. Errors before writes (O6)
@@ -1186,6 +1226,8 @@ C++ calls this the strong exception guarantee.
    - Recommendation: a dedicated exception type. It lets a solver tell "cannot certify in this precision; retry in Float64" apart from "your input is invalid".
    - Precedent: LinearAlgebra's `PosDefException`, `SingularException` and `LAPACKException`.
 3. *Failure inside an external library,* such as a LAPACK error. That library's exception propagates, and the family documents which outputs remain valid.
+
+*Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* Sizes raise `DimensionMismatch`, not `ArgumentError` (decision 41). Infeasibility found during a search and arithmetic stopgaps get their own categories (decision 42). Tests include a late certification failure in a composed or in-place call.
 
 **Decided:**
 
@@ -1300,6 +1342,11 @@ a limit. Optim.jl keeps the last accepted iterate.
 - *`Inf` values.* An `Inf` trial value means the trial is outside the domain, *or* its value genuinely overflows. In V7 the point is in the domain, the value is `+Inf`, and the gradient is `[4.0]`. A solver that requires a finite objective rejects both, but should not report infeasibility.
 - *No movement.* A step that changes no stored entry is stagnation *or* an exact fixed point; no movement alone proves either.
 
+*Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).*
+
+- *Finiteness.* A solver that requires finite evaluations tests `isfinite` as well as decrease, since `Inf <= Inf` is true.
+- *No movement.* It does not distinguish stagnation from a fixed point.
+
 **Decided:**
 
 ### 37. Where this lives, and in what order
@@ -1413,6 +1460,8 @@ ProximalBase versions on one machine.
 
 **Changes.** Documentation and test practice only; no results change.
 
+*Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* "Decisions stay exact" is refined by decision 14's table. Entrywise decisions on identical operands stay exact. A decision on a computed reduction may change only within the reduction's error bound. A family whose quantitative bound is still pending is checked against independent references with a stated error budget, not against a blanket `isapprox`.
+
 **Decided:**
 
 ### 39. `LogDetLoss`: the value at a stored output that rounds to singular, and saturation (O2, O3, R4)
@@ -1457,6 +1506,213 @@ conflict with Draft 4:
   singular, and measure the cost. Until then, list it as the second named
   exception to O2.
 - *Saturation:* (a). R4 applies to entrywise results.
+
+*Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* Draft 5's acceptance case ("a mapped root below `eps·‖Y‖`") was wrong: `diag(1, 2^-60)` is positive definite in Float64.
+
+The new fixture, checked at `d00c7b86`: `LogDetLoss(zeros(2, 2))`, step 1, at `[0 2^15; 2^15 0]`, with a Float32 output. All four stored entries are `16384f0`, so the stored matrix is singular and `f(Y) == Inf`, while the fused value is `0`. The exact proximal point has determinant one. The control is the Float64 output, whose stored matrix is positive definite.
+
+The draft now states current behavior, the 0.6 target and the approval status separately.
+
+**Decided:**
+
+## Added after Draft 5
+
+*Decisions 40–47 answer the gaps in the contract text found by the screen of
+open issues (`10-impact-on-open-issues.md`).*
+
+### 40. A zero level against domain constraints (E4)
+
+**Decide.** Draft 5 said a zero level makes the function "identically zero".
+The calculus page and PR #300 (#141) say instead that an infinite coordinate
+weight fixes its entry at zero "at every level", and that zero scaling "keeps
+domain constraints". Which takes precedence? #339 measures a weight scan at a
+zero level because of this.
+
+**Options.**
+
+- *(a) A zero level removes the finite part and keeps domain constraints:*
+  an indicator's set, infinite weights, a restricted domain. A function
+  without domain constraints becomes the zero function.
+- *(b) A zero level is always the zero function.* This reverses PR #300:
+  `NormL1(0, [0, Inf])` would no longer fix its second entry.
+
+**Precedent.** The package's own `Scaled(f, 0)`. It also matches a convention
+of the package: an infinite weight is a constraint, not a large penalty.
+
+**Recommendation.** (a). It keeps PR #300, so #339 is unaffected.
+
+**Decided:**
+
+### 41. The exception for sizes (E1, O6)
+
+**Decide.** Draft 5 said shape violations raise `ArgumentError`. `src/`
+throws `DimensionMismatch` for size mismatches in about 150 places
+(`src/utils.jl:225, 242`), and #382 proposes it.
+
+**Options.**
+
+- *(a) `DimensionMismatch` for sizes and shapes, `ArgumentError` for other
+  invalid input.*
+- *(b) `ArgumentError` for everything.*
+
+**Precedent.** LinearAlgebra raises `DimensionMismatch` for mismatched sizes
+(`mul!`, `copyto!`).
+
+**Recommendation.** (a). It is the current code and Julia's convention. The
+promise that outputs stay unchanged is the same for both.
+
+**Decided:**
+
+### 42. Infeasibility found during a search, and arithmetic stopgaps (O6)
+
+**Decide.** O6 had no category for two kinds of failure:
+
+- infeasibility a search discovers during its work, such as a constraint that
+  misses the domain (#323), which today can write earlier blocks;
+- #244's check in `Conjugate` that a finite input gave a non-finite result.
+
+**Options for infeasibility.**
+
+- *(a) An `ArgumentError` that names the infeasibility, before writing.* The
+  input is invalid, even though detecting it needed the search.
+- *(b) The dedicated certification exception.*
+
+**Options for the stopgap.**
+
+- *(a) The dedicated exception, before writing, until R2 and E5 remove the
+  check.* The input is valid, but the working precision failed.
+- *(b) An `ArgumentError`,* as today.
+
+**Recommendation.** (a) for both. Infeasibility describes the input, so it is
+an `ArgumentError`. The stopgap is a precision failure, so it is the dedicated
+exception. In both cases outputs stay unchanged; for block functions that
+means deciding before writing any block (#323).
+
+**Decided:**
+
+### 43. The scope of the contract (S2)
+
+**Decide.** Draft 5's S2 covered values, gradients, proximal outputs and
+decisions. It left out `kkt_violation`, `quadratic_model` and
+`quadratic_model!`, `hessian_vec!`, `lla_weights!` and `restrict`.
+ProximalSolvers' active-set solver relies on `kkt_violation` and `restrict`,
+and #317 (Poisson IRLS weights overflowing) depends on this scope.
+
+**Options.**
+
+- *(a) Every oracle.* `kkt_violation` and quadratic-model weights follow the
+  value rules. `hessian_vec!` and LLA weights follow R2, or A1 for matrix
+  products. `restrict` is structural: the restricted function's oracles equal
+  the original's on the support, with values allowed to differ by a constant
+  (O5).
+- *(b) Leave them undefined.*
+
+**Recommendation.** (a). For #317, this favors that issue's second option:
+compute the working response in a finite form, and let a weight that
+genuinely overflows be `Inf` (R4), rather than throwing.
+
+**Decided:**
+
+### 44. Gradients outside the domain (E6)
+
+**Decide.** E6 said values outside the domain are `+Inf`, but gave no rule
+for gradients there. #226 proposes "`NaN` derivatives outside the domain, as
+for `LogDetLoss`".
+
+**Options.**
+
+- *(a) NaN.* No derivative exists there.
+- *(b) Throw.* That costs a domain check in every gradient call, and breaks
+  line searches that evaluate a gradient at a rejected trial.
+- *(c) `Inf`,* which means nothing for a gradient.
+
+**Precedent.** `LogDetLoss` already returns NaN gradients outside the cone.
+
+**Recommendation.** (a).
+
+**Decided:**
+
+### 45. Values of wrappers around arbitrary inner functions (R1)
+
+**Decide.** R1 promises a normal value whatever the intermediates. A wrapper
+around an arbitrary inner function, such as `Scaled(f, α)` with tiny `α` and
+an `f` whose value overflows, cannot recover a value from an inner `Inf`
+(#357, #359). S4 holds user functions to the same rules. PR #384's decisions
+A and B face the same question for functions of a spectrum.
+
+**Options.**
+
+- *(a) A public scaled-value hook.* An inner function may return its value as
+  a significand and a power-of-two exponent, and wrappers use it. The built-in
+  functions implement it; a user function joins R1 inside wrappers by
+  implementing it; without it, the wrapper uses the ordinary value, which is
+  correct whenever the inner value does not overflow.
+- *(b) A private hook,* with user-defined inner functions listed as a named
+  exception.
+- *(c) A named exception* for wrappers around non-homogeneous functions, as
+  #357 proposes.
+
+**Pros and cons.**
+
+- (a) is one rule with a documented extension point. It adds public API,
+  which is easiest to do in the breaking 0.6.
+- (b) and (c) add no API, but they are the per-function exceptions this
+  package avoids.
+
+**Precedent.** LAPACK's `lassq` returns a sum of squares as a scale and a sum
+for the same reason. ProximalBase's internal value hooks (#283) already work
+this way.
+
+**Recommendation.** (a), documented in "Writing your own function".
+
+**Decided:**
+
+### 46. The normals and offsets of sets (T2)
+
+**Decide.** Are the normal `a` and offset `b` of `IndHyperplane`,
+`IndHalfspace` and `IndHyperslab` parameters, rounded to the model precision
+(T3), or data, kept at their own precision (decision 6)? Today the code
+computes the residual and the inside/outside decision with unrounded
+`Float64` normals (`src/functions/sets.jl:849, 858`), which treats them as
+data. PR #353 does the same.
+
+**Options.**
+
+- *(a) Parameters.*
+  - *Pros.* The same rule as centers and weights, and native-precision speed.
+  - *Cons.* A one-row `IndAffine`, whose matrix is data, and an
+    `IndHyperplane` with the same numbers can differ in the last bits of a
+    mixed call.
+- *(b) Data.*
+  - *Pros.* Matches the code today and the one-row `IndAffine`.
+  - *Cons.* A second category of vectors that behave like matrices, and wider
+    arithmetic on every mixed call.
+
+**Recommendation.** (a). The line between data and parameters is "matrices,
+and the vectors in the same equations as a matrix". It is justified by cost:
+converting a matrix every call is O(np), and BLAS needs one type. A normal
+is a vector of length `n`, like a center. PR #353's coefficient is then
+formed in the model precision, with range recovery under R3.
+
+**Decided:**
+
+### 47. Non-finite linear coefficients (M1)
+
+**Decide.** May the coefficients of `LinearFunction` and `Tilt` be `±Inf`? If
+they may, a sparse dot cannot skip unstored entries, since `Inf·0` is NaN
+(#341).
+
+**Options.**
+
+- *(a) Reject non-finite coefficients at construction.*
+- *(b) Allow them, and read every entry.*
+
+**Pros and cons.** (a) costs one check at construction, and keeps sparse dots
+at O(nnz). A linear function with an infinite coefficient is not a
+real-valued function, so (b) gains nothing. Constructors already reject NaN
+levels (decision 22).
+
+**Recommendation.** (a).
 
 **Decided:**
 

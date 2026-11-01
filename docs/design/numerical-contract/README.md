@@ -26,7 +26,10 @@ others) may be reversed here.
 | `05-decisions.md` | Claude | every decision written out: background, example, options with pros and cons, precedent in other packages, recommendation |
 | `06-claude-draft4.md` | Claude | Draft 4: Draft 3 revised for ChatGPT's comparison, with every recommendation of `05-decisions.md` adopted |
 | `07-chatgpt-review-of-draft4.md` | ChatGPT | review of Draft 4: approves the converted model (V8, V9 = 0); asks for V10, a defensible rank-projection guarantee, and a decision on `LogDetLoss` |
-| `08-claude-draft5.md` | Claude | **the current draft**: Draft 4 revised for the review and for the maintainer's question about bitwise results; decisions 38 and 39 added to `05` |
+| `08-claude-draft5.md` | Claude | Draft 5: Draft 4 revised for the review and the maintainer's question about bitwise results |
+| `09-chatgpt-review-of-draft5.md` | ChatGPT | review of Draft 5: the wide-argument, narrow-output case, one policy per kind of decision, A5 and O4 bounds, a fixture for decision 39 |
+| `10-impact-on-open-issues.md` | Claude (subagent), checked | every open issue and PR classified against the decisions; stale references; gaps in the contract text |
+| `11-claude-draft6.md` | Claude | **the current draft**: Draft 5 revised for the review and the screen; decisions 40–47 added to `05` |
 | `bench-q1-threshold.jl`, `bench-d6-quadratic.jl` | Claude | measurements for decisions 3 and 6 |
 
 ## Process

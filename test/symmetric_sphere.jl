@@ -144,6 +144,18 @@ end
       @test Matrix(y) ≈ Float32[1 0; 0 1] / sqrt(2f0)
       @test v ≈ c.f(y)
     end
+    # sums of margins that overflow: the second diagonal is the winner with margin 0
+    M = floatmax(Float64); B2 = ldexp(1.0, 971)
+    c = Constrained(NormL1(1.0, [nextfloat(B2) 8B2; 8B2 M]), IndSphereL2(1.0))
+    y = SymmetricSparseIterate(2)
+    value_and_prox!(y, c, S2([B2 0.0; 0.0 M]), 1.0)
+    @test Matrix(y) == [0.0 0.0; 0.0 1.0]
+    # a small coordinate next to a large one keeps its range under the normalization
+    c = Constrained(NormL1(0.0), IndSphereL2(1e200))
+    y = SymmetricSparseIterate(2)
+    value_and_prox!(y, c, S2([1e200 0.0; 0.0 1e-200]), 1.0)
+    @test y[2, 2] ≈ 1e-200 rtol = 1e-12
+    @test y[1, 1] ≈ 1e200 rtol = 1e-12
     # margins that differ by one ulp
     c = Constrained(NormL1(1.0, [1.0 2.0; 2.0 1.0]), IndSphereL2(1.0))
     for X in ([0.0 0.0; 0.0 0.0], [0.5 0.0; 0.0 nextfloat(0.5)], [nextfloat(0.5) 0.0; 0.0 0.5])

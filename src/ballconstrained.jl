@@ -160,7 +160,9 @@ value_and_prox!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArr
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 # Margins n - t compared without rounding errors that decide the winner:
 #   n - t > bn - bt  is  n + bt > bn + t, compared as normalized sums (hi, lo) by
-#   error-free transformation; where a sum overflows, by the difference form.
+#   error-free transformation; where a sum overflows, the same with every term halved
+#   (exact for normal numbers, and a term that small cannot decide a comparison whose
+#   other terms are that large).
 @inline function _two_sum(a, b)
   s = a + b
   bb = s - a
@@ -169,7 +171,11 @@ end
 @inline function _margin_greater(n, t, bn, bt)
   s1, e1 = _two_sum(n, bt)
   s2, e2 = _two_sum(bn, t)
-  (isfinite(s1) && isfinite(s2)) || return n - bn > t - bt
+  if !(isfinite(s1) && isfinite(s2))
+    h = oftype(n, 0.5)
+    s1, e1 = _two_sum(h * n, h * bt)
+    s2, e2 = _two_sum(h * bn, h * t)
+  end
   s1 != s2 ? s1 > s2 : e1 > e2
 end
 # √2 a > b, for the margin a of a pair and b of a diagonal entry, by a ratio so that
@@ -226,10 +232,16 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
     for col in 1:p, row in col:p
       ss += (row == col ? one(U) : U(2)) * (margin(row, col) / top)^2
     end
-    ru, root = convert(U, r), sqrt(ss)
+    ru, root = convert(U, r), sqrt(ss)       # 1 ≤ ss ≤ 2p², since the largest margin counts once or twice
+    # y = margin ⋅ r / (top ⋅ root): by the factor r / (root ⋅ top) when it is a normal number, so
+    # that a small margin keeps its range, and otherwise by margin / top, which is at most 1
+    q = ru / root
+    scale = q / top
+    direct = isfinite(scale) && scale >= floatmin(U)
     @inbounds for col in 1:p, row in col:p
       xi = x[row, col]
-      y[row, col] = copysign(convert(T, ru * (margin(row, col) / top) / root), xi)
+      m = margin(row, col)
+      y[row, col] = copysign(convert(T, direct ? m * scale : (m / top) * q), xi)
     end
     return convert(T, _value_unchecked(f, y))
   end

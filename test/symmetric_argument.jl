@@ -280,6 +280,11 @@ end
     mul!(C, SS, X, a, zero(T))
     @test C ≈ a .* (Matrix(SS) * X) rtol = 1e-5
   end
+  # mixed element types: a Float32 matrix, a Float64 scale and vector
+  S32 = _SymmetricPart(Float32[0 2; 0 0])
+  y64 = zeros(2)
+  mul!(y64, S32, [0.0, 1.0], α, 0.0)
+  @test y64 == [α, 0.0]
   # the products are scaled, so they cannot overflow when the scaled result is finite
   Abig = [0.0 1e308; 0.0 0.0]
   y = zeros(2)

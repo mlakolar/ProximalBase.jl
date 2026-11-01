@@ -1073,7 +1073,7 @@ function _scaled_symmetric_mul!(C, S::_SymmetricPart, B, α, β)
   @inbounds for k in axes(Bm, 2), i in axes(A, 1)
     acc = zero(T)
     for j in axes(A, 2)
-      acc += _product3(a, S[i, j], T(Bm[j, k]))
+      acc += _product3(a, T(S[i, j]), T(Bm[j, k]))
     end
     Cm[i, k] = iszero(β) ? acc : acc + β * Cm[i, k]
   end

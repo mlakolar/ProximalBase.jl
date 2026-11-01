@@ -126,6 +126,15 @@ end
     y = SymmetricSparseIterate(Float32, 2)
     value_and_prox!(y, Constrained(NormL1(λ), IndSphereL2(1.0)), [1.0 0.0; 0.0 1.0], 1.0)
     @test Matrix(y) ≈ Float32[1 0; 0 1] ./ sqrt(2f0)
+    # a Float32 argument and a Float64 destination with a positive margin that Float32 cannot see:
+    # the entries that survive the thresholding are those of the comparison
+    y = SymmetricSparseIterate(Float64, 2)
+    c = Constrained(NormL1(λ), IndSphereL2(1.0))
+    v = value_and_prox!(y, c, Float32[1 0; 0 1], 1.0)
+    @test all(isfinite, Matrix(y))
+    @test norm(y) ≈ 1.0
+    @test Matrix(y) ≈ [1.0 0.0; 0.0 1.0] / sqrt(2)
+    @test v ≈ c.f(y)
     # margins that differ by one ulp
     c = Constrained(NormL1(1.0, [1.0 2.0; 2.0 1.0]), IndSphereL2(1.0))
     for X in ([0.0 0.0; 0.0 0.0], [0.5 0.0; 0.0 nextfloat(0.5)], [nextfloat(0.5) 0.0; 0.0 0.5])

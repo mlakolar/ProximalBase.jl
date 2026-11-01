@@ -211,7 +211,16 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
     better && ((k, kr, kc, bestn, bestc) = (i, row, col, n, threshold))
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
-  bestn > bestc && return _onto_sphere!(y, f, convert(T, _value_and_prox_unchecked!(y, f, x, γ)), r)
+  if bestn > bestc
+    # soft thresholding in the type of the comparison, so that the entries that survive are
+    # those whose margin was positive; x is read before y is written, so y may be x
+    @inbounds for col in 1:p, row in col:p
+      xi = x[row, col]
+      m = abs(convert(U, xi)) - convert(U, _weight_product(γ, f.λ0, _entry(f.w, row + (col - 1) * p)))
+      y[row, col] = m > 0 ? copysign(convert(T, m), xi) : zero(T)
+    end
+    return _onto_sphere!(y, f, convert(T, _value_unchecked(f, y)), r)
+  end
   negative = signbit(x[kr, kc])
   fill!(y, zero(eltype(y)))
   kr == kc && (y[kr, kc] = negative ? -r : r; return convert(T, _positive_product(f.λ0, _entry(f.w, k), r)))

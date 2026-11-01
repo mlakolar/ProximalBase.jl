@@ -6,6 +6,27 @@
 > [migration and acceptance guide](symmetric-sparse-iterate-0.6-acceptance.md)
 > links back to it and restates none of its rules.
 
+> **Proposed amendments from the iterate-family contract (#400, pending
+> sign-off).** The [iterate-family contract](iterate-family-0.6.md) proposes
+> the changes below. Until the maintainer signs them off there, the rules of
+> this file stand as written.
+>
+> - [FD-3](iterate-family-0.6.md#fd-3-matrix-import-into-the-owner-is-a-value-write):
+>   `copyto!(X, M)` keeps its checks but becomes a value write, and replacing
+>   the working set is spelled `dropzeros!(copyto!(X, M))`. Affects CPY-4's
+>   working-set clause, decision 4, and ACT-5's exception list (which keeps
+>   only state copies).
+> - [FD-9](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products):
+>   a zero coefficient of the owner contributes nothing to a product, even
+>   against `Inf` or NaN. Replaces decision 13 and PERF-6's recommended default
+>   (an `ArgumentError` after an `O(p)` scan); PERF-6's requirement is met.
+> - Consistent extensions, with no change to the rules here: ACT-3's
+>   read-only handle type is shared by the whole family
+>   ([FD-7](iterate-family-0.6.md#fd-7-read-only-active-coordinate-handles));
+>   oracle destinations follow
+>   [FD-4](iterate-family-0.6.md#fd-4-oracle-destinations), consistent with
+>   ORC-3 and ORC-6.
+
 **Audited commits.** ProximalBase `abaceda25442bf6cc61601c8c1d3b2a16e1a3492`
 (master, 2026-11-01; `Project.toml` says 0.5.4). Links below point at that commit.
 ProximalSolvers `3893fb9` (master), read as evidence only. The other consumers
@@ -195,7 +216,7 @@ snapshot* (`Matrix(X)`).
 | CPY-1 | `copy(X)` | *must* create independent solver state: same `p`, same values, same set of active coordinates, **active zeros preserved**, and the activation order of `X`. `O(q)`. |
 | CPY-2 | `similar(X)`, `similar(X, S)` | *must* return an empty owner (no active coordinates, all values zero) of the same `p`, with element type `T` or `S`. `O(q)` memory. |
 | CPY-3 | `copyto!(X, Y::SymmetricSparseIterate)` | *must* make `X` a state copy of `Y` (CPY-1), discarding the previous working set of `X`. Different `p` *must* throw `DimensionMismatch` before writing. `copyto!(X, X)` *must* be a no-op. |
-| CPY-4 | `copyto!(X, M::AbstractMatrix)` and `SymmetricSparseIterate(M)` | *must* be a checked import (§2.10): `M` must be square of size `(p, p)` and exactly symmetric. **Default: replace.** After the call `X` equals the converted `M`, the working set is exactly the coordinates whose **converted stored value** is nonzero, in increasing ID order (CRD-3 rule), and the previous working set (explicit zeros included) is gone. Symmetry is checked on the source values before conversion (VAL-2). `O(q)` time (a dense source is read once). |
+| CPY-4 | `copyto!(X, M::AbstractMatrix)` and `SymmetricSparseIterate(M)` | *must* be a checked import (§2.10): `M` must be square of size `(p, p)` and exactly symmetric. **Default: replace.** After the call `X` equals the converted `M`, the working set is exactly the coordinates whose **converted stored value** is nonzero, in increasing ID order (CRD-3 rule), and the previous working set (explicit zeros included) is gone. Symmetry is checked on the source values before conversion (VAL-2). `O(q)` time (a dense source is read once). *(Proposed amendment: FD-3, [iterate-family contract](iterate-family-0.6.md#fd-3-matrix-import-into-the-owner-is-a-value-write).)* |
 | CPY-5 | `Matrix(X)` | dense, independent, writable snapshot (§2.4). |
 | CPY-6 | an aliasing source | A source that shares memory with `X` (`matrixview(X)` or a derived view) *must* be rejected with an `ArgumentError` before writing. |
 
@@ -220,9 +241,9 @@ Three counts must not be confused:
 |:--|:--|
 | ACT-1 | `ncoordinates`, `nactive`, `activecoordinates`, `isactive`, `activate!` and `dropzeros!` *must* be kept with today's meanings, on IDs. `isactive(X, k)` is `O(1)` and *must not* allocate. |
 | ACT-2 | **`nnz(X)` is not retained.** It *must* be undefined for the owner. `nactive(X)` replaces it. A matrix-view `nnz` is *not* added: no audited caller needs one. `SparseArrays.sparse(A)` is the way to ask a matrix question (*recommended:* `O(p + s)`). |
-| ACT-3 | `activecoordinates(X)` *must* return a read-only `AbstractVector{Int}` of the IDs of the active coordinates in slot order, of length `s` at the call. It is a **handle, not a snapshot**: its entries are valid IDs, in unchanged slots, for as long as the active set is unchanged. It *must* be reacquired after any activation or compaction. Use of a stale handle after `dropzeros!` is not specified (the slots may have moved) but *must not* be memory-unsafe. |
+| ACT-3 | `activecoordinates(X)` *must* return a read-only `AbstractVector{Int}` of the IDs of the active coordinates in slot order, of length `s` at the call. It is a **handle, not a snapshot**: its entries are valid IDs, in unchanged slots, for as long as the active set is unchanged. It *must* be reacquired after any activation or compaction. Use of a stale handle after `dropzeros!` is not specified (the slots may have moved) but *must not* be memory-unsafe. *(Consistent extension: FD-7, [iterate-family contract](iterate-family-0.6.md#fd-7-read-only-active-coordinate-handles).)* |
 | ACT-4 | `activevalues(X)` (**new name**) *must* return a writable `AbstractVector{T}` of length `s` whose entry `a` is the value of coordinate `activecoordinates(X)[a]`. Writing zero through it keeps the coordinate active. Same lifetime as ACT-3. It is the supported replacement for reading and writing the first `nnz` stored values by slot. |
-| ACT-5 | Writing a value (CRD-3, `X[i,j] = v`, `activevalues`, `prox_coordinate!`) *must never remove* an active coordinate. Only `dropzeros!` removes a single coordinate, and only one whose value is zero. The one exception is **whole-state replacement**: `copyto!(X, Y)` and `copyto!(X, M)` (CPY-3, CPY-4) discard the previous working set by design, and `copy` and state copies *preserve* active zeros. A sweep over `activecoordinates(X)` that only updates already active coordinates *must* leave `activecoordinates(X)` unchanged, whatever values it writes. |
+| ACT-5 | Writing a value (CRD-3, `X[i,j] = v`, `activevalues`, `prox_coordinate!`) *must never remove* an active coordinate. Only `dropzeros!` removes a single coordinate, and only one whose value is zero. The one exception is **whole-state replacement**: `copyto!(X, Y)` and `copyto!(X, M)` (CPY-3, CPY-4) discard the previous working set by design, and `copy` and state copies *preserve* active zeros. A sweep over `activecoordinates(X)` that only updates already active coordinates *must* leave `activecoordinates(X)` unchanged, whatever values it writes. *(Proposed amendment: FD-3, [iterate-family contract](iterate-family-0.6.md#fd-3-matrix-import-into-the-owner-is-a-value-write).)* |
 | ACT-6 | `activate!(X, k)` is the explicit-zero operation: it makes `k` active at value zero if it is absent and changes nothing otherwise. After `X[3,1] = 0.0` (absent) `nactive` is unchanged; after `activate!(X, tril_index(3,3,1))` it is one larger. |
 | ACT-7 | `dropzeros!(X)` *must* keep every value, every owner/view relation and every ID unchanged. It *may* reorder slots (today: the last active coordinate moves into each freed slot). It *must* run in `O(s)` and not allocate. |
 | ACT-8 | What survives compaction: `X`, `θ` and `A` keep denoting the same variables and values; coordinate IDs do not change; slot order and any handle from ACT-3/ACT-4 do not. |
@@ -429,7 +450,7 @@ Fixed-width CPU scalar types (`Float32`, `Float64`).
 | PERF-3 | Traversal of the active set (`activecoordinates`, `activevalues`) *must* cost `O(s)` of traversal work. The derivative, cache update and full KKT screening a solver attaches have their own costs and are not covered. |
 | PERF-4 | Constructing `θ`, `A`, `activecoordinates(X)` and `activevalues(X)` *must not* copy `X`'s data. |
 | PERF-5 | After warm-up, these *must not* heap-allocate for `Float32`/`Float64` inputs: `X[i,j]`, `X[i,j] = v`, `θ[k]`, `θ[k] = v`, `isactive`, `activate!` (capacity reserved), `prox_coordinate!` for a built-in separable `f` with scalar or `Symmetric`-typed parameters, and a sweep over `activecoordinates(X)` that calls it. |
-| PERF-6 | `mul!(y, A, v)` for a dense vector `v` *must* cost `O(p + s)` for finite input, **including initialization of `y`**. A no-copy wrapper that falls to the dense `O(p²)` scan does not meet it. For a non-finite `v` the result *must* be the same, or the same documented error, **before and after `dropzeros!`**: a mathematical product must not depend on whether a zero has a storage slot. (Audited code does not satisfy this: with `v = [Inf, 1, 0]` and one stored explicit zero at `(3,1)` the product has a `NaN` at row 3, and after `dropzeros!` the same entry is `0.0`.) *Recommended default:* one `O(p)` scan of `v` and an `ArgumentError` for any non-finite entry, so the finite case stays `O(p + s)`. Numerics M1 cites *finite* linear coefficients and does not settle `0·Inf`; the rule must be reconciled with the non-finite policy in `docs/src/numerics.md`. |
+| PERF-6 | `mul!(y, A, v)` for a dense vector `v` *must* cost `O(p + s)` for finite input, **including initialization of `y`**. A no-copy wrapper that falls to the dense `O(p²)` scan does not meet it. For a non-finite `v` the result *must* be the same, or the same documented error, **before and after `dropzeros!`**: a mathematical product must not depend on whether a zero has a storage slot. (Audited code does not satisfy this: with `v = [Inf, 1, 0]` and one stored explicit zero at `(3,1)` the product has a `NaN` at row 3, and after `dropzeros!` the same entry is `0.0`.) *Recommended default:* one `O(p)` scan of `v` and an `ArgumentError` for any non-finite entry, so the finite case stays `O(p + s)`. Numerics M1 cites *finite* linear coefficients and does not settle `0·Inf`; the rule must be reconciled with the non-finite policy in `docs/src/numerics.md`. *(Proposed amendment: FD-9, [iterate-family contract](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products).)* |
 | PERF-7 | `dropzeros!` *must* be `O(s)`. `Matrix(X)` is `O(p² + s)`; `copy(X)` and `similar(X)` are `O(q)`. |
 | PERF-8 | No other generic matrix operation on `A` is promised to be sparse-fast. *Recommended* sparse-aware methods: `norm`, `dot`, `sparse(A)`, `sum`. A reader of the specification must not infer more. |
 
@@ -460,6 +481,7 @@ Each gives a recommended default, one reason and one consequence.
 4. **Matrix import replaces the working set** (CPY-4). *Recommend: replace.*
    The result depends only on the argument. *Consequence:* explicit zeros
    disappear on import; a warm-start that must keep them uses `θ .= …`.
+   *(Proposed amendment: FD-3, [iterate-family contract](iterate-family-0.6.md#fd-3-matrix-import-into-the-owner-is-a-value-write).)*
 5. **New name `activevalues`** (ACT-4). *Recommend: add.* Two audited packages
    read or write the first `nnz` values of private storage by slot
    (ProximalSolvers' momentum history, CovarianceSelection's `hard_threshold!`);
@@ -498,6 +520,7 @@ Each gives a recommended default, one reason and one consequence.
     *Recommend: `ArgumentError` after one `O(p)` scan.* The product then cannot
     depend on whether a zero has a slot. *Consequence:* a `NaN` or `Inf` in `v`
     raises instead of propagating; this needs reconciling with numerics.
+    *(Proposed amendment: FD-9, [iterate-family contract](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products).)*
 
 # Part 4. Where today's code differs (informative)
 

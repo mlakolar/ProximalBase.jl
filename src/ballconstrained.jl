@@ -192,6 +192,14 @@ end
   a < 0 && b / a < sqrt(oftype(a, 2))
 end
 
+# ldexp(x, e) for 1/8 < x < 2, rounded once also where the result is subnormal (before
+# Julia 1.11, ldexp truncates there): by a multiplication with a power of two
+@inline function _ldexp_once(x::U, e::Integer) where {U<:AbstractFloat}
+  e >= exponent(floatmin(U)) + 3 && return ldexp(x, e)
+  k = precision(U) + 3
+  ldexp(x, e + k) * ldexp(one(U), -k)
+end
+
 function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))
@@ -248,7 +256,7 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
         m * scale
       else
         am, em = frexp(m)
-        ldexp((am / at) * aq, em + eq - et)
+        _ldexp_once((am / at) * aq, em + eq - et)
       end
       y[row, col] = copysign(convert(T, z), xi)
     end

@@ -882,31 +882,135 @@ function owner_cases!(cases, rep; quick=false)
                  end;
                  T, shape="p$p", layout="empty", phase="construct", zero_alloc=false, evals=1, work=p * (p + 1) ÷ 2)
     end
-    handle_sweep_cases!(cases, rep; quick)
+    owner_extra_cases!(cases, rep; quick)
 end
 
-# Sweep over activecoordinates(x) for SparseIterate and AtomIterate (issue #405): the handle
-# must cost nothing over the view it replaced. Uses only calls that exist before and after.
-function handle_sweep_cases!(cases, rep; quick=false)
+# Owner cases added by the iterate-family baseline (issue #420), appended to the owner group: the
+# product with stored zeros (FD-9), the three clears (FP-7) and the momentum loops (FD-8). They use
+# the (p, s) grid and the shapes of owner_cases!, helpers defined below, and random inputs of their
+# own (keys "owner_extra/..."), so every case above keeps its ID and its inputs. Only calls that
+# exist in 0.5.x and 0.6.
+
+# an owner with `vals` stored at the coordinates `ids`, in this slot order; an exact zero is stored
+# with activate!, as zeros are not stored by assignment
+function build_owner(T, p, ids, vals)
+    X = SymmetricSparseIterate(T, p)
+    for (k, v) in zip(ids, vals)
+        if iszero(v)
+            activate!(X, k)
+        else
+            r, c = ProximalBase.tril_cartesian(p, k)
+            X[r, c] = v
+        end
+    end
+    X
+end
+
+# the symmetric CSC matrix of the nonzero entries, both triangles: the reference of the products
+function owner_csc(T, p, ids, vals)
+    I = Int[]; J = Int[]; V = T[]
+    for (k, v) in zip(ids, vals)
+        iszero(v) && continue
+        r, c = ProximalBase.tril_cartesian(p, k)
+        push!(I, r); push!(J, c); push!(V, v)
+        r == c || (push!(I, c); push!(J, r); push!(V, v))
+    end
+    sparse(I, J, V, p, p)
+end
+
+# the three clears of FP-7, as functions of the owner
+clear_coordinates!(X) = (fill!(coordinates(X), 0); nothing)
+clear_coordinates_dropzeros!(X) = (fill!(coordinates(X), 0); dropzeros!(X); nothing)
+clear_owner!(X) = (fill!(X, 0); nothing)
+
+function owner_extra_cases!(cases, rep; quick=false)
     T = Float64
-    for s in (quick ? (1000, 100_000) : (100, 1000, 10_000, 100_000))
-        n = 4 * s
-        rng = scenario_rng(rep, "handle/$T/$s")
-        xs = SparseIterate(T, n)
-        ids = randperm(rng, n)[1:s]
-        for k in ids; xs[k] = one(T); end
-        sweep_sparse() = (acc = 0; for k in activecoordinates(xs); acc += k; end; acc)
-        addcase!(cases, "iterates", "sweep_activecoordinates", sweep_sparse,
-                 () -> sweep_sparse() == sum(ids) || error("sweep visited the wrong coordinates");
-                 T, shape="n$n/s$s", layout="SparseIterate", work=s)
-        groups = [(2k - 1):(2k) for k in 1:(2 * s)]
-        xa = AtomIterate(T, 4 * s, groups)
-        gids = randperm(rng, length(groups))[1:s]
-        for k in gids; xa[first(groups[k])] = one(T); end
-        sweep_atom() = (acc = 0; for k in activecoordinates(xa); acc += k; end; acc)
-        addcase!(cases, "iterates", "sweep_activecoordinates", sweep_atom,
-                 () -> sweep_atom() == sum(gids) || error("sweep visited the wrong coordinates");
-                 T, shape="n$(4 * s)/s$s", layout="AtomIterate", work=s)
+    # (p, s): the grid of owner_cases!
+    grid = quick ? [(500, 100), (1000, 100), (1000, 1000)] :
+           [(p, 100) for p in (500, 1000, 2000, 4000)] ∪ [(1000, s) for s in (10^3, 10^4, 10^5)]
+    for (p, s) in grid
+        key = "owner_extra/$T/$p/$s"
+        shape = "p$(p)_s$(s)"
+        q = p * (p + 1) ÷ 2
+        fx = owner_fixture(scenario_rng(rep, key * "/fixture"), T, p, s)
+        X = fx.X
+        snap = copy(X)
+        coords = [ProximalBase.tril_cartesian(p, k) for k in fx.ids]
+        restore_state!() = (copyto!(X, snap); nothing)
+        guarded(check) = restored(restore_state!, check)
+
+        # FD-9: a product with 50% of the stored coordinates exact zeros, at random slots. The reference
+        # is the CSC matrix of the nonzero entries; the output starts from a sentinel, so that a call
+        # that does nothing cannot pass.
+        slots = zero_slots(scenario_rng(rep, key * "/zeros"), s, 0.5)
+        vals50 = with_zeros(fx.vals, slots)
+        X50 = build_owner(T, p, fx.ids, vals50)
+        v = randn(scenario_rng(rep, key * "/v"), T, p)
+        y = zeros(T, p)
+        ref = owner_csc(T, p, fx.ids, vals50) * v
+        A50 = owner_matrix(X50)
+        function check_mul50()
+            (nactive(X50) == s && count(iszero, activevalues(X50)) == length(slots)) || error("the explicit zeros are not stored")
+            fill!(y, T(1000))
+            mul!(y, A50, v)
+            isapprox(y, ref; rtol=1e-10, atol=1e-10) || error("owner product with stored zeros differs from the CSC reference")
+        end
+        addcase!(cases, "owner", "mul!", () -> (mul!(y, A50, v); nothing), check_mul50;
+                 T, shape, layout="owner_z50", evals=10, zero_alloc=true, work=s)
+
+        # FP-7: the clears. The clear through coordinates(X) writes a value into each of the q
+        # coordinates and keeps the working set; fill!(X, 0) is O(s) and clears the working set. Only the
+        # values are checked, as the working set differs between the clears and between 0.5.x and 0.6.
+        function check_clear(clear!)
+            collect(activecoordinates(X)) == fx.ids || error("the owner is not the fixture")
+            all(X[r, c] == v for ((r, c), v) in zip(coords, fx.vals)) || error("the owner does not hold the fixture")
+            clear!(X)
+            all(iszero, activevalues(X)) || error("a stored value is not zero after the clear")
+            all(iszero(X[r, c]) for (r, c) in coords) || error("a fixture coordinate is not zero after the clear")
+        end
+        addcase!(cases, "owner", "fill!_coordinates_zero", () -> clear_coordinates!(X),
+                 guarded(() -> check_clear(clear_coordinates!));
+                 T, shape, layout="owner", prepare=restore_state!, zero_alloc=true, work=q)
+        addcase!(cases, "owner", "fill!_coordinates_zero_dropzeros", () -> clear_coordinates_dropzeros!(X),
+                 guarded(() -> check_clear(clear_coordinates_dropzeros!));
+                 T, shape, layout="owner", prepare=restore_state!, zero_alloc=true, work=q)
+        addcase!(cases, "owner", "fill!_zero", () -> clear_owner!(X), guarded(() -> check_clear(clear_owner!));
+                 T, shape, layout="owner", prepare=restore_state!, zero_alloc=false, work=s)
+
+        # FD-8: the momentum value loops over the stored values, through the accessor and through the
+        # private array; the reference is the fixture's values in slot order
+        ybuf = randn(scenario_rng(rep, key * "/momentum_y"), T, s)
+        xcur = randn(scenario_rng(rep, key * "/momentum_cur"), T, s)
+        xprev = randn(scenario_rng(rep, key * "/momentum_prev"), T, s)
+        buf = zeros(T, s)
+        for (layout, getvals) in (("accessors", activevalues), ("private_fields", stored_values_by_field(X)))
+            values_op, setvalues_op, dot_op = momentum_ops(getvals, X, buf, copy(fx.vals), ybuf, xcur, xprev, s)
+            function check_values()
+                collect(activecoordinates(X)) == fx.ids || error("the owner is not in the fixture's slot order")
+                fill!(buf, zero(T))
+                values_op()
+                buf == fx.vals || error("_values! differs from the fixture's values")
+            end
+            function check_setvalues()
+                fill!(activevalues(X), zero(T))
+                setvalues_op()
+                activevalues(X) == fx.vals || error("_setvalues! differs from the fixture's values")
+                all(X[r, c] == v for ((r, c), v) in zip(coords, fx.vals)) || error("_setvalues! did not write the fixture's values")
+            end
+            function check_restartdot()
+                total, magnitude = zero(T), zero(T)
+                for j in 1:s
+                    term = (fx.vals[j] - ybuf[j]) * (xcur[j] - xprev[j])
+                    total += term
+                    magnitude += abs(term)
+                end
+                close_scalar(dot_op(), total, magnitude, T)
+            end
+            for (name, op, check) in (("_values!", values_op, check_values), ("_setvalues!", setvalues_op, check_setvalues),
+                                      ("_restartdot", dot_op, check_restartdot))
+                addcase!(cases, "owner", name, op, guarded(check); T, shape, layout, zero_alloc=true, work=s)
+            end
+        end
     end
 end
 
@@ -1265,6 +1369,7 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
         for (name, M) in (("strided", A), ("transposed", tB)), (zlabel, xz, valsz) in (("z0", x, vals), ("z50", x50, vals50))
             function check_mul()
                 dz = dense_array(T, (n,), ids, valsz)
+                fill!(out, T(1000))        # a stale output must not pass
                 mul!(out, M, xz)
                 close_enough(out, M * dz)
             end
@@ -1464,6 +1569,7 @@ function sparse_matrix_cases!(cases, rep, T, dims, density, label, rows, acache)
         for (zlabel, Z, valsz) in (("z0", X, vals), ("z50", X50, vals50))
             function check_mul()
                 check_walk(Z)
+                fill!(out, T(1000))        # a stale output must not pass
                 mul!(out, A, Z)
                 close_enough(out, A * dense_array(T, dims, ids, valsz))
             end
@@ -1497,6 +1603,7 @@ function sparse_symmetric_cases!(cases, rep, T, p, density, label, scache)
     for (zlabel, valsz) in (("z0", vals), ("z50", vals50))
         x = build_iterate(T, (p,), ids, valsz)
         function check_mul()
+            fill!(out, T(1000))        # a stale output must not pass
             mul!(out, S, x)
             close_enough(out, S * dense_array(T, (p,), ids, valsz))
         end

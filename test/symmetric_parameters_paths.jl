@@ -66,6 +66,13 @@ Base.getindex(A::CountingMatrix,i::Int) = (A.reads[] += 1; A.data[i])
   @test occursin("(relative asymmetry 2.2e-16, the size of rounding error); if w is symmetric in exact arithmetic, pass Symmetric(w, :L), or (w + w')/2",err.msg)
 end
 
+@testset "All-pairs parameter message names the largest pair" begin
+  W=ones(4,4); W[2,1]=1.1; W[4,3]=9.
+  err=try prox!(SymmetricSparseIterate(4),NormL1(.1,W),Matrix(1.0I,4,4),1.); nothing catch e; e end
+  @test err isa ArgumentError
+  @test occursin("entry (4, 3) is 9.0 and entry (3, 4) is 1.0 (relative asymmetry 0.89)",err.msg)
+end
+
 @testset "Existing value shape messages" begin
   A=ones(3,3); x=SymmetricSparseIterate(2)
   for f in (LinearFunction(A),Tilt(NormL1(),A),Precompose(NormL1(),A),

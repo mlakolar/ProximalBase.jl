@@ -1150,17 +1150,17 @@ _check_symmetric(A::AbstractMatrix, subject = "the value written into a Symmetri
   scale = 0.0
   for j in axes(A, 2), i in axes(A, 1)
     v = A[i, j]
-    v isa Real && isfinite(v) && (scale = max(scale, abs(Float64(v))))
+    v isa Number && isfinite(v) && (scale = max(scale, Float64(abs(v))))
     i > j && pair === nothing || continue
     a, b = v, A[j, i]
     _symequal(a, b) && continue
-    d = abs(Float64(a) - Float64(b))
+    d = Float64(abs(a - b))
     d = isnan(d) ? Inf : d
     d > best && ((best, r, c) = (d, i, j))
   end
   if pair !== nothing
     r, c = pair
-    best = abs(Float64(A[r, c]) - Float64(A[c, r]))
+    best = Float64(abs(A[r, c] - A[c, r]))
     isnan(best) && (best = Inf)
   end
   r == 0 && throw(ArgumentError("$subject must be symmetric$where"))
@@ -1177,7 +1177,7 @@ end
 @noinline function _throw_asymmetric_parameter(f, name, a, p, r, c)
   owner = f === nothing ? "the steps γ" : "the array $name of $(nameof(typeof(f)))"
   _throw_asymmetric(a isa AbstractMatrix ? a : reshape(a, p, p), owner,
-                    f === nothing ? "γ" : string(name), " on a SymmetricSparseIterate", (r, c))
+                    f === nothing ? "γ" : string(name), " on a SymmetricSparseIterate", r == 0 ? nothing : (r, c))
 end
 
 _check_axes(x::SymmetricSparseIterate, A::AbstractArray) = axes(A) == axes(x) || _throw_axes(x, A)

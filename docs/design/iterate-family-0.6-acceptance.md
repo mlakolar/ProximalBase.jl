@@ -137,6 +137,11 @@ pending with FD-9, with two options. FD-3's guarantee for a failed matrix
 import is limited to CPY-4's listed pre-write checks; a conversion failure
 follows owner §2.10.
 
+**Decisions recorded (2026-11-01).** The maintainer signed off the structural
+group (FD-2 to FD-8, FD-10 to FD-15a, the table of contract §3.2) and chose
+option (i) for PERF-6's requirement within FD-9. FD-9's FN rules and its
+numerics amendment await sign-off; FD-16 is open in #419.
+
 # 2. Reconciliation with the specialized issues
 
 | issue | fixed on master | decided here | remains for that issue |
@@ -149,7 +154,7 @@ follows owner §2.10.
 | #366 numerical contract | the Phase 0 conformance suite (#387, merged as `aea50cd9`, after the audited commit), with M1 storage rows in `test/conformance/failures_storage.jl` | FD-9's amendment of M1, E2, E3, C1 and S4, and FD-13's O6 and S4 text, word for word; FD-16's proposed M1 paragraph for its option (a), open; FX-4 and FX-5 follow O6.1 and O7 | sign-off of the amendments, FD-16's separately; the M1-amendment rows join the conformance suite as rows marked `broken = (group = :G2, baseline = …)`, the suite's mechanism for known failures, until FD-9 lands; G2 implements FN-1 and FN-9; G12 covers FX-4 and FX-5 |
 | #367 aliasing audit | — | FX-5: imports from a handle follow Base's `unalias`; FA-5 holds today | the oracle-by-oracle audit |
 | #368 owner views unchecked | — | nothing new; for S and A, writes through wrappers follow FN-8 | expected to close with #391 (MAT-2) |
-| #391 owner implementation | Phase 0: `matrixview`, `activevalues`, owner `dataids` (#392); the `owner` benchmark group (#401) | FD-3 keeps CPY-4 as written; FD-9 amends decision 13, PERF-6's default and T13, and PERF-6's requirement is pending with it; FD-7 shares ACT-3's handle and adds the whole-state replacement to the lifetime of ACT-3 and ACT-4 (a consistent extension); FD-16 decides the class of the owner's three-factor product (open); FD-4 and FD-5 are consistent with ORC-3, ORC-6, CRD-1 | Phase 1 implements CPY-4 and the owner parts of FD-7 and FD-9 (and FD-16 once decided); Phase 2 the downstream recipes |
+| #391 owner implementation | Phase 0: `matrixview`, `activevalues`, owner `dataids` (#392); the `owner` benchmark group (#401) | FD-3 keeps CPY-4 as written; FD-9 amends decision 13, PERF-6's default and T13, and PERF-6's requirement (option (i)); FD-7 shares ACT-3's handle and adds the whole-state replacement to the lifetime of ACT-3 and ACT-4 (a consistent extension); FD-16 decides the class of the owner's three-factor product (open); FD-4 and FD-5 are consistent with ORC-3, ORC-6, CRD-1 | Phase 1 implements CPY-4 and the owner parts of FD-7 and FD-9 (and FD-16 once decided); Phase 2 the downstream recipes |
 | #342 groups on an owner | — | out of scope: FL applies to `AtomIterate` | as is |
 | #355 per-group `Regularize` steps on `AtomIterate` | — | its destination follows FW-8 | as is |
 | #405 writable `activecoordinates`, `AtomIterate` `dropzeros!` hang | — | fixed by FD-7 (FC-7) | filed; a 0.5.x bug fix |
@@ -417,7 +422,7 @@ coordinate ID; "today" marks a cell where the audited code differs.
 | `copy` | SC | SC | SC; shares the layout | CPY-1 |
 | `similar` | empty, same size; `similar(x, S)` | same | empty, shares the layout | CPY-2 |
 | `nnz`, `nonzeros`, `findnz` | explicit zeros included (FC-11) | `findnz` gives `(I, J, V)` | `nnz`: `MethodError` | ACT-2 |
-| `dot`, `mul!`, `*` | strong zeros (FN-1, FN-2; today storage- and order-dependent); fallbacks and other objects built from `x` IEEE (FN-3) | both walks of `mul!` and `dot(a, X, b)`: strong zeros; `*(A::Symmetric, X, B::Symmetric)`: open (FN-10, FD-16) | `mul!` skips zeros (today too); `dot`: strong zeros (today not); `transpose(A) * x` and `dot` of an `atom` view: IEEE (FN-3) | PERF-6's default as amended by FD-9, its requirement pending with FD-9; ORC-10; `A * X * B`: open (FD-16) |
+| `dot`, `mul!`, `*` | strong zeros (FN-1, FN-2; today storage- and order-dependent); fallbacks and other objects built from `x` IEEE (FN-3) | both walks of `mul!` and `dot(a, X, b)`: strong zeros; `*(A::Symmetric, X, B::Symmetric)`: open (FN-10, FD-16) | `mul!` skips zeros (today too); `dot`: strong zeros (today not); `transpose(A) * x` and `dot` of an `atom` view: IEEE (FN-3) | PERF-6's default and requirement as amended by FD-9 (requirement: option (i)); ORC-10; `A * X * B`: open (FD-16) |
 | scaling `rmul!`, `lmul!`, `rdiv!`, `ldiv!` by a number | IEEE VW equal to `x .*= s` (FN-9; today `[Inf, NaN, 0, 0]` for `rmul!(x, Inf)` with an explicit zero) | same | IEEE VW (today too, through LinearAlgebra's generic method) | `rmul!(coordinates(X), s)`, an ordinary-vector operation (CRD-4) |
 | `prox_coordinate!(x, f, k, γ)` | ID; returns the scalar; FA-3, FA-4 | ID | group ID; returns `atom(x, k)`; layout checked (FL-4) | ORC-5 |
 | `prox_coordinate!(x, f, k, u, γ)` | scalar `u` | scalar `u` | `u` of the group's length, may alias `x` (FA-5); unchanged after a validation error (FA-4); a partial write is possible if reading `u` throws (FA-7, FT16) | ORC-6 |
@@ -656,7 +661,8 @@ first, and FT01–FT23 carry the guarantees.
 # 7. Migration and dependency plan
 
 Implementation issues are opened only after the maintainer signs off the
-decisions. #405, #406 and #416 are already filed as 0.5.x bug reports.
+decisions; the structural group was signed off on 2026-11-01. #405, #406 and
+#416 are already filed as 0.5.x bug reports, and #419 tracks FD-16.
 
 | item | kind | depends on | integrates with | follow-on issue |
 |:--|:--|:--|:--|:--|
@@ -672,12 +678,12 @@ decisions. #405, #406 and #416 are already filed as 0.5.x bug reports.
 | 10. FD-2 one working-set rule | breaking 0.6 | 1, 9 | #391 Phase 1 integration branch | "0.6: one working-set rule for writes" |
 | 11. FD-3 owner `copyto!` is CPY-4's checked replace | breaking 0.6 for the owner, as #391 planned | — (no amendment) | #391 Phase 1a | part of #391 Phase 1a |
 | 12. FD-5 a coordinate-vector view for `SparseIterate` | breaking 0.6 | 1 | #391 Phase 1 (the owner's `SymmetricCoordinates` is the model) | "0.6: coordinates of a SparseIterate is a coordinate-vector view" |
-| 13. FD-9 strong zeros in products with one iterate operand, with the M1 amendment | breaking 0.6 | its separate sign-off, the amendment's and the PERF-6 choice; 1 | #366 G2, with the M1-amendment rows added to the #387 conformance suite (`test/conformance/failures_storage.jl`), marked `broken = (group = :G2, baseline = …)` until it lands; #391 Phase 1c (PERF-6) | "0.6: strong zeros in products of iterates" |
+| 13. FD-9 strong zeros in products with one iterate operand, with the M1 amendment | breaking 0.6 | its separate sign-off and the amendment's (PERF-6: option (i), chosen); 1 | #366 G2, with the M1-amendment rows added to the #387 conformance suite (`test/conformance/failures_storage.jl`), marked `broken = (group = :G2, baseline = …)` until it lands; #391 Phase 1c (PERF-6) | "0.6: strong zeros in products of iterates" |
 | 14. FL-3 read-only vector groups | breaking 0.6 (recommendation) | 1 and its measurement | — | "AtomIterate: store vector groups read-only" |
 | 15. FF-1 and the documentation rewrite | 0.6 documentation | 10, 12, 13 | #391 Phase 1d | part of #391 Phase 1d |
 | 16. FN-9 scaling by a number follows IEEE | breaking 0.6 for `SparseIterate` | 1 | #366 G2 | "0.6: scaling a SparseIterate by a number follows IEEE arithmetic" |
 | 17. FD-13's O6 and S4 text, and FD-16's M1 paragraph if option (a) is adopted | 0.6 documentation | sign-off | #366 (numerics page) | part of item 13's numerics change |
-| 18. FD-16 three-factor products | open; breaking 0.6 for options (a)–(c) | its separate sign-off; 1 | #366 G2; #391 Phase 1c (the owner's method) | "0.6: the class of A * X * B for a sparse iterate X", once decided |
+| 18. FD-16 three-factor products | open; breaking 0.6 for options (a)–(c) | its separate sign-off; 1 | #366 G2; #391 Phase 1c (the owner's method) | #419 (filed: the decision, then its implementation) |
 | 19. FW-4's clauses: a state copy converts only active values, and a failed one leaves the destination unchanged | 0.5.x bug fix | 1 | #391 Phase 1a: the owner's CPY-3 runs through the same kernel (`src/sparse_iterate.jl:1122–1124`) and is covered | #416 (filed) |
 
 **Order.** Items 1–9 and 19 can run in parallel with #391 Phase 0: they are

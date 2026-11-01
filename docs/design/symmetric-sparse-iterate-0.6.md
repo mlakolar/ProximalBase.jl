@@ -6,19 +6,20 @@
 > [migration and acceptance guide](symmetric-sparse-iterate-0.6-acceptance.md)
 > links back to it and restates none of its rules.
 
-> **Proposed amendment and extensions from the iterate-family contract (#400,
-> pending sign-off).** The [iterate-family contract](iterate-family-0.6.md) proposes one change
-> to this file and extends several of its rules without changing them. Until the
-> maintainer signs them off there, the rules of this file stand as written.
+> **Proposed amendment and extensions from the iterate-family contract
+> (#400).** The [iterate-family contract](iterate-family-0.6.md) proposes one change
+> to this file and extends several of its rules without changing them. The
+> extensions were signed off there on 2026-11-01. Until the maintainer signs off
+> the change (FD-9), the rules of this file stand as written.
 >
 > - [FD-9](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products):
 >   a zero coefficient of the owner contributes nothing to a product with one
 >   owner operand, even against `Inf` or NaN. Replaces decision 13 and PERF-6's
->   recommended default (an `ArgumentError` after an `O(p)` scan). PERF-6's
->   requirement (the same result before and after `dropzeros!`) is pending
->   with FD-9: compaction can reorder finite contributions and change a finite
->   overflow, so FD-9 either amends the requirement or prices a mechanism for
->   it.
+>   recommended default (an `ArgumentError` after an `O(p)` scan). FD-9 also
+>   amends PERF-6's requirement (option (i), chosen 2026-11-01): `dropzeros!`
+>   keeps the same contributing terms, and their finite evaluation follows
+>   FN-4 and A1, because compaction can reorder finite contributions and
+>   change a finite overflow.
 > - Consistent extensions, with no change to the rules here:
 >   - ACT-3's read-only handle type is shared by the whole family, and the
 >     lifetime of the ACT-3 and ACT-4 handles also ends at a whole-state
@@ -30,7 +31,7 @@
 >     ORC-3 and ORC-6;
 >   - the owner keeps 0.5.x's
 >     `*(A::Symmetric, X::SymmetricSparseIterate, B::Symmetric)`; its class is
->     the open decision [FD-16](iterate-family-0.6.md#fd-16-three-factor-products);
+>     the open decision [FD-16](iterate-family-0.6.md#fd-16-three-factor-products) (#419);
 >   - CPY-3's state copy converts only the source's active values, and one
 >     that throws leaves `X` unchanged (#416,
 >     [FW-4](iterate-family-0.6.md#23-the-working-set-fw)). This strengthens,

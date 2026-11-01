@@ -397,13 +397,13 @@ These need no change of behavior. One sign-off covers the table. FD-15a
 | FD-15c. `OptimizationResults` needs an `AbstractArray` minimizer (ProximalSolvers `src/types.jl:210`) | it affects only the owner and joins #391 Phase 2 | — |
 | FD-15d. Private fields | listed, with a supported replacement for each audited use: 23 indexed reads of `x.groups[k]`, 5 whole-layout reads, and 16 other field uses in `src/cd/solver.jl:553–600` and `src/cd/groups.jl:32,64` (ProximalSolvers) | FF-1, FF-2 |
 
-*Sign-off:* ☐ maintainer.
+*Sign-off:* ☑ maintainer, 2026-11-01.
 
 ## 3.3 Decision records
 
 ### FD-2. One working-set rule for every write
 
-*Status: recommended, awaiting maintainer sign-off.*
+*Status: signed off by the maintainer, 2026-11-01.*
 
 *Background.* Both array iterates write through the array interface
 (`setindex!` at `src/sparse_iterate.jl:478` through `_setstored!`, `:299–309`;
@@ -537,11 +537,11 @@ at no extra cost.
 *Relation to #388/#391:* consistent extension of CRD-3, CRD-5 and ACT-5 to
 the family. For the owner, `copyto!` from a matrix stays CPY-4's checked replace (FD-3); FW-6 states the difference and its reason.
 
-*Sign-off:* ☐ maintainer.
+*Sign-off:* ☑ maintainer, 2026-11-01.
 
 ### FD-3. Matrix import into the owner keeps CPY-4
 
-*Status: recommended, awaiting maintainer sign-off.*
+*Status: signed off by the maintainer, 2026-11-01.*
 
 *Background.* #388 CPY-4 and decision 4 make `copyto!(X, M)` a checked import
 that *replaces* the working set. At the audited commit the owner's
@@ -603,11 +603,11 @@ values through the coordinate view (`θ .= …`, CRD-5) or loops over
 *Relation to #388/#391:* unchanged: CPY-4, decision 4, ACT-5, T06, T10 and
 the §2.2(e) comment of the owner's acceptance guide stand as written.
 
-*Sign-off:* ☐ maintainer.
+*Sign-off:* ☑ maintainer, 2026-11-01.
 
 ### FD-4. Oracle destinations
 
-*Status: recommended, awaiting maintainer sign-off.*
+*Status: signed off by the maintainer, 2026-11-01.*
 
 *Background.* ProximalBase's proximal oracles write a destination with
 `copyto!(y, x)` (the spelling occurs at 35 sites in `src/`, for example
@@ -653,11 +653,11 @@ audited caller uses, at the cost of code at 35 sites or a pass per call.
 
 *Relation to #388/#391:* consistent with ORC-3 and ORC-6.
 
-*Sign-off:* ☐ maintainer.
+*Sign-off:* ☑ maintainer, 2026-11-01.
 
 ### FD-5. Coordinates of a SparseIterate
 
-*Status: recommended, awaiting maintainer sign-off.*
+*Status: signed off by the maintainer, 2026-11-01.*
 
 *Background.* `coordinates(x::SparseIterate) = x` (`src/sparse_iterate.jl:480`);
 its docstring calls it "a vector view of the coordinates" (`:262–270`).
@@ -737,11 +737,11 @@ a matrix) uses `x`. Linear indexing `coordinates(x)[k]` is unchanged.
 
 *Relation to #388/#391:* consistent extension of CRD-1 and CRD-4.
 
-*Sign-off:* ☐ maintainer.
+*Sign-off:* ☑ maintainer, 2026-11-01.
 
 ### FD-6. Groups and entries of an AtomIterate
 
-*Status: recommended, awaiting maintainer sign-off.*
+*Status: signed off by the maintainer, 2026-11-01.*
 
 *Background.* An `AtomIterate` has no `coordinates` (a coordinate is a group;
 ran: no method). Its layout is the private field `groups`
@@ -810,11 +810,11 @@ one; (e) would narrow it only by changing what penalties store.
 *Relation to #388/#391:* unchanged (the owner has no groups; #342 tracks
 groups on an owner).
 
-*Sign-off:* ☐ maintainer.
+*Sign-off:* ☑ maintainer, 2026-11-01.
 
 ### FD-7. Read-only active-coordinate handles
 
-*Status: recommended, awaiting maintainer sign-off.*
+*Status: signed off by the maintainer, 2026-11-01.*
 
 *Background.* `activecoordinates` returns writable views of internal lists:
 `view(x.nzval2ind, 1:x.nnz)` ([`src/sparse_iterate.jl:287`](https://github.com/mlakolar/ProximalBase.jl/blob/def81ec9d021c39ed1727cfeb9598357291dd60d/src/sparse_iterate.jl#L287),
@@ -876,11 +876,12 @@ which also restarts when the active list changes (`:642`).
 family shares ACT-3's handle and lifetime, and a whole-state replacement ends
 their handles, a case their lifetime did not name.
 
-*Sign-off:* ☐ maintainer.
+*Sign-off:* ☑ maintainer, 2026-11-01.
 
 ### FD-9. Zero coefficients are strong in products
 
-*Status: recommended, awaiting maintainer sign-off.*
+*Status: recommended, awaiting maintainer sign-off of the FN rules and the
+numerics amendment; PERF-6's requirement: option (i), chosen 2026-11-01.*
 
 *Background.* The products of a `SparseIterate` loop over stored
 coefficients: they skip unstored zeros and multiply stored ones
@@ -1088,7 +1089,7 @@ replaced by FN-1. T13's parenthesis "the recommended default throws in both"
 becomes "gives `[0, 1, 0]` in both". ORC-10's `dot(M, X)` is in FN-2. The
 owner's three-factor product is FD-16's.
 
-*Pending with FD-9: PERF-6's requirement.* PERF-6 requires the same result,
+*PERF-6's requirement (option (i), chosen by the maintainer, 2026-11-01).* PERF-6 requires the same result,
 or the same error, before and after `dropzeros!` for a non-finite `v`. FN-1
 fixes which terms contribute, but under FN-4 compaction can reorder them and
 so change finite overflow. With `M = floatmax(Float64)`,
@@ -1098,26 +1099,26 @@ the slot order goes from `[15, 4, 8, 11]` to `[11, 4, 8]` after
 `dropzeros!`, and row 4 of `mul!(y, matrixview(X), v)` goes from `Inf` to
 `M`; the exact value is `M` (ran). Today row 5 also changes, from NaN to 0,
 through the explicit zero at `(5, 5)`; under FN-1 row 5 is 0 both times, but
-row 4 still differs. The options:
+row 4 still differs. The options were:
 
-- **(i)** amend PERF-6's requirement as well as its default: the same
+- **(i) Chosen:** amend PERF-6's requirement as well as its default: the same
   contributing terms before and after `dropzeros!`, with finite evaluation
   following FN-4 and A1;
-- **(ii)** keep the stronger requirement and price a mechanism for it, such
+- **(ii) Rejected:** keep the stronger requirement and price a mechanism for it, such
   as a summation order independent of the slots (for example coordinate-ID
   order) or a range-safe reduction (option (f)).
 
-This is part of FD-9's sign-off, not of the structural group and not of
-FD-16. T13's simple zero fixture keeps its intent: under FD-9 it gives
+The choice belongs to FD-9, not to the structural group or FD-16; FD-9's
+other two sign-offs are still open. T13's simple zero fixture keeps its intent: under FD-9 it gives
 `[0, 1, 0]` both times.
 
 *Sign-off (separate from the structural decisions, §3.1):* ☐ maintainer
-(FN-1 to FN-5) · ☐ numerics amendment (M1, E2, E3, C1, S4) · ☐ PERF-6's
-requirement: (i) amend · (ii) keep, with a priced mechanism.
+(FN-1 to FN-5) · ☐ numerics amendment (M1, E2, E3, C1, S4) · ☑ PERF-6's
+requirement: (i) amend (maintainer, 2026-11-01).
 
 ### FD-10. Counts
 
-*Status: recommended, awaiting maintainer sign-off.*
+*Status: signed off by the maintainer, 2026-11-01.*
 
 *Background.* `nnz(x)` counts stored coordinates, explicit zeros included
 (`src/sparse_iterate.jl:223`); `nonzeros` (`:448`) and `findnz` (`:457–471`)
@@ -1153,11 +1154,11 @@ after `dropzeros!`.
 *Relation to #388/#391:* consistent with ACT-2; resolves #192 for the array
 iterates.
 
-*Sign-off:* ☐ maintainer.
+*Sign-off:* ☑ maintainer, 2026-11-01.
 
 ### FD-11. Group layout
 
-*Status: recommended, awaiting maintainer sign-off.*
+*Status: signed off by the maintainer, 2026-11-01.*
 
 *Background.* The constructor owns the layout (`_own_groups`,
 `src/atom_iterate.jl:85–88`); `copy` and `similar` share it (`:236–245`), and
@@ -1204,11 +1205,11 @@ the penalties would have to adopt.
 
 *Relation to #388/#391:* unchanged (#342 for groups on the owner).
 
-*Sign-off:* ☐ maintainer.
+*Sign-off:* ☑ maintainer, 2026-11-01.
 
 ### FD-12. One contract for coordinate oracles
 
-*Status: recommended, awaiting maintainer sign-off.*
+*Status: signed off by the maintainer, 2026-11-01.*
 
 *Background.* The scalar forms are `src/interface.jl:384–425`, the group
 forms `:464–478`, the block-trial staging `_stage_and_step!` `:483–526`, and
@@ -1249,11 +1250,11 @@ only route that keeps FW-1 when a step fails.
 
 *Relation to #388/#391:* consistent extension of ORC-5, ORC-6 and ORC-9.
 
-*Sign-off:* ☐ maintainer.
+*Sign-off:* ☑ maintainer, 2026-11-01.
 
 ### FD-13. Wrappers and real-only checks
 
-*Status: recommended, awaiting maintainer sign-off.*
+*Status: signed off by the maintainer, 2026-11-01.*
 
 *Background.* Broadcasts into an iterate check for complex arguments before
 writing (`_checkreal_broadcast`, `src/sparse_iterate.jl:1532–1538`, called at
@@ -1314,11 +1315,11 @@ FN-8 does not contradict S4):
 *Relation to #388/#391:* unchanged; the owner's part of #364 goes away with
 MAT-2.
 
-*Sign-off:* ☐ maintainer (FX-4, FN-8) · ☐ numerics text (O6, S4).
+*Sign-off:* ☑ maintainer (FX-4, FN-8) · ☑ numerics text (O6, S4), 2026-11-01.
 
 ### FD-14. Aliasing
 
-*Status: recommended, awaiting maintainer sign-off.*
+*Status: signed off by the maintainer, 2026-11-01.*
 
 *Background.* `SparseIterate` defines no `Base.dataids`, so Base's default
 (`abstractarray.jl:1611`, the object's identity) applies.
@@ -1357,11 +1358,11 @@ second is `false` for an `AtomIterate`. So after `x[2] = 1; x[1] = 2`,
 *Relation to #388/#391:* consistent with #392's owner `dataids`; CPY-6
 unchanged.
 
-*Sign-off:* ☐ maintainer.
+*Sign-off:* ☑ maintainer, 2026-11-01.
 
 ### FD-15a. Shape-aware grouped iterates
 
-*Status: recommended, awaiting maintainer sign-off.*
+*Status: signed off by the maintainer, 2026-11-01.*
 
 *Background.* ProximalSolvers' multi-response model is the motivating
 workload: a p × q coefficient matrix `B` stored as an `AtomIterate` over
@@ -1403,11 +1404,11 @@ needs grouped rows.
 
 *Relation to #388/#391:* unchanged.
 
-*Sign-off:* ☐ maintainer.
+*Sign-off:* ☑ maintainer, 2026-11-01.
 
 ### FD-16. Three-factor products
 
-*Status: open, awaiting a separate decision; option (a) is recommended.*
+*Status: open, awaiting a separate decision (#419); option (a) is recommended.*
 
 *Background.* `*(A::Symmetric, X::SparseIterate{T,2}, B::Symmetric)`
 (`src/sparse_iterate.jl:877–902`) multiplies a dense sub-block of `X` on its

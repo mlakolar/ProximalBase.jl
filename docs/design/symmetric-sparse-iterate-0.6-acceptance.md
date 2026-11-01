@@ -8,17 +8,17 @@
 > `matrixview`, `activevalues` or an owner that is not an `AbstractMatrix` is a
 > *future* example; none is a doctest.
 
-> **Proposed amendment and extensions from the iterate-family contract (#400,
-> pending sign-off).** If the maintainer signs it off in the
+> **Proposed amendment and extensions from the iterate-family contract
+> (#400).** If the maintainer signs off FD-9 in the
 > [iterate-family contract](iterate-family-0.6.md), one expectation here changes; until then it
-> stands as written.
+> stands as written. The extensions below were signed off there on 2026-11-01.
 >
 > - [FD-9](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products):
 >   in T13, `mul!(y, matrixview(X), [Inf, 1, 0])` gives `[0, 1, 0]` before
 >   and after `dropzeros!(X)`, instead of "the recommended default throws in
->   both" (decision 13 and PERF-6's default). Whether PERF-6's requirement is
->   amended for compaction that reorders finite contributions is pending with
->   FD-9; T13's simple zero fixture is unaffected.
+>   both" (decision 13 and PERF-6's default). PERF-6's requirement is amended
+>   to the same contributing terms (FD-9 option (i)), because compaction can
+>   reorder finite contributions; T13's simple zero fixture is unaffected.
 > - Consistent extensions, with no change here: the read-only handle of ACT-3
 >   is shared by the family, and a handle taken before a state copy or a
 >   CPY-4 import is not reused after it
@@ -26,7 +26,7 @@
 >   oracle destinations follow
 >   [FD-4](iterate-family-0.6.md#fd-4-oracle-destinations); and the owner keeps
 >   0.5.x's `*(A::Symmetric, X::SymmetricSparseIterate, B::Symmetric)`, whose
->   class is the open decision [FD-16](iterate-family-0.6.md#fd-16-three-factor-products);
+>   class is the open decision [FD-16](iterate-family-0.6.md#fd-16-three-factor-products) (#419);
 >   and in T10, a state copy converts only the source's active values and one
 >   that throws leaves the destination unchanged (#416,
 >   [FW-4](iterate-family-0.6.md#23-the-working-set-fw)).

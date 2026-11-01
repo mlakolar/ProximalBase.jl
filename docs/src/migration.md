@@ -126,7 +126,8 @@ assumes every exported constructor name is a concrete type.
 ## `LogDetLoss` and `KronQuadratic` check their matrices (0.6)
 
 `LogDetLoss(S)` and the matrices `A` and `B` of `KronQuadratic(A, B, C)` must now
-be exactly symmetric: pairs `(i, j)` and `(j, i)` equal under `isequal`, or a
+be exactly symmetric: pairs `(i, j)` and `(j, i)` equal (exact numeric equality, with NaN matching NaN and
+`-0.0` matching `0.0`), or a
 `Symmetric`, `Hermitian` of reals or `Diagonal` matrix. Anything else throws an
 `ArgumentError` that names the pair with the largest difference and the relative
 asymmetry `max |A[i, j] - A[j, i]| / max |A[i, j]|`, and says when that is the

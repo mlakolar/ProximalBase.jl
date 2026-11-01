@@ -438,7 +438,8 @@ symmetric positive semidefinite `A` (`p × p`) and `B` (`q × q`), with `C = 0`
 when omitted: `vec(Θ)'(B ⊗ A) vec(Θ) / 2 + vec(C)'vec(Θ)`, without forming the
 `pq × pq` matrix `B ⊗ A`. Smooth, with gradient `AΘB + C`; `size(f)` is
 `(p, q)`. `A` and `B` are stored as dense matrices and must be exactly
-symmetric: pairs `A[i, j]` and `A[j, i]` equal under `isequal`, or a `Symmetric`,
+symmetric: pairs `A[i, j]` and `A[j, i]` equal (exact numeric equality, with NaN matching
+NaN and `-0.0` matching `0.0`), or a `Symmetric`,
 `Hermitian` of reals or `Diagonal` matrix, which uses its stored triangle.
 Anything else throws an `ArgumentError` that names the pair with the largest
 difference and the relative asymmetry, with no tolerance, including `inv(S)` of a

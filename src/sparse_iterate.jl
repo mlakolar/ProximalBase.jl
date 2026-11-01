@@ -1147,8 +1147,11 @@ _check_symmetric(A::AbstractMatrix, subject = "the value written into a Symmetri
 # computed on halves, so that neither a wrapped integer difference nor a
 # difference of two large floats overflows. Entries without arithmetic (labels)
 # are reported without a relative asymmetry.
-_half(a) = Float64(abs(a / 2))
-_halfdiff(a, b) = (d = Float64(abs(a / 2 - b / 2)); isnan(d) ? Inf : d)
+# integers and rationals stay exact until the ratio is formed: adjacent integers
+# above 2^53 have the same Float64
+_exact(a) = a isa Union{Integer, Rational} ? big(a) : a
+_half(a) = Float64(abs(_exact(a) / 2))
+_halfdiff(a, b) = (d = Float64(abs(_exact(a) / 2 - _exact(b) / 2)); isnan(d) ? Inf : d)
 _rounding_type(::Type{T}) where {T} =
   T <: Number && float(real(T)) <: AbstractFloat ? float(real(T)) : Float64
 

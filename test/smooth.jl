@@ -666,6 +666,11 @@ Base.Matrix(A::BulkOnly) = copy(A.data)
   @test occursin("(relative asymmetry 0.5)", msg(LogDetLoss, UInt8[1 2; 1 1]))
   @test occursin("entry (2, 1) is -1.7976931348623157e308 and entry (1, 2) is 1.7976931348623157e308 (relative asymmetry 2.0)",
                  msg(KronQuadratic, [1.0 floatmax(); -floatmax() 1.0], I(2)))
+  # adjacent integers above 2^53 differ, and the larger difference is the one reported
+  big1 = typemax(Int)
+  @test occursin("(relative asymmetry 1.1e-19", msg(KronQuadratic, [1 big1; big1 - 1 1], I(2)))
+  A3 = [1 big1 big1; big1-1 1 0; big1-2 0 1]
+  @test occursin("entry (3, 1) is $(big1 - 2) and entry (1, 3) is $big1", msg(KronQuadratic, A3, I(3)))
   # a sparse matrix is scanned by its stored entries
   Sp = sparse([1, 2, 3, 1], [1, 2, 3, 3], [1.0, 1.0, 1.0, 4.0])
   @test occursin("entry (3, 1) is 0.0 and entry (1, 3) is 4.0", msg(LogDetLoss, Sp))

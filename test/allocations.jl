@@ -513,10 +513,8 @@ end
         (SeparableSum(NormL1(), SeparableSum(SqrNormL2(), NormL1())), (x, (copy(x), copy(x)))))
       c = Conjugate(f)
       out = ProximalBase._gradient_buffer(blocks)
-      # Julia 1.10 allocates 176 bytes for nested blocks, as it did before these buffers changed
-      skip = blocks[2] isa Tuple && VERSION < v"1.11"
-      @test allocs(a_prox!, out, c, blocks, T(0.5)) == 0 skip = skip
-      @test allocs(a_vprox!, out, c, blocks, T(0.5)) == 0 skip = skip
+      @test allocs(a_prox!, out, c, blocks, T(0.5)) == 0
+      @test allocs(a_vprox!, out, c, blocks, T(0.5)) == 0
     end
   end
 end

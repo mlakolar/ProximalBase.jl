@@ -101,9 +101,11 @@ _checkdirection(v, x) = size(v) == size(x) ||
   throw(DimensionMismatch("the direction has size $(size(v)) and the point $(size(x))"))
 function _checkdirection(v::Tuple, x::Tuple)
   length(v) == length(x) || throw(DimensionMismatch("the direction and the point must have the same number of blocks"))
-  map(_checkdirection, v, x)
-  true
+  _checkdirection_blocks(v, x)
 end
+
+@generated _checkdirection_blocks(v::Tuple, x::Tuple) =
+  _blockwise(k -> :(_checkdirection(v[$k], x[$k])), min(fieldcount(v), fieldcount(x)), true)
 
 ####################################
 #  quadratics: the model is the function
@@ -332,7 +334,7 @@ hessian_vec!(Hv::Tuple, s::SeparableSum, x::Tuple, v::Tuple) =
   (_check_second_order_arrays(s, x, Hv, v); _hessian_vec_unchecked!(Hv, s, x, v))
 _hessian_vec_unchecked!(Hv::Tuple, s::SeparableSum, x::Tuple, v::Tuple) =
   (_checksize(Hv, x); _checkdirection(v, x); _checkparams(s, x); _checkreal(s, x);
-   map((f, Hk, xk, vk) -> _hessian_vec_unchecked!(Hk, f, xk, vk), s.fs, Hv, x, v); Hv)
+   _hessian_blocks!(s.fs, Hv, x, v); Hv)
 
 quadratic_model(s::Scaled, x) =
   (_check_second_order_arrays(s, x); _quadratic_model_unchecked(s, x))
@@ -349,7 +351,7 @@ _quadratic_model_unchecked(s::Sum, x) = Sum(map(f -> _quadratic_model_unchecked(
 quadratic_model(s::SeparableSum, x::Tuple) =
   (_check_second_order_arrays(s, x); _quadratic_model_unchecked(s, x))
 _quadratic_model_unchecked(s::SeparableSum, x::Tuple) =
-  (_checkblocks(s, x); SeparableSum(map((f, xk) -> _quadratic_model_unchecked(f, xk), s.fs, x)))
+  (_checkblocks(s, x); SeparableSum(_quadratic_blocks(s.fs, x)))
 
 quadratic_model!(q::Scaled, s::Scaled, x) =
   (_check_second_order_arrays(s, x); _quadratic_model_unchecked!(q, s, x))
@@ -366,10 +368,17 @@ _quadratic_model_unchecked!(q::Sum, s::Sum, x) = (_model_parts!(q.fs, s.fs, x); 
 quadratic_model!(q::SeparableSum, s::SeparableSum, x::Tuple) =
   (_check_second_order_arrays(s, x); _quadratic_model_unchecked!(q, s, x))
 _quadratic_model_unchecked!(q::SeparableSum, s::SeparableSum, x::Tuple) =
-  (_checkblocks(s, x); map((qk, f, xk) -> _quadratic_model_unchecked!(qk, f, xk), q.fs, s.fs, x); q)
+  (_checkblocks(s, x); _quadratic_blocks!(q.fs, s.fs, x); q)
 
 _model_parts!(::Tuple{}, ::Tuple{}, x) = nothing
 function _model_parts!(qs::Tuple, fs::Tuple, x)
   _quadratic_model_unchecked!(first(qs), first(fs), x)
   _model_parts!(Base.tail(qs), Base.tail(fs), x)
 end
+
+@generated _hessian_blocks!(fs::Tuple, Hv::Tuple, x::Tuple, v::Tuple) =
+  _blockwise(k -> :(_hessian_vec_unchecked!(Hv[$k], fs[$k], x[$k], v[$k])), min(fieldcount(fs), fieldcount(Hv), fieldcount(x), fieldcount(v)), nothing)
+@generated _quadratic_blocks(fs::Tuple, x::Tuple) =
+  _blocktuple(k -> :(_quadratic_model_unchecked(fs[$k], x[$k])), min(fieldcount(fs), fieldcount(x)))
+@generated _quadratic_blocks!(qs::Tuple, fs::Tuple, x::Tuple) =
+  _blockwise(k -> :(_quadratic_model_unchecked!(qs[$k], fs[$k], x[$k])), min(fieldcount(qs), fieldcount(fs), fieldcount(x)), nothing)

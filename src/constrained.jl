@@ -229,9 +229,8 @@ function _checkwrite(op::O, s::SeparableSum, y::Tuple, x::Tuple, γ) where {O}
   _checkblocks(s, x)
   _checkwrite_blocks(op, s.fs, y, x, γ)
 end
-_checkwrite_blocks(op, ::Tuple{}, ::Tuple{}, ::Tuple{}, γ) = true
-_checkwrite_blocks(op::O, fs::Tuple, y::Tuple, x::Tuple, γ) where {O} =
-  (_checkwrite(op, first(fs), first(y), first(x), γ); _checkwrite_blocks(op, Base.tail(fs), Base.tail(y), Base.tail(x), γ))
+@generated _checkwrite_blocks(op, fs::Tuple, y::Tuple, x::Tuple, γ) =
+  _blockwise(k -> :(_checkwrite(op, fs[$k], y[$k], x[$k], γ)), fieldcount(fs), true)
 
 # Read the prospective output only when an inner value check fails.
 struct _BoxProxArray{T, N, C, X, G} <: AbstractArray{T, N}

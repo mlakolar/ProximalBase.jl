@@ -75,10 +75,11 @@ function _check_inner_arrays(fs::Tuple, x, domain)
 end
 function _check_entry_arrays(f::SeparableSum, x::Tuple, domain = _AllPairs())
   _checkblocks(f, x)
-  map((fk, xk) -> _check_entry_arrays(fk, xk,
-      domain isa _StoredValuePairs ? _stored_value_pairs(xk) : _AllPairs()), f.fs, x)
-  true
+  _check_entry_array_blocks(f.fs, x, domain)
 end
+@generated _check_entry_array_blocks(fs::Tuple, x::Tuple, domain) =
+  _blockwise(k -> :(_check_entry_arrays(fs[$k], x[$k],
+    domain isa _StoredValuePairs ? _stored_value_pairs(x[$k]) : _AllPairs())), min(fieldcount(fs), fieldcount(x)), true)
 function _check_entry_arrays(f::AbstractFunction, x::Tuple, domain = _AllPairs())
   _check_inner_arrays(_inner_functions(f), x, domain)
 end
@@ -145,7 +146,9 @@ _stored_value(f::Union{Scaled, Tilt, BallConstrained, SphereConstrained}) = _sto
 _stored_value(f::BoxConstrained) = _stored_value(f.f) && _stored_value(f.box)
 _stored_value(f::LinearConstrained) = _stored_value(f.f) && _stored_value(f.set)
 _stored_value(f::Regularize) = f.c === nothing && _stored_value(f.f)
-_stored_value(f::Union{Sum, SeparableSum, PointwiseMinimum}) = all(_stored_value, f.fs)
+_stored_value(f::Union{Sum, PointwiseMinimum}) = all(_stored_value, f.fs)
+@generated _stored_value(f::SeparableSum{F}) where {F} =
+  _blockall(k -> :(_stored_value(f.fs[$k])), fieldcount(F))
 _stored_value(f::IndIntersection) = all(_stored_value, f.sets)
 _stored_value_pairs(x::SymmetricSparseIterate) = _StoredPairs(x, x)
 _stored_value_pairs(x::Tuple) = _StoredValuePairs()
@@ -177,9 +180,10 @@ _check_value_shapes(::Tuple{}, x) = true
 _check_value_shapes(fs::Tuple, x) = (_check_value_shape(first(fs), x); _check_value_shapes(Base.tail(fs), x))
 function _check_value_shape(f::SeparableSum, x::Tuple)
   _checkparams(f, x)
-  map(_check_value_shape, f.fs, x)
-  true
+  _check_value_shape_blocks(f.fs, x)
 end
+@generated _check_value_shape_blocks(fs::Tuple, x::Tuple) =
+  _blockwise(k -> :(_check_value_shape(fs[$k], x[$k])), min(fieldcount(fs), fieldcount(x)), true)
 _check_value_arrays(f, x::Tuple) =
   (_checkreal(f, x); _check_value_shape(f, x);
    _check_entry_arrays(f, x, _stored_value(f) ? _StoredValuePairs() : _AllPairs()))
@@ -204,9 +208,10 @@ end
 function _check_write_arrays(op::O, f::SeparableSum, y::Tuple, x::Tuple) where {O}
   _checkblocks(f, x)
   _checksize(y, x)
-  map((fk, yk) -> _check_entry_arrays(fk, yk), f.fs, y)
-  true
+  _check_write_array_blocks(f.fs, y)
 end
+@generated _check_write_array_blocks(fs::Tuple, y::Tuple) =
+  _blockwise(k -> :(_check_entry_arrays(fs[$k], y[$k])), min(fieldcount(fs), fieldcount(y)), true)
 _entry_steps(::AbstractFunction) = true
 _entry_steps(::AbstractGroupPenalty) = false
 _entry_steps(f::Union{Scaled, Regularize, Tilt, Translate, Conjugate, _ScalarPrecompose, _ArrayPrecompose}) = _entry_steps(f.f)
@@ -221,7 +226,7 @@ _check_steps(op, f, y, x, γ) = true
 end
 _has_symmetric(x) = false
 _has_symmetric(::SymmetricSparseIterate) = true
-_has_symmetric(x::Tuple) = any(_has_symmetric, x)
+@generated _has_symmetric(x::Tuple) = _blockany(k -> :(_has_symmetric(x[$k])), fieldcount(x))
 
 # Only public boundaries check arrays. Inner kernels retain the existing shape
 # preflights, but never scan a caller's arrays a second time.
@@ -379,7 +384,9 @@ _value_checked(f::Regularize, x::SymmetricSparseIterate) =
 _value_checked(f::Sum, x::Union{SymmetricSparseIterate, Tuple}) =
   _value_at(sum(g -> _value_checked(g, x), f.fs), x)
 _value_checked(f::SeparableSum, x::Tuple) =
-  (_checkparams(f, x); _value_at(sum(map(_value_checked, f.fs, x)), x))
+  (_checkparams(f, x); _value_at(_sum_checked_values(f.fs, x), x))
+@generated _sum_checked_values(fs::Tuple, x::Tuple) =
+  _blocksum(k -> :(_value_checked(fs[$k], x[$k])), min(fieldcount(fs), fieldcount(x)))
 _value_checked(f::PointwiseMinimum, x::SymmetricSparseIterate) =
   (_checkparams(f, x); _value_at(minimum(map(g -> _value_checked(g, x), f.fs)), x))
 _value_checked(f::BoxConstrained, x::SymmetricSparseIterate) =

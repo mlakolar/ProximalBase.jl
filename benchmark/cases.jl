@@ -128,6 +128,159 @@ function addgrad!(cases, family, name, f, x; profile=false, second=true)
     end
 end
 
+# Tuple references descend to array blocks instead of calling tuple oracles.
+function close_enough(x::Tuple, y::Tuple)
+    length(x)==length(y) || error("block counts differ")
+    foreach(close_enough,x,y)
+    nothing
+end
+
+block_similar(x::Tuple) = map(block_similar,x)
+block_similar(x) = similar(x)
+block_type(x::Tuple) = block_type(first(x))
+block_type(x) = eltype(x)
+block_count(x::Tuple) = sum(block_count,x)
+block_count(x) = 1
+block_work(x::Tuple) = sum(block_work,x)
+block_work(x) = length(x)
+block_finite(x::Tuple) = all(block_finite,x)
+block_finite(x) = all(isfinite,x)
+
+block_functions(f) = f
+block_functions(f::SeparableSum) = map(block_functions,f.fs)
+block_wrap(w, fs::Tuple) = map(f -> block_wrap(w,f),fs)
+block_wrap(w, f) = w(f)
+block_functions(f::Scaled) = block_wrap(g -> Scaled(g,f.α),block_functions(f.f))
+block_functions(f::Conjugate) = block_wrap(Conjugate,block_functions(f.f))
+block_prox(fs::Tuple, x::Tuple, γ) = map((f,z) -> block_prox(f,z,γ),fs,x)
+block_prox(f, x, γ) = prox(f,x,γ)
+block_prox_value(fs::Tuple, x::Tuple, γ) = sum(map((f,z) -> block_prox_value(f,z,γ),fs,x))
+# The leaf oracle also supplies values for conjugates without an explicit value method.
+block_prox_value(f, x, γ) = value_and_prox!(similar(x),f,x,γ)
+block_value(fs::Tuple, x::Tuple) = sum(map(block_value,fs,x))
+block_value(f, x) = f(x)
+block_gradient(fs::Tuple, x::Tuple) = map(block_gradient,fs,x)
+block_gradient(f, x) = gradient(f,x)
+block_hessian(fs::Tuple, x::Tuple, v::Tuple) = map(block_hessian,fs,x,v)
+block_hessian(f, x, v) = hessian_vec(f,x,v)
+
+function block_close_value(v, expected, T)
+    t=tolerance(T)
+    (v==expected || isapprox(v,expected;atol=t,rtol=t)) || error("block objective mismatch: $v versus $expected")
+end
+
+function addblockprox!(cases, name, f, x; value=true, operation="prox!")
+    T=block_type(x); γ=T(0.7); y=block_similar(x)
+    shape="$(block_count(x))x$(length(first_leaf(x)))"; work=block_work(x)
+    fs=block_functions(f)
+    function check!()
+        reference=block_prox(fs,x,γ)
+        prox!(y,f,x,γ)
+        close_enough(y,reference)
+        block_finite(y) || error("nonfinite proximal output")
+    end
+    addcase!(cases,"blocks",name*"/"*operation,()->prox!(y,f,x,γ),check!;
+             T,shape,work)
+    if value
+        function checkvalue!()
+            reference=block_prox(fs,x,γ)
+            expected=block_prox_value(fs,x,γ)
+            val=value_and_prox!(y,f,x,γ)
+            close_enough(y,reference)
+            block_finite(y) || error("nonfinite proximal output")
+            block_close_value(val,expected,T)
+        end
+        addcase!(cases,"blocks",name*"/value_and_prox!",()->value_and_prox!(y,f,x,γ),checkvalue!;
+                 T,shape,work)
+    end
+end
+
+first_leaf(x::Tuple) = first_leaf(first(x))
+first_leaf(x) = x
+
+function addblockgrad!(cases, name, f, x, v; full=true)
+    T=block_type(x); g=block_similar(x); hv=block_similar(x)
+    shape="$(block_count(x))x$(length(first_leaf(x)))"; work=block_work(x)
+    fs=block_functions(f)
+    checkvalue!() = block_close_value(f(x),block_value(fs,x),T)
+    function checkgrad!()
+        gradient!(g,f,x)
+        close_enough(g,block_gradient(fs,x))
+    end
+    function checkvaluegrad!()
+        val=value_and_gradient!(g,f,x)
+        close_enough(g,block_gradient(fs,x))
+        block_close_value(val,block_value(fs,x),T)
+    end
+    function checkhess!()
+        hessian_vec!(hv,f,x,v)
+        close_enough(hv,block_hessian(fs,x,v))
+    end
+    if full
+        addcase!(cases,"blocks",name*"/value",()->f(x),checkvalue!;T,shape,work)
+        addcase!(cases,"blocks",name*"/gradient!",()->gradient!(g,f,x),checkgrad!;T,shape,work)
+    end
+    addcase!(cases,"blocks",name*"/value_and_gradient!",()->value_and_gradient!(g,f,x),checkvaluegrad!;
+             T,shape,work)
+    addcase!(cases,"blocks",name*"/hessian_vec!",()->hessian_vec!(hv,f,x,v),checkhess!;
+             T,shape,work)
+    if full
+        q=quadratic_model(f,x)
+        function checkmodel!()
+            quadratic_model!(q,f,x)
+            block_close_value(q(x),block_value(fs,x),T)
+            close_enough(gradient(q,x),block_gradient(fs,x))
+            close_enough(hessian_vec(q,x,v),block_hessian(fs,x,v))
+        end
+        addcase!(cases,"blocks",name*"/quadratic_model!",()->quadratic_model!(q,f,x),checkmodel!;
+                 T,shape,work)
+    end
+end
+
+function block_cases!(cases, rep; quick=false)
+    # Both suites retain the same small-block overhead and long-block work cases.
+    for T in (Float64,Float32), n in (2,1000)
+        l1=NormL1(T(0.1)); l2=SqrNormL2(); l22=SqrNormL2(T(2))
+        flat=SeparableSum(l1,l2)
+        fixtures=(("flat",flat,:flat,false),
+                  ("flat_smooth",SeparableSum(l2,l22),:flat,true),
+                  ("nested",SeparableSum(flat,SeparableSum(l22,NormL1(T(0.05)))),:nested,false),
+                  ("mixed",SeparableSum(l1,SeparableSum(l2,l1)),:mixed,false),
+                  ("nested_smooth",SeparableSum(SeparableSum(l2,l22),SeparableSum(SqrNormL2(T(3)),SqrNormL2(T(4)))),:nested,true),
+                  ("mixed_smooth",SeparableSum(l2,SeparableSum(l22,SqrNormL2(T(3)))),:mixed,true),
+                  ("scaled",Scaled(flat,T(2)),:flat,false),
+                  ("conjugate_known",Conjugate(flat),:flat,false),
+                  ("conjugate_fallback",Conjugate(SeparableSum(ElasticNet(T(0.1),T(0.2)),ElasticNet(T(0.3),T(0.1)))),:flat,false),
+                  ("conjugate_indicator",Conjugate(SeparableSum(IndBox(T(-1),T(1)),IndBox(T(-0.5),T(2)))),:flat,false),
+                  ("conjugate_scaled",Conjugate(Scaled(flat,T(2))),:flat,false))
+        for (name,f,shape,smooth) in fixtures
+            rng=scenario_rng(rep,"blocks/$name/$T/$n")
+            makeblocks() = shape==:nested ? ((randn(rng,T,n),randn(rng,T,n)),(randn(rng,T,n),randn(rng,T,n))) :
+                           shape==:mixed ? (randn(rng,T,n),(randn(rng,T,n),randn(rng,T,n))) :
+                           (randn(rng,T,n),randn(rng,T,n))
+            x=makeblocks()
+            if smooth
+                addblockgrad!(cases,name,f,x,makeblocks())
+            else
+                addblockprox!(cases,name,f,x)
+            end
+        end
+    end
+    for T in (Float64,Float32), k in (8,31,32,64,128), n in (k in (8,32) ? (2,1000) : (2,))
+        name="n$k"
+        rng=scenario_rng(rep,"blocks/$name/$T/$n")
+        x=ntuple(_ -> randn(rng,T,n),k)
+        f=SeparableSum(ntuple(i -> isodd(i) ? NormL1(T(0.1)) : SqrNormL2(),k))
+        addblockprox!(cases,name,f,x)
+        addblockprox!(cases,name,Conjugate(f),x;value=false,operation="conjugate_prox!")
+        rngsmooth=scenario_rng(rep,"blocks/$(name)_smooth/$T/$n")
+        xs=ntuple(_ -> randn(rngsmooth,T,n),k)
+        v=ntuple(_ -> randn(rngsmooth,T,n),k)
+        smooth=SeparableSum(ntuple(i -> SqrNormL2(T(isodd(i) ? 1 : 2)),k))
+        addblockgrad!(cases,name,smooth,xs,v;full=false)
+    end
+end
+
 function separable_cases!(cases, rep; quick=false)
     for T in (quick ? (Float64,) : (Float32, Float64)), n in (quick ? (256,) : (256, 100_000))
         rng = scenario_rng(rep, "separable/$T/$n")
@@ -542,7 +695,7 @@ function product_cases!(cases,rep; quick=false)
     end
 end
 
-const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products")
+const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products", "blocks")
 
 function build_cases(rep; suite="quick", groups=collect(CASE_GROUPS))
     suite in ("quick", "extended") || error("PB_SUITE must be quick or extended")
@@ -550,7 +703,7 @@ function build_cases(rep; suite="quick", groups=collect(CASE_GROUPS))
     all(in(CASE_GROUPS), groups) || error("PB_GROUPS must select from $(join(CASE_GROUPS, ','))")
     length(unique(groups)) == length(groups) || error("Duplicate benchmark group")
     cases=PerfCase[]
-    builders=(separable_cases!,smooth_cases!,matrix_cases!,constrained_cases!,tensor_cases!,product_cases!)
+    builders=(separable_cases!,smooth_cases!,matrix_cases!,constrained_cases!,tensor_cases!,product_cases!,block_cases!)
     # Select groups and sizes before allocating data or constructing function objects.
     for (group,builder) in zip(CASE_GROUPS,builders)
         group in groups && builder(cases,rep;quick=suite=="quick")

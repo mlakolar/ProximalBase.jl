@@ -182,7 +182,7 @@ end
 _value_unchecked(s::Scaled, x) = _value_at(_scaled_value(s, x, _value_unchecked(s.f, x)), x)
 _checkvalue(s::Scaled, x) = _checkvalue(s.f, x)
 _scale!(g::AbstractArray, α) = (g .*= α)
-_scale!(g::Tuple, α) = (map(gk -> _scale!(gk, α), g); g)
+@generated _scale!(g::Tuple, α) = _blockwise(k -> :(_scale!(g[$k], α)), fieldcount(g), :g)
 value_and_gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
 _value_and_gradient_unchecked!(g, s::Scaled, x) = (_checkwrite(value_and_gradient!, s, g, x); v = _value_and_gradient_unchecked!(g, s.f, x); _scale!(g, s.α); _value_at(_scaled_value(s, x, v), x))
@@ -643,10 +643,8 @@ function _moreau_nonfinite(y::AbstractArray, x::AbstractArray, z::AbstractArray,
   # pairwise and vectorizes, where one with an initial value is a sequential fold
   !isempty(x) && isnan(sum(bc))
 end
-_moreau_nonfinite(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, always::Bool) = false
-_moreau_nonfinite(y::Tuple, x::Tuple, z::Tuple, γ, always::Bool) =
-  _moreau_nonfinite(first(y), first(x), first(z), γ, always) ||
-  _moreau_nonfinite(Base.tail(y), Base.tail(x), Base.tail(z), γ, always)
+@generated _moreau_nonfinite(y::Tuple, x::Tuple, z::Tuple, γ, always::Bool) =
+  _blockany(k -> :(_moreau_nonfinite(y[$k], x[$k], z[$k], γ, always)), fieldcount(y))
 @noinline _moreau_error(γ) =
   throw(ArgumentError("the proximal point of the conjugate is not finite at a finite input " *
                       "for the step γ = $(γ isa AbstractArray ? summary(γ) : γ) in working " *
@@ -790,15 +788,11 @@ _prox_unchecked!(y::AbstractArray, c::Conjugate{<:SumLargest}, x::AbstractArray,
   _sumlargest_prox!(y, c.f, x, 1, Val(true))
 
 _tuple_buffer_type(::Type{<:AbstractArray{T, N}}) where {T, N} = Array{float(T), N}
-# Recursive type construction stays inferred after other nested sums compile.
-_tuple_buffer_type(::Type{Tuple{}}) = Tuple{}
-_tuple_buffer_type(::Type{X}) where {X<:Tuple} =
-  _tuple_buffer_cons(_tuple_buffer_type(fieldtype(X, 1)), _tuple_buffer_type(Base.tuple_type_tail(X)))
-_tuple_buffer_cons(::Type{H}, ::Type{T}) where {H, T<:Tuple} = Tuple{H, fieldtypes(T)...}
+@generated _tuple_buffer_type(::Type{X}) where {X<:Tuple} =
+  _inline(Expr(:curly, :Tuple, (:(_tuple_buffer_type(fieldtype(X, $k))) for k in 1:fieldcount(X))...))
 _same_buffer_sizes(b::AbstractArray, x::AbstractArray) = size(b) == size(x)
-_same_buffer_sizes(::Tuple{}, ::Tuple{}) = true
-_same_buffer_sizes(b::Tuple, x::Tuple) =
-  _same_buffer_sizes(first(b), first(x)) && _same_buffer_sizes(Base.tail(b), Base.tail(x))
+@generated _same_buffer_sizes(b::Tuple, x::Tuple) =
+  _blockall(k -> :(_same_buffer_sizes(b[$k], x[$k])), fieldcount(b))
 
 function _tuple_buffer!(s::Scratch, y::Y, x::X) where {Y<:Tuple, X<:Tuple}
   B = _tuple_buffer_type(Y)
@@ -823,13 +817,13 @@ function _conjugate_checkbuffer(s::Scratch, y::Y, x::X) where {Y<:Tuple, X<:Tupl
 end
 
 _divide!(z::AbstractArray, x::AbstractArray, γ) = (z .= x ./ convert(float(eltype(z)), γ))
-_divide!(z::Tuple, x::Tuple, γ) = (map((zk, xk) -> _divide!(zk, xk, γ), z, x); z)
+@generated _divide!(z::Tuple, x::Tuple, γ) = _blockwise(k -> :(_divide!(z[$k], x[$k], γ)), min(fieldcount(z), fieldcount(x)), :z)
 _moreau_output!(y::AbstractArray, x::AbstractArray, p::AbstractArray, γ) =
   (y .= x .- convert(float(eltype(y)), γ) .* p)
-_moreau_output!(y::Tuple, x::Tuple, p::Tuple, γ) =
-  (map((yk, xk, pk) -> _moreau_output!(yk, xk, pk, γ), y, x, p); y)
+@generated _moreau_output!(y::Tuple, x::Tuple, p::Tuple, γ) =
+  _blockwise(k -> :(_moreau_output!(y[$k], x[$k], p[$k], γ)), min(fieldcount(y), fieldcount(x), fieldcount(p)), :y)
 _tuple_dot(x::AbstractArray, y::AbstractArray) = dot(x, y)
-_tuple_dot(x::Tuple, y::Tuple) = sum(map(_tuple_dot, x, y))
+@generated _tuple_dot(x::Tuple, y::Tuple) = _blocksum(k -> :(_tuple_dot(x[$k], y[$k])), min(fieldcount(x), fieldcount(y)))
 
 # as for arrays, with every block checked before any block is written
 prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real) =
@@ -1042,7 +1036,7 @@ struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
 end
 SeparableSum(fs::AbstractFunction...) = SeparableSum(fs)
-_conjugate_isindicator(::Type{SeparableSum{F}}) where {F} = all(_conjugate_isindicator, fieldtypes(F))
+@generated _conjugate_isindicator(::Type{SeparableSum{F}}) where {F} = _blockall(k -> :(_conjugate_isindicator(fieldtype(F, $k))), fieldcount(F))
 
 _argument_type(::Type{<:SeparableSum}) = Tuple
 
@@ -1054,7 +1048,8 @@ function _checkblocks(s::SeparableSum, x::Tuple)
   length(x) == length(s.fs) || throw(DimensionMismatch("$(length(s.fs)) functions for $(length(x)) blocks"))
 end
 
-_checkparams(s::SeparableSum, x::Tuple) = (_checkblocks(s, x); map(_checkparams, s.fs, x); true)
+_checkparams(s::SeparableSum, x::Tuple) = (_checkblocks(s, x); _checkparams_blocks(s.fs, x))
+@generated _checkparams_blocks(fs::Tuple, x::Tuple) = _blockwise(k -> :(_checkparams(fs[$k], x[$k])), min(fieldcount(fs), fieldcount(x)), true)
 function _checkwrite(op::O, s::SeparableSum, y::Tuple, x::Tuple) where {O<:Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}}
   _checkreal(s, y); _checkreal(s, x)
   _checksize(y, x)
@@ -1062,46 +1057,53 @@ function _checkwrite(op::O, s::SeparableSum, y::Tuple, x::Tuple) where {O<:Union
   (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x)
   _checkwrite_blocks(op, s.fs, y, x)
 end
-# block by block, by recursion on the tuples rather than a map over a closure:
-# once a nested sum has been checked, Julia 1.10 compiles the inner sum's map
-# for an abstract closure, and that map allocates
-_checkwrite_blocks(op, ::Tuple{}, ::Tuple{}, ::Tuple{}) = true
-_checkwrite_blocks(op::O, fs::Tuple, y::Tuple, x::Tuple) where {O} =
-  (_checkwrite(op, first(fs), first(y), first(x)); _checkwrite_blocks(op, Base.tail(fs), Base.tail(y), Base.tail(x)))
-_has_conjugate_value(s::SeparableSum) = all(_has_conjugate_value, s.fs)
-_checkconjugate(s::SeparableSum, y::Tuple) = (_checkreal(s, y); _checkparams(s, y); map(_checkconjugate, s.fs, y); true)
 # Inline the temporary wrapper so parameter arrays do not escape on Julia 1.10.
 @inline _checkscaledconjugate_block(f, y, α) =
   _checkconjugate((@inline Scaled{typeof(f), typeof(α)}(f, α)), y)
 @inline _checkscaledconjugate_block(f::Scaled, y, α) =
   _checkscaledconjugate_block(f.f, y, f.α * α)
-_checkscaledconjugate(s::SeparableSum, y::Tuple, α) =
-  (_checkparams(s, y); map((f, yk) -> _checkscaledconjugate_block(f, yk, α), s.fs, y); true)
-_conjugate_value(s::SeparableSum, y::Tuple) =
-  (_checkconjugate(s, y); sum(map(_conjugate_value, s.fs, y)))
-_scaled_conjugate_value(s::SeparableSum, y::Tuple, α) =
-  (_checkscaledconjugate(s, y, α); sum(map((f, yk) -> _conjugate_value(Scaled(f, α), yk), s.fs, y)))
-_checkvalue(s::SeparableSum, x::Tuple) = (_checkreal(s, x); _checkparams(s, x); map(_checkvalue, s.fs, x); true)
+@generated _checkwrite_blocks(op, fs::Tuple, y::Tuple, x::Tuple) =
+  _blockwise(k -> :(_checkwrite(op, fs[$k], y[$k], x[$k])), fieldcount(fs), true)
+@generated _has_conjugate_value(s::SeparableSum{F}) where {F} = _blockall(k -> :(_has_conjugate_value(s.fs[$k])), fieldcount(F))
+_checkconjugate(s::SeparableSum, y::Tuple) = (_checkreal(s, y); _checkparams(s, y); _checkconjugate_blocks(s.fs, y))
+@generated _checkconjugate_blocks(fs::Tuple, y::Tuple) = _blockwise(k -> :(_checkconjugate(fs[$k], y[$k])), min(fieldcount(fs), fieldcount(y)), true)
+_checkscaledconjugate(s::SeparableSum, y::Tuple, α) = (_checkparams(s, y); _checkscaled_blocks(s.fs, y, α))
+@generated _checkscaled_blocks(fs::Tuple, y::Tuple, α) =
+  _blockwise(k -> :(_checkscaledconjugate_block(fs[$k], y[$k], α)), min(fieldcount(fs), fieldcount(y)), true)
+_conjugate_value(s::SeparableSum, y::Tuple) = (_checkconjugate(s, y); _sum_conjugate(s.fs, y))
+@generated _sum_conjugate(fs::Tuple, y::Tuple) = _blocksum(k -> :(_conjugate_value(fs[$k], y[$k])), min(fieldcount(fs), fieldcount(y)))
+_scaled_conjugate_value(s::SeparableSum, y::Tuple, α) = (_checkscaledconjugate(s, y, α); _sum_scaled(s.fs, y, α))
+@generated _sum_scaled(fs::Tuple, y::Tuple, α) = _blocksum(k -> :(_conjugate_value(Scaled(fs[$k], α), y[$k])), min(fieldcount(fs), fieldcount(y)))
+_checkvalue(s::SeparableSum, x::Tuple) = (_checkreal(s, x); _checkparams(s, x); _checkvalue_blocks(s.fs, x))
+@generated _checkvalue_blocks(fs::Tuple, x::Tuple) = _blockwise(k -> :(_checkvalue(fs[$k], x[$k])), min(fieldcount(fs), fieldcount(x)), true)
+
+@generated _sum_values(fs::Tuple, x::Tuple) = _blocksum(k -> :(_value_unchecked(fs[$k], x[$k])), min(fieldcount(fs), fieldcount(x)))
+@generated _prox_blocks!(fs::Tuple, y::Tuple, x::Tuple, γ) = _blockwise(k -> :(_prox_unchecked!(y[$k], fs[$k], x[$k], γ)), min(fieldcount(fs), fieldcount(y), fieldcount(x)), nothing)
+@generated _value_and_prox_blocks!(fs::Tuple, y::Tuple, x::Tuple, γ) =
+  _blocksum(k -> :(_value_and_prox_unchecked!(y[$k], fs[$k], x[$k], γ)), min(fieldcount(fs), fieldcount(y), fieldcount(x)))
+@generated _gradient_blocks!(fs::Tuple, g::Tuple, x::Tuple) = _blockwise(k -> :(_gradient_unchecked!(g[$k], fs[$k], x[$k])), min(fieldcount(fs), fieldcount(g), fieldcount(x)), nothing)
+@generated _value_and_gradient_blocks!(fs::Tuple, g::Tuple, x::Tuple) =
+  _blocksum(k -> :(_value_and_gradient_unchecked!(g[$k], fs[$k], x[$k])), min(fieldcount(fs), fieldcount(g), fieldcount(x)))
 
 (s::SeparableSum)(x::Tuple) =
   (_check_value_arrays(s, x); _value_checked(s, x))
-_value_unchecked(s::SeparableSum, x::Tuple) = (_checkparams(s, x); _value_at(sum(map((f, xk) -> _value_unchecked(f, xk), s.fs, x)), x))
+_value_unchecked(s::SeparableSum, x::Tuple) = (_checkparams(s, x); _value_at(_sum_values(s.fs, x), x))
 prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
   (_check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
 _prox_unchecked!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(prox!, s, y, x, γ); _checkstep(prox!, s, y, x, γ); map((f, yk, xk) -> _prox_unchecked!(yk, f, xk, γ), s.fs, y, x); y)
+  (_checkwrite(prox!, s, y, x, γ); _checkstep(prox!, s, y, x, γ); _prox_blocks!(s.fs, y, x, γ); y)
 value_and_prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
   (_check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_checkwrite(value_and_prox!, s, y, x, γ); _checkstep(value_and_prox!, s, y, x, γ); _value_at(sum(map((f, yk, xk) -> _value_and_prox_unchecked!(yk, f, xk, γ), s.fs, y, x)), y))
+  (_checkwrite(value_and_prox!, s, y, x, γ); _checkstep(value_and_prox!, s, y, x, γ); _value_at(_value_and_prox_blocks!(s.fs, y, x, γ), y))
 value_and_gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
 _value_and_gradient_unchecked!(g::Tuple, s::SeparableSum, x::Tuple) =
-  (_checkwrite(value_and_gradient!, s, g, x); _value_at(sum(map((f, gk, xk) -> _value_and_gradient_unchecked!(gk, f, xk), s.fs, g, x)), x))
+  (_checkwrite(value_and_gradient!, s, g, x); _value_at(_value_and_gradient_blocks!(s.fs, g, x), x))
 gradient!(g::Tuple, s::SeparableSum, x::Tuple) =
   (_check_oracle_arrays(gradient!, s, g, x); _gradient_unchecked!(g, s, x))
 _gradient_unchecked!(g::Tuple, s::SeparableSum, x::Tuple) =
-  (_checkwrite(gradient!, s, g, x); map((f, gk, xk) -> _gradient_unchecked!(gk, f, xk), s.fs, g, x); g)
+  (_checkwrite(gradient!, s, g, x); _gradient_blocks!(s.fs, g, x); g)
 
 ####################################
 #  sums of smooth functions
@@ -1186,9 +1188,8 @@ _checkstep(op::O, t::Union{Tilt, Translate}, y::AbstractArray, x::AbstractArray,
 
 _checkstep(op::O, s::SeparableSum, y::Tuple, x::Tuple, γ::Real) where {O} =
   _checkstep_blocks(op, s.fs, y, x, γ)
-_checkstep_blocks(op, ::Tuple{}, ::Tuple{}, ::Tuple{}, γ) = true
-_checkstep_blocks(op::O, fs::Tuple, y::Tuple, x::Tuple, γ) where {O} =
-  (_checkstep(op, first(fs), first(y), first(x), γ); _checkstep_blocks(op, Base.tail(fs), Base.tail(y), Base.tail(x), γ))
+@generated _checkstep_blocks(op, fs::Tuple, y::Tuple, x::Tuple, γ) =
+  _blockwise(k -> :(_checkstep(op, fs[$k], y[$k], x[$k], γ)), fieldcount(fs), true)
 
 _checkstep(op::O, c::Conjugate{<:Conjugate}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
   _checkstep(op, c.f.f, y, x, γ)
@@ -1216,8 +1217,7 @@ _checkstep_moreau_set(s::Scaled, y, x, γ) = _checkstep_moreau(s.f, y, x, γ)
 _checkstep_moreau_set(t::Translate, y, x, γ) = _checkstep_moreau(t.f, y, _StepInput(y), γ)
 
 _step_input(x::AbstractArray) = _StepInput(x)
-_step_input(::Tuple{}) = ()
-_step_input(x::Tuple) = (_step_input(first(x)), _step_input(Base.tail(x))...)
+@generated _step_input(x::Tuple) = _blocktuple(k -> :(_step_input(x[$k])), fieldcount(x))
 
 # The step pass needs only the shape and element type of the dense buffer.
 struct _StepBuffer{T, N} <: AbstractArray{T, N}
@@ -1226,8 +1226,7 @@ end
 Base.size(x::_StepBuffer) = x.dims
 _step_values(::_StepBuffer) = false
 _step_buffer(x::AbstractArray{T, N}) where {T, N} = _StepBuffer{float(T), N}(size(x))
-_step_buffer(::Tuple{}) = ()
-_step_buffer(x::Tuple) = (_step_buffer(first(x)), _step_buffer(Base.tail(x))...)
+@generated _step_buffer(x::Tuple) = _blocktuple(k -> :(_step_buffer(x[$k])), fieldcount(x))
 function _checkstep(op::O, c::Conjugate, y::Tuple, x::Tuple, γ::Real) where {O}
   p = _step_buffer(y)
   if op === value_and_prox! && !_isindicator(c) && !_has_conjugate_value(c.f)
@@ -1283,9 +1282,9 @@ _projection_l1_leaf(::Type{<:Union{Scaled{F},Translate{F}}}) where {F} = _projec
 _projection_l1_family(::Type) = false
 _projection_l1_family(::Type{<:Union{NormLinf,GroupNormLinf}}) = true
 _projection_l1_family(::Type{<:Union{Scaled{F},Translate{F}}}) where {F} = _projection_l1_family(F)
-_projection_l1_family(::Type{SeparableSum{F}}) where {F} = any(_projection_l1_family, fieldtypes(F))
+@generated _projection_l1_family(::Type{SeparableSum{F}}) where {F} = _blockany(k -> :(_projection_l1_family(fieldtype(F, $k))), fieldcount(F))
 _projection_l1_host(x) = _projection_host(x)
-_projection_l1_host(x::Tuple) = any(map(_projection_l1_host, x))
+@generated _projection_l1_host(x::Tuple) = _blockany_eager(k -> :(_projection_l1_host(x[$k])), fieldcount(x))
 _projection_l1_factors(a) = (a,)
 _projection_l1_factors(a::_L1ProjectionFactors) = a.factors
 _projection_l1_plain(a) = a
@@ -1317,10 +1316,14 @@ function _projection_l1_check_input(::Union{NormLinf,GroupNormLinf}, x::Abstract
   true
 end
 _projection_l1_check_input(f::Union{Scaled,Translate}, x) = _projection_l1_check_input(f.f, x)
-_projection_l1_check_input(f::SeparableSum, x::Tuple) = (map(_projection_l1_check_input, f.fs, x); true)
+_projection_l1_check_input(f::SeparableSum, x::Tuple) = _projection_l1_check_blocks(f.fs, x)
+@generated _projection_l1_check_blocks(fs::Tuple, x::Tuple) =
+  _blockwise(k -> :(_projection_l1_check_input(fs[$k], x[$k])), min(fieldcount(fs), fieldcount(x)), true)
 _projection_l1_check_input(f, y, x) = _projection_fallback(f, y, x) || _projection_l1_check_input(f, x)
 _projection_l1_check_input(f::Union{Scaled,Translate}, y, x) = _projection_l1_check_input(f.f, y, x)
-_projection_l1_check_input(f::SeparableSum, y::Tuple, x::Tuple) = (map(_projection_l1_check_input, f.fs, y, x); true)
+_projection_l1_check_input(f::SeparableSum, y::Tuple, x::Tuple) = _projection_l1_check_blocks(f.fs, y, x)
+@generated _projection_l1_check_blocks(fs::Tuple, y::Tuple, x::Tuple) =
+  _blockwise(k -> :(_projection_l1_check_input(fs[$k], y[$k], x[$k])), min(fieldcount(fs), fieldcount(y), fieldcount(x)), true)
 
 # The shift may be wider than the output even when the projection is bounded.
 struct _FiniteProjectionShift{T} end
@@ -1381,14 +1384,20 @@ _projection_fallback(f, y, x) = false
 _projection_fallback(::Union{NormLinf, GroupNormLinf}, y::AbstractArray, x::AbstractArray) =
   !(_projection_host(y) && _projection_host(x))
 _projection_fallback(f::Union{Scaled, Translate}, y, x) = _projection_fallback(f.f, y, x)
-_projection_fallback(f::SeparableSum, y::Tuple, x::Tuple) = any(map(_projection_fallback, f.fs, y, x))
+_projection_fallback(f::SeparableSum, y::Tuple, x::Tuple) = _projection_fallback_blocks(f.fs, y, x)
+@generated _projection_fallback_blocks(fs::Tuple, y::Tuple, x::Tuple) =
+  _blockany_eager(k -> :(_projection_fallback(fs[$k], y[$k], x[$k])), min(fieldcount(fs), fieldcount(y), fieldcount(x)))
 _direct_projection(f, x) = _direct_conjugate(typeof(f))
 _direct_projection(::Union{NormLinf, GroupNormLinf}, x) = _projection_host(x)
 _direct_projection(f::Union{Scaled, Translate}, x) = _direct_projection(f.f, x)
-_direct_projection(s::SeparableSum, x::Tuple) = all(map(_direct_projection, s.fs, x))
+_direct_projection(s::SeparableSum, x::Tuple) = _direct_projection_blocks(s.fs, x)
+@generated _direct_projection_blocks(fs::Tuple, x::Tuple) =
+  _blockall_eager(k -> :(_direct_projection(fs[$k], x[$k])), min(fieldcount(fs), fieldcount(x)))
 _any_direct_projection(f, x) = _direct_projection(f, x)
 _any_direct_projection(f::Scaled, x) = _any_direct_projection(f.f, x)
-_any_direct_projection(s::SeparableSum, x::Tuple) = any(map(_any_direct_projection, s.fs, x))
+_any_direct_projection(s::SeparableSum, x::Tuple) = _any_direct_projection_blocks(s.fs, x)
+@generated _any_direct_projection_blocks(fs::Tuple, x::Tuple) =
+  _blockany_eager(k -> :(_any_direct_projection(fs[$k], x[$k])), min(fieldcount(fs), fieldcount(x)))
 
 _conjugate_projection!(z, f, x, γ, α = 1) = _conjugate_moreau!(z, f, x, γ, α)
 # Keep the original function concrete; merging it with Scaled boxes parameters.
@@ -1552,11 +1561,13 @@ end
 _projection_check_commit(y::AbstractArray, z::AbstractArray) = _projection_check_conversion(y, z)
 _projection_check_commit(y::SymmetricSparseIterate, z::AbstractArray) =
   (_check_axes(y, z) && _check_symmetric(z); _projection_check_conversion(y, z))
-_projection_check_commit(y::Tuple, z::Tuple) = (map(_projection_check_commit, y, z); true)
+@generated _projection_check_commit(y::Tuple, z::Tuple) =
+  _blockwise(k -> :(_projection_check_commit(y[$k], z[$k])), min(fieldcount(y), fieldcount(z)), true)
 _projection_copy!(y::AbstractArray, z::AbstractArray) = copyto!(y, z)
-_projection_copy!(y::Tuple, z::Tuple) = (map(_projection_copy!, y, z); y)
+@generated _projection_copy!(y::Tuple, z::Tuple) =
+  _blockwise(k -> :(_projection_copy!(y[$k], z[$k])), min(fieldcount(y), fieldcount(z)), :y)
 _projection_commit!(y::Tuple, z::Tuple) = (_projection_check_commit(y, z); _projection_copy!(y, z))
-_direct_conjugate(::Type{SeparableSum{F}}) where {F} = all(_direct_conjugate, fieldtypes(F))
+@generated _direct_conjugate(::Type{SeparableSum{F}}) where {F} = _blockall(k -> :(_direct_conjugate(fieldtype(F, $k))), fieldcount(F))
 function _conjugate_projection!(z::Tuple, s::SeparableSum, x::Tuple, γ, α = 1, output = z)
   _conjugate_projection_blocks!(z, s.fs, x, γ, α, output)
   z
@@ -1572,11 +1583,8 @@ function _conjugate_projection_block!(z, f, x, γ, α, output = z)
   end
   z
 end
-_conjugate_projection_blocks!(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, α, ::Tuple{}) = nothing
-function _conjugate_projection_blocks!(z::Tuple, fs::Tuple, x::Tuple, γ, α, output)
-  _conjugate_projection_block!(first(z), first(fs), first(x), γ, α, first(output))
-  _conjugate_projection_blocks!(Base.tail(z), Base.tail(fs), Base.tail(x), γ, α, Base.tail(output))
-end
+@generated _conjugate_projection_blocks!(z::Tuple, fs::Tuple, x::Tuple, γ, α, output) =
+  _blockwise(k -> :(_conjugate_projection_block!(z[$k], fs[$k], x[$k], γ, α, output[$k])), fieldcount(fs), nothing)
 
 # Carry original targets only for unsupported tuple blocks; other blocks retain
 # their direct projections and coefficient chains.
@@ -1642,7 +1650,7 @@ _scaled_conjugate_entry(f::Scaled, v, i, γ, α) = _scaled_conjugate_entry(f.f, 
 # A translated indicator has a linear value even when its family's standalone
 # conjugate value is unavailable. Mixed sums must keep this blockwise as well.
 _any_direct_conjugate(::Type{F}) where {F} = _direct_conjugate(F)
-_any_direct_conjugate(::Type{SeparableSum{F}}) where {F} = any(_any_direct_conjugate, fieldtypes(F))
+@generated _any_direct_conjugate(::Type{SeparableSum{F}}) where {F} = _blockany(k -> :(_any_direct_conjugate(fieldtype(F, $k))), fieldcount(F))
 _any_direct_conjugate(::Type{<:Scaled{F}}) where {F} = _any_direct_conjugate(F)
 
 function _conjugate_projection_value!(z, f, x, γ, α = 1)
@@ -1686,8 +1694,10 @@ _scaled_conjugate_value(f::Scaled, y::Tuple, α) =
 # Keep exponent parts across a sum until each block's coefficient is complete.
 function _scaled_conjugate_value(s::SeparableSum, y::Tuple, α::_ProjectionScale)::_valtype(y)
   _checkparams(s, y)
-  sum(map((f, yk) -> _scaled_conjugate_value(f, yk, α), s.fs, y))
+  _sum_projection_scaled(s.fs, y, α)
 end
+@generated _sum_projection_scaled(fs::Tuple, y::Tuple, α) =
+  _blocksum(k -> :(_scaled_conjugate_value(fs[$k], y[$k], α)), min(fieldcount(fs), fieldcount(y)))
 function _scaled_conjugate_value(f, y::AbstractArray, α)
   a = convert(float(eltype(y)), _projection_real(α))
   scaled = _ScaledArray(y, inv(a))
@@ -1719,7 +1729,8 @@ function _projection_fenchel_value(z::AbstractArray, x::AbstractArray, γ)
   step = convert(float(eltype(z)), γ)
   mapreduce(identity, +, Base.Broadcast.instantiate(Base.Broadcast.broadcasted(_projection_fenchel, z, x, step)); init = _zero_value(z))
 end
-_projection_fenchel_value(z::Tuple, x::Tuple, γ) = sum(map((zk, xk) -> _projection_fenchel_value(zk, xk, γ), z, x))
+@generated _projection_fenchel_value(z::Tuple, x::Tuple, γ) =
+  _blocksum(k -> :(_projection_fenchel_value(z[$k], x[$k], γ)), min(fieldcount(z), fieldcount(x)))
 _projection_l1_groups(f::NormLinf, x) = (eachindex(IndexLinear(), x),)
 _projection_l1_groups(f::GroupNormLinf, x) = f.groups
 _projection_l1_groups(f::Union{Scaled,Translate}, x) = _projection_l1_groups(f.f, x)
@@ -1792,12 +1803,12 @@ function _conjugate_projection_value_block!(z, f, x, γ, α, output = z)
   _any_direct_projection(f, x) || f isa SeparableSum ?
     _conjugate_projection_value!(z, f, x, γ, a) : _conjugate_moreau_value!(z, f, x, γ, a, Val(true))
 end
-_conjugate_projection_values!(::Tuple{}, ::Tuple{}, ::Tuple{}, γ, α, ::Tuple{}) = 0
 _conjugate_projection_values!(z::Tuple, fs::Tuple, x::Tuple, γ, α) = _conjugate_projection_values!(z, fs, x, γ, α, z)
-function _conjugate_projection_values!(z::Tuple, fs::Tuple, x::Tuple, γ, α, output)
-  v = _conjugate_projection_value_block!(first(z), first(fs), first(x), γ, α, first(output))
-  v + _conjugate_projection_values!(Base.tail(z), Base.tail(fs), Base.tail(x), γ, α, Base.tail(output))
-end
+# Preserve the recursive projection sum's right grouping and terminal zero.
+@generated _conjugate_projection_values!(z::Tuple, fs::Tuple, x::Tuple, γ, α, output) =
+  _blockreduce(k -> :(_conjugate_projection_value_block!(z[$k], fs[$k], x[$k], γ, α, output[$k])), fieldcount(fs),
+               vs -> foldr((v, rest) -> :($v + $rest), vs; init = 0))
+
 _conjugate_projection_target_value!(z, f, y, x, γ, α = 1) =
   _conjugate_moreau_value!(z, f, x, γ, _projection_l1_plain(α), Val(true))
 _conjugate_projection_target_value!(z::Tuple, f::SeparableSum, y::Tuple, x::Tuple, γ, α = 1) =
@@ -1812,9 +1823,8 @@ function _check_projection_result(z::AbstractArray, x::AbstractArray, γ)
   mapreduce(identity, |, bad; init = false) && _moreau_error(γ)
   true
 end
-_check_projection_result(::Tuple{}, ::Tuple{}, γ) = true
-_check_projection_result(z::Tuple, x::Tuple, γ) =
-  (_check_projection_result(first(z), first(x), γ); _check_projection_result(Base.tail(z), Base.tail(x), γ))
+@generated _check_projection_result(z::Tuple, x::Tuple, γ) =
+  _blockwise(k -> :(_check_projection_result(z[$k], x[$k], γ)), fieldcount(z), true)
 
 # Spectrum decisions are private to the matrix wrappers.
 _decided_on_spectrum(f::Scaled) = _decided_on_spectrum(f.f)

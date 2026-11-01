@@ -221,10 +221,8 @@ _allocation_prox!(y, f, x, γ) = prox!(y, f, x, γ)
     op(y, f, x, 1.0)
     @test PB.Testing.allocations(_allocation_check, op, y, f, x, 1.0) == 0
   end
-  if VERSION >= v"1.11"
-    _allocation_prox!(y, f, x, 1.0)
-    @test (@allocated _allocation_prox!(y, f, x, 1.0)) == 0
-  end
+  _allocation_prox!(y, f, x, 1.0)
+  @test (@allocated _allocation_prox!(y, f, x, 1.0)) == 0
   for h in (SliceSum(Precompose(SqrNormL2(), 2.0), Precompose(SqrNormL2(), 2.0)),
             SliceSum([Precompose(SqrNormL2(), 2.0), Precompose(SqrNormL2(), 2.0)]),
             FiberSum(NormL1(); diagonal = SqrNormL2()))

@@ -224,6 +224,28 @@ setprecision(BigFloat, BIG) do
     @test all(==(0f0), g[[1:3; 5:9]])
     @test gradient(SqrNormL2(λ, c[4:4]), x[4:4])[1] === -pow2(Float32, -50)
   end
+  @testset "review regressions" begin
+    # the gradient may be written over the center: the repair pass must not reread it
+    fm = floatmax(Float64)
+    c = [-fm, 1.0, 2.0]
+    r = gradient(SqrNormL2(pow2(Float64, -1020), copy(c)), [fm, 2.0, 3.0])
+    @test gradient!(c, SqrNormL2(pow2(Float64, -1020), c), [fm, 2.0, 3.0]) == r
+    @test isapprox(r[1], 32.0; rtol = 1e-14)
+    # a BigFloat center that underflows on rounding to the model precision is used as given
+    setprecision(BigFloat, 200) do
+      g = zeros(2)
+      gradient!(g, SqrNormL2(pow2(Float64, 1000), [BigFloat(2)^-1100, BigFloat(0.5)]), [0.0, 1.0])
+      @test g[1] == -ldexp(1.0, -100)
+      x32 = Float32[0, 1]
+      g32 = zeros(Float32, 2)
+      gradient!(g32, SqrNormL2(pow2(Float64, 100), [BigFloat(2)^-200, BigFloat(0.5)]), x32)
+      @test g32[1] === -pow2(Float32, -100)
+    end
+    # long Float32 argument with a Float64 center: the sum does not lose digits
+    x = rand(Float32, 10^6); c = rand(Float64, 10^6)
+    ref = sum(abs2, Float64.(x) .- Float64.(Float32.(c))) / 2
+    @test isapprox(SqrNormL2(1.0, c)(x), ref; rtol = 1e-6)
+  end
 end
 
 end

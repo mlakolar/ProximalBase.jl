@@ -271,7 +271,10 @@ end
 # Did rounding c to cw underflow (to zero or a subnormal)? An overflow gives an infinite
 # cw, which reaches the result and is caught there.
 @inline _ridge_underflows(::Type{W}, c, cw) where {W} = false
-@inline _ridge_underflows(::Type{Float32}, c::Float64, cw::Float32) = (abs(cw) < floatmin(Float32)) & (c != 0)
+@inline function _ridge_underflows(::Type{W}, c, cw::W) where {W<:Union{Float32, Float64}}
+  c isa W && return false
+  (abs(cw) < floatmin(W)) & !iszero(c)
+end
 # Can rounding the centers of eltype C to W leave W's range?
 @inline _ridge_center_wider(::Type{W}, ::Type{C}) where {W, C} = promote_type(W, float(C)) !== W
 # Every center entry keeps its range on rounding to W. One pass over c only, so an
@@ -306,19 +309,20 @@ end
 # _square_value sees them in Float64 (R3).
 function _ridge_value_wide_center(λ, x, y)
   T = Float32
-  s = zero(T)
+  s = 0.0           # the squares are exact in Float64; the sum accumulates there
   u = false
   @inbounds @simd for i in eachindex(x, y)
     cw = T(y[i])
-    s += abs2(T(x[i]) - cw)
+    s += abs2(Float64(T(x[i]) - cw))
     u |= _ridge_underflows(T, y[i], cw)
   end
-  v = convert(T, λ) * s / 2
-  if !u & isfinite(v) & (s >= length(x) * (floatmin(T) / eps(T))) && _level_fits(T, λ)
+  sT = T(s)
+  v = convert(T, λ) * sT / 2
+  if !u & isfinite(v) & (sT >= length(x) * (floatmin(T) / eps(T))) && _level_fits(T, λ)
     return _value_at(v, x)
   end
   # a rounded center left the range, or the ordinary value is out of range
-  _exceptional_square_value(λ, x, map(c -> _ridge_fits(T, c) ? Float64(T(c)) : c, y), s, v)
+  _exceptional_square_value(λ, x, map(c -> _ridge_fits(T, c) ? Float64(T(c)) : c, y), sT, v)
 end
 
 value_and_gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray) =
@@ -345,7 +349,8 @@ function _ridge_gradient!(g, λ, c, x)
     l = convert(W, λ)
     c === nothing && return g .= l .* x
     cp = _checked_parameter(g, c)
-    if g isa DenseArray && x isa DenseArray && cp isa DenseArray && size(g) == size(x) == size(cp)
+    if g isa DenseArray && x isa DenseArray && cp isa DenseArray && size(g) == size(x) == size(cp) &&
+       !Base.mightalias(g, cp)       # the repair pass rereads c
       _ridge_gradient_dense!(g, l, x, cp)
     else
       g .= _ridge_gradient_entry.(l, x, cp)

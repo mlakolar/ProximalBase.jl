@@ -155,6 +155,45 @@ withenv("CONFORMANCE_REPORT" => nothing) do
     @test_throws ArgumentError within_bound(1.0, 1.0, -1)
   end
 
+  @testset "rank_indicator_ref and the L5.value rule" begin
+    h = nextfloat(0f0)
+    rankone = fill(h, 2, 2)
+    ranktwo = h .* Float32[2 1; 1 1]
+    @test rank_indicator_ref(zeros(Float32, 2, 2)) === 0f0
+    @test rank_indicator_ref(rankone) === 0f0
+    @test rank_indicator_ref(ranktwo) === Inf32
+    @test rank_indicator_ref(Float32[1 2; 2 4]) === 0f0
+    @test rank_indicator_ref(Float32[1 0; 0 1]) === Inf32
+    @test rank_indicator_ref(Float32[1 0; 0 1f-3]) === Inf32
+    @test rank_indicator_ref(Float32[1 0; 0 1f-5]) === 0f0
+    @test_throws ArgumentError rank_indicator_ref(zeros(Float32, 3, 3))
+    # The rows of spectral.jl: the scalar is compared with the reference of the
+    # matrix the same call stored; the baseline is a zero scalar at rank two.
+    compare = (o, _) -> same(o.scalar, o.reference)
+    baseline = (group = :G6, baseline = Returned(o -> same(o.scalar, 0f0) && same(o.reference, Inf32)))
+    fused(scalar, Y) = () -> (scalar = scalar, reference = rank_indicator_ref(Y))
+    for (id, scalar, Y, want) in (
+      ("l5-zero-rank-one", 0f0, rankone, :unexpected_pass),
+      ("l5-inf-rank-one", Inf32, rankone, :error),
+      ("l5-inf-rank-two", Inf32, ranktwo, :unexpected_pass),
+      ("l5-zero-rank-two", 0f0, ranktwo, :broken),
+    )
+      verdict, _ = capture(() -> emit(id; expected_fn = () -> "scalar === reference",
+        observed_fn = fused(scalar, Y), compare_fn = compare, broken_spec = baseline))
+      @test verdict == want
+    end
+    # Without the baseline the two agreeing outputs are plain passes.
+    for (id, scalar, Y) in (("l5-plain-rank-one", 0f0, rankone), ("l5-plain-rank-two", Inf32, ranktwo))
+      verdict, _ = capture(() -> emit(id; expected_fn = () -> "scalar === reference",
+        observed_fn = fused(scalar, Y), compare_fn = compare))
+      @test verdict == :pass
+    end
+    @test compare(fused(0f0, rankone)(), nothing)
+    @test !compare(fused(Inf32, rankone)(), nothing)
+    @test compare(fused(Inf32, ranktwo)(), nothing)
+    @test !compare(fused(0f0, ranktwo)(), nothing)
+  end
+
   @testset "Reports and coverage script" begin
     mktempdir() do dir
       withenv("CONFORMANCE_REPORT" => dir, "CONFORMANCE_RUN_ID" => "fixture-run", "CONFORMANCE_PKG_SHA" => "fixture-sha") do

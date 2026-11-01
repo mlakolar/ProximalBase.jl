@@ -397,6 +397,23 @@ function separable_cases!(cases, rep; quick=false)
                      T, shape=string(n), layout="atom", prepare=prep!, work=length(last(groups)))
         end
     end
+    if !quick
+        # SLOPE value at sizes beyond the (256, 100_000) loop above; inputs come from their own
+        # seeded streams so the draws of every other case stay unchanged.
+        for T in (Float32, Float64), n in (256, 512, 1024, 4096, 8192, 16384)
+            rng = scenario_rng(rep, "ordered/SLOPE/value/$T/$n")
+            x = randn(rng, T, n)
+            f = SLOPE(collect(range(T(0.5), T(0.1); length = n)))
+            function checkslope!()
+                m = sort(abs.(x); rev = true)
+                reference = sum(k -> f.λ[k] * m[k], 1:n)
+                isapprox(f(x), reference; atol = tolerance(T), rtol = tolerance(T)) ||
+                    error("SLOPE value differs from sorted-magnitude sum")
+            end
+            addcase!(cases, "ordered", "SLOPE/value", () -> f(x), checkslope!;
+                     T, shape = string(n), work = n)
+        end
+    end
 end
 
 function group_layout_cases!(cases, rep)
@@ -693,9 +710,181 @@ function product_cases!(cases,rep; quick=false)
                      T,shape,layout,prepare=prepare!,evals=1,work)
         end
     end
+    # Matrix coefficients with entries stored in random order, at densities on both
+    # sides of the cutoff of the five-argument product (1/32), for short and long columns.
+    quick && return
+    for T in (Float32,Float64), m in (64,2048), density in (0.02,0.05,0.1)
+        rng=scenario_rng(rep,"products/switch/$T/$m/$density")
+        p,q=1024,4
+        A=randn(rng,T,m,p)
+        I,J,V=findnz(sprandn(rng,T,p,q,density))
+        perm=randperm(rng,length(I))
+        x=SparseIterate(T,p,q)
+        for k in perm; x[I[k],J[k]]=V[k]; end
+        xd=dense(x)
+        out=zeros(T,m,q)
+        reference=A*xd
+        work=m*count(!iszero,xd)
+        check!()=(mul!(out,A,x);close_enough(out,reference))
+        addcase!(cases,"products","switch_matrix/mul!",()->mul!(out,A,x),check!;
+                 T,shape="$(m)x$(p)x$q",layout="random_$density",evals=10,work)
+    end
 end
 
-const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products", "blocks")
+# SymmetricSparseIterate owner cases (issue #391, Phase 0; acceptance guide section 4).
+# They use only calls that exist both in 0.5.x and in 0.6 (X[i, j], activecoordinates,
+# prox_coordinate! with a lower-triangle coordinate ID, mul! and Matrix on the matrix
+# view when there is one), so one harness run on each revision gives the before/after
+# comparison. No case here depends on the owner being an AbstractMatrix.
+owner_matrix(X) = isdefined(ProximalBase, :matrixview) ? ProximalBase.matrixview(X) : X
+
+function owner_fixture(rng, T, p, s)
+    q = p * (p + 1) ÷ 2
+    ids = randperm(rng, q)[1:s]               # distinct lower-triangle coordinate IDs
+    vals = T.(randn(rng, s)) .+ T(2)          # bounded away from zero
+    X = SymmetricSparseIterate(T, p)
+    for (k, v) in zip(ids, vals)
+        r, c = ProximalBase.tril_cartesian(p, k)
+        X[r, c] = v
+    end
+    I = Int[]; J = Int[]; V = T[]
+    for (k, v) in zip(ids, vals)
+        r, c = ProximalBase.tril_cartesian(p, k)
+        push!(I, r); push!(J, c); push!(V, v)
+        r == c || (push!(I, c); push!(J, r); push!(V, v))
+    end
+    (; X, ids, vals, S=sparse(I, J, V, p, p))
+end
+
+function owner_cases!(cases, rep; quick=false)
+    T = Float64
+    # (p, s): s = 100 with p growing, then p = 1000 with s growing
+    grid = quick ? [(500, 100), (1000, 100), (1000, 1000)] :
+           [(p, 100) for p in (500, 1000, 2000, 4000)] ∪ [(1000, s) for s in (10^3, 10^4, 10^5)]
+    npos = 1024
+    for (p, s) in grid
+        rng = scenario_rng(rep, "owner/$T/$p/$s")
+        fx = owner_fixture(rng, T, p, s)
+        X, S = fx.X, fx.S
+        shape = "p$(p)_s$(s)"
+        q = p * (p + 1) ÷ 2
+        active = [ProximalBase.tril_cartesian(p, fx.ids[1 + (i - 1) % s]) for i in 1:npos]   # cycles when s < npos
+        activeset = Set(fx.ids)
+        # distinct, initially inactive coordinate IDs (never repeated)
+        absent_ids = Int[]; seen = Set{Int}()
+        while length(absent_ids) < npos
+            k = rand(rng, 1:q)
+            (k in activeset || k in seen) && continue
+            push!(seen, k); push!(absent_ids, k)
+        end
+        absent = [ProximalBase.tril_cartesian(p, k) for k in absent_ids]
+        # four read cases of nread reads each: active and absent coordinates, each read through
+        # X[r, c] with r >= c and through X[c, r]; each is checked against the CSC reference
+        nread = 256
+        for (kind, base) in (("active", active), ("absent", absent)), (side, flip) in (("lower", false), ("upper", true))
+            pos = [flip ? (c, r) : (r, c) for (r, c) in base[1:nread]]
+            expected_read = sum(S[r, c] for (r, c) in pos)
+            read_op() = (acc = zero(T); @inbounds for (r, c) in pos; acc += X[r, c]; end; acc)
+            check_read!() = isapprox(read_op(), expected_read; rtol=1e-12) || error("owner reads differ from the CSC reference")
+            addcase!(cases, "owner", "read_X[i,j]", read_op, check_read!; T, shape, layout="$(kind)_$(side)", work=nread)
+        end
+        # writes to already active coordinates, with a changing value
+        wpos = active
+        Xw = copy(fx.X)                      # this case's own owner
+        wstate = Ref(zero(T))
+        write_op() = (val = wstate[] += one(T); @inbounds for (r, c) in wpos; Xw[r, c] = val; end; nothing)
+        function check_write!()
+            write_op()
+            val = wstate[]
+            all(Xw[r, c] == val for (r, c) in wpos) || error("owner writes were not stored")
+            length(collect(activecoordinates(Xw))) == s || error("a write to an active coordinate changed the working set")
+        end
+        addcase!(cases, "owner", "write_X[i,j]_active", write_op, check_write!; T, shape, layout="active", work=length(wpos))
+        # first activation: always an absent coordinate; restored outside the timed region
+        Xa = copy(fx.X)
+        # a batch of 256 distinct, initially inactive coordinates per call: one activation is below the timer floor
+        batch_ids = absent_ids[1:256]
+        batch = absent[1:256]
+        activate_op() = (@inbounds for (r, c) in batch; Xa[r, c] = one(T); end; nothing)
+        function restore!()               # outside the timed region
+            for (r, c) in batch; Xa[r, c] = zero(T); end
+            dropzeros!(Xa)
+            any(k -> isactive(Xa, k), batch_ids) && error("a batch coordinate is still active: not a first activation")
+            nothing
+        end
+        function check_activate!()
+            restore!()
+            length(unique(batch_ids)) == length(batch_ids) || error("batch coordinates are not distinct")
+            activate_op()
+            all(k -> isactive(Xa, k), batch_ids) || error("activation did not add every coordinate")
+            length(collect(activecoordinates(Xa))) == s + length(batch_ids) || error("unexpected working set")
+            restore!()
+            length(collect(activecoordinates(Xa))) == s || error("restore did not recover the working set")
+        end
+        addcase!(cases, "owner", "first_activation", activate_op, check_activate!; T, shape, layout="absent_distinct_batch",
+                 phase="first_activation", prepare=restore!, evals=1, zero_alloc=true, work=length(batch))
+        # sweeps over the active coordinates
+        Xs = copy(fx.X)
+        sweep_ids() = (acc = 0; for k in activecoordinates(Xs); acc += k; end; acc)
+        expected_sum = sum(fx.ids)
+        addcase!(cases, "owner", "sweep_activecoordinates", sweep_ids,
+                 () -> sweep_ids() == expected_sum || error("sweep visited the wrong coordinates");
+                 T, shape, layout="trivial_update", work=s)
+        f = NormL1(T(0.1))
+        step = T(0.5)
+        prox_sweep() = (for k in activecoordinates(Xs); prox_coordinate!(Xs, f, k, step); end; nothing)
+        vstate = copy(fx.vals)
+        prep_sweep!() = (for (k, v) in zip(fx.ids, fx.vals); r, c = ProximalBase.tril_cartesian(p, k); Xs[r, c] = v; end; nothing)
+        function check_sweep!()
+            prep_sweep!(); prox_sweep()
+            ok = all(zip(fx.ids, fx.vals)) do (k, v)
+                r, c = ProximalBase.tril_cartesian(p, k)
+                isapprox(Xs[r, c], sign(v) * max(abs(v) - step * T(0.1), zero(T)); atol=1e-12)
+            end
+            ok || error("coordinate sweep gave the wrong soft threshold")
+            prep_sweep!()
+        end
+        addcase!(cases, "owner", "sweep_prox_coordinate!", prox_sweep, check_sweep!; T, shape, layout="NormL1",
+                 prepare=prep_sweep!, evals=1, work=s)
+        # matrix product with a dense vector
+
+        v = randn(rng, T, p); y = zeros(T, p); ref = S * v
+        A = owner_matrix(X)
+        mul_op() = (mul!(y, A, v); nothing)
+        check_mul!() = (mul_op(); isapprox(y, ref; rtol=1e-10, atol=1e-10) || error("owner product differs from the CSC product"))
+        addcase!(cases, "owner", "mul!", mul_op, check_mul!; T, shape, layout="owner", evals=10, work=s)
+        # baselines in the same session
+        ycsc = zeros(T, p)
+        addcase!(cases, "owner", "mul!", () -> (mul!(ycsc, S, v); nothing),
+                 () -> (mul!(ycsc, S, v); isapprox(ycsc, ref; rtol=1e-10, atol=1e-10) || error("CSC product mismatch"));
+                 T, shape, layout="csc_baseline", evals=10, work=s)
+        if p <= 2000
+            D = Symmetric(Matrix(S), :L); yd = zeros(T, p)
+            addcase!(cases, "owner", "mul!", () -> (mul!(yd, D, v); nothing),
+                     () -> (mul!(yd, D, v); isapprox(yd, ref; rtol=1e-10, atol=1e-10) || error("dense product mismatch"));
+                     T, shape, layout="dense_symmetric_baseline", evals=10, work=p * p)
+        end
+        # conversion to a dense matrix
+        if p <= 2000 || s == 100
+            addcase!(cases, "owner", "Matrix", () -> (Matrix(A); nothing),
+                     () -> (M = Matrix(A); sparse(M) == S || error("Matrix(owner) differs from the CSC reference"));
+                     T, shape, layout="owner", phase="allocating", zero_alloc=false, evals=1, work=p * p)
+        end
+    end
+    # construction (empty owner), quadratic in p
+    for p in (quick ? (500, 1000) : (500, 1000, 2000, 4000))
+        addcase!(cases, "owner", "construct", () -> (SymmetricSparseIterate(T, p); nothing),
+                 function ()
+                     X = SymmetricSparseIterate(T, p); q = p * (p + 1) ÷ 2
+                     size(X, 1) == p || error("wrong size")
+                     # retained memory: one T array and two Int arrays of length q, plus headers
+                     abs(Base.summarysize(X) - (sizeof(T) + 2 * sizeof(Int)) * q) <= 1024 || error("unexpected retained size")
+                 end;
+                 T, shape="p$p", layout="empty", phase="construct", zero_alloc=false, evals=1, work=p * (p + 1) ÷ 2)
+    end
+end
+
+const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products", "blocks", "owner")
 
 function build_cases(rep; suite="quick", groups=collect(CASE_GROUPS))
     suite in ("quick", "extended") || error("PB_SUITE must be quick or extended")
@@ -703,7 +892,7 @@ function build_cases(rep; suite="quick", groups=collect(CASE_GROUPS))
     all(in(CASE_GROUPS), groups) || error("PB_GROUPS must select from $(join(CASE_GROUPS, ','))")
     length(unique(groups)) == length(groups) || error("Duplicate benchmark group")
     cases=PerfCase[]
-    builders=(separable_cases!,smooth_cases!,matrix_cases!,constrained_cases!,tensor_cases!,product_cases!,block_cases!)
+    builders=(separable_cases!,smooth_cases!,matrix_cases!,constrained_cases!,tensor_cases!,product_cases!,block_cases!,owner_cases!)
     # Select groups and sizes before allocating data or constructing function objects.
     for (group,builder) in zip(CASE_GROUPS,builders)
         group in groups && builder(cases,rep;quick=suite=="quick")

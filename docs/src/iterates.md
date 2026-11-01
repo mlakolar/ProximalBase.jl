@@ -45,6 +45,26 @@ removes the zeros between sweeps. `nnz(x)` counts stored zeros too.
 stored set changes. `findnz(x)` returns copies of the stored indices and
 values in sorted order, including stored zeros.
 
+### Matrix coefficients
+
+`mul!(out, A, x, α, β)` with a matrix `x` walks the stored entries of `x` when
+at most 1/32 of its entries are stored, and its columns in order otherwise. The
+first reads one column of `A` per stored entry, in storage order; the second
+reads `A` sequentially. Which is faster depends mostly on the length ``m`` of a
+column of `A`. With entries stored in random order (as an active-set solver
+creates them), the density at which the two walks take equal time (median over
+shapes of `x`) falls with ``m``. For `Float64` it is 7–16% for 64 to 512 rows,
+3–5% for 1024, about 1.5–2% for 2048 and 1–5% for 4096. The values are larger
+for `Float32`. They were measured on Apple M3 Pro, AMD EPYC (Zen 3) and Intel
+Xeon (Skylake-SP), and differ by a factor of two or more between these CPUs.
+
+The fixed 1/32 is a compromise. Averaged over densities from 0.5% to 50% (log
+scale, equal weight) it costs 2.5–5% of the time of the faster walk, 11–32% for
+64-row `Float32` products. The best constant, 1/16, costs 1–3%. A cutoff
+`min(1/8, 256/(m*sizeof(T)))` for ``m`` rows costs 0.6–1.5%. That gain over
+1/16 was under the 2 points required, so no rule that depends on the size of
+`A` was added (the margin was fixed after the first data, not before).
+
 ## SymmetricSparseIterate
 
 A [`SymmetricSparseIterate`](@ref) is a sparse symmetric ``p \times p`` matrix
@@ -170,6 +190,19 @@ That is `prox_entry(NormL1(λ), t₀ - (2/a) G[r, c], i, 2/a)`. On the diagonal
 the factors of 2 disappear and the step is ``1/a``. So, as the
 [`KronQuadratic`](@ref) example of the D-trace loss shows, off-diagonal
 coordinates take the step ``2/a`` where the diagonal takes ``1/a``.
+
+### A read-only matrix view
+
+[`matrixview`](@ref)`(x)` returns a live, read-only ``p \times p`` view of a
+`SymmetricSparseIterate`: ordinary matrix indices, both triangles, no copy.
+Pass it to code that only reads a matrix. Writes to `x` show through it, and
+nothing can be written through it or through a wrapper derived from it.
+`mul!(y, matrixview(x), v)` costs ``O(p + \mathrm{nactive}(x))``. Its linear
+indices are matrix indices, not coordinates: for ``p = 3``,
+`coordinates(x)[4]` is the variable at ``(2, 2)`` and `matrixview(x)[4]` is the
+entry at ``(1, 2)``. [`activevalues`](@ref)`(x)` gives the values of the active
+coordinates in the order of [`activecoordinates`](@ref)`(x)`; like that list,
+take it again after a coordinate becomes active or after `dropzeros!`.
 
 ### Symmetric parameters
 
@@ -419,6 +452,7 @@ the set being traversed does not change.
 | [`ncoordinates`](@ref)`(x)` | Number of possible coordinates |
 | [`nactive`](@ref)`(x)` | Number of stored active coordinates |
 | [`activecoordinates`](@ref)`(x)` | Indices of the active coordinates |
+| [`activevalues`](@ref)`(x)` | Writable view of their values, in the same order |
 | [`isactive`](@ref)`(x, k)` | Whether coordinate `k` is active |
 | [`activate!`](@ref)`(x, k)` | Add a coordinate to the active set |
 | `dropzeros!(x)` | Remove stored zero entries or zero groups |

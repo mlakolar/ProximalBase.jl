@@ -165,11 +165,12 @@ unit(f::SumLargest, T) = SumLargest(f.k, one(T))
           end
         end
       end
+      # the symmetric part is read: both triangles matter, a pair is read as its average
       B = copy(X)
       B[2, 1] = zero(T)
       Y, R = similar(X), similar(X)
       v = value_and_prox!(Y, Spectral(NormL1(T(1)/4)), B, M)
-      u = value_and_prox!(R, Spectral(NormL1(T(1)/4)), X, M)
+      u = value_and_prox!(R, Spectral(NormL1(T(1)/4)), Matrix(PB._SymmetricPart(B)), M)
       @test samebits(v, u) && samebits(Y, R)
     end
 

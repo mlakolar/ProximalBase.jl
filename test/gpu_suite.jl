@@ -1821,3 +1821,16 @@ end
     @test Conjugate(SingularValue(NormLinf(one(T))))(DeviceArray(Matrix(Diagonal([one(T); fill(sqrt(eps(T)) / 4, 49)])))) == T(Inf)
   end
 end
+
+@testset "a device argument into a symmetric iterate is read through its symmetric part" begin
+  V = [0.0 1.0; 3.0 0.0]
+  for T in test_types
+    X = T.(V)
+    y = SymmetricSparseIterate(T, 2)
+    prox!(y, NormL1(T(0.5)), DeviceArray(X), one(T))
+    @test y[2, 1] == T(1.5) && y[1, 2] == T(1.5)
+    y2 = SymmetricSparseIterate(T, 2)
+    @test value_and_prox!(y2, NormL1(T(0.5)), DeviceArray(X), one(T)) == T(1.5)     # 0.5 * (1.5 + 1.5)
+    @test Matrix(y2) == Matrix(y)
+  end
+end

@@ -257,6 +257,7 @@ end
 end
 
 function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real)
+  X = _symmetric_argument(Y, X)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
   finite = all(isfinite, X)
@@ -290,7 +291,7 @@ function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, �
   _mul_lowrank!(Y, U, Vt, k, ws)
   _spectral_level_value(f.λ, v, s, c)
 end
-prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, f, X, γ); Y)
+prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real) = (X = _symmetric_argument(Y, X); value_and_prox!(Y, f, X, γ); Y)
 
 ####################################
 #  rank constraint
@@ -370,6 +371,7 @@ end
 end
 
 function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
+  X = _symmetric_argument(Y, X)
   _checkwrite(prox!, f, Y, X)
   T = float(eltype(Y))
   if minimum(size(X)) <= f.r
@@ -397,6 +399,7 @@ function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
 end
 
 function value_and_prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
+  X = _symmetric_argument(Y, X)
   _checkwrite(value_and_prox!, f, Y, X)
   finite = all(isfinite, X)
   prox!(Y, f, X, γ)
@@ -486,6 +489,7 @@ function (f::IndStiefel)(X)
 end
 
 function prox!(Y, f::IndStiefel, X, ::Real)
+  X = _symmetric_argument(Y, X)
   _checkwrite(prox!, f, Y, X)
   X = _is_device_array(X) ? copyto!(_array_buffer!(f.input, eltype(X), size(X)), X) : X
   m = _maximum_abs(X)
@@ -508,6 +512,7 @@ function prox!(Y, f::IndStiefel, X, ::Real)
 end
 
 function value_and_prox!(Y, f::IndStiefel, X, γ::Real)
+  X = _symmetric_argument(Y, X)
   _checkwrite(value_and_prox!, f, Y, X)
   finite = all(isfinite, X)
   prox!(Y, f, X, γ)
@@ -628,6 +633,7 @@ function _project_psd!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix)
 end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real)
+  X = _spectral_argument(X)
   _checkwrite(prox!, f, Y, X)
   all(isfinite, X) || return fill!(Y, convert(eltype(Y), NaN))
   if f.partial
@@ -637,6 +643,7 @@ function prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real)
 end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
+  X = _spectral_argument(X)
   _checkwrite(prox!, f, Y, X)
   all(isfinite, X) || return fill!(Y, convert(eltype(Y), NaN))
   n = checksquare(X)
@@ -657,6 +664,7 @@ function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
 end
 
 function value_and_prox!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix, γ::Real)
+  X = _spectral_argument(X)
   _checkwrite(value_and_prox!, f, Y, X)
   finite = all(isfinite, X)
   prox!(Y, f, X, γ)
@@ -749,6 +757,7 @@ end
 end
 
 function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real)
+  X = _spectral_argument(X)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
   all(isfinite, X) || (fill!(Y, T(NaN)); return T(Inf))
@@ -772,4 +781,4 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
   _spectral_level_value(f.λ, s, λ, c)
 end
 prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real) =
-  (value_and_prox!(Y, f, X, γ); Y)
+  (X = _spectral_argument(X); value_and_prox!(Y, f, X, γ); Y)

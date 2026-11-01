@@ -375,6 +375,49 @@ It does not replace arrays, remember earlier checks, or check separately supplie
 steps. Ordinary calls still check; later mutation can invalidate validation. See
 [Separable functions](@ref extending-separable) for declarations and solver use.
 
+#### The argument of a proximal map
+
+The argument `x` of `prox!` and `value_and_prox!` is not a parameter, and it is
+not checked. For a symmetric ``Z`` and any ``V``,
+
+```math
+\|Z - V\|_F^2 = \|Z - (V + V^\top)/2\|_F^2 + \|(V - V^\top)/2\|_F^2,
+```
+
+so the proximal point over symmetric matrices at ``V`` is the proximal point at its
+symmetric part, for every function. When the output is a `SymmetricSparseIterate`
+and `x` is a square matrix of the same size that is not symmetric by type
+(`Matrix`, `SparseMatrixCSC`, `SparseIterate`, ...), every built-in `prox!` and
+`value_and_prox!` reads `x` through its symmetric part. Each pair is averaged as the correctly rounded `(a + b) / 2`
+when the sum is finite (this keeps subnormal digits), and as `a / 2 + b / 2` when
+the sum overflows; equal entries are kept exactly, and the result is exactly
+symmetric. A `SymmetricSparseIterate`, a `Symmetric`, a `Hermitian`, a `Diagonal`
+or a `SymTridiagonal` is used as it is, at no extra cost, and `Symmetric(x, :L)`
+still selects the lower triangle. `+Inf` at one position and `-Inf` at its mirror give
+`NaN`, as their sum does. For a tuple output, as in a `SeparableSum`, each block is
+treated this way at every depth of nesting, so no block fails before another is written.
+The rule holds for the methods with an array of steps too (`γ` an array that is
+symmetric), and for an argument on a device, which is read on the host.
+
+```@example symmetric_parameters
+V = [0.0 1.0; 3.0 0.0]                   # not symmetric
+y = SymmetricSparseIterate(2)
+prox!(y, NormL1(0.5), V, 1.0)
+@assert y[2, 1] == 1.5                   # the symmetric part has 2 off the diagonal
+prox!(y, NormL1(0.5), Symmetric(V, :L), 1.0)
+@assert y[2, 1] == 2.5                   # the lower triangle has 3
+```
+
+The spectral functions (`Spectral`, `IndPSD`, `TracePSD`) are defined on symmetric
+matrices, so they decompose the symmetric part of a matrix that is not symmetric by
+type for a dense output as well, instead of reading its upper triangle.
+`gradient!`, `value_and_gradient!` and `hessian_vec!` of `KronQuadratic` write the
+symmetric part of the result into a `SymmetricSparseIterate` output, also when
+the point is a dense matrix that is not symmetric.
+
+Weights, groups and steps that are not symmetric are parameters, not the argument,
+and still cause an `ArgumentError`.
+
 #### When no check happens
 
 - Raw entry calls (`value_entry`, `prox_entry`, `lla_weight`, scalar
@@ -404,8 +447,6 @@ work is tracked in
 [#374](https://github.com/mlakolar/ProximalBase.jl/issues/374).
 
 Parameter validation does not guarantee every symmetric operation works.
-The proximal argument has a separate policy under
-[#261](https://github.com/mlakolar/ProximalBase.jl/issues/261).
 `KronQuadratic` checks `C`; its `A`, `B`, and `LogDetLoss`'s `S` have separate
 symmetry policies under [#269](https://github.com/mlakolar/ProximalBase.jl/issues/269).
 `SphereConstrained` already checks its inner arrays, but its geometry for

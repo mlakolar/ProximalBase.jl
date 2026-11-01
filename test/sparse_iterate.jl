@@ -746,5 +746,57 @@ end
     end
 end
 
+@testset "aliasing of the views of a SparseIterate" begin
+  function alloc_unaliased(y, x)
+    y .= x .+ 1
+    copyto!(y, x)
+    return nothing
+  end
+  function alloc_aliased(x)
+    copyto!(x, activevalues(x))
+    return nothing
+  end
+  for x in (SparseIterate(Float64, 6), SparseIterate(Float32, 6), SparseIterate(Float64, 3, 2))
+    T = eltype(x)
+    for i in (2, 1)   # the source starts as [2, 1]: the first write would overwrite the second source value
+      x[i] = T(i)
+    end
+    @test Base.mightalias(x, activevalues(x))
+    @test Base.mightalias(activevalues(x), x)
+    @test Base.mightalias(x, activecoordinates(x))
+    @test Base.mightalias(x, view(x, 1:2))
+    @test Base.mightalias(x, reshape(x, :))
+    @test all(id -> id in Base.dataids(x), Base.dataids(activevalues(x)))
+    @test all(id -> id in Base.dataids(x), Base.dataids(activecoordinates(x)))
+    y = similar(x)
+    @test !Base.mightalias(x, y)
+    @test !Base.mightalias(activevalues(x), y)
+    @test !Base.mightalias(x, zeros(T, size(x)))
+
+    # the source is a view of x: the result is the one for a private copy of the source
+    expected = Array(x)
+    copyto!(expected, copy(activevalues(x)))
+    copyto!(x, activevalues(x))
+    @test Array(x) == expected
+  end
+
+  # a broadcast whose source is a view of the destination
+  x = SparseIterate(Float64, 3)
+  for i in (3, 1, 2)
+    x[i] = Float64(i)
+  end
+  expected = copy(activevalues(x)) .+ 0
+  x .= activevalues(x) .+ 0
+  @test Array(x) == expected
+
+  # unaliased broadcasts and copies do not make a private copy of the source
+  x = SparseIterate(Float64, 6)
+  x[2] = 1.0
+  y = SparseIterate(Float64, 6)
+  alloc_unaliased(y, x)
+  @test (@allocated alloc_unaliased(y, x)) == 0
+  alloc_aliased(x)
+  @test (@allocated alloc_aliased(x)) > 0
+end
 
 end

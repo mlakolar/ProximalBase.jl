@@ -288,6 +288,12 @@ activecoordinates(x::_StoredIterate) = view(x.nzval2ind, 1:x.nnz)
 activevalues(x::_StoredIterate) = view(x.nzval, 1:x.nnz)
 isactive(x::_StoredIterate, k::Integer) = x.ind2nzval[k] != 0
 
+# aliasing hooks from Base (non-public functions); the owner reports its storage
+# arrays, so that activevalues(x), activecoordinates(x) and the views of x are all
+# seen to overlap x
+Base.dataids(x::SparseIterate) =
+  (Base.dataids(x.nzval)..., Base.dataids(x.nzval2ind)..., Base.dataids(x.ind2nzval)...)
+
 # the value of coordinate i
 Base.@propagate_inbounds function _getstored(x::_StoredIterate{T}, i::Integer) where {T}
   @boundscheck checkbounds(x.ind2nzval, i)
@@ -1014,6 +1020,108 @@ _symmetric_by_type(A) = false
 _symmetric_by_type(::Union{SymmetricSparseIterate, Symmetric{<:Number}, Hermitian{<:Real},
                            Diagonal{<:Number}, SymTridiagonal{<:Number}}) = true
 _symmetric_by_type(A::Union{Adjoint, Transpose}) = _symmetric_by_type(parent(A))
+
+# The symmetric part (A + A') / 2, read lazily. The proximal point over symmetric
+# matrices at a matrix V that is not symmetric is the proximal point at its symmetric
+# part, for every function, so a SymmetricSparseIterate output reads its argument
+# through this wrapper. An entry pair that is not equal is averaged without overflow or
+# premature underflow, and exactly symmetrically; an opposite-infinity pair gives NaN.
+struct _SymmetricPart{T, A<:AbstractMatrix} <: AbstractMatrix{T}
+  A::A
+end
+_SymmetricPart(A::AbstractMatrix) = _SymmetricPart{typeof(zero(eltype(A)) / 2), typeof(A)}(A)
+Base.size(S::_SymmetricPart) = size(S.A)
+Base.axes(S::_SymmetricPart) = axes(S.A)
+Base.IndexStyle(::Type{<:_SymmetricPart}) = IndexCartesian()
+Base.dataids(S::_SymmetricPart) = Base.dataids(S.A)
+Base.@propagate_inbounds function Base.getindex(S::_SymmetricPart{T}, r::Int, c::Int) where {T}
+  a, b = convert(T, S.A[r, c]), convert(T, S.A[c, r])
+  _symequal(a, b) ? a : _symmetric_mean(a, b)
+end
+# The correctly rounded (a + b) / 2 when the sum is finite, which keeps subnormal digits;
+# the halves are taken first only when the sum overflows or a value is not finite, where
+# they cannot underflow. Addition commutes, so the result is symmetric in (a, b).
+@inline function _symmetric_mean(a::T, b::T) where {T}
+  s = a + b
+  isfinite(s) ? s / 2 : a / 2 + b / 2
+end
+_symmetric_by_type(::_SymmetricPart) = true
+Base.adjoint(S::_SymmetricPart{<:Real}) = S
+Base.transpose(S::_SymmetricPart) = S
+# the products of the decompositions keep the speed of BLAS: ((A + A') / 2) B = (A B + A' B) / 2
+# (strided output and factor, so that these methods meet neither those of a SymmetricSparseIterate
+# output nor the structured-matrix methods of LinearAlgebra, which differ between Julia versions)
+for (CT, BT) in ((:StridedMatrix, :StridedVecOrMat), (:StridedVector, :StridedVector))
+  @eval begin
+    function LinearAlgebra.mul!(C::$CT, S::_SymmetricPart{<:Real, <:StridedMatrix}, B::$BT, α::Number, β::Number)
+      h = α / 2
+      # halving α would lose the digits that the result keeps: scale the product instead
+      !iszero(α) && abs(h) < floatmin(typeof(h)) && return _scaled_symmetric_mul!(C, S, B, α, β)
+      mul!(C, S.A, B, h, β)
+      mul!(C, S.A', B, h, true)
+    end
+    LinearAlgebra.mul!(C::$CT, S::_SymmetricPart{<:Real, <:StridedMatrix}, B::$BT) = mul!(C, S, B, true, false)
+  end
+end
+
+# C = α (A + A')/2 B + β C for a tiny α, term by term: each product α s b is formed from
+# significands and one exponent, so that it is rounded once whatever the range of the
+# three factors (a global scaling of B cannot serve entries of very different sizes),
+# and the finite terms are then added. Slow, and used only when halving α would lose digits.
+function _scaled_symmetric_mul!(C, S::_SymmetricPart, B, α, β)
+  A = S.A
+  T = float(promote_type(eltype(A), eltype(B)))
+  a = T(α)
+  Cm = C isa AbstractVector ? reshape(C, :, 1) : C
+  Bm = B isa AbstractVector ? reshape(B, :, 1) : B
+  size(A, 1) == size(Cm, 1) && size(A, 2) == size(Bm, 1) && size(Cm, 2) == size(Bm, 2) ||
+    throw(DimensionMismatch("the product has shapes $(size(A)) * $(size(Bm)) into $(size(Cm))"))
+  @inbounds for k in axes(Bm, 2), i in axes(A, 1)
+    acc = zero(T)
+    for j in axes(A, 2)
+      acc += _product3(a, T(S[i, j]), T(Bm[j, k]))
+    end
+    Cm[i, k] = iszero(β) ? acc : acc + β * Cm[i, k]
+  end
+  C
+end
+# a * b * c rounded once (up to the product of the significands) for finite factors
+@inline function _product3(a::T, b::T, c::T) where {T<:AbstractFloat}
+  (iszero(a) || iszero(b) || iszero(c)) && return zero(T)
+  (isfinite(a) && isfinite(b) && isfinite(c)) || return a * b * c
+  fa, ea = frexp(a); fb, eb = frexp(b); fc, ec = frexp(c)
+  ldexp(fa * fb * fc, ea + eb + ec)
+end
+
+# The argument that a proximal map into y reads: x itself when y is not a
+# SymmetricSparseIterate, x is symmetric by type, or x is exactly symmetric (found by
+# a scan that stops at the first pair that differs, so an exactly symmetric matrix
+# keeps its fast paths and its results), otherwise the symmetric part of x. A size
+# that does not match y is left to the shape checks, which run before any entry is read.
+_symmetric_argument(y, x) = x
+function _symmetric_argument(y::SymmetricSparseIterate, x::AbstractMatrix)
+  _symmetric_by_type(x) && return x
+  # a device matrix is read on the host, as the decompositions do, so the rule holds for it too
+  _is_device_array(x) && return _symmetric_argument(y, Array(x))
+  _exactly_symmetric(x) ? x : _SymmetricPart(x)
+end
+_exactly_symmetric(x::AbstractMatrix) = size(x, 1) == size(x, 2) && _issymmetric_exact(x, _symequal)
+# A spectral function is defined on symmetric matrices, so its proximal map reads the
+# symmetric part of a matrix that is not symmetric by type, whatever the output.
+_spectral_argument(x) = x
+# A device matrix is read on the host, as the decompositions do.
+_spectral_argument(x::AbstractMatrix) =
+  _symmetric_by_type(x) ? x : _SymmetricPart(_is_device_array(x) ? Array(x) : x)
+# A tuple with no symmetric block, at any depth, is returned as it is; otherwise the
+# blocks are unrolled by type, nested tuples included.
+@inline _symmetric_argument(y::Tuple, x::Tuple) = _symmetric_blocks(y, x)
+_has_symmetric_type(::Type{<:SymmetricSparseIterate}) = true
+_has_symmetric_type(::Type{T}) where {T<:Tuple} = any(_has_symmetric_type, fieldtypes(T))
+_has_symmetric_type(::Type) = false
+@generated function _symmetric_blocks(y::Tuple, x::Tuple)
+  (fieldcount(y) == fieldcount(x) && _has_symmetric_type(y)) || return :x
+  Expr(:tuple, (:(_symmetric_argument(y[$k], x[$k])) for k in 1:fieldcount(y))...)
+end
 
 # the first pair (r, c), r > c, in column-major order, at which the square,
 # one-based A is not symmetric

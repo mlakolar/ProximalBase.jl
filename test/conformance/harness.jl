@@ -124,6 +124,26 @@ withenv("CONFORMANCE_REPORT" => nothing) do
     @test within_bound(1.25, 1.0, 0.25)
     @test !within_bound(1.25, 1.0, 0.24)
     @test !within_bound(0.0, nextfloat(0.0), 1.0)
+    # typed_bound: the delivery type is part of the promise; within_bound is untyped.
+    @test !typed_bound(Float64(1), 1f0, 0.0)
+    @test within_bound(Float64(1), 1f0, 0.0)
+    @test typed_bound(1f0, 1f0, 0.0)
+    @test typed_bound(1.25f0, 1f0, 0.25)
+    @test !typed_bound(1.25f0, 1f0, 0.24)
+    @test !typed_bound(1f0, Float64(1), 0.0)
+    @test !typed_bound(Inf, Inf32, 0.0)
+    @test typed_bound(Inf32, Inf32, 0.0)
+    @test typed_bound(NaN32, NaN32, 0.0)
+    @test !typed_bound(BigFloat(1), 1.0, 0.0)
+    @test typed_bound(BigFloat(1), BigFloat(1), 0.0)
+    @test_throws ArgumentError typed_bound(1f0, 1f0, -1)
+    # once: one invocation, replayed value or exception.
+    calls = Ref(0)
+    replay = once(() -> (calls[] += 1; calls[]))
+    @test replay() == 1 && replay() == 1 && calls[] == 1
+    failing = once(() -> throw(ArgumentError("once")))
+    @test_throws ArgumentError failing()
+    @test_throws ArgumentError failing()
     @test within_bound(Inf, Inf, 0.0)
     @test !within_bound(Inf, -Inf, Inf)
     @test within_bound(NaN, NaN, 0.0)
@@ -152,13 +172,13 @@ withenv("CONFORMANCE_REPORT" => nothing) do
         @test ReportScript.parse_json_line(lines[4])["status"] == "notcovered"
         @test occursin("\"quotes\", \\ and |", ReportScript.parse_json_line(lines[4])["problem"])
         md, complete = ReportScript.coverage(dir; case_ids = ["V1"],
-          required_ids = ["fixture-pass", "fixture-broken"], expected_cells = [])
+          required_ids = ["fixture-pass", "fixture-broken"], expected_cells = [], expected_files = [])
         @test complete
         @test occursin("| G2 | 1 |", md)
         @test occursin("not covered", md)
         @test occursin("fixture-sha", md)
         @test ReportScript.coverage(run; case_ids = ["V1"],
-          required_ids = ["fixture-pass", "fixture-broken"], expected_cells = []) == (md, true)
+          required_ids = ["fixture-pass", "fixture-broken"], expected_cells = [], expected_files = []) == (md, true)
         default_md, complete = ReportScript.coverage(dir)
         @test !complete
         @test occursin("V5.value", default_md)
@@ -206,10 +226,44 @@ withenv("CONFORMANCE_REPORT" => nothing) do
           emit(id; case_id = first(split(id, '.')),
                family_id = Symbol(families[mod1(i, length(families))]))
         end
+        # Case-less rows, as in linear_sets_2: no row id or cell depends on them.
+        emit("fixture-split-1"; case_id = "", family_id = :linear_sets)
+        emit("fixture-split-2"; case_id = "", family_id = :linear_sets)
+        # The fixture emits into harness.jsonl; assemble the expected report files
+        # by copying its header and rows, the case-less rows into linear_sets_2.
+        run = only(ReportScript.run_directories(dir))
+        lines = readlines(joinpath(run, "harness.jsonl"))
+        header, rows = lines[1], lines[2:end]
+        split_rows = filter(l -> occursin("fixture-split-", l), rows)
+        other_rows = filter(l -> !(l in split_rows), rows)
+        others = filter(!=("linear_sets_2"), ReportScript.EXPECTED_FILES)
+        @test length(others) + 1 == length(ReportScript.EXPECTED_FILES)
+        for (k, name) in enumerate(others)
+          write(joinpath(run, name * ".jsonl"), join([header; other_rows[k:length(others):end]], "\n") * "\n")
+        end
+        write(joinpath(run, "linear_sets_2.jsonl"), join([header; split_rows], "\n") * "\n")
+        rm(joinpath(run, "harness.jsonl"))
+        @test sort(first.(splitext.(readdir(run)))) == sort(ReportScript.EXPECTED_FILES)
         out = joinpath(dir, "coverage.md")
         @test runmain([dir, "--out", out]) == 0
         @test runmain([dir, "--out", out, "--check"]) == 0
         @test !occursin("| missing |", read(out, String))
+        @test occursin("(missing report file): none.", read(out, String))
+        # Removing one split file from the complete fresh report must fail the
+        # generation, though no row id, case or cell is missing.
+        split_path = joinpath(run, "linear_sets_2.jsonl")
+        saved = read(split_path, String)
+        rm(split_path)
+        out_missing = joinpath(dir, "coverage-missing.md")
+        @test runmain([dir, "--out", out_missing]) == 1
+        text = read(out_missing, String)
+        @test occursin("(missing report file): linear_sets_2.", text)
+        @test occursin("Required row ids without a row (missing): none.", text)
+        @test occursin("Case ids without a row: none.", text)
+        @test !occursin("| missing |", text)
+        @test runmain([dir, "--out", out_missing, "--check"]) == 1
+        write(split_path, saved)
+        @test runmain([dir, "--out", out, "--check"]) == 0
         # Changing the package SHA in the same process creates a new run
         # with its own header instead of pooling configurations.
         withenv("CONFORMANCE_PKG_SHA" => "second-fixture") do

@@ -7,10 +7,10 @@ const SPLIT_ROWS = Dict(
   "F16b" => ["F16b", "F16b.unchanged"],
   "F16c" => ["F16c.level", "F16c.step", "F16c.weights", "F16c.array-step"],
   "L1" => ["L1.value", "L1.gradient"],
-  "L2" => ["L2.value", "L2.prox"],
+  "L2" => ["L2.value", "L2.prox", "L2.prox.standalone"],
   "L3" => ["L3.prox"],
   "L4" => ["L4.gram"],
-  "L5" => ["L5.value", "L5.residual"],
+  "L5" => ["L5.value", "L5.residual", "L5.residual.standalone"],
   "P2m" => ["P2m.exception", "P2m.unchanged"],
   "P3" => ["P3.weight", "P3.response"],
   "S1" => ["S1.value", "S1.prox", "S1.joint-value"],
@@ -25,7 +25,7 @@ const SPLIT_ROWS = Dict(
   "S10" => ["S10.negative.exception", "S10.negative.unchanged", "S10.nan.exception", "S10.nan.unchanged"],
   "V5" => ["V5.value", "V5.gradient"],
   "V7" => ["V7.value", "V7.gradient"],
-  "V9" => ["V9.value", "V9.prox"],
+  "V9" => ["V9.value", "V9.prox", "V9.prox.standalone"],
   "V11" => ["V11.value", "V11.gradient"],
 )
 const REQUIRED_ROW_IDS = reduce(vcat, [get(SPLIT_ROWS, id, [id]) for id in CASE_IDS])
@@ -36,6 +36,16 @@ const EXPECTED_CELLS = [
     "kernels", "special_values", "steps", "data_functions", "linear_sets",
     "spectral", "wrappers", "second_order", "failures_storage",
     "element_types", "tolerances", "gpu_arrays")
+]
+
+# Expected report files: one per test file under test/conformance/ other than
+# common and harness, split files included. A file whose rows are all case-less
+# (linear_sets_2) can be dropped without a missing row id or cell, so a missing
+# file is reported by name.
+const EXPECTED_FILES = [
+  "data_functions", "data_functions_2", "element_types", "failures_storage",
+  "gpu_arrays", "kernels", "linear_sets", "linear_sets_2", "second_order",
+  "special_values", "spectral", "steps", "tolerances", "wrappers",
 ]
 
 # The report format is a flat JSON object of strings. Parse without eval or a
@@ -164,7 +174,7 @@ function print_diff(io, out, markdown)
 end
 
 function coverage(root; case_ids = CASE_IDS, required_ids = REQUIRED_ROW_IDS,
-                  expected_cells = EXPECTED_CELLS)
+                  expected_cells = EXPECTED_CELLS, expected_files = EXPECTED_FILES)
   dirs = run_directories(root)
   isempty(dirs) && error("no run directories in $root")
   io = IOBuffer()
@@ -217,9 +227,11 @@ function coverage(root; case_ids = CASE_IDS, required_ids = REQUIRED_ROW_IDS,
     executed = filter(r -> r["status"] != "notcovered", rows)
     missing_cases = setdiff(case_ids, [r["case"] for r in executed])
     missing_rows = setdiff(required_ids, [r["id"] for r in executed])
+    missing_files = setdiff(expected_files, first.(splitext.(basename.(filter(endswith(".jsonl"), readdir(dir))))))
+    println(io, "\nExpected report files without a file (missing report file): ", _list(missing_files), ".")
     println(io, "\nCase ids without a row: ", _list(missing_cases), ".")
     println(io, "\nRequired row ids without a row (missing): ", _list(missing_rows), ".\n")
-    complete &= isempty(missing_cases) && isempty(missing_rows)
+    complete &= isempty(missing_cases) && isempty(missing_rows) && isempty(missing_files)
   end
   String(take!(io)), complete
 end
@@ -258,7 +270,7 @@ function main(args = ARGS)
       mkpath(dirname(abspath(out)))
       write(out, markdown)
     end
-    complete || println(stderr, "conformance coverage is missing required rows or cells")
+    complete || println(stderr, "conformance coverage is missing required rows, cells or report files")
     complete ? 0 : 1
   catch e
     println(stderr, sprint(showerror, e))

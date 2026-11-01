@@ -141,7 +141,7 @@ end
   observed = setprecision(BigFloat, 128) do
     prox(f, BigFloat[2], BigFloat(1))
   end
-  compare = (a, b) -> eltype(a) == BigFloat && length(a) == 1 && within_bound(a[1], b[1], 32eps(b[1]))
+  compare = (a, b) -> eltype(a) == BigFloat && length(a) == 1 && typed_bound(a[1], b[1], 32eps(b[1]))
 end
 # T8: a multiplier from either precision remains only a seed.
 c = Constrained(NormL1(1.0), IndHyperplane(1.0, 1.0))
@@ -153,7 +153,7 @@ for (visit, T) in enumerate((Float32, Float64, Float32))
     rules = "T8 A3"; problem = "constrained soft threshold of [3,2], sum=1; budget 32eps(T), bound pending"
     expected = T[1, 0]
     observed = prox(c, T[3, 2], T(1))
-    compare = (a, b) -> eltype(a) == T && all(within_bound(a[i], b[i], 32eps(T)) for i in eachindex(b))
+    compare = (a, b) -> eltype(a) == T && all(typed_bound(a[i], b[i], 32eps(T)) for i in eachindex(b))
   end
 end
 
@@ -182,7 +182,7 @@ for familyname in (:separable, :group, :ball, :matrix, :data_loss)
       problem = "unit level/radius/design, x=[2], step=1; exact minimizer=[1]; 32eps(D) budget, bounds pending"
       expected = fill(D(1), size(x))
       observed = prox!(y, f, x, S(1))
-      compare = (a, b) -> eltype(a) == D && size(a) == size(b) && all(within_bound(a[i], b[i], 32eps(D)) for i in eachindex(b))
+      compare = (a, b) -> eltype(a) == D && size(a) == size(b) && all(typed_bound(a[i], b[i], 32eps(D)) for i in eachindex(b))
     end
     @row begin
       id = "element_types.$familyname.$role.value-type"; case = ""; family = :element_types; oracle = :value
@@ -266,7 +266,7 @@ for name in (:group, :ball, :matrix), role in (:parameter, :step)
     rules = "T3 T6 A1 A5 A6"; problem = "unit parameter and step widen exactly; minimizer=[1]; 32eps(Float32) budget, bound pending"
     expected = fill(1f0, size(x))
     observed = prox!(similar(x), f, x, S(1))
-    compare = (a, b) -> eltype(a) == Float32 && all(within_bound(a[i], b[i], 32eps(Float32)) for i in eachindex(b))
+    compare = (a, b) -> eltype(a) == Float32 && all(typed_bound(a[i], b[i], 32eps(Float32)) for i in eachindex(b))
   end
 end
 @row begin

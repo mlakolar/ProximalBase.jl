@@ -12,16 +12,16 @@ using ..Conformance
     types = "Float64"; backend = :cpu; rules = "R1"
     problem = "Translate norm recovers x-b=2M through homogeneity; reduction bound 16eps(R)*reference"
     expected = M / 2; observed = Translate(NormL1(0.25), [-M])([M])
-    compare = (a, b) -> within_bound(a, b, 16eps(Float64) * b)
-    broken = (group = :G7, baseline = Returned(v -> isequal(v, Inf)))
+    compare = (a, b) -> typed_bound(a, b, 16eps(Float64) * b)
+    broken = (group = :G7, baseline = Returned(v -> same(v, Inf)))
   end
   @row begin
     id = "wrappers.precompose-homogeneity"; case = ""; family = :wrappers; oracle = :value
     types = "Float64"; backend = :cpu; rules = "R1"
     problem = "Precompose norm recovers 2M through homogeneity; reduction bound 16eps(R)*reference"
     expected = M / 2; observed = Precompose(NormL1(0.25), 2.0)([M])
-    compare = (a, b) -> within_bound(a, b, 16eps(Float64) * b)
-    broken = (group = :G7, baseline = Returned(v -> isequal(v, Inf)))
+    compare = (a, b) -> typed_bound(a, b, 16eps(Float64) * b)
+    broken = (group = :G7, baseline = Returned(v -> same(v, Inf)))
   end
 
   t = Translate(NormL1(1.0), [1e8])
@@ -63,7 +63,7 @@ using ..Conformance
     expected = pow2(Float64, 199)
     observed = Scaled(Translate(SqrNormL2(1.0), [0.0]), pow2(Float64, -1000))([pow2(Float64, 600)])
     compare = (a, b) -> within_ulps(a, b, 16)
-    broken = (group = :G7, baseline = Returned(v -> isequal(v, Inf)))
+    broken = (group = :G7, baseline = Returned(v -> same(v, Inf)))
   end
   @row begin
     id = "wrappers.scaled-no-level"; case = ""; family = :wrappers; oracle = :value
@@ -71,8 +71,8 @@ using ..Conformance
     problem = "Scaled MoreauEnvelope has no level to fold; envelope at (M,M) is 2M-1; 32eps(R) reduction budget"
     expected = bigref(() -> (2BigFloat(floatmax(Float64)) - 1) / 4)
     observed = Scaled(MoreauEnvelope(NormL1(1.0), 1.0), 0.25)([M, M])
-    compare = (a, b) -> within_bound(a, b, 32eps(Float64) * b)
-    broken = (group = :G7, baseline = Returned(v -> isequal(v, Inf)))
+    compare = (a, b) -> typed_bound(a, b, 32eps(Float64) * b)
+    broken = (group = :G7, baseline = Returned(v -> same(v, Inf)))
   end
 
   for (name, f, value, point) in (
@@ -84,7 +84,7 @@ using ..Conformance
       types = "Float64"; backend = :cpu; rules = "T3,R1"
       problem = "Analytic wrapper at x=4; R1 reduction bound 32eps(R)*reference"
       expected = value; observed = f([4.0])
-      compare = (a, b) -> within_bound(a, b, 32eps(Float64) * b)
+      compare = (a, b) -> typed_bound(a, b, 32eps(Float64) * b)
     end
     @row begin
       id = "wrappers." * name * ".prox"; case = ""; family = :wrappers; oracle = :prox
@@ -104,7 +104,7 @@ using ..Conformance
       rules = "E5,E2"; problem = "#350: keep exact non-finite inner value in mixed-precision Precompose"
       expected = Float32(q)
       observed = value_and_prox!(zeros(Float32, 2, 2), Precompose(IndPSD(), 2.0), [q 0.0; 0.0 1.0], 1f0)
-      broken = (group = :G2, baseline = Returned(v -> isequal(v, 0f0)))
+      broken = (group = :G2, baseline = Returned(v -> same(v, 0f0)))
     end
   end
 

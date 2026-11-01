@@ -17,13 +17,19 @@
 # @notcovered :wrappers :value "Float64" :cpu "R1: unsupported transformation"
 # bigref(f; bits=256, T=Float64), or bigref(f, Float32; bits=256), returns
 # the stable rounded reference. f must construct its inputs inside the closure.
+# Absolute bounds: typed_bound(a, ref, bound) is false unless a and ref have the
+# same type, so use it whenever the expected value has an explicit delivery type
+# (a Float64 result of a Float32 promise must fail). within_bound is untyped (it
+# widens both operands): use it only for a genuine high-precision reference.
+# once(f) runs f now and returns a thunk that replays its value or exception, so
+# several rows can assert parts of one invocation (a fused call and its buffer).
 # Reports: CONFORMANCE_REPORT/<julia>-<platform>-<bounds>-<pkgsha>/<test file name>.jsonl.
 module Conformance
 
 using Test
 using ProximalBase
 
-export pow2, bigref, combine, same, near, within_ulps, within_bound,
+export pow2, bigref, combine, same, near, within_ulps, within_bound, typed_bound, once,
        Throws, Returned, Threw, @row, @notcovered
 
 pow2(T, k) = ldexp(one(T), k)
@@ -86,6 +92,9 @@ function within_bound(a::Real, ref::Real, bound::Real)
   abs(BigFloat(a) - BigFloat(ref)) <= bound
 end
 
+# The delivery type is part of the promise: no widening, no narrowing.
+typed_bound(a, ref, bound::Real) = typeof(a) === typeof(ref) && within_bound(a, ref, bound)
+
 # A baseline predicate for a result that depends on a reduction or a library
 # routine, whose last bits differ between Julia versions and platforms: the same
 # type and class, and every entry within `n` ulps of the observed value `x0`.
@@ -121,6 +130,10 @@ function observe(f)
   catch e
     Observation(true, e)
   end
+end
+function once(f)
+  o = observe(f)
+  () -> o.threw ? throw(o.value) : o.value
 end
 _matches(d::Union{Throws, Threw}, o::Observation) =
   o.threw && nameof(typeof(o.value)) == d.name && occursin(d.pattern, sprint(showerror, o.value))

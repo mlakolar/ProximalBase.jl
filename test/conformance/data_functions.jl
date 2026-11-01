@@ -90,7 +90,7 @@ function smooth_rows(name, U, X, D)
     # A1/C1 pending bound: 16 output ULPs for ordinary smooth outputs;
     # cancellation in affine gradients adds 8 eps(W) times operand scale.
     cancellation = part == :gradient && name in ("least_squares", "glm", "huber", "quadratic", "kron", "logdet")
-    cmp = cancellation ? ((v, r) -> within_bound(v, r,
+    cmp = cancellation ? ((v, r) -> typed_bound(v, r,
       8BigFloat(eps(W)) * (abs(BigFloat(a) * BigFloat(t)) + 1) + 2BigFloat(eps(D)) * abs(BigFloat(r)))) :
       ((v, r) -> within_ulps(v, r, 16))
     # A6: retain Float32-product rounding latitude even when stored in Float64.

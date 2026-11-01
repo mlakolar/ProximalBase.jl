@@ -77,7 +77,40 @@ for (label, radius) in ((:below, 0.5f0), (:tie, 1.5f0), (:above, 2f0))
     rules = "G1 G2 A6"; problem = "l1 projection at radius=$radius: first coordinate min(radius,(1+radius)/2); active-set margin=$margin exceeds reduction/level/storage budget 8eps(T)*sum(abs,x)=24eps(Float32), bound pending"
     expected = bigref(() -> min(BigFloat(radius), (1 + BigFloat(radius))/2), Float32)
     observed = Array(prox(IndBallL1(radius), JLArray(Float32[2, 1])))[1]
-    compare = (a, b) -> within_bound(a, b, 24eps(Float32))
+    compare = (a, b) -> typed_bound(a, b, 24eps(Float32))
+  end
+end
+# G1 / #372, public path: prox(Conjugate(f), x, gamma) with f = NormLinf and f =
+# GroupNormLinf. Moreau: prox of f* = indicator of the l1 ball of radius 1 (here
+# lambda = 1, weights 1, gamma = 1) is the projection of x onto that ball. For
+# x = [B, 1/4, -1/2] with B huge, the soft-threshold level theta solves
+# (B-theta) + (1/4-theta)+ + (1/2-theta)+ = 1; theta = B-1 > 1/2 leaves only the
+# first coordinate, 1. The projection is [1, 0, 0]. The grouped case has groups
+# [1:2, 3:4] and x = [B, 1/4, -1/2, B]; each group is projected onto its own unit
+# l1 ball: group 1 gives [1, 0], group 2 gives [0, 1], so [1, 0, 0, 1]. The
+# device path is checked against this and against the CPU path as a control.
+# Bound: the radius, not the argument, sets the scale of the result, so the
+# budget is 8eps(T)*radius = 8eps(T) per entry (radius 1); a delivered zero
+# need not carry a sign. Not an oracle from gpu_suite.jl (that compares with the old Moreau code).
+conjugate_ok(T) = (a, b) -> typeof(a) == typeof(b) && axes(a) == axes(b) && all(isfinite, a) &&
+  all(abs(BigFloat(a[i]) - BigFloat(b[i])) <= 8BigFloat(eps(T)) for i in eachindex(b))
+for T in (Float32, Float64)
+  big = T == Float64 ? T(1e300) : T(1e30)
+  for (name, f, x, want, shape) in (
+      ("linf", () -> Conjugate(NormLinf()), T[big, 1 / 4, -1 / 2], T[1, 0, 0], "x=[B,1/4,-1/2]"),
+      ("group-linf", () -> Conjugate(GroupNormLinf(one(T), [1:2, 3:4])), T[big, 1 / 4, -1 / 2, big], T[1, 0, 0, 1], "groups [1:2,3:4], x=[B,1/4,-1/2,B]"))
+    for (backend, wrap, label) in ((:jlarray, JLArray, "jlarray"), (:cpu, identity, "cpu-control"))
+      @row begin
+        id = "gpu_arrays.conjugate-$name.$T.$label"; case = ""; family = :gpu_arrays; oracle = :prox
+        types = "$T argument/destination/parameter/step"; backend = backend
+        rules = "G1 G2 A2 A6"
+        problem = "#372: prox(Conjugate) at $shape with B=$big, step 1; Moreau: projection onto the unit l1 ball (per group) is $want; bound 8eps(T)*radius=8eps($T) per entry (radius 1), zeros unsigned"
+        expected = want
+        observed = Array(prox(f(), wrap(x), one(T)))
+        compare = conjugate_ok(T)
+        broken = backend == :jlarray ? (group = :G11, baseline = Returned(v -> same(v, zeros(T, length(want))))) : nothing
+      end
+    end
   end
 end
 # E2 / G4: NaN must survive comparisons in separable and coupled kernels.

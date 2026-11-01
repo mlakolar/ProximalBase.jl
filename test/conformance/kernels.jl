@@ -110,21 +110,38 @@ end
   broken = (group = :G1, baseline = Returned(v -> same(v, [Inf])))
 end
 
+# O2: one fused invocation from a sentinel destination; the scalar and a copy of
+# the buffer it wrote are asserted in separate rows. A fused call that returns
+# the right scalar but leaves the sentinel fails V9.prox.
+fused9 = once() do
+  y = fill(7f0, 1)
+  value = value_and_prox!(y, SqrNormL2(1.0, [1 + pow2(Float64, -28)]), Float32[1], 1.0)
+  (value, copy(y))
+end
+
 @row begin
   id = "V9.value"; case = "V9"; family = :kernels; oracle = :value
   types = "Float32 argument/destination; Float64 center/level"; backend = :cpu; rules = "T3 O2"
-  problem = "Center converts to one in stored-output problem."
+  problem = "Center converts to one in stored-output problem; the scalar of the fused value_and_prox! call."
   expected = 0f0
-  observed = value_and_prox!(zeros(Float32, 1), SqrNormL2(1.0, [1 + pow2(Float64, -28)]), Float32[1], 1.0)
+  observed = fused9()[1]
   broken = (group = :G1, baseline = Returned(v -> same(v, 6.938894f-18)))
 end
 
 @row begin
   id = "V9.prox"; case = "V9"; family = :kernels; oracle = :prox
   types = "Float32 argument/destination; Float64 center/level"; backend = :cpu; rules = "T3 O2"
-  problem = "Center converts to one in stored-output problem."
+  problem = "Center converts to one in stored-output problem; the destination written by the same fused value_and_prox! call, started from the sentinel 7."
   expected = Float32[1]
-  observed = prox!(zeros(Float32, 1), SqrNormL2(1.0, [1 + pow2(Float64, -28)]), Float32[1], 1.0)
+  observed = fused9()[2]
+end
+
+@row begin
+  id = "V9.prox.standalone"; case = "V9"; family = :kernels; oracle = :prox
+  types = "Float32 argument/destination; Float64 center/level"; backend = :cpu; rules = "T3 O2"
+  problem = "Center converts to one in stored-output problem; standalone prox! from the sentinel 7."
+  expected = Float32[1]
+  observed = prox!(fill(7f0, 1), SqrNormL2(1.0, [1 + pow2(Float64, -28)]), Float32[1], 1.0)
 end
 
 @row begin

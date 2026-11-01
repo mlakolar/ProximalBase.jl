@@ -105,7 +105,7 @@ end
     problem = "equal typemax(Int) coordinates on sum=0; A1/C1 pending budget 8 eps(Float64)*typemax(Int) per coordinate"
     expected = [0.0, 0.0]
     observed = prox(IndHyperplane(1, 0), [typemax(Int), typemax(Int)], 1)
-    compare = (v, r) -> all(within_bound(v[i], r[i], 8BigFloat(eps(Float64)) * BigFloat(typemax(Int))) for i in eachindex(r))
+    compare = (v, r) -> all(typed_bound(v[i], r[i], 8BigFloat(eps(Float64)) * BigFloat(typemax(Int))) for i in eachindex(r))
     broken = (group = :G5, baseline = Returned(v -> same(v, fill(Float64(typemax(Int)), 2))))
   end
   # A3: near a box face, refine the decision or raise PrecisionError.

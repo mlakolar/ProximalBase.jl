@@ -612,7 +612,7 @@ end
   problem = "Scale-free diagonal projection onto y1+y2=1; P3/A1 component budget 16eps(Float32)."
   expected = Float32[1, 0]
   observed = prox!(zeros(Float32, 2), IndHyperplane(Float32[1, 1], 1f0), Float32[2, 2], [1e-50, 2e-50])
-  compare = (a, b) -> length(a) == 2 && all(within_bound(a[i], b[i], 16eps(Float32)) for i in eachindex(b))
+  compare = (a, b) -> length(a) == 2 && all(typed_bound(a[i], b[i], 16eps(Float32)) for i in eachindex(b))
   broken = (group = :G3, baseline = Returned(v -> same(v, Float32[-Inf, -Inf])))
 end
 
@@ -622,7 +622,7 @@ end
   problem = "Scale-free diagonal projection onto y1+y2=1; P3/A1 component budget 16eps(Float32)."
   expected = Float32[1, 0]
   observed = prox!(zeros(Float32, 2), IndHyperplane(Float32[1, 1], 1f0), Float32[2, 2], [1.0, 2.0])
-  compare = (a, b) -> length(a) == 2 && all(within_bound(a[i], b[i], 16eps(Float32)) for i in eachindex(b))
+  compare = (a, b) -> length(a) == 2 && all(typed_bound(a[i], b[i], 16eps(Float32)) for i in eachindex(b))
 end
 
 @row begin

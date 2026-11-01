@@ -16,13 +16,19 @@ const c = 64
 @testset "Spectral contract" begin
   f = LogDetLoss(zeros(2, 2))
   X = [0.0 pow2(Float64, 15); pow2(Float64, 15) 0.0]
-  Y = zeros(Float32, 2, 2)
+  # O2: one fused call from a sentinel destination; L2.value takes its scalar,
+  # L2.prox the buffer it wrote (a stand-in leaving the sentinel must fail L2.prox).
+  fused2 = once() do
+    Y = fill(7f0, 2, 2)
+    value = value_and_prox!(Y, f, X, 1.0)
+    (value, copy(Y))
+  end
   @row begin
     id = "L2.value"; case = "L2"; family = :spectral; oracle = :value_and_prox
     types = "Float64 arg/data/step, Float32 destination"; backend = :cpu
-    rules = "O2,O3"; problem = "Decision 39: stored output is singular"
-    expected = Inf32; observed = value_and_prox!(Y, f, X, 1.0)
-    broken = (group = :G6, baseline = Returned(v -> isequal(v, 0f0)))
+    rules = "O2,O3"; problem = "Decision 39: stored output is singular; scalar of the fused call"
+    expected = Inf32; observed = fused2()[1]
+    broken = (group = :G6, baseline = Returned(v -> same(v, 0f0)))
   end
   # A5: exact roots of z^2 - t*z - 1 = 0 give diagonal sqrt(t^2+4)/2
   # and off-diagonal t/2. Keep the storage error separate from W=Float64.
@@ -38,9 +44,17 @@ const c = 64
   @row begin
     id = "L2.prox"; case = "L2"; family = :spectral; oracle = :prox
     types = "Float64 arg/data/step, Float32 destination"; backend = :cpu
-    rules = "A5"; problem = "c=64 pending in contract; W=Float64, bound c*p*eps(W)*(norm(X)+norm(Y_W))+norm(Float32(Y_W)-Y_W), exact closed-form Y_W"
+    rules = "A5"; problem = "c=64 pending in contract; W=Float64, bound c*p*eps(W)*(norm(X)+norm(Y_W))+norm(Float32(Y_W)-Y_W), exact closed-form Y_W; destination written by the fused call, from the sentinel 7"
     expected = exact2
-    observed = prox!(Y, f, X, 1.0)
+    observed = fused2()[2]
+    compare = compare2
+  end
+  @row begin
+    id = "L2.prox.standalone"; case = "L2"; family = :spectral; oracle = :prox
+    types = "Float64 arg/data/step, Float32 destination"; backend = :cpu
+    rules = "A5"; problem = "L2.prox for standalone prox! from the sentinel 7"
+    expected = exact2
+    observed = prox!(fill(7f0, 2, 2), f, X, 1.0)
     compare = compare2
   end
 
@@ -80,20 +94,28 @@ const c = 64
   h = Float64(nextfloat(0f0))
   v = [1.0, 5 / 8]
   X5 = h .* v * transpose(v)
-  Y5 = zeros(Float32, 2, 2)
   f5 = IndBallRank(1)
-  fused5 = value_and_prox!(Y5, f5, X5, 1.0)
+  # O2: X5 has rank one, so its rank-one projection is X5 and the stored result
+  # is Float32.(X5), the independent stored matrix whose singular values give
+  # the value. One fused call from a sentinel destination: L5.value takes the
+  # scalar, L5.residual the buffer it wrote.
+  fused5 = once() do
+    Y5 = fill(7f0, 2, 2)
+    value = value_and_prox!(Y5, f5, X5, 1.0)
+    (value, copy(Y5))
+  end
   @row begin
     id = "L5.value"; case = "L5"; family = :spectral; oracle = :value_and_prox
     types = "Float64 arg, Float32 destination"; backend = :cpu
-    rules = "A4,A5,O2"; problem = "Independent closed-form singular values of stored 2x2 matrix; rank threshold sqrt(eps(Float32))*sigma1 in Float32 scaled units"
+    rules = "A4,A5,O2"; problem = "Independent closed-form singular values of the stored 2x2 matrix Float32.(X5); rank threshold sqrt(eps(Float32))*sigma1 in Float32 scaled units; scalar of the fused call"
     expected = setprecision(BigFloat, 256) do
-      scale = maximum(abs, Y5)
+      stored = Float32.(X5)
+      scale = maximum(abs, stored)
       if iszero(scale)
         0f0
       else
         # Eigenvalues of the symmetric Gram matrix, without LAPACK or f5.
-        a, b, cc, d = BigFloat.(Y5) ./ BigFloat(scale)
+        a, b, cc, d = BigFloat.(stored) ./ BigFloat(scale)
         trace = a^2 + b^2 + cc^2 + d^2
         determinant = abs(a * d - b * cc)
         sigma1 = sqrt((trace + sqrt(max(zero(trace), trace^2 - 4determinant^2))) / 2)
@@ -102,17 +124,27 @@ const c = 64
         sigma2 > BigFloat(cutoff) ? Inf32 : 0f0
       end
     end
-    observed = fused5
-    broken = (group = :G6, baseline = Returned(v -> isequal(v, 0f0)))
+    observed = fused5()[1]
+    broken = (group = :G6, baseline = Returned(v -> same(v, 0f0)))
   end
+  residual5 = Y -> norm(Float64.(Y) - X5)
   @row begin
     id = "L5.residual"; case = "L5"; family = :spectral; oracle = :prox
     types = "Float64 arg, Float32 destination"; backend = :cpu
-    rules = "A5,T3"; problem = "c=64 pending in contract; optimal residual zero, Float32 storage <=h (four entries each <=h/2), W=Float64"
+    rules = "A5,T3"; problem = "c=64 pending in contract; optimal residual zero, Float32 storage <=h (four entries each <=h/2), W=Float64; destination written by the fused call, from the sentinel 7"
     expected = 0.0
-    observed = norm(Float64.(prox!(Y5, f5, X5, 1.0)) - X5)
+    observed = residual5(fused5()[2])
     compare = (a, b) -> isfinite(a) && a <= h + c * 2eps(Float64) * norm(X5)
-    broken = (group = :G6, baseline = Returned(v -> isequal(v, 1.801411492657615e-45)))
+    broken = (group = :G6, baseline = Returned(v -> same(v, 1.801411492657615e-45)))
+  end
+  @row begin
+    id = "L5.residual.standalone"; case = "L5"; family = :spectral; oracle = :prox
+    types = "Float64 arg, Float32 destination"; backend = :cpu
+    rules = "A5,T3"; problem = "L5.residual for standalone prox! from the sentinel 7"
+    expected = 0.0
+    observed = residual5(prox!(fill(7f0, 2, 2), f5, X5, 1.0))
+    compare = (a, b) -> isfinite(a) && a <= h + c * 2eps(Float64) * norm(X5)
+    broken = (group = :G6, baseline = Returned(v -> same(v, 1.801411492657615e-45)))
   end
 
   for (name, f) in (("psd", IndPSD()), ("nuclear", NuclearNorm(0.25)),
@@ -125,14 +157,14 @@ const c = 64
       types = "Float64"; backend = :cpu; rules = "E2,A5"
       problem = "NaN detected before LAPACK; spectral value is NaN (reverses #343)"
       expected = NaN; observed = f(Xnan)
-      broken = (group = :G6, baseline = Returned(v -> isequal(v, Inf)))
+      broken = (group = :G6, baseline = Returned(v -> same(v, Inf)))
     end
     @row begin
       id = "spectral.nan-" * name * ".fused"; case = ""; family = :spectral; oracle = :value_and_prox
       types = "Float64"; backend = :cpu; rules = "E2,O2,A5"
       problem = "NaN value for coupled NaN output"
       expected = NaN; observed = value_and_prox!(zeros(2, 2), f, Xnan, 1.0)
-      broken = (group = :G6, baseline = Returned(v -> isequal(v, Inf)))
+      broken = (group = :G6, baseline = Returned(v -> same(v, Inf)))
     end
     @row begin
       id = "spectral.nan-" * name * ".prox"; case = ""; family = :spectral; oracle = :prox
@@ -151,8 +183,8 @@ const c = 64
       types = string(T); backend = :cpu; rules = "R1,A5"
       problem = "Spectrum of M*ones(2,2) is (2M,0); power-of-two recovery, bound c=64 pending in contract"
       expected = M / T(2); observed = f(fill(M, 2, 2))
-      compare = (a, b) -> within_bound(a, b, c * eps(T) * b)
-      broken = name in ("singular", "eigen") ? (group = :G6, baseline = Returned(v -> isequal(v, T(Inf)))) : nothing
+      compare = (a, b) -> typed_bound(a, b, c * eps(T) * b)
+      broken = name in ("singular", "eigen") ? (group = :G6, baseline = Returned(v -> same(v, T(Inf)))) : nothing
     end
   end
 
@@ -193,7 +225,7 @@ end
     types = "Float64"; backend = :cpu; rules = "R1,A5"
     problem = "User-defined inner function at spectrum (4,2); A5 bound 64eps(R)*reference, constant pending"
     expected = 1.0; observed = SingularValue(QuarterMaximum())([4.0 0; 0 2])
-    compare = (a, b) -> within_bound(a, b, 64eps(Float64))
+    compare = (a, b) -> typed_bound(a, b, 64eps(Float64))
   end
 
   for T in (Float32, Float64)

@@ -311,7 +311,7 @@ end
   problem = "Off-diagonal square counts twice; A6 reduction budget 8eps(T)*4."
   expected = Float32(4)
   observed = SqrNormL2(one(Float32))(SymmetricSparseIterate(Float32[0 2; 2 0]))
-  compare = (a, b) -> within_bound(a, b, 8eps(Float32) * 4)
+  compare = (a, b) -> typed_bound(a, b, 8eps(Float32) * 4)
 end
 
 @row begin
@@ -328,7 +328,7 @@ end
   problem = "Cache history independent scalar quadratic solution (2+1)/(1+2); A1 component budget 16eps(D)."
   expected = Float32[1]
   observed = let f = QuadraticFunction(reshape([2.0], 1, 1), [-1.0]);  prox!(zeros(Float32, 1), f, Float32[2], 1.0) end
-  compare = (a, b) -> length(a) == 1 && within_bound(a[1], b[1], 16eps(Float32))
+  compare = (a, b) -> length(a) == 1 && typed_bound(a[1], b[1], 16eps(Float32))
 end
 
 @row begin
@@ -337,7 +337,7 @@ end
   problem = "Cache history independent scalar quadratic solution (2+1)/(1+2); A1 component budget 16eps(D)."
   expected = Float32[1]
   observed = let f = QuadraticFunction(reshape([2.0], 1, 1), [-1.0]); prox!(zeros(1), f, [9.0], 2.0); reset_cache!(f);  prox!(zeros(Float32, 1), f, Float32[2], 1.0) end
-  compare = (a, b) -> length(a) == 1 && within_bound(a[1], b[1], 16eps(Float32))
+  compare = (a, b) -> length(a) == 1 && typed_bound(a[1], b[1], 16eps(Float32))
 end
 
 @row begin
@@ -346,7 +346,7 @@ end
   problem = "Cache history independent scalar quadratic solution (2+1)/(1+2); A1 component budget 16eps(D)."
   expected = Float32[1]
   observed = let f = QuadraticFunction(reshape([2.0], 1, 1), [-1.0]); prox!(zeros(Float64, 1), f, [9.0], 2.0);  prox!(zeros(Float32, 1), f, Float32[2], 1.0) end
-  compare = (a, b) -> length(a) == 1 && within_bound(a[1], b[1], 16eps(Float32))
+  compare = (a, b) -> length(a) == 1 && typed_bound(a[1], b[1], 16eps(Float32))
 end
 
 @row begin
@@ -371,7 +371,7 @@ end
   problem = "Off-diagonal square counts twice; A6 reduction budget 8eps(T)*4."
   expected = Float64(4)
   observed = SqrNormL2(one(Float64))(SymmetricSparseIterate(Float64[0 2; 2 0]))
-  compare = (a, b) -> within_bound(a, b, 8eps(Float64) * 4)
+  compare = (a, b) -> typed_bound(a, b, 8eps(Float64) * 4)
 end
 
 @row begin
@@ -388,7 +388,7 @@ end
   problem = "Cache history independent scalar quadratic solution (2+1)/(1+2); A1 component budget 16eps(D)."
   expected = Float64[1]
   observed = let f = QuadraticFunction(reshape([2.0], 1, 1), [-1.0]);  prox!(zeros(Float64, 1), f, Float64[2], 1.0) end
-  compare = (a, b) -> length(a) == 1 && within_bound(a[1], b[1], 16eps(Float64))
+  compare = (a, b) -> length(a) == 1 && typed_bound(a[1], b[1], 16eps(Float64))
 end
 
 @row begin
@@ -397,7 +397,7 @@ end
   problem = "Cache history independent scalar quadratic solution (2+1)/(1+2); A1 component budget 16eps(D)."
   expected = Float64[1]
   observed = let f = QuadraticFunction(reshape([2.0], 1, 1), [-1.0]); prox!(zeros(1), f, [9.0], 2.0); reset_cache!(f);  prox!(zeros(Float64, 1), f, Float64[2], 1.0) end
-  compare = (a, b) -> length(a) == 1 && within_bound(a[1], b[1], 16eps(Float64))
+  compare = (a, b) -> length(a) == 1 && typed_bound(a[1], b[1], 16eps(Float64))
 end
 
 @row begin
@@ -406,7 +406,7 @@ end
   problem = "Cache history independent scalar quadratic solution (2+1)/(1+2); A1 component budget 16eps(D)."
   expected = Float64[1]
   observed = let f = QuadraticFunction(reshape([2.0], 1, 1), [-1.0]); prox!(zeros(Float32, 1), f, [9.0], 2.0);  prox!(zeros(Float64, 1), f, Float64[2], 1.0) end
-  compare = (a, b) -> length(a) == 1 && within_bound(a[1], b[1], 16eps(Float64))
+  compare = (a, b) -> length(a) == 1 && typed_bound(a[1], b[1], 16eps(Float64))
 end
 
 @row begin

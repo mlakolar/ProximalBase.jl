@@ -406,19 +406,55 @@ function _sortperm_abs!(f::SLOPE, x::AbstractVector, ::Type{T}) where {T}
   p, a
 end
 
+# The value needs only the sorted magnitudes, not the permutation: an in-place
+# quicksort of the magnitudes allocates nothing, and beats the permutation sort
+# for 512 <= n <= 4096, where the cost of the permutation sort jumps at n = 4096.
+# Below 512 it gains nothing, and from n = 8192 on it is slower once the array
+# leaves the cache (Base's default sort and merge sort allocate). Chosen from
+# measurements on Apple silicon and x86-64, on Julia 1.13 and lts; other element
+# types keep the permutation.
+const _SLOPE_SORTED_MIN = 512
+const _SLOPE_SORTED_MAX = 4096
+
+# the magnitudes of x in decreasing order, in the buffer f.sums; f.perm is untouched
+function _sorted_magnitudes!(f::SLOPE, x::AbstractVector, ::Type{T}) where {T}
+  n = length(x)
+  a = _buffer!(f.sums, T, n)
+  @inbounds for i in 1:n
+    a[i] = abs(convert(T, x[i]))
+  end
+  sort!(a; alg = QuickSort, rev = true)
+end
+
 function (f::SLOPE)(x::AbstractVector)
   _checkreal(f, x)
   _checkparams(f, x)
   Base.require_one_based_indexing(x)
   T = float(eltype(x))
+  if T <: Union{Float32, Float64} && _SLOPE_SORTED_MIN <= length(x) <= _SLOPE_SORTED_MAX
+    a = _sorted_magnitudes!(f, x, T)
+    _slope_sum(f, T, length(x), k -> a[k])
+  else
+    _slope_value_perm(f, x)
+  end
+end
+
+# the value through the permutation of the magnitudes
+function _slope_value_perm(f::SLOPE, x::AbstractVector)
+  T = float(eltype(x))
   p, a = _sortperm_abs!(f, x, T)
+  _slope_sum(f, T, length(x), k -> a[p[k]])
+end
+
+# the sum of the weights times the magnitudes in decreasing order, magnitude(k)
+function _slope_sum(f::SLOPE, ::Type{T}, n, magnitude::F) where {T, F}
   s = zero(T)
   fits = true
-  @inbounds for k in eachindex(p)
-    s += convert(T, f.λ[k]) * a[p[k]]
+  @inbounds for k in 1:n
+    s += convert(T, f.λ[k]) * magnitude(k)
     eltype(f.λ) === T || (fits &= _level_fits(T, f.λ[k]))
   end
-  _slope_value(s, fits, f.λ, k -> a[p[k]])
+  _slope_value(s, fits, f.λ, magnitude)
 end
 
 # Only an out-of-range sum needs a scan for nonfinite inputs.

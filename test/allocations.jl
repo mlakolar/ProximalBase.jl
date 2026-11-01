@@ -244,6 +244,16 @@ end
     end
   end
 
+  @testset "SLOPE value" begin
+    # n = 1000 sorts the magnitudes, 200 and 8000 the permutation
+    for T in (Float64, Float32), n in (200, 1000, 8000)
+      f = SLOPE(sort(rand(n); rev = true))
+      xv = randn(T, n)
+      a_value(f, xv)
+      @test allocs(a_value, f, xv) == 0
+    end
+  end
+
   @testset "spectral functions" begin
     M = randn(12, 8)
     A = randn(10, 10); A = A + A'

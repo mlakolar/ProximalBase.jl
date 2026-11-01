@@ -1,0 +1,143 @@
+module ConformanceGPUArraysTest
+
+using Test
+using ProximalBase
+using JLArrays
+using GPUArraysCore: allowscalar
+using ..Conformance
+
+allowscalar(false)
+# G1: entrywise decisions include an exact tie and both neighbors.
+for T in (Float32, Float64)
+  x = T[prevfloat(T(1)), 1, nextfloat(T(1))]
+  @row begin
+    id = "gpu_arrays.threshold.$T"; case = ""; family = :gpu_arrays; oracle = :prox
+    types = "argument/destination/parameter/step=$T"; backend = :jlarray
+    rules = "G1 G2 A2"; problem = "unit soft threshold: below and at threshold choose zero; nextfloat(1) leaves eps(T)"
+    expected = T[0, 0, eps(T)]
+    observed = Array(prox(NormL1(T(1)), JLArray(x), T(1)))
+  end
+  @row begin
+    id = "gpu_arrays.output-type.$T"; case = ""; family = :gpu_arrays; oracle = :prox
+    types = "argument/destination=$T"; backend = :jlarray
+    rules = "G1 G5 T1"; problem = "allocating proximal output retains the device layout and argument element type"
+    expected = typeof(JLArray(T[1]))
+    observed = typeof(prox(NormL1(T(1)), JLArray(T[2]), T(1)))
+  end
+  @row begin
+    id = "gpu_arrays.value-type.$T"; case = ""; family = :gpu_arrays; oracle = :value
+    types = "argument=$T Float64 parameter"; backend = :jlarray
+    rules = "G1 T1"; problem = "scalar value type follows argument"
+    expected = T
+    observed = typeof(NormL1(1.0)(JLArray(T[2])))
+  end
+  @row begin
+    id = "gpu_arrays.inf.$T"; case = ""; family = :gpu_arrays; oracle = :prox
+    types = "argument/destination=$T"; backend = :jlarray
+    rules = "G1 E3"; problem = "soft threshold of [-Inf,4] is [-Inf,3]"
+    expected = T[-Inf, 3]
+    observed = Array(prox(NormL1(T(1)), JLArray(T[-Inf, 4]), T(1)))
+  end
+  @row begin
+    id = "gpu_arrays.inf-value.$T"; case = ""; family = :gpu_arrays; oracle = :value
+    types = "argument=$T"; backend = :jlarray
+    rules = "G1 E3"; problem = "l1 norm of [-Inf,4] has exact value +Inf in argument return type"
+    expected = T(Inf)
+    observed = NormL1(T(1))(JLArray(T[-Inf, 4]))
+  end
+end
+# G5 / #322: combine risky host level and step with device weights.
+for k in (-160, 160)
+  weight = pow2(Float32, k > 0 ? -120 : 120)
+  step = pow2(Float64, k > 0 ? -40 : 40)
+  @row begin
+    id = "gpu_arrays.host-level.$k"; case = ""; family = :gpu_arrays; oracle = :prox
+    types = "Float32 device argument/destination/weights Float64 host level/step"; backend = :jlarray
+    rules = "G1 G5 T3 R3"; problem = "#322: combined threshold=1 although level 2^$k does not fit Float32"
+    expected = Float32[1]
+    observed = Array(prox(NormL1(pow2(Float64, k), Float32[weight]), JLArray(Float32[2]), step))
+  end
+end
+# G1 / #372: reductions receive bounds, including coordinates that are zero.
+# Historical id suffixes are retained; :tie now uses an interior radius.
+# Two-term sum, level subtraction/division and storage: budget 8eps(T)*sum(abs,x).
+for (label, radius) in ((:below, 0.5f0), (:tie, 1.5f0), (:above, 2f0))
+  margin = label == :tie ? 0.25f0 : 0.5f0
+  @row begin
+    id = "gpu_arrays.l1-zero.$label"; case = ""; family = :gpu_arrays; oracle = :prox
+    types = "Float32 argument/destination/radius"; backend = :jlarray
+    rules = "G1 G2 A2 A6"; problem = "#372: x=[2,1], radius=$radius; active-set margin=$margin exceeds reduction/level/storage budget 8eps(T)*sum(abs,x)=24eps(Float32); bound the second coordinate, including zero"
+    expected = bigref(() -> max(BigFloat(0), (BigFloat(radius) - 1)/2), Float32)
+    observed = Array(prox(IndBallL1(radius), JLArray(Float32[2, 1])))[2]
+    compare = (a, b) -> typeof(a) == Float32 && isfinite(a) && abs(BigFloat(a) - BigFloat(b)) <= BigFloat(24eps(Float32))
+  end
+  @row begin
+    id = "gpu_arrays.l1-value.$label"; case = ""; family = :gpu_arrays; oracle = :prox
+    types = "Float32 argument/destination/radius"; backend = :jlarray
+    rules = "G1 G2 A6"; problem = "l1 projection at radius=$radius: first coordinate min(radius,(1+radius)/2); active-set margin=$margin exceeds reduction/level/storage budget 8eps(T)*sum(abs,x)=24eps(Float32), bound pending"
+    expected = bigref(() -> min(BigFloat(radius), (1 + BigFloat(radius))/2), Float32)
+    observed = Array(prox(IndBallL1(radius), JLArray(Float32[2, 1])))[1]
+    compare = (a, b) -> typed_bound(a, b, 24eps(Float32))
+  end
+end
+# G1 / #372, public path: prox(Conjugate(f), x, gamma) with f = NormLinf and f =
+# GroupNormLinf. Moreau: prox of f* = indicator of the l1 ball of radius 1 (here
+# lambda = 1, weights 1, gamma = 1) is the projection of x onto that ball. For
+# x = [B, 1/4, -1/2] with B huge, the soft-threshold level theta solves
+# (B-theta) + (1/4-theta)+ + (1/2-theta)+ = 1; theta = B-1 > 1/2 leaves only the
+# first coordinate, 1. The projection is [1, 0, 0]. The grouped case has groups
+# [1:2, 3:4] and x = [B, 1/4, -1/2, B]; each group is projected onto its own unit
+# l1 ball: group 1 gives [1, 0], group 2 gives [0, 1], so [1, 0, 0, 1]. The
+# device path is checked against this and against the CPU path as a control.
+# Bound: the radius, not the argument, sets the scale of the result, so the
+# budget is 8eps(T)*radius = 8eps(T) per entry (radius 1); a delivered zero
+# need not carry a sign. Not an oracle from gpu_suite.jl (that compares with the old Moreau code).
+conjugate_ok(T) = (a, b) -> typeof(a) == typeof(b) && axes(a) == axes(b) && all(isfinite, a) &&
+  all(abs(BigFloat(a[i]) - BigFloat(b[i])) <= 8BigFloat(eps(T)) for i in eachindex(b))
+for T in (Float32, Float64)
+  big = T == Float64 ? T(1e300) : T(1e30)
+  for (name, f, x, want, shape) in (
+      ("linf", () -> Conjugate(NormLinf()), T[big, 1 / 4, -1 / 2], T[1, 0, 0], "x=[B,1/4,-1/2]"),
+      ("group-linf", () -> Conjugate(GroupNormLinf(one(T), [1:2, 3:4])), T[big, 1 / 4, -1 / 2, big], T[1, 0, 0, 1], "groups [1:2,3:4], x=[B,1/4,-1/2,B]"))
+    for (backend, wrap, label) in ((:jlarray, JLArray, "jlarray"), (:cpu, identity, "cpu-control"))
+      @row begin
+        id = "gpu_arrays.conjugate-$name.$T.$label"; case = ""; family = :gpu_arrays; oracle = :prox
+        types = "$T argument/destination/parameter/step"; backend = backend
+        rules = "G1 G2 A2 A6"
+        problem = "#372: prox(Conjugate) at $shape with B=$big, step 1; Moreau: projection onto the unit l1 ball (per group) is $want; bound 8eps(T)*radius=8eps($T) per entry (radius 1), zeros unsigned"
+        expected = want
+        observed = Array(prox(f(), wrap(x), one(T)))
+        compare = conjugate_ok(T)
+        broken = backend == :jlarray ? (group = :G11, baseline = Returned(v -> same(v, zeros(T, length(want))))) : nothing
+      end
+    end
+  end
+end
+# E2 / G4: NaN must survive comparisons in separable and coupled kernels.
+for (name, f, want, baseline) in (
+    (:l1, NormL1(1f0), Float32[NaN, 3], nothing),
+    (:l2, NormL2(1f0), Float32[NaN, NaN], (group = :G11, baseline = Returned(v -> same(v, Float32[0, 0])))),
+    (:group, GroupNormL2(1f0, [1:1, 2:2]), Float32[NaN, 3], (group = :G11, baseline = Returned(v -> same(v, Float32[0, 3])))),
+    (:box, IndBox(-1f0, 1f0), Float32[NaN, 1], nothing),
+    (:ball, IndBallL1(1f0), Float32[NaN, NaN], (group = :G11, baseline = Returned(v -> same(v, Float32[NaN, 1])))))
+  @row begin
+    id = "gpu_arrays.nan.$name.prox"; case = ""; family = :gpu_arrays; oracle = :prox
+    types = "Float32 device argument/destination"; backend = :jlarray
+    rules = "G1 G4 E2"; problem = "x=[NaN,4]: NaN affects only its separable coordinate or its entire coupled block"
+    expected = want
+    observed = Array(prox(f, JLArray(Float32[NaN, 4]), 1f0))
+    broken = baseline
+  end
+  @row begin
+    id = "gpu_arrays.nan.$name.value"; case = ""; family = :gpu_arrays; oracle = :value
+    types = "Float32 device argument"; backend = :jlarray
+    rules = "G1 G4 E2"; problem = "value depends on NaN and must return NaN, including indicators"
+    expected = Float32(NaN)
+    observed = f(JLArray(Float32[NaN, 4]))
+    broken = name in (:box, :ball) ? (group = :G11, baseline = Returned(v -> same(v, Float32(Inf)))) : nothing
+  end
+end
+@notcovered :gpu_arrays :environment "Float32/Float64" :jlarray "G3 G6: JLArrays checks dispatch and layout only; real hardware flush-to-zero and subnormal modes cannot be tested here."
+@notcovered :gpu_arrays :performance "Float32/Float64" :jlarray "G6: JLArrays cannot establish real-device throughput or synchronization behavior."
+
+end

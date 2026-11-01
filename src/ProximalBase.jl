@@ -28,6 +28,7 @@ import Base: *
 
 export
   # the interface
+  PrecisionError,
   AbstractFunction,
   issmooth, isproximable, isseparable, isconvex,
   prox!, prox, value_and_prox!,

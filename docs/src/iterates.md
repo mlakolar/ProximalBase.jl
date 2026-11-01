@@ -171,6 +171,19 @@ the factors of 2 disappear and the step is ``1/a``. So, as the
 [`KronQuadratic`](@ref) example of the D-trace loss shows, off-diagonal
 coordinates take the step ``2/a`` where the diagonal takes ``1/a``.
 
+### A read-only matrix view
+
+[`matrixview`](@ref)`(x)` returns a live, read-only ``p \times p`` view of a
+`SymmetricSparseIterate`: ordinary matrix indices, both triangles, no copy.
+Pass it to code that only reads a matrix. Writes to `x` show through it, and
+nothing can be written through it or through a wrapper derived from it.
+`mul!(y, matrixview(x), v)` costs ``O(p + \mathrm{nactive}(x))``. Its linear
+indices are matrix indices, not coordinates: for ``p = 3``,
+`coordinates(x)[4]` is the variable at ``(2, 2)`` and `matrixview(x)[4]` is the
+entry at ``(1, 2)``. [`activevalues`](@ref)`(x)` gives the values of the active
+coordinates in the order of [`activecoordinates`](@ref)`(x)`; like that list,
+take it again after a coordinate becomes active or after `dropzeros!`.
+
 ### Symmetric parameters
 
 Pass exactly symmetric parameter arrays when you use a `SymmetricSparseIterate`.
@@ -419,6 +432,7 @@ the set being traversed does not change.
 | [`ncoordinates`](@ref)`(x)` | Number of possible coordinates |
 | [`nactive`](@ref)`(x)` | Number of stored active coordinates |
 | [`activecoordinates`](@ref)`(x)` | Indices of the active coordinates |
+| [`activevalues`](@ref)`(x)` | Writable view of their values, in the same order |
 | [`isactive`](@ref)`(x, k)` | Whether coordinate `k` is active |
 | [`activate!`](@ref)`(x, k)` | Add a coordinate to the active set |
 | `dropzeros!(x)` | Remove stored zero entries or zero groups |

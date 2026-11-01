@@ -75,7 +75,8 @@ export
 
   # iterates
   SparseIterate, SymmetricSparseIterate, AtomIterate,
-  ncoordinates, coordinates, nactive, activecoordinates, isactive, activate!, atom,
+  ncoordinates, coordinates, nactive, activecoordinates, activevalues, matrixview, isactive,
+  activate!, atom,
   nnz, dropzeros!,
 
   # utilities

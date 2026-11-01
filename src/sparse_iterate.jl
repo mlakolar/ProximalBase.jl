@@ -269,9 +269,23 @@ linear order, and the entries of the lower triangle for a
 """
 function coordinates end
 
+"""
+    activevalues(x::Union{SparseIterate, SymmetricSparseIterate})
+
+A writable vector view of the values of the active coordinates of `x`, in the
+order of [`activecoordinates`](@ref): entry `a` is the value of coordinate
+`activecoordinates(x)[a]`. Writing zero through it keeps the coordinate active;
+use [`dropzeros!`](@ref) to remove it. The view has the length [`nactive`](@ref)
+had when it was taken and does not grow, so, like `activecoordinates`, take it
+again after a coordinate becomes active or after `dropzeros!`, which can reorder
+the active list. Nothing is copied.
+"""
+function activevalues end
+
 ncoordinates(x::_StoredIterate) = length(x.ind2nzval)
 nactive(x::_StoredIterate) = x.nnz
 activecoordinates(x::_StoredIterate) = view(x.nzval2ind, 1:x.nnz)
+activevalues(x::_StoredIterate) = view(x.nzval, 1:x.nnz)
 isactive(x::_StoredIterate, k::Integer) = x.ind2nzval[k] != 0
 
 # the value of coordinate i
@@ -921,7 +935,10 @@ end
 struct SymmetricCoordinates{T} <: AbstractVector{T}
   x::SymmetricSparseIterate{T}
 end
-# aliasing hooks from Base (non-public functions)
+# aliasing hooks from Base (non-public functions); the owner reports its storage
+# arrays, so that activevalues(x) and the views of x are all seen to overlap x
+Base.dataids(x::SymmetricSparseIterate) =
+  (Base.dataids(x.nzval)..., Base.dataids(x.nzval2ind)..., Base.dataids(x.ind2nzval)...)
 Base.dataids(c::SymmetricCoordinates) = Base.dataids(c.x)
 Base.unaliascopy(c::SymmetricCoordinates) = coordinates(copy(c.x))
 
@@ -931,6 +948,59 @@ Base.@propagate_inbounds Base.getindex(c::SymmetricCoordinates, k::Int) = _getst
 Base.@propagate_inbounds Base.setindex!(c::SymmetricCoordinates, v, k::Int) = (_setstored!(c.x, v, k); c)
 
 coordinates(x::SymmetricSparseIterate) = SymmetricCoordinates(x)
+
+# a read-only p × p view of x: the matrix that x represents, both triangles
+struct SymmetricMatrixView{T} <: AbstractMatrix{T}
+  x::SymmetricSparseIterate{T}
+end
+
+"""
+    matrixview(x::SymmetricSparseIterate)
+
+A live, read-only `p × p` matrix view of `x`: ordinary matrix indexing, both
+triangles, no copy of the data. Later writes to `x` show through it. Nothing can
+be written through the view or through a wrapper derived from it (`view`,
+`reshape`, `transpose`, `Symmetric`): the write is refused and `x` is
+unchanged. A generic allocating operation on the view (`A .+ 1`, `similar(A)`,
+`collect(A)`) returns an ordinary writable dense array. `mul!` of the view and a
+dense vector costs `O(p + nactive(x))`; other generic matrix operations on the
+view read all `p²` entries. Use `Matrix(x)` for an independent dense copy.
+
+!!! warning "Non-finite vectors"
+    The product skips absent coordinates but multiplies by stored ones, an
+    explicit stored zero included. With a non-finite `v`, a stored zero gives
+    `0 * Inf = NaN` where an absent coordinate gives `0`, so `dropzeros!(x)` can
+    change `mul!(y, matrixview(x), v)` although the matrix does not. This does
+    not yet satisfy the rule of the 0.6 contract (the same result, or the same
+    error, before and after `dropzeros!`); it is to be settled with the 0.6 owner.
+
+Entries `(r, c)` and `(c, r)` are one variable of `x`; a coordinate of `x` is
+reached through [`coordinates`](@ref), not through this view, so
+`matrixview(x)[4]` is a matrix linear index.
+"""
+matrixview(x::SymmetricSparseIterate) = SymmetricMatrixView(x)
+
+Base.size(A::SymmetricMatrixView) = size(A.x)
+Base.IndexStyle(::Type{<:SymmetricMatrixView}) = IndexCartesian()
+Base.@propagate_inbounds Base.getindex(A::SymmetricMatrixView, r::Int, c::Int) = A.x[r, c]
+# aliasing hooks from Base (non-public functions)
+Base.dataids(A::SymmetricMatrixView) = Base.dataids(A.x)
+Base.unaliascopy(A::SymmetricMatrixView) = SymmetricMatrixView(copy(A.x))
+Base.transpose(A::SymmetricMatrixView) = A
+Base.adjoint(A::SymmetricMatrixView{<:Real}) = A
+Base.Matrix(A::SymmetricMatrixView) = Matrix(A.x)
+Base.Array(A::SymmetricMatrixView) = Matrix(A.x)
+SparseArrays.sparse(A::SymmetricMatrixView) = sparse(A.x)
+
+# the stored-entry product, O(p + nactive), not the generic p² scan
+LinearAlgebra.mul!(C::AbstractVector, A::SymmetricMatrixView, B::AbstractVector) = mul!(C, A.x, B)
+LinearAlgebra.mul!(C::AbstractVector, A::SymmetricMatrixView, B::AbstractVector, α::Number, β::Number) =
+  mul!(C, A.x, B, α, β)
+
+function Base.show(io::IO, ::MIME"text/plain", A::SymmetricMatrixView)
+  print(io, "matrixview of a ")
+  show(io, MIME("text/plain"), A.x)
+end
 
 # A matrix written into x must have the axes of x and be exactly symmetric; the
 # checks run before anything is written. Symmetric(A, :L) keeps one triangle of
@@ -1720,11 +1790,19 @@ function _mul_symsparse!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::
 end
 
 
+# checked before C is modified: C may be activevalues(A), or coordinates(A) when p == 1
+function _checkalias(C, A::SymmetricSparseIterate, B)
+  Base.mightalias(C, B) && throw(ArgumentError("the output of mul! must not be aliased with its input"))
+  Base.mightalias(C, A) && throw(ArgumentError("the output of mul! must not be aliased with the matrix, e.g. coordinates(X) or activevalues(X)"))
+  nothing
+end
+
 # any element types: the generic fallback would loop over all p² entries
 function LinearAlgebra.mul!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector)
   _checkreal(A, C); _checkreal(A, B)
   size(A, 2) == size(B, 1) || throw(DimensionMismatch())
   size(A, 1) == size(C, 1) || throw(DimensionMismatch())
+  _checkalias(C, A, B)
 
   fill!(C, zero(eltype(C)))
   i = 1
@@ -1825,7 +1903,27 @@ function LinearAlgebra.mul!(C::AbstractMatrix, A::SymmetricSparseIterate, B::Lin
 end
 function LinearAlgebra.mul!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector, α::Number, β::Number)
   _checkreal(A, C); _checkreal(A, B); _checkreal(A, α); _checkreal(A, β)
-  invoke(mul!, Tuple{AbstractVector, AbstractMatrix, AbstractVector, Number, Number}, C, A, B, α, β)
+  _mul_stored!(C, A, B, α, β)
+end
+
+# C = α A B + β C over the stored entries of A, O(p + nactive(A)) and no allocation.
+# As in BLAS, C is not read when β is zero and B is not read when α is zero.
+# A stored explicit zero still multiplies B, so with a non-finite B the product
+# can depend on whether a zero is stored (see the documentation of matrixview).
+function _mul_stored!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector, α::Number, β::Number)
+  p = A.p
+  length(B) == p || throw(DimensionMismatch("A has $p columns but B has length $(length(B))"))
+  length(C) == p || throw(DimensionMismatch("A has $p rows but C has length $(length(C))"))
+  _checkalias(C, A, B)
+  iszero(β) ? fill!(C, zero(eltype(C))) : isone(β) || rmul!(C, β)
+  iszero(α) && return C
+  @inbounds for k in 1:A.nnz
+    r, c = tril_cartesian(p, A.nzval2ind[k])
+    v = α * A.nzval[k]
+    C[r] += B[c] * v
+    r == c || (C[c] += B[r] * v)
+  end
+  C
 end
 function LinearAlgebra.mul!(C::AbstractMatrix, A::SymmetricSparseIterate, B::AbstractMatrix, α::Number, β::Number)
   _checkreal(A, C); _checkreal(A, B); _checkreal(A, α); _checkreal(A, β)

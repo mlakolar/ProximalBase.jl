@@ -408,9 +408,10 @@ The proximal argument has a separate policy under
 [#261](https://github.com/mlakolar/ProximalBase.jl/issues/261).
 `KronQuadratic` checks `C`; its `A`, `B`, and `LogDetLoss`'s `S` have separate
 symmetry policies under [#269](https://github.com/mlakolar/ProximalBase.jl/issues/269).
-`SphereConstrained` already checks its inner arrays, but its geometry for
-symmetric coordinates remains under
-[#336](https://github.com/mlakolar/ProximalBase.jl/issues/336).
+`SphereConstrained` checks its inner arrays and measures the sphere in the
+Frobenius norm: an off-diagonal pair that carries the proximal point of the
+fallback takes ``r/\sqrt 2`` in each of its entries (see
+[Separable functions with constraints](@ref)).
 Group, cone and slice policies remain under
 [#342](https://github.com/mlakolar/ProximalBase.jl/issues/342): group proximal
 operators already require mirrored positions to belong to the same group,

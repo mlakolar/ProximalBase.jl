@@ -158,6 +158,39 @@ end
 # thresholds are those of prox_entry, so that the two cases agree with it.
 value_and_prox!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real) =
   (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real)
+  _checkwrite(value_and_prox!, c, y, x)
+  T, S = float(eltype(y)), float(eltype(x))
+  f, r = c.f, convert(T, c.sphere.r)
+  p = size(y, 1)
+  k, kr, kc, bestn, bestc = 0, 0, 0, zero(S), zero(S)
+  @inbounds for col in 1:p, row in col:p
+    i = row + (col - 1) * p
+    n = abs(convert(S, x[row, col]))
+    threshold = convert(S, _weight_product(γ, f.λ0, _entry(f.w, i)))
+    better = if k == 0 || isinf(bestc)
+      true
+    elseif isinf(threshold)
+      false
+    elseif (row == col) == (kr == kc)         # the same multiplicity: compare by differences
+      n - bestn > threshold - bestc
+    elseif row == col                         # a diagonal entry against a pair, whose margin counts √2 times
+      (n - threshold) / sqrt(S(2)) > bestn - bestc
+    else
+      n - threshold > (bestn - bestc) / sqrt(S(2))
+    end
+    better && ((k, kr, kc, bestn, bestc) = (i, row, col, n, threshold))
+  end
+  isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
+  bestn > bestc && return _onto_sphere!(y, f, convert(T, _value_and_prox_unchecked!(y, f, x, γ)), r)
+  negative = signbit(x[kr, kc])
+  fill!(y, zero(eltype(y)))
+  kr == kc && (y[kr, kc] = negative ? -r : r; return convert(T, _positive_product(f.λ0, _entry(f.w, k), r)))
+  # an off-diagonal pair reaches the sphere at ±r/√2 in each of its two entries
+  ry = r / sqrt(T(2))
+  y[kr, kc] = negative ? -ry : ry
+  convert(T, 2 * _positive_product(f.λ0, _entry(f.w, k), ry))
+end
 function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   T, S = float(eltype(y)), float(eltype(x))
@@ -176,6 +209,25 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Nor
   fill!(y, zero(eltype(y)))
   y[k] = negative ? -r : r
   convert(T, _positive_product(f.λ0, _entry(f.w, k), r))
+end
+
+# On a SymmetricSparseIterate an off-diagonal index is two entries, so a point of
+# norm r takes r/√2 in each of them; a diagonal index and any other output take r.
+_write_unit!(y, i, r) = (y[i] = r; y)
+function _write_unit!(y::SymmetricSparseIterate, i::Integer, r)
+  p = size(y, 1)
+  row, col = mod1(i, p), cld(i, p)
+  y[row, col] = row == col ? r : r / sqrt(oftype(r, 2))
+  y
+end
+# the first index of a group that is a diagonal entry of a SymmetricSparseIterate, else its first
+_diagonal_first(y, G) = first(G)
+function _diagonal_first(y::SymmetricSparseIterate, G)
+  p = size(y, 1)
+  for i in G
+    mod1(i, p) == cld(i, p) && return i
+  end
+  first(G)
 end
 
 # The same with groups: ⟨z_G, x_G⟩ - γλ0w_G‖z_G‖ ≤ ‖z_G‖(‖x_G‖ - γλ0w_G), with
@@ -204,14 +256,14 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Gro
   bestn > bestc && return _onto_sphere!(y, f, convert(T, _value_and_prox_unchecked!(y, f, x, γ)), r)
   if ibest != 0                         # an index in no group, where x is zero
     fill!(y, zero(eltype(y)))
-    y[ibest] = r
+    _write_unit!(y, ibest, r)
     return zero(T)
   end
   G = f.groups[kbest]
   nG = convert(T, _group_norm2(x, G))
   @inbounds if iszero(nG)
     fill!(y, zero(eltype(y)))
-    y[first(G)] = r
+    _write_unit!(y, _diagonal_first(y, G), r)
   else
     _scale_l2!(view(y, G), view(x, G), r, nG)
     for i in eachindex(IndexLinear(), y)

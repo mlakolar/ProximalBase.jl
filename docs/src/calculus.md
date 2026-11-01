@@ -466,6 +466,10 @@ the maximizer is the soft thresholding of ``v`` scaled onto the sphere when some
 ``\sum_i |z_i| \ge \|z\|_2`` the maximizer puts all the mass on the entry where
 ``|v_i| - \gamma\lambda`` is largest. The group norm works the same way with the
 margins ``\|v_G\| - \gamma\lambda w_G``, and the ℓ0 ball keeps the ``s`` largest
+entries. On a [`SymmetricSparseIterate`](@ref) the sphere is the Frobenius one,
+so an off-diagonal pair ``(r, c)``, ``(c, r)`` counts twice: its margin is
+``\sqrt 2\,(|v_{rc}| - \gamma\lambda w_{rc})`` against the margin of a diagonal
+entry, and a pair that wins is written as ``\pm r/\sqrt 2`` in each of its two
 entries. These are the steps of the penalized matrix decomposition (Witten,
 Tibshirani and Hastie, 2009) and of the truncated power method (Yuan and Zhang,
 2013) for sparse principal components.

@@ -41,13 +41,30 @@ CI runs the following tests:
   Coverage from Julia 1 counts only the core tier, so Codecov may report lower
   coverage on a PR than on master. Codecov merges uploads for the same commit,
   so a full run on the same head adds to the report.
-- Pull requests labelled `full-tests` run all jobs and the full suite, including
-  Julia 1 on macOS and Windows and Julia pre on Ubuntu. The label is read when
-  a run starts: add it, then push or close and reopen the PR. Re-running an old
-  run does not pick it up. A PR whose final commit needs a full-suite pass on
-  every platform should carry the label for its final push.
-- Pushes to master, tags and manual runs use all jobs and the full suite.
-  A newer pending master run can replace an older pending one.
+- Pushes to master, tags and manual runs use all jobs and the full suite:
+  Julia 1 on macOS and Windows and Julia pre on Ubuntu in addition to the
+  Ubuntu jobs. A newer pending master run can replace an older pending one.
+
+For most pull requests the core tier is enough, and the master run after merge
+checks the rest. Run the full matrix before merging when the PR changes:
+
+- numerics the extended tier checks: element-type promotion or precision
+  handling, overflow-safe scaling, non-finite handling, spectral functions, or
+  a helper shared across the catalog (`utils.jl`, `interface.jl`,
+  `calculus.jl`, traits);
+- platform- or version-sensitive code: `src/lapack.jl`, BLAS calls,
+  threading, `VERSION` checks, `ext/`, or Base internals;
+- infrastructure: `Project.toml` dependencies or compat, `.github/workflows/`,
+  `test/runtests.jl`, `scripts/test.jl` or `test/testutils.jl`;
+- the version, for a release.
+
+To get a full run, start one manual run on the final commit after review:
+`gh workflow run CI.yml --ref <branch>`. It reports on the head commit, so the
+PR shows it. Start another only if later commits also fall under the list
+above. The PR description should say which tier the PR got and why. Labelling
+a PR `full-tests` also gives full runs, but on every later push until the label
+is removed. The label is read when a run starts, so re-running an old run does
+not pick it up.
 
 Documentation, benchmarks and optional conic tests each have their own
 `Project.toml` with additional tools. The setup script installs those tools

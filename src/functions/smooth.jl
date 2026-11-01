@@ -307,6 +307,8 @@ end
 # computation runs in Float32 when every center entry keeps its range on rounding;
 # otherwise the centers that fit are rounded and the scaled recovery of
 # _square_value sees them in Float64 (R3).
+# a Float64 center entry rounded to Float32 where that keeps its range, as given otherwise
+@inline _ridge_round_center32(c::Float64) = _ridge_fits(Float32, c) ? Float64(Float32(c)) : c
 function _ridge_value_wide_center(λ, x, y)
   T = Float32
   s = 0.0           # the squares are exact in Float64; the sum accumulates there
@@ -322,7 +324,7 @@ function _ridge_value_wide_center(λ, x, y)
     return _value_at(v, x)
   end
   # a rounded center left the range, or the ordinary value is out of range
-  _exceptional_square_value(λ, x, map(c -> _ridge_fits(T, c) ? Float64(T(c)) : c, y), sT, v)
+  _exceptional_square_value(λ, x, map(_ridge_round_center32, y), sT, v)
 end
 
 value_and_gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray) =

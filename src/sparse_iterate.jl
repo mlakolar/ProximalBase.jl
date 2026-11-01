@@ -1049,17 +1049,32 @@ for (CT, BT) in ((:StridedMatrix, :StridedVecOrMat), (:StridedVector, :StridedVe
   @eval begin
     function LinearAlgebra.mul!(C::$CT, S::_SymmetricPart{<:Real, <:StridedMatrix}, B::$BT, α::Number, β::Number)
       h = α / 2
-      if !iszero(α) && abs(h) < floatmin(typeof(h))
-        # halving α would lose the digits that the result keeps: scale the product instead
-        P, Q = S.A * B, S.A' * B
-        iszero(β) ? (C .= α .* (P ./ 2 .+ Q ./ 2)) : (C .= α .* (P ./ 2 .+ Q ./ 2) .+ β .* C)
-        return C
-      end
+      # halving α would lose the digits that the result keeps: scale the product instead
+      !iszero(α) && abs(h) < floatmin(typeof(h)) && return _scaled_symmetric_mul!(C, S, B, α, β)
       mul!(C, S.A, B, h, β)
       mul!(C, S.A', B, h, true)
     end
     LinearAlgebra.mul!(C::$CT, S::_SymmetricPart{<:Real, <:StridedMatrix}, B::$BT) = mul!(C, S, B, true, false)
   end
+end
+
+# C = α (A + A')/2 B + β C for a tiny α, without forming the unscaled products: B is
+# scaled by 2^-j, with j the least power for which the products cannot overflow, and α by
+# 2^j, so that the result is the same and the intermediate values stay finite.
+function _scaled_symmetric_mul!(C, S::_SymmetricPart, B, α, β)
+  A = S.A
+  T = float(promote_type(eltype(A), eltype(B)))
+  mA, mB = _maximum_abs(A), _maximum_abs(B)
+  j = 0
+  if isfinite(mA) && isfinite(mB) && !iszero(mA) && !iszero(mB)
+    n = max(size(A, 2), 1)
+    j = max(0, exponent(mA) + exponent(mB) + 2 + ceil(Int, log2(n)) - exponent(floatmax(T)))
+  end
+  Bs = ldexp.(T.(B), -j)
+  R = A * Bs ./ 2 .+ A' * Bs ./ 2
+  a = ldexp(float(α), j)
+  iszero(β) ? (C .= a .* R) : (C .= a .* R .+ β .* C)
+  C
 end
 
 # The argument that a proximal map into y reads: x itself when y is not a

@@ -280,6 +280,16 @@ end
     mul!(C, SS, X, a, zero(T))
     @test C ≈ a .* (Matrix(SS) * X) rtol = 1e-5
   end
+  # the products are scaled, so they cannot overflow when the scaled result is finite
+  Abig = [0.0 1e308; 0.0 0.0]
+  y = zeros(2)
+  mul!(y, _SymmetricPart(Abig), [0.0, 2.0], α, 0.0)
+  @test y ≈ [α * 1e308, 0.0] && isfinite(y[1])
+  mul!(y, _SymmetricPart(Abig), [2.0, 2.0], α, 0.0)          # both triangles contribute
+  @test y ≈ [α * 1e308, α * 1e308] && all(isfinite, y)
+  Bbig = [0.0 3e300; 0.0 0.0]
+  yb = zeros(2); mul!(yb, _SymmetricPart(Bbig), [0.0, 5e300], α, 0.0)   # the true result overflows
+  @test !isnan(yb[1])
   c = zeros(2); mul!(c, S, v)                # the three-argument form
   @test c == [1.0, 0.0]
 end

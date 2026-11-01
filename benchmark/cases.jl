@@ -400,7 +400,7 @@ function separable_cases!(cases, rep; quick=false)
     if !quick
         # SLOPE value at sizes beyond the (256, 100_000) loop above; inputs come from their own
         # seeded streams so the draws of every other case stay unchanged.
-        for T in (Float32, Float64), n in (256, 1024, 4096, 16384)
+        for T in (Float32, Float64), n in (256, 512, 1024, 4096, 8192, 16384)
             rng = scenario_rng(rep, "ordered/SLOPE/value/$T/$n")
             x = randn(rng, T, n)
             f = SLOPE(collect(range(T(0.5), T(0.1); length = n)))

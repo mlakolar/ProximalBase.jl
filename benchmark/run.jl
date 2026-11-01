@@ -168,6 +168,10 @@ function main()
     started=time()
     Random.seed!(rep)
     cases=build_cases(rep;suite,groups)
+    # Cases are built first, so their inputs do not depend on the selection.
+    selection=get(ENV,"PB_CASES","")
+    isempty(selection) || filter!(c -> occursin(Regex(selection),c.meta.id),cases)
+    isempty(cases) && error("PB_CASES selects no case")
     if get(ENV,"PB_LIST","false")=="true"
         foreach(c -> println(c.meta.id),cases)
         return

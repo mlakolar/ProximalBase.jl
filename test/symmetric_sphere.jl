@@ -120,6 +120,12 @@ end
     v = value_and_prox!(y, c, S2(zeros(Float32, 2, 2)), 1.0)
     @test Matrix(y) == [0.0 0.0; 0.0 1.0]
     @test v == c.f(y) == 2.0^160
+    # a Float64 argument and a Float32 destination: the threshold is not rounded to Float32
+    # before the comparison, so both diagonal entries survive and the answer is I/√2
+    λ = 1.0 - 2.0^-26
+    y = SymmetricSparseIterate(Float32, 2)
+    value_and_prox!(y, Constrained(NormL1(λ), IndSphereL2(1.0)), [1.0 0.0; 0.0 1.0], 1.0)
+    @test Matrix(y) ≈ Float32[1 0; 0 1] ./ sqrt(2f0)
     # margins that differ by one ulp
     c = Constrained(NormL1(1.0, [1.0 2.0; 2.0 1.0]), IndSphereL2(1.0))
     for X in ([0.0 0.0; 0.0 0.0], [0.5 0.0; 0.0 nextfloat(0.5)], [nextfloat(0.5) 0.0; 0.0 0.5])

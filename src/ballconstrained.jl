@@ -196,7 +196,7 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
   @inbounds for col in 1:p, row in col:p
     i = row + (col - 1) * p
     n = abs(convert(U, x[row, col]))
-    threshold = convert(U, convert(T, _weight_product(γ, f.λ0, _entry(f.w, i))))
+    threshold = convert(U, _weight_product(γ, f.λ0, _entry(f.w, i)))   # not rounded to T first: selection and shrinkage agree
     better = if k == 0 || isinf(bestc)
       true
     elseif isinf(threshold)

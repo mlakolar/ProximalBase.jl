@@ -1058,23 +1058,33 @@ for (CT, BT) in ((:StridedMatrix, :StridedVecOrMat), (:StridedVector, :StridedVe
   end
 end
 
-# C = α (A + A')/2 B + β C for a tiny α, without forming the unscaled products: B is
-# scaled by 2^-j, with j the least power for which the products cannot overflow, and α by
-# 2^j, so that the result is the same and the intermediate values stay finite.
+# C = α (A + A')/2 B + β C for a tiny α, term by term: each product α s b is formed from
+# significands and one exponent, so that it is rounded once whatever the range of the
+# three factors (a global scaling of B cannot serve entries of very different sizes),
+# and the finite terms are then added. Slow, and used only when halving α would lose digits.
 function _scaled_symmetric_mul!(C, S::_SymmetricPart, B, α, β)
   A = S.A
   T = float(promote_type(eltype(A), eltype(B)))
-  mA, mB = _maximum_abs(A), _maximum_abs(B)
-  j = 0
-  if isfinite(mA) && isfinite(mB) && !iszero(mA) && !iszero(mB)
-    n = max(size(A, 2), 1)
-    j = max(0, exponent(mA) + exponent(mB) + 2 + ceil(Int, log2(n)) - exponent(floatmax(T)))
+  a = T(α)
+  Cm = C isa AbstractVector ? reshape(C, :, 1) : C
+  Bm = B isa AbstractVector ? reshape(B, :, 1) : B
+  size(A, 1) == size(Cm, 1) && size(A, 2) == size(Bm, 1) && size(Cm, 2) == size(Bm, 2) ||
+    throw(DimensionMismatch("the product has shapes $(size(A)) * $(size(Bm)) into $(size(Cm))"))
+  @inbounds for k in axes(Bm, 2), i in axes(A, 1)
+    acc = zero(T)
+    for j in axes(A, 2)
+      acc += _product3(a, S[i, j], T(Bm[j, k]))
+    end
+    Cm[i, k] = iszero(β) ? acc : acc + β * Cm[i, k]
   end
-  Bs = ldexp.(T.(B), -j)
-  R = A * Bs ./ 2 .+ A' * Bs ./ 2
-  a = ldexp(float(α), j)
-  iszero(β) ? (C .= a .* R) : (C .= a .* R .+ β .* C)
   C
+end
+# a * b * c rounded once (up to the product of the significands) for finite factors
+@inline function _product3(a::T, b::T, c::T) where {T<:AbstractFloat}
+  (iszero(a) || iszero(b) || iszero(c)) && return zero(T)
+  (isfinite(a) && isfinite(b) && isfinite(c)) || return a * b * c
+  fa, ea = frexp(a); fb, eb = frexp(b); fc, ec = frexp(c)
+  ldexp(fa * fb * fc, ea + eb + ec)
 end
 
 # The argument that a proximal map into y reads: x itself when y is not a

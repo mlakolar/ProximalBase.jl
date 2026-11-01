@@ -287,6 +287,16 @@ end
   @test y ≈ [α * 1e308, 0.0] && isfinite(y[1])
   mul!(y, _SymmetricPart(Abig), [2.0, 2.0], α, 0.0)          # both triangles contribute
   @test y ≈ [α * 1e308, α * 1e308] && all(isfinite, y)
+  # entries of very different sizes in the right-hand side: no global scale serves both
+  yr = zeros(2)
+  mul!(yr, _SymmetricPart(Abig), [1e308, 1e-20], α, 0.0)
+  @test yr[1] ≈ 2.4703282292062327e-36 rtol = 1e-12
+  @test yr[2] ≈ 2.4703282292062327e292 rtol = 1e-12
+  # a matrix right-hand side and β C
+  YB = ones(2, 2)
+  mul!(YB, _SymmetricPart(Abig), [1e308 2.0; 1e-20 0.0], α, 3.0)
+  @test YB[1, 1] ≈ 3 + 2.4703282292062327e-36 && YB[2, 1] ≈ 3 + 2.4703282292062327e292
+  @test YB[1, 2] == 3.0 && YB[2, 2] ≈ 3.0      # the second column adds only 4.9e-16 to the second row
   Bbig = [0.0 3e300; 0.0 0.0]
   yb = zeros(2); mul!(yb, _SymmetricPart(Bbig), [0.0, 5e300], α, 0.0)   # the true result overflows
   @test !isnan(yb[1])

@@ -2,6 +2,7 @@
 
 ```@docs
 ProximalBase
+PrecisionError
 ```
 
 ```@autodocs

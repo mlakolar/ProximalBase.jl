@@ -978,3 +978,48 @@ function _opnorm2_upper(A::AbstractMatrix, w)
   w === nothing && return _opnorm2_upper(A)
   convert(float(eltype(A)), _opnorm2_upper(Diagonal(sqrt.(w)) * A))
 end
+
+"""
+    _model_precision(D, types...)
+
+Promote real floating entry types with the delivered type `D`. Fixed-width
+integers and `Bool` give `Float64`; `BigInt` gives `BigFloat`.
+
+For `value_and_gradient!`, the value passes `R`, the argument and data types;
+the gradient passes `D`, the argument and data types. The value of
+`value_and_prox!` passes the output and data types, not the argument type.
+Callers promote tuple blocks. This helper is not yet used by the oracles.
+"""
+function _model_precision(::Type{D}, types::Type...) where {D}
+  all(T -> T <: Real, (D, types...)) || _real_error(:_model_precision)
+  promote_type(map(T -> real(float(T)), (D, types...))...)
+end
+
+"""
+    _check_float16_roles(; argument=nothing, destination=nothing, direction=nothing, data=nothing)
+
+Reject `Float16` entry types by role (T6). Each role is a type or `nothing`.
+Parameters and steps are accepted and are not checked here.
+"""
+function _check_float16_roles(; argument::Union{Type, Nothing} = nothing,
+                            destination::Union{Type, Nothing} = nothing,
+                            direction::Union{Type, Nothing} = nothing,
+                            data::Union{Type, Nothing} = nothing)
+  for (role, T) in pairs((; argument, destination, direction, data))
+    T !== nothing && eltype(T) === Float16 &&
+      throw(ArgumentError("Float16 is not supported as $role in ProximalBase 0.6; use Float32 or Float64"))
+  end
+  nothing
+end
+
+"""
+    PrecisionError(msg)
+
+A result cannot be certified or represented in the working precision (O6,
+case 3). Such a failure is distinct from invalid input and is not an
+`ArgumentError`. No function in this release raises `PrecisionError`.
+"""
+struct PrecisionError <: Exception
+  msg::String
+end
+Base.showerror(io::IO, e::PrecisionError) = print(io, "PrecisionError: ", e.msg)

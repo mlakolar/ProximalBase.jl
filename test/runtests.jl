@@ -4,13 +4,15 @@ using ParallelTestRunner
 testsuite = find_tests(@__DIR__)
 # Exclude helpers and suites with their own environments; new tests are picked up automatically.
 filter!(testsuite) do (name, _)
-  name ∉ ("testutils", "gpu_suite") && !startswith(name, "cuda/") && !startswith(name, "oracles/")
+  name ∉ ("testutils", "gpu_suite", "conformance/common") && !startswith(name, "cuda/") && !startswith(name, "oracles/")
 end
 
 # Heavy catalog-wide files that PR CI skips; pushes to master run them.
 extended = ["precision_mixed", "large_inputs", "spectral_overflow"]
 absent = filter(name -> !haskey(testsuite, name), extended)
 isempty(absent) || error("Missing extended test files: $(join(absent, ", "))")
+
+append!(extended, sort!(filter(name -> startswith(name, "conformance/"), collect(keys(testsuite)))))
 
 args = parse_args(ARGS; custom = ["core"])
 core = args.custom["core"]
@@ -23,6 +25,7 @@ end
 
 init_code = quote
   include(joinpath(@__DIR__, "testutils.jl"))
+  include(joinpath(@__DIR__, "conformance", "common.jl"))
 end
 
 serial = ["allocations", "large_inputs"]

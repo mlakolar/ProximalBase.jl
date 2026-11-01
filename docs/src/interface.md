@@ -284,6 +284,11 @@ not yet implemented. In short:
   switches its inner SVD workspace between precisions with a `Float32`
   argument and a `Float64` output.
 
+A result that cannot be certified or represented in the working precision
+raises [`PrecisionError`](@ref) under O6. This exception is distinct from
+`ArgumentError`, which signals invalid input. The type exists, but no function
+in this release raises it.
+
 ### Overflow and underflow of values
 
 A value that is a normal number is returned with the accuracy of the ordinary

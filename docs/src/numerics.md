@@ -8,6 +8,7 @@
     Parts are still being implemented; [issue #366](https://github.com/mlakolar/ProximalBase.jl/issues/366)
     tracks the functions that do not yet conform. The changes to earlier
     results are listed in [Compatibility and migration](@ref).
+    [`PrecisionError`](@ref) exists, but no function in this release raises it.
 
 This page states what ProximalBase promises about the numbers it returns:
 their types, their accuracy, the decisions it takes on rounded quantities, and
@@ -603,7 +604,7 @@ Neither is a numerical bug.
 3. *A result that cannot be certified or represented in the working
    precision:* a search inside its band (A3), a quadratic model whose
    effective coefficients overflow (S2), or a check that a finite input gave a
-   non-finite result. The call raises the precision exception before writing.
+   non-finite result. The call raises [`PrecisionError`](@ref) before writing.
 4. *Failure inside an external library,* such as a LAPACK error. That
    library's exception propagates, and the function documents which outputs
    remain valid. There is no rollback.

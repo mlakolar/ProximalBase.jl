@@ -63,6 +63,51 @@ const PB = ProximalBase
       end
     end
 
+    @testset "lazy SVD vectors, $T" begin
+      m, n = 20, 12
+      A = randn(T, m, n)
+      ws = PB.SVDWorkspace(T, m, n)
+      @test size(ws.U) == (0, 0) && size(ws.Vt) == (0, 0)
+      work0 = length(ws.work)
+      copyto!(ws.A, A)
+      sv, = PB._svd!(ws; vectors = false)                    # values only: nothing allocated
+      sv = copy(sv)
+      @test size(ws.U) == (0, 0) && size(ws.Vt) == (0, 0) && length(ws.work) == work0
+      copyto!(ws.A, A)
+      s, U, Vt = PB._svd!(ws)                                # the first call with vectors allocates
+      @test size(U) == (m, n) && size(Vt) == (n, n)
+      @test length(ws.work) >= work0
+      @test s ≈ sv rtol = tol                                # the 'N' and 'S' paths differ in rounding
+      @test s ≈ svdvals(A) rtol = tol
+      @test U * Diagonal(s) * Vt ≈ A rtol = tol
+      @test abs.(U' * svd(A).U) ≈ I rtol = sqrt(tol) atol = sqrt(tol)
+      copyto!(ws.A, A)
+      s2, U2, Vt2 = PB._svd!(ws)
+      @test U2 === U && Vt2 === Vt && s2 === s
+      copyto!(ws.A, A)
+      @test PB._svd!(ws; vectors = false)[1] ≈ sv rtol = tol         # values only after vectors
+      @test U2 === ws.U && Vt2 === ws.Vt
+      # empty and one-column shapes
+      for (m, n) in ((0, 5), (5, 0), (1, 5), (5, 1), (1, 1))
+        k = min(m, n)
+        ws = PB.SVDWorkspace(T, m, n)
+        copyto!(ws.A, randn(T, m, n))
+        s, = PB._svd!(ws; vectors = false)
+        @test length(s) == k
+        s, U, Vt = PB._svd!(ws)
+        @test length(s) == k && size(U) == (m, k) && size(Vt) == (k, n)
+      end
+      # Base.summarysize includes A: 512 × 256 Float64 is 1.05 MB of the 4.75 MB
+      # an eager workspace took; Float32 has half the entries per array
+      for (mm, nn, bound) in ((512, 256, 1.5e6), (256, 512, 1.5e6))
+        big = PB.SVDWorkspace(T, mm, nn)
+        T == Float64 && @test Base.summarysize(big) <= bound
+        T == Float32 && @test Base.summarysize(big) <= bound / 2
+        @test size(big.U) == (0, 0) && size(big.Vt) == (0, 0)
+      end
+      @test Base.summarysize(PB.SVDWorkspace(T, 256, 512)) < 2.375e6    # below half of 4.75 MB
+    end
+
     @testset "rebuilding from eigenvectors, $T" begin
       n = 15
       A = Matrix{T}(Symmetric(randn(T, n, n)))

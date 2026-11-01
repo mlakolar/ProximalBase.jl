@@ -882,6 +882,32 @@ function owner_cases!(cases, rep; quick=false)
                  end;
                  T, shape="p$p", layout="empty", phase="construct", zero_alloc=false, evals=1, work=p * (p + 1) ÷ 2)
     end
+    handle_sweep_cases!(cases, rep; quick)
+end
+
+# Sweep over activecoordinates(x) for SparseIterate and AtomIterate (issue #405): the handle
+# must cost nothing over the view it replaced. Uses only calls that exist before and after.
+function handle_sweep_cases!(cases, rep; quick=false)
+    T = Float64
+    for s in (quick ? (1000, 100_000) : (100, 1000, 10_000, 100_000))
+        n = 4 * s
+        rng = scenario_rng(rep, "handle/$T/$s")
+        xs = SparseIterate(T, n)
+        ids = randperm(rng, n)[1:s]
+        for k in ids; xs[k] = one(T); end
+        sweep_sparse() = (acc = 0; for k in activecoordinates(xs); acc += k; end; acc)
+        addcase!(cases, "iterates", "sweep_activecoordinates", sweep_sparse,
+                 () -> sweep_sparse() == sum(ids) || error("sweep visited the wrong coordinates");
+                 T, shape="n$n/s$s", layout="SparseIterate", work=s)
+        groups = [(2k - 1):(2k) for k in 1:(2 * s)]
+        xa = AtomIterate(T, 4 * s, groups)
+        gids = randperm(rng, length(groups))[1:s]
+        for k in gids; xa[first(groups[k])] = one(T); end
+        sweep_atom() = (acc = 0; for k in activecoordinates(xa); acc += k; end; acc)
+        addcase!(cases, "iterates", "sweep_activecoordinates", sweep_atom,
+                 () -> sweep_atom() == sum(gids) || error("sweep visited the wrong coordinates");
+                 T, shape="n$(4 * s)/s$s", layout="AtomIterate", work=s)
+    end
 end
 
 const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products", "blocks", "owner")

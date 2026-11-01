@@ -241,14 +241,28 @@ of an [`AtomIterate`](@ref). Active-set solvers use them as the active set.
 """
 function nactive end
 
+# Read-only handle on the internal list of active IDs. A writable view would let a caller
+# break the agreement between the list and the reverse map of the iterate.
+struct _ActiveIDs <: AbstractVector{Int}
+  ids::SubArray{Int,1,Vector{Int},Tuple{UnitRange{Int}},true}
+end
+Base.size(h::_ActiveIDs) = size(h.ids)
+Base.IndexStyle(::Type{_ActiveIDs}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(h::_ActiveIDs, i::Int) = h.ids[i]
+Base.setindex!(::_ActiveIDs, v, i::Int) =
+  throw(ArgumentError("activecoordinates(x) is read-only: write values through activevalues(x), or atom(x, k) for an AtomIterate"))
+
 """
     activecoordinates(x)
 
-A vector of the active coordinates of `x` (see [`nactive`](@ref)), in the order
-in which they became active, except that `dropzeros!` moves the last ones into
-the places of those it removes. The vector is a view of the internal list: it
-does not grow when coordinates become active, so call `activecoordinates` again
-after changing the active set.
+A read-only `AbstractVector{Int}` of the active coordinates of `x` (see
+[`nactive`](@ref)), in the order in which they became active, except that
+`dropzeros!` moves the last ones into the places of those it removes. It is a
+handle on the internal list, not a snapshot: nothing is copied, and it does not
+grow when coordinates become active, so call `activecoordinates` again after
+changing the active set. Writing through it throws an `ArgumentError`, because
+the list and the iterate's reverse map must stay in agreement; write values
+through [`activevalues`](@ref) (or `atom(x, k)` for an [`AtomIterate`](@ref)).
 """
 function activecoordinates end
 
@@ -284,7 +298,7 @@ function activevalues end
 
 ncoordinates(x::_StoredIterate) = length(x.ind2nzval)
 nactive(x::_StoredIterate) = x.nnz
-activecoordinates(x::_StoredIterate) = view(x.nzval2ind, 1:x.nnz)
+activecoordinates(x::_StoredIterate) = _ActiveIDs(view(x.nzval2ind, 1:x.nnz))
 activevalues(x::_StoredIterate) = view(x.nzval, 1:x.nnz)
 isactive(x::_StoredIterate, k::Integer) = x.ind2nzval[k] != 0
 

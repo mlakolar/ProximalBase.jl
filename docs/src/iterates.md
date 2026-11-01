@@ -451,7 +451,7 @@ the set being traversed does not change.
 |:----------|:--------|
 | [`ncoordinates`](@ref)`(x)` | Number of possible coordinates |
 | [`nactive`](@ref)`(x)` | Number of stored active coordinates |
-| [`activecoordinates`](@ref)`(x)` | Indices of the active coordinates |
+| [`activecoordinates`](@ref)`(x)` | Read-only list of the indices of the active coordinates |
 | [`activevalues`](@ref)`(x)` | Writable view of their values, in the same order |
 | [`isactive`](@ref)`(x, k)` | Whether coordinate `k` is active |
 | [`activate!`](@ref)`(x, k)` | Add a coordinate to the active set |

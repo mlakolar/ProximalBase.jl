@@ -1,41 +1,86 @@
 name: CI
+# The plan job picks a test tier (test/tiers.toml, scripts/ci_plan.jl):
+# - pull requests: the minimum tier for the changed files, raised by test:standard,
+#   test:thorough or test:full labels; quick at least, none for documentation only;
+# - pushes to master, tags and the nightly run: full (none for documentation only);
+# - manual runs: the chosen tier, full by default (`gh workflow run CI.yml --ref <branch>`).
+# Branch protection requires only "PR merge gate", which passes when everything the plan asked
+# for passed. CONTRIBUTING.md describes the workflow.
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches:
       - master
     tags: ['*']
-    paths-ignore:
-      - 'docs/**'
-      - 'CONTRIBUTING.md'
-      - 'examples/README.md'
-      - 'benchmark/**.md'
-      - 'test/oracles/**.md'
-      - 'LICENSE'
-      - '.gitignore'
-  pull_request:
-    paths-ignore:
-      - 'docs/**'
-      - 'CONTRIBUTING.md'
-      - 'examples/README.md'
-      - 'benchmark/**.md'
-      - 'test/oracles/**.md'
-      - 'LICENSE'
-      - '.gitignore'
+  schedule:
+    - cron: '23 5 * * *'
   workflow_dispatch:
+    inputs:
+      tier:
+        description: 'Test tier (full also runs macOS, Windows and Julia pre)'
+        type: choice
+        options: [full, thorough, standard, quick]
+        default: full
 concurrency:
-  # Skip intermediate builds: always.
-  # Cancel intermediate builds: only if it is a pull request build.
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+  # A new commit or label on a PR cancels its older run; pushes, nightly and manual runs
+  # each queue on their own, and a newer pending run replaces an older pending one.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  plan:
+    name: Test plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read # nightly: find a full run that already passed on the same commit
+      contents: read
+    outputs:
+      tier: ${{ steps.plan.outputs.tier }}
+      focus: ${{ steps.plan.outputs.focus }}
+      run_tests: ${{ steps.plan.outputs.run_tests }}
+      timeout: ${{ steps.plan.outputs.timeout }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # A PR checks out its merge commit, whose first parent is the base branch.
+          fetch-depth: 2
+      - name: Fetch the commit before the push
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: git fetch --no-tags --depth=1 origin "${{ github.event.before }}" || echo "Not found; the push runs the full tier."
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - name: Check naming conventions
+        run: python3 scripts/check_naming.py
+      - name: Choose the tier
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          DISPATCH_TIER: ${{ inputs.tier }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          case "$EVENT" in
+            pull_request) args=(--base=HEAD^1 --head=HEAD "--labels=$LABELS") ;;
+            push) args=(); [ "$GITHUB_REF" = refs/heads/master ] && args=("--base=$BEFORE" --head=HEAD) ;;
+            workflow_dispatch) args=("--tier=${DISPATCH_TIER:-full}") ;;
+            schedule) args=("--sha=$GITHUB_SHA" "--repo=$GITHUB_REPOSITORY") ;;
+          esac
+          julia --startup-file=no scripts/ci_plan.jl "--event=$EVENT" "${args[@]}"
   test:
-    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }}
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ needs.plan.outputs.tier }}
+    needs: plan
+    if: needs.plan.outputs.run_tests == 'true'
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.version == 'pre' }}
-    timeout-minutes: 60
+    # Per tier in test/tiers.toml, well above the targets to allow for cold caches.
+    timeout-minutes: ${{ fromJSON(needs.plan.outputs.timeout) }}
     env:
-      # Full runs: the same condition as the include list and --core below, as a string.
-      FULL_TESTS: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-tests') }}
+      FULL_TESTS: ${{ needs.plan.outputs.tier == 'full' }}
+      # Thorough and full run every conformance file, so they write and check the reports.
+      CONFORMANCE: ${{ needs.plan.outputs.tier == 'thorough' || needs.plan.outputs.tier == 'full' }}
     permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
       actions: write
       contents: read
@@ -49,11 +94,9 @@ jobs:
           - ubuntu-latest
         arch:
           - x64
-        # Full runs: non-PR events or PRs labelled full-tests.
-        # Labels are read when the run starts; add the label before the next push or reopen.
-        # The free-memory default gives one worker on the macOS runner.
+        # The full tier adds these. The free-memory default gives one worker on the macOS runner.
         include: >-
-          ${{ fromJSON((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-tests')) &&
+          ${{ fromJSON(needs.plan.outputs.tier == 'full' &&
           '[{"version": "1", "os": "macos-latest", "arch": "aarch64", "ptr_jobs": "2"},
           {"version": "1", "os": "windows-latest", "arch": "x64"},
           {"version": "pre", "os": "ubuntu-latest", "arch": "x64"}]' || '[]') }}
@@ -64,21 +107,37 @@ jobs:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
       - uses: julia-actions/cache@v3
-      - name: Check naming conventions
-        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} scripts/check_naming.py
       - name: Run package tests
         id: tests
-        run: julia --color=yes scripts/test.jl ${{ !(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-tests')) && '--core' || '' }}
+        shell: bash
+        run: |
+          echo "Tier $TIER${FOCUS:+ with $FOCUS} at $COMMIT (checked out $GITHUB_SHA)"
+          start=$(date +%s)
+          status=0
+          julia --color=yes scripts/test.jl --verbose "--tier=$TIER" ${FOCUS:+"--extra=$FOCUS"} 2>&1 | tee "$RUNNER_TEMP/test-output.log" || status=$?
+          echo $(( $(date +%s) - start )) > "$RUNNER_TEMP/test-seconds"
+          exit $status
         env:
-          JULIA_TEST_COVERAGE: "${{ matrix.version == '1' && matrix.os == 'ubuntu-latest' }}"
+          TIER: ${{ needs.plan.outputs.tier }}
+          FOCUS: ${{ needs.plan.outputs.focus }}
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Coverage roughly doubles compile time, so only full runs collect it.
+          JULIA_TEST_COVERAGE: "${{ env.FULL_TESTS == 'true' && matrix.version == '1' && matrix.os == 'ubuntu-latest' }}"
           PTR_NUM_JOBS: ${{ matrix.ptr_jobs }}
-          # Full runs write the conformance reports; an empty value leaves them off.
-          CONFORMANCE_REPORT: ${{ env.FULL_TESTS == 'true' && format('{0}/conformance', runner.temp) || '' }}
+          # An empty value leaves the conformance reports off.
+          CONFORMANCE_REPORT: ${{ env.CONFORMANCE == 'true' && format('{0}/conformance', runner.temp) || '' }}
           CONFORMANCE_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.version }}-${{ matrix.os }}
           CONFORMANCE_PKG_SHA: ${{ github.sha }}
+      - name: Timing summary
+        if: ${{ !cancelled() && steps.tests.outcome != 'skipped' }}
+        continue-on-error: true
+        shell: bash
+        run: julia --startup-file=no scripts/test_report.jl "$RUNNER_TEMP/test-output.log" "$(cat "$RUNNER_TEMP/test-seconds")" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          TEST_REPORT_TITLE: Julia ${{ matrix.version }}, ${{ matrix.os }}, tier ${{ needs.plan.outputs.tier }}
       - name: Check the conformance coverage map
         # One job checks the committed map: the moving Julia release must not turn master red.
-        if: ${{ matrix.version == 'lts' && matrix.os == 'ubuntu-latest' && env.FULL_TESTS == 'true' }}
+        if: ${{ matrix.version == 'lts' && matrix.os == 'ubuntu-latest' && env.CONFORMANCE == 'true' }}
         shell: bash
         run: julia --startup-file=no scripts/conformance_map.jl "$RUNNER_TEMP/conformance" --check --run-id "$CONFORMANCE_RUN_ID"
         env:
@@ -88,7 +147,7 @@ jobs:
         # succeeded is named conformance-reports-...: the rows record passes and known breaks, not
         # unexpected failures, so a matching map alone does not show that the tests passed. A failed
         # check step after successful tests still gives a usable baseline.
-        if: ${{ !cancelled() && env.FULL_TESTS == 'true' }}
+        if: ${{ !cancelled() && env.CONFORMANCE == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.tests.outcome == 'success' && 'conformance-reports' || 'diagnostic-conformance-reports' }}-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.run_attempt }}
@@ -96,9 +155,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - uses: julia-actions/julia-processcoverage@v1
-        if: matrix.version == '1' && matrix.os == 'ubuntu-latest'
+        if: env.FULL_TESTS == 'true' && matrix.version == '1' && matrix.os == 'ubuntu-latest'
       - uses: codecov/codecov-action@v7
-        if: matrix.version == '1' && matrix.os == 'ubuntu-latest'
+        if: env.FULL_TESTS == 'true' && matrix.version == '1' && matrix.os == 'ubuntu-latest'
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -117,3 +176,66 @@ jobs:
         run: |
           python3 benchmark/check_analysis.py
           python3 benchmark/gpu_solver/check_analysis.py
+  gate:
+    # The one check for branch protection. It runs even when a job before it failed or was
+    # cancelled, and passes only if the plan and the benchmark controls passed and, when the plan
+    # asked for tests, every test job of that tier passed (Julia pre is advisory).
+    name: ${{ github.event_name == 'pull_request' && 'PR merge gate' || 'CI result' }}
+    needs: [plan, test, analysis]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read # the conclusions of this run's test jobs
+      contents: read
+      issues: write # a failing master run opens or updates an issue
+    steps:
+      - name: Check the required jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLAN: ${{ needs.plan.result }}
+          TESTS: ${{ needs.test.result }}
+          ANALYSIS: ${{ needs.analysis.result }}
+          RUN_TESTS: ${{ needs.plan.outputs.run_tests }}
+          TIER: ${{ needs.plan.outputs.tier }}
+          FOCUS: ${{ needs.plan.outputs.focus }}
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          echo "Commit $COMMIT; plan: $PLAN; tier: ${TIER:-unknown}${FOCUS:+ with $FOCUS}; tests: $TESTS; benchmark controls: $ANALYSIS"
+          fail=0
+          error() { echo "::error::$1"; fail=1; }
+          [ "$PLAN" = success ] || error "The test plan did not succeed ($PLAN)."
+          [ "$ANALYSIS" = success ] || error "Benchmark analysis controls: $ANALYSIS."
+          case "$TIER" in
+            quick|standard|thorough) expected=("lts - ubuntu-latest - x64" "1 - ubuntu-latest - x64") ;;
+            full) expected=("lts - ubuntu-latest - x64" "1 - ubuntu-latest - x64" "1 - macos-latest - aarch64" "1 - windows-latest - x64") ;;
+            none) expected=() ;;
+            *) error "The plan gave no valid tier ('$TIER')."; expected=() ;;
+          esac
+          if [ "$TIER" = none ]; then
+            [ "$RUN_TESTS" = false ] && [ "$TESTS" = skipped ] || error "Tier none, but run_tests=$RUN_TESTS and the test jobs are $TESTS."
+          elif [ ${#expected[@]} -gt 0 ]; then
+            [ "$RUN_TESTS" = true ] || error "Tier $TIER without run_tests ($RUN_TESTS)."
+            jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" --paginate \
+              --jq '.jobs[] | "\(.name)\t\(.conclusion)"')
+            for name in "${expected[@]}"; do
+              conclusion=$(printf '%s\n' "$jobs" | awk -F'\t' -v n="Julia $name - $TIER" '$1 == n {print $2}')
+              [ "$conclusion" = success ] || error "Julia $name - $TIER: ${conclusion:-missing}."
+            done
+            printf '%s\n' "$jobs" | awk -F'\t' '$1 ~ /^Julia pre/ {print "Advisory: " $1 ": " $2}'
+          fi
+          exit $fail
+      - name: Report a failing master run
+        if: failure() && github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="CI failing on master"
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          body="The $GITHUB_EVENT_NAME run $url failed at $GITHUB_SHA. Fix or revert promptly; see CONTRIBUTING.md."
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi

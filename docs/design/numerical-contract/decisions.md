@@ -12,6 +12,8 @@ Each entry opens with its **Decided** line; the background, options,
 precedent, first recommendation and revision notes below it are kept as the
 history of the decision.
 
+*The drafts and reviews named in the history below (`01`–`16`) were removed from this folder when the contract was published in `docs/src/numerics.md`. They are at commit [`850e2bd2`](https://github.com/mlakolar/ProximalBase.jl/tree/850e2bd2/docs/design/numerical-contract) on pull request #385.*
+
 ## A short primer
 
 The contract uses a few ideas from floating-point arithmetic that a

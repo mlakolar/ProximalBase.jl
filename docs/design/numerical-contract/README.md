@@ -1,58 +1,41 @@
 # Numerical contract for 0.6: design record
 
-This folder records how ProximalBase's numerical contract for the 0.6 release
-was designed: the drafts, the reviews, and the decisions with their reasons.
-It is outside `docs/src`, so Documenter does not build it. The agreed
-contract will become `docs/src/numerics.md`, linked from
-`docs/src/architecture.md`, and the Precision section of
-`docs/src/interface.md` will become a short summary of it.
+The numerical contract is published in `docs/src/numerics.md`. This folder
+keeps the record of how it was decided. It is outside `docs/src`, so
+Documenter does not build it.
 
-The contract covers what the package promises about the numbers it returns:
-types in mixed precision, overflow and underflow, accuracy, decisions taken
-on rounded quantities (thresholds, membership, ranks, searches), the meaning
-of NaN, `Inf`, zero and infinite parameters and steps, agreement between
-oracles, GPU arrays, and the cost the package accepts for its guarantees.
-0.6 is a breaking release, so earlier decisions (#238, #283, #343 and
-others) may be reversed here.
+| file | content |
+|:---|:---|
+| `decisions.md` | the 47 decisions, each opening with the maintainer's approved **Decided** line (2026-11-01), followed by its background, options, precedent in other packages, first recommendation and revisions, kept as history |
+| `impact-on-open-issues.md` | the open issues and pull requests the decisions affect, screened on 2026-10-31; a work list until the tracker #366 takes it over |
+| `bench-q1-threshold.jl` | measurement behind decision 3: soft thresholding with a rounded, a per-entry `Float64`, and a two-word threshold |
+| `bench-d6-quadratic.jl` | measurement behind decision 6: a `Float32` quadratic at a `Float64` argument |
 
-## Files, in the order they were written
+## The full record
 
-| file | author | content |
-|:---|:---|:---|
-| `01-chatgpt-readers-edition.md` | ChatGPT | "Reader's edition, Draft 2": the first full draft, a narrative guide with acceptance cases V1–V9 and S1–S8 |
-| `02-claude-review-of-draft2.md` | Claude | review of Draft 2: what to keep, what conflicts with settled decisions, what it leaves out; acceptance cases run at master `3f90a29` |
-| `03-claude-draft3.md` | Claude | Draft 3: rules with identifiers and status, merging Draft 2 with the precision design of #366 |
-| `04-chatgpt-comment.md` | ChatGPT | comparison of Draft 2 with #366; finds that Draft 3's rule T3 contradicts its case V9, and proposes a middle option for mixed precision |
-| `05-decisions.md` | Claude | every decision written out: background, example, options with pros and cons, precedent in other packages, recommendation |
-| `06-claude-draft4.md` | Claude | Draft 4: Draft 3 revised for ChatGPT's comparison, with every recommendation of `05-decisions.md` adopted |
-| `07-chatgpt-review-of-draft4.md` | ChatGPT | review of Draft 4: approves the converted model (V8, V9 = 0); asks for V10, a defensible rank-projection guarantee, and a decision on `LogDetLoss` |
-| `08-claude-draft5.md` | Claude | Draft 5: Draft 4 revised for the review and the maintainer's question about bitwise results |
-| `09-chatgpt-review-of-draft5.md` | ChatGPT | review of Draft 5: the wide-argument, narrow-output case, one policy per kind of decision, A5 and O4 bounds, a fixture for decision 39 |
-| `10-impact-on-open-issues.md` | Claude (subagent), checked | every open issue and PR classified against the decisions; stale references; gaps in the contract text |
-| `11-claude-draft6.md` | Claude | Draft 6: Draft 5 revised for the review and the screen; decisions 40–47 added to `05` |
-| `12-chatgpt-review-of-draft6.md` | ChatGPT | review of Draft 6: approves the architecture; narrows decision 45, fixes the stored-matrix bounds, asks for a usable quadratic model, Float16 by role |
-| `13-claude-draft7.md` | Claude | Draft 7: Draft 6 revised for the review |
-| `14-chatgpt-review-of-draft7.md` | ChatGPT | review of Draft 7: approves it as the design baseline; the stored-rank claim, R3's partial products, refinement against model change, and a vote for (b) on decision 46 |
-| `15-claude-draft8.md` | Claude | Draft 8, the final draft |
-| `16-chatgpt-signoff-review-of-draft8.md` | ChatGPT | sign-off: approves decisions 1–47 in their final form, with one A5 correction and a ledger cleanup |
-| `bench-q1-threshold.jl`, `bench-d6-quadratic.jl` | Claude | measurements for decisions 3 and 6 |
+The design was discussed on
+[pull request #385](https://github.com/mlakolar/ProximalBase.jl/pull/385),
+where every exchange is a comment. The drafts and reviews named in
+`decisions.md` were removed from this folder when the contract was published.
+They are in the pull request's history at commit
+[`850e2bd2`](https://github.com/mlakolar/ProximalBase.jl/tree/850e2bd2/docs/design/numerical-contract):
 
-## Process
+- `01`: ChatGPT's reader's edition (Draft 2);
+- `02`, `03`: Claude's review of it, and Draft 3;
+- `04`: ChatGPT's comparison with #366;
+- `06`, `08`, `11`, `13`, `15`: Drafts 4–8;
+- `07`, `09`, `12`, `14`, `16`: ChatGPT's reviews of Drafts 4–8, the last its sign-off;
+- `10`: the impact on open issues, kept here as `impact-on-open-issues.md`.
 
-1. The maintainer answers the decisions in `05-decisions.md` in comments on
-   the pull request (#385), where all discussion of the design takes place.
-   **Done 2026-11-01:** all 47 approved ("go with recommendations"); each
-   entry now opens with its **Decided** line.
-2. Each answer is recorded as a commit to `05-decisions.md` (the "Decided"
-   line of that decision), and the draft is revised to match.
-3. When every decision is answered, the agreed contract is written to
-   `docs/src/numerics.md`, with the interface page's summary and the
-   architecture link, in the same pull request. That pull request changes
-   documentation only.
-4. Implementation follows in separate pull requests, tracked in #366, which
-   becomes the tracker for the whole contract. It starts with a reconciliation
-   table (oracle, problem after conversion, promised result, acceptance case,
-   status) before any patch.
+## How the contract was settled
 
-Whether this folder stays after the docs page is written is decided at merge.
-`docs/audit/release-0.5.4` is the precedent for keeping such a record.
+1. ChatGPT drafted a reader's edition.
+2. Claude reviewed it against the code and #366 and wrote Draft 3, with rule
+   identifiers and statuses.
+3. Five rounds followed, each a ChatGPT review and a Claude revision. Every
+   numerical claim was run on the package, and the revision recorded the
+   commit it was checked at.
+4. The maintainer approved all 47 decisions on 2026-11-01.
+5. Implementation follows in separate pull requests, tracked in #366, starting
+   with a reconciliation table: for each oracle, the problem after conversion,
+   the promised result, the acceptance case, and its status.

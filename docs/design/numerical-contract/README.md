@@ -28,8 +28,8 @@ others) may be reversed here.
 
 ## Process
 
-1. The maintainer answers the decisions in `05-decisions.md`, on the pull
-   request or in conversation.
+1. The maintainer answers the decisions in `05-decisions.md` in comments on
+   the pull request (#385), where all discussion of the design takes place.
 2. Each answer is recorded as a commit to `05-decisions.md` (the "Decided"
    line of that decision), and the draft is revised to match.
 3. When every decision is answered, the agreed contract is written to

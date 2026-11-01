@@ -221,4 +221,8 @@ end
   end
 end
 
+@testset "CI scenario (do not merge): a failing test" begin
+  @test 1 + 1 == 3
+end
+
 end

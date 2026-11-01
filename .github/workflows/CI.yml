@@ -23,9 +23,9 @@ on:
         options: [full, thorough, standard, quick]
         default: full
 concurrency:
-  # A new commit or label on a PR cancels its older run; pushes, nightly and manual runs
-  # each queue on their own, and a newer pending run replaces an older pending one.
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  # A new commit or label on a PR cancels its older run; pushes, nightly and manual runs (per
+  # tier) each queue on their own, and a newer pending run replaces an older pending one.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ inputs.tier }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   plan:

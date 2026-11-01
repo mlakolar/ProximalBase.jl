@@ -93,6 +93,18 @@ function smooth_rows(name, U, X, D)
     cmp = cancellation ? ((v, r) -> within_bound(v, r,
       8BigFloat(eps(W)) * (abs(BigFloat(a) * BigFloat(t)) + 1) + 2BigFloat(eps(D)) * abs(BigFloat(r)))) :
       ((v, r) -> within_ulps(v, r, 16))
+    # A6: retain Float32-product rounding latitude even when stored in Float64.
+    # near counts output ULPs, so 16 data-precision ULPs need 2^(p_out-p_data).
+    broken_spec = nothing
+    if haskey(baselines, id)
+      old = baselines[id]
+      if iszero(old)
+        broken_spec = (group = :G4, baseline = Returned(v -> same(v, old)))
+      else
+        n = 16 << max(precision(typeof(old)) - precision(U), 0)
+        broken_spec = (group = :G4, baseline = Returned(near(old, n)), volatile = true)
+      end
+    end
     @row begin
       id = id; case = ""; family = :data_functions; oracle = part
       types = "$X argument/$D destination/$U data"; backend = :cpu
@@ -101,7 +113,7 @@ function smooth_rows(name, U, X, D)
       expected = reference(part)
       observed = part == :value ? f(x) : only(gradient!(g, f, x))
       compare = cmp
-      broken = haskey(baselines, id) ? (group = :G4, baseline = Returned(v -> same(v, baselines[id]))) : nothing
+      broken = broken_spec
     end
   end
 end

@@ -49,6 +49,8 @@ const baselines = Dict{String,Any}(
       end
     end
     id = "data_functions.$name.$U.$X.$D.prox"
+    # A6: 16 data-precision ULPs, expressed in the destination's ULPs.
+    n = 16 << max(precision(D) - precision(U), 0)
     @row begin
       id = id; case = ""; family = :data_functions; oracle = :prox
       types = "$X argument/$D destination/$U data/Float64 step"; backend = :cpu
@@ -60,7 +62,7 @@ const baselines = Dict{String,Any}(
         name == "graph" ? [only(y[1]), only(y[2])] : copy(y)
       end
       compare = (v, r) -> eltype(v) == eltype(r) && all(within_ulps(v[i], r[i], 64) for i in eachindex(r))
-      broken = haskey(baselines, id) ? (group = :G4, baseline = Returned(v -> same(v, baselines[id]))) : nothing
+      broken = haskey(baselines, id) ? (group = :G4, baseline = Returned(near(baselines[id], n)), volatile = true) : nothing
     end
   end
   # T3 type x role matrix: LinearImage admits scalar steps and an inner level.
@@ -74,7 +76,8 @@ const baselines = Dict{String,Any}(
       expected = bigref(() -> BigFloat(2) / (1 + BigFloat(3) / 2))
       observed = only(prox!(zeros(1), LinearImage(SqrNormL2(P(3)), ones(Float32, 1, 1), 1f0), Float32[2], S(0.5)))
       compare = (v, r) -> within_ulps(v, r, 16)
-      broken = (group = :G4, baseline = Returned(v -> same(v, baselines[id])))
+      # The image product writes a Float64 result through Float32 workspaces.
+      broken = (group = :G4, baseline = Returned(near(baselines[id], 16 << 29)), volatile = true)
     end
   end
 end

@@ -80,7 +80,8 @@ end
       expected = bigref(() -> BigFloat[2//3, -1//3, -1//3])
       observed = prox!(zeros(3), f, Float32[1, 0, 0], diagonal ? ones(Float32, 3) : 1f0)
       compare = (v, r) -> components(v, r, 8)
-      broken = haskey(baselines, id) ? (group = :G5, baseline = Returned(v -> same(v, baselines[id]))) : nothing
+      # A6: Float32 normal reductions can move a few Float32 ULPs in Float64 output.
+      broken = haskey(baselines, id) ? (group = :G5, baseline = Returned(near(baselines[id], 16 << 29)), volatile = true) : nothing
     end
   end
   # #218: the coefficient 2^-200 underflows in Float32, its correction does not.

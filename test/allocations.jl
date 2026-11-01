@@ -3,6 +3,7 @@ module AllocationsTest
 # The hot calls allocate nothing once a function object exists and has seen its
 # input once (to size its workspaces): f(x), prox!, value_and_prox!,
 # value_and_gradient!, gradient! and prox_coordinate!.
+# The quick-tier subset of these checks (representative entries) is in allocations_basics.jl.
 
 using Test
 using ProximalBase
@@ -56,13 +57,13 @@ end
 a_block!(x, f, k, u, γ) = prox_coordinate!(x, f, k, u, γ)
 
 @testset "block steps allocate nothing" begin
-  for x in (SparseIterate(zeros(4)), SymmetricSparseIterate(2))
+  for x in (SymmetricSparseIterate(2),)
     @test allocs(a_block!, x, NormL1(0.3), 1, 3., 0.7) == 0
   end
   for gs in ([1:2, 3:4], [[1, 3], [2, 4]])
     x = AtomIterate(4, gs)
     u = [3., -4.]
-    for f in (NormL1(0.3), GroupNormL2(0.4, gs), GroupNormLinf(0.4, gs),
+    for f in (GroupNormLinf(0.4, gs),
               SparseGroupNormL2(0.2, 0.4, gs), GroupMCP(0.4, gs), GroupSCAD(0.4, gs))
       @test allocs(a_block!, x, f, 1, u, 0.7) == 0
     end
@@ -74,7 +75,7 @@ end
   layouts = (ranges, collect.(ranges))
   v = [3., -4., 0., 0., 0., 0., 2., -1., 0.5]
   for gs in layouts
-    for f in (GroupNormL2(0.4, gs), GroupNormLinf(0.4, gs), SparseGroupNormL2(0.2, 0.4, gs),
+    for f in (GroupNormLinf(0.4, gs), SparseGroupNormL2(0.2, 0.4, gs),
               GroupMCP(0.4, gs), GroupSCAD(0.4, gs), IndBallGroupL0(1, gs; k = 1))
       for xgroups in layouts, ygroups in layouts
         xa = AtomIterate(v, xgroups)
@@ -171,7 +172,7 @@ end
       zero_alloc_prox(F(floatmin(T), fill(floatmin(T), length(z))), z; γ=T(0.7))
     end
     for f in (ZeroFunction(), LinearFunction(randn(p)), SqrNormL2(2.), SqrNormL2(1., randn(p)),
-              NormL1(0.3), NormL1(0.3, w), NormL1Nonneg(0.3, w), ElasticNet(0.3, 0.4, w), IndBox(-0.5, 0.5),
+              NormL1(0.3, w), NormL1Nonneg(0.3, w), ElasticNet(0.3, 0.4, w), IndBox(-0.5, 0.5),
               IndBox(-w, w), IndNonnegative(), NormL0(0.1), MCP(0.3), SCAD(0.3))
       @testset "$(nameof(typeof(f)))" begin
         zero_alloc_prox(f, x)
@@ -187,14 +188,14 @@ end
     # a SymmetricSparseIterate
     D = randn(8, 8); D = D + D'
     s = SymmetricSparseIterate(D)
-    for f in (NormL1(0.2), MCP(0.2), IndBox(-0.3, 0.3))
+    for f in (MCP(0.2), IndBox(-0.3, 0.3))
       zero_alloc_prox(f, s)
       @test allocs(a_cd!, s, f, 5, 0.7) == 0
     end
   end
 
   @testset "norms" begin
-    for f in (NormL2(0.4), NormLinf(0.4), GroupNormL2(0.4, groups), GroupNormLinf(0.4, groups))
+    for f in (NormL2(0.4), NormLinf(0.4), GroupNormLinf(0.4, groups))
       @testset "$(nameof(typeof(f)))" begin
         zero_alloc_prox(f, x)
         zero_alloc_prox(f, Float32.(x))
@@ -316,7 +317,7 @@ end
     B = randn(2n, p)
     S = Matrix(Symmetric(B'B / 2n))
     P = Matrix(I + 0.1 * Symmetric(randn(p, p)))
-    for (f, z) in ((QuadraticFunction(X'X, randn(p), 1.), x), (LeastSquaresLoss(y, X), x),
+    for (f, z) in ((QuadraticFunction(X'X, randn(p), 1.), x),
                    (LeastSquaresLoss(randn(n, 3), X), randn(p, 3)), (LogisticLoss(rand(0:1, n), X), x),
                    (PoissonLoss(rand(0:3, n), X), 0.1 .* x), (HuberLoss(y, X, 0.5), x),
                    (LogisticLoss(rand(0:1, n), X; weights = rand(n), offset = randn(n)), x),

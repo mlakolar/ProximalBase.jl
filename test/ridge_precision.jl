@@ -180,6 +180,50 @@ setprecision(BigFloat, BIG) do
     @test SqrNormL2(0.5f0, Float32[1])(Float64[2]) === 0.25
     @test SqrNormL2(0.5, Float32[1])(Float32[2]) === 0.25f0
   end
+  @testset "dense paths: one center entry leaves Float32's range" begin
+    n = 9
+    x = Float32[0.5, -1, 2, 3, -4, 0.25, 8, -0.125, 1]
+    for (k, label) in ((200, "overflows"), (-160, "underflows"))
+      c = Float64[0.3, -1.5, 2, 1, 0.75, -2, 1.25, 0.5, -3]
+      c[4] = pow2(Float64, k)
+      cw = [Float64(Float32(ci)) for ci in c]
+      cw[4] = c[4]                          # the entry that cannot be rounded is used as given
+      # gradient with a level that fits Float32
+      λ = k > 0 ? pow2(Float64, -100) : pow2(Float64, 100)
+      g = fill(7f0, n)
+      gradient!(g, SqrNormL2(λ, c), x)
+      for i in 1:n
+        r = big(λ) * (big(x[i]) - big(cw[i]))
+        normal(Float32, r) ? @test(near(g[i], r, 2)) : nothing
+      end
+      # prox, aliased and separate
+      γ = 1.0
+      z = zeros(Float32, n)
+      prox!(z, SqrNormL2(λ, c), x, γ)
+      xa = copy(x)
+      prox!(xa, SqrNormL2(λ, c), xa, γ)
+      @test xa == z
+      for i in 1:n
+        r = ref_prox(Float32, x[i], cw[i], γ, λ)
+        normal(Float32, r) ? @test(near(z[i], r, 3)) : nothing
+      end
+      # value
+      v = SqrNormL2(λ, c)(x)
+      r = big(λ) / 2 * sum((big(x[i]) - big(cw[i]))^2 for i in 1:n)
+      normal(Float32, r) ? @test(near(v, r, 4)) : nothing
+    end
+  end
+  @testset "a center that underflows on rounding is used unrounded" begin
+    # x - c = -2^-150 exactly; rounding c to a Float32 subnormal would give -2^-149 or 0
+    x = fill(1f0, 9); x[4] = pow2(Float32, -149)
+    c = fill(1.0, 9); c[4] = 1.5 * pow2(Float64, -149)
+    λ = pow2(Float64, 100)
+    g = zeros(Float32, 9)
+    gradient!(g, SqrNormL2(λ, c), x)
+    @test g[4] === -pow2(Float32, -50)
+    @test all(==(0f0), g[[1:3; 5:9]])
+    @test gradient(SqrNormL2(λ, c[4:4]), x[4:4])[1] === -pow2(Float32, -50)
+  end
 end
 
 end

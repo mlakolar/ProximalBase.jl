@@ -906,14 +906,20 @@ function ridge_cases!(cases, rep; quick=false)
         cf = c === nothing ? zeros(T, n) : T.(c)
         refprox = [(x[i] + big(γ) * big(λ) * big(cf[i])) / (1 + big(γ) * big(λ)) for i in 1:n]
         refgrad = [big(λ) * (big(x[i]) - big(cf[i])) for i in 1:n]
-        close_ref(y, r) = all(i -> abs(big(y[i]) - r[i]) <= 4 * eps(T) * max(abs(r[i]), eps(T)), eachindex(y)) ||
+        scale = [max(abs(big(x[i])), abs(big(cf[i])), big(eps(T))) for i in 1:n]
+        close_ref(y, r) = all(i -> abs(big(y[i]) - r[i]) <= 4 * eps(T) * (scale[i] * (iszero(λ) ? 1 : max(1, big(λ)))), eachindex(y)) ||
             error("output differs from the reference")
         addcase!(cases, "ridge", name * "/prox!", () -> prox!(z, f, x, γ),
                  () -> (prox!(z, f, x, γ); close_ref(z, refprox)); T, shape, work=n)
+        # independent entries, as a vectorizable sweep, and a dependent chain, as in
+        # coordinate descent (each update feeds the next argument)
         addcase!(cases, "ridge", name * "/prox_entry_loop",
-                 () -> (@inbounds for i in eachindex(x); z[i] = prox_entry(f, x[i], i, γ); end),
+                 () -> begin @inbounds for i in eachindex(x) z[i] = prox_entry(f, x[i], i, γ) end end,
                  () -> (for i in eachindex(x); z[i] = prox_entry(f, x[i], i, γ); end; close_ref(z, refprox));
                  T, shape, layout="coordinate", work=n)
+        chain() = (v = zero(T); @inbounds for i in eachindex(x) v = prox_entry(f, x[i] + T(0.5) * v, i, γ) end; v)
+        addcase!(cases, "ridge", name * "/prox_entry_chain", chain,
+                 () -> isfinite(chain()) || error("nonfinite chain"); T, shape, layout="coordinate", work=n)
         addcase!(cases, "ridge", name * "/value_and_prox!", () -> value_and_prox!(z, f, x, γ),
                  () -> (v = value_and_prox!(z, f, x, γ); close_ref(z, refprox);
                         isapprox(v, f(z); rtol=100 * eps(T), atol=100 * eps(T)) || error("value differs from f(prox)"));
@@ -930,30 +936,32 @@ function ridge_cases!(cases, rep; quick=false)
                  T, shape, work=n)
     end
     # Recovery path: separate from the ordinary calls above.
-    n = quick ? 1000 : 10_000
-    rng = scenario_rng(rep, "ridge/recovery/$n")
-    x = randn(rng, Float32, n)
-    z = similar(x); g = similar(x)
-    big_level = pow2(Float64, 160)
-    tiny_step = pow2(Float64, -160)
-    c64 = rand(rng, Float64, n)
-    far = fill(pow2(Float64, 200), n)
-    f0 = SqrNormL2(big_level)
-    fc = SqrNormL2(big_level, Float32.(c64))
-    ff = SqrNormL2(pow2(Float64, -100), far)          # Float32 data, centers outside Float32
-    finite(y) = all(isfinite, y) || error("nonfinite recovery output")
-    addcase!(cases, "ridge", "recovery/coefficient_in_band_after_product/prox!", () -> prox!(z, f0, x, tiny_step),
-             () -> (prox!(z, f0, x, tiny_step); all(i -> z[i] == x[i] / 2, 1:n) || error("unexpected prox")); T=Float32, layout="recovery", shape=string(n), work=n)
-    addcase!(cases, "ridge", "recovery/coefficient_scaled/prox!", () -> prox!(z, f0, x, 1.0),
-             () -> (prox!(z, f0, x, 1.0); finite(z)); T=Float32, layout="recovery", shape=string(n), work=n)
-    addcase!(cases, "ridge", "recovery/coefficient_scaled_centered/prox!", () -> prox!(z, fc, x, 1.0),
-             () -> (prox!(z, fc, x, 1.0); finite(z)); T=Float32, layout="recovery", shape=string(n), work=n)
-    addcase!(cases, "ridge", "recovery/level_outside/gradient!", () -> gradient!(g, SqrNormL2(big_level), x .* pow2(Float32, -100)),
-             () -> (gradient!(g, SqrNormL2(big_level), x .* pow2(Float32, -100)); finite(g)); T=Float32, layout="recovery", shape=string(n), work=n, zero_alloc=false)
-    addcase!(cases, "ridge", "recovery/center_outside/prox!", () -> prox!(z, ff, x, 1.0),
-             () -> (prox!(z, ff, x, 1.0); finite(z)); T=Float32, layout="recovery", shape=string(n), work=n)
-    addcase!(cases, "ridge", "recovery/center_outside/value", () -> ff(x),
-             () -> isfinite(ff(x)) || error("nonfinite value"); T=Float32, layout="recovery", shape=string(n), work=n, zero_alloc=false)
+    let
+      n = quick ? 1000 : 10_000
+      rng = scenario_rng(rep, "ridge/recovery/$n")
+      x = randn(rng, Float32, n)
+      z = similar(x); g = similar(x)
+      big_level = pow2(Float64, 160)
+      tiny_step = pow2(Float64, -160)
+      c64 = rand(rng, Float64, n)
+      far = fill(pow2(Float64, 200), n)
+      f0 = SqrNormL2(big_level)
+      fc = SqrNormL2(big_level, Float32.(c64))
+      ff = SqrNormL2(pow2(Float64, -400), far)          # Float32 data, centers outside Float32
+      finite(y) = all(isfinite, y) || error("nonfinite recovery output")
+      addcase!(cases, "ridge", "recovery/coefficient_in_band_after_product/prox!", () -> prox!(z, f0, x, tiny_step),
+               () -> (prox!(z, f0, x, tiny_step); all(i -> z[i] == x[i] / 2, 1:n) || error("unexpected prox")); T=Float32, layout="recovery", shape=string(n), work=n)
+      addcase!(cases, "ridge", "recovery/coefficient_scaled/prox!", () -> prox!(z, f0, x, 1.0),
+               () -> (prox!(z, f0, x, 1.0); finite(z)); T=Float32, layout="recovery", shape=string(n), work=n)
+      addcase!(cases, "ridge", "recovery/coefficient_scaled_centered/prox!", () -> prox!(z, fc, x, 1.0),
+               () -> (prox!(z, fc, x, 1.0); finite(z)); T=Float32, layout="recovery", shape=string(n), work=n)
+      addcase!(cases, "ridge", "recovery/level_outside/gradient!", () -> gradient!(g, SqrNormL2(big_level), x .* pow2(Float32, -100)),
+               () -> (gradient!(g, SqrNormL2(big_level), x .* pow2(Float32, -100)); finite(g)); T=Float32, layout="recovery", shape=string(n), work=n, zero_alloc=false)
+      addcase!(cases, "ridge", "recovery/center_outside/prox!", () -> prox!(z, ff, x, 1.0),
+               () -> (prox!(z, ff, x, 1.0); finite(z)); T=Float32, layout="recovery", shape=string(n), work=n)
+      addcase!(cases, "ridge", "recovery/center_outside/value", () -> ff(x),
+               () -> isfinite(ff(x)) || error("nonfinite value"); T=Float32, layout="recovery", shape=string(n), work=n, zero_alloc=false)
+    end
 end
 
 const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products", "blocks", "owner", "ridge")

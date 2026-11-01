@@ -7,8 +7,10 @@ with Julia 1.13.3; behavior described as current was run at master
 `3f90a29`. Rule identifiers (T3, R2, ...) refer to `03-claude-draft3.md`,
 and D1–D10 refer to #366.*
 
-Each decision ends with a **Decided** line, left empty until the maintainer
-answers. An answer is recorded by filling that line in a commit.
+**Status.** All 47 decisions were approved by the maintainer on 2026-11-01.
+Each entry opens with its **Decided** line; the background, options,
+precedent, first recommendation and revision notes below it are kept as the
+history of the decision.
 
 ## A short primer
 
@@ -46,59 +48,65 @@ mathematical paper never needs.
 
 ## Index
 
-| # | decision | recommendation | changes current behavior? |
-|:--|:---|:---|:---|
-| 1 | return and output types | keep (#238) | no |
-| 2 | working precision | output type, not promotion | no |
-| 3 | what problem a mixed call solves | parameters rounded once to the working type | yes: V9 and some ridge cases |
-| 4 | parameters whose rounding loses range | recompute without the rounding | yes, fixes V3–V6 |
-| 5 | wider destination | compute in the destination type | yes (#362) |
-| 6 | functions that hold data | the wider of data and call precision | yes: Float32 data with a Float64 argument becomes Float64-accurate |
-| 7 | Float16 | rejected by role in 0.6 (argument, destination, direction, data); rule recorded for later | yes: Float16 is rejected |
-| 8 | BigFloat and integers | supported; caches keyed by precision | small |
-| 9 | constructors | validate in own type; never narrow | yes (#313, #333) |
-| 10 | range of values | keep the #283 rule | no |
-| 11 | range of gradients and proximal outputs | same rule, every closed-form entry | yes, fixes V4–V7 and #361 |
-| 12 | subnormal results | relative accuracy only for normal numbers | no |
-| 13 | form of accuracy guarantees | per output | no |
-| 14 | thresholds and ties in closed forms | exact, no tolerance | no |
-| 15 | sums and reproducibility | allow SIMD reordering; certify decisions | no |
-| 16 | membership tolerance | `√eps·max(1, \|bound\|, s)` | no (gaps fixed) |
-| 17 | rank and zero-mask threshold | `√eps·σ₁` | no |
-| 18 | decisions in searches | certify; refine, else "cannot certify" | yes (#151, #257) |
-| 19 | LAPACK results near a boundary | relative band, results as computed; rank truncation promises near-optimality | no |
-| 20 | NaN in the argument | NaN spreads to what depends on it | yes |
-| 21 | infinite entries | formula or limit, else NaN | small |
-| 22 | zero level, zero and infinite weights | zero level is the zero function | yes |
-| 23 | exceptional values across precisions | kept (#350) | yes |
-| 24 | domains and masks | `+Inf` outside the domain | no |
-| 25 | negative and NaN steps | `ArgumentError` before writing | yes (#311) |
-| 26 | zero and infinite steps | limits only where unique | no |
-| 27 | diagonal metrics that do not fit | scale times ratios | yes (#257) |
-| 28 | the point of a joint value | the stored output | no |
-| 29 | approximate projections | value `0`, not a certificate | no |
-| 30 | wrappers that round between stages | keep; document a bound | no |
-| 31 | outputs after a failure | by kind of failure; dedicated exception for certification failures | small |
-| 32 | aliasing | keep the current rule; #367 audits | no |
-| 33 | sparse and symmetric storage | keep (#142) | no |
-| 34 | GPU arrays | same meaning as on the CPU | small |
-| 35 | cost policy | three separate thresholds | no |
-| 36 | what the solver decides | documentation only | no |
-| 37 | where this lives and in what order | this PR, then #366 as tracker | — |
-| 38 | what "unchanged" means | the same accuracy, not the same bits | documentation and tests only |
-| 39 | `LogDetLoss` value at a singular stored output; saturation | value at the stored output (measured); saturation allowed for matrices | yes |
-| 40 | zero level against domain constraints | keeps domain constraints, infinite weights included | no |
-| 41 | exception for sizes | `DimensionMismatch` | no (current code) |
-| 42 | infeasibility found during a search; arithmetic stopgaps | `ArgumentError` before writing; dedicated exception before writing | yes (#323) |
-| 43 | scope of the contract | every oracle; `restrict` as the interface states it; an unrepresentable quadratic model raises the dedicated exception | small |
-| 44 | gradients outside the domain | NaN | small |
-| 45 | values of wrappers | private capability for inner results; homogeneity for norms inside `Translate`/`Precompose` (W1 = `M/2`); the rest listed as not covered | no new API in 0.6 |
-| 46 | the line between data and parameters | (b): the normals and offsets of linear sets are data, with matrices; levels, weights, centers, bounds and steps are parameters | no (today's behavior) |
-| 47 | non-finite linear coefficients | rejected at construction | yes |
+Every decision was approved by the maintainer on 2026-11-01 ("go with recommendations", on #385). The **Decided** line at the top of each entry governs; the analysis below it is history.
+
+| # | decision | decided (first sentence; see the entry) |
+|:--|:---|:---|
+| 1 | return and output types | Keep T1 (#161, #185, #238). |
+| 2 | working precision | Each result is computed in its *model precision* (T3): the widest of its delivery precision, its argument's precision (and its direction's, for `hessian_vec!`), and its data's precision. |
+| 3 | the problem a mixed call solves | Parameters are rounded once to the model precision. |
+| 4 | rounding that loses range | R3: a rounding that loses range a representable result needs is recovered. |
+| 5 | wider destination | A wider destination is computed in `D` from exactly widened inputs, caches included (#362). |
+| 6 | functions that hold data | The model precision includes the data's precision (T2, T3). |
+| 7 | Float16 | In 0.6, Float16 is rejected by role before writing: as argument, destination, direction or data. |
+| 8 | BigFloat and integers | BigFloat is supported in generic code, with caches keyed by `precision(BigFloat)`; the LAPACK families reject it. |
+| 9 | constructors | Parameters are validated in their own type before any conversion, stored as given or promoted, never narrowed, and never turned from finite positive to `0` or `Inf` (#313, #333). |
+| 10 | range of values | Keep the #283 rule (R1): a normal value is returned with the ordinary accuracy, even when an intermediate leaves the range. |
+| 11 | range of gradients and proximal outputs | R2: every entry of a gradient and of a closed-form proximal output follows R1's rule in `D`. |
+| 12 | subnormal results | Relative accuracy is promised only for normal results. |
+| 13 | form of accuracy guarantees | Per output (A1): each family states the problem it solves, its error scale and its guarantee. |
+| 14 | decisions by kind | A2's table. |
+| 15 | sums and reproducibility | Sums may be reordered. |
+| 16 | membership tolerance | `√eps(T)·max(1, \|bound\|, s)`, with `s` the error scale of the tested quantity. |
+| 17 | rank and zero-mask threshold | `√eps(T)·σ₁`, the package's convention for membership-type decisions. |
+| 18 | decisions in searches | Certify the stored output. |
+| 19 | LAPACK results near a boundary | In-band results are returned as computed, which takes precedence over 18. |
+| 20 | NaN in the argument | NaN propagates to every result that depends on it, and never becomes zeros or `+Inf` through a failed comparison. |
+| 21 | infinite entries | The formula or limit where determined: a norm or an indicator gives `+Inf`. |
+| 22 | zero level | With 40: a zero level removes the finite part and keeps domain constraints, infinite weights included. |
+| 23 | exceptional values across precisions | Exact `Inf` and NaN results survive conversions (#350). |
+| 24 | domains and masks | The value outside the domain is `+Inf`; at a boundary, one-sided limits where finite; small tails stay explicit; masks document their precedence. |
+| 25 | negative and NaN steps | `ArgumentError` before writing (#311). |
+| 26 | zero and infinite steps | Endpoints only where the family names them: at `γ = 0`, the projection onto the closure of the domain; at `γ = Inf`, the projection onto the minimizers, for convex functions that have them; scalar steps on indicators; ridge. |
+| 27 | diagonal metrics that do not fit | A retained scale times ratios; a ratio that underflows is rejected before writing (#257). |
+| 28 | the point of a joint value | `value_and_gradient!` agrees with its standalone oracles, even across precisions (V11). |
+| 29 | approximate projections | Return `0`, documented as not a feasibility certificate. |
+| 30 | wrappers that round between stages | Keep the staging. |
+| 31 | outputs after a failure | By kind. |
+| 32 | aliasing | Keep the current rule; #367 audits. |
+| 33 | sparse and symmetric storage | Keep (#142). |
+| 34 | GPU arrays | The same meaning as on the CPU under A2's rules. |
+| 35 | cost policy | A 5% slowdown triggers investigation; more than 10% paid only by narrow types needs sign-off; narrow-only machinery leaves Float64 within noise; a small fixed cost per call is accepted. |
+| 36 | what the solver decides | Documented: `Inf` means outside the domain or genuine overflow; test acceptance positively and test `isfinite`; commit the checked point; no movement does not distinguish stagnation from a fixed point. |
+| 37 | where this lives and in what order | PR #385 is the record. |
+| 38 | what "unchanged" means | Accuracy, not bits: results stay within their stated accuracy; decisions as A2 specifies them; exact values and classes unchanged. |
+| 39 | `LogDetLoss` | The value is that of the stored output, so a singular stored output gives `Inf`; the verification strategy is chosen by measurement. |
+| 40 | zero level against domain constraints | Zero scaling keeps domain constraints and infinite weights, and is rejected when no domain-preserving proximal representation exists (`NegLog`). |
+| 41 | exception for sizes | `DimensionMismatch`. |
+| 42 | infeasibility found during a search; stopgaps | Infeasibility found during a search raises `ArgumentError` before writing. |
+| 43 | scope of the contract | Every oracle. |
+| 44 | gradients outside the domain | NaN, for the derivative oracles that are supported. |
+| 45 | values of wrappers | A private scaled-result capability; homogeneity recovers overflowing transformed arguments of norms (W1 = `M/2`); other combinations are listed as not covered. |
+| 46 | the line between data and parameters | (b): matrices, the vectors in their equations, and the normals and offsets of linear sets are data. |
+| 47 | non-finite linear coefficients | Rejected at construction. |
 
 ## Types and precision
 
 ### 1. Return and output types (T1)
+
+**Decided** (maintainer, 2026-11-01). Keep T1 (#161, #185, #238). `f(x)` and the value of `value_and_gradient!` have type `float(eltype(x))`, and the value of `value_and_prox!` has `float(eltype(y))`. Written arrays keep their element type, and the allocating forms use `float(eltype(x))`.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** What type does each call return, and what type does it write?
 
@@ -130,9 +138,11 @@ precision. Written arrays keep their element type. For example,
 **Recommendation.** (a), keep. It is what array-language users expect, and
 it is settled.
 
-**Decided:**
-
 ### 2. Working precision (T2)
+
+**Decided** (maintainer, 2026-11-01). Each result is computed in its *model precision* (T3): the widest of its delivery precision, its argument's precision (and its direction's, for `hessian_vec!`), and its data's precision. It is not the promotion of every parameter.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** In what precision is the arithmetic done?
 
@@ -165,9 +175,11 @@ consumer cards run Float64 at 1/32 to 1/64 of the Float32 rate.
 **Recommendation.** (a). Float32 is chosen for speed and memory, and (b)
 spends that choice without asking.
 
-**Decided:**
-
 ### 3. What problem a mixed-precision call solves (T3; Q1; cases V8, V9)
+
+**Decided** (maintainer, 2026-11-01). Parameters are rounded once to the model precision. A combined parameter is formed in `promote_type(W, factor types)`, left to right in the family's documented order, and rounded once, and the rounded values define the model: V3 = `0.5f0`, V8 = `0`, V9 = `0`, V10 = `2^-46`. The bound `eps/2` relative applies to ordinary in-range rounding with a normal result.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** When a parameter is stored in a wider type than the working
 precision, does the result answer the problem with the stored parameter or
@@ -270,9 +282,11 @@ The rule is now stated per result (decision 5). Each result has a *model precisi
 - *Decimal literals.* The claim that `NormL1(0.1)` and `NormL1(0.1f0)` give identical results on Float32 data was false. With `γ = 9f0`, `0.1·9` rounds to `0.9f0` but `0.1f0·9f0` rounds to `nextfloat(0.9f0)`, so at `x = nextfloat(0.9f0)` one returns `2^-24` and the other `0`. Two calls agree when their effective parameters convert to the same value.
 - *Formation of combined parameters.* They are formed in `promote_type(W, factor types)`, left to right in the order the family documents, and that order defines ties.
 
-**Decided:**
-
 ### 4. Parameters whose rounding loses range (R3)
+
+**Decided** (maintainer, 2026-11-01). R3: a rounding that loses range a representable result needs is recovered. The ordinary path is taken only when no partial operation loses range or subnormal bits that a later factor needs; a normal final scalar is not enough (V13).
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Under decision 3, what if rounding a parameter, or a product
 like `γλ`, to the working type overflows to `Inf`, or underflows to zero,
@@ -316,9 +330,11 @@ values in #283.
 
 The package's `_weight_product` already checks the partial product, and returns the right `2^-54` (checked at `3f90a29`). R3 now describes that behavior, and the case becomes a public regression test (V13).
 
-**Decided:**
-
 ### 5. Wider destination (T4; #366 D5)
+
+**Decided** (maintainer, 2026-11-01). A wider destination is computed in `D` from exactly widened inputs, caches included (#362). Widening a coefficient rounded in a narrower type is not recomputing it.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** With a `Float32` argument and a `Float64` output, is the result
 computed in Float64, or computed in Float32 and widened?
@@ -355,9 +371,11 @@ refinement in the wider type.
   - A fused call agrees with its two standalone oracles even when their model precisions differ, so a fused call is only an optimization.
   - Master returns the value `2^-57`, with the same gradient.
 
-**Decided:**
-
 ### 6. Functions that hold data (T2; #366 D6)
+
+**Decided** (maintainer, 2026-11-01). The model precision includes the data's precision (T2, T3). Data are never rounded per call, and the argument is never rounded below the model precision (V12).
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 *Revised 2026-10-31 after the maintainer's question on #385 about a
 `QuadraticFunction` with a `Float32` matrix and a `Float64` argument. The
@@ -459,9 +477,11 @@ Revised recommendation, for every function, not only those that hold data: the m
 
 Data, parameters and bookkeeping are now defined in T2 (decision 46). The measurements cover one layout: n = 2000, a wide argument with a wide output. They do not cover every mixed layout, cached factorization or GPU call.
 
-**Decided:**
-
 ### 7. Float16 (T6; #366 D3)
+
+**Decided** (maintainer, 2026-11-01). In 0.6, Float16 is rejected by role before writing: as argument, destination, direction or data. A Float16 parameter or step in an otherwise supported call is accepted. "Compute in at least Float32" is the rule for when support is added.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** What happens with `Float16` arguments or outputs?
 
@@ -505,9 +525,11 @@ promise is worse than none.
 
 *Revised after ChatGPT's review of Draft 6 (`12-chatgpt-review-of-draft6.md`).* The rule now works by role. In 0.6, a Float16 argument, destination, direction or data is rejected before writing, independently of the model precision. Under T3, a Float16 argument with a Float64 output has Float64 model precision, so "rejected when the model precision would be Float16" did not reject it. A Float16 parameter or step in an otherwise supported call is accepted.
 
-**Decided:**
-
 ### 8. BigFloat, integers and other number types (T1, T7; #366 D9)
+
+**Decided** (maintainer, 2026-11-01). BigFloat is supported in generic code, with caches keyed by `precision(BigFloat)`; the LAPACK families reject it. A fixed-width integer argument gives Float64, `BigInt` gives BigFloat, and an integer destination is rejected for fractional results.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** What is promised for `BigFloat` and integer inputs?
 
@@ -530,9 +552,11 @@ Integers keep the current rule: a fixed-width integer argument gives
 `Float64`, `BigInt` gives `BigFloat`, and an integer destination is rejected
 for fractional results (#366's C7; #363, cited here before, is about integer sums that wrap).
 
-**Decided:**
-
 ### 9. Constructors (T5)
+
+**Decided** (maintainer, 2026-11-01). Parameters are validated in their own type before any conversion, stored as given or promoted, never narrowed, and never turned from finite positive to `0` or `Inf` (#313, #333).
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** What may a constructor do with its parameters?
 
@@ -554,11 +578,13 @@ any conversion; store as given or promoted; never narrow; never let a finite
 positive parameter become `0` or `Inf` through arithmetic at construction.
 The three patterns can stay, because all satisfy the rule.
 
-**Decided:**
-
 ## Range and accuracy
 
 ### 10. Range of values (R1)
+
+**Decided** (maintainer, 2026-11-01). Keep the #283 rule (R1): a normal value is returned with the ordinary accuracy, even when an intermediate leaves the range.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Keep the #283 rule: a value that is a normal number is returned
 with ordinary accuracy, even when an intermediate overflows or underflows.
@@ -576,9 +602,11 @@ accepted: 2–5 ns per call. Case V1: `SqrNormL2(2^-1000)` at `[2^600]` is
 
 **Recommendation.** Keep.
 
-**Decided:**
-
 ### 11. Range of gradients and proximal outputs (R2; Q3)
+
+**Decided** (maintainer, 2026-11-01). R2: every entry of a gradient and of a closed-form proximal output follows R1's rule in `D`. Matrix products, factorizations and searches follow A1.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Does the rule of decision 10 extend to each entry of a gradient
 and of a proximal output?
@@ -616,9 +644,11 @@ points, gradients or other outputs". Examples that fail:
 
 **Recommendation.** (a).
 
-**Decided:**
-
 ### 12. Subnormal results (R1, R4)
+
+**Decided** (maintainer, 2026-11-01). Relative accuracy is promised only for normal results. A subnormal result may be off by about `floatmin` or be zero. A subnormal intermediate that makes a normal result wrong is a bug.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** How accurate must a result below `floatmin` be?
 
@@ -640,9 +670,11 @@ have fewer bits. (a) is the standard model.
 **Recommendation.** (a), keep. A subnormal *intermediate* that makes a
 *normal* result wrong is still a bug (decisions 4 and 11).
 
-**Decided:**
-
 ### 13. The form of accuracy guarantees (A1; #366 D4)
+
+**Decided** (maintainer, 2026-11-01). Per output (A1): each family states the problem it solves, its error scale and its guarantee.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** One universal accuracy promise, or a stated guarantee per kind
 of output?
@@ -673,9 +705,11 @@ price of more documentation.
 
 **Recommendation.** (a).
 
-**Decided:**
-
 ### 14. Thresholds and ties in closed forms (A2)
+
+**Decided** (maintainer, 2026-11-01). A2's table. Entrywise decisions on the model's operands are exact and the same on every path and backend. Decisions on computed reductions are exact comparisons that may differ between paths or backends only within the reductions' error. Search decisions are certified (18). In-band spectral decisions follow 19.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Are closed-form branch decisions exact, or done with a
 tolerance?
@@ -710,9 +744,11 @@ Certification (decision 18) applies only to iterative searches, where the stoppi
 
 A6 and G1 are aligned with this. Draft 5's A6 had sent decisions on reductions to A3, and its G1 had promised identical branches across devices, which reductions cannot guarantee.
 
-**Decided:**
-
 ### 15. Sums and reproducibility (A6)
+
+**Decided** (maintainer, 2026-11-01). Sums may be reordered. Decisions on sums follow A2: exact comparisons in closed forms, certification in searches.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** May sums be reordered for speed, so that the last bits change
 with SIMD width or `--check-bounds`?
@@ -735,11 +771,13 @@ with SIMD width or `--check-bounds`?
 **Recommendation.** (a). #257's CI failures came from a decision taken on a
 reordered sum, and the fix is to certify the decision, not to fix the order.
 
-**Decided:**
-
 ## Decisions and tolerances
 
 ### 16. Membership tolerance (A4)
+
+**Decided** (maintainer, 2026-11-01). `√eps(T)·max(1, |bound|, s)`, with `s` the error scale of the tested quantity. No default tolerance is a fixed number independent of the precision.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** How close to a set must a point be for the indicator's value to
 be `0`?
@@ -771,9 +809,11 @@ spectrum. Remaining gaps are fixed tolerances: `1e-10` in
 
 **Recommendation.** (a). Keep, and remove the fixed defaults.
 
-**Decided:**
-
 ### 17. Rank and zero-mask threshold (A4, A5)
+
+**Decided** (maintainer, 2026-11-01). `√eps(T)·σ₁`, the package's convention for membership-type decisions. It is not a universal numerical rank.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Below what size is a singular value counted as zero?
 
@@ -814,9 +854,11 @@ The recommendation is unchanged.
 
 *Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* `√eps·σ₁` is not uniformly looser than `p·eps·σ₁`: the order reverses for `p > 1/√eps`, about 2,896 in Float32. The draft now describes the package's convention directly.
 
-**Decided:**
-
 ### 18. Decisions in multiplier searches (A3; #366 D1 and D8)
+
+**Decided** (maintainer, 2026-11-01). Certify the stored output. Inside the band, refine, widening the arithmetic on the original call's effective operands without changing the model, or raise the dedicated exception before writing. The mechanism is chosen by measurement.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** `Constrained` on a hyperplane, halfspace, hyperslab or simplex
 searches for a multiplier, and decides when it has found one. What is
@@ -860,9 +902,11 @@ in the implementing PR.
 
 Test references are likewise evaluated after the model's conversions, except where R3 requires recovery.
 
-**Decided:**
-
 ### 19. LAPACK results near a boundary (A5; #366 D10)
+
+**Decided** (maintainer, 2026-11-01). In-band results are returned as computed, which takes precedence over 18. Error bounds state three sources separately, with the storage term `‖E_D‖_F`, the actual or bounded conversion error, not `eps(D)·‖Y‖` in general. Rank truncation promises near-optimal error and the stored matrix's rank only when a bound certifies it, and a fused rank-indicator value describes the stored matrix. `IndStiefel` has its own row.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** When an eigenvalue lies within LAPACK's error of a boundary
 (zero for the PSD cone, the `k`-th singular value for a rank ball), what is
@@ -909,11 +953,13 @@ The fused value of `IndBallRank` must then describe the stored matrix (O2). At `
 
 Recommendation: the value is `0` when the bound certifies membership, which needs no second decomposition on ordinary inputs. Otherwise the stored matrix's membership is evaluated.
 
-**Decided:**
-
 ## Special values
 
 ### 20. NaN in the argument (E2; Q2)
+
+**Decided** (maintainer, 2026-11-01). NaN propagates to every result that depends on it, and never becomes zeros or `+Inf` through a failed comparison. This reverses #343's `Inf` for NaN entries and resolves #349 as NaN.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** What do the value and the outputs give when the argument has a
 NaN entry?
@@ -981,9 +1027,11 @@ through a failed comparison; the `NormL2` and `GroupNormL2` results are bugs
 regardless. This also resolves #349 (NaN) and removes the spectral exception
 from rule O3.
 
-**Decided:**
-
 ### 21. Infinite entries (E3)
+
+**Decided** (maintainer, 2026-11-01). The formula or limit where determined: a norm or an indicator gives `+Inf`. Where the value is undetermined, including path-dependent limits, it is NaN.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** What do `±Inf` entries of the argument give?
 
@@ -1006,9 +1054,11 @@ convention of convex analysis (a function is `+∞` outside its domain).
 
 *Corrected after ChatGPT's review of Draft 4 (`07-chatgpt-review-of-draft4.md`).* Draft 4 said a convex quadratic gives `+Inf` at infinite entries. That is wrong in general: `(x₁ - x₂)²/2` tends to `0` along `(t, t)` and to `1/2` along `(t, t + 1)`. At `(Inf, Inf)` the value is not determined, so it is NaN, as the formula's `Inf - Inf` gives. The examples are now a norm (`+Inf`) and an indicator (`+Inf`).
 
-**Decided:**
-
 ### 22. Zero level, zero weights and infinite weights (E4)
+
+**Decided** (maintainer, 2026-11-01). With 40: a zero level removes the finite part and keeps domain constraints, infinite weights included. It is the zero function only when there are none.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** What does a zero level mean, and how do zero and infinite
 coordinate weights behave?
@@ -1038,9 +1088,11 @@ through rounding (decision 4).
 **Changes.** The `SqrNormL2(0)` gradient. `NuclearNorm(0)` at NaN gives `0`
 instead of `Inf`.
 
-**Decided:**
-
 ### 23. Exceptional values across precisions (E5; #350)
+
+**Decided** (maintainer, 2026-11-01). Exact `Inf` and NaN results survive conversions (#350). Non-finite intermediates from finite inputs are recovered (R1–R3).
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Is an `Inf` or NaN that is the exact answer, such as an
 indicator outside its set, kept when a wrapper converts or recomputes in
@@ -1055,9 +1107,11 @@ and 11).
 
 **Precedent.** IEEE conversions preserve `Inf` and NaN.
 
-**Decided:**
-
 ### 24. Domains and masks (E6)
+
+**Decided** (maintainer, 2026-11-01). The value outside the domain is `+Inf`; at a boundary, one-sided limits where finite; small tails stay explicit; masks document their precedence.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** What does a finite point outside the domain give, and how do
 observation masks work?
@@ -1078,11 +1132,13 @@ and ProximalOperators.jl indicators. Julia's `log(-1)` and LogExpFunctions'
 `xlogx(-1)` throw a `DomainError` instead. An optimization oracle owes the
 line search `+Inf`, not an exception.
 
-**Decided:**
-
 ## Steps
 
 ### 25. Negative and NaN steps (P1; #311)
+
+**Decided** (maintainer, 2026-11-01). `ArgumentError` before writing (#311).
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** What happens with a negative or NaN step?
 
@@ -1106,9 +1162,11 @@ ProximalOperators.jl does not check. The package already throws
 
 **Recommendation.** (a).
 
-**Decided:**
-
 ### 26. Zero and infinite steps (P1)
+
+**Decided** (maintainer, 2026-11-01). Endpoints only where the family names them: at `γ = 0`, the projection onto the closure of the domain; at `γ = Inf`, the projection onto the minimizers, for convex functions that have them; scalar steps on indicators; ridge. Other endpoints are rejected before writing.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Are `γ = 0` and `γ = Inf` allowed?
 
@@ -1132,9 +1190,11 @@ zero (case S7: the limit can be `(½, ½)` or `(⅓, ⅔)`).
 - *Convex functions.* The limit is the projection onto the closure of the domain, which is the identity only inside it. For `f(z) = -log z` at `x = -1`, `prox_{γf}(x) = (-1 + √(1 + 4γ))/2`, which tends to `0`.
 - *Nonconvex separable functions with full domain* (`MCP`, `SCAD`, `NormL0`). The limit is the identity.
 
-**Decided:**
-
 ### 27. Diagonal metrics that do not fit the working type (P3; #366 D7)
+
+**Decided** (maintainer, 2026-11-01). A retained scale times ratios; a ratio that underflows is rejected before writing (#257).
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** What happens to array steps that round to zero in the working
 type?
@@ -1157,11 +1217,13 @@ needs the actual `γλ`. (b) is simple but refuses valid input.
 
 **Recommendation.** (a). A ratio that underflows is rejected before writing.
 
-**Decided:**
-
 ## Agreement between oracles
 
 ### 28. The point a joint value describes (O1, O2)
+
+**Decided** (maintainer, 2026-11-01). `value_and_gradient!` agrees with its standalone oracles, even across precisions (V11). `value_and_prox!` returns the value of the converted model at the stored output.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** At which point does a joint call report its value?
 
@@ -1182,9 +1244,11 @@ needs the actual `γλ`. (b) is simple but refuses valid input.
 - NLSolversBase's `value_gradient!`, Zygote's `withgradient` and JAX's
   `value_and_grad` all evaluate at the input.
 
-**Decided:**
-
 ### 29. Approximate projections (O3)
+
+**Decided** (maintainer, 2026-11-01). Return `0`, documented as not a feasibility certificate.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** What value does an iterative projection such as
 `IndIntersection` (Dykstra's algorithm) return with its point?
@@ -1203,9 +1267,11 @@ current documented behavior.
 **Recommendation.** (a). It becomes the only named exception to "value at
 the stored output", now that decision 20 removes the spectral one.
 
-**Decided:**
-
 ### 30. Wrappers that round between stages (O4)
+
+**Decided** (maintainer, 2026-11-01). Keep the staging. Lipschitz stages carry a bound with their amplification factors; discontinuous inner maps promise the staged model and its tie rule.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** In mixed precision, `Translate` and `Tilt` round the shifted
 argument to the output type before calling the inner function. Remove the
@@ -1227,9 +1293,11 @@ the error is in the scale of the shifted quantity the user built.
 
 *Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* The additive bound holds only for Lipschitz inner maps, with each stage's amplification factor. For a discontinuous inner map the staged model and its tie rule are promised instead. `Translate(NormL0(0.5), [-2^-26])` at `1.0` gives `Float32[-2^-26]` with a Float32 output and `[1.0]` with a Float64 output (checked at `3f90a29`).
 
-**Decided:**
-
 ### 31. Errors before writes (O6)
+
+**Decided** (maintainer, 2026-11-01). By kind. Validation raises `DimensionMismatch` for sizes, otherwise `ArgumentError`, before writing. Infeasibility found during a search raises `ArgumentError` before writing. Certification failures and unrepresentable results raise the dedicated exception before writing. A failure inside an external library is documented per family.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Keep the settled rule that a call raising an `ArgumentError`
 leaves every caller-owned output unchanged, tuple blocks and iterate storage
@@ -1254,9 +1322,11 @@ C++ calls this the strong exception guarantee.
 
 *Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* Sizes raise `DimensionMismatch`, not `ArgumentError` (decision 41). Infeasibility found during a search and arithmetic stopgaps get their own categories (decision 42). Tests include a late certification failure in a composed or in-place call.
 
-**Decided:**
-
 ### 32. Aliasing (O7; #367)
+
+**Decided** (maintainer, 2026-11-01). Keep the current rule; #367 audits.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Keep the current rule for outputs that are also inputs?
 
@@ -1275,9 +1345,11 @@ every oracle against this rule.
 
 **Recommendation.** Keep, and let #367 finish the audit.
 
-**Decided:**
-
 ### 33. Sparse and symmetric storage (M1, M2)
+
+**Decided** (maintainer, 2026-11-01). Keep (#142).
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Keep the rules for implicit zeros and stored multiplicity?
 
@@ -1288,11 +1360,13 @@ written once. The symmetric-parameter rule of #142 applies.
 
 **Recommendation.** Keep; both are settled.
 
-**Decided:**
-
 ## Devices, cost and the solver
 
 ### 34. GPU arrays (G1–G6)
+
+**Decided** (maintainer, 2026-11-01). The same meaning as on the CPU under A2's rules. No bitwise promise, no fast-math where NaN and `Inf` must be told apart, and host-side scalar decisions (#322).
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** What is promised on a GPU?
 
@@ -1318,9 +1392,11 @@ written once. The symmetric-parameter rule of #142 applies.
 - a backend without a method raises an error and is not called inaccurate;
 - JLArrays tests dispatch, not hardware behavior.
 
-**Decided:**
-
 ### 35. Cost policy (C1–C3; #366 D2)
+
+**Decided** (maintainer, 2026-11-01). A 5% slowdown triggers investigation; more than 10% paid only by narrow types needs sign-off; narrow-only machinery leaves Float64 within noise; a small fixed cost per call is accepted. Numerical non-regression is decision 38, not bits.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** What cost may the guarantees add?
 
@@ -1343,9 +1419,11 @@ widening of whole arrays.
 **Precedent.** BLAS and LAPACK pay a fixed cost for safe scaling. Julia's
 `norm` does an extra pass to scale.
 
-**Decided:**
-
 ### 36. What the solver decides (documentation only)
+
+**Decided** (maintainer, 2026-11-01). Documented: `Inf` means outside the domain or genuine overflow; test acceptance positively and test `isfinite`; commit the checked point; no movement does not distinguish stagnation from a fixed point.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Not a decision, but the contract should say what is left to
 solvers.
@@ -1372,9 +1450,11 @@ a limit. Optim.jl keeps the last accepted iterate.
 - *Finiteness.* A solver that requires finite evaluations tests `isfinite` as well as decrease, since `Inf <= Inf` is true.
 - *No movement.* It does not distinguish stagnation from a fixed point.
 
-**Decided:**
-
 ### 37. Where this lives, and in what order
+
+**Decided** (maintainer, 2026-11-01). PR #385 is the record. `docs/src/numerics.md` carries the contract, with summaries in the interface, architecture, extending and migration pages. #366 becomes the implementation tracker, starting with a reconciliation table.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Where does the design live, and in what order does the work
 happen?
@@ -1396,11 +1476,13 @@ happen?
   case, and status. It begins with V3, V8 and V9, one #151 search case and
   one #362 wider-destination projection, before any patch.
 
-**Decided:**
-
 ## Added after Draft 4
 
 ### 38. What "unchanged" means: the same bits, or the same accuracy (C1, R1, R3)
+
+**Decided** (maintainer, 2026-11-01). Accuracy, not bits: results stay within their stated accuracy; decisions as A2 specifies them; exact values and classes unchanged. Bitwise comparison is a test technique, not a promise.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 *Added 2026-10-31 after the maintainer's question on #385: "why we insist
 of things being bit for bit the same … I think things should be the same
@@ -1487,9 +1569,11 @@ ProximalBase versions on one machine.
 
 *Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* "Decisions stay exact" is refined by decision 14's table. Entrywise decisions on identical operands stay exact. A decision on a computed reduction may change only within the reduction's error bound. A family whose quantitative bound is still pending is checked against independent references with a stated error budget, not against a blanket `isapprox`.
 
-**Decided:**
-
 ### 39. `LogDetLoss`: the value at a stored output that rounds to singular, and saturation (O2, O3, R4)
+
+**Decided** (maintainer, 2026-11-01). The value is that of the stored output, so a singular stored output gives `Inf`; the verification strategy is chosen by measurement. Matrix reconstructions may saturate within their normwise bound, and R4 applies to entrywise results. It is a documented transitional exception until implemented.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 *Added after ChatGPT's review of Draft 4 (`07`), which found an existing
 exception that Draft 4 omitted.*
@@ -1538,14 +1622,16 @@ The new fixture, checked at `3f90a29`: `LogDetLoss(zeros(2, 2))`, step 1, at `[0
 
 The draft now states current behavior, the 0.6 target and the approval status separately.
 
-**Decided:**
-
 ## Added after Draft 5
 
 *Decisions 40–47 answer the gaps in the contract text found by the screen of
 open issues (`10-impact-on-open-issues.md`).*
 
 ### 40. A zero level against domain constraints (E4)
+
+**Decided** (maintainer, 2026-11-01). Zero scaling keeps domain constraints and infinite weights, and is rejected when no domain-preserving proximal representation exists (`NegLog`).
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Draft 5 said a zero level makes the function "identically zero".
 The calculus page and PR #300 (#141) say instead that an infinite coordinate
@@ -1568,9 +1654,11 @@ of the package: an infinite weight is a constraint, not a large penalty.
 
 *Revised after ChatGPT's review of Draft 6 (`12-chatgpt-review-of-draft6.md`).* The existing qualification stays: zero scaling is rejected when no domain-preserving proximal representation exists. `NegLog` at zero scale would be the indicator of the open half-line, which has no closest point to `-1`. `Scaled(NegLog(), 0)` throws today (checked at `3f90a29`). This differs from the limit of `NegLog`'s proximal point as a positive step tends to zero (decision 26).
 
-**Decided:**
-
 ### 41. The exception for sizes (E1, O6)
+
+**Decided** (maintainer, 2026-11-01). `DimensionMismatch`.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Draft 5 said shape violations raise `ArgumentError`. `src/`
 throws `DimensionMismatch` for size mismatches in about 150 places
@@ -1588,9 +1676,11 @@ throws `DimensionMismatch` for size mismatches in about 150 places
 **Recommendation.** (a). It is the current code and Julia's convention. The
 promise that outputs stay unchanged is the same for both.
 
-**Decided:**
-
 ### 42. Infeasibility found during a search, and arithmetic stopgaps (O6)
+
+**Decided** (maintainer, 2026-11-01). Infeasibility found during a search raises `ArgumentError` before writing. An arithmetic stopgap raises the dedicated exception before writing.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** O6 had no category for two kinds of failure:
 
@@ -1615,9 +1705,11 @@ an `ArgumentError`. The stopgap is a precision failure, so it is the dedicated
 exception. In both cases outputs stay unchanged; for block functions that
 means deciding before writing any block (#323).
 
-**Decided:**
-
 ### 43. The scope of the contract (S2)
+
+**Decided** (maintainer, 2026-11-01). Every oracle. `kkt_violation` and model weights follow the value rules. `restrict` as the interface states it: the objective up to a constant, the gradient by its supported entries, the proximal operator over the support. Quadratic models are judged by their effective coefficients: a finite one is returned (P3); an unrepresentable one raises the dedicated exception before writing `q` (P2, P2m).
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Draft 5's S2 covered values, gradients, proximal outputs and
 decisions. It left out `kkt_violation`, `quadratic_model` and
@@ -1654,9 +1746,11 @@ Tests:
 - a mutating counterpart P2m, which starts from a valid `q`, overflows a *later* observation, and checks that `q` is unchanged;
 - the success control P3.
 
-**Decided:**
-
 ### 44. Gradients outside the domain (E6)
+
+**Decided** (maintainer, 2026-11-01). NaN, for the derivative oracles that are supported.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** E6 said values outside the domain are `+Inf`, but gave no rule
 for gradients there. #226 proposes "`NaN` derivatives outside the domain, as
@@ -1673,9 +1767,11 @@ for `LogDetLoss`".
 
 **Recommendation.** (a).
 
-**Decided:**
-
 ### 45. Values of wrappers around arbitrary inner functions (R1)
+
+**Decided** (maintainer, 2026-11-01). A private scaled-result capability; homogeneity recovers overflowing transformed arguments of norms (W1 = `M/2`); other combinations are listed as not covered. No public hook in 0.6.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** R1 promises a normal value whatever the intermediates. A wrapper
 around an arbitrary inner function, such as `Scaled(f, α)` with tiny `α` and
@@ -1725,9 +1821,11 @@ S4's promise for user functions is qualified accordingly in the support matrix.
 
 Recommendation: supported. `Translate` and `Precompose` of a positively homogeneous inner function, the norms, recover through homogeneity, so W1 returns `M/2`. This is #357's own proposal for homogeneous inner functions. Other combinations are listed as not covered, with their issues.
 
-**Decided:**
-
 ### 46. The normals and offsets of sets (T2)
+
+**Decided** (maintainer, 2026-11-01). (b): matrices, the vectors in their equations, and the normals and offsets of linear sets are data. Levels, coordinate weights, centers, bounds and steps are parameters.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** Are the normal `a` and offset `b` of `IndHyperplane`,
 `IndHalfspace` and `IndHyperslab` parameters, rounded to the model precision
@@ -1784,9 +1882,11 @@ ChatGPT rejects (c), every array as data, as a fix for this problem alone:
 
 The line between data and parameters becomes: matrices, the vectors in their equations, and the defining geometry of linear sets are data; levels, coordinate weights, centers, bounds and steps are parameters. The cost of the mixed geometry path is to be measured. Under T6, a Float16 normal is data and is rejected.
 
-**Decided:**
-
 ### 47. Non-finite linear coefficients (M1)
+
+**Decided** (maintainer, 2026-11-01). Rejected at construction.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** May the coefficients of `LinearFunction` and `Tilt` be `±Inf`? If
 they may, a sparse dot cannot skip unstored entries, since `Inf·0` is NaN
@@ -1803,8 +1903,6 @@ real-valued function, so (b) gains nothing. Constructors already reject NaN
 levels (decision 22).
 
 **Recommendation.** (a).
-
-**Decided:**
 
 ## Evidence used
 

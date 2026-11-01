@@ -33,13 +33,16 @@ others) may be reversed here.
 | `12-chatgpt-review-of-draft6.md` | ChatGPT | review of Draft 6: approves the architecture; narrows decision 45, fixes the stored-matrix bounds, asks for a usable quadratic model, Float16 by role |
 | `13-claude-draft7.md` | Claude | Draft 7: Draft 6 revised for the review |
 | `14-chatgpt-review-of-draft7.md` | ChatGPT | review of Draft 7: approves it as the design baseline; the stored-rank claim, R3's partial products, refinement against model change, and a vote for (b) on decision 46 |
-| `15-claude-draft8.md` | Claude | **the current draft**: Draft 7 revised for the review |
+| `15-claude-draft8.md` | Claude | Draft 8, the final draft |
+| `16-chatgpt-signoff-review-of-draft8.md` | ChatGPT | sign-off: approves decisions 1–47 in their final form, with one A5 correction and a ledger cleanup |
 | `bench-q1-threshold.jl`, `bench-d6-quadratic.jl` | Claude | measurements for decisions 3 and 6 |
 
 ## Process
 
 1. The maintainer answers the decisions in `05-decisions.md` in comments on
    the pull request (#385), where all discussion of the design takes place.
+   **Done 2026-11-01:** all 47 approved ("go with recommendations"); each
+   entry now opens with its **Decided** line.
 2. Each answer is recorded as a commit to `05-decisions.md` (the "Decided"
    line of that decision), and the draft is revised to match.
 3. When every decision is answered, the agreed contract is written to

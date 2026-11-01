@@ -66,7 +66,7 @@ mathematical paper never needs.
 | 16 | membership tolerance | `√eps·max(1, \|bound\|, s)` | no (gaps fixed) |
 | 17 | rank and zero-mask threshold | `√eps·σ₁` | no |
 | 18 | decisions in searches | certify; refine, else "cannot certify" | yes (#151, #257) |
-| 19 | LAPACK results near a boundary | relative band, results as computed | no |
+| 19 | LAPACK results near a boundary | relative band, results as computed; rank truncation promises near-optimality | no |
 | 20 | NaN in the argument | NaN spreads to what depends on it | yes |
 | 21 | infinite entries | formula or limit, else NaN | small |
 | 22 | zero level, zero and infinite weights | zero level is the zero function | yes |
@@ -78,13 +78,15 @@ mathematical paper never needs.
 | 28 | the point of a joint value | the stored output | no |
 | 29 | approximate projections | value `0`, not a certificate | no |
 | 30 | wrappers that round between stages | keep; document a bound | no |
-| 31 | errors before writes | keep | no |
+| 31 | outputs after a failure | by kind of failure; dedicated exception for certification failures | small |
 | 32 | aliasing | keep the current rule; #367 audits | no |
 | 33 | sparse and symmetric storage | keep (#142) | no |
 | 34 | GPU arrays | same meaning as on the CPU | small |
 | 35 | cost policy | three separate thresholds | no |
 | 36 | what the solver decides | documentation only | no |
 | 37 | where this lives and in what order | this PR, then #366 as tracker | — |
+| 38 | what "unchanged" means | the same accuracy, not the same bits | documentation and tests only |
+| 39 | `LogDetLoss` value at a singular stored output; saturation | value at the stored output (measured); saturation allowed for matrices | yes |
 
 ## Types and precision
 
@@ -246,6 +248,15 @@ should be stated as a general rule for entrywise differences, not a list.
 product `γλ` once (fixes V3). Draft 3's case table and rule O2 are updated to
 match.
 
+*Revised after ChatGPT's review of Draft 4 (`07-chatgpt-review-of-draft4.md`).* ChatGPT now endorses (a), with `V8 = 0` and `V9 = 0`, and withdraws its earlier preference for (c). It corrects the justification, rightly:
+
+- a stored `1f0` is exactly one, not uncertain by one `eps`;
+- rounding a parameter does not make the algorithm that follows backward stable.
+
+The honest reason for (a) is a deliberate choice of model: one rule, native-precision speed, and the same result for `NormL1(0.1)` and `NormL1(0.1f0)` on Float32 data. Rounding a parameter once changes it by at most `eps/2` relative, the smallest change the result's precision can express. The measurements cover soft thresholding on one Apple M3. They do not establish the cost for centered ridge, for GPUs, or for other implementations.
+
+The rule is now stated per result (decision 5). Each result has a *model precision*, the working type of decision 2 for that result. Combined parameters such as `γλ` are formed in a precision no narrower than the model precision or the factors' promoted type, then rounded once (V10, V11).
+
 **Decided:**
 
 ### 4. Parameters whose rounding loses range (R3)
@@ -318,6 +329,14 @@ double and returns double. LAPACK's mixed-precision solvers do the
 refinement in the wider type.
 
 **Recommendation.** (a).
+
+*Revised after ChatGPT's review of Draft 4 (`07-chatgpt-review-of-draft4.md`).* Draft 4's T3 formed `γλ` "in the promoted type of its factors", while T4 computed in a wider destination "from exactly widened inputs". The two disagree when the destination is wider than the factors.
+
+- *V10.* `λ = 1 + 2^-23` and `γ = 1 - 2^-23` in Float32, `x = Float32[1]`, Float64 output. The exact product is `1 - 2^-46`. Multiplying the Float32 factors gives `1f0`, and the result `0`. Widening first gives `2^-46`. Master returns `0`, because the separable kernels compute in the argument's type.
+  - Recommendation: `2^-46`. Combined parameters are formed in a precision no narrower than the model precision of the result.
+- *V11, the consequence for fused calls.* With `x = Float32[1]`, a Float64 center `1 + 2^-28` and a Float64 gradient output, `value_and_gradient!` returns the Float32 value `0f0`, because the Float32 model's center is `1f0`. It writes the Float64 gradient `[-2^-28]`.
+  - A fused call agrees with its two standalone oracles even when their model precisions differ, so a fused call is only an optimization.
+  - Master returns the value `2^-57`, with the same gradient.
 
 **Decided:**
 
@@ -649,6 +668,12 @@ penalty does.
 
 **Recommendation.** (a). It holds today on all four paths for V8.
 
+*Revised after ChatGPT's review of Draft 4 (`07-chatgpt-review-of-draft4.md`).* "Closed form" does not settle whether a decision needs certification: a group-norm threshold compares a computed reduction, `‖x_g‖`, with `γλ`.
+
+Recommendation: closed-form decisions are exact comparisons on the operands as computed, with no tolerance and no certification band. Parameters are rounded under decision 3; reductions are computed to their A1 accuracy. The decision is then exact for an argument perturbed within the reduction's error.
+
+Certification (decision 18) applies only to iterative searches, where the stopping test can be far from the returned point, as in #151.
+
 **Decided:**
 
 ### 15. Sums and reproducibility (A6)
@@ -743,6 +768,14 @@ than numerical rank. The question it answers is whether the matrix lies
 within tolerance of the rank-`k` set, the same question every indicator
 answers.
 
+*Corrected after ChatGPT's review of Draft 4 (`07-chatgpt-review-of-draft4.md`).* The numerical-rank thresholds differ by library:
+
+- Julia's `rank`: `min(m, n)·eps·σ₁`;
+- NumPy's `matrix_rank`: `max(M, N)·eps·σ_max`;
+- MATLAB's `rank`: `max(size(A))·eps(norm(A))`.
+
+The recommendation is unchanged.
+
 **Decided:**
 
 ### 18. Decisions in multiplier searches (A3; #366 D1 and D8)
@@ -803,6 +836,15 @@ returned?
 and `svd` return results as computed; no common library recomputes.
 
 **Recommendation.** (a). Add (b) only for a measured case.
+
+*Revised after ChatGPT's review of Draft 4 (`07-chatgpt-review-of-draft4.md`).* Draft 4's A5 claimed that a projection onto the PSD cone or a rank ball, or a spectral proximal map, is accurate to `c·p·eps·‖X‖`.
+
+- *Where it holds.* The PSD projection and the proximal maps of convex spectral functions are nonexpansive. A backward error in `X` gives at most the same forward error, in the Frobenius norm.
+- *Where it fails.* A rank-ball projection is not continuous. `diag(1 + δ, 1)` and `diag(1, 1 + δ)` are `δ√2` apart, but their best rank-one approximations keep different axes and are about `√2` apart. At `δ = 0` the best approximation is not unique.
+
+Recommendation for rank truncation: promise rank feasibility and near-optimal error, `‖X - Y‖ ≤ ‖X - X_k‖ + c·p·eps·‖X‖`. Promise closeness to a particular best approximation only when the gap `σ_k - σ_{k+1}` is well above `eps·‖X‖`.
+
+Also state that this decision's policy, returning in-band results as computed, takes precedence over decision 18's refine-or-throw for the LAPACK families.
 
 **Decided:**
 
@@ -898,6 +940,8 @@ such as the indicator's `+Inf`.
 
 **Precedent.** IEEE arithmetic with infinities, and the extended-value
 convention of convex analysis (a function is `+∞` outside its domain).
+
+*Corrected after ChatGPT's review of Draft 4 (`07-chatgpt-review-of-draft4.md`).* Draft 4 said a convex quadratic gives `+Inf` at infinite entries. That is wrong in general: `(x₁ - x₂)²/2` tends to `0` along `(t, t)` and to `1/2` along `(t, t + 1)`. At `(Inf, Inf)` the value is not determined, so it is NaN, as the formula's `Inf - Inf` gives. The examples are now a norm (`+Inf`) and an indicator (`+Inf`).
 
 **Decided:**
 
@@ -1020,6 +1064,11 @@ zero (case S7: the limit can be `(½, ½)` or `(⅓, ⅔)`).
 
 **Recommendation.** (a).
 
+*Corrected after ChatGPT's review of Draft 4 (`07-chatgpt-review-of-draft4.md`).* Draft 4 said the zero-step limit of a separable function is the identity.
+
+- *Convex functions.* The limit is the projection onto the closure of the domain, which is the identity only inside it. For `f(z) = -log z` at `x = -1`, `prox_{γf}(x) = (-1 + √(1 + 4γ))/2`, which tends to `0`.
+- *Nonconvex separable functions with full domain* (`MCP`, `SCAD`, `NormL0`). The limit is the identity.
+
 **Decided:**
 
 ### 27. Diagonal metrics that do not fit the working type (P3; #366 D7)
@@ -1130,6 +1179,14 @@ C++ calls this the strong exception guarantee.
 
 **Recommendation.** Keep.
 
+*Revised after ChatGPT's review of Draft 4 (`07-chatgpt-review-of-draft4.md`).* The guarantee on outputs depends on the kind of failure, not on the exception type.
+
+1. *Validation:* shapes, types, steps and parameters, detected before any work. The call raises an `ArgumentError` and leaves outputs unchanged. Settled.
+2. *Certification failure in a search* (decision 18), detected during the work. It is raised before the output is written, so outputs are unchanged.
+   - Recommendation: a dedicated exception type. It lets a solver tell "cannot certify in this precision; retry in Float64" apart from "your input is invalid".
+   - Precedent: LinearAlgebra's `PosDefException`, `SingularException` and `LAPACKException`.
+3. *Failure inside an external library,* such as a LAPACK error. That library's exception propagates, and the family documents which outputs remain valid.
+
 **Decided:**
 
 ### 32. Aliasing (O7; #367)
@@ -1238,6 +1295,11 @@ solvers.
 **Precedent.** LineSearches.jl halves on non-finite values and throws after
 a limit. Optim.jl keeps the last accepted iterate.
 
+*Corrected after ChatGPT's review of Draft 4 (`07-chatgpt-review-of-draft4.md`).*
+
+- *`Inf` values.* An `Inf` trial value means the trial is outside the domain, *or* its value genuinely overflows. In V7 the point is in the domain, the value is `+Inf`, and the gradient is `[4.0]`. A solver that requires a finite objective rejects both, but should not report infeasibility.
+- *No movement.* A step that changes no stored entry is stagnation *or* an exact fixed point; no movement alone proves either.
+
 **Decided:**
 
 ### 37. Where this lives, and in what order
@@ -1261,6 +1323,140 @@ happen?
   oracle, the problem after conversion, the promised result, the acceptance
   case, and status. It begins with V3, V8 and V9, one #151 search case and
   one #362 wider-destination projection, before any patch.
+
+**Decided:**
+
+## Added after Draft 4
+
+### 38. What "unchanged" means: the same bits, or the same accuracy (C1, R1, R3)
+
+*Added 2026-10-31 after the maintainer's question on #385: "why we insist
+of things being bit for bit the same … I think things should be the same
+within precision of the type, not necessarily bit for bit."*
+
+**Decide.** When code changes, or when two paths compute the same result, must
+results agree bit for bit, or within the stated accuracy?
+
+**Where bits are promised today.**
+
+- The interface page's overflow rule: "Ordinary inputs therefore give the
+  same bits as the ordinary expression", and in its cost paragraph, "keeps
+  ordinary results bit for bit what they were".
+- #366's C0 and Draft 4's C1: all-Float64 calls keep their bits, except
+  listed correctness repairs, each named in its PR.
+- #238: results with the argument and the parameters in one precision must
+  stay bitwise unchanged.
+- Six test files compare results bitwise as a regression technique:
+  `conjugate_steps.jl`, `fibers.jl`, `spectral_domain.jl`,
+  `spectral_overflow.jl`, `precision_mixed.jl` and `stepchecks.jl`.
+
+**Why bits were used.** A bitwise check is the cheapest strong test that a
+refactor did not change ordinary results, for example that adding a recovery
+path left the fast path alone. It also keeps solver runs identical across
+ProximalBase versions on one machine.
+
+**Options.**
+
+- **(a) Bits.** Keep the bitwise promise for ordinary inputs and for
+  all-Float64 calls.
+  - *Pros.* Trivial to test. It catches any change, including a small loss of
+    accuracy that a loose tolerance would miss. Solver runs are identical
+    across versions on one machine.
+  - *Cons.* It forbids harmless improvements: fused multiply-add
+    (`muladd`), pairwise or compensated sums, SIMD reorganization, a more
+    accurate formula. Each becomes a listed exception. It cannot hold across
+    Julia versions, BLAS libraries (OpenBLAS, MKL) or CPUs anyway, so users
+    cannot rely on it. And tests fail on changes that are not bugs.
+- **(b) Accuracy.** A result stays within its stated accuracy (decision
+  13), decisions and exact values stay exact, and classes (finite, `Inf`,
+  NaN) do not change. Last-bit changes within the accuracy are allowed; a PR
+  that changes all-Float64 results says so.
+  - *Pros.* It promises what users can rely on and allows improvements.
+    Tests check against independent references, which catch real bugs.
+  - *Cons.* A small loss of accuracy, such as 1 ulp becoming 10, passes
+    unless the tolerances are tight, so tests need ulp-based bounds and
+    references. In ill-conditioned or nonconvex problems, a last-bit change
+    can change a solver's iteration count or path.
+- **(c) No rule.**
+
+**What stays exact under (b).** Everything discrete or exact by construction:
+
+- decisions: zero or nonzero, threshold branches, ties, membership, ranks,
+  and the branch agreement of the entrywise, coordinate, whole-array and
+  aliased paths (decision 14);
+- exact values: a clamp returns the bound; an identity step copies the
+  argument, including the sign of zero; a projection of a point already in
+  the set returns it unchanged;
+- classes: finite, `Inf`, NaN.
+
+**Precedent.**
+
+- PyTorch's reproducibility notes say completely reproducible results are not
+  guaranteed across releases, commits or platforms.
+- Julia's `muladd` may or may not be fused, and its documentation says the
+  result can differ across machines, and even on one machine.
+- LAPACK promises error bounds, not bits, and OpenBLAS and MKL give different
+  bits. MKL's bit-reproducible mode (CNR) is opt-in, as is the reproducibility
+  clause of IEEE 754-2008.
+- Julia's own tests check elementary functions in ulps, not bits.
+
+**Recommendation.** **(b)**, as the maintainer suggests.
+
+- The fast-path design of decision 10 stays, justified by speed: ordinary
+  inputs take the ordinary computation without paying for scaling.
+- Bitwise comparison stays available as a test technique for a change meant
+  to leave results alone, but a bitwise difference within the accuracy is not
+  a regression.
+- C1 and the interface page's wording change.
+- The existing bitwise tests stay where they test exact values or decisions,
+  and become reference comparisons elsewhere.
+
+**Changes.** Documentation and test practice only; no results change.
+
+**Decided:**
+
+### 39. `LogDetLoss`: the value at a stored output that rounds to singular, and saturation (O2, O3, R4)
+
+*Added after ChatGPT's review of Draft 4 (`07`), which found an existing
+exception that Draft 4 omitted.*
+
+**Decide.** `LogDetLoss`'s docstring, at `3f90a29`, says two things that
+conflict with Draft 4:
+
+- "The log-determinant uses the mapped roots and the trace uses the stored
+  output. That output can round to a singular matrix, so the returned value
+  can be finite even when `f(Y)` is `Inf`." This conflicts with O2, under
+  which the value is that of the stored output.
+- "Entries exceeding `floatmax` within the reconstruction's rounding bound
+  saturate." This conflicts with R4, which allows no saturation.
+
+**Options for the value.**
+
+- *(a) Keep it as a named exception to O2.* No cost. But a solver can hold a
+  matrix outside the domain with a finite objective.
+- *(b) Migrate to O2.* Compute the log-determinant of the stored output, for
+  example from its Cholesky factorization, so that a singular stored output
+  gives `Inf`.
+  - *Cost.* A Cholesky factorization is about `n³/3` flops, small next to
+    the eigendecomposition the proximal operator already performs, which is
+    several times `n³`. To be measured.
+  - *Pros.* The solver knows whether the matrix it holds is in the domain.
+
+**Options for saturation.**
+
+- *(a) Allow it for matrix reconstructions,* within their normwise bound
+  (decision 19), and restrict R4's "no saturation" to entrywise results
+  (decisions 10 and 11). An entry saturating at `floatmax` lies within the
+  reconstruction's normwise error.
+- *(b) Return `Inf` in those entries.* Then the whole matrix is unusable.
+
+**Recommendation.**
+
+- *Value:* (b), migrate. Add an acceptance case, an input whose smallest
+  mapped root is below `eps·‖Y‖` so that the stored output rounds to
+  singular, and measure the cost. Until then, list it as the second named
+  exception to O2.
+- *Saturation:* (a). R4 applies to entrywise results.
 
 **Decided:**
 

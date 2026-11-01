@@ -6,11 +6,11 @@
 > [migration and acceptance guide](symmetric-sparse-iterate-0.6-acceptance.md)
 > links back to it and restates none of its rules.
 
-> **Proposed amendment and extensions from the iterate-family contract
-> (#400).** The [iterate-family contract](iterate-family-0.6.md) proposes one change
-> to this file and extends several of its rules without changing them. The
-> extensions were signed off there on 2026-11-01. Until the maintainer signs off
-> the change (FD-9), the rules of this file stand as written.
+> **Amendment and extensions from the iterate-family contract (#400), signed
+> off on 2026-11-01.** The [iterate-family contract](iterate-family-0.6.md) changes one
+> rule of this file and extends several others without changing them. The text
+> of this file is left as #388 signed it off; where it differs from the
+> amendment below, the amendment applies.
 >
 > - [FD-9](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products):
 >   a zero coefficient of the owner contributes nothing to a product with one
@@ -463,7 +463,7 @@ Fixed-width CPU scalar types (`Float32`, `Float64`).
 | PERF-3 | Traversal of the active set (`activecoordinates`, `activevalues`) *must* cost `O(s)` of traversal work. The derivative, cache update and full KKT screening a solver attaches have their own costs and are not covered. |
 | PERF-4 | Constructing `θ`, `A`, `activecoordinates(X)` and `activevalues(X)` *must not* copy `X`'s data. |
 | PERF-5 | After warm-up, these *must not* heap-allocate for `Float32`/`Float64` inputs: `X[i,j]`, `X[i,j] = v`, `θ[k]`, `θ[k] = v`, `isactive`, `activate!` (capacity reserved), `prox_coordinate!` for a built-in separable `f` with scalar or `Symmetric`-typed parameters, and a sweep over `activecoordinates(X)` that calls it. |
-| PERF-6 | `mul!(y, A, v)` for a dense vector `v` *must* cost `O(p + s)` for finite input, **including initialization of `y`**. A no-copy wrapper that falls to the dense `O(p²)` scan does not meet it. For a non-finite `v` the result *must* be the same, or the same documented error, **before and after `dropzeros!`**: a mathematical product must not depend on whether a zero has a storage slot. (Audited code does not satisfy this: with `v = [Inf, 1, 0]` and one stored explicit zero at `(3,1)` the product has a `NaN` at row 3, and after `dropzeros!` the same entry is `0.0`.) *Recommended default:* one `O(p)` scan of `v` and an `ArgumentError` for any non-finite entry, so the finite case stays `O(p + s)`. Numerics M1 cites *finite* linear coefficients and does not settle `0·Inf`; the rule must be reconciled with the non-finite policy in `docs/src/numerics.md`. *(Proposed amendment: FD-9, [iterate-family contract](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products).)* |
+| PERF-6 | `mul!(y, A, v)` for a dense vector `v` *must* cost `O(p + s)` for finite input, **including initialization of `y`**. A no-copy wrapper that falls to the dense `O(p²)` scan does not meet it. For a non-finite `v` the result *must* be the same, or the same documented error, **before and after `dropzeros!`**: a mathematical product must not depend on whether a zero has a storage slot. (Audited code does not satisfy this: with `v = [Inf, 1, 0]` and one stored explicit zero at `(3,1)` the product has a `NaN` at row 3, and after `dropzeros!` the same entry is `0.0`.) *Recommended default:* one `O(p)` scan of `v` and an `ArgumentError` for any non-finite entry, so the finite case stays `O(p + s)`. Numerics M1 cites *finite* linear coefficients and does not settle `0·Inf`; the rule must be reconciled with the non-finite policy in `docs/src/numerics.md`. *(Amended by FD-9, [iterate-family contract](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products).)* |
 | PERF-7 | `dropzeros!` *must* be `O(s)`. `Matrix(X)` is `O(p² + s)`; `copy(X)` and `similar(X)` are `O(q)`. |
 | PERF-8 | No other generic matrix operation on `A` is promised to be sparse-fast. *Recommended* sparse-aware methods: `norm`, `dot`, `sparse(A)`, `sum`. A reader of the specification must not infer more. |
 
@@ -532,7 +532,7 @@ Each gives a recommended default, one reason and one consequence.
     *Recommend: `ArgumentError` after one `O(p)` scan.* The product then cannot
     depend on whether a zero has a slot. *Consequence:* a `NaN` or `Inf` in `v`
     raises instead of propagating; this needs reconciling with numerics.
-    *(Proposed amendment: FD-9, [iterate-family contract](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products).)*
+    *(Amended by FD-9, [iterate-family contract](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products).)*
 
 # Part 4. Where today's code differs (informative)
 

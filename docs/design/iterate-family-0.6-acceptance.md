@@ -1,7 +1,7 @@
 # The iterate family in 0.6: compatibility and acceptance
 
-> **Draft for maintainer review — proposed 0.6 behavior, not a description of an
-> installed release.** This plan explains how callers move to the
+> **For the 0.6 design signed off on 2026-11-01 (FD-16 open), not a description
+> of an installed release.** This plan explains how callers move to the
 > [contract](iterate-family-0.6.md) and how a future implementer proves
 > conformance. It links to the contract's requirement IDs (FS, FC, FW, FX, FL,
 > FN, FA, FP, FF) and decisions (FD-n) and restates none of the rules. Nothing
@@ -138,9 +138,9 @@ import is limited to CPY-4's listed pre-write checks; a conversion failure
 follows owner §2.10.
 
 **Decisions recorded (2026-11-01).** The maintainer signed off the structural
-group (FD-2 to FD-8, FD-10 to FD-15a, the table of contract §3.2) and chose
-option (i) for PERF-6's requirement within FD-9. FD-9's FN rules and its
-numerics amendment await sign-off; FD-16 is open in #419.
+group (FD-2 to FD-8, FD-10 to FD-15a, the table of contract §3.2) and FD-9
+with its numerics amendment, choosing option (i) for PERF-6's requirement.
+FD-16 is open in #419.
 
 # 2. Reconciliation with the specialized issues
 
@@ -661,7 +661,7 @@ first, and FT01–FT23 carry the guarantees.
 # 7. Migration and dependency plan
 
 Implementation issues are opened only after the maintainer signs off the
-decisions; the structural group was signed off on 2026-11-01. #405, #406 and
+decisions; the structural group and FD-9 were signed off on 2026-11-01. #405, #406 and
 #416 are already filed as 0.5.x bug reports, and #419 tracks FD-16.
 
 | item | kind | depends on | integrates with | follow-on issue |
@@ -678,7 +678,7 @@ decisions; the structural group was signed off on 2026-11-01. #405, #406 and
 | 10. FD-2 one working-set rule | breaking 0.6 | 1, 9 | #391 Phase 1 integration branch | "0.6: one working-set rule for writes" |
 | 11. FD-3 owner `copyto!` is CPY-4's checked replace | breaking 0.6 for the owner, as #391 planned | — (no amendment) | #391 Phase 1a | part of #391 Phase 1a |
 | 12. FD-5 a coordinate-vector view for `SparseIterate` | breaking 0.6 | 1 | #391 Phase 1 (the owner's `SymmetricCoordinates` is the model) | "0.6: coordinates of a SparseIterate is a coordinate-vector view" |
-| 13. FD-9 strong zeros in products with one iterate operand, with the M1 amendment | breaking 0.6 | its separate sign-off and the amendment's (PERF-6: option (i), chosen); 1 | #366 G2, with the M1-amendment rows added to the #387 conformance suite (`test/conformance/failures_storage.jl`), marked `broken = (group = :G2, baseline = …)` until it lands; #391 Phase 1c (PERF-6) | "0.6: strong zeros in products of iterates" |
+| 13. FD-9 strong zeros in products with one iterate operand, with the M1 amendment | breaking 0.6 | 1 (FD-9 signed off; PERF-6: option (i)) | #366 G2, with the M1-amendment rows added to the #387 conformance suite (`test/conformance/failures_storage.jl`), marked `broken = (group = :G2, baseline = …)` until it lands; #391 Phase 1c (PERF-6) | "0.6: strong zeros in products of iterates" |
 | 14. FL-3 read-only vector groups | breaking 0.6 (recommendation) | 1 and its measurement | — | "AtomIterate: store vector groups read-only" |
 | 15. FF-1 and the documentation rewrite | 0.6 documentation | 10, 12, 13 | #391 Phase 1d | part of #391 Phase 1d |
 | 16. FN-9 scaling by a number follows IEEE | breaking 0.6 for `SparseIterate` | 1 | #366 G2 | "0.6: scaling a SparseIterate by a number follows IEEE arithmetic" |
@@ -690,7 +690,7 @@ decisions; the structural group was signed off on 2026-11-01. #405, #406 and
 additive, bug fixes or downstream changes that work on 0.5.x, and item 1 comes
 first so that every later item has a baseline. Items 10–18 change 0.6 behavior
 and stack with #391 Phase 1 on its integration branch. Items 10, 11, 12 and
-14 need only the structural sign-off (contract §3.1); items 13 and 16 wait for
-FD-9's separate sign-off (FD-9's option (e) is the rejected alternative to
-FN-9), item 18 for FD-16's, and item 15 documents whatever has been signed; item 9 must be released
+14 need the structural sign-off (contract §3.1) and items 13 and 16 FD-9's
+(FD-9's option (e) is the rejected alternative to FN-9), both given on
+2026-11-01; item 18 waits for FD-16's (#419), and item 15 documents whatever has been signed; item 9 must be released
 in ProximalSolvers before item 10, or the continuation start changes silently.

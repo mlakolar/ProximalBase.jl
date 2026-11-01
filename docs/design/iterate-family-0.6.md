@@ -1,7 +1,7 @@
 # The iterate family in ProximalBase 0.6: the contract
 
-> **Draft for maintainer review — proposed 0.6 behavior, not a description of an
-> installed release.** Nothing here is implemented. This file is the only
+> **The 0.6 design as signed off by the maintainer on 2026-11-01 (FD-16 open), not a
+> description of an installed release.** Nothing here is implemented. This file is the only
 > normative document of the pair; the companion
 > [compatibility and acceptance plan](iterate-family-0.6-acceptance.md) links
 > back to it and restates none of its rules.
@@ -880,8 +880,7 @@ their handles, a case their lifetime did not name.
 
 ### FD-9. Zero coefficients are strong in products
 
-*Status: recommended, awaiting maintainer sign-off of the FN rules and the
-numerics amendment; PERF-6's requirement: option (i), chosen 2026-11-01.*
+*Status: signed off by the maintainer, 2026-11-01 (PERF-6's requirement: option (i)).*
 
 *Background.* The products of a `SparseIterate` loop over stored
 coefficients: they skip unstored zeros and multiply stored ones
@@ -1007,7 +1006,7 @@ product.
 coefficient multiplies the dense array, `A * Vector(x)` (FN-3). No audited
 ProximalSolvers site changes.
 
-*Proposed numerics amendment, word for word* (to `docs/src/numerics.md`,
+*Numerics amendment (signed off), word for word* (to `docs/src/numerics.md`,
 implemented under #366 group G2):
 
 > **M1. Implicit zeros are entries; zero coefficients of an iterate are
@@ -1083,7 +1082,7 @@ implemented under #366 group G2):
 > follow IEEE arithmetic, and these are outside the strong-zero rule, not
 > gaps.
 
-*Relation to #388/#391:* **proposed amendment** of decision 13 and of
+*Relation to #388/#391:* **amendment** (signed off 2026-11-01) of decision 13 and of
 PERF-6's recommended default: the `ArgumentError` after an `O(p)` scan is
 replaced by FN-1. T13's parenthesis "the recommended default throws in both"
 becomes "gives `[0, 1, 0]` in both". ORC-10's `dot(M, X)` is in FN-2. The
@@ -1108,13 +1107,12 @@ row 4 still differs. The options were:
   as a summation order independent of the slots (for example coordinate-ID
   order) or a range-safe reduction (option (f)).
 
-The choice belongs to FD-9, not to the structural group or FD-16; FD-9's
-other two sign-offs are still open. T13's simple zero fixture keeps its intent: under FD-9 it gives
+The choice belongs to FD-9, not to the structural group or FD-16. T13's simple zero fixture keeps its intent: under FD-9 it gives
 `[0, 1, 0]` both times.
 
-*Sign-off (separate from the structural decisions, §3.1):* ☐ maintainer
-(FN-1 to FN-5) · ☐ numerics amendment (M1, E2, E3, C1, S4) · ☑ PERF-6's
-requirement: (i) amend (maintainer, 2026-11-01).
+*Sign-off (separate from the structural decisions, §3.1):* ☑ maintainer
+(FN-1 to FN-5) · ☑ numerics amendment (M1, E2, E3, C1, S4) · ☑ PERF-6's
+requirement: (i) amend; all 2026-11-01.
 
 ### FD-10. Counts
 
@@ -1298,7 +1296,7 @@ the `vec(xm)` broadcast); the wrapper rule is stated.
 
 *Migration.* None.
 
-*Proposed numerics text, word for word* (to `docs/src/numerics.md`; with it,
+*Numerics text (signed off), word for word* (to `docs/src/numerics.md`; with it,
 FN-8 does not contradict S4):
 
 > **O6**, a new first paragraph: These guarantees cover the methods that

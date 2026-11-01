@@ -196,7 +196,7 @@ end
 
 for op in (:prox!, :value_and_prox!)
   @eval $op(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::AbstractArray) =
-    (_checkreal(g, y); _checkreal(g, x); _checkreal(g, γ); throw(ArgumentError("PointwiseMinimum requires a scalar step")))
+    (x = _symmetric_argument(y, x); _checkreal(g, y); _checkreal(g, x); _checkreal(g, γ); throw(ArgumentError("PointwiseMinimum requires a scalar step")))
 end
 
 prox(g::PointwiseMinimum, x::AbstractArray, γ::AbstractArray) =

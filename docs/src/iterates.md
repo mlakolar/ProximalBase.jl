@@ -388,13 +388,16 @@ so the proximal point over symmetric matrices at ``V`` is the proximal point at 
 symmetric part, for every function. When the output is a `SymmetricSparseIterate`
 and `x` is a square matrix of the same size that is not symmetric by type
 (`Matrix`, `SparseMatrixCSC`, `SparseIterate`, ...), every built-in `prox!` and
-`value_and_prox!` reads `x` through its symmetric part, computed entry by entry as
-`x[r, c] / 2 + x[c, r] / 2` (equal entries are kept exactly, and the sum cannot
-overflow). A `SymmetricSparseIterate`, a `Symmetric`, a `Hermitian`, a `Diagonal`
+`value_and_prox!` reads `x` through its symmetric part. Each pair is averaged as the correctly rounded `(a + b) / 2`
+when the sum is finite (this keeps subnormal digits), and as `a / 2 + b / 2` when
+the sum overflows; equal entries are kept exactly, and the result is exactly
+symmetric. A `SymmetricSparseIterate`, a `Symmetric`, a `Hermitian`, a `Diagonal`
 or a `SymTridiagonal` is used as it is, at no extra cost, and `Symmetric(x, :L)`
 still selects the lower triangle. `+Inf` at one position and `-Inf` at its mirror give
 `NaN`, as their sum does. For a tuple output, as in a `SeparableSum`, each block is
-treated this way, so no block fails before another is written.
+treated this way at every depth of nesting, so no block fails before another is written.
+The rule holds for the methods with an array of steps too (`γ` an array that is
+symmetric), and for an argument on a device, which is read on the host.
 
 ```@example symmetric_parameters
 V = [0.0 1.0; 3.0 0.0]                   # not symmetric

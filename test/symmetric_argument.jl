@@ -195,6 +195,87 @@ end
   @test z1[1, 1] == 5.0 && z1[2, 1] == 0.0
 end
 
+@testset "nested block sums are projected at every depth" begin
+  V = [0.0 1.0; 3.0 0.0]
+  f = SeparableSum(SeparableSum(NormL1(0.5), NormL1(0.5)), NormL1(0.5))
+  for op in (prox!, value_and_prox!)
+    y = ((SymmetricSparseIterate(2), SymmetricSparseIterate(2)), zeros(2, 2))
+    op(y, f, ((V, V), zeros(2, 2)), 1.0)
+    @test y[1][1][2, 1] == 1.5 && y[1][2][2, 1] == 1.5
+    @test y[2] == zeros(2, 2)
+  end
+  # three levels, the symmetric block only in the innermost tuple
+  g = SeparableSum(SeparableSum(SeparableSum(NormL1(0.5), NormL1(0.5)), NormL1(0.5)), NormL1(0.5))
+  y = (((SymmetricSparseIterate(2), zeros(2, 2)), zeros(2, 2)), zeros(2, 2))
+  prox!(y, g, (((V, V), V), V), 1.0)
+  @test y[1][1][1][2, 1] == 1.5 && y[1][1][2] == prox(NormL1(0.5), V, 1.0)
+  # no symmetric block at any depth: the argument is returned as it is
+  xs = ((V, V), V)
+  @test _symmetric_argument(((zeros(2, 2), zeros(2, 2)), zeros(2, 2)), xs) === xs
+end
+
+@testset "array steps read the symmetric part too" begin
+  p = 4
+  rng = Xoshiro(7)
+  V = randn(rng, p, p); Sx = (V + V') / 2
+  γ = 0.7
+  Γ = fill(γ, p, p)                       # a symmetric array of equal steps: the scalar problem
+  @test prox!(SymmetricSparseIterate(2), NormL1(0.5), [0.0 1.0; 3.0 0.0], ones(2, 2))[2, 1] == 1.5
+  covered = Set{Method}()
+  for (name, f) in _catalog(p, Sx)
+    f === nothing && continue
+    hasmethod(prox!, Tuple{_SSI, typeof(f), Matrix{Float64}, Matrix{Float64}}) || continue
+    for op in (prox!, value_and_prox!)
+      push!(covered, which(op, Tuple{_SSI, typeof(f), Matrix{Float64}, Matrix{Float64}}))
+    end
+    ref = prox(f, Matrix(Sx), γ)
+    norm(ref - ref') <= 1e-10 * (1 + norm(ref)) || continue
+    y = SymmetricSparseIterate(Float64, p)
+    # a wrapper whose inner function has no array-step method (for example a conjugate
+    # of SumLargest) fails the same way for a dense output: not a matter of the argument
+    try prox!(zeros(p, p), f, Matrix(Sx), Γ) catch e; e isa MethodError ? continue : rethrow() end
+    prox!(y, f, V, Γ)
+    @test Matrix(y) ≈ (ref + ref') / 2 atol = 1e-10
+    y2 = SymmetricSparseIterate(Float64, p)
+    value_and_prox!(y2, f, V, Γ)
+    @test Matrix(y2) ≈ (ref + ref') / 2 atol = 1e-10
+  end
+  # every array-step method that accepts a symmetric output is exercised, or listed here
+  accepting = Method[]
+  for op in (prox!, value_and_prox!), m in methods(op)
+    m.module === ProximalBase || continue
+    sig = Base.unwrap_unionall(m.sig).parameters
+    length(sig) == 5 || continue
+    Base.typeintersect(sig[2], _SSI) !== Union{} && Base.typeintersect(sig[4], Matrix{Float64}) !== Union{} &&
+      Base.typeintersect(sig[5], Matrix{Float64}) !== Union{} && push!(accepting, m)
+  end
+  skipped = ("IndIsotonic", "LinearConstrained", "PointwiseMinimum", "BoxConstrained", "IndHyperslab",
+             "IndHalfspace", "IndHyperplane", "IndSimplex", "IndBallL1", "Conjugate")
+  unexplained = [m for m in accepting if m ∉ covered &&
+                 !any(s -> occursin(s, string(Base.unwrap_unionall(m.sig).parameters[3])), skipped)]
+  @test isempty(unexplained)
+  isempty(unexplained) || foreach(m -> println("not covered: ", m), unexplained)
+end
+
+@testset "the symmetric mean keeps subnormal digits and does not overflow" begin
+  a = nextfloat(0.0)
+  mean(a, b) = _SymmetricPart([0.0 a; b 0.0])[1, 2]
+  @test mean(a, 2a) == 2a                       # (a + 2a)/2 = 1.5a rounds to even
+  @test mean(2a, a) == 2a                       # symmetric in the pair
+  @test mean(a, -a) == 0.0
+  @test mean(a, 3a) == 2a
+  @test mean(-a, -2a) == -2a
+  @test mean(floatmax(), floatmax() / 2) == 0.75 * floatmax()
+  @test mean(floatmax(), floatmax()) == floatmax()
+  @test mean(floatmax(), -floatmax()) == 0.0
+  @test mean(floatmax(), 1.0) == floatmax() / 2 + 0.5     # the sum overflows: halves first
+  @test mean(5.0, 3.0) == 4.0
+  A = [0.0 a; 2a 0.0]
+  S = _SymmetricPart(A)
+  @test S[1, 2] === S[2, 1]                     # exactly symmetric
+  @test _SymmetricPart(Float32[0 1; 3 0])[1, 2] === 2f0
+end
+
 @testset "spectral functions use the symmetric part for a dense output too" begin
   V = [1.0 2.0 0.0; 0.0 -1.0 0.0; 0.0 0.0 3.0]
   S = (V + V') / 2

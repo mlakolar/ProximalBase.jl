@@ -175,13 +175,13 @@ prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
 _prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = (_checkwrite(prox!, c, y, x, γ); _prox_sep!(y, c, x, γ))
 prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) =
-  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
 _prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = (_checkwrite(prox!, c, y, x, γ); _prox_sep!(y, c, x, γ))
 value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 _value_and_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = _value_and_prox_box!(y, c, x, γ)
 value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) =
-  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 _value_and_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_box!(y, c, x, γ)
 function _value_and_prox_box!(y, c, x, γ)
   _checkwrite(value_and_prox!, c, y, x, γ)
@@ -339,7 +339,7 @@ prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
 _prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
   _linear_constrained_prox!(y, c, x, convert(float(eltype(y)), γ))
 prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
-  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
 _prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
   (_checkparam(γ, x); _check_metric_steps(c, γ); _linear_constrained_prox!(y, c, x, γ))
 
@@ -367,7 +367,7 @@ value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Re
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 _value_and_prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) = _value_and_prox_linear!(y, c, x, γ)
 value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
-  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 _value_and_prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_linear!(y, c, x, γ)
 function _value_and_prox_linear!(y, c, x, γ)
   _checkwrite(value_and_prox!, c, y, x, γ)

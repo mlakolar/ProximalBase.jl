@@ -1018,8 +1018,8 @@ _symmetric_by_type(A::Union{Adjoint, Transpose}) = _symmetric_by_type(parent(A))
 # The symmetric part (A + A') / 2, read lazily. The proximal point over symmetric
 # matrices at a matrix V that is not symmetric is the proximal point at its symmetric
 # part, for every function, so a SymmetricSparseIterate output reads its argument
-# through this wrapper. An entry pair that is not equal is averaged as a / 2 + b / 2,
-# which cannot overflow and is exactly symmetric; an opposite-infinity pair gives NaN.
+# through this wrapper. An entry pair that is not equal is averaged without overflow or
+# premature underflow, and exactly symmetrically; an opposite-infinity pair gives NaN.
 struct _SymmetricPart{T, A<:AbstractMatrix} <: AbstractMatrix{T}
   A::A
 end
@@ -1029,8 +1029,15 @@ Base.axes(S::_SymmetricPart) = axes(S.A)
 Base.IndexStyle(::Type{<:_SymmetricPart}) = IndexCartesian()
 Base.dataids(S::_SymmetricPart) = Base.dataids(S.A)
 Base.@propagate_inbounds function Base.getindex(S::_SymmetricPart{T}, r::Int, c::Int) where {T}
-  a, b = S.A[r, c], S.A[c, r]
-  _symequal(a, b) ? convert(T, a) : convert(T, a) / 2 + convert(T, b) / 2
+  a, b = convert(T, S.A[r, c]), convert(T, S.A[c, r])
+  _symequal(a, b) ? a : _symmetric_mean(a, b)
+end
+# The correctly rounded (a + b) / 2 when the sum is finite, which keeps subnormal digits;
+# the halves are taken first only when the sum overflows or a value is not finite, where
+# they cannot underflow. Addition commutes, so the result is symmetric in (a, b).
+@inline function _symmetric_mean(a::T, b::T) where {T}
+  s = a + b
+  isfinite(s) ? s / 2 : a / 2 + b / 2
 end
 _symmetric_by_type(::_SymmetricPart) = true
 Base.adjoint(S::_SymmetricPart{<:Real}) = S
@@ -1053,8 +1060,12 @@ end
 # keeps its fast paths and its results), otherwise the symmetric part of x. A size
 # that does not match y is left to the shape checks, which run before any entry is read.
 _symmetric_argument(y, x) = x
-_symmetric_argument(y::SymmetricSparseIterate, x::AbstractMatrix) =
-  (_symmetric_by_type(x) || _is_device_array(x) || _exactly_symmetric(x)) ? x : _SymmetricPart(x)
+function _symmetric_argument(y::SymmetricSparseIterate, x::AbstractMatrix)
+  _symmetric_by_type(x) && return x
+  # a device matrix is read on the host, as the decompositions do, so the rule holds for it too
+  _is_device_array(x) && return _symmetric_argument(y, Array(x))
+  _exactly_symmetric(x) ? x : _SymmetricPart(x)
+end
 _exactly_symmetric(x::AbstractMatrix) = size(x, 1) == size(x, 2) && _issymmetric_exact(x, _symequal)
 # A spectral function is defined on symmetric matrices, so its proximal map reads the
 # symmetric part of a matrix that is not symmetric by type, whatever the output.
@@ -1062,10 +1073,14 @@ _spectral_argument(x) = x
 # A device matrix is read on the host, as the decompositions do.
 _spectral_argument(x::AbstractMatrix) =
   _symmetric_by_type(x) ? x : _SymmetricPart(_is_device_array(x) ? Array(x) : x)
-# a tuple with no symmetric block is returned as it is; the rest is unrolled by type
+# A tuple with no symmetric block, at any depth, is returned as it is; otherwise the
+# blocks are unrolled by type, nested tuples included.
 @inline _symmetric_argument(y::Tuple, x::Tuple) = _symmetric_blocks(y, x)
+_has_symmetric_type(::Type{<:SymmetricSparseIterate}) = true
+_has_symmetric_type(::Type{T}) where {T<:Tuple} = any(_has_symmetric_type, fieldtypes(T))
+_has_symmetric_type(::Type) = false
 @generated function _symmetric_blocks(y::Tuple, x::Tuple)
-  (fieldcount(y) == fieldcount(x) && any(T -> T <: SymmetricSparseIterate, fieldtypes(y))) || return :x
+  (fieldcount(y) == fieldcount(x) && _has_symmetric_type(y)) || return :x
   Expr(:tuple, (:(_symmetric_argument(y[$k], x[$k])) for k in 1:fieldcount(y))...)
 end
 

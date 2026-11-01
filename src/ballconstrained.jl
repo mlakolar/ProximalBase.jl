@@ -212,14 +212,26 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
   if bestn > bestc
-    # soft thresholding in the type of the comparison, so that the entries that survive are
-    # those whose margin was positive; x is read before y is written, so y may be x
+    # Soft thresholding and the scaling onto the sphere in the type of the comparison, so
+    # that the entries that survive are those whose margin was positive and nothing is
+    # narrowed to T before the norm is taken. The norm is scaled by the largest margin.
+    # x is read before y is written, so y may be x.
+    margin(row, col) = @inbounds max(abs(convert(U, x[row, col])) -
+      convert(U, _weight_product(γ, f.λ0, _entry(f.w, row + (col - 1) * p))), zero(U))
+    top = zero(U)
+    for col in 1:p, row in col:p
+      top = max(top, margin(row, col))
+    end
+    ss = zero(U)
+    for col in 1:p, row in col:p
+      ss += (row == col ? one(U) : U(2)) * (margin(row, col) / top)^2
+    end
+    ru, root = convert(U, r), sqrt(ss)
     @inbounds for col in 1:p, row in col:p
       xi = x[row, col]
-      m = abs(convert(U, xi)) - convert(U, _weight_product(γ, f.λ0, _entry(f.w, row + (col - 1) * p)))
-      y[row, col] = m > 0 ? copysign(convert(T, m), xi) : zero(T)
+      y[row, col] = copysign(convert(T, ru * (margin(row, col) / top) / root), xi)
     end
-    return _onto_sphere!(y, f, convert(T, _value_unchecked(f, y)), r)
+    return convert(T, _value_unchecked(f, y))
   end
   negative = signbit(x[kr, kc])
   fill!(y, zero(eltype(y)))

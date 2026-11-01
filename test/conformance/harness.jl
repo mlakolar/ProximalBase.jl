@@ -101,6 +101,11 @@ withenv("CONFORMANCE_REPORT" => nothing) do
     @test !within_ulps(nextfloat(1f0, 2), 1f0, 1)
     @test within_ulps(nextfloat(0.0), nextfloat(nextfloat(0.0)), 1)
     @test !within_ulps(0.0, nextfloat(0.0), 1)
+    # A narrow result must not pass a wide reference by being near it in its own ulps.
+    ref64 = 2.0^-23 + 2.0^-72
+    @test within_ulps(ref64, ref64, 0)
+    @test !within_ulps(Float32(2.0^-23), ref64, 2)
+    @test !within_ulps(Inf32, Inf, 0)
     @test within_ulps(Inf, Inf, 0)
     @test !within_ulps(Inf, -Inf, 0)
     @test within_ulps(NaN, NaN, 0)

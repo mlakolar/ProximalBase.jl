@@ -67,6 +67,9 @@ end
 
 function within_ulps(a::T, ref::Real, n::Integer) where {T<:AbstractFloat}
   n >= 0 || throw(ArgumentError("ULP budget must be nonnegative"))
+  # The budget is in ulps of the observed type; a reference in another type
+  # (round it first, `bigref(f, T)`) would let a narrow result pass a wide one.
+  ref isa T || return false
   _class(a) == _class(ref) || return false
   (!isfinite(a) || iszero(a)) && return same(a, T(ref))
   r = T(ref)

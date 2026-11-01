@@ -6,6 +6,9 @@ using LinearAlgebra
 using Random
 using ..Conformance
 
+# Passes of a test set: Test.get_test_counts is a tuple on Julia 1.10 and a struct later.
+npasses(ts) = (c = Test.get_test_counts(ts); c isa Tuple ? c[1] : c.passes)
+
 # A4: direct entries have s=0; computed spectra use their own scale.
 for T in (Float32, Float64), bound in (T(0), T(8)), side in (:inside, :outside)
   τ = sqrt(eps(T)) * max(one(T), abs(bound))
@@ -71,7 +74,7 @@ end
       ProximalBase.Testing.test_kkt(NormL1(0.35540783f0), Float32[0], 1f0;
                                   trials = 1, rng = MersenneTwister(20))
     end
-    Test.get_test_counts(ts).passes
+    npasses(ts)
   end
   broken = (group = :G10, baseline = Returned(v -> v === 1))
 end

@@ -710,6 +710,25 @@ function product_cases!(cases,rep; quick=false)
                      T,shape,layout,prepare=prepare!,evals=1,work)
         end
     end
+    # Matrix coefficients with entries stored in random order, at densities on both
+    # sides of the cutoff of the five-argument product (1/32), for short and long columns.
+    quick && return
+    for T in (Float32,Float64), m in (64,2048), density in (0.02,0.05,0.1)
+        rng=scenario_rng(rep,"products/switch/$T/$m/$density")
+        p,q=1024,4
+        A=randn(rng,T,m,p)
+        I,J,V=findnz(sprandn(rng,T,p,q,density))
+        perm=randperm(rng,length(I))
+        x=SparseIterate(T,p,q)
+        for k in perm; x[I[k],J[k]]=V[k]; end
+        xd=dense(x)
+        out=zeros(T,m,q)
+        reference=A*xd
+        work=m*count(!iszero,xd)
+        check!()=(mul!(out,A,x);close_enough(out,reference))
+        addcase!(cases,"products","switch_matrix/mul!",()->mul!(out,A,x),check!;
+                 T,shape="$(m)x$(p)x$q",layout="random_$density",evals=10,work)
+    end
 end
 
 const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products", "blocks")

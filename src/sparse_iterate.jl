@@ -692,7 +692,15 @@ function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIt
   scale = _product_scale(A, coef, α)
   # Stored-entry traversal wins for few coefficients; column order reads A
   # sequentially and matches LinearAlgebra's generic loop for denser coefficients.
-  # Measurements on x86-64 place the crossover between 2% and 5%, hence 1/32.
+  # The crossover density falls as columns of A get longer: for Float64 and a
+  # random entry order its median is 7-16% for 64 to 512 rows, 3-5% for 1024,
+  # about 1.5-2% for 2048 and 1-5% for 4096, on Apple M3, AMD Zen 3 and Intel
+  # Skylake-SP (larger for Float32), and it differs by a factor of two or more
+  # between those CPUs. No constant is best everywhere: 1/32 costs 2.5-5% of the
+  # time on average over densities of 0.5-50%, the best constant (1/16) 1-3%.
+  # A cutoff in bytes, min(1/8, 256/(m*sizeof(T))), cost 0.6-1.5%; that rule was
+  # not adopted because its gain over the best constant was under 2 points.
+  # See "Matrix coefficients" in docs/src/iterates.md.
   if 32 * nnz(coef) <= length(coef)
     p = size(coef, 1)
     @inbounds for inz = 1:nnz(coef)

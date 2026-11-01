@@ -254,8 +254,9 @@ function _value_unchecked(f::SqrNormL2, x::AbstractArray)
   # A center is a parameter: it is rounded to the model precision of the value, the
   # argument's (T3), so a Float64 center does not widen a Float32 value.
   T === Float32 && y !== nothing && eltype(y) === Float64 && return _ridge_value_wide_center(f.λ, x, y)
+  # a BigFloat center is rounded entry by entry, except where that leaves T's range (R3)
   y !== nothing && T <: Union{Float32, Float64} && float(eltype(y)) <: BigFloat &&
-    all(c -> _level_fits(T, c), y) && return _square_value(f.λ, x, convert(AbstractArray{T}, y))
+    return _square_value(f.λ, x, map(c -> _ridge_round_big(T, c), y))
   _square_value(f.λ, x, y)
 end
 
@@ -309,6 +310,7 @@ end
 # computation runs in Float32 when every center entry keeps its range on rounding;
 # otherwise the centers that fit are rounded and the scaled recovery of
 # _square_value sees them in Float64 (R3).
+@inline _ridge_round_big(::Type{T}, c) where {T} = _level_fits(T, c) ? oftype(c, T(c)) : c
 # a Float64 center entry rounded to Float32 where that keeps its range, as given otherwise
 @inline _ridge_round_center32(c::Float64) = _ridge_fits(Float32, c) ? Float64(Float32(c)) : c
 function _ridge_value_wide_center(λ, x, y)

@@ -274,6 +274,13 @@ setprecision(BigFloat, BIG) do
       end
     end
   end
+  @testset "BigFloat centers are rounded entry by entry" begin
+    setprecision(BigFloat, 256) do
+      x = Float32[1, 0]
+      c = BigFloat[BigFloat(1) + BigFloat(2)^(-28), BigFloat(2)^(-200)]
+      @test SqrNormL2(ldexp(1.0, 400), c)(x) === 0.5f0
+    end
+  end
 end
 
 end

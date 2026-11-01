@@ -6,7 +6,9 @@
 #   rules = "R2"; problem = "ridge after conversion"
 #   expected = 0.5f0; observed = f(x)
 #   compare = same  # optional function (got, want)::Bool
-#   broken = (group = :G1, baseline = Returned(isinf))  # optional
+#   broken = (group = :G1, baseline = Returned(isinf))  # optional; add `volatile = true` for a result
+#   that depends on a reduction: then meeting the promise is a pass, and `near(x0)` is a baseline
+#   predicate that tolerates last-bit differences
 # end
 # expected is evaluated before observed, separately from its try. Throws(:Name,
 # r"message") expects an exception by type name (pattern defaults to r"").
@@ -21,7 +23,7 @@ module Conformance
 using Test
 using ProximalBase
 
-export pow2, bigref, combine, same, within_ulps, within_bound,
+export pow2, bigref, combine, same, near, within_ulps, within_bound,
        Throws, Returned, Threw, @row, @notcovered
 
 pow2(T, k) = ldexp(one(T), k)
@@ -83,6 +85,16 @@ function within_bound(a::Real, ref::Real, bound::Real)
   # Widen before subtracting so that finite differences cannot overflow.
   abs(BigFloat(a) - BigFloat(ref)) <= bound
 end
+
+# A baseline predicate for a result that depends on a reduction or a library
+# routine, whose last bits differ between Julia versions and platforms: the same
+# type and class, and every entry within `n` ulps of the observed value `x0`.
+near(x0, n::Integer = 16) = v -> _near(v, x0, n)
+_near(v::AbstractArray, x0::AbstractArray, n) = eltype(v) == eltype(x0) && axes(v) == axes(x0) &&
+  all(_near(a, b, n) for (a, b) in zip(v, x0))
+_near(v::Tuple, x0::Tuple, n) = length(v) == length(x0) && all(_near(a, b, n) for (a, b) in zip(v, x0))
+_near(v::AbstractFloat, x0::AbstractFloat, n) = typeof(v) == typeof(x0) && within_ulps(v, x0, n)
+_near(v, x0, n) = false
 
 struct Throws
   name::Symbol
@@ -188,7 +200,9 @@ function runrow(source, meta, expected_fn, observed_fn, compare, broken)
   if broken !== nothing
     broken.group in (Symbol("G", i) for i in 1:12) || error("broken group must be G1 to G12")
     broken.baseline isa Union{Returned, Threw} || error("invalid baseline descriptor")
+    hasproperty(broken, :volatile) && !(broken.volatile isa Bool) && error("volatile must be true or false")
   end
+  volatile = broken !== nothing && hasproperty(broken, :volatile) && broken.volatile === true
   expected = observe(expected_fn)
   # A bad reference must fail even if the observation would match a baseline.
   got = expected.threw ? Observation(true, ErrorException("reference failed")) : observe(observed_fn)
@@ -202,8 +216,10 @@ function runrow(source, meta, expected_fn, observed_fn, compare, broken)
       detail = "harness error: comparison threw $(_display(comparison))"
     else
       if comparison.value
-        verdict = broken === nothing ? :pass : :unexpected_pass
-        detail = broken === nothing ? "pass" : "unexpected pass: promote the row"
+        # A volatile row's outcome depends on reduction rounding, so meeting the
+        # promise on some Julia version or platform is a pass, not a promotion.
+        verdict = broken === nothing || volatile ? :pass : :unexpected_pass
+        detail = broken === nothing || volatile ? "pass" : "unexpected pass: promote the row"
       elseif broken !== nothing
         baseline = observe(() -> _matches(broken.baseline, got))
         if baseline.threw

@@ -52,6 +52,9 @@ withenv("CONFORMANCE_REPORT" => nothing) do
       ("pass", (;), :pass, Test.Pass),
       ("broken", (; observed_fn = () -> 2.0, broken_spec = baseline), :broken, Test.Broken),
       ("promote", (; broken_spec = baseline), :unexpected_pass, Test.Fail),
+      ("volatile-pass", (; broken_spec = (group = :G4, baseline = Returned(v -> isequal(v, 2.0)), volatile = true)), :pass, Test.Pass),
+      ("volatile-broken", (; observed_fn = () -> 2.0, broken_spec = (group = :G4, baseline = Returned(v -> isequal(v, 2.0)), volatile = true)), :broken, Test.Broken),
+      ("volatile-wrong", (; observed_fn = () -> 3.0, broken_spec = (group = :G4, baseline = Returned(v -> isequal(v, 2.0)), volatile = true)), :error, Test.Fail),
       ("unrelated", (; observed_fn = () -> throw(MethodError(identity, ())), broken_spec = baseline), :error, Test.Fail),
       ("wrong", (; observed_fn = () -> 3.0), :error, Test.Fail),
       ("wrong-baseline", (; observed_fn = () -> 3.0, broken_spec = baseline), :error, Test.Fail),
@@ -106,6 +109,14 @@ withenv("CONFORMANCE_REPORT" => nothing) do
     @test within_ulps(ref64, ref64, 0)
     @test !within_ulps(Float32(2.0^-23), ref64, 2)
     @test !within_ulps(Inf32, Inf, 0)
+    # near: the same type and class, last bits tolerated, nothing else.
+    @test near(0.4f0)(nextfloat(0.4f0, 3))
+    @test !near(0.4f0, 2)(nextfloat(0.4f0, 3))
+    @test !near(0.4f0)(0.4)
+    @test near(Float32[1, 2])(Float32[nextfloat(1f0), 2])
+    @test !near(Float32[1, 2])(Float32[1])
+    @test !near(Float32[1, 2])(Float64[1, 2])
+    @test !near(1f0)(NaN32)
     @test within_ulps(Inf, Inf, 0)
     @test !within_ulps(Inf, -Inf, 0)
     @test within_ulps(NaN, NaN, 0)

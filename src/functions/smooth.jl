@@ -254,6 +254,8 @@ function _value_unchecked(f::SqrNormL2, x::AbstractArray)
   # A center is a parameter: it is rounded to the model precision of the value, the
   # argument's (T3), so a Float64 center does not widen a Float32 value.
   T === Float32 && y !== nothing && eltype(y) === Float64 && return _ridge_value_wide_center(f.λ, x, y)
+  y !== nothing && T <: Union{Float32, Float64} && float(eltype(y)) <: BigFloat &&
+    all(c -> _level_fits(T, c), y) && return _square_value(f.λ, x, convert(AbstractArray{T}, y))
   _square_value(f.λ, x, y)
 end
 
@@ -331,8 +333,9 @@ value_and_gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray) =
   (_check_oracle_arrays(value_and_gradient!, f, g, x); _value_and_gradient_unchecked!(g, f, x))
 function _value_and_gradient_unchecked!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
+  v = _value_unchecked(f, x)      # before the gradient, which may be written over the center
   _ridge_gradient!(g, f.λ, f.y, x)
-  _value_unchecked(f, x)
+  v
 end
 gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray) =
   (_check_oracle_arrays(gradient!, f, g, x); _gradient_unchecked!(g, f, x))

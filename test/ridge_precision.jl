@@ -246,6 +246,34 @@ setprecision(BigFloat, BIG) do
     ref = sum(abs2, Float64.(x) .- Float64.(Float32.(c))) / 2
     @test isapprox(SqrNormL2(1.0, c)(x), ref; rtol = 1e-6)
   end
+  @testset "review of #411" begin
+    # the fused call reports the value at the original center even when g is the center
+    c = [1.0]
+    f = SqrNormL2(2.0, c)
+    @test value_and_gradient!(c, f, [2.0]) == 1.0
+    @test c == [2.0]
+    # a BigFloat center is rounded to the argument's precision: the value is the Float32 problem's
+    setprecision(BigFloat, 100) do
+      @test SqrNormL2(1.0, [BigFloat(1) + BigFloat(2)^-28])(Float32[1]) === 0f0
+      @test SqrNormL2(1.0, [BigFloat(1) + BigFloat(2)^-60])(Float64[1]) === 0.0
+    end
+    # t just inside and outside the band, with parameters that are not powers of two
+    for (W, F, lo, hi) in ((Float32, Float64, -126, 125), (Float64, Float64, -1022, 1021), (Float32, Float32, -126, 125))
+      for k in (lo - 1, lo, lo + 1, hi - 1, hi, hi + 1), m in (1.1, 1.7, 1.99), sgn in (1, -1)
+        t = ldexp(m, k)
+        for (γ, λ) in ((F(sqrt(t)), F(sqrt(t))), (F(t), one(F)), (one(F), F(t)))
+          isfinite(γ) && isfinite(λ) && !iszero(γ) && !iszero(λ) || continue
+          x = [W(sgn) * W(1.3) * W(2)^(k > 0 ? 20 : -20)]
+          c = [W(-1.7) * W(2)^(k > 0 ? 20 : -20)]
+          for f in (SqrNormL2(λ), SqrNormL2(λ, c))
+            z = prox!(zeros(W, 1), f, x, γ)
+            r = ref_prox(W, x[1], f.y === nothing ? 0 : c[1], γ, λ)
+            normal(W, r) && @test near(z[1], r, 3)
+          end
+        end
+      end
+    end
+  end
 end
 
 end

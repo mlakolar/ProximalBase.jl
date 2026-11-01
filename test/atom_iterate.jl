@@ -367,6 +367,13 @@ end
     before = (Vector(di), copy(di.active[1:di.nactive]), copy(di.position), di.nactive)
     @test_throws InexactError copyto!(di, xi)
     @test (Vector(di), di.active[1:di.nactive], di.position, di.nactive) == before && consistent(di)
+    de = AtomIterate(Int, 9, groups)                           # an empty destination gains no active group
+    @test_throws InexactError copyto!(de, xi)
+    @test de.nactive == 0 && Vector(de) == zeros(Int, 9) && consistent(de)
+    # a pair with no conversion, built-in types only
+    du = AtomIterate(Union{Float32, Float64}[0f0, 0.0], 2)
+    @test_throws MethodError copyto!(du, AtomIterate([1, 0], 2))
+    @test du.nactive == 0 && consistent(du)
     xi[7] = 2.0
     @test copyto!(di, xi) === di && Vector(di) == Vector(xi) && consistent(di)
 

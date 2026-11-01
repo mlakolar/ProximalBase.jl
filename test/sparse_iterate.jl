@@ -6,6 +6,11 @@ using ProximalBase
 using Random
 using LinearAlgebra
 using SparseArrays
+
+# a real number with no conversion to a floating-point type
+struct NoFloat <: Real end
+Base.iszero(::NoFloat) = false
+
 using Statistics
 
 Random.seed!(1)
@@ -217,7 +222,8 @@ end
     @testset "a copy whose conversion throws leaves the destination unchanged" begin
         # the state of an iterate as the scalar reads, the active list and Vector see it
         snap(z) = (collect(z), isactive.(Ref(z), 1:length(z)), copy(activecoordinates(z)), Vector(z))
-        for n in (16, 4), filled in (false, true)      # sparse branch (n = 16), dense branch (n = 4)
+        # (n, filled): sparse branch when 4 * (nnz(d) + nnz(s)) < n, dense branch otherwise
+        for (n, filled) in ((16, false), (32, true), (16, true), (4, false), (4, true))
             d = SparseIterate(Int, n)
             if filled
                 d[n÷2] = 7; d[n] = 3
@@ -231,11 +237,19 @@ end
         end
 
         # an integral source converts; stale values past nnz of the source do not matter
-        s = SparseIterate(4); s[1] = 1.0; s[2] = 1.5; s[2] = 0.0; dropzeros!(s)
+        s = SparseIterate(4); s[1] = 1.0; s[2] = 1.5; s[1] = 0; dropzeros!(s); s[2] = 1   # 1.5 stays in the unused slot
         d = SparseIterate(Int, 4)
-        @test copyto!(d, s) === d && Vector(d) == [1, 0, 0, 0]
+        @test copyto!(d, s) === d && Vector(d) == [0, 1, 0, 0]
         s = SparseIterate(16); s[3] = 2.0
         @test Vector(copyto!(SparseIterate(Int, 16), s)) == Vector(s)
+
+        # a source type with no conversion to the destination's: checked, not assumed to round
+        r = SparseIterate(Real, 16); r[9] = 7; r[1] = 1; r[2] = NoFloat()
+        f = SparseIterate(Float64, 16)
+        f[5] = 4.0
+        before = snap(f)
+        @test_throws Exception copyto!(f, r)
+        @test snap(f) == before
 
         # SymmetricSparseIterate shares the copy
         S = SymmetricSparseIterate(5); S[2, 1] = 1.0; S[3, 3] = 0.5

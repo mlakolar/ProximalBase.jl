@@ -367,9 +367,14 @@ function SparseArrays.dropzeros!(x::_StoredIterate)
   x
 end
 
-# Whether converting values of type S to T can throw: real values round into a
-# floating-point type, and the same type needs no conversion.
-_convert_may_throw(::Type{T}, ::Type{S}) where {T, S} = !(S === T || (T <: AbstractFloat && S <: Real))
+# Whether converting values of type S to T can throw. It cannot when S is a
+# subtype of T, nor between built-in real types where T is a floating-point type
+# (values round, and Float64 to Float32 overflows to Inf); any other pair is checked.
+const _BuiltinFloat = Union{Float16, Float32, Float64}
+const _BuiltinReal = Union{_BuiltinFloat, Bool, Int8, Int16, Int32, Int64, Int128,
+                           UInt8, UInt16, UInt32, UInt64, UInt128}
+_convert_may_throw(::Type{T}, ::Type{S}) where {T, S} =
+    !(S <: T || (isconcretetype(T) && T <: _BuiltinFloat && isconcretetype(S) && S <: _BuiltinReal))
 
 # Convert the values before a copy writes anything, so that a conversion that
 # cannot succeed leaves the destination unchanged.

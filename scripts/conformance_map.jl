@@ -129,6 +129,8 @@ function read_run(dir; expected_files = EXPECTED_FILES, run_id = nothing)
       error("unexpected report file: $path")
     lines = readlines(path)
     isempty(lines) && error("empty report: $path")
+    # A header alone proves the file was started, not that anything was recorded.
+    length(lines) >= 2 || error("report has no rows: $path")
     header = parse_json_line(first(lines))
     get(header, "kind", "") == "header" || error("missing header: $path")
     all(k -> haskey(header, k), ("pkgsha", "bounds", "julia", "platform", "harness", "run")) || error("incomplete header: $path")

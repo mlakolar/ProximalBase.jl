@@ -5,7 +5,7 @@ include(joinpath(@__DIR__, "conformance_map.jl"))
 end
 
 const REPO_ROOT = abspath(joinpath(@__DIR__, ".."))
-const USAGE = "Usage: julia scripts/conformance_run.jl <report-dir> [--out FILE] [--check] [--jobs N]"
+const USAGE = "Usage: julia scripts/conformance_run.jl <report-dir> [--out FILE] [--jobs N]"
 
 # UTC time as yyyymmddTHHMMSS, from Base only (the test environment has no Dates);
 # days to civil date by the standard proleptic Gregorian algorithm.
@@ -59,7 +59,6 @@ function main(args = ARGS; test_command = nothing)
     isempty(args) && error(USAGE)
     dir = first(args)
     out = joinpath(dir, "coverage.md")
-    check = false
     jobs = nothing
     i = 2
     while i <= length(args)
@@ -70,8 +69,6 @@ function main(args = ARGS; test_command = nothing)
         i += 1
         jobs = tryparse(Int, args[i])
         jobs !== nothing && jobs >= 1 || error("--jobs needs a positive integer: $(args[i])")
-      elseif args[i] == "--check"
-        check = true
       else
         error("unknown or incomplete option: $(args[i])\n$USAGE")
       end
@@ -87,10 +84,18 @@ function main(args = ARGS; test_command = nothing)
     result = command(stems, env)
     tests_ok = result isa Bool ? result : result == 0
     tests_ok || println(stderr, "conformance tests failed; building the map anyway")
-    map_args = [dir, "--out", out, "--run-id", id]
-    check && push!(map_args, "--check")
-    map_ok = MapScript.main(map_args) == 0
-    tests_ok && map_ok ? 0 : 1
+    # The map is built in a candidate file inside the run directory; the requested
+    # output is replaced only when both steps succeeded, so a failed run never
+    # overwrites a good report (with the committed coverage.md as `--out`, say).
+    candidate = joinpath(dir, "coverage-candidate.md")
+    map_ok = MapScript.main([dir, "--out", candidate, "--run-id", id]) == 0
+    if tests_ok && map_ok
+      mkpath(dirname(abspath(out)))
+      cp(candidate, out; force = true)
+      return 0
+    end
+    println(stderr, "not replacing ", out, "; diagnostic map: ", candidate)
+    1
   catch e
     println(stderr, sprint(showerror, e))
     1

@@ -313,6 +313,11 @@ withenv("CONFORMANCE_REPORT" => nothing) do
         @test occursin("Case ids without a row: none.", text)
         @test !occursin("| missing |", text)
         @test runmain([dir, "--out", out_missing, "--check"]) == 1
+        # An expected file that holds only its header has the right name and run id
+        # but no rows: rejected, though no row id, case or cell is missing.
+        write(split_path, first(eachline(IOBuffer(saved))) * "\n")
+        @test_throws r"report has no rows: .*linear_sets_2" ReportScript.read_run(run)
+        @test runmain([dir, "--out", joinpath(dir, "coverage-header-only.md")]) == 1
         write(split_path, saved)
         @test runmain([dir, "--out", out, "--check"]) == 0
         # Acceptance B: the run id is the only addition to the generated tables. Every
@@ -431,26 +436,45 @@ withenv("CONFORMANCE_REPORT" => nothing) do
       env = Dict(seen[][2])
       @test !isempty(env["CONFORMANCE_RUN_ID"]) && env["CONFORMANCE_REPORT"] == abspath(empty_dir)
       @test occursin(r"^\d{8}T\d{6}-[0-9a-f]{8}$", env["CONFORMANCE_RUN_ID"])
-      # A failing test step still builds the map from what it wrote, and the exit is 1.
+      # A failing test step still builds a diagnostic map from what it wrote, and the
+      # exit is 1; the requested output keeps its earlier contents.
       failing_dir = joinpath(root, "failing")
       out = joinpath(root, "failing-map.md")
+      write(out, "known good")
       failing(stems, env) = (write_complete(failing_dir, Dict(env)["CONFORMANCE_RUN_ID"]); false)
       @test runner([failing_dir, "--out", out]; test_command = failing) == 1
-      @test isfile(out) && occursin("Run id: `", read(out, String))
+      @test read(out, String) == "known good"
+      @test occursin("Run id: `", read(joinpath(failing_dir, "coverage-candidate.md"), String))
+      # A complete-looking test step but an incomplete report (a file missing): exit 1,
+      # output preserved, diagnostic map left in the run directory.
+      partial_dir = joinpath(root, "partial")
+      partial(stems, env) = (write_complete(partial_dir, Dict(env)["CONFORMANCE_RUN_ID"]);
+        rm(joinpath(partial_dir, "fixture-key", "linear_sets_2.jsonl")); true)
+      @test runner([partial_dir, "--out", out]; test_command = partial) == 1
+      @test read(out, String) == "known good"
+      @test occursin("missing report file", read(joinpath(partial_dir, "coverage-candidate.md"), String))
       # A succeeding test step with a complete report gives 0; the map defaults into the directory.
       good_dir = joinpath(root, "good")
       good(stems, env) = (write_complete(good_dir, Dict(env)["CONFORMANCE_RUN_ID"]); 0)
       @test runner([good_dir]; test_command = good) == 0
       @test isfile(joinpath(good_dir, "coverage.md"))
+      # Two fresh runs write to one shared output; each success replaces it with its own map.
+      shared = joinpath(root, "shared.md")
+      ids = String[]
+      for name in ("fresh-1", "fresh-2")
+        dir = joinpath(root, name)
+        stub(stems, env) = (push!(ids, Dict(env)["CONFORMANCE_RUN_ID"]); write_complete(dir, last(ids)); true)
+        @test runner([dir, "--out", shared]; test_command = stub) == 0
+        @test occursin("Run id: `" * last(ids) * "`", read(shared, String))
+      end
+      @test length(unique(ids)) == 2
       # The map step refuses files from another run: here the stub writes a stale id.
       stale_dir = joinpath(root, "stale")
       stale(stems, env) = (write_complete(stale_dir, "stale-run"); true)
       @test runner([stale_dir]; test_command = stale) == 1
-      # --check compares with the given output file.
-      check_dir = joinpath(root, "check")
-      check_out = joinpath(root, "check-map.md")
-      check_stub(stems, env) = (write_complete(check_dir, Dict(env)["CONFORMANCE_RUN_ID"]); true)
-      @test runner([check_dir, "--out", check_out, "--check"]; test_command = check_stub) == 1
+      # The runner has no --check: a fresh run has a new run id, so a byte comparison could never match.
+      @test runner([joinpath(root, "nocheck"), "--check"]; test_command = never) == 1
+      @test !ispath(joinpath(root, "nocheck"))
     end
   end
 end

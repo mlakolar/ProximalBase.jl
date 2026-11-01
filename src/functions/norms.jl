@@ -1644,3 +1644,5 @@ function _project_l1_radius!(y, x, G, scratch, a, coefficient_error, lower)
   end
   y
 end
+
+# CI scenario (do not merge): a comment in a function family file.

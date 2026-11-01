@@ -661,30 +661,31 @@ first, and FT01–FT23 carry the guarantees.
 # 7. Migration and dependency plan
 
 Implementation issues are opened only after the maintainer signs off the
-decisions; the structural group and FD-9 were signed off on 2026-11-01. #405, #406 and
-#416 are already filed as 0.5.x bug reports, and #419 tracks FD-16.
+decisions; the structural group and FD-9 were signed off on 2026-11-01. #405 and #406 are
+fixed on master (#414 and `00c9852c`), #416 has an open fix (#417), #419
+tracks FD-16, and the follow-on issues below were filed on 2026-11-01.
 
 | item | kind | depends on | integrates with | follow-on issue |
 |:--|:--|:--|:--|:--|
-| 1. `sparse` and `atom` benchmark groups, 0.5.x baseline | harness only | — | #401's conventions; #391 Phase 0 | "Benchmark groups for SparseIterate and AtomIterate, with the 0.5.x baseline" |
-| 2. FD-7 read-only `activecoordinates` | 0.5.x bug fix | 1 | ACT-3; the owner in #391 Phase 1a | #405 (filed) |
-| 3. FD-14 `dataids` of the handles | 0.5.x bug fix | 1 | #367; #366 G12 | #406 (filed) |
+| 1. `sparse` and `atom` benchmark groups, 0.5.x baseline | harness only | — | #401's conventions; #391 Phase 0 | #420 |
+| 2. FD-7 read-only `activecoordinates` | 0.5.x bug fix | 1 | ACT-3; the owner in #391 Phase 1a | #405 (fixed in #414) |
+| 3. FD-14 `dataids` of the handles | 0.5.x bug fix | 1 | #367; #366 G12 | #406 (fixed in `00c9852c`) |
 | 4. FD-13 real check in `copyto!` and `copy!` | 0.5.x bug fix | — | #364; #366 G12 (O6.1) | on #364 |
-| 5. FN-6 `AtomIterate` `fill!` converts first | 0.5.x bug fix | — | #366 G1 (conversions) | "AtomIterate fill! decides activation before conversion" |
-| 6. FD-6 `atomindices` and `ProximalBase.samegroups` | 0.5.x-safe addition | 1 | ProximalSolvers migration | "AtomIterate: atomindices and samegroups" |
-| 7. FD-4, FD-10, FD-12: state the rules 0.5.x already meets | 0.5.x-safe addition (documentation) | — | `docs/src/iterates.md` | "Document the iterate-family rules that 0.5.x satisfies" |
-| 8. ProximalSolvers: §3.1–§3.4 and §3.8 | downstream, runs on 0.5.x | 6 | #391 Phase 2 | "ProximalSolvers: replace private iterate fields by accessors" |
-| 9. ProximalSolvers: §3.5 | downstream, runs on 0.5.x | — | must land before 10 | "ProximalSolvers: clear working sets with dropzeros!" |
-| 10. FD-2 one working-set rule | breaking 0.6 | 1, 9 | #391 Phase 1 integration branch | "0.6: one working-set rule for writes" |
+| 5. FN-6 `AtomIterate` `fill!` converts first | 0.5.x bug fix | — | #366 G1 (conversions) | #421 |
+| 6. FD-6 `atomindices` and `ProximalBase.samegroups` | 0.5.x-safe addition | 1 | ProximalSolvers migration | #422 |
+| 7. FD-4, FD-10, FD-12: state the rules 0.5.x already meets | 0.5.x-safe addition (documentation) | — | `docs/src/iterates.md` | #423 |
+| 8. ProximalSolvers: §3.1–§3.4 and §3.8 | downstream, runs on 0.5.x | 6 | #391 Phase 2 | mlakolar/ProximalSolvers.jl#165 |
+| 9. ProximalSolvers: §3.5 | downstream, runs on 0.5.x | — | must land before 10 | mlakolar/ProximalSolvers.jl#164 |
+| 10. FD-2 one working-set rule | breaking 0.6 | 1, 9 | #391 Phase 1 integration branch | #424 |
 | 11. FD-3 owner `copyto!` is CPY-4's checked replace | breaking 0.6 for the owner, as #391 planned | — (no amendment) | #391 Phase 1a | part of #391 Phase 1a |
-| 12. FD-5 a coordinate-vector view for `SparseIterate` | breaking 0.6 | 1 | #391 Phase 1 (the owner's `SymmetricCoordinates` is the model) | "0.6: coordinates of a SparseIterate is a coordinate-vector view" |
-| 13. FD-9 strong zeros in products with one iterate operand, with the M1 amendment | breaking 0.6 | 1 (FD-9 signed off; PERF-6: option (i)) | #366 G2, with the M1-amendment rows added to the #387 conformance suite (`test/conformance/failures_storage.jl`), marked `broken = (group = :G2, baseline = …)` until it lands; #391 Phase 1c (PERF-6) | "0.6: strong zeros in products of iterates" |
-| 14. FL-3 read-only vector groups | breaking 0.6 (recommendation) | 1 and its measurement | — | "AtomIterate: store vector groups read-only" |
+| 12. FD-5 a coordinate-vector view for `SparseIterate` | breaking 0.6 | 1 | #391 Phase 1 (the owner's `SymmetricCoordinates` is the model) | #425 |
+| 13. FD-9 strong zeros in products with one iterate operand, with the M1 amendment | breaking 0.6 | 1 (FD-9 signed off; PERF-6: option (i)) | #366 G2, with the M1-amendment rows added to the #387 conformance suite (`test/conformance/failures_storage.jl`), marked `broken = (group = :G2, baseline = …)` until it lands; #391 Phase 1c (PERF-6) | #428 |
+| 14. FL-3 read-only vector groups | breaking 0.6 (recommendation) | 1 and its measurement | — | #426 |
 | 15. FF-1 and the documentation rewrite | 0.6 documentation | 10, 12, 13 | #391 Phase 1d | part of #391 Phase 1d |
-| 16. FN-9 scaling by a number follows IEEE | breaking 0.6 for `SparseIterate` | 1 | #366 G2 | "0.6: scaling a SparseIterate by a number follows IEEE arithmetic" |
+| 16. FN-9 scaling by a number follows IEEE | breaking 0.6 for `SparseIterate` | 1 | #366 G2 | #427 |
 | 17. FD-13's O6 and S4 text, and FD-16's M1 paragraph if option (a) is adopted | 0.6 documentation | sign-off | #366 (numerics page) | part of item 13's numerics change |
 | 18. FD-16 three-factor products | open; breaking 0.6 for options (a)–(c) | its separate sign-off; 1 | #366 G2; #391 Phase 1c (the owner's method) | #419 (filed: the decision, then its implementation) |
-| 19. FW-4's clauses: a state copy converts only active values, and a failed one leaves the destination unchanged | 0.5.x bug fix | 1 | #391 Phase 1a: the owner's CPY-3 runs through the same kernel (`src/sparse_iterate.jl:1122–1124`) and is covered | #416 (filed) |
+| 19. FW-4's clauses: a state copy converts only active values, and a failed one leaves the destination unchanged | 0.5.x bug fix | 1 | #391 Phase 1a: the owner's CPY-3 runs through the same kernel (`src/sparse_iterate.jl:1122–1124`) and is covered | #416 (fix in #417) |
 
 **Order.** Items 1–9 and 19 can run in parallel with #391 Phase 0: they are
 additive, bug fixes or downstream changes that work on 0.5.x, and item 1 comes

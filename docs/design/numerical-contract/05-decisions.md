@@ -92,8 +92,8 @@ mathematical paper never needs.
 | 42 | infeasibility found during a search; arithmetic stopgaps | `ArgumentError` before writing; dedicated exception before writing | yes (#323) |
 | 43 | scope of the contract | every oracle; `restrict` as the interface states it; an unrepresentable quadratic model raises the dedicated exception | small |
 | 44 | gradients outside the domain | NaN | small |
-| 45 | values of wrappers | private capability for inner results; supported transformations for overflowing arguments; the rest listed as not covered | no new API in 0.6 |
-| 46 | the line between data and parameters | (a) normals are parameters; (c) every array is data is open | yes (hyperplanes) |
+| 45 | values of wrappers | private capability for inner results; homogeneity for norms inside `Translate`/`Precompose` (W1 = `M/2`); the rest listed as not covered | no new API in 0.6 |
+| 46 | the line between data and parameters | (b): the normals and offsets of linear sets are data, with matrices; levels, weights, centers, bounds and steps are parameters | no (today's behavior) |
 | 47 | non-finite linear coefficients | rejected at construction | yes |
 
 ## Types and precision
@@ -311,6 +311,10 @@ user can predict.
 
 **Recommendation.** (a). It is the same principle the package adopted for
 values in #283.
+
+*Revised after ChatGPT's review of Draft 7 (`14-chatgpt-review-of-draft7.md`).* The ordinary path is defined by the partial products, not by the final scalar. In weighted `NormL1` with `γ = 3·2^-538`, `λ = 2^-538`, `w = 2^1022` at `x = 2^-52`, an unprotected `γ·λ` rounds `3·2^-1076` up to `2^-1074`. The final threshold becomes `4·2^-54 = x` instead of `3·2^-54`, and the coordinate is set to zero, although both thresholds are normal.
+
+The package's `_weight_product` already checks the partial product, and returns the right `2^-54` (checked at `3f90a29`). R3 now describes that behavior, and the case becomes a public regression test (V13).
 
 **Decided:**
 
@@ -852,6 +856,10 @@ that is cheap (the `dsgesv` pattern), otherwise throw an `ArgumentError` that
 names the precision, not "infeasible". Choose the mechanism by measurement
 in the implementing PR.
 
+*Revised after ChatGPT's review of Draft 7 (`14-chatgpt-review-of-draft7.md`).* Refinement and certification may widen the arithmetic on the *effective* operands of the original call, its parameters as converted under decision 3, but they do not change the model or the destination being certified. In V8, a Float64 call with the original threshold returns `2^-30`, which does not certify the Float32 model's `0`. A solver's retry with a wider destination is a new call, with its own model.
+
+Test references are likewise evaluated after the model's conversions, except where R3 requires recovery.
+
 **Decided:**
 
 ### 19. LAPACK results near a boundary (A5; #366 D10)
@@ -892,6 +900,14 @@ Also state that this decision's policy, returning in-band results as computed, t
 - `IndStiefel` of the column `(1, 1)` into Float32 gives `|y'y - 1| = 5.0e-8`. ChatGPT's `3.42e-8` assumed both entries round alike; the package stores two different Float32 values.
 
 The stored matrix's numerical rank is evaluated in `D`. The decomposition before the write and the certificate for what was written are tested separately.
+
+*Revised after ChatGPT's review of Draft 7 (`14-chatgpt-review-of-draft7.md`).* The stored matrix's numerical rank cannot be promised unconditionally. The bound `σ_{k+1}(Y) ≤ σ_{k+1}(Y_W) + ‖E_D‖₂` is promised instead, with rank at most `k` only when that bound is below the cutoff.
+
+*Example, checked at `d00c7b86` in a worktree of master.* The rank-one `X = h·v·v'`, with `h = nextfloat(0f0)` and `v = (1, 5/8)`, stored in Float32 becomes `[2 1; 1 1]·h`, whose singular-value ratio is `0.146`, far above the cutoff. ChatGPT's exact projection gives `[1 1; 1 0]·h` with ratio `0.382`; the conclusion is the same.
+
+The fused value of `IndBallRank` must then describe the stored matrix (O2). At `d00c7b86` it returns `0` while the standalone test of the stored matrix is `Inf`. At `3f90a29` both were `0`, because the old `max(1, σ₁)` floor, removed by #375, hid the difference.
+
+Recommendation: the value is `0` when the bound certifies membership, which needs no second decomposition on ordinary inputs. Otherwise the stored matrix's membership is evaluated.
 
 **Decided:**
 
@@ -1630,6 +1646,14 @@ genuinely overflows be `Inf` (R4), rather than throwing.
   - *Options:* (i) return a model that keeps enough scale to evaluate it, a new representation; or (ii) raise the dedicated exception before writing `q` when the model cannot represent its coefficients.
   - *Revised recommendation:* (ii) for 0.6, with the working response computed in a finite form. An intentional infinite observation weight is a different thing from an overflowed curvature. Tests evaluate the returned model, not only its fields. This replaces the first recommendation's lean towards "let the weight be `Inf`".
 
+*Revised after ChatGPT's review of Draft 7 (`14-chatgpt-review-of-draft7.md`).* The rule applies to the *effective* coefficient, not to the first intermediate that overflows. With observation weight `1/8` at `η = 710`, the coefficient `exp(710)/8 ≈ 2.79e307` is finite and must be returned; today the model holds `Inf` (checked at `d00c7b86`), a range bug under R2.
+
+Tests:
+
+- the allocating case P2 (an overflowing coefficient raises the dedicated exception);
+- a mutating counterpart P2m, which starts from a valid `q`, overflows a *later* observation, and checks that `q` is unchanged;
+- the success control P3.
+
 **Decided:**
 
 ### 44. Gradients outside the domain (E6)
@@ -1697,6 +1721,10 @@ Revised recommendation:
 
 S4's promise for user functions is qualified accordingly in the support matrix.
 
+*Revised after ChatGPT's review of Draft 7 (`14-chatgpt-review-of-draft7.md`).* W1's status was left as "supported or not covered".
+
+Recommendation: supported. `Translate` and `Precompose` of a positively homogeneous inner function, the norms, recover through homogeneity, so W1 returns `M/2`. This is #357's own proposal for homogeneous inner functions. Other combinations are listed as not covered, with their issues.
+
 **Decided:**
 
 ### 46. The normals and offsets of sets (T2)
@@ -1740,6 +1768,21 @@ A third option was not in the first version:
   - *Cons.* It reverses part of decision 3: V9 returns `2^-57`, the value with the stored center, at the point the proximal operator, also computed with the stored center, wrote. Weighted kernels with Float64 weights on Float32 data then compute their thresholds per entry in Float64. That cost is unmeasured; it should be small for memory-bound loops but is uncertain on GPUs.
 
 The recommendation stays (a), for agreement with decision 3 as reviewed. But (c) is a coherent alternative that removes the `IndHyperplane`/`IndAffine` difference, and the maintainer may prefer it. If (c) is chosen, V9's target becomes `2^-57`, and decision 3 is restated as "scalars rounded once".
+
+*Revised after ChatGPT's review of Draft 7 (`14-chatgpt-review-of-draft7.md`).* ChatGPT votes for **(b)**: the defining normal and offsets of `IndHyperplane`, `IndHalfspace` and `IndHyperslab` are geometric data. A user choosing between `IndHyperplane(a, b)` and a one-row `IndAffine(A, b)` is choosing how to write the same constraint, and the equation should mean the same in both, though the algorithms need not give identical bits.
+
+ChatGPT rejects (c), every array as data, as a fix for this problem alone:
+
+- it would change centered ridge: V9's value and V11's scalar become `2^-57`;
+- it would conflict with T6's acceptance of Float16 parameter arrays.
+
+**Revised recommendation: (b).**
+
+- It keeps today's behavior: `IndHyperplane` and the one-row `IndAffine` both give `0.3333333` (checked at `3f90a29`).
+- It agrees with PR #353's arithmetic.
+- It keeps V9 and V11 at `0`.
+
+The line between data and parameters becomes: matrices, the vectors in their equations, and the defining geometry of linear sets are data; levels, coordinate weights, centers, bounds and steps are parameters. The cost of the mixed geometry path is to be measured. Under T6, a Float16 normal is data and is rejected.
 
 **Decided:**
 

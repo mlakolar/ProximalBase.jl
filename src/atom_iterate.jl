@@ -149,7 +149,7 @@ end
 
 ncoordinates(x::AtomIterate) = length(x.groups)
 nactive(x::AtomIterate) = x.nactive
-activecoordinates(x::AtomIterate) = view(x.active, 1:x.nactive)
+activecoordinates(x::AtomIterate) = _ActiveIDs(view(x.active, 1:x.nactive))
 isactive(x::AtomIterate, k::Integer) = x.position[k] != 0
 
 """

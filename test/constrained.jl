@@ -234,6 +234,7 @@ end
 struct NoSlope{F} <: SeparableFunction
   f::F
 end
+ProximalBase.entry_parameters(f::NoSlope) = ProximalBase.entry_parameters(f.f)
 ProximalBase.prox_entry(g::NoSlope, v, i, γ) = prox_entry(g.f, v, i, γ)
 ProximalBase.value_entry(g::NoSlope, v, i) = value_entry(g.f, v, i)
 ProximalBase.isconvex(::Type{<:NoSlope}) = true
@@ -245,6 +246,7 @@ const SLOPES = Ref(0)
 struct Counted{F} <: SeparableFunction
   f::F
 end
+ProximalBase.entry_parameters(f::Counted) = ProximalBase.entry_parameters(f.f)
 ProximalBase.prox_entry(g::Counted, v, i, γ) = (CALLS[] += 1; prox_entry(g.f, v, i, γ))
 ProximalBase.value_entry(g::Counted, v, i) = value_entry(g.f, v, i)
 ProximalBase.isconvex(::Type{<:Counted}) = true
@@ -308,6 +310,7 @@ end
 struct Ranged{F} <: SeparableFunction
   f::F
 end
+ProximalBase.entry_parameters(f::Ranged) = ProximalBase.entry_parameters(f.f)
 ProximalBase.prox_entry(g::Ranged, v, i, γ) = (CALLS[] += 1; prox_entry(g.f, v, i, γ))
 ProximalBase.value_entry(g::Ranged, v, i) = value_entry(g.f, v, i)
 ProximalBase.isconvex(::Type{<:Ranged}) = true

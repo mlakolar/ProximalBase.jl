@@ -2,22 +2,27 @@
 
 # Caller-supplied arrays in the iterate's entry domain. Design data and arrays
 # indexed by groups, ranks or image coordinates are deliberately absent.
-_entry_arrays(::AbstractFunction) = ()
+entry_parameters(::AbstractFunction) = ()
+entry_parameters(::SeparableFunction) = nothing
+for F in (:IndNonnegative, :NormL0, :MCP, :SCAD, :NegEntropy, :NegLog, :IndBanded)
+  @eval entry_parameters(::$F) = ()
+end
+_entry_arrays(f) = entry_parameters(f)
 _inner_functions(::AbstractFunction) = ()
 for F in (:NormL1, :NormL1Nonneg, :ElasticNet, :CappedL1, :LogPenalty, :NormLq,
           :Berhu, :CheckLoss, :EpsInsensitiveLoss)
-  @eval _entry_arrays(f::$F) = ((:w, f.w),)
+  @eval entry_parameters(f::$F) = (:w => f.w,)
 end
-_entry_arrays(f::Union{HingeLoss, SqrHingeLoss}) = ((:w, f.w), (:y, f.y))
-_entry_arrays(f::BernoulliLoss) = ((:w, f.w), (:b, f.b))
-_entry_arrays(f::Union{Tilt, LinearFunction, Regularize}) = ((:c, f.c),)
-_entry_arrays(f::KronQuadratic) = ((:C, f.C),)
-_entry_arrays(f::Union{IndBox, IndBinary}) = ((:l, f.l), (:u, f.u))
-_entry_arrays(f::IndPattern) = ((:P, f.P),)
-_entry_arrays(f::SqrNormL2) = ((:y, f.y),)
-_entry_arrays(f::KLDivergence) = ((:q, f.q),)
-_entry_arrays(f::Translate) = ((:b, f.b),)
-_entry_arrays(f::Union{_ArrayPrecompose, IndHyperplane, IndHalfspace, IndHyperslab}) = ((:a, f.a),)
+entry_parameters(f::Union{HingeLoss, SqrHingeLoss}) = (:w => f.w, :y => f.y)
+entry_parameters(f::BernoulliLoss) = (:w => f.w, :b => f.b)
+entry_parameters(f::Union{Tilt, LinearFunction, Regularize}) = (:c => f.c,)
+entry_parameters(f::KronQuadratic) = (:C => f.C,)
+entry_parameters(f::Union{IndBox, IndBinary}) = (:l => f.l, :u => f.u)
+entry_parameters(f::IndPattern) = (:P => f.P,)
+entry_parameters(f::SqrNormL2) = (:y => f.y,)
+entry_parameters(f::KLDivergence) = (:q => f.q,)
+entry_parameters(f::Translate) = (:b => f.b,)
+entry_parameters(f::Union{_ArrayPrecompose, IndHyperplane, IndHalfspace, IndHyperslab}) = (:a => f.a,)
 _inner_functions(f::Union{Scaled, Tilt, Translate, Regularize, _ArrayPrecompose,
                          MoreauEnvelope, Conjugate, SqrDistL2, DistL2,
                          BallConstrained, SphereConstrained}) = (f.f,)
@@ -26,6 +31,8 @@ _inner_functions(f::BoxConstrained) = (f.f, f.box)
 _inner_functions(f::LinearConstrained) = (f.f, f.set)
 _inner_functions(f::Union{Sum, SeparableSum, PointwiseMinimum}) = f.fs
 _inner_functions(f::IndIntersection) = f.sets
+
+check_symmetric_parameters(f::AbstractFunction, x) = (_check_entry_arrays(f, x); true)
 
 # Shape checks remain separate: a parameter vector can have matrix length,
 # while a write of that parameter can still require the destination's axes.
@@ -44,12 +51,20 @@ end
 
 _check_entry_arrays(f, x, domain = _AllPairs()) = true
 function _check_entry_arrays(f::AbstractFunction, x::SymmetricSparseIterate, domain = _AllPairs())
-  _check_own_arrays(f, _entry_arrays(f), x, domain)
+  _check_own_arrays(f, entry_parameters(f), x, domain)
   _check_inner_arrays(_inner_functions(f), x, domain)
 end
 _check_own_arrays(f, ::Tuple{}, x, domain) = true
+_check_own_arrays(f, ::Nothing, x, domain) = _throw_undeclared_parameters(f)
+_check_own_arrays(f, arrays, x, domain) = _throw_parameter_declaration(f, :entry_parameters)
+@noinline _throw_undeclared_parameters(f) = throw(ArgumentError(
+  "$(nameof(typeof(f))) does not declare its per-entry parameters; define ProximalBase.entry_parameters(f::$(nameof(typeof(f)))) to return them, or () when it has none, to use it on a SymmetricSparseIterate"))
+@noinline _throw_parameter_declaration(f, name) = throw(ArgumentError(
+  "$(nameof(typeof(f))) parameter $name must be nothing, a scalar or an array in a tuple of name => value pairs"))
 function _check_own_arrays(f, arrays::Tuple, x, domain)
-  name, a = first(arrays)
+  pair = first(arrays)
+  pair isa Pair{Symbol} || _throw_parameter_declaration(f, :entry_parameters)
+  name, a = pair
   _check_entry_array(f, name, a, x, domain)
   _check_own_arrays(f, Base.tail(arrays), x, domain)
 end
@@ -68,7 +83,8 @@ end
 function _check_entry_arrays(f::AbstractFunction, x::Tuple, domain = _AllPairs())
   _check_inner_arrays(_inner_functions(f), x, domain)
 end
-_check_entry_array(f, name, a, x, domain) = true
+_check_entry_array(f, name, a, x, domain) = _throw_parameter_declaration(f, name)
+_check_entry_array(f, name, a::Union{Nothing, Number}, x, domain) = true
 function _check_entry_array(f, name, a::AbstractArray, x, domain)
   _symmetric_by_type(a) && return true
   _checkparam(a, x)
@@ -122,8 +138,8 @@ function _check_pairs(f, name, a, p, d::_StoredPairs)
 end
 
 # Only kernels that actually stay on stored coordinates use a sparse domain.
-_stored_value(f::AbstractFunction) = isempty(_entry_arrays(f)) && isempty(_inner_functions(f))
-_stored_value(f::SeparableFunction) = iszeropreserving(f)
+_stored_value(f::AbstractFunction) = isempty(entry_parameters(f)) && isempty(_inner_functions(f))
+_stored_value(f::SeparableFunction) = _isbuiltin(f) && iszeropreserving(f)
 _stored_value(::Union{LinearFunction, IndHyperplane, IndHalfspace, IndHyperslab}) = true
 _stored_value(f::SqrNormL2) = f.y === nothing
 _stored_value(f::Union{Scaled, Tilt, BallConstrained, SphereConstrained}) = _stored_value(f.f)
@@ -138,16 +154,18 @@ _stored_value_pairs(x::SymmetricSparseIterate) = _StoredPairs(x, x)
 _stored_value_pairs(x::Tuple) = _StoredValuePairs()
 _stored_value_pairs(x) = _AllPairs()
 _stored_write(op, ::AbstractFunction) = false
-_stored_write(op, ::SeparableFunction) = true
+_stored_write(op, f::SeparableFunction) = _isbuiltin(f)
 _stored_write(op::O, f::Scaled) where {O} = _stored_write(op, f.f)
 _stored_write(op::O, f::Conjugate{<:Conjugate}) where {O} = _stored_write(op, f.f.f)
 _stored_box_value(::AbstractFunction) = false
-_stored_box_value(::SeparableFunction) = true
+_stored_box_value(f::SeparableFunction) = _isbuiltin(f)
 _stored_box_value(f::Scaled) = _stored_box_value(f.f)
 _stored_box_value(f::BoxConstrained) = _stored_box_value(f.f) && _stored_box_value(f.box)
 _stored_box_value(f::Regularize) = f.c === nothing && _stored_box_value(f.f)
-_stored_write(op::O, f::BoxConstrained) where {O} = op === prox! || _stored_box_value(f.f)
-_stored_write(op::O, f::_ArrayPrecompose) where {O} = op === prox!
+_builtin_kernels(f) = _isbuiltin(f) && all(_builtin_kernels, _inner_functions(f))
+_stored_write(op::O, f::BoxConstrained) where {O} =
+  _builtin_kernels(f.f) && (op === prox! || _stored_box_value(f.f))
+_stored_write(op::O, f::_ArrayPrecompose) where {O} = _builtin_kernels(f.f) && op === prox!
 _stored_domain(op::O, f) where {O} =
   (op === prox! || op === value_and_prox!) && isseparable(f) && iszeropreserving(f) && _stored_write(op, f)
 # Keep the value oracle's shape errors ahead of the pair scan.

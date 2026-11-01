@@ -36,22 +36,53 @@ end
   @test_throws BoundsError θ[7]
 end
 
+# A write must be rejected *because* the view is read-only: the failure is a
+# refused setindex!, not a bounds, conversion or unrelated error. The concrete
+# type differs between Julia versions and wrappers, so the message is checked.
+function rejected_as_read_only(f)
+  err = try
+    f()
+    nothing
+  catch e
+    e
+  end
+  err !== nothing && !(err isa BoundsError) && !(err isa InexactError) &&
+    occursin(r"setindex!|read-only|not defined", sprint(showerror, err))
+end
+
 @testset "matrixview: nothing can be written through it" begin
   X = SymmetricSparseIterate(Float64, 3)
   X[2, 1] = 5.0
   A = matrixview(X)
   before = (Matrix(X), nactive(X), copy(activecoordinates(X)))
   unchanged() = (Matrix(X), nactive(X), copy(activecoordinates(X))) == before
-  @test_throws Exception (A[1, 2] = 1.0)
-  @test unchanged()
-  @test_throws Exception (A[4] = 1.0)
-  @test_throws Exception (view(A, 1:2, 1:2)[1, 2] = 1.0)
-  @test_throws Exception (Symmetric(A)[1, 2] = 1.0)
-  @test_throws Exception (reshape(A, 9)[4] = 1.0)
-  @test_throws Exception (A .= 1.0)
-  @test_throws Exception fill!(A, 0.0)
-  @test_throws Exception copyto!(A, ones(3, 3))
-  @test unchanged()
+
+  writes = [
+    "A[1, 2] = v"           => () -> (A[1, 2] = 1.0),
+    "A[1, 1] = v"           => () -> (A[1, 1] = 1.0),
+    "A[4] = v"              => () -> (A[4] = 1.0),
+    "view"                  => () -> (view(A, 1:2, 1:2)[1, 2] = 1.0),
+    "Symmetric, diagonal"   => () -> (Symmetric(A)[1, 1] = 1.0),
+    "Symmetric(A, :L) .="   => () -> (Symmetric(A, :L)[2, 2] = 1.0),
+    "reshape"               => () -> (reshape(A, 9)[4] = 1.0),
+    "vec"                   => () -> (vec(A)[4] = 1.0),
+    "vec .="                => () -> (vec(A) .= 1.0),
+    "transpose"             => () -> (transpose(A)[1, 2] = 1.0),
+    "transpose .="          => () -> (transpose(A) .= 1.0),
+    "adjoint .="            => () -> (A' .= 1.0),
+    "Transpose(A) .="       => () -> (Transpose(A) .= 1.0),
+    "A .= "                 => () -> (A .= 1.0),
+    "A .+= "                => () -> (A .+= 1.0),
+    "fill!"                 => () -> fill!(A, 0.0),
+    "copyto!"               => () -> copyto!(A, ones(3, 3)),
+    "view .="               => () -> (view(A, :, :) .= 2.0),
+  ]
+  for (name, f) in writes
+    @testset "$name" begin
+      @test rejected_as_read_only(f)
+      @test unchanged()
+    end
+  end
 end
 
 @testset "matrixview: allocating operations give ordinary writable arrays" begin
@@ -101,6 +132,97 @@ end
     z0 = copy(z)
     mul!(z, A, v, 2.0, 0.5)
     @test z ≈ 2 * (Matrix(X) * v) + 0.5 * z0
+  end
+end
+
+# counts the reads and writes of a vector, to check how much of it a kernel touches
+mutable struct CountingVector <: AbstractVector{Float64}
+  data::Vector{Float64}
+  ops::Int
+end
+CountingVector(data) = CountingVector(data, 0)
+Base.size(v::CountingVector) = size(v.data)
+Base.getindex(v::CountingVector, i::Int) = (v.ops += 1; v.data[i])
+Base.setindex!(v::CountingVector, x, i::Int) = (v.ops += 1; v.data[i] = x)
+Base.IndexStyle(::Type{<:CountingVector}) = IndexLinear()
+
+@testset "matrixview: both products touch O(p + s) entries" begin
+  s = 100
+  for p in (200, 400, 800)
+    X = SymmetricSparseIterate(Float64, p)
+    for k in 1:s
+      X[rand(1:p), rand(1:p)] = randn()
+    end
+    @test nactive(X) <= s
+    A = matrixview(X)
+    for call in (:three, :five)
+      B, C = CountingVector(randn(p)), CountingVector(randn(p))
+      call == :three ? mul!(C, A, B) : mul!(C, A, B, 2.0, 0.5)
+      # a dense product reads B p² times; the stored-entry kernel at most twice per stored entry
+      @test B.ops <= 2 * nactive(X)
+      @test C.ops <= 4p + 4 * nactive(X)
+    end
+  end
+end
+
+@testset "matrixview: five-argument product semantics" begin
+  for p in (0, 1, 2, 6)
+    X = SymmetricSparseIterate(Float64, p)
+    for _ in 1:min(4, p * (p + 1) ÷ 2)
+      X[rand(1:p), rand(1:p)] = randn()
+    end
+    A = matrixview(X)
+    D = Matrix(X)
+    v, z = randn(p), randn(p)
+    for α in (0.0, 1.0, -2.5, 3), β in (0.0, 1.0, 0.5, -1)
+      y = copy(z)
+      mul!(y, A, v, α, β)
+      @test y ≈ α * (D * v) + β * z
+      @test y ≈ mul!(copy(z), D, v, α, β)
+    end
+    # β = 0 does not read the old destination; α = 0 does not read B
+    y = fill(NaN, p)
+    mul!(y, A, v, 2.0, 0.0)
+    @test y ≈ 2.0 * (D * v)
+    y = copy(z)
+    mul!(y, A, fill(NaN, p), 0.0, 2.0)
+    @test y ≈ 2.0 * z
+    # a mixed real type for the output and the vector
+    y32, v32 = Float32.(z), Float32.(v)
+    mul!(y32, A, v32, 2.0, 0.5)
+    @test y32 isa Vector{Float32}
+    @test isapprox(y32, Float32.(2 * (D * Float64.(v32)) + 0.5 * Float64.(z)); rtol = 1e-5, atol = 1e-6)
+  end
+  X = SymmetricSparseIterate(Float64, 3)
+  X[2, 1] = 1.0
+  A = matrixview(X)
+  @test_throws DimensionMismatch mul!(zeros(3), A, zeros(2), 1.0, 0.0)
+  @test_throws DimensionMismatch mul!(zeros(2), A, zeros(3), 1.0, 0.0)
+  v = ones(3)
+  @test_throws ArgumentError mul!(v, A, v, 1.0, 0.0)
+  @test_throws ArgumentError mul!(v, A, v, 1.0, 1.0)
+  @test_throws ArgumentError mul!(zeros(3), A, ones(3), 1.0 + 2.0im, 0.0)
+end
+
+# Limitation inherited from the owner, to be resolved with the 0.6 owner (Phase 1c of #391):
+# a stored explicit zero multiplies a non-finite entry of v, an absent coordinate does not, so
+# dropzeros! changes the product although the matrix is unchanged. The contract requires the
+# same result, or the same documented error, before and after dropzeros!.
+@testset "matrixview: non-finite vector and a stored zero (known limitation)" begin
+  v = [Inf, 1.0, 0.0]
+  for form in (:three, :five)
+    X = SymmetricSparseIterate(Float64, 3)
+    X[2, 1] = 1.0
+    activate!(X, tril_index(3, 3, 1))              # a stored explicit zero at (3, 1)
+    A = matrixview(X)
+    run!() = (y = zeros(3); form == :three ? mul!(y, A, v) : mul!(y, A, v, 1.0, 0.0); y)
+    before = run!()
+    dropzeros!(X)
+    after = run!()
+    @test nactive(X) == 1
+    @test after == [1.0, Inf, 0.0]
+    @test isnan(before[3])                           # documents today's behavior
+    @test_broken isequal(before, after)              # the contract: unchanged by compaction
   end
 end
 

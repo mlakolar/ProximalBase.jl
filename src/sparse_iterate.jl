@@ -955,6 +955,14 @@ unchanged. A generic allocating operation on the view (`A .+ 1`, `similar(A)`,
 dense vector costs `O(p + nactive(x))`; other generic matrix operations on the
 view read all `p²` entries. Use `Matrix(x)` for an independent dense copy.
 
+!!! warning "Non-finite vectors"
+    The product skips absent coordinates but multiplies by stored ones, an
+    explicit stored zero included. With a non-finite `v`, a stored zero gives
+    `0 * Inf = NaN` where an absent coordinate gives `0`, so `dropzeros!(x)` can
+    change `mul!(y, matrixview(x), v)` although the matrix does not. This does
+    not yet satisfy the rule of the 0.6 contract (the same result, or the same
+    error, before and after `dropzeros!`); it is to be settled with the 0.6 owner.
+
 Entries `(r, c)` and `(c, r)` are one variable of `x`; a coordinate of `x` is
 reached through [`coordinates`](@ref), not through this view, so
 `matrixview(x)[4]` is a matrix linear index.
@@ -1876,7 +1884,27 @@ function LinearAlgebra.mul!(C::AbstractMatrix, A::SymmetricSparseIterate, B::Lin
 end
 function LinearAlgebra.mul!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector, α::Number, β::Number)
   _checkreal(A, C); _checkreal(A, B); _checkreal(A, α); _checkreal(A, β)
-  invoke(mul!, Tuple{AbstractVector, AbstractMatrix, AbstractVector, Number, Number}, C, A, B, α, β)
+  _mul_stored!(C, A, B, α, β)
+end
+
+# C = α A B + β C over the stored entries of A, O(p + nactive(A)) and no allocation.
+# As in BLAS, C is not read when β is zero and B is not read when α is zero.
+# A stored explicit zero still multiplies B, so with a non-finite B the product
+# can depend on whether a zero is stored (see the documentation of matrixview).
+function _mul_stored!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector, α::Number, β::Number)
+  p = A.p
+  length(B) == p || throw(DimensionMismatch("A has $p columns but B has length $(length(B))"))
+  length(C) == p || throw(DimensionMismatch("A has $p rows but C has length $(length(C))"))
+  Base.mightalias(C, B) && throw(ArgumentError("the output of mul! must not be aliased with its input"))
+  iszero(β) ? fill!(C, zero(eltype(C))) : isone(β) || rmul!(C, β)
+  iszero(α) && return C
+  @inbounds for k in 1:A.nnz
+    r, c = tril_cartesian(p, A.nzval2ind[k])
+    v = α * A.nzval[k]
+    C[r] += B[c] * v
+    r == c || (C[c] += B[r] * v)
+  end
+  C
 end
 function LinearAlgebra.mul!(C::AbstractMatrix, A::SymmetricSparseIterate, B::AbstractMatrix, α::Number, β::Number)
   _checkreal(A, C); _checkreal(A, B); _checkreal(A, α); _checkreal(A, β)

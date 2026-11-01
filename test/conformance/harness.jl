@@ -164,7 +164,7 @@ withenv("CONFORMANCE_REPORT" => nothing) do
         @test_throws ErrorException ReportScript.parse_json_line("{} trailing")
         @test ReportScript.parse_json_line(Conformance.json_object((; text = "\0\t\r\n雪")))["text"] == "\0\t\r\n雪"
         # A new file starts by overwriting its old report, never by appending.
-        delete!(Conformance._reports, (abspath(@__FILE__), abspath(run), "harness"))
+        delete!(Conformance._reports, (abspath(@__FILE__), abspath(run)))
         emit("fixture-restart")
         @test length(readlines(path)) == 2
         # Per-run provenance conflicts are rejected, not pooled.

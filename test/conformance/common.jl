@@ -15,7 +15,7 @@
 # @notcovered :wrappers :value "Float64" :cpu "R1: unsupported transformation"
 # bigref(f; bits=256, T=Float64), or bigref(f, Float32; bits=256), returns
 # the stable rounded reference. f must construct its inputs inside the closure.
-# Reports: CONFORMANCE_REPORT/<julia>-<platform>-<bounds>-<pkgsha>/<family>.jsonl.
+# Reports: CONFORMANCE_REPORT/<julia>-<platform>-<bounds>-<pkgsha>/<test file name>.jsonl.
 module Conformance
 
 using Test
@@ -26,8 +26,9 @@ export pow2, bigref, combine, same, within_ulps, within_bound,
 
 pow2(T, k) = ldexp(one(T), k)
 
+_issubnormal(x) = x isa BigFloat ? false : issubnormal(x)
 _class(x) = isnan(x) ? :nan : isinf(x) ? :inf : iszero(x) ? :zero :
-            issubnormal(x) ? :subnormal : :finite
+            _issubnormal(x) ? :subnormal : :finite
 _roundref(T, x::Tuple) = map(v -> _roundref(T, v), x)
 _roundref(T, x::AbstractArray) = map(v -> _roundref(T, v), x)
 _roundref(T, x) = T(x)
@@ -111,7 +112,7 @@ _matches(d::Union{Throws, Threw}, o::Observation) =
 _matches(d::Returned, o::Observation) = !o.threw && d.predicate(o.value)::Bool
 
 const _ids = Dict{String, Set{String}}()
-const _reports = Set{Tuple{String, String, String}}()
+const _reports = Set{Tuple{String, String}}()
 const _package = pkgdir(ProximalBase)
 _git(args...) = readchomp(Cmd(["git", "-C", _package, args...]))
 
@@ -155,8 +156,10 @@ function report(source, row)
   mkpath(dir)
   family = string(row.family)
   occursin(r"^[A-Za-z0-9_]+$", family) || error("invalid report family: $family")
-  path = joinpath(dir, family * ".jsonl")
-  identity = (abspath(source), abspath(dir), family)
+  stem = first(splitext(basename(source)))
+  occursin(r"^[A-Za-z0-9_]+$", stem) || error("invalid report source name: $stem")
+  path = joinpath(dir, stem * ".jsonl")
+  identity = (abspath(source), abspath(dir))
   if !(identity in _reports)
     header = (; kind = "header", julia = string(VERSION), platform, bounds,
               pkgsha = sha, harness = _git("hash-object", @__FILE__))

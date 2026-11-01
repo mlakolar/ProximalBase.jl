@@ -1,10 +1,32 @@
-# Required coverage data tables. Family tasks may extend these tables.
+# Required coverage data tables: the row ids of each acceptance case (the parts of
+# a case are separate rows, so a passing part cannot hide a missing one).
 const CASE_IDS = vcat(["V$i" for i in 1:13], ["S$i" for i in 1:10],
   ["L$i" for i in 1:5], ["P2", "P2m", "P3", "Q1", "W1", "F16a", "F16b", "F16c"])
 const SPLIT_ROWS = Dict(
-  "V5" => ["V5.value", "V5.gradient"],
-  "V11" => ["V11.value", "V11.gradient"],
+  "F16a" => ["F16a", "F16a.unchanged"],
+  "F16b" => ["F16b", "F16b.unchanged"],
+  "F16c" => ["F16c.level", "F16c.step", "F16c.weights", "F16c.array-step"],
+  "L1" => ["L1.value", "L1.gradient"],
+  "L2" => ["L2.value", "L2.prox"],
+  "L3" => ["L3.prox"],
+  "L4" => ["L4.gram"],
+  "L5" => ["L5.value", "L5.residual"],
   "P2m" => ["P2m.exception", "P2m.unchanged"],
+  "P3" => ["P3.weight", "P3.response"],
+  "S1" => ["S1.value", "S1.prox", "S1.joint-value"],
+  "S2" => ["S2.value", "S2.gradient", "S2.prox"],
+  "S3" => ["S3.NormL1", "S3.NormL2", "S3.GroupNormL2"],
+  "S4" => ["S4.value", "S4.prox", "S4.joint-value"],
+  "S5" => ["S5.boundary", "S5.outside", "S5.nan"],
+  "S6" => ["S6.value", "S6.prox"],
+  "S7" => ["S7.exception", "S7.unchanged"],
+  "S8" => ["S8.separate", "S8.aliased"],
+  "S9" => ["S9.box.prox", "S9.box.value", "S9.ball.prox", "S9.ball.value"],
+  "S10" => ["S10.negative.exception", "S10.negative.unchanged", "S10.nan.exception", "S10.nan.unchanged"],
+  "V5" => ["V5.value", "V5.gradient"],
+  "V7" => ["V7.value", "V7.gradient"],
+  "V9" => ["V9.value", "V9.prox"],
+  "V11" => ["V11.value", "V11.gradient"],
 )
 const REQUIRED_ROW_IDS = reduce(vcat, [get(SPLIT_ROWS, id, [id]) for id in CASE_IDS])
 # Expected family cells: * is any executed oracle/type/backend cell in that
@@ -102,7 +124,6 @@ function read_run(dir)
       row = parse_json_line(line)
       all(k -> haskey(row, k), ("id", "case", "family", "oracle", "types", "backend",
         "rules", "problem", "group", "status", "expected", "observed")) || error("incomplete row: $path")
-      row["family"] * ".jsonl" == basename(path) || error("report family differs from filename")
       status = row["status"]
       status in ("pass", "broken", "notcovered") || error("invalid row status: $status")
       if status == "broken"

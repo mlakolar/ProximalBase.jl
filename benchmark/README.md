@@ -29,11 +29,15 @@ for each measurement series; existing repetitions are never overwritten.
 | `PB_LIST=true` | List selected case IDs without measuring them. |
 | `PB_PROFILE_SECONDS=0.2` | Enable representative profiles; disabled by default. |
 
-Groups are `vectors`, `smooth`, `matrices`, `constraints`, `tensors`, `products`, `blocks` and
-`owner`. They cover dense/sparse/atom calls, values and derivatives,
+Groups are `vectors`, `smooth`, `matrices`, `constraints`, `tensors`, `products`, `blocks`,
+`owner` and `ridge`. They cover dense/sparse/atom calls, values and derivatives,
 coordinate operations, ordered penalties, constraints and workspace states.
 The blocks group covers flat and nested tuple oracles, wrappers and long block sums
 on Float32/Float64 inputs, with the same cases in both suites.
+The `ridge` group measures `SqrNormL2`, centered and uncentered, in homogeneous `Float32` and
+`Float64` and in `Float32` storage with `Float64` parameters (`prox!`, `value_and_prox!`, a
+`prox_entry` loop, `gradient!`, `value_and_gradient!`, the value), and, as separate
+`layout=recovery` cases, calls whose parameters or centers leave the model's range.
 The matrix group includes partial/full decompositions and fallback inputs.
 Construction plus first use is measured separately from workspace reuse.
 

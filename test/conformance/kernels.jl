@@ -30,7 +30,6 @@ end
   problem = "Combined parameters rounded once; range recovery retains unrounded factors."
   expected = Float32[0.5]
   observed = prox!(zeros(Float32, 1), SqrNormL2(pow2(Float64, 160)), Float32[1], pow2(Float64, -160))
-  broken = (group = :G1, baseline = Returned(v -> same(v, Float32[NaN])))
 end
 
 @row begin
@@ -39,7 +38,6 @@ end
   problem = "Combined parameters rounded once; range recovery retains unrounded factors."
   expected = [pow2(Float32, -60)]
   observed = prox!(zeros(Float32, 1), SqrNormL2(pow2(Float64, 160)), [pow2(Float32, 100)], 1.0)
-  broken = (group = :G1, baseline = Returned(v -> same(v, Float32[0.0])))
 end
 
 @row begin
@@ -48,7 +46,6 @@ end
   problem = "Combined parameters rounded once; range recovery retains unrounded factors."
   expected = [pow2(Float64, -700)]
   observed = prox!(zeros(Float64, 1), SqrNormL2(pow2(Float64, 800)), [pow2(Float64, 900)], pow2(Float64, 800))
-  broken = (group = :G1, baseline = Returned(v -> same(v, [0.0])))
 end
 
 @row begin
@@ -90,7 +87,6 @@ end
   problem = "Finite ridge result despite level outside Float32 range."
   expected = [pow2(Float32, 80)]
   observed = gradient!(zeros(Float32, 1), SqrNormL2(pow2(Float64, 160)), [pow2(Float32, -80)])
-  broken = (group = :G1, baseline = Returned(v -> same(v, Float32[Inf])))
 end
 
 @row begin
@@ -107,7 +103,6 @@ end
   problem = "Overflowing centered difference; independent gradient remains finite."
   expected = [4.0]
   observed = let g = zeros(1); value_and_gradient!(g, SqrNormL2(pow2(Float64, -1022), [-pow2(Float64, 1023)]), [pow2(Float64, 1023)]); g end
-  broken = (group = :G1, baseline = Returned(v -> same(v, [Inf])))
 end
 
 # O2: one fused invocation from a sentinel destination; the scalar and a copy of
@@ -125,7 +120,6 @@ end
   problem = "Center converts to one in stored-output problem; the scalar of the fused value_and_prox! call."
   expected = 0f0
   observed = fused9()[1]
-  broken = (group = :G1, baseline = Returned(v -> same(v, 6.938894f-18)))
 end
 
 @row begin
@@ -150,7 +144,6 @@ end
   problem = "Value and gradient have separate model precisions."
   expected = 0f0
   observed = value_and_gradient!(zeros(1), SqrNormL2(1.0, [1 + pow2(Float64, -28)]), Float32[1])
-  broken = (group = :G1, baseline = Returned(v -> same(v, 6.938894f-18)))
 end
 
 @row begin

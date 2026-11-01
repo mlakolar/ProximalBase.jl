@@ -1,4 +1,5 @@
 module HyperslabTest
+# CI scenario (do not merge): a comment in a test file outside the quick tier.
 
 using Test
 using ProximalBase

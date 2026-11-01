@@ -450,9 +450,9 @@ end
 
 for Step in (Real, AbstractVector)
   @eval begin
-    value_and_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::$Step) = (_checkreal(f, x); _checkreal(f, y); _checkreal(f, γ); _value_and_prox_groups!(y, f, x, γ))
+    value_and_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::$Step) = (x = _symmetric_argument(y, x); _checkreal(f, x); _checkreal(f, y); _checkreal(f, γ); _value_and_prox_groups!(y, f, x, γ))
     value_and_prox!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::$Step) = (_checkreal(f, x); _checkreal(f, y); _checkreal(f, γ); _value_and_prox_groups!(y, f, x, γ))
-    prox!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::$Step) = (_checkreal(f, x); _checkreal(f, y); _checkreal(f, γ); _value_and_prox_groups!(y, f, x, γ); y)
+    prox!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::$Step) = (x = _symmetric_argument(y, x); _checkreal(f, x); _checkreal(f, y); _checkreal(f, γ); _value_and_prox_groups!(y, f, x, γ); y)
   end
 end
 
@@ -713,6 +713,7 @@ function (f::IndBallGroupL0)(x::AtomIterate)
 end
 
 function prox!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray, ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   y === x || copyto!(y, x)
   _keep_largest_groups!(y, f, eachindex(f.groups))

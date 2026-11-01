@@ -1015,6 +1015,60 @@ _symmetric_by_type(::Union{SymmetricSparseIterate, Symmetric{<:Number}, Hermitia
                            Diagonal{<:Number}, SymTridiagonal{<:Number}}) = true
 _symmetric_by_type(A::Union{Adjoint, Transpose}) = _symmetric_by_type(parent(A))
 
+# The symmetric part (A + A') / 2, read lazily. The proximal point over symmetric
+# matrices at a matrix V that is not symmetric is the proximal point at its symmetric
+# part, for every function, so a SymmetricSparseIterate output reads its argument
+# through this wrapper. An entry pair that is not equal is averaged as a / 2 + b / 2,
+# which cannot overflow and is exactly symmetric; an opposite-infinity pair gives NaN.
+struct _SymmetricPart{T, A<:AbstractMatrix} <: AbstractMatrix{T}
+  A::A
+end
+_SymmetricPart(A::AbstractMatrix) = _SymmetricPart{typeof(zero(eltype(A)) / 2), typeof(A)}(A)
+Base.size(S::_SymmetricPart) = size(S.A)
+Base.axes(S::_SymmetricPart) = axes(S.A)
+Base.IndexStyle(::Type{<:_SymmetricPart}) = IndexCartesian()
+Base.dataids(S::_SymmetricPart) = Base.dataids(S.A)
+Base.@propagate_inbounds function Base.getindex(S::_SymmetricPart{T}, r::Int, c::Int) where {T}
+  a, b = S.A[r, c], S.A[c, r]
+  _symequal(a, b) ? convert(T, a) : convert(T, a) / 2 + convert(T, b) / 2
+end
+_symmetric_by_type(::_SymmetricPart) = true
+Base.adjoint(S::_SymmetricPart{<:Real}) = S
+Base.transpose(S::_SymmetricPart) = S
+# the products of the decompositions keep the speed of BLAS: ((A + A') / 2) B = (A B + A' B) / 2
+# (a strided output, so that these methods do not meet those of a SymmetricSparseIterate output)
+for (CT, BT) in ((:StridedMatrix, :AbstractVecOrMat), (:StridedVector, :AbstractVector))
+  @eval begin
+    function LinearAlgebra.mul!(C::$CT, S::_SymmetricPart{<:Real, <:StridedMatrix}, B::$BT, α::Number, β::Number)
+      mul!(C, S.A, B, α / 2, β)
+      mul!(C, S.A', B, α / 2, true)
+    end
+    LinearAlgebra.mul!(C::$CT, S::_SymmetricPart{<:Real, <:StridedMatrix}, B::$BT) = mul!(C, S, B, true, false)
+  end
+end
+
+# The argument that a proximal map into y reads: x itself when y is not a
+# SymmetricSparseIterate, x is symmetric by type, or x is exactly symmetric (found by
+# a scan that stops at the first pair that differs, so an exactly symmetric matrix
+# keeps its fast paths and its results), otherwise the symmetric part of x. A size
+# that does not match y is left to the shape checks, which run before any entry is read.
+_symmetric_argument(y, x) = x
+_symmetric_argument(y::SymmetricSparseIterate, x::AbstractMatrix) =
+  (_symmetric_by_type(x) || _is_device_array(x) || _exactly_symmetric(x)) ? x : _SymmetricPart(x)
+_exactly_symmetric(x::AbstractMatrix) = size(x, 1) == size(x, 2) && _issymmetric_exact(x, _symequal)
+# A spectral function is defined on symmetric matrices, so its proximal map reads the
+# symmetric part of a matrix that is not symmetric by type, whatever the output.
+_spectral_argument(x) = x
+# A device matrix is read on the host, as the decompositions do.
+_spectral_argument(x::AbstractMatrix) =
+  _symmetric_by_type(x) ? x : _SymmetricPart(_is_device_array(x) ? Array(x) : x)
+# a tuple with no symmetric block is returned as it is; the rest is unrolled by type
+@inline _symmetric_argument(y::Tuple, x::Tuple) = _symmetric_blocks(y, x)
+@generated function _symmetric_blocks(y::Tuple, x::Tuple)
+  (fieldcount(y) == fieldcount(x) && any(T -> T <: SymmetricSparseIterate, fieldtypes(y))) || return :x
+  Expr(:tuple, (:(_symmetric_argument(y[$k], x[$k])) for k in 1:fieldcount(y))...)
+end
+
 # the first pair (r, c), r > c, in column-major order, at which the square,
 # one-based A is not symmetric
 function _asymmetric_pair(A::AbstractMatrix, eq::E) where {E}

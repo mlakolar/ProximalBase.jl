@@ -173,7 +173,7 @@ function _minimum_candidates!(best, current, x, γ, indicator, v, score, fs::Tup
 end
 
 value_and_prox!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, g, y, x, γ); _value_and_prox_unchecked!(y, g, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, g, y, x, γ); _value_and_prox_unchecked!(y, g, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, g, y, x)
   best = _array_buffer!(g.best, eltype(y), size(y))
@@ -187,7 +187,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, g::PointwiseMinimum, x::Ab
 end
 
 prox!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, g, y, x, γ); _prox_unchecked!(y, g, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, g, y, x, γ); _prox_unchecked!(y, g, x, γ))
 function _prox_unchecked!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real)
   _checkwrite(prox!, g, y, x)
   _value_and_prox_unchecked!(y, g, x, γ)

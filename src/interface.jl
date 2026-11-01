@@ -152,7 +152,7 @@ value uses the Fenchel equality can return a small nonzero value even when it
 represents an indicator.
 """
 value_and_prox!(y, f::AbstractFunction, x, γ::Real = 1) =
-  (_check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_body!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_body!(y, f, x, γ))
 _value_and_prox_unchecked!(y, f::AbstractFunction, x, γ::Real = 1) =
   _isbuiltin(f) ? _value_and_prox_body!(y, f, x, γ) : value_and_prox!(y, f, x, γ)
 function _value_and_prox_body!(y, f::AbstractFunction, x, γ::Real = 1)

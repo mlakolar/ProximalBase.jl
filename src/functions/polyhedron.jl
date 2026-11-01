@@ -746,6 +746,7 @@ function _poly_solve!(f::IndPolyhedron{T}, x) where {T}
 end
 
 function prox!(y::AbstractArray, f::IndPolyhedron{T}, x::AbstractArray, ::Real) where {T}
+  x = _symmetric_argument(y, x)
   try
     _checkwrite(prox!, f, y, x)
     # The solver needs finite entries in its working precision.
@@ -765,6 +766,7 @@ function prox!(y::AbstractArray, f::IndPolyhedron{T}, x::AbstractArray, ::Real) 
 end
 
 function value_and_prox!(y::AbstractArray, f::IndPolyhedron, x::AbstractArray, γ::Real = 1)
+  x = _symmetric_argument(y, x)
   prox!(y, f, x, γ)
   zero(_valtype(y))
 end

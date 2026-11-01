@@ -115,6 +115,33 @@ end
   @test Y[3, 3] == 0.0 && A[3, 3] == 2.0
 end
 
+@testset "matrixview: output aliasing the matrix storage" begin
+  # the one-dimensional case: clearing the output would clear the stored entry
+  X = SymmetricSparseIterate(Float64, 1)
+  X[1, 1] = 2.0
+  y = coordinates(X)
+  @test_throws ArgumentError mul!(y, matrixview(X), [3.0], 1.0, 0.0)
+  @test_throws ArgumentError mul!(y, matrixview(X), [3.0])
+  @test_throws ArgumentError mul!(y, X, [3.0], 1.0, 0.0)
+  @test X[1, 1] == 2.0 && y == [2.0]
+  # p = 2 with two stored entries: activevalues(Y) has the length of the vector
+  Y = SymmetricSparseIterate(Float64, 2)
+  Y[1, 1] = 1.0; Y[2, 1] = 4.0
+  v = activevalues(Y)
+  @test length(v) == 2
+  @test_throws ArgumentError mul!(v, matrixview(Y), zeros(2), 1.0, 1.0)
+  @test_throws ArgumentError mul!(v, matrixview(Y), zeros(2))
+  @test Y[1, 1] == 1.0 && Y[2, 1] == 4.0
+  # a different owner is fine
+  Z = SymmetricSparseIterate(Float64, 1)
+  Z[1, 1] = 5.0
+  out = zeros(1)
+  mul!(out, matrixview(X), [3.0], 1.0, 0.0)
+  @test out == [6.0]
+  mul!(coordinates(Z), matrixview(X), [1.0], 1.0, 0.0)   # writes into another owner: allowed
+  @test Z[1, 1] == 2.0 && X[1, 1] == 2.0
+end
+
 @testset "matrixview: product with a dense vector" begin
   for p in (0, 1, 2, 7)
     X = SymmetricSparseIterate(Float64, p)

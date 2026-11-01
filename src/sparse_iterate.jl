@@ -927,7 +927,10 @@ end
 struct SymmetricCoordinates{T} <: AbstractVector{T}
   x::SymmetricSparseIterate{T}
 end
-# aliasing hooks from Base (non-public functions)
+# aliasing hooks from Base (non-public functions); the owner reports its storage
+# arrays, so that activevalues(x) and the views of x are all seen to overlap x
+Base.dataids(x::SymmetricSparseIterate) =
+  (Base.dataids(x.nzval)..., Base.dataids(x.nzval2ind)..., Base.dataids(x.ind2nzval)...)
 Base.dataids(c::SymmetricCoordinates) = Base.dataids(c.x)
 Base.unaliascopy(c::SymmetricCoordinates) = coordinates(copy(c.x))
 
@@ -1779,11 +1782,19 @@ function _mul_symsparse!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::
 end
 
 
+# checked before C is modified: C may be activevalues(A), or coordinates(A) when p == 1
+function _checkalias(C, A::SymmetricSparseIterate, B)
+  Base.mightalias(C, B) && throw(ArgumentError("the output of mul! must not be aliased with its input"))
+  Base.mightalias(C, A) && throw(ArgumentError("the output of mul! must not be aliased with the matrix, e.g. coordinates(X) or activevalues(X)"))
+  nothing
+end
+
 # any element types: the generic fallback would loop over all p² entries
 function LinearAlgebra.mul!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector)
   _checkreal(A, C); _checkreal(A, B)
   size(A, 2) == size(B, 1) || throw(DimensionMismatch())
   size(A, 1) == size(C, 1) || throw(DimensionMismatch())
+  _checkalias(C, A, B)
 
   fill!(C, zero(eltype(C)))
   i = 1
@@ -1895,7 +1906,7 @@ function _mul_stored!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractV
   p = A.p
   length(B) == p || throw(DimensionMismatch("A has $p columns but B has length $(length(B))"))
   length(C) == p || throw(DimensionMismatch("A has $p rows but C has length $(length(C))"))
-  Base.mightalias(C, B) && throw(ArgumentError("the output of mul! must not be aliased with its input"))
+  _checkalias(C, A, B)
   iszero(β) ? fill!(C, zero(eltype(C))) : isone(β) || rmul!(C, β)
   iszero(α) && return C
   @inbounds for k in 1:A.nnz

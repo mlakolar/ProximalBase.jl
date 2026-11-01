@@ -53,7 +53,7 @@ mathematical paper never needs.
 | 3 | what problem a mixed call solves | parameters rounded once to the working type | yes: V9 and some ridge cases |
 | 4 | parameters whose rounding loses range | recompute without the rounding | yes, fixes V3–V6 |
 | 5 | wider destination | compute in the destination type | yes (#362) |
-| 6 | data-holding losses | compute in the data's precision | no |
+| 6 | functions that hold data | the wider of data and call precision | yes: Float32 data with a Float64 argument becomes Float64-accurate |
 | 7 | Float16 | unsupported in 0.6; rule recorded for later | yes: Float16 is rejected |
 | 8 | BigFloat and integers | supported; caches keyed by precision | small |
 | 9 | constructors | validate in own type; never narrow | yes (#313, #333) |
@@ -321,34 +321,101 @@ refinement in the wider type.
 
 **Decided:**
 
-### 6. Losses that hold data (T2; #366 D6)
+### 6. Functions that hold data (T2; #366 D6)
 
-**Decide.** `LeastSquaresLoss`, `GLMLoss` and `LogDetLoss` store a data
-matrix. With `Float64` data and a `Float32` argument, which precision is
-used?
+*Revised 2026-10-31 after the maintainer's question on #385 about a
+`QuadraticFunction` with a `Float32` matrix and a `Float64` argument. The
+first version covered only Float64 data with a Float32 argument.*
+
+**Decide.** `LeastSquaresLoss`, `GLMLoss`, `LogDetLoss`,
+`QuadraticFunction`, `KronQuadratic`, `IndAffine`, `IndGraph`,
+`IndPolyhedron` and `LinearImage` store a data matrix. When the data's
+precision and the call's precision differ, in which precision is the
+arithmetic done?
+
+**There are two cases, and they differ.**
+
+- *Data wider than the call* (Float64 data, Float32 argument). Computing in
+  the call's precision would round the matrix on every call. That is an
+  O(np) conversion, or a second copy of the matrix, or generic code. Computing
+  in the data's precision only converts the argument vector, at O(p), and
+  uses BLAS. Julia's own `*` does this: a Float64 matrix times a Float32 vector
+  converts the vector and calls BLAS, at the same cost as all-Float64
+  (380 μs, n = 2000).
+- *Data narrower than the call* (Float32 data, Float64 argument: the
+  maintainer's example). Every Float32 number is exactly a Float64 number, so
+  widening the data loses nothing. Computing in the data's precision would
+  instead round the *argument* to Float32 and throw away its digits.
+
+**Two kinds of "Float64 accuracy".**
+
+- *Relative to the matrix the user had before storing it as Float32.* This is
+  impossible. Those digits were dropped when the function was built, and no
+  computation can recover them. A user who needs them builds the function in
+  Float64.
+- *Relative to the stored matrix.* This is achievable, by computing in Float64
+  from the exactly widened data.
+
+It matters even though the matrix is "only Float32". The solver's iterate is
+Float64, and the function it minimizes is the stored one. If the value is
+computed with Float32 rounding, its noise of about `1e-8` relative stops a
+Float64 solver from telling iterates apart below that level: line searches
+misbehave, and convergence stalls at Float32 accuracy on a problem that is
+well defined in Float64.
+
+**Measurement** (n = 2000, Float32 SPD matrix, Float64 argument, master
+`3f90a29`):
+
+| computation | relative error of the value | time |
+|:---|:---|:---|
+| `QuadraticFunction` today: `A*x` through a Float32 buffer | `7.5e-9` (Float32 level) | 630 μs |
+| Float64 arithmetic on the stored Float32 `A` (generic `A*x`) | `2.0e-16` | 439 μs |
+| all-Float64 BLAS, for comparison | | 494 μs |
+| all-Float32 BLAS, for comparison | | 59 μs |
+
+Today's `gradient!` of the same function writes a Float64 output and is
+Float64-accurate (relative error `1.5e-15`), so the value and the gradient
+of one function have different accuracies.
 
 **Options.**
 
-- *(a) The data's precision.* Convert the argument vector, which is small
-  and costs O(p), to the data's type, use BLAS, and return the value in `R`.
-- *(b) The argument's precision.* Convert the matrix on every call, O(np),
-  keep a second copy, or use generic code.
+- *(a) The data's precision always* (#238; this decision's first
+  recommendation). Fast when the data is wider. When the data is narrower,
+  it rounds the argument; today that is also slower, because the mixed
+  product into a Float32 buffer takes Julia's generic path.
+- *(b) The call's precision always,* as decision 2 does for parameters. Right
+  when the data is narrower. When the data is wider, it rounds the matrix on
+  every call.
+- *(c) The wider of the data's precision and the call's precision,* from
+  exactly widened inputs. It never rounds the data per call and never throws
+  away the argument's digits. Float32 data with a Float64 argument costs
+  about what all-Float64 costs (439 μs against 494 μs here), but keeps the
+  Float32 storage. A decomposition cached in the data's precision, such as
+  `QuadraticFunction`'s eigendecomposition for its proximal operator, is
+  rebuilt and cached in the wider type when needed, like other caches
+  keyed by precision.
 
-**Measurement.** Julia's own `*` follows (a). A `Float64` matrix times a
-`Float32` vector converts the vector and calls BLAS: 380 μs, the same as
-all-Float64 (n = 2000). A `Float32` matrix times a `Float64` vector took
-491 μs, against 57 μs for all-Float32.
+**Precedent.**
 
-**Pros and cons.** (a) is fast and simple, and it is an exception to
-decision 2, stated once. Its accuracy is the data's, which is at least that
-of the argument. (b) is consistent with decision 2, but it either costs a
-matrix copy per call or doubles the memory. A user who wants Float32 speed
-builds the loss with Float32 data, as Flux's `f32` does for models.
+- BLAS `DSDOT` takes single-precision data and accumulates and returns in
+  double.
+- cuBLAS `cublasGemmEx` separates the storage type of its matrices from the
+  compute type: half-precision inputs, single-precision arithmetic.
+- Julia's `*` converts the narrower vector to the wider matrix's type.
+- All three keep the narrow type for storage and do the arithmetic in the
+  wider type.
 
-**Precedent.** Julia's `LinearAlgebra.*`; PyTorch requires equal dtypes;
-#238 chose (a).
+**Recommendation.** **(c)**, for every function that holds data. The value
+then has the call's type (decision 1) and is accurate to that type *for the
+data as stored*. The data itself is only as accurate as the numbers the
+function was built from; the documentation says so, and says to build in
+Float64 for Float64 data. Today's sentence in the interface page ("a function
+built in `Float32` and applied to a `Float64` argument returns a `Float64`
+value with `Float32` accuracy") changes accordingly.
 
-**Recommendation.** (a), keep.
+**Changes.** Values of data-holding functions with narrower data and a wider
+argument become accurate to the argument's precision. `QuadraticFunction`
+values in that case also get faster.
 
 **Decided:**
 

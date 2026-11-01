@@ -20,6 +20,9 @@ Behavior described as current was checked at master `3f90a29`.*
   which would have contradicted "NaN takes precedence over `Inf`".*
 - *A4: the rank threshold is documented as deliberately looser than
   numerical rank.*
+- *T2: functions that hold data compute in the wider of the data's and the
+  call's precision (decision 6, revised after the maintainer's
+  `QuadraticFunction` question).*
 - *Case table and decisions record updated to match.*
 
 This page states what ProximalBase promises about the numbers it returns:
@@ -93,8 +96,18 @@ fractional results (#363).
 **T2. Working type.** `W = D` for written arrays and `W = R` for values, with
 two exceptions:
 
-- The losses that hold data (`LeastSquaresLoss`, `GLMLoss` and its variants,
-  `LogDetLoss`) compute in their data's precision (#238, #366 D6).
+- Functions that hold a data matrix (`LeastSquaresLoss`, `GLMLoss` and its
+  variants, `LogDetLoss`, `QuadraticFunction`, `KronQuadratic`, `IndAffine`,
+  `IndGraph`, `IndPolyhedron`, `LinearImage`) compute in the wider of their
+  data's precision and the call's precision, from exactly widened inputs
+  (decision 6). They never round the data per call, and never discard the
+  argument's digits. Results are accurate to that precision for the data as
+  stored; the data is only as accurate as the numbers the function was built
+  from, so a function built in Float32 gives Float32 accuracy relative to the
+  matrix the user had before storing it.
+  **Gap (new):** `QuadraticFunction` with Float32 data and a Float64 argument
+  computes its value through a Float32 buffer (relative error `7.5e-9`),
+  while its gradient is Float64-accurate.
 - A family whose guarantee (A1) needs a wider `W` lists it in the
   [table of wider internals](#support-matrix), with its scope and measured
   cost.
@@ -146,7 +159,7 @@ parameters, the result is computed in `D` from the exactly widened inputs,
 cached quantities included (decision 5). For example, the hyperplane
 coefficient and `‖a‖²` are formed in `D` (#362). Widening a coefficient that
 was rounded in the narrower type is not recomputing it: only recomputing in
-`D` gives the accuracy of `D`. The data-holding losses follow T2.
+`D` gives the accuracy of `D`. Functions that hold data follow T2.
 **Gap (#362).**
 
 **T5. Constructors.** A constructor validates parameters in their own type
@@ -668,7 +681,8 @@ argument types, destination types, data types, backend, the guarantee kind
 - `Float16`: rejected everywhere in 0.6 (T6).
 - LAPACK families (A5): `Float32` and `Float64` arguments and outputs only.
   `IndStiefel` and `LogDetLoss` are missing from today's docs list.
-- Data-holding losses: compute in the data's precision (T2).
+- Functions that hold data: compute in the wider of the data's and the call's
+  precision (T2).
 - Constructor storage: as given (`NormL1`, `NormL2`, `IndBox`), converted to a
   common float type (`GroupNormL2`, `IndHyperplane`'s `b`), or promoted
   without `float` (`ElasticNet`, `MCP`, `SCAD`, `FusedLasso`, `Berhu`,
@@ -690,6 +704,7 @@ behavior most:
 | 7 | Float16 | rejected in 0.6 | T6 |
 | 11 | range of gradients and proximal outputs | every closed-form entry | R2 |
 | 20 | NaN in the argument | propagates to what depends on it | E2 |
+| 6 | functions that hold data | the wider of data and call precision | T2 |
 | 22 | zero level | the zero function | E4 |
 | 25 | negative and NaN steps | `ArgumentError` before writing | P1 |
 
@@ -701,7 +716,8 @@ The decisions from #366 map as follows:
 - D3 (Float16) is decision 7.
 - D4 (accuracy form) is decision 13.
 - D5 (wider destination) is decision 5.
-- D6 (data-holding losses) is decision 6.
+- D6 (data-holding losses) is decision 6, revised: compute in the wider of
+  the data's and the call's precision.
 - D7 (metrics) is decision 27.
 - D8 (inside the band) is decision 18.
 - D9 (`BigFloat` caches) is decision 8.

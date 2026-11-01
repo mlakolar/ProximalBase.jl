@@ -25,6 +25,7 @@ others) may be reversed here.
 | `04-chatgpt-comment.md` | ChatGPT | comparison of Draft 2 with #366; finds that Draft 3's rule T3 contradicts its case V9, and proposes a middle option for mixed precision |
 | `05-decisions.md` | Claude | every decision written out: background, example, options with pros and cons, precedent in other packages, recommendation |
 | `06-claude-draft4.md` | Claude | **the current draft**: Draft 3 revised for ChatGPT's comparison, with every recommendation of `05-decisions.md` adopted; rules that rest on an unconfirmed decision name it |
+| `bench-q1-threshold.jl`, `bench-d6-quadratic.jl` | Claude | measurements for decisions 3 and 6 |
 
 ## Process
 

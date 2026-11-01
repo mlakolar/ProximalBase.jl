@@ -491,6 +491,8 @@ including sparse iterate outputs with their stored entries and order preserved.
 `Symmetric` and `Hermitian` outputs are unsupported. A copy made for the device
 by `Adapt.adapt` allocates a device buffer on each proximal call.
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 struct Regularize{F<:AbstractFunction, T<:Real, C<:Union{Nothing, AbstractArray}, S<:Union{Nothing, Scratch}} <: AbstractFunction
   f::F

@@ -113,6 +113,43 @@ matrix and `copyto!` a symmetric result.
 | `mul!(x, v, s)` with a vector `v` of `p²` entries | `reshape(v, p, p)`, which must be symmetric |
 | `copyto!(x, itr)` from a tuple or a generator | `copyto!(x, reshape(collect(itr), p, p))`, which must be symmetric |
 
+## Per-entry parameters on a `SymmetricSparseIterate` (0.6)
+
+Arrays that assign a weight, bound or other parameter to each matrix entry
+must be exactly symmetric. Checked operations now throw an `ArgumentError`
+when they find different values at mirrored positions. Some calls check only
+the pairs they use; see [Symmetric parameters](@ref) for examples, the
+operation table and complete validation before a solver starts.
+Dense arrays, `SparseIterate` and `AtomIterate` are unchanged.
+
+The rows below list the earlier behavior and how to adapt.
+The linked operation table explains which symmetric arguments trigger checks.
+
+| Earlier behavior | New behavior and adaptation |
+|:---|:---|
+| In 0.5.4, weighted `NormL1` values counted weights from both triangles, while symmetric `prox!` used only the lower weight | Checked pairs must agree; choose one triangle with `Symmetric(W, :L)`, or revise the weights to match the intended model |
+| Values did not check parameter symmetry | Symmetric inputs trigger checks of stored pairs or all pairs, depending on the computation |
+| Gradients and gradient mappings did not check parameter symmetry | Symmetric outputs trigger checks; gradient mappings check both functions |
+| Hessian products and quadratic models did not check parameter symmetry | A symmetric point triggers full parameter validation, even with a dense Hessian-product output |
+| Coordinate curvature calls did not check parameter symmetry | Symmetric `L` in `coordinate_lipschitz!` triggers full validation |
+| Symmetric coordinate steps read the lower-triangle parameter without comparing its mirror | `prox_coordinate!` checks the pair at the chosen coordinate |
+| Four-argument `kkt_violation` read the lower entry of `g` | It uses the symmetric part at the chosen pair and checks that parameter pair; `+Inf` and `-Inf` at that pair throw `ArgumentError` |
+| Symmetric proximal calls read lower-triangle steps without comparing their mirrors | Proximal calls with symmetric outputs check the relevant step pairs too |
+| Separable `lla_weights!` did not check parameter symmetry | A symmetric input triggers full validation, including with a dense output or allocating `lla_weights` |
+| User `SeparableFunction` types needed no per-entry declaration | Define `ProximalBase.entry_parameters(f::MyFunction)` as a tuple such as `(:w => f.w,)`, or `()` when there are none |
+| Calls did not require or validate a per-entry declaration | Checked symmetric calls reject undeclared functions and malformed declarations with `ArgumentError` |
+| Wrappers and tuple blocks did not check declared arrays for symmetry | Checks also visit built-in wrappers and nested `SeparableSum` blocks |
+| `Testing.test_separable(...; symmetric = true)` did not validate declarations | It now validates the declaration and every mirrored parameter pair; it does not generate asymmetric copies of a user function |
+
+Averaging `(W + W') / 2` changes both weights and can change the model.
+It is not a general repair for patterns, bounds or labels, and the sum can
+overflow. For extension declarations and public oracle overrides, see
+[Separable functions](@ref extending-separable). Validation does not protect against later
+mutation; reconstruct functions when their parameter documentation requires it.
+
+These parameter checks complement the checks on values written into an
+iterate. See [Writes into a `SymmetricSparseIterate` (0.6)](@ref).
+
 ## Coordinate operations of a nonseparable `MoreauEnvelope` (0.6)
 
 `restrict` of a [`MoreauEnvelope`](@ref) of a nonseparable function, including
@@ -123,16 +160,6 @@ wrong, except for group penalties. `prox_entry` and `kkt_violation` now throw
 an `ArgumentError` instead of a `MethodError`. Restricting a group-penalty
 envelope, including as the smooth term of an active-set solver, is no longer
 supported. These coordinate operations require a separable underlying function.
-
-## User separable functions on symmetric iterates
-
-For 0.6, a user `SeparableFunction` used on a `SymmetricSparseIterate` must define
-`ProximalBase.entry_parameters(f::MyFunction) = (:w => f.w,)`, listing every
-per-entry array, or return `()` when it has none. Undeclared functions throw
-`ArgumentError`. Dense arrays, `SparseIterate` and `AtomIterate` are unchanged.
-Public oracle overrides should call `ProximalBase.check_symmetric_parameters(f, x)`
-before writing. Solvers can use this check once before calling raw entry oracles;
-mutating parameter arrays later requires checking them again.
 
 ## Writes through `atom(x, k)` (0.6)
 

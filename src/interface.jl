@@ -36,6 +36,8 @@ proximable. [`isconvex`](@ref) tells a solver whether convex theory applies.
 To add a function, subtype `AbstractFunction`, make it callable, declare its
 traits for its type, as in `ProximalBase.issmooth(::Type{<:MyLoss}) = true`, and
 implement the oracles of those traits.
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 abstract type AbstractFunction end
 
@@ -196,6 +198,8 @@ An override of a public oracle replaces that boundary and should call
 iterate. Built-in wrappers also check their inner functions before writing.
 Raw entry oracles and `restrict` have no iterate to check; validate the original
 function before using them.
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 function entry_parameters end
 
@@ -212,6 +216,8 @@ This checks all pairs, even those absent from the iterate. Coordinate oracles
 check only their own pair. It does not check separately supplied step arrays
 or certify arrays against later mutation. A user override of a public oracle
 should call this check before writing; the declaration is trusted to be complete.
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 function check_symmetric_parameters end
 
@@ -338,6 +344,8 @@ the array, so that weights and bounds may depend on the entry; for a
 It touches no iterate and does not check parameter symmetry; a caller using a
 symmetric iterate must check its parameters first. [`prox_coordinate!`](@ref)
 updates a coordinate of one in place.
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 function prox_entry end
 
@@ -365,6 +373,8 @@ so a coordinate whose step ends at zero does not become stored or active.
 This form supports separable functions, the group penalties of this package,
 and their [`Scaled`](@ref) and [`Regularize`](@ref) versions. Other functions
 raise an error before writing.
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 function prox_coordinate! end
 
@@ -536,6 +546,8 @@ suffices. The second form takes a coordinate `k` of the point `x`: for a
 [`GroupNormL2`](@ref), the condition of an index involves the rest of its group,
 and on an [`AtomIterate`](@ref) `k` is a group, whose violation is
 `‖g[Gₖ]‖₂ - λ0 wₖ` (for a separable `f`, the largest over the group).
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 function kkt_violation end
 

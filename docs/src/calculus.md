@@ -90,7 +90,8 @@ The wrapper supports diagonal steps, coordinate updates, optimality tests
 and restriction. Its coordinate curvatures are ``a_i^2 L_i``, and its gradient
 has Lipschitz constant at most ``\max_i a_i^2 L_f``. Entrywise values require
 `f` to be a `SeparableFunction`. On a `SymmetricSparseIterate`, both `a` and
-the inner parameters must be symmetric. The image uses the promoted floating
+the inner parameters must be symmetric; see [Symmetric parameters](@ref).
+The image uses the promoted floating
 type of `x` and `a`; values are computed at that image and have the
 argument's precision, as in [Precision](@ref).
 The scaled inputs, effective steps and results must fit

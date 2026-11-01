@@ -29,7 +29,9 @@ others) may be reversed here.
 | `08-claude-draft5.md` | Claude | Draft 5: Draft 4 revised for the review and the maintainer's question about bitwise results |
 | `09-chatgpt-review-of-draft5.md` | ChatGPT | review of Draft 5: the wide-argument, narrow-output case, one policy per kind of decision, A5 and O4 bounds, a fixture for decision 39 |
 | `10-impact-on-open-issues.md` | Claude (subagent), checked | every open issue and PR classified against the decisions; stale references; gaps in the contract text |
-| `11-claude-draft6.md` | Claude | **the current draft**: Draft 5 revised for the review and the screen; decisions 40–47 added to `05` |
+| `11-claude-draft6.md` | Claude | Draft 6: Draft 5 revised for the review and the screen; decisions 40–47 added to `05` |
+| `12-chatgpt-review-of-draft6.md` | ChatGPT | review of Draft 6: approves the architecture; narrows decision 45, fixes the stored-matrix bounds, asks for a usable quadratic model, Float16 by role |
+| `13-claude-draft7.md` | Claude | **the current draft**: Draft 6 revised for the review |
 | `bench-q1-threshold.jl`, `bench-d6-quadratic.jl` | Claude | measurements for decisions 3 and 6 |
 
 ## Process

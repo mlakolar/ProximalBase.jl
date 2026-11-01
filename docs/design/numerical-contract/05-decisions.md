@@ -54,7 +54,7 @@ mathematical paper never needs.
 | 4 | parameters whose rounding loses range | recompute without the rounding | yes, fixes V3–V6 |
 | 5 | wider destination | compute in the destination type | yes (#362) |
 | 6 | functions that hold data | the wider of data and call precision | yes: Float32 data with a Float64 argument becomes Float64-accurate |
-| 7 | Float16 | unsupported in 0.6; rule recorded for later | yes: Float16 is rejected |
+| 7 | Float16 | rejected by role in 0.6 (argument, destination, direction, data); rule recorded for later | yes: Float16 is rejected |
 | 8 | BigFloat and integers | supported; caches keyed by precision | small |
 | 9 | constructors | validate in own type; never narrow | yes (#313, #333) |
 | 10 | range of values | keep the #283 rule | no |
@@ -90,10 +90,10 @@ mathematical paper never needs.
 | 40 | zero level against domain constraints | keeps domain constraints, infinite weights included | no |
 | 41 | exception for sizes | `DimensionMismatch` | no (current code) |
 | 42 | infeasibility found during a search; arithmetic stopgaps | `ArgumentError` before writing; dedicated exception before writing | yes (#323) |
-| 43 | scope of the contract | every oracle, `kkt_violation` and `restrict` included | small |
+| 43 | scope of the contract | every oracle; `restrict` as the interface states it; an unrepresentable quadratic model raises the dedicated exception | small |
 | 44 | gradients outside the domain | NaN | small |
-| 45 | values of wrappers around arbitrary functions | public scaled-value hook | new API |
-| 46 | normals and offsets of sets | parameters, rounded to the model precision | yes (hyperplanes) |
+| 45 | values of wrappers | private capability for inner results; supported transformations for overflowing arguments; the rest listed as not covered | no new API in 0.6 |
+| 46 | the line between data and parameters | (a) normals are parameters; (c) every array is data is open | yes (hyperplanes) |
 | 47 | non-finite linear coefficients | rejected at construction | yes |
 
 ## Types and precision
@@ -265,7 +265,7 @@ The honest reason for (a) is a deliberate choice of model: one rule, native-prec
 
 The rule is now stated per result (decision 5). Each result has a *model precision*, the working type of decision 2 for that result. Combined parameters such as `γλ` are formed in a precision no narrower than the model precision or the factors' promoted type, then rounded once (V10, V11).
 
-*Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* Two changes, both checked at `d00c7b86`.
+*Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* Two changes, both checked at `3f90a29`.
 
 - *Decimal literals.* The claim that `NormL1(0.1)` and `NormL1(0.1f0)` give identical results on Float32 data was false. With `γ = 9f0`, `0.1·9` rounds to `0.9f0` but `0.1f0·9f0` rounds to `nextfloat(0.9f0)`, so at `x = nextfloat(0.9f0)` one returns `2^-24` and the other `0`. Two calls agree when their effective parameters convert to the same value.
 - *Formation of combined parameters.* They are formed in `promote_type(W, factor types)`, left to right in the order the family documents, and that order defines ties.
@@ -498,6 +498,8 @@ supporting Float16 later. Float16 is rare in this domain, and a half-done
 promise is worse than none.
 
 *Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* Float16 is rejected when the model precision would be Float16: a Float16 argument, output, direction or data. A Float16 parameter, scalar or array, in a wider call widens exactly and is accepted. This also removes the collision with #313's Float16 bound tests.
+
+*Revised after ChatGPT's review of Draft 6 (`12-chatgpt-review-of-draft6.md`).* The rule now works by role. In 0.6, a Float16 argument, destination, direction or data is rejected before writing, independently of the model precision. Under T3, a Float16 argument with a Float64 output has Float64 model precision, so "rejected when the model precision would be Float16" did not reject it. A Float16 parameter or step in an otherwise supported call is accepted.
 
 **Decided:**
 
@@ -884,6 +886,13 @@ Also state that this decision's policy, returning in-band results as computed, t
 - *Rank truncation* names the Frobenius norm and the numerical rank of the *stored* output.
 - *`IndStiefel`* gets its own row: orthonormal to within `c·p·eps`, near-optimal, with closeness to the polar factor depending on the smallest singular value.
 
+*Revised after ChatGPT's review of Draft 6 (`12-chatgpt-review-of-draft6.md`).* The rank and `IndStiefel` guarantees are about the stored output, so they include the error of storing in `D`, not only `eps(W)`. Both examples were checked at `3f90a29`.
+
+- The rank-one projection of `diag(1 + 2^-28, 0)` into Float32 stores `diag(1, 0)`. The optimal residual is `0`; the stored one is `2^-28`.
+- `IndStiefel` of the column `(1, 1)` into Float32 gives `|y'y - 1| = 5.0e-8`. ChatGPT's `3.42e-8` assumed both entries round alike; the package stores two different Float32 values.
+
+The stored matrix's numerical rank is evaluated in `D`. The decomposition before the write and the certificate for what was written are tested separately.
+
 **Decided:**
 
 ## Special values
@@ -1200,7 +1209,7 @@ the `0.5` (the spacing near `1e8` is 8).
 **Recommendation.** (a). Under decisions 2 and 3, this is backward stable:
 the error is in the scale of the shifted quantity the user built.
 
-*Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* The additive bound holds only for Lipschitz inner maps, with each stage's amplification factor. For a discontinuous inner map the staged model and its tie rule are promised instead. `Translate(NormL0(0.5), [-2^-26])` at `1.0` gives `Float32[-2^-26]` with a Float32 output and `[1.0]` with a Float64 output (checked at `d00c7b86`).
+*Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* The additive bound holds only for Lipschitz inner maps, with each stage's amplification factor. For a discontinuous inner map the staged model and its tie rule are promised instead. `Translate(NormL0(0.5), [-2^-26])` at `1.0` gives `Float32[-2^-26]` with a Float32 output and `[1.0]` with a Float64 output (checked at `3f90a29`).
 
 **Decided:**
 
@@ -1509,7 +1518,7 @@ conflict with Draft 4:
 
 *Revised after ChatGPT's review of Draft 5 (`09-chatgpt-review-of-draft5.md`).* Draft 5's acceptance case ("a mapped root below `eps·‖Y‖`") was wrong: `diag(1, 2^-60)` is positive definite in Float64.
 
-The new fixture, checked at `d00c7b86`: `LogDetLoss(zeros(2, 2))`, step 1, at `[0 2^15; 2^15 0]`, with a Float32 output. All four stored entries are `16384f0`, so the stored matrix is singular and `f(Y) == Inf`, while the fused value is `0`. The exact proximal point has determinant one. The control is the Float64 output, whose stored matrix is positive definite.
+The new fixture, checked at `3f90a29`: `LogDetLoss(zeros(2, 2))`, step 1, at `[0 2^15; 2^15 0]`, with a Float32 output. All four stored entries are `16384f0`, so the stored matrix is singular and `f(Y) == Inf`, while the fused value is `0`. The exact proximal point has determinant one. The control is the Float64 output, whose stored matrix is positive definite.
 
 The draft now states current behavior, the 0.6 target and the approval status separately.
 
@@ -1540,6 +1549,8 @@ zero level because of this.
 of the package: an infinite weight is a constraint, not a large penalty.
 
 **Recommendation.** (a). It keeps PR #300, so #339 is unaffected.
+
+*Revised after ChatGPT's review of Draft 6 (`12-chatgpt-review-of-draft6.md`).* The existing qualification stays: zero scaling is rejected when no domain-preserving proximal representation exists. `NegLog` at zero scale would be the indicator of the open half-line, which has no closest point to `-1`. `Scaled(NegLog(), 0)` throws today (checked at `3f90a29`). This differs from the limit of `NegLog`'s proximal point as a positive step tends to zero (decision 26).
 
 **Decided:**
 
@@ -1611,6 +1622,14 @@ and #317 (Poisson IRLS weights overflowing) depends on this scope.
 compute the working response in a finite form, and let a weight that
 genuinely overflows be `Inf` (R4), rather than throwing.
 
+*Revised after ChatGPT's review of Draft 6 (`12-chatgpt-review-of-draft6.md`).* Two corrections.
+
+- *`restrict`.* Draft 6 said the restricted function's "oracles equal the original's on the support". The interface's own wording is more precise, and is restored: the objective restricts up to a finite additive constant, and the gradient restricts by taking its supported entries. The restricted proximal operator minimizes over the support; it is not a slice of the full proximal point. For `Q = [2 1; 1 2]` at `(1, 0)`, the full proximal point is `(3/8, -1/8)` and the restricted one is `1/3` (checked at `3f90a29`).
+- *Quadratic models.* A quadratic model is a function the solver evaluates. Allowing an IRLS weight to become `Inf` makes the model unusable: for one Poisson observation with response `0` at `η = 710`, the weight `exp(710)` overflows. The model's value at `709.5` is `exp(710)/8 ≈ 2.79e307`, a normal number, and a model holding `Inf` cannot give it.
+  - *Today:* weight `Inf` and working response `NaN` (checked at `3f90a29`). The exact working response is `709`.
+  - *Options:* (i) return a model that keeps enough scale to evaluate it, a new representation; or (ii) raise the dedicated exception before writing `q` when the model cannot represent its coefficients.
+  - *Revised recommendation:* (ii) for 0.6, with the working response computed in a finite form. An intentional infinite observation weight is a different thing from an overflowed curvature. Tests evaluate the returned model, not only its fields. This replaces the first recommendation's lean towards "let the weight be `Inf`".
+
 **Decided:**
 
 ### 44. Gradients outside the domain (E6)
@@ -1665,6 +1684,19 @@ this way.
 
 **Recommendation.** (a), documented in "Writing your own function".
 
+*Revised after ChatGPT's review of Draft 6 (`12-chatgpt-review-of-draft6.md`).* The public hook solved only half of the problem.
+
+- *What it can do.* It recovers an inner *result* that is out of range at a representable input: `Scaled(f, α)` with a tiny `α`.
+- *What it cannot do.* It cannot recover a transformed *argument* that has already overflowed. `Translate(NormL1(0.25), [-M])([M])`, with `M = floatmax(Float64)`, has inner coordinate `2M` and value `M/2`; once the wrapper passes `[Inf]`, no return format can recover it. Today it returns `Inf` (checked at `3f90a29`).
+
+Revised recommendation:
+
+- *Inner results:* a private scaled-value capability, implemented by the built-in functions.
+- *Transformed arguments:* recovery needs a supported transformation, either an algebraic identity (homogeneity, for norms) or an inner method that takes a scaled argument. Combinations without one are listed as not covered in the support matrix, with issues (#357, #359). This is a limitation for now, and it is stated.
+- *User-defined inner functions:* covered once the capability is made public, which is deferred until a second use or a concrete third-party need justifies it. Committing third-party authors to a public hook that cannot deliver the advertised guarantee would be worse than a stated gap.
+
+S4's promise for user functions is qualified accordingly in the support matrix.
+
 **Decided:**
 
 ### 46. The normals and offsets of sets (T2)
@@ -1693,6 +1725,21 @@ and the vectors in the same equations as a matrix". It is justified by cost:
 converting a matrix every call is O(np), and BLAS needs one type. A normal
 is a vector of length `n`, like a center. PR #353's coefficient is then
 formed in the model precision, with range recovery under R3.
+
+*Revised after ChatGPT's review of Draft 6 (`12-chatgpt-review-of-draft6.md`).* The effect of the line between data and parameters is not confined to the last bits. Take the Float64 normal `(1, 1 + 2^-25, 1)`, offset `0`, and the Float32 point `(2^25, -2^25, 0)` with a Float32 output.
+
+- As a parameter, the normal rounds to `(1, 1, 1)`, the point lies on the plane, and the projection's third coordinate is `0`.
+- As data (a one-row `IndAffine`), the residual is `-1`, and the third coordinate is about `1/3`.
+
+Today both `IndHyperplane` and the one-row `IndAffine` give `0.3333333` (checked at `3f90a29`). So option (a) changes `IndHyperplane`'s answer for this input and makes it differ from `IndAffine`'s. This is a choice of model, and the documentation must say so.
+
+A third option was not in the first version:
+
+- *(c) Every array is data; only scalars are parameters.* "Scalars you pass (levels, steps) are rounded to the working precision; arrays you pass (weights, centers, bounds, normals, matrices) are used as stored."
+  - *Pros.* Simple to state. `IndHyperplane` and a one-row `IndAffine` agree, as do `LinearFunction(c)` and `QuadraticFunction(0, c)`. The cost argument that made scalars expensive does not carry over to arrays: a stored array must be read and converted entry by entry under either rule, so keeping its entries costs about the same as rounding them. Scalars are where rounding once saves the per-entry wide arithmetic.
+  - *Cons.* It reverses part of decision 3: V9 returns `2^-57`, the value with the stored center, at the point the proximal operator, also computed with the stored center, wrote. Weighted kernels with Float64 weights on Float32 data then compute their thresholds per entry in Float64. That cost is unmeasured; it should be small for memory-bound loops but is uncertain on GPUs.
+
+The recommendation stays (a), for agreement with decision 3 as reviewed. But (c) is a coherent alternative that removes the `IndHyperplane`/`IndAffine` difference, and the maintainer may prefer it. If (c) is chosen, V9's target becomes `2^-57`, and decision 3 is restated as "scalars rounded once".
 
 **Decided:**
 

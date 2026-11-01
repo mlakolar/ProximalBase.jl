@@ -60,7 +60,8 @@ if args.list === nothing
   isempty(args.positionals) || (label *= ", filtered by " * join(args.positionals, " "))
   names = sort!(collect(keys(testsuite)))
   commit = haskey(ENV, "GITHUB_SHA") ? ", commit $(ENV["GITHUB_SHA"])" : ""
-  println("ProximalBase tests: $label: $(length(names)) files; Julia $VERSION on $(Sys.MACHINE)$commit")
+  cpu = "$(strip(first(Sys.cpu_info()).model)), $(Sys.CPU_THREADS) threads"
+  println("ProximalBase tests: $label: $(length(names)) files; Julia $VERSION on $(Sys.MACHINE) ($cpu)$commit")
   println("  ", join(names, " "))
 end
 

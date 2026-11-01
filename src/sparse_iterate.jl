@@ -248,6 +248,7 @@ struct _ActiveIDs <: AbstractVector{Int}
 end
 Base.size(h::_ActiveIDs) = size(h.ids)
 Base.IndexStyle(::Type{_ActiveIDs}) = IndexLinear()
+Base.dataids(h::_ActiveIDs) = Base.dataids(h.ids)     # as the view it wraps: aliasing checks still see the list
 Base.@propagate_inbounds Base.getindex(h::_ActiveIDs, i::Int) = h.ids[i]
 Base.setindex!(::_ActiveIDs, v, i::Int) =
   throw(ArgumentError("activecoordinates(x) is read-only: write values through activevalues(x), or atom(x, k) for an AtomIterate"))

@@ -26,6 +26,8 @@ sum_ids(x) = (acc = 0; for k in activecoordinates(x); acc += k; end; acc)
     @test length(h) == nactive(x)
     @test h == copy(h) && copy(h) isa Vector{Int}
     @test sortperm(h) == sortperm(collect(h))
+    @test Base.dataids(h) == Base.dataids(activecoordinates(x)) && Base.mightalias(h, activecoordinates(x))
+    @test !Base.mightalias(h, copy(h))
     @test_throws BoundsError h[nactive(x) + 1]
     before = snapshot(x)
     @test_throws ArgumentError h[1] = 3

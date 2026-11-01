@@ -14,6 +14,7 @@ for a function and an array type.
 | How is the iterate stored? | `SparseIterate`, `SymmetricSparseIterate`, `AtomIterate` | [Sparse iterates](@ref) |
 | Does an operation transform or delegate to another function? | Composition wrappers | [Functions built from functions](@ref) |
 | Who owns temporary state? | Function-owned buffers and decomposition workspaces | [State and device methods](@ref architecture-state) |
+| In which precision, and what about overflow and NaN? | Per-result model precision and range helpers | [Numerical policy](@ref architecture-numerics) |
 
 The figures show representative types and call paths. A box containing several
 names is a group of examples, not another Julia type. The relationships are
@@ -190,6 +191,31 @@ reference backend; it does not establish physical-GPU compilation or timing.
 
 Loading Test activates the extension used by `ProximalBase.Testing`. Neither
 optional extension changes the public mathematical function hierarchy.
+
+## [Numerical policy](@id architecture-numerics)
+
+The [Numerical contract](@ref numerics) states the rules; this section says
+where they sit in the code.
+
+- **Precision per result.** Each oracle computes its result in a model
+  precision, the widest of the precision it is delivered in, its argument's
+  and its data's. It converts its parameters to that precision once per call,
+  before the loop over entries.
+- **Combined parameters.** Products such as `γλw` are formed by
+  `_weight_product` and `_positive_product`. They check the partial products
+  and switch to a significand-and-exponent form when one would lose range.
+- **Range recovery.** The ordinary expression runs first. Values and
+  closed-form outputs whose ordinary result is out of range are recomputed with
+  the scaled helpers (`_scaled_product`, `_scaled_sum`, `_scaled_value_sum`).
+  Spectral inputs are scaled by a power of two before LAPACK
+  (`_scaled_spectral_input!`). Wrappers recover an inner value through the
+  same internal mechanism, which is not a public extension point in 0.6.
+- **Validation before writing.** Sizes, element types, parameters and steps
+  are checked before any output is written, so a call that throws leaves
+  caller-owned outputs unchanged.
+
+Representative source: [numerical helpers](https://github.com/mlakolar/ProximalBase.jl/blob/d00c7b86/src/utils.jl).
+The design and its decisions are recorded in [pull request #385](https://github.com/mlakolar/ProximalBase.jl/pull/385).
 
 Representative source: [cache reset](https://github.com/mlakolar/ProximalBase.jl/blob/6004c42d90e51f2410eb8147b454f2ad16e25bdc/src/caches.jl),
 [device methods and group layouts](https://github.com/mlakolar/ProximalBase.jl/blob/6004c42d90e51f2410eb8147b454f2ad16e25bdc/ext/ProximalBaseGPUArraysCoreExt.jl),

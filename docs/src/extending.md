@@ -17,14 +17,9 @@ Override `value_and_prox!` when the proximal computation gives the value more
 cheaply, and define [`lipschitz`](@ref) when a smooth function's constant is
 known.
 
-Values follow the rule in [Precision](@ref): `f(x)` and
-`value_and_gradient!(g, f, x)` return `T = float(eltype(x))`, and
-`value_and_prox!(y, f, x, γ)` returns `T` of `y`, whatever the precision of
-the parameters. Convert a value computed with wider parameters to `T` before
-returning it. The rule in [Overflow and underflow of values](@ref) is part of
-the same contract: when an intermediate can leave the range of `T` although
-the value is representable, check the ordinary result and recompute it in
-scaled units. The traits are defined on the type:
+Your function is held to the same numerical rules as the built-in ones; see
+[Numerical rules for your function](@ref) below. The traits are defined on
+the type:
 
 ```@example extending
 using ProximalBase, LinearAlgebra
@@ -117,6 +112,35 @@ On a `SymmetricSparseIterate`, the index ``i`` of entry ``(r, c)`` is
 proximal operator are those of a symmetric matrix. Active-set solvers can also
 use [`kkt_violation`](@ref) and [`restrict`](@ref), which you define for your
 type when it has the structure they need.
+
+## Numerical rules for your function
+
+The [Numerical contract](@ref numerics) applies to functions you write. In
+practice:
+
+- **Return types** (T1). `f(x)` and `value_and_gradient!(g, f, x)` return
+  `T = float(eltype(x))`, and `value_and_prox!(y, f, x, γ)` returns `T` of `y`,
+  whatever the precision of the parameters. Written arrays keep their element
+  type. Convert a value computed with wider parameters to `T` before
+  returning it.
+- **Precision** (T3). Compute each result in its model precision: the widest
+  of the output's, the argument's and your data's precision. Round parameters
+  once, after combining them (form `γ·λ`, then round), and never round the
+  argument below its own precision.
+- **Overflow** (R1, R2). When an intermediate can leave the range of `T`
+  although the result is representable, check the ordinary result and
+  recompute it in scaled units.
+- **NaN and the domain** (E2, E6). Let NaN propagate to the results that depend
+  on it, and do not branch on a comparison that a NaN fails: `norm(x) > t` is
+  false for a NaN norm. Return `+Inf` outside the domain, and a NaN gradient
+  there.
+- **Failures** (O6). Check sizes (`DimensionMismatch`) and arguments
+  (`ArgumentError`) before writing any output.
+- **Aliasing** (O7). `prox!(x, f, x, γ)` must work: read each entry you need
+  before overwriting it.
+- **Inside wrappers** (R1). In 0.6, `Scaled` recovers an overflowing inner
+  value only for the built-in functions. Your function is covered inside it as
+  long as its own value does not overflow.
 
 ## Testing a new function
 

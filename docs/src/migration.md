@@ -47,14 +47,58 @@ change.
   `NormL1Fused` on pairs and tuples, `PointwiseMinimum`, and the conjugates of
   `IndBox`, `Translate`, centred `SqrNormL2` and `HingeLoss(y)`.
 - The data losses `LeastSquaresLoss`, `GLMLoss` and its specializations, and
-  `LogDetLoss` return the argument's precision instead of their data's. A loss
-  built from `Float32` data returns a `Float64` value, with `Float32`
-  accuracy, for a `Float64` argument.
+  `LogDetLoss` return the argument's precision instead of their data's. Under
+  the 0.6 contract, a loss built from `Float32` data computes a `Float64`
+  argument's value in `Float64` from the stored data (see below).
 - Wrappers of data losses, such as `Scaled` and `Sum`, follow the same rule.
 - The spectral functions and sets (`Spectral`, `SingularValue`,
   `NuclearNorm`, `IndPSD`, `IndBallRank`, `TracePSD`) raise an
   `ArgumentError` for element types other than `Float32` and `Float64`, where
   they raised a `MethodError`.
+
+## The numerical contract (0.6)
+
+0.6 adopts the [Numerical contract](@ref numerics). The changes below land in
+the pull requests tracked in
+[#366](https://github.com/mlakolar/ProximalBase.jl/issues/366); until then,
+the earlier behavior applies.
+
+- **Mixed precision.**
+  - Each result is computed in its model precision. Parameters are rounded
+    once to it, after being combined. Data and the geometry of linear sets are
+    used as stored.
+  - The value of `value_and_prox!` uses the converted parameters: centered
+    `SqrNormL2(1.0, [1 + 2^-28])` with a `Float32` output returns `0` where it
+    returned `2^-57`.
+  - A wider output forms combined parameters in its own precision.
+  - A wider argument keeps its digits with a narrower output.
+  - Data-holding functions with narrower data compute in the argument's
+    precision.
+- **NaN.** NaN propagates to every result that depends on it.
+  - The values of indicators, `NegEntropy` and the functions that use LAPACK at
+    a NaN entry are NaN, where they were `Inf`.
+  - `value_and_prox!` of an indicator at a NaN entry returns NaN, where it
+    returned `0`.
+  - The proximal outputs of `NormL2` and `GroupNormL2` at a NaN entry are NaN,
+    where they were zeros.
+  - A zero-level function, such as `NuclearNorm(0)`, returns `0` at a NaN
+    entry.
+- **Float16** arguments, outputs, directions and data are rejected with an
+  `ArgumentError`.
+- **Steps.** Negative and NaN steps raise an `ArgumentError`. Zero and infinite
+  steps are accepted only where a function names the limit.
+- **Failures.**
+  - A search that cannot certify its result in the working precision, and a
+    quadratic model whose coefficients cannot be represented, raise a
+    dedicated precision exception, where some raised an `ArgumentError` or
+    returned `Inf` and NaN.
+  - Size mismatches raise `DimensionMismatch`.
+  - Non-finite coefficients of `LinearFunction` and `Tilt` are rejected at
+    construction.
+- **`LogDetLoss`.** `value_and_prox!` returns `Inf` when the stored output is
+  singular, where it could return a finite value.
+- **Reproducibility.** Results are promised within their stated accuracy, not
+  bit for bit across versions.
 
 ## Matrix products
 

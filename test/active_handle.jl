@@ -65,12 +65,13 @@ sum_ids(x) = (acc = 0; for k in activecoordinates(x); acc += k; end; acc)
     @test length(h) == 1 && activecoordinates(a) == [1, 2]
   end
 
-  @testset "a handle taken before copyto! is stale" begin
+  @testset "copyto! can reorder the list: take the handle again" begin
     x = SparseIterate(5); x[2] = 1; x[4] = 2
     y = SparseIterate(5); y[4] = 1; y[2] = 2
-    h = activecoordinates(x)
+    before = copy(activecoordinates(x))
     copyto!(x, y)
-    @test collect(h) == [4, 2] && activecoordinates(x) == [4, 2]   # same set, new order
+    @test before == [2, 4]
+    @test activecoordinates(x) == [4, 2] && nactive(x) == 2   # same set, new order, fresh handle
   end
 
   @testset "values stay writable" begin

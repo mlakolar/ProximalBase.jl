@@ -472,6 +472,14 @@ withenv("CONFORMANCE_REPORT" => nothing) do
       stale_dir = joinpath(root, "stale")
       stale(stems, env) = (write_complete(stale_dir, "stale-run"); true)
       @test runner([stale_dir]; test_command = stale) == 1
+      # A directory as --out is refused before the test step starts and is left untouched.
+      keep_dir = joinpath(root, "keep")
+      mkpath(keep_dir)
+      write(joinpath(keep_dir, "keep.txt"), "keep")
+      before = called[]
+      @test runner([joinpath(root, "dir-out"), "--out", keep_dir]; test_command = never) == 1
+      @test called[] == before && !ispath(joinpath(root, "dir-out"))
+      @test readdir(keep_dir) == ["keep.txt"] && read(joinpath(keep_dir, "keep.txt"), String) == "keep"
       # The runner has no --check: a fresh run has a new run id, so a byte comparison could never match.
       @test runner([joinpath(root, "nocheck"), "--check"]; test_command = never) == 1
       @test !ispath(joinpath(root, "nocheck"))

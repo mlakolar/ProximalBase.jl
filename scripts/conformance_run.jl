@@ -75,6 +75,8 @@ function main(args = ARGS; test_command = nothing)
       i += 1
     end
     (isdir(dir) && !isempty(readdir(dir))) && error("report directory is not empty: $dir")
+    # Checked before anything runs: a directory as output must never be replaced.
+    isdir(out) && error("--out is a directory, not a file: $out")
     stems = conformance_stems()
     check_stems(stems)
     mkpath(dir)
@@ -91,7 +93,7 @@ function main(args = ARGS; test_command = nothing)
     map_ok = MapScript.main([dir, "--out", candidate, "--run-id", id]) == 0
     if tests_ok && map_ok
       mkpath(dirname(abspath(out)))
-      cp(candidate, out; force = true)
+      write(out, read(candidate)) # overwrites a file; fails on a directory instead of deleting it
       return 0
     end
     println(stderr, "not replacing ", out, "; diagnostic map: ", candidate)

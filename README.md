@@ -174,7 +174,7 @@ or `julia scripts/test.jl --jobs=2`. The same arguments work through `Pkg.test(;
 `julia scripts/test.jl --core` skips the extended tier (`precision_mixed`,
 `large_inputs`, `spectral_overflow`); plain `julia scripts/test.jl` runs everything.
 PR CI runs the core tier and master runs everything; see [CONTRIBUTING.md](CONTRIBUTING.md)
-for CI details and the `full-tests` label.
+for CI details and when a PR needs a full run.
 
 To build the documentation or run benchmarks, use `scripts/instantiate.jl`
 to install the tools for that task and select your local ProximalBase code.

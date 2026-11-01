@@ -67,6 +67,7 @@ jobs:
       - name: Check naming conventions
         run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} scripts/check_naming.py
       - name: Run package tests
+        id: tests
         run: julia --color=yes scripts/test.jl ${{ !(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-tests')) && '--core' || '' }}
         env:
           JULIA_TEST_COVERAGE: "${{ matrix.version == '1' && matrix.os == 'ubuntu-latest' }}"
@@ -83,11 +84,14 @@ jobs:
         env:
           CONFORMANCE_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.version }}-${{ matrix.os }}
       - name: Upload the conformance reports
-        # !cancelled() keeps the upload after a failed test or check step.
+        # !cancelled() keeps the upload after a failed test or check step. Only a run whose test step
+        # succeeded is named conformance-reports-...: the rows record passes and known breaks, not
+        # unexpected failures, so a matching map alone does not show that the tests passed. A failed
+        # check step after successful tests still gives a usable baseline.
         if: ${{ !cancelled() && env.FULL_TESTS == 'true' }}
         uses: actions/upload-artifact@v7
         with:
-          name: conformance-reports-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.run_attempt }}
+          name: ${{ steps.tests.outcome == 'success' && 'conformance-reports' || 'diagnostic-conformance-reports' }}-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/conformance
           if-no-files-found: error
           retention-days: 14

@@ -874,7 +874,12 @@ function owner_cases!(cases, rep; quick=false)
     # construction (empty owner), quadratic in p
     for p in (quick ? (500, 1000) : (500, 1000, 2000, 4000))
         addcase!(cases, "owner", "construct", () -> (SymmetricSparseIterate(T, p); nothing),
-                 () -> size(SymmetricSparseIterate(T, p), 1) == p || error("wrong size");
+                 function ()
+                     X = SymmetricSparseIterate(T, p); q = p * (p + 1) ÷ 2
+                     size(X, 1) == p || error("wrong size")
+                     # retained memory: one T array and two Int arrays of length q, plus headers
+                     abs(Base.summarysize(X) - (sizeof(T) + 2 * sizeof(Int)) * q) <= 1024 || error("unexpected retained size")
+                 end;
                  T, shape="p$p", layout="empty", phase="construct", zero_alloc=false, evals=1, work=p * (p + 1) ÷ 2)
     end
 end

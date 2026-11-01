@@ -12,10 +12,12 @@
 > this file stand as written.
 >
 > - [FD-3](iterate-family-0.6.md#fd-3-matrix-import-into-the-owner-is-a-value-write):
->   `copyto!(X, M)` keeps its checks but becomes a value write, and replacing
->   the working set is spelled `dropzeros!(copyto!(X, M))`. Affects CPY-4's
->   working-set clause, decision 4, and ACT-5's exception list (which keeps
->   only state copies).
+>   `copyto!(X, M)` keeps its checks but becomes a value write. Replacing the
+>   working set is spelled `fill!(coordinates(X), 0); dropzeros!(X);
+>   copyto!(X, M)`, which leaves CPY-4's resulting working set, in increasing
+>   ID order. Affects CPY-4's working-set clause, decision 4, ACT-5's exception
+>   list (which keeps only state copies), and in the acceptance guide T06, T10
+>   and a comment in §2.2(e).
 > - [FD-9](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products):
 >   a zero coefficient of the owner contributes nothing to a product, even
 >   against `Inf` or NaN. Replaces decision 13 and PERF-6's recommended default

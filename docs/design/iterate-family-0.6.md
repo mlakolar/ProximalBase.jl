@@ -19,8 +19,8 @@ evidence; the companion (§1) lists what was traced and what was not.
 solver author: requirements carry stable IDs, *must* marks a public guarantee,
 and *recommended* marks an implementation idea that a conforming
 implementation may replace. Each requirement has a status: **0.5.x** (already
-true at the audited commit), **0.6 target** (proposed, new or breaking),
-**recommendation** (an implementation idea) or **open** (awaiting a decision).
+true at the audited commit), **0.6 target** (proposed, new or breaking) or
+**recommendation** (an implementation idea).
 The column "types" says which iterates a row covers: **S** for
 `SparseIterate`, **A** for `AtomIterate`, **O** for `SymmetricSparseIterate`,
 the *owner*. Part 3 holds the decisions for sign-off. Part 4 is informative.
@@ -96,8 +96,9 @@ z .= y                               # future: a value write, working set [2, 3]
 ```
 
 A write through the array interface never removes a coordinate, however it is
-spelled. To replace the working set by the support of an array, write
-`dropzeros!(copyto!(x, A))`; to clear it, `dropzeros!(fill!(x, 0))` (FW-6).
+spelled. To clear the working set, write `dropzeros!(fill!(x, 0))`; to replace
+it by the support of an array, `copyto!(dropzeros!(fill!(x, 0)), A)`, which
+also keeps the order of a fresh import (FW-6).
 
 **2. A zero coefficient of an iterate contributes nothing to a product.**
 
@@ -132,10 +133,11 @@ ncoordinates(x), length(x)           # (3, 6): 3 groups of 6 entries
 atomindices(x, 2)                    # future: [2, 5], read-only
 ```
 
-A gradient `G` of the matrix model is p × q, and `vec(G)` is the gradient over
-the entries, so group `r` of `vec(G)` is row `r` of `G`:
-`vec(G)[atomindices(x, r)] == G[r, :]` (*future* spelling; run with the
-private field in place of `atomindices`).
+A model author who computes the p × q gradient `G` of the matrix model maps
+it the same way: `vec(G)` is the gradient over the entries, and group `r` of
+`vec(G)` is row `r` of `G`. This is a convention for model authors.
+ProximalBase's matrix losses do not take this iterate: `gradient!` of
+`LeastSquaresLoss(Y, X)` with a matrix `Y` at `x` throws `DimensionMismatch`.
 
 **4. A group step at a trial point.**
 
@@ -149,8 +151,9 @@ prox_coordinate!(x, f, 1, [3.0, 4.0], 1.0)   # the trial point is not written fi
 If the call throws, `x` is unchanged. Writing the trial point into private
 storage and then calling `prox_coordinate!(x, f, 1, 1.0)` gives the same
 numbers when nothing throws; when the call throws it leaves an *inactive*
-group holding `[3.0, 4.0]`, which the penalty value and a copy then ignore
-(FA-7, [FD-12](#fd-12-one-contract-for-coordinate-oracles)).
+group holding `[3.0, 4.0]`, which the penalty value and a same-layout
+`copyto!` then ignore (`copy` keeps it) (FA-7,
+[FD-12](#fd-12-one-contract-for-coordinate-oracles)).
 
 ## What changes for you
 
@@ -160,9 +163,11 @@ group holding `[3.0, 4.0]`, which the penalty value and a copy then ignore
 - `fill!(x, 0)` and `x .= y` keep the working set; add `dropzeros!` where you
   meant to clear or replace it. `copyto!(x, y)` between iterates of the same
   kind is still the state copy.
-- On a matrix `SparseIterate`, `coordinates(x)` becomes the vector `vec(x)`.
+- `coordinates(x)` of a `SparseIterate` becomes a coordinate-vector view of
+  `x`, for vectors and matrices alike; it is no longer `x` itself.
 - Products with an iterate ignore its zero coefficients, also against NaN and
-  `Inf`.
+  `Inf`. Views of an iterate are ordinary vectors, and scaling by a number
+  follows IEEE arithmetic.
 - Stage a group trial with `prox_coordinate!(x, f, k, u, γ)`.
 
 ---
@@ -182,7 +187,7 @@ A *same-kind* iterate is defined in FX-1.
 | FS-1 | `SparseIterate{T, N} <: AbstractArray{T, N}` (N = 1, 2) and `AtomIterate{T} <: AbstractVector{T}` *must* keep their supertypes and their array interface: `size`, `length`, linear indexing (and Cartesian for N = 2), iteration and broadcasting describe the mathematical value, and a full traversal visits each entry once. The owner is not an array (OWN-1). | 0.5.x | S, A |
 | FS-2 | Equality and hashing *must* see values only: two iterates with the same entries are `==` and `isequal` and hash alike whatever their working sets, and an iterate equals the dense array of its entries. | 0.5.x | S, A |
 | FS-3 | `T` *must* be real; a complex `T` throws `ArgumentError` at construction. The numeric scope is numerics S1. | 0.5.x | S, A (O: OWN-5) |
-| FS-4 | There is no shape-aware grouped iterate in 0.6. A p × q coefficient matrix `B` is an `AtomIterate` over `vec(B)`: entry ID `j = (c − 1)p + r` is `B[r, c]`. With the rows of `B` as groups, group ID `r` has the entries `r:p:p*q` (as a range or the collected vector) and `atom(x, r) == B[r, :]`. A p × q gradient `G` of the matrix model maps by `vec` the same way: group `r` of `vec(G)` is row `r` of `G`. | 0.5.x | A |
+| FS-4 | There is no shape-aware grouped iterate in 0.6. A p × q coefficient matrix `B` is an `AtomIterate` over `vec(B)`: entry ID `j = (c − 1)p + r` is `B[r, c]`. With the rows of `B` as groups, group ID `r` has the entries `r:p:p*q` (as a range or the collected vector) and `atom(x, r) == B[r, :]`. A p × q gradient `G` of the matrix model maps by `vec` the same way: group `r` of `vec(G)` is row `r` of `G`. The gradient mapping is a convention for model authors: ProximalBase's matrix losses do not take this iterate (`gradient!` of `LeastSquaresLoss(Y, X)` with a matrix `Y` throws `DimensionMismatch`). | 0.5.x | A |
 | FS-5 | There is no family-wide value-view name. The value view of an array iterate is the iterate itself; `matrixview` stays owner-only (MAT-1). | 0.5.x | S, A |
 
 ## 2.2 Coordinates, handles and counts (FC)
@@ -191,7 +196,7 @@ A *same-kind* iterate is defined in FX-1.
 |:--|:--|:--|:--|
 | FC-1 | An integer passed to a coordinate API (`isactive`, `activate!`, `atom`, `atomindices`, `prox_coordinate!`, the four-argument `kkt_violation`) *must* be read as a coordinate ID, and one passed to `getindex` or `setindex!` as an entry index (S, A) or a matrix position (O). A slot is never read as an ID (IDX-4, for the family). | 0.5.x | S, A, O |
 | FC-2 | The coordinate ID of a `SparseIterate` *must* be its linear entry index: `k = (c − 1)m + r` for an m × n matrix. | 0.5.x | S |
-| FC-3 | `coordinates(x::SparseIterate)` *must* return `vec(x)`: an `AbstractVector{T}` of length `ncoordinates(x)`, live, writable, `O(1)`, with no copy of data. For N = 1 it is `x` itself; for N = 2 it is Base's linear reshape. Writes through it are value writes (FW-2), with the real-entry behavior of FN-8 for N = 2. | 0.6 target (N = 2 breaking) | S (O: CRD-1) |
+| FC-3 | `coordinates(x::SparseIterate)` *must* return a coordinate-vector view of `x`, an `AbstractVector{T}` wrapper like the owner's `SymmetricCoordinates`, for N = 1 and N = 2 alike; it is never `x` itself. It has length `ncoordinates(x)`, is indexed by coordinate ID, is live and writable, is `O(1)` to build and copies nothing, and its `Base.dataids` are those of `x`. Writes through it are value writes (FW-2), and its products are ordinary-vector products (FN-3, FN-8). | 0.6 target (breaking: `coordinates(x) === x` no longer holds for a vector) | S (O: CRD-1) |
 | FC-4 | `coordinates` *must not* be defined for an `AtomIterate`, whose coordinate is a group. | 0.5.x | A |
 | FC-5 | `atom(x, k)` *must* return a writable view of the entries of group `k`, a view of `x` (so it aliases `x`), bounds-checked on `k`. It stays valid for the lifetime of `x`: activation and compaction do not invalidate it. Writes through it are value writes (FW-2). | 0.5.x | A |
 | FC-6 | `atomindices(x, k)` (**new**) *must* return the entry IDs of group `k` in stored order as a read-only `AbstractVector{Int}`: the stored range itself for a range group, a read-only wrapper for a vector group. `O(1)`, no allocation, `BoundsError` for `k ∉ 1:ncoordinates(x)`, valid for the lifetime of `x`. `parentindices(atom(x, k))` is not a supported route to the layout. | 0.6 target (0.5.x-safe addition) | A |
@@ -215,11 +220,11 @@ The four counts of FC-10:
 | ID | requirement | status | types |
 |:--|:--|:--|:--|
 | FW-1 | **Inactive implies zero.** A coordinate that is not active *must* be zero (every entry of an inactive group is zero) after every supported operation, including one that throws. | 0.6 target (0.5.x except through the writable handles, Part 4) | S, A, O |
-| FW-2 | **Value writes.** A value write *must* convert each value to `T` first, activate a coordinate whose converted stored value is nonzero (NaN included; `−0.0` and a value that rounds to zero are zero), and never remove a coordinate. Every write through the array interface is a value write: `setindex!`; every broadcast form, `x .= c` and `x .= y` included; `fill!`; `copyto!` and `copy!` from any source that is not a same-kind iterate; offset `copyto!`; writes through `view`, `reshape`, `vec`, `atom`, `coordinates` and `activevalues`; and Base and LinearAlgebra mutators such as `ldiv!`, `permute!`, `map!`, `sum!`, scaling by a number (`rmul!`), and a generic `mul!` into an iterate. A mutator that Base implements as `copyto!(x, y)` with a same-kind `y` (for example `ldiv!(x, F, y)`) inherits the state copy of FW-4. | 0.6 target | S, A; O: CRD-3, ACT-5 as amended by FD-3 |
-| FW-3 | **A broadcast is a loop.** Every broadcast into an array iterate *must* give the values and the working set of the explicit loop `for i in eachindex(x); x[i] = rhs[i]; end`. An implementation must not let Base's identity shortcut turn `x .= y` into a state copy (table below). | 0.6 target | S, A (O: CRD-5) |
+| FW-2 | **Value writes.** A value write *must* convert each value to `T` first, activate a coordinate whose converted stored value is nonzero (NaN included; `−0.0` and a value that rounds to zero are zero), and never remove a coordinate. Every write through the array interface is a value write: `setindex!`; every broadcast form, `x .= c` and `x .= y` included; `fill!`; `copyto!` and `copy!` from any source that is not a same-kind iterate; offset `copyto!`; writes through `view`, `reshape`, `vec`, `atom`, `coordinates` and `activevalues`; scaling by a number (FN-9); and Base and LinearAlgebra mutators such as `ldiv!`, `permute!`, `map!`, `sum!` and a generic `mul!` into an iterate. A mutator that Base implements as `copyto!(x, y)` with a same-kind `y` (for example `ldiv!(x, F, y)`) inherits the state copy of FW-4. | 0.6 target | S, A; O: CRD-3, ACT-5 as amended by FD-3 |
+| FW-3 | **A broadcast is a loop.** Every broadcast into an array iterate *must* give the values and the working set of the explicit loop `for i in eachindex(x); x[i] = rhs[i]; end` over the unaliased right-hand side. An implementation must not let Base's identity shortcut turn `x .= y` into a state copy (table below). | 0.6 target | S, A (O: CRD-5) |
 | FW-4 | **State operations** make `x` a copy of a working set: `copy(x)`; `similar(x)` and `similar(x, S)` (empty); `copyto!(x, y)` and `copy!(x, y)` with `y` a same-kind iterate. The copy *must* keep the source's slot order and explicit zeros and convert values to `x`'s element type without deciding activation again. | 0.5.x | S, A (O: CPY-1–CPY-3) |
 | FW-5 | **Compaction.** `dropzeros!(x)` *must* be the only operation that removes coordinates. It removes exactly the active coordinates whose value is zero (the active groups whose entries are all zero), keeps every value and ID, may reorder slots, runs in `O(s)` (S) or `O(active entries)` (A), and does not allocate. | 0.5.x | S, A (O: ACT-7) |
-| FW-6 | **Spellings.** Replacing the working set by the support of an array `A` *is* `dropzeros!(copyto!(x, A))`; clearing it *is* `dropzeros!(fill!(x, 0))`. Each costs `O(n + s)` (S) or `O(p + active entries)` (A). For the owner: `dropzeros!(copyto!(X, M))` (FD-3) and `dropzeros!(fill!(coordinates(X), 0))`. | 0.6 target | S, A, O |
+| FW-6 | **Spellings.** Clearing the working set *is* `dropzeros!(fill!(x, 0))`; replacing it by the support of an array `A` *is* `copyto!(dropzeros!(fill!(x, 0)), A)`. Each costs `O(n + s)` (S) or `O(p + active entries)` (A). For the owner: clear is `fill!(coordinates(X), 0); dropzeros!(X)`, and replace is `fill!(coordinates(X), 0); dropzeros!(X); copyto!(X, M)` (FD-3). A replace leaves the slot order of a fresh import, as 0.5.x does and CPY-4 promises: increasing ID for `SparseIterate` and the owner, and for an `AtomIterate` the order of each group's first nonzero entry (increasing group ID when the groups' first entries increase with their IDs, as for contiguous groups in order). Slot order is observable: a cyclic active pass visits slots in order (ProximalSolvers `src/cd/solver.jl:329–331`), and the momentum history is keyed by slot. The shorter `dropzeros!(copyto!(x, A))` gives the same set in another order. | 0.6 target | S, A, O |
 | FW-7 | `activate!(x, k)` *must* make coordinate `k` active, at value zero for S and keeping the (zero) entries of group `k` for A, if it is absent; it changes nothing otherwise and throws `BoundsError` out of range. A sweep over `activecoordinates(x)` that writes values only of active coordinates *must* leave `activecoordinates(x)` unchanged. | 0.5.x | S, A (O: ACT-5, ACT-6) |
 | FW-8 | **Oracle destinations.** After a ProximalBase oracle (`prox!`, `value_and_prox!`, `gradient!`, `mul!`, `prox_coordinate!`) writes an iterate, its values *must* be the result and its working set *must* contain every coordinate with a nonzero result (FW-1). Which zero coordinates stay active is unspecified; `dropzeros!` gives the support. | 0.5.x (stated) | S, A (O: ORC-3, ORC-6) |
 
@@ -229,8 +234,8 @@ defines `fill!` and `copyto!(dest, ::AbstractArray)`, identical on Julia
 
 | call | reaches | Base source, 1.13.3 (1.10.12) |
 |:--|:--|:--|
-| `d .= v` | `copyto!(d, v)` | `broadcast.jl:987–995`, identity shortcut (`:991`) |
-| `d .= 0` | `fill!(d, 0)` | `broadcast.jl:955–960` (`:959`) |
+| `d .= v` | `copyto!(d, v)` | `broadcast.jl:993`, the identity shortcut's `return` (`:997`) |
+| `d .= 0` | `fill!(d, 0)` | `broadcast.jl:960`, the scalar case's `return` (`:964`) |
 | `d .= 0 .* d`, `d[:] = v`, `map!(identity, d, v)`, `mul!(d, A, v)`, `mul!(d, A, v, 1, 0)`, `copyto!(d, 1, v, 1, 3)` | `setindex!` only | |
 | `copy!(d, v)` | `copyto!(d, v)`; a source of another length first calls `resize!`, which an iterate lacks (`MethodError`) | `abstractarray.jl:924–931` for vectors, `:933–937` for other arrays (`:918`, `:927`) |
 | `ldiv!(d, lu(A), v)` | `copyto!(d, v)` | |
@@ -248,9 +253,9 @@ state copy (Part 4).
 | ID | requirement | status | types |
 |:--|:--|:--|:--|
 | FX-1 | **Same kind.** `y` is a same-kind iterate of `x` when both are `SparseIterate`s of the same size, or both are `AtomIterate`s of the same length whose layouts are equal (FL-4); element types may differ. `copyto!(x, y)` and `copy!(x, y)` *must* then be a state copy (FW-4) that discards `x`'s previous working set. A conversion that makes a value zero keeps its coordinate active: `1e-50` copied from `Float64` into `Float32` is an active `0f0`. `copyto!(x, x)` is a no-op. | 0.5.x | S, A (O: CPY-3) |
-| FX-2 | **Imports are value writes.** Every other source of a two-argument `copyto!` or `copy!` (a dense array, a `SparseVector`, a `SparseIterate` of another shape and the same length, an `AtomIterate` of another layout and the same length, a view or another wrapper) *must* give a value write (FW-2) with Base's `copyto!` semantics, in linear order: the old working set stays and the coordinates made nonzero join. | 0.6 target (0.5.x for dense sources; another shape throws `DimensionMismatch` today) | S, A |
+| FX-2 | **Imports are value writes.** Every other source of a two-argument `copyto!` or `copy!` (a dense array, a `SparseVector`, a `SparseIterate` of another shape and the same length, an `AtomIterate` of another layout and the same length, a view or another wrapper) *must* give a value write (FW-2) with Base's `copyto!` semantics, in linear order: the old working set stays and the coordinates made nonzero join. With FX-1, the same values can end in different working sets: a copy between two `AtomIterate`s is a state copy when their layouts are equal and a value write when they differ (FD-2, option (e)). | 0.6 target (0.5.x for dense sources; another shape throws `DimensionMismatch` today) | S, A |
 | FX-3 | `copyto!(x, y)` between two array iterates of different lengths *must* throw `DimensionMismatch` before writing. | 0.5.x | S, A |
-| FX-4 | The iterate's own bulk writes (constructors, two-argument `copyto!`, `copy!`, every broadcast into it, `fill!`) *must* reject a complex source or value with `ArgumentError` before writing anything. | 0.6 target (0.5.x for broadcasts; `copyto!` writes, then throws `InexactError`) | S, A (O: the checks of CPY-4 kept by FD-3) |
+| FX-4 | The iterate's own bulk writes (constructors, two-argument `copyto!`, `copy!`, every broadcast into it, `fill!`) *must* reject a complex source or value with `ArgumentError` before writing anything. The check needs a method `copyto!(x::SparseIterate, y::AbstractArray)`, and with it methods that resolve ambiguities with SparseArrays (FD-13). | 0.6 target (0.5.x for broadcasts; `copyto!` writes, then throws `InexactError`) | S, A (O: the checks of CPY-4 kept by FD-3) |
 | FX-5 | **Aliasing.** `Base.dataids(x)` *must* cover every storage array behind a public handle (S: values, ID list and reverse map; A: values and active list), so that `Base.mightalias` sees `activevalues(x)`, `nonzeros(x)` and `activecoordinates(x)` sharing memory with `x`. An import whose source shares memory with `x` *must* give the result of copying the source first (Base's `unalias`). | 0.6 target (a 0.5.x bug fix, #406) | S, A (O: CPY-6 rejects instead) |
 | FX-6 | `copy(x)` and `similar(x)` of an `AtomIterate` *must* share its layout object, and `AtomIterate(p, f)` shares the penalty `f`'s. This is safe because the layout is immutable (FL-2). | 0.5.x | A |
 
@@ -270,14 +275,15 @@ state copy (Part 4).
 
 | ID | requirement | status | types |
 |:--|:--|:--|:--|
-| FN-1 | **Strong zeros.** In the products and inner products of FN-2, a zero coefficient of the iterate, stored or not, *must* contribute nothing, even against `±Inf` or NaN. A non-finite entry that meets a nonzero coefficient propagates as numerics E2 and E3 say. A zero of a dense operand is an ordinary IEEE zero. | 0.6 target (breaking; FD-9 amends numerics M1) | S, A, O |
-| FN-2 | The methods: `dot(v, x)`, `dot(x, v)` and `dot(x, y)` of iterates; the three-argument `dot(a, X, b)`; `mul!` and `*` of a strided, transposed, adjoint or `Symmetric` matrix with a `SparseIterate`, and of a strided or `Symmetric` matrix with an `AtomIterate`; both paths of `A * X * B` (the dense fallback *must* give the class of the sparse path); for the owner, `mul!` and the `matrixview` products, `dot(a, X, b)` and ORC-10's `dot(M, X)`; and the internal helpers that sum over stored values for function values (`_scaled_dot`, `_split_dot`). | 0.6 target | S, A, O |
-| FN-3 | **The boundary.** A product that ProximalBase does not define (`sparse(A) * x`, `Diagonal(d) * x`, `dot(sparsevec, x)`, `dot(view(v, idx), x)` for a non-strided view, `sum(x .* v)`) sees the iterate as the dense array of its entries and follows IEEE arithmetic. The rule says so; the difference is not a gap. | 0.6 target (the behavior is 0.5.x) | S, A |
-| FN-4 | The result of an FN-2 method *must not* depend on whether a zero is stored, on the order of the arguments, or on which internal path the density selects; and no operand is scanned for non-finite values. | 0.6 target | S, A, O |
-| FN-5 | A value or gradient computed through an FN-2 method at an iterate argument inherits FN-1. Of the data losses checked, `LeastSquaresLoss`, `GLMLoss` (beyond its weights and offset) and `QuadraticFunction` do not check that their data are finite, and `KronQuadratic` does; so with a non-finite design entry `f(x)` at an iterate can be finite where `f(Vector(x))` is NaN. | 0.6 target (0.5.x for unstored zeros) | S, A |
-| FN-6 | **Activation from the converted value** (CRD-3 for the family): every write path, `fill!` included, *must* decide activation after conversion. `fill!(AtomIterate(Float32, 4, 2), 1e-100)` activates nothing. | 0.6 target (bug fix for the `AtomIterate` `fill!`) | S, A, O |
+| FN-1 | **Strong zeros.** In the products and inner products of FN-2, a zero coefficient of the iterate, stored or not, *must* contribute nothing, even against `±Inf` or NaN. A non-finite entry that meets a nonzero coefficient propagates as numerics E2 and E3 say. A zero of a dense operand is an ordinary IEEE zero. The rule applies to the iterate object itself, not to its views (FN-3). | 0.6 target (breaking; FD-9 amends numerics M1) | S, A, O |
+| FN-2 | The methods, exactly: (1) `dot(v::StridedVector, x::SparseIterate{T,1})`, `dot(x::SparseIterate{T,1}, v::StridedVector)` and `dot(x::SparseIterate{T,1}, y::SparseIterate{T,1})`; (2) `dot(v, x::AtomIterate)` for `v` a `StridedVector`, a `SparseIterate{T,1}` or an `AtomIterate`, and `dot(x::AtomIterate, v)` for `v` a `StridedVector` or a `SparseIterate{T,1}`; (3) `dot(a::StridedVector, X::SparseIterate{T,2}, b::StridedVector)`; (4) `mul!(out, A, x)`, its five-argument form and `A * x`, for `x::SparseIterate{T,1}` with `A` a `StridedMatrix`, a transposed or adjoint `StridedMatrix`, or a `Symmetric` strided matrix, for `x::SparseIterate{T,2}` with `A` a `StridedMatrix` or a `Symmetric` strided matrix, and for `x::AtomIterate` with `A` a `StridedMatrix` or a `Symmetric` strided matrix; (5) `*(A::Symmetric, X::SparseIterate{T,2}, B::Symmetric)` and `*(A::Symmetric, X::SymmetricSparseIterate{T}, B::Symmetric)`, defined term by term: `(A X B)[i, j] = Σ A[i, k] · X[k, l] · B[l, j]` over the nonzero coefficients `X[k, l]`, zeros of `A` and `B` being IEEE zeros; (6) for the owner, in their 0.6 form (#388), `mul!(y, matrixview(X), v)` and its five-argument form, `dot(a::StridedVector, X, b::StridedVector)`, and ORC-10's `dot(M::StridedMatrix, X)` and `dot(X, M)`. | 0.6 target | S, A, O |
+| FN-3 | **The boundary.** A product that ProximalBase does not define (`sparse(A) * x`, `Diagonal(d) * x`, `dot(sparsevec, x)`, `dot(view(v, idx), x)` for a non-strided view, `transpose(A) * x` for an `AtomIterate`, `A * X * B` with a plain matrix `A`, `sum(x .* v)`) sees the iterate as the dense array of its entries and follows IEEE arithmetic. Views of an iterate (`atom(x, k)`, `coordinates(x)`, `activevalues(x)`, `view`, `reshape`, `vec`) are ordinary vectors, as CRD-4 makes the owner's `θ`: their products follow IEEE arithmetic, also where ProximalBase defines a faster method for them, such as `dot` of an `atom` view (`src/atom_iterate.jl:354–357`). The rule says so; the difference is not a gap. | 0.6 target (the behavior is 0.5.x, except FC-3's new view) | S, A |
+| FN-4 | The class of the result of an FN-2 method *must not* depend on whether a zero is stored, on the order of the arguments, or, for `A * X * B`, on the internal path or the association; finite values may differ by rounding (numerics A1). `dot` and `mul!` scan no operand for non-finite values; `A * X * B` may scan its own output (FD-9). | 0.6 target | S, A, O |
+| FN-5 | A value or gradient computed through an FN-2 method at an iterate argument inherits FN-1, and so do the internal helpers that sum over stored values for function values (`_scaled_dot`, `_split_dot`). Of the data losses checked, `LeastSquaresLoss`, `GLMLoss` (beyond its weights and offset) and `QuadraticFunction` do not check that their data are finite, and `KronQuadratic` does; so with a non-finite design entry `f(x)` at an iterate can be finite where `f(Vector(x))` is NaN. | 0.6 target (0.5.x for unstored zeros) | S, A |
+| FN-6 | **Activation from the converted value** (CRD-3 for the family): every value write, `fill!` included, *must* decide activation after conversion. `fill!(AtomIterate(Float32, 4, 2), 1e-100)` activates nothing. | 0.6 target (bug fix for the `AtomIterate` `fill!`) | S, A, O |
 | FN-7 | Non-finite values are values: NaN and `±Inf` activate their coordinate, and `dropzeros!` keeps them. | 0.5.x | S, A |
-| FN-8 | **Wrappers.** A write through a wrapper of an array iterate (`view`, `reshape`, `vec` of a matrix, `atom`, `coordinates` of a matrix) *must* behave like the same write through the same wrapper of a plain array of element type `T`, plus FW-2's activation. Base's conversion applies: a complex value throws `InexactError`, possibly after a partial write (#364). | 0.6 target (stated; the behavior is 0.5.x) | S, A |
+| FN-8 | **Wrappers.** A write through a wrapper of an array iterate (`view`, `reshape`, `vec`, `atom`, `coordinates`) *must* behave like the same write through the same wrapper of a plain array of element type `T`, plus FW-2's activation. Base's conversion applies: a complex value throws `InexactError`, possibly after a partial write (#364). | 0.6 target (stated; the behavior is 0.5.x) | S, A |
+| FN-9 | **Scaling by a number.** `rmul!(x, s)`, `lmul!(s, x)`, `rdiv!(x, s)` and `ldiv!(s, x)` *must* be IEEE value writes equal to `x .*= s` (respectively `x ./= s`) in values and in working set; FN-1 does not apply, since the other operand is one scalar. *Recommended:* loop over the active coordinates (`O(s)`, or `O(active entries)` for A) when the scalar is finite and, for a division, nonzero, which is exact because `0 · s == 0` there; otherwise write every entry and activate per FW-2. | 0.6 target (breaking for S: `rmul!(x, Inf)` on `[1, 0, 0, 0]` with an explicit zero at 2 gives `[Inf, NaN, 0, 0]` today, `x .*= Inf` gives `[Inf, NaN, NaN, NaN]`) | S, A |
 
 ## 2.7 Coordinate oracles (FA)
 
@@ -292,7 +298,7 @@ Shared by both forms of `prox_coordinate!` and by the four-argument
 | FA-4 | **Validation before writing:** the bounds of `k` (`BoundsError`), the layout (FL-4), a separable function or a group penalty (`ArgumentError`), the parameters, a real `u` (`ArgumentError`) and the length of `u` (`DimensionMismatch`). After any of these errors `x` *must* be unchanged. | 0.5.x | S, A, O |
 | FA-5 | **Aliasing.** The trial `u` may share memory with `x`, for example `atom(x, j)`; it is copied first. | 0.5.x | A |
 | FA-6 | **Screening.** `kkt_violation(f, g, x, k)` *must* be a screen at zero: for a group norm on A, `‖g[G_k]‖₂ − λ₀ w_k` with the default `w_k = √|G_k|`; for a separable `f` on a group, the largest violation over the group. It is not a stationarity residual (#388 §2.8). | 0.5.x | S, A, O (ORC-9) |
-| FA-7 | **Block trials.** `prox_coordinate!(x, f, k, u, γ)` *is* the supported way to take a group step at a trial point. It *must* give the result of staging `u` into group `k` and calling the four-argument form when nothing throws, and leave `x` unchanged when it throws. Staging a trial by writing private storage is unsupported: it breaks FW-1 for the duration of the call, and for good if the call throws. | 0.5.x (stated) | A |
+| FA-7 | **Block trials.** `prox_coordinate!(x, f, k, u, γ)` *is* the supported way to take a group step at a trial point. It *must* give the result of staging `u` into group `k` and calling the four-argument form when nothing throws, and leave `x` unchanged after any of FA-4's validated errors. If reading `u` throws (a non-strided `u` whose `getindex` fails), FW-1 holds but entries of the group may already be written. The alternative, copying a non-strided `u` first, would make that atomic too, at the cost of an allocation. Staging a trial by writing private storage is unsupported: it breaks FW-1 for the duration of the call, and for good if the call throws. | 0.5.x (stated) | A |
 
 ## 2.8 Performance and capacity (FP)
 
@@ -303,7 +309,7 @@ Shared by both forms of `prox_coordinate!` and by the four-argument
 | FP-3 | **Capacity is dense-sized.** Construction reserves room for every coordinate, so activation never grows storage, and construction costs `O(n)`, `O(p + K)` or `O(q)`. Retained memory of an empty iterate: S, three arrays of length `n`, 24 bytes per entry for `Float64` (20 for `Float32`); A, the dense values and the entry-to-group map (16 bytes per entry for `Float64`), two `O(K)` maps of the active groups (16 bytes per group) and the layout (16 bytes per range group, or 8 bytes per index plus a vector header per vector group); O, `O(q)`, 24 bytes per coordinate (PERF-2). "Sparse" promises sparse *work*, not sparse *memory*. | 0.5.x (stated) | S, A, O |
 | FP-4 | *Recommended:* add another storage backend (hash maps, growing storage) only for a motivating workload, with a benchmark that shows the gain. | recommendation | S, A, O |
 | FP-5 | `mul!(out, A, x)` *must* cost `O(m s)` for a `SparseIterate` vector and `A` with m rows (for a matrix `x`, the stored-entry walk or the column walk, switched at density 1/32 as today), `O(m · active entries)` for an `AtomIterate`, and `dot(v, x)` `O(s)` or `O(active entries)`. FN-1 adds no pass. | 0.5.x | S, A |
-| FP-6 | Each 0.6 change on a hot path *must* stay within numerics C3 of the 0.5.x baseline: sweeps through the read-only handle; `coordinates(x)` for a matrix; the strong-zero branch; the five-argument block trial against staged writes; the momentum loop through `atomindices`; `atomindices` iteration; `unalias` copies. The companion's protocol measures each one. | 0.6 target | S, A, O |
+| FP-6 | Each 0.6 change on a hot path is measured against the 0.5.x baseline: sweeps through the read-only handle; indexing and products through the `coordinates` view; the strong-zero branch of `dot` and `mul!`; the output scan of `A * X * B`; the five-argument block trial against staged writes; the momentum loop through `atomindices`; `atomindices` iteration; `unalias` copies; scaling by a number. A repeatable slowdown above 5% on a representative case *must* be investigated and reported on the implementing pull request, and merging it needs the maintainer's recorded approval (numerics C3). The companion's protocol measures each case. | 0.6 target | S, A, O |
 
 ## 2.9 Fields (FF)
 
@@ -334,19 +340,20 @@ spelling of a write (Example 1) and products dependent on storage
 (Example 2), which are the faults that make the family incoherent. The
 ambitious design has no correctness case that the moderate one misses:
 ordinary array traversal is already correct for the two array iterates
-(Part 1), the layout can be made safe without a new public type (FD-11), and
-no audited workload needs matrix-shaped groups or another backend (FP-4,
-FD-15).
+(Part 1), the layout can be made safe without a new public type (FD-11), the
+one audited workload with matrix-shaped groups (ProximalSolvers'
+multi-response model) is served by `vec(B)` and its own model (FD-15a), and no
+audited workload needs another backend (FP-4).
 
 ## 3.2 Status quo affirmed
 
-These need no change of behavior. One sign-off covers the table.
+These need no change of behavior. One sign-off covers the table. FD-15a
+(shape-aware groups) has a record of its own in §3.3.
 
 | item | decision | requirement |
 |:--|:--|:--|
 | FD-1. Supertypes | `SparseIterate` stays an `AbstractArray` and `AtomIterate` an `AbstractVector`; there is no correctness case for removing them (#400, guardrail 2) | FS-1 |
 | FD-8. No group `activevalues` | it stays undefined. Its only audited consumer is the momentum history (ProximalSolvers `src/cd/solver.jl:553–600`), which reads private fields today and can loop over `activecoordinates` and `atomindices` instead at the same `O(active entries)` cost (companion §3.4); the loop is a benchmark case | FC-9 |
-| FD-15a. Shape-aware groups | postponed; the `vec(B)` mapping of entries, groups and gradients is documented | FS-4 |
 | FD-15b. A family-wide value-view name | none; `matrixview` stays owner-only | FS-5 |
 | FD-15c. `OptimizationResults` needs an `AbstractArray` minimizer (ProximalSolvers `src/types.jl:210`) | it affects only the owner and joins #391 Phase 2 | — |
 | FD-15d. Private fields | listed, with a supported replacement for each audited use: 23 indexed reads of `x.groups[k]`, 5 whole-layout reads, and 16 other field uses in `src/cd/solver.jl:553–600` and `src/cd/groups.jl:32,64` (ProximalSolvers) | FF-1, FF-2 |
@@ -419,6 +426,19 @@ explicit zero at 2, `x .= y` gives `y`'s working set `[3, 2]`, while
   - *Downstream:* `path.jl:261` and `workspaces.jl:243` unchanged.
   - *Numerics, performance:* as (b).
 - **(d) Status quo.** All of the form dependence above.
+- **(e) Reject a copy between `AtomIterate`s of different layouts**, with
+  `DimensionMismatch`, instead of today's value write.
+  - *Correctness:* `copyto!` between two `AtomIterate`s would always be a
+    state copy, so the same values could not end in different working sets
+    depending on whether the layouts are equal (FX-2).
+  - *Downstream:* no audited site copies across layouts; `reinit!` checks the
+    partition before it copies (ProximalSolvers `src/workspaces.jl:152–153`).
+  - *Numerics:* none.
+  - *Performance:* none; FL-6's comparison is made today anyway.
+  - *Weighed:* an `AtomIterate` is an `AbstractVector`, and generic code that
+    copies one vector into another of the same length would then throw. (b)
+    keeps Base's meaning and states the switch in FX-2; a caller who wants the
+    state copy checks `ProximalBase.samegroups` first. (b) stays recommended.
 
 *The worked example.* `x = SparseIterate(4); x[4] = 7; v = [3, 0, 0, 0]`.
 The values are `[3, 0, 0, 0]` after each call, except `permute!`, which gives
@@ -440,10 +460,13 @@ today and under (b), and `[1]` under (a); `fill!` gives `[]` today (ran).
 Today's behavior *is* option (b) for every import from an array; (b) changes
 only the clearing rows, `x .= y` and the other-shape `copyto!`.
 
-*Recommendation and reason.* (b). It is the only option whose working set
-does not depend on the spelling of a write or on Base's internal routing; it
-is already today's behavior for every import from an array; and the two
-operations that remove coordinates become explicit at no extra cost.
+*Recommendation and reason.* (b). Its working set does not depend on the
+spelling of a write, with one exception that Base's routing creates and FW-2
+states: `ldiv!(x, F, y)` with a same-kind iterate `y` reaches `copyto!(x, y)`
+and is a state copy (ran: working set `[1]`, against `[4, 1]` for
+`ldiv!(x, F, Vector(y))`). It is already today's behavior for every import
+from an array, and the two operations that remove coordinates become explicit
+at no extra cost.
 
 *Kind:* breaking 0.6.
 
@@ -451,10 +474,11 @@ operations that remove coordinates become explicit at no extra cost.
 
 | site | 0.5.x | 0.6 |
 |:--|:--|:--|
-| ProximalSolvers `src/cd/path.jl:261` | `fill!(x, zero(T))` | `dropzeros!(fill!(x, zero(T)))` for S and A; `dropzeros!(fill!(coordinates(x), zero(T)))` for the owner |
-| ProximalSolvers `src/workspaces.jl:243–246` | `fill!(xs, 0)`, then a scatter of the nonzeros of `ws.x` | `dropzeros!(copyto!(xs, ws.x))` |
+| ProximalSolvers `src/cd/path.jl:261` | `fill!(x, zero(T))` | `dropzeros!(fill!(x, zero(T)))` for S and A; `fill!(coordinates(x), zero(T)); dropzeros!(x)` for the owner |
+| ProximalSolvers `src/workspaces.jl:243–246` | `fill!(xs, 0)`, then a scatter of the nonzeros of `ws.x` | `copyto!(dropzeros!(fill!(xs, zero(eltype(xs)))), ws.x)` |
+| ProximalSolvers `src/cd/quic.jl:91` (owner) | `fill!(D, zero(T))` | `fill!(coordinates(D), zero(T)); dropzeros!(D)` |
 | a state copy written as `x .= y` | `x .= y` | `copyto!(x, y)` |
-| a replacing import | `fill!(x, 0); copyto!(x, A)` | `dropzeros!(copyto!(x, A))` |
+| a replacing import | `fill!(x, 0); copyto!(x, A)` | `copyto!(dropzeros!(fill!(x, 0)), A)` |
 
 *Relation to #388/#391:* consistent extension of CRD-3, CRD-5 and ACT-5 to
 the family. It conflicts with CPY-4, which FD-3 resolves.
@@ -482,9 +506,14 @@ Inside the owner too: `copyto!(coordinates(X), θ)` reaches Base's generic
 |:--|:--|:--|:--|
 | `copyto!(X, [3 0; 0 0])` | `[3, 1]` | `[3, 1]` | `[1]` |
 | `copyto!(coordinates(X), [3, 0, 0])` | `[3, 1]` | `[3, 1]` | `[3, 1]` |
-| `dropzeros!(copyto!(X, [3 0; 0 0]))` | `[1]` | `[1]` | `[1]` |
 
-The FD-2 table shows the same split for the array iterates.
+A replace under (b) keeps CPY-4's order. With `X` holding coordinates
+`[5, 2]` (p = 3) and `M` nonzero at coordinates 2, 3 and 5,
+`fill!(coordinates(X), 0); dropzeros!(X); copyto!(X, M)` gives `[2, 3, 5]`,
+increasing ID order, while the shorter `dropzeros!(copyto!(X, M))` gives
+`[5, 2, 3]` (both ran). `dropzeros!(fill!(coordinates(X), 0))` is a
+`MethodError`, as `fill!` returns the coordinate view, hence the separate
+statements. The FD-2 table shows the same split for the array iterates.
 
 *Options.*
 
@@ -502,19 +531,22 @@ The FD-2 table shows the same split for the array iterates.
   `(p, p)` axes, exact symmetry on the source values (VAL-1, VAL-2), a real
   source, and CPY-6 for an aliasing source, all before writing. The write
   keeps `X`'s working set and activates the coordinates whose converted value
-  is nonzero. Replacing is `dropzeros!(copyto!(X, M))`.
+  is nonzero. Replacing is `fill!(coordinates(X), 0); dropzeros!(X);
+  copyto!(X, M)`, which gives CPY-4's resulting working set, in increasing ID
+  order.
   - *Correctness:* one meaning of `copyto!` from a plain array.
   - *Downstream:* none; this is today's behavior.
   - *Numerics:* none.
   - *Performance:* `O(q)`, as today; a replace adds `O(s)`.
 
 *Recommendation and reason.* (b): one meaning for `copyto!` from an array
-across the family and within the owner, and no change from 0.5.x.
+across the family and within the owner, no change from 0.5.x, and a replace
+spelling whose result is exactly CPY-4's.
 
 *Kind:* 0.5.x behavior kept; an amendment of a signed-off 0.6 rule.
 
 *Migration.* None for existing code. Code written against CPY-4 replaces with
-`dropzeros!(copyto!(X, M))`.
+`fill!(coordinates(X), 0); dropzeros!(X); copyto!(X, M)`.
 
 *Relation to #388/#391:* **proposed amendment** of
 - CPY-4, its working-set clause ("Default: replace. … the previous working
@@ -523,11 +555,20 @@ across the family and within the owner, and no change from 0.5.x.
 - ACT-5's exception list, which keeps only `copyto!(X, Y)` (CPY-3) and
   `copy`;
 - T10's expectation "the old explicit zero is gone", which becomes "the old
-  explicit zero stays active; after `dropzeros!(Y)` it is gone".
+  explicit zero stays active; after `dropzeros!(Y)` it is gone";
+- T06's "a working set without that coordinate" for an imported pair of
+  `1e-100`, which holds only if that coordinate was absent before the import;
+  an already active coordinate stays active at `0f0`;
+- the comment `copyto!(x3, M) # checked import of a symmetric matrix (CPY-4),
+  replaces` in §2.2(e) of the owner's acceptance guide, which becomes "checked
+  value write (FD-3); replace with `fill!(coordinates(x3), 0); dropzeros!(x3)`
+  first".
 
-`SymmetricSparseIterate(M)` is unchanged: a value write into an empty owner,
-in the column order of `src/sparse_iterate.jl:1157`, gives exactly CPY-4's
-working set in increasing ID order.
+Unchanged: `SymmetricSparseIterate(M)`, since a value write into an empty
+owner, in the column order of `src/sparse_iterate.jl:1157`, gives exactly
+CPY-4's working set in increasing ID order; and the working set that a
+*replace* leaves, which the spelling above makes CPY-4's, order included.
+Only the meaning of `copyto!(X, M)` alone changes.
 
 *Sign-off:* ☐ maintainer.
 
@@ -598,38 +639,52 @@ unaffected.
 
 *Options.*
 
-- **(a) `coordinates(x) = vec(x)`** (recommended): the same object for a
-  vector, Base's linear reshape for a matrix.
-  - *Correctness:* an `AbstractVector` of length `ncoordinates(x)` for every
-    shape. Under FD-2 `copyto!(coordinates(x), v)` is a value write for every
-    shape and for the owner's `θ`.
+- **(a) A coordinate-vector view for both shapes** (recommended): FC-3. A thin
+  `AbstractVector{T}` wrapper of `x`, like the owner's `SymmetricCoordinates`,
+  indexed by coordinate ID; never `x` itself.
+  - *Correctness:* one behavior for every shape and for the owner's `θ`. The
+    view is an ordinary vector (FN-3): writes are value writes (FW-2), and
+    products are IEEE products. `copyto!(coordinates(x), coordinates(y))` is a
+    value write for both shapes, and `dot(v, coordinates(x))` has one class
+    for both.
   - *Downstream:* the callers that can receive a `SparseIterate`
     (ProximalSolvers `src/cd/drivers.jl:95, 115, 150` and
     `src/cd/solver.jl:648`) index with coordinate IDs and are unaffected; the
-    other callers take only owners.
-  - *Numerics:* for a vector `coordinates(x)` is `x`, with `x`'s real-entry
-    check: `coordinates(xv) .= ComplexF64[1, 2im, 0, 0]` throws `ArgumentError`
-    before writing. For a matrix the reshape follows Base:
-    `vec(xm) .= ComplexF64[1, 2im, 0, 0]` writes `1.0` and then throws
-    `InexactError` (both ran). FN-8 states the difference.
+    other callers take only owners. `coordinates(x) === x` no longer holds for
+    a vector; no audited caller relies on it.
+  - *Numerics:* the view follows FN-8: Base's conversion, with a possible
+    partial write, for a complex source.
+  - *Performance:* `O(1)` to build, no copy, `Base.dataids` those of `x`.
+    Indexing must inline; a product through the view is a generic `O(n)`
+    loop, not the sparse method of `x`. Both are benchmark cases.
+- **(b) `coordinates(x) = vec(x)`**: the object itself for a vector, Base's
+  linear reshape for a matrix.
+  - *Correctness:* an `AbstractVector` for every shape, but its behavior
+    depends on the shape (all ran). Products: `dot([1, NaN, 0, 0],
+    coordinates(xv))` with an unstored zero at 2 is `1.0` through the
+    package's method, while the same call on `vec(xm)` is NaN, and
+    `norm(vec(xm))` is LinearAlgebra's generic `O(n)` `norm`. Copies:
+    `copyto!(coordinates(x), coordinates(y))` is a state copy for N = 1
+    (working set `[1]`) and a value write for N = 2 (`[4, 1]`). Complex input:
+    `coordinates(xv) .= ComplexF64[1, 2im, 0, 0]` throws `ArgumentError`
+    before writing, while `vec(xm) .= ComplexF64[1, 2im, 0, 0]` writes `1.0`
+    and then throws `InexactError`.
+  - *Downstream:* as (a), and `coordinates(x) === x` stays true for a vector.
+  - *Numerics:* after FD-9, `dot(v, coordinates(x))` would have different
+    classes for N = 1 and N = 2.
   - *Performance:* `O(1)`, no allocation. One exploratory run of a read-write
     sweep through `vec(m)` on a 300 × 300 iterate took 1.31 ms against
-    1.248 ms through `m` (ratio 1.049, 0 bytes allocated); the protocol
-    measures it properly.
-- **(b) A thin wrapper type for both shapes.**
-  - *Correctness:* one behavior, its own real check.
-  - *Downstream:* none.
-  - *Performance:* a vector loses its sparse methods (`dot`, `mul!`, `norm`)
-    unless the wrapper forwards them; one more type.
+    1.248 ms through `m` (ratio 1.049, 0 bytes allocated).
 - **(c) Status quo.** The family has two meanings of `coordinates`.
 
-*Recommendation and reason.* (a): it gives the vector the family needs with
-no new type and no change for vectors.
+*Recommendation and reason.* (a): one behavior for both shapes, the owner's
+model (CRD-1, CRD-4) for the whole family, at the cost of one small type.
 
-*Kind:* breaking 0.6 for N = 2.
+*Kind:* breaking 0.6 for both shapes (`coordinates(x) === x` for a vector,
+the matrix itself for N = 2).
 
-*Migration.* Code that used `coordinates(x)` of a matrix as a matrix uses
-`x`. Linear indexing is unchanged.
+*Migration.* Code that used `coordinates(x)` as `x` (its sparse methods, or
+a matrix) uses `x`. Linear indexing `coordinates(x)[k]` is unchanged.
 
 *Relation to #388/#391:* consistent extension of CRD-1 and CRD-4.
 
@@ -745,10 +800,11 @@ coefficients: they skip unstored zeros and multiply stored ones
 `:840–842`, `:851–853`, `:863–866`; for the owner `:1826–1836`,
 `:1839–1849`, `:1913–1927`). An `AtomIterate`'s `mul!` skips zero values
 (`src/atom_iterate.jl:307`, `:330`); its `dot` does not (`:342–344`).
-`A * X * B` skips zeros on its sparse path and falls back to dense BLAS when
-the support is dense
+`A * X * B` multiplies a dense sub-block of `X` on its sparse path
+(`src/sparse_iterate.jl:894–901`, the association chosen by `nI <= nJ` at
+`:901`) and falls back to dense BLAS when the support is dense
 ([`src/sparse_iterate.jl:888`](https://github.com/mlakolar/ProximalBase.jl/blob/def81ec9d021c39ed1727cfeb9598357291dd60d/src/sparse_iterate.jl#L888);
-owner `:1881`). Numerics M1 lets an operation skip an implicit zero "only when
+owner `:1881`); neither path skips the zeros of `X`. Numerics M1 lets an operation skip an implicit zero "only when
 they contribute nothing", and E2 and E3 make `0 · NaN` and `0 · Inf` NaN.
 PERF-6 requires the owner's product to be the same, or to raise the same
 error, before and after `dropzeros!`, and decision 13 recommends an
@@ -765,9 +821,18 @@ error, before and after `dropzeros!`, and decision 13 recommends an
   `dot(v, a)` is NaN, and 1.0 after `dropzeros!`. The owner's
   `mul!(y, matrixview(X), [Inf, 1, 0])` gives `[0, 1, NaN]`, and `[0, 1, 0]`
   after `dropzeros!`.
-- *Density:* with `A[1, 1] = NaN` and row 1 of `X` zero, `(A * X * B)[1, :]`
-  is `[0, 0, 0]` on the sparse path and `[NaN, NaN, NaN]` on the dense
-  fallback.
+- *Density and association in `A * X * B`:* with `A[1, 1] = NaN` and row 1
+  of `X` zero, `(A * X * B)[1, :]` is `[0, 0, 0]` on the sparse path and
+  `[NaN, NaN, NaN]` on the dense fallback. Neither path is strong: with
+  `A[1, 2] = A[2, 1] = Inf` and a zero inside the sparse path's block, row 2
+  is `[NaN, NaN, NaN, NaN]` where the term-wise sum gives
+  `[Inf, Inf, Inf, Inf]`; with a NaN of `B` meeting only a zero column of `X`
+  on the dense fallback, column 1 is `[NaN, NaN, NaN, NaN]` where the
+  term-wise sum gives `[9.0, 8.0, 7.0, 6.0]`. And the class depends on the
+  association: with `A` the `Symmetric` diagonal matrix of `(Inf, 1, 1, 1)`,
+  `B` the identity and `X` nonzero at `(1, 1)`, `(1, 2)`, `(2, 1)`, `(3, 1)`,
+  `A * (Matrix(X) * B)` has row 1 `[Inf, Inf, NaN, NaN]` while
+  `(A * Matrix(X)) * B` and the term-wise sum have `[NaN, NaN, NaN, NaN]`.
 - *An oracle:* `LeastSquaresLoss([1, 1], [NaN 1; NaN 1])` is NaN at an
   iterate with an explicit zero at 1, 0.0 when that zero is not stored, and
   NaN at the dense `[0, 1]`.
@@ -775,8 +840,10 @@ error, before and after `dropzeros!`, and decision 13 recommends an
 *Options.*
 
 - **(a) Strong zeros** (recommended): FN-1 to FN-5.
-  - *Correctness:* the result does not depend on storage, order or density;
-    one rule for every product the package owns.
+  - *Correctness:* the class of the result does not depend on storage,
+    argument order, density or association; one rule for every product in
+    FN-2. `A * X * B` is defined term by term (FN-2), which fixes its class
+    for every path and association.
   - *Downstream:* ProximalSolvers' CD models check their data
     (`_check_finite`, ProximalSolvers `src/cd/multiresponse.jl:34`;
     `src/cd/leastsquares.jl:148`), so sweeps do not change. ProximalBase
@@ -784,8 +851,15 @@ error, before and after `dropzeros!`, and decision 13 recommends an
     where a stored zero meets the non-finite entry (FN-5).
   - *Numerics:* a NaN becomes finite in those cases. That departs from E2 and
     E3 as written and is a class change under C1; the amendment is below.
-  - *Performance:* no scan; at most a zero test per stored coefficient
-    (benchmark case).
+  - *Performance:* for `dot` and `mul!`, no scan: at most a zero test per
+    stored coefficient. For `A * X * B`, today's BLAS paths stay the ordinary
+    path, followed by one `isfinite` scan of the m × n output; only when the
+    output has a non-finite entry is it recomputed term by term (a sum of `s`
+    rank-one updates `A[:, k] X[k, l] B[l, :]`, `O(m n s)`). The trigger is
+    reliable (numerics C2): an all-finite IEEE result means that no `0 · Inf`
+    or `0 · NaN` occurred, and then it equals the term-wise result up to
+    rounding (ran on a finite 5 × 5 case: largest relative difference
+    `2.1421476825068971e-16`). Benchmark cases for all three.
 - **(b) An error on a non-finite dense operand** (#388 decision 13).
   - *Correctness:* a defined result where the dense operand is a vector
     (`dot`, `mul!(y, matrixview(X), v)`). For `mul!(y, A, x)` the dense
@@ -800,6 +874,13 @@ error, before and after `dropzeros!`, and decision 13 recommends an
   - *Performance:* every zero position must be checked against the dense
     operand: `O(n)` for `dot`, `O(mn)` for `mul!`.
 - **(d) Status quo.** Results depend on storage, order and density.
+- **(e) Strong scaling as well**: let `rmul!`, `lmul!`, `rdiv!` and `ldiv!`
+  by a number skip zero coefficients too.
+  - *Correctness:* `rmul!(x, Inf)` would then differ from `x .*= Inf`, which
+    is IEEE (FN-9), so two spellings of one operation would disagree.
+  - *Downstream, numerics:* none audited; the other operand is a single
+    scalar, so IEEE scaling costs nothing extra when the scalar is finite.
+  - Not recommended: FN-9 keeps scaling IEEE.
 
 *Precedents.*
 
@@ -821,8 +902,9 @@ error, before and after `dropzeros!`, and decision 13 recommends an
 - Dense OpenBLAS propagates NaN (ran: `[NaN 1; NaN 1] * [0, 1] == [NaN, NaN]`),
   the IEEE side that FN-3 keeps for fallbacks.
 
-*Recommendation and reason.* (a). It is the only option that makes the
-result independent of storage, order and density without an extra pass; it
+*Recommendation and reason.* (a). It is the only option that makes the class
+of the result independent of storage, order, density and association, with
+no extra pass for `dot` and `mul!` and one output scan for `A * X * B`; it
 extends a convention the package already applies to `α` and `β`; and (b)
 cannot cover `mul!(y, A, x)` without a scan as costly as a dense product.
 
@@ -838,24 +920,47 @@ implemented under #366 group G2):
 > **M1. Implicit zeros are entries; zero coefficients of an iterate are
 > strong.** An unstored entry of a sparse iterate is an entry whose value is
 > zero, and an operation skips it only when it contributes nothing: a
-> centered ridge moves an implicit zero, and `NegLog` is `+Inf` at zero. In a
-> product or inner product that ProximalBase defines with an iterate as an
-> operand, a zero coefficient of the iterate, stored or unstored, contributes
-> nothing, even against `±Inf` or NaN in the other operand, as `false * NaN`
-> is `0.0` in Julia and as BLAS treats `α = 0`. A non-finite entry that meets
-> a nonzero coefficient propagates as E2 and E3 say, and a zero of a dense
-> operand is an ordinary IEEE zero. These methods are `dot` of an iterate
-> with a strided vector or another iterate, the three-argument
-> `dot(a, X, b)`, `mul!` and `*` of a strided, transposed or `Symmetric`
-> matrix with an iterate, `A * X * B`, the products of `matrixview(X)`, and
-> `dot(M, X)` for a `SymmetricSparseIterate`. Their results do not depend on
-> whether a zero is stored, on the order of the arguments, or on the internal
-> path that the density of the iterate selects. A value or gradient that a
-> function computes through one of them at an iterate argument, such as
-> `LeastSquaresLoss` at a `SparseIterate`, inherits the rule. A product that
-> ProximalBase does not define, such as `sparse(A) * x`, `Diagonal(d) * x` or
-> `sum(x .* v)`, sees the iterate as the dense array of its entries and
-> follows IEEE arithmetic.
+> centered ridge moves an implicit zero, and `NegLog` is `+Inf` at zero. In
+> the products and inner products listed below, a zero coefficient of the
+> iterate, stored or unstored, contributes nothing, even against `±Inf` or NaN
+> in the other operand, as `false * NaN` is `0.0` in Julia and as BLAS treats
+> `α = 0`. A non-finite entry that meets a nonzero coefficient propagates as
+> E2 and E3 say, and a zero of a dense operand is an ordinary IEEE zero. The
+> methods are exactly these:
+>
+> 1. `dot(v::StridedVector, x::SparseIterate{T,1})`,
+>    `dot(x::SparseIterate{T,1}, v::StridedVector)` and
+>    `dot(x::SparseIterate{T,1}, y::SparseIterate{T,1})`;
+> 2. `dot(v, x::AtomIterate)` for `v` a `StridedVector`, a
+>    `SparseIterate{T,1}` or an `AtomIterate`, and `dot(x::AtomIterate, v)`
+>    for `v` a `StridedVector` or a `SparseIterate{T,1}`;
+> 3. `dot(a::StridedVector, X::SparseIterate{T,2}, b::StridedVector)`;
+> 4. `mul!(out, A, x)`, its five-argument form and `A * x`, for
+>    `x::SparseIterate{T,1}` with `A` a `StridedMatrix`, a transposed or
+>    adjoint `StridedMatrix`, or a `Symmetric` strided matrix; for
+>    `x::SparseIterate{T,2}` with `A` a `StridedMatrix` or a `Symmetric`
+>    strided matrix; and for `x::AtomIterate` with `A` a `StridedMatrix` or a
+>    `Symmetric` strided matrix;
+> 5. `*(A::Symmetric, X::SparseIterate{T,2}, B::Symmetric)` and
+>    `*(A::Symmetric, X::SymmetricSparseIterate{T}, B::Symmetric)`, defined
+>    term by term: `(A X B)[i, j] = Σ A[i, k] · X[k, l] · B[l, j]` over the
+>    nonzero coefficients `X[k, l]`, zeros of `A` and `B` being IEEE zeros;
+> 6. for a `SymmetricSparseIterate` `X`: `mul!(y, matrixview(X), v)` and its
+>    five-argument form, `dot(a::StridedVector, X, b::StridedVector)`, and
+>    `dot(M::StridedMatrix, X)` and `dot(X, M)`.
+>
+> The class of their results does not depend on whether a zero is stored, on
+> the order of the arguments, or, for `A * X * B`, on the path or the
+> association; finite values may differ by rounding (A1). A value or gradient
+> that a function computes through one of them at an iterate argument, such
+> as `LeastSquaresLoss` at a `SparseIterate`, inherits the rule. The rule
+> applies to the iterate itself: its views (`atom(x, k)`, `coordinates(x)`,
+> `activevalues(x)`, `view`, `reshape`, `vec`) are ordinary vectors and follow
+> IEEE arithmetic, as does a product that ProximalBase does not define, such
+> as `sparse(A) * x`, `Diagonal(d) * x`, `transpose(A) * x` for an
+> `AtomIterate`, or `sum(x .* v)`. Scaling an iterate by a number (`rmul!`,
+> `lmul!`, `rdiv!`, `ldiv!`) is not among these products either: it follows
+> IEEE arithmetic, as `x .*= s` does.
 
 > **E2**, a new last bullet: *Exception for iterates (M1).* In the products
 > and inner products that M1 lists, a zero coefficient of the iterate
@@ -867,14 +972,15 @@ implemented under #366 group G2):
 > iterate, and NaN when the zero belongs to a dense operand.
 
 > **C1**, a new last sentence: M1's strong zeros changed the class of some
-> products of iterates in 0.6, from NaN to finite, where a stored zero met a
-> non-finite entry; that change was signed off with M1, and C1 protects the
-> classes that M1 defines.
+> products of iterates in 0.6, where a zero coefficient of an iterate, stored
+> or not, met a non-finite entry; classes changed from NaN to finite values or
+> to ±Inf. That change was signed off with M1, and C1 protects the classes
+> that M1 defines.
 
 > **S4**, a new last sentence: M1 states one boundary of its own: a product of
-> an iterate that ProximalBase does not define follows IEEE arithmetic on the
-> dense array of the iterate's entries, and such a fallback is outside the
-> strong-zero rule, not a gap.
+> an iterate that ProximalBase does not define, a product of a view of an
+> iterate, and scaling by a number follow IEEE arithmetic, and these are
+> outside the strong-zero rule, not gaps.
 
 *Relation to #388/#391:* **proposed amendment** of decision 13 and of
 PERF-6's recommended default: the `ArgumentError` after an `O(p)` scan is
@@ -1045,6 +1151,16 @@ S1 and O6.1 ask for validation before writing.
     writing; a wrapper behaves as the same wrapper of a plain array.
   - *Downstream:* none (no audited code passes complex data).
   - *Performance:* one element-type test per call, resolved at compile time.
+  - *Ambiguities:* the check before writing needs a method
+    `copyto!(x::SparseIterate, y::AbstractArray)`. With it,
+    `copyto!(SparseIterate(2, 2), sparse([1.0 0; 0 2]))` is ambiguous with
+    SparseArrays' `copyto!(::AbstractMatrix, ::AbstractSparseMatrixCSC)`
+    (`sparsematrix.jl:616`; ran: `MethodError … is ambiguous`), while a dense
+    source works. Resolving methods are needed for the known sources:
+    SparseArrays CSC matrices, their views, adjoints and transposes, and
+    CHOLMOD `Dense`, as the owner already has (`src/sparse_iterate.jl:1129–1150`).
+    Aqua's ambiguity test (`test/aqua.jl`, `Aqua.test_all`) and FT20 check
+    them. This is a small fixed list for one entry point, not a catalog.
 - **(b) Overrides for views, reshapes and `atom` of iterates** (#364's first
   option). It is the catalog of overrides that the owner redesign removes,
   with the ambiguity risk #368 records.
@@ -1058,10 +1174,23 @@ the `vec(xm)` broadcast); the wrapper rule is stated.
 
 *Migration.* None.
 
+*Proposed numerics text, word for word* (to `docs/src/numerics.md`; with it,
+FN-8 does not contradict S4):
+
+> **O6**, a new first paragraph: These guarantees cover the methods that
+> ProximalBase defines. A Base or LinearAlgebra function applied to a wrapper
+> of an iterate (`view`, `reshape`, `vec`, `atom`, `coordinates`) behaves as it
+> does on the same wrapper of a plain array of the same element type: a
+> conversion that throws can leave a partial write.
+
+> **S4**, a new sentence after the first: Base and LinearAlgebra functions
+> applied to wrappers of iterates are not functions of the package; O6 states
+> what they do.
+
 *Relation to #388/#391:* unchanged; the owner's part of #364 goes away with
 MAT-2.
 
-*Sign-off:* ☐ maintainer.
+*Sign-off:* ☐ maintainer (FX-4, FN-8) · ☐ numerics text (O6, S4).
 
 ### FD-14. Aliasing
 
@@ -1106,6 +1235,50 @@ unchanged.
 
 *Sign-off:* ☐ maintainer.
 
+### FD-15a. Shape-aware grouped iterates
+
+*Status: recommended, awaiting maintainer sign-off.*
+
+*Background.* ProximalSolvers' multi-response model is the motivating
+workload: a p × q coefficient matrix `B` stored as an `AtomIterate` over
+`vec(B)` with the rows of `B` as groups (ProximalSolvers
+`src/cd/multiresponse.jl:45–48`), its layout checked against the penalty
+(`:55`), and its own gradient over `vec(B)` through `reshape(G, p, q)`
+(`:180–196`).
+
+*What goes wrong today* (ran). Nothing in that model: it is served by
+`vec(B)` and its own `MLSModel`. But ProximalBase's matrix losses cannot take
+that `AtomIterate`: `gradient!` of `LeastSquaresLoss(Y, X)` with a matrix `Y`
+at it throws `DimensionMismatch`. The mapping between entries, groups and the
+gradient (FS-4) is therefore a convention that each model author applies.
+
+*Options.*
+
+- **(a) Postpone** (recommended): document the `vec(B)` mapping (FS-4).
+  - *Correctness:* nothing is wrong today; the convention is stated.
+  - *Downstream:* none.
+  - *Numerics, performance:* none.
+- **(b) A shape-aware `AtomIterate{T, N}`** that is a p × q matrix with row
+  (or column) groups.
+  - *Correctness:* ProximalBase's matrix losses could take grouped rows
+    directly.
+  - *Downstream:* `multiresponse.jl` would be rewritten for the new type.
+  - *Numerics:* none.
+  - *Performance:* a new type on the group hot paths (Cartesian indexing in
+    the group loops, new `atom` views), all to be measured.
+
+*Recommendation and reason.* (a): one audited consumer, already served. The
+trigger to revisit: a second consumer, or a ProximalBase matrix loss that
+needs grouped rows.
+
+*Kind:* no change.
+
+*Migration.* None.
+
+*Relation to #388/#391:* unchanged.
+
+*Sign-off:* ☐ maintainer.
+
 ---
 
 # Part 4. Evidence (informative)
@@ -1122,12 +1295,13 @@ Found while auditing; each is a current fault, with the rule that fixes it.
 | 0 | writable `activecoordinates` corrupts a `SparseIterate`, and an `AtomIterate`, whose `dropzeros!` then never returns | FC-7 (FD-7) | #405 (0.5.x bug fix) |
 | 1 | `dot(x, y)` of two `SparseIterate`s depends on the argument order (`0.0` against NaN) | FN-1, FN-4 (FD-9) | this contract |
 | 2 | a stored zero changes products: `A * s`, `dot(a, s)`, `dot(a, X, b)`; `AtomIterate` `dot`; the owner's `mul!(y, matrixview(X), [Inf, 1, 0])` (`[0, 1, NaN]` against `[0, 1, 0]`) | FN-1, FN-4 (FD-9) | this contract; PERF-6 for the owner |
-| 3 | `A * X * B` changes class with the density of `X` (`[0, 0, 0]` against `[NaN, NaN, NaN]`) | FN-2 (FD-9) | this contract |
+| 3 | `A * X * B` changes class with the density of `X` (`[0, 0, 0]` against `[NaN, NaN, NaN]`); neither path is strong, and the class depends on the association | FN-2, FN-4 (FD-9) | this contract |
 | 4 | the working set depends on the spelling of a write (`x .= 0`, `fill!`, `sum!` clear; `x .= y` state-copies) | FW-2, FW-3 (FD-2) | this contract |
 | 5 | an oracle's destination working set depends on its branch | FW-8 (FD-4): allowed, now stated | this contract |
 | 6 | `fill!(x, 0)` clears, unlike SparseArrays' `fill!` (`sparsevector.jl:2434–2443`, which converts and keeps stored zeros); `AtomIterate`'s `fill!` tests for zero before converting and activates both groups for `1e-100` | FW-2 (FD-2), FN-6 | this contract |
 | 7 | `mightalias` misses the handles; `copyto!(x, activevalues(x))` gives `[1, 1]` | FX-5 (FD-14) | #406 (0.5.x bug fix) |
 | 8 | `copyto!` from a complex source writes, then throws `InexactError`; `vec(xm) .=` likewise | FX-4, FN-8 (FD-13) | #364 (comment) |
+| 9 | `rmul!(x, Inf)` and `rdiv!(x, 0.0)` of a `SparseIterate` depend on storage: `[Inf, NaN, 0, 0]` against `[Inf, NaN, NaN, NaN]` for `x .*= Inf` | FN-9 | this contract |
 
 ## Claims
 
@@ -1141,7 +1315,13 @@ Found while auditing; each is a current fault, with the rule that fixes it.
 | no `coordinates` and no `activevalues` method for `AtomIterate` | ran (`hasmethod`) |
 | `fill!(x, 0)` and `x .= 0` empty the working set of both array iterates; `x .= 0 .* x`, `rmul!(x, 0)` and `x .*= 0` keep both coordinates | ran; `src/sparse_iterate.jl:566–576`, `src/atom_iterate.jl:272–282` |
 | `x .= y` with `y` a same-kind iterate is a state copy (`[3, 2]`; `AtomIterate` `[2, 1]`); `x .= 1 .* y`, the loop and `x[:] = y` give `[1, 3]` (`AtomIterate` `[1, 2]`) | ran; `src/sparse_iterate.jl:556–559`, `src/atom_iterate.jl:262–265` |
-| Base routing table of §2.3, identical on 1.10.12 and 1.13.3; `x[[4, 1, 2, 3]]` of an iterate is a dense `Vector`; `copy!(SparseIterate(4), ones(2))` is a `MethodError` for `resize!` | ran; Base `broadcast.jl:955–960`, `:987–995`, `abstractarray.jl:924–931`, `:933–937`, `combinatorics.jl:214` (1.10.12: `:959`, `:991`, `:918`, `:927`, `:192`) |
+| Base routing table of §2.3, identical on 1.10.12 and 1.13.3; `x[[4, 1, 2, 3]]` of an iterate is a dense `Vector`; `copy!(SparseIterate(4), ones(2))` is a `MethodError` for `resize!` | ran; Base `broadcast.jl:960`, `:993`, `abstractarray.jl:924–931`, `:933–937`, `combinatorics.jl:214` (1.10.12: `:964`, `:997`, `:918`, `:927`, `:192`) |
+| slot order of a replace: from a working set `[5, 2, 9]` and `A` nonzero at 2, 3, 9, `dropzeros!(copyto!(x, A))` gives `[3, 2, 9]` and `copyto!(dropzeros!(fill!(x, 0)), A)` gives `[2, 3, 9]`; `AtomIterate` `[3, 2]` against `[2, 3]`; with groups `[[2, 4], [1, 3]]` an import of `[1, 1, 0, 0]` after a clear gives `[2, 1]`; the owner gives `[5, 2, 3]` against `[2, 3, 5]`; `dropzeros!(fill!(coordinates(X), 0))` is a `MethodError` | ran |
+| ProximalSolvers' cyclic active pass visits slots in order | read; ProximalSolvers `src/cd/solver.jl:329–331` |
+| `ldiv!(x, F, Vector(y))` keeps `x`'s coordinate (`[4, 1]`); with a same-kind `y`, `[1]` | ran |
+| scaling, `x = [1, 0, 0, 0]` with an explicit zero at 2: `SparseIterate` `rmul!(x, Inf)`, `rdiv!(x, 0.0)`, `ldiv!(0.0, x)` give `[Inf, NaN, 0, 0]` and `lmul!(NaN, x)` `[NaN, NaN, 0, 0]`, working set `[1, 2]`; `x .*= Inf` and `x ./= 0.0` give `[Inf, NaN, NaN, NaN]`, working set `[1, 2, 3, 4]`; dense `rmul!` `[Inf, NaN, NaN, NaN]`; `AtomIterate` `rmul!(b, Inf)` (LinearAlgebra's generic method) gives `[Inf, NaN, NaN, NaN]` and activates group 2; `rmul!(x, 2.0)` gives `[2, 0, 0, 0]` and keeps `[1, 2]` | ran; `src/sparse_iterate.jl:398–425` |
+| in `Float64`, `3 − √2` is `1.5857864376269049` and `(1 − √2/3)·3` is `1.5857864376269046`; the five-argument step of `GroupNormLinf(2, [1:2, 3:4])` at `[1, 4]` gives `[1.0, 2.0]` | ran |
+| a checked `copyto!(x::SparseIterate, y::AbstractArray)` makes `copyto!(SparseIterate(2, 2), sparse([1.0 0; 0 2]))` ambiguous; a dense source works | ran; SparseArrays `sparsematrix.jl:616` |
 | worked example: each import of FD-2's table gives `[4, 1]` (`AtomIterate` `[2, 1]`), `fill!` and `x .= 0` give `[]` | ran |
 | `ldiv!(x, lu(I₄), y)` with `y` a `SparseIterate` holding coordinate 1 gives `[1]` (state copy through `copyto!`) | ran |
 | `mul!(y, A, b)` into a `SparseIterate` keeps its old coordinate (`[1, 2]`); `sum!(y, M)` drops it (`[2]`) | ran |
@@ -1160,7 +1340,8 @@ Found while auditing; each is a current fault, with the rule that fixes it.
 | group `kkt_violation` is `3.585786437626905` (`5 − √2`, default weight `√2`); `NormL1` on a group gives `3.0` | ran; `src/interface.jl:568–570`, `src/functions/norms.jl:442–443` |
 | the five-argument group step gives `[2.151471862576143, 2.868629150101524]` = `(1 − √2/5)·(3, 4)`; a step to zero keeps the group absent | ran |
 | a trial `u = atom(y, 2)` aliasing `y` gives `[2.5, 3.5]`, the soft threshold of `[3, 4]` by `0.5` | ran; `src/interface.jl:474–476` |
-| private staging followed by a throwing call leaves an inactive group holding `[3.0, 4.0]`; group value `0.0` against `7.0710678118654755`; a state copy gives zeros | ran |
+| private staging followed by a throwing call leaves an inactive group holding `[3.0, 4.0]`; group value `0.0` against `7.0710678118654755`; a same-layout `copyto!` gives zeros, while `copy` keeps `[3.0, 4.0, 0.0, 0.0]` | ran; `src/atom_iterate.jl:244–245` |
+| a trial `u` whose `getindex(2)` throws: `prox_coordinate!(x, f, 1, u, 1)` throws and leaves `x == [3, 0, 0, 0]` with group 1 active | ran; `src/interface.jl:506–515` |
 | `prox_coordinate!` returns `Float64` for a `SparseIterate`, a `SubArray` for an `AtomIterate` | ran |
 | malformed layouts: the six `ArgumentError` messages of the companion's edge-case list, also `AtomIterate(4, UnitRange{Int}[])` ("The groups must partition 1:4.") and `AtomIterate(0, 0)` ("num_groups must divide p.") | ran; `src/atom_iterate.jl:66–70`, `:92–114` |
 | empty iterates: `SparseIterate(0)` and `AtomIterate(0, UnitRange{Int}[])` have no coordinates, `dropzeros!` is a no-op, `SparseIterate(0)[1]` and `atom(·, 1)` throw `BoundsError`; `SparseIterate(0, 3)` has size `(0, 3)`; `dot` and `mul!` with them give `0.0` and `[0, 0]` | ran |
@@ -1173,9 +1354,13 @@ Found while auditing; each is a current fault, with the rule that fixes it.
 | `A * u` with a stored zero `[NaN, NaN]`, after `dropzeros!` `[1.0, 1.0]`; `dot(A[1, :], ·)` NaN and 1.0; dense `[NaN, NaN]` | ran |
 | `AtomIterate`: `B * a == [1.0]`, `dot(v, a)` NaN with an active zero group, 1.0 after `dropzeros!`; dense NaN | ran; `src/atom_iterate.jl:307`, `:342–344` |
 | owner `mul!(y, matrixview(X), [Inf, 1, 0])`: `[0, 1, NaN]` with a stored zero, `[0, 1, 0]` after `dropzeros!` | ran; `src/sparse_iterate.jl:1913–1927` |
-| `(A * X * B)[1, :]`: `[0, 0, 0]` on the sparse path, `[NaN, NaN, NaN]` on the dense fallback | ran; `src/sparse_iterate.jl:888` |
+| `(A * X * B)[1, :]`: `[0, 0, 0]` on the sparse path, `[NaN, NaN, NaN]` on the dense fallback; the term-wise sum gives `[0, 0, 0]` for both | ran; `src/sparse_iterate.jl:888` |
+| `A * X * B` against the term-wise sum: sparse path with an `Inf` meeting a block zero, row 2 `[NaN, NaN, NaN, NaN]` against `[Inf, Inf, Inf, Inf]`; dense fallback with a NaN of `B` meeting a zero column, column 1 `[NaN, NaN, NaN, NaN]` against `[9.0, 8.0, 7.0, 6.0]`; association, row 1 `[Inf, Inf, NaN, NaN]` for `A * (Matrix(X) * B)`, `[NaN, NaN, NaN, NaN]` for `(A * Matrix(X)) * B`, the package and the term-wise sum; a finite 5 × 5 case is all finite and within `2.1421476825068971e-16` of the term-wise sum | ran; `src/sparse_iterate.jl:877–902` |
+| `A * Xm` for a `StridedMatrix` and a matrix `SparseIterate` reaches the package's `mul!` | ran; `src/sparse_iterate.jl:698` |
 | `dot([NaN, 1], Z, [1, 1])`: NaN with a stored zero, 1.0 after `dropzeros!` | ran; `src/sparse_iterate.jl:858–868` |
-| generic fallbacks: `sparse(A) * s` `[NaN, NaN]`; `Diagonal([NaN, 1]) * s` `[NaN, 1.0]`; `dot(sparsevec, s)`, `dot(view(v, idx), s)`, `sum(s .* v)` NaN; the package's `Matrix * s` and `dot` give 1.0; `AtomIterate` likewise | ran |
+| generic fallbacks: `sparse(A) * s` `[NaN, NaN]`; `Diagonal([NaN, 1]) * s` `[NaN, 1.0]`; `dot(sparsevec, s)`, `dot(view(v, idx), s)`, `sum(s .* v)` NaN; the package's `Matrix * s` and `dot` give 1.0; `AtomIterate` likewise; `transpose(permutedims([NaN 0 1 0])) * a` is LinearAlgebra's generic `*` and gives `[NaN]` where `[NaN 0 1 0] * a` gives `[1.0]` | ran |
+| `dot(atom(a, 1), [NaN, 1])` with `atom(a, 1) == [0, 1]` is NaN, through the package's view method | ran; `src/atom_iterate.jl:354–357` |
+| `vec` against the vector's own `coordinates`: `copyto!(coordinates(x), coordinates(y))` gives `y`'s working set `[1]` for N = 1 and `[4, 1]` through `vec` for N = 2; `dot([1, NaN, 0, 0], ·)` gives `1.0` for N = 1 and NaN through `vec`; `norm(vec(xm))` is LinearAlgebra's generic `norm`; `Base.dataids(vec(xm)) == Base.dataids(xm)` | ran |
 | `LeastSquaresLoss([1, 1], [NaN 1; NaN 1])`: NaN at a stored zero, 0.0 at an unstored zero, NaN at a dense point; `AtomIterate`: 0.0 against dense NaN | ran |
 | of the data losses checked, `LeastSquaresLoss` (`src/functions/leastsquares.jl:48–59`) and `QuadraticFunction` (`src/functions/smooth.jl:345–351`) do not check their data for finiteness, `GLMLoss` checks weights and offset only (`src/functions/glm.jl:190–193`), and `KronQuadratic` checks (`src/functions/smooth.jl:492–493`); the others were not checked | read |
 | `mul!` with `α = 0` ignores NaN in `A` (`[5.0, 5.0]`); with `β = 0` ignores NaN in `out` (`[1.0, 0.0]`); `false * NaN === 0.0` | ran; `src/sparse_iterate.jl:685`, `:757` |
@@ -1190,12 +1375,12 @@ Found while auditing; each is a current fault, with the rule that fixes it.
 | `copyto!(x, activevalues(x))` after `x[2] = 1; x[1] = 2` gives `[1, 1]` | ran |
 | retained memory (`Base.summarysize`): `SparseIterate(Float64, 10^6)` 24000152 bytes (24.000152 per entry), `Float32` 20000152, `SparseIterate(Float64, 1000, 1000)` 24000160; `AtomIterate(Float64, 10^6, 10^5)` 19200256 (19.200256 per entry), with vector groups of 10 30400256 (30.400256); owner `p = 1000` 12012160 (24.00031968031968 per coordinate) | ran |
 | `coordinates` sweep, 300 × 300: 1.248 ms through `m`, 1.31 ms through `vec(m)`, ratio 1.049, 0 bytes | ran (one exploratory run) |
-| multi-response layout: `x[(c − 1)p + r] == B[r, c]`, `atom(x, r) == B[r, :]`, group 2 is `[2, 5]`; `vec(G)[groups[r]] == G[r, :]` for the gradient of `LeastSquaresLoss(Y, X)` at `B` | ran |
+| multi-response layout: `x[(c − 1)p + r] == B[r, c]`, `atom(x, r) == B[r, :]`, group 2 is `[2, 5]`; `gradient!` of `LeastSquaresLoss(Y, X)` with a matrix `Y` at this `AtomIterate` throws `DimensionMismatch` | ran |
 | #189's raw-view failure is fixed: `atom(x, k)` is `view(x, G)`; regression tests | read; `src/atom_iterate.jl:163–166`, `test/atom_iterate.jl:244–269` |
 | ProximalSolvers stages group trials in `x.storage` | read; ProximalSolvers `src/cd/groups.jl:32–38`, `:64–70` |
 | ProximalSolvers multi-response groups `collect(k:p:p*q)` and layout check | read; ProximalSolvers `src/cd/multiresponse.jl:45`, `:55` |
 | ProximalSolvers `OptimizationResults` needs an `AbstractArray` minimizer | read; ProximalSolvers `src/types.jl:210` |
-| ProximalSolvers relies on `fill!(x, 0)` clearing | read; ProximalSolvers `src/cd/path.jl:261`, `src/workspaces.jl:243` |
+| ProximalSolvers relies on `fill!(x, 0)` clearing | read; ProximalSolvers `src/cd/path.jl:261`, `src/workspaces.jl:243`, and on an owner `src/cd/quic.jl:91` (with `:77`, `:100`) |
 | ProximalSolvers reads `x.groups` 23 times by index and 5 times whole, and other private fields 16 times | read (`git grep`; list in the companion §3) |
 
 *Released versus audited versus proposed.* "0.5.4" is the `Project.toml` of

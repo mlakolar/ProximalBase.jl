@@ -475,19 +475,17 @@ end
 # The decision is made once per call, from the factors, not from t: the product of
 # finite nonzero factors can underflow or overflow in P.
 @inline function _ridge_needs_scaling(::Type{W}, γ, λ) where {W}
-  W <: Union{Float32, Float64} || return false
+  W <: Union{Float32, Float64} && isfinite(γ) && isfinite(λ) && !iszero(γ) && !iszero(λ) || return false
   P = promote_type(W, float(typeof(γ)), float(typeof(λ)))
   t = P(γ) * P(λ)
-  # t in the band implies finite nonzero factors; the factors are examined only outside it
-  (P(_ridge_band_low(W)) <= t <= P(_ridge_band_high(W))) ? false : _ridge_factors_regular(γ, λ)
+  !(P(_ridge_band_low(W)) <= t <= P(_ridge_band_high(W)))
 end
-@noinline _ridge_factors_regular(γ, λ) = isfinite(γ) && isfinite(λ) && !iszero(γ) && !iszero(λ)
 # t, 1/t and both convex weights are normal in W for t in [2^-126, 2^125] (Float32)
 # and [2^-1022, 2^1021] (Float64)
-@inline _ridge_band_low(::Type{Float32}) = ldexp(1f0, -126)
-@inline _ridge_band_high(::Type{Float32}) = ldexp(1f0, 125)
-@inline _ridge_band_low(::Type{Float64}) = ldexp(1.0, -1022)
-@inline _ridge_band_high(::Type{Float64}) = ldexp(1.0, 1021)
+@inline _ridge_band_low(::Type{Float32}) = reinterpret(Float32, 0x00800000)          # 2^-126
+@inline _ridge_band_high(::Type{Float32}) = reinterpret(Float32, 0x7e000000)         # 2^125
+@inline _ridge_band_low(::Type{Float64}) = reinterpret(Float64, 0x0010000000000000)   # 2^-1022
+@inline _ridge_band_high(::Type{Float64}) = reinterpret(Float64, 0x7fc0000000000000)  # 2^1021
 @inline function _ridge_ordinary(::Type{W}, γ, λ) where {W}
   P = promote_type(W, float(typeof(γ)), float(typeof(λ)))
   tw = convert(W, P(γ) * P(λ))

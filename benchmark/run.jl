@@ -29,8 +29,11 @@ function source_metadata()
     catch
         true
     end
+    # the harness itself (this file and the case definitions), so a baseline names what produced it
+    here = @__DIR__
+    harness = [joinpath(here, "run.jl"), joinpath(here, "cases.jl")]
     Dict("source_path"=>root, "source_sha"=>revision, "source_dirty"=>dirty,
-         "source_hash"=>fingerprint(root, files))
+         "source_hash"=>fingerprint(root, files), "harness_hash"=>fingerprint(here, harness))
 end
 
 clean(s) = replace(string(s), '\t'=>' ', '\n'=>' ', '\r'=>' ')

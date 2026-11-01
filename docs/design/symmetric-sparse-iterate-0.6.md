@@ -158,7 +158,7 @@ owner cannot prevent that and does not claim to. What it removes is the
 | IDX-1 | The coordinate ID of the lower-triangle position `(r, c)`, `r ≥ c`, *must* be `tril_index(p, r, c)`; IDs *must* follow column-major order of the lower triangle, as today. `tril_cartesian(p, k)` *must* invert it. |
 | IDX-2 | `X[i, j]` with `i < j` *must* denote the variable of `(j, i)`. |
 | IDX-3 | `prox_entry(f, v, i, γ)` takes a *matrix* linear index `i = (c − 1)p + r` (it indexes weights and bounds, which are matrices). This is the one place an oracle takes a matrix linear index; every coordinate operation takes an ID `k`. Docstrings *must* say which. |
-| IDX-4 | A slot *must not* be accepted as an ID by any function. |
+| IDX-4 | An integer passed to a coordinate API (`coordinates(X)[k]`, `isactive`, `activate!`, `prox_coordinate!`, `kkt_violation`) is **always** interpreted as an ID. A caller holding a slot `a` writes `activecoordinates(X)[a]`. When a slot and a valid ID are the same `Int` the implementation cannot tell the intent, and no new index type is introduced to do so. |
 
 ## 2.3 The coordinate view
 
@@ -175,7 +175,7 @@ owner cannot prevent that and does not claim to. What it removes is the
 | ID | Requirement |
 |:--|:--|
 | MAT-1 | `matrixview(X)` *must* return an `AbstractMatrix{T}` of size `(p, p)` with ordinary matrix indexing (linear and Cartesian) and both triangles, `O(1)` to construct, with no copy of data, live. |
-| MAT-2 | `A` *must* be read-only: no mutation through `A` *or any wrapper derived from it* (`view`, `reshape`, `transpose`, `Symmetric(A)`, `vec`). *Recommended:* define no `setindex!` for the view, so the derived wrappers inherit the refusal and assignment throws `MethodError`. A refused write *must not* change `X`. |
+| MAT-2 | `A` *must* be read-only: no mutation through `A` *or any wrapper derived from it* (`view`, `reshape`, `transpose`, `Symmetric(A)`, `vec`). *Recommended:* define no `setindex!` for the view, so the derived wrappers inherit the refusal. What is required is that the write is **rejected and `X` is unchanged**; the exception type is not specified, and no override should be written only to produce a particular exception for an exotic wrapper. |
 | MAT-3 | Read-only is not a snapshot and not an immutable owner: `A` *must* reflect later writes to `X`, and `X` stays mutable. |
 | MAT-4 | A generic allocating operation (`A .+ 1`, `A * v`, `similar(A)`, `copy(A)`, `collect(A)`) *must* give an ordinary writable dense result and *must not* give a route to `X`. `similar(A)` *must* be a `Matrix{T}`. |
 | MAT-5 | `Base.dataids(A)` *should* be `Base.dataids` of the owner's storage so that `Base.mightalias` and `Base.unalias` see that `A` and `X` share memory. |
@@ -307,8 +307,11 @@ r_k = max(|G_k| − λ w_k, 0)        if x_k = 0
 r_k = |G_k + λ w_k sign(x_k)|      if x_k ≠ 0          (weighted L1 penalty)
 ```
 
-and the Frobenius-weighted total is `Σₖ mₖ r_k²`. A solver reports that
-residual, computed independently, when it claims convergence.
+and the Frobenius-weighted total is `Σₖ mₖ r_k²`. These are different numbers: for one off-diagonal pair with `r_k = 2`,
+`maximum(r) = 2`, the Frobenius residual `√(Σ mₖ r_k²)` is `2√2`, and its square
+is `8`. A solver *states which one it reports*; the stopping policy is the
+solver's. Here `G_k` is `G[r, c]` for the lower-triangle coordinate ID `k`
+(`k` is not a matrix linear index).
 
 **Public screening API.** `kkt_violation(f, g, X, k)` takes the *matrix gradient*
 `g` (its symmetric part is used) and returns the residual in the *entry*
@@ -332,7 +335,7 @@ operator: only the rows below, for the families they name, are promised.
 |:--|:--|:--|:--|:--|
 | ORC-1 | `f(X)` | `f` of the matrix `X`, both positions | none | value *at the input* `X` |
 | ORC-2 | `f(θ)`, `f(A)` | ordinary function of a vector, of a matrix | none | value at the input |
-| ORC-3 | `prox!(Y, f, V, γ)`, `Y` an owner, `V` an owner or matrix | the minimizer over symmetric `Z` of `f(Z) + ‖Z − V‖²_F / (2γ)` | `Y` is the destination. `V === Y` is supported where the package alias rule allows it (separable `f`); a `V` that partly overlaps `Y` is unsupported (#318). A `V` sharing memory with `Y` through `matrixview(Y)` is the same alias as `Y`. | `Y` |
+| ORC-3 | `prox!(Y, f, V, γ)`, `Y` an owner, `V` an owner or matrix | the minimizer over symmetric `Z` of `f(Z) + ‖Z − V‖²_F / (2γ)` | `Y` is the destination. `V === Y` is supported for **every** function that supports the proximal operation, as numerics O7 promises (recovery paths read no entry they have already overwritten); the unsupported case is a *partial overlap* of `V` and `Y` (a shifted view, #318), not a family of functions. A `V` sharing memory with `Y` through `matrixview(Y)` is the same alias as `Y`. | `Y` |
 | ORC-4 | `value_and_prox!(Y, f, V, γ)` | as ORC-3 | as ORC-3 | `f(Y)`, the value *at the result* |
 | ORC-5 | `prox_coordinate!(X, f, k, γ)` | one coordinate; the scalar `prox_entry(f, θₖ, i(r,c), γ)` with the other coordinates fixed. The multiplicity cancels: `mₖ` multiplies both `f` and the quadratic. | writes `θₖ` in place (CRD-3 for zeros) | the new `θₖ` |
 | ORC-6 | `prox_coordinate!(X, f, k, u, γ)` | as ORC-5 for the trial value `u`, which is *not* written first | writes `θₖ`; a coordinate that stays zero stays absent | the new `θₖ` |
@@ -382,7 +385,7 @@ guess.
 | VAL-1 | Exact symmetry means `_symequal(a, b) = isequal(a, b) \|\| (a == b) === true` ([src/sparse_iterate.jl:932](https://github.com/mlakolar/ProximalBase.jl/blob/abaceda25442bf6cc61601c8c1d3b2a16e1a3492/src/sparse_iterate.jl#L932)): NaN matches NaN, `0.0` matches `−0.0`, `1` matches `1.0`. It is *structural equality* and says nothing about whether a value is *admissible*: a weight `−1` is symmetric and still rejected by the penalty's own domain check. The two checks stay separate. |
 | VAL-2 | The comparison of a mirrored pair *must* be made on the **source** values, before conversion to `T`. A pair unequal in `Float64` that rounds equal in `Float32` *must* be rejected. |
 | VAL-3 | A coordinate oracle (`prox_coordinate!`, `kkt_violation` for `k`) *may* inspect only the pair it uses. A stored-only operation *may* inspect only the pairs it touches. Neither certifies the model. |
-| VAL-4 | The **full validation entry point** is `ProximalBase.check_symmetric_parameters(f, X)`, with `ProximalBase.entry_parameters(f)` as the declaration for extensions. Both *must* keep their roles. A solver calls it once at creation, on the **original caller-supplied penalty** and before any transformation of its parameters. A solver *must not* silently repair an asymmetric parameter (average, or take one triangle), because the repaired array defines a different penalty from the one the caller supplied; validating the result of such a transformation is too late. The audited ProximalSolvers does the opposite: `_symmetric_penalty(g, x::SymmetricSparseIterate)` defaults to `average = true` (`src/cd/models.jl:540`, `_symmetric_average` `:561`), and both workspace constructors call it (`src/workspaces.jl:76,99`). That behavior conflicts with the amended #142 rule and must change in ProximalSolvers; this contract does not change it. |
+| VAL-4 | The **full validation entry point** is `ProximalBase.check_symmetric_parameters(f, X)`, with `ProximalBase.entry_parameters(f)` as the declaration for extensions. Both *must* keep their roles. A solver calls it once at creation, on the **original caller-supplied penalty** and before any transformation of its parameters. A solver *must not* silently repair an asymmetric parameter (average, or take one triangle), because the library must not choose the caller's interpretation: a half-filled weight matrix may mean "use this triangle", not "average it with zeros". (Averaging does preserve the objective of a *weighted L1* penalty on symmetric matrices; that is not the reason for the rule.) Validating the result of such a transformation is too late. The audited ProximalSolvers does the opposite: `_symmetric_penalty(g, x::SymmetricSparseIterate)` defaults to `average = true` (`src/cd/models.jl:540`, `_symmetric_average` `:561`), and both workspace constructors call it (`src/workspaces.jl:76,99`). That behavior conflicts with the amended #142 rule and must change in ProximalSolvers; this contract does not change it. |
 | VAL-5 | **Scope: this redesign promises scalar Frobenius steps `γ` only** for the oracles of §2.9 on an owner. Per-entry step arrays and diagonal metrics on an owner are **out of scope**, and an array `γ` *should* throw an `ArgumentError` there. This is a scope choice, not a claim that a symmetric diagonal metric destroys coordinate independence. **What would be lost:** the audited code accepts an exactly symmetric `γ` matrix in `prox!` into an owner (run: `prox!(Y, NormL1(0.5), [0 3; 3 0], [1 2; 2 1])` gives `2.0`, and an asymmetric `γ` throws), and `Tilt`'s path checks symmetric steps (`src/metric.jl:69,77`); ProximalSolvers already rejects diagonal preconditioning on an owner (`src/solvers/diagonal_metric.jl:23`). Scalar steps are validated by the step contract (numerics P1–P3). |
 | VAL-6 | **What invalidates a validation.** The check is a statement about the arrays at the time of the call. Mutating any array reported by `entry_parameters` afterward, in either triangle, invalidates it (arrays symmetric by type, such as `Symmetric(W, :L)` over a parent the caller mutates, stay symmetric). A caller who mutates parameters re-validates. |
 | VAL-7 | A custom entry function whose result depends on the index `(i, j)` without a parameter array (so `entry_parameters` cannot see it) *must* itself be symmetric. That responsibility is the extension author's. |
@@ -468,8 +471,9 @@ Each gives a recommended default, one reason and one consequence.
    must reacquire; an active-only sweep need not.
 7. **Projection of the proximal argument is part of the oracle under a scalar
    Frobenius step only** (§2.10 item 3). *Recommend: yes, and not beyond.* It
-   is exact there. *Consequence:* #261 must land for ORC-3 to be true; array
-   steps still require a symmetric input.
+   is exact there. *Consequence:* #261 must land for ORC-3 to be true. An
+   array step is not accepted on an owner at all (decision 11, VAL-5), so no
+   projection of the argument under an array step arises.
 8. **`prox_entry` keeps a matrix linear index** (IDX-3). *Recommend: keep.*
    Weights are matrices. *Consequence:* the two index spaces still meet in this
    one function; the docstring must say so.
@@ -485,8 +489,10 @@ Each gives a recommended default, one reason and one consequence.
     once; no array-step claim to defend. *Consequence:* symmetric per-entry step
     arrays that `prox!` accepts into an owner today are rejected in 0.6.
 12. **Solvers validate the caller's original penalty and never repair it**
-    (VAL-4). *Recommend: yes.* An averaged or one-triangle array is a different
-    penalty. *Consequence:* ProximalSolvers' default-averaging
+    (VAL-4). *Recommend: yes.* The library must not choose the caller's
+    interpretation: a half-filled matrix may mean "use this triangle", not
+    "average it with zeros", even though averaging preserves a weighted L1
+    objective on symmetric matrices. *Consequence:* ProximalSolvers' default-averaging
     `_symmetric_penalty` must change; users who want the mean write it.
 13. **Non-finite `v` in `mul!(y, A, v)`: error, by default** (PERF-6).
     *Recommend: `ArgumentError` after one `O(p)` scan.* The product then cannot

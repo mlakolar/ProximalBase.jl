@@ -24,6 +24,9 @@
 # once(f) runs f now and returns a thunk that replays its value or exception, so
 # several rows can assert parts of one invocation (a fused call and its buffer).
 # Reports: CONFORMANCE_REPORT/<julia>-<platform>-<bounds>-<pkgsha>/<test file name>.jsonl.
+# The supported way to produce them is scripts/conformance_run.jl, which gives every
+# file of a run the same CONFORMANCE_RUN_ID; with CONFORMANCE_REPORT set, a run id
+# is required (a report without one is an error, so no unlabelled report exists).
 module Conformance
 
 using Test
@@ -175,6 +178,9 @@ _display(o::Observation) = o.threw ? sprint(showerror, o.value) : _display(o.val
 function report(source, row)
   root = get(ENV, "CONFORMANCE_REPORT", "")
   isempty(root) && return nothing
+  run_id = get(ENV, "CONFORMANCE_RUN_ID", "")
+  isempty(run_id) && error("CONFORMANCE_REPORT is set but CONFORMANCE_RUN_ID is not: ",
+    "produce reports with scripts/conformance_run.jl, which sets CONFORMANCE_RUN_ID")
   sha = get(ENV, "CONFORMANCE_PKG_SHA", "")
   isempty(sha) && (sha = _git("rev-parse", "HEAD"))
   bounds = string(Base.JLOptions().check_bounds)
@@ -190,7 +196,7 @@ function report(source, row)
   identity = (abspath(source), abspath(dir))
   if !(identity in _reports)
     header = (; kind = "header", julia = string(VERSION), platform, bounds,
-              pkgsha = sha, harness = _git("hash-object", @__FILE__))
+              pkgsha = sha, harness = _git("hash-object", @__FILE__), run = run_id)
     open(path, "w") do io
       println(io, json_object(header))
     end

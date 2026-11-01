@@ -7,6 +7,10 @@ module ReportScript
 include(joinpath(@__DIR__, "..", "..", "scripts", "conformance_map.jl"))
 end
 
+module RunnerScript
+include(joinpath(@__DIR__, "..", "..", "scripts", "conformance_run.jl"))
+end
+
 runmain(args) = redirect_stdio(() -> ReportScript.main(args); stdout = devnull, stderr = devnull)
 
 mutable struct Capture <: Test.AbstractTestSet
@@ -153,7 +157,7 @@ withenv("CONFORMANCE_REPORT" => nothing) do
 
   @testset "Reports and coverage script" begin
     mktempdir() do dir
-      withenv("CONFORMANCE_REPORT" => dir, "CONFORMANCE_PKG_SHA" => "fixture-sha") do
+      withenv("CONFORMANCE_REPORT" => dir, "CONFORMANCE_RUN_ID" => "fixture-run", "CONFORMANCE_PKG_SHA" => "fixture-sha") do
         emit("fixture-pass"; observed_fn = () -> -0.0, expected_fn = () -> -0.0)
         emit("fixture-broken"; observed_fn = () -> NaN,
              broken_spec = (group = :G2, baseline = Returned(isnan)))
@@ -164,6 +168,7 @@ withenv("CONFORMANCE_REPORT" => nothing) do
         @test length(lines) == 4
         h = ReportScript.parse_json_line(lines[1])
         @test h["pkgsha"] == "fixture-sha"
+        @test h["run"] == "fixture-run"
         @test h["bounds"] == string(Base.JLOptions().check_bounds)
         @test h["julia"] == string(VERSION)
         @test !isempty(h["platform"]) && !isempty(h["harness"])
@@ -179,22 +184,29 @@ withenv("CONFORMANCE_REPORT" => nothing) do
         @test occursin("fixture-sha", md)
         @test ReportScript.coverage(run; case_ids = ["V1"],
           required_ids = ["fixture-pass", "fixture-broken"], expected_cells = [], expected_files = []) == (md, true)
-        default_md, complete = ReportScript.coverage(dir)
+        # The report file name harness.jsonl is not an expected report file, so the
+        # default checks (and the CLI) run on a copy that carries an expected name.
+        cli = joinpath(dir, "cli")
+        mkpath(joinpath(cli, "run"))
+        cp(path, joinpath(cli, "run", "kernels.jsonl"))
+        @test_throws r"unexpected report file" ReportScript.coverage(dir)
+        default_md, complete = ReportScript.coverage(cli)
         @test !complete
         @test occursin("V5.value", default_md)
         @test occursin("missing", default_md)
+        @test occursin("Run id: `fixture-run`", default_md)
         out = joinpath(dir, "coverage.md")
-        @test runmain([dir, "--out", out]) == 1 # incomplete by design
+        @test runmain([cli, "--out", out]) == 1 # incomplete by design
         @test read(out, String) == default_md
-        @test runmain([dir, "--out", out, "--check"]) == 1
+        @test runmain([cli, "--out", out, "--check"]) == 1
         write(out, "stale")
-        @test runmain([dir, "--out", out, "--check"]) == 1
+        @test runmain([cli, "--out", out, "--check"]) == 1
         @test read(out, String) == "stale"
         diff = IOBuffer()
         ReportScript.print_diff(diff, out, default_md)
         @test occursin("-stale\n+# Numerical contract coverage", String(take!(diff)))
         @test runmain(["--help"]) == 0
-        @test runmain([dir, "--bogus"]) == 1
+        @test runmain([cli, "--bogus"]) == 1
         @test_throws ErrorException ReportScript.parse_json_line("{\"a\":true}")
         @test_throws ErrorException ReportScript.parse_json_line("{\"a\":\"x\",\"a\":\"y\"}")
         @test_throws ErrorException ReportScript.parse_json_line("{} trailing")
@@ -208,19 +220,19 @@ withenv("CONFORMANCE_REPORT" => nothing) do
         for key in ("pkgsha", "bounds", "julia", "platform", "harness")
           changed = merge(h, Dict(key => "different"))
           write(other, Conformance.json_object(changed) * "\n")
-          @test_throws ErrorException ReportScript.read_run(run)
+          @test_throws ErrorException ReportScript.read_run(run; expected_files = [])
         end
         rm(other)
         bad = ReportScript.parse_json_line(lines[3])
         bad["group"] = ""
         write(path, lines[1] * "\n" * Conformance.json_object(bad) * "\n")
-        @test_throws r"broken row needs group" ReportScript.read_run(run)
+        @test_throws r"broken row needs group" ReportScript.read_run(run; expected_files = [])
       end
     end
     # A complete throwaway run checks CLI success as well as the incomplete
     # fixture above. These identity rows are fixtures, not package evidence.
     mktempdir() do dir
-      withenv("CONFORMANCE_REPORT" => dir, "CONFORMANCE_PKG_SHA" => "complete-fixture") do
+      withenv("CONFORMANCE_REPORT" => dir, "CONFORMANCE_RUN_ID" => "fixture-run", "CONFORMANCE_PKG_SHA" => "complete-fixture") do
         families = getproperty.(ReportScript.EXPECTED_CELLS, :family)
         for (i, id) in enumerate(ReportScript.REQUIRED_ROW_IDS)
           emit(id; case_id = first(split(id, '.')),
@@ -264,6 +276,58 @@ withenv("CONFORMANCE_REPORT" => nothing) do
         @test runmain([dir, "--out", out_missing, "--check"]) == 1
         write(split_path, saved)
         @test runmain([dir, "--out", out, "--check"]) == 0
+        # Acceptance B: the run id is the only addition to the generated tables. Every
+        # section has exactly one `Run id:` line, between the Baseline SHA and Harness
+        # revision lines, and nothing else in the section layout moved.
+        text = read(out, String)
+        text_lines = split(text, '\n')
+        sections = count(startswith("## Run: "), text_lines)
+        @test sections == 1
+        @test count(==("Run id: `fixture-run`  "), text_lines) == sections
+        at = findfirst(==("Run id: `fixture-run`  "), text_lines)
+        @test startswith(text_lines[at - 1], "Baseline SHA (package under test): `")
+        @test startswith(text_lines[at + 1], "Harness revision (common.jl blob)")
+        @test occursin("`scripts/conformance_run.jl`", text) && !occursin("from an empty report directory)", text)
+        # The run id may be pinned on the command line.
+        @test runmain([dir, "--out", out, "--run-id", "fixture-run"]) == 0
+        @test runmain([dir, "--out", out, "--run-id", "other"]) == 1
+        # A file from another run in the same directory is rejected and named.
+        kernels = joinpath(run, "kernels.jsonl")
+        kernels_text = read(kernels, String)
+        first_line, rest = split(kernels_text, '\n'; limit = 2)
+        other_header = merge(ReportScript.parse_json_line(String(first_line)), Dict("run" => "other-run"))
+        write(kernels, Conformance.json_object(other_header) * "\n" * rest)
+        err = try ReportScript.read_run(run); nothing catch e; sprint(showerror, e) end
+        @test err !== nothing
+        @test occursin("reports come from different runs in $run", err)
+        @test occursin("kernels.jsonl=other-run", err) && occursin("data_functions.jsonl=fixture-run", err)
+        @test runmain([dir, "--out", out_missing]) == 1
+        write(kernels, kernels_text)
+        # An expected run id that the files do not carry is an error naming a file.
+        err = try ReportScript.read_run(run; run_id = "expected"); nothing catch e; sprint(showerror, e) end
+        @test err !== nothing && occursin("report run id fixture-run does not match expected expected: ", err)
+        @test occursin("data_functions.jsonl", err)
+        # A header without `run` is incomplete.
+        no_run = Dict(k => v for (k, v) in ReportScript.parse_json_line(String(first_line)) if k != "run")
+        write(kernels, Conformance.json_object(no_run) * "\n" * rest)
+        @test_throws r"incomplete header: .*kernels\.jsonl" ReportScript.read_run(run)
+        write(kernels, kernels_text)
+        # A file that is not an expected report is rejected, unless no files are expected.
+        extra = joinpath(run, "extra.jsonl")
+        cp(kernels, extra)
+        @test_throws r"unexpected report file: .*extra\.jsonl" ReportScript.read_run(run)
+        @test_throws r"unexpected report file" ReportScript.coverage(dir)
+        @test ReportScript.read_run(run; expected_files = []) isa Tuple
+        rm(extra)
+        @test runmain([dir, "--out", out, "--check"]) == 0
+        # Without a run id there is no report: nothing is created.
+        fresh = joinpath(dir, "fresh")
+        for (k, unset) in enumerate((nothing, ""))
+          withenv("CONFORMANCE_REPORT" => fresh, "CONFORMANCE_RUN_ID" => unset) do
+            @test_throws r"scripts/conformance_run\.jl.*CONFORMANCE_RUN_ID|CONFORMANCE_RUN_ID.*scripts/conformance_run\.jl" emit("no-run-id-$k")
+          end
+          @test !ispath(fresh)
+        end
         # Changing the package SHA in the same process creates a new run
         # with its own header instead of pooling configurations.
         withenv("CONFORMANCE_PKG_SHA" => "second-fixture") do
@@ -271,11 +335,83 @@ withenv("CONFORMANCE_REPORT" => nothing) do
         end
         runs = ReportScript.run_directories(dir)
         @test length(runs) == 2
-        @test all(run -> !isempty(first(ReportScript.read_run(run))["pkgsha"]), runs)
-        md, complete = ReportScript.coverage(dir)
+        @test all(run -> !isempty(first(ReportScript.read_run(run; expected_files = []))["pkgsha"]), runs)
+        md, complete = ReportScript.coverage(dir; expected_files = [])
         @test !complete
         @test occursin("second-fixture", md) && occursin("complete-fixture", md)
       end
+    end
+  end
+  @testset "Runner script" begin
+    quiet(f) = redirect_stdio(f; stdout = devnull, stderr = devnull)
+    families = getproperty.(ReportScript.EXPECTED_CELLS, :family)
+    # A complete throwaway run written straight to disk, every file carrying `run_id`.
+    function write_complete(dir, run_id)
+      run = joinpath(dir, "fixture-key")
+      mkpath(run)
+      header = Conformance.json_object((; kind = "header", julia = "1", platform = "p", bounds = "1",
+                                        pkgsha = "stub-sha", harness = "stub-blob", run = run_id))
+      row(id, case, family) = Conformance.json_object((; id, case, family, oracle = "value", types = "Float64",
+        backend = "cpu", rules = "T3", problem = "identity", group = "", status = "pass",
+        expected = "1.0", observed = "1.0"))
+      ids = ReportScript.REQUIRED_ROW_IDS
+      rows = [row(id, first(split(id, '.')), families[mod1(i, length(families))]) for (i, id) in enumerate(ids)]
+      others = filter(!=("linear_sets_2"), ReportScript.EXPECTED_FILES)
+      for (k, name) in enumerate(others)
+        write(joinpath(run, name * ".jsonl"), join([header; rows[k:length(others):end]], "\n") * "\n")
+      end
+      write(joinpath(run, "linear_sets_2.jsonl"),
+        join([header, row("stub-split-1", "", "linear_sets"), row("stub-split-2", "", "linear_sets")], "\n") * "\n")
+    end
+    runner(args; kwargs...) = quiet(() -> RunnerScript.main(args; kwargs...))
+    @test quiet(() -> RunnerScript.main(["--help"])) == 0
+    @test RunnerScript.utc_stamp(0) == "19700101T000000"
+    @test RunnerScript.utc_stamp(951782400 + 86399) == "20000229T235959"
+    @test RunnerScript.utc_stamp(1793536800) == "20261101T124000"
+    mktempdir() do root
+      called = Ref(0)
+      never(stems, env) = (called[] += 1; true)
+      # A non-empty report directory is refused before anything runs.
+      busy = joinpath(root, "busy")
+      mkpath(busy)
+      write(joinpath(busy, "old.jsonl"), "{}\n")
+      @test runner([busy]; test_command = never) == 1
+      @test called[] == 0
+      @test readdir(busy) == ["old.jsonl"]
+      # Unknown options and a bad job count are refused too.
+      @test runner([joinpath(root, "x"), "--bogus"]; test_command = never) == 1
+      @test runner([joinpath(root, "x"), "--jobs", "0"]; test_command = never) == 1
+      @test !ispath(joinpath(root, "x")) && called[] == 0
+      # The stems are the expected report files and the stub gets a run id; a stub
+      # that writes nothing leaves the map step without reports.
+      seen = Ref{Any}()
+      silent(stems, env) = (seen[] = (stems, env); true)
+      empty_dir = joinpath(root, "empty")
+      @test runner([empty_dir]; test_command = silent) == 1
+      @test seen[][1] == sort(ReportScript.EXPECTED_FILES)
+      env = Dict(seen[][2])
+      @test !isempty(env["CONFORMANCE_RUN_ID"]) && env["CONFORMANCE_REPORT"] == abspath(empty_dir)
+      @test occursin(r"^\d{8}T\d{6}-[0-9a-f]{8}$", env["CONFORMANCE_RUN_ID"])
+      # A failing test step still builds the map from what it wrote, and the exit is 1.
+      failing_dir = joinpath(root, "failing")
+      out = joinpath(root, "failing-map.md")
+      failing(stems, env) = (write_complete(failing_dir, Dict(env)["CONFORMANCE_RUN_ID"]); false)
+      @test runner([failing_dir, "--out", out]; test_command = failing) == 1
+      @test isfile(out) && occursin("Run id: `", read(out, String))
+      # A succeeding test step with a complete report gives 0; the map defaults into the directory.
+      good_dir = joinpath(root, "good")
+      good(stems, env) = (write_complete(good_dir, Dict(env)["CONFORMANCE_RUN_ID"]); 0)
+      @test runner([good_dir]; test_command = good) == 0
+      @test isfile(joinpath(good_dir, "coverage.md"))
+      # The map step refuses files from another run: here the stub writes a stale id.
+      stale_dir = joinpath(root, "stale")
+      stale(stems, env) = (write_complete(stale_dir, "stale-run"); true)
+      @test runner([stale_dir]; test_command = stale) == 1
+      # --check compares with the given output file.
+      check_dir = joinpath(root, "check")
+      check_out = joinpath(root, "check-map.md")
+      check_stub(stems, env) = (write_complete(check_dir, Dict(env)["CONFORMANCE_RUN_ID"]); true)
+      @test runner([check_dir, "--out", check_out, "--check"]; test_command = check_stub) == 1
     end
   end
 end

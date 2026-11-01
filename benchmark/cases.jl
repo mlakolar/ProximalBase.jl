@@ -768,19 +768,26 @@ function owner_cases!(cases, rep; quick=false)
         X, S = fx.X, fx.S
         shape = "p$(p)_s$(s)"
         q = p * (p + 1) ÷ 2
-        active = [ProximalBase.tril_cartesian(p, fx.ids[1 + (i - 1) % s]) for i in 1:npos]
+        active = [ProximalBase.tril_cartesian(p, fx.ids[1 + (i - 1) % s]) for i in 1:npos]   # cycles when s < npos
         activeset = Set(fx.ids)
-        absent = Tuple{Int,Int}[]
-        while length(absent) < npos
+        # distinct, initially inactive coordinate IDs (never repeated)
+        absent_ids = Int[]; seen = Set{Int}()
+        while length(absent_ids) < npos
             k = rand(rng, 1:q)
-            k in activeset || push!(absent, ProximalBase.tril_cartesian(p, k))
+            (k in activeset || k in seen) && continue
+            push!(seen, k); push!(absent_ids, k)
         end
-        # read positions alternate active/absent and swap orientation
-        pos = [iseven(i) ? (a[2], a[1]) : a for (i, a) in enumerate(Iterators.flatten(zip(active, absent)))]
-        expected_read = sum(S[r, c] for (r, c) in pos)
-        read_op() = (acc = zero(T); @inbounds for (r, c) in pos; acc += X[r, c]; end; acc)
-        check_read!() = isapprox(read_op(), expected_read; rtol=1e-12) || error("owner reads differ from the CSC reference")
-        addcase!(cases, "owner", "read_X[i,j]", read_op, check_read!; T, shape, layout="active_and_absent", work=length(pos))
+        absent = [ProximalBase.tril_cartesian(p, k) for k in absent_ids]
+        # four read cases of nread reads each: active and absent coordinates, each read through
+        # X[r, c] with r >= c and through X[c, r]; each is checked against the CSC reference
+        nread = 256
+        for (kind, base) in (("active", active), ("absent", absent)), (side, flip) in (("lower", false), ("upper", true))
+            pos = [flip ? (c, r) : (r, c) for (r, c) in base[1:nread]]
+            expected_read = sum(S[r, c] for (r, c) in pos)
+            read_op() = (acc = zero(T); @inbounds for (r, c) in pos; acc += X[r, c]; end; acc)
+            check_read!() = isapprox(read_op(), expected_read; rtol=1e-12) || error("owner reads differ from the CSC reference")
+            addcase!(cases, "owner", "read_X[i,j]", read_op, check_read!; T, shape, layout="$(kind)_$(side)", work=nread)
+        end
         # writes to already active coordinates, with a changing value
         wpos = active
         Xw = copy(fx.X)                      # this case's own owner
@@ -795,19 +802,26 @@ function owner_cases!(cases, rep; quick=false)
         addcase!(cases, "owner", "write_X[i,j]_active", write_op, check_write!; T, shape, layout="active", work=length(wpos))
         # first activation: always an absent coordinate; restored outside the timed region
         Xa = copy(fx.X)
-        # a batch of distinct absent coordinates per call: one activation is below the timer floor
-        batch = absent[1:min(256, length(absent))]
+        # a batch of 256 distinct, initially inactive coordinates per call: one activation is below the timer floor
+        batch_ids = absent_ids[1:256]
+        batch = absent[1:256]
         activate_op() = (@inbounds for (r, c) in batch; Xa[r, c] = one(T); end; nothing)
-        restore!() = (for (r, c) in batch; Xa[r, c] = zero(T); end; dropzeros!(Xa); nothing)
+        function restore!()               # outside the timed region
+            for (r, c) in batch; Xa[r, c] = zero(T); end
+            dropzeros!(Xa)
+            any(k -> isactive(Xa, k), batch_ids) && error("a batch coordinate is still active: not a first activation")
+            nothing
+        end
         function check_activate!()
-            restore!(); activate_op()
-            ids = Set(activecoordinates(Xa))
-            all(ProximalBase.tril_index(p, max(r, c), min(r, c)) in ids for (r, c) in batch) || error("activation did not add the coordinates")
-            length(ids) == s + length(unique(ProximalBase.tril_index(p, max(r, c), min(r, c)) for (r, c) in batch)) || error("unexpected working set")
+            restore!()
+            length(unique(batch_ids)) == length(batch_ids) || error("batch coordinates are not distinct")
+            activate_op()
+            all(k -> isactive(Xa, k), batch_ids) || error("activation did not add every coordinate")
+            length(collect(activecoordinates(Xa))) == s + length(batch_ids) || error("unexpected working set")
             restore!()
             length(collect(activecoordinates(Xa))) == s || error("restore did not recover the working set")
         end
-        addcase!(cases, "owner", "first_activation", activate_op, check_activate!; T, shape, layout="absent_batch",
+        addcase!(cases, "owner", "first_activation", activate_op, check_activate!; T, shape, layout="absent_distinct_batch",
                  phase="first_activation", prepare=restore!, evals=1, zero_alloc=true, work=length(batch))
         # sweeps over the active coordinates
         Xs = copy(fx.X)

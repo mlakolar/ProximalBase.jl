@@ -177,7 +177,8 @@ end
     value_and_prox!(Z, c, Z, 1.0)
     @test Z == ref
     @test ref[2, 2] == nextfloat(0.0) && ref[1, 1] ≈ 3.0
-    @test ref[1, 2] == ref[2, 1] ≈ 3e10 / floatmax(Float64) rtol = 1e-12
+    @test ref[1, 2] == ref[2, 1]
+    @test ref[1, 2] ≈ 3e10 / floatmax(Float64) rtol = 1e-12
     # margins that differ by one ulp
     c = Constrained(NormL1(1.0, [1.0 2.0; 2.0 1.0]), IndSphereL2(1.0))
     for X in ([0.0 0.0; 0.0 0.0], [0.5 0.0; 0.0 nextfloat(0.5)], [nextfloat(0.5) 0.0; 0.0 0.5])

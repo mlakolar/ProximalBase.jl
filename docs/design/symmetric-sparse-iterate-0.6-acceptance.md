@@ -29,8 +29,12 @@
 > - Consistent extensions, with no change here: the read-only handle of ACT-3
 >   is shared by the family
 >   ([FD-7](iterate-family-0.6.md#fd-7-read-only-active-coordinate-handles)),
->   and oracle destinations follow
->   [FD-4](iterate-family-0.6.md#fd-4-oracle-destinations).
+>   oracle destinations follow
+>   [FD-4](iterate-family-0.6.md#fd-4-oracle-destinations), and the owner
+>   keeps 0.5.x's `*(A::Symmetric, X::SymmetricSparseIterate, B::Symmetric)`,
+>   whose class
+>   [FD-9](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products)
+>   defines term by term.
 
 # 1. What was audited
 

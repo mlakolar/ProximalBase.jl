@@ -27,7 +27,10 @@
 >   ([FD-7](iterate-family-0.6.md#fd-7-read-only-active-coordinate-handles));
 >   oracle destinations follow
 >   [FD-4](iterate-family-0.6.md#fd-4-oracle-destinations), consistent with
->   ORC-3 and ORC-6.
+>   ORC-3 and ORC-6; and the owner keeps 0.5.x's
+>   `*(A::Symmetric, X::SymmetricSparseIterate, B::Symmetric)`, whose class
+>   [FD-9](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products)
+>   defines term by term.
 
 **Audited commits.** ProximalBase `abaceda25442bf6cc61601c8c1d3b2a16e1a3492`
 (master, 2026-11-01; `Project.toml` says 0.5.4). Links below point at that commit.

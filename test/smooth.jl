@@ -618,6 +618,16 @@ end
   end
 end
 
+# an exactly symmetric matrix that allows bulk transfer but no scalar indexing
+struct BulkOnly <: AbstractMatrix{Float64}
+  data::Matrix{Float64}
+end
+Base.size(A::BulkOnly) = size(A.data)
+Base.getindex(::BulkOnly, ::Int, ::Int) = error("scalar indexing")
+Base.copyto!(dest::Matrix{Float64}, A::BulkOnly) = copyto!(dest, A.data)
+Base.Matrix{Float64}(A::BulkOnly) = copy(A.data)
+Base.Matrix(A::BulkOnly) = copy(A.data)
+
 @testset "LogDetLoss and KronQuadratic check exact symmetry (#269)" begin
   p = 6
   Ω = Matrix(SymTridiagonal(fill(1.0, p), fill(0.3, p - 1)))
@@ -649,6 +659,20 @@ end
     @test LogDetLoss(X).S == Matrix(X)
     @test KronQuadratic(X, X).A == Matrix(X)
   end
+  # a rectangular matrix is a DimensionMismatch, before any mirrored entry is read
+  @test_throws DimensionMismatch LogDetLoss(zeros(3, 2))
+  @test_throws DimensionMismatch KronQuadratic(zeros(3, 2), I(2))
+  # the difference is computed without integer wraparound or floating-point overflow
+  @test occursin("(relative asymmetry 0.5)", msg(LogDetLoss, UInt8[1 2; 1 1]))
+  @test occursin("entry (2, 1) is -1.7976931348623157e308 and entry (1, 2) is 1.7976931348623157e308 (relative asymmetry 2.0)",
+                 msg(KronQuadratic, [1.0 floatmax(); -floatmax() 1.0], I(2)))
+  # a sparse matrix is scanned by its stored entries
+  Sp = sparse([1, 2, 3, 1], [1, 2, 3, 3], [1.0, 1.0, 1.0, 4.0])
+  @test occursin("entry (3, 1) is 0.0 and entry (1, 3) is 4.0", msg(LogDetLoss, Sp))
+  # a matrix on a device with bulk transfer only
+  @test LogDetLoss(BulkOnly(Matrix(Ω))).S == Ω
+  @test KronQuadratic(BulkOnly(Matrix(Ω)), BulkOnly(Matrix(Ω))).A == Ω
+  @test startswith(msg(LogDetLoss, BulkOnly(S)), "S must be symmetric, but entry (2, 1)")
   # the linear term need not be symmetric
   C = [0.0 1.0; 2.0 0.0]
   @test KronQuadratic(Matrix(1.0I, 2, 2), Matrix(1.0I, 2, 2), C).C == C

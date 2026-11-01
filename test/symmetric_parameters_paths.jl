@@ -73,6 +73,24 @@ end
   @test occursin("entry (4, 3) is 9.0 and entry (3, 4) is 1.0 (relative asymmetry 0.89)",err.msg)
 end
 
+@testset "Parameter message edge cases" begin
+  # labels have no arithmetic: no relative asymmetry, and an ArgumentError
+  err=try PB.check_symmetric_parameters(NormL1(1.,[:a :b;:c :a]),SymmetricSparseIterate(2)); nothing catch e; e end
+  @test err isa ArgumentError
+  # a flat parameter is reshaped like the pair check does
+  w=reshape([1.,3.,1.,1.],4,1); x=SymmetricSparseIterate(2)
+  err=try PB.check_symmetric_parameters(NormL1(1.,w),x); nothing catch e; e end
+  @test err isa ArgumentError
+  @test occursin("pass Symmetric(reshape(w, 2, 2), :L)",err.msg)
+  # a single-pair check reads two entries
+  W=CountingMatrix(ones(400,400),Ref(0)); W.data[3,2]=2.
+  f=NormL1(1.,W); x=SymmetricSparseIterate(400); k=tril_index(400,3,2)
+  W.reads[]=0
+  err=try prox_coordinate!(x,f,k,1.); nothing catch e; e end
+  @test err isa ArgumentError
+  @test W.reads[] < 20
+end
+
 @testset "Existing value shape messages" begin
   A=ones(3,3); x=SymmetricSparseIterate(2)
   for f in (LinearFunction(A),Tilt(NormL1(),A),Precompose(NormL1(),A),

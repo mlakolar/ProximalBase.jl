@@ -497,8 +497,8 @@ function KronQuadratic(A::AbstractMatrix, B::AbstractMatrix, C::Union{Nothing, A
   Cd = C === nothing ? nothing : Matrix{T}(C)
   all(isfinite, Ad) && all(isfinite, Bd) && (Cd === nothing || all(isfinite, Cd)) ||
     throw(ArgumentError("A, B and C must be finite"))
-  _check_symmetric(A, "A", "A")
-  _check_symmetric(B, "B", "B")
+  _check_symmetric_host(A, "A", "A")
+  _check_symmetric_host(B, "B", "B")
   KronQuadratic{T, typeof(Cd)}(Ad, Bd, Cd, zeros(T, p, q), zeros(T, p,
       q), zeros(T, p, q))
 end

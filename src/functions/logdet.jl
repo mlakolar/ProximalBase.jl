@@ -58,7 +58,8 @@ function LogDetLoss(S::AbstractMatrix, w::Real = 1)
   eltype(S) <: Real || _real_error(:LogDetLoss)
   T = float(promote_type(eltype(S), typeof(w)))
   T <: _BlasReal || throw(ArgumentError("LogDetLoss needs Float32 or Float64 entries, got $T"))
-  _check_symmetric(S, "S", "S")
+  checksquare(S)
+  _check_symmetric_host(S, "S", "S")
   LogDetLoss{T}(Matrix{T}(S), convert(T, w))
 end
 

@@ -125,6 +125,8 @@ Its coordinates are the `p(p+1)/2` entries of the lower triangle, numbered
 column by column ([`tril_index`](@ref)): [`prox_coordinate!`](@ref) updates
 them, [`ncoordinates`](@ref) counts them, [`activecoordinates`](@ref) lists the
 stored ones and [`coordinates`](@ref) is a vector view of them.
+
+See [Symmetric parameters](@ref) for parameter requirements and checking scope.
 """
 mutable struct SymmetricSparseIterate{T} <: AbstractMatrix{T}
     nzval::Vector{T}            # stored nonzero values (1:nnz)

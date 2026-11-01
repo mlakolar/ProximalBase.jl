@@ -30,6 +30,8 @@ definite), and it allocates nothing. On a [`SymmetricSparseIterate`](@ref) the
 product of [`KronQuadratic`](@ref) is the one over symmetric matrices, as its
 gradient is. Several products at the same `x` are cheaper through
 [`quadratic_model`](@ref), which does the work that depends on `x` once.
+
+See [Symmetric parameters](@ref) for parameter requirements and checking scope.
 """
 function hessian_vec! end
 
@@ -75,6 +77,8 @@ written in the new point `z` rather than in the step `z - x`: minimizing
 the graphical lasso (Hsieh, Sustik, Dhillon and Ravikumar, 2014), and
 coordinate descent on a [`SymmetricSparseIterate`](@ref) solves it. `x` must
 then be positive definite.
+
+See [Symmetric parameters](@ref) for parameter requirements and checking scope.
 """
 function quadratic_model end
 function quadratic_model! end

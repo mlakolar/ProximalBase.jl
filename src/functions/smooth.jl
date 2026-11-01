@@ -457,6 +457,8 @@ Examples:
   `svec(Θ)` is this function on a symmetric `Θ`, in coordinates that scale the
   off-diagonal entries by `√2`. For a symmetric iterate, use `-(E + E')/2`
   as the linear term.
+
+See [Symmetric parameters](@ref) for parameter requirements and checking scope.
 """
 struct KronQuadratic{T<:AbstractFloat, MC<:Union{Nothing, Matrix{T}}} <: AbstractFunction
   A::Matrix{T}

@@ -83,6 +83,7 @@ ProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2
 ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
 ProximalBase.iszeropreserving(::WeightedSquare) = true
 ProximalBase.isconvex(::Type{WeightedSquare}) = true
+ProximalBase.entry_parameters(f::WeightedSquare) = (:w => f.w,)
 ProximalBase.check_parameters(f::WeightedSquare, x) =
   length(f.w) == length(x) || throw(DimensionMismatch("a parameter array has length $(length(f.w)) and the argument has length $(length(x))"))
 
@@ -119,8 +120,18 @@ oracles and built-in wrappers check this before writing. An override of a
 public oracle should call [`ProximalBase.check_symmetric_parameters`](@ref)
 itself. This check covers every pair, including unstored entries, and walks
 built-in wrappers and `SeparableSum` tuples. It trusts the declaration to be
-complete. Raw entry oracles and `restrict` have no iterate; solvers should
-validate the original function before using them. Active-set solvers can also
+complete. See [Symmetric parameters](@ref) for the rule and which pairs each
+operation checks.
+
+Raw entry oracles and `restrict` have no iterate to check. A solver should
+first call `ProximalBase.check_symmetric_parameters(f, x)` on the original
+function, then call those oracles or restrict the function. Ordinary public
+calls still check, and later parameter changes require fresh validation.
+Some functions must also be rebuilt: `IndBox` computes whether its bounds
+contain zero and data for its membership test once, in its constructor.
+Changing the bounds leaves those saved values out of date.
+
+Active-set solvers can also
 use [`kkt_violation`](@ref) and [`restrict`](@ref).
 
 ## Testing a new function

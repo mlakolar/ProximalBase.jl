@@ -75,6 +75,8 @@ f = MCP(0.5, 3)
 w = lla_weights(f, [0.0, 0.6, 2.0])     # [0.5, 0.3, 0.0]
 NormL1(1, w)                            # the penalty of the next stage
 ```
+
+See [Symmetric parameters](@ref) for parameter requirements and checking scope.
 """
 function lla_weights! end
 

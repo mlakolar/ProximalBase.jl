@@ -214,6 +214,36 @@ end
         @test_throws DimensionMismatch copyto!(SparseIterate(3), SparseIterate(4))
     end
 
+    @testset "a copy whose conversion throws leaves the destination unchanged" begin
+        # the state of an iterate as the scalar reads, the active list and Vector see it
+        snap(z) = (collect(z), isactive.(Ref(z), 1:length(z)), copy(activecoordinates(z)), Vector(z))
+        for n in (16, 4), filled in (false, true)      # sparse branch (n = 16), dense branch (n = 4)
+            d = SparseIterate(Int, n)
+            if filled
+                d[n÷2] = 7; d[n] = 3
+            end
+            s = SparseIterate(n); s[1] = 1.0; s[2] = 1.5
+            before = snap(d)
+            @test_throws InexactError copyto!(d, s)
+            @test snap(d) == before
+            d[1] = 5                                   # still usable
+            @test d[1] == 5 && isactive(d, 1)
+        end
+
+        # an integral source converts; stale values past nnz of the source do not matter
+        s = SparseIterate(4); s[1] = 1.0; s[2] = 1.5; s[2] = 0.0; dropzeros!(s)
+        d = SparseIterate(Int, 4)
+        @test copyto!(d, s) === d && Vector(d) == [1, 0, 0, 0]
+        s = SparseIterate(16); s[3] = 2.0
+        @test Vector(copyto!(SparseIterate(Int, 16), s)) == Vector(s)
+
+        # SymmetricSparseIterate shares the copy
+        S = SymmetricSparseIterate(5); S[2, 1] = 1.0; S[3, 3] = 0.5
+        D = SymmetricSparseIterate(Int, 5); D[1, 1] = 4
+        @test_throws InexactError copyto!(D, S)
+        @test D[1, 1] == 4 && nactive(D) == 1 && Matrix(D) == Matrix(Diagonal([4, 0, 0, 0, 0]))
+    end
+
 
     @testset "other" begin
         x = SparseIterate(3)

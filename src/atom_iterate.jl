@@ -248,11 +248,17 @@ Base.copy(x::AtomIterate{T, G}) where {T, G} =
   AtomIterate{T, G}(copy(x.storage), x.groups, x.group_of, x.layout_cache, copy(x.active), copy(x.position), x.nactive)
 
 # with the same groups, only the entries of the active groups are copied
-function Base.copyto!(dest::AtomIterate, src::AtomIterate)
+function Base.copyto!(dest::AtomIterate{T}, src::AtomIterate{S}) where {T, S}
   dest === src && return dest
   length(dest) == length(src) || throw(DimensionMismatch())
   _samelayout(dest, src) ||
     return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
+  # a value that does not convert throws before dest is touched
+  if _convert_may_throw(T, S)
+    for a in 1:src.nactive
+      foreach(v -> convert(T, v), _atom_storage(src, src.active[a]))
+    end
+  end
   _zero_active!(dest)
   for a in 1:src.nactive
     k = src.active[a]

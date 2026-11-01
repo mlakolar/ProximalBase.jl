@@ -361,6 +361,15 @@ end
     copyto!(u, x)
     @test u == x && active_set(u) == Set([1, 2]) && consistent(u)
 
+    # a conversion that throws leaves the destination unchanged
+    xi = AtomIterate(9, groups); xi[1] = 1.0; xi[7] = 1.5     # groups 1 and 2 active, 1.5 does not convert
+    di = AtomIterate(Int, 9, groups); di[5] = 7; di[9] = 3
+    before = (Vector(di), copy(di.active[1:di.nactive]), copy(di.position), di.nactive)
+    @test_throws InexactError copyto!(di, xi)
+    @test (Vector(di), di.active[1:di.nactive], di.position, di.nactive) == before && consistent(di)
+    xi[7] = 2.0
+    @test copyto!(di, xi) === di && Vector(di) == Vector(xi) && consistent(di)
+
     @test fill!(y, 0.) == zeros(9) && y.nactive == 0
     fill!(y, 1.5)
     @test y == fill(1.5, 9) && y.nactive == 5

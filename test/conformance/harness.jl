@@ -364,6 +364,38 @@ withenv("CONFORMANCE_REPORT" => nothing) do
         @test ReportScript.read_run(run; expected_files = []) isa Tuple
         rm(extra)
         @test runmain([dir, "--out", out, "--check"]) == 0
+        # --check ignores the run provenance lines and nothing else.
+        committed = read(out, String)
+        check_edited(text) = (edited = joinpath(dir, "coverage-edited.md"); write(edited, text);
+                              runmain([dir, "--out", edited, "--check"]))
+        provenance = replace(committed,
+          r"^## Run: .*$"m => "## Run: ci-other-key",
+          r"^Baseline SHA \(package under test\): .*$"m => "Baseline SHA (package under test): `0123abc`  ",
+          r"^Run id: .*$"m => "Run id: `ci-1-2-lts-ubuntu-latest`  ",
+          r"^Harness revision \(common\.jl blob\): .*$"m => "Harness revision (common.jl blob): `fedcba9`  ",
+          r"^Julia: .*$"m => "Julia: 9.9.9; platform: other-platform; bounds: 0")
+        @test provenance != committed
+        @test check_edited(provenance) == 0
+        # A changed status cell, group count or intro paragraph is a real difference.
+        @test occursin("| passes |", committed) && occursin("| G1 | 0 |", committed)
+        @test check_edited(replace(committed, "| passes |" => "| broken (G1) |"; count = 1)) == 1
+        @test check_edited(replace(committed, "| G1 | 0 |" => "| G1 | 1 |"; count = 1)) == 1
+        @test check_edited(replace(committed, "One row per family" => "One row per cell"; count = 1)) == 1
+        # A missing or reordered provenance line still differs.
+        committed_lines = split(committed, '\n')
+        run_id_at = findfirst(startswith("Run id: "), committed_lines)
+        @test check_edited(join(deleteat!(copy(committed_lines), run_id_at), '\n')) == 1
+        swapped = copy(committed_lines)
+        swapped[run_id_at], swapped[run_id_at + 1] = swapped[run_id_at + 1], swapped[run_id_at]
+        @test check_edited(join(swapped, '\n')) == 1
+        # The diff printed on failure shows only the real difference.
+        diff = IOBuffer()
+        write(joinpath(dir, "coverage-edited.md"), replace(provenance, "| passes |" => "| broken (G1) |"; count = 1))
+        ReportScript.print_diff(diff, joinpath(dir, "coverage-edited.md"), committed)
+        diff_text = String(take!(diff))
+        @test occursin("-| ", diff_text) && occursin("broken (G1)", diff_text)
+        @test !occursin("ci-other-key", diff_text) && !occursin("0123abc", diff_text)
+        rm(joinpath(dir, "coverage-edited.md"))
         # Without a run id there is no report: nothing is created.
         fresh = joinpath(dir, "fresh")
         for (k, unset) in enumerate((nothing, ""))
@@ -385,6 +417,25 @@ withenv("CONFORMANCE_REPORT" => nothing) do
         @test occursin("second-fixture", md) && occursin("complete-fixture", md)
       end
     end
+  end
+  @testset "Provenance normalization" begin
+    normalize = ReportScript.normalize_provenance
+    text = join(["# Title", "", "## Run: key-a", "", "Baseline SHA (package under test): `aaa`  ",
+      "Run id: `run-a`  ", "Harness revision (common.jl blob): `bbb`  ",
+      "Julia: 1.10.0; platform: x; bounds: 1", "", "| Julia: a | Run id: b |", "|:---|:---|"], "\n")
+    other = replace(text, "key-a" => "key-b", "`aaa`" => "`ccc`", "`run-a`" => "`run-b`",
+      "`bbb`" => "`ddd`", "1.10.0; platform: x" => "1.11.0; platform: y")
+    @test text != other
+    @test normalize(text) == normalize(other)
+    @test normalize(normalize(text)) == normalize(text)
+    @test normalize(text) == join(["# Title", "", "<provenance: ## Run>", "",
+      "<provenance: Baseline SHA (package under test)>", "<provenance: Run id>",
+      "<provenance: Harness revision (common.jl blob)>", "<provenance: Julia>", "",
+      "| Julia: a | Run id: b |", "|:---|:---|"], "\n")
+    # Table rows are never touched, so a cell edit differs; a missing line differs.
+    @test normalize(text) != normalize(replace(text, "| Julia: a |" => "| Julia: z |"))
+    @test normalize(text) != normalize(replace(text, "Run id: `run-a`  \n" => ""))
+    @test normalize("no provenance\n") == "no provenance\n"
   end
   @testset "Runner script" begin
     quiet(f) = redirect_stdio(f; stdout = devnull, stderr = devnull)

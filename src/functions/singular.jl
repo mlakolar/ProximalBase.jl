@@ -156,6 +156,7 @@ end
 end
 
 function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real)
+  X = _symmetric_argument(Y, X)
   _checkwrite(value_and_prox!, F, Y, X)
   T = float(eltype(Y))
   if !all(isfinite, X)
@@ -186,7 +187,7 @@ function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix,
   _mul_lowrank!(Y, U, Vt, k, ws)
   convert(T, v)
 end
-prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, F, X, γ); Y)
+prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real) = (X = _symmetric_argument(Y, X); value_and_prox!(Y, F, X, γ); Y)
 
 function _checkspectrum(F::SingularValue, ::Type{T}, dims::Tuple) where {T}
   ws = F.ws

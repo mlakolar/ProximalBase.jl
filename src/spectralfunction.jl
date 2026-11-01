@@ -159,6 +159,7 @@ end
 end
 
 function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real)
+  X = _spectral_argument(X)
   _checkwrite(value_and_prox!, s, Y, X)
   T = float(eltype(Y))
   if !all(isfinite, X)
@@ -181,7 +182,7 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   convert(T, v)
 end
 prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real) =
-  (value_and_prox!(Y, s, X, γ); Y)
+  (X = _spectral_argument(X); value_and_prox!(Y, s, X, γ); Y)
 
 # Y = Σⱼ zⱼ vⱼvⱼ' for the eigenvectors vⱼ in the columns of V, through B, which
 # is Y when BLAS can write Y and an n × n buffer otherwise; destroys V. The proximal

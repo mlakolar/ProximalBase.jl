@@ -69,11 +69,11 @@ function value_entry end
   (_check_value_arrays(f, x); _value_sep(f, x))
 _value_unchecked(f::SeparableFunction, x::AbstractArray) = _isbuiltin(f) ? _value_sep(f, x) : f(x)
 prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_sep!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_sep!(y, f, x, γ))
 _prox_unchecked!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
   _isbuiltin(f) ? _prox_sep!(y, f, x, γ) : prox!(y, f, x, γ)
 value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_sep!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_sep!(y, f, x, γ))
 _value_and_prox_unchecked!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
   _isbuiltin(f) ? _value_and_prox_sep!(y, f, x, γ) : value_and_prox!(y, f, x, γ)
 

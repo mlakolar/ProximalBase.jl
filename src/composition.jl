@@ -166,14 +166,14 @@ _adjoint_apply!(g, h::_ScalarPrecompose, b) = (g .= h.A .* b)
 
 # y = x + A'(P - Ax)/μ, with P - Ax in the buffer; for a scalar a, y = P/a
 prox!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, h, y, x, γ); _prox_unchecked!(y, h, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, h, y, x, γ); _prox_unchecked!(y, h, x, γ))
 function _prox_unchecked!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real)
   _checkwrite(prox!, h, y, x)
   _value_and_prox_precompose!(y, h, x, γ, false)
   y
 end
 value_and_prox!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, h, y, x, γ); _value_and_prox_unchecked!(y, h, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, h, y, x, γ); _value_and_prox_unchecked!(y, h, x, γ))
 _value_and_prox_unchecked!(y::AbstractArray, h::Precompose, x::AbstractArray, γ::Real) =
   (_checkwrite(value_and_prox!, h, y, x); _value_at(_value_and_prox_precompose!(y, h, x, γ, true), y))
 
@@ -367,14 +367,14 @@ function _array_precompose_value(h::_ArrayPrecompose, y)
 end
 
 prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, h, y, x, γ); _prox_unchecked!(y, h, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, h, y, x, γ); _prox_unchecked!(y, h, x, γ))
 function _prox_unchecked!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real)
   _checkwrite(prox!, h, y, x)
   _value_and_prox_array!(y, h, x, γ, false)
   y
 end
 value_and_prox!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, h, y, x, γ); _value_and_prox_unchecked!(y, h, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, h, y, x, γ); _value_and_prox_unchecked!(y, h, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, h::_ArrayPrecompose, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, h, y, x)
   _value_at(_value_and_prox_array!(y, h, x, γ, true), y)
@@ -576,7 +576,7 @@ end
 
 # the shrunk point in a buffer owned by r, so that y is unchanged when f throws
 prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, r, y, x, γ); _prox_unchecked!(y, r, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, r, y, x, γ); _prox_unchecked!(y, r, x, γ))
 function _prox_unchecked!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
   _checkwrite(prox!, r, y, x)
   z = _output_buffer!(r.scratch, y)
@@ -585,7 +585,7 @@ function _prox_unchecked!(y::AbstractArray, r::Regularize, x::AbstractArray, γ:
   _wrapper_commit!(y, w)
 end
 value_and_prox!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, r, y, x, γ); _value_and_prox_unchecked!(y, r, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, r, y, x, γ); _value_and_prox_unchecked!(y, r, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, r, y, x)
   z = _output_buffer!(r.scratch, y)

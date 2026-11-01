@@ -123,6 +123,24 @@ does not imply convexity or positive homogeneity.
 functions that return suitable concrete functions. Avoid dispatch that
 assumes every exported constructor name is a concrete type.
 
+## `LogDetLoss` and `KronQuadratic` check their matrices (0.6)
+
+`LogDetLoss(S)` and the matrices `A` and `B` of `KronQuadratic(A, B, C)` must now
+be exactly symmetric: pairs `(i, j)` and `(j, i)` equal (exact numeric equality, with NaN matching NaN and
+`-0.0` matching `0.0`), or a
+`Symmetric`, `Hermitian` of reals or `Diagonal` matrix. Anything else throws an
+`ArgumentError` that names the pair with the largest difference and the relative
+asymmetry `max |A[i, j] - A[j, i]| / max |A[i, j]|`, and says when that is the
+size of rounding error. Before 0.6, `LogDetLoss` kept the upper triangle and
+`KronQuadratic` averaged the triangles of a matrix that agreed to within `√eps`
+times its largest entry. `C` is unchanged. The messages of the checks in the
+two sections below are the same.
+
+| Before 0.6 | Now |
+|:---|:---|
+| `LogDetLoss(S)` with `S` not symmetric | `Symmetric(S, :U)` keeps the old upper-triangle values; `Symmetric(S, :L)` takes the lower |
+| `KronQuadratic(inv(S), …)`, or `A` or `B` symmetric only up to rounding | `inv(Symmetric(S))` or `inv(cholesky(S))`, which are exactly symmetric, or `Symmetric(inv(S), :L)`; `(M + M')/2` for the symmetric part |
+
 ## Writes into a `SymmetricSparseIterate` (0.6)
 
 A [`SymmetricSparseIterate`](@ref) now accepts only symmetric values. Before
@@ -172,6 +190,9 @@ The linked operation table explains which symmetric arguments trigger checks.
 | Earlier behavior | New behavior and adaptation |
 |:---|:---|
 | In 0.5.4, weighted `NormL1` values counted weights from both triangles, while symmetric `prox!` used only the lower weight | Checked pairs must agree; choose one triangle with `Symmetric(W, :L)`, or revise the weights to match the intended model |
+| `prox!` into a `SymmetricSparseIterate` from a dense argument that is not symmetric threw, or stored the lower triangle's proximal point | The output is the proximal point at the symmetric part `(x + x') / 2`, for every built-in function; `Symmetric(x, :L)` still selects the lower triangle |
+| Spectral `prox!` read the upper triangle of a dense argument that is not symmetric | It decomposes the symmetric part, for dense outputs too |
+| `gradient!` and `hessian_vec!` of `KronQuadratic` into a symmetric output threw at a dense point that is not symmetric | They write the symmetric part of the result |
 | Values did not check parameter symmetry | Symmetric inputs trigger checks of stored pairs or all pairs, depending on the computation |
 | Gradients and gradient mappings did not check parameter symmetry | Symmetric outputs trigger checks; gradient mappings check both functions |
 | Hessian products and quadratic models did not check parameter symmetry | A symmetric point triggers full parameter validation, even with a dense Hessian-product output |

@@ -201,7 +201,7 @@ function _sparse_group_value(f::SparseGroupNormL2, x::AbstractArray, ordinary::V
 end
 
 value_and_prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Real) =
-  (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 
 # the step γ is a scalar or a vector with a step per group (see metric.jl)
 function _value_and_prox_groups!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Union{Real, AbstractVector})

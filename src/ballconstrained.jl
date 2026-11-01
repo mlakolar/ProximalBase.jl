@@ -111,7 +111,7 @@ _value_unchecked(c::BallConstrained, x::AbstractArray) = (T = float(eltype(x)); 
 _value_unchecked(c::SphereConstrained, x::AbstractArray) = (T = float(eltype(x)); iszero(_value_unchecked(c.sphere, x)) ? convert(T, _value_unchecked(c.f, x)) : T(Inf))
 
 prox!(y::AbstractArray, c::Union{BallConstrained, SphereConstrained}, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
 _prox_unchecked!(y::AbstractArray, c::Union{BallConstrained, SphereConstrained}, x::AbstractArray, γ::Real) =
   (_value_and_prox_unchecked!(y, c, x, γ); y)
 
@@ -122,7 +122,7 @@ function _value_and_inner_prox!(y, f, x, γ, ::Type{T}) where {T}
 end
 
 value_and_prox!(y::AbstractArray, c::BallConstrained, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, c::BallConstrained, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))
@@ -157,7 +157,7 @@ end
 # since Σᵢ|zᵢ| ≥ ‖z‖₂ the maximum r ⋅ maxᵢ(|xᵢ| - γλwᵢ) is at one entry. The
 # thresholds are those of prox_entry, so that the two cases agree with it.
 value_and_prox!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   T, S = float(eltype(y)), float(eltype(x))
@@ -183,7 +183,7 @@ end
 # threshold, and an index in no group has the coefficient |xᵢ|. The norms and
 # thresholds are those of the group shrinkage.
 value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))
@@ -225,7 +225,7 @@ end
 # support S, so the best support carries the most of x: the s largest entries
 # (and the free diagonal), the proximal point of the ℓ0 ball.
 value_and_prox!(y::AbstractArray, c::SphereConstrained{IndBallL0}, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{IndBallL0}, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))

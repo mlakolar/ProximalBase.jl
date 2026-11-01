@@ -330,6 +330,7 @@ Base.@propagate_inbounds function _symmetric_diagonal_mean(x::AbstractMatrix, n:
 end
 
 function prox!(y::AbstractMatrix, f::IndToeplitz, x::AbstractMatrix, ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   m, n = size(x)
   if _symmetric_toeplitz(f, x)

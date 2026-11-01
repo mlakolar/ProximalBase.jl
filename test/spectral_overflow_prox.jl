@@ -254,7 +254,8 @@ end
         B = randn(rng, T, 5, 5)
         for X in (B, B + B', B * B'), f in functions(T, false)
           Y, R = similar(X), similar(X)
-          legacy!(R, f, X, one(T))
+          # a spectral function reads the symmetric part of a matrix that is not symmetric
+          legacy!(R, f, f isa Union{TracePSD, IndPSD, Spectral} ? Matrix(PB._SymmetricPart(X)) : X, one(T))
           prox!(Y, f, X, one(T))
           @test isequal(Y, R)
         end

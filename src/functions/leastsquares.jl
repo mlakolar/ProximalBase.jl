@@ -147,6 +147,7 @@ end
 # rectangular, keep v's null-space component with v + V(s U'Y - s² V'v)/(s² + ρ).
 # Neither form subtracts terms of size γ X'Y at a large step γ.
 function prox!(β::AbstractVecOrMat, f::LeastSquaresLoss{T}, v::AbstractVecOrMat, γ::Real) where {T}
+  v = _symmetric_argument(β, v)
   _checkwrite(prox!, f, β, v)
   # With no observations or coefficients the loss is constant; avoid an empty SVD.
   (isempty(f.X) || isempty(β)) && return β === v ? β : copyto!(β, v)

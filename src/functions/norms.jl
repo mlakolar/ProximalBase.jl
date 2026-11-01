@@ -78,8 +78,9 @@ function _norm2_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real, :
     return zero(T)
   end
 end
-value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = _norm2_prox!(y, f, x, γ, Val(true))
-prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = (_norm2_prox!(y, f, x, γ, Val(false)); y)
+value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) =
+  (x = _symmetric_argument(y, x); _norm2_prox!(y, f, x, γ, Val(true)))
+prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = (x = _symmetric_argument(y, x); _norm2_prox!(y, f, x, γ, Val(false)); y)
 
 @inline _norm2_shrink!(f::NormL2, y::AbstractArray, x::AbstractArray, c) =
   _shrink_group!(f, y, x, eachindex(IndexLinear(), x), c)
@@ -251,6 +252,7 @@ function _cube_prox_parts(γ::T, λ::T, m::T, e::Int) where {T}
 end
 
 function prox!(y::AbstractArray, f::CubeNormL2, x::AbstractArray, γ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   if iszero(f.λ)
     y === x || copyto!(y, x)
@@ -272,7 +274,7 @@ function prox!(y::AbstractArray, f::CubeNormL2, x::AbstractArray, γ::Real)
 end
 
 value_and_prox!(y::AbstractArray, f::CubeNormL2, x::AbstractArray, γ::Real) =
-  (prox!(y, f, x, γ); f(y))
+  (x = _symmetric_argument(y, x); prox!(y, f, x, γ); f(y))
 
 lipschitz(f::CubeNormL2) = _ind(iszero(f.λ), float(typeof(f.λ)))
 
@@ -317,6 +319,7 @@ end
 end
 
 function value_and_prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
   c = _level_product(T, γ, f.λ)
@@ -328,7 +331,7 @@ function value_and_prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Re
   y .= sign.(x) .* min.(abs.(x), τ)
   _level_fits(T, f.λ) ? convert(T, f.λ) * τ : _weighted_normlinf(f.λ, y)
 end
-prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Real) = (value_and_prox!(y, f, x, γ); y)
+prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Real) = (x = _symmetric_argument(y, x); value_and_prox!(y, f, x, γ); y)
 
 ####################################
 #  group norms  λ0 ⋅ Σₖ wₖ ‖x[Gₖ]‖
@@ -662,9 +665,9 @@ function _check_symmetric_groups(f, y::SymmetricSparseIterate)
 end
 
 value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::Real) =
-  (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::Real) =
-  (_checkwrite(prox!, f, y, x); value_and_prox!(y, f, x, γ); y)
+  (x = _symmetric_argument(y, x); _checkwrite(prox!, f, y, x); value_and_prox!(y, f, x, γ); y)
 
 # Copy indices outside the penalized groups, including those beyond the last
 # group. Call after checking sizes and groups; all proximal kernels leave these

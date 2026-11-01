@@ -156,6 +156,28 @@ end
     value_and_prox!(y, c, S2([1e200 0.0; 0.0 1e-200]), 1.0)
     @test y[2, 2] ≈ 1e-200 rtol = 1e-12
     @test y[1, 1] ≈ 1e200 rtol = 1e-12
+    # a normalization whose scale factor is subnormal: the small coordinate is the smallest positive
+    # number, and the entries are those of r X / ‖X‖ to the accuracy of one rounding
+    c = Constrained(NormL1(0.0), IndSphereL2(3.0))
+    y = SymmetricSparseIterate(2)
+    value_and_prox!(y, c, S2([floatmax(Float64) 0.0; 0.0 eps(Float64)]), 1.0)
+    @test y[2, 2] == nextfloat(0.0)
+    @test y[1, 1] ≈ 3.0
+    c = Constrained(NormL1(0.0), IndSphereL2(1e-12))
+    y = SymmetricSparseIterate(2)
+    v = value_and_prox!(y, c, S2([1e308 0.0; 0.0 1e300]), 1.0)
+    @test y[1, 1] ≈ 1e-12 rtol = 1e-12
+    @test y[2, 2] ≈ 1e-20 rtol = 1e-12
+    @test v == c.f(y) == 0
+    # the same in place, and with a pair
+    Z = S2([floatmax(Float64) 1e10; 1e10 eps(Float64)])
+    c = Constrained(NormL1(0.0), IndSphereL2(3.0))
+    ref = SymmetricSparseIterate(2)
+    value_and_prox!(ref, c, Z, 1.0)
+    value_and_prox!(Z, c, Z, 1.0)
+    @test Z == ref
+    @test ref[2, 2] == nextfloat(0.0) && ref[1, 1] ≈ 3.0
+    @test ref[1, 2] == ref[2, 1] ≈ 3e10 / floatmax(Float64) rtol = 1e-12
     # margins that differ by one ulp
     c = Constrained(NormL1(1.0, [1.0 2.0; 2.0 1.0]), IndSphereL2(1.0))
     for X in ([0.0 0.0; 0.0 0.0], [0.5 0.0; 0.0 nextfloat(0.5)], [nextfloat(0.5) 0.0; 0.0 0.5])

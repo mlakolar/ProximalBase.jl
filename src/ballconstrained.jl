@@ -233,15 +233,24 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
       ss += (row == col ? one(U) : U(2)) * (margin(row, col) / top)^2
     end
     ru, root = convert(U, r), sqrt(ss)       # 1 ≤ ss ≤ 2p², since the largest margin counts once or twice
-    # y = margin ⋅ r / (top ⋅ root): by the factor r / (root ⋅ top) when it is a normal number, so
-    # that a small margin keeps its range, and otherwise by margin / top, which is at most 1
+    # y = margin ⋅ r / (top ⋅ root). When the factor r / (root ⋅ top) is a normal number one
+    # product is accurate. Otherwise the three terms are split into mantissas and exponents,
+    # so that nothing underflows or overflows before the one rounding of the result.
     q = ru / root
     scale = q / top
     direct = isfinite(scale) && scale >= floatmin(U)
+    aq, eq = frexp(q)
+    at, et = frexp(top)
     @inbounds for col in 1:p, row in col:p
       xi = x[row, col]
       m = margin(row, col)
-      y[row, col] = copysign(convert(T, direct ? m * scale : (m / top) * q), xi)
+      z = if direct || iszero(m)
+        m * scale
+      else
+        am, em = frexp(m)
+        ldexp((am / at) * aq, em + eq - et)
+      end
+      y[row, col] = copysign(convert(T, z), xi)
     end
     return convert(T, _value_unchecked(f, y))
   end

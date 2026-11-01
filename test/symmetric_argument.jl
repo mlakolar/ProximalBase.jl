@@ -257,6 +257,33 @@ end
   isempty(unexplained) || foreach(m -> println("not covered: ", m), unexplained)
 end
 
+@testset "the symmetric product keeps a subnormal scale" begin
+  A = [0.0 2.0; 0.0 0.0]
+  S = _SymmetricPart(A)
+  v = [0.0, 1.0]
+  α = nextfloat(0.0)
+  y = zeros(2)
+  mul!(y, S, v, α, 0.0)
+  @test y == [α, 0.0]                      # (A + A')/2 v = [1, 0]; halving α would give zero
+  y = [1.0, 1.0]
+  mul!(y, S, v, α, 2.0)                    # β C is kept
+  @test y == [2.0 + α, 2.0]
+  y = fill(NaN, 2)
+  mul!(y, S, v, α, 0.0)                    # C is not read for β = 0
+  @test y == [α, 0.0]
+  # ordinary scales, matrix right-hand sides, and Float32
+  B = randn(Xoshiro(3), 2, 3)
+  for T in (Float64, Float32), a in (T(1), T(-0.3), T(2) * floatmin(T), T(0))
+    SS = _SymmetricPart(T.(A) + T[0 0; 1 0])
+    X = T.(B)
+    C = zeros(T, 2, 3)
+    mul!(C, SS, X, a, zero(T))
+    @test C ≈ a .* (Matrix(SS) * X) rtol = 1e-5
+  end
+  c = zeros(2); mul!(c, S, v)                # the three-argument form
+  @test c == [1.0, 0.0]
+end
+
 @testset "the symmetric mean keeps subnormal digits and does not overflow" begin
   a = nextfloat(0.0)
   mean(a, b) = _SymmetricPart([0.0 a; b 0.0])[1, 2]

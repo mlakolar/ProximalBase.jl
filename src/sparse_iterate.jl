@@ -1048,8 +1048,15 @@ Base.transpose(S::_SymmetricPart) = S
 for (CT, BT) in ((:StridedMatrix, :StridedVecOrMat), (:StridedVector, :StridedVector))
   @eval begin
     function LinearAlgebra.mul!(C::$CT, S::_SymmetricPart{<:Real, <:StridedMatrix}, B::$BT, α::Number, β::Number)
-      mul!(C, S.A, B, α / 2, β)
-      mul!(C, S.A', B, α / 2, true)
+      h = α / 2
+      if !iszero(α) && abs(h) < floatmin(typeof(h))
+        # halving α would lose the digits that the result keeps: scale the product instead
+        P, Q = S.A * B, S.A' * B
+        iszero(β) ? (C .= α .* (P ./ 2 .+ Q ./ 2)) : (C .= α .* (P ./ 2 .+ Q ./ 2) .+ β .* C)
+        return C
+      end
+      mul!(C, S.A, B, h, β)
+      mul!(C, S.A', B, h, true)
     end
     LinearAlgebra.mul!(C::$CT, S::_SymmetricPart{<:Real, <:StridedMatrix}, B::$BT) = mul!(C, S, B, true, false)
   end

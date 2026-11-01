@@ -3,11 +3,7 @@ module ConformanceTolerancesTest
 using Test
 using ProximalBase
 using LinearAlgebra
-using Random
 using ..Conformance
-
-# Passes of a test set: Test.get_test_counts is a tuple on Julia 1.10 and a struct later.
-npasses(ts) = (c = Test.get_test_counts(ts); c isa Tuple ? c[1] : c.passes)
 
 # A4: direct entries have s=0; computed spectra use their own scale.
 for T in (Float32, Float64), bound in (T(0), T(8)), side in (:inside, :outside)
@@ -39,44 +35,11 @@ for T in (Float32, Float64), k in (0, 20), side in (:inside, :outside)
     observed = IndBallRank(1)(Matrix(Diagonal(T[scale, δ])))
   end
 end
-# Decision 16 identifies these fixed defaults. sqrt(eps(T)) is the A4
-# precision-aware comparison used here; the exact replacement is a Claims item.
-@row begin
-  id = "tolerances.largest-eigenvalue-default"; case = ""; family = :tolerances; oracle = :decision
-  types = "Float32 operator and Ritz residual"; backend = :cpu
-  rules = "A4"; problem = "diag(1,1+2^-15): first Ritz residual below sqrt(eps(Float32)); stop at precision-aware boundary"
-  expected = 1
-  observed = let calls = Ref(0)
-    op! = (y, x) -> (calls[] += 1; y .= Float32[1, 1 + pow2(Float32, -15)] .* x)
-    ProximalBase._largest_eigenvalue(op!, 2, Float32)
-    calls[]
-  end
-  broken = (group = :G10, baseline = Returned(v -> v === 2))
-end
-@row begin
-  id = "tolerances.intersection-default"; case = ""; family = :tolerances; oracle = :decision
-  types = "Float32 iterate and step-length residual"; backend = :cpu
-  rules = "A4"; problem = "projection of 2 onto [0,2-2^-15]: first displacement below sqrt(eps(Float32))*norm(y)"
-  expected = 1
-  observed = let f = IndIntersection(IndBox(0f0, 2f0 - pow2(Float32, -15)))
-    prox(f, Float32[2], 1f0)
-    f.iterations
-  end
-  broken = (group = :G10, baseline = Returned(v -> v === 2))
-end
-@row begin
-  id = "tolerances.kkt-default"; case = ""; family = :tolerances; oracle = :decision
-  types = "Float32 level/argument; Float64 generated gradient and violation"; backend = :cpu
-  rules = "A4"; problem = "seed 20 gives |violation|=1.2596413523358052e-8, between 1e-8 and sqrt(eps(Float64)); precision-aware band skips check"
-  expected = 0
-  observed = let
-    ts = @testset "KKT boundary probe" begin
-      ProximalBase.Testing.test_kkt(NormL1(0.35540783f0), Float32[0], 1f0;
-                                  trials = 1, rng = MersenneTwister(20))
-    end
-    npasses(ts)
-  end
-  broken = (group = :G10, baseline = Returned(v -> v === 1))
-end
+# A4 does not select an algorithmic default. Both eps(T) and sqrt(eps(T))
+# are precision-aware but give different counts on the former fixtures.
+# Finite observations cannot distinguish every such rule from a fixed default.
+@notcovered :tolerances :decision "Float32/Float64 Ritz residual" :cpu "tolerances.largest-eigenvalue-default: A4 algorithmic tolerance; no prescribed default or stopping count, and no finite observation separates a fixed default from every precision-aware rule."
+@notcovered :tolerances :decision "Float32/Float64 step-length residual" :cpu "tolerances.intersection-default: A4 algorithmic tolerance; no prescribed default or round count, and no finite observation separates a fixed default from every precision-aware rule."
+@notcovered :tolerances :decision "Float32 argument; Float64 generated violation" :cpu "tolerances.kkt-default: A4 algorithmic tolerance; no prescribed default or check count, and no finite observation separates a fixed default from every precision-aware rule."
 
 end

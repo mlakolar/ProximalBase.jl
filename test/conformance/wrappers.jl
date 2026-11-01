@@ -91,7 +91,7 @@ using ..Conformance
       types = "Float64"; backend = :cpu; rules = "T3,R2,O4"
       problem = "Unit-step scalar minimizer; R2/O4 bound 32eps(D)*max(1,|point|)"
       expected = point; observed = prox!(zeros(1), f, [4.0], 1.0)
-      compare = (a, b) -> eltype(a) == Float64 && all(within_ulps(x, y, 32) for (x, y) in zip(a, b))
+      compare = (a, b) -> eltype(a) == eltype(b) && axes(a) == axes(b) && all(within_ulps(x, y, 32) for (x, y) in zip(a, b))
     end
   end
 
@@ -119,7 +119,7 @@ using ..Conformance
       rules = "T3,R2,A1"; problem = "L=2, inner level=1/4, x=4, step=1: soft threshold 1/8; A1 bound 32eps(W)*4"
       expected = D[31 / 8]
       observed = prox!(zeros(D, 1), LinearImage(NormL1(P(1 / 4)), reshape(B[2], 1, 1), B(4)), A[4], S(1))
-      compare = (a, b) -> eltype(a) == D && all(isfinite, a) && norm(Float64.(a) - b) <= 32eps(W) * 4
+      compare = (a, b) -> eltype(a) == eltype(b) && axes(a) == axes(b) && all(isfinite, a) && norm(Float64.(a) - b) <= 32eps(W) * 4
     end
   end
 

@@ -53,7 +53,7 @@ const baselines = Dict{String,Any}(
     problem = "Poisson at eta=710 has unrepresentable effective coefficient exp(710)"
     expected = Throws(:PrecisionError)
     observed = quadratic_model(PoissonLoss([0.0], ones(1, 1)), [710.0])
-    broken = (group = :G8, baseline = Returned(q -> isequal(q.weights, [Inf]) && isequal(q.y, [NaN])))
+    broken = (group = :G8, baseline = Returned(q -> q isa GLMLoss{ProximalBase.Squared, Float64} && same(q.weights, [Inf]) && same(q.y, [NaN])))
   end
   # P2m's later observation overflows; inspect exception and output separately.
   function update_model()
@@ -71,7 +71,7 @@ const baselines = Dict{String,Any}(
       q, before, loss = update_model()
       quadratic_model!(q, loss, [1.0])
     end
-    broken = (group = :G8, baseline = Returned(q -> isequal(q.weights, [exp(1.0), Inf]) && isequal(q.y, [0.0, NaN])))
+    broken = (group = :G8, baseline = Returned(q -> q isa GLMLoss{ProximalBase.Squared, Float64} && same(q.weights, [exp(1.0), Inf]) && same(q.y, [0.0, NaN])))
   end
   @row begin
     id = "P2m.unchanged"; case = "P2m"; family = :second_order; oracle = :quadratic_model!
@@ -87,7 +87,7 @@ const baselines = Dict{String,Any}(
       end
       all(isequal(getfield(q, k), getfield(before, k)) for k in fieldnames(typeof(q)))
     end
-    broken = (group = :G8, baseline = Returned(v -> isequal(v, false)))
+    broken = (group = :G8, baseline = Returned(v -> same(v, false)))
   end
   for part in (:weight, :response)
     @row begin
@@ -100,7 +100,7 @@ const baselines = Dict{String,Any}(
         part == :weight ? only(q.weights) : only(q.y)
       end
       compare = part == :weight ? ((v, w) -> within_ulps(v, w, 16)) : same
-      broken = (group = :G8, baseline = Returned(v -> isequal(v, part == :weight ? Inf : NaN)))
+      broken = (group = :G8, baseline = Returned(v -> same(v, part == :weight ? Inf : NaN)))
     end
   end
   @row begin
@@ -124,7 +124,7 @@ const baselines = Dict{String,Any}(
       expected = pow2(D, k - 100)
       observed = only(hessian_vec!(zeros(D, 1), SqrNormL2(pow2(P, -100)), zeros(X, 1), V[v]))
       compare = same
-      broken = haskey(baselines, id) ? (group = :G8, baseline = Returned(z -> isequal(z, baselines[id]))) : nothing
+      broken = haskey(baselines, id) ? (group = :G8, baseline = Returned(z -> same(z, baselines[id]))) : nothing
     end
   end
   for D in (Float32, Float64)
@@ -137,7 +137,7 @@ const baselines = Dict{String,Any}(
       expected = D === Float32 ? 0f0 : pow2(D, -28)
       observed = only(lla_weights!(zeros(D, 1), MCP(1 + pow2(Float64, -28), 2.0), Float32[2]))
       compare = same
-      broken = haskey(baselines, id) ? (group = :G8, baseline = Returned(z -> isequal(z, baselines[id]))) : nothing
+      broken = haskey(baselines, id) ? (group = :G8, baseline = Returned(z -> same(z, baselines[id]))) : nothing
     end
   end
   for part in (:weight, :response)
@@ -152,7 +152,7 @@ const baselines = Dict{String,Any}(
         part == :weight ? only(q.weights) : only(q.y)
       end
       compare = (z, r) -> typeof(z) == typeof(r) && within_ulps(z, r, 16)
-      broken = haskey(baselines, id) ? (group = :G8, baseline = Returned(z -> isequal(z, baselines[id]))) : nothing
+      broken = haskey(baselines, id) ? (group = :G8, baseline = Returned(z -> same(z, baselines[id]))) : nothing
     end
   end
 end

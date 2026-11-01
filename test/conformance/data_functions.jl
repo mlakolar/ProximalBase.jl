@@ -101,7 +101,7 @@ function smooth_rows(name, U, X, D)
       expected = reference(part)
       observed = part == :value ? f(x) : only(gradient!(g, f, x))
       compare = cmp
-      broken = haskey(baselines, id) ? (group = :G4, baseline = Returned(v -> isequal(v, baselines[id]))) : nothing
+      broken = haskey(baselines, id) ? (group = :G4, baseline = Returned(v -> same(v, baselines[id]))) : nothing
     end
   end
 end
@@ -114,7 +114,7 @@ end
     problem = "A=Float32[1], b=Float32[-1], x=1+2^-28; subtract before storing gradient"
     expected = pow2(Float32, -28)
     observed = only(gradient!(zeros(Float32, 1), QuadraticFunction(Float32[1;;], Float32[-1]), [1 + pow2(Float64, -28)]))
-    broken = (group = :G4, baseline = Returned(v -> isequal(v, 0f0)))
+    broken = (group = :G4, baseline = Returned(v -> same(v, 0f0)))
   end
   for name in ("least_squares", "glm", "logistic", "poisson", "huber", "quadratic", "kron", "logdet"),
       U in (Float32, Float64), X in (Float32, Float64), D in (Float32, Float64)

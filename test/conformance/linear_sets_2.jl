@@ -8,14 +8,14 @@ const baselines = Dict{String,Any}(
   "linear_sets.conjugate.hyperplane.-1040" => (group = :G5, baseline = Threw(:ArgumentError, r"proximal point of the conjugate is not finite at a finite input")),
   "linear_sets.conjugate.halfspace.-1040" => (group = :G5, baseline = Threw(:ArgumentError, r"proximal point of the conjugate is not finite at a finite input")),
   "linear_sets.conjugate.hyperslab.-1040" => (group = :G5, baseline = Threw(:ArgumentError, r"proximal point of the conjugate is not finite at a finite input")),
-  "linear_sets.subnormal.Float32.false.false" => (group = :G5, baseline = Returned(v -> isequal(v, Float32[0.25, -1.0, 1.0]))),
-  "linear_sets.subnormal.Float32.false.true" => (group = :G5, baseline = Returned(v -> isequal(v, Float32[0.25, -1.0, 1.0]))),
-  "linear_sets.subnormal.Float32.true.false" => (group = :G5, baseline = Returned(v -> isequal(v, Float32[0.25, -1.0, 1.0]))),
-  "linear_sets.subnormal.Float32.true.true" => (group = :G5, baseline = Returned(v -> isequal(v, Float32[0.25, -1.0, 1.0]))),
-  "linear_sets.subnormal.Float64.false.false" => (group = :G5, baseline = Returned(v -> isequal(v, [0.25, -1.0, 1.0]))),
-  "linear_sets.subnormal.Float64.false.true" => (group = :G5, baseline = Returned(v -> isequal(v, [0.25, -1.0, 1.0]))),
-  "linear_sets.subnormal.Float64.true.false" => (group = :G5, baseline = Returned(v -> isequal(v, [0.25, -1.0, 1.0]))),
-  "linear_sets.subnormal.Float64.true.true" => (group = :G5, baseline = Returned(v -> isequal(v, [0.25, -1.0, 1.0]))),
+  "linear_sets.subnormal.Float32.false.false" => (group = :G5, baseline = Returned(v -> same(v, Float32[0.25, -1.0, 1.0]))),
+  "linear_sets.subnormal.Float32.false.true" => (group = :G5, baseline = Returned(v -> same(v, Float32[0.25, -1.0, 1.0]))),
+  "linear_sets.subnormal.Float32.true.false" => (group = :G5, baseline = Returned(v -> same(v, Float32[0.25, -1.0, 1.0]))),
+  "linear_sets.subnormal.Float32.true.true" => (group = :G5, baseline = Returned(v -> same(v, Float32[0.25, -1.0, 1.0]))),
+  "linear_sets.subnormal.Float64.false.false" => (group = :G5, baseline = Returned(v -> same(v, [0.25, -1.0, 1.0]))),
+  "linear_sets.subnormal.Float64.false.true" => (group = :G5, baseline = Returned(v -> same(v, [0.25, -1.0, 1.0]))),
+  "linear_sets.subnormal.Float64.true.false" => (group = :G5, baseline = Returned(v -> same(v, [0.25, -1.0, 1.0]))),
+  "linear_sets.subnormal.Float64.true.true" => (group = :G5, baseline = Returned(v -> same(v, [0.25, -1.0, 1.0]))),
 )
 
 @testset "Dilated linear sets and subnormal searches" begin

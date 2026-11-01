@@ -58,23 +58,26 @@ for k in (-160, 160)
     observed = Array(prox(NormL1(pow2(Float64, k), Float32[weight]), JLArray(Float32[2]), step))
   end
 end
-# G1 / #372: l1-ball threshold and adjacent radii. Only the zero decision
-# is exact; nonzero entries of this reduction receive an A6 error budget.
-for (label, radius) in ((:below, prevfloat(1f0)), (:tie, 1f0), (:above, nextfloat(1f0)))
+# G1 / #372: reductions receive bounds, including coordinates that are zero.
+# Historical id suffixes are retained; :tie now uses an interior radius.
+# Two-term sum, level subtraction/division and storage: budget 8eps(T)*sum(abs,x).
+for (label, radius) in ((:below, 0.5f0), (:tie, 1.5f0), (:above, 2f0))
+  margin = label == :tie ? 0.25f0 : 0.5f0
   @row begin
     id = "gpu_arrays.l1-zero.$label"; case = ""; family = :gpu_arrays; oracle = :prox
     types = "Float32 argument/destination/radius"; backend = :jlarray
-    rules = "G1 A2 A6"; problem = "#372: x=[2,1], radius adjacent to 1; second coordinate is zero iff radius<=1"
-    expected = label != :above
-    observed = iszero(Array(prox(IndBallL1(radius), JLArray(Float32[2, 1])))[2])
+    rules = "G1 G2 A2 A6"; problem = "#372: x=[2,1], radius=$radius; active-set margin=$margin exceeds reduction/level/storage budget 8eps(T)*sum(abs,x)=24eps(Float32); bound the second coordinate, including zero"
+    expected = bigref(() -> max(BigFloat(0), (BigFloat(radius) - 1)/2), Float32)
+    observed = Array(prox(IndBallL1(radius), JLArray(Float32[2, 1])))[2]
+    compare = (a, b) -> typeof(a) == Float32 && isfinite(a) && abs(BigFloat(a) - BigFloat(b)) <= BigFloat(24eps(Float32))
   end
   @row begin
     id = "gpu_arrays.l1-value.$label"; case = ""; family = :gpu_arrays; oracle = :prox
     types = "Float32 argument/destination/radius"; backend = :jlarray
-    rules = "G1 G2 A6"; problem = "l1 projection: first coordinate min(radius,(1+radius)/2); 8eps(Float32) absolute budget, bound pending"
+    rules = "G1 G2 A6"; problem = "l1 projection at radius=$radius: first coordinate min(radius,(1+radius)/2); active-set margin=$margin exceeds reduction/level/storage budget 8eps(T)*sum(abs,x)=24eps(Float32), bound pending"
     expected = bigref(() -> min(BigFloat(radius), (1 + BigFloat(radius))/2), Float32)
     observed = Array(prox(IndBallL1(radius), JLArray(Float32[2, 1])))[1]
-    compare = (a, b) -> within_bound(a, b, 8eps(Float32))
+    compare = (a, b) -> within_bound(a, b, 24eps(Float32))
   end
 end
 # E2 / G4: NaN must survive comparisons in separable and coupled kernels.

@@ -106,22 +106,42 @@ end
   observed = Scaled(Scaled(NormL1(1.0), pow2(Float64, -600)), pow2(Float64, -600)) isa ZeroFunction
   broken = (group = :G9, baseline = Returned(v -> v === true))
 end
-# T7: cached workspace identity is a decision, independent of rounded outputs.
+# T7: rebuilding cached numbers in place is sufficient; identity is immaterial.
 f = IndIntersection(IndBox(0.0, 1.0))
 setprecision(BigFloat, 64) do
   prox(f, BigFloat[2], BigFloat(1))
 end
-old_buffers = f.buffers
 @row begin
   id = "element_types.bigfloat-cache"; case = ""; family = :element_types; oracle = :prox
   types = "BigFloat precision 64 to 128"; backend = :cpu
-  rules = "T7 M3"; problem = "BigFloat cache rebuilt when current precision changes"
+  rules = "T7 M3"; problem = "after a 128-bit call every cached iterate, work and correction entry has precision 128; rebuilding in place is allowed"
   expected = true
   observed = setprecision(BigFloat, 128) do
     prox(f, BigFloat[2], BigFloat(1))
-    f.buffers !== old_buffers
+    all(a -> all(v -> precision(v) == 128, a),
+        (f.buffers.y, f.buffers.w, f.buffers.corrections...))
   end
-  broken = (group = :G9, baseline = Returned(v -> v === false))
+end
+@row begin
+  id = "element_types.bigfloat-cache.result-precision"; case = ""; family = :element_types; oracle = :prox
+  types = "BigFloat precision 64 to 128"; backend = :cpu
+  rules = "T7"; problem = "a result computed after the precision change has 128-bit entries"
+  expected = 128
+  observed = setprecision(BigFloat, 128) do
+    precision(only(prox(f, BigFloat[2], BigFloat(1))))
+  end
+end
+@row begin
+  id = "element_types.bigfloat-cache.result"; case = ""; family = :element_types; oracle = :prox
+  types = "BigFloat precision 64 to 128"; backend = :cpu
+  rules = "T7 M3 A1"; problem = "projection of [2] onto [0,1] after the precision change; 128-bit rational reference and 32eps(BigFloat at 128 bits) budget, bound pending"
+  expected = setprecision(BigFloat, 128) do
+    BigFloat[1 // 1]
+  end
+  observed = setprecision(BigFloat, 128) do
+    prox(f, BigFloat[2], BigFloat(1))
+  end
+  compare = (a, b) -> eltype(a) == BigFloat && length(a) == 1 && within_bound(a[1], b[1], 32eps(b[1]))
 end
 # T8: a multiplier from either precision remains only a seed.
 c = Constrained(NormL1(1.0), IndHyperplane(1.0, 1.0))

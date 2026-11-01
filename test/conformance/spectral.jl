@@ -24,13 +24,24 @@ const c = 64
     expected = Inf32; observed = value_and_prox!(Y, f, X, 1.0)
     broken = (group = :G6, baseline = Returned(v -> isequal(v, 0f0)))
   end
+  # A5: exact roots of z^2 - t*z - 1 = 0 give diagonal sqrt(t^2+4)/2
+  # and off-diagonal t/2. Keep the storage error separate from W=Float64.
+  exact2, bound2 = setprecision(BigFloat, 256) do
+    t = BigFloat(pow2(Float64, 15))
+    d = sqrt(t^2 + 4) / 2
+    point = [d t / 2; t / 2 d]
+    storage = norm(BigFloat.(Float32.(point)) - point)
+    point, c * 2eps(Float64) * (norm(BigFloat.(X)) + norm(point)) + storage
+  end
+  compare2 = (a, b) -> eltype(a) == Float32 && axes(a) == axes(b) &&
+    all(isfinite, a) && norm(BigFloat.(a) - b) <= bound2
   @row begin
     id = "L2.prox"; case = "L2"; family = :spectral; oracle = :prox
     types = "Float64 arg/data/step, Float32 destination"; backend = :cpu
-    rules = "A5"; problem = "c=64 pending in contract; root reconstruction plus Float32 storage"
-    expected = fill(pow2(Float32, 14), 2, 2)
+    rules = "A5"; problem = "c=64 pending in contract; W=Float64, bound c*p*eps(W)*(norm(X)+norm(Y_W))+norm(Float32(Y_W)-Y_W), exact closed-form Y_W"
+    expected = exact2
     observed = prox!(Y, f, X, 1.0)
-    compare = (a, b) -> all(isfinite, a) && norm(Float64.(a) - b) <= c * 2eps(Float32) * norm(X)
+    compare = compare2
   end
 
   # A5 rank residual includes the storage error, even at an exact rank-one input.
@@ -41,7 +52,7 @@ const c = 64
     rules = "A5"; problem = "c=64 pending in contract; best rank-one residual zero, storage norm 2^-28"
     expected = Float32[1 0; 0 0]
     observed = prox!(zeros(Float32, 2, 2), IndBallRank(1), X3, 1.0)
-    compare = (a, b) -> eltype(a) == Float32 && size(a) == size(b) && norm(Float64.(a) - X3) <= pow2(Float64, -28) + c * 2eps(Float64) * norm(X3)
+    compare = (a, b) -> eltype(a) == Float32 && axes(a) == axes(b) && norm(Float64.(a) - X3) <= pow2(Float64, -28) + c * 2eps(Float64) * norm(X3)
   end
   @row begin
     id = "L4.gram"; case = "L4"; family = :spectral; oracle = :prox
@@ -54,6 +65,18 @@ const c = 64
     compare = (a, b) -> isfinite(a) && a <= 2(c * 2eps(Float64) + eps(Float32)) + (c * 2eps(Float64) + eps(Float32))^2
   end
 
+  polar4 = bigref(() -> fill(inv(sqrt(BigFloat(2))), 2, 1), Float32)
+  compare4 = (a, b) -> eltype(a) == eltype(b) && axes(a) == axes(b) &&
+    all(isfinite, a) && norm(Float64.(a) - Float64.(b)) <= 8eps(Float32)
+  @row begin
+    id = "L4.projection"; case = "L4"; family = :spectral; oracle = :prox
+    types = "Float64 arg, Float32 destination"; backend = :cpu
+    rules = "A5"; problem = "Single-column polar factor (1,1)/sqrt(2); sigma_min=norm(X)=sqrt(2), so conditioning is benign; bound 8eps(Float32) against rounded exact factor"
+    expected = polar4
+    observed = prox!(zeros(Float32, 2, 1), IndStiefel(), ones(2, 1), 1.0)
+    compare = compare4
+  end
+
   h = Float64(nextfloat(0f0))
   v = [1.0, 5 / 8]
   X5 = h .* v * transpose(v)
@@ -63,8 +86,23 @@ const c = 64
   @row begin
     id = "L5.value"; case = "L5"; family = :spectral; oracle = :value_and_prox
     types = "Float64 arg, Float32 destination"; backend = :cpu
-    rules = "A5,O2"; problem = "L5 explicitly uses standalone membership of the stored matrix as reference"
-    expected = f5(Y5); observed = fused5
+    rules = "A4,A5,O2"; problem = "Independent closed-form singular values of stored 2x2 matrix; rank threshold sqrt(eps(Float32))*sigma1 in Float32 scaled units"
+    expected = setprecision(BigFloat, 256) do
+      scale = maximum(abs, Y5)
+      if iszero(scale)
+        0f0
+      else
+        # Eigenvalues of the symmetric Gram matrix, without LAPACK or f5.
+        a, b, cc, d = BigFloat.(Y5) ./ BigFloat(scale)
+        trace = a^2 + b^2 + cc^2 + d^2
+        determinant = abs(a * d - b * cc)
+        sigma1 = sqrt((trace + sqrt(max(zero(trace), trace^2 - 4determinant^2))) / 2)
+        sigma2 = determinant / sigma1
+        cutoff = sqrt(eps(Float32)) * Float32(sigma1)
+        sigma2 > BigFloat(cutoff) ? Inf32 : 0f0
+      end
+    end
+    observed = fused5
     broken = (group = :G6, baseline = Returned(v -> isequal(v, 0f0)))
   end
   @row begin
@@ -129,7 +167,7 @@ const c = 64
       types = "Float64"; backend = :cpu; rules = "A5"
       problem = "c=64 pending in contract; ||error||F <= c*p*eps(W)*(||X||F+||Y||F), D=W"
       expected = ref; observed = prox!(zeros(2, 2), f, X, step)
-      compare = (a, b) -> all(isfinite, a) && norm(a - b) <= c * 2eps(Float64) * (norm(X) + norm(b))
+      compare = (a, b) -> eltype(a) == eltype(b) && axes(a) == axes(b) && all(isfinite, a) && norm(a - b) <= c * 2eps(Float64) * (norm(X) + norm(b))
     end
   end
 
@@ -144,7 +182,7 @@ const c = 64
       rules = "T3,A5"; problem = "LogDetLoss at zero, S=0, gamma*w=1; c=64 pending in contract, storage exact"
       expected = D[1 0; 0 1]
       observed = prox!(zeros(D, 2, 2), LogDetLoss(zeros(B, 2, 2), P(1)), zeros(A, 2, 2), S(1))
-      compare = (a, b) -> eltype(a) == D && all(isfinite, a) && norm(Float64.(a) - b) <= c * 2eps(W) * sqrt(2.0)
+      compare = (a, b) -> eltype(a) == eltype(b) && axes(a) == axes(b) && all(isfinite, a) && norm(Float64.(a) - b) <= c * 2eps(W) * sqrt(2.0)
     end
   end
 end
@@ -166,7 +204,7 @@ end
       problem = "Decision 39: reconstruction may saturate at floatmax within normwise bound; c=64 pending in contract, normalized units"
       expected = ones(T, 2, 2)
       observed = prox!(zeros(T, 2, 2), LogDetLoss(zeros(T, 2, 2), one(T)), fill(M, 2, 2), one(T)) ./ M
-      compare = (a, b) -> all(isfinite, a) && norm(a - b) <= 64 * 2eps(T) * 4
+      compare = (a, b) -> eltype(a) == eltype(b) && axes(a) == axes(b) && all(isfinite, a) && norm(a - b) <= 64 * 2eps(T) * 4
     end
   end
 

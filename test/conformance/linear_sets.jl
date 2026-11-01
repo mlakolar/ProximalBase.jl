@@ -18,6 +18,27 @@ const baselines = Dict{String,Any}(
 )
 components(v, r, n) = eltype(v) == eltype(r) && all(within_ulps(v[i], r[i], n) for i in eachindex(r))
 
+
+# A3: certify the stored point as well as the face decisions. For unit normals,
+# products and cached normals are exact, and fixed zero entries add no error.
+# gamma_4 bounds the sum and offset subtraction; u*sum(abs, zstar) accounts
+# for final Float32 storage. C1: this is the stated test budget, not a general
+# termination bound for every search.
+function certified_decision(v, expected, b)
+  v === :precision_error && return true
+  v isa Tuple{AbstractVector{Float32}, NTuple{3, Bool}} || return false
+  z, decisions = v
+  axes(z) == axes(expected[1]) && all(isfinite, z) || return false
+  all(t -> 0f0 <= t <= 1f0, z) && same(decisions, expected[2]) || return false
+  u = pow2(Float64, -24)
+  gamma4 = nextfloat(4u / (1 - 4u))
+  Z = BigFloat.(z)
+  bound = BigFloat(gamma4) * (sum(abs, Z) + abs(BigFloat(b))) +
+    BigFloat(u) * sum(abs, BigFloat.(expected[1]))
+  # BigFloat evaluates the certificate on stored entries without Float32 loss.
+  abs(sum(Z) - BigFloat(b)) <= bound
+end
+
 @testset "Linear geometry and searches" begin
   # T2/decision 46(b): normals and offsets are data, including in a one-row affine set.
   a = [1.0, 1 + pow2(Float64, -25), 1.0]
@@ -44,7 +65,7 @@ components(v, r, n) = eltype(v) == eltype(r) && all(within_ulps(v[i], r[i], n) f
       expected = ref
       observed = prox!(zeros(Float32, 3), f, x, step)
       compare = (v, r) -> components(v, r, 16)
-      broken = name == "constrained" ? (group = :G5, baseline = Returned(v -> isequal(v, x))) : nothing
+      broken = name == "constrained" ? (group = :G5, baseline = Returned(v -> same(v, x))) : nothing
     end
   end
   # T4: recompute the coefficient in D, rather than widening a Float32 coefficient.
@@ -59,7 +80,7 @@ components(v, r, n) = eltype(v) == eltype(r) && all(within_ulps(v[i], r[i], n) f
       expected = bigref(() -> BigFloat[2//3, -1//3, -1//3])
       observed = prox!(zeros(3), f, Float32[1, 0, 0], diagonal ? ones(Float32, 3) : 1f0)
       compare = (v, r) -> components(v, r, 8)
-      broken = haskey(baselines, id) ? (group = :G5, baseline = Returned(v -> isequal(v, baselines[id]))) : nothing
+      broken = haskey(baselines, id) ? (group = :G5, baseline = Returned(v -> same(v, baselines[id]))) : nothing
     end
   end
   # #218: the coefficient 2^-200 underflows in Float32, its correction does not.
@@ -72,7 +93,7 @@ components(v, r, n) = eltype(v) == eltype(r) && all(within_ulps(v[i], r[i], n) f
       problem = "normal 2^100, offset 0, argument 2^-100; coefficient 2^-200 times normal is 2^-100"
       expected = Float32[0]
       observed = prox!(zeros(Float32, 1), F(pow2(Float64, 100), 0.0), Float32[pow2(Float32, -100)], diagonal ? Float32[1] : 1f0)
-      broken = (group = :G5, baseline = Returned(v -> isequal(v, baselines[id])))
+      broken = (group = :G5, baseline = Returned(v -> same(v, baselines[id])))
     end
   end
   # #363: integer input sums must not wrap before conversion.
@@ -84,7 +105,7 @@ components(v, r, n) = eltype(v) == eltype(r) && all(within_ulps(v[i], r[i], n) f
     expected = [0.0, 0.0]
     observed = prox(IndHyperplane(1, 0), [typemax(Int), typemax(Int)], 1)
     compare = (v, r) -> all(within_bound(v[i], r[i], 8BigFloat(eps(Float64)) * BigFloat(typemax(Int))) for i in eachindex(r))
-    broken = (group = :G5, baseline = Returned(v -> isequal(v, fill(Float64(typemax(Int)), 2))))
+    broken = (group = :G5, baseline = Returned(v -> same(v, fill(Float64(typemax(Int)), 2))))
   end
   # A3: near a box face, refine the decision or raise PrecisionError.
   # The exact solution has two free coordinates 1-2^-23 and one fixed zero.
@@ -95,17 +116,17 @@ components(v, r, n) = eltype(v) == eltype(r) && all(within_ulps(v[i], r[i], n) f
     @row begin
       id = "linear_sets.certify.$F.$diagonal"; case = ""; family = :linear_sets; oracle = :decision
       types = "Float32"; backend = :cpu; rules = "A3 O6"
-      problem = "sum bound 2-2^-22 at (1,1,-1): two free entries, one fixed; in-band face decision must refine or raise PrecisionError"
-      expected = (false, false, true)
+      problem = "sum bound 2-2^-22 at (1,1,-1): finite Float32 point in [0,1], two free entries, one fixed; A3/C1 certificate |sum(z)-b| <= gamma4*(sum|z|+|b|)+u*sum|zstar|, u=2^-24, gamma4=4u/(1-4u); refine or raise PrecisionError"
+      expected = (Float32[1 - pow2(Float32, -23), 1 - pow2(Float32, -23), 0], (false, false, true))
       observed = try
         z = prox(c, Float32[1, 1, -1], diagonal ? ones(Float32, 3) : 1f0)
-        (z[1] == 1f0, z[2] == 1f0, z[3] == 0f0)
+        (z, (z[1] == 1f0, z[2] == 1f0, z[3] == 0f0))
       catch e
         nameof(typeof(e)) == :PrecisionError || rethrow()
         :precision_error
       end
-      compare = (v, r) -> v === :precision_error || same(v, r)
-      broken = (group = :G5, baseline = Returned(v -> isequal(v, (true, true, true))))
+      compare = (v, r) -> certified_decision(v, r, b)
+      broken = (group = :G5, baseline = Returned(v -> same(v, (Float32[1, 1, 0], (true, true, true)))))
     end
   end
   # A3: a well-separated active bound admits the independently derived solution.
@@ -146,7 +167,7 @@ components(v, r, n) = eltype(v) == eltype(r) && all(within_ulps(v[i], r[i], n) f
       end
       y
     end
-    broken = (group = :G5, baseline = Returned(v -> isequal(v, ([1.0], [19.0, 19.0]))))
+    broken = (group = :G5, baseline = Returned(v -> same(v, ([1.0], [19.0, 19.0]))))
   end
 end
 

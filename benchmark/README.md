@@ -23,18 +23,26 @@ for each measurement series; existing repetitions are never overwritten.
 | `PB_SUITE=quick` | Small representative cases; the default. |
 | `PB_SUITE=extended` | Float32/Float64, larger inputs and broader cases. |
 | `PB_GROUPS=vectors,smooth` | Select groups before constructing their inputs. |
+| `PB_CASES=ordered/SLOPE` | Keep only the cases whose ID matches this regular expression, after the groups are built (inputs are unchanged by the selection). |
 | `PB_REPETITION=1` | Seeded process/input draw, numbered 1–10. |
 | `PB_OUTPUT=/absolute/path` | Output directory; defaults to `benchmark/results`. |
 | `PB_LIST=true` | List selected case IDs without measuring them. |
 | `PB_PROFILE_SECONDS=0.2` | Enable representative profiles; disabled by default. |
 
-Groups are `vectors`, `smooth`, `matrices`, `constraints`, `tensors`, `products` and
-`blocks`. They cover dense/sparse/atom calls, values and derivatives,
+Groups are `vectors`, `smooth`, `matrices`, `constraints`, `tensors`, `products`, `blocks` and
+`owner`. They cover dense/sparse/atom calls, values and derivatives,
 coordinate operations, ordered penalties, constraints and workspace states.
 The blocks group covers flat and nested tuple oracles, wrappers and long block sums
 on Float32/Float64 inputs, with the same cases in both suites.
 The matrix group includes partial/full decompositions and fallback inputs.
 Construction plus first use is measured separately from workspace reuse.
+
+The `owner` group measures `SymmetricSparseIterate` (reads, writes, first activation,
+coordinate sweeps, `mul!`, `Matrix`, construction) beside a `SparseMatrixCSC` and a dense
+`Symmetric` product. It uses only calls that exist in 0.5.x and 0.6, so the same harness
+gives the before and after of the redesign in
+[#391](https://github.com/mlakolar/ProximalBase.jl/issues/391). The pre-refactor
+numbers are recorded in `baselines/symmetric-owner-0.5.md`.
 
 For example, select matrix operations across the extended input sizes:
 

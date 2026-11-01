@@ -397,6 +397,23 @@ function separable_cases!(cases, rep; quick=false)
                      T, shape=string(n), layout="atom", prepare=prep!, work=length(last(groups)))
         end
     end
+    if !quick
+        # SLOPE value at sizes beyond the (256, 100_000) loop above; inputs come from their own
+        # seeded streams so the draws of every other case stay unchanged.
+        for T in (Float32, Float64), n in (256, 1024, 4096, 16384)
+            rng = scenario_rng(rep, "ordered/SLOPE/value/$T/$n")
+            x = randn(rng, T, n)
+            f = SLOPE(collect(range(T(0.5), T(0.1); length = n)))
+            function checkslope!()
+                m = sort(abs.(x); rev = true)
+                reference = sum(k -> f.λ[k] * m[k], 1:n)
+                isapprox(f(x), reference; atol = tolerance(T), rtol = tolerance(T)) ||
+                    error("SLOPE value differs from sorted-magnitude sum")
+            end
+            addcase!(cases, "ordered", "SLOPE/value", () -> f(x), checkslope!;
+                     T, shape = string(n), work = n)
+        end
+    end
 end
 
 function group_layout_cases!(cases, rep)

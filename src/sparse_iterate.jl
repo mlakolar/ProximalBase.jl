@@ -262,7 +262,9 @@ A read-only `AbstractVector{Int}` of the active coordinates of `x` (see
 `dropzeros!` moves the last ones into the places of those it removes. It is a
 handle on the internal list, not a snapshot: nothing is copied, and it does not
 grow when coordinates become active, so call `activecoordinates` again after
-changing the active set. Writing through it throws an `ArgumentError`, because
+changing the active set: after an activation, after `dropzeros!`, and after a
+whole-state replacement such as `copyto!(x, y)`, which can reorder the list even
+when the active set and `nactive(x)` stay the same. Writing through it throws an `ArgumentError`, because
 the list and the iterate's reverse map must stay in agreement; write values
 through [`activevalues`](@ref) (or `atom(x, k)` for an [`AtomIterate`](@ref)).
 """
@@ -293,8 +295,9 @@ order of [`activecoordinates`](@ref): entry `a` is the value of coordinate
 `activecoordinates(x)[a]`. Writing zero through it keeps the coordinate active;
 use [`dropzeros!`](@ref) to remove it. The view has the length [`nactive`](@ref)
 had when it was taken and does not grow, so, like `activecoordinates`, take it
-again after a coordinate becomes active or after `dropzeros!`, which can reorder
-the active list. Nothing is copied.
+again after a coordinate becomes active, after `dropzeros!` or after a
+whole-state replacement such as `copyto!(x, y)`, each of which can reorder the
+active list. Nothing is copied.
 """
 function activevalues end
 

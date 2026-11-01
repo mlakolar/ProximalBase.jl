@@ -32,7 +32,7 @@ sum_ids(x) = (acc = 0; for k in activecoordinates(x); acc += k; end; acc)
     before = snapshot(x)
     @test_throws ArgumentError h[1] = 3
     @test_throws ArgumentError fill!(h, 1)
-    @test_throws ArgumentError sort!(h)
+    @test_throws ArgumentError sort!(h; rev=true)   # the fixtures are ascending: force a write
     @test_throws ArgumentError reverse!(h)
     @test_throws ArgumentError (h .= 1)
     @test_throws ArgumentError copyto!(h, fill(1, length(h)))
@@ -63,6 +63,14 @@ sum_ids(x) = (acc = 0; for k in activecoordinates(x); acc += k; end; acc)
     a = AtomIterate(4, [1:2, 3:4]); a[1] = 1
     h = activecoordinates(a); a[3] = 1
     @test length(h) == 1 && activecoordinates(a) == [1, 2]
+  end
+
+  @testset "a handle taken before copyto! is stale" begin
+    x = SparseIterate(5); x[2] = 1; x[4] = 2
+    y = SparseIterate(5); y[4] = 1; y[2] = 2
+    h = activecoordinates(x)
+    copyto!(x, y)
+    @test collect(h) == [4, 2] && activecoordinates(x) == [4, 2]   # same set, new order
   end
 
   @testset "values stay writable" begin

@@ -104,7 +104,7 @@ record, and FD-13 gained the ambiguity cost and the O6 and S4 text.
 
 **Changes after the maintainer's review of the draft.** FA-6 now gives each
 group penalty's own screen (dual norm and default weight), with a table. FD-3
-is withdrawn: the owner keeps #388's CPY-4, a checked, atomic replace, because
+is withdrawn: the owner keeps #388's CPY-4, a checked replace, because
 a clear-then-import recipe loses the state when the import's checks fail; the
 array iterates' replace shorthand is limited to an independent, validated
 source, with a safe migration for any other (both revised after the second
@@ -133,7 +133,9 @@ guarantee with option (a); #416 fixes all three types. Both replace recipes
 check the length and the real element type before clearing or staging, and
 the general recipe traverses source and destination with separate indices
 (FW-6). PERF-6's requirement is no longer said to follow from FD-9: it is
-pending with FD-9, with two options.
+pending with FD-9, with two options. FD-3's guarantee for a failed matrix
+import is limited to CPY-4's listed pre-write checks; a conversion failure
+follows owner §2.10.
 
 # 2. Reconciliation with the specialized issues
 
@@ -335,7 +337,7 @@ for (i, j) in zip(eachindex(t), eachindex(A))
 end
 copyto!(x, t)                                 # ... then state-copy the completed temporary
 
-copyto!(X, M)                                 # the owner: CPY-4's checked, atomic replace (FD-3)
+copyto!(X, M)                                 # the owner: CPY-4's checked replace (FD-3)
 ```
 
 **Failure guarantee.** Neither recipe touches `x` when a check fails. The
@@ -409,7 +411,7 @@ coordinate ID; "today" marks a cell where the audited code differs.
 | `x .= y`, `y` same-kind | VW (today SC) | same | same (today SC) | — |
 | `copyto!`/`copy!` from a same-kind iterate | SC, element type may differ (FX-1); takes the source's slot order and ends old handles (FC-7); `copyto!(x, x)` no-op; only active values are converted, and a failed conversion leaves `x` unchanged (FW-4; today it can corrupt `x`, and a stale value in unused capacity can make a valid copy throw, #416) | same | same layout (FL-4): SC; unchanged on failure (today partly updated, #416) | CPY-3, with FW-4's two clauses (#416) |
 | from another shape or layout | same length: VW (today `DimensionMismatch` for a matrix source); other length: `DimensionMismatch` (FX-3) | same | same length: VW (today too); other length: `DimensionMismatch` | other `p`: `DimensionMismatch` (CPY-3) |
-| from a plain array | VW in linear order (FX-2); a longer source: `BoundsError`; `copy!` from another length: `MethodError` (`resize!`) | VW; a longer source: `BoundsError`; `copy!` with other axes: `ArgumentError` (Base) | as the vector | checked, atomic replace (CPY-4, FD-3): axes `DimensionMismatch`, asymmetry or complex `ArgumentError`, all before writing, `X` unchanged on failure; then the converted support in increasing ID order (today a value write) |
+| from a plain array | VW in linear order (FX-2); a longer source: `BoundsError`; `copy!` from another length: `MethodError` (`resize!`) | VW; a longer source: `BoundsError`; `copy!` with other axes: `ArgumentError` (Base) | as the vector | checked replace (CPY-4, FD-3): axes `DimensionMismatch`, asymmetry or complex `ArgumentError`, all before writing, `X` unchanged when one of these checks fails (a conversion failure follows owner §2.10); then the converted support in increasing ID order (today a value write) |
 | from an aliased source | VW of a copy of the source (FX-5; today `copyto!(x, activevalues(x))` is wrong, #406) | same | same | `ArgumentError` (CPY-6) |
 | from a complex source | `ArgumentError` before writing (FX-4; today `InexactError` after a partial write) | same | same | `ArgumentError` before writing |
 | `copy` | SC | SC | SC; shares the layout | CPY-1 |
@@ -668,7 +670,7 @@ decisions. #405, #406 and #416 are already filed as 0.5.x bug reports.
 | 8. ProximalSolvers: §3.1–§3.4 and §3.8 | downstream, runs on 0.5.x | 6 | #391 Phase 2 | "ProximalSolvers: replace private iterate fields by accessors" |
 | 9. ProximalSolvers: §3.5 | downstream, runs on 0.5.x | — | must land before 10 | "ProximalSolvers: clear working sets with dropzeros!" |
 | 10. FD-2 one working-set rule | breaking 0.6 | 1, 9 | #391 Phase 1 integration branch | "0.6: one working-set rule for writes" |
-| 11. FD-3 owner `copyto!` is CPY-4's checked, atomic replace | breaking 0.6 for the owner, as #391 planned | — (no amendment) | #391 Phase 1a | part of #391 Phase 1a |
+| 11. FD-3 owner `copyto!` is CPY-4's checked replace | breaking 0.6 for the owner, as #391 planned | — (no amendment) | #391 Phase 1a | part of #391 Phase 1a |
 | 12. FD-5 a coordinate-vector view for `SparseIterate` | breaking 0.6 | 1 | #391 Phase 1 (the owner's `SymmetricCoordinates` is the model) | "0.6: coordinates of a SparseIterate is a coordinate-vector view" |
 | 13. FD-9 strong zeros in products with one iterate operand, with the M1 amendment | breaking 0.6 | its separate sign-off, the amendment's and the PERF-6 choice; 1 | #366 G2, with the M1-amendment rows added to the #387 conformance suite (`test/conformance/failures_storage.jl`), marked `broken = (group = :G2, baseline = …)` until it lands; #391 Phase 1c (PERF-6) | "0.6: strong zeros in products of iterates" |
 | 14. FL-3 read-only vector groups | breaking 0.6 (recommendation) | 1 and its measurement | — | "AtomIterate: store vector groups read-only" |

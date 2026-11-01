@@ -36,8 +36,8 @@
 >     [FW-4](iterate-family-0.6.md#23-the-working-set-fw)). This strengthens,
 >     for CPY-3 alone, §2.10's statement that a throwing conversion is not
 >     promised to leave `X` untouched.
-> - CPY-4 stands as written: the family contract keeps the owner's checked,
->   atomic replace ([FD-3](iterate-family-0.6.md#fd-3-matrix-import-into-the-owner-keeps-cpy-4)).
+> - CPY-4 stands as written: the family contract keeps the owner's checked
+>   replace ([FD-3](iterate-family-0.6.md#fd-3-matrix-import-into-the-owner-keeps-cpy-4)).
 
 **Audited commits.** ProximalBase `abaceda25442bf6cc61601c8c1d3b2a16e1a3492`
 (master, 2026-11-01; `Project.toml` says 0.5.4). Links below point at that commit.

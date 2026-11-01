@@ -91,6 +91,7 @@ function (f::IndBallL0)(x::Union{Symmetric, SymmetricSparseIterate})
 end
 
 function prox!(y::AbstractArray, f::IndBallL0, x::AbstractArray, ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   if _count_nonzero(f, x) <= f.s
     y === x || copyto!(y, x)
@@ -278,6 +279,7 @@ function (f::IndBallL1)(x::AbstractArray)
 end
 
 function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   r = convert(T, f.r)
@@ -394,6 +396,7 @@ end
 end
 
 function prox!(y::AbstractArray, f::IndBallL2, x::AbstractArray, ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   nx = convert(T, _norm2(x))
@@ -437,6 +440,7 @@ function (f::IndSphereL2)(x::AbstractArray)
 end
 
 function prox!(y::AbstractArray, f::IndSphereL2, x::AbstractArray, ::Real)
+  x = _symmetric_argument(y, x)
   _checkreal(f, x)
   _checkreal(f, y)
   _checksize(y, x)
@@ -544,6 +548,7 @@ function _spectrum_sum(v::AbstractVector{T}, bound, k::Int, equality::Bool) wher
 end
 
 function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
   r = convert(T, f.r)
@@ -875,7 +880,7 @@ function _hyperslab_residual(f, x, a)
 end
 
 prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
 function _prox_unchecked!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
   isempty(x) && return y
@@ -887,7 +892,7 @@ end
 _hyperslab_output!(y, x, a, t) = (y .= x .- t .* _checked_parameter(y, a))
 
 prox!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
 function _prox_unchecked!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
   _isscaled(f) && return _scaled_normal_prox!(y, f, x)
@@ -896,7 +901,7 @@ function _prox_unchecked!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, 
   y .= x .- t .* _checked_parameter(y, f.a)
 end
 prox!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
 function _prox_unchecked!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
   _isscaled(f) && return _scaled_normal_prox!(y, f, x)

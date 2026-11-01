@@ -174,7 +174,7 @@ function _hessian_vec_unchecked!(Hv::AbstractArray, f::KronQuadratic, Θ::Abstra
   D = _densify!(f, V)
   mul!(f.AD, f.A, D)
   mul!(f.W, f.AD, f.B)
-  Θ isa SymmetricSparseIterate && _symmetrize!(f.W)
+  (Θ isa SymmetricSparseIterate || Hv isa SymmetricSparseIterate) && _symmetrize!(f.W)
   copyto!(Hv, f.W)
 end
 

@@ -59,14 +59,21 @@ end
 
 @testset "partial SVD into a symmetric iterate" begin
   # U Σ Vᵀ of a symmetric matrix is symmetric only up to rounding: the iterate
-  # keeps its lower triangle
+  # keeps its lower triangle. The matrix S is symmetric only up to rounding too, so the
+  # iterate reads its symmetric part, and the partial decomposition keeps the products
+  # with it at the speed of BLAS.
   S = symlowrank(80, 3)
+  Ssym = Matrix(PB._SymmetricPart(S))
   for f in (() -> NuclearNorm(1.0; partial = true), () -> IndBallRank(3; partial = true))
-    Y = prox!(zeros(80, 80), f(), S, 1.0)
+    Y = prox!(zeros(80, 80), f(), Ssym, 1.0)
     g = f()
     Z = prox!(SymmetricSparseIterate(80), g, S, 1.0)
     @test !usedfull(g)
-    @test Matrix(Z) == Matrix(Symmetric(Y, :L))
+    @test Matrix(Z) ≈ Matrix(Symmetric(Y, :L)) rtol = 1e-8 atol = 1e-10
+    # an argument that is exactly symmetric gives today's result
+    g2 = f()
+    Z2 = prox!(SymmetricSparseIterate(80), g2, Ssym, 1.0)
+    @test Matrix(Z2) == Matrix(Symmetric(Y, :L))
   end
 end
 

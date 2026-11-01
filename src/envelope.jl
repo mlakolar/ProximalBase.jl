@@ -139,7 +139,7 @@ end
 # The step is checked after the sizes and parameters and before the inner
 # function, as before the pre-write checks.
 prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real) =
-  (_check_oracle_arrays(prox!, e, y, x, t); _prox_unchecked!(y, e, x, t))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, e, y, x, t); _prox_unchecked!(y, e, x, t))
 function _prox_unchecked!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
   _checksize(y, x)
   _checkparams(e, x)
@@ -153,7 +153,7 @@ function _prox_unchecked!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray,
 end
 
 value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real) =
-  (_check_oracle_arrays(value_and_prox!, e, y, x, t); _value_and_prox_unchecked!(y, e, x, t))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, e, y, x, t); _value_and_prox_unchecked!(y, e, x, t))
 function _value_and_prox_unchecked!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
   _checksize(y, x)
   _checkparams(e, x)

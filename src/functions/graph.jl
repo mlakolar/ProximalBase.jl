@@ -360,6 +360,7 @@ function _graph_project!(f::IndGraph, k)
 end
 
 function prox!(out, f::IndGraph, z, ::Real)
+  z = _symmetric_argument(out, z)
   _checkwrite(prox!, f, out, z)
   f.iterations, f.converged = 0, false
   k = 0
@@ -388,6 +389,7 @@ function prox!(out, f::IndGraph, z, ::Real)
 end
 
 function value_and_prox!(out, f::IndGraph, z, γ::Real = 1)
+  z = _symmetric_argument(out, z)
   _checkwrite(value_and_prox!, f, out, z)
   prox!(out, f, z, γ)
   zero(_valtype(out))

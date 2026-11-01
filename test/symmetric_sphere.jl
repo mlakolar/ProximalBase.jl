@@ -94,6 +94,41 @@ end
     @test_throws ArgumentError prox(Constrained(NormL1(1.0, W), IndSphereL2(1.0)), SymmetricSparseIterate(zeros(2, 2)), 1.0)
   end
 
+  @testset "comparison without rounding errors" begin
+    S2(X) = SymmetricSparseIterate(X)
+    obj(c, y, X, γ) = dot(Matrix(y), X) - γ * c.f(y)
+    # the margins 0 (second diagonal), -1 (first diagonal) and -√2 (pair): the second diagonal
+    # wins, although B - 0 and B - 1 round to the same number
+    B = ldexp(1.0, 60)
+    X = [0.0 0.0; 0.0 B]; W = [1.0 1.0; 1.0 B]
+    c = Constrained(NormL1(1.0, W), IndSphereL2(1.0))
+    y = SymmetricSparseIterate(2)
+    v = value_and_prox!(y, c, S2(X), 1.0)
+    @test Matrix(y) == [0.0 0.0; 0.0 1.0]
+    @test v == c.f(y) == B
+    @test obj(c, y, X, 1.0) == 0
+    # a step so small that the margins are subnormal
+    W = [4.0 1.0; 1.0 1.0]
+    c = Constrained(NormL1(1.0, W), IndSphereL2(1.0))
+    y = SymmetricSparseIterate(2)
+    v = value_and_prox!(y, c, S2(zeros(2, 2)), nextfloat(0.0))
+    @test Matrix(y) == [0.0 0.0; 0.0 1.0]            # the second diagonal costs 1, the pair √2
+    @test v == c.f(y) == 1
+    # a Float32 argument and a Float64 destination: the thresholds are Float64
+    c = Constrained(NormL1(2.0^160, W), IndSphereL2(1.0))
+    y = SymmetricSparseIterate(2)
+    v = value_and_prox!(y, c, S2(zeros(Float32, 2, 2)), 1.0)
+    @test Matrix(y) == [0.0 0.0; 0.0 1.0]
+    @test v == c.f(y) == 2.0^160
+    # margins that differ by one ulp
+    c = Constrained(NormL1(1.0, [1.0 2.0; 2.0 1.0]), IndSphereL2(1.0))
+    for X in ([0.0 0.0; 0.0 0.0], [0.5 0.0; 0.0 nextfloat(0.5)], [nextfloat(0.5) 0.0; 0.0 0.5])
+      y = SymmetricSparseIterate(2)
+      value_and_prox!(y, c, S2(X), 1.0)
+      @test obj(c, y, X, 1.0) ≥ max(X[1, 1] - 1, X[2, 2] - 1) - eps()
+    end
+  end
+
   @testset "Float32" begin
     c = Constrained(NormL1(1f0), IndSphereL2(1f0))
     y = SymmetricSparseIterate(Float32, 2)
@@ -124,11 +159,13 @@ end
   y = SymmetricSparseIterate(2)
   v = value_and_prox!(y, c, S(z), 1.0)
   @test norm(y) ≈ 1 && v ≈ c.f(y)
-  # a group of one pair, with the off-diagonal index first and no diagonal index
-  c = Constrained(GroupNormL2(2.0, [[3, 2]]), IndSphereL2(2.0))
+  # the pair is its own group with the lowest weight, the diagonal entries are groups of their own
+  c = Constrained(GroupNormL2(1.0, [[1], [4], [3, 2]], [3.0, 3.0, 1.0]), IndSphereL2(2.0))
   y = SymmetricSparseIterate(2)
   v = value_and_prox!(y, c, S(z), 1.0)
-  @test norm(y) ≈ 2 && v ≈ c.f(y)
+  @test y[1, 1] == 0 && y[2, 2] == 0
+  @test y[1, 2] == y[2, 1] ≈ 2 / sqrt(2)
+  @test v ≈ c.f(y) ≈ 2
   # a diagonal index that is not first
   c = Constrained(GroupNormL2(1.0, [[2, 3, 4, 1]]), IndSphereL2(3.0))
   y = SymmetricSparseIterate(2)

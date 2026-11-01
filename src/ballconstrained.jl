@@ -158,26 +158,55 @@ end
 # thresholds are those of prox_entry, so that the two cases agree with it.
 value_and_prox!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+# Margins n - t compared without rounding errors that decide the winner:
+#   n - t > bn - bt  is  n + bt > bn + t, compared as normalized sums (hi, lo) by
+#   error-free transformation; where a sum overflows, by the difference form.
+@inline function _two_sum(a, b)
+  s = a + b
+  bb = s - a
+  s, (a - (s - bb)) + (b - bb)
+end
+@inline function _margin_greater(n, t, bn, bt)
+  s1, e1 = _two_sum(n, bt)
+  s2, e2 = _two_sum(bn, t)
+  (isfinite(s1) && isfinite(s2)) || return n - bn > t - bt
+  s1 != s2 ? s1 > s2 : e1 > e2
+end
+# √2 a > b, for the margin a of a pair and b of a diagonal entry, by a ratio so that
+# nothing underflows or overflows: the sign cases first, then b/a against √2.
+@inline function _pair_greater(a, b)
+  a > 0 && return b <= 0 || b / a < sqrt(oftype(a, 2))
+  a == 0 && return b < 0
+  b < 0 && b / a > sqrt(oftype(a, 2))
+end
+# b > √2 a, for the margin b of a diagonal entry and a of a pair
+@inline function _diagonal_greater(b, a)
+  b > 0 && return a <= 0 || b / a > sqrt(oftype(a, 2))
+  b == 0 && return a < 0
+  a < 0 && b / a < sqrt(oftype(a, 2))
+end
+
 function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
-  T, S = float(eltype(y)), float(eltype(x))
+  T = float(eltype(y))
+  U = promote_type(float(eltype(x)), T)       # the type in which the margins compare, as in the group sphere
   f, r = c.f, convert(T, c.sphere.r)
   p = size(y, 1)
-  k, kr, kc, bestn, bestc = 0, 0, 0, zero(S), zero(S)
+  k, kr, kc, bestn, bestc = 0, 0, 0, zero(U), zero(U)
   @inbounds for col in 1:p, row in col:p
     i = row + (col - 1) * p
-    n = abs(convert(S, x[row, col]))
-    threshold = convert(S, _weight_product(γ, f.λ0, _entry(f.w, i)))
+    n = abs(convert(U, x[row, col]))
+    threshold = convert(U, convert(T, _weight_product(γ, f.λ0, _entry(f.w, i))))
     better = if k == 0 || isinf(bestc)
       true
     elseif isinf(threshold)
       false
-    elseif (row == col) == (kr == kc)         # the same multiplicity: compare by differences
-      n - bestn > threshold - bestc
+    elseif (row == col) == (kr == kc)         # the same multiplicity: compare the margins
+      _margin_greater(n, threshold, bestn, bestc)
     elseif row == col                         # a diagonal entry against a pair, whose margin counts √2 times
-      (n - threshold) / sqrt(S(2)) > bestn - bestc
+      _diagonal_greater(n - threshold, bestn - bestc)
     else
-      n - threshold > (bestn - bestc) / sqrt(S(2))
+      _pair_greater(n - threshold, bestn - bestc)
     end
     better && ((k, kr, kc, bestn, bestc) = (i, row, col, n, threshold))
   end

@@ -772,7 +772,7 @@ function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val, shift::Int 
 end
 
 prox!(y::AbstractArray, f::SumLargest, x::AbstractArray, γ::Real) =
-  _sumlargest_prox!(y, f, x, γ, Val(false))
+  _sumlargest_prox!(y, f, _symmetric_argument(y, x), γ, Val(false))
 value_and_prox!(y::AbstractArray, f::SumLargest, x::AbstractArray, γ::Real) = f(prox!(y, f, x, γ))
 
 function _checkstep(op::O, f::SumLargest, y::AbstractArray, x::AbstractArray, γ::Real) where {O}

@@ -190,10 +190,10 @@ gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(gradient!, s, g, x); _gradient_unchecked!(g, s, x))
 _gradient_unchecked!(g, s::Scaled, x) = (_checkwrite(gradient!, s, g, x); _gradient_unchecked!(g, s.f, x); _scale!(g, s.α))
 prox!(y, s::Scaled, x, γ::Real) =
-  (_check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
 _prox_unchecked!(y, s::Scaled, x, γ::Real) = (_checkwrite(prox!, s, y, x); _prox_unchecked!(y, s.f, x, s.α * γ))
 value_and_prox!(y, s::Scaled, x, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, s.α * γ); _value_at(_scaled_value(s, y, v, false), y))
 Base.@propagate_inbounds prox_entry(s::Scaled, v::Real, i::Integer, γ::Real) = prox_entry(s.f, v, i, s.α * γ)
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
@@ -281,7 +281,7 @@ end
 
 # x - γc in a buffer owned by t, so that y is unchanged when f throws
 prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, t, y, x, γ); _prox_unchecked!(y, t, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, t, y, x, γ); _prox_unchecked!(y, t, x, γ))
 function _prox_unchecked!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checkwrite(prox!, t, y, x)
   z = _output_buffer!(t.scratch, y)
@@ -291,7 +291,7 @@ function _prox_unchecked!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _wrapper_commit!(y, w)
 end
 value_and_prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, t, y, x, γ); _value_and_prox_unchecked!(y, t, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, t, y, x, γ); _value_and_prox_unchecked!(y, t, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
   z = _output_buffer!(t.scratch, y)
@@ -390,7 +390,7 @@ end
 
 # x - b in a buffer owned by t, so that y is unchanged when f throws
 prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, t, y, x, γ); _prox_unchecked!(y, t, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, t, y, x, γ); _prox_unchecked!(y, t, x, γ))
 function _prox_unchecked!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checkwrite(prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
@@ -401,7 +401,7 @@ function _prox_unchecked!(y::AbstractArray, t::Translate, x::AbstractArray, γ::
   _wrapper_commit!(y, w)
 end
 value_and_prox!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, t, y, x, γ); _value_and_prox_unchecked!(y, t, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, t, y, x, γ); _value_and_prox_unchecked!(y, t, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, t::Translate, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, t, y, x)
   z = _output_buffer!(t.proxscratch, y)
@@ -653,7 +653,7 @@ _checkmoreau(y, x, z, step, γ, always::Bool) =
   (_moreau_nonfinite(y, x, z, step, always) && _moreau_error(γ); true)
 
 prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
 function _prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _checkwrite(prox!, c, y, x)
   if _projection_direct_output(c.f, y, x)
@@ -672,13 +672,13 @@ end
 _checkwrite(op::O, c::Conjugate{<:Conjugate}, y::Union{AbstractArray, Tuple}, x::Union{AbstractArray, Tuple}) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}} =
   _checkwrite(op, c.f.f, y, x)
 prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
 function _prox_unchecked!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::Real)
   _checkwrite(prox!, c, y, x)
   _prox_unchecked!(y, c.f.f, x, γ)
 end
 value_and_prox!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate{<:Conjugate}, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   _value_and_prox_unchecked!(y, c.f.f, x, γ)
@@ -696,7 +696,7 @@ _has_conjugate_value(f::Union{Scaled, Translate}) = _has_conjugate_value(f.f)
 _has_conjugate_value(f::SingularValue) = _has_conjugate_value(f.f)
 
 value_and_prox!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   _isindicator(c) && (_prox_unchecked!(y, c, x, γ); return _zero_value(y))
@@ -722,7 +722,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractA
   _value_at(dot(p, y) - fp, y)
 end
 value_and_prox!(y::AbstractArray, c::Conjugate{<:SingularValue}, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate{<:SingularValue}, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   finite = all(isfinite, x)
@@ -783,7 +783,7 @@ _value_unchecked(c::Conjugate, y::Union{AbstractArray, Tuple}) = (_checkparams(c
 _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!)}, c::Conjugate{<:SumLargest}, y::AbstractArray, x::AbstractArray) =
   _checkwrite(op, c.f, y, x)
 prox!(y::AbstractArray, c::Conjugate{<:SumLargest}, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
 _prox_unchecked!(y::AbstractArray, c::Conjugate{<:SumLargest}, x::AbstractArray, ::Real) =
   _sumlargest_prox!(y, c.f, x, 1, Val(true))
 
@@ -827,7 +827,7 @@ _tuple_dot(x::AbstractArray, y::AbstractArray) = dot(x, y)
 
 # as for arrays, with every block checked before any block is written
 prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real) =
-  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
 function _prox_unchecked!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _checkwrite(prox!, c, y, x)
   p = _tuple_buffer!(c.scratch, y, x)
@@ -836,15 +836,15 @@ function _prox_unchecked!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _projection_commit!(y, p)
 end
 prox!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) =
-  (_check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
 _prox_unchecked!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) = (_checkwrite(prox!, c, y, x); _prox_unchecked!(y, c.f.f, x, γ))
 value_and_prox!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 _value_and_prox_unchecked!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Real) =
   (_checkwrite(value_and_prox!, c, y, x); _value_and_prox_unchecked!(y, c.f.f, x, γ))
 
 value_and_prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 function _value_and_prox_unchecked!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   _isindicator(c) && (_prox_unchecked!(y, c, x, γ); return _zero_value(y))
@@ -1089,11 +1089,11 @@ _checkvalue(s::SeparableSum, x::Tuple) = (_checkreal(s, x); _checkparams(s, x); 
   (_check_value_arrays(s, x); _value_checked(s, x))
 _value_unchecked(s::SeparableSum, x::Tuple) = (_checkparams(s, x); _value_at(_sum_values(s.fs, x), x))
 prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
 _prox_unchecked!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
   (_checkwrite(prox!, s, y, x, γ); _checkstep(prox!, s, y, x, γ); _prox_blocks!(s.fs, y, x, γ); y)
 value_and_prox!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y::Tuple, s::SeparableSum, x::Tuple, γ::Real) =
   (_checkwrite(value_and_prox!, s, y, x, γ); _checkstep(value_and_prox!, s, y, x, γ); _value_at(_value_and_prox_blocks!(s.fs, y, x, γ), y))
 value_and_gradient!(g::Tuple, s::SeparableSum, x::Tuple) =

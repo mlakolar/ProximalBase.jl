@@ -83,12 +83,13 @@ end
 (s::SliceSum)(x::AbstractArray) = (_checkreal(s, x); _checkslices(s, x); _value_at(_sumslices((f, k) -> f(_slice(x, k)), s.fs), x))
 
 function value_and_prox!(y::AbstractArray, s::SliceSum, x::AbstractArray, γ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(value_and_prox!, s, y, x, γ)
   _checkstep(value_and_prox!, s, y, x, γ)
   _value_at(_sumslices((f, k) -> value_and_prox!(_slice(y, k), f, _slice(x, k), γ), s.fs), y)
 end
 prox!(y::AbstractArray, s::SliceSum, x::AbstractArray, γ::Real) =
-  (_checkwrite(prox!, s, y, x); _checkstep(prox!, s, y, x, γ); value_and_prox!(y, s, x, γ); y)
+  (x = _symmetric_argument(y, x); _checkwrite(prox!, s, y, x); _checkstep(prox!, s, y, x, γ); value_and_prox!(y, s, x, γ); y)
 
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::SliceSum, y::AbstractArray, x::AbstractArray)
   _checkreal(s, x)
@@ -257,9 +258,9 @@ function _checkwrite(op::O, fb::FiberSum, y::AbstractArray, x::AbstractArray, γ
 end
 
 value_and_prox!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real) =
-  (_checkwrite(value_and_prox!, fb, y, x, γ); _checkstep(value_and_prox!, fb, y, x, γ); _fiberprox!(y, fb, x, γ, Val(true)))
+  (x = _symmetric_argument(y, x); _checkwrite(value_and_prox!, fb, y, x, γ); _checkstep(value_and_prox!, fb, y, x, γ); _fiberprox!(y, fb, x, γ, Val(true)))
 prox!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real) =
-  (_checkwrite(prox!, fb, y, x, γ); _checkstep(prox!, fb, y, x, γ); _fiberprox!(y, fb, x, γ, Val(false)); y)
+  (x = _symmetric_argument(y, x); _checkwrite(prox!, fb, y, x, γ); _checkstep(prox!, fb, y, x, γ); _fiberprox!(y, fb, x, γ, Val(false)); y)
 
 _fiberprox!(y::AbstractArray, fb::FiberSum, x::AbstractArray, γ::Real, v::Val) = _fiberprox_views!(y, fb, x, γ, v)
 

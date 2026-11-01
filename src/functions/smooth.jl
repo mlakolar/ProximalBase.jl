@@ -28,12 +28,13 @@ _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!),
 (f::ZeroFunction)(x::AbstractArray) = (_checkreal(f, x); zero(_valtype(x)))
 
 function prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   y === x || copyto!(y, x)
   y
 end
 value_and_prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::Real) =
-  (_prox_unchecked!(y, f, x, γ); zero(_valtype(y)))
+  (x = _symmetric_argument(y, x); _prox_unchecked!(y, f, x, γ); zero(_valtype(y)))
 
 function value_and_gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
@@ -111,7 +112,7 @@ function _checkwrite(op::O, f::LinearFunction, y::AbstractArray, x::AbstractArra
 end
 
 prox!(y::AbstractArray, f::LinearFunction, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
 function _prox_unchecked!(y::AbstractArray, f::LinearFunction, x::AbstractArray, γ::Real)
   _checkwrite(prox!, f, y, x)
   γ = convert(float(eltype(y)), γ)
@@ -252,7 +253,7 @@ function _gradient_unchecked!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
 end
 
 prox!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, f, z, x, γ); _prox_unchecked!(z, f, x, γ))
+  (x = _symmetric_argument(z, x); _check_oracle_arrays(prox!, f, z, x, γ); _prox_unchecked!(z, f, x, γ))
 function _prox_unchecked!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real)
   _checkwrite(prox!, f, z, x)
   T = float(eltype(z))
@@ -568,7 +569,8 @@ function _value_and_gradient_unchecked!(G::AbstractArray, f::KronQuadratic, Θ::
     v += dot(f.C, D)
     W .+= f.C
   end
-  Θ isa SymmetricSparseIterate && _symmetrize!(W)
+  # the part of the gradient that acts on symmetric matrices: also when only the output is symmetric
+  (Θ isa SymmetricSparseIterate || G isa SymmetricSparseIterate) && _symmetrize!(W)
   copyto!(G, W)
   _value_at(v, Θ)
 end

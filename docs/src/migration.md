@@ -172,6 +172,9 @@ The linked operation table explains which symmetric arguments trigger checks.
 | Earlier behavior | New behavior and adaptation |
 |:---|:---|
 | In 0.5.4, weighted `NormL1` values counted weights from both triangles, while symmetric `prox!` used only the lower weight | Checked pairs must agree; choose one triangle with `Symmetric(W, :L)`, or revise the weights to match the intended model |
+| `prox!` into a `SymmetricSparseIterate` from a dense argument that is not symmetric threw, or stored the lower triangle's proximal point | The output is the proximal point at the symmetric part `(x + x') / 2`, for every built-in function; `Symmetric(x, :L)` still selects the lower triangle |
+| Spectral `prox!` read the upper triangle of a dense argument that is not symmetric | It decomposes the symmetric part, for dense outputs too |
+| `gradient!` and `hessian_vec!` of `KronQuadratic` into a symmetric output threw at a dense point that is not symmetric | They write the symmetric part of the result |
 | Values did not check parameter symmetry | Symmetric inputs trigger checks of stored pairs or all pairs, depending on the computation |
 | Gradients and gradient mappings did not check parameter symmetry | Symmetric outputs trigger checks; gradient mappings check both functions |
 | Hessian products and quadratic models did not check parameter symmetry | A symmetric point triggers full parameter validation, even with a dense Hessian-product output |

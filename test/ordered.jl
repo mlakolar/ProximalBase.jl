@@ -319,4 +319,85 @@ end
   @test_throws DimensionMismatch prox(f, randn(n + 1))
 end
 
+# the value of SLOPE from the sorted magnitudes, in extended precision
+slope_value_reference(x, λ, ::Type{T}) where {T} =
+  T(sum(big.(λ) .* sort(big.(abs.(x)); rev = true)))
+
+# the value agrees bit for bit with the one through the permutation of the
+# magnitudes, and with the reference unless the input has a NaN or an infinity
+function check_slope_value(x, λ)
+  T = float(eltype(x))
+  f = SLOPE(λ)
+  v = f(x)
+  @test v isa T
+  @test isequal(v, ProximalBase._slope_value_perm(f, x))
+  @test isequal(v, SLOPE(λ)(x))               # a fresh object
+  @test isequal(v, f(x))                      # and the buffers are reusable
+  if all(isfinite, x)
+    @test isapprox(v, slope_value_reference(x, λ, T); rtol = 8 * sqrt(length(x)) * eps(T))
+  end
+  v
+end
+
+@testset "SLOPE value" begin
+  rng = MersenneTwister(136)
+  for T in (Float64, Float32, Float16, BigFloat), n in (1023, 1024, 1500, 4096, 4097)
+    @testset "$T, n = $n" begin
+      x = randn(rng, T, n)
+      λ = sort(rand(rng, n); rev = true)
+      check_slope_value(x, λ)
+      # ties, zeros and negative zeros
+      xt = T.(rand(rng, -3:3, n)) ./ T(2)
+      xt[1:5:end] .= -zero(T)
+      check_slope_value(xt, λ)
+      check_slope_value(zeros(T, n), λ)
+      check_slope_value(fill(-zero(T), n), λ)
+      # a constant gives the ℓ1 norm (a Float16 sum stalls at 2048)
+      T === Float16 || @test isequal(check_slope_value(fill(T(-2), n), fill(0.5, n)), T(n))
+      # weights of another element type than x
+      check_slope_value(x, Float32.(λ))
+      check_slope_value(x, T.(λ))
+      check_slope_value(x, sort(rand(rng, 0:9, n); rev = true))
+      # a NaN is a NaN, also with a zero weight; an infinity with a zero weight is ignored
+      xn = copy(x); xn[n ÷ 2] = T(NaN)
+      @test isnan(check_slope_value(xn, λ))
+      λz = [λ[1:n-1]; 0.0]
+      @test isnan(check_slope_value(xn, λz))
+      xi = copy(x); xi[n ÷ 3] = -T(Inf)
+      @test check_slope_value(xi, λ) == T(Inf)
+      @test check_slope_value(xi, zeros(n)) == 0
+      xi[n ÷ 3] = T(Inf); xi[n ÷ 4] = T(NaN)
+      @test isnan(check_slope_value(xi, zeros(n)))
+      λ1 = [1.0; zeros(n - 1)]
+      xi = copy(x); xi[n ÷ 5] = T(Inf)
+      @test check_slope_value(xi, λ1) == T(Inf)
+      # large values: the sum overflows, or only the terms do
+      if T !== BigFloat
+        big_ = T === Float64 ? T(1e300) : T === Float32 ? T(1f30) : T(1e4)
+        @test check_slope_value(big_ .* x, big_ .* λ) == T(Inf)
+        check_slope_value(big_ .* x, fill(1 / big_, n))
+        check_slope_value(x ./ big_, fill(1 / big_, n))
+        check_slope_value(big_ .* x, [1.0; zeros(n - 1)])
+      end
+    end
+  end
+  # the prox after a value call is the same as before it
+  for T in (Float64, Float32), n in (200, 1024, 1500, 4096, 8000)
+    x = randn(rng, T, n)
+    λ = sort(rand(rng, n); rev = true)
+    expected = prox(SLOPE(λ), x, T(0.7))
+    f = SLOPE(λ)
+    first_prox = prox(f, x, T(0.7))
+    v = f(x)
+    @test prox(f, x, T(0.7)) == expected == first_prox
+    y = similar(x)
+    value_and_prox!(y, f, x, T(0.7))
+    @test y == expected
+    @test f(x) === v
+    # a value call on another vector in between
+    f(randn(rng, T, n))
+    @test prox(f, x, T(0.7)) == expected
+  end
+end
+
 end

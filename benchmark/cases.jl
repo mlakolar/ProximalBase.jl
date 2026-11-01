@@ -397,6 +397,23 @@ function separable_cases!(cases, rep; quick=false)
                      T, shape=string(n), layout="atom", prepare=prep!, work=length(last(groups)))
         end
     end
+    if !quick
+        # SLOPE value at sizes beyond the (256, 100_000) loop above; inputs come from their own
+        # seeded streams so the draws of every other case stay unchanged.
+        for T in (Float32, Float64), n in (256, 512, 1024, 4096, 8192, 16384)
+            rng = scenario_rng(rep, "ordered/SLOPE/value/$T/$n")
+            x = randn(rng, T, n)
+            f = SLOPE(collect(range(T(0.5), T(0.1); length = n)))
+            function checkslope!()
+                m = sort(abs.(x); rev = true)
+                reference = sum(k -> f.λ[k] * m[k], 1:n)
+                isapprox(f(x), reference; atol = tolerance(T), rtol = tolerance(T)) ||
+                    error("SLOPE value differs from sorted-magnitude sum")
+            end
+            addcase!(cases, "ordered", "SLOPE/value", () -> f(x), checkslope!;
+                     T, shape = string(n), work = n)
+        end
+    end
 end
 
 function group_layout_cases!(cases, rep)
@@ -692,6 +709,25 @@ function product_cases!(cases,rep; quick=false)
             addcase!(cases,"products",name*"/mul!_scaled",()->mul!(out,B,x,α,β),checkscaled!;
                      T,shape,layout,prepare=prepare!,evals=1,work)
         end
+    end
+    # Matrix coefficients with entries stored in random order, at densities on both
+    # sides of the cutoff of the five-argument product (1/32), for short and long columns.
+    quick && return
+    for T in (Float32,Float64), m in (64,2048), density in (0.02,0.05,0.1)
+        rng=scenario_rng(rep,"products/switch/$T/$m/$density")
+        p,q=1024,4
+        A=randn(rng,T,m,p)
+        I,J,V=findnz(sprandn(rng,T,p,q,density))
+        perm=randperm(rng,length(I))
+        x=SparseIterate(T,p,q)
+        for k in perm; x[I[k],J[k]]=V[k]; end
+        xd=dense(x)
+        out=zeros(T,m,q)
+        reference=A*xd
+        work=m*count(!iszero,xd)
+        check!()=(mul!(out,A,x);close_enough(out,reference))
+        addcase!(cases,"products","switch_matrix/mul!",()->mul!(out,A,x),check!;
+                 T,shape="$(m)x$(p)x$q",layout="random_$density",evals=10,work)
     end
 end
 

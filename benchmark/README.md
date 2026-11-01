@@ -23,6 +23,7 @@ for each measurement series; existing repetitions are never overwritten.
 | `PB_SUITE=quick` | Small representative cases; the default. |
 | `PB_SUITE=extended` | Float32/Float64, larger inputs and broader cases. |
 | `PB_GROUPS=vectors,smooth` | Select groups before constructing their inputs. |
+| `PB_CASES=ordered/SLOPE` | Keep only the cases whose ID matches this regular expression, after the groups are built (inputs are unchanged by the selection). |
 | `PB_REPETITION=1` | Seeded process/input draw, numbered 1–10. |
 | `PB_OUTPUT=/absolute/path` | Output directory; defaults to `benchmark/results`. |
 | `PB_LIST=true` | List selected case IDs without measuring them. |

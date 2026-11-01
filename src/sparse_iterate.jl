@@ -1179,23 +1179,104 @@ function _issymmetric_exact(A::SparseMatrixCSC, eq::E) where {E}
   true
 end
 
-_check_symmetric(A::AbstractMatrix) =
-  _symmetric_by_type(A) || _issymmetric_exact(A, _symequal) || _throw_asymmetric(A)
-@noinline function _throw_asymmetric(A::AbstractMatrix)
-  r, c = _asymmetric_pair(A, _symequal)
-  _throw_asymmetric(r, c, A[r, c], A[c, r])
-end
-@noinline _throw_asymmetric(r, c, a, b) = throw(ArgumentError(
-  "the value written into a SymmetricSparseIterate must be symmetric, but entry ($r, $c) " *
-  "is $a and entry ($c, $r) is $b; use Symmetric(A, :L) to store the lower triangle of A"))
+_check_symmetric(A::AbstractMatrix, subject = "the value written into a SymmetricSparseIterate", name = "A") =
+  _symmetric_by_type(A) || _issymmetric_exact(A, _symequal) || _throw_asymmetric(A, subject, name)
 
-@noinline function _throw_asymmetric_parameter(f, name, r, c, a, b)
-  owner = f === nothing ? "the steps γ" : "the array $name of $(nameof(typeof(f)))"
-  rounding = a isa AbstractFloat && b isa AbstractFloat && isfinite(a) && isfinite(b) &&
-    abs(a - b) <= 8eps(max(abs(a), abs(b)))
-  message = "$owner must be symmetric on a SymmetricSparseIterate, but entry ($r, $c) is $a and entry ($c, $r) is $b; use Symmetric(A, :L) to keep the lower triangle of A, or (A + A')/2 for its symmetric part"
-  throw(ArgumentError(rounding ? message * " (they differ only by rounding)" : message))
+# The one message for a matrix that must be exactly symmetric and is not: it names
+# the pair with the largest difference and the relative asymmetry
+# max |A[r, c] - A[c, r]| / max |A[i, j]|. The tolerance √eps only chooses the
+# wording; it never decides whether A is accepted. Differences and scales are
+# computed on halves, so that neither a wrapped integer difference nor a
+# difference of two large floats overflows. Entries without arithmetic (labels)
+# are reported without a relative asymmetry.
+# integers and rationals stay exact until the ratio is formed: adjacent integers
+# above 2^53 have the same Float64
+_exact(a) = a isa Union{Integer, Rational} ? big(a) : a
+_half(a) = Float64(abs(_exact(a) / 2))
+_halfdiff(a, b) = (d = Float64(abs(_exact(a) / 2 - _exact(b) / 2)); isnan(d) ? Inf : d)
+_rounding_type(::Type{T}) where {T} =
+  T <: Number && float(real(T)) <: AbstractFloat ? float(real(T)) : Float64
+
+# the pairs (i, j), i > j, that can differ: all of them, or for a sparse matrix the
+# stored entries, whose mirrors suffice
+function _foreach_pair(f::F, A::AbstractMatrix) where {F}
+  for j in axes(A, 2), i in j+1:size(A, 1)
+    f(i, j)
+  end
 end
+function _foreach_pair(f::F, A::SparseMatrixCSC) where {F}
+  rows = rowvals(A)
+  for c in axes(A, 2), k in nzrange(A, c)
+    r = rows[k]
+    r == c || f(max(r, c), min(r, c))
+  end
+end
+function _max_half(A)
+  s = 0.0
+  for v in A
+    v isa Number && isfinite(v) && (s = max(s, _half(v)))
+  end
+  s
+end
+_max_half(A::SparseMatrixCSC) = _max_half(nonzeros(A))
+
+@noinline function _throw_asymmetric(A::AbstractMatrix, subject, name, where = "")
+  best, r, c = -1.0, 0, 0
+  labels = false
+  _foreach_pair(A) do i, j
+    x, y = A[i, j], A[j, i]
+    _symequal(x, y) && return
+    d = if x isa Number && y isa Number
+      _halfdiff(x, y)
+    else
+      labels = true
+      Inf
+    end
+    d > best && ((best, r, c) = (d, i, j))
+  end
+  r == 0 && throw(ArgumentError("$subject must be symmetric$where"))
+  relative = labels ? nothing : best / _max_half(A)
+  throw(ArgumentError(_asymmetry_message(subject, name, where, r, c, A[r, c], A[c, r], relative,
+                                         _rounding_type(eltype(A)))))
+end
+
+# A check of one pair, such as the coordinate of prox_coordinate!, reads only that
+# pair: its relative asymmetry is relative to the larger of the two entries.
+@noinline function _throw_asymmetric_pair(subject, name, where, r, c, x, y)
+  relative = if x isa Number && y isa Number
+    scale = max(isfinite(x) ? _half(x) : 0.0, isfinite(y) ? _half(y) : 0.0)
+    _halfdiff(x, y) / scale
+  end
+  throw(ArgumentError(_asymmetry_message(subject, name, where, r, c, x, y, relative,
+                                         _rounding_type(typeof(x)))))
+end
+
+function _asymmetry_message(subject, name, where, r, c, x, y, relative, T)
+  head = "$subject must be symmetric$where, but entry ($r, $c) is $x and entry ($c, $r) is $y"
+  relative === nothing && return head * "; pass Symmetric($name, :L) to keep the lower triangle of $name"
+  shown = isfinite(relative) ? round(relative; sigdigits = 2) : relative
+  relative < sqrt(eps(T)) ?
+    "$head (relative asymmetry $shown, the size of rounding error); if $name is symmetric in exact arithmetic, pass Symmetric($name, :L), or ($name + $name')/2" :
+    "$head (relative asymmetry $shown); pass Symmetric($name, :L) to keep the lower triangle of $name, or ($name + $name')/2 for its symmetric part"
+end
+
+# a parameter array a of f, a matrix or the vector of its p² entries, read as the
+# p × p matrix that the pair checks index; r = 0 checks every pair
+@noinline function _throw_asymmetric_parameter(f, name, a, p, r, c)
+  owner = f === nothing ? "the steps γ" : "the array $name of $(nameof(typeof(f)))"
+  label = f === nothing ? "γ" : string(name)
+  a isa AbstractMatrix && size(a) == (p, p) || (label = "reshape($label, $p, $p)")
+  where = " on a SymmetricSparseIterate"
+  r == 0 && _throw_asymmetric(reshape(a, p, p), owner, label, where)
+  _throw_asymmetric_pair(owner, label, where, r, c, a[(c - 1) * p + r], a[(r - 1) * p + c])
+end
+
+# A, which may live on a device and not allow scalar indexing: checked as a host copy
+# in its own element type, so that a mismatch cannot vanish in a promotion
+_host(A::Union{Matrix, SparseMatrixCSC}) = A
+_host(A::AbstractMatrix) = Matrix{eltype(A)}(A)
+_check_symmetric_host(A::AbstractMatrix, subject, name) =
+  _symmetric_by_type(A) || _check_symmetric(_host(A), subject, name)
 
 _check_axes(x::SymmetricSparseIterate, A::AbstractArray) = axes(A) == axes(x) || _throw_axes(x, A)
 @noinline _throw_axes(x, A) =
@@ -1664,7 +1745,8 @@ function Base.copyto!(x::SymmetricSparseIterate, bc::Broadcast.Broadcasted{Nothi
   if !symmetric
     @inbounds for c = 1:p, r = c+1:p
       a, b = bc′[CartesianIndex(r, c)], bc′[CartesianIndex(c, r)]
-      _symequal(a, b) || _throw_asymmetric(r, c, a, b)
+      _symequal(a, b) || _throw_asymmetric([bc′[CartesianIndex(i, j)] for i in 1:p, j in 1:p],
+                                           "the value written into a SymmetricSparseIterate", "A")
     end
   end
   @inbounds for c = 1:p, r = c:p
@@ -1886,14 +1968,8 @@ function _mul_symmetric!(x::SymmetricSparseIterate, A, B, α, β)
   U = promote_type(eltype(x), Base.promote_op(+, T, T))
   P = Matrix{U}(undef, p, p)
   mul!(P, A, B)
-  pair = _asymmetric_pair(P, _symequal)
-  if pair !== nothing
-    r, c = pair
-    throw(ArgumentError(
-      "the product written into a SymmetricSparseIterate must be symmetric, but entry ($r, $c) " *
-      "is $(P[r, c]) and entry ($c, $r) is $(P[c, r]); " *
-      "use copyto!(x, Symmetric(P, :L)) with P = A * B, or (P + transpose(P)) / 2, to store a product that is not symmetric"))
-  end
+  _issymmetric_exact(P, _symequal) ||
+    _throw_asymmetric(P, "the product A * B written into a SymmetricSparseIterate", "(A * B)")
   if iszero(β)
     x .= P .* α
   else

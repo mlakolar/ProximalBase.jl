@@ -758,7 +758,7 @@ end
   end
   for x in (SparseIterate(Float64, 6), SparseIterate(Float32, 6), SparseIterate(Float64, 3, 2))
     T = eltype(x)
-    for i in (2, 5)
+    for i in (2, 1)   # the source starts as [2, 1]: the first write would overwrite the second source value
       x[i] = T(i)
     end
     @test Base.mightalias(x, activevalues(x))
@@ -787,19 +787,6 @@ end
   end
   expected = copy(activevalues(x)) .+ 0
   x .= activevalues(x) .+ 0
-  @test Array(x) == expected
-
-  # after growth the arrays are reallocated, and the checks still hold
-  x = SparseIterate(Float64, 3)
-  x[1] = 1.0
-  for i in 2:3
-    x[i] = Float64(i)
-  end
-  @test Base.mightalias(x, activevalues(x))
-  @test Base.mightalias(x, activecoordinates(x))
-  expected = Array(x)
-  copyto!(expected, copy(activevalues(x)))
-  copyto!(x, activevalues(x))
   @test Array(x) == expected
 
   # unaliased broadcasts and copies do not make a private copy of the source

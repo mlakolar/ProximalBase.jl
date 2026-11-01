@@ -123,6 +123,24 @@ does not imply convexity or positive homogeneity.
 functions that return suitable concrete functions. Avoid dispatch that
 assumes every exported constructor name is a concrete type.
 
+## `LogDetLoss` and `KronQuadratic` check their matrices (0.6)
+
+`LogDetLoss(S)` and the matrices `A` and `B` of `KronQuadratic(A, B, C)` must now
+be exactly symmetric: pairs `(i, j)` and `(j, i)` equal (exact numeric equality, with NaN matching NaN and
+`-0.0` matching `0.0`), or a
+`Symmetric`, `Hermitian` of reals or `Diagonal` matrix. Anything else throws an
+`ArgumentError` that names the pair with the largest difference and the relative
+asymmetry `max |A[i, j] - A[j, i]| / max |A[i, j]|`, and says when that is the
+size of rounding error. Before 0.6, `LogDetLoss` kept the upper triangle and
+`KronQuadratic` averaged the triangles of a matrix that agreed to within `√eps`
+times its largest entry. `C` is unchanged. The messages of the checks in the
+two sections below are the same.
+
+| Before 0.6 | Now |
+|:---|:---|
+| `LogDetLoss(S)` with `S` not symmetric | `Symmetric(S, :U)` keeps the old upper-triangle values; `Symmetric(S, :L)` takes the lower |
+| `KronQuadratic(inv(S), …)`, or `A` or `B` symmetric only up to rounding | `inv(Symmetric(S))` or `inv(cholesky(S))`, which are exactly symmetric, or `Symmetric(inv(S), :L)`; `(M + M')/2` for the symmetric part |
+
 ## Writes into a `SymmetricSparseIterate` (0.6)
 
 A [`SymmetricSparseIterate`](@ref) now accepts only symmetric values. Before

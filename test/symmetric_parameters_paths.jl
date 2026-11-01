@@ -25,7 +25,7 @@ Base.getindex(A::CountingMatrix,i::Int) = (A.reads[] += 1; A.data[i])
 @testset "Issue 142 and exact equality" begin
   W=[0. 1.;3. 0.]; f=NormL1(.1,W)
   x=SymmetricSparseIterate([0. .5;.5 0.]); k=tril_index(2,2,1)
-  message="the array w of NormL1 must be symmetric on a SymmetricSparseIterate, but entry (2, 1) is 3.0 and entry (1, 2) is 1.0; use Symmetric(A, :L) to keep the lower triangle of A, or (A + A')/2 for its symmetric part"
+  message="the array w of NormL1 must be symmetric on a SymmetricSparseIterate, but entry (2, 1) is 3.0 and entry (1, 2) is 1.0 (relative asymmetry 0.67); pass Symmetric(w, :L) to keep the lower triangle of w, or (w + w')/2 for its symmetric part"
   for op in (y -> f(y), y -> prox!(y,f,x,1.), y -> value_and_prox!(y,f,x,1.),
              y -> prox_coordinate!(y,f,k,1.), y -> kkt_violation(f,fill(.25,2,2),y,k))
     before=copy(x)
@@ -63,7 +63,32 @@ Base.getindex(A::CountingMatrix,i::Int) = (A.reads[] += 1; A.data[i])
   end
   A=[1. 1.;nextfloat(1.) 1.]
   err=try NormL1(1.,A)(fill!(similar(x),1)); nothing catch e; e end
-  @test endswith(err.msg," (they differ only by rounding)")
+  @test occursin("(relative asymmetry 2.2e-16, the size of rounding error); if w is symmetric in exact arithmetic, pass Symmetric(w, :L), or (w + w')/2",err.msg)
+end
+
+@testset "All-pairs parameter message names the largest pair" begin
+  W=ones(4,4); W[2,1]=1.1; W[4,3]=9.
+  err=try prox!(SymmetricSparseIterate(4),NormL1(.1,W),Matrix(1.0I,4,4),1.); nothing catch e; e end
+  @test err isa ArgumentError
+  @test occursin("entry (4, 3) is 9.0 and entry (3, 4) is 1.0 (relative asymmetry 0.89)",err.msg)
+end
+
+@testset "Parameter message edge cases" begin
+  # labels have no arithmetic: no relative asymmetry, and an ArgumentError
+  err=try PB.check_symmetric_parameters(NormL1(1.,[:a :b;:c :a]),SymmetricSparseIterate(2)); nothing catch e; e end
+  @test err isa ArgumentError
+  # a flat parameter is reshaped like the pair check does
+  w=reshape([1.,3.,1.,1.],4,1); x=SymmetricSparseIterate(2)
+  err=try PB.check_symmetric_parameters(NormL1(1.,w),x); nothing catch e; e end
+  @test err isa ArgumentError
+  @test occursin("pass Symmetric(reshape(w, 2, 2), :L)",err.msg)
+  # a single-pair check reads two entries
+  W=CountingMatrix(ones(400,400),Ref(0)); W.data[3,2]=2.
+  f=NormL1(1.,W); x=SymmetricSparseIterate(400); k=tril_index(400,3,2)
+  W.reads[]=0
+  err=try prox_coordinate!(x,f,k,1.); nothing catch e; e end
+  @test err isa ArgumentError
+  @test W.reads[] < 20
 end
 
 @testset "Existing value shape messages" begin

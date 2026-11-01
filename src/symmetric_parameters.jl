@@ -97,14 +97,14 @@ end
 function _check_pair(f, name, a, p, r, c)
   r == c && return true
   u, v = a[(c - 1) * p + r], a[(r - 1) * p + c]
-  _symequal(u, v) || _throw_asymmetric_parameter(f, name, r, c, u, v)
+  _symequal(u, v) || _throw_asymmetric_parameter(f, name, a, p, r, c)
   true
 end
 function _check_pairs(f, name, a, p, ::_AllPairs)
   @inbounds for cb in 1:32:p, rb in cb:32:p
     for c in cb:min(cb + 31, p), r in max(c + 1, rb):min(rb + 31, p)
       u, v = a[(c - 1) * p + r], a[(r - 1) * p + c]
-      _symequal(u, v) || _throw_asymmetric_parameter(f, name, r, c, u, v)
+      _symequal(u, v) || _throw_asymmetric_parameter(f, name, a, p, 0, 0)
     end
   end
   true

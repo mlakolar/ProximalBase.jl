@@ -618,13 +618,71 @@ end
   end
 end
 
-@testset "KronQuadratic from matrices symmetric up to rounding" begin
+# an exactly symmetric matrix that allows bulk transfer but no scalar indexing
+struct BulkOnly <: AbstractMatrix{Float64}
+  data::Matrix{Float64}
+end
+Base.size(A::BulkOnly) = size(A.data)
+Base.getindex(::BulkOnly, ::Int, ::Int) = error("scalar indexing")
+Base.copyto!(dest::Matrix{Float64}, A::BulkOnly) = copyto!(dest, A.data)
+Base.Matrix{Float64}(A::BulkOnly) = copy(A.data)
+Base.Matrix(A::BulkOnly) = copy(A.data)
+
+@testset "LogDetLoss and KronQuadratic check exact symmetry (#269)" begin
   p = 6
   Ω = Matrix(SymTridiagonal(fill(1.0, p), fill(0.3, p - 1)))
   @test !issymmetric(inv(Ω))                          # an inverse computed by inv
-  f = KronQuadratic(inv(Ω), inv(Ω))
-  @test issymmetric(f.A) && f.A ≈ inv(Ω)
+  msg(f, args...) = try f(args...); nothing catch e; e isa ArgumentError ? e.msg : rethrow() end
+  # one ulp off: the message names the matrix, the pair, the size and the repairs
+  S = [2.0 nextfloat(1.0); 1.0 2.0]
+  expected = "S must be symmetric, but entry (2, 1) is 1.0 and entry (1, 2) is 1.0000000000000002 (relative asymmetry 1.1e-16, the size of rounding error); if S is symmetric in exact arithmetic, pass Symmetric(S, :L), or (S + S')/2"
+  @test msg(LogDetLoss, S) == expected
+  A = [1.0 1.0; 2.0 1e5]                              # a difference of 1 between entries of size 1
+  @test startswith(msg(KronQuadratic, A, I(2)), "A must be symmetric, but entry (2, 1) is 2.0 and entry (1, 2) is 1.0 (relative asymmetry 1.0e-5); pass Symmetric(A, :L) to keep the lower triangle of A, or (A + A')/2 for its symmetric part")
+  @test startswith(msg(KronQuadratic, Matrix(1.0I, 2, 2), S), "B must be symmetric")
+  @test_throws ArgumentError LogDetLoss([2 0; 1 2])
+  @test_throws ArgumentError KronQuadratic(inv(Ω), inv(Ω))
   @test_throws ArgumentError KronQuadratic(Ω + [i > j ? 1e-3 : 0. for i in 1:p, j in 1:p], Ω)
+  # the largest pair is reported, and a NaN against a number counts as the largest
+  M = [1.0 0 0; 5 1 0; 0 2 1]
+  @test occursin("entry (2, 1) is 5.0 and entry (1, 2) is 0.0", msg(LogDetLoss, M))
+  N = [1.0 0 0; 5 1 0; NaN 2 1]
+  @test occursin("entry (3, 1) is NaN", msg(LogDetLoss, N))
+  # a triangle of a Symmetric is used, and the result matches the explicit matrix
+  U = [2.0 0.5; 9.0 3.0]
+  @test LogDetLoss(Symmetric(U, :U)).S == [2.0 0.5; 0.5 3.0]
+  @test LogDetLoss(Symmetric(U, :L)).S == [2.0 9.0; 9.0 3.0]
+  @test KronQuadratic(Symmetric(U, :L), I(2)).A == [2.0 9.0; 9.0 3.0]
+  @test KronQuadratic(I(2), Symmetric(U, :U)).B == [2.0 0.5; 0.5 3.0]
+  # exactly symmetric dense and sparse inputs, and inverses computed symmetrically
+  for X in (Ω, sparse(Ω), Diagonal(1.0:p), inv(Symmetric(Ω)), inv(cholesky(Ω)))
+    @test LogDetLoss(X).S == Matrix(X)
+    @test KronQuadratic(X, X).A == Matrix(X)
+  end
+  # a rectangular matrix is a DimensionMismatch, before any mirrored entry is read
+  @test_throws DimensionMismatch LogDetLoss(zeros(3, 2))
+  @test_throws DimensionMismatch KronQuadratic(zeros(3, 2), I(2))
+  # the difference is computed without integer wraparound or floating-point overflow
+  @test occursin("(relative asymmetry 0.5)", msg(LogDetLoss, UInt8[1 2; 1 1]))
+  @test occursin("entry (2, 1) is -1.7976931348623157e308 and entry (1, 2) is 1.7976931348623157e308 (relative asymmetry 2.0)",
+                 msg(KronQuadratic, [1.0 floatmax(); -floatmax() 1.0], I(2)))
+  # adjacent integers above 2^53 differ, and the larger difference is the one reported
+  big1 = typemax(Int)
+  @test occursin("(relative asymmetry 1.1e-19", msg(KronQuadratic, [1 big1; big1 - 1 1], I(2)))
+  A3 = [1 big1 big1; big1-1 1 0; big1-2 0 1]
+  @test occursin("entry (3, 1) is $(big1 - 2) and entry (1, 3) is $big1", msg(KronQuadratic, A3, I(3)))
+  # a sparse matrix is scanned by its stored entries
+  Sp = sparse([1, 2, 3, 1], [1, 2, 3, 3], [1.0, 1.0, 1.0, 4.0])
+  @test occursin("entry (3, 1) is 0.0 and entry (1, 3) is 4.0", msg(LogDetLoss, Sp))
+  # a matrix on a device with bulk transfer only
+  @test LogDetLoss(BulkOnly(Matrix(Ω))).S == Ω
+  @test KronQuadratic(BulkOnly(Matrix(Ω)), BulkOnly(Matrix(Ω))).A == Ω
+  @test startswith(msg(LogDetLoss, BulkOnly(S)), "S must be symmetric, but entry (2, 1)")
+  # the linear term need not be symmetric
+  C = [0.0 1.0; 2.0 0.0]
+  @test KronQuadratic(Matrix(1.0I, 2, 2), Matrix(1.0I, 2, 2), C).C == C
+  # zeros of both signs are symmetric
+  @test LogDetLoss([1.0 0.0; -0.0 1.0]).S == [1.0 0.0; 0.0 1.0]
 end
 
 @testset "centered ridge at large steps" begin

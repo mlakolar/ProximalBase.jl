@@ -8,14 +8,17 @@
 
 > **Proposed amendment and extensions from the iterate-family contract (#400,
 > pending sign-off).** The [iterate-family contract](iterate-family-0.6.md) proposes one change
-> to this file and extends three of its rules without changing them. Until the
+> to this file and extends several of its rules without changing them. Until the
 > maintainer signs them off there, the rules of this file stand as written.
 >
 > - [FD-9](iterate-family-0.6.md#fd-9-zero-coefficients-are-strong-in-products):
 >   a zero coefficient of the owner contributes nothing to a product with one
 >   owner operand, even against `Inf` or NaN. Replaces decision 13 and PERF-6's
->   recommended default (an `ArgumentError` after an `O(p)` scan); PERF-6's
->   requirement is met.
+>   recommended default (an `ArgumentError` after an `O(p)` scan). PERF-6's
+>   requirement (the same result before and after `dropzeros!`) is pending
+>   with FD-9: compaction can reorder finite contributions and change a finite
+>   overflow, so FD-9 either amends the requirement or prices a mechanism for
+>   it.
 > - Consistent extensions, with no change to the rules here:
 >   - ACT-3's read-only handle type is shared by the whole family, and the
 >     lifetime of the ACT-3 and ACT-4 handles also ends at a whole-state
@@ -27,7 +30,12 @@
 >     ORC-3 and ORC-6;
 >   - the owner keeps 0.5.x's
 >     `*(A::Symmetric, X::SymmetricSparseIterate, B::Symmetric)`; its class is
->     the open decision [FD-16](iterate-family-0.6.md#fd-16-three-factor-products).
+>     the open decision [FD-16](iterate-family-0.6.md#fd-16-three-factor-products);
+>   - CPY-3's state copy converts only the source's active values, and one
+>     that throws leaves `X` unchanged (#416,
+>     [FW-4](iterate-family-0.6.md#23-the-working-set-fw)). This strengthens,
+>     for CPY-3 alone, §2.10's statement that a throwing conversion is not
+>     promised to leave `X` untouched.
 > - CPY-4 stands as written: the family contract keeps the owner's checked,
 >   atomic replace ([FD-3](iterate-family-0.6.md#fd-3-matrix-import-into-the-owner-keeps-cpy-4)).
 
@@ -219,7 +227,7 @@ snapshot* (`Matrix(X)`).
 |:--|:--|:--|
 | CPY-1 | `copy(X)` | *must* create independent solver state: same `p`, same values, same set of active coordinates, **active zeros preserved**, and the activation order of `X`. `O(q)`. |
 | CPY-2 | `similar(X)`, `similar(X, S)` | *must* return an empty owner (no active coordinates, all values zero) of the same `p`, with element type `T` or `S`. `O(q)` memory. |
-| CPY-3 | `copyto!(X, Y::SymmetricSparseIterate)` | *must* make `X` a state copy of `Y` (CPY-1), discarding the previous working set of `X`. Different `p` *must* throw `DimensionMismatch` before writing. `copyto!(X, X)` *must* be a no-op. |
+| CPY-3 | `copyto!(X, Y::SymmetricSparseIterate)` | *must* make `X` a state copy of `Y` (CPY-1), discarding the previous working set of `X`. Different `p` *must* throw `DimensionMismatch` before writing. `copyto!(X, X)` *must* be a no-op. *(Consistent extension: #416 and FW-4, [iterate-family contract](iterate-family-0.6.md#23-the-working-set-fw): only active values are converted, and a copy that throws leaves `X` unchanged.)* |
 | CPY-4 | `copyto!(X, M::AbstractMatrix)` and `SymmetricSparseIterate(M)` | *must* be a checked import (§2.10): `M` must be square of size `(p, p)` and exactly symmetric. **Default: replace.** After the call `X` equals the converted `M`, the working set is exactly the coordinates whose **converted stored value** is nonzero, in increasing ID order (CRD-3 rule), and the previous working set (explicit zeros included) is gone. Symmetry is checked on the source values before conversion (VAL-2). `O(q)` time (a dense source is read once). |
 | CPY-5 | `Matrix(X)` | dense, independent, writable snapshot (§2.4). |
 | CPY-6 | an aliasing source | A source that shares memory with `X` (`matrixview(X)` or a derived view) *must* be rejected with an `ArgumentError` before writing. |

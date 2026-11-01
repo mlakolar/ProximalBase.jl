@@ -408,12 +408,12 @@ end
 
 # The value needs only the sorted magnitudes, not the permutation: an in-place
 # quicksort of the magnitudes allocates nothing, and beats the permutation sort
-# for 512 <= n <= 4096, where the cost of the permutation sort jumps at n = 4096.
-# Below 512 it gains nothing, and from n = 8192 on it is slower once the array
+# for 1024 <= n <= 4096, where the cost of the permutation sort jumps at n = 4096.
+# Below 1024 it gains little or loses on some CPUs, and from n = 8192 on it is slower once the array
 # leaves the cache (Base's default sort and merge sort allocate). Chosen from
 # measurements on Apple silicon and x86-64, on Julia 1.13 and lts; other element
 # types keep the permutation.
-const _SLOPE_SORTED_MIN = 512
+const _SLOPE_SORTED_MIN = 1024
 const _SLOPE_SORTED_MAX = 4096
 
 # the magnitudes of x in decreasing order, in the buffer f.sums; f.perm is untouched

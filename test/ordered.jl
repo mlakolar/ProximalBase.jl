@@ -341,7 +341,7 @@ end
 
 @testset "SLOPE value" begin
   rng = MersenneTwister(136)
-  for T in (Float64, Float32, Float16, BigFloat), n in (511, 512, 1000, 4096, 4097)
+  for T in (Float64, Float32, Float16, BigFloat), n in (1023, 1024, 1500, 4096, 4097)
     @testset "$T, n = $n" begin
       x = randn(rng, T, n)
       λ = sort(rand(rng, n); rev = true)
@@ -382,7 +382,7 @@ end
     end
   end
   # the prox after a value call is the same as before it
-  for T in (Float64, Float32), n in (200, 512, 1000, 4096, 8000)
+  for T in (Float64, Float32), n in (200, 1024, 1500, 4096, 8000)
     x = randn(rng, T, n)
     λ = sort(rand(rng, n); rev = true)
     expected = prox(SLOPE(λ), x, T(0.7))

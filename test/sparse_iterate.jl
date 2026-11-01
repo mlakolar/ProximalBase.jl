@@ -11,6 +11,14 @@ using SparseArrays
 struct NoFloat <: Real end
 Base.iszero(::NoFloat) = false
 
+# a real number whose conversion to Int succeeds once and then throws, to catch a second conversion
+struct OnceReal <: Real
+  count::Base.RefValue{Int}
+end
+Base.iszero(::OnceReal) = false
+Base.convert(::Type{Int}, x::OnceReal) =
+  (x.count[] += 1) == 1 ? 1 : throw(InexactError(:Int, Int, x))
+
 using Statistics
 
 Random.seed!(1)
@@ -250,6 +258,15 @@ end
         before = snap(f)
         @test_throws Exception copyto!(f, r)
         @test snap(f) == before
+
+        # a fallible conversion runs once per value, before the destination changes
+        for (n, filled) in ((16, false), (32, true), (4, true))
+            c = Ref(0)
+            r = SparseIterate(Real, n); r[1] = OnceReal(c)
+            d = SparseIterate(Int, n)
+            filled && (d[n] = 3)
+            @test copyto!(d, r) === d && d[1] == 1 && c[] == 1
+        end
 
         # SymmetricSparseIterate shares the copy
         S = SymmetricSparseIterate(5); S[2, 1] = 1.0; S[3, 3] = 0.5

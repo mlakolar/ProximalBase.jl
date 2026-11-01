@@ -253,17 +253,14 @@ function Base.copyto!(dest::AtomIterate{T}, src::AtomIterate{S}) where {T, S}
   length(dest) == length(src) || throw(DimensionMismatch())
   _samelayout(dest, src) ||
     return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
-  # a value that does not convert throws before dest is touched
-  if _convert_may_throw(T, S)
-    for a in 1:src.nactive
-      foreach(v -> convert(T, v), _atom_storage(src, src.active[a]))
-    end
-  end
+  # a fallible conversion runs once, before dest is touched, and the copy reads its result
+  bufs = _convert_may_throw(T, S) ?
+    [T[convert(T, v) for v in _atom_storage(src, src.active[a])] for a in 1:src.nactive] : nothing
   _zero_active!(dest)
   for a in 1:src.nactive
     k = src.active[a]
     activate!(dest, k)
-    copyto!(_atom_storage(dest, k), _atom_storage(src, k))
+    copyto!(_atom_storage(dest, k), bufs === nothing ? _atom_storage(src, k) : bufs[a])
   end
   dest
 end

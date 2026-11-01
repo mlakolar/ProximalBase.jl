@@ -376,34 +376,29 @@ const _BuiltinReal = Union{_BuiltinFloat, Bool, Int8, Int16, Int32, Int64, Int12
 _convert_may_throw(::Type{T}, ::Type{S}) where {T, S} =
     !(S <: T || (isconcretetype(T) && T <: _BuiltinFloat && isconcretetype(S) && S <: _BuiltinReal))
 
-# Convert the values before a copy writes anything, so that a conversion that
-# cannot succeed leaves the destination unchanged.
-function _checkconvert(::Type{T}, v::AbstractVector{S}, n::Integer) where {T, S}
-    _convert_may_throw(T, S) || return nothing
-    @inbounds for k = 1:n
-        convert(T, v[k])
-    end
-    nothing
-end
+# The stored values of y as the destination's element type. A fallible conversion
+# runs once, here, before a copy writes anything, so a value that does not convert
+# throws with the destination unchanged; the copy then reads the converted buffer.
+_converted_values(::Type{T}, y::_StoredIterate{S}) where {T, S} =
+    _convert_may_throw(T, S) ? T[convert(T, y.nzval[k]) for k = 1:y.nnz] : y.nzval
 
 # Copy the stored entries of y into x, an iterate of the same size. When both are
 # sparse, touch only their stored entries; otherwise copying whole arrays is faster.
-# A value that does not convert throws before x is touched.
 function _copyto_stored!(x::_StoredIterate{T}, y::_StoredIterate) where {T}
-    _checkconvert(T, y.nzval, y.nnz)
+    vals = _converted_values(T, y)
     if 4 * (x.nnz + y.nnz) < length(x.ind2nzval)
         @inbounds for k = 1:x.nnz
             x.ind2nzval[x.nzval2ind[k]] = 0
         end
         @inbounds for k = 1:y.nnz
             i = y.nzval2ind[k]
-            x.nzval[k] = y.nzval[k]
+            x.nzval[k] = vals[k]
             x.nzval2ind[k] = i
             x.ind2nzval[i] = k
         end
     else
         # only the stored values: entries past nnz are stale and may not convert
-        copyto!(x.nzval, 1, y.nzval, 1, y.nnz)
+        copyto!(x.nzval, 1, vals, 1, y.nnz)
         copyto!(x.nzval2ind, y.nzval2ind)
         copyto!(x.ind2nzval, y.ind2nzval)
     end

@@ -20,6 +20,14 @@ function consistent(x::AtomIterate)
   all(k -> x.position[k] != 0 || all(iszero, x.storage[x.groups[k]]), 1:K)
 end
 
+# a real number whose conversion to Int succeeds once and then throws, to catch a second conversion
+struct OnceReal <: Real
+  count::Base.RefValue{Int}
+end
+Base.iszero(::OnceReal) = false
+Base.convert(::Type{Int}, x::OnceReal) =
+  (x.count[] += 1) == 1 ? 1 : throw(InexactError(:Int, Int, x))
+
 # groups of unequal sizes, two not contiguous
 groups = [1:3, [4, 7], 5:5, [8, 6], [9]]
 
@@ -374,6 +382,9 @@ end
     du = AtomIterate(Union{Float32, Float64}[0f0, 0.0], 2)
     @test_throws MethodError copyto!(du, AtomIterate([1, 0], 2))
     @test du.nactive == 0 && consistent(du)
+    c = Ref(0)                                                  # one conversion per value
+    ro = AtomIterate(Real, 9, groups); ro[1] = OnceReal(c)
+    @test copyto!(AtomIterate(Int, 9, groups), ro)[1] == 1 && c[] == 1
     xi[7] = 2.0
     @test copyto!(di, xi) === di && Vector(di) == Vector(xi) && consistent(di)
 

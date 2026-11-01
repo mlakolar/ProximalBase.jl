@@ -171,10 +171,32 @@ end
 _md(s) = replace(string(s), "|" => "\\|", "\n" => "<br>", "\r" => "", "`" => "\\`")
 _list(xs) = isempty(xs) ? "none" : join(sort!(unique(collect(xs))), ", ")
 
+# The per-run provenance lines of a generated map: the run heading, the package SHA,
+# the run id, the harness revision and the Julia line. `--check` ignores their values
+# (a map committed from one run is checked against the reports of another) but not
+# their presence or order: each is replaced by a placeholder keyed on its prefix.
+# Table rows start with `|` and are never touched.
+const PROVENANCE_PREFIXES = ["## Run: ", "Baseline SHA (package under test): ", "Run id: ",
+  "Harness revision (common.jl blob): ", "Julia: "]
+
+function normalize_provenance(markdown)
+  lines = String.(split(markdown, '\n'))
+  for (i, line) in enumerate(lines)
+    startswith(line, '|') && continue
+    for prefix in PROVENANCE_PREFIXES
+      if startswith(line, prefix)
+        lines[i] = "<provenance: " * rstrip(prefix, [' ', ':']) * ">"
+        break
+      end
+    end
+  end
+  join(lines, '\n')
+end
+
 function print_diff(io, out, markdown)
-  old = isfile(out) ? split(read(out, String), '\n') : String[]
-  new = split(markdown, '\n')
-  println(io, "--- ", out, "\n+++ regenerated coverage")
+  old = isfile(out) ? split(normalize_provenance(read(out, String)), '\n') : String[]
+  new = split(normalize_provenance(markdown), '\n')
+  println(io, "--- ", out, "\n+++ regenerated coverage (run provenance ignored)")
   for i in 1:max(length(old), length(new))
     before = i <= length(old) ? old[i] : nothing
     after = i <= length(new) ? new[i] : nothing
@@ -251,7 +273,9 @@ function coverage(root; case_ids = CASE_IDS, required_ids = REQUIRED_ROW_IDS,
 end
 
 function main(args = ARGS)
-  usage = "Usage: julia scripts/conformance_map.jl <report-dir> [--out docs/design/numerical-contract/coverage.md] [--check] [--run-id ID]"
+  usage = "Usage: julia scripts/conformance_map.jl <report-dir> [--out docs/design/numerical-contract/coverage.md] [--check] [--run-id ID]\n" *
+    "--check compares the generated map with the file and ignores the run provenance lines " *
+    "(run heading, baseline SHA, run id, harness revision, Julia line); everything else must match."
   if "--help" in args
     println(usage)
     return 0
@@ -279,7 +303,7 @@ function main(args = ARGS)
     end
     markdown, complete = coverage(root; run_id)
     if check
-      if !isfile(out) || read(out, String) != markdown
+      if !isfile(out) || normalize_provenance(read(out, String)) != normalize_provenance(markdown)
         println(stderr, "coverage differs from $out; regenerate without --check")
         print_diff(stderr, out, markdown)
         return 1

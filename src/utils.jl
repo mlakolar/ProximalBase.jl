@@ -1023,3 +1023,5 @@ struct PrecisionError <: Exception
   msg::String
 end
 Base.showerror(io::IO, e::PrecisionError) = print(io, "PrecisionError: ", e.msg)
+
+# CI scenario (do not merge): a comment in a shared helper file.

@@ -1,0 +1,41 @@
+# Numerical contract for 0.6: design record
+
+The numerical contract is published in `docs/src/numerics.md`. This folder
+keeps the record of how it was decided. It is outside `docs/src`, so
+Documenter does not build it.
+
+| file | content |
+|:---|:---|
+| `decisions.md` | the 47 decisions, each opening with the maintainer's approved **Decided** line (2026-11-01), followed by its background, options, precedent in other packages, first recommendation and revisions, kept as history |
+| `impact-on-open-issues.md` | the open issues and pull requests the decisions affect, screened on 2026-10-31; a work list until the tracker #366 takes it over |
+| `bench-q1-threshold.jl` | measurement behind decision 3: soft thresholding with a rounded, a per-entry `Float64`, and a two-word threshold |
+| `bench-d6-quadratic.jl` | measurement behind decision 6: a `Float32` quadratic at a `Float64` argument |
+
+## The full record
+
+The design was discussed on
+[pull request #385](https://github.com/mlakolar/ProximalBase.jl/pull/385),
+where every exchange is a comment. The drafts and reviews named in
+`decisions.md` were removed from this folder when the contract was published.
+They are in the pull request's history at commit
+[`850e2bd2`](https://github.com/mlakolar/ProximalBase.jl/tree/850e2bd2/docs/design/numerical-contract):
+
+- `01`: ChatGPT's reader's edition (Draft 2);
+- `02`, `03`: Claude's review of it, and Draft 3;
+- `04`: ChatGPT's comparison with #366;
+- `06`, `08`, `11`, `13`, `15`: Drafts 4–8;
+- `07`, `09`, `12`, `14`, `16`: ChatGPT's reviews of Drafts 4–8, the last its sign-off;
+- `10`: the impact on open issues, kept here as `impact-on-open-issues.md`.
+
+## How the contract was settled
+
+1. ChatGPT drafted a reader's edition.
+2. Claude reviewed it against the code and #366 and wrote Draft 3, with rule
+   identifiers and statuses.
+3. Five rounds followed, each a ChatGPT review and a Claude revision. Every
+   numerical claim was run on the package, and the revision recorded the
+   commit it was checked at.
+4. The maintainer approved all 47 decisions on 2026-11-01.
+5. Implementation follows in separate pull requests, tracked in #366, starting
+   with a reconciliation table: for each oracle, the problem after conversion,
+   the promised result, the acceptance case, and its status.

@@ -386,21 +386,38 @@ function SparseArrays.dropzeros!(x::_StoredIterate)
   x
 end
 
+# Whether converting values of type S to T can throw. It cannot when S is a
+# subtype of T, nor between built-in real types where T is a floating-point type
+# (values round, and Float64 to Float32 overflows to Inf); any other pair is checked.
+const _BuiltinFloat = Union{Float16, Float32, Float64}
+const _BuiltinReal = Union{_BuiltinFloat, Bool, Int8, Int16, Int32, Int64, Int128,
+                           UInt8, UInt16, UInt32, UInt64, UInt128}
+_convert_may_throw(::Type{T}, ::Type{S}) where {T, S} =
+    !(S <: T || (isconcretetype(T) && T <: _BuiltinFloat && isconcretetype(S) && S <: _BuiltinReal))
+
+# The stored values of y as the destination's element type. A fallible conversion
+# runs once, here, before a copy writes anything, so a value that does not convert
+# throws with the destination unchanged; the copy then reads the converted buffer.
+_converted_values(::Type{T}, y::_StoredIterate{S}) where {T, S} =
+    _convert_may_throw(T, S) ? T[convert(T, y.nzval[k]) for k = 1:y.nnz] : y.nzval
+
 # Copy the stored entries of y into x, an iterate of the same size. When both are
 # sparse, touch only their stored entries; otherwise copying whole arrays is faster.
-function _copyto_stored!(x::_StoredIterate, y::_StoredIterate)
+function _copyto_stored!(x::_StoredIterate{T}, y::_StoredIterate) where {T}
+    vals = _converted_values(T, y)
     if 4 * (x.nnz + y.nnz) < length(x.ind2nzval)
         @inbounds for k = 1:x.nnz
             x.ind2nzval[x.nzval2ind[k]] = 0
         end
         @inbounds for k = 1:y.nnz
             i = y.nzval2ind[k]
-            x.nzval[k] = y.nzval[k]
+            x.nzval[k] = vals[k]
             x.nzval2ind[k] = i
             x.ind2nzval[i] = k
         end
     else
-        copyto!(x.nzval, y.nzval)
+        # only the stored values: entries past nnz are stale and may not convert
+        copyto!(x.nzval, 1, vals, 1, y.nnz)
         copyto!(x.nzval2ind, y.nzval2ind)
         copyto!(x.ind2nzval, y.ind2nzval)
     end

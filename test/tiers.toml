@@ -25,13 +25,16 @@ quick = [
   "sparse_iterate_basics",
   "symmetric_parameters",
   "symmetric_products",
+  "wrapper_buffers",
   # values, gradients and proximal operators of representative functions
   "caches",
   "conjugate_basics",
   "constrained_basics",
+  "deprecated",
   "entropy",
   "intersection",
   "lla",
+  "losses",
   "nested_box_values",
   "sets",
   "spectral",
@@ -40,47 +43,35 @@ quick = [
   "block_step_failures",
   "conformance/tolerances",
   "model_precision",
+  "nonfinite_inputs",
   "scaled_overflow",
   "spectral_box_tolerance",
   "spectral_mask",
-  # device arrays and hot-path allocations
+  # device arrays, LAPACK workspaces and hot-path allocations
   "allocations_basics",
   "gpu_smoke",
   "lapack",
-  "deprecated",
 ]
 
+# Most function families, wrappers, constraints and the examples.
 standard = [
   "affine",
   "ballconstrained",
   "bernoulli",
   "binary",
-  "block_step",
-  "box_bounds_overflow",
   "composition",
   "constrained_nonconvex",
-  "converted_weights",
   "cubenorm",
   "distance",
   "envelope",
   "examples",
-  "expcone",
-  "fibers",
-  "graph",
   "infinite_weights",
-  "losses",
   "matrixsets",
   "metric_steps",
   "minimum",
   "nonconvex",
   "norms",
   "ordered",
-  "partial",
-  "polyhedron",
-  "precision",
-  "real_functions",
-  "real_iterates",
-  "rotatedsoc",
   "second_order",
   "separable",
   "singular",
@@ -91,18 +82,15 @@ standard = [
   "sqrhinge",
   "stiefel",
   "sumlargest",
-  "symmetric_mul",
-  "symmetric_parameters_writes",
-  "testing",
-  "wrapper_buffers",
 ]
 
+# What shared or numerical changes can break: precision, overflow, non-finite values, spectral
+# domains, the conformance suite, symmetric writes and parameters, steps, wrappers, block checks,
+# iterate grids, and the specialized families.
 thorough = [
+  "block_step",
   "blockchecks",
-  "blockchecks_steps",
-  "blockchecks_values",
-  "blockchecks_workspace",
-  "blockchecks_wrappers",
+  "box_bounds_overflow",
   "calculus",
   "conformance/data_functions",
   "conformance/data_functions_2",
@@ -120,50 +108,68 @@ thorough = [
   "conformance/wrappers",
   "conjugate_steps",
   "constrained",
-  "distl2",
+  "converted_weights",
+  "expcone",
   "extreme_normals",
+  "fibers",
   "gradient_alias",
-  "hyperslab",
-  "image",
+  "graph",
   "infinite_group_weights",
+  "large_inputs",
   "logdet_overflow",
   "metric",
-  "nonfinite_inputs",
-  "precompose_array",
-  "real_wrappers",
-  "separable_blocks",
+  "partial",
+  "polyhedron",
+  "precision",
+  "rotatedsoc",
   "sparse_iterate",
   "spectral_domain",
   "spectral_nonfinite_values",
+  "spectral_overflow",
   "spectral_overflow_prox",
   "spectral_overflow_wrappers",
   "spectral_tolerance",
   "stepchecks",
   "symmetric_argument",
   "symmetric_groups",
-  "symmetric_mutator_errors",
-  "symmetric_mutators",
-  "symmetric_parameters_centers",
+  "symmetric_mul",
   "symmetric_parameters_extensions",
-  "symmetric_parameters_inventory",
-  "symmetric_parameters_inventory_walk",
   "symmetric_parameters_merge",
   "symmetric_parameters_paths",
   "symmetric_parameters_trait",
+  "symmetric_parameters_writes",
   "symmetric_writes",
+  "testing",
   "value_overflow_fused",
   "value_overflow_sqrnorm",
-  "weight_steps",
   "weighted_overflow",
 ]
 
+# Exhaustive catalogs whose cases repeat paths the tiers above already reach, and family files
+# that the CI rules run beside any change to their family.
 full = [
   "allocations",
+  "blockchecks_steps",
+  "blockchecks_values",
+  "blockchecks_workspace",
+  "blockchecks_wrappers",
   "conjugate_projections",
+  "distl2",
   "gpu",
-  "large_inputs",
+  "hyperslab",
+  "image",
   "precision_mixed",
-  "spectral_overflow",
+  "precompose_array",
+  "real_functions",
+  "real_iterates",
+  "real_wrappers",
+  "separable_blocks",
+  "symmetric_mutator_errors",
+  "symmetric_mutators",
+  "symmetric_parameters_centers",
+  "symmetric_parameters_inventory",
+  "symmetric_parameters_inventory_walk",
+  "weight_steps",
 ]
 
 [not_tests]
@@ -394,6 +400,18 @@ why = "a self-contained family"
 tier = "quick"
 focus = ["deprecated"]
 paths = ["src/deprecated.jl"]
+
+[[risk]]
+why = "Precompose, whose array-scale tests are in the full tier"
+tier = "standard"
+focus = ["composition", "precompose_array"]
+paths = ["src/composition.jl"]
+
+[[risk]]
+why = "sets, including the hyperslab, whose tests are in the full tier"
+tier = "standard"
+focus = ["hyperslab"]
+paths = ["src/functions/sets.jl"]
 
 [[risk]]
 why = "package code: functions, wrappers and constraints"

@@ -108,6 +108,9 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
   # package code without any test change: at least standard
   @test classify("src/functions/entropy.jl") == ("standard", ["entropy"])
   @test classify("src/functions/norms.jl", "test/norms.jl") == ("standard", ["norms"])
+  # a family whose own tests are in the full tier runs them beside standard
+  @test classify("src/functions/sets.jl", "test/sets.jl") == ("standard", ["hyperslab", "sets"])
+  @test classify("src/composition.jl") == ("standard", ["composition", "precompose_array"])
   # shared code
   @test classify("src/sparse_iterate.jl", "test/sparse_iterate.jl")[1] == "thorough"
   @test classify("src/utils.jl")[1] == "thorough"

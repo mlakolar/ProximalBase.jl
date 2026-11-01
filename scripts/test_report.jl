@@ -84,7 +84,11 @@ function summary_counts(lines)
 end
 
 fmt(x; digits = 1) = isnan(x) ? "" : string(round(x; digits))
-minutes(s) = isnan(s) ? "" : s < 60 ? "$(round(Int, s)) s" : "$(floor(Int, s / 60)) min $(lpad(round(Int, s % 60), 2, '0')) s"
+function minutes(s)
+  isnan(s) && return ""
+  t = round(Int, s)
+  return t < 60 ? "$t s" : "$(div(t, 60)) min $(lpad(rem(t, 60), 2, '0')) s"
+end
 
 function report(io, path, step)
   lines = map(l -> replace(l, ANSI => ""), readlines(path))

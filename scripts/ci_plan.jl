@@ -62,6 +62,18 @@ function tiers_additions(base, head, paths)
   return TestTiers.manifest_additions(old, new, new_files)
 end
 
+# A successful run of this workflow on `sha` in the last day whose test jobs ran the full tier.
+function recent_full_run(repo, sha)
+  cutoff = Dates.format(now(UTC) - Hour(24), dateformat"yyyy-mm-ddTHH:MM:SS") * "Z"
+  query = ".[] | select(.event != \"pull_request\" and .createdAt >= \"$cutoff\") | .databaseId"
+  ids = readlines(`gh run list --repo $repo --workflow CI.yml --commit $sha --status success --limit 50 --json databaseId,event,createdAt --jq $query`)
+  for id in ids
+    names = readlines(`gh run view $id --repo $repo --json jobs --jq '.jobs[].name'`)
+    any(endswith(" - full"), names) && return id
+  end
+  return nothing
+end
+
 function plan(opts)
   manifest = TestTiers.load(joinpath(ROOT, "test", "tiers.toml"), joinpath(ROOT, ".github", "tier-rules.toml"))
   # The runner checks this too, but here an unclassified test file fails within seconds.

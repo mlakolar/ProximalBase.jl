@@ -325,4 +325,111 @@ end
   end
 end
 
+@testset "sphere prox of the ℓ1 norm: exact margins and thresholds in the working precision" begin
+  B = 2.0^60
+  # The margins are -1, -1 and 0: the entry (2,2) wins, though B - 0 and B - 1 round alike.
+  c = Constrained(NormL1(1.0, [1.0 1.0; 1.0 B]), IndSphereL2(1.0))
+  y = ones(2, 2)
+  v = value_and_prox!(y, c, [0.0 0.0; 0.0 B], 1.0)
+  @test y == [0.0 0.0; 0.0 1.0]
+  @test v == 2.0^60
+  @test prox(c, [0.0 0.0; 0.0 B], 1.0) == [0.0 0.0; 0.0 1.0]
+
+  # thresholds finite in y's type but not in x's
+  c = Constrained(NormL1(2.0^160, ones(2, 2)), IndSphereL2(1.0))
+  y = zeros(2, 2)
+  v = value_and_prox!(y, c, Float32[1 0; 0 2], 1.0)
+  @test y == [0.0 0.0; 0.0 1.0]
+  @test v == 2.0^160
+  # still an error when no threshold is finite in the working type
+  c = Constrained(NormL1(big(2.0)^2000, ones(2, 2)), IndSphereL2(1.0))
+  @test_throws ArgumentError value_and_prox!(zeros(2, 2), c, ones(2, 2), 1.0)
+
+  # the product γλ0w overflows Float32 but not Float64
+  c = Constrained(NormL1(2f0^80, ones(Float32, 2, 2)), IndSphereL2(1f0))
+  for y in (zeros(2, 2), SymmetricSparseIterate(2))
+    v = value_and_prox!(y, c, zeros(2, 2), 2f0^80)
+    @test v == 2.0^80                    # λ0 ⋅ w ⋅ r; the threshold is 2^160
+    @test y[1, 1] == 1.0 && sum(abs2, y) == 1.0
+  end
+  @test_throws ArgumentError value_and_prox!(zeros(Float32, 2, 2), c, zeros(Float32, 2, 2), 2f0^80)
+
+  # an unweighted penalty and the same type everywhere give the usual values
+  for T in (Float32, Float64)
+    c = Constrained(NormL1(T(0.3)), IndSphereL2(T(2)))
+    x = T[1, -2, 0.1, 0.5]
+    z = copy(x)
+    m = max.(abs.(x) .- T(0.3) * T(0.7), 0)
+    @test prox(c, x, T(0.7)) ≈ copysign.(T(2) .* m ./ norm(m), x) rtol=4eps(T)
+    v = value_and_prox!(z, c, z, T(0.7))                          # y === x
+    @test z ≈ copysign.(T(2) .* m ./ norm(m), x) rtol=4eps(T)
+    @test v ≈ T(0.3) * norm(z, 1) rtol=4eps(T)
+    z = copy(x)
+    value_and_prox!(z, Constrained(NormL1(T(5)), IndSphereL2(T(2))), z, T(1))    # fallback, y === x
+    @test z == T[0, -2, 0, 0]
+  end
+
+  # a wide scale range, also into a narrower output: nothing is narrowed before the norm
+  for (x, γ) in (([1e300, 2e300, 1e299], 1.0), ([1e-300, 2e-300, 1e-299], 1e-310))
+    c = Constrained(NormL1(0.5), IndSphereL2(1.0))
+    mb = setprecision(BigFloat, 400) do
+      max.(abs.(big.(x)) .- big(γ) * big(0.5), 0)
+    end
+    for T in (Float32, Float64)
+      y = zeros(T, 3)
+      value_and_prox!(y, c, x, γ)
+      @test y ≈ T.(mb ./ norm(mb)) rtol=4eps(T)
+    end
+  end
+
+  # the winner of the fallback, against the exact margins in BigFloat
+  Random.seed!(418)
+  for trial in 1:400
+    m = rand(2:6)
+    if iseven(trial)      # entries of very different size: B - 0 and B - 1 round alike
+      b = 2.0^rand(55:70)
+      big_entry = rand(Bool, m)
+      w = [big_entry[i] ? b : 1 + rand() for i in 1:m]
+      x = [big_entry[i] ? b * (1 - rand(0:3) * 2.0^-53) : rand() / 2 for i in 1:m] .* rand((-1, 1), m)
+      γ, λ0 = 1.0, 1.0
+    else
+      x = [rand((-1, 1)) * 2.0^rand(-80:80) * (1 + rand()) for _ in 1:m]
+      w = [2.0^rand(-80:80) * (1 + rand()) for _ in 1:m]
+      γ, λ0 = 2.0^rand(-20:20), 2.0^rand(-20:20)
+    end
+    margins = setprecision(BigFloat, 600) do
+      [abs(big(x[i])) - big(γ) * big(λ0) * big(w[i]) for i in 1:m]
+    end
+    all(<=(0), margins) || continue
+    kbest = argmax(margins)               # the first of equal margins
+    c = Constrained(NormL1(λ0, w), IndSphereL2(1.0))
+    y = zeros(m)
+    value_and_prox!(y, c, x, γ)
+    @test findall(!iszero, y) == [kbest]
+    @test y[kbest] == sign(x[kbest])
+  end
+
+  # infinite weights: on the first entry, on the best entry
+  c = Constrained(NormL1(1.0, [Inf, 1.0, 1.0]), IndSphereL2(1.0))
+  y = zeros(3)
+  value_and_prox!(y, c, [5.0, 0.0, 0.5], 1.0)
+  @test y == [0.0, 0.0, 1.0]
+  c = Constrained(NormL1(1.0, [1.0, Inf, 1.0]), IndSphereL2(1.0))
+  value_and_prox!(y, c, [0.0, 5.0, 0.5], 1.0)
+  @test y == [0.0, 0.0, 1.0]
+  # signed zeros and ties: the first entry wins with its own sign
+  c = Constrained(NormL1(1.0), IndSphereL2(1.0))
+  value_and_prox!(y, c, [-0.0, 0.0, 0.0], 1.0)
+  @test y == [-1.0, 0.0, 0.0]
+  value_and_prox!(y, c, [0.0, -0.0, 0.0], 1.0)
+  @test y == [1.0, 0.0, 0.0]
+
+  # a sparse output
+  y = SparseIterate(4)
+  c = Constrained(NormL1(0.1), IndSphereL2(1.0))
+  value_and_prox!(y, c, [3.0, 0.0, -4.0, 0.0], 1.0)
+  @test norm(y) ≈ 1
+  @test Vector(y) ≈ [0.6, 0.0, -0.8, 0.0] rtol=0.02
+end
+
 end

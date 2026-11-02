@@ -66,6 +66,28 @@ PB_SUITE=extended PB_GROUPS=matrices PB_OUTPUT=benchmark/results/matrices \
 The optional [GPU solver suite](gpu_solver/README.md) measures CPU/CUDA time
 to independently checked accuracy on physical GPU hardware.
 
+### Reference checks without timing
+
+`benchmark/check_only.jl` builds the same cases and runs every selected case's reference checks
+and warm-up, without timing it. It does what `measure!` does before and after the timed trial:
+`validate()`, three `prepare(); op()` rounds and the allocation probe. A case with an automatic
+evaluation count then gets two samples of ten evaluations and `validate()` again. The cases run
+in the measurement order of the repetition. The script reads `PB_SUITE`, `PB_GROUPS`,
+`PB_CASES`, `PB_REPETITION` and `PB_EXPECTED_PACKAGE_ROOT`. With `PB_OUTPUT` set, it writes
+`check-rep<NN>-errors.tsv` there. It prints the ID of every failing case and exits with status 1
+if any case fails.
+
+```sh
+JULIA_NUM_THREADS=1 julia --project=benchmark benchmark/check_only.jl
+PB_SUITE=extended PB_GROUPS=products,sparse,atom,owner JULIA_NUM_THREADS=1 \
+  julia --project=benchmark benchmark/check_only.jl
+```
+
+CI runs the quick suite (693 cases, about a minute) on Julia lts and 1. The extended suite
+(5,195 cases, about four minutes) is a manual run; its `products,sparse,atom,owner` cases need
+about 16 GB of memory in one process. The script includes `run.jl` unchanged, so it does not
+change the harness hash of a baseline.
+
 ## Iterate-family groups
 
 A new case in `sparse`, `atom` or `owner` must keep these rules:

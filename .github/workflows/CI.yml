@@ -103,6 +103,35 @@ jobs:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+  benchmark-check:
+    # Every reference check of the quick benchmark suite, without timing (benchmark/check_only.jl).
+    # The extended suite stays a manual run.
+    name: Benchmark reference checks - Julia ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - 'lts'
+          - '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.version }}
+      - uses: julia-actions/cache@v3
+      - name: Prepare the benchmark environment
+        run: julia --color=yes benchmark/setup.jl . "$RUNNER_TEMP/benchmark-env"
+      - name: Check the quick suite
+        run: julia --color=yes --project="$RUNNER_TEMP/benchmark-env" benchmark/check_only.jl
+        env:
+          JULIA_NUM_THREADS: "1"
+          PB_SUITE: quick
+          PB_EXPECTED_PACKAGE_ROOT: ${{ github.workspace }}
   analysis:
     name: Benchmark analysis controls
     runs-on: ubuntu-latest

@@ -98,30 +98,43 @@ decision for your working tree against `origin/master`.
   `gh workflow run CI.yml --ref <branch> -f tier=thorough`. On a PR branch the
   result appears on the head commit beside the PR's own checks.
 
-Branch protection should require only the check **PR merge gate**. The gate
-job starts with the run, so its check is pending from the start, and it waits
-for the run's **Required jobs** job, which runs after the plan, the tests and
-the benchmark analysis controls. The gate passes when the plan succeeded, the
-benchmark analysis controls passed and every test job of the chosen tier
-passed; Julia pre is advisory. A failed, cancelled, skipped or missing test job
-fails it, and so does a plan that found an unclassified test file. To retry a
-failed job, use **Re-run failed jobs**: it re-runs that job, Required jobs and
-the gate, and the gate waits for the new result. If only the gate failed (for
-example on a GitHub API outage), the same button re-runs only the gate, which
-then takes the earlier Required jobs result. **Re-run job** on a single job
-re-runs it and Required jobs but not the gate, which keeps its earlier result;
-to check a passed run again, use **Re-run all jobs**. Coverage is collected only on full
-runs, so Codecov reports on master and on full PR runs.
+Branch protection on master requires two checks, both from GitHub Actions:
+**PR required jobs** and **PR merge gate**. PR required jobs runs after the
+plan, the tests and the benchmark analysis controls, and passes when the plan
+succeeded, the benchmark analysis controls passed and every test job of the
+chosen tier passed; Julia pre is advisory. A failed, cancelled, skipped or
+missing test job fails it, and so does a plan that found an unclassified test
+file. The gate job starts with the run, so a push or a label replaces the
+commit's earlier green gate with a pending one within seconds; it waits for
+the run's PR required jobs and passes only if they passed. Pushes, the nightly
+run and manual runs name the two checks **CI required jobs** and **CI
+result**, so a manual run on a PR branch cannot stand in for the PR's checks.
+Coverage is collected only on full runs, so Codecov reports on master and on
+full PR runs.
+
+To retry jobs of a PR run:
+
+- **Re-run failed jobs** re-runs the failed jobs, PR required jobs and, if it
+  failed, the gate; the PR stays blocked until the new results pass. If only
+  the gate failed (for example on a GitHub API outage), it re-runs only the
+  gate, which then takes the run's PR required jobs result.
+- **Re-run all jobs** starts the whole run again, with a pending gate.
+- **Re-run job** on one test job re-runs it and PR required jobs, but not the
+  gate. Until the re-run creates PR required jobs again, the PR's checks lack
+  it, so the PR is blocked while the job runs and stays blocked if the job
+  fails. After a failed run, the gate keeps its failure even when the re-run
+  passes; then use **Re-run failed jobs**, which re-runs only the gate.
 
 Each test job's summary page lists the selected files, the workers, the time
 before the test runner started (Julia, test environment, precompilation), the
 runner's wall time, the worker time of every file with its compilation share,
 and the slowest files. Thorough and full runs also write the conformance reports
 (every job checks that they exist), check the committed coverage map (Julia
-lts) and upload the reports. An upload that fails is retried once. The Julia
-lts, Linux artifact, from which the coverage map is regenerated, is required;
-on the other jobs a failed upload is a warning in the job and its summary and
-does not fail the tests.
+lts) and upload the reports. An upload counts only when GitHub returns an
+artifact id for it; otherwise it is retried once. The Julia lts, Linux
+artifact, from which the coverage map is regenerated, is required: without a
+confirmed upload that job fails. On the other jobs a missing upload is a
+warning in the job and its summary, and the job keeps the result of its tests.
 
 **When a master or nightly run fails**, the workflow opens (or comments on) the
 issue "CI failing on master". Fix the regression or revert the PR that caused it

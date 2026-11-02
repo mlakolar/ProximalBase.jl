@@ -237,8 +237,8 @@ earlier green gate and the new pending one were both listed as required and the 
 still the newest check: on #453 the PR was BLOCKED less than 4 s after the label request
 started, and on #443 and #444 the new gate was listed 2–6 s after the label. No workflow can
 close that window. **Re-run job** on a single job does not re-run the gate (it depends on no
-job), so a failure in such a re-run of a passed run leaves the gate green; CONTRIBUTING asks
-for Re-run all jobs instead. The gate job holds one Ubuntu runner for the length of its run (about 5
+job), so a failure in such a re-run of a passed run leaves the gate green; the next section
+makes the verdict job a second required check for this. The gate job holds one Ubuntu runner for the length of its run (about 5
 minutes for quick, 40 for full); runners are free for this public repository but count towards
 its limit of concurrent jobs. It makes about three API requests a minute, well within the
 token's 1000 an hour per repository.
@@ -265,6 +265,71 @@ first upload pointed at a missing directory checked this: in 41385714788 the lts
 succeeded on the retry (notice) and Julia 1 failed twice (warning, no artifact, job passed);
 in 41385717877 the lts upload failed twice, which failed the job and the gate, and Julia 1
 succeeded on the retry.
+
+## Two required checks (second review of #430)
+
+The second review found two gaps. **Re-run job** on one test job re-runs that job and the
+verdict job, but not the gate (it depends on no job), so with only `PR merge gate` required a
+failed re-run of a passed run left the gate green (manual run 41390953488). And the upload result
+step wrote `::error::` for an unconfirmed required upload without exiting nonzero itself.
+
+**The verdict job is the second required check.** It is named **PR required jobs** on pull
+requests and **CI required jobs** on pushes, nightly and manual runs (the gate likewise `PR merge
+gate` or `CI result`), so a manual run on a PR branch, whose checks land on the same commit,
+cannot supply a passing check of the required name. The gate waits for the verdict of its own
+event; `test/ci_gate.jl` checks that another name never counts. After the merge, branch
+protection requires both `PR merge gate` and `PR required jobs` from GitHub Actions.
+
+Scenario PRs #464–#472 checked this on GitHub against `ci/gate-scenarios` (this branch at
+cfbe152a) with a temporary ruleset requiring both checks, and #472 against
+`ci/gate-scenarios-gateonly` with a ruleset requiring only `PR merge gate`, the earlier advice.
+Both rulesets and branches were deleted afterwards. The failures are real `@test`s that read
+`GITHUB_RUN_ATTEMPT` and fail on Julia 1 in one attempt only; #470 stubs the tests. A watcher
+polled the PR's merge state and the commit's check runs every 3–4 s (times UTC).
+
+| Scenario | PR (run, attempt) | What GitHub showed | Merge state |
+|---|---|---|---|
+| A: quick | #464 (41448846473, 1) | both checks passed; 4.9 min end to end | CLEAN |
+| D: Re-run job on Julia 1, which passes | #464 (2) | request 13:02:40–41; the new Julia 1 check queued; PR required jobs absent from the PR's checks until the job finished; created and passed at 13:06:48 | CLEAN at 13:02:33.6, BLOCKED from 13:02:41.5, CLEAN at 13:06:48.8 |
+| B: label `test:full` on the passing commit | #464 (41450588756) | label request 13:09:45.1–47.4; new gate queued; full, five jobs, passed in 42.8 min; both checks passed at 13:52:24 and 13:52:38 | CLEAN at 13:09:48.0, BLOCKED from 13:09:50.4 to 13:52:17.7 (polled every 30 s after the first minute), CLEAN at 13:52:49.5 |
+| C: Re-run job on Julia 1, which fails | #466 (41448860044, 2) | request 13:04:26–27; the gate was copied into the attempt as passed; Julia 1 failed; PR required jobs failed at 13:08:43 | CLEAN at 13:04:16.4, BLOCKED from 13:04:27.4 on |
+| E: Re-run failed jobs after C | #466 (3) | Julia 1 and PR required jobs re-ran, the gate was copied | BLOCKED until PR required jobs passed; CLEAN at 13:14:00 |
+| E: Re-run all jobs | #466 (4) | request 13:16:18–20; a new gate queued at once and every job re-ran; the gate passed 12 s after PR required jobs | CLEAN at 13:16:13.9, BLOCKED from 13:16:21.3, CLEAN at 13:21:25.2 |
+| E: Re-run failed jobs after a failed run | #467 (41448872959, 1–2) | Julia 1 failed in attempt 1, failing both checks; the re-run gate was queued within 2 s of the request and waited | BLOCKED; CLEAN at 13:08:49.8 |
+| E: Re-run job after a failed run, then the gate | #468 (41448883485, 1–3) | attempt 2 re-ran Julia 1 and PR required jobs, which passed, but the gate kept its failure; attempt 3 (Re-run failed jobs) re-ran only the gate, which passed 27 s after the request | BLOCKED until 13:10:08, then CLEAN |
+| E: the gate's API requests fail, then the gate alone is re-run | #470 (41449027214, 1–2; stub tests, full matrix) | attempt 1: the gate failed on a nonexistent repository while PR required jobs passed; attempt 2: Re-run job on the gate, passed 29 s after the request | BLOCKED; CLEAN at 13:05:15.7 |
+| control: C with only `PR merge gate` required | #472 (41450008718, 2) | request 13:11:16–17; the gate was copied into the attempt as passed at about 13:11:31; Julia 1 failed at 13:15:23 and PR required jobs at 13:15:34 | BLOCKED for 14 s, then UNSTABLE (mergeable) through the failure and after |
+
+**Why a single-job re-run blocks at once.** The PR's checks show the newest attempt, and
+GitHub lists in it only the jobs it has created there: jobs that are not re-run are copied with
+their earlier results 10–15 s after the request, and re-run jobs appear when they are queued.
+PR required jobs is created only when the re-run test job finishes, so until then the required
+check is missing and the PR is BLOCKED (the commit's check-run listing still shows the earlier,
+passed PR required jobs; branch protection does not use it). With only the gate required, the
+copied gate satisfied protection while the job ran and after it failed (#472).
+
+**What remains.** Between a label, push or re-run and GitHub creating the run or attempt, the
+earlier checks are still the newest: 3–5 s on #464 for a label (2–6 s in the first round).
+For a re-run the PR was BLOCKED at the first poll after the request returned (within a second
+of it, on #464, #466 and #472), so any window is shorter than that, but polling cannot exclude
+one. The block
+*during* a single-job re-run rests on the observed listing above, which GitHub does not
+document; if it changed, both checks would show their earlier results while the job runs, and
+the PR would still be blocked once the re-run's PR required jobs is created (queued, then
+failed). A stronger guarantee would need a second, trusted workflow that sets a pending commit
+status when a re-run is requested (`workflow_run` with `statuses: write`), with its own start-up
+delay and failure modes; for a window of seconds it is not worth it.
+
+**The upload result step fails on its own.** `scripts/ci_upload_result.jl` replaces the inline
+step: an upload counts only when its step succeeded and returned an artifact id, an unconfirmed
+first upload (also a success without an id) is retried, and when the required Julia lts, Linux
+upload is unconfirmed the step writes the summary line and exits 1. On the other jobs it warns,
+and it names a failed test step instead of saying the tests passed. `test/ci_gate.jl` covers the
+cases in a table (required or not; first upload with or without an id; retry; failed tests) and
+the exit status and summary of the step. A manual thorough run, 41449072966, replaced the tests
+and both upload steps by stubs that succeed without an artifact id: on Julia lts the result
+step failed with the error, failing the job, CI required jobs and CI result; on Julia 1, whose
+stub test step failed, the warning named the failed test step.
 
 ## A test made independent of its worker
 

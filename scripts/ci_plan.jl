@@ -4,7 +4,8 @@
 #   julia scripts/ci_plan.jl --event=pull_request --base=A --head=B --labels=test:full,bug
 #   julia scripts/ci_plan.jl --event=workflow_dispatch --tier=standard
 #
-# The rules are in test/tiers.toml; test/tiers.jl applies them. Writes `tier`, `focus`,
+# The rules are in .github/tier-rules.toml and the tier lists in test/tiers.toml; test/tiers.jl
+# applies them. Writes `tier`, `focus`,
 # `run_tests` and `timeout` to $GITHUB_OUTPUT and a decision table to $GITHUB_STEP_SUMMARY
 # when those are set, and prints both. No packages are needed.
 
@@ -28,10 +29,11 @@ function options(args)
   return opts
 end
 
-# Without `head`, the working tree including untracked files, as a local check before a push.
+# Without `head`, the working tree (and untracked files) against the merge base with `base`,
+# as a PR would show it: a local check before a push.
 function changed_files(base, head)
   # --no-renames lists both paths of a rename, so a removed path still counts.
-  revs = head === nothing ? (base,) : (base, head)
+  revs = head === nothing ? (readchomp(Cmd(`git merge-base $base HEAD`; dir = ROOT)),) : (base, head)
   out = read(Cmd(`git diff --name-only --no-renames $revs`; dir = ROOT), String)
   head === nothing && (out *= "\n" * read(Cmd(`git ls-files --others --exclude-standard`; dir = ROOT), String))
   return sort!(unique(filter(!isempty, split(out, '\n'))))
@@ -52,7 +54,7 @@ function recent_full_run(repo, sha)
 end
 
 function plan(opts)
-  manifest = TestTiers.load(joinpath(ROOT, "test", "tiers.toml"))
+  manifest = TestTiers.load(joinpath(ROOT, "test", "tiers.toml"), joinpath(ROOT, ".github", "tier-rules.toml"))
   # The runner checks this too, but here an unclassified test file fails within seconds.
   TestTiers.check(manifest, TestTiers.discover(joinpath(ROOT, "test")))
   event = get(opts, "event", "pull_request")
@@ -113,16 +115,11 @@ function plan(opts)
     empty!(focus)
   end
   run_tests = tier != "none"
-  timeout = run_tests ? manifest_timeout(tier) : 0
+  timeout = run_tests ? manifest.timeouts[tier] : 0
   summary = run_tests ? "Tests: tier **$tier**" * (isempty(focus) ? "" : " and the changed test files $(join(focus, ", "))") :
             "Tests: **none needed**"
   pushfirst!(lines, summary, "")
   return (; tier, focus = join(focus, ","), run_tests, timeout), lines
-end
-
-function manifest_timeout(tier)
-  data = TestTiers.TOML.parsefile(joinpath(ROOT, "test", "tiers.toml"))
-  return Int(data["timeouts"][tier])
 end
 
 function main(args)

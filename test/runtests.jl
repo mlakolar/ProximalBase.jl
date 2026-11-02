@@ -42,14 +42,13 @@ if core
   @warn "`--core` is deprecated; use `--tier=quick`, `standard`, `thorough` or `full`. It still runs every file except $(join(legacy_extended, ", ")) and conformance/*."
 end
 
-if tier !== nothing
-  # The tier, the extra files, then the name filters among them.
-  selected = Set(TestTiers.select(manifest, tier))
+# The tier (every file without one), the extra files, then the name filters among them.
+# --list shows the whole catalog with --core, as before tiers.
+if tier !== nothing || (core && args.list === nothing)
+  selected = Set(tier !== nothing ? TestTiers.select(manifest, tier) :
+                 filter(name -> !(name in legacy_extended || startswith(name, "conformance/")), keys(testsuite)))
   union!(selected, extra)
   filter!(((name, _),) -> name in selected, testsuite)
-elseif core && args.list === nothing
-  # --list shows the whole catalog with --core, as before tiers.
-  filter!(((name, _),) -> !(name in legacy_extended || startswith(name, "conformance/")), testsuite)
 end
 filter_tests!(testsuite, args)
 isempty(testsuite) && error("no test file matches the selection: $(join(ARGS, " "))")

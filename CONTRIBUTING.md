@@ -61,27 +61,33 @@ why each file sits in its tier.
 ### Which tests CI runs
 
 The plan job of the CI workflow picks the tier of each run with
-`scripts/ci_plan.jl` and the rules at the end of `test/tiers.toml`; the run's
-summary page shows its decision for every changed file.
+`scripts/ci_plan.jl` and the rules in
+[`.github/tier-rules.toml`](.github/tier-rules.toml); the run's summary page shows
+its decision for every changed file. `julia scripts/ci_plan.jl` prints the same
+decision for your working tree against `origin/master`.
 
 - **Pull requests** run Julia lts and Julia 1 on Ubuntu at the minimum tier for
   the changed files, and the changed test files beside it:
-  - documentation only: no package tests;
-  - test files, examples or README only: quick;
+  - documentation only: no package tests (the API pages, whose entries
+    `test/docstrings.jl` checks, get quick);
+  - test files (including new ones and `test/tiers.toml`), examples or README
+    only: quick;
   - a self-contained function family together with a test change: quick and that
     family's own test files;
   - other package code (`src/`): standard; code shared by every function
     (iterates, `interface.jl`, `utils.jl`, `calculus.jl`, `metric.jl`, spectral
     helpers) or the conformance suite and its coverage map: thorough;
   - package code without any test change: at least standard;
-  - `Project.toml`, `ext/`, `src/lapack.jl`, the test runner, the tier manifest
-    and CI: full, which also runs Julia 1 on macOS and Windows and Julia pre;
+  - `Project.toml`, `ext/`, `src/lapack.jl`, the test runner, the CI rules and
+    workflow: full, which also runs Julia 1 on macOS and Windows and Julia pre;
   - a path no rule knows: full.
 - **Labels** `test:standard`, `test:thorough` and `test:full` raise a PR's tier;
   they never lower it. Adding or removing any label starts a new run. Add
   `test:thorough` when a change touches element-type promotion, precision,
   overflow-safe scaling or non-finite handling, which the paths cannot show, and
-  `test:full` for a release or a platform-sensitive change.
+  `test:full` for a release or a platform-sensitive change. A label adds a run
+  on the same commit, and until its gate job starts (after the tests) the
+  commit still shows the earlier gate: merge only after the new run's gate.
 - **Pushes to master and tags** run the full tier on all five jobs (none for a
   documentation-only push), with coverage and the conformance reports. A
   **nightly** full run catches changes in dependencies and Julia releases; it is

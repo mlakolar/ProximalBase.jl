@@ -2,8 +2,9 @@
 
 This file records why the test suite is split into tiers, where each file sits and why, which
 tests moved between files, and what the tiers cost on GitHub-hosted runners.
-[CONTRIBUTING.md](../CONTRIBUTING.md) is the user guide; [`tiers.toml`](tiers.toml) is the
-manifest that the runner and CI read.
+[CONTRIBUTING.md](../CONTRIBUTING.md) is the user guide; [`tiers.toml`](tiers.toml) lists the
+files of each tier and [`.github/tier-rules.toml`](../.github/tier-rules.toml) says which tier CI
+runs for a change.
 
 ## Baseline (before tiers)
 
@@ -26,9 +27,20 @@ A PR therefore waited about 29 minutes for its slowest required job (other PR ru
 26–30 min). With 4 workers the wall time is bounded below by a quarter of the worker time, so
 balancing the files better could not have helped much: the work itself had to shrink.
 
-**Compilation dominates.** ParallelTestRunner's `--verbose` output gives each file's compile
-share on Julia 1.11 and later: 92–99% for nearly every file, locally and on CI (the Quick tier
-on CI: 94% of 373 worker seconds). A test file's cost grows with the distinct method
+**Compilation dominates.** Every test file was run twice in one fresh process on the Discovery
+cluster (AMD EPYC 7542, one file per core, `--check-bounds=yes`, commit 83a2eef9), first cold
+and then again in a new sandbox module, which reuses the package methods compiled by the first
+run:
+
+| Julia | Cold, sum over 135 files | Compilation in the cold runs | Warm rerun | Execution (warm minus its compilation) |
+|---|---:|---:|---:|---:|
+| 1.10.12 | 5856 s | 5457 s (93%) | 892 s | 98 s (1.7%) |
+| 1.13.3 | 6662 s | 6057 s (91%) | 1032 s | 102 s (1.5%) |
+
+The warm reruns still compile the closures and types each test file defines. Executing the
+assertions takes under 2% of the time: the cost is compiling specializations. ParallelTestRunner's
+`--verbose` output, now on in CI, shows the same on GitHub runners: 94–98% compilation per tier
+(Julia 1.13). A test file's cost grows with the distinct method
 specializations it reaches (function types × element types × shapes × wrappers × iterate
 types), not with its number of assertions. Coverage on Julia 1 made it worse: code under
 coverage is compiled without the package image, which is why the Julia 1 PR job took 6306
@@ -92,6 +104,12 @@ remaining testset starts in the same random state as before. `test/cuda/runtests
 `gpu_prelude`, `gpu_suite_basics` and then, after reseeding, `gpu_suite`, so the physical GPU
 covers exactly what it covered before, with the same random inputs as `test/gpu.jl`.
 
+**Coverage.** The full tier's Codecov upload (Julia 1, Ubuntu, run 41361146694 at dad59957)
+covers 14160 of 14618 lines (96.86%), the same 14160 lines as master at the base commit 83a2eef9.
+**Assertions.** At the same base, every full job passes exactly 116 more assertions than master's
+run 41341879373 (Julia 1: 639818 against 639702; broken counts equal): the 117 of
+`tier_selection` less the one random-draw-dependent check in `constrained`.
+
 ## JLArrays and CUDA
 
 `gpu_smoke` (quick) and `gpu` (full) run on JLArrays, GPUArrays' reference backend on the CPU,
@@ -99,3 +117,26 @@ with scalar indexing disallowed: they catch code that indexes device arrays elem
 or does not adapt its parameters. They do not test a physical device. `test/cuda` runs the same
 shared cases on an NVIDIA GPU by hand (see its README); no tier and no CI job runs it, and
 `test/oracles` (JuMP and conic solvers) is likewise run by hand.
+
+## CI scenarios
+
+Checked on GitHub with draft PRs against this branch (#431–#437, closed unmerged), so that each
+diff held only the scenario's change:
+
+| Scenario | PR | Plan | Outcome | PR merge gate |
+|---|---|---|---|---|
+| a test file in quick changed (`test/lla.jl`) | #431 | quick | passed, 4.1 min | passed |
+| label `test:standard` added | #431 | standard | the next label cancelled it | **failed** (cancelled) |
+| label `test:full` added | #431 | full, five platform jobs | cancelled by hand | **failed** (cancelled) |
+| a test file outside quick changed (`test/hyperslab.jl`) | #437 | quick and `hyperslab` | passed, 4.6 min | passed |
+| family code without a test change (`src/functions/norms.jl`) | #432 | standard | passed, 8.4 min | passed |
+| shared code (`src/utils.jl`) | #433 | thorough | passed, 27.1 min | passed |
+| documentation only (`docs/src/index.md`) | #434 | none | no test jobs, 0.4 min | passed |
+| a failing assertion in a quick file | #435 | quick | both test jobs failed | **failed** |
+| a test file missing from `tiers.toml` | #436 | the plan job failed | no test jobs | **failed** |
+| the runner, CI and manifest (this PR) | #430 | full, five platform jobs | passed, 41 min | passed |
+| manual runs of quick, standard and thorough | — | as chosen | passed | (named "CI result") |
+
+Every check ran on the PR's head commit; the plan, test and gate jobs print it. The gate reads
+the conclusion of each expected test job of its own run, so a skipped, cancelled, missing or
+failed job fails it. Pushes to master and the nightly run can only be observed after the merge.

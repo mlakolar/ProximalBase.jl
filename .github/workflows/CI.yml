@@ -23,9 +23,10 @@ on:
         options: [full, thorough, standard, quick]
         default: full
 concurrency:
-  # A new commit or label on a PR cancels its older run; pushes, nightly and manual runs (per
-  # tier) each queue on their own, and a newer pending run replaces an older pending one.
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ inputs.tier }}
+  # A new commit or label on a PR cancels its older run. Every push to master runs to the end
+  # (its own group: a later push must not replace it while it waits). Nightly and manual runs
+  # (per tier) queue, and a newer pending one replaces an older pending one.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ inputs.tier }}-${{ github.event_name == 'push' && github.sha || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   plan:
@@ -216,7 +217,9 @@ jobs:
             [ "$RUN_TESTS" = false ] && [ "$TESTS" = skipped ] || error "Tier none, but run_tests=$RUN_TESTS and the test jobs are $TESTS."
           elif [ ${#expected[@]} -gt 0 ]; then
             [ "$RUN_TESTS" = true ] || error "Tier $TIER without run_tests ($RUN_TESTS)."
-            jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" --paginate \
+            case "$TESTS" in cancelled|skipped) error "The test jobs are $TESTS." ;; esac
+            # The latest attempt of each job, so a re-run of failed jobs counts.
+            jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" --paginate \
               --jq '.jobs[] | "\(.name)\t\(.conclusion)"')
             for name in "${expected[@]}"; do
               conclusion=$(printf '%s\n' "$jobs" | awk -F'\t' -v n="Julia $name - $TIER" '$1 == n {print $2}')

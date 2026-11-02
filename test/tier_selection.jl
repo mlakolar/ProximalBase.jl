@@ -9,7 +9,7 @@ include(joinpath(@__DIR__, "tiers.jl"))
 using .TestTiers: TestTiers, TIERS, ManifestError
 
 const DIR = @__DIR__
-const MANIFEST = TestTiers.load(joinpath(DIR, "tiers.toml"))
+const MANIFEST = TestTiers.load(joinpath(DIR, "tiers.toml"), joinpath(dirname(DIR), ".github", "tier-rules.toml"))
 
 @testset "the manifest covers every test file" begin
   found = TestTiers.discover(DIR)
@@ -78,6 +78,12 @@ end
   @test any(occursin("risk rule 1 has tier `fast`", s) for s in p)
   p = problems(() -> TestTiers.parse_manifest(replace(SMALL, "helpers = [\"h\"]" => "helpers = [\"a\"]")))
   @test any(occursin("`a` is both a helper and in tier `quick`", s) for s in p)
+  # a focus file that no tier lists, a bad timeout
+  p = problems(() -> TestTiers.parse_manifest(SMALL * "[[risk]]\ntier = \"quick\"\npaths = [\"x\"]\nfocus = [\"zz\"]\n"))
+  @test any(occursin("focus `zz`, which is in no tier", s) for s in p)
+  p = problems(() -> TestTiers.parse_manifest(SMALL * "[timeouts]\nquick = 0\n"))
+  @test any(occursin("timeouts.quick", s) for s in p)
+  @test MANIFEST.timeouts == Dict("quick" => 20, "standard" => 30, "thorough" => 45, "full" => 90)
 end
 
 @testset "path patterns" begin
@@ -114,6 +120,7 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
   # shared code
   @test classify("src/sparse_iterate.jl", "test/sparse_iterate.jl")[1] == "thorough"
   @test classify("src/utils.jl")[1] == "thorough"
+  @test classify("src/calculus.jl", "test/calculus.jl") == ("thorough", ["calculus", "stepchecks"])
   @test classify("src/interface.jl", "docs/src/interface.md")[1] == "thorough"
   # the conformance suite and its coverage map
   @test classify("test/conformance/kernels.jl") == ("thorough", ["conformance/kernels"])
@@ -122,7 +129,13 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
   @test classify("src/lapack.jl")[1] == "full"
   @test classify("ext/ProximalBaseGPUArraysCoreExt.jl", "test/gpu.jl")[1] == "full"
   @test classify("test/runtests.jl")[1] == "full"
-  @test classify("test/tiers.toml")[1] == "full"
+  @test classify(".github/tier-rules.toml")[1] == "full"
+  @test classify("test/tiers.jl")[1] == "full"
+  # a new test file and its line in the tier lists: quick and the file
+  @test classify("test/tiers.toml", "test/norms.jl") == ("quick", ["norms"])
+  # the API pages have @docs entries that test/docstrings.jl checks; prose needs no tests
+  @test classify("docs/src/api/functions.md")[1] == "quick"
+  @test classify("docs/src/numerics.md")[1] == "none"
   @test classify(".github/workflows/CI.yml")[1] == "full"
   @test classify("Project.toml")[1] == "full"
   @test classify("a/new/file.txt")[1] == "full"

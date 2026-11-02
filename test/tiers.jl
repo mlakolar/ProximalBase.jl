@@ -1,7 +1,8 @@
 # Test tiers: which test files a tier runs, and which tier a pull request needs.
 #
 # test/runtests.jl uses this module to select the files of a tier, and scripts/ci_plan.jl uses
-# it to choose the tier of a CI run. test/tier_selection.jl tests it. The data is in tiers.toml.
+# it to choose the tier of a CI run. test/tier_selection.jl tests it. The tier lists are in
+# test/tiers.toml and the CI rules in .github/tier-rules.toml.
 
 module TestTiers
 
@@ -14,12 +15,6 @@ const TIERS = ("quick", "standard", "thorough", "full")
 
 rank(tier::AbstractString) = something(findfirst(==(tier), TIERS), 0)
 
-"""
-    Manifest
-
-The parsed tiers.toml: the lowest tier of each test file, the helper files that are not tests,
-the directories with environments of their own, and the rules that map changed paths to tiers.
-"""
 struct Rule
   patterns::Vector{String}
   regexes::Vector{Regex}
@@ -28,12 +23,20 @@ struct Rule
   why::String
 end
 
+"""
+    Manifest
+
+The parsed tiers.toml: the lowest tier of each test file, the helper files that are not tests
+and the directories with environments of their own; with tier-rules.toml also the rules that
+map changed paths to tiers, the policy for package code without tests and the CI timeouts.
+"""
 struct Manifest
   tier::Dict{String, String}
   helpers::Vector{String}
   environments::Vector{String}
   rules::Vector{Rule}
   untested::String
+  timeouts::Dict{String, Int}
 end
 
 struct ManifestError <: Exception
@@ -41,11 +44,26 @@ struct ManifestError <: Exception
 end
 
 function Base.showerror(io::IO, e::ManifestError)
-  print(io, "test/tiers.toml does not match the test files:")
+  print(io, "test/tiers.toml or .github/tier-rules.toml has problems:")
   foreach(p -> print(io, "\n  - ", p), e.problems)
 end
 
-load(path::AbstractString) = parse_manifest(TOML.parsefile(path))
+"""
+    load(tiers_path, [rules_path])
+
+Read the tier lists and, if given, the CI rules (two TOML files, read as one).
+"""
+function load(tiers_path::AbstractString, rules_path::Union{Nothing, AbstractString} = nothing)
+  data = TOML.parsefile(tiers_path)
+  if rules_path !== nothing
+    rules = TOML.parsefile(rules_path)
+    for k in keys(rules)
+      haskey(data, k) && throw(ManifestError(["`$k` is in both $tiers_path and $rules_path"]))
+    end
+    merge!(data, rules)
+  end
+  return parse_manifest(data)
+end
 parse_manifest(text::AbstractString) = parse_manifest(TOML.parse(text))
 
 function parse_manifest(data::AbstractDict)
@@ -79,12 +97,20 @@ function parse_manifest(data::AbstractDict)
     patterns = String[get(rule, "paths", String[])...]
     isempty(patterns) && push!(problems, "risk rule $i has no paths")
     focus = String[get(rule, "focus", String[])...]
+    for name in focus
+      haskey(tier, name) || push!(problems, "risk rule $i has focus `$name`, which is in no tier")
+    end
     push!(rules, Rule(patterns, map(glob_regex, patterns), t, focus, get(rule, "why", "")))
   end
   untested = get(get(data, "policy", Dict{String, Any}()), "source_without_tests", "standard")
   rank(untested) > 0 || push!(problems, "policy.source_without_tests must be a tier, not `$untested`")
+  timeouts = Dict{String, Int}()
+  for (t, minutes) in get(data, "timeouts", Dict{String, Any}())
+    rank(t) > 0 && minutes isa Integer && minutes > 0 || push!(problems, "timeouts.$t = $minutes: use a tier and a positive number of minutes")
+    timeouts[t] = minutes
+  end
   isempty(problems) || throw(ManifestError(problems))
-  return Manifest(tier, helpers, environments, rules, untested)
+  return Manifest(tier, helpers, environments, rules, untested, timeouts)
 end
 
 isenvironment(m::Manifest, name) = any(dir -> startswith(name, dir * "/"), m.environments)

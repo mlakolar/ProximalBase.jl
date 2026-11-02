@@ -195,3 +195,5 @@ end
     @test_throws ErrorException quietly(() -> CIUploadResult.main(env(REQUIRED = "")))
   end
 end
+
+# Scenario A (PR #430): a comment only.

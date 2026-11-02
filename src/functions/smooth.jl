@@ -488,10 +488,12 @@ end
 # The decision is made once per call, from the factors, not from t: the product of
 # finite nonzero factors can underflow or overflow in P.
 @inline function _ridge_needs_scaling(::Type{W}, γ, λ) where {W}
-  W <: Union{Float32, Float64} && isfinite(γ) && isfinite(λ) && !iszero(γ) && !iszero(λ) || return false
+  W <: Union{Float32, Float64} || return false
   P = promote_type(W, float(typeof(γ)), float(typeof(λ)))
   t = P(γ) * P(λ)
-  !(P(_ridge_band_low(W)) <= t <= P(_ridge_band_high(W)))
+  # t in the band implies finite nonzero factors, so they are examined only outside it
+  (P(_ridge_band_low(W)) <= t <= P(_ridge_band_high(W))) && return false
+  isfinite(γ) & isfinite(λ) & !iszero(γ) & !iszero(λ)
 end
 # t, 1/t and both convex weights are normal in W for t in [2^-126, 2^125] (Float32)
 # and [2^-1022, 2^1021] (Float64)
@@ -564,7 +566,7 @@ function _ridge_prox!(z, co::Union{_RidgeOrdinary{W}, _RidgeScaled{W}}, x, c) wh
   end
 end
 
-function prox_entry(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real)
+@inline function prox_entry(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real)
   W = typeof(float(v))
   _ridge_needs_scaling(W, γ, f.λ) ? _ridge_apply(_ridge_scaled(W, γ, f.λ), W(v)) :
                                     _ridge_apply(_ridge_ordinary(W, γ, f.λ), W(v))

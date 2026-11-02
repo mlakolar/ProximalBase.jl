@@ -586,15 +586,20 @@ Base.@propagate_inbounds function prox_entry(f::SqrNormL2, v::Real, i::Integer, 
                                     _ridge_apply(_ridge_ordinary(W, γ, f.λ), W(v), f.y[i])
 end
 # The ridge whose entries are known to take the ordinary coefficient: prox_entry
-# without the test, where _ridge_needs_scaling(W, γ, f.λ) is false. Constrained uses it
-# for per-entry steps it has checked, so that its loops have no call.
-struct _OrdinaryRidge{F<:SqrNormL2}
+# without the test, where _ridge_needs_scaling(W, γ, f.λ) is false; with Fit, every
+# center entry is also known to keep its range in W. Constrained uses it for steps and
+# centers it has checked, so that its loops have no call.
+struct _OrdinaryRidge{Fit, F<:SqrNormL2}
   f::F
 end
-@inline prox_entry(r::_OrdinaryRidge{<:SqrNormL2{<:Real, Nothing}}, v::Real, ::Integer, γ::Real) =
+_OrdinaryRidge{Fit}(f::F) where {Fit, F} = _OrdinaryRidge{Fit, F}(f)
+@inline prox_entry(r::_OrdinaryRidge{Fit, <:SqrNormL2{<:Real, Nothing}}, v::Real, ::Integer, γ::Real) where {Fit} =
   (W = typeof(float(v)); _ridge_apply(_ridge_ordinary(W, γ, r.f.λ), W(v)))
-Base.@propagate_inbounds prox_entry(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) =
-  (W = typeof(float(v)); _ridge_apply(_ridge_ordinary(W, γ, r.f.λ), W(v), r.f.y[i]))
+Base.@propagate_inbounds function prox_entry(r::_OrdinaryRidge{Fit}, v::Real, i::Integer, γ::Real) where {Fit}
+  W = typeof(float(v))
+  o = _ridge_ordinary(W, γ, r.f.λ)
+  Fit ? _ridge_apply_fit(o, W(v), r.f.y[i]) : _ridge_apply(o, W(v), r.f.y[i])
+end
 _checkparams(f::SqrNormL2, x) = _checkparam(f.y, x)
 
 kkt_violation(::SqrNormL2{<:Real, Nothing}, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]))

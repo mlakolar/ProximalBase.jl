@@ -275,8 +275,8 @@ setprecision(BigFloat, BIG) do
     end
   end
   # Constrained(SqrNormL2, linear set) with per-entry steps. Where every γᵢλ lies in the
-  # ordinary band, the search takes the entries without the test. Each entry, slope and
-  # output pass must have the bits of the tested ones; the sums of a pass vectorize and
+  # ordinary band, the search takes the entries without the test. Each entry and slope
+  # must have the bits of the tested ones; the sums of a pass vectorize and
   # may differ in the last bits, so whole calls agree within the search's accuracy, and
   # both match an exact reference. The reference solves for the multiplier in closed
   # form: z(ν) = (x + tc - γνa)/(1 + t), t = γλ, is linear in ν, with the steps as the
@@ -307,10 +307,15 @@ setprecision(BigFloat, BIG) do
       (v < l || v > u) && @test min(abs(v - l), abs(v - u)) <= ulps * eps(W) * (m + max(abs(l), abs(u)))
       r
     end
-    # the fast call (prox!) and the tested route from the same warm state; the entries,
-    # slopes and output pass at the multiplier found have the same bits
+    # the fast call (prox!) and the tested route from the same warm state; the entries
+    # and slopes at the multiplier found have the same bits, and the output passes agree
+    # to an ulp. On the tested route, prox! alone.
     function both(c, x, γ, alias)
       T = eltype(x)
+      γ isa Real && (γ = T(γ))                     # as prox! converts a scalar step
+      route = PB._ridge_route(c.f, γ, x, T)
+      route === :tested && (y = copy(x); return prox!(y, c, alias ? y : x, γ))
+      Fit = route === :fit
       l0, s0 = c.last[], c.slope[]
       y1 = copy(x); prox!(y1, c, alias ? y1 : x, γ)
       l1, s1 = c.last[], c.slope[]
@@ -322,14 +327,15 @@ setprecision(BigFloat, BIG) do
       f, ν = c.f, T(l1)
       a = PB._isscaled(c.set) ? PB._normalized_normal(c.set.a, c.set.s) : c.set.a
       @test all(eachindex(x)) do i
-        γᵢ = T(γ[i]); v = x[i] - γᵢ * ν * T(a[i])
-        isequal(prox_entry(PB._OrdinaryRidge(f), v, i, γᵢ), prox_entry(f, v, i, γᵢ)) &&
-          isequal(PB._prox_entry_slope(PB._OrdinaryRidge(f), v, i, γᵢ), PB._prox_entry_slope(f, v, i, γᵢ))
+        γᵢ = T(γ isa Real ? γ : γ[i]); v = x[i] - γᵢ * ν * T(a[i])
+        isequal(prox_entry(PB._OrdinaryRidge{Fit}(f), v, i, γᵢ), prox_entry(f, v, i, γᵢ)) &&
+          isequal(PB._prox_entry_slope(PB._OrdinaryRidge{Fit}(f), v, i, γᵢ), PB._prox_entry_slope(f, v, i, γᵢ))
       end
       o1, o2 = similar(x), similar(x)
-      PB._linear_constrained_output!(o1, f, a, x, PB._OrdinarySteps(γ), ν)
+      PB._linear_constrained_output!(o1, f, a, x, PB._RidgeSteps{Fit}(γ), ν)
       PB._linear_constrained_output!(o2, f, a, x, γ, ν)
-      @test all(isequal.(o1, o2))
+      # the muladd of the blend may fuse in one compilation of the loop and not in the other
+      @test all(i -> isequal(o1[i], o2[i]) || abs(o1[i] - o2[i]) <= eps(abs(o2[i])), eachindex(o1))
       y1
     end
     sets(a, s) = ((IndHyperplane(a, s), s, s),                      # hyperplane
@@ -344,22 +350,23 @@ setprecision(BigFloat, BIG) do
       a = W[0.5 + (i % 7) / 7 for i in 1:n]
       γ = F[0.1 + (i % 5) / 5 for i in 1:n]
       λ = F(0.7)
-      for cc in (nothing, cen), (set, l, u) in sets(a, W(n / 4)), alias in (false, true)
+      for cc in (nothing, cen), (set, l, u) in sets(a, W(n / 4)), alias in (false, true), steps in (γ, F(0.3))
         f = SqrNormL2(λ, cc)
-        @test PB._ordinary_steps(f, γ, x, W)
+        wide = cc !== nothing && W === Float32 && F === Float64   # Float64 centers on Float32 data
+        @test PB._ridge_route(f, steps, x, W) === (steps isa Real && !wide ? :tested : :fit)
         c = Constrained(f, set)
-        z = both(c, x, γ, alias)                                   # cold
-        n == 64 && check_ref(z, x, cc, γ, λ, a, l, u)
+        z = both(c, x, steps, alias)                               # cold
+        n == 64 && check_ref(z, x, cc, steps, λ, a, l, u)
         x2 = x .+ W(0.01)
-        z2 = both(c, x2, γ, alias)                                 # warm, from the last multiplier
-        n == 64 && check_ref(z2, x2, cc, γ, λ, a, l, u)
+        z2 = both(c, x2, steps, alias)                             # warm, from the last multiplier
+        n == 64 && check_ref(z2, x2, cc, steps, λ, a, l, u)
       end
     end
     # integer steps: _metric_sqnorm has a method for them on a slab
     let x = [1.0, -2.0, 0.5, 3.0], a = [1.0, 0.5, 2.0, 1.0], γ = [1, 2, 1, 3]
       for set in (IndHyperplane(a, 1.0), IndHyperslab(a, 2.0, 3.0)), cc in (nothing, [0.5, 1.0, -1.0, 2.0])
         f = SqrNormL2(0.7, cc)
-        @test PB._ordinary_steps(f, γ, x, Float64)
+        @test PB._ridge_route(f, γ, x, Float64) === :fit
         z = both(Constrained(f, set), x, γ, false)
         set isa IndHyperplane && check_ref(z, x, cc, γ, 0.7, a, 1.0, 1.0)
       end
@@ -373,7 +380,7 @@ setprecision(BigFloat, BIG) do
       γ = F[1, 1.5, 0.75, 1.25] .* pow2(F, k)
       cc = W[0.5, 1, -1, 2]
       for f in (SqrNormL2(λ), SqrNormL2(λ, cc))
-        @test PB._ordinary_steps(f, γ, x, W)
+        @test PB._ridge_route(f, γ, x, W) === :fit
         z = both(Constrained(f, IndHyperplane(a, W(1))), x, γ, false)
         check_ref(z, x, f.y, γ, λ, a, 1, 1)
       end
@@ -393,7 +400,7 @@ setprecision(BigFloat, BIG) do
       x = W[0, -2, 0.5, 3]
       a = W[0.25, 0.5, 2, a4]
       for f in (SqrNormL2(λ), SqrNormL2(λ, cc)), (set, l, u) in sets(a, W(1)), alias in (false, true)
-        @test !PB._ordinary_steps(f, γ, x, W)
+        @test PB._ridge_route(f, γ, x, W) === :tested
         c = Constrained(f, set)
         z = copy(x); prox!(z, c, alias ? z : x, γ)
         r = check_ref(z, x, f.y, γ, λ, a, l, u)
@@ -406,16 +413,28 @@ setprecision(BigFloat, BIG) do
       c = Constrained(f, IndHyperplane(a, 1.0))
       z = both(c, x, γ, false); check_ref(z, x, cc, γ, 0.7, a, 1, 1)
       γ[2] = 1.5 * pow2(Float64, 1022)                              # γλ above 2^1021
-      @test !PB._ordinary_steps(f, γ, x, Float64)
+      @test PB._ridge_route(f, γ, x, Float64) === :tested
       z = prox!(similar(x), c, x, γ); check_ref(z, x, cc, γ, 0.7, a, 1, 1)
       γ[2] = 0.6
-      @test PB._ordinary_steps(f, γ, x, Float64)
+      @test PB._ridge_route(f, γ, x, Float64) === :fit
       z = both(c, x, γ, false); check_ref(z, x, cc, γ, 0.7, a, 1, 1)
     end
-    # other precisions keep the tested entries
-    @test !PB._ordinary_steps(SqrNormL2(big(0.7)), [0.5, 1.0], [1.0, 2.0], Float64)
-    @test !PB._ordinary_steps(SqrNormL2(0.7), [0.5, 1.0], BigFloat[1, 2], BigFloat)
-    @test !PB._ordinary_steps(NormL1(0.7), [0.5, 1.0], [1.0, 2.0], Float64)
+    # a Float64 center with an entry that underflows Float32: per-entry steps take the
+    # ordinary coefficient and test the center; a scalar step keeps the tested entries
+    let x = Float32[1, -2, 0.5, 3], a = Float32[1, 0.5, 2, 1], γ = [0.3, 0.6, 0.9, 1.1], cc = [1e-300, 1.0, -1.0, 2.0]
+      f = SqrNormL2(0.7, cc)
+      @test PB._ridge_route(f, γ, x, Float32) === :ordinary
+      @test PB._ridge_route(f, 0.3f0, x, Float32) === :tested
+      for (set, l, u) in sets(a, 1f0), alias in (false, true), steps in (γ, 0.3)
+        z = both(Constrained(f, set), x, steps, alias)
+        check_ref(z, x, cc, steps, 0.7, a, l, u)
+      end
+    end
+    # other precisions and functions keep the tested entries
+    @test PB._ridge_route(SqrNormL2(big(0.7)), [0.5, 1.0], [1.0, 2.0], Float64) === :tested
+    @test PB._ridge_route(SqrNormL2(0.7), [0.5, 1.0], BigFloat[1, 2], BigFloat) === :tested
+    @test PB._ridge_route(SqrNormL2(0.7, BigFloat[1, 2]), [0.5, 1.0], [1.0, 2.0], Float64) === :tested
+    @test PB._ridge_route(NormL1(0.7), [0.5, 1.0], [1.0, 2.0], Float64) === :tested
   end
   @testset "BigFloat centers are rounded entry by entry" begin
     setprecision(BigFloat, 256) do

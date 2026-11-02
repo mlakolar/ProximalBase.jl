@@ -323,6 +323,43 @@ end
   @test !ProximalBase._has_prox_slope(typeof(NoSlope(NormL1(1.))))
 end
 
+@testset "the slope of the ridge where γλ leaves the range of the model type" begin
+  # the slope is the weight prox_entry applies to the argument: compared with 1/(1 + γλ)
+  # in BigFloat, to a few steps of the model type (subnormal slopes have few bits), and
+  # bit for bit with prox_entry at v = 1, which has no other term
+  slope_ok(W, γ, λ) = begin
+    f = SqrNormL2(λ)
+    z, dz = ProximalBase._prox_entry_slope(f, one(W), 1, γ)
+    exact = inv(1 + big(γ) * big(λ))
+    dz isa W && z == prox_entry(f, one(W), 1, γ) && dz == z &&
+      abs(big(dz) - exact) <= 4 * max(big(eps(W)) * exact, big(nextfloat(zero(W))))
+  end
+  for (W, lo, hi) in ((Float32, -126, 125), (Float64, -1022, 1021)), Λ in (W, Float64)
+    # t = 2^k, in and around the band, with γ and λ each holding part of the exponent
+    for k in (lo - 3:lo + 2..., hi - 2:hi + 3..., 2lo, 2hi, 0, 1, -1), m in (1, 1.3, 1.7)
+      @test slope_ok(W, W(1), Λ(m * 2.0^clamp(k, -1000, 1000)))
+      @test slope_ok(W, W(2.0^(k ÷ 2)), Λ(m * 2.0^clamp(k - k ÷ 2, -1000, 1000)))
+    end
+  end
+  # the examples of the issue, and a Float64 λ on Float32 data
+  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1f0, 30)), 1f0, 1, ldexp(1f0, 100)) == (7.34684f-40, 7.34684f-40)
+  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1.0, 40)), 1.0, 1, ldexp(1.0, 1000))[2] == 8.487983164e-314
+  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1.0, 40)), 1f0, 1, ldexp(1f0, 100))[2] > 0
+  # a true slope that underflows is 0, for both outputs
+  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1f0, 100)), 1f0, 1, ldexp(1f0, 100)) == (0f0, 0f0)
+  # a center changes the value and not the slope; the ordinary route agrees in band
+  for W in (Float32, Float64)
+    f, fc = SqrNormL2(W(0.7)), SqrNormL2(W(0.7), W[3, -2])
+    for γ in (W(0.4), W(3)), i in 1:2
+      z, dz = ProximalBase._prox_entry_slope(fc, W(1.5), i, γ)
+      @test z == prox_entry(fc, W(1.5), i, γ) && dz == ProximalBase._prox_entry_slope(f, W(1.5), i, γ)[2]
+      @test ProximalBase._prox_entry_slope(ProximalBase._OrdinaryRidge(fc), W(1.5), i, γ) == (z, dz)
+    end
+    zc, dzc = ProximalBase._prox_entry_slope(SqrNormL2(ldexp(W(1), 30), W[2]), W(1), 1, ldexp(W(1), 90))
+    @test dzc > 0 && zc == prox_entry(SqrNormL2(ldexp(W(1), 30), W[2]), W(1), 1, ldexp(W(1), 90))
+  end
+end
+
 @testset "boxes intersecting closed and open scalar domains" begin
   for T in (Float32,)
     # Entropy has a closed domain at zero; the positive log barrier can instead

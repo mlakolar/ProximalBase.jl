@@ -450,6 +450,11 @@ end
   # infinite entries: unchanged
   @test isequal(prox(IndIsotonic(), [Inf, -Inf]), [NaN, NaN])
   @test prox(IndIsotonic(), [-Inf, Inf]) == [-Inf, Inf]
+  # Float16 with n² beyond its range: the means path is correct for ordinary data too
+  let x = Float16.(randn(MersenneTwister(3), 300)), z = prox(IndIsotonic(), x)
+    @test issorted(z) && all(isfinite, z)
+    @test isapprox(z, Float16.(isotonic_reference(Float64.(x))); atol = 0.01)
+  end
   # Float32 data and steps in the weighted case, and Float16
   @test all(isapprox.(prox(IndIsotonic(), Float32[floatmax(Float32), -floatmax(Float32)], Float32[1, 2]),
                       Float32(big(floatmax(Float32)) / 3); rtol = 1e-6))

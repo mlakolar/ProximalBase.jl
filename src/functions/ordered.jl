@@ -219,7 +219,7 @@ function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{In
   nb = 0
   # with every |vᵢ| ≤ bound, the sums and the products compared below stay below
   # floatmax; a larger finite entry redoes the pooling in means
-  bound = T <: AbstractFloat ? floatmax(T) / (4 * T(n)^2) : T(Inf)
+  bound = T <: AbstractFloat ? T(Float64(floatmax(T)) / (4 * Float64(n)^2)) : T(Inf)
   over = false
   @inbounds for i in 1:n
     nb += 1

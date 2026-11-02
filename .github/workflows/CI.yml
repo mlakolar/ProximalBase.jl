@@ -118,7 +118,7 @@ jobs:
       - name: Run package tests
         id: tests
         shell: bash
-        run: echo "Scenario stub: no package tests in this scenario"
+        run: echo "scenario stub, no package tests in this scenario"
       - name: Timing summary
         if: ${{ !cancelled() && steps.tests.outcome != 'skipped' }}
         continue-on-error: true

@@ -21,6 +21,7 @@ quick = [
   # iterates: active sets, value writes versus state copies, symmetric coordinates, aliasing
   "active_handle",
   "atom_iterate",
+  "iterate_invariants",
   "iterate_queries",
   "matrixview",
   "sparse_iterate_basics",

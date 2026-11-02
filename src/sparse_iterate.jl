@@ -2188,3 +2188,5 @@ function _output_buffer!(s::Scratch, y::Y) where {Y<:_StoredIterate}
   copyto!(b::Y, y)
 end
 _wrapper_output(y::_StoredIterate, z) = z
+
+# Scenario I4 (PR #430): a comment only.

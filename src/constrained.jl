@@ -346,9 +346,15 @@ _prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::A
 function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ)
   _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
+  r = _ridge_route(c.f, γ, x, T)
+  r === :fit && return _linear_constrained_prox!(y, c, x, _RidgeSteps{true}(γ), T)
+  r === :ordinary && return _linear_constrained_prox!(y, c, x, _RidgeSteps{false}(γ), T)
+  _linear_constrained_prox!(y, c, x, γ, T)
+end
+function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ, ::Type{T}) where {T}
   ν = _multiplier(c, x, γ, T)
   set = c.set
-  set isa IndHyperslab && iszero(ν) && return _prox_sep!(y, c.f, x, γ)
+  set isa IndHyperslab && iszero(ν) && return _prox_sep!(y, c.f, x, _steps(γ))
   if _isscaled(set)
     return _linear_constrained_output!(y, c.f, _normalized_normal(set.a, set.s), x, γ, ν)
   end
@@ -362,6 +368,53 @@ function _linear_constrained_output!(y, f, a, x, γ, ν::T) where {T}
   end
   y
 end
+
+# A ridge whose entries are decided once per call. Where every γᵢλ, formed as
+# prox_entry forms it for the arguments of the search, lies in the band of the ordinary
+# coefficient (so none needs the scaled one of R3), and, for centers wider than the
+# model precision W, every center entry keeps its range on rounding to W, the steps are
+# wrapped (:fit), and every pass of the search and the output take the ordinary entry
+# without a test, so that their loops have no call and vectorize. With per-entry steps
+# in the band and a wider center that leaves W somewhere, only the center is tested
+# (:ordinary). The decision is made at every call, as the steps may change between
+# calls; anything else (a step outside the band, zero or not finite, another function
+# or precision) keeps the tested entries. A scalar step is wrapped only for a wider
+# center: otherwise its coefficient is already decided outside the loops.
+struct _RidgeSteps{Fit, G}
+  γ::G
+end
+_RidgeSteps{Fit}(γ::G) where {Fit, G} = _RidgeSteps{Fit, G}(γ)
+_steps(γ) = γ
+_steps(s::_RidgeSteps) = s.γ
+
+_ridge_route(f, γ, x, ::Type) = :tested
+function _ridge_route(f::SqrNormL2, γ, x::AbstractArray, ::Type{T}) where {T}
+  W = float(promote_type(eltype(x), T))        # the type of the arguments xᵢ - γᵢνaᵢ
+  P = promote_type(W, T, float(typeof(f.λ)))   # as in _ridge_needs_scaling(W, γᵢ, λ)
+  (W <: Union{Float32, Float64} && P <: Union{Float32, Float64}) || return :tested
+  wide = f.y !== nothing && _ridge_center_wider(W, eltype(f.y))
+  wide && !(eltype(f.y) <: Base.IEEEFloat) && return :tested
+  γ isa Real && !wide && return :tested
+  _ridge_steps_in_band(W, P, f.λ, γ, T) || return :tested
+  (!wide || _ridge_all_fit(W, f.y)) && return :fit
+  γ isa Real ? :tested : :ordinary
+end
+_ridge_steps_in_band(::Type{W}, ::Type, λ, γ::Real, ::Type{T}) where {W, T} = !_ridge_needs_scaling(W, convert(T, γ), λ)
+function _ridge_steps_in_band(::Type{W}, ::Type{P}, λ, γ::AbstractArray, ::Type{T}) where {W, P, T}
+  λ, lo, hi = P(λ), P(_ridge_band_low(W)), P(_ridge_band_high(W))
+  ok = true
+  @inbounds for i in eachindex(IndexLinear(), γ)
+    t = P(convert(T, γ[i])) * λ
+    ok &= (lo <= t) & (t <= hi)
+  end
+  ok
+end
+_constraint_gap(f::SqrNormL2, a, b, x::AbstractArray, ν::T, s::_RidgeSteps{Fit}, v::Val) where {T, Fit} =
+  _constraint_gap(_OrdinaryRidge{Fit}(f), a, b, x, ν, s.γ, v)
+_linear_constrained_output!(y, f::SqrNormL2, a, x, s::_RidgeSteps{Fit}, ν::T) where {T, Fit} =
+  _linear_constrained_output!(y, _OrdinaryRidge{Fit}(f), a, x, s.γ, ν)
+_metric_sqnorm(set::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::AbstractArray, s::_RidgeSteps) =
+  _metric_sqnorm(set, x, s.γ)
 
 value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
@@ -972,6 +1025,11 @@ Base.@propagate_inbounds _prox_entry_slope(f::LinearFunction, v::T, i::Integer, 
 Base.@propagate_inbounds function _prox_entry_slope(f::SqrNormL2, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   prox_entry(f, v, i, γ), inv(one(S) + convert(S, γ * f.λ))
+end
+# the same slope, so that the search takes the same steps as with the tested entries
+Base.@propagate_inbounds function _prox_entry_slope(r::_OrdinaryRidge, v::T, i::Integer, γ::Real) where {T<:Real}
+  S = float(T)
+  prox_entry(r, v, i, γ), inv(one(S) + convert(S, γ * r.f.λ))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)

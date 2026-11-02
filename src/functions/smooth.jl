@@ -158,6 +158,26 @@ the ridge penalty, and for `λ = 1` the loss `‖x - y‖² / 2`. Smooth, with
 gradient `λ(x - y)`, separable, and proximable, with proximal operator
 `(x + γλy) / (1 + γλ)`. For a matrix `x`, `‖⋅‖` is the Frobenius norm.
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
+
+# Precision
+
+The level `λ`, the center `y` and the step are parameters; they are rounded once
+to the *model precision* of each result ([the numerical contract](@ref numerics),
+T3) and never widen it. That precision is the wider of the argument's and the
+destination's for a gradient or a proximal point, and the argument's for the value
+(so the value written by `value_and_prox!` is the value at the stored point, and
+`value_and_gradient!` returns the standalone value and writes the standalone
+gradient). The proximal weight `γλ` is formed from the unrounded factors before it
+is rounded.
+
+A parameter, a product or a coefficient that would leave the range of the model
+precision does not change a representable result (R2, R3): the gradient of
+`SqrNormL2(2^-1022, [-2^1023])` at `[2^1023]` is `[4.0]` although `x - y`
+overflows, and `prox!` of `SqrNormL2(2^800)` with step `2^800` at `[2^900]`
+gives `2^-700` in `Float64`, where `1/(1 + γλ)` is not a number. The ordinary
+computation runs first, and the recovery is chosen once per call from the
+parameters, except for a `Float64` center entry outside the range of a `Float32`
+model, which is handled for that entry.
 """
 struct SqrNormL2{T<:Real, Y<:Union{Nothing, AbstractArray}} <: AbstractFunction
   λ::T
@@ -231,34 +251,172 @@ function _value_unchecked(f::SqrNormL2, x::AbstractArray)
   _checkvalue(f, x)
   T = _valtype(x)
   iszero(f.λ) && return zero(T)
-  _square_value(f.λ, x, f.y)
+  y = f.y
+  # A center is a parameter: it is rounded to the model precision of the value, the
+  # argument's (T3), so a Float64 center does not widen a Float32 value.
+  T === Float32 && y !== nothing && eltype(y) === Float64 && return _ridge_value_wide_center(f.λ, x, y)
+  # a BigFloat center is rounded entry by entry, except where that leaves T's range (R3)
+  y !== nothing && T <: Union{Float32, Float64} && float(eltype(y)) <: BigFloat &&
+    return _square_value(f.λ, x, map(c -> _ridge_round_big(T, c), y))
+  _square_value(f.λ, x, y)
 end
 
 _checkvalue(f::SqrNormL2, x) = (_checkreal(f, x); _checkparams(f, x); f.y === nothing || _checksize(f.y, x); true)
+
+# Does a center entry keep its range when rounded to the model precision W (R3)?
+# Branchless, so that a loop over the entries still vectorizes. Free for a center
+# already stored in W; non-finite and zero entries convert without loss.
+@inline _ridge_fits(::Type{W}, c::W) where {W} = true
+@inline _ridge_fits(::Type{W}, c) where {W} = _level_fits(W, c)
+@inline function _ridge_fits(::Type{Float32}, c::Float64)
+  a = abs(c)
+  ((a >= Float64(floatmin(Float32))) & (a <= Float64(floatmax(Float32)))) | iszero(a) | !isfinite(a)
+end
+# Did rounding c to cw underflow (to zero or a subnormal)? An overflow gives an infinite
+# cw, which reaches the result and is caught there.
+@inline _ridge_underflows(::Type{W}, c, cw) where {W} = false
+@inline function _ridge_underflows(::Type{W}, c, cw::W) where {W<:Union{Float32, Float64}}
+  c isa W && return false
+  (abs(cw) < floatmin(W)) & !iszero(c)
+end
+# Can rounding the centers of eltype C to W leave W's range?
+@inline _ridge_center_wider(::Type{W}, ::Type{C}) where {W, C} = promote_type(W, float(C)) !== W
+# Every center entry keeps its range on rounding to W. One pass over c only, so an
+# output that aliases the argument is still unwritten when a fallback is chosen.
+function _ridge_all_fit(::Type{W}, c) where {W}
+  ok = true
+  for ci in c
+    ok &= _ridge_fits(W, ci)
+  end
+  ok
+end
+# Float64 centers, Float32 model: the largest magnitude and the smallest nonzero
+# magnitude decide (conservatively), compared as bit patterns, which vectorize.
+# b - 1 wraps for b = 0, so zeros do not enter the minimum. NaN and infinities
+# fail the test and take the checked path, which converts them without loss.
+const _F32_MAX_BITS = reinterpret(UInt64, Float64(floatmax(Float32)))
+const _F32_MIN_BITS = reinterpret(UInt64, Float64(floatmin(Float32)))
+function _ridge_all_fit(::Type{Float32}, c::AbstractArray{Float64})
+  hi = zero(UInt64)
+  lo = typemax(UInt64)
+  @inbounds @simd for i in eachindex(c)
+    b = reinterpret(UInt64, c[i]) & 0x7fffffffffffffff
+    hi = max(hi, b)
+    lo = min(lo, b - one(UInt64))
+  end
+  hi <= _F32_MAX_BITS && lo >= _F32_MIN_BITS - one(UInt64)
+end
+
+# Σ (xᵢ - round(cᵢ))² for a Float32 argument and a Float64 center. The ordinary
+# computation runs in Float32 when every center entry keeps its range on rounding;
+# otherwise the centers that fit are rounded and the scaled recovery of
+# _square_value sees them in Float64 (R3).
+@inline _ridge_round_big(::Type{T}, c) where {T} = _level_fits(T, c) ? oftype(c, T(c)) : c
+# a Float64 center entry rounded to Float32 where that keeps its range, as given otherwise
+@inline _ridge_round_center32(c::Float64) = _ridge_fits(Float32, c) ? Float64(Float32(c)) : c
+function _ridge_value_wide_center(λ, x, y)
+  T = Float32
+  s = 0.0           # the squares are exact in Float64; the sum accumulates there
+  u = false
+  @inbounds @simd for i in eachindex(x, y)
+    cw = T(y[i])
+    s += abs2(Float64(T(x[i]) - cw))
+    u |= _ridge_underflows(T, y[i], cw)
+  end
+  sT = T(s)
+  v = convert(T, λ) * sT / 2
+  if !u & isfinite(v) & (sT >= length(x) * (floatmin(T) / eps(T))) && _level_fits(T, λ)
+    return _value_at(v, x)
+  end
+  # a rounded center left the range, or the ordinary value is out of range
+  _exceptional_square_value(λ, x, map(_ridge_round_center32, y), sT, v)
+end
 
 value_and_gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray) =
   (_check_oracle_arrays(value_and_gradient!, f, g, x); _value_and_gradient_unchecked!(g, f, x))
 function _value_and_gradient_unchecked!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
-  λ = convert(float(eltype(g)), f.λ)
-  f.y === nothing ? (g .= λ .* x) : (g .= λ .* (x .- _checked_parameter(g, f.y)))
-  _value_unchecked(f, x)
+  v = _value_unchecked(f, x)      # before the gradient, which may be written over the center
+  _ridge_gradient!(g, f.λ, f.y, x)
+  v
 end
 gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray) =
   (_check_oracle_arrays(gradient!, f, g, x); _gradient_unchecked!(g, f, x))
 function _gradient_unchecked!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
   _checkwrite(gradient!, f, g, x)
-  λ = convert(float(eltype(g)), f.λ)
-  f.y === nothing ? (g .= λ .* x) : (g .= λ .* (x .- _checked_parameter(g, f.y)))
+  _ridge_gradient!(g, f.λ, f.y, x)
+end
+
+# gᵢ = λ(xᵢ - cᵢ) in the model precision W of the gradient: the wider of the
+# destination and the argument. λ and c are rounded to W (T3), except where the
+# rounding leaves W's range (R3); an overflowing xᵢ - cᵢ does not hide a finite
+# gradient entry (R2).
+function _ridge_gradient!(g, λ, c, x)
+  W = _model_precision(eltype(g), eltype(x))
+  if _level_fits(W, λ)
+    l = convert(W, λ)
+    c === nothing && return g .= l .* x
+    cp = _checked_parameter(g, c)
+    if g isa DenseArray && x isa DenseArray && cp isa DenseArray && size(g) == size(x) == size(cp) &&
+       !Base.mightalias(g, cp)       # the repair pass rereads c
+      _ridge_gradient_dense!(g, l, x, cp)
+    else
+      g .= _ridge_gradient_entry.(l, x, cp)
+    end
+  else
+    R = promote_type(W, float(typeof(λ)))
+    l = convert(R, λ)
+    g .= _ridge_gradient_wide.(W, l, x, c === nothing ? zero(W) : _checked_parameter(g, c))
+  end
+  g
+end
+# The ordinary loop, which vectorizes; when a sum of the entries is not finite (an
+# overflowing difference or product, or a center that overflowed on rounding) or a
+# center underflowed, every entry is recomputed one by one. The gradient never aliases x.
+function _ridge_gradient_dense!(g, l::W, x, c) where {W}
+  t = zero(W)       # a non-finite entry makes the sum non-finite
+  u = false
+  @inbounds @simd for i in eachindex(g)
+    cw = W(c[i])
+    r = l * (W(x[i]) - cw)
+    g[i] = r
+    t += r
+    u |= _ridge_underflows(W, c[i], cw)
+  end
+  (u | !isfinite(t)) && _ridge_gradient_repair!(g, l, x, c)
+  g
+end
+@noinline function _ridge_gradient_repair!(g, l::W, x, c) where {W}
+  @inbounds for i in eachindex(g)
+    g[i] = _ridge_gradient_entry(l, x[i], c[i])
+  end
+end
+@inline function _ridge_gradient_entry(l::W, x, c) where {W}
+  _ridge_fits(W, c) || return _ridge_gradient_wide(W, l, x, c)
+  r = l * (W(x) - W(c))
+  isfinite(r) ? r : _ridge_gradient_overflow(l, W(x), W(c), r)
+end
+@noinline _ridge_gradient_overflow(l, x, c, r) =
+  isfinite(x) && isfinite(c) ? _scaled_product(l, x / 2 - c / 2, 1) : r
+# l is a level wider than W, or c is a center wider than W: the entry is computed in R
+function _ridge_gradient_wide(::Type{W}, l, x, c) where {W}
+  R = promote_type(W, typeof(l), float(typeof(c)))
+  cw = _ridge_fits(W, c) ? R(W(c)) : R(c)
+  r = R(l) * (R(x) - cw)
+  isfinite(r) ? r : _ridge_gradient_overflow(R(l), R(x), cw, r)
 end
 
 prox!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(z, x); _check_oracle_arrays(prox!, f, z, x, γ); _prox_unchecked!(z, f, x, γ))
 function _prox_unchecked!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real)
   _checkwrite(prox!, f, z, x)
-  T = float(eltype(z))
-  a, b = _ridge_weights(T(γ), T(f.λ))
-  f.y === nothing ? (z .= a .* x) : (z .= _ridge_blend.(x, _checked_parameter(z, f.y), a, b))
+  W = _model_precision(eltype(z), eltype(x))
+  c = f.y === nothing ? nothing : _checked_parameter(z, f.y)
+  if _ridge_needs_scaling(W, γ, f.λ)
+    _ridge_prox!(z, _ridge_scaled(W, γ, f.λ), x, c)
+  else
+    _ridge_prox!(z, _ridge_ordinary(W, γ, f.λ), x, c)
+  end
 end
 
 function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::SqrNormL2, y::AbstractArray, x::AbstractArray)
@@ -272,7 +430,9 @@ function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gr
 end
 
 # The convex weights 1/(1+γλ), γλ/(1+γλ), without overflowing γλ or
-# the numerator x + γλy of a centered proximal operator.
+# the numerator x + γλy of a centered proximal operator. Shared with Regularize,
+# the distance functions, the envelope and the metric prox; the ridge itself uses
+# _ridge_ordinary and _ridge_scaled below.
 @inline function _ridge_weights(γ::T, λ::T) where {T}
   t = γ * λ
   if t <= one(T)
@@ -292,15 +452,153 @@ end
   end
   a * x + b * y
 end
-function prox_entry(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real)
-  T = typeof(float(v))
-  a, _ = _ridge_weights(T(γ), T(f.λ))
-  a * v
+
+# The ridge proximal point (x + γλc)/(1 + γλ) = a x + b c with the convex weights
+# a = 1/(1+t), b = t/(1+t), t = γλ. t is formed once from the unrounded factors in
+# P = promote_type(W, factors) and rounded to the model precision W (T3).
+#
+# Ordinary: t, 1/t and both weights are normal numbers in W (or a factor is zero or
+# not finite, which keeps its earlier meaning). Scaled (R3): t = τ·2^k from the
+# significands; the smaller weight is carried as m·2^e and applied last, so a
+# coefficient that is not representable still acts on the coordinate.
+struct _RidgeOrdinary{W<:Real}
+  a::W
+  b::W
+  t::W
+end
+struct _RidgeScaled{W<:Real, P<:Real}
+  L::W              # the larger weight, in [1/2, 1]
+  m::W              # significand of the smaller weight, in (0, 1]
+  e::Int
+  small_x::Bool     # the smaller weight multiplies x (t > 1); else the center
+  γ::P
+  λ::P
+end
+
+@inline function _ridge_weights_t(t::W) where {W}
+  if t <= one(W)
+    d = one(W) + t
+    return inv(d), t / d
+  end
+  ρ = inv(t)
+  d = one(W) + ρ
+  ρ / d, inv(d)
+end
+
+# The decision is made once per call, from the factors, not from t: the product of
+# finite nonzero factors can underflow or overflow in P.
+@inline function _ridge_needs_scaling(::Type{W}, γ, λ) where {W}
+  W <: Union{Float32, Float64} || return false
+  P = promote_type(W, float(typeof(γ)), float(typeof(λ)))
+  t = P(γ) * P(λ)
+  # t in the band implies finite nonzero factors, so they are examined only outside it
+  (P(_ridge_band_low(W)) <= t <= P(_ridge_band_high(W))) && return false
+  isfinite(γ) & isfinite(λ) & !iszero(γ) & !iszero(λ)
+end
+# t, 1/t and both convex weights are normal in W for t in [2^-126, 2^125] (Float32)
+# and [2^-1022, 2^1021] (Float64)
+@inline _ridge_band_low(::Type{Float32}) = reinterpret(Float32, 0x00800000)          # 2^-126
+@inline _ridge_band_high(::Type{Float32}) = reinterpret(Float32, 0x7e000000)         # 2^125
+@inline _ridge_band_low(::Type{Float64}) = reinterpret(Float64, 0x0010000000000000)   # 2^-1022
+@inline _ridge_band_high(::Type{Float64}) = reinterpret(Float64, 0x7fc0000000000000)  # 2^1021
+@inline function _ridge_ordinary(::Type{W}, γ, λ) where {W}
+  P = promote_type(W, float(typeof(γ)), float(typeof(λ)))
+  tw = convert(W, P(γ) * P(λ))
+  a, b = _ridge_weights_t(tw)
+  _RidgeOrdinary{W}(a, b, tw)
+end
+@inline _ridge_scaled(::Type{W}, γ, λ) where {W} =
+  (P = promote_type(W, float(typeof(γ)), float(typeof(λ))); _ridge_scaled(W, P(γ), P(λ)))
+
+Base.@assume_effects :effect_free :nothrow :terminates_globally @noinline function _ridge_scaled(::Type{W}, γ::P, λ::P) where {W, P}
+  mγ, eγ = frexp(γ)
+  mλ, eλ = frexp(λ)
+  τ = convert(W, mγ * mλ)                    # in [1/4, 1]
+  k = eγ + eλ
+  if k > 0
+    r = inv(τ)
+    d = one(W) + r * ldexp(one(W), -k)
+    _RidgeScaled{W, P}(inv(d), r / d / 4, 2 - k, true, γ, λ)
+  else
+    d = one(W) + τ * ldexp(one(W), k)
+    _RidgeScaled{W, P}(inv(d), τ / d, k, false, γ, λ)
+  end
+end
+
+@inline function _ridge_scaled_blend(x::W, c::W, s::_RidgeScaled{W}) where {W}
+  big, small = s.small_x ? (c, x) : (x, c)
+  signbit(big) == signbit(small) ? big + ldexp(s.m * (small - big), s.e) :
+                                   s.L * big + ldexp(s.m * small, s.e)
+end
+
+@inline _ridge_apply(o::_RidgeOrdinary, x) = o.a * x
+@inline _ridge_apply(s::_RidgeScaled{W}, x) where {W} =
+  s.small_x ? ldexp(s.m * W(x), s.e) : s.L * W(x)
+@inline function _ridge_apply(o::_RidgeOrdinary{W}, x, c) where {W}
+  _ridge_fits(W, c) ? _ridge_blend(x, c, o.a, o.b) : _ridge_apply_wide(o, x, c)
+end
+@inline function _ridge_apply(s::_RidgeScaled{W}, x, c) where {W}
+  _ridge_fits(W, c) ? _ridge_scaled_blend(W(x), W(c), s) : _ridge_apply_wide(s, x, c)
+end
+# the same when every center entry is known to fit: no per-entry test
+@inline _ridge_apply_fit(o::_RidgeOrdinary, x, c) = _ridge_blend(x, c, o.a, o.b)
+@inline _ridge_apply_fit(s::_RidgeScaled{W}, x, c) where {W} = _ridge_scaled_blend(W(x), W(c), s)
+# A center outside W's range on rounding: the entry is computed in the wider type
+# For a hardware-float center the entry takes no call, so that a loop over the entries
+# still vectorizes. R holds x and c with room to spare (it is wider than W, which holds
+# x), so the plain convex combination cannot overflow; the weights do not depend on the
+# entry and leave such a loop.
+@inline function _ridge_apply_wide(o::_RidgeOrdinary{W}, x, c::Base.IEEEFloat) where {W}
+  R = promote_type(W, typeof(c))
+  a, b = _ridge_weights_t(convert(R, o.t))
+  W(a * R(x) + b * c)
+end
+@noinline function _ridge_apply_wide(o::_RidgeOrdinary{W}, x, c) where {W}
+  R = promote_type(W, float(typeof(c)))
+  a, b = _ridge_weights_t(convert(R, o.t))
+  W(_ridge_blend(R(x), R(c), a, b))
+end
+@noinline function _ridge_apply_wide(s::_RidgeScaled{W}, x, c) where {W}
+  R = promote_type(W, float(typeof(c)))
+  W(_ridge_scaled_blend(R(x), R(c), _ridge_scaled(R, promote_type(R, typeof(s.γ))(s.γ), promote_type(R, typeof(s.λ))(s.λ))))
+end
+
+_ridge_prox!(z, o::_RidgeOrdinary, x, ::Nothing) = (z .= o.a .* x)
+_ridge_prox!(z, s::_RidgeScaled, x, ::Nothing) = (z .= (xi -> _ridge_apply(s, xi)).(x))
+function _ridge_prox!(z, co::Union{_RidgeOrdinary{W}, _RidgeScaled{W}}, x, c) where {W}
+  # a center wider than W is tested once, before the loop: the pass reads c only,
+  # so an aliased output (z === x) is still unwritten when a fallback is chosen
+  if _ridge_center_wider(W, eltype(c)) && !_ridge_all_fit(W, c)
+    z .= ((xi, ci) -> _ridge_apply(co, xi, ci)).(x, c)
+  else
+    z .= ((xi, ci) -> _ridge_apply_fit(co, xi, ci)).(x, c)
+  end
+end
+
+@inline function prox_entry(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real)
+  W = typeof(float(v))
+  _ridge_needs_scaling(W, γ, f.λ) ? _ridge_apply(_ridge_scaled(W, γ, f.λ), W(v)) :
+                                    _ridge_apply(_ridge_ordinary(W, γ, f.λ), W(v))
 end
 Base.@propagate_inbounds function prox_entry(f::SqrNormL2, v::Real, i::Integer, γ::Real)
-  T = typeof(float(v))
-  a, b = _ridge_weights(T(γ), T(f.λ))
-  _ridge_blend(T(v), T(f.y[i]), a, b)
+  W = typeof(float(v))
+  _ridge_needs_scaling(W, γ, f.λ) ? _ridge_apply(_ridge_scaled(W, γ, f.λ), W(v), f.y[i]) :
+                                    _ridge_apply(_ridge_ordinary(W, γ, f.λ), W(v), f.y[i])
+end
+# The ridge whose entries are known to take the ordinary coefficient: prox_entry
+# without the test, where _ridge_needs_scaling(W, γ, f.λ) is false; with Fit, every
+# center entry is also known to keep its range in W. Constrained uses it for steps and
+# centers it has checked, so that its loops have no call.
+struct _OrdinaryRidge{Fit, F<:SqrNormL2}
+  f::F
+end
+_OrdinaryRidge{Fit}(f::F) where {Fit, F} = _OrdinaryRidge{Fit, F}(f)
+@inline prox_entry(r::_OrdinaryRidge{Fit, <:SqrNormL2{<:Real, Nothing}}, v::Real, ::Integer, γ::Real) where {Fit} =
+  (W = typeof(float(v)); _ridge_apply(_ridge_ordinary(W, γ, r.f.λ), W(v)))
+Base.@propagate_inbounds function prox_entry(r::_OrdinaryRidge{Fit}, v::Real, i::Integer, γ::Real) where {Fit}
+  W = typeof(float(v))
+  o = _ridge_ordinary(W, γ, r.f.λ)
+  Fit ? _ridge_apply_fit(o, W(v), r.f.y[i]) : _ridge_apply(o, W(v), r.f.y[i])
 end
 _checkparams(f::SqrNormL2, x) = _checkparam(f.y, x)
 

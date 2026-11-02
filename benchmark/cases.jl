@@ -910,7 +910,137 @@ function handle_sweep_cases!(cases, rep; quick=false)
     end
 end
 
-const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products", "blocks", "owner")
+# Ridge: ordinary calls in the three precision mixes, a coordinate loop, and the
+# recovery path (parameters or centers outside the model's range) as separate cases.
+function ridge_cases!(cases, rep; quick=false)
+    pow2(T, k) = ldexp(one(T), k)
+    sizes = quick ? (8, 1000) : (8, 1000, 100_000)
+    # (label, data type, level, step, center type or nothing)
+    mixes = (("all32", Float32, Float32(0.7), Float32(0.3), Float32),
+             ("all64", Float64, 0.7, 0.3, Float64),
+             ("data32_params64", Float32, 0.7, 0.3, Float64),
+             ("data32_params64_center32", Float32, 0.7, 0.3, Float32))
+    for n in sizes, (label, T, λ, γ, C) in mixes, centered in (false, true)
+        rng = scenario_rng(rep, "ridge/$label/$centered/$n")
+        x = randn(rng, T, n)
+        c = centered ? randn(rng, C, n) : nothing
+        f = SqrNormL2(λ, c)
+        name = string(label, centered ? "/centered" : "/uncentered")
+        shape = string(n)
+        z = similar(x)
+        g = similar(x)
+        cf = c === nothing ? zeros(T, n) : T.(c)
+        refprox = [(x[i] + big(γ) * big(λ) * big(cf[i])) / (1 + big(γ) * big(λ)) for i in 1:n]
+        refgrad = [big(λ) * (big(x[i]) - big(cf[i])) for i in 1:n]
+        scale = [max(abs(big(x[i])), abs(big(cf[i])), big(eps(T))) for i in 1:n]
+        close_ref(y, r) = all(i -> abs(big(y[i]) - r[i]) <= 4 * eps(T) * (scale[i] * (iszero(λ) ? 1 : max(1, big(λ)))), eachindex(y)) ||
+            error("output differs from the reference")
+        addcase!(cases, "ridge", name * "/prox!", () -> prox!(z, f, x, γ),
+                 () -> (prox!(z, f, x, γ); close_ref(z, refprox)); T, shape, work=n)
+        # independent entries, as a vectorizable sweep, and a dependent chain, as in
+        # coordinate descent (each update feeds the next argument)
+        addcase!(cases, "ridge", name * "/prox_entry_loop",
+                 () -> begin @inbounds for i in eachindex(x) z[i] = prox_entry(f, x[i], i, γ) end end,
+                 () -> (for i in eachindex(x); z[i] = prox_entry(f, x[i], i, γ); end; close_ref(z, refprox));
+                 T, shape, layout="coordinate", work=n)
+        chain() = (v = zero(T); @inbounds for i in eachindex(x) v = prox_entry(f, x[i] + T(0.5) * v, i, γ) end; v)
+        addcase!(cases, "ridge", name * "/prox_entry_chain", chain,
+                 () -> isfinite(chain()) || error("nonfinite chain"); T, shape, layout="coordinate", work=n)
+        addcase!(cases, "ridge", name * "/value_and_prox!", () -> value_and_prox!(z, f, x, γ),
+                 () -> (v = value_and_prox!(z, f, x, γ); close_ref(z, refprox);
+                        isapprox(v, f(z); rtol=100 * eps(T), atol=100 * eps(T)) || error("value differs from f(prox)"));
+                 T, shape, work=n)
+        addcase!(cases, "ridge", name * "/gradient!", () -> gradient!(g, f, x),
+                 () -> (gradient!(g, f, x); close_ref(g, refgrad)); T, shape, work=n)
+        addcase!(cases, "ridge", name * "/value_and_gradient!", () -> value_and_gradient!(g, f, x),
+                 () -> (v = value_and_gradient!(g, f, x); close_ref(g, refgrad);
+                        isapprox(v, f(x); rtol=100 * eps(T), atol=100 * eps(T)) || error("value mismatch"));
+                 T, shape, work=n)
+        refvalue = big(λ) / 2 * sum(abs2, big.(x) .- big.(cf))
+        addcase!(cases, "ridge", name * "/value", () -> f(x),
+                 () -> isapprox(big(f(x)), refvalue; rtol=1000 * eps(T)) || error("value differs from the reference");
+                 T, shape, work=n)
+    end
+    # Recovery path: separate from the ordinary calls above.
+    let
+      n = quick ? 1000 : 10_000
+      rng = scenario_rng(rep, "ridge/recovery/$n")
+      x = randn(rng, Float32, n)
+      z = similar(x); g = similar(x)
+      big_level = pow2(Float64, 160)
+      tiny_step = pow2(Float64, -160)
+      c64 = rand(rng, Float64, n)
+      far = fill(pow2(Float64, 200), n)
+      f0 = SqrNormL2(big_level)
+      fc = SqrNormL2(big_level, Float32.(c64))
+      ff = SqrNormL2(pow2(Float64, -400), far)          # Float32 data, centers outside Float32
+      finite(y) = all(isfinite, y) || error("nonfinite recovery output")
+      addcase!(cases, "ridge", "recovery/coefficient_in_band_after_product/prox!", () -> prox!(z, f0, x, tiny_step),
+               () -> (prox!(z, f0, x, tiny_step); all(i -> z[i] == x[i] / 2, 1:n) || error("unexpected prox")); T=Float32, layout="recovery", shape=string(n), work=n)
+      addcase!(cases, "ridge", "recovery/coefficient_scaled/prox!", () -> prox!(z, f0, x, 1.0),
+               () -> (prox!(z, f0, x, 1.0); finite(z)); T=Float32, layout="recovery", shape=string(n), work=n)
+      addcase!(cases, "ridge", "recovery/coefficient_scaled_centered/prox!", () -> prox!(z, fc, x, 1.0),
+               () -> (prox!(z, fc, x, 1.0); finite(z)); T=Float32, layout="recovery", shape=string(n), work=n)
+      addcase!(cases, "ridge", "recovery/level_outside/gradient!", () -> gradient!(g, SqrNormL2(big_level), x .* pow2(Float32, -100)),
+               () -> (gradient!(g, SqrNormL2(big_level), x .* pow2(Float32, -100)); finite(g)); T=Float32, layout="recovery", shape=string(n), work=n, zero_alloc=false)
+      addcase!(cases, "ridge", "recovery/center_outside/prox!", () -> prox!(z, ff, x, 1.0),
+               () -> (prox!(z, ff, x, 1.0); finite(z)); T=Float32, layout="recovery", shape=string(n), work=n)
+      addcase!(cases, "ridge", "recovery/center_outside/value", () -> ff(x),
+               () -> isfinite(ff(x)) || error("nonfinite value"); T=Float32, layout="recovery", shape=string(n), work=n, zero_alloc=false)
+    end
+    # Constrained ridge on a hyperplane with per-entry steps (extended suite only): repeated
+    # calls start from the last multiplier; "cold" calls start from zero; the scalar step is
+    # the control. Validated against the closed-form multiplier, outside the timing.
+    quick && return
+    for n in sizes, (label, T, λ, F, C) in (("all32", Float32, Float32(0.7), Float32, Float32),
+                                            ("all64", Float64, 0.7, Float64, Float64),
+                                            ("data32_params64", Float32, 0.7, Float64, Float64)),
+        centered in (false, true)
+        rng = scenario_rng(rep, "ridge/constrained/$label/$centered/$n")
+        x = randn(rng, T, n)
+        a = rand(rng, T, n) .+ T(0.1)
+        b = T(n / 8)
+        γs = F.(0.1 .+ rand(rng, n))
+        γ = F(0.3)
+        cen = centered ? randn(rng, C, n) : nothing
+        c = Constrained(SqrNormL2(λ, cen), IndHyperplane(a, b))
+        z = similar(x)
+        name = string("constrained/", label, centered ? "/centered" : "/uncentered")
+        function check_hyperplane(steps)
+            prox!(z, c, x, steps)
+            t = big.(T.(steps)) .* big(λ)                  # the steps as the search converts them
+            cc = cen === nothing ? zeros(BigFloat, n) : big.(cen)
+            p = (big.(x) .+ t .* cc) ./ (1 .+ t)
+            q = big.(T.(steps)) .* big.(a) ./ (1 .+ t)
+            r = p .- (sum(big.(a) .* p) - big(b)) / sum(big.(a) .* q) .* q
+            maximum(abs.(big.(z) .- r)) <= 64 * eps(T) * (maximum(abs, r) + maximum(abs, big.(x))) ||
+                error("constrained output differs from the reference")
+        end
+        addcase!(cases, "ridge", name * "/vector_steps/prox!", () -> prox!(z, c, x, γs),
+                 () -> check_hyperplane(γs); T, shape=string(n), layout="constrained", work=n)
+        addcase!(cases, "ridge", name * "/vector_steps_cold/prox!", () -> prox!(z, c, x, γs),
+                 () -> check_hyperplane(γs); T, shape=string(n), layout="constrained", work=n,
+                 prepare=() -> (c.last[] = NaN; c.slope[] = NaN))
+        addcase!(cases, "ridge", name * "/scalar_step/prox!", () -> prox!(z, c, x, γ),
+                 () -> check_hyperplane(fill(γ, n)); T, shape=string(n), layout="constrained", work=n)
+    end
+    # one step below the band: the search keeps the tested entries
+    let
+      n = 10_000
+      rng = scenario_rng(rep, "ridge/constrained/recovery/$n")
+      x = randn(rng, Float32, n)
+      a = rand(rng, Float32, n) .+ 0.1f0
+      γs = 0.1f0 .+ rand(rng, Float32, n)
+      γs[1] = ldexp(1f0, -130)
+      c = Constrained(SqrNormL2(0.7f0, randn(rng, Float32, n)), IndHyperplane(a, Float32(n / 8)))
+      z = similar(x)
+      addcase!(cases, "ridge", "recovery/constrained_step_outside/prox!", () -> prox!(z, c, x, γs),
+               () -> (prox!(z, c, x, γs); all(isfinite, z) || error("nonfinite constrained output"));
+               T=Float32, layout="recovery", shape=string(n), work=n)
+    end
+end
+
+const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products", "blocks", "owner", "ridge")
 
 function build_cases(rep; suite="quick", groups=collect(CASE_GROUPS))
     suite in ("quick", "extended") || error("PB_SUITE must be quick or extended")
@@ -918,7 +1048,7 @@ function build_cases(rep; suite="quick", groups=collect(CASE_GROUPS))
     all(in(CASE_GROUPS), groups) || error("PB_GROUPS must select from $(join(CASE_GROUPS, ','))")
     length(unique(groups)) == length(groups) || error("Duplicate benchmark group")
     cases=PerfCase[]
-    builders=(separable_cases!,smooth_cases!,matrix_cases!,constrained_cases!,tensor_cases!,product_cases!,block_cases!,owner_cases!)
+    builders=(separable_cases!,smooth_cases!,matrix_cases!,constrained_cases!,tensor_cases!,product_cases!,block_cases!,owner_cases!,ridge_cases!)
     # Select groups and sizes before allocating data or constructing function objects.
     for (group,builder) in zip(CASE_GROUPS,builders)
         group in groups && builder(cases,rep;quick=suite=="quick")

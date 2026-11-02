@@ -229,7 +229,6 @@ end
   problem = "Aliased and separate outputs checked against the same independent exact reference."
   expected = [pow2(Float64, -700)]
   observed = let x = [pow2(Float64, 900)]; prox!(similar(x), SqrNormL2(pow2(Float64, 800)), x, pow2(Float64, 800)) end
-  broken = (group = :G1, baseline = Returned(v -> same(v, [0.0])))
 end
 
 @row begin
@@ -238,7 +237,6 @@ end
   problem = "Aliased and separate outputs checked against the same independent exact reference."
   expected = [pow2(Float64, -700)]
   observed = let x = [pow2(Float64, 900)]; prox!(x, SqrNormL2(pow2(Float64, 800)), x, pow2(Float64, 800)) end
-  broken = (group = :G1, baseline = Returned(v -> same(v, [0.0])))
 end
 
 @row begin

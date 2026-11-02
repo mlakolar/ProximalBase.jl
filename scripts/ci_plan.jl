@@ -12,7 +12,6 @@
 
 include(joinpath(dirname(@__DIR__), "test", "tiers.jl"))
 using .TestTiers
-using Dates
 
 const ROOT = dirname(@__DIR__)
 
@@ -62,19 +61,35 @@ function tiers_additions(base, head, paths)
   return TestTiers.manifest_additions(old, new, new_files)
 end
 
-# A successful run of this workflow on `sha` in the last day whose test jobs ran the full tier.
-function recent_full_run(repo, sha)
-  cutoff = Dates.format(now(UTC) - Hour(24), dateformat"yyyy-mm-ddTHH:MM:SS") * "Z"
-  query = ".[] | select(.event != \"pull_request\" and .createdAt >= \"$cutoff\") | .databaseId"
-  ids = readlines(`gh run list --repo $repo --workflow CI.yml --commit $sha --status success --limit 50 --json databaseId,event,createdAt --jq $query`)
-  for id in ids
-    names = readlines(`gh run view $id --repo $repo --json jobs --jq '.jobs[].name'`)
-    any(endswith(" - full"), names) && return id
+# The GitHub CLI: its output lines, or an error if it fails.
+gh_lines(args) = readlines(`gh $args`)
+
+"""
+    recent_full_run(repo, sha; gh = gh_lines, at = time()) -> id or nothing
+
+A run of this workflow on `sha` that is not for a pull request, concluded `success`, was
+created in the 24 hours before `at` (Unix time) and has test jobs of the full tier. `gh` runs
+the GitHub CLI and returns its output lines (tests pass a fake). Malformed output throws, so
+the caller runs the full tier rather than skip it.
+"""
+function recent_full_run(repo, sha; gh = gh_lines, at = time())
+  runs = gh(["run", "list", "--repo", repo, "--workflow", "CI.yml", "--commit", sha, "--status", "success",
+             "--limit", "50", "--json", "databaseId,event,createdAt,conclusion,headSha",
+             "--jq", ".[] | [.databaseId, .event, (.createdAt | fromdateiso8601), .conclusion, .headSha] | @tsv"])
+  for line in runs
+    f = split(line, '\t')
+    length(f) == 5 || error("unexpected line from gh run list: $(repr(line))")
+    id, event, created, conclusion, head = f
+    event != "pull_request" && conclusion == "success" && head == sha || continue
+    at - 24 * 3600 <= parse(Float64, created) <= at || continue
+    names = gh(["run", "view", id, "--repo", repo, "--json", "jobs", "--jq", ".jobs[].name"])
+    any(endswith(" - full"), names) && return String(id)
   end
   return nothing
 end
 
-function plan(opts)
+# `gh` and `at` (Unix time) are passed on to recent_full_run (tests pass a fake GitHub CLI).
+function plan(opts; gh = gh_lines, at = time())
   manifest = TestTiers.load(joinpath(ROOT, "test", "tiers.toml"), joinpath(ROOT, ".github", "tier-rules.toml"))
   # The runner checks this too, but here an unclassified test file fails within seconds.
   TestTiers.check(manifest, TestTiers.discover(joinpath(ROOT, "test")))
@@ -104,7 +119,15 @@ function plan(opts)
     tier = "full"
     push!(lines, "Scheduled run of the full tier.")
     if haskey(opts, "sha") && haskey(opts, "repo")
-      id = recent_full_run(opts["repo"], opts["sha"])
+      # A failed or malformed answer from the API runs the full tier; it never skips it.
+      id = try
+        recent_full_run(opts["repo"], opts["sha"]; gh, at)
+      catch err
+        err isa InterruptException && rethrow()
+        push!(lines, "Could not check for an earlier full run on this commit, so the full tier runs: " *
+                     first(sprint(showerror, err), 300))
+        nothing
+      end
       if id !== nothing
         tier = "none"
         push!(lines, "Run $id already passed the full tier on this commit in the last 24 hours; nothing to repeat.")
@@ -160,4 +183,6 @@ function main(args)
   end
 end
 
-main(ARGS)
+if abspath(PROGRAM_FILE) == @__FILE__
+  main(ARGS)
+end

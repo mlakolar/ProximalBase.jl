@@ -274,4 +274,78 @@ end
   end
 end
 
+
+# The planner itself (scripts/ci_plan.jl), on the nightly path, with a fake GitHub CLI: the
+# nightly run skips the full tier only after a successful non-PR full run on the same commit in
+# the last 24 hours, and an API failure or malformed answer runs the full tier.
+module CIPlan
+include(joinpath(dirname(@__DIR__), "scripts", "ci_plan.jl"))
+end
+
+const SHA = "a" ^ 40
+const NOW = 1_800_000_000.0 # Unix time
+const FULLJOBS = ["Test plan", "Julia lts - ubuntu-latest - x64 - full", "Julia 1 - windows-latest - x64 - full", "CI result"]
+const QUICKJOBS = ["Test plan", "Julia lts - ubuntu-latest - x64 - quick", "Julia 1 - ubuntu-latest - x64 - quick", "CI result"]
+# A line of `gh run list` as recent_full_run asks for it: id, event, created (Unix time), conclusion, commit.
+runline(id, event; hours = 2, conclusion = "success", sha = SHA) = join([id, event, string(NOW - hours * 3600), conclusion, sha], '\t')
+
+# A fake `gh`: the run list, the job names of each run; `fail` makes every call throw, as the
+# real CLI does on an API error. `calls` records the arguments.
+function fakegh(runs, jobs = Dict{String, Vector{String}}(); fail = false, calls = Vector{String}[])
+  return function (args)
+    push!(calls, String.(args))
+    fail && error("gh: HTTP 502")
+    args[1:2] == ["run", "list"] && return runs
+    args[1:2] == ["run", "view"] && return get(() -> error("gh: run $(args[3]) not found"), jobs, args[3])
+    error("unexpected gh call: $args")
+  end
+end
+
+nightly(gh) = CIPlan.plan(Dict("event" => "schedule", "sha" => SHA, "repo" => "owner/name"); gh, at = NOW)
+nightly_tier(gh) = nightly(gh)[1].tier
+
+@testset "nightly plan" begin
+  # no earlier run: full
+  @test nightly_tier(fakegh(String[])) == "full"
+  # a successful full run on this commit, from the nightly, a push or a manual run: skip
+  for event in ("schedule", "push", "workflow_dispatch")
+    result, lines = nightly(fakegh([runline("11", event)], Dict("11" => FULLJOBS)))
+    @test result.tier == "none" && !result.run_tests
+    @test any(occursin("Run 11 already passed the full tier", l) for l in lines)
+  end
+  # the first qualifying run decides; others before it are passed over
+  runs = [runline("12", "pull_request"), runline("13", "schedule"; conclusion = "failure"), runline("14", "push")]
+  @test nightly_tier(fakegh(runs, Dict("14" => FULLJOBS))) == "none"
+  # only quick or standard runs on this commit: full
+  @test nightly_tier(fakegh([runline("21", "workflow_dispatch")], Dict("21" => QUICKJOBS))) == "full"
+  # a full run on another commit (the CLI is asked for this commit, but the answer is checked)
+  @test nightly_tier(fakegh([runline("31", "push"; sha = "b" ^ 40)], Dict("31" => FULLJOBS))) == "full"
+  # older than 24 hours, or created after the plan's time: full; just inside the window: skip
+  @test nightly_tier(fakegh([runline("41", "schedule"; hours = 25)], Dict("41" => FULLJOBS))) == "full"
+  @test nightly_tier(fakegh([runline("42", "schedule"; hours = -1)], Dict("42" => FULLJOBS))) == "full"
+  @test nightly_tier(fakegh([runline("43", "schedule"; hours = 23.9)], Dict("43" => FULLJOBS))) == "none"
+  # a failed, cancelled or unfinished full run: full
+  for conclusion in ("failure", "cancelled", "timed_out", "")
+    @test nightly_tier(fakegh([runline("51", "schedule"; conclusion)], Dict("51" => FULLJOBS))) == "full"
+  end
+  # a full run for a pull request on the same commit does not count
+  @test nightly_tier(fakegh([runline("61", "pull_request")], Dict("61" => FULLJOBS))) == "full"
+  # the API fails or answers something else: full, and the plan says why
+  result, lines = nightly(fakegh(String[]; fail = true))
+  @test result.tier == "full" && any(occursin("Could not check for an earlier full run", l) for l in lines)
+  for bad in (["11\tschedule\tsuccess"], ["11\tschedule\tyesterday\tsuccess\t$SHA"], ["garbage"])
+    @test nightly_tier(fakegh(bad, Dict("11" => FULLJOBS))) == "full"
+  end
+  @test nightly_tier(fakegh([runline("71", "schedule")])) == "full" # its jobs cannot be listed
+  # the CLI is asked for this workflow's successful runs on this commit
+  calls = Vector{String}[]
+  nightly(fakegh([runline("81", "schedule")], Dict("81" => FULLJOBS); calls))
+  list = first(calls)
+  @test list[1:2] == ["run", "list"] && all(in(list), ["--repo", "owner/name", "--workflow", "CI.yml", "--commit", SHA, "--status", "success"])
+  @test calls[2][1:3] == ["run", "view", "81"]
+  # without the commit and repository the nightly plan runs full and asks nothing
+  calls = Vector{String}[]
+  @test CIPlan.plan(Dict("event" => "schedule"); gh = fakegh(String[]; calls))[1].tier == "full" && isempty(calls)
+end
+
 end

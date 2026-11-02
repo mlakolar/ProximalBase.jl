@@ -16,55 +16,117 @@ Julia installs the declared dependencies and test dependencies automatically.
 No clones of ProximalSolvers or other related packages are required, and you
 can work on any Git branch.
 
-To run the full suite through the test script used by continuous integration (CI):
+## Tests
+
+The test script used by continuous integration (CI) calls `Pkg.test()` with array
+bounds checking enabled; no separate setup command is needed. Test files run in
+parallel worker processes, and every file belongs to one of four cumulative tiers
+listed in [`test/tiers.toml`](test/tiers.toml):
+
+| Tier | Runs | Target on CI |
+|---|---|---|
+| `quick` | representative cases of the whole package; every PR | 3–5 min |
+| `standard` | quick, plus most function families, wrappers and constraints | 8–10 min |
+| `thorough` | standard, plus numerics, conformance, symmetric and iterate catalogs | 15–20 min |
+| `full` | every test file, including the exhaustive catalogs | about 30 min or more |
+
+While working on a change, run the files that test it, then a tier:
 
 ```sh
-julia scripts/test.jl
+julia scripts/test.jl sparse_iterate atom_iterate   # files whose names start with these
+julia scripts/test.jl --tier=quick                  # early feedback
+julia scripts/test.jl --tier=standard               # before an ordinary implementation PR
+julia scripts/test.jl --tier=thorough               # numerical or structural changes
+julia scripts/test.jl                               # every file (the full tier)
 ```
 
-This calls `Pkg.test()` with array bounds checking enabled. No separate setup
-command is needed. Set `JULIA_TEST_COVERAGE=true` to collect coverage, as CI
-does, or `JULIA_TEST_DEPWARN=error` to treat deprecation warnings as errors.
+`--tier=quick --list` lists a tier's files, `--extra=gpu,metric` adds files to a
+tier, and names after a tier filter it (`--tier=thorough symmetric`). `--jobs=N`
+or `PTR_NUM_JOBS` sets the number of workers. The same arguments work through
+`Pkg.test(; test_args=...)`. Set `JULIA_TEST_COVERAGE=true` to collect coverage, or
+`JULIA_TEST_DEPWARN=error` to treat deprecation warnings as errors. `--verbose`
+adds each file's start, initialization time and compilation share. The old
+`--core` switch still runs every file except `precision_mixed`, `large_inputs`,
+`spectral_overflow` and `conformance/*`, with a deprecation warning; use a tier
+instead.
 
-Test files run in parallel worker processes. Extra arguments list tests, select a subset,
-or set the workers: `julia scripts/test.jl --list`, `julia scripts/test.jl lapack caches`,
-or `julia scripts/test.jl --jobs=2`. The same arguments work through `Pkg.test(; test_args=...)`.
+**A new test file** goes into `test/tiers.toml` under the lowest tier that should
+run it: `quick` for a cheap test of a basic invariant or a serious regression,
+otherwise the tier of the code it tests. An unlisted file stops every test run and
+the CI plan, and a PR that changes `test/tiers.toml` runs the full tier. Files run alone in a sandbox module, and compilation takes most of
+their time, so a cheap file reaches few type combinations. Helper files that are
+only included go under `[not_tests]`. [`test/TESTING.md`](test/TESTING.md) records
+why each file sits in its tier.
 
-`julia scripts/test.jl --core` skips the extended tier (`precision_mixed`,
-`large_inputs`, `spectral_overflow`); plain `julia scripts/test.jl` runs everything.
-`--list` shows the full catalog, including with `--core`. The core switch combines
-with test names, for example `julia scripts/test.jl --core spectral`.
+### Which tests CI runs
 
-CI runs the following tests:
+The plan job of the CI workflow picks the tier of each run with
+`scripts/ci_plan.jl` and the rules in
+[`.github/tier-rules.toml`](.github/tier-rules.toml); the run's summary page shows
+its decision for every changed file. `julia scripts/ci_plan.jl` prints the same
+decision for your working tree against `origin/master`.
 
-- Pull requests run Julia lts and Julia 1 on Ubuntu with the core tier (`--core`).
-  Coverage from Julia 1 counts only the core tier, so Codecov may report lower
-  coverage on a PR than on master. Codecov merges uploads for the same commit,
-  so a full run on the same head adds to the report.
-- Pushes to master, tags and manual runs use all jobs and the full suite:
-  Julia 1 on macOS and Windows and Julia pre on Ubuntu in addition to the
-  Ubuntu jobs. A newer pending master run can replace an older pending one.
+- **Pull requests** run Julia lts and Julia 1 on Ubuntu at the minimum tier for
+  the changed files, and the changed test files beside it:
+  - documentation only: no package tests (the API pages, whose entries
+    `test/docstrings.jl` checks, get quick);
+  - test files, examples or README only: quick;
+  - a self-contained function family together with a test change: quick and that
+    family's own test files;
+  - other package code (`src/`): standard; code shared by every function
+    (iterates, `interface.jl`, `utils.jl`, `calculus.jl`, `metric.jl`, spectral
+    helpers) or the conformance suite and its coverage map: thorough;
+  - package code without any test change: at least standard;
+  - `Project.toml`, `ext/`, `src/lapack.jl`, the test runner, the CI rules and
+    workflow, and `test/tiers.toml`: full, which also runs Julia 1 on macOS and
+    Windows and Julia pre. The tier lists decide what every tier runs, so any
+    change to them, including the line of a new test file, gets full;
+  - a path no rule knows: full.
+- **Labels** `test:standard`, `test:thorough` and `test:full` raise a PR's tier;
+  they never lower it. Adding or removing any label starts a new run. Add
+  `test:thorough` when a change touches element-type promotion, precision,
+  overflow-safe scaling or non-finite handling, which the paths cannot show, and
+  `test:full` for a release or a platform-sensitive change. A label starts a
+  new run on the same commit, and its gate replaces the earlier gate as a
+  pending check as soon as GitHub creates the run (a few seconds after the
+  label), so an earlier green gate cannot be used to merge.
+- **Pushes to master and tags** run the full tier on all five jobs (none for a
+  documentation-only push), with coverage and the conformance reports. A
+  **nightly** full run catches changes in dependencies and Julia releases; it is
+  skipped when a full run already passed on the same commit that day.
+- **Manual runs** test any branch at any tier, full by default:
+  `gh workflow run CI.yml --ref <branch> -f tier=thorough`. On a PR branch the
+  result appears on the head commit beside the PR's own checks.
 
-For most pull requests the core tier is enough, and the master run after merge
-checks the rest. Run the full matrix before merging when the PR changes:
+Branch protection should require only the check **PR merge gate**. The gate
+job starts with the run, so its check is pending from the start, and it waits
+for the run's **Required jobs** job, which runs after the plan, the tests and
+the benchmark analysis controls. The gate passes when the plan succeeded, the
+benchmark analysis controls passed and every test job of the chosen tier
+passed; Julia pre is advisory. A failed, cancelled, skipped or missing test job
+fails it, and so does a plan that found an unclassified test file. To retry a
+failed job, use **Re-run failed jobs**: it re-runs that job, Required jobs and
+the gate, and the gate waits for the new result. If only the gate failed (for
+example on a GitHub API outage), the same button re-runs only the gate, which
+then takes the earlier Required jobs result. Coverage is collected only on full
+runs, so Codecov reports on master and on full PR runs.
 
-- numerics the extended tier checks: element-type promotion or precision
-  handling, overflow-safe scaling, non-finite handling, spectral functions, or
-  a helper shared across the catalog (`utils.jl`, `interface.jl`,
-  `calculus.jl`, traits);
-- platform- or version-sensitive code: `src/lapack.jl`, BLAS calls,
-  threading, `VERSION` checks, `ext/`, or Base internals;
-- infrastructure: `Project.toml` dependencies or compat, `.github/workflows/`,
-  `test/runtests.jl`, `scripts/test.jl` or `test/testutils.jl`;
-- the version, for a release.
+Each test job's summary page lists the selected files, the workers, the time
+before the test runner started (Julia, test environment, precompilation), the
+runner's wall time, the worker time of every file with its compilation share,
+and the slowest files. Thorough and full runs also write the conformance reports
+(every job checks that they exist), check the committed coverage map (Julia
+lts) and upload the reports. An upload that fails is retried once. The Julia
+lts, Linux artifact, from which the coverage map is regenerated, is required;
+on the other jobs a failed upload is a warning in the job and its summary and
+does not fail the tests.
 
-To get a full run, start one manual run on the final commit after review:
-`gh workflow run CI.yml --ref <branch>`. It reports on the head commit, so the
-PR shows it. Start another only if later commits also fall under the list
-above. The PR description should say which tier the PR got and why. Labelling
-a PR `full-tests` also gives full runs, but on every later push until the label
-is removed. The label is read when a run starts, so re-running an old run does
-not pick it up.
+**When a master or nightly run fails**, the workflow opens (or comments on) the
+issue "CI failing on master". Fix the regression or revert the PR that caused it
+the same day; reproduce locally with `julia scripts/test.jl <file>` and the Julia
+version of the failing job. A PR that merged after quick or standard is not at
+fault for passing its gate; the post-merge run exists to catch what the smaller
+tiers leave out.
 
 Documentation, benchmarks and optional conic tests each have their own
 `Project.toml` with additional tools. The setup script installs those tools

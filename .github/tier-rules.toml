@@ -1,0 +1,258 @@
+# Which test tier CI runs. Read by test/tiers.jl for scripts/ci_plan.jl and checked by
+# test/tier_selection.jl; the test files of each tier are in test/tiers.toml. CONTRIBUTING.md
+# explains the workflow.
+
+[timeouts]
+# Minutes per CI test job, well above each tier's target to allow for cold caches.
+quick = 20
+standard = 30
+thorough = 45
+full = 90
+
+[policy]
+# A PR that changes src/ or ext/ and no test file gets at least this tier.
+source_without_tests = "standard"
+
+# The minimum tier of a PR. Each changed path takes the first rule below that matches it
+# (`*` within a directory, `**` across directories); the PR gets the highest of these tiers
+# and of its test:standard, test:thorough or test:full labels. A path no rule matches gets
+# full. "none": no package tests. Changed test files, and the `focus` files of the matched
+# rules, run beside the tier.
+
+[[risk]]
+why = "the README examples are tests"
+tier = "quick"
+focus = ["readme"]
+paths = ["README.md"]
+
+[[risk]]
+why = "the conformance coverage map, which thorough and full runs check"
+tier = "thorough"
+paths = ["docs/design/numerical-contract/coverage.md"]
+
+[[risk]]
+why = "the API pages, whose @docs entries test/docstrings.jl checks"
+tier = "quick"
+paths = ["docs/src/api/**"]
+
+[[risk]]
+why = "documentation; the Documentation workflow builds it"
+tier = "none"
+paths = ["docs/**", "**/*.md", "LICENSE", ".gitignore", "codecov.yml"]
+
+[[risk]]
+why = "not part of the package tests (run by their own jobs or by hand)"
+tier = "none"
+paths = [
+  "benchmark/**",
+  "test/cuda/**",
+  "test/oracles/**",
+  "scripts/check_naming.py",
+  "scripts/instantiate.jl",
+  ".github/workflows/CompatHelper.yml",
+  ".github/workflows/Documentation.yml",
+  ".github/workflows/TagBot.yml",
+]
+
+[[risk]]
+why = "test runner, CI, dependencies or extensions: every tier and platform must still work"
+tier = "full"
+paths = [
+  ".github/tier-rules.toml",
+  ".github/workflows/CI.yml",
+  "Project.toml",
+  "ext/**",
+  "scripts/ci_gate.jl",
+  "scripts/ci_plan.jl",
+  "scripts/test.jl",
+  "scripts/test_report.jl",
+  "src/lapack.jl",
+  "test/conformance/common.jl",
+  "test/runtests.jl",
+  "test/testutils.jl",
+  "test/tiers.jl",
+]
+
+[[risk]]
+why = "the tier lists decide what every tier runs: a valid edit can move a test out of the PR tiers"
+tier = "full"
+paths = ["test/tiers.toml"]
+
+[[risk]]
+why = "the conformance suite and its report scripts: thorough runs every conformance file and checks the map"
+tier = "thorough"
+paths = ["test/conformance/**", "scripts/conformance_map.jl", "scripts/conformance_run.jl"]
+
+[[risk]]
+why = "the shared GPU cases"
+tier = "quick"
+focus = ["gpu", "gpu_smoke"]
+paths = ["test/gpu_prelude.jl", "test/gpu_suite.jl", "test/gpu_suite_basics.jl"]
+
+[[risk]]
+why = "a test file: it runs beside the tier"
+tier = "quick"
+paths = ["test/**"]
+
+[[risk]]
+why = "the examples are tests"
+tier = "quick"
+focus = ["examples"]
+paths = ["examples/**"]
+
+[[risk]]
+why = "shared by every function: iterates, interface, traits, numerical helpers, wrappers, steps"
+tier = "thorough"
+paths = [
+  "src/ProximalBase.jl",
+  "src/atom_iterate.jl",
+  "src/compat.jl",
+  "src/functions/spectral.jl",
+  "src/interface.jl",
+  "src/metric.jl",
+  "src/partial.jl",
+  "src/precompile.jl",
+  "src/sparse_iterate.jl",
+  "src/spectralfunction.jl",
+  "src/symmetric_parameters.jl",
+  "src/testing.jl",
+  "src/utils.jl",
+]
+
+[[risk]]
+why = "the wrappers, whose rejected-step catalog (stepchecks) is in the full tier"
+tier = "thorough"
+focus = ["stepchecks"]
+paths = ["src/calculus.jl"]
+
+# Families used only by their own tests: quick and those tests, if the PR changes a test.
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["entropy"]
+paths = ["src/functions/entropy.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["losses", "sqrhinge"]
+paths = ["src/functions/losses.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["fibers"]
+paths = ["src/functions/fibers.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["intersection"]
+paths = ["src/functions/intersection.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["soc", "rotatedsoc", "expcone"]
+paths = ["src/functions/cones.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["ordered", "converted_weights"]
+paths = ["src/functions/ordered.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["matrixsets"]
+paths = ["src/functions/matrixsets.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["affine"]
+paths = ["src/functions/affine.jl", "src/affineconstrained.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["polyhedron"]
+paths = ["src/functions/polyhedron.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["graph"]
+paths = ["src/functions/graph.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["singular"]
+paths = ["src/functions/singular.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["lla"]
+paths = ["src/lla.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["envelope"]
+paths = ["src/envelope.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["distance", "distl2"]
+paths = ["src/distance.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["image"]
+paths = ["src/image.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["minimum"]
+paths = ["src/minimum.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["constrained_nonconvex"]
+paths = ["src/constrained_nonconvex.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["caches"]
+paths = ["src/caches.jl"]
+
+[[risk]]
+why = "a self-contained family"
+tier = "quick"
+focus = ["deprecated"]
+paths = ["src/deprecated.jl"]
+
+[[risk]]
+why = "Precompose, whose array-scale tests are in the full tier"
+tier = "standard"
+focus = ["composition", "precompose_array"]
+paths = ["src/composition.jl"]
+
+[[risk]]
+why = "sets, including the hyperslab, whose tests are in the full tier"
+tier = "standard"
+focus = ["hyperslab"]
+paths = ["src/functions/sets.jl"]
+
+[[risk]]
+why = "package code: functions, wrappers and constraints"
+tier = "standard"
+paths = ["src/**"]

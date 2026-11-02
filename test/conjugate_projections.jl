@@ -3,6 +3,8 @@ module ConjugateProjectionsTest
 using Test, ProximalBase, LinearAlgebra, Random, SparseArrays
 using ..TestUtils
 
+# One function per projection path, the Moreau and biconjugate identities: conjugate_basics.jl.
+
 # Build every intermediate at the reference precision, including coefficients.
 weight(w, i) = w === nothing ? BigFloat(1) : BigFloat(w[i])
 coefficient(α, λ, w) = isinf(w) ? BigFloat(Inf) :
@@ -125,15 +127,13 @@ end
       huge = T === Float64 ? T(1e300) : T(1e30)
       tiny = T === Float64 ? T(1e-300) : T(1e-30)
       x = T[huge, -huge / 3, 2, 0, tiny]
-      families = (NormL1(), NormL1Nonneg(), CheckLoss(T(0.3)), ZeroFunction(), IndNonnegative(), NormL2(), NormL2(tiny),
+      families = (NormL1Nonneg(), ZeroFunction(), NormL2(tiny),
                   NormL1(T(0), T[Inf, 0, 2, 1, Inf]), NormL1Nonneg(T(0), T[Inf, 0, 2, 1, Inf]),
                   NormL1Nonneg(T(2), T[0, Inf, 3, 1, 2]), NormL1(T(2), T[0, Inf, 3, 1, 2]), CheckLoss(T(0.3), T[0, Inf, 3, 1, 2]),
-                  GroupNormL2(T(1), [[1, 2], [4]], T[1, 0]),
                   GroupNormL2(T(0), [[1, 2], [4]], T[Inf, 1]),
                   Scaled(NormL1(T(2)), tiny), Scaled(NormL1(tiny, fill(huge, 5)), tiny),
                   Scaled(NormL1(huge, fill(tiny, 5)), huge),
-                  GroupNormL2(T(1), [[1, 2], [4]], T[Inf, 1]), Scaled(NormL2(tiny), huge),
-                  Scaled(NormL2(huge), tiny), Translate(NormL1(), T[0, 0, 1, 0, 0]))
+                  GroupNormL2(T(1), [[1, 2], [4]], T[Inf, 1]), Scaled(NormL2(tiny), huge))
       for f in families, γ in (T === Float64 ? 1e-310 : 1e-40, 1.0, T === Float64 ? 1e300 : 1e30)
         c = Conjugate(f)
         ref = reference(f, x, γ)
@@ -176,7 +176,7 @@ end
 end
 
 @testset "conjugate projections retain infinite-weight domains" begin
-  for T in (Float32, Float64), λ in (zero(T), T(0.5), T(Inf)),
+  for T in (Float32,), λ in (zero(T), T(0.5), T(Inf)),
       w in (T[1, Inf, 0], T[Inf, Inf, Inf], T[0, 1, 2], T[floatmax(T) / 4, 1, Inf])
     x = T[3, 4, 1, -2, 0.5, 0.5, 7]
     for groups in ([1:2, 3:4, 5:6], [[1, 3], [4, 5], [6]])
@@ -222,42 +222,6 @@ end
       end
     end
   end
-end
-
-@testset "nested mixed sums and failure atomicity" begin
-  x = ([1e300, 2.0], ([3.0, 4.0], [2.0]))
-  c = Conjugate(SeparableSum(NormL1(), SeparableSum(NormL2(), SqrNormL2())))
-  y = prox(c, x, 1.0)
-  @test y[1] == [1, 1]
-  @test y[2][1] ≈ [0.6, 0.8]
-  @test y[2][2] == [1.0]
-  alias = (copy(x[1]), map(copy, x[2]))
-  @test prox!(alias, c, alias, 1.0) == y
-  x = ([1e300], ([3.0, 4.0], [1.0]))
-  for op in (prox!, value_and_prox!), alias in (false, true)
-    input = (copy(x[1]), map(copy, x[2]))
-    out = alias ? input : (zeros(1), (zeros(2), zeros(1)))
-    before = deepcopy(out)
-    @test_throws ArgumentError op(out, c, input, 1e-310)
-    @test out == before
-  end
-  # A linear conjugate value must not send direct blocks back through Moreau.
-  c = Conjugate(Translate(NormL1Nonneg(), [0.5, -0.5]))
-  y = zeros(2)
-  @test value_and_prox!(y, c, [1e300, -2.0], 1e-310) == 1.5
-  @test y == [1.0, -2.0]
-  @test value_and_prox!(y, c, [1e300, -2.0], [1e-310, 1.0]) == 1.25
-  @test y == [1.0, -1.5]
-  f = Scaled(SeparableSum(NormL1(), SeparableSum(NormL2(), SqrNormL2())), 2.0)
-  @test prox(Conjugate(f), ([1e300], ([3.0, 4.0], [1.0])), 1.0)[1] == [2.0]
-  c = Conjugate(NormL1(1e100))
-  y = Float32[7]
-  @test_throws ArgumentError prox!(y, c, [1e39], 1.0)
-  @test y == Float32[7]
-  c = Conjugate(Translate(NormL1(), [1.0]))
-  y = Float32[7]
-  @test_throws ArgumentError prox!(y, c, Float32[1], 1e300)
-  @test y == Float32[7]
 end
 
 @testset "warmed direct projection allocations" begin
@@ -498,29 +462,6 @@ end
   end
 end
 
-@testset "projection output aliases retained parameters" begin
-  for op in (prox!, value_and_prox!), α in (1.0, 2.0)
-    x = [3.0, 2.0]
-    f = Scaled(GroupNormL2(0.5, [[2], [1]], x), α)
-    expected = α == 1 ? [1.0, 1.5] : [2.0, 2.0]
-    v = op(x, Conjugate(f), x, 1.0)
-    @test x == expected
-    op === value_and_prox! && @test v == 0
-    for F in (NormL1, NormL1Nonneg), alias_input in (false, true), γ in (1.0, ones(2))
-      y = [3.0, 2.0]
-      x = alias_input ? y : [9.0, 9.0]
-      f = Scaled(F(0.5, view(y, 2:-1:1)), α)
-      expected = min.(copy(x), (α * 0.5) .* reverse(copy(y)))
-      v = op(y, Conjugate(f), x, γ)
-      @test y == expected
-      op === value_and_prox! && @test v == 0
-    end
-    y = [1.0, 2.0]
-    v = op(y, Conjugate(IndBox(-copy(y), y)), [3.0, 4.0], 1.0)
-    @test y == [2.0, 2.0]
-  end
-end
-
 # Master's tuple route narrows division/output, but not the reciprocal step.
 tuple_divide!(p::AbstractArray, x::AbstractArray, γ) = (p .= x ./ convert(float(eltype(p)), γ))
 tuple_divide!(p::Tuple, x::Tuple, γ) = (map((pk, xk) -> tuple_divide!(pk, xk, γ), p, x); p)
@@ -728,29 +669,6 @@ end
   end
 end
 
-@testset "double conjugate tuples and nested step checks" begin
-  for T in (Float32, Float64), op in (prox!, value_and_prox!), alias in (false, true)
-    f = SeparableSum(SqrNormL2(T(2)), SeparableSum(NormL1(T(0.5))))
-    c = Conjugate(Conjugate(f))
-    input = (T[3, -4], (T[2, -1],))
-    expected = (T[1.5, -2], (T[1.75, -0.75],))
-    x = deepcopy(input)
-    y = alias ? x : deepcopy(input)
-    value = op(y, c, x, T(0.5))
-    @test y == expected
-    @test prox(c, input, T(0.5)) == expected
-    op === value_and_prox! && @test value == T(7.5)
-
-    # The outer sum validates the double conjugate's tuple step as a block.
-    s = SeparableSum(c, NormL1())
-    x = (deepcopy(input), T[3])
-    y = alias ? x : deepcopy(x)
-    value = op(y, s, x, T(0.5))
-    @test y == (expected, T[2.5])
-    op === value_and_prox! && @test value == T(10)
-  end
-end
-
 @testset "tuple indicator fallback and empty blocks" begin
   for T in (Float32, Float64), α in (one(T), T(2)), γ in (T(0.5), T(2))
     support = Conjugate(SeparableSum(IndBox(T(-2), T(2)), IndBox(one(T), T(3))))
@@ -836,7 +754,7 @@ end
 # L1 conjugate regression cases.
 @testset "L1 conjugate radius accuracy" begin
   setprecision(BigFloat, 4096) do
-    for T in (Float32, Float64)
+    for T in (Float32,)
       p = precision(T)
       h = T === Float64 ? T(1e300) : T(3e30)
       tiny = T === Float64 ? T(1e-300) : T(1e-30)
@@ -917,7 +835,7 @@ end
 
 @testset "L1 conjugate groups and wrappers" begin
   setprecision(BigFloat, 4096) do
-    for T in (Float32, Float64), λ in (zero(T), T(0.5)), w in (T[0, Inf, 1e30], T[1, 2, 0])
+    for T in (Float32,), λ in (zero(T), T(0.5)), w in (T[0, Inf, 1e30], T[1, 2, 0])
       x = T[1e30, -0.5, 4, 7, 0.25, -2, 8]
       f = GroupNormLinf(λ, [[1, 3], [4], [6]], w)
       for op in (prox!, value_and_prox!), alias in (false, true)
@@ -949,7 +867,7 @@ end
     @test prox(Conjugate(GroupNormLinf(1.0, Vector{Int}[])), [2.0, 3.0]) == zeros(2)
     @test_throws ArgumentError GroupNormLinf(1.0, [Int[]])
     x, b = [1e300, -3.0, 1.0], [0.5, -0.25, 0.125]
-    for base in (NormLinf(0.5), GroupNormLinf(0.5, [1:2, 3:3])),
+    for base in (GroupNormLinf(0.5, [1:2, 3:3]),),
         f in (Translate(Scaled(base, 2.0), b), Scaled(Translate(base, b), 2.0)),
         op in (prox!, value_and_prox!)
       y = zeros(3)

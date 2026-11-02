@@ -1,0 +1,181 @@
+# The test tiers. Read by test/tiers.jl, test/runtests.jl and scripts/ci_plan.jl; checked by
+# test/tier_selection.jl. CONTRIBUTING.md explains the workflow, test/TESTING.md records why each
+# file sits where it does, and .github/tier-rules.toml says which tier CI runs for a change.
+#
+# [tiers]: each test file (its path under test/ without .jl) is listed once, under the lowest
+# tier that runs it. A tier runs its own files and those of every tier above it in this file,
+# so full runs every test file. A new test file must be added here: an unlisted file stops
+# every test run and the CI plan job.
+
+[tiers]
+quick = [
+  # loading, interface, traits and package quality
+  "aqua",
+  "ci_gate",
+  "compat",
+  "docstrings",
+  "interface",
+  "readme",
+  "tier_selection",
+  "utils",
+  # iterates: active sets, value writes versus state copies, symmetric coordinates, aliasing
+  "active_handle",
+  "atom_iterate",
+  "iterate_queries",
+  "matrixview",
+  "sparse_iterate_basics",
+  "symmetric_parameters",
+  "symmetric_products",
+  "wrapper_buffers",
+  # values, gradients and proximal operators of representative functions
+  "caches",
+  "conjugate_basics",
+  "constrained_basics",
+  "deprecated",
+  "entropy",
+  "intersection",
+  "lla",
+  "losses",
+  "nested_box_values",
+  "sets",
+  "spectral",
+  "spectralfunction",
+  # precision, boundaries, non-finite values, validation before writes
+  "block_step_failures",
+  "conformance/tolerances",
+  "model_precision",
+  "scaled_overflow",
+  "spectral_box_tolerance",
+  "spectral_mask",
+  # device arrays, LAPACK workspaces and hot-path allocations
+  "allocations_basics",
+  "gpu_smoke",
+  "lapack",
+]
+
+# Most function families, wrappers, constraints and the examples.
+standard = [
+  "affine",
+  "ballconstrained",
+  "bernoulli",
+  "binary",
+  "composition",
+  "constrained_nonconvex",
+  "cubenorm",
+  "distance",
+  "envelope",
+  "examples",
+  "infinite_weights",
+  "matrixsets",
+  "metric_steps",
+  "minimum",
+  "nonconvex",
+  "norms",
+  "ordered",
+  "second_order",
+  "separable",
+  "singular",
+  "smooth",
+  "soc",
+  "sparse_value_cost",
+  "sparsegroup",
+  "sqrhinge",
+  "stiefel",
+  "sumlargest",
+]
+
+# What shared or numerical changes can break: precision, overflow, non-finite values, spectral
+# domains, the conformance suite, symmetric writes and parameters, steps, wrappers, block checks,
+# iterate grids, and the specialized families.
+thorough = [
+  "block_step",
+  "blockchecks",
+  "box_bounds_overflow",
+  "calculus",
+  "conformance/data_functions",
+  "conformance/data_functions_2",
+  "conformance/element_types",
+  "conformance/failures_storage",
+  "conformance/gpu_arrays",
+  "conformance/harness",
+  "conformance/kernels",
+  "conformance/linear_sets",
+  "conformance/linear_sets_2",
+  "conformance/second_order",
+  "conformance/special_values",
+  "conformance/spectral",
+  "conformance/steps",
+  "conformance/wrappers",
+  "conjugate_steps",
+  "constrained",
+  "converted_weights",
+  "expcone",
+  "extreme_normals",
+  "fibers",
+  "gradient_alias",
+  "graph",
+  "infinite_group_weights",
+  "large_inputs",
+  "logdet_overflow",
+  "metric",
+  "nonfinite_inputs",
+  "partial",
+  "polyhedron",
+  "precision",
+  "rotatedsoc",
+  "sparse_iterate",
+  "spectral_domain",
+  "spectral_nonfinite_values",
+  "spectral_overflow",
+  "spectral_overflow_prox",
+  "spectral_overflow_wrappers",
+  "spectral_tolerance",
+  "symmetric_argument",
+  "symmetric_groups",
+  "symmetric_mul",
+  "symmetric_parameters_extensions",
+  "symmetric_parameters_merge",
+  "symmetric_parameters_paths",
+  "symmetric_parameters_trait",
+  "symmetric_parameters_writes",
+  "symmetric_writes",
+  "testing",
+  "value_overflow_fused",
+  "value_overflow_sqrnorm",
+  "weighted_overflow",
+]
+
+# Exhaustive catalogs whose cases repeat paths the tiers above already reach, and family files
+# that the CI rules run beside any change to their family.
+full = [
+  "allocations",
+  "blockchecks_steps",
+  "blockchecks_values",
+  "blockchecks_workspace",
+  "blockchecks_wrappers",
+  "conjugate_projections",
+  "distl2",
+  "gpu",
+  "hyperslab",
+  "image",
+  "precision_mixed",
+  "precompose_array",
+  "real_functions",
+  "real_iterates",
+  "real_wrappers",
+  "separable_blocks",
+  "stepchecks",
+  "symmetric_mutator_errors",
+  "symmetric_mutators",
+  "symmetric_parameters_centers",
+  "symmetric_parameters_inventory",
+  "symmetric_parameters_inventory_walk",
+  "weight_steps",
+]
+
+[not_tests]
+# Included by test files or by the runner, never run on their own.
+helpers = ["conformance/common", "gpu_prelude", "gpu_suite", "gpu_suite_basics", "testutils", "tiers"]
+# Directories with a Project.toml of their own, run by hand: cuda/ needs an NVIDIA GPU and
+# oracles/ needs JuMP and conic solvers. No tier runs them.
+environments = ["cuda", "oracles"]

@@ -242,6 +242,22 @@ _layout_mult(L::_LowerLayout, ::Type{U}, k) where {U} = mod1(k, L.p) == cld(k, L
 @inline _layout_put!(L::_LowerLayout, y, k, z) = (y[mod1(k, L.p), cld(k, L.p)] = z)
 @inline _l1_margin(x, f, γ, ::Type{U}, k) where {U} =
   @inbounds max(abs(convert(U, x[k])) - _sphere_threshold(U, γ, f.λ0, _entry(f.w, k)), zero(U))
+# Σ multiplicity ⋅ (margin / top)². Over every entry the sum may be reassociated by SIMD (A6),
+# as the norms of the package are; it only scales the result, and decides nothing.
+function _sphere_sumsq(::_DenseLayout, x, f, γ, ::Type{U}, top) where {U}
+  ss = zero(U)
+  @simd for k in eachindex(IndexLinear(), x)
+    ss += (_l1_margin(x, f, γ, U, k) / top)^2
+  end
+  ss
+end
+function _sphere_sumsq(L::_LowerLayout, x, f, γ, ::Type{U}, top) where {U}
+  ss = zero(U)
+  for k in _layout_indices(L, x)
+    ss += _layout_mult(L, U, k) * (_l1_margin(x, f, γ, U, k) / top)^2
+  end
+  ss
+end
 function _sphere_l1_shrink!(y, x, f, γ, r, ::Type{U}, ::Type{T}, L) where {U, T}
   inds = _layout_indices(L, x)
   # Soft thresholding and the scaling onto the sphere in the type of the comparison, so
@@ -252,10 +268,7 @@ function _sphere_l1_shrink!(y, x, f, γ, r, ::Type{U}, ::Type{T}, L) where {U, T
   for k in inds
     top = max(top, _l1_margin(x, f, γ, U, k))
   end
-  ss = zero(U)
-  for k in inds
-    ss += _layout_mult(L, U, k) * (_l1_margin(x, f, γ, U, k) / top)^2
-  end
+  ss = _sphere_sumsq(L, x, f, γ, U, top)
   ru, root = convert(U, r), sqrt(ss)       # 1 ≤ ss ≤ 2p², since the largest margin counts once or twice
   # y = margin ⋅ r / (top ⋅ root). When the factor r / (root ⋅ top) is a normal number one
   # product is accurate. Otherwise the three terms are split into mantissas and exponents,

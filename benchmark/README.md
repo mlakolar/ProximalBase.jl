@@ -205,8 +205,8 @@ operands; for `atom`, `p = 8·10⁴` with 10% of the groups active, `g = 1` and 
   version.
 
 **Baseline and comparisons.** The metadata records `check_bounds` (`default`, `yes` or `no`,
-from `--check-bounds`) and `os` (`Sys.KERNEL` and `Sys.MACHINE`); `compare.py` does not compare
-them, so use the same setting on both sides. `harness_hash` covers `run.jl` and `cases.jl`: any
+from `--check-bounds`) and `os` (`Sys.KERNEL` and `Sys.MACHINE`). `compare.py` rejects two sides
+whose recorded values differ for the same Julia version (see [Compare revisions](#compare-revisions)). `harness_hash` covers `run.jl` and `cases.jl`: any
 edit to either changes it, and `compare.py` requires it, like the suite and the groups, to
 match. After such an edit, measure the baseline source again with the same harness in the same
 session. The owner baseline `baselines/symmetric-owner-0.5.md` was recorded with an earlier
@@ -265,11 +265,29 @@ Repetitions belong in the same directory; different Julia versions need separate
 environments. Versions are discovered from metadata, or explicitly required by
 `validate.py` and `summarize.py` with `--versions`.
 
-The comparison produces `REPORT.md`, `comparison.csv` and `coverage.json`.
+The comparison produces `REPORT.md`, `comparison.csv`, `coverage.json` and `settings.json`.
 It reports timing variation, paired speedup intervals, mean and maximum bytes,
 and unexpected warmed allocations. Single-run ratios are exploratory. Failed
 checks, missing repetitions, unmatched cases or incompatible settings prevent
 a comparison and retain diagnostics. An interval containing one is inconclusive.
+
+`check_bounds` and `os` are compared separately for each Julia version present on both sides;
+values of different versions are never compared. Two different known values in any version
+reject the comparison, and `errors.json` names each version and key. A record older than these
+keys does not have them. Such a record is still validated and compared, but the setting counts
+as unknown for that version, never as matching. `settings.json` holds, for each version and key,
+the status (`match`, `unknown_before`, `unknown_after` or `unknown_both`) and both values, with
+`null` for a missing one:
+
+```json
+{"by_version": {"1.13.3": {"check_bounds": {"status": "match", "before": "default", "after": "default"},
+                           "os": {"status": "unknown_before", "before": null, "after": "Linux x86_64-linux-gnu"}}}}
+```
+
+`REPORT.md` has one "Recorded settings, Julia <version>" line per version, naming every setting
+of that version that could not be verified to match. `validate.py` lists the keys a directory
+lacks under `unrecorded_settings`. Within one Julia version of a directory, all repetitions must
+agree on both keys, including whether they record them.
 
 ## Measurement and evidence
 

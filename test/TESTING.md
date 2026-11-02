@@ -331,6 +331,79 @@ and both upload steps by stubs that succeed without an artifact id: on Julia lts
 step failed with the error, failing the job, CI required jobs and CI result; on Julia 1, whose
 stub test step failed, the warning named the failed test step.
 
+## Iterate changes (third review of #430)
+
+The 0.6 work changes `SparseIterate`, `AtomIterate` and `SymmetricSparseIterate` in many small
+PRs, and every change to their files ran thorough (17–21 min). The three files now have rules of
+their own in `.github/tier-rules.toml`: **standard and a focus group** by default, and **quick
+and the same focus group** with the label `test:iterate-narrow`. The label applies only when
+exactly one of the three rules matches, lowers nothing else (shared code stays thorough,
+infrastructure and unknown paths full, other package code without tests standard), and leaves
+the focus files unchanged; `test:thorough` and `test:full` raise the tier as before. Whether a
+change is narrow, shared or architectural is the author's declaration, checked in review
+(CONTRIBUTING.md, "Iterate changes", and the PR template); no rule reads it from the diff.
+
+**Focus groups**, chosen by what the files protect (worker seconds on Julia lts from the full
+run 41364805347), beside the iterate files of quick (`active_handle`, `atom_iterate`,
+`iterate_invariants`, `iterate_queries`, `matrixview`, `sparse_iterate_basics`,
+`symmetric_parameters`, `symmetric_products`, `wrapper_buffers`, `allocations_basics`,
+`block_step_failures`):
+
+| Rule | Focus files | Why | Worker s |
+|---|---|---|---:|
+| `src/atom_iterate.jl` | `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` | constructors and products; block steps over groups (activation order, staging, pre-write errors, aliased trial points); the group norms and sparse group on atoms; active-group visits with infinite weights | 165 |
+| `src/sparse_iterate.jl` (both stored iterates and their shared code) | `sparse_iterate`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_writes`, `symmetric_mul`, `symmetric_argument`, `symmetric_mutators`, `symmetric_mutator_errors` | the complete iterate tests; products and dispatch; block steps; no dense pass in value oracles; storage after failures; every symmetric write entry point, `mul!`, the symmetric part read by `prox!`/`gradient!`, the array-interface mutators and their errors | 532 |
+| `src/symmetric_parameters.jl` | `symmetric_parameters_paths`, `_trait`, `_writes`, `_merge`, `_extensions` | the check paths, the trait, writes, merged and extension parameters; the catalogs (`_centers`, `_inventory`, `_inventory_walk`) stay in full | 133 |
+
+Left out on purpose and still in thorough or full: `symmetric_groups` (group-norm writes into a
+symmetric iterate, 118 s), `allocations` (the full catalog; `allocations_basics` in quick has
+the iterate cases), `gradient_alias` (function outputs), the spectral, constrained and
+conformance families. `src/sparse_iterate.jl` holds both stored iterates and the code they
+share, so its group is the union: the file name cannot tell a narrow `SparseIterate` fix from a
+symmetric change. A new quick file, `iterate_invariants` (94 checks, about 3 s), runs one
+sequence on all four iterate kinds: the active list, reverse map and values agree and inactive
+coordinates are zero; zero writes neither activate nor deactivate; `activate!` and `dropzeros!`;
+independent copies; `copyto!` replaces the whole state; failed conversions leave the destination
+unchanged; one symmetric coordinate per pair.
+
+**Additive tier lists.** A change to `test/tiers.toml` needed full. The plan now compares the
+parsed lists at the base and the head (`TestTiers.manifest_additions`): when the head only adds
+names of test files that the PR adds (absent at the base, present at the head) and nothing
+outside `[tiers]` changed, the lists decide quick and the new files run as changed test files.
+A removed, moved or renamed file, an added name that is not a new file, or a change to the
+helpers or environments still needs full; a listed name without a file stops the plan. Order
+and comments alone change nothing (quick).
+
+**Measured on GitHub** (scenario PRs #477–#483 against `ci/iterate-scenarios`, this branch at
+5bd6d95a; each changes a comment, so the time is the tests' alone; end to end from the run's
+creation to `PR merge gate`):
+
+| Scenario | PR (run) | Plan | Files | Test jobs (lts / Julia 1) | End to end |
+|---|---|---|---:|---|---:|
+| I1: narrow `AtomIterate` change | #478 (41463898074) | quick + atom group | 43 | 5.2 / 5.9 min | **6.7 min** |
+| I2: narrow `sparse_iterate.jl` change | #479 (41463913825) | quick + sparse/symmetric group | 48 | 7.1 / 6.9 min | **8.0 min** |
+| I3: narrow `symmetric_parameters.jl` change | #480 (41463926290) | quick + parameter group | 43 | 5.0 / 3.8 min | **5.8 min** |
+| I4: `sparse_iterate.jl` and `atom_iterate.jl`, no label | #477 (41463854961) | standard + both groups | 76 | 12.5 / 7.8 min | **13.8 min** |
+| I5: `sparse_iterate.jl` with `test:thorough` | #483 (41464422896) | thorough + the focus files not in thorough | 124 | 21.1 / 22.2 min | **23.3 min** |
+| I6: a new test file and its `tiers.toml` line | #481 (41464205413) | quick + the new file | 39 | 3.5 / 3.8 min | **4.7 min** |
+| I7: `utils` moved from quick to standard | #482 (41464229437) | full: "`utils` moves from `quick` to `standard`" | — | cancelled after the plan | — |
+
+Before this change I1–I4 ran thorough: 23.3 min for I5 in the same conditions, 16.7–26.4 min
+in the first round. The
+scenarios ran up to six at a time beside a full run, on AMD EPYC 7763 runners (I6 on an Intel
+Xeon 8573C). The slowest files of I2 and I4 on Julia lts were `sparse_iterate` (172–174 s),
+`symmetric_writes` (129–136 s), `symmetric_argument` (117–122 s) and `block_step` (106–111 s);
+if the narrow groups grow past the target, `sparse_iterate.jl`'s two testsets (sparse,
+symmetric) can be split into separate files without losing a test.
+
+`test/tier_selection.jl` checks the policy (the table of CONTRIBUTING, label precedence, that
+the label never lowers another path or changes the focus files, order independence, that every
+focus file is in full and only the iterate rules have a `narrow` tier) and the additive rule
+(additions, order and comments, a removed, moved or renamed file, an unknown added name, helper
+and environment changes, unreadable TOML, and the plan with and without additions). The planner
+was also run on synthetic commits: a new file and its line gave quick and the file; a moved file
+gave full with the reason; a listed name without a file stopped the plan.
+
 ## A test made independent of its worker
 
 `gpu_suite.jl`'s ambiguity check called `Test.detect_ambiguities(ProximalBase)`, which also sees

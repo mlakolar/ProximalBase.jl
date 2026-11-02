@@ -6,7 +6,7 @@ using Test
 include(joinpath(dirname(@__DIR__), "scripts", "ci_gate.jl"))
 using .CIGate: Job, decide, watch, settled, parse_jobs, identity_problems
 
-const V = "Required jobs"
+const V = "PR required jobs"
 const G = "PR merge gate"
 
 job(name, status = "completed", conclusion = status == "completed" ? "success" : ""; attempt = 1) =
@@ -31,7 +31,7 @@ action(jobs; kw...) = d(jobs; kw...)[1]
   @test action([gate(), plan(), analysis(), lts("completed", "failure"), jl1("in_progress")]) == :wait
   @test action([gate(), plan(), analysis(), lts(), jl1(), verdict("queued")]) == :wait
   @test action([gate(), plan(), analysis(), lts(), jl1(), verdict("in_progress")]) == :wait
-  @test d([gate(), plan(), analysis(), lts(), jl1(), verdict()]) == (:pass, "`Required jobs` passed (attempt 1)")
+  @test d([gate(), plan(), analysis(), lts(), jl1(), verdict()]) == (:pass, "`PR required jobs` passed (attempt 1)")
 end
 
 @testset "a verdict that is not success fails the gate" begin
@@ -57,6 +57,8 @@ end
   @test action([gate(), plan("completed", "failure"), analysis()]; settled_for = 120) == :fail
   # two verdicts cannot be told apart
   @test action([gate(), verdict(), verdict()]) == :fail
+  # the verdict of another event's run has another name and never counts
+  @test action([jobs; job("CI required jobs")]; settled_for = 90) == :fail
 end
 
 @testset "re-runs: only the gate's own attempt or a verdict nothing re-runs" begin
@@ -99,6 +101,9 @@ end
 @testset "the run must be this commit's run" begin
   @test isempty(identity_problems("abc", "pull_request", "abc", "pull_request"))
   @test length(identity_problems("abc", "push", "abd", "pull_request")) == 2
+  args = ["--repo=o/n", "--run-id=1", "--attempt=1", "--sha=abc", "--event=pull_request", "--gate=$G", "--verdict=$V"]
+  @test CIGate.options(args)["verdict"] == V
+  @test_throws ErrorException CIGate.options(args[1:end-1]) # the verdict's name is required
 end
 
 @testset "job list from the API" begin
@@ -139,9 +144,10 @@ end
   @test r == :fail && occursin("no decision", m) && 3600 <= t < 3700
   # every job finished but no verdict appears: fails after the grace period, not at the deadline
   (r, m), t = simulate([[gate(), plan(), analysis(), lts(), jl1()]])
-  @test r == :fail && occursin("no job `Required jobs`", m) && t < 200
+  @test r == :fail && occursin("no job `PR required jobs`", m) && t < 200
   # the fast interval keeps the gate within seconds of the verdict
   states = [fill(running, 30); [[gate(), plan(), analysis(), lts(), jl1(), verdict("queued")]]; [passed]]
   (r, m), t = simulate(states)
   @test r == :pass
 end
+

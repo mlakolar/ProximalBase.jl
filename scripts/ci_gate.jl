@@ -1,12 +1,14 @@
-# The required check of the CI workflow ("PR merge gate" on pull requests, "CI result"
-# otherwise). The gate job has no `needs`, so GitHub creates its check when the run starts:
-# a new run on a commit (a push, or a label added to an unchanged commit) at once shows a
-# pending gate instead of the green gate of an earlier run. The job then waits for this run's
-# "Required jobs" job, which starts after the plan, the tests and the benchmark controls and
-# checks every job the plan required, and passes only when that job passed.
+# The gate job of the CI workflow ("PR merge gate" on pull requests, "CI result" otherwise).
+# It has no `needs`, so GitHub creates its check when the run starts: a new run on a commit (a
+# push, or a label added to an unchanged commit) at once shows a pending gate instead of the
+# green gate of an earlier run. The job then waits for this run's verdict job ("PR required
+# jobs" on pull requests, "CI required jobs" otherwise), which starts after the plan, the tests
+# and the benchmark controls and checks every job the plan required, and passes only when that
+# job passed. Branch protection requires both checks: re-running a single test job re-runs the
+# verdict job but not the gate.
 #
 #   julia scripts/ci_gate.jl --repo=OWNER/NAME --run-id=ID --attempt=N --sha=SHA \
-#     --event=pull_request --gate="PR merge gate" --verdict="Required jobs"
+#     --event=pull_request --gate="PR merge gate" --verdict="PR required jobs"
 #
 # It reads only this run (actions/runs/ID) through `gh api` and needs `actions: read`. It
 # fails closed: a failed, cancelled, skipped or missing verdict, a run for another commit or
@@ -172,8 +174,8 @@ function options(args)
     m === nothing && error("unknown argument `$arg`; expected --name=value")
     opts[m.captures[1]] = m.captures[2]
   end
-  required = ("repo", "run-id", "attempt", "sha", "event", "gate")
-  known = (required..., "verdict", "deadline")
+  required = ("repo", "run-id", "attempt", "sha", "event", "gate", "verdict")
+  known = (required..., "deadline")
   for k in keys(opts)
     k in known || error("unknown option --$k; the options are $(join(known, ", "))")
   end
@@ -187,7 +189,7 @@ function main(args)
   opts = options(args)
   repo, run_id, sha, event, gate = opts["repo"], opts["run-id"], opts["sha"], opts["event"], opts["gate"]
   attempt = parse(Int, opts["attempt"])
-  verdict = get(opts, "verdict", "Required jobs")
+  verdict = opts["verdict"]
   deadline = parse(Int, get(opts, "deadline", string(170 * 60)))
   println("Gate `$gate` of run $run_id, attempt $attempt, $event at $sha: waiting for `$verdict`.")
 

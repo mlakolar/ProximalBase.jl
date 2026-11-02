@@ -4,10 +4,12 @@ name: CI
 #   test:thorough or test:full labels; quick at least, none for documentation only;
 # - pushes to master, tags and the nightly run: full (none for documentation only);
 # - manual runs: the chosen tier, full by default (`gh workflow run CI.yml --ref <branch>`).
-# Branch protection requires only "PR merge gate". It starts with the run, so a new run (a push
-# or a label) at once replaces the commit's earlier gate with a pending one, and it passes when
-# this run's "Required jobs" found that everything the plan asked for passed. CONTRIBUTING.md
-# describes the workflow.
+# Branch protection requires two checks of pull_request runs. "PR merge gate" starts with the
+# run, so a new run (a push or a label) at once replaces the commit's earlier gate with a pending
+# one, and it passes when this run's "PR required jobs" found that everything the plan asked for
+# passed. "PR required jobs" itself is required because GitHub re-runs it with any test job that
+# is re-run, but not the gate. Other events name them "CI result" and "CI required jobs", so a
+# manual run cannot stand in for a PR's checks. CONTRIBUTING.md describes the workflow.
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
@@ -248,8 +250,9 @@ jobs:
     # Runs after the plan, the tests and the benchmark controls, even when one of them failed
     # or was cancelled, and passes only if the plan and the benchmark controls passed and, when
     # the plan asked for tests, every test job of that tier passed (Julia pre is advisory).
-    # The gate below waits for it.
-    name: Required jobs
+    # Branch protection requires it beside the gate below, which waits for it: re-running a
+    # single test job re-runs this job too, but not the gate.
+    name: ${{ github.event_name == 'pull_request' && 'PR required jobs' || 'CI required jobs' }}
     needs: [plan, test, analysis]
     if: always()
     runs-on: ubuntu-latest
@@ -301,10 +304,10 @@ jobs:
           fi
           exit $fail
   gate:
-    # The one check for branch protection. It has no `needs`, so GitHub creates its check when
-    # the run starts: a new run on a commit (a push, or a label on the same commit) shows a
-    # pending gate at once, not the green gate of an earlier run. It waits for this run's
-    # Required jobs and passes only if they passed (scripts/ci_gate.jl, test/ci_gate.jl).
+    # Required by branch protection with "PR required jobs". It has no `needs`, so GitHub creates
+    # its check when the run starts: a new run on a commit (a push, or a label on the same commit)
+    # shows a pending gate at once, not the green gate of an earlier run. It waits for this run's
+    # verdict job and passes only if it passed (scripts/ci_gate.jl, test/ci_gate.jl).
     # It reads this run's jobs and runs no tests, so its token is read-only.
     name: ${{ github.event_name == 'pull_request' && 'PR merge gate' || 'CI result' }}
     runs-on: ubuntu-latest
@@ -325,11 +328,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GATE: ${{ github.event_name == 'pull_request' && 'PR merge gate' || 'CI result' }}
+          VERDICT: ${{ github.event_name == 'pull_request' && 'PR required jobs' || 'CI required jobs' }}
           COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: >-
           julia --startup-file=no scripts/ci_gate.jl "--repo=$GITHUB_REPOSITORY" "--run-id=$GITHUB_RUN_ID"
           "--attempt=$GITHUB_RUN_ATTEMPT" "--sha=$COMMIT" "--event=$GITHUB_EVENT_NAME" "--gate=$GATE"
-          "--verdict=Required jobs"
+          "--verdict=$VERDICT"
   report:
     # Only trusted runs (pushes to master and the nightly run) get write access to issues; no
     # pull request code runs here.

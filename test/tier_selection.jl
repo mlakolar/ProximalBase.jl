@@ -226,10 +226,14 @@ instandard(names) = filter(n -> !(n in TestTiers.select(MANIFEST, "standard")), 
 end
 
 @testset "additive changes to the tier lists" begin
-  old = read(joinpath(DIR, "tiers.toml"), String)
+  # the edits below work on LF text; a Windows checkout has CRLF line endings
+  old = replace(read(joinpath(DIR, "tiers.toml"), String), "\r\n" => "\n")
   add(text, tier, name) = replace(text, "\n$tier = [\n" => "\n$tier = [\n  \"$name\",\n"; count = 1)
   # new files only: their names, which then run as changed test files
   @test TestTiers.manifest_additions(old, add(old, "quick", "iterate_new"), ["iterate_new"]) == (["iterate_new"], String[])
+  # line endings do not matter
+  @test TestTiers.manifest_additions(old, replace(add(old, "quick", "iterate_new"), "\n" => "\r\n"), ["iterate_new"]) ==
+        (["iterate_new"], String[])
   two = add(add(old, "full", "b_new"), "standard", "a_new")
   @test TestTiers.manifest_additions(old, two, ["a_new", "b_new"]) == (["a_new", "b_new"], String[])
   # comments and order alone change nothing

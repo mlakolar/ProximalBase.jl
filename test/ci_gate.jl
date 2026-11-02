@@ -195,3 +195,8 @@ end
     @test_throws ErrorException quietly(() -> CIUploadResult.main(env(REQUIRED = "")))
   end
 end
+
+# Control for PR #430 (only PR merge gate required): fails only in attempt 2 of the Julia 1 job.
+@testset "scenario: attempt 2 of Julia 1 fails" begin
+  @test !(VERSION >= v"1.11" && get(ENV, "GITHUB_RUN_ATTEMPT", "") == "2")
+end

@@ -243,3 +243,19 @@ ends nonzero.
 The `storage` field is internal. Writing into it can leave the iterate
 inconsistent. Activation follows the stored value: a value that rounds to
 zero in the element type does not activate a group or store a coordinate.
+
+## Scaling a `SparseIterate` by a number (0.6)
+
+`rmul!`, `lmul!`, `rdiv!` and `ldiv!` of a `SparseIterate` by a number now
+equal the corresponding broadcasts, `x .*= s`, `x .= s .* x`, `x ./= s` and
+`x .= s .\ x`, in values and in the working set. Before 0.6, they scaled
+only the stored entries. With an `Inf` or NaN multiplier or a zero divisor,
+unstored entries stayed zero.
+
+For example, take `x = SparseIterate(4); x[1] = 1; activate!(x, 2)`.
+`rmul!(x, Inf)` gave `[Inf, NaN, 0, 0]` with active coordinates `[1, 2]`.
+It now gives `[Inf, NaN, NaN, NaN]` with active coordinates `[1, 2, 3, 4]`.
+
+Finite multipliers and finite nonzero divisors still cost `O(nnz)` and give
+the same results as before. `SymmetricSparseIterate` keeps the earlier
+behavior for now.

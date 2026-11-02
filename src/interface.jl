@@ -471,9 +471,9 @@ function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, u::Ab
   _checkreal(f, u)
   length(u) == length(x.groups[k]) ||
     throw(DimensionMismatch("u has length $(length(u)), group $k has size $(length(x.groups[k]))"))
-  if Base.mightalias(x, u)
-    u = collect(u)
-  end
+  # Rebinding u to collect(u) would give it the type Union{Vector, typeof(u)}, which
+  # heap-allocates a strided view u; pass the copy on instead.
+  Base.mightalias(x, u) && return _block_step!(x, f, k, collect(u), γ, ctx)
   _block_step!(x, f, k, u, γ, ctx)
 end
 

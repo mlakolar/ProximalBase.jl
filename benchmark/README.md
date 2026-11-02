@@ -29,8 +29,8 @@ for each measurement series; existing repetitions are never overwritten.
 | `PB_LIST=true` | List selected case IDs without measuring them. |
 | `PB_PROFILE_SECONDS=0.2` | Enable representative profiles; disabled by default. |
 
-Groups are `vectors`, `smooth`, `matrices`, `constraints`, `tensors`, `products`, `blocks` and
-`owner`. They cover dense/sparse/atom calls, values and derivatives,
+Groups are `vectors`, `smooth`, `matrices`, `constraints`, `tensors`, `products`, `blocks`, `owner`,
+`sparse` and `atom`. They cover dense/sparse/atom calls, values and derivatives,
 coordinate operations, ordered penalties, constraints and workspace states.
 The blocks group covers flat and nested tuple oracles, wrappers and long block sums
 on Float32/Float64 inputs, with the same cases in both suites.
@@ -38,11 +38,23 @@ The matrix group includes partial/full decompositions and fallback inputs.
 Construction plus first use is measured separately from workspace reuse.
 
 The `owner` group measures `SymmetricSparseIterate` (reads, writes, first activation,
-coordinate sweeps, `mul!`, `Matrix`, construction) beside a `SparseMatrixCSC` and a dense
-`Symmetric` product. It uses only calls that exist in 0.5.x and 0.6, so the same harness
+coordinate sweeps, `mul!` (also with half of the stored coordinates explicit zeros), the
+three clears, the momentum value loops, `Matrix`, construction) beside a `SparseMatrixCSC`
+and a dense `Symmetric` product. It uses only calls that exist in 0.5.x and 0.6, so the same harness
 gives the before and after of the redesign in
 [#391](https://github.com/mlakolar/ProximalBase.jl/issues/391). The pre-refactor
 numbers are recorded in `baselines/symmetric-owner-0.5.md`.
+
+The `sparse` and `atom` groups measure `SparseIterate` and `AtomIterate` on the hot paths of the
+iterate-family design, the cases of the
+[benchmark protocol](../docs/design/iterate-family-0.6-acceptance.md#6-benchmark-protocol-a-future-measurement-not-a-result)
+(§6 of the acceptance guide): reads, writes, first activation, the handle and value sweeps,
+`atom` and `atomindices`, products, scaling, clears, the block trial, the momentum loops,
+`samegroups`, aliasing, copy and import, and compaction. They run the same calls on 0.5.x and
+0.6, so each 0.6 change on a hot path is measured against the 0.5.x baseline in
+`baselines/iterate-family-0.5.md`. The FD-7 handle sweeps that `owner` once held are the
+`sweep_activecoordinates` cases of these groups. [Iterate-family groups](#iterate-family-groups)
+lists the fixtures and the rows that need a note.
 
 For example, select matrix operations across the extended input sizes:
 
@@ -53,6 +65,132 @@ PB_SUITE=extended PB_GROUPS=matrices PB_OUTPUT=benchmark/results/matrices \
 
 The optional [GPU solver suite](gpu_solver/README.md) measures CPU/CUDA time
 to independently checked accuracy on physical GPU hardware.
+
+## Iterate-family groups
+
+A new case in `sparse`, `atom` or `owner` must keep these rules:
+
+- It calls only what exists in 0.5.x and 0.6. A new accessor (`atomindices`, `samegroups`,
+  `matrixview`) or private field is reached when the case is built, through `isdefined` or
+  `hasfield`, and reaches the timed closure through a function barrier; nothing is tested inside
+  the timed call. The set of case IDs never depends on the source. The fallback depends on the
+  control. For `atomindices`, `samegroups` and `matrixview` it is the 0.5.x spelling
+  (`x.groups[k]`, the private `_samelayout`, the owner itself). A control that reads a private
+  field falls back the other way when the field is missing: the `private_fields` momentum loops
+  (`nzval`; for `AtomIterate`, `storage`, `active`, `nactive` and `groups`) fall back to the
+  accessors (`activevalues`, `activecoordinates`, `atomindices`), the FD-12 staging control
+  (`storage`) to a write through `atom(x, k)`, and the layout-cache reset of `samegroups`
+  (`layout_cache`) to no reset. The row keeps its ID and measures the other path.
+- It is checked against an independent reference built from the harness's own data (a dense
+  array, a CSC matrix, a formula), never against the kernel under test. A product starts from a
+  sentinel output, so that a call that does nothing cannot pass. Where 0.5.x and 0.6 differ (the
+  working set after a clear, the inactive entries after `rmul!(x, Inf)`), only the values both
+  agree on are checked.
+- A case that changes state restores it in `prepare`, outside the timed region, and runs with
+  `evals = 1`. Every first activation takes distinct absent coordinates or groups, and the
+  restore asserts that none is active.
+- `zero_alloc` is set only on the operations that FT23 of the acceptance guide lists as
+  allocation-free, and is `false` explicitly on every other warm case (the default for a warm
+  case is `true`).
+
+**Fixtures.** `Float32` and `Float64`. `SparseIterate` vectors have `n ∈ {10⁴, 10⁶}` and
+`(n, s) ∈ {(10⁴, 10²), (10⁶, 10²), (10⁶, 10³), (10⁶, 10⁴)}`, so `s ≤ n/100`. The matrices are
+`1000 × 64` and `256 × 1000` with 0.5%, 3% and 20% of the entries stored, exactly `round(d·L)`
+of them, so that a repetition never crosses the 1/32 switch between the two walks of the matrix
+`mul!` (the stored entries at 0.5% and 3%, the columns at 20%). `AtomIterate` has `p = 8·10⁴`
+(`8·10⁵` in the extended suite), groups of 1, 8 and 64 entries, contiguous or strided (the
+multi-response layout), with 1% and 10% of the groups active. A dense operand is built only
+where it fits: the vector `mul!` (strided and transposed `A`, 256 and 1024 rows) runs at
+`n = 10⁴`, `s = 10²` only, so the growth with `s` is read from the matrix fixtures; the matrix
+`mul!` takes an `A` of 256 and 1024 rows; the `AtomIterate` `mul!` takes a strided `A` of 256
+and 1024 rows at `p = 8·10⁴` and nothing dense at `8·10⁵`; the `Symmetric` operands have
+`p ∈ {256, 1024}` for `SparseIterate` (3% and 20% of the entries stored) and `p = 1024` for
+`AtomIterate` (10% of the groups active). Every product runs with 0% and 50% of the stored
+values exact zeros at random slots (layouts ending `z0` and `z50`). The quick suite builds a
+small subset of `Float64` fixtures: for `sparse`, the vectors `(10⁴, 10²)` and `(10⁶, 10³)`, the
+matrices at 3% (the conversion cases also use the 20% `1000 × 64`) and the smallest dense
+operands; for `atom`, `p = 8·10⁴` with 10% of the groups active, `g = 1` and `g = 8` contiguous,
+`g = 8` strided, and 256-row operands.
+
+**Rows that need a note.**
+
+- The sweeps (`sweep_full`, `sweep_active_update`, `sweep_via_coordinates`, `sweep_via_x`) write
+  back `x[i] + zero`: the compiler removes `x[i] = x[i]`, and the sweep would measure nothing.
+- `rmul!`: one call on a `SparseIterate` repeats a power-of-two scale (layout `x<r>`,
+  `work = r·s`) and stops before overflow, so the reference is exact. `AtomIterate` has no
+  `rmul!` method: the generic loop visits all `p` entries (repeat count 1), and `rmul!(x, Inf)`
+  is checked on the whole vector. For a `SparseIterate` with `Inf`, only the active entries are
+  checked.
+- FD-12, `prox_coordinate!_5arg`: a call takes 1536 distinct coordinates of a `SparseIterate`
+  (at most 768 of them active), or 256 groups of an `AtomIterate` (64 for `g = 64`), so that a
+  call takes about 2 µs or more on 0.5.x.
+- `broadcast_assign` equals `copyto!_state` on 0.5.x: `x .= y` from an iterate of the same type
+  takes the Base identity fast path and calls `copyto!(x, y)`. `broadcast_self` (`x .= abs.(x)`)
+  is the real broadcast.
+- FD-6, `atomindices_loop` takes the exclusive or of the indices of every active group. A sum over a
+  range has a closed form that the compiler uses, and the loop would measure nothing per index.
+  The exclusive or is real work per index, and it vectorizes on long contiguous groups, so its time
+  per index falls as the group size grows (on the pinned source, about 1.0 ns per index at `g = 1`,
+  0.7 at `g = 8` contiguous, and about 0.15 at `g = 64`); compare a row only with the same row.
+  `atomindices_view` reads a dense vector through the indices instead.
+- The owner's clears: `fill!_coordinates_zero` writes a zero into each of the `q = p(p + 1)/2`
+  coordinates and keeps the working set; `fill!_coordinates_zero_dropzeros` adds `dropzeros!`
+  (the 0.6 clear); `fill!_zero` is `fill!(X, 0)`, the 0.5.x clear, O(s). Only the values are
+  checked. The other new owner cases draw their own fixture (keys `owner_extra/...`); `owner_z50`
+  has the coordinates of the `owner` row of the same shape, with half of the stored values set to
+  exact zero at random slots.
+- FD-11, `samegroups` (the private `_samelayout` on 0.5.x), has three cases per layout.
+  `shared`: the iterate shares the penalty's group array, a pointer comparison.
+  `distinct_first_seen`: `prepare` clears the layout cache, so the call does one full comparison
+  of the `K` groups (for `K < 4096`, it compares `cld(4096, K)` iterates, so that the call is
+  not below the timer). `alternating`: two distinct equal layouts in turn, one full comparison
+  per call. The cache is set by the first call, so a case that repeated one call would measure
+  the pointer comparison.
+- The first activation of 256 coordinates or groups is fixed by the design; its companion has as
+  many disjoint batches of 256 as fit, up to 16 (layout ending `_x16`, or `_x4` where only four
+  fit: `AtomIterate`, `p = 8·10⁴`, `g = 64`).
+- Some rows are timer-limited: the 256-coordinate first activations (the companions can gate),
+  the small clears and copies (`fill!_*`, `dropzeros!`, `copyto!_state`, `broadcast_assign` at
+  small `s`; the owner's `fill!_zero`, which is O(s) and takes well under 2 µs there), and
+  `samegroups` `shared`. A clear could be enlarged by clearing several independent iterates in
+  one call and restoring them all in `prepare`; that is not done here, because it multiplies the
+  memory of the large fixtures. The rows with a larger active set (about 5 µs or more) can gate,
+  and the rows at small `s` cannot.
+- Zero-allocation readings are checked on Julia 1.13. Julia 1.10 reads a few bytes for closures
+  that return a value, in the older `owner` group too. The five-argument `prox_coordinate!` with
+  a strided `u` allocates for some group penalties on both sources, so FT23's zero-byte promise
+  does not hold today: `GroupNormL2` and `SparseGroupNormL2` allocate for contiguous and strided
+  groups (16,384 B per call of 256 steps), `GroupNormLinf` only for strided groups, and `NormL1`
+  never. Its rows keep `zero_alloc`, so that the baseline lists them.
+- BenchmarkTools protects the timed closure from the optimizer only where `Base.blackbox` exists,
+  and neither Julia 1.10 nor 1.13.3 has it. On Julia 1.13.3 the timed operations were checked by
+  perturbing an input between evaluations: the time did not change, so nothing is hoisted. Another
+  Julia version needs that check again, and a baseline and its comparison must use the same Julia
+  version.
+
+**Baseline and comparisons.** The metadata records `check_bounds` (`default`, `yes` or `no`,
+from `--check-bounds`) and `os` (`Sys.KERNEL` and `Sys.MACHINE`); `compare.py` does not compare
+them, so use the same setting on both sides. `harness_hash` covers `run.jl` and `cases.jl`: any
+edit to either changes it, and `compare.py` requires it, like the suite and the groups, to
+match. After such an edit, measure the baseline source again with the same harness in the same
+session. The owner baseline `baselines/symmetric-owner-0.5.md` was recorded with an earlier
+harness, so its rows are a reference and not a comparison point for the current one.
+
+The iterate-family baseline is the extended suite on the 0.5.x source pinned at `def81ec9`,
+three repetitions, in two output directories: the groups, and the existing `group_layouts` cases
+of `vectors` (FD-11). Validate and summarize each directory with `--expected-runs 3`.
+
+```sh
+julia benchmark/setup.jl /absolute/path/to/pinned benchmark/results/env-pinned
+for r in 1 2 3; do
+  PB_SUITE=extended PB_GROUPS=products,sparse,atom,owner PB_REPETITION=$r \
+    PB_OUTPUT=benchmark/results/groups PB_EXPECTED_PACKAGE_ROOT=/absolute/path/to/pinned \
+    JULIA_NUM_THREADS=1 julia --project=benchmark/results/env-pinned benchmark/run.jl
+  PB_SUITE=extended PB_GROUPS=vectors PB_CASES='^group_layouts/' PB_REPETITION=$r \
+    PB_OUTPUT=benchmark/results/layouts PB_EXPECTED_PACKAGE_ROOT=/absolute/path/to/pinned \
+    JULIA_NUM_THREADS=1 julia --project=benchmark/results/env-pinned benchmark/run.jl
+done
+```
 
 ## Compare revisions
 

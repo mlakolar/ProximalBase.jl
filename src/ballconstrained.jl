@@ -252,7 +252,8 @@ end
 # leaves its rounded value last; when that dominates twice the sum of the other magnitudes (whose
 # rounding error is far smaller), it has the sign of the sum. Otherwise, after a few passes, an
 # exact expansion decides.
-function _sum_sign(e::NTuple{N, T}) where {N, T}
+function _sum_sign(e::Tuple{T, Vararg{T}}) where {T}
+  N = length(e)
   for _ in 1:3
     e = _vecsum(e)
     rest = sum(abs, Base.front(e))
@@ -270,7 +271,8 @@ end
 # The sign of the exact sum of the terms: Shewchuk's Grow-Expansion adds them one by one into a
 # nonoverlapping expansion of increasing magnitude, whose largest nonzero component has the sign
 # of the sum. The sums stay far from overflow here.
-function _expansion_sign(e::NTuple{N, T}) where {N, T}
+function _expansion_sign(e::Tuple{T, Vararg{T}}) where {T}
+  N = length(e)
   for j in 2:N
     h = e[j]
     for i in 1:(j - 1)

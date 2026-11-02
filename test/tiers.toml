@@ -17,7 +17,6 @@ quick = [
   "interface",
   "readme",
   "tier_selection",
-  "utils",
   # iterates: active sets, value writes versus state copies, symmetric coordinates, aliasing
   "active_handle",
   "atom_iterate",
@@ -55,6 +54,7 @@ quick = [
 
 # Most function families, wrappers, constraints and the examples.
 standard = [
+  "utils",
   "affine",
   "ballconstrained",
   "bernoulli",

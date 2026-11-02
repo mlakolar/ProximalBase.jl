@@ -74,14 +74,14 @@ paths = [
 ]
 
 [[risk]]
+why = "the tier lists decide what every tier runs: a valid edit can move a test out of the PR tiers"
+tier = "full"
+paths = ["test/tiers.toml"]
+
+[[risk]]
 why = "the conformance suite and its report scripts: thorough runs every conformance file and checks the map"
 tier = "thorough"
 paths = ["test/conformance/**", "scripts/conformance_map.jl", "scripts/conformance_run.jl"]
-
-[[risk]]
-why = "the tier lists: changed test files run beside quick"
-tier = "quick"
-paths = ["test/tiers.toml"]
 
 [[risk]]
 why = "the shared GPU cases"

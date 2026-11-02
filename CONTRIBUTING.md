@@ -53,7 +53,7 @@ instead.
 **A new test file** goes into `test/tiers.toml` under the lowest tier that should
 run it: `quick` for a cheap test of a basic invariant or a serious regression,
 otherwise the tier of the code it tests. An unlisted file stops every test run and
-the CI plan. Files run alone in a sandbox module, and compilation takes most of
+the CI plan, and a PR that changes `test/tiers.toml` runs the full tier. Files run alone in a sandbox module, and compilation takes most of
 their time, so a cheap file reaches few type combinations. Helper files that are
 only included go under `[not_tests]`. [`test/TESTING.md`](test/TESTING.md) records
 why each file sits in its tier.
@@ -70,8 +70,7 @@ decision for your working tree against `origin/master`.
   the changed files, and the changed test files beside it:
   - documentation only: no package tests (the API pages, whose entries
     `test/docstrings.jl` checks, get quick);
-  - test files (including new ones and `test/tiers.toml`), examples or README
-    only: quick;
+  - test files, examples or README only: quick;
   - a self-contained function family together with a test change: quick and that
     family's own test files;
   - other package code (`src/`): standard; code shared by every function
@@ -79,7 +78,9 @@ decision for your working tree against `origin/master`.
     helpers) or the conformance suite and its coverage map: thorough;
   - package code without any test change: at least standard;
   - `Project.toml`, `ext/`, `src/lapack.jl`, the test runner, the CI rules and
-    workflow: full, which also runs Julia 1 on macOS and Windows and Julia pre;
+    workflow, and `test/tiers.toml`: full, which also runs Julia 1 on macOS and
+    Windows and Julia pre. The tier lists decide what every tier runs, so any
+    change to them, including the line of a new test file, gets full;
   - a path no rule knows: full.
 - **Labels** `test:standard`, `test:thorough` and `test:full` raise a PR's tier;
   they never lower it. Adding or removing any label starts a new run. Add

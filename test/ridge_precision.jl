@@ -17,6 +17,15 @@ function normal(T, r)
   floatmin(T) <= a <= floatmax(T)
 end
 
+# a center that checks its bounds even under @inbounds, so a read past its end throws
+# in every bounds-check mode
+struct StrictCenter{T} <: AbstractVector{T}
+  v::Vector{T}
+end
+Base.size(c::StrictCenter) = size(c.v)
+Base.IndexStyle(::Type{<:StrictCenter}) = IndexLinear()
+Base.getindex(c::StrictCenter, i::Int) = (checkbounds(c.v, i); c.v[i])
+
 setprecision(BigFloat, BIG) do
 
   ref_prox(W, x, c, γ, λ) = (t = big(γ) * big(λ); (big(x) + t * big(c)) / (1 + t))
@@ -432,6 +441,76 @@ setprecision(BigFloat, BIG) do
     @test !PB._ridge_ordinary_route(SqrNormL2(0.7), [0.5, 1.0], BigFloat[1, 2], BigFloat)
     @test !PB._ridge_ordinary_route(SqrNormL2(0.7, BigFloat[1, 2]), [0.5, 1.0], [1.0, 2.0], Float64)
     @test !PB._ridge_ordinary_route(NormL1(0.7), [0.5, 1.0], [1.0, 2.0], Float64)
+  end
+  # The pass that checks the steps and decides the route reads a center wider than the
+  # data without bounds checks, so the shapes are checked first. StrictCenter throws a
+  # BoundsError on a read past its end in every bounds-check mode; with a Vector, such a
+  # read throws only under --check-bounds=yes. Shapes and steps are both structure (E1):
+  # with both wrong, the shape error is raised, as value_and_prox! raises it.
+  @testset "Constrained ridge validation before route scan" begin
+    PB = ProximalBase
+    # z on the hyperplane ⟨a, z⟩ = b, exactly
+    function ref_hyperplane(x, c, γ, λ, a, b)
+      t = big.(γ) .* big(λ)
+      p = (big.(x) .+ t .* big.(c)) ./ (1 .+ t)
+      s = big.(γ) .* big.(a) ./ (1 .+ t)
+      p .- (sum(big.(a) .* p) - big(b)) / sum(big.(a) .* s) .* s
+    end
+    x = Float32[1, 2, -0.5]
+    a = Float32[1, 1, 0.5]
+    γ = Float32[0.5, 0.25, 1.5]
+    cen = [0.25, -1.0, 2.0]
+    set = IndHyperplane(a, 1f0)
+    # every failing call, with separate and aliased outputs, through prox! and value_and_prox!
+    function rejects(E, c, x, γ)
+      for op in (prox!, value_and_prox!)
+        y = fill(-7f0, length(x))
+        @test_throws E op(y, c, x, γ)
+        @test all(==(-7f0), y)
+        z = copy(x)
+        @test_throws E op(z, c, z, γ)
+        @test z == x
+      end
+    end
+    for center in (cen, StrictCenter(cen))
+      short = center isa StrictCenter ? StrictCenter(cen[1:2]) : cen[1:2]
+      long = center isa StrictCenter ? StrictCenter([cen; 1.0]) : [cen; 1.0]
+      rejects(DimensionMismatch, Constrained(SqrNormL2(1.0, short), set), x, γ)
+      rejects(DimensionMismatch, Constrained(SqrNormL2(1.0, long), set), x, γ)
+      c = Constrained(SqrNormL2(1.0, center), set)
+      rejects(DimensionMismatch, c, x, γ[1:2])
+      for bad in (0f0, -0.5f0, NaN32, Inf32)
+        g = copy(γ); g[2] = bad
+        rejects(ArgumentError, c, x, g)
+      end
+      # both wrong: a short center and a zero step
+      g = copy(γ); g[2] = 0
+      rejects(DimensionMismatch, Constrained(SqrNormL2(1.0, short), set), x, g)
+    end
+    # the same steps on Float64 data, whose center is not wider: no center read in the pass
+    let x = Float64.(x), γ = Float64.(γ), set = IndHyperplane(Float64.(a), 1.0)
+      for bad in (0.0, -0.5, NaN, Inf)
+        g = copy(γ); g[2] = bad
+        @test_throws ArgumentError prox!(fill(-7.0, 3), Constrained(SqrNormL2(1.0, cen), set), x, g)
+      end
+      @test_throws DimensionMismatch prox!(fill(-7.0, 3), Constrained(SqrNormL2(1.0, cen[1:2]), set), x, γ)
+    end
+    # valid calls: the route is decided as before, and the results are right
+    for center in (cen, StrictCenter(cen)), (steps, ordinary) in ((γ, true), (Float32[pow2(Float32, -127), 0.25, 1.5], false))
+      f = SqrNormL2(1.0, center)
+      @test PB._ridge_ordinary_route(f, steps, x, Float32) === ordinary
+      c = Constrained(f, set)
+      r = ref_hyperplane(x, cen, steps, 1.0, a, 1)
+      for alias in (false, true)
+        y = copy(x)
+        prox!(y, c, alias ? y : x, steps)
+        @test maximum(abs.(big.(y) .- r)) <= 8 * eps(Float32) * maximum(abs, r)
+        y2 = copy(x)                                      # warm: within the tolerance
+        v = value_and_prox!(y2, c, alias ? y2 : x, steps)
+        @test maximum(abs.(big.(y2) .- r)) <= 8 * eps(Float32) * maximum(abs, r)
+        @test v isa Float32 && isapprox(v, sum(abs2, big.(y2) .- big.(cen)) / 2; rtol = 8 * eps(Float32))
+      end
+    end
   end
   @testset "BigFloat centers are rounded entry by entry" begin
     setprecision(BigFloat, 256) do

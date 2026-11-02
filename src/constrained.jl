@@ -342,13 +342,14 @@ prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArra
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
 _prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
   (_checkparam(γ, x); _check_metric_steps(c, γ); _linear_constrained_prox!(y, c, x, γ))
-# the ridge checks its steps and decides its route in one pass (see _ridge_checked_steps)
+# the ridge checks its steps and decides its route in one pass (see _ridge_checked_steps),
+# after the shapes: the pass reads the center without bounds checks
 function _prox_unchecked!(y::AbstractArray, c::LinearConstrained{<:SqrNormL2}, x::AbstractArray, γ::AbstractArray)
   _checkparam(γ, x)
+  _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
   valid, ordinary = _ridge_checked_steps(c.f, γ, x, T)
   valid || _check_metric_steps(c, γ)           # raises its error
-  _checkwrite(prox!, c, y, x)
   ordinary ? _linear_constrained_prox!(y, c, x, _RidgeSteps(γ), T) : _linear_constrained_prox!(y, c, x, γ, T)
 end
 

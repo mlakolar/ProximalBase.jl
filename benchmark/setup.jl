@@ -16,3 +16,4 @@ end
 Pkg.activate(environment)
 Pkg.develop(path=source)
 Pkg.instantiate()
+# CI probe for #465 (benchmark-only change); not to be merged.

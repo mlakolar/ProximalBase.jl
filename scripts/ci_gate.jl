@@ -56,6 +56,12 @@ earlier attempt that concluded `success`. A re-run of failed jobs creates the ne
 after the jobs it needs finish, so while any other job belongs to this attempt the gate waits
 for the new verdict; jobs of a new attempt appear within seconds, so `grace` seconds pass
 before the gate decides that nothing else is re-run.
+
+On GitHub (observed in November 2026), a new attempt lists the jobs it does not re-run under
+the new attempt number with their earlier results, and leaves out the jobs it re-runs until
+GitHub creates them: after "Re-run failed jobs" the failed verdict is absent until the re-run
+test jobs finish, and after a re-run of the gate alone the passed verdict is listed under the
+gate's attempt. The branch for a verdict of an earlier attempt covers an API that lists it.
 """
 function decide(jobs::AbstractVector{Job}; attempt::Integer, verdict::AbstractString,
                 gate::AbstractString, elapsed::Real, settled_for::Real, grace::Real = 90)

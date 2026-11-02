@@ -82,6 +82,16 @@ end
   @test action(only_gate; attempt = 2, elapsed = 90) == :pass
   failed = [plan(), analysis(), lts(), jl1("completed", "failure"), verdict("completed", "failure"), gate(attempt = 2)]
   @test action(failed; attempt = 2, elapsed = 90) == :fail
+  # as GitHub lists them (PR #445): a new attempt shows the jobs it keeps under its own number
+  # and leaves out the jobs it re-runs until they are created
+  @test action([plan(attempt = 2), analysis(attempt = 2), lts(attempt = 2), jl1("in_progress"; attempt = 2),
+                gate(attempt = 2)]; attempt = 2, elapsed = 5) == :wait
+  @test action([plan(attempt = 2), analysis(attempt = 2), lts(attempt = 2), jl1(attempt = 2),
+                gate(attempt = 2)]; attempt = 2, settled_for = 30) == :wait
+  @test action([plan(attempt = 3), analysis(attempt = 3), lts(attempt = 3), jl1(attempt = 3),
+                verdict(attempt = 3), gate(attempt = 3)]; attempt = 3, elapsed = 2) == :pass
+  @test action([plan("in_progress"; attempt = 4), analysis(attempt = 4), gate(attempt = 4)];
+               attempt = 4, elapsed = 5) == :wait
   # a verdict newer than the gate's attempt
   @test action([gate(), verdict(attempt = 3)]; attempt = 2) == :fail
 end

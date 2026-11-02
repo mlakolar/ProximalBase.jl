@@ -149,13 +149,17 @@ operands; for `atom`, `p = 8·10⁴` with 10% of the groups active, `g = 1` and 
 - The first activation of 256 coordinates or groups is fixed by the design; its companion has as
   many disjoint batches of 256 as fit, up to 16 (layout ending `_x16`, or `_x4` where only four
   fit: `AtomIterate`, `p = 8·10⁴`, `g = 64`).
-- Some rows are timer-limited: the 256-coordinate first activations (the companions can gate),
-  the small clears and copies (`fill!_*`, `dropzeros!`, `copyto!_state`, `broadcast_assign` at
-  small `s`; the owner's `fill!_zero`, which is O(s) and takes well under 2 µs there), and
-  `samegroups` `shared`. A clear could be enlarged by clearing several independent iterates in
-  one call and restoring them all in `prepare`; that is not done here, because it multiplies the
-  memory of the large fixtures. The rows with a larger active set (about 5 µs or more) can gate,
-  and the rows at small `s` cannot.
+- Some rows are timer-limited (the baseline lists them): the small clears and copies (`fill!_*`,
+  `dropzeros!`, `copyto!_state`, `broadcast_assign` at small `s`; the owner's `fill!_zero`, which
+  is O(s) and takes well under 2 µs there), the `group_layouts` coordinate rows and `samegroups`
+  `shared`. A clear could be enlarged by clearing several independent iterates in one call and
+  restoring them all in `prepare`; that is not done here, because it multiplies the memory of the
+  large fixtures. The rows with a larger active set (about 5 µs or more) can gate, and the rows
+  at small `s` cannot. The first activations are not timer-limited (about 0.6 to 3 µs per call at
+  256 coordinates or groups), but the `first_activation` rows of `SparseIterate` for the layouts
+  `absent_distinct_batch` and `absent_distinct_batch_x16` are diagnostic and never gate: each of
+  the two missed the 20% cross-check with an independent loop on one of the two machines tried
+  (see the baseline).
 - Zero-allocation readings are checked on Julia 1.13. Julia 1.10 reads a few bytes for closures
   that return a value, in the older `owner` group too. The five-argument `prox_coordinate!` with
   a strided `u` allocates for some group penalties on both sources, so FT23's zero-byte promise
@@ -175,6 +179,16 @@ edit to either changes it, and `compare.py` requires it, like the suite and the 
 match. After such an edit, measure the baseline source again with the same harness in the same
 session. The owner baseline `baselines/symmetric-owner-0.5.md` was recorded with an earlier
 harness, so its rows are a reference and not a comparison point for the current one.
+
+Whether a case can gate a 5% slowdown is decided by an A/A control, not by the spread of the
+repetitions: every repetition draws its own inputs (`PB_REPETITION` is a seed), so the spread mixes
+noise with input effects, while `compare.py` pairs the same repetition numbers on both sides and the
+inputs cancel in the pair. The baseline therefore carries a second measurement of the same source
+with the same harness and the same repetition numbers (separate processes, alternating order),
+compared with `compare.py` as a revision would be. A case can gate when it is not timer-limited and
+the half-width of that A/A 95% interval for the ratio is at most 5%. The csv carries the A/A ratio,
+the half-width and the verdict (`gate5`). Compare a revision with the same repetition numbers
+as the baseline, in the same session as its own measurement of the pinned source.
 
 The iterate-family baseline is the extended suite on the 0.5.x source pinned at `def81ec9`,
 three repetitions, in two output directories: the groups, and the existing `group_layouts` cases

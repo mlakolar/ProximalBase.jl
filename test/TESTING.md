@@ -107,6 +107,13 @@ Runs 1 used the first placement (quick 34 files, standard 78, thorough 135); run
 measured placement (quick 37, standard 64, thorough 119 and 118). After run 3, `nonfinite_inputs`
 moved from quick back to thorough (about 50 worker seconds on a slow runner), leaving quick at 36
 files. Full: macOS took 40.5 and 23.5 min, Windows 37.1 and 23.3, Julia pre 30.1 and 29.7.
+
+At the final placement (commit fafb1189): quick took 4.5 min end to end (run 41369981986; Julia
+lts 4.0 min on an EPYC 7763, Julia 1 2.7 min on an EPYC 9V45; the runner itself 2.9 and 2.0
+min). Full took 43.0 min as this PR's run (41369978673: macOS 41.1, Windows 36.3, Julia pre 35.0,
+Julia 1 with coverage 33.4, Julia lts 20.5) and 35.1 min as a manual run without inputs
+(41369984297). Both full runs and the thorough runs checked the conformance coverage map and
+uploaded the reports.
 Inside the job, about 50–70 s go to checkout, the Julia cache, the test environment and
 precompiling ProximalBase with bounds checking (about 25 s); the rest is the test runner.
 

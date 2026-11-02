@@ -13,6 +13,36 @@ from validate import (MATCH_SETTINGS, RECORDED_SETTINGS, check_timer_limit_multi
                       recorded_setting, timer_limited, validate)
 
 
+# The three-outcome rule of #462 on rho = after/before, with one-sided 95% bounds from the paired
+# log ratios: pass when the upper bound is below 1.05; investigate when rho-hat >= 1.05 and the
+# lower bound is above 1 (confirm independently); otherwise inconclusive. A case never passes
+# because nothing was significant.
+SLOWDOWN_LIMIT = 1.05
+T95 = {1: 6.314, 2: 2.920, 3: 2.353, 4: 2.132, 5: 2.015, 6: 1.943, 7: 1.895, 8: 1.860, 9: 1.833}
+
+
+def outcome(ratios, limited):
+    """(outcome, slowdown, lower, upper, reason) for paired log ratios log(before/after)."""
+    if limited:
+        return "inconclusive", math.nan, math.nan, math.nan, "timer-limited"
+    if len(ratios) < 2:
+        return "inconclusive", math.nan, math.nan, math.nan, "single run"
+    x = [-r for r in ratios]   # log(after/before)
+    mean, margin = statistics.mean(x), T95[len(x)-1]*statistics.stdev(x)/math.sqrt(len(x))
+    slowdown, lower, upper = math.exp(mean), math.exp(mean-margin), math.exp(mean+margin)
+    if upper < SLOWDOWN_LIMIT:
+        return "pass", slowdown, lower, upper, ""
+    if slowdown >= SLOWDOWN_LIMIT and lower > 1:
+        return "investigate", slowdown, lower, upper, ""
+    return "inconclusive", slowdown, lower, upper, ""
+
+
+def read_primary(path):
+    """Case IDs, one per line; blank lines and lines starting with # are ignored."""
+    lines = (line.strip() for line in Path(path).read_text().splitlines())
+    return {line for line in lines if line and not line.startswith("#")}
+
+
 def load(root, expected):
     checked = validate(root, expected)
     if not checked["valid"]:
@@ -85,7 +115,7 @@ def recorded_note(by_version):
     return notes
 
 
-def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10):
+def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10, primary=None):
     check_timer_limit_multiple(timer_limit_multiple)
     output = Path(output)
     if output.exists() and any(output.iterdir()):
@@ -104,10 +134,14 @@ def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10
         (output/"settings.json").write_text(json.dumps(dict(by_version=settings), indent=2)+"\n")
         if coverage["before_only"] or coverage["after_only"]:
             raise ValueError("Case coverage differs; inspect coverage.json and rerun the same cases")
+        primary = set() if primary is None else set(primary)
+        unknown = sorted(primary - {case for _, case, _ in before})
+        if unknown:
+            raise ValueError(f"Primary cases not in the comparison: {', '.join(unknown)}")
         groups = {}
         for key in sorted(before):
             groups.setdefault(key[:2], []).append((before[key], after[key]))
-        results = []
+        results, outcomes = [], []
         for (version, case), pairs in groups.items():
             old_times = [float(old["mean_ns"]) for old, _ in pairs]
             new_times = [float(new["mean_ns"]) for _, new in pairs]
@@ -145,6 +179,10 @@ def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10
                 mean_bytes_change=new_bytes-old_bytes,
                 before_max_bytes=old_max, after_max_bytes=new_max,
                 unexpected_allocation=unexpected))
+            decision, slowdown, lower, upper, reason = outcome(ratios, limited)
+            outcomes.append(dict(julia=version, id=case, role="primary" if case in primary else "diagnostic",
+                paired_runs=expected, slowdown=slowdown, one_sided95_low=lower, one_sided95_high=upper,
+                outcome=decision, reason=reason))
         with (output/"comparison.csv").open("w", newline="") as stream:
             writer = csv.DictWriter(stream, fieldnames=list(results[0]), lineterminator="\n")
             writer.writeheader(); writer.writerows(results)
@@ -162,6 +200,22 @@ def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10
             if row["unexpected_allocation"]:
                 note += "; unexpected allocation"
             lines.append(f"| `{row['id']}` | {row['julia']} | {row['before_mean_ns']/1000:.3f} / {row['after_mean_ns']/1000:.3f} | {row['paired_geometric_speedup']:.3f} [{interval}] | {row['before_mean_bytes']:.1f} / {row['after_mean_bytes']:.1f} | {row['before_max_bytes']:.0f} / {row['after_max_bytes']:.0f} | {note} |")
+        with (output/"outcomes.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(outcomes[0]), lineterminator="\n")
+            writer.writeheader(); writer.writerows(outcomes)
+        lines += ["", "## Three-outcome rule", "",
+                  f"Slowdown is after/before (the inverse of the speedup) with one-sided 95% bounds. **pass**: upper bound below {SLOWDOWN_LIMIT}; **investigate**: slowdown at least {SLOWDOWN_LIMIT} and lower bound above 1 (confirm with independent measurements); **inconclusive**: neither, a single run, or timer-limited. Primary cases are the ones named for this comparison; the others are diagnostic.", ""]
+        for role in ("primary", "diagnostic"):
+            rows = [o for o in outcomes if o["role"] == role]
+            counts = {name: sum(o["outcome"] == name for o in rows) for name in ("pass", "investigate", "inconclusive")}
+            lines.append(f"{role.capitalize()} cases: {len(rows)} (" + ", ".join(f"{k} {v}" for k, v in counts.items()) + ").")
+        named = [o for o in outcomes if o["role"] == "primary"]
+        if named:
+            lines += ["", "| Primary case | Julia | Slowdown [one-sided 95% bounds] | Outcome |", "|---|---|---:|---|"]
+            for o in named:
+                bounds = ("unavailable" if math.isnan(o["slowdown"]) else
+                          f"{o['slowdown']:.3f} [{o['one_sided95_low']:.3f}, {o['one_sided95_high']:.3f}]")
+                lines.append(f"| `{o['id']}` | {o['julia']} | {bounds} | {o['outcome']}{'; ' + o['reason'] if o['reason'] else ''} |")
         (output/"REPORT.md").write_text("\n".join(lines)+"\n")
         return results
     except (ValueError, OSError, KeyError) as error:
@@ -174,8 +228,10 @@ if __name__ == "__main__":
     parser.add_argument("before"); parser.add_argument("after"); parser.add_argument("output")
     parser.add_argument("--expected-runs", type=int, choices=range(1, 11), default=1)
     parser.add_argument("--timer-limit-multiple", type=float, default=10)
+    parser.add_argument("--primary", help="file of primary case IDs, one per line (# comments)")
     args = parser.parse_args()
     try:
-        compare(args.before, args.after, args.output, args.expected_runs, args.timer_limit_multiple)
+        compare(args.before, args.after, args.output, args.expected_runs, args.timer_limit_multiple,
+                None if args.primary is None else read_primary(args.primary))
     except (ValueError, OSError, KeyError) as error:
         parser.exit(2, f"{error}\n")

@@ -432,4 +432,104 @@ end
   @test Vector(y) ≈ [0.6, 0.0, -0.8, 0.0] rtol=0.02
 end
 
+@testset "sphere prox of the ℓ1 norm: a NaN or infinite entry gives NaN in the whole block (E2, E3)" begin
+  # The sphere couples every entry, so a NaN anywhere is NaN in every output entry and in the
+  # value, whichever entry would have won the selection, on either branch and at any weight.
+  # An infinite entry gives the same block, as in the other ball and sphere projections (#469).
+  # Not [1, 0] with the value 1 (before #441), and not NaN beside a zero (#441).
+  PT = ProximalBase.Testing
+  allnan(y) = all(isnan, collect(y))
+  n = 4
+  bad = ([NaN, 0, 0, 0], [0, NaN, 0, 0], [0, 0, 0, NaN],       # first, middle and last entry
+         [5, NaN, 0, 0], [0.1, NaN, 0, 0.2],                    # a NaN that loses: shrink, fallback
+         [NaN, 3, NaN, 0.5], [NaN, NaN, NaN, NaN],              # several
+         [Inf, 0, 0, 0], [0.1, 0, -Inf, 0.2], [3, Inf, 0.5, 0], # one infinite entry
+         [Inf, Inf, 0, 0], [Inf, -Inf, 0, 1], [Inf, NaN, 0, 0], [NaN, -Inf, 0, 0])
+  weights = (nothing, [1, 1, 1, 1], [0, 1, 1, 1], [Inf, 1, 1, 1], [1, 0, 1, Inf], [1, 1, Inf, 0])
+  for S in (Float32, Float64), T in (Float32, Float64), w in weights, λ in (1, 1e30), γ in (1, 0)
+    f = w === nothing ? NormL1(T(λ)) : NormL1(T(λ), T.(w))
+    c = Constrained(f, IndSphereL2(T(1)))
+    for xs in bad
+      x = S.(xs)
+      for y in (zeros(T, n), SparseIterate(T, n), AtomIterate(T, n, [[1, 2], [3], [4]]))
+        v = value_and_prox!(y, c, x, T(γ))
+        @test allnan(y) && isnan(v) && v isa T
+        y isa Array || PT.test_iterate(y)
+        fill!(y, zero(T))
+        @test prox!(y, c, x, T(γ)) === y && allnan(y)
+      end
+      @test allnan(prox(c, x, T(γ)))
+      # y === x, in a dense array and in a sparse iterate that holds the argument
+      for make in (copy, SparseIterate), op in (value_and_prox!, prox!)
+        z = make(T.(xs))
+        r = op(z, c, z, T(γ))
+        @test allnan(z) && (op === prox! ? r === z : isnan(r) && r isa T)
+        z isa Array || PT.test_iterate(z)
+      end
+    end
+  end
+  # a symmetric output: the argument's symmetric part, with the entry on the diagonal or in an
+  # off-diagonal pair, on the fallback branch (zeros) and with a diagonal entry that wins (5)
+  for S in (Float32, Float64), T in (Float32, Float64)
+    c = Constrained(NormL1(T(1), ones(T, 3, 3)), IndSphereL2(T(1)))
+    for (i, j) in ((1, 1), (3, 3), (2, 1), (3, 2)), b in (NaN, Inf, -Inf), top in (0, 5)
+      X = zeros(S, 3, 3)
+      X[2, 2] = top
+      X[i, j] = X[j, i] = b                       # both entries of a pair, as a symmetric matrix has them
+      for op in (value_and_prox!, prox!)
+        y = SymmetricSparseIterate(T, 3)
+        r = op(y, c, X, T(1))
+        @test allnan(Matrix(y)) && (op === prox! ? r === y : isnan(r) && r isa T)
+        PT.test_iterate(y)
+        z = SymmetricSparseIterate(T.(X))         # y === x
+        r = op(z, c, z, T(1))
+        @test allnan(Matrix(z)) && (op === prox! ? r === z : isnan(r) && r isa T)
+        PT.test_iterate(z)
+      end
+    end
+    # an argument that is not symmetric: only its upper or lower entry is not finite, or the two
+    # entries of the pair differ. Its symmetric part (a + b)/2 is not finite in each case, and
+    # Inf - Inf is NaN; the output is NaN, also in a dense matrix, which reads the entries as given.
+    for (a, b) in ((NaN, 0), (0, NaN), (0.5, Inf), (-Inf, 2), (Inf, -Inf), (-Inf, Inf),
+                   (NaN, NaN), (Inf, Inf), (-Inf, -Inf), (NaN, Inf)), top in (0, 5)
+      X = zeros(S, 3, 3)
+      X[2, 2] = top
+      X[1, 3], X[3, 1] = a, b                     # upper, lower
+      @test isequal(ProximalBase._SymmetricPart(X)[1, 3], S(a + b) / 2)
+      for y in (SymmetricSparseIterate(T, 3), zeros(T, 3, 3))
+        v = value_and_prox!(y, c, X, T(1))
+        @test allnan(Matrix(y)) && isnan(v) && v isa T
+        y isa Array || PT.test_iterate(y)
+        @test prox!(y, c, X, T(1)) === y && allnan(Matrix(y))
+      end
+    end
+  end
+  # a finite argument is unaffected, on both branches
+  for S in (Float32, Float64), T in (Float32, Float64)
+    c = Constrained(NormL1(T(1)), IndSphereL2(T(1)))
+    for y in (zeros(T, n), SparseIterate(T, n))
+      v = value_and_prox!(y, c, S[3, 0, -4, 0], T(1))     # shrink: (2, 0, -3, 0)/√13
+      @test collect(y) ≈ T[2, 0, -3, 0] / sqrt(T(13)) && v ≈ 5 / sqrt(T(13)) && v isa T
+      v = value_and_prox!(y, c, S[0.5, 0, -0.7, 0.2], T(1)) # fallback: the largest margin, -0.3
+      @test collect(y) == T[0, 0, -1, 0] && v == 1 && v isa T
+    end
+  end
+  # validation comes first (E1) and leaves the output unchanged (O6), NaN or not
+  for T in (Float32, Float64)
+    sphere = IndSphereL2(T(1))
+    for (c, γ) in ((Constrained(NormL1(T(1), fill(T(Inf), n)), sphere), T(1)),  # no finite threshold
+                   (Constrained(NormL1(floatmax(T)), sphere), T(4)),            # the threshold overflows
+                   (Constrained(NormL1(T(1)), sphere), T(Inf)),                 # infinite step: the same
+                   (Constrained(NormL1(T(1)), sphere), T(NaN))),                # NaN step (negative steps: #311)
+        x in (T[NaN, 1, 0, 0], T[Inf, 1, 0, 0], T[1, 2, 0, 0])
+      for y in (fill(T(7), n), SparseIterate(fill(T(7), n)))
+        @test_throws ArgumentError value_and_prox!(y, c, x, γ)
+        @test_throws ArgumentError prox!(y, c, x, γ)
+        @test collect(y) == fill(T(7), n)
+        y isa Array || PT.test_iterate(y)
+      end
+    end
+  end
+end
+
 end

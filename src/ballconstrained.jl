@@ -210,6 +210,14 @@ end
 # L (a linear index also addresses the weight), whose entries count with a multiplicity in the
 # norm. A layout is a type, not closures, so that nothing allocates on any Julia version. x is
 # read at k before k is written, so y may be x.
+# A NaN entry of the argument is NaN in the whole coupled block (E2), and a comparison with it
+# selects nothing, so the selection above cannot be trusted to reach it. An infinite entry has no
+# determined direction on the sphere (E3), so it gives the same NaN block. Thresholds are
+# validated first (E1). Nothing is read from x, so y may be x.
+function _sphere_nonfinite!(y, ::Type{T}) where {T}
+  fill!(y, T(NaN))
+  T(NaN)
+end
 struct _DenseLayout end                       # every entry once
 struct _LowerLayout                           # the lower triangle of a symmetric p × p point
   p::Int
@@ -268,9 +276,11 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
   f, r = c.f, convert(T, c.sphere.r)
   p = size(y, 1)
   k, kr, kc, bestn, bestc = 0, 0, 0, zero(U), zero(U)
+  nonfinite = false
   @inbounds for col in 1:p, row in col:p
     i = row + (col - 1) * p
     n = abs(convert(U, x[row, col]))
+    nonfinite |= !isfinite(n)
     threshold = _sphere_threshold(U, γ, f.λ0, _entry(f.w, i))   # not rounded to T first: selection and shrinkage agree
     better = if k == 0 || isinf(bestc)
       true
@@ -286,6 +296,7 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
     better && ((k, kr, kc, bestn, bestc) = (i, row, col, n, threshold))
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
+  nonfinite && return _sphere_nonfinite!(y, T)
   if bestn > bestc
     return _sphere_l1_shrink!(y, x, f, γ, r, U, T, _LowerLayout(size(y, 1)))
   end
@@ -303,13 +314,16 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Nor
   U = promote_type(float(eltype(x)), T)       # the type in which the margins compare, as for a symmetric output
   f, r = c.f, convert(T, c.sphere.r)
   k, bestn, bestc = 0, zero(U), zero(U)
+  nonfinite = false
   @inbounds for i in eachindex(IndexLinear(), x)
     n = abs(convert(U, x[i]))
+    nonfinite |= !isfinite(n)
     threshold = _sphere_threshold(U, γ, f.λ0, _entry(f.w, i))
     # margins n - t compared without rounding (see _margin_greater)
     (k == 0 || isinf(bestc) || (!isinf(threshold) && _margin_greater(n, threshold, bestn, bestc))) && ((k, bestn, bestc) = (i, n, threshold))
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
+  nonfinite && return _sphere_nonfinite!(y, T)
   bestn > bestc && return _sphere_l1_shrink!(y, x, f, γ, r, U, T, _DenseLayout())
   negative = signbit(x[k])
   fill!(y, zero(eltype(y)))

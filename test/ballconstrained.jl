@@ -432,4 +432,46 @@ end
   @test Vector(y) ≈ [0.6, 0.0, -0.8, 0.0] rtol=0.02
 end
 
+@testset "sphere prox of the ℓ1 norm: a non-finite entry gives NaN in the whole block (E2, E3)" begin
+  # A NaN anywhere in the argument is NaN in every entry and in the value, wherever it sits and
+  # whichever entry would have won; an infinite entry has no determined direction on the sphere,
+  # so the block is NaN as well. Not [1, 0] with the value 1, and not NaN beside a zero.
+  allnan(y) = all(isnan, y)
+  for T in (Float32, Float64)
+    for f in (NormL1(T(1)), NormL1(T(1), T[1, 1, 1]), NormL1(T(1), T[0, 1, 1]), NormL1(T(1), T[Inf, 1, 1]))
+      c = Constrained(f, IndSphereL2(T(1)))
+      for xs in ([NaN, 0, 0], [0, NaN, 0], [0, 0, NaN], [NaN, 3, 0.5], [3, NaN, 0.5], [NaN, NaN, 2],
+                 [Inf, 0, 0], [-Inf, 3, 0.5], [3, Inf, 0.5], [Inf, Inf, 0], [Inf, NaN, 0], [NaN, Inf, 0])
+        x = T.(xs)
+        for y in (zeros(T, 3), SparseIterate(3))
+          v = value_and_prox!(y, c, x, T(1))
+          @test allnan(y) && isnan(v)
+        end
+        z = copy(x)                                   # y === x
+        v = value_and_prox!(z, c, z, T(1))
+        @test allnan(z) && isnan(v)
+        @test allnan(prox(c, x, T(1)))
+      end
+    end
+    # a symmetric output, with the entry on or off the diagonal, or in the upper triangle only
+    c = Constrained(NormL1(T(1), ones(T, 3, 3)), IndSphereL2(T(1)))
+    for (i, j) in ((1, 1), (2, 1), (3, 3), (1, 2)), bad in (T(NaN), T(Inf), -T(Inf))
+      X = zeros(T, 3, 3)
+      X[i, j] = bad
+      i == j || (X[j, i] = bad)
+      y = SymmetricSparseIterate(3)
+      v = value_and_prox!(y, c, X, T(1))
+      @test all(isnan, Matrix(y)) && isnan(v)
+    end
+    # a finite argument is unchanged by the guard
+    c = Constrained(NormL1(T(1)), IndSphereL2(T(1)))
+    y = zeros(T, 3)
+    value_and_prox!(y, c, T[0, 0, 0], T(1))
+    @test y == T[1, 0, 0]
+  end
+  # thresholds that are not finite anywhere are still reported first (E1)
+  c = Constrained(NormL1(1.0, [Inf, Inf]), IndSphereL2(1.0))
+  @test_throws ArgumentError value_and_prox!(zeros(2), c, [NaN, 1.0], 1.0)
+end
+
 end

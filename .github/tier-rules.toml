@@ -13,6 +13,13 @@ full = 90
 # A PR that changes src/ or ext/ and no test file gets at least this tier.
 source_without_tests = "standard"
 
+[benchmark_check]
+# The benchmark reference checks (benchmark/check_only.jl on the quick suite, the "Benchmark
+# reference checks" jobs) run whenever the package tests run, and also when one of these paths
+# changes, although the risk rules below give benchmark/** no package tests. Documentation-only
+# changes run neither. The benchmark analysis scripts have their own job, which always runs.
+paths = ["benchmark/*.jl", "benchmark/Project.toml"]
+
 # The minimum tier of a PR. Each changed path takes the first rule below that matches it
 # (`*` within a directory, `**` across directories); the PR gets the highest of these tiers
 # and of its test:standard, test:thorough or test:full labels. A path no rule matches gets

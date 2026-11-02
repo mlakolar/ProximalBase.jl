@@ -11,8 +11,9 @@
 #   JULIA_NUM_THREADS=1 julia --project=benchmark benchmark/check_only.jl
 #
 # Settings: PB_SUITE, PB_GROUPS, PB_CASES, PB_REPETITION and PB_EXPECTED_PACKAGE_ROOT as in
-# `run.jl`; PB_OUTPUT, when set, receives `check-rep<NN>-errors.tsv`. It exits with status 1
-# when a case fails and prints the ID of every failing case.
+# `run.jl`; PB_OUTPUT, when set, receives `check-rep<NN>-errors.tsv` (every failure with its stack
+# trace, written as it occurs). It exits with status 1 when a case fails and prints the ID of
+# every failing case. benchmark/check_only_test.jl tests `check!` and `check_cases!`.
 include("run.jl")
 
 # A timed trial of a case with an automatic evaluation count calls `prepare()` once per sample
@@ -42,6 +43,31 @@ function check!(c::PerfCase)
     nothing
 end
 
+"""
+    check_cases!(cases, errors::IO) -> failed IDs
+
+Run `check!` on every case in order. Each failure goes to `errors` at once as a row
+`id  exception  stack` (after a header row) and is flushed, and a short line goes to stderr;
+the remaining cases still run.
+"""
+function check_cases!(cases, errors::IO)
+    line(errors, "id", "exception", "stack"); flush(errors)
+    failed = String[]
+    for (k, c) in enumerate(cases)
+        try
+            check!(c)
+        catch err
+            err isa InterruptException && rethrow()
+            push!(failed, c.meta.id)
+            line(errors, c.meta.id, sprint(showerror, err), sprint(Base.show_backtrace, catch_backtrace()))
+            flush(errors)
+            println(stderr, "CASE_FAILED ", c.meta.id, ": ", first(sprint(showerror, err), 300))
+        end
+        k % 250 == 0 && println("PROGRESS ", k, "/", length(cases), " failures=", length(failed))
+    end
+    failed
+end
+
 function check_main()
     package_root = realpath(dirname(dirname(pathof(ProximalBase))))
     expected_root = get(ENV, "PB_EXPECTED_PACKAGE_ROOT", "")
@@ -69,28 +95,17 @@ function check_main()
             " source=", package_root)
     # The same order as a measured repetition, so state shared between cases is visited alike.
     shuffle!(scenario_rng(rep, "measurement_order"), cases)
-    failed = Tuple{String,String,String}[]
-    for (k, c) in enumerate(cases)
-        try
-            check!(c)
-        catch err
-            push!(failed, (c.meta.id, sprint(showerror, err), sprint(Base.show_backtrace, catch_backtrace())))
-            println(stderr, "CASE_FAILED ", c.meta.id, ": ", first(sprint(showerror, err), 300))
-        end
-        k % 250 == 0 && println("PROGRESS ", k, "/", length(cases), " failures=", length(failed))
-    end
+    # Each failure is written and flushed as it occurs, so a timeout or a killed process keeps
+    # the stack traces recorded so far.
     output = get(ENV, "PB_OUTPUT", "")
-    if !isempty(output)
-        mkpath(output)
-        open(joinpath(output, "check-rep$(lpad(rep, 2, '0'))-errors.tsv"), "w") do io
-            line(io, "id", "exception", "stack")
-            foreach(f -> line(io, f...), failed)
-        end
-    end
+    isempty(output) || mkpath(output)
+    errors_path = joinpath(output, "check-rep$(lpad(rep, 2, '0'))-errors.tsv")
+    failed = isempty(output) ? check_cases!(cases, devnull) : open(io -> check_cases!(cases, io), errors_path, "w")
     @printf("CHECK_FINISHED cases=%d failures=%d elapsed=%.1f s\n", length(cases), length(failed), time() - started)
     if !isempty(failed)
         println(stderr, "Failing cases:")
-        foreach(f -> println(stderr, "  ", f[1]), sort(failed))
+        foreach(id -> println(stderr, "  ", id), sort(failed))
+        isempty(output) || println(stderr, "Exceptions and stack traces: ", errors_path)
         exit(1)
     end
 end

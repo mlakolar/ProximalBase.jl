@@ -7,13 +7,30 @@
 #
 # The rules are in .github/tier-rules.toml and the tier lists in test/tiers.toml; test/tiers.jl
 # applies them. Writes `tier`, `focus`,
-# `run_tests` and `timeout` to $GITHUB_OUTPUT and a decision table to $GITHUB_STEP_SUMMARY
+# `run_tests`, `timeout` and `benchmark` (whether the benchmark reference checks run) to $GITHUB_OUTPUT and a decision table to $GITHUB_STEP_SUMMARY
 # when those are set, and prints both. No packages are needed.
 
 include(joinpath(dirname(@__DIR__), "test", "tiers.jl"))
 using .TestTiers
+using TOML
 
 const ROOT = dirname(@__DIR__)
+
+"""
+    benchmark_check(paths, run_tests; rules = <.github/tier-rules.toml>) -> Bool
+
+Whether the benchmark reference checks (benchmark/check_only.jl) run: whenever the package
+tests run, and also when a changed path matches `[benchmark_check] paths` of the rules file,
+although its risk rules give `benchmark/**` no package tests. `paths === nothing` (no list of
+changed files) decides on `run_tests` alone. Documentation-only changes run neither.
+"""
+function benchmark_check(paths, run_tests; rules = joinpath(ROOT, ".github", "tier-rules.toml"))
+  run_tests && return true
+  paths === nothing && return false
+  patterns = TOML.parsefile(rules)["benchmark_check"]["paths"]
+  regexes = map(TestTiers.glob_regex, patterns)
+  return any(p -> any(r -> occursin(r, p), regexes), paths)
+end
 
 function options(args)
   opts = Dict{String, String}()
@@ -96,6 +113,7 @@ function plan(opts; gh = gh_lines, at = time())
   event = get(opts, "event", "pull_request")
   lines = String[]
   focus = String[]
+  paths = nothing
   if event == "pull_request"
     base, head = get(opts, "base", "origin/master"), get(opts, "head", nothing)
     paths = changed_files(base, head)
@@ -157,10 +175,11 @@ function plan(opts; gh = gh_lines, at = time())
   end
   run_tests = tier != "none"
   timeout = run_tests ? manifest.timeouts[tier] : 0
+  benchmark = benchmark_check(paths, run_tests)
   summary = run_tests ? "Tests: tier **$tier**" * (isempty(focus) ? "" : " and the focus files $(join(focus, ", "))") :
             "Tests: **none needed**"
-  pushfirst!(lines, summary, "")
-  return (; tier, focus = join(focus, ","), run_tests, timeout), lines
+  pushfirst!(lines, summary, "Benchmark reference checks: **$(benchmark ? "yes" : "no")**", "")
+  return (; tier, focus = join(focus, ","), run_tests, timeout, benchmark), lines
 end
 
 function main(args)

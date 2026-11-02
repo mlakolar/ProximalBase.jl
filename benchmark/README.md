@@ -80,8 +80,10 @@ and warm-up, without timing it. It does what `measure!` does before and after th
 evaluation count then gets two samples of ten evaluations and `validate()` again. The cases run
 in the measurement order of the repetition. The script reads `PB_SUITE`, `PB_GROUPS`,
 `PB_CASES`, `PB_REPETITION` and `PB_EXPECTED_PACKAGE_ROOT`. With `PB_OUTPUT` set, it writes
-`check-rep<NN>-errors.tsv` there. It prints the ID of every failing case and exits with status 1
-if any case fails.
+`check-rep<NN>-errors.tsv` there: every failure with its exception and full stack trace, written
+and flushed as it occurs, so a timeout keeps what was recorded. It prints the ID of every failing
+case and exits with status 1 if any case fails. `benchmark/check_only_test.jl` tests the driver on
+synthetic cases in a few seconds.
 
 ```sh
 JULIA_NUM_THREADS=1 julia --project=benchmark benchmark/check_only.jl
@@ -89,7 +91,9 @@ PB_SUITE=extended PB_GROUPS=products,sparse,atom,owner JULIA_NUM_THREADS=1 \
   julia --project=benchmark benchmark/check_only.jl
 ```
 
-CI runs the quick suite (693 cases, about a minute) on Julia lts and 1. The extended suite
+CI runs the driver's tests and the quick suite (693 cases, about a minute) on Julia lts and 1
+whenever the package tests run or the benchmark harness changes, and uploads the errors file of a
+failing run as the artifact `benchmark-check-errors-<version>-<attempt>`. The extended suite
 (5,195 cases, about four minutes) is a manual run; its `products,sparse,atom,owner` cases need
 about 16 GB of memory in one process. The script includes `run.jl` unchanged, so it does not
 change the harness hash of a baseline.

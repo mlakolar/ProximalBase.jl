@@ -202,6 +202,7 @@ jobs:
           RETRY: ${{ steps.upload_retry.outcome }}
           RETRY_ID: ${{ steps.upload_retry.outputs.artifact-id }}
           REQUIRED: ${{ matrix.version == 'lts' && matrix.os == 'ubuntu-latest' }}
+          TESTS: ${{ steps.tests.outcome }}
           JOB: Julia ${{ matrix.version }}, ${{ matrix.os }}
         run: |
           # An upload counts only with the artifact id GitHub returned.
@@ -213,6 +214,9 @@ jobs:
           elif [ "$REQUIRED" = true ]; then
             line="The conformance reports of $JOB were not uploaded (first attempt: $FIRST, retry: ${RETRY:-not run}). This artifact is required, so the job fails."
             echo "::error::$line"
+          elif [ "$TESTS" != success ]; then
+            line="The diagnostic conformance reports of $JOB were not uploaded (first attempt: $FIRST, retry: ${RETRY:-not run}); the test step failed ($TESTS), which fails the job."
+            echo "::warning::$line"
           else
             line="The tests passed and the conformance reports were written, but GitHub did not accept the upload of $JOB (first attempt: $FIRST, retry: ${RETRY:-not run}). The artifact is missing; it is not needed for the merge decision."
             echo "::warning::$line"

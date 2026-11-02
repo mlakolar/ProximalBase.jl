@@ -223,6 +223,7 @@ earlier green gate and the new pending one were both listed as required and the 
 | Re-run failed jobs | #445, attempt 2 | | only Julia 1 re-ran; the gate waited for the new Required jobs | passed |
 | a re-run of the gate alone | #445, attempt 3 | | the attempt lists the passed Required jobs under its own number; gate passed in 16 s | passed |
 | Re-run all jobs | #445, attempt 4 | | gate pending within 4 s; the old Required jobs was not listed | passed |
+| Re-run job on one test job of a passed run | manual quick run 41390953488, attempt 2 | | the job and Required jobs re-ran; the gate did not and kept its result (a job without `needs` is no dependent) | unchanged |
 | a test file missing from `tiers.toml` | #446 | the plan failed | | failed |
 | no Windows job (stub workflow, no tests) | #448 | full | Required jobs: "Julia 1 - windows-latest - x64 - full: missing" | failed |
 | no Required jobs (stub workflow, renamed) | #449 | full | gate failed 95 s after the last job | failed |
@@ -235,7 +236,9 @@ earlier green gate and the new pending one were both listed as required and the 
 **What remains.** Between a label (or push) and GitHub creating the new run, the previous gate is
 still the newest check: on #453 the PR was BLOCKED less than 4 s after the label request
 started, and on #443 and #444 the new gate was listed 2–6 s after the label. No workflow can
-close that window. The gate job holds one Ubuntu runner for the length of its run (about 5
+close that window. **Re-run job** on a single job does not re-run the gate (it depends on no
+job), so a failure in such a re-run of a passed run leaves the gate green; CONTRIBUTING asks
+for Re-run all jobs instead. The gate job holds one Ubuntu runner for the length of its run (about 5
 minutes for quick, 40 for full); runners are free for this public repository but count towards
 its limit of concurrent jobs. It makes about three API requests a minute, well within the
 token's 1000 an hour per repository.

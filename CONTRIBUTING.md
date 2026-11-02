@@ -108,7 +108,9 @@ fails it, and so does a plan that found an unclassified test file. To retry a
 failed job, use **Re-run failed jobs**: it re-runs that job, Required jobs and
 the gate, and the gate waits for the new result. If only the gate failed (for
 example on a GitHub API outage), the same button re-runs only the gate, which
-then takes the earlier Required jobs result. Coverage is collected only on full
+then takes the earlier Required jobs result. **Re-run job** on a single job
+re-runs it and Required jobs but not the gate, which keeps its earlier result;
+to check a passed run again, use **Re-run all jobs**. Coverage is collected only on full
 runs, so Codecov reports on master and on full PR runs.
 
 Each test job's summary page lists the selected files, the workers, the time

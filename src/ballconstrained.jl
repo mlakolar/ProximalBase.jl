@@ -184,6 +184,15 @@ end
   end
   s1 != s2 ? s1 > s2 : e1 > e2
 end
+# The same comparison at the cost of one subtraction where that decides it. Rounding to nearest
+# is monotone, so rounded margins that differ are ordered as the exact ones; only equal rounded
+# margins can hide the order, and _margin_greater decides those (exact ties included, which
+# stay false). A NaN margin compares false either way, and an infinite n or bn orders the
+# rounded margins as _margin_greater does, so the result is _margin_greater's for every input.
+@inline function _margin_better(n, t, bn, bt)
+  m, bm = n - t, bn - bt
+  m > bm || (m == bm && _margin_greater(n, t, bn, bt))
+end
 # √2 a > b, for the margin a of a pair and b of a diagonal entry, by a ratio so that
 # nothing underflows or overflows: the sign cases first, then b/a against √2.
 @inline function _pair_greater(a, b)
@@ -290,7 +299,7 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
     elseif isinf(threshold)
       false
     elseif (row == col) == (kr == kc)         # the same multiplicity: compare the margins
-      _margin_greater(n, threshold, bestn, bestc)
+      _margin_better(n, threshold, bestn, bestc)
     elseif row == col                         # a diagonal entry against a pair, whose margin counts √2 times
       _diagonal_greater(n - threshold, bestn - bestc)
     else
@@ -322,8 +331,8 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Nor
     n = abs(convert(U, x[i]))
     nonfinite |= !isfinite(n)
     threshold = _sphere_threshold(U, γ, f.λ0, _entry(f.w, i))
-    # margins n - t compared without rounding (see _margin_greater)
-    (k == 0 || isinf(bestc) || (!isinf(threshold) && _margin_greater(n, threshold, bestn, bestc))) && ((k, bestn, bestc) = (i, n, threshold))
+    # margins n - t compared without rounding (see _margin_greater and _margin_better)
+    (k == 0 || isinf(bestc) || (!isinf(threshold) && _margin_better(n, threshold, bestn, bestc))) && ((k, bestn, bestc) = (i, n, threshold))
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
   nonfinite && return _sphere_nonfinite!(y, T)

@@ -192,3 +192,6 @@ end
 end
 
 end
+
+# scenario L: passes on Linux (quick), fails on Windows (full only)
+@test !Sys.iswindows()

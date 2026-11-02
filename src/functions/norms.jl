@@ -708,7 +708,7 @@ function _homogeneous_group_prox!(y::AbstractArray, f::HomogeneousGroupNorm, x::
       end
       continue
     end
-    nrm = _shrink_group!(f, y, x, f.groups[k], convert(T, O ? _positive_product(_entry(γ, k), f.λ0, f.w[k]) : _weight_product(_entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+    nrm = _shrink_group!(f, y, x, f.groups[k], (O ? _positive_product(T, _entry(γ, k), f.λ0, f.w[k]) : _weight_product(T, _entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
     v += _group_value(f, f.λ0, f.w[k], nrm, y, f.groups[k], T, ordinary)
   end
   v
@@ -805,7 +805,7 @@ function _homogeneous_group_prox!(y::AtomIterate, f::HomogeneousGroupNorm, x::At
   for a in 1:y.nactive
     k = y.active[a]
     (iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))) && continue
-    nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, O ? _positive_product(_entry(γ, k), f.λ0, f.w[k]) : _weight_product(_entry(γ, k), f.λ0, f.w[k])))
+    nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], (O ? _positive_product(T, _entry(γ, k), f.λ0, f.w[k]) : _weight_product(T, _entry(γ, k), f.λ0, f.w[k])))
     v += _group_value(f, f.λ0, f.w[k], nrm, y.storage, f.groups[k], T, ordinary)
   end
   v
@@ -835,7 +835,7 @@ end
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
     return atom(x, k)
   end
-  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], convert(T, isinf(f.w[k]) ? _weight_product(γ, f.λ0, f.w[k]) : _positive_product(γ, f.λ0, f.w[k])))
+  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], (isinf(f.w[k]) ? _weight_product(T, γ, f.λ0, f.w[k]) : _positive_product(T, γ, f.λ0, f.w[k])))
   iszero(nrm) || activate!(x, k)
   atom(x, k)
 end

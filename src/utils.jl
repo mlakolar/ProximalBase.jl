@@ -64,6 +64,30 @@ end
 end
 @inline _weight_product(a::Real, b::Real, w::Real) = _weight_product(promote(float(a), float(b), float(w))...)
 
+# The same products rounded once to the destination type U, formed in the promotion of U and
+# the factors' types (numerics T3), so that a product that overflows or underflows the factors'
+# type is still finite in U. For R == U the promotion and the conversion are no-ops.
+@inline _working_type(::Type{U}, a, b) where {U<:AbstractFloat} = promote_type(U, float(typeof(a)), float(typeof(b)))
+@inline _working_type(::Type{U}, a, b, c) where {U<:AbstractFloat} = promote_type(U, float(typeof(a)), float(typeof(b)), float(typeof(c)))
+@inline function _weight_product(::Type{U}, a, b, w) where {U<:AbstractFloat}
+  R = _working_type(U, a, b, w)
+  convert(U, _weight_product(convert(R, a), convert(R, b), convert(R, w)))
+end
+@inline function _positive_product(::Type{U}, a, b, c) where {U<:AbstractFloat}
+  R = _working_type(U, a, b, c)
+  convert(U, _positive_product(convert(R, a), convert(R, b), convert(R, c)))
+end
+# the plain product ab (no range recovery) formed in the promotion of U and the factors' types,
+# rounded once to U
+@inline function _typed_product(::Type{U}, a, b) where {U<:AbstractFloat}
+  R = _working_type(U, a, b)
+  convert(U, convert(R, a) * convert(R, b))
+end
+@inline function _weight_coefficient(::Type{U}, λ, w) where {U<:AbstractFloat}
+  R = _working_type(U, λ, w)
+  convert(U, _weight_coefficient(convert(R, λ), convert(R, w)))
+end
+
 # the value p = c⋅φ of a term with the coefficient c and the unweighted value
 # φ ≥ 0: zero where c⋅φ is 0⋅Inf (an infinite weight at a zero entry, a zero
 # coefficient at an infinite entry); NaN arguments propagate

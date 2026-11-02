@@ -258,7 +258,7 @@ Base.@propagate_inbounds function value_entry(f::NormL1, v::Real, i::Integer)
   ifelse(isinf(w) & !iszero(a), oftype(p, Inf) * a, p)
 end
 Base.@propagate_inbounds prox_entry(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
-  shrink(v, convert(float(T), _weight_product(γ, f.λ0, _entry(f.w, i))))
+  shrink(v, _weight_product(float(T), γ, f.λ0, _entry(f.w, i)))
 
 kkt_violation(f::NormL1, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ0, _entry(f.w, i)))
@@ -325,7 +325,7 @@ Base.@propagate_inbounds function value_entry(f::NormL1Nonneg, v::T, i::Integer)
   end
 end
 Base.@propagate_inbounds prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
-  max(v - convert(float(T), _weight_product(γ, f.λ0, _entry(f.w, i))), zero(float(T)))
+  max(v - _weight_product(float(T), γ, f.λ0, _entry(f.w, i)), zero(float(T)))
 
 # moving up from zero decreases the objective when -gᵢ exceeds λ0 wᵢ
 kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer) =

@@ -111,6 +111,7 @@ thorough = [
   "conjugate_steps",
   "constrained",
   "converted_weights",
+  "threshold_precision",
   "expcone",
   "extreme_normals",
   "fibers",

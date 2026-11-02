@@ -175,7 +175,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.tests.outcome == 'success' && 'conformance-reports' || 'diagnostic-conformance-reports' }}-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/conformance
+          path: ${{ runner.temp }}/no-such-dir-upload-scenario
           if-no-files-found: error
           retention-days: 14
       - name: Wait before retrying the upload
@@ -189,7 +189,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.tests.outcome == 'success' && 'conformance-reports' || 'diagnostic-conformance-reports' }}-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/conformance
+          path: ${{ matrix.version == '1' && format('{0}/no-such-dir-upload-scenario', runner.temp) || format('{0}/conformance', runner.temp) }}
           if-no-files-found: error
           retention-days: 14
           overwrite: true # a first attempt may have created the artifact before it failed

@@ -888,8 +888,8 @@ end
 # Owner cases added by the iterate-family baseline (issue #420), appended to the owner group: the
 # product with stored zeros (FD-9), the three clears (FP-7) and the momentum loops (FD-8). They use
 # the (p, s) grid and the shapes of owner_cases!, helpers defined below, and random inputs of their
-# own (keys "owner_extra/..."), so every case above keeps its ID and its inputs. Only calls that
-# exist in 0.5.x and 0.6.
+# own (keys "owner_extra/..."), so every case above keeps its ID and its inputs; only the owner_z50
+# product takes the coordinates of the owner row of its shape. Only calls that exist in 0.5.x and 0.6.
 
 # an owner with `vals` stored at the coordinates `ids`, in this slot order; an exact zero is stored
 # with activate!, as zeros are not stored by assignment
@@ -939,15 +939,20 @@ function owner_extra_cases!(cases, rep; quick=false)
         restore_state!() = (copyto!(X, snap); nothing)
         guarded(check) = restored(restore_state!, check)
 
-        # FD-9: a product with 50% of the stored coordinates exact zeros, at random slots. The reference
-        # is the CSC matrix of the nonzero entries; the output starts from a sentinel, so that a call
-        # that does nothing cannot pass.
+        # FD-9: a product with 50% of the stored coordinates exact zeros, at random slots. The coordinates
+        # and values are those of the owner row of this shape (the first draw of its generator), so that
+        # the pair of rows differs only in the zeros; the slots of the zeros have a key of their own. The
+        # reference is the CSC matrix of the nonzero entries; the output starts from a sentinel, so that
+        # a call that does nothing cannot pass.
+        ids50, base_vals = let base = owner_fixture(scenario_rng(rep, "owner/$T/$p/$s"), T, p, s)
+            base.ids, base.vals
+        end
         slots = zero_slots(scenario_rng(rep, key * "/zeros"), s, 0.5)
-        vals50 = with_zeros(fx.vals, slots)
-        X50 = build_owner(T, p, fx.ids, vals50)
+        vals50 = with_zeros(base_vals, slots)
+        X50 = build_owner(T, p, ids50, vals50)
         v = randn(scenario_rng(rep, key * "/v"), T, p)
         y = zeros(T, p)
-        ref = owner_csc(T, p, fx.ids, vals50) * v
+        ref = owner_csc(T, p, ids50, vals50) * v
         A50 = owner_matrix(X50)
         function check_mul50()
             (nactive(X50) == s && count(iszero, activevalues(X50)) == length(slots)) || error("the explicit zeros are not stored")
@@ -1125,12 +1130,15 @@ function full_sweep!(x)
     end
     nothing
 end
+# the sweep returns the number of entries it touched
 function active_sweep!(x)
     z = zero(eltype(x))
+    touched = 0
     @inbounds for k in activecoordinates(x)
         x[k] = x[k] + z
+        touched += 1
     end
-    nothing
+    touched
 end
 function sum_active_ids(x)
     acc = 0
@@ -1221,6 +1229,7 @@ function sparse_convert_cases!(cases, rep, dims, ids, key, shape)
         dest = SparseIterate(Td, dims...)
         op = () -> (copyto!(dest, src); nothing)
         check = function ()
+            fill!(dest, 0)
             for _ in 1:2        # the first call starts from an empty destination, the second from a full one
                 copyto!(dest, src)
                 Array(dest) == Td.(dsrc) || error("converted copy differs from the dense reference")
@@ -1273,6 +1282,7 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
     wvals = d[wids]
     function check_write()
         write_values!(x, wids, -wvals)
+        Array(x)[wids] == -wvals || error("writes were not stored")
         write_values!(x, wids, wvals)
         Array(x) == d || error("writes were not stored")
         nactive(x) == s || error("a write to an active coordinate changed the working set")
@@ -1327,7 +1337,11 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
     addcase!(cases, "sparse", "sweep_full", () -> full_sweep!(x),
              guarded(() -> (full_sweep!(x); unchanged())); T, shape, layout="vector", zero_alloc=true, work=n)
     addcase!(cases, "sparse", "sweep_active_update", () -> active_sweep!(x),
-             guarded(() -> (active_sweep!(x); unchanged())); T, shape, layout="trivial_update", zero_alloc=true, work=s)
+             guarded(function ()
+                         active_sweep!(x) == s || error("the sweep did not visit every active coordinate")
+                         unchanged()
+                     end);
+             T, shape, layout="trivial_update", zero_alloc=true, work=s)
 
     # FD-7: sweeps through the handles created inside the call
     addcase!(cases, "sparse", "sweep_activecoordinates", () -> sum_active_ids(x),
@@ -1491,9 +1505,10 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
     addcase!(cases, "sparse", "copy", () -> (copy(x); nothing),
              guarded(() -> (c = copy(x); c !== x && Array(c) == d || error("copy differs from the iterate")));
              T, shape, layout="vector", phase="allocating", evals=1, zero_alloc=false, work=n)
-    # a state copy onto an iterate that already holds the same entries (the state is unchanged)
+    # a state copy onto an iterate that already holds the same entries (the state is unchanged); the check
+    # clears the iterate first, so that a copy that does nothing cannot pass
     addcase!(cases, "sparse", "copyto!_same_kind", () -> (copyto!(x, snap); nothing),
-             guarded(() -> (copyto!(x, snap); Array(x) == d || error("state copy differs from the source")));
+             guarded(() -> (fill!(x, 0); copyto!(x, snap); Array(x) == d || error("state copy differs from the source")));
              T, shape, layout="same_entries", zero_alloc=false, work=2 * s)
     addcase!(cases, "sparse", "copyto!_dense", () -> (copyto!(x, dy); nothing),
              guarded(() -> (copyto!(x, dy); Array(x) == dy || error("import differs from the dense array")));
@@ -1702,11 +1717,13 @@ private_samelayout(x, f) = ProximalBase._samelayout(f, x)
 samegroups_by() = isdefined(ProximalBase, :samegroups) ? ProximalBase.samegroups : private_samelayout
 
 # the loops of the cases are functions of their arguments, so that the timed closures are thin
-function sum_group_indices(indices::F, x) where {F}
+function xor_group_indices(indices::F, x) where {F}
     acc = 0
     for k in activecoordinates(x)
         for j in indices(x, k)
-            acc += j
+            # an exclusive or, not a sum: the sum over a range has a closed form that the compiler uses,
+            # and the loop would then measure nothing per index
+            acc ⊻= j
         end
     end
     acc
@@ -1720,7 +1737,7 @@ function sum_group_views(indices::F, x, gvec) where {F}
 end
 # the function barrier: the closures are built where the spelling has a concrete type
 atom_index_ops(indices::F, x, gvec) where {F} =
-    (() -> sum_group_indices(indices, x), () -> sum_group_views(indices, x, gvec))
+    (() -> xor_group_indices(indices, x), () -> sum_group_views(indices, x, gvec))
 # the entries of the active groups, through the write-through view `atom(x, k)`; the update adds a zero,
 # which the compiler cannot drop (see full_sweep!), and no stored value is -0.0, so x is unchanged. The
 # sweep returns the number of entries it touched.
@@ -2158,7 +2175,7 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
     # FD-6: the indices of every active group through atomindices(x, k) (0.5.x: x.groups[k]), and the sum of
     # a dense vector over them (a range in the contiguous layout, a vector in the strided one)
     loop_op, view_op = atom_index_ops(group_indices_by(), x, v)
-    expected_indices = sum(sum(groups[k]) for k in aids)
+    expected_indices = foldl(⊻, (j for k in aids for j in groups[k]); init=0)
     addcase!(cases, "atom", "atomindices_loop", loop_op,
              guarded(() -> loop_op() == expected_indices || error("the indices of the active groups differ from the layout"));
              T, shape, layout="active_groups", zero_alloc=true, work=nvals)
@@ -2253,7 +2270,9 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
             end
             for (name, op, check) in (("_nvalues", nvalues_op, check_nvalues), ("_values!", values_op, check_values),
                                       ("_setvalues!", setvalues_op, check_setvalues), ("_restartdot", dot_op, check_restartdot))
-                addcase!(cases, "atom", name, op, guarded(check); T, shape, layout, zero_alloc=true, work=nvals)
+                # _nvalues takes the length of each active group: one step per group, not per entry
+                addcase!(cases, "atom", name, op, guarded(check); T, shape, layout, zero_alloc=true,
+                         work=name == "_nvalues" ? na : nvals)
             end
         end
 
@@ -2287,9 +2306,10 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
         addcase!(cases, "atom", "copy", () -> (copy(x); nothing),
                  guarded(() -> (c = copy(x); c !== x && Vector(c) == d && nactive(c) == na || error("copy differs from the iterate")));
                  T, shape, layout=lay, phase="allocating", evals=1, zero_alloc=false, work=p)
-        # a state copy onto an iterate that already holds the same entries (the state is unchanged)
+        # a state copy onto an iterate that already holds the same entries (the state is unchanged); the check
+        # clears the iterate first, so that a copy that does nothing cannot pass
         addcase!(cases, "atom", "copyto!_same_kind", () -> (copyto!(x, snap); nothing),
-                 guarded(() -> (copyto!(x, snap); Vector(x) == d || error("state copy differs from the source")));
+                 guarded(() -> (fill!(x, 0); copyto!(x, snap); Vector(x) == d || error("state copy differs from the source")));
                  T, shape, layout="same_entries", zero_alloc=false, work=2 * nvals)
         addcase!(cases, "atom", "copyto!_dense", () -> (copyto!(x, dy); nothing),
                  guarded(() -> (copyto!(x, dy); Vector(x) == dy || error("import differs from the dense array")));

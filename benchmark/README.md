@@ -70,10 +70,17 @@ to independently checked accuracy on physical GPU hardware.
 
 A new case in `sparse`, `atom` or `owner` must keep these rules:
 
-- It calls only what exists in 0.5.x and 0.6. A new accessor (`atomindices`, `samegroups`, a
-  private field) is reached when the case is built, through `isdefined` or `hasfield`, with the
-  0.5.x spelling as the fallback, and reaches the timed closure through a function barrier;
-  nothing is tested inside the timed call. The set of case IDs never depends on the source.
+- It calls only what exists in 0.5.x and 0.6. A new accessor (`atomindices`, `samegroups`,
+  `matrixview`) or private field is reached when the case is built, through `isdefined` or
+  `hasfield`, and reaches the timed closure through a function barrier; nothing is tested inside
+  the timed call. The set of case IDs never depends on the source. The fallback depends on the
+  control. For `atomindices`, `samegroups` and `matrixview` it is the 0.5.x spelling
+  (`x.groups[k]`, the private `_samelayout`, the owner itself). A control that reads a private
+  field falls back the other way when the field is missing: the `private_fields` momentum loops
+  (`nzval`; for `AtomIterate`, `storage`, `active`, `nactive` and `groups`) fall back to the
+  accessors (`activevalues`, `activecoordinates`, `atomindices`), the FD-12 staging control
+  (`storage`) to a write through `atom(x, k)`, and the layout-cache reset of `samegroups`
+  (`layout_cache`) to no reset. The row keeps its ID and measures the other path.
 - It is checked against an independent reference built from the harness's own data (a dense
   array, a CSC matrix, a formula), never against the kernel under test. A product starts from a
   sentinel output, so that a call that does nothing cannot pass. Where 0.5.x and 0.6 differ (the
@@ -120,11 +127,18 @@ operands; for `atom`, `p = 8·10⁴` with 10% of the groups active, `g = 1` and 
 - `broadcast_assign` equals `copyto!_state` on 0.5.x: `x .= y` from an iterate of the same type
   takes the Base identity fast path and calls `copyto!(x, y)`. `broadcast_self` (`x .= abs.(x)`)
   is the real broadcast.
+- FD-6, `atomindices_loop` takes the exclusive or of the indices of every active group. A sum over a
+  range has a closed form that the compiler uses, and the loop would measure nothing per index.
+  The exclusive or is real work per index, and it vectorizes on long contiguous groups, so its time
+  per index falls as the group size grows (on the pinned source, about 1.0 ns per index at `g = 1`,
+  0.7 at `g = 8` contiguous, and about 0.15 at `g = 64`); compare a row only with the same row.
+  `atomindices_view` reads a dense vector through the indices instead.
 - The owner's clears: `fill!_coordinates_zero` writes a zero into each of the `q = p(p + 1)/2`
   coordinates and keeps the working set; `fill!_coordinates_zero_dropzeros` adds `dropzeros!`
   (the 0.6 clear); `fill!_zero` is `fill!(X, 0)`, the 0.5.x clear, O(s). Only the values are
-  checked. The new owner cases draw their own fixture (keys `owner_extra/...`), so `owner_z50`
-  and the `owner` row of the same shape hold different coordinates.
+  checked. The other new owner cases draw their own fixture (keys `owner_extra/...`); `owner_z50`
+  has the coordinates of the `owner` row of the same shape, with half of the stored values set to
+  exact zero at random slots.
 - FD-11, `samegroups` (the private `_samelayout` on 0.5.x), has three cases per layout.
   `shared`: the iterate shares the penalty's group array, a pointer comparison.
   `distinct_first_seen`: `prepare` clears the layout cache, so the call does one full comparison
@@ -135,14 +149,24 @@ operands; for `atom`, `p = 8·10⁴` with 10% of the groups active, `g = 1` and 
 - The first activation of 256 coordinates or groups is fixed by the design; its companion has as
   many disjoint batches of 256 as fit, up to 16 (layout ending `_x16`, or `_x4` where only four
   fit: `AtomIterate`, `p = 8·10⁴`, `g = 64`).
-- Some rows are inherently timer-limited: the 256-coordinate first activations (the companions
-  can gate), the small clears and copies (`fill!_*`, `dropzeros!`, `copyto!_state`,
-  `broadcast_assign` at small `s`; the owner's `fill!_zero`, which is O(s) and takes well under
-  2 µs there), and `samegroups` `shared`. A clear cannot be enlarged without timing its restore.
+- Some rows are timer-limited: the 256-coordinate first activations (the companions can gate),
+  the small clears and copies (`fill!_*`, `dropzeros!`, `copyto!_state`, `broadcast_assign` at
+  small `s`; the owner's `fill!_zero`, which is O(s) and takes well under 2 µs there), and
+  `samegroups` `shared`. A clear could be enlarged by clearing several independent iterates in
+  one call and restoring them all in `prepare`; that is not done here, because it multiplies the
+  memory of the large fixtures. The rows with a larger active set (about 5 µs or more) can gate,
+  and the rows at small `s` cannot.
 - Zero-allocation readings are checked on Julia 1.13. Julia 1.10 reads a few bytes for closures
   that return a value, in the older `owner` group too. The five-argument `prox_coordinate!` with
-  a strided `u` allocates for the group penalties on both sources, so FT23's zero-byte promise
-  does not hold today; its rows keep `zero_alloc`, so that the baseline lists them.
+  a strided `u` allocates for some group penalties on both sources, so FT23's zero-byte promise
+  does not hold today: `GroupNormL2` and `SparseGroupNormL2` allocate for contiguous and strided
+  groups (16,384 B per call of 256 steps), `GroupNormLinf` only for strided groups, and `NormL1`
+  never. Its rows keep `zero_alloc`, so that the baseline lists them.
+- BenchmarkTools protects the timed closure from the optimizer only where `Base.blackbox` exists,
+  and neither Julia 1.10 nor 1.13.3 has it. On Julia 1.13.3 the timed operations were checked by
+  perturbing an input between evaluations: the time did not change, so nothing is hoisted. Another
+  Julia version needs that check again, and a baseline and its comparison must use the same Julia
+  version.
 
 **Baseline and comparisons.** The metadata records `check_bounds` (`default`, `yes` or `no`,
 from `--check-bounds`) and `os` (`Sys.KERNEL` and `Sys.MACHINE`); `compare.py` does not compare

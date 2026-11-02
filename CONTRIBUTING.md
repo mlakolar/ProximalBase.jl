@@ -103,7 +103,8 @@ decision for your working tree against `origin/master`.
 - **Pushes to master and tags** run the full tier on all five jobs (none for a
   documentation-only push), with coverage and the conformance reports. A
   **nightly** full run catches changes in dependencies and Julia releases; it is
-  skipped when a full run already passed on the same commit that day.
+  skipped when a full run (not for a pull request) already passed on the same
+  commit that day; when GitHub's API cannot tell, it runs.
 - **Manual runs** test any branch at any tier, full by default:
   `gh workflow run CI.yml --ref <branch> -f tier=thorough`. On a PR branch the
   result appears on the head commit beside the PR's own checks.

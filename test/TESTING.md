@@ -404,6 +404,20 @@ and environment changes, unreadable TOML, and the plan with and without addition
 was also run on synthetic commits: a new file and its line gave quick and the file; a moved file
 gave full with the reason; a listed name without a file stopped the plan.
 
+**The nightly plan.** While this policy was written, the planner's `recent_full_run`, which the
+nightly run calls to skip a commit that a full run already passed that day, was deleted by
+accident (d1b9a268) and restored (97b62c2d); nothing tested that path. `recent_full_run` now
+takes the GitHub CLI as an argument and checks the answer itself (not a pull request,
+concluded `success`, the same commit, created in the 24 hours before the plan, test jobs of the
+full tier), and `test/tier_selection.jl` runs the schedule path of the planner with a fake CLI:
+no earlier run, a qualifying nightly, push or manual run (skip), quick runs only, another
+commit, 25 hours old or in the future, failed, cancelled or unfinished runs, a pull-request run,
+an API error and malformed answers (all full). An API error or malformed answer used to fail
+the plan job, and with it the nightly run; it now runs the full tier, with the reason in the
+plan. Deleting or renaming the function, dropping the fallback or the 24-hour window each fails
+the test. The times come from the CLI's jq as Unix time, so the planner no longer loads
+`Dates`, which the test environment does not have.
+
 ## A test made independent of its worker
 
 `gpu_suite.jl`'s ambiguity check called `Test.detect_ambiguities(ProximalBase)`, which also sees

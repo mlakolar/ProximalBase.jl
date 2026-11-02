@@ -195,3 +195,8 @@ end
     @test_throws ErrorException quietly(() -> CIUploadResult.main(env(REQUIRED = "")))
   end
 end
+
+# Scenario H (PR #430): fails only in attempt 1 of the Julia 1 job.
+@testset "scenario: attempt 1 of Julia 1 fails" begin
+  @test !(VERSION >= v"1.11" && get(ENV, "GITHUB_RUN_ATTEMPT", "") == "1")
+end

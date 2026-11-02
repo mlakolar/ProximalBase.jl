@@ -342,14 +342,21 @@ prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArra
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
 _prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
   (_checkparam(γ, x); _check_metric_steps(c, γ); _linear_constrained_prox!(y, c, x, γ))
+# the ridge checks its steps and decides its route in one pass (see _ridge_checked_steps)
+function _prox_unchecked!(y::AbstractArray, c::LinearConstrained{<:SqrNormL2}, x::AbstractArray, γ::AbstractArray)
+  _checkparam(γ, x)
+  T = float(eltype(y))
+  valid, ordinary = _ridge_checked_steps(c.f, γ, x, T)
+  valid || _check_metric_steps(c, γ)           # raises its error
+  _checkwrite(prox!, c, y, x)
+  ordinary ? _linear_constrained_prox!(y, c, x, _RidgeSteps(γ), T) : _linear_constrained_prox!(y, c, x, γ, T)
+end
 
 function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ)
   _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
-  _ridge_ordinary_route(c.f, γ, x, T) || return _linear_constrained_prox!(y, c, x, γ, T)
-  _ridge_centers_fit(c.f, x, T) && return _linear_constrained_prox!(y, c, x, _RidgeSteps{true}(γ), T)
-  γ isa Real && return _linear_constrained_prox!(y, c, x, γ, T)
-  _linear_constrained_prox!(y, c, x, _RidgeSteps{false}(γ), T)
+  _ridge_ordinary_route(c.f, γ, x, T) ? _linear_constrained_prox!(y, c, x, _RidgeSteps(γ), T) :
+                                        _linear_constrained_prox!(y, c, x, γ, T)
 end
 function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ, ::Type{T}) where {T}
   ν = _multiplier(c, x, γ, T)
@@ -373,52 +380,64 @@ end
 # prox_entry forms it for the arguments of the search, lies in the band of the ordinary
 # coefficient (so none needs the scaled one of R3), and, for centers wider than the
 # model precision W, every center entry keeps its range on rounding to W, the steps are
-# wrapped (:fit), and every pass of the search and the output take the ordinary entry
-# without a test, so that their loops have no call and vectorize. With per-entry steps
-# in the band and a wider center that leaves W somewhere, only the center is tested
-# (:ordinary). The decision is made at every call, as the steps may change between
-# calls; anything else (a step outside the band, zero or not finite, another function
-# or precision) keeps the tested entries. A scalar step is wrapped only for a wider
-# center: otherwise its coefficient is already decided outside the loops.
-struct _RidgeSteps{Fit, G}
+# wrapped, and every pass of the search and the output take the ordinary entry without
+# a test, so that their loops have no call and vectorize. The decision is made at every
+# call, as the steps may change between calls; anything else (a step outside the band,
+# zero or not finite, a center entry that leaves W, another function or precision)
+# keeps the tested entries. A scalar step is wrapped only for a wider center: otherwise
+# its coefficient is already decided outside the loops. (A third route, for a wider
+# center that leaves W somewhere, cost a homogeneous call on 8 entries about 40 ns.)
+# The kernels index the steps and the centers alike, by the linear indices of x.
+struct _RidgeSteps{G}
   γ::G
 end
-_RidgeSteps{Fit}(γ::G) where {Fit, G} = _RidgeSteps{Fit, G}(γ)
 _steps(γ) = γ
 _steps(s::_RidgeSteps) = s.γ
 
-_ridge_route(f, γ, x, ::Type{T}) where {T} =
-  !_ridge_ordinary_route(f, γ, x, T) ? :tested : _ridge_centers_fit(f, x, T) ? :fit : γ isa Real ? :tested : :ordinary
-# whether the steps take the ordinary coefficient, for a route worth taking
 _ridge_ordinary_route(f, γ, x, ::Type) = false
-function _ridge_ordinary_route(f::SqrNormL2, γ, x::AbstractArray, ::Type{T}) where {T}
-  W = float(promote_type(eltype(x), T))        # the type of the arguments xᵢ - γᵢνaᵢ
-  P = promote_type(W, T, float(typeof(f.λ)))   # as in _ridge_needs_scaling(W, γᵢ, λ)
-  (W <: Union{Float32, Float64} && P <: Union{Float32, Float64}) || return false
-  wide = _ridge_wide_center(f, W)
-  wide && !(eltype(f.y) <: Base.IEEEFloat) && return false
-  γ isa Real && !wide && return false
-  _ridge_steps_in_band(W, P, f.λ, γ, T)
+_ridge_ordinary_route(f::SqrNormL2, γ::AbstractArray, x::AbstractArray, ::Type{T}) where {T} =
+  last(_ridge_checked_steps(f, γ, x, T))
+function _ridge_ordinary_route(f::SqrNormL2, γ::Real, x::AbstractArray, ::Type{T}) where {T}
+  W, P, usable = _ridge_route_types(f, x, T)
+  usable && _ridge_wide_center(f, W) && !_ridge_needs_scaling(W, convert(T, γ), f.λ) && _ridge_all_fit(W, f.y)
 end
-# whether every center entry keeps its range in W: true without a test for no center or
-# one no wider than W
 @inline _ridge_wide_center(f::SqrNormL2, ::Type{W}) where {W} = f.y !== nothing && _ridge_center_wider(W, eltype(f.y))
-@inline _ridge_centers_fit(f::SqrNormL2, x::AbstractArray, ::Type{T}) where {T} =
-  (W = float(promote_type(eltype(x), T)); !_ridge_wide_center(f, W) || _ridge_all_fit(W, f.y))
-_ridge_steps_in_band(::Type{W}, ::Type, λ, γ::Real, ::Type{T}) where {W, T} = !_ridge_needs_scaling(W, convert(T, γ), λ)
-function _ridge_steps_in_band(::Type{W}, ::Type{P}, λ, γ::AbstractArray, ::Type{T}) where {W, P, T}
-  λ, lo, hi = P(λ), P(_ridge_band_low(W)), P(_ridge_band_high(W))
-  ok = true
-  @inbounds for i in eachindex(IndexLinear(), γ)
-    t = P(convert(T, γ[i])) * λ
-    ok &= (lo <= t) & (t <= hi)
-  end
-  ok
+# W, the type of the arguments xᵢ - γᵢνaᵢ, P, the type of γᵢλ as _ridge_needs_scaling(W,
+# γᵢ, λ) forms it, and whether the route applies to them
+@inline function _ridge_route_types(f::SqrNormL2, x::AbstractArray, ::Type{T}) where {T}
+  W = float(promote_type(eltype(x), T))
+  P = promote_type(W, T, float(typeof(f.λ)))
+  usable = W <: Union{Float32, Float64} && P <: Union{Float32, Float64} &&
+           !(_ridge_wide_center(f, W) && !(eltype(f.y) <: Base.IEEEFloat))
+  W, P, usable
 end
-_constraint_gap(f::SqrNormL2, a, b, x::AbstractArray, ν::T, s::_RidgeSteps{Fit}, v::Val) where {T, Fit} =
-  _constraint_gap(_OrdinaryRidge{Fit}(f), a, b, x, ν, s.γ, v)
-_linear_constrained_output!(y, f::SqrNormL2, a, x, s::_RidgeSteps{Fit}, ν::T) where {T, Fit} =
-  _linear_constrained_output!(y, _OrdinaryRidge{Fit}(f), a, x, s.γ, ν)
+
+# Per-entry steps: whether they are valid (as _check_metric_steps checks them) and take
+# the route, in one pass, as every short loop before the search costs a call on few
+# entries (a separate check and route cost one on 8 entries about 40 ns).
+function _ridge_checked_steps(f::SqrNormL2, γ::AbstractArray, x::AbstractArray, ::Type{T}) where {T}
+  W, P, usable = _ridge_route_types(f, x, T)
+  usable || return _valid_steps(γ), false
+  _ridge_wide_center(f, W) ? _ridge_scan(W, P, f.λ, γ, T, f.y) : _ridge_scan(W, P, f.λ, γ, T, nothing)
+end
+_valid_steps(γ) = (v = true; for g in γ; v &= (g > zero(g)) & isfinite(g); end; v)
+@inline _ridge_center_fits(::Type, ::Nothing, i) = true
+Base.@propagate_inbounds _ridge_center_fits(::Type{W}, c, i) where {W} = _ridge_fits(W, c[i])
+function _ridge_scan(::Type{W}, ::Type{P}, λ, γ::AbstractArray, ::Type{T}, c) where {W, P, T}
+  λ, lo, hi = P(λ), P(_ridge_band_low(W)), P(_ridge_band_high(W))
+  valid, ok = true, true
+  @inbounds for i in eachindex(IndexLinear(), γ)
+    g = γ[i]
+    valid &= (g > zero(g)) & isfinite(g)
+    t = P(convert(T, g)) * λ
+    ok &= (lo <= t) & (t <= hi) & _ridge_center_fits(W, c, i)
+  end
+  valid, valid & ok
+end
+_constraint_gap(f::SqrNormL2, a, b, x::AbstractArray, ν::T, s::_RidgeSteps, v::Val) where {T} =
+  _constraint_gap(_OrdinaryRidge(f), a, b, x, ν, s.γ, v)
+_linear_constrained_output!(y, f::SqrNormL2, a, x, s::_RidgeSteps, ν::T) where {T} =
+  _linear_constrained_output!(y, _OrdinaryRidge(f), a, x, s.γ, ν)
 _metric_sqnorm(set::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::AbstractArray, s::_RidgeSteps) =
   _metric_sqnorm(set, x, s.γ)
 

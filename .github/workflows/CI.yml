@@ -151,18 +151,73 @@ jobs:
         run: julia --startup-file=no scripts/conformance_map.jl "$RUNNER_TEMP/conformance" --check --run-id "$CONFORMANCE_RUN_ID"
         env:
           CONFORMANCE_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.version }}-${{ matrix.os }}
-      - name: Upload the conformance reports
-        # !cancelled() keeps the upload after a failed test or check step. Only a run whose test step
-        # succeeded is named conformance-reports-...: the rows record passes and known breaks, not
-        # unexpected failures, so a matching map alone does not show that the tests passed. A failed
-        # check step after successful tests still gives a usable baseline.
+      - name: Check that the conformance reports were written
+        # Required on every job. The upload below may be best-effort; the reports are not.
         if: ${{ !cancelled() && env.CONFORMANCE == 'true' }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          reports=("$RUNNER_TEMP"/conformance/*/*.jsonl)
+          echo "${#reports[@]} conformance report files"
+          [ ${#reports[@]} -gt 0 ] || { echo "::error::The test step wrote no conformance reports."; exit 1; }
+      # Upload policy: one retry after 30 s on every job. The Julia lts, Linux artifact is the one
+      # the coverage map is regenerated from, so its upload stays required; on the other jobs a
+      # failed upload after the retry is a warning in the job and its summary, because the tests
+      # and the reports themselves (checked above) passed and GitHub's artifact service failed.
+      # !cancelled() keeps the upload after a failed test or check step. Only a run whose test step
+      # succeeded is named conformance-reports-...: the rows record passes and known breaks, not
+      # unexpected failures, so a matching map alone does not show that the tests passed. A failed
+      # check step after successful tests still gives a usable baseline.
+      - name: Upload the conformance reports
+        id: upload
+        if: ${{ !cancelled() && env.CONFORMANCE == 'true' }}
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.tests.outcome == 'success' && 'conformance-reports' || 'diagnostic-conformance-reports' }}-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/conformance
           if-no-files-found: error
           retention-days: 14
+      - name: Wait before retrying the upload
+        if: ${{ !cancelled() && steps.upload.outcome == 'failure' }}
+        shell: bash
+        run: sleep 30
+      - name: Upload the conformance reports (retry)
+        id: upload_retry
+        if: ${{ !cancelled() && steps.upload.outcome == 'failure' }}
+        continue-on-error: ${{ !(matrix.version == 'lts' && matrix.os == 'ubuntu-latest') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.tests.outcome == 'success' && 'conformance-reports' || 'diagnostic-conformance-reports' }}-${{ matrix.version }}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/conformance
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true # a first attempt may have created the artifact before it failed
+      - name: Conformance report upload result
+        if: ${{ !cancelled() && env.CONFORMANCE == 'true' }}
+        shell: bash
+        env:
+          FIRST: ${{ steps.upload.outcome }}
+          FIRST_ID: ${{ steps.upload.outputs.artifact-id }}
+          RETRY: ${{ steps.upload_retry.outcome }}
+          RETRY_ID: ${{ steps.upload_retry.outputs.artifact-id }}
+          REQUIRED: ${{ matrix.version == 'lts' && matrix.os == 'ubuntu-latest' }}
+          JOB: Julia ${{ matrix.version }}, ${{ matrix.os }}
+        run: |
+          # An upload counts only with the artifact id GitHub returned.
+          if [ -n "$FIRST_ID" ]; then
+            line="Conformance reports uploaded (artifact $FIRST_ID)."
+          elif [ -n "$RETRY_ID" ]; then
+            line="Conformance reports uploaded on the second attempt (artifact $RETRY_ID); the first attempt failed."
+            echo "::notice::$line"
+          elif [ "$REQUIRED" = true ]; then
+            line="The conformance reports of $JOB were not uploaded (first attempt: $FIRST, retry: ${RETRY:-not run}). This artifact is required, so the job fails."
+            echo "::error::$line"
+          else
+            line="The tests passed and the conformance reports were written, but GitHub did not accept the upload of $JOB (first attempt: $FIRST, retry: ${RETRY:-not run}). The artifact is missing; it is not needed for the merge decision."
+            echo "::warning::$line"
+          fi
+          printf '\n**Conformance reports**: %s\n' "$line" >> "$GITHUB_STEP_SUMMARY"
       - uses: julia-actions/julia-processcoverage@v1
         if: env.FULL_TESTS == 'true' && matrix.version == '1' && matrix.os == 'ubuntu-latest'
       - uses: codecov/codecov-action@v7

@@ -114,8 +114,12 @@ runs, so Codecov reports on master and on full PR runs.
 Each test job's summary page lists the selected files, the workers, the time
 before the test runner started (Julia, test environment, precompilation), the
 runner's wall time, the worker time of every file with its compilation share,
-and the slowest files. Thorough and full runs also write the conformance reports,
-check the committed coverage map (Julia lts) and upload the reports.
+and the slowest files. Thorough and full runs also write the conformance reports
+(every job checks that they exist), check the committed coverage map (Julia
+lts) and upload the reports. An upload that fails is retried once. The Julia
+lts, Linux artifact, from which the coverage map is regenerated, is required;
+on the other jobs a failed upload is a warning in the job and its summary and
+does not fail the tests.
 
 **When a master or nightly run fails**, the workflow opens (or comments on) the
 issue "CI failing on master". Fix the regression or revert the PR that caused it

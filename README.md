@@ -167,14 +167,13 @@ This calls `Pkg.test()` with array bounds checking enabled. Julia prepares
 an environment containing ProximalBase and its test dependencies automatically.
 There is no need to run `scripts/instantiate.jl` first.
 
-Test files run in parallel worker processes. Extra arguments list tests, select a subset,
-or set the workers: `julia scripts/test.jl --list`, `julia scripts/test.jl lapack caches`,
-or `julia scripts/test.jl --jobs=2`. The same arguments work through `Pkg.test(; test_args=...)`.
-
-`julia scripts/test.jl --core` skips the extended tier (`precision_mixed`,
-`large_inputs`, `spectral_overflow`); plain `julia scripts/test.jl` runs everything.
-PR CI runs the core tier and master runs everything; see [CONTRIBUTING.md](CONTRIBUTING.md)
-for CI details and when a PR needs a full run.
+Test files run in parallel worker processes and belong to four cumulative tiers:
+`julia scripts/test.jl --tier=quick` runs a few minutes of representative tests,
+`standard` and `thorough` add more, and plain `julia scripts/test.jl` runs every file.
+Names select files (`julia scripts/test.jl lapack caches`), `--list` lists them and
+`--jobs=2` sets the workers; the same arguments work through `Pkg.test(; test_args=...)`.
+Pull requests run the tier their changes need and master runs everything; see
+[CONTRIBUTING.md](CONTRIBUTING.md) for the tiers and CI.
 
 To build the documentation or run benchmarks, use `scripts/instantiate.jl`
 to install the tools for that task and select your local ProximalBase code.

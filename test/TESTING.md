@@ -184,6 +184,84 @@ diff held only the scenario's change:
 Every check ran on the PR's head commit; the plan, test and gate jobs print it. The gate reads
 the conclusion of each expected test job of its own run, so a skipped, cancelled, missing or
 failed job fails it. Pushes to master and the nightly run can only be observed after the merge.
+These scenarios ran with the first gate, a job after the tests; the next section describes the
+gate that replaced it and the scenarios that checked it.
+
+## The merge gate, the tier lists and the report upload (review of #430)
+
+Three review comments on #430 changed the gate, the rule for `tiers.toml` and the conformance
+report upload. Scenario PRs #443–#453 checked them on GitHub, against `ci/gate-scenarios` (a
+scratch copy of this branch at f76a24d8) with a temporary ruleset that required `PR merge gate`
+on that branch only, as branch protection will on master; both were deleted afterwards.
+
+**The gate starts with the run.** The first gate had `needs: [plan, test, analysis]`, and GitHub
+creates a job's check only when the job is queued. A label on an unchanged commit started a new
+run, and until its tests finished the commit showed only the earlier, green gate (#431). The
+gate job now has no `needs`, so its check exists, pending, from the start of the run. It polls
+this run's jobs through the API (`scripts/ci_gate.jl`, read-only token) and passes only when
+**Required jobs** (the former gate check, still after the plan, the tests and the benchmark
+controls) passed in its own attempt. A failed, cancelled, skipped, missing or duplicated
+Required jobs fails it, as do a run for another commit or event, 15 minutes of API errors, every
+other job finished for 90 s without a Required jobs, and 170 minutes without a decision.
+`test/ci_gate.jl` checks these decisions on job states, including re-runs and API errors. The
+issue for a failing master run is opened by its own job, the only one with `issues: write`,
+which runs no repository code and is skipped on pull requests.
+
+Branch protection counts the newest check of a name: on #443, with the ruleset in place, the
+earlier green gate and the new pending one were both listed as required and the PR was BLOCKED
+(rollup PENDING) until the new run passed.
+
+| Scenario | PR (run) | Plan | What GitHub showed | Gate |
+|---|---|---|---|---|
+| quick | #443 (41384664046) | quick | gate in progress 3 s after the run was created; tests passed | passed, 5.2 min |
+| label `test:full` on the passing commit | #443 (41385185212) | full, five jobs | the label request returned at 03:50:00.9, the new gate was listed (queued) and the PR unstable at 03:50:02.5; BLOCKED once the ruleset existed; CLEAN between 04:30:06 and 04:30:27, after the gate passed at 04:30:18 | passed, 40.3 min |
+| the same, with the ruleset from the start; full fails on Windows | #453 | quick, then full | CLEAN after quick; label request 04:22:46.7–04:22:48.8, CLEAN at 04:22:48.7, BLOCKED at 04:22:50.6; the Windows job failed and the PR stayed BLOCKED | failed |
+| label `test:thorough`, then removed | #444 | quick, thorough, quick | each label change listed a new pending gate within 6 s; thorough passed | passed (21.2 min for thorough) |
+| superseded by a new commit | #450 | standard | the first run was cancelled with its gate | cancelled |
+| the new run cancelled by hand | #450 | standard | gate cancelled, PR BLOCKED | cancelled |
+| a test failing on Julia 1 only (lts passed) | #445, attempt 1 | quick | Required jobs: Julia 1 failure | failed |
+| Re-run failed jobs | #445, attempt 2 | | only Julia 1 re-ran; the gate waited for the new Required jobs | passed |
+| a re-run of the gate alone | #445, attempt 3 | | the attempt lists the passed Required jobs under its own number; gate passed in 16 s | passed |
+| Re-run all jobs | #445, attempt 4 | | gate pending within 4 s; the old Required jobs was not listed | passed |
+| a test file missing from `tiers.toml` | #446 | the plan failed | | failed |
+| no Windows job (stub workflow, no tests) | #448 | full | Required jobs: "Julia 1 - windows-latest - x64 - full: missing" | failed |
+| no Required jobs (stub workflow, renamed) | #449 | full | gate failed 95 s after the last job | failed |
+| an invalid workflow file (first push of #448 and #449) | — | no run | no gate check at all; the ruleset blocks a missing required check | none |
+| documentation only | #447 | none | no test jobs | passed, 21 s |
+| `tiers.toml` only: `utils` moved from quick to standard | #451 | full, five jobs | | passed, 42.0 min |
+| a row removed from the coverage map | #452 | thorough | the map check on Julia lts failed | failed |
+| this PR merged with master (#413 added `test/symmetric_sphere.jl`) | #430 (41384482255) | the plan failed on the unlisted file | | failed; the file is now in standard |
+
+**What remains.** Between a label (or push) and GitHub creating the new run, the previous gate is
+still the newest check: on #453 the PR was BLOCKED less than 4 s after the label request
+started, and on #443 and #444 the new gate was listed 2–6 s after the label. No workflow can
+close that window. The gate job holds one Ubuntu runner for the length of its run (about 5
+minutes for quick, 40 for full); runners are free for this public repository but count towards
+its limit of concurrent jobs. It makes about three API requests a minute, well within the
+token's 1000 an hour per repository.
+
+**Time after the tests.** From the last required test job to the gate's result took 6–9 s with
+the first gate (runs 41369981986, 41369978673, 41369984297) and 12–22 s now (quick 12, 14, 21,
+22 s; thorough 15 s; full 15, 21 s): Required jobs takes about 5–8 s to start and finish, and the
+gate polls every 20 s until it sees Required jobs or every other job finished, then every 5 s.
+Quick took 4.6–5.3 min end to end in these scenarios (5.0, 4.6, 5.2 and 5.3 min, with up to eight
+runs at a time) against 4.5 min for the final quick run of the first round.
+
+**`tiers.toml` gets full.** It decides what every tier runs, so a valid edit can move a regression
+test out of the tiers a PR runs and still pass `tier_selection`, which checks that each file is
+listed once. Any change to it, including the line of a new test file, now plans full (#451);
+ordinary test files keep quick and run beside it.
+
+**Conformance report upload.** A full run's macOS job passed its tests and then failed on
+`Failed to CreateArtifact: Unable to make request: ETIMEDOUT` (run 41373888409). Every job now
+checks that the test step wrote the reports (required), retries a failed upload once after 30 s
+(`overwrite: true`), and reports the outcome in its summary from the artifact id GitHub returned.
+The Julia lts, Linux upload, from which the coverage map is regenerated, stays required; on the
+other jobs a second failure is a warning. Two manual thorough runs on scenario branches whose
+first upload pointed at a missing directory checked this: in 41385714788 the lts upload
+succeeded on the retry (notice) and Julia 1 failed twice (warning, no artifact, job passed);
+in 41385717877 the lts upload failed twice, which failed the job and the gate, and Julia 1
+succeeded on the retry.
 
 ## A test made independent of its worker
 

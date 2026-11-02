@@ -45,30 +45,21 @@ function changed_files(base, head)
 end
 
 # Whether a change to test/tiers.toml only adds test files that the change also adds: compares
-# the parsed tier lists at `base` with those in the checkout (TestTiers.manifest_additions).
-function tiers_additions(base, paths)
-  existed = Set(readlines(Cmd(`git ls-tree -r --name-only $base -- test`; dir = ROOT)))
+# the parsed tier lists at `base` with those at `head` (or in the working tree without `head`),
+# see TestTiers.manifest_additions.
+function tiers_additions(base, head, paths)
+  exists(rev, path) = success(Cmd(`git cat-file -e $rev:$path`; dir = ROOT))
+  athead(path) = head === nothing ? isfile(joinpath(ROOT, path)) : exists(head, path)
+  exists(base, "test/tiers.toml") || return nothing, ["it does not exist at the base $base"]
   new_files = String[]
   for path in paths
     m = match(r"^test/(.+)\.jl$", path)
-    m !== nothing && !(path in existed) && isfile(joinpath(ROOT, path)) && push!(new_files, m.captures[1])
+    m !== nothing && !exists(base, path) && athead(path) && push!(new_files, m.captures[1])
   end
-  success(Cmd(`git cat-file -e $base:test/tiers.toml`; dir = ROOT)) ||
-    return nothing, ["it does not exist at the base $base"]
   old = read(Cmd(`git show $base:test/tiers.toml`; dir = ROOT), String)
-  return TestTiers.manifest_additions(old, read(joinpath(ROOT, "test", "tiers.toml"), String), new_files)
-end
-
-# A successful run of this workflow on `sha` in the last day whose test jobs ran the full tier.
-function recent_full_run(repo, sha)
-  cutoff = Dates.format(now(UTC) - Hour(24), dateformat"yyyy-mm-ddTHH:MM:SS") * "Z"
-  query = ".[] | select(.event != \"pull_request\" and .createdAt >= \"$cutoff\") | .databaseId"
-  ids = readlines(`gh run list --repo $repo --workflow CI.yml --commit $sha --status success --limit 50 --json databaseId,event,createdAt --jq $query`)
-  for id in ids
-    names = readlines(`gh run view $id --repo $repo --json jobs --jq '.jobs[].name'`)
-    any(endswith(" - full"), names) && return id
-  end
-  return nothing
+  new = head === nothing ? read(joinpath(ROOT, "test", "tiers.toml"), String) :
+        read(Cmd(`git show $head:test/tiers.toml`; dir = ROOT), String)
+  return TestTiers.manifest_additions(old, new, new_files)
 end
 
 function plan(opts)
@@ -83,7 +74,7 @@ function plan(opts)
     paths = changed_files(base, head)
     labels = filter(!isempty, split(get(opts, "labels", ""), ','))
     additions, problems = nothing, String[]
-    "test/tiers.toml" in paths && ((additions, problems) = tiers_additions(base_commit(base, head), paths))
+    "test/tiers.toml" in paths && ((additions, problems) = tiers_additions(base_commit(base, head), head, paths))
     tier, focus, decisions, notes = TestTiers.pr_tier(manifest, paths, labels; manifest_additions = additions)
     push!(lines, "Changed files ($(length(paths))), the rule that decides each, and its tier:", "",
           "| Path | Tier | Why |", "|---|---|---|")

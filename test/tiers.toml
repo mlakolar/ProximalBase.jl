@@ -124,6 +124,7 @@ thorough = [
   "partial",
   "polyhedron",
   "precision",
+  "ridge_precision",
   "rotatedsoc",
   "sparse_iterate",
   "spectral_domain",

@@ -55,7 +55,9 @@ reference(λ, x, y = nothing) = big(λ) * sum(abs2, y === nothing ? big.(Array(x
       end
       g = similar(x)
       check_rounded(value_and_gradient!(g, SqrNormL2(λ, y), x), r)
-      @test isequal(g, y === nothing ? λ .* x : λ .* (x .- y))
+      # the unrounded difference may overflow while the gradient entry does not (R2)
+      naive = y === nothing ? λ .* x : λ .* (x .- y)
+      @test isequal(g, [isfinite(a) ? a : T(big(λ) * (big(x[i]) - (y === nothing ? 0 : big(y[i])))) for (i, a) in enumerate(naive)])
       check_rounded(value_and_gradient!(g, Regularize(ZeroFunction(), λ, y), x), r)
     end
     for A in (T[large 0; 0 large], T[0 large; large 0])

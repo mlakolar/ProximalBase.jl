@@ -988,6 +988,56 @@ function ridge_cases!(cases, rep; quick=false)
       addcase!(cases, "ridge", "recovery/center_outside/value", () -> ff(x),
                () -> isfinite(ff(x)) || error("nonfinite value"); T=Float32, layout="recovery", shape=string(n), work=n, zero_alloc=false)
     end
+    # Constrained ridge on a hyperplane with per-entry steps (extended suite only): repeated
+    # calls start from the last multiplier; "cold" calls start from zero; the scalar step is
+    # the control. Validated against the closed-form multiplier, outside the timing.
+    quick && return
+    for n in sizes, (label, T, λ, F, C) in (("all32", Float32, Float32(0.7), Float32, Float32),
+                                            ("all64", Float64, 0.7, Float64, Float64),
+                                            ("data32_params64", Float32, 0.7, Float64, Float64)),
+        centered in (false, true)
+        rng = scenario_rng(rep, "ridge/constrained/$label/$centered/$n")
+        x = randn(rng, T, n)
+        a = rand(rng, T, n) .+ T(0.1)
+        b = T(n / 8)
+        γs = F.(0.1 .+ rand(rng, n))
+        γ = F(0.3)
+        cen = centered ? randn(rng, C, n) : nothing
+        c = Constrained(SqrNormL2(λ, cen), IndHyperplane(a, b))
+        z = similar(x)
+        name = string("constrained/", label, centered ? "/centered" : "/uncentered")
+        function check_hyperplane(steps)
+            prox!(z, c, x, steps)
+            t = big.(T.(steps)) .* big(λ)                  # the steps as the search converts them
+            cc = cen === nothing ? zeros(BigFloat, n) : big.(cen)
+            p = (big.(x) .+ t .* cc) ./ (1 .+ t)
+            q = big.(T.(steps)) .* big.(a) ./ (1 .+ t)
+            r = p .- (sum(big.(a) .* p) - big(b)) / sum(big.(a) .* q) .* q
+            maximum(abs.(big.(z) .- r)) <= 64 * eps(T) * (maximum(abs, r) + maximum(abs, big.(x))) ||
+                error("constrained output differs from the reference")
+        end
+        addcase!(cases, "ridge", name * "/vector_steps/prox!", () -> prox!(z, c, x, γs),
+                 () -> check_hyperplane(γs); T, shape=string(n), layout="constrained", work=n)
+        addcase!(cases, "ridge", name * "/vector_steps_cold/prox!", () -> prox!(z, c, x, γs),
+                 () -> check_hyperplane(γs); T, shape=string(n), layout="constrained", work=n,
+                 prepare=() -> (c.last[] = NaN; c.slope[] = NaN))
+        addcase!(cases, "ridge", name * "/scalar_step/prox!", () -> prox!(z, c, x, γ),
+                 () -> check_hyperplane(fill(γ, n)); T, shape=string(n), layout="constrained", work=n)
+    end
+    # one step below the band: the search keeps the tested entries
+    let
+      n = 10_000
+      rng = scenario_rng(rep, "ridge/constrained/recovery/$n")
+      x = randn(rng, Float32, n)
+      a = rand(rng, Float32, n) .+ 0.1f0
+      γs = 0.1f0 .+ rand(rng, Float32, n)
+      γs[1] = ldexp(1f0, -130)
+      c = Constrained(SqrNormL2(0.7f0, randn(rng, Float32, n)), IndHyperplane(a, Float32(n / 8)))
+      z = similar(x)
+      addcase!(cases, "ridge", "recovery/constrained_step_outside/prox!", () -> prox!(z, c, x, γs),
+               () -> (prox!(z, c, x, γs); all(isfinite, z) || error("nonfinite constrained output"));
+               T=Float32, layout="recovery", shape=string(n), work=n)
+    end
 end
 
 const CASE_GROUPS = ("vectors", "smooth", "matrices", "constraints", "tensors", "products", "blocks", "owner", "ridge")

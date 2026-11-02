@@ -37,7 +37,9 @@ on Float32/Float64 inputs, with the same cases in both suites.
 The `ridge` group measures `SqrNormL2`, centered and uncentered, in homogeneous `Float32` and
 `Float64` and in `Float32` storage with `Float64` parameters (`prox!`, `value_and_prox!`, a
 `prox_entry` loop, `gradient!`, `value_and_gradient!`, the value), and, as separate
-`layout=recovery` cases, calls whose parameters or centers leave the model's range.
+`layout=recovery` cases, calls whose parameters or centers leave the model's range. The
+extended suite adds `Constrained(SqrNormL2, IndHyperplane)` with per-entry steps (repeated
+and cold calls) and a scalar-step control (`layout=constrained`).
 The matrix group includes partial/full decompositions and fallback inputs.
 Construction plus first use is measured separately from workspace reuse.
 

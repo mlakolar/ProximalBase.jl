@@ -13,6 +13,16 @@ MATCH_SETTINGS = ("julia", "cpu", "cpu_model", "blas", "blas_threads", "julia_th
                   "benchmarktools", "seed_scheme", "samples_target", "seconds_limit",
                   "profile_seconds", "harness_hash", "suite", "groups",
                   "calibration_samples", "calibration_seconds", "tune_seconds")
+# Recorded by newer harnesses only. A record without them is readable, but the setting is
+# unknown: it is never reported as matching. Two known values must agree.
+RECORDED_SETTINGS = ("check_bounds", "os")
+CHECK_BOUNDS_VALUES = ("default", "yes", "no")
+UNRECORDED = "<unrecorded>"
+
+
+def recorded_setting(meta, key):
+    """The value of a RECORDED_SETTINGS key, or None for a record older than the key."""
+    return str(meta[key]) if key in meta else None
 
 
 def discover_versions(root):
@@ -59,7 +69,7 @@ def timer_limited(row, meta, multiple=10):
 def validate(root, expected=1, versions=None):
     root = Path(root)
     versions = discover_versions(root) if versions is None else versions
-    issues, configurations, catalogs = [], {}, {}
+    issues, configurations, catalogs, unrecorded = [], {}, {}, set()
     if not 1 <= expected <= 10:
         issues.append("expected runs must be between 1 and 10")
     if not versions:
@@ -96,7 +106,15 @@ def validate(root, expected=1, versions=None):
             for key in ("source_hash", "harness_hash"):
                 if len(meta[key]) != 40 or any(c not in "0123456789abcdef" for c in meta[key]):
                     raise ValueError(f"missing content provenance: {key}")
-            config = tuple(str(meta[key]) for key in MATCH_SETTINGS + ("source_hash",))
+            if "check_bounds" in meta and meta["check_bounds"] not in CHECK_BOUNDS_VALUES:
+                raise ValueError(f"check_bounds must be one of {', '.join(CHECK_BOUNDS_VALUES)}")
+            if "os" in meta and not (isinstance(meta["os"], str) and meta["os"].strip()):
+                raise ValueError("os must be a nonempty string")
+            for key in RECORDED_SETTINGS:
+                if key not in meta:
+                    unrecorded.add(key)
+            config = tuple(str(meta[key]) for key in MATCH_SETTINGS + ("source_hash",)) + tuple(
+                recorded_setting(meta, key) or UNRECORDED for key in RECORDED_SETTINGS)
             if version in configurations and configurations[version] != config:
                 raise ValueError("settings changed within a Julia version")
             configurations[version] = config
@@ -171,7 +189,8 @@ def validate(root, expected=1, versions=None):
         except (OSError, ValueError, KeyError, TypeError) as error:
             issues.append(f"{prefix}: {error}")
     return dict(valid=not issues, expected_runs=expected, versions=list(versions),
-                cases_per_version={v: len(c) for v, c in catalogs.items()}, **counts, issues=issues)
+                cases_per_version={v: len(c) for v, c in catalogs.items()}, **counts,
+                unrecorded_settings=sorted(unrecorded), issues=issues)
 
 
 if __name__ == "__main__":

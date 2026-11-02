@@ -9,7 +9,8 @@ import statistics
 import tomllib
 
 from summarize import mean_interval
-from validate import MATCH_SETTINGS, check_timer_limit_multiple, timer_limited, validate
+from validate import (MATCH_SETTINGS, RECORDED_SETTINGS, check_timer_limit_multiple,
+                      recorded_setting, timer_limited, validate)
 
 
 def load(root, expected):
@@ -17,18 +18,61 @@ def load(root, expected):
     if not checked["valid"]:
         raise ValueError(f"Invalid results {root}: {checked['issues']}")
     rows, configs, metadata = {}, set(), {}
+    recorded = {key: set() for key in RECORDED_SETTINGS}
     for path in sorted(Path(root).glob("*-metadata.toml")):
         with path.open("rb") as stream:
             meta = tomllib.load(stream)
         metadata[path.name.removesuffix("-metadata.toml")] = meta
         configs.add(tuple(str(meta[key]) for key in MATCH_SETTINGS))
+        for key in RECORDED_SETTINGS:
+            recorded[key].add(recorded_setting(meta, key))
     for path in sorted(Path(root).glob("*-metrics.tsv")):
         version = path.name.split("-rep")[0]
         with path.open(newline="") as stream:
             for row in csv.DictReader(stream, delimiter="\t"):
                 row["_metadata"] = metadata[path.name.removesuffix("-metrics.tsv")]
                 rows[(version, row["id"], int(row["rep"]))] = row
-    return rows, configs
+    return rows, configs, recorded
+
+
+def recorded_status(before, after):
+    """Compare RECORDED_SETTINGS; raise on two known values that differ.
+
+    A side without the key (a record older than it) leaves the setting unknown: the comparison
+    goes on, and its status names the unknown side instead of claiming a match.
+    """
+    status = {}
+    for key in RECORDED_SETTINGS:
+        old, new = before[key] - {None}, after[key] - {None}
+        if old and new and old != new:
+            raise ValueError(f"Benchmark configuration differs in {key}: before {', '.join(sorted(old))}; "
+                             f"after {', '.join(sorted(new))}")
+        unknown = [side for side, values in (("before", before[key]), ("after", after[key]))
+                   if None in values]
+        code = ("match" if not unknown else "unknown_both" if len(unknown) == 2 else
+                f"unknown_{unknown[0]}")
+        status[key] = dict(status=code, before=sorted(old), after=sorted(new))
+    return status
+
+
+def recorded_note(status):
+    parts = []
+    for key, entry in status.items():
+        known = ", ".join(entry["before"] or entry["after"])
+        if entry["status"] == "match":
+            parts.append(f"`{key}` {known} on both sides")
+        elif entry["status"] == "unknown_both":
+            parts.append(f"`{key}` unknown on both sides")
+        else:
+            side = entry["status"].removeprefix("unknown_")
+            other = "after" if side == "before" else "before"
+            parts.append(f"`{key}` unknown on the {side} side ({known} on the {other} side)")
+    unverified = [key for key, entry in status.items() if entry["status"] != "match"]
+    note = "Recorded settings: " + "; ".join(parts) + "."
+    if unverified:
+        note += (" A record without a key predates it; " + " and ".join(f"`{k}`" for k in unverified) +
+                 " could not be verified to match.")
+    return note
 
 
 def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10):
@@ -38,14 +82,16 @@ def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10
         raise ValueError("Use a fresh comparison directory to avoid stale reports")
     output.mkdir(parents=True, exist_ok=True)
     try:
-        before, old_configs = load(before_root, expected)
-        after, new_configs = load(after_root, expected)
+        before, old_configs, old_recorded = load(before_root, expected)
+        after, new_configs, new_recorded = load(after_root, expected)
         coverage = dict(shared_measurements=len(before.keys() & after.keys()),
                         before_only=sorted(before.keys()-after.keys()),
                         after_only=sorted(after.keys()-before.keys()))
         (output/"coverage.json").write_text(json.dumps(coverage, indent=2)+"\n")
         if old_configs != new_configs:
             raise ValueError("Benchmark configuration differs; match hardware, suite, groups, instrumentation and measurement settings")
+        settings = recorded_status(old_recorded, new_recorded)
+        (output/"settings.json").write_text(json.dumps(settings, indent=2)+"\n")
         if coverage["before_only"] or coverage["after_only"]:
             raise ValueError("Case coverage differs; inspect coverage.json and rerun the same cases")
         groups = {}
@@ -95,6 +141,7 @@ def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10
         lines = ["# ProximalBase revision comparison", "",
                  "Ratios above one favor the proposed revision. Intervals use paired log ratios across fresh process/input draws; they do not correct for correlated machine noise or multiple comparisons. Interleave revisions when confirming small differences.", "",
                  "Single-run ratios are exploratory and have no confidence interval. Allocation counts measure Julia heap bytes, not native allocations or peak memory.", "",
+                 recorded_note(settings), "",
                  f"A measurement is timer-limited when median_ns * evals < {timer_limit_multiple:g} * timer_floor_ns (strict). With an unusable calibration (NaN floor), only evals == 1 is limited. A case is limited if any repetition on either side is limited. Timer-limited cases are not to be used for ratio gates.", "",
                  "| Case | Julia | Before / after (µs) | Speedup [95% interval] | Mean bytes before / after | Maximum bytes before / after | Assessment |",
                  "|---|---|---:|---:|---:|---:|---|"]

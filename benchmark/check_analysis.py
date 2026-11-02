@@ -118,6 +118,69 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
     for path in after.glob("*-metadata.toml"):
         path.write_text(path.read_text().replace("a"*40, "c"*40))
     reject(before, after, root/"settings-mismatch", "configuration differs")
+    # check_bounds and os (#439): two known values must agree; a record without a key is unknown,
+    # never reported as matching.
+    def recorded_fixture(name, factor, **settings):
+        folder = root/name
+        fixture(folder, factor, 3)
+        for path in folder.glob("*-metadata.toml"):
+            path.write_text(path.read_text() + "".join(f'{k}="{v}"\n' for k, v in settings.items()))
+        return folder
+
+    def statuses(name):
+        return {key: entry["status"] for key, entry in
+                json.loads((root/name/"settings.json").read_text()).items()}
+
+    agreed = dict(check_bounds="default", os="Linux x86_64")
+    recorded_before = recorded_fixture("recorded-before", 2, **agreed)
+    recorded_after = recorded_fixture("recorded-after", 1, **agreed)
+    checked = validate(recorded_before, 3)
+    assert checked["valid"] and checked["unrecorded_settings"] == []
+    row = compare(recorded_before, recorded_after, root/"recorded-match", 3)[0]
+    assert math.isclose(row["paired_geometric_speedup"], 2) and row["timing_assessment"] == "faster"
+    assert statuses("recorded-match") == dict(check_bounds="match", os="match")
+    report = (root/"recorded-match"/"REPORT.md").read_text()
+    assert "`check_bounds` default on both sides; `os` Linux x86_64 on both sides." in report
+    assert "verified" not in report
+    for key, value in (("check_bounds", "yes"), ("check_bounds", "no"), ("os", "Darwin arm64")):
+        conflicting = recorded_fixture(f"recorded-{key}-{value.split()[0]}", 1, **{**agreed, key: value})
+        assert validate(conflicting, 3)["valid"]
+        reject(recorded_before, conflicting, root/f"conflict-{key}-{value.split()[0]}",
+               f"configuration differs in {key}", expected=3)
+        reject(conflicting, recorded_before, root/f"conflict-reverse-{key}-{value.split()[0]}",
+               f"configuration differs in {key}", expected=3)
+    unrecorded = recorded_fixture("recorded-none", 1)
+    checked = validate(unrecorded, 3)
+    assert checked["valid"] and checked["unrecorded_settings"] == ["check_bounds", "os"]
+    row = compare(unrecorded, recorded_after, root/"unknown-before", 3)[0]
+    assert math.isclose(row["paired_geometric_speedup"], 1)
+    assert statuses("unknown-before") == dict(check_bounds="unknown_before", os="unknown_before")
+    report = (root/"unknown-before"/"REPORT.md").read_text()
+    assert "`check_bounds` unknown on the before side (default on the after side)" in report
+    assert "`check_bounds` and `os` could not be verified to match" in report
+    compare(recorded_after, unrecorded, root/"unknown-after", 3)
+    assert statuses("unknown-after") == dict(check_bounds="unknown_after", os="unknown_after")
+    compare(unrecorded, unrecorded, root/"unknown-both", 3)
+    assert statuses("unknown-both") == dict(check_bounds="unknown_both", os="unknown_both")
+    assert "`check_bounds` unknown on both sides" in (root/"unknown-both"/"REPORT.md").read_text()
+    # One key recorded on both sides, the other on one side only: one match, one unknown.
+    partial = recorded_fixture("recorded-partial", 1, check_bounds="default")
+    compare(recorded_before, partial, root/"partial", 3)
+    assert statuses("partial") == dict(check_bounds="match", os="unknown_after")
+    assert "`os` could not be verified to match" in (root/"partial"/"REPORT.md").read_text()
+    # Within one directory a setting may not change, appear or disappear between repetitions.
+    meta = recorded_after/"julia-1.13.2-rep02-metadata.toml"
+    saved = meta.read_text()
+    for edited in (saved.replace('check_bounds="default"', 'check_bounds="yes"'),
+                   saved.replace('os="Linux x86_64"', 'os="Darwin arm64"'),
+                   saved.replace('check_bounds="default"\n', ""),
+                   saved.replace('check_bounds="default"', 'check_bounds="maybe"'),
+                   saved.replace('os="Linux x86_64"', 'os=" "')):
+        meta.write_text(edited)
+        assert not validate(recorded_after, 3)["valid"]
+        reject(recorded_before, recorded_after, root/f"edited-{len(list(root.iterdir()))}", "Invalid results", expected=3)
+    meta.write_text(saved)
+    assert validate(recorded_after, 3)["valid"]
     assert not validate(root/"empty")["valid"]
     # Strict batch-time rule, including its boundary and unusable floors.
     for evals, median, limited in ((1, 120, True), (1, 450, False), (10, 100, False),
@@ -306,4 +369,4 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
             assert next(csv.DictReader(stream))["timer_limited"] == str(limited)
     assert timer_limited(dict(median_ns=120), dict(timer_floor_ns=30))
 
-print("ANALYSIS_CONTROLS_PASSED repetitions=1,3,5,10; means,SD,t-intervals,paired-ratios,allocations,missing/wrong-repetitions,raw-corruption,unmatched-cases,settings-mismatch; timer-rule,boundary,mixed-evals,limited-sides,K-overrides,invalid-K,process-floors,unusable/constant/stepped-calibration,missing-calibration,legacy-records,quantized-tick,corrupt-median/evals/floor,eligible-2x,limited-ratio/allocation-warning")
+print("ANALYSIS_CONTROLS_PASSED repetitions=1,3,5,10; means,SD,t-intervals,paired-ratios,allocations,missing/wrong-repetitions,raw-corruption,unmatched-cases,settings-mismatch,check_bounds/os-match/conflict/unknown/partial/within-run; timer-rule,boundary,mixed-evals,limited-sides,K-overrides,invalid-K,process-floors,unusable/constant/stepped-calibration,missing-calibration,legacy-records,quantized-tick,corrupt-median/evals/floor,eligible-2x,limited-ratio/allocation-warning")

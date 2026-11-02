@@ -69,7 +69,13 @@ jobs:
             workflow_dispatch) args=("--tier=${DISPATCH_TIER:-full}") ;;
             schedule) args=("--sha=$GITHUB_SHA" "--repo=$GITHUB_REPOSITORY") ;;
           esac
-          julia --startup-file=no scripts/ci_plan.jl "--event=$EVENT" "${args[@]}"
+          # Once in about 20 runs on GitHub the planner (2 s locally) hung until the job's timeout;
+          # retry once rather than fail the gate for that.
+          for attempt in 1 2; do
+            timeout 120 julia --startup-file=no scripts/ci_plan.jl "--event=$EVENT" "${args[@]}" && exit 0
+            echo "::warning::The plan did not finish (attempt $attempt)."
+          done
+          exit 1
   test:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ needs.plan.outputs.tier }}
     needs: plan

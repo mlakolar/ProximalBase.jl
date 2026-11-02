@@ -62,7 +62,9 @@ then searches along the step on `f + g`. `quadratic_model!` updates a model
 returned by `quadratic_model(f, x₀)` to the model at `x`, in place and without
 allocating, and returns it. A model of a [`SeparableSum`](@ref) must have as
 many blocks as `f`, and a model of a [`Sum`](@ref) as many parts; otherwise a
-`DimensionMismatch` is thrown.
+`DimensionMismatch` is thrown. Each sum is checked when the update reaches it,
+before any of its own blocks change; a mismatch in a nested sum can therefore
+be found after earlier sibling blocks were updated.
 
 | `f` | `q` |
 |:----|:----|

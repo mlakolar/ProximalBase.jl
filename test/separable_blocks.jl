@@ -268,6 +268,12 @@ ProximalBase.prox!(y, ::FailingProx, x, γ::Real) = throw(ArgumentError("block c
     inner = SeparableSum(ntuple(_ -> MutableModel(Int[]), 2))
     @test_throws DimensionMismatch("the model has 2 blocks and the function 3") quadratic_model!(
       SeparableSum(inner), SeparableSum(s), (x,))
+    # each sum is checked when the traversal reaches it, so an earlier sibling is updated first
+    first_model = MutableModel(Int[])
+    nq = SeparableSum(first_model, SeparableSum(ntuple(_ -> MutableModel(Int[]), 2)))
+    nf = SeparableSum(MutableModel(Int[]), SeparableSum(ntuple(_ -> MutableModel(Int[]), 3)))
+    @test_throws DimensionMismatch quadratic_model!(nq, nf, ([1.0], ([1.0], [2.0], [3.0])))
+    @test first_model.calls == [1]
     @test_throws DimensionMismatch("3 functions for 2 blocks") s(x[1:2])
     @test_throws DimensionMismatch("the output has 2 blocks and the input 3") prox!(x[1:2], s, x)
     @test PB._checkgradient_output((), x) === nothing

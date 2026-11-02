@@ -81,6 +81,8 @@ end
   # a focus file that no tier lists, a bad timeout
   p = problems(() -> TestTiers.parse_manifest(SMALL * "[[risk]]\ntier = \"quick\"\npaths = [\"x\"]\nfocus = [\"zz\"]\n"))
   @test any(occursin("focus `zz`, which is in no tier", s) for s in p)
+  p = problems(() -> TestTiers.parse_manifest(SMALL * "[[risk]]\ntier = \"standard\"\nnarrow = \"standard\"\npaths = [\"x\"]\n"))
+  @test any(occursin("narrow tier `standard`; use a tier below", s) for s in p)
   p = problems(() -> TestTiers.parse_manifest(SMALL * "[timeouts]\nquick = 0\n"))
   @test any(occursin("timeouts.quick", s) for s in p)
   @test MANIFEST.timeouts == Dict("quick" => 20, "standard" => 30, "thorough" => 45, "full" => 90)
@@ -118,7 +120,6 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
   @test classify("src/functions/sets.jl", "test/sets.jl") == ("standard", ["hyperslab", "sets"])
   @test classify("src/composition.jl") == ("standard", ["composition", "precompose_array"])
   # shared code
-  @test classify("src/sparse_iterate.jl", "test/sparse_iterate.jl")[1] == "thorough"
   @test classify("src/utils.jl")[1] == "thorough"
   @test classify("src/calculus.jl", "test/calculus.jl") == ("thorough", ["calculus", "stepchecks"])
   @test classify("src/interface.jl", "docs/src/interface.md")[1] == "thorough"
@@ -151,6 +152,121 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
     t, = TestTiers.classify(MANIFEST, [pattern])
     i = findfirst(r -> any(re -> occursin(re, pattern), r.regexes), MANIFEST.rules)
     @test MANIFEST.rules[i] === rule
+  end
+end
+
+
+# The tier and focus files a PR gets, as the plan job reports them.
+pr(paths...; labels = String[]) = TestTiers.pr_tier(MANIFEST, collect(paths), labels)[1:2]
+const NARROW = [TestTiers.NARROW_LABEL]
+const ATOM = ["block_step", "infinite_group_weights", "norms", "real_iterates", "sparsegroup"]
+const SPARSE = ["block_step", "conformance/failures_storage", "real_iterates", "sparse_iterate", "sparse_value_cost",
+                "symmetric_argument", "symmetric_mul", "symmetric_mutator_errors", "symmetric_mutators", "symmetric_writes"]
+const SYMPARAMS = ["symmetric_parameters_extensions", "symmetric_parameters_merge", "symmetric_parameters_paths",
+                   "symmetric_parameters_trait", "symmetric_parameters_writes"]
+instandard(names) = filter(n -> !(n in TestTiers.select(MANIFEST, "standard")), names)
+
+@testset "iterate policy" begin
+  # a narrow change to one implementation, declared by the label: quick and its focus files,
+  # also without a test change
+  @test pr("src/atom_iterate.jl"; labels = NARROW) == ("quick", ATOM)
+  @test pr("src/atom_iterate.jl", "test/atom_iterate.jl"; labels = NARROW) == ("quick", ATOM)
+  @test pr("src/sparse_iterate.jl"; labels = NARROW) == ("quick", SPARSE)
+  @test pr("src/symmetric_parameters.jl"; labels = NARROW) == ("quick", SYMPARAMS)
+  # without the label: standard and the same focus files (those standard lacks)
+  @test pr("src/atom_iterate.jl") == ("standard", instandard(ATOM))
+  @test pr("src/sparse_iterate.jl", "test/sparse_iterate.jl") == ("standard", instandard(SPARSE))
+  @test pr("src/symmetric_parameters.jl") == ("standard", SYMPARAMS)
+  # two implementations: the label does not apply; standard and both groups
+  @test pr("src/sparse_iterate.jl", "src/atom_iterate.jl"; labels = NARROW) ==
+        ("standard", instandard(sort!(union(SPARSE, ATOM))))
+  @test pr("src/sparse_iterate.jl", "src/symmetric_parameters.jl"; labels = NARROW)[1] == "standard"
+  # a shared or architectural change gets test:thorough by hand; test:full always wins
+  @test pr("src/sparse_iterate.jl"; labels = ["test:thorough"])[1] == "thorough"
+  @test pr("src/sparse_iterate.jl"; labels = [NARROW; "test:thorough"])[1] == "thorough"
+  @test pr("src/atom_iterate.jl"; labels = [NARROW; "test:full"]) == ("full", String[])
+  @test pr("src/atom_iterate.jl"; labels = [NARROW; "test:standard"]) == ("standard", instandard(ATOM))
+  # the label never lowers another path: shared code, infrastructure, unknown paths
+  @test pr("src/sparse_iterate.jl", "src/utils.jl"; labels = NARROW)[1] == "thorough"
+  @test pr("src/atom_iterate.jl", "src/interface.jl"; labels = NARROW)[1] == "thorough"
+  @test pr("src/atom_iterate.jl", "Project.toml"; labels = NARROW)[1] == "full"
+  @test pr("src/atom_iterate.jl", ".github/workflows/CI.yml"; labels = NARROW)[1] == "full"
+  @test pr("src/atom_iterate.jl", "a/new/file.txt"; labels = NARROW)[1] == "full"
+  # nor package code without tests: other source still needs standard, with or without a test
+  # change elsewhere
+  @test pr("src/atom_iterate.jl", "src/functions/entropy.jl"; labels = NARROW)[1] == "standard"
+  @test pr("src/atom_iterate.jl", "src/functions/norms.jl", "test/norms.jl"; labels = NARROW)[1] == "standard"
+  @test pr("src/functions/entropy.jl", "test/entropy.jl"; labels = NARROW) == ("quick", String[])
+  @test pr("src/functions/norms.jl"; labels = NARROW) == pr("src/functions/norms.jl") == ("standard", String[])
+  # the label only adds information: the same paths without it never get a lower tier, and the
+  # focus files are the same
+  for paths in (["src/atom_iterate.jl"], ["src/sparse_iterate.jl", "src/utils.jl"], ["src/functions/sets.jl"],
+                ["docs/src/index.md"], ["src/atom_iterate.jl", "test/norms.jl"])
+    t1, f1, _ = TestTiers.classify(MANIFEST, paths; narrow = true)
+    t2, f2, _ = TestTiers.classify(MANIFEST, paths)
+    @test TestTiers.rank(t1) <= TestTiers.rank(t2) && f1 == f2
+  end
+  # documentation keeps no tests with the label; an unknown test label is an error
+  @test pr("docs/src/index.md"; labels = NARROW) == ("none", String[])
+  @test_throws ArgumentError pr("src/atom_iterate.jl"; labels = ["test:iterate"])
+  # the decision table says when and why the label applies
+  _, _, d = TestTiers.classify(MANIFEST, ["src/atom_iterate.jl"]; narrow = true)
+  @test occursin("narrow change", d[1][3])
+  _, _, d = TestTiers.classify(MANIFEST, ["src/atom_iterate.jl", "src/sparse_iterate.jl"]; narrow = true)
+  @test d[1][1] == "(label test:iterate-narrow)" && occursin("more than one iterate implementation", d[1][3])
+  # the result does not depend on the order of the paths
+  paths = ["src/sparse_iterate.jl", "test/norms.jl", "src/atom_iterate.jl", "README.md"]
+  @test TestTiers.classify(MANIFEST, paths)[1:2] == TestTiers.classify(MANIFEST, reverse(paths))[1:2]
+  # every focus file runs in full, and the iterate rules are the only ones the label can lower
+  full = TestTiers.select(MANIFEST, "full")
+  for rule in MANIFEST.rules
+    @test issubset(rule.focus, full)
+    isempty(rule.narrow) || @test all(p -> startswith(p, "src/") && occursin("iterate", p) || p == "src/symmetric_parameters.jl", rule.patterns)
+  end
+end
+
+@testset "additive changes to the tier lists" begin
+  old = read(joinpath(DIR, "tiers.toml"), String)
+  add(text, tier, name) = replace(text, "\n$tier = [\n" => "\n$tier = [\n  \"$name\",\n"; count = 1)
+  # new files only: their names, which then run as changed test files
+  @test TestTiers.manifest_additions(old, add(old, "quick", "iterate_new"), ["iterate_new"]) == (["iterate_new"], String[])
+  two = add(add(old, "full", "b_new"), "standard", "a_new")
+  @test TestTiers.manifest_additions(old, two, ["a_new", "b_new"]) == (["a_new", "b_new"], String[])
+  # comments and order alone change nothing
+  @test TestTiers.manifest_additions(old, replace(old, "# iterates:" => "# the iterates:"), String[]) == (String[], String[])
+  swapped = replace(old, "  \"aqua\",\n  \"ci_gate\",\n" => "  \"ci_gate\",\n  \"aqua\",\n")
+  @test swapped != old && TestTiers.manifest_additions(old, swapped, String[]) == (String[], String[])
+  # anything else needs full
+  a, p = TestTiers.manifest_additions(old, add(old, "quick", "iterate_new"), String[])
+  @test a === nothing && occursin("not a new file of this change", only(p))
+  moved = add(replace(old, "  \"utils\",\n" => ""; count = 1), "standard", "utils")
+  a, p = TestTiers.manifest_additions(old, moved, String[])
+  @test a === nothing && only(p) == "`utils` moves from `quick` to `standard`"
+  a, p = TestTiers.manifest_additions(old, replace(old, "  \"utils\",\n" => ""; count = 1), String[])
+  @test a === nothing && only(p) == "`utils` is removed from tier `quick`"
+  a, p = TestTiers.manifest_additions(old, add(replace(old, "  \"utils\",\n" => ""; count = 1), "quick", "utils2"), ["utils2"])
+  @test a === nothing && only(p) == "`utils` is removed from tier `quick`" # a rename
+  a, p = TestTiers.manifest_additions(old, replace(old, "\"testutils\", \"tiers\"]" => "\"testutils\", \"tiers\", \"new_helper\"]"), String[])
+  @test a === nothing && occursin("outside [tiers]", only(p))
+  a, p = TestTiers.manifest_additions(old, replace(old, "environments = [\"cuda\", \"oracles\"]" => "environments = [\"cuda\"]"), String[])
+  @test a === nothing && occursin("outside [tiers]", only(p))
+  a, p = TestTiers.manifest_additions(old, old * "\n[tiers.extra]\n", String[])
+  @test a === nothing
+  a, p = TestTiers.manifest_additions(old, "not toml [", String[])
+  @test a === nothing && occursin("could not be compared", only(p))
+  # the plan: additions give quick and run the new file; otherwise the tier lists need full
+  mktempdir() do dir
+    path = joinpath(dir, "tiers.toml")
+    write(path, add(old, "full", "iterate_new"))
+    m = TestTiers.load(path, joinpath(dirname(DIR), ".github", "tier-rules.toml"))
+    paths = ["test/iterate_new.jl", "test/tiers.toml"]
+    @test TestTiers.pr_tier(m, paths, String[]; manifest_additions = ["iterate_new"])[1:2] == ("quick", ["iterate_new"])
+    @test TestTiers.pr_tier(m, paths, String[])[1:2] == ("full", String[])
+    @test TestTiers.pr_tier(m, [paths; "src/atom_iterate.jl"], NARROW; manifest_additions = ["iterate_new"])[1:2] ==
+          ("quick", sort!([ATOM; "iterate_new"]))
+    @test TestTiers.pr_tier(m, [paths; "src/utils.jl"], String[]; manifest_additions = ["iterate_new"])[1] == "thorough"
+    # an unlisted test file still stops the plan
+    @test_throws ManifestError TestTiers.check(m, [TestTiers.discover(DIR); "unlisted_new"])
   end
 end
 

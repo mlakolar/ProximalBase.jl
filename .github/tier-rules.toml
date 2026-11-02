@@ -17,7 +17,8 @@ source_without_tests = "standard"
 # (`*` within a directory, `**` across directories); the PR gets the highest of these tiers
 # and of its test:standard, test:thorough or test:full labels. A path no rule matches gets
 # full. "none": no package tests. Changed test files, and the `focus` files of the matched
-# rules, run beside the tier.
+# rules, run beside the tier. `narrow`: the tier with the label test:iterate-narrow, which
+# applies only when this is the one rule with a `narrow` tier that the PR's paths match.
 
 [[risk]]
 why = "the README examples are tests"
@@ -100,21 +101,63 @@ tier = "quick"
 focus = ["examples"]
 paths = ["examples/**"]
 
+# The iterates. A change to one implementation runs standard and its focus files: the
+# iterate's own tests and those of its main interactions, beside the iterate files of quick
+# (active_handle, atom_iterate, iterate_queries, matrixview, sparse_iterate_basics,
+# symmetric_parameters, symmetric_products, wrapper_buffers, allocations_basics). With the
+# label test:iterate-narrow, which the author sets for a narrow change (CONTRIBUTING.md), it
+# runs quick and the same focus files. A change to two implementations runs standard and both
+# groups; a shared-semantics or architectural change needs test:thorough, set by hand.
 [[risk]]
-why = "shared by every function: iterates, interface, traits, numerical helpers, wrappers, steps"
+why = "AtomIterate: groups, activation, copies, products, block steps over groups"
+tier = "standard"
+narrow = "quick"
+focus = ["real_iterates", "block_step", "norms", "sparsegroup", "infinite_group_weights"]
+paths = ["src/atom_iterate.jl"]
+
+[[risk]]
+why = "SparseIterate, SymmetricSparseIterate and the stored-iterate code they share"
+tier = "standard"
+narrow = "quick"
+focus = [
+  "sparse_iterate",
+  "real_iterates",
+  "block_step",
+  "sparse_value_cost",
+  "conformance/failures_storage",
+  "symmetric_writes",
+  "symmetric_mul",
+  "symmetric_argument",
+  "symmetric_mutators",
+  "symmetric_mutator_errors",
+]
+paths = ["src/sparse_iterate.jl"]
+
+[[risk]]
+why = "the per-entry parameter checks of SymmetricSparseIterate"
+tier = "standard"
+narrow = "quick"
+focus = [
+  "symmetric_parameters_paths",
+  "symmetric_parameters_trait",
+  "symmetric_parameters_writes",
+  "symmetric_parameters_merge",
+  "symmetric_parameters_extensions",
+]
+paths = ["src/symmetric_parameters.jl"]
+
+[[risk]]
+why = "shared by every function: interface, traits, numerical helpers, wrappers, steps"
 tier = "thorough"
 paths = [
   "src/ProximalBase.jl",
-  "src/atom_iterate.jl",
   "src/compat.jl",
   "src/functions/spectral.jl",
   "src/interface.jl",
   "src/metric.jl",
   "src/partial.jl",
   "src/precompile.jl",
-  "src/sparse_iterate.jl",
   "src/spectralfunction.jl",
-  "src/symmetric_parameters.jl",
   "src/testing.jl",
   "src/utils.jl",
 ]

@@ -2,6 +2,7 @@
 #
 #   julia scripts/ci_plan.jl [--base=REF]     # your working tree against REF (origin/master)
 #   julia scripts/ci_plan.jl --event=pull_request --base=A --head=B --labels=test:full,bug
+#   julia scripts/ci_plan.jl --labels=test:iterate-narrow   # your working tree, with a label
 #   julia scripts/ci_plan.jl --event=workflow_dispatch --tier=standard
 #
 # The rules are in .github/tier-rules.toml and the tier lists in test/tiers.toml; test/tiers.jl
@@ -29,17 +30,34 @@ function options(args)
   return opts
 end
 
+# The commit a change is compared with: `base` itself, or without `head` the merge base of
+# `base` and HEAD.
+base_commit(base, head) = head === nothing ? readchomp(Cmd(`git merge-base $base HEAD`; dir = ROOT)) : base
+
 # Without `head`, the working tree (and untracked files) against the merge base with `base`,
 # as a PR would show it: a local check before a push.
 function changed_files(base, head)
   # --no-renames lists both paths of a rename, so a removed path still counts.
-  revs = head === nothing ? (readchomp(Cmd(`git merge-base $base HEAD`; dir = ROOT)),) : (base, head)
+  revs = head === nothing ? (base_commit(base, head),) : (base, head)
   out = read(Cmd(`git diff --name-only --no-renames $revs`; dir = ROOT), String)
   head === nothing && (out *= "\n" * read(Cmd(`git ls-files --others --exclude-standard`; dir = ROOT), String))
   return sort!(unique(filter(!isempty, split(out, '\n'))))
 end
 
-maxtier(a, b) = a == "none" ? b : b == "none" ? a : TestTiers.rank(a) >= TestTiers.rank(b) ? a : b
+# Whether a change to test/tiers.toml only adds test files that the change also adds: compares
+# the parsed tier lists at `base` with those in the checkout (TestTiers.manifest_additions).
+function tiers_additions(base, paths)
+  existed = Set(readlines(Cmd(`git ls-tree -r --name-only $base -- test`; dir = ROOT)))
+  new_files = String[]
+  for path in paths
+    m = match(r"^test/(.+)\.jl$", path)
+    m !== nothing && !(path in existed) && isfile(joinpath(ROOT, path)) && push!(new_files, m.captures[1])
+  end
+  success(Cmd(`git cat-file -e $base:test/tiers.toml`; dir = ROOT)) ||
+    return nothing, ["it does not exist at the base $base"]
+  old = read(Cmd(`git show $base:test/tiers.toml`; dir = ROOT), String)
+  return TestTiers.manifest_additions(old, read(joinpath(ROOT, "test", "tiers.toml"), String), new_files)
+end
 
 # A successful run of this workflow on `sha` in the last day whose test jobs ran the full tier.
 function recent_full_run(repo, sha)
@@ -61,23 +79,20 @@ function plan(opts)
   lines = String[]
   focus = String[]
   if event == "pull_request"
-    paths = changed_files(get(opts, "base", "origin/master"), get(opts, "head", nothing))
-    tier, focus, decisions = TestTiers.classify(manifest, paths)
-    isempty(paths) && (tier = "quick"; push!(lines, "No changed files were found; the minimum is quick."))
+    base, head = get(opts, "base", "origin/master"), get(opts, "head", nothing)
+    paths = changed_files(base, head)
+    labels = filter(!isempty, split(get(opts, "labels", ""), ','))
+    additions, problems = nothing, String[]
+    "test/tiers.toml" in paths && ((additions, problems) = tiers_additions(base_commit(base, head), paths))
+    tier, focus, decisions, notes = TestTiers.pr_tier(manifest, paths, labels; manifest_additions = additions)
     push!(lines, "Changed files ($(length(paths))), the rule that decides each, and its tier:", "",
           "| Path | Tier | Why |", "|---|---|---|")
     for (path, t, why) in decisions
       push!(lines, "| `$path` | $t | $why |")
     end
-    labels = filter(!isempty, split(get(opts, "labels", ""), ','))
-    for label in labels
-      m = match(r"^test:(.+)$", label)
-      m === nothing && continue
-      t = String(m.captures[1])
-      TestTiers.rank(t) > 0 || error("label `$label` names no tier; use test:$(join(TIERS, ", test:"))")
-      push!(lines, "", "Label `$label` asks for at least $t.")
-      tier = maxtier(tier, t)
-    end
+    isempty(problems) || push!(lines, "", "`test/tiers.toml` does more than add new test files, so it needs full: " *
+                                       join(problems, "; ") * ".")
+    isempty(notes) || push!(lines, "", notes...)
   elseif event == "workflow_dispatch"
     tier = get(opts, "tier", "full")
     TestTiers.rank(tier) > 0 || error("unknown tier `$tier`")
@@ -116,7 +131,7 @@ function plan(opts)
   end
   run_tests = tier != "none"
   timeout = run_tests ? manifest.timeouts[tier] : 0
-  summary = run_tests ? "Tests: tier **$tier**" * (isempty(focus) ? "" : " and the changed test files $(join(focus, ", "))") :
+  summary = run_tests ? "Tests: tier **$tier**" * (isempty(focus) ? "" : " and the focus files $(join(focus, ", "))") :
             "Tests: **none needed**"
   pushfirst!(lines, summary, "")
   return (; tier, focus = join(focus, ","), run_tests, timeout), lines

@@ -21,7 +21,11 @@ struct Rule
   tier::String
   focus::Vector{String}
   why::String
+  narrow::String # the tier with the label test:iterate-narrow, or "" if the label does not apply
 end
+
+# The label that declares a change to one iterate implementation narrow (CONTRIBUTING.md).
+const NARROW_LABEL = "test:iterate-narrow"
 
 """
     Manifest
@@ -100,7 +104,10 @@ function parse_manifest(data::AbstractDict)
     for name in focus
       haskey(tier, name) || push!(problems, "risk rule $i has focus `$name`, which is in no tier")
     end
-    push!(rules, Rule(patterns, map(glob_regex, patterns), t, focus, get(rule, "why", "")))
+    narrow = get(rule, "narrow", "")
+    isempty(narrow) || 0 < rank(narrow) < rank(t) ||
+      push!(problems, "risk rule $i has narrow tier `$narrow`; use a tier below its tier `$t`")
+    push!(rules, Rule(patterns, map(glob_regex, patterns), t, focus, get(rule, "why", ""), narrow))
   end
   untested = get(get(data, "policy", Dict{String, Any}()), "source_without_tests", "standard")
   rank(untested) > 0 || push!(problems, "policy.source_without_tests must be a tier, not `$untested`")
@@ -199,32 +206,59 @@ function glob_regex(pattern::AbstractString)
 end
 
 """
-    classify(manifest, paths) -> (tier, focus, decisions)
+    classify(manifest, paths; narrow = false, manifest_additions = nothing) -> (tier, focus, decisions)
 
 The minimum tier for a change to `paths` (repository-relative, `/`-separated): the highest
 tier of the first rule matching each path, or `full` for a path no rule matches. `"none"`
 means no package tests. Changed test files and the `focus` files of matched rules are
 returned in `focus`: CI runs them beside the tier. If package code changes and no test file
 does, the tier is at least `policy.source_without_tests`. `decisions` gives each path's rule.
+
+`narrow` is the label test:iterate-narrow. It lowers a rule with a `narrow` tier to that tier
+only when that rule is the only one with a `narrow` tier among the matched rules (one iterate
+implementation changed); such paths then do not count as package code without tests. It never
+changes another rule, a path no rule matches, or the focus files.
+
+`manifest_additions`, when given, are the names that test/tiers.toml adds, all of them test
+files new in the change (see [`manifest_additions`](@ref)): the tier lists then decide quick,
+and the new files run as changed test files.
 """
-function classify(m::Manifest, paths)
+function classify(m::Manifest, paths; narrow::Bool = false, manifest_additions = nothing)
   decisions = Tuple{String, String, String}[]
   focus = Set{String}()
   tier = "none"
   raise(t) = (t != "none" && rank(t) > rank(tier)) && (tier = t)
+  matched = [findfirst(rule -> any(r -> occursin(r, path), rule.regexes), m.rules) for path in paths]
+  narrowable = unique(i for i in matched if i !== nothing && !isempty(m.rules[i].narrow))
+  lower = narrow && length(narrowable) == 1
+  if narrow && !lower
+    push!(decisions, ("(label $NARROW_LABEL)", "-", isempty(narrowable) ?
+          "not applied: no iterate implementation changed" :
+          "not applied: more than one iterate implementation changed ($(join([m.rules[i].patterns[1] for i in narrowable], ", ")))"))
+  end
   source = tests = false
-  for path in paths
-    i = findfirst(rule -> any(r -> occursin(r, path), rule.regexes), m.rules)
-    if i === nothing
+  for (path, i) in zip(paths, matched)
+    counts = true # package code that, without a test change, raises the tier to the policy minimum
+    if path == "test/tiers.toml" && manifest_additions !== nothing
+      push!(decisions, (path, "quick", isempty(manifest_additions) ? "no tier list changed (comments or order only)" :
+                        "adds only test files new in this change ($(join(manifest_additions, ", "))), which run beside the tier"))
+      raise("quick")
+    elseif i === nothing
       push!(decisions, (path, "full", "no rule matches this path"))
       raise("full")
     else
       rule = m.rules[i]
-      push!(decisions, (path, rule.tier, rule.why))
-      raise(rule.tier)
+      if lower && !isempty(rule.narrow)
+        push!(decisions, (path, rule.narrow, "$(rule.why); narrow change ($NARROW_LABEL), so $(rule.narrow) instead of $(rule.tier)"))
+        raise(rule.narrow)
+        counts = false
+      else
+        push!(decisions, (path, rule.tier, rule.why))
+        raise(rule.tier)
+      end
       union!(focus, rule.focus)
     end
-    if startswith(path, "src/") || startswith(path, "ext/")
+    if counts && (startswith(path, "src/") || startswith(path, "ext/"))
       source = true
     end
     m2 = match(r"^test/(.+)\.jl$", path)
@@ -240,6 +274,67 @@ function classify(m::Manifest, paths)
   # A focus file that has no tier no longer exists (deleted or renamed) or is a helper.
   filter!(name -> haskey(m.tier, name), focus)
   return tier, sort!(collect(focus)), decisions
+end
+
+
+"""
+    pr_tier(manifest, paths, labels; manifest_additions = nothing) -> (tier, focus, decisions, notes)
+
+The tier of a pull request that changes `paths` and carries `labels`: [`classify`](@ref), with
+`narrow` set by the label test:iterate-narrow, then raised by test:standard, test:thorough or
+test:full (labels never lower the tier). No changed paths give quick. `focus` leaves out the
+files the tier runs anyway; `notes` describe the labels.
+"""
+function pr_tier(m::Manifest, paths, labels; manifest_additions = nothing)
+  tier, focus, decisions = classify(m, paths; narrow = NARROW_LABEL in labels, manifest_additions)
+  notes = String[]
+  isempty(paths) && (tier = "quick"; push!(notes, "No changed files were found; the minimum is quick."))
+  for label in labels
+    label == NARROW_LABEL && continue # applied by classify, shown in the decisions
+    mt = match(r"^test:(.+)$", label)
+    mt === nothing && continue
+    t = String(mt.captures[1])
+    rank(t) > 0 || throw(ArgumentError("label `$label` names no tier; use test:$(join(TIERS, ", test:")) or $NARROW_LABEL"))
+    push!(notes, "Label `$label` asks for at least $t.")
+    (tier == "none" || rank(t) > rank(tier)) && (tier = t)
+  end
+  intier = tier == "none" ? Set(focus) : Set(select(m, tier))
+  return tier, filter(name -> !(name in intier), focus), decisions, notes
+end
+
+"""
+    manifest_additions(old_text, new_text, new_files) -> (additions, problems)
+
+Compare two versions of test/tiers.toml, parsed. When the new one only adds test files that
+are new in the change (`new_files`: names, as in the tier lists, of test files the change adds),
+`additions` are their names (empty when nothing in the tier lists changed) and `problems` is
+empty. Otherwise `additions` is `nothing` and `problems` says why: a file removed from the
+lists or moved to another tier, an added name that is not a new file of the change, or a
+change outside [tiers] (helpers, environments).
+"""
+function manifest_additions(old_text::AbstractString, new_text::AbstractString, new_files)
+  old_data, new_data, old, new = try
+    a, b = TOML.parse(old_text), TOML.parse(new_text)
+    a, b, parse_manifest(a), parse_manifest(b)
+  catch err
+    return nothing, ["the tier lists could not be compared: " * first(sprint(showerror, err), 300)]
+  end
+  problems = String[]
+  for name in sort!(collect(keys(old.tier)))
+    t = old.tier[name]
+    if !haskey(new.tier, name)
+      push!(problems, "`$name` is removed from tier `$t`")
+    elseif new.tier[name] != t
+      push!(problems, "`$name` moves from `$t` to `$(new.tier[name])`")
+    end
+  end
+  additions = sort!([name for name in keys(new.tier) if !haskey(old.tier, name)])
+  for name in additions
+    name in new_files || push!(problems, "`$name` is added to tier `$(new.tier[name])`, but test/$name.jl is not a new file of this change")
+  end
+  outside(d) = filter(kv -> kv.first != "tiers", d)
+  outside(old_data) == outside(new_data) || push!(problems, "something outside [tiers] changed (helpers or environments)")
+  return isempty(problems) ? (additions, problems) : (nothing, problems)
 end
 
 end

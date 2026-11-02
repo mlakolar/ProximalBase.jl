@@ -16,20 +16,26 @@ from validate import (MATCH_SETTINGS, RECORDED_SETTINGS, check_timer_limit_multi
 # The three-outcome rule of #462 on rho = after/before, with one-sided 95% bounds from the paired
 # log ratios: pass when the upper bound is below 1.05; investigate when rho-hat >= 1.05 and the
 # lower bound is above 1 (confirm independently); otherwise inconclusive. A case never passes
-# because nothing was significant.
+# because nothing was significant. These are timing outcomes only: allocations, correctness and
+# complexity are judged separately (outcomes.csv carries unexpected_allocation beside them).
 SLOWDOWN_LIMIT = 1.05
 T95 = {1: 6.314, 2: 2.920, 3: 2.353, 4: 2.132, 5: 2.015, 6: 1.943, 7: 1.895, 8: 1.860, 9: 1.833}
 
 
 def outcome(ratios, limited):
-    """(outcome, slowdown, lower, upper, reason) for paired log ratios log(before/after)."""
-    if limited:
-        return "inconclusive", math.nan, math.nan, math.nan, "timer-limited"
-    if len(ratios) < 2:
-        return "inconclusive", math.nan, math.nan, math.nan, "single run"
+    """(timing outcome, slowdown, lower, upper, reason) for paired log ratios log(before/after).
+
+    A timer-limited case or a single run is inconclusive without bounds, but keeps its observed
+    slowdown as a diagnostic."""
     x = [-r for r in ratios]   # log(after/before)
-    mean, margin = statistics.mean(x), T95[len(x)-1]*statistics.stdev(x)/math.sqrt(len(x))
-    slowdown, lower, upper = math.exp(mean), math.exp(mean-margin), math.exp(mean+margin)
+    mean = statistics.mean(x)
+    slowdown = math.exp(mean)
+    if limited:
+        return "inconclusive", slowdown, math.nan, math.nan, "timer-limited"
+    if len(x) < 2:
+        return "inconclusive", slowdown, math.nan, math.nan, "single run"
+    margin = T95[len(x)-1]*statistics.stdev(x)/math.sqrt(len(x))
+    lower, upper = math.exp(mean-margin), math.exp(mean+margin)
     if upper < SLOWDOWN_LIMIT:
         return "pass", slowdown, lower, upper, ""
     if slowdown >= SLOWDOWN_LIMIT and lower > 1:
@@ -182,7 +188,7 @@ def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10
             decision, slowdown, lower, upper, reason = outcome(ratios, limited)
             outcomes.append(dict(julia=version, id=case, role="primary" if case in primary else "diagnostic",
                 paired_runs=expected, slowdown=slowdown, one_sided95_low=lower, one_sided95_high=upper,
-                outcome=decision, reason=reason))
+                timing_outcome=decision, reason=reason, unexpected_allocation=unexpected))
         with (output/"comparison.csv").open("w", newline="") as stream:
             writer = csv.DictWriter(stream, fieldnames=list(results[0]), lineterminator="\n")
             writer.writeheader(); writer.writerows(results)
@@ -203,19 +209,25 @@ def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10
         with (output/"outcomes.csv").open("w", newline="") as stream:
             writer = csv.DictWriter(stream, fieldnames=list(outcomes[0]), lineterminator="\n")
             writer.writeheader(); writer.writerows(outcomes)
-        lines += ["", "## Three-outcome rule", "",
-                  f"Slowdown is after/before (the inverse of the speedup) with one-sided 95% bounds. **pass**: upper bound below {SLOWDOWN_LIMIT}; **investigate**: slowdown at least {SLOWDOWN_LIMIT} and lower bound above 1 (confirm with independent measurements); **inconclusive**: neither, a single run, or timer-limited. Primary cases are the ones named for this comparison; the others are diagnostic.", ""]
+        lines += ["", "## Timing outcomes (three-outcome rule)", "",
+                  f"These are **timing** outcomes, not an overall performance approval: allocations, correctness and complexity are judged separately. Slowdown is after/before (the inverse of the speedup) with one-sided 95% bounds. **pass**: upper bound below {SLOWDOWN_LIMIT}; **investigate**: slowdown at least {SLOWDOWN_LIMIT} and lower bound above 1 (confirm with independent measurements); **inconclusive**: neither, a single run, or timer-limited (the observed slowdown is shown without bounds). Primary cases are the ones named for this comparison; the others are diagnostic.", ""]
         for role in ("primary", "diagnostic"):
             rows = [o for o in outcomes if o["role"] == role]
-            counts = {name: sum(o["outcome"] == name for o in rows) for name in ("pass", "investigate", "inconclusive")}
+            counts = {name: sum(o["timing_outcome"] == name for o in rows) for name in ("pass", "investigate", "inconclusive")}
             lines.append(f"{role.capitalize()} cases: {len(rows)} (" + ", ".join(f"{k} {v}" for k, v in counts.items()) + ").")
         named = [o for o in outcomes if o["role"] == "primary"]
+        allocating = [o for o in named if o["unexpected_allocation"]]
+        if allocating:
+            lines += ["", f"**Unexpected allocation in {len(allocating)} primary case(s)**, whatever their timing outcome: " +
+                      ", ".join(f"`{o['id']}` ({o['julia']})" for o in allocating) + "."]
         if named:
-            lines += ["", "| Primary case | Julia | Slowdown [one-sided 95% bounds] | Outcome |", "|---|---|---:|---|"]
+            lines += ["", "| Primary case | Julia | Slowdown [one-sided 95% bounds] | Timing outcome | Unexpected allocation |",
+                      "|---|---|---:|---|---|"]
             for o in named:
-                bounds = ("unavailable" if math.isnan(o["slowdown"]) else
+                bounds = (f"{o['slowdown']:.3f} [unavailable]" if math.isnan(o["one_sided95_low"]) else
                           f"{o['slowdown']:.3f} [{o['one_sided95_low']:.3f}, {o['one_sided95_high']:.3f}]")
-                lines.append(f"| `{o['id']}` | {o['julia']} | {bounds} | {o['outcome']}{'; ' + o['reason'] if o['reason'] else ''} |")
+                lines.append(f"| `{o['id']}` | {o['julia']} | {bounds} | {o['timing_outcome']}{'; ' + o['reason'] if o['reason'] else ''} | "
+                             f"{'**yes**' if o['unexpected_allocation'] else 'no'} |")
         (output/"REPORT.md").write_text("\n".join(lines)+"\n")
         return results
     except (ValueError, OSError, KeyError) as error:

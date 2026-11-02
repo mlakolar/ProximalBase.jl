@@ -289,12 +289,16 @@ of that version that could not be verified to match. `validate.py` lists the key
 lacks under `unrecorded_settings`. Within one Julia version of a directory, all repetitions must
 agree on both keys, including whether they record them.
 
-**Three outcomes for a PR (#462).** `outcomes.csv` gives every case a slowdown (after/before,
-the inverse of the speedup) with one-sided 95% bounds from the paired log ratios, and an outcome:
+**Three timing outcomes for a PR (#462).** `outcomes.csv` gives every case a slowdown
+(after/before, the inverse of the speedup) with one-sided 95% bounds from the paired log ratios,
+and a timing outcome:
 **pass** when the upper bound is below 1.05; **investigate** when the slowdown is at least 1.05
 and the lower bound is above 1 (evidence of a slowdown, to confirm with independent measurements);
-**inconclusive** otherwise, and always for a single run or a timer-limited case, with the reason.
-A case never passes because no slowdown was significant. For a performance-sensitive PR, name
+**inconclusive** otherwise, and always for a single run or a timer-limited case, with the reason
+(their observed slowdown is kept, without bounds). A case never passes because no slowdown was
+significant. These are timing outcomes, not an overall approval: `outcomes.csv` also carries
+`unexpected_allocation`, and `REPORT.md` flags every primary case with an unexpected allocation
+whatever its timing outcome. For a performance-sensitive PR, name
 its primary cases (chosen from the changed code paths, never for low variance) in a file with one
 ID per line and pass `--primary FILE`; they get `role=primary` and a table in `REPORT.md`, and
 every other case is diagnostic. A named ID missing from the comparison is an error. Use five

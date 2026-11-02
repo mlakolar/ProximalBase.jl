@@ -269,10 +269,10 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
            root/"one-bad", f"Julia {V1} check_bounds: before default; after no", expected=3)
     # Three-outcome rule (#462): one-sided 95% bounds on slowdown = after/before, from the paired
     # log ratios; pass below 1.05, investigate at >= 1.05 with the lower bound above 1.
-    def outcome_of(name, slowdown, multipliers=None, runs=5, primary=None, evals=1000, factor=100):
+    def outcome_of(name, slowdown, multipliers=None, runs=5, primary=None, evals=1000, factor=100, allocated=0):
         before, after = root/f"{name}-before", root/f"{name}-after"
         fixture(before, factor, runs, evals=evals)
-        fixture(after, factor*slowdown, runs, evals=evals, multipliers=multipliers)
+        fixture(after, factor*slowdown, runs, evals=evals, multipliers=multipliers, allocated=allocated)
         assert validate(before, runs)["valid"] and validate(after, runs)["valid"]
         results = compare(before, after, root/name, runs, primary=primary)
         with (root/name/"outcomes.csv").open() as stream:
@@ -284,32 +284,42 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
     x = [math.log(1.0*m) for m in noise]                          # log(after/before) at slowdown 1
     margin = 2.132*statistics.stdev(x)/math.sqrt(5)
     row = outcome_of("rule-pass", 1.0, noise)
-    assert row["outcome"] == "pass" and row["role"] == "diagnostic" and row["reason"] == ""
+    assert row["timing_outcome"] == "pass" and row["role"] == "diagnostic" and row["reason"] == ""
     assert math.isclose(float(row["slowdown"]), math.exp(statistics.mean(x)))
     assert math.isclose(float(row["one_sided95_high"]), math.exp(statistics.mean(x)+margin))
     assert math.isclose(float(row["one_sided95_low"]), math.exp(statistics.mean(x)-margin))
-    assert outcome_of("rule-investigate", 1.10, noise)["outcome"] == "investigate"
+    assert outcome_of("rule-investigate", 1.10, noise)["timing_outcome"] == "investigate"
     wide = [1.10, 0.90, 1.0, 1.15, 0.88]
-    assert outcome_of("rule-inconclusive", 1.03, wide)["outcome"] == "inconclusive"
+    assert outcome_of("rule-inconclusive", 1.03, wide)["timing_outcome"] == "inconclusive"
     # Not significant is not a pass: a 4% slowdown with wide noise stays inconclusive.
     row = outcome_of("rule-not-significant", 1.04, wide)
-    assert row["outcome"] == "inconclusive" and float(row["one_sided95_low"]) < 1 < float(row["one_sided95_high"])
+    assert row["timing_outcome"] == "inconclusive" and float(row["one_sided95_low"]) < 1 < float(row["one_sided95_high"])
     # Boundaries without noise: 1.04 passes; exactly 1.05 is investigate, never pass.
-    assert outcome_of("rule-1.04", 1.04)["outcome"] == "pass"
+    assert outcome_of("rule-1.04", 1.04)["timing_outcome"] == "pass"
     row = outcome_of("rule-1.05", 1.05)
-    assert row["outcome"] == "investigate" and math.isclose(float(row["one_sided95_high"]), 1.05)
+    assert row["timing_outcome"] == "investigate" and math.isclose(float(row["one_sided95_high"]), 1.05)
     # A faster revision passes; a large slowdown with noise is investigate.
-    assert outcome_of("rule-faster", 0.8, wide)["outcome"] == "pass"
-    assert outcome_of("rule-slower", 1.5, wide)["outcome"] == "investigate"
+    assert outcome_of("rule-faster", 0.8, wide)["timing_outcome"] == "pass"
+    assert outcome_of("rule-slower", 1.5, wide)["timing_outcome"] == "investigate"
     # A single run or a timer-limited case is inconclusive, with the reason.
-    row = outcome_of("rule-single", 1.0, runs=1)
-    assert (row["outcome"], row["reason"]) == ("inconclusive", "single run") and row["slowdown"] == "nan"
+    # Their observed slowdown is kept as a diagnostic; the bounds are unavailable.
+    row = outcome_of("rule-single", 1.2, runs=1)
+    assert (row["timing_outcome"], row["reason"]) == ("inconclusive", "single run")
+    assert math.isclose(float(row["slowdown"]), 1.2)
+    assert row["one_sided95_low"] == row["one_sided95_high"] == "nan"
     row = outcome_of("rule-limited", 1.0, noise, evals=1, factor=1)
-    assert (row["outcome"], row["reason"]) == ("inconclusive", "timer-limited")
+    assert (row["timing_outcome"], row["reason"]) == ("inconclusive", "timer-limited")
+    assert math.isclose(float(row["slowdown"]), math.exp(statistics.mean(x)))
+    assert row["one_sided95_low"] == row["one_sided95_high"] == "nan"
+    row = outcome_of("rule-limited-primary", 1.0, noise, evals=1, factor=1, primary={"analytic/control"})
+    assert "| inconclusive; timer-limited | no |" in (root/"rule-limited-primary"/"REPORT.md").read_text()
+    assert f"| {math.exp(statistics.mean(x)):.3f} [unavailable] |" in (root/"rule-limited-primary"/"REPORT.md").read_text()
     # Named primary cases: the role column and the report table; comparison.csv is unchanged.
     row = outcome_of("rule-primary", 1.0, noise, primary={"analytic/control"})
-    assert row["role"] == "primary" and row["outcome"] == "pass"
+    assert row["role"] == "primary" and row["timing_outcome"] == "pass" and row["unexpected_allocation"] == "False"
     report = (root/"rule-primary"/"REPORT.md").read_text()
+    assert "timing** outcomes, not an overall performance approval" in report
+    assert "| pass | no |" in report and "Unexpected allocation in" not in report
     assert "Primary cases: 1 (pass 1, investigate 0, inconclusive 0)." in report
     assert "| `analytic/control` | julia-1.13.2 |" in report and "Diagnostic cases: 0" in report
     assert (root/"rule-primary"/"comparison.csv").read_text() == (root/"rule-pass"/"comparison.csv").read_text()
@@ -320,6 +330,16 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
             "before_evals", "after_evals", "before_mean_ns", "after_mean_ns", "paired_geometric_speedup",
             "ci95_low", "ci95_high", "timing_assessment", "before_mean_bytes", "after_mean_bytes",
             "mean_bytes_change", "before_max_bytes", "after_max_bytes", "unexpected_allocation"]
+    # Timing passes, but the after side allocates in a case expected not to: the timing outcome is
+    # unchanged, and the allocation is flagged beside it and above the primary table.
+    row = outcome_of("rule-allocating", 1.0, noise, primary={"analytic/control"}, allocated=16)
+    assert row["timing_outcome"] == "pass" and row["unexpected_allocation"] == "True"
+    report = (root/"rule-allocating"/"REPORT.md").read_text()
+    assert "**Unexpected allocation in 1 primary case(s)**, whatever their timing outcome: `analytic/control` (julia-1.13.2)." in report
+    assert "| pass | **yes** |" in report
+    assert report.index("**Unexpected allocation in") < report.index("| Primary case |")
+    with (root/"rule-allocating"/"comparison.csv").open() as stream:
+        assert next(csv.DictReader(stream))["unexpected_allocation"] == "True"
     # A named primary case that the comparison lacks is an error, not a silent omission.
     try:
         compare(root/"rule-pass-before", root/"rule-pass-after", root/"rule-typo", 5, primary={"analytic/typo"})
@@ -524,4 +544,4 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
             assert next(csv.DictReader(stream))["timer_limited"] == str(limited)
     assert timer_limited(dict(median_ns=120), dict(timer_floor_ns=30))
 
-print("ANALYSIS_CONTROLS_PASSED repetitions=1,3,5,10; means,SD,t-intervals,paired-ratios,allocations,missing/wrong-repetitions,raw-corruption,unmatched-cases,settings-mismatch,check_bounds/os-match/conflict/unknown/partial/within-run/literal-sentinel/per-version-swap/match/crossed-unknown/mixed; three-outcome pass/investigate/inconclusive/boundaries/single-run/timer-limited/primary/unknown-primary/cli; timer-rule,boundary,mixed-evals,limited-sides,K-overrides,invalid-K,process-floors,unusable/constant/stepped-calibration,missing-calibration,legacy-records,quantized-tick,corrupt-median/evals/floor,eligible-2x,limited-ratio/allocation-warning")
+print("ANALYSIS_CONTROLS_PASSED repetitions=1,3,5,10; means,SD,t-intervals,paired-ratios,allocations,missing/wrong-repetitions,raw-corruption,unmatched-cases,settings-mismatch,check_bounds/os-match/conflict/unknown/partial/within-run/literal-sentinel/per-version-swap/match/crossed-unknown/mixed; three-outcome pass/investigate/inconclusive/boundaries/single-run/timer-limited/diagnostic-slowdown/primary/allocation-flag/unknown-primary/cli; timer-rule,boundary,mixed-evals,limited-sides,K-overrides,invalid-K,process-floors,unusable/constant/stepped-calibration,missing-calibration,legacy-records,quantized-tick,corrupt-median/evals/floor,eligible-2x,limited-ratio/allocation-warning")

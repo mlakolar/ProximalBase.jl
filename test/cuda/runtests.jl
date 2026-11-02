@@ -1,6 +1,6 @@
 module PhysicalGPUTest
 
-using CUDA, Test, Pkg, ProximalBase, Dates, InteractiveUtils
+using CUDA, Test, Pkg, ProximalBase, Dates, InteractiveUtils, Random
 
 CUDA.functional() || error("A physical CUDA device is required; this harness never skips hardware validation")
 CUDA.allowscalar(false)
@@ -27,7 +27,12 @@ versioninfo()
 CUDA.versioninfo()
 Pkg.status(; mode = Pkg.PKGMODE_MANIFEST)
 
+# Every shared GPU case: the representative ones (test/gpu_smoke.jl) and the rest (test/gpu.jl).
 @testset "Physical CUDA GPU" begin
+  include(joinpath(@__DIR__, "..", "gpu_prelude.jl"))
+  include(joinpath(@__DIR__, "..", "gpu_suite_basics.jl"))
+  # The rest draws the random inputs test/gpu.jl gives it, which includes it after the prelude.
+  Random.seed!(1)
   include(joinpath(@__DIR__, "..", "gpu_suite.jl"))
 end
 

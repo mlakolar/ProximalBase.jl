@@ -150,6 +150,7 @@ thorough = [
 # Exhaustive catalogs whose cases repeat paths the tiers above already reach, and family files
 # that the CI rules run beside any change to their family.
 full = [
+  "iterate_scenario_regression",
   "allocations",
   "blockchecks_steps",
   "blockchecks_values",

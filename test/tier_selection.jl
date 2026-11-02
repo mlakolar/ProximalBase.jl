@@ -348,4 +348,28 @@ nightly_tier(gh) = nightly(gh)[1].tier
   @test CIPlan.plan(Dict("event" => "schedule"); gh = fakegh(String[]; calls))[1].tier == "full" && isempty(calls)
 end
 
+# Whether the benchmark reference checks run (CIPlan.benchmark_check, [benchmark_check] in
+# .github/tier-rules.toml): with the package tests, or for a change to the benchmark harness or
+# its environment alone; never for documentation only.
+@testset "benchmark check plan" begin
+  bc(paths; run_tests = false) = CIPlan.benchmark_check(paths, run_tests)
+  @test bc(["src/sparse_iterate.jl"]; run_tests = true)
+  @test bc(nothing; run_tests = true) && !bc(nothing)
+  for path in ("benchmark/run.jl", "benchmark/cases.jl", "benchmark/check_only.jl", "benchmark/setup.jl",
+               "benchmark/check_only_test.jl", "benchmark/Project.toml")
+    @test bc([path]) && bc(["docs/src/index.md", path])
+  end
+  for path in ("benchmark/README.md", "benchmark/baselines/iterate-family-0.5.csv", "benchmark/compare.py",
+               "benchmark/gpu_solver/analysis.py", "docs/src/index.md", "README_extra.md")
+    @test !bc([path])
+  end
+  @test !bc(String[])
+  # the rules file the workflow reads has the section, and the tiers agree: these paths need no package tests
+  @test first(classify("benchmark/cases.jl")) == "none" && first(classify("benchmark/Project.toml")) == "none"
+  # the plan's outputs carry it: a nightly full run checks, a skipped nightly does not
+  @test nightly(fakegh(String[]))[1].benchmark
+  @test !nightly(fakegh([runline("91", "schedule")], Dict("91" => FULLJOBS)))[1].benchmark
+  @test CIPlan.plan(Dict("event" => "workflow_dispatch", "tier" => "quick"))[1].benchmark
+end
+
 end

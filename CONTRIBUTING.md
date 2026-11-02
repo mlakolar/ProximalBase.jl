@@ -169,9 +169,14 @@ test file.
 
 Branch protection on master requires two checks, both from GitHub Actions:
 **PR required jobs** and **PR merge gate**. PR required jobs runs after the
-plan, the tests and the benchmark analysis controls, and passes when the plan
-succeeded, the benchmark analysis controls passed and every test job of the
-chosen tier passed; Julia pre is advisory. A failed, cancelled, skipped or
+plan, the tests, the benchmark reference checks and the benchmark analysis
+controls, and passes when the plan succeeded, the benchmark analysis controls
+passed, the benchmark reference checks passed if the plan asked for them, and
+every test job of the chosen tier passed; Julia pre is advisory. The plan asks
+for the reference checks (`benchmark/check_only.jl` on the quick suite, Julia
+lts and 1) whenever package tests run, and for a change to the benchmark
+harness or its environment alone (`[benchmark_check]` in
+`.github/tier-rules.toml`); a documentation-only PR runs neither. A failed, cancelled, skipped or
 missing test job fails it, and so does a plan that found an unclassified test
 file. The gate job starts with the run, so a push or a label replaces the
 commit's earlier green gate with a pending one within seconds; it waits for

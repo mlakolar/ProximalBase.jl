@@ -4,6 +4,8 @@ name: CI
 #   test:thorough or test:full labels; quick at least, none for documentation only;
 # - pushes to master, tags and the nightly run: full (none for documentation only);
 # - manual runs: the chosen tier, full by default (`gh workflow run CI.yml --ref <branch>`).
+# The plan also decides whether the benchmark reference checks run: with the package tests, or
+# for a change to the benchmark harness alone ([benchmark_check] in .github/tier-rules.toml).
 # Branch protection requires two checks of pull_request runs. "PR merge gate" starts with the
 # run, so a new run (a push or a label) at once replaces the commit's earlier gate with a pending
 # one, and it passes when this run's "PR required jobs" found that everything the plan asked for
@@ -45,6 +47,7 @@ jobs:
       focus: ${{ steps.plan.outputs.focus }}
       run_tests: ${{ steps.plan.outputs.run_tests }}
       timeout: ${{ steps.plan.outputs.timeout }}
+      benchmark: ${{ steps.plan.outputs.benchmark }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -217,6 +220,51 @@ jobs:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+  benchmark-check:
+    # Every reference check of the quick benchmark suite, without timing (benchmark/check_only.jl),
+    # after the driver's own tests. The extended suite stays a manual run.
+    name: Benchmark reference checks - Julia ${{ matrix.version }}
+    needs: plan
+    if: needs.plan.outputs.benchmark == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: write # julia-actions/cache deletes its old caches
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - 'lts'
+          - '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.version }}
+      - uses: julia-actions/cache@v3
+      - name: Prepare the benchmark environment
+        run: julia --color=yes benchmark/setup.jl . "$RUNNER_TEMP/benchmark-env"
+      - name: Test the check-only driver
+        run: julia --color=yes --project="$RUNNER_TEMP/benchmark-env" benchmark/check_only_test.jl
+      - name: Check the quick suite
+        run: julia --color=yes --project="$RUNNER_TEMP/benchmark-env" benchmark/check_only.jl
+        env:
+          JULIA_NUM_THREADS: "1"
+          PB_SUITE: quick
+          PB_EXPECTED_PACKAGE_ROOT: ${{ github.workspace }}
+          # Every failure with its full stack trace, written as it occurs (uploaded below).
+          PB_OUTPUT: ${{ runner.temp }}/benchmark-check
+      - name: Upload the failures
+        # Best effort: the job has already failed.
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-check-errors-${{ matrix.version }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/benchmark-check
+          if-no-files-found: warn
+          retention-days: 14
   analysis:
     name: Benchmark analysis controls
     runs-on: ubuntu-latest
@@ -232,13 +280,15 @@ jobs:
           python3 benchmark/check_analysis.py
           python3 benchmark/gpu_solver/check_analysis.py
   verdict:
-    # Runs after the plan, the tests and the benchmark controls, even when one of them failed
-    # or was cancelled, and passes only if the plan and the benchmark controls passed and, when
-    # the plan asked for tests, every test job of that tier passed (Julia pre is advisory).
+    # Runs after the plan, the tests, the benchmark reference checks and the benchmark controls,
+    # even when one of them failed or was cancelled, and passes only if the plan and the benchmark
+    # controls passed, the reference checks passed when the plan asked for them (and were skipped
+    # when it did not) and, when the plan asked for tests, every test job of that tier passed
+    # (Julia pre is advisory).
     # Branch protection requires it beside the gate below, which waits for it: re-running a
     # single test job re-runs this job too, but not the gate.
     name: ${{ github.event_name == 'pull_request' && 'PR required jobs' || 'CI required jobs' }}
-    needs: [plan, test, analysis]
+    needs: [plan, test, benchmark-check, analysis]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -251,16 +301,24 @@ jobs:
           PLAN: ${{ needs.plan.result }}
           TESTS: ${{ needs.test.result }}
           ANALYSIS: ${{ needs.analysis.result }}
+          BENCHMARK: ${{ needs.benchmark-check.result }}
+          RUN_BENCHMARK: ${{ needs.plan.outputs.benchmark }}
           RUN_TESTS: ${{ needs.plan.outputs.run_tests }}
           TIER: ${{ needs.plan.outputs.tier }}
           FOCUS: ${{ needs.plan.outputs.focus }}
           COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          echo "Commit $COMMIT; plan: $PLAN; tier: ${TIER:-unknown}${FOCUS:+ with $FOCUS}; tests: $TESTS; benchmark controls: $ANALYSIS"
+          echo "Commit $COMMIT; plan: $PLAN; tier: ${TIER:-unknown}${FOCUS:+ with $FOCUS}; tests: $TESTS; benchmark reference checks: $BENCHMARK (planned: ${RUN_BENCHMARK:-unknown}); benchmark controls: $ANALYSIS"
           fail=0
           error() { echo "::error::$1"; fail=1; }
           [ "$PLAN" = success ] || error "The test plan did not succeed ($PLAN)."
           [ "$ANALYSIS" = success ] || error "Benchmark analysis controls: $ANALYSIS."
+          # An intended skip passes; a planned check must succeed on both Julia versions.
+          case "$RUN_BENCHMARK" in
+            true) [ "$BENCHMARK" = success ] || error "Benchmark reference checks: $BENCHMARK." ;;
+            false) [ "$BENCHMARK" = skipped ] || error "Benchmark reference checks not planned, but $BENCHMARK." ;;
+            *) error "The plan did not say whether the benchmark reference checks run ('$RUN_BENCHMARK')." ;;
+          esac
           case "$TIER" in
             quick|standard|thorough) expected=("lts - ubuntu-latest - x64" "1 - ubuntu-latest - x64") ;;
             full) expected=("lts - ubuntu-latest - x64" "1 - ubuntu-latest - x64" "1 - macos-latest - aarch64" "1 - windows-latest - x64") ;;

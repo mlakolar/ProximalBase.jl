@@ -248,12 +248,26 @@ ProximalBase.prox!(y, ::FailingProx, x, γ::Real) = throw(ArgumentError("block c
     fs = ntuple(_ -> MutableModel(Int[]), 3)
     s = SeparableSum(fs)
     x = ([1.0], [1.0, 2.0], [1.0, 2.0, 3.0])
+    @test quadratic_model!(SeparableSum(fs), s, x).fs === fs
+    @test map(f -> f.calls, fs) == ntuple(k -> [k], 3)
     for n in (2, 4)
       qs = ntuple(_ -> MutableModel(Int[]), n)
       q = SeparableSum(qs)
-      @test quadratic_model!(q, s, x) === q
-      @test map(f -> f.calls, qs) == ntuple(k -> k <= 3 ? [k] : Int[], n)
+      @test_throws DimensionMismatch("the model has $n blocks and the function 3") quadratic_model!(q, s, x)
+      @test all(f -> isempty(f.calls), qs)
     end
+    @testset "Sum" begin
+      ps = ntuple(_ -> MutableModel(Int[]), 3)
+      for n in (2, 4)
+        qs = ntuple(_ -> MutableModel(Int[]), n)
+        @test_throws DimensionMismatch("the model has $n parts and the function 3") quadratic_model!(Sum(qs...), Sum(ps...), [1.0])
+        @test all(f -> isempty(f.calls), qs)
+      end
+    end
+    # nested sums are checked block by block
+    inner = SeparableSum(ntuple(_ -> MutableModel(Int[]), 2))
+    @test_throws DimensionMismatch("the model has 2 blocks and the function 3") quadratic_model!(
+      SeparableSum(inner), SeparableSum(s), (x,))
     @test_throws DimensionMismatch("3 functions for 2 blocks") s(x[1:2])
     @test_throws DimensionMismatch("the output has 2 blocks and the input 3") prox!(x[1:2], s, x)
     @test PB._checkgradient_output((), x) === nothing

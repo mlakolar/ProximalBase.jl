@@ -184,18 +184,40 @@ end
   end
   s1 != s2 ? s1 > s2 : e1 > e2
 end
-# √2 a > b, for the margin a of a pair and b of a diagonal entry, by a ratio so that
-# nothing underflows or overflows: the sign cases first, then b/a against √2.
-@inline function _pair_greater(a, b)
-  a > 0 && return b <= 0 || b / a < sqrt(oftype(a, 2))
-  a == 0 && return b < 0
-  b < 0 && b / a > sqrt(oftype(a, 2))
+# The sign of D - √2 P for the exact margins D = nd - td of a diagonal entry and P = np - tp of
+# an off-diagonal pair, whose objective counts √2 times (A2); the tie, sign 0, is only D = P = 0,
+# since √2 is irrational. A rounded difference of two nonnegative numbers has the sign of the
+# exact one, so the signs decide unless both margins have one sign. Then the rounded ratio
+# |d|/|p| is within 3 roundings of |D|/|P| (an overflow or underflow is far from √2), so it
+# decides outside 8 ulps of √2; within them D² and 2P² are compared exactly, in integers. That
+# allocates, but is reached only within a few ulps of the tie. A non-finite entry gives 0 (no
+# change); the whole block is NaN then (E2).
+function _diagonal_pair_sign(nd, td, np, tp)
+  d, p = nd - td, np - tp
+  isfinite(d) && isfinite(p) || return 0
+  sd, sp = Int(sign(d)), Int(sign(p))
+  sp == 0 && return sd
+  sd == 0 && return -sp
+  sd != sp && return sd
+  ρ, s2 = abs(d) / abs(p), sqrt(oftype(d, 2))
+  ρ > nextfloat(s2, 8) && return sd
+  ρ < prevfloat(s2, 8) && return -sd
+  sd * _diagonal_pair_exact(nd, td, np, tp)
 end
-# b > √2 a, for the margin b of a diagonal entry and a of a pair
-@inline function _diagonal_greater(b, a)
-  b > 0 && return a <= 0 || b / a > sqrt(oftype(a, 2))
-  b == 0 && return a < 0
-  a < 0 && b / a < sqrt(oftype(a, 2))
+# x = M ⋅ 2^E with an integer M, for a finite x ≥ 0
+function _integer_exponent(x)
+  iszero(x) && return BigInt(0), typemax(Int)
+  f, e = frexp(x)
+  q = precision(x)
+  BigInt(ldexp(f, q)), e - q
+end
+# sign(D² - 2P²) for D = nd - td and P = np - tp, every term scaled to the smallest exponent
+function _diagonal_pair_exact(nd, td, np, tp)
+  me = map(_integer_exponent, (nd, td, np, tp))
+  e0 = minimum(last, me)
+  Nd, Td, Np, Tp = map(((m, e),) -> iszero(m) ? m : m << (e - e0), me)
+  D, P = Nd - Td, Np - Tp
+  cmp(D^2, 2 * P^2)
 end
 
 # ldexp(x, e) for 1/8 < x < 2, rounded once also where the result is subnormal (before
@@ -292,9 +314,9 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
     elseif (row == col) == (kr == kc)         # the same multiplicity: compare the margins
       _margin_greater(n, threshold, bestn, bestc)
     elseif row == col                         # a diagonal entry against a pair, whose margin counts √2 times
-      _diagonal_greater(n - threshold, bestn - bestc)
+      _diagonal_pair_sign(n, threshold, bestn, bestc) > 0
     else
-      _pair_greater(n - threshold, bestn - bestc)
+      _diagonal_pair_sign(bestn, bestc, n, threshold) < 0
     end
     better && ((k, kr, kc, bestn, bestc) = (i, row, col, n, threshold))
   end

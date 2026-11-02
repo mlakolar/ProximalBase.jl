@@ -432,6 +432,84 @@ end
   @test Vector(y) ≈ [0.6, 0.0, -0.8, 0.0] rtol=0.02
 end
 
+@testset "sphere prox of the ℓ1 norm: a diagonal entry against an off-diagonal pair, exactly (A2, #473)" begin
+  # In the fallback a diagonal entry with margin D reaches r⋅D and a pair with margin P reaches
+  # √2⋅r⋅P, so the diagonal wins when D > √2 P, decided exactly on the margins n - t; the tie is
+  # only D = P = 0 (√2 is irrational), where the earlier candidate stays.
+  ref(nd, td, np, tp) = setprecision(BigFloat, 10_000) do
+    Int(sign((big(nd) - big(td)) - sqrt(big(2)) * (big(np) - big(tp))))
+  end
+  sgn = ProximalBase._diagonal_pair_sign
+
+  # a decision the rounded ratio got wrong: the pair is better by 6e-8 of the objective
+  c = Constrained(NormL1(1f0), IndSphereL2(1f0))
+  X = Float32[0.36858305 0.5535208; 0.5535208 0]
+  @test ref(X[1, 1], 1f0, X[2, 1], 1f0) == -1
+  y = SymmetricSparseIterate(Float32, 2)
+  value_and_prox!(y, c, X, 1f0)
+  @test Matrix(y) == [0 1; 1 0] .* (1f0 / sqrt(2f0))
+
+  # the sign cases, zeros, subnormals and the ends of the range
+  for T in (Float16, Float32, Float64)
+    tiny, big_ = nextfloat(zero(T)), floatmax(T)
+    cases = [(T(0), T(0), T(0), T(0)), (T(0), T(0), T(0), T(1)), (T(0), T(1), T(0), T(0)),
+             (T(1), T(0), T(0), T(1)), (T(0), T(1), T(1), T(0)), (T(3), T(1), T(2), T(1)),
+             (T(1), T(3), T(1), T(2)), (tiny, T(0), tiny, T(0)), (2tiny, T(0), tiny, T(0)),
+             (T(0), 2tiny, T(0), tiny), (big_, T(0), big_, T(0)), (big_, T(0), prevfloat(big_ / sqrt(T(2))), T(0)),
+             (big_, tiny, big_ / T(1.5), tiny), (T(0), big_, T(0), big_ / sqrt(T(2))),
+             (T(Inf), T(1), T(1), T(0)), (T(NaN), T(1), T(1), T(0))]
+    for q in cases
+      @test sgn(q...) == (all(isfinite, q) ? ref(q...) : 0)
+    end
+  end
+
+  # near ties against the exact sign, with margins whose subtraction rounds and wide exponents
+  rng = Xoshiro(473)
+  for T in (Float16, Float32, Float64), _ in 1:2000
+    e = rand(rng, -12:12)
+    p = abs(T(randn(rng))) * T(2)^e
+    tp = rand(rng, Bool) ? zero(T) : abs(T(randn(rng))) * T(2)^(e + rand(rng, -40:4))
+    td = rand(rng, Bool) ? zero(T) : abs(T(randn(rng))) * T(2)^(e + rand(rng, -40:4))
+    np = tp + p
+    D = setprecision(() -> sqrt(big(2)) * (big(np) - big(tp)), BigFloat, 600)
+    nd = max(zero(T), nextfloat(T(big(td) + D), rand(rng, -3:3)))
+    q = rand(rng, Bool) ? (nd, td, np, tp) : (td, nd, tp, np)        # both positive or both negative
+    all(isfinite, q) || continue
+    @test sgn(q...) == ref(q...)
+  end
+
+  # through value_and_prox!, with the diagonal before the pair and after it, and in a wider U
+  for (S, T) in ((Float32, Float32), (Float32, Float64), (Float64, Float64)), first_diag in (true, false), _ in 1:200
+    b = S(0.5) + S(0.45) * rand(rng, S)
+    a = nextfloat(S(1 - sqrt(big(2)) * (1 - big(b))), rand(rng, -2:2))
+    U = promote_type(S, T)
+    s = ref(U(a), one(U), U(b), one(U))
+    X = first_diag ? S[a b; b 0] : S[0 b; b a]
+    W = first_diag ? T[1 1; 1 1] : T[4 1; 1 1]
+    c = Constrained(NormL1(one(T), W), IndSphereL2(one(T)))
+    y = SymmetricSparseIterate(T, 2)
+    value_and_prox!(y, c, X, one(T))
+    d = first_diag ? (1, 1) : (2, 2)
+    @test s != 0
+    @test Matrix(y) == (s > 0 ? T[i == j == d[1] for i in 1:2, j in 1:2] : T[0 1; 1 0] .* (one(T) / sqrt(T(2))))
+  end
+
+  # the exact tie D = P = 0: the earlier candidate stays
+  c = Constrained(NormL1(1.0, [4.0 1.0; 1.0 1.0]), IndSphereL2(1.0))
+  @test Matrix(prox(Constrained(NormL1(1.0), IndSphereL2(1.0)), SymmetricSparseIterate([1.0 1.0; 1.0 0.0]), 1.0)) == [1 0; 0 0]
+  y = SymmetricSparseIterate(2)
+  value_and_prox!(y, c, [0.0 1.0; 1.0 1.0], 1.0)
+  @test Matrix(y) == [0 1; 1 0] ./ sqrt(2.0)
+
+  # no allocation and a stable type outside the band of the tie
+  f(q) = sgn(q...)
+  for q in ((2.0, 0.5, 1.0, 0.2), (2f0, 0.5f0, 1f0, 0.2f0), (0.1, 0.5, 0.1, 0.2))
+    f(q)
+    @test @allocated(f(q)) == 0
+    @test @inferred(sgn(q...)) isa Int
+  end
+end
+
 @testset "sphere prox of the ℓ1 norm: a NaN or infinite entry gives NaN in the whole block (E2, E3)" begin
   # The sphere couples every entry, so a NaN anywhere is NaN in every output entry and in the
   # value, whichever entry would have won the selection, on either branch and at any weight.

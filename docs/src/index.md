@@ -64,3 +64,5 @@ penalized regression,
 for Gaussian graphical models, and
 [DiffPrecTest.jl](https://github.com/mlakolar/DiffPrecTest.jl) for inference on
 differences of precision matrices.
+
+<!-- CI probe for #465 (documentation-only change); not to be merged. -->

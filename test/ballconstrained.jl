@@ -532,4 +532,38 @@ end
   end
 end
 
+@testset "sphere prox of the ℓ1 norm: the margin comparison by one subtraction is exact (#459)" begin
+  # _margin_better(n, t, bn, bt) decides n - t > bn - bt from the rounded margins where they
+  # differ (rounding is monotone) and by _margin_greater where they are equal. Fixed cases where
+  # the rounded margins tie but the exact ones do not, exact ties (false: the first entry stays),
+  # subnormal and near-floatmax operands, and non-finite n or bn; each against the exact order.
+  setprecision(BigFloat, 2300) do                 # exact for any four Float64 operands
+    for T in (Float32, Float64)
+      tiny, huge, e = nextfloat(zero(T)), floatmax(T), eps(T)
+      cases = [(T(1), e / 4, T(1), zero(T)),       # rounded margins 1 and 1, exact 1 - e/4 < 1
+               (T(1) + e, e / 4, T(1), zero(T)),   # 1 + e - e/4 > 1, rounded 1 + e > 1
+               (T(3), e, T(3), e / 2),             # rounded tie, exact 3 - e < 3 - e/2
+               (T(2), T(1), T(5), T(4)),           # exact tie
+               (huge, huge / 2, huge / 2, zero(T)),# exact tie near floatmax
+               (huge, prevfloat(huge), huge, huge - eps(huge) / 2),
+               (3tiny, tiny, 2tiny, zero(T)),      # subnormal tie
+               (3tiny, tiny, tiny, zero(T)), (tiny, zero(T), zero(T), tiny),
+               (zero(T), zero(T), zero(T), zero(T)), (zero(T), huge, zero(T), prevfloat(huge))]
+      rng = Random.Xoshiro(459)
+      for _ in 1:500                               # margins equal after rounding, exact ones not
+        bn, bt, t = T(abs(randn(rng))), T(abs(randn(rng))) * e, T(abs(randn(rng)))
+        n = nextfloat(t + (bn - bt), rand(rng, -1:1))
+        n >= 0 && push!(cases, (n, t, bn, bt))
+      end
+      for (n, t, bn, bt) in cases
+        exact = big(n) - big(t) > big(bn) - big(bt)
+        @test ProximalBase._margin_better(n, t, bn, bt) == exact == ProximalBase._margin_greater(n, t, bn, bt)
+      end
+      for n in (T(NaN), T(Inf), T(1)), bn in (T(NaN), T(Inf), T(2)), t in (zero(T), huge), bt in (zero(T), T(3))
+        @test ProximalBase._margin_better(n, t, bn, bt) == ProximalBase._margin_greater(n, t, bn, bt)
+      end
+    end
+  end
+end
+
 end

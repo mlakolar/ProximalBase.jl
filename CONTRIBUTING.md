@@ -67,23 +67,33 @@ its decision for every changed file. `julia scripts/ci_plan.jl` prints the same
 decision for your working tree against `origin/master`.
 
 - **Pull requests** run Julia lts and Julia 1 on Ubuntu at the minimum tier for
-  the changed files, and the changed test files beside it:
+  the changed files, and beside it the changed test files and the focus files
+  of the matched rules:
   - documentation only: no package tests (the API pages, whose entries
     `test/docstrings.jl` checks, get quick);
   - test files, examples or README only: quick;
   - a self-contained function family together with a test change: quick and that
     family's own test files;
+  - one iterate implementation (`src/atom_iterate.jl`, `src/sparse_iterate.jl`,
+    `src/symmetric_parameters.jl`): standard and that iterate's focus files, or
+    quick and the same files with the label `test:iterate-narrow` (see
+    "Iterate changes" below);
   - other package code (`src/`): standard; code shared by every function
-    (iterates, `interface.jl`, `utils.jl`, `calculus.jl`, `metric.jl`, spectral
-    helpers) or the conformance suite and its coverage map: thorough;
+    (`interface.jl`, `utils.jl`, `calculus.jl`, `metric.jl`, `partial.jl`,
+    spectral helpers) or the conformance suite and its coverage map: thorough;
   - package code without any test change: at least standard;
   - `Project.toml`, `ext/`, `src/lapack.jl`, the test runner, the CI rules and
     workflow, and `test/tiers.toml`: full, which also runs Julia 1 on macOS and
-    Windows and Julia pre. The tier lists decide what every tier runs, so any
-    change to them, including the line of a new test file, gets full;
+    Windows and Julia pre. The tier lists decide what every tier runs, so a
+    change to them gets full, unless it only adds the lines of test files that
+    the PR adds: the plan compares the parsed lists with the base, and then the
+    new files run beside the PR's tier. Moving, removing or renaming a listed
+    file, or changing the helpers or environments, still gets full;
   - a path no rule knows: full.
 - **Labels** `test:standard`, `test:thorough` and `test:full` raise a PR's tier;
-  they never lower it. Adding or removing any label starts a new run. Add
+  they never lower it. `test:iterate-narrow` declares a narrow change to one
+  iterate implementation; it lowers only that implementation's rule, never
+  another path. Adding or removing any label starts a new run. Add
   `test:thorough` when a change touches element-type promotion, precision,
   overflow-safe scaling or non-finite handling, which the paths cannot show, and
   `test:full` for a release or a platform-sensitive change. A label starts a
@@ -97,6 +107,64 @@ decision for your working tree against `origin/master`.
 - **Manual runs** test any branch at any tier, full by default:
   `gh workflow run CI.yml --ref <branch> -f tier=thorough`. On a PR branch the
   result appears on the head commit beside the PR's own checks.
+
+### Iterate changes
+
+`SparseIterate`, `AtomIterate` and `SymmetricSparseIterate` change in many small
+PRs during the 0.6 work. A change to one of them runs the iterate's own tests and
+those of its main interactions (its focus files), not the unrelated families
+that thorough adds. The focus files are in `.github/tier-rules.toml`, beside the
+iterate files that quick always runs (`active_handle`, `atom_iterate`,
+`iterate_queries`, `matrixview`, `sparse_iterate_basics`,
+`symmetric_parameters`, `symmetric_products`, `wrapper_buffers`,
+`allocations_basics`):
+
+| Change | Before merge |
+|---|---|
+| `src/atom_iterate.jl`, narrow | quick + `real_iterates`, `block_step`, `norms`, `sparsegroup`, `infinite_group_weights` |
+| `src/sparse_iterate.jl`, narrow | quick + `sparse_iterate`, `real_iterates`, `block_step`, `sparse_value_cost`, `conformance/failures_storage`, `symmetric_writes`, `symmetric_mul`, `symmetric_argument`, `symmetric_mutators`, `symmetric_mutator_errors` |
+| `src/symmetric_parameters.jl`, narrow | quick + `symmetric_parameters_paths`, `_trait`, `_writes`, `_merge`, `_extensions` |
+| one of them, not declared narrow | standard + the same focus files |
+| two of them | standard + both groups (the label does not apply) |
+| shared semantics across iterate types, or an architectural or breaking milestone | thorough: add `test:thorough` |
+| release candidate | full: add `test:full` |
+| merge to master | full, automatically |
+
+`src/sparse_iterate.jl` holds `SparseIterate`, `SymmetricSparseIterate` and the
+stored-iterate code they share, so a change to it runs the tests of both; the
+file name cannot tell a narrow `SparseIterate` fix from a symmetric redesign.
+Neither can any rule tell a narrow change from an architectural one: the author
+states the classification in the PR description (the PR template asks for it),
+and the reviewer checks it.
+
+- **Narrow** (`test:iterate-narrow`): a local fix or addition inside one
+  implementation that keeps its documented behavior, with a regression test.
+  Example: an agent fixes the group indexing of `AtomIterate`, adds a test to
+  `test/atom_iterate.jl` and sets the label; CI runs quick and the atom focus
+  files, and the PR merges once both required checks pass.
+- **Shared**: behavior that more than one iterate type uses, such as the stored
+  iterates' activation, storage, copying or aliasing. Example: an agent changes
+  how `dropzeros!` treats stored zeros for both stored iterates; no label, so
+  CI runs standard and the focus files. Add `test:thorough` when the change
+  affects working-set semantics across types or numerical behavior (zeros,
+  infinities, NaN, precision).
+- **Architectural** (always `test:thorough`, never narrow): a new supertype or
+  public interface of an iterate; a new meaning of `fill!`, `copyto!`,
+  broadcasting or coordinate access; working-set, aliasing or ownership
+  guarantees across interfaces; `SymmetricSparseIterate` as a coordinate-first
+  owner (no longer `<: AbstractMatrix`); removing much of the old symmetric
+  array interface; changes visible to downstream packages.
+- **After merging**, the push to master runs full. If it fails, fix or revert
+  the change before stacking dependent PRs on master, and when the failure is a
+  bug the focus files should have caught, add a regression test to them (or to
+  quick).
+
+The label never lowers a rule other than the iterate rules: a PR that also
+changes `src/utils.jl` stays thorough, one that changes `Project.toml` or the
+workflow stays full, and other package code without tests still needs standard.
+To add regression tests without a full run, add a new test file and its line in
+`test/tiers.toml` (an addition alone keeps the PR's tier), or extend an existing
+test file.
 
 Branch protection on master requires two checks, both from GitHub Actions:
 **PR required jobs** and **PR merge gate**. PR required jobs runs after the

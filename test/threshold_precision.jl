@@ -55,10 +55,28 @@ end
       end
     end
   end
-  @testset "Float32 argument, Float64 factors" begin
-    for (label, f32, f64) in penalties(Float64(2f0^80), ones(Float32, 3), ones(Float32, 2), 3.0)
-      @test prox(f64, Float32[2^100, 1, 2^90], 2.0^-60) isa Vector{Float32}
+  @testset "Float32 destination, Float64 factors whose product overflows Float32" begin
+    # γλ0 = 2^200 is Inf in Float32; times w = 2^-150 the threshold is 2^50
+    γ, λ, w = 2.0^100, 2.0^100, 2.0^-150
+    x = Float32[2^60, -2^60, 1]
+    for f in (NormL1(λ, fill(w, 3)), NormL1Nonneg(λ, fill(w, 3)))
+      @test prox(f, x, γ)[1] == Float32(2^60 - 2^50)
+      @test prox(f, x, γ)[3] == 0
     end
+    g = GroupNormL2(λ, [1:2, 3:3], fill(w, 2))
+    y = prox(g, x, γ)
+    @test y isa Vector{Float32}
+    @test y == Float32.(prox(g, Float64.(x), γ))
+  end
+  @testset "per-entry weights, also through Constrained" begin
+    w = Float32[big32, tiny32, 1]
+    x = [2.0^161, 1.0, 2.0^-100]
+    f32, f64 = NormL1(big32, w), NormL1(Float64(big32), Float64.(w))
+    @test prox(f32, x, big32) == prox(f64, x, big32)
+    @test prox(NormL1Nonneg(big32, w), x, big32) == prox(NormL1Nonneg(Float64(big32), Float64.(w)), x, big32)
+    C = IndBox(-2.0^200, 2.0^200)
+    @test prox(Constrained(f32, C), x, big32) == prox(Constrained(f64, C), x, big32)
+    @test prox(Constrained(NormL1Nonneg(big32, w), C), x, big32) == prox(Constrained(NormL1Nonneg(Float64(big32), Float64.(w)), C), x, big32)
   end
   @testset "sphere paths" begin
     x = [2.0^161, 1.0, 2.0^159]

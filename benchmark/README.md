@@ -30,10 +30,16 @@ for each measurement series; existing repetitions are never overwritten.
 | `PB_PROFILE_SECONDS=0.2` | Enable representative profiles; disabled by default. |
 
 Groups are `vectors`, `smooth`, `matrices`, `constraints`, `tensors`, `products`, `blocks`, `owner`,
-`sparse` and `atom`. They cover dense/sparse/atom calls, values and derivatives,
+`sparse`, `atom` and `ridge`. They cover dense/sparse/atom calls, values and derivatives,
 coordinate operations, ordered penalties, constraints and workspace states.
 The blocks group covers flat and nested tuple oracles, wrappers and long block sums
 on Float32/Float64 inputs, with the same cases in both suites.
+The `ridge` group measures `SqrNormL2`, centered and uncentered, in homogeneous `Float32` and
+`Float64` and in `Float32` storage with `Float64` parameters (`prox!`, `value_and_prox!`, a
+`prox_entry` loop, `gradient!`, `value_and_gradient!`, the value), and, as separate
+`layout=recovery` cases, calls whose parameters or centers leave the model's range. The
+extended suite adds `Constrained(SqrNormL2, IndHyperplane)` with per-entry steps (repeated
+and cold calls) and a scalar-step control (`layout=constrained`).
 The matrix group includes partial/full decompositions and fallback inputs.
 Construction plus first use is measured separately from workspace reuse.
 
@@ -65,6 +71,32 @@ PB_SUITE=extended PB_GROUPS=matrices PB_OUTPUT=benchmark/results/matrices \
 
 The optional [GPU solver suite](gpu_solver/README.md) measures CPU/CUDA time
 to independently checked accuracy on physical GPU hardware.
+
+### Reference checks without timing
+
+`benchmark/check_only.jl` builds the same cases and runs every selected case's reference checks
+and warm-up, without timing it. It does what `measure!` does before and after the timed trial:
+`validate()`, three `prepare(); op()` rounds and the allocation probe. A case with an automatic
+evaluation count then gets two samples of ten evaluations and `validate()` again. The cases run
+in the measurement order of the repetition. The script reads `PB_SUITE`, `PB_GROUPS`,
+`PB_CASES`, `PB_REPETITION` and `PB_EXPECTED_PACKAGE_ROOT`. With `PB_OUTPUT` set, it writes
+`check-rep<NN>-errors.tsv` there: every failure with its exception and full stack trace, written
+and flushed as it occurs, so a timeout keeps what was recorded. It prints the ID of every failing
+case and exits with status 1 if any case fails. `benchmark/check_only_test.jl` tests the driver on
+synthetic cases in a few seconds.
+
+```sh
+JULIA_NUM_THREADS=1 julia --project=benchmark benchmark/check_only.jl
+PB_SUITE=extended PB_GROUPS=products,sparse,atom,owner JULIA_NUM_THREADS=1 \
+  julia --project=benchmark benchmark/check_only.jl
+```
+
+CI runs the driver's tests and the quick suite (693 cases, about a minute) on Julia lts and 1
+whenever the package tests run or the benchmark harness changes, and uploads the errors file of a
+failing run as the artifact `benchmark-check-errors-<version>-<attempt>`. The extended suite
+(5,195 cases, about four minutes) is a manual run; its `products,sparse,atom,owner` cases need
+about 16 GB of memory in one process. The script includes `run.jl` unchanged, so it does not
+change the harness hash of a baseline.
 
 ## Iterate-family groups
 

@@ -400,4 +400,60 @@ end
   end
 end
 
+# pooling adjacent violators near floatmax: every projection below is representable
+# although the sums, products or differences of the entries are not
+@testset "pooling near floatmax" begin
+  for T in (Float64, Float32)
+    M = floatmax(T)
+    h = M / 2
+    third = T(big(M) / 3)
+    near(a, b) = all(isapprox.(a, b; rtol = 4eps(T)))
+    @test near(prox(IndIsotonic(), T[M, h]), T[0.75M, 0.75M])
+    @test near(prox(IndIsotonic(decreasing = true), T[h, M]), T[0.75M, 0.75M])
+    @test near(prox(IndIsotonic(), T[M, -M], T[1, 2]), T[third, third])
+    @test near(prox(IndIsotonic(decreasing = true), T[-M, M], T[1, 2]), -T[third, third])
+    @test prox(IndIsotonic(), T[M, -M]) == zeros(T, 2)
+    @test prox(IndIsotonic(), T[-M, M]) == T[-M, M]                         # ordered: unchanged
+    # the entries at the bound of the sums, and beyond it
+    for n in 2:5, e in (floatmax(T) / (4 * T(n)^2), nextfloat(floatmax(T) / (4 * T(n)^2)), M)
+      x = T[iseven(i) ? -e : e for i in 1:n]
+      ref = T.(isotonic_reference(big.(x)))
+      @test near(prox(IndIsotonic(), x), ref)
+      @test near(prox(IndIsotonic(decreasing = true), -x), -ref)
+      z = copy(x)
+      @test near(prox!(z, IndIsotonic(), z, one(T)), ref)                     # y aliases x
+    end
+    # tiny entries beside a near-floatmax pair keep their relative accuracy
+    x = T[1, 3, 2, M, h]
+    @test near(prox(IndIsotonic(), x), T[1, 2.5, 2.5, 0.75M, 0.75M])
+    @test prox(IndIsotonic(), x)[2] == T(2.5)
+    x = T[M, h, 1, 3, 2]
+    @test near(prox(IndIsotonic(), x), T.(isotonic_reference(big.(x))))
+    x = T[3, 2, 1, M, h]
+    @test near(prox(IndIsotonic(), x), T.(isotonic_reference(big.(x))))
+    # SLOPE: M minus the mean of λ in both entries
+    λ = T[2 * T(10)^(T == Float64 ? 300 : 30), T(10)^(T == Float64 ? 300 : 30)]
+    f = SLOPE(λ)
+    ref = T.(big(M) .- (big(λ[1]) + big(λ[2])) / 2)
+    z = prox(f, T[M, M])
+    @test near(z, [ref, ref])
+    z = prox(f, T[-M, M])
+    @test near(z, [-ref, ref])
+    @test prox!(similar(z), f, T[M, M], one(T)) == prox(f, T[M, M])
+    # NormL1Fused: three entries reach the pooling
+    g = NormL1Fused(zero(T), one(T))
+    t = T(10)^(T == Float64 ? 300 : 30)
+    x = T[h, M, M]
+    y = prox(g, x, t)
+    @test near(y, T.(prox(NormL1Fused(big(0.0), big(1.0)), big.(x), big(t))))
+  end
+  # infinite entries: unchanged
+  @test isequal(prox(IndIsotonic(), [Inf, -Inf]), [NaN, NaN])
+  @test prox(IndIsotonic(), [-Inf, Inf]) == [-Inf, Inf]
+  # Float32 data and steps in the weighted case, and Float16
+  @test all(isapprox.(prox(IndIsotonic(), Float32[floatmax(Float32), -floatmax(Float32)], Float32[1, 2]),
+                      Float32(big(floatmax(Float32)) / 3); rtol = 1e-6))
+  @test prox(IndIsotonic(), Float16[floatmax(Float16), floatmax(Float16) / 2]) ≈ Float16[0.75, 0.75] .* floatmax(Float16)
+end
+
 end

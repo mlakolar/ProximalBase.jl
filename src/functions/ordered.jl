@@ -217,9 +217,15 @@ value_and_prox!(y::AbstractVector, f::FusedLasso, x::AbstractVector, γ::Real) =
 function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{Int}, σ::Int) where {T}
   n = length(v)
   nb = 0
+  # with every |vᵢ| ≤ bound, the sums and the products compared below stay below
+  # floatmax; a larger finite entry redoes the pooling in means
+  bound = T <: AbstractFloat ? floatmax(T) / (4 * T(n)^2) : T(Inf)
+  over = false
   @inbounds for i in 1:n
     nb += 1
-    s[nb] = convert(T, v[i])
+    e = convert(T, v[i])
+    over |= abs(e) > bound
+    s[nb] = e
     c[nb] = 1
     # the means of the last two blocks out of order: s₁/c₁ > s₂/c₂, times σ
     while nb > 1 && σ * (s[nb - 1] * c[nb] - s[nb] * c[nb - 1]) > 0
@@ -227,6 +233,10 @@ function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{In
       c[nb - 1] += c[nb]
       nb -= 1
     end
+  end
+  # an infinite entry also sets the flag, but only a large finite one needs the means
+  if over && any(e -> bound < abs(e) < T(Inf), v)
+    return _pava_means!(y, v, s, c, σ)
   end
   i = 0
   @inbounds for b in 1:nb
@@ -237,6 +247,37 @@ function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{In
     end
   end
   y
+end
+
+# The same in block means, which never leave the range of the entries: for
+# entries too large for the sums of _pava!. A pooled mean is the convex
+# combination of the two means, kept inside their interval.
+function _pava_means!(y::AbstractVector, v::AbstractVector, m::Vector{T}, c::Vector{Int}, σ::Int) where {T}
+  nb = 0
+  @inbounds for i in 1:length(v)
+    nb += 1
+    m[nb] = convert(T, v[i])
+    c[nb] = 1
+    while nb > 1 && (σ > 0 ? m[nb - 1] > m[nb] : m[nb - 1] < m[nb])
+      m[nb - 1] = _convex_mean(m[nb - 1], m[nb], T(c[nb - 1]), T(c[nb]))
+      c[nb - 1] += c[nb]
+      nb -= 1
+    end
+  end
+  i = 0
+  @inbounds for b in 1:nb
+    for _ in 1:c[b]
+      i += 1
+      y[i] = m[b]
+    end
+  end
+  y
+end
+
+# (a·wa + b·wb)/(wa + wb) without a sum or difference of the entries, within [min(a, b), max(a, b)]
+@inline function _convex_mean(a, b, wa, wb)
+  t = wa + wb
+  clamp(a * (wa / t) + b * (wb / t), min(a, b), max(a, b))
 end
 
 # Weighted isotonic regression of x into y, with weights γmin/γᵢ and direction
@@ -251,7 +292,12 @@ function _wpava!(y, x, γ, γmin, m::Vector{S}, W::Vector{S}, c::Vector{Int}, σ
     W[nb] = convert(S, γmin) / convert(S, γ[i])
     c[nb] = 1
     while nb > 1 && σ * (m[nb - 1] - m[nb]) > 0
-      m[nb - 1] += (m[nb] - m[nb - 1]) * (W[nb] / (W[nb - 1] + W[nb]))
+      d = m[nb] - m[nb - 1]
+      if isinf(d) && isfinite(m[nb]) && isfinite(m[nb - 1])
+        m[nb - 1] = _convex_mean(m[nb - 1], m[nb], W[nb - 1], W[nb])   # the difference overflows
+      else
+        m[nb - 1] += d * (W[nb] / (W[nb - 1] + W[nb]))
+      end
       W[nb - 1] += W[nb]
       c[nb - 1] += c[nb]
       nb -= 1

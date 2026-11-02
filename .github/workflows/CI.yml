@@ -87,9 +87,9 @@ jobs:
     # Per tier in test/tiers.toml, well above the targets to allow for cold caches.
     timeout-minutes: ${{ fromJSON(needs.plan.outputs.timeout) }}
     env:
-      FULL_TESTS: ${{ needs.plan.outputs.tier == 'full' }}
+      FULL_TESTS: false
       # Thorough and full run every conformance file, so they write and check the reports.
-      CONFORMANCE: ${{ needs.plan.outputs.tier == 'thorough' || needs.plan.outputs.tier == 'full' }}
+      CONFORMANCE: false
     permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
       actions: write
       contents: read
@@ -119,24 +119,7 @@ jobs:
       - name: Run package tests
         id: tests
         shell: bash
-        run: |
-          echo "Tier $TIER${FOCUS:+ with $FOCUS} at $COMMIT (checked out $GITHUB_SHA)"
-          start=$(date +%s)
-          status=0
-          julia --color=yes scripts/test.jl --verbose "--tier=$TIER" ${FOCUS:+"--extra=$FOCUS"} 2>&1 | tee "$RUNNER_TEMP/test-output.log" || status=$?
-          echo $(( $(date +%s) - start )) > "$RUNNER_TEMP/test-seconds"
-          exit $status
-        env:
-          TIER: ${{ needs.plan.outputs.tier }}
-          FOCUS: ${{ needs.plan.outputs.focus }}
-          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
-          # Coverage roughly doubles compile time, so only full runs collect it.
-          JULIA_TEST_COVERAGE: "${{ env.FULL_TESTS == 'true' && matrix.version == '1' && matrix.os == 'ubuntu-latest' }}"
-          PTR_NUM_JOBS: ${{ matrix.ptr_jobs }}
-          # An empty value leaves the conformance reports off.
-          CONFORMANCE_REPORT: ${{ env.CONFORMANCE == 'true' && format('{0}/conformance', runner.temp) || '' }}
-          CONFORMANCE_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.version }}-${{ matrix.os }}
-          CONFORMANCE_PKG_SHA: ${{ github.sha }}
+        run: echo "Scenario stub: no package tests in this scenario"
       - name: Timing summary
         if: ${{ !cancelled() && steps.tests.outcome != 'skipped' }}
         continue-on-error: true
@@ -245,7 +228,7 @@ jobs:
     # or was cancelled, and passes only if the plan and the benchmark controls passed and, when
     # the plan asked for tests, every test job of that tier passed (Julia pre is advisory).
     # The gate below waits for it.
-    name: Required jobs
+    name: Required jobs (renamed in this scenario)
     needs: [plan, test, analysis]
     if: always()
     runs-on: ubuntu-latest

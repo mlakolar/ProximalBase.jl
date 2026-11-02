@@ -4,8 +4,10 @@ name: CI
 #   test:thorough or test:full labels; quick at least, none for documentation only;
 # - pushes to master, tags and the nightly run: full (none for documentation only);
 # - manual runs: the chosen tier, full by default (`gh workflow run CI.yml --ref <branch>`).
-# Branch protection requires only "PR merge gate", which passes when everything the plan asked
-# for passed. CONTRIBUTING.md describes the workflow.
+# Branch protection requires only "PR merge gate". It starts with the run, so a new run (a push
+# or a label) at once replaces the commit's earlier gate with a pending one, and it passes when
+# this run's "Required jobs" found that everything the plan asked for passed. CONTRIBUTING.md
+# describes the workflow.
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
@@ -183,19 +185,18 @@ jobs:
         run: |
           python3 benchmark/check_analysis.py
           python3 benchmark/gpu_solver/check_analysis.py
-  gate:
-    # The one check for branch protection. It runs even when a job before it failed or was
-    # cancelled, and passes only if the plan and the benchmark controls passed and, when the plan
-    # asked for tests, every test job of that tier passed (Julia pre is advisory).
-    name: ${{ github.event_name == 'pull_request' && 'PR merge gate' || 'CI result' }}
+  verdict:
+    # Runs after the plan, the tests and the benchmark controls, even when one of them failed
+    # or was cancelled, and passes only if the plan and the benchmark controls passed and, when
+    # the plan asked for tests, every test job of that tier passed (Julia pre is advisory).
+    # The gate below waits for it.
+    name: Required jobs
     needs: [plan, test, analysis]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       actions: read # the conclusions of this run's test jobs
-      contents: read
-      issues: write # a failing master run opens or updates an issue
     steps:
       - name: Check the required jobs
         env:
@@ -224,9 +225,15 @@ jobs:
           elif [ ${#expected[@]} -gt 0 ]; then
             [ "$RUN_TESTS" = true ] || error "Tier $TIER without run_tests ($RUN_TESTS)."
             case "$TESTS" in cancelled|skipped) error "The test jobs are $TESTS." ;; esac
-            # The latest attempt of each job, so a re-run of failed jobs counts.
-            jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" --paginate \
-              --jq '.jobs[] | "\(.name)\t\(.conclusion)"')
+            # The latest attempt of each job, so a re-run of failed jobs counts. A failed request
+            # is retried; it never counts as a pass.
+            for attempt in 1 2 3 4; do
+              if jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" --paginate \
+                --jq '.jobs[] | "\(.name)\t\(.conclusion)"'); then break; fi
+              jobs=""
+              echo "::warning::Could not list the jobs (attempt $attempt)."
+              sleep 15
+            done
             for name in "${expected[@]}"; do
               conclusion=$(printf '%s\n' "$jobs" | awk -F'\t' -v n="Julia $name - $TIER" '$1 == n {print $2}')
               [ "$conclusion" = success ] || error "Julia $name - $TIER: ${conclusion:-missing}."
@@ -234,8 +241,48 @@ jobs:
             printf '%s\n' "$jobs" | awk -F'\t' '$1 ~ /^Julia pre/ {print "Advisory: " $1 ": " $2}'
           fi
           exit $fail
-      - name: Report a failing master run
-        if: failure() && github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+  gate:
+    # The one check for branch protection. It has no `needs`, so GitHub creates its check when
+    # the run starts: a new run on a commit (a push, or a label on the same commit) shows a
+    # pending gate at once, not the green gate of an earlier run. It waits for this run's
+    # Required jobs and passes only if they passed (scripts/ci_gate.jl, test/ci_gate.jl).
+    # It reads this run's jobs and runs no tests, so its token is read-only.
+    name: ${{ github.event_name == 'pull_request' && 'PR merge gate' || 'CI result' }}
+    runs-on: ubuntu-latest
+    # Above the full tier's queue and test time; the script gives up at 170 minutes.
+    timeout-minutes: 180
+    permissions:
+      actions: read # this run's jobs
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts/ci_gate.jl
+          sparse-checkout-cone-mode: false
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - name: Wait for the required jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATE: ${{ github.event_name == 'pull_request' && 'PR merge gate' || 'CI result' }}
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: >-
+          julia --startup-file=no scripts/ci_gate.jl "--repo=$GITHUB_REPOSITORY" "--run-id=$GITHUB_RUN_ID"
+          "--attempt=$GITHUB_RUN_ATTEMPT" "--sha=$COMMIT" "--event=$GITHUB_EVENT_NAME" "--gate=$GATE"
+          "--verdict=Required jobs"
+  report:
+    # Only trusted runs (pushes to master and the nightly run) get write access to issues; no
+    # pull request code runs here.
+    name: Report a failing master run
+    needs: verdict
+    if: always() && needs.verdict.result == 'failure' && github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write # open or update the issue
+    steps:
+      - name: Open or update the issue
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

@@ -85,9 +85,10 @@ decision for your working tree against `origin/master`.
   they never lower it. Adding or removing any label starts a new run. Add
   `test:thorough` when a change touches element-type promotion, precision,
   overflow-safe scaling or non-finite handling, which the paths cannot show, and
-  `test:full` for a release or a platform-sensitive change. A label adds a run
-  on the same commit, and until its gate job starts (after the tests) the
-  commit still shows the earlier gate: merge only after the new run's gate.
+  `test:full` for a release or a platform-sensitive change. A label starts a
+  new run on the same commit, and its gate replaces the earlier gate as a
+  pending check as soon as GitHub creates the run (a few seconds after the
+  label), so an earlier green gate cannot be used to merge.
 - **Pushes to master and tags** run the full tier on all five jobs (none for a
   documentation-only push), with coverage and the conformance reports. A
   **nightly** full run catches changes in dependencies and Julia releases; it is
@@ -96,12 +97,18 @@ decision for your working tree against `origin/master`.
   `gh workflow run CI.yml --ref <branch> -f tier=thorough`. On a PR branch the
   result appears on the head commit beside the PR's own checks.
 
-Branch protection should require only the check **PR merge gate**. It passes
-when the plan succeeded, the benchmark analysis controls passed and every test
-job of the chosen tier passed; Julia pre is advisory. A failed, cancelled or
-missing test job fails it, and so does a plan that found an unclassified test
-file. Coverage is collected only on full runs, so Codecov reports on master and
-on full PR runs.
+Branch protection should require only the check **PR merge gate**. The gate
+job starts with the run, so its check is pending from the start, and it waits
+for the run's **Required jobs** job, which runs after the plan, the tests and
+the benchmark analysis controls. The gate passes when the plan succeeded, the
+benchmark analysis controls passed and every test job of the chosen tier
+passed; Julia pre is advisory. A failed, cancelled, skipped or missing test job
+fails it, and so does a plan that found an unclassified test file. To retry a
+failed job, use **Re-run failed jobs**: it re-runs that job, Required jobs and
+the gate, and the gate waits for the new result. If only the gate failed (for
+example on a GitHub API outage), the same button re-runs only the gate, which
+then takes the earlier Required jobs result. Coverage is collected only on full
+runs, so Codecov reports on master and on full PR runs.
 
 Each test job's summary page lists the selected files, the workers, the time
 before the test runner started (Julia, test environment, precompilation), the

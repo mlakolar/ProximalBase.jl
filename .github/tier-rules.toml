@@ -62,6 +62,7 @@ paths = [
   ".github/workflows/CI.yml",
   "Project.toml",
   "ext/**",
+  "scripts/ci_gate.jl",
   "scripts/ci_plan.jl",
   "scripts/test.jl",
   "scripts/test_report.jl",

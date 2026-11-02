@@ -131,6 +131,7 @@ classify(paths...) = TestTiers.classify(MANIFEST, collect(paths))[1:2]
   @test classify("test/runtests.jl")[1] == "full"
   @test classify(".github/tier-rules.toml")[1] == "full"
   @test classify("test/tiers.jl")[1] == "full"
+  @test classify("scripts/ci_gate.jl")[1] == "full"
   # a new test file and its line in the tier lists: quick and the file
   @test classify("test/tiers.toml", "test/norms.jl") == ("quick", ["norms"])
   # the API pages have @docs entries that test/docstrings.jl checks; prose needs no tests

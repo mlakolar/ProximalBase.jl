@@ -11,6 +11,7 @@
 quick = [
   # loading, interface, traits and package quality
   "aqua",
+  "ci_gate",
   "compat",
   "docstrings",
   "interface",

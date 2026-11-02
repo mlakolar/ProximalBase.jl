@@ -2,9 +2,12 @@ using Test
 
 # The decisions of the CI merge gate (scripts/ci_gate.jl) on job states as the GitHub API
 # reports them: the gate must never pass on a stale, missing, failed, cancelled or skipped
-# verdict, or on API errors.
+# verdict, or on API errors. At the end, the conformance report upload result of the test job
+# (scripts/ci_upload_result.jl).
 include(joinpath(dirname(@__DIR__), "scripts", "ci_gate.jl"))
+include(joinpath(dirname(@__DIR__), "scripts", "ci_upload_result.jl"))
 using .CIGate: Job, decide, watch, settled, parse_jobs, identity_problems
+using .CIUploadResult: upload_result
 
 const V = "PR required jobs"
 const G = "PR merge gate"
@@ -151,3 +154,44 @@ end
   @test r == :pass
 end
 
+@testset "conformance report upload result" begin
+  r(; required = false, tests = "success", first = "success", first_id = "", retry = "", retry_id = "") =
+    upload_result(; required, tests, first, first_id, retry, retry_id, job = "Julia lts, ubuntu-latest")
+  # required (Julia lts, Linux): only a step that succeeded and returned an id counts
+  @test r(required = true, first_id = "11")[1] == :ok
+  @test r(required = true, first = "failure", retry = "success", retry_id = "12")[1] == :notice
+  @test r(required = true, first = "failure", retry = "failure")[1] == :error
+  @test r(required = true, first = "success", retry = "success")[1] == :error # no id from either
+  @test r(required = true, first = "success", retry = "failure")[1] == :error
+  @test r(required = true, first = "failure", first_id = "11", retry = "failure", retry_id = "12")[1] == :error
+  @test r(required = true, first = "failure", first_id = "11", retry = "success", retry_id = "12")[1] == :notice
+  # another job: a warning, the job keeps the result of its tests
+  level, line = r(first = "failure", retry = "failure")
+  @test level == :warning && occursin("The tests passed", line)
+  # the test step failed: no claim that the tests passed, and the failure is named
+  level, line = r(tests = "failure", first = "failure", retry = "failure")
+  @test level == :warning && !occursin("passed", line) && occursin("test step failed (failure)", line)
+  level, line = r(tests = "failure", first_id = "13")
+  @test level == :ok && occursin("Diagnostic", line) && occursin("test step failed", line)
+  level, line = r(required = true, tests = "failure", first = "failure", retry = "failure")
+  @test level == :error && !occursin("passed", line) && occursin("test step failed", line)
+  # the step: exit status and the job summary, written also when the step fails
+  mktemp() do path, io
+    close(io)
+    env(; kw...) = Dict("REQUIRED" => "true", "TESTS" => "success", "FIRST" => "success", "FIRST_ID" => "",
+                        "RETRY" => "", "RETRY_ID" => "", "JOB" => "Julia lts, ubuntu-latest",
+                        "GITHUB_STEP_SUMMARY" => path, (string(k) => v for (k, v) in kw)...)
+    quietly(f) = redirect_stdout(f, devnull)
+    @test quietly(() -> CIUploadResult.main(env(FIRST_ID = "21"))) == 0
+    @test quietly(() -> CIUploadResult.main(env(FIRST = "failure", RETRY = "success", RETRY_ID = "22"))) == 0
+    @test quietly(() -> CIUploadResult.main(env(FIRST = "failure", RETRY = "failure"))) == 1
+    @test quietly(() -> CIUploadResult.main(env(RETRY = "success"))) == 1 # success, but no id
+    @test quietly(() -> CIUploadResult.main(env(REQUIRED = "false", FIRST = "failure", RETRY = "failure"))) == 0
+    @test quietly(() -> CIUploadResult.main(env(REQUIRED = "false", TESTS = "failure", FIRST = "failure", RETRY = "failure"))) == 0
+    summary = read(path, String)
+    @test count("**Conformance reports**", summary) == 6
+    @test occursin("artifact 21", summary) && occursin("artifact 22", summary)
+    @test count("This artifact is required, so the job fails", summary) == 2
+    @test_throws ErrorException quietly(() -> CIUploadResult.main(env(REQUIRED = "")))
+  end
+end

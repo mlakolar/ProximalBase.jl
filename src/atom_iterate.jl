@@ -396,3 +396,5 @@ function _output_buffer!(s::Scratch, y::Y) where {Y<:AtomIterate}
   s.buf = b
   b
 end
+
+# Scenario I1 (PR #430): a comment only.

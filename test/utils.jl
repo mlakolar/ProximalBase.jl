@@ -192,3 +192,6 @@ end
 end
 
 end
+
+# scenario D: fails on Julia 1 in the first run attempt only, so a re-run of the failed job passes
+@test !(VERSION >= v"1.11" && get(ENV, "GITHUB_RUN_ATTEMPT", "1") == "1")

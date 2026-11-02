@@ -459,7 +459,7 @@ end
              (big_, tiny, big_ / T(1.5), tiny), (T(0), big_, T(0), big_ / sqrt(T(2))),
              (T(Inf), T(1), T(1), T(0)), (T(NaN), T(1), T(1), T(0))]
     for q in cases
-      @test sgn(q...) == (all(isfinite, q) ? ref(q...) : 0)
+      @test all(isfinite, q) ? sgn(q...) == ref(q...) : sgn(q...) isa Int    # non-finite: the block is NaN (E2)
     end
   end
 
@@ -501,12 +501,90 @@ end
   value_and_prox!(y, c, [0.0 1.0; 1.0 1.0], 1.0)
   @test Matrix(y) == [0 1; 1 0] ./ sqrt(2.0)
 
-  # no allocation and a stable type outside the band of the tie
+  # margins that cancel as far as possible: D = a⋅2^k, P = b⋅2^k with a² - 2b² = ±1 (Pell), each
+  # written as n - t with a rounded n and a small t, so the tails of the margins decide; scaled
+  # into the subnormals and to the top of the range
+  pell = [(big(1), big(1))]
+  for _ in 1:200
+    a, b = pell[end]
+    push!(pell, (a + 2b, a + b))
+  end
+  function as_margin(::Type{T}, m, k) where {T}
+    n = T(m, RoundUp)
+    t = T(big(n) - m)
+    big(n) - big(t) == m || return nothing
+    n, t = ldexp(n, k), ldexp(t, k)
+    isfinite(n) && setprecision(() -> ldexp(big(n), -k) - ldexp(big(t), -k) == m, BigFloat, 4000) ? (n, t) : nothing
+  end
+  for T in (Float16, Float32, Float64)
+    q = precision(T)
+    lo, hi = exponent(nextfloat(zero(T))), exponent(floatmax(T))
+    for (a, b) in pell
+      bits = ndigits(a, base = 2)
+      q - 2 <= bits <= q + 30 || continue
+      for k in (lo, lo + q, -bits, 0, hi - bits - 1)
+        x, y = as_margin(T, a, k), as_margin(T, b, k)
+        (x === nothing || y === nothing) && continue
+        for qq in ((x..., y...), (x[2], x[1], y[2], y[1]))     # both positive, both negative
+          @test sgn(qq...) == ref(qq...)
+        end
+      end
+    end
+  end
+
+  # within the band in the subnormals: a pair margin of m smallest subnormals, 2^(q-2) ≤ m < 2^(q-1)
+  for T in (Float32, Float64)
+    for _ in 1:60
+      k = precision(T) - 1
+      m = rand(rng, 2^(k - 1):2^k - 1)
+      bh = m * nextfloat(zero(T))
+      ah = T(sqrt(big(2)) * big(bh))
+      for qq in ((ah, zero(T), bh, zero(T)), (nextfloat(ah), zero(T), bh, zero(T)), (zero(T), ah, zero(T), bh))
+        @test abs(abs(qq[1] - qq[2]) / abs(qq[3] - qq[4]) - sqrt(T(2))) <= 8eps(T)    # the exact path
+        @test sgn(qq...) == ref(qq...)
+      end
+    end
+  end
+
+  # BigFloat at the current precision (T7), with exponents far apart: the exact comparison stays
+  # the size of the precision
+  for prec in (24, 64, 256)
+    setprecision(BigFloat, prec) do
+      for (a, b) in pell[40:20:end], k in (-10^6, 0, 10^6), gap in (0, 10^7)
+        n1, n2 = BigFloat(a, RoundUp), BigFloat(b, RoundUp)
+        qq = (ldexp(n1, k), ldexp(n1 - a, k) + ldexp(BigFloat(1), k - gap), ldexp(n2, k), ldexp(n2 - b, k))
+        @test sgn(qq...) == ref(qq...)
+      end
+      qq = (sqrt(BigFloat(2)), ldexp(BigFloat(1), -10^7), BigFloat(1), BigFloat(0))
+      @test sgn(qq...) == ref(qq...)
+      @test @allocated(sgn(qq...)) < 10^5
+    end
+  end
+
+  # a structured input in which every pair is within the band of the diagonal entry: exact, and
+  # nothing allocates
+  for (wd, p) in ((prevfloat(sqrt(2.0)), 16), (sqrt(2.0), 16), (nextfloat(sqrt(2.0)), 16))
+    W = ones(p, p)
+    W[diagind(W)] .= wd
+    c = Constrained(NormL1(1.0, W), IndSphereL2(1.0))
+    y, X = SymmetricSparseIterate(p), zeros(p, p)
+    value_and_prox!(y, c, X, 1.0)
+    s = ref(0.0, wd, 0.0, 1.0)
+    @test Matrix(y) == (s > 0 ? [i == j == 1 for i in 1:p, j in 1:p] : [(i, j) in ((2, 1), (1, 2)) for i in 1:p, j in 1:p] ./ sqrt(2.0))
+    allocs(y, c, X) = @allocated value_and_prox!(y, c, X, 1.0)
+    allocs(y, c, X)
+    @test allocs(y, c, X) == 0
+  end
+
+  # no allocation and a stable type, outside the band of the tie and within it
   f(q) = sgn(q...)
-  for q in ((2.0, 0.5, 1.0, 0.2), (2f0, 0.5f0, 1f0, 0.2f0), (0.1, 0.5, 0.1, 0.2))
+  for q in ((2.0, 0.5, 1.0, 0.2), (2f0, 0.5f0, 1f0, 0.2f0), (0.1, 0.5, 0.1, 0.2),
+            (sqrt(2.0), 0.0, 1.0, 0.0), (0.0, sqrt(2f0), 0.0, 1f0), (Float16(1.414), Float16(0), Float16(1), Float16(0)),
+            (3.0, 3.0 - sqrt(2.0) + 2.0^-60, 2.0, 1.0))
     f(q)
     @test @allocated(f(q)) == 0
     @test @inferred(sgn(q...)) isa Int
+    @test sgn(q...) == ref(q...)
   end
 end
 

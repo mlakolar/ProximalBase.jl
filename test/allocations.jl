@@ -54,6 +54,7 @@ end
 end
 
 a_block!(x, f, k, u, γ) = prox_coordinate!(x, f, k, u, γ)
+block_alloc_once(x::X, f::F, k::K, u::U, γ::R) where {X, F, K, U, R} = @allocated a_block!(x, f, k, u, γ)
 
 @testset "block steps allocate nothing" begin
   for x in (SparseIterate(zeros(4)), SymmetricSparseIterate(2))
@@ -89,14 +90,16 @@ end
         x0[gs[1]] .= T[1, -2, 3, -4]
         x0[gs[4]] .= T[-1, 2, -3, 4]
         was && (x0[G] .= T[0.5, -1, 1.5, -2])
+        # one call on a fresh iterate, after warming the method on others: the call that
+        # activates an inactive group is the one measured
+        for _ in 1:2
+          block_alloc_once(AtomIterate(x0, f), f, k, u, T(0.5))
+        end
         x = AtomIterate(x0, f)
         @test isactive(x, k) == was
         before = Vector(x)
         usnap = copy(u)
-        @test allocs(a_block!, x, f, k, u, T(0.5)) == 0
-        # the measured call has run on x; replay it on a fresh copy for the checks
-        x = AtomIterate(x0, f)
-        prox_coordinate!(x, f, k, u, T(0.5))
+        @test block_alloc_once(x, f, k, u, T(0.5)) == 0
         trial = copy(before); trial[G] .= usnap
         ref = prox(f, trial, T(0.5))
         after = Vector(x)
@@ -117,7 +120,7 @@ end
 @testset "block steps with a view u aliasing the iterate" begin
   # the copy of an aliasing u is kept; it may allocate. Results equal those of an independent u.
   p = 16
-  for (gs, rng) in (([1:4, 5:8, 9:12, 13:16], 9:2:15), ([collect(j:4:16) for j in 1:4], 15:-4:3))
+  for (gs, rng) in (([1:4, 5:8, 9:12, 13:16], 11:-2:5), ([collect(j:4:16) for j in 1:4], 15:-4:3))
     for f in (GroupNormL2(0.1, gs), SparseGroupNormL2(0.1, 0.1, gs), GroupNormLinf(0.1, gs))
       x0 = collect(1.0:p)
       x = AtomIterate(x0, f)

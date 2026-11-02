@@ -103,8 +103,9 @@ paths = ["examples/**"]
 
 # The iterates. A change to one implementation runs standard and its focus files: the
 # iterate's own tests and those of its main interactions, beside the iterate files of quick
-# (active_handle, atom_iterate, iterate_queries, matrixview, sparse_iterate_basics,
-# symmetric_parameters, symmetric_products, wrapper_buffers, allocations_basics). With the
+# (active_handle, atom_iterate, iterate_invariants, iterate_queries, matrixview,
+# sparse_iterate_basics, symmetric_parameters, symmetric_products, wrapper_buffers,
+# allocations_basics). With the
 # label test:iterate-narrow, which the author sets for a narrow change (CONTRIBUTING.md), it
 # runs quick and the same focus files. A change to two implementations runs standard and both
 # groups; a shared-semantics or architectural change needs test:thorough, set by hand.

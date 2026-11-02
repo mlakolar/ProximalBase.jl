@@ -115,7 +115,7 @@ PRs during the 0.6 work. A change to one of them runs the iterate's own tests an
 those of its main interactions (its focus files), not the unrelated families
 that thorough adds. The focus files are in `.github/tier-rules.toml`, beside the
 iterate files that quick always runs (`active_handle`, `atom_iterate`,
-`iterate_queries`, `matrixview`, `sparse_iterate_basics`,
+`iterate_invariants`, `iterate_queries`, `matrixview`, `sparse_iterate_basics`,
 `symmetric_parameters`, `symmetric_products`, `wrapper_buffers`,
 `allocations_basics`):
 

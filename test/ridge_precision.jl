@@ -274,6 +274,149 @@ setprecision(BigFloat, BIG) do
       end
     end
   end
+  # Constrained(SqrNormL2, linear set) with per-entry steps. Where every γᵢλ lies in the
+  # ordinary band, the search takes the entries without the test. Each entry, slope and
+  # output pass must have the bits of the tested ones; the sums of a pass vectorize and
+  # may differ in the last bits, so whole calls agree within the search's accuracy, and
+  # both match an exact reference. The reference solves for the multiplier in closed
+  # form: z(ν) = (x + tc - γνa)/(1 + t), t = γλ, is linear in ν, with the steps as the
+  # search converts them (to the output type).
+  @testset "Constrained ridge with per-entry steps" begin
+    PB = ProximalBase
+    function ref_point(x, c, γ, λ, a, b)
+      t = big.(γ) .* big(λ)
+      cc = c === nothing ? zeros(BigFloat, length(x)) : big.(c)
+      p = (big.(x) .+ t .* cc) ./ (1 .+ t)
+      s = big.(γ) .* big.(a) ./ (1 .+ t)
+      b === nothing && return p
+      p .- (sum(big.(a) .* p) - big(b)) / sum(big.(a) .* s) .* s
+    end
+    # the unconstrained point when it satisfies the constraint, else the active bound
+    function ref_linear(x, c, γ, λ, a, l, u)
+      p = ref_point(x, c, γ, λ, a, nothing)
+      v = sum(big.(a) .* p)
+      v < l ? ref_point(x, c, γ, λ, a, l) : v > u ? ref_point(x, c, γ, λ, a, u) : p
+    end
+    function check_ref(z, x, c, γ, λ, a, l, u; ulps=64)
+      W = eltype(z)
+      r = ref_linear(x, c, W.(γ), λ, a, l, u)
+      scale = maximum(abs, r) + maximum(abs, big.(x))
+      @test maximum(abs.(big.(z) .- r)) <= ulps * eps(W) * scale
+      v = sum(big.(a) .* big.(z))
+      m = sum(abs.(big.(a) .* big.(z)))
+      (v < l || v > u) && @test min(abs(v - l), abs(v - u)) <= ulps * eps(W) * (m + max(abs(l), abs(u)))
+      r
+    end
+    # the fast call (prox!) and the tested route from the same warm state; the entries,
+    # slopes and output pass at the multiplier found have the same bits
+    function both(c, x, γ, alias)
+      T = eltype(x)
+      l0, s0 = c.last[], c.slope[]
+      y1 = copy(x); prox!(y1, c, alias ? y1 : x, γ)
+      l1, s1 = c.last[], c.slope[]
+      c.last[], c.slope[] = l0, s0
+      y2 = copy(x); PB._linear_constrained_prox!(y2, c, alias ? y2 : x, γ, T)
+      scale = maximum(abs, y2) + maximum(abs, x)
+      @test maximum(abs.(y1 .- y2)) <= 64 * eps(T) * scale
+      c.last[], c.slope[] = l1, s1
+      f, ν = c.f, T(l1)
+      a = PB._isscaled(c.set) ? PB._normalized_normal(c.set.a, c.set.s) : c.set.a
+      @test all(eachindex(x)) do i
+        γᵢ = T(γ[i]); v = x[i] - γᵢ * ν * T(a[i])
+        isequal(prox_entry(PB._OrdinaryRidge(f), v, i, γᵢ), prox_entry(f, v, i, γᵢ)) &&
+          isequal(PB._prox_entry_slope(PB._OrdinaryRidge(f), v, i, γᵢ), PB._prox_entry_slope(f, v, i, γᵢ))
+      end
+      o1, o2 = similar(x), similar(x)
+      PB._linear_constrained_output!(o1, f, a, x, PB._OrdinarySteps(γ), ν)
+      PB._linear_constrained_output!(o2, f, a, x, γ, ν)
+      @test all(isequal.(o1, o2))
+      y1
+    end
+    sets(a, s) = ((IndHyperplane(a, s), s, s),                      # hyperplane
+                  (IndHalfspace(a, s), -Inf, s),                    # halfspace, active
+                  (IndHalfspace(a, 1e6), -Inf, 1e6),                # inactive
+                  (IndHyperslab(a, s, s + 1), s, s + 1),            # slab, lower bound active
+                  (IndHyperslab(a, -s - 1, -s), -s - 1, -s),        # upper bound active
+                  (IndHyperslab(a, -1e6, 1e6), -1e6, 1e6))          # inactive
+    for (W, F) in ((Float32, Float32), (Float64, Float64), (Float32, Float64)), n in (64, 5000)
+      x = W[3sin(i) for i in 1:n]
+      cen = F[2cos(1.7i) for i in 1:n]
+      a = W[0.5 + (i % 7) / 7 for i in 1:n]
+      γ = F[0.1 + (i % 5) / 5 for i in 1:n]
+      λ = F(0.7)
+      for cc in (nothing, cen), (set, l, u) in sets(a, W(n / 4)), alias in (false, true)
+        f = SqrNormL2(λ, cc)
+        @test PB._ordinary_steps(f, γ, x, W)
+        c = Constrained(f, set)
+        z = both(c, x, γ, alias)                                   # cold
+        n == 64 && check_ref(z, x, cc, γ, λ, a, l, u)
+        x2 = x .+ W(0.01)
+        z2 = both(c, x2, γ, alias)                                 # warm, from the last multiplier
+        n == 64 && check_ref(z2, x2, cc, γ, λ, a, l, u)
+      end
+    end
+    # integer steps: _metric_sqnorm has a method for them on a slab
+    let x = [1.0, -2.0, 0.5, 3.0], a = [1.0, 0.5, 2.0, 1.0], γ = [1, 2, 1, 3]
+      for set in (IndHyperplane(a, 1.0), IndHyperslab(a, 2.0, 3.0)), cc in (nothing, [0.5, 1.0, -1.0, 2.0])
+        f = SqrNormL2(0.7, cc)
+        @test PB._ordinary_steps(f, γ, x, Float64)
+        z = both(Constrained(f, set), x, γ, false)
+        set isa IndHyperplane && check_ref(z, x, cc, γ, 0.7, a, 1.0, 1.0)
+      end
+    end
+    # extreme factors with γᵢλ in the band: the fast path, with t formed in the
+    # parameters' precision (λ = 2^-140 is not a normal Float32)
+    for (W, F, λ, k) in ((Float32, Float32, pow2(Float32, -120), 100), (Float64, Float64, pow2(Float64, 900), -950),
+                         (Float32, Float64, pow2(Float64, -140), 120))
+      x = W[1, -2, 0.5, 3]
+      a = W[1, 0.5, 2, 1]
+      γ = F[1, 1.5, 0.75, 1.25] .* pow2(F, k)
+      cc = W[0.5, 1, -1, 2]
+      for f in (SqrNormL2(λ), SqrNormL2(λ, cc))
+        @test PB._ordinary_steps(f, γ, x, W)
+        z = both(Constrained(f, IndHyperplane(a, W(1))), x, γ, false)
+        check_ref(z, x, f.y, γ, λ, a, 1, 1)
+      end
+    end
+    # γᵢλ outside the band: just below (2^-127) or just above (1.5·2^125, 1.5·2^1021) in
+    # one entry, or far below in two; the tested route, with the scaled coefficient
+    # where the product leaves W. In the last, a center 2^1000 makes t·c ≈ 2^-60 matter
+    # in the first entry, where x = 0; there t is subnormal in Float64, with too few
+    # bits for the ordinary coefficient. The entries above the band have a zero normal:
+    # with a nonzero one, its γᵢaᵢ² would make the first step of the search too short to
+    # bracket the multiplier (a limit of the search, not of the ridge).
+    for (W, λ, γ, cc, a4, ulps1) in
+        ((Float32, pow2(Float32, -100), Float32[1, 2, 0.5, 2^-27], Float32[0.5, 1, -1, 2], 1, nothing),
+         (Float32, 1f0, Float32[0.3, 0.6, 0.9, 1.5 * pow2(Float32, 125)], Float32[0.5, 1, -1, 2], 0, nothing),
+         (Float64, 1.0, [0.3, 0.6, 0.9, 1.5 * pow2(Float64, 1021)], [0.5, 1, -1, 2], 0, nothing),
+         (Float64, pow2(Float64, -1000), [1.37 * 2^-60, 2^-70, 1, 2], [pow2(Float64, 1000), 1, -1, 2], 1, 64))
+      x = W[0, -2, 0.5, 3]
+      a = W[0.25, 0.5, 2, a4]
+      for f in (SqrNormL2(λ), SqrNormL2(λ, cc)), (set, l, u) in sets(a, W(1)), alias in (false, true)
+        @test !PB._ordinary_steps(f, γ, x, W)
+        c = Constrained(f, set)
+        z = copy(x); prox!(z, c, alias ? z : x, γ)
+        r = check_ref(z, x, f.y, γ, λ, a, l, u)
+        ulps1 === nothing || f.y === nothing || @test near(z[1], r[1], ulps1)
+      end
+    end
+    # a step array changed between calls: checked at every call
+    let x = [1.0, -2.0, 0.5, 3.0], a = [1.0, 0.5, 2.0, 1.0], γ = [0.3, 0.6, 0.9, 1.1], cc = [0.5, 1.0, -1.0, 2.0]
+      f = SqrNormL2(0.7, cc)
+      c = Constrained(f, IndHyperplane(a, 1.0))
+      z = both(c, x, γ, false); check_ref(z, x, cc, γ, 0.7, a, 1, 1)
+      γ[2] = 1.5 * pow2(Float64, 1022)                              # γλ above 2^1021
+      @test !PB._ordinary_steps(f, γ, x, Float64)
+      z = prox!(similar(x), c, x, γ); check_ref(z, x, cc, γ, 0.7, a, 1, 1)
+      γ[2] = 0.6
+      @test PB._ordinary_steps(f, γ, x, Float64)
+      z = both(c, x, γ, false); check_ref(z, x, cc, γ, 0.7, a, 1, 1)
+    end
+    # other precisions keep the tested entries
+    @test !PB._ordinary_steps(SqrNormL2(big(0.7)), [0.5, 1.0], [1.0, 2.0], Float64)
+    @test !PB._ordinary_steps(SqrNormL2(0.7), [0.5, 1.0], BigFloat[1, 2], BigFloat)
+    @test !PB._ordinary_steps(NormL1(0.7), [0.5, 1.0], [1.0, 2.0], Float64)
+  end
   @testset "BigFloat centers are rounded entry by entry" begin
     setprecision(BigFloat, 256) do
       x = Float32[1, 0]

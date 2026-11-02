@@ -346,9 +346,13 @@ _prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::A
 function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ)
   _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
+  _ordinary_steps(c.f, γ, x, T) ? _linear_constrained_prox!(y, c, x, _OrdinarySteps(γ), T) :
+                                  _linear_constrained_prox!(y, c, x, γ, T)
+end
+function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ, ::Type{T}) where {T}
   ν = _multiplier(c, x, γ, T)
   set = c.set
-  set isa IndHyperslab && iszero(ν) && return _prox_sep!(y, c.f, x, γ)
+  set isa IndHyperslab && iszero(ν) && return _prox_sep!(y, c.f, x, _steps(γ))
   if _isscaled(set)
     return _linear_constrained_output!(y, c.f, _normalized_normal(set.a, set.s), x, γ, ν)
   end
@@ -362,6 +366,42 @@ function _linear_constrained_output!(y, f, a, x, γ, ν::T) where {T}
   end
   y
 end
+
+# A ridge with per-entry steps: where every γᵢλ, formed as prox_entry forms it for the
+# arguments of the search, lies in the band of the ordinary coefficient (so none needs
+# the scaled one of R3), the steps are wrapped once per call, and every pass of the
+# search and the output take the ordinary coefficient without the test, so that their
+# loops have no call and vectorize. The steps are checked at every call, as they may
+# change between calls; any other step (outside the band, zero or not finite),
+# function or precision keeps the tested entries.
+struct _OrdinarySteps{T, N, A<:AbstractArray{T, N}} <: AbstractArray{T, N}
+  γ::A
+end
+Base.size(s::_OrdinarySteps) = size(s.γ)
+Base.axes(s::_OrdinarySteps) = axes(s.γ)
+Base.IndexStyle(::Type{<:_OrdinarySteps}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(s::_OrdinarySteps, i::Int) = s.γ[i]
+_steps(γ) = γ
+_steps(s::_OrdinarySteps) = s.γ
+
+_ordinary_steps(f, γ, x, ::Type) = false
+function _ordinary_steps(f::SqrNormL2, γ::AbstractArray, x::AbstractArray, ::Type{T}) where {T}
+  W = float(promote_type(eltype(x), T))   # the type of the arguments xᵢ - γᵢνaᵢ
+  W <: Union{Float32, Float64} || return false
+  P = promote_type(W, T, float(typeof(f.λ)))   # as in _ridge_needs_scaling(W, γᵢ, λ)
+  P <: Union{Float32, Float64} || return false
+  λ, lo, hi = P(f.λ), P(_ridge_band_low(W)), P(_ridge_band_high(W))
+  ok = true
+  @inbounds for i in eachindex(IndexLinear(), γ)
+    t = P(convert(T, γ[i])) * λ
+    ok &= (lo <= t) & (t <= hi)
+  end
+  ok
+end
+_constraint_gap(f::SqrNormL2, a, b, x::AbstractArray, ν::T, γ::_OrdinarySteps, v::Val) where {T} =
+  _constraint_gap(_OrdinaryRidge(f), a, b, x, ν, γ.γ, v)
+_linear_constrained_output!(y, f::SqrNormL2, a, x, γ::_OrdinarySteps, ν::T) where {T} =
+  _linear_constrained_output!(y, _OrdinaryRidge(f), a, x, γ.γ, ν)
 
 value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
@@ -972,6 +1012,11 @@ Base.@propagate_inbounds _prox_entry_slope(f::LinearFunction, v::T, i::Integer, 
 Base.@propagate_inbounds function _prox_entry_slope(f::SqrNormL2, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   prox_entry(f, v, i, γ), inv(one(S) + convert(S, γ * f.λ))
+end
+# the same slope, so that the search takes the same steps as with the tested entries
+Base.@propagate_inbounds function _prox_entry_slope(r::_OrdinaryRidge, v::T, i::Integer, γ::Real) where {T<:Real}
+  S = float(T)
+  prox_entry(r, v, i, γ), inv(one(S) + convert(S, γ * r.f.λ))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)

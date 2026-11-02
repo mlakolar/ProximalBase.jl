@@ -544,6 +544,15 @@ end
 @inline _ridge_apply_fit(o::_RidgeOrdinary, x, c) = _ridge_blend(x, c, o.a, o.b)
 @inline _ridge_apply_fit(s::_RidgeScaled{W}, x, c) where {W} = _ridge_scaled_blend(W(x), W(c), s)
 # A center outside W's range on rounding: the entry is computed in the wider type
+# For a hardware-float center the entry takes no call, so that a loop over the entries
+# still vectorizes. R holds x and c with room to spare (it is wider than W, which holds
+# x), so the plain convex combination cannot overflow; the weights do not depend on the
+# entry and leave such a loop.
+@inline function _ridge_apply_wide(o::_RidgeOrdinary{W}, x, c::Base.IEEEFloat) where {W}
+  R = promote_type(W, typeof(c))
+  a, b = _ridge_weights_t(convert(R, o.t))
+  W(a * R(x) + b * c)
+end
 @noinline function _ridge_apply_wide(o::_RidgeOrdinary{W}, x, c) where {W}
   R = promote_type(W, float(typeof(c)))
   a, b = _ridge_weights_t(convert(R, o.t))
@@ -576,6 +585,16 @@ Base.@propagate_inbounds function prox_entry(f::SqrNormL2, v::Real, i::Integer, 
   _ridge_needs_scaling(W, γ, f.λ) ? _ridge_apply(_ridge_scaled(W, γ, f.λ), W(v), f.y[i]) :
                                     _ridge_apply(_ridge_ordinary(W, γ, f.λ), W(v), f.y[i])
 end
+# The ridge whose entries are known to take the ordinary coefficient: prox_entry
+# without the test, where _ridge_needs_scaling(W, γ, f.λ) is false. Constrained uses it
+# for per-entry steps it has checked, so that its loops have no call.
+struct _OrdinaryRidge{F<:SqrNormL2}
+  f::F
+end
+@inline prox_entry(r::_OrdinaryRidge{<:SqrNormL2{<:Real, Nothing}}, v::Real, ::Integer, γ::Real) =
+  (W = typeof(float(v)); _ridge_apply(_ridge_ordinary(W, γ, r.f.λ), W(v)))
+Base.@propagate_inbounds prox_entry(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) =
+  (W = typeof(float(v)); _ridge_apply(_ridge_ordinary(W, γ, r.f.λ), W(v), r.f.y[i]))
 _checkparams(f::SqrNormL2, x) = _checkparam(f.y, x)
 
 kkt_violation(::SqrNormL2{<:Real, Nothing}, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]))

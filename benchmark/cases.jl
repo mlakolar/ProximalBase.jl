@@ -1567,7 +1567,7 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
     # only the active entries are checked: the inactive ones stay 0 on 0.5.x and become NaN on 0.6.
     r = min(exponent(floatmax(T)) - 4, repeats_for(s, 16384))
     rscale = ldexp(one(T), r)
-    check_finite() = (rmul_repeat!(x, T(2), r); Array(x) == d .* rscale || error("rmul! differs from the dense reference"))
+    check_finite() = (rmul_repeat!(x, T(2), r); Array(x) == d .* (2rscale) || error("rmul! differs from the dense reference"))
     check_inf() = (rmul_repeat!(x, T(Inf), r);
                    all(x[k] == sign(d[k]) * T(Inf) for k in ids) || error("rmul!(x, Inf) differs at the active entries"))
     addcase!(cases, "sparse", "rmul!_finite", () -> rmul_repeat!(x, T(2), r), guarded(check_finite);

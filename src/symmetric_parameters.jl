@@ -403,3 +403,5 @@ _value_checked(f::IndIntersection, x::SymmetricSparseIterate) =
   _ind(_in_checked_sets(f.sets, x), _valtype(x))
 _in_checked_sets(::Tuple{}, x) = true
 _in_checked_sets(sets::Tuple, x) = iszero(_value_checked(first(sets), x)) && _in_checked_sets(Base.tail(sets), x)
+
+# Scenario I3 (PR #430): a comment only.

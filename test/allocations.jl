@@ -69,6 +69,22 @@ a_block!(x, f, k, u, γ) = prox_coordinate!(x, f, k, u, γ)
   end
 end
 
+@testset "block steps with a view u allocate nothing" begin
+  # a strided u must not be heap-allocated (it once was, through a Union-typed rebinding)
+  p, g = 16, 4
+  gs = [(g * (k - 1) + 1):(g * k) for k in 1:p ÷ g]
+  base = randn(2g)
+  for T in (Float32, Float64)
+    fs = (GroupNormL2(T(0.1), gs), SparseGroupNormL2(T(0.1), T(0.1), gs), GroupNormLinf(T(0.1), gs))
+    for f in fs
+      x = AtomIterate(rand(T, p), f)
+      for u in (T.(base[1:g]), view(T.(base), 1:g), view(T.(base), 1:2:2g))
+        @test allocs(a_block!, x, f, 3, u, T(0.5)) == 0
+      end
+    end
+  end
+end
+
 @testset "distinct group layouts allocate nothing" begin
   ranges = [1:2, 3:5, 6:6, 7:9]
   layouts = (ranges, collect.(ranges))

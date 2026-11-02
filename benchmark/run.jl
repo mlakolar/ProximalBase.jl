@@ -241,6 +241,8 @@ function main()
               "slurm_job_id"=>get(ENV,"SLURM_JOB_ID","none"),"julia_threads"=>Threads.nthreads(),
               "blas_threads"=>BLAS.get_num_threads(),"blas"=>string(BLAS.get_config()),
               "cpu"=>Sys.CPU_NAME,"cpu_model"=>Sys.cpu_info()[1].model,"benchmarktools"=>string(pkgversion(BenchmarkTools)),
+              "check_bounds"=>("default","yes","no")[Base.JLOptions().check_bounds+1],
+              "os"=>string(Sys.KERNEL," ",Sys.MACHINE),
               "cases"=>length(cases),"failures"=>failures,"samples_target"=>samples,
               "seconds_limit"=>seconds,"profile_seconds"=>profile_seconds,"elapsed_s"=>time()-started)
     merge!(meta,source_metadata())

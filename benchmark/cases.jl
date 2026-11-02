@@ -827,8 +827,12 @@ function owner_cases!(cases, rep; quick=false)
         Xs = copy(fx.X)
         sweep_ids() = (acc = 0; for k in activecoordinates(Xs); acc += k; end; acc)
         expected_sum = sum(fx.ids)
+        sorted_owner_ids = sort(fx.ids)
         addcase!(cases, "owner", "sweep_activecoordinates", sweep_ids,
-                 () -> sweep_ids() == expected_sum || error("sweep visited the wrong coordinates");
+                 function ()
+                     sweep_ids() == expected_sum || error("sweep visited the wrong coordinates")
+                     sort!(collect(activecoordinates(Xs))) == sorted_owner_ids || error("the active coordinates are not the fixture's (a sum can agree)")
+                 end;
                  T, shape, layout="trivial_update", work=s)
         f = NormL1(T(0.1))
         step = T(0.5)
@@ -1119,6 +1123,34 @@ function count_active(x, ids)
     end
     c
 end
+# isactive against the stored membership and not against the values. On a private small iterate, a write of
+# zero to an active coordinate keeps it active (0.5.x and 0.6 agree; a write of zero to an inactive one does
+# nothing), so the nonzero count of the dense vector is smaller than the working set and an `isactive` that
+# tests the value fails here. Run in the check of the isactive cases, outside the timed region.
+function check_isactive_stored_zero(::Type{T}) where {T}
+    members = collect(1:3:60)
+    zeroed = members[1:2:end]
+    xz = SparseIterate(T, 64)
+    for i in members; xz[i] = one(T); end
+    for i in zeroed; xz[i] = zero(T); end
+    count(!iszero, Array(xz)) == length(members) - length(zeroed) || error("the stored-zero fixture is wrong")
+    all(i -> isactive(xz, i) == (i in members), 1:64) || error("isactive differs from the stored membership (explicit zeros)")
+    nactive(xz) == length(members) || error("explicit zeros changed the working set")
+    nothing
+end
+function check_isactive_stored_zero_atom(::Type{T}) where {T}
+    groups = [(3j - 2):(3j) for j in 1:8]
+    members = [1, 3, 5, 8]
+    zeroed = [1, 5]
+    xz = AtomIterate(T, 24, groups)
+    for k in members; xz[first(groups[k])] = one(T); end
+    for k in zeroed, i in groups[k]; xz[i] = zero(T); end
+    v = Vector(xz)
+    count(k -> any(!iszero, v[groups[k]]), 1:8) == length(members) - length(zeroed) || error("the stored-zero fixture is wrong")
+    all(k -> isactive(xz, k) == (k in members), 1:8) || error("isactive differs from the stored membership (explicit zeros)")
+    nactive(xz) == length(members) || error("explicit zeros changed the working set")
+    nothing
+end
 # The trivial update of the sweeps adds a zero: `x[i] = x[i]` alone is removed by the compiler (the
 # store of a value just loaded; a 10⁴-entry sweep took 10 ns on Julia 1.13), and the sweep would
 # measure nothing. Adding +0.0 is not an identity for -0.0, so the compiler keeps it; no stored value
@@ -1292,9 +1324,13 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
              T, shape, layout="active", zero_alloc=true, work=length(wids))
     # isactive: 256 queries, half of them active
     qids = shuffle(scenario_rng(rep, key * "/queries"), vcat(cycled(ids, 128), pool[1:128]))
-    expected_active = count(!iszero, d[qids])
+    idset = Set(ids)
+    expected_active = count(in(idset), qids)          # the stored membership of the fixture, not the values
     addcase!(cases, "sparse", "isactive", () -> count_active(x, qids),
-             guarded(() -> count_active(x, qids) == expected_active || error("isactive differs from the dense vector"));
+             guarded(function ()
+                         count_active(x, qids) == expected_active || error("isactive differs from the stored membership")
+                         check_isactive_stored_zero(T)
+                     end);
              T, shape, layout="half_active", zero_alloc=true, work=length(qids))
 
     # first activation: a batch of distinct absent coordinates per call, by assignment and by activate!;
@@ -1344,8 +1380,12 @@ function sparse_vector_cases!(cases, rep, T, n, s, vcache; rows=())
              T, shape, layout="trivial_update", zero_alloc=true, work=s)
 
     # FD-7: sweeps through the handles created inside the call
+    sorted_ids = sort(ids)
     addcase!(cases, "sparse", "sweep_activecoordinates", () -> sum_active_ids(x),
-             guarded(() -> sum_active_ids(x) == sum(ids) || error("sweep visited the wrong coordinates"));
+             guarded(function ()
+                         sum_active_ids(x) == sum(ids) || error("sweep visited the wrong coordinates")
+                         sort!(collect(activecoordinates(x))) == sorted_ids || error("the active coordinates are not the fixture's (a sum can agree)")
+                     end);
              T, shape, layout="vector", zero_alloc=true, work=s)
     absvals = sum(abs, vals)
     addcase!(cases, "sparse", "sweep_activevalues", () -> sum_active_values(x, T),
@@ -1921,6 +1961,16 @@ end
 atom_prox_batch(g) = g == 64 ? 64 : 256
 
 # a penalty of the block trial (FD-12), by name
+# Euclidean projection of u onto {v : ‖v‖₁ ≤ τ} (sort and threshold)
+function project_l1_ball(u::AbstractVector{<:AbstractFloat}, τ::AbstractFloat)
+    sum(abs, u) <= τ && return copy(u)
+    a = sort(abs.(u); rev=true)
+    cs = cumsum(a)
+    ρ = findlast(j -> a[j] > (cs[j] - τ) / j, eachindex(a))
+    θ = (cs[ρ] - τ) / ρ
+    return sign.(u) .* max.(abs.(u) .- θ, 0.0)
+end
+
 function atom_penalty(name, T, groups)
     name == "GroupNormL2" && return GroupNormL2(T(0.1), groups)
     name == "GroupNormLinf" && return GroupNormLinf(T(0.1), groups)
@@ -1930,20 +1980,18 @@ end
 
 # The result of the block trial on a batch of groups, by hand: soft thresholding for NormL1 (entry by
 # entry), the group shrinkage max(1 - γ λ √g / ‖u‖, 0) u for GroupNormL2 (default weight √g), soft
-# thresholding and then that shrinkage for SparseGroupNormL2; GroupNormLinf has no short formula, so
-# its reference is the whole-vector prox of the penalty on a vector holding the trial points.
+# thresholding and then that shrinkage for SparseGroupNormL2; GroupNormLinf (default weight 1) by Moreau's
+# identity: the prox of τ‖·‖∞ at u is u minus its Euclidean projection onto the ℓ1 ball of radius τ
+# (`project_l1_ball`, a sort-based projection that shares no code with the package, in Float64).
 function prox_batch_reference(name, f, T, p, g, groups, d, ks, ubases, γ)
     expected = copy(d)
     λ = T(0.1)
     soft(u, c) = sign(u) * max(abs(u) - c, zero(T))
     if name == "GroupNormLinf"
-        U = zeros(T, p)
+        τ = Float64(γ) * Float64(λ)
         for (k, ub) in zip(ks, ubases)
-            U[groups[k]] = ub[1:2:end]
-        end
-        Y = prox(f, U, γ)
-        for k in ks
-            expected[groups[k]] = Y[groups[k]]
+            u = Float64.(ub[1:2:end])
+            expected[groups[k]] = T.(u .- project_l1_ball(u, τ))
         end
         return expected
     end
@@ -2105,9 +2153,13 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
              T, shape, layout="active", zero_alloc=true, work=length(wids))
     # isactive: 256 queries, half of them active
     qgroups = shuffle(scenario_rng(rep, key * "/queries"), vcat(cycled(aids, 128), pool[1:128]))
-    expected_active = count(k -> any(!iszero, d[groups[k]]), qgroups)
+    aidset = Set(aids)
+    expected_active = count(in(aidset), qgroups)       # the stored membership of the fixture, not the values
     addcase!(cases, "atom", "isactive", () -> count_active(x, qgroups),
-             guarded(() -> count_active(x, qgroups) == expected_active || error("isactive differs from the dense vector"));
+             guarded(function ()
+                         count_active(x, qgroups) == expected_active || error("isactive differs from the stored membership")
+                         check_isactive_stored_zero_atom(T)
+                     end);
              T, shape, layout="half_active", zero_alloc=true, work=length(qgroups))
 
     # first activation: a nonzero write to the first entry of each of a batch of distinct inactive groups,
@@ -2155,8 +2207,12 @@ function atom_scenario_cases!(cases, rep, T, p, g, strided, density, label, grou
                          Vector(x) == d && nactive(x) == na || error("the sweep changed the iterate")
                      end);
              T, shape, layout="trivial_update", zero_alloc=true, work=nvals)
+    sorted_aids = sort(aids)
     addcase!(cases, "atom", "sweep_activecoordinates", () -> sum_active_ids(x),
-             guarded(() -> sum_active_ids(x) == sum(aids) || error("sweep visited the wrong groups"));
+             guarded(function ()
+                         sum_active_ids(x) == sum(aids) || error("sweep visited the wrong groups")
+                         sort!(collect(activecoordinates(x))) == sorted_aids || error("the active groups are not the fixture's (a sum can agree)")
+                     end);
              T, shape, layout=lay, zero_alloc=true, work=na)
 
     # atom access: norm and dot of atom(x, k) over 64 active groups per call

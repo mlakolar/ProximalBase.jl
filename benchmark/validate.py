@@ -14,10 +14,9 @@ MATCH_SETTINGS = ("julia", "cpu", "cpu_model", "blas", "blas_threads", "julia_th
                   "profile_seconds", "harness_hash", "suite", "groups",
                   "calibration_samples", "calibration_seconds", "tune_seconds")
 # Recorded by newer harnesses only. A record without them is readable, but the setting is
-# unknown: it is never reported as matching. Two known values must agree.
+# unknown: it is never reported as matching. Two known values of the same Julia version must agree.
 RECORDED_SETTINGS = ("check_bounds", "os")
 CHECK_BOUNDS_VALUES = ("default", "yes", "no")
-UNRECORDED = "<unrecorded>"
 
 
 def recorded_setting(meta, key):
@@ -113,8 +112,9 @@ def validate(root, expected=1, versions=None):
             for key in RECORDED_SETTINGS:
                 if key not in meta:
                     unrecorded.add(key)
+            # None marks a missing key; no recorded string can equal it.
             config = tuple(str(meta[key]) for key in MATCH_SETTINGS + ("source_hash",)) + tuple(
-                recorded_setting(meta, key) or UNRECORDED for key in RECORDED_SETTINGS)
+                recorded_setting(meta, key) for key in RECORDED_SETTINGS)
             if version in configurations and configurations[version] != config:
                 raise ValueError("settings changed within a Julia version")
             configurations[version] = config

@@ -18,14 +18,16 @@ def load(root, expected):
     if not checked["valid"]:
         raise ValueError(f"Invalid results {root}: {checked['issues']}")
     rows, configs, metadata = {}, set(), {}
-    recorded = {key: set() for key in RECORDED_SETTINGS}
+    recorded = {}   # recorded[julia version][key] = value, or None when the record lacks the key
     for path in sorted(Path(root).glob("*-metadata.toml")):
         with path.open("rb") as stream:
             meta = tomllib.load(stream)
         metadata[path.name.removesuffix("-metadata.toml")] = meta
         configs.add(tuple(str(meta[key]) for key in MATCH_SETTINGS))
-        for key in RECORDED_SETTINGS:
-            recorded[key].add(recorded_setting(meta, key))
+        settings = {key: recorded_setting(meta, key) for key in RECORDED_SETTINGS}
+        version = str(meta["julia"])
+        if recorded.setdefault(version, settings) != settings:   # validate() rejects this already
+            raise ValueError(f"Recorded settings changed within Julia {version} in {root}")
     for path in sorted(Path(root).glob("*-metrics.tsv")):
         version = path.name.split("-rep")[0]
         with path.open(newline="") as stream:
@@ -36,43 +38,51 @@ def load(root, expected):
 
 
 def recorded_status(before, after):
-    """Compare RECORDED_SETTINGS; raise on two known values that differ.
+    """Compare RECORDED_SETTINGS within each Julia version present on both sides.
 
-    A side without the key (a record older than it) leaves the setting unknown: the comparison
-    goes on, and its status names the unknown side instead of claiming a match.
+    `before` and `after` map a version to {key: value or None}. Values of different versions are
+    never compared. Two known values of a version that differ reject the comparison (every such
+    mismatch is named). A side without the key (a record older than it) leaves the setting
+    unknown: the comparison goes on, and its status names the unknown side instead of claiming a
+    match. Returns {version: {key: {"status", "before", "after"}}}, with None for a missing value.
     """
-    status = {}
-    for key in RECORDED_SETTINGS:
-        old, new = before[key] - {None}, after[key] - {None}
-        if old and new and old != new:
-            raise ValueError(f"Benchmark configuration differs in {key}: before {', '.join(sorted(old))}; "
-                             f"after {', '.join(sorted(new))}")
-        unknown = [side for side, values in (("before", before[key]), ("after", after[key]))
-                   if None in values]
-        code = ("match" if not unknown else "unknown_both" if len(unknown) == 2 else
-                f"unknown_{unknown[0]}")
-        status[key] = dict(status=code, before=sorted(old), after=sorted(new))
+    status, mismatches = {}, []
+    for version in sorted(before.keys() & after.keys()):
+        status[version] = {}
+        for key in RECORDED_SETTINGS:
+            old, new = before[version][key], after[version][key]
+            if old is not None and new is not None and old != new:
+                mismatches.append(f"Julia {version} {key}: before {old}; after {new}")
+            code = ("match" if old is not None and new is not None else
+                    "unknown_both" if old is None and new is None else
+                    "unknown_before" if old is None else "unknown_after")
+            status[version][key] = dict(status=code, before=old, after=new)
+    if mismatches:
+        raise ValueError("Benchmark configuration differs in recorded settings: " + "; ".join(mismatches))
     return status
 
 
-def recorded_note(status):
-    parts = []
-    for key, entry in status.items():
-        known = ", ".join(entry["before"] or entry["after"])
-        if entry["status"] == "match":
-            parts.append(f"`{key}` {known} on both sides")
-        elif entry["status"] == "unknown_both":
-            parts.append(f"`{key}` unknown on both sides")
-        else:
-            side = entry["status"].removeprefix("unknown_")
-            other = "after" if side == "before" else "before"
-            parts.append(f"`{key}` unknown on the {side} side ({known} on the {other} side)")
-    unverified = [key for key, entry in status.items() if entry["status"] != "match"]
-    note = "Recorded settings: " + "; ".join(parts) + "."
-    if unverified:
-        note += (" A record without a key predates it; " + " and ".join(f"`{k}`" for k in unverified) +
-                 " could not be verified to match.")
-    return note
+def recorded_note(by_version):
+    """One REPORT.md paragraph per Julia version."""
+    notes = []
+    for version, status in by_version.items():
+        parts = []
+        for key, entry in status.items():
+            if entry["status"] == "match":
+                parts.append(f"`{key}` {entry['before']} on both sides")
+            elif entry["status"] == "unknown_both":
+                parts.append(f"`{key}` unknown on both sides")
+            else:
+                side = entry["status"].removeprefix("unknown_")
+                other = "after" if side == "before" else "before"
+                parts.append(f"`{key}` unknown on the {side} side ({entry[other]} on the {other} side)")
+        unverified = [key for key, entry in status.items() if entry["status"] != "match"]
+        note = f"Recorded settings, Julia {version}: " + "; ".join(parts) + "."
+        if unverified:
+            note += (" A record without a key predates it; " + " and ".join(f"`{k}`" for k in unverified) +
+                     " could not be verified to match.")
+        notes += [note, ""]
+    return notes
 
 
 def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10):
@@ -91,7 +101,7 @@ def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10
         if old_configs != new_configs:
             raise ValueError("Benchmark configuration differs; match hardware, suite, groups, instrumentation and measurement settings")
         settings = recorded_status(old_recorded, new_recorded)
-        (output/"settings.json").write_text(json.dumps(settings, indent=2)+"\n")
+        (output/"settings.json").write_text(json.dumps(dict(by_version=settings), indent=2)+"\n")
         if coverage["before_only"] or coverage["after_only"]:
             raise ValueError("Case coverage differs; inspect coverage.json and rerun the same cases")
         groups = {}
@@ -141,7 +151,7 @@ def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10
         lines = ["# ProximalBase revision comparison", "",
                  "Ratios above one favor the proposed revision. Intervals use paired log ratios across fresh process/input draws; they do not correct for correlated machine noise or multiple comparisons. Interleave revisions when confirming small differences.", "",
                  "Single-run ratios are exploratory and have no confidence interval. Allocation counts measure Julia heap bytes, not native allocations or peak memory.", "",
-                 recorded_note(settings), "",
+                 *recorded_note(settings),
                  f"A measurement is timer-limited when median_ns * evals < {timer_limit_multiple:g} * timer_floor_ns (strict). With an unusable calibration (NaN floor), only evals == 1 is limited. A case is limited if any repetition on either side is limited. Timer-limited cases are not to be used for ratio gates.", "",
                  "| Case | Julia | Before / after (µs) | Speedup [95% interval] | Mean bytes before / after | Maximum bytes before / after | Assessment |",
                  "|---|---|---:|---:|---:|---:|---|"]

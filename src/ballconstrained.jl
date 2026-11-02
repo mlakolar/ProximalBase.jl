@@ -158,6 +158,118 @@ end
 # thresholds are those of prox_entry, so that the two cases agree with it.
 value_and_prox!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+# Margins n - t compared without rounding errors that decide the winner:
+#   n - t > bn - bt  is  n + bt > bn + t, compared as normalized sums (hi, lo) by
+#   error-free transformation; where a sum overflows, the same with every term halved
+#   (exact for normal numbers, and a term that small cannot decide a comparison whose
+#   other terms are that large).
+@inline function _two_sum(a, b)
+  s = a + b
+  bb = s - a
+  s, (a - (s - bb)) + (b - bb)
+end
+@inline function _margin_greater(n, t, bn, bt)
+  s1, e1 = _two_sum(n, bt)
+  s2, e2 = _two_sum(bn, t)
+  if !(isfinite(s1) && isfinite(s2))
+    h = oftype(n, 0.5)
+    s1, e1 = _two_sum(h * n, h * bt)
+    s2, e2 = _two_sum(h * bn, h * t)
+  end
+  s1 != s2 ? s1 > s2 : e1 > e2
+end
+# √2 a > b, for the margin a of a pair and b of a diagonal entry, by a ratio so that
+# nothing underflows or overflows: the sign cases first, then b/a against √2.
+@inline function _pair_greater(a, b)
+  a > 0 && return b <= 0 || b / a < sqrt(oftype(a, 2))
+  a == 0 && return b < 0
+  b < 0 && b / a > sqrt(oftype(a, 2))
+end
+# b > √2 a, for the margin b of a diagonal entry and a of a pair
+@inline function _diagonal_greater(b, a)
+  b > 0 && return a <= 0 || b / a > sqrt(oftype(a, 2))
+  b == 0 && return a < 0
+  a < 0 && b / a < sqrt(oftype(a, 2))
+end
+
+# ldexp(x, e) for 1/8 < x < 2, rounded once also where the result is subnormal (before
+# Julia 1.11, ldexp truncates there): by a multiplication with a power of two
+@inline function _ldexp_once(x::U, e::Integer) where {U<:AbstractFloat}
+  e >= exponent(floatmin(U)) + 3 && return ldexp(x, e)
+  k = precision(U) + 3
+  ldexp(x, e + k) * ldexp(one(U), -k)
+end
+
+function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real)
+  _checkwrite(value_and_prox!, c, y, x)
+  T = float(eltype(y))
+  U = promote_type(float(eltype(x)), T)       # the type in which the margins compare, as in the group sphere
+  f, r = c.f, convert(T, c.sphere.r)
+  p = size(y, 1)
+  k, kr, kc, bestn, bestc = 0, 0, 0, zero(U), zero(U)
+  @inbounds for col in 1:p, row in col:p
+    i = row + (col - 1) * p
+    n = abs(convert(U, x[row, col]))
+    threshold = convert(U, _weight_product(γ, f.λ0, _entry(f.w, i)))   # not rounded to T first: selection and shrinkage agree
+    better = if k == 0 || isinf(bestc)
+      true
+    elseif isinf(threshold)
+      false
+    elseif (row == col) == (kr == kc)         # the same multiplicity: compare the margins
+      _margin_greater(n, threshold, bestn, bestc)
+    elseif row == col                         # a diagonal entry against a pair, whose margin counts √2 times
+      _diagonal_greater(n - threshold, bestn - bestc)
+    else
+      _pair_greater(n - threshold, bestn - bestc)
+    end
+    better && ((k, kr, kc, bestn, bestc) = (i, row, col, n, threshold))
+  end
+  isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
+  if bestn > bestc
+    # Soft thresholding and the scaling onto the sphere in the type of the comparison, so
+    # that the entries that survive are those whose margin was positive and nothing is
+    # narrowed to T before the norm is taken. The norm is scaled by the largest margin.
+    # x is read before y is written, so y may be x.
+    margin(row, col) = @inbounds max(abs(convert(U, x[row, col])) -
+      convert(U, _weight_product(γ, f.λ0, _entry(f.w, row + (col - 1) * p))), zero(U))
+    top = zero(U)
+    for col in 1:p, row in col:p
+      top = max(top, margin(row, col))
+    end
+    ss = zero(U)
+    for col in 1:p, row in col:p
+      ss += (row == col ? one(U) : U(2)) * (margin(row, col) / top)^2
+    end
+    ru, root = convert(U, r), sqrt(ss)       # 1 ≤ ss ≤ 2p², since the largest margin counts once or twice
+    # y = margin ⋅ r / (top ⋅ root). When the factor r / (root ⋅ top) is a normal number one
+    # product is accurate. Otherwise the three terms are split into mantissas and exponents,
+    # so that nothing underflows or overflows before the one rounding of the result.
+    q = ru / root
+    scale = q / top
+    direct = isfinite(scale) && scale >= floatmin(U)
+    aq, eq = frexp(q)
+    at, et = frexp(top)
+    @inbounds for col in 1:p, row in col:p
+      xi = x[row, col]
+      m = margin(row, col)
+      z = if direct || iszero(m)
+        m * scale
+      else
+        am, em = frexp(m)
+        _ldexp_once((am / at) * aq, em + eq - et)
+      end
+      y[row, col] = copysign(convert(T, z), xi)
+    end
+    return convert(T, _value_unchecked(f, y))
+  end
+  negative = signbit(x[kr, kc])
+  fill!(y, zero(eltype(y)))
+  kr == kc && (y[kr, kc] = negative ? -r : r; return convert(T, _positive_product(f.λ0, _entry(f.w, k), r)))
+  # an off-diagonal pair reaches the sphere at ±r/√2 in each of its two entries
+  ry = r / sqrt(T(2))
+  y[kr, kc] = negative ? -ry : ry
+  convert(T, 2 * _positive_product(f.λ0, _entry(f.w, k), ry))
+end
 function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, c, y, x)
   T, S = float(eltype(y)), float(eltype(x))
@@ -176,6 +288,25 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Nor
   fill!(y, zero(eltype(y)))
   y[k] = negative ? -r : r
   convert(T, _positive_product(f.λ0, _entry(f.w, k), r))
+end
+
+# On a SymmetricSparseIterate an off-diagonal index is two entries, so a point of
+# norm r takes r/√2 in each of them; a diagonal index and any other output take r.
+_write_unit!(y, i, r) = (y[i] = r; y)
+function _write_unit!(y::SymmetricSparseIterate, i::Integer, r)
+  p = size(y, 1)
+  row, col = mod1(i, p), cld(i, p)
+  y[row, col] = row == col ? r : r / sqrt(oftype(r, 2))
+  y
+end
+# the first index of a group that is a diagonal entry of a SymmetricSparseIterate, else its first
+_diagonal_first(y, G) = first(G)
+function _diagonal_first(y::SymmetricSparseIterate, G)
+  p = size(y, 1)
+  for i in G
+    mod1(i, p) == cld(i, p) && return i
+  end
+  first(G)
 end
 
 # The same with groups: ⟨z_G, x_G⟩ - γλ0w_G‖z_G‖ ≤ ‖z_G‖(‖x_G‖ - γλ0w_G), with
@@ -204,14 +335,14 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Gro
   bestn > bestc && return _onto_sphere!(y, f, convert(T, _value_and_prox_unchecked!(y, f, x, γ)), r)
   if ibest != 0                         # an index in no group, where x is zero
     fill!(y, zero(eltype(y)))
-    y[ibest] = r
+    _write_unit!(y, ibest, r)
     return zero(T)
   end
   G = f.groups[kbest]
   nG = convert(T, _group_norm2(x, G))
   @inbounds if iszero(nG)
     fill!(y, zero(eltype(y)))
-    y[first(G)] = r
+    _write_unit!(y, _diagonal_first(y, G), r)
   else
     _scale_l2!(view(y, G), view(x, G), r, nG)
     for i in eachindex(IndexLinear(), y)

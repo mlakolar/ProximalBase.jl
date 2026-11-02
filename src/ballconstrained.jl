@@ -184,6 +184,15 @@ end
   end
   s1 != s2 ? s1 > s2 : e1 > e2
 end
+# The same comparison at the cost of one subtraction where that decides it. Rounding to nearest
+# is monotone, so rounded margins that differ are ordered as the exact ones; only equal rounded
+# margins can hide the order, and _margin_greater decides those (exact ties included, which
+# stay false). A NaN margin compares false either way, and an infinite n or bn orders the
+# rounded margins as _margin_greater does, so the result is _margin_greater's for every input.
+@inline function _margin_better(n, t, bn, bt)
+  m, bm = n - t, bn - bt
+  m > bm || (m == bm && _margin_greater(n, t, bn, bt))
+end
 # The sign of D - √2 P for the exact margins D = nd - td of a diagonal entry and P = np - tp of
 # an off-diagonal pair, whose objective counts √2 times (A2); the tie, sign 0, is only D = P = 0,
 # since √2 is irrational. A rounded difference of two nonnegative numbers has the sign of the
@@ -311,6 +320,22 @@ _layout_mult(L::_LowerLayout, ::Type{U}, k) where {U} = mod1(k, L.p) == cld(k, L
 @inline _layout_put!(L::_LowerLayout, y, k, z) = (y[mod1(k, L.p), cld(k, L.p)] = z)
 @inline _l1_margin(x, f, γ, ::Type{U}, k) where {U} =
   @inbounds max(abs(convert(U, x[k])) - _sphere_threshold(U, γ, f.λ0, _entry(f.w, k)), zero(U))
+# Σ multiplicity ⋅ (margin / top)². Over every entry the sum may be reassociated by SIMD (A6),
+# as the norms of the package are; it only scales the result, and decides nothing.
+function _sphere_sumsq(::_DenseLayout, x, f, γ, ::Type{U}, top) where {U}
+  ss = zero(U)
+  @simd for k in eachindex(IndexLinear(), x)
+    ss += (_l1_margin(x, f, γ, U, k) / top)^2
+  end
+  ss
+end
+function _sphere_sumsq(L::_LowerLayout, x, f, γ, ::Type{U}, top) where {U}
+  ss = zero(U)
+  for k in _layout_indices(L, x)
+    ss += _layout_mult(L, U, k) * (_l1_margin(x, f, γ, U, k) / top)^2
+  end
+  ss
+end
 function _sphere_l1_shrink!(y, x, f, γ, r, ::Type{U}, ::Type{T}, L) where {U, T}
   inds = _layout_indices(L, x)
   # Soft thresholding and the scaling onto the sphere in the type of the comparison, so
@@ -321,10 +346,7 @@ function _sphere_l1_shrink!(y, x, f, γ, r, ::Type{U}, ::Type{T}, L) where {U, T
   for k in inds
     top = max(top, _l1_margin(x, f, γ, U, k))
   end
-  ss = zero(U)
-  for k in inds
-    ss += _layout_mult(L, U, k) * (_l1_margin(x, f, γ, U, k) / top)^2
-  end
+  ss = _sphere_sumsq(L, x, f, γ, U, top)
   ru, root = convert(U, r), sqrt(ss)       # 1 ≤ ss ≤ 2p², since the largest margin counts once or twice
   # y = margin ⋅ r / (top ⋅ root). When the factor r / (root ⋅ top) is a normal number one
   # product is accurate. Otherwise the three terms are split into mantissas and exponents,
@@ -368,7 +390,7 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
     elseif isinf(threshold) || bestn > bestc  # a positive margin: the shrink follows, and no winner is needed
       false
     elseif (row == col) == (kr == kc)         # the same multiplicity: compare the margins
-      _margin_greater(n, threshold, bestn, bestc)
+      _margin_better(n, threshold, bestn, bestc)
     elseif row == col                         # a diagonal entry against a pair, whose margin counts √2 times
       _diagonal_pair_sign(n, threshold, bestn, bestc) > 0
     else
@@ -400,8 +422,8 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Nor
     n = abs(convert(U, x[i]))
     nonfinite |= !isfinite(n)
     threshold = _sphere_threshold(U, γ, f.λ0, _entry(f.w, i))
-    # margins n - t compared without rounding (see _margin_greater)
-    (k == 0 || isinf(bestc) || (!isinf(threshold) && _margin_greater(n, threshold, bestn, bestc))) && ((k, bestn, bestc) = (i, n, threshold))
+    # margins n - t compared without rounding (see _margin_greater and _margin_better)
+    (k == 0 || isinf(bestc) || (!isinf(threshold) && _margin_better(n, threshold, bestn, bestc))) && ((k, bestn, bestc) = (i, n, threshold))
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
   nonfinite && return _sphere_nonfinite!(y, T)

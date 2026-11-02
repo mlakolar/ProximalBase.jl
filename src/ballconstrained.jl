@@ -206,19 +206,22 @@ end
   ldexp(x, e + k) * ldexp(one(U), -k)
 end
 
-# The soft-thresholded point scaled onto the sphere of radius r, over the indices of the layout
-# L (a linear index also addresses the weight), whose entries count with a multiplicity in the
-# norm. A layout is a type, not closures, so that nothing allocates on any Julia version. x is
-# read at k before k is written, so y may be x.
-# A NaN entry of the argument is NaN in the whole coupled block (E2), and a comparison with it
-# selects nothing, so the selection above cannot be trusted to reach it. An infinite entry has no
-# determined direction on the sphere (E3), so it gives the same NaN block. Thresholds are
-# validated first (E1). Nothing is read from x, so y may be x.
+# The output for an argument with a NaN or infinite entry. The sphere couples every entry, so a
+# NaN entry is NaN in the whole block (E2); a comparison with NaN selects nothing, so the
+# candidate selection cannot be relied on to reach it. An infinite entry gives the same block,
+# as in every ball and sphere projection of the package: one infinite coordinate has a limit on
+# the sphere (±r there), several have none, and no coupled projection documents its limits yet
+# (E3, #469). Called after the thresholds are validated (E1); nothing is read from x, so y may be x.
 function _sphere_nonfinite!(y, ::Type{T}) where {T}
   fill!(y, T(NaN))
   T(NaN)
 end
-struct _DenseLayout end                       # every entry once
+
+# The soft-thresholded point scaled onto the sphere of radius r, over the indices of the layout
+# L (a linear index also addresses the weight), whose entries count with a multiplicity in the
+# norm. A layout is a type, not closures, so that nothing allocates on any Julia version. x is
+# read at k before k is written, so y may be x.
+struct _DenseLayout end                      # every entry once
 struct _LowerLayout                           # the lower triangle of a symmetric p × p point
   p::Int
 end

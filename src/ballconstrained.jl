@@ -206,22 +206,35 @@ end
   ldexp(x, e + k) * ldexp(one(U), -k)
 end
 
-# The soft-thresholded point scaled onto the sphere of radius r, for the indices inds of x
-# (a linear index also addresses the weight), with multiplicity mult(k) in the norm, written
-# by put!(k, z). x is read at k before k is written, so y may be x.
-function _sphere_l1_shrink!(y, x, f, γ, r, ::Type{U}, ::Type{T}, inds, mult, put!) where {U, T}
+# The soft-thresholded point scaled onto the sphere of radius r, over the indices of the layout
+# L (a linear index also addresses the weight), whose entries count with a multiplicity in the
+# norm. A layout is a type, not closures, so that nothing allocates on any Julia version. x is
+# read at k before k is written, so y may be x.
+struct _DenseLayout end                       # every entry once
+struct _LowerLayout                           # the lower triangle of a symmetric p × p point
+  p::Int
+end
+_layout_indices(::_DenseLayout, x) = eachindex(IndexLinear(), x)
+_layout_indices(L::_LowerLayout, x) = (row + (col - 1) * L.p for col in 1:L.p for row in col:L.p)
+_layout_mult(::_DenseLayout, ::Type{U}, k) where {U} = one(U)
+_layout_mult(L::_LowerLayout, ::Type{U}, k) where {U} = mod1(k, L.p) == cld(k, L.p) ? one(U) : U(2)
+@inline _layout_put!(::_DenseLayout, y, k, z) = (y[k] = z)
+@inline _layout_put!(L::_LowerLayout, y, k, z) = (y[mod1(k, L.p), cld(k, L.p)] = z)
+@inline _l1_margin(x, f, γ, ::Type{U}, k) where {U} =
+  @inbounds max(abs(convert(U, x[k])) - _sphere_threshold(U, γ, f.λ0, _entry(f.w, k)), zero(U))
+function _sphere_l1_shrink!(y, x, f, γ, r, ::Type{U}, ::Type{T}, L) where {U, T}
+  inds = _layout_indices(L, x)
   # Soft thresholding and the scaling onto the sphere in the type of the comparison, so
   # that the entries that survive are those whose margin was positive and nothing is
   # narrowed to T before the norm is taken. The norm is scaled by the largest margin.
   # x is read before y is written, so y may be x.
-  margin(k) = @inbounds max(abs(convert(U, x[k])) - _sphere_threshold(U, γ, f.λ0, _entry(f.w, k)), zero(U))
   top = zero(U)
   for k in inds
-    top = max(top, margin(k))
+    top = max(top, _l1_margin(x, f, γ, U, k))
   end
   ss = zero(U)
   for k in inds
-    ss += mult(k) * (margin(k) / top)^2
+    ss += _layout_mult(L, U, k) * (_l1_margin(x, f, γ, U, k) / top)^2
   end
   ru, root = convert(U, r), sqrt(ss)       # 1 ≤ ss ≤ 2p², since the largest margin counts once or twice
   # y = margin ⋅ r / (top ⋅ root). When the factor r / (root ⋅ top) is a normal number one
@@ -234,7 +247,7 @@ function _sphere_l1_shrink!(y, x, f, γ, r, ::Type{U}, ::Type{T}, inds, mult, pu
   at, et = frexp(top)
   @inbounds for k in inds
     xi = x[k]
-    m = margin(k)
+    m = _l1_margin(x, f, γ, U, k)
     z = if iszero(m)
       zero(U)                           # not m * scale, which is 0 ⋅ Inf where scale overflows
     elseif direct
@@ -243,7 +256,7 @@ function _sphere_l1_shrink!(y, x, f, γ, r, ::Type{U}, ::Type{T}, inds, mult, pu
       am, em = frexp(m)
       _ldexp_once((am / at) * aq, em + eq - et)
     end
-    put!(k, copysign(convert(T, z), xi))
+    _layout_put!(L, y, k, copysign(convert(T, z), xi))
   end
   convert(T, _value_unchecked(f, y))
 end
@@ -274,9 +287,7 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
   if bestn > bestc
-    p = size(y, 1)
-    return _sphere_l1_shrink!(y, x, f, γ, r, U, T, (row + (col - 1) * p for col in 1:p for row in col:p),
-      k -> mod1(k, p) == cld(k, p) ? one(U) : U(2), (k, z) -> (y[mod1(k, p), cld(k, p)] = z))
+    return _sphere_l1_shrink!(y, x, f, γ, r, U, T, _LowerLayout(size(y, 1)))
   end
   negative = signbit(x[kr, kc])
   fill!(y, zero(eltype(y)))
@@ -299,7 +310,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Nor
     (k == 0 || isinf(bestc) || (!isinf(threshold) && _margin_greater(n, threshold, bestn, bestc))) && ((k, bestn, bestc) = (i, n, threshold))
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
-  bestn > bestc && return _sphere_l1_shrink!(y, x, f, γ, r, U, T, eachindex(IndexLinear(), x), _ -> one(U), (i, z) -> (y[i] = z))
+  bestn > bestc && return _sphere_l1_shrink!(y, x, f, γ, r, U, T, _DenseLayout())
   negative = signbit(x[k])
   fill!(y, zero(eltype(y)))
   y[k] = negative ? -r : r

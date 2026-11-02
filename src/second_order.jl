@@ -60,7 +60,11 @@ Hessian. It retains the gradient at the model point.
 A proximal Newton method minimizes `q + g` with any solver and penalty `g`,
 then searches along the step on `f + g`. `quadratic_model!` updates a model
 returned by `quadratic_model(f, x₀)` to the model at `x`, in place and without
-allocating, and returns it.
+allocating, and returns it. A model of a [`SeparableSum`](@ref) must have as
+many blocks as `f`, and a model of a [`Sum`](@ref) as many parts; otherwise a
+`DimensionMismatch` is thrown. Each sum is checked when the update reaches it,
+before any of its own blocks change; a mismatch in a nested sum can therefore
+be found after earlier sibling blocks were updated.
 
 | `f` | `q` |
 |:----|:----|
@@ -368,11 +372,16 @@ quadratic_model!(q::Translate, t::Translate, x::AbstractArray) =
 _quadratic_model_unchecked!(q::Translate, t::Translate, x::AbstractArray) = (_quadratic_model_unchecked!(q.f, t.f, _shifted(t, x)); q)
 quadratic_model!(q::Sum, s::Sum, x) =
   (_check_second_order_arrays(s, x); _quadratic_model_unchecked!(q, s, x))
-_quadratic_model_unchecked!(q::Sum, s::Sum, x) = (_model_parts!(q.fs, s.fs, x); q)
+_quadratic_model_unchecked!(q::Sum, s::Sum, x) =
+  (length(q.fs) == length(s.fs) || throw(DimensionMismatch("the model has $(length(q.fs)) parts and the function $(length(s.fs))"));
+   _model_parts!(q.fs, s.fs, x); q)
 quadratic_model!(q::SeparableSum, s::SeparableSum, x::Tuple) =
   (_check_second_order_arrays(s, x); _quadratic_model_unchecked!(q, s, x))
 _quadratic_model_unchecked!(q::SeparableSum, s::SeparableSum, x::Tuple) =
-  (_checkblocks(s, x); _quadratic_blocks!(q.fs, s.fs, x); q)
+  (_checkblocks(s, x); _checkmodelblocks(q, s); _quadratic_blocks!(q.fs, s.fs, x); q)
+function _checkmodelblocks(q::SeparableSum, s::SeparableSum)
+  length(q.fs) == length(s.fs) || throw(DimensionMismatch("the model has $(length(q.fs)) blocks and the function $(length(s.fs))"))
+end
 
 _model_parts!(::Tuple{}, ::Tuple{}, x) = nothing
 function _model_parts!(qs::Tuple, fs::Tuple, x)

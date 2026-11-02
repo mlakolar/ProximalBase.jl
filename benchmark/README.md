@@ -238,6 +238,10 @@ for r in 1 2 3; do
 done
 ```
 
+`benchmark/sphere_l1.jl` is a standalone script for the sphere proximal map of the ℓ1 norm
+(#459); it uses only the public API, so it runs against any checkout. Its results for #459 are in
+`baselines/sphere-l1-459.csv`, described in `baselines/sphere-l1-459.md`.
+
 ## Compare revisions
 
 Keep one copy of this harness fixed while measuring two package checkouts.

@@ -90,25 +90,25 @@ Recommended local output:
 
 **BC-17 — Fresh-process paired design.** Formal estimates MUST be based on independent *process-level paired repetitions* (or an explicitly validated alternative) with corresponding input scenarios. Alternate execution order (AB, BA, ...) on the same reasonably isolated machine, and retain the order log. Do not run competing timing jobs on the same timing cores. Calibration, compilation, warm-up, setup, and certification requirements remain per-case. Do not use a shared GitHub Actions host's ordinary wall-clock ratios as a mandatory performance gate without calibration of that environment.
 
-**BC-18 — Correct inference unit and estimand.** Let the declared per-process case statistic be \`T_baseline,r\` and \`T_candidate,r\` (for example a BenchmarkTools run-level mean in ProximalBase, a run-level median of certified whole-solve times in ProximalSolvers/HDM). Define
+**BC-18 — Correct inference unit and estimand.** Let the declared per-process case statistic be `T_baseline,r` and `T_candidate,r` (for example a BenchmarkTools run-level mean in ProximalBase, a run-level median of certified whole-solve times in ProximalSolvers/HDM). Define
 
-\$\$ d_r = \log(T_{\mathrm{candidate},r}/T_{\mathrm{baseline},r}), \qquad \widehat{\rho}=\exp(\operatorname{mean}_r d_r). \$\$
+$$ d_r = \log(T_{\mathrm{candidate},r}/T_{\mathrm{baseline},r}), \qquad \widehat{\rho}=\exp(\operatorname{mean}_r d_r). $$
 
-The timing ratio \`rho\` is **candidate/baseline**; smaller is faster. The reported statistic and any transformation MUST be declared before comparison. Individual within-process BenchmarkTools samples or repeated `@timed` observations are **not** independent process-level inferential units. Do not automatically pool observations from different Julia/compiler/architecture strata.
+The timing ratio `rho` is **candidate/baseline**; smaller is faster. The reported statistic and any transformation MUST be declared before comparison. Individual within-process BenchmarkTools samples or repeated `@timed` observations are **not** independent process-level inferential units. Do not automatically pool observations from different Julia/compiler/architecture strata.
 
 **BC-19 — Margins and evidence classes.** Every formal comparison MUST separate these distinct claims:
 
 | Claim | Proposed criterion using one-sided `1-alpha` confidence bounds for `rho` | Interpretation |
 |:--|:--|:--|
-| **Improvement established** | Upper bound \`U < 1\` (or \`U < 1 - epsilon\` for a prespecified practically important improvement) | Evidence that the selected candidate is genuinely faster on this case |
-| **Noninferiority established** | \`U < 1 + delta\`, with an approved, prespecified \`delta >= 0\` | Evidence the slowdown is smaller than the allowed margin |
-| **Material regression established** | Lower bound \`L > 1 + delta\` | Evidence that the slowdown exceeds the approved margin |
+| **Improvement established** | Upper bound `U < 1` (or `U < 1 - epsilon` for a prespecified practically important improvement) | Evidence that the selected candidate is genuinely faster on this case |
+| **Noninferiority established** | `U < 1 + delta`, with an approved, prespecified `delta >= 0` | Evidence the slowdown is smaller than the allowed margin |
+| **Material regression established** | Lower bound `L > 1 + delta` | Evidence that the slowdown exceeds the approved margin |
 | **Investigate / warning** | A predeclared rule flags plausible slowdown but a material-regression claim is not established | Diagnose independently, do not label as proof of a >margin slowdown |
 | **Inconclusive** | No applicable bound establishes a claimed outcome, or validity/calibration is insufficient | Neither an automatic pass nor a demonstrated regression |
 
-Improvement implies noninferiority when \`delta >= 0\`; output SHOULD report both the **claim being evaluated** and all relevant confidence bounds, rather than hiding this overlap. An interval crossing 1 does not by itself imply inferiority, nor does failure to reject slowdown prove noninferiority. A missing/invalid interval is inconclusive, regardless of the point estimate.
+Improvement implies noninferiority when `delta >= 0`; output SHOULD report both the **claim being evaluated** and all relevant confidence bounds, rather than hiding this overlap. An interval crossing 1 does not by itself imply inferiority, nor does failure to reject slowdown prove noninferiority. A missing/invalid interval is inconclusive, regardless of the point estimate.
 
-For ProximalBase 0.6 hot paths, **retain the existing policy in #462 / PR #499**, unless separately amended by the maintainer: with \`delta=0.05\`, \`pass\` when the *one-sided 95% upper bound* is below 1.05; \`investigate\` when the point estimate is at least 1.05 **and** the one-sided lower bound exceeds 1; otherwise \`inconclusive\`. **“Investigate” is not proof that the true slowdown exceeds 5%.** Correctness, allocation, and complexity remain separate. Do not assume this 5% margin is calibrated or appropriate for whole solvers or estimators; those owners must justify their own margins.
+For ProximalBase 0.6 hot paths, **retain the existing policy in #462 / PR #499**, unless separately amended by the maintainer: with `delta=0.05`, `pass` when the *one-sided 95% upper bound* is below 1.05; `investigate` when the point estimate is at least 1.05 **and** the one-sided lower bound exceeds 1; otherwise `inconclusive`. **“Investigate” is not proof that the true slowdown exceeds 5%.** Correctness, allocation, and complexity remain separate. Do not assume this 5% margin is calibrated or appropriate for whole solvers or estimators; those owners must justify their own margins.
 
 **BC-20 — Calibration before automatic gating.** A mandatory timing gate MUST first demonstrate independent A/A (unchanged-vs-unchanged) stability under its stated environment and per-case sampling budget. Report false investigate events, interval behavior, distribution of paired ratios, missing/uncertifiable cases, process-order effects, and how frequently unchanged code is found noninferior at the selected margin. A planning goal such as ≥80% probability of noninferiority pass for an unchanged primary case may be used, but it is **not** a guarantee of 80% power to detect a slowdown exactly on the allowed boundary. Where the noise floor exceeds the effect of interest, label the case diagnostic, improve measurement, or use an explicit human decision; do not relax margins to produce green dashboards.
 
@@ -139,7 +139,7 @@ Suggested common concepts (field names and serialization are **proposed**, not a
 | Source/environment | exact commit/source hash/dirty flag, harness hash, Julia and package versions, manifest/dependency identities, CPU/OS/architecture, BLAS/Julia threads, bounds/coverage settings, optional CPU-frequency/power policy |
 | Replication | side, pair ID, seed/data hash, process identity, run order, sample budget, per-process declared timing summary |
 | Observation | time unit (ns preferred), samples, Julia heap bytes, GC when available, accuracy measure/threshold/status, failure diagnostics, optional RSS/device timing |
-| Assessment | \`rho\`, confidence bound type/level, \`delta\` and/or \`epsilon\`, A/A calibration reference, improvement/noninferiority/investigate/inconclusive, human review |
+| Assessment | `rho`, confidence bound type/level, `delta` and/or `epsilon`, A/A calibration reference, improvement/noninferiority/investigate/inconclusive, human review |
 | Retention | full raw records, analysis/code revision, reproducible invocation, artifact checksum, report link |
 
 **BC-28 — Honest environment comparisons.** Ordinary performance regressions MUST compare semantically compatible versions of the same workload under pinned environments. For cross-Julia/compiler, cross-architecture, external-competitor, or dependency-migration comparisons, declare the intended **stack-level estimand**. Never weaken strict ordinary-comparison identity checks silently just to produce a ratio.

@@ -205,7 +205,7 @@ value_and_prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Re
 
 # the step γ is a scalar or a vector with a step per group (see metric.jl)
 function _value_and_prox_groups!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Union{Real, AbstractVector})
-  isfinite(f.λ1) && _ordinary_group_weights(f, float(eltype(y))) ?
+  isfinite(f.λ1) && _ordinary_group_weights(f, _model_type(y, x)) ?
     _sparse_group_prox!(y, f, x, γ, Val(true)) : _sparse_group_prox!(y, f, x, γ, Val(false))
 end
 
@@ -214,14 +214,17 @@ function _sparse_group_prox!(y::AbstractArray, f::SparseGroupNormL2, x::Abstract
   _checkgroups(f, x)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
+  W = _model_type(y, x)
   _copy_ungrouped!(y, f, x)
   v2, v1 = zero(T), zero(T)
   for k in eachindex(f.groups)
     γk = _entry(γ, k)
     if (O && iszero(f.λ0)) || iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))
-      n1 = _soft_group_only!(y, x, f.groups[k], _typed_product(T, γk, f.λ1), _group_writes(y, f.groups[k]))
+      n1 = _soft_group_only!(y, x, f.groups[k], _typed_product(W, γk, f.λ1), _group_writes(y, f.groups[k]))
+      W === T || (n1 = _sumabs(y, f.groups[k]))        # O2: the values are those of the stored output
     else
-      n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], _typed_product(T, γk, f.λ1), (O ? _positive_product(T, γk, f.λ0, f.w[k]) : _weight_product(T, γk, f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+      n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], _typed_product(W, γk, f.λ1), (O ? _positive_product(W, γk, f.λ0, f.w[k]) : _weight_product(W, γk, f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+      W === T || ((n2, n1) = (_group_norm2(y, f.groups[k]), _sumabs(y, f.groups[k])))
       v2 += _group_value(f, f.λ0, f.w[k], n2, y, f.groups[k], T, ordinary)
     end
     iszero(f.λ1) || (v1 += convert(T, n1))

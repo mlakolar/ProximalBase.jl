@@ -442,6 +442,15 @@ where the function admits one (E4). Then the non-finite entries of the
 argument (E2, E3). This is an order of precedence, not three passes over the
 data.
 
+For a permitted `γ = 0` or `γ = Inf` endpoint (P1), first define the
+endpoint proximal map at each **finite** argument, retaining E4 domain
+constraints, and then interpret `±Inf` arguments using E3 for that map.
+This is a convention for simultaneous exceptional step and input; it does
+not assert that a joint two-variable limit exists. An unsupported endpoint
+or invalid step still raises before reading exceptional argument values
+or writing any output (O6). See [#311](https://github.com/mlakolar/ProximalBase.jl/issues/311)
+and [#469](https://github.com/mlakolar/ProximalBase.jl/issues/469).
+
 **E2. NaN.** A NaN entry of the argument is an undefined value, propagated as
 IEEE arithmetic propagates it.
 
@@ -470,6 +479,37 @@ NaN: `(x₁ - x₂)²/2` tends to `0` along `(t, t)` and to `1/2` along
 gives. Gradients and proximal outputs take the function's documented limit,
 and NaN in the dependent entries otherwise. Uncentered ridge, for example,
 maps `-Inf` to value `+Inf`, gradient `-Inf` and proximal output `-Inf`.
+
+For direct bounded ball/sphere projections `IndBallL1(r)`,
+`IndBallL2(r)` (`0 < r < Inf`) and `IndSphereL2(r)`
+(`0 < r < Inf`), one independent infinite scalar coordinate
+`x_k = ±Inf` and all other entries finite has the unique proximal
+limit `±r e_k`. For `IndBallL1(0)` and `IndBallL2(0)`, the
+projection is zero even with an infinite input. On symmetric storage, one
+off-diagonal degree of freedom represented by a mirrored pair has the
+limit `±r/sqrt(2)` in each entry. Two or more independent infinite
+unconstrained coordinates can have path-dependent projected directions,
+so their entire coupled block is NaN; the family never assumes that
+infinite magnitudes grow at equal rates.
+
+For `Constrained(NormL1, IndBallL2/IndSphereL2)`,
+`Constrained(GroupNormL2, IndBallL2/IndSphereL2)` and
+`Constrained(IndBallL0, IndBallL2/IndSphereL2)` with finite radius,
+the same **determined-limit** rule applies only after respecting the
+effective domain, hard-fixed coordinates, sparsity, and independently
+infinite degrees of freedom. A single group can contain several
+independent infinities and then has no determined direction.
+An infinite coordinate already fixed to zero by E4 does not itself
+determine a direction. No comparable limit is promised here for other
+coupled functions or other `BallConstrained` specializations.
+
+This finite-radius promise does not specify infinite-radius parameter
+semantics. NaN inputs remain governed by E2; zero-radius NaN and
+hard-fixed NaN questions require a separate E2/E4 decision. An infinite
+**computed** norm caused by finite-input overflow is not an infinite
+input and must use the usual R2 recovery. A value returned with the
+proximal output follows O2 at that stored output, not at the original
+infinite argument.
 
 **E4. Zero and infinite parameters.**
 
@@ -525,6 +565,22 @@ writing elsewhere. The named endpoints:
 - *Scalar steps on indicators,* constrained sets included, where the
   projection is unchanged.
 - *Ridge,* at `0` and `Inf`.
+- *Named finite-radius constrained penalties,* initially
+  `Constrained(NormL1, IndBallL2/IndSphereL2)` and
+  `Constrained(GroupNormL2, IndBallL2/IndSphereL2)`: at `γ = 0`,
+  project onto the effective domain, preserving hard-fixed coordinates
+  and the sphere's documented tie rule; a missing feasible point is an
+  error before writing. At `γ = Inf`, genuinely penalized instances
+  reject the step unless a distinct endpoint is explicitly documented.
+  Parameter-degenerate, effectively indicator cases at `γ = Inf` need
+  a separate admissibility decision.
+
+`Constrained(IndBallL0, IndBallL2/IndSphereL2)` is an
+indicator and follows the scalar-step indicator rule, provided its
+intersection is feasible. For an admitted `γ = Inf`, take the step
+endpoint at a fixed finite argument before extending it to infinite
+argument entries (E1/E3); this order is not a claim that the joint
+limit exists.
 
 Array steps on coupling sets and in the searches of `Constrained` must be
 positive and finite in every entry (see

@@ -265,4 +265,104 @@ end
   @test isequal(prox(Scaled(IndBallL2(1.0), 2.0), x3, Inf), prox(IndBallL2(1.0), x3))
 end
 
+
+# the stored point and the returned value of value_and_prox!
+function stored(f, x, γ, ::Type{T} = Float64) where {T}
+  @nospecialize
+  y = fill(T(SENTINEL), size(x))
+  v = value_and_prox!(y, f, convert(Vector{T}, x), γ)
+  y, v
+end
+
+@testset "value_and_prox! returns the value at the stored point (O2)" begin
+  sphere, ball = IndSphereL2(1.0), IndBallL2(1.0)
+  # an indicator returns zero in the output's precision, at every supported step
+  for f in direct, γ in (0, 0.0, 1.0, 1e300, Inf), T in (Float32, Float64)
+    y, v = stored(f, x3, γ, T)
+    @test v === zero(T)
+    @test all(!=(T(SENTINEL)), y)
+  end
+  # a penalized function: the value of f at the stored point y, as the constrained function evaluates it
+  cases = (
+    (Constrained(NormL1(0.5), ball), (0, 1.0, 1e-3, Inf)),
+    (Constrained(NormL1(0.5, [1.0, 2.0, 0.0]), ball), (0, 1.0, Inf)),
+    (Constrained(GroupNormL2(0.5, groups), ball), (0, 1.0, Inf)),
+    (Constrained(IndBallL0(1), ball), (0, 1.0, Inf)),
+    (Constrained(ZeroFunction(), ball), (0, 1.0, Inf)),
+    (Constrained(NormL1(0.5), sphere), (0, 1.0, 1e-3)),
+    (Constrained(GroupNormL2(0.5, groups), sphere), (0, 1.0, 1e-3)),
+    (Constrained(IndBallL0(1), sphere), (0, 1.0, Inf)),
+    # γ = Inf on the sphere: a zero level, a zero-weight entry, a zero-weight group, an ungrouped entry
+    (Constrained(NormL1(0.0), sphere), (0, 1.0, Inf)),
+    (Constrained(NormL1(1.0, [1.0, 0.0, 1.0]), sphere), (Inf,)),
+    (Constrained(GroupNormL2(0.0, groups), sphere), (Inf,)),
+    (Constrained(GroupNormL2(1.0, groups, [1.0, 0.0]), sphere), (Inf,)),
+    (Constrained(GroupNormL2(1.0, [[1, 2]], [1.0]), sphere), (Inf,)),
+  )
+  @testset "$(nameof(typeof(c.f)))" for (c, steps) in cases, γ in steps, T in (Float64, Float32)
+    y, v = stored(c, x3, γ, T)
+    @test v isa T
+    @test isapprox(v, T(c(y)); rtol = 8eps(T), atol = 8eps(T))
+    c.f isa Union{IndBallL0, ZeroFunction} || @test isapprox(v, T(c.f(y)); rtol = 8eps(T), atol = 8eps(T))
+  end
+  # values that follow from the penalty alone
+  for (c, expected) in (
+        (Constrained(NormL1(0.5), ball), 0.0),                                     # γ = Inf: zero
+        (Constrained(NormL1(0.5, [1.0, 2.0, 0.0]), ball), 0.0),                    # the zero weight is on the free entry
+        (Constrained(NormL1(0.0), sphere), 0.0),
+        (Constrained(NormL1(1.0, [1.0, 0.0, 1.0]), sphere), 0.0),
+        (Constrained(GroupNormL2(1.0, groups, [1.0, 0.0]), sphere), 0.0),
+      )
+    @test stored(c, x3, Inf)[2] == expected
+  end
+end
+
+@testset "Scaled indicators at a zero step" begin
+  # the scale of an indicator does not matter, so a zero step is a step for any scale, also α = Inf
+  for f in (IndBallL2(1.0), IndSimplex(1.0), IndSphereL2(1.0), IndBallL1(1.0), IndBallL0(1), Constrained(IndBallL0(1), IndBallL2(1.0))),
+      α in (0.5, 2.0, 1e300, Inf)
+    s = Scaled(f, α)
+    for op in proximal
+      ref = result(op, f, x3, 1)
+      @test same(result(op, s, x3, 0), ref)
+      @test same(result(op, s, x3, 1), ref)
+      @test same(result(op, s, x3, Inf), ref)
+      rejected(op, s, x3, -1; message = "nonnegative")
+      rejected(op, s, x3, NaN; message = "nonnegative")
+    end
+    # through a sum, where the step is checked first
+    sum2 = SeparableSum(IndNonnegative(), s)
+    y = (zeros(3), zeros(3))
+    prox!(y, sum2, (copy(x3), copy(x3)), 0)
+    @test same(y[2], result(prox!, f, x3, 1))
+    y = (fill(SENTINEL, 3), fill(SENTINEL, 3))
+    @test thrown(prox!, sum2, y, (copy(x3), copy(x3)), -1) isa ArgumentError
+    @test all(==(SENTINEL), y[1]) && all(==(SENTINEL), y[2])
+  end
+  # a function that is not an indicator keeps the indeterminate Inf * 0 as an error, before any write
+  c = Constrained(NormL1(0.5), IndBallL2(1.0))
+  for op in proximal
+    rejected(op, Scaled(c, Inf), x3, 0; message = "nonnegative")
+  end
+  # the product is unchanged for a finite scale
+  @test same(result(prox!, Scaled(c, 2.0), x3, 0.25), result(prox!, c, x3, 0.5))
+end
+
+@testset "a bad shape together with a bad step writes nothing" begin
+  # which error comes first is not part of the contract; neither leaves a write
+  for f in (direct..., constrained...), γ in (-1.0, NaN)
+    y = fill(SENTINEL, 2)
+    e = thrown(prox!, f, y, ones(3), γ)
+    @test e isa Union{ArgumentError, DimensionMismatch}
+    @test all(==(SENTINEL), y)
+    e = thrown(value_and_prox!, f, y, ones(3), γ)
+    @test e isa Union{ArgumentError, DimensionMismatch}
+    @test all(==(SENTINEL), y)
+  end
+  s = SeparableSum(IndNonnegative(), IndBallL2(1.0))
+  y = (fill(SENTINEL, 3), fill(SENTINEL, 2))
+  @test thrown(prox!, s, y, (copy(x3), copy(x3)), -1.0) isa Union{ArgumentError, DimensionMismatch}
+  @test all(==(SENTINEL), y[1]) && all(==(SENTINEL), y[2])
+end
+
 end

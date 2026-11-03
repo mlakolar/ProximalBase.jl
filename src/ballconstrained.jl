@@ -540,19 +540,31 @@ function _checkstep(op::O, c::SphereConstrained{<:NormL1}, y::AbstractArray, x::
   _checkstep_nonneg(γ)
   isempty(x) && return true
   U = promote_type(float(eltype(x)), float(eltype(y)))
-  f = c.f
-  any(k -> isfinite(_sphere_threshold(U, γ, f.λ0, _entry(f.w, k))), eachindex(IndexLinear(), x)) ||
+  _sphere_finite_threshold(c.f, γ, U, x) ||
     throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
   true
 end
 function _checkstep(op::O, c::SphereConstrained{<:GroupNormL2}, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
   _checkstep_nonneg(γ)
   isempty(x) && return true
-  f = c.f
   T = float(eltype(y))
-  U = promote_type(float(eltype(x)), T)
-  (any(i -> _group(f, i) == 0, eachindex(IndexLinear(), x)) ||
-   any(k -> isfinite(convert(U, convert(T, _weight_product(γ, f.λ0, f.w[k])))), eachindex(f.groups))) ||
+  _sphere_finite_threshold(c.f, γ, T, promote_type(float(eltype(x)), T), x) ||
     throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
   true
+end
+# Plain loops that stop at the first finite threshold: an ordinary step ends at the first entry (group).
+function _sphere_finite_threshold(f::NormL1, γ, ::Type{U}, x) where {U}
+  for k in eachindex(IndexLinear(), x)
+    isfinite(_weight_product(U, γ, f.λ0, _entry(f.w, k))) && return true
+  end
+  false
+end
+function _sphere_finite_threshold(f::GroupNormL2, γ, ::Type{T}, ::Type{U}, x) where {T, U}
+  for k in eachindex(f.groups)
+    isfinite(convert(U, _weight_product(T, γ, f.λ0, f.w[k]))) && return true
+  end
+  for i in eachindex(IndexLinear(), x)      # an entry in no group is not penalized
+    _group(f, i) == 0 && return true
+  end
+  false
 end

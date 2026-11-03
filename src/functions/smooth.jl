@@ -632,6 +632,38 @@ end
   (W = typeof(float(v)); _ridge_apply(_ridge_ordinary(W, γ, r.f.λ), W(v)))
 Base.@propagate_inbounds prox_entry(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) =
   (W = typeof(float(v)); _ridge_apply_fit(_ridge_ordinary(W, γ, r.f.λ), W(v), r.f.y[i]))
+# The slope of the ridge proximal point in its argument is the weight that multiplies it:
+# the larger weight, or the smaller one carried as m·2^e (which rounds to 0 only where
+# the weight itself underflows). The center does not enter it.
+@inline _ridge_slope(o::_RidgeOrdinary) = o.a
+@inline _ridge_slope(s::_RidgeScaled) = s.small_x ? ldexp(s.m, s.e) : s.L
+
+# prox_entry and the slope of the ridge, from one coefficient: the value is computed by
+# the code of prox_entry, so that the two cannot disagree.
+@inline function _ridge_prox_slope(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real)
+  W = typeof(float(v))
+  if _ridge_needs_scaling(W, γ, f.λ)
+    s = _ridge_scaled(W, γ, f.λ)
+    _ridge_apply(s, W(v)), _ridge_slope(s)
+  else
+    o = _ridge_ordinary(W, γ, f.λ)
+    _ridge_apply(o, W(v)), _ridge_slope(o)
+  end
+end
+Base.@propagate_inbounds function _ridge_prox_slope(f::SqrNormL2, v::Real, i::Integer, γ::Real)
+  W = typeof(float(v))
+  if _ridge_needs_scaling(W, γ, f.λ)
+    s = _ridge_scaled(W, γ, f.λ)
+    _ridge_apply(s, W(v), f.y[i]), _ridge_slope(s)
+  else
+    o = _ridge_ordinary(W, γ, f.λ)
+    _ridge_apply_entry(o, W(v), f.y[i]), _ridge_slope(o)
+  end
+end
+@inline _ridge_prox_slope(r::_OrdinaryRidge{<:SqrNormL2{<:Real, Nothing}}, v::Real, ::Integer, γ::Real) =
+  (W = typeof(float(v)); o = _ridge_ordinary(W, γ, r.f.λ); (_ridge_apply(o, W(v)), _ridge_slope(o)))
+Base.@propagate_inbounds _ridge_prox_slope(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) =
+  (W = typeof(float(v)); o = _ridge_ordinary(W, γ, r.f.λ); (_ridge_apply_fit(o, W(v), r.f.y[i]), _ridge_slope(o)))
 _checkparams(f::SqrNormL2, x) = _checkparam(f.y, x)
 
 kkt_violation(::SqrNormL2{<:Real, Nothing}, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]))

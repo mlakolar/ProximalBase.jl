@@ -4,19 +4,21 @@
 #
 # Correctness references (full svd/eigen) are computed outside the timed regions. Each case is
 # called once before it is timed (that first call is also recorded, with its compilation, as
-# `first_call_s`); timings are medians of BenchmarkTools samples on one thread. The `large`
+# `first_call_s_cold_only_for_first_case`); timings are medians of BenchmarkTools samples on one thread. The `large`
 # suite adds sparse matrices of order 10^4 and is meant for a separate run.
 using ProximalBase, BenchmarkTools, Random, LinearAlgebra, SparseArrays, Printf
 
+BLAS.set_num_threads(1)           # one thread, recorded in every row's `note`
 label, out = ARGS[1], ARGS[2]
 suite = length(ARGS) >= 3 ? ARGS[3] : "standard"
 BenchmarkTools.DEFAULT_PARAMETERS.seconds = suite == "quick" ? 0.2 : 1.0
 BenchmarkTools.DEFAULT_PARAMETERS.samples = 10_000
 
 rows = String[]
-header = "label,family,case,method,T,shape,median_ms,min_ms,allocs,bytes,first_call_s,steps,fallback,rel_obj_err,note"
+header = "label,family,case,method,T,shape,median_ms,min_ms,allocs,bytes,first_call_s_cold_only_for_first_case,steps,fallback,rel_obj_err,note"
 
 function record!(family, case, method, T, shape, t; first = NaN, steps = "", fallback = "", err = NaN, note = "")
+  note = string(note, note == "" ? "" : "; ", "blas=", BLAS.get_num_threads(), " julia=", Threads.nthreads())
   push!(rows, join((label, family, case, method, T, shape, @sprintf("%.4f", median(t).time / 1e6),
                     @sprintf("%.4f", minimum(t).time / 1e6), t.allocs, t.memory, @sprintf("%.3f", first),
                     steps, fallback, @sprintf("%.2e", err), note), ","))
@@ -64,7 +66,7 @@ function nuclear_case(family, name, G, r; methods, T = Float64, reference = true
     f = if method === :full
       () -> lmo_atom(C, G)
     elseif method === :krylov
-      () -> lmo_atom(C, G; method = :krylov)
+      () -> lmo_atom(C, G; method = :krylov, rtol = sqrt(eps(T)), maxiter = 150)
     elseif method === :partial        # the existing randomized subspace iteration of #45 on a dense copy;
       P = IndBallRank(1; partial = true)   # warm: the same input again, so the stored block is accepted at once
       Y = zeros(T, size(G))
@@ -78,7 +80,7 @@ function nuclear_case(family, name, G, r; methods, T = Float64, reference = true
     t, f1 = measure(f)
     err, steps, fb = NaN, "", ""
     if method === :krylov
-      a = lmo_atom(C, G; method = :krylov)
+      a = lmo_atom(C, G; method = :krylov, rtol = sqrt(eps(T)), maxiter = 150)
       err = reference ? abs(dot(G, a) + r * ref) / (r * ref) : NaN
       e = ProximalBase._scale_exponent(ProximalBase._max_abs(G, T))
       _, _, _, _, st, ok = ProximalBase._gkl_top(G, T, e, sqrt(eps(T)), 150)
@@ -87,8 +89,8 @@ function nuclear_case(family, name, G, r; methods, T = Float64, reference = true
       a = lmo_atom(C, G)
       err = reference ? abs(dot(G, a) + r * ref) / (r * ref) : NaN
     end
-    record!(family, name, string(method), T, shape, t; first = f1, steps, fallback = fb, err,
-            note = method in (:partial, :partialcold) ? "dense copy; rank-1 projection (not the LMO)" : "")
+    record!(method in (:partial, :partialcold) ? "projection-baseline" : family, name, string(method), T, shape, t; first = f1, steps, fallback = fb, err,
+            note = method in (:partial, :partialcold) ? "rank-1 projection of #45, not an LMO; dense copy made outside the timing; warm = same input again" : (G isa SparseMatrixCSC && method === :full ? "includes densification" : ""))
   end
 end
 
@@ -144,7 +146,7 @@ for n in (1_000, 10_000)
   G = completion_gradient(Xoshiro(7), n, n, 0.002)
   a = lmo_atom(SingularValue(IndBallL1(1.0)), G; method = :krylov)
   push!(rows, join((label, "storage", "nuclear atom", "krylov", "Float64", "$(n)x$n", "", "", "", Base.summarysize(a), "", "", "", "",
-                    "dense would be $(8n * n) B"), ","))
+                    "atom size only; Krylov peak workspace is in the bytes column of the timing rows"), ","))
   @printf("storage: %dx%d atom %d B, dense %d B\n", n, n, Base.summarysize(a), 8n * n)
 end
 

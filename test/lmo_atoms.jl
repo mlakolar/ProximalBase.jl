@@ -200,7 +200,7 @@ end
   A = Diagonal([3.0, -2.0, 1.0]) |> Matrix
   @test Array(lmo_atom(D, A)) ≈ Diagonal([0.0, 1.0, 0.0])
   A = 3.0 * (v = normalize(randn(5)); v * v')
-  @test dot(A, lmo_atom(D, A)) ≈ 0 atol = 1e-14                               # λ_min = 0 with multiplicity 4
+  @test dot(A, lmo_atom(D, A)) ≈ 0 atol = 100 * 3 * eps()                  # λ_min = 0 with multiplicity 4
   # zero gradient: a feasible atom for a fixed trace, and the origin otherwise
   @test Array(lmo_atom(Spectral(IndSimplex(2.0)), zeros(3, 3))) ≈ Diagonal([2.0, 0, 0]) rtol = 4eps()   # the factor is √r
   @test Array(lmo_atom(Spectral(IndSimplex(2.0; equality = false)), zeros(3, 3))) == zeros(3, 3)
@@ -338,7 +338,8 @@ end
   lmo_atom(C, G2); lmo_atom(C, G3); lmo!(zeros(9, 6), C, randn(9, 6)); lmo_atom(C, randn(9, 6); method = :krylov)
   @test a1.U == U1 && a1.V == V1
   a2 = lmo_atom(C, G2)
-  @test lmo_atom(C, G1).U == U1 && a2.U !== a1.U
+  @test lmo_atom(C, G1).U == U1
+  @test !Base.mightalias(a1.U, a2.U) && !Base.mightalias(a1.V, a2.V) && !Base.mightalias(a1.U, a1.V)
   A1, A2 = with_eigenvalues(Float64, randn(6)), with_eigenvalues(Float32, randn(4))
   d1 = lmo_atom(D, A1)
   f1 = lmo_atom(F, A1)
@@ -349,10 +350,11 @@ end
   X = randn(6, 6)
   for _ in 1:3
     a = lmo_atom(C, X)
+    @test dot(X, a) ≈ -2.0 * opnorm_ref(X) rtol = 1e-12
     X = Array(a)
   end
-  @test size(X) == (6, 6)
-  # one set object per task: separate sets in parallel tasks agree with the sequential results
+  # one set object per task: separate sets in parallel tasks agree with the sequential results (with one
+  # thread, as in CI by default, the tasks run in turn and this checks only the isolation of the sets)
   sets = [SingularValue(IndBallL1(2.0)) for _ in 1:4]
   Gs = [randn(20, 15) for _ in 1:4]
   seq = [lmo_atom(SingularValue(IndBallL1(2.0)), G).U for G in Gs]

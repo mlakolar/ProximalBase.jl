@@ -690,7 +690,10 @@ type: [`IndBox`](@ref) has an oracle when every bound is finite, and
 [`IndSimplex`](@ref), [`IndBallL1`](@ref) and [`IndBallL2`](@ref) when the radius
 is finite, and the capped simplex `Constrained(IndBox(0, 1), IndHyperplane(a, k))`
 when `a` is `1` or an array of ones and `k` is a nonnegative integer; a scalar `a`
-does not know the dimension, so `0 ≤ k ≤ n` is checked by `lmo!`. A `false` means that the oracle is unsupported, which is a different
+does not know the dimension, so `0 ≤ k ≤ n` is checked by `lmo!`. It is also `true` for the matrix sets
+`SingularValue(IndBallL1(r))` (the nuclear-norm ball), `Spectral(IndSimplex(r))` (the density matrices and,
+with `equality = false`, the PSD trace ball) and the Fantope `Spectral(Constrained(IndBox(0, 1),
+IndHyperplane(1, k)))`, under the same conditions on `r` and `k`. A `false` means that the oracle is unsupported, which is a different
 statement from "the linear objective is unbounded below": an unbounded set can
 have a finite minimum for some directions, and `lmo!` makes no promise about
 sets outside the compact families it lists.
@@ -707,8 +710,12 @@ before writing. Supported sets: [`IndSimplex`](@ref) (equality and inequality),
 [`IndBallL1`](@ref), [`IndBallL2`](@ref), [`IndBox`](@ref) and
 [`IndBallLinf`](@ref) with finite bounds, and the capped simplex
 `Constrained(IndBox(0, 1), IndHyperplane(1, k))` (the normal `1` or an array of
-ones, an integer `0 ≤ k ≤ length(g)`). No other `LinearConstrained` set has an
-oracle: other bounds, normals, halfspaces and hyperslabs do not.
+ones, an integer `0 ≤ k ≤ length(g)`). The matrix sets `SingularValue(IndBallL1(r))`,
+`Spectral(IndSimplex(r))` and the Fantope have dense oracles for a real square (spectral sets) or
+rectangular `g`, which write `-r u vᵀ`, `r v vᵀ` and `Q Qᵀ`, and [`lmo_atom`](@ref) returns the same
+minimizers in factored form without the dense matrix; see there for their ties, symmetric-part
+convention and exactness. A non-finite entry of such a `g` gives an all-`NaN` `s`. No other
+`LinearConstrained` set has an oracle: other bounds, normals, halfspaces and hyperslabs do not.
 
 | Set | `s` | Ties and degenerate cases |
 |:----|:----|:--------------------------|

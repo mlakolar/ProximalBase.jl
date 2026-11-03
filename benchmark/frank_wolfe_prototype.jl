@@ -1,7 +1,7 @@
 # A minimal Frank–Wolfe prototype that consumes `lmo_atom`, for matrix completion (issue #518,
 # consumer: ProximalSolvers #145). It is a benchmark script, not a solver.
 #
-#   julia --project=benchmark benchmark/frank_wolfe_prototype.jl <out.csv> <m> <n> <rank> <p> [reps]
+#   julia --project=benchmark benchmark/frank_wolfe_prototype.jl <out.csv> <m> <n> <rank> <p> [reps] [seed]
 #
 # Constrained problem   min ½‖P_Ω(X) − y‖²  s.t. ‖X‖_* ≤ δ,
 # penalized comparator  min ½‖P_Ω(X) − y‖² + λ‖X‖_*  by accelerated proximal gradient (FISTA with
@@ -9,8 +9,13 @@
 #
 # The two formulations share their solution: X_λ solves the constrained problem for δ = ‖X_λ‖_*.
 # X_λ is computed first, to high accuracy, so that f* = f(X_λ) is known to both methods. FW is
-# stopped on f − f* (conservative: the penalized suboptimality of a feasible X is at most f − f*),
-# the comparator on F − F*. Times exclude the cost of the stopping measurement.
+# stopped on f − f* ≤ t (f(0) − f*), and the comparator on F − F* ≤ t (f(0) − f*): the same absolute
+# threshold. For a feasible X, F − F* = (f − f*) + λ(‖X‖_* − δ) ≤ f − f*, so the FW criterion is the
+# stricter per iterate, but FISTA iterates are infeasible for the constrained problem: the two
+# criteria answer different questions, and this is stated with every result. Times exclude the cost
+# of the stopping measurement. f*, F* and δ come from FISTA itself (3000 iterations with an inexact
+# partial prox); the reference is checked by its proximal-gradient residual, which is printed. A
+# tolerance that is not reached is written as a censored row (time NaN), never dropped.
 #
 # FW keeps the iterate as `Xo`, its values on the observed entries (all that the loss and the
 # gradient read), and the factors of its atoms, X = Σⱼ cⱼ uⱼ vⱼᵀ: no m × n matrix is formed.
@@ -19,10 +24,11 @@ using ProximalBase, LinearAlgebra, SparseArrays, Random, Printf
 out = ARGS[1]
 m, n, rnk = parse(Int, ARGS[2]), parse(Int, ARGS[3]), parse(Int, ARGS[4])
 p = parse(Float64, ARGS[5])
-reps = length(ARGS) >= 6 ? parse(Int, ARGS[6]) : 3
+reps = length(ARGS) >= 6 ? parse(Int, ARGS[6]) : 5
+seed = length(ARGS) >= 7 ? parse(Int, ARGS[7]) : 145
 tols = (1e-2, 1e-3, 1e-4)
 
-rng = Xoshiro(145)
+rng = Xoshiro(seed)
 pattern = sprand(rng, m, n, p)
 I, J, _ = findnz(pattern)                                  # column-major, the order of a CSC matrix
 A, B = randn(rng, m, rnk) / rnk^0.25, randn(rng, n, rnk) / rnk^0.25
@@ -83,6 +89,15 @@ fstar = f(Xo_λ)
 Fstar = fstar + λ * δ
 f0 = f(zeros(nobs))
 F0 = f0
+# the reference is checked by its proximal-gradient residual ‖X − prox(X − ∇f(X))‖ / ‖X‖
+let g = NuclearNorm(λ; partial = true), V = copy(Xλ), Z = similar(Xλ)
+  @inbounds for q in 1:nobs
+    V[I[q], J[q]] = y[q]                                 # X − ∇f(X)
+  end
+  prox!(Z, g, V, 1.0)
+  global ref_residual = norm(Z - Xλ) / norm(Xλ)
+end
+@printf("reference residual ‖X − prox(X − ∇f)‖/‖X‖ = %.2e\n", ref_residual)
 @printf("m=%d n=%d rank=%d obs=%d  λ=%.4g δ=‖X_λ‖_*=%.4g  rank(X_λ)=%d  f*=%.6g f(0)=%.6g\n", m, n, rnk, nobs, λ, δ,
         count(>(1e-6 * δ), svdvals(Xλ)), fstar, f0)
 
@@ -137,44 +152,66 @@ function frank_wolfe(; method, maxiter, tol, exactgap = false)
     end
     length(result) == length(tols) && !exactgap && break
   end
-  result, gaps, (sizeof(Float64) * (length(coefs) * (m + n) + length(coefs)))
+  result, gaps, Base.summarysize((coefs, Us, Vs, Xo, R, Gk))
 end
 
 # warm up (compilation) on a few iterations
 frank_wolfe(; method = :krylov, maxiter = 3, tol = 0.0)
 fista(λ; maxiter = 2)
 
-rows = ["m,n,rank,obs,method,tol,time_s,iterations,atoms_or_rank,factor_bytes,dense_bytes"]
-for rep in 1:reps
-  # interleaved: FW (Krylov), FW (full, dense gradient), comparator, in this order each repetition
-  res, _, bytes = frank_wolfe(; method = :krylov, maxiter = 5_000, tol = 0.0)
+rows = ["m,n,rank,obs,seed,rep,method,tol,time_s,iterations,atoms_or_rank,state_bytes,dense_bytes,reference_residual"]
+push!(rows, join((m, n, rnk, nobs, seed, 0, "reference", 0, "NaN", 0, 0, 0, 8 * m * n, @sprintf("%.3e", ref_residual)), ","))
+times = Dict{Tuple{String, Float64}, Vector{Float64}}()
+row(rep, method, t, tm, it, atoms, bytes) = push!(rows, join((m, n, rnk, nobs, seed, rep, method, t, tm, it, atoms, bytes, 8 * m * n,
+                                                           @sprintf("%.3e", ref_residual)), ","))
+function record_fw(rep, method, res, bytes)
   for t in tols
-    haskey(res, t) || continue
-    push!(rows, join((m, n, rnk, nobs, "fw-krylov", t, @sprintf("%.4f", res[t][1]), res[t][2], res[t][3], bytes, 8 * m * n), ","))
-  end
-  m * n <= 4_000_000 && let (res, _, bytes) = frank_wolfe(; method = :full, maxiter = 5_000, tol = 0.0)
-    for t in tols
-      haskey(res, t) || continue
-      push!(rows, join((m, n, rnk, nobs, "fw-full", t, @sprintf("%.4f", res[t][1]), res[t][2], res[t][3], bytes, 8 * m * n), ","))
+    if haskey(res, t)
+      row(rep, "fw-" * method, t, @sprintf("%.4f", res[t][1]), res[t][2], res[t][3], bytes)
+      push!(get!(times, ("fw-" * method, t), Float64[]), res[t][1])
+    else
+      row(rep, "fw-" * method, t, "NaN", -1, -1, bytes)         # censored: not reached
+      push!(get!(times, ("fw-" * method, t), Float64[]), NaN)
     end
   end
-  Z, trace = fista(λ; maxiter = 5_000, target = Fstar, f0F0 = minimum(tols) * (F0 - Fstar))
+end
+for rep in 1:reps
+  # interleaved within a repetition: FW with the Krylov oracle, FW with the full oracle, the comparator
+  res, _, bytes = frank_wolfe(; method = :krylov, maxiter = 5_000, tol = 0.0)
+  record_fw(rep, "krylov", res, bytes)
+  if m * n <= 4_000_000
+    res, _, bytes = frank_wolfe(; method = :full, maxiter = 5_000, tol = 0.0)
+    record_fw(rep, "full", res, bytes)
+  end
+  Z, trace = fista(λ; maxiter = 5_000, target = Fstar, f0F0 = minimum(tols) * (f0 - fstar))
   sv = svdvals(Z)
   r = count(>(1e-8 * sv[1]), sv)
+  state = 4 * sizeof(Float64) * m * n                   # X, Xprev, Y, V
   for t in tols
-    k = findfirst(x -> x[3] - Fstar <= t * (F0 - Fstar), trace)
-    k === nothing && continue
-    push!(rows, join((m, n, rnk, nobs, "fista-nuclear", t, @sprintf("%.4f", trace[k][2]), trace[k][1], r,
-                      8 * m * n * 4, 8 * m * n), ","))
-    @printf("rep %d tol %.0e: fista %.2fs (%d it)\n", rep, t, trace[k][2], trace[k][1])
+    k = findfirst(x -> x[3] - Fstar <= t * (f0 - fstar), trace)
+    if k === nothing
+      row(rep, "fista-nuclear", t, "NaN", -1, r, state)
+      push!(get!(times, ("fista-nuclear", t), Float64[]), NaN)
+    else
+      row(rep, "fista-nuclear", t, @sprintf("%.4f", trace[k][2]), trace[k][1], r, state)
+      push!(get!(times, ("fista-nuclear", t), Float64[]), trace[k][2])
+    end
   end
-  @printf("rep %d: fw-krylov %s\n", rep, [(t, res[t][1], res[t][2]) for t in tols if haskey(res, t)])
+  @printf("rep %d done\n", rep); flush(stdout)
+end
+# the paired decision: the median over repetitions of the ratio FW time / FISTA time, per tolerance
+for method in ("fw-krylov", "fw-full"), t in tols
+  haskey(times, (method, t)) || continue
+  ratios = times[(method, t)] ./ times[("fista-nuclear", t)]
+  ok = filter(!isnan, ratios)
+  @printf("%-10s tol %.0e: reached %d/%d, median time FW/FISTA = %s (a ratio ≤ 0.8 meets the 20%% criterion)\n",
+          method, t, length(ok), length(ratios), isempty(ok) ? "n/a" : @sprintf("%.3f", sort(ok)[(length(ok) + 1) ÷ 2]))
 end
 
 # honest gap: the approximate-oracle gap against the exact one, on a short run
 _, gaps, _ = frank_wolfe(; method = :krylov, maxiter = 100, tol = 0.0, exactgap = m * n <= 4_000_000)
 for (k, g_approx, g_exact, sub) in gaps
-  push!(rows, join((m, n, rnk, nobs, "gap-check", k, @sprintf("%.6e", g_approx), @sprintf("%.6e", g_exact), @sprintf("%.6e", sub), "", ""), ","))
+  push!(rows, join((m, n, rnk, nobs, seed, 0, "gap-check", k, @sprintf("%.6e", g_approx), @sprintf("%.6e", g_exact), @sprintf("%.6e", sub), "", "", ""), ","))
 end
 open(out, "w") do io
   foreach(r -> println(io, r), rows)

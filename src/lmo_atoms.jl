@@ -665,7 +665,8 @@ end
 #  conjugate values, the support functions
 ####################################
 
-# The conjugate of f ∘ λ is f* ∘ λ (Lewis, 1996) on the symmetric matrices, where F is finite, so
+# The domain is the finite matrices, as for the value of Spectral and SingularValue: a non-finite entry
+# gives Inf. The conjugate of f ∘ λ is f* ∘ λ (Lewis, 1996) on the symmetric matrices, where F is finite, so
 # F*(Y) = F*((Y + Yᵀ)/2): the values are those of the eigenvalues of the symmetric part of Y.
 # r λ_max for the density matrices, r max(λ_max, 0) for the PSD matrices of trace at most r, and the
 # sum of the k largest eigenvalues for the Fantope, without an atom or a dense matrix.

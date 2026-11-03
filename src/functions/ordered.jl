@@ -219,7 +219,8 @@ function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{In
   nb = 0
   # with every |vᵢ| ≤ bound, the sums and the products compared below stay below
   # floatmax; a larger finite entry redoes the pooling in means
-  bound = T <: AbstractFloat ? T(Float64(floatmax(T)) / (4 * Float64(n)^2)) : T(Inf)
+  # (a power of two ≥ 4n², so the bound is exact in every floating-point type, BigFloat included)
+  bound = T <: AbstractFloat ? ldexp(floatmax(T), -(2 * ceil(Int, log2(max(n, 1))) + 2)) : T(Inf)
   over = false
   @inbounds for i in 1:n
     nb += 1
@@ -250,25 +251,30 @@ function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{In
 end
 
 # The same in block means, which never leave the range of the entries: for
-# entries too large for the sums of _pava!. A pooled mean is the convex
-# combination of the two means, kept inside their interval.
-function _pava_means!(y::AbstractVector, v::AbstractVector, m::Vector{T}, c::Vector{Int}, σ::Int) where {T}
+# entries too large for the sums of _pava!. The means are kept in a type that
+# holds a Float16 or Float32 entry and a block count exactly (Float64; the buffer
+# of the sums for the wider types) and rounded to T once, at the output. A pooled
+# mean is the convex combination of the two means, kept inside their interval.
+function _pava_means!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{Int}, σ::Int) where {T}
+  W = T <: Union{Float16, Float32} ? Float64 : T
+  m = W === T ? s : Vector{W}(undef, length(v))
   nb = 0
   @inbounds for i in 1:length(v)
     nb += 1
-    m[nb] = convert(T, v[i])
+    m[nb] = convert(W, v[i])
     c[nb] = 1
     while nb > 1 && (σ > 0 ? m[nb - 1] > m[nb] : m[nb - 1] < m[nb])
-      m[nb - 1] = _convex_mean(m[nb - 1], m[nb], T(c[nb - 1]), T(c[nb]))
+      m[nb - 1] = _convex_mean(m[nb - 1], m[nb], W(c[nb - 1]), W(c[nb]))
       c[nb - 1] += c[nb]
       nb -= 1
     end
   end
   i = 0
   @inbounds for b in 1:nb
+    r = convert(T, m[b])
     for _ in 1:c[b]
       i += 1
-      y[i] = m[b]
+      y[i] = r
     end
   end
   y

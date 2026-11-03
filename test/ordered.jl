@@ -450,6 +450,72 @@ end
   # infinite entries: unchanged
   @test isequal(prox(IndIsotonic(), [Inf, -Inf]), [NaN, NaN])
   @test prox(IndIsotonic(), [-Inf, Inf]) == [-Inf, Inf]
+  # the isotonic regression by pooling in BigFloat sums: an independent oracle for long pools
+  function pooled_reference(x; decreasing = false)
+    σ = decreasing ? -1 : 1
+    sums, cnt = BigFloat[], Int[]
+    for e in x
+      push!(sums, big(e)); push!(cnt, 1)
+      while length(sums) > 1 && σ * (sums[end-1] * cnt[end] - sums[end] * cnt[end-1]) > 0
+        sums[end-1] += sums[end]; cnt[end-1] += cnt[end]; pop!(sums); pop!(cnt)
+      end
+    end
+    reduce(vcat, [fill(sums[b] / cnt[b], cnt[b]) for b in eachindex(sums)])
+  end
+  maxrel(y, ref) = maximum(abs.((big.(y) .- ref) ./ ref))
+  # long pools: the means are not rounded again and again in the narrow type
+  for (T, n1, n2, a) in ((Float16, 3000, 3000, Float16(1)), (Float32, 10_000, 10_000, 1f37),
+                         (Float32, 3000, 5000, 2f38), (Float64, 20_000, 30_000, 1e307))
+    x = vcat(fill(a, n1), zeros(T, n2))
+    ref = pooled_reference(x)
+    y = prox(IndIsotonic(), x)
+    @test all(isfinite, y)
+    tol = T == Float64 ? 100 * eps(T) : 2 * eps(T)   # Float64 has no wider type to carry the means in
+    @test maxrel(y, ref) <= tol
+    xd = reverse(x)                                    # decreasing, the other direction
+    yd = prox(IndIsotonic(decreasing = true), xd)
+    @test maxrel(yd, pooled_reference(xd; decreasing = true)) <= tol
+    z = copy(x)                                        # y aliases x
+    @test prox!(z, IndIsotonic(), z, one(T)) == y
+    # two pools of random size at the scale of a
+    r = MersenneTwister(5)
+    x = vcat(a .* (1 .+ T.(rand(r, n1)) ./ 4), a .* T.(rand(r, n2)) ./ 4, a .* (1 .+ T.(rand(r, 100)) ./ 4))
+    @test maxrel(prox(IndIsotonic(), x), pooled_reference(x)) <= 4 * tol
+  end
+  # the largest finite Float16 in a block of more than 2048 entries
+  let M16 = floatmax(Float16), x = vcat(fill(M16, 3000), zeros(Float16, 3000))
+    @test prox(IndIsotonic(), x) == fill(M16 / 2, 6000)
+  end
+  # BigFloat near floatmax: the threshold is in BigFloat's own range
+  setprecision(BigFloat, 256) do
+    M = floatmax(BigFloat)
+    for (x, e) in ((BigFloat[M, M / 2], [3 * (M / 4), 3 * (M / 4)]), (BigFloat[M, -M], [zero(M), zero(M)]),
+                   (BigFloat[M / 2, M, M / 2, M], [M / 2, 3 * (M / 4), 3 * (M / 4), M]))
+      y = prox(IndIsotonic(), x)
+      @test all(isfinite, y) && all(y .== e)
+      yd = prox(IndIsotonic(decreasing = true), -x)
+      @test all(yd .== -e)
+      z = copy(x)
+      @test prox!(z, IndIsotonic(), z, one(M)) == y
+    end
+    @test all(prox(IndIsotonic(), BigFloat[M, -M], BigFloat[1, 2]) .≈ M / 3)
+  end
+  # infinite entries beside large finite ones keep their results
+  let M = floatmax(Float64)
+    @test prox(IndIsotonic(), [M, M / 2, Inf]) ≈ [0.75M, 0.75M, Inf]
+    @test prox(IndIsotonic(), [-Inf, M, M / 2]) ≈ [-Inf, 0.75M, 0.75M]
+    @test prox(IndIsotonic(), [Inf, M]) == [Inf, Inf]
+    @test isequal(prox(IndIsotonic(), [Inf, M, -Inf]), [NaN, NaN, NaN])
+  end
+  # SLOPE: a long pool of equal magnitudes whose λ steps from a to 0
+  for (T, a) in ((Float32, 1f37), (Float64, 1e307))
+    n = 4000
+    f = SLOPE(vcat(fill(a, n ÷ 2), zeros(T, n ÷ 2)))
+    y = prox(f, fill(a, n))
+    @test maxrel(y, fill(big(a) / 2, n)) <= 2 * eps(T)
+    y = prox(f, vcat(-a, fill(a, n - 1)))
+    @test all(isapprox.(abs.(y), a / 2; rtol = 4 * eps(T)))
+  end
   # Float16 with n² beyond its range: the means path is correct for ordinary data too
   let x = Float16.(randn(MersenneTwister(3), 300)), z = prox(IndIsotonic(), x)
     @test issorted(z) && all(isfinite, z)

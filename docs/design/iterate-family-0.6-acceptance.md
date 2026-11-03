@@ -7,10 +7,10 @@
 > FX, FL, FN, FA, FP, FF) and decisions (FD-n) and restates none of the rules.
 > Implementation is in progress on `master`. The issues linked in §7 track each
 > item's status, and [#527](https://github.com/mlakolar/ProximalBase.jl/issues/527)
-> tracks the downstream migration. The audit in §1 and the sign-off decisions
-> record the state at the audited commit. Code blocks are illustrative. Those
-> that use an API or rule not yet implemented are *future* examples, and none
-> is a doctest.
+> tracks the downstream migration. The audit in §1 records the state at the
+> audited commit, and the sign-off decisions stand as recorded. Code blocks are
+> illustrative. Those that use an API or rule not yet implemented are *future*
+> examples, and none is a doctest.
 
 # 1. What was audited
 

@@ -808,12 +808,12 @@ end
   @test Conjugate(g)(BigFloat[1, -2, 3]) == 8
   @test isnan(Conjugate(g)(BigFloat[1, NaN]))
   # the frame stack returns to its depth after errors, and a failing call does not poison later ones
-  d0 = ProximalBase._frames().depth
+  d0 = (ProximalBase._frames(ProximalBase._VALUE_FRAMES).depth, ProximalBase._frames(ProximalBase._STAGE_FRAMES).depth)
   for _ in 1:3
     @test_throws Exception Conjugate(ThrowCube(:partial, 5))(rand(5))
     @test_throws Exception value_and_prox!(zeros(5), Conjugate(ThrowCube(:partial, 5)), rand(5), 1.0)
   end
-  @test ProximalBase._frames().depth == d0
+  @test (ProximalBase._frames(ProximalBase._VALUE_FRAMES).depth, ProximalBase._frames(ProximalBase._STAGE_FRAMES).depth) == d0
   @test Conjugate(OracleCube(-1.0, 2.0))([1.0, -1.0]) == 3.0
   # wrappers and other outputs leave the output unchanged on error
   bits(v) = reinterpret(UInt64, copy(v))
@@ -839,6 +839,28 @@ end
     ok
   end) for _ in 1:8])
   @test all(results)
+end
+
+alloc_vp(out, c, x) = @allocated value_and_prox!(out, c, x, 0.5)
+@testset "support fallback: alternating sizes do not reallocate (review of #530)" begin
+  f = OracleCube(-1.0, 2.0)
+  # the blocks of a separable sum have different lengths
+  c = Conjugate(SeparableSum(f, OracleCube(0.0, 1.0), f))
+  y = (randn(3), randn(4), randn(7)); out = (zeros(3), zeros(4), zeros(7))
+  c(y); value_and_prox!(out, c, y, 0.5)
+  @test alloc_val(c, y) == 0
+  @test alloc_vp(out, c, y) == 0
+  # two conjugates of different dimension, called in turn
+  c1, c2 = Conjugate(f), Conjugate(f)
+  x1, x2 = randn(5), randn(50); o1, o2 = similar(x1), similar(x2)
+  for _ in 1:2
+    c1(x1); c2(x2); value_and_prox!(o1, c1, x1, 0.5); value_and_prox!(o2, c2, x2, 0.5)
+  end
+  @test alloc_val(c1, x1) == 0 && alloc_val(c2, x2) == 0
+  @test alloc_vp(o1, c1, x1) == 0 && alloc_vp(o2, c2, x2) == 0
+  # the results are those of the plain computation
+  @test c1(x1) ≈ cube_support(f, x1) && c2(x2) ≈ cube_support(f, x2)
+  @test c(y) ≈ sum(cube_support(g, v) for (g, v) in zip((f, OracleCube(0.0, 1.0), f), y))
 end
 
 end # module

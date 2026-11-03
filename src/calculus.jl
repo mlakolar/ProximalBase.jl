@@ -932,26 +932,37 @@ mutable struct _Frames
   depth::Int
 end
 _Frames() = _Frames(Scratch[], 0)
-_frames() = get!(_Frames, task_local_storage(), :ProximalBase_frames)::_Frames
-function _acquire_frame!()
-  F = _frames()
+# one stack for the minimizers and one for the staged results, which cache different buffers
+const _VALUE_FRAMES = Val(:ProximalBase_value_frames)
+const _STAGE_FRAMES = Val(:ProximalBase_stage_frames)
+_frames(::Val{K}) where {K} = get!(_Frames, task_local_storage(), K)::_Frames
+function _acquire_frame!(kind::Val)
+  F = _frames(kind)
   F.depth += 1
   F.depth > length(F.stack) && push!(F.stack, Scratch())
   @inbounds F.stack[F.depth]
 end
-_release_frame!() = (F = _frames(); F.depth -= 1; nothing)
+_release_frame!(kind::Val) = (F = _frames(kind); F.depth -= 1; nothing)
+
+# An array of the shape of x in a frame. A vector is a view of a buffer that only grows, so that the
+# blocks of a separable sum, or conjugates of different dimensions, can use one frame in turn without
+# reallocating; an array of another shape is cached at its exact size, and reallocated when the
+# shape changes at the same depth.
+_frame_array!(s::Scratch, ::Type{T}, x::AbstractVector) where {T} =
+  (n = length(x); view(_buffer!(s, T, n), 1:n))
+_frame_array!(s::Scratch, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(s, T, x)
 
 # σ_C(y) = ⟨y, s⟩ at the minimizer s of ⟨-y, ·⟩, written in the shape of y to a frame, the argument
 # read as -y lazily
 function _support_value(f, y::AbstractArray)
   T = float(eltype(y))
-  frame = _acquire_frame!()
+  frame = _acquire_frame!(_VALUE_FRAMES)
   try
-    s = _array_buffer!(frame, T, size(y))
+    s = _frame_array!(frame, T, y)
     lmo!(s, f, _ScaledArray{T}(y, -1))
     return _support_dot(y, s, T)
   finally
-    _release_frame!()
+    _release_frame!(_VALUE_FRAMES)
   end
 end
 
@@ -1042,7 +1053,7 @@ end
 # are computed in a frame, and only a success writes the output (y may be x). The frame is not
 # the scratch of c, which the proximal operator of c uses; the cost is one copy of the result.
 function _staged_prox_value!(y, c::Conjugate, x, γ)
-  frame = _acquire_frame!()
+  frame = _acquire_frame!(_STAGE_FRAMES)
   try
     z = _stage!(frame, y, x)
     _prox_unchecked!(z, c, x, γ)
@@ -1050,10 +1061,10 @@ function _staged_prox_value!(y, c::Conjugate, x, γ)
     _stage_commit!(y, z)
     return _value_at(v, y)
   finally
-    _release_frame!()
+    _release_frame!(_STAGE_FRAMES)
   end
 end
-_stage!(s::Scratch, y::AbstractArray, x::AbstractArray) = _array_buffer!(s, float(eltype(y)), x)
+_stage!(s::Scratch, y::AbstractArray, x::AbstractArray) = _frame_array!(s, float(eltype(y)), x)
 _stage!(s::Scratch, y::Tuple, x::Tuple) = _tuple_buffer!(s, y, x)
 _stage_commit!(y::AbstractArray, z) = copyto!(y, z)
 _stage_commit!(y::Tuple, z) = _projection_commit!(y, z)

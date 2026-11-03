@@ -162,6 +162,14 @@ _lost_deriv(::ScalarLoss, v, η, y) = false
 @inline _below_normal(v) = abs(v) < floatmin(float(typeof(v)))
 @inline _value_ok(ℓ, w, v, p, η, y) = isfinite(p) & isfinite(η) & !((w > one(w)) & _lost_value(ℓ, v, η, y))
 @inline _deriv_ok(ℓ, w, v, p, η, y) = isfinite(p) & isfinite(η) & !((w > one(w)) & _lost_deriv(ℓ, v, η, y))
+# The same tests as an accumulator of the CPU loops, 0 or NaN, so that the loops
+# stay free of branches and can vectorize: 0 ⋅ x is NaN for an infinite or NaN x,
+# and a lifted underflow adds NaN. The finiteness of a value term is that of the
+# sum of the terms, tested after the loop with the accumulator.
+@inline _value_mark(ℓ, w, v, η::T, y) where {T} =
+  zero(T) * η + ifelse((w > one(w)) & _lost_value(ℓ, v, η, y), T(NaN), zero(T))
+@inline _deriv_mark(ℓ, w, v, p, η::T, y) where {T} =
+  zero(T) * convert(T, p) + ifelse((w > one(w)) & _lost_deriv(ℓ, v, η, y), T(NaN), zero(T))
 
 # The term again, in type T, for η = ηs ⋅ 2^k (k ≥ 0: η may be beyond the range
 # of T), with the weight w > 0 applied last and one rounding. The default, for
@@ -392,18 +400,16 @@ end
 function (f::GLMLoss{L, T})(β::AbstractVector) where {L, T}
   _checkreal(f, β)
   η = _linear_predictor!(f, β)
-  s = zero(T)
-  kept = true
+  s = c = zero(T)
   @inbounds for i in eachindex(η)
     w = convert(T, _entry(f.weights, i))
     iszero(w) && continue
     ηi, yi = η[i], f.y[i]
     v = f.loss(ηi, yi)
-    p = w * convert(T, v)
-    s += p
-    kept &= _value_ok(f.loss, w, v, p, ηi, yi)
+    s += w * convert(T, v)
+    c += _value_mark(f.loss, w, v, ηi, yi)
   end
-  kept || (s = _glm_recover!(f, β, Val(true), Val(false)))
+  isfinite(s + c) || (s = _glm_recover!(f, β, Val(true), Val(false)))
   _value_at(s, β)
 end
 
@@ -411,8 +417,7 @@ function value_and_gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVe
   _checkwrite(value_and_gradient!, f, g, β)
   η = _linear_predictor!(f, β)
   d = f.d
-  s = zero(T)
-  kept = true
+  s = c = zero(T)
   @inbounds for i in eachindex(η)
     w = convert(T, _entry(f.weights, i))
     if iszero(w)
@@ -421,12 +426,11 @@ function value_and_gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVe
     end
     ηi, yi = η[i], f.y[i]
     v, dv = value_and_deriv(f.loss, ηi, yi)
-    p = w * convert(T, v)
-    s += p
+    s += w * convert(T, v)
     d[i] = pd = w * dv
-    kept &= _value_ok(f.loss, w, v, p, ηi, yi) & _deriv_ok(f.loss, w, dv, pd, ηi, yi)
+    c += _value_mark(f.loss, w, v, ηi, yi) + _deriv_mark(f.loss, w, dv, pd, ηi, yi)
   end
-  kept || (s = _glm_recover!(f, β, Val(true), Val(true)))
+  isfinite(s + c) || (s = _glm_recover!(f, β, Val(true), Val(true)))
   mul!(g, transpose(f.X), d)
   _value_at(s, β)
 end
@@ -434,7 +438,7 @@ end
 function gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVector) where {L, T}
   _checkwrite(gradient!, f, g, β)
   η = _linear_predictor!(f, β)
-  kept = true
+  c = zero(T)
   @inbounds for i in eachindex(η)
     w = convert(T, _entry(f.weights, i))
     if iszero(w)
@@ -444,9 +448,9 @@ function gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVector) wher
     ηi, yi = η[i], f.y[i]
     dv = deriv(f.loss, ηi, yi)
     f.d[i] = pd = w * dv
-    kept &= _deriv_ok(f.loss, w, dv, pd, ηi, yi)
+    c += zero(T) * ηi + _deriv_mark(f.loss, w, dv, pd, ηi, yi)
   end
-  kept || _glm_recover!(f, β, Val(false), Val(true))
+  isfinite(c) || _glm_recover!(f, β, Val(false), Val(true))
   mul!(g, transpose(f.X), f.d)
 end
 
@@ -457,8 +461,10 @@ end
 # ⋅ 2^-k), so that no partial sum can overflow: η = ηs 2^k, with ηs in the
 # buffer d. Every observation is then evaluated again: the ordinary term where
 # it is kept, the loss's recomputation otherwise. The value returned is the sum;
-# d is rewritten when asked. The scaled copy of β is the only allocation, and only
-# when a predictor is recomputed.
+# d is rewritten when asked. A recomputed predictor allocates the scaled copy of
+# β; Julia 1.10 may allocate a few bytes more. The per-observation functors below
+# serve these broadcasts; the GPU extension's `_ObsValue` and `_ObsDeriv` are the
+# ordinary pass on the device, with the tests of `_value_ok` and `_deriv_ok`.
 @noinline function _glm_recover!(f::GLMLoss{L, T}, β::AbstractVector, ::Val{V}, ::Val{D}) where {L, T, V, D}
   w = f.weights === nothing ? true : f.weights
   if !(_all_finite(β) && _all_finite(f.X) && _all_finite(f.y) && _all_finite(f.offset))

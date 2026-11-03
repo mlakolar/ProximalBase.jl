@@ -675,3 +675,81 @@ _kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integ
   _isbuiltin(f) ? kkt_violation(f, g, i) : kkt_violation(f, g, x, i)
 _kkt_violation(f::AbstractFunction, g::AbstractArray, x::AtomIterate, k::Integer) =
   _isbuiltin(f) ? maximum(i -> kkt_violation(f, g, i), x.groups[k]) : kkt_violation(f, g, x, k)
+
+####################################
+#  Linear minimization oracles
+####################################
+
+"""
+    haslmo(C)
+
+Whether the set `C` (an indicator function) has a linear minimization oracle,
+[`lmo!`](@ref), on its documented input domain. It is `false` unless a set
+declares it. Unlike the other traits it is a property of the instance, not the
+type: [`IndBox`](@ref) has an oracle when every bound is finite, and
+[`IndSimplex`](@ref), [`IndBallL1`](@ref) and [`IndBallL2`](@ref) when the radius
+is finite. A `false` means that the oracle is unsupported, which is a different
+statement from "the linear objective is unbounded below": an unbounded set can
+have a finite minimum for some directions, and `lmo!` makes no promise about
+sets outside the compact families it lists.
+"""
+haslmo(::AbstractFunction) = false
+
+"""
+    lmo!(s, C, g)
+
+Store in `s` a minimizer of the linear function `s ↦ dot(g, s)` over the compact
+set `C`, the linear minimization oracle of Frank–Wolfe methods, and return `s`.
+`C` must have [`haslmo`](@ref); otherwise `lmo!` throws an `ArgumentError`
+before writing. Supported sets: [`IndSimplex`](@ref) (equality and inequality),
+[`IndBallL1`](@ref), [`IndBallL2`](@ref), and [`IndBox`](@ref) and
+[`IndBallLinf`](@ref) with finite bounds.
+
+| Set | `s` | Ties and degenerate cases |
+|:----|:----|:--------------------------|
+| `IndSimplex(r)` | `r eᵢ`, `i` the first index of the smallest `gᵢ` | with `equality = false`, `0` when `minᵢ gᵢ ≥ 0` (including a tie at `0`) |
+| `IndBallL1(r)` | `-r sign(gᵢ) eᵢ`, `i` the first index of the largest `\\|gᵢ\\|` | `0` when `g = 0` |
+| `IndBallL2(r)` | `-r g / ‖g‖₂` | `0` when `g = 0` |
+| `IndBox(l, u)`, `IndBallLinf(r)` | `lᵢ` if `gᵢ > 0`, `uᵢ` if `gᵢ < 0` | `lᵢ` when `gᵢ = 0` |
+
+Arrays of any shape are vectors in linear (column-major) order, so "first
+index" is the first in that order and a matrix has the Frobenius pairing. `g`
+holds real numbers, and `s` must be an `Array`, or a view of one, of
+floating-point numbers of the size of `g`. A radius or bound is rounded to the
+element type of `s`; a finite one that overflows it is an `ArgumentError`, and one that underflows
+to zero is accepted as zero. The
+result is feasible up to that rounding. A radius of `0` gives `0`, and a box
+coordinate with `lᵢ = uᵢ` gives that value, whatever `g` holds there. Zeros are
+`+0.0`.
+
+`s` may be `g`; a partial overlap, such as shifted views of one array, is not
+supported. A `Symmetric` `g` is read as a dense matrix, and the result need not
+be symmetric. Validation precedes every write: a size mismatch is a
+`DimensionMismatch`, and an unsupported set, an invalid output or parameter, or
+an empty simplex with `equality = true` and a radius above the tolerance of the
+element type, an `ArgumentError`, with `s` unchanged.
+
+A `NaN` in `g` gives `NaN` in every output entry that depends on it: all of
+`s` for the simplex and the balls, entry `i` for the box. Infinite entries take
+the limit where it is determined: the simplex, the ℓ1 ball and the box compare
+entries, so `-Inf` wins the minimum and `±Inf` the largest magnitude; for the
+ℓ2 ball one infinite entry gives the vertex `-r sign(gᵢ) eᵢ`, and two or more
+give `NaN`. See [`prox!`](@ref) for the conventions the aliasing and the
+non-finite rules follow.
+"""
+function lmo!(s, C::AbstractFunction, g)
+  haslmo(C) || _lmo_unsupported(C)
+  throw(MethodError(lmo!, (s, C, g)))
+end
+
+@noinline _lmo_unsupported(C) = throw(ArgumentError(
+  "no linear minimization oracle for $(typeof(C)) with these parameters: haslmo(C) is false " *
+  "(only compact sets listed in lmo! are supported; this does not say the linear objective is unbounded)"))
+
+"""
+    lmo(C, g)
+
+Allocating version of [`lmo!`](@ref): the result is a dense `Array` of the size of `g` and
+the element type `float(eltype(g))`, also for a sparse or structured `g`.
+"""
+lmo(C::AbstractFunction, g::AbstractArray) = lmo!(Array{float(eltype(g))}(undef, size(g)), C, g)

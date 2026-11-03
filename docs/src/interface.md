@@ -184,6 +184,7 @@ types, say which oracles it provides:
 | [`isseparable`](@ref) | [`prox_entry`](@ref), [`prox_coordinate!`](@ref), [`kkt_violation`](@ref) | ``f(x) = \sum_i f_i(x_i)`` |
 | [`isconvex`](@ref) | | convex |
 | [`hashessian`](@ref) | [`hessian_vec!`](@ref), [`quadratic_model`](@ref) | second derivatives, for Newton steps |
+| [`haslmo`](@ref) | [`lmo!`](@ref), [`lmo`](@ref) | a linear minimization oracle of a compact set, for Frank–Wolfe steps; a property of the instance |
 
 The allocating versions [`prox`](@ref), [`gradient`](@ref),
 [`value_and_gradient`](@ref) and [`hessian_vec`](@ref) return new arrays.

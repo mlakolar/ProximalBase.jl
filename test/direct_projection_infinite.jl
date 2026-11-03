@@ -300,6 +300,23 @@ end
   end
 end
 
+@testset "NaN at every position of long equality-simplex arguments (unrolled loop, tail, early exit)" begin
+  for T in (Float64, Float32), n in (1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 64, 1031, 5003)
+    base = [T(1) + T(0.001) * T(i % 7) for i in 1:n]            # entries close together: many candidates for large n
+    for pos in filter(<=(n), unique([1, 2, min(n, 5), n ÷ 2 + 1, max(n - 1, 1), n]))
+      x = copy(base); x[pos] = T(NaN)
+      for f in (IndSimplex(one(T)), IndSimplex(T(0.5)))
+        n == 1 && continue
+        y = prox(f, x)
+        @test all(isnan, y)
+        z = copy(x)
+        @test isnan(value_and_prox!(z, f, z, 1.0)) && all(isnan, z)    # aliased
+      end
+    end
+    n >= 2 && @test all(isfinite, prox(IndSimplex(one(T)), base))     # the same argument without the NaN
+  end
+end
+
 @testset "SymmetricSparseIterate: a mirrored pair is one coordinate counted twice (M2)" begin
   M = BF(10)^40
   p = 3

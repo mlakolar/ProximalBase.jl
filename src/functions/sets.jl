@@ -634,16 +634,24 @@ function _direct_prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray)
     fill!(y, zero(eltype(y)))
     return false
   end
-  τ = _simplex_threshold!(_buffer!(f.scratch, T, length(x)), x, eachindex(IndexLinear(), x), r)
+  buf, idx = _buffer!(f.scratch, T, length(x)), eachindex(IndexLinear(), x)
+  if f.equality
+    # Condat's pass discards a NaN that is not the first entry, so the level is finite while
+    # the entry depends on it, and so does every other output: the pass reports it.
+    τ, nan = _simplex_threshold_nan!(buf, x, idx, r)
+    if nan
+      b = _simplex_nonfinite!(y, f, x)
+      return b === nothing ? _nan_block!(y) : b
+    end
+  else
+    τ = _simplex_threshold!(buf, x, idx, r)
+  end
   if _lossy_threshold(τ, r, length(x))
-    # a NaN that Condat's pass skipped can sit next to an entry that hides the radius
     nan = _simplex_nonfinite!(y, f, x)
     nan === nothing || return nan
     _project_shifted!(y, f, x)
   else
-    # Condat's pass skips a NaN that is not the first entry, so the level is finite while
-    # the output has a NaN: the entry depends on it, and so does every other one.
-    _write_simplex!(y, x, τ) && f.equality && return _nan_block!(y)
+    y .= max.(x .- τ, zero(T))
   end
   false
 end
@@ -732,30 +740,6 @@ function _ball_nonfinite!(y, f, x)
   iszero(f.r) && (fill!(y, zero(eltype(y))); return false)
   (c.nan > 0 || c.pos + c.neg > 1) && return _nan_block!(y)
   _vertex!(y, f, c, c.pos == 1 ? float(f.r) : -float(f.r))
-end
-
-# y = max.(x - τ, 0); true when an entry is NaN. Plain arrays count the NaNs in the same loop.
-function _write_simplex!(y, x, τ::T) where {T}
-  y .= max.(x .- τ, zero(T))
-  any(isnan, y)
-end
-# a plain argument is read for NaN before the write (an output of another type may alias it)
-function _write_simplex!(y, x::Array, τ::T) where {T}
-  bad = false
-  @inbounds @simd for i in eachindex(x)
-    bad |= x[i] != x[i]
-  end
-  y .= max.(x .- τ, zero(T))
-  bad
-end
-function _write_simplex!(y::Array, x::Array, τ::T) where {T}
-  bad = false          # an OR of a Bool vectorizes; counting the NaNs does not
-  @inbounds @simd for i in eachindex(y, x)
-    d = x[i] - τ
-    y[i] = ifelse(d > 0, d, zero(T))
-    bad |= d != d
-  end
-  bad
 end
 
 # Simplex: NaN reaches every output except where the output does not depend on the input (a

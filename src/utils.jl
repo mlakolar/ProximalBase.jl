@@ -469,10 +469,24 @@ end
 # loop over a range is three times faster than one through iterate.
 function _simplex_threshold!(buf::AbstractVector{T}, x::AbstractArray, idx::AbstractVector{<:Integer}, a::T,
                              f::F = identity) where {T, F}
+  τ, _ = _simplex_pass!(buf, x, idx, a, f, Val(false))
+  τ
+end
+
+# The same level, and whether an entry is NaN, found in the same traversal: a NaN is not
+# above any level, so Condat's pass discards it and the level stays finite. The flag is a
+# compare per entry, not a second pass; the equality simplex uses it (`Val(true)`), every
+# other caller compiles to the code without it.
+_simplex_threshold_nan!(buf::AbstractVector{T}, x::AbstractArray, idx::AbstractVector{<:Integer}, a::T,
+                        f::F = identity) where {T, F} = _simplex_pass!(buf, x, idx, a, f, Val(true))
+
+@inline function _simplex_pass!(buf::AbstractVector{T}, x::AbstractArray, idx::AbstractVector{<:Integer}, a::T,
+                                f::F, ::Val{C}) where {T, F, C}
   n = length(idx)
-  n == 0 && return zero(T)
+  n == 0 && return zero(T), false
   j0 = firstindex(idx)
   @inbounds y1 = convert(T, f(x[idx[j0]]))
+  nan = C && y1 != y1
   buf[1] = y1
   # buf[1:nt] holds the discarded entries ṽ, buf[nt+1:nt+nv] the candidates v,
   # of sum s and level ρ = (s - a)/nv. The level is recomputed from the sum when
@@ -492,6 +506,7 @@ function _simplex_threshold!(buf::AbstractVector{T}, x::AbstractArray, idx::Abst
   @inbounds while j + 3 <= jend
     y₁, y₂ = convert(T, f(x[idx[j]])), convert(T, f(x[idx[j + 1]]))
     y₃, y₄ = convert(T, f(x[idx[j + 2]])), convert(T, f(x[idx[j + 3]]))
+    C && (nan |= (y₁ != y₁) | (y₂ != y₂) | (y₃ != y₃) | (y₄ != y₄))
     if (y₁ > ρ) | (y₂ > ρ) | (y₃ > ρ) | (y₄ > ρ)
       nt, nv, s, ρ, many = _condat_step!(buf, y₁, nt, nv, s, ρ, a, cap)
       many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₂, nt, nv, s, ρ, a, cap))
@@ -502,11 +517,26 @@ function _simplex_threshold!(buf::AbstractVector{T}, x::AbstractArray, idx::Abst
     j += 4
   end
   @inbounds while !many && j <= jend
-    nt, nv, s, ρ, many = _condat_step!(buf, convert(T, f(x[idx[j]])), nt, nv, s, ρ, a, cap)
+    y = convert(T, f(x[idx[j]]))
+    C && (nan |= y != y)
+    nt, nv, s, ρ, many = _condat_step!(buf, y, nt, nv, s, ρ, a, cap)
     j += 1
   end
-  many && return _simplex_threshold_michelot(x, idx, a, f)
-  _simplex_finish!(buf, nt, nv, s, a)
+  if many
+    # the pass stopped early: read the entries that it did not reach
+    C && !nan && (nan = _anynan(x, idx, f, T))
+    return _simplex_threshold_michelot(x, idx, a, f), nan
+  end
+  _simplex_finish!(buf, nt, nv, s, a), nan
+end
+
+function _anynan(x::AbstractArray, idx::AbstractVector{<:Integer}, f::F, ::Type{T}) where {F, T}
+  bad = false
+  @inbounds @simd for j in idx
+    y = convert(T, f(x[j]))
+    bad |= y != y
+  end
+  bad
 end
 
 # One entry y of Condat's pass: below the level ρ it is discarded; otherwise it

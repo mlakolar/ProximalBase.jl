@@ -261,15 +261,15 @@ struct _ScaledOp{T, M}
   e::Int
   xs::Vector{T}
 end
-function _mulG!(p::Vector{T}, op::_ScaledOp{T}, x::AbstractVector{T}) where {T}
+function _mul_matrix!(p::Vector{T}, op::_ScaledOp{T}, x::AbstractVector{T}) where {T}
   mul!(p, op.G, _unscale!(resize!(op.xs, length(x)), x, op.e))
 end
-function _mulGt!(q::Vector{T}, op::_ScaledOp{T}, x::AbstractVector{T}) where {T}
+function _mul_adjoint!(q::Vector{T}, op::_ScaledOp{T}, x::AbstractVector{T}) where {T}
   mul!(q, op.G', _unscale!(resize!(op.xs, length(x)), x, op.e))
 end
 
 # w ← (G + Gᵀ)/2 x for the matrix scaled by 2^-e; a Symmetric G needs one product
-function _mulS!(w::Vector{T}, w2::Vector{T}, op::_ScaledOp{T}, x::AbstractVector{T}) where {T}
+function _mul_symmetric_part!(w::Vector{T}, w2::Vector{T}, op::_ScaledOp{T}, x::AbstractVector{T}) where {T}
   xs = _unscale!(resize!(op.xs, length(x)), x, op.e)
   if op.G isa Union{Symmetric, Hermitian}
     mul!(w, op.G, xs)
@@ -311,7 +311,7 @@ function _gkl_top(G, ::Type{T}, e::Int, rtol::T, maxiter::Int) where {T}
   V[:, 1] = _start_vector(T, n)
   σ, y, z, res, steps, ok = zero(T), T[], T[], T(Inf), 0, false
   for j in 1:K
-    _mulG!(p, op, view(V, :, j))
+    _mul_matrix!(p, op, view(V, :, j))
     j > 1 && axpy!(-β[j - 1], view(U, :, j - 1), p)
     _reorth!(p, U, j - 1, c)
     aj = norm(p)
@@ -322,7 +322,7 @@ function _gkl_top(G, ::Type{T}, e::Int, rtol::T, maxiter::Int) where {T}
       break
     end
     U[:, j] = p ./ aj
-    _mulGt!(q, op, view(U, :, j))
+    _mul_adjoint!(q, op, view(U, :, j))
     axpy!(-aj, view(V, :, j), q)
     _reorth!(q, V, j, c)
     bj = norm(q)
@@ -383,7 +383,7 @@ function _lanczos_min(G, ::Type{T}, e::Int, rtol::T, maxiter::Int) where {T}
   V[:, 1] = _start_vector(T, n)
   θ, y, res, steps, ok = zero(T), T[], T(Inf), 0, false
   for j in 1:K
-    _mulS!(w, w2, op, view(V, :, j))
+    _mul_symmetric_part!(w, w2, op, view(V, :, j))
     aj = dot(view(V, :, j), w)
     α[j] = aj
     steps = j

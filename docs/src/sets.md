@@ -138,6 +138,70 @@ the weighted ``\ell_1/\ell_2`` ball (`IndBallGroupL0` is a sparsity constraint, 
 `Constrained(GroupNormL2(…), IndBallL2(…))` is a penalized problem), so an oracle
 for it needs a representation first.
 
+### Atoms: sparse vertices and low-rank matrices
+
+A Frank–Wolfe iterate that stays a combination of a few extreme points should never form
+the extreme points as dense arrays. [`lmo_atom`](@ref)`(C, g)` returns the minimizer of
+``\langle g, s\rangle`` as an atom that stores only what defines it:
+
+| Set | Minimizer | Atom | Storage |
+|:----|:----------|:-----|:--------|
+| [`IndSimplex`](@ref)`(r)`, [`IndBallL1`](@ref)`(r)` | the vertex of the table above | [`VertexAtom`](@ref): `index`, `value`, `dims` | ``O(1)`` |
+| `SingularValue(IndBallL1(r))`, the nuclear-norm ball | ``-r\,u_1v_1^\top`` for a leading singular pair of ``g`` | [`LowRankAtom`](@ref) with `U = -r u₁`, `V = v₁` | ``m + n`` |
+| `Spectral(IndSimplex(r))`, the density matrices of trace ``r`` | ``r\,v v^\top`` for an eigenvector of ``\lambda_{\min}(g)`` | [`LowRankAtom`](@ref) with `U = V = √r v` | ``n`` |
+| `Spectral(IndSimplex(r; equality = false))`, the trace ball of the PSD cone | ``0`` if ``\lambda_{\min}(g) \ge 0``, else as above | the same, possibly with no column | ``n`` |
+| the Fantope `Spectral(Constrained(IndBox(0, 1), IndHyperplane(1, k)))` | ``Q Q^\top`` for the eigenvectors ``Q`` of the ``k`` smallest eigenvalues | [`LowRankAtom`](@ref) with `U = V = Q` | ``nk`` |
+
+For a nuclear-norm ball the objective is ``-r\,\sigma_1(g)``; for the density matrices
+``r\lambda_{\min}(g)``; for the Fantope the sum of the ``k`` smallest eigenvalues. The
+support values of the sets, ``r\sigma_1(Y)``, ``r\lambda_{\max}(Y)`` and the sum of the ``k``
+largest eigenvalues, are the values of `Conjugate(C)(Y)`: they use the spectrum of ``Y`` and
+build neither an atom nor a dense matrix.
+
+```@example atoms
+using ProximalBase, LinearAlgebra, SparseArrays
+
+G = sprandn(2_000, 1_500, 0.01)                       # a gradient that is sparse
+C = SingularValue(IndBallL1(10.0))                    # the nuclear-norm ball of radius 10
+a = lmo_atom(C, G; method = :krylov)                  # -10 u vᵀ, stored as two vectors
+(size(a), size(a.U), dot(G, a))                       # dot(G, a) ≈ -10 σ₁(G); no 2000×1500 matrix exists
+```
+
+```@example atoms
+A = Symmetric(randn(8, 8))
+Q = lmo_atom(Spectral(Constrained(IndBox(0, 1), IndHyperplane(1, 3))), A)   # the Fantope, k = 3
+(size(Q.U), norm(Q.U' * Q.U - I) < 1e-12, dot(A, Q) ≈ sum(eigvals(A)[1:3]))
+```
+
+A solver holds `X = Σⱼ cⱼ Uⱼ Vⱼᵀ` as lists of factors. The step ``X \leftarrow (1-\gamma)X +
+\gamma s`` multiplies the coefficients by ``1-\gamma`` and appends `a.U`, `a.V` with the
+coefficient ``\gamma``; the loss is evaluated through the factors, and `axpy!(γ, a, X)` and
+`Array(a)` exist for the cases where a dense matrix is wanted. An atom owns its arrays and
+stays valid after later calls.
+
+**Exactness.** The default evaluation (`method = :full`) uses a dense LAPACK decomposition and
+densifies a sparse `g`. `method = :krylov` for the nuclear-norm ball and the density matrices
+runs Lanczos iterations on products with ``g``, which is what a large sparse gradient needs.
+It is *residual-checked, not certified*: the residual of the Ritz pair that it returns does
+not show that no larger singular value was missed, and the atom's value is only an upper bound
+on the minimum. A Frank–Wolfe gap formed with such an atom is a lower bound on the gap of the
+exact oracle, so it is not an upper bound on the suboptimality. When the iteration does not
+reach its tolerance it falls back to the full decomposition (`fallback = false` throws
+instead). The rank-``k`` Fantope has only the exact path, because one Krylov vector cannot
+find all of a repeated eigenvalue's eigenspace.
+
+**Symmetry.** The spectral sets live in the symmetric matrices, where
+``\langle g, S\rangle = \langle (g + g^\top)/2, S\rangle``. The oracle therefore minimizes
+against the symmetric part of ``g``, as the proximal operators read the symmetric part of their
+argument, and never reads one triangle alone (a `Symmetric` wrapper is its own symmetric part).
+
+**Not covered.** There is no oracle for a general `SingularValue(f)` or `Spectral(f)`: the
+lifting needs a permutation- or sign-symmetric `f` whose linear minimizer is attained at a
+sorted vector, and only the sets above have been checked. The complement form ``I - QQ^\top`` of
+a Fantope with ``k`` close to ``n`` is not implemented (``k = n`` gives the identity without a
+decomposition). `lmo!` writes the dense minimizer for these sets into caller-owned storage,
+validates before writing, and writes `NaN` for a non-finite `g`, as for the vector sets.
+
 *Unsupported* and *unbounded below* are different statements. `haslmo(C)` is
 `false` when the package provides no oracle for `C`, including every set it
 does not list here. An unbounded set, such as a halfspace or a box with an

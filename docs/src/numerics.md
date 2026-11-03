@@ -457,12 +457,15 @@ write, even when the argument contains NaN or Inf.
 
 **E2. NaN.** A NaN argument entry is undefined. It propagates to every
 result that *depends* on that entry; results independent of it are computed
-normally. More precisely, an output entry `y_j` depends on an input entry
-`x_i` if, for some finite values of the other inputs, changing `x_i`
-between finite values changes `y_j`, after imposing E4's domain
-restrictions and with the remaining valid parameters and step fixed.
-This is a statement of the operator's semantics, not a requirement to
-construct a generic dependency matrix at runtime.
+normally. A result (a function value, a gradient entry or a proximal
+output entry `y_j`) depends on input entry `x_i` if, for some
+finite values of the other inputs, changing `x_i` between finite
+values changes that result, after imposing E4's domain restrictions
+and holding the remaining valid parameters and step fixed (where a
+step applies). This definition includes admitted endpoint steps:
+dependency is evaluated for the endpoint map with the step fixed.
+This is a semantic rule, not a requirement to construct a generic
+dependency matrix at runtime.
 
 - A separable proximal output typically depends only on its own input
   coordinate. In a freely coupled block (groups, balls or spectral
@@ -485,6 +488,17 @@ contains NaN; the *standalone* indicator value at a NaN argument
 still follows E2, whereas `value_and_prox!` returns the
 value at the stored zero projection (O2). Check NaN results with
 `isequal` or `isnan`, since `==` is false for NaN.
+At the admitted `γ = Inf` endpoint of `NormL1(1.0)`,
+the proximal map is identically zero for every finite argument.
+Thus `prox(NormL1(1.0), [NaN], Inf)` is `[0]`
+under this dependence rule, even though current implementations may
+return NaN. Similarly, `Constrained(NormL1(1.0), IndBallL2(1.0))`
+at `[NaN, 0.0]` and `γ = Inf` has proximal output
+`[0, 0]` and joint value `0`. The standalone function
+value at a NaN input remains NaN. This fixed-step NaN policy is
+different from E1/E3's **joint-limit** rule for `γ = Inf`
+and `x = Inf`, where relative growth rates can give NaN.
+
 Functions that use LAPACK detect a NaN-dependent argument before
 decomposing; their dependent value and output entries are NaN.
 
@@ -514,27 +528,38 @@ For direct ball/sphere projections, the specified limits include:
 - Under M2, a `SymmetricSparseIterate` stores an off-diagonal
   coordinate once but counts it twice in reductions. One infinite
   off-diagonal degree of freedom therefore has limiting entries
-  `±r/2` for the ℓ1 ball and `±r/sqrt(2)` for
-  the ℓ2 ball and sphere. Asymmetric opposing infinite entries
-  that symmetrize through `Inf - Inf` instead follow E2.
+  `±r/2` for the ℓ1 ball, `+r/2` for a
+  positive-infinite coordinate in the simplex, and
+  `±r/sqrt(2)` for the ℓ2 ball and sphere. Asymmetric
+  opposing infinite entries that symmetrize through `Inf - Inf`
+  instead follow E2.
 - `IndBallL1(0)` and `IndBallL2(0)` are
   singleton-domain projections and return zero even at an infinite
   (or NaN) input, by E2's input-independence rule.
 
 For `IndSimplex(r; equality)` with finite `r ≥ 0`,
 the signed infinities require separate treatment. At `r = 0`
-the projection is identically zero. At `r > 0`, a unique
-`+Inf` coordinate with no other `+Inf` entries
-selects that vertex (`r` there, zero elsewhere), including
-when other entries are `-Inf`. A `-Inf`
-coordinate is inactive when finite coordinates can carry the required
-mass: project the remaining finite inputs onto the corresponding
-equality or inequality simplex and put zero at the excluded coordinate.
-Multiple `+Inf` entries generally lack a unique allocation.
-For an equality simplex with only `-Inf` entries, a unique
-allocation cannot be presumed; for an inequality simplex with only
-`-Inf` entries, the limit is zero. Degenerate dimensions and
-symmetry constraints retain their own documented feasibility/tie rules.
+the projection is identically zero. At `r > 0`, one
+independent `+Inf` coordinate, with no other `+Inf`
+coordinates, selects the corresponding simplex vertex: `r`
+there and zero elsewhere for an ordinary vector coordinate
+(or `r/2` in each mirrored entry for a single off-diagonal
+`SymmetricSparseIterate` coordinate, M2), including when other
+entries are `-Inf`. A `-Inf` coordinate is inactive
+when finite coordinates can carry the required mass: project the
+remaining finite inputs onto the corresponding equality or inequality
+simplex and put zero at each excluded coordinate.
+
+With two or more **independent** `+Inf` coordinates, the
+dependent simplex block is NaN, since differing finite approach paths
+yield different allocations. For an equality simplex with every
+independent coordinate equal to `-Inf`, the block is NaN
+when there are two or more such coordinates. For an inequality
+simplex with all entries equal to `-Inf`, the limit is zero.
+In the length-one equality simplex, the feasible set is the
+singleton `{r}`, so its projection is `r` for every
+input, including `±Inf` and NaN (E2 input independence).
+A mirrored symmetric pair is one independent coordinate, not two.
 
 The same determined-limit principle is an **implementation target** for
 the following *closed list* of constrained ball/sphere families:
@@ -635,16 +660,22 @@ writing elsewhere. The named endpoints:
   `Constrained(GroupNormL2, IndSphereL2)`: at `γ = 0`,
   project onto their effective domain, preserving hard constraints
   and the documented sphere tie rule. An empty effective domain
-  raises an `ArgumentError` before writing. `γ = Inf` is not a
-  named endpoint for these nonconvex constrained-penalty operators
-  and is rejected before writing.
+  raises an `ArgumentError` before writing. At `γ = Inf`,
+  if the level is zero, or if at least one **free** coordinate
+  or group has zero penalty, project onto the sphere restricted
+  to zero-penalty free coordinates/groups, using the documented
+  sphere tie rule. This includes the cases where E4 reduces the
+  function to an indicator (all free coordinates/groups unpenalized),
+  whose projection is step-independent. When every free coordinate
+  or group carries a positive penalty, `γ = Inf` is
+  not a named endpoint and is rejected before writing.
 
 `Constrained(IndBallL0, IndBallL2/IndSphereL2)` is an
 indicator and follows the scalar-step indicator rule, provided its
-intersection is feasible. At an admitted endpoint with an infinite
-argument, E1/E3's exceptional-input policy still applies: an
-accepted step does not turn an infinite input into a finite projection
-when the bounded coupled block is covered by E3.
+intersection is feasible. At an admitted endpoint its projection is
+step-independent; an infinite argument therefore takes the
+documented E3 limit of that projection (E1), which may be finite
+or NaN depending on its geometry.
 
 Array steps on coupling sets and in the searches of `Constrained` must be
 positive and finite in every entry (see

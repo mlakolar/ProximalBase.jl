@@ -472,7 +472,12 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Gro
     ((kbest == 0 && ibest == 0) || isinf(bestc) || n - bestn > -bestc) && ((kbest, ibest, bestn, bestc) = (0, i, n, zero(U)))
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
-  bestn > bestc && return _onto_sphere!(y, f, convert(T, _value_and_prox_unchecked!(y, f, x, γ)), r)
+  if bestn > bestc
+    v = convert(T, _value_and_prox_unchecked!(y, f, x, γ))
+    # a positive margin whose result rounds to zero in the destination has no stored direction:
+    # it takes the selection below, along x
+    iszero(maximum(abs, y)) || return _onto_sphere!(y, f, v, r)
+  end
   if ibest != 0                         # an index in no group, where x is zero
     fill!(y, zero(eltype(y)))
     _write_unit!(y, ibest, r)

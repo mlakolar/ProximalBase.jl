@@ -554,6 +554,7 @@ function _radial_group_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::Abstra
   for k in eachindex(f.groups)
     if !O && _infinite_radial_coefficient(f, W, k)
       n = _shrink_group!(NormL2(one(W)), y, x, f.groups[k], _weight_product(W, _entry(γ, k), f.λ0, f.w[k]), _group_writes(y, f.groups[k]))
+      W === T || (n = _group_norm2(y, f.groups[k]))   # O2: the value is that of the stored output
       iszero(n) || (v = T(Inf))
       continue
     end
@@ -564,7 +565,9 @@ function _radial_group_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::Abstra
       end
       continue
     end
-    v += convert(T, value_entry(p, _radial_shrink!(p, y, x, f.groups[k], convert(W, _entry(γ, k)), _group_writes(y, f.groups[k])), 1))
+    r = _radial_shrink!(p, y, x, f.groups[k], convert(W, _entry(γ, k)), _group_writes(y, f.groups[k]))
+    W === T || (r = convert(W, _group_norm2(y, f.groups[k])))
+    v += convert(T, value_entry(p, r, 1))
   end
   v
 end

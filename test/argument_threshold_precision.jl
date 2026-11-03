@@ -73,4 +73,42 @@ end
   prox!(y, c, x, 1.0)
   @test y == Float32[0, 2]
 end
+
+@testset "a positive margin that rounds to zero in the destination" begin
+  # the group sphere has no stored direction to scale: it takes the direction of x
+  c = Constrained(GroupNormL2(1.0, [1:1], [1.0]), IndSphereL2(1.0))
+  x = [2.0^-100]
+  γ = 2.0^-100 * (1.0 - 2.0^-52)                  # the threshold is below the norm by 2^-152
+  y = zeros(Float32, 1)
+  prox!(y, c, x, γ)
+  @test y == Float32[1.0]
+  y = zeros(Float32, 1)
+  @test value_and_prox!(y, c, x, γ) === 1f0
+  @test y == Float32[1.0]
+  # two groups: the sphere point lies in the group of the larger margin, with norm r
+  c2 = Constrained(GroupNormL2(1.0, [1:2, 3:3], [1.0, 1.0]), IndSphereL2(2.0))
+  x2 = [3.0 * 2.0^-100, -4.0 * 2.0^-100, 2.0^-101]
+  y2 = zeros(Float32, 3)
+  prox!(y2, c2, x2, 2.0^-100)
+  @test y2 ≈ Float32[1.2, -1.6, 0] rtol = 1e-6
+end
+
+@testset "value_and_prox! returns the value of the stored output (O2)" begin
+  x = [2.0^-100]
+  γ = 2.0^-225 * (1.0 - 2.0^-52)                  # the Float64 residual 2^-152 stores as zero
+  for f in (GroupNormL2(2.0^125, [1:1], [1.0]), GroupNormLinf(2.0^125, [1:1], [1.0]),
+            SparseGroupNormL2(2.0^125, 0.0, [1:1], [1.0]), SparseGroupNormL2(2.0^125, 1.0, [1:1], [1.0]),
+            SparseGroupNormL2(0.0, 2.0^125, [1:1], [1.0]),
+            GroupMCP(2.0^125, [1:1], [1.0]; a = 3.0), GroupSCAD(2.0^125, [1:1], [1.0]; a = 4.0))
+    y = zeros(Float32, 1)
+    v = value_and_prox!(y, f, x, γ)
+    @test y == Float32[0]
+    @test v === f(y) === 0f0
+  end
+  # a nonzero stored output keeps the value of the stored output
+  f = GroupNormL2(3.0, [1:1], [1.0])
+  y = zeros(Float32, 1)
+  v = value_and_prox!(y, f, [1.0 + 2.0^-28], 1.0 - 2.0^-28)
+  @test v == f(y)
+end
 end

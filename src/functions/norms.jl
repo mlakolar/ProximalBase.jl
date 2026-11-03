@@ -714,6 +714,7 @@ function _homogeneous_group_prox!(y::AbstractArray, f::HomogeneousGroupNorm, x::
       continue
     end
     nrm = _shrink_group!(f, y, x, f.groups[k], (O ? _positive_product(W, _entry(γ, k), f.λ0, f.w[k]) : _weight_product(W, _entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+    W === T || (nrm = _group_norm(f, y, f.groups[k]))   # O2: the value is that of the stored output
     v += _group_value(f, f.λ0, f.w[k], nrm, y, f.groups[k], T, ordinary)
   end
   v

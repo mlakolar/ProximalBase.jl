@@ -1,11 +1,17 @@
 # Step endpoints and infinite arguments: staged determined-limit design (#311, #469)
 
-**Status:** draft for review, documentation only, **not implemented or merged**.
-This records the recommended policy after two review rounds on
+**Status:** accepted by the maintainer on 2026-11-02 as
+[decision 48](decisions.md); **not implemented**. The rules are E1, E2, E3
+and P1 in [`numerics.md`](../../src/numerics.md), and their changes are listed
+in [Compatibility and migration](../../src/migration.md). Implementation is
+tracked in [#311](https://github.com/mlakolar/ProximalBase.jl/issues/311),
+[#469](https://github.com/mlakolar/ProximalBase.jl/issues/469) and
+[#366](https://github.com/mlakolar/ProximalBase.jl/issues/366). This note
+records the derivations and the review on
 [PR #508](https://github.com/mlakolar/ProximalBase.jl/pull/508) and the
 [decision recommendation on #469](https://github.com/mlakolar/ProximalBase.jl/issues/469#issuecomment-6594432492).
 
-**Recommendation:** **Option B, staged.** Return a documented
+**Decision:** **Option B, staged.** Return a documented
 path-independent limiting proximal point at an infinite argument when it
 is determined, and NaN in the dependent entries otherwise. Do not invent
 a relative rate for several infinities; do not accidentally treat
@@ -111,9 +117,10 @@ solver's input-acceptance rule.
 or limit where determined and NaN where path-dependent. E3 says
 proximal outputs take **documented** limits. A deliberately all-NaN
 bounded-ball exception would require amending that approved decision,
-even for a unique limit. This PR withdraws the proposed
+even for a unique limit. PR #508 withdrew the proposed
 "Amendment 21A" instead of turning that exception into a permanent
-contract. No new amendment to Decision 21 is proposed.
+contract. Decision 21 is unchanged; decision 48 records the rules
+that apply it here.
 
 ### 2.4 Proof/test cost is real, but bounded by staging
 
@@ -517,7 +524,7 @@ at stored `y` under O2. "All NaN" denotes the
 affected freely coupled block; structurally hard-fixed entries
 may remain exact zero.
 
-| Function | Argument / step | Proposed output | Reason |
+| Function | Argument / step | Target output | Reason |
 |:--|:--|:--|:--|
 | `IndBallL2(1)` | `[Inf,0]`, `γ=1` | `[1,0]`; value 0 | Unique direct limit |
 | `IndBallL1(1)` | `[Inf,0]`, `γ=1` | `[1,0]`; value 0 | Fix current partial NaN |
@@ -565,7 +572,7 @@ conformance gaps**, not approved permanently different semantics.
 
 ## 8. Implementation sequence and acceptance gates
 
-### Stage 0 — accept the documentation decision (this PR)
+### Stage 0 — the documentation decision (done: PR #508, decision 48)
 
 - Keep E1, E2, E3 and P1 changes in `numerics.md`.
 - Keep proposed Amendment 21A **withdrawn** (already absent)
@@ -574,8 +581,8 @@ conformance gaps**, not approved permanently different semantics.
 - Preserve mathematical proofs, cases and review history here.
 - Decide the initial closed target list; do not silently promise
   uniform behavior for all twelve generic ball inner classes.
-- Merge only after maintainer approval of the normative
-  wording, not merely because a reviewer says the code is clear.
+- The maintainer approved the normative wording on 2026-11-02
+  (decision 48).
 
 ### Stage 1 — #311 validation for affected methods
 
@@ -642,7 +649,7 @@ limit is mathematically established.
 ### PR acceptance checklist
 
 - A real, independently derived finite-input reference confirms
-  every proposed finite exceptional limit.
+  every stated finite exceptional limit.
 - Nonunique cases are witnessed by at least two finite sequences
   with different limits.
 - E1 invalid/unsupported steps error *before* all writes;
@@ -657,7 +664,7 @@ limit is mathematically established.
   that makes each promise true. Every incomplete equivalent
   representation stays a named S4/#366 conformance gap.
 
-## 9. Prior review findings and outstanding decisions
+## 9. Review record
 
 The first review identified and corrected:
 
@@ -681,9 +688,8 @@ The second review confirmed those fixes, then found:
 - E1 should say **what to return** when a unique joint limit
   exists and name the relevant endpoints.
 
-This revision adopts B, incorporates those findings, and withdraws
-proposed Decision 21A. It **does not** mean that the reviewer has
-approved this new normative wording.
+The next revision adopted B, incorporated those findings, and withdrew
+proposed Decision 21A.
 
 The third review of [PR #508](https://github.com/mlakolar/ProximalBase.jl/pull/508#pullrequestreview-5746851865)
 verified the staged-B choice against master, including the signed
@@ -693,40 +699,17 @@ normative proposal: a fixed-`γ=Inf` E2 endpoint example,
 `r/2` for symmetric simplex off-diagonal storage, the
 admitted `γ=Inf` zero-penalty/zero-weight sphere endpoints,
 and removal of the leftover Option A restriction on indicator
-steps. These are proposed contract outcomes, not evidence that
-the implementations already pass every conformance case.
+steps. These are contract outcomes, not evidence that the
+implementations already pass every conformance case.
 
-### Specific questions for final review
+### After approval
 
-1. Are the direct E3 limits, including both simplex variants,
-   correctly stated for every signed-infinity pattern?
-   Identify degenerate shapes and symmetric-layout caveats.
-2. Does the E2 dependence definition cover function values,
-   gradients and proximal entries with **fixed admitted infinite
-   steps**, including `NormL1(1)` on NaN at `γ=Inf`?
-   Verify the distinction between this fixed-endpoint NaN case
-   and the joint `γ=Inf, x=Inf` path dependence.
-3. Does E1's **unique joint limit** rule capture both
-   `γ=0` and `γ=Inf` examples without
-   requiring numerical-path inference in every implementation?
-4. Is the constrained **closed list** narrow enough to avoid
-   promising unproved cone/spectral results yet broad enough
-   to cover equivalent zero-penalty representations?
-5. Do zero-level and zero-/infinite-weight sphere specializations
-   at `γ=Inf` inherit the correct indicator or minimizer
-   endpoint, including the sphere's tie rule and hard constraints?
-   Check cases with **no** zero-penalty free degree of freedom
-   still reject before writing.
-6. Does documenting B for direct projections but tracking
-   constrained compliance as an S4/#366 gap adequately explain
-   temporary differences without presenting them as allowed?
-7. Do any unusual supported radii, element types, backends,
-   sparse/atom layouts or cache behaviors make the initial
-   limits false or unrepresentable?
-8. Is the **Stage 0–3** implementation sequence the smallest safe
-   path (contract, #311 validation, #469 direct, #469 constrained),
-   and are the cost/aliasing/atomicity gates sufficient?
+A fourth check, at `bd5459c7`, found no further issues, and the
+maintainer approved the four rules on 2026-11-02 (decision 48).
+The contract text is approved; the implementations are not:
 
-Please propose exact counterexamples and replacement wording
-on PR #508. **Leave the PR draft and #311/#469 open** until
-review/implementation obligations are actually completed.
+- Keep #311 and #469 open until Stages 1–3 land.
+- List each family that does not yet conform in #366, as S4 requires.
+- In each implementation PR, check that unusual supported radii,
+  element types, backends, sparse and atom layouts, and caches do not
+  make a stated limit false or unrepresentable.

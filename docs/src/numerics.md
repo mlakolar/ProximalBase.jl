@@ -447,7 +447,7 @@ an admitted step endpoint (`γ = 0` or `γ = Inf`, P1) and an argument
 containing `±Inf` are present, use the function's *documented,
 path-independent joint limit* along finite steps and finite arguments,
 when one exists; otherwise the dependent proximal entries are NaN (E3,
-decision 21). Different paths may give different outputs, even when the
+decisions 21 and 48). Different paths may give different outputs, even when the
 two iterated limits (step first and input first) agree; such agreement alone
 is insufficient to prove a joint limit. Examples include separable
 functions and ridge at their named step endpoints. An indicator's accepted
@@ -463,8 +463,8 @@ finite values of the other inputs, changing `x_i` between finite
 values changes that result, after imposing E4's domain restrictions
 and holding the remaining valid parameters and step fixed (where a
 step applies). This definition includes admitted endpoint steps:
-dependency is evaluated for the endpoint map with the step fixed.
-This is a semantic rule, not a requirement to construct a generic
+dependency is evaluated for the endpoint map with the step fixed
+(decision 48). This is a semantic rule, not a requirement to construct a generic
 dependency matrix at runtime.
 
 - A separable proximal output typically depends only on its own input
@@ -510,7 +510,7 @@ undetermined, it is NaN: `(x₁ - x₂)²/2` tends to different
 values along `(t,t)` and `(t,t+1)` at
 `(Inf,Inf)`. Gradients and proximal outputs take the
 function's **documented path-independent limit** where determined,
-and NaN in the dependent entries otherwise (decision 21).
+and NaN in the dependent entries otherwise (decisions 21 and 48).
 Uncentered ridge, for example, maps `-Inf` to value
 `+Inf`, gradient `-Inf` and proximal output
 `-Inf` at an ordinary finite step.

@@ -7,8 +7,8 @@ with Julia 1.13.3; behavior described as current was run at master
 `3f90a29`. Rule identifiers (T3, R2, ...) refer to `03-claude-draft3.md`,
 and D1–D10 refer to #366.*
 
-**Status.** All 47 decisions were approved by the maintainer on 2026-11-01.
-Each entry opens with its **Decided** line; the background, options,
+**Status.** Decisions 1–47 were approved by the maintainer on 2026-11-01,
+and decision 48 on 2026-11-02. Each entry opens with its **Decided** line; the background, options,
 precedent, first recommendation and revision notes below it are kept as the
 history of the decision.
 
@@ -50,7 +50,7 @@ mathematical paper never needs.
 
 ## Index
 
-Every decision was approved by the maintainer on 2026-11-01 ("go with recommendations", on #385). The **Decided** line at the top of each entry governs; the analysis below it is history.
+Decisions 1–47 were approved by the maintainer on 2026-11-01 ("go with recommendations", on #385), and decision 48 on 2026-11-02 (on #508). The **Decided** line at the top of each entry governs; the analysis below it is history.
 
 | # | decision | decided (first sentence; see the entry) |
 |:--|:---|:---|
@@ -101,6 +101,7 @@ Every decision was approved by the maintainer on 2026-11-01 ("go with recommenda
 | 45 | values of wrappers | A private scaled-result capability; homogeneity recovers overflowing transformed arguments of norms (W1 = `M/2`); other combinations are listed as not covered. |
 | 46 | the line between data and parameters | (b): matrices, the vectors in their equations, and the normals and offsets of linear sets are data. |
 | 47 | non-finite linear coefficients | Rejected at construction. |
+| 48 | infinite arguments of bounded projections; NaN dependence; step endpoints | A proximal output takes its path-independent limit where one exists and is NaN in the dependent entries otherwise, staged by family (#469); dependence is per result and argument entry, with the step fixed; an endpoint step with an infinite argument takes the joint limit; the constrained balls and spheres name their `γ = 0` and `γ = Inf` endpoints (#311). |
 
 ## Types and precision
 
@@ -1905,6 +1906,84 @@ real-valued function, so (b) gains nothing. Constructors already reject NaN
 levels (decision 22).
 
 **Recommendation.** (a).
+
+## Added after the contract was published
+
+*Decision 48 answers #311 and #469, which the published contract left open:
+what a bounded projection returns at an argument with an infinite entry, and
+what a valid zero or infinite step means when the argument is also
+exceptional. The derivations, the expected-result matrix and the review
+record are in [`step-infinity-interface-311-469.md`](step-infinity-interface-311-469.md)
+and on pull request #508.*
+
+### 48. Infinite arguments of bounded projections, NaN dependence and step endpoints (E1, E2, E3, P1; #311, #469)
+
+**Decided** (maintainer, 2026-11-02). Four rules:
+
+1. *Infinite arguments (E3).* A proximal output takes its path-independent
+   limit where one exists, and is NaN in the dependent entries otherwise.
+   `IndBallL1`, `IndBallL2`, `IndSphereL2` and `IndSimplex` document their
+   limits; the constrained ball and sphere families on the closed list in E3
+   follow in stages, and until then each mismatch is a gap under S4 and #366.
+2. *Dependence (E2).* A result (a value, a gradient entry or a proximal entry)
+   depends on an argument entry if changing that entry between finite values,
+   with the other entries finite, can change it, after E4's restrictions and
+   with the parameters and the step fixed, endpoint steps included.
+3. *An endpoint step with an infinite argument (E1).* The joint limit over
+   finite steps and finite arguments where it exists, and NaN in the dependent
+   entries otherwise. Agreement of the two iterated limits is not enough.
+4. *Endpoints (P1).* `Constrained(NormL1, IndBallL2)` and
+   `Constrained(GroupNormL2, IndBallL2)` name `γ = 0` (the projection onto
+   the effective domain) and `γ = Inf` (the projection onto the minimizers).
+   The penalized spheres name `γ = 0`, and `γ = Inf` only when the level is
+   zero or some free coordinate or group has no penalty.
+
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
+
+**Decide.** At an argument with one infinite entry, a bounded projection
+often has a unique limit: `IndBallL2(1)` at `[Inf, 0]` tends to `[1, 0]`.
+Master returns NaN, and `IndBallL1(1)` returns the partly NaN `[NaN, 0]`.
+Should the contract promise the limit? And how does an admitted `γ = 0` or
+`γ = Inf` combine with an infinite argument?
+
+**Options.**
+
+- *(A) NaN in every bounded coupled block with an infinite argument,* even
+  where the limit is unique, so that the solver sees the exceptional input.
+- *(B) The limit where it is determined,* as decision 21 already says,
+  implemented family by family.
+- *(C) B for the direct sets and A for their constrained forms.*
+
+**Pros and cons.** A has the smallest proof and test surface, but it is a
+carve-out from decision 21, and its signal is partial: separable clamps
+(`IndBox`, `IndBallLinf`, `IndNonnegative`) already turn an infinite entry
+into a finite feasible point, so a solver that needs finite iterates must
+check them itself. A also gives different answers for equal functions: on a
+length-1 vector `IndBallL2(1)` and `IndBox(-1, 1)` are the same set, yet A
+gives `[NaN]` and `[1]` at `[Inf]`. C does the same for `IndSphereL2(1)` and
+`Constrained(NormL1(0), IndSphereL2(1))`. B costs a derivation and an
+independent oracle for each family; staging bounds that cost. All three need
+the same runtime test that tells a true infinite entry from a norm that
+overflowed on finite data (R2), so none is faster on the ordinary path.
+
+For an endpoint step with an infinite argument, taking the step-first limit
+is unsound. For `f(z) = |z| + I_{[-1,1]}(z)` the two iterated limits at
+`γ = x = Inf` are `0` and `1`, and `NormL1(1)` along `γ = t`, `x = t + c`
+gives `c` for every `c ≥ 0`.
+
+**Precedent.** None. ProximalOperators.jl, PyProximal, SigPy and Pyxu return
+`[NaN, 0]` for an ℓ2 ball at `[Inf, 0]` by accident of IEEE arithmetic, and
+none documents a policy (checked on #508).
+
+**Recommendation.** B, staged: the direct sets first, then the constrained
+families one at a time. Option A was proposed during the review of #508, as
+amendment 21A, and withdrawn after the second review; it was never approved.
+
+**Consequences.** `prox(NormL1(1.0), [NaN], Inf)` is `[0]`, since the
+`γ = Inf` map is zero at every finite argument; master returns `[NaN]`.
+`IndBallL2(0)` projects to zero at a NaN or infinite entry.
+`prox(NormL1(1.0), [Inf], Inf)` stays NaN. The changes are listed in
+[Compatibility and migration](../../src/migration.md).
 
 ## Evidence used
 

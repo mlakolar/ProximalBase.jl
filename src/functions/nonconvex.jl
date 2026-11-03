@@ -372,26 +372,26 @@ _rebuild(f::GroupMCP, λ0, groups, w) = GroupMCP(λ0, groups, w; a = f.a)
 _rebuild(f::GroupSCAD, λ0, groups, w) = GroupSCAD(λ0, groups, w; a = f.a)
 
 # the scalar penalty of group k, in the element type S
-_group_scalar(f::GroupMCP, ::Type{S}, k::Integer) where {S} = MCP{S}(convert(S, _weight_coefficient(f.λ0, f.w[k])), convert(S, f.a))
-_group_scalar(f::GroupSCAD, ::Type{S}, k::Integer) where {S} = SCAD{S}(convert(S, _weight_coefficient(f.λ0, f.w[k])), convert(S, f.a))
+_group_scalar(f::GroupMCP, ::Type{S}, k::Integer) where {S} = MCP{S}(_weight_coefficient(S, f.λ0, f.w[k]), convert(S, f.a))
+_group_scalar(f::GroupSCAD, ::Type{S}, k::Integer) where {S} = SCAD{S}(_weight_coefficient(S, f.λ0, f.w[k]), convert(S, f.a))
 
 # The ordinary kernels retain the scalar product and loops used for finite weights.
 _ordinary_radial_groups(f, ::Type{T}) where {T} = isfinite(f.λ0) &&
-  !mapreduce(w -> isinf(w) | isinf(convert(T, f.λ0 * w)), |, f.w; init = false)
+  !mapreduce(w -> isinf(w) | isinf(_typed_product(T, f.λ0, w)), |, f.w; init = false)
 # Matching atom layouts classify only coefficients the kernels will visit.
 function _ordinary_radial_groups(f, ::Type{T}, groups, n::Int) where {T}
   isfinite(f.λ0) || return false
   ordinary = true
   @inbounds @simd for a in 1:n
     w = f.w[groups[a]]
-    ordinary &= !isinf(w) & !isinf(convert(T, f.λ0 * w))
+    ordinary &= !isinf(w) & !isinf(_typed_product(T, f.λ0, w))
   end
   ordinary
 end
 _infinite_radial_coefficient(f, ::Type{T}, k) where {T} =
-  isinf(convert(T, _weight_coefficient(f.λ0, f.w[k])))
-_group_scalar(f::GroupMCP, ::Type{S}, k::Integer, ::Val{true}) where {S} = MCP{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
-_group_scalar(f::GroupSCAD, ::Type{S}, k::Integer, ::Val{true}) where {S} = SCAD{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
+  isinf(_weight_coefficient(T, f.λ0, f.w[k]))
+_group_scalar(f::GroupMCP, ::Type{S}, k::Integer, ::Val{true}) where {S} = MCP{S}(_typed_product(S, f.λ0, f.w[k]), convert(S, f.a))
+_group_scalar(f::GroupSCAD, ::Type{S}, k::Integer, ::Val{true}) where {S} = SCAD{S}(_typed_product(S, f.λ0, f.w[k]), convert(S, f.a))
 _group_scalar(f::_RadialGroupPenalty, ::Type{S}, k::Integer, ::Val{false}) where {S} = _group_scalar(f, S, k)
 
 @inline function _check_group_coordinate(f::_RadialGroupPenalty, x::AtomIterate, k::Integer)
@@ -420,7 +420,7 @@ function _check_group_scalars(f::_RadialGroupPenalty, ::Type{T}, groups, n::Int,
   _group_scalar(f, T, groups[1], ordinary)
   valid = true
   @inbounds @simd for a in 1:n
-    valid &= convert(T, f.λ0 * f.w[groups[a]]) >= zero(T)
+    valid &= _typed_product(T, f.λ0, f.w[groups[a]]) >= zero(T)
   end
   if !valid
     for a in 1:n
@@ -552,7 +552,7 @@ function _radial_group_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::Abstra
   v = zero(T)
   for k in eachindex(f.groups)
     if !O && _infinite_radial_coefficient(f, T, k)
-      n = _shrink_group!(NormL2(one(T)), y, x, f.groups[k], convert(T, _weight_product(_entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+      n = _shrink_group!(NormL2(one(T)), y, x, f.groups[k], _weight_product(T, _entry(γ, k), f.λ0, f.w[k]), _group_writes(y, f.groups[k]))
       iszero(n) || (v = T(Inf))
       continue
     end
@@ -588,7 +588,7 @@ function _radial_group_prox!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIter
   for a in 1:y.nactive
     k = y.active[a]
     if !O && _infinite_radial_coefficient(f, T, k)
-      n = _shrink_group!(NormL2(one(T)), y.storage, y.storage, f.groups[k], convert(T, _weight_product(_entry(γ, k), f.λ0, f.w[k])))
+      n = _shrink_group!(NormL2(one(T)), y.storage, y.storage, f.groups[k], _weight_product(T, _entry(γ, k), f.λ0, f.w[k]))
       iszero(n) || (v = T(Inf))
       continue
     end
@@ -612,7 +612,7 @@ end
 @inline function _unchecked_coordinate!(x::AtomIterate, f::_RadialGroupPenalty, k, γ, p)
   T = float(eltype(x))
   if _infinite_radial_coefficient(f, T, k)
-    n = _shrink_group!(NormL2(one(T)), x.storage, x.storage, x.groups[k], convert(T, _weight_product(γ, f.λ0, f.w[k])))
+    n = _shrink_group!(NormL2(one(T)), x.storage, x.storage, x.groups[k], _weight_product(T, γ, f.λ0, f.w[k]))
     iszero(n) || activate!(x, k)
     return atom(x, k)
   end

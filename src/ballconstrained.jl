@@ -168,12 +168,6 @@ value_and_prox!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArr
   bb = s - a
   s, (a - (s - bb)) + (b - bb)
 end
-# The threshold γλ0w rounded once to U, with the product formed in the promotion of U and the
-# factors' types, so that a product that overflows the factors' type is still finite in U.
-@inline function _sphere_threshold(::Type{U}, γ, λ0, w) where {U<:AbstractFloat}
-  R = promote_type(U, float(typeof(γ)), float(typeof(λ0)), float(typeof(w)))
-  convert(U, _weight_product(convert(R, γ), convert(R, λ0), convert(R, w)))
-end
 @inline function _margin_greater(n, t, bn, bt)
   s1, e1 = _two_sum(n, bt)
   s2, e2 = _two_sum(bn, t)
@@ -321,7 +315,7 @@ _layout_mult(L::_LowerLayout, ::Type{U}, k) where {U} = mod1(k, L.p) == cld(k, L
 @inline _layout_put!(::_DenseLayout, y, k, z) = (y[k] = z)
 @inline _layout_put!(L::_LowerLayout, y, k, z) = (y[mod1(k, L.p), cld(k, L.p)] = z)
 @inline _l1_margin(x, f, γ, ::Type{U}, k) where {U} =
-  @inbounds max(abs(convert(U, x[k])) - _sphere_threshold(U, γ, f.λ0, _entry(f.w, k)), zero(U))
+  @inbounds max(abs(convert(U, x[k])) - _weight_product(U, γ, f.λ0, _entry(f.w, k)), zero(U))
 # Σ multiplicity ⋅ (margin / top)². Over every entry the sum may be reassociated by SIMD (A6),
 # as the norms of the package are; it only scales the result, and decides nothing.
 function _sphere_sumsq(::_DenseLayout, x, f, γ, ::Type{U}, top) where {U}
@@ -386,7 +380,7 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
     i = row + (col - 1) * p
     n = abs(convert(U, x[row, col]))
     nonfinite |= !isfinite(n)
-    threshold = _sphere_threshold(U, γ, f.λ0, _entry(f.w, i))   # not rounded to T first: selection and shrinkage agree
+    threshold = _weight_product(U, γ, f.λ0, _entry(f.w, i))   # not rounded to T first: selection and shrinkage agree
     better = if k == 0 || isinf(bestc)
       true
     elseif isinf(threshold) || bestn > bestc  # a positive margin: the shrink follows, and no winner is needed
@@ -423,7 +417,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Nor
   @inbounds for i in eachindex(IndexLinear(), x)
     n = abs(convert(U, x[i]))
     nonfinite |= !isfinite(n)
-    threshold = _sphere_threshold(U, γ, f.λ0, _entry(f.w, i))
+    threshold = _weight_product(U, γ, f.λ0, _entry(f.w, i))
     # margins n - t compared without rounding (see _margin_greater and _margin_better)
     (k == 0 || isinf(bestc) || (!isinf(threshold) && _margin_better(n, threshold, bestn, bestc))) && ((k, bestn, bestc) = (i, n, threshold))
   end
@@ -469,7 +463,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Gro
   kbest, ibest, bestn, bestc = 0, 0, zero(U), zero(U)
   for k in eachindex(f.groups)
     n = convert(U, _group_norm2(x, f.groups[k]))
-    threshold = convert(U, convert(T, _weight_product(γ, f.λ0, f.w[k])))
+    threshold = convert(U, _weight_product(T, γ, f.λ0, f.w[k]))
     (kbest == 0 || isinf(bestc) || (!isinf(threshold) && n - bestn > threshold - bestc)) && ((kbest, bestn, bestc) = (k, n, threshold))
   end
   @inbounds for i in eachindex(IndexLinear(), x)

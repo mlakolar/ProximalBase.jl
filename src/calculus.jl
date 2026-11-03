@@ -191,10 +191,13 @@ gradient!(g, s::Scaled, x) =
 _gradient_unchecked!(g, s::Scaled, x) = (_checkwrite(gradient!, s, g, x); _gradient_unchecked!(g, s.f, x); _scale!(g, s.α))
 prox!(y, s::Scaled, x, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
-_prox_unchecked!(y, s::Scaled, x, γ::Real) = (_checkwrite(prox!, s, y, x); _prox_unchecked!(y, s.f, x, s.α * γ))
+# The step that Scaled passes to f. The scale of an indicator does not matter, so a zero step stays
+# zero for α = Inf instead of becoming the NaN of Inf * 0; that NaN stays for any other f.
+@inline _scaled_step(s::Scaled, γ::Real) = _isindicator(s.f) && iszero(γ) ? γ : s.α * γ
+_prox_unchecked!(y, s::Scaled, x, γ::Real) = (_checkwrite(prox!, s, y, x); _prox_unchecked!(y, s.f, x, _scaled_step(s, γ)))
 value_and_prox!(y, s::Scaled, x, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
-_value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, s.α * γ); _value_at(_scaled_value(s, y, v, false), y))
+_value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ)); _value_at(_scaled_value(s, y, v, false), y))
 Base.@propagate_inbounds prox_entry(s::Scaled, v::Real, i::Integer, γ::Real) = prox_entry(s.f, v, i, s.α * γ)
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
 _checkwrite(op::O, s::Scaled, y, x) where {O} = (_checkreal(s, y); _checkreal(s, x); (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checkwrite(op, s.f, y, x))
@@ -1182,7 +1185,7 @@ lipschitz(t::Translate) = lipschitz(t.f)
 lipschitz(s::Sum) = sum(lipschitz, s.fs)
 lipschitz(s::SeparableSum) = maximum(lipschitz, s.fs)
 
-_checkstep(op::O, s::Scaled, y, x, γ::Real) where {O} = _checkstep(op, s.f, y, x, s.α * γ)
+_checkstep(op::O, s::Scaled, y, x, γ::Real) where {O} = _checkstep(op, s.f, y, x, _scaled_step(s, γ))
 _checkstep(op::O, t::Union{Tilt, Translate}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
   _checkstep(op, t.f, y, _StepInput(y), γ)
 

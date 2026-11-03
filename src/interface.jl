@@ -250,6 +250,10 @@ function _checkwrite(op, f, y, x)
 end
 # Scalar-step checks inspect types and shapes; transformed inputs have no values.
 _checkstep(op, f, y, x, γ) = true
+# The steps of an indicator projection, and of the penalized ball and sphere kernels, are
+# the scalars in [0, Inf]; the comparison is written so that it rejects NaN.
+@inline _checkstep_nonneg(γ::Real) = γ >= 0 || _throw_step(γ)
+@noinline _throw_step(γ) = throw(ArgumentError("γ must be nonnegative, got $γ"))
 struct _StepInput{T, N, A<:AbstractArray{T, N}} <: AbstractArray{T, N}
   array::A
 end

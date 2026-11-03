@@ -71,7 +71,7 @@ Base.@propagate_inbounds function prox_entry(f::CappedL1, v::T, i::Integer, γ::
 end
 
 kkt_violation(f::CappedL1, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i)))
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(float(eltype(g)), f.λ, _entry(f.w, i)))
 restrict(f::CappedL1, S::AbstractVector{<:Integer}) = CappedL1(f.λ, f.a, _restrict_entries(f.w, S))
 
 ####################################
@@ -143,8 +143,13 @@ Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ
   c * log1p(z / ε) + (z - t)^2 / 2 < t^2 / 2 ? sign(S(v)) * z : zero(S)
 end
 
+# λw/ε at the KKT precision W, formed in the promotion of W and the factors and rounded once
+@inline function _logpenalty_slope(::Type{W}, λ, w, ε) where {W<:AbstractFloat}
+  R = _working_type(W, λ, w, ε)
+  convert(W, _weight_coefficient(convert(R, λ), convert(R, w)) / convert(R, ε))
+end
 kkt_violation(f::LogPenalty, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i)) / f.ε)
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _logpenalty_slope(float(eltype(g)), f.λ, _entry(f.w, i), f.ε))
 restrict(f::LogPenalty, S::AbstractVector{<:Integer}) = LogPenalty(f.λ, f.ε, _restrict_entries(f.w, S))
 
 ####################################

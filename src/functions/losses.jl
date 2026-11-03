@@ -53,8 +53,11 @@ _has_ordinary_value(::Type{<:CheckLoss}) = true
 Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
-  s, τ, u = convert(S, _weight_coefficient(γ, w)), convert(S, f.τ), S(v)
-  u > s * τ ? u - s * τ : (u < -s * (1 - τ) ? u + s * (1 - τ) : zero(S))
+  u = S(v)
+  # the thresholds γwτ and γw(1-τ), each formed in the promotion of S and the factors, rounded once
+  hi = _weight_coefficient(S, γ, f.τ, w)
+  lo = _weight_coefficient(S, γ, _one_minus(S, f.τ), w)
+  u > hi ? u - hi : (u < -lo ? u + lo : zero(S))
 end
 
 # from zero, the objective decreases upward at rate -gᵢ - wᵢτ and downward at
@@ -62,7 +65,8 @@ end
 function kkt_violation(f::CheckLoss, g::AbstractArray, i::Integer)
   eltype(g) <: Real || _real_error(:kkt_violation)
   w = _entry(f.w, i)
-  max(-g[i] - w * f.τ, g[i] - w * (1 - f.τ))
+  W = float(eltype(g))
+  max(-g[i] - _typed_product(W, w, f.τ), g[i] - _typed_product(W, w, _one_minus(W, f.τ)))
 end
 restrict(f::CheckLoss, S::AbstractVector{<:Integer}) = CheckLoss(f.τ, _restrict_entries(f.w, S))
 
@@ -109,14 +113,17 @@ Base.@propagate_inbounds function prox_entry(f::HingeLoss, v::T, i::Integer, γ:
   S = float(T)
   y = convert(S, _entry(f.y, i))
   w = _entry(f.w, i)
-  s = convert(S, _weight_coefficient(γ, w)) * y^2
+  # the step γwy² is one product in the promotion of S and the factors, with the weight and one
+  # label factor combined first so that neither γw nor y² overflows alone
+  ay = abs(y)
+  s = _weight_coefficient(S, γ, ay, w * ay)
   u = y * S(v)
   (u >= 1 ? u : (u < 1 - s ? u + s : one(S))) / y
 end
 
 # f is differentiable at zero, with derivative -wᵢyᵢ
 kkt_violation(f::HingeLoss, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] - _entry(f.w, i) * _entry(f.y, i)))
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] - _typed_product(float(eltype(g)), _entry(f.w, i), _entry(f.y, i))))
 restrict(f::HingeLoss, S::AbstractVector{<:Integer}) = HingeLoss(_restrict_entries(f.y, S), _restrict_entries(f.w, S))
 
 """
@@ -331,7 +338,7 @@ _has_ordinary_value(::Type{<:EpsInsensitiveLoss}) = true
 Base.@propagate_inbounds function prox_entry(f::EpsInsensitiveLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
-  s, ε, u = convert(S, _weight_coefficient(γ, w)), convert(S, f.ε), S(v)
+  s, ε, u = _weight_coefficient(S, γ, w), convert(S, f.ε), S(v)
   a = abs(u)
   a <= ε ? u : (a <= ε + s ? copysign(ε, u) : u - copysign(s, u))
 end

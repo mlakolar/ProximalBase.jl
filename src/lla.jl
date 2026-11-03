@@ -136,8 +136,9 @@ function lla_weights!(w::AbstractArray, f::SeparableFunction, x::AbstractArray)
   _checkparams(f, x)
   check_symmetric_parameters(f, x)
   T = eltype(w)
+  W = promote_type(float(T), float(eltype(x)))   # the model precision (T3): the scalar methods work in float(typeof(v))
   @inbounds for i in eachindex(IndexLinear(), w, x)
-    w[i] = convert(T, lla_weight(f, x[i], i))
+    w[i] = convert(T, lla_weight(f, convert(W, x[i]), i))
   end
   return w
 end
@@ -148,9 +149,9 @@ lla_weights(f::AbstractFunction, x::AbstractArray) = lla_weights!(_gradient_buff
 #  group penalties
 ####################################
 
-lla_weight(f::GroupNormL2, v::T, k::Integer) where {T<:Real} = float(T)(_weight_coefficient(f.λ0, f.w[k]))
+lla_weight(f::GroupNormL2, v::T, k::Integer) where {T<:Real} = _weight_coefficient(float(T), f.λ0, f.w[k])
 lla_weight(f::_RadialGroupPenalty, v::T, k::Integer) where {T<:Real} =
-  isinf(_weight_coefficient(f.λ0, f.w[k])) ? float(T)(Inf) : lla_weight(_group_scalar(f, float(T), k), v, 1)
+  isinf(_entry(f.w, k)) ? float(T)(Inf) : lla_weight(_group_scalar(f, float(T), k), v, 1)
 
 function lla_weights!(w::AbstractArray, f::Union{GroupNormL2, _RadialGroupPenalty}, x::AbstractArray)
   eltype(w) <: Real && eltype(x) <: Real || _real_error(:lla_weights!)
@@ -158,8 +159,9 @@ function lla_weights!(w::AbstractArray, f::Union{GroupNormL2, _RadialGroupPenalt
     throw(DimensionMismatch("the weights have length $(length(w)) and there are $(length(f.groups)) groups"))
   _checkgroups(f, x)
   T = eltype(w)
+  W = promote_type(float(T), float(eltype(x)))
   for k in eachindex(f.groups)
-    w[k] = convert(T, lla_weight(f, _group_norm(f, x, f.groups[k]), k))
+    w[k] = convert(T, lla_weight(f, convert(W, _group_norm(f, x, f.groups[k])), k))
   end
   return w
 end

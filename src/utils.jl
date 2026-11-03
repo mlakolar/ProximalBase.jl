@@ -84,6 +84,12 @@ end
   R = _working_type(U, a, b, c)
   convert(U, _positive_product(convert(R, a), convert(R, b), convert(R, c)))
 end
+# 1 - τ formed in the promotion of U and τ's type, returned in that type (the caller rounds the
+# combined coefficient once)
+@inline function _one_minus(::Type{U}, τ) where {U<:AbstractFloat}
+  R = _working_type(U, τ, τ)
+  one(R) - convert(R, τ)
+end
 # the plain product ab (no range recovery) formed in the promotion of U and the factors' types,
 # rounded once to U
 @inline function _typed_product(::Type{U}, a, b) where {U<:AbstractFloat}

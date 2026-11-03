@@ -67,6 +67,13 @@ end
 
 @testset "AtomIterate" begin
 
+  @testset "scaling by Inf writes inactive groups (FN-9)" begin
+    b = AtomIterate(4, [1:2, 3:4]); b[1] = 1
+    @test rmul!(b, Inf) === b
+    @test isequal(Vector(b), [Inf, NaN, NaN, NaN])
+    @test collect(activecoordinates(b)) == [1, 2]
+  end
+
   @testset "constructors" begin
     x = AtomIterate(9, groups)
     @test x isa AtomIterate{Float64, Vector{Vector{Int}}}     # mixed groups become vectors

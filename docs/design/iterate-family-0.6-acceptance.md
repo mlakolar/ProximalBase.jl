@@ -1,13 +1,16 @@
 # The iterate family in 0.6: compatibility and acceptance
 
-> **For the 0.6 design signed off on 2026-11-01 (FD-16 open), not a description
-> of an installed release.** This plan explains how callers move to the
-> [contract](iterate-family-0.6.md) and how a future implementer proves
-> conformance. It links to the contract's requirement IDs (FS, FC, FW, FX, FL,
-> FN, FA, FP, FF) and decisions (FD-n) and restates none of the rules. Nothing
-> in it is implemented. Every code block that uses `atomindices`,
-> `ProximalBase.samegroups`, a read-only handle or a 0.6 rule is a *future*
-> example; none is a doctest.
+> **The target 0.6 design and acceptance plan, signed off on 2026-11-01 (FD-16
+> open), not documentation of a registered release.** This plan explains how
+> callers move to the [contract](iterate-family-0.6.md) and how an implementer
+> proves conformance. It links to the contract's requirement IDs (FS, FC, FW,
+> FX, FL, FN, FA, FP, FF) and decisions (FD-n) and restates none of the rules.
+> Implementation is in progress on `master`. The issues linked in §7 track each
+> item's status, and [#527](https://github.com/mlakolar/ProximalBase.jl/issues/527)
+> tracks the downstream migration. The audit in §1 and the sign-off decisions
+> record the state at the audited commit. Code blocks are illustrative. Those
+> that use an API or rule not yet implemented are *future* examples, and none
+> is a doctest.
 
 # 1. What was audited
 

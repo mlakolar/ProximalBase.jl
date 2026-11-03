@@ -39,6 +39,7 @@ quick = [
   "losses",
   "nested_box_values",
   "sets",
+  "lmo",
   "spectral",
   "spectralfunction",
   # precision, boundaries, non-finite values, validation before writes
@@ -85,6 +86,7 @@ standard = [
   "sqrhinge",
   "stiefel",
   "sumlargest",
+  "threshold_factor_type",
   "threshold_precision",
 ]
 

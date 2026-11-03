@@ -436,9 +436,10 @@ function _clear!(x::_StoredIterate)
   x
 end
 
-# Multiplying by a number scales the stored entries, in O(nnz), as for a sparse
-# matrix. The generic methods visit every index, among them (r, c) and (c, r) of a
-# SymmetricSparseIterate, which share storage, and so would scale it twice.
+# These fallback methods serve SymmetricSparseIterate and scale stored entries
+# in O(nnz). Generic methods would scale mirrored entries twice because they share
+# storage. For scalars that map zero to a nonzero value (Inf, NaN, a zero divisor),
+# the result depends on storage until #391 changes the owner's scaling.
 function LinearAlgebra.rmul!(x::_StoredIterate, s::Number)
   _checkreal(x, s)
   @inbounds for k = 1:x.nnz
@@ -467,6 +468,50 @@ function LinearAlgebra.ldiv!(s::Number, x::_StoredIterate)
   end
   x
 end
+
+
+# Scaling a SparseIterate is a value write equal to its broadcast in values,
+# working set and slot order. It costs O(nnz) when the scalar maps zero to zero,
+# and O(n) otherwise. The operation is assumed to be ordinary, pure arithmetic.
+# A failed conversion throws the broadcast's exception type and leaves a consistent
+# iterate, but partial writes need not match the broadcast: stored entries are
+# visited in slot order. If the unstored value cannot convert, nothing is written.
+function _scale!(x::SparseIterate{T}, s::Number, op::F) where {T, F}
+  _checkreal(x, s)
+  if _may_activate(x, s, op) && x.nnz < length(x.ind2nzval)
+    z = convert(T, op(zero(T), s))
+    iszero(z) || return _scale_all!(x, s, op, z)
+  end
+  @inbounds for k = 1:x.nnz
+    x.nzval[k] = op(x.nzval[k], s)
+  end
+  x
+end
+
+# Whether the scalar can activate an unstored coordinate, tested before the working
+# set is read: the fast path then costs one scalar test (#427). With IEEE entries and
+# an IEEE scalar, op(zero(T), s) cannot throw, and a zero result converts to zero.
+# Other pairs keep the full test, as op(zero(T), s) may throw where a fully stored
+# iterate scales fine: (0//1) / 0 does, and so may a user-defined Real.
+_may_activate(::SparseIterate{T}, s::Base.IEEEFloat, op::F) where {T <: Base.IEEEFloat, F} = !iszero(op(zero(T), s))
+_may_activate(::SparseIterate, s::Number, op::F) where {F} = true
+
+# The O(n) path, kept out of line: inlined, its stores give every call of _scale!,
+# the O(nnz) path included, a GC frame (#427).
+@noinline function _scale_all!(x::SparseIterate{T}, s::Number, op::F, z::T) where {T, F}
+  @inbounds for k = 1:x.nnz
+    x.nzval[k] = op(x.nzval[k], s)
+  end
+  @inbounds for i = 1:length(x.ind2nzval)
+    x.ind2nzval[i] == 0 && _store!(x, i, z)
+  end
+  x
+end
+
+LinearAlgebra.rmul!(x::SparseIterate, s::Number) = _scale!(x, s, *)
+LinearAlgebra.lmul!(s::Number, x::SparseIterate) = _scale!(x, s, (v, s) -> s * v)
+LinearAlgebra.rdiv!(x::SparseIterate, s::Number) = _scale!(x, s, /)
+LinearAlgebra.ldiv!(s::Number, x::SparseIterate) = _scale!(x, s, (v, s) -> s \ v)
 
 
 ####################################

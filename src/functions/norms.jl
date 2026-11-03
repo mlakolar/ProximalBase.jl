@@ -509,14 +509,14 @@ function _ordinary_group_weights(f, ::Type{T}) where {T}
   isfinite(f.λ0) || return false
   # Nonnegative weights make the largest product bound every coefficient.
   w = maximum(f.w; init = zero(eltype(f.w)))
-  isfinite(w) && isfinite(convert(T, f.λ0 * w))
+  isfinite(w) && isfinite(_typed_product(T, f.λ0, w))
 end
 function _ordinary_group_weights(f, ::Type{T}, ks, n) where {T}
   isfinite(f.λ0) || return false
   ordinary = true
   @inbounds @simd for a in 1:n
     w = f.w[ks[a]]
-    ordinary &= isfinite(w) & isfinite(convert(T, f.λ0 * w))
+    ordinary &= isfinite(w) & isfinite(_typed_product(T, f.λ0, w))
   end
   ordinary
 end

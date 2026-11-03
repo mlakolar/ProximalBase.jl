@@ -381,25 +381,93 @@ function _scaled_dot(a, x::AbstractArray, s)
   v
 end
 
-# Σᵢ aᵢxᵢ over n products as two compensated sums in the type of the scales:
+# Σᵢ aᵢxᵢ over n products as three compensated sums in the type of the scales:
 # the large products, those that overflow or exceed floatmax/2n, in units of
-# the two scales, and the others in their own units, whose sum cannot overflow
+# the two scales; the products below floatmin·2^(p+1), which underflow or lose
+# bits, in units of 2^-U (_tiny_unit), formed from the significands of the
+# factors, so that a weight applied later still finds them; and the others in
+# their own units, whose sum cannot overflow. Exact zeros are skipped.
 function _split_dot(a::AbstractArray, x::AbstractArray, sa, sx)
   _checksize(a, x)
   R = typeof(sx[1])
-  t = floatmax(R) / (2 * max(length(a), 1))
-  big = eb = small = es = zero(R)
+  acc = _split_start(R, length(a))
   @inbounds for i in eachindex(IndexLinear(), a, x)
-    big, eb, small, es = _split_add(big, eb, small, es, a[i], x[i], sa, sx, t)
+    acc = _split_add(acc, a[i], x[i], sa, sx)
   end
-  big + eb, small + es
+  _split_finish(acc)
 end
-@inline function _split_add(big::R, eb::R, small::R, es::R, a, x, sa, sx, t::R) where {R}
-  p = convert(R, a) * convert(R, x)
-  abs(p) <= t && return (big, eb, _compensated_add(small, es, p)...)
-  u = ((convert(R, a) * sa[1]) * sa[2]) * ((convert(R, x) * sx[1]) * sx[2])
-  (_compensated_add(big, eb, u)..., small, es)
+struct _SplitAcc{R}
+  big::R
+  eb::R
+  small::R
+  es::R
+  tiny::R
+  et::R
+  t::R              # the largest product summed in its own units
 end
+_split_start(::Type{R}, n::Integer) where {R} =
+  (z = zero(R); _SplitAcc{R}(z, z, z, z, z, z, floatmax(R) / (2 * max(n, 1))))
+_split_finish(acc::_SplitAcc) = (acc.big + acc.eb, acc.small + acc.es, acc.tiny + acc.et)
+# Products below floatmin·2^(p+1) are summed in units of 2^-U. With
+# U = emax + p + 4 they stay normal there down to about 2^-(emax - emin), below
+# which no weight up to floatmax lifts them into the normal range.
+_tiny_unit(::Type{R}) where {R} = exponent(floatmax(R)) + precision(R) + 4
+_tiny_limit(::Type{R}) where {R} = ldexp(floatmin(R), precision(R) + 1)
+@inline function _split_add(acc::_SplitAcc{R}, a, x, sa, sx) where {R}
+  ar, xr = convert(R, a), convert(R, x)
+  p = ar * xr
+  m = abs(p)
+  if m > acc.t
+    u = ((ar * sa[1]) * sa[2]) * ((xr * sx[1]) * sx[2])
+    big, eb = _compensated_add(acc.big, acc.eb, u)
+    return _SplitAcc{R}(big, eb, acc.small, acc.es, acc.tiny, acc.et, acc.t)
+  elseif m >= _tiny_limit(R) || iszero(ar) || iszero(xr)
+    small, es = _compensated_add(acc.small, acc.es, p)
+    return _SplitAcc{R}(acc.big, acc.eb, small, es, acc.tiny, acc.et, acc.t)
+  end
+  ma, ea = frexp(ar)
+  mx, ex = frexp(xr)
+  tiny, et = _compensated_add(acc.tiny, acc.et, ldexp(ma * mx, ea + ex + _tiny_unit(R)))
+  _SplitAcc{R}(acc.big, acc.eb, acc.small, acc.es, tiny, et, acc.t)
+end
+
+####################################
+#
+#  Values recomputed in power-of-two units (R1)
+#
+####################################
+
+# 2^b bounds the magnitudes below m; a zero (or non-finite) m gives 0
+@inline _bound_exponent(m) = (iszero(m) || !isfinite(m)) ? 0 : exponent(m) + 1
+# ⌈log₂ n⌉, the bits that a sum of n terms adds
+@inline _log2_ceil(n::Integer) = n <= 1 ? 0 : 8sizeof(Int) - leading_zeros(Int(n) - 1)
+@inline _max_exponent(::Type{R}) where {R} = exponent(floatmax(R))
+
+# The largest magnitude, and finiteness, over the stored entries only.
+const _WrappedSparse = Union{Adjoint{<:Any, <:SparseArrays.AbstractSparseArray},
+                             Transpose{<:Any, <:SparseArrays.AbstractSparseArray}}
+_stored_maxabs(x) = _maximum_abs(x)
+_stored_maxabs(x::_WrappedSparse) = _maximum_abs(parent(x))
+_all_finite(x) = all(isfinite, _stored_values(x))
+_all_finite(x::_WrappedSparse) = _all_finite(parent(x))
+_all_finite(::Nothing) = true
+
+# w Σ mᵢ 2^eᵢ over finite mᵢ, the sum aligned to its largest term and the weight
+# applied last, rounded once: the terms of a value recomputed in different
+# power-of-two units (R1)
+function _pow2_weighted(::Type{R}, w, terms::Vararg{Tuple{Any, Int}, N}) where {R, N}
+  E = typemin(Int)
+  for (m, e) in terms
+    iszero(m) || (E = max(E, exponent(convert(R, m)) + e))
+  end
+  E == typemin(Int) && return convert(R, w) * zero(R)
+  s = zero(R)
+  for (m, e) in terms
+    iszero(m) || (s += ldexp(convert(R, m), e - E))
+  end
+  _scaled_product(convert(R, w), s, E)
+end
+_pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_weighted(R, one(R), terms...)
 
 ####################################
 #

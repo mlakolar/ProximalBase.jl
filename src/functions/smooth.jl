@@ -76,7 +76,29 @@ isconvex(::Type{<:LinearFunction}) = true
 
 (f::LinearFunction)(x::AbstractArray) =
   (_check_value_arrays(f, x); _value_checked(f, x))
-_value_unchecked(f::LinearFunction, x::AbstractArray) = (_checkvalue(f, x); _value_at(dot(f.c, x) + f.d, x))
+_value_unchecked(f::LinearFunction, x::AbstractArray) = (_checkvalue(f, x); _value_at(_linear_value(f, x, dot(f.c, x) + f.d), x))
+
+# A dot that overflows, alone or with d, at a representable value is summed
+# again with x in units of 2^k, chosen so that no partial sum can overflow, and
+# d added in the same units (R1).
+@inline _linear_value(f::LinearFunction, x, v) = isfinite(v) ? v : _linear_value_recover(f.c, f.d, x, v)
+@noinline function _linear_value_recover(c, d, x, v)
+  (_all_finite(x) && _all_finite(c) && isfinite(d)) || return v
+  R = typeof(v)
+  E = _max_exponent(R)
+  k = max(0, _bound_exponent(_stored_maxabs(c)) + _bound_exponent(_stored_maxabs(x)) + _log2_ceil(length(x)) + 2 - E,
+          _bound_exponent(convert(R, d)) + 2 - E)
+  s = _power_factors(R, -k)
+  p = convert(R, _linear_scaled_dot(c, x, s))
+  _pow2_sum(R, (p + _scale_value(convert(R, d), s), k))
+end
+# Σ cᵢ (xᵢ 2^-k), over the stored entries of x where it has them; other array
+# types (and device arrays) take the scaled copy of x with their own dot
+_linear_scaled_dot(c, x::Union{DenseArray, SparseIterate}, s) =
+  _is_device_array(x) || _is_device_array(c) ? _linear_scaled_copy_dot(c, x, s) : _scaled_dot(c, x, s)
+_linear_scaled_dot(c, x::SymmetricSparseIterate, s) = _checked_scaled_dot(c, x, s)
+_linear_scaled_dot(c, x, s) = _linear_scaled_copy_dot(c, x, s)
+_linear_scaled_copy_dot(c, x, s) = dot(c, x .* s[1] .* s[2])
 
 # Generic dot only needs equal lengths; specialized matrix methods check shapes.
 _dot_checks_size(::Type{C}, ::Type{X}) where {C, X} =
@@ -659,7 +681,8 @@ function (f::QuadraticFunction)(x::AbstractVector)
   _checkreal(f, x)
   mul!(f.tmp, f.A, x)
   v = dot(x, f.tmp) / 2 + f.c
-  _value_at(f.b === nothing ? v : v + dot(f.b, x), x)
+  v = f.b === nothing ? v : v + dot(f.b, x)
+  _value_at(isfinite(v) ? v : _quadratic_value_recover(f, x, v), x)
 end
 
 function value_and_gradient!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector)
@@ -674,7 +697,31 @@ function value_and_gradient!(g::AbstractVector, f::QuadraticFunction, x::Abstrac
     g .+= f.b
     v += dot(f.b, x)
   end
-  _value_at(v, x)
+  _value_at(isfinite(v) ? v : _quadratic_value_recover(f, x, v), x)
+end
+
+# A product, quadratic dot or linear term that overflows at a representable value
+# (R1): x is scaled by 2^-kx into f.w, so that every entry of A xs (in f.tmp) and
+# the dot stay below floatmax/4; the quadratic term, in units of 2^(2kx), the
+# linear one, in units of 2^kx, and c are added by their exponents, rounded once.
+# Nothing is allocated when x has the element type of the buffers.
+@noinline function _quadratic_value_recover(f::QuadraticFunction{T}, x::AbstractVector, v) where {T}
+  _all_finite(x) || return v
+  (_all_finite(f.A) && _all_finite(f.b) && isfinite(f.c)) || return v
+  R = typeof(v)
+  E = _max_exponent(R)
+  L = _log2_ceil(length(x))
+  i = max(0, _bound_exponent(_stored_maxabs(f.A)) + 2L + 3 - E)   # |A xs| < 2^(E-3-L) and |xs| < 2^-i ≤ 1
+  kx = _bound_exponent(_stored_maxabs(x)) + i
+  xs = eltype(x) === T ? f.w : similar(f.w, R)
+  sx = _power_factors(R, -kx)
+  xs .= x .* sx[1] .* sx[2]
+  mul!(f.tmp, f.A, xs)
+  q = dot(xs, f.tmp) / 2
+  f.b === nothing && return _pow2_sum(R, (q, 2kx), (f.c, 0))
+  j = max(0, _bound_exponent(_stored_maxabs(f.b)) + L + 2 - E)
+  l = _scaled_dot(f.b, xs, _power_factors(R, -j))
+  _pow2_sum(R, (q, 2kx), (l, kx + j), (f.c, 0))
 end
 
 function gradient!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector)
@@ -846,7 +893,8 @@ function _value_unchecked(f::KronQuadratic, Θ::AbstractArray)
   mul!(f.AD, f.A, D)
   mul!(f.W, f.AD, f.B)
   v = dot(D, f.W) / 2
-  _value_at(f.C === nothing ? v : v + dot(f.C, D), Θ)
+  v = f.C === nothing ? v : v + dot(f.C, D)
+  _value_at(isfinite(v) ? v : _kron_value_recover(f, v), Θ)
 end
 
 value_and_gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =
@@ -865,7 +913,36 @@ function _value_and_gradient_unchecked!(G::AbstractArray, f::KronQuadratic, Θ::
   # the part of the gradient that acts on symmetric matrices: also when only the output is symmetric
   (Θ isa SymmetricSparseIterate || G isa SymmetricSparseIterate) && _symmetrize!(W)
   copyto!(G, W)
-  _value_at(v, Θ)
+  _value_at(isfinite(v) ? v : _kron_value_recover(f, v), Θ)
+end
+
+# A product or dot that overflows at a representable value (R1), recomputed in
+# the owned buffers, which f.D enters holding Θ: D is scaled by 2^-kd so that
+# A Ds stays below floatmax/4, A Ds by its own power of two 2^-ka (and 2^-j for
+# the size of B and the final dot) before the product with B, so that large A and
+# B do not push D into the subnormal range. ⟨Θ, AΘB⟩ = 2^(2kd+ka+j) ⟨Ds, W⟩ and
+# ⟨C, Θ⟩ = 2^kd ⟨C, Ds⟩ are added by their exponents and rounded once.
+@noinline function _kron_value_recover(f::KronQuadratic{T}, v) where {T}
+  D, AD, W = f.D, f.AD, f.W
+  _all_finite(D) || return v               # A, B and C are finite by construction
+  R = typeof(v)
+  E = _max_exponent(R)
+  p, q = size(D)
+  Lp, Lq, Lpq = _log2_ceil(p), _log2_ceil(q), _log2_ceil(p * q)
+  i = max(0, _bound_exponent(_stored_maxabs(f.A)) + Lp + 3 - E)
+  kd = _bound_exponent(_stored_maxabs(D)) + i
+  sd = _power_factors(T, -kd)
+  D .= D .* sd[1] .* sd[2]                 # |Ds| < 2^-i ≤ 1
+  mul!(AD, f.A, D)
+  j = max(0, _bound_exponent(_stored_maxabs(f.B)) + Lq + Lpq + 3 - E)
+  ka = _bound_exponent(_stored_maxabs(AD)) + j
+  sa = _power_factors(T, -ka)
+  AD .= AD .* sa[1] .* sa[2]               # |ADs| < 2^-j
+  mul!(W, AD, f.B)
+  quad = (convert(R, dot(D, W)) / 2, 2kd + ka)
+  f.C === nothing && return _pow2_sum(R, quad)
+  m = max(0, _bound_exponent(_stored_maxabs(f.C)) + Lpq + 2 - E)
+  _pow2_sum(R, quad, (_scaled_dot(f.C, D, _power_factors(R, -m)), kd + m))
 end
 
 gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =

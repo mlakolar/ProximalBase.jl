@@ -712,12 +712,15 @@ Arrays of any shape are vectors in linear (column-major) order, so "first
 index" is the first in that order and a matrix has the Frobenius pairing. `g`
 holds real numbers, and `s` must be an `Array`, or a view of one, of
 floating-point numbers of the size of `g`. A radius or bound is rounded to the
-element type of `s`; a finite one that overflows it is an `ArgumentError`. The
+element type of `s`; a finite one that overflows it is an `ArgumentError`, and one that underflows
+to zero is accepted as zero. The
 result is feasible up to that rounding. A radius of `0` gives `0`, and a box
 coordinate with `lᵢ = uᵢ` gives that value, whatever `g` holds there. Zeros are
 `+0.0`.
 
-`s` may be `g`. Validation precedes every write: a size mismatch is a
+`s` may be `g`; a partial overlap, such as shifted views of one array, is not
+supported. A `Symmetric` `g` is read as a dense matrix, and the result need not
+be symmetric. Validation precedes every write: a size mismatch is a
 `DimensionMismatch`, and an unsupported set, an invalid output or parameter, or
 an empty simplex with `equality = true` and a radius above the tolerance of the
 element type, an `ArgumentError`, with `s` unchanged.

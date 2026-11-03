@@ -571,4 +571,226 @@ end
   @test alloc_val(C, y) == 0
 end
 
+####################################
+#  the generic fallback under review (#530)
+####################################
+
+# an oracle that writes part of its destination, then fails
+struct ThrowCube <: ProximalBase.AbstractFunction
+  mode::Symbol
+  n::Int
+end
+ProximalBase.isconvex(::Type{ThrowCube}) = true
+ProximalBase.isproximable(::Type{ThrowCube}) = true
+ProximalBase._isindicator(::Type{ThrowCube}) = true
+ProximalBase.haslmo(::ThrowCube) = true
+ProximalBase.prox!(y::AbstractArray, ::ThrowCube, x::AbstractArray, γ::Real) = (y .= clamp.(x, 0.0, 1.0))
+function ProximalBase.lmo!(s::AbstractArray, f::ThrowCube, g::AbstractArray)
+  length(g) == f.n || throw(DimensionMismatch("this set has dimension $(f.n)"))
+  f.mode === :parameter && throw(ArgumentError("the parameters of the set are invalid"))
+  for i in eachindex(s, g)
+    s[i] = 42.0
+    f.mode === :partial && i == length(s) ÷ 2 + 1 && throw(ErrorException("the oracle failed after writing"))
+  end
+  s
+end
+
+# an oracle that needs the matrix: column j is the interval [0, j]
+struct ColumnCube <: ProximalBase.AbstractFunction end
+ProximalBase.isconvex(::Type{ColumnCube}) = true
+ProximalBase.isproximable(::Type{ColumnCube}) = true
+ProximalBase._isindicator(::Type{ColumnCube}) = true
+ProximalBase.haslmo(::ColumnCube) = true
+function ProximalBase.prox!(y::AbstractArray, ::ColumnCube, x::AbstractArray, γ::Real)
+  ndims(x) == 2 || throw(ArgumentError("ColumnCube needs a matrix"))
+  for j in 1:size(x, 2), i in 1:size(x, 1)
+    y[i, j] = clamp(x[i, j], 0.0, j)
+  end
+  y
+end
+function ProximalBase.lmo!(s::AbstractArray, ::ColumnCube, g::AbstractArray)
+  ndims(g) == 2 && ndims(s) == 2 || throw(ArgumentError("ColumnCube needs a matrix"))
+  for j in 1:size(g, 2), i in 1:size(g, 1)
+    s[i, j] = g[i, j] < 0 ? Float64(j) : 0.0
+  end
+  s
+end
+column_support(y) = sum(j * max(y[i, j], 0.0) for i in 1:size(y, 1), j in 1:size(y, 2))
+
+# an oracle that evaluates another conjugate with its own destination in use
+struct NestedCube <: ProximalBase.AbstractFunction
+  aux::Vector{Float64}
+end
+ProximalBase.isconvex(::Type{NestedCube}) = true
+ProximalBase.isproximable(::Type{NestedCube}) = true
+ProximalBase._isindicator(::Type{NestedCube}) = true
+ProximalBase.haslmo(::NestedCube) = true
+ProximalBase.prox!(y::AbstractArray, ::NestedCube, x::AbstractArray, γ::Real) = (y .= clamp.(x, 0.0, 1.0))
+function ProximalBase.lmo!(s::AbstractArray, f::NestedCube, g::AbstractArray)
+  for i in eachindex(s, g)
+    s[i] = g[i] < 0 ? 1.0 : 0.0
+  end
+  Conjugate(OracleCube(-5.0, 5.0))(f.aux)   # evaluated while s holds the minimizer
+  s
+end
+
+# the exact value, rounded once
+function cube_exact(f, y)
+  r = sum(v -> v >= 0 ? big(f.u) * big(v) : big(f.l) * big(v), y)
+  T = float(eltype(y))
+  T(r)
+end
+
+@testset "support fallback: overflow, underflow and cancellation" begin
+  M = floatmax(Float64); tiny = nextfloat(0.0)
+  f = OracleCube(1.0, 2.0)
+  @test Conjugate(f)([M, -M]) == M
+  @test Conjugate(OracleCube(0.0, 0.5))([tiny, tiny]) == tiny
+  # mixed-sign large terms and an exact cancellation
+  @test Conjugate(f)([M / 2, -2M / 2, M / 2]) == cube_exact(f, [M / 2, -2M / 2, M / 2])
+  @test Conjugate(f)([1e16, 0.5, -2e16]) == 1.0
+  @test Conjugate(f)([M, 0.25, -M, M / 4, -M / 4]) == Inf     # the exact value, 1.25 M, does not fit
+  @test Conjugate(f)([M, 0.25, -M, -M / 4]) == cube_exact(f, [M, 0.25, -M, -M / 4])
+  @test Conjugate(OracleCube(-1.0, 1.0))([M, -M, M, -M]) == cube_exact(OracleCube(-1.0, 1.0), [M, -M, M, -M])
+  # small products that underflow before the sum
+  g = OracleCube(0.0, 1e-160)
+  y = fill(1e-160, 1000)
+  @test Conjugate(g)(y) ≈ cube_exact(g, y) rtol = 4eps()
+  y = [1e-160, 5e-324, 1e-160, 3.0e-300, 1e-160]
+  @test Conjugate(g)(y) ≈ cube_exact(g, y) rtol = 4eps()
+  @test Conjugate(OracleCube(0.0, 0.5))(fill(tiny, 4)) == 2tiny
+  # a large and a small factor in different entries
+  h = OracleCube(0.0, 1e-300)
+  y = [1e300, 1e-300, 1e300]
+  @test Conjugate(h)(y) ≈ cube_exact(h, y) rtol = 4eps()
+  # Float32 has a wider range in the sum
+  M32 = floatmax(Float32)
+  c32 = Conjugate(OracleCube(1.0, 2.0))
+  @test c32(Float32[M32, -M32]) === M32
+  @test c32(Float32[1f-30, 1f-30]) isa Float32
+  # a result that does not fit is infinite
+  @test Conjugate(OracleCube(0.0, 2.0))([M, M]) == Inf
+  @test Conjugate(OracleCube(0.0, 2.0))(Float32[M32, M32]) === Inf32
+  @test Conjugate(OracleCube(0.0, 2.0))([-M, -M]) == 0.0
+  # an infinite entry at a nonzero minimizer, and the opposite infinities
+  @test Conjugate(OracleCube(0.0, 1.0))([Inf, 1.0]) == Inf
+  @test Conjugate(OracleCube(-1.0, 1.0))([Inf, -Inf]) == Inf          # both terms are +Inf
+  @test isnan(Conjugate(OracleCube(1.0, 2.0))([Inf, -Inf]))           # +Inf and -Inf
+  for _ in 1:30
+    n = rand(1:6); sc = 10.0^rand(-300:300)
+    y = sc .* randn(n)
+    fo = OracleCube(rand(), 1 + rand())
+    ref = cube_exact(fo, y)
+    got = Conjugate(fo)(y)
+    @test isinf(ref) ? got == ref : isapprox(got, ref; rtol = 8eps(), atol = 8 * nextfloat(0.0))
+  end
+end
+
+@testset "support fallback: NaN" begin
+  f = OracleCube(0.0, 1.0)
+  @test isnan(Conjugate(f)([NaN]))
+  @test isnan(Conjugate(f)([1.0, NaN, -2.0]))
+  @test isnan(Conjugate(f)(Float32[NaN, 1]))
+  # a zero minimizer entry times an infinite one adds nothing
+  @test Conjugate(f)([-Inf, 1.0]) == 1.0
+  @test Conjugate(f)([-Inf, -Inf]) == 0.0
+end
+
+@testset "value_and_prox! of a fallback conjugate leaves the output unchanged on error" begin
+  bits(v) = reinterpret(UInt64, copy(v))
+  for mode in (:partial, :parameter), γ in (0.5, 2.0)
+    f = ThrowCube(mode, 5)
+    c = Conjugate(f)
+    x = [0.3, -1.0, 2.0, 0.9, -0.2]
+    out = fill(7.0, 5); before = bits(out)
+    @test_throws Exception value_and_prox!(out, c, x, γ)
+    @test bits(out) == before
+    z = copy(x); zb = bits(z)
+    @test_throws Exception value_and_prox!(z, c, z, γ)           # aliased
+    @test bits(z) == zb
+    @test_throws Exception c(x)
+  end
+  # invalid dimensions of the oracle, and a tuple input
+  c = Conjugate(ThrowCube(:partial, 4))
+  x = rand(5); out = fill(7.0, 5); before = bits(out)
+  @test_throws DimensionMismatch value_and_prox!(out, c, x, 1.0)
+  @test bits(out) == before
+  @test_throws DimensionMismatch value_and_prox!(out, c, x, 2.0)
+  # a structurally invalid output is rejected before anything is written
+  @test_throws DimensionMismatch value_and_prox!(zeros(4), Conjugate(ThrowCube(:partial, 5)), x, 1.0)
+  @test_throws ArgumentError value_and_prox!(zeros(ComplexF64, 5), Conjugate(ThrowCube(:partial, 5)), x, 1.0)
+  # wrapped, and a separable sum of blocks
+  w = Conjugate(Scaled(ThrowCube(:partial, 5), 2.0))
+  out = fill(7.0, 5); before = bits(out)
+  @test_throws Exception value_and_prox!(out, w, x, 1.0)
+  @test bits(out) == before
+  sc = Conjugate(SeparableSum(ThrowCube(:partial, 2), OracleCube(0.0, 1.0)))
+  yt = (fill(7.0, 2), fill(7.0, 3)); xt = (rand(2), rand(3))
+  @test_throws Exception value_and_prox!(yt, sc, xt, 1.0)
+  @test yt == (fill(7.0, 2), fill(7.0, 3))
+  # success still commits, in both forms
+  f = OracleCube(-1.0, 2.0); c = Conjugate(f)
+  x = randn(6) .* 3
+  out = similar(x); v = value_and_prox!(out, c, x, 0.7)
+  z = copy(x); @test value_and_prox!(z, c, z, 0.7) == v && z == out
+  @test v ≈ c(out)
+  st = (similar(xt[1]), similar(xt[2]))
+  sf = Conjugate(SeparableSum(OracleCube(-1.0, 2.0), OracleCube(0.0, 1.0)))
+  vt = value_and_prox!(st, sf, xt, 1.0)
+  @test vt ≈ sf(st)
+end
+
+@testset "support fallback keeps the shape of the argument" begin
+  c = Conjugate(ColumnCube())
+  Y = randn(4, 3)
+  @test c(Y) ≈ column_support(Y)
+  @test c(view(Y, 1:2, :)) ≈ column_support(Y[1:2, :])
+  @test c(Float32.(Y)) ≈ column_support(Float32.(Y)) rtol = 1e-5
+  @test c(permutedims(Y)) ≈ column_support(permutedims(Y))
+  X = randn(4, 3) .* 2
+  out = similar(X)
+  v = value_and_prox!(out, c, X, 0.8)
+  @test v ≈ c(out) && v isa Float64
+  @test out ≈ X .- 0.8 .* ((x, j) -> clamp(x / 0.8, 0.0, j)).(X, reshape(1:3, 1, 3))
+  Z = copy(X)
+  @test value_and_prox!(Z, c, Z, 0.8) ≈ v && Z ≈ out
+  # a vector is not a matrix for this set
+  @test_throws ArgumentError c(randn(4))
+end
+
+@testset "support fallback: nested conjugates keep the outer minimizer" begin
+  f = NestedCube(randn(7))
+  y = randn(7)
+  @test Conjugate(f)(y) ≈ sum(max.(y, 0))
+  Y = randn(7)
+  out = similar(Y)
+  @test value_and_prox!(out, Conjugate(f), Y, 1.0) ≈ Conjugate(f)(out)
+  # a nested call of another size, and of a different element type
+  @test Conjugate(NestedCube(randn(3)))(y) ≈ sum(max.(y, 0))
+  @test Conjugate(NestedCube(randn(20)))(Float32.(y)) ≈ sum(max.(Float32.(y), 0))
+end
+
+@testset "support fallback: allocations after warm-up" begin
+  c = Conjugate(OracleCube(-1.0, 2.0))
+  for T in (Float32, Float64), n in (10, 1000, 100000)
+    y = randn(T, n)
+    c(y)
+    @test alloc_val(c, y) == 0
+  end
+  cm = Conjugate(ColumnCube()); Y = randn(30, 4); cm(Y)
+  @test alloc_val(cm, Y) == 0
+  # the nested frame is also reused
+  cn = Conjugate(NestedCube(randn(7))); yy = randn(7); cn(yy)
+  @test alloc_val(cn, yy) == 0
+end
+
+@testset "capped simplex: the empty normal follows the constructor" begin
+  # an empty array normal is the zero vector, which IndHyperplane rejects
+  @test_throws ArgumentError IndHyperplane(ones(0), 0)
+  # the scalar normal represents the zero-dimensional set
+  C = Constrained(IndBox(0, 1), IndHyperplane(1, 0))
+  @test haslmo(C) && lmo(C, Float64[]) == Float64[] && Conjugate(C)(Float64[]) == 0
+  @test_throws ArgumentError lmo!(Float64[], Constrained(IndBox(0, 1), IndHyperplane(1, 1)), Float64[])
+end
+
 end # module

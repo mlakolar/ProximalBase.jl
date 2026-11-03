@@ -310,18 +310,24 @@ vanishes at ``y = 0``.
 so `value_and_prox!` reports them. The conjugate of a convex indicator is its
 support function, ``\sigma_C(y) = \langle y, \operatorname{lmo}(C, -y)\rangle``,
 and for an indicator that has a linear minimization oracle
-([`haslmo`](@ref)) but no formula of its own the package evaluates it this way:
-the minimizer goes to a per-task buffer, reused after the first call, and ``-y`` is
-read lazily, so a call allocates nothing once warm. Entries at which the
-minimizer is zero add nothing, also when ``y_i`` is infinite, and the sum is
-compensated. The oracle runs in the element type of ``y``, so a bound
-that does not fit it is an `ArgumentError`; `value_and_prox!` checks the sizes
-before it writes, but an error that only the oracle of a user's set raises arrives after the output is written. The formulas above, the capped simplex's
-sum of the ``k`` largest entries and the other direct values take precedence, because they are
-faster and treat the extreme scales better; an indicator without an oracle,
-and every unbounded set, keeps its own value. A set without an oracle is
-*unsupported*, which is not the same as having an infinite support: the
-conjugate of a halfspace is finite on one ray and infinite elsewhere. The proximal operator of any convex,
+([`haslmo`](@ref)) but no formula of its own the package evaluates it this way.
+``-y`` is read lazily, and the minimizer is written to an array of the shape of ``y``
+(an oracle that needs the matrix gets the matrix) in a per-task buffer that later calls
+reuse, so a warmed call allocates nothing. The buffers form a stack: an oracle that
+evaluates another conjugate while it holds its destination does not overwrite it. The
+sum is in `Float64` for the narrower types, and in `Float64` a product that overflows or
+underflows is rescaled by powers of two, so the value is accurate wherever it is
+representable and `Inf` where it is not. A `NaN` in ``y`` gives `NaN`. An entry at which the
+minimizer is zero adds nothing, also when ``y_i`` is infinite, and opposite infinities give
+`NaN`. `value_and_prox!` computes the proximal point and the value in a buffer of its own and writes the
+output only after both succeed, so an error from the oracle of a user's set leaves the output
+unchanged, also for `y === x`; the staging costs one copy of the result. The oracle runs in the element type of
+``y``, so a bound that does not fit it is an `ArgumentError`. The formulas above, the capped
+simplex's sum of the ``k`` largest entries and the other direct values take precedence, because
+they are faster and treat the extreme scales better; an indicator without an oracle, and
+every unbounded set, keeps its own value. A set without an oracle is *unsupported*, which is not the
+same as having an infinite support: the conjugate of a halfspace is finite on one ray and
+infinite elsewhere. The proximal operator of any convex,
 proximable function's conjugate is available. Where the standalone value is
 not implemented, `value_and_prox!` computes it at the proximal point from
 the Fenchel equality ``f^*(y) = \langle p, y\rangle - f(p)``, with ``p`` the corresponding

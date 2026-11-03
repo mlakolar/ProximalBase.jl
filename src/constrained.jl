@@ -1034,6 +1034,8 @@ end
 # checked by lmo!, as for the empty simplex.
 const _CappedSimplex = LinearConstrained{<:IndBox{<:Real, <:Real}, <:IndHyperplane}
 
+_support_fallback(::_CappedSimplex) = false   # its support function is the sum of the k largest entries
+
 function haslmo(c::_CappedSimplex)
   c.f.l == 0 && c.f.u == 1 && c.set.b >= 0 && isinteger(c.set.b) && isfinite(c.set.b) &&
     _constant_normal(c.set.a) == 1

@@ -692,7 +692,17 @@ Base.@propagate_inbounds prox_entry(c::Conjugate{<:Conjugate}, v::Real, i::Integ
 # Keep the direct value for known closed forms, especially exact indicator zeros.
 # A convex indicator with a linear minimization oracle has the value of its support function
 # when nothing more specific is known (see _support_value)
-_has_conjugate_value(f::AbstractFunction) = _isindicator(f) && isconvex(f) && haslmo(f)
+_has_conjugate_value(f::AbstractFunction) = _support_fallback(f)
+
+# Whether the value of the conjugate is the generic support function through the oracle: a
+# convex indicator with an oracle, and no direct formula. The sets of this package that have an
+# oracle and a formula opt out below, and the wrappers whose value is that of their argument
+# follow it. Only such a value can raise an error that no check of the sizes and parameters
+# foresees, from the oracle of a set of the user, so value_and_prox! stages its result (see
+# _staged_prox_value!).
+_support_fallback(f::AbstractFunction) = _isindicator(f) && isconvex(f) && haslmo(f)
+_support_fallback(::Union{IndSimplex, IndBallL1, IndBallL2, IndBox}) = false
+_support_fallback(f::Union{Scaled, Translate, SingularValue}) = _support_fallback(f.f)
 _has_conjugate_value(::Union{NormL1, NormL2, NormLinf, IndBallL1, IndBallL2, IndSOC, IndRotatedSOC,
                             IndExpPrimal, IndExpDual, ZeroFunction, IndNonnegative, IndBox, IndSimplex,
                             SumLargest, SqrNormL2,
@@ -712,10 +722,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractA
     _projection_commit!(y, z)
     return _value_at(v, y)
   end
-  if _has_conjugate_value(c.f)
-    _prox_unchecked!(y, c, x, γ)
-    return _value_at(_conjugate_value(c.f, y), y)
-  end
+  _has_conjugate_value(c.f) && return _conjugate_prox_value!(y, c, x, γ)
   _checksize(y, x)
   T = float(eltype(y))
   step = convert(T, γ)
@@ -861,10 +868,7 @@ function _value_and_prox_unchecked!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
     _projection_commit!(y, z)
     return _value_at(v, y)
   end
-  if _has_conjugate_value(c.f)
-    _prox_unchecked!(y, c, x, γ)
-    return _value_at(_conjugate_value(c.f, y), y)
-  end
+  _has_conjugate_value(c.f) && return _conjugate_prox_value!(y, c, x, γ)
   p = _tuple_buffer!(c.scratch, y, x)
   _divide!(p, x, γ)
   fp = _value_and_prox_unchecked!(p, c.f, p, inv(γ))
@@ -920,40 +924,145 @@ function _conjugate_value(f::AbstractFunction, y::AbstractArray)
 end
 _checkconjugate(f::AbstractFunction, y::AbstractArray) = (_checkreal(f, y); _has_conjugate_value(f) && _checkparams(f, y); true)
 
-# -y without building it: a vector view in linear order
-struct _NegatedVector{T, A<:AbstractArray} <: AbstractVector{T}
-  y::A
+# Scratch for the minimizers and the staged results: per task, so that tasks do not share it, and a
+# stack of frames, so that an oracle that evaluates another conjugate while it holds its own
+# destination does not overwrite it. A frame is a Scratch, reused by the calls at its depth.
+mutable struct _Frames
+  stack::Vector{Scratch}
+  depth::Int
 end
-_NegatedVector{T}(y::AbstractArray) where {T} = _NegatedVector{T, typeof(y)}(y)
-Base.size(a::_NegatedVector) = (length(a.y),)
-Base.IndexStyle(::Type{<:_NegatedVector}) = IndexLinear()
-Base.@propagate_inbounds Base.getindex(a::_NegatedVector{T}, i::Int) where {T} = -convert(T, a.y[i])
+_Frames() = _Frames(Scratch[], 0)
+_frames() = get!(_Frames, task_local_storage(), :ProximalBase_frames)::_Frames
+function _acquire_frame!()
+  F = _frames()
+  F.depth += 1
+  F.depth > length(F.stack) && push!(F.stack, Scratch())
+  @inbounds F.stack[F.depth]
+end
+_release_frame!() = (F = _frames(); F.depth -= 1; nothing)
 
-# the minimizer is written to a per-task buffer: no allocation after the first call, and
-# tasks do not share it
-_support_scratch() = get!(Scratch, task_local_storage(), :ProximalBase_support_scratch)::Scratch
-
+# σ_C(y) = ⟨y, s⟩ at the minimizer s of ⟨-y, ·⟩, written in the shape of y to a frame, the argument
+# read as -y lazily
 function _support_value(f, y::AbstractArray)
   T = float(eltype(y))
-  n = length(y)
-  s = view(_buffer!(_support_scratch(), T, n), 1:n)
-  lmo!(s, f, _NegatedVector{T}(y))
-  _support_dot(y, s, T)
+  frame = _acquire_frame!()
+  try
+    s = _array_buffer!(frame, T, size(y))
+    lmo!(s, f, _ScaledArray{T}(y, -1))
+    return _support_dot(y, s, T)
+  finally
+    _release_frame!()
+  end
 end
 
-# Σᵢ yᵢ sᵢ over the entries with sᵢ ≠ 0 (an entry at zero contributes nothing, also when yᵢ is
-# infinite), compensated against cancellation; the plain sum when it is not finite
+# Σᵢ yᵢ sᵢ over the entries with sᵢ ≠ 0: an entry at zero adds nothing, also when yᵢ is infinite. A NaN in
+# y is an undefined direction and gives NaN. The sum is in Float64 for the narrower types, which holds
+# every product and sum of Float32 numbers. The ordinary case is one compensated pass. When a product
+# is not finite, exceeds floatmax/2n or underflows, a second pass sorts the products into three
+# groups: the large ones scaled down, the underflowing ones scaled up, both by a power of two, and
+# the rest as they are; the three compensated sums are combined at the end.
 function _support_dot(y, s, ::Type{T}) where {T}
+  R = promote_type(T, Float64)
+  R <: Union{Float32, Float64} || return _support_dot_plain(y, s, T)
+  n = length(s)
+  t = floatmax(R) / (2 * max(n, 1))
+  lo = floatmin(R)
+  # one compensated pass; its flags, set without branching, say that a product is not finite or
+  # exceeds t, or underflowed although both factors are nonzero. The sum is then discarded.
+  v = e = zero(R)
+  bad = false
+  @inbounds for i in 1:n
+    yi = convert(R, y[i])
+    si = convert(R, s[i])
+    p = yi * si
+    ap = abs(p)
+    bad |= !(ap <= t) | ((ap < lo) & (yi != 0) & (si != 0))
+    v, e = _compensated_add(v, e, p)
+  end
+  bad || return convert(T, v + e)
+  _support_dot_scaled(y, s, T, R, t, lo)
+end
+
+function _support_dot_scaled(y, s, ::Type{T}, ::Type{R}, t::R, lo::R) where {T, R}
+  k = exponent(floatmax(R)) ÷ 2 + 16
+  up, down = ldexp(one(R), k), ldexp(one(R), -k)
+  mid = em = big = eb = tiny = et = nonfinite = zero(R)
+  anynonfinite = false
+  @inbounds for i in 1:length(s)
+    yi = convert(R, y[i])
+    isnan(yi) && return convert(T, NaN)
+    si = convert(R, s[i])
+    iszero(si) && continue
+    if !(isfinite(yi) && isfinite(si))
+      nonfinite += yi * si
+      anynonfinite = true
+      continue
+    end
+    iszero(yi) && continue
+    p = yi * si
+    ap = abs(p)
+    if ap > t
+      big, eb = _compensated_add(big, eb, (yi * down) * (si * down))
+    elseif ap < lo
+      tiny, et = _compensated_add(tiny, et, (yi * up) * (si * up))
+    else
+      mid, em = _compensated_add(mid, em, p)
+    end
+  end
+  anynonfinite && return convert(T, nonfinite)
+  r = mid + em
+  b = big + eb
+  if !iszero(b)
+    rb = ldexp(b, 2k)
+    r = isfinite(rb) ? r + rb : ldexp(b + ldexp(r, -2k), 2k)
+  end
+  tn = tiny + et
+  iszero(tn) || (r += ldexp(tn, -2k))
+  convert(T, r)
+end
+
+# element types without a fixed range, such as BigFloat
+function _support_dot_plain(y, s, ::Type{T}) where {T}
   v = e = naive = zero(T)
   @inbounds for i in 1:length(s)
+    yi = convert(T, y[i])
+    isnan(yi) && return convert(T, NaN)
     si = s[i]
     iszero(si) && continue
-    p = convert(T, y[i]) * si
+    p = yi * si
     naive += p
     v, e = _compensated_add(v, e, p)
   end
   r = v + e
   isfinite(r) ? r : naive
+end
+
+# value_and_prox! of the conjugate of a set with an oracle but no formula. The oracle of the set is the
+# user's, and can fail on its arguments after the proximal point exists, so the point and its value
+# are computed in a frame, and only a success writes the output (y may be x). The frame is not
+# the scratch of c, which the proximal operator of c uses; the cost is one copy of the result.
+function _staged_prox_value!(y, c::Conjugate, x, γ)
+  frame = _acquire_frame!()
+  try
+    z = _stage!(frame, y, x)
+    _prox_unchecked!(z, c, x, γ)
+    v = _conjugate_value(c.f, z)
+    _stage_commit!(y, z)
+    return _value_at(v, y)
+  finally
+    _release_frame!()
+  end
+end
+_stage!(s::Scratch, y::AbstractArray, x::AbstractArray) = _array_buffer!(s, float(eltype(y)), x)
+_stage!(s::Scratch, y::Tuple, x::Tuple) = _tuple_buffer!(s, y, x)
+_stage_commit!(y::AbstractArray, z) = copyto!(y, z)
+_stage_commit!(y::Tuple, z) = _projection_commit!(y, z)
+
+# the proximal point of the conjugate and its value, at the output
+function _conjugate_prox_value!(y, c::Conjugate, x, γ)
+  _support_fallback(c.f) && return _staged_prox_value!(y, c, x, γ)
+  _prox_unchecked!(y, c, x, γ)
+  _value_at(_conjugate_value(c.f, y), y)
 end
 
 # indicators of the dual balls and support functions of the balls, within the
@@ -1116,6 +1225,7 @@ end
 @generated _checkwrite_blocks(op, fs::Tuple, y::Tuple, x::Tuple) =
   _blockwise(k -> :(_checkwrite(op, fs[$k], y[$k], x[$k])), fieldcount(fs), true)
 @generated _has_conjugate_value(s::SeparableSum{F}) where {F} = _blockall(k -> :(_has_conjugate_value(s.fs[$k])), fieldcount(F))
+@generated _support_fallback(s::SeparableSum{F}) where {F} = _blockany(k -> :(_support_fallback(s.fs[$k])), fieldcount(F))
 _checkconjugate(s::SeparableSum, y::Tuple) = (_checkreal(s, y); _checkparams(s, y); _checkconjugate_blocks(s.fs, y))
 @generated _checkconjugate_blocks(fs::Tuple, y::Tuple) = _blockwise(k -> :(_checkconjugate(fs[$k], y[$k])), min(fieldcount(fs), fieldcount(y)), true)
 _checkscaledconjugate(s::SeparableSum, y::Tuple, α) = (_checkparams(s, y); _checkscaled_blocks(s.fs, y, α))

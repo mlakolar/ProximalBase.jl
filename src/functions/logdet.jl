@@ -110,25 +110,33 @@ function (f::LogDetLoss{T})(X::AbstractMatrix) where {T}
 end
 
 @inline function _logdet_value(f::LogDetLoss, X::AbstractMatrix, ld)
-  v = f.w * (dot(f.S, X) - ld)
-  isfinite(v) || !isfinite(ld) || !(all(isfinite, f.S) && all(isfinite, X)) ? v :
-    oftype(v, _scaled_logdet_value(f, X, ld))
+  d = dot(f.S, X) - ld
+  v = f.w * d
+  (isfinite(v) && !_logdet_lifted(f.w, d, length(X))) || !isfinite(ld) ||
+    !(all(isfinite, f.S) && all(isfinite, X)) ? v : oftype(v, _scaled_logdet_value(f, X, ld))
 end
+# A weight above one can lift a difference that underflowed, or lost terms to
+# underflow, into the normal range (R1): then the products are summed again.
+@inline _logdet_lifted(w, d, n) = (w > one(w)) & (abs(d) < n * (floatmin(typeof(d)) / eps(typeof(d))))
 
-# The products that overflow are summed in units of 2^(ks + kx) and the others
-# in their own units, so that huge products that cancel keep the moderate ones
-# and the log-determinant; the two parts are combined exactly when the dot is
-# representable.
+# The products that overflow are summed in units of 2^(ks + kx), those that
+# underflow in units of 2^-U, and the others in their own units, so that huge
+# products that cancel keep the moderate ones and the log-determinant, and tiny
+# ones survive until the weight; without tiny products the two other parts are
+# combined exactly when the dot is representable.
 @noinline function _scaled_logdet_value(f::LogDetLoss{T}, X::AbstractMatrix, ld) where {T}
   R = float(promote_type(T, eltype(X)))
   ks = _magnitude_exponent(_maximum_abs(f.S))
   kx = _magnitude_exponent(_maximum_abs(X))
   k = ks + kx
-  big, small = _split_dot(f.S, X, _power_factors(R, -ks), _power_factors(R, -kx))
+  big, small, tiny = _split_dot(f.S, X, _power_factors(R, -ks), _power_factors(R, -kx))
   w, l = convert(R, f.w), convert(R, ld)
-  d = ldexp(big, k) + small
-  isfinite(d) && return w * (d - l)
-  _scaled_product(w, big + _scale_value(small - l, _power_factors(R, -k)), k)
+  if iszero(tiny)
+    d = ldexp(big, k) + small
+    isfinite(d) && return w * (d - l)
+    return _scaled_product(w, big + _scale_value(small - l, _power_factors(R, -k)), k)
+  end
+  _pow2_weighted(R, w, (big, k), (small - l, 0), (tiny, -_tiny_unit(R)))
 end
 
 function value_and_gradient!(G::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix) where {T}

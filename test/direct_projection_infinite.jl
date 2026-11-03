@@ -282,6 +282,24 @@ end
   end
 end
 
+@testset "extremes of the finite path, and NaN next to a large Float32 argument" begin
+  # a norm that underflows in a Float32 destination is not the zero point of the sphere
+  y = zeros(Float32, 3)
+  @test close_to(prox!(y, IndSphereL2(1.0), [1e-300, -1e-300, 0.0], 1.0), Float32[1/sqrt(2), -1/sqrt(2), 0]; rtol = 1e-6)
+  # the equality simplex skips a NaN that is not the first entry: it must still reach every output
+  for f in (IndSimplex(1f0), IndSimplex(1f0; equality = false)), x in (Float32[1e4, 2e4, 1e4, NaN], Float32[1e30, NaN, 2])
+    @test all(isnan, prox(f, x))
+    @test isnan(value_and_prox!(similar(x), f, x, 1f0))
+  end
+  # ordinary Float32 and Float64 arguments are projected by the plain threshold
+  for T in (Float32, Float64), n in (3, 50), scale in (1, 1e3)
+    x = T.(scale .* cos.(1.0:n) .+ scale)
+    for (name, mk, ref) in families
+      @test close_to(prox(mk(one(T)), x), T.(ref(BF.(x), BF(1))); rtol = 1000 * eps(T) * scale)
+    end
+  end
+end
+
 @testset "SymmetricSparseIterate: a mirrored pair is one coordinate counted twice (M2)" begin
   M = BF(10)^40
   p = 3

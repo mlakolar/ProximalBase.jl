@@ -259,6 +259,8 @@ projection, soft thresholding at the level that puts the result on the
 boundary, found in O(n) expected time by Condat's algorithm.
 
 The projection does not depend on the step `γ`, which may be any scalar in `[0, Inf]`; a negative or NaN step throws an `ArgumentError` before anything is written.
+
+At an argument with a NaN or infinite entry and a finite radius `r > 0`, one infinite entry `±Inf` gives `±r` there and zero elsewhere (the limit of the projection along finite arguments); two or more infinite entries, whose relative growth decides the direction, and any NaN give an all-NaN result. In a `SymmetricSparseIterate` a mirrored off-diagonal pair is one entry counted twice: its limit is `±r/2` for the ℓ1 ball and `±r/√2` otherwise. For `r = 0` the result is zero for every argument, NaN included. An entry that is finite but overflows a sum, or a narrower output type, is not an infinite entry. `value_and_prox!` returns `NaN` when it stores an all-NaN result and `0` otherwise. On device arrays the ℓ1 ball and the simplex still use their device kernels, which do not yet classify these arguments.
 """
 struct IndBallL1{T<:Real} <: AbstractFunction
   r::T
@@ -329,6 +331,8 @@ The indicator of the Euclidean ball `{x : ‖x‖₂ ≤ r}` (the Frobenius ball
 matrices). Its proximal operator scales `x` onto the ball when it is outside.
 
 The projection does not depend on the step `γ`, which may be any scalar in `[0, Inf]`; a negative or NaN step throws an `ArgumentError` before anything is written.
+
+At an argument with a NaN or infinite entry and a finite radius `r > 0`, one infinite entry `±Inf` gives `±r` there and zero elsewhere (the limit of the projection along finite arguments); two or more infinite entries, whose relative growth decides the direction, and any NaN give an all-NaN result. In a `SymmetricSparseIterate` a mirrored off-diagonal pair is one entry counted twice: its limit is `±r/2` for the ℓ1 ball and `±r/√2` otherwise. For `r = 0` the result is zero for every argument, NaN included. An entry that is finite but overflows a sum, or a narrower output type, is not an infinite entry. `value_and_prox!` returns `NaN` when it stores an all-NaN result and `0` otherwise.
 """
 struct IndBallL2{T<:Real} <: AbstractFunction
   r::T
@@ -458,6 +462,8 @@ to `r` times the first unit vector. With a norm, [`Constrained`](@ref)`(f,
 IndSphereL2(r))` is the step of sparse principal component analysis.
 
 The projection does not depend on the step `γ`, which may be any scalar in `[0, Inf]`; a negative or NaN step throws an `ArgumentError` before anything is written.
+
+At an argument with a NaN or infinite entry and a finite radius `r > 0`, one infinite entry `±Inf` gives `±r` there and zero elsewhere (the limit of the projection along finite arguments); two or more infinite entries, whose relative growth decides the direction, and any NaN give an all-NaN result. In a `SymmetricSparseIterate` a mirrored off-diagonal pair is one entry counted twice: its limit is `±r/2` for the ℓ1 ball and `±r/√2` otherwise. An entry that is finite but overflows a sum, or a narrower output type, is not an infinite entry. `value_and_prox!` returns `NaN` when it stores an all-NaN result and `0` otherwise.
 """
 struct IndSphereL2{T<:Real} <: AbstractFunction
   r::T
@@ -495,7 +501,8 @@ function _direct_prox!(y::AbstractArray, f::IndSphereL2, x::AbstractArray)
     nan = _ball_nonfinite!(y, f, x)
     nan === nothing || return nan
   end
-  if iszero(nx)
+  # a norm that underflows in a narrower destination is not the zero point
+  if iszero(nx) && all(iszero, x)
     fill!(y, zero(eltype(y)))
     y[firstindex(y)] = r
   else
@@ -531,6 +538,8 @@ of `{x ≥ 0 : Σᵢ xᵢ ≤ r}`. Its proximal operator is the projection,
 algorithm.
 
 The projection does not depend on the step `γ`, which may be any scalar in `[0, Inf]`; a negative or NaN step throws an `ArgumentError` before anything is written.
+
+At an argument with a NaN or infinite entry and a finite radius `r > 0`: one `+Inf` entry takes `r` and every other entry is zero, whatever the `-Inf` entries (in a `SymmetricSparseIterate`, `r/2` in each mirrored entry of an off-diagonal one); two or more `+Inf` entries and any NaN give an all-NaN result. A `-Inf` entry is zero and the finite entries are projected as usual; when every entry is `-Inf`, the inequality simplex is zero and the equality simplex is all NaN. The equality simplex of one entry is the point `r` for every argument, NaN included, and `r = 0` gives zero. An entry that is finite but overflows a sum, or a narrower output type, is not an infinite entry. `value_and_prox!` returns `NaN` when it stores an all-NaN result and `0` otherwise. On device arrays the simplex still uses its device kernel, which does not yet classify these arguments.
 """
 struct IndSimplex{T<:Real} <: AbstractFunction
   r::T
@@ -626,17 +635,15 @@ function _direct_prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray)
     return false
   end
   τ = _simplex_threshold!(_buffer!(f.scratch, T, length(x)), x, eachindex(IndexLinear(), x), r)
-  if !isfinite(τ)
+  if _lossy_threshold(τ, r, length(x))
+    # a NaN that Condat's pass skipped can sit next to an entry that hides the radius
     nan = _simplex_nonfinite!(y, f, x)
     nan === nothing || return nan
     _project_shifted!(y, f, x)
-  elseif _lossy_threshold(τ, r, length(x))
-    _project_shifted!(y, f, x)
   else
-    y .= max.(x .- τ, zero(T))
     # Condat's pass skips a NaN that is not the first entry, so the level is finite while
     # the output has a NaN: the entry depends on it, and so does every other one.
-    f.equality && any(isnan, y) && return _nan_block!(y)
+    _write_simplex!(y, x, τ) && f.equality && return _nan_block!(y)
   end
   false
 end
@@ -727,6 +734,22 @@ function _ball_nonfinite!(y, f, x)
   _vertex!(y, f, c, c.pos == 1 ? float(f.r) : -float(f.r))
 end
 
+# y = max.(x - τ, 0); true when an entry is NaN. Plain arrays count the NaNs in the same loop.
+function _write_simplex!(y, x, τ::T) where {T}
+  y .= max.(x .- τ, zero(T))
+  any(isnan, y)
+end
+function _write_simplex!(y::Array, x::Array, τ::T) where {T}
+  axes(y) == axes(x) || return invoke(_write_simplex!, Tuple{Any, Any, T}, y, x, τ)
+  nan = 0
+  @inbounds @simd for i in eachindex(y, x)
+    v = max(x[i] - τ, zero(T))
+    y[i] = v
+    nan += isnan(v)
+  end
+  nan > 0
+end
+
 # Simplex: NaN reaches every output except where the output does not depend on the input (a
 # zero radius, the equality simplex of one coordinate). Two +Inf have no limit; one selects
 # r e_k, whatever the -Inf entries. With no +Inf, a -Inf entry takes 0 and the finite entries
@@ -744,10 +767,11 @@ function _simplex_nonfinite!(y, f::IndSimplex, x)
   f.equality ? _nan_block!(y) : (fill!(y, zero(eltype(y))); false)
 end
 
-# The level τ of the projection is the one that carries the radius, and x - τ loses it when the
-# worst accumulated rounding of τ over the coordinates exceeds a sixteenth of the radius (or
-# when τ is not a number: an overflowed sum, or an entry outside the destination's range).
-@inline _lossy_threshold(τ, r, n) = !isfinite(τ) || abs(τ) * n * eps(typeof(τ)) > r / 16
+# The level τ carries the radius r in x - τ. When one unit of rounding of τ is already larger
+# than r (or τ is not a number: an overflowed sum, or an entry outside the destination's range),
+# x - τ cannot resolve r and the result is wrong. Ordinary arguments never come near this, so
+# the finite computation is unchanged for them; only the extremes take the shifted recovery.
+@inline _lossy_threshold(τ, r, n) = !isfinite(τ) || abs(τ) * eps(typeof(τ)) > r
 
 # The projection onto {z ≥ 0 : Σ z = r} does not change when every entry moves by the same
 # amount. Shifting by the largest entry, in the wider of the argument's and the destination's

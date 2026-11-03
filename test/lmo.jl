@@ -793,4 +793,52 @@ end
   @test_throws ArgumentError lmo!(Float64[], Constrained(IndBox(0, 1), IndHyperplane(1, 1)), Float64[])
 end
 
+@testset "support fallback: further cases from the review" begin
+  M = floatmax(Float64)
+  f = OracleCube(1.0, 2.0)
+  # the large group overflows on its own, but the total fits against the middle group
+  y = [0.725M; fill(-4.9e-5 * M, 10000)]
+  @test Conjugate(f)(y) ≈ cube_exact(f, y) rtol = 8eps()
+  # other entry types and signed zeros
+  g = OracleCube(0.0, 2.0)
+  @test Conjugate(g)(Int[3, -1, 4]) == 14.0
+  @test Conjugate(g)(Bool[true, false, true]) == 4.0
+  @test Conjugate(g)(Float16[1.5, -2, 0.5]) isa Float16 && Conjugate(g)(Float16[1.5, -2, 0.5]) == 4
+  @test Conjugate(g)([-0.0, 0.0]) == 0.0
+  @test Conjugate(g)(BigFloat[1, -2, 3]) == 8
+  @test isnan(Conjugate(g)(BigFloat[1, NaN]))
+  # the frame stack returns to its depth after errors, and a failing call does not poison later ones
+  d0 = ProximalBase._frames().depth
+  for _ in 1:3
+    @test_throws Exception Conjugate(ThrowCube(:partial, 5))(rand(5))
+    @test_throws Exception value_and_prox!(zeros(5), Conjugate(ThrowCube(:partial, 5)), rand(5), 1.0)
+  end
+  @test ProximalBase._frames().depth == d0
+  @test Conjugate(OracleCube(-1.0, 2.0))([1.0, -1.0]) == 3.0
+  # wrappers and other outputs leave the output unchanged on error
+  bits(v) = reinterpret(UInt64, copy(v))
+  x = rand(5)
+  for c in (Conjugate(Translate(ThrowCube(:partial, 5), fill(0.5, 5))), Conjugate(Scaled(Translate(ThrowCube(:partial, 5), fill(0.5, 5)), 2.0)))
+    out = fill(7.0, 5); before = bits(out)
+    @test_throws Exception value_and_prox!(out, c, x, 1.0)
+    @test bits(out) == before
+    big = fill(7.0, 8); bb = bits(big)
+    @test_throws Exception value_and_prox!(view(big, 2:6), c, x, 1.0)
+    @test bits(big) == bb
+  end
+  out = fill(ComplexF64(7), 5)
+  @test_throws ArgumentError value_and_prox!(out, Conjugate(ThrowCube(:partial, 5)), x, 1.0)
+  @test out == fill(ComplexF64(7), 5)
+  # tasks do not share frames
+  c = Conjugate(NestedCube(randn(7)))
+  results = fetch.([Threads.@spawn(begin
+    y = randn(7); ok = true
+    for _ in 1:200
+      ok &= c(y) ≈ sum(max.(y, 0))
+    end
+    ok
+  end) for _ in 1:8])
+  @test all(results)
+end
+
 end # module

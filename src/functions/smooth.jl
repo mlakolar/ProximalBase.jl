@@ -974,6 +974,19 @@ end
   (isfinite(v) && !_kron_underflow_risk(f, v)) ? v : _kron_value_recover(f, v, Θ)
 end
 
+# max|B| if a product of an entry of A and one of D can round into the subnormal range, and 0 if none can
+# (the error of the first product then is the ordinary relative one, which B does not amplify beyond
+# eps). Where p (p + q) < q², that is decided from the smallest nonzero entries of A and D, which costs less
+# than reading B.
+@inline function _stage_one_amplification(f::KronQuadratic{T}) where {T}
+  p, q = size(f.D)
+  if p * (p + q) < q * q &&
+     _min_nonzero_exponent(f.A) + _min_nonzero_exponent(f.D) >= exponent(floatmin(T))
+    return 0.0
+  end
+  Float64(_maximum_abs(f.B))
+end
+
 # Rounding into T changes an entry of A D by at most p denorm_min/2, that of A D B by at most q
 # max|B| times that plus q denorm_min/2, and the value by at most the sum of |D| times those: the
 # error that the products can have lost is at most
@@ -986,8 +999,7 @@ end
   m = _maximum_abs(D)
   iszero(m) && return false
   p, q = size(D)
-  κ = 0.25 * p * q * q * (1.0 + p * Float64(_maximum_abs(f.B)))
-  abs(v) < _underflow_threshold(T, κ, m, 2p * q)
+  abs(v) < _underflow_threshold(T, 0.25 * p * q * q * (1.0 + p * _stage_one_amplification(f)), m, 2p * q)
 end
 
 # A product or dot that overflows or underflows at a representable value (R1), recomputed in two tiers.

@@ -672,6 +672,18 @@ function _expsum_value(::Type{R}, acc::_ExpSum{A}) where {R, A}
   convert(R, _scaled_product(one(A), m, acc.ex))
 end
 
+# The smallest nonzero |x_i| as an exponent (the exponent of floatmax if there is none): a product of two
+# entries with exponents e1 and e2 is at least 2^(e1+e2), so e1 + e2 ≥ exponent(floatmin) rules out its
+# rounding into the subnormal range.
+function _min_nonzero_exponent(x::AbstractArray{T}) where {T<:AbstractFloat}
+  m = floatmax(T)
+  @inbounds for v in x
+    a = abs(v)
+    (iszero(a) || a >= m) || (m = a)
+  end
+  exponent(m)
+end
+
 # An absolute error that the rounding of one product into P cannot exceed is denorm_min/2 =
 # eps floatmin/2. A quadratic form with n products per entry of A x then carries at most
 # n² eps floatmin max|x| / 4 of it, the N products of the final dots at most N eps floatmin / 2 more,

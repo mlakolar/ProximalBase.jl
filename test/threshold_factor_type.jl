@@ -36,6 +36,19 @@ end
   @test prox(e, Float32[1, 1], 0.1) == Float32[shrink(1f0, Float32(0.1 * 0.3)), shrink(1f0, Float32(0.1 * 0.3))]
 end
 
+@testset "guards use the factors, not their rounding to the destination" begin
+  # γλ = 1 although γ = 1e-9 underflows and λ = 1e9 overflows Float16
+  h = Float16(3)
+  for (f, g) in ((Berhu(1e9, 1.0), Berhu(1e9, 1.0)), (NormLq(1e9, 0.5), NormLq(1e9, 0.5)), (LogPenalty(1e9, 1.0), LogPenalty(1e9, 1.0)))
+    y = prox_entry(f, h, 1, 1e-9)
+    @test y isa Float16
+    @test isapprox(Float64(y), prox_entry(g, 3.0, 1, 1e-9); rtol = 2e-3)
+  end
+  # a finite weight that overflows the destination is not an infinite weight
+  @test isapprox(Float64(prox_entry(NormLq(1.0, 0.5, [1e9]), h, 1, 1e-9)), prox_entry(NormLq(1.0, 0.5, [1e9]), 3.0, 1, 1e-9); rtol = 2e-3)
+  @test prox_entry(NormLq(1.0, 0.5, [Inf]), h, 1, 1.0) == 0
+end
+
 @testset "same-type Float32 stays Float32 and does not allocate" begin
   e, v = ElasticNet(0.5f0, 0.25f0), Float32[1, 2, 3]
   @test prox(e, v, 0.5f0) isa Vector{Float32}

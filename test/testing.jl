@@ -105,13 +105,16 @@ PB.prox!(y::AbstractArray, f::ValueWrapper, x::AbstractArray, γ::Real) = prox!(
 struct VectorValue{F<:AbstractFunction} <: AbstractFunction
   f::F
 end
+struct WrongFusedOutput{F<:AbstractFunction} <: AbstractFunction   # right value, but never writes y
+  f::F
+end
 struct WrongSparseValue{F<:AbstractFunction} <: AbstractFunction
   f::F
 end
 struct WrongFusedValue{F<:AbstractFunction} <: AbstractFunction
   f::F
 end
-for W in (:VectorValue, :WrongSparseValue, :WrongFusedValue)
+for W in (:VectorValue, :WrongSparseValue, :WrongFusedValue, :WrongFusedOutput)
   @eval begin
     PB.isseparable(::Type{<:$W}) = true
     PB.iszeropreserving(::$W) = true
@@ -123,6 +126,9 @@ end
 (f::WrongSparseValue)(x::AbstractArray) = f.f(x)
 (f::WrongSparseValue)(x::SparseIterate) = f.f(x) + 1
 (f::WrongFusedValue)(x::AbstractArray) = f.f(x)
+(f::WrongFusedOutput)(x::AbstractArray) = f.f(x)
+PB.value_and_prox!(y::AbstractArray, f::WrongFusedOutput, x::AbstractArray, γ::Real) =
+  f.f(prox(f.f, x, γ))                                          # y is left as it was
 PB.value_and_prox!(y::AbstractArray, f::WrongFusedValue, x::AbstractArray, γ::Real) =
   (prox!(y, f.f, x, γ); f.f(y) + 1)
 
@@ -350,13 +356,26 @@ PB.iszeropreserving(::UserSquare) = true
     @test count(r -> r isa Test.Fail, ts.results) == 1          # only the value at zero
     @test count(r -> r isa Test.Error, ts.results) == 0
     @test only(filter(r -> r isa Test.Fail, ts.results)).orig_expr == "iszero(f(z))"
-    for f in (WrongSparseValue(NormL1(1.0)), WrongFusedValue(NormL1(1.0)))
-      ts = @testset Collect "wrong sparse or fused value" begin
-        PT.test_separable(f, x, γ; rng = Xoshiro(2))
-      end
-      @test count(r -> r isa Test.Fail, ts.results) >= 1       # the sparse value, and with it value_and_prox!
-      @test count(r -> r isa Test.Error, ts.results) == 0
+    f = WrongSparseValue(NormL1(1.0))                           # f(SparseIterate) is off by 1
+    ts = @testset Collect "wrong sparse value" begin
+      PT.test_separable(f, x, γ; rng = Xoshiro(2))
     end
+    @test count(r -> r isa Test.Fail, ts.results) >= 1          # the sparse value, and with it value_and_prox!
+    @test count(r -> r isa Test.Error, ts.results) == 0
+    f = WrongFusedValue(NormL1(1.0))                            # only value_and_prox! is off by 1
+    ts = @testset Collect "wrong fused value" begin
+      PT.test_separable(f, x, γ; rng = Xoshiro(2))
+    end
+    @test count(r -> r isa Test.Fail, ts.results) == 1
+    @test count(r -> r isa Test.Error, ts.results) == 0
+    @test only(filter(r -> r isa Test.Fail, ts.results)).orig_expr == "value_and_prox!(yv, f, xs, γ) ≈ f(pz)"
+    f = WrongFusedOutput(NormL1(1.0))                           # x has entries above the threshold, so prox(x) != x
+    ts = @testset Collect "wrong fused output" begin
+      PT.test_separable(f, x, γ; rng = Xoshiro(2))
+    end
+    @test count(r -> r isa Test.Fail, ts.results) == 1
+    @test count(r -> r isa Test.Error, ts.results) == 0
+    @test only(filter(r -> r isa Test.Fail, ts.results)).orig_expr == "_dense(yv) ≈ _dense(pz)"
     @test failures(() -> PT.test_separable(WrongEntries(0.5), x, γ)) > 0
     @test failures(() -> PT.test_conjugate(NormL1(0.5), x, γ; conjugate = IndBallLinf(1.0))) > 0
     @test failures(() -> PT.test_kkt(WrongKKT(0.5), x, γ)) > 0

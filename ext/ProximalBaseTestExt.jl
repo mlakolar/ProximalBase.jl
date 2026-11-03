@@ -293,7 +293,10 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
     # a value method may accept only dense arrays: the sparse paths need one for the iterate
     if _has_standalone_value(f, z) && _has_standalone_value(f, xs) && _has_standalone_value(f, pz)
       @test f(xs) ≈ f(xz)
-      @test value_and_prox!(ys, f, xs, γ) ≈ f(pz)
+      # a fresh destination, which prox! has not already filled: the value and the written point
+      yv = SparseIterate(xz)
+      @test value_and_prox!(yv, f, xs, γ) ≈ f(pz)
+      @test _dense(yv) ≈ _dense(pz)
     end
   end
 

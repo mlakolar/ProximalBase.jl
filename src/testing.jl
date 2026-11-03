@@ -107,9 +107,22 @@ Test a separable `f` at the vector or matrix `x` with step `γ`:
   (a copy of `x` with some entries set to zero) gives the proximal point;
 - when [`iszeropreserving`](@ref)`(f)`, zero is fixed by every scalar proximal
   operator, and `prox!` on a `SparseIterate` agrees with the dense result;
-- for a zero-preserving `SeparableFunction`, every `value_entry` at zero is 0,
-  and the value and [`value_and_prox!`](@ref) on a `SparseIterate` agree with
-  the dense results. Zero-preserving wrappers need no value oracle;
+- for a zero-preserving `SeparableFunction`, every `value_entry` at zero is 0;
+- for any zero-preserving `f` with a standalone value, `f(0) == 0` exactly, and
+  the value and [`value_and_prox!`](@ref) on a `SparseIterate` agree with the
+  dense results (value and, into a fresh destination, written point). `f(0) == 0` is necessary for the per-entry contract
+  ``f_i(0) = 0`` but not sufficient: terms could cancel, so only a
+  `SeparableFunction` gets the per-entry check. A function is asked for a value only when the
+  package's private `_has_value` is true and `f` has a method for the array.
+  `_has_value` is false for a [`Conjugate`](@ref) whose value is not
+  implemented, and for the package's own wrappers (`Scaled`, `Translate`,
+  sums and similar) around one. It does not see inside a user-defined wrapper:
+  that wrapper is asked for a value whenever it has a method, and skipped when
+  it has none. The checks are independent. `f(0) == 0` needs a method for the
+  dense zero. The `SparseIterate` checks need a method for the iterate and for
+  the dense proximal point, so a value method for dense vectors only is tested
+  at zero alone. A value method that
+  exists is called without a `try`, so an error in it is reported as an error;
 - with `groups`, `prox_coordinate!` on each group of an [`AtomIterate`](@ref)
   gives the proximal point;
 - with `symmetric = true` and a square `x`, `prox_coordinate!` on each

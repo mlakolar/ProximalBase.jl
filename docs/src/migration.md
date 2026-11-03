@@ -74,19 +74,49 @@ the earlier behavior applies.
   - A wider argument keeps its digits with a narrower output.
   - Data-holding functions with narrower data compute in the argument's
     precision.
-- **NaN.** NaN propagates to every result that depends on it.
+- **NaN.** NaN propagates to every result that depends on it: a result
+  depends on an entry if changing that entry between finite values can change
+  it, with the step fixed (decision 48).
   - The values of indicators, `NegEntropy` and the functions that use LAPACK at
     a NaN entry are NaN, where they were `Inf`.
   - `value_and_prox!` of an indicator at a NaN entry returns NaN, where it
-    returned `0`.
+    returned `0`, unless the projection does not depend on that entry. The
+    radius-zero balls `IndBallL1(0)` and `IndBallL2(0)` project to zero with
+    value `0`, and a coordinate fixed by an infinite weight stays zero.
   - The proximal outputs of `NormL2` and `GroupNormL2` at a NaN entry are NaN,
     where they were zeros.
   - A zero-level function, such as `NuclearNorm(0)`, returns `0` at a NaN
     entry.
+  - At an admitted infinite step, a proximal map that is constant on finite
+    arguments ignores a NaN entry: `prox(NormL1(1.0), [NaN], Inf)` is `[0]`,
+    where it was `[NaN]`.
+- **Infinite entries.** A bounded projection at an argument with one infinite
+  entry returns its limit, where it returned NaN or a partly NaN block
+  ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), decision 48).
+  - `IndBallL1`, `IndBallL2` and `IndSphereL2` move to `±r` in that coordinate
+    and zero elsewhere: `prox(IndBallL2(1.0), [Inf, 0.0])` is `[1, 0]`, where
+    it was `[NaN, NaN]`, and `prox(IndBallL1(1.0), [Inf, 0.0])` is `[1, 0]`,
+    where it was `[NaN, 0]`. On a `SymmetricSparseIterate`, one infinite
+    off-diagonal gives `±r/2` (ℓ1) or `±r/sqrt(2)` (ℓ2) in each mirrored entry.
+  - `IndSimplex` selects the vertex of a single `+Inf` entry, where it
+    returned `[NaN, 0]`, and gives zero to `-Inf` entries.
+  - Two or more infinite entries whose relative growth decides the result give
+    NaN in the whole block.
+  - `IndBallL2(0)` projects to zero at an infinite entry, where it returned
+    NaN.
+  - The constrained ball and sphere families on the closed list in E3 follow
+    in later pull requests.
 - **Float16** arguments, outputs, directions and data are rejected with an
   `ArgumentError`.
 - **Steps.** Negative and NaN steps raise an `ArgumentError`. Zero and infinite
   steps are accepted only where a function names the limit.
+  - `Constrained(NormL1, IndBallL2)` and `Constrained(GroupNormL2, IndBallL2)`
+    name `γ = 0` and `γ = Inf`. The penalized spheres name `γ = 0`, and
+    `γ = Inf` only when the level is zero or some free coordinate or group has
+    no penalty; otherwise `γ = Inf` raises before writing, as it does now.
+  - A named endpoint with an infinite entry returns the joint limit over
+    finite steps and arguments, or NaN where that limit depends on the path:
+    `prox(NormL1(1.0), [Inf], Inf)` is NaN.
 - **Failures.**
   - A search that cannot certify its result in the working precision, and a
     quadratic model whose coefficients cannot be represented, raise a

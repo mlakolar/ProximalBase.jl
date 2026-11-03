@@ -29,6 +29,12 @@ direction of `x` on the group). If all thresholds exceed the finite range of
 the working type, the method throws an `ArgumentError`; rescale the penalty
 or step.
 
+The step `γ` is a scalar in `[0, Inf]`; a negative or NaN step throws an
+`ArgumentError` before anything is written. On the ball, `γ = Inf` projects onto
+the minimizers of `f`. On the sphere, `γ = Inf` is a step when the level is zero
+or some free entry (group) has weight zero, and projects onto the sphere within
+the zero-penalty entries; when every free entry (group) is penalized it throws.
+
 ```julia
 u = prox(Constrained(NormL1(λ), IndBallL2(1)), X * v)        # the step of the penalized matrix decomposition
 u = prox(Constrained(IndBallL0(k), IndSphereL2(1)), S * u)    # the truncated power method
@@ -124,6 +130,7 @@ end
 value_and_prox!(y::AbstractArray, c::BallConstrained, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, c::BallConstrained, x::AbstractArray, γ::Real)
+  _checkstep_nonneg(γ)
   _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))
   v = _value_and_inner_prox!(y, c.f, x, γ, T)
@@ -369,6 +376,7 @@ function _sphere_l1_shrink!(y, x, f, γ, r, ::Type{U}, ::Type{T}, L) where {U, T
 end
 
 function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real)
+  _checkstep_nonneg(γ)
   _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))
   U = promote_type(float(eltype(x)), T)       # the type in which the margins compare, as in the group sphere
@@ -408,6 +416,7 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
   convert(T, 2 * _positive_product(f.λ0, _entry(f.w, k), ry))
 end
 function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArray, γ::Real)
+  _checkstep_nonneg(γ)
   _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))
   U = promote_type(float(eltype(x)), T)       # the type in which the margins compare, as for a symmetric output
@@ -456,6 +465,7 @@ end
 value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, x::AbstractArray, γ::Real)
+  _checkstep_nonneg(γ)
   _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))
   U = promote_type(float(eltype(x)), T)       # the type in which the shrinkage compares
@@ -463,7 +473,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Gro
   kbest, ibest, bestn, bestc = 0, 0, zero(U), zero(U)
   for k in eachindex(f.groups)
     n = convert(U, _group_norm2(x, f.groups[k]))
-    threshold = convert(U, _weight_product(T, γ, f.λ0, f.w[k]))
+    threshold = _group_sphere_threshold(f, γ, T, U, k)
     (kbest == 0 || isinf(bestc) || (!isinf(threshold) && n - bestn > threshold - bestc)) && ((kbest, bestn, bestc) = (k, n, threshold))
   end
   @inbounds for i in eachindex(IndexLinear(), x)
@@ -498,6 +508,7 @@ end
 value_and_prox!(y::AbstractArray, c::SphereConstrained{IndBallL0}, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{IndBallL0}, x::AbstractArray, γ::Real)
+  _checkstep_nonneg(γ)
   _checkwrite(value_and_prox!, c, y, x)
   T = float(eltype(y))
   _prox_unchecked!(y, c.f, x, γ)
@@ -510,4 +521,54 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{IndBa
     _onto_sphere!(y, c.f, zero(T), r)
   end
   zero(T)
+end
+
+####################################
+#  steps, checked before any block of a sum is written
+####################################
+
+# The ball takes the step of f; every step in [0, Inf] that f accepts is a step of the ball.
+_checkstep(op::O, c::BallConstrained, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
+  (_checkstep_nonneg(γ); _checkstep(op, c.f, y, x, γ))
+_checkstep(op::O, c::SphereConstrained{IndBallL0}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
+  _checkstep_nonneg(γ)
+
+# On the sphere the kernels reject a step for which every threshold is infinite: a zero level
+# or one zero-penalty free entry (group) keeps γ = Inf a step of the projection onto the
+# zero-penalty sphere. The thresholds are those of the kernels and read no values of x.
+function _checkstep(op::O, c::SphereConstrained{<:NormL1}, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  _checkstep_nonneg(γ)
+  isempty(x) && return true
+  U = promote_type(float(eltype(x)), float(eltype(y)))
+  _sphere_finite_threshold(c.f, γ, U, x) ||
+    throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
+  true
+end
+function _checkstep(op::O, c::SphereConstrained{<:GroupNormL2}, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  _checkstep_nonneg(γ)
+  isempty(x) && return true
+  T = float(eltype(y))
+  _sphere_finite_threshold(c.f, γ, T, promote_type(float(eltype(x)), T), x) ||
+    throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
+  true
+end
+# The threshold of group k: γλ0w formed in the promotion of T and the factors' types, rounded once
+# to T and then widened to U. The kernel and its preflight both take it from here, so they agree.
+@inline _group_sphere_threshold(f, γ, ::Type{T}, ::Type{U}, k) where {T, U} =
+  convert(U, _weight_product(T, γ, f.λ0, f.w[k]))
+# Plain loops that stop at the first finite threshold: an ordinary step ends at the first entry (group).
+function _sphere_finite_threshold(f::NormL1, γ, ::Type{U}, x) where {U}
+  for k in eachindex(IndexLinear(), x)
+    isfinite(_weight_product(U, γ, f.λ0, _entry(f.w, k))) && return true
+  end
+  false
+end
+function _sphere_finite_threshold(f::GroupNormL2, γ, ::Type{T}, ::Type{U}, x) where {T, U}
+  for k in eachindex(f.groups)
+    isfinite(_group_sphere_threshold(f, γ, T, U, k)) && return true
+  end
+  for i in eachindex(IndexLinear(), x)      # an entry in no group is not penalized
+    _group(f, i) == 0 && return true
+  end
+  false
 end

@@ -32,7 +32,13 @@ G = sparse(I, J, y, m, n)                                   # the gradient reuse
 @assert nnz(G) == nobs
 
 f(Xo) = 0.5 * sum(abs2, Xo .- y)
-dense_obs(Z) = [Z[i, j] for (i, j) in zip(I, J)]
+function dense_obs(Z)
+  v = Vector{Float64}(undef, nobs)
+  @inbounds for q in 1:nobs
+    v[q] = Z[I[q], J[q]]
+  end
+  v
+end
 
 # ---- the penalized reference solution X_λ, to high accuracy ----------------------------------------
 λ = 0.2 * opnorm(Matrix(G))
@@ -70,7 +76,7 @@ function fista(λ; maxiter, target = nothing, f0F0 = nothing, record = false)
   end
   X, trace
 end
-Xλ, _ = fista(λ; maxiter = 3000)
+t_ref = @elapsed ((Xλ, _) = fista(λ; maxiter = 3000)); @printf("reference solve %.1fs\n", t_ref); flush(stdout)
 Xo_λ = dense_obs(Xλ)
 δ = sum(svdvals(Xλ))
 fstar = f(Xo_λ)
@@ -81,6 +87,7 @@ F0 = f0
         count(>(1e-6 * δ), svdvals(Xλ)), fstar, f0)
 
 # ---- Frank–Wolfe with a factored iterate -------------------------------------------------------------
+verbose = get(ENV, "FW_VERBOSE", "false") == "true"
 function frank_wolfe(; method, maxiter, tol, exactgap = false)
   C = SingularValue(IndBallL1(δ))
   Xo = zeros(nobs)
@@ -116,6 +123,7 @@ function frank_wolfe(; method, maxiter, tol, exactgap = false)
     end
     tmain += tw
     fk = f(Xo) - fstar
+    verbose && (k + 1) % 100 == 0 && (@printf("  fw it %d  t=%.2fs  (f-f*)/(f0-f*)=%.2e  gap=%.3e\n", k + 1, tmain, fk / (f0 - fstar), -d_dot_R); flush(stdout))
     if exactgap && (k + 1) % 10 == 0
       # the exact gap needs the exact oracle: a dense SVD of the sparse gradient (small sizes only)
       @. R = Xo - y
@@ -139,24 +147,26 @@ fista(λ; maxiter = 2)
 rows = ["m,n,rank,obs,method,tol,time_s,iterations,atoms_or_rank,factor_bytes,dense_bytes"]
 for rep in 1:reps
   # interleaved: FW (Krylov), FW (full, dense gradient), comparator, in this order each repetition
-  res, _, bytes = frank_wolfe(; method = :krylov, maxiter = 20_000, tol = 0.0)
+  res, _, bytes = frank_wolfe(; method = :krylov, maxiter = 5_000, tol = 0.0)
   for t in tols
     haskey(res, t) || continue
     push!(rows, join((m, n, rnk, nobs, "fw-krylov", t, @sprintf("%.4f", res[t][1]), res[t][2], res[t][3], bytes, 8 * m * n), ","))
   end
-  m * n <= 4_000_000 && let (res, _, bytes) = frank_wolfe(; method = :full, maxiter = 20_000, tol = 0.0)
+  m * n <= 4_000_000 && let (res, _, bytes) = frank_wolfe(; method = :full, maxiter = 5_000, tol = 0.0)
     for t in tols
       haskey(res, t) || continue
       push!(rows, join((m, n, rnk, nobs, "fw-full", t, @sprintf("%.4f", res[t][1]), res[t][2], res[t][3], bytes, 8 * m * n), ","))
     end
   end
+  Z, trace = fista(λ; maxiter = 5_000, target = Fstar, f0F0 = minimum(tols) * (F0 - Fstar))
+  sv = svdvals(Z)
+  r = count(>(1e-8 * sv[1]), sv)
   for t in tols
-    Z, trace = fista(λ; maxiter = 20_000, target = Fstar, f0F0 = t * (F0 - Fstar))
-    # the time of the last iteration measured; rank of the final iterate
-    r = count(>(1e-8 * sum(svdvals(Z)[1:1])), svdvals(Z))
-    push!(rows, join((m, n, rnk, nobs, "fista-nuclear", t, @sprintf("%.4f", last(trace)[2]), last(trace)[1], r,
-                      8 * m * n * 3, 8 * m * n), ","))
-    @printf("rep %d tol %.0e: fista %.2fs (%d it, rank %d)\n", rep, t, last(trace)[2], last(trace)[1], r)
+    k = findfirst(x -> x[3] - Fstar <= t * (F0 - Fstar), trace)
+    k === nothing && continue
+    push!(rows, join((m, n, rnk, nobs, "fista-nuclear", t, @sprintf("%.4f", trace[k][2]), trace[k][1], r,
+                      8 * m * n * 4, 8 * m * n), ","))
+    @printf("rep %d tol %.0e: fista %.2fs (%d it)\n", rep, t, trace[k][2], trace[k][1])
   end
   @printf("rep %d: fw-krylov %s\n", rep, [(t, res[t][1], res[t][2]) for t in tols if haskey(res, t)])
 end

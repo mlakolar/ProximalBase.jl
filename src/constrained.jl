@@ -1048,23 +1048,18 @@ _has_prox_slope(::Type{<:BoxConstrained{F}}) where {F} = _has_prox_slope(F)
   (prox_entry(f, v, i, γ), one(float(T)))
 Base.@propagate_inbounds _prox_entry_slope(f::LinearFunction, v::T, i::Integer, γ::Real) where {T<:Real} =
   (prox_entry(f, v, i, γ), one(float(T)))
-Base.@propagate_inbounds function _prox_entry_slope(f::SqrNormL2, v::T, i::Integer, γ::Real) where {T<:Real}
-  S = float(T)
-  prox_entry(f, v, i, γ), inv(one(S) + convert(S, γ * f.λ))
-end
-# the same slope, so that the search takes the same steps as with the tested entries
-Base.@propagate_inbounds function _prox_entry_slope(r::_OrdinaryRidge, v::T, i::Integer, γ::Real) where {T<:Real}
-  S = float(T)
-  prox_entry(r, v, i, γ), inv(one(S) + convert(S, γ * r.f.λ))
-end
+# the slope is the weight prox_entry applies to the argument, also where γλ leaves the
+# range of the model type; _OrdinaryRidge takes the ordinary weight, as the tested route does
+Base.@propagate_inbounds _prox_entry_slope(f::SqrNormL2, v::Real, i::Integer, γ::Real) = _ridge_prox_slope(f, v, i, γ)
+Base.@propagate_inbounds _prox_entry_slope(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) = _ridge_prox_slope(r, v, i, γ)
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = convert(S, _weight_product(γ, f.λ0, _entry(f.w, i)))
+  t = _weight_product(S, γ, f.λ0, _entry(f.w, i))
   shrink(v, t), _slope(abs(v) > t, one(S))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = convert(S, _weight_product(γ, f.λ0, _entry(f.w, i)))
+  t = _weight_product(S, γ, f.λ0, _entry(f.w, i))
   max(v - t, zero(S)), _slope(v > t, one(S))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}

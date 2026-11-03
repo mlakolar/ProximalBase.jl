@@ -249,6 +249,11 @@ function _with_zeros(x::AbstractArray, rng)
   z
 end
 
+# Whether f has a standalone value at the array z: ProximalBase's own list of functions without one
+# (a conjugate whose value is not implemented), and a method that accepts z. A method that exists but
+# throws is not "missing": the call is made without a try, and the error surfaces.
+_has_standalone_value(f, z) = ProximalBase._has_value(f) && applicable(f, z)
+
 function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symmetric = false, rng = nothing)
   @test isseparable(f)
   p = prox(f, x, γ)
@@ -280,10 +285,18 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
     xs = SparseIterate(xz)
     ys = SparseIterate(xz)
     @test _dense(prox!(ys, f, xs, γ)) ≈ _dense(pz)
-    if f isa SeparableFunction
-      @test all(i -> iszero(value_entry(f, zero(T), i)), eachindex(x))
+    # the per-entry contract f_i(0) = 0, where the entries have values
+    f isa SeparableFunction && @test all(i -> iszero(value_entry(f, zero(T), i)), eachindex(x))
+    # the aggregate consequence f(0) = 0 and the sparse paths, where f has a value
+    z = zeros(T, size(x))
+    _has_standalone_value(f, z) && @test iszero(f(z))
+    # a value method may accept only dense arrays: the sparse paths need one for the iterate
+    if _has_standalone_value(f, z) && _has_standalone_value(f, xs) && _has_standalone_value(f, pz)
       @test f(xs) ≈ f(xz)
-      @test value_and_prox!(ys, f, xs, γ) ≈ f(pz)
+      # a fresh destination, which prox! has not already filled: the value and the written point
+      yv = SparseIterate(xz)
+      @test value_and_prox!(yv, f, xs, γ) ≈ f(pz)
+      @test _dense(yv) ≈ _dense(pz)
     end
   end
 

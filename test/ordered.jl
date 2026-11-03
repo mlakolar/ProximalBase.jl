@@ -400,4 +400,131 @@ end
   end
 end
 
+# pooling adjacent violators near floatmax: every projection below is representable
+# although the sums, products or differences of the entries are not
+@testset "pooling near floatmax" begin
+  for T in (Float64, Float32)
+    M = floatmax(T)
+    h = M / 2
+    third = T(big(M) / 3)
+    near(a, b) = all(isapprox.(a, b; rtol = 4eps(T)))
+    @test near(prox(IndIsotonic(), T[M, h]), T[0.75M, 0.75M])
+    @test near(prox(IndIsotonic(decreasing = true), T[h, M]), T[0.75M, 0.75M])
+    @test near(prox(IndIsotonic(), T[M, -M], T[1, 2]), T[third, third])
+    @test near(prox(IndIsotonic(decreasing = true), T[-M, M], T[1, 2]), -T[third, third])
+    @test prox(IndIsotonic(), T[M, -M]) == zeros(T, 2)
+    @test prox(IndIsotonic(), T[-M, M]) == T[-M, M]                         # ordered: unchanged
+    # the entries at the bound of the sums, and beyond it
+    for n in 2:5, e in (floatmax(T) / (4 * T(n)^2), nextfloat(floatmax(T) / (4 * T(n)^2)), M)
+      x = T[iseven(i) ? -e : e for i in 1:n]
+      ref = T.(isotonic_reference(big.(x)))
+      @test near(prox(IndIsotonic(), x), ref)
+      @test near(prox(IndIsotonic(decreasing = true), -x), -ref)
+      z = copy(x)
+      @test near(prox!(z, IndIsotonic(), z, one(T)), ref)                     # y aliases x
+    end
+    # tiny entries beside a near-floatmax pair keep their relative accuracy
+    x = T[1, 3, 2, M, h]
+    @test near(prox(IndIsotonic(), x), T[1, 2.5, 2.5, 0.75M, 0.75M])
+    @test prox(IndIsotonic(), x)[2] == T(2.5)
+    x = T[M, h, 1, 3, 2]
+    @test near(prox(IndIsotonic(), x), T.(isotonic_reference(big.(x))))
+    x = T[3, 2, 1, M, h]
+    @test near(prox(IndIsotonic(), x), T.(isotonic_reference(big.(x))))
+    # SLOPE: M minus the mean of λ in both entries
+    λ = T[2 * T(10)^(T == Float64 ? 300 : 30), T(10)^(T == Float64 ? 300 : 30)]
+    f = SLOPE(λ)
+    ref = T.(big(M) .- (big(λ[1]) + big(λ[2])) / 2)
+    z = prox(f, T[M, M])
+    @test near(z, [ref, ref])
+    z = prox(f, T[-M, M])
+    @test near(z, [-ref, ref])
+    @test prox!(similar(z), f, T[M, M], one(T)) == prox(f, T[M, M])
+    # NormL1Fused: three entries reach the pooling
+    g = NormL1Fused(zero(T), one(T))
+    t = T(10)^(T == Float64 ? 300 : 30)
+    x = T[h, M, M]
+    y = prox(g, x, t)
+    @test near(y, T.(prox(NormL1Fused(big(0.0), big(1.0)), big.(x), big(t))))
+  end
+  # infinite entries: unchanged
+  @test isequal(prox(IndIsotonic(), [Inf, -Inf]), [NaN, NaN])
+  @test prox(IndIsotonic(), [-Inf, Inf]) == [-Inf, Inf]
+  # the isotonic regression by pooling in BigFloat sums: an independent oracle for long pools
+  function pooled_reference(x; decreasing = false)
+    σ = decreasing ? -1 : 1
+    sums, cnt = BigFloat[], Int[]
+    for e in x
+      push!(sums, big(e)); push!(cnt, 1)
+      while length(sums) > 1 && σ * (sums[end-1] * cnt[end] - sums[end] * cnt[end-1]) > 0
+        sums[end-1] += sums[end]; cnt[end-1] += cnt[end]; pop!(sums); pop!(cnt)
+      end
+    end
+    reduce(vcat, [fill(sums[b] / cnt[b], cnt[b]) for b in eachindex(sums)])
+  end
+  maxrel(y, ref) = maximum(abs.((big.(y) .- ref) ./ ref))
+  # long pools: the means are not rounded again and again in the narrow type
+  for (T, n1, n2, a) in ((Float16, 3000, 3000, Float16(1)), (Float32, 10_000, 10_000, 1f37),
+                         (Float32, 3000, 5000, 2f38), (Float64, 20_000, 30_000, 1e307))
+    x = vcat(fill(a, n1), zeros(T, n2))
+    ref = pooled_reference(x)
+    y = prox(IndIsotonic(), x)
+    @test all(isfinite, y)
+    tol = T == Float64 ? 100 * eps(T) : 2 * eps(T)   # Float64 has no wider type to carry the means in
+    @test maxrel(y, ref) <= tol
+    xd = reverse(x)                                    # decreasing, the other direction
+    yd = prox(IndIsotonic(decreasing = true), xd)
+    @test maxrel(yd, pooled_reference(xd; decreasing = true)) <= tol
+    z = copy(x)                                        # y aliases x
+    @test prox!(z, IndIsotonic(), z, one(T)) == y
+    # two pools of random size at the scale of a
+    r = MersenneTwister(5)
+    x = vcat(a .* (1 .+ T.(rand(r, n1)) ./ 4), a .* T.(rand(r, n2)) ./ 4, a .* (1 .+ T.(rand(r, 100)) ./ 4))
+    @test maxrel(prox(IndIsotonic(), x), pooled_reference(x)) <= 4 * tol
+  end
+  # the largest finite Float16 in a block of more than 2048 entries
+  let M16 = floatmax(Float16), x = vcat(fill(M16, 3000), zeros(Float16, 3000))
+    @test prox(IndIsotonic(), x) == fill(M16 / 2, 6000)
+  end
+  # BigFloat near floatmax: the threshold is in BigFloat's own range
+  setprecision(BigFloat, 256) do
+    M = floatmax(BigFloat)
+    for (x, e) in ((BigFloat[M, M / 2], [3 * (M / 4), 3 * (M / 4)]), (BigFloat[M, -M], [zero(M), zero(M)]),
+                   (BigFloat[M / 2, M, M / 2, M], [M / 2, 3 * (M / 4), 3 * (M / 4), M]))
+      y = prox(IndIsotonic(), x)
+      @test all(isfinite, y) && all(y .== e)
+      yd = prox(IndIsotonic(decreasing = true), -x)
+      @test all(yd .== -e)
+      z = copy(x)
+      @test prox!(z, IndIsotonic(), z, one(M)) == y
+    end
+    @test all(prox(IndIsotonic(), BigFloat[M, -M], BigFloat[1, 2]) .≈ M / 3)
+  end
+  # infinite entries beside large finite ones keep their results
+  let M = floatmax(Float64)
+    @test prox(IndIsotonic(), [M, M / 2, Inf]) ≈ [0.75M, 0.75M, Inf]
+    @test prox(IndIsotonic(), [-Inf, M, M / 2]) ≈ [-Inf, 0.75M, 0.75M]
+    @test prox(IndIsotonic(), [Inf, M]) == [Inf, Inf]
+    @test isequal(prox(IndIsotonic(), [Inf, M, -Inf]), [NaN, NaN, NaN])
+  end
+  # SLOPE: a long pool of equal magnitudes whose λ steps from a to 0
+  for (T, a) in ((Float32, 1f37), (Float64, 1e307))
+    n = 4000
+    f = SLOPE(vcat(fill(a, n ÷ 2), zeros(T, n ÷ 2)))
+    y = prox(f, fill(a, n))
+    @test maxrel(y, fill(big(a) / 2, n)) <= 2 * eps(T)
+    y = prox(f, vcat(-a, fill(a, n - 1)))
+    @test all(isapprox.(abs.(y), a / 2; rtol = 4 * eps(T)))
+  end
+  # Float16 with n² beyond its range: the means path is correct for ordinary data too
+  let x = Float16.(randn(MersenneTwister(3), 300)), z = prox(IndIsotonic(), x)
+    @test issorted(z) && all(isfinite, z)
+    @test isapprox(z, Float16.(isotonic_reference(Float64.(x))); atol = 0.01)
+  end
+  # Float32 data and steps in the weighted case, and Float16
+  @test all(isapprox.(prox(IndIsotonic(), Float32[floatmax(Float32), -floatmax(Float32)], Float32[1, 2]),
+                      Float32(big(floatmax(Float32)) / 3); rtol = 1e-6))
+  @test prox(IndIsotonic(), Float16[floatmax(Float16), floatmax(Float16) / 2]) ≈ Float16[0.75, 0.75] .* floatmax(Float16)
+end
+
 end

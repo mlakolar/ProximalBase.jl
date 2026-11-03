@@ -79,6 +79,59 @@ PB.iszeropreserving(::FalseZeroWrapper) = true
 PB.prox_entry(f::FalseZeroWrapper, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
 PB.prox!(y::AbstractArray, f::FalseZeroWrapper, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
 
+# a separable wrapper with correct delegated prox, whose value is shifted by 1 (so f(0) = 1)
+struct OffsetWrapper{F<:AbstractFunction} <: AbstractFunction
+  f::F
+end
+PB.isseparable(::Type{<:OffsetWrapper}) = true
+PB.iszeropreserving(::OffsetWrapper) = true
+PB.prox_entry(f::OffsetWrapper, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+PB.prox!(y::AbstractArray, f::OffsetWrapper, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
+(f::OffsetWrapper)(x::AbstractArray) = f.f(x) + 1
+
+# the same wrapper with a correct value, and without any standalone value
+struct ValueWrapper{F<:AbstractFunction, B} <: AbstractFunction
+  f::F
+end
+ValueWrapper(f::F; value::Bool = true) where {F<:AbstractFunction} = ValueWrapper{F, value}(f)
+PB.isseparable(::Type{<:ValueWrapper}) = true
+PB.iszeropreserving(::ValueWrapper) = true
+PB.prox_entry(f::ValueWrapper, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+PB.prox!(y::AbstractArray, f::ValueWrapper, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
+(f::ValueWrapper{<:Any, true})(x::AbstractArray) = f.f(x)
+
+# value methods that accept dense vectors only (valid: not asked for the sparse paths), and ones that
+# are wrong only on a SparseIterate or only in value_and_prox!
+struct VectorValue{F<:AbstractFunction} <: AbstractFunction
+  f::F
+end
+struct WrongFusedOutput{F<:AbstractFunction} <: AbstractFunction   # right value, but never writes y
+  f::F
+end
+struct WrongSparseValue{F<:AbstractFunction} <: AbstractFunction
+  f::F
+end
+struct WrongFusedValue{F<:AbstractFunction} <: AbstractFunction
+  f::F
+end
+for W in (:VectorValue, :WrongSparseValue, :WrongFusedValue, :WrongFusedOutput)
+  @eval begin
+    PB.isseparable(::Type{<:$W}) = true
+    PB.iszeropreserving(::$W) = true
+    PB.prox_entry(f::$W, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+    PB.prox!(y::AbstractArray, f::$W, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
+  end
+end
+(f::VectorValue)(x::Vector) = f.f(x)
+(f::WrongSparseValue)(x::AbstractArray) = f.f(x)
+(f::WrongSparseValue)(x::SparseIterate) = f.f(x) + 1
+(f::WrongFusedValue)(x::AbstractArray) = f.f(x)
+(f::WrongFusedOutput)(x::AbstractArray) = f.f(x)
+PB.value_and_prox!(y::AbstractArray, f::WrongFusedOutput, x::AbstractArray, γ::Real) =
+  f.f(prox(f.f, x, γ))                                          # y is left as it was
+PB.value_and_prox!(y::AbstractArray, f::WrongFusedValue, x::AbstractArray, γ::Real) =
+  (prox!(y, f.f, x, γ); f.f(y) + 1)
+
 struct WrongEntries <: SeparableFunction               # prox! overridden, disagreeing with prox_entry
   λ::Float64
 end
@@ -219,6 +272,16 @@ PB.iszeropreserving(::UserSquare) = true
     end
     Ws = Matrix(Symmetric(rand(5, 5)))
     @test passes(() -> PT.test_separable(NormL1(0.5, Ws), randn(5, 5), γ; symmetric = true))
+    # zero-preserving functions with and without a standalone value
+    for f in (NormL1(0.5), Scaled(NormL1(0.5), 2.0), Conjugate(NormL1(0.5)), ValueWrapper(NormL1(0.5)),
+              ValueWrapper(Scaled(NormL1(0.5), 2.0)), VectorValue(NormL1(0.5)))
+      @test passes(() -> PT.test_separable(f, x, γ; rng = Xoshiro(2)))
+    end
+    for f in (Conjugate(ElasticNet(0.3, 0.6)), Scaled(Conjugate(ElasticNet(0.3, 0.6)), 2.0),
+              ValueWrapper(NormL1(0.5); value = false))
+      @test !PB._has_value(f) || !applicable(f, zeros(length(x)))
+      @test passes(() -> PT.test_separable(f, x, γ; rng = Xoshiro(2)))
+    end
     @test passes(() -> PT.test_conjugate(NormL1(0.5), x, γ; conjugate = IndBallLinf(0.5)))
     @test passes(() -> PT.test_conjugate(NormL1(0.5), x, γ))
     @test passes(() -> PT.test_conjugate(SqrNormL2(2.0), x, γ))
@@ -285,6 +348,34 @@ PB.iszeropreserving(::UserSquare) = true
     end
     @test count(r -> r isa Test.Fail, ts.results) > 0
     @test count(r -> r isa Test.Error, ts.results) == 0
+    f = OffsetWrapper(NormL1(1.0))
+    @test f(zeros(length(x))) == 1 && prox(f, x, γ) == prox(NormL1(1.0), x, γ)
+    ts = @testset Collect "offset wrapper" begin
+      PT.test_separable(f, x, γ; rng = Xoshiro(2))
+    end
+    @test count(r -> r isa Test.Fail, ts.results) == 1          # only the value at zero
+    @test count(r -> r isa Test.Error, ts.results) == 0
+    @test only(filter(r -> r isa Test.Fail, ts.results)).orig_expr == "iszero(f(z))"
+    f = WrongSparseValue(NormL1(1.0))                           # f(SparseIterate) is off by 1
+    ts = @testset Collect "wrong sparse value" begin
+      PT.test_separable(f, x, γ; rng = Xoshiro(2))
+    end
+    @test count(r -> r isa Test.Fail, ts.results) >= 1          # the sparse value, and with it value_and_prox!
+    @test count(r -> r isa Test.Error, ts.results) == 0
+    f = WrongFusedValue(NormL1(1.0))                            # only value_and_prox! is off by 1
+    ts = @testset Collect "wrong fused value" begin
+      PT.test_separable(f, x, γ; rng = Xoshiro(2))
+    end
+    @test count(r -> r isa Test.Fail, ts.results) == 1
+    @test count(r -> r isa Test.Error, ts.results) == 0
+    @test only(filter(r -> r isa Test.Fail, ts.results)).orig_expr == "value_and_prox!(yv, f, xs, γ) ≈ f(pz)"
+    f = WrongFusedOutput(NormL1(1.0))                           # x has entries above the threshold, so prox(x) != x
+    ts = @testset Collect "wrong fused output" begin
+      PT.test_separable(f, x, γ; rng = Xoshiro(2))
+    end
+    @test count(r -> r isa Test.Fail, ts.results) == 1
+    @test count(r -> r isa Test.Error, ts.results) == 0
+    @test only(filter(r -> r isa Test.Fail, ts.results)).orig_expr == "_dense(yv) ≈ _dense(pz)"
     @test failures(() -> PT.test_separable(WrongEntries(0.5), x, γ)) > 0
     @test failures(() -> PT.test_conjugate(NormL1(0.5), x, γ; conjugate = IndBallLinf(1.0))) > 0
     @test failures(() -> PT.test_kkt(WrongKKT(0.5), x, γ)) > 0

@@ -1,0 +1,284 @@
+# Design proposal: step endpoints and infinite inputs (#311, #469)
+
+**Status: draft for critical review; documentation only. No implementation in this PR.**
+The companion diff in `docs/src/numerics.md` is proposed contract language, not
+evidence that current code complies. This proposal is intentionally narrow and
+should not be merged until the questions under "Review decisions requested" are
+resolved. Leave #311 and #469 open after merging a documentation decision.
+
+References: [numerical contract](../../src/numerics.md) (E1–E4, P1–P2, O2,
+O6–O7, C1–C3); [approved decisions](decisions.md) (21, 25, 26);
+[#311](https://github.com/mlakolar/ProximalBase.jl/issues/311);
+[#469](https://github.com/mlakolar/ProximalBase.jl/issues/469);
+[#458](https://github.com/mlakolar/ProximalBase.jl/issues/458) /
+[merged #460](https://github.com/mlakolar/ProximalBase.jl/pull/460).
+
+## Why a joint decision is needed
+
+- #311: negative and NaN steps must raise `ArgumentError` before any
+  write, including when the argument itself is non-finite or a later block in
+  `SeparableSum`, `SliceSum` or `FiberSum` is invalid. The private
+  `_checkstep` pre-write protocol arrived in merged #304, but #311 identifies
+  missing forwarding/validation for constrained operators and other families.
+  P1 already permits selected zero/infinite step **endpoints**, not arbitrary
+  nonnegative steps everywhere.
+- #469: for bounded balls and spheres, one effective infinite coordinate
+  often selects a unique limiting projection, while multiple independently
+  infinite coordinates do not. At present the ℓ2 ball/sphere and the
+  constrained examples typically return all NaN, and `IndBallL1` can return a
+  partially NaN block. Merged #460 deliberately retained all NaN for the
+  ℓ1-constrained sphere as a **holding policy**, not a mathematical assertion
+  that a single infinity is ambiguous.
+- Taken together: `γ = Inf` and `x = Inf` may each have a separately
+  documented endpoint, yet the two limits need not commute. "Validate the
+  step before using the argument" (E1) settles *invalid* steps but does not
+  by itself settle simultaneous **valid** exceptional endpoints.
+
+The existing 47 numerical-contract decisions remain the historical record.
+This PR proposes a **limited refinement** of decisions 21 and 26, not a
+reinterpretation of unrelated coupled operators or an implementation of #311.
+
+## Mathematical model and proposed ordering
+
+For fixed parameters and finite `x`, the regular-step operator is
+
+~~~text
+P(γ, x) = argmin_z { (1/2)‖z-x‖₂² + γ f(z) },
+~~~
+
+with the package's documented selection/tie rule for nonunique projections.
+
+The proposed ordering for exceptional inputs is:
+
+1. Validate shape, types, step *admissibility*, relevant structural
+   constraints, and applicable parameter restrictions; failures leave all
+   caller-owned output unchanged (E1/O6). An invalid `γ = -1` or `γ = NaN`
+   must not turn into an ordinary NaN result merely because `x` is infinite.
+2. Resolve zero/infinite **parameter** endpoints admitted by P1 (and E4 hard
+   constraints), interpreting the endpoint as the map obtained at **fixed
+   finite argument**. If P1 does not name the endpoint for this family, reject
+   it before inspecting exceptional input values.
+3. For that map, apply E2 to NaNs and E3 to ±Inf arguments. Where a documented
+   limit exists and is independent of the sequence of finite inputs
+   approaching the extended-real argument, return it; otherwise return NaN
+   in the dependent coupled block.
+
+**This is a definition of an evaluation convention, not a theorem that a
+joint limit in (γ, x) exists.** It favors step-endpoint-first over
+argument-infinity-first. The reviewer should assess that choice independently.
+
+### A counterexample to commuting limits
+
+Let `f(z) = |z| + I_{[-1,1]}(z)` and take scalar `x = M > 0`.
+Then `P(γ, M) = min(1, max(0, M-γ))` for finite values, so
+
+~~~text
+lim_{γ→∞} lim_{M→∞} P(γ,M) = 1
+lim_{M→∞} lim_{γ→∞} P(γ,M) = 0.
+~~~
+
+Even ordinary `NormL1(1)` has this conflict at (`x = +Inf`, `γ = +Inf`):
+argument-first yields `+Inf`, step-first yields `0`. The proposal selects
+**0** because P1 defines its infinite-step proximal map by first taking the
+fixed-finite-input limit. Alternatives are to reject the doubly exceptional
+case or explicitly allow a family-specific convention; neither is ruled out
+by the existing prose.
+
+## Proposed contract changes
+
+### E1: distinguish validation order from endpoint order
+
+Preserve the existing priority of structural validation, step validity and
+domain-defining parameters. Add an explicit *step-endpoint-first*
+interpretation for simultaneously exceptional but admitted `γ` and `x`.
+Do **not** silently equate "step checked first" with "joint limit exists".
+The E2/E4 question of NaN input in a hard-fixed coordinate is separate
+(see below), not solved by step precedence.
+
+### E3: a scoped, path-independent infinite-input guarantee
+
+For **finite** radii and sign-symmetric, bounded ball/sphere projections
+named below:
+
+- For direct `IndBallL1(r)` and `IndBallL2(r)` with `r > 0`, and
+  `IndSphereL2(r)` with `r > 0`, one independent ±Inf scalar coordinate
+  and all other coordinates finite gives `±r e_k`. This is the limit at
+  fixed admitted `γ`. A single symmetric off-diagonal degree of freedom
+  represented twice in a `SymmetricSparseIterate` gives
+  `±r/√2` in each member of the pair, not two independent infinities.
+- Two or more **independent, unconstrained** infinite coordinates generally
+  do not have a path-independent direction; return NaN in the dependent
+  coupled block. Example for the Euclidean sphere:
+  `(M,M) -> (1/√2,1/√2)` but `(M,2M) -> (1/√5,2/√5)`.
+  For `IndBallL1` the corresponding limits are `(r/2,r/2)` versus
+  `(0,r)`. No arbitrary equal-rate convention.
+- `IndBallL1(0)` and `IndBallL2(0)` have the constant zero projection
+  for finite arguments; the result at ±Inf input is zero as well.
+  Whether **NaN** input at radius zero is also independent (and should
+  produce zero instead of following today's E2 block rule) needs an
+  explicit E2 review; this PR does not decide that.
+- Extend the same principle to **specifically supported** constrained
+  sign-symmetric functions, starting with
+  `Constrained(NormL1, IndBallL2/IndSphereL2)`,
+  `Constrained(GroupNormL2, IndBallL2/IndSphereL2)`, and
+  `Constrained(IndBallL0, IndBallL2/IndSphereL2)`, only after accounting
+  for effective domains, active hard constraints, sparsity, and
+  nonunique directions. One infinite *group* is **not** enough: a group
+  containing two independent infinite coordinates can still have an
+  undetermined direction.
+- The generic `BallConstrained` accepts many more inner functions,
+  including sign-restricted cones and spectral penalties. Do **not**
+  automatically apply `±r e_k` to them. For example, the projection of
+  a negative-infinite coordinate onto a nonnegative cone is not a negative
+  boundary vector. Other coupled families (`IndStiefel`, `SumLargest`,
+  `IndPolyhedron`, spectral projections) are **out of scope**.
+- A hard-infinite-weight coordinate is fixed to zero under E4. An infinity
+  there does not itself establish the direction; consider the remaining
+  free coordinates. For a sphere, the effective domain may be empty and
+  must fail before writing. A symmetric argument containing (`+Inf,-Inf`)
+  in corresponding off-diagonal entries is also ambiguous if its symmetric
+  part involves `Inf - Inf`.
+- Inputs with NaN continue to follow **E2** except in future explicitly
+  documented independence cases. No newly claimed NaN behavior is
+  implemented or approved here.
+
+**Bounded-radius scope:** `IndBallL1(Inf)` and `IndBallL2(Inf)` are currently
+constructible and are not finite-radius projections; `IndSphereL2(Inf)`
+is also constructible although the corresponding sphere has no finite
+points. Decide parameter validation and any endpoint semantics separately;
+do not extrapolate this proposal to infinite radii.
+
+An infinite computed norm caused by **finite-input overflow** is not an
+infinite input. Existing scaled/recovery arithmetic must continue to handle
+that path. Never classify by `isinf(norm(x))` alone.
+
+### P1: name zero/infinite step endpoints for constrained operators
+
+- Preserve the already decided negative/NaN `γ` rejection before writes,
+  including block compositions; preserve admitted scalar-step endpoints for
+  indicators, separable functions, and ridge.
+- Propose naming `γ = 0` for the specifically supported penalized
+  `Constrained(NormL1, ball/sphere)` and
+  `Constrained(GroupNormL2, ball/sphere)` families when their effective
+  domain is nonempty and a projection with the documented tie rule is
+  available. This is the projection onto the domain **after** applying
+  domain-defining restrictions such as infinite coordinate/group weights;
+  it is not necessarily the unrestricted ball/sphere projection.
+- Propose that `γ = Inf` remain **unsupported for genuinely penalized
+  constrained families** unless a specific endpoint is derived and
+  documented. E.g. `Constrained(NormL1(1), IndBallL2(1))` is not a scalar-step
+  indicator merely because it has a ball constraint. A degenerate
+  zero-penalty/hard-domain instance may be effectively an indicator: decide
+  whether endpoint admissibility is semantic (depends on parameters) or
+  dispatch/type based before implementation.
+- `Constrained(IndBallL0, ball/sphere)` is an indicator, so the existing P1
+  scalar-step rule applies (subject to feasibility). In particular,
+  `γ = 0` and `γ = Inf` are **not** automatically rejected.
+- Maintain the existing requirement that array steps on coupled operators
+  be positive and finite. Do not generalize to array-step endpoints.
+- Continue to reject an unsupported endpoint *before writing*, even at
+  `x = Inf`, and account for forwarded/transformed steps through wrappers.
+
+### O2 and cost: preserve the other promises
+
+`value_and_prox!` returns the value at the **stored output** (O2), not the
+value of `f(x)` at the original infinite input: an indicator has value
+`+Inf` at `x = Inf` but can have value `0` at its finite projected point.
+Follow E5 for value classes and O7 for exact aliasing. Prefer one
+nonfinite classification fused with a scan that already occurs; no
+allocation on finite hot paths and no unconditional BigFloat computation.
+An overflowing norm from finite entries must not trigger #469's branch.
+C2 demands measurement of an added pass; investigate >5% representative
+slowdown under C3 rather than assuming one count is free.
+
+## Proposed expected-result matrix (review targets, **not current results**)
+
+Unless noted otherwise, finite radius `r = 1`, scalar step, Float64,
+dense storage. "all NaN" means the whole dependent block.
+
+| Operator | Input | γ | Proposed result / meaning |
+|:--|:--|:--|:--|
+| `IndBallL2(1)` | `[Inf,0]` | 1 | `[1,0]` |
+| `IndSphereL2(1)` | `[-Inf,2]` | 0, 1, Inf | `[-1,0]`; indicator step-independent |
+| `IndBallL1(1)` | `[Inf,0]` | 1 | `[1,0]`, not partial NaN |
+| `IndBallL2(0)` or `IndBallL1(0)` | `[Inf,2]` | 1 | `[0,0]` |
+| `IndSphereL2(1)` | `[Inf,Inf]` | 1 | all NaN: different relative growth rates |
+| `Constrained(NormL1(1), IndSphereL2(1))` | `[Inf,2]` | 0 | `[1,0]` **if** proposed P1 extension approved |
+| `Constrained(NormL1(1), IndBallL2(1))` | `[Inf,0]` | Inf | `ArgumentError` (unsupported endpoint) |
+| `Constrained(IndBallL0(1), IndSphereL2(1))` | `[Inf,0]` | Inf | `[1,0]` (indicator step) |
+| `Constrained(GroupNormL2(1, [[1,2]]), IndSphereL2(1))` | `[Inf,0,1]` | 1 | `[1,0,0]` |
+| Same group-sphere | `[Inf,Inf,1]` | 1 | all NaN: one group, two independent infinite entries |
+| `IndSphereL2(1)` | `[Inf,0]` | -1 or NaN | `ArgumentError`; destination unchanged |
+| `NormL1(1)` | `[Inf]` | Inf | `[0]` **if** step-endpoint-first chosen |
+| `Constrained(NormL1(1, [Inf,1]), IndSphereL2(1))` | `[Inf,3]` | 1 | `[0,1]` if E4 hard-fixed direction is honored |
+| Direct sphere on symmetric storage | one `+Inf` off-diagonal pair | 1 | symmetric pair `+1/√2`, other entries zero |
+| Direct sphere on symmetric output | asymmetric opposite infinities in one pair | 1 | NaN where symmetricization is ambiguous |
+
+The `γ = 0` and simultaneous `γ = Inf, x = Inf` rows are
+**proposed contract amendments**, not assertions that present code passes.
+When a proposed output is finite, the corresponding `value_and_prox!`
+value must meet O2 at the stored result.
+
+## Review decisions requested (please critique before implementation)
+
+1. **Double limits:** choose step-endpoint-first, argument-first, or
+   rejection for simultaneous admitted `γ = Inf, x = Inf`. Is a single
+   cross-family policy justified, and how does it interact with P1/decision 26?
+2. **Zero step on constrained penalties:** approve or reject naming
+   `γ = 0` for the listed ball/sphere families. Can every admitted
+   instance project onto its effective domain, including hard weights,
+   sparse constraints, empty feasible sets and sphere tie rules?
+3. **Scope of E3:** which constrained inner families can *prove* unique
+   extended-real limits? Is the proposed narrow list still too broad?
+   Confirm that a "single infinite group" is not a sufficient criterion.
+4. **Degenerate radii:** decide how `r = 0` interacts with E2 NaNs,
+   and whether infinite radii should be rejected at construction or
+   treated under a separately documented rule. Do not silently expand
+   the finite-radius guarantee.
+5. **Hard constraints and NaNs:** does E1/E4 require a hard-infinite-weight
+   coordinate with NaN argument to map to zero, rather than E2's NaN?
+   Current `NormL1` behavior does not enforce that inference. Should
+   it be a separate issue/change?
+6. **Degenerate penalization:** should `γ = Inf` be admitted for
+   `Constrained(NormL1(0), ball/sphere)` and other effectively indicator
+   cases even though the general nonindicator method rejects it?
+7. **Symmetric storage:** verify that output multiplicities and
+   symmetricization occur in the same order as the proposed
+   limit classification. For the ℓ1-sphere negative-margin reference
+   oracle, the correct single-support score is
+   `sqrt(m_i) * (|x_i|-threshold_i)`, **not** margin/sqrt(m_i)
+   (see [#469 comment](https://github.com/mlakolar/ProximalBase.jl/issues/469#issuecomment-6578835884)).
+8. **API and values:** confirm the P1 validity checks for `prox`,
+   `prox!`, `value_and_prox!`, array steps, wrappers, and nested
+   block operators, including O2/O6/O7 on exceptional paths.
+9. **Cost:** can direct and constrained paths add a reliable nonfinite
+   classification without changing ordinary finite results or
+   meaningful performance?
+
+A reviewer is invited to reject or narrow this proposal. Please
+identify exact counterexamples (finite sequences where the claimed limit
+differs), incompatible already-approved rules, and missing API surfaces.
+Do not treat a passing current test as proof of a mathematical limit.
+
+## Follow-up implementation plan (NOT part of this PR)
+
+1. **#311:** enforce negative/NaN and unsupported-endpoint checks before
+   any write in the affected operators and their wrappers/block sums.
+   Use the existing private `_checkstep` protocol where appropriate;
+   do not add a redundant public step API.
+2. **#469, direct projections:** finite-radius `IndBallL1`,
+   `IndBallL2` and `IndSphereL2`, including zero radius, symmetric
+   multiplicity, the partial-NaN defect, and positive/negative
+   infinities. Preserve existing finite overflow recovery.
+3. **#469, constrained projections:** only mathematically reviewed
+   inner families with the approved P1 endpoints, masking, feasible
+   domains, nonconvex tie rules, and correctly reported stored values.
+4. **Tests and docs:** finite BigFloat sequences as independent
+   oracles (corrected symmetric negative-margin fallback), both
+   Float32/Float64 input/output combinations, sparse/atom/symmetric
+   storage where supported, aliasing, ±Inf/NaN combinations, invalid
+   steps with unchanged outputs, O2 values and representative timing.
+   Update each public function's docstring in its implementation PR.
+
+This draft PR edits only documentation and must **not** close #311 or #469
+or be interpreted as implementing a new exception guarantee.

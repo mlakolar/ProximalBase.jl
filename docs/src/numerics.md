@@ -442,94 +442,133 @@ where the function admits one (E4). Then the non-finite entries of the
 argument (E2, E3). This is an order of precedence, not three passes over the
 data.
 
-An admitted `γ = 0` or `γ = Inf` endpoint (P1) together with an
-argument containing `±Inf` does not acquire a limit-order convention
-from validation precedence. If finite steps and finite inputs approaching
-the two exceptional values can produce different proximal limits, the
-dependent entries are NaN (decision 21); the result is **not** obtained
-by arbitrarily choosing the step-first or input-first iterated limit.
-Agreement of the two iterated limits alone does not prove a unique
-joint limit. Even a mathematically unique limit does not override an
-explicit E3 family policy that declines extension to infinite arguments.
-Input-independent outputs retain their E1/E2/E4 meaning. An invalid or
-unsupported step still raises before writing (O6), regardless of the
-argument. See [#311](https://github.com/mlakolar/ProximalBase.jl/issues/311)
-and [#469](https://github.com/mlakolar/ProximalBase.jl/issues/469).
+**Validation precedence is not an order of mathematical limits.** When both
+an admitted step endpoint (`γ = 0` or `γ = Inf`, P1) and an argument
+containing `±Inf` are present, use the function's *documented,
+path-independent joint limit* along finite steps and finite arguments,
+when one exists; otherwise the dependent proximal entries are NaN (E3,
+decision 21). Different paths may give different outputs, even when the
+two iterated limits (step first and input first) agree; such agreement alone
+is insufficient to prove a joint limit. Examples include separable
+functions and ridge at their named step endpoints. An indicator's accepted
+scalar-step projection is step-independent, but still follows its own
+infinite-input rule. Invalid or unsupported steps still raise before any
+write, even when the argument contains NaN or Inf.
 
-**E2. NaN.** A NaN entry of the argument is an undefined value, propagated as
-IEEE arithmetic propagates it.
+**E2. NaN.** A NaN argument entry is undefined. It propagates to every
+result that *depends* on that entry; results independent of it are computed
+normally. More precisely, an output entry `y_j` depends on an input entry
+`x_i` if, for some finite values of the other inputs, changing `x_i`
+between finite values changes `y_j`, after imposing E4's domain
+restrictions and with the remaining valid parameters and step fixed.
+This is a statement of the operator's semantics, not a requirement to
+construct a generic dependency matrix at runtime.
 
-- Every result that depends on that entry is NaN: the value, the gradient
-  entries, and the proximal entries of its coordinate (separable functions) or
-  of its whole coupled block (groups, balls, spectral functions). Results that
-  do not depend on it are computed as usual.
+- A separable proximal output typically depends only on its own input
+  coordinate. In a freely coupled block (groups, balls or spectral
+  functions), one input can affect the whole block. A structurally fixed
+  output coordinate does not depend on the exceptional input, and a
+  singleton-domain projection may not depend on *any* input entry.
 - A comparison with NaN never selects a branch. A failed `norm > threshold`
-  test must not turn a **NaN-dependent** result into zeros, and a failed
-  membership test must not turn it into `+Inf`. The shortcut "an indicator's
-  value at a projection is `0`" does not apply when the projected result
-  depends on NaN; a projection structurally independent of that input
-  (E1/E4), such as a radius-zero ball, still has its finite stored value
-  and corresponding indicator value under O2.
+  test must not turn a NaN-dependent result into zeros, and a failed
+  membership test must not turn NaN into `+Inf`. The shortcut
+  "an indicator's value at a projection is zero" does not apply
+  if the stored projection itself depends on a NaN. An input-independent
+  finite projection has its ordinary value at the stored output (O2).
 - In a sum of terms, NaN takes precedence over `±Inf`.
 
-So `prox(NormL1(1.0), [NaN, 4.0], 1.0)` is `[NaN, 3.0]`, and
-`prox(NormL2(1.0), [NaN, 4.0], 1.0)` is `[NaN, NaN]`. Check such results with
-`isequal` or `isnan`, since `==` is false whenever NaN is involved. The
-functions that use LAPACK detect a NaN entry before decomposing; their value
-is NaN, and their output is NaN in every coupled entry.
+Thus `prox(NormL1(1.0), [NaN, 4.0], 1.0)` is
+`[NaN, 3.0]`, whereas `prox(NormL2(1.0), [NaN, 4.0], 1.0)`
+is `[NaN, NaN]`. For a singleton set such as
+`IndBallL2(0)`, the projection is zero even when its argument
+contains NaN; the *standalone* indicator value at a NaN argument
+still follows E2, whereas `value_and_prox!` returns the
+value at the stored zero projection (O2). Check NaN results with
+`isequal` or `isnan`, since `==` is false for NaN.
+Functions that use LAPACK detect a NaN-dependent argument before
+decomposing; their dependent value and output entries are NaN.
 
-**E3. Infinite entries.** A `±Inf` entry of the argument is the extended real.
-A value takes the function's formula or limit where it is determined: a norm
-gives `+Inf`, and an indicator gives `+Inf`, since no set of real vectors
-contains a point with an infinite entry. Where it is not determined, it is
-NaN: `(x₁ - x₂)²/2` tends to `0` along `(t, t)` and to `1/2` along
-`(t, t + 1)`, so at `(Inf, Inf)` it is NaN, as its formula's `Inf - Inf`
-gives. Gradients and proximal outputs take the function's documented limit,
-and NaN in the dependent entries otherwise. Uncentered ridge, for example,
-maps `-Inf` to value `+Inf`, gradient `-Inf` and proximal output `-Inf`.
+**E3. Infinite entries.** A `±Inf` argument entry is an extended-real
+value. Function values take the formula or limit where determined:
+a norm gives `+Inf`, and an indicator of a set of real vectors
+gives `+Inf` at an input with an infinite entry. Where a value is
+undetermined, it is NaN: `(x₁ - x₂)²/2` tends to different
+values along `(t,t)` and `(t,t+1)` at
+`(Inf,Inf)`. Gradients and proximal outputs take the
+function's **documented path-independent limit** where determined,
+and NaN in the dependent entries otherwise (decision 21).
+Uncentered ridge, for example, maps `-Inf` to value
+`+Inf`, gradient `-Inf` and proximal output
+`-Inf` at an ordinary finite step.
 
-**Bounded coupled ball/sphere projections (explicit non-extension).**
-For direct `IndBallL1(r)`, `IndBallL2(r)` and `IndSphereL2(r)`
-with `0 < r < Inf`, and supported finite-radius
-`Constrained(f, IndBallL2(r))` and
-`Constrained(f, IndSphereL2(r))` proximal maps whose effective
-output is a bounded coupled block, an argument entry equal to `±Inf`
-that participates in that block gives **NaN in every output entry of
-the dependent block**. This is deliberate even when a mathematical
-single-infinity limiting projection would be unique. These
-bounded coupled projections do **not** document an extension to
-infinite argument entries; they do not return a mixture such as
-`[NaN, 0]` for an affected block. NaN inputs follow E2.
-Independent blocks are evaluated normally.
+For direct ball/sphere projections, the specified limits include:
 
-**Input-independent results.** The preceding rule does not apply
-when a domain-defining restriction (E1/E4) makes the proximal result
-independent of the exceptional input entry for **all finite
-arguments**, not just at one numerical configuration. In particular,
-`IndBallL1(0)` and `IndBallL2(0)` are constant-zero
-projections and return zero for `±Inf` or NaN inputs, and
-an infinite weight that fixes a coordinate/group to zero permits
-ignoring an exceptional input there when the remaining projection
-does not depend on it. If a different, free coordinate is exceptional,
-the structurally fixed entries can remain exact zero while the
-**effective free coupled block** is NaN; that is different from an
-unjustified partial-NaN projection of an ordinary positive-radius
-ball. Independence is not inferred from coincidental zeros at
-one input or from a branch taken only at an infinite step.
-An empty effective domain is an `ArgumentError` before writing (O6).
+- `IndBallL1(r)`, `IndBallL2(r)` and
+  `IndSphereL2(r)`, with finite `0 < r < Inf`:
+  when exactly one independent coordinate tends to `±Inf`
+  and all other coordinates remain finite, the projection tends to
+  `±r` in that coordinate and zero elsewhere. With two or more
+  independent infinite coordinates the projected direction can depend
+  on their relative growth; absent a unique limit, the dependent
+  coupled block is NaN, not a direction chosen by a tie rule.
+- Under M2, a `SymmetricSparseIterate` stores an off-diagonal
+  coordinate once but counts it twice in reductions. One infinite
+  off-diagonal degree of freedom therefore has limiting entries
+  `±r/2` for the ℓ1 ball and `±r/sqrt(2)` for
+  the ℓ2 ball and sphere. Asymmetric opposing infinite entries
+  that symmetrize through `Inf - Inf` instead follow E2.
+- `IndBallL1(0)` and `IndBallL2(0)` are
+  singleton-domain projections and return zero even at an infinite
+  (or NaN) input, by E2's input-independence rule.
 
-This bounded-projection rule is an **explicit exception** to the
-preference for a mathematically determined extension: it does not
-change the formula or value of `f(x)` at an infinite input.
-It does not apply to separable projections such as `IndBox` or
-`IndBallLinf`, or automatically to other coupled functions
-such as `NormL2`, `IndStiefel`, spectral or linear projections.
-Infinite-radius parameter semantics are not specified here.
-An infinite **computed** norm caused by entirely finite inputs
-is not an infinite argument and must use the usual R2 recovery.
-A value returned with the proximal output follows O2 at the
-stored output (NaN for a NaN block, zero for a feasible zero-radius
-projection), not at the original infinite argument.
+For `IndSimplex(r; equality)` with finite `r ≥ 0`,
+the signed infinities require separate treatment. At `r = 0`
+the projection is identically zero. At `r > 0`, a unique
+`+Inf` coordinate with no other `+Inf` entries
+selects that vertex (`r` there, zero elsewhere), including
+when other entries are `-Inf`. A `-Inf`
+coordinate is inactive when finite coordinates can carry the required
+mass: project the remaining finite inputs onto the corresponding
+equality or inequality simplex and put zero at the excluded coordinate.
+Multiple `+Inf` entries generally lack a unique allocation.
+For an equality simplex with only `-Inf` entries, a unique
+allocation cannot be presumed; for an inequality simplex with only
+`-Inf` entries, the limit is zero. Degenerate dimensions and
+symmetry constraints retain their own documented feasibility/tie rules.
+
+The same determined-limit principle is an **implementation target** for
+the following *closed list* of constrained ball/sphere families:
+`Constrained(NormL1, IndBallL2/IndSphereL2)`,
+`Constrained(GroupNormL2, IndBallL2/IndSphereL2)`,
+`Constrained(IndBallL0, IndBallL2/IndSphereL2)`,
+and `Constrained(ZeroFunction, IndBallL2)`, where the
+particular combination is supported. Here the effective domain,
+hard-fixed coordinates/groups, sparsity, and nonconvex tie rules
+must be taken into account; a single group can contain several
+independently infinite coordinates and then have no determined
+direction. Other `BallConstrained` inner functions (including
+sign-restricted cones and spectral functions) are **not silently
+covered** by these formulas. Their existing E3 meaning still applies;
+unimplemented equivalent-formulation cases are S4/#366 conformance
+gaps, not approved permanent exceptions.
+
+At a permitted `γ = 0` or `γ = Inf` combined
+with infinite inputs, E1's **joint-limit** rule applies. In
+particular, `prox(NormL1(1), [Inf], Inf)`
+is NaN because different growth rates of input and step give
+different limits, whereas `γ = 0` with `x = +Inf`
+has the unique `+Inf` soft-thresholding limit.
+A convex penalized ball may have a valid `γ = Inf`
+endpoint at finite inputs without a determined *joint* limit
+when input and step both diverge.
+
+An infinite **computed norm** arising from entirely finite inputs
+is not an infinite input: recover under R1–R3 instead of
+classifying it as a true infinity. Infinite-radius parameter
+semantics are not introduced by these finite-radius formulas.
+`value_and_prox!` returns the value at the *stored proximal
+output* under O2, not the standalone value at the original
+infinite argument.
 
 **E4. Zero and infinite parameters.**
 

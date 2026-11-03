@@ -504,13 +504,18 @@ Independent blocks are evaluated normally.
 
 **Input-independent results.** The preceding rule does not apply
 when a domain-defining restriction (E1/E4) makes the proximal result
-independent of the exceptional input entry. In particular,
+independent of the exceptional input entry for **all finite
+arguments**, not just at one numerical configuration. In particular,
 `IndBallL1(0)` and `IndBallL2(0)` are constant-zero
 projections and return zero for `±Inf` or NaN inputs, and
 an infinite weight that fixes a coordinate/group to zero permits
 ignoring an exceptional input there when the remaining projection
-does not depend on it. This independence is structural across finite
-steps, not inferred merely from a branch taken at an infinite step.
+does not depend on it. If a different, free coordinate is exceptional,
+the structurally fixed entries can remain exact zero while the
+**effective free coupled block** is NaN; that is different from an
+unjustified partial-NaN projection of an ordinary positive-radius
+ball. Independence is not inferred from coincidental zeros at
+one input or from a branch taken only at an infinite step.
 An empty effective domain is an `ArgumentError` before writing (O6).
 
 This bounded-projection rule is an **explicit exception** to the

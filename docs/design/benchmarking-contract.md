@@ -92,7 +92,10 @@ Recommended local output:
 
 **BC-18 — Correct inference unit and estimand.** Let the declared per-process case statistic be `T_baseline,r` and `T_candidate,r` (for example a BenchmarkTools run-level mean in ProximalBase, a run-level median of certified whole-solve times in ProximalSolvers/HDM). Define
 
-$$ d_r = \log(T_{\mathrm{candidate},r}/T_{\mathrm{baseline},r}), \qquad \widehat{\rho}=\exp(\operatorname{mean}_r d_r). $$
+$
+d_r = \log\left(\frac{T_{\mathrm{candidate},r}}{T_{\mathrm{baseline},r}}\right),
+\qquad \widehat{\rho}=\exp\left(\operatorname{mean}_r d_r\right).
+$
 
 The timing ratio `rho` is **candidate/baseline**; smaller is faster. The reported statistic and any transformation MUST be declared before comparison. Individual within-process BenchmarkTools samples or repeated `@timed` observations are **not** independent process-level inferential units. Do not automatically pool observations from different Julia/compiler/architecture strata.
 

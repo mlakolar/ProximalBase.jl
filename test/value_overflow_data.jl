@@ -180,6 +180,10 @@ allocated_value(f, x) = (f(x); @allocated f(x))
       @test LinearFunction(sparse(T[2, 0]), -M)(T[M, 1]) === M
       @test LinearFunction(Diagonal(T[2, 1]), -M)(Diagonal(T[M, 0])) === M
       @test LinearFunction(T[2, 0], -M)(sparse(T[M, 0])) === M
+      # wrapped sparse coefficients: the recovery reads the stored entries of the parent
+      @test LinearFunction(sparse(T[2 0; 1 0])', -M)(T[M 0; 0 0]) === M
+      @test LinearFunction(transpose(sparse(T[2 0; 1 0])), -M)(T[M 0; 0 0]) === M
+      @test isnan(LinearFunction(sparse(T[2 0; NaN 0])', -M)(T[M 0; 0 0]))
       @test LinearFunction(JLArray(T[2, -2]))(JLArray(T[M, M])) === zero(T)
       # mixed precision: Float64 coefficients with a Float32 argument give a Float32 value (T1)
       T === Float32 && @test LinearFunction([2.0], -Float64(M))(T[M]) === M

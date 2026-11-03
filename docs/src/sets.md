@@ -101,6 +101,36 @@ Projecting onto the ℓ1 ball ``\{\|x\|_1 \le r\}`` is trivial when
 the simplex problem for ``|v|``. The ℓ∞ norms use this projection through
 Moreau's decomposition.
 
+## Linear minimization oracles
+
+Frank–Wolfe methods replace the projection by a linear minimization oracle,
+[`lmo!`](@ref)`(s, C, g)`, which returns a point of the compact set ``C`` that
+minimizes ``\langle g, s\rangle``. For the sets below it costs one pass over
+``g``, and the simplex, the ℓ1 ball and the box need no sorting, so it is much
+cheaper than a projection. The trait [`haslmo`](@ref) says whether a set has
+one. It is a property of the instance, since a box with an infinite bound has
+no oracle in this version, and neither has a set with an infinite radius.
+
+| Set | Minimizer | Ties |
+|:----|:----------|:-----|
+| [`IndSimplex`](@ref)`(r)` | ``r e_i``, ``i = \operatorname{argmin}_i g_i``; with `equality = false`, ``0`` if ``\min_i g_i \ge 0`` | the first index; a tie at ``0`` goes to the origin |
+| [`IndBallL1`](@ref)`(r)` | ``-r\operatorname{sign}(g_i)e_i``, ``i = \operatorname{argmax}_i \lvert g_i\rvert`` | the first index; ``0`` if ``g = 0`` |
+| [`IndBallL2`](@ref)`(r)` | ``-r g/\lVert g\rVert_2`` | ``0`` if ``g = 0`` |
+| [`IndBox`](@ref)`(l, u)`, [`IndBallLinf`](@ref)`(r)` | ``l_i`` if ``g_i > 0``, ``u_i`` if ``g_i < 0`` | ``l_i`` if ``g_i = 0`` |
+
+The first index is the first in linear order. `lmo!` validates the sizes and
+parameters before it writes, and `s` may be `g`. A `NaN` in `g` gives `NaN` in the
+entries that depend on it, and infinite entries take their limit where it is
+determined (see [`lmo!`](@ref) for the details and for the element types).
+The package has no weighted ℓ1 ball, so the oracle has no weights either.
+
+*Unsupported* and *unbounded below* are different statements. `haslmo(C)` is
+`false` when the package provides no oracle for `C`, including every set it
+does not list here. An unbounded set, such as a halfspace or a box with an
+infinite bound, may still have a finite minimum for some directions ``g``, so
+the oracle does not claim that the objective is unbounded; it only does not
+cover those sets.
+
 ## Second-order cones
 
 [`IndSOC`](@ref)`()` is the epigraph of the Euclidean norm: the first entry

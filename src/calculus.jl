@@ -690,7 +690,9 @@ Base.@propagate_inbounds prox_entry(c::Conjugate{<:Conjugate}, v::Real, i::Integ
   prox_entry(c.f.f, v, i, γ)
 # At a proximal point y = x - γp, Fenchel equality gives f*(y) = <p,y> - f(p).
 # Keep the direct value for known closed forms, especially exact indicator zeros.
-_has_conjugate_value(::AbstractFunction) = false
+# A convex indicator with a linear minimization oracle has the value of its support function
+# when nothing more specific is known (see _support_value)
+_has_conjugate_value(f::AbstractFunction) = _isindicator(f) && isconvex(f) && haslmo(f)
 _has_conjugate_value(::Union{NormL1, NormL2, NormLinf, IndBallL1, IndBallL2, IndSOC, IndRotatedSOC,
                             IndExpPrimal, IndExpDual, ZeroFunction, IndNonnegative, IndBox, IndSimplex,
                             SumLargest, SqrNormL2,
@@ -907,6 +909,52 @@ _checkconjugate(f::SqrNormL2, y::AbstractArray) = (_checkreal(f, y); iszero(f.λ
 
 @noinline _conjugate_value(f::AbstractFunction, y) =
   throw(ArgumentError("the value of the conjugate of $(typeof(f)) is not implemented; its proximal operator is"))
+
+# The support function σ_C(y) = ⟨y, lmo(C, -y)⟩ of a convex indicator with an oracle. Every
+# specialized method is more specific and takes precedence; a set without an oracle keeps the
+# error above, as does the value of the conjugate of an indicator of an unbounded set.
+function _conjugate_value(f::AbstractFunction, y::AbstractArray)
+  _has_conjugate_value(f) || return invoke(_conjugate_value, Tuple{AbstractFunction, Any}, f, y)
+  _checkconjugate(f, y)
+  _support_value(f, y)
+end
+_checkconjugate(f::AbstractFunction, y::AbstractArray) = (_checkreal(f, y); _has_conjugate_value(f) && _checkparams(f, y); true)
+
+# -y without building it: a vector view in linear order
+struct _NegatedVector{T, A<:AbstractArray} <: AbstractVector{T}
+  y::A
+end
+_NegatedVector{T}(y::AbstractArray) where {T} = _NegatedVector{T, typeof(y)}(y)
+Base.size(a::_NegatedVector) = (length(a.y),)
+Base.IndexStyle(::Type{<:_NegatedVector}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(a::_NegatedVector{T}, i::Int) where {T} = -convert(T, a.y[i])
+
+# the minimizer is written to a per-task buffer: no allocation after the first call, and
+# tasks do not share it
+_support_scratch() = get!(Scratch, task_local_storage(), :ProximalBase_support_scratch)::Scratch
+
+function _support_value(f, y::AbstractArray)
+  T = float(eltype(y))
+  n = length(y)
+  s = view(_buffer!(_support_scratch(), T, n), 1:n)
+  lmo!(s, f, _NegatedVector{T}(y))
+  _support_dot(y, s, T)
+end
+
+# Σᵢ yᵢ sᵢ over the entries with sᵢ ≠ 0 (an entry at zero contributes nothing, also when yᵢ is
+# infinite), compensated against cancellation; the plain sum when it is not finite
+function _support_dot(y, s, ::Type{T}) where {T}
+  v = e = naive = zero(T)
+  @inbounds for i in 1:length(s)
+    si = s[i]
+    iszero(si) && continue
+    p = convert(T, y[i]) * si
+    naive += p
+    v, e = _compensated_add(v, e, p)
+  end
+  r = v + e
+  isfinite(r) ? r : naive
+end
 
 # indicators of the dual balls and support functions of the balls, within the
 # tolerance of the indicator functions; loops rather than closures, which would

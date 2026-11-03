@@ -307,7 +307,21 @@ at ``\lambda = 0`` this leaves the indicator unchanged, since the linear term
 vanishes at ``y = 0``.
 
 [`Conjugate`](@ref) knows these values, and those of the other norms and balls,
-so `value_and_prox!` reports them. The proximal operator of any convex,
+so `value_and_prox!` reports them. The conjugate of a convex indicator is its
+support function, ``\sigma_C(y) = \langle y, \operatorname{lmo}(C, -y)\rangle``,
+and for an indicator that has a linear minimization oracle
+([`haslmo`](@ref)) but no formula of its own the package evaluates it this way:
+the minimizer goes to a per-task buffer, reused after the first call, and ``-y`` is
+read lazily, so a call allocates nothing once warm. Entries at which the
+minimizer is zero add nothing, also when ``y_i`` is infinite, and the sum is
+compensated. The oracle runs in the element type of ``y``, so a bound
+that does not fit it is an `ArgumentError`; `value_and_prox!` checks the sizes
+before it writes, but an error that only the oracle of a user's set raises arrives after the output is written. The formulas above, the capped simplex's
+sum of the ``k`` largest entries and the other direct values take precedence, because they are
+faster and treat the extreme scales better; an indicator without an oracle,
+and every unbounded set, keeps its own value. A set without an oracle is
+*unsupported*, which is not the same as having an infinite support: the
+conjugate of a halfspace is finite on one ray and infinite elsewhere. The proximal operator of any convex,
 proximable function's conjugate is available. Where the standalone value is
 not implemented, `value_and_prox!` computes it at the proximal point from
 the Fenchel equality ``f^*(y) = \langle p, y\rangle - f(p)``, with ``p`` the corresponding

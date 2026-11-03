@@ -1,5 +1,5 @@
 module ThresholdFactorTypeTest
-using Test, ProximalBase
+using Test, ProximalBase, Random
 using ..TestUtils
 
 # Thresholds γλ1w, γλ2 and the coefficients of the nonconvex penalties are formed in the promotion
@@ -114,6 +114,71 @@ end
   # unchanged from the base: Inf is kept, NaN fails the comparison and gives zero
   @test prox(NormL0(1.0), [Inf, NaN, 0.0], 1.0) == [Inf, 0.0, 0.0]
   @test prox(NormL0(1.0), [1.0], 0.0) == [1.0]                                        # γ = 0: identity
+end
+
+# NormL0 keeps v when |v|² > 2γλ exactly. The reference is an exact comparison in BigFloat (every product
+# of three floats is exact in 512 bits); an exact tie gives zero. The exceptional path (2γλ outside the
+# normal range) must agree with it for every near tie; the ordinary path rounds as before.
+exact_keep(x, γ, λ) = setprecision(BigFloat, 512) do
+  BigFloat(x)^2 > 2 * BigFloat(γ) * BigFloat(λ)
+end
+@testset "NormL0: exact comparison near a tie where 2γλ leaves the range" begin
+  # the two counterexamples of the review: x² - 2γλ = (A - x)² > 0
+  for e in (600, -600)
+    A = 2.0^e; x = prevfloat(A); γ = prevfloat(x); λ = A / 2
+    @test exact_keep(x, γ, λ)
+    @test prox(NormL0(λ), [x], γ) == [x]
+    @test prox(NormL0(λ), [-x], γ) == [-x]
+    @test prox_entry(NormL0(λ), x, 1, γ) === x
+  end
+  # exact ties (γ = x, λ = x/2 gives 2γλ = x² exactly), the value just above and just below
+  for (T, es) in ((Float64, (600, 900, -600, -1000)), (Float32, (70, 100, -70, -100)))
+    for e in es, m in (T(1), T(1.5), T(1.2345678))
+      x = m * T(2)^e; γ = x; λ = x / 2
+      @test !exact_keep(x, γ, λ)
+      f = NormL0(λ)
+      @test prox(f, [x, -x], γ) == [0, 0]                                                # a tie is zero
+      @test prox(f, [nextfloat(x), -nextfloat(x)], γ) == [nextfloat(x), -nextfloat(x)]   # above is kept
+      @test prox(f, [prevfloat(x)], γ) == [0]                                            # below is zero
+      y = [x, nextfloat(x), prevfloat(x), -nextfloat(x)]
+      @test prox(f, y, fill(γ, 4)) == [0, nextfloat(x), 0, -nextfloat(x)]                # prox!, vector steps
+      z = copy(y); prox!(z, f, z, γ); @test z == [0, nextfloat(x), 0, -nextfloat(x)]    # in place
+      w = similar(y); @test prox!(w, f, y, γ) === w; @test w == z
+      @test prox_entry(f, nextfloat(x), 1, γ) === nextfloat(x) && prox_entry(f, x, 1, γ) === T(0)
+    end
+  end
+  # a sweep of near ties at overflow and underflow scales, against the exact reference
+  rng = MersenneTwister(503)
+  for (T, hi, lo) in ((Float64, 513:1000, -1020:-512), (Float32, 65:120, -120:-64))
+    kept = dropped = 0
+    for trial in 1:3000
+      e = rand(rng, (hi, lo)[rand(rng, 1:2)]); x = (1 + rand(rng, T)) * T(2)^e
+      γ = (1 + rand(rng, T)) * T(2)^rand(rng, (e - 5):(e + 5))
+      λ0 = setprecision(BigFloat, 512) do
+        T(BigFloat(x)^2 / (2 * BigFloat(γ)))
+      end
+      λ = (λ0, nextfloat(λ0), prevfloat(λ0))[rand(rng, 1:3)]
+      (isfinite(λ) && floatmin(T) <= λ) || continue
+      sgn = rand(rng, Bool) ? x : -x
+      want = exact_keep(x, γ, λ) ? sgn : zero(T)
+      want == 0 ? (dropped += 1) : (kept += 1)
+      f = NormL0(λ)
+      @test prox_entry(f, sgn, 1, γ) === want
+      @test prox(f, [sgn], γ) == [want]
+      z = [sgn]; prox!(z, f, z, γ); @test z == [want]
+    end
+    @test kept > 100 && dropped > 100                                                    # both outcomes occur
+  end
+  # mixed precision: Float32 factors with a Float64 argument, and Float64 factors with a Float32 argument
+  @test prox(NormL0(floatmax(Float32)), [2.0^600], floatmax(Float32)) == [2.0^600]       # 2^1200 > 2^257
+  @test prox(NormL0(2f0^-100), [2.0^-600], 2f0^-100) == [0.0]                            # 2^-1200 < 2^-199
+  @test prox(NormL0(2.0^100), Float32[2f0^100, 1.5f0 * 2f0^100, -2f0^110], 2.0^100) ==
+        Float32[0, 1.5f0 * 2f0^100, -2f0^110]                      # 2^200 < 2^201 < 2.25·2^200 < 2^220
+  # zero and infinite steps and levels, NaN: the earlier contracts
+  @test prox(NormL0(2.0^499), [2.0^600], 0.0) == [2.0^600]                              # γ = 0: identity
+  @test prox(NormL0(0.0), [2.0^-600, 0.0], 2.0^700) == [2.0^-600, 0.0]                  # λ = 0: identity, zero stays zero
+  @test prox(NormL0(Inf), [2.0^600], 2.0^700) == [0.0] && prox(NormL0(2.0^499), [2.0^600], Inf) == [0.0]
+  @test prox(NormL0(2.0^499), [NaN, Inf], 2.0^700) == [0.0, Inf]
 end
 
 @testset "LLA weights test the raw weight for infinity" begin

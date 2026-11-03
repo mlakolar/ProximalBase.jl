@@ -119,16 +119,27 @@ end
   floatmin(R) <= q <= floatmax(R) && return abs2(x) > q
   _square_exceeds_scaled(x, a, b, abs2(x), q)
 end
-@noinline function _square_exceeds_scaled(x::R, a::R, b::R, p::R, q::R) where {R<:AbstractFloat}
-  _recoverable_factors(x, a, b) || return p > q
-  mx, ex = frexp(x)
+# The exceptional comparison. For the IEEE types the significands are integers of at most 53 bits, so
+# their products are exact in 128 bits and the comparison is exact: neither product is rounded, and an
+# exact tie is not an exceedance. |x|² = Mx²·2^(2ex-2n), 2γλ = Ma·Mb·2^(ea+eb+1-2n), n the precision.
+@noinline function _square_exceeds_scaled(x::R, a::R, b::R, p::R, q::R) where {R<:Base.IEEEFloat}
+  (isfinite(a) & isfinite(b) & (a >= zero(R)) & (b >= zero(R))) || return p > q
+  isinf(x) && return true                    # an infinite argument exceeds every finite threshold
+  (isfinite(x) & !iszero(x)) || return false # NaN, and zero never exceeds
+  (iszero(a) | iszero(b)) && return true     # |x|² > 0 = 2γλ, although |x|² itself may underflow
+  mx, ex = frexp(abs(x))
   ma, ea = frexp(a)
   mb, eb = frexp(b)
-  k = 2ex - (ea + eb + 1)                    # |x|² = mx²·2^(2ex), 2γλ = ma·mb·2^(ea+eb+1)
-  k > 2 && return true                       # mx² ≥ 1/4, ma·mb < 1
+  k = 2ex - (ea + eb + 1)
+  k > 2 && return true                       # Mx² ≥ 2^(2n-2) and Ma·Mb < 2^(2n)
   k < -2 && return false
-  ldexp(mx * mx, k) > ma * mb
+  n = precision(R)
+  Mx, Ma, Mb = (unsafe_trunc(UInt64, ldexp(m, n)) for m in (mx, ma, mb))
+  P, Q = widemul(Mx, Mx), widemul(Ma, Mb)
+  k >= 0 ? (P << k) > Q : P > (Q << -k)
 end
+# Other floating-point types (their range is not the issue here): the rounded comparison.
+@noinline _square_exceeds_scaled(x::R, a::R, b::R, p::R, q::R) where {R<:AbstractFloat} = p > q
 
 # the value p = c⋅φ of a term with the coefficient c and the unweighted value
 # φ ≥ 0: zero where c⋅φ is 0⋅Inf (an infinite weight at a zero entry, a zero

@@ -365,4 +365,69 @@ end
   @test all(==(SENTINEL), y[1]) && all(==(SENTINEL), y[2])
 end
 
+
+# a throwing call leaves every block as it was, with separate outputs and, where the output has the
+# type of the input, with outputs aliasing the inputs (an aliased output takes the input's type, so
+# for another destination type the aliased call is a different computation)
+function blocks_unchanged(op, s, x, γ, ::Type{T}) where {T}
+  @nospecialize
+  y = (fill(T(SENTINEL), length(x[1])), fill(T(SENTINEL), length(x[2])))
+  x0 = map(copy, x)
+  thrown(op, s, y, map(copy, x), γ) isa ArgumentError || return false
+  all(==(T(SENTINEL)), y[1]) && all(==(T(SENTINEL)), y[2]) || return false
+  eltype(x[1]) === T || return true
+  z = map(copy, x)
+  thrown(op, s, z, z, γ) isa ArgumentError && z[1] == x0[1] && z[2] == x0[2]
+end
+
+@testset "group sphere: the preflight takes the kernel's threshold, at mixed precisions" begin
+  # Float32 level, weight and step with a Float64 destination: the product γλ0w is formed in Float64,
+  # so 1e20 ⋅ 1e20 ⋅ 1e20 is finite for the kernel and for the preflight alike, and nothing throws.
+  f32 = GroupNormL2(1.0f20, [[1, 2]], Float32[1.0f20])
+  c = Constrained(f32, IndSphereL2(1.0))
+  s = SeparableSum(IndNonnegative(), c)
+  for op in proximal
+    y = (fill(SENTINEL, 2), fill(SENTINEL, 2))
+    op(y, s, ([-1.0, 2.0], [3.0, 4.0]), 1.0f20)
+    @test y[1] == [0.0, 2.0] && isapprox(y[2], [0.6, 0.8]; rtol = 1e-14)
+    z = fill(SENTINEL, 2)
+    op(z, c, [3.0, 4.0], 1.0f20)
+    @test z == y[2]
+  end
+  # the same Float32 factors with a Float32 destination overflow in Float32 and throw, before any write
+  for op in proximal
+    @test blocks_unchanged(op, s, (Float32[-1, 2], Float32[3, 4]), 1.0f20, Float32)
+    # and an infinite Float32 step, with a Float64 destination and Float64 inputs
+    @test blocks_unchanged(op, SeparableSum(IndNonnegative(), Constrained(GroupNormL2(1.0f0, [[1, 2]], Float32[1]), IndSphereL2(1.0))),
+                           ([-1.0, 2.0], [3.0, 4.0]), Inf32, Float64)
+    @test blocks_unchanged(op, SeparableSum(IndNonnegative(), Constrained(NormL1(1.0f0, Float32[1, 2]), IndSphereL2(1.0))),
+                           ([-1.0, 2.0], [3.0, 4.0]), Inf32, Float64)
+  end
+  # every precision of destination, input, level and step, from ordinary to overflowing magnitudes:
+  # the preflight throws exactly when the kernel does, and a sum then writes no block
+  for Ty in (Float32, Float64), Tx in (Float32, Float64), Tc in (Float32, Float64), Tγ in (Float32, Float64),
+      mag in (1.0, 1e20, 1e35, 1e39, 1e60, 1e300)
+    big = min(mag, floatmax(Tc))
+    for (g, n) in ((Constrained(GroupNormL2(Tc(big), [[1, 2]], Tc[big]), IndSphereL2(1.0)), 2),
+                   (Constrained(GroupNormL2(Tc(big), [[1, 2], [3]], Tc[big, 1]), IndSphereL2(1.0)), 3),
+                   (Constrained(NormL1(Tc(big), Tc[big, 1, 1]), IndSphereL2(1.0)), 3))
+      γ = Tγ(min(mag, floatmax(Tγ)))
+      x = Tx[3, -4, 1][1:n]
+      for op in proximal
+        direct = thrown(op, g, fill(Ty(SENTINEL), n), copy(x), γ)
+        @test direct === nothing || direct isa ArgumentError
+        pre = try; ProximalBase._checkstep(op, g, fill(Ty(SENTINEL), n), x, γ); nothing; catch e; e; end
+        @test (pre === nothing) == (direct === nothing)
+        sum2 = SeparableSum(IndNonnegative(), g)
+        if direct === nothing
+          y = (fill(Ty(SENTINEL), n), fill(Ty(SENTINEL), n))
+          @test thrown(op, sum2, y, (copy(x), copy(x)), γ) === nothing
+        else
+          @test blocks_unchanged(op, sum2, (copy(x), copy(x)), γ, Ty)
+        end
+      end
+    end
+  end
+end
+
 end

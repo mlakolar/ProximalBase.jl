@@ -473,7 +473,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Gro
   kbest, ibest, bestn, bestc = 0, 0, zero(U), zero(U)
   for k in eachindex(f.groups)
     n = convert(U, _group_norm2(x, f.groups[k]))
-    threshold = convert(U, _weight_product(T, γ, f.λ0, f.w[k]))
+    threshold = _group_sphere_threshold(f, γ, T, U, k)
     (kbest == 0 || isinf(bestc) || (!isinf(threshold) && n - bestn > threshold - bestc)) && ((kbest, bestn, bestc) = (k, n, threshold))
   end
   @inbounds for i in eachindex(IndexLinear(), x)
@@ -552,6 +552,10 @@ function _checkstep(op::O, c::SphereConstrained{<:GroupNormL2}, y::AbstractArray
     throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
   true
 end
+# The threshold of group k: γλ0w formed in the promotion of T and the factors' types, rounded once
+# to T and then widened to U. The kernel and its preflight both take it from here, so they agree.
+@inline _group_sphere_threshold(f, γ, ::Type{T}, ::Type{U}, k) where {T, U} =
+  convert(U, _weight_product(T, γ, f.λ0, f.w[k]))
 # Plain loops that stop at the first finite threshold: an ordinary step ends at the first entry (group).
 function _sphere_finite_threshold(f::NormL1, γ, ::Type{U}, x) where {U}
   for k in eachindex(IndexLinear(), x)
@@ -561,7 +565,7 @@ function _sphere_finite_threshold(f::NormL1, γ, ::Type{U}, x) where {U}
 end
 function _sphere_finite_threshold(f::GroupNormL2, γ, ::Type{T}, ::Type{U}, x) where {T, U}
   for k in eachindex(f.groups)
-    isfinite(convert(U, _weight_product(T, γ, f.λ0, f.w[k]))) && return true
+    isfinite(_group_sphere_threshold(f, γ, T, U, k)) && return true
   end
   for i in eachindex(IndexLinear(), x)      # an entry in no group is not penalized
     _group(f, i) == 0 && return true

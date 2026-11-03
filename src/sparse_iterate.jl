@@ -476,22 +476,25 @@ end
 # visited in slot order. If the unstored value cannot convert, nothing is written.
 function _scale!(x::SparseIterate{T}, s::Number, op::F) where {T, F}
   _checkreal(x, s)
-  n = length(x.ind2nzval)
   nold = x.nnz
-  if nold < n
+  if nold < length(x.ind2nzval)
     z = convert(T, op(zero(T), s))
-    if !iszero(z)
-      @inbounds for k = 1:nold
-        x.nzval[k] = op(x.nzval[k], s)
-      end
-      @inbounds for i = 1:n
-        x.ind2nzval[i] == 0 && _store!(x, i, z)
-      end
-      return x
-    end
+    iszero(z) || return _scale_all!(x, s, op, z)
   end
   @inbounds for k = 1:nold
     x.nzval[k] = op(x.nzval[k], s)
+  end
+  x
+end
+
+# The O(n) path, kept out of line: inlined, its stores give every call of _scale!,
+# the O(nnz) path included, a GC frame (#427).
+@noinline function _scale_all!(x::SparseIterate{T}, s::Number, op::F, z::T) where {T, F}
+  @inbounds for k = 1:x.nnz
+    x.nzval[k] = op(x.nzval[k], s)
+  end
+  @inbounds for i = 1:length(x.ind2nzval)
+    x.ind2nzval[i] == 0 && _store!(x, i, z)
   end
   x
 end

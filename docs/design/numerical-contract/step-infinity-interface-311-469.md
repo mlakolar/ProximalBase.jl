@@ -1,723 +1,672 @@
-# Design review: step validation and exceptional inputs (#311, #469)
+# Step endpoints and infinite arguments: staged determined-limit design (#311, #469)
 
-**Status: DRAFT / PROPOSED AMENDMENT; not approved, not implemented.**
-This note accompanies the *proposed* E1/E3/P1 wording in
-[`docs/src/numerics.md`](../../src/numerics.md). The contract page is the
-normative target **only after this PR receives approval**. No claimed
-exceptional-input behavior in this document should be mistaken for a passing
-test on the current master branch. Neither #311 nor #469 should be closed by
-this documentation PR.
+**Status:** draft for review, documentation only, **not implemented or merged**.
+This records the recommended policy after two review rounds on
+[PR #508](https://github.com/mlakolar/ProximalBase.jl/pull/508) and the
+[decision recommendation on #469](https://github.com/mlakolar/ProximalBase.jl/issues/469#issuecomment-6594432492).
 
-**Recommendation for the next reviewer:** adopt **Option A, narrowly scoped
-to bounded coupled ball/sphere projections**. When an exceptional input
-participates in a nonconstant bounded coupled projection, deliberately return
-NaN for the entire dependent block, even when a mathematical limit of that
-projection is unique. Do **not** generalize that rule to every nonseparable
-proximal operator: for instance, the `NormL2` proximal point of
-`(M,0)` with fixed finite step tends to `(+Inf,0)`. Preserve the existing
-E3 family-specific limits outside the stated bounded-projection scope.
+**Recommendation:** **Option B, staged.** Return a documented
+path-independent limiting proximal point at an infinite argument when it
+is determined, and NaN in the dependent entries otherwise. Do not invent
+a relative rate for several infinities; do not accidentally treat
+finite-input arithmetic overflow as a genuine infinity. Preserve the
+already-approved [Decision 21](decisions.md) rather than create a new
+exception to it. This note is a derivation, conformance plan, and reviewer
+record, not a claim that all affected implementations currently comply.
 
-This is a recommendation for review, not a maintainer decision. The
-[latest reviewer argument](https://github.com/mlakolar/ProximalBase.jl/pull/508#issuecomment-6593831566)
-prompted this revision. Please challenge the narrower scope, the
-input-dependence exceptions, and the interaction with P1 before approving.
+Relevant rules: [`numerics.md`](../../src/numerics.md) E1–E4,
+P1–P2, O2, O6–O7, S4, M2, R1–R3, C1–C3;
+[#366](https://github.com/mlakolar/ProximalBase.jl/issues/366)
+(G2 and G3);
+[#311](https://github.com/mlakolar/ProximalBase.jl/issues/311);
+[#469](https://github.com/mlakolar/ProximalBase.jl/issues/469);
+[merged #460](https://github.com/mlakolar/ProximalBase.jl/pull/460);
+[merged #304](https://github.com/mlakolar/ProximalBase.jl/pull/304).
 
-## 1. Issues and prior decisions
+## 1. The decision and its limits
 
-### #311: a valid step is not a merely nonnegative number
+The two issues are related, but they concern distinct input dimensions.
 
-[#311](https://github.com/mlakolar/ProximalBase.jl/issues/311) asks for
-consistent step validation across `prox`, `prox!`,
-`value_and_prox!`, wrappers, and block operators.
+- **#311 (P1/E1/O6):** validate the step. A negative, NaN, or
+  *unsupported* zero/infinite step is an `ArgumentError`
+  **before writing any output**, even if the input also contains an
+  infinite or NaN entry. A named `γ = 0` or
+  `γ = Inf` endpoint remains supported and must be
+  interpreted according to its family.
+- **#469 (E3):** interpret an argument with `±Inf`.
+  An operator can have a uniquely determined extended-real proximal
+  limit even when a naive formula computes `0*Inf` or
+  `Inf-Inf`. If the limit depends on the relative growth
+  of multiple infinite inputs, the dependent output is NaN.
+- **E2:** a NaN argument propagates according to *which output entries
+  depend on that input* after hard-domain restrictions, rather than
+  according to whichever entries an implementation happened to write.
+- **O2:** the value returned by `value_and_prox!` is
+  `f(y)` at the **stored proximal output** (`y`),
+  not `f(x)` at the original infinite/NaN input.
 
-- Negative and NaN steps are **errors before any caller-owned writes**
-  (E1/P1/O6), independently of the argument's finite/NaN/Inf class.
-- A zero or infinite step is accepted **only for a named family endpoint**.
-  Some indicators ignore the scalar step because their proximal map is
-  the projection. Separables have limits at endpoints named by P1; ridge
-  has its own named cases. Coupled per-coordinate metric/array steps
-  remain positive and finite.
-- `_checkstep` from [merged #304](https://github.com/mlakolar/ProximalBase.jl/pull/304)
-  is a private pre-write mechanism, not yet a universal guarantee.
-  In particular, the default `_checkstep` in `src/interface.jl` returns
-  `true`, and #311 identifies missing forwarding for several constraints
-  and wrappers. A later invalid block must not leave earlier blocks modified.
-- An explicit `isnan(γ)` test is **not required** if the predicate is
-  written as `γ >= 0 || throw(...)`; NaN fails the comparison.
-  `γ < 0 && throw(...)` is **not** equivalent: it lets NaN through.
-  For families requiring strictly finite positive steps, use an additional
-  finite/positive validation. The tests must cover NaN explicitly.
+A mathematical limit can differ from the behavior of the current
+implementation. **Option B is a target**, not permission to state a
+test already passes. S4 says that function representations obey one
+numerical contract; mismatches during staged implementation are
+**explicit gaps tracked under #366**, not endorsed exceptions.
 
-### #469: mathematical infinity limits are not the same as a desired API
+## 2. Why B rather than A or C?
 
-[#469](https://github.com/mlakolar/ProximalBase.jl/issues/469) identifies
-that coupled balls/spheres currently tend to produce all NaN, with
-`IndBallL1` producing partly NaN, at inputs with one infinite entry.
-For example, at master as checked by the reviewer:
+### 2.1 Equivalent functions must agree
 
-| Operator, unit radius | Argument | Reported current output |
+On one coordinate, all of these indicators describe `[-1,1]`:
+
+~~~julia
+IndBallL1(1)
+IndBallL2(1)
+IndBallLinf(1)
+IndBox(-1, 1)
+~~~
+
+The one-dimensional projection at `x = +Inf` has
+the unique limiting point `1`.
+The reviewer confirmed on master that the first two implementations
+return `[NaN]`, while `IndBox` returns `[1]`.
+A narrowed all-NaN policy for balls would **preserve this difference
+between mathematically identical functions**.
+
+Likewise, on a positive finite-radius sphere and at a finite step,
+
+~~~julia
+IndSphereL2(1)
+Constrained(NormL1(0), IndSphereL2(1))
+~~~
+
+describe the same projection. A direct-only Option C would make
+their infinity results disagree. Staged B also has **temporary**
+differences, but they are tracked conformance gaps to be resolved,
+not two intentional long-term contracts.
+
+### 2.2 An all-NaN rule is not a consistent safety signal
+
+A proposed all-NaN rule for ball/sphere projections might help a
+finite-iterate solver detect an upstream divergence, but other
+existing operations already erase an infinity legitimately:
+
+- `IndBox(-1,1)` and `IndBallLinf(1)`
+  clamp `+Inf` to `1`.
+- `IndNonnegative` projects `-Inf` to zero.
+- The reviewer verified that
+  `Constrained(IndNonnegative(), IndBallL2(1))` at
+  `[-Inf,2]` already returns the finite unique
+  limit `[0,1]`.
+
+Therefore a solver that requires finite iterates **must inspect
+`isfinite(x)` itself before trusting a projection**.
+A special all-NaN rule for balls would provide only partial
+diagnostic coverage, while creating representation-dependent semantics.
+This does **not** claim all finite projections are desirable in every
+solver; it separates the oracle's extended-real mathematics from the
+solver's input-acceptance rule.
+
+### 2.3 B matches the approved contract
+
+[Decision 21](decisions.md) already selects a function's formula
+or limit where determined and NaN where path-dependent. E3 says
+proximal outputs take **documented** limits. A deliberately all-NaN
+bounded-ball exception would require amending that approved decision,
+even for a unique limit. This PR withdraws the proposed
+"Amendment 21A" instead of turning that exception into a permanent
+contract. No new amendment to Decision 21 is proposed.
+
+### 2.4 Proof/test cost is real, but bounded by staging
+
+B requires derivations, independent oracles, and storage/aliasing tests
+for each family. Those are real costs and should not be minimized.
+The lower-cost alternative A, however, is not proven faster in the
+ordinary hot path: **both** must distinguish a true infinite input
+from a finite input whose norm or intermediate reduction overflowed.
+The benefit of A would mainly be fewer case derivations and tests.
+
+Staging controls B's cost without weakening the end-state contract:
+
+1. Direct projections with simple closed forms and independent
+   mathematical proofs.
+2. The corresponding constrained representations, one proven family
+   at a time.
+3. Additional sign-restricted, spectral and other special cases
+   under their existing E3 rules, with S4 inconsistencies tracked.
+
+A documented NaN is itself observable behavior: moving from A to B
+later may alter a solver's `isnan` checks. Selecting B now
+avoids promising an intentional failure result and subsequently
+changing that API commitment.
+
+### 2.5 External packages are context, not a norm
+
+[Cross-package review](https://github.com/mlakolar/ProximalBase.jl/pull/508#issuecomment-6593696105)
+and the [independent check](https://github.com/mlakolar/ProximalBase.jl/pull/508#issuecomment-6593831566)
+covered ProximalOperators.jl, PyProximal, SigPy, and Pyxu.
+Their ordinary formulas often return `[NaN,0]` for
+a Euclidean ball on `[Inf,0]` by incidental IEEE
+arithmetic; none of the examined packages promised a general
+infinity-limit contract. This is **neither** a precedent for B
+nor a justification for A. ProximalBase should make its own
+explicit contract decision.
+
+## 3. E2: define dependence per output entry, not per input block
+
+The second review identified an ambiguity between "depends",
+"participates", "influential", and "effective free block".
+Use one definition.
+
+> **Definition:** For fixed valid parameters and step, output
+> `y_j` depends on input `x_i` if, after imposing
+> E4's domain restrictions, there exist finite values for the other
+> input coordinates and two finite values for `x_i` for
+> which `y_j` differs. An input-independent output remains
+> determined when `x_i` is NaN.
+
+This is a semantic criterion. **Do not implement a generic
+dependency-matrix computation** in the proximal hot path; each
+function already knows its separable coordinates, hard-fixed
+entries, groups, and coupled reductions.
+
+| Example | Expected NaN-input behavior | Reason |
 |:--|:--|:--|
-| `IndBallL1` | `[Inf, 0]` | `[NaN, 0]` |
-| `IndBallL2` | `[Inf, 0]` | all NaN |
-| `IndSphereL2` | `[Inf, 0]` | all NaN |
-| `Constrained(NormL1, IndSphereL2)` | `[Inf, 0]` | all NaN |
-| `IndBallL2(0)` | `[Inf, 2]` | all NaN |
-| `IndBallL1(0)` | `[Inf, 2]` | `[0, 0]` |
+| `IndBallL2(0)` at `[NaN,2]` | `[0,0]` | Both outputs are constant |
+| `IndBallL1(0)` at `[NaN,2]` | `[0,0]` | Same singleton domain |
+| Unit sphere constrained by `NormL1(1,[Inf,1])`, `[NaN,3]` | `[0,1]` | First coordinate hard-fixed; second ignores first input |
+| Same function at `[3,NaN]` | `[0,NaN]` | Fixed first output independent; free second output depends on NaN |
+| `IndBallL1(1)` at `[NaN,0]` | all NaN | Both free outputs can depend on the first coordinate for some finite other input |
 
-These are observations by the reviewer, not universal guarantees.
-[Merged #460](https://github.com/mlakolar/ProximalBase.jl/pull/460)
-made the ℓ1 sphere consistently all NaN as a **holding policy**. #469
-asks whether to make that policy permanent or implement determined limits
-across a much larger family.
+The test `[NaN,0]` in an ordinary ℓ1 ball must not
+be mistaken for structural independence of its second output:
+at other *finite* second inputs, the first input affects the
+threshold and hence the second projected component.
 
-### What the existing numerical contract says
+**Do not apply these NaN outcomes mechanically to Inf under B.**
+For the hard-fixed sphere at `[3,+Inf]`, the
+free coordinate has a **unique infinite-input limit**:
+`[0,1]`, not `[0,NaN]`. E2 is a
+dependency/NaN rule; E3 is a mathematical limit rule.
 
-The [contract](../../src/numerics.md) has the following relevant rules:
+**Original value versus returned joint value:**
+`IndBallL2(0)([NaN,2])` is NaN under E2,
+and `IndBallL2(0)([Inf,2])` is Inf under
+E3 (the input is outside the singleton real set).
+But `value_and_prox!` returns `0` when it
+stores `[0,0]`, in accordance with O2. This
+is not an exception to indicator membership semantics.
 
-- **E1:** structure and step validity first; then zero/infinite
-  parameters and domain constraints (E4); then exceptional argument entries.
-  This is a precedence of *meaning*, not a required sequence of scans.
-- **E2:** a NaN contaminates every value/proximal entry that **depends** on
-  it; for a coupled block this can mean the whole block, not independent
-  blocks or entries whose value is structurally fixed.
-- **E3:** at an infinite argument, formulas/limits where determined;
-  proximal outputs take a **documented** limit, otherwise NaN in the
-  dependent entries.
-- **E4:** zero levels preserve hard domains; an infinite coordinate/group
-  weight can force an entry/group to zero, independently of the argument.
-- **P1:** exceptional steps accepted only at documented endpoints.
-- **O2:** `value_and_prox!` returns the value at the *stored output*,
-  not at the input. **O6:** invalid arguments/steps throw without writes.
-  **O7:** exact aliasing is supported. **C1–C3:** protect finite-input
-  accuracy and ordinary-path performance.
+## 4. E3: direct bounded projections, with proofs and boundaries
 
-[Decision 21](decisions.md#21-infinite-entries-e3) (approved
-2026-11-01) favors a formula or limit where determined and NaN for
-path-dependent limits. [Decision 26](decisions.md#26-zero-and-infinite-steps-p1)
-accepts only named step endpoints. The proposed Option A is a **deliberate
-choice to decline extending some bounded projections to infinity, even when a
-unique mathematical limit exists**. Calling it "what E3 already says" would
-conceal this substantive choice. Record it as an **explicit proposed
-amendment to Decision 21** and obtain maintainer approval.
+### 4.1 Direct ℓ1/ℓ2 balls and ℓ2 sphere
 
-## 2. Mathematical comparison of the three choices
-
-### A: refuse a nonconstant coupled projection at exceptional input
-
-For an affected finite-radius bounded coupled projection, after E1/E4
-constraints have been applied, any influential ±Inf or NaN coordinate
-produces NaN in its **entire dependent block**. No partial result like
-`[NaN,0]` is returned as a successful bounded projection.
-If the proximal map is *structurally independent* of an exceptional input
-coordinate, preserve that independent result instead.
-
-This is an operational choice. It does **not** assert that the unique
-mathematical limit is absent. It trades extension of the mathematical
-domain for reliable signaling that the ordinary finite-domain call received
-exceptional data.
-
-### B: return the unique mathematical limit when one exists
-
-For direct Euclidean ball/sphere at `r>0`,
+For a finite positive radius and exactly one independent infinite
+coordinate `k`, with all other coordinates finite:
 
 ~~~text
-P(M, a) = r (M,a)/sqrt(M²+a²) -> (r,0)    as M -> +Inf
-P(-M,a) -> (-r,0)
+IndBallL1(r):  limit ±r e_k
+IndBallL2(r):  limit ±r e_k
+IndSphereL2(r): limit ±r e_k
 ~~~
 
-and the ℓ1-ball projection of `(M,a)` similarly tends to `(r,0)` for
-fixed finite `a`. So a one-Inf output `[r,0]` is **mathematically
-determined**; returning all NaN under A is a conscious *non-extension*.
-
-For two infinities the situation is different:
+For the Euclidean ball/sphere and finite input
+`x(M)=(M,a)` with fixed finite `a`,
 
 ~~~text
-Euclidean sphere:
-  P(M,M)   -> (r/√2, r/√2)
-  P(M,2M)  -> (r/√5, 2r/√5)
-
-L1 ball:
-  P(M,M)   -> (r/2, r/2)
-  P(M,2M)  -> (0, r)
+P(x(M)) = r x(M)/‖x(M)‖₂ -> (r,0)  as M→+Inf.
 ~~~
 
-Both sequences converge entrywise to `(+Inf,+Inf)` but have different
-projected limits. This is genuine mathematical ambiguity, so even B must
-return NaN rather than assuming equal relative growth rates.
+For the ℓ1-ball, the soft-threshold level approaches
+`M-r` so the one dominant coordinate retains radius
+`r`. A large *finite* threshold or step does not
+change this conclusion when the step remains fixed finite.
 
-On a `SymmetricSparseIterate`, the off-diagonal coordinate is **stored
-once and counted twice** (M2). The determined *one-coordinate* limit is
-`±r/2` for the ℓ1 ball (`2|a|<=r`), but
-`±r/sqrt(2)` for the ℓ2 ball/sphere (`2a²<=r²`).
-This correction was caught in the
-[first review](https://github.com/mlakolar/ProximalBase.jl/pull/508#discussion_r4450186148).
-Under A the values are still useful as evidence of what we are
-deliberately *not* promising; they are **not** implementation targets.
+For two independent infinite coordinates the limit need not exist:
 
-Constrained examples add geometry and implementation obligations: group
-directions, hard-fixed coordinates, empty effective domains, symmetry,
-nonconvex ties, and zero/Inf steps. "One infinite group" is not sufficient:
-a single group containing `[Inf,Inf]` contains two independently
-infinite degrees of freedom, whose relative growth is unknown.
+~~~text
+ℓ2 sphere, r = 1:
+  x=(M,M)  -> (1/√2,1/√2)
+  x=(M,2M) -> (1/√5,2/√5)
 
-### C: return B for direct projections, but A for constrained ones
+ℓ1 ball, r = 1:
+  x=(M,M)  -> (1/2,1/2)
+  x=(M,2M) -> (0,1)
+~~~
 
-C is smaller than B initially, but representation-dependent behavior is a
-serious drawback. By E4, `NormL1(0)` has no finite penalty, so
+All approach the same extended-real argument
+`(+Inf,+Inf)` but select different directions.
+**Do not** choose the equal-rate direction as a tie rule.
+NaN is required in the dependent coupled outputs when the
+limit is path-dependent.
+
+The radius-zero ℓ1/ℓ2 balls have singleton feasible set
+`{0}` and therefore return zero for any input,
+including NaN and ±Inf, consistent with E2's dependence
+definition. The standalone indicator value at the original
+exceptional point remains governed by E2/E3; see `3.
+
+### 4.2 Symmetric storage and asymmetric input
+
+A `SymmetricSparseIterate` stores an off-diagonal coordinate
+once, but it counts twice in the full matrix norm (M2).
+When one stored *off-diagonal degree of freedom* dominates:
+
+~~~text
+ℓ1:  2|a| ≤ r   =>   a -> ±r/2
+ℓ2:  2a² ≤ r²   =>   a -> ±r/√2
+~~~
+
+Each corresponding symmetric matrix entry has the same value.
+An infinite mirrored pair is **one** independent stored degree of
+freedom, not two. This arithmetic is corrected from the first
+PR review; keep a regression for the ℓ1 case.
+
+When an asymmetric input has `(+Inf,-Inf)`
+in a symmetric pair, symmetrization can involve
+`Inf-Inf`, so E2's NaN propagation applies. Do
+not infer a sign from an ambiguous symmetric part.
+
+For the ℓ1-sphere negative-margin finite-input fallback, the
+correct symmetric single-support score is
+`sqrt(m_i) * (|x_i|-threshold_i)`, **not**
+`(|x_i|-threshold_i)/sqrt(m_i)`; see
+[#469's oracle correction](https://github.com/mlakolar/ProximalBase.jl/issues/469#issuecomment-6578835884).
+Preserve this independently of the new infinity tests.
+
+### 4.3 Simplex: do not reuse the symmetric-ball infinity rule
+
+`IndSimplex(r; equality=true/false)` has
+nonnegative coordinates and a total mass equal to or bounded
+by `r`. The reviewer found that it shares
+`_simplex_threshold!` with `IndBallL1`
+and currently has the same partially NaN defect at
+`[Inf,0]`. Include **both equality and inequality**
+variants in the direct implementation.
+
+At finite `r>0`:
+
+- Exactly one `+Inf` coordinate (others finite or
+  `-Inf`) selects the vertex `r e_k`.
+- A `-Inf` coordinate receives zero when the remaining
+  finite/positive-infinite coordinates can carry the required mass.
+  If no `+Inf` remains, project the remaining finite
+  coordinates onto the corresponding reduced simplex.
+- Two independent `+Inf` coordinates generally yield an
+  ambiguous allocation (relative growth rates matter).
+- If every coordinate is `-Inf`, the inequality simplex
+  uniquely selects zero; the equality simplex can have
+  path-dependent allocation unless the feasible domain fixes it
+  (e.g., a single coordinate).
+- At `r=0` the feasible set is the singleton zero vector.
+  Infinite/NaN input therefore has an input-independent zero
+  projection.
+
+Examples in two dimensions, radius one:
+
+| Input | Equality simplex | Inequality simplex |
+|:--|:--|:--|
+| `[+Inf, 0]` | `[1,0]` | `[1,0]` |
+| `[-Inf, 0]` | `[0,1]` | `[0,0]` |
+| `[+Inf, -Inf]` | `[1,0]` | `[1,0]` |
+| `[+Inf, +Inf]` | all NaN (dependent block) | all NaN |
+| `[-Inf, -Inf]` | all NaN (for 2D, r=1) | `[0,0]` |
+
+**Caveat for review:** simplex behavior with symmetrized
+output storage, empty dimensions, and infinite radius must
+follow documented feasibility/tie rules; they are not proved by
+the two-dimensional examples. Do not claim support for
+unverified layouts in the initial implementation PR.
+
+### 4.4 Computed overflow is not an infinite input
+
+The literal class of `x_i` is different from the class
+of a reduction of finite `x`. A norm can overflow
+even when every input entry is finite, and a threshold can be
+unrepresentable in a narrow intermediate type. Such cases
+belong to R1–R3 scaled/recovery arithmetic, **not** to
+the true-Inf E3 branch. Keep normal finite-input behavior,
+accuracy, and class unchanged.
+
+## 5. Constrained families: a closed initial list
+
+The generic `Constrained(f, IndBallL2(r))`
+accepts many inner functions beyond norms: sign-restricted cones,
+sparse/spectral penalties, and other representations. The
+second review found 12 accepted trait classes in
+`_scales_onto_ball`. It is **incorrect** to promise a
+single `±r e_k` result for every such `f`.
+For example, the cone case
 
 ~~~julia
-prox(IndSphereL2(1), [3.0, 4.0]) ==
-prox(Constrained(NormL1(0), IndSphereL2(1)), [3.0, 4.0])
+prox(Constrained(IndNonnegative(), IndBallL2(1)), [-Inf, 2])
+# currently [0, 1] on master, per reviewer
 ~~~
 
-and both describe the **same** sphere projection. C would return
-`[1,0]` for the direct representation at `[Inf,0]` but all NaN for
-the constrained representation. This undermines equivalence of
-mathematically identical function representations.
+correctly absorbs a negative infinity and projects the remaining
+finite coordinate; a blanket all-NaN or sign-symmetric formula
+would be wrong.
 
-A uses the same failure semantics for both, and full B would require
-implementing and proving their determined limits consistently.
+The initial **named implementation targets** for the constrained
+stage are:
 
-### Trade-off table
+| Constraint | Inner family | Reason for inclusion |
+|:--|:--|:--|
+| `IndBallL2(r)` | `NormL1` | Penalized ball; zero-level/domain consistency |
+| `IndSphereL2(r)` | `NormL1` | Existing #460 holding behavior and finite oracle |
+| `IndBallL2(r)` | `GroupNormL2` | Group coupling and hard-weight cases |
+| `IndSphereL2(r)` | `GroupNormL2` | Group directions and ties |
+| `IndBallL2(r)` | `IndBallL0` | Sparse indicator projection |
+| `IndSphereL2(r)` | `IndBallL0` | Nonconvex sparse sphere |
+| `IndBallL2(r)` | `ZeroFunction` | Equivalent to the direct ball |
 
-| Criterion | A (recommended) | B | C |
-|:--|:--|:--|:--|
-| Unique single-Inf mathematical limit returned | No, by deliberate policy | Yes | Only some families |
-| Exposes exceptional solver iterate | Yes, for affected blocks | Often no | Depends on representation |
-| Direct/constrained zero-penalty equivalence | Yes | Yes, if fully completed | No |
-| Exceptional-path proof/test complexity | Lower | High | Medium with inconsistent API |
-| Existing #460 holding rule | Becomes final within this scope | Must change | Usually unchanged |
-| Finite-input behavior and accuracy | Preserve | Preserve | Preserve |
-| Ordinary-path overhead | Should be minimal if triggered lazily | Also can be minimal | Also can be minimal |
+These are *targets*, not verified implementations. Derive and test
+each. In particular:
 
-**Important qualification:** A is **not automatically faster** than B.
-Both need enough classification to distinguish exceptional input from a
-computed norm that overflowed on finite input. The advantage of A is the
-smaller semantic and proof/test surface, not an established microbenchmark
-win. Benchmark any additional scan under C2/C3.
+- **Hard-fixed coordinates/groups** are excluded before deciding
+  which infinite coordinates remain active; E4 may make the remaining
+  effective domain empty, which is a validation error, not NaN.
+- One infinite *group* does **not** imply one independent infinite
+  scalar coordinate. A group containing `[Inf,Inf]`
+  lacks a unique internal direction; at `[Inf,0,1]`,
+  a single infinite coordinate in the group may determine it.
+- A zero-level norm does not remove its domain constraints (E4).
+  Compare equivalent representations including
+  `Constrained(NormL1(0), IndSphereL2(r))`.
+- **Symmetric multiplicity** is part of the geometry; do not
+  count a mirrored off-diagonal entry as two independent infinities.
+- Cones and spectral/rank families are **not** covered by this
+  seven-row closed list. Some already compute the correct limit;
+  others require family-specific analysis and may still have S4/E3
+  gaps in the implementation tracker.
+- For parameter-constrained \`γ = Inf\` and infinite input, do not
+  infer the answer by taking the endpoint at fixed finite x first.
+  The joint limit may be path-dependent (next section).
 
-## 3. Why A is preferred here
+Do **not** create a generic "limit if one infinity" method on
+`BallConstrained`: the correct calculation depends on
+the inner function's domain and geometry.
 
-### 3.1 Preserve diagnostic information for optimization solvers
+## 6. #311: step validity and simultaneous exceptional endpoints
 
-For `IndBallL2(1)`, the two policies make a sharp difference:
+### 6.1 Validation before writing
+
+Negative and NaN steps raise `ArgumentError` before
+a write, even for indicators whose projection is otherwise
+step-independent. The *form* of the predicate matters:
 
 ~~~julia
-x = [Inf, 0.0]
-value_and_prox!(y, IndBallL2(1.0), x, 1.0)
+γ >= 0 || throw(ArgumentError("invalid step"))  # rejects NaN
+γ < 0 && throw(ArgumentError("invalid step"))   # BUG: NaN passes
 ~~~
 
-| Policy | Stored `y` | Returned value | What the caller sees |
-|:--|:--|:--|:--|
-| A | `[NaN,NaN]` | NaN (E2/O2) | A numerical failure remains observable |
-| B or C | `[1,0]` | 0 (O2) | A feasible point and zero indicator value |
+Further check positivity/finite requirements for families
+without zero or infinite endpoints; do not reject an admitted
+scalar `γ = 0` or `γ = Inf`
+unconditionally. A later block's invalid step must leave
+**all** blocks untouched (O6). Reuse private
+`_checkstep` and pre-write mechanisms from PR #304.
 
-In the second row, neither the returned point nor the returned value tells
-the solver that its input contained infinity. A caller *can* inspect the
-original input itself, and sometimes infinity is intentionally supplied, so
-this is not proof B is unsafe. But for finite-iterate solvers, preserving
-an exceptional signal at the oracle boundary is a compelling conservative
-default. It reduces the chance that a preceding overflow or divergence is
-laundered into a plausible feasible iterate.
+### 6.2 Named P1 endpoints
 
-This is not an argument that every infinite *value* is a failure. E3
-correctly retains `+Inf` function values for norms/indicators and allows
-unbounded proximal outputs to have infinite entries where documented.
-We are deliberately narrowing the policy to **bounded coupled
-projections** that would otherwise erase evidence of an exceptional input.
+- Direct indicator projections accept scalar zero and infinite
+  steps, since the projection does not change with the step.
+- Named finite-radius penalized ball/sphere operators accept
+  `γ=0` as the projection onto the **effective
+  domain** (hard constraints survive). An empty effective domain
+  raises before writing.
+- Convex `Constrained(NormL1/GroupNormL2, IndBallL2)`
+  at `γ=Inf` projects finite inputs onto the nonempty
+  closed convex set of minimizers. The reviewer checked that
+  master already does this, including zero-weight and zero-level
+  cases. **Do not replace it with an error.**
+- Generic nonconvex penalized-sphere variants do **not** have
+  a named `γ=Inf` endpoint and reject it before
+  writing. Whether a parameter-degenerate sphere that is
+  mathematically an indicator should inherit step independence
+  remains a narrowly scoped review question, not an implicit
+  new endpoint.
+- Array steps on coupled constraints remain positive and finite,
+  and wrappers must validate their transformed/forwarded steps.
 
-### 3.2 A is consistent across equivalent representations
+### 6.3 The **joint** limit, not a convenient iterated limit
 
-An ℓ2 sphere projector and a zero-penalty norm constrained to that sphere
-must not disagree *only* because one was constructed as `IndSphereL2`
-and the other as `Constrained(NormL1(0), IndSphereL2)`.
-Similarly, a hard-domain indicator and its equivalent constrained
-representation should agree in their exceptional-input classification.
-
-The guarantee is **scope-of-dependence**, not globally poisoning every
-unrelated block in `SeparableSum`. The same principle applies to
-zero-radius and structurally hard-fixed coordinates below.
-
-### 3.3 A is less demanding than B, without being an arbitrary IEEE accident
-
-Under B, each special family needs a proof of path independence,
-particularly around nonconvex selection and symmetrization. Group and
-sparse iterates add distinctions between stored coordinates, actual
-matrix entries, and independent directions. Both proximal output and
-value, both input/destination types, every supported step endpoint, and
-all aliases must be tested. A still requires robust NaN propagation,
-but not deriving a new closed-form limiting vector for every coupled
-family.
-
-It also fixes the current **partially NaN** defect (`IndBallL1`) and
-keeps the all-NaN holding rule of #460. It is not "the default from
-IEEE": other packages frequently return `[NaN,0]` accidentally and
-sometimes choose a random finite output for a NaN input.
-
-### 3.4 What comparison packages do—and do not—establish
-
-The [cross-package comparison](https://github.com/mlakolar/ProximalBase.jl/pull/508#issuecomment-6593696105)
-and [independent verification](https://github.com/mlakolar/ProximalBase.jl/pull/508#issuecomment-6593831566)
-cover ProximalOperators.jl, PyProximal, SigPy and Pyxu.
-Their source formulas or executed checks typically produce
-`[NaN,0]` for an ℓ2 ball on `[Inf,0]`. None of the inspected
-implementations documents either **A** or **B** as its exceptional-input
-contract. These findings therefore offer **no external precedent that
-settles the choice**. ProximalBase's E1/E2/E3/O2 goals must decide it.
-
-The ProximalCore interface docstrings show a step parameter and the
-`1/(2γ)` formula but do **not** explicitly state `γ>0`; don't attribute
-a documented positivity guarantee to that interface.
-
-### 3.5 Future evolution is possible but not free
-
-A future release could deliberately add a B-style finite limiting
-extension for a particular family. That can be reviewed separately.
-**Do not claim it is backward-compatible:** callers may rely on
-`isnan`/`isfinite` to detect exceptional data. A change from NaN to
-a finite point changes solver control flow and is observable API
-behavior. A offers a smaller initial commitment, not a license to
-change it without a versioned contract decision.
-
-## 4. Precise proposed scope: avoid a blanket rule for all coupled maps
-
-The recommendation is an **A-with-independence-exceptions** rule for
-bounded **ball/sphere projection** families, not for all coupled proximal
-operators and not for all bounded/separable sets.
-
-### 4.1 Covered, finite-radius families
-
-- Direct: `IndBallL1(r)` and `IndBallL2(r)` with finite
-  `0<r<Inf`; `IndSphereL2(r)` with finite `r>0`.
-- Supported `Constrained(f, IndBallL2(r))` and
-  `Constrained(f, IndSphereL2(r))` **when the result is a bounded
-  coupled projection or proximal point**. For example:
-  `f = NormL1`, `GroupNormL2`, `IndBallL0`, or `ZeroFunction`,
-  with valid fixed parameters/domain. The identical zero-penalty
-  formulations of direct projections must have the same behavior.
-- Other *bounded coupled projection families* (e.g. some spectral and
-  matrix projections) may already return NaN for nonfinite input, but
-  **are not added to the normative guarantee by this PR**. Their E3
-  status remains family-specific, and extension requires a separate
-  contract decision.
-
-For a covered family, a **nonconstant effective free coupled block** with
-a structurally active input position equal to `±Inf` yields all-NaN
-output in that dependent *free* block; a NaN input follows E2.
-The returned value from `value_and_prox!` is NaN when the stored output
-is NaN, following E2/O2. No per-coordinate `[NaN,0]` mixed output
-is promised for an **ordinary positive-radius ball with all coordinates
-free**. Exact zeros from E4-fixing other coordinates are a different,
-structurally justified situation.
-
-### 4.2 Independent positions and degenerate domains
-
-E1 applies domain-defining constraints **before** exceptional input
-interpretation, as E4 already promises:
-
-- `IndBallL1(0)` and `IndBallL2(0)` have the singleton
-  feasible set `{0}`. Their projection is **identically zero for
-  all finite inputs**. Under the proposed dependence interpretation,
-  output zero even for `[Inf,2]` or `[NaN,2]`; the indicator value
-  at the stored output is zero. **This does not mean that a standalone
-  evaluation of `f(x)` at the original exceptional x is zero:**
-  under E3, `f([Inf,2])=Inf`, and under E2,
-  `f([NaN,2])=NaN`. Only the joint oracle's
-  `value_and_prox!` value is evaluated at the finite stored point
-  (O2). This fixes the current ℓ2 zero-radius exceptional-input
-  projection discrepancy.
-- If an infinite coordinate/group weight fixes an entry/group to zero
-  for **every finite step**, its input can be ignored for purposes of
-  that coordinate's contribution to the projection. An otherwise
-  feasible sphere can use the free entries: e.g.
-  `Constrained(NormL1(1,[Inf,1]), IndSphereL2(1))` at
-  `[Inf,3]` with finite step should give `[0,1]` (stored value 1),
-  *if* E1/E4 independence is implemented correctly. The same logic
-  suggests ignoring a NaN at a structurally fixed position; this is an
-  E2/E4 conformance requirement for reviewer confirmation.
-- If all entries of a positive-radius sphere are hard-fixed to zero,
-  the **effective domain is empty**. An infeasibility
-  `ArgumentError` is required before writing, regardless of x. It
-  is **not** an ordinary NaN return.
-- A zero *penalty level* removes only the finite penalty, **not**
-  its domain restrictions. Thus `Constrained(NormL1(0), sphere)`
-  is still a bounded sphere projector and follows A, rather than
-  becoming the zero function whose prox copies infinity.
-
-These exceptions must be based on **structural independence under the
-finite-parameter operator**, not a coincidental zero at a
-single step endpoint or a branch chosen because a NaN comparison
-failed. A projection that happens to be constant in a local region
-is not necessarily structurally independent by E4.
-
-### 4.3 Other families remain on existing E2/E3 rules
-
-- **Separable:** `NormL1` can map `+Inf` to `+Inf`
-  at an ordinary finite step; `IndBox` or
-  `IndBallLinf` may clamp it to a finite bound. Their output
-  depends coordinatewise, so A's whole-block rule does not apply.
-- **Coupled but unbounded proximal output:** `NormL2`
-  at fixed finite positive `γ` sends `(M,0)` to
-  `(M-γλ,0)` for sufficiently large M, tending to
-  `(+Inf,0)`. A universal "every coupled prox on infinity is
-  NaN" would suppress a genuine, existing E3-style limit.
-  The mathematical observation does not assert that current code has
-  implemented that limit correctly in every type/storage layout.
-- **Unbounded or unusual constraints:** `IndBallL1(Inf)`,
-  `IndBallL2(Inf)` and `IndSphereL2(Inf)` are
-  currently constructible and require separate semantics. They
-  are **not** included in the finite-radius A guarantee.
-- **Other coupled families:** `IndStiefel`, `SumLargest`,
-  `IndPolyhedron`, spectral and general linear projections
-  are outside this change. The broader "A for all coupled blocks"
-  is an alternative the reviewer should evaluate explicitly, not
-  a consequence silently slipped into E3.
-- A `SymmetricSparseIterate` stores one off-diagonal coordinate
-  and counts it twice (M2); under A it receives NaN as part of the
-  affected coupled block, regardless of the unique B-style
-  `r/2` or `r/sqrt(2)` limit. Asymmetric
-  off-diagonal `(+Inf,-Inf)` may symmetrize to NaN
-  before the projection and is governed by E2; do not choose a
-  direction from a NaN symmetric part.
-
-### 4.4 What "depends" must mean
-
-The contract should not define dependence by whether an implementation
-read an array element, or by whether the *numerical formula*
-evaluates `0*Inf`. An input entry is **structurally irrelevant**
-if varying that entry over all finite values leaves the valid
-proximal output (and value at the stored point) unchanged, after
-applying E4's domain restrictions. This describes radius-zero balls
-and genuinely fixed coordinates/groups.
-
-The quantifier must include **every choice of the other finite
-argument coordinates**, not just their values in the failing
-example. For instance, in an ordinary positive-radius ℓ1-ball
-projection at `x=[Inf,0]`, the second projected component
-has the unique limit zero, and at finite input `x₂=0` it is
-often zero; this does **not** make it structurally independent of
-the first input across arbitrary nonzero `x₂`.
-Returning `[NaN,0]` would still violate the proposed A guarantee
-for the fully free coupled ball. By contrast, an E4-fixed
-coordinate is zero regardless of **all** finite argument values.
-
-With a hard-fixed first coordinate and an exceptional **free**
-second coordinate, the correct proposed scope may be
-`[0,NaN]`: the fixed entry is structurally independent, while
-the reduced free coupled block is undefined. A NaN returned value
-still follows O2. **Review this exact boundary** rather than
-interpreting "whole block" as either "all original stored entries
-must be NaN" or "any coincidentally zero entry stays zero."
-
-The classification must be stable under equivalent representations
-and not change merely because intermediate arithmetic is rewritten.
-When a *simultaneous exceptional step* is involved,
-independence cannot be inferred only from the map evaluated at
-`γ=Inf`: the finite-parameter joint limit may be path-dependent,
-as Section 5 explains.
-
-**Review question:** is this criterion sufficiently precise for every
-supported sign-restricted cone and group/spectral member of
-`BallConstrained`? If not, narrow the normative list further and
-make each exception explicit rather than creating a speculative
-generic "depends" dispatcher.
-
-## 5. #311: step validation, endpoints, and noncommuting limits
-
-### 5.1 Invalid steps: error first, never an exceptional output
-
-Examples (destination unchanged even when `y === x`):
-
-~~~julia
-prox(IndSphereL2(1), [1.0, 0.0], -1.0)    # ArgumentError (P1)
-prox(IndSphereL2(1), [Inf, 0.0], NaN)    # ArgumentError before NaN propagation
-~~~
-
-The currently permissive indicator implementations are a gap #311
-must close. The private `_checkstep` protocol should be
-extended rather than introducing a parallel public API.
-Where the family admits `γ=0` or `γ=Inf`,
-rejecting all non-finite steps is equally incorrect.
-
-### 5.2 Named step endpoints are preserved at finite arguments
-
-- Direct ball/sphere **indicators** ignore their scalar step (P1).
-- `Constrained(NormL1/GroupNormL2, IndBallL2)`
-  is convex. At `γ=Inf` and **finite** argument,
-  project onto its nonempty closed convex minimizer set, including
-  zero/zero-weight penalties. This was checked by the prior reviewer
-  against master and finite large steps. Do not replace this valid
-  endpoint with an error merely because the function is "penalized".
-- The named `γ=0` endpoint for supported constrained
-  penalized balls/spheres is projection onto the **effective domain**,
-  preserving hard-fixed coordinates and feasibility, rather than
-  invariably the bare ball/sphere.
-- Nonconvex penalized sphere variants
-  `Constrained(NormL1/GroupNormL2, IndSphereL2)`
-  have **no named `γ=Inf` endpoint** at present.
-  Reject that step before writing, even when x is exceptional.
-- `Constrained(IndBallL0(k), ball/sphere)` is an
-  indicator; scalar-step invariance still applies, provided
-  the intersection is feasible.
-- Array steps on coupled sets remain positive and finite.
-  Forwarded/transformed steps in wrappers must be checked before
-  any writes, including inside block sums.
-
-### 5.3 Valid `γ=Inf` plus `x=Inf`: do not pick a convenient limit
-
-The step/argument orders need not commute. For
-`f(z)=|z|+I_{[-1,1]}(z)`, finite
-`M>0` and `γ>0`,
+For `f(z)=|z| + I_{[-1,1]}(z)` and finite
+`M>0`,
 
 ~~~text
 prox_{γf}(M) = min(1, max(0, M-γ)).
+
 lim_{γ→Inf} lim_{M→Inf} prox_{γf}(M) = 1,
 lim_{M→Inf} lim_{γ→Inf} prox_{γf}(M) = 0.
 ~~~
 
-Ordinary soft thresholding has the same issue:
-`prox_{γ|·|}(t+c) = c` with `γ=t`,
-for any `c>=0` and sufficiently large t.
-Thus `prox(NormL1(1), [Inf], Inf)` should
-remain NaN, rather than choosing a step-first zero.
+For ordinary soft thresholding with `λ=1`,
+take `γ=t, x=t+c`: the prox equals
+`c` for every fixed `c≥0`.
+So `prox(NormL1(1), [Inf], Inf)`
+has no path-independent joint limit and is NaN. In contrast,
+at `γ=0`, `x=+Inf`, fixed
+finite positive `λ`, the soft-thresholded output has
+the unique `+Inf` joint limit.
 
-For `Constrained(NormL1(1), IndBallL2(1))`:
-at `γ=Inf` and **finite** x the minimizer projection is
-`0`. At fixed finite positive `γ` and
-`x=(M,0), M→Inf` the solution approaches `(1,0)`.
-Along `x=(t+c,0), γ=t`, the constrained
-solution changes with c. So at the **simultaneous** pair
-`(γ=Inf,x=[Inf,0])` the appropriate output is
-**all NaN**—even though the endpoint map at exactly
-`γ=Inf` is constant for finite x.
+Likewise for uncentered ridge with `λ>0`:
 
-This is a crucial distinction between:
-1. **Structurally constant across all finite-step maps** (e.g.
-   a radius-zero ball), where an exceptional argument can be ignored;
-2. **Constant only after taking `γ→Inf` with fixed finite x**
-   (e.g. a strictly penalized ball), where the joint limit can still
-   be path-dependent.
+~~~text
+prox_γ(x) = x/(1+γλ).
+at (γ=0, x=±Inf): unique limit ±Inf;
+at (γ=Inf, x=±Inf): x=cγ gives limit c/λ (path-dependent).
+~~~
 
-A path-independent joint limit is a **necessary** condition for
-choosing a finite result at simultaneous exceptional step/input, but
-under the proposed bounded-projection Option A it is not **sufficient**:
-the family intentionally declines extension at influential infinity
-even when a mathematical limit exists.
+For `Constrained(NormL1(1), IndBallL2(1))`,
+`γ=Inf` with fixed **finite** x projects onto
+the minimizer `0`. At fixed finite γ and
+`x=(M,0)`, `M→Inf`, the ball
+projection approaches `(1,0)`. Thus at
+`(γ=Inf,x=[Inf,0])` no joint limit is
+determined and the dependent coupled output is NaN.
+The existence of a finite step endpoint is **not** permission
+to use a step-first answer at a doubly exceptional pair.
 
-Agreement of the two iterated limits is also not a proof of a joint
-limit. The generic scalar function
-`h(s,t)=st/(s²+t²)` has both iterated limits
-zero as `s,t→Inf` but `h(t,t)→1/2`.
-That generic example is not a proximal map, but shows why the
-contract should never substitute two iterated limits for a
-joint path-independence argument.
+A unique joint limit is returned **where documented**; different
+finite approach paths yield NaN in dependent entries. Agreement
+of the two iterated limits is necessary but not sufficient to
+prove a joint limit. Do not turn an accepted exceptional step
+combined with an exceptional input into an `ArgumentError`
+merely because the result is NaN.
 
-### 5.4 No E1 shortcut for a jointly exceptional pair
+## 7. Expected-result matrix (targets, NOT current behavior)
 
-A **step validity** failure gives an `ArgumentError` before writing.
-An **admitted** step with an invalid/nonfinite *argument* returns
-an exceptional numerical output under E2/E3, not a step error.
-A mathematical endpoint at finite x is not automatically the answer
-at infinite x. Do not conflate these three separate meanings.
+Finite radius one, Float64 and scalar step unless shown.
+For values, `value_and_prox!` returns the value
+at stored `y` under O2. "All NaN" denotes the
+affected freely coupled block; structurally hard-fixed entries
+may remain exact zero.
 
-## 6. Proposed behavior matrix for review (NOT current test results)
+| Function | Argument / step | Proposed output | Reason |
+|:--|:--|:--|:--|
+| `IndBallL2(1)` | `[Inf,0]`, `γ=1` | `[1,0]`; value 0 | Unique direct limit |
+| `IndBallL1(1)` | `[Inf,0]`, `γ=1` | `[1,0]`; value 0 | Fix current partial NaN |
+| `IndSphereL2(1)` | `[-Inf,2]`, `γ=0/1/Inf` | `[-1,0]`; value 0 | Indicator step independence |
+| `IndBallL2(1)` | `[Inf,Inf]`, `γ=1` | all NaN; value NaN | Path-dependent direction |
+| `IndBallL1(0)` / `IndBallL2(0)` | `[NaN,2]` or `[Inf,2]`, `γ=1` | `[0,0]`; value 0 | Singleton-domain input independence |
+| `IndSimplex(1)`, equality | `[Inf,0]`, `γ=1` | `[1,0]`; value 0 | Unique positive vertex |
+| `IndSimplex(1)`, equality | `[-Inf,0]`, `γ=1` | `[0,1]`; value 0 | Exclude negative-infinite coordinate |
+| `IndSimplex(1; equality=false)` | `[-Inf,0]`, `γ=1` | `[0,0]`; value 0 | Reduced inequality simplex |
+| `IndSimplex(1)` | `[Inf,Inf]`, `γ=1` | all NaN; value NaN | Allocation depends on relative rates |
+| `IndSimplex(1; equality=false)` | `[-Inf,-Inf]`, `γ=1` | `[0,0]`; value 0 | Unique zero projection |
+| `IndBallL2(1)` | finite but huge `x`, `γ=1` | accurate finite projection | R2 recovery, not Inf input |
+| `IndSphereL2(1)` | `[Inf,0]`, `γ=-1/NaN` | `ArgumentError`; unchanged y | P1 before E3 |
+| `Constrained(NormL1(0), IndSphereL2(1))` | `[Inf,0]`, `γ=1` | `[1,0]` | Equivalent sphere; stage-2 gap until implemented |
+| `Constrained(GroupNormL2(1,[[1,2]]), IndSphereL2(1))` | `[Inf,0,1]`, `γ=1` | `[1,0,0]` | One independent infinite direction |
+| Same group sphere | `[Inf,Inf,1]`, `γ=1` | all NaN | Internal group direction ambiguous |
+| `Constrained(IndBallL0(1), IndSphereL2(1))` | `[Inf,0]`, `γ=Inf` | `[1,0]` | Indicator step |
+| `Constrained(NormL1(1,[Inf,1]), IndSphereL2(1))` | `[Inf,3]`, `γ=1` | `[0,1]`; value 1 | Hard-fixed first coordinate |
+| Same hard-fixed sphere | `[NaN,3]`, `γ=1` | `[0,1]`; value 1 | E2 independence |
+| Same hard-fixed sphere | `[3,NaN]`, `γ=1` | `[0,NaN]`; value NaN | E2 per-output dependence |
+| Same hard-fixed sphere | `[3,Inf]`, `γ=1` | `[0,1]`; value 1 | E3 unique limit, **not** E2 propagation |
+| `Constrained(NormL1(1), IndBallL2(1))` | `[3,0]`, `γ=Inf` | `[0,0]`; value 0 | Valid convex minimizer endpoint |
+| `Constrained(NormL1(0), IndBallL2(1))` | `[3,0]`, `γ=Inf` | `[1,0]`; value 0 | Whole ball minimizes |
+| `Constrained(NormL1(1), IndBallL2(1))` | `[Inf,0]`, `γ=Inf` | all NaN; value NaN | No joint limit |
+| `Constrained(NormL1(1), IndSphereL2(1))` | `[3,0]`, `γ=Inf` | `ArgumentError` | Unsupported penalized-sphere endpoint |
+| `IndBallL1(1)`, symmetric storage | one +Inf off-diagonal | paired entries `+1/2` | M2 ℓ1 multiplicity |
+| ℓ2 ball/sphere, symmetric storage | one +Inf off-diagonal | paired entries `+1/√2` | M2 ℓ2 multiplicity |
+| `IndBox(-1,1)`, one dimension | `[Inf]`, scalar step | `[1]` | Same as length-1 balls |
+| `NormL1(1)` | `[Inf]`, `γ=0` | `[Inf]` | Unique joint limit |
+| `NormL1(1)` | `[Inf]`, `γ=Inf` | `[NaN]` | Nonunique joint limit |
+| `NormL2(1)` | `[Inf,2]`, finite step | retain documented E3 behavior | Nonseparable does not imply NaN |
 
-Assume Float64, scalar step and r=1 unless stated. "all NaN" refers
-to the entire *dependent* coupled block. `value_and_prox!` returns
-the value at stored y (O2).
+**These are design targets.** The direct sets are stage 1.
+The constrained cases are stage 2; their current all-NaN outputs
+at one infinity are **gaps** under S4 and #366, not
+approved permanently different semantics.
 
-| Function | Input x | γ | Proposed output / return value | Rationale |
-|:--|:--|:--|:--|:--|
-| `IndBallL2(1)` | `[Inf,0]` | 1 | y all NaN; value NaN | A intentionally declines unique `[1,0]` limit |
-| `IndBallL1(1)` | `[Inf,0]` | 1 | y all NaN; value NaN | Fix partial-NaN defect |
-| `IndSphereL2(1)` | `[-Inf,2]` | 0,1,Inf | y all NaN; value NaN | Indicator accepts step endpoints; A applies to x |
-| `IndBallL2(1)` | `[Inf,Inf]` | 1 | y all NaN; value NaN | Both A and B: ambiguous direction |
-| `IndBallL1(0)` | `[Inf,2]` | 1 | y `[0,0]`; value 0 | Singleton set independent of input |
-| `IndBallL2(0)` | `[Inf,2]` | 1 | y `[0,0]`; value 0 | Fix current discrepancy |
-| `IndBallL2(0)` | `[NaN,2]` | 1 | y `[0,0]`; value 0 | Proposed E2 independence interpretation |
-| `IndBallL2(1)` | `[NaN,2]` | 1 | y all NaN; value NaN | E2 coupled block |
-| `IndBallL2(1)` | finite but enormous `x` | 1 | correct finite projection | Do not classify finite reduction overflow as input Inf |
-| `IndSphereL2(1)` | `[Inf,0]` | NaN or -1 | `ArgumentError`; no writes | P1/E1 precede E3 |
-| `Constrained(NormL1(0), IndSphereL2(1))` | `[Inf,0]` | 1 | y all NaN; value NaN | Equivalent sphere representation |
-| `Constrained(NormL1(1), IndSphereL2(1))` | `[Inf,2]` | 0 or 1 | y all NaN; value NaN | A also at zero-step domain projection |
-| `Constrained(GroupNormL2(1, [[1,2]]), IndSphereL2(1))` | `[Inf,0,1]` | 1 | y all NaN; value NaN | Even one infinite coordinate gets A |
-| Same group sphere | `[Inf,Inf,1]` | 1 | y all NaN; value NaN | Also path-dependent under B |
-| `Constrained(IndBallL0(1), IndSphereL2(1))` | `[Inf,0]` | Inf | y all NaN; value NaN | Indicator endpoint accepted; input still exceptional |
-| `Constrained(NormL1(1,[Inf,1]), IndSphereL2(1))` | `[Inf,3]` | 1 | y `[0,1]`; value 1 | First coordinate structurally hard-fixed (E4), review implementation |
-| Same hard-fixed sphere | `[NaN,3]` | 1 | y `[0,1]`; value 1 | E2/E4 independence; review separately |
-| Same hard-fixed sphere | `[3,Inf]` | 1 | y `[0,NaN]`; value NaN | Fixed entry stays 0; *effective free* block exceptional |
-| `Constrained(NormL1(1), IndBallL2(1))` | `[3,0]` | Inf | y `[0,0]`; value 0 | Named convex minimizer projection |
-| `Constrained(NormL1(0), IndBallL2(1))` | `[3,0]` | Inf | y `[1,0]`; value 0 | Entire ball is minimizer set |
-| `Constrained(NormL1(1), IndBallL2(1))` | `[Inf,0]` | Inf | y all NaN; value NaN | Simultaneous pair path-dependent; endpoint constant alone insufficient |
-| `Constrained(NormL1(1), IndSphereL2(1))` | `[3,0]` | Inf | `ArgumentError`; unchanged y | Unsupported penalized-sphere endpoint |
-| Direct sphere in `SymmetricSparseIterate` | one infinite off-diagonal | 1 | all NaN in coupled block | A despite B's ℓ2 `r/√2` limit |
-| `IndBallL1(1)` in symmetric storage | one infinite off-diagonal | 1 | all NaN in coupled block | A despite B's ℓ1 `r/2` limit |
-| `IndBox(-1,1)` or `IndBallLinf(1)` | `[Inf,0]` | valid scalar | `[1,0]` | Separable coordinatewise clipping, not covered |
-| `NormL1(1)` | `[Inf]` | 1 | `[Inf]` | Separable E3, not covered |
-| `NormL1(1)` | `[Inf]` | Inf | NaN | Joint step/input limit path-dependent |
-| `NormL2(1)` | `[Inf,0]` | finite >0 | out of scope; preserve family E3 | Nonseparable does **not** automatically mean all NaN |
-| `IndBallL2(Inf)` | `[Inf,0]` | 1 | out of scope | Infinite radius needs its own contract |
+## 8. Implementation sequence and acceptance gates
 
-This table is a **design oracle**. It deliberately includes outputs
-different from master, particularly `IndBallL1(1)`,
-`IndBallL2(0)`, hard-fixed NaN coordinates, and invalid
-indicator steps. Any proposed finite result from an independent
-coordinate requires checking that value and projection agree at the
-**stored** output across precision conversions (O2/T3).
+### Stage 0 — accept the documentation decision (this PR)
 
-## 7. Minimal implementation plan: correctness without overengineering
+- Keep E1, E2, E3 and P1 changes in `numerics.md`.
+- **Remove proposed Amendment 21A** and leave the approved
+  Decision 21 intact; no new exception is required for B.
+- Preserve mathematical proofs, cases and review history here.
+- Decide the initial closed target list; do not silently promise
+  uniform behavior for all twelve generic ball inner classes.
+- Merge only after maintainer approval of the normative
+  wording, not merely because a reviewer says the code is clear.
 
-1. **Close #311 validation gaps first in affected methods.**
-   Extend the existing pre-write path to validate the relevant scalar
-   step for direct and constrained projections and for forwarded steps.
-   Do not make `_checkstep` a public API, add a generic
-   "exceptional parameter execution framework", or check after writing.
-   Include `NaN`, negative, signed zero, `Inf`, finite
-   huge/tiny steps and nested invalid later blocks.
+### Stage 1 — #311 validation for affected methods
 
-2. **Direct bounded projection #469 patch.**
-   On a valid step and after a known-constant shortcut
-   (e.g. radius zero), use existing norm/threshold algorithms
-   for finite inputs. If a reduction is exceptional, classify the
-   *actual input entries*: NaN and ±Inf inputs follow E2/A,
-   while finite inputs whose reduction overflowed follow R2
-   scaled/recovery arithmetic. Write a whole NaN block and
-   return an O2-consistent NaN value. Fix
-   `IndBallL1` partial NaN and the zero-radius ℓ2 case.
-   Do **not** scan the whole array unconditionally without a
-   measured justification.
+Implement negative/NaN and unsupported-step rejection in the
+direct sets and constrained families first. Preserve existing
+named finite-argument `γ=0/Inf` endpoints. Reuse
+the private `_checkstep` pre-write protocol from #304;
+check forwarded/transformed steps in wrappers and all later
+blocks before earlier block writes. Tests: scalar and array
+steps (`0,-1,NaN,Inf`, huge/tiny), mixed types,
+aliasing, unchanged caller-owned outputs, and method coverage.
 
-3. **Constrained ball/sphere patch.**
-   Validate effective domains/hard weights before writing and
-   classify exceptional input **after structurally irrelevant
-   hard-fixed coordinates are excluded**, but before shrinking,
-   selecting a support, or normalizing into the output.
-   Avoid reading x after overwriting it for `y === x`.
-   Do not change finite tie rules or confuse a group containing
-   multiple infinities with an independent scalar coordinate.
-   For genuinely penalized convex balls at `γ=Inf`,
-   retain finite-argument minimizer projections; do not use
-   their constant endpoint as a shortcut for joint infinity.
+The remainder of #311's broader sweep can proceed independently;
+do not hold a mathematically independent direct E3 patch hostage
+to every unrelated step validator.
 
-4. **Test semantics, representations and failure atomicity.**
-   Cover Float32/Float64 input and destination combinations,
-   dense, `SparseIterate`, `AtomIterate` and
-   `SymmetricSparseIterate` where supported; ±Inf and
-   NaN in first/middle/last positions, one or several;
-   zero levels, zero/infinite weights, all-fixed infeasibility,
-   symmetric/asymmetric off-diagonal inputs,
-   scalar indicator endpoints, constrained endpoints, and
-   array-step rejection. Test `prox`, `prox!` and
-   `value_and_prox!`, aliased/nonaliased outputs, values at
-   stored y, untouched destination on pre-write errors,
-   cache history if relevant, and independent blocks.
-   Reference **finite-input** BigFloat mathematics to identify
-   the unique limits B would have chosen, but assert the
-   deliberate A outputs at actual ±Inf input.
-   Keep the corrected symmetric negative-margin oracle:
-   fallback score `sqrt(m_i) * (|x_i|-threshold_i)`,
-   not `(margin)/sqrt(m_i)`.
+### Stage 2 — direct #469 implementation
 
-5. **Measure changes to the normal fast path.**
-   Compare representative dense/sparse/mixed-precision
-   finite workloads and warm allocations under C1–C3.
-   No unconditional BigFloat, no broad array widening,
-   no extra device synchronization. A scan on a rare
-   exceptional branch is acceptable only after verifying
-   that it distinguishes true Inf/NaN entries from finite
-   overflow. Follow-up PRs update corresponding docstrings
-   alongside implementation.
+Start with `IndBallL1`, `IndBallL2`,
+`IndSphereL2` and `IndSimplex`, including
+equality and inequality variants and zero radius.
 
-**Do not merge #311 and #469 into one implementation PR.** This
-PR is only a contract/design review. Keep concrete patches small,
-and retain test receipts and performance evidence on the
-implementation PRs.
+- Preserve the existing fast path on finite inputs; branch on
+  exceptional reductions only after distinguishing true
+  `NaN/Inf` inputs from finite arithmetic overflow.
+- Prove and test unique one-infinity directions, relative-rate
+  ambiguity, sign-sensitive simplex cases and M2 off-diagonal
+  multiplicity. Use independent high-precision finite sequences
+  (BigFloat) as mathematical oracles, not a copy of the algorithm
+  under test. Correct the symmetric negative-margin fallback oracle
+  before reuse.
+- Check `prox`, `prox!`, `value_and_prox!`,
+  all supported Float32/Float64 input/destination combinations,
+  `SparseIterate` / `AtomIterate` /
+  `SymmetricSparseIterate` where supported, aliases,
+  zero/infinite weights when relevant, and all O2 value classes.
+- Add a regression for the current partial-NaN simplex and ℓ1-ball
+  outputs. An affected coupled block must not return a
+  misleading partially NaN point solely because of
+  `Inf-Inf` or `0*Inf` arithmetic.
+- Benchmark ordinary finite workloads under C1–C3;
+  no unconditional BigFloat, array widening or extra GPU
+  synchronization. A repeatable slowdown above 5% requires
+  investigation.
 
-## 8. Proposed explicit amendment to Decision 21 (for approval)
+### Stage 3 — constrained #469 implementation
 
-**Not an approved change yet.** If accepted, append a new dated
-decision/amendment in [`decisions.md`](decisions.md) rather than
-silently rewriting the original 2026-11-01 decision history.
+In separate reviewable PRs, implement *only* the named
+closed-list families (`NormL1`, `GroupNormL2`,
+`IndBallL0`, `ZeroFunction` ball) after
+mathematical derivation and validation. Preserve the
+finite-step/finite-input branch and the supported P1 endpoints.
+Test direct-vs-constrained equalities at one/two infinities,
+with zero levels/hard constraints and symmetric layout.
+Track further cone/spectral/rank cases individually under
+G2/#366 or their existing family trackers.
 
-> For the proximal **outputs** of finite-radius bounded coupled
-> ball/sphere projection families named in E3, a non-finite argument
-> entry that participates in a nonconstant effective coupled block
-> yields NaN for that entire dependent block. This is an explicit
-> decision **not to extend** those projections to infinity, even if
-> a unique finite-input limit exists. The value at the original
-> argument still follows the usual E3 formula, and
-> `value_and_prox!` follows O2 at its stored output.
-> Structurally independent results (singleton feasible sets,
-> hard-fixed coordinates/groups, independent blocks) are evaluated
-> normally under E1/E2/E4. Separable proximal maps and unbounded
-> coupled proximal maps retain their previously documented E3
-> semantics. This amendment does not change which step endpoints
-> P1 admits.
+**No generic "count infinities and choose a direction" framework.**
+A single group can contain multiple independent infinite
+coordinates; a cone can absorb negative infinity; a spectral
+decomposition has different geometry. Specialize only where the
+limit is mathematically established.
 
-This is **narrower** than the reviewer's phrase "all coupled
-blocks": it avoids rewriting established `NormL2`
-extended-real semantics and separable clipping. If a reviewer
-wants to include other bounded coupled families (polyhedra,
-spectral projections, Stiefel, etc.), they should propose explicit
-scope and compatibility analysis; it is not an implication
-of this narrow amendment.
+### PR acceptance checklist
 
-## 9. Questions for the next reviewer (please challenge aggressively)
+- A real, independently derived finite-input reference confirms
+  every proposed finite exceptional limit.
+- Nonunique cases are witnessed by at least two finite sequences
+  with different limits.
+- E1 invalid/unsupported steps error *before* all writes;
+  names, returned values, aliases, caches and blocks are checked.
+- Exact structural zeros remain zero, and E2 NaN independence
+  is not confused with E3 limit propagation.
+- Ordinary finite inputs, especially enormous values whose norms
+  overflow in narrow arithmetic, retain R1–R3 behavior.
+- Performance regressions are measured rather than assumed;
+  document impacted output classes and any all-Float64 changes.
+- Public docstrings are updated **with** the implementation
+  that makes each promise true. Every incomplete equivalent
+  representation stays a named S4/#366 conformance gap.
 
-1. **Policy A itself:** Is preserving an exceptional signal more valuable
-   than returning a uniquely determined finite limit for bounded
-   projections? Would it be better for every caller to check `isfinite(x)`
-   themselves? Provide representative solver workflows, not only formulas.
-2. **Decision 21 amendment:** Is the proposed deliberate non-extension
-   clearly identified as an amendment rather than a consequence of
-   "documented limit"? Is a formal decision-record addendum needed
-   before accepting any E3 normative wording?
-3. **Scope:** Should A cover only direct+constrained ℓ1/ℓ2
-   ball/sphere projections, **all bounded coupled projections**, or
-   **all coupled proximal operators**? Identify a precise counterexample
-   to the broader scopes, especially `NormL2` and other
-   unbounded functions.
-4. **Meaning of dependence:** Is the "structurally fixed under all
-   finite steps and **all other finite inputs**" exception mathematically
-   robust under nested wrappers, zero penalty, hard coordinate/group
-   weights, and `SymmetricSparseIterate` symmetrization?
-   Is `[0,NaN]` correct when one entry is hard-fixed and
-   a different *free* entry is infinite? Could a structural mask be
-   certified without a costly generic dependence analysis?
-   Should NaN in a hard-fixed input be ignored consistently with E2?
-   Could this require a separate issue even if A is accepted?
-5. **Zero-radius:** Do both `IndBallL1(0)` and
-   `IndBallL2(0)` intentionally return zero at **NaN**
-   input as well as ±Inf, or should E2 take a stricter view?
-   If the latter, precisely articulate why a structurally
-   constant map "depends" on its NaN input.
-6. **Simultaneous accepted `γ=Inf, x=Inf`:**
-   Is the joint-path criterion correct and does it coexist with
-   A's deliberate refusal of a unique *fixed-γ* limit?
-   Are there valid endpoint/penalty combinations for which
-   a constant finite output should nonetheless be returned?
-7. **P1:** Confirm existing convex ball `γ=Inf`
-   minimizer projections and nonconvex penalized sphere rejection.
-   Are there parameter-degenerate effectively indicator spheres
-   that must receive a named `γ=Inf` endpoint?
-8. **O2/O6/O7 and classes:** Is a wholly NaN stored projection
-   with a NaN return value required even for indicator functions?
-   Verify validation leaves all outputs unchanged and
-   exact aliasing works for every supported container.
-9. **Numerics/performance:** Is a nonfinite reduction a reliable
-   exceptional-branch trigger in each operator? How do we prevent
-   treating finite overflow as input Inf and avoid extra scans
-   or allocations on the ordinary finite path?
-10. **Compatibility:** Would any downstream caller legitimately
-    supply infinite sentinels and expect limiting projections?
-    Is moving from a documented all-NaN exceptional policy to
-    finite limits later an observable breaking change?
-11. **Existing sources:** The external library comparison is
-    non-normative. Do not infer agreement on A from the
-    other packages' accidental `[NaN,0]` outputs.
+## 9. Prior review findings and outstanding decisions
 
-Please give concrete counterexamples, a proposed **minimal
-replacement wording** if A is too broad, and a verdict
-("approve A", "narrow A", or "choose B") before any
-implementation begins. Leave #311/#469 open and PR #508
-draft until the design decision is explicit.
+The first review identified and corrected:
+
+- step-endpoint-first as an unsound way to resolve
+  `(γ=Inf,x=Inf)` (decision 21);
+- ℓ1 off-diagonal multiplicity `r/2` rather than
+  `r/√2` (M2);
+- undecided commentary inside normative contract wording;
+- valid `γ=Inf` minimizer projections for convex
+  penalized balls.
+
+The second review confirmed those fixes, then found:
+
+- narrowed A creates a length-one ball-vs-box representation
+  mismatch and offers only incomplete solver failure signaling;
+- the `Constrained` wording was too broad (12 possible
+  inner trait classes, including cones/spectral families);
+- `IndSimplex` shares the ℓ1 threshold code and
+  partly NaN defect;
+- E2 needs one per-**output-entry** dependency definition;
+- E1 should say **what to return** when a unique joint limit
+  exists and name the relevant endpoints.
+
+This revision adopts B, incorporates those findings, and withdraws
+proposed Decision 21A. It **does not** mean that the reviewer has
+approved this new normative wording.
+
+### Specific questions for final review
+
+1. Are the direct E3 limits, including both simplex variants,
+   correctly stated for every signed-infinity pattern?
+   Identify degenerate shapes and symmetric-layout caveats.
+2. Is the per-output E2 dependence definition sufficiently
+   precise and compatible with E4 hard weights and O2 values?
+   Does it need a finite-step qualifier to handle a
+   simultaneous infinite step and NaN argument?
+3. Does E1's **unique joint limit** rule capture both
+   `γ=0` and `γ=Inf` examples without
+   requiring numerical-path inference in every implementation?
+4. Is the constrained **closed list** narrow enough to avoid
+   promising unproved cone/spectral results yet broad enough
+   to cover equivalent zero-penalty representations?
+5. Should the parameter-degenerate zero-level sphere at
+   `γ=Inf` inherit indicator step independence, or
+   remain outside the named P1 endpoint until separately reviewed?
+6. Does documenting B for direct projections but tracking
+   constrained compliance as an S4/#366 gap adequately explain
+   temporary differences without presenting them as allowed?
+7. Do any unusual supported radii, element types, backends,
+   sparse/atom layouts or cache behaviors make the initial
+   limits false or unrepresentable?
+8. Is the three-stage implementation sequence the smallest safe
+   path, and are the cost/aliasing/atomicity gates sufficient?
+
+Please propose exact counterexamples and replacement wording
+on PR #508. **Leave the PR draft and #311/#469 open** until
+review/implementation obligations are actually completed.

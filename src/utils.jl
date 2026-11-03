@@ -64,6 +64,10 @@ end
 end
 @inline _weight_product(a::Real, b::Real, w::Real) = _weight_product(promote(float(a), float(b), float(w))...)
 
+# The model precision of a call on arrays (numerics T3): the wider of the destination's and the
+# argument's float types. The group kernels form their thresholds in it, rounded once.
+@inline _model_type(y, x) = promote_type(float(eltype(y)), float(eltype(x)))
+
 # The same products rounded once to the destination type U, formed in the promotion of U and
 # the factors' types (numerics T3), so that a product that overflows or underflows the factors'
 # type is still finite in U. For R == U the promotion and the conversion are no-ops.

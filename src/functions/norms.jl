@@ -566,6 +566,10 @@ end
 # the group of index i, 0 if i is in no group
 _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_of[i] : 0
 
+# the proximal kernels of an atom iterate run in the type of the output's storage: the argument is
+# copied or staged into it first
+@inline _model_type(y::AtomIterate, x::AtomIterate) = float(eltype(y))
+
 # the groups fit in x: the loops over a group skip the bounds checks
 @inline _checkgroups(f::AbstractGroupPenalty, x::AbstractArray) =
   length(x) >= length(f.group_of) || throw(BoundsError(x, length(f.group_of)))
@@ -594,7 +598,7 @@ end
 # y[G] ← prox_{c‖⋅‖∞}(x[G]), which may be in place: the entries clipped at τ;
 # returns τ, the new norm of the group
 function _shrink_group!(f::GroupNormLinf, y::AbstractArray{T}, x::AbstractArray, G, c, W = nothing) where {T}
-  S = float(T)
+  S = promote_type(float(T), typeof(c))     # the type of the threshold: the model precision (T3)
   s = _sumabs(x, G)
   if s <= c
     @inbounds for i in _writes(W, G)
@@ -686,7 +690,7 @@ end
 
 # the step γ is a scalar or a vector with a step per group (see metric.jl)
 function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::AbstractArray, γ::Union{Real, AbstractVector})
-  _ordinary_group_weights(f, float(eltype(y))) ?
+  _ordinary_group_weights(f, _model_type(y, x)) ?
     _homogeneous_group_prox!(y, f, x, γ, Val(true)) : _homogeneous_group_prox!(y, f, x, γ, Val(false))
 end
 
@@ -695,6 +699,7 @@ function _homogeneous_group_prox!(y::AbstractArray, f::HomogeneousGroupNorm, x::
   _checkgroups(f, x)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
+  W = _model_type(y, x)
   if O && iszero(f.λ0)
     y === x || copyto!(y, x)
     return zero(T)
@@ -708,7 +713,7 @@ function _homogeneous_group_prox!(y::AbstractArray, f::HomogeneousGroupNorm, x::
       end
       continue
     end
-    nrm = _shrink_group!(f, y, x, f.groups[k], (O ? _positive_product(T, _entry(γ, k), f.λ0, f.w[k]) : _weight_product(T, _entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+    nrm = _shrink_group!(f, y, x, f.groups[k], (O ? _positive_product(W, _entry(γ, k), f.λ0, f.w[k]) : _weight_product(W, _entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
     v += _group_value(f, f.λ0, f.w[k], nrm, y, f.groups[k], T, ordinary)
   end
   v

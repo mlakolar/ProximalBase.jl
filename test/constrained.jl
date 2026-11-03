@@ -324,39 +324,113 @@ end
 end
 
 @testset "the slope of the ridge where γλ leaves the range of the model type" begin
-  # the slope is the weight prox_entry applies to the argument: compared with 1/(1 + γλ)
-  # in BigFloat, to a few steps of the model type (subnormal slopes have few bits), and
-  # bit for bit with prox_entry at v = 1, which has no other term
-  slope_ok(W, γ, λ) = begin
-    f = SqrNormL2(λ)
-    z, dz = ProximalBase._prox_entry_slope(f, one(W), 1, γ)
-    exact = inv(1 + big(γ) * big(λ))
-    dz isa W && z == prox_entry(f, one(W), 1, γ) && dz == z &&
-      abs(big(dz) - exact) <= 4 * max(big(eps(W)) * exact, big(nextfloat(zero(W))))
+  # The slope is the weight prox_entry applies to the argument. It is compared with
+  # 1/(1 + γλ) in BigFloat to a few steps of the model type (a subnormal slope has few
+  # bits), and, for an entry without a center, bit for bit with prox_entry at v = 1.
+  tol(W, exact) = 4 * max(big(eps(W)) * exact, big(nextfloat(zero(W))))
+  slope_ok(W, f, v, i, γ) = begin
+    z, dz = ProximalBase._prox_entry_slope(f, v, i, γ)
+    exact = inv(1 + big(γ) * big(f.λ))
+    dz isa W && isequal(z, prox_entry(f, v, i, γ)) && abs(big(dz) - exact) <= tol(W, exact)
   end
-  for (W, lo, hi) in ((Float32, -126, 125), (Float64, -1022, 1021)), Λ in (W, Float64)
-    # t = 2^k, in and around the band, with γ and λ each holding part of the exponent
-    for k in (lo - 3:lo + 2..., hi - 2:hi + 3..., 2lo, 2hi, 0, 1, -1), m in (1, 1.3, 1.7)
-      @test slope_ok(W, W(1), Λ(m * 2.0^clamp(k, -1000, 1000)))
-      @test slope_ok(W, W(2.0^(k ÷ 2)), Λ(m * 2.0^clamp(k - k ÷ 2, -1000, 1000)))
+  # a factor m·2^k of the type T, or nothing where it is not a normal number of T
+  factor(T, m, k) = (x = ldexp(T(m), k); isfinite(x) && !iszero(x) && !issubnormal(x) ? x : nothing)
+
+  cases = Tuple[]
+  for (W, lo, hi, nsub) in ((Float32, -126, 125, 24), (Float64, -1022, 1021, 52)), Λ in unique((W, Float64)), m in (1, 1.3, 1.7)
+    # the exponents of γλ: both sides of each edge of the ordinary band, into the subnormal
+    # slopes and past the underflow of the slope, and the middle
+    ks = sort(unique([lo - 3:lo + 2; hi - 2:hi + 3; hi + nsub - 1:hi + nsub + 2; 2lo; 2hi; -1:1]))
+    for k in ks
+      λ = factor(Λ, m, k)                                   # one factor holds the exponent
+      λ === nothing || push!(cases, (W, Λ, W(1), λ, k))
+      kγ = k ÷ 2                                            # the exponent split between the two
+      γ, λ = factor(W, 1, kγ), factor(Λ, m, k - kγ)
+      (kγ == 0 || γ === nothing || λ === nothing) || push!(cases, (W, Λ, γ, λ, k))
     end
   end
+  keys = [(W, typeof(γ), typeof(λ), γ, λ) for (W, Λ, γ, λ, k) in cases]
+  @test length(keys) == length(unique(keys))                # the sweep has no repeated case
+  for (W, Λ, γ, λ, k) in cases
+    f = SqrNormL2(λ)
+    @test slope_ok(W, f, one(W), 1, γ)
+    @test ProximalBase._prox_entry_slope(f, one(W), 1, γ)[2] == prox_entry(f, one(W), 1, γ)
+    # a single factor at an exponent of the sweep keeps it
+    γ == 1 && @test exponent(λ) == k
+  end
+  # the ordinary and the scaled routes meet at the edges of the band, in each type
+  for (W, lo, hi) in ((Float32, -126, 125), (Float64, -1022, 1021))
+    edge(k) = ProximalBase._ridge_needs_scaling(W, one(W), ldexp(W(1), k))
+    @test !edge(lo) && edge(lo - 1) && !edge(hi) && edge(hi + 1)
+  end
+
   # the examples of the issue, and a Float64 λ on Float32 data
   @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1f0, 30)), 1f0, 1, ldexp(1f0, 100)) == (7.34684f-40, 7.34684f-40)
   @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1.0, 40)), 1.0, 1, ldexp(1.0, 1000))[2] == 8.487983164e-314
   @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1.0, 40)), 1f0, 1, ldexp(1f0, 100))[2] > 0
   # a true slope that underflows is 0, for both outputs
   @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1f0, 100)), 1f0, 1, ldexp(1f0, 100)) == (0f0, 0f0)
-  # a center changes the value and not the slope; the ordinary route agrees in band
+  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1.0, 1000)), 1.0, 1, ldexp(1.0, 100)) == (0.0, 0.0)
+
+  # With a center: the value is that of prox_entry, bit for bit; the slope does not depend
+  # on the sign of the argument or the center, and is the W-rounded weight. A center that
+  # leaves W's range is applied in a wider type, where the weights are derived again, so
+  # the value may differ from a W-rounded blend and the slope is still the W-rounded
+  # weight, without that second derivation.
   for W in (Float32, Float64)
-    f, fc = SqrNormL2(W(0.7)), SqrNormL2(W(0.7), W[3, -2])
-    for γ in (W(0.4), W(3)), i in 1:2
-      z, dz = ProximalBase._prox_entry_slope(fc, W(1.5), i, γ)
-      @test z == prox_entry(fc, W(1.5), i, γ) && dz == ProximalBase._prox_entry_slope(f, W(1.5), i, γ)[2]
-      @test ProximalBase._prox_entry_slope(ProximalBase._OrdinaryRidge(fc), W(1.5), i, γ) == (z, dz)
+    hi = W == Float32 ? 100 : 1000                         # γ = 2^±hi, λ = 2^±(hi ÷ 3): out of band
+    for (γ, λ) in ((W(0.4), W(0.7)), (ldexp(W(1), hi), ldexp(W(1), hi ÷ 3)),
+                   (ldexp(W(1), -hi), ldexp(W(1), -hi ÷ 3)), (ldexp(W(1), hi), ldexp(W(1), -hi ÷ 3)))
+      for (v, c) in ((W(1.5), W(2)), (W(-1.5), W(2)), (W(1.5), W(-2)), (W(-1.5), W(-2)))
+        f, fc = SqrNormL2(λ), SqrNormL2(λ, W[c, -c])
+        for i in 1:2
+          @test slope_ok(W, fc, v, i, γ)
+          z, dz = ProximalBase._prox_entry_slope(fc, v, i, γ)
+          @test dz == ProximalBase._prox_entry_slope(f, v, i, γ)[2]
+          ci = i == 1 ? c : -c
+          ref = (big(v) + big(γ) * big(λ) * big(ci)) / (1 + big(γ) * big(λ))
+          @test abs(big(z) - ref) <= 4 * big(eps(W)) * (abs(big(v)) + abs(big(ci))) + big(nextfloat(zero(W)))
+        end
+      end
     end
-    zc, dzc = ProximalBase._prox_entry_slope(SqrNormL2(ldexp(W(1), 30), W[2]), W(1), 1, ldexp(W(1), 90))
-    @test dzc > 0 && zc == prox_entry(SqrNormL2(ldexp(W(1), 30), W[2]), W(1), 1, ldexp(W(1), 90))
+  end
+  # a Float64 center outside Float32's range, on the ordinary and on the scaled route
+  for (γ, λ, y) in ((1f0, ldexp(1.0, -100), 1e40), (1f0, ldexp(1.0, -900), 1e300), (ldexp(1f0, 100), ldexp(1.0, 30), 1e300))
+    for (v, c) in ((1.5f0, y), (-1.5f0, y), (1.5f0, -y), (-1.5f0, -y))
+      fc = SqrNormL2(λ, [c])
+      z, dz = ProximalBase._prox_entry_slope(fc, v, 1, γ)
+      @test dz isa Float32 && isequal(z, prox_entry(fc, v, 1, γ))
+      exact = inv(1 + big(γ) * big(λ))
+      @test abs(big(dz) - exact) <= tol(Float32, exact)
+      @test dz == ProximalBase._prox_entry_slope(SqrNormL2(λ), v, 1, γ)[2]
+    end
+  end
+  # the ordinary route agrees where its preconditions hold
+  for W in (Float32, Float64)
+    fc = SqrNormL2(W(0.7), W[3, -2])
+    for γ in (W(0.4), W(3)), i in 1:2, v in (W(1.5), W(-1.5))
+      @test ProximalBase._prox_entry_slope(ProximalBase._OrdinaryRidge(fc), v, i, γ) == ProximalBase._prox_entry_slope(fc, v, i, γ)
+      @test ProximalBase._prox_entry_slope(ProximalBase._OrdinaryRidge(SqrNormL2(W(0.7))), v, i, γ) ==
+            ProximalBase._prox_entry_slope(SqrNormL2(W(0.7)), v, i, γ)
+    end
+  end
+end
+
+@testset "a warm start where γλ overflows: the search uses the slope" begin
+  # λ = 2^30, γ = 2^100 overflow Float32 in γλ, with the slope 2^-130 per entry, so that at
+  # the warm start ν = -1/2 the constraint residual has the derivative -2γ·2^-130 = -2^-29
+  # and the first step reaches ν = -1. With the slope 0 the search could not bracket the
+  # multiplier and threw that the hyperplane misses the domain.
+  for (W, λe, γe, be) in ((Float32, 30, 100, -29), (Float64, 60, 1000, -59))
+    λ, γ, b = ldexp(W(1), λe), ldexp(W(1), γe), ldexp(W(1), be)
+    for slope0 in (nothing, NaN)                           # the warm slope, and none
+      c = Constrained(SqrNormL2(λ), IndHyperplane(W(1), b))
+      c.last[] = -0.5
+      slope0 === nothing || (c.slope[] = slope0)
+      z = prox(c, zeros(W, 2), γ)
+      @test z ≈ fill(ldexp(W(1), be - 1), 2)       # 2^(be-1), half of b each
+      @test sum(z) ≈ b
+    end
   end
 end
 

@@ -452,20 +452,39 @@ _all_finite(x) = all(isfinite, _stored_values(x))
 _all_finite(x::_WrappedSparse) = _all_finite(parent(x))
 _all_finite(::Nothing) = true
 
-# w Σ mᵢ 2^eᵢ over finite mᵢ, the sum aligned to its largest term and the weight
-# applied last, rounded once: the terms of a value recomputed in different
-# power-of-two units (R1)
+# w Σ mᵢ 2^eᵢ over finite mᵢ, for the terms of a value recomputed in different
+# power-of-two units (R1). The terms are added from the largest exponent down
+# to an accumulator kept as a significand in [1/2, 1) and its own exponent,
+# renormalized after each addition, so terms that cancel do so before a
+# smaller term is aligned to what remains; the weight is applied last, with
+# one rounding. Non-finite terms give the ordinary sum. The weight is w ≥ 0
+# (_scaled_product takes the sign from the sum).
 function _pow2_weighted(::Type{R}, w, terms::Vararg{Tuple{Any, Int}, N}) where {R, N}
-  E = typemin(Int)
-  for (m, e) in terms
-    isfinite(m) || return convert(R, w) * sum(t -> convert(R, t[1]), terms)
-    iszero(m) || (E = max(E, exponent(convert(R, m)) + e))
+  ms = map(t -> convert(R, t[1]), terms)
+  es = map(t -> t[2], terms)
+  all(isfinite, ms) || return convert(R, w) * sum(ms; init = zero(R))
+  s, E = zero(R), 0
+  used = ntuple(_ -> false, Val(N))
+  for _ in 1:N
+    j, ej = 0, typemin(Int)
+    for i in 1:N                                # the largest term not yet added
+      (used[i] || iszero(ms[i])) && continue
+      ei = exponent(ms[i]) + es[i]
+      ei > ej && ((j, ej) = (i, ei))
+    end
+    j == 0 && break
+    used = Base.setindex(used, true, j)
+    mj, fj = frexp(ms[j])
+    D = fj + es[j]
+    if iszero(s)
+      s, E = mj, D
+    else              # the larger of the two sets the units (a remainder of a cancellation may be the smaller)
+      s = D <= E ? s + ldexp(mj, D - E) : ldexp(s, E - D) + mj
+      E = max(E, D)
+      iszero(s) || ((s, f) = frexp(s); E += f)
+    end
   end
-  E == typemin(Int) && return convert(R, w) * zero(R)
-  s = zero(R)
-  for (m, e) in terms
-    iszero(m) || (s += ldexp(convert(R, m), e - E))
-  end
+  iszero(s) && return convert(R, w) * zero(R)
   _scaled_product(convert(R, w), s, E)
 end
 _pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_weighted(R, one(R), terms...)

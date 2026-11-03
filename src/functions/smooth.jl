@@ -94,7 +94,19 @@ end
 # types (and device arrays) take the scaled copy of x with their own dot
 _linear_scaled_dot(c, x::Union{DenseArray, SparseIterate}, s) =
   _is_device_array(x) || _is_device_array(c) ? _linear_scaled_copy_dot(c, x, s) : _scaled_dot(c, x, s)
-_linear_scaled_dot(c, x::SymmetricSparseIterate, s) = _checked_scaled_dot(c, x, s)
+# a symmetric iterate counts an off-diagonal entry for both of its positions:
+# each position is a separate scaled product, so the doubled coefficient is
+# never formed
+function _linear_scaled_dot(c, x::SymmetricSparseIterate, s)
+  v = zero(s[1])
+  @inbounds for k in 1:x.nnz
+    r, j = tril_cartesian(x.p, x.nzval2ind[k])
+    q = float(_entry(c, (j - 1) * x.p + r)) * _scale_value(x.nzval[k], s)
+    v += q
+    r == j || (v += q)
+  end
+  v
+end
 _linear_scaled_dot(c, x, s) = _linear_scaled_copy_dot(c, x, s)
 _linear_scaled_copy_dot(c, x, s) = dot(c, x .* s[1] .* s[2])
 

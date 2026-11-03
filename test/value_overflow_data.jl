@@ -31,6 +31,8 @@ end
 
 # in a function, so that the value returned from a global is not boxed (Julia 1.10)
 allocated_value(f, x) = (f(x); @allocated f(x))
+pow2_three(::Type{T}, E, a, b, c) where {T} = PB._pow2_weighted(T, one(T), (a, 2E), (b, 2E), (c, 0))
+allocated_pow2(::Type{T}, E, a, b, c) where {T} = (pow2_three(T, E, a, b, c); @allocated pow2_three(T, E, a, b, c))
 
 @testset "data function values that leave the range" begin
   for T in (Float32, Float64)
@@ -106,6 +108,18 @@ allocated_value(f, x) = (f(x); @allocated f(x))
       fl = QuadraticFunction(A, [-x / 2], one(T))
       @test fl([x]) === one(T)
       @test value_and_gradient!(zeros(T, 1), fl, [x]) === one(T)
+      # a constant far below the exponent of the cancelling terms (review of f302de59)
+      xc = ldexp(one(T), T === Float32 ? 100 : 600)
+      for cc in (one(T), T(-0.75), floatmin(T))
+        fc = QuadraticFunction(A, [-xc / 2], cc)
+        @test fc([xc]) === cc
+        gc = zeros(T, 1)
+        @test value_and_gradient!(gc, fc, [xc]) === cc
+        @test isequal(gc, gradient!(zeros(T, 1), fc, [xc]))
+        @test fc(SparseIterate([xc])) === cc
+      end
+      # a Float32 function at a Float64 argument: A x overflows the Float32 buffer, the value is Float64
+      T === Float32 && @test QuadraticFunction(fill(0.25f0, 1, 1), [-2f0^127], 1f0)([2.0^130]) === 1.0
       # a large matrix, a large linear term and a 2 × 2 form
       @test within(QuadraticFunction(fill(M, 1, 1))(T[2^-10]), big(M) * big(2.0)^-20 / 2)
       A2 = T[2 1; 1 2]
@@ -177,6 +191,18 @@ allocated_value(f, x) = (f(x); @allocated f(x))
       @test LinearFunction(T[2 0; 0 0], -M)(SymmetricSparseIterate(T[M 0; 0 0])) === M
       @test LinearFunction(T[0 2; 2 0])(SymmetricSparseIterate(T[0 M; M 0])) === T(Inf)   # 4M overflows
       @test LinearFunction(T[0 1; 1 0], -M)(SymmetricSparseIterate(T[0 M; M 0])) === M
+      # an off-diagonal coefficient at floatmax: its doubled weight overflows on its own (review of f302de59)
+      Cm = T[0 M; M 0]
+      Xh = SymmetricSparseIterate(T[0 0.5; 0.5 0])
+      @test LinearFunction(Cm)(Xh) === M
+      @test LinearFunction(Cm, -M / 2)(Xh) === M / 2
+      @test LinearFunction(T[M 0; 0 M], -M)(SymmetricSparseIterate(T[1 0; 0 1])) === M   # diagonal entries count once
+      @test LinearFunction(Cm)(SymmetricSparseIterate(T[0 1; 1 0])) === T(Inf)            # 2M is out of range
+      @test value_and_gradient!(zeros(T, 2, 2), LinearFunction(Cm), Xh) === M
+      @test allocated_value(LinearFunction(Cm), Xh) == 0
+      T === Float64 && @test LinearFunction(Float32[0 floatmax(Float32); floatmax(Float32) 0])(
+        SymmetricSparseIterate([0 0.5; 0.5 0])) === Float64(floatmax(Float32))
+      @test isnan(LinearFunction(Cm)(SymmetricSparseIterate(T[0 NaN; NaN 0])))
       @test LinearFunction(sparse(T[2, 0]), -M)(T[M, 1]) === M
       @test LinearFunction(Diagonal(T[2, 1]), -M)(Diagonal(T[M, 0])) === M
       @test LinearFunction(T[2, 0], -M)(sparse(T[M, 0])) === M
@@ -219,6 +245,29 @@ allocated_value(f, x) = (f(x); @allocated f(x))
     @test (big_, small) == (0.0, 3.0)
     @test tiny == ldexp(1.0, -1200 + PB._tiny_unit(Float64))
     @test PB._split_dot([0.0, 2.0^-600], [5.0, 0.0], (1.0, 1.0), (1.0, 1.0)) == (0.0, 0.0, 0.0)
+  end
+
+  @testset "_pow2_sum: large terms cancel before smaller ones are added" begin
+    for T in (Float32, Float64)
+      E = T === Float32 ? 100 : 600
+      # x²/2 in units of 2^(2k), -x²/2 in units of 2^k, and a constant in units of 1
+      @test PB._pow2_sum(T, (T(0.5), 2E), (T(-0.5), 2E), (one(T), 0)) === one(T)
+      @test PB._pow2_sum(T, (one(T), 0), (T(0.5), 2E), (T(-0.5), 2E)) === one(T)      # any order
+      @test PB._pow2_sum(T, (T(0.5), E), (T(-1), E - 1), (T(3), -E)) === ldexp(T(3), -E)
+      # partial cancellation leaves a term in the middle, then the small one
+      @test PB._pow2_sum(T, (T(1.5), 2E), (T(-1), 2E), (T(-0.5), 2E), (T(0.25), 0), (T(0.5), 1)) === T(1.25)
+      @test PB._pow2_weighted(T, T(2)^E, (one(T), E), (-one(T), E), (one(T), -E)) === one(T)  # weight last
+      @test PB._pow2_weighted(T, T(3), (T(0.5), 2E), (T(-0.5), 2E)) === zero(T)
+      @test PB._pow2_sum(T, (T(2), E), (one(T), -E)) === ldexp(T(2), E) + ldexp(one(T), -E) # ordinary rounding
+      # non-finite terms give the ordinary sum
+      @test isnan(PB._pow2_sum(T, (T(NaN), 0), (one(T), E)))
+      @test PB._pow2_sum(T, (T(Inf), 0), (one(T), E)) === T(Inf)
+      @test isnan(PB._pow2_sum(T, (T(Inf), 0), (-T(Inf), 0)))
+      @test PB._pow2_sum(T) === zero(T)
+      # mixed term types are converted, and nothing is allocated
+      @test PB._pow2_sum(T, (0.5f0, 2E), (-0.5, 2E), (1, 0)) === one(T)
+      @test allocated_pow2(T, E, T(0.5), T(-0.5), one(T)) == 0
+    end
   end
 end
 

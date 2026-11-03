@@ -85,6 +85,26 @@ end
   y = zeros(Float32, 1)
   @test value_and_prox!(y, c, x, γ) === 1f0
   @test y == Float32[1.0]
+  # every positive group keeps its share, also when each shrinkage rounds to zero in the destination
+  c3 = Constrained(GroupNormL2(1.0, [1:1, 2:2], [1.0, 1.0]), IndSphereL2(1.0))
+  x3 = [2.0^-100, 2.0^-100]
+  γ3 = 2.0^-100 * (1.0 - 2.0^-52)
+  y3 = zeros(Float32, 2)
+  prox!(y3, c3, x3, γ3)
+  @test y3 ≈ Float32[inv(sqrt(2)), inv(sqrt(2))] rtol = 1e-6
+  y3 = zeros(Float32, 2)
+  v3 = value_and_prox!(y3, c3, x3, γ3)
+  @test y3 ≈ Float32[inv(sqrt(2)), inv(sqrt(2))] rtol = 1e-6
+  @test sqrt(sum(abs2, Float64.(y3))) ≈ 1 rtol = 1e-6
+  @test v3 == c3.f(y3)                              # the value at the stored output
+  # one group whose norm underflows in the destination keeps its direction
+  c4 = Constrained(GroupNormL2(1.0, [1:2], [1.0]), IndSphereL2(1.0))
+  y4 = zeros(Float32, 2)
+  prox!(y4, c4, [3.0, 4.0] .* 2.0^-160, 5.0 * 2.0^-160 * (1.0 - 2.0^-52))
+  @test y4 ≈ Float32[0.6, 0.8] rtol = 1e-6
+  # the step rules of the sphere hold with the threshold formed in the model precision
+  @test_throws ArgumentError prox!(zeros(Float32, 2), c4, [3.0, 4.0], Inf)
+  @test_throws ArgumentError prox!(zeros(Float32, 2), c4, [3.0, 4.0], -1.0)
   # two groups: the sphere point lies in the group of the larger margin, with norm r
   c2 = Constrained(GroupNormL2(1.0, [1:2, 3:3], [1.0, 1.0]), IndSphereL2(2.0))
   x2 = [3.0 * 2.0^-100, -4.0 * 2.0^-100, 2.0^-101]

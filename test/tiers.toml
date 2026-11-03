@@ -39,6 +39,7 @@ quick = [
   "losses",
   "nested_box_values",
   "sets",
+  "lmo",
   "spectral",
   "spectralfunction",
   # precision, boundaries, non-finite values, validation before writes
@@ -58,6 +59,7 @@ quick = [
 standard = [
   "affine",
   "ballconstrained",
+  "indicator_steps",
   "symmetric_sphere",
   "bernoulli",
   "binary",

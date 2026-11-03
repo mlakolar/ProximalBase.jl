@@ -74,6 +74,15 @@ interoperability requirement. The final review should still consider A
 (all-NaN for coupled exceptional input) versus the scoped determined limits
 proposed here, including the risk of hiding upstream divergence.
 
+The reviewer also verified several useful **current-master baselines**:
+`IndBallL1(1)` gives partially NaN output at `[Inf,0]`;
+`IndBallL2(0)` at `[Inf,2]` is all NaN while
+`IndBallL1(0)` returns zero; the group-sphere one-/two-infinity
+distinction holds along finite sequences; asymmetric off-diagonal
+`(+Inf,-Inf)` symmetrizes to NaN rather than an error; an empty
+effective sphere domain can be detected from parameters before any write.
+These are verification data, **not** approvals of the proposed E3 guarantee.
+
 ## Mathematical model and joint-limit criterion
 
 For fixed parameters and finite `x`, the regular-step operator is
@@ -94,8 +103,9 @@ The proposed meaning for exceptional inputs is:
    **finite** `x`, use P1's family-specific endpoint. Where E4 fixes a
    coordinate, keep that domain constraint.
 3. At an admitted exceptional step **and** `x` with ±Inf entries, E3
-   gives the value only if the joint limit as admissible *finite* steps
-   and *finite* inputs approach their targets is path-independent. Otherwise
+   defines the proximal output only if the joint limit as admissible
+   *finite* steps and *finite* inputs approach their targets is
+   path-independent. Otherwise
    NaN is returned in the dependent entries (the entire coupled projection
    block when no unique projected point exists). In particular, **do not
    select either of two disagreeing iterated limits**.

@@ -117,12 +117,26 @@ no oracle in this version, and neither has a set with an infinite radius.
 | [`IndBallL1`](@ref)`(r)` | ``-r\operatorname{sign}(g_i)e_i``, ``i = \operatorname{argmax}_i \lvert g_i\rvert`` | the first index; ``0`` if ``g = 0`` |
 | [`IndBallL2`](@ref)`(r)` | ``-r g/\lVert g\rVert_2`` | ``0`` if ``g = 0`` |
 | [`IndBox`](@ref)`(l, u)`, [`IndBallLinf`](@ref)`(r)` | ``l_i`` if ``g_i > 0``, ``u_i`` if ``g_i < 0`` | ``l_i`` if ``g_i = 0`` |
+| `Constrained(IndBox(0, 1), IndHyperplane(1, k))` | ``s_i = 1`` for the ``k`` smallest ``g_i``, ``0`` elsewhere | the earliest indices among equal entries; ``k = 0`` gives ``0`` and ``k = n`` gives ``1`` |
 
 The first index is the first in linear order. `lmo!` validates the sizes and
 parameters before it writes, and `s` may be `g`. A `NaN` in `g` gives `NaN` in the
 entries that depend on it, and infinite entries take their limit where it is
 determined (see [`lmo!`](@ref) for the details and for the element types).
 The package has no weighted ℓ1 ball, so the oracle has no weights either.
+
+The *capped simplex* ``\{s : 0 \le s \le 1,\ \sum_i s_i = k\}`` is the only
+`LinearConstrained` set with an oracle, and only in the canonical form above: the
+bounds `0` and `1` as scalars, and the normal `1` or an array of ones, with an
+integer ``0 \le k \le n``. A halfspace, a hyperslab, other bounds, other normals
+and a noninteger `k` have none. A scalar normal does not know the dimension, so
+`lmo!` checks ``k \le n`` when it sees ``g``. It selects the threshold with an
+expected-linear-time selection rather than a sort, keeps a copy of ``g`` in the
+scratch of the set (use one set per thread), and for ``k = 0`` or ``k = n`` does
+not read ``g``. The group-norm ball is not covered: the package has no indicator of
+the weighted ``\ell_1/\ell_2`` ball (`IndBallGroupL0` is a sparsity constraint, and
+`Constrained(GroupNormL2(…), IndBallL2(…))` is a penalized problem), so an oracle
+for it needs a representation first.
 
 *Unsupported* and *unbounded below* are different statements. `haslmo(C)` is
 `false` when the package provides no oracle for `C`, including every set it

@@ -1025,6 +1025,73 @@ function _top_sum!(v::AbstractVector{T}, κ::T) where {T}
 end
 
 ####################################
+#  the linear minimization oracle of the capped simplex
+####################################
+
+# {s : 0 ≤ sᵢ ≤ 1, Σᵢ sᵢ = k} for an integer k, as Constrained(IndBox(0, 1), IndHyperplane(a, k)) with
+# a = 1 or an array of ones. Nothing else is recognized: other bounds, normals, halfspaces and
+# hyperslabs have no oracle. A scalar normal does not know the dimension, so 0 ≤ k ≤ n is
+# checked by lmo!, as for the empty simplex.
+const _CappedSimplex = LinearConstrained{<:IndBox{<:Real, <:Real}, <:IndHyperplane}
+
+_support_fallback(::_CappedSimplex) = false   # its support function is the sum of the k largest entries
+
+function haslmo(c::_CappedSimplex)
+  c.f.l == 0 && c.f.u == 1 && c.set.b >= 0 && isinteger(c.set.b) && isfinite(c.set.b) &&
+    _constant_normal(c.set.a) == 1
+end
+
+function lmo!(s::AbstractArray, c::_CappedSimplex, g::AbstractArray)
+  _checkreal(c, g)
+  _checkreal(c, s)
+  s isa Union{Array, SubArray{<:Any, <:Any, <:Array}} && eltype(s) <: AbstractFloat ||
+    throw(ArgumentError("the output of lmo! must be an Array, or a view of one, of floating-point numbers; got $(typeof(s))"))
+  _checksize(s, g)
+  _checkparams(c, g)
+  haslmo(c) || _lmo_unsupported(c)
+  n = length(g)
+  c.set.b <= n || throw(ArgumentError("the capped simplex with sum $(c.set.b) has no point of size $(size(g))"))
+  _capped_lmo!(s, c, g, Int(c.set.b))
+  s
+end
+
+function _capped_lmo!(s, c, g, k::Int)
+  T = eltype(s)
+  n = length(g)
+  # the minimizer does not depend on g when k is 0 or n (E2)
+  k == 0 && return fill!(s, zero(T))
+  k == n && return fill!(s, one(T))
+  v = _buffer!(c.scratch, eltype(g), n)
+  nan = false
+  @inbounds for i in 1:n
+    x = g[i]
+    nan |= isnan(x)
+    v[i] = x
+  end
+  nan && return fill!(s, T(NaN))
+  # the k-th smallest entry, then the entries below it, then the first ties
+  t = _kth_largest!(view(v, 1:n), n - k + 1)
+  below = 0
+  @inbounds for i in 1:n
+    below += v[i] < t
+  end
+  ties = k - below
+  # a single pass in linear order, reading g[i] before writing s[i]: s may be g
+  @inbounds for i in 1:n
+    x = g[i]
+    if x < t
+      s[i] = one(T)
+    elseif x == t && ties > 0
+      ties -= 1
+      s[i] = one(T)
+    else
+      s[i] = zero(T)
+    end
+  end
+  s
+end
+
+####################################
 #  the slopes of scalar proximal operators
 ####################################
 

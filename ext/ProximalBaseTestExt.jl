@@ -240,9 +240,9 @@ end
 #  separable functions
 ####################################
 
-# x with about a third of its entries set to zero
+# x as floats (the iterates store prox results, which an Int array cannot), with about a third of its entries set to zero
 function _with_zeros(x::AbstractArray, rng)
-  z = copy(x)
+  z = float.(x)
   for i in eachindex(z)
     (rng === nothing ? rand() : rand(rng)) < 1 / 3 && (z[i] = 0)
   end
@@ -265,7 +265,7 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
   end
 
   # coordinate steps on a sparse iterate
-  xz = float.(_with_zeros(x, rng))                 # iterates hold floats: an Int x would fail to store a prox result
+  xz = _with_zeros(x, rng)
   pz = prox(f, xz, γ)
   xs = SparseIterate(xz)
   y = SparseIterate(float(eltype(x)), size(x)...)

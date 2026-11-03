@@ -274,7 +274,7 @@ PB.iszeropreserving(::UserSquare) = true
     @test passes(() -> PT.test_separable(NormL1(0.5, Ws), randn(5, 5), γ; symmetric = true))
     # an integer x: the iterates hold floats, so the prox results can be stored
     @test passes(() -> PT.test_separable(NormL1(0.5), [3, -2, 0, 1, -4, 2], γ; rng = Xoshiro(2), groups = 2))
-    @test passes(() -> PT.test_separable(NormL1(0.5), [3 -2 1; -2 0 4; 1 4 -3], γ; symmetric = true))
+    @test passes(() -> PT.test_separable(NormL1(0.5), [3 -2 1; -2 0 4; 1 4 -3], γ; rng = Xoshiro(2), symmetric = true))
     # zero-preserving functions with and without a standalone value
     for f in (NormL1(0.5), Scaled(NormL1(0.5), 2.0), Conjugate(NormL1(0.5)), ValueWrapper(NormL1(0.5)),
               ValueWrapper(Scaled(NormL1(0.5), 2.0)), VectorValue(NormL1(0.5)))

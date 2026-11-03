@@ -301,12 +301,14 @@ operators and not for all bounded/separable sets.
   status remains family-specific, and extension requires a separate
   contract decision.
 
-For a covered family, a **nonconstant effective coupled block** with a
-structurally active input position equal to `±Inf` yields all-NaN
-output in that dependent block; a NaN input follows E2.
+For a covered family, a **nonconstant effective free coupled block** with
+a structurally active input position equal to `±Inf` yields all-NaN
+output in that dependent *free* block; a NaN input follows E2.
 The returned value from `value_and_prox!` is NaN when the stored output
 is NaN, following E2/O2. No per-coordinate `[NaN,0]` mixed output
-is promised as a bounded coupled projection.
+is promised for an **ordinary positive-radius ball with all coordinates
+free**. Exact zeros from E4-fixing other coordinates are a different,
+structurally justified situation.
 
 ### 4.2 Independent positions and degenerate domains
 
@@ -383,9 +385,28 @@ proximal output (and value at the stored point) unchanged, after
 applying E4's domain restrictions. This describes radius-zero balls
 and genuinely fixed coordinates/groups.
 
+The quantifier must include **every choice of the other finite
+argument coordinates**, not just their values in the failing
+example. For instance, in an ordinary positive-radius ℓ1-ball
+projection at `x=[Inf,0]`, the second projected component
+has the unique limit zero, and at finite input `x₂=0` it is
+often zero; this does **not** make it structurally independent of
+the first input across arbitrary nonzero `x₂`.
+Returning `[NaN,0]` would still violate the proposed A guarantee
+for the fully free coupled ball. By contrast, an E4-fixed
+coordinate is zero regardless of **all** finite argument values.
+
+With a hard-fixed first coordinate and an exceptional **free**
+second coordinate, the correct proposed scope may be
+`[0,NaN]`: the fixed entry is structurally independent, while
+the reduced free coupled block is undefined. A NaN returned value
+still follows O2. **Review this exact boundary** rather than
+interpreting "whole block" as either "all original stored entries
+must be NaN" or "any coincidentally zero entry stays zero."
+
 The classification must be stable under equivalent representations
 and not change merely because intermediate arithmetic is rewritten.
-However, when a *simultaneous exceptional step* is involved,
+When a *simultaneous exceptional step* is involved,
 independence cannot be inferred only from the map evaluated at
 `γ=Inf`: the finite-parameter joint limit may be path-dependent,
 as Section 5 explains.
@@ -519,6 +540,7 @@ the value at stored y (O2).
 | `Constrained(IndBallL0(1), IndSphereL2(1))` | `[Inf,0]` | Inf | y all NaN; value NaN | Indicator endpoint accepted; input still exceptional |
 | `Constrained(NormL1(1,[Inf,1]), IndSphereL2(1))` | `[Inf,3]` | 1 | y `[0,1]`; value 1 | First coordinate structurally hard-fixed (E4), review implementation |
 | Same hard-fixed sphere | `[NaN,3]` | 1 | y `[0,1]`; value 1 | E2/E4 independence; review separately |
+| Same hard-fixed sphere | `[3,Inf]` | 1 | y `[0,NaN]`; value NaN | Fixed entry stays 0; *effective free* block exceptional |
 | `Constrained(NormL1(1), IndBallL2(1))` | `[3,0]` | Inf | y `[0,0]`; value 0 | Named convex minimizer projection |
 | `Constrained(NormL1(0), IndBallL2(1))` | `[3,0]` | Inf | y `[1,0]`; value 0 | Entire ball is minimizer set |
 | `Constrained(NormL1(1), IndBallL2(1))` | `[Inf,0]` | Inf | y all NaN; value NaN | Simultaneous pair path-dependent; endpoint constant alone insufficient |
@@ -651,11 +673,14 @@ of this narrow amendment.
    to the broader scopes, especially `NormL2` and other
    unbounded functions.
 4. **Meaning of dependence:** Is the "structurally fixed under all
-   finite steps" exception mathematically robust under nested wrappers,
-   zero penalty, hard coordinate/group weights, and
-   `SymmetricSparseIterate` argument symmetrization?
-   Should NaN in a hard-fixed input be ignored consistently
-   with E2? Could this require a separate issue even if A is accepted?
+   finite steps and **all other finite inputs**" exception mathematically
+   robust under nested wrappers, zero penalty, hard coordinate/group
+   weights, and `SymmetricSparseIterate` symmetrization?
+   Is `[0,NaN]` correct when one entry is hard-fixed and
+   a different *free* entry is infinite? Could a structural mask be
+   certified without a costly generic dependence analysis?
+   Should NaN in a hard-fixed input be ignored consistently with E2?
+   Could this require a separate issue even if A is accepted?
 5. **Zero-radius:** Do both `IndBallL1(0)` and
    `IndBallL2(0)` intentionally return zero at **NaN**
    input as well as ±Inf, or should E2 take a stricter view?

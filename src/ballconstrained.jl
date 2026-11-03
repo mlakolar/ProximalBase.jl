@@ -168,12 +168,6 @@ value_and_prox!(y::AbstractArray, c::SphereConstrained{<:NormL1}, x::AbstractArr
   bb = s - a
   s, (a - (s - bb)) + (b - bb)
 end
-# The threshold γλ0w rounded once to U, with the product formed in the promotion of U and the
-# factors' types, so that a product that overflows the factors' type is still finite in U.
-@inline function _sphere_threshold(::Type{U}, γ, λ0, w) where {U<:AbstractFloat}
-  R = promote_type(U, float(typeof(γ)), float(typeof(λ0)), float(typeof(w)))
-  convert(U, _weight_product(convert(R, γ), convert(R, λ0), convert(R, w)))
-end
 @inline function _margin_greater(n, t, bn, bt)
   s1, e1 = _two_sum(n, bt)
   s2, e2 = _two_sum(bn, t)
@@ -193,18 +187,98 @@ end
   m, bm = n - t, bn - bt
   m > bm || (m == bm && _margin_greater(n, t, bn, bt))
 end
-# √2 a > b, for the margin a of a pair and b of a diagonal entry, by a ratio so that
-# nothing underflows or overflows: the sign cases first, then b/a against √2.
-@inline function _pair_greater(a, b)
-  a > 0 && return b <= 0 || b / a < sqrt(oftype(a, 2))
-  a == 0 && return b < 0
-  b < 0 && b / a > sqrt(oftype(a, 2))
+# The sign of D - √2 P for the exact margins D = nd - td of a diagonal entry and P = np - tp of
+# an off-diagonal pair, whose objective counts √2 times (A2); the tie, sign 0, is only D = P = 0,
+# since √2 is irrational. A rounded difference of two nonnegative numbers has the sign of the
+# exact one, so the signs decide unless both margins have one sign. Then the rounded ratio
+# |d|/|p| is within 3 roundings of |D|/|P| (an overflow or underflow is far from √2), so it
+# decides outside 8 ulps of √2, and within them D² and 2P² are compared exactly. Nothing
+# allocates for machine floats. With a non-finite entry the result does not matter, since the
+# block is NaN (E2); nothing throws.
+@inline function _diagonal_pair_sign(nd, td, np, tp)
+  d, p = nd - td, np - tp
+  s = d > 0 && p > 0 ? 1 : d < 0 && p < 0 ? -1 : 0
+  s == 0 && return d > 0 ? 1 : d < 0 ? -1 : p > 0 ? -1 : p < 0 ? 1 : 0   # also 0 at a NaN
+  ρ, s2, δ = d / p, sqrt(oftype(d, 2)), 8 * eps(oftype(d, 1))   # s2 ± δ: 8 ulps, exactly
+  ρ > s2 + δ && return s
+  ρ < s2 - δ && return -s
+  s * _diagonal_pair_exact(nd, td, np, tp, s)
 end
-# b > √2 a, for the margin b of a diagonal entry and a of a pair
-@inline function _diagonal_greater(b, a)
-  b > 0 && return a <= 0 || b / a > sqrt(oftype(a, 2))
-  b == 0 && return a < 0
-  a < 0 && b / a < sqrt(oftype(a, 2))
+
+# The type of the exact comparison: every machine float is exact in Float64, whose exponent range
+# holds the scaled products below; a BigFloat (or another float) computes in the current BigFloat
+# precision (T7), whose exponent range is unbounded for this purpose.
+_pair_exact_type(::Type{<:Union{Float16, Float32, Float64}}) = Float64
+_pair_exact_type(::Type) = BigFloat
+@inline _two_prod(a, b) = (h = a * b; (h, fma(a, b, -h)))
+
+# sign(A² - 2B²) for A = |D|, B = |P| (sign s of D and P), within the band, so 1 < A/B < 2.
+# A and B are exact pairs ah + al and bh + bl (a difference of two numbers is exact as a sum by
+# _two_sum). Let 2^E ≤ ah < 2^(E+1) and q the precision. F(al, bl) = (ah + al)² - 2(bh + bl)² is a
+# multiple of u², for u the smallest ulp of its operands, and is not 0 (√2 is irrational), so
+# |F| ≥ u²; setting a tail x to 0 changes F by less than 2^(E+4)|x|. With both tails dropped,
+# u ≥ 2^(E-q), so they go if both are below 2^(E-2q-5). Otherwise the larger one stays, so
+# u ≥ 2^(E-3q-4), and the smaller goes if below 2^(E-6q-12). Scaled by 2^-E, the remaining terms
+# lie in [2^-(6q+12), 2), or are at least the smallest subnormal scaled by 2^-E, so their products
+# and the products' rounding errors are normal numbers in Float64: F is the exact sum of 12
+# numbers, whose sign comes from an exact expansion.
+@noinline function _diagonal_pair_exact(nd, td, np, tp, s)
+  isfinite(nd) && isfinite(np) || return 0     # an infinite entry: the block is NaN (E2)
+  W = _pair_exact_type(typeof(nd))
+  nd, td, np, tp = W(nd), W(td), W(np), W(tp)
+  ah, al = s > 0 ? _two_sum(nd, -td) : _two_sum(td, -nd)
+  bh, bl = s > 0 ? _two_sum(np, -tp) : _two_sum(tp, -np)
+  E, q = exponent(ah), precision(W)
+  if max(abs(al), abs(bl)) < ldexp(one(W), E - 2q - 5)
+    al, bl = zero(W), zero(W)
+  else
+    lim = ldexp(one(W), E - 6q - 12)
+    abs(al) < lim && (al = zero(W))
+    abs(bl) < lim && (bl = zero(W))
+  end
+  A, a, B, b = ldexp(ah, -E), ldexp(al, -E), ldexp(bh, -E), ldexp(bl, -E)
+  iszero(a) && iszero(b) && return _sum_sign((_two_prod(A, A)..., _two_prod(-2B, B)...))   # exact margins
+  _sum_sign((_two_prod(a, a)..., _two_prod(-2b, b)..., _two_prod(2A, a)..., _two_prod(-4B, b)...,
+             _two_prod(A, A)..., _two_prod(-2B, B)...))
+end
+
+# The sign of the exact sum of the terms. A pass of error-free sums (VecSum) keeps the sum and
+# leaves its rounded value last; when that dominates twice the sum of the other magnitudes (whose
+# rounding error is far smaller), it has the sign of the sum. Otherwise, after a few passes, an
+# exact expansion decides.
+function _sum_sign(e::Tuple{T, Vararg{T}}) where {T}
+  N = length(e)
+  for _ in 1:3
+    e = _vecsum(e)
+    rest = sum(abs, Base.front(e))
+    abs(e[N]) > 2rest && return Int(sign(e[N]))
+    iszero(rest) && return Int(sign(e[N]))
+  end
+  _expansion_sign(e)
+end
+@inline _vecsum(e::NTuple{1}) = e
+@inline function _vecsum(e::NTuple{N}) where {N}
+  s, l = _two_sum(e[2], e[1])
+  (l, _vecsum((s, Base.tail(Base.tail(e))...))...)
+end
+
+# The sign of the exact sum of the terms: Shewchuk's Grow-Expansion adds them one by one into a
+# nonoverlapping expansion of increasing magnitude, whose largest nonzero component has the sign
+# of the sum. The sums stay far from overflow here.
+function _expansion_sign(e::Tuple{T, Vararg{T}}) where {T}
+  N = length(e)
+  for j in 2:N
+    h = e[j]
+    for i in 1:(j - 1)
+      h, l = _two_sum(h, e[i])
+      e = Base.setindex(e, l, i)
+    end
+    e = Base.setindex(e, h, j)
+  end
+  for i in N:-1:1
+    iszero(e[i]) || return Int(sign(e[i]))
+  end
+  0
 end
 
 # ldexp(x, e) for 1/8 < x < 2, rounded once also where the result is subnormal (before
@@ -241,7 +315,7 @@ _layout_mult(L::_LowerLayout, ::Type{U}, k) where {U} = mod1(k, L.p) == cld(k, L
 @inline _layout_put!(::_DenseLayout, y, k, z) = (y[k] = z)
 @inline _layout_put!(L::_LowerLayout, y, k, z) = (y[mod1(k, L.p), cld(k, L.p)] = z)
 @inline _l1_margin(x, f, γ, ::Type{U}, k) where {U} =
-  @inbounds max(abs(convert(U, x[k])) - _sphere_threshold(U, γ, f.λ0, _entry(f.w, k)), zero(U))
+  @inbounds max(abs(convert(U, x[k])) - _weight_product(U, γ, f.λ0, _entry(f.w, k)), zero(U))
 # Σ multiplicity ⋅ (margin / top)². Over every entry the sum may be reassociated by SIMD (A6),
 # as the norms of the package are; it only scales the result, and decides nothing.
 function _sphere_sumsq(::_DenseLayout, x, f, γ, ::Type{U}, top) where {U}
@@ -306,17 +380,17 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
     i = row + (col - 1) * p
     n = abs(convert(U, x[row, col]))
     nonfinite |= !isfinite(n)
-    threshold = _sphere_threshold(U, γ, f.λ0, _entry(f.w, i))   # not rounded to T first: selection and shrinkage agree
+    threshold = _weight_product(U, γ, f.λ0, _entry(f.w, i))   # not rounded to T first: selection and shrinkage agree
     better = if k == 0 || isinf(bestc)
       true
-    elseif isinf(threshold)
+    elseif isinf(threshold) || bestn > bestc  # a positive margin: the shrink follows, and no winner is needed
       false
     elseif (row == col) == (kr == kc)         # the same multiplicity: compare the margins
       _margin_better(n, threshold, bestn, bestc)
     elseif row == col                         # a diagonal entry against a pair, whose margin counts √2 times
-      _diagonal_greater(n - threshold, bestn - bestc)
+      _diagonal_pair_sign(n, threshold, bestn, bestc) > 0
     else
-      _pair_greater(n - threshold, bestn - bestc)
+      _diagonal_pair_sign(bestn, bestc, n, threshold) < 0
     end
     better && ((k, kr, kc, bestn, bestc) = (i, row, col, n, threshold))
   end
@@ -343,7 +417,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Nor
   @inbounds for i in eachindex(IndexLinear(), x)
     n = abs(convert(U, x[i]))
     nonfinite |= !isfinite(n)
-    threshold = _sphere_threshold(U, γ, f.λ0, _entry(f.w, i))
+    threshold = _weight_product(U, γ, f.λ0, _entry(f.w, i))
     # margins n - t compared without rounding (see _margin_greater and _margin_better)
     (k == 0 || isinf(bestc) || (!isinf(threshold) && _margin_better(n, threshold, bestn, bestc))) && ((k, bestn, bestc) = (i, n, threshold))
   end
@@ -389,7 +463,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Gro
   kbest, ibest, bestn, bestc = 0, 0, zero(U), zero(U)
   for k in eachindex(f.groups)
     n = convert(U, _group_norm2(x, f.groups[k]))
-    threshold = convert(U, convert(T, _weight_product(γ, f.λ0, f.w[k])))
+    threshold = convert(U, _weight_product(T, γ, f.λ0, f.w[k]))
     (kbest == 0 || isinf(bestc) || (!isinf(threshold) && n - bestn > threshold - bestc)) && ((kbest, bestn, bestc) = (k, n, threshold))
   end
   @inbounds for i in eachindex(IndexLinear(), x)

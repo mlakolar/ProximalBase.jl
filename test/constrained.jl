@@ -423,10 +423,10 @@ end
   # multiplier and threw that the hyperplane misses the domain.
   for (W, λe, γe, be) in ((Float32, 30, 100, -29), (Float64, 60, 1000, -59))
     λ, γ, b = ldexp(W(1), λe), ldexp(W(1), γe), ldexp(W(1), be)
-    for slope0 in (nothing, NaN)                           # the warm slope, and none
+    for slope0 in (NaN, -Float64(b))                       # no cached slope, and the exact one, -b
       c = Constrained(SqrNormL2(λ), IndHyperplane(W(1), b))
       c.last[] = -0.5
-      slope0 === nothing || (c.slope[] = slope0)
+      c.slope[] = slope0
       z = prox(c, zeros(W, 2), γ)
       @test z ≈ fill(ldexp(W(1), be - 1), 2)       # 2^(be-1), half of b each
       @test sum(z) ≈ b

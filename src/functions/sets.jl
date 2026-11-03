@@ -739,6 +739,15 @@ function _write_simplex!(y, x, τ::T) where {T}
   y .= max.(x .- τ, zero(T))
   any(isnan, y)
 end
+# a plain argument is read for NaN before the write (an output of another type may alias it)
+function _write_simplex!(y, x::Array, τ::T) where {T}
+  bad = false
+  @inbounds @simd for i in eachindex(x)
+    bad |= x[i] != x[i]
+  end
+  y .= max.(x .- τ, zero(T))
+  bad
+end
 function _write_simplex!(y::Array, x::Array, τ::T) where {T}
   bad = false          # an OR of a Bool vectorizes; counting the NaNs does not
   @inbounds @simd for i in eachindex(y, x)

@@ -487,10 +487,11 @@ function _scale!(x::SparseIterate{T}, s::Number, op::F) where {T, F}
 end
 
 # Whether the scalar can activate an unstored coordinate, tested before the working
-# set is read: the fast path then costs one scalar test (#427). With IEEE entries,
-# op(zero(T), s) cannot throw, and a zero result converts to zero. Other entries
-# keep the full test: (0//1) / 0 throws, though a fully stored iterate divides fine.
-_may_activate(::SparseIterate{T}, s::Real, op::F) where {T <: Base.IEEEFloat, F} = !iszero(op(zero(T), s))
+# set is read: the fast path then costs one scalar test (#427). With IEEE entries and
+# an IEEE scalar, op(zero(T), s) cannot throw, and a zero result converts to zero.
+# Other pairs keep the full test, as op(zero(T), s) may throw where a fully stored
+# iterate scales fine: (0//1) / 0 does, and so may a user-defined Real.
+_may_activate(::SparseIterate{T}, s::Base.IEEEFloat, op::F) where {T <: Base.IEEEFloat, F} = !iszero(op(zero(T), s))
 _may_activate(::SparseIterate, s::Number, op::F) where {F} = true
 
 # The O(n) path, kept out of line: inlined, its stores give every call of _scale!,

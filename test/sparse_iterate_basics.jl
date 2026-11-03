@@ -22,6 +22,14 @@ Base.iszero(::OnceReal) = false
 Base.convert(::Type{Int}, x::OnceReal) =
   (x.count[] += 1) == 1 ? 1 : throw(InexactError(:Int, Int, x))
 
+# a real number whose product with zero throws: with every coordinate stored, scaling must not
+# form 0 * s, as the broadcast does not (#427)
+struct NonzeroOnly <: Real
+  v::Float64
+end
+Base.:*(a::Float64, s::NonzeroOnly) = iszero(a) ? throw(DomainError(a, "zero operand")) : a * s.v
+Base.:*(s::NonzeroOnly, a::Float64) = a * s
+
 # Keep each operation and its broadcast together so the reference preserves operand order.
 scale_right!(x, s) = rmul!(x, s)
 scale_left!(x, s) = lmul!(s, x)
@@ -364,6 +372,10 @@ end
         end
         rationals = SparseIterate(Rational{Int}, 3); rationals[1] = 1//2
         check_scaling(scale_right!, broadcast_scale_right!, rationals, 1//3)
+
+        full = SparseIterate(3); full[2] = -2; full[1] = 1; full[3] = 3
+        check_scaling(scale_right!, broadcast_scale_right!, full, NonzeroOnly(2))
+        check_scaling(scale_left!, broadcast_scale_left!, full, NonzeroOnly(2))
 
         C = SparseIterate(3); C[1] = 1.0; activate!(C, 2)
         expected = copy(C); expected .*= Inf

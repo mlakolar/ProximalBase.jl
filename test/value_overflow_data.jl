@@ -389,6 +389,50 @@ allocated_pow2(::Type{T}, E, a, b, c) where {T} = (pow2_three(T, E, a, b, c); @a
       @test f64(reshape(Float32[ldexp(1f0, 80)], 1, 1)) === ldexp(1f0, -76)
     end
 
+    @testset "rounding of the final dots, and lossy scalings (review of #520)" begin
+      # n products x[i] (A x)[i] = 1.5 2^-1074 each tie up to 2^-1073: the error grows with n and does not scale with max|x|
+      n = 64
+      x = fill(2.0^-537, n); x[1] = 2.0^-300
+      A = zeros(n, n); for i in 2:n; A[i, i] = 1.5; end; A[1, 1] = 2.0^-421
+      @test near_scale(QuadraticFunction(A)(x), big_q(A, x), abs_q(A, x))
+      @test near_scale(value_and_gradient!(zeros(n), QuadraticFunction(A), x), big_q(A, x), abs_q(A, x))
+      @test near_scale(QuadraticFunction(Diagonal(diag(A)))(x), big_q(A, x), abs_q(A, x))
+      p = 16
+      Ak = Matrix(1.5I, p, p); Ak[1, 1] = 2.0^-421
+      Θk = fill(2.0^-537, p, p); Θk[1, 1] = 2.0^-300
+      fk = KronQuadratic(Ak, Matrix{Float64}(I, p, p))
+      @test near_scale(fk(Θk), big_k(Ak, Matrix{Float64}(I, p, p), Θk), abs_k(Ak, Matrix{Float64}(I, p, p), Θk))
+      @test near_scale(value_and_gradient!(zeros(p, p), fk, Θk), big_k(Ak, Matrix{Float64}(I, p, p), Θk), abs_k(Ak, Matrix{Float64}(I, p, p), Θk))
+      # a huge entry of A scales Θ into the subnormal range: the scaled operand loses entries, the exact tier runs
+      let H = 2.0^1000
+        B = [0 H 0; H 1 2.0^80; 0 2.0^80 1]
+        Θ = [0 2.0^50 1.37 * 2.0^-30]
+        f = KronQuadratic(fill(1.0, 1, 1), B)
+        @test isnan(dot(Θ, (fill(1.0, 1, 1) * Θ) * B) / 2)               # the ordinary value
+        @test near_scale(f(Θ), big_k(fill(1.0, 1, 1), B, Θ), abs_k(fill(1.0, 1, 1), B, Θ))
+      end
+      let A = zeros(4, 4), B = zeros(3, 3), Θ = zeros(4, 3)
+        A[1, 3] = A[3, 1] = 2.0^480; A[1, 4] = A[4, 1] = -2.0^920
+        B[2, 3] = B[3, 2] = 2.0^56
+        Θ[1, 2] = 2.0^80; Θ[3, 3] = 1.37 * 2.0^-32
+        f = KronQuadratic(A, B)
+        @test near_scale(f(Θ), big_k(A, B, Θ), abs_k(A, B, Θ))
+      end
+      # an overflow whose terms meet exact zeros: the ordinary value is NaN, the true one is finite
+      let A = Float32[6.9088907f-15 1.4637222f22 7.66848f-39 -1.3283052f-32 0.0 7.732994f-28 0.0;
+                      -2.527356f23 0.0 2.7910939f29 -55866.508 -6.0957953f-12 2.0488126f8 -8.1965946f17;
+                      4.0f-45 -0.0002509096 -3.0f-45 0.0 3.0f-45 3.0f-45 -1.0f-45;
+                      -1.0f-45 -1751.5917 0.0 1.0f-45 1.0f-45 1.0f-45 8.0922083f-38;
+                      -1.0f-45 -6.202017f-12 1.0f-45 1.0f-45 -1.0f-45 1.0f-45 8.006708f-35;
+                      1.2721369f-27 5482.0356 -1.0f-45 -3.0f-45 0.0 3.0f-45 0.0;
+                      0.0 2.4653365f27 1.0f-45 0.0 0.0 -1.6910727f-35 2.1856801f-26]
+        x = Float32[1.4967584f-13, -0.0, -4.0337943f12, 26206.658, -8.882388f20, 859.72455, 0.0]
+        @test isnan(dot(x, A * x) / 2)
+        @test near_scale(QuadraticFunction(A)(x), big_q(A, x), abs_q(A, x))
+        @test near_scale(QuadraticFunction(sparse(A))(x), big_q(A, x), abs_q(A, x))
+      end
+    end
+
     @testset "KronQuadratic: tiers of the recovery" begin
       # A tiny entry of A against a huge entry of Θ and a large one against a tiny one (found by search): one
       # scale per stage cannot hold both, the scaled result fails its check and the exact tier runs (it allocates)

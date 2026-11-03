@@ -742,30 +742,30 @@ function value_and_gradient!(g::AbstractVector, f::QuadraticFunction, x::Abstrac
   _value_at(_quadratic_checked(f, x, v, eltype(g)), x)
 end
 
-# The ordinary value, or its recovery: from overflow (a non-finite value, below), or from the
-# underflow of the products A x into the buffer type P, which loses what a large entry of x
-# multiplies (R1, #520).
+# The ordinary value, or its recomputation from the exact products: after an overflow (a non-finite
+# value of finite data), or when the products A x rounded into the buffer type P, and the final dots,
+# could have lost more than eps |v| (R1, #520).
 @inline function _quadratic_checked(f::QuadraticFunction, x, v, ::Type{P}) where {P}
-  isfinite(v) || return _quadratic_value_recover(f, x, v)
-  _quadratic_underflow_risk(f, x, v, P) ? _quadratic_underflow_recover(f, x, v) : v
+  (!isfinite(v) || _quadratic_underflow_risk(f, x, v, P)) ? _quadratic_value_recover(f, x, v) : v
 end
 
 # Rounding a product into P changes an entry of A x by at most denorm_min(P)/2 per term, and that
-# error is multiplied by an entry of x: |v| < n² floatmin(P) max|x| / 4 (see _underflow_threshold)
-# is the condition under which it can exceed eps |v|. A well-scaled value passes with
+# error is multiplied by an entry of x; the products x[i] (A x)[i] and b[i] x[i] of the dots lose up to
+# denorm_min(P)/2 each. |v| < floatmin(P) (n² max|x| / 4 + n) (see _underflow_threshold) is the condition
+# under which that can exceed eps |v|. A well-scaled value passes with
 # one pass over x. An exact zero of x, or any entry of A, does not fire it.
 @inline function _quadratic_underflow_risk(f::QuadraticFunction, x, v, ::Type{P}) where {P}
   (_underflow_checked(P) && _underflow_checked(typeof(v))) || return false
   n = length(x)
   m = _stored_maxabs(x)
   iszero(m) && return false
-  abs(v) < _underflow_threshold(P, n * n / 4, m)
+  abs(v) < _underflow_threshold(P, n * n / 4, m, n)
 end
 
 # ½ x'Ax + b'x + c summed from the exact products, each a significand and an exponent (_ExpSum), so that
 # no A[i,j] x[j] is rounded into a type that can lose it. The cost is that of A x with a few
 # bit operations per entry (exact zeros are skipped), and nothing is allocated.
-@noinline function _quadratic_underflow_recover(f::QuadraticFunction, x::AbstractVector, v)
+@noinline function _quadratic_value_recover(f::QuadraticFunction, x::AbstractVector, v)
   R = typeof(v)
   _all_finite(x) || return v
   (_all_finite(f.A) && _all_finite(f.b) && isfinite(f.c)) || return v
@@ -774,30 +774,6 @@ end
   f.b === nothing || (acc = _expsum_dot(acc, f.b, x, 0))
   acc = _expsum_product(acc, f.c, one(R))
   _expsum_value(R, acc)
-end
-
-# A product, quadratic dot or linear term that overflows at a representable value
-# (R1): x is scaled by 2^-kx into f.w, so that every entry of A xs (in f.tmp) and
-# the dot stay below floatmax/4; the quadratic term, in units of 2^(2kx), the
-# linear one, in units of 2^kx, and c are added by their exponents, rounded once.
-# Nothing is allocated when x has the element type of the buffers.
-@noinline function _quadratic_value_recover(f::QuadraticFunction{T}, x::AbstractVector, v) where {T}
-  _all_finite(x) || return v
-  (_all_finite(f.A) && _all_finite(f.b) && isfinite(f.c)) || return v
-  R = typeof(v)
-  E = _max_exponent(T)        # the products are stored in the buffers, of type T
-  L = _log2_ceil(length(x))
-  i = max(0, _bound_exponent(_stored_maxabs(f.A)) + 2L + 3 - E)   # |A xs| < 2^(E-3-L) and |xs| < 2^-i ≤ 1
-  kx = _bound_exponent(_stored_maxabs(x)) + i
-  xs = eltype(x) === T ? f.w : similar(f.w, R)
-  sx = _power_factors(R, -kx)
-  xs .= x .* sx[1] .* sx[2]
-  mul!(f.tmp, f.A, xs)
-  q = dot(xs, f.tmp) / 2
-  f.b === nothing && return _pow2_sum(R, (q, 2kx), (f.c, 0))
-  j = max(0, _bound_exponent(_stored_maxabs(f.b)) + L + 2 - E)
-  l = _scaled_dot(f.b, xs, _power_factors(R, -j))
-  _pow2_sum(R, (q, 2kx), (l, kx + j), (f.c, 0))
 end
 
 function gradient!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector)
@@ -1001,8 +977,8 @@ end
 # Rounding into T changes an entry of A D by at most p denorm_min/2, that of A D B by at most q
 # max|B| times that plus q denorm_min/2, and the value by at most the sum of |D| times those: the
 # error that the products can have lost is at most
-# eps floatmin max|D| p q² (1 + p max|B|) / 4 (see _underflow_threshold), and it matters when
-# it exceeds eps |v|. f.D holds Θ. The maxima are read on each call, not stored, because
+# eps floatmin (max|D| p q² (1 + p max|B|) / 4 + 2 p q) (see _underflow_threshold; the 2 p q are the
+# products of the final dots), and it matters when it exceeds eps |v|. f.D holds Θ. The maxima are read on each call, not stored, because
 # f.A and f.B are fields that a caller can modify.
 @inline function _kron_underflow_risk(f::KronQuadratic{T}, v) where {T}
   (_underflow_checked(T) && _underflow_checked(typeof(v))) || return false
@@ -1011,7 +987,7 @@ end
   iszero(m) && return false
   p, q = size(D)
   κ = 0.25 * p * q * q * (1.0 + p * Float64(_maximum_abs(f.B)))
-  abs(v) < _underflow_threshold(T, κ, m)
+  abs(v) < _underflow_threshold(T, κ, m, 2p * q)
 end
 
 # A product or dot that overflows or underflows at a representable value (R1), recomputed in two tiers.
@@ -1045,18 +1021,18 @@ end
   lin = f.C === nothing ? nothing : _expsum_pair(R, _expsum_dot(_expsum_start(AT), f.C, D, 0))
   δ = clamp(-(_bound_exponent(_stored_maxabs(f.A)) + Lp + 3), -Δ, Δ)
   kd1 = _bound_exponent(_stored_maxabs(D)) - δ
-  _scale_exponent!(D, T, -kd1)                                  # |Ds| < 2^δ
+  ok = _scale_exponent!(D, T, -kd1)                             # |Ds| < 2^δ
   mul!(AD, f.A, D)
   eb = _bound_exponent(_stored_maxabs(f.B))
   α = clamp(-(eb + Lq + 3), -Δ, Δ)
   ka = _bound_exponent(_stored_maxabs(AD)) - α
-  _scale_exponent!(AD, T, -ka)                                  # |ADs| < 2^α
+  ok &= _scale_exponent!(AD, T, -ka)                            # |ADs| < 2^α
   mul!(W, AD, f.B)
   δ2 = clamp(-(_bound_exponent(_stored_maxabs(W)) + Lpq + 3), -Δ, Δ)
-  _scale_exponent!(D, T, δ2 - δ)                                # D' = Ds 2^(δ2-δ)
+  ok &= _scale_exponent!(D, T, δ2 - δ)                          # D' = Ds 2^(δ2-δ)
   m = convert(R, dot(D, W)) / 2
   q1 = (m, (kd1 + δ - δ2) + ka + kd1)
-  if !(_kron_scaled_reliable(T, m, p, q, δ2, eb, ka))
+  if !(ok && _kron_scaled_reliable(T, m, p, q, δ2, eb, ka))
     _densify!(f, Θ)                                             # tier 2 needs Θ unscaled
     q1 = _expsum_pair(R, _kron_exact_sum(f, AT))
   end
@@ -1069,7 +1045,7 @@ end
 function _kron_scaled_reliable(::Type{T}, m, p, q, δ2, eb, ka) where {T}
   _underflow_checked(T) || return true
   κ = 0.25 * p * q * q * (1.0 + p * ldexp(1.0, eb - ka))
-  abs(m) >= _underflow_threshold(T, κ, ldexp(1.0, δ2))
+  abs(m) >= _underflow_threshold(T, κ, ldexp(1.0, δ2), p * q)
 end
 
 # ½ ⟨Θ, (A Θ) B⟩ as an _ExpSum, from f.D = Θ (finite)
@@ -1117,10 +1093,22 @@ function _kron_exact_sum(f::KronQuadratic, ::Type{AT}) where {AT}
   end
   tot
 end
-@inline function _scale_exponent!(X::AbstractArray, ::Type{T}, k::Int) where {T}
-  k == 0 && return X
+# X scaled by 2^k in place; false if a nonzero entry left the normal range (a scaling down rounded it
+# into the subnormal range or to zero), which the bound of _kron_scaled_reliable does not cover
+function _scale_exponent!(X::AbstractArray, ::Type{T}, k::Int) where {T}
+  k == 0 && return true
+  lossless = true
+  if k < 0
+    mn = typemax(T)
+    @inbounds for v in X
+      a = abs(v)
+      (iszero(a) || a >= mn) || (mn = a)
+    end
+    lossless = mn == typemax(T) || exponent(mn) + k >= exponent(floatmin(T))
+  end
   s = _power_factors(T, k)
   X .= X .* s[1] .* s[2]
+  lossless
 end
 gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =
   (_check_oracle_arrays(gradient!, f, G, Θ); _gradient_unchecked!(G, f, Θ))

@@ -674,13 +674,13 @@ end
 
 # An absolute error that the rounding of one product into P cannot exceed is denorm_min/2 =
 # eps floatmin/2. A quadratic form with n products per entry of A x then carries at most
-# n² eps floatmin max|x| / 4 of it, and it matters when it exceeds eps times |v|: that is,
-# when |v| < n² floatmin max|x| / 4. The bound is sound for any finite data, needs only
+# n² eps floatmin max|x| / 4 of it, the N products of the final dots at most N eps floatmin / 2 more,
+# and it matters when it exceeds eps times |v|: that is, when |v| < floatmin (n² max|x| / 4 + N). The bound is sound for any finite data, needs only
 # max|x| from the data, and does not fire at an exact zero of x. The threshold is kept in
 # Float64 and is Inf when it overflows (the recovery then runs, which is safe).
-@inline function _underflow_threshold(::Type{P}, κ, m) where {P}
+@inline function _underflow_threshold(::Type{P}, κ, m, N = 0) where {P}
   # κ floatmin first: floatmin max|x| alone underflows for a small max|x| (a huge κ then needs it)
-  (Float64(κ) * Float64(floatmin(P))) * Float64(m)
+  (Float64(κ) * Float64(floatmin(P))) * Float64(m) + N * Float64(floatmin(P))
 end
 
 ####################################

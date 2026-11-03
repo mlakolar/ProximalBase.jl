@@ -404,7 +404,7 @@ each. In particular:
   seven-row closed list. Some already compute the correct limit;
   others require family-specific analysis and may still have S4/E3
   gaps in the implementation tracker.
-- For parameter-constrained \`γ = Inf\` and infinite input, do not
+- For parameter-constrained `γ = Inf` and infinite input, do not
   infer the answer by taking the endpoint at fixed finite x first.
   The joint limit may be path-dependent (next section).
 
@@ -533,7 +533,7 @@ may remain exact zero.
 | `IndSimplex(1)`, symmetric output | one `+Inf` off-diagonal | both mirrored entries `+1/2` | M2 counts twice |
 | `IndBallL2(1)` | finite but huge `x`, `γ=1` | accurate finite projection | R2 recovery, not Inf input |
 | `IndSphereL2(1)` | `[Inf,0]`, `γ=-1/NaN` | `ArgumentError`; unchanged y | P1 before E3 |
-| `Constrained(NormL1(0), IndSphereL2(1))` | `[Inf,0]`, `γ=1` | `[1,0]` | Equivalent sphere; stage-2 gap until implemented |
+| `Constrained(NormL1(0), IndSphereL2(1))` | `[Inf,0]`, `γ=1` | `[1,0]` | Equivalent sphere; Stage 3 conformance gap until implemented |
 | `Constrained(GroupNormL2(1,[[1,2]]), IndSphereL2(1))` | `[Inf,0,1]`, `γ=1` | `[1,0,0]` | One independent infinite direction |
 | Same group sphere | `[Inf,Inf,1]`, `γ=1` | all NaN | Internal group direction ambiguous |
 | `Constrained(IndBallL0(1), IndSphereL2(1))` | `[Inf,0]`, `γ=Inf` | `[1,0]` | Indicator step |
@@ -685,6 +685,17 @@ This revision adopts B, incorporates those findings, and withdraws
 proposed Decision 21A. It **does not** mean that the reviewer has
 approved this new normative wording.
 
+The third review of [PR #508](https://github.com/mlakolar/ProximalBase.jl/pull/508#pullrequestreview-5746851865)
+verified the staged-B choice against master, including the signed
+simplex patterns, the E1 joint-limit examples and the hard-fixed sphere
+cases. It required four further refinements now reflected in the
+normative proposal: a fixed-`γ=Inf` E2 endpoint example,
+`r/2` for symmetric simplex off-diagonal storage, the
+admitted `γ=Inf` zero-penalty/zero-weight sphere endpoints,
+and removal of the leftover Option A restriction on indicator
+steps. These are proposed contract outcomes, not evidence that
+the implementations already pass every conformance case.
+
 ### Specific questions for final review
 
 1. Are the direct E3 limits, including both simplex variants,
@@ -712,8 +723,9 @@ approved this new normative wording.
 7. Do any unusual supported radii, element types, backends,
    sparse/atom layouts or cache behaviors make the initial
    limits false or unrepresentable?
-8. Is the three-stage implementation sequence the smallest safe
-   path, and are the cost/aliasing/atomicity gates sufficient?
+8. Is the **Stage 0–3** implementation sequence the smallest safe
+   path (contract, #311 validation, #469 direct, #469 constrained),
+   and are the cost/aliasing/atomicity gates sufficient?
 
 Please propose exact counterexamples and replacement wording
 on PR #508. **Leave the PR draft and #311/#469 open** until

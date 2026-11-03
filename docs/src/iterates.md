@@ -499,6 +499,11 @@ the set being traversed does not change.
 | [`activate!`](@ref)`(x, k)` | Add a coordinate to the active set |
 | `dropzeros!(x)` | Remove stored zero entries or zero groups |
 
+Scaling a `SparseIterate` by a number is a value write like `x .*= s`:
+with a finite multiplier or a finite nonzero divisor it touches only the stored
+entries. When the scalar maps zero to a nonzero value, every entry is written,
+and entries that become nonzero join the working set.
+
 Use [`kkt_violation`](@ref) to test excluded zero coordinates and
 [`restrict`](@ref) to construct a supported restricted problem. The
 [Coordinate descent](@ref) chapter explains the full optimality checks that

@@ -571,6 +571,119 @@ _pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_wei
 
 ####################################
 #
+#  Values recomputed when an intermediate underflows (R1, #520)
+#
+####################################
+
+# Only these types have an exponent range that the recovery reasons about.
+_underflow_checked(::Type) = false
+_underflow_checked(::Type{<:Union{Float32, Float64}}) = true
+
+# A sum of terms m 2^e, each a significand m (|m| < 1) and an integer exponent, kept as the
+# compensated sum (s + c) 2^E of the terms in the frame E of the largest exponent seen so far. A
+# term in a larger frame rescales the sum (the part below 2^-1074 of the new frame is dropped,
+# which is below eps times the scale of the sum); a term in a smaller frame is added after
+# scaling it. Compensated additions keep a small term after larger ones cancel.
+struct _ExpSum{R<:AbstractFloat}
+  s::R
+  c::R
+  E::Int
+end
+_expsum_start(::Type{R}) where {R<:AbstractFloat} = _ExpSum{R}(zero(R), zero(R), 0)
+@inline function _expsum_add(acc::_ExpSum{R}, m::R, e::Int) where {R}
+  iszero(m) && return acc
+  if iszero(acc.s) && iszero(acc.c)
+    return _ExpSum{R}(m, zero(R), e)
+  elseif e > acc.E
+    d = acc.E - e
+    s, c = _compensated_add(ldexp(acc.s, d), ldexp(acc.c, d), m)
+    return _ExpSum{R}(s, c, e)
+  end
+  s, c = _compensated_add(acc.s, acc.c, ldexp(m, e - acc.E))
+  _ExpSum{R}(s, c, acc.E)
+end
+# the term a b 2^k, with the product of the significands rounded once per factor
+@inline function _expsum_product(acc::_ExpSum{R}, a, b, k::Int = 0) where {R}
+  (iszero(a) || iszero(b)) && return acc
+  ma, ea = frexp(convert(R, a))
+  mb, eb = frexp(convert(R, b))
+  _expsum_add(acc, ma * mb, ea + eb + k)
+end
+@inline function _expsum_term(acc::_ExpSum{R}, a, xi, mj::R, ej::Int, k::Int) where {R}
+  (iszero(a) || iszero(xi)) && return acc
+  ma, ea = frexp(convert(R, a))
+  mi, ei = frexp(convert(R, xi))
+  _expsum_add(acc, (ma * mi) * mj, ea + ei + ej + k)
+end
+
+# Σ aᵢⱼ xᵢ xⱼ 2^k over the entries of A, with no product rounded into a narrower type: exact zeros are
+# skipped, the stored entries only of a sparse or diagonal matrix are visited
+function _expsum_quadratic(acc::_ExpSum{R}, A::AbstractMatrix, x::AbstractVector, k::Int) where {R}
+  @inbounds for j in 1:size(A, 2)
+    xj = x[j]
+    iszero(xj) && continue
+    mj, ej = frexp(convert(R, xj))
+    for i in 1:size(A, 1)
+      acc = _expsum_term(acc, A[i, j], x[i], mj, ej, k)
+    end
+  end
+  acc
+end
+function _expsum_quadratic(acc::_ExpSum{R}, A::SparseArrays.SparseMatrixCSC, x::AbstractVector, k::Int) where {R}
+  rv, nz = rowvals(A), nonzeros(A)
+  @inbounds for j in 1:size(A, 2)
+    xj = x[j]
+    iszero(xj) && continue
+    mj, ej = frexp(convert(R, xj))
+    for p in nzrange(A, j)
+      acc = _expsum_term(acc, nz[p], x[rv[p]], mj, ej, k)
+    end
+  end
+  acc
+end
+function _expsum_quadratic(acc::_ExpSum{R}, A::Diagonal, x::AbstractVector, k::Int) where {R}
+  d = A.diag
+  @inbounds for i in eachindex(d)
+    xi = x[i]
+    iszero(xi) && continue
+    mi, ei = frexp(convert(R, xi))
+    acc = _expsum_term(acc, d[i], xi, mi, ei, k)
+  end
+  acc
+end
+# Σ aᵢ xᵢ 2^k
+function _expsum_dot(acc::_ExpSum, a::AbstractArray, x::AbstractArray, k::Int)
+  _checksize(a, x)
+  @inbounds for i in eachindex(IndexLinear(), a, x)
+    acc = _expsum_product(acc, a[i], x[i], k)
+  end
+  acc
+end
+# the sum as one significand and exponent, for _pow2_sum, or rounded once into R
+function _expsum_pair(::Type{R}, acc::_ExpSum) where {R}
+  m = acc.s + acc.c
+  iszero(m) && return (zero(R), 0)
+  mm, ee = frexp(m)
+  (convert(R, mm), acc.E + ee)
+end
+function _expsum_value(::Type{R}, acc::_ExpSum{A}) where {R, A}
+  m = acc.s + acc.c
+  iszero(m) && return zero(R)
+  convert(R, _scaled_product(one(A), m, acc.E))
+end
+
+# An absolute error that the rounding of one product into P cannot exceed is denorm_min/2 =
+# eps floatmin/2. A quadratic form with n products per entry of A x then carries at most
+# n² eps floatmin max|x| / 4 of it, and it matters when it exceeds eps times |v|: that is,
+# when |v| < n² floatmin max|x| / 4. The bound is sound for any finite data, needs only
+# max|x| from the data, and does not fire at an exact zero of x. The threshold is kept in
+# Float64 and is Inf when it overflows (the recovery then runs, which is safe).
+@inline function _underflow_threshold(::Type{P}, κ, m) where {P}
+  Float64(κ) * (Float64(floatmin(P)) * Float64(m))
+end
+
+####################################
+#
 #  Selection and projection onto the simplex
 #
 ####################################

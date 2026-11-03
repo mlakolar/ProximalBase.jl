@@ -269,6 +269,213 @@ allocated_pow2(::Type{T}, E, a, b, c) where {T} = (pow2_three(T, E, a, b, c); @a
       @test allocated_pow2(T, E, T(0.5), T(-0.5), one(T)) == 0
     end
   end
+  # Underflow before a large argument entry multiplies the intermediate (R1, #520).
+  # Accuracy classes used below: "ulps" is `within` (relative, a few units in the last place,
+  # for sums without cancellation); "scale" is `near_scale` (error against the cancellation-aware
+  # scale of the computation); "exact" is `===`.
+  @testset "values whose intermediates underflow (#520)" begin
+    big_q(A, x) = dot(big.(x), big.(A) * big.(x)) / 2
+    big_k(A, B, Θ) = dot(big.(Θ), big.(A) * big.(Θ) * big.(B)) / 2
+    # the scale of the same computation with absolute values
+    abs_q(A, x) = dot(abs.(big.(x)), abs.(big.(A)) * abs.(big.(x))) / 2
+    abs_k(A, B, Θ) = dot(abs.(big.(Θ)), abs.(big.(A)) * abs.(big.(Θ)) * abs.(big.(B))) / 2
+
+    for (T, k) in ((Float32, 16), (Float64, 28))
+      a = nextfloat(zero(T))
+      x = T[ldexp(one(T), k) + T(0.25)]
+      A = reshape(T[a], 1, 1)
+      f = QuadraticFunction(A)
+      ref = big_q(A, x)
+
+      @testset "QuadraticFunction $T: A x is subnormal" begin
+        @test within(f(x), ref)                                          # ulps
+        g = zeros(T, 1)
+        @test within(value_and_gradient!(g, f, x), ref)
+        @test isequal(g, gradient!(zeros(T, 1), f, x))                   # the gradient keeps its semantics
+        @test within(f(-x), ref)                                         # signs
+        @test within(f(SparseIterate(x)), ref)                           # iterate representations
+        @test within(f(view([zero(T); x], 2:2)), ref)
+        @test within(value_and_gradient!(zeros(T, 1), f, SparseIterate(x)), ref)
+        xc = copy(x)
+        gc = zeros(T, 1)
+        @test_throws ArgumentError value_and_gradient!(xc, f, xc)       # aliasing is still refused
+        @test xc == x && A == reshape(T[a], 1, 1)                        # no input is modified
+        @test allocated_value(f, x) == 0
+      end
+
+      @testset "KronQuadratic $T: stage-one product subnormal, amplified by B" begin
+        kb = T === Float32 ? 60 : 500
+        Ak, Bk = reshape(T[a], 1, 1), reshape(T[ldexp(one(T), kb)], 1, 1)
+        Θ = reshape(x, 1, 1)
+        fk = KronQuadratic(Ak, Bk)
+        r = big_k(Ak, Bk, Θ)
+        @test within(fk(Θ), r)
+        @test within(value_and_gradient!(zeros(T, 1, 1), fk, Θ), r)
+      end
+    end
+
+    @testset "QuadraticFunction: the historical probe (indefinite A, #520 discovery)" begin
+      a = 1.37 * 2.0^-970
+      A = [0 a; a 0]                                  # not PSD: kept as evidence only
+      x = [1.23 * 2.0^1000, 1.11 * 2.0^-60]
+      @test within(QuadraticFunction(A)(x), big_q(A, x))
+    end
+
+    @testset "KronQuadratic: complete intermediate underflow (A D B is exactly zero)" begin
+      for (T, ea, eb, et, er) in ((Float64, -900, -1000, 800, -301), (Float32, -110, -125, 80, -76))
+        A = reshape(T[ldexp(one(T), ea)], 1, 1)
+        B = reshape(T[ldexp(one(T), eb)], 1, 1)
+        Θ = reshape(T[ldexp(one(T), et)], 1, 1)
+        f = KronQuadratic(A, B)
+        @test (A * Θ) * B == zeros(T, 1, 1)           # the ordinary products underflow
+        @test f(Θ) === ldexp(one(T), er)                                  # exact
+        G = zeros(T, 1, 1)
+        @test value_and_gradient!(G, f, Θ) === ldexp(one(T), er)
+        @test isequal(G, gradient!(zeros(T, 1, 1), f, Θ))
+        @test f(-Θ) === ldexp(one(T), er)
+        @test f(vec(Θ)) === ldexp(one(T), er)
+        @test f(SparseIterate(Θ)) === ldexp(one(T), er)
+        @test f(SymmetricSparseIterate(Θ)) === ldexp(one(T), er)
+        @test KronQuadratic(A, B, zeros(T, 1, 1))(Θ) === ldexp(one(T), er)
+        @test allocated_value(f, Θ) == 0
+        # the linear term survives the recovery
+        C = fill(one(T), 1, 1)
+        fC = KronQuadratic(A, B, C)
+        @test within(fC(Θ), big(ldexp(one(T), er)) + big(ldexp(one(T), et)))
+      end
+    end
+
+    @testset "KronQuadratic: a small survivor after the linear term cancels the quadratic one" begin
+      # v = Θ₁²AB₁₁/2 + ⟨C,Θ⟩ with ⟨C,Θ⟩ = -(1 - 2^-30) 2^-301: only 2^-331 is left
+      A = fill(2.0^-900, 1, 1)
+      B = Matrix{Float64}(2.0^-1000 * I, 2, 2)
+      Θ = [2.0^800 2.0^-300]
+      C = [0.0 -0.5 * (1 - 2.0^-30)]
+      f = KronQuadratic(A, B, C)
+      r = big_k(A, B, Θ) + dot(big.(C), big.(Θ))
+      @test r == big(2.0)^-331                         # the data: the survivor is exact
+      @test f(Θ) === 2.0^-331
+      @test value_and_gradient!(zeros(1, 2), f, Θ) === 2.0^-331
+    end
+
+    @testset "KronQuadratic: rectangular Θ, PSD A and B, mixed magnitudes" begin
+      for T in (Float32, Float64)
+        s = T === Float32 ? (-110, -125, 80) : (-900, -1000, 800)   # exponents of A, B and Θ (A Θ B underflows)
+        A = ldexp.(T[2 1; 1 2], s[1])
+        B = ldexp.(T[2 1 0; 1 2 1; 0 1 2], s[2])
+        Θ = ldexp.(T[1 -2 0; 0.5 1 3], s[3])
+        f = KronQuadratic(A, B)
+        @test near_scale(f(Θ), big_k(A, B, Θ), abs_k(A, B, Θ))        # scale
+        @test near_scale(value_and_gradient!(zeros(T, 2, 3), f, Θ), big_k(A, B, Θ), abs_k(A, B, Θ))
+        @test near_scale(f(vec(Θ)), big_k(A, B, Θ), abs_k(A, B, Θ))
+        @test minimum(abs, (A * Θ) * B) < floatmin(T)                  # the ordinary products leave the normal range
+      end
+    end
+
+    @testset "KronQuadratic: a SymmetricSparseIterate, and mixed precision" begin
+      A = ldexp.([2.0 1; 1 2], -900)
+      B = ldexp.([1.0 0; 0 3], -1000)
+      Θ = ldexp.([1.0 0.25; 0.25 2], 800)
+      f = KronQuadratic(A, B)
+      r, s = big_k(A, B, Θ), abs_k(A, B, Θ)
+      @test near_scale(f(SymmetricSparseIterate(Θ)), r, s)
+      # a Float32 function at a Float64 argument: the buffers are Float32
+      A32 = reshape(Float32[ldexp(1f0, -110)], 1, 1)
+      B32 = reshape(Float32[ldexp(1f0, -125)], 1, 1)
+      f32 = KronQuadratic(A32, B32)
+      @test f32(reshape([ldexp(1.0, 80)], 1, 1)) === ldexp(1.0, -76)
+      # a Float64 function at a Float32 argument is delivered in Float32 (no underflow in its buffers)
+      f64 = KronQuadratic(reshape([ldexp(1.0, -110)], 1, 1), reshape([ldexp(1.0, -125)], 1, 1))
+      @test f64(reshape(Float32[ldexp(1f0, 80)], 1, 1)) === ldexp(1f0, -76)
+    end
+
+    @testset "QuadraticFunction: PSD data with ordinary and underflow-risk entries" begin
+      for (T, k, lo) in ((Float32, 16, -140), (Float64, 28, -1060))
+        a = nextfloat(zero(T))
+        d = T[1, a, 0, ldexp(one(T), lo), 3]
+        xs = T[ldexp(one(T), lo ÷ 2 - 10), ldexp(one(T), k) + T(0.25), 0, ldexp(one(T), k - 3) + T(0.5), ldexp(one(T), lo ÷ 2)]
+        A = Matrix(Diagonal(d))
+        ref = big_q(A, xs)
+        @test within(QuadraticFunction(A)(xs), ref, 4)
+        @test within(QuadraticFunction(Diagonal(d))(xs), ref, 4)
+        @test within(QuadraticFunction(sparse(Diagonal(d)))(xs), ref, 4)
+        @test within(QuadraticFunction(Symmetric(A))(xs), ref, 4)
+        @test within(QuadraticFunction(A)(SparseIterate(xs)), ref, 4)
+        @test within(value_and_gradient!(zeros(T, 5), QuadraticFunction(A), xs), ref, 4)
+        # a dense rank-one PSD matrix of subnormal entries
+        n = 6
+        Ar = fill(a, n, n)
+        xr = [ldexp(one(T), k + mod(i, 3)) + T(i) / 8 for i in 1:n]
+        @test within(QuadraticFunction(Ar)(xr), big_q(Ar, xr), 4)
+        @test within(QuadraticFunction(Ar + Diagonal(fill(a, n)))(xr), big_q(Ar + Diagonal(fill(a, n)), xr), 4)
+        # nonzero linear term and constant, comparable to the quadratic term
+        b = T[3a; zeros(T, 4)]
+        cc = ldexp(one(T), k === 28 ? -1020 : -126)
+        fb = QuadraticFunction(A, b, cc)
+        refb = big_q(A, xs) + dot(big.(b), big.(xs)) + big(cc)
+        @test within(fb(xs), refb, 4)
+        @test within(value_and_gradient!(zeros(T, 5), fb, xs), refb, 4)
+      end
+    end
+
+    @testset "QuadraticFunction: mixed precision" begin
+      a = nextfloat(0f0)
+      f32 = QuadraticFunction(reshape([a], 1, 1))
+      x = [2.0^16 + 0.25]                                   # a Float64 argument, Float32 buffers
+      @test within(f32(x), big(a) * big(x[1])^2 / 2)
+      g = zeros(1)
+      @test within(value_and_gradient!(g, f32, x), big(a) * big(x[1])^2 / 2)
+      # a Float64 function at a Float32 argument
+      f64 = QuadraticFunction(reshape([nextfloat(0.0)], 1, 1))
+      v = f64(Float32[2f0^28])                              # 2^-1019 is not a Float32
+      @test v === 0f0
+    end
+
+    @testset "values that underflow nothing take the ordinary path" begin
+      for T in (Float32, Float64)
+        Ao = T[3 1 0; 1 3 1; 0 1 3]
+        xo = T[0.3, -1.1, 2]
+        fo = QuadraticFunction(Ao, T[1, -2, 0.5], T(0.25))
+        @test !PB._quadratic_underflow_risk(fo, xo, fo(xo), T)
+        @test !PB._quadratic_underflow_risk(QuadraticFunction(Ao), xo, QuadraticFunction(Ao)(xo), T)
+        # exact zeros: sparse and diagonal data with a zero block
+        Az = sparse(Diagonal(T[2, 0, 5]))
+        xz = T[1, 7, 1e3]
+        fz = QuadraticFunction(Az)
+        @test fz(xz) === dot(xz, Az * xz) / 2
+        @test !PB._quadratic_underflow_risk(fz, xz, fz(xz), T)
+        @test QuadraticFunction(zeros(T, 2, 2))(T[1, 2]) === zero(T)       # exact zero stays exact
+        @test QuadraticFunction(Ao)(zeros(T, 3)) === zero(T)
+        @test !PB._quadratic_underflow_risk(QuadraticFunction(Ao), zeros(T, 3), zero(T), T)
+        # Kron: ordinary, zeros in D, sparse Θ
+        Ak, Bk = T[2 1; 1 2], T[1 0; 0 3]
+        Θo = T[0.5 -1; 2 0]
+        fk = KronQuadratic(Ak, Bk)
+        @test fk(Θo) === dot(Θo, (Ak * Θo) * Bk) / 2
+        copyto!(fk.D, Θo)
+        @test !PB._kron_underflow_risk(fk, fk(Θo))
+        @test KronQuadratic(Ak, Bk)(zeros(T, 2, 2)) === zero(T)
+        # non-finite inputs follow the ordinary expression
+        for xn in (T[NaN, 0, 0], T[Inf, 0, 0], T[-Inf, 1, 2], T[Inf, Inf, Inf])
+          @test isequal(QuadraticFunction(Ao)(xn), dot(xn, Ao * xn) / 2)
+        end
+        for Θn in (T[NaN 0; 0 0], T[Inf 0; 0 0], T[Inf 1; 2 -Inf])
+          @test isequal(KronQuadratic(Ak, Bk)(Θn), dot(Θn, (Ak * Θn) * Bk) / 2)
+        end
+      end
+    end
+
+    @testset "_pow2_sum cancellation, as the underflow path will use it" begin
+      for T in (Float32, Float64)
+        E = T === Float32 ? 30 : 400
+        base = ((T(0.5), 2E), (T(-0.5), 2E), (T(0.25), -E))
+        for perm in ((1, 2, 3), (3, 1, 2), (2, 3, 1), (3, 2, 1))
+          @test PB._pow2_sum(T, base[perm[1]], base[perm[2]], base[perm[3]]) === ldexp(T(0.25), -E)
+        end
+      end
+    end
+  end
+
 end
 
 end

@@ -212,6 +212,19 @@ range, or a sum of squares could have lost terms to underflow, is the value
 recomputed in units of a power of two, with the level applied last. Ordinary
 inputs therefore take the ordinary computation, at its speed.
 
+The quadratic forms of [`QuadraticFunction`](@ref) and `KronQuadratic` are
+covered when an intermediate matrix product underflows. A product rounded into
+the buffer type loses at most `denorm_min/2`, which a large entry of the argument
+multiplies later; the value is recomputed if it is below
+`n² floatmin max|x| / 4` (for `KronQuadratic`,
+`floatmin max|Θ| p q² (1 + p max|B|) / 4`), the point at which that loss can exceed
+`eps` times the value. This needs one pass over `x` (over `Θ` and `B` for
+`KronQuadratic`) and does not fire at exact zeros of sparse or structured data.
+The recomputation sums the exact products as significands and exponents. A
+cancellation to a value far below the terms is held to the error scale of the
+terms, as in the ordinary computation, unless the value itself falls below that
+threshold.
+
 ```julia
 julia> SqrNormL2(1e-300)([1e200])
 5.0e99

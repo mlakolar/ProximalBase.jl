@@ -1033,15 +1033,7 @@ from rule O3.
 
 **Decided** (maintainer, 2026-11-01). The formula or limit where determined: a norm or an indicator gives `+Inf`. Where the value is undetermined, including path-dependent limits, it is NaN.
 
-**Proposed amendment 21A — FOR REVIEW, NOT APPROVED** ([PR #508](https://github.com/mlakolar/ProximalBase.jl/pull/508), [#469](https://github.com/mlakolar/ProximalBase.jl/issues/469)). This is a proposed *exception for proximal outputs*, not a change to the value `f(x)` at an infinite input:
-
-> For the proximal outputs of finite-radius bounded coupled ball/sphere projection families named in E3, an influential `±Inf` argument entry yields NaN in every entry of the dependent block, **even when** a unique finite-input limiting projection exists. These families deliberately do not extend their nonconstant coupled projections to infinity, so a finite feasible proximal output does not hide the exceptional input. Inputs that are structurally irrelevant under E1/E4 (such as a singleton radius-zero ball or a hard-fixed coordinate) are ignored, and their independent outputs retain their finite values. E2 governs NaNs. This does not override separable or unbounded coupled proximal families' already documented limits, nor does it modify P1 step endpoint admissibility. `value_and_prox!` returns the value at the stored output under O2.
-
-**Rationale under review.** At `x=[Inf,0]`, `IndBallL2(1)` has the unique mathematical projection limit `[1,0]`; returning that finite feasible point with value `0` hides evidence of the exceptional input from solvers. The alternative all-NaN block preserves it. `IndBallL1` currently returns the inconsistent partial block `[NaN,0]`, while equivalent zero-penalty sphere representations should agree. The complete A/B/C comparison, counterexamples, dependencies, cost claims, and expected-result matrix are in [the design note](step-infinity-interface-311-469.md). The other library comparison **does not** establish consensus: its partly NaN outputs are incidental IEEE behavior.
-
-**Approval gate.** The 2026-11-01 decision above still governs while this PR is a draft. Do not merge a new E3 rule and leave this paragraph marked "proposed": on explicit maintainer acceptance, date and mark amendment 21A **Decided**. On rejection, remove this proposed addendum and the corresponding normative change from `numerics.md`. This preserves the original decision history.
-
-*The analysis below is the history of this decision. Where it differs from the approved decided line above, the approved decided line governs.*
+*The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 
 **Decide.** What do `±Inf` entries of the argument give?
 

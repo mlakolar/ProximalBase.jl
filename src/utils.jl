@@ -580,27 +580,27 @@ _underflow_checked(::Type) = false
 _underflow_checked(::Type{<:Union{Float32, Float64}}) = true
 
 # A sum of terms m 2^e, each a significand m (|m| < 1) and an integer exponent, kept as the
-# compensated sum (s + c) 2^E of the terms in the frame E of the largest exponent seen so far. A
+# compensated sum (s + c) 2^ex of the terms in the frame ex of the largest exponent seen so far. A
 # term in a larger frame rescales the sum (the part below 2^-1074 of the new frame is dropped,
 # which is below eps times the scale of the sum); a term in a smaller frame is added after
 # scaling it. Compensated additions keep a small term after larger ones cancel.
 struct _ExpSum{R<:AbstractFloat}
   s::R
   c::R
-  E::Int
+  ex::Int
 end
 _expsum_start(::Type{R}) where {R<:AbstractFloat} = _ExpSum{R}(zero(R), zero(R), 0)
 @inline function _expsum_add(acc::_ExpSum{R}, m::R, e::Int) where {R}
   iszero(m) && return acc
   if iszero(acc.s) && iszero(acc.c)
     return _ExpSum{R}(m, zero(R), e)
-  elseif e > acc.E
-    d = acc.E - e
+  elseif e > acc.ex
+    d = acc.ex - e
     s, c = _compensated_add(ldexp(acc.s, d), ldexp(acc.c, d), m)
     return _ExpSum{R}(s, c, e)
   end
-  s, c = _compensated_add(acc.s, acc.c, ldexp(m, e - acc.E))
-  _ExpSum{R}(s, c, acc.E)
+  s, c = _compensated_add(acc.s, acc.c, ldexp(m, e - acc.ex))
+  _ExpSum{R}(s, c, acc.ex)
 end
 # the term a b 2^k, with the product of the significands rounded once per factor
 @inline function _expsum_product(acc::_ExpSum{R}, a, b, k::Int = 0) where {R}
@@ -664,12 +664,12 @@ function _expsum_pair(::Type{R}, acc::_ExpSum) where {R}
   m = acc.s + acc.c
   iszero(m) && return (zero(R), 0)
   mm, ee = frexp(m)
-  (convert(R, mm), acc.E + ee)
+  (convert(R, mm), acc.ex + ee)
 end
 function _expsum_value(::Type{R}, acc::_ExpSum{A}) where {R, A}
   m = acc.s + acc.c
   iszero(m) && return zero(R)
-  convert(R, _scaled_product(one(A), m, acc.E))
+  convert(R, _scaled_product(one(A), m, acc.ex))
 end
 
 # An absolute error that the rounding of one product into P cannot exceed is denorm_min/2 =

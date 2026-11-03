@@ -108,15 +108,25 @@ end
 Base.@propagate_inbounds _value_entry_ordinary(f::HingeLoss, v::T, i::Integer) where {T<:Real} =
   _entry(f.w, i) * max(1 - _entry(f.y, i) * v, zero(float(T)))
 _has_ordinary_value(::Type{<:HingeLoss}) = true
+# The step γw|y|² formed in the promotion R of S and the factors, rounded once to S. For a scalar
+# step and unweighted entries γw is invariant, so its range test is unswitched out of the loop (as in
+# _positive_product). While γw is a normal number the step is (γw|y|)|y|: |y|² is never formed alone,
+# and γw|y| cannot overflow unless the step does. Otherwise the recovery of _weight_coefficient
+# decides, zero and infinite weights included, on a separate call.
+@inline function _hinge_step(::Type{S}, γ, ay::S, w) where {S<:AbstractFloat}
+  R = _working_type(S, γ, w)
+  ab = convert(R, γ) * convert(R, w)
+  floatmin(R) <= ab <= floatmax(R) && return convert(S, (ab * convert(R, ay)) * convert(R, ay))
+  _hinge_step_exceptional(S, γ, ay, w)
+end
+@noinline _hinge_step_exceptional(::Type{S}, γ, ay, w) where {S<:AbstractFloat} = _weight_coefficient(S, γ, ay, w * ay)
+
 # the proximal operator of γwᵢ max(0, 1 - u) at the margin u = yᵢv, mapped back
 Base.@propagate_inbounds function prox_entry(f::HingeLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   y = convert(S, _entry(f.y, i))
   w = _entry(f.w, i)
-  # the step γwy² is one product in the promotion of S and the factors, with the weight and one
-  # label factor combined first so that neither γw nor y² overflows alone
-  ay = abs(y)
-  s = _weight_coefficient(S, γ, ay, w * ay)
+  s = _hinge_step(S, γ, abs(y), w)
   u = y * S(v)
   (u >= 1 ? u : (u < 1 - s ? u + s : one(S))) / y
 end

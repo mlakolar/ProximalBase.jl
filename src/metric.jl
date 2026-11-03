@@ -330,10 +330,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractA
     copyto!(y, z)
     return _value_at(v, y)
   end
-  if _has_conjugate_value(c.f)
-    _prox_unchecked!(y, c, x, γ)
-    return _value_at(_conjugate_value(c.f, y), y)
-  end
+  _has_conjugate_value(c.f) && return _conjugate_prox_value!(y, c, x, γ)
   _checksize(y, x)
   _checkparam(γ, x)
   T = float(eltype(y))

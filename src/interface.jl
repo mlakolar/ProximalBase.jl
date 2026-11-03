@@ -688,7 +688,9 @@ Whether the set `C` (an indicator function) has a linear minimization oracle,
 declares it. Unlike the other traits it is a property of the instance, not the
 type: [`IndBox`](@ref) has an oracle when every bound is finite, and
 [`IndSimplex`](@ref), [`IndBallL1`](@ref) and [`IndBallL2`](@ref) when the radius
-is finite. A `false` means that the oracle is unsupported, which is a different
+is finite, and the capped simplex `Constrained(IndBox(0, 1), IndHyperplane(a, k))`
+when `a` is `1` or an array of ones and `k` is a nonnegative integer; a scalar `a`
+does not know the dimension, so `0 ≤ k ≤ n` is checked by `lmo!`. A `false` means that the oracle is unsupported, which is a different
 statement from "the linear objective is unbounded below": an unbounded set can
 have a finite minimum for some directions, and `lmo!` makes no promise about
 sets outside the compact families it lists.
@@ -702,8 +704,11 @@ Store in `s` a minimizer of the linear function `s ↦ dot(g, s)` over the compa
 set `C`, the linear minimization oracle of Frank–Wolfe methods, and return `s`.
 `C` must have [`haslmo`](@ref); otherwise `lmo!` throws an `ArgumentError`
 before writing. Supported sets: [`IndSimplex`](@ref) (equality and inequality),
-[`IndBallL1`](@ref), [`IndBallL2`](@ref), and [`IndBox`](@ref) and
-[`IndBallLinf`](@ref) with finite bounds.
+[`IndBallL1`](@ref), [`IndBallL2`](@ref), [`IndBox`](@ref) and
+[`IndBallLinf`](@ref) with finite bounds, and the capped simplex
+`Constrained(IndBox(0, 1), IndHyperplane(1, k))` (the normal `1` or an array of
+ones, an integer `0 ≤ k ≤ length(g)`). No other `LinearConstrained` set has an
+oracle: other bounds, normals, halfspaces and hyperslabs do not.
 
 | Set | `s` | Ties and degenerate cases |
 |:----|:----|:--------------------------|
@@ -711,6 +716,13 @@ before writing. Supported sets: [`IndSimplex`](@ref) (equality and inequality),
 | `IndBallL1(r)` | `-r sign(gᵢ) eᵢ`, `i` the first index of the largest `\\|gᵢ\\|` | `0` when `g = 0` |
 | `IndBallL2(r)` | `-r g / ‖g‖₂` | `0` when `g = 0` |
 | `IndBox(l, u)`, `IndBallLinf(r)` | `lᵢ` if `gᵢ > 0`, `uᵢ` if `gᵢ < 0` | `lᵢ` when `gᵢ = 0` |
+| capped simplex, `k` | `sᵢ = 1` for the `k` smallest `gᵢ`, `0` elsewhere | the earliest indices among equal entries; `0` for `k = 0` and `1` for `k = n`, whatever `g` holds |
+
+The capped simplex selects in `O(n)` expected time, without sorting, and compares
+entries in their own type, so integers of any size keep their order. It keeps a
+copy of `g` in the scratch of the set, which is reused by later calls and by
+`Conjugate(C)`: use one set object per thread. An infeasible `k > length(g)`
+is an `ArgumentError`, and `NaN` in `g` gives `NaN` in all of `s` unless `k` is `0` or `n`.
 
 Arrays of any shape are vectors in linear (column-major) order, so "first
 index" is the first in that order and a matrix has the Frobenius pairing. `g`

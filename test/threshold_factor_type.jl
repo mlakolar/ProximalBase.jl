@@ -92,6 +92,35 @@ end
   @test prox(ElasticNet(0.5, 0.25), [3.0], 0.5) == [(3.0 - 0.25) / (1 + 0.125)]
 end
 
+# γλw where the product is subnormal is rounded once, to nearest even, whatever the Julia version
+# (ldexp truncates into the subnormal range up to Julia 1.10); the reference is exact in BigFloat.
+@testset "γλw recovers and rounds correctly into the subnormal range" begin
+  rng = MersenneTwister(2503)
+  exact(T, γ, λ, w) = setprecision(BigFloat, 512) do
+    T(BigFloat(γ) * BigFloat(λ) * BigFloat(w))
+  end
+  c = ProximalBase._weight_coefficient
+  # (T, range of the exponent of γλ, range of the exponent of γ, range of the exponent of w)
+  for (T, st, sg, sw) in ((Float64, -1100:-1030, -700:-400, 0:70), (Float32, -160:-135, -90:-60, 0:25))
+    tested = subnormal = 0
+    for trial in 1:4000
+      eγ = rand(rng, sg); eλ = rand(rng, st) - eγ
+      γ = (1 + rand(rng, T)) * T(2)^eγ
+      λ = (1 + rand(rng, T)) * T(2)^eλ
+      w = (1 + rand(rng, T)) * T(2)^rand(rng, sw)
+      s = γ * λ
+      (floatmin(T) <= s <= floatmax(T)) && continue          # the recovery applies only to such a γλ
+      want = exact(T, γ, λ, w); tested += 1; (0 < want < floatmin(T)) && (subnormal += 1)
+      @test c(T, γ, λ, w) === want
+    end
+    @test tested > 3000 && subnormal > 500
+  end
+  # the minimal subnormal times a half: 2^-1075·w rounds to 2^-1074 for w > 1 and to 0 for w < 1
+  @test c(Float64, 2.0^-1074, 0.5, 1.5) === 2.0^-1074 && c(Float64, 2.0^-1074, 0.5, 0.75) === 0.0
+  @test c(Float64, 2.0^-1074, 0.5, 1.0) === 0.0                                           # a tie goes to even (zero)
+  @test c(Float32, 2f0^-149, 0.5f0, 1.5f0) === 2f0^-149 && c(Float32, 2f0^-149, 0.5f0, 0.75f0) === 0f0
+end
+
 @testset "NormL0: |v|² > 2γλ is compared where |v|² or 2γλ leaves the range" begin
   f = NormL0(2.0^100)
   @test prox(f, Float32[2.0^110], 2.0^100) == Float32[2.0^110]                        # 2^220 > 2^201

@@ -101,8 +101,35 @@ end
 @inline function _weight_coefficient3(γ::R, λ::R, w::R) where {R<:AbstractFloat}
   s = γ * λ
   floatmin(R) <= s <= floatmax(R) && return _weight_coefficient(s, w)
-  _recoverable_factors(γ, λ, w) ? _exceptional_product(γ, λ, w, s * w) : _weight_coefficient(s, w)
+  _recoverable_factors(γ, λ, w) ? _scaled_coefficient(γ, λ, w, s * w) : _weight_coefficient(s, w)
 end
+# The product of finite nonzero factors, correctly rounded once (to nearest, ties to even) in R, also
+# where it is subnormal and whatever the Julia version (ldexp truncates into the subnormal range up
+# to Julia 1.10). The significands are integers of `precision(R)` bits, so their product is formed
+# exactly in 128-bit limbs and rounded at the last bit that R keeps.
+@noinline function _scaled_coefficient(a::R, b::R, c::R, p::R) where {R<:Base.IEEEFloat}
+  n = precision(R)
+  ma, ea = frexp(abs(a))
+  mb, eb = frexp(abs(b))
+  mc, ec = frexp(abs(c))
+  Ma, Mb, Mc = (unsafe_trunc(UInt64, ldexp(m, n)) for m in (ma, mb, mc))   # in [2^(n-1), 2^n)
+  P = widemul(Ma, Mb)                                                      # < 2^(2n), exact
+  mask = (UInt128(1) << n) - 1
+  A, B = (P >> n) * Mc, (P & mask) * Mc                                    # the product is A·2^n + B
+  H, L = A + (B >> n), B & mask                                            # = H·2^n + L, L < 2^n
+  nb = 128 - leading_zeros(H)
+  E0 = ea + eb + ec - 2n                                                   # the product ≈ H·2^E0
+  top = nb - 1 + E0                                                        # exponent of its leading bit
+  g = exponent(floatmin(R)) - (n - 1)                                      # the subnormals' spacing 2^g
+  keep = min(n, top - g + 1)                                               # bits that R keeps
+  keep < 0 && return copysign(zero(R), p)
+  u = nb - keep
+  q, rem, half = H >> u, H & ((UInt128(1) << u) - 1), UInt128(1) << (u - 1)
+  q += (rem > half) | ((rem == half) & ((L != 0) | isodd(q)))
+  r = ldexp(R(q), E0 + u)                                                  # exact: q fits R's grid
+  (signbit(a) ⊻ signbit(b) ⊻ signbit(c)) ? -r : r
+end
+@noinline _scaled_coefficient(a::R, b::R, c::R, p::R) where {R<:AbstractFloat} = _exceptional_product(a, b, c, p)
 @inline _recoverable_factors(a, b, c) =
   isfinite(a) & isfinite(b) & isfinite(c) & !iszero(a) & !iszero(b) & !iszero(c)
 

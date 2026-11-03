@@ -484,11 +484,14 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Gro
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
   if bestn > bestc
     v = convert(T, _value_and_prox_unchecked!(y, f, x, γ))
-    iszero(maximum(abs, y)) || return _onto_sphere!(y, f, v, r)
-    # A positive margin whose shrinkage rounds to zero in the destination has no stored direction.
-    # Where U is wider, the shrinkage is formed again in U (every positive group keeps its share),
-    # normalized there and stored once. Otherwise it takes the selection below, along x.
-    _wide_sphere_direction!(y, c, x, γ, U, r) && return convert(T, _value_unchecked(f, y))
+    m = maximum(abs, y)
+    # A shrinkage stored as zero has no direction, and one stored in the subnormal range has too
+    # few bits to give one. Where U is wider, the shrinkage is formed again in U (every positive
+    # group keeps its share), normalized there and stored once. Otherwise a zero takes the
+    # selection below, along x.
+    (U === T ? !iszero(m) : !(m < floatmin(T))) && return _onto_sphere!(y, f, v, r)
+    U !== T && _wide_sphere_direction!(y, c, x, γ, U, r) && return convert(T, _value_unchecked(f, y))
+    iszero(m) || return _onto_sphere!(y, f, v, r)
   end
   if ibest != 0                         # an index in no group, where x is zero
     fill!(y, zero(eltype(y)))
@@ -510,13 +513,11 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Gro
 end
 
 # y = r z/‖z‖ for the shrinkage z of the groups in the type U, which is wider than the type of y;
-# false, with y unchanged in meaning, where z is zero in U too. Any array y takes it: z is a
-# buffer of the shape of y, written only on this exceptional path. U is wider than the type of y
-# only for an argument of a wider type, which cannot alias y, so x is intact here. A norm of z that
-# is not a normal number in the type of y takes the rescaled branch of _scale_l2!.
-_wide_sphere_direction!(y, c, x, γ, ::Type{U}, r) where {U} = false
+# false where z is zero in U too. Any array y takes it: z is a buffer of the shape of y, written
+# only on this exceptional path. U is wider than the type of y only for an argument of a wider
+# type, which cannot alias y, so x is intact here. A norm of z that is not a normal number in the
+# type of y takes the rescaled branch of _scale_l2!.
 function _wide_sphere_direction!(y::AbstractArray{T}, c, x, γ, ::Type{U}, r) where {T, U}
-  U === T && return false
   z = similar(y, U)
   _value_and_prox_unchecked!(z, c.f, x, γ)
   iszero(maximum(abs, z)) && return false

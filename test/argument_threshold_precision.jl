@@ -161,6 +161,17 @@ nrm2(y) = sqrt(sum(abs2, Float64.(y)))
       @test v == c1.f(y)
     end
   end
+  # a shrinkage that stores in the subnormal range of Float32 has too few bits for a direction
+  cs = Constrained(GroupNormL2(1.0, [1:2], [1.0]), IndSphereL2(1.0))
+  xs = [0.6, 0.8] .* s
+  γs = sqrt(xs[1]^2 + xs[2]^2) * (1 - 2.0^-48)    # z = [1.2, 1.6] ⋅ 2^-149 stores as [1, 2] ⋅ 2^-149
+  for (name, make) in destinations
+    y = make(2); prox!(y, cs, xs, γs)
+    @test collect(y) ≈ Float32[0.6, 0.8] rtol = 1e-6
+    y = make(2); v = value_and_prox!(y, cs, xs, γs)
+    @test collect(y) ≈ Float32[0.6, 0.8] rtol = 1e-6
+    @test v == cs.f(y)
+  end
   # the same type is unchanged: no wide buffer, the kernel's own rounding
   yd = zeros(2); prox!(yd, c, [1.0, 1.0], 0.25)
   @test yd ≈ [inv(sqrt(2)), inv(sqrt(2))]

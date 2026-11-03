@@ -56,6 +56,7 @@ $_SPECTRAL_NOTE
 mutable struct Spectral{F<:AbstractFunction} <: AbstractFunction
   f::F
   eig::Any         # the eigendecomposition
+  top::Any         # the workspace of the smallest eigenpairs, for the linear minimization oracle
   z::Scratch       # the eigenvalues of the result
   out::Scratch     # the result, for an output BLAS cannot write
 
@@ -63,7 +64,7 @@ mutable struct Spectral{F<:AbstractFunction} <: AbstractFunction
     isproximable(f) || throw(ArgumentError("Spectral needs a proximable function, and $(nameof(typeof(f))) is not"))
     _ispermutationinvariant(f) ||
       throw(ArgumentError("Spectral needs a function that does not depend on the order of the entries, unlike this $(nameof(typeof(f)))"))
-    new{F}(f, nothing, Scratch(), Scratch())
+    new{F}(f, nothing, nothing, Scratch(), Scratch())
   end
 end
 Spectral(f::AbstractFunction) = Spectral{typeof(f)}(f)

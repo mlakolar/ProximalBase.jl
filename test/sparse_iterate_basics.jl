@@ -22,6 +22,54 @@ Base.iszero(::OnceReal) = false
 Base.convert(::Type{Int}, x::OnceReal) =
   (x.count[] += 1) == 1 ? 1 : throw(InexactError(:Int, Int, x))
 
+# a real number whose product with zero throws: with every coordinate stored, scaling must not
+# form 0 * s, as the broadcast does not (#427)
+struct NonzeroOnly <: Real
+  v::Float64
+end
+Base.:*(a::Float64, s::NonzeroOnly) = iszero(a) ? throw(DomainError(a, "zero operand")) : a * s.v
+Base.:*(s::NonzeroOnly, a::Float64) = a * s
+
+# Keep each operation and its broadcast together so the reference preserves operand order.
+scale_right!(x, s) = rmul!(x, s)
+scale_left!(x, s) = lmul!(s, x)
+divide_right!(x, s) = rdiv!(x, s)
+divide_left!(x, s) = ldiv!(s, x)
+broadcast_scale_right!(x, s) = (x .*= s)
+broadcast_scale_left!(x, s) = (x .= s .* x)
+broadcast_divide_right!(x, s) = (x ./= s)
+broadcast_divide_left!(x, s) = (x .= s .\ x)
+
+function check_scaling(method!, reference!, fixture, s)
+    x, expected = copy(fixture), copy(fixture)
+    reference!(expected, s)
+    @test method!(x, s) === x
+    @test isequal(collect(activevalues(x)), collect(activevalues(expected)))
+    @test isequal(Array(x), Array(expected))
+    @test collect(activecoordinates(x)) == collect(activecoordinates(expected))
+end
+
+function scaling_fixtures(T)
+    unsorted = SparseIterate(T, 6)
+    unsorted[3] = 1; unsorted[1] = -2; activate!(unsorted, 4)
+    special = SparseIterate(T, 6)
+    special[3] = NaN; special[1] = Inf; special[5] = -Inf
+    activate!(special, 2); special[2] = -0.0
+    full = SparseIterate(T, 5)
+    for i in 1:5
+        activate!(full, i)
+        full[i] = i - 3
+    end
+    matrix = SparseIterate(T, 2, 3)
+    matrix[2, 2] = 1; matrix[1, 1] = -2; activate!(matrix, 3)
+    (SparseIterate(T, 0), SparseIterate(T, 5), unsorted, special, full, matrix)
+end
+
+function scaling_allocations(method!::F, x, s) where {F}
+    method!(x, s)
+    @allocated method!(x, s)
+end
+
 Random.seed!(1)
 
 function check_product_state(x, before)
@@ -256,6 +304,98 @@ end
             check_product_state(coef, before)
         end
     end
+
+    @testset "scaling by a number follows the broadcast (FN-9)" begin
+        multipliers = (2, -3.0, 0, -0.0, 0.5, 1e300, 1e-300, Inf, -Inf, NaN, 1//2)
+        divisors = (2, -0.0, 0.0, Inf, -Inf, NaN)
+        operations = ((scale_right!, broadcast_scale_right!, multipliers),
+                      (scale_left!, broadcast_scale_left!, multipliers),
+                      (divide_right!, broadcast_divide_right!, divisors),
+                      (divide_left!, broadcast_divide_left!, divisors))
+        for T in (Float16, Float32, Float64)
+            for fixture in scaling_fixtures(T), (method!, reference!, scalars) in operations
+                for s in scalars
+                    check_scaling(method!, reference!, fixture, s)
+                end
+            end
+        end
+
+        x = SparseIterate(6); x[3] = 1; x[1] = -2; activate!(x, 4)
+        rmul!(x, Inf)
+        @test collect(activecoordinates(x)) == [3, 1, 4, 2, 5, 6]
+
+        fixture = SparseIterate(4); fixture[1] = 1; activate!(fixture, 2)
+        for (method!, s) in ((scale_right!, Inf), (scale_left!, Inf),
+                             (divide_right!, 0.0), (divide_left!, 0.0))
+            x = copy(fixture)
+            @test method!(x, s) === x
+            @test isequal(Vector(x), [Inf, NaN, NaN, NaN])
+            @test collect(activecoordinates(x)) == [1, 2, 3, 4]
+        end
+        x = copy(fixture)
+        rmul!(x, 2.0)
+        @test Vector(x) == [2, 0, 0, 0]
+        @test collect(activecoordinates(x)) == [1, 2]
+        for T in (Float32, Float64), (method!, _, _) in operations
+            x = SparseIterate(T, 4); x[3] = 1; activate!(x, 1)
+            @test scaling_allocations(method!, x, T(2)) == 0
+        end
+
+        x = SparseIterate(4); x[4] = 7; activate!(x, 2)
+        rmul!(x, 0)
+        @test Vector(x) == zeros(4)
+        @test collect(activecoordinates(x)) == [4, 2]
+
+        integers = SparseIterate(Int, 3); integers[1] = 2
+        check_scaling(scale_right!, broadcast_scale_right!, integers, 3)
+        check_scaling(divide_right!, broadcast_divide_right!, integers, 1//1)
+        for (method!, reference!, s) in ((scale_right!, broadcast_scale_right!, Inf),
+                                       (divide_right!, broadcast_divide_right!, 0))
+            for f! in (method!, reference!)
+                x = copy(integers)
+                @test_throws InexactError f!(x, s)
+                @test Array(x) == Array(integers)
+                @test collect(activecoordinates(x)) == collect(activecoordinates(integers))
+            end
+        end
+        for f! in (scale_right!, broadcast_scale_right!)
+            x = SparseIterate(Int, 3); x[3] = 2; x[1] = 1
+            @test_throws InexactError f!(x, 2.5)
+            for (j, k) in enumerate(activecoordinates(x))
+                @test x[k] == activevalues(x)[j]
+            end
+            for k in 1:length(x)
+                if !isactive(x, k)
+                    @test x[k] == 0
+                end
+            end
+        end
+        rationals = SparseIterate(Rational{Int}, 3); rationals[1] = 1//2
+        check_scaling(scale_right!, broadcast_scale_right!, rationals, 1//3)
+
+        full = SparseIterate(3); full[2] = -2; full[1] = 1; full[3] = 3
+        check_scaling(scale_right!, broadcast_scale_right!, full, NonzeroOnly(2))
+        check_scaling(scale_left!, broadcast_scale_left!, full, NonzeroOnly(2))
+
+        C = SparseIterate(3); C[1] = 1.0; activate!(C, 2)
+        expected = copy(C); expected .*= Inf
+        X = SymmetricSparseIterate(3); X[1, 1] = 1.0
+        @test mul!(C, matrixview(X), [1., 2, 3], 0, Inf) === C
+        @test isequal(Array(C), Array(expected))
+        @test collect(activecoordinates(C)) == collect(activecoordinates(expected))
+
+        x = copy(fixture); expected = copy(fixture); expected .*= Inf
+        @test lmul!(Inf * I, x) === x
+        @test isequal(Array(x), Array(expected))
+        @test collect(activecoordinates(x)) == collect(activecoordinates(expected))
+
+        # The owner's result depends on storage until #391 changes it; pin it deliberately.
+        X = SymmetricSparseIterate(3); X[2, 1] = 1.0; activate!(X, 1)
+        rmul!(X, Inf)
+        @test isequal(collect(coordinates(X)), [NaN, Inf, 0.0, 0.0, 0.0, 0.0])
+        @test collect(activecoordinates(X)) == [2, 1]
+    end
+
 end
 
 @testset "sparseSymmetricIterate" begin

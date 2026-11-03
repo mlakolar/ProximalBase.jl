@@ -72,8 +72,14 @@ end
   for f in (IndHyperplane(ones(4), 1), IndHalfspace(ones(4), 1),
             IndHyperslab(ones(4), 0, 1), IndSimplex(1), IndBallL1(1), IndIsotonic())
     expected = prox(f, x, 1.)
+    # decision 48 (P1): a negative or NaN step is rejected by the sets whose steps #311 validates
+    checked = f isa Union{IndSimplex, IndBallL1}
     for γ in (0., Inf, -1., NaN)
-      @test isequal(prox(f, x, γ), expected)
+      if checked && !(γ >= 0)
+        @test_throws ArgumentError prox(f, x, γ)
+      else
+        @test isequal(prox(f, x, γ), expected)
+      end
     end
   end
   γ = [0., Inf, 0., Inf]

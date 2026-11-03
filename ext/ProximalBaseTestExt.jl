@@ -265,7 +265,7 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
   end
 
   # coordinate steps on a sparse iterate
-  xz = _with_zeros(x, rng)
+  xz = float.(_with_zeros(x, rng))                 # iterates hold floats: an Int x would fail to store a prox result
   pz = prox(f, xz, γ)
   xs = SparseIterate(xz)
   y = SparseIterate(float(eltype(x)), size(x)...)

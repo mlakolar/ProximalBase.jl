@@ -115,7 +115,7 @@ Test a separable `f` at the vector or matrix `x` with step `γ`:
   `SeparableFunction` gets the per-entry check. A function has a standalone
   value unless the package knows it has none (a [`Conjugate`](@ref) whose value
   is not implemented, or a wrapper of one) or it has no method for the array
-  argument. Such a wrapper is not asked for a value. A value method that
+  argument; the sparse checks also need a method for the `SparseIterate`. Such a wrapper is not asked for a value. A value method that
   exists is called without a `try`, so an error in it is reported as an error;
 - with `groups`, `prox_coordinate!` on each group of an [`AtomIterate`](@ref)
   gives the proximal point;

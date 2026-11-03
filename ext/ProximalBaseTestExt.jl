@@ -289,8 +289,9 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
     f isa SeparableFunction && @test all(i -> iszero(value_entry(f, zero(T), i)), eachindex(x))
     # the aggregate consequence f(0) = 0 and the sparse paths, where f has a value
     z = zeros(T, size(x))
-    if _has_standalone_value(f, z)
-      @test iszero(f(z))
+    _has_standalone_value(f, z) && @test iszero(f(z))
+    # a value method may accept only dense arrays: the sparse paths need one for the iterate
+    if _has_standalone_value(f, z) && _has_standalone_value(f, xs) && _has_standalone_value(f, pz)
       @test f(xs) ≈ f(xz)
       @test value_and_prox!(ys, f, xs, γ) ≈ f(pz)
     end

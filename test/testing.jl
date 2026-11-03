@@ -100,6 +100,32 @@ PB.prox_entry(f::ValueWrapper, v::Real, i::Integer, γ::Real) = prox_entry(f.f, 
 PB.prox!(y::AbstractArray, f::ValueWrapper, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
 (f::ValueWrapper{<:Any, true})(x::AbstractArray) = f.f(x)
 
+# value methods that accept dense vectors only (valid: not asked for the sparse paths), and ones that
+# are wrong only on a SparseIterate or only in value_and_prox!
+struct VectorValue{F<:AbstractFunction} <: AbstractFunction
+  f::F
+end
+struct WrongSparseValue{F<:AbstractFunction} <: AbstractFunction
+  f::F
+end
+struct WrongFusedValue{F<:AbstractFunction} <: AbstractFunction
+  f::F
+end
+for W in (:VectorValue, :WrongSparseValue, :WrongFusedValue)
+  @eval begin
+    PB.isseparable(::Type{<:$W}) = true
+    PB.iszeropreserving(::$W) = true
+    PB.prox_entry(f::$W, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+    PB.prox!(y::AbstractArray, f::$W, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
+  end
+end
+(f::VectorValue)(x::Vector) = f.f(x)
+(f::WrongSparseValue)(x::AbstractArray) = f.f(x)
+(f::WrongSparseValue)(x::SparseIterate) = f.f(x) + 1
+(f::WrongFusedValue)(x::AbstractArray) = f.f(x)
+PB.value_and_prox!(y::AbstractArray, f::WrongFusedValue, x::AbstractArray, γ::Real) =
+  (prox!(y, f.f, x, γ); f.f(y) + 1)
+
 struct WrongEntries <: SeparableFunction               # prox! overridden, disagreeing with prox_entry
   λ::Float64
 end
@@ -242,7 +268,7 @@ PB.iszeropreserving(::UserSquare) = true
     @test passes(() -> PT.test_separable(NormL1(0.5, Ws), randn(5, 5), γ; symmetric = true))
     # zero-preserving functions with and without a standalone value
     for f in (NormL1(0.5), Scaled(NormL1(0.5), 2.0), Conjugate(NormL1(0.5)), ValueWrapper(NormL1(0.5)),
-              ValueWrapper(Scaled(NormL1(0.5), 2.0)))
+              ValueWrapper(Scaled(NormL1(0.5), 2.0)), VectorValue(NormL1(0.5)))
       @test passes(() -> PT.test_separable(f, x, γ; rng = Xoshiro(2)))
     end
     for f in (Conjugate(ElasticNet(0.3, 0.6)), Scaled(Conjugate(ElasticNet(0.3, 0.6)), 2.0),
@@ -324,6 +350,13 @@ PB.iszeropreserving(::UserSquare) = true
     @test count(r -> r isa Test.Fail, ts.results) == 1          # only the value at zero
     @test count(r -> r isa Test.Error, ts.results) == 0
     @test only(filter(r -> r isa Test.Fail, ts.results)).orig_expr == "iszero(f(z))"
+    for f in (WrongSparseValue(NormL1(1.0)), WrongFusedValue(NormL1(1.0)))
+      ts = @testset Collect "wrong sparse or fused value" begin
+        PT.test_separable(f, x, γ; rng = Xoshiro(2))
+      end
+      @test count(r -> r isa Test.Fail, ts.results) >= 1       # the sparse value, and with it value_and_prox!
+      @test count(r -> r isa Test.Error, ts.results) == 0
+    end
     @test failures(() -> PT.test_separable(WrongEntries(0.5), x, γ)) > 0
     @test failures(() -> PT.test_conjugate(NormL1(0.5), x, γ; conjugate = IndBallLinf(1.0))) > 0
     @test failures(() -> PT.test_kkt(WrongKKT(0.5), x, γ)) > 0

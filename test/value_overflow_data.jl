@@ -20,15 +20,17 @@ end
 # v within k eps(T) of the scale s of the computation, which accounts for cancellation.
 near_scale(v::T, r, s, k = 8) where {T<:AbstractFloat} = isfinite(v) && abs(big(v) - big(r)) <= k * big(eps(T)) * big(s)
 
-# the base's ordinary least-squares loop
-function plain_leastsquares(Y, X, β)
-  tmp = X * β
+# the base's ordinary least-squares loop, on a given product tmp = Xβ
+function plain_leastsquares(Y, X, β, tmp = X * β)
   v = zero(eltype(tmp))
   @inbounds @simd for i in eachindex(tmp, Y)
     v += abs2(Y[i] - tmp[i])
   end
   v / 2
 end
+
+# in a function, so that the value returned from a global is not boxed (Julia 1.10)
+allocated_value(f, x) = (f(x); @allocated f(x))
 
 @testset "data function values that leave the range" begin
   for T in (Float32, Float64)
@@ -84,7 +86,10 @@ end
       # ordinary inputs keep the ordinary computation
       for (n, p) in ((5, 3), (40, 17))
         Xr, Yr, βr = T.(sin.(1:n) .* cos.((1:p)')), T.(cos.(1:n)), T.(sin.(1:p) ./ 3)
-        @test LeastSquaresLoss(Yr, Xr)(βr) === plain_leastsquares(Yr, Xr, βr)
+        fr = LeastSquaresLoss(Yr, Xr)
+        v = fr(βr)
+        # on the product the call stored: BLAS may round X * β and mul! differently
+        @test v === plain_leastsquares(Yr, Xr, βr, fr.tmp)
       end
     end
 
@@ -114,9 +119,7 @@ end
       T === Float32 && @test isapprox(QuadraticFunction(fill(3f38, 2, 2))([1e10, 1e10]), 4 * big(3f38) * big(1e10)^2 / 2;
                                       rtol = 4eps(Float32))
       # the recovery allocates nothing
-      xr = [root]
-      f(xr)
-      @test (@allocated f(xr)) == 0
+      @test allocated_value(f, [root]) == 0
       # non-finite inputs and ordinary inputs
       @test isnan(f(T[NaN]))
       @test f(T[Inf]) === T(Inf)
@@ -149,8 +152,7 @@ end
       scale = dot(abs.(bigΘ), big.(A) * abs.(bigΘ) * big.(B)) / 2
       fk = KronQuadratic(A, B)
       @test near_scale(fk(Θ), ref, scale)
-      fk(Θ)
-      @test (@allocated fk(Θ)) == 0
+      @test allocated_value(fk, Θ) == 0
       @test isnan(fk(T[NaN 0 0; 0 0 0]))
       Θo = T[0.5 -1 2; 1 0.25 -0.5]
       D = copy(Θo)

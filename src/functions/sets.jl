@@ -740,14 +740,13 @@ function _write_simplex!(y, x, τ::T) where {T}
   any(isnan, y)
 end
 function _write_simplex!(y::Array, x::Array, τ::T) where {T}
-  axes(y) == axes(x) || return invoke(_write_simplex!, Tuple{Any, Any, T}, y, x, τ)
-  nan = 0
+  bad = false          # an OR of a Bool vectorizes; counting the NaNs does not
   @inbounds @simd for i in eachindex(y, x)
-    v = max(x[i] - τ, zero(T))
-    y[i] = v
-    nan += isnan(v)
+    d = x[i] - τ
+    y[i] = ifelse(d > 0, d, zero(T))
+    bad |= d != d
   end
-  nan > 0
+  bad
 end
 
 # Simplex: NaN reaches every output except where the output does not depend on the input (a

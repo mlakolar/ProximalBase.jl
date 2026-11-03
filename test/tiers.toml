@@ -58,6 +58,7 @@ quick = [
 standard = [
   "affine",
   "ballconstrained",
+  "indicator_steps",
   "symmetric_sphere",
   "bernoulli",
   "binary",

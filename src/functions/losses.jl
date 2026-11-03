@@ -481,6 +481,8 @@ curvature(ℓ::SmoothCheck) = inv(float(ℓ.h))
 # ones as τ(u - hτ/2) and (1 - τ)(-u - h(1 - τ)/2) in units of 2^e, the middle one
 # as m²/(2 mₕ) in units of 2^(2e - eₕ).
 _lost_value(::SmoothCheck, v, η, y) = _below_normal(v) & (η != y)
+# u² can underflow, or 2h overflow, where u²/(2h) is normal: recomputed at any weight
+_value_lifts(::SmoothCheck, w) = true
 _lost_deriv(::SmoothCheck, v, η, y) = _below_normal(v) & (η != y)
 @inline function _smoothcheck_parts(ℓ::SmoothCheck, ηs::T, k::Int, y::T) where {T}
   m, e = _residual_pow2(ηs, k, y)
@@ -555,8 +557,27 @@ curvature(ℓ::ConvolutionCheck{<:Any, :uniform}) = inv(2 * float(ℓ.h))
 curvature(ℓ::ConvolutionCheck{<:Any, :epanechnikov}) = 3 / (4 * float(ℓ.h))
 # The residual u = y - η as m 2^e: the linear branches c u in units of 2^e, the
 # kernel zone (τ - 1/2)u + h m(u/h)/2 as two terms added in power-of-two units.
-# The derivative is bounded and needs no recomputation.
+# The derivative -(τ - 1/2) - m'(s)/2 is bounded, but s = u/h is subnormal for a
+# subnormal residual: there m'(s) = s (uniform) or 3s/2 (Epanechnikov, s³ negligible),
+# kept as (u/h) in units of 2^(e - eₕ).
 _lost_value(::ConvolutionCheck, v, η, y) = _below_normal(v)
+_lost_deriv(::ConvolutionCheck, v, η, y) = _below_normal(v)
+_kernel_slope0(::ConvolutionCheck{<:Any, :uniform}) = 1
+_kernel_slope0(::ConvolutionCheck{<:Any, :epanechnikov}) = 3 // 2
+function _weighted_deriv(ℓ::ConvolutionCheck, w::T, ηs::T, k::Int, y::T) where {T}
+  m, e = _residual_pow2(ηs, k, y)
+  m = -m
+  τ, h = convert(T, ℓ.τ), convert(T, ℓ.h)
+  u = ldexp(m, e)
+  u >= h && return w * -τ
+  u <= -h && return w * (1 - τ)
+  mh, eh = frexp(h)
+  ms, es = m / mh, e - eh
+  s = ldexp(ms, es)
+  b, eb = abs(s) >= floatmin(T) ? frexp(-_kernel_abs(ℓ, s)[2] / 2) : (-convert(T, _kernel_slope0(ℓ)) * ms / 2, es)
+  a, ea = _pow2_add2(frexp(-(τ - one(τ) / 2))..., b, eb)
+  _scaled_product(w, a, ea)
+end
 function _weighted_value(ℓ::ConvolutionCheck, w::T, ηs::T, k::Int, y::T) where {T}
   m, e = _residual_pow2(ηs, k, y)
   m = -m

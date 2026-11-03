@@ -160,14 +160,18 @@ curvature(::Huber) = 1.0
 _lost_value(::ScalarLoss, v, η, y) = false
 _lost_deriv(::ScalarLoss, v, η, y) = false
 @inline _below_normal(v) = abs(v) < floatmin(float(typeof(v)))
-@inline _value_ok(ℓ, w, v, p, η, y) = isfinite(p) & isfinite(η) & !((w > one(w)) & _lost_value(ℓ, v, η, y))
+# Whether a lost value matters at the weight w: when w > 1 can lift it. A loss
+# whose own formula can return a lost value that is normal in exact arithmetic
+# (SmoothCheck squares the residual before dividing by a small h) says always.
+_value_lifts(::ScalarLoss, w) = w > one(w)
+@inline _value_ok(ℓ, w, v, p, η, y) = isfinite(p) & isfinite(η) & !(_value_lifts(ℓ, w) & _lost_value(ℓ, v, η, y))
 @inline _deriv_ok(ℓ, w, v, p, η, y) = isfinite(p) & isfinite(η) & !((w > one(w)) & _lost_deriv(ℓ, v, η, y))
 # The same tests as an accumulator of the CPU loops, 0 or NaN, so that the loops
 # stay free of branches and can vectorize: 0 ⋅ x is NaN for an infinite or NaN x,
 # and a lifted underflow adds NaN. The finiteness of a value term is that of the
 # sum of the terms, tested after the loop with the accumulator.
 @inline _value_mark(ℓ, w, v, η::T, y) where {T} =
-  zero(T) * η + ifelse((w > one(w)) & _lost_value(ℓ, v, η, y), T(NaN), zero(T))
+  zero(T) * η + ifelse(_value_lifts(ℓ, w) & _lost_value(ℓ, v, η, y), T(NaN), zero(T))
 @inline _deriv_mark(ℓ, w, v, p, η::T, y) where {T} =
   zero(T) * convert(T, p) + ifelse((w > one(w)) & _lost_deriv(ℓ, v, η, y), T(NaN), zero(T))
 
@@ -478,17 +482,18 @@ end
 end
 
 # η = Xβ + offset again in units of 2^k, chosen as in the least-squares recovery so
-# that no partial sum of X(β 2^-k) + offset 2^-k exceeds floatmax/4; ηs goes to d,
-# and every non-finite η that is representable after all is replaced
+# that no partial sum of X(β 2^-k) + offset 2^-k exceeds floatmax(T)/4; ηs goes to
+# d, and every non-finite η that is representable after all is replaced. β is
+# scaled in the wider of its type and T: a Float64 β with Float32 data can need a
+# k beyond the exponents of Float32.
 function _recover_predictor!(f::GLMLoss{L, T}, β::AbstractVector) where {L, T}
   E = _max_exponent(T)
   k = max(0, _bound_exponent(_stored_maxabs(f.X)) + _bound_exponent(_stored_maxabs(β)) + _log2_ceil(size(f.X, 2)) + 3 - E,
           f.offset === nothing ? 0 : _bound_exponent(_stored_maxabs(f.offset)) + 3 - E)
-  s = _power_factors(T, -k)
+  s = _power_factors(promote_type(T, float(eltype(β))), -k)
   mul!(f.d, f.X, β .* s[1] .* s[2])
   f.offset === nothing || (f.d .+= f.offset .* s[1] .* s[2])
-  u = _power_factors(T, k)
-  f.η .= ifelse.(isfinite.(f.η), f.η, f.d .* u[1] .* u[2])
+  f.η .= ifelse.(isfinite.(f.η), f.η, ldexp.(f.d, k))
   k
 end
 

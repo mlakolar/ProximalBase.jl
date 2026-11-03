@@ -630,6 +630,41 @@ if !BASELINE
     end
   end
 
+  # review round 1 (numerics): the predictor recovery in the wider type of β; an underflow inside
+  # SmoothCheck at any weight; a subnormal residual in the derivative of ConvolutionCheck
+  @testset "review findings" begin
+    # Float32 data, a Float64 β far beyond floatmax(Float32): the predictor truly overflows
+    @test GLMLoss(PB.Squared(), Float32[0], fill(1f38, 1, 1))([1e100]) === Inf
+    @test GLMLoss(PB.Poisson(), Float32[0], ones(Float32, 1, 1))([1e300]) === Inf
+    g = zeros(1)
+    @test value_and_gradient!(g, GLMLoss(PB.Squared(), Float32[0], fill(1f38, 1, 1)), [1e100]) === Inf
+    @test g[1] === Inf
+    gl = gradient!(zeros(1), GLMLoss(PB.Logistic(), Float32[0], fill(1f38, 1, 1)), [1e100])
+    @test gl[1] === 1f38 * 1.0
+    # SmoothCheck: u² underflows inside the loss, u²/(2h) is normal; also at w ≤ 1, and with 2h = Inf
+    for w in (0.5, 1.0, 1.0000001)
+      f = GLMLoss(PB.SmoothCheck(0.5, 1e-150), [0.0], ones(1, 1); weights = [w])
+      @test within(f([1e-170]), big(w) * big(1e-170)^2 / (2 * big(1e-150)), 4)
+      @test within(value_and_gradient!(zeros(1), f, [1e-170]), big(w) * big(1e-170)^2 / (2 * big(1e-150)), 4)
+    end
+    fh = GLMLoss(PB.SmoothCheck(0.5, 1.5e308), [0.0], ones(1, 1))
+    @test within(fh([1e150]), big(1e150)^2 / (2 * big(1.5e308)), 4)
+    @test within(GLMLoss(PB.SmoothCheck(0.5f0, 1f-20), Float32[0], ones(Float32, 1, 1))(Float32[1f-25]),
+                 big(1f-25)^2 / (2 * big(1f-20)), 4)
+    # ConvolutionCheck: the derivative at a subnormal residual, τ = 1/2, lifted by the weight
+    for (T, η, w) in ((Float64, -1e-320, 1e300), (Float32, -1f-44, 1f30)), kernel in (:uniform, :epanechnikov)
+      h = T(3)
+      f = GLMLoss(PB.ConvolutionCheck(T(0.5), h; kernel), T[0], ones(T, 1, 1); weights = T[w])
+      c = kernel === :uniform ? big(1) / 2 : big(3) / 4      # dℓ/dη = -m′(u/h)/2 with m′(s) ≈ s or 3s/2, u = -η
+      ref = big(w) * c * big(η) / big(h)
+      g = gradient!(zeros(T, 1), f, T[η])
+      @test within(g[1], ref, 4)
+      g2 = zeros(T, 1)
+      value_and_gradient!(g2, f, T[η])
+      @test isequal(g2, g)
+    end
+  end
+
   # NaN inputs propagate (E2), to the value and to every entry of the gradient that depends on β
   @testset "NaN propagates" begin
     for T in (Float32, Float64), spec in (SQUARED, LOGISTIC, POISSON, HUBER(0.7), SQHINGE, SMOOTHCHECK(0.3, 0.5), CONV(:uniform, 0.3, 0.5))

@@ -476,16 +476,22 @@ end
 # visited in slot order. If the unstored value cannot convert, nothing is written.
 function _scale!(x::SparseIterate{T}, s::Number, op::F) where {T, F}
   _checkreal(x, s)
-  nold = x.nnz
-  if nold < length(x.ind2nzval)
+  if _may_activate(x, s, op) && x.nnz < length(x.ind2nzval)
     z = convert(T, op(zero(T), s))
     iszero(z) || return _scale_all!(x, s, op, z)
   end
-  @inbounds for k = 1:nold
+  @inbounds for k = 1:x.nnz
     x.nzval[k] = op(x.nzval[k], s)
   end
   x
 end
+
+# Whether the scalar can activate an unstored coordinate, tested before the working
+# set is read: the fast path then costs one scalar test (#427). With IEEE entries,
+# op(zero(T), s) cannot throw, and a zero result converts to zero. Other entries
+# keep the full test: (0//1) / 0 throws, though a fully stored iterate divides fine.
+_may_activate(::SparseIterate{T}, s::Real, op::F) where {T <: Base.IEEEFloat, F} = !iszero(op(zero(T), s))
+_may_activate(::SparseIterate, s::Number, op::F) where {F} = true
 
 # The O(n) path, kept out of line: inlined, its stores give every call of _scale!,
 # the O(nnz) path included, a GC frame (#427).

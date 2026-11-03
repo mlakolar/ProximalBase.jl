@@ -12,18 +12,27 @@ function coefficient(s, w)
   ifelse(isnan(p) & !isnan(s), oftype(p, w), p)
 end
 coefficient(γ, λ, w) = coefficient(γ * λ, w)
+# Numerics T3 (#503): the product of the factors is formed in the promotion of the destination
+# type S and the factors' types, and rounded once to S. ElasticNet, Berhu and CappedL1 follow it;
+# the entries of the other families below keep the frozen formulas of 546dc86.
+promotion(::Type{S}, xs...) where {S} = promote_type(S, map(x -> x isa Bool ? Float16 : typeof(x), xs)...)
+function tcoefficient(::Type{S}, γ, λ, w) where {S}
+  R = promotion(S, γ, λ, w)
+  convert(S, coefficient(convert(R, γ), convert(R, λ), convert(R, w)))
+end
+tproduct(::Type{S}, a, b) where {S} = (R = promotion(S, a, b); convert(S, convert(R, a) * convert(R, b)))
 
 function reference_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  shrink_ref(v, convert(S, coefficient(γ, f.λ1, entry(f.w, i)))) / (1 + convert(S, γ * f.λ2))
+  shrink_ref(v, tcoefficient(S, γ, f.λ1, entry(f.w, i))) / (1 + tproduct(S, γ, f.λ2))
 end
 
 # as since #289: an identity prox for a zero step, level or finite weight
 function reference_entry(f::Berhu, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  step, λ, w = S(γ), S(f.λ), S(entry(f.w, i))
-  !isinf(w) && (iszero(step) || iszero(λ) || iszero(w)) && return S(v)
-  c = coefficient(step, λ, w)
+  w = entry(f.w, i)
+  !isinf(w) && (iszero(γ) || iszero(f.λ) || iszero(w)) && return S(v)
+  c = tcoefficient(S, γ, f.λ, w)
   M, t = S(f.M), abs(S(v))
   t <= M + c ? shrink_ref(S(v), c) : S(v) * M / (M + c)
 end
@@ -54,7 +63,7 @@ end
 
 function reference_entry(f::CappedL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  c = coefficient(S(γ), S(f.λ), S(entry(f.w, i)))
+  c = tcoefficient(S, γ, f.λ, entry(f.w, i))
   a, t = S(f.a), abs(S(v))
   z1 = min(max(t - c, zero(S)), a)          # the ℓ1 piece |z| ≤ a: soft thresholding, clipped at a
   z2 = max(t, a)                             # the constant piece |z| ≥ a
@@ -117,7 +126,7 @@ PB._conjugate_isindicator(::Type{Frozen{F}}) where {F} = PB._conjugate_isindicat
         end
       end
     end
-    # Mixed factors must retain their conversion order.
+    # Mixed factors: the product is formed in their promotion and rounded once (T3).
     for f in (families(Float64, Float64.(w))..., families(T, Float64.(w))...)
       check_case(f, x, ordinary)
     end

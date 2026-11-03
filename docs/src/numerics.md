@@ -464,9 +464,12 @@ IEEE arithmetic propagates it.
   of its whole coupled block (groups, balls, spectral functions). Results that
   do not depend on it are computed as usual.
 - A comparison with NaN never selects a branch. A failed `norm > threshold`
-  test must not turn NaN into zeros, and a failed membership test must not turn
-  it into `+Inf`. The shortcut "an indicator's value at a projection is `0`"
-  does not apply.
+  test must not turn a **NaN-dependent** result into zeros, and a failed
+  membership test must not turn it into `+Inf`. The shortcut "an indicator's
+  value at a projection is `0`" does not apply when the projected result
+  depends on NaN; a projection structurally independent of that input
+  (E1/E4), such as a radius-zero ball, still has its finite stored value
+  and corresponding indicator value under O2.
 - In a sum of terms, NaN takes precedence over `±Inf`.
 
 So `prox(NormL1(1.0), [NaN, 4.0], 1.0)` is `[NaN, 3.0]`, and

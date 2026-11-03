@@ -675,8 +675,8 @@ tracks FD-16, and the follow-on issues below were filed on 2026-11-01.
 | 6. FD-6 `atomindices` and `ProximalBase.samegroups` | 0.5.x-safe addition | 1 | ProximalSolvers migration | #422 |
 | 7. FD-4, FD-10, FD-12: state the rules 0.5.x already meets | 0.5.x-safe addition (documentation) | — | `docs/src/iterates.md` | #423 |
 | 8. ProximalSolvers: §3.1–§3.4 and §3.8 | downstream, runs on 0.5.x | 6 | #391 Phase 2 | mlakolar/ProximalSolvers.jl#165 |
-| 9. ProximalSolvers: §3.5 | downstream, runs on 0.5.x | — | must land before 10 | mlakolar/ProximalSolvers.jl#164 |
-| 10. FD-2 one working-set rule | breaking 0.6 | 1, 9 | #391 Phase 1 integration branch | #424 |
+| 9. ProximalSolvers: §3.5 | downstream, runs on 0.5.x | — | was to land before 10; released in ProximalSolvers v0.3.2 | mlakolar/ProximalSolvers.jl#164 |
+| 10. FD-2 one working-set rule | breaking 0.6 | 1, 9 | #391 Phase 1 | #424 |
 | 11. FD-3 owner `copyto!` is CPY-4's checked replace | breaking 0.6 for the owner, as #391 planned | — (no amendment) | #391 Phase 1a | part of #391 Phase 1a |
 | 12. FD-5 a coordinate-vector view for `SparseIterate` | breaking 0.6 | 1 | #391 Phase 1 (the owner's `SymmetricCoordinates` is the model) | #425 |
 | 13. FD-9 strong zeros in products with one iterate operand, with the M1 amendment | breaking 0.6 | 1 (FD-9 signed off; PERF-6: option (i)) | #366 G2, with the M1-amendment rows added to the #387 conformance suite (`test/conformance/failures_storage.jl`), marked `broken = (group = :G2, baseline = …)` until it lands; #391 Phase 1c (PERF-6) | #428 |
@@ -690,8 +690,30 @@ tracks FD-16, and the follow-on issues below were filed on 2026-11-01.
 **Order.** Items 1–9 and 19 can run in parallel with #391 Phase 0: they are
 additive, bug fixes or downstream changes that work on 0.5.x, and item 1 comes
 first so that every later item has a baseline. Items 10–18 change 0.6 behavior
-and stack with #391 Phase 1 on its integration branch. Items 10, 11, 12 and
+and merge into `master` one reviewed PR at a time, coordinated with #391 Phase 1
+(see the branch policy below). Items 10, 11, 12 and
 14 need the structural sign-off (contract §3.1) and items 13 and 16 FD-9's
 (FD-9's option (e) is the rejected alternative to FN-9), both given on
-2026-11-01; item 18 waits for FD-16's (#419), and item 15 documents whatever has been signed; item 9 must be released
-in ProximalSolvers before item 10, or the continuation start changes silently.
+2026-11-01; item 18 waits for FD-16's (#419), and item 15 documents whatever has been signed. Item 9 was
+to be released in ProximalSolvers before item 10, or the continuation start
+would change silently; it was released in ProximalSolvers v0.3.2 (2026-11-02).
+
+**Branch and release policy (revised 2026-11-03).** This replaces the earlier
+plan of stacking items 10–18 on #391's integration branch
+(`feature/symmetric-iterate-0.6`, now retired); the maintainer's decision is
+recorded on [#391](https://github.com/mlakolar/ProximalBase.jl/issues/391#issuecomment-6604557096).
+
+- `master` is the ProximalBase 0.6 development branch. There is no 0.5
+  maintenance: no backports and no 0.5 release branch. The "0.5.x bug fix" and
+  "0.5.x-safe" kinds in the table describe each item as classified at sign-off,
+  not a planned 0.5 release.
+- Breaking changes are integrated individually, each through its own reviewed
+  PR into `master`. A temporary feature branch is acceptable for developing one
+  large PR; there is no long-lived integration branch.
+- Downstream migrations (items 8 and 9, and the sites in §3) are required
+  before the 0.6 release, not before each merge into `master`. Known downstream
+  incompatibilities are tracked in the release-blocking ledger
+  [#527](https://github.com/mlakolar/ProximalBase.jl/issues/527).
+- The benchmark and correctness requirements are unchanged: each PR meets §5's
+  acceptance tests that apply to it and §6's baseline and gate (FP-6), and the
+  maintainer's review.

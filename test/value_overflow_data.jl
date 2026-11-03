@@ -93,7 +93,9 @@ allocated_pow2(::Type{T}, E, a, b, c) where {T} = (pow2_three(T, E, a, b, c); @a
         # On the product the call stored: BLAS may round X * β and mul! differently.
         # The value is not compared bit for bit with plain_leastsquares: two @simd
         # reductions may add in different orders, which differ by a unit in the last
-        # place on some CPUs (#537). The guard keeps the ordinary sum exactly ...
+        # place on some CPUs (#537). The guard keeps an ordinary sum of this size
+        # exactly. This checks the guard on the test's own sum, not which path fr(βr)
+        # took: the recovery is as accurate, so the value cannot tell the paths apart ...
         s = 2 * plain_leastsquares(Yr, Xr, βr, fr.tmp)
         @test PB._leastsquares_value(fr, βr, s, true) === s / 2
         # ... and the value has the accuracy of the ordinary computation (R1): one

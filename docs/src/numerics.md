@@ -443,17 +443,18 @@ argument (E2, E3). This is an order of precedence, not three passes over the
 data.
 
 An admitted `γ = 0` or `γ = Inf` endpoint (P1) together with an
-argument containing `±Inf` does not acquire a precedence rule from
-validation order. The proximal result takes the common **joint limit**
-along all admissible finite steps and finite arguments approaching those
-endpoints, when that limit is path-independent. Agreement of the two
-iterated limits (step first versus argument first) is necessary but not
-sufficient to establish a joint limit. If different paths give different
-proximal points, the dependent entries are NaN (the whole block for a
-coupled projection), as in decision 21. Invalid or unsupported steps
-still raise before writing (O6), regardless of the argument. See
-[#311](https://github.com/mlakolar/ProximalBase.jl/issues/311) and
-[#469](https://github.com/mlakolar/ProximalBase.jl/issues/469).
+argument containing `±Inf` does not acquire a limit-order convention
+from validation precedence. If finite steps and finite inputs approaching
+the two exceptional values can produce different proximal limits, the
+dependent entries are NaN (decision 21); the result is **not** obtained
+by arbitrarily choosing the step-first or input-first iterated limit.
+Agreement of the two iterated limits alone does not prove a unique
+joint limit. Even a mathematically unique limit does not override an
+explicit E3 family policy that declines extension to infinite arguments.
+Input-independent outputs retain their E1/E2/E4 meaning. An invalid or
+unsupported step still raises before writing (O6), regardless of the
+argument. See [#311](https://github.com/mlakolar/ProximalBase.jl/issues/311)
+and [#469](https://github.com/mlakolar/ProximalBase.jl/issues/469).
 
 **E2. NaN.** A NaN entry of the argument is an undefined value, propagated as
 IEEE arithmetic propagates it.
@@ -484,36 +485,43 @@ gives. Gradients and proximal outputs take the function's documented limit,
 and NaN in the dependent entries otherwise. Uncentered ridge, for example,
 maps `-Inf` to value `+Inf`, gradient `-Inf` and proximal output `-Inf`.
 
-For direct bounded ball/sphere projections `IndBallL1(r)`,
-`IndBallL2(r)` and `IndSphereL2(r)` with `0 < r < Inf`,
-one independent infinite scalar coordinate `x_k = ±Inf` and all
-other entries finite has the unique proximal limit `±r e_k`.
-For `IndBallL1(0)` and `IndBallL2(0)`, the projection is
-zero even with an infinite input. On symmetric storage, each
-off-diagonal coordinate is **stored once and counted twice** (M2).
-When it is the sole infinite degree of freedom, its limiting
-entry is `±r/2` for `IndBallL1` and `±r/sqrt(2)`
-for `IndBallL2` and `IndSphereL2`. Two or more independent
-infinite unconstrained coordinates can have path-dependent projected
-directions, so their entire coupled block is NaN; the family never
-assumes that infinite magnitudes grow at equal rates.
+**Bounded coupled ball/sphere projections (explicit non-extension).**
+For direct `IndBallL1(r)`, `IndBallL2(r)` and `IndSphereL2(r)`
+with `0 < r < Inf`, and supported finite-radius
+`Constrained(f, IndBallL2(r))` and
+`Constrained(f, IndSphereL2(r))` proximal maps whose effective
+output is a bounded coupled block, an argument entry equal to `±Inf`
+that participates in that block gives **NaN in every output entry of
+the dependent block**. This is deliberate even when a mathematical
+single-infinity limiting projection would be unique. These
+bounded coupled projections do **not** document an extension to
+infinite argument entries; they do not return a mixture such as
+`[NaN, 0]` for an affected block. NaN inputs follow E2.
+Independent blocks are evaluated normally.
 
-For `Constrained(NormL1, IndBallL2/IndSphereL2)`,
-`Constrained(GroupNormL2, IndBallL2/IndSphereL2)` and
-`Constrained(IndBallL0, IndBallL2/IndSphereL2)` with finite radius,
-the same **determined-limit** rule applies only after respecting the
-effective domain, hard-fixed coordinates, sparsity, and independently
-infinite degrees of freedom. A single group can contain several
-independent infinities and then has no determined direction.
-An infinite coordinate already fixed to zero by E4 does not itself
-determine a direction. No comparable limit is promised here for other
-coupled functions or other `BallConstrained` specializations.
+**Input-independent results.** The preceding rule does not apply
+when a domain-defining restriction (E1/E4) makes the proximal result
+independent of the exceptional input entry. In particular,
+`IndBallL1(0)` and `IndBallL2(0)` are constant-zero
+projections and return zero for `±Inf` or NaN inputs, and
+an infinite weight that fixes a coordinate/group to zero permits
+ignoring an exceptional input there when the remaining projection
+does not depend on it. This independence is structural across finite
+steps, not inferred merely from a branch taken at an infinite step.
+An empty effective domain is an `ArgumentError` before writing (O6).
 
-This finite-radius promise does not specify infinite-radius parameter
-semantics. NaN inputs continue to follow E2. An infinite **computed**
-norm caused by finite-input overflow is not an infinite input and must
-use the usual R2 recovery. A value returned with the proximal output
-follows O2 at that stored output, not at the original infinite argument.
+This bounded-projection rule is an **explicit exception** to the
+preference for a mathematically determined extension: it does not
+change the formula or value of `f(x)` at an infinite input.
+It does not apply to separable projections such as `IndBox` or
+`IndBallLinf`, or automatically to other coupled functions
+such as `NormL2`, `IndStiefel`, spectral or linear projections.
+Infinite-radius parameter semantics are not specified here.
+An infinite **computed** norm caused by entirely finite inputs
+is not an infinite argument and must use the usual R2 recovery.
+A value returned with the proximal output follows O2 at the
+stored output (NaN for a NaN block, zero for a feasible zero-radius
+projection), not at the original infinite argument.
 
 **E4. Zero and infinite parameters.**
 
@@ -587,8 +595,9 @@ writing elsewhere. The named endpoints:
 `Constrained(IndBallL0, IndBallL2/IndSphereL2)` is an
 indicator and follows the scalar-step indicator rule, provided its
 intersection is feasible. At an admitted endpoint with an infinite
-argument, the joint-limit rule in E1/E3 applies rather than selecting
-an arbitrary order of limits.
+argument, E1/E3's exceptional-input policy still applies: an
+accepted step does not turn an infinite input into a finite projection
+when the bounded coupled block is covered by E3.
 
 Array steps on coupling sets and in the searches of `Constrained` must be
 positive and finite in every entry (see

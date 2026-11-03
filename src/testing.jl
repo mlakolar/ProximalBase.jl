@@ -107,9 +107,16 @@ Test a separable `f` at the vector or matrix `x` with step `γ`:
   (a copy of `x` with some entries set to zero) gives the proximal point;
 - when [`iszeropreserving`](@ref)`(f)`, zero is fixed by every scalar proximal
   operator, and `prox!` on a `SparseIterate` agrees with the dense result;
-- for a zero-preserving `SeparableFunction`, every `value_entry` at zero is 0,
-  and the value and [`value_and_prox!`](@ref) on a `SparseIterate` agree with
-  the dense results. Zero-preserving wrappers need no value oracle;
+- for a zero-preserving `SeparableFunction`, every `value_entry` at zero is 0;
+- for any zero-preserving `f` with a standalone value, `f(0) == 0` exactly, and
+  the value and [`value_and_prox!`](@ref) on a `SparseIterate` agree with the
+  dense results. `f(0) == 0` is necessary for the per-entry contract
+  ``f_i(0) = 0`` but not sufficient: terms could cancel, so only a
+  `SeparableFunction` gets the per-entry check. A function has a standalone
+  value unless the package knows it has none (a [`Conjugate`](@ref) whose value
+  is not implemented, or a wrapper of one) or it has no method for the array
+  argument. Such a wrapper is not asked for a value. A value method that
+  exists is called without a `try`, so an error in it is reported as an error;
 - with `groups`, `prox_coordinate!` on each group of an [`AtomIterate`](@ref)
   gives the proximal point;
 - with `symmetric = true` and a square `x`, `prox_coordinate!` on each

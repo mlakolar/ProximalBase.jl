@@ -1065,8 +1065,7 @@ end
 Base.@propagate_inbounds function _prox_entry_slope(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   t = _weight_coefficient(S, γ, f.λ1, _entry(f.w, i))
-  d = 1 + _typed_product(S, γ, f.λ2)
-  shrink(v, t) / d, _slope(abs(v) > t, inv(d))
+  _elastic_ridge(S, shrink(v, t), γ, f.λ2), _slope(abs(v) > t, _elastic_slope(S, γ, f.λ2))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::IndBox, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)

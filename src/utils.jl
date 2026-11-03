@@ -92,7 +92,42 @@ end
 end
 @inline function _weight_coefficient(::Type{U}, γ, λ, w) where {U<:AbstractFloat}
   R = _working_type(U, γ, λ, w)
-  convert(U, _weight_coefficient(convert(R, γ), convert(R, λ), convert(R, w)))
+  convert(U, _weight_coefficient3(convert(R, γ), convert(R, λ), convert(R, w)))
+end
+# γλw in R. While γλ is a normal number it is the ordinary coefficient. Otherwise, for finite
+# nonzero factors, the product is formed in scaled units, so that a weight restores a γλ that
+# overflows or underflows in R (R3); zero, infinite and NaN factors keep the meaning of
+# _weight_coefficient (a zero level is 0·Inf only where the weight is infinite).
+@inline function _weight_coefficient3(γ::R, λ::R, w::R) where {R<:AbstractFloat}
+  s = γ * λ
+  floatmin(R) <= s <= floatmax(R) && return _weight_coefficient(s, w)
+  _recoverable_factors(γ, λ, w) ? _exceptional_product(γ, λ, w, s * w) : _weight_coefficient(s, w)
+end
+@inline _recoverable_factors(a, b, c) =
+  isfinite(a) & isfinite(b) & isfinite(c) & !iszero(a) & !iszero(b) & !iszero(c)
+
+# |v|² > 2γλ, compared in the promotion R of the destination and the factors' types. While 2γλ is a
+# normal number in R the ordinary comparison is exact in its outcome for every v: an |v|² that
+# overflows is larger, one that underflows is smaller, and the tie rule is the strict inequality of
+# the rounded values, as before. The test involves the factors only, so a loop over entries decides
+# it once and keeps its vectorization. Otherwise, for finite nonzero v, γ and λ, the significands
+# and exponents are compared.
+@inline function _square_exceeds(::Type{U}, v, γ, λ) where {U<:AbstractFloat}
+  R = _working_type(U, γ, λ)
+  x, a, b = convert(R, v), convert(R, γ), convert(R, λ)
+  q = 2 * a * b
+  floatmin(R) <= q <= floatmax(R) && return abs2(x) > q
+  _square_exceeds_scaled(x, a, b, abs2(x), q)
+end
+@noinline function _square_exceeds_scaled(x::R, a::R, b::R, p::R, q::R) where {R<:AbstractFloat}
+  _recoverable_factors(x, a, b) || return p > q
+  mx, ex = frexp(x)
+  ma, ea = frexp(a)
+  mb, eb = frexp(b)
+  k = 2ex - (ea + eb + 1)                    # |x|² = mx²·2^(2ex), 2γλ = ma·mb·2^(ea+eb+1)
+  k > 2 && return true                       # mx² ≥ 1/4, ma·mb < 1
+  k < -2 && return false
+  ldexp(mx * mx, k) > ma * mb
 end
 
 # the value p = c⋅φ of a term with the coefficient c and the unweighted value

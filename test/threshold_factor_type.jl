@@ -49,6 +49,95 @@ end
   @test prox_entry(NormLq(1.0, 0.5, [Inf]), h, 1, 1.0) == 0
 end
 
+# Range recovery (R2/R3), with expected values worked out from the formulas, not from another implementation:
+# the soft threshold is γλ1w, shrink(x, t) = x - t, and the ridge weight is 1/(1 + γλ2).
+@testset "ElasticNet: the ridge weight γλ2 and the threshold γλ1w recover their range" begin
+  # γλ2 = 2^160 overflows Float32; 2^100/(1 + 2^160) = 2^-60 is a normal Float32
+  f = ElasticNet(0.0, 2.0^80); x32 = Float32[2.0^100, -2.0^100, 0, 2.0^100 * 3]
+  want = Float32[2.0^-60, -2.0^-60, 0, 3 * 2.0^-60]
+  @test prox(f, x32, 2.0^80) == want
+  @test prox_entry(f, x32[1], 1, 2.0^80) === want[1]
+  y = similar(x32); @test prox!(y, f, x32, fill(2.0^80, 4)) === y; @test y == want
+  y = similar(x32); @test prox!(y, f, x32, 2.0^80) === y; @test y == want
+  yv = similar(x32); val = value_and_prox!(yv, f, x32, 2.0^80); @test yv == want
+  @test isapprox(val, sum(abs2, Float64.(want)) * 2.0^79; rtol = 1e-6)            # (λ2/2)‖y‖²
+  # the slopes: 1/(1 + γλ2) = 2^-140 (a subnormal Float32) where |v| exceeds the threshold
+  g = ElasticNet(0.0, 2.0^70)
+  @test ProximalBase._prox_entry_slope(g, 2f0^100, 1, 2.0^70) == (2f0^-40, 2f0^-140)
+  @test ProximalBase._prox_slope(ElasticNet(0f0, 2f0^70), 2f0^100, 2f0^70) == 2f0^-140
+  @test ProximalBase._prox_slope(ElasticNet(2f0^10, 2f0^70), 2f0^5, 2f0^70) == 0f0       # below the threshold
+  # γλ2 = 2^1200 in Float64: 2^1000/(1 + 2^1200) = 2^-200
+  @test prox(ElasticNet(0.0, 2.0^600), [2.0^1000], 2.0^600) == [2.0^-200]
+  # γλ1 overflows, the weight restores it: threshold 2^800·2^800·2^-1000 = 2^600
+  e = ElasticNet(2.0^800, 0.0, [2.0^-1000])
+  @test prox(e, [2.0^601], 2.0^800) == [2.0^600]
+  @test prox_entry(e, 2.0^601, 1, 2.0^800) == 2.0^600
+  y = zeros(1); prox!(y, e, [2.0^601], [2.0^800]); @test y == [2.0^600]
+  @test ProximalBase._prox_entry_slope(e, 2.0^601, 1, 2.0^800) == (2.0^600, 1.0)
+  # γλ1 underflows, the weight restores it: 2^-800·2^-800·2^1000 = 2^-600; x = 2^-599 gives 2^-600
+  u = ElasticNet(2.0^-800, 0.0, [2.0^1000])
+  @test prox(u, [2.0^-599], 2.0^-800) == [2.0^-600]
+  @test prox(u, [-2.0^-599], 2.0^-800) == [-2.0^-600]
+  @test prox(u, [2.0^-601], 2.0^-800) == [0.0]                                          # below the threshold
+  # zero and infinite weights, and a zero or infinite level, keep their meaning on the typed path
+  c = ProximalBase._weight_coefficient
+  @test c(Float64, 2.0^800, 2.0^800, 0.0) === 0.0
+  @test c(Float64, 2.0^800, 2.0^800, Inf) === Inf
+  @test c(Float64, 0.0, 2.0^800, Inf) === Inf
+  @test c(Float64, 2.0^800, 2.0^-1000, 2.0^800) === 2.0^600
+  @test isnan(c(Float64, 0.0, Inf, 1.0)) && isnan(c(Float64, NaN, 1.0, 1.0)) && isnan(c(Float64, 1.0, 1.0, NaN))
+  @test c(Float64, Inf, 2.0, 0.0) === 0.0 && c(Float64, Inf, 2.0, 1.0) === Inf
+  @test c(Float64, 2.0^-800, 2.0^-800, 2.0^1000) === 2.0^-600
+  # the ordinary path keeps its result: division by 1 + γλ2
+  @test prox(ElasticNet(0.5, 0.25), [3.0], 0.5) == [(3.0 - 0.25) / (1 + 0.125)]
+end
+
+@testset "NormL0: |v|² > 2γλ is compared where |v|² or 2γλ leaves the range" begin
+  f = NormL0(2.0^100)
+  @test prox(f, Float32[2.0^110], 2.0^100) == Float32[2.0^110]                        # 2^220 > 2^201
+  @test prox(f, Float32[2.0^100], 2.0^100) == Float32[0]                              # 2^200 < 2^201
+  @test prox_entry(f, 2f0^110, 1, 2.0^100) === 2f0^110
+  y = similar(Float32[1, 2]); prox!(y, f, Float32[2.0^110, 2.0^100], 2.0^100); @test y == Float32[2.0^110, 0]
+  # Float32 factors and argument: 2γλ = 2^201 and |v|² = 2^220 overflow Float32 itself
+  @test prox(NormL0(2f0^100), Float32[2f0^110, 2f0^100], 2f0^100) == Float32[2f0^110, 0]
+  # Float64: 2γλ = 2^1200 and |v|² overflow Float64; the ties are zero, as in the ordinary path
+  g = NormL0(2.0^499)
+  @test prox(g, [2.0^600], 2.0^700) == [0.0]                                          # |v|² = 2γλ = 2^1200
+  @test prox(g, [nextfloat(2.0^600)], 2.0^700) == [nextfloat(2.0^600)]
+  @test prox(g, [prevfloat(2.0^600)], 2.0^700) == [0.0]
+  # underflow: |v|² = 2^-1200 = 2γλ with γ = 2^-700, λ = 2^-501
+  h = NormL0(2.0^-501)
+  @test prox(h, [2.0^-600], 2.0^-700) == [0.0]
+  @test prox(h, [nextfloat(2.0^-600)], 2.0^-700) == [nextfloat(2.0^-600)]
+  # ordinary tie and non-finite values
+  @test prox(NormL0(2.0), [2.0], 1.0) == [0.0] && prox(NormL0(2.0), [nextfloat(2.0)], 1.0) == [nextfloat(2.0)]
+  # unchanged from the base: Inf is kept, NaN fails the comparison and gives zero
+  @test prox(NormL0(1.0), [Inf, NaN, 0.0], 1.0) == [Inf, 0.0, 0.0]
+  @test prox(NormL0(1.0), [1.0], 0.0) == [1.0]                                        # γ = 0: identity
+end
+
+@testset "LLA weights test the raw weight for infinity" begin
+  lw = ProximalBase.lla_weight
+  c = CappedL1(1e-80, 1.0, [1e80]); l = LogPenalty(1e-80, 1.0, [1e80])
+  # the weight 1e80 is finite: Float32(1e80) is Inf, the coefficient γλw = 1 is formed in Float64
+  @test lw(c, 3f0, 1) === 0f0 && lw(c, 0.5f0, 1) === 1f0
+  @test lw(l, 3f0, 1) === 0.25f0 && lw(l, 0f0, 1) === 1f0
+  # an infinite weight fixes the entry at every value
+  ci = CappedL1(1e-80, 1.0, [Inf]); li = LogPenalty(1e-80, 1.0, [Inf])
+  @test lw(ci, 3f0, 1) === Inf32 && lw(li, 3f0, 1) === Inf32 && isnan(lw(li, NaN32, 1))
+  # a zero weight; a NaN weight (the constructors reject it, so the array is changed afterwards) and
+  # a NaN argument propagate as before
+  @test lw(CappedL1(1.0, 1.0, [0.0]), 0.5f0, 1) === 0f0 && lw(LogPenalty(1.0, 1.0, [0.0]), 0.5f0, 1) === 0f0
+  wn = [1.0]; cn = CappedL1(1.0, 1.0, wn); ln = LogPenalty(1.0, 1.0, wn); wn[1] = NaN
+  @test isnan(lw(cn, 0.5f0, 1)) && isnan(lw(ln, 0.5f0, 1))
+  @test isnan(lw(LogPenalty(1.0, 1.0, [2.0]), NaN32, 1))
+  # lla_weights! gives the same entries
+  w = zeros(Float32, 2)
+  lla_weights!(w, CappedL1(1e-80, 1.0, [1e80, 1e80]), Float32[3, 0.5]); @test w == Float32[0, 1]
+  lla_weights!(w, LogPenalty(1e-80, 1.0, [1e80, 1e80]), Float32[3, 0.5]); @test w == Float32[0.25, 1 / 1.5]
+  lla_weights!(w, CappedL1(1e-80, 1.0, [Inf, 1e80]), Float32[3, 3]); @test w == Float32[Inf, 0]
+end
+
 @testset "same-type Float32 stays Float32 and does not allocate" begin
   e, v = ElasticNet(0.5f0, 0.25f0), Float32[1, 2, 3]
   @test prox(e, v, 0.5f0) isa Vector{Float32}

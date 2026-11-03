@@ -16,9 +16,18 @@ coefficient(γ, λ, w) = coefficient(γ * λ, w)
 # type S and the factors' types, and rounded once to S. ElasticNet, Berhu and CappedL1 follow it;
 # the entries of the other families below keep the frozen formulas of 546dc86.
 promotion(::Type{S}, xs...) where {S} = promote_type(S, map(x -> x isa Bool ? Float16 : typeof(x), xs)...)
+# While γλ is a normal number in R the coefficient is the frozen formula. Otherwise, for finite nonzero
+# factors, the product is exact (BigFloat) and rounded once to S, which recovers a γλ that leaves the
+# range of R (R3); zero, infinite and NaN factors keep their meaning.
 function tcoefficient(::Type{S}, γ, λ, w) where {S}
   R = promotion(S, γ, λ, w)
-  convert(S, coefficient(convert(R, γ), convert(R, λ), convert(R, w)))
+  a, b, c = convert(R, γ), convert(R, λ), convert(R, w)
+  if !(floatmin(R) <= a * b <= floatmax(R)) && all(isfinite, (a, b, c)) && !iszero(a) && !iszero(b) && !iszero(c)
+    return setprecision(BigFloat, 512) do
+      convert(S, BigFloat(a) * BigFloat(b) * BigFloat(c))
+    end
+  end
+  convert(S, coefficient(a, b, c))
 end
 tproduct(::Type{S}, a, b) where {S} = (R = promotion(S, a, b); convert(S, convert(R, a) * convert(R, b)))
 

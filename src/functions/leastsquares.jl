@@ -92,9 +92,12 @@ end
 # - every residual exactly zero: the value is zero, at once, for exact fits;
 # - a finite residual: its squares overflow or underflow, and the sum is formed
 #   in units of a power of two;
-# - a residual that overflowed although β, X and Y are finite: Xβ - Y is formed
-#   again from βs = β 2^-k, which allocates a copy of β, with k chosen so that no
-#   entry of X βs can overflow, and the value is 2^(2k) ‖X βs - Y 2^-k‖²/2.
+# - a residual that overflowed although β, X and Y are finite: Xβ is formed again
+#   as 2^k X βs from βs = β 2^-k, with k chosen so that no entry of X βs can
+#   overflow. An entry 2^k (X βs)ᵢ that is representable meets Yᵢ in its own units,
+#   so that a small Yᵢ survives a product that cancels; the others are formed as
+#   (X βs)ᵢ - Yᵢ 2^-k in units of 2^k. The two sums of squares are added by their
+#   exponents. This allocates a copy of β and two arrays of the size of Y.
 # Broadcasts, mul! and reductions only, so that device arrays stay on the device.
 @noinline function _leastsquares_recover(f::LeastSquaresLoss{T}, β, s, raw::Bool) where {T}
   r, Y = f.tmp, f.Y
@@ -107,12 +110,23 @@ end
   E = _max_exponent(T)
   k = max(0, _bound_exponent(_stored_maxabs(f.X)) + _bound_exponent(_stored_maxabs(β)) + _log2_ceil(size(f.X, 2)) + 3 - E,
           _bound_exponent(_stored_maxabs(Y)) + 3 - E)
-  sc = _power_factors(T, -k)
+  sc, up = _power_factors(T, -k), _power_factors(T, k)
   mul!(r, f.X, β .* sc[1] .* sc[2])
-  r .-= Y .* sc[1] .* sc[2]
-  j = _square_exponent(r, nothing, T)
-  j == typemin(Int) && return zero(s)
-  _scaled_product(one(T), _square_scaled_sum(r, nothing, j, T), 2(j + k) - 1)
+  lim = _scale_value(floatmax(T) / 4, sc)
+  own = _leastsquares_own.(r, lim, Ref(up))                  # 2^k (X βs)ᵢ where representable
+  Yo = _leastsquares_own_y.(r, Y, lim, T)
+  r .= _leastsquares_big.(r, Y, lim, Ref(sc))
+  _pow2_sum(T, _leastsquares_squares(own, Yo), _leastsquares_squares(r, nothing, 2k))
+end
+@inline _leastsquares_own(a::T, lim, up) where {T} = abs(a) <= lim ? _scale_value(a, up) : zero(T)
+@inline _leastsquares_own_y(a, y, lim, ::Type{T}) where {T} = abs(a) <= lim ? convert(T, y) : zero(T)
+@inline _leastsquares_big(a::T, y, lim, sc) where {T} = abs(a) <= lim ? zero(T) : a - _scale_value(convert(T, y), sc)
+# ‖x - y‖²/2 as a significand and an exponent, in units of 2^shift
+function _leastsquares_squares(x, y, shift = 0)
+  T = eltype(x)
+  j = _square_exponent(x, y, T)
+  j == typemin(Int) && return (zero(T), 0)
+  (_square_scaled_sum(x, y, j, T), 2j - 1 + shift)
 end
 
 function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)

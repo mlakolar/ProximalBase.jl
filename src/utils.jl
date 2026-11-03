@@ -458,6 +458,7 @@ _all_finite(::Nothing) = true
 function _pow2_weighted(::Type{R}, w, terms::Vararg{Tuple{Any, Int}, N}) where {R, N}
   E = typemin(Int)
   for (m, e) in terms
+    isfinite(m) || return convert(R, w) * sum(t -> convert(R, t[1]), terms)
     iszero(m) || (E = max(E, exponent(convert(R, m)) + e))
   end
   E == typemin(Int) && return convert(R, w) * zero(R)

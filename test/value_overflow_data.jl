@@ -58,6 +58,18 @@ end
       # finite residual whose square overflows
       @test within(LeastSquaresLoss(T[0], ones(T, 1, 1))([root]), big(root)^2 / 2)
       @test within(value_and_gradient!(zeros(T, 1), LeastSquaresLoss(T[0], ones(T, 1, 1)), [root]), big(root)^2 / 2)
+      # a small response survives a product that cancels in the recovery
+      P = ldexp(one(T), E - 23)
+      XP = reshape(T[P, -P], 1, 2)
+      for y in (ldexp(one(T), -40), T(3) * sqrt(floatmin(T)), one(T))     # y²/2 is normal
+        @test within(LeastSquaresLoss(T[y], XP)(T[P, P]), big(y)^2 / 2)
+        @test within(value_and_gradient!(zeros(T, 2), LeastSquaresLoss(T[y], XP), T[P, P]), big(y)^2 / 2)
+        @test within(LeastSquaresLoss(JLArray(T[y]), JLArray(XP))(JLArray(T[P, P])), big(y)^2 / 2)
+      end
+      # one entry cancels to a small residual, another stays large
+      XB = T[P -P 0; 0 0 1]
+      y = ldexp(one(T), -40)
+      @test within(LeastSquaresLoss(T[y, 0], XB)(T[P, P, root / 2]), (big(y)^2 + big(root / 2)^2) / 2)
       # exact fit, non-finite inputs and the device path
       @test LeastSquaresLoss(T[1, 2], T[1 0; 0 1])(T[1, 2]) === zero(T)
       @test isnan(f(T[NaN, 2]))
@@ -98,6 +110,9 @@ end
       scale = (abs.(big.(x2))' * big.(A2) * abs.(big.(x2))) / 2 + abs.(big.(b2))' * abs.(big.(x2))
       @test near_scale(QuadraticFunction(A2, b2)(x2), ref, scale)
       @test near_scale(QuadraticFunction(A2, b2)(SparseIterate(x2)), ref, scale)
+      # a Float32 function at a Float64 argument: the products are stored in Float32
+      T === Float32 && @test isapprox(QuadraticFunction(fill(3f38, 2, 2))([1e10, 1e10]), 4 * big(3f38) * big(1e10)^2 / 2;
+                                      rtol = 4eps(Float32))
       # the recovery allocates nothing
       xr = [root]
       f(xr)
@@ -149,7 +164,13 @@ end
       # a moderate result under products that overflow, in the scale of the computation
       c, x, d = T[2, -2, 3], T[M, M, 1], one(T)
       @test near_scale(LinearFunction(c, d)(x), 4, 4big(M))
+      # a small d survives a dot that cancels
+      P = ldexp(one(T), E - 23)
+      for d in (T(1e-20), floatmin(T) * T(2)^40, -one(T))
+        @test LinearFunction(T[P, P], d)(T[P, -P]) === d
+      end
       # argument and coefficient types
+      @test LinearFunction(T[2, 0], -M)(AtomIterate(T[M, 0], [1:2])) === M
       @test LinearFunction(T[2, 0], -M)(SparseIterate(T[M, 0])) === M
       @test LinearFunction(T[2 0; 0 0], -M)(SymmetricSparseIterate(T[M 0; 0 0])) === M
       @test LinearFunction(T[0 2; 2 0])(SymmetricSparseIterate(T[0 M; M 0])) === T(Inf)   # 4M overflows

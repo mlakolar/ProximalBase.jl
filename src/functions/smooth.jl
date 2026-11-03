@@ -79,18 +79,16 @@ isconvex(::Type{<:LinearFunction}) = true
 _value_unchecked(f::LinearFunction, x::AbstractArray) = (_checkvalue(f, x); _value_at(_linear_value(f, x, dot(f.c, x) + f.d), x))
 
 # A dot that overflows, alone or with d, at a representable value is summed
-# again with x in units of 2^k, chosen so that no partial sum can overflow, and
-# d added in the same units (R1).
+# again with x in units of 2^k, chosen so that no partial sum can overflow; d
+# keeps its own units, so that a small d survives a dot that cancels (R1).
 @inline _linear_value(f::LinearFunction, x, v) = isfinite(v) ? v : _linear_value_recover(f.c, f.d, x, v)
 @noinline function _linear_value_recover(c, d, x, v)
   (_all_finite(x) && _all_finite(c) && isfinite(d)) || return v
   R = typeof(v)
   E = _max_exponent(R)
-  k = max(0, _bound_exponent(_stored_maxabs(c)) + _bound_exponent(_stored_maxabs(x)) + _log2_ceil(length(x)) + 2 - E,
-          _bound_exponent(convert(R, d)) + 2 - E)
-  s = _power_factors(R, -k)
-  p = convert(R, _linear_scaled_dot(c, x, s))
-  _pow2_sum(R, (p + _scale_value(convert(R, d), s), k))
+  k = max(0, _bound_exponent(_stored_maxabs(c)) + _bound_exponent(_stored_maxabs(x)) + _log2_ceil(length(x)) + 2 - E)
+  p = convert(R, _linear_scaled_dot(c, x, _power_factors(R, -k)))
+  _pow2_sum(R, (p, k), (convert(R, d), 0))
 end
 # Σ cᵢ (xᵢ 2^-k), over the stored entries of x where it has them; other array
 # types (and device arrays) take the scaled copy of x with their own dot
@@ -709,7 +707,7 @@ end
   _all_finite(x) || return v
   (_all_finite(f.A) && _all_finite(f.b) && isfinite(f.c)) || return v
   R = typeof(v)
-  E = _max_exponent(R)
+  E = _max_exponent(T)        # the products are stored in the buffers, of type T
   L = _log2_ceil(length(x))
   i = max(0, _bound_exponent(_stored_maxabs(f.A)) + 2L + 3 - E)   # |A xs| < 2^(E-3-L) and |xs| < 2^-i ≤ 1
   kx = _bound_exponent(_stored_maxabs(x)) + i
@@ -920,7 +918,7 @@ end
 # the owned buffers, which f.D enters holding Θ: D is scaled by 2^-kd so that
 # A Ds stays below floatmax/4, A Ds by its own power of two 2^-ka (and 2^-j for
 # the size of B and the final dot) before the product with B, so that large A and
-# B do not push D into the subnormal range. ⟨Θ, AΘB⟩ = 2^(2kd+ka+j) ⟨Ds, W⟩ and
+# B do not push D into the subnormal range. ⟨Θ, AΘB⟩ = 2^(2kd+ka) ⟨Ds, W⟩ (ka includes j) and
 # ⟨C, Θ⟩ = 2^kd ⟨C, Ds⟩ are added by their exponents and rounded once.
 @noinline function _kron_value_recover(f::KronQuadratic{T}, v) where {T}
   D, AD, W = f.D, f.AD, f.W

@@ -319,8 +319,13 @@ interpretation, as E4 already promises:
   feasible set `{0}`. Their projection is **identically zero for
   all finite inputs**. Under the proposed dependence interpretation,
   output zero even for `[Inf,2]` or `[NaN,2]`; the indicator value
-  at the stored output is zero. This fixes the current ℓ2 zero-radius
-  exceptional-input discrepancy.
+  at the stored output is zero. **This does not mean that a standalone
+  evaluation of `f(x)` at the original exceptional x is zero:**
+  under E3, `f([Inf,2])=Inf`, and under E2,
+  `f([NaN,2])=NaN`. Only the joint oracle's
+  `value_and_prox!` value is evaluated at the finite stored point
+  (O2). This fixes the current ℓ2 zero-radius exceptional-input
+  projection discrepancy.
 - If an infinite coordinate/group weight fixes an entry/group to zero
   for **every finite step**, its input can be ignored for purposes of
   that coordinate's contribution to the projection. An otherwise

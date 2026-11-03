@@ -124,14 +124,13 @@ ordinary hot path: **both** must distinguish a true infinite input
 from a finite input whose norm or intermediate reduction overflowed.
 The benefit of A would mainly be fewer case derivations and tests.
 
-Staging controls B's cost without weakening the end-state contract:
-
-1. Direct projections with simple closed forms and independent
-   mathematical proofs.
-2. The corresponding constrained representations, one proven family
-   at a time.
-3. Additional sign-restricted, spectral and other special cases
-   under their existing E3 rules, with S4 inconsistencies tracked.
+Staging controls B's cost without weakening the end-state contract.
+The stage numbering below follows §8 throughout: Stage 0 is the
+contract review, Stage 1 is the relevant #311 step-validation work,
+Stage 2 adds direct projections with independent proofs, and
+Stage 3 adds the corresponding constrained representations one family
+at a time. Further sign-restricted, spectral and other cases remain
+on their existing E3 rules, with S4 inconsistencies tracked.
 
 A documented NaN is itself observable behavior: moving from A to B
 later may alter a solver's `isnan` checks. Selecting B now
@@ -156,12 +155,15 @@ The second review identified an ambiguity between "depends",
 "participates", "influential", and "effective free block".
 Use one definition.
 
-> **Definition:** For fixed valid parameters and step, output
-> `y_j` depends on input `x_i` if, after imposing
-> E4's domain restrictions, there exist finite values for the other
-> input coordinates and two finite values for `x_i` for
-> which `y_j` differs. An input-independent output remains
-> determined when `x_i` is NaN.
+> **Definition:** A result (the function value, a gradient entry,
+> or a proximal entry `y_j`) depends on input `x_i` if,
+> after imposing E4's domain restrictions, there exist finite
+> values for the other input coordinates and two finite values
+> for `x_i` for which that result differs, with the valid
+> parameters and step fixed (where a step applies).
+> An input-independent result remains determined when `x_i`
+> is NaN. A valid endpoint step such as `γ=Inf` is
+> also a fixed step for this definition.
 
 This is a semantic criterion. **Do not implement a generic
 dependency-matrix computation** in the proximal hot path; each
@@ -175,6 +177,20 @@ entries, groups, and coupled reductions.
 | Unit sphere constrained by `NormL1(1,[Inf,1])`, `[NaN,3]` | `[0,1]` | First coordinate hard-fixed; second ignores first input |
 | Same function at `[3,NaN]` | `[0,NaN]` | Fixed first output independent; free second output depends on NaN |
 | `IndBallL1(1)` at `[NaN,0]` | all NaN | Both free outputs can depend on the first coordinate for some finite other input |
+| `NormL1(1)` at `x=[NaN], γ=Inf` | `[0]` | The admitted endpoint prox is zero for all finite inputs |
+| `Constrained(NormL1(1), IndBallL2(1))` at `x=[NaN,0], γ=Inf` | `[0,0]`; joint value 0 | The fixed infinite-step endpoint projects onto the singleton minimizer |
+
+**The fixed-step NaN case is not the same as a joint infinite-input
+limit.** In the two last rows, E2 considers the endpoint map at
+`γ=Inf` with `x` an unknown *finite* value. It therefore
+returns the input-independent zero. At `γ=Inf, x=Inf`,
+E1/E3 instead examine **joint finite approach paths**; for
+ordinary soft thresholding and convex penalized balls, different
+rates produce different limits, so the result is NaN.
+The standalone `NormL1(1)([NaN])` remains NaN because the
+function **value** depends on its input, even though its infinite-step
+proximal output does not. Under O2, `value_and_prox!`
+at the stored zero point returns zero.
 
 The test `[NaN,0]` in an ordinary ℓ1 ball must not
 be mistaken for structural independence of its second output:
@@ -242,7 +258,7 @@ The radius-zero ℓ1/ℓ2 balls have singleton feasible set
 `{0}` and therefore return zero for any input,
 including NaN and ±Inf, consistent with E2's dependence
 definition. The standalone indicator value at the original
-exceptional point remains governed by E2/E3; see `3.
+exceptional point remains governed by E2/E3; see §3.
 
 ### 4.2 Symmetric storage and asymmetric input
 
@@ -284,18 +300,22 @@ variants in the direct implementation.
 
 At finite `r>0`:
 
-- Exactly one `+Inf` coordinate (others finite or
-  `-Inf`) selects the vertex `r e_k`.
+- Exactly one **independent** `+Inf` coordinate
+  (others finite or `-Inf`) selects the vertex `r e_k`
+  for a vector; on symmetric storage, a single off-diagonal
+  independent coordinate takes `r/2` in each mirrored entry
+  under M2 (not `r` in each entry).
 - A `-Inf` coordinate receives zero when the remaining
   finite/positive-infinite coordinates can carry the required mass.
   If no `+Inf` remains, project the remaining finite
   coordinates onto the corresponding reduced simplex.
-- Two independent `+Inf` coordinates generally yield an
-  ambiguous allocation (relative growth rates matter).
-- If every coordinate is `-Inf`, the inequality simplex
-  uniquely selects zero; the equality simplex can have
-  path-dependent allocation unless the feasible domain fixes it
-  (e.g., a single coordinate).
+- With two or more independent `+Inf` coordinates,
+  the dependent simplex block is NaN (relative growth rates matter).
+- If every independent coordinate is `-Inf`, the
+  inequality simplex uniquely selects zero. For the equality
+  simplex of positive radius, the output is NaN if there are
+  two or more independent coordinates, but `[r]` in the
+  length-one case (singleton feasible set).
 - At `r=0` the feasible set is the singleton zero vector.
   Infinite/NaN input therefore has an input-independent zero
   projection.
@@ -310,11 +330,18 @@ Examples in two dimensions, radius one:
 | `[+Inf, +Inf]` | all NaN (dependent block) | all NaN |
 | `[-Inf, -Inf]` | all NaN (for 2D, r=1) | `[0,0]` |
 
-**Caveat for review:** simplex behavior with symmetrized
-output storage, empty dimensions, and infinite radius must
-follow documented feasibility/tie rules; they are not proved by
-the two-dimensional examples. Do not claim support for
-unverified layouts in the initial implementation PR.
+For the length-one **equality** simplex at finite radius
+`r≥0`, the feasible set is `{r}`, so the projection
+always returns `[r]`, including at `-Inf`, `+Inf`,
+or NaN (E2 input independence). A length-one
+**inequality** simplex is instead a clamp onto `[0,r]`.
+For a symmetric matrix, one independent off-diagonal
+`+Inf` coordinate gives `r/2` in both reflected entries,
+not the vector's `r`.
+
+The empty-dimensional or infinite-radius cases are not asserted
+by these finite-radius formulas; separately check their
+construction/feasibility rules before extending the contract.
 
 ### 4.4 Computed overflow is not an infinite input
 
@@ -418,12 +445,21 @@ unconditionally. A later block's invalid step must leave
   closed convex set of minimizers. The reviewer checked that
   master already does this, including zero-weight and zero-level
   cases. **Do not replace it with an error.**
-- Generic nonconvex penalized-sphere variants do **not** have
-  a named `γ=Inf` endpoint and reject it before
-  writing. Whether a parameter-degenerate sphere that is
-  mathematically an indicator should inherit step independence
-  remains a narrowly scoped review question, not an implicit
-  new endpoint.
+- For `Constrained(NormL1/GroupNormL2, IndSphereL2)`
+  at `γ=Inf`, a zero level or an effective domain containing
+  an unpenalized **free coordinate or group** gives a named
+  endpoint: project onto the sphere within the free
+  zero-penalty coordinates/groups, respecting the sphere tie rule.
+  In the all-zero-penalty case (including level zero, with any
+  hard domain constraints retained) this is simply an indicator
+  projection and is step-independent under E4/P1.
+  A genuinely penalized case with at least one zero-weight free
+  coordinate/group still has a minimizer sphere in the zero-penalty
+  subspace. With every free coordinate/group positively penalized,
+  `γ=Inf` is **not** a named endpoint and must raise
+  before writing. This preserves existing master behavior for
+  zero-level and mixed-weight cases; do not blanket-reject
+  all penalized sphere instances.
 - Array steps on coupled constraints remain positive and finite,
   and wrappers must validate their transformed/forwarded steps.
 
@@ -493,6 +529,8 @@ may remain exact zero.
 | `IndSimplex(1; equality=false)` | `[-Inf,0]`, `γ=1` | `[0,0]`; value 0 | Reduced inequality simplex |
 | `IndSimplex(1)` | `[Inf,Inf]`, `γ=1` | all NaN; value NaN | Allocation depends on relative rates |
 | `IndSimplex(1; equality=false)` | `[-Inf,-Inf]`, `γ=1` | `[0,0]`; value 0 | Unique zero projection |
+| `IndSimplex(1)`, length 1 | `[-Inf]`, `γ=1` | `[1]`; value 0 | Equality simplex is the singleton `{r}` |
+| `IndSimplex(1)`, symmetric output | one `+Inf` off-diagonal | both mirrored entries `+1/2` | M2 counts twice |
 | `IndBallL2(1)` | finite but huge `x`, `γ=1` | accurate finite projection | R2 recovery, not Inf input |
 | `IndSphereL2(1)` | `[Inf,0]`, `γ=-1/NaN` | `ArgumentError`; unchanged y | P1 before E3 |
 | `Constrained(NormL1(0), IndSphereL2(1))` | `[Inf,0]`, `γ=1` | `[1,0]` | Equivalent sphere; stage-2 gap until implemented |
@@ -506,7 +544,12 @@ may remain exact zero.
 | `Constrained(NormL1(1), IndBallL2(1))` | `[3,0]`, `γ=Inf` | `[0,0]`; value 0 | Valid convex minimizer endpoint |
 | `Constrained(NormL1(0), IndBallL2(1))` | `[3,0]`, `γ=Inf` | `[1,0]`; value 0 | Whole ball minimizes |
 | `Constrained(NormL1(1), IndBallL2(1))` | `[Inf,0]`, `γ=Inf` | all NaN; value NaN | No joint limit |
-| `Constrained(NormL1(1), IndSphereL2(1))` | `[3,0]`, `γ=Inf` | `ArgumentError` | Unsupported penalized-sphere endpoint |
+| `Constrained(NormL1(1), IndSphereL2(1))` | `[3,0]`, `γ=Inf` | `ArgumentError` | Every free coordinate penalized |
+| `Constrained(NormL1(0), IndSphereL2(1))` | `[3,4]`, `γ=Inf` | `[0.6,0.8]`; value 0 | Zero-level effective indicator |
+| `Constrained(NormL1(1,[0,Inf]), IndSphereL2(1))` | `[3,4]`, `γ=Inf` | `[1,0]`; value 0 | E4 zero-weight free direction, hard-fixed second entry |
+| `Constrained(NormL1(1,[1,0]), IndSphereL2(1))` | `[3,4]`, `γ=Inf` | `[0,1]`; value 0 | Infinite-step minimizer among free zero-weight entries |
+| `NormL1(1)` | `[NaN]`, `γ=Inf` | `[0]`; joint value 0 | E2 fixed endpoint map independent of x |
+| `Constrained(NormL1(1), IndBallL2(1))` | `[NaN,0]`, `γ=Inf` | `[0,0]`; joint value 0 | E2 fixed infinite-step endpoint independent of finite inputs |
 | `IndBallL1(1)`, symmetric storage | one +Inf off-diagonal | paired entries `+1/2` | M2 ℓ1 multiplicity |
 | ℓ2 ball/sphere, symmetric storage | one +Inf off-diagonal | paired entries `+1/√2` | M2 ℓ2 multiplicity |
 | `IndBox(-1,1)`, one dimension | `[Inf]`, scalar step | `[1]` | Same as length-1 balls |
@@ -514,18 +557,20 @@ may remain exact zero.
 | `NormL1(1)` | `[Inf]`, `γ=Inf` | `[NaN]` | Nonunique joint limit |
 | `NormL2(1)` | `[Inf,2]`, finite step | retain documented E3 behavior | Nonseparable does not imply NaN |
 
-**These are design targets.** The direct sets are stage 1.
-The constrained cases are stage 2; their current all-NaN outputs
-at one infinity are **gaps** under S4 and #366, not
-approved permanently different semantics.
+**These are design targets.** The direct sets are **Stage 2**;
+the constrained cases are **Stage 3**. The intervening **Stage 1**
+covers relevant #311 step validation, after **Stage 0**
+contract approval. Current incompatible results are **S4/#366
+conformance gaps**, not approved permanently different semantics.
 
 ## 8. Implementation sequence and acceptance gates
 
 ### Stage 0 — accept the documentation decision (this PR)
 
 - Keep E1, E2, E3 and P1 changes in `numerics.md`.
-- **Remove proposed Amendment 21A** and leave the approved
-  Decision 21 intact; no new exception is required for B.
+- Keep proposed Amendment 21A **withdrawn** (already absent)
+  and leave the approved Decision 21 intact; no new
+  exception is required for B.
 - Preserve mathematical proofs, cases and review history here.
 - Decide the initial closed target list; do not silently promise
   uniform behavior for all twelve generic ball inner classes.
@@ -645,19 +690,22 @@ approved this new normative wording.
 1. Are the direct E3 limits, including both simplex variants,
    correctly stated for every signed-infinity pattern?
    Identify degenerate shapes and symmetric-layout caveats.
-2. Is the per-output E2 dependence definition sufficiently
-   precise and compatible with E4 hard weights and O2 values?
-   Does it need a finite-step qualifier to handle a
-   simultaneous infinite step and NaN argument?
+2. Does the E2 dependence definition cover function values,
+   gradients and proximal entries with **fixed admitted infinite
+   steps**, including `NormL1(1)` on NaN at `γ=Inf`?
+   Verify the distinction between this fixed-endpoint NaN case
+   and the joint `γ=Inf, x=Inf` path dependence.
 3. Does E1's **unique joint limit** rule capture both
    `γ=0` and `γ=Inf` examples without
    requiring numerical-path inference in every implementation?
 4. Is the constrained **closed list** narrow enough to avoid
    promising unproved cone/spectral results yet broad enough
    to cover equivalent zero-penalty representations?
-5. Should the parameter-degenerate zero-level sphere at
-   `γ=Inf` inherit indicator step independence, or
-   remain outside the named P1 endpoint until separately reviewed?
+5. Do zero-level and zero-/infinite-weight sphere specializations
+   at `γ=Inf` inherit the correct indicator or minimizer
+   endpoint, including the sphere's tie rule and hard constraints?
+   Check cases with **no** zero-penalty free degree of freedom
+   still reject before writing.
 6. Does documenting B for direct projections but tracking
    constrained compliance as an S4/#366 gap adequately explain
    temporary differences without presenting them as allowed?

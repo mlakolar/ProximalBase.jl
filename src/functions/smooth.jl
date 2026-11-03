@@ -1004,7 +1004,7 @@ end
 # eps floatmin max|D| p q² (1 + p max|B|) / 4 (see _underflow_threshold), and it matters when
 # it exceeds eps |v|. f.D holds Θ. The maxima are read on each call, not stored, because
 # f.A and f.B are fields that a caller can modify.
-function _kron_underflow_risk(f::KronQuadratic{T}, v) where {T}
+@inline function _kron_underflow_risk(f::KronQuadratic{T}, v) where {T}
   (_underflow_checked(T) && _underflow_checked(typeof(v))) || return false
   D = f.D
   m = _maximum_abs(D)

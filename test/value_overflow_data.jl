@@ -389,6 +389,49 @@ allocated_pow2(::Type{T}, E, a, b, c) where {T} = (pow2_three(T, E, a, b, c); @a
       @test f64(reshape(Float32[ldexp(1f0, 80)], 1, 1)) === ldexp(1f0, -76)
     end
 
+    @testset "KronQuadratic: tiers of the recovery" begin
+      # A tiny entry of A against a huge entry of Θ and a large one against a tiny one (found by search): one
+      # scale per stage cannot hold both, the scaled result fails its check and the exact tier runs (it allocates)
+      pinned = (
+        (Float32[5.4559455f-38, 0.0035407313, 0.97407764], 3.3879756e-14, Float32[2.6343046f11, 1.110209f-12, 1.0143073f-16]),
+        (Float32[4f-45, 0.6805282, 6.81f-43], 1.1492f-41, Float32[1.0009612f30, 7.999302f-19, 8.481519f13]),
+        ([8.569248646228655e-219, 1.4956961140376902e-75, 1.2283957343234676e-182], 3.297208433286644e-258,
+         [3.812425966616462e112, 6.540330316083966e-53, 1.0238183678489816e124]),
+        ([1.8886401986653776e-153, 1.0e-323, 8.077213551578974e-54], 1.204540084984646e-276,
+         [1.6492855484872404e-48, 4.347812028042161e282, 2.697153238521265e129]),
+        ([4.945607044100949e-278, 7.4337e-320, 3.713225189883908e-147], 1.596082277630662e-283,
+         [9.064938250452867e67, 1.2388865030405628e7, 1.4515369764334937e71]),
+      )
+      tier2 = Int[]
+      for (d, b, θ) in pinned
+        T = eltype(d)
+        A = Matrix(Diagonal(d))
+        B = fill(T(b), 1, 1)
+        Θ = reshape(θ, 3, 1)
+        f = KronQuadratic(A, B)
+        r = big_k(A, B, Θ)
+        @test floatmin(T) <= abs(r) <= floatmax(T)
+        @test within(f(Θ), r, 3)                                            # ulps (sum of positive terms)
+        f(Θ); push!(tier2, @allocated f(Θ))                                 # the exact tier allocates
+        @test within(value_and_gradient!(zeros(T, 3, 1), f, Θ), r, 3)
+        @test within(f(vec(Θ)), r, 3)
+        @test within(f(SparseIterate(Θ)), r, 3)
+        @test within(ProximalBase._expsum_value(T, (copyto!(f.D, Θ); ProximalBase._kron_exact_sum(f, Float64))), r, 3)
+      end
+      @test count(>(0), tier2) >= 1
+      # the scaled-result check itself: it fails for a result below the bound, passes above it
+      @test !ProximalBase._kron_scaled_reliable(Float64, 0.0, 2, 2, 0, 0, 0)
+      @test ProximalBase._kron_scaled_reliable(Float64, 1.0, 2, 2, 0, 0, 0)
+      # a threshold that would underflow in floatmin * max|Θ| is still evaluated (review of the first version)
+      A = [6.73812617482326e-198 2.918153251204995e-124; 2.918153251204995e-124 7.378596022339728e-212]
+      B = [-7.011171964901988e-148 -2.949589487225788e86; -2.949589487225788e86 -3.611665e-317]
+      Θ = [2.2740868514538223e-225 1.3637911615273998e-275; 1.3637911615273998e-275 6.166992690142779e-19]
+      fr = KronQuadratic(A, B)
+      @test near_scale(fr(Θ), big_k(A, B, Θ), abs_k(A, B, Θ))
+      @test within(fr(Θ), big_k(A, B, Θ), 4)
+      @test ProximalBase._underflow_threshold(Float64, 1e87, 6e-19) > 1e-250
+    end
+
     @testset "QuadraticFunction: PSD data with ordinary and underflow-risk entries" begin
       for (T, k, lo) in ((Float32, 16, -140), (Float64, 28, -1060))
         a = nextfloat(zero(T))

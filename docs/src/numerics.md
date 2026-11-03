@@ -221,6 +221,9 @@ multiplies later; the value is recomputed if it is below
 `eps` times the value. This needs one pass over `x` (over `Θ` and `B` for
 `KronQuadratic`) and does not fire at exact zeros of sparse or structured data.
 The recomputation sums the exact products as significands and exponents. A
+value that is exactly zero at a nonzero argument (an argument in the null space
+of `A`, or `A = 0`) is below the threshold, and so each such call pays the
+recomputation, about 6 to 10 times the ordinary call. A
 cancellation to a value far below the terms is held to the error scale of the
 terms, as in the ordinary computation, unless the value itself falls below that
 threshold.

@@ -679,7 +679,8 @@ end
 # max|x| from the data, and does not fire at an exact zero of x. The threshold is kept in
 # Float64 and is Inf when it overflows (the recovery then runs, which is safe).
 @inline function _underflow_threshold(::Type{P}, κ, m) where {P}
-  Float64(κ) * (Float64(floatmin(P)) * Float64(m))
+  # κ floatmin first: floatmin max|x| alone underflows for a small max|x| (a huge κ then needs it)
+  (Float64(κ) * Float64(floatmin(P))) * Float64(m)
 end
 
 ####################################

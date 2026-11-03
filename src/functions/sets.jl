@@ -635,17 +635,10 @@ function _direct_prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray)
     return false
   end
   buf, idx = _buffer!(f.scratch, T, length(x)), eachindex(IndexLinear(), x)
-  if f.equality
-    # Condat's pass discards a NaN that is not the first entry, so the level is finite while
-    # the entry depends on it, and so does every other output: the pass reports it.
-    τ, nan = _simplex_threshold_nan!(buf, x, idx, r)
-    if nan
-      b = _simplex_nonfinite!(y, f, x)
-      return b === nothing ? _nan_block!(y) : b
-    end
-  else
-    τ = _simplex_threshold!(buf, x, idx, r)
-  end
+  # Condat's pass discards a NaN, leaving the level finite while every output depends on the
+  # entry (E2); the strict pass gives a NaN level instead, which is classified below. The
+  # inequality simplex reaches its NaN through the positive-part sum above.
+  τ = f.equality ? _simplex_threshold_strict!(buf, x, idx, r) : _simplex_threshold!(buf, x, idx, r)
   if _lossy_threshold(τ, r, length(x))
     nan = _simplex_nonfinite!(y, f, x)
     nan === nothing || return nan

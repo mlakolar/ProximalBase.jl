@@ -213,4 +213,88 @@ end
   end
 end
 
+@testset "L2 at near-floatmax radii: the product must not overflow by rounding (review of #521)" begin
+  r = floatmax(Float64)
+  s = lmo(IndBallL2(r), [3.0])
+  @test s == [-r]
+  s = lmo(IndBallL2(r), [-3.0])
+  @test s == [r]
+  r32 = floatmax(Float32)
+  s = lmo(IndBallL2(r32), Float32[25.0])
+  @test s == Float32[-r32] && all(isfinite, s) && IndBallL2(r32)(s) == 0
+  # mixed magnitudes: the large entry would overflow, the small one must stay accurate
+  g = [3e307, 1e-300]
+  s = lmo(IndBallL2(r), g)
+  @test all(isfinite, s)
+  @test s[1] ≈ -r rtol = 1e-15
+  @test s[2] ≈ -r * 1e-300 / 3e307 rtol = 1e-14
+  @test s[2] ≈ -5.992310449541053e-300 rtol = 1e-14
+  s = lmo(IndBallL2(r), [1e-300, 1e300])
+  @test s[1] ≈ -r * 1e-300 / 1e300 rtol = 1e-14
+  @test s[2] ≈ -r rtol = 1e-15
+  # the same through the overflowing-norm path, and mixed element types
+  g = [1e308, 1e308, 1e-16]
+  s = lmo(IndBallL2(1e300), g)
+  @test s[3] ≈ -1e300 * 1e-16 / (sqrt(2) * 1e308) rtol = 1e-14
+  s = zeros(2)
+  lmo!(s, IndBallL2(1e300), Float32[1.0, 2.0])
+  @test s ≈ -1e300 .* [1, 2] ./ sqrt(5.0) rtol = 1e-6
+  # aliasing
+  g = [3.0]
+  @test lmo!(g, IndBallL2(r), g) == [-r]
+  g = [3e307, 1e-300]
+  want = lmo(IndBallL2(r), g)
+  @test lmo!(g, IndBallL2(r), g) == want
+  # no allocations, and the other special values are unchanged
+  s = zeros(2)
+  @test allocs(a_lmo!, s, IndBallL2(r), [3e307, 1e-300]) == 0
+  @test allocs(a_lmo!, s, IndBallL2(r), [1e308, 1e308]) == 0
+  @test all(isnan, lmo(IndBallL2(r), [NaN, 1.0]))
+  @test lmo(IndBallL2(r), [Inf, 1.0]) == [-r, 0]
+  @test lmo(IndBallL2(r), zeros(2)) == zeros(2)
+  @test lmo(IndBallL2(1e-300), [3.0, 4.0]) ≈ [-0.6e-300, -0.8e-300]
+end
+
+@testset "the allocating form uses dense storage (review of #521)" begin
+  using SparseArrays
+  g = sparsevec([1, 3], [1.0, -2.0], 3)
+  for C in (IndSimplex(1.0), IndSimplex(1.0; equality = false), IndBallL1(1.0), IndBallL2(1.0), IndBallLinf(1.0), IndBox(zeros(3), ones(3)))
+    s = lmo(C, g)
+    @test s isa Vector{Float64} && size(s) == (3,)
+    @test s == lmo(C, Vector(g))
+    s2 = zeros(3)
+    @test lmo!(s2, C, g) === s2
+    @test s2 == s
+  end
+  G = sprand(4, 3, 0.5)
+  s = lmo(IndBallL1(2.0), G)
+  @test s isa Matrix{Float64} && size(s) == (4, 3) && s == lmo(IndBallL1(2.0), Matrix(G))
+  @test lmo(IndBallL2(1.0), sparsevec([2], Float32[3], 4)) isa Vector{Float32}
+  @test lmo(IndSimplex(1.0), 1:3) isa Vector{Float64}
+  @test lmo(IndSimplex(1.0), view(randn(Float32, 5), 2:4)) isa Vector{Float32}
+  @test lmo(IndBallL1(1.0), Symmetric([1.0 -4; -4 3])) isa Matrix{Float64}
+end
+
+@testset "validation order: structure, then parameters, then values (E1, O6)" begin
+  msg(f) = try; f(); "no error"; catch e; sprint(showerror, e); end
+  s = fill(7.0, 3)
+  # a size mismatch is reported before an unsupported set or an invalid parameter
+  @test_throws DimensionMismatch lmo!(s, IndSimplex(Inf), [1.0, 2.0])
+  @test_throws DimensionMismatch lmo!(s, IndBox(0, Inf), [1.0, 2.0])
+  @test_throws DimensionMismatch lmo!(s, IndBox([0.0, 0.0], [1.0, Inf]), [1.0, 2.0, 3.0])
+  @test_throws DimensionMismatch lmo!(s, IndBallL1(1e39), [1.0f0, 2.0f0])
+  # an invalid type is reported before an unsupported set
+  @test occursin("floating-point", msg(() -> lmo!(zeros(Int, 3), IndBallL1(Inf), [1.0, 2.0, 3.0])))
+  @test occursin("real", lowercase(msg(() -> lmo!(s, IndBallL1(Inf), [1.0im, 2.0, 3.0]))))
+  @test occursin("floating-point", msg(() -> lmo!(Symmetric(zeros(3, 3)), IndSimplex(Inf), zeros(3, 3))) )
+  # then the set: unsupported before an unrepresentable parameter
+  @test occursin("haslmo", msg(() -> lmo!(zeros(Float32, 2), IndBox([0.0, -Inf], [1e39, 1.0]), [1.0f0, 2.0f0])))
+  @test s == fill(7.0, 3)
+  # every combination leaves the output unchanged
+  for C in (IndSimplex(Inf), IndBallL1(Inf), IndBox(0, Inf), IndNonnegative()), g in ([1.0, 2.0], [1.0im, 2.0, 3.0], Float64[])
+    try; lmo!(s, C, g); catch; end
+    @test s == fill(7.0, 3)
+  end
+end
+
 end # module

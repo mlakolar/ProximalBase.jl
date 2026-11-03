@@ -12,12 +12,14 @@ _finite_bounds(b::Real) = isfinite(b)
 _finite_bounds(b::AbstractArray) = all(isfinite, b)
 
 function lmo!(s::AbstractArray, f::_LMOSet, g::AbstractArray)
-  haslmo(f) || _lmo_unsupported(f)
+  # structure (types, sizes, parameter lengths), then the set, then the parameters (E1, O6)
   _checkreal(f, g)
   _checkreal(f, s)
   s isa Union{Array, SubArray{<:Any, <:Any, <:Array}} && eltype(s) <: AbstractFloat ||
     throw(ArgumentError("the output of lmo! must be an Array, or a view of one, of floating-point numbers; got $(typeof(s))"))
   _checksize(s, g)
+  f isa IndBox && _checkparams(f, g)
+  haslmo(f) || _lmo_unsupported(f)
   T = eltype(s)
   _lmo_check!(f, g, T)
   _lmo_body!(s, f, g, T)
@@ -37,7 +39,6 @@ function _lmo_check!(f::IndSimplex, g, ::Type{T}) where {T}
   nothing
 end
 function _lmo_check!(f::IndBox, g, ::Type{T}) where {T}
-  _checkparams(f, g)
   _lmo_check_fits(T, "a lower bound", f.l)
   _lmo_check_fits(T, "an upper bound", f.u)
   nothing
@@ -103,14 +104,19 @@ function _lmo_body!(s, f::IndBallL2, g, ::Type{T}) where {T}
   n = norm(g)
   if isfinite(n)
     iszero(n) && return fill!(s, zero(T))
-    t = convert(typeof(n), r) / n
-    if n >= floatmin(typeof(n)) && isfinite(t) && t >= floatmin(typeof(t))
+    # arithmetic in a type that holds both the norm and the output
+    R = promote_type(typeof(n), T)
+    rr = convert(R, r)
+    t = rr / convert(R, n)
+    if n >= floatmin(typeof(n)) && isfinite(t) && t >= floatmin(R)
+      # |gₖ| ≤ ‖g‖, so the exact entry is at most r; rounding of t and of the product
+      # can only push it past r, where it is clamped (an overflow to Inf included)
       @inbounds @simd for k in 1:length(g)
-        s[k] = convert(T, zero(t) - t * g[k])
+        s[k] = convert(T, max(-rr, min(rr, zero(R) - t * convert(R, g[k]))))
       end
       return
     end
-    return _lmo_l2_scaled!(s, g, r)
+    return _lmo_l2_scaled!(s, g, rr)
   end
   # a NaN entry, an infinite entry, or a finite vector whose norm overflows
   any(isnan, g) && return fill!(s, T(NaN))
@@ -123,19 +129,27 @@ function _lmo_body!(s, f::IndBallL2, g, ::Type{T}) where {T}
   elseif ninf > 1
     fill!(s, T(NaN))
   else
-    _lmo_l2_scaled!(s, g, r)
+    _lmo_l2_scaled!(s, g, convert(promote_type(float(eltype(g)), T), r))
   end
 end
 
-# divide by the largest magnitude first, so that neither the norm nor r/‖g‖ must fit
-function _lmo_l2_scaled!(s, g, r::T) where {T}
-  m = maximum(v -> abs(float(v)), g)
+# The norm overflows or r/‖g‖ leaves the normal range. With m = max |gₖ|, ‖g‖ = m ν for
+# ν = ‖g/m‖ ∈ [1, √n], so c = r/ν ≤ r is representable, and the entry is gₖ (c/m) or,
+# when c/m is not a normal number, (gₖ/m) c. Both are at most r; clamp the rounding.
+function _lmo_l2_scaled!(s, g, rr::R) where {R}
+  T = eltype(s)
+  m = convert(R, maximum(v -> abs(float(v)), g))
+  ν2 = zero(R)
   @inbounds for k in 1:length(g)
-    s[k] = convert(T, g[k] / m)
+    ν2 += abs2(convert(R, g[k]) / m)
   end
-  c = r / norm(s)
+  c = rr / sqrt(ν2)
+  q = c / m
+  direct = isfinite(q) && q >= floatmin(R)
   @inbounds for k in 1:length(g)
-    s[k] = zero(T) - c * s[k]
+    v = convert(R, g[k])
+    x = direct ? v * q : (v / m) * c
+    s[k] = convert(T, max(-rr, min(rr, zero(R) - x)))
   end
   s
 end

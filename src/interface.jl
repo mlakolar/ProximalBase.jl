@@ -745,8 +745,7 @@ end
 """
     lmo(C, g)
 
-Allocating version of [`lmo!`](@ref): the result has the element type
-`float(eltype(g))`, and is a dense `Matrix` for a `Symmetric` or `Hermitian` `g`.
+Allocating version of [`lmo!`](@ref): the result is a dense `Array` of the size of `g` and
+the element type `float(eltype(g))`, also for a sparse or structured `g`.
 """
-lmo(C::AbstractFunction, g::AbstractArray) = lmo!(similar(g, float(eltype(g))), C, g)
-lmo(C::AbstractFunction, g::Union{Symmetric, Hermitian}) = lmo!(Matrix{float(eltype(g))}(undef, size(g)), C, g)
+lmo(C::AbstractFunction, g::AbstractArray) = lmo!(Array{float(eltype(g))}(undef, size(g)), C, g)

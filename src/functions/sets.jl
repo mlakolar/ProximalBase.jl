@@ -19,7 +19,9 @@ The indicator of the arrays with at most `s` nonzero entries, nonconvex. Its
 proximal operator keeps the `s` entries of largest magnitude (exactly `s` when
 there are ties) and sets the others to zero: a selection in O(n) expected time
 (Floyd and Rivest's algorithm), without allocating, and in O(nnz) on a
-[`SparseIterate`](@ref).
+[`SparseIterate`](@ref). The projection does not depend on the step `γ`, which
+may be any scalar in `[0, Inf]`; a negative or NaN step throws an `ArgumentError`
+before anything is written.
 
 For a symmetric matrix, a `Symmetric` or a [`SymmetricSparseIterate`](@ref),
 `s` counts the entries of one triangle, so that an entry and its transpose are
@@ -90,7 +92,8 @@ function (f::IndBallL0)(x::Union{Symmetric, SymmetricSparseIterate})
   _ind(k <= f.s, _valtype(x))
 end
 
-function prox!(y::AbstractArray, f::IndBallL0, x::AbstractArray, ::Real)
+function prox!(y::AbstractArray, f::IndBallL0, x::AbstractArray, γ::Real)
+  _checkstep_nonneg(γ)
   x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   if _count_nonzero(f, x) <= f.s
@@ -161,6 +164,7 @@ end
 
 # the stored entries of a vector hold every nonzero
 function prox!(y::SparseIterate{<:Any, 1}, f::IndBallL0, x::SparseIterate{<:Any, 1}, γ::Real)
+  _checkstep_nonneg(γ)
   _checkwrite(prox!, f, y, x)
   nz = _count_nonzero(f, x)
   if nz <= f.s
@@ -192,7 +196,8 @@ end
 
 # a symmetric matrix: the entries of the lower triangle, each counted once and
 # written to both triangles of a dense output
-function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSparseIterate}, ::Real)
+function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSparseIterate}, γ::Real)
+  _checkstep_nonneg(γ)
   _checkwrite(prox!, f, y, x)
   p = checksquare(x)
   T = float(eltype(x))
@@ -252,6 +257,8 @@ end
 The indicator of the ℓ1 ball `{x : Σᵢ |xᵢ| ≤ r}`. Its proximal operator is the
 projection, soft thresholding at the level that puts the result on the
 boundary, found in O(n) expected time by Condat's algorithm.
+
+The projection does not depend on the step `γ`, which may be any scalar in `[0, Inf]`; a negative or NaN step throws an `ArgumentError` before anything is written.
 """
 struct IndBallL1{T<:Real} <: AbstractFunction
   r::T
@@ -278,7 +285,8 @@ function (f::IndBallL1)(x::AbstractArray)
   _ball_scaled_value(f, x, T)
 end
 
-function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, ::Real)
+function prox!(y::AbstractArray, f::IndBallL1, x::AbstractArray, γ::Real)
+  _checkstep_nonneg(γ)
   x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
@@ -304,6 +312,8 @@ end
 
 The indicator of the Euclidean ball `{x : ‖x‖₂ ≤ r}` (the Frobenius ball for
 matrices). Its proximal operator scales `x` onto the ball when it is outside.
+
+The projection does not depend on the step `γ`, which may be any scalar in `[0, Inf]`; a negative or NaN step throws an `ArgumentError` before anything is written.
 """
 struct IndBallL2{T<:Real} <: AbstractFunction
   r::T
@@ -395,7 +405,8 @@ end
   _ind(n <= r + slack, T)
 end
 
-function prox!(y::AbstractArray, f::IndBallL2, x::AbstractArray, ::Real)
+function prox!(y::AbstractArray, f::IndBallL2, x::AbstractArray, γ::Real)
+  _checkstep_nonneg(γ)
   x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
@@ -421,6 +432,8 @@ matrices), for `r > 0`, nonconvex. Its proximal operator scales `x` onto the
 sphere, `r x / ‖x‖₂`; every point of the sphere is nearest to `x = 0`, which goes
 to `r` times the first unit vector. With a norm, [`Constrained`](@ref)`(f,
 IndSphereL2(r))` is the step of sparse principal component analysis.
+
+The projection does not depend on the step `γ`, which may be any scalar in `[0, Inf]`; a negative or NaN step throws an `ArgumentError` before anything is written.
 """
 struct IndSphereL2{T<:Real} <: AbstractFunction
   r::T
@@ -439,7 +452,8 @@ function (f::IndSphereL2)(x::AbstractArray)
   abs(convert(T, _norm2(x)) - r) <= _tol(T) * max(one(T), r) ? zero(T) : T(Inf)
 end
 
-function prox!(y::AbstractArray, f::IndSphereL2, x::AbstractArray, ::Real)
+function prox!(y::AbstractArray, f::IndSphereL2, x::AbstractArray, γ::Real)
+  _checkstep_nonneg(γ)
   x = _symmetric_argument(y, x)
   _checkreal(f, x)
   _checkreal(f, y)
@@ -482,6 +496,8 @@ The indicator of the simplex `{x ≥ 0 : Σᵢ xᵢ = r}`, or with `equality = f
 of `{x ≥ 0 : Σᵢ xᵢ ≤ r}`. Its proximal operator is the projection,
 `max.(x .- τ, 0)` for the level `τ` found in O(n) expected time by Condat's
 algorithm.
+
+The projection does not depend on the step `γ`, which may be any scalar in `[0, Inf]`; a negative or NaN step throws an `ArgumentError` before anything is written.
 """
 struct IndSimplex{T<:Real} <: AbstractFunction
   r::T
@@ -547,7 +563,8 @@ function _spectrum_sum(v::AbstractVector{T}, bound, k::Int, equality::Bool) wher
   _ind(equality ? abs(s - r) <= slack : s <= r + slack, T)
 end
 
-function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, ::Real)
+function prox!(y::AbstractArray, f::IndSimplex, x::AbstractArray, γ::Real)
+  _checkstep_nonneg(γ)
   x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
@@ -943,3 +960,7 @@ function _spectrum_linear(f, v::AbstractVector{T}, k, b, lower) where {T}
   slack = tol * max(ldexp(one(S), e - k - j), abs(offset), q * sqrt(_scaled_sumabs2(v, factors)))
   _ind(f isa IndHyperplane ? abs(g) <= slack : (lower ? -g <= slack : g <= slack), T)
 end
+
+# a step that the indicator projections reject, found before any block of a sum is written
+_checkstep(op::O, ::Union{IndBallL0, IndBallL1, IndBallL2, IndSphereL2, IndSimplex}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
+  _checkstep_nonneg(γ)

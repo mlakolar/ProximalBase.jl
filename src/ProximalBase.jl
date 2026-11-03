@@ -37,6 +37,7 @@ export
   SeparableFunction, value_entry, iszeropreserving,
   gradient_mapping, gradient_mapping!, lipschitz, opnorm2,
   reset_cache!,
+  haslmo, lmo!, lmo,
   hashessian, hessian_vec!, hessian_vec, quadratic_model, quadratic_model!,
   coordinate_lipschitz, coordinate_lipschitz!,
   lla_weight, lla_weights!, lla_weights,
@@ -118,6 +119,7 @@ include("functions/cones.jl")
 include("functions/ordered.jl")
 include("functions/nonconvex.jl")
 include("functions/matrixsets.jl")
+include("lmo.jl")
 include("functions/affine.jl")
 include("functions/polyhedron.jl")
 include("functions/graph.jl")

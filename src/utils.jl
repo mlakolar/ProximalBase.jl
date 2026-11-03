@@ -67,8 +67,11 @@ end
 # The same products rounded once to the destination type U, formed in the promotion of U and
 # the factors' types (numerics T3), so that a product that overflows or underflows the factors'
 # type is still finite in U. For R == U the promotion and the conversion are no-ops.
-@inline _working_type(::Type{U}, a, b) where {U<:AbstractFloat} = promote_type(U, float(typeof(a)), float(typeof(b)))
-@inline _working_type(::Type{U}, a, b, c) where {U<:AbstractFloat} = promote_type(U, float(typeof(a)), float(typeof(b)), float(typeof(c)))
+# A Bool factor (the weight `true` of an unweighted entry) does not widen the type.
+@inline _factor_type(a) = float(typeof(a))
+@inline _factor_type(::Bool) = Float16
+@inline _working_type(::Type{U}, a, b) where {U<:AbstractFloat} = promote_type(U, _factor_type(a), _factor_type(b))
+@inline _working_type(::Type{U}, a, b, c) where {U<:AbstractFloat} = promote_type(U, _factor_type(a), _factor_type(b), _factor_type(c))
 @inline function _weight_product(::Type{U}, a, b, w) where {U<:AbstractFloat}
   R = _working_type(U, a, b, w)
   convert(U, _weight_product(convert(R, a), convert(R, b), convert(R, w)))
@@ -86,6 +89,10 @@ end
 @inline function _weight_coefficient(::Type{U}, λ, w) where {U<:AbstractFloat}
   R = _working_type(U, λ, w)
   convert(U, _weight_coefficient(convert(R, λ), convert(R, w)))
+end
+@inline function _weight_coefficient(::Type{U}, γ, λ, w) where {U<:AbstractFloat}
+  R = _working_type(U, γ, λ, w)
+  convert(U, _weight_coefficient(convert(R, γ), convert(R, λ), convert(R, w)))
 end
 
 # the value p = c⋅φ of a term with the coefficient c and the unweighted value

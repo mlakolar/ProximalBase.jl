@@ -474,7 +474,7 @@ Base.@propagate_inbounds function prox_entry(f::Berhu, v::T, i::Integer, γ::Rea
   step, λ, w = S(γ), S(f.λ), S(_entry(f.w, i))
   # Avoid rounding or overflow in the upper branch of an identity prox.
   !isinf(w) && (iszero(step) || iszero(λ) || iszero(w)) && return S(v)
-  c = _weight_coefficient(step, λ, w)
+  c = _weight_coefficient(S, γ, f.λ, _entry(f.w, i))
   M, t = S(f.M), abs(S(v))
   t <= M + c ? shrink(S(v), c) : S(v) * M / (M + c)
 end

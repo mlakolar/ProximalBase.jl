@@ -468,7 +468,7 @@ Base.@propagate_inbounds _value_entry_ordinary(f::ElasticNet, v::Real, i::Intege
 _has_ordinary_value(::Type{<:ElasticNet}) = true
 Base.@propagate_inbounds function prox_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  shrink(v, convert(S, _weight_coefficient(γ, f.λ1, _entry(f.w, i)))) / (1 + convert(S, γ * f.λ2))
+  shrink(v, _weight_coefficient(S, γ, f.λ1, _entry(f.w, i))) / (1 + _typed_product(S, γ, f.λ2))
 end
 
 kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer) =
@@ -738,7 +738,7 @@ _scale_invariant(::NormL0) = true
 
 Base.@propagate_inbounds value_entry(f::NormL0, v::T, ::Integer) where {T<:Real} = iszero(v) ? zero(float(T)) : convert(float(T), f.λ)
 Base.@propagate_inbounds prox_entry(f::NormL0, v::T, ::Integer, γ::Real) where {T<:Real} =
-  abs2(v) > 2 * γ * f.λ ? float(v) : zero(float(T))
+  abs2(v) > 2 * _typed_product(float(T), γ, f.λ) ? float(v) : zero(float(T))
 restrict(f::NormL0, ::AbstractVector{<:Integer}) = f
 
 ####################################

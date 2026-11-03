@@ -96,13 +96,13 @@ lla_weights!(w::AbstractArray, f::AbstractFunction, x::AbstractArray) = (eltype(
 
 Base.@propagate_inbounds function lla_weight(f::NormL1, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  return _weight_coefficient(S(f.λ0), S(_entry(f.w, i)))
+  return _weight_coefficient(S, f.λ0, _entry(f.w, i))
 end
 
 Base.@propagate_inbounds function lla_weight(f::CappedL1, v::T, i::Integer) where {T<:Real}
   S = float(T)
   w = S(_entry(f.w, i))
-  c = _weight_coefficient(S(f.λ), w)
+  c = _weight_coefficient(S, f.λ, _entry(f.w, i))
   return ifelse((abs(S(v)) < S(f.a)) | isinf(w), c, zero(S))
 end
 
@@ -111,7 +111,7 @@ Base.@propagate_inbounds function lla_weight(f::LogPenalty, v::T, i::Integer) wh
   w = S(_entry(f.w, i))
   # The denominator can overflow while the entry remains fixed.
   isinf(w) && return isnan(v) ? S(v) : S(Inf)
-  return _weight_coefficient(S(f.λ), w) / (S(f.ε) + abs(S(v)))
+  return _weight_coefficient(S, f.λ, _entry(f.w, i)) / (S(f.ε) + abs(S(v)))
 end
 
 function lla_weight(f::MCP, v::T, ::Integer) where {T<:Real}

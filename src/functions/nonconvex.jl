@@ -59,7 +59,7 @@ _has_ordinary_value(::Type{<:CappedL1}) = true
 
 Base.@propagate_inbounds function prox_entry(f::CappedL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  c = _weight_coefficient(S(γ), S(f.λ), S(_entry(f.w, i)))
+  c = _weight_coefficient(S, γ, f.λ, _entry(f.w, i))
   a, t = S(f.a), abs(S(v))
   z1 = min(max(t - c, zero(S)), a)          # the ℓ1 piece |z| ≤ a: soft thresholding, clipped at a
   z2 = max(t, a)                             # the constant piece |z| ≥ a
@@ -127,7 +127,7 @@ _has_ordinary_value(::Type{<:LogPenalty}) = true
 Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = S(_entry(f.w, i))
-  c = _weight_coefficient(S(γ), S(f.λ), w)
+  c = _weight_coefficient(S, γ, f.λ, _entry(f.w, i))
   ε, t = S(f.ε), abs(S(v))
   iszero(c) && return S(v)
   isinf(w) && return isnan(v) ? S(v) : zero(S)
@@ -215,7 +215,7 @@ Base.@propagate_inbounds function prox_entry(f::NormLq, v::T, i::Integer, γ::Re
   q, t = S(f.q), abs(S(v))
   isinf(w) && return isnan(v) ? S(v) : zero(S)
   (iszero(step) || iszero(λ) || iszero(w)) && return S(v)
-  μ = _positive_product(step, λ, w)
+  μ = _positive_product(S, γ, f.λ, _entry(f.w, i))
   ordinary = isfinite(μ) && μ >= floatmin(S)
   # When μ cannot retain its precision, take the bounded powers of its factors
   # before multiplying. The threshold can fit even when μ does not.

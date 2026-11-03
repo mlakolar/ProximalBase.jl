@@ -957,7 +957,8 @@ const _DeviceGLM{L, T} = GLMLoss{L, T, <:AbstractVector, <:AbstractMatrix, <:Uni
 function (f::_DeviceLeastSquares{T})(β::AbstractVecOrMat) where {T}
   _checkreal(f, β)
   mul!(f.tmp, f.X, β)
-  return _value_at(convert(T, ProximalBase._sumabs2_diff(f.Y, f.tmp)) / 2, β)
+  s = convert(T, ProximalBase._sumabs2_diff(f.Y, f.tmp))
+  return _value_at(ProximalBase._leastsquares_value(f, β, s, true), β)
 end
 
 # value_and_gradient!, gradient! and hessian_vec! are products and broadcasts,

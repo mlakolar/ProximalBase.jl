@@ -447,7 +447,7 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::_Radial
   _checksize(y, x)
   _checkgroups(f, x)
   _check_symmetric_groups(f, y)
-  _check_prox_group_scalars(f, float(eltype(y)), y, x)
+  _check_prox_group_scalars(f, _model_type(y, x), y, x)
 end
 
 for Step in (Real, AbstractVector)
@@ -464,7 +464,7 @@ _dual_norm(::_RadialGroupPenalty, g, G) = _group_norm2(g, G)
 # y[G] ← the proximal operator of γp(‖⋅‖₂) at x[G], which may be in place: the
 # scalar proximal operator of p at the norm, along x[G]; returns the new norm
 @inline function _radial_shrink!(p, y::AbstractArray{T}, x::AbstractArray, G, γ, W = nothing) where {T}
-  nx = _group_norm2(x, G)
+  nx = convert(typeof(p.λ), _group_norm2(x, G))   # the scalar proximal operator works in the type of p
   r = iszero(nx) ? nx : prox_entry(p, nx, 1, γ)
   t = iszero(nx) ? nx : r / nx
   @inbounds for i in _writes(W, G)
@@ -539,7 +539,7 @@ function _radial_group_value(f::_RadialGroupPenalty, x::AtomIterate, ordinary::V
 end
 
 function _value_and_prox_groups!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::Union{Real, AbstractVector})
-  _ordinary_radial_groups(f, float(eltype(y))) ?
+  _ordinary_radial_groups(f, _model_type(y, x)) ?
     _radial_group_prox!(y, f, x, γ, Val(true)) : _radial_group_prox!(y, f, x, γ, Val(false))
 end
 
@@ -549,23 +549,27 @@ function _radial_group_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::Abstra
   _check_symmetric_groups(f, y)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
-  _check_group_scalars(f, T, eachindex(f.groups), length(f.groups), ordinary)
+  W = _model_type(y, x)
+  _check_group_scalars(f, W, eachindex(f.groups), length(f.groups), ordinary)
   _copy_ungrouped!(y, f, x)
   v = zero(T)
   for k in eachindex(f.groups)
-    if !O && _infinite_radial_coefficient(f, T, k)
-      n = _shrink_group!(NormL2(one(T)), y, x, f.groups[k], _weight_product(T, _entry(γ, k), f.λ0, f.w[k]), _group_writes(y, f.groups[k]))
+    if !O && _infinite_radial_coefficient(f, W, k)
+      n = _shrink_group!(NormL2(one(W)), y, x, f.groups[k], _weight_product(W, _entry(γ, k), f.λ0, f.w[k]), _group_writes(y, f.groups[k]))
+      W === T || (n = _group_norm2(y, f.groups[k]))   # O2: the value is that of the stored output
       iszero(n) || (v = T(Inf))
       continue
     end
-    p = _group_scalar(f, T, k, ordinary)
+    p = _group_scalar(f, W, k, ordinary)
     if iszero(p.λ)
       @inbounds for i in f.groups[k]
         y[i] = x[i]
       end
       continue
     end
-    v += convert(T, value_entry(p, _radial_shrink!(p, y, x, f.groups[k], convert(T, _entry(γ, k)), _group_writes(y, f.groups[k])), 1))
+    r = _radial_shrink!(p, y, x, f.groups[k], convert(W, _entry(γ, k)), _group_writes(y, f.groups[k]))
+    W === T || (r = convert(W, _group_norm2(y, f.groups[k])))
+    v += convert(T, value_entry(p, r, 1))
   end
   v
 end

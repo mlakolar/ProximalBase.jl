@@ -178,27 +178,29 @@ end
 function _split_dot(a::AbstractArray, x::SparseIterate, sa, sx)
   _checksize(a, x)
   R = typeof(sx[1])
-  t = floatmax(R) / (2 * max(x.nnz, 1))
-  big = eb = small = es = zero(R)
+  acc = _split_start(R, x.nnz)
   @inbounds for k in 1:x.nnz
-    big, eb, small, es = _split_add(big, eb, small, es, a[x.nzval2ind[k]], x.nzval[k], sa, sx, t)
+    acc = _split_add(acc, a[x.nzval2ind[k]], x.nzval[k], sa, sx)
   end
-  big + eb, small + es
+  _split_finish(acc)
 end
 # each off-diagonal product separately: a[r, c] + a[c, r] can overflow on its own
 function _split_dot(a::AbstractArray, x::SymmetricSparseIterate, sa, sx)
   _checksize(a, x)
   R = typeof(sx[1])
-  t = floatmax(R) / (4 * max(x.nnz, 1))
-  big = eb = small = es = zero(R)
+  acc = _split_start(R, 2 * x.nnz)
   @inbounds for k in 1:x.nnz
     r, c = tril_cartesian(x.p, x.nzval2ind[k])
     u = x.nzval[k]
-    big, eb, small, es = _split_add(big, eb, small, es, a[r, c], u, sa, sx, t)
-    r == c || ((big, eb, small, es) = _split_add(big, eb, small, es, a[c, r], u, sa, sx, t))
+    acc = _split_add(acc, a[r, c], u, sa, sx)
+    r == c || (acc = _split_add(acc, a[c, r], u, sa, sx))
   end
-  big + eb, small + es
+  _split_finish(acc)
 end
+
+# the stored entries of an iterate: the recoveries of R1 read only these
+_stored_maxabs(x::Union{SparseIterate, SymmetricSparseIterate}) = _maximum_abs(view(x.nzval, 1:x.nnz))
+_all_finite(x::Union{SparseIterate, SymmetricSparseIterate}) = all(isfinite, view(x.nzval, 1:x.nnz))
 
 
 ####################################

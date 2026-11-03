@@ -372,7 +372,7 @@ end
 _value_scaled_dot(a, x, s, ::Val{false}) = _scaled_dot(a, x, s)
 _value_scaled_dot(a, x::SymmetricSparseIterate, s, ::Val{true}) = _checked_scaled_dot(a, x, s)
 _value_checked(f::LinearFunction, x::SymmetricSparseIterate) =
-  (_checkvalue(f, x); _value_at(_checked_value_dot(f.c, x) + f.d, x))
+  (_checkvalue(f, x); _value_at(_linear_value(f, x, _checked_value_dot(f.c, x) + f.d), x))
 _value_checked(f::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::SymmetricSparseIterate) =
   _normal_value(f, x, Val(true))
 _value_checked(f::Tilt, x::SymmetricSparseIterate) =

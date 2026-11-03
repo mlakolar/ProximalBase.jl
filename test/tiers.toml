@@ -89,6 +89,7 @@ standard = [
   "sumlargest",
   "threshold_factor_type",
   "threshold_precision",
+  "argument_threshold_precision",
 ]
 
 # What shared or numerical changes can break: precision, overflow, non-finite values, spectral
@@ -148,6 +149,7 @@ thorough = [
   "symmetric_parameters_writes",
   "symmetric_writes",
   "testing",
+  "value_overflow_data",
   "value_overflow_fused",
   "value_overflow_sqrnorm",
   "weighted_overflow",

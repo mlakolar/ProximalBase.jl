@@ -35,10 +35,46 @@ O6–O7, C1–C3); [approved decisions](decisions.md) (21, 25, 26);
   by itself settle simultaneous **valid** exceptional endpoints.
 
 The existing 47 numerical-contract decisions remain the historical record.
-This PR proposes a **limited refinement** of decisions 21 and 26, not a
-reinterpretation of unrelated coupled operators or an implementation of #311.
+This PR proposes a **limited refinement consistent with** decisions 21 and 26,
+not a reinterpretation of unrelated coupled operators or an implementation
+of #311.
 
-## Mathematical model and proposed ordering
+### Review round 1: changes made in response to critique
+
+These are design revisions, not an implementation or a merge approval.
+[Review #508](https://github.com/mlakolar/ProximalBase.jl/pull/508#pullrequestreview-5746338902)
+supplied four actionable findings:
+
+1. **Conflicting limit order (E1, decision 21):**
+   [review thread](https://github.com/mlakolar/ProximalBase.jl/pull/508#discussion_r4450186138).
+   Withdraw the proposed step-endpoint-first rule. Require a
+   path-independent joint result for simultaneous admitted exceptional steps
+   and infinite inputs. If paths disagree, return NaN rather than pick the
+   convenient iterated limit. The two iterated limits are useful witnesses
+   of nonuniqueness, but their agreement **alone is insufficient**.
+2. **Symmetric ℓ1 multiplicity (M2):**
+   [review thread](https://github.com/mlakolar/ProximalBase.jl/pull/508#discussion_r4450186148).
+   Correct the one-off-diagonal limit to `±r/2` for `IndBallL1`
+   (versus `±r/sqrt(2)` for ℓ2 ball/sphere); the off-diagonal
+   coordinate is stored once and counted twice.
+3. **Separate rules from open questions:**
+   [review thread](https://github.com/mlakolar/ProximalBase.jl/pull/508#discussion_r4450186157).
+   Remove undecided NaN/hard-weight and parameter-degenerate questions
+   from the proposed normative contract text. Retain them **here** for review.
+4. **Convex ball `γ = Inf` endpoint (P1, decision 26):**
+   [review thread](https://github.com/mlakolar/ProximalBase.jl/pull/508#discussion_r4450186167).
+   Retain the existing projection onto minimizers for
+   `Constrained(NormL1/GroupNormL2, IndBallL2)`; do not replace an
+   existing correct endpoint with `ArgumentError`. The nonconvex
+   penalized-sphere `γ = Inf` endpoint remains unsupported.
+
+The [cross-package source comparison](https://github.com/mlakolar/ProximalBase.jl/pull/508#issuecomment-6593696105)
+also argues that the full E3 guarantee is **optional**, not an established
+interoperability requirement. The final review should still consider A
+(all-NaN for coupled exceptional input) versus the scoped determined limits
+proposed here, including the risk of hiding upstream divergence.
+
+## Mathematical model and joint-limit criterion
 
 For fixed parameters and finite `x`, the regular-step operator is
 
@@ -48,24 +84,32 @@ P(γ, x) = argmin_z { (1/2)‖z-x‖₂² + γ f(z) },
 
 with the package's documented selection/tie rule for nonunique projections.
 
-The proposed ordering for exceptional inputs is:
+The proposed meaning for exceptional inputs is:
 
-1. Validate shape, types, step *admissibility*, relevant structural
-   constraints, and applicable parameter restrictions; failures leave all
-   caller-owned output unchanged (E1/O6). An invalid `γ = -1` or `γ = NaN`
-   must not turn into an ordinary NaN result merely because `x` is infinite.
-2. Resolve zero/infinite **parameter** endpoints admitted by P1 (and E4 hard
-   constraints), interpreting the endpoint as the map obtained at **fixed
-   finite argument**. If P1 does not name the endpoint for this family, reject
-   it before inspecting exceptional input values.
-3. For that map, apply E2 to NaNs and E3 to ±Inf arguments. Where a documented
-   limit exists and is independent of the sequence of finite inputs
-   approaching the extended-real argument, return it; otherwise return NaN
-   in the dependent coupled block.
+1. Validate shape, types, step **admissibility**, relevant structural
+   constraints, and applicable parameter restrictions before writing (E1/O6).
+   An invalid `γ = -1`, `γ = NaN`, or an unsupported endpoint must raise,
+   even if `x` also contains infinity. No output is changed.
+2. For an **admitted** step endpoint (`γ = 0` or `γ = Inf`) with
+   **finite** `x`, use P1's family-specific endpoint. Where E4 fixes a
+   coordinate, keep that domain constraint.
+3. At an admitted exceptional step **and** `x` with ±Inf entries, E3
+   gives the value only if the joint limit as admissible *finite* steps
+   and *finite* inputs approach their targets is path-independent. Otherwise
+   NaN is returned in the dependent entries (the entire coupled projection
+   block when no unique projected point exists). In particular, **do not
+   select either of two disagreeing iterated limits**.
 
-**This is a definition of an evaluation convention, not a theorem that a
-joint limit in (γ, x) exists.** It favors step-endpoint-first over
-argument-infinity-first. The reviewer should assess that choice independently.
+Two iterated limits are useful **necessary checks**, not a sufficient proof
+of the joint limit. As a generic multivariable-limit counterexample,
+`h(s,t) = st/(s²+t²)` has both iterated limits zero as
+`s,t -> Inf`, but `h(t,t) -> 1/2`. This is not a proximal
+counterexample; it demonstrates why the proposed contract must require
+path independence rather than mere agreement of the two iterated limits.
+
+**Validation precedence is not limit precedence.** The proposal respects
+the path-dependent-NaN decision already adopted in decision 21. It does not
+imply that every admitted exceptional pair has a computable joint limit.
 
 ### A counterexample to commuting limits
 
@@ -78,34 +122,41 @@ lim_{M→∞} lim_{γ→∞} P(γ,M) = 0.
 ~~~
 
 Even ordinary `NormL1(1)` has this conflict at (`x = +Inf`, `γ = +Inf`):
-argument-first yields `+Inf`, step-first yields `0`. The proposal selects
-**0** because P1 defines its infinite-step proximal map by first taking the
-fixed-finite-input limit. Alternatives are to reject the doubly exceptional
-case or explicitly allow a family-specific convention; neither is ruled out
-by the existing prose.
+argument-first yields `+Inf`, step-first yields `0`.
+Indeed, `x = t + c`, `γ = t` gives
+`prox_{γ|·|}(x) = c` for each `c ≥ 0`, so the joint limit is
+not unique. The proposed result is therefore **NaN**, matching
+decision 21 and the current implementation. The same conclusion holds
+for a penalized ℓ2 ball when finite paths with `γ` and `x`
+growing at different rates lead to zero versus boundary projections.
 
 ## Proposed contract changes
 
 ### E1: distinguish validation order from endpoint order
 
 Preserve the existing priority of structural validation, step validity and
-domain-defining parameters. Add an explicit *step-endpoint-first*
-interpretation for simultaneously exceptional but admitted `γ` and `x`.
-Do **not** silently equate "step checked first" with "joint limit exists".
-The E2/E4 question of NaN input in a hard-fixed coordinate is separate
-(see below), not solved by step precedence.
+domain-defining parameters. For simultaneously exceptional but **admitted**
+`γ` and `x`, require a path-independent **joint** limit instead of
+choosing an order of limits. If two sequences give different outputs,
+the result is NaN in the dependent block (decision 21); no
+`ArgumentError` is introduced merely because an accepted step meets
+an infinite argument. The E2/E4 question of NaN input in a hard-fixed
+coordinate remains separate (see below).
 
 ### E3: a scoped, path-independent infinite-input guarantee
 
 For **finite** radii and sign-symmetric, bounded ball/sphere projections
 named below:
 
-- For direct `IndBallL1(r)` and `IndBallL2(r)` with `r > 0`, and
-  `IndSphereL2(r)` with `r > 0`, one independent ±Inf scalar coordinate
-  and all other coordinates finite gives `±r e_k`. This is the limit at
-  fixed admitted `γ`. A single symmetric off-diagonal degree of freedom
-  represented twice in a `SymmetricSparseIterate` gives
-  `±r/√2` in each member of the pair, not two independent infinities.
+- For direct `IndBallL1(r)`, `IndBallL2(r)` and
+  `IndSphereL2(r)` with `0 < r < Inf`, one independent
+  ±Inf scalar coordinate and all other coordinates finite gives
+  `±r e_k` at a fixed admitted step. A
+  `SymmetricSparseIterate` **stores each off-diagonal coordinate
+  once, but counts it twice** (M2), so one infinite off-diagonal
+  coordinate yields `±r/2` for the ℓ1 ball and
+  `±r/√2` for the ℓ2 ball/sphere in each of the
+  two symmetric matrix entries.
 - Two or more **independent, unconstrained** infinite coordinates generally
   do not have a path-independent direction; return NaN in the dependent
   coupled block. Example for the Euclidean sphere:
@@ -164,13 +215,23 @@ that path. Never classify by `isinf(norm(x))` alone.
   available. This is the projection onto the domain **after** applying
   domain-defining restrictions such as infinite coordinate/group weights;
   it is not necessarily the unrestricted ball/sphere projection.
-- Propose that `γ = Inf` remain **unsupported for genuinely penalized
-  constrained families** unless a specific endpoint is derived and
-  documented. E.g. `Constrained(NormL1(1), IndBallL2(1))` is not a scalar-step
-  indicator merely because it has a ball constraint. A degenerate
-  zero-penalty/hard-domain instance may be effectively an indicator: decide
-  whether endpoint admissibility is semantic (depends on parameters) or
-  dispatch/type based before implementation.
+- At `γ = Inf`, retain the existing convex-ball endpoint for
+  `Constrained(NormL1, IndBallL2)` and
+  `Constrained(GroupNormL2, IndBallL2)`: project a **finite**
+  argument onto the nonempty closed convex minimizer set. This includes
+  zero-penalty and zero-weight cases, where the minimizer set may
+  contain many points but the projection is unique. This agrees with
+  decision 26 and master (reviewer measured `γ = Inf` vs. large finite steps).
+  With simultaneous `x = Inf`, require the joint-limit test above:
+  `γ = Inf` on `Constrained(NormL1(1), IndBallL2(1))` at
+  `[Inf,0]` gives an all-NaN coupled block because paths at
+  different relative rates tend to the boundary or to zero.
+- For the nonconvex **penalized sphere** variants
+  `Constrained(NormL1/GroupNormL2, IndSphereL2)`, do not name
+  `γ = Inf` by default; reject it before writing. A zero-penalty
+  instance may mathematically reduce to an indicator; whether that
+  should gain an exception to this method-family rule remains a
+  separate question in the design note, not an unresolved clause in P1.
 - `Constrained(IndBallL0, ball/sphere)` is an indicator, so the existing P1
   scalar-step rule applies (subject to feasibility). In particular,
   `γ = 0` and `γ = Inf` are **not** automatically rejected.
@@ -204,26 +265,39 @@ dense storage. "all NaN" means the whole dependent block.
 | `IndBallL2(0)` or `IndBallL1(0)` | `[Inf,2]` | 1 | `[0,0]` |
 | `IndSphereL2(1)` | `[Inf,Inf]` | 1 | all NaN: different relative growth rates |
 | `Constrained(NormL1(1), IndSphereL2(1))` | `[Inf,2]` | 0 | `[1,0]` **if** proposed P1 extension approved |
-| `Constrained(NormL1(1), IndBallL2(1))` | `[Inf,0]` | Inf | `ArgumentError` (unsupported endpoint) |
+| `Constrained(NormL1(1), IndBallL2(1))` | `[3,0]` | Inf | `[0,0]`: project onto the minimizer set |
+| `Constrained(NormL1(1, [0,1]), IndBallL2(1))` | `[3,2]` | Inf | `[1,0]`: unpenalized coordinate remains |
+| `Constrained(NormL1(0), IndBallL2(1))` | `[3,0]` | Inf | `[1,0]`: zero penalty, whole ball minimizes |
+| `Constrained(GroupNormL2(1, [[1,2]]), IndBallL2(1))` | `[3,1]` | Inf | `[0,0]`: group penalty minimizer |
+| `Constrained(NormL1(1), IndBallL2(1))` | `[Inf,0]` | Inf | all NaN: joint limit depends on `x/γ` |
 | `Constrained(IndBallL0(1), IndSphereL2(1))` | `[Inf,0]` | Inf | `[1,0]` (indicator step) |
 | `Constrained(GroupNormL2(1, [[1,2]]), IndSphereL2(1))` | `[Inf,0,1]` | 1 | `[1,0,0]` |
 | Same group-sphere | `[Inf,Inf,1]` | 1 | all NaN: one group, two independent infinite entries |
 | `IndSphereL2(1)` | `[Inf,0]` | -1 or NaN | `ArgumentError`; destination unchanged |
-| `NormL1(1)` | `[Inf]` | Inf | `[0]` **if** step-endpoint-first chosen |
+| `NormL1(1)` | `[Inf]` | Inf | `[NaN]`: path-dependent joint limit, unchanged from master |
 | `Constrained(NormL1(1, [Inf,1]), IndSphereL2(1))` | `[Inf,3]` | 1 | `[0,1]` if E4 hard-fixed direction is honored |
-| Direct sphere on symmetric storage | one `+Inf` off-diagonal pair | 1 | symmetric pair `+1/√2`, other entries zero |
+| Direct `IndBallL1(1)` on symmetric storage | one `+Inf` off-diagonal coordinate | 1 | two symmetric matrix entries `+1/2`, others zero |
+| Direct ℓ2 ball/sphere on symmetric storage | one `+Inf` off-diagonal coordinate | 1 | two symmetric matrix entries `+1/√2`, others zero |
 | Direct sphere on symmetric output | asymmetric opposite infinities in one pair | 1 | NaN where symmetricization is ambiguous |
 
-The `γ = 0` and simultaneous `γ = Inf, x = Inf` rows are
+The `γ = 0` and determined-infinity rows are
 **proposed contract amendments**, not assertions that present code passes.
+For simultaneous `γ = Inf, x = Inf`, the proposed NaN result is a
+path-independence rule; the reviewer verified `NormL1` already
+returns NaN on master and reported partially NaN current output for
+the penalized ball case.
 When a proposed output is finite, the corresponding `value_and_prox!`
 value must meet O2 at the stored result.
 
 ## Review decisions requested (please critique before implementation)
 
-1. **Double limits:** choose step-endpoint-first, argument-first, or
-   rejection for simultaneous admitted `γ = Inf, x = Inf`. Is a single
-   cross-family policy justified, and how does it interact with P1/decision 26?
+1. **Joint exceptional limits:** is the decision-21 rule correctly
+   applied to simultaneous admitted `γ = Inf, x = Inf` (NaN for
+   path dependence, finite answer only for a unique joint limit)?
+   Can the reviewer exhibit a proximal counterexample in which the
+   two iterated limits agree but the joint limit nevertheless differs
+   along diagonal paths? The contract explicitly requires more
+   than agreement of two iterated limits.
 2. **Zero step on constrained penalties:** approve or reject naming
    `γ = 0` for the listed ball/sphere families. Can every admitted
    instance project onto its effective domain, including hard weights,
@@ -239,9 +313,12 @@ value must meet O2 at the stored result.
    coordinate with NaN argument to map to zero, rather than E2's NaN?
    Current `NormL1` behavior does not enforce that inference. Should
    it be a separate issue/change?
-6. **Degenerate penalization:** should `γ = Inf` be admitted for
-   `Constrained(NormL1(0), ball/sphere)` and other effectively indicator
-   cases even though the general nonindicator method rejects it?
+6. **Degenerate penalization:** the convex **ball** `γ = Inf`
+   endpoint is now named, including `Constrained(NormL1(0), ball)`.
+   Should a zero-penalty, effectively indicator **sphere** instance
+   receive a special `γ = Inf` endpoint despite the unsupported
+   generic penalized-sphere method? What is the simplest consistent
+   rule for E4/P1 without surprising dispatch exceptions?
 7. **Symmetric storage:** verify that output multiplicities and
    symmetricization occur in the same order as the proposed
    limit classification. For the ℓ1-sphere negative-margin reference
@@ -274,10 +351,12 @@ Do not treat a passing current test as proof of a mathematical limit.
    inner families with the approved P1 endpoints, masking, feasible
    domains, nonconvex tie rules, and correctly reported stored values.
 4. **Tests and docs:** finite BigFloat sequences as independent
-   oracles (corrected symmetric negative-margin fallback), both
-   Float32/Float64 input/output combinations, sparse/atom/symmetric
-   storage where supported, aliasing, ±Inf/NaN combinations, invalid
-   steps with unchanged outputs, O2 values and representative timing.
+   oracles (corrected symmetric negative-margin fallback), including
+   independent sequences for simultaneous `γ,x -> Inf` with varying
+   relative rates; both Float32/Float64 input/output combinations,
+   sparse/atom/symmetric storage where supported, aliasing,
+   ±Inf/NaN combinations, invalid steps with unchanged outputs, O2
+   values and representative timing.
    Update each public function's docstring in its implementation PR.
 
 This draft PR edits only documentation and must **not** close #311 or #469

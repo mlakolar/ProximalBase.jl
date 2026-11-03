@@ -48,6 +48,7 @@ ProximalBase._blas_ready(::GPUArray{<:Any, 2}) = false
 
 # the sum of the lazily broadcast f.(args...), as one reduction on the device
 _sum(::Type{T}, f::F, args...) where {T, F} = mapreduce(identity, +, instantiate(broadcasted(f, args...)); init = zero(T))
+ProximalBase._broadcast_sum(::Type{T}, f::F, η::AnyGPUArray, args::Vararg{Any, N}) where {T, F, N} = _sum(T, f, η, args...)
 
 # whether p(args...) holds for every entry, as one reduction on the device
 _all(p::P, args...) where {P} = mapreduce(identity, &, instantiate(broadcasted(p, args...)); init = true)
@@ -964,28 +965,41 @@ ProximalBase._checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::_De
                         y::AbstractVecOrMat, x::AbstractVecOrMat) =
   (_checkreal(f, x); _checkreal(f, y); _reject_device_leastsquares())
 
-# wᵢ ℓ(ηᵢ, yᵢ) and wᵢ ℓ'(ηᵢ, yᵢ) in type T, as the loops of the CPU compute them
+# wᵢ ℓ(ηᵢ, yᵢ) and wᵢ ℓ'(ηᵢ, yᵢ) in type T, as the loops of the CPU compute them.
+# A term the CPU loops would not keep (`_value_ok`, `_deriv_ok`) is NaN here: the
+# sum, or the reduction over d, then sends the call to the shared recovery, which
+# needs no host copies (broadcasts, reductions and products on the device).
 struct _ObsValue{T, L}
   loss::L
 end
 _ObsValue{T}(loss::L) where {T, L} = _ObsValue{T, L}(loss)
 function (o::_ObsValue{T})(η, y, w) where {T}
   weight = convert(T, w)
-  iszero(weight) ? zero(T) : weight * convert(T, o.loss(η, y))
+  iszero(weight) && return zero(T)
+  v = o.loss(η, y)
+  p = weight * convert(T, v)
+  ifelse(ProximalBase._value_ok(o.loss, weight, v, p, η, y), p, T(NaN))
 end
+# the value of an observation whose derivative d was not kept counts as not kept
+(o::_ObsValue{T})(η, y, w, d) where {T} = ifelse(isnan(d), T(NaN), o(η, y, w))
 struct _ObsDeriv{T, L}
   loss::L
 end
 _ObsDeriv{T}(loss::L) where {T, L} = _ObsDeriv{T, L}(loss)
 function (o::_ObsDeriv{T})(η, y, w) where {T}
   weight = convert(T, w)
-  iszero(weight) ? zero(T) : weight * convert(T, ProximalBase.deriv(o.loss, η, y))
+  iszero(weight) && return zero(T)
+  v = ProximalBase.deriv(o.loss, η, y)
+  p = weight * v
+  ifelse(ProximalBase._deriv_ok(o.loss, weight, v, p, η, y), convert(T, p), T(NaN))
 end
 
 function (f::_DeviceGLM{L, T})(β::AbstractVector) where {L, T}
   _checkreal(f, β)
   η = ProximalBase._linear_predictor!(f, β)
-  return _value_at(_sum(T, _ObsValue{T}(f.loss), η, f.y, _param(f.weights)), β)
+  s = _sum(T, _ObsValue{T}(f.loss), η, f.y, _param(f.weights))
+  isfinite(s) || (s = ProximalBase._glm_recover!(f, β, Val(true), Val(false)))
+  return _value_at(s, β)
 end
 
 function ProximalBase.value_and_gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::AbstractVector) where {L, T}
@@ -996,11 +1010,13 @@ function ProximalBase.value_and_gradient!(g::AbstractVector, f::_DeviceGLM{L, T}
   η = ProximalBase._linear_predictor!(f, β)
   w = _param(f.weights)
   f.d .= _ObsDeriv{T}(f.loss).(η, f.y, w)
-  s = _sum(T, _ObsValue{T}(f.loss), η, f.y, w)
+  s = _sum(T, _ObsValue{T}(f.loss), η, f.y, w, f.d)
+  isfinite(s) || (s = ProximalBase._glm_recover!(f, β, Val(true), Val(true)))
   mul!(g, transpose(f.X), f.d)
   return _value_at(s, β)
 end
 
+# one reduction over d (a host synchronization) decides whether to recover
 function ProximalBase.gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::AbstractVector) where {L, T}
   _checkreal(f, β)
   _checkreal(f, g)
@@ -1008,6 +1024,7 @@ function ProximalBase.gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::Abst
   _checksize(g, β)
   η = ProximalBase._linear_predictor!(f, β)
   f.d .= _ObsDeriv{T}(f.loss).(η, f.y, _param(f.weights))
+  _all(!isnan, f.d) || ProximalBase._glm_recover!(f, β, Val(false), Val(true))
   return mul!(g, transpose(f.X), f.d)
 end
 

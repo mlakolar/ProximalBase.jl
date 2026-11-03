@@ -20,6 +20,13 @@ check these properties. The losses are [`ProximalBase.Squared`](@ref),
 [`ProximalBase.Huber`](@ref), [`ProximalBase.SquaredHinge`](@ref),
 [`ProximalBase.SmoothCheck`](@ref) and [`ProximalBase.ConvolutionCheck`](@ref);
 they are not exported, as names such as `Poisson` belong to distributions.
+
+In a `GLMLoss`, a weighted term `wᵢ ℓ(ηᵢ, yᵢ)` (and `wᵢ ℓ'(ηᵢ, yᵢ)`) of a
+built-in loss keeps its accuracy when `ℓ` alone overflows before a small weight,
+or underflows before a large one, and when `ηᵢ` itself is beyond the range of the
+buffer type (the predictor is then recomputed in power-of-two units). For a user's
+loss, the term is `wᵢ ℓ(ηᵢ, yᵢ)` evaluated as written: these recomputations use
+internal methods that only the built-in losses implement.
 """
 abstract type ScalarLoss end
 
@@ -135,6 +142,145 @@ deriv(ℓ::Huber, η::Real, y::Real) = value_and_deriv(ℓ, η, y)[2]
 deriv2(ℓ::Huber, η::Real, y::Real) = (r = float(η - y); abs(r) <= ℓ.δ ? one(r) : zero(r))
 curvature(::Huber) = 1.0
 
+####################################
+#
+#  Weighted terms wℓ(η, y) and wℓ'(η, y) out of range (R1, #358)
+#
+####################################
+
+# The ordinary term p = w ⋅ ℓ(η, y) (or w ⋅ ℓ'(η, y)) is kept when it is finite,
+# at a finite η, and the weight cannot have lifted a lost value: below
+# floatmin(T), a value that underflowed (to a subnormal or to zero) has lost
+# relative accuracy, and a weight w > 1 can bring it back into the normal range.
+# A normal ℓ from the formulas of the built-in losses carries only a few
+# roundings. `_lost_value` and `_lost_deriv` say whether ℓ or ℓ' may have
+# underflowed: exact zeros (an exact fit, a hinge observation on the right side)
+# do not count, so that ordinary weighted data do not recompute. A loss without
+# methods, a user's loss among them, keeps the ordinary term.
+_lost_value(::ScalarLoss, v, η, y) = false
+_lost_deriv(::ScalarLoss, v, η, y) = false
+@inline _below_normal(v) = abs(v) < floatmin(float(typeof(v)))
+@inline _value_ok(ℓ, w, v, p, η, y) = isfinite(p) & isfinite(η) & !((w > one(w)) & _lost_value(ℓ, v, η, y))
+@inline _deriv_ok(ℓ, w, v, p, η, y) = isfinite(p) & isfinite(η) & !((w > one(w)) & _lost_deriv(ℓ, v, η, y))
+
+# The term again, in type T, for η = ηs ⋅ 2^k (k ≥ 0: η may be beyond the range
+# of T), with the weight w > 0 applied last and one rounding. The default, for
+# losses without a method, is the ordinary term.
+_weighted_value(ℓ::ScalarLoss, w::T, ηs::T, k::Int, y::T) where {T} = w * convert(T, ℓ(ldexp(ηs, k), y))
+_weighted_deriv(ℓ::ScalarLoss, w::T, ηs::T, k::Int, y::T) where {T} = w * convert(T, deriv(ℓ, ldexp(ηs, k), y))
+
+# The term of one observation in the recovery: the ordinary term where it is
+# kept, otherwise the loss's recomputation. A non-finite η with k = 0, or a
+# non-finite y, keeps the ordinary term (E2).
+@inline function _recovered_value(ℓ, w::T, η::T, ηs::T, k::Int, y, ::Type{T}) where {T}
+  if isfinite(η)
+    v = ℓ(η, y)
+    p = w * convert(T, v)
+    _value_ok(ℓ, w, v, p, η, y) && return p
+    ηs, k = η, 0
+  end
+  yt = convert(T, y)
+  isfinite(ηs) & isfinite(yt) || return w * convert(T, ℓ(η, y))
+  _weighted_value(ℓ, w, ηs, k, yt)
+end
+@inline function _recovered_deriv(ℓ, w::T, η::T, ηs::T, k::Int, y, ::Type{T}) where {T}
+  if isfinite(η)
+    v = deriv(ℓ, η, y)
+    p = w * v
+    _deriv_ok(ℓ, w, v, p, η, y) && return convert(T, p)
+    ηs, k = η, 0
+  end
+  yt = convert(T, y)
+  isfinite(ηs) & isfinite(yt) || return convert(T, w * deriv(ℓ, η, y))
+  _weighted_deriv(ℓ, w, ηs, k, yt)
+end
+
+# η - y for η = ηs ⋅ 2^k, as a significand and an exponent, without overflow
+@inline function _residual_pow2(ηs::T, k::Int, y::T) where {T}
+  if k == 0
+    r = ηs - y
+    isfinite(r) && return frexp(r)
+    m, e = frexp(ηs / 2 - y / 2)
+    return m, e + 1
+  end
+  m, e = frexp(ηs - ldexp(y, -k))
+  m, e + k
+end
+# a ⋅ b as a significand and an exponent
+@inline _product_pow2(a::T, b::T) where {T} = (iszero(a) || iszero(b)) ? (zero(T), 0) :
+  (fa = frexp(a); fb = frexp(b); (fa[1] * fb[1], fa[2] + fb[2]))
+
+# Squared: (η - y)²/2 and η - y. A subnormal difference is exact, so the
+# derivative loses nothing to underflow.
+_lost_value(::Squared, v, η, y) = _below_normal(v) & (η != y)
+function _weighted_value(::Squared, w::T, ηs::T, k::Int, y::T) where {T}
+  m, e = _residual_pow2(ηs, k, y)
+  _scaled_product(w, m * m / 2, 2e)
+end
+_weighted_deriv(::Squared, w::T, ηs::T, k::Int, y::T) where {T} = _scaled_product(w, _residual_pow2(ηs, k, y)...)
+
+# Huber: the quadratic zone as Squared; beyond, δ(|r| - δ/2) in units of 2^e
+_lost_value(::Huber, v, η, y) = _below_normal(v) & (η != y)
+function _weighted_value(ℓ::Huber, w::T, ηs::T, k::Int, y::T) where {T}
+  m, e = _residual_pow2(ηs, k, y)
+  δ = convert(T, ℓ.δ)
+  ldexp(abs(m), e) <= δ && return _scaled_product(w, m * m / 2, 2e)
+  _scaled_product(w, δ, abs(m) - ldexp(δ / 2, -e), e)
+end
+function _weighted_deriv(ℓ::Huber, w::T, ηs::T, k::Int, y::T) where {T}
+  m, e = _residual_pow2(ηs, k, y)
+  δ = convert(T, ℓ.δ)
+  ldexp(abs(m), e) <= δ ? _scaled_product(w, m, e) : copysign(w * δ, m)
+end
+
+# Logistic: c|η| + log(1 + e^{-|η|}) with c = 1 - y for η > 0 and c = y otherwise,
+# and the derivative (1 - y) - σ or σ - y, σ = e^{-|η|}/(1 + e^{-|η|}). The tail
+# t = e^{-|η|} is kept as m 2^j, and log1p(t) and σ equal t to the precision of T
+# for t < 2^-(precision + 2). The exact loss is positive for y in [0, 1].
+_lost_value(::Logistic, v, η, y) = _below_normal(v)
+_lost_deriv(::Logistic, v, η, y) = _below_normal(v)
+@inline function _logistic_tail(s::T, k::Int, sigmoid::Bool) where {T}
+  (k > 0 || s > _exp_bound(T)) && return zero(T), 0
+  m, j = _exp_split(-s)
+  j < -(precision(T) + 2) && return m, j
+  t = ldexp(m, j)
+  frexp(sigmoid ? t / (1 + t) : log1p(t))
+end
+function _weighted_value(::Logistic, w::T, ηs::T, k::Int, y::T) where {T}
+  s = abs(ηs)
+  mc, ec = _product_pow2(ηs > 0 ? one(T) - y : y, s)
+  mt, et = _logistic_tail(s, k, false)
+  m, e = _pow2_add2(mc, ec + k, mt, et)
+  _scaled_product(w, m, e)
+end
+function _weighted_deriv(::Logistic, w::T, ηs::T, k::Int, y::T) where {T}
+  ms, es = _logistic_tail(abs(ηs), k, true)
+  m, e = ηs > 0 ? _pow2_add2(frexp(one(T) - y)..., -ms, es) : _pow2_add2(ms, es, frexp(-y)...)
+  _scaled_product(w, m, e)
+end
+
+# Poisson: e^η - yη and e^η - y, with e^η = m 2^j. Beyond the bound of
+# `_exp_bound`, w e^η overflows for every weight, or is negligible beside 2^-emin.
+_lost_value(::Poisson, v, η, y) = _below_normal(v)
+_lost_deriv(::Poisson, v, η, y) = _below_normal(v)
+@inline function _poisson_exp(ηs::T, k::Int) where {T}
+  (k > 0 || ηs < -_exp_bound(T)) && return zero(T), 0
+  _exp_split(ηs)
+end
+function _weighted_value(::Poisson, w::T, ηs::T, k::Int, y::T) where {T}
+  ηs > 0 && (k > 0 || ηs > _exp_bound(T)) && return T(Inf)
+  me, je = _poisson_exp(ηs, k)
+  my, ey = _product_pow2(y, ηs)
+  m, e = _pow2_add2(me, je, -my, ey + k)
+  _scaled_product(w, m, e)
+end
+function _weighted_deriv(::Poisson, w::T, ηs::T, k::Int, y::T) where {T}
+  ηs > 0 && (k > 0 || ηs > _exp_bound(T)) && return T(Inf)
+  me, je = _poisson_exp(ηs, k)
+  m, e = _pow2_add2(me, je, frexp(-y)...)
+  _scaled_product(w, m, e)
+end
+
 """
     GLMLoss(ℓ, y, X; weights = nothing, offset = nothing)
 
@@ -247,11 +393,17 @@ function (f::GLMLoss{L, T})(β::AbstractVector) where {L, T}
   _checkreal(f, β)
   η = _linear_predictor!(f, β)
   s = zero(T)
+  kept = true
   @inbounds for i in eachindex(η)
     w = convert(T, _entry(f.weights, i))
     iszero(w) && continue
-    s += w * convert(T, f.loss(η[i], f.y[i]))
+    ηi, yi = η[i], f.y[i]
+    v = f.loss(ηi, yi)
+    p = w * convert(T, v)
+    s += p
+    kept &= _value_ok(f.loss, w, v, p, ηi, yi)
   end
+  kept || (s = _glm_recover!(f, β, Val(true), Val(false)))
   _value_at(s, β)
 end
 
@@ -260,16 +412,21 @@ function value_and_gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVe
   η = _linear_predictor!(f, β)
   d = f.d
   s = zero(T)
+  kept = true
   @inbounds for i in eachindex(η)
     w = convert(T, _entry(f.weights, i))
     if iszero(w)
       d[i] = zero(T)
       continue
     end
-    v, dv = value_and_deriv(f.loss, η[i], f.y[i])
-    s += w * convert(T, v)
-    d[i] = w * dv
+    ηi, yi = η[i], f.y[i]
+    v, dv = value_and_deriv(f.loss, ηi, yi)
+    p = w * convert(T, v)
+    s += p
+    d[i] = pd = w * dv
+    kept &= _value_ok(f.loss, w, v, p, ηi, yi) & _deriv_ok(f.loss, w, dv, pd, ηi, yi)
   end
+  kept || (s = _glm_recover!(f, β, Val(true), Val(true)))
   mul!(g, transpose(f.X), d)
   _value_at(s, β)
 end
@@ -277,12 +434,95 @@ end
 function gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVector) where {L, T}
   _checkwrite(gradient!, f, g, β)
   η = _linear_predictor!(f, β)
+  kept = true
   @inbounds for i in eachindex(η)
     w = convert(T, _entry(f.weights, i))
-    f.d[i] = iszero(w) ? zero(T) : w * deriv(f.loss, η[i], f.y[i])
+    if iszero(w)
+      f.d[i] = zero(T)
+      continue
+    end
+    ηi, yi = η[i], f.y[i]
+    dv = deriv(f.loss, ηi, yi)
+    f.d[i] = pd = w * dv
+    kept &= _deriv_ok(f.loss, w, dv, pd, ηi, yi)
   end
+  kept || _glm_recover!(f, β, Val(false), Val(true))
   mul!(g, transpose(f.X), f.d)
 end
+
+# The recovery after an ordinary pass that did not keep every term, on the CPU and
+# on device arrays alike (broadcasts and reductions only). With a non-finite
+# argument, design, response or offset, the ordinary terms stand (E2). A
+# predictor that is not finite is recomputed with β ⋅ 2^-k (and the offset
+# ⋅ 2^-k), so that no partial sum can overflow: η = ηs 2^k, with ηs in the
+# buffer d. Every observation is then evaluated again: the ordinary term where
+# it is kept, the loss's recomputation otherwise. The value returned is the sum;
+# d is rewritten when asked. The scaled copy of β is the only allocation, and only
+# when a predictor is recomputed.
+@noinline function _glm_recover!(f::GLMLoss{L, T}, β::AbstractVector, ::Val{V}, ::Val{D}) where {L, T, V, D}
+  w = f.weights === nothing ? true : f.weights
+  if !(_all_finite(β) && _all_finite(f.X) && _all_finite(f.y) && _all_finite(f.offset))
+    D && (f.d .= _PlainDeriv{T}(f.loss).(f.η, f.y, w))
+    return V ? _broadcast_sum(T, _PlainValue{T}(f.loss), f.η, f.y, w) : zero(T)
+  end
+  k = _all_finite(f.η) ? 0 : _recover_predictor!(f, β)
+  s = V ? _broadcast_sum(T, _RecoveredValue{T}(f.loss, k), f.η, f.d, f.y, w) : zero(T)
+  D && (f.d .= _RecoveredDeriv{T}(f.loss, k).(f.η, f.d, f.y, w))
+  s
+end
+
+# η = Xβ + offset again in units of 2^k, chosen as in the least-squares recovery so
+# that no partial sum of X(β 2^-k) + offset 2^-k exceeds floatmax/4; ηs goes to d,
+# and every non-finite η that is representable after all is replaced
+function _recover_predictor!(f::GLMLoss{L, T}, β::AbstractVector) where {L, T}
+  E = _max_exponent(T)
+  k = max(0, _bound_exponent(_stored_maxabs(f.X)) + _bound_exponent(_stored_maxabs(β)) + _log2_ceil(size(f.X, 2)) + 3 - E,
+          f.offset === nothing ? 0 : _bound_exponent(_stored_maxabs(f.offset)) + 3 - E)
+  s = _power_factors(T, -k)
+  mul!(f.d, f.X, β .* s[1] .* s[2])
+  f.offset === nothing || (f.d .+= f.offset .* s[1] .* s[2])
+  u = _power_factors(T, k)
+  f.η .= ifelse.(isfinite.(f.η), f.η, f.d .* u[1] .* u[2])
+  k
+end
+
+# the sum of f.(η, args...) without materializing it: a loop on the CPU (a
+# reduction over a lazy broadcast allocates on Julia 1.10); the GPU extension
+# reduces on the device
+function _broadcast_sum(::Type{T}, f::F, η::AbstractVector, args::Vararg{Any, N}) where {T, F, N}
+  bc = Broadcast.instantiate(Broadcast.broadcasted(f, η, args...))
+  s = zero(T)
+  @inbounds for i in eachindex(bc)
+    s += bc[i]
+  end
+  s
+end
+
+# the terms of one observation, for broadcasts: ordinary, and recovered
+struct _PlainValue{T, L}
+  loss::L
+end
+_PlainValue{T}(loss::L) where {T, L} = _PlainValue{T, L}(loss)
+(o::_PlainValue{T})(η, y, w) where {T} = (w = convert(T, w); iszero(w) ? zero(T) : w * convert(T, o.loss(η, y)))
+struct _PlainDeriv{T, L}
+  loss::L
+end
+_PlainDeriv{T}(loss::L) where {T, L} = _PlainDeriv{T, L}(loss)
+(o::_PlainDeriv{T})(η, y, w) where {T} = (w = convert(T, w); iszero(w) ? zero(T) : convert(T, w * deriv(o.loss, η, y)))
+struct _RecoveredValue{T, L}
+  loss::L
+  k::Int
+end
+_RecoveredValue{T}(loss::L, k) where {T, L} = _RecoveredValue{T, L}(loss, k)
+(o::_RecoveredValue{T})(η, ηs, y, w) where {T} =
+  (w = convert(T, w); iszero(w) ? zero(T) : _recovered_value(o.loss, w, η, ηs, o.k, y, T))
+struct _RecoveredDeriv{T, L}
+  loss::L
+  k::Int
+end
+_RecoveredDeriv{T}(loss::L, k) where {T, L} = _RecoveredDeriv{T, L}(loss, k)
+(o::_RecoveredDeriv{T})(η, ηs, y, w) where {T} =
+  (w = convert(T, w); iszero(w) ? zero(T) : _recovered_deriv(o.loss, w, η, ηs, o.k, y, T))
 
 restrict(f::GLMLoss, S::AbstractVector{<:Integer}) =
   GLMLoss(f.loss, f.y, f.X[:, S]; weights = f.weights, offset = f.offset)

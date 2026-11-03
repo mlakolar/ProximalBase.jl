@@ -569,6 +569,37 @@ function _pow2_weighted(::Type{R}, w, terms::Vararg{Tuple{Any, Int}, N}) where {
 end
 _pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_weighted(R, one(R), terms...)
 
+# m₁2^e₁ + m₂2^e₂ as a significand in [1/2, 1) (or 0) and its exponent, aligned to
+# the larger term: two terms that cancel do so exactly before renormalizing. A
+# scalar function for device kernels as well (no tuples of varying length).
+@inline function _pow2_add2(m1::T, e1::Int, m2::T, e2::Int) where {T<:AbstractFloat}
+  if iszero(m1) || (!iszero(m2) && e1 < e2)
+    m1, e1, m2, e2 = m2, e2, m1, e1
+  end
+  s = m1 + ldexp(m2, e2 - e1)
+  iszero(s) && return s, 0
+  ms, es = frexp(s)
+  ms, es + e1
+end
+
+# exp(x) = m 2^j for a finite x: j = round(x/log 2) and x - j log 2 in two parts,
+# the high part with trailing zeros so that j·hi is exact (fdlibm). The error is
+# that of exp on [-log(2)/2, log(2)/2], about one ulp, where exp(x + log w)
+# would carry the absolute error of a large argument into the result.
+@inline _ln2_parts(::Type{Float64}) = (6.93147180369123816490e-01, 1.90821492927058770002e-10)
+@inline _ln2_parts(::Type{Float32}) = (6.9314575195f-01, 1.4286067653f-06)
+@inline function _exp_split(x::T) where {T<:Union{Float32, Float64}}
+  hi, lo = _ln2_parts(T)
+  j = round(x * T(1.4426950408889634))
+  exp((x - j * hi) - j * lo), unsafe_trunc(Int, j)
+end
+# other types: their own exp has no range limit to work around in practice
+@inline _exp_split(x::AbstractFloat) = frexp(exp(x))
+# beyond this |x|, w exp(x) leaves the range for every finite w > 0 in either
+# direction: 2^(emax + 2 + precision - emin) is out of reach of any weight
+@inline _exp_bound(::Type{T}) where {T<:AbstractFloat} =
+  T((exponent(floatmax(T)) + 2 + precision(T) - exponent(floatmin(T))) * 0.6931471805599453)
+
 ####################################
 #
 #  Selection and projection onto the simplex

@@ -494,6 +494,27 @@ function smooth_cases!(cases, rep; quick=false)
             quick && !(name in ("least_squares", "logistic")) && continue
             addgrad!(cases,"smooth",name,f,x; profile=T==Float64 && n==1024)
         end
+        # weighted GLMs of the other built-in losses (extended suite), with their own stream so
+        # that the cases above keep their data; the last two recompute weighted terms on every
+        # call: a logistic tail lifted by its weight, and exp(η) beyond the range before a tiny weight
+        if !quick
+            rngw = scenario_rng(rep,"smooth_weighted/$T/$n/$p")
+            yh = T.(2 .* rand(rngw,0:1,n) .- 1)
+            w = T(0.25) .+ T(2) .* rand(rngw,T,n)
+            far = T == Float32 ? T(100) : T(750)
+            tail = [i <= 4 ? far : zero(T) for i in 1:n]
+            tiny = [i <= 4 ? (T == Float32 ? T(1e-35) : T(1e-300)) : one(T) for i in 1:n]
+            for (name,f) in (("squared_weighted",GLMLoss(ProximalBase.Squared(),y,X;weights=w)),
+                      ("poisson_weighted",PoissonLoss(rand(rngw,0:3,n),X;weights=w)),
+                      ("huber_weighted",HuberLoss(y,X,T(0.5);weights=w)),
+                      ("squared_hinge_weighted",GLMLoss(ProximalBase.SquaredHinge(),yh,X;weights=w)),
+                      ("smooth_check_weighted",GLMLoss(ProximalBase.SmoothCheck(T(0.3),T(0.5)),y,X;weights=w)),
+                      ("convolution_check_weighted",GLMLoss(ProximalBase.ConvolutionCheck(T(0.3),T(0.5)),y,X;weights=w)),
+                      ("logistic_tail_weighted",LogisticLoss(ones(T,n),X;weights=w .+ 1,offset=tail)),
+                      ("poisson_far_tiny_weight",PoissonLoss(zeros(T,n),X;weights=tiny,offset=tail)))
+                addgrad!(cases,"smooth",name,f,x; second=false)
+            end
+        end
         ls = LeastSquaresLoss(y,X)
         check_global_curvature!() = begin
             bound = lipschitz(ls)

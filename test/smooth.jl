@@ -320,6 +320,15 @@ end
   @test !(PoissonLoss(yc, X) isa LogisticLoss)
   # squared loss: the least-squares loss
   @test gradient(GLMLoss(PB.Squared(), yr, X), β) ≈ gradient(LeastSquaresLoss(yr, X), β)
+  # observation weights that bring an out-of-range loss back (#358, B11), and a predictor that cancels
+  @test PoissonLoss([0.0], ones(1, 1); weights = [1e-300])([1000.0]) ≈ 1.970071114017047e134 rtol = 4eps()
+  @test gradient(PoissonLoss([0.0], ones(1, 1); weights = [1e-300]), [1000.0])[1] ≈ 1.970071114017047e134 rtol = 4eps()
+  @test LogisticLoss([0.0], ones(1, 1); weights = [1e300])([-1000.0]) ≈ 5.075958897549457e-135 rtol = 4eps()
+  @test GLMLoss(PB.SquaredHinge(), [1.0], ones(1, 1); weights = [1e-300])([-1e200]) ≈ 1e100 rtol = 4eps()
+  M = floatmax(Float64)
+  fc = GLMLoss(PB.Squared(), [0.5], reshape([M, -M, 1], 1, 3); weights = [1.5])
+  @test fc([2.0, 2.0, 3.0]) == 1.5 * 2.5^2 / 2
+  @test gradient(fc, [2.0, 2.0, 3.0]) == 1.5 * 2.5 .* [M, -M, 1]
   @test_throws DimensionMismatch LogisticLoss(yb[1:5], X)
   @test_throws DimensionMismatch LogisticLoss(yb, X; weights = w[1:5])
   @test_throws ArgumentError LogisticLoss(yb, X; weights = -w)

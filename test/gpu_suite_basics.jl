@@ -167,6 +167,35 @@ end
   end
 end
 
+@testset "GLM weights and predictors that leave the range on GPU arrays" begin
+  allowscalar(false)
+  # the remaining cases are in value_overflow_glm.jl
+  for T in test_types
+    M = floatmax(T)
+    lo, hi, ηa, ηb = T === Float32 ? (1f-35, 1f35, 100f0, 120f0) : (1e-300, 1e300, 1000.0, 800.0)
+    for f in (PoissonLoss(T[0], ones(T, 1, 1); weights = T[lo]),                       # exp(η) overflows before w
+              LogisticLoss(T[1], ones(T, 1, 1); weights = T[hi]),                       # the tail underflows before w
+              GLMLoss(ProximalBase.Squared(), T[0.5], reshape(T[M, -M, 1], 1, 3); weights = T[1.5]))   # X β cancels
+      @testset "$(nameof(typeof(f.loss))), $T" begin
+        βc = length(f.y) == 1 && size(f.X, 2) == 1 ? T[f isa PoissonLoss ? ηa : ηb] : T[2, 2, 3]
+        fg = Adapt.adapt(DeviceArray, f)
+        βg = DeviceArray(βc)
+        vc = f(βc)
+        @test isfinite(vc) && vc > floatmin(T)
+        @test fg(βg) ≃ vc
+        gc = similar(βc)
+        @test value_and_gradient!(gc, f, βc) ≃ vc
+        gg = similar(βg)
+        @test value_and_gradient!(gg, fg, βg) ≃ vc
+        @test host(gg) ≃ gc
+        fill!(gg, 0)
+        gradient!(gg, fg, βg)
+        @test host(gg) ≃ gc
+      end
+    end
+  end
+end
+
 @testset "infinite and zero weights on GPU arrays" begin
   allowscalar(false)
   for T in test_types, λ in (0, 1)

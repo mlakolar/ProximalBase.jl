@@ -90,8 +90,19 @@ allocated_pow2(::Type{T}, E, a, b, c) where {T} = (pow2_three(T, E, a, b, c); @a
         Xr, Yr, βr = T.(sin.(1:n) .* cos.((1:p)')), T.(cos.(1:n)), T.(sin.(1:p) ./ 3)
         fr = LeastSquaresLoss(Yr, Xr)
         v = fr(βr)
-        # on the product the call stored: BLAS may round X * β and mul! differently
-        @test v === plain_leastsquares(Yr, Xr, βr, fr.tmp)
+        # On the product the call stored: BLAS may round X * β and mul! differently.
+        # The value is not compared bit for bit with plain_leastsquares: two @simd
+        # reductions may add in different orders, which differ by a unit in the last
+        # place on some CPUs (#537). The guard keeps an ordinary sum of this size
+        # exactly. This checks the guard on the test's own sum, not which path fr(βr)
+        # took: the recovery is as accurate, so the value cannot tell the paths apart ...
+        s = 2 * plain_leastsquares(Yr, Xr, βr, fr.tmp)
+        @test PB._leastsquares_value(fr, βr, s, true) === s / 2
+        # ... and the value has the accuracy of the ordinary computation (R1): one
+        # rounding per difference and per square and n - 1 additions in any order,
+        # (n + 2)u relative to first order, u = eps(T)/2, as the terms are nonnegative.
+        exact = sum(abs2, big.(Yr) .- big.(fr.tmp)) / 2
+        @test isfinite(v) && abs(big(v) - exact) <= (n + 3) * big(eps(T)) / 2 * exact
       end
     end
 

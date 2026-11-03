@@ -113,6 +113,67 @@ end
   @test y2 ≈ Float32[1.2, -1.6, 0] rtol = 1e-6
 end
 
+nrm2(y) = sqrt(sum(abs2, Float64.(y)))
+
+# Every destination array takes the wide recovery: a view of a Float32 buffer, a strided one, a
+# noncontiguous one. The shrinkages are all zero in Float32; the direction is analytic.
+@testset "wide sphere recovery for any destination array" begin
+  s = 2.0^-100
+  destinations = (
+    "Array" => n -> zeros(Float32, n),
+    "full view" => n -> view(zeros(Float32, n), :),
+    "strided view" => n -> view(zeros(Float32, 2n), 1:2:2n-1),
+    "noncontiguous view" => n -> view(zeros(Float32, 3, 2n), 2, 1:2:2n-1),
+    "reshaped view" => n -> vec(reshape(view(zeros(Float32, 2n), 1:n), 1, n)))
+  # two positive margins, equal after rounding: the direction is x/‖x‖
+  c = Constrained(GroupNormL2(1.0, [1:1, 2:2], [1.0, 1.0]), IndSphereL2(1.0))
+  x = [s, s]
+  γ = s * (1.0 - 2.0^-52)
+  # three entries in two groups, a multicoordinate group among them: z ∝ x, y = r x/‖x‖
+  c3 = Constrained(GroupNormL2(1.0, [1:2, 3:3], [1.0, 1.0]), IndSphereL2(2.0))
+  # (a relative margin of 2^-50, so that the rounded norm of a group cannot reach the threshold)
+  s3 = 2.0^-110
+  x3 = [3s3, 4s3, 5s3]
+  γ3 = 5s3 * (1.0 - 2.0^-50)
+  expected3 = Float32.(2 .* [3, 4, 5] ./ sqrt(50.0))
+  # one group of two entries whose norm underflows in Float32 (z has norm about 2^-210)
+  c1 = Constrained(GroupNormL2(1.0, [1:2], [1.0]), IndSphereL2(1.0))
+  x1 = [3.0, 4.0] .* 2.0^-160
+  γ1 = 5.0 * 2.0^-160 * (1.0 - 2.0^-52)
+  for (name, make) in destinations
+    @testset "$name" begin
+      y = make(2); prox!(y, c, x, γ)
+      @test collect(y) ≈ Float32[inv(sqrt(2)), inv(sqrt(2))] rtol = 1e-6
+      y = make(2); v = value_and_prox!(y, c, x, γ)
+      @test collect(y) ≈ Float32[inv(sqrt(2)), inv(sqrt(2))] rtol = 1e-6
+      @test nrm2(y) ≈ 1 rtol = 1e-6
+      @test v == c.f(y)                                  # O2: the value at the stored output
+      y = make(3); prox!(y, c3, x3, γ3)
+      @test collect(y) ≈ expected3 rtol = 1e-6
+      y = make(3); v = value_and_prox!(y, c3, x3, γ3)
+      @test collect(y) ≈ expected3 rtol = 1e-6
+      @test nrm2(y) ≈ 2 rtol = 1e-6
+      @test v == c3.f(y)
+      y = make(2); prox!(y, c1, x1, γ1)
+      @test collect(y) ≈ Float32[0.6, 0.8] rtol = 1e-6
+      y = make(2); v = value_and_prox!(y, c1, x1, γ1)
+      @test collect(y) ≈ Float32[0.6, 0.8] rtol = 1e-6
+      @test v == c1.f(y)
+    end
+  end
+  # the same type is unchanged: no wide buffer, the kernel's own rounding
+  yd = zeros(2); prox!(yd, c, [1.0, 1.0], 0.25)
+  @test yd ≈ [inv(sqrt(2)), inv(sqrt(2))]
+  yf = zeros(Float32, 2); prox!(yf, c, Float32[1, 1], 0.25f0)
+  @test yf ≈ Float32[inv(sqrt(2)), inv(sqrt(2))] rtol = 1e-6
+  # in place, with a view of the argument's own storage: the projection stays on the sphere
+  b = [3.0, 4.0, 0.5]
+  yv = view(b, 1:2)
+  prox!(yv, c1, yv, 0.5)
+  @test nrm2(yv) ≈ 1
+  @test yv ≈ [0.6, 0.8]
+end
+
 @testset "value_and_prox! returns the value of the stored output (O2)" begin
   x = [2.0^-100]
   γ = 2.0^-225 * (1.0 - 2.0^-52)                  # the Float64 residual 2^-152 stores as zero

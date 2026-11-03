@@ -510,11 +510,14 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Gro
 end
 
 # y = r z/‖z‖ for the shrinkage z of the groups in the type U, which is wider than the type of y;
-# false, with y unchanged in meaning, where z is zero in U too or y is not a plain array.
+# false, with y unchanged in meaning, where z is zero in U too. Any array y takes it: z is a
+# buffer of the shape of y, written only on this exceptional path. U is wider than the type of y
+# only for an argument of a wider type, which cannot alias y, so x is intact here. A norm of z that
+# is not a normal number in the type of y takes the rescaled branch of _scale_l2!.
 _wide_sphere_direction!(y, c, x, γ, ::Type{U}, r) where {U} = false
-function _wide_sphere_direction!(y::Array{T}, c, x, γ, ::Type{U}, r) where {T, U}
+function _wide_sphere_direction!(y::AbstractArray{T}, c, x, γ, ::Type{U}, r) where {T, U}
   U === T && return false
-  z = Array{U}(undef, size(y))
+  z = similar(y, U)
   _value_and_prox_unchecked!(z, c.f, x, γ)
   iszero(maximum(abs, z)) && return false
   _scale_l2!(y, z, r, convert(T, _norm2(z)))

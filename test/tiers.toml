@@ -86,6 +86,7 @@ standard = [
   "sqrhinge",
   "stiefel",
   "sumlargest",
+  "threshold_factor_type",
   "threshold_precision",
   "argument_threshold_precision",
 ]

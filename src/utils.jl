@@ -71,8 +71,11 @@ end
 # The same products rounded once to the destination type U, formed in the promotion of U and
 # the factors' types (numerics T3), so that a product that overflows or underflows the factors'
 # type is still finite in U. For R == U the promotion and the conversion are no-ops.
-@inline _working_type(::Type{U}, a, b) where {U<:AbstractFloat} = promote_type(U, float(typeof(a)), float(typeof(b)))
-@inline _working_type(::Type{U}, a, b, c) where {U<:AbstractFloat} = promote_type(U, float(typeof(a)), float(typeof(b)), float(typeof(c)))
+# A Bool factor (the weight `true` of an unweighted entry) does not widen the type.
+@inline _factor_type(a) = float(typeof(a))
+@inline _factor_type(::Bool) = Float16
+@inline _working_type(::Type{U}, a, b) where {U<:AbstractFloat} = promote_type(U, _factor_type(a), _factor_type(b))
+@inline _working_type(::Type{U}, a, b, c) where {U<:AbstractFloat} = promote_type(U, _factor_type(a), _factor_type(b), _factor_type(c))
 @inline function _weight_product(::Type{U}, a, b, w) where {U<:AbstractFloat}
   R = _working_type(U, a, b, w)
   convert(U, _weight_product(convert(R, a), convert(R, b), convert(R, w)))
@@ -91,6 +94,83 @@ end
   R = _working_type(U, λ, w)
   convert(U, _weight_coefficient(convert(R, λ), convert(R, w)))
 end
+@inline function _weight_coefficient(::Type{U}, γ, λ, w) where {U<:AbstractFloat}
+  R = _working_type(U, γ, λ, w)
+  convert(U, _weight_coefficient3(convert(R, γ), convert(R, λ), convert(R, w)))
+end
+# γλw in R. While γλ is a normal number it is the ordinary coefficient. Otherwise, for finite
+# nonzero factors, the product is formed in scaled units, so that a weight restores a γλ that
+# overflows or underflows in R (R3); zero, infinite and NaN factors keep the meaning of
+# _weight_coefficient (a zero level is 0·Inf only where the weight is infinite).
+@inline function _weight_coefficient3(γ::R, λ::R, w::R) where {R<:AbstractFloat}
+  s = γ * λ
+  floatmin(R) <= s <= floatmax(R) && return _weight_coefficient(s, w)
+  _recoverable_factors(γ, λ, w) ? _scaled_coefficient(γ, λ, w, s * w) : _weight_coefficient(s, w)
+end
+# The product of finite nonzero factors, correctly rounded once (to nearest, ties to even) in R, also
+# where it is subnormal and whatever the Julia version (ldexp truncates into the subnormal range up
+# to Julia 1.10). The significands are integers of `precision(R)` bits, so their product is formed
+# exactly in 128-bit limbs and rounded at the last bit that R keeps.
+@noinline function _scaled_coefficient(a::R, b::R, c::R, p::R) where {R<:Base.IEEEFloat}
+  n = precision(R)
+  ma, ea = frexp(abs(a))
+  mb, eb = frexp(abs(b))
+  mc, ec = frexp(abs(c))
+  Ma, Mb, Mc = (unsafe_trunc(UInt64, ldexp(m, n)) for m in (ma, mb, mc))   # in [2^(n-1), 2^n)
+  P = widemul(Ma, Mb)                                                      # < 2^(2n), exact
+  mask = (UInt128(1) << n) - 1
+  A, B = (P >> n) * Mc, (P & mask) * Mc                                    # the product is A·2^n + B
+  H, L = A + (B >> n), B & mask                                            # = H·2^n + L, L < 2^n
+  nb = 128 - leading_zeros(H)
+  E0 = ea + eb + ec - 2n                                                   # the product ≈ H·2^E0
+  top = nb - 1 + E0                                                        # exponent of its leading bit
+  g = exponent(floatmin(R)) - (n - 1)                                      # the subnormals' spacing 2^g
+  keep = min(n, top - g + 1)                                               # bits that R keeps
+  keep < 0 && return copysign(zero(R), p)
+  u = nb - keep
+  q, rem, half = H >> u, H & ((UInt128(1) << u) - 1), UInt128(1) << (u - 1)
+  q += (rem > half) | ((rem == half) & ((L != 0) | isodd(q)))
+  r = ldexp(R(q), E0 + u)                                                  # exact: q fits R's grid
+  (signbit(a) ⊻ signbit(b) ⊻ signbit(c)) ? -r : r
+end
+@noinline _scaled_coefficient(a::R, b::R, c::R, p::R) where {R<:AbstractFloat} = _exceptional_product(a, b, c, p)
+@inline _recoverable_factors(a, b, c) =
+  isfinite(a) & isfinite(b) & isfinite(c) & !iszero(a) & !iszero(b) & !iszero(c)
+
+# |v|² > 2γλ, compared in the promotion R of the destination and the factors' types. While 2γλ is a
+# normal number in R the ordinary comparison is exact in its outcome for every v: an |v|² that
+# overflows is larger, one that underflows is smaller, and the tie rule is the strict inequality of
+# the rounded values, as before. The test involves the factors only, so a loop over entries decides
+# it once and keeps its vectorization. Otherwise, for finite nonzero v, γ and λ, the significands
+# and exponents are compared.
+@inline function _square_exceeds(::Type{U}, v, γ, λ) where {U<:AbstractFloat}
+  R = _working_type(U, γ, λ)
+  x, a, b = convert(R, v), convert(R, γ), convert(R, λ)
+  q = 2 * a * b
+  floatmin(R) <= q <= floatmax(R) && return abs2(x) > q
+  _square_exceeds_scaled(x, a, b, abs2(x), q)
+end
+# The exceptional comparison. For the IEEE types the significands are integers of at most 53 bits, so
+# their products are exact in 128 bits and the comparison is exact: neither product is rounded, and an
+# exact tie is not an exceedance. |x|² = Mx²·2^(2ex-2n), 2γλ = Ma·Mb·2^(ea+eb+1-2n), n the precision.
+@noinline function _square_exceeds_scaled(x::R, a::R, b::R, p::R, q::R) where {R<:Base.IEEEFloat}
+  (isfinite(a) & isfinite(b) & (a >= zero(R)) & (b >= zero(R))) || return p > q
+  isinf(x) && return true                    # an infinite argument exceeds every finite threshold
+  (isfinite(x) & !iszero(x)) || return false # NaN, and zero never exceeds
+  (iszero(a) | iszero(b)) && return true     # |x|² > 0 = 2γλ, although |x|² itself may underflow
+  mx, ex = frexp(abs(x))
+  ma, ea = frexp(a)
+  mb, eb = frexp(b)
+  k = 2ex - (ea + eb + 1)
+  k > 2 && return true                       # Mx² ≥ 2^(2n-2) and Ma·Mb < 2^(2n)
+  k < -2 && return false
+  n = precision(R)
+  Mx, Ma, Mb = (unsafe_trunc(UInt64, ldexp(m, n)) for m in (mx, ma, mb))
+  P, Q = widemul(Mx, Mx), widemul(Ma, Mb)
+  k >= 0 ? (P << k) > Q : P > (Q << -k)
+end
+# Other floating-point types (their range is not the issue here): the rounded comparison.
+@noinline _square_exceeds_scaled(x::R, a::R, b::R, p::R, q::R) where {R<:AbstractFloat} = p > q
 
 # the value p = c⋅φ of a term with the coefficient c and the unweighted value
 # φ ≥ 0: zero where c⋅φ is 0⋅Inf (an infinite weight at a zero entry, a zero

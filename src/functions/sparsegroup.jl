@@ -220,10 +220,10 @@ function _sparse_group_prox!(y::AbstractArray, f::SparseGroupNormL2, x::Abstract
   for k in eachindex(f.groups)
     γk = _entry(γ, k)
     if (O && iszero(f.λ0)) || iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))
-      n1 = _soft_group_only!(y, x, f.groups[k], convert(W, γk * f.λ1), _group_writes(y, f.groups[k]))
+      n1 = _soft_group_only!(y, x, f.groups[k], _typed_product(W, γk, f.λ1), _group_writes(y, f.groups[k]))
       W === T || (n1 = _sumabs(y, f.groups[k]))        # O2: the values are those of the stored output
     else
-      n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], convert(W, γk * f.λ1), (O ? _positive_product(W, γk, f.λ0, f.w[k]) : _weight_product(W, γk, f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+      n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], _typed_product(W, γk, f.λ1), (O ? _positive_product(W, γk, f.λ0, f.w[k]) : _weight_product(W, γk, f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
       W === T || ((n2, n1) = (_group_norm2(y, f.groups[k]), _sumabs(y, f.groups[k])))
       v2 += _group_value(f, f.λ0, f.w[k], n2, y, f.groups[k], T, ordinary)
     end
@@ -277,9 +277,9 @@ function _sparse_group_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterat
     k = y.active[a]
     γk = _entry(γ, k)
     if (O && iszero(f.λ0)) || iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))
-      n1 = _soft_group_only!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1))
+      n1 = _soft_group_only!(y.storage, y.storage, f.groups[k], _typed_product(T, γk, f.λ1))
     else
-      n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], convert(T, γk * f.λ1), (O ? _positive_product(T, γk, f.λ0, f.w[k]) : _weight_product(T, γk, f.λ0, f.w[k])))
+      n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], _typed_product(T, γk, f.λ1), (O ? _positive_product(T, γk, f.λ0, f.w[k]) : _weight_product(T, γk, f.λ0, f.w[k])))
       v2 += _group_value(f, f.λ0, f.w[k], n2, y.storage, f.groups[k], T, ordinary)
     end
     iszero(f.λ1) || (v1 += convert(T, n1))
@@ -297,11 +297,11 @@ end
 @inline function _unchecked_coordinate!(x::AtomIterate, f::SparseGroupNormL2, k, γ, ctx)
   T = float(eltype(x))
   if (iszero(f.λ0) && !isinf(f.w[k])) || iszero(f.w[k])
-    _soft_group_only!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1))
+    _soft_group_only!(x.storage, x.storage, x.groups[k], _typed_product(T, γ, f.λ1))
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
     return atom(x, k)
   end
-  n2, _ = _sparse_shrink_group!(x.storage, x.storage, x.groups[k], convert(T, γ * f.λ1), (isinf(f.w[k]) ? _weight_product(T, γ, f.λ0, f.w[k]) : _positive_product(T, γ, f.λ0, f.w[k])))
+  n2, _ = _sparse_shrink_group!(x.storage, x.storage, x.groups[k], _typed_product(T, γ, f.λ1), (isinf(f.w[k]) ? _weight_product(T, γ, f.λ0, f.w[k]) : _positive_product(T, γ, f.λ0, f.w[k])))
   iszero(n2) || activate!(x, k)
   atom(x, k)
 end

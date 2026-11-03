@@ -59,7 +59,7 @@ _has_ordinary_value(::Type{<:CappedL1}) = true
 
 Base.@propagate_inbounds function prox_entry(f::CappedL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  c = _weight_coefficient(S(γ), S(f.λ), S(_entry(f.w, i)))
+  c = _weight_coefficient(S, γ, f.λ, _entry(f.w, i))
   a, t = S(f.a), abs(S(v))
   z1 = min(max(t - c, zero(S)), a)          # the ℓ1 piece |z| ≤ a: soft thresholding, clipped at a
   z2 = max(t, a)                             # the constant piece |z| ≥ a
@@ -126,11 +126,10 @@ _has_ordinary_value(::Type{<:LogPenalty}) = true
 
 Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  w = S(_entry(f.w, i))
-  c = _weight_coefficient(S(γ), S(f.λ), w)
+  c = _weight_coefficient(S, γ, f.λ, _entry(f.w, i))
   ε, t = S(f.ε), abs(S(v))
   iszero(c) && return S(v)
-  isinf(w) && return isnan(v) ? S(v) : zero(S)
+  isinf(_entry(f.w, i)) && return isnan(v) ? S(v) : zero(S)
   # the stationary points of c log(1 + z/ε) + (z - t)²/2 on z > 0 are the roots
   # of z² + (ε - t)z + c - εt; the larger is a local minimum. Without real roots
   # the objective increases on [0, ∞)
@@ -211,16 +210,19 @@ _has_ordinary_value(::Type{<:NormLq}) = true
 
 Base.@propagate_inbounds function prox_entry(f::NormLq, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  step, λ, w = S(γ), S(f.λ), S(_entry(f.w, i))
+  w0 = _entry(f.w, i)
   q, t = S(f.q), abs(S(v))
-  isinf(w) && return isnan(v) ? S(v) : zero(S)
-  (iszero(step) || iszero(λ) || iszero(w)) && return S(v)
-  μ = _positive_product(step, λ, w)
+  isinf(w0) && return isnan(v) ? S(v) : zero(S)
+  (iszero(γ) || iszero(f.λ) || iszero(w0)) && return S(v)
+  # the factors in the promotion of S and their types, rounded once (T3)
+  R = _working_type(S, γ, f.λ, w0)
+  step, λ, w = convert(R, γ), convert(R, f.λ), convert(R, w0)
+  μ = _positive_product(S, γ, f.λ, _entry(f.w, i))
   ordinary = isfinite(μ) && μ >= floatmin(S)
   # When μ cannot retain its precision, take the bounded powers of its factors
   # before multiplying. The threshold can fit even when μ does not.
   τ = if q == S(1)/2
-    S(3)/2 * (ordinary ? cbrt(μ)^2 : _positive_product(cbrt(step)^2, cbrt(λ)^2, cbrt(w)^2))
+    S(3)/2 * (ordinary ? cbrt(μ)^2 : convert(S, _positive_product(cbrt(step)^2, cbrt(λ)^2, cbrt(w)^2)))
   elseif ordinary
     power = inv(2 - q)
     # Separate powers retain subnormal μ without rounding μ*2(1-q)
@@ -230,7 +232,7 @@ Base.@propagate_inbounds function prox_entry(f::NormLq, v::T, i::Integer, γ::Re
   else
     power = inv(2 - q)
     coefficient = ((2 - q) / (2 - 2q)) * (2 * (1 - q))^power
-    coefficient * _positive_product(step^power, λ^power, w^power)
+    coefficient * convert(S, _positive_product(step^power, λ^power, w^power))
   end
   t <= τ && return zero(S)
   sign(S(v)) * _lq_root(t, μ, q, τ)

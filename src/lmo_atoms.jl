@@ -142,16 +142,17 @@ more than half of them. The matrix is scaled by a power of two first, so extreme
 overflow. `method = :krylov` (the nuclear-norm ball and the density matrices) runs Lanczos
 bidiagonalization or Lanczos with full reorthogonalization on products with `g`, from a fixed
 starting vector, using `O(nnz)` work per step and no dense copy. It stops when the residual of
-the pair is at most `rtol` times its value (`rtol` defaults to `√ε`, `maxiter` to `150` steps, at
+the pair is at most `rtol` times its value (for the eigenproblem, times the larger of the extreme Ritz values in magnitude; `rtol` defaults to `√ε`, `maxiter` to `150` steps, at
 most `min(size(g))`), and otherwise falls back to the full decomposition, or throws an
 `ErrorException` when `fallback = false`. The rank-`k` Fantope has no Krylov method: a
 single-vector method does not find all of a repeated eigenvalue's eigenspace.
 
 **What is certified.** The Krylov result is *residual-checked, not certified*: the small residual
 of one Ritz pair does not show that no larger singular value or smaller eigenvalue was missed.
-The value `dot(g, atom)` of the atom is computed exactly from the atom and is an upper bound on
+The value `dot(g, atom)` of the atom is evaluated directly from the atom, up to rounding, and is an upper bound on
 `minₛ ⟨g, s⟩`, and `-dot(g, atom)` is a lower bound on the support function of `C` at `-g`
-(`r σ₁(g)` for the nuclear-norm ball). A Frank–Wolfe gap `⟨∇f(x), x - s⟩` formed with an
+(`r σ₁(g)` for the nuclear-norm ball). The starting vector is fixed, so a miss is reproducible: a gradient whose leading direction is orthogonal to it
+(a structured or block-diagonal gradient, for one) is missed with a small residual, and the atom is then suboptimal. A Frank–Wolfe gap `⟨∇f(x), x - s⟩` formed with an
 approximate atom is therefore a lower bound on the gap of the exact oracle, and *not* an upper
 bound on `f(x) - f*`. Only the default path gives the oracle's answer up to the rounding of the
 decomposition.
@@ -231,7 +232,7 @@ function _max_abs(g, ::Type{T}) where {T}
   mx
 end
 
-# the power of two 2^e with which g is scaled to entries of magnitude at most 2
+# the power of two 2^e with which g is scaled, to entries of magnitude in [0.5, 1)
 _scale_exponent(mx::AbstractFloat) = exponent(mx) + 1
 
 mutable struct _Seed
@@ -345,19 +346,21 @@ function _gkl_top(G, ::Type{T}, e::Int, rtol::T, maxiter::Int) where {T}
     j < K && (V[:, j + 1] = q ./ bj)
   end
   if iszero(α[steps]) && steps >= 1
-    # an invariant subspace of dimension steps - 1: the triplet is exact in it
-    j = steps - 1
-    if j >= 1
-      B = zeros(T, j, j)
-      for i in 1:j
-        B[i, i] = α[i]
-        i < j && (B[i, i + 1] = β[i])
+    # G v_j is in the span of u₁…u_{j-1}, so (V_j, U_{j-1}) is an invariant pair: G V_j = U_{j-1} M and
+    # Gᵀ U_{j-1} = V_j Mᵀ with the (j-1) × j matrix M = [B_{j-1}  β_{j-1} e_{j-1}], whose singular
+    # triplets are then exact triplets of G (not those of B_{j-1}, unless β_{j-1} = 0)
+    j = steps
+    if j >= 2
+      M = zeros(T, j - 1, j)
+      for i in 1:j - 1
+        M[i, i] = α[i]
+        M[i, i + 1] = β[i]
       end
-      F = svd!(B)
+      F = svd!(M)
       σ, y, z, res, ok = F.S[1], F.U[:, 1], F.Vt[1, :], zero(T), true
       steps = j
     else
-      # G v₁ = 0: the starting vector is in the null space, which is all of it for G = 0
+      # G v₁ = 0: the starting vector is in the null space; the full decomposition decides
       return zero(T), T[], T[], zero(T), 1, false
     end
   end
@@ -443,7 +446,7 @@ function _symmetric_part!(A::Matrix{T}, g::AbstractMatrix, e::Int, negate::Bool)
   sg = negate ? -one(T) : one(T)
   @inbounds for j in 1:n
     for i in 1:j
-      A[i, j] = sg * ldexp((convert(T, g[i, j]) + convert(T, g[j, i])) / 2, -e)
+      A[i, j] = sg * (ldexp(convert(T, g[i, j]), -e - 1) + ldexp(convert(T, g[j, i]), -e - 1))   # scale, then add: no overflow
     end
   end
   A

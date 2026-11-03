@@ -473,4 +473,29 @@ end
   @test Conjugate(C)(A) ≈ sum(abs, A)
 end
 
+
+@testset "regressions of the review: breakdown of the bidiagonalization, scaling of the symmetric part" begin
+  C = SingularValue(IndBallL1(1.0))
+  # a gradient with one nonzero row (or column): α₂ = 0, an invariant pair that is not B₁'s
+  for g in (let g = zeros(5, 6); g[1, :] = randn(6); g end, let g = zeros(5, 6); g[3, :] = randn(6); g end,
+            let g = zeros(5, 6); g[:, 2] = randn(5); g end)
+    for G in (g, sparse(g))
+      @test dot(G, lmo_atom(C, G; method = :krylov, fallback = false)) ≈ -opnorm_ref(G) rtol = 1e-12
+    end
+  end
+  # near overflow and in the subnormal range the symmetric part is scaled before the sum
+  D = Spectral(IndSimplex(1.0))
+  h = [1.7e308 1.7e308; 1.7e308 1.7e308]
+  @test Array(lmo_atom(D, h)) ≈ [0.5 -0.5; -0.5 0.5]
+  h = [1e308 1e308; 1e308 -1e308]
+  @test dot(h ./ 1e308, lmo_atom(D, h)) ≈ -sqrt(2)
+  h = zeros(2, 2); h[1, 2] = 5e-324
+  @test Array(lmo_atom(D, h)) ≈ [0.5 -0.5; -0.5 0.5]
+  # the dense and the sparse inputs of the exact path agree
+  Gs = sprandn(30, 20, 0.2)
+  @test Array(lmo_atom(C, Gs)) == Array(lmo_atom(C, Matrix(Gs)))
+  As = sprandn(25, 25, 0.2); As = As + As'
+  @test Array(lmo_atom(D, As)) == Array(lmo_atom(D, Matrix(As)))
+end
+
 end

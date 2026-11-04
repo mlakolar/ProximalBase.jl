@@ -209,19 +209,19 @@ end
 
 prox!(y, s::Scaled, x, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
-_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) = (_checkparams(s, x); _prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)))
+_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
+  (_checkparams(s, x); _chained(s) ? _prox_chain!(y, s, x, γ) : _prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)))
 value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
-  (_checkparams(s, x); _value_at(s.α * _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)), y))
-# a nested chain scales each step by the product of all its factors, exponent last
-function _prox_unchecked!(y, s::Scaled{<:Scaled}, x, γ::AbstractArray)
-  _checkparams(s, x)
+  (_checkparams(s, x); _chained(s) ? _value_and_prox_chain!(y, s, x, γ) :
+   _value_at(s.α * _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)), y))
+# a chain scales each step by the product of all its factors, exponent last
+function _prox_chain!(y, s, x, γ::AbstractArray)
   f, a = _scaled_chain(s)
   _prox_unchecked!(y, f, x, _ExpScaledArray(γ, a))
 end
-function _value_and_prox_unchecked!(y, s::Scaled{<:Scaled}, x, γ::AbstractArray)
-  _checkparams(s, x)
+function _value_and_prox_chain!(y, s, x, γ::AbstractArray)
   f, a = _scaled_chain(s)
   _value_at(_apply_scale(a, _value_and_prox_unchecked!(y, f, x, _ExpScaledArray(γ, a))), y)
 end
@@ -654,13 +654,13 @@ Base.@propagate_inbounds function coordinate_lipschitz(f::BernoulliLoss, k::Inte
   iszero(w) ? zero(w) : oftype(w, Inf)
 end
 
-coordinate_lipschitz(s::Scaled, k::Integer) = s.α * coordinate_lipschitz(s.f, k)
-coordinate_lipschitz(s::Scaled{<:Scaled}, k::Integer) = ((f, a) = _scaled_chain(s); _apply_scale(a, coordinate_lipschitz(f, k)))
+coordinate_lipschitz(s::Scaled, k::Integer) = _chained(s) ?
+  _apply_scale(_scaled_chain(s)[2], coordinate_lipschitz(_scaled_chain(s)[1], k)) : s.α * coordinate_lipschitz(s.f, k)
 coordinate_lipschitz!(L::AbstractArray, s::Scaled) =
   (_check_lipschitz_arrays(s, L); _coordinate_lipschitz_unchecked!(L, s))
-_coordinate_lipschitz_unchecked!(L::AbstractArray, s::Scaled) = (_coordinate_lipschitz_unchecked!(L, s.f); L .*= s.α)
-_coordinate_lipschitz_unchecked!(L::AbstractArray, s::Scaled{<:Scaled}) =
-  ((f, a) = _scaled_chain(s); _coordinate_lipschitz_unchecked!(L, f); _scale!(L, a))
+_coordinate_lipschitz_unchecked!(L::AbstractArray, s::Scaled) = _chained(s) ?
+  (_coordinate_lipschitz_unchecked!(L, _scaled_chain(s)[1]); _scale!(L, _scaled_chain(s)[2])) :
+  (_coordinate_lipschitz_unchecked!(L, s.f); L .*= s.α)
 coordinate_lipschitz(t::Union{Tilt, Translate}, k::Integer) = coordinate_lipschitz(t.f, k)
 coordinate_lipschitz!(L::AbstractArray, t::Union{Tilt, Translate}) =
   (_check_lipschitz_arrays(t, L); _coordinate_lipschitz_unchecked!(L, t))

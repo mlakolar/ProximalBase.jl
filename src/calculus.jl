@@ -40,6 +40,13 @@ _projection_product(a::_ProjectionScale, b, w) = _scaled_product(a.m, b, w, a.e)
 # f scaled by an accumulated factor, as nested wrappers when the factor is not a normal number:
 # pieces of at most half the exponent range, so that each is stored exactly
 _projection_scaled(f, α::Real) = Scaled(f, α)
+# Two wrappers hold any factor within twice that range, and have a type that inference follows;
+# the general case is the loop below.
+_projection_two_pieces(α::_ProjectionScale{T}) where {T} = abs(α.e) <= 2 * (exponent(floatmax(T)) ÷ 2)
+function _projection_scaled2(f, α::_ProjectionScale{T}) where {T}
+  h = α.e ÷ 2
+  Scaled(Scaled(f, ldexp(one(T), h)), ldexp(α.m, α.e - h))
+end
 function _projection_scaled(f, α::_ProjectionScale{T}) where {T}
   step = exponent(floatmax(T)) ÷ 2
   g, e = f, α.e
@@ -204,9 +211,18 @@ end
 # The function under a chain of nested scales, and the product of the chain: an ordinary
 # number, or a `_ProjectionScale` that keeps the factors' combined exponent when the product
 # is not a normal number. Only nested wrappers, which exist for such products, take this path.
+# The product is always a `_ProjectionScale` here, so that its type does not depend on the values.
+@inline _scale_start(a::Real) = ((m, e) = frexp(float(a)); _ProjectionScale(m, Int(e)))
 @inline _scaled_chain(f, a) = (f, a)
 @inline _scaled_chain(f::Scaled, a) = _scaled_chain(f.f, _projection_accumulate(a, f.α))
-@inline _scaled_chain(s::Scaled) = _scaled_chain(s.f, s.α)
+@inline _scaled_chain(s::Scaled) = _scaled_chain(s.f, _scale_start(s.α))
+# Nested wrappers also arise with ordinary products (a block of a conjugate keeps its own scale in
+# a wrapper of its own), and those keep their recursive oracles. Only a chain whose product is
+# not a normal number takes the methods that combine the factors.
+@inline _chained(::Scaled) = false
+@inline _chained(s::Scaled{<:Scaled}) = _chain_exceptional(s.f, s.α)
+@inline _chain_exceptional(f, a) = false
+@inline _chain_exceptional(f::Scaled, a) = _nested_scales(a, f.α) || _chain_exceptional(f.f, a * f.α)
 
 # a⋅v with the factor's exponent applied last, so that a product that is representable is
 # not lost to an intermediate; an ordinary factor is the plain product
@@ -284,9 +300,9 @@ end
 @inline _scaled_value(s, x, v, recover_inner_small = true) = _scaled_value_by(s.f, s.α, x, v, recover_inner_small)
 (s::Scaled)(x) =
   (_check_value_arrays(s, x); _value_checked(s, x))
-_value_unchecked(s::Scaled, x) = _value_at(_scaled_value(s, x, _value_unchecked(s.f, x)), x)
-# a nested chain is evaluated at the function inside it with the product of all its factors
-function _value_unchecked(s::Scaled{<:Scaled}, x)
+_value_unchecked(s::Scaled, x) = _chained(s) ? _value_chain(s, x) : _value_at(_scaled_value(s, x, _value_unchecked(s.f, x)), x)
+# a chain is evaluated at the function inside it with the product of all its factors
+function _value_chain(s, x)
   f, a = _scaled_chain(s)
   _value_at(_scaled_value_by(f, a, x, _value_unchecked(f, x)), x)
 end
@@ -296,8 +312,9 @@ _scale!(g::AbstractArray, α::_ProjectionScale) = (g .= _apply_scale.(α, g))
 @generated _scale!(g::Tuple, α) = _blockwise(k -> :(_scale!(g[$k], α)), fieldcount(g), :g)
 value_and_gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
-_value_and_gradient_unchecked!(g, s::Scaled, x) = (_checkwrite(value_and_gradient!, s, g, x); v = _value_and_gradient_unchecked!(g, s.f, x); _scale!(g, s.α); _value_at(_scaled_value(s, x, v), x))
-function _value_and_gradient_unchecked!(g, s::Scaled{<:Scaled}, x)
+_value_and_gradient_unchecked!(g, s::Scaled, x) = _chained(s) ? _value_and_gradient_chain!(g, s, x) :
+  (_checkwrite(value_and_gradient!, s, g, x); v = _value_and_gradient_unchecked!(g, s.f, x); _scale!(g, s.α); _value_at(_scaled_value(s, x, v), x))
+function _value_and_gradient_chain!(g, s, x)
   _checkwrite(value_and_gradient!, s, g, x)
   f, a = _scaled_chain(s)
   v = _value_and_gradient_unchecked!(g, f, x)
@@ -306,8 +323,9 @@ function _value_and_gradient_unchecked!(g, s::Scaled{<:Scaled}, x)
 end
 gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(gradient!, s, g, x); _gradient_unchecked!(g, s, x))
-_gradient_unchecked!(g, s::Scaled, x) = (_checkwrite(gradient!, s, g, x); _gradient_unchecked!(g, s.f, x); _scale!(g, s.α))
-function _gradient_unchecked!(g, s::Scaled{<:Scaled}, x)
+_gradient_unchecked!(g, s::Scaled, x) = _chained(s) ? _gradient_chain!(g, s, x) :
+  (_checkwrite(gradient!, s, g, x); _gradient_unchecked!(g, s.f, x); _scale!(g, s.α))
+function _gradient_chain!(g, s, x)
   _checkwrite(gradient!, s, g, x)
   f, a = _scaled_chain(s)
   _gradient_unchecked!(g, f, x)
@@ -343,25 +361,29 @@ function _nested_step(s::Scaled, γ::Real)
 end
 _nested_value(f, a, x, v) = a === nothing ? v : _scaled_value_by(f, a, x, v, false)
 
-_prox_unchecked!(y, s::Scaled, x, γ::Real) = (_checkwrite(prox!, s, y, x); _prox_unchecked!(y, s.f, x, _scaled_step(s, γ)))
-function _prox_unchecked!(y, s::Scaled{<:Scaled}, x, γ::Real)
+_prox_unchecked!(y, s::Scaled, x, γ::Real) = _chained(s) ? _prox_chain!(y, s, x, γ) :
+  (_checkwrite(prox!, s, y, x); _prox_unchecked!(y, s.f, x, _scaled_step(s, γ)))
+function _prox_chain!(y, s, x, γ)
   _checkwrite(prox!, s, y, x)
   g, step, _ = _nested_step(s, γ)
   _prox_unchecked!(y, g, x, step)
 end
 value_and_prox!(y, s::Scaled, x, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
-_value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ)); _value_at(_scaled_value(s, y, v, false), y))
-function _value_and_prox_unchecked!(y, s::Scaled{<:Scaled}, x, γ::Real)
+_value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = _chained(s) ? _value_and_prox_chain!(y, s, x, γ) :
+  (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ)); _value_at(_scaled_value(s, y, v, false), y))
+function _value_and_prox_chain!(y, s, x, γ)
   _checkwrite(value_and_prox!, s, y, x)
   g, step, a = _nested_step(s, γ)
   v = _value_and_prox_unchecked!(y, g, x, step)
   _value_at(_nested_value(g, a, y, v), y)
 end
-Base.@propagate_inbounds prox_entry(s::Scaled, v::Real, i::Integer, γ::Real) = prox_entry(s.f, v, i, s.α * γ)
-Base.@propagate_inbounds function prox_entry(s::Scaled{<:Scaled}, v::Real, i::Integer, γ::Real)
-  g, step, _ = _nested_step(s, γ)
-  prox_entry(g, v, i, step)
+Base.@propagate_inbounds function prox_entry(s::Scaled, v::Real, i::Integer, γ::Real)
+  if _chained(s)
+    g, step, _ = _nested_step(s, γ)
+    return prox_entry(g, v, i, step)
+  end
+  prox_entry(s.f, v, i, s.α * γ)
 end
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
 _checkwrite(op::O, s::Scaled, y, x) where {O} = (_checkreal(s, y); _checkreal(s, x); (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checkwrite(op, s.f, y, x))
@@ -370,21 +392,27 @@ _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 _counts_nonzeros(f::Scaled) = _counts_nonzeros(f.f)
 _scale_invariant(f::Scaled) = _scale_invariant(f.f)
 # a scaled group penalty updates a group of an AtomIterate with a scaled step
-prox_coordinate!(x::AtomIterate, s::Scaled, k::Integer, γ::Real) = prox_coordinate!(x, s.f, k, s.α * γ)
-@inline _check_coordinate(x::AtomIterate, s::Scaled, k) = _check_coordinate(x, s.f, k)
-@inline _block_step!(x::AtomIterate, s::Scaled, k, u, γ, ctx) = _block_step!(x, s.f, k, u, s.α * γ, ctx)
-function prox_coordinate!(x::AtomIterate, s::Scaled{<:Scaled}, k::Integer, γ::Real)
-  g, step, _ = _nested_step(s, γ)
-  prox_coordinate!(x, g, k, step)
+function prox_coordinate!(x::AtomIterate, s::Scaled, k::Integer, γ::Real)
+  if _chained(s)
+    g, step, _ = _nested_step(s, γ)
+    return prox_coordinate!(x, g, k, step)
+  end
+  prox_coordinate!(x, s.f, k, s.α * γ)
 end
-@inline function _block_step!(x::AtomIterate, s::Scaled{<:Scaled}, k, u, γ, ctx)
-  g, step, _ = _nested_step(s, γ)
-  _block_step!(x, g, k, u, step, ctx)
+@inline _check_coordinate(x::AtomIterate, s::Scaled, k) = _check_coordinate(x, s.f, k)
+@inline function _block_step!(x::AtomIterate, s::Scaled, k, u, γ, ctx)
+  if _chained(s)
+    g, step, _ = _nested_step(s, γ)
+    return _block_step!(x, g, k, u, step, ctx)
+  end
+  _block_step!(x, s.f, k, u, s.α * γ, ctx)
 end
 kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i))
+  (eltype(g) <: Real || _real_error(:kkt_violation); _chained(s) ? _nested_kkt((f, h) -> kkt_violation(f, h, i), s, g) :
+   iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i))
 for X in (:AbstractArray, :AtomIterate)
   @eval _kkt_violation(s::Scaled, g::AbstractArray, x::$X, k::Integer) =
+    _chained(s) ? _nested_kkt((f, h) -> _kkt_violation(f, h, x, k), s, g) :
     iszero(s.α) ? _kkt_violation(ZeroFunction(), g, x, k) : s.α * _kkt_violation(s.f, _ScaledArray(g, inv(s.α)), x, k)
 end
 # The violation of a nested chain: that of the function with the factors folded into its levels, or
@@ -395,12 +423,6 @@ function _nested_kkt(kkt, s::Scaled, g)
   issmooth(typeof(f)) && return kkt(f, g)
   h = _fold_level(f, a)
   h === nothing ? _apply_scale(a, kkt(f, _ExpScaledArray(g, _scale_inverse(a)))) : kkt(h, g)
-end
-kkt_violation(s::Scaled{<:Scaled}, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); _nested_kkt((f, h) -> kkt_violation(f, h, i), s, g))
-for X in (:AbstractArray, :AtomIterate)
-  @eval _kkt_violation(s::Scaled{<:Scaled}, g::AbstractArray, x::$X, k::Integer) =
-    _nested_kkt((f, h) -> _kkt_violation(f, h, x, k), s, g)
 end
 restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.α)
 _restrict_unchecked(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(_restrict_unchecked(s.f, S), s.α)
@@ -1069,16 +1091,13 @@ end
 # positive-scaling formula deliberately does not cover it.
 function _conjugate_value(f::Scaled, y::AbstractArray)
   _checkconjugate(f, y)
+  # a chain keeps the exponent of the product of its factors until the leaf's level is formed
+  _chained(f) && return _scaled_conjugate_value(f.f, y, f.α)
   T = float(eltype(y))
   α = convert(T, f.α)
   α * _conjugate_value(f.f, _ScaledArray(y, inv(α)))
 end
 function _conjugate_value(f::Scaled, y::Tuple)
-  _checkconjugate(f, y)
-  _scaled_conjugate_value(f.f, y, f.α)
-end
-# A nested chain keeps the exponent of the product of its factors until the leaf's level is formed.
-function _conjugate_value(f::Scaled{<:Scaled}, y::AbstractArray)
   _checkconjugate(f, y)
   _scaled_conjugate_value(f.f, y, f.α)
 end
@@ -1432,6 +1451,8 @@ end
 _checkconjugate(s::SeparableSum, y::Tuple) = (_checkreal(s, y); _checkparams(s, y); _checkconjugate_blocks(s.fs, y))
 @generated _checkconjugate_blocks(fs::Tuple, y::Tuple) = _blockwise(k -> :(_checkconjugate(fs[$k], y[$k])), min(fieldcount(fs), fieldcount(y)), true)
 _checkscaledconjugate(s::SeparableSum, y::Tuple, α) = (_checkparams(s, y); _checkscaled_blocks(s.fs, y, α))
+# the checks validate parameters only, so the rounded product of the factors serves
+_checkscaledconjugate(f::Scaled, y::Tuple, α) = _checkscaledconjugate(f.f, y, f.α * α)
 @generated _checkscaled_blocks(fs::Tuple, y::Tuple, α) =
   _blockwise(k -> :(_checkscaledconjugate_block(fs[$k], y[$k], α)), min(fieldcount(fs), fieldcount(y)), true)
 _conjugate_value(s::SeparableSum, y::Tuple) = (_checkconjugate(s, y); _sum_conjugate(s.fs, y))
@@ -1540,17 +1561,18 @@ _has_value(fb::FiberSum) = _has_value(fb.f) && (fb.diagonal === nothing || _has_
 #  Lipschitz constants of the gradients
 ####################################
 
-lipschitz(s::Scaled) = abs(s.α) * lipschitz(s.f)
-lipschitz(s::Scaled{<:Scaled}) = ((f, a) = _scaled_chain(s); _apply_scale(a, lipschitz(f)))
+lipschitz(s::Scaled) = _chained(s) ? _apply_scale(_scaled_chain(s)[2], lipschitz(_scaled_chain(s)[1])) : abs(s.α) * lipschitz(s.f)
 lipschitz(t::Tilt) = lipschitz(t.f)
 lipschitz(t::Translate) = lipschitz(t.f)
 lipschitz(s::Sum) = sum(lipschitz, s.fs)
 lipschitz(s::SeparableSum) = maximum(lipschitz, s.fs)
 
-_checkstep(op::O, s::Scaled, y, x, γ::Real) where {O} = _checkstep(op, s.f, y, x, _scaled_step(s, γ))
-function _checkstep(op::O, s::Scaled{<:Scaled}, y, x, γ::Real) where {O}
-  g, step, _ = _nested_step(s, γ)
-  _checkstep(op, g, y, x, step)
+function _checkstep(op::O, s::Scaled, y, x, γ::Real) where {O}
+  if _chained(s)
+    g, step, _ = _nested_step(s, γ)
+    return _checkstep(op, g, y, x, step)
+  end
+  _checkstep(op, s.f, y, x, _scaled_step(s, γ))
 end
 _checkstep(op::O, t::Union{Tilt, Translate}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
   _checkstep(op, t.f, y, _StepInput(y), γ)
@@ -1737,7 +1759,18 @@ _any_direct_projection(s::SeparableSum, x::Tuple) = _any_direct_projection_block
 _conjugate_projection!(z, f, x, γ, α = 1) = _conjugate_moreau!(z, f, x, γ, α)
 # Keep the original function concrete; merging it with Scaled boxes parameters.
 _conjugate_moreau!(z, f, x, γ, α) = isone(α) ?
-  _conjugate_moreau!(z, f, x, γ) : _conjugate_moreau!(z, _projection_scaled(f, α), x, γ)
+  _conjugate_moreau!(z, f, x, γ) : _conjugate_moreau_by!(z, f, x, γ, α)
+# The wrappers of an accumulated factor that is not a normal number have no fixed type: the
+# function barrier keeps the result of the call concrete.
+_conjugate_moreau_by!(z, f, x, γ, α::Real) = _conjugate_moreau!(z, Scaled(f, α), x, γ)
+function _conjugate_moreau_by!(z, f, x, γ, α::_ProjectionScale)
+  if _projection_two_pieces(α)
+    _conjugate_moreau!(z, _projection_scaled2(f, α), x, γ)
+  else
+    _conjugate_moreau!(z, _projection_scaled(f, α), x, γ)
+  end
+  z
+end
 function _conjugate_moreau!(z::AbstractArray, f, x::AbstractArray, γ)
   T = float(eltype(z))
   step = convert(T, γ)
@@ -1756,9 +1789,17 @@ end
 _conjugate_moreau!(z::Tuple, f, x::Tuple, γ) = _conjugate_moreau_block!(z, f, x, γ)
 # Keep a block's own scale inside the sum's scaled reciprocal step.
 @inline _conjugate_block_scaled(f, α) = @inline Scaled{typeof(f), typeof(α)}(f, α)
-_conjugate_block_scaled(f, α::_ProjectionScale) = _projection_scaled(f, α)
 _conjugate_moreau_block!(z, f, x, γ, α) = isone(α) ?
-  _conjugate_moreau_block!(z, f, x, γ) : _conjugate_moreau_block!(z, _conjugate_block_scaled(f, α), x, γ)
+  _conjugate_moreau_block!(z, f, x, γ) : _conjugate_moreau_block_by!(z, f, x, γ, α)
+_conjugate_moreau_block_by!(z, f, x, γ, α::Real) = _conjugate_moreau_block!(z, _conjugate_block_scaled(f, α), x, γ)
+function _conjugate_moreau_block_by!(z, f, x, γ, α::_ProjectionScale)
+  if _projection_two_pieces(α)
+    _conjugate_moreau_block!(z, _projection_scaled2(f, α), x, γ)
+  else
+    _conjugate_moreau_block!(z, _projection_scaled(f, α), x, γ)
+  end
+  z
+end
 # Tuple blocks narrow their arithmetic, but retain the original reciprocal step.
 function _conjugate_moreau_block!(z::Tuple, f, x::Tuple, γ)
   if _conjugate_isindicator(typeof(f))
@@ -1998,15 +2039,24 @@ function _conjugate_projection_value!(z, f, x, γ, α = 1)
 end
 # Separate scaled variants before computing a value, just as for the point.
 _conjugate_moreau_value!(z, f, x, γ, α, context) = isone(α) ?
-  _conjugate_moreau_value!(z, f, x, γ, context) :
-  _conjugate_moreau_value!(z, _projection_scaled(f, α), x, γ, context)
+  _conjugate_moreau_value!(z, f, x, γ, context) : _moreau_value_scaled!(z, f, x, γ, α, context)
 _conjugate_moreau_value!(z::Tuple, f, x::Tuple, γ, α, context::Val{true}) = isone(α) ?
-  _conjugate_moreau_value!(z, f, x, γ, context) :
-  _conjugate_moreau_value!(z, _conjugate_block_scaled(f, α), x, γ, context)
+  _conjugate_moreau_value!(z, f, x, γ, context) : _moreau_value_block!(z, f, x, γ, α, context)
+# as for the point, a factor that is not a normal number gives wrappers without a fixed type
+_moreau_value_scaled!(z, f, x, γ, α::Real, context) = _conjugate_moreau_value!(z, Scaled(f, α), x, γ, context)
+function _moreau_value_scaled!(z, f, x, γ, α::_ProjectionScale, context)::_valtype(z)
+  _projection_two_pieces(α) ? _conjugate_moreau_value!(z, _projection_scaled2(f, α), x, γ, context) :
+    _conjugate_moreau_value!(z, _projection_scaled(f, α), x, γ, context)
+end
+_moreau_value_block!(z, f, x, γ, α::Real, context) = _conjugate_moreau_value!(z, _conjugate_block_scaled(f, α), x, γ, context)
+function _moreau_value_block!(z, f, x, γ, α::_ProjectionScale, context)::_valtype(z)
+  _projection_two_pieces(α) ? _conjugate_moreau_value!(z, _projection_scaled2(f, α), x, γ, context) :
+    _conjugate_moreau_value!(z, _projection_scaled(f, α), x, γ, context)
+end
 # Known block values can keep the scale in the step without a temporary wrapper.
 function _conjugate_moreau_value!(z::AbstractArray, f, x::AbstractArray, γ, α, context::Val{true})
   isone(α) && return _conjugate_moreau_value!(z, f, x, γ, context)
-  α isa _ProjectionScale && return _conjugate_moreau_value!(z, _projection_scaled(f, α), x, γ, context)
+  α isa _ProjectionScale && return _moreau_value_scaled!(z, f, x, γ, α, context)
   a = _projection_real(α)
   if !iszero(a) && _has_conjugate_value(f)
     _divide!(z, x, γ)
@@ -2039,7 +2089,7 @@ end
   _blocksum(k -> :(_scaled_conjugate_value(fs[$k], y[$k], α)), min(fieldcount(fs), fieldcount(y)))
 # (αf)* is the conjugate of f with α folded into its levels, which keeps a factor that is not a
 # normal number in range. A function without levels to fold takes the rounded factor.
-function _scaled_conjugate_value(f, y::AbstractArray, α::_ProjectionScale)
+function _scaled_conjugate_value(f, y::AbstractArray, α::_ProjectionScale)::_valtype(y)
   g = _fold_level(f, α)
   g === nothing || return _conjugate_value(g, y)
   a = _projection_real(α)
@@ -2049,7 +2099,7 @@ end
 @noinline _nested_scale_error(f, a) = throw(ArgumentError(
   "the conjugate value of $(typeof(f)) under nested scales whose product $(iszero(a) ? "underflows" : "overflows") is not supported: $(typeof(f)) does not fold a scale into its level"))
 _scaled_conjugate_value(f, y::AbstractArray, α) = _scaled_conjugate_value_rounded(f, y, α)
-function _scaled_conjugate_value_rounded(f, y::AbstractArray, α)
+function _scaled_conjugate_value_rounded(f, y::AbstractArray, α)::_valtype(y)
   a = convert(float(eltype(y)), _projection_real(α))
   scaled = _ScaledArray(y, inv(a))
   _checkconjugate(f, scaled)

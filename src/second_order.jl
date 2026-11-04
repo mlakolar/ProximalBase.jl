@@ -309,9 +309,9 @@ hashessian(::Type{SeparableSum{F}}) where {F} = all(hashessian, fieldtypes(F))
 
 hessian_vec!(Hv, s::Scaled, x, v) =
   (_check_second_order_arrays(s, x, Hv, v); _hessian_vec_unchecked!(Hv, s, x, v))
-_hessian_vec_unchecked!(Hv, s::Scaled, x, v) = (_checkparams(s, x); _hessian_vec_unchecked!(Hv, s.f, x, v); _scale!(Hv, s.α))
-_hessian_vec_unchecked!(Hv, s::Scaled{<:Scaled}, x, v) =
-  (_checkparams(s, x); (f, a) = _scaled_chain(s); _hessian_vec_unchecked!(Hv, f, x, v); _scale!(Hv, a))
+_hessian_vec_unchecked!(Hv, s::Scaled, x, v) = _chained(s) ?
+  (_checkparams(s, x); _hessian_vec_unchecked!(Hv, _scaled_chain(s)[1], x, v); _scale!(Hv, _scaled_chain(s)[2])) :
+  (_checkparams(s, x); _hessian_vec_unchecked!(Hv, s.f, x, v); _scale!(Hv, s.α))
 hessian_vec!(Hv, t::Tilt, x, v) =
   (_check_second_order_arrays(t, x, Hv, v); _hessian_vec_unchecked!(Hv, t, x, v))
 _hessian_vec_unchecked!(Hv, t::Tilt, x, v) = (_checkparams(t, x); _hessian_vec_unchecked!(Hv, t.f, x, v))

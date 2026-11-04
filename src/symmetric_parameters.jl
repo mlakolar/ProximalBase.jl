@@ -261,10 +261,9 @@ end
   "the gradient g has no symmetric part: entry ($r, $c) is $a and entry ($c, $r) is $b"))
 
 _kkt_violation(s::Scaled, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) =
+  _chained(s) ? _nested_kkt((f, h) -> _kkt_violation(f, h, x, k), s, g) :
   iszero(s.α) ? _kkt_violation(ZeroFunction(), g, x, k) :
     s.α * _kkt_violation(s.f, _ScaledArray(g, inv(s.α)), x, k)
-_kkt_violation(s::Scaled{<:Scaled}, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) =
-  _nested_kkt((f, h) -> _kkt_violation(f, h, x, k), s, g)
 _kkt_violation(r::Regularize, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) =
   _kkt_violation(r.f, _ridge_shifted(g, r), x, k)
 
@@ -379,11 +378,12 @@ _value_checked(f::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::Symmetric
   _normal_value(f, x, Val(true))
 _value_checked(f::Tilt, x::SymmetricSparseIterate) =
   _value_at(_value_checked(f.f, x) + _checked_value_dot(f.c, x) + f.d, x)
-_value_checked(f::Scaled, x::Union{SymmetricSparseIterate, Tuple}) =
-  _value_at(_scaled_value(f, x, _value_checked(f.f, x)), x)
-function _value_checked(s::Scaled{<:Scaled}, x::Union{SymmetricSparseIterate, Tuple})
-  f, a = _scaled_chain(s)
-  _value_at(_scaled_value_by(f, a, x, _value_checked(f, x)), x)
+function _value_checked(s::Scaled, x::Union{SymmetricSparseIterate, Tuple})
+  if _chained(s)
+    f, a = _scaled_chain(s)
+    return _value_at(_scaled_value_by(f, a, x, _value_checked(f, x)), x)
+  end
+  _value_at(_scaled_value(s, x, _value_checked(s.f, x)), x)
 end
 _value_checked(f::Regularize, x::SymmetricSparseIterate) =
   (_checkparams(f, x); _value_at(_value_checked(f.f, x) + _ridge(f, x), x))

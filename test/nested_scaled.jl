@@ -232,6 +232,12 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
         prox!(z, Conjugate(sep), (T[3r], T[-3r]), one(T))
         @test z[1] ≈ T[r] rtol = 8eps(T)
         @test z[2] ≈ T[-r] rtol = 8eps(T)
+        # the value and the value at the proximal point, on blocks
+        @test Conjugate(sep)((T[r / 2], T[-r / 2])) === zero(T)
+        @test Conjugate(sep)((T[r * T(1.01)], T[0])) === T(Inf)
+        z = (zeros(T, 1), zeros(T, 1))
+        @test value_and_prox!(z, Conjugate(sep), (T[3r], T[-3r]), one(T)) === zero(T)
+        @test z[1] ≈ T[r] rtol = 8eps(T)
         # a function without a level to fold: the conjugate value is refused, not wrong
         @test_throws ArgumentError Conjugate(q)(T[1])
       end

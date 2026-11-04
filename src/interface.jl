@@ -273,6 +273,8 @@ end
 Base.size(x::_StepInput) = size(x.array)
 Base.axes(x::_StepInput) = axes(x.array)
 _step_values(x::AbstractArray) = true
+# A placeholder shows the storage of the array it stands for, never its values.
+_projection_host(x::_StepInput) = _projection_host(x.array)
 _step_values(x::_StepInput) = false
 _step_values(x::SubArray) = _step_values(parent(x))
 

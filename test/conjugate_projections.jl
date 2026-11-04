@@ -553,7 +553,7 @@ end
   # the stored γ, α and factor in BigFloat.
   # - A power of two γ has an exact reciprocal: the reference holds to rounding of the Float64 result.
   # - γ = 1f30 does not: the Moreau route forms inv(γ) in the type of the step (Float32 here), as it does
-  #   on the base of #566 for steps with no scaling at all, so the point is that of the Float32
+  #   on the base of #566 for steps with no scaling at all (#576), so the point is that of the Float32
   #   reciprocal and agrees with the stored-γ reference only to Float32 precision.
   for (α, γ, factor, rtol) in ((2f0^-100, 2f0^100, 2.0^200, 8eps(Float64)),
                                (1f-30, 1f30, 1e60, 2eps(Float32)))

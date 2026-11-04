@@ -194,9 +194,9 @@ Julia: 1.10.12; platform: x86_64-linux-gnu-Linux; bounds: 1
 | second_order | lla_weights! | Float32 argument/Float32 destination/Float64 level | cpu | MCP level 1+2^-28, a=2, x=2: slope max(level-1,0); A1/C1 pending budget 2 ULPs | T3 R2 A1 | none | passes |
 | second_order | lla_weights! | Float32 argument/Float64 destination/Float64 level | cpu | MCP level 1+2^-28, a=2, x=2: slope max(level-1,0); A1/C1 pending budget 2 ULPs | T3 R2 A1 | none | broken (G8) |
 | second_order | prox | Float64 | cpu | restricted quadratic z^2, unit step at 1; C1 pending budget 8 ULPs | S2 O5 A1 | Q1 | passes |
-| second_order | quadratic_model | Float64 | cpu | Poisson at eta=710 has unrepresentable effective coefficient exp(710), Poisson eta=710, weight=1/8; effective coefficient exp(710)/8, response 709; A1/C1 pending budget 16 ULPs | S2 O6, S2 R2 R3 A1 | P2, P3 | broken (G8) |
+| second_order | quadratic_model | Float64 | cpu | Poisson at eta=710 has unrepresentable effective coefficient exp(710), Poisson eta=710, weight=1/8; effective coefficient exp(710)/8, response 709; A1/C1 pending budget 16 ULPs | S2 O6, S2 R2 R3 A1 | P2, P3 | passes |
 | second_order | quadratic_model | Float64 argument/Float32 data | cpu | Poisson eta=1+2^-28 with unit data; A1/C1 pending budget 16 Float64 ULPs on model coefficient and response | T2 T3 A1 | none | broken (G8) |
-| second_order | quadratic_model! | Float64 | cpu | all fields of caller-owned q equal their deep copy after failed update, second observation overflows at beta=1; PrecisionError before model writes | O6, S2 O6 | P2m | broken (G8) |
+| second_order | quadratic_model! | Float64 | cpu | all fields of caller-owned q equal their deep copy after failed update, second observation overflows at beta=1; PrecisionError before model writes | O6, S2 O6 | P2m | passes |
 | second_order | value | Float64 | cpu | restrict ridge centered at (1,3) to {1}; removed constant is 9/2, support {1}, complement zero: r(z)=z^2, r'(z)=2z at z=2; A1/C1 pending budget 8 ULPs | O5, S2 O5 A1 | none | passes |
 | special_values | constructor | Float64 | cpu | Decision 47 rejects nonfinite linear coefficients in their own type., Open half-line has no domain-preserving projection. | E4 | none | passes; broken (G2) |
 | special_values | gradient | Float32 | cpu | NaN probability precedes a zero observation weight., Separable NaN gradient leaves the other coordinate defined., Supported derivative outside domain is NaN (decision 44)., Uncentered ridge has the negative-infinite gradient and proximal limit. | E2, E2 E6, E3, E6 | none | passes |
@@ -323,7 +323,7 @@ Julia: 1.10.12; platform: x86_64-linux-gnu-Linux; bounds: 1
 | G5 | 31 |
 | G6 | 42 |
 | G7 | 4 |
-| G8 | 13 |
+| G8 | 8 |
 | G9 | 26 |
 | G10 | 0 |
 | G11 | 9 |

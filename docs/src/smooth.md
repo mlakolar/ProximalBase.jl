@@ -248,6 +248,14 @@ curvature ``\ell''_i`` is floored at ``\sqrt{\varepsilon}``, so that the working
 responses stay finite where it vanishes (a Huber loss beyond ``\delta``); the
 gradient of ``q`` at the current point is still exact.
 
+The coefficients ``w_i\ell''_i`` are the effective ones, kept finite whenever they
+are representable: for a Poisson loss, ``w_i e^{\eta_i}`` is formed without the
+overflowing ``e^{\eta_i}`` and the working response is
+``z_i = \eta_i - 1 + y_i e^{-\eta_i}``, so weight ``1/8`` at ``\eta = 710`` gives
+the coefficient ``e^{710}/8`` and the response ``709``. A coefficient or response that
+cannot be represented raises a [`PrecisionError`](@ref), and
+[`quadratic_model!`](@ref) then leaves the model as it was.
+
 For [`LogDetLoss`](@ref)`(S, w)`, with ``W = X^{-1}``, the expansion of
 ``w(\operatorname{tr}(SZ) - \log\det Z)`` at ``X`` in the step ``\Delta = Z - X`` is,
 up to a constant,

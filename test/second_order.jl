@@ -147,6 +147,209 @@ end
   end
 end
 
+# The exact IRLS pair of one observation in BigFloat: the coefficient w max(exp(η), √eps)
+# and the working response η - (exp(η) - y)/max(exp(η), √eps), with the floor of the
+# working precision. It uses nothing of GLMLoss, whose own gradient is under recovery.
+function irls_reference(::Type{T}, η, w, y) where {T}
+  setprecision(BigFloat, 512) do
+    e = exp(big(η))
+    h = max(e, big(sqrt(eps(T))))
+    big(w) * h, big(η) - (e - big(y)) / h, big(w) * (e - big(y)), big(w) * h
+  end
+end
+
+# the unchanged ordinary computation of the model, as before the staged update
+function ordinary_model(f::GLMLoss{L, T}, β) where {L, T}
+  η = f.X * β
+  f.offset === nothing || (η .+= f.offset)
+  v, z = zeros(T, length(η)), zeros(T, length(η))
+  for i in eachindex(η)
+    w = f.weights === nothing ? one(T) : convert(T, f.weights[i])
+    iszero(w) && continue
+    d1 = convert(T, PB.deriv(f.loss, η[i], f.y[i]))
+    d2 = max(convert(T, PB.deriv2(f.loss, η[i], f.y[i])), sqrt(eps(T)))
+    v[i] = w * d2
+    z[i] = η[i] - d1 / d2
+  end
+  v, z
+end
+
+near(v, ref, k, T = typeof(v)) = abs(big(v) - ref) <= k * big(eps(abs(T(ref))))
+
+@testset "GLMLoss quadratic models at large Poisson predictors (#317)" begin
+  poisson(T, η, w, y) = PoissonLoss(T[y], ones(T, 1, 1); weights = T[w])
+
+  @testset "the pair, the gradient and the Hessian against exact references" begin
+    # (η, w, y), exceptional and ordinary; 710 with w = 1/8 has exp(710) > floatmax
+    for T in (Float64, Float32)
+      big_η = T === Float64 ? 710 : 89
+      cases = [(0, 1, 0), (0, 1, 3), (T === Float64 ? 700 : 88, 1, 0), (T === Float64 ? 700 : 88, 1, 2),
+               (big_η, 1 / 8, 0), (big_η, 1 / 8, 5), (big_η + 10, 2.0^-20, 0), (big_η, 2.0^-40, 3),
+               (-30, 1, 2), (T === Float64 ? -800 : -100, 1, 3 // 2)]
+      for (η, w, y) in cases
+        f = poisson(T, η, w, y)
+        q = quadratic_model(f, T[η])
+        v, z, g, H = irls_reference(T, T(η), T(w), T(y))
+        @test near(only(q.weights), v, 8, T)
+        @test only(q.y) ≈ z rtol = 20 * eps(T)
+        # the gradient of the model at the point is the gradient of f: w (exp(η) - y)
+        @test only(gradient(q, T[η])) ≈ g rtol = 1000 * eps(T)
+        # and its Hessian is the effective coefficient (X = 1)
+        @test near(only(hessian_vec(q, T[η], T[1])), H, 8, T)
+        @test isfinite(only(q.weights)) && isfinite(only(q.y))
+      end
+    end
+    # the working response of the issue
+    q = quadratic_model(poisson(Float64, 710, 1 / 8, 0), [710.0])
+    @test only(q.y) == 709
+    @test near(only(q.weights), exp(big(710)) / 8, 8)
+    # a deep recovery: w = 2^-1000 at η = 1400, exp(1400) ≈ 2^2019.7
+    q = quadratic_model(poisson(Float64, 1400, 2.0^-1000, 0), [1400.0])
+    @test near(only(q.weights), exp(big(1400)) * big(2)^-1000, 8)
+    @test only(q.y) == 1399
+  end
+
+  @testset "unrepresentable coefficients raise PrecisionError" begin
+    for (η, w) in ((710, 1.0), (710, 3.0), (800, 1.0), (700, 1e10), (1000, 1e-100), (1400, 2.0^-990))
+      f = poisson(Float64, η, w, 0)
+      @test_throws PrecisionError quadratic_model(f, [Float64(η)])
+      @test_throws ProximalBase.PrecisionError quadratic_model!(quadratic_model(f, [0.0]), f, [Float64(η)])
+    end
+    @test_throws PrecisionError quadratic_model(poisson(Float32, 89, 1, 0), Float32[89])
+    @test_throws PrecisionError quadratic_model(poisson(Float32, 100, 2.0^-10, 0), Float32[100])
+    e = try quadratic_model(poisson(Float64, 710, 1, 0), [710.0]); nothing catch e e end
+    @test e isa PrecisionError
+    @test occursin("observation 1", e.msg) && occursin("unchanged", e.msg)
+    # non-finite inputs propagate as before, they are not a range failure
+    @test quadratic_model(poisson(Float64, 0, 1, 0), [NaN]) isa GLMLoss
+    @test quadratic_model(poisson(Float64, 0, 1, 0), [Inf]) isa GLMLoss
+    # a coefficient that rounds to zero: the gradient w ℓ' would be lost
+    @test_throws PrecisionError quadratic_model(poisson(Float64, 0, 5e-324, 2), [-30.0])
+    @test_throws PrecisionError quadratic_model(LogisticLoss([1.0], ones(1, 1); weights = [5e-324]), [0.0])
+    # a subnormal coefficient is a coefficient
+    @test only(quadratic_model(poisson(Float64, 0, 5e-324, 2), [0.0]).weights) == 5e-324
+  end
+
+  @testset "the representability boundary" begin
+    for T in (Float64, Float32)
+      ηmax = T(log(big(floatmax(T))))
+      inside, outside = 0, 0
+      for η in (prevfloat(ηmax, 3), prevfloat(ηmax), ηmax, nextfloat(ηmax), nextfloat(ηmax, 3))
+        r = exp(big(η)) / floatmax(T)
+        abs(r - 1) < 64 * eps(T) && continue           # within the error of the computation
+        f = poisson(T, η, 1, 0)
+        if r < 1
+          inside += 1
+          q = quadratic_model(f, T[η])
+          @test near(only(q.weights), exp(big(η)), 8, T)
+        else
+          outside += 1
+          @test_throws PrecisionError quadratic_model(f, T[η])
+        end
+      end
+      @test inside >= 1 && outside >= 1
+      # weights scale the boundary
+      for k in (-3, 0, 3)
+        w = T(2)^k
+        η = T(ηmax + log(T(2)) * (-k) + T(0.5))        # w exp(η) ≈ √e floatmax
+        @test_throws PrecisionError quadratic_model(poisson(T, η, w, 0), T[η])
+        η = η - 1                                      # w exp(η) ≈ floatmax/√e
+        q = quadratic_model(poisson(T, η, w, 0), T[η])
+        @test near(only(q.weights), big(w) * exp(big(η)), 8, T)
+      end
+    end
+  end
+
+  @testset "zero weights" begin
+    f = PoissonLoss([0.0, 1.0], [1.0; 1.0;;]; weights = [0.0, 1.0])
+    q = quadratic_model(f, [710.0 - 700])             # η = 10: ordinary
+    @test q.weights[1] == 0 && q.y[1] == 0
+    # a zero-weight observation at an overflowing predictor takes no part
+    f = PoissonLoss([0.0, 1.0], [710.0 0.0; 0.0 1.0]; weights = [0.0, 1.0])
+    q = quadratic_model(f, [1.0, 0.0])
+    @test q.weights == [0.0, 1.0] && q.y == [0.0, -0.0 - (1.0 - 1.0) / 1.0]
+    q = quadratic_model(PoissonLoss([0.0], ones(1, 1); weights = [0.0]), [710.0])
+    @test q.weights == [0.0] && q.y == [0.0]
+  end
+
+  @testset "atomic updates" begin
+    allfields(a, b) = all(isequal(getfield(a, k), getfield(b, k)) for k in fieldnames(typeof(a)))
+    # failure at the last, the middle and the first of three observations
+    for (X, β0, β1, bad) in (([1.0 0.0; 0.5 0.5; 0.0 720.0], [0.0, 0.0], [1.0, 1.0], 3),
+                              ([1.0 0.0; 720.0 0.0; 0.0 1.0], [0.0, 0.0], [1.0, 0.5], 2),
+                              ([720.0 0.0; 1.0 0.0; 0.0 1.0], [0.0, 0.0], [1.0, 0.5], 1))
+      f = PoissonLoss([0.0, 1.0, 2.0], X; weights = [1.0, 0.5, 2.0], offset = [0.0, 0.1, 0.2])
+      q = quadratic_model(f, β0)
+      before = deepcopy(q)
+      y0, w0 = q.y, q.weights
+      e = try quadratic_model!(q, f, β1); nothing catch e e end
+      @test e isa PrecisionError
+      @test occursin("observation $bad", e.msg)
+      @test allfields(q, before)
+      @test q.y === y0 && q.weights === w0                      # the same arrays, the same contents
+      # a valid update afterwards is the model at that point
+      β2 = [0.4, 0.3]
+      @test quadratic_model!(q, f, β2) === q
+      q2 = quadratic_model(f, β2)
+      @test q.y == q2.y && q.weights == q2.weights
+      @test q.y === y0 && q.weights === w0
+      v, z = ordinary_model(f, β2)
+      @test q.y == z && q.weights == v
+    end
+    # the allocating call fails the same way
+    f = PoissonLoss([0.0, 0.0], reshape([1.0, 710.0], 2, 1))
+    @test_throws PrecisionError quadratic_model(f, [1.0])
+    # a failure after an earlier failure, then success, repeatedly
+    q = quadratic_model(f, [0.0])
+    for β in ([1.0], [0.0], [0.5], [1.0], [0.25])
+      before = deepcopy(q)
+      if β[1] == 1.0
+        @test_throws PrecisionError quadratic_model!(q, f, β)
+        @test allfields(q, before)
+      else
+        @test quadratic_model!(q, f, β) === q
+        @test q.weights == quadratic_model(f, β).weights
+      end
+    end
+  end
+
+  @testset "no change where nothing leaves the range" begin
+    Random.seed!(317)
+    n, p = 30, 4
+    X = randn(n, p)
+    β = randn(p) ./ 3
+    w = rand(n); w[3] = 0
+    o = randn(n) ./ 4
+    for T in (Float64, Float32)
+      X_, β_, w_, o_ = T.(X), T.(β), T.(w), T.(o)
+      for f in (LogisticLoss(T.(rand(0:1, n)), X_; weights = w_, offset = o_),
+                PoissonLoss(T.(rand(0:4, n)), X_; weights = w_, offset = o_),
+                PoissonLoss(T.(rand(0:4, n)), X_),
+                HuberLoss(T.(10 .* randn(n)), X_, T(0.1); weights = w_),
+                HuberLoss(T.(randn(n)), X_, T(0.5)))
+        q = quadratic_model(f, β_)
+        v, z = ordinary_model(f, β_)
+        @test q.weights == v && q.y == z                       # the same bits as the ordinary computation
+        @test quadratic_model!(q, f, 2 .* β_) === q
+        v, z = ordinary_model(f, 2 .* β_)
+        @test q.weights == v && q.y == z
+      end
+      # the model's gradient is exact where the Huber curvature is floored
+      fh = HuberLoss(T.(10 .* randn(n)), X_, T(0.1))
+      @test gradient(quadratic_model(fh, β_), β_) ≈ gradient(fh, β_) rtol = 100 * eps(T)
+    end
+    # Poisson at moderate and large predictors, an ordinary X, offsets: the model's gradient
+    f = PoissonLoss(rand(0:4, n), X; weights = w, offset = o)
+    for s in (0.0, 1.0, 100.0)
+      b = s .* sign.(β) .+ β .* (s == 0 ? 1 : 0)
+      η = X * b .+ o
+      maximum(η) < 700 || continue
+      g = X' * (w .* (exp.(η) .- f.y))
+      @test gradient(quadratic_model(f, b), b) ≈ g rtol = 1e-9
+    end
+  end
+end
+
 @testset "LogDetLoss" begin
   p = 6
   B = randn(3p, p)

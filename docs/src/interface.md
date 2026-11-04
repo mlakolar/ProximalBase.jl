@@ -287,8 +287,9 @@ not yet implemented. In short:
 
 A result that cannot be certified or represented in the working precision
 raises [`PrecisionError`](@ref) under O6. This exception is distinct from
-`ArgumentError`, which signals invalid input. The type exists, but no function
-in this release raises it.
+`ArgumentError`, which signals invalid input. Only `quadratic_model` and
+`quadratic_model!` of a [`GLMLoss`](@ref) raise it in this release, when an
+effective coefficient of the model is not representable.
 
 ### Overflow and underflow of values
 

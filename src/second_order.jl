@@ -75,7 +75,18 @@ be found after earlier sibling blocks were updated.
 
 For a `GLMLoss`, `ℓ''ᵢ` is floored at `√eps`, as in IRLS, so that the working
 responses stay finite where the curvature vanishes (a Huber loss beyond `δ`);
-the gradient of `q` at `x` is still `∇f(x)` exactly. For `LogDetLoss`, `q` is
+the gradient of `q` at `x` is still `∇f(x)` exactly. The coefficients `wᵢℓ''ᵢ`
+are the *effective* ones: a Poisson observation whose `exp(ηᵢ)` overflows still
+has a finite coefficient when `wᵢ exp(ηᵢ)` is representable (weight `1/8` at
+`η = 710` gives `exp(710)/8` and the working response `709`), and a coefficient
+or working response of a finite observation that is not representable in the
+working precision (or a nonzero weight whose coefficient rounds to zero) throws
+a [`PrecisionError`](@ref), which is never clamped. `quadratic_model!` computes
+the whole model before it writes, so after a `PrecisionError` every field of `q`
+is as it was and `q` can be updated again. Non-finite data propagate as
+`NaN`/`Inf` without an error. The all-or-nothing update holds for one `GLMLoss`:
+the models of a [`Sum`](@ref) or [`SeparableSum`](@ref) of such losses are
+updated one part after another. For `LogDetLoss`, `q` is
 written in the new point `z` rather than in the step `z - x`: minimizing
 `q(z) + λ‖z‖₁` over symmetric `z` is the Newton step of the QUIC algorithm for
 the graphical lasso (Hsieh, Sustik, Dhillon and Ravikumar, 2014), and
@@ -213,16 +224,24 @@ function quadratic_model(f::GLMLoss{L, T}, β::AbstractVector) where {L, T}
   _quadratic_model_unchecked!(GLMLoss(Squared(), zeros(T, n), f.X; weights = zeros(T, n), offset = f.offset), f, β)
 end
 
-# the IRLS model: weights wᵢℓ''ᵢ and working responses ηᵢ - ℓ'ᵢ/ℓ''ᵢ, with ℓ''
-# floored so that the responses stay finite; the model's gradient at β is
-# X'(wᵢℓ'ᵢ), the gradient of f, whatever the floor
+# The IRLS model: weights vᵢ = wᵢℓ''ᵢ and working responses zᵢ = ηᵢ - ℓ'ᵢ/ℓ''ᵢ, with ℓ''
+# floored so that the responses stay finite; the model's gradient at β is X'(wᵢℓ'ᵢ), the
+# gradient of f, whatever the floor.
+#
+# The pair (vᵢ, zᵢ) of every observation is staged in the buffers of f, zᵢ over ηᵢ
+# (read first) and vᵢ in d, and validated; q is written only once all of them are valid,
+# so that a failure at one observation leaves every field of q as it was (O6). The
+# buffers hold no result of f: gradient! and hessian_vec! overwrite them.
 function quadratic_model!(q::GLMLoss{Squared, T, Vector{T}, <:Any, Vector{T}}, f::GLMLoss{L, T},
                           β::AbstractVector) where {L, T}
   _checkreal(f, β)
   q.X === f.X && q.offset === f.offset ||
     throw(ArgumentError("the model must come from quadratic_model of the same loss"))
+  n = length(f.y)
+  length(q.y) == n && length(q.weights) == n ||
+    throw(DimensionMismatch("the model has $(length(q.y)) observations and the loss $n"))
   η = _linear_predictor!(f, β)
-  z, v = q.y, q.weights
+  z, v = η, f.d
   floor = sqrt(eps(T))
   @inbounds for i in eachindex(η)
     w = convert(T, _entry(f.weights, i))
@@ -230,13 +249,63 @@ function quadratic_model!(q::GLMLoss{Squared, T, Vector{T}, <:Any, Vector{T}}, f
       v[i] = z[i] = zero(T)
       continue
     end
-    d1 = convert(T, deriv(f.loss, η[i], f.y[i]))
-    d2 = max(convert(T, deriv2(f.loss, η[i], f.y[i])), floor)
-    v[i] = w * d2
-    z[i] = η[i] - d1 / d2
+    ηi, yi = η[i], f.y[i]
+    vi, zi = _irls_pair(f.loss, w, ηi, yi, floor)
+    # a finite observation must give finite, nonzero coefficients: an infinite or
+    # vanishing weight, or a non-finite response, is not the IRLS model of f;
+    # non-finite data propagate as before
+    (isfinite(vi) & isfinite(zi) & !iszero(vi)) || !(isfinite(ηi) & isfinite(yi)) ||
+      _irls_unrepresentable(i, ηi, w, vi, zi)
+    v[i], z[i] = vi, zi
+  end
+  qw, qy = q.weights, q.y
+  @inbounds @simd for i in eachindex(v)
+    qw[i] = v[i]
+    qy[i] = z[i]
   end
   q
 end
+
+@noinline _irls_unrepresentable(i, η::T, w, v, z) where {T} =
+  throw(PrecisionError("the quadratic model of a GLMLoss has no representable IRLS coefficient and " *
+    "working response in $T at observation $i (linear predictor $η, weight $w, " *
+    "coefficient $v, working response $z); the model is unchanged"))
+
+# (wℓ'', η - ℓ'/ℓ'') with ℓ'' floored at `floor`
+@inline function _irls_pair(ℓ::ScalarLoss, w::T, η::T, y, floor::T) where {T}
+  d1 = convert(T, deriv(ℓ, η, y))
+  d2 = max(convert(T, deriv2(ℓ, η, y)), floor)
+  w * d2, η - d1 / d2
+end
+
+# Poisson: ℓ' = exp(η) - y, ℓ'' = exp(η), one exponential for both. Where exp(η) overflows
+# at a finite η, the coefficient w exp(η) = w m 2^j is formed with the power of two held
+# outside the range until the final rounding, so that it is returned whenever it is
+# representable (Inf otherwise, which the caller rejects), and the response is
+# η - 1 + y exp(-η), the limit of η - (exp(η) - y)/exp(η) without the Inf/Inf.
+@inline function _irls_pair(::Poisson, w::T, η::T, y, floor::T) where {T}
+  e = exp(η)
+  if isfinite(e) || !isfinite(η)
+    d2 = max(e, floor)
+    return w * d2, η - convert(T, e - y) / d2
+  end
+  m, j = _exp_pow2(η)
+  _scaled_product(w, m, j), (η - one(T)) + convert(T, y * exp(-η))
+end
+
+# exp(x) = m 2^j for a finite x, with j = round(x/log 2) and x - j log 2 in two parts, the
+# high one with trailing zeros so that j⋅hi is exact (fdlibm); m ≈ exp of a number in
+# [-log(2)/2, log(2)/2], to about one ulp, which exp(x + log w) would not give. The same
+# arithmetic as the exponent-recovery helper of the GLM value oracles (#358, part B);
+# one of them should replace the other where the two meet.
+@inline _exp_ln2_parts(::Type{Float64}) = (6.93147180369123816490e-01, 1.90821492927058770002e-10)
+@inline _exp_ln2_parts(::Type{Float32}) = (6.9314575195f-01, 1.4286067653f-06)
+@inline function _exp_pow2(x::T) where {T<:Union{Float32, Float64}}
+  hi, lo = _exp_ln2_parts(T)
+  j = round(x * T(1.4426950408889634))
+  exp((x - j * hi) - j * lo), unsafe_trunc(Int, j)
+end
+@inline _exp_pow2(x::AbstractFloat) = frexp(exp(x))
 
 ####################################
 #  the Gaussian log-likelihood

@@ -1213,7 +1213,8 @@ end
 
 A result cannot be certified or represented in the working precision (O6,
 case 3). Such a failure is distinct from invalid input and is not an
-`ArgumentError`. No function in this release raises `PrecisionError`.
+`ArgumentError`. In this release only [`quadratic_model`](@ref) and
+[`quadratic_model!`](@ref) of a [`GLMLoss`](@ref) raise it.
 """
 struct PrecisionError <: Exception
   msg::String

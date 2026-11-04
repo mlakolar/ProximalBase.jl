@@ -629,7 +629,7 @@ struct _L2Value{T}
 end
 # A NaN norm gives NaN unless the group is fixed at zero (an infinite threshold); the value is then
 # read again from the stored group, as for an overflowing value.
-(l::_L2Value{T})(n, w) where {T} = iszero(w) ? zero(T) :
+(l::_L2Value{T})(n, w) where {T} = (iszero(w) || (iszero(l.λ) && !isinf(w))) ? zero(T) :
   (c = _group_threshold(l.step, l.λ, w); n > c ? _Weighted(l.λ)(n - c, w) : isnan(n) && c < T(Inf) ? T(NaN) : zero(T))
 
 # Scale each group before squaring. A direct sum of squares can overflow or
@@ -656,6 +656,9 @@ end
 function (l::_L2Factor{T})(n, w, m, s) where {T}
   isfinite(n) && return l(n, w)
   iszero(w) && return one(T)
+  # a zero group level with a finite weight is the identity (E4), before any NaN is classified;
+  # an infinite weight keeps its hard fix
+  iszero(l.λ) && !isinf(w) && return one(T)
   c = _group_threshold(l.step, l.λ, w)
   # m is NaN exactly when an entry is NaN (the max propagates it), while an infinite entry only makes
   # n NaN. A NaN entry (E2): an infinite c fixes the group at zero, γ = 0 is the identity, and
@@ -795,7 +798,8 @@ function _group_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real, ::Val{V}) where
   zero_group = iszero(f.λ0) && !_has_infinite_group_weight(lay)
   zero_group && iszero(f.λ1) && return zero(S)
   yv = vec(y)
-  c1 = _level_preserved(S, γ) && _level_preserved(S, f.λ1) ? convert(S, γ * f.λ1) : _level_product_device(S, γ, f.λ1)
+  # a zero ℓ1 level gives a zero threshold at every step, including γ = Inf: γ·0 is never formed (E4, D1)
+  c1 = iszero(f.λ1) ? zero(S) : _level_preserved(S, γ) && _level_preserved(S, f.λ1) ? convert(S, γ * f.λ1) : _level_product_device(S, γ, f.λ1)
   if zero_group
     yl = view(yv, 1:length(lay.gid))
     yl .= _SparseScale(c1, length(lay.pos)).(yl, one(S), lay.gid)

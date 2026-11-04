@@ -95,9 +95,20 @@ end
     end
     @testset "steps per group, endpoints, $T" begin
       check(g, x, T[1, 1], [nan, nan, shrunk...], nan)
-      # a zero step in a vector is the identity on finite data (a NaN group at such a step: see the PR, #311)
+      # a zero step in a vector is the identity for its group, NaN only in its own entry (#559, validation 3.4)
       check(g, T[3, 4, 3, 4], T[0, 1], [T(3), T(4), shrunk...], T(5) + T(4))
+      check(g, x, T[0, 1], [nan, T(4), shrunk...], nan)
       check(g, x, T[1, 0], [nan, nan, T(3), T(4)], nan)
+      check(g, T[3, 4, NaN, 4], T[1, 0], [shrunk..., nan, T(4)], nan)
+      check(g, x, T[0, 0], x, nan)
+      # a positive step whose γλw only underflowed is not the identity: the NaN block (strict E2)
+      tiny = sqrt(floatmin(T)) * eps(T)
+      gt = GroupNormL2(tiny, [1:2, 3:4], T[1, 1])
+      @test iszero(tiny * tiny)
+      check(gt, x, T[tiny, tiny], [nan, nan, T(3), T(4)], nan)
+      check(gt, x, T[tiny, 0], [nan, nan, T(3), T(4)], nan)
+      check(gt, x, T[0, tiny], [nan, T(4), T(3), T(4)], nan)
+      check(gt, x, tiny, [nan, nan, T(3), T(4)], nan)
       check(g, x, T(0), x, nan)
       check(g, x, T(Inf), zeros(T, 4), zero(T))
       check(g, T[3, 4, 3, 4], T(Inf), zeros(T, 4), zero(T))
@@ -140,6 +151,17 @@ end
             norm(other) + T(0.1) * sum(other))     # the fixed group is no part of the NaN
       check(s, x, T(0), x, nan)
       check(s, x, T(Inf), zeros(T, 4), zero(T))
+      # a zero step in a vector is the identity for its group (each entry as it is), NaN only in its own
+      check(s, x, T[0, 1], [nan, T(4), other...], nan)
+      check(s, x, T[1, 0], [nan, nan, T(3), T(4)], nan)
+      check(s, T[3, 4, NaN, 4], T[1, 0], [other..., nan, T(4)], nan)
+      check(s, x, T[0, 0], x, nan)
+      # a positive step whose group threshold only underflowed is the NaN block
+      tiny = sqrt(floatmin(T)) * eps(T)
+      st = SparseGroupNormL2(T(0.1), tiny, [1:2, 3:4], T[1, 1])
+      check(st, x, tiny, [nan, nan, T(3), T(4)], nan)
+      check(st, x, T[tiny, 0], [nan, nan, T(3), T(4)], nan)
+      check(st, x, T[0, tiny], [nan, T(4), T(3), T(4)], nan)
       # a zero level is the identity at every step, also at γ = Inf (E4 before the step)
       z = SparseGroupNormL2(T(0), T(0), [1:2, 3:4], T[1, 1])
       for γ in (T(0), T(1), T(Inf))
@@ -217,6 +239,29 @@ end
           @test isequal(Matrix(x), A)
         end
       end
+      # a group step per group: the identity at a zero step (NaN in its own entry), the NaN block when the
+      # product only underflowed
+      A2 = T[NaN 1 0.5; 1 2 1; 0.5 1 3]
+      tiny = sqrt(floatmin(T)) * eps(T)
+      for (f, γ, want) in ((GroupNormL2(T(1), [[1, 2, 4, 5]], T[1]), T[0], T[nan 1 0.5; 1 2 1; 0.5 1 3]),
+                           (GroupNormL2(T(1), [[1, 2, 4, 5]], T[1]), T[1], T[nan nan 0.5; nan nan 1; 0.5 1 3]),
+                           (GroupNormL2(tiny, [[1, 2, 4, 5]], T[1]), T[tiny], T[nan nan 0.5; nan nan 1; 0.5 1 3]),
+                           (SparseGroupNormL2(T(0.1), T(1), [[1, 2, 4, 5]], T[1]), T[0], T[nan 1 0.5; 1 2 1; 0.5 1 3]),
+                           (SparseGroupNormL2(T(0.1), tiny, [[1, 2, 4, 5]], T[1]), T[tiny], T[nan nan 0.5; nan nan 1; 0.5 1 3]))
+        for op in (prox!, value_and_prox!)
+          y = SymmetricSparseIterate(T, 3)
+          fill!(y, -1)
+          v = op(y, f, A2, γ)
+          @test agree(Matrix(y), want)
+          op === value_and_prox! && @test isnan(v)
+          x = SymmetricSparseIterate(A2)
+          op(x, f, x, γ)
+          @test agree(Matrix(x), want)
+          yd = fill(T(-7), 3, 3)
+          op(yd, f, copy(A2), γ)
+          @test agree(yd, want)
+        end
+      end
     end
     @testset "AtomIterate, $T" begin
       g = GroupNormL2(T(0.5), [1:2, 3:4])
@@ -234,7 +279,40 @@ end
       x = AtomIterate(T[NaN, 1, 2, 3], g)
       prox_coordinate!(x, g, 1, T(0))
       @test isnan(x.storage[1]) && x.storage[2] == 1
+      for γ in (T[0, 1], T[1, 0])                         # a zero step in a vector: the identity for its group
+        x = AtomIterate(T[NaN, 1, 2, 3], g)
+        y = copy(x)
+        v = value_and_prox!(y, g, x, γ)
+        @test isnan(v)
+        if γ[1] == 0
+          @test isnan(y.storage[1]) && y.storage[2] == 1 && all(isfinite, y.storage[3:4])
+        else
+          @test isnan(y.storage[1]) && isnan(y.storage[2]) && y.storage[3:4] == T[2, 3]
+        end
+        z = AtomIterate(T[NaN, 1, 2, 3], g)           # in place
+        value_and_prox!(z, g, z, γ)
+        @test isequal(z.storage, y.storage)
+      end
+      tiny = sqrt(floatmin(T)) * eps(T)
+      gt = GroupNormL2(tiny, [1:2, 3:4])
+      x = AtomIterate(T[NaN, 1, 2, 3], gt)
+      y = copy(x)
+      @test isnan(value_and_prox!(y, gt, x, tiny))        # underflowed, not zero: the NaN block
+      @test isnan(y.storage[1]) && isnan(y.storage[2])
+      x = AtomIterate(T[NaN, 1, 2, 3], gt)
+      prox_coordinate!(x, gt, 1, tiny)
+      @test isnan(x.storage[1]) && isnan(x.storage[2])
       s = SparseGroupNormL2(T(0.1), T(1), [1:2, 3:4])
+      for γ in (T[0, 1], T[1, 0])
+        x = AtomIterate(T[NaN, 1, 2, 3], s)
+        y = copy(x)
+        @test isnan(value_and_prox!(y, s, x, γ))
+        if γ[1] == 0
+          @test isnan(y.storage[1]) && y.storage[2] == 1 && all(isfinite, y.storage[3:4])
+        else
+          @test isnan(y.storage[1]) && isnan(y.storage[2]) && y.storage[3:4] == T[2, 3]
+        end
+      end
       x = AtomIterate(T[NaN, 1, 2, 3], s)
       y = copy(x)
       @test isnan(value_and_prox!(y, s, x, T(1)))
@@ -299,6 +377,49 @@ end
       y = dev(fill(T(-7), 4))
       value_and_prox!(y, winf, dev(T[NaN, 4, 3, 4]), T(1))
       @test host(y)[1:2] == zeros(T, 2) && all(isfinite, host(y)[3:4])
+    end
+    @testset "zero levels with mixed finite and infinite weights, device and host agree, $T" begin
+      G = [1:2, 3:4]
+      # a zero group level with a finite weight is the identity (NaN in its own entry), while the
+      # infinite weight keeps its hard fix; the value of the zero level is 0
+      for (f, x) in ((GroupNormL2(T(0), G, T[1, Inf]), T[NaN, 4, 0, 0]),
+                     (GroupNormL2(T(0), G, T[Inf, 1]), T[0, 0, NaN, 4]),
+                     (SparseGroupNormL2(T(0.1), T(0), G, T[1, Inf]), T[NaN, 4, 0, 0]),
+                     (SparseGroupNormL2(T(0.1), T(0), G, T[Inf, 1]), T[0, 0, NaN, 4]),
+                     (GroupNormL2(T(0), G, T[1, Inf]), T[3, 4, 0, 0]),
+                     (SparseGroupNormL2(T(0.1), T(0), G, T[1, Inf]), T[3, 4, 0, 0]))
+        for γ in (any(isnan, x) ? (T(1), T(0)) : (T(1), T(0), T(Inf)))
+          ref = zeros(T, 4)
+          refv = value_and_prox!(ref, f, copy(x), γ)
+          for op in (prox!, value_and_prox!)
+            y = dev(fill(T(-7), 4))
+            r = op(y, f, dev(x), γ)
+            @test agree(host(y), ref)
+            op === value_and_prox! && @test agree(r, refv)
+            z = dev(copy(x))
+            op(z, f, z, γ)
+            @test agree(host(z), ref)
+          end
+        end
+      end
+      @test agree(prox(GroupNormL2(T(0), G, T[1, Inf]), T[NaN, 4, 0, 0], T(1)), T[NaN, 4, 0, 0])
+      @test agree(prox(SparseGroupNormL2(T(0.1), T(0), G, T[1, Inf]), T[NaN, 4, 0, 0], T(1)), T[NaN, 3.9, 0, 0])
+      # a zero ℓ1 level gives a zero threshold at every step: γ·0 is never formed (D1)
+      f = SparseGroupNormL2(T(0), T(1), G, T[0, 1])
+      x = T[2, 4, 3, 4]
+      for γ in (T(1), T(Inf))
+        ref = prox(f, x, γ)
+        γ == T(Inf) && @test agree(ref, T[2, 4, 0, 0])
+        for op in (prox!, value_and_prox!)
+          y = dev(fill(T(-7), 4))
+          op(y, f, dev(x), γ)
+          @test agree(host(y), ref)
+          z = dev(copy(x))
+          op(z, f, z, γ)
+          @test agree(host(z), ref)
+        end
+      end
+      @test agree(host(prox(SparseGroupNormL2(T(0), T(0), G, T[1, 1]), dev(x), T(Inf))), x)
     end
   end
 end

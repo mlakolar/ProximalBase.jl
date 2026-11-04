@@ -562,6 +562,7 @@ end
   _group_value(f, λ, w, n, x, G, T)
 
 @noinline function _scaled_group_value(f, λ, w, x, G, ordinary_norm)
+  isnan(ordinary_norm) && return convert(float(eltype(x)), ordinary_norm)   # a NaN group: not read from x
   T = float(eltype(x))
   R = promote_type(T, float(typeof(λ)), float(typeof(w)))
   m = convert(R, _maxabs(x, G))
@@ -608,32 +609,59 @@ _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_
   else
     # A NaN norm (E2) fails both comparisons and takes this branch: every output of the group depends
     # on the NaN entry, so the group and its norm are NaN, unless an infinite c fixes the group at
-    # zero (E4). The step γ = 0 and a zero level are the identity: _identity_group! never calls this.
-    # The fill value is a scalar, so that the loop is the one it was.
+    # zero (E4). The fill value is a scalar, so that the loop is the one it was. With c = 0 the
+    # group is left as it is and its norm is NaN: it is the identity at the step γ = 0 and the NaN
+    # block when γλw only underflowed, which only the caller knows (_nan_steps!, after the loop).
     nanblock = isnan(nx) & (c < Inf)
     z = nanblock ? T(NaN) : zero(T)
-    @inbounds for i in _writes(W, G)
-      y[i] = z
+    if !(nanblock & iszero(c))
+      @inbounds for i in _writes(W, G)
+        y[i] = z
+      end
     end
     return nanblock ? nx : zero(nx)
   end
 end
 
-# A zero level with a finite weight is the identity, and so is the step γ = 0, a step that master
-# accepts for these maps (#311): E4 before the step, and NaN then stays in its own entry. Only the
-# rare weights of the general path need a test per group (O = false). A scalar step γ = 0 with
-# ordinary weights is decided once per call (_identity_step), outside the loops; an infinite weight
+# A zero level with a finite weight is the identity (E4): NaN then stays in its own entry. Only the
+# rare weights of the general path (O = false) have such a group in the loop; an infinite weight
 # fixes its group at zero instead.
-@inline _identity_group(f::Union{NormL2, GroupNormL2}, ::Val{O}, γk, k) where {O} =
-  !O && !isinf(f.w[k]) && (iszero(f.λ0) || iszero(γk))
-@inline _identity_group(::GroupNormLinf, ::Val, γk, k) = false
-@inline _identity_step(::GroupNormL2, γ::Real) = iszero(γ)
-@inline _identity_step(f, γ) = false
+@inline _identity_group(f::Union{NormL2, GroupNormL2}, ::Val{O}, k) where {O} =
+  !O && !isinf(f.w[k]) && iszero(f.λ0)
+@inline _identity_group(::GroupNormLinf, ::Val, k) = false
 @inline function _identity_group!(y, x, G, W)
   @inbounds for i in _writes(W, G)
     y[i] = x[i]
   end
   _group_norm2(x, G)
+end
+
+# After the loops, when the value is NaN: the groups the kernel left as they were because their
+# threshold is exactly 0 and their norm NaN. At the step γ = 0 (an accepted endpoint, #311) the map
+# is the identity, so such a group is copied (NaN stays in its own entries). A positive step whose
+# product γλw only underflowed to 0 still gives the NaN block. Returns the value at the stored output.
+# Not reached on finite data, and nothing to do for the ℓ∞ kernel, which does not leave a group.
+@inline _nan_steps!(::GroupNormLinf, y, X, ks, γ, ordinary, ::Type, v, yobj) = v
+function _nan_steps!(f::GroupNormL2, y, X, ks, γ, ::Val{O}, ::Type{W}, v, yobj) where {O, W}
+  changed = false
+  for k in ks
+    iszero(f.w[k]) && continue
+    _identity_group(f, Val(O), k) && continue
+    G = f.groups[k]
+    γk = _entry(γ, k)
+    c = O ? _positive_product(W, γk, f.λ0, f.w[k]) : _weight_product(W, γk, f.λ0, f.w[k])
+    iszero(c) || continue
+    isnan(_group_norm2(X, G)) || continue
+    _fill_group!(y, X, G, _group_writes(y, G), iszero(γk))
+    changed = true
+  end
+  changed ? f(yobj) : v
+end
+@inline function _fill_group!(y, X, G, W, docopy::Bool)
+  T = eltype(y)
+  @inbounds for i in _writes(W, G)
+    y[i] = docopy ? X[i] : T(NaN)
+  end
 end
 
 # y[G] ← prox_{c‖⋅‖∞}(x[G]), which may be in place: the entries clipped at τ;
@@ -732,19 +760,10 @@ end
 # the step γ is a scalar or a vector with a step per group (see metric.jl)
 function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::AbstractArray, γ::Union{Real, AbstractVector})
   if _ordinary_group_weights(f, _model_type(y, x))
-    _identity_step(f, γ) && return _identity_prox!(f, y, x)
     _homogeneous_group_prox!(y, f, x, γ, Val(true))
   else
     _homogeneous_group_prox!(y, f, x, γ, Val(false))
   end
-end
-
-# the identity map and its value at the stored output
-function _identity_prox!(f, y, x)
-  _checksize(y, x)
-  _checkgroups(f, x)
-  y === x || copyto!(y, x)
-  f(y)
 end
 
 function _homogeneous_group_prox!(y::AbstractArray, f::HomogeneousGroupNorm, x::AbstractArray, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
@@ -767,15 +786,15 @@ function _homogeneous_group_prox!(y::AbstractArray, f::HomogeneousGroupNorm, x::
       continue
     end
     γk = _entry(γ, k)
-    nrm = if _identity_group(f, ordinary, γk, k)
+    nrm = if _identity_group(f, ordinary, k)
       _identity_group!(y, x, f.groups[k], _group_writes(y, f.groups[k]))
     else
       _shrink_group!(f, y, x, f.groups[k], (O ? _positive_product(W, γk, f.λ0, f.w[k]) : _weight_product(W, γk, f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
     end
-    W === T || (nrm = _group_norm(f, y, f.groups[k]))   # O2: the value is that of the stored output
+    W === T || isnan(nrm) || (nrm = _group_norm(f, y, f.groups[k]))   # O2: the value is that of the stored output
     v += _group_value(f, f.λ0, f.w[k], nrm, y, f.groups[k], T, ordinary)
   end
-  v
+  isnan(v) ? _nan_steps!(f, y, x, eachindex(f.groups), γ, ordinary, W, v, y) : v
 end
 
 # a step per group (see metric.jl): one entry for every group
@@ -855,7 +874,6 @@ function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::Ato
   _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, HomogeneousGroupNorm, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
   if _ordinary_group_weights(f, float(eltype(y)), x.active, x.nactive)
-    _identity_step(f, γ) && return _identity_prox!(f, y, x)
     _homogeneous_group_prox!(y, f, x, γ, Val(true))
   else
     _homogeneous_group_prox!(y, f, x, γ, Val(false))
@@ -874,14 +892,10 @@ function _homogeneous_group_prox!(y::AtomIterate, f::HomogeneousGroupNorm, x::At
     k = y.active[a]
     (iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))) && continue
     γk = _entry(γ, k)
-    nrm = if _identity_group(f, ordinary, γk, k)
-      _identity_group!(y.storage, y.storage, f.groups[k], nothing)
-    else
-      _shrink_group!(f, y.storage, y.storage, f.groups[k], (O ? _positive_product(T, γk, f.λ0, f.w[k]) : _weight_product(T, γk, f.λ0, f.w[k])))
-    end
+    nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], (O ? _positive_product(T, γk, f.λ0, f.w[k]) : _weight_product(T, γk, f.λ0, f.w[k])))
     v += _group_value(f, f.λ0, f.w[k], nrm, y.storage, f.groups[k], T, ordinary)
   end
-  v
+  isnan(v) ? _nan_steps!(f, y.storage, y.storage, view(y.active, 1:y.nactive), γ, ordinary, T, v, y) : v
 end
 
 # Validate the layout and group before a wrapper changes any entries.
@@ -908,11 +922,9 @@ end
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
     return atom(x, k)
   end
-  nrm = if _identity_group(f, Val(false), γ, k)
-    _identity_group!(x.storage, x.storage, x.groups[k], nothing)
-  else
-    _shrink_group!(f, x.storage, x.storage, x.groups[k], (isinf(f.w[k]) ? _weight_product(T, γ, f.λ0, f.w[k]) : _positive_product(T, γ, f.λ0, f.w[k])))
-  end
+  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], (isinf(f.w[k]) ? _weight_product(T, γ, f.λ0, f.w[k]) : _positive_product(T, γ, f.λ0, f.w[k])))
+  # a NaN group the kernel left (threshold 0): as it is at the step γ = 0, the NaN block otherwise
+  isnan(nrm) && !iszero(γ) && f isa GroupNormL2 && _fill_group!(x.storage, x.storage, x.groups[k], nothing, false)
   iszero(nrm) || activate!(x, k)
   atom(x, k)
 end

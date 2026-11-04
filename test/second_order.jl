@@ -726,7 +726,7 @@ ProximalBase.hessian_vec!(Hv::AbstractArray, f::CountHess, x::AbstractArray, v::
     "UpperHessenberg" => () -> UpperHessenberg(fill(-7.0, 2, 2)),
     "Symmetric" => () -> Symmetric(fill(-7.0, 2, 2)),
     "Hermitian" => () -> Hermitian(fill(-7.0, 2, 2)))
-  snap(y::AbstractArray) = Matrix(y)
+  snap(y::AbstractArray) = Array(y)
   snap(y::Tuple) = map(snap, y)
   same(a, b) = isequal(a, b)
   same(a::Tuple, b::Tuple) = length(a) == length(b) && all(map(same, a, b))
@@ -741,8 +741,11 @@ ProximalBase.hessian_vec!(Hv::AbstractArray, f::CountHess, x::AbstractArray, v::
     @test_throws ArgumentError hessian_vec!(Hv, w, x, v)
     @test same(snap(Hv), before)
     # also when the restricted block comes first
+    sq = (x[2], x[2]); sqv = (v[2], v[2])
+    w2 = W == "Tilt" ? Tilt(f, (zeros(2, 2), zeros(2, 2)), 0.0) : Translate(f, (zeros(2, 2), zeros(2, 2)))
     Hv = (make(), fill(-7.0, 2, 2)); before = snap(Hv)
-    @test_throws ArgumentError hessian_vec!(Hv, w, (x[2], x[2]), (v[2], v[2]))
+    @test_throws ArgumentError hessian_vec!(Hv, w2, sq, sqv)
+    @test same(snap(Hv), before)
   end
 
   # the inner function is not run: the rejected output reaches none of its products
@@ -819,7 +822,7 @@ ProximalBase.hessian_vec!(Hv::AbstractArray, f::CountHess, x::AbstractArray, v::
   Hv = (fill(-7.0, 2), Diagonal(fill(-7.0, 2)))
   @test_throws DimensionMismatch hessian_vec!(Hv, Tilt(f, (c[1], zeros(2, 3)), 0.0), x, v)    # parameter size
   @test_throws DimensionMismatch hessian_vec!(Hv, Translate(f, (c[1], zeros(2, 3))), x, v)
-  @test same(snap(Hv), (fill(-7.0, 2), Matrix(Diagonal(fill(-7.0, 2)))))
+  @test same(snap(Hv), (fill(-7.0, 2), Array(Diagonal(fill(-7.0, 2)))))
 
   # ordinary dense outputs still work, against an independent reference
   g = SeparableSum(SqrNormL2(2.0), SqrNormL2(3.0))
@@ -857,7 +860,7 @@ ProximalBase.hessian_vec!(Hv::AbstractArray, f::CountHess, x::AbstractArray, v::
   for (W, w) in wrappers(g, c)
     Hv = map(similar, x)
     @test allocs(hv!, Hv, w, x, v) == 0
-    @test (PB._check_second_order_arrays(w, x, Hv, v); @allocated PB._check_second_order_arrays(w, x, Hv, v)) == 0
+    @test allocs(PB._check_second_order_arrays, w, x, Hv, v) == 0
     @inferred hessian_vec!(Hv, w, x, v)
   end
   many = SeparableSum(ntuple(k -> SqrNormL2(k), 40)...)
@@ -866,7 +869,7 @@ ProximalBase.hessian_vec!(Hv::AbstractArray, f::CountHess, x::AbstractArray, v::
     Hm = fresh(xm)
     @test hessian_vec!(Hm, w, xm, vm) === Hm
     @test allocs(hv!, Hm, w, xm, vm) == 0
-    @test (PB._check_second_order_arrays(w, xm, Hm, vm); @allocated PB._check_second_order_arrays(w, xm, Hm, vm)) == 0
+    @test allocs(PB._check_second_order_arrays, w, xm, Hm, vm) == 0
   end
   four = SeparableSum(SqrNormL2(), SqrNormL2(2), SqrNormL2(3), SqrNormL2(4))
   x4, v4, c4 = ntuple(k -> fill(Float64(k), 3), 4), ntuple(k -> fill(1.0, 3), 4), ntuple(k -> fill(0.5, 3), 4)

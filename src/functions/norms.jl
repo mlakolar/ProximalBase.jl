@@ -608,23 +608,16 @@ _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_
     end
     return nx - c
   else
-    # A NaN norm (E2) fails both comparisons and takes this branch: every output of the group depends
-    # on the NaN entry, so the group and its norm are NaN, unless the parameters fix the group at zero
-    # (E4, γ = Inf) or make it the identity (γ = 0). The fill value is a scalar, so that the loop is
-    # the one it was. With c = 0, Inf or NaN the parameters decide, not the product (it can have
-    # underflowed or overflowed): the group is then left as it is, with a NaN norm, for the caller
-    # (_nan_steps!, after the loop). The NormL2 callers of this kernel, an infinite coefficient, are
-    # a hard fix by construction.
-    nanx = isnan(nx)
-    settle = f isa GroupNormL2 ? (nanx & !((c > zero(c)) & (c < Inf))) : false
-    nanblock = f isa GroupNormL2 ? nanx : (nanx & (c < Inf))
-    z = nanblock ? T(NaN) : zero(T)
-    if !settle
-      @inbounds for i in _writes(W, G)
-        y[i] = z
-      end
+    # A NaN norm (E2) fails both comparisons and takes this branch. The group is then left as it is,
+    # with a NaN norm, and settled by the caller after its loop (_nan_steps!), which knows the original
+    # step, level and weight: zeros (E4), the identity (γ = 0) or the NaN block. Apart from that single
+    # test, which a finite norm never takes, this is the zero fill of the kernel as it was. The NormL2
+    # callers of this kernel (an infinite coefficient) keep the zero fill, a hard fix by construction.
+    f isa GroupNormL2 && isnan(nx) && return nx
+    @inbounds for i in _writes(W, G)
+      y[i] = zero(T)
     end
-    return nanblock ? nx : zero(nx)
+    return zero(nx)
   end
 end
 
@@ -655,13 +648,12 @@ end
   _group_norm2(x, G)
 end
 
-# After the loops, when the value is NaN: the groups the kernel left as they were because their
-# threshold is 0, Inf or NaN and their norm NaN. The original parameters decide (E4 first): an infinite
-# weight, level or step fixes the group at zero; at the step γ = 0 (an accepted endpoint, #311) the map
-# is the identity, so the group is copied (NaN stays in its own entries); otherwise, also when the
-# product γλw only underflowed or overflowed, every output depends on the NaN: the NaN block.
-# Returns the value at the stored output. Not reached on finite data, and nothing to do for the ℓ∞
-# kernel, which does not leave a group.
+# After the loops, when the value is NaN: the groups the kernel left as they were because their norm is
+# NaN. The original parameters decide (E4 first): an infinite weight, step or (at a positive step) level
+# fixes the group at zero; at the step γ = 0 (an accepted endpoint, #311) the map is the identity, so the
+# group is copied (NaN stays in its own entries); otherwise every output depends on the NaN, also when the
+# product γλw underflowed or overflowed: the NaN block. Returns the value at the stored output. Not
+# reached on finite data, and nothing to do for the ℓ∞ kernel, which does not leave a group.
 @inline _nan_steps!(::GroupNormLinf, y, X, ks, γ, ordinary, ::Type, v, yobj) = v
 function _nan_steps!(f::GroupNormL2, y, X, ks, γ, ::Val{O}, ::Type{W}, v, yobj) where {O, W}
   changed = false
@@ -669,10 +661,8 @@ function _nan_steps!(f::GroupNormL2, y, X, ks, γ, ::Val{O}, ::Type{W}, v, yobj)
     iszero(f.w[k]) && continue
     _identity_group(f, Val(O), k) && continue
     G = f.groups[k]
-    γk = _entry(γ, k)
-    c = O ? _positive_product(W, γk, f.λ0, f.w[k]) : _weight_product(W, γk, f.λ0, f.w[k])
-    ((c > zero(c)) & (c < Inf)) && continue
     isnan(_group_norm2(X, G)) || continue
+    γk = _entry(γ, k)
     mode = _hard_fixed(f, γk, k) ? 0 : iszero(γk) ? 1 : 2
     _fill_group!(y, X, G, _group_writes(y, G), mode)
     changed = true

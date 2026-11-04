@@ -480,6 +480,46 @@ end
       end
       @test agree(host(prox(SparseGroupNormL2(T(0), T(0), G, T[1, 1]), dev(x), T(Inf))), x)
     end
+    @testset "infinite group and ℓ1 levels, device and host agree, $T" begin
+      G = [1:2, 3:4]
+      # an infinite weight fixes its group at every step; an infinite group level fixes a group at a positive
+      # step only: at the step 0 a finite weight keeps the identity (NaN in its own entry)
+      for f in (GroupNormL2(T(Inf), G, T[1, Inf]), SparseGroupNormL2(T(0.1), T(Inf), G, T[1, Inf]))
+        x = T[NaN, 4, NaN, 2]
+        for γ in (T(0), T(1))
+          ref = zeros(T, 4)
+          refv = value_and_prox!(ref, f, copy(x), γ)
+          if γ == 0
+            @test agree(ref, T[NaN, 4, 0, 0]) && isnan(refv)
+          else
+            @test agree(ref, zeros(T, 4)) && iszero(refv)
+          end
+          for op in (prox!, value_and_prox!)
+            y = dev(fill(T(-7), 4))
+            r = op(y, f, dev(x), γ)
+            @test agree(host(y), ref)
+            op === value_and_prox! && @test agree(r, refv)
+            z = dev(copy(x))
+            op(z, f, z, γ)
+            @test agree(host(z), ref)
+          end
+        end
+      end
+      # an infinite ℓ1 level maps the penalized group to zero and copies the ungrouped entry
+      f = SparseGroupNormL2(T(Inf), T(1), [1:2], T[1])
+      for x in (T[NaN, 4, 9], T[3, 4, 9])
+        ref = prox(f, x, T(1))
+        @test agree(ref, T[0, 0, 9])
+        for op in (prox!, value_and_prox!)
+          y = dev(fill(T(-7), 3))
+          op(y, f, dev(x), T(1))
+          @test agree(host(y), ref)
+          z = dev(copy(x))
+          op(z, f, z, T(1))
+          @test agree(host(z), ref)
+        end
+      end
+    end
   end
 end
 

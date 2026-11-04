@@ -625,8 +625,13 @@ struct _L2Flags
   zerostep::Bool
   infstep::Bool
   inflevel::Bool
+  inflevel1::Bool       # an infinite ℓ1 level (the sparse group lasso)
 end
-_L2Flags(γ, λ0) = _L2Flags(iszero(λ0), iszero(γ), isinf(γ), isinf(λ0))
+_L2Flags(γ, λ0, inf1::Bool = false) = _L2Flags(iszero(λ0), iszero(γ), isinf(γ), isinf(λ0), inf1)
+# The groups fixed at zero by the original parameters, as _hard_fixed on the host: an infinite weight, an
+# infinite group level at a positive step (at the step 0 a finite weight keeps the identity), an infinite
+# step or an infinite ℓ1 level. A zero group level with a finite weight is the identity before the step.
+@inline _l2_fixed(fl::_L2Flags, w) = isinf(w) | (fl.inflevel & !fl.zerostep) | (!fl.zerolevel & (fl.infstep | fl.inflevel1))
 struct _L2Factor{T}
   step::T
   λ::T
@@ -643,7 +648,7 @@ end
 # value is then read again from the stored group, as for an overflowing value.
 (l::_L2Value{T})(n, w) where {T} = (iszero(w) || (l.flags.zerolevel && !isinf(w))) ? zero(T) :
   (c = _group_threshold(l.step, l.λ, w);
-   n > c ? _Weighted(l.λ)(n - c, w) : (isnan(n) && !(isinf(w) | l.flags.inflevel | l.flags.infstep)) ? T(NaN) : zero(T))
+   n > c ? _Weighted(l.λ)(n - c, w) : (isnan(n) && !_l2_fixed(l.flags, w)) ? T(NaN) : zero(T))
 
 # Scale each group before squaring. A direct sum of squares can overflow or
 # underflow even when its norm, and hence its proximal factor, is representable.
@@ -672,9 +677,9 @@ function (l::_L2Factor{T})(n, w, m, s) where {T}
   # E4 first, from the original parameters: an infinite weight or level fixes the group at zero, and
   # a zero level with a finite weight is the identity, also at an infinite step
   fl = l.flags
-  (isinf(w) | fl.inflevel) && return zero(T)
+  (isinf(w) | (fl.inflevel & !fl.zerostep)) && return zero(T)
   fl.zerolevel && return one(T)
-  fl.infstep && return zero(T)
+  (fl.infstep | fl.inflevel1) && return zero(T)
   # m is NaN exactly when an entry is NaN (the max propagates it), while an infinite entry only makes
   # n NaN. A NaN entry (E2): γ = 0 is the identity, and otherwise the group is NaN, whatever the
   # prepared product (a finite γλw that overflowed or underflowed is no hard fix or endpoint).
@@ -827,8 +832,8 @@ function _group_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real, ::Val{V}) where
   for b in lay.blocks
     m, q = _group_norm_parts(_gather(yv, b), b, S, _Shrink(c1))
     s = m .* sqrt.(q)
-    view(fac, b.pos) .= _L2Factor(step, λ, _L2Flags(γ, f.λ0)).(vec(s), vec(b.w), vec(m), vec(q))
-    V && (v2 += _sum(S, _L2Value(step, λ, _L2Flags(γ, f.λ0)), s, b.w))
+    view(fac, b.pos) .= _L2Factor(step, λ, _L2Flags(γ, f.λ0, isinf(f.λ1))).(vec(s), vec(b.w), vec(m), vec(q))
+    V && (v2 += _sum(S, _L2Value(step, λ, _L2Flags(γ, f.λ0, isinf(f.λ1))), s, b.w))
   end
   _scatter_back!(_SparseScale(c1, length(lay.pos)), yv, lay, fac)
   if V && (!_level_preserved(S, γ) || !_level_preserved(S, f.λ0) || !isfinite(v2))

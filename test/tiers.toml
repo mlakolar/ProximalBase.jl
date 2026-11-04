@@ -60,6 +60,7 @@ standard = [
   "affine",
   "ballconstrained",
   "indicator_steps",
+  "direct_projection_infinite",
   "symmetric_sphere",
   "bernoulli",
   "binary",
@@ -88,6 +89,7 @@ standard = [
   "sumlargest",
   "threshold_factor_type",
   "threshold_precision",
+  "argument_threshold_precision",
 ]
 
 # What shared or numerical changes can break: precision, overflow, non-finite values, spectral

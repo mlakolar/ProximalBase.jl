@@ -1,7 +1,7 @@
 # Step endpoints and infinite arguments: staged determined-limit design (#311, #469)
 
 **Status:** accepted by the maintainer on 2026-11-02 as
-[decision 48](decisions.md); **not implemented**. The rules are E1, E2, E3
+[decision 48](decisions.md); **Stage 2 (the direct `IndBallL1`, `IndBallL2`, `IndSphereL2` and `IndSimplex` on host arrays) is implemented** in [PR #529](https://github.com/mlakolar/ProximalBase.jl/pull/529); the constrained families (Stage 3), the device kernels of the ℓ1 ball and the simplex, and wrappers that return the generic indicator value are S4/#366 conformance gaps. The rules are E1, E2, E3
 and P1 in [`numerics.md`](../../src/numerics.md), and their changes are listed
 in [Compatibility and migration](../../src/migration.md). Implementation is
 tracked in [#311](https://github.com/mlakolar/ProximalBase.jl/issues/311),

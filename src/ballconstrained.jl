@@ -473,7 +473,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Gro
   kbest, ibest, bestn, bestc = 0, 0, zero(U), zero(U)
   for k in eachindex(f.groups)
     n = convert(U, _group_norm2(x, f.groups[k]))
-    threshold = _group_sphere_threshold(f, γ, T, U, k)
+    threshold = _group_sphere_threshold(f, γ, U, k)
     (kbest == 0 || isinf(bestc) || (!isinf(threshold) && n - bestn > threshold - bestc)) && ((kbest, bestn, bestc) = (k, n, threshold))
   end
   @inbounds for i in eachindex(IndexLinear(), x)
@@ -482,7 +482,17 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Gro
     ((kbest == 0 && ibest == 0) || isinf(bestc) || n - bestn > -bestc) && ((kbest, ibest, bestn, bestc) = (0, i, n, zero(U)))
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
-  bestn > bestc && return _onto_sphere!(y, f, convert(T, _value_and_prox_unchecked!(y, f, x, γ)), r)
+  if bestn > bestc
+    v = convert(T, _value_and_prox_unchecked!(y, f, x, γ))
+    m = maximum(abs, y)
+    # A shrinkage stored as zero has no direction, and one stored in the subnormal range has too
+    # few bits to give one. Where U is wider, the shrinkage is formed again in U (every positive
+    # group keeps its share), normalized there and stored once. Otherwise a zero takes the
+    # selection below, along x.
+    (U === T ? !iszero(m) : !(m < floatmin(T))) && return _onto_sphere!(y, f, v, r)
+    U !== T && _wide_sphere_direction!(y, c, x, γ, U, r) && return convert(T, _value_unchecked(f, y))
+    iszero(m) || return _onto_sphere!(y, f, v, r)
+  end
   if ibest != 0                         # an index in no group, where x is zero
     fill!(y, zero(eltype(y)))
     _write_unit!(y, ibest, r)
@@ -500,6 +510,19 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Gro
     end
   end
   convert(T, _group_value(f, f.λ0, f.w[kbest], r, y, G, T))
+end
+
+# y = r z/‖z‖ for the shrinkage z of the groups in the type U, which is wider than the type of y;
+# false where z is zero in U too. Any array y takes it: z is a buffer of the shape of y, written
+# only on this exceptional path. U is wider than the type of y only for an argument of a wider
+# type, which cannot alias y, so x is intact here. A norm of z that is not a normal number in the
+# type of y takes the rescaled branch of _scale_l2!.
+function _wide_sphere_direction!(y::AbstractArray{T}, c, x, γ, ::Type{U}, r) where {T, U}
+  z = similar(y, U)
+  _value_and_prox_unchecked!(z, c.f, x, γ)
+  iszero(maximum(abs, z)) && return false
+  _scale_l2!(y, z, r, convert(T, _norm2(z)))
+  true
 end
 
 # On the sphere a point with at most s nonzero entries has ⟨z, x⟩ ≤ r‖x_S‖ on its
@@ -547,15 +570,16 @@ end
 function _checkstep(op::O, c::SphereConstrained{<:GroupNormL2}, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
   _checkstep_nonneg(γ)
   isempty(x) && return true
-  T = float(eltype(y))
-  _sphere_finite_threshold(c.f, γ, T, promote_type(float(eltype(x)), T), x) ||
+  U = promote_type(float(eltype(x)), float(eltype(y)))
+  _sphere_finite_threshold(c.f, γ, U, x) ||
     throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
   true
 end
-# The threshold of group k: γλ0w formed in the promotion of T and the factors' types, rounded once
-# to T and then widened to U. The kernel and its preflight both take it from here, so they agree.
-@inline _group_sphere_threshold(f, γ, ::Type{T}, ::Type{U}, k) where {T, U} =
-  convert(U, _weight_product(T, γ, f.λ0, f.w[k]))
+# The threshold of group k: γλ0w formed in the promotion of U and the factors' types and rounded
+# once to U, the model precision of the call (numerics T3), as the group prox forms it. The kernel
+# and its preflight both take it from here, so they agree.
+@inline _group_sphere_threshold(f, γ, ::Type{U}, k) where {U} =
+  _weight_product(U, γ, f.λ0, f.w[k])
 # Plain loops that stop at the first finite threshold: an ordinary step ends at the first entry (group).
 function _sphere_finite_threshold(f::NormL1, γ, ::Type{U}, x) where {U}
   for k in eachindex(IndexLinear(), x)
@@ -563,9 +587,9 @@ function _sphere_finite_threshold(f::NormL1, γ, ::Type{U}, x) where {U}
   end
   false
 end
-function _sphere_finite_threshold(f::GroupNormL2, γ, ::Type{T}, ::Type{U}, x) where {T, U}
+function _sphere_finite_threshold(f::GroupNormL2, γ, ::Type{U}, x) where {U}
   for k in eachindex(f.groups)
-    isfinite(_group_sphere_threshold(f, γ, T, U, k)) && return true
+    isfinite(_group_sphere_threshold(f, γ, U, k)) && return true
   end
   for i in eachindex(IndexLinear(), x)      # an entry in no group is not penalized
     _group(f, i) == 0 && return true

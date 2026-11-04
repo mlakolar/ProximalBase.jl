@@ -16,6 +16,13 @@ using SparseArrays
 using JLArrays
 
 const PB = ProximalBase
+
+# a user's loss, with the documented interface only: |η - y|
+struct AbsLoss <: PB.ScalarLoss end
+(::AbsLoss)(η::Real, y::Real) = abs(η - y)
+PB.deriv(::AbsLoss, η::Real, y::Real) = sign(η - y)
+PB.deriv2(::AbsLoss, η::Real, y::Real) = zero(float(η))
+PB.curvature(::AbsLoss) = Inf
 const BASELINE = get(ENV, "GLM_BASELINE", "") == "1"
 
 # ---------------------------------------------------------------------------------------------
@@ -663,6 +670,44 @@ if !BASELINE
       value_and_gradient!(g2, f, T[η])
       @test isequal(g2, g)
     end
+  end
+
+  # a user's loss keeps the ordinary term w ℓ(η, y), also when the predictor is recomputed
+  @testset "a user's ScalarLoss" begin
+    for T in (Float32, Float64)
+      M = floatmax(T)
+      f = GLMLoss(AbsLoss(), T[0.5, 1], T[M -M 1; 0 0 1]; weights = T[3, 2])
+      β = T[2, 2, 3]
+      # row 1 cancels: η = 3, recovered; row 2: η = 3
+      @test f(β) === T(3) * T(2.5) + T(2) * T(2)
+      g = zeros(T, 3)
+      @test value_and_gradient!(g, f, β) === f(β)
+      @test g == T[3M, -3M, 3 + 2]
+      @test isequal(gradient!(zeros(T, 3), f, β), g)
+      # ordinary inputs: the plain weighted sum
+      βo = T[0.1, 0.2, 0.3]
+      @test f(βo) === T(3) * abs(f.η[1] - T(0.5)) + T(2) * abs(f.η[2] - T(1))
+      # a tiny term of a user's loss is not recomputed (no internal methods): the ordinary product
+      ft = GLMLoss(AbsLoss(), T[0], ones(T, 1, 1); weights = T[T === Float32 ? 1f30 : 1e300])
+      @test ft(T[nextfloat(zero(T))]) === ft.weights[1] * nextfloat(zero(T))
+    end
+  end
+
+  # ConvolutionCheck inside the kernel zone, with a value below floatmin lifted by the weight
+  @testset "ConvolutionCheck kernel zone" begin
+    for kernel in (:uniform, :epanechnikov), (T, h, w) in ((Float64, 1e-310, 1e300), (Float32, 1f-40, 1f30))
+      f = GLMLoss(PB.ConvolutionCheck(T(0.5), h; kernel), T[0], ones(T, 1, 1); weights = T[w])
+      u = h / 2                                      # y - η with y = 0, η = -h/2
+      ref = setprecision(BigFloat, 2560) do
+        big(w) * _conv(kernel, big(T(0.5)), big(h), big(u))[1]
+      end
+      @test within(f(T[-u]), ref, 8)
+    end
+  end
+
+  @testset "exponent split in other float types" begin
+    m, j = PB._exp_split(big(3.0))
+    @test m * big(2.0)^j ≈ exp(big(3.0))
   end
 
   # NaN inputs propagate (E2), to the value and to every entry of the gradient that depends on β

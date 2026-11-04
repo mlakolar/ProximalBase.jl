@@ -108,6 +108,40 @@ end
   @test isnan(NormL0(1e-100)(Float64[NaN, 1]))
 end
 
+@testset "NormL0 values through views and reshapes in host memory" begin
+  for T in (Float32, Float64)
+    f = NormL0(T(0.25))
+    b = T[1, 0, 5, 2, 0, 3]
+    a = T[1, 0, NaN, 2, 0, 3]
+    # finite: contiguous, strided and reshaped views, and a view of a reshape
+    @test f(view(b, :)) === T(1) && f(view(b, 2:5)) === T(0.5) && f(view(b, 1:2:6)) === T(0.5)
+    @test f(reshape(b, 2, 3)) === T(1) && f(view(reshape(b, 2, 3), :, 2:3)) === T(0.75)
+    @test f(view(b, [1, 2, 4])) === T(0.5)                       # not a range
+    # NaN
+    @test isnan(f(view(a, :))) && isnan(f(view(a, 1:2:6))) && isnan(f(reshape(a, 2, 3)))
+    @test f(view(a, 1:2)) === T(0.25) && f(view(a, [1, 2, 4])) === T(0.5)
+    @test NormL0(T(0))(view(a, :)) === T(0)                      # a zero level
+    # the fused call: a view as the output and as the argument, aliased and not
+    yv = view(zeros(T, 6), :)
+    @test value_and_prox!(yv, f, view(b, :), T(1)) === T(1) && Array(yv) == b
+    v = view(copy(b), :)
+    @test value_and_prox!(v, f, v, T(1)) === T(1) && Array(v) == b
+    yv = view(zeros(T, 6), :)
+    @test isnan(value_and_prox!(yv, f, view(a, :), T(1))) && same(Array(yv), a)
+    v = view(copy(a), :)
+    @test isnan(value_and_prox!(v, f, v, T(1))) && same(Array(v), a)
+    yr = reshape(zeros(T, 6), 2, 3)
+    @test value_and_prox!(yr, f, reshape(b, 2, 3), T(1)) === T(1) && vec(yr) == b
+    # other array types, which have no storage to look at: the same values
+    @test f(Diagonal(b)) === T(1) && isnan(f(Diagonal(a)))
+    @test f(transpose(b)) === T(1) && isnan(f(transpose(a)))
+    @test f(Symmetric(T[1 0; 0 2])) === T(0.5) && isnan(f(Symmetric(T[1 NaN; NaN 2])))
+    # a positive level that underflows in the element type
+    @test isnan(NormL0(1e-100)(view(T[NaN, 1], :))) && isnan(NormL0(1e-100)(reshape(T[NaN, 1], 1, 2)))
+    @test NormL0(0.0)(view(T[NaN, 1], :)) === T(0)
+  end
+end
+
 @testset "NormL0 values on a device array" begin
   allowscalar(false)
   for T in (Float32, Float64)

@@ -850,6 +850,113 @@ if !BASELINE
       @test isnan(fy(T[0.2, 0.1]))
     end
   end
+
+  # The ordinary loops leave out a test that the sum or another test implies, by traits of the
+  # built-in losses (`_value_traps`, `_deriv_traps`, `_deriv_in_value`). First the properties
+  # the traits claim, at the extreme inputs; then the loops against the recovery run on every call.
+  @testset "tests implied at compile time" begin
+    specs = (SQUARED, LOGISTIC, POISSON, HUBER(0.7), SQHINGE, SMOOTHCHECK(0.3, 0.5), CONV(:uniform, 0.3, 0.5),
+             CONV(:epanechnikov, 0.3, 0.5))
+    for T in (Float32, Float64)
+      M = floatmax(T)
+      ys = T[0, 1, -1, 0.5, 3, M, -M, nextfloat(zero(T)), -1e-30]
+      ηs = T[0, 1, -1, 2, -2, 50, -50, 89, -89, 710, -710, 1e10, -1e10, M / 2, -M / 2, M, -M, nextfloat(zero(T))]
+      for spec in specs
+        ℓ = spec.make(T)
+        @testset "$(spec.name), $T: trait properties" begin
+          if PB._value_traps(ℓ)
+            for η in T[Inf, -Inf, NaN], y in ys
+              @test !isfinite(ℓ(η, y)) && !isfinite(PB.value_and_deriv(ℓ, η, y)[1])
+            end
+          end
+          if PB._deriv_traps(ℓ)
+            for η in T[Inf, -Inf, NaN], y in ys
+              @test !isfinite(PB.deriv(ℓ, η, y)) && !isfinite(PB.value_and_deriv(ℓ, η, y)[2])
+            end
+          end
+          if PB._deriv_in_value(ℓ)
+            for η in ηs, y in ys, sη in (1, -1)
+              v, dv = PB.value_and_deriv(ℓ, sη * η, y)
+              @test isfinite(dv) || !isfinite(v)
+              @test isfinite(PB.deriv(ℓ, sη * η, y)) || !isfinite(ℓ(sη * η, y))
+            end
+          end
+        end
+      end
+      # why SquaredHinge and a user's loss keep every test: a finite value at an infinite
+      # predictor, and a derivative that overflows where the value does not
+      @test !PB._value_traps(PB.SquaredHinge()) && !PB._deriv_in_value(PB.SquaredHinge())
+      @test PB.SquaredHinge()(T(Inf), one(T)) === zero(T)
+      v, dv = PB.value_and_deriv(PB.SquaredHinge(), zero(T), M)
+      @test isfinite(v) && !isfinite(dv)                   # 1 and -2 floatmax
+      @test !PB._value_traps(AbsLoss()) && !PB._deriv_traps(AbsLoss()) && !PB._deriv_in_value(AbsLoss())
+    end
+
+    # a predictor that overflows to ±Inf where the exact one is 0 (row [M, -M/2, -M] or its negative,
+    # β = [2, 2, 1]: the products 2M = Inf, -M, -M): a finite ordinary value (SquaredHinge) or
+    # derivative (Poisson, Logistic, Huber) at the wrong predictor must still be recomputed
+    for T in (Float32, Float64)
+      M = floatmax(T)
+      β = T[2, 2, 1]
+      Xp, Xn = T[M -M/2 -M; 0 0 0.5], T[-M M/2 M; 0 0 0.5]
+      @test isinf((Xp * β)[1]) && isinf((Xn * β)[1])      # the case needs the overflow, not NaN
+      # SquaredHinge, y = 1: ℓ(0) = 1 and ℓ'(0) = -2, ℓ(0.5) = 1/4 and ℓ'(0.5) = -1, weights 1/4 and 1
+      f = GLMLoss(PB.SquaredHinge(), T[1, 1], Xp; weights = T[0.25, 1])
+      @test f(β) === T(0.5)
+      g1, g2 = zeros(T, 3), zeros(T, 3)
+      @test value_and_gradient!(g1, f, β) === T(0.5)
+      gradient!(g2, f, β)
+      @test g1 == g2 == T[-M / 2, M / 4, M / 2]
+      # Poisson, y = 0, at the computed -Inf: ℓ'(0) = 1 (the ordinary e^-Inf = 0); ℓ'(0.5) = e^0.5
+      f = GLMLoss(PB.Poisson(), T[0, 0], Xn)
+      g1, g2 = zeros(T, 3), zeros(T, 3)
+      gradient!(g1, f, β)
+      value_and_gradient!(g2, f, β)
+      @test g1 == g2 == T[-M, M / 2, M + exp(T(0.5)) / 2]
+      @test f(β) === one(T) + exp(T(0.5))
+      # Logistic, y = 0, at the computed Inf: ℓ'(0) = 1/2 (the ordinary 1); Huber(1), y = 0.25 at η = 0:
+      # ℓ'(0) = -1/4 (the ordinary δ = 1)
+      for (ℓ, y, d1) in ((PB.Logistic(), T[0, 0], T(0.5)), (PB.Huber(one(T)), T[0.25, 0], T(-0.25)))
+        f = GLMLoss(ℓ, y, Xp)
+        g1, g2 = zeros(T, 3), zeros(T, 3)
+        gradient!(g1, f, β)
+        value_and_gradient!(g2, f, β)
+        d2 = PB.deriv(ℓ, T(0.5), y[2])
+        @test g1 == g2 == T[M * d1, -M / 2 * d1, -M * d1 + T(0.5) * d2]
+      end
+    end
+
+    # random small problems with predictors that overflow (to ±Inf, or NaN through Inf - Inf),
+    # logistic and Poisson tails, zero weights, weights above 1 and extreme responses: the loops
+    # return what the recovery, run on every call, returns
+    same(a, b) = isequal(a, b) || a == b
+    rng = Random.Xoshiro(3580)
+    for T in (Float32, Float64), spec in (specs..., (name = "user", make = T -> AbsLoss())), trial in 1:150
+      M = floatmax(T)
+      n, p = 6, 3
+      ℓ = spec.make(T)
+      pool = T[1, -1, 0.5, 30, -30, T === Float32 ? 100 : 800, T === Float32 ? -100 : -800, M / 2, -M / 2, M, -M]
+      X = [rand(rng) < 0.6 ? T(randn(rng)) : rand(rng, pool) for _ in 1:n, _ in 1:p]
+      β = T[rand(rng, (1, -1, 2, -2, 0.5)) for _ in 1:p]
+      y = ℓ isa PB.Logistic ? T.(rand(rng, 0:1, n)) : ℓ isa PB.Poisson ? T.(rand(rng, (0, 1, 3), n)) :
+          ℓ isa PB.SquaredHinge ? T.(rand(rng, (-1, 1), n)) : T[rand(rng) < 0.8 ? T(randn(rng)) : rand(rng, (M, -M, T(1e30))) for _ in 1:n]
+      wpool = T[0, 0.3, 1, 3, T(1e20)]
+      kw = rand(rng) < 0.25 ? (;) : (weights = [rand(rng, wpool) for _ in 1:n],)
+      rand(rng) < 0.3 && (kw = (; kw..., offset = [rand(rng) < 0.7 ? zero(T) : rand(rng, pool) for _ in 1:n]))
+      f = GLMLoss(ℓ, y, X; kw...)
+      v1 = f(β)
+      g1 = gradient!(zeros(T, p), f, β)
+      g2 = zeros(T, p)
+      v2 = value_and_gradient!(g2, f, β)
+      fr = GLMLoss(ℓ, y, X; kw...)      # the recovery rewrites the buffers: a fresh copy
+      PB._linear_predictor!(fr, β)
+      vr = PB._glm_recover!(fr, β, Val(true), Val(true))
+      gr = zeros(T, p)
+      mul!(gr, transpose(fr.X), fr.d)
+      @test same(v1, vr) && same(v2, vr)
+      @test all(same.(g1, gr)) && all(same.(g2, gr))
+    end
+  end
 end
 
 # the device path: JLArrays with scalar indexing disallowed (as in value_overflow_data.jl)

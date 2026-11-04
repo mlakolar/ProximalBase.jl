@@ -169,11 +169,45 @@ _value_lifts(::ScalarLoss, w) = w > one(w)
 # The same tests as an accumulator of the CPU loops, 0 or NaN, so that the loops
 # stay free of branches and can vectorize: 0 ⋅ x is NaN for an infinite or NaN x,
 # and a lifted underflow adds NaN. The finiteness of a value term is that of the
-# sum of the terms, tested after the loop with the accumulator.
+# sum of the terms, tested after the loop with the accumulator. A test that the
+# sum or another test already implies is left out at compile time, by the traits
+# below; the loops then decide exactly as with every test.
+#
+# `_value_traps(ℓ)`: ℓ(η, y) is not finite whenever η is not finite and y is
+# finite, so that a weighted term w ℓ with w > 0 makes the sum non-finite and the
+# test of η is implied (a non-finite y keeps the ordinary term in the recovery).
+# Squared, Huber, SmoothCheck and ConvolutionCheck are linear or quadratic in
+# η - y beyond a bounded zone, and NaN in it; Logistic and Poisson contain
+# c ⋅ η with c = 1 - y, y or -y, so ±Inf gives ±Inf, or 0 ⋅ Inf = NaN when c = 0,
+# against a bounded remainder (log1p(e^{-|η|}) ≥ 0, e^η ∈ [0, Inf]); NaN
+# propagates through every branch. SquaredHinge is not: max(1 - yη, 0) = 0 for
+# yη = Inf. Nor is a loss without a method.
+_value_traps(::ScalarLoss) = false
+_value_traps(::Union{Squared, Huber, Logistic, Poisson}) = true
+# `_deriv_traps(ℓ)`: ℓ'(η, y) is not finite whenever η is not (Squared: η - y);
+# the others tend to finite limits, so `gradient!` tests η for them.
+_deriv_traps(::ScalarLoss) = false
+_deriv_traps(::Squared) = true
+# `_deriv_in_value(ℓ)`: at finite η and y, a non-finite ℓ'(η, y) implies a
+# non-finite ℓ(η, y), so that in value_and_gradient! without weights (d = ℓ') the
+# test of d is implied by the sum. Squared: |r| = Inf gives r²/2 = Inf. Huber,
+# Logistic, SmoothCheck and ConvolutionCheck have a bounded ℓ' (δ, |1 - y| + 1,
+# max(τ, 1 - τ), 1/2 + |τ - 1/2|). Poisson: e^η - y = Inf needs e^η = Inf, and
+# then e^η - yη is Inf or NaN. Not SquaredHinge: for |y| near floatmax,
+# 2|y| max(1 - yη, 0) overflows where the square does not. With weights,
+# w ℓ' can overflow where w ℓ does not, so d is always tested.
+_deriv_in_value(::ScalarLoss) = false
+_deriv_in_value(::Union{Squared, Huber, Logistic, Poisson}) = true
 @inline _value_mark(ℓ, w, v, η::T, y) where {T} =
-  zero(T) * η + ifelse(_value_lifts(ℓ, w) & _lost_value(ℓ, v, η, y), T(NaN), zero(T))
-@inline _deriv_mark(ℓ, w, v, p, η::T, y) where {T} =
-  zero(T) * convert(T, p) + ifelse((w > one(w)) & _lost_deriv(ℓ, v, η, y), T(NaN), zero(T))
+  (_value_traps(ℓ) ? zero(T) : zero(T) * η) + ifelse(_value_lifts(ℓ, w) & _lost_value(ℓ, v, η, y), T(NaN), zero(T))
+# the test of d = w ℓ' in value_and_gradient!, beside the value's
+@inline _deriv_mark(ℓ, w, v, p, η::T, y, unweighted::Bool) where {T} =
+  (unweighted & _deriv_in_value(ℓ) & _value_traps(ℓ) ? zero(T) : zero(T) * convert(T, p)) +
+  ifelse((w > one(w)) & _lost_deriv(ℓ, v, η, y), T(NaN), zero(T))
+# the test of d in gradient!, alone
+@inline _gradient_mark(ℓ, w, v, p, η::T, y) where {T} =
+  (_deriv_traps(ℓ) ? zero(T) : zero(T) * η) + zero(T) * convert(T, p) +
+  ifelse((w > one(w)) & _lost_deriv(ℓ, v, η, y), T(NaN), zero(T))
 
 # The term again for η = ηs ⋅ 2^k (k ≥ 0: η may be beyond the range of T), with
 # the weight w > 0 applied last: the value as a significand and an exponent (so
@@ -434,7 +468,7 @@ function value_and_gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVe
     v, dv = value_and_deriv(f.loss, ηi, yi)
     s += w * convert(T, v)
     d[i] = pd = w * dv
-    c += _value_mark(f.loss, w, v, ηi, yi) + _deriv_mark(f.loss, w, dv, pd, ηi, yi)
+    c += _value_mark(f.loss, w, v, ηi, yi) + _deriv_mark(f.loss, w, dv, pd, ηi, yi, f.weights === nothing)
   end
   isfinite(s + c) || (s = _glm_recover!(f, β, Val(true), Val(true)))
   mul!(g, transpose(f.X), d)
@@ -445,16 +479,17 @@ function gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVector) wher
   _checkwrite(gradient!, f, g, β)
   η = _linear_predictor!(f, β)
   c = zero(T)
-  @inbounds for i in eachindex(η)
+  d = f.d
+  # without branches, and @simd: each d[i] is computed alone, and c is 0 or NaN
+  # whatever the order of its additions
+  @inbounds @simd for i in eachindex(η)
     w = convert(T, _entry(f.weights, i))
-    if iszero(w)
-      f.d[i] = zero(T)
-      continue
-    end
     ηi, yi = η[i], f.y[i]
     dv = deriv(f.loss, ηi, yi)
-    f.d[i] = pd = w * dv
-    c += zero(T) * ηi + _deriv_mark(f.loss, w, dv, pd, ηi, yi)
+    pd = w * dv
+    z = iszero(w)
+    d[i] = ifelse(z, zero(T), pd)
+    c += ifelse(z, zero(T), _gradient_mark(f.loss, w, dv, pd, ηi, yi))
   end
   isfinite(c) || _glm_recover!(f, β, Val(false), Val(true))
   mul!(g, transpose(f.X), f.d)

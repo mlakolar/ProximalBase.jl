@@ -536,6 +536,29 @@ _all_finite(x) = all(isfinite, _stored_values(x))
 _all_finite(x::_WrappedSparse) = _all_finite(parent(x))
 _all_finite(::Nothing) = true
 
+# m₁2^e₁ + m₂2^e₂ as a significand in [1/2, 1) (or 0) and its exponent, aligned to
+# the larger term: two terms that cancel do so exactly before renormalizing. A
+# scalar function for device kernels as well (no tuples of varying length).
+@inline function _pow2_add2(m1::T, e1::Int, m2::T, e2::Int) where {T<:AbstractFloat}
+  if iszero(m1) || (!iszero(m2) && e1 < e2)
+    m1, e1, m2, e2 = m2, e2, m1, e1
+  end
+  s = m1 + ldexp(m2, e2 - e1)
+  iszero(s) && return s, 0
+  ms, es = frexp(s)
+  ms, es + e1
+end
+
+# The products of `_scaled_product`, w v 2^k and a b c 2^k, kept as a significand and
+# an exponent: ldexp of the pair rounds once to the same value. Finite factors.
+@inline _pow2_pair(w::T, v::T, k::Int) where {T<:AbstractFloat} =
+  (iszero(w) || iszero(v)) ? (zero(T), 0) : (fw = frexp(w); fv = frexp(v); (fw[1] * fv[1], fw[2] + fv[2] + k))
+@inline function _pow2_pair(a::T, b::T, c::T, k::Int) where {T<:AbstractFloat}
+  (iszero(a) || iszero(b) || iszero(c)) && return zero(T), 0
+  fa, fb, fc = frexp(a), frexp(b), frexp(c)
+  (fa[1] * fb[1]) * fc[1], fa[2] + fb[2] + fc[2] + k
+end
+
 # w Σ mᵢ 2^eᵢ over finite mᵢ, for the terms of a value recomputed in different
 # power-of-two units (R1). The terms are added from the largest exponent down
 # to an accumulator kept as a significand in [1/2, 1) and its own exponent,
@@ -573,36 +596,29 @@ function _pow2_weighted(::Type{R}, w, terms::Vararg{Tuple{Any, Int}, N}) where {
 end
 _pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_weighted(R, one(R), terms...)
 
-# m₁2^e₁ + m₂2^e₂ as a significand in [1/2, 1) (or 0) and its exponent, aligned to
-# the larger term: two terms that cancel do so exactly before renormalizing. A
-# scalar function for device kernels as well (no tuples of varying length).
-@inline function _pow2_add2(m1::T, e1::Int, m2::T, e2::Int) where {T<:AbstractFloat}
-  if iszero(m1) || (!iszero(m2) && e1 < e2)
-    m1, e1, m2, e2 = m2, e2, m1, e1
-  end
-  s = m1 + ldexp(m2, e2 - e1)
-  iszero(s) && return s, 0
-  ms, es = frexp(s)
-  ms, es + e1
-end
-
-# exp(x) = m 2^j for a finite x: j = round(x/log 2) and x - j log 2 in two parts,
-# the high part with trailing zeros so that j·hi is exact (fdlibm). The error is
-# that of exp on [-log(2)/2, log(2)/2], about one ulp, where exp(x + log w)
-# would carry the absolute error of a large argument into the result.
+# exp(x) = m 2^j for a finite x: j = round(x/log 2) and x - j log 2 in two parts, the
+# high part with trailing zeros so that j·hi is exact (fdlibm). The error is that of exp on
+# [-log(2)/2, log(2)/2], about one ulp, where exp(x + log w) would carry the absolute error
+# of a large argument into the result. Beyond |x| > _exp_bound(T) the product with any
+# finite nonzero weight is out of the range (above) or rounds to zero (below), and j would
+# not be known to fit an Int: the result is (Inf, 0) or (0, 0) there, before any conversion.
 @inline _ln2_parts(::Type{Float64}) = (6.93147180369123816490e-01, 1.90821492927058770002e-10)
 @inline _ln2_parts(::Type{Float32}) = (6.9314575195f-01, 1.4286067653f-06)
+# 2^(emax + 2 + precision - emin): w exp(x) for x above it exceeds floatmax for every weight
+# w >= the smallest subnormal, and for x below its negative, rounds to zero for every
+# w <= floatmax
+@inline _exp_bound(::Type{T}) where {T<:AbstractFloat} =
+  T((exponent(floatmax(T)) + 2 + precision(T) - exponent(floatmin(T))) * 0.6931471805599453)
 @inline function _exp_split(x::T) where {T<:Union{Float32, Float64}}
+  isnan(x) && return x, 0
+  x > _exp_bound(T) && return T(Inf), 0
+  x < -_exp_bound(T) && return zero(T), 0
   hi, lo = _ln2_parts(T)
   j = round(x * T(1.4426950408889634))
   exp((x - j * hi) - j * lo), unsafe_trunc(Int, j)
 end
 # other types: their own exp has no range limit to work around in practice
 @inline _exp_split(x::AbstractFloat) = frexp(exp(x))
-# beyond this |x|, w exp(x) leaves the range for every finite w > 0 in either
-# direction: 2^(emax + 2 + precision - emin) is out of reach of any weight
-@inline _exp_bound(::Type{T}) where {T<:AbstractFloat} =
-  T((exponent(floatmax(T)) + 2 + precision(T) - exponent(floatmin(T))) * 0.6931471805599453)
 
 ####################################
 #

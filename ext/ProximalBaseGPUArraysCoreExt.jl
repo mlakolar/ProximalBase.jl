@@ -48,7 +48,8 @@ ProximalBase._blas_ready(::GPUArray{<:Any, 2}) = false
 
 # the sum of the lazily broadcast f.(args...), as one reduction on the device
 _sum(::Type{T}, f::F, args...) where {T, F} = mapreduce(identity, +, instantiate(broadcasted(f, args...)); init = zero(T))
-ProximalBase._broadcast_sum(::Type{T}, f::F, η::AnyGPUArray, args::Vararg{Any, N}) where {T, F, N} = _sum(T, f, η, args...)
+ProximalBase._broadcast_reduce(op::O, init, f::F, η::AnyGPUArray, args::Vararg{Any, N}) where {O, F, N} =
+  mapreduce(identity, op, instantiate(broadcasted(f, η, args...)); init)
 
 # whether p(args...) holds for every entry, as one reduction on the device
 _all(p::P, args...) where {P} = mapreduce(identity, &, instantiate(broadcasted(p, args...)); init = true)

@@ -672,6 +672,72 @@ if !BASELINE
     end
   end
 
+  # Terms of different observations beyond floatmax that cancel (review of 066e1eb3): the sum of the
+  # recomputed terms stays in power-of-two units until the end. The problem is ill-conditioned beyond
+  # 1/eps (|terms| ≈ 5.4e308, value ≈ 7.0e291), so R1's "accuracy of the ordinary computation" is the
+  # cancellation scale: the result equals the ordinary computation of the same problem scaled down by
+  # an exact power of two, where nothing leaves the range.
+  @testset "terms beyond floatmax that cancel between observations" begin
+    for T in (Float64, Float32)
+      w1 = T === Float64 ? 1e308 : 2f38
+      w2 = setprecision(BigFloat, 512) do
+        T(big(w1) * exp(big(1)) / (6 - exp(big(1))))
+      end
+      ref, scale = setprecision(BigFloat, 512) do
+        t1, t2 = big(w1) * exp(big(1)), big(w2) * (exp(big(1)) - 6)
+        t1 + t2, abs(t1) + abs(t2)
+      end
+      f = PoissonLoss(T[0, 6], ones(T, 2, 1); weights = T[w1, w2])
+      v = f(T[1])
+      @test v isa T && isfinite(v)
+      @test near_scale(v, ref, scale)
+      g1 = zeros(T, 1)
+      @test value_and_gradient!(g1, f, T[1]) === v
+      # the same problem with the weights scaled by 2^-60 takes the ordinary path
+      fs = PoissonLoss(T[0, 6], ones(T, 2, 1); weights = T[w1, w2] .* ldexp(one(T), -60))
+      @test ldexp(fs(T[1]), 60) === v
+      # each wᵢℓ'ᵢ is beyond floatmax by itself: d is not representable and X'd is NaN, an issue of the
+      # product (A1, #542); both gradient calls agree
+      g2 = zeros(T, 1)
+      gradient!(g2, f, T[1])
+      @test isequal(g1, g2)
+      # on the device
+      fd = GLMLoss(PB.Poisson(), JLArray(T[0, 6]), JLArray(ones(T, 2, 1)); weights = JLArray(T[w1, w2]))
+      @test fd(JLArray(T[1])) === v
+      @test value_and_gradient!(JLArray(zeros(T, 1)), fd, JLArray(T[1])) === v
+    end
+    # finite terms whose partial sums overflow (y outside [0, 1]): +M, +M and -M in any order
+    M = floatmax(Float64)
+    obs = [(2.0, -M / 2), (-1.0, M / 2), (3.0, M / 2)]        # terms M, M and -M
+    for perm in ([1, 2, 3], [1, 3, 2], [3, 1, 2])
+      yy, ηs = first.(obs[perm]), last.(obs[perm])
+      fl = LogisticLoss(yy, Matrix(1.0I, 3, 3))
+      t = setprecision(BigFloat, 2560) do
+        sum(_logistic(big(η), big(y)) for (y, η) in zip(yy, ηs))
+      end
+      @test within(fl(ηs), t, 8)
+    end
+  end
+
+  @testset "sums in power-of-two units" begin
+    pair(m, e) = (m, e)
+    for T in (Float32, Float64)
+      E = T === Float32 ? 200 : 1100
+      # large terms that cancel exactly, then a small one, in any order
+      for (ms, es) in ((T[0.5, -0.5, 0.75], [E, E, 0]), (T[0.75, 0.5, -0.5], [0, E, E]), (T[0.5, 0.75, -0.5], [E, 0, E]))
+        @test PB._pow2_broadcast_sum(T, pair, ms, es) === T(0.75)
+      end
+      # a small term far below, beside a partial cancellation
+      @test PB._pow2_broadcast_sum(T, pair, T[0.75, -0.5, 0.5], [E, E, -E]) === ldexp(T(0.5), E - 2)
+      @test PB._pow2_broadcast_sum(T, pair, T[0, 0], [0, 0]) === zero(T)
+      @test PB._pow2_broadcast_sum(T, pair, T[0.5, -0.5], [E, E]) === zero(T)
+      @test PB._pow2_broadcast_sum(T, pair, T[0.5, 0.5], [E, 3]) === T(Inf)          # truly beyond floatmax
+      @test PB._pow2_broadcast_sum(T, pair, T[Inf, 0.5], [0, E]) === T(Inf)
+      @test isnan(PB._pow2_broadcast_sum(T, pair, T[Inf, -Inf], [0, 0]))
+      @test isnan(PB._pow2_broadcast_sum(T, pair, T[NaN, 0.5], [0, 0]))
+    end
+  end
+
   # a user's loss keeps the ordinary term w ℓ(η, y), also when the predictor is recomputed
   @testset "a user's ScalarLoss" begin
     for T in (Float32, Float64)

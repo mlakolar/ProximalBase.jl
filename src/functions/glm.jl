@@ -175,26 +175,28 @@ _value_lifts(::ScalarLoss, w) = w > one(w)
 @inline _deriv_mark(ℓ, w, v, p, η::T, y) where {T} =
   zero(T) * convert(T, p) + ifelse((w > one(w)) & _lost_deriv(ℓ, v, η, y), T(NaN), zero(T))
 
-# The term again, in type T, for η = ηs ⋅ 2^k (k ≥ 0: η may be beyond the range
-# of T), with the weight w > 0 applied last and one rounding. The default, for
-# losses without a method, is the ordinary term.
-_weighted_value(ℓ::ScalarLoss, w::T, ηs::T, k::Int, y::T) where {T} = w * convert(T, ℓ(ldexp(ηs, k), y))
+# The term again for η = ηs ⋅ 2^k (k ≥ 0: η may be beyond the range of T), with
+# the weight w > 0 applied last: the value as a significand and an exponent (so
+# that terms beyond floatmax can still cancel in the sum), the derivative in T,
+# rounded once. The default, for losses without a method, is the ordinary term.
+_weighted_pair(ℓ::ScalarLoss, w::T, ηs::T, k::Int, y::T) where {T} = frexp(w * convert(T, ℓ(ldexp(ηs, k), y)))
 _weighted_deriv(ℓ::ScalarLoss, w::T, ηs::T, k::Int, y::T) where {T} = w * convert(T, deriv(ℓ, ldexp(ηs, k), y))
 
 # The term of one observation in the recovery: the ordinary term where it is
 # kept, otherwise the loss's recomputation. A non-finite η with k = 0, or a
 # non-finite y, keeps the ordinary term (E2).
-@inline function _recovered_value(ℓ, w::T, η::T, ηs::T, k::Int, y, ::Type{T}) where {T}
+@inline function _recovered_pair(ℓ, w::T, η::T, ηs::T, k::Int, y, ::Type{T}) where {T}
   if isfinite(η)
     v = ℓ(η, y)
     p = w * convert(T, v)
-    _value_ok(ℓ, w, v, p, η, y) && return p
+    _value_ok(ℓ, w, v, p, η, y) && return frexp(p)
     ηs, k = η, 0
   end
   yt = convert(T, y)
-  isfinite(ηs) & isfinite(yt) || return w * convert(T, ℓ(η, y))
-  _weighted_value(ℓ, w, ηs, k, yt)
+  isfinite(ηs) & isfinite(yt) || return frexp(w * convert(T, ℓ(η, y)))
+  _weighted_pair(ℓ, w, ηs, k, yt)
 end
+@inline _recovered_value(ℓ, w::T, η::T, ηs::T, k::Int, y, ::Type{T}) where {T} = ldexp(_recovered_pair(ℓ, w, η, ηs, k, y, T)...)
 @inline function _recovered_deriv(ℓ, w::T, η::T, ηs::T, k::Int, y, ::Type{T}) where {T}
   if isfinite(η)
     v = deriv(ℓ, η, y)
@@ -225,19 +227,19 @@ end
 # Squared: (η - y)²/2 and η - y. A subnormal difference is exact, so the
 # derivative loses nothing to underflow.
 _lost_value(::Squared, v, η, y) = _below_normal(v) & (η != y)
-function _weighted_value(::Squared, w::T, ηs::T, k::Int, y::T) where {T}
+function _weighted_pair(::Squared, w::T, ηs::T, k::Int, y::T) where {T}
   m, e = _residual_pow2(ηs, k, y)
-  _scaled_product(w, m * m / 2, 2e)
+  _pow2_pair(w, m * m / 2, 2e)
 end
 _weighted_deriv(::Squared, w::T, ηs::T, k::Int, y::T) where {T} = _scaled_product(w, _residual_pow2(ηs, k, y)...)
 
 # Huber: the quadratic zone as Squared; beyond, δ(|r| - δ/2) in units of 2^e
 _lost_value(::Huber, v, η, y) = _below_normal(v) & (η != y)
-function _weighted_value(ℓ::Huber, w::T, ηs::T, k::Int, y::T) where {T}
+function _weighted_pair(ℓ::Huber, w::T, ηs::T, k::Int, y::T) where {T}
   m, e = _residual_pow2(ηs, k, y)
   δ = convert(T, ℓ.δ)
-  ldexp(abs(m), e) <= δ && return _scaled_product(w, m * m / 2, 2e)
-  _scaled_product(w, δ, abs(m) - ldexp(δ / 2, -e), e)
+  ldexp(abs(m), e) <= δ && return _pow2_pair(w, m * m / 2, 2e)
+  _pow2_pair(w, δ, abs(m) - ldexp(δ / 2, -e), e)
 end
 function _weighted_deriv(ℓ::Huber, w::T, ηs::T, k::Int, y::T) where {T}
   m, e = _residual_pow2(ηs, k, y)
@@ -258,12 +260,12 @@ _lost_deriv(::Logistic, v, η, y) = _below_normal(v)
   t = ldexp(m, j)
   frexp(sigmoid ? t / (1 + t) : log1p(t))
 end
-function _weighted_value(::Logistic, w::T, ηs::T, k::Int, y::T) where {T}
+function _weighted_pair(::Logistic, w::T, ηs::T, k::Int, y::T) where {T}
   s = abs(ηs)
   mc, ec = _product_pow2(ηs > 0 ? one(T) - y : y, s)
   mt, et = _logistic_tail(s, k, false)
   m, e = _pow2_add2(mc, ec + k, mt, et)
-  _scaled_product(w, m, e)
+  _pow2_pair(w, m, e)
 end
 function _weighted_deriv(::Logistic, w::T, ηs::T, k::Int, y::T) where {T}
   ms, es = _logistic_tail(abs(ηs), k, true)
@@ -279,12 +281,12 @@ _lost_deriv(::Poisson, v, η, y) = _below_normal(v)
   (k > 0 || ηs < -_exp_bound(T)) && return zero(T), 0
   _exp_split(ηs)
 end
-function _weighted_value(::Poisson, w::T, ηs::T, k::Int, y::T) where {T}
-  ηs > 0 && (k > 0 || ηs > _exp_bound(T)) && return T(Inf)
+function _weighted_pair(::Poisson, w::T, ηs::T, k::Int, y::T) where {T}
+  ηs > 0 && (k > 0 || ηs > _exp_bound(T)) && return T(Inf), 0
   me, je = _poisson_exp(ηs, k)
   my, ey = _product_pow2(y, ηs)
   m, e = _pow2_add2(me, je, -my, ey + k)
-  _scaled_product(w, m, e)
+  _pow2_pair(w, m, e)
 end
 function _weighted_deriv(::Poisson, w::T, ηs::T, k::Int, y::T) where {T}
   ηs > 0 && (k > 0 || ηs > _exp_bound(T)) && return T(Inf)
@@ -477,6 +479,9 @@ end
   end
   k = _all_finite(f.η) ? 0 : _recover_predictor!(f, β)
   s = V ? _broadcast_sum(T, _RecoveredValue{T}(f.loss, k), f.η, f.d, f.y, w) : zero(T)
+  # terms beyond floatmax that cancel between observations, or partial sums that overflow:
+  # the terms as significands and exponents, rounded once after the cancellation
+  V && !isfinite(s) && (s = _pow2_broadcast_sum(T, _RecoveredPair{T}(f.loss, k), f.η, f.d, f.y, w))
   D && (f.d .= _RecoveredDeriv{T}(f.loss, k).(f.η, f.d, f.y, w))
   s
 end
@@ -497,16 +502,61 @@ function _recover_predictor!(f::GLMLoss{L, T}, β::AbstractVector) where {L, T}
   k
 end
 
-# the sum of f.(η, args...) without materializing it: a loop on the CPU (a
+# a reduction of f.(η, args...) without materializing it: a loop on the CPU (a
 # reduction over a lazy broadcast allocates on Julia 1.10); the GPU extension
 # reduces on the device
-function _broadcast_sum(::Type{T}, f::F, η::AbstractVector, args::Vararg{Any, N}) where {T, F, N}
+function _broadcast_reduce(op::O, init, f::F, η::AbstractVector, args::Vararg{Any, N}) where {O, F, N}
   bc = Broadcast.instantiate(Broadcast.broadcasted(f, η, args...))
-  s = zero(T)
+  r = init
   @inbounds for i in eachindex(bc)
-    s += bc[i]
+    r = op(r, bc[i])
   end
-  s
+  r
+end
+_broadcast_sum(::Type{T}, f::F, η::AbstractVector, args::Vararg{Any, N}) where {T, F, N} =
+  _broadcast_reduce(+, zero(T), f, η, args...)
+
+# Σ mᵢ 2^eᵢ over the pairs (mᵢ, eᵢ) = f(η, args...)ᵢ, rounded once. The terms within
+# precision + 2 + ⌈log₂ n⌉ binades of the largest are added in its units, exactly
+# aligned; the smaller ones in the units of the largest of them, so that they survive
+# an exact cancellation of the large ones. A non-finite term gives the sum of the
+# non-finite terms (Inf, -Inf or NaN). Reductions only, for the device as well.
+function _pow2_broadcast_sum(::Type{T}, f::F, η::AbstractVector, args::Vararg{Any, N}) where {T, F, N}
+  nonfinite = _broadcast_reduce(+, zero(T), _PairNonfinite(f), η, args...)
+  iszero(nonfinite) || return nonfinite
+  E = _broadcast_reduce(max, typemin(Int), _PairExponent(f, typemax(Int)), η, args...)
+  E == typemin(Int) && return zero(T)
+  cut = E - (precision(T) + 2 + _log2_ceil(length(η)))
+  E2 = _broadcast_reduce(max, typemin(Int), _PairExponent(f, cut), η, args...)
+  big, small = _broadcast_reduce(_add_pair, (zero(T), zero(T)), _PairAligned(f, E, E2, cut), η, args...)
+  E2 == typemin(Int) && return ldexp(big, E)
+  mb, eb = frexp(big)
+  ms, es = frexp(small)
+  m, e = _pow2_add2(mb, eb + E, ms, es + E2)
+  ldexp(m, e)
+end
+@inline _add_pair(a::Tuple, b::Tuple) = (a[1] + b[1], a[2] + b[2])
+struct _PairNonfinite{F}
+  f::F
+end
+@inline (o::_PairNonfinite)(args...) = (m = o.f(args...)[1]; isfinite(m) ? zero(m) : m)
+# the exponent of a nonzero term below `below`, typemin(Int) otherwise
+struct _PairExponent{F}
+  f::F
+  below::Int
+end
+@inline (o::_PairExponent)(args...) = ((m, e) = o.f(args...); !iszero(m) & (e < o.below) ? e : typemin(Int))
+struct _PairAligned{F}
+  f::F
+  E::Int
+  E2::Int
+  cut::Int
+end
+@inline function (o::_PairAligned)(args...)
+  m, e = o.f(args...)
+  z = zero(m)
+  iszero(m) && return z, z
+  e >= o.cut ? (ldexp(m, e - o.E), z) : (z, ldexp(m, e - o.E2))
 end
 
 # the terms of one observation, for broadcasts: ordinary, and recovered
@@ -527,6 +577,13 @@ end
 _RecoveredValue{T}(loss::L, k) where {T, L} = _RecoveredValue{T, L}(loss, k)
 (o::_RecoveredValue{T})(η, ηs, y, w) where {T} =
   (w = convert(T, w); iszero(w) ? zero(T) : _recovered_value(o.loss, w, η, ηs, o.k, y, T))
+struct _RecoveredPair{T, L}
+  loss::L
+  k::Int
+end
+_RecoveredPair{T}(loss::L, k) where {T, L} = _RecoveredPair{T, L}(loss, k)
+(o::_RecoveredPair{T})(η, ηs, y, w) where {T} =
+  (w = convert(T, w); iszero(w) ? (zero(T), 0) : _recovered_pair(o.loss, w, η, ηs, o.k, y, T))
 struct _RecoveredDeriv{T, L}
   loss::L
   k::Int

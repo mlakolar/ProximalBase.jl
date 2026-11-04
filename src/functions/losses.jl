@@ -436,7 +436,10 @@ _lost_deriv(::SquaredHinge, v, η, y) = _below_normal(v) & !iszero(y) & (y * η 
   e = ey + ev + k
   ldexp(one(T), -e) - my * mv, e
 end
-_weighted_value(::SquaredHinge, w::T, ηs::T, k::Int, y::T) where {T} = _sqrhinge_value(w, _sqrhinge_margin(y, ηs, k)...)
+function _weighted_pair(::SquaredHinge, w::T, ηs::T, k::Int, y::T) where {T}
+  r, e = _sqrhinge_margin(y, ηs, k)
+  _pow2_pair(w, r, r, 2e)
+end
 _weighted_deriv(::SquaredHinge, w::T, ηs::T, k::Int, y::T) where {T} =
   -copysign(_sqrhinge_slope(y, w, _sqrhinge_margin(y, ηs, k)...), y)
 
@@ -490,12 +493,12 @@ _lost_deriv(::SmoothCheck, v, η, y) = _below_normal(v) & (η != y)
   u = ldexp(-m, e)
   -m, e, τ, h, (u >= h * τ ? 1 : u <= -h * (1 - τ) ? -1 : 0)
 end
-function _weighted_value(ℓ::SmoothCheck, w::T, ηs::T, k::Int, y::T) where {T}
+function _weighted_pair(ℓ::SmoothCheck, w::T, ηs::T, k::Int, y::T) where {T}
   m, e, τ, h, zone = _smoothcheck_parts(ℓ, ηs, k, y)
-  zone > 0 && return _scaled_product(w, τ, m - ldexp(h * τ / 2, -e), e)
-  zone < 0 && return _scaled_product(w, 1 - τ, -m - ldexp(h * (1 - τ) / 2, -e), e)
+  zone > 0 && return _pow2_pair(w, τ, m - ldexp(h * τ / 2, -e), e)
+  zone < 0 && return _pow2_pair(w, 1 - τ, -m - ldexp(h * (1 - τ) / 2, -e), e)
   mh, eh = frexp(h)
-  _scaled_product(w, m * m / (2mh), 2e - eh)
+  _pow2_pair(w, m * m / (2mh), 2e - eh)
 end
 function _weighted_deriv(ℓ::SmoothCheck, w::T, ηs::T, k::Int, y::T) where {T}
   m, e, τ, h, zone = _smoothcheck_parts(ℓ, ηs, k, y)
@@ -578,15 +581,15 @@ function _weighted_deriv(ℓ::ConvolutionCheck, w::T, ηs::T, k::Int, y::T) wher
   a, ea = _pow2_add2(frexp(-(τ - one(τ) / 2))..., b, eb)
   _scaled_product(w, a, ea)
 end
-function _weighted_value(ℓ::ConvolutionCheck, w::T, ηs::T, k::Int, y::T) where {T}
+function _weighted_pair(ℓ::ConvolutionCheck, w::T, ηs::T, k::Int, y::T) where {T}
   m, e = _residual_pow2(ηs, k, y)
   m = -m
   τ, h = convert(T, ℓ.τ), convert(T, ℓ.h)
   u = ldexp(m, e)
-  u >= h && return _scaled_product(w, τ, m, e)
-  u <= -h && return _scaled_product(w, τ - 1, m, e)
+  u >= h && return _pow2_pair(w, τ, m, e)
+  u <= -h && return _pow2_pair(w, τ - 1, m, e)
   ma, ea = _product_pow2(τ - one(τ) / 2, m)
   mh, eh = frexp(h)
   a, b = _pow2_add2(ma, ea + e, mh * _kernel_abs(ℓ, u / h)[1] / 2, eh)
-  _scaled_product(w, a, b)
+  _pow2_pair(w, a, b)
 end

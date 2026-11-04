@@ -204,25 +204,58 @@ end
 #  gradients
 ####################################
 
-# An argument is an array, or a tuple of blocks that are arrays or tuples (the product spaces of
-# SeparableSum). The blocks are visited one by one and never flattened.
-_check_blocks(x::AbstractArray) = nothing
-function _check_blocks(x::Tuple)
-  isempty(x) && throw(ArgumentError("test_gradient: a tuple argument needs at least one block"))
-  foreach(_check_blocks, x)
+function test_gradient(f, x::AbstractArray; h = nothing, rtol = nothing, atol = nothing, directions = 3,
+                       rng = nothing)
+  R = float(eltype(x))
+  c = cbrt(eps(R) / eps(Float64))
+  h === nothing && (h = 1e-6c)
+  rtol === nothing && (rtol = 1e-5c)
+  atol === nothing && (atol = 1e-6c)
+  g = gradient(f, x)
+  g2 = similar(g)
+  @test gradient!(g2, f, x) === g2
+  @test g2 ≈ g
+  g3 = similar(g)
+  v = value_and_gradient!(g3, f, x)
+  @test g3 ≈ g
+  @test v ≈ f(x)
+  v4, g4 = value_and_gradient(f, x)
+  @test v4 ≈ v && g4 ≈ g
+  xd = Array(x)
+  xp = similar(xd, float(eltype(x)))
+  xm = similar(xp)
+  for _ in 1:directions
+    d = _randn(rng, eltype(xp), size(xd)...)
+    xp .= xd .+ h .* d
+    xm .= xd .- h .* d
+    fp, fm = f(xp), f(xm)
+    fd = (fp - fm) / (2h)
+    round_err = 8 * eps(R) * max(abs(fp), abs(fm)) / (2h)
+    @test fd ≈ dot(g, d) rtol = rtol atol = max(atol * max(1, abs(fd)), round_err)
+  end
+  g
 end
-_check_blocks(x) = throw(ArgumentError("test_gradient: a block must be an array or a tuple of blocks, not a $(typeof(x))"))
+
+# A tuple argument holds arrays or nested tuples of arrays (the product spaces of SeparableSum), visited block by
+# block and never flattened. Its leaves share one floating type, which sets the same scale as for an array.
+# The type is found, and an unsupported argument rejected, before any oracle is called.
+_leaf_type(x::AbstractArray) = float(eltype(x))
+function _leaf_type(x::Tuple)
+  isempty(x) && throw(ArgumentError("test_gradient: a tuple argument needs at least one block"))
+  types = map(_leaf_type, x)
+  for T in types
+    T === types[1] || throw(ArgumentError(
+      "test_gradient requires tuple blocks with a common floating-point type; got $(types[1]) and $T"))
+  end
+  types[1]
+end
+_leaf_type(x) = throw(ArgumentError("test_gradient: a block must be an array or a tuple of blocks, not a $(typeof(x))"))
 
 # f(x, ys...) on the arrays of x and the matching arrays of ys, collected in the structure of x
 _mapblocks(f, x::AbstractArray, ys::AbstractArray...) = f(x, ys...)
 @generated function _mapblocks(f, x::Tuple, ys::Tuple...)
   ProximalBase._blocktuple(k -> :(_mapblocks(f, x[$k], $((:(ys[$j][$k]) for j in eachindex(ys))...))), fieldcount(x))
 end
-
-# the floating types of the blocks, and the one with the largest eps: the least precise block sets the scale of a tuple
-_float_types(x::AbstractArray) = [float(eltype(x))]
-_float_types(x::Tuple) = reduce(vcat, map(_float_types, x))
-_coarsest(types) = types[argmax(eps.(types))]
 
 # the same blocks, of the same sizes, and blockwise approximately equal
 _same_blocks(a::AbstractArray, b::AbstractArray) = size(a) == size(b)
@@ -231,42 +264,13 @@ _same_blocks(a, b) = false
 _approx(a::AbstractArray, b::AbstractArray) = a ≈ b
 _approx(a::Tuple, b::Tuple) = all(map(_approx, a, b))
 _agree(a, b) = _same_blocks(a, b) && _approx(a, b)
-# the values: with isapprox's default tolerance, or rtol
-_close(a, b, rtol) = rtol === nothing ? isapprox(a, b) : isapprox(a, b; rtol)
 
-# A random direction of the blocks of the float type only (of all blocks when only is nothing), zero elsewhere.
-_direction(rng, a::AbstractArray, only) =
-  only === nothing || eltype(a) === only ? _randn(rng, eltype(a), size(a)...) : zero(a)
-
-# Central differences of f at x along random directions of the blocks of type R, against the inner products with g.
-# The scale of h, rtol and atol and the rounding allowance follow R; the other blocks stay at x, where f(x ± hd) share their terms.
-function _check_directional(f, x, g, R, only; h, rtol, atol, directions, rng)
+function test_gradient(f, x::Tuple; h = nothing, rtol = nothing, atol = nothing, directions = 3, rng = nothing)
+  R = _leaf_type(x)
   c = cbrt(eps(R) / eps(Float64))
   h === nothing && (h = 1e-6c)
   rtol === nothing && (rtol = 1e-5c)
   atol === nothing && (atol = 1e-6c)
-  xd = _mapblocks(Array, x)
-  xp = _mapblocks((a) -> similar(a, float(eltype(a))), xd)
-  xm = _mapblocks(similar, xp)
-  for _ in 1:directions
-    d = _mapblocks(a -> _direction(rng, a, only), xp)
-    _mapblocks((p, a, e) -> (p .= a .+ h .* e), xp, xd, d)
-    _mapblocks((m, a, e) -> (m .= a .- h .* e), xm, xd, d)
-    fp, fm = f(xp), f(xm)
-    fd = (fp - fm) / (2h)
-    round_err = 8 * eps(R) * max(abs(fp), abs(fm)) / (2h)
-    @test fd ≈ ProximalBase._tuple_dot(g, d) rtol = rtol atol = max(atol * max(1, abs(fd)), round_err)
-  end
-  nothing
-end
-
-function test_gradient(f, x::Union{AbstractArray, Tuple}; h = nothing, rtol = nothing, atol = nothing, directions = 3,
-                       rng = nothing)
-  _check_blocks(x)
-  types = unique(_float_types(x))
-  R = _coarsest(types)
-  # the value adds the blocks: compare it at the precision of the least precise one (the default for the array's own type)
-  vtol = x isa Tuple ? sqrt(eps(R)) : nothing
   g = gradient(f, x)
   ok = _same_blocks(g, x)
   @test ok
@@ -277,13 +281,20 @@ function test_gradient(f, x::Union{AbstractArray, Tuple}; h = nothing, rtol = no
   g3 = _mapblocks(similar, g)
   v = value_and_gradient!(g3, f, x)
   @test _agree(g3, g)
-  @test _close(v, f(x), vtol)
+  @test v ≈ f(x)
   v4, g4 = value_and_gradient(f, x)
-  @test _close(v4, v, vtol) && _agree(g4, g)
-  _check_directional(f, x, g, R, nothing; h, rtol, atol, directions, rng)
-  # mixed precision: each type is also checked on its own blocks, at its own scale
-  length(types) > 1 && for T in types
-    _check_directional(f, x, g, T, T; h, rtol, atol, directions, rng)
+  @test v4 ≈ v && _agree(g4, g)
+  xd = _mapblocks(Array, x)
+  xp = _mapblocks(a -> similar(a, float(eltype(a))), xd)
+  xm = _mapblocks(similar, xp)
+  for _ in 1:directions
+    d = _mapblocks(a -> _randn(rng, eltype(a), size(a)...), xp)
+    _mapblocks((p, a, e) -> (p .= a .+ h .* e), xp, xd, d)
+    _mapblocks((m, a, e) -> (m .= a .- h .* e), xm, xd, d)
+    fp, fm = f(xp), f(xm)
+    fd = (fp - fm) / (2h)
+    round_err = 8 * eps(R) * max(abs(fp), abs(fm)) / (2h)
+    @test fd ≈ ProximalBase._tuple_dot(g, d) rtol = rtol atol = max(atol * max(1, abs(fd)), round_err)
   end
   g
 end

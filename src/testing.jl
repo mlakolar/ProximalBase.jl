@@ -94,17 +94,14 @@ relative to the directional derivatives, because the comparison allows the
 finite difference's rounding error. Increasing `directions` raises the chance
 of detecting it.
 
-**Tuples.** `x` may be a tuple of arrays or nested tuples (as for
-`SeparableSum`); scalars are rejected. A direction holds a random array per
-block, drawn from `rng` in block order; the finite difference moves every block
-along its part and is compared with the sum of the blockwise inner products. The
-gradient must match `x` in structure.
-
-If the blocks differ in precision, the least precise one, `R`, sets the scale: the
-defaults and rounding allowance are those of `R` (Float32 blocks never get the
-Float64 step), and values are compared at `rtol = sqrt(eps(R))`. That hides an
-error in a Float64 block, so each precision is also checked alone, along
-directions that vanish elsewhere, with its own defaults. Keywords apply to all passes.
+**Tuples.** `x` may be a tuple of arrays or nested tuples (as for `SeparableSum`),
+of different shapes but one floating type: `float(eltype(block))` must agree for
+all blocks, so mixing Float32 and Float64 blocks throws an `ArgumentError`
+before `f` is called. Model data and parameters may have other types. One
+random direction, an array per block drawn from `rng` in block order, moves all
+blocks; the difference is compared with the sum of the blockwise inner
+products, with the defaults of an array of that type. Scalars and empty tuples
+are rejected.
 """
 function test_gradient end
 

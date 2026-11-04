@@ -198,14 +198,38 @@ PB.issmooth(::Type{WrongStructure}) = true
 (::WrongStructure)(x::Tuple) = sum(b -> sum(abs2, b), x) / 2
 PB.gradient(::WrongStructure, x::Tuple) = Base.front(x)
 
-struct Recorder{F<:AbstractFunction} <: AbstractFunction  # f, with the points where f was evaluated
+struct WrongReturnedValue{F<:AbstractFunction} <: AbstractFunction   # f; value_and_gradient! returns f(x) + δ
+  f::F
+  δ::Float64
+end
+PB.issmooth(::Type{<:WrongReturnedValue}) = true
+(w::WrongReturnedValue)(x) = w.f(x)
+PB.value_and_gradient!(g::Tuple, w::WrongReturnedValue, x::Tuple) = value_and_gradient!(g, w.f, x) + w.δ
+
+struct Coupled{T<:Real} <: AbstractFunction            # ‖A x₁ + B x₂ - y‖²/2: the two blocks share one residual
+  A::Matrix{T}
+  B::Matrix{T}
+  y::Vector{T}
+end
+PB.issmooth(::Type{<:Coupled}) = true
+_residual(f::Coupled, x::Tuple) = f.A * x[1] .+ f.B * x[2] .- f.y
+(f::Coupled)(x::Tuple) = sum(abs2, _residual(f, x)) / 2
+function PB.value_and_gradient!(g::Tuple, f::Coupled, x::Tuple)
+  r = _residual(f, x)
+  g[1] .= f.A' * r
+  g[2] .= f.B' * r
+  sum(abs2, r) / 2
+end
+
+struct Recorder{F<:AbstractFunction} <: AbstractFunction  # f, with the points where f and its gradient were evaluated
   f::F
   points::Vector{Any}
+  gradients::Base.RefValue{Int}
 end
-Recorder(f) = Recorder(f, Any[])
+Recorder(f) = Recorder(f, Any[], Ref(0))
 PB.issmooth(::Type{<:Recorder}) = true
 (r::Recorder)(x) = (push!(r.points, deepcopy(x)); r.f(x))
-PB.value_and_gradient!(g, r::Recorder, x) = value_and_gradient!(g, r.f, x)
+PB.value_and_gradient!(g, r::Recorder, x) = (r.gradients[] += 1; value_and_gradient!(g, r.f, x))
 
 @testset "ProximalBase.Testing" begin
   x = 2 .* randn(12)
@@ -475,18 +499,40 @@ PB.value_and_gradient!(g, r::Recorder, x) = value_and_gradient!(g, r.f, x)
     @testset "precisions" begin
       g32 = PT.test_gradient(s, (Float32[1, 2], Float32[3]))
       @test g32 isa Tuple{Vector{Float32}, Vector{Float32}} && g32 == (Float32[1, 2], Float32[6])
-      for x in ((Float32[1, 2], [3.0]), ([1.0, 2.0], Float32[3]))
-        @test map(eltype, PT.test_gradient(s, x)) == map(eltype, x)
-        @test passes(() -> PT.test_gradient(s, x; rng = Xoshiro(1)))
-      end
-      # smooth losses that are not quadratic, over seeds, in each combination of precisions: no spurious failures
-      for T1 in (Float32, Float64), T2 in (Float32, Float64), seed in 1:20
+      # smooth losses that are not quadratic, over seeds: no spurious failures
+      for T in (Float32, Float64), seed in 1:20
         Random.seed!(seed)
-        X1, X2 = randn(T1, 50, 5), randn(T2, 40, 4)
-        f = SeparableSum(LogisticLoss(T1.(rand(50) .< 0.5), X1), LeastSquaresLoss(randn(T2, 40), X2))
-        β = (randn(T1, 5) ./ 10, randn(T2, 4) ./ 10)
+        X1, X2 = randn(T, 50, 5), randn(T, 40, 4)
+        f = SeparableSum(LogisticLoss(T.(rand(50) .< 0.5), X1), LeastSquaresLoss(randn(T, 40), X2))
+        β = (randn(T, 5) ./ 10, randn(T, 4) ./ 10)
         @test passes(() -> PT.test_gradient(f, β))
         @test passes(() -> PT.test_gradient(f, β; atol = 0.0))
+      end
+      # model data of another precision than the variables is supported: Float64 data, Float32 blocks
+      for seed in 1:20
+        Random.seed!(seed)
+        X1, X2 = randn(50, 5), randn(40, 4)
+        f = SeparableSum(LogisticLoss(Float64.(rand(50) .< 0.5), X1), LeastSquaresLoss(randn(40), X2))
+        β = (randn(Float32, 5) ./ 10, randn(Float32, 4) ./ 10)
+        @test passes(() -> PT.test_gradient(f, β))
+        gβ = PT.test_gradient(f, β)
+        @test gβ isa Tuple{Vector{Float32}, Vector{Float32}}
+        c = Coupled(randn(30, 5), randn(30, 4), randn(30))
+        @test passes(() -> PT.test_gradient(c, β))
+        @test passes(() -> PT.test_gradient(c, map(b -> Float64.(b), β)))
+      end
+    end
+
+    @testset "coupled blocks" begin
+      for T in (Float32, Float64)
+        Random.seed!(2)
+        c = Coupled(randn(T, 30, 5), randn(T, 30, 4), randn(T, 30))
+        xc = (randn(T, 5), randn(T, 4))
+        @test passes(() -> PT.test_gradient(c, xc))
+        gc = PT.test_gradient(c, xc)
+        r = c.A * xc[1] .+ c.B * xc[2] .- c.y             # the analytic gradient
+        @test gc[1] ≈ c.A' * r && gc[2] ≈ c.B' * r
+        @test gc isa Tuple{Vector{T}, Vector{T}}
       end
     end
 
@@ -524,27 +570,16 @@ PB.value_and_gradient!(g, r::Recorder, x) = value_and_gradient!(g, r.f, x)
       rng = Xoshiro(1)
       d = (randn(rng, 2), randn(rng, 1))
       @test (moved[1][2] .- xt[2]) ./ d[2] ≈ [1e-6] rtol = 1e-6
-      # in a mixed tuple, the default step follows the least precise block…
+      # a Float32 tuple takes the scale of a Float32 array: one check per direction
       h32 = 1e-6 * cbrt(eps(Float32) / eps(Float64))
-      rm = Recorder(s)
-      xmix = (Float32[1, 2], [3.0])
-      PT.test_gradient(rm, xmix; rng = Xoshiro(1))
-      moved = filter(!=(xmix), rm.points)
-      @test length(moved) == 2 * 3 * (1 + 2)          # all blocks, then the blocks of each precision alone
+      x32 = (Float32[1, 2], Float32[3])
+      r32 = Recorder(s)
+      PT.test_gradient(r32, x32; rng = Xoshiro(1))
+      moved = filter(!=(x32), r32.points)
+      @test length(moved) == 2 * 3
       rng = Xoshiro(1)
-      d = [(randn(rng, Float32, 2), randn(rng, Float64, 1)) for _ in 1:3]
-      @test (moved[1][2] .- xmix[2]) ./ d[1][2] ≈ [h32] rtol = 1e-6
-      @test (moved[1][1] .- xmix[1]) ./ d[1][1] ≈ fill(Float32(h32), 2) rtol = 1e-2
-      # …while the blocks of the finer precision, checked alone, get the step of their own precision
-      for _ in 1:3
-        randn(rng, Float32, 2)                        # the Float32 blocks alone
-      end
-      alone = filter(p -> p[1] == xmix[1], moved)
-      @test length(alone) == 2 * 3
-      for k in 1:3
-        e = randn(rng, Float64, 1)
-        @test (alone[2k-1][2] .- xmix[2]) ./ e ≈ [1e-6] rtol = 1e-6
-      end
+      d = (randn(rng, Float32, 2), randn(rng, Float32, 1))
+      @test all(map((p, b, e) -> isapprox((p .- b) ./ e, fill(Float32(h32), length(b)); rtol = 1e-2), moved[1], x32, d))
     end
 
     @testset "keywords" begin
@@ -564,6 +599,29 @@ PB.value_and_gradient!(g, r::Recorder, x) = value_and_gradient!(g, r.f, x)
       @test_throws ArgumentError PT.test_gradient(s, ())
       @test_throws ArgumentError PT.test_gradient(s, ((), [1.0]))
       @test_throws MethodError PT.test_gradient(s, (a = [1.0], b = [2.0]))
+    end
+
+    @testset "blocks of different precisions are rejected before f is called" begin
+      n = SeparableSum(SeparableSum(SqrNormL2(), SqrNormL2(2)), SqrNormL2(3))
+      cases = [(s, (Float32[1, 2], Float64[3])), (s, (Float64[1, 2], Float32[3])),
+               (s, (Float16[1, 2], Float32[3])), (s, (Int[1, 2], Float32[3])),
+               (n, ((Float64[1, 2], Float32[3]), Float64[4])), (n, ((Float64[1, 2], Float64[3]), Float32[4])),
+               (n, ((Float32[1, 2], Float32[3]), Float64[4]))]
+      for (f, x) in cases
+        r = Recorder(f)
+        @test_throws ArgumentError PT.test_gradient(r, x)
+        @test isempty(r.points) && r.gradients[] == 0
+      end
+      err = try
+        PT.test_gradient(s, (Float32[1, 2], Float64[3]))
+      catch e
+        e
+      end
+      @test err isa ArgumentError
+      @test err.msg == "test_gradient requires tuple blocks with a common floating-point type; got Float32 and Float64"
+      # the type is float(eltype), as for an array: integer and Float64 blocks share Float64
+      @test passes(() -> PT.test_gradient(s, ([1, 2], [3.0])))
+      @test passes(() -> PT.test_gradient(s, ([1, 2], [3])))
     end
   end
 
@@ -593,18 +651,26 @@ PB.value_and_gradient!(g, r::Recorder, x) = value_and_gradient!(g, r.f, x)
                                               directions = 10, rng = Xoshiro(seed)))
       end
     end
-    @testset "mixed precision" begin
-      # an error of 0.1% in the Float64 block is found although the other block is Float32
-      for T1 in (Float32, Float64), T2 in (Float32, Float64), seed in 1:20
-        T1 == T2 == Float32 && continue
+    @testset "wrong returned value" begin
+      # a correct gradient with a returned value that is 1e-4 off: the value of s at these points is 0.5
+      sv = SeparableSum(SqrNormL2(), SqrNormL2())
+      for x in (([1.0], [0.0]), ([0.0], [1.0]), ([sqrt(0.5), sqrt(0.5)], [0.0]), ([0.0], [0.0, 1.0]))
+        @test sv(x) ≈ 0.5
+        @test passes(() -> PT.test_gradient(WrongReturnedValue(sv, 0.0), x))
+        @test detected(() -> PT.test_gradient(WrongReturnedValue(sv, 1e-4), x))
+        @test detected(() -> PT.test_gradient(WrongReturnedValue(sv, -1e-4), x))
+      end
+      # in Float32 the tolerance is that of a Float32 array: sqrt(eps(Float32)) ≈ 3.4e-4
+      x32 = (Float32[1], Float32[0])
+      @test passes(() -> PT.test_gradient(WrongReturnedValue(sv, 0.0), x32))
+      @test detected(() -> PT.test_gradient(WrongReturnedValue(sv, 1e-2), x32))
+    end
+    @testset "coupled blocks" begin
+      for seed in 1:20, (T, ε, directions) in ((Float64, 0.01, 3), (Float32, 0.2, 10)), k in 1:2
         Random.seed!(seed)
-        X1, X2 = randn(T1, 50, 5), randn(T2, 40, 4)
-        f = SeparableSum(LogisticLoss(T1.(rand(50) .< 0.5), X1), LeastSquaresLoss(randn(T2, 40), X2))
-        β = (randn(T1, 5) ./ 10, randn(T2, 4) ./ 10)
-        for k in 1:2
-          ε = (T1, T2)[k] == Float64 ? 1e-3 : 0.1
-          @test detected(() -> PT.test_gradient(BlockBiased(f, (k,), ε), β; directions = 10, rng = Xoshiro(seed)))
-        end
+        c = Coupled(randn(T, 30, 5), randn(T, 30, 4), randn(T, 30))
+        xc = (randn(T, 5), randn(T, 4))
+        @test detected(() -> PT.test_gradient(BlockBiased(c, (k,), ε), xc; directions, rng = Xoshiro(seed)))
       end
     end
     @testset "interfaces and structure" begin

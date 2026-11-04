@@ -75,15 +75,17 @@ with open(f"{OUT}/items.tsv", "w") as f:
 
 with open(f"{OUT}/clusters.tsv", "w") as f:
     h = ["cluster", "classification", "lim_id", "title", "contract_rule", "owner_issue", "source_items",
-         "candidates", "evidence", "reason"]
+         "candidates", "tests_and_fixes", "probe", "observed_1.13", "observed_1.10", "reason"]
     f.write("\t".join(h) + "\n")
     for cid in sorted(clusters, key=lambda k: (k.split("-")[0], int(re.sub(r"\D", "", k.split("-")[1]) or 0))):
         c = clusters[cid]
         ev = c.get("evidence", {}) or {}
         evs = "; ".join(x for x in [", ".join(ev.get("test_refs", []) or []), ", ".join(ev.get("fix_refs", []) or [])] if x)
+        # the verifier's probe and what it printed, without the scratch paths
+        obs = [clean(ev.get(k)).replace(f"{A}/verify/", "")[:400] for k in ("reproducer", "output_113", "output_110")]
         f.write("\t".join(clean(x) for x in [cid, c["classification"], c.get("lim_id", ""), c["title"],
                 c.get("contract_rule", ""), c.get("owner_issue") or "", " ".join(f"#{s}" for s in c.get("source_items", [])),
-                " ".join(c["candidate_ids"]), evs[:300], c.get("classification_reason", "")[:400]]) + "\n")
+                " ".join(c["candidate_ids"]), evs[:300], *obs, c.get("classification_reason", "")[:400]]) + "\n")
 
 cc = Counter(c["classification"] for c in clusters.values())
 cand_cc = Counter(clusters[cmap[c]]["classification"] for c in cands if c in cmap and cmap[c] in clusters)

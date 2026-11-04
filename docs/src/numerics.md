@@ -787,16 +787,19 @@ Neither is a numerical bug.
    remain valid. There is no rollback.
 
 In a sum over blocks, slices or fibers (`SeparableSum`, `SliceSum`, `FiberSum`),
-only the failures of kind 1 that the functions check before writing are
-detected before the first block is written. A later block's failure of kind 2, 3
-or 4, such as `Conjugate`'s check that a finite input gave a finite result, is
-found by computing, and leaves the earlier blocks written.
+"before writing" means before the first block is written: a later block's
+failure of kind 1, 2 or 3 leaves every block unchanged. A later block's failure
+of kind 4 can leave the earlier blocks written, as item 4 says.
 
-*Implementation status (not part of the contract).* The failures that do not
-yet behave as O6 states, and the open question of how the paragraph above
-relates to decision 42, are listed in the
+*Implementation status (not part of the contract).* Not every block failure is
+detected before the first block is written yet. A later block's infeasibility
+found during a search, `Conjugate`'s check that a finite input gave a finite
+result, a block without a proximal operator, and a failed conversion into a
+`Conjugate` block's destination are found by computing, and leave the earlier
+blocks written. These are implementation gaps, not exceptions to O6. They are
+listed, with the other failures that do not yet behave as O6 states, in the
 [register of known limitations](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/numerical-contract/known-limitations.md)
-(question Q1 and entries LIM-001 to LIM-012).
+(entries LIM-001 to LIM-012).
 
 A prescribed NaN result is a result, not a failure.
 

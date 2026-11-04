@@ -4,6 +4,10 @@ This folder records how [`known-limitations.md`](../known-limitations.md) was
 built: every closed issue and pull request of ProximalBase.jl was read for
 limitations it reported, and each one was checked against the current
 `master`. The register holds the current facts; this folder holds the trail.
+The classifications in the index files are those of the audit at `920ebece`,
+with the corrections listed under
+[After the review of #558](#after-the-review-of-558-2026-11-04); later fixes
+change the register, not the index.
 
 ## Baseline
 
@@ -25,15 +29,16 @@ limitations it reported, and each one was checked against the current
 | items that reported at least one residual limitation | 322 of 429 |
 | candidate limitations extracted | 749 |
 | candidates merged as duplicates within a theme | 252 (749 → 497 behaviors) |
-| confirmed behaviors merged into register entries | 122 of 123 (112 from the history, 11 found while verifying them) → 80 entries; the 123rd is an allocation cost (#381), kept in the index |
+| confirmed behaviors merged into register entries | 122 of 123 (112 from the history, 11 found while verifying them) → 80 entries; the 123rd is an allocation cost (#381), kept in the index. The review of #558 added a 124th, also an allocation cost (P7-26, below) |
 
 Final classification, by behavior (497 from the history, plus 17 found
-while verifying them or from the #556 seed list):
+while verifying them or from the #556 seed list), after the one correction of
+the review (P7-26, from fixed to confirmed):
 
 | classification | behaviors | candidates |
 |:---|---:|---:|
-| fixed (verified on `master`) | 148 | 254 |
-| confirmed current limitation | 123 | 145 |
+| fixed (verified on `master`) | 147 | 253 |
+| confirmed current limitation | 124 | 146 |
 | conforms (not a limitation under the current contract) | 105 | 126 |
 | intentionally unsupported | 53 | 81 |
 | unverified | 53 | 77 |
@@ -42,9 +47,12 @@ while verifying them or from the #556 seed list):
 | duplicate | 4 | 4 |
 | out of scope (infrastructure, process) | 6 | 27 |
 
-The register's active sections hold 80 contract gaps (122 confirmed
-behaviors), 7 approved limitations (8 behaviors) and 21 unverified entries
-(26 behaviors). The other 27 unverified behaviors are performance claims not
+At the audit, the register's active sections held 80 contract gaps (122
+confirmed behaviors), 7 approved limitations (8 behaviors) and 21 unverified
+entries (26 behaviors). After the review it holds 80 contract gaps (119
+behaviors: LIM-034 was fixed by #549, LIM-079 became a housekeeping item, and
+LIM-048 was split into three entries), 1 housekeeping item, 7 approved
+limitations and 21 unverified entries. The other 27 unverified behaviors are performance claims not
 re-measured, conformance-suite aggregates, downstream behavior or maintenance
 risks; they are in `clusters.tsv` with their owners, not in the register. The
 other 7 approved behaviors are accepted performance costs recorded on their
@@ -58,8 +66,8 @@ merge.
 |:---|:---|
 | `items.tsv` | one row per closed issue and pull request (429): number, kind, title, URL, closed date, closing reason (merged, closed unmerged, completed, not planned, and the closing PR or commit), related items, whether it reported a residual, fixes named in its discussion, what it did, the audit disposition, and its behavior clusters |
 | `candidates.tsv` | one row per extracted candidate (749): its first source (comment or review URL), category, status in its own thread, cluster, final classification and register ID |
-| `clusters.tsv` | one row per behavior (514): classification, register ID, title, contract rule, owner, source items, candidates, tests and fixes cited, and the reason for the classification |
-| `reproduce-active.jl` | the reproducer of every active register entry; prints `PRESENT`, `ABSENT` or `ERROR` |
+| `clusters.tsv` | one row per behavior (514): classification, register ID, title, contract rule, owner (the register's owner for every behavior in an entry), source items, candidates, tests and fixes cited, the verifier's probe and what it printed on each Julia version, and the reason for the classification |
+| `reproduce-active.jl` | one case per behavior of every active register entry (555 cases), tagged with the entry and its `clusters.tsv` row, each deciding the limitation and the contract behavior with exact predicates; prints `PRESENT`, `FIXED`, `CHANGED`, `ERROR` or `SKIPPED`, and a summary per entry. A last section rechecks the fixed claims whose index row cited no test or pull request |
 | `method/` | the fetch commands (`fetch.sh`), the GraphQL and bundling scripts, the two briefs the extraction and verification agents followed, and `build_index.py`, which wrote the three TSV files |
 
 ## Method
@@ -94,11 +102,12 @@ merge.
 5. **Consolidation and independent recheck.** The coordinator merged
    duplicates across themes into register entries, chose one owner per entry
    (the most specific open issue, otherwise a #366 group tracker), checked a
-   random sample of fixed classifications, and wrote `reproduce-active.jl`.
-   Its run at the baseline prints `PRESENT` for all 79 runnable checks on
-   Julia 1.13 (with JLArrays) and all 75 runnable ones on 1.10 (device checks
-   skipped). LIM-072 rests on four `@test_broken` rows that are still broken in the
-   full test run.
+   random sample of fixed classifications, and wrote a first
+   `reproduce-active.jl` with one check per entry. Its run at the baseline
+   printed `PRESENT` for all 79 runnable checks on Julia 1.13 (with JLArrays)
+   and all 75 runnable ones on 1.10 (device checks skipped). LIM-072 rests on
+   four `@test_broken` rows that are still broken in the full test run. The
+   review of #558 replaced that script (below).
 
 ## The seed cases of #556
 
@@ -114,8 +123,10 @@ merge.
 
 ## Contradictions found in the current code and docs
 
-- **Contract text.** The O6 block-sum paragraph added by #543 has no
-  **Decided** line and conflicts with decision 42 and S4 (register, Q1). The
+- **Contract text.** The O6 block-sum paragraph added by #543 had no
+  **Decided** line and conflicted with decision 42 and S4 (register, Q1). The
+  maintainer's review of #558 kept decision 42, and #558 rewrote the paragraph
+  with the current behavior as an implementation-status note. The
   `PrecisionError` docstring says no function raises it, while O6.3, A3 and
   decisions 18 and 42 send uncertifiable and unrepresentable results to it;
   the `Conjugate` check raises `ArgumentError` instead.
@@ -154,10 +165,12 @@ merge.
   ones(1, 2)), IndBox(0, 1))` accepts a center of the wrong shape in `prox!`
   but not in `value_and_prox!` (related to LIM-065, #312).
 - **Gaps with no specific owner** (owned for now by a #366 group tracker):
-  LIM-007, LIM-008, LIM-012, LIM-021, LIM-036, LIM-037, LIM-043, LIM-044,
-  LIM-047 to LIM-049, LIM-052 to LIM-054, LIM-058. LIM-048 (NaN turned into
-  finite values by `NormL0`, `IndBallL0`, `LogPenalty`, `CheckLoss`,
-  `HingeLoss`, `SLOPE`, `NormL1Fused`, `IndIsotonic`) is not listed in #366.
+  LIM-007, LIM-008, LIM-012, LIM-036, LIM-037, LIM-043, LIM-044, LIM-049,
+  LIM-052 to LIM-054, LIM-058. LIM-048 (NaN turned into finite values by
+  `NormL0`, `IndBallL0`, `LogPenalty`, `CheckLoss`, `HingeLoss`, `SLOPE`,
+  `NormL1Fused`, `IndIsotonic`) was not listed in #366. After the audit the
+  maintainer opened #559 (LIM-047), #560–#562 (LIM-048, split into LIM-048a,
+  LIM-048b, LIM-048c), #563 (LIM-021), #564 (LIM-059) and #565 (LIM-045).
 - **Stale or closable issues:** #307 reproduces as fixed; #239's remaining
   scope is closed; #313 can only be triggered with `Float16` data, which T6
   excludes.
@@ -173,10 +186,18 @@ merge.
 ## Limits of this audit
 
 - Extraction and verification were done by agents following the briefs in
-  `method/`; the coordinator re-ran every active reproducer and spot-checked
-  the fixed classifications, but not every one of the 148 fixed behaviors was
-  re-derived by hand. A fixed classification rests on a current probe or a
-  named passing test, and the full suite passed on both Julia versions.
+  `method/`. The fixed, conforms, intentionally-unsupported and obsolete
+  classifications are the verifiers' recorded judgments at `920ebece`: each
+  rests on a named passing test or fixing pull request, or on the probe and
+  output recorded in `clusters.tsv`. The agents' working files (the per-item
+  extraction records and per-theme verification records that
+  `method/build_index.py` reads, and their probe scripts, about 3 MB) are not
+  committed, so `build_index.py` cannot regenerate the index from this folder
+  alone; `method/fetch.sh` re-creates only the raw inventory. The confirmed
+  behaviors of the register are re-runnable: every one has cases in
+  `reproduce-active.jl`. Not every one of the 147 fixed behaviors was
+  re-derived by hand; the coordinator spot-checked a sample, and the review
+  rechecked the eight whose row cited no test or pull request (one was wrong).
 - No GPU hardware: device results are JLArrays results (LIM-088).
 - Performance claims were not re-measured on controlled hardware; they are
   listed in `clusters.tsv` as unverified, approved (with the sign-off), or
@@ -193,5 +214,57 @@ julia --project=. docs/design/numerical-contract/audit-2026-11-03/reproduce-acti
 
 A later audit can extract from the new items only (compare `items.tsv` with
 a new inventory), re-run `reproduce-active.jl` against the new `master`, and
-move every entry that prints `ABSENT` to "Resolved since the audit" after
-confirming the fix.
+look at every case that does not print `PRESENT`: an entry moves to
+"Resolved since the audit" when all its cases print `FIXED` and a regression
+test pins the fix; a case that prints `CHANGED` means the entry's text no
+longer describes the behavior.
+
+## After the review of #558 (2026-11-04)
+
+The [maintainer's review](https://github.com/mlakolar/ProximalBase.jl/pull/558#pullrequestreview-5769915868)
+and the [issues opened from the audit](https://github.com/mlakolar/ProximalBase.jl/pull/558#issuecomment-6631872220)
+led to these changes:
+
+- **Recheck on the new `master`.** `master` moved to `f9030a64` (#553, #549).
+  The audit itself stays at `920ebece`; the register's active status was
+  rechecked at `f9030a64` on Julia 1.13.3 and 1.10.12.
+- **A reproducer per behavior.** The first script had one check per entry,
+  joined distinct failures with `||`, counted any exception as proof in
+  places, and returned `true` unconditionally for LIM-013. It was replaced by
+  555 cases, one per behavior the register claims, each with an exact
+  predicate for the limitation (`PRESENT`) and one for the contract behavior
+  (`FIXED`); anything else prints `CHANGED`. At `f9030a64` every case of
+  every active entry prints `PRESENT`: 554 on Julia 1.13.3 (37 of them device
+  cases with JLArrays) and the 517 CPU cases on 1.10.12; LIM-072 is skipped
+  with its `@test_broken` pointer.
+- **Resolved.** LIM-034 (nested `Scaled` becoming `ZeroFunction`) was fixed by
+  #549; its seven cases printed `FIXED` before they were removed.
+- **Corrections found by the cases.** Several entries described more or less
+  than `master` does. LIM-016 does not fail for `IndHyperslab` in P3's example
+  but does fail at huge scalar steps (`1e300` after a call at `γ = 1` on the
+  same object, through the warm-started multiplier search, and `1e308`);
+  LIM-060's device `value_and_prox!` already rejects bad steps; LIM-052 does not
+  apply to `EpsInsensitiveLoss` nor LIM-058 to `BernoulliLoss`; LIM-074's loop
+  over `x[i, j]` is defined under the approved design, and the entry now shows
+  the position-based surface instead; LIM-014, LIM-017, LIM-019, LIM-038,
+  LIM-043, LIM-069 and others had numbers or families corrected, among them
+  figures that came from random data.
+- **Classification.** P7-26 had been classified fixed on a probe of
+  `Constrained(NormL2, IndBallL2)` only; `Constrained(GroupNormLinf,
+  IndBallL2)` still allocates 160 B per call on its overflow path (at
+  `920ebece` too), so it is now confirmed, an allocation cost kept in the
+  index. The other seven fixed rows without a cited test or pull request hold
+  (cases in the last section of `reproduce-active.jl`). LIM-079 moved to
+  housekeeping (no contract rule); LIM-086 now cites decision 15.
+- **Owners.** LIM-047 → #559, LIM-048 → split into LIM-048a (#560), LIM-048b
+  (#561) and LIM-048c (#562), LIM-021 → #563, LIM-059 → #564, LIM-045 → #565.
+  In `clusters.tsv`, every behavior of a register entry now carries the
+  entry's owner (19 rows changed, seven of which had no owner); P7-26 is owned by #366.
+- **Q1.** Decided in the review: decision 42 stands. #558 rewrites the O6
+  block-sum paragraph of `numerics.md` so that it no longer contradicts it,
+  and marks the current behavior as an implementation gap. Q2 and Q3 stay
+  open; the release impacts in the register are proposals.
+- **Index files.** The corrections above were applied to the three TSV files
+  by hand. `clusters.tsv` gained the verifier's probe and its output on each
+  Julia version, so that every row shows what was run, not only the tests and
+  pull requests it cites.

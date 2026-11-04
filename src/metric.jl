@@ -236,16 +236,39 @@ _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
 end
 @inline _array_route(s::Scaled, x, γ::AbstractArray) = _chained(s) || _wide_scale(s, x, γ)
 
-# The function and the steps that a proximal operator gets for the factors a and the step γ:
-# - `:folded`: the whole factor goes into the levels of the function, which must stay normal numbers,
-#   and the steps are the caller's array. The function forms the coefficient of an entry from the
-#   level, the weight and the step without a product that leaves the range, and its value is the
-#   value of the chain.
-# - `:rounded`: no level can be folded. A function with no level to fold takes each step multiplied
-#   by the factors with the exponent applied last, rounded into the step's type.
+# The function and the steps that a proximal operator gets for the factors a and the step γ, and how
+# they relate to the chain:
+# - `:folded`: the whole factor goes into the levels of the function and the steps are the caller's
+#   array. The function forms the coefficient of an entry from the level, the weight and the step
+#   without a product that leaves the range, and its value is the value of the chain.
+# - `:shifted`: the levels do not hold the whole factor (its product with them is not a normal
+#   number), so a power of two 2^k is moved from the steps into the levels, with k centring the
+#   exponents of the entries of γ. This reads γ once, and only here, never on an ordinary call.
+#   The value of the function is 2^k times too large for the chain.
+# - `:rounded`: no level can be folded, or the shifted levels or entries still leave the range. A
+#   function with no level to fold takes each step multiplied by the factors with the exponent
+#   applied last, rounded into the step's type.
 function _array_fold(f, a, γ)
   g = _fold_level(f, _NormalScale(a))
-  g === nothing ? (f, _ExpScaledArray(γ, a), :rounded) : (g, γ, :folded)
+  g === nothing || return g, γ, :folded
+  shifted = _shifted_fold(f, a, γ)
+  shifted === nothing ? (f, _ExpScaledArray(γ, a), :rounded) : (shifted..., :shifted)
+end
+function _shifted_fold(f, a::_ProjectionScale, γ::AbstractArray)
+  S = promote_type(float(eltype(γ)), typeof(a.m))
+  positive(g) = g > 0 && isfinite(g)
+  hi = maximum(g -> positive(g) ? exponent(float(g)) : typemin(Int), γ)
+  lo = minimum(g -> positive(g) ? exponent(float(g)) : typemax(Int), γ)
+  lo > hi && return nothing       # no positive finite entry
+  # the shifts that keep every positive entry in the range; the one that centres them is tried
+  # first, then the extremes, for a level that needs to be raised or lowered by as much as they allow
+  kmin, kmax = hi - exponent(floatmax(S)), lo - exponent(floatmin(S))
+  kmin > kmax && return nothing
+  for k in (clamp((lo + hi) ÷ 2, kmin, kmax), kmax, kmin)
+    g = _fold_level(f, _NormalScale(_ProjectionScale(a.m, a.e + k)))
+    g === nothing || return g, _ExpScaledArray(γ, _ProjectionScale(S(0.5), 1 - k))
+  end
+  nothing
 end
 function _prox_chain!(y, s, x, γ::AbstractArray)
   f, a = _scaled_chain(s)
@@ -256,6 +279,11 @@ function _value_and_prox_chain!(y, s, x, γ::AbstractArray)
   f, a = _scaled_chain(s)
   g, steps, kind = _array_fold(f, a, γ)
   kind === :folded && return _value_at(_value_and_prox_unchecked!(y, g, x, steps), y)
+  if kind === :shifted
+    # the value of the chain at the point, not that of the shifted function
+    _prox_unchecked!(y, g, x, steps)
+    return _value_at(_scaled_value_by(f, a, y, _value_unchecked(f, y)), y)
+  end
   v = _value_and_prox_unchecked!(y, g, x, steps)
   # a leaf value that left the range is recovered in the function's own units, as for a scalar step
   _value_at(_scaled_value_by(f, a, y, v), y)

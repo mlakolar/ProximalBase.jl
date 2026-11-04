@@ -529,8 +529,10 @@ valnear(v::T, r) where {T} = r < floatmin(T) ? abs(big(v) - r) <= floatmin(T) : 
 
 # the exponents of the factor a, of the level l and of the step g, so that the coefficient is in the range
 # while the product of the factor and the step is not
-steps566(::Type{Float64}) = (a = 200, l = 300, g = 50)
-steps566(::Type{Float32}) = (a = 25, l = 30, g = 10)
+# l2 and g2: a level with which the factors have a product below the range, and a large step that
+# brings the coefficient back into it
+steps566(::Type{Float64}) = (a = 200, l = 300, g = 50, l2 = 80, g2 = 80)
+steps566(::Type{Float32}) = (a = 25, l = 30, g = 10, l2 = 10, g2 = 20)
 
 @testset "steps outside the range of the factors (#566)" begin
   for T in (Float32, Float64)
@@ -603,6 +605,37 @@ steps566(::Type{Float32}) = (a = 25, l = 30, g = 10)
       check(grp1, T[3, 4, 0.5] .* θ, fill(tens(T, -a), 2), "single factor, GroupNormL2 with a step per group")
       # a function with a level but no array-step proximal operator takes the scalar route
       check(Scaled(NormL2(tens(T, l)), tens(T, -a)), T[3, 4] .* θ, tens(T, -a), "single factor, NormL2"; array = false)
+
+      @testset "the level and the factors have no product in range" begin
+        # the level times the factors is subnormal, the step is large and the coefficient is 10^(l2 - 2a + g2):
+        # the shared exponent of the entries of the step goes into the levels
+        l2, g2 = steps566(T).l2, steps566(T).g2
+        @test T(10)^l2 * T(10)^-a * T(10)^-a < floatmin(T)
+        θ2 = T(10)^(l2 - 2a + g2)
+        x2 = T[3, -3, 0.5] .* θ2
+        low = Scaled(Scaled(NormL1(tens(T, l2)), tens(T, -a)), tens(T, -a))
+        check(low, x2, tens(T, g2), "chain, scalar step (#549)")
+        check(low, x2, fill(tens(T, g2), 3), "chain, array step")
+        check(low, x2, T[1, 10, 0.1] .* tens(T, g2), "chain, entries of different size")
+        # entries far apart: only a shift that raises the level as far as the entries allow holds it
+        check(low, T[3, 3] .* θ2, T[tens(T, g2), tens(T, -g2)], "chain, entries far apart")
+        check(Scaled(Scaled(NormL1(tens(T, l2), T[1, 2, 4]), tens(T, -a)), tens(T, -a)), x2, fill(tens(T, g2), 3), "chain, weights")
+        check(Scaled(Scaled(GroupNormL2(tens(T, l2), [1:2, 3:3], T[1, 1]), tens(T, -a)), tens(T, -a)), T[3, 4, 0.5] .* θ2, fill(tens(T, g2), 2), "chain, GroupNormL2 with a step per group")
+        # the value at the point is the value of the chain, not that of the shifted function
+        xb = T[tens(T, (T === Float64 ? -300 : -30) - (l2 - 2a)), 0]
+        y = zeros(T, 2)
+        v = value_and_prox!(y, low, xb, fill(tens(T, g2), 2))
+        ref = effective(low, f -> f.λ0) * sum(abs, big.(y))
+        @test ref > floatmin(T) && valnear(v, ref)
+        # entries that no shared exponent can hold, and entries that are not positive numbers, keep the rounded step
+        y = zeros(T, 2)
+        prox!(y, low, T[3, 3] .* θ2, T[tens(T, g2), T(0)])
+        @test near(y[1], 2θ2) && y[2] == T(3) * θ2
+        prox!(y, low, T[3, 3] .* θ2, T[tens(T, g2), T(Inf)])
+        @test near(y[1], 2θ2) && y[2] == 0
+        prox!(y, low, T[3, 3], T[0, 0])
+        @test y == T[3, 3]
+      end
 
       @testset "values at the point" begin
         y = zeros(T, 3)

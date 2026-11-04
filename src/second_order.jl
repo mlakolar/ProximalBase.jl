@@ -365,11 +365,12 @@ end
 
 # η - (e - y)/d2 for a finite η, e and y, rounded once to T: the quotient (y/2)/d2 is held as a
 # sum qh + ql of two floats (ql is the exact remainder, by a fused multiply-add), added to η/2
-# by an error-free sum, and the last rounding is followed by an exact doubling, so the result is
-# Inf exactly when the sum, not one of its terms, is out of range (up to ties of a relative
-# width 2^-100). The halves keep every term in range, and nothing here allocates or reads
-# any global state (no BigFloat precision). The arithmetic is that of the promotion of T and the
-# response, as `e - y` is.
+# by an error-free sum, and the sum is rounded once to T, through a round-to-odd value in the
+# working precision when that differs from T (so that no tie of the working precision decides
+# the rounding to T). The halves keep every term in range and the doubling at the end is exact,
+# so the result is Inf exactly when the sum, not one of its terms, is out of range (up to ties of
+# a relative width 2^-100). Nothing here allocates or reads global state (no BigFloat precision).
+# The working precision R is that of the promotion of T and the response, as `e - y` is.
 @noinline function _floored_response(η::T, e::T, y, d2::T) where {T}
   R = promote_type(T, typeof(y))
   half = R(0.5)
@@ -377,19 +378,34 @@ end
   qh = yh / dh                           # (y/2)/d2
   isfinite(qh) || return convert(T, qh)  # |y/d2| > 2 floatmax: the sum exceeds floatmax
   ql = fma(-qh, dh, yh) / dh             # qh + ql = (y/2)/d2 to about twice the precision
-  s = ηh + qh                            # s + sl = ηh + qh exactly
+  s = ηh + qh                            # s + sl = ηh + qh exactly, unless s overflowed
+  isfinite(s) || return convert(T, 2 * s)
   bv = s - ηh
   sl = (ηh - (s - bv)) + (qh - bv)
-  convert(T, 2 * (s + (sl + (ql - eh / dh))))
+  t = sl + (ql - eh / dh)
+  hi = s + t
+  lo = t - (hi - s)                      # hi + lo = s + t exactly (|s| ≥ |t|)
+  isfinite(hi) || return convert(T, 2 * hi)
+  R === T || (hi = _round_odd(hi, lo))
+  convert(T, 2 * hi)
 end
+
+# hi + lo, with hi = RN(hi + lo), rounded to odd: hi where lo = 0 or the last bit of hi is odd,
+# else the neighbor of hi toward lo. Rounding that value to a type with at most p - 2 bits is the
+# rounding of hi + lo (no double rounding).
+@inline function _round_odd(hi::R, lo::R) where {R<:Base.IEEEFloat}
+  (iszero(lo) || isodd(reinterpret(Base.uinttype(R), hi))) && return hi
+  lo > 0 ? nextfloat(hi) : prevfloat(hi)
+end
+@inline _round_odd(hi, lo) = hi
 
 @noinline function _poisson_recovered(w::T, η::T, y) where {T}
   m, j = _exp_split(η)
   R = promote_type(T, typeof(y))          # y exp(-η) in the precision of the data, as e - y is
   v = _scaled_product(w, m, j)
-  # a coefficient in the subnormal range is rounded once as well (ldexp rounds a second time
+  # a coefficient in the subnormal range, or rounded to floatmin from below it, is rounded once as well (ldexp rounds a second time
   # there, and before Julia 1.11 truncates); there the power j is small enough to be a float
-  if T <: Base.IEEEFloat && isfinite(v) && abs(v) < floatmin(T) && !iszero(w) && !iszero(m) &&
+  if T <: Base.IEEEFloat && isfinite(v) && abs(v) <= floatmin(T) && !iszero(w) && !iszero(m) &&
      exponent(floatmin(T)) <= j <= exponent(floatmax(T))
     v = _scaled_coefficient(w, m, ldexp(one(T), j), v)
   end

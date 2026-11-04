@@ -653,6 +653,67 @@ end
     end
   end
 
+  @testset "the floor response: mixed precision at the overflow midpoint, no NaN, the floatmin boundary of the coefficient (review of #544)" begin
+    ref_sum(T, η, e, y, h) = setprecision(BigFloat, 512) do
+      T(big(η) - (big(e) - big(y)) / big(h))
+    end
+    # the reports: a Float64 response with Float32 scratch whose exact response lies 2^-55 below the overflow midpoint
+    let η = -7.440598f35, y = 1.1774515996114581e35
+      f = GLMLoss(ProximalBase.Poisson(), [y], ones(Float32, 1, 1), nothing, nothing, zeros(Float32, 1), zeros(Float32, 1))
+      @test only(quadratic_model(f, Float32[η]).y) == floatmax(Float32)
+      q = quadratic_model(f, Float32[0]); @test only(quadratic_model!(q, f, Float32[η]).y) == floatmax(Float32)
+    end
+    # sweeps of the boundary and of the overflow midpoint floatmax(1 + 2^-p), same type and mixed
+    for (T, Y) in ((Float32, Float32), (Float32, Float64), (Float64, Float64))
+      h = sqrt(eps(T))
+      rng = MersenneTwister(5441 + sizeof(T) + 7 * sizeof(Y))
+      mism = 0
+      for k in 1:4000
+        η = -floatmax(T) * (T(0.02) + T(0.9) * rand(rng, T))
+        centre = isodd(k) ? big(floatmax(T)) : big(floatmax(T)) * (1 + big(2.0)^-precision(T))   # boundary, midpoint
+        width = k % 4 < 2 ? 8 * big(eps(T)) : 1e-14 * big(1.0)                                    # near, and very near
+        tgt = centre * (1 + (rand(rng) - 0.5) * width)
+        y = Y((tgt - big(η)) * big(h))
+        f = GLMLoss(ProximalBase.Poisson(), [y], ones(T, 1, 1), nothing, nothing, zeros(T, 1), zeros(T, 1))
+        ref = ref_sum(T, η, exp(big(η)), y, h)
+        got = try only(quadratic_model(f, T[η]).y) catch err; err end
+        mism += !(isfinite(ref) ? (got isa T && got == ref) : got isa PrecisionError)
+      end
+      @test mism == 0
+    end
+    # no NaN from finite input, any sign, magnitude and precision; Inf exactly where the sum overflows
+    for T in (Float32, Float64, Float16)
+      h = sqrt(eps(T)); fm = floatmax(T)
+      for η in (-fm, -fm / 2, T(-3), zero(T), T(1), fm / 2, fm), c in (0, 0.25, 1, 1.5, 2.5, 3, 5), sg in (1, -1), e in (zero(T), h / 2, h)
+        y = T(sg) * T(c) * (fm * h)
+        z = ProximalBase._floored_response(η, e, y, h)
+        @test !isnan(z)
+        if T != Float16 && isfinite(y)
+          ref = ref_sum(T, η, e, y, h)
+          @test isfinite(z) == isfinite(ref)
+          isfinite(ref) && @test abs(big(z) - big(ref)) <= 4 * eps(T) * big(fm)
+        end
+      end
+    end
+    # the coefficient at the floatmin boundary is rounded once as well (the reported case, and a grid)
+    let η = 1.105095f0, w = 3.892995f-39, exp_split = ProximalBase._exp_split
+      f = GLMLoss(ProximalBase.Poisson(), [1.1 * Float64(floatmax(Float32))], ones(Float32, 1, 1), Float32[w], nothing, zeros(Float32, 1), zeros(Float32, 1))
+      m, j = exp_split(η)
+      ref = setprecision(BigFloat, 512) do; Float32(ldexp(big(w) * big(m), j)); end
+      @test only(quadratic_model(f, Float32[η]).weights) === ref
+      rng = MersenneTwister(5442); bad = 0
+      for _ in 1:3000
+        ηT = Float32(0.2 + 5.8 * rand(rng))
+        wT = Float32(floatmin(Float32) / exp(ηT) * (1 + (rand(rng) - 0.5) * 1e-5))
+        fT = GLMLoss(ProximalBase.Poisson(), [3.7e38], ones(Float32, 1, 1), Float32[wT], nothing, zeros(Float32, 1), zeros(Float32, 1))
+        mT, jT = exp_split(ηT)
+        refT = setprecision(BigFloat, 512) do; Float32(ldexp(big(wT) * big(mT), jT)); end
+        bad += only(quadratic_model(fT, Float32[ηT]).weights) !== refT
+      end
+      @test bad == 0
+    end
+  end
+
   @testset "non-finite data: the ordinary response, offsets of allocating models, allocation (review of #544)" begin
     # a non-finite weight alone leaves the response of the ordinary computation (bit for bit)
     for T in (Float32, Float64), bad in (T(NaN), T(Inf)), η in (T(1e-8), T(1), T(-3), T(30))

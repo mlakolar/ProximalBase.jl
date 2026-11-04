@@ -67,6 +67,38 @@ end
   @test px(HingeLoss([1.0, -1.0], [1.0, 1.0]), [-1.0, 1.0], 0.5) == [-0.5, 0.5]
   # zero and infinite weights
   @test px(HingeLoss(nothing, Float32[0, Inf]), [-1.0, -1.0], big32) == [-1.0, 1.0]
+  # a subnormal weight with a label below one: the step is not rounded in two stages. v = 0 gives s/y
+  # with s = γw|y|², the exact product rounded once (BigFloat), within one ulp of s here
+  for (y, w, γ) in ((-0.6069132140372439, 2.327553e-318, 144380.9785781732), (0.3, 5e-324 * 7, 2.0^40), (-0.9, 1e-320, 3.5e9))
+    s = Float64(big(γ) * big(w) * big(y)^2)
+    got = prox_entry(HingeLoss([y], [w]), 0.0, 1, γ)
+    @test abs(got * y - s) <= 2eps(s)
+  end
+  y32, w32, γ32 = -0.6f0, 3f-44, 3f4
+  s32 = Float32(big(γ32) * big(w32) * big(y32)^2)
+  @test abs(prox_entry(HingeLoss(Float32[y32], Float32[w32]), 0f0, 1, γ32) * y32 - s32) <= 2eps(s32)
+end
+
+@testset "CheckLoss: Float16, and γw·τ in the documented order" begin
+  f = CheckLoss(Float16(0.75))
+  @test prox_entry(f, Float16(4), 1, 2.0) === Float16(2.5)
+  @test prox_entry(f, Float16(-4), 1, 2.0) === Float16(-3.5)
+  @test prox_entry(CheckLoss(Float16(1 - 2.0^-10)), Float16(-2), 1, 2.0^10) === Float16(-1)
+  # γw is rounded first, then τ: (γw)τ in the promotion of the factors, one rounding to the destination
+  τ, γ, w = 0.7, 0.1, 3.0
+  for u in (1.0000002f0, 2f0, -2f0)
+    hi = Float32((big(γ) * big(w)) * big(τ))
+    @test prox_entry(CheckLoss(τ, [w]), u, 1, γ) === (u > hi ? u - hi : (u < -Float32((big(γ) * big(w)) * (1 - big(τ))) ? u + Float32((big(γ) * big(w)) * (1 - big(τ))) : 0f0))
+  end
+end
+
+@testset "_prox_slope agrees with prox_entry at the threshold" begin
+  f = NormL1(0.1)
+  r, γ = 0.3f0, 3f0
+  @test prox_entry(f, r, 1, γ) == 0f0
+  @test ProximalBase._prox_slope(f, r, γ) == 0f0
+  @test ProximalBase._prox_slope(NormL1Nonneg(0.1), r, γ) == 0f0
+  @test ProximalBase._prox_slope(NormL1(big32), 2f0^100, 1f0) == 1f0     # the threshold 2^80 stays below r
 end
 
 @testset "KKT violations form the coefficient in the gradient's precision" begin
@@ -115,6 +147,10 @@ end
   @test lla_weights!(zeros(1), MCP(2.0^200, 3.0), Float32[0]) == [2.0^200]
   @test lla_weights!(zeros(1), GroupNormL2(0.1, [1:1], [1.0]), Float32[0]) == [0.1]
   @test lla_weights!(zeros(Float32, 1), NormL1(0.1, [1.0]), [0.0]) == Float32[0.1]   # narrower destination: one rounding
+  # the breakpoint decision of CappedL1 is made in the wider type (documented)
+  c = CappedL1(1.0, 1 + 1e-9)
+  @test lla_weights!(zeros(1), c, Float32[1]) == [1.0]
+  @test lla_weights!(zeros(Float32, 1), c, Float32[1]) == Float32[0.0]
 end
 
 end

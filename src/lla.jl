@@ -62,7 +62,11 @@ The weights include the level `λ` and the entry or group weights of `f`; to
 keep the level apart, divide them by `λ` and use `NormL1(λ, w)`. `x` may be a
 [`SparseIterate`](@ref), a [`SymmetricSparseIterate`](@ref) (with a `p × p`
 array `w`) or an [`AtomIterate`](@ref). `lla_weights!` allocates nothing;
-`lla_weights(f, x)` allocates `w`.
+`lla_weights(f, x)` allocates `w`. The weights are computed in the wider of the
+types of `w` and `x` and rounded once to `eltype(w)` (numerics T3, T4): a
+`Float32` point `x` gives `Float64` weights of the `Float64` slopes at the
+`Float32` entries, so a decision at a breakpoint, such as `|xᵢ| < a` of
+[`CappedL1`](@ref), is made in `Float64`, as a call that writes `Float64` does.
 
 Each LLA stage is convex, so its minimizer, λmax, the strong rule and safe
 screening are those of a weighted lasso. Alternating stages and weights is a

@@ -270,7 +270,10 @@ step to the function when that is a normal number, and otherwise fold the expone
 levels, with the step reduced to its significand, for the functions of the
 scaled-value mechanism. Conjugates and their projections accumulate the factors the same way. A
 function that folds no level (a `SqrNormL2`, a loss) receives the step as the product rounds it,
-and its conjugate value under such a product throws instead of returning a wrong number.
+and its conjugate value under such a product throws instead of returning a wrong number; a
+`value_and_prox!` of the conjugate then leaves its output as it was, however many ordinary wrappers
+(`Scaled`, `Translate`, `SingularValue`, `SeparableSum`) lie above the chain. An indicator has the same
+optimality violation under every finite positive factor.
 The levels fold through `Translate`, `Sum` and `SeparableSum` of such functions. Two cases are not
 recovered: the value of a chain whose leaf value overflows while the folded level is itself not a
 number in range, and an array step whose entries leave the range after the factors are applied

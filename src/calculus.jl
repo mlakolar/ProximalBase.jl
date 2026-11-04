@@ -1196,12 +1196,13 @@ Blocks may themselves be tuples for nested sums. Allocating oracles and
 [`Conjugate`](@ref) preserve this block structure.
 Before writing any output, the oracles check all blocks, including functions
 inside wrappers, against the checks their own oracles run before writing.
-Scalar-step checks also follow supported wrappers before writing. Remaining
+Scalar-step checks also follow supported wrappers before writing, including
+the spectral and singular-value wrappers, `LogDetLoss`, the negative steps of
+the entropy and logarithm functions, and `PointwiseMinimum`. Remaining
 gaps include array steps, entrywise steps inside box and linear constraints,
-spectral and singular-value wrappers, distance wrappers, intersections, ball,
-sphere and affine constraints, `NegLog`'s square root, and `Conjugate`'s finite
-result check. Failures during computation and user-defined oracle checks beyond
-`check_parameters` can still leave earlier blocks written.
+distance wrappers, intersections, ball, sphere and affine constraints, and
+`Conjugate`'s finite result check. Failures during computation and user-defined
+oracle checks beyond `check_parameters` can still leave earlier blocks written.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
@@ -1384,7 +1385,9 @@ function _checkstep_moreau(f, y, x, γ)
   _conjugate_isindicator(typeof(f)) && return _checkstep(prox!, f, y, x, one(γ))
   _checkstep_moreau_set(f, y, x, γ)
 end
-_checkstep_moreau_set(f::Union{IndBox, IndBallL2}, y, x, γ) = true
+_checkstep_moreau_set(f::IndBox, y, x, γ) = true
+# The set of the Moreau point is the ball of radius γ r, which a negative or NaN radius rejects.
+_checkstep_moreau_set(f::IndBallL2, y, x, γ) = (IndBallL2(_dilate(γ, f.r)); true)
 _checkstep_moreau_set(s::Scaled, y, x, γ) = _checkstep_moreau(s.f, y, x, γ)
 _checkstep_moreau_set(t::Translate, y, x, γ) = _checkstep_moreau(t.f, y, _StepInput(y), γ)
 

@@ -176,6 +176,7 @@ value_and_prox!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Rea
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, g, y, x, γ); _value_and_prox_unchecked!(y, g, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, g, y, x)
+  _minimum_checkstep(g, γ)
   best = _array_buffer!(g.best, eltype(y), size(y))
   current = _array_buffer!(g.current, eltype(y), size(y))
   indicator = _isindicator(g)
@@ -202,7 +203,15 @@ end
 prox(g::PointwiseMinimum, x::AbstractArray, γ::AbstractArray) =
   (_checkreal(g, x); _checkreal(g, γ); throw(ArgumentError("PointwiseMinimum requires a scalar step")))
 
+# The scores of the candidates compare envelope energies at an infinite step, and the square
+# root of -Inf raises a DomainError there, whatever the candidates. Indicators have no energy.
+@inline function _minimum_checkstep(g::PointwiseMinimum, γ::Real)
+  (isinf(γ) && γ < 0 && !_isindicator(g)) && sqrt(float(γ))
+  true
+end
+
 function _checkstep(op::O, g::PointwiseMinimum, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  _minimum_checkstep(g, γ)
   b = _checkbuffer(g.current, eltype(y), size(y))
   _checkstep_candidates(g.fs, b, x, γ)
 end

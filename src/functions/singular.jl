@@ -155,9 +155,16 @@ end
   t, s, k
 end
 
+# The proximal point of the singular values, in a vector of the size of the spectrum, receives the step.
+function _checkstep(op::O, F::SingularValue, Y::AbstractMatrix, X::AbstractMatrix, γ::Real) where {O}
+  b = _StepBuffer{float(eltype(Y)), 1}((min(size(X)...),))
+  _checkstep(value_and_prox!, F.f, b, b, γ)
+end
+
 function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real)
   X = _symmetric_argument(Y, X)
   _checkwrite(value_and_prox!, F, Y, X)
+  _checkstep(value_and_prox!, F, Y, X, γ)
   T = float(eltype(Y))
   if !all(isfinite, X)
     fill!(Y, T(NaN))

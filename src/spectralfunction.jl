@@ -158,9 +158,16 @@ end
   _spectrum_value(s.f, _eigvals!(ws), k)
 end
 
+# The proximal point of the eigenvalues, in a vector of the size of the spectrum, receives the step.
+function _checkstep(op::O, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix, γ::Real) where {O}
+  b = _StepBuffer{float(eltype(Y)), 1}((checksquare(X),))
+  _checkstep(value_and_prox!, s.f, b, b, γ)
+end
+
 function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real)
   X = _spectral_argument(X)
   _checkwrite(value_and_prox!, s, Y, X)
+  _checkstep(value_and_prox!, s, Y, X, γ)
   T = float(eltype(Y))
   if !all(isfinite, X)
     fill!(Y, T(NaN))

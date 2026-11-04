@@ -12,6 +12,8 @@ Random.seed!(1)
 
 blocks_approx(x::AbstractArray, y::AbstractArray) = isapprox(x, y)
 blocks_approx(x::Tuple, y::Tuple) = all(map(blocks_approx, x, y))
+fresh(x::AbstractArray) = similar(x)
+fresh(x::Tuple) = map(fresh, x)
 
 struct CountedMatrix <: AbstractMatrix{Float64}
   data::Matrix{Float64}
@@ -529,6 +531,163 @@ end
   g = similar(x)
   value_and_gradient!(g, Sum(SqrNormL2()), x)
   @test g ≈ x
+end
+
+@testset "Sum on tuples" begin
+  # the reproduction of #159
+  s = SeparableSum(SqrNormL2(), SqrNormL2(2))
+  f = Sum(s, s)
+  x = ([1.0, 2.0], [3.0])
+  g = map(similar, x)
+  @test value_and_gradient!(g, f, x) ≈ 23.0
+  @test g[1] ≈ [2.0, 4.0] && g[2] ≈ [12.0]
+  @test gradient!(g, f, x) === g
+  @test blocks_approx(gradient(f, x), g)
+  value, G = value_and_gradient(f, x)
+  @test value ≈ 23.0 && blocks_approx(G, g)
+  @test blocks_approx(check_gradient(f, x), g)   # finite differences and all four interfaces
+
+  # independent references: the gradient of Σⱼ Σₖ λⱼₖ‖xₖ - cⱼₖ‖²/2 is Σⱼ λⱼₖ(xₖ - cⱼₖ), and
+  # that of ‖Xβ - y‖²/2 is X'(Xβ - y)
+  rng = Xoshiro(7)
+  X, y = randn(rng, 9, 3), randn(rng, 9)
+  c = [0.5, -1.0]
+  a = SeparableSum(LeastSquaresLoss(y, X), SqrNormL2(2.))
+  b = SeparableSum(SqrNormL2(0.3), SqrNormL2(1.5, c))
+  z = (randn(rng, 3), randn(rng, 2))
+  expected = (X' * (X * z[1] - y) + 0.3 .* z[1], 2 .* z[2] + 1.5 .* (z[2] - c))
+  for fs in ((a, b), (b, a)), summands in (fs, (fs[1],), (fs..., Scaled(a, 0.5)))
+    h = Sum(summands...)
+    ref = foldl((r, t) -> map(+, r, t), map(u -> u === a ? (X' * (X * z[1] - y), 2 .* z[2]) :
+                u === b ? (0.3 .* z[1], 1.5 .* (z[2] - c)) :
+                          (0.5 .* (X' * (X * z[1] - y)), 0.5 .* 2 .* z[2]), summands))
+    @test blocks_approx(gradient(h, z), ref)
+    @test value_and_gradient(h, z)[1] ≈ sum(u -> u(z), summands)
+    check_gradient(h, z)
+  end
+  @test blocks_approx(gradient(Sum(a, b), z), expected)
+
+  # blocks of different sizes, matrices and nested tuples; nested and repeated sums
+  s3 = SeparableSum(SqrNormL2(), SqrNormL2(2), SqrNormL2(3))
+  x3 = ([1.0, 2.0], [3.0 4.0 5.0; 6.0 7.0 8.0], [9.0])
+  @test blocks_approx(gradient(Sum(s3, s3), x3), map((xk, k) -> 2k .* xk, x3, (1, 2, 3)))
+  @test blocks_approx(gradient(Sum(s3), x3), map((xk, k) -> k .* xk, x3, (1, 2, 3)))
+  @test blocks_approx(gradient(Sum(Sum(s3, s3), s3), x3), map((xk, k) -> 3k .* xk, x3, (1, 2, 3)))
+  nested = SeparableSum(s, SeparableSum(SqrNormL2(), SqrNormL2(2)))
+  xn = (x, ([4.0 5.0], [6.0, 7.0]))
+  gn = gradient(Sum(nested, Scaled(nested, 3)), xn)
+  @test gn[1][1] ≈ 4 .* xn[1][1] && gn[1][2] ≈ 8 .* xn[1][2]
+  @test gn[2][1] ≈ 4 .* xn[2][1] && gn[2][2] ≈ 8 .* xn[2][2]
+  @test check_gradient(Sum(nested, nested), xn) isa Tuple
+  gs = gradient(Scaled(Sum(s, s), 2.5), x)
+  @test blocks_approx(gs, map(xk -> 5 .* xk, ([1.0, 2.0], [6.0])))
+
+  # Float32 variables, also with Float64 model data
+  x32 = map(xk -> Float32.(xk), x)
+  g32 = gradient(f, x32)
+  @test g32 isa Tuple{Vector{Float32}, Vector{Float32}} && g32 == (Float32[2, 4], Float32[12])
+  @test value_and_gradient(f, x32)[1] isa Float32
+  @test f(x32) isa Float32
+  @test check_gradient(f, x32) isa Tuple{Vector{Float32}, Vector{Float32}}
+  m = Sum(a, b)
+  z32 = map(zk -> Float32.(zk), z)
+  gz = gradient(m, z32)
+  @test gz isa Tuple{Vector{Float32}, Vector{Float32}}
+  @test all(map((u, w) -> isapprox(u, w; rtol = 1e-4), gz, gradient(m, map(zk -> Float64.(zk), z32))))
+  @test value_and_gradient(m, z32)[1] isa Float32
+
+  # one scratch tuple, reused across calls and renewed when the shapes or types change
+  h = Sum(s, s, Scaled(s, 2))
+  out = map(similar, x)
+  gradient!(out, h, x); buffer = h.scratch.buf
+  gradient!(out, h, x)
+  @test h.scratch.buf === buffer
+  @test all(b -> all(o -> b !== o, out) && all(o -> b !== o, x), buffer[3])
+  y2 = ([1.0, 2.0, 3.0], [4.0])
+  out2 = map(similar, y2)
+  @test blocks_approx(gradient!(out2, h, y2), (4 .* y2[1], 8 .* y2[2]))
+  @test h.scratch.buf !== buffer
+  @test blocks_approx(gradient!(out, h, x), (4 .* x[1], 8 .* x[2]))
+  out32 = map(similar, x32)
+  @test blocks_approx(gradient!(out32, h, x32), (4 .* x32[1], 8 .* x32[2]))
+  @test out32 isa Tuple{Vector{Float32}, Vector{Float32}}
+  @test blocks_approx(gradient!(out, h, x), (4 .* x[1], 8 .* x[2]))
+
+  # many blocks and warm calls
+  many = SeparableSum(ntuple(_ -> SqrNormL2(), 40)...)
+  xm = ntuple(i -> fill(Float64(i), 2), 40)
+  fm = Sum(many, many)
+  gm = map(similar, xm)
+  @test value_and_gradient!(gm, fm, xm) ≈ 2 * many(xm)
+  @test blocks_approx(gm, map(xk -> 2 .* xk, xm))
+  vg!(g, f, x) = value_and_gradient!(g, f, x)
+  @test allocs(vg!, gm, fm, xm) == 0
+  @test allocs(vg!, out, Sum(s, s, Scaled(s, 2)), x) == 0
+  @test allocs(vg!, out, h, x) == 0
+  @test allocs(vg!, fresh(xn), Sum(nested, nested), xn) == 0
+  @inferred value_and_gradient!(out, h, x)
+  @inferred value_and_gradient!(gm, fm, xm)
+end
+
+@testset "Sum on tuples checks before writing" begin
+  s = SeparableSum(SqrNormL2(), SqrNormL2(2))
+  centered = SeparableSum(SqrNormL2(), SqrNormL2(1., ones(2)))     # the center does not fit the second block
+  x = ([1.0, 2.0], [3.0])
+  sentinel = ([9.0, 8.0], [7.0])
+  for op in (gradient!, value_and_gradient!)
+    # an invalid final summand, however many valid ones precede it
+    for f in (Sum(s, centered), Sum(s, s, centered), Sum(s, Sum(s, centered)), Sum(s, Scaled(centered, 2)))
+      out = map(copy, sentinel)
+      @test_throws DimensionMismatch op(out, f, x)
+      @test out == sentinel
+    end
+    # an invalid final block of a long tuple, and a block of a nested tuple
+    x3 = ([1.0, 2.0], [3.0], [4.0, 5.0, 6.0])
+    s3 = SeparableSum(SqrNormL2(), SqrNormL2(2), SqrNormL2(3))
+    bad3 = SeparableSum(SqrNormL2(), SqrNormL2(2), SqrNormL2(1., ones(2)))
+    out = map(x -> fill(-1.0, size(x)), x3)
+    @test_throws DimensionMismatch op(out, Sum(s3, s3, bad3), x3)
+    @test all(o -> all(==(-1.0), o), out)
+    nested = SeparableSum(s, SeparableSum(SqrNormL2(), SqrNormL2(2)))
+    nested_bad = SeparableSum(s, SeparableSum(SqrNormL2(), SqrNormL2(1., ones(2))))
+    xn = (x, ([4.0, 5.0], [6.0]))
+    out = map(xk -> map(a -> fill(-1.0, size(a)), xk), xn)
+    @test_throws DimensionMismatch op(out, Sum(nested, nested, nested_bad), xn)
+    @test all(o -> all(a -> all(==(-1.0), a), o), out)
+    # a centered SqrNormL2 whose parameter fits a different block
+    wrongcenter = SeparableSum(SqrNormL2(1., [1.0, 2.0, 3.0]), SqrNormL2())
+    out = map(copy, sentinel)
+    @test_throws DimensionMismatch op(out, Sum(s, wrongcenter), x)
+    @test out == sentinel
+    # wrong arity and block shapes of the output
+    for bad in ((similar(x[1]),), (similar(x[1]), similar(x[2]), similar(x[2])), (similar(x[1]), zeros(2)),
+                (zeros(3), similar(x[2])))
+      @test_throws DimensionMismatch op(bad, Sum(s, s), x)
+    end
+    out = map(copy, sentinel)
+    @test_throws DimensionMismatch op(out, Sum(s, s), (x[1],))
+    @test_throws DimensionMismatch op(out, Sum(s, s), (x[1], x[2], x[2]))
+    @test out == sentinel
+    # an output that refuses off-diagonal writes cannot take a sum, found before the first summand writes
+    for wrap in (Symmetric, Hermitian)
+      m = [1.0 2.0; 2.0 3.0]
+      sm = SeparableSum(SqrNormL2(), SqrNormL2())
+      wrongout = wrap(fill(-7.0, 2, 2)); before = copy(wrongout)
+      @test_throws ArgumentError op(wrongout, Sum(SqrNormL2(), SqrNormL2(2.)), m)
+      @test wrongout == before
+      tupleout = (fill(-7.0, 2), wrap(fill(-7.0, 2, 2)))
+      @test_throws ArgumentError op(tupleout, Sum(sm, sm), ([1.0, 2.0], m))
+      @test all(==(-7.0), tupleout[1]) && tupleout[2] == before
+    end
+    # the output must not be the point, also one block of it
+    @test_throws ArgumentError op(x, Sum(s, s), x)
+    out = (similar(x[1]), x[2])
+    @test_throws ArgumentError op(out, Sum(s, s), x)
+    @test out[2] === x[2] && x[2] == [3.0]
+    xa = (x, ([4.0, 5.0], [6.0]))
+    out = (map(similar, x), xa[2])
+    @test_throws ArgumentError op(out, Sum(nested, nested), xa)
+  end
 end
 
 @testset "wrapper parameter lengths before mutation" begin

@@ -468,6 +468,39 @@ end
       @test all(==(-7.0), outt[1]) && all(==(-7.0), outt[2])
     end
   end
+  # a later function whose inner function does not fit the image of a Precompose
+  inner = Precompose(QuadraticFunction(Matrix(1.0I, 3, 3)), Matrix(1.0I, 2, 2), 1.0)   # an image of size 2, a 3 × 3 quadratic
+  for q in (inner, Scaled(inner, 2), Regularize(inner, 0.5), Tilt(inner, [1.0, 1.0], 0.0))
+    out = fill(-7.0, 2)
+    @test_throws DimensionMismatch hessian_vec!(out, Sum(SqrNormL2(), q), [1.0, 2.0], [3.0, 4.0])
+    @test all(==(-7.0), out)
+    outt = (fill(-7.0, 2), fill(-7.0, 2))
+    @test_throws DimensionMismatch hessian_vec!(outt, Sum(SeparableSum(SqrNormL2(), SqrNormL2()), SeparableSum(SqrNormL2(), q)),
+                                                ([1.0, 2.0], [1.0, 2.0]), ([3.0, 4.0], [3.0, 4.0]))
+    @test all(==(-7.0), outt[1]) && all(==(-7.0), outt[2])
+  end
+  # LogDetLoss writes a dense matrix of its own precision, found before an earlier function writes
+  logdet = LogDetLoss(Matrix(1.0I, 2, 2))
+  Xl, Vl = Matrix(1.0I, 2, 2), Matrix(2.0I, 2, 2)
+  for wrong in (fill(-7f0, 2, 2), Symmetric(fill(-7.0, 2, 2)))
+    before = copy(wrong)
+    @test_throws ArgumentError hessian_vec!(wrong, Sum(SqrNormL2(), logdet), Xl, Vl)
+    @test wrong == before
+    @test_throws ArgumentError hessian_vec!(wrong, logdet, Xl, Vl)
+  end
+  right = fill(-7.0, 2, 2)
+  @test hessian_vec!(right, Sum(SqrNormL2(), logdet), Xl, Vl) === right
+  @test right ≈ Vl .+ hessian_vec(logdet, Xl, Vl)
+  # an output that refuses off-diagonal writes cannot take a sum: found before the first function writes
+  for wrap in (Symmetric, Hermitian)
+    wrongout = wrap(fill(-7.0, 2, 2)); before = copy(wrongout)
+    @test_throws ArgumentError hessian_vec!(wrongout, Sum(ZeroFunction(), ZeroFunction()), Xl, Vl)
+    @test wrongout == before
+    tupleout = (fill(-7.0, 2), wrap(fill(-7.0, 2, 2)))
+    @test_throws ArgumentError hessian_vec!(tupleout, Sum(SeparableSum(SqrNormL2(), SqrNormL2()), SeparableSum(SqrNormL2(), SqrNormL2())),
+                                            ([1.0, 2.0], Xl), ([3.0, 4.0], Vl))
+    @test all(==(-7.0), tupleout[1]) && tupleout[2] == before
+  end
   # a built-in later function without a Hessian
   nohessian = SeparableSum(SqrNormL2(), NormL1(1.))
   @test !hashessian(Sum(s, nohessian))

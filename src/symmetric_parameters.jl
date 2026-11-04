@@ -335,28 +335,33 @@ _check_hessian_shape(f::KronQuadratic, x, Hv, v) = (_checkshape(f, Hv); _checksh
 # The dimension errors of the products, found before a sum writes anything.
 # Each method takes the arguments that its hessian_vec! takes.
 @noinline _throw_product_shape(f, x) = throw(DimensionMismatch("the product with $(nameof(typeof(f))) does not fit an argument of size $(size(x))"))
-function _check_hessian_shape(f::QuadraticFunction, x::AbstractVector, Hv::AbstractVector, v::AbstractVector)
-  _checksize(Hv, x); _checkdirection(v, x)
-  length(x) == size(f.A, 2) || _throw_product_shape(f, x)
-  true
-end
-function _check_hessian_shape(f::LeastSquaresLoss, x::AbstractVecOrMat, Hv::AbstractVecOrMat, v::AbstractVecOrMat)
-  _checksize(Hv, x); _checkdirection(v, x)
+_check_product_dims(f::QuadraticFunction, x) = length(x) == size(f.A, 2) || _throw_product_shape(f, x)
+_check_product_dims(f::LeastSquaresLoss, x) =
   size(x, 1) == size(f.X, 2) && size(x, 2) == size(f.tmp, 2) || _throw_product_shape(f, x)
-  true
-end
-_check_hessian_shape(f::GLMLoss, x::AbstractVector, Hv::AbstractVector, v::AbstractVector) =
-  (_checksize(Hv, x); _checkdirection(v, x); _checkpredictor(f, x); true)
-function _check_hessian_shape(f::LogDetLoss, x::AbstractMatrix, Hv::AbstractMatrix, v::AbstractMatrix)
-  _checksize(Hv, x); _checkdirection(v, x)
+_check_product_dims(f::GLMLoss, x) = _checkpredictor(f, x)
+function _check_product_dims(f::LogDetLoss{T}, x, Hv) where {T}
   size(x) == size(f.S) || _throw_product_shape(f, x)
-  true
+  Hv isa StridedMatrix{T} || _throw_logdet_output(f)
 end
+_check_hessian_shape(f::QuadraticFunction, x::AbstractVector, Hv::AbstractVector, v::AbstractVector) =
+  (_checksize(Hv, x); _checkdirection(v, x); _check_product_dims(f, x); true)
+_check_hessian_shape(f::LeastSquaresLoss, x::AbstractVecOrMat, Hv::AbstractVecOrMat, v::AbstractVecOrMat) =
+  (_checksize(Hv, x); _checkdirection(v, x); _check_product_dims(f, x); true)
+_check_hessian_shape(f::GLMLoss, x::AbstractVector, Hv::AbstractVector, v::AbstractVector) =
+  (_checksize(Hv, x); _checkdirection(v, x); _check_product_dims(f, x); true)
+_check_hessian_shape(f::LogDetLoss, x::AbstractMatrix, Hv::AbstractMatrix, v::AbstractMatrix) =
+  (_checksize(Hv, x); _checkdirection(v, x); _check_product_dims(f, x, Hv); true)
 _check_hessian_shape(f::Union{Scaled, Tilt}, x, Hv, v) =
   (_checkparams(f, x); _check_hessian_shape(f.f, x, Hv, v))
 _check_hessian_shape(f::Translate, x, Hv, v) = _check_hessian_shape(f.f, _checkshifted(f, x), Hv, v)
-_check_hessian_shape(f::Precompose, x::AbstractArray, Hv, v) =
-  (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f.f, _checkimage(f, x)); true)
+# the inner function at the image Ax, whose shape the product Hessian and direction share
+function _check_hessian_shape(f::Precompose, x::AbstractArray, Hv, v)
+  _checksize(Hv, x); _checkdirection(v, x)
+  z = _checkimage(f, x)
+  _checkparams(f.f, z)
+  _check_hessian_shape(f.f, z, z, z)
+  true
+end
 _check_hessian_shape(f::Precompose, x, Hv, v) = (_checksize(Hv, x); _checkdirection(v, x))
 _check_hessian_shape(f::Regularize, x, Hv, v) =
   (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x); _check_hessian_shape(f.f, x, Hv, v))
@@ -369,9 +374,17 @@ _check_hessian_support(f::Union{Sum, SeparableSum}) = _check_hessian_support_par
 
 # a sum checks every function, a separable sum every block, before the first product
 _check_hessian_shape(f::Sum, x, Hv, v) =
-  (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x); _check_hessian_support(f); _check_hessian_parts(f.fs, x, Hv, v))
+  (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x); length(f.fs) > 1 && _check_sum_output(Hv); _check_hessian_support(f); _check_hessian_parts(f.fs, x, Hv, v))
+# a function of a sum: the sum has just checked the sizes, the direction and every
+# function's parameters, so only what its own product needs remains
 @generated _check_hessian_parts(fs::Tuple, x, Hv, v) =
-  _blockwise(k -> :(_check_hessian_shape(fs[$k], x, Hv, v)), fieldcount(fs), true)
+  _blockwise(k -> :(_check_hessian_part(fs[$k], x, Hv, v)), fieldcount(fs), true)
+_check_hessian_part(f, x, Hv, v) = _check_hessian_shape(f, x, Hv, v)
+_check_hessian_part(f::Union{ZeroFunction, LinearFunction, SqrNormL2}, x, Hv, v) = true
+_check_hessian_part(f::QuadraticFunction, x::AbstractVector, Hv::AbstractVector, v::AbstractVector) = (_check_product_dims(f, x); true)
+_check_hessian_part(f::LeastSquaresLoss, x::AbstractVecOrMat, Hv::AbstractVecOrMat, v::AbstractVecOrMat) = (_check_product_dims(f, x); true)
+_check_hessian_part(f::GLMLoss, x::AbstractVector, Hv::AbstractVector, v::AbstractVector) = (_check_product_dims(f, x); true)
+_check_hessian_part(f::LogDetLoss, x::AbstractMatrix, Hv::AbstractMatrix, v::AbstractMatrix) = (_check_product_dims(f, x, Hv); true)
 _check_hessian_shape(f::SeparableSum, x, Hv, v) =
   (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x); _check_hessian_support(f); _check_hessian_blocks(f.fs, x, Hv, v))
 @generated _check_hessian_blocks(fs::Tuple, x::Tuple, Hv::Tuple, v::Tuple) =

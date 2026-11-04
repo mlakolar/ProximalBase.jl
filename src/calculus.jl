@@ -1323,6 +1323,13 @@ _sum_buffer!(s::Scratch, g::Tuple, x::Tuple) = _tuple_buffer!(s, g, x)
 _sum_checkbuffer(s::Scratch, g::AbstractArray, x) = _checkbuffer(s, eltype(g), size(g))
 _sum_checkbuffer(s::Scratch, g::Tuple, x::Tuple) = _conjugate_checkbuffer(s, g, x)
 
+# Adding the functions' results writes every entry of the output, which Symmetric and
+# Hermitian wrappers refuse; found before the first function writes.
+_check_sum_output(g) = true
+_check_sum_output(g::Union{Symmetric, Hermitian}) = throw(ArgumentError(
+  "a sum of functions needs an output that accepts off-diagonal writes; use a dense matrix"))
+@generated _check_sum_output(g::Tuple) = _blockwise(k -> :(_check_sum_output(g[$k])), fieldcount(g), true)
+
 # g += b, block by block for tuples
 _accumulate!(g, b) = (g .+= b)
 @generated _accumulate!(g::Tuple, b::Tuple) =
@@ -1332,6 +1339,7 @@ function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s:
   _checkreal(s, g); _checkreal(s, x)
   _checkgradient_output(g, x)
   _checksize(g, x)
+  length(s.fs) > 1 && _check_sum_output(g)
   _checkparams(s, x)
   _checkwrite(value_and_gradient!, first(s.fs), g, x)
   if length(s.fs) > 1

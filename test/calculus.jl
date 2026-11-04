@@ -668,6 +668,17 @@ end
     @test_throws DimensionMismatch op(out, Sum(s, s), (x[1],))
     @test_throws DimensionMismatch op(out, Sum(s, s), (x[1], x[2], x[2]))
     @test out == sentinel
+    # an output that refuses off-diagonal writes cannot take a sum, found before the first summand writes
+    for wrap in (Symmetric, Hermitian)
+      m = [1.0 2.0; 2.0 3.0]
+      sm = SeparableSum(SqrNormL2(), SqrNormL2())
+      wrongout = wrap(fill(-7.0, 2, 2)); before = copy(wrongout)
+      @test_throws ArgumentError op(wrongout, Sum(SqrNormL2(), SqrNormL2(2.)), m)
+      @test wrongout == before
+      tupleout = (fill(-7.0, 2), wrap(fill(-7.0, 2, 2)))
+      @test_throws ArgumentError op(tupleout, Sum(sm, sm), ([1.0, 2.0], m))
+      @test all(==(-7.0), tupleout[1]) && tupleout[2] == before
+    end
     # the output must not be the point, also one block of it
     @test_throws ArgumentError op(x, Sum(s, s), x)
     out = (similar(x[1]), x[2])

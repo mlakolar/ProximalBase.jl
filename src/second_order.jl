@@ -284,10 +284,12 @@ function hessian_vec!(Hv::StridedMatrix{T}, f::LogDetLoss{T}, X::AbstractMatrix,
   B === Hv || copyto!(Hv, B)
   Hv
 end
+@noinline _throw_logdet_output(::LogDetLoss{T}) where {T} =
+  throw(ArgumentError("hessian_vec! of a LogDetLoss writes a dense Matrix{$T}"))
 hessian_vec!(Hv::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix, V::AbstractMatrix) where {T} =
   (_checkreal(f, X); _checkreal(f, V); _checkreal(f, Hv);
    _checkhessian_output(Hv, X, V);
-   throw(ArgumentError("hessian_vec! of a LogDetLoss writes a dense Matrix{$T}")))
+   _throw_logdet_output(f))
 
 function quadratic_model(f::LogDetLoss{T}, X::AbstractMatrix) where {T}
   _checkreal(f, X)
@@ -351,6 +353,7 @@ function _hessian_vec_unchecked!(Hv::Union{AbstractArray, Tuple}, s::Sum, x::Uni
   _checkdirection(v, x)
   _checkparams(s, x)
   _checkreal(s, x)
+  length(s.fs) > 1 && _check_sum_output(Hv)
   _hessian_vec_unchecked!(Hv, first(s.fs), x, v)
   length(s.fs) == 1 && return Hv
   b = _sum_buffer!(s.scratch, Hv, x)

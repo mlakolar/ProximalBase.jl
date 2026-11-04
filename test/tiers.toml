@@ -80,6 +80,7 @@ standard = [
   "norms",
   "ordered",
   "second_order",
+  "hessian_alias",
   "separable",
   "singular",
   "smooth",

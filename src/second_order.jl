@@ -20,16 +20,22 @@ hashessian(f::AbstractFunction) = hashessian(typeof(f))
     hessian_vec!(Hv, f, x, v)
 
 Store the product `∇²f(x) v` of the Hessian of `f` at `x` with the direction
-`v` in `Hv` and return `Hv`, for a function with [`hashessian`](@ref). Use an
-output that does not overlap `x` or `v`, as for `mul!`. `Hv` is
-a dense array of the shape of `x`; `x` and `v` may be sparse iterates. The
-product costs about as much as a gradient: two products with `X` for
-[`LeastSquaresLoss`](@ref) and [`GLMLoss`](@ref), `w X⁻¹VX⁻¹` from one Cholesky
-factorization for [`LogDetLoss`](@ref) (`NaN`s when `x` is not positive
-definite), and it allocates nothing. On a [`SymmetricSparseIterate`](@ref) the
-product of [`KronQuadratic`](@ref) is the one over symmetric matrices, as its
-gradient is. Several products at the same `x` are cheaper through
-[`quadratic_model`](@ref), which does the work that depends on `x` once.
+`v` in `Hv` and return `Hv`, for a function with [`hashessian`](@ref). `Hv`
+must not overlap `x` or `v`, as for `mul!`. Built-in methods, the wrappers
+around any function included, throw an `ArgumentError` before writing when
+`Hv` is `x` or `v`, or a block of `Hv` is the corresponding block of `x` or
+`v`. Other sharing of memory is not supported and need not be detected. `x`
+and `v` may be the same array. `Hv` is a dense array of the shape of `x`; `x`
+and `v` may be sparse iterates. For a [`SeparableSum`](@ref) or a [`Sum`](@ref)
+of such functions, `x`, `v` and `Hv` are tuples of blocks with the same
+structure. The product costs about as much as a gradient: two products with `X`
+for [`LeastSquaresLoss`](@ref) and [`GLMLoss`](@ref), `w X⁻¹VX⁻¹` from one
+Cholesky factorization for [`LogDetLoss`](@ref) (`NaN`s when `x` is not
+positive definite), and it allocates nothing. On a
+[`SymmetricSparseIterate`](@ref) the product of [`KronQuadratic`](@ref) is the
+one over symmetric matrices, as its gradient is. Several products at the same
+`x` are cheaper through [`quadratic_model`](@ref), which does the work that
+depends on `x` once.
 
 See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
@@ -112,6 +118,14 @@ function _checkdirection(v::Tuple, x::Tuple)
   _checkdirection_blocks(v, x)
 end
 
+# Hv must not be x or v; blocks pair up to the shortest tuple, and the size checks report a
+# length mismatch. Tuples are never compared whole: () === () for any two empty tuples.
+_checkhessian_output(Hv, x, v) =
+  (Hv === x && throw(ArgumentError("the Hessian product must not overwrite x"));
+   Hv === v && throw(ArgumentError("the Hessian product must not overwrite v")); nothing)
+@generated _checkhessian_output(Hv::Tuple, x::Tuple, v::Tuple) =
+  _blockwise(k -> :(_checkhessian_output(Hv[$k], x[$k], v[$k])), min(fieldcount(Hv), fieldcount(x), fieldcount(v)), nothing)
+
 @generated _checkdirection_blocks(v::Tuple, x::Tuple) =
   _blockwise(k -> :(_checkdirection(v[$k], x[$k])), min(fieldcount(v), fieldcount(x)), true)
 
@@ -154,6 +168,7 @@ function hessian_vec!(Hv::AbstractVector, f::QuadraticFunction, x::AbstractVecto
   _checkreal(f, Hv)
   _checkreal(f, x)
   _checkreal(f, v)
+  _checkhessian_output(Hv, x, v)
   _checksize(Hv, x)
   _checkdirection(v, x)
   mul!(Hv, f.A, v)
@@ -163,6 +178,7 @@ function hessian_vec!(Hv::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVec
   _checkreal(f, Hv)
   _checkreal(f, β)
   _checkreal(f, v)
+  _checkhessian_output(Hv, β, v)
   _checksize(Hv, β)
   _checkdirection(v, β)
   mul!(f.tmp, f.X, v)
@@ -194,6 +210,7 @@ function hessian_vec!(Hv::AbstractVector, f::GLMLoss{L, T}, β::AbstractVector, 
   _checkreal(f, Hv)
   _checkreal(f, β)
   _checkreal(f, v)
+  _checkhessian_output(Hv, β, v)
   _checksize(Hv, β)
   _checkdirection(v, β)
   η = _linear_predictor!(f, β)
@@ -251,6 +268,7 @@ function hessian_vec!(Hv::StridedMatrix{T}, f::LogDetLoss{T}, X::AbstractMatrix,
   _checkreal(f, Hv)
   _checkreal(f, X)
   _checkreal(f, V)
+  _checkhessian_output(Hv, X, V)
   _checksize(Hv, X)
   _checkdirection(V, X)
   if _logdet_chol!(f, X) === nothing
@@ -266,9 +284,12 @@ function hessian_vec!(Hv::StridedMatrix{T}, f::LogDetLoss{T}, X::AbstractMatrix,
   B === Hv || copyto!(Hv, B)
   Hv
 end
+@noinline _throw_logdet_output(::LogDetLoss{T}) where {T} =
+  throw(ArgumentError("hessian_vec! of a LogDetLoss writes a dense Matrix{$T}"))
 hessian_vec!(Hv::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix, V::AbstractMatrix) where {T} =
   (_checkreal(f, X); _checkreal(f, V); _checkreal(f, Hv);
-   throw(ArgumentError("hessian_vec! of a LogDetLoss writes a dense Matrix{$T}")))
+   _checkhessian_output(Hv, X, V);
+   _throw_logdet_output(f))
 
 function quadratic_model(f::LogDetLoss{T}, X::AbstractMatrix) where {T}
   _checkreal(f, X)
@@ -321,20 +342,21 @@ _hessian_vec_unchecked!(Hv, t::Translate, x::AbstractArray, v) = _hessian_vec_un
 _add_hessian_vecs!(Hv, b, x, v, ::Tuple{}) = Hv
 function _add_hessian_vecs!(Hv, b, x, v, fs::Tuple)
   _hessian_vec_unchecked!(b, first(fs), x, v)
-  Hv .+= b
+  _accumulate!(Hv, b)
   _add_hessian_vecs!(Hv, b, x, v, Base.tail(fs))
 end
 
-hessian_vec!(Hv::AbstractArray, s::Sum, x::AbstractArray, v::AbstractArray) =
+hessian_vec!(Hv::Union{AbstractArray, Tuple}, s::Sum, x::Union{AbstractArray, Tuple}, v::Union{AbstractArray, Tuple}) =
   (_check_second_order_arrays(s, x, Hv, v); _hessian_vec_unchecked!(Hv, s, x, v))
-function _hessian_vec_unchecked!(Hv::AbstractArray, s::Sum, x::AbstractArray, v::AbstractArray)
+function _hessian_vec_unchecked!(Hv::Union{AbstractArray, Tuple}, s::Sum, x::Union{AbstractArray, Tuple}, v::Union{AbstractArray, Tuple})
   _checksize(Hv, x)
   _checkdirection(v, x)
   _checkparams(s, x)
   _checkreal(s, x)
+  length(s.fs) > 1 && _check_sum_output(Hv)
   _hessian_vec_unchecked!(Hv, first(s.fs), x, v)
   length(s.fs) == 1 && return Hv
-  b = _array_buffer!(s.scratch, eltype(Hv), size(Hv))
+  b = _sum_buffer!(s.scratch, Hv, x)
   _add_hessian_vecs!(Hv, b, x, v, Base.tail(s.fs))
 end
 

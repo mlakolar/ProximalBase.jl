@@ -131,6 +131,10 @@ the earlier behavior applies.
   - Size mismatches raise `DimensionMismatch`.
   - Non-finite coefficients of `LinearFunction` and `Tilt` are rejected at
     construction.
+  - A built-in `hessian_vec!` call whose output is `x` or `v` raises an
+    `ArgumentError` before writing. `QuadraticFunction`, `Regularize` and `Sum`
+    returned wrong values there without an error; some other built-in calls
+    happened to return the correct product.
 - **`LogDetLoss`.** `value_and_prox!` returns `Inf` when the stored output is
   singular, where it could return a finite value.
 - **Reproducibility.** Results are promised within their stated accuracy, not

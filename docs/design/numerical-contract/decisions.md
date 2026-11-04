@@ -85,7 +85,7 @@ Decisions 1–47 were approved by the maintainer on 2026-11-01 ("go with recomme
 | 29 | approximate projections | Return `0`, documented as not a feasibility certificate. |
 | 30 | wrappers that round between stages | Keep the staging. |
 | 31 | outputs after a failure | By kind. |
-| 32 | aliasing | Keep the current rule; #367 audits. |
+| 32 | aliasing | Keep the current rule; only `y === x` is guaranteed (#318); #367 audits. |
 | 33 | sparse and symmetric storage | Keep (#142). |
 | 34 | GPU arrays | The same meaning as on the CPU under A2's rules. |
 | 35 | cost policy | A 5% slowdown triggers investigation; more than 10% paid only by narrow types needs sign-off; narrow-only machinery leaves Float64 within noise; a small fixed cost per call is accepted. |
@@ -1328,6 +1328,8 @@ C++ calls this the strong exception guarantee.
 ### 32. Aliasing (O7; #367)
 
 **Decided** (maintainer, 2026-11-01). Keep the current rule; #367 audits.
+
+**Clarified** (maintainer, 2026-11-03, #318). The guarantee is for an output that is the argument itself (`y === x`), for `prox!` and `value_and_prox!`. Any other sharing of memory, including a distinct view or wrapper that covers the same entries, is unsupported and need not be detected. No overlap check or copy is added.
 
 *The analysis below is the history of this decision. Where it differs from the line above, the line above governs.*
 

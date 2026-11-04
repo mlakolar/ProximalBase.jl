@@ -154,7 +154,11 @@ practice:
   (`ArgumentError`) before writing any output.
 - **Aliasing** (O7). `prox!(x, f, x, γ)` and `value_and_prox!(x, f, x, γ)` must
   work: read each entry you need, for the point and for the value, before
-  overwriting it.
+  overwriting it. Gradient and Hessian-product outputs must be separate from
+  their inputs unless a method explicitly documents otherwise. Do not modify
+  the point `x` or the Hessian direction `v`; they may be the same array. The
+  built-in wrappers reject `Hv === x` and `Hv === v` themselves, also when they
+  wrap your function; a direct call of your method is not checked.
 - **Inside wrappers** (R1). In 0.6, `Scaled` recovers an overflowing inner
   value only for the built-in functions. Your function is covered inside it as
   long as its own value does not overflow.

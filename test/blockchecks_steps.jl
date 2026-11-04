@@ -219,6 +219,83 @@ end
   same_outcome(PointwiseMinimum(IndBox(-1.0, 1.0), IndNonnegative()), v, -Inf)
 end
 
+# A real spectrum is a plain vector, which a conjugate of a norm projects directly, and the
+# check of a spectral wrapper sees a size-only placeholder, which takes the Moreau branch of the
+# conjugate's check. The two must agree: every call the standalone oracle accepts is accepted in
+# a later block with the same result, and every rejection is the same exception.
+@testset "Spectral wrappers of conjugates agree with their blocks" begin
+  S = [2.0 0.5 0.0; 0.5 1.5 0.2; 0.0 0.2 1.0]
+  W = [2.0 0.5 0.1; 0.3 1.5 0.2]
+  nonfinite = copy(S); nonfinite[1, 2] = NaN
+  inner = (NormLinf(1.0), NormLinf(0.0), GroupNormLinf(1.0, [1:2, 3:3]), Scaled(NormLinf(1.0), 2.0),
+           NormL1(1.0), NormL2(1.0), GroupNormL2(1.0, [1:2, 3:3]), IndNonnegative(),
+           IndBallL2(1.0), IndBallL1(1.0), IndSimplex(1.0), SumLargest(2), SqrNormL2(1.0))
+  steps = (-Inf, -1.0, -1e-3, -0.0, 0.0, 0.5, 1.0, 1e300, Inf, NaN)
+  # the wrappers reject functions that depend on the order of the entries
+  wrap(W, g) = try W(Conjugate(deepcopy(g))) catch e; e isa ArgumentError ? nothing : rethrow() end
+  built = 0
+  for T in (Float32, Float64), g in inner, γ in steps
+    for f in (wrap(Spectral, g), wrap(SingularValue, g))
+      f === nothing && continue
+      built += 1
+      same_outcome(f, T.(S), γ)
+      same_outcome(f, T.(nonfinite), γ)
+      f isa SingularValue && same_outcome(f, T.(W), γ)
+    end
+  end
+  @test built >= 2 * 2 * length(steps) * 8
+  @test wrap(Spectral, NormLinf(1.0)) isa Spectral && wrap(SingularValue, NormLinf(1.0)) isa SingularValue
+  # a rejection that the placeholder can foresee is found before the first block is written
+  for T in (Float32, Float64), γ in (-1.0, NaN)
+    block_failure(Spectral(Conjugate(IndBallL2(1.0))), T.(S), γ)
+    block_failure(SingularValue(Conjugate(IndBallL2(1.0))), T.(W), γ; output = zeros(T, 2, 3))
+  end
+end
+
+@testset "Edge cases of the checks added for leaves that had none" begin
+  v = [0.3, -0.2, 0.5]
+  S = [2.0 0.5 0.0; 0.5 1.5 0.2; 0.0 0.2 1.0]
+  # LogDetLoss: the shape, then the step, then the input
+  f = LogDetLoss(Matrix(1.0I, 3, 3))
+  for op in proximal
+    @test_throws DimensionMismatch op(zeros(2, 2), f, zeros(2, 2), -1.0)
+    @test_throws DomainError op(zeros(3, 3), f, fill(NaN, 3, 3), -1.0)
+    @test_throws DomainError op(zeros(3, 3), f, fill(Inf, 3, 3), NaN)
+    @test_throws DomainError op(zeros(3, 3), f, S, NaN)
+    @test_throws DomainError op(zeros(3, 3), f, S, -Inf)
+    @test_throws DimensionMismatch op(zeros(3, 3), f, zeros(3, 2), NaN)
+    # a valid step with a nonfinite input still gives NaN, as before
+    y = zeros(3, 3)
+    op(y, f, fill(NaN, 3, 3), 1.0)
+    @test all(isnan, y)
+    # an empty input accepts a NaN step and rejects a negative one, as before
+    @test op(zeros(0, 0), LogDetLoss(zeros(0, 0)), zeros(0, 0), NaN) isa Union{Real, AbstractMatrix}
+    @test_throws DomainError op(zeros(0, 0), LogDetLoss(zeros(0, 0)), zeros(0, 0), -1.0)
+  end
+  # a negative step that underflows to -0.0 in Float32 is accepted, as by the kernel
+  same_outcome(LogDetLoss(Matrix{Float32}(I, 3, 3)), Float32.(S), -1e-50)
+  # Conjugate(IndBallL2): radius zero, and the effective step through wrappers
+  for h in (Conjugate(IndBallL2(0.0)), Scaled(Conjugate(IndBallL2(0.0)), 2.0),
+            Precompose(Conjugate(IndBallL2(0.0)), 2.0), Tilt(Conjugate(IndBallL2(0.0)), v),
+            Translate(Conjugate(IndBallL2(0.0)), v)), γ in (-1.0, -Inf, NaN, 0.0, Inf)
+    same_outcome(h, v, γ)
+  end
+  for γ in (-1.0, NaN)
+    block_failure(Scaled(Conjugate(IndBallL2(1.0)), 2.0), v, γ)
+    block_failure(Precompose(Conjugate(IndBallL2(1.0)), 0.5), v, γ)
+    block_failure(Conjugate(Scaled(IndBallL2(1.0), 3.0)), v, γ; exact = false)
+  end
+  # PointwiseMinimum at -Inf: an indicator is the projection, a candidate rejects its own steps,
+  # and any non-indicator is rejected before a candidate runs
+  same_outcome(PointwiseMinimum(IndBox(-1.0, 1.0), IndNonnegative()), v, -Inf)
+  block_failure(PointwiseMinimum(IndBallL2(1.0), IndNonnegative()), v, -Inf)
+  block_failure(PointwiseMinimum(IndBox(-1.0, 1.0), NormL1(1.0)), v, -Inf)
+  block_failure(PointwiseMinimum(NormL1(1.0), IndBox(-1.0, 1.0)), v, -Inf)
+  for γ in (0.0, 1.0, Inf, NaN)
+    same_outcome(PointwiseMinimum(IndBox(-1.0, 1.0), NormL1(1.0)), v, γ)
+  end
+end
+
 @testset "Conjugate branches" begin
   # A conjugate indicator projects at step one, including the scale Inf.
   block_failure(Conjugate(Scaled(SumLargest(1), Inf)), [2.0, 3.0], 1.0)
@@ -352,7 +429,8 @@ _allocation_prox!(y, f, x, γ) = prox!(y, f, x, γ)
                  (Conjugate(IndBallL2(1.0)), [0.3, -0.2, 0.5]),
                  (PointwiseMinimum(SqrNormL2(), NormL1(1.0)), [0.3, -0.2, 0.5]),
                  (LogDetLoss(Matrix(1.0I, 3, 3)), S), (Spectral(IndBallL1(1.0)), S),
-                 (SingularValue(IndBallL1(1.0)), S))
+                 (SingularValue(IndBallL1(1.0)), S),
+                 (Spectral(Conjugate(NormLinf(1.0))), S), (SingularValue(Conjugate(NormLinf(1.0))), S))
     sum = SeparableSum(SqrNormL2(2.0), h)
     point, dest = ([3.0], z), ([7.0], similar(z))
     for op in proximal

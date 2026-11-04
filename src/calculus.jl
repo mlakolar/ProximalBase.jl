@@ -1195,14 +1195,14 @@ block by block on tuples. Sparse plus low-rank models, for example, take
 Blocks may themselves be tuples for nested sums. Allocating oracles and
 [`Conjugate`](@ref) preserve this block structure.
 Before writing any output, the oracles check all blocks, including functions
-inside wrappers, against the checks their own oracles run before writing.
-Scalar-step checks also follow supported wrappers before writing, including
-the spectral and singular-value wrappers, `LogDetLoss`, the negative steps of
-the entropy and logarithm functions, and `PointwiseMinimum`. Remaining
-gaps include array steps, entrywise steps inside box and linear constraints,
-distance wrappers, intersections, ball, sphere and affine constraints, and
-`Conjugate`'s finite result check. Failures during computation and user-defined
-oracle checks beyond `check_parameters` can still leave earlier blocks written.
+inside wrappers, against the checks their own oracles run before writing:
+shapes, parameters, and the scalar step, also through the supported wrappers.
+The check rejects the steps that the function itself rejects, and no others.
+It does not make a failure atomic. A failure that only the computation finds
+can leave earlier blocks written: `Conjugate`'s check that a finite input gave
+a finite result, a search that finds a constraint empty, a failure inside an
+external library, and the oracles of user-defined functions beyond
+`check_parameters`. Block sums take scalar steps only.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F

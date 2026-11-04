@@ -421,12 +421,16 @@ function _maximum_abs(x::AbstractArray)
   m
 end
 
+# The signed integer type of the same width, by dispatch (a conditional on the type is not folded by Julia 1.10)
+_int_type(::Type{Float32}) = Int32
+_int_type(::Type{Float64}) = Int64
+
 # For Float32 and Float64 the maximum is taken on the bit patterns: with the sign cleared they are ordered like the
 # magnitudes (as signed integers, whose maximum vectorizes on more targets than the unsigned one), an integer maximum vectorizes
 # where the NaN-aware float maximum is a scalar chain (the trigger of #520 reads this on every value call),
 # and a NaN or an Inf gives a NaN or an Inf as before.
 function _maximum_abs(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
-  U = T === Float32 ? Int32 : Int64
+  U = _int_type(T)
   vals = _stored_values(x)
   m = zero(U)
   @inbounds @simd for i in eachindex(vals)
@@ -703,7 +707,7 @@ end
 # of the magnitude minus one step, and for a zero it wraps to the largest integer, so that zeros are skipped
 # without a select. An Inf or a NaN, whose patterns exceed that of floatmax, never replaces it.
 function _min_nonzero_exponent(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
-  U = T === Float32 ? Int32 : Int64
+  U = _int_type(T)
   vals = _stored_values(x)
   m = typemax(U)
   @inbounds @simd for i in eachindex(vals)

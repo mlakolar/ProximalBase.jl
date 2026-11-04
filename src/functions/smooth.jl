@@ -749,7 +749,7 @@ end
   _stored_maxabs(x)
 end
 @inline function _mul_maxabs!(y::StridedVector{P}, A::Diagonal{P}, x::StridedVector{P}) where {P<:Union{Float32, Float64}}
-  U = P === Float32 ? Int32 : Int64
+  U = _int_type(P)
   d = A.diag
   (length(y) == length(d) == length(x)) || return invoke(_mul_maxabs!, Tuple{Any, Any, Any}, y, A, x)
   m = zero(U)

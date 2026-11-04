@@ -637,9 +637,8 @@ allocated_pow2(::Type{T}, E, a, b, c) where {T} = (pow2_three(T, E, a, b, c); @a
         @test PB._min_nonzero_exponent(Float16[8, -2, 0]) == 1
         # nothing is allocated
         v = rand(T, 64)
-        PB._maximum_abs(v); PB._min_nonzero_exponent(v)
-        @test (@allocated PB._maximum_abs(v)) == 0
-        @test (@allocated PB._min_nonzero_exponent(v)) == 0
+        @test allocated_value(PB._maximum_abs, v) == 0
+        @test allocated_value(PB._min_nonzero_exponent, v) == 0
       end
     end
 

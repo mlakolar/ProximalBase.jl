@@ -256,6 +256,105 @@ end
     @test atom(x, 2) == [1., 3.]
   end
 
+  @testset "fill! decides activation after conversion (#421)" begin
+    c = 1e-100                                   # nonzero as a Float64, zero as a Float32
+    @test !iszero(c) && iszero(Float32(c))
+    fresh() = AtomIterate(Float32, 4, 2)
+    function check_none_active(x)
+      @test Vector(x) == zeros(Float32, 4)
+      @test nactive(x) == 0 && isempty(activecoordinates(x))
+      @test !isactive(x, 1) && !isactive(x, 2)
+      @test consistent(x)
+    end
+
+    @testset "underflow activates nothing" begin
+      x = fresh()
+      @test fill!(x, c) === x
+      check_none_active(x)
+      x = fresh()
+      @test (x .= c) === x
+      check_none_active(x)
+      x = fresh()
+      vec(x) .= c                                # vec of a vector is the vector itself
+      check_none_active(x)
+      x = fresh()
+      x[1] = c                                   # control: setindex! converts first
+      check_none_active(x)
+    end
+
+    @testset "other write paths of the same value" begin
+      u = fill(c, 4)
+      for write! in (x -> (x .= u), x -> (x .= 1 .* u), x -> copyto!(x, u), x -> (x[:] = u),
+                     x -> copyto!(x, 2, u, 1, 2), x -> (view(x, 1:4) .= c),
+                     x -> (atom(x, 1) .= c), x -> fill!(view(x, 1:2), c), x -> fill!(atom(x, 1), c))
+        x = fresh()
+        write!(x)
+        check_none_active(x)
+      end
+    end
+
+    @testset "a representable nonzero value activates every group" begin
+      x = fresh()
+      @test fill!(x, 0.1) === x
+      @test Vector(x) == fill(0.1f0, 4)           # the converted value is stored
+      @test active_set(x) == Set([1, 2]) && nactive(x) == 2
+      @test consistent(x)
+      x = fresh()
+      x .= 2
+      @test Vector(x) == fill(2f0, 4) && active_set(x) == Set([1, 2]) && consistent(x)
+      x = fresh()                                # the smallest Float32 subnormal is nonzero
+      fill!(x, 1e-45)
+      @test all(==(nextfloat(0f0)), Vector(x)) && nactive(x) == 2
+    end
+
+    @testset "NaN and infinity" begin
+      for v in (NaN, Inf, -Inf, NaN32, Inf32, 1e300)   # 1e300 converts to Float32 Inf
+        x = fresh()
+        fill!(x, v)
+        @test all(isequal(Float32(v)), Vector(x))
+        @test active_set(x) == Set([1, 2]) && consistent(x)
+      end
+    end
+
+    @testset "signed zero" begin
+      for v in (0.0, -0.0, 0, 0f0, -0f0)
+        x = fresh()
+        fill!(x, v)
+        check_none_active(x)
+      end
+      x = fresh(); x .= -0.0
+      check_none_active(x)
+    end
+
+    @testset "active groups are cleared by a value that converts to zero" begin
+      # the 0.5.x rule: a zero fill! empties the working set (#424 changes it for 0.6)
+      for clear! in (x -> fill!(x, c), x -> (x .= c))
+        x = fresh()
+        x[1], x[4] = 3, 5
+        @test active_set(x) == Set([1, 2])
+        @test clear!(x) === x
+        check_none_active(x)
+      end
+      x = fresh()
+      x[3] = 1
+      fill!(x, 0.0)                              # same result as the unconverted zero
+      check_none_active(x)
+    end
+
+    @testset "a failed conversion leaves the iterate unchanged" begin
+      x = AtomIterate(Int, 6, [1:2, 3:4, 5:6])
+      x[5], x[1] = 7, 4
+      before = (copy(x.storage), copy(activecoordinates(x)), copy(x.position), x.nactive)
+      for v in (1.5, 1e-100, NaN, Inf)
+        @test_throws InexactError fill!(x, v)
+        @test_throws InexactError (x .= v)
+        @test (x.storage, collect(activecoordinates(x)), x.position, x.nactive) == before
+        @test activecoordinates(x) == [3, 1]     # the order of the working set is kept
+        @test consistent(x)
+      end
+    end
+  end
+
   @testset "atom views activate writes" begin
     gs = [1:2, 3:4, 5:6]
     a = AtomIterate(6, gs)

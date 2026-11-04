@@ -59,17 +59,25 @@ Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ:
   # (invariant in a loop over entries), then the weight; formed in the promotion of S and the factors
   # and rounded once, with the range recovery and the zero and infinite weights of _weight_coefficient
   hi = _weight_coefficient(S, γ, f.τ, w)
-  lo = _weight_coefficient(S, γ, _one_minus(S, f.τ), w)
+  lo = _weight_coefficient(S, γ, _one_minus(_working_type(S, γ, w, f.τ), f.τ), w)
   u > hi ? u - hi : (u < -lo ? u + lo : zero(S))
 end
+
+# wτ and w(1-τ) of the KKT test in the gradient's element type T, each rounded once; the complement is
+# formed in the promotion of T and the factors. An integer gradient keeps the untyped values.
+@inline function _check_kkt_levels(::Type{T}, w, τ) where {T<:AbstractFloat}
+  R = _working_type(T, w, τ)
+  _typed_product(T, w, τ), _typed_product(T, w, _one_minus(R, τ))
+end
+@inline _check_kkt_levels(::Type, w, τ) = w * τ, w * (1 - τ)
 
 # from zero, the objective decreases upward at rate -gᵢ - wᵢτ and downward at
 # rate gᵢ - wᵢ(1 - τ)
 function kkt_violation(f::CheckLoss, g::AbstractArray, i::Integer)
   eltype(g) <: Real || _real_error(:kkt_violation)
   w = _entry(f.w, i)
-  W = float(eltype(g))
-  max(-g[i] - _typed_product(W, w, f.τ), g[i] - _typed_product(W, w, _one_minus(W, f.τ)))
+  hi, lo = _check_kkt_levels(eltype(g), w, f.τ)
+  max(-g[i] - hi, g[i] - lo)
 end
 restrict(f::CheckLoss, S::AbstractVector{<:Integer}) = CheckLoss(f.τ, _restrict_entries(f.w, S))
 
@@ -134,19 +142,13 @@ end
     iszero(v) && return zero(S)
     return iszero(g) ? zero(S) : S(Inf)
   end
-  # significands in [1/2, 1) have no range problem; the combined exponent E is split over the two
-  # factors that the exact scaled product then rounds once, so that no factor is rounded early
-  # where it is subnormal. The two significand products add a rounding of 2⁻ᵖ before it. The step
-  # lies in [2^(E-4), 2^E): beyond the range of R it is Inf or zero.
+  # significands in [1/2, 1) have no range problem; the combined exponent goes into the exact scaled
+  # product, which rounds once (_ldexp_round), so that no factor is rounded early where it is
+  # subnormal. The significand products add a rounding of 2⁻ᵖ before it.
   mg, eg = frexp(g)
   mv, ev = frexp(v)
   my, ey = frexp(y)
-  E = eg + ev + 2ey
-  E > exponent(floatmax(R)) + 5 && return S(Inf)
-  E < exponent(nextfloat(zero(R))) && return zero(S)
-  E1 = E ÷ 2
-  A, B = ldexp(mg * mv, E1), ldexp(my * my, E - E1)
-  convert(S, _scaled_coefficient(A, B, one(R), A * B))
+  convert(S, _ldexp_round((mg * mv) * (my * my), eg + ev + 2ey))
 end
 
 # the proximal operator of γwᵢ max(0, 1 - u) at the margin u = yᵢv, mapped back
@@ -161,7 +163,7 @@ end
 
 # f is differentiable at zero, with derivative -wᵢyᵢ
 kkt_violation(f::HingeLoss, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] - _typed_product(float(eltype(g)), _entry(f.w, i), _entry(f.y, i))))
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i] - _kkt_product(eltype(g), _entry(f.w, i), _entry(f.y, i))))
 restrict(f::HingeLoss, S::AbstractVector{<:Integer}) = HingeLoss(_restrict_entries(f.y, S), _restrict_entries(f.w, S))
 
 """

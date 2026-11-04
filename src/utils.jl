@@ -84,11 +84,25 @@ end
   R = _working_type(U, a, b, c)
   convert(U, _positive_product(convert(R, a), convert(R, b), convert(R, c)))
 end
-# 1 - τ formed in the promotion of U and τ's type, returned in that type (the caller rounds the
-# combined coefficient once)
-@inline function _one_minus(::Type{U}, τ) where {U<:AbstractFloat}
-  R = _working_type(U, τ, τ)
-  one(R) - convert(R, τ)
+# 1 - τ formed in the working type R of the whole coefficient (the promotion of the model precision
+# and every factor that takes part in it), so that the complement is rounded once, with the others
+@inline _one_minus(::Type{R}, τ) where {R<:AbstractFloat} = one(R) - convert(R, τ)
+# The coefficient and product of a KKT diagnostic in the gradient's element type T, rounded once. A
+# gradient that is not floating point (integers) keeps the untyped value and type of the baseline.
+@inline _kkt_coefficient(::Type{T}, λ, w) where {T<:AbstractFloat} = _weight_coefficient(T, λ, w)
+@inline _kkt_coefficient(::Type, λ, w) = _weight_coefficient(λ, w)
+@inline _kkt_float(::Type{T}) where {T} = float(T)   # LogPenalty divides, so an integer gradient gives a float
+@inline _kkt_product(::Type{T}, a, b) where {T<:AbstractFloat} = _typed_product(T, a, b)
+@inline _kkt_product(::Type, a, b) = a * b
+# m⋅2^E rounded once to R, for a significand 2⁻⁴ ≤ m < 2 and an exponent E of any size: Inf or zero
+# beyond the range of R, else the exact scaled product, so that no factor is rounded early where it
+# is subnormal. E is split over two factors, each of them inside the range of R.
+@inline function _ldexp_round(m::R, E::Integer) where {R<:AbstractFloat}
+  E > exponent(floatmax(R)) + 4 && return R(Inf)
+  E < exponent(nextfloat(zero(R))) - 1 && return zero(R)
+  E1 = E ÷ 2
+  A, B = ldexp(m, E1), ldexp(one(R), E - E1)
+  _scaled_coefficient(A, B, one(R), A * B)
 end
 # the plain product ab (no range recovery) formed in the promotion of U and the factors' types,
 # rounded once to U

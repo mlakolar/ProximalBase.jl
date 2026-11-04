@@ -103,6 +103,74 @@ end
   end
 end
 
+@testset "CheckLoss: 1-τ in the promotion of all the factors" begin
+  # τ = 0.1f0 (Float32), γ = 3.0 (Float64), Float32 input: the complement is formed in Float64, with γ,
+  # and the threshold γ(1-τ)w is rounded once to Float32 (BigFloat oracle, exact products)
+  τ, γ = 0.1f0, 3.0
+  f = CheckLoss(τ)
+  lo = Float32(big(γ) * (1 - big(τ)))
+  hi = Float32(big(γ) * big(τ))
+  @test lo != Float32(big(γ) * Float64(1f0 - τ))                       # rounding 1-τ to Float32 first gives another threshold
+  for u in (-4f0, -3f0, -2.7f0, -2.6f0, 2f0, 0.5f0)
+    want = u > hi ? u - hi : (u < -lo ? u + lo : 0f0)
+    @test prox_entry(f, u, 1, γ) === want
+  end
+  y = zeros(Float32, 3); prox!(y, f, Float32[-4, 0, 4], γ); @test y == Float32[-4 + lo, 0, 4 - hi]
+  # weighted, Float64 weight and step, Float32 τ
+  g = CheckLoss(τ, [2.0])
+  lo2, hi2 = Float32(big(γ) * (1 - big(τ)) * 2), Float32(big(γ) * big(τ) * 2)
+  @test prox_entry(g, -8f0, 1, γ) === -8f0 + lo2
+  @test prox_entry(g, 8f0, 1, γ) === 8f0 - hi2
+  # the KKT test, with a Float32 gradient and Float64 weight and Float32 τ: w(1-τ) formed in Float64
+  kkt = ProximalBase.kkt_violation
+  w = 3.0
+  lo3, hi3 = Float32(big(w) * (1 - big(τ))), Float32(big(w) * big(τ))
+  @test lo3 != Float32(big(w) * Float64(1f0 - τ))
+  h = CheckLoss(τ, [w])
+  @test kkt(h, Float32[2lo3], 1) === lo3                                # g - w(1-τ), g = 2·lo3 exactly
+  @test kkt(h, Float32[-2hi3], 1) === hi3                               # -g - wτ
+  lo64 = Float64(big(w) * (1 - big(τ)))
+  @test kkt(CheckLoss(τ, [w]), [2lo64], 1) == lo64                       # Float64 gradient: w(1-τ) rounded once to Float64
+  # integer gradients keep the baseline types
+  @test kkt(CheckLoss(0.5, [2]), [4], 1) === 3.0
+end
+
+@testset "LogPenalty: the quotient by ε restores the range of λw" begin
+  kkt = ProximalBase.kkt_violation
+  p800, m800 = 2.0^800, 2.0^-800
+  f = LogPenalty(p800, p800, [p800])                       # λw overflows Float64, λw/ε = 2^800
+  @test kkt(f, [2 * p800], 1) == p800
+  @test lla_weight(f, 0.0, 1) == p800
+  @test lla_weight(f, p800, 1) == p800 / 2                 # λw/(ε + |v|) = 2^800/2
+  @test lla_weights(LogPenalty(p800, p800, [p800, p800]), [0.0, p800]) == [p800, p800 / 2]
+  g = LogPenalty(m800, m800, [m800])                       # λw underflows to 0, λw/ε = 2^-800
+  @test kkt(g, [2 * m800], 1) == m800
+  @test lla_weight(g, 0.0, 1) == m800
+  @test lla_weight(g, m800, 1) == m800 / 2
+  # λw/ε is a different power: 2^900·2^900/2^1000 = 2^800 and 2^-900·2^-900/2^-1000 = 2^-800
+  @test kkt(LogPenalty(2.0^900, 2.0^1000, [2.0^900]), [2 * p800], 1) == p800
+  @test kkt(LogPenalty(2.0^-900, 2.0^-1000, [2.0^-900]), [2 * m800], 1) == m800
+  # Float32 factors and gradient: 2^80·2^80 overflows Float32, the quotient by 2^80 is 2^80
+  b = 2f0^80
+  @test kkt(LogPenalty(b, b, Float32[b]), Float32[2b], 1) === b
+  @test lla_weight(LogPenalty(b, b, Float32[b]), 0f0, 1) === b
+  @test lla_weight(LogPenalty(2f0^-80, 2f0^-80, Float32[2f0^-80]), 0f0, 1) === 2f0^-80
+  # Float32 factors, Float64 gradient and argument: the product is formed in Float64
+  @test kkt(LogPenalty(b, 1f0, Float32[b]), [2.0^161], 1) == 2.0^161 - 2.0^160
+  # ordinary values keep the ordinary quotient
+  @test lla_weight(LogPenalty(0.5, 0.25, [2.0]), 0.75, 1) == 1.0
+  @test kkt(LogPenalty(0.5, 0.25, [2.0]), [3.0], 1) == 3.0 - 4.0
+  # zero, infinite and NaN: the weight decides as before
+  @test lla_weight(LogPenalty(p800, p800, [Inf]), 0.0, 1) == Inf
+  @test lla_weight(LogPenalty(0.0, 1.0, [Inf]), 1.0, 1) == Inf
+  @test lla_weight(LogPenalty(p800, p800, [0.0]), 0.0, 1) == 0.0
+  @test kkt(LogPenalty(p800, p800, [0.0]), [3.0], 1) == 3.0
+  @test kkt(LogPenalty(0.0, 1.0, [Inf]), [3.0], 1) == -Inf
+  @test isnan(lla_weight(LogPenalty(1.0, 1.0, [1.0]), NaN, 1))
+  # an infinite |v| gives a zero weight, not NaN
+  @test lla_weight(LogPenalty(p800, p800, [p800]), Inf, 1) == 0.0
+end
+
 @testset "_prox_slope agrees with prox_entry at the threshold" begin
   f = NormL1(0.1)
   r, γ = 0.3f0, 3f0

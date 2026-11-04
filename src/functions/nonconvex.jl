@@ -71,7 +71,7 @@ Base.@propagate_inbounds function prox_entry(f::CappedL1, v::T, i::Integer, γ::
 end
 
 kkt_violation(f::CappedL1, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(float(eltype(g)), f.λ, _entry(f.w, i)))
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _kkt_coefficient(eltype(g), f.λ, _entry(f.w, i)))
 restrict(f::CappedL1, S::AbstractVector{<:Integer}) = CappedL1(f.λ, f.a, _restrict_entries(f.w, S))
 
 ####################################
@@ -143,13 +143,28 @@ Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ
   c * log1p(z / ε) + (z - t)^2 / 2 < t^2 / 2 ? sign(S(v)) * z : zero(S)
 end
 
-# λw/ε at the KKT precision W, formed in the promotion of W and the factors and rounded once
-@inline function _logpenalty_slope(::Type{W}, λ, w, ε) where {W<:AbstractFloat}
-  R = _working_type(W, λ, w, ε)
-  convert(W, _weight_coefficient(convert(R, λ), convert(R, w)) / convert(R, ε))
+# The slope λw/(ε + t) of the logarithmic penalty at |v| = t ≥ 0, in the precision U, formed in the
+# promotion R of U and the factors and rounded once. λw is the ordinary coefficient while it is a
+# normal number; otherwise, for finite nonzero factors, the quotient is formed from significands and
+# one exponent, so that a division by ε that restores the range of a λw that overflows or underflows
+# is not lost (R3). Zero, infinite and NaN weights and levels keep the meaning of _weight_coefficient.
+@inline function _logpenalty_slope(::Type{U}, λ, w, ε, t) where {U<:AbstractFloat}
+  R = _working_type(U, λ, w, ε)
+  a, b, d = convert(R, λ), convert(R, w), convert(R, ε) + convert(R, t)
+  p = a * b
+  floatmin(R) <= p <= floatmax(R) && return convert(U, p / d)
+  _logpenalty_slope_exceptional(U, a, b, d)
+end
+@noinline function _logpenalty_slope_exceptional(::Type{U}, a::R, b::R, d::R) where {U<:AbstractFloat, R<:AbstractFloat}
+  isinf(d) & isfinite(a) & isfinite(b) && return zero(U)      # finite λw over an infinite |v|: zero, not ∞/∞
+  _recoverable_factors(a, b, d) || return convert(U, _weight_coefficient(a, b) / d)
+  ma, ea = frexp(a)
+  mb, eb = frexp(b)
+  md, ed = frexp(d)
+  convert(U, _ldexp_round((ma * mb) / md, ea + eb - ed))
 end
 kkt_violation(f::LogPenalty, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _logpenalty_slope(float(eltype(g)), f.λ, _entry(f.w, i), f.ε))
+  (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _logpenalty_slope(_kkt_float(eltype(g)), f.λ, _entry(f.w, i), f.ε, 0))
 restrict(f::LogPenalty, S::AbstractVector{<:Integer}) = LogPenalty(f.λ, f.ε, _restrict_entries(f.w, S))
 
 ####################################

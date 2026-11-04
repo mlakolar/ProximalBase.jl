@@ -43,8 +43,8 @@ so is the value `value_and_prox!` returns for it; a free diagonal is copied. For
 projection is the identity, NaN included, and its value is `0`. For `s = 0` the projection is zero
 whatever the argument and its fused value is `0`. The value of the function at an argument with a
 NaN in a counted entry is NaN for every `s < m`, since the argument may or may not be in the set.
-Writing the NaN into an output of integer element type throws an `InexactError` before anything is
-written.
+When the NaN block is written into an output of integer element type, the `InexactError` is thrown
+before anything is written.
 """
 struct IndBallL0 <: AbstractFunction
   s::Int
@@ -101,7 +101,7 @@ function _count_nan_all(x::AbstractArray{<:Base.IEEEFloat})
     nz += !iszero(v)
     z += v * zero(v)
   end
-  nz, isnan(z) && _anynan(x)
+  nz, isnan(z) && _l0_anynan(x)
 end
 function _count_nan_all(x::AbstractArray)
   nz, nan = 0, false
@@ -112,7 +112,7 @@ function _count_nan_all(x::AbstractArray)
   end
   nz, nan
 end
-@noinline _anynan(x) = any(isnan, x)
+@noinline _l0_anynan(x) = any(isnan, x)
 
 # the number of entries that count: one per coordinate, a free diagonal excluded
 _ncounted(f::IndBallL0, x::AbstractArray) = _allcount(f, x) ? length(x) : length(x) - min(size(x, 1), size(x, 2))
@@ -155,8 +155,8 @@ end
 
 # The projection into y; true when it stored the NaN block (E2 above), whose value is NaN (O2).
 function _value_and_prox_body!(y, f::IndBallL0, x, γ::Real = 1)
+  _checkwrite(value_and_prox!, f, y, x)      # the shapes before the step, as the generic body does
   _checkstep_nonneg(γ)
-  _checkwrite(value_and_prox!, f, y, x)
   _direct_prox!(y, f, x) ? convert(_valtype(y), NaN) : zero(_valtype(y))
 end
 
@@ -763,8 +763,8 @@ const _DirectSet = Union{IndBallL1, IndBallL2, IndSphereL2, IndSimplex}
 # O2: the value is the one at the stored point, NaN when a NaN block was stored. These and
 # IndBallL0 (above) are the indicators whose generic shortcut (zero without looking) is replaced.
 function _value_and_prox_body!(y, f::_DirectSet, x, γ::Real = 1)
+  _checkwrite(value_and_prox!, f, y, x)      # the shapes before the step, as the generic body does
   _checkstep_nonneg(γ)
-  _checkwrite(value_and_prox!, f, y, x)
   _direct_prox!(y, f, x) ? convert(_valtype(y), NaN) : zero(_valtype(y))
 end
 

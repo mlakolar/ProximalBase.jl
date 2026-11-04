@@ -260,7 +260,19 @@ end
   @test_throws ArgumentError prox!(y, IndBallL0(1), [NaN, 1.0], -1.0)
   @test_throws ArgumentError value_and_prox!(y, IndBallL0(1), [NaN, 1.0], NaN)
   @test y == [5.0, 6.0]
-  # a NaN cannot be stored in an integer output: the write is refused before it starts
+  # invalid inputs together: value_and_prox! checks the shapes before the step (as the generic body does) and
+  # prox! the step first, whatever the argument; nothing is written either way
+  for x in ([NaN, 2.0], [1.0, 2.0]), γ in (-1.0, NaN)
+    y3 = fill(7.0, 3)                                     # the wrong size
+    @test_throws DimensionMismatch value_and_prox!(y3, IndBallL0(1), x, γ)
+    @test y3 == fill(7.0, 3)
+    @test_throws ArgumentError prox!(y3, IndBallL0(1), x, γ)
+    @test y3 == fill(7.0, 3)
+    y2 = fill(7.0, 2)                                     # the right size, a bad step
+    @test_throws ArgumentError value_and_prox!(y2, IndBallL0(1), x, γ)
+    @test y2 == fill(7.0, 2)
+  end
+  # a NaN block cannot be stored in an integer output: the write is refused before it starts
   yi = [5, 6]
   @test_throws InexactError prox!(yi, IndBallL0(1), [NaN, 2.0], 1.0)
   @test yi == [5, 6]

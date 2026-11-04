@@ -258,6 +258,20 @@ the coefficient ``e^{710}/8`` and the response ``709``. A coefficient or respons
 cannot be represented raises a [`PrecisionError`](@ref), and
 [`quadratic_model!`](@ref) then leaves the model as it was.
 
+That all-or-nothing update has a measured cost: the pair of every observation is
+staged in the buffers of the loss and copied into the model last. The cost was
+measured with the protocol of the benchmark policy (paired fresh processes, one
+core, `p = 1`, Julia 1.13.3) against the implementation that wrote the model
+directly, and the maintainers accepted it as the price of failure atomicity.
+For a Huber loss `quadratic_model!` takes **1.40 to 1.72 times as long** (Float32 and
+Float64, ``n = 10^3`` and ``10^5``; +0.14 to +0.59 ns per observation), for a Logistic
+loss in `Float64` **1.058 to 1.067 times** (+0.8 to +0.9 ns per observation); a Poisson
+loss is 0.82 to 0.93 times as long, because it evaluates `exp` once, and that gain
+does not offset the other two. Nothing allocates. The overhead is linear in ``n``
+and does not depend on the columns of `X`: with more columns it is diluted by the
+Hessian work that follows (Huber `Float64`, ``n = 1024``, ``p = 256``: about +1%;
+``n = 128``, ``p = 32``: +12%).
+
 For [`LogDetLoss`](@ref)`(S, w)`, with ``W = X^{-1}``, the expansion of
 ``w(\operatorname{tr}(SZ) - \log\det Z)`` at ``X`` in the step ``\Delta = Z - X`` is,
 up to a constant,

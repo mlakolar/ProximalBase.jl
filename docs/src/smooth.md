@@ -260,7 +260,8 @@ cannot be represented raises a [`PrecisionError`](@ref), and
 
 The class of a Poisson coefficient is exact (numerics R4). The coefficient is rejected,
 as `Inf`, exactly when ``w_i e^{\eta_i}`` rounds beyond `floatmax`, and a coefficient that is
-representable is never rejected, also within a few ulps of that threshold. An ordinary product,
+representable is not rejected, also within a few ulps of that threshold (up to the precision
+limit stated below). An ordinary product,
 or the recovery that holds the power of two outside the range, is accepted when it is finite and
 below ``0.999\,\text{floatmax}``: both are accurate to far better than ``10^{-3}``, so the
 class is certain there, and the value is accurate as such a product is. A coefficient closer to
@@ -268,7 +269,10 @@ class is certain there, and the value is accurate as such a product is. A coeffi
 clearly beyond the range, and otherwise it is evaluated in `BigFloat` arithmetic of an explicit
 precision with directed rounding, which is raised until both bounds round to the same `T`.
 That value is the correctly rounded ``w_i e^{\eta_i}``, and it is `Inf` exactly when the
-product rounds beyond `floatmax`. Below the curvature floor the coefficient is the single
+product rounds beyond `floatmax`. The precision is raised up to 65536 bits; needing more would
+take ``w_i e^{\eta_i}`` within about ``2^{-65000}`` (relative) of a rounding boundary of `T`.
+No such input is known, but none is ruled out either, and for one the update raises a
+[`PrecisionError`](@ref) rather than return a coefficient it has not certified. Below the curvature floor the coefficient is the single
 product ``w_i\sqrt\varepsilon``, and
 the response ``\eta_i + (y_i - e^{\eta_i})/\sqrt\varepsilon`` is formed so that a
 cancelling pair of terms that leave the range does not fail where their sum fits

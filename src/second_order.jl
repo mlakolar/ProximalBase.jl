@@ -97,7 +97,7 @@ reshape of one is not detected. Non-finite data propagate as
 `NaN`/`Inf` without an error in the update of a model; `quadratic_model` builds a new
 loss and so checks the offset again, which must be finite, as in the constructor: an
 offset made non-finite after the construction is an `ArgumentError` there. Allocation
-and global state, in four cases. (i) An update in `Float32` or `Float64` allocates nothing as
+and global state, in four cases. (i) An ordinary update in `Float32` or `Float64` allocates nothing as
 long as the staged coefficients and responses are finite and no coefficient vanished.
 (ii) A recovery that does not need the certified tier below (the exponent split of a Poisson
 `exp(ηᵢ)` that overflows, a response below the curvature floor, the correction of a
@@ -460,10 +460,13 @@ using Base.MPFR: libmpfr, MPFRRoundingMode, MPFRRoundDown, MPFRRoundUp
 # Inf) L exceeds emax + 2 even for the smallest subnormal weight, so the screen returns Inf there too.
 # Certification (Ziv): at the explicit precision p, lo = RD(RD(exp(η)) |w|) and hi = RU(RU(exp(η)) |w|)
 # (MPFR directed rounding, from `mpfr_exp` and `mpfr_mul` called at the destination precision) enclose
-# |w| exp(η). Rounding to nearest is monotone, so if lo and hi round to the same T they are the correctly
-# rounded value, the class (finite or Inf) included; otherwise p is doubled. For η ≠ 0 the value is
-# transcendental, so never a rounding boundary of T, and the loop ends; for η = 0 the product is exact.
-# The cap of 65536 bits is not reached. Nothing here sets or reads the BigFloat precision or rounding
+# |w| exp(η). Rounding to nearest (`T(x, RoundNearest)`, an explicit mode) is monotone, so if lo and hi
+# round to the same T they are the correctly rounded value, the class (finite or Inf) included; otherwise
+# p is doubled. For η ≠ 0 the value is transcendental, so never a rounding boundary of T, and an unbounded
+# loop would end; for η = 0 the product is exact. The loop stops at 65536 bits: going past it would need
+# |w| exp(η) within about 2^-65000 (relative) of a rounding boundary of T. No such input is known (the
+# closest tested, w = floatmax and η near 2^-54, is about 2^-107 away), but none is proved impossible, and
+# for one the call throws PrecisionError instead of returning an uncertified value. Nothing here sets or reads the BigFloat precision or rounding
 # mode, and nothing takes a lock; the call allocates (BigFloat).
 # A zero weight or a NaN coefficient (0·Inf from an overflowed exponent, propagated as it was) is returned as is.
 @noinline function _poisson_upper(w::T, η::T, v::T) where {T<:Union{Float32, Float64}}

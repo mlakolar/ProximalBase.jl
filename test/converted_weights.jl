@@ -171,14 +171,16 @@ end
   x = [-Inf, Inf]
   @test f(x) === Inf
   @test value_and_prox!(similar(x), f, x, 1.0) === Inf
-  # NaNs may occur anywhere in the indirect quicksort order.
+  # NaNs may occur anywhere in the indirect quicksort order. Non-constant finite weights make
+  # every output depend on every entry (E2): all NaN. An infinite weight keeps the ordinary
+  # computation (LIM-056).
   for x in ([NaN, 1., 0.], [1., NaN, 0.], [1., 0., NaN], [Inf, 1., 0.]),
       λ in ([2., 1., 1.], [Inf, 1., 1.])
     @test isequal(SLOPE(λ)(x), ordinary_value(λ, x))
     v, y = ordinary_prox(λ, x, 0.5)
     out = similar(x)
     @test isequal(value_and_prox!(out, SLOPE(λ), x, 0.5), v)
-    @test isequal(out, y)
+    @test isequal(out, any(isnan, x) && isfinite(λ[1]) ? fill(NaN, 3) : y)
   end
 end
 

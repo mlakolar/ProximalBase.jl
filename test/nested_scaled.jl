@@ -714,4 +714,57 @@ steps566(::Type{Float32}) = (a = 25, l = 30, g = 10, l2 = 10, g2 = 20)
   end
 end
 
+
+# Review of #575: the fold that refuses a level (empty array steps) and the explicit infinite factor
+# (a factor that is not a scale to fold). Both gave a result on the base of #566 and must still.
+@testset "empty array steps and infinite factors under the fold (#566)" begin
+  for T in (Float32, Float64)
+    @testset "$T" begin
+      sub = floatmin(T) / T(2)^10                  # the effective level is subnormal: the fold refuses it
+      tiny = T == Float64 ? T(1e-200) : T(1f-30)   # outside the band of a single factor
+      @testset "empty steps" begin
+        for s in (Scaled(NormL1(one(T)), sub), Scaled(Scaled(NormL1(one(T)), sub), sub),
+                  Scaled(NormL1(one(T)), tiny), Scaled(Scaled(NormL1(one(T)), tiny), tiny),
+                  Scaled(NormL1(tens(T, -30)), tens(T, 20)))
+          x, γ = T[], T[]
+          y = T[]
+          @test prox!(y, s, x, γ) === y
+          @test isempty(y)
+          @test value_and_prox!(y, s, x, γ) === zero(T)
+          @test isempty(y)
+          # the output is not read: a longer one is refused before it is touched
+          y = T[7]
+          @test_throws DimensionMismatch prox!(y, s, x, γ)
+          @test y == T[7]
+        end
+        # a step of another length than the argument is still refused
+        @test_throws DimensionMismatch prox!(T[], Scaled(NormL1(one(T)), sub), T[], T[1])
+      end
+      @testset "an explicit infinite factor" begin
+        inner = Scaled(NormL1(one(T)), T(Inf))
+        z, γ = T[3, 0.5, -7], T[1, 1, 1]
+        for s in (Scaled(Translate(inner, zeros(T, 3)), tiny),
+                  Scaled(Scaled(Translate(inner, zeros(T, 3)), tiny), tiny),
+                  Scaled(Scaled(NormL1(one(T)), T(Inf)), tiny),
+                  Scaled(Scaled(NormL1(one(T)), tiny), T(Inf)),
+                  Scaled(Scaled(Scaled(NormL1(one(T)), T(Inf)), tiny), tiny))
+          # the point of the scalar step, which the base of #566 gives for both
+          y, ys = fill(T(-7), 3), fill(T(-7), 3)
+          @test prox!(y, s, z, γ) === y
+          prox!(ys, s, z, T(1))
+          @test isequal(y, ys)
+          @test all(iszero, y) || all(isnan, y)
+          y2 = fill(T(-7), 3)
+          v = value_and_prox!(y2, s, z, γ)
+          @test isequal(y2, y)
+          @test isequal(v, value_and_prox!(copy(ys), s, z, T(1)))
+        end
+        # an ordinary factor over the infinite one, and a scalar step, as controls
+        ordinary = Scaled(Translate(inner, zeros(T, 3)), one(T))
+        @test prox(ordinary, z, γ) == prox(ordinary, z, T(1)) == zeros(T, 3)
+      end
+    end
+  end
+end
+
 end

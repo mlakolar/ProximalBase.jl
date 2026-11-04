@@ -547,28 +547,34 @@ function warmed_projection_allocation(op::O, y, c, x, γ) where {O}
 end
 
 @testset "scaled fallback sub-sums and compensating coefficients" begin
-  sub = Scaled(SeparableSum(SqrNormL2()), 1e60)
-  α, γ = 1f-30, 1f30
-  c = Conjugate(Scaled(SeparableSum(NormL1(), sub), α))
-  # The Moreau step 1f-30 and the factor 1f-30 have the product 1f-60, which Float32 rounds to zero
-  # (#566). The coefficient of the block is 1e60 * 1f-30 * 1f-30 = 1, so the second block is
-  # y = x / (1 + γ / 1e30) = 1 / 2 and its value y^2 / (2 * 1e30), not the zero of the rounded step.
-  expected = ([Float64(α)], ([0.5],))
-  # from the stored parameters: coefficient c = 1e60 α, Moreau step t = inv(γ), tc = t c
-  coefficient = big(1e60) * big(α)
-  tc = big(inv(γ)) * coefficient
-  point = tc / (1 + tc)
-  for op in (prox!, value_and_prox!), alias in (false, true)
-    x = ([3.0], ([1.0],))
-    y = alias ? x : deepcopy(x)
-    v = op(y, c, x, γ)
-    @test y[1] == expected[1]
-    @test y[2][1][1] ≈ Float64(point) rtol = 1e-12
-    op === value_and_prox! && @test v ≈ Float64(point^2 / (2coefficient)) rtol = 1e-12
-  end
-  for op in (prox!, value_and_prox!)
-    skip = VERSION < v"1.11"
-    @test warmed_projection_allocation(op, deepcopy(expected), c, ([3.0], ([1.0],)), γ) == 0 skip = skip
+  # The Moreau step inv(γ) and the factor α have a product that Float32 rounds to zero (#566), while the
+  # coefficient c = factor * α of the block does not: with tc = c / γ the second block is
+  # y = x tc / (1 + tc) and its value y^2 / (2c), not the zero of the rounded step. The references use
+  # the stored γ, α and factor in BigFloat.
+  # - A power of two γ has an exact reciprocal: the reference holds to rounding of the Float64 result.
+  # - γ = 1f30 does not: the Moreau route forms inv(γ) in the type of the step (Float32 here), as it does
+  #   on the base of #566 for steps with no scaling at all, so the point is that of the Float32
+  #   reciprocal and agrees with the stored-γ reference only to Float32 precision.
+  for (α, γ, factor, rtol) in ((2f0^-100, 2f0^100, 2.0^200, 8eps(Float64)),
+                               (1f-30, 1f30, 1e60, 2eps(Float32)))
+    sub = Scaled(SeparableSum(SqrNormL2()), factor)
+    c = Conjugate(Scaled(SeparableSum(NormL1(), sub), α))
+    coefficient = big(factor) * big(α)
+    tc = coefficient / big(γ)
+    point = tc / (1 + tc)
+    expected = ([Float64(α)], ([Float64(point)],))
+    for op in (prox!, value_and_prox!), alias in (false, true)
+      x = ([3.0], ([1.0],))
+      y = alias ? x : deepcopy(x)
+      v = op(y, c, x, γ)
+      @test y[1] == expected[1]
+      @test y[2][1][1] ≈ Float64(point) rtol = rtol
+      op === value_and_prox! && @test v ≈ Float64(point^2 / (2coefficient)) rtol = rtol
+    end
+    for op in (prox!, value_and_prox!)
+      skip = VERSION < v"1.11"
+      @test warmed_projection_allocation(op, deepcopy(expected), c, ([3.0], ([1.0],)), γ) == 0 skip = skip
+    end
   end
 
   sub = Scaled(SeparableSum(Scaled(SqrNormL2(), 1e-300)), 1e300)

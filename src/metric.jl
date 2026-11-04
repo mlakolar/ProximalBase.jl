@@ -255,6 +255,7 @@ function _array_fold(f, a, γ)
   shifted === nothing ? (f, _ExpScaledArray(γ, a), :rounded) : (shifted..., :shifted)
 end
 function _shifted_fold(f, a::_ProjectionScale, γ::AbstractArray)
+  isempty(γ) && return nothing    # no entry to shift: the rounded fallback has nothing to round
   S = promote_type(float(eltype(γ)), typeof(a.m))
   positive(g) = g > 0 && isfinite(g)
   hi = maximum(g -> positive(g) ? exponent(float(g)) : typemin(Int), γ)

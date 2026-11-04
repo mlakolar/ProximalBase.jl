@@ -282,7 +282,12 @@ struct _NormalScale{T}
   s::_ProjectionScale{T}
 end
 _apply_scale(a::_NormalScale, v) = _apply_scale(a.s, v)
-_projection_accumulate(a::_NormalScale, b::Real) = _NormalScale(_projection_accumulate(a.s, b))
+# An explicit zero or infinite factor is not a scale to fold: the accumulation returns it as a plain
+# number, as for `_ProjectionScale`, and no level folds it (`_folded_level` refuses the product).
+function _projection_accumulate(a::_NormalScale, b::Real)
+  p = _projection_accumulate(a.s, b)
+  p isa _ProjectionScale ? _NormalScale(p) : p
+end
 function _folded_level(λ, α::_NormalScale)
   c = _folded_level(λ, α.s)
   c === nothing || iszero(c) || abs(c) >= floatmin(typeof(float(c))) ? c : nothing

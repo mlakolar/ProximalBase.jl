@@ -1,6 +1,6 @@
 module L0NaNTest
 
-using Test, ProximalBase, LinearAlgebra
+using Test, ProximalBase, LinearAlgebra, SparseArrays
 using JLArrays: JLArray
 using GPUArraysCore: allowscalar
 
@@ -279,6 +279,42 @@ end
   # the wrappers that reach the projection through value_and_prox! report the NaN value
   @test isnan(value_and_prox!(zeros(2), Scaled(IndBallL0(1), 2.0), [NaN, 1.0], 1.0))
   @test isnan(value_and_prox!(zeros(2), Translate(IndBallL0(1), [0.1, 0.1]), [NaN, 0.5], 1.0))
+end
+
+@testset "values of standard sparse arrays look at the stored entries" begin
+  # a SparseVector and a SparseMatrixCSC with all entries counting, and the same with a free diagonal
+  x = sparsevec([1, 100000], [1.0, 2.0], 100000)
+  @test IndBallL0(1)(x) == Inf && IndBallL0(2)(x) == 0 && IndBallL0(0)(x) == Inf
+  z = copy(x); z[1] = 0.0                              # an explicit stored zero is not counted
+  @test nnz(z) == 2 && IndBallL0(1)(z) == 0 && IndBallL0(0)(z) == Inf
+  z[3] = NaN                                           # a stored NaN: NaN below the whole space, 0 in it
+  @test isnan(IndBallL0(2)(z)) && isnan(IndBallL0(0)(z)) && IndBallL0(100000)(z) == 0
+  M = sparse([1, 1000], [1, 1000], [1.0, 2.0], 1000, 1000)
+  @test IndBallL0(1)(M) == Inf && IndBallL0(2)(M) == 0
+  @test IndBallL0(1; diagonal = false)(M) == 0           # the diagonal does not count
+  N = copy(M); N[1, 2] = NaN
+  @test isnan(IndBallL0(2)(N)) && isnan(IndBallL0(1; diagonal = false)(N)) && IndBallL0(10^6)(N) == 0
+  Nd = copy(M); Nd[2, 2] = NaN                         # a NaN on the free diagonal does not count
+  @test IndBallL0(1; diagonal = false)(Nd) == 0 && isnan(IndBallL0(2)(Nd))
+  @test same(prox(IndBallL0(1), Vector(z)), fill(NaN, 100000))
+  # Float32
+  x32 = sparsevec([1, 100], Float32[1, 2], 100)
+  @test IndBallL0(1)(x32) === Inf32 && IndBallL0(2)(x32) === 0f0
+  @test isnan(NormL0(2.0)(sparsevec([1, 3], [1.0, NaN], 5)))
+end
+
+@testset "NormL0 values on dense arrays" begin
+  for T in (Float32, Float64)
+    @test NormL0(T(0.25))(T[1, 0, 2, 3, 0]) === T(0.75)
+    @test NormL0(T(0.25))(T[0, 0]) === T(0)
+    @test NormL0(T(Inf))(T[0, 0]) === T(0) && NormL0(T(Inf))(T[0, 1]) === T(Inf)
+    @test NormL0(T(0))(T[1, NaN]) === T(0)
+    @test isnan(NormL0(T(0.25))(T[1, NaN])) && isnan(NormL0(T(Inf))(T[NaN, 0]))
+    @test NormL0(T(1))(T[]) === T(0)
+    @test NormL0(T(1))(T[1 0; 0 2]) === T(2)                 # a matrix
+    @test isnan(NormL0(T(1))(T[1 0; NaN 2]))
+    @test NormL0(T(1))(T[Inf, -Inf, 0]) === T(2)
+  end
 end
 
 @testset "IndBallL0: finite arguments are unchanged" begin

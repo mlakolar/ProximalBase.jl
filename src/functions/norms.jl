@@ -634,6 +634,20 @@ end
 @inline _identity_group(f::Union{NormL2, GroupNormL2}, ::Val{O}, k) where {O} =
   !O && !isinf(f.w[k]) && iszero(f.λ0)
 @inline _identity_group(::GroupNormLinf, ::Val, k) = false
+# An infinite weight or level (only in the general path, O = false) fixes the group at zero whatever it
+# holds (E4), with the value of the zero group: decided here, not by a NaN pass, so that the value of
+# the other groups is the fused one.
+@inline _fixed_group(f::Union{NormL2, GroupNormL2}, ::Val{O}, γk, k) where {O} = !O && _hard_fixed(f, γk, k)
+@inline _fixed_group(::GroupNormLinf, ::Val, γk, k) = false
+# the parameters that fix a group at zero: an infinite weight, an infinite step, or an infinite level at a
+# positive step (at the step 0 the threshold of a group with a finite weight is 0, the identity)
+@inline _hard_fixed(f, γk, k) = isinf(f.w[k]) | isinf(γk) | (isinf(f.λ0) & !iszero(γk))
+@inline function _fixed_group!(y, G, W, ::Type{T}) where {T}
+  @inbounds for i in _writes(W, G)
+    y[i] = zero(eltype(y))
+  end
+  zero(T)
+end
 @inline function _identity_group!(y, x, G, W)
   @inbounds for i in _writes(W, G)
     y[i] = x[i]
@@ -659,7 +673,7 @@ function _nan_steps!(f::GroupNormL2, y, X, ks, γ, ::Val{O}, ::Type{W}, v, yobj)
     c = O ? _positive_product(W, γk, f.λ0, f.w[k]) : _weight_product(W, γk, f.λ0, f.w[k])
     ((c > zero(c)) & (c < Inf)) && continue
     isnan(_group_norm2(X, G)) || continue
-    mode = (isinf(f.w[k]) | isinf(f.λ0) | isinf(γk)) ? 0 : iszero(γk) ? 1 : 2
+    mode = _hard_fixed(f, γk, k) ? 0 : iszero(γk) ? 1 : 2
     _fill_group!(y, X, G, _group_writes(y, G), mode)
     changed = true
   end
@@ -797,6 +811,8 @@ function _homogeneous_group_prox!(y::AbstractArray, f::HomogeneousGroupNorm, x::
     γk = _entry(γ, k)
     nrm = if _identity_group(f, ordinary, k)
       _identity_group!(y, x, f.groups[k], _group_writes(y, f.groups[k]))
+    elseif _fixed_group(f, ordinary, γk, k)
+      _fixed_group!(y, f.groups[k], _group_writes(y, f.groups[k]), W)
     else
       _shrink_group!(f, y, x, f.groups[k], (O ? _positive_product(W, γk, f.λ0, f.w[k]) : _weight_product(W, γk, f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
     end
@@ -901,7 +917,11 @@ function _homogeneous_group_prox!(y::AtomIterate, f::HomogeneousGroupNorm, x::At
     k = y.active[a]
     (iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))) && continue
     γk = _entry(γ, k)
-    nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], (O ? _positive_product(T, γk, f.λ0, f.w[k]) : _weight_product(T, γk, f.λ0, f.w[k])))
+    nrm = if _fixed_group(f, ordinary, γk, k)
+      _fixed_group!(y.storage, f.groups[k], nothing, T)
+    else
+      _shrink_group!(f, y.storage, y.storage, f.groups[k], (O ? _positive_product(T, γk, f.λ0, f.w[k]) : _weight_product(T, γk, f.λ0, f.w[k])))
+    end
     v += _group_value(f, f.λ0, f.w[k], nrm, y.storage, f.groups[k], T, ordinary)
   end
   isnan(v) ? _nan_steps!(f, y.storage, y.storage, view(y.active, 1:y.nactive), γ, ordinary, T, v, y) : v
@@ -935,7 +955,7 @@ end
   # a NaN group the kernel left (threshold 0, Inf or NaN): the parameters decide as in _nan_steps!; the
   # group is already the identity at the step γ = 0
   if f isa GroupNormL2 && isnan(nrm)
-    if isinf(f.w[k]) | isinf(f.λ0) | isinf(γ)
+    if _hard_fixed(f, γ, k)
       _fill_group!(x.storage, x.storage, x.groups[k], nothing, 0)
       nrm = zero(nrm)
     elseif !iszero(γ)

@@ -171,6 +171,17 @@ end
   end
 end
 
+# An infinite weight or level (only in the general path, O = false) fixes the group at zero whatever it
+# holds (E4), as _fixed_group in norms.jl: the norms of the zero group, decided before the kernel.
+@inline _fixed_sparse_group(f::SparseGroupNormL2, ::Val{O}, γk, k) where {O} = !O && _hard_fixed_sparse(f, γk, k)
+@inline _hard_fixed_sparse(f, γk, k) = _hard_fixed(f, γk, k) | isinf(f.λ1)
+@inline function _fixed_sparse_group!(y, G, W, ::Type{T}) where {T}
+  @inbounds for i in _writes(W, G)
+    y[i] = zero(eltype(y))
+  end
+  zero(T), zero(T)
+end
+
 # After the loops, when the value is NaN: the groups the kernel left as they were because a threshold
 # is 0, Inf or NaN and their norm NaN, as for _nan_steps!. The original parameters decide (E4 first):
 # an infinite weight, level or step fixes the group at zero; at the step γ = 0 the map is the identity
@@ -190,7 +201,7 @@ function _nan_steps_sparse!(f::SparseGroupNormL2, y, X, ks, γ, ::Val{O}, ::Type
     ((c2 > zero(c2)) & (c2 < Inf) & (c1 < Inf)) && continue
     isnan(_soft_group_norm(X, G, c1)) || continue
     wr = _group_writes(y, G)
-    if isinf(f.w[k]) | isinf(f.λ0) | isinf(f.λ1) | isinf(γk)
+    if _hard_fixed_sparse(f, γk, k)
       @inbounds for i in _writes(wr, G)
         y[i] = zero(T)
       end
@@ -276,7 +287,11 @@ function _sparse_group_prox!(y::AbstractArray, f::SparseGroupNormL2, x::Abstract
       n1 = _soft_group_only!(y, x, f.groups[k], _l1_threshold(W, γk, f.λ1), _group_writes(y, f.groups[k]))
       W === T || (n1 = _sumabs(y, f.groups[k]))        # O2: the values are those of the stored output
     else
-      n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], _l1_threshold(W, γk, f.λ1), (O ? _positive_product(W, γk, f.λ0, f.w[k]) : _weight_product(W, γk, f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+      n2, n1 = if _fixed_sparse_group(f, ordinary, γk, k)
+        _fixed_sparse_group!(y, f.groups[k], _group_writes(y, f.groups[k]), W)
+      else
+        _sparse_shrink_group!(y, x, f.groups[k], _l1_threshold(W, γk, f.λ1), (O ? _positive_product(W, γk, f.λ0, f.w[k]) : _weight_product(W, γk, f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+      end
       W === T || isnan(n2) || ((n2, n1) = (_group_norm2(y, f.groups[k]), _sumabs(y, f.groups[k])))
       v2 += _group_value(f, f.λ0, f.w[k], n2, y, f.groups[k], T, ordinary)
     end
@@ -335,7 +350,11 @@ function _sparse_group_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterat
     if (O && iszero(f.λ0)) || iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))
       n1 = _soft_group_only!(y.storage, y.storage, f.groups[k], _l1_threshold(T, γk, f.λ1))
     else
-      n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], _l1_threshold(T, γk, f.λ1), (O ? _positive_product(T, γk, f.λ0, f.w[k]) : _weight_product(T, γk, f.λ0, f.w[k])))
+      n2, n1 = if _fixed_sparse_group(f, ordinary, γk, k)
+        _fixed_sparse_group!(y.storage, f.groups[k], nothing, T)
+      else
+        _sparse_shrink_group!(y.storage, y.storage, f.groups[k], _l1_threshold(T, γk, f.λ1), (O ? _positive_product(T, γk, f.λ0, f.w[k]) : _weight_product(T, γk, f.λ0, f.w[k])))
+      end
       v2 += _group_value(f, f.λ0, f.w[k], n2, y.storage, f.groups[k], T, ordinary)
     end
     iszero(f.λ1) || (v1 += convert(T, n1))
@@ -361,7 +380,7 @@ end
   # a NaN group the kernel left (a threshold 0, Inf or NaN): the parameters decide as in
   # _nan_steps_sparse!; the group is already the identity at the step γ = 0 (c1 = 0 then)
   if isnan(n2)
-    if isinf(f.w[k]) | isinf(f.λ0) | isinf(f.λ1) | isinf(γ)
+    if _hard_fixed_sparse(f, γ, k)
       @inbounds for i in x.groups[k]
         x.storage[i] = zero(T)
       end

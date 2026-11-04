@@ -209,7 +209,10 @@ its data; its factorization type can change with the rank of `A`.
   input unless a method's documentation says otherwise. Built-in gradient
   oracles throw an `ArgumentError` when the gradient output is the input (or a
   tuple block is its input block), except where the function documents that
-  the output may be the input, as for [`CubeNormL2`](@ref).
+  the output may be the input, as for [`CubeNormL2`](@ref). Built-in Hessian
+  products, the wrappers included, throw an `ArgumentError` before writing
+  when the output is `x` or `v`, or a tuple block is the corresponding block of
+  either. The point and the direction may be the same array.
 - **The value at the result.** [`value_and_prox!`](@ref) stores the proximal
   point and returns the function's value there. Many functions get that value
   from the computation itself: the nuclear norm from the singular values it

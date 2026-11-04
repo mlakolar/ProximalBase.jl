@@ -259,6 +259,32 @@ The scaled-value mechanism is internal in 0.6. A function you write yourself
 is covered by R1 when evaluated directly. Inside `Scaled`, it is covered only
 while its own value does not overflow.
 
+*Nested scales.* `Scaled(Scaled(f, a), b)` merges the two scales into one when
+`a * b` is a normal number. When the factors are finite and positive but their
+product underflows, is subnormal or overflows, the wrappers stay nested: T5 forbids
+turning a finite positive scale into zero or `Inf`, and a merged scale would no
+longer say what `a` and `b` said. Each oracle then forms its coefficient from all the
+factors, with the exponent applied last (R3): the value, gradient, `prox!`,
+`value_and_prox!`, `prox_entry`, the step checks, array steps, the optimality
+violation, the Lipschitz constants and the Hessian product take the product of the
+chain; the steps of a proximal operator pass the product of the factors and the
+step to the function when that is a normal number, and otherwise fold the exponent into the
+levels, with the step reduced to its significand, for the functions of the
+scaled-value mechanism. Conjugates and their projections accumulate the factors the same way. A
+function that folds no level (a `SqrNormL2`, a loss, a `Tilt`) forms its value, gradient and Hessian
+product at its own scale before the factors are applied, so an intermediate that leaves the range is
+lost, not only a proximal step or a conjugate value (`Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)`
+at `[1e10]` gives `Inf` for all three, not `5e-81`, `1e-90` and `1e-90`; a single `Scaled` does the
+same); it receives the step as the product rounds it,
+and its conjugate value under such a product throws instead of returning a wrong number; a
+`value_and_prox!` of the conjugate then leaves its output as it was, however many ordinary wrappers
+(`Scaled`, `Translate`, `SingularValue`, `SeparableSum`) lie above the chain. An indicator has the same
+optimality violation under every finite positive factor.
+The levels fold through `Translate`, `Sum` and `SeparableSum` of such functions. Two cases are not
+recovered: the value of a chain whose leaf value overflows while the folded level is itself not a
+number in range, and an array step whose entries leave the range after the factors are applied
+(`Scaled(f, a)` with a single factor behaves the same). Exact zero and `Inf` scales merge as before.
+
 **R2. Gradients and closed-form proximal outputs.** Each entry of a gradient,
 and each entry of a proximal output computed in closed form, follows R1's
 rule in `D`. Closed forms include the separable kernels, group and ball
@@ -761,6 +787,12 @@ Neither is a numerical bug.
 4. *Failure inside an external library,* such as a LAPACK error. That
    library's exception propagates, and the function documents which outputs
    remain valid. There is no rollback.
+
+In a sum over blocks, slices or fibers (`SeparableSum`, `SliceSum`, `FiberSum`),
+only the failures of kind 1 that the functions check before writing are
+detected before the first block is written. A later block's failure of kind 2, 3
+or 4, such as `Conjugate`'s check that a finite input gave a finite result, is
+found by computing, and leaves the earlier blocks written.
 
 A prescribed NaN result is a result, not a failure.
 

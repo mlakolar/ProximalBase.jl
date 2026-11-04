@@ -276,10 +276,11 @@ function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{S}) where {S<:Br
 end
 
 function Base.fill!(x::AtomIterate, v)
-  if iszero(v)
+  s = convert(eltype(x), v)     # converted once, before x changes; activation follows the stored value
+  if iszero(s)
     _zero_active!(x)
   else
-    fill!(x.storage, v)
+    fill!(x.storage, s)
     for k in eachindex(x.groups)
       activate!(x, k)
     end

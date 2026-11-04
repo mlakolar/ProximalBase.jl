@@ -588,10 +588,11 @@ end
   end
 end
 
-@testset "sphere prox of the ℓ1 norm: a NaN or infinite entry gives NaN in the whole block (E2, E3)" begin
-  # The sphere couples every entry, so a NaN anywhere is NaN in every output entry and in the
-  # value, whichever entry would have won the selection, on either branch and at any weight.
-  # An infinite entry gives the same block, as in the other ball and sphere projections (#469).
+@testset "sphere prox of the ℓ1 norm: a NaN entry, or two infinite ones, gives NaN in the whole free block (E2, E3)" begin
+  # The sphere couples every free entry, so a NaN among them is NaN in every free output entry and in
+  # the value, whichever entry would have won the selection, on either branch and at any weight.
+  # Two infinite free entries have no limit (E3, #469). One infinite free entry has the limit ±r there,
+  # and a hard-fixed (infinite) weight outputs zero: both are in constrained_norml1_infinite.jl.
   # Not [1, 0] with the value 1 (before #441), and not NaN beside a zero (#441).
   PT = ProximalBase.Testing
   allnan(y) = all(isnan, collect(y))
@@ -599,9 +600,8 @@ end
   bad = ([NaN, 0, 0, 0], [0, NaN, 0, 0], [0, 0, 0, NaN],       # first, middle and last entry
          [5, NaN, 0, 0], [0.1, NaN, 0, 0.2],                    # a NaN that loses: shrink, fallback
          [NaN, 3, NaN, 0.5], [NaN, NaN, NaN, NaN],              # several
-         [Inf, 0, 0, 0], [0.1, 0, -Inf, 0.2], [3, Inf, 0.5, 0], # one infinite entry
          [Inf, Inf, 0, 0], [Inf, -Inf, 0, 1], [Inf, NaN, 0, 0], [NaN, -Inf, 0, 0])
-  weights = (nothing, [1, 1, 1, 1], [0, 1, 1, 1], [Inf, 1, 1, 1], [1, 0, 1, Inf], [1, 1, Inf, 0])
+  weights = (nothing, [1, 1, 1, 1], [0, 1, 1, 1])
   for S in (Float32, Float64), T in (Float32, Float64), w in weights, λ in (1, 1e30), γ in (1, 0)
     f = w === nothing ? NormL1(T(λ)) : NormL1(T(λ), T.(w))
     c = Constrained(f, IndSphereL2(T(1)))
@@ -628,7 +628,7 @@ end
   # off-diagonal pair, on the fallback branch (zeros) and with a diagonal entry that wins (5)
   for S in (Float32, Float64), T in (Float32, Float64)
     c = Constrained(NormL1(T(1), ones(T, 3, 3)), IndSphereL2(T(1)))
-    for (i, j) in ((1, 1), (3, 3), (2, 1), (3, 2)), b in (NaN, Inf, -Inf), top in (0, 5)
+    for (i, j) in ((1, 1), (3, 3), (2, 1), (3, 2)), b in (NaN,), top in (0, 5)
       X = zeros(S, 3, 3)
       X[2, 2] = top
       X[i, j] = X[j, i] = b                       # both entries of a pair, as a symmetric matrix has them
@@ -646,8 +646,9 @@ end
     # an argument that is not symmetric: only its upper or lower entry is not finite, or the two
     # entries of the pair differ. Its symmetric part (a + b)/2 is not finite in each case, and
     # Inf - Inf is NaN; the output is NaN, also in a dense matrix, which reads the entries as given.
-    for (a, b) in ((NaN, 0), (0, NaN), (0.5, Inf), (-Inf, 2), (Inf, -Inf), (-Inf, Inf),
-                   (NaN, NaN), (Inf, Inf), (-Inf, -Inf), (NaN, Inf)), top in (0, 5)
+    # A single infinite entry (0.5, Inf) and the like are in constrained_norml1_infinite.jl.
+    for (a, b) in ((NaN, 0), (0, NaN), (Inf, -Inf), (-Inf, Inf),
+                   (NaN, NaN), (NaN, Inf)), top in (0, 5)
       X = zeros(S, 3, 3)
       X[2, 2] = top
       X[1, 3], X[3, 1] = a, b                     # upper, lower

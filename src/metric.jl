@@ -391,6 +391,7 @@ function _prox_unchecked!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ
   end
   iszero(convert(S, γmin) / convert(S, γmax)) &&
     throw(ArgumentError("the ratio of the largest to the smallest step of IndIsotonic is too large to represent"))
+  _isotonic_hasnan(x) && return _isotonic_nan!(y)         # NaN couples every entry, as for a scalar step
   σ = f.decreasing ? -1 : 1
   if equal
     _pava!(y, x, _buffer!(f.sums, T, n), _buffer!(f.sizes, Int, n), σ)
@@ -485,8 +486,10 @@ end
 
 value_and_prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndHyperslab, IndSimplex, IndBallL1, IndIsotonic}, x::AbstractArray, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_unchecked!(y, f, x, γ))
-_value_and_prox_unchecked!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndHyperslab, IndSimplex, IndBallL1, IndIsotonic}, x::AbstractArray, γ::AbstractArray) =
+_value_and_prox_unchecked!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndHyperslab, IndSimplex, IndBallL1}, x::AbstractArray, γ::AbstractArray) =
   (_prox_unchecked!(y, f, x, γ); zero(_valtype(y)))
+_value_and_prox_unchecked!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractArray) =
+  (_prox_unchecked!(y, f, x, γ); _isotonic_stored_value(y))
 
 # The level ν with Σᵢ max(uᵢ - γᵢν, 0) = r for uᵢ = h(xᵢ), by Newton's method
 # from the left on this convex, decreasing, piecewise linear function. From

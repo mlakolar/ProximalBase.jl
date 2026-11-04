@@ -68,6 +68,14 @@ end
     @test prox(f, T[3, -2, 0.5], T(0.5)) == prox(SLOPE(T[3, 2, 1]), T[3, -2, 0.5], T(0.5))
     @test prox(SLOPE(zeros(T, 3)), T[3, -2, 0.5], T(Inf)) == T[3, -2, 0.5]
   end
+  # weights that differ in Float64 but are the same threshold in the call's precision: soft thresholding
+  fm = SLOPE([1.0, 1.0 - 2.0^-30, 1.0 - 2.0^-29])
+  @test Float32.(fm.λ) == fill(1f0, 3)
+  xm = Float32[NaN, 3, 2]
+  check_all(fm, xm, 1f0, Float32[NaN, 2, 1])
+  check_all(fm, Float32[3, 2, NaN], 1f0, Float32[2, 1, NaN])
+  # the same weights in Float64 are three different thresholds: all NaN
+  check_all(fm, [NaN, 3.0, 2.0], 1.0, fill(NaN, 3))
   # the value and the projection at the stored output
   f = SLOPE([3.0, 2.0, 1.0])
   y = zeros(3)
@@ -139,6 +147,87 @@ end
     @test isnan(y[1][1]) && isnan(y[2][1]) && isfinite(y[1][2]) && isfinite(y[1][3]) && isfinite(y[2][3])
     # finite arguments are unchanged: the sorted vector, compared with the pair kernel at K = 2
     @test prox(f, T[3, 1], T(1)) == collect(prox(f, (T(3), T(1)), T(1)))
+  end
+  # one entry has no pairs: the fusion term is an empty sum (λ1 = 0 gives value 0, λ1 > 0 stays NaN)
+  for T in (Float32, Float64)
+    for (λ1, λ2) in ((0, 1), (0, 0))
+      f = NormL1Fused(T(λ1), T(λ2))
+      @test f(T[NaN]) === zero(T)
+      y = T[7]
+      @test value_and_prox!(y, f, T[NaN], T(1)) === zero(T) && isnan(y[1])
+      @test f(T[2]) === zero(T)
+    end
+    for λ2 in (0, 1)
+      f = NormL1Fused(T(0.3), T(λ2))
+      @test isnan(f(T[NaN]))
+      y = T[7]
+      @test isnan(value_and_prox!(y, f, T[NaN], T(1))) && isnan(y[1])
+      @test prox(f, T[2], T(1)) == T[2 - 0.3]
+    end
+  end
+  # the identity regimes of the pair route come before the pair kernel: a zero step, and both levels
+  # zero at every step (γ = Inf included), keep a NaN in its own entry
+  for T in (Float32, Float64)
+    nan = T(NaN)
+    f, z = NormL1Fused(T(1), T(1)), NormL1Fused(T(0), T(0))
+    check_all(f, T[NaN, 3], T(0), T[NaN, 3])
+    check_all(f, T[3, NaN], T(0), T[3, NaN])
+    check_all(z, T[NaN, 3], T(1), T[NaN, 3]; value = zero(T))
+    check_all(z, T[3, 4], T(Inf), T[3, 4]; value = zero(T))
+    check_all(z, T[NaN, 3], T(Inf), T[NaN, 3]; value = zero(T))
+    u, w = prox(f, (T(NaN), T(3)), T(0))
+    @test isnan(u) && w == 3
+    u, w = prox(f, (T(3), T(NaN)), T(0))
+    @test u == 3 && isnan(w)
+    @test prox(z, (T(3), T(4)), T(Inf)) == (T(3), T(4))
+    @test prox(z, (T(NaN), T(4)), T(Inf))[2] == 4
+    for (g, γ) in ((f, T(0)), (z, T(Inf)), (z, T(1)))
+      x = (T[NaN, 3, 1], T[2, 4, NaN])
+      y = (zeros(T, 3), zeros(T, 3))
+      v = value_and_prox!(y, g, x, γ)
+      @test isequal(y[1], x[1]) && isequal(y[2], x[2])
+      @test g === z ? v === zero(T) : isnan(v)
+      ya = (copy(x[1]), copy(x[2]))
+      v = value_and_prox!(ya, g, ya, γ)
+      @test isequal(ya[1], x[1]) && isequal(ya[2], x[2])
+      @test g === z ? v === zero(T) : isnan(v)
+      yb = (copy(x[1]), copy(x[2]))
+      prox!(yb, g, yb, γ)
+      @test isequal(yb[1], x[1]) && isequal(yb[2], x[2])
+      yp = prox(g, x, γ)
+      @test isequal(yp[1], x[1]) && isequal(yp[2], x[2])
+    end
+    # finite pairs are unchanged at a zero step
+    @test prox(f, (T(1), T(3)), T(0)) == (T(1), T(3))
+    # FiberSum with two slices (the pair kernel), with a diagonal function of its own: the pairs of
+    # the identity regimes keep a NaN in its own entry, and the other pairs are coupled
+    for (g, γ) in ((f, T(0)), (z, T(Inf)), (z, T(1)))
+      for diagonal in (nothing, g)
+        fb = FiberSum(g; diagonal)
+        X = randn(MersenneTwister(1), T, 3, 3, 2)
+        X[1, 2, 1] = NaN
+        X[3, 1, 2] = NaN
+        Y = similar(X)
+        v = value_and_prox!(Y, fb, X, γ)
+        @test isequal(Y, X) && isequal(prox(fb, X, γ), X)
+        Z = copy(X)
+        prox!(Z, fb, Z, γ)
+        @test isequal(Z, X)
+        W = copy(X)
+        @test value_and_prox!(W, fb, W, γ) isa T && isequal(W, X)
+        g === z && @test v === zero(T)
+        g === f && @test isnan(v)
+      end
+    end
+    # a positive step is not an identity regime: the pair that holds the NaN is coupled, the others are not
+    fb = FiberSum(f)
+    X = randn(MersenneTwister(1), T, 3, 3, 2); X[1, 2, 1] = NaN
+    Y = prox(fb, X, T(0.5))
+    @test isnan(Y[1, 2, 1]) && isnan(Y[1, 2, 2]) && all(isfinite, Y[2, 3, :])
+    # a fiber function that is zero adds no value, and a NaN in its entries is not its value
+    fb = FiberSum(z; diagonal = z)
+    X = randn(MersenneTwister(2), T, 3, 3, 2); X[2, 2, 1] = NaN
+    @test value_and_prox!(similar(X), fb, X, T(0.7)) === zero(T)
   end
   # no fusion, larger vectors, random NaN patterns: the finite entries are the soft thresholds
   for n in (5, 12, 60, 5000), seed in 1:20
@@ -225,6 +314,13 @@ end
     @test value_and_prox!(y, f, x, T(1)) === zero(T)
     @test y == prox(IndIsotonic(; decreasing), x)
     @test value_and_prox!(y, f, x, T[1, 2, 1, 2, 1]) === zero(T)
+  end
+  # finite arguments store no NaN: the value is 0 without reading the output, also near the range limit
+  for T in (Float32, Float64), xs in (T[3, 1, 2, 5, 4], collect(range(T(-1), T(1); length = 50)),
+                                      T[floatmax(T), -floatmax(T), floatmax(T), 0, -floatmax(T)])
+    y = zeros(T, length(xs))
+    @test value_and_prox!(y, IndIsotonic(), xs, T(1)) === zero(T) && !any(isnan, y)
+    @test value_and_prox!(y, IndIsotonic(), xs, T.(1:length(xs))) === zero(T) && !any(isnan, y)
   end
   # opposite infinities pool to a NaN that is stored (E3 territory); the value is the one at the stored point
   y = zeros(3)

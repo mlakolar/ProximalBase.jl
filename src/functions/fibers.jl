@@ -339,6 +339,23 @@ end
                                    ::Val{S}, ::Val{O}, ::Type{T}, ::Val{V}, ::Val{C}) where {D, S, O, T, V, C}
   a, b = firstindex(x, 3), firstindex(x, 3) + 1
   f = fb.f
+  # the identity regimes (both levels zero, zero step) are decided before the loop, per function
+  fl1, fl2, fγ = _fused_pair_levels(T(f.λ1), T(f.λ2), γT)
+  if fb.diagonal === nothing
+    dl1 = dl2 = dγ = zero(T)
+  else
+    dl1, dl2, dγ = _fused_pair_levels(T(fb.diagonal.λ1), T(fb.diagonal.λ2), γT)
+  end
+  # a zero level contributes no value, whatever the entries (E4)
+  fz1, fz2 = iszero(f.λ1), iszero(f.λ2)
+  fv1, fv2 = T(f.λ1), T(f.λ2)
+  if fb.diagonal === nothing
+    dz1 = dz2 = true
+    dv1 = dv2 = zero(T)
+  else
+    dz1, dz2 = iszero(fb.diagonal.λ1), iszero(fb.diagonal.λ2)
+    dv1, dv2 = T(fb.diagonal.λ1), T(fb.diagonal.λ2)
+  end
   v = zero(T)
   @inbounds for j in axes(x, 2), i in axes(x, 1)
     S && i < j && continue
@@ -347,18 +364,18 @@ end
       if d === nothing
         y[i, i, a], y[i, i, b] = x[i, i, a], x[i, i, b]
       else
-        u, w = _prox_l1fused(T(x[i, i, a]), T(x[i, i, b]), T(d.λ1), T(d.λ2), γT, Val(C))
+        u, w = _prox_l1fused(T(x[i, i, a]), T(x[i, i, b]), dl1, dl2, dγ, Val(C))
         y[i, i, a], y[i, i, b] = u, w
-        V && (v += T(d.λ1) * (abs(u) + abs(w)) + T(d.λ2) * abs(u - w))
+        V && (v += ifelse(dz1, zero(T), dv1 * (abs(u) + abs(w))) + ifelse(dz2, zero(T), dv2 * abs(u - w)))
       end
     else
-      u, w = _prox_l1fused(T(x[i, j, a]), T(x[i, j, b]), T(f.λ1), T(f.λ2), γT, Val(C))
+      u, w = _prox_l1fused(T(x[i, j, a]), T(x[i, j, b]), fl1, fl2, fγ, Val(C))
       y[i, j, a], y[i, j, b] = u, w
       c = S && i != j ? 2 : 1
       if c == 2
         y[j, i, a], y[j, i, b] = u, w
       end
-      V && (v += c * (T(f.λ1) * (abs(u) + abs(w)) + T(f.λ2) * abs(u - w)))
+      V && (v += c * (ifelse(fz1, zero(T), fv1 * (abs(u) + abs(w))) + ifelse(fz2, zero(T), fv2 * abs(u - w))))
     end
   end
   v

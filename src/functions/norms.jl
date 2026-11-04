@@ -1013,9 +1013,19 @@ end
   (shrink(u, t), shrink(v, t))
 end
 
+# E4 and the zero step (P1) come before the cross-entry arithmetic of the pair kernel: with both
+# levels zero the function is zero (the identity at every step, γ = Inf included), and a zero step
+# is the identity for finite levels. The kernel at levels and step zero returns its arguments, so
+# a NaN stays in its own entry. Three scalars per call or per loop, never inside the loop.
+@inline function _fused_pair_levels(λ1::T, λ2::T, γ::T) where {T}
+  (iszero(λ1) && iszero(λ2)) || (iszero(γ) && isfinite(λ1) && isfinite(λ2)) ?
+    (zero(T), zero(T), zero(T)) : (λ1, λ2, γ)
+end
+
 function prox(f::NormL1Fused, xy::Tuple{Real, Real}, γ::Real = 1)
   T = float(promote_type(typeof(xy[1]), typeof(xy[2])))
-  _prox_l1fused(T(xy[1]), T(xy[2]), T(f.λ1), T(f.λ2), T(γ))
+  λ1, λ2, g = _fused_pair_levels(T(f.λ1), T(f.λ2), T(γ))
+  _prox_l1fused(T(xy[1]), T(xy[2]), λ1, λ2, g)
 end
 
 function prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real)
@@ -1025,7 +1035,7 @@ end
 
 @noinline function _prox_fused_arrays!(y, f, x, γ, ::Val{C}) where {C}
   T = float(promote_type(eltype(y[1]), eltype(y[2])))
-  λ1, λ2, γ = T(f.λ1), T(f.λ2), T(γ)
+  λ1, λ2, γ = _fused_pair_levels(T(f.λ1), T(f.λ2), T(γ))
   @inbounds for i in eachindex(x[1])
     y[1][i], y[2][i] = _prox_l1fused(T(x[1][i]), T(x[2][i]), λ1, λ2, γ, Val(C))
   end
@@ -1116,6 +1126,8 @@ end
   iszero(f.λ1) && iszero(f.λ2) && return zero(T)
   n = length(x)
   n == 2 && return @inbounds f((x[1], x[2]))
+  # one entry has no pairs: the fusion term is an empty sum, and a NaN reaches only the ℓ1 term
+  n == 1 && isnan(@inbounds x[1]) && return iszero(f.λ1) ? zero(T) : T(NaN)
   p, a, _ = _sortperm_fused!(f, x, T)
   v1, v2 = zero(T), zero(T)
   @inbounds for k in 1:n
@@ -1139,7 +1151,8 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     return V ? f(y) : zero(T)
   end
   if n == 2
-    @inbounds y[1], y[2] = _prox_l1fused(convert(T, x[1]), convert(T, x[2]), λ1, λ2, convert(T, γ))
+    l1, l2, g = _fused_pair_levels(λ1, λ2, convert(T, γ))
+    @inbounds y[1], y[2] = _prox_l1fused(convert(T, x[1]), convert(T, x[2]), l1, l2, g)
     return V ? @inbounds(f((y[1], y[2]))) : zero(T)
   end
   p, a, nan = _sortperm_fused!(f, x, T)     # x is read here, so y may be x

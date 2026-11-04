@@ -393,7 +393,6 @@ end
 
 # The projection of a vector of two or more entries depends on every entry (pooling couples them),
 # so a NaN entry gives NaN everywhere (E2); a single entry is its own projection.
-@inline _isotonic_hasnan(x::AbstractArray) = length(x) >= 2 && _hasnonfinite(x) && _anynan(x)
 @noinline function _isotonic_nan!(y::AbstractArray)
   v = convert(float(eltype(y)), NaN)
   @inbounds for i in eachindex(y)
@@ -403,25 +402,38 @@ end
 end
 
 # The value at the stored point (O2): NaN when the pooling stored a NaN (an input NaN, or
-# opposite infinities pooled), 0 otherwise.
-@inline function _isotonic_stored_value(y::AbstractArray)
+# opposite infinities pooled), 0 otherwise. Pooling finite entries stores no NaN (the sums are
+# kept below floatmax, and large entries are pooled in means), so the stored point is read only when
+# the argument had a non-finite entry.
+@inline function _isotonic_stored_value(y::AbstractArray, nonfinite::Bool)
   T = _valtype(y)
-  length(y) >= 2 && _hasnonfinite(y) && _anynan(y) ? convert(T, NaN) : zero(T)
+  nonfinite && length(y) >= 2 && _anynan(y) ? convert(T, NaN) : zero(T)
 end
 
-function prox!(y::AbstractVector, f::IndIsotonic, x::AbstractVector, ::Real)
-  _checkwrite(prox!, f, y, x)
-  _isotonic_hasnan(x) && return _isotonic_nan!(y)
+# The projection for a scalar step; whether the argument had a non-finite entry.
+function _isotonic_prox!(y::AbstractVector, f::IndIsotonic, x::AbstractVector)
+  length(x) >= 2 || return (_isotonic_pool!(y, f, x); false)
+  nonfinite = _hasnonfinite(x)
+  nonfinite && _anynan(x) && return (_isotonic_nan!(y); true)
+  _isotonic_pool!(y, f, x)
+  nonfinite
+end
+function _isotonic_pool!(y, f::IndIsotonic, x)
   T = float(eltype(y))
   n = length(x)
   _pava!(y, x, _buffer!(f.sums, T, n), _buffer!(f.sizes, Int, n), f.decreasing ? -1 : 1)
 end
 
+function prox!(y::AbstractVector, f::IndIsotonic, x::AbstractVector, ::Real)
+  _checkwrite(prox!, f, y, x)
+  _isotonic_prox!(y, f, x)
+  y
+end
+
 # The generic shortcut returns 0 for an indicator without looking at the stored point.
 function _value_and_prox_body!(y, f::IndIsotonic, x, γ::Real = 1)
   _checkwrite(value_and_prox!, f, y, x)
-  _prox_unchecked!(y, f, x, γ)
-  _isotonic_stored_value(y)
+  _isotonic_stored_value(y, _isotonic_prox!(y, f, x))
 end
 
 ####################################
@@ -622,16 +634,33 @@ function _slope_identity!(y::AbstractVector, x::AbstractVector, ::Type{T}) where
   zero(T)
 end
 
+# Whether the shifts a - γλₖ of the finite path are the same for every k, so that each entry is
+# soft-thresholded on its own. That is decided on the thresholds the call uses: exactly equal weights,
+# or, when the step and the weights are used in the output type T, weights that convert to one T value
+# (the finite path then forms the same product for every k). A weight that does not fit T is recovered
+# in R by the finite path, so only exactly equal weights qualify then.
+function _slope_equal_thresholds(λ, γ, ::Type{T}) where {T}
+  n = length(λ)
+  λ[1] == λ[n] && return true
+  _level_fits(T, γ) || return false
+  eltype(λ) === T || all(k -> _level_fits(T, λ[k]), 1:n) || return false
+  λ1 = convert(T, λ[1])
+  @inbounds for k in 2:n
+    convert(T, λ[k]) == λ1 || return false
+  end
+  true
+end
+
 # value_and_prox! of SLOPE at an argument with a NaN entry, for a finite step. At γ = 0 the map is
-# the identity. With every weight equal it is soft thresholding of each entry by γλ₁, which a NaN
-# does not reach. Otherwise (λ₁ > λₙ) every output depends on every entry, and so is NaN (E2).
+# the identity. With equal thresholds it is soft thresholding of each entry by γλ₁, which a NaN
+# does not reach. Otherwise every output depends on every entry, and so is NaN (E2).
 # The value is the one at the stored output (O2).
 @noinline function _slope_nan!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Real, ::Type{T}) where {T}
   n = length(x)
   λ = f.λ
   if iszero(γ)
     y === x || copyto!(y, x)
-  elseif λ[1] == λ[n]
+  elseif _slope_equal_thresholds(λ, γ, T)
     g = convert(T, γ)
     λ1 = convert(T, λ[1])
     c = g * λ1

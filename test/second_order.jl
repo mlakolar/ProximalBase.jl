@@ -613,6 +613,46 @@ end
     end
   end
 
+  @testset "a subnormal coefficient of the recovery is rounded once; no global BigFloat state (review of #544)" begin
+    exp_split = ProximalBase._exp_split
+    # the report: Float32 scratch, Float64 response out of Float32's range, so that the response is recovered
+    η, w, y = 2.2637296f0, 9.17786f-40, 3.7431058130238175e38
+    f = GLMLoss(ProximalBase.Poisson(), [y], ones(Float32, 1, 1), Float32[w], nothing, zeros(Float32, 1), zeros(Float32, 1))
+    m, j = exp_split(η)
+    ref = setprecision(BigFloat, 256) do; Float32(ldexp(big(w) * big(m), j)); end
+    @test only(quadratic_model(f, Float32[η]).weights) == ref
+    let rng = MersenneTwister(5440)
+      bad = 0
+      for _ in 1:600
+        # Float32 loss, Float64 response beyond floatmax(Float32): the response is recovered and finite where e^η > 1.1
+        T = Float32
+        ηT = T(0.2 + 5.8 * rand(rng)); wT = T(1.2e-38 * rand(rng) * 10.0^(-rand(rng) * 7))
+        iszero(wT) && continue
+        fT = GLMLoss(ProximalBase.Poisson(), [3.7e38], ones(T, 1, 1), T[wT], nothing, zeros(T, 1), zeros(T, 1))
+        mT, jT = exp_split(ηT)
+        refT = setprecision(BigFloat, 256) do; T(ldexp(big(wT) * big(mT), jT)); end
+        got = try only(quadratic_model(fT, T[ηT]).weights) catch err; err end
+        bad += !(refT == 0 ? got isa PrecisionError : got == refT)
+      end
+      @test bad == 0
+    end
+    # the floor response uses no BigFloat: the global precision is not touched, and nothing allocates
+    for ambient in (32, 64, 512)
+      setprecision(BigFloat, ambient) do
+        for T in (Float32, Float64)
+          η = -floatmax(T); y = T(1.5) * (floatmax(T) * sqrt(eps(T)))
+          f = poisson(T, η, 1, y)
+          b = T[η]
+          q = quadratic_model(f, b)
+          @test precision(BigFloat) == ambient
+          quadratic_model!(q, f, b)
+          @test (@allocated quadratic_model!(q, f, b)) == 0
+          @test isfinite(only(q.y))
+        end
+      end
+    end
+  end
+
   @testset "non-finite data: the ordinary response, offsets of allocating models, allocation (review of #544)" begin
     # a non-finite weight alone leaves the response of the ordinary computation (bit for bit)
     for T in (Float32, Float64), bad in (T(NaN), T(Inf)), η in (T(1e-8), T(1), T(-3), T(30))

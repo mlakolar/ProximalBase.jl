@@ -102,7 +102,8 @@ coefficient vanished. Otherwise (a non-finite observation, a predictor that over
 in `Xβ + offset` even for finite `X`, `β` and offset, or a vanished coefficient) it
 checks the staged values in a new vector of the length of `y`, and allocates, whether
 it then throws or returns. A response below the curvature floor whose terms leave the
-range (`|ηᵢ|` and `yᵢ/√eps` near `floatmax`) is formed in `BigFloat` and allocates too. The all-or-nothing update holds for one `GLMLoss`:
+range (`|ηᵢ|` and `yᵢ/√eps` near `floatmax`) is formed in double-word arithmetic, without
+allocating, and rounded once. The all-or-nothing update holds for one `GLMLoss`:
 the models of a [`Sum`](@ref) or [`SeparableSum`](@ref) of such losses are
 updated one part after another. For `LogDetLoss`, `q` is
 written in the new point `z` rather than in the step `z - x`: minimizing
@@ -343,8 +344,8 @@ end
 # η - (exp(η) - y)/exp(η), as the response. Below the floor the coefficient is w √eps and
 # only the response can leave the range: η - (exp(η) - y)/√eps is a sum of two terms that
 # may each be out of range while the sum is not (η = -floatmax and y/√eps just above it),
-# so it is formed in 256-bit arithmetic and rounded once, and the caller rejects it only if
-# that rounded sum is not finite (this branch allocates; it needs |η| and y/√eps near floatmax).
+# so it is formed in double-word arithmetic and rounded once (`_floored_response`), and the
+# caller rejects it only if that rounded sum is not finite.
 # A non-finite weight, response or predictor is not recovered: it propagates as before.
 @inline function _irls_pair(::Poisson, w::T, η::T, y, floor::T) where {T}
   e = exp(η)
@@ -362,18 +363,37 @@ end
   w * d2, η - convert(T, e - y) / d2
 end
 
-# η - (e - y)/d2 for a finite η, e and y, evaluated in 256-bit arithmetic and rounded once to T:
-# the result is Inf exactly when the sum, not one of its terms, is out of range. Reached only
-# where the direct expression was not finite, so it allocates only for |η| and y/d2 near floatmax.
-@noinline _floored_response(η::T, e::T, y, d2::T) where {T} =
-  setprecision(BigFloat, 256) do
-    convert(T, BigFloat(η) - (BigFloat(e) - BigFloat(y)) / BigFloat(d2))
-  end
+# η - (e - y)/d2 for a finite η, e and y, rounded once to T: the quotient (y/2)/d2 is held as a
+# sum qh + ql of two floats (ql is the exact remainder, by a fused multiply-add), added to η/2
+# by an error-free sum, and the last rounding is followed by an exact doubling, so the result is
+# Inf exactly when the sum, not one of its terms, is out of range (up to ties of a relative
+# width 2^-100). The halves keep every term in range, and nothing here allocates or reads
+# any global state (no BigFloat precision). The arithmetic is that of the promotion of T and the
+# response, as `e - y` is.
+@noinline function _floored_response(η::T, e::T, y, d2::T) where {T}
+  R = promote_type(T, typeof(y))
+  half = R(0.5)
+  ηh, yh, eh, dh = convert(R, η) * half, convert(R, y) * half, convert(R, e) * half, convert(R, d2)
+  qh = yh / dh                           # (y/2)/d2
+  isfinite(qh) || return convert(T, qh)  # |y/d2| > 2 floatmax: the sum exceeds floatmax
+  ql = fma(-qh, dh, yh) / dh             # qh + ql = (y/2)/d2 to about twice the precision
+  s = ηh + qh                            # s + sl = ηh + qh exactly
+  bv = s - ηh
+  sl = (ηh - (s - bv)) + (qh - bv)
+  convert(T, 2 * (s + (sl + (ql - eh / dh))))
+end
 
 @noinline function _poisson_recovered(w::T, η::T, y) where {T}
   m, j = _exp_split(η)
   R = promote_type(T, typeof(y))          # y exp(-η) in the precision of the data, as e - y is
-  _scaled_product(w, m, j), (η - one(T)) + convert(T, y * exp(-convert(R, η)))
+  v = _scaled_product(w, m, j)
+  # a coefficient in the subnormal range is rounded once as well (ldexp rounds a second time
+  # there, and before Julia 1.11 truncates); there the power j is small enough to be a float
+  if T <: Base.IEEEFloat && isfinite(v) && abs(v) < floatmin(T) && !iszero(w) && !iszero(m) &&
+     exponent(floatmin(T)) <= j <= exponent(floatmax(T))
+    v = _scaled_coefficient(w, m, ldexp(one(T), j), v)
+  end
+  v, (η - one(T)) + convert(T, y * exp(-convert(R, η)))
 end
 
 ####################################

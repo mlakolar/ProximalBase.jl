@@ -104,8 +104,14 @@ the earlier behavior applies.
     NaN in the whole block.
   - `IndBallL2(0)` projects to zero at an infinite entry, where it returned
     NaN.
-  - The constrained ball and sphere families on the closed list in E3 follow
-    in later pull requests.
+  - `Constrained(NormL1, IndBallL2/IndSphereL2)` and
+    `Constrained(GroupNormL2, IndBallL2/IndSphereL2)` take the determined limits
+    group by group: a hard-fixed coordinate is zero, one infinite governed
+    coordinate gives `±r` there, and two or more, or a NaN governed coordinate,
+    give NaN over the coupled block
+    ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), Stages 3A
+    and 3B). The families `Constrained(IndBallL0, IndBallL2/IndSphereL2)` and
+    `Constrained(ZeroFunction, IndBallL2)` follow in later pull requests.
 - **Float16** arguments, outputs, directions and data are rejected with an
   `ArgumentError`.
 - **Steps.** Negative and NaN steps raise an `ArgumentError`. Zero and infinite

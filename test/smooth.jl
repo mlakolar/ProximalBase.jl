@@ -334,6 +334,10 @@ end
   for bad in ([Inf, 0.0], [0.0, NaN], [-Inf, 0.0])
     @test_throws ArgumentError(omsg) PoissonLoss(Float64[0, 1], [1.0 0.0; 0.0 1.0]; offset = bad)
   end
+  # the checks are isbits callables, which a GPU reduction can take (#579)
+  for T in (Float32, Float64)
+    @test isbitstype(typeof(PB._FiniteWeight{T}())) && isbitstype(typeof(PB._FiniteOffset{T}()))
+  end
   # a weight or offset finite in Float64 overflows Float32 data
   y32, X32 = Float32[1, 0], Float32[1 0; 0 1]
   @test_throws ArgumentError(wmsg) LogisticLoss(y32, X32; weights = [1.0, 1e39])

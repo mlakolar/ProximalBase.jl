@@ -187,14 +187,23 @@ function GLMLoss(loss::ScalarLoss, y::AbstractVector, X::AbstractMatrix;
   offset === nothing || length(offset) == n || throw(DimensionMismatch("offset must have length $n"))
   T = float(promote_type(eltype(y), eltype(X)))
   # finite in the working precision, where the oracles use them
-  weights === nothing || all(t -> t isa Real && t >= 0 && isfinite(convert(T, t)), weights) ||
+  weights === nothing || all(_FiniteWeight{T}(), weights) ||
     throw(ArgumentError("the weights must be finite and nonnegative"))
-  offset === nothing || all(t -> t isa Real && isfinite(convert(T, t)), offset) ||
+  offset === nothing || all(_FiniteOffset{T}(), offset) ||
     throw(ArgumentError("the offset must be finite"))
   η, d = _zeros_like(y, T, n), _zeros_like(y, T, n)
   GLMLoss{typeof(loss), T, typeof(y), typeof(X), typeof(weights), typeof(offset), typeof(η)}(
     loss, y, X, weights, offset, η, d)
 end
+
+# The constructor's checks in the working precision T. They are singleton
+# structs, not closures over T: a closure that captures a type is not isbits,
+# and a GPU reduction (`all` on a device array, as Adapt rebuilds the loss)
+# cannot take it as a kernel argument.
+struct _FiniteWeight{T} end
+(::_FiniteWeight{T})(t) where {T} = t isa Real && t >= 0 && isfinite(convert(T, t))
+struct _FiniteOffset{T} end
+(::_FiniteOffset{T})(t) where {T} = t isa Real && isfinite(convert(T, t))
 
 """
     LogisticLoss(y, X; weights = nothing, offset = nothing)

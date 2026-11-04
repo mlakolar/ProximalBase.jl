@@ -73,10 +73,28 @@ function _norm2_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real, :
     t = 1 - c / nx
     y .= t .* x
     return V ? (_level_fits(T, f.λ) ? _norm2_value(convert(T, f.λ) * (nx - c), convert(T, f.λ), y) : _weighted_norm2(f.λ, y)) : zero(T)
+  elseif isnan(nx)
+    return _norm2_nan!(y, x, c, nx, iszero(γ), Val(V))
   else
     fill!(y, zero(eltype(y)))
     return zero(T)
   end
+end
+
+# A NaN entry makes the norm NaN, and a comparison with NaN selects no branch (E2). An infinite
+# threshold (an infinite weight or level, or γ = Inf) fixes the block at zero whatever it holds,
+# and γ = 0 is the identity, which keeps NaN in its own entry. Otherwise every output
+# depends on the NaN entry, so the whole block is NaN, and so is the value.
+@noinline function _norm2_nan!(y, x, c, nx::T, atzero::Bool, ::Val{V}) where {T, V}
+  if isinf(c) || isnan(c)
+    fill!(y, zero(eltype(y)))
+    return zero(T)
+  elseif atzero
+    y === x || copyto!(y, x)
+  else
+    fill!(y, oftype(zero(eltype(y)), NaN))
+  end
+  V ? nx : zero(T)
 end
 value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _norm2_prox!(y, f, x, γ, Val(true)))
@@ -575,7 +593,7 @@ _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_
   length(x) >= length(f.group_of) || throw(BoundsError(x, length(f.group_of)))
 
 # y[G] ← prox_{c‖⋅‖₂}(x[G]), which may be in place; returns the new norm of the group
-@inline function _shrink_group!(f::Union{NormL2, GroupNormL2}, y::AbstractArray{T}, x::AbstractArray, G, c, W = nothing) where {T}
+@inline function _shrink_group!(f::Union{NormL2, GroupNormL2}, y::AbstractArray{T}, x::AbstractArray, G, c, W = nothing, atzero::Bool = false) where {T}
   nx = _group_norm2(x, G)
   if nx > c
     if isinf(nx) && isfinite(c)
@@ -587,6 +605,8 @@ _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_
       y[i] = t * x[i]
     end
     return nx - c
+  elseif isnan(nx)
+    return _nan_group!(y, x, G, c, nx, W, atzero)
   else
     @inbounds for i in _writes(W, G)
       y[i] = zero(T)
@@ -595,9 +615,29 @@ _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_
   end
 end
 
+# The group has a NaN entry (E2): see _norm2_nan!. An infinite c fixes the group at zero, atzero
+# (γ = 0) is the identity, and otherwise the group is NaN. Returns the norm of the stored group.
+@noinline function _nan_group!(y::AbstractArray{T}, x::AbstractArray, G, c, nx, W, atzero::Bool) where {T}
+  if isinf(c) || isnan(c)
+    @inbounds for i in _writes(W, G)
+      y[i] = zero(T)
+    end
+    return zero(nx)
+  elseif atzero
+    @inbounds for i in _writes(W, G)
+      y[i] = x[i]
+    end
+  else
+    @inbounds for i in _writes(W, G)
+      y[i] = T(NaN)
+    end
+  end
+  nx
+end
+
 # y[G] ← prox_{c‖⋅‖∞}(x[G]), which may be in place: the entries clipped at τ;
 # returns τ, the new norm of the group
-function _shrink_group!(f::GroupNormLinf, y::AbstractArray{T}, x::AbstractArray, G, c, W = nothing) where {T}
+function _shrink_group!(f::GroupNormLinf, y::AbstractArray{T}, x::AbstractArray, G, c, W = nothing, ::Bool = false) where {T}   # the last argument is for the ℓ2 kernel
   S = promote_type(float(T), typeof(c))     # the type of the threshold: the model precision (T3)
   s = _sumabs(x, G)
   if s <= c
@@ -713,7 +753,7 @@ function _homogeneous_group_prox!(y::AbstractArray, f::HomogeneousGroupNorm, x::
       end
       continue
     end
-    nrm = _shrink_group!(f, y, x, f.groups[k], (O ? _positive_product(W, _entry(γ, k), f.λ0, f.w[k]) : _weight_product(W, _entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+    nrm = _shrink_group!(f, y, x, f.groups[k], (O ? _positive_product(W, _entry(γ, k), f.λ0, f.w[k]) : _weight_product(W, _entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]), iszero(_entry(γ, k)))
     W === T || (nrm = _group_norm(f, y, f.groups[k]))   # O2: the value is that of the stored output
     v += _group_value(f, f.λ0, f.w[k], nrm, y, f.groups[k], T, ordinary)
   end
@@ -811,7 +851,7 @@ function _homogeneous_group_prox!(y::AtomIterate, f::HomogeneousGroupNorm, x::At
   for a in 1:y.nactive
     k = y.active[a]
     (iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))) && continue
-    nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], (O ? _positive_product(T, _entry(γ, k), f.λ0, f.w[k]) : _weight_product(T, _entry(γ, k), f.λ0, f.w[k])))
+    nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], (O ? _positive_product(T, _entry(γ, k), f.λ0, f.w[k]) : _weight_product(T, _entry(γ, k), f.λ0, f.w[k])), nothing, iszero(_entry(γ, k)))
     v += _group_value(f, f.λ0, f.w[k], nrm, y.storage, f.groups[k], T, ordinary)
   end
   v
@@ -841,7 +881,7 @@ end
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
     return atom(x, k)
   end
-  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], (isinf(f.w[k]) ? _weight_product(T, γ, f.λ0, f.w[k]) : _positive_product(T, γ, f.λ0, f.w[k])))
+  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], (isinf(f.w[k]) ? _weight_product(T, γ, f.λ0, f.w[k]) : _positive_product(T, γ, f.λ0, f.w[k])), nothing, iszero(γ))
   iszero(nrm) || activate!(x, k)
   atom(x, k)
 end

@@ -627,8 +627,10 @@ struct _L2Value{T}
   step::T
   λ::T
 end
+# A NaN norm gives NaN unless the group is fixed at zero (an infinite threshold); the value is then
+# read again from the stored group, as for an overflowing value.
 (l::_L2Value{T})(n, w) where {T} = iszero(w) ? zero(T) :
-  (c = _group_threshold(l.step, l.λ, w); n > c ? _Weighted(l.λ)(n - c, w) : zero(T))
+  (c = _group_threshold(l.step, l.λ, w); n > c ? _Weighted(l.λ)(n - c, w) : isnan(n) && c < T(Inf) ? T(NaN) : zero(T))
 
 # Scale each group before squaring. A direct sum of squares can overflow or
 # underflow even when its norm, and hence its proximal factor, is representable.
@@ -655,6 +657,10 @@ function (l::_L2Factor{T})(n, w, m, s) where {T}
   isfinite(n) && return l(n, w)
   iszero(w) && return one(T)
   c = _group_threshold(l.step, l.λ, w)
+  # m is NaN exactly when an entry is NaN (the max propagates it), while an infinite entry only makes
+  # n NaN. A NaN entry (E2): an infinite c fixes the group at zero, γ = 0 is the identity, and
+  # otherwise the group is NaN.
+  isnan(m) && return (isinf(c) || isnan(c)) ? zero(T) : iszero(l.step) ? one(T) : T(NaN)
   isfinite(m) && isfinite(c) ? max(one(T) - (c / m) / sqrt(s), zero(T)) : l(n, w)
 end
 

@@ -410,6 +410,24 @@ end
     value_and_prox!(y, cw, xs, γ)
     @test maximum(abs.(Float64.(y) .- ref)) < 1e-5
   end
+  # the reverse roles and same-type huge finite arguments, which the narrow path must not change
+  y = zeros(Float64, 2)
+  v = value_and_prox!(y, c, Float32[1e30, 2], 1.0)
+  @test y ≈ [1.0, 1e-30] && v ≈ 1.0 && v isa Float64
+  y = zeros(Float64, 2)
+  v = value_and_prox!(y, c, Float64[1e308, 2], 1.0)
+  @test y ≈ [1.0, 1e-308] && v ≈ 1.0
+  y = zeros(Float64, 2)
+  v = value_and_prox!(y, c, Float64[-1e308, -1e308], 1.0)
+  @test y ≈ [-1, -1] ./ sqrt(2) && v ≈ sqrt(2)
+  # the sparse iterate aliased with its argument, a stored infinity and a hard-fixed coordinate
+  h = ball(1.0, [Inf, 1.0, 1.0])
+  z = SparseIterate([Inf, 2.0, 0.0])
+  v = value_and_prox!(z, h, z, 1.0)
+  @test collect(z) ≈ [0.0, 1.0, 0.0] && v isa Float64 && v ≈ 1.0
+  z = SparseIterate([NaN, 3.0, 0.0])
+  v = value_and_prox!(z, h, z, 1.0)
+  @test collect(z) ≈ [0.0, 1.0, 0.0] && v ≈ 1.0
   # the symmetric output: the Frobenius norm of the stored point, counted over the pairs
   X = zeros(3, 3)
   X[1, 1] = 1e100; X[2, 1] = X[1, 2] = 2e100; X[3, 3] = -1e100

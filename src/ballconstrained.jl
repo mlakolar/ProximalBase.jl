@@ -46,8 +46,8 @@ entries are zero and project nothing, so only the free entries are governed. A N
 penalized entry at `γ = Inf` is a fixed endpoint, and leaves the free outputs as
 they are. An infinite penalized entry at `γ = Inf` is a joint limit in the argument
 and the step: with `x = (M, 0)`, `γ = M/2` gives the limit `(1, 0)` and `γ = 2M`
-gives `(0, 0)`, so the limit has no unique value, and the output is NaN in every
-free entry (the value too). A sphere with no entry of finite threshold throws an
+gives `(0, 0)`, so the limit has no unique value. The output is then NaN in every entry
+that is not hard-fixed, the penalized ones included (and the value is NaN). A sphere with no entry of finite threshold throws an
 `ArgumentError` before anything is written.
 
 ```julia

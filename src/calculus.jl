@@ -417,9 +417,10 @@ end
 #   never sees a step or a level that is not representable while their product is.
 # - A function without levels to fold gets the step as rounded.
 # The factor is the one that takes the value of the returned function to the value of the chain.
-# Not inlined: a loop over `prox_entry` of a single factor stays vectorized when this is a call on a
-# branch that an ordinary step does not take.
-@noinline function _nested_step(s::Scaled, γ::Real)
+# Not marked `@noinline`: the result is a union of tuples (folded or plain function, and the factor or
+# `nothing`), which a call that is not inlined must box (144 bytes per call). The callers that sit
+# in a loop over `prox_entry` are the ones that are not inlined (`_prox_entry_nested`).
+function _nested_step(s::Scaled, γ::Real)
   f, a = _scaled_chain(s)
   _isindicator(f) && return (f, γ, a)
   step = _apply_scale(a, γ)

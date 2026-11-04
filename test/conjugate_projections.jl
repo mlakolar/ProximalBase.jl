@@ -550,13 +550,21 @@ end
   sub = Scaled(SeparableSum(SqrNormL2()), 1e60)
   α, γ = 1f-30, 1f30
   c = Conjugate(Scaled(SeparableSum(NormL1(), sub), α))
-  expected = ([Float64(α)], ([0.0],))
+  # The Moreau step 1f-30 and the factor 1f-30 have the product 1f-60, which Float32 rounds to zero
+  # (#566). The coefficient of the block is 1e60 * 1f-30 * 1f-30 = 1, so the second block is
+  # y = x / (1 + γ / 1e30) = 1 / 2 and its value y^2 / (2 * 1e30), not the zero of the rounded step.
+  expected = ([Float64(α)], ([0.5],))
+  # from the stored parameters: coefficient c = 1e60 α, Moreau step t = inv(γ), tc = t c
+  coefficient = big(1e60) * big(α)
+  tc = big(inv(γ)) * coefficient
+  point = tc / (1 + tc)
   for op in (prox!, value_and_prox!), alias in (false, true)
     x = ([3.0], ([1.0],))
     y = alias ? x : deepcopy(x)
     v = op(y, c, x, γ)
-    @test y == expected
-    op === value_and_prox! && @test v == 0
+    @test y[1] == expected[1]
+    @test y[2][1][1] ≈ Float64(point) rtol = 1e-12
+    op === value_and_prox! && @test v ≈ Float64(point^2 / (2coefficient)) rtol = 1e-12
   end
   for op in (prox!, value_and_prox!)
     skip = VERSION < v"1.11"

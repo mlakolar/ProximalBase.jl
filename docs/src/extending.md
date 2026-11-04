@@ -94,12 +94,13 @@ weights fit the argument. The generic methods call it before writing any
 output, so a mismatched argument leaves outputs and iterates untouched.
 Before writing any output, `SeparableSum`, `SliceSum` and `FiberSum` check all
 blocks, slices or fibers, including functions inside wrappers, against the
-checks their own oracles run before writing. Earlier outputs can still be
-written if a failure occurs during computation, if a check depends on the
-step (such as `MoreauEnvelope`'s sum of its parameter and step), or if a
-user-defined function's oracles reject an argument that its `check_parameters`
-accepts. A few nested wrappers and structured matrices whose checks are not yet
-complete, such as a box constraint inside another one, can also leave them written.
+checks their own oracles run before writing. This is not atomicity: earlier
+outputs can still be written if a failure occurs during computation (such as
+`Conjugate`'s check that a finite input gave a finite result, or a search that
+finds a constraint empty), or if a user-defined function's oracles reject an
+argument that its `check_parameters` accepts. A few nested wrappers and
+structured matrices whose checks are not yet complete, such as a box constraint
+inside another one, can also leave them written.
 
 ```@example extending
 xs = SparseIterate(3)                          # a coordinate step on a sparse iterate
@@ -152,8 +153,13 @@ practice:
   there.
 - **Failures** (O6). Check sizes (`DimensionMismatch`) and arguments
   (`ArgumentError`) before writing any output.
-- **Aliasing** (O7). `prox!(x, f, x, γ)` must work: read each entry you need
-  before overwriting it.
+- **Aliasing** (O7). `prox!(x, f, x, γ)` and `value_and_prox!(x, f, x, γ)` must
+  work: read each entry you need, for the point and for the value, before
+  overwriting it. Gradient and Hessian-product outputs must be separate from
+  their inputs unless a method explicitly documents otherwise. Do not modify
+  the point `x` or the Hessian direction `v`; they may be the same array. The
+  built-in wrappers reject `Hv === x` and `Hv === v` themselves, also when they
+  wrap your function; a direct call of your method is not checked.
 - **Inside wrappers** (R1). In 0.6, `Scaled` recovers an overflowing inner
   value only for the built-in functions. Your function is covered inside it as
   long as its own value does not overflow.
@@ -167,8 +173,8 @@ parameters. It does not construct asymmetric copies of user functions. The
 checks are defined once the Test standard library is loaded, and they run
 `@test` inside your `@testset`:
 
-- [`test_prox`](@ref ProximalBase.Testing.test_prox): `prox`, `prox!` (also in
-  place) and `value_and_prox!` agree, and the result is optimal (the
+- [`test_prox`](@ref ProximalBase.Testing.test_prox): `prox`, `prox!` and
+  `value_and_prox!` agree, also in place, and the result is optimal (the
   subgradient inequality for a convex function, and no nearby point with a
   smaller proximal objective);
 - [`test_gradient`](@ref ProximalBase.Testing.test_gradient): the gradient

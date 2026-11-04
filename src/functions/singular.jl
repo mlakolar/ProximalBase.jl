@@ -155,9 +155,17 @@ end
   t, s, k
 end
 
+# The proximal point of the singular values receives the step, with arrays of the kernel's
+# types (see Spectral); the spectrum is a placeholder input, whose values the checks must not read.
+function _checkstep(op::O, F::SingularValue, Y::AbstractMatrix, X::AbstractMatrix, γ::Real) where {O}
+  t, s = _singular_check_arrays(F, Y, X)
+  _checkstep(value_and_prox!, F.f, t, _StepInput(s), γ)
+end
+
 function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real)
   X = _symmetric_argument(Y, X)
   _checkwrite(value_and_prox!, F, Y, X)
+  _checkstep(value_and_prox!, F, Y, X, γ)
   T = float(eltype(Y))
   if !all(isfinite, X)
     fill!(Y, T(NaN))
@@ -194,14 +202,20 @@ function _checkspectrum(F::SingularValue, ::Type{T}, dims::Tuple) where {T}
   k = min(dims...)
   T <: _BlasReal && ws isa SVDWorkspace{T} && (ws.m, ws.n) == dims ? ws.s : Vector{T}(undef, k)
 end
+# The arrays that the proximal point of the singular values will see: dense vectors of the
+# working type, as the kernel's, whatever their contents.
+function _singular_check_arrays(F::SingularValue, Y::AbstractMatrix, X::AbstractMatrix)
+  T = float(eltype(Y))
+  s = _checkspectrum(F, T, size(X))
+  _checkbuffer(F.t, T, size(s)), s
+end
+
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, F::SingularValue, Y::AbstractMatrix, X::AbstractMatrix)
   _checkreal(F, X)
   _checkreal(F, Y)
   _checksize(Y, X)
-  T = float(eltype(Y))
-  _checkblas(F, T)
-  s = _checkspectrum(F, T, size(X))
-  t = _checkbuffer(F.t, T, size(s))
+  _checkblas(F, float(eltype(Y)))
+  t, s = _singular_check_arrays(F, Y, X)
   _checkwrite(value_and_prox!, F.f, t, s)
 end
 _checkvalue(F::SingularValue, X::AbstractMatrix) = (_checkreal(F, X); _checkvalue(F.f, _checkbuffer(F.t, float(eltype(X)), (min(size(X)...),))))

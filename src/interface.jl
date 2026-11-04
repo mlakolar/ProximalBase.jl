@@ -120,8 +120,15 @@ Store the proximal operator
 
     prox_{γf}(x) = argmin_z  f(z) + ‖z - x‖² / (2γ)
 
-in `y` and return `y`. `y` may be `x`. For a nonconvex `f` the result is one of
-the minimizers.
+in `y` and return `y`. For a nonconvex `f` the result is one of the minimizers.
+
+The output may be the argument itself: `prox!(x, f, x, γ)` works for every
+function. Any other sharing of memory between `y` and `x` is not supported and
+is not detected, even when the two cover the same entries: a call such as
+`prox!(view(x, :), f, x, γ)`, or with a shifted or reversed view of `x`, can
+return wrong values without an error. Copy the argument first, as in
+`prox!(y, f, copy(x), γ)`. See O7 in
+[Agreement between oracles](@ref numerics-oracles).
 """
 function prox! end
 prox!(y, f::AbstractFunction, x) = prox!(y, f, x, 1)
@@ -150,6 +157,12 @@ way can be cheaper than `prox!` followed by `f(y)`. The conjugates that
 [`Conjugate`](@ref) lists as indicators follow the same convention; another conjugate whose
 value uses the Fenchel equality can return a small nonzero value even when it
 represents an indicator.
+
+The output may be the argument itself, as for [`prox!`](@ref):
+`value_and_prox!(x, f, x, γ)` stores the same point and returns the same value
+as with a separate output.
+Any other sharing of memory between `y` and `x` is not supported and is not
+detected.
 """
 value_and_prox!(y, f::AbstractFunction, x, γ::Real = 1) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_body!(y, f, x, γ))
@@ -260,6 +273,8 @@ end
 Base.size(x::_StepInput) = size(x.array)
 Base.axes(x::_StepInput) = axes(x.array)
 _step_values(x::AbstractArray) = true
+# A placeholder shows the storage of the array it stands for, never its values.
+_projection_host(x::_StepInput) = _projection_host(x.array)
 _step_values(x::_StepInput) = false
 _step_values(x::SubArray) = _step_values(parent(x))
 

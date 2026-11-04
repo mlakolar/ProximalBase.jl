@@ -1290,6 +1290,14 @@ _gradient_unchecked!(g::Tuple, s::SeparableSum, x::Tuple) =
 The function `Σₖ fₖ(x)`, smooth when all the `fₖ` are, with the sum of their
 gradients: a loss plus a smooth penalty, for example. A sum has no proximal
 operator in general.
+
+Every `fₖ` acts on the whole of `x`, unlike the blocks of a
+[`SeparableSum`](@ref). When `x` is a tuple of arrays, possibly nested, the
+gradient and the Hessian-vector product are the sums of those of the `fₖ`
+block by block, with the structure of `x` kept; the `fₖ` must then accept a
+tuple, as a `SeparableSum` does. The oracles check every `fₖ` against the
+checks their own oracles run before writing, so a predictable failure in a
+later function leaves the output unchanged.
 """
 struct Sum{F<:Tuple} <: AbstractFunction
   fs::F
@@ -1306,14 +1314,36 @@ _checkparams(s::Sum, x) = (map(f -> _checkparams(f, x), s.fs); true)
 _value_unchecked(s::Sum, x) = _value_at(sum(f -> _value_unchecked(f, x), s.fs), x)
 _checkvalue(s::Sum, x) = (map(f -> _checkvalue(f, x), s.fs); true)
 
-function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::Sum, g::AbstractArray, x::AbstractArray)
+# The buffer through which the remaining functions' gradients and Hessian
+# products are added into the output: an array of the output's type and size, or
+# the tuple of such arrays, kept while the shapes and types agree. The check
+# versions leave the cache alone.
+_sum_buffer!(s::Scratch, g::AbstractArray, x) = _array_buffer!(s, eltype(g), size(g))
+_sum_buffer!(s::Scratch, g::Tuple, x::Tuple) = _tuple_buffer!(s, g, x)
+_sum_checkbuffer(s::Scratch, g::AbstractArray, x) = _checkbuffer(s, eltype(g), size(g))
+_sum_checkbuffer(s::Scratch, g::Tuple, x::Tuple) = _conjugate_checkbuffer(s, g, x)
+
+# Adding the functions' results writes every entry of the output, which Symmetric and
+# Hermitian wrappers refuse; found before the first function writes.
+_check_sum_output(g) = true
+_check_sum_output(g::Union{Symmetric, Hermitian}) = throw(ArgumentError(
+  "a sum of functions needs an output that accepts off-diagonal writes; use a dense matrix"))
+@generated _check_sum_output(g::Tuple) = _blockwise(k -> :(_check_sum_output(g[$k])), fieldcount(g), true)
+
+# g += b, block by block for tuples
+_accumulate!(g, b) = (g .+= b)
+@generated _accumulate!(g::Tuple, b::Tuple) =
+  _blockwise(k -> :(_accumulate!(g[$k], b[$k])), min(fieldcount(g), fieldcount(b)), :g)
+
+function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, s::Sum, g::Union{AbstractArray, Tuple}, x::Union{AbstractArray, Tuple})
   _checkreal(s, g); _checkreal(s, x)
   _checkgradient_output(g, x)
   _checksize(g, x)
+  length(s.fs) > 1 && _check_sum_output(g)
   _checkparams(s, x)
   _checkwrite(value_and_gradient!, first(s.fs), g, x)
   if length(s.fs) > 1
-    b = _checkbuffer(s.scratch, eltype(g), size(g))
+    b = _sum_checkbuffer(s.scratch, g, x)
     map(f -> _checkwrite(value_and_gradient!, f, b, x), Base.tail(s.fs))
   end
   true
@@ -1323,17 +1353,17 @@ end
 _add_gradients!(g, b, x, v, ::Tuple{}) = v
 function _add_gradients!(g, b, x, v, fs::Tuple)
   w = _value_and_gradient_unchecked!(b, first(fs), x)
-  g .+= b
+  _accumulate!(g, b)
   _add_gradients!(g, b, x, v + w, Base.tail(fs))
 end
 
-value_and_gradient!(g::AbstractArray, s::Sum, x::AbstractArray) =
+value_and_gradient!(g::Union{AbstractArray, Tuple}, s::Sum, x::Union{AbstractArray, Tuple}) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
-function _value_and_gradient_unchecked!(g::AbstractArray, s::Sum, x::AbstractArray)
+function _value_and_gradient_unchecked!(g::Union{AbstractArray, Tuple}, s::Sum, x::Union{AbstractArray, Tuple})
   _checkwrite(value_and_gradient!, s, g, x)
   v = _value_and_gradient_unchecked!(g, first(s.fs), x)
   length(s.fs) == 1 && return _value_at(v, x)
-  b = _array_buffer!(s.scratch, eltype(g), size(g))
+  b = _sum_buffer!(s.scratch, g, x)
   _value_at(_add_gradients!(g, b, x, v, Base.tail(s.fs)), x)
 end
 

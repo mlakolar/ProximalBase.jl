@@ -1017,6 +1017,30 @@ end
     end
   end
 end
+
+@testset "the combined tests of a term: NaN exactly when a test fails" begin
+  # (0 ⋅ η) ⋅ p and the lift select decide as the separate tests: the mark is NaN
+  # exactly when η or p is not finite (where tested) or a lost value is lifted
+  for T in (Float64, Float32)
+    xs = T[0, -0.0, 1, -3, floatmax(T), -floatmax(T), nextfloat(zero(T)), Inf, -Inf, NaN]
+    M = floatmax(T)
+    for ℓ in (PB.Squared(), PB.Huber(1.0), PB.Logistic(), PB.Poisson(), PB.SquaredHinge(),
+              PB.SmoothCheck(0.3, 0.2), PB.ConvolutionCheck(0.3, 0.2), ThrowsBelowZero())
+      for η in xs, p in xs, w in T[0.5, 1, 2, M], v in T[1, floatmin(T) / 4, 0], y in T[0, 1, 2]
+        vlift = PB._value_lifts(ℓ, w) & PB._lost_value(ℓ, v, η, y)
+        dlift = (w > 1) & PB._lost_deriv(ℓ, v, η, y)
+        ηbad, pbad = !isfinite(η), !isfinite(p)
+        @test isnan(PB._value_mark(ℓ, w, v, η, y)) == (vlift | (ηbad & !PB._value_traps(ℓ)))
+        @test isnan(PB._gradient_mark(ℓ, w, v, p, η, y)) == (dlift | pbad | (ηbad & !PB._deriv_traps(ℓ)))
+        for unweighted in (true, false)
+          dtest = !(unweighted & PB._deriv_in_value(ℓ) & PB._value_traps(ℓ))
+          @test isnan(PB._value_deriv_mark(ℓ, w, v, v, p, η, y, unweighted)) ==
+            (vlift | dlift | (ηbad & !PB._value_traps(ℓ)) | (dtest & pbad))
+        end
+      end
+    end
+  end
+end
 end # !BASELINE
 
 BASELINE && baseline()

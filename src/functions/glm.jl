@@ -168,8 +168,10 @@ _value_lifts(::ScalarLoss, w) = w > one(w)
 @inline _deriv_ok(ℓ, w, v, p, η, y) = isfinite(p) & isfinite(η) & !((w > one(w)) & _lost_deriv(ℓ, v, η, y))
 # The same tests as an accumulator of the CPU loops, 0 or NaN, so that the loops
 # stay free of branches and can vectorize: 0 ⋅ x is NaN for an infinite or NaN x,
-# and a lifted underflow adds NaN (gradient!) or sets a Bool (the value loops). The finiteness of a value term is that of the
-# sum of the terms, tested after the loop with the accumulator. A test that the
+# and a lifted underflow selects NaN. Two finiteness tests combine as (0 ⋅ x) ⋅ y,
+# which is NaN exactly when x or y is not finite (0 ⋅ x is ±0 or NaN, and ±0 ⋅ y
+# is NaN only for an infinite or NaN y). The finiteness of a value term is that of
+# the sum of the terms, tested after the loop with the accumulator. A test that the
 # sum or another test already implies is left out at compile time, by the traits
 # below; the loops then decide exactly as with every test.
 #
@@ -189,7 +191,7 @@ _value_traps(::Union{Squared, Huber, Logistic, Poisson}) = true
 _deriv_traps(::ScalarLoss) = false
 _deriv_traps(::Squared) = true
 # `_pure_everywhere(ℓ)`: ℓ and ℓ' are pure functions defined at every input (no
-# throw, no side effect), so the loops may evaluate them at zero-weight
+# throw, no side effect), so `gradient!` may evaluate them at zero-weight
 # observations and discard the result by a select instead of a branch. A loss
 # without a method keeps the branch: it is not called at a zero weight.
 _pure_everywhere(::ScalarLoss) = false
@@ -204,18 +206,23 @@ _pure_everywhere(::Union{Squared, Huber, Logistic, Poisson}) = true
 # w ℓ' can overflow where w ℓ does not, so d is always tested.
 _deriv_in_value(::ScalarLoss) = false
 _deriv_in_value(::Union{Squared, Huber, Logistic, Poisson}) = true
-# In the value loops the tests come in two parts: the finiteness of η and d as an
-# accumulator (0 or NaN), and a lifted underflow as a Bool, or-ed.
-@inline _value_mark(ℓ, η::T) where {T} = _value_traps(ℓ) ? zero(T) : zero(T) * η
 @inline _value_lift(ℓ, w, v, η, y) = _value_lifts(ℓ, w) & _lost_value(ℓ, v, η, y)
-# the finiteness of d = w ℓ' in value_and_gradient!, beside the value's
-@inline _deriv_mark(ℓ, p, ::Type{T}, unweighted::Bool) where {T} =
-  unweighted & _deriv_in_value(ℓ) & _value_traps(ℓ) ? zero(T) : zero(T) * convert(T, p)
 @inline _deriv_lift(ℓ, w, v, η, y) = (w > one(w)) & _lost_deriv(ℓ, v, η, y)
-# the test of d in gradient!, alone
+# the finiteness of η, unless the sum implies it
+@inline _eta_mark(ℓ, η::T) where {T} = _value_traps(ℓ) ? zero(T) : zero(T) * η
+# the tests of a term of f
+@inline _value_mark(ℓ, w, v, η::T, y) where {T} =
+  ifelse(_value_lift(ℓ, w, v, η, y), T(NaN), _eta_mark(ℓ, η))
+# the tests of a term of value_and_gradient!: the value's, and the finiteness of
+# d = p = w ℓ' unless the sum implies it
+@inline function _value_deriv_mark(ℓ, w, v, dv, p, η::T, y, unweighted::Bool) where {T}
+  m = _eta_mark(ℓ, η)
+  m = unweighted & _deriv_in_value(ℓ) & _value_traps(ℓ) ? m : m * convert(T, p)
+  ifelse(_value_lift(ℓ, w, v, η, y) | _deriv_lift(ℓ, w, dv, η, y), T(NaN), m)
+end
+# the tests of d in gradient!, alone
 @inline _gradient_mark(ℓ, w, v, p, η::T, y) where {T} =
-  (_deriv_traps(ℓ) ? zero(T) : zero(T) * η) + zero(T) * convert(T, p) +
-  ifelse((w > one(w)) & _lost_deriv(ℓ, v, η, y), T(NaN), zero(T))
+  ifelse(_deriv_lift(ℓ, w, v, η, y), T(NaN), (_deriv_traps(ℓ) ? zero(T) : zero(T) * η) * convert(T, p))
 
 # The term again for η = ηs ⋅ 2^k (k ≥ 0: η may be beyond the range of T), with
 # the weight w > 0 applied last: the value as a significand and an exponent (so
@@ -449,26 +456,15 @@ function (f::GLMLoss{L, T})(β::AbstractVector) where {L, T}
   _checkreal(f, β)
   η = _linear_predictor!(f, β)
   s = c = zero(T)
-  b = false
   @inbounds for i in eachindex(η)
     w = convert(T, _entry(f.weights, i))
+    iszero(w) && continue
     ηi, yi = η[i], f.y[i]
-    if _pure_everywhere(f.loss)
-      # a zero weight adds +0.0, which leaves s unchanged (s is never -0.0)
-      z = iszero(w)
-      v = f.loss(ηi, yi)
-      s += ifelse(z, zero(T), w * convert(T, v))
-      c += ifelse(z, zero(T), _value_mark(f.loss, ηi))
-      b |= !z & _value_lift(f.loss, w, v, ηi, yi)
-    else
-      iszero(w) && continue
-      v = f.loss(ηi, yi)
-      s += w * convert(T, v)
-      c += _value_mark(f.loss, ηi)
-      b |= _value_lift(f.loss, w, v, ηi, yi)
-    end
+    v = f.loss(ηi, yi)
+    s += w * convert(T, v)
+    c += _value_mark(f.loss, w, v, ηi, yi)
   end
-  (b | !isfinite(s + c)) && (s = _glm_recover!(f, β, Val(true), Val(false)))
+  isfinite(s + c) || (s = _glm_recover!(f, β, Val(true), Val(false)))
   _value_at(s, β)
 end
 
@@ -477,32 +473,20 @@ function value_and_gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVe
   η = _linear_predictor!(f, β)
   d = f.d
   s = c = zero(T)
-  b = false
   unweighted = f.weights === nothing
   @inbounds for i in eachindex(η)
     w = convert(T, _entry(f.weights, i))
-    ηi, yi = η[i], f.y[i]
-    if _pure_everywhere(f.loss)
-      z = iszero(w)
-      v, dv = value_and_deriv(f.loss, ηi, yi)
-      s += ifelse(z, zero(T), w * convert(T, v))
-      pd = w * dv
-      d[i] = ifelse(z, zero(T), pd)
-      c += ifelse(z, zero(T), _value_mark(f.loss, ηi) + _deriv_mark(f.loss, pd, T, unweighted))
-      b |= !z & (_value_lift(f.loss, w, v, ηi, yi) | _deriv_lift(f.loss, w, dv, ηi, yi))
-    else
-      if iszero(w)
-        d[i] = zero(T)
-        continue
-      end
-      v, dv = value_and_deriv(f.loss, ηi, yi)
-      s += w * convert(T, v)
-      d[i] = pd = w * dv
-      c += _value_mark(f.loss, ηi) + _deriv_mark(f.loss, pd, T, unweighted)
-      b |= _value_lift(f.loss, w, v, ηi, yi) | _deriv_lift(f.loss, w, dv, ηi, yi)
+    if iszero(w)
+      d[i] = zero(T)
+      continue
     end
+    ηi, yi = η[i], f.y[i]
+    v, dv = value_and_deriv(f.loss, ηi, yi)
+    s += w * convert(T, v)
+    d[i] = pd = w * dv
+    c += _value_deriv_mark(f.loss, w, v, dv, pd, ηi, yi, unweighted)
   end
-  (b | !isfinite(s + c)) && (s = _glm_recover!(f, β, Val(true), Val(true)))
+  isfinite(s + c) || (s = _glm_recover!(f, β, Val(true), Val(true)))
   mul!(g, transpose(f.X), d)
   _value_at(s, β)
 end

@@ -25,7 +25,10 @@ from known ones.
 
 The allocating forms `prox`, `gradient`, `value_and_gradient` and `hessian_vec`
 of a `SeparableSum` act on tuples of blocks, as do `Scaled` and `Conjugate` of
-a `SeparableSum`, for the oracles each provides.
+a `SeparableSum`, for the oracles each provides. So does a `Sum` of such
+functions, other `Sum`s included: every summand acts on the whole tuple, and
+the gradient and the Hessian-vector product add those of the summands block by
+block. `Tilt` and `Translate` take arrays only.
 
 ## Derivations
 

@@ -1266,6 +1266,181 @@ end
   @inferred value_and_prox!(fresh(x), u, x, 0.4)
 end
 
+# a user function that counts its oracle calls, to show that a rejected output reaches none of them
+mutable struct CountedFunction <: AbstractFunction
+  calls::Int
+end
+ProximalBase.issmooth(::Type{CountedFunction}) = true
+ProximalBase.isproximable(::Type{CountedFunction}) = true
+ProximalBase.prox!(y::AbstractArray, f::CountedFunction, x::AbstractArray, γ::Real) = (f.calls += 1; copyto!(y, x))
+ProximalBase.value_and_prox!(y::AbstractArray, f::CountedFunction, x::AbstractArray, γ::Real) = (f.calls += 1; copyto!(y, x); 0.0)
+ProximalBase.gradient!(g::AbstractArray, f::CountedFunction, x::AbstractArray) = (f.calls += 1; copyto!(g, x))
+ProximalBase.value_and_gradient!(g::AbstractArray, f::CountedFunction, x::AbstractArray) = (f.calls += 1; copyto!(g, x); 0.0)
+
+# a function with a fused proximal value and no standalone value
+struct FusedOnly <: AbstractFunction end
+ProximalBase.isproximable(::Type{FusedOnly}) = true
+ProximalBase.prox!(y::AbstractArray, ::FusedOnly, x::AbstractArray, γ::Real) = (y .= x ./ (1 + γ))
+ProximalBase.value_and_prox!(y::AbstractArray, ::FusedOnly, x::AbstractArray, γ::Real) = (y .= x ./ (1 + γ); sum(abs2, y) / 2)
+
+# a constant whose sum with a float fails, after the proximal operator has run
+struct BadConstant <: Real end
+Base.:+(::AbstractFloat, ::BadConstant) = throw(ErrorException("the constant cannot be added"))
+
+@testset "Tilt and Translate on tuples refuse restricted outputs before writing" begin
+  f = SeparableSum(SqrNormL2(), SqrNormL2())
+  x = ([1.0, 2.0], [1.0 2.0; 3.0 4.0])
+  c = (zeros(2), zeros(2, 2))
+  # wrappers that cannot take every entry; the type decides, no entry is read
+  restricted = (
+    "Diagonal" => () -> Diagonal(fill(-7.0, 2)),
+    "UpperTriangular" => () -> UpperTriangular(fill(-7.0, 2, 2)),
+    "LowerTriangular" => () -> LowerTriangular(fill(-7.0, 2, 2)),
+    "UnitUpperTriangular" => () -> UnitUpperTriangular(fill(-7.0, 2, 2)),
+    "UnitLowerTriangular" => () -> UnitLowerTriangular(fill(-7.0, 2, 2)),
+    "Bidiagonal" => () -> Bidiagonal(fill(-7.0, 2), fill(-7.0, 1), :U),
+    "Tridiagonal" => () -> Tridiagonal(fill(-7.0, 1), fill(-7.0, 2), fill(-7.0, 1)),
+    "SymTridiagonal" => () -> SymTridiagonal(fill(-7.0, 2), fill(-7.0, 1)),
+    "UpperHessenberg" => () -> UpperHessenberg(fill(-7.0, 2, 2)),
+    "Symmetric" => () -> Symmetric(fill(-7.0, 2, 2)),
+    "Hermitian" => () -> Hermitian(fill(-7.0, 2, 2)))
+  snapshot(y) = (copy(y[1]), Matrix(y[2]))
+  unchanged(y, before) = isequal(y[1], before[1]) && isequal(Matrix(y[2]), before[2])
+  for (name, make) in restricted, (W, wrapper) in ("Tilt" => Tilt(f, c, 0.0), "Translate" => Translate(f, c))
+    @testset "$name, $W" begin
+      for op in (gradient!, value_and_gradient!)
+        y = (fill(-7.0, 2), make()); before = snapshot(y)
+        @test_throws ArgumentError op(y, wrapper, x)
+        @test unchanged(y, before)
+      end
+      for op in (prox!, value_and_prox!)
+        y = (fill(-7.0, 2), make()); before = snapshot(y)
+        @test_throws ArgumentError op(y, wrapper, x, 0.4)
+        @test unchanged(y, before)
+        # the output is also the input
+        y = (fill(-7.0, 2), make()); before = snapshot(y)
+        @test_throws ArgumentError op(y, wrapper, y, 0.4)
+        @test unchanged(y, before)
+      end
+    end
+  end
+  # a nested output: every leaf is validated, the restricted one last
+  nf = SeparableSum(SeparableSum(SqrNormL2(), SqrNormL2()), SeparableSum(SqrNormL2(), SqrNormL2()))
+  nx = (([1.0, 2.0], [3.0, 4.0]), ([5.0, 6.0], [1.0 2.0; 3.0 4.0]))
+  nc = (([0.1, 0.1], [0.2, 0.2]), ([0.3, 0.3], zeros(2, 2)))
+  for (name, make) in restricted, wrapper in (Tilt(nf, nc, 0.0), Translate(nf, nc))
+    for op in (gradient!, value_and_gradient!, (y, w, x) -> prox!(y, w, x, 0.4), (y, w, x) -> value_and_prox!(y, w, x, 0.4))
+      y = ((fill(-7.0, 2), fill(-7.0, 2)), (fill(-7.0, 2), make()))
+      before = ((copy(y[1][1]), copy(y[1][2])), (copy(y[2][1]), Matrix(y[2][2])))
+      @test_throws ArgumentError op(y, wrapper, nx)
+      @test isequal(y[1][1], before[1][1]) && isequal(y[1][2], before[1][2]) && isequal(y[2][1], before[2][1])
+      @test Matrix(y[2][2]) == before[2][2]
+    end
+  end
+  # the function is not run: the rejected output reaches none of its oracles
+  counted = SeparableSum(CountedFunction(0), CountedFunction(0))
+  cx = ([1.0, 2.0], [1.0 2.0; 3.0 4.0]); cc = (zeros(2), zeros(2, 2))
+  for wrapper in (Tilt(counted, cc, 0.0), Translate(counted, cc)), op in (gradient!, value_and_gradient!, (y, w, x) -> prox!(y, w, x, 0.4), (y, w, x) -> value_and_prox!(y, w, x, 0.4))
+    y = (fill(-7.0, 2), Diagonal(fill(-7.0, 2)))
+    @test_throws ArgumentError op(y, wrapper, cx)
+    @test all(g -> g.calls == 0, counted.fs)
+  end
+  # ordinary outputs are unchanged: dense arrays, adjoints and views of dense arrays
+  tp, up = Tilt(SeparableSum(SqrNormL2(1.5), NormL1(0.5)), c, 0.5), Translate(SeparableSum(SqrNormL2(1.5), NormL1(0.5)), c)
+  for w in (tp, up)
+    ref = prox(w, x, 0.4)
+    for out in ((zeros(2), zeros(2, 2)), (zeros(2), adjoint(zeros(2, 2))), (zeros(2), view(zeros(3, 3), 1:2, 1:2)))
+      @test prox!(out, w, x, 0.4) === out
+      @test blocks_approx(out, ref)
+    end
+  end
+  # arrays: the staged proximal operator leaves a structured output alone (as before this change)
+  for w in (Tilt(SqrNormL2(), zeros(2, 2), 0.0), Translate(SqrNormL2(), zeros(2, 2)))
+    y = Diagonal(fill(-7.0, 2))
+    @test_throws ArgumentError prox!(y, w, x[2], 0.4)
+    @test y == Diagonal(fill(-7.0, 2))
+  end
+end
+
+@testset "Tilt and Translate on tuples: fused value is formed before the output is written" begin
+  γ = 0.4
+  f = SeparableSum(SqrNormL2(1.5), NormL1(0.5))
+  x = ([2.0, -1.0], [3.0, -2.0]); c = ([0.25, -0.5], [1.0, 0.0]); b = ([0.3, -0.1], [0.5, 1.5])
+  # the staged point is the committed point: Float64, Float32, Float32 with Float64 data, in place
+  for (xs, ys, cs) in ((x, fresh(x), c),
+                       (map(a -> Float32.(a), x), map(a -> zeros(Float32, size(a)), x), map(a -> Float32.(a), c)),
+                       (map(a -> Float32.(a), x), map(a -> zeros(Float32, size(a)), x), c),
+                       (map(a -> Float32.(a), x), fresh(x), c))
+    for (W, w) in (("Tilt", Tilt(f, cs, 0.75)), ("Translate", Translate(f, cs)))
+      y = map(copy, ys)
+      v = value_and_prox!(y, w, xs, γ)
+      staged = (W == "Tilt" ? w.scratch : w.proxscratch).buf[3]
+      @test all(map(==, staged, y))                                      # bit for bit
+      @test v isa eltype(y[1])
+      if W == "Tilt"
+        @test v ≈ f(y) + tdot(cs, y) + 0.75 rtol = 20eps(eltype(y[1]))
+      else
+        @test v ≈ f(map_blocks((a, bk) -> a .- bk, y, cs)) rtol = 20eps(eltype(y[1]))
+      end
+    end
+    # in place
+    for w in (Tilt(f, cs, 0.75), Translate(f, cs))
+      xin = map(copy, ys); foreach(((a, s),) -> copyto!(a, s), zip(xin, xs))
+      yref = map(copy, ys)
+      vref = value_and_prox!(yref, w, xs, γ)
+      @test value_and_prox!(xin, w, xin, γ) == vref
+      @test all(map(==, xin, yref))
+    end
+  end
+  # a nested tuple
+  nf = SeparableSum(SeparableSum(SqrNormL2(), NormL1(0.2)), SeparableSum(SqrNormL2(3), NormL1(0.1)))
+  xn = (([1.0, 2.0], [3.0]), ([4.0 5.0; 6.0 7.0], [8.0, -9.0]))
+  cn = (([0.5, 0.5], [1.0]), ([1.0 0.0; 0.0 1.0], [0.1, -0.1]))
+  tn = Tilt(nf, cn, 0.5)
+  yn = fresh(xn)
+  vn = value_and_prox!(yn, tn, xn, γ)
+  @test vn ≈ nf(yn) + tdot(cn, yn) + 0.5
+  # a function with a fused value and no standalone value: no extra call of a value method
+  fused = SeparableSum(FusedOnly(), FusedOnly())
+  @test_throws MethodError fused(x)
+  for w in (Tilt(fused, c, 0.5), Translate(fused, c))
+    y = fresh(x)
+    v = value_and_prox!(y, w, x, γ)
+    @test isfinite(v)
+    @test all(map(==, (w isa Tilt ? w.scratch : w.proxscratch).buf[3], y))
+  end
+  ty = fresh(x)
+  @test value_and_prox!(ty, Tilt(fused, c, 0.5), x, γ) ≈ sum(abs2, ty[1]) / 2 + sum(abs2, ty[2]) / 2 + tdot(c, ty) + 0.5
+  # a failure while the value is formed leaves the output unchanged, also in place
+  sentinel = ([9.0, 8.0], [7.0, 6.0])
+  bad = Tilt(f, c, BadConstant())
+  for aliased in (false, true)
+    y = map(copy, sentinel)
+    @test_throws ErrorException value_and_prox!(y, bad, aliased ? y : x, γ)
+    @test y == sentinel
+  end
+  y = map(copy, sentinel)
+  @test prox!(y, bad, x, γ) === y                                  # without a value nothing is added
+  @test y == map((fk, ck, xk) -> prox(fk, xk .- γ .* ck, γ), f.fs, c, x)
+end
+
+@testset "Conjugate of a tuple Translate leaves the output unchanged" begin
+  l1 = SeparableSum(NormL1(0.3), NormL1(0.2))
+  x = ([1.0, 2.0], [3.0 4.0; 5.0 6.0]); c = ([0.1, 0.2], [0.3 0.4; 0.5 0.6])
+  sentinel = ([9.0, NaN], [7.0 Inf; -Inf 7.0])
+  for w in (Conjugate(Translate(l1, c)), Scaled(Conjugate(Translate(l1, c)), 2.0), Conjugate(Scaled(Translate(l1, c), 2.0))),
+      op in (prox!, value_and_prox!), aliased in (false, true)
+    y = map(copy, sentinel)
+    @test_throws ArgumentError op(y, w, aliased ? y : x, 0.7)
+    @test isequal(y, sentinel)
+  end
+  # a translation inside a tilt is another case: the conjugate needs only the proximal operator
+  γ = 0.7
+  w = Conjugate(Tilt(Translate(l1, c), c, 0.0))
+  ref = map((xk, ck, fk) -> xk .- γ .* prox(Tilt(Translate(fk, ck), ck, 0.0), xk ./ γ, 1 / γ), x, c, l1.fs)
+  @test blocks_approx(prox(w, x, γ), ref)
+end
+
 @testset "Tilt and Translate on tuples refuse sparse iterates" begin
   s = SeparableSum(SqrNormL2(1.0), SqrNormL2(2.0))
   X = SymmetricSparseIterate(Float64, 3)

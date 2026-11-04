@@ -50,19 +50,24 @@ Base.@propagate_inbounds function _value_entry_ordinary(f::CheckLoss, v::T, i::I
   _entry(f.w, i) * (v >= 0 ? τ * v : (τ - 1) * v)
 end
 _has_ordinary_value(::Type{<:CheckLoss}) = true
+# The largest weight whose entry keeps a NaN: a finite weight (weights are nonnegative, so a hard
+# weight w == Inf and a NaN weight are above the limit), or only a zero weight at the step Inf;
+# nothing at a NaN step. Loop invariant, so one comparison per entry.
+@inline _nan_weight_limit(γ, w) =
+  (F = float(typeof(w)); ifelse(isnan(γ), -one(F), ifelse(γ == Inf, zero(F), floatmax(F))))
 Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
   s, τ, u = convert(S, _weight_coefficient(γ, w)), convert(S, f.τ), S(v)
   # The ordinary value is the base expression (a NaN u compares false twice and gives 0). A NaN u
   # is repaired in one select: it stays NaN (E2) unless the map is constant, that is for the step
-  # γ == Inf with a positive weight or a hard weight w == Inf (a zero weight is free: E4 first), both
-  # read from the parameters and not from the derived coefficient s, which also overflows to Inf for
-  # finite parameters (and whose threshold s(1 - τ) is NaN for a hard weight when τ rounds to 1:
-  # such a finite u still gives 0). A NaN step (unchecked) keeps the old zero. Weights are
-  # nonnegative, so w < Inf is also false for NaN.
-  r = ifelse(u > s * τ, u - s * τ, ifelse(u < -s * (1 - τ), u + s * (1 - τ), zero(S)))
-  ifelse((u != u) & (w < Inf) & !isnan(γ) & ((γ < Inf) | (w == 0)), u, r)
+  # γ == Inf with a positive weight, or a hard weight w == Inf (a zero weight is free: E4 first).
+  # This is read from the parameters and not from the derived coefficient s, which also overflows
+  # to Inf for finite parameters, and whose threshold s(1 - τ) is NaN for a hard weight when τ
+  # rounds to 1 (such a finite u still gives 0). A NaN step (unchecked) keeps the old zero.
+  a, b = s * τ, s * (1 - τ)
+  r = ifelse(u > a, u - a, ifelse(u < -b, u + b, zero(S)))
+  ifelse((u != u) & (w <= _nan_weight_limit(γ, w)), u, r)
 end
 
 # from zero, the objective decreases upward at rate -gᵢ - wᵢτ and downward at

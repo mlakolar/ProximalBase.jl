@@ -103,7 +103,9 @@ in `Xβ + offset` even for finite `X`, `β` and offset, or a vanished coefficien
 checks the staged values in a new vector of the length of `y`, and allocates, whether
 it then throws or returns. A response below the curvature floor whose terms leave the
 range (`|ηᵢ|` and `yᵢ/√eps` near `floatmax`) is formed in double-word arithmetic, without
-allocating, and rounded once. The all-or-nothing update holds for one `GLMLoss`:
+allocating, and rounded once, for `Float32` and `Float64` responses; a response of another
+type (integer, rational) is first converted to the working float type, as `e - y` is, and
+a `BigFloat` response is computed in the current `BigFloat` precision. The all-or-nothing update holds for one `GLMLoss`:
 the models of a [`Sum`](@ref) or [`SeparableSum`](@ref) of such losses are
 updated one part after another. For `LogDetLoss`, `q` is
 written in the new point `z` rather than in the step `z - x`: minimizing
@@ -370,7 +372,10 @@ end
 # the rounding to T). The halves keep every term in range and the doubling at the end is exact,
 # so the result is Inf exactly when the sum, not one of its terms, is out of range (up to ties of
 # a relative width 2^-100). Nothing here allocates or reads global state (no BigFloat precision).
-# The working precision R is that of the promotion of T and the response, as `e - y` is.
+# The working precision R is that of the promotion of T and the response, as `e - y` is: a response
+# of another type (an integer, a rational) is converted to it first, as in the ordinary expression
+# (numerics T3), and a BigFloat response is computed at the BigFloat precision current (T7) and
+# then delivered in T; the once-rounding statement is for Float32 and Float64 responses (S1).
 @noinline function _floored_response(η::T, e::T, y, d2::T) where {T}
   R = promote_type(T, typeof(y))
   half = R(0.5)
@@ -397,6 +402,7 @@ end
   (iszero(lo) || isodd(reinterpret(Base.uinttype(R), hi))) && return hi
   lo > 0 ? nextfloat(hi) : prevfloat(hi)
 end
+# R not an IEEE type (BigFloat): the sum is rounded in the precision of R, and then to T (T7)
 @inline _round_odd(hi, lo) = hi
 
 @noinline function _poisson_recovered(w::T, η::T, y) where {T}

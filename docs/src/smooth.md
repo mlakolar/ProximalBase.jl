@@ -260,7 +260,7 @@ cannot be represented raises a [`PrecisionError`](@ref), and
 the response ``\eta_i + (y_i - e^{\eta_i})/\sqrt\varepsilon`` is formed so that a
 cancelling pair of terms that leave the range does not fail where their sum fits
 (``\eta = -\text{floatmax}`` and ``y/\sqrt\varepsilon`` just above it): the sum is
-formed in double-word arithmetic and rounded once, so only a sum that does not fit is an error. Non-finite data propagate as ``\mathrm{NaN}`` or ``\mathrm{Inf}``
+formed in double-word arithmetic and rounded once, so only a sum that does not fit is an error. This holds for `Float32` and `Float64` responses (S1). A response of another type is first converted to the working float type, as the ordinary expression `e - y` converts it (numerics T3), and the sum is that of the converted response; a `BigFloat` response is computed in the current `BigFloat` precision and then delivered in the type of the loss (T7). Non-finite data propagate as ``\mathrm{NaN}`` or ``\mathrm{Inf}``
 in the update of a model, without an error and without the recovery above;
 [`quadratic_model`](@ref) builds a new loss and checks the offset again, which must be finite as in
 the constructor, so an offset made non-finite after construction is an `ArgumentError`

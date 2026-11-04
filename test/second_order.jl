@@ -695,6 +695,23 @@ end
         end
       end
     end
+    # a response that is not a float is converted to the working float type first, as e - y is (numerics T3):
+    # the model equals that of the converted response, for integers and rationals, in both API calls
+    for (η, y0) in ((-1.8697808f38, Int128(182045609535131808700852906315186176)),
+                    (-2.3926112f38, Int128(200097226578706225858804805414092800)), (-3.0f0, Int128(10)^30))
+      for y in (y0, y0 // Int128(1), Int64(7))
+        f = PoissonLoss([y], ones(Float32, 1, 1)); fc = PoissonLoss([Float32(y)], ones(Float32, 1, 1))
+        get(f) = try only(quadratic_model(f, Float32[η]).y) catch err; nameof(typeof(err)) end
+        @test isequal(get(f), get(fc))
+      end
+    end
+    # a BigFloat response is computed at the current BigFloat precision and delivered in the loss's type
+    for T in (Float32, Float64)
+      h = sqrt(eps(T)); η = -floatmax(T) / 3
+      y = BigFloat(T(1.4) * floatmax(T) * h)                      # η + y/h = 1.0666 floatmax
+      f = GLMLoss(ProximalBase.Poisson(), [y], ones(T, 1, 1), nothing, nothing, zeros(T, 1), zeros(T, 1))
+      @test only(quadratic_model(f, T[η]).y) == setprecision(BigFloat, 512) do; T(big(η) + big(y) / big(h)); end
+    end
     # the coefficient at the floatmin boundary is rounded once as well (the reported case, and a grid)
     let η = 1.105095f0, w = 3.892995f-39, exp_split = ProximalBase._exp_split
       f = GLMLoss(ProximalBase.Poisson(), [1.1 * Float64(floatmax(Float32))], ones(Float32, 1, 1), Float32[w], nothing, zeros(Float32, 1), zeros(Float32, 1))

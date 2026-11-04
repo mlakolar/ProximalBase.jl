@@ -175,6 +175,7 @@ function ordinary_model(f::GLMLoss{L, T}, β) where {L, T}
 end
 
 near(v, ref, k, T = typeof(v)) = abs(big(v) - ref) <= k * big(eps(abs(T(ref))))
+split_allocations(x) = (PB._exp_split(x); @allocated PB._exp_split(x))
 
 @testset "GLMLoss quadratic models at large Poisson predictors (#317)" begin
   poisson(T, η, w, y) = PoissonLoss(T[y], ones(T, 1, 1); weights = T[w])
@@ -424,9 +425,30 @@ end
   end
 
   @testset "the exponent bound: no conversion of a huge exponent" begin
-    @test PB._exp_pow2(1e20) == (Inf, 0) && PB._exp_pow2(-1e100) == (0.0, 0)
-    @test PB._exp_pow2(1f20) == (Inf32, 0) && PB._exp_pow2(-floatmax(Float32)) == (0f0, 0)
-    @test PB._exp_pow2(floatmax(Float64)) == (Inf, 0)
+    # the shared helper: exp(x) = m 2^j, Int exponent, nothing converted beyond the bound
+    @test PB._exp_split(1e20) == (Inf, 0) && PB._exp_split(-1e100) == (0.0, 0)
+    @test PB._exp_split(1f20) == (Inf32, 0) && PB._exp_split(-floatmax(Float32)) == (0f0, 0)
+    @test PB._exp_split(floatmax(Float64)) == (Inf, 0) && PB._exp_split(-floatmax(Float64)) == (0.0, 0)
+    @test PB._exp_split(Inf) == (Inf, 0) && PB._exp_split(-Inf) == (0.0, 0)
+    @test isnan(first(PB._exp_split(NaN))) && isnan(first(PB._exp_split(NaN32)))
+    for T in (Float64, Float32)
+      bound = PB._exp_bound(T)
+      @test @inferred(PB._exp_split(T(3))) isa Tuple{T, Int}
+      @test @inferred(PB._exp_split(T(1e30))) isa Tuple{T, Int}
+      @test split_allocations(T(710)) == 0
+      # beyond the bound no weight recovers the product: above it the smallest weight overflows,
+      # below it the largest weight rounds to zero (half the smallest subnormal)
+      @test big(nextfloat(zero(T))) * exp(big(bound)) > big(floatmax(T)) * (1 + big(2.0)^(-precision(T)))
+      @test big(floatmax(T)) * exp(-big(bound)) < big(nextfloat(zero(T))) / 2
+      @test PB._exp_split(nextfloat(bound)) == (T(Inf), 0) && PB._exp_split(-nextfloat(bound)) == (zero(T), 0)
+      # at the bound the exponent is small and the reduction is the usual one, within 2 ulp
+      for x in (bound, -bound, T(0), T(1), T(-1), T(0.5) * bound, T(-0.5) * bound, T(0.9) * bound, T(1e-5))
+        m, j = PB._exp_split(x)
+        @test abs(j) < 2^12
+        @test abs(big(m) * big(2.0)^j - exp(big(x))) <= 2 * big(eps(T)) * exp(big(x))
+      end
+    end
+    @test PB._exp_split(big(10.0)) == frexp(exp(big(10.0)))     # the fallback for another type
     for (T, ηs) in ((Float64, (1e20, 1e100, 1e300, floatmax(Float64), 2000.0, 1456.0)),
                     (Float32, (1f10, 1f20, 1f38, floatmax(Float32), 300f0, 194f0)))
       for η in ηs, w in (one(T), nextfloat(zero(T)), floatmax(T))
@@ -457,6 +479,63 @@ end
     end
   end
 
+  @testset "a permitted non-finite observation does not hide an unrepresentable one" begin
+    allfields(a, b) = all(isequal(getfield(a, k), getfield(b, k)) for k in fieldnames(typeof(a)))
+    # observation 1 has a NaN response (propagates), observation 2 an unrepresentable coefficient
+    f = PoissonLoss([NaN, 0.0], reshape([1.0, 710.0], 2, 1))
+    q = quadratic_model(f, [0.0])
+    @test isnan(q.y[1]) && q.weights == [1.0, 1.0]
+    before = deepcopy(q)
+    e = try quadratic_model!(q, f, [1.0]); nothing catch e e end
+    @test e isa PrecisionError && occursin("observation 2", e.msg)
+    @test allfields(q, before)
+    @test quadratic_model!(q, f, [0.25]) === q
+    q2 = quadratic_model(f, [0.25])
+    @test isequal(q.y, q2.y) && q.weights == q2.weights
+    # non-finite data alone propagate, with no PrecisionError, in each of its forms
+    for f in (PoissonLoss([NaN, 0.0], ones(2, 1)), PoissonLoss([Inf, 0.0], ones(2, 1)), PoissonLoss([0.0, 1.0], [Inf; 1.0;;]))
+      q = quadratic_model(f, [0.5])
+      @test q isa GLMLoss && !(all(isfinite, q.y) && all(isfinite, q.weights))
+      @test quadratic_model!(q, f, [0.25]) === q
+    end
+    # zero weights: a zero-weight observation with a non-finite or overflowing predictor is zero, whatever its data
+    f = PoissonLoss([NaN, 0.0, 1.0], [1.0; 720.0; 1.0;;]; weights = [0.0, 0.0, 1.0])
+    q = quadratic_model(f, [1.0])
+    @test q.weights[1:2] == [0.0, 0.0] && q.y[1:2] == [0.0, 0.0] && isfinite(q.y[3]) && q.weights[3] == exp(1.0)
+    # all weights zero at any predictor
+    q = quadratic_model(PoissonLoss([0.0, 0.0], reshape([1.0, 1e20], 2, 1); weights = zeros(2)), [1.0])
+    @test q.weights == [0.0, 0.0] && q.y == [0.0, 0.0]
+  end
+
+  @testset "the exceptional cases of the report: coefficient, response, gradient and Hessian against BigFloat" begin
+    for (T, η, w, y) in ((Float64, 700, 1e-306, -floatmax(Float64)), (Float64, 710, 1 / 8, 0), (Float64, 1400, 2.0^-1000, 0),
+                         (Float64, 1400, 2.0^-1000, 3), (Float64, 1454, 5e-324, 0), (Float64, 710, 2.0^-40, 3),
+                         (Float32, 88, 1f-36, -floatmax(Float32)), (Float32, 89, 1 / 8, 0), (Float32, 190, 2f0^-149, 0))
+      f = poisson(T, η, w, y)
+      q = quadratic_model(f, T[η])
+      v, z, g, H = irls_reference(T, T(η), T(w), T(y))
+      @test near(only(q.weights), v, 8, T)
+      @test only(q.y) ≈ z rtol = 20 * eps(T)
+      @test only(gradient(q, T[η])) ≈ g rtol = 1000 * eps(T)
+      @test near(only(hessian_vec(q, T[η], T[1])), H, 8, T)
+    end
+    # unrepresentable: PrecisionError, never clamped
+    for (T, η, w) in ((Float64, 710, 1.0), (Float64, 1400, 2.0^-990), (Float32, 89, 1.0))
+      @test_throws PrecisionError quadratic_model(poisson(T, η, w, 0), T[η])
+    end
+    # the floor and underflow to zero: a coefficient that is subnormal is kept, one that rounds to zero is not
+    @test only(quadratic_model(poisson(Float64, -800, 1e-310, 1), [-800.0]).weights) == 1e-310 * sqrt(eps())
+    @test_throws PrecisionError quadratic_model(poisson(Float64, -800, 1e-320, 1), [-800.0])
+    # normal controls: Logistic and Huber agree with the ordinary computation bit for bit
+    n, p = 20, 3
+    X, β = randn(n, p), randn(p) ./ 3
+    for f in (LogisticLoss(rand(0:1, n), X), HuberLoss(10 .* randn(n), X, 0.1))
+      q = quadratic_model(f, β)
+      v, z = ordinary_model(f, β)
+      @test q.weights == v && q.y == z
+    end
+  end
+
   @testset "known limitation: the working response cannot carry l'/l'' at a predictor of 1e30" begin
     # at η = -1e30 the pair (v, z) = (w √eps, η + y/√eps) rounds η - z to 0: the model's gradient is 0, not w(exp(η) - y);
     # the same before this change (a separate numerical-contract issue)
@@ -482,6 +561,23 @@ end
       @test allfields(q, before)
       @test q.y === y && q.weights === w
       @test all(==(-3.0), q.y) && all(==(4.0), q.weights)
+    end
+    # the two arrays of the model are one, or one of them is an array of the loss's data: refused up front,
+    # and neither the loss nor the model changes
+    f = PoissonLoss([0.0, 1.0, 2.0], X; weights = [1.0, 0.5, 2.0], offset = [0.0, 0.1, 0.2])
+    shared = fill(2.0, 3)
+    for (name, yq, wq) in (("q.y === q.weights", shared, shared), ("q.y === f.y", f.y, zeros(3)),
+                           ("q.weights === f.y", zeros(3), f.y), ("q.y === f.weights", f.weights, zeros(3)),
+                           ("q.weights === f.weights", zeros(3), f.weights), ("q.y === f.offset", f.offset, zeros(3)),
+                           ("q.weights === f.offset", zeros(3), f.offset))
+      q = GLMLoss(PB.Squared(), yq, X; weights = wq, offset = f.offset)
+      @test q.X === f.X && q.offset === f.offset
+      qbefore = deepcopy(q)
+      fdata = (copy(f.y), copy(f.weights), copy(f.offset))
+      e = try quadratic_model!(q, f, [0.4, 0.3]); nothing catch e e end
+      @test e isa ArgumentError
+      @test allfields(q, qbefore)
+      @test (f.y, f.weights, f.offset) == fdata
     end
     # a model with its own arrays is unaffected
     f = PoissonLoss([0.0, 1.0, 2.0], X)

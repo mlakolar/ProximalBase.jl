@@ -84,7 +84,10 @@ or working response of a finite observation that is not representable in the
 working precision (or a nonzero weight whose coefficient rounds to zero) throws
 a [`PrecisionError`](@ref), which is never clamped. `quadratic_model!` computes
 the whole model before it writes, so after a `PrecisionError` every field of `q`
-is as it was and `q` can be updated again. Non-finite data propagate as
+is as it was and `q` can be updated again. `q` must own its arrays, as `quadratic_model`
+makes it: `q.y` and `q.weights` must be two separate arrays, and none of the arrays of `f` (`y`,
+the weights, the offset and its buffers); an identical array is an `ArgumentError`, a view or
+reshape of one is not detected. Non-finite data propagate as
 `NaN`/`Inf` without an error. The all-or-nothing update holds for one `GLMLoss`:
 the models of a [`Sum`](@ref) or [`SeparableSum`](@ref) of such losses are
 updated one part after another. For `LogDetLoss`, `q` is
@@ -241,9 +244,13 @@ function quadratic_model!(q::GLMLoss{Squared, T, Vector{T}, <:Any, Vector{T}}, f
   n = length(f.y)
   length(q.y) == n && length(q.weights) == n ||
     throw(DimensionMismatch("the model has $(length(q.y)) observations and the loss $n"))
-  # the staging buffers η and d of the loss must not be arrays of the model (identity only)
-  (q.y === f.η || q.y === f.d || q.weights === f.η || q.weights === f.d) &&
-    throw(ArgumentError("the arrays of the model must not be the buffers η and d of the loss"))
+  # q owns its output arrays: neither may be the other, nor an array of the loss (the buffers η
+  # and d that stage the update, its data y, weights and offset, which the commit would
+  # overwrite); identity only, a view or a reshape is not detected (O7)
+  qy, qw = q.y, q.weights
+  (qy === qw || qy === f.η || qy === f.d || qy === f.y || qy === f.weights || qy === f.offset ||
+   qw === f.η || qw === f.d || qw === f.y || qw === f.weights || qw === f.offset) &&
+    throw(ArgumentError("q.y and q.weights must be separate arrays, and not arrays of the loss"))
   η = _linear_predictor!(f, β)
   z, v = η, f.d
   floor = sqrt(eps(T))
@@ -266,7 +273,6 @@ function quadratic_model!(q::GLMLoss{Squared, T, Vector{T}, <:Any, Vector{T}}, f
     finite &= isfinite(v[i]) & isfinite(z[i])
   end
   (finite & !vanished) || _irls_check(f, β, v, z)
-  qw, qy = q.weights, q.y
   @inbounds @simd for i in eachindex(v)
     qw[i] = v[i]
     qy[i] = z[i]
@@ -285,7 +291,9 @@ end
   for i in eachindex(v)
     w = convert(T, _entry(f.weights, i))
     iszero(w) && continue
-    (isfinite(v[i]) & isfinite(z[i]) & !iszero(v[i])) | !(isfinite(η[i]) & isfinite(f.y[i]) & isfinite(w)) && continue
+    representable = isfinite(v[i]) & isfinite(z[i]) & !iszero(v[i])
+    finite_data = isfinite(η[i]) & isfinite(f.y[i]) & isfinite(w)
+    (representable | !finite_data) && continue   # a non-finite predictor, response or weight propagates
     throw(PrecisionError("the quadratic model of a GLMLoss has no representable IRLS coefficient and " *
       "working response in $T at observation $i (linear predictor $(η[i]), weight $w, " *
       "coefficient $(v[i]), working response $(z[i])); the model is unchanged"))
@@ -323,31 +331,10 @@ end
 end
 
 @noinline function _poisson_recovered(w::T, η::T, y) where {T}
-  m, j = _exp_pow2(η)
+  m, j = _exp_split(η)
   R = promote_type(T, typeof(y))          # y exp(-η) in the precision of the data, as e - y is
   _scaled_product(w, m, j), (η - one(T)) + convert(T, y * exp(-convert(R, η)))
 end
-
-# exp(x) = m 2^j for a finite x, with j = round(x/log 2) and x - j log 2 in two parts, the
-# high one with trailing zeros so that j⋅hi is exact (fdlibm); m ≈ exp of a number in
-# [-log(2)/2, log(2)/2], to about one ulp, which exp(x + log w) would not give. Beyond
-# `_exp_pow2_bound` the product with any weight leaves the range, and j would not be an
-# Int: m is then Inf (x > 0) or 0 (x < 0). The same arithmetic and the same bound as the
-# exponent-recovery helper of the GLM value oracles (#358, part B, `_exp_split` and
-# `_exp_bound`); whichever of the two pull requests merges second should delete its copy.
-@inline _exp_ln2_parts(::Type{Float64}) = (6.93147180369123816490e-01, 1.90821492927058770002e-10)
-@inline _exp_ln2_parts(::Type{Float32}) = (6.9314575195f-01, 1.4286067653f-06)
-# beyond this |x|, w exp(x) leaves the range for every finite w > 0, in either direction:
-# 2^(emax + 2 + precision - emin) is out of reach of any weight
-@inline _exp_pow2_bound(::Type{T}) where {T<:AbstractFloat} =
-  T((exponent(floatmax(T)) + 2 + precision(T) - exponent(floatmin(T))) * 0.6931471805599453)
-@inline function _exp_pow2(x::T) where {T<:Union{Float32, Float64}}
-  abs(x) > _exp_pow2_bound(T) && return (x > 0 ? T(Inf) : zero(T)), 0
-  hi, lo = _exp_ln2_parts(T)
-  j = round(x * T(1.4426950408889634))
-  exp((x - j * hi) - j * lo), unsafe_trunc(Int, j)
-end
-@inline _exp_pow2(x::AbstractFloat) = frexp(exp(x))
 
 ####################################
 #  the Gaussian log-likelihood

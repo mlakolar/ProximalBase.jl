@@ -494,16 +494,23 @@ indexed by a `Vector{Int}`, and its norms and dot products take the generic path
 
 `atomindices` is the supported route to the layout. `parentindices(atom(x, k))` returns the
 private group array itself, and changing that array is unsupported: the groups and the map from
-entries to groups would disagree.
+entries to groups would disagree. The same holds for the fields of the wrapper that
+`atomindices` returns (`h.ids`) and for the fields of the iterate: they are internal, reading or
+writing them is not covered by this contract, and ProximalBase does not block `getproperty`.
+What the contract does cover is every documented operation on the result, and the exceptions
+that `atomindices(x, k)` and its wrapper throw: they name the range of valid groups or the
+wrapper, and do not hold a stored group. (`atom(x, k)` is unchanged: its `BoundsError` still names
+the stored groups.)
 
 `samegroups(a, b)` is `true` when `a` and `b` have the same number of groups and the same
 indices in the same order in every group, and `false` otherwise. `a` and `b` are two iterates,
 or an iterate and a group penalty or [`IndBallGroupL0`](@ref), in either order. Ranges and vectors
 with the same indices are equal, whatever their index types, and reordering the groups or the
-indices inside a group gives `false`. It is the test that `prox_coordinate!` and the
-four-argument `kkt_violation` make before they write; they throw a `DimensionMismatch`
-when it is `false`. The whole-array oracles do not require it: they compute the function of
-the vector for any layout.
+indices inside a group gives `false`. It is the check that [`prox_coordinate!`](@ref) makes
+before it writes and that the four-argument [`kkt_violation`](@ref)`(f, g, x, k)` makes before it
+computes; each throws a `DimensionMismatch` when it is `false`. The whole-array oracles do not
+require it: they compute the function of the vector for any layout, and use `samegroups` only to
+choose the faster active-group paths.
 
 An iterate and a group penalty whose groups are equal but were built separately
 also take the active-group paths. Each iterate remembers one group array that it found equal to

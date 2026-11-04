@@ -141,9 +141,10 @@ Whether `a` and `b` have equal groups: the same number of groups, and the same i
 same order in every group (`1:2` and `[1, 2]` are equal, `[2, 1]` is not). `a` and `b` are two
 [`AtomIterate`](@ref)s, or an `AtomIterate` and a group penalty (any [`ProximalBase.AbstractGroupPenalty`](@ref),
 such as [`GroupNormL2`](@ref) or [`GroupMCP`](@ref)) or an [`IndBallGroupL0`](@ref), in either order. It is the
-test that a group penalty and an iterate must pass before [`prox_coordinate!`](@ref) and the
-four-argument [`kkt_violation`](@ref) write, that `value` and `prox!` of a group function pass to take the
-active-group paths, and that `copyto!` between two iterates passes to copy only the active groups.
+check that [`prox_coordinate!`](@ref) makes before it writes and that the four-argument
+[`kkt_violation`](@ref)`(f, g, x, k)` makes before it computes (each throws a `DimensionMismatch` when it
+fails), that `value` and `prox!` of a group function make to take the active-group paths, and that `copyto!`
+between two iterates makes to copy only the active groups.
 `samegroups` is public but not exported.
 
 An iterate remembers one group array that it has found equal to its own. The answer takes
@@ -219,7 +220,8 @@ for as long as `x`: the groups of an iterate never change, and activating groups
 `1:ncoordinates(x)`, or a `BoundsError` is thrown (a `Bool` is not a group index).
 
 The result can index any array: `view(g, atomindices(x, k))` is the part of `g` that belongs to
-group `k`. Mutating the array that `parentindices(atom(x, k))` returns is not supported.
+group `k`. The fields of `x` and of the wrapper (`h.ids`) are internal, and so is the array that
+`parentindices(atom(x, k))` returns: reading or changing them is not supported, and is not blocked.
 
 # Examples
 ```julia
@@ -240,7 +242,9 @@ _group_indices(G::AbstractRange{<:Integer}) = G
 _group_indices(G::AbstractVector{<:Integer}) = _GroupIndices(G)
 
 # Read-only handle on a group array of an iterate. A writable group would let a caller break the
-# agreement between the groups and the map from entries to groups (see _ActiveIDs).
+# agreement between the groups and the map from entries to groups (see _ActiveIDs). The contract covers
+# the operations on the handle and the exceptions that atomindices and the handle throw; the field `ids` is
+# internal like the fields of AtomIterate, and reading it is unsupported (getproperty is not blocked).
 struct _GroupIndices{V<:AbstractVector{<:Integer}} <: AbstractVector{Int}
   ids::V
 end

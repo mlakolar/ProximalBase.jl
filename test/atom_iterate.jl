@@ -624,7 +624,8 @@ end
       @test h[2:2] == [5] && h[:] == [2, 5]
       @test_throws BoundsError h[0]
       @test_throws BoundsError h[3]
-      # an exception does not hold the stored group, or the layout, which could then be written
+      # the exceptions of atomindices and of its wrapper name the valid range or the wrapper, not a stored
+      # group (field access, `h.ids`, is internal and unsupported; atom(x, k) is unchanged)
       for i in (0, 3, 5, Int32(5), typemax(Int))
         err = try h[i]; nothing catch e e end
         @test err isa BoundsError && err.a === h && !(err.a isa Array)
@@ -926,6 +927,41 @@ end
       s = copy(r)
       @test samegroups(s, r) && samegroups(r, s)
       @test r.groups.comparisons == 0 && r.layout_cache === nothing && s.layout_cache === nothing
+    end
+
+    @testset "allocations of samegroups" begin
+      # warmed, on ordinary layout arrays (ranges, vectors, Int32 ranges, penalties), inside functions
+      hit_allocs(a, b) = @allocated samegroups(a, b)
+      fresh_allocs(a, b) = (a.layout_cache = nothing; @allocated samegroups(a, b))
+      function alternate_allocs(a, f1, f2)
+        samegroups(a, f1)
+        @allocated (samegroups(a, f2); samegroups(a, f1))
+      end
+      for T in (Float32, Float64)
+        ranges() = [1:4, 5:8, 9:12]
+        vectors() = [collect(1:4), collect(5:8), collect(9:12)]
+        strided() = [collect(r:3:12) for r in 1:3]
+        r32() = [Int32(1):Int32(4), Int32(5):Int32(8), Int32(9):Int32(12)]
+        for (name, mk) in (("ranges", ranges), ("vectors", vectors), ("strided", strided), ("Int32 ranges", r32))
+          a, b, c = AtomIterate(T, 12, mk()), AtomIterate(T, 12, mk()), AtomIterate(T, 12, mk())
+          f1, f2 = GroupNormL2(1.0, mk()), GroupNormL2(1.0, mk())
+          bad = AtomIterate(T, 12, [[1, 2, 3, 5], [4, 6, 7, 8], [9, 10, 11, 12]])
+          # the groups of ranges() in another representation: equal for ranges, vectors and Int32 ranges
+          d = AtomIterate(T, 12, name == "ranges" ? vectors() : ranges())
+          for (u, v) in ((a, b), (b, a), (a, f1), (f1, a), (a, a), (a, copy(a)))
+            hit_allocs(u, v); fresh_allocs(u isa AtomIterate ? u : v, u isa AtomIterate ? v : u)
+          end
+          hit_allocs(a, bad); hit_allocs(a, d); alternate_allocs(a, f1, f2)
+          @test hit_allocs(a, a) == 0
+          @test hit_allocs(a, copy(a)) == 0
+          @test fresh_allocs(a, b) == 0 && hit_allocs(a, b) == 0 && hit_allocs(b, a) == 0
+          @test fresh_allocs(a, f1) == 0 && hit_allocs(a, f1) == 0 && hit_allocs(f1, a) == 0
+          @test fresh_allocs(c, f2) == 0 && hit_allocs(f2, c) == 0
+          @test hit_allocs(a, bad) == 0 && hit_allocs(bad, a) == 0
+          @test alternate_allocs(a, f1, f2) == 0           # a recompare at every call
+          @test hit_allocs(a, d) == 0 && hit_allocs(d, a) == 0
+        end
+      end
     end
 
     @testset "copyto! does not remember" begin

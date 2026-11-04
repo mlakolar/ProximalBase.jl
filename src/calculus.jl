@@ -121,7 +121,19 @@ is the penalty `1e-100 * norm(x, 1)`. The levels are folded through `Translate`,
 `SeparableSum` of such functions (indicators and the zero function pass through). The conjugate
 value of a function without levels to fold, under a product that is not a number in range,
 throws. Not recovered: the value of a chain whose leaf value overflows while the folded level is
-itself not a number in range, and the entries of an array step that the factors take out of range.
+itself not a number in range.
+
+A step is not rounded together with the factors. For a scalar step whose product with the
+factor is not a normal number, the exponent of the factors and of the step goes into the levels
+(for a single factor as for a chain). An array step takes the whole factor into the levels and
+passes the caller's array on unchanged; when the product of the levels and the factors is not a
+normal number, a power of two that centres the exponents of the entries moves from the step into the
+levels (the step is read once, only then). A single factor takes the array route when it lies outside
+the band `2^-E` to `2^E`, with `E` a quarter of the exponent range of the element type (255 for
+`Float64`, 31 for `Float32`), so that an ordinary call reads nothing more than before; for a factor
+inside the band, an entry of the step that is itself within `E` of a limit of the range is rounded
+together with the factor. Array-step entries whose exponents spread too far for the levels to hold
+them are rounded, and so are the steps of a function without levels to fold.
 A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its value, gradient and
 Hessian product at its own scale before the factors are applied, so an intermediate that leaves the
 range is lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` has
@@ -264,6 +276,22 @@ function _folded_level(λ, α)
   c = _apply_scale(α, λ)
   isfinite(c) && !iszero(c) && _level_fits(typeof(float(c)), c) ? c : nothing
 end
+# A scale that only folds into levels that are normal numbers. A subnormal level has fewer bits and
+# is no longer the coefficient that an array step multiplies, entry by entry.
+struct _NormalScale{T}
+  s::_ProjectionScale{T}
+end
+_apply_scale(a::_NormalScale, v) = _apply_scale(a.s, v)
+# An explicit zero or infinite factor is not a scale to fold: the accumulation returns it as a plain
+# number, as for `_ProjectionScale`, and no level folds it (`_folded_level` refuses the product).
+function _projection_accumulate(a::_NormalScale, b::Real)
+  p = _projection_accumulate(a.s, b)
+  p isa _ProjectionScale ? _NormalScale(p) : p
+end
+function _folded_level(λ, α::_NormalScale)
+  c = _folded_level(λ, α.s)
+  c === nothing || iszero(c) || abs(c) >= floatmin(typeof(float(c))) ? c : nothing
+end
 _fold_level(::AbstractFunction, α) = nothing
 for (F, level) in ((:NormL1, :λ0), (:NormL1Nonneg, :λ0), (:NormL2, :λ), (:NormLinf, :λ))
   args = F in (:NormL1, :NormL1Nonneg) ? :(c, f.w) : :(c,)
@@ -367,6 +395,21 @@ prox!(y, s::Scaled, x, γ::Real) =
 # zero for α = Inf instead of becoming the NaN of Inf * 0; that NaN stays for any other f.
 @inline _scaled_step(s::Scaled, γ::Real) = _isindicator(s.f) && iszero(γ) ? γ : s.α * γ
 
+# A single factor takes the route of a chain (`_nested_step`) for a step that it takes out of the
+# range, so that the product α γ is not rounded before the function forms its coefficient. A zero,
+# infinite, negative or NaN step or factor keeps its meaning, and an indicator ignores its scale.
+@inline function _step_exceptional(s::Scaled, γ::Real)
+  p = s.α * γ
+  p isa AbstractFloat || return false
+  # one test for the ordinary product: a loop over `prox_entry` still vectorizes with a single
+  # branch to a function that is not inlined, and does not with a chain of tests
+  ((p >= floatmin(typeof(p))) & (p <= floatmax(typeof(p)))) && return false
+  _step_positive_finite(s, γ)
+end
+@noinline _step_positive_finite(s::Scaled, γ::Real) =
+  isfinite(s.α) && isfinite(γ) && s.α > 0 && γ > 0 && !_isindicator(s.f)
+@inline _nested_route(s::Scaled, γ::Real) = _chained(s) || _step_exceptional(s, γ)
+
 # What the function inside a nested chain receives for the step γ: the function, its step, and the
 # factor still to apply to its value.
 # - An indicator ignores its scale, so it keeps γ.
@@ -379,6 +422,9 @@ prox!(y, s::Scaled, x, γ::Real) =
 #   never sees a step or a level that is not representable while their product is.
 # - A function without levels to fold gets the step as rounded.
 # The factor is the one that takes the value of the returned function to the value of the chain.
+# Not marked `@noinline`: the result is a union of tuples (folded or plain function, and the factor or
+# `nothing`), which a call that is not inlined must box (144 bytes per call). The callers that sit
+# in a loop over `prox_entry` are the ones that are not inlined (`_prox_entry_nested`).
 function _nested_step(s::Scaled, γ::Real)
   f, a = _scaled_chain(s)
   _isindicator(f) && return (f, γ, a)
@@ -393,18 +439,18 @@ function _nested_step(s::Scaled, γ::Real)
   g === nothing ? (f, step, a) : (g, convert(typeof(step), mγ), nothing)
 end
 
-_prox_unchecked!(y, s::Scaled, x, γ::Real) = _chained(s) ? _prox_chain!(y, s, x, γ) :
+_prox_unchecked!(y, s::Scaled, x, γ::Real) = _nested_route(s, γ) ? _prox_chain!(y, s, x, γ) :
   (_checkwrite(prox!, s, y, x); _prox_unchecked!(y, s.f, x, _scaled_step(s, γ)))
-function _prox_chain!(y, s, x, γ)
+@noinline function _prox_chain!(y, s, x, γ::Real)
   _checkwrite(prox!, s, y, x)
   g, step, _ = _nested_step(s, γ)
   _prox_unchecked!(y, g, x, step)
 end
 value_and_prox!(y, s::Scaled, x, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
-_value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = _chained(s) ? _value_and_prox_chain!(y, s, x, γ) :
+_value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = _nested_route(s, γ) ? _value_and_prox_chain!(y, s, x, γ) :
   (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ)); _value_at(_scaled_value(s, y, v, false), y))
-function _value_and_prox_chain!(y, s, x, γ)
+@noinline function _value_and_prox_chain!(y, s, x, γ::Real)
   _checkwrite(value_and_prox!, s, y, x)
   g, step, a = _nested_step(s, γ)
   if a === nothing
@@ -417,11 +463,12 @@ function _value_and_prox_chain!(y, s, x, γ)
   _value_at(_scaled_value_by(g, a, y, v), y)
 end
 Base.@propagate_inbounds function prox_entry(s::Scaled, v::Real, i::Integer, γ::Real)
-  if _chained(s)
-    g, step, _ = _nested_step(s, γ)
-    return prox_entry(g, v, i, step)
-  end
+  _nested_route(s, γ) && return _prox_entry_nested(s, v, i, γ)
   prox_entry(s.f, v, i, s.α * γ)
+end
+@noinline function _prox_entry_nested(s::Scaled, v::Real, i::Integer, γ::Real)
+  g, step, _ = _nested_step(s, γ)
+  prox_entry(g, v, i, step)
 end
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
 _checkwrite(op::O, s::Scaled, y, x) where {O} = (_checkreal(s, y); _checkreal(s, x); (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checkwrite(op, s.f, y, x))
@@ -431,7 +478,7 @@ _counts_nonzeros(f::Scaled) = _counts_nonzeros(f.f)
 _scale_invariant(f::Scaled) = _scale_invariant(f.f)
 # a scaled group penalty updates a group of an AtomIterate with a scaled step
 function prox_coordinate!(x::AtomIterate, s::Scaled, k::Integer, γ::Real)
-  if _chained(s)
+  if _nested_route(s, γ)
     g, step, _ = _nested_step(s, γ)
     return prox_coordinate!(x, g, k, step)
   end
@@ -439,7 +486,7 @@ function prox_coordinate!(x::AtomIterate, s::Scaled, k::Integer, γ::Real)
 end
 @inline _check_coordinate(x::AtomIterate, s::Scaled, k) = _check_coordinate(x, s.f, k)
 @inline function _block_step!(x::AtomIterate, s::Scaled, k, u, γ, ctx)
-  if _chained(s)
+  if _nested_route(s, γ)
     g, step, _ = _nested_step(s, γ)
     return _block_step!(x, g, k, u, step, ctx)
   end
@@ -1676,7 +1723,7 @@ lipschitz(s::Sum) = sum(lipschitz, s.fs)
 lipschitz(s::SeparableSum) = maximum(lipschitz, s.fs)
 
 function _checkstep(op::O, s::Scaled, y, x, γ::Real) where {O}
-  if _chained(s)
+  if _nested_route(s, γ)
     g, step, _ = _nested_step(s, γ)
     return _checkstep(op, g, y, x, step)
   end

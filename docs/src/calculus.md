@@ -113,7 +113,10 @@ every leaf must equal those of the variable, and the oracles check this, with th
 function's own parameters, before they write anything: a coefficient with the
 entries of a matrix block but another shape is rejected with a `DimensionMismatch`
 like one of another length, and nothing broadcasts. Scalar leaves, named tuples and
-nonreal arrays are rejected by the constructors. Tilt and Translate cover the value,
+nonreal arrays are rejected by the constructors, and the blocks of the variable
+must be dense arrays: a `SparseIterate`, `SymmetricSparseIterate` or `AtomIterate`
+as a block is refused with an `ArgumentError`, because the staged buffers do not
+carry their stored entries or their per-entry parameter checks. Tilt and Translate cover the value,
 the gradient, the fused value and gradient, the proximal operator and its fused
 value, the Hessian-vector product and the quadratic model, whenever the inner
 function does, with a real scalar step. The model of a tilt is the tilt of the

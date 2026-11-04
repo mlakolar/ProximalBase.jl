@@ -1266,6 +1266,26 @@ end
   @inferred value_and_prox!(fresh(x), u, x, 0.4)
 end
 
+@testset "Tilt and Translate on tuples refuse sparse iterates" begin
+  s = SeparableSum(SqrNormL2(1.0), SqrNormL2(2.0))
+  X = SymmetricSparseIterate(Float64, 3)
+  copyto!(X, [1.0 2.0 0.0; 2.0 1.0 1.0; 0.0 1.0 3.0])
+  asym = [0.0 1.0 0.0; 5.0 0.0 0.0; 0.0 0.0 0.0]
+  x, c = ([1.0, 2.0], X), ([0.1, 0.2], asym)
+  for f in (Tilt(s, c, 0.0), Translate(s, c))
+    @test_throws ArgumentError f(x)
+    out = (zeros(2), zeros(3, 3))
+    @test_throws ArgumentError gradient!(out, f, x)
+    @test_throws ArgumentError prox!((zeros(2), SymmetricSparseIterate(Float64, 3)), f, (x[1], zeros(3, 3)), 0.5)
+    @test out == (zeros(2), zeros(3, 3))
+  end
+  v = SparseIterate(Float64, 4)
+  @test_throws ArgumentError Tilt(s, ([0.1, 0.2], zeros(4)), 0.0)((x[1], v))
+  @test_throws ArgumentError Translate(s, ([0.1, 0.2], zeros(4)))((x[1], v))
+  # the array wrappers still take them
+  @test Tilt(SqrNormL2(1.0), zeros(3, 3), 0.0)(X) isa Float64
+end
+
 @testset "Conjugate of tuple Tilt and Translate" begin
   l1 = SeparableSum(NormL1(0.3), NormL1(0.2))
   x = ([1.0, 2.0], [3.0 4.0; 5.0 6.0]); c = ([0.1, 0.2], [0.3 0.4; 0.5 0.6]); γ = 0.7

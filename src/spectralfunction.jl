@@ -74,16 +74,23 @@ isconvex(::Type{<:Spectral{F}}) where {F} = isconvex(F)
 _isindicator(::Type{<:Spectral{F}}) where {F} = _isindicator(F)
 _conjugate_isindicator(::Type{<:Spectral{F}}) where {F} = _conjugate_isindicator(F)
 
+# The arrays that the proximal point of the eigenvalues will see: dense vectors of the
+# working type, as the kernel's, whatever their contents.
+function _spectral_check_arrays(s::Spectral, Y::AbstractMatrix, X::AbstractMatrix)
+  n = checksquare(X)
+  T = float(eltype(Y))
+  ws = s.eig
+  λ = T <: _BlasReal && ws isa SymEigenWorkspace{T} && ws.n == n ? ws.w : Vector{T}(undef, n)
+  _checkbuffer(s.z, T, (n,)), λ
+end
+
 function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix)
   _checkreal(s, X)
   _checkreal(s, Y)
   _checksize(Y, X)
-  n = checksquare(X)
-  T = float(eltype(Y))
-  ws = s.eig
-  _checkblas(s, T)
-  λ = T <: _BlasReal && ws isa SymEigenWorkspace{T} && ws.n == n ? ws.w : Vector{T}(undef, n)
-  z = _checkbuffer(s.z, T, (n,))
+  checksquare(X)
+  _checkblas(s, float(eltype(Y)))
+  z, λ = _spectral_check_arrays(s, Y, X)
   _checkwrite(value_and_prox!, s.f, z, λ)
 end
 
@@ -158,9 +165,19 @@ end
   _spectrum_value(s.f, _eigvals!(ws), k)
 end
 
+# The proximal point of the eigenvalues receives the step, with arrays of the kernel's types,
+# so that a function that picks a branch by storage (the conjugate of NormLinf) picks the kernel's.
+# The eigenvalue buffer holds stale values, so it is passed as a placeholder input, whose
+# values the checks must not read; it still shows the storage.
+function _checkstep(op::O, s::Spectral, Y::AbstractMatrix, X::AbstractMatrix, γ::Real) where {O}
+  z, λ = _spectral_check_arrays(s, Y, X)
+  _checkstep(value_and_prox!, s.f, z, _StepInput(λ), γ)
+end
+
 function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real)
   X = _spectral_argument(X)
   _checkwrite(value_and_prox!, s, Y, X)
+  _checkstep(value_and_prox!, s, Y, X, γ)
   T = float(eltype(Y))
   if !all(isfinite, X)
     fill!(Y, T(NaN))

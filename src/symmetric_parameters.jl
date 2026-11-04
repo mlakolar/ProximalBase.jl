@@ -317,6 +317,7 @@ function _check_second_order_arrays(f, x, Hv, v)
   _checkreal(f, Hv)
   _checkreal(f, x)
   _checkreal(f, v)
+  _checkhessian_output(Hv, x, v)
   _check_hessian_shape(f, x, Hv, v)
   _check_entry_arrays(f, x)
 end

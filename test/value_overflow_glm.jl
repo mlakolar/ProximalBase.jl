@@ -918,6 +918,14 @@ if !BASELINE
     gz = zeros(2)
     @test value_and_gradient!(gz, fz, [0.25, 1.0]) == 2 * 0.125 && gz == [0, 1]
     @test gradient!(zeros(2), fz, [0.25, 1.0]) == [0, 1]
+    # and not in the recovery either: a predictor that overflows to Inf (exactly 0) at a weighted row
+    M = floatmax(Float64)
+    fz = GLMLoss(ThrowsBelowZero(), [0.5, -1.0], [M -M/2 -M; 0 0 1]; weights = [1.0, 0.0])
+    β = [2.0, 2.0, 1.0]
+    @test fz(β) == 0.125
+    gz = zeros(3)
+    @test value_and_gradient!(gz, fz, β) == 0.125 && gz == [-M / 2, M / 4, M / 2]
+    @test gradient!(zeros(3), fz, β) == [-M / 2, M / 4, M / 2]
 
     # a predictor that overflows to ±Inf where the exact one is 0 (row [M, -M/2, -M] or its negative,
     # β = [2, 2, 1]: the products 2M = Inf, -M, -M): a finite ordinary value (SquaredHinge) or

@@ -395,7 +395,7 @@ function _isotonic_steps!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ
   iszero(convert(S, γmin) / convert(S, γmax)) &&
     throw(ArgumentError("the ratio of the largest to the smallest step of IndIsotonic is too large to represent"))
   nonfinite = n >= 2 && _hasnonfinite(x)
-  nonfinite && _anynan(x) && return (_isotonic_nan!(y); true)   # NaN couples every entry, as for a scalar step
+  nonfinite && _isotonic_anynan(x) && return (_isotonic_nan!(y); true)   # NaN couples every entry, as for a scalar step
   σ = f.decreasing ? -1 : 1
   if equal
     _pava!(y, x, _buffer!(f.sums, T, n), _buffer!(f.sizes, Int, n), σ)

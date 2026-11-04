@@ -389,7 +389,7 @@ end
   end
   b
 end
-@noinline _anynan(x) = any(isnan, x)
+@noinline _isotonic_anynan(x) = any(isnan, x)
 
 # The projection of a vector of two or more entries depends on every entry (pooling couples them),
 # so a NaN entry gives NaN everywhere (E2); a single entry is its own projection.
@@ -407,14 +407,14 @@ end
 # the argument had a non-finite entry.
 @inline function _isotonic_stored_value(y::AbstractArray, nonfinite::Bool)
   T = _valtype(y)
-  nonfinite && length(y) >= 2 && _anynan(y) ? convert(T, NaN) : zero(T)
+  nonfinite && length(y) >= 2 && _isotonic_anynan(y) ? convert(T, NaN) : zero(T)
 end
 
 # The projection for a scalar step; whether the argument had a non-finite entry.
 function _isotonic_prox!(y::AbstractVector, f::IndIsotonic, x::AbstractVector)
   length(x) >= 2 || return (_isotonic_pool!(y, f, x); false)
   nonfinite = _hasnonfinite(x)
-  nonfinite && _anynan(x) && return (_isotonic_nan!(y); true)
+  nonfinite && _isotonic_anynan(x) && return (_isotonic_nan!(y); true)
   _isotonic_pool!(y, f, x)
   nonfinite
 end

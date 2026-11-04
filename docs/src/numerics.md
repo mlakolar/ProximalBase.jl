@@ -269,7 +269,11 @@ chain; the steps of a proximal operator pass the product of the factors and the
 step to the function when that is a normal number, and otherwise fold the exponent into the
 levels, with the step reduced to its significand, for the functions of the
 scaled-value mechanism. Conjugates and their projections accumulate the factors the same way. A
-function that folds no level (a `SqrNormL2`, a loss) receives the step as the product rounds it,
+function that folds no level (a `SqrNormL2`, a loss, a `Tilt`) forms its value, gradient and Hessian
+product at its own scale before the factors are applied, so an intermediate that leaves the range is
+lost, not only a proximal step or a conjugate value (`Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)`
+at `[1e10]` gives `Inf` for all three, not `5e-81`, `1e-90` and `1e-90`; a single `Scaled` does the
+same); it receives the step as the product rounds it,
 and its conjugate value under such a product throws instead of returning a wrong number; a
 `value_and_prox!` of the conjugate then leaves its output as it was, however many ordinary wrappers
 (`Scaled`, `Translate`, `SingularValue`, `SeparableSum`) lie above the chain. An indicator has the same

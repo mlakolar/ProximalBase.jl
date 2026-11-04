@@ -122,6 +122,10 @@ is the penalty `1e-100 * norm(x, 1)`. The levels are folded through `Translate`,
 value of a function without levels to fold, under a product that is not a number in range,
 throws. Not recovered: the value of a chain whose leaf value overflows while the folded level is
 itself not a number in range, and the entries of an array step that the factors take out of range.
+A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its value, gradient and
+Hessian product at its own scale before the factors are applied, so an intermediate that leaves the
+range is lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` has
+the value, gradient and Hessian product `Inf` at `[1e10]`, not `5e-81`, `1e-90` and `1e-90`.
 
 At zero scale, supported finite-parameter penalties and losses simplify to
 [`ZeroFunction`](@ref), while an indicator retains its domain and is returned

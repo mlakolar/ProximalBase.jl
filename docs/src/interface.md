@@ -199,14 +199,17 @@ its data; its factorization type can change with the rank of `A`.
 
 - **Output first.** Mutating functions take their output first, as `mul!` does:
   `prox!(y, f, x, γ)` and `gradient!(g, f, x)`. The output of a proximal
-  operator may be its input: `prox!(x, f, x, γ)` works for every function. An
-  output that only partly overlaps the input, such as a shifted view of the
-  same array, is not supported. For `gradient!`, `value_and_gradient!` and
-  `hessian_vec!`, pass an output separate from the input unless a method's
-  documentation says otherwise. Built-in gradient oracles throw an
-  `ArgumentError` when the gradient output is the input (or a tuple block
-  is its input block), except where the function documents that the output
-  may be the input, as for [`CubeNormL2`](@ref).
+  operator may be its input: `prox!(x, f, x, γ)` and
+  `value_and_prox!(x, f, x, γ)` work for every function. That means the input
+  object itself. An output that shares memory with the input in any other way,
+  such as a shifted view of the same array, or a view or reshape that covers
+  the same entries, is not supported and is not detected (O7 in
+  [Agreement between oracles](@ref numerics-oracles)). For `gradient!`,
+  `value_and_gradient!` and `hessian_vec!`, pass an output separate from the
+  input unless a method's documentation says otherwise. Built-in gradient
+  oracles throw an `ArgumentError` when the gradient output is the input (or a
+  tuple block is its input block), except where the function documents that
+  the output may be the input, as for [`CubeNormL2`](@ref).
 - **The value at the result.** [`value_and_prox!`](@ref) stores the proximal
   point and returns the function's value there. Many functions get that value
   from the computation itself: the nuclear norm from the singular values it

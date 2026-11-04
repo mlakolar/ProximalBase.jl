@@ -125,14 +125,15 @@ _has_ordinary_value(::Type{<:HingeLoss}) = true
 # infinite weights included, on a separate call. For a scalar step and unweighted entries γw is
 # invariant, so the test is unswitched out of a loop; an array loop (below) keeps the arithmetic
 # vectorized by testing all entries together.
-@inline function _hinge_step_ordinary(::Type{S}, γ, ay::S, w) where {S<:AbstractFloat}
+# The label enters with its sign: (ab·y)·y is (ab·|y|)·|y| bit for bit, and saves the abs.
+@inline function _hinge_step_ordinary(::Type{S}, γ, y::S, w) where {S<:AbstractFloat}
   R = _working_type(S, γ, w)
   ab = convert(R, γ) * convert(R, w)
-  convert(S, (ab * convert(R, ay)) * convert(R, ay)), (floatmin(R) <= ab) & (ab <= floatmax(R))
+  convert(S, (ab * convert(R, y)) * convert(R, y)), (floatmin(R) <= ab) & (ab <= floatmax(R))
 end
-@inline function _hinge_step(::Type{S}, γ, ay::S, w) where {S<:AbstractFloat}
-  s, ok = _hinge_step_ordinary(S, γ, ay, w)
-  ok ? s : _hinge_step_exceptional(S, γ, ay, w)
+@inline function _hinge_step(::Type{S}, γ, y::S, w) where {S<:AbstractFloat}
+  s, ok = _hinge_step_ordinary(S, γ, y, w)
+  ok ? s : _hinge_step_exceptional(S, γ, abs(y), w)
 end
 @noinline function _hinge_step_exceptional(::Type{S}, γ, ay, w) where {S<:AbstractFloat}
   R = _working_type(S, γ, w)
@@ -156,49 +157,61 @@ end
 end
 
 # the proximal operator of γwᵢ max(0, 1 - u) at the margin u = yᵢv, mapped back
-@inline _hinge_apply(v::S, y::S, s::S) where {S<:AbstractFloat} = (u = y * v; (u >= 1 ? u : (u < 1 - s ? u + s : one(S))) / y)
+@inline _hinge_apply(v::S, y::S, s::S) where {S<:AbstractFloat} = (u = y * v; ifelse(u >= 1, u, ifelse(u < 1 - s, u + s, one(S))) / y)
 Base.@propagate_inbounds function prox_entry(f::HingeLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   y = convert(S, _entry(f.y, i))
-  _hinge_apply(S(v), y, _hinge_step(S, γ, abs(y), _entry(f.w, i)))
+  _hinge_apply(S(v), y, _hinge_step(S, γ, y, _entry(f.w, i)))
 end
 
-# The array loop: the ordinary arithmetic of every entry is a branch-free expression, so that the loop
+# The array loop. The ordinary arithmetic of every entry is a branch-free expression, so that the loop
 # vectorizes, and the entries that need range recovery are found by a flag (C2: recovery only on a
-# reliable trigger). Without aliasing the flag is gathered while y is written and, if set, the loop is
-# redone with prox_entry from the untouched x. With y === x the entries are tested first, read-only.
+# reliable trigger). Without aliasing the flag is gathered while y is written; if it is set, only the
+# flagged entries are recomputed by prox_entry from the untouched x. With y === x the coefficients are
+# classified first, read-only, without computing a step; if one is not ordinary the entries are
+# visited by prox_entry in turn (each is read before it is written).
 Base.@propagate_inbounds function _hinge_ordinary(f::HingeLoss, v::T, i::Integer, γ) where {T<:Real}
   S = float(T)
   y = convert(S, _entry(f.y, i))
-  s, ok = _hinge_step_ordinary(S, γ, abs(y), _entry(f.w, i))
+  s, ok = _hinge_step_ordinary(S, γ, y, _entry(f.w, i))
   _hinge_apply(S(v), y, s), ok
+end
+@inline function _hinge_range_ok(::Type{S}, γ, w) where {S<:AbstractFloat}
+  R = _working_type(S, γ, w)
+  ab = convert(R, γ) * convert(R, w)
+  (floatmin(R) <= ab) & (ab <= floatmax(R))
 end
 function _prox_sep_dense!(y::AbstractArray, f::HingeLoss, x::AbstractArray, γ)
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   T = eltype(y)
-  recover = true
+  S = float(eltype(x))
+  ok = true
   if y === x
-    ok = true
     @inbounds for i in eachindex(IndexLinear(), x)
-      ok &= _hinge_ordinary(f, x[i], i, _entry(γ, i))[2]
+      ok &= _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i))
     end
-    if ok
-      @inbounds for i in eachindex(IndexLinear(), y)
-        y[i] = convert(T, _hinge_ordinary(f, x[i], i, _entry(γ, i))[1])
-      end
-      return y
+    ok || return _prox_sep_recover!(y, f, x, γ)
+    @inbounds for i in eachindex(IndexLinear(), y)
+      y[i] = convert(T, _hinge_ordinary(f, x[i], i, _entry(γ, i))[1])
     end
-  else
-    ok = true
-    @inbounds for i in eachindex(IndexLinear(), y, x)
-      r, oki = _hinge_ordinary(f, x[i], i, _entry(γ, i))
-      y[i] = convert(T, r)
-      ok &= oki
-    end
-    ok && return y
+    return y
   end
-  _prox_sep_recover!(y, f, x, γ)
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    r, oki = _hinge_ordinary(f, x[i], i, _entry(γ, i))
+    y[i] = convert(T, r)
+    ok &= oki
+  end
+  ok && return y
+  _hinge_repair!(y, f, x, γ)
+end
+@noinline function _hinge_repair!(y, f, x, γ)
+  T = eltype(y)
+  S = float(eltype(x))
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i)) || (y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i))))
+  end
+  y
 end
 @noinline function _prox_sep_recover!(y, f, x, γ)
   T = eltype(y)

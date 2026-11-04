@@ -36,7 +36,7 @@ function addcase!(cases, family, name, op, validate; T=Float64, shape="", layout
 end
 
 function addprox!(cases, family, name, f, x; γ=eltype(x)(0.7), layout="dense",
-                  prepare=noop, profile=false, alias=false, value=true, reference_function=f)
+                  prepare=noop, profile=false, alias=false, value=true, plain=true, reference_function=f)
     T = eltype(x)
     y = similar(x)
     reference = Ref{Any}(nothing)
@@ -49,8 +49,8 @@ function addprox!(cases, family, name, f, x; γ=eltype(x)(0.7), layout="dense",
         all(isfinite, y) || error("nonfinite proximal output")
         nothing
     end
-    addcase!(cases, family, name * "/prox!", () -> prox!(y, f, x, γ), check!;
-             T, shape=join(size(x), "x"), layout, prepare, profile, work=length(x))
+    plain && addcase!(cases, family, name * "/prox!", () -> prox!(y, f, x, γ), check!;
+                      T, shape=join(size(x), "x"), layout, prepare, profile, work=length(x))
     if value
         function checkvalue!()
             check!()
@@ -2695,6 +2695,21 @@ function loss_coefficient_cases!(cases, rep; quick=false)
         for (name, f) in (("HingeLoss_labels", HingeLoss(labels, nothing)), ("HingeLoss_labels_weighted", HingeLoss(labels, w)),
                           ("CheckLoss_weighted", CheckLoss(T(0.3), w)), ("EpsInsensitiveLoss_weighted", EpsInsensitiveLoss(T(0.2), w)))
             addprox!(cases, "loss_coefficients", name, f, x)
+        end
+        # HingeLoss, #519 part A review: in place (y === x), nonunit finite labels, and weights with one
+        # or many subnormal entries (γw is not a normal number there: the range-recovering path)
+        nonunit = labels .* (T(0.5) .+ T(1.5) .* rand(rng, T, n))
+        w_one = copy(w); w_one[(n + 1) ÷ 2] = 3 * nextfloat(zero(T))
+        w_many = copy(w); w_many[1:10:n] .= 3 * nextfloat(zero(T))
+        for (name, f) in (("HingeLoss_nolabels_weighted", HingeLoss(nothing, w)),
+                          ("HingeLoss_labels_nonunit", HingeLoss(nonunit, nothing)),
+                          ("HingeLoss_labels_weighted_nonunit", HingeLoss(nonunit, w)),
+                          ("HingeLoss_labels_weighted_exc1", HingeLoss(labels, w_one)),
+                          ("HingeLoss_labels_weighted_excmany", HingeLoss(labels, w_many)))
+            addprox!(cases, "loss_coefficients", name, f, x; value=false, alias=true)
+        end
+        for (name, f) in (("HingeLoss_labels", HingeLoss(labels, nothing)), ("HingeLoss_labels_weighted", HingeLoss(labels, w)))
+            addprox!(cases, "loss_coefficients", name, f, x; value=false, plain=false, alias=true)
         end
         out = zeros(T, 1)
         for (name, f, ref) in (("NormL1_weighted", NormL1(T(0.3), w), i -> abs(g[i]) - T(0.3) * w[i]),

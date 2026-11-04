@@ -96,6 +96,17 @@ end
   @test step(Float64, 2.0^-1074, 2.0^500, 2.0^926) == 2.0^852      # γ, |y|, w: no factor is rounded early
 end
 
+@testset "the sign of the label does not change the step" begin
+  rng = MersenneTwister(51901)
+  for S in (Float32, Float64), _ in 1:3000
+    γ, w, y = draw(rng, S, S, S, -60, 60)
+    @test step(S, γ, -y, w) === step(S, γ, y, w)
+  end
+  for (γ, w, y) in ((2.0^600, 2.0^600, 2.0^-600), (2.0^-600, 2.0^-600, 2.0^600), (0.0, Inf, 3.0), (Inf, 0.0, 3.0))
+    @test step(Float64, γ, -y, w) === step(Float64, γ, y, w)
+  end
+end
+
 @testset "special values: weight and step conventions" begin
   for S in (Float16, Float32, Float64)
     inf, big_, tiny = S(Inf), floatmax(S), nextfloat(zero(S))

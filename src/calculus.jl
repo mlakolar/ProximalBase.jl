@@ -239,13 +239,14 @@ _check_parameter_leaves(name, c) = _throw_parameter_leaf(name, c)
 @noinline _throw_parameter_leaf(name, c) = throw(ArgumentError(
   "the blocks of a tuple parameter of $name must be arrays or tuples of arrays, got $(typeof(c))"))
 
-# Sparse iterates keep their stored entries and the per-entry parameter checks, which the staged
-# tuple buffers do not carry over, so the blocks of a tuple variable are dense arrays
-_check_dense_block(x) = true
-_check_dense_block(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}) = throw(ArgumentError(
-  "Tilt and Translate on tuples need dense array blocks, not a $(nameof(typeof(x)))"))
+# SparseIterate, SymmetricSparseIterate and AtomIterate keep their stored entries and, for the
+# symmetric one, the per-entry parameter checks, which the staged tuple buffers do not carry over:
+# they are not accepted as blocks of a tuple variable. Other array types are not restricted.
+_check_iterate_block(x) = true
+_check_iterate_block(x::Union{SparseIterate, SymmetricSparseIterate, AtomIterate}) = throw(ArgumentError(
+  "Tilt and Translate on tuples do not support a $(nameof(typeof(x))) as a block"))
 _check_tuple_parameter(c::AbstractArray, x::AbstractArray) =
-  (_check_dense_block(x); size(c) == size(x) || _parameter_size_error(size(c), size(x)))
+  (_check_iterate_block(x); size(c) == size(x) || _parameter_size_error(size(c), size(x)))
 function _check_tuple_parameter(c::Tuple, x::Tuple)
   length(c) == length(x) || _parameter_arity_error(length(c), length(x))
   _check_tuple_parameter_blocks(c, x)
@@ -259,10 +260,13 @@ _check_tuple_parameter(c, x) = _parameter_structure_error()
   throw(DimensionMismatch("the parameter has $n blocks and the argument $m"))
 @noinline _parameter_structure_error() =
   throw(DimensionMismatch("the parameter and the argument do not have the same block structure"))
-# Tilt and Translate write whole blocks, which Symmetric and Hermitian outputs refuse
-_check_block_output(y) = _check_dense_block(y)
-_check_block_output(::Union{Symmetric, Hermitian}) = throw(ArgumentError(
-  "Tilt and Translate need an output that accepts off-diagonal writes; use a dense matrix"))
+# Tilt and Translate write whole blocks, which these wrappers refuse outside their structure; the
+# type decides, so the check reads no entry and runs before the first block is written
+const _StructuredOutput = Union{Symmetric, Hermitian, Diagonal, Bidiagonal, Tridiagonal, SymTridiagonal,
+  LinearAlgebra.AbstractTriangular, UpperHessenberg}
+_check_block_output(y) = _check_iterate_block(y)
+_check_block_output(::_StructuredOutput) = throw(ArgumentError(
+  "Tilt and Translate need an output that accepts every entry; use a dense matrix, not a Symmetric, Hermitian, Diagonal, triangular or banded one"))
 @generated _check_block_output(y::Tuple) = _blockwise(k -> :(_check_block_output(y[$k])), fieldcount(y), true)
 _checkparam(c::Tuple, x) = _check_tuple_parameter(c, x)
 _checkparam(c::AbstractArray, x::Tuple) = _check_tuple_parameter(c, x)
@@ -290,8 +294,10 @@ unchanged. Sparse iterate buffers preserve stored entries and their order. `Symm
 For a variable that is a tuple of arrays, possibly nested, as for a
 [`SeparableSum`](@ref), `c` is a tuple of the same structure whose leaves are
 real arrays of the sizes of the blocks of `x`; `⟨c, x⟩` is the sum over the blocks and
-every block is shifted on its own. The blocks are dense arrays: sparse iterates are
-refused as blocks of a tuple. The oracles check the structure and every size
+every block is shifted on its own. A [`SparseIterate`](@ref), [`SymmetricSparseIterate`](@ref)
+or [`AtomIterate`](@ref) is refused as a block of a tuple, and so is an output block that is
+`Symmetric`, `Hermitian`, `Diagonal`, triangular or banded, which cannot take every entry.
+The oracles check the structure, every size and these types
 before writing, and the proximal operator stages the result in the buffer and writes
 it to the output last, so a predictable failure leaves the output unchanged.
 The tuple methods cover the value, the gradient, the proximal operator, the
@@ -328,7 +334,7 @@ _value_and_gradient_unchecked!(g, t::Tilt, x) = (_checkwrite(value_and_gradient!
 gradient!(g, t::Tilt, x) =
   (_check_oracle_arrays(gradient!, t, g, x); _gradient_unchecked!(g, t, x))
 _gradient_unchecked!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); _gradient_unchecked!(g, t.f, x); _add_tilt!(g, t.c))
-_add_tilt!(g, c) = (g .+= _checked_parameter(g, c))
+@inline _add_tilt!(g, c) = (g .+= _checked_parameter(g, c))
 _add_tilt!(g::Tuple, c::Tuple) = _accumulate!(g, c)
 
 function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}}
@@ -338,7 +344,7 @@ function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), ty
   _check_tilt_axes(g, x, t.c)
   _checkwrite(op, t.f, g, x)
 end
-_check_tilt_axes(g, x, c) = (Base.Broadcast.check_broadcast_axes(axes(g), c); _check_parameter_axes(g, c))
+@inline _check_tilt_axes(g, x, c) = (Base.Broadcast.check_broadcast_axes(axes(g), c); _check_parameter_axes(g, c))
 # exact sizes, so that no block of c broadcasts into a block of g
 _check_tilt_axes(g::Tuple, x::Tuple, c::Tuple) = (_check_block_output(g); _checksize(g, x))
 
@@ -400,8 +406,11 @@ function _value_and_prox_unchecked!(y::Tuple, t::Tilt, x::Tuple, γ::Real)
   z = _tuple_buffer!(t.scratch, y, x)
   _shift_tilt!(z, x, γ, t.c)
   v = _value_and_prox_unchecked!(z, t.f, z, γ)
+  # z has the entries that y will have (the buffer has the output's element types), so the value
+  # is formed, and can fail, before the output is written
+  result = _value_at(v + _tuple_dot(t.c, z) + t.d, y)
   _projection_commit!(y, z)
-  _value_at(v + _tuple_dot(t.c, y) + t.d, y)
+  result
 end
 Base.@propagate_inbounds prox_entry(t::Tilt, v::Real, i::Integer, γ::Real) = prox_entry(t.f, v - γ * t.c[i], i, γ)
 _checkparams(t::Tilt, x) = (_checkparam(t.c, x); _checkparams(t.f, x))
@@ -428,8 +437,10 @@ stored entries and their order.
 For a variable that is a tuple of arrays, possibly nested, as for a
 [`SeparableSum`](@ref), `b` is a tuple of the same structure whose leaves are real
 arrays of the sizes of the blocks of `x`, and every block is shifted on its own.
-The blocks are dense arrays: sparse iterates are refused as blocks of a tuple.
-The oracles check the structure and every size before writing, and the proximal
+A [`SparseIterate`](@ref), [`SymmetricSparseIterate`](@ref) or [`AtomIterate`](@ref) is refused
+as a block of a tuple, and so is an output block that is `Symmetric`, `Hermitian`, `Diagonal`,
+triangular or banded, which cannot take every entry.
+The oracles check the structure, every size and these types before writing, and the proximal
 operator stages the result in the buffer and writes it to the output last, so a
 predictable failure leaves the output unchanged. The tuple methods cover the value,
 the gradient, the proximal operator, the Hessian-vector product and the quadratic
@@ -564,8 +575,9 @@ function _value_and_prox_unchecked!(y::Tuple, t::Translate, x::Tuple, γ::Real)
   _shift_translate!(z, x, t.b)
   v = _value_and_prox_unchecked!(z, t.f, z, γ)
   _accumulate!(z, t.b)
+  result = _value_at(v, y)
   _projection_commit!(y, z)
-  _value_at(v, y)
+  result
 end
 Base.@propagate_inbounds prox_entry(t::Translate, v::Real, i::Integer, γ::Real) = t.b[i] + prox_entry(t.f, v - t.b[i], i, γ)
 _checkparams(t::Translate, x) = (_checkparam(t.b, x); _checkparams(t.f, x))
@@ -1906,6 +1918,7 @@ end
 _conjugate_projection!(z, f::Translate{<:AbstractFunction, <:Tuple}, x, γ, α = 1) = _throw_tuple_translation()
 _conjugate_projection_value!(z, f::Translate{<:AbstractFunction, <:Tuple}, x, γ, α = 1) = _throw_tuple_translation()
 _moreau_set!(z, t::Translate{<:AbstractFunction, <:Tuple}, x, γ) = _throw_tuple_translation()
+_checkscaledconjugate(f::Translate{<:AbstractFunction, <:Tuple}, y, α) = _throw_tuple_translation()
 _conjugate_entry(f::Scaled, v, i, γ) =
   convert(float(promote_type(typeof(v), typeof(γ))), _scaled_conjugate_entry(f.f, v, i, γ, f.α))
 _scaled_conjugate_entry(f::NormL1, v, i, γ, α) = _projection_clip(v, α, f.λ0, _entry(f.w, i))

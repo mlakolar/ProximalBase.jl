@@ -337,8 +337,22 @@ _check_hessian_shape(f::Translate, x, Hv, v) = _check_hessian_shape(f.f, _checks
 _check_hessian_shape(f::Precompose, x, Hv, v) = (_checksize(Hv, x); _checkdirection(v, x))
 _check_hessian_shape(f::Regularize, x, Hv, v) =
   (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x); _check_hessian_shape(f.f, x, Hv, v))
-_check_hessian_shape(f::Sum, x, Hv, v) = (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x))
-_check_hessian_shape(f::SeparableSum, x, Hv, v) = (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x))
+# A built-in function without a Hessian fails before any part of a sum writes; a
+# user-defined function is trusted to supply its own, also inside a wrapper.
+_check_hessian_support(f::AbstractFunction) = (_isbuiltin(f) && !hashessian(f) && _no_hessian(f); true)
+_check_hessian_support(f::Union{Scaled, Tilt, Translate, Regularize, Precompose}) = _check_hessian_support(f.f)
+_check_hessian_support(f::Union{Sum, SeparableSum}) = _check_hessian_support_parts(f.fs)
+@generated _check_hessian_support_parts(fs::Tuple) = _blockwise(k -> :(_check_hessian_support(fs[$k])), fieldcount(fs), true)
+
+# a sum checks every function, a separable sum every block, before the first product
+_check_hessian_shape(f::Sum, x, Hv, v) =
+  (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x); _check_hessian_support(f); _check_hessian_parts(f.fs, x, Hv, v))
+@generated _check_hessian_parts(fs::Tuple, x, Hv, v) =
+  _blockwise(k -> :(_check_hessian_shape(fs[$k], x, Hv, v)), fieldcount(fs), true)
+_check_hessian_shape(f::SeparableSum, x, Hv, v) =
+  (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x); _check_hessian_support(f); _check_hessian_blocks(f.fs, x, Hv, v))
+@generated _check_hessian_blocks(fs::Tuple, x::Tuple, Hv::Tuple, v::Tuple) =
+  _blockwise(k -> :(_check_hessian_shape(fs[$k], x[$k], Hv[$k], v[$k])), min(fieldcount(fs), fieldcount(x), fieldcount(Hv), fieldcount(v)), true)
 
 _gradient_unchecked!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector) = gradient!(g, f, x)
 

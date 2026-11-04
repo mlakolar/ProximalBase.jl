@@ -22,7 +22,9 @@ hashessian(f::AbstractFunction) = hashessian(typeof(f))
 Store the product `∇²f(x) v` of the Hessian of `f` at `x` with the direction
 `v` in `Hv` and return `Hv`, for a function with [`hashessian`](@ref). Use an
 output that does not overlap `x` or `v`, as for `mul!`. `Hv` is
-a dense array of the shape of `x`; `x` and `v` may be sparse iterates. The
+a dense array of the shape of `x`; `x` and `v` may be sparse iterates. For a
+[`SeparableSum`](@ref) or a [`Sum`](@ref) of such functions, `x`, `v` and `Hv` are
+tuples of blocks with the same structure. The
 product costs about as much as a gradient: two products with `X` for
 [`LeastSquaresLoss`](@ref) and [`GLMLoss`](@ref), `w X⁻¹VX⁻¹` from one Cholesky
 factorization for [`LogDetLoss`](@ref) (`NaN`s when `x` is not positive
@@ -321,20 +323,20 @@ _hessian_vec_unchecked!(Hv, t::Translate, x::AbstractArray, v) = _hessian_vec_un
 _add_hessian_vecs!(Hv, b, x, v, ::Tuple{}) = Hv
 function _add_hessian_vecs!(Hv, b, x, v, fs::Tuple)
   _hessian_vec_unchecked!(b, first(fs), x, v)
-  Hv .+= b
+  _accumulate!(Hv, b)
   _add_hessian_vecs!(Hv, b, x, v, Base.tail(fs))
 end
 
-hessian_vec!(Hv::AbstractArray, s::Sum, x::AbstractArray, v::AbstractArray) =
+hessian_vec!(Hv::Union{AbstractArray, Tuple}, s::Sum, x::Union{AbstractArray, Tuple}, v::Union{AbstractArray, Tuple}) =
   (_check_second_order_arrays(s, x, Hv, v); _hessian_vec_unchecked!(Hv, s, x, v))
-function _hessian_vec_unchecked!(Hv::AbstractArray, s::Sum, x::AbstractArray, v::AbstractArray)
+function _hessian_vec_unchecked!(Hv::Union{AbstractArray, Tuple}, s::Sum, x::Union{AbstractArray, Tuple}, v::Union{AbstractArray, Tuple})
   _checksize(Hv, x)
   _checkdirection(v, x)
   _checkparams(s, x)
   _checkreal(s, x)
   _hessian_vec_unchecked!(Hv, first(s.fs), x, v)
   length(s.fs) == 1 && return Hv
-  b = _array_buffer!(s.scratch, eltype(Hv), size(Hv))
+  b = _sum_buffer!(s.scratch, Hv, x)
   _add_hessian_vecs!(Hv, b, x, v, Base.tail(s.fs))
 end
 

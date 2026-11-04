@@ -278,6 +278,191 @@ end
 end
 
 a_hv!(Hv, f, x, v) = hessian_vec!(Hv, f, x, v)
+
+# a user function with its own Hessian: ½‖x‖², whose Hessian-vector product is v
+struct UserHalfNorm <: AbstractFunction end
+(::UserHalfNorm)(x) = sum(abs2, x) / 2
+PB.hessian_vec!(Hv, ::UserHalfNorm, x, v) = copyto!(Hv, v)
+
+blocks_approx(x::AbstractArray, y::AbstractArray, rtol = sqrt(eps(Float64))) = isapprox(x, y; rtol)
+blocks_approx(x::Tuple, y::Tuple, rtol = sqrt(eps(Float64))) = all(map((a, b) -> blocks_approx(a, b, rtol), x, y))
+fresh(x::AbstractArray) = similar(x)
+fresh(x::Tuple) = map(fresh, x)
+along(x::AbstractArray, v::AbstractArray, h) = x .+ h .* v
+along(x::Tuple, v::Tuple, h) = map((a, b) -> along(a, b, h), x, v)
+combine(a::AbstractArray, b::AbstractArray, w) = (a .- b) ./ w
+combine(a::Tuple, b::Tuple, w) = map((u, t) -> combine(u, t, w), a, b)
+tdot(a::AbstractArray, b::AbstractArray) = dot(a, b)
+tdot(a::Tuple, b::Tuple) = sum(map(tdot, a, b))
+
+@testset "Sum on tuples" begin
+  # the reproduction of #159
+  s = SeparableSum(SqrNormL2(), SqrNormL2(2))
+  f = Sum(s, s)
+  x, v = ([1.0, 2.0], [3.0]), ([2.0, -1.0], [5.0])
+  @test hashessian(f)
+  Hv = map(similar, v)
+  @test hessian_vec!(Hv, f, x, v) === Hv
+  @test Hv[1] ≈ [4.0, -2.0] && Hv[2] ≈ [20.0]
+  @test blocks_approx(hessian_vec(f, x, v), Hv)
+
+  # independent references: SqrNormL2(λ) has Hessian λI and ‖Xβ - y‖²/2 has X'X
+  rng = Xoshiro(11)
+  X, y = randn(rng, 9, 3), randn(rng, 9)
+  c = [0.5, -1.0]
+  a = SeparableSum(LeastSquaresLoss(y, X), SqrNormL2(2.))
+  b = SeparableSum(SqrNormL2(0.3), SqrNormL2(1.5, c))
+  z, w = (randn(rng, 3), randn(rng, 2)), (randn(rng, 3), randn(rng, 2))
+  Ha = (X' * (X * w[1]), 2 .* w[2])
+  Hb = (0.3 .* w[1], 1.5 .* w[2])
+  @test blocks_approx(hessian_vec(Sum(a, b), z, w), map(+, Ha, Hb))
+  @test blocks_approx(hessian_vec(Sum(b, a), z, w), map(+, Ha, Hb))
+  @test blocks_approx(hessian_vec(Sum(a), z, w), Ha)
+  @test blocks_approx(hessian_vec(Sum(a, b, Scaled(a, 0.5)), z, w), map((p, q, r) -> p + q + r / 2, Ha, Hb, Ha))
+  @test blocks_approx(hessian_vec(Scaled(Sum(a, b), 3), z, w), map(t -> 3 .* t, map(+, Ha, Hb)))
+  # central differences of the gradient along w, with the tuple structure kept
+  for h in (Sum(a, b), Sum(a, Sum(b, a)), Scaled(Sum(a, b), 2))
+    δ = 1e-6
+    fd = combine(gradient(h, along(z, w, δ)), gradient(h, along(z, w, -δ)), 2δ)
+    @test blocks_approx(hessian_vec(h, z, w), fd, 1e-6)
+  end
+
+  # blocks of different sizes, matrices and nested tuples; nested and repeated sums
+  s3 = SeparableSum(SqrNormL2(), SqrNormL2(2), SqrNormL2(3))
+  x3 = ([1.0, 2.0], [3.0 4.0 5.0; 6.0 7.0 8.0], [9.0])
+  v3 = ([1.0, -1.0], [1.0 0.0 2.0; 0.0 1.0 3.0], [2.0])
+  @test blocks_approx(hessian_vec(Sum(s3, s3), x3, v3), map((vk, k) -> 2k .* vk, v3, (1, 2, 3)))
+  @test blocks_approx(hessian_vec(Sum(Sum(s3, s3), s3), x3, v3), map((vk, k) -> 3k .* vk, v3, (1, 2, 3)))
+  nested = SeparableSum(s, SeparableSum(SqrNormL2(), SqrNormL2(2)))
+  xn, vn = (x, ([4.0 5.0], [6.0, 7.0])), (v, ([1.0 2.0], [3.0, 4.0]))
+  Hn = hessian_vec(Sum(nested, Scaled(nested, 3)), xn, vn)
+  @test Hn[1][1] ≈ 4 .* vn[1][1] && Hn[1][2] ≈ 8 .* vn[1][2]
+  @test Hn[2][1] ≈ 4 .* vn[2][1] && Hn[2][2] ≈ 8 .* vn[2][2]
+  H1 = fresh(xn)
+  @test hessian_vec!(H1, Sum(nested), xn, vn) === H1
+  @test blocks_approx(H1, (map(*, (1, 2), vn[1]), map(*, (1, 2), vn[2])))
+  # a user function that supplies its own Hessian is not rejected before any write
+  @test !hashessian(Sum(SqrNormL2(), UserHalfNorm()))
+  @test hessian_vec(Sum(SqrNormL2(2.), UserHalfNorm()), [1.0, 2.0], [3.0, 4.0]) ≈ [9.0, 12.0]
+
+  # Float32 variables, also with Float64 model data
+  x32, v32 = map(t -> Float32.(t), x), map(t -> Float32.(t), v)
+  H32 = hessian_vec(f, x32, v32)
+  @test H32 isa Tuple{Vector{Float32}, Vector{Float32}} && H32 == (Float32[4, -2], Float32[20])
+  z32, w32 = map(t -> Float32.(t), z), map(t -> Float32.(t), w)
+  Hm = hessian_vec(Sum(a, b), z32, w32)
+  @test Hm isa Tuple{Vector{Float32}, Vector{Float32}}
+  @test blocks_approx(Hm, hessian_vec(Sum(a, b), map(t -> Float64.(t), z32), map(t -> Float64.(t), w32)), 1e-4)
+
+  # the buffer is reused while the shapes agree and renewed when they change
+  h = Sum(s, s, Scaled(s, 2))
+  out = fresh(x)
+  hessian_vec!(out, h, x, v); buffer = h.scratch.buf
+  hessian_vec!(out, h, x, v)
+  @test h.scratch.buf === buffer
+  @test all(bk -> all(o -> bk !== o, out) && all(o -> bk !== o, v) && all(o -> bk !== o, x), buffer[3])
+  x2, v2 = ([1.0, 2.0, 3.0], [4.0]), ([1.0, 1.0, 1.0], [2.0])
+  @test blocks_approx(hessian_vec!(fresh(x2), h, x2, v2), (4 .* v2[1], 8 .* v2[2]))
+  @test h.scratch.buf !== buffer
+  @test blocks_approx(hessian_vec!(out, h, x, v), (4 .* v[1], 8 .* v[2]))
+
+  # many blocks and warm calls
+  many = SeparableSum(ntuple(_ -> SqrNormL2(), 40)...)
+  xm = ntuple(i -> fill(Float64(i), 2), 40)
+  fm = Sum(many, many)
+  Hm = fresh(xm)
+  @test blocks_approx(hessian_vec!(Hm, fm, xm, xm), map(t -> 2 .* t, xm))
+  @test allocs(a_hv!, Hm, fm, xm, xm) == 0
+  @test allocs(a_hv!, out, h, x, v) == 0
+  @test allocs(a_hv!, fresh(xn), Sum(nested, nested), xn, vn) == 0
+  @inferred hessian_vec!(out, h, x, v)
+  @inferred hessian_vec!(Hm, fm, xm, xm)
+end
+
+@testset "quadratic models of Sum on tuples" begin
+  rng = Xoshiro(5)
+  X1, X2 = randn(rng, 30, 3), randn(rng, 25, 2)
+  l1 = LogisticLoss(Float64.(rand(rng, Bool, 30)), X1)
+  l2 = LeastSquaresLoss(randn(rng, 25), X2)
+  sep = SeparableSum(l1, l2)
+  f = Sum(sep, SeparableSum(SqrNormL2(0.5), SqrNormL2(0.2, [1.0, -1.0])), Scaled(sep, 0.5))
+  x, x′ = (randn(rng, 3) ./ 3, randn(rng, 2)), (randn(rng, 3) ./ 3, randn(rng, 2))
+  v = (randn(rng, 3), randn(rng, 2))
+  @test hashessian(f)
+  q = quadratic_model(f, x)
+  @test q isa Sum && issmooth(q) && hashessian(q)
+  @test blocks_approx(gradient(q, x), gradient(f, x), 1e-10)
+  @test blocks_approx(hessian_vec(q, x′, v), hessian_vec(f, x, v), 1e-10)
+  Δ = map(t -> t ./ 10, v)
+  g = gradient(f, x)
+  @test q(along(x, Δ, 1.0)) - q(x) ≈ tdot(g, Δ) + tdot(Δ, hessian_vec(f, x, Δ)) / 2 rtol = 1e-8
+  @test quadratic_model!(q, f, x′) === q
+  @test blocks_approx(gradient(q, x′), gradient(f, x′), 1e-10)
+  @test blocks_approx(hessian_vec(q, x, v), hessian_vec(f, x′, v), 1e-10)
+  @test quadratic_model(Scaled(f, 2), x) isa Scaled{<:Sum}
+  # parts are counted before any of them is updated
+  @test_throws DimensionMismatch quadratic_model!(Sum(sep), f, x)
+  @test_throws DimensionMismatch quadratic_model!(q, Sum(sep, sep), x)
+  # a model of a function without a Hessian is refused
+  @test_throws ArgumentError quadratic_model(Sum(sep, SeparableSum(NormL1(1.), SqrNormL2())), x)
+end
+
+@testset "Sum on tuples checks before writing" begin
+  s = SeparableSum(SqrNormL2(), SqrNormL2(2))
+  centered = SeparableSum(SqrNormL2(), SqrNormL2(1., ones(2)))     # the center does not fit the second block
+  x, v = ([1.0, 2.0], [3.0]), ([2.0, -1.0], [5.0])
+  sentinel = ([9.0, 8.0], [7.0])
+  # an invalid final summand, however many valid ones precede it
+  for f in (Sum(s, centered), Sum(s, s, centered), Sum(s, Sum(s, centered)), Sum(s, Scaled(centered, 2)))
+    out = map(copy, sentinel)
+    @test_throws DimensionMismatch hessian_vec!(out, f, x, v)
+    @test out == sentinel
+  end
+  # an invalid final block of a long tuple, and a block of a nested tuple
+  s3 = SeparableSum(SqrNormL2(), SqrNormL2(2), SqrNormL2(3))
+  bad3 = SeparableSum(SqrNormL2(), SqrNormL2(2), SqrNormL2(1., ones(2)))
+  x3, v3 = ([1.0, 2.0], [3.0], [4.0, 5.0, 6.0]), ([1.0, 2.0], [3.0], [4.0, 5.0, 6.0])
+  out = map(t -> fill(-1.0, size(t)), x3)
+  @test_throws DimensionMismatch hessian_vec!(out, Sum(s3, s3, bad3), x3, v3)
+  @test all(o -> all(==(-1.0), o), out)
+  nested = SeparableSum(s, SeparableSum(SqrNormL2(), SqrNormL2(2)))
+  nested_bad = SeparableSum(s, SeparableSum(SqrNormL2(), SqrNormL2(1., ones(2))))
+  xn = (x, ([4.0, 5.0], [6.0]))
+  out = map(xk -> map(t -> fill(-1.0, size(t)), xk), xn)
+  @test_throws DimensionMismatch hessian_vec!(out, Sum(nested, nested, nested_bad), xn, xn)
+  @test all(o -> all(t -> all(==(-1.0), t), o), out)
+  # a later function that needs another shape, in a block and for an array
+  kron = KronQuadratic(Matrix(1.0I, 3, 3), Matrix(1.0I, 3, 3), zeros(3, 3))   # for 3 × 3 blocks
+  xk, vk = (x[1], [1.0 2.0; 3.0 4.0]), (v[1], [1.0 0.0; 0.0 1.0])
+  out = (zeros(2), zeros(2, 2)); copy_out = map(copy, out)
+  @test_throws DimensionMismatch hessian_vec!(out, Sum(SeparableSum(SqrNormL2(), SqrNormL2()), SeparableSum(SqrNormL2(), kron)), xk, vk)
+  @test out == copy_out
+  A = [1.0 2.0; 3.0 4.0]
+  out = fill(-1.0, 2, 2)
+  @test_throws DimensionMismatch hessian_vec!(out, Sum(SqrNormL2(), kron), A, A)
+  @test all(==(-1.0), out)
+  # a built-in later function without a Hessian
+  nohessian = SeparableSum(SqrNormL2(), NormL1(1.))
+  @test !hashessian(Sum(s, nohessian))
+  out = map(copy, sentinel)
+  @test_throws ArgumentError hessian_vec!(out, Sum(s, s, nohessian), x, v)
+  @test out == sentinel
+  out = [-1.0, -1.0]
+  @test_throws ArgumentError hessian_vec!(out, Sum(SqrNormL2(), NormL1(1.)), [1.0, 2.0], [1.0, 1.0])
+  @test out == [-1.0, -1.0]
+  # wrong arity and block shapes of the output and the direction
+  for bad in ((similar(x[1]),), (similar(x[1]), similar(x[2]), similar(x[2])), (similar(x[1]), zeros(2)), (zeros(3), similar(x[2])))
+    @test_throws DimensionMismatch hessian_vec!(bad, Sum(s, s), x, v)
+  end
+  out = map(copy, sentinel)
+  for bad in ((v[1],), (v[1], v[2], v[2]), (v[1], [1.0, 2.0]), ([1.0], v[2]))
+    @test_throws DimensionMismatch hessian_vec!(out, Sum(s, s), x, bad)
+    @test out == sentinel
+  end
+  @test_throws DimensionMismatch hessian_vec!(out, Sum(s, s), (x[1],), v)
+  @test out == sentinel
+end
+
 a_qm!(q, f, x) = quadratic_model!(q, f, x)
 
 @testset "zero allocations and inference" begin

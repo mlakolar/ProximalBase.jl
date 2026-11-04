@@ -225,6 +225,8 @@ end
 # a wrapper of its own), and those keep their recursive oracles. Only a chain whose product is
 # not a normal number takes the methods that combine the factors.
 @inline _chained(::Scaled) = false
+@inline _chained_scaled(f) = false
+@inline _chained_scaled(f::Scaled) = _chained(f)
 @inline _chained(s::Scaled{<:Scaled}) = _chain_exceptional(s.f, s.α)
 @inline _chain_exceptional(f, a) = false
 @inline _chain_exceptional(f::Scaled, a) = _nested_scales(a, f.α) || _chain_exceptional(f.f, a * f.α)
@@ -232,7 +234,14 @@ end
 # a⋅v with the factor's exponent applied last, so that a product that is representable is
 # not lost to an intermediate; an ordinary factor is the plain product
 @inline _apply_scale(a::Real, v) = a * v
-@inline _apply_scale(a::_ProjectionScale, v) = ldexp(a.m * v, a.e)
+@inline function _apply_scale(a::_ProjectionScale, v)
+  w = float(v)
+  (iszero(w) || !isfinite(w)) && return a.m * w
+  # the significand of v, so that neither a subnormal v nor the product of significands loses bits
+  R = promote_type(typeof(a.m), typeof(w))
+  mv, ev = frexp(convert(R, w))
+  ldexp(a.m * mv, a.e + ev)
+end
 # a < 1 and a > 1 of the product (the significand is in [1/2, 1))
 @inline _scale_below_one(a::Real) = a < 1
 @inline _scale_below_one(a::_ProjectionScale) = a.e <= 0
@@ -290,6 +299,8 @@ _fold_level(f::Scaled, α) = _fold_level(f.f, _projection_accumulate(α, f.α))
 # level that falls below the range multiplies the step by less than the range can resolve, so it
 # is dropped instead of discarding the fold.
 _fold_level_step(f, α) = _fold_level(f, α)
+_fold_block_step(f, α) = _isindicator(f) ? f : _fold_level_step(f, α)
+_fold_block_step(f::ZeroFunction, α) = f
 function _fold_level_step(f::ElasticNet, α)
   c1 = _folded_level(f.λ1, α)
   c = iszero(f.λ2) ? f.λ2 : _apply_scale(α, f.λ2)
@@ -373,8 +384,9 @@ function _nested_step(s::Scaled, γ::Real)
   mγ, eγ = frexp(float(γ))
   ma, ea = _projection_scale_parts(a)
   g = _fold_level_step(f, _ProjectionScale(ma, Int(ea + eγ)))
-  # the value of g is 2^eγ times the value of the chain
-  g === nothing ? (f, step, a) : (g, convert(typeof(step), mγ), _ProjectionScale(oftype(ma, 0.5), Int(1 - eγ)))
+  # g carries the levels without the ridge that may have been dropped: it is not the chain, and
+  # its value is not the value of the chain (`nothing` marks this)
+  g === nothing ? (f, step, a) : (g, convert(typeof(step), mγ), nothing)
 end
 
 _prox_unchecked!(y, s::Scaled, x, γ::Real) = _chained(s) ? _prox_chain!(y, s, x, γ) :
@@ -391,6 +403,12 @@ _value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = _chained(s) ? _value_and
 function _value_and_prox_chain!(y, s, x, γ)
   _checkwrite(value_and_prox!, s, y, x)
   g, step, a = _nested_step(s, γ)
+  if a === nothing
+    # the value of the chain at the output, not that of the folded function
+    _prox_unchecked!(y, g, x, step)
+    f, b = _scaled_chain(s)
+    return _value_at(_scaled_value_by(f, b, y, _value_unchecked(f, y)), y)
+  end
   v = _value_and_prox_unchecked!(y, g, x, step)
   _value_at(_scaled_value_by(g, a, y, v), y)
 end
@@ -1298,7 +1316,8 @@ _stage_commit!(y::Tuple, z) = _projection_commit!(y, z)
 
 # the proximal point of the conjugate and its value, at the output
 function _conjugate_prox_value!(y, c::Conjugate, x, γ)
-  _support_fallback(c.f) && return _staged_prox_value!(y, c, x, γ)
+  # a chain may refuse the value after the point exists: stage, and commit only on success
+  (_support_fallback(c.f) || _chained_scaled(c.f)) && return _staged_prox_value!(y, c, x, γ)
   _prox_unchecked!(y, c, x, γ)
   _value_at(_conjugate_value(c.f, y), y)
 end
@@ -1543,6 +1562,21 @@ function _fold_level(s::Sum, α)
   gs = _fold_blocks(s.fs, α)
   gs === nothing ? nothing : Sum(gs, s.scratch)
 end
+function _fold_level_step(t::Translate, α)
+  g = _fold_level_step(t.f, α)
+  g === nothing ? nothing : Translate(g, t.b, t.scratch, t.proxscratch)
+end
+function _fold_level_step(s::SeparableSum, α)
+  gs = map(f -> _fold_block_step(f, α), s.fs)
+  any(isnothing, gs) ? nothing : SeparableSum(gs)
+end
+function _fold_level_step(s::Sum, α)
+  gs = map(f -> _fold_block_step(f, α), s.fs)
+  any(isnothing, gs) ? nothing : Sum(gs, s.scratch)
+end
+# a chain anywhere among the blocks may refuse the value of the conjugate
+_chained_scaled(t::Translate) = _chained_scaled(t.f)
+_chained_scaled(s::Union{SeparableSum, Sum}) = any(_chained_scaled, s.fs)
 
 issmooth(::Type{<:Sum{F}}) where {F} = all(issmooth, fieldtypes(F))
 isconvex(::Type{<:Sum{F}}) where {F} = all(isconvex, fieldtypes(F))
@@ -2127,7 +2161,8 @@ end
 # (αf)* is the conjugate of f with α folded into its levels, which keeps a factor that is not a
 # normal number in range. A function without levels to fold takes the rounded factor.
 function _scaled_conjugate_value(f, y::AbstractArray, α::_ProjectionScale)::_valtype(y)
-  g = _fold_level(f, α)
+  # an indicator and the zero function do not change under a positive scale
+  g = _fold_block(f, α)
   g === nothing || return _conjugate_value(g, y)
   a = _projection_real(α)
   (isfinite(a) && !iszero(a)) || _nested_scale_error(f, a)

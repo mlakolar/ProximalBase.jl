@@ -98,6 +98,41 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
         @test small(T[tens(T, -l - a)]) isa T
       end
 
+      @testset "subnormal coefficients and indicators" begin
+        # the exponent goes last also for a subnormal level: 2^-1074 (2^-149) times 2^(2k)
+        k = T === Float64 ? 600 : 100
+        λ = nextfloat(zero(T))
+        c = T(2)^k
+        e = 2k + exponent(λ)
+        for build in (l -> NormL1(l), l -> NormL2(l), l -> NormLinf(l))
+          f = Scaled(Scaled(build(λ), c), c)
+          @test f isa Scaled{<:Scaled}
+          @test near(f([one(T)]), ldexp(BigFloat(1), e))
+        end
+        g = zeros(T, 1)
+        lin = Scaled(Scaled(LinearFunction([λ]), c), c)
+        gradient!(g, lin, T[1])
+        @test near(g[1], ldexp(BigFloat(1), e))
+        h = Scaled(Scaled(SqrNormL2(λ), c), c)
+        @test near(lipschitz(h), ldexp(BigFloat(1), e))
+        Hv = zeros(T, 1)
+        hessian_vec!(Hv, h, T[1], T[1])
+        @test near(Hv[1], ldexp(BigFloat(1), e))
+        y = zeros(T, 1)
+        prox!(y, Scaled(Scaled(NormL1(λ), c), c), T[3], ldexp(one(T), -e))
+        @test y ≈ T[2] rtol = 8eps(T)
+        # an indicator and the zero function are unchanged by any positive scale
+        for factor in (tens(T, -a), tens(T, a))
+          box = Scaled(Scaled(IndBox(zero(T), one(T)), factor), factor)
+          @test box isa Scaled{<:Scaled}
+          @test Conjugate(box)(T[1]) === T(1)
+          @test Conjugate(box)(T[-1]) === zero(T)
+          z = Scaled(Scaled(ZeroFunction(), factor), factor)
+          @test Conjugate(z)(T[0]) === zero(T)
+          @test Conjugate(z)(T[1]) === T(Inf)
+        end
+      end
+
       @testset "gradient and the other smooth oracles" begin
         # level 10^(2a - l) times λ x: a subproduct of the scales overflows
         h = Scaled(Scaled(SqrNormL2(tens(T, -l)), tens(T, a)), tens(T, a))
@@ -205,6 +240,26 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
           y = zeros(1)
           prox!(y, en, [3e-105], 1e-5)
           @test y[1] ≈ 2e-105 rtol = 8eps()
+          # an ElasticNet whose ridge level is below the range, alone and inside a composite
+          comp = Scaled(Scaled(SeparableSum(ElasticNet(1e300, 1e-300), NormL1(1e300)), 1e-200), 1e-200)
+          z = (zeros(1), zeros(1))
+          prox!(z, comp, ([3e-150], [3e-150]), 1e-50)
+          @test z[1][1] ≈ 2e-150 rtol = 8eps()
+          @test z[2][1] ≈ 2e-150 rtol = 8eps()
+          tr = Scaled(Scaled(Translate(ElasticNet(1e300, 1e-300), [0.0]), 1e-200), 1e-200)
+          y = zeros(1)
+          prox!(y, tr, [3e-150], 1e-50)
+          @test y[1] ≈ 2e-150 rtol = 8eps()
+          # the value returned with the point is the value of the original function, with the
+          # dropped ridge level included
+          ridge = Scaled(Scaled(ElasticNet(1e300, 1e-300, [0.0]), 1e-200), 1e-200)
+          y = zeros(1)
+          v = value_and_prox!(y, ridge, [1e300], 1e-50)
+          @test v ≈ 5e-101 rtol = 8eps()
+          @test v ≈ ridge(y) rtol = 8eps()
+          y = zeros(1)
+          v = value_and_prox!(y, tr, [1e300], 1e-50)
+          @test v ≈ tr(y) rtol = 8eps()
           # sums, blocks and translations of functions that fold
           mk(l) = Scaled(Scaled(l, 1e-200), 1e-200)             # level 1e-100
           @test mk(SeparableSum(NormL1(1e300), NormL1(1e300)))(([1e100], [1e100])) ≈ 2 rtol = 8eps()
@@ -276,8 +331,15 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
         z = (zeros(T, 1), zeros(T, 1))
         @test value_and_prox!(z, Conjugate(sep), (T[3r], T[-3r]), one(T)) === zero(T)
         @test z[1] ≈ T[r] rtol = 8eps(T)
-        # a function without a level to fold: the conjugate value is refused, not wrong
+        # a function without a level to fold: the conjugate value is refused, not wrong, and a
+        # refused value_and_prox! leaves its output as it was
         @test_throws ArgumentError Conjugate(q)(T[1])
+        y = T[-777]
+        @test_throws ArgumentError value_and_prox!(y, Conjugate(q), T[1], one(T))
+        @test y == T[-777]
+        y = (T[-777], T[-777])
+        @test_throws ArgumentError value_and_prox!(y, Conjugate(SeparableSum(q, q)), (T[1], T[1]), one(T))
+        @test y == (T[-777], T[-777])
       end
 
       @testset "optimality" begin

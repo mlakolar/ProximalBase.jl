@@ -241,6 +241,69 @@ function test_gradient(f, x::AbstractArray; h = nothing, rtol = nothing, atol = 
   g
 end
 
+# A tuple argument holds arrays or nested tuples of arrays (the product spaces of SeparableSum), visited block by
+# block and never flattened. Its leaves share one floating type, which sets the same scale as for an array.
+# The type is found, and an unsupported argument rejected, before any oracle is called.
+_leaf_type(x::AbstractArray) = float(eltype(x))
+function _leaf_type(x::Tuple)
+  isempty(x) && throw(ArgumentError("test_gradient: a tuple argument needs at least one block"))
+  types = map(_leaf_type, x)
+  for T in types
+    T === types[1] || throw(ArgumentError(
+      "test_gradient requires tuple blocks with a common floating-point type; got $(types[1]) and $T"))
+  end
+  types[1]
+end
+_leaf_type(x) = throw(ArgumentError("test_gradient: a block must be an array or a tuple of blocks, not a $(typeof(x))"))
+
+# f(x, ys...) on the arrays of x and the matching arrays of ys, collected in the structure of x
+_mapblocks(f, x::AbstractArray, ys::AbstractArray...) = f(x, ys...)
+@generated function _mapblocks(f, x::Tuple, ys::Tuple...)
+  ProximalBase._blocktuple(k -> :(_mapblocks(f, x[$k], $((:(ys[$j][$k]) for j in eachindex(ys))...))), fieldcount(x))
+end
+
+# the same blocks, of the same sizes, and blockwise approximately equal
+_same_blocks(a::AbstractArray, b::AbstractArray) = size(a) == size(b)
+_same_blocks(a::Tuple, b::Tuple) = length(a) == length(b) && all(map(_same_blocks, a, b))
+_same_blocks(a, b) = false
+_approx(a::AbstractArray, b::AbstractArray) = a ≈ b
+_approx(a::Tuple, b::Tuple) = all(map(_approx, a, b))
+_agree(a, b) = _same_blocks(a, b) && _approx(a, b)
+
+function test_gradient(f, x::Tuple; h = nothing, rtol = nothing, atol = nothing, directions = 3, rng = nothing)
+  R = _leaf_type(x)
+  c = cbrt(eps(R) / eps(Float64))
+  h === nothing && (h = 1e-6c)
+  rtol === nothing && (rtol = 1e-5c)
+  atol === nothing && (atol = 1e-6c)
+  g = gradient(f, x)
+  ok = _same_blocks(g, x)
+  @test ok
+  ok || return g
+  g2 = _mapblocks(similar, g)
+  @test gradient!(g2, f, x) === g2
+  @test _agree(g2, g)
+  g3 = _mapblocks(similar, g)
+  v = value_and_gradient!(g3, f, x)
+  @test _agree(g3, g)
+  @test v ≈ f(x)
+  v4, g4 = value_and_gradient(f, x)
+  @test v4 ≈ v && _agree(g4, g)
+  xd = _mapblocks(Array, x)
+  xp = _mapblocks(a -> similar(a, float(eltype(a))), xd)
+  xm = _mapblocks(similar, xp)
+  for _ in 1:directions
+    d = _mapblocks(a -> _randn(rng, eltype(a), size(a)...), xp)
+    _mapblocks((p, a, e) -> (p .= a .+ h .* e), xp, xd, d)
+    _mapblocks((m, a, e) -> (m .= a .- h .* e), xm, xd, d)
+    fp, fm = f(xp), f(xm)
+    fd = (fp - fm) / (2h)
+    round_err = 8 * eps(R) * max(abs(fp), abs(fm)) / (2h)
+    @test fd ≈ ProximalBase._tuple_dot(g, d) rtol = rtol atol = max(atol * max(1, abs(fd)), round_err)
+  end
+  g
+end
+
 ####################################
 #  separable functions
 ####################################

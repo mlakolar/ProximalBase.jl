@@ -256,7 +256,20 @@ overflowing ``e^{\eta_i}`` and the working response is
 ``z_i = \eta_i - 1 + y_i e^{-\eta_i}``, so weight ``1/8`` at ``\eta = 710`` gives
 the coefficient ``e^{710}/8`` and the response ``709``. A coefficient or response that
 cannot be represented raises a [`PrecisionError`](@ref), and
-[`quadratic_model!`](@ref) then leaves the model as it was. Below the curvature floor
+[`quadratic_model!`](@ref) then leaves the model as it was.
+
+The class of a Poisson coefficient is exact (numerics R4). The coefficient is rejected,
+as `Inf`, exactly when ``w_i e^{\eta_i}`` rounds beyond `floatmax`, and a coefficient that is
+representable is never rejected, also within a few ulps of that threshold. An ordinary product,
+or the recovery that holds the power of two outside the range, is accepted when it is finite and
+below ``0.999\,\text{floatmax}``: both are accurate to far better than ``10^{-3}``, so the
+class is certain there, and the value is accurate as such a product is. A coefficient closer to
+`floatmax` than that, or not finite, is rejected at once when a logarithmic estimate puts it
+clearly beyond the range, and otherwise it is evaluated in `BigFloat` arithmetic of an explicit
+precision with directed rounding, which is raised until both bounds round to the same `T`.
+That value is the correctly rounded ``w_i e^{\eta_i}``, and it is `Inf` exactly when the
+product rounds beyond `floatmax`. Below the curvature floor the coefficient is the single
+product ``w_i\sqrt\varepsilon``, and
 the response ``\eta_i + (y_i - e^{\eta_i})/\sqrt\varepsilon`` is formed so that a
 cancelling pair of terms that leave the range does not fail where their sum fits
 (``\eta = -\text{floatmax}`` and ``y/\sqrt\varepsilon`` just above it): the sum is
@@ -264,11 +277,27 @@ formed in double-word arithmetic and rounded once, so only a sum that does not f
 in the update of a model, without an error and without the recovery above;
 [`quadratic_model`](@ref) builds a new loss and checks the offset again, which must be finite as in
 the constructor, so an offset made non-finite after construction is an `ArgumentError`
-there. An update allocates nothing as long as the staged coefficients and responses are finite
-and no coefficient vanished. Otherwise (a non-finite observation, a predictor that overflowed
-in ``X\beta`` plus the offset even for finite `X`, `\beta` and offset, or a vanished coefficient) it checks the
-staged values in a new vector of the length of `y` and allocates, whether it then throws or
-returns; the floor response of the cancelling kind above does not allocate.
+there.
+
+What an update allocates, and which global state it uses, depends on the case.
+
+1. An ordinary successful update in `Float32` or `Float64` allocates nothing, as long as the
+   staged coefficients and responses are finite and no coefficient vanished.
+2. The recovery in IEEE arithmetic that needs no certified evaluation (the exponent split of
+   ``e^{\eta_i}``, the floor response above and the correction of a subnormal coefficient)
+   allocates nothing either.
+3. Three things may allocate. The certified evaluation of a coefficient within about 0.1% of
+   `floatmax`, or beyond it without being clearly beyond, allocates a few hundred bytes and
+   takes microseconds, for that coefficient only. When a staged value is not finite (a
+   non-finite observation, a predictor that overflowed in ``X\beta`` plus the offset even
+   for finite `X`, ``\beta`` and offset) or a coefficient vanished, the update checks the staged
+   values in a new vector of the length of `y`, whether it then throws or returns. A `BigFloat`
+   response is computed in the current `BigFloat` precision (T7) and allocates even when the
+   whole staged pair is finite.
+4. The process-global `BigFloat` precision and rounding mode are neither read nor changed for
+   `Float32` and `Float64` data, including the certified evaluation, which fixes its own
+   precision and rounding. A `BigFloat` response reads the current precision, as in 3, and
+   nothing here changes it.
 
 That all-or-nothing update has a measured cost: the pair of every observation is
 staged in the buffers of the loss and copied into the model last. The cost was

@@ -95,6 +95,15 @@ In Float32, a small gradient error can go undetected when `|f|` is large
 relative to the directional derivatives, because the comparison allows the
 finite difference's rounding error. Increasing `directions` raises the chance
 of detecting it.
+
+**Tuples.** `x` may be a tuple of arrays or nested tuples (as for `SeparableSum`),
+of different shapes but one floating type: `float(eltype(block))` must agree for
+all blocks, so mixing Float32 and Float64 blocks throws an `ArgumentError`
+before `f` is called. Model data and parameters may have other types. One
+random direction, an array per block drawn from `rng` in block order, moves all
+blocks; the difference is compared with the sum of the blockwise inner
+products, with the defaults of an array of that type. Scalars and empty tuples
+are rejected.
 """
 function test_gradient end
 

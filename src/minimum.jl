@@ -204,7 +204,9 @@ prox(g::PointwiseMinimum, x::AbstractArray, γ::AbstractArray) =
   (_checkreal(g, x); _checkreal(g, γ); throw(ArgumentError("PointwiseMinimum requires a scalar step")))
 
 # The scores of the candidates compare envelope energies at an infinite step, and the square
-# root of -Inf raises a DomainError there, whatever the candidates. Indicators have no energy.
+# root of -Inf raises a DomainError there when the candidates give a score. A candidate whose
+# proximal point at -Inf is NaN used to return NaN without reaching it; the step -Inf is now
+# rejected for every non-indicator minimum, before any candidate runs. Indicators have no energy.
 @inline function _minimum_checkstep(g::PointwiseMinimum, γ::Real)
   (isinf(γ) && γ < 0 && !_isindicator(g)) && sqrt(float(γ))
   true

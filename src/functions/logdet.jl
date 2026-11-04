@@ -162,18 +162,19 @@ end
 
 # The square root of the step times the weight. A negative step raises the DomainError of the
 # square root; a NaN step has no proximal point, and raises one as well. The step is checked
-# before the input, so that block sums can check it before writing any block.
-@inline function _logdet_root_step(f::LogDetLoss{T}, γ::Real) where {T}
+# before the input, so that block sums can check it before writing any block. An empty input
+# has no eigenvalue to fail at, and accepts a NaN step.
+@inline function _logdet_root_step(f::LogDetLoss{T}, γ::Real, X::AbstractMatrix) where {T}
   g = convert(T, γ)
-  isnan(g) && throw(DomainError(g, "the step of LogDetLoss must not be NaN"))
+  isnan(g) && !isempty(X) && throw(DomainError(g, "the step of LogDetLoss must not be NaN"))
   sqrt(g) * sqrt(f.w)
 end
 _checkstep(op::O, f::LogDetLoss, y::AbstractMatrix, x::AbstractMatrix, γ::Real) where {O} =
-  (_logdet_root_step(f, γ); true)
+  (_logdet_root_step(f, γ, x); true)
 
 function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix, γ::Real) where {T}
   _checkwrite(value_and_prox!, f, Y, X)
-  root_step = _logdet_root_step(f, γ)
+  root_step = _logdet_root_step(f, γ, X)
   all(isfinite, X) || (fill!(Y, _valtype(Y)(NaN)); return _valtype(Y)(Inf))
   X = _is_device_array(X) ? copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X) : X
   B = _blas_ready(Y) ? Y : f.C

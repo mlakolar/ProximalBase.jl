@@ -212,9 +212,10 @@ _restrict_unchecked(f::NegLog, ::AbstractVector{<:Integer}) = f
 
 # A negative step raises a DomainError at the first entry of these proximal points (the
 # logarithm of γλ, the square root of γ), whatever the input. Other steps, NaN included, are
-# the leaf's, as is the empty input, which has no entry to fail at.
+# the leaf's, as is the empty input, which has no entry to fail at. The kernels convert the
+# step to the float type of the input first, where a tiny negative step becomes -0.0.
 function _checkstep(op::O, f::Union{NegEntropy, KLDivergence, NegLog}, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
-  isempty(x) || !(γ < 0) || throw(DomainError(γ, "the step of $(nameof(typeof(f))) must not be negative"))
+  isempty(x) || !(convert(float(eltype(x)), γ) < 0) || throw(DomainError(γ, "the step of $(nameof(typeof(f))) must not be negative"))
   true
 end
 

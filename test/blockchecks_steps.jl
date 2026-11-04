@@ -62,7 +62,7 @@ function block_failure(f, x, γ; output = x, exact = true)
 end
 
 # Compare successful calls and failures to the standalone oracle, including its writes.
-function same_outcome(f, x, γ; output = x)
+function same_outcome(f, x, γ; output = x, exact = true)
   @nospecialize
   for op in proximal, alias in (false, true)
     alias && typeof(output) !== typeof(x) && continue
@@ -76,7 +76,7 @@ function same_outcome(f, x, γ; output = x)
       @test e === nothing
       @test isequal(dest[2], expected)
     else
-      @test same_exception(e, ref)
+      @test same_exception(e, ref; exact)
     end
   end
 end
@@ -123,6 +123,10 @@ end
     end
     # An empty input has no entry to fail at.
     f isa KLDivergence || same_outcome(f, Float64[], -1.0)
+    # The kernel converts the step to the type of the input: -1e-50 is -0.0 in Float32.
+    for T in (Float32, Float64), γ in (-1e-50, -1e-320)
+      same_outcome(f, T.(v), γ; exact = false)
+    end
   end
   # LogDetLoss: the step precedes the input, so that an invalid step is not hidden by a
   # nonfinite entry, and a valid step with a nonfinite entry still gives NaN.
@@ -140,6 +144,11 @@ end
     for γ in (0.0, 0.5, Inf), x in (T.(S), fill(T(NaN), 3, 3), fill(T(Inf), 3, 3))
       same_outcome(f, x, γ)
     end
+  end
+  # An empty input has no eigenvalue to fail at, so a NaN step is accepted there.
+  for T in (Float32, Float64)
+    same_outcome(LogDetLoss(zeros(T, 0, 0)), zeros(T, 0, 0), NaN)
+    same_outcome(SingularValue(NegLog(1.0)), T[2 0.5; 0.5 1], -1e-50)
   end
   # The spectral wrappers forward the step to the function of the spectrum.
   for T in (Float32, Float64), (f, γs) in ((Spectral(IndBallL1(1.0)), (-1.0, NaN, -Inf)),
@@ -192,6 +201,8 @@ end
                                      PointwiseMinimum(NormL1(1.0), SumLargest(1)),
                                      PointwiseMinimum(SqrNormL2(), IndBox(-1.0, 1.0)))
     block_failure(g, T.(v), -Inf; exact = !(g.fs[2] isa SumLargest))
+    # a candidate whose proximal point at -Inf is NaN used to return NaN
+    block_failure(PointwiseMinimum(NormL1(1.0)), T.(v), -Inf)
     block_failure(g, T.(v), -Inf; exact = !(g.fs[2] isa SumLargest), output = zeros(T === Float32 ? Float64 : Float32, 3))
     # Regularize turns the step -Inf into NaN, which no candidate here rejects
     for h in (Scaled(g, 2.0), Translate(g, T.(v)), Tilt(g, T.(v)), Precompose(g, 2.0))

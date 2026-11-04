@@ -721,10 +721,10 @@ isconvex(::Type{<:QuadraticFunction}) = true
 
 function (f::QuadraticFunction)(x::AbstractVector)
   _checkreal(f, x)
-  mul!(f.tmp, f.A, x)
+  m = _mul_maxabs!(f.tmp, f.A, x)
   v = dot(x, f.tmp) / 2 + f.c
   v = f.b === nothing ? v : v + dot(f.b, x)
-  _value_at(_quadratic_checked(f, x, v, eltype(f.tmp)), x)
+  _value_at(_quadratic_checked(f, x, v, eltype(f.tmp), m), x)
 end
 
 function value_and_gradient!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector)
@@ -733,20 +733,41 @@ function value_and_gradient!(g::AbstractVector, f::QuadraticFunction, x::Abstrac
     _gradient_unchecked!(g, f, x)
     return _value_unchecked(f, x)
   end
-  mul!(g, f.A, x)
+  m = _mul_maxabs!(g, f.A, x)
   v = dot(g, x) / 2 + f.c
   if f.b !== nothing
     g .+= f.b
     v += dot(f.b, x)
   end
-  _value_at(_quadratic_checked(f, x, v, eltype(g)), x)
+  _value_at(_quadratic_checked(f, x, v, eltype(g), m), x)
+end
+
+# y = A x, and max|x| for the trigger below. For a diagonal A the two are one pass: y[i] = d[i] x[i] is the
+# product that mul! rounds into y, so y is the same, and the maximum is read where x[i] is already loaded.
+@inline function _mul_maxabs!(y, A, x)
+  mul!(y, A, x)
+  _stored_maxabs(x)
+end
+@inline function _mul_maxabs!(y::StridedVector{P}, A::Diagonal{P}, x::StridedVector{P}) where {P<:Union{Float32, Float64}}
+  U = P === Float32 ? Int32 : Int64
+  d = A.diag
+  (length(y) == length(d) == length(x)) || return invoke(_mul_maxabs!, Tuple{Any, Any, Any}, y, A, x)
+  m = zero(U)
+  @inbounds @simd for i in eachindex(y)
+    xi = x[i]
+    y[i] = d[i] * xi
+    m = max(m, reinterpret(U, xi) & typemax(U))
+  end
+  reinterpret(P, m)
 end
 
 # The ordinary value, or its recomputation from the exact products: after an overflow (a non-finite
 # value of finite data), or when the products A x rounded into the buffer type P, and the final dots,
 # could have lost more than eps |v| (R1, #520).
-@inline function _quadratic_checked(f::QuadraticFunction, x, v, ::Type{P}) where {P}
-  if !isfinite(v) || (_quadratic_underflow_risk(f, x, v, P) && !_quadratic_products_normal(f, x, v, P))
+@inline _quadratic_checked(f::QuadraticFunction, x, v, ::Type{P}) where {P} =
+  _quadratic_checked(f, x, v, P, _stored_maxabs(x))
+@inline function _quadratic_checked(f::QuadraticFunction, x, v, ::Type{P}, m) where {P}
+  if !isfinite(v) || (_quadratic_underflow_risk(f, x, v, P, m) && !_quadratic_products_normal(f, x, v, P))
     _quadratic_value_recover(f, x, v)
   else
     v
@@ -781,10 +802,11 @@ end
 # denorm_min(P)/2 each. |v| < floatmin(P) (n² max|x| / 4 + n) (see _underflow_threshold) is the condition
 # under which that can exceed eps |v|. A well-scaled value passes with
 # one pass over x. An exact zero of x, or any entry of A, does not fire it.
-@inline function _quadratic_underflow_risk(f::QuadraticFunction, x, v, ::Type{P}) where {P}
+@inline _quadratic_underflow_risk(f::QuadraticFunction, x, v, ::Type{P}) where {P} =
+  _quadratic_underflow_risk(f, x, v, P, _stored_maxabs(x))
+@inline function _quadratic_underflow_risk(f::QuadraticFunction, x, v, ::Type{P}, m) where {P}
   (_underflow_checked(P) && _underflow_checked(typeof(v))) || return false
   n = length(x)
-  m = _stored_maxabs(x)
   iszero(m) && return false
   abs(v) < _underflow_threshold(P, n * n / 4, m, n)
 end

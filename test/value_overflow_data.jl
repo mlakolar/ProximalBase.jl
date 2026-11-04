@@ -686,6 +686,30 @@ allocated_pow2(::Type{T}, E, a, b, c) where {T} = (pow2_three(T, E, a, b, c); @a
       end
     end
 
+    @testset "the fused product and maximum for a diagonal A (second review of #520)" begin
+      for T in (Float32, Float64)
+        rng = Xoshiro(5202)
+        for n in (1, 2, 7, 64, 129)
+          d, x = randn(rng, T, n), randn(rng, T, n)
+          y, y2 = zeros(T, n), zeros(T, n)
+          @test PB._mul_maxabs!(y, Diagonal(d), x) === maximum(abs, x)
+          mul!(y2, Diagonal(d), x)
+          @test y == y2                                                 # the same products
+          xv = view([zero(T); x; zero(T)], 2:n+1)                       # a strided view
+          @test PB._mul_maxabs!(fill!(y, 0), Diagonal(d), xv) === maximum(abs, x) && y == y2
+        end
+        x = T[1, -Inf, NaN]
+        @test isnan(PB._mul_maxabs!(zeros(T, 3), Diagonal(ones(T, 3)), x))
+        # other types and layouts fall back to mul! and the maximum of the stored entries
+        W = T === Float32 ? Float64 : Float32
+        y = zeros(T, 2)
+        @test PB._mul_maxabs!(y, Diagonal(T[2, 3]), W[1, -4]) == 4 && y == T[2, -12]
+        @test PB._mul_maxabs!(zeros(T, 2), T[1 2; 3 4], T[1, -5]) === T(5)
+        f = QuadraticFunction(Diagonal(T[2, 3]), T[1, 1], T(1))
+        @test f(T[1, -2]) == (T(2) * 1 + T(3) * 4) / 2 + (1 - 2) + 1
+      end
+    end
+
     @testset "a wider argument than the coefficients is rounded into the buffers (known limitation)" begin
       # The Float32 buffer of a Float32 KronQuadratic receives a Float64 argument rounded to Float32, which
       # is zero here; T3 asks for the argument not to be rounded below the model precision. This is the

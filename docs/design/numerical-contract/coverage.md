@@ -317,7 +317,7 @@ Julia: 1.10.12; platform: x86_64-linux-gnu-Linux; bounds: 1
 | Group | Executed broken rows |
 |:---|---:|
 | G1 | 11 |
-| G2 | 39 |
+| G2 | 38 |
 | G3 | 31 |
 | G4 | 51 |
 | G5 | 31 |

@@ -176,6 +176,11 @@ function test_prox(f, x::AbstractArray, γ::Real; rtol = 1e-8, atol = 1e-10, loc
   z = copy(x)
   prox!(z, f, z, γ)
   @test _dense(z) ≈ _dense(p) rtol = rtol atol = atol
+  # in place, the combined call stores the point and returns the value of the separate call (O7)
+  z = copy(x)
+  vz = value_and_prox!(z, f, z, γ)
+  @test _dense(z) ≈ _dense(p3) rtol = rtol atol = atol
+  @test vz ≈ v rtol = sqrt(rtol) atol = sqrt(atol)
 
   # optimality
   xd, pd = _dense(x), _dense(p)

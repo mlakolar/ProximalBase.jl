@@ -199,10 +199,11 @@ end
 # The constructor's checks in the working precision T. They are singleton
 # structs, not closures over T: a closure that captures a type is not isbits,
 # and a GPU reduction (`all` on a device array, as Adapt rebuilds the loss)
-# cannot take it as a kernel argument.
-struct _FiniteWeight{T} end
+# cannot take it as a kernel argument. They are Functions, since GPUArrays
+# sends only `all(f::Function, A)` to a device reduction.
+struct _FiniteWeight{T} <: Function end
 (::_FiniteWeight{T})(t) where {T} = t isa Real && t >= 0 && isfinite(convert(T, t))
-struct _FiniteOffset{T} end
+struct _FiniteOffset{T} <: Function end
 (::_FiniteOffset{T})(t) where {T} = t isa Real && isfinite(convert(T, t))
 
 """

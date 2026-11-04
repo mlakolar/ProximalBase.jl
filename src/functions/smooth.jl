@@ -1019,7 +1019,10 @@ end
 
 # The ordinary value, or its recovery from overflow (a non-finite value) or from underflow of the
 # products A D and A D B into the buffer type, which loses what a large entry of D multiplies.
-@inline function _kron_checked(f::KronQuadratic, v, Θ)
+# Kept out of line: inlined into value_and_gradient! with a linear term, the trigger cost several times
+# more than its own (the Union-typed C splits the function, and the scans lost their vectorization)
+# in cluster and local timings.
+@noinline function _kron_checked(f::KronQuadratic, v, Θ)
   if isfinite(v) && (!_kron_underflow_risk(f, v) || _kron_products_normal(f, v))
     v
   else

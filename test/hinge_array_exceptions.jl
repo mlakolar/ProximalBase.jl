@@ -125,4 +125,21 @@ end
   @test PB.kkt_violation(f, [2.0^-1], 1) isa Float64
 end
 
+@testset "the destination is a parameter array" begin
+  # a destination that is the weight or label array: every parameter is read before it is written
+  S = Float64
+  γ = 2.0^600
+  w = [2.0^-600, 2.0^600, 2.0^-600]; y = [1.0, 2.0^-600, -1.0]; x = [0.5, -2.0^600, 2.0]
+  want = [prox_entry(HingeLoss(copy(y), copy(w)), x[i], i, γ) for i in 1:3]
+  fw = HingeLoss(copy(y), w)
+  @test PB.prox!(w, fw, x, γ) === w && w == want
+  w2 = [2.0^-600, 2.0^600, 2.0^-600]; y2 = [1.0, 2.0^-600, -1.0]
+  fy = HingeLoss(y2, copy(w2))
+  @test PB.prox!(y2, fy, x, γ) === y2 && y2 == want
+  # LogPenalty lla_weights! into its weight array
+  lw = [1e300, 1.0]
+  f = LogPenalty(1e-200, 1e200, lw)
+  @test PB.lla_weights!(lw, f, [0.5, 0.5]) == [1e-100, 0.0]
+end
+
 end

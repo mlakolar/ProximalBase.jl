@@ -160,7 +160,7 @@ end
 function lla_weights!(w::AbstractArray, f::LogPenalty, x::AbstractArray)
   W = _lla_weights_checked(w, f, x)
   T = eltype(w)
-  if w === x
+  if w === x || w === f.w                      # the repair would read an overwritten argument or weight
     @inbounds for i in eachindex(IndexLinear(), w, x)
       w[i] = convert(T, lla_weight(f, convert(W, x[i]), i))
     end

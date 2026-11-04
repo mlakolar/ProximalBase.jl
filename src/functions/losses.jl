@@ -125,11 +125,12 @@ _has_ordinary_value(::Type{<:HingeLoss}) = true
 # infinite weights included, on a separate call. For a scalar step and unweighted entries γw is
 # invariant, so the test is unswitched out of a loop; an array loop (below) keeps the arithmetic
 # vectorized by testing all entries together.
+@inline _normal_range(ab::R) where {R<:AbstractFloat} = (floatmin(R) <= ab) & (ab <= floatmax(R))
 # The label enters with its sign: (ab·y)·y is (ab·|y|)·|y| bit for bit, and saves the abs.
 @inline function _hinge_step_ordinary(::Type{S}, γ, y::S, w) where {S<:AbstractFloat}
   R = _working_type(S, γ, w)
   ab = convert(R, γ) * convert(R, w)
-  convert(S, (ab * convert(R, y)) * convert(R, y)), (floatmin(R) <= ab) & (ab <= floatmax(R))
+  convert(S, (ab * convert(R, y)) * convert(R, y)), _normal_range(ab)
 end
 @inline function _hinge_step(::Type{S}, γ, y::S, w) where {S<:AbstractFloat}
   s, ok = _hinge_step_ordinary(S, γ, y, w)
@@ -176,16 +177,17 @@ Base.@propagate_inbounds function _hinge_ordinary(f::HingeLoss, v::T, i::Integer
   s, ok = _hinge_step_ordinary(S, γ, y, _entry(f.w, i))
   _hinge_apply(S(v), y, s), ok
 end
+_aliases_parameters(y, f::HingeLoss) = y === f.y || y === f.w
 @inline function _hinge_range_ok(::Type{S}, γ, w) where {S<:AbstractFloat}
   R = _working_type(S, γ, w)
-  ab = convert(R, γ) * convert(R, w)
-  (floatmin(R) <= ab) & (ab <= floatmax(R))
+  _normal_range(convert(R, γ) * convert(R, w))
 end
 function _prox_sep_dense!(y::AbstractArray, f::HingeLoss, x::AbstractArray, γ)
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   T = eltype(y)
   S = float(eltype(x))
+  _aliases_parameters(y, f) && return _prox_sep_recover!(y, f, x, γ)   # entry by entry: each parameter is read before it is written
   ok = true
   if y === x
     @inbounds for i in eachindex(IndexLinear(), x)

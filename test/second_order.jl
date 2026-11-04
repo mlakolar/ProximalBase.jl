@@ -584,6 +584,39 @@ end
     q = quadratic_model(f, [0.0, 0.0])
     @test quadratic_model!(q, f, [0.1, 0.2]) === q
   end
+
+  @testset "the scratch buffers η and d of a loss are two arrays, and not its data" begin
+    # With η === d the staged pair (v, z) = (1, -1) of a Poisson observation at η = 0, y = 0
+    # was written into one array and the model got the weight -1, which passed the check.
+    X = ones(1, 1)
+    mk(y, w, o, η, d) = GLMLoss(PB.Poisson(), y, X, w, o, η, d)   # the positional constructor
+    buf = zeros(1)
+    @test_throws ArgumentError mk([0.0], [1.0], nothing, buf, buf)
+    @test_throws ArgumentError mk([0.0], [1.0], [0.0], buf, buf)
+    for (name, which) in (("y", 1), ("weights", 2), ("offset", 3))
+      for (buffer, other) in (("η", 1), ("d", 2))
+        data = (zeros(1), ones(1), zeros(1))
+        sc = data[which]
+        e = try
+          mk(data[1], data[2], data[3], other == 1 ? sc : zeros(1), other == 2 ? sc : zeros(1))
+          nothing
+        catch e
+          e
+        end
+        @test e isa ArgumentError
+      end
+    end
+    # separate arrays are accepted; so are equal ones, and data shared between y, weights and offset,
+    # which the update only reads
+    f = mk([0.0], [1.0], [0.0], zeros(1), zeros(1))
+    @test f.η !== f.d
+    shared = ones(1)
+    @test mk(shared, shared, shared, zeros(1), zeros(1)) isa GLMLoss
+    @test mk([0.0], [1.0], nothing, zeros(1), zeros(1)) isa GLMLoss
+    # the model of the Poisson observation at η = 0, y = 0, w = 1 is (v, z) = (1, -1)
+    q = quadratic_model(f, [0.0])
+    @test q.weights == [1.0] && q.y == [-1.0]
+  end
 end
 
 @testset "LogDetLoss" begin

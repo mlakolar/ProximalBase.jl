@@ -766,6 +766,12 @@ detected before the first block is written. A later block's failure of kind 2, 3
 or 4, such as `Conjugate`'s check that a finite input gave a finite result, is
 found by computing, and leaves the earlier blocks written.
 
+*Implementation status (not part of the contract).* The failures that do not
+yet behave as O6 states, and the open question of how the paragraph above
+relates to decision 42, are listed in the
+[register of known limitations](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/numerical-contract/known-limitations.md)
+(question Q1 and entries LIM-001 to LIM-012).
+
 A prescribed NaN result is a result, not a failure.
 
 **O7. Aliasing.** `prox!(x, f, x, γ)` and `value_and_prox!(x, f, x, γ)` work

@@ -1017,9 +1017,10 @@ end
 # levels zero the function is zero (the identity at every step, γ = Inf included), and a zero step
 # is the identity for finite levels. The kernel at levels and step zero returns its arguments, so
 # a NaN stays in its own entry. Three scalars per call or per loop, never inside the loop.
+@inline _fused_pair_identity(λ1, λ2, γ) =
+  (iszero(λ1) && iszero(λ2)) || (iszero(γ) && isfinite(λ1) && isfinite(λ2))
 @inline function _fused_pair_levels(λ1::T, λ2::T, γ::T) where {T}
-  (iszero(λ1) && iszero(λ2)) || (iszero(γ) && isfinite(λ1) && isfinite(λ2)) ?
-    (zero(T), zero(T), zero(T)) : (λ1, λ2, γ)
+  _fused_pair_identity(λ1, λ2, γ) ? (zero(T), zero(T), zero(T)) : (λ1, λ2, γ)
 end
 
 function prox(f::NormL1Fused, xy::Tuple{Real, Real}, γ::Real = 1)

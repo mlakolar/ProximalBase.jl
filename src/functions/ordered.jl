@@ -214,7 +214,12 @@ value_and_prox!(y::AbstractVector, f::FusedLasso, x::AbstractVector, γ::Real) =
 # or with σ = -1 the nonincreasing one. Blocks of pooled entries sit on a stack,
 # their sums in s and their sizes in c; a new entry is pooled with the block
 # before it while their means violate the order. O(n); y may be v.
-function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{Int}, σ::Int) where {T}
+# With the argument Val(true) it reports what the pass saw, in the loop it already runs, and returns
+# an Int instead of y: 2 when an entry is NaN (nothing is written to y), otherwise the output is
+# written and the result is 1 when an entry was above the range bound or infinite (the output may
+# then hold a non-finite entry) and 0 when none was. The default Val(false) is the plain pooling.
+function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{Int}, σ::Int,
+                ::Val{D} = Val(false)) where {T, D}
   n = length(v)
   nb = 0
   # with every |vᵢ| ≤ bound, the sums and the products compared below stay below
@@ -222,10 +227,12 @@ function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{In
   # (a power of two ≥ 4n², so the bound is exact in every floating-point type, BigFloat included)
   bound = T <: AbstractFloat ? ldexp(floatmax(T), -(2 * ceil(Int, log2(max(n, 1))) + 2)) : T(Inf)
   over = false
+  nan = false
   @inbounds for i in 1:n
     nb += 1
     e = convert(T, v[i])
     over |= abs(e) > bound
+    D && (nan |= isnan(e))
     s[nb] = e
     c[nb] = 1
     # the means of the last two blocks out of order: s₁/c₁ > s₂/c₂, times σ
@@ -235,8 +242,10 @@ function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{In
       nb -= 1
     end
   end
+  D && nan && return 2
   # an infinite entry also sets the flag, but only a large finite one needs the means
   if over && any(e -> bound < abs(e) < T(Inf), v)
+    D && return (_pava_means!(y, v, s, c, σ); 1)
     return _pava_means!(y, v, s, c, σ)
   end
   i = 0
@@ -247,7 +256,7 @@ function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{In
       y[i] = m
     end
   end
-  y
+  D ? Int(over) : y
 end
 
 # The same in block means, which never leave the range of the entries: for
@@ -289,12 +298,22 @@ end
 # Weighted isotonic regression of x into y, with weights γmin/γᵢ and direction
 # σ. Blocks sit on a stack, their means in m, weights in W and sizes in c;
 # adjacent blocks are pooled while their means violate the order. O(n); y may be x.
-function _wpava!(y, x, γ, γmin, m::Vector{S}, W::Vector{S}, c::Vector{Int}, σ::Int) where {S}
+# With Val(true), as for _pava!: 2 when an entry is NaN (y untouched); otherwise y is written and the
+# result is 1 when an entry is not finite in the working type S (a wider argument entry that overflows
+# is infinite there, and pooling it can store a NaN) and 0 when all are finite, which keeps every mean finite.
+function _wpava!(y, x, γ, γmin, m::Vector{S}, W::Vector{S}, c::Vector{Int}, σ::Int,
+                 ::Val{D} = Val(false)) where {S, D}
   n = length(x)
   nb = 0
+  nan = bad = false
   @inbounds for i in 1:n
     nb += 1
-    m[nb] = convert(S, x[i])
+    mi = convert(S, x[i])
+    if D
+      nan |= isnan(mi)
+      bad |= !isfinite(mi)
+    end
+    m[nb] = mi
     W[nb] = convert(S, γmin) / convert(S, γ[i])
     c[nb] = 1
     while nb > 1 && σ * (m[nb - 1] - m[nb]) > 0
@@ -309,6 +328,7 @@ function _wpava!(y, x, γ, γmin, m::Vector{S}, W::Vector{S}, c::Vector{Int}, σ
       nb -= 1
     end
   end
+  D && nan && return 2
   i = 0
   @inbounds for b in 1:nb
     for _ in 1:c[b]
@@ -316,7 +336,7 @@ function _wpava!(y, x, γ, γmin, m::Vector{S}, W::Vector{S}, c::Vector{Int}, σ
       y[i] = convert(eltype(y), m[b])
     end
   end
-  y
+  D ? Int(bad) : y
 end
 
 ####################################
@@ -379,49 +399,44 @@ end
 # An unordered pair was found: Inf, unless a later entry is NaN.
 @noinline _isotonic_infeasible(x, ::Type{T}) where {T} = any(isnan, x) ? T(NaN) : T(Inf)
 
-# Whether an entry is not finite. One vectorized pass over a float array; the other element types
-# have no such entry.
-@inline function _hasnonfinite(x::AbstractArray)
-  eltype(x) <: AbstractFloat || return false
-  b = false
-  @inbounds @simd for i in eachindex(x)
-    b |= !isfinite(x[i])
-  end
-  b
-end
 @noinline _isotonic_anynan(x) = any(isnan, x)
 
 # The projection of a vector of two or more entries depends on every entry (pooling couples them),
-# so a NaN entry gives NaN everywhere (E2); a single entry is its own projection.
-@noinline function _isotonic_nan!(y::AbstractArray)
-  v = convert(float(eltype(y)), NaN)
-  @inbounds for i in eachindex(y)
-    y[i] = v
+# so a NaN entry gives NaN everywhere (E2); a single entry is its own projection, NaN included.
+@noinline function _isotonic_nan!(y::AbstractArray, x::AbstractArray)
+  if length(y) >= 2
+    v = convert(float(eltype(y)), NaN)
+    @inbounds for i in eachindex(y)
+      y[i] = v
+    end
+  else
+    @inbounds for i in eachindex(y)
+      y[i] = convert(eltype(y), x[i])
+    end
   end
   y
 end
 
-# The value at the stored point (O2): NaN when the pooling stored a NaN (an input NaN, or
-# opposite infinities pooled), 0 otherwise. Pooling finite entries stores no NaN (the sums are
-# kept below floatmax, and large entries are pooled in means), so the stored point is read only when
-# the argument had a non-finite entry.
-@inline function _isotonic_stored_value(y::AbstractArray, nonfinite::Bool)
+# The pooling reports, in the loop it already runs, whether an entry was NaN (2, nothing written),
+# or (1) whether an entry was infinite, above the range bound, or infinite in the working type, and
+# otherwise (0) that the stored point is finite. The value at the stored point (O2) is NaN when the
+# projection stored a NaN (a NaN entry of a vector of two or more entries, or infinite entries
+# pooled to NaN), found by reading the stored point only when the status is not 0.
+@inline function _isotonic_status!(y, x, status::Int)
+  status == 2 && _isotonic_nan!(y, x)
+  status
+end
+@inline function _isotonic_stored_value(y::AbstractArray, status::Int)
   T = _valtype(y)
-  nonfinite && length(y) >= 2 && _isotonic_anynan(y) ? convert(T, NaN) : zero(T)
+  status != 0 && length(y) >= 2 && _isotonic_anynan(y) ? convert(T, NaN) : zero(T)
 end
 
-# The projection for a scalar step; whether the argument had a non-finite entry.
+# The projection for a scalar step; the pooling status (see above).
 function _isotonic_prox!(y::AbstractVector, f::IndIsotonic, x::AbstractVector)
-  length(x) >= 2 || return (_isotonic_pool!(y, f, x); false)
-  nonfinite = _hasnonfinite(x)
-  nonfinite && _isotonic_anynan(x) && return (_isotonic_nan!(y); true)
-  _isotonic_pool!(y, f, x)
-  nonfinite
-end
-function _isotonic_pool!(y, f::IndIsotonic, x)
   T = float(eltype(y))
   n = length(x)
-  _pava!(y, x, _buffer!(f.sums, T, n), _buffer!(f.sizes, Int, n), f.decreasing ? -1 : 1)
+  σ = f.decreasing ? -1 : 1
+  _isotonic_status!(y, x, _pava!(y, x, _buffer!(f.sums, T, n), _buffer!(f.sizes, Int, n), σ, Val(true)))
 end
 
 function prox!(y::AbstractVector, f::IndIsotonic, x::AbstractVector, ::Real)
@@ -634,19 +649,23 @@ function _slope_identity!(y::AbstractVector, x::AbstractVector, ::Type{T}) where
   zero(T)
 end
 
-# Whether the shifts a - γλₖ of the finite path are the same for every k, so that each entry is
-# soft-thresholded on its own. That is decided on the thresholds the call uses: exactly equal weights,
-# or, when the step and the weights are used in the output type T, weights that convert to one T value
-# (the finite path then forms the same product for every k). A weight that does not fit T is recovered
-# in R by the finite path, so only exactly equal weights qualify then.
+# Whether the thresholds the finite path subtracts are the same for every rank, so that each entry is
+# soft-thresholded on its own. That is decided on the thresholds as that path forms them: exactly equal
+# weights, or, when the step and every weight fit the output type T and every product γλₖ is finite
+# (the ordinary shift a - γλₖ), equal rounded products, whatever the weights are. The recovery shift of
+# a weight or step that does not fit depends on the entry, so only exactly equal weights qualify then.
 function _slope_equal_thresholds(λ, γ, ::Type{T}) where {T}
   n = length(λ)
   λ[1] == λ[n] && return true
   _level_fits(T, γ) || return false
-  eltype(λ) === T || all(k -> _level_fits(T, λ[k]), 1:n) || return false
-  λ1 = convert(T, λ[1])
-  @inbounds for k in 2:n
-    convert(T, λ[k]) == λ1 || return false
+  g = convert(T, γ)
+  c1 = zero(T)
+  @inbounds for k in 1:n
+    eltype(λ) === T || _level_fits(T, λ[k]) || return false
+    λk = convert(T, λ[k])
+    c = g * λk
+    (isfinite(c) || isinf(g) || isinf(λk)) || return false
+    k == 1 ? (c1 = c) : (c == c1 || return false)
   end
   true
 end

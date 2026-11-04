@@ -74,6 +74,15 @@ end
   xm = Float32[NaN, 3, 2]
   check_all(fm, xm, 1f0, Float32[NaN, 2, 1])
   check_all(fm, Float32[3, 2, NaN], 1f0, Float32[2, 1, NaN])
+  # distinct weights whose products with the step round to one threshold (normal range, no recovery)
+  let a = nextfloat(nextfloat(1.5f0)), γ = 1.5f0, b = nextfloat(a)
+    λc = Float32[b, a, a]
+    @test a != b && all(==(γ * a), γ .* λc)
+    c = γ * a
+    check_all(SLOPE(λc), Float32[NaN, 4, 3], γ, Float32[NaN, 4 - c, 3 - c])
+    check_all(SLOPE(λc), Float32[4, NaN, -3], γ, Float32[4 - c, NaN, -(3 - c)])
+    @test isnan(value_and_prox!(zeros(Float32, 3), SLOPE(λc), Float32[NaN, 4, 3], γ))
+  end
   # the same weights in Float64 are three different thresholds: all NaN
   check_all(fm, [NaN, 3.0, 2.0], 1.0, fill(NaN, 3))
   # the value and the projection at the stored output
@@ -219,6 +228,24 @@ end
         g === f && @test isnan(v)
       end
     end
+    # zero levels with a zero step (levels and step already zero): the value is masked, the output the input
+    for diagonal in (nothing, z, NormL1Fused(T(0), T(0))), symmetric in (false, true)
+      fb = FiberSum(z; diagonal, symmetric)
+      X = randn(MersenneTwister(5), T, 4, 4, 2)
+      if symmetric
+        X .= (X .+ permutedims(X, (2, 1, 3))) ./ 2
+        X[3, 1, 1] = NaN
+        X[1, 3, 1] = NaN
+      else
+        X[2, 1, 1] = NaN
+        X[1, 4, 2] = NaN
+      end
+      Y = similar(X)
+      @test value_and_prox!(Y, fb, X, T(0)) === zero(T) && isequal(Y, X) && fb(Y) === zero(T)
+      W = copy(X)
+      @test value_and_prox!(W, fb, W, T(0)) === zero(T) && isequal(W, X)
+      @test isequal(prox(fb, X, T(0)), X)
+    end
     # a positive step is not an identity regime: the pair that holds the NaN is coupled, the others are not
     fb = FiberSum(f)
     X = randn(MersenneTwister(1), T, 3, 3, 2); X[1, 2, 1] = NaN
@@ -321,6 +348,21 @@ end
     y = zeros(T, length(xs))
     @test value_and_prox!(y, IndIsotonic(), xs, T(1)) === zero(T) && !any(isnan, y)
     @test value_and_prox!(y, IndIsotonic(), xs, T.(1:length(xs))) === zero(T) && !any(isnan, y)
+  end
+  # an argument entry that is finite but overflows the working type stores a NaN: the value is the one at y
+  let f = IndIsotonic(), x = [1e100, -1e100, 1.0], γ = Float32[1, 2, 3]
+    y = fill(-7f0, 3)
+    v = value_and_prox!(y, f, x, γ)
+    @test isnan(v) && isequal(v, f(y)) && isnan(y[1]) && isnan(y[2])
+    y64 = fill(-7f0, 3)
+    v = value_and_prox!(y64, f, x, 1.0)
+    @test isequal(v, f(y64))
+    for decreasing in (false, true)
+      g = IndIsotonic(; decreasing)
+      yy = zeros(Float32, 3)
+      @test isequal(value_and_prox!(yy, g, x, γ), g(yy))
+      @test isequal(value_and_prox!(yy, g, x, Float32[2, 2, 2]), g(yy))
+    end
   end
   # opposite infinities pool to a NaN that is stored (E3 territory); the value is the one at the stored point
   y = zeros(3)

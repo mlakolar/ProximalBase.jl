@@ -374,14 +374,14 @@ prox!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
 _prox_unchecked!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractArray) =
   (_isotonic_steps!(y, f, x, γ); y)
-# The projection; whether the argument had a non-finite entry (see _isotonic_stored_value).
+# The projection; the pooling status (see _isotonic_stored_value).
 function _isotonic_steps!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   _check_metric_steps(f, γ)
   Base.require_one_based_indexing(γ)
   n = length(x)
-  n == 0 && return false
+  n == 0 && return 0
   T = float(eltype(y))
   S = promote_type(T, float(eltype(γ)))
   γmin = γmax = γ[1]
@@ -394,15 +394,13 @@ function _isotonic_steps!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ
   end
   iszero(convert(S, γmin) / convert(S, γmax)) &&
     throw(ArgumentError("the ratio of the largest to the smallest step of IndIsotonic is too large to represent"))
-  nonfinite = n >= 2 && _hasnonfinite(x)
-  nonfinite && _isotonic_anynan(x) && return (_isotonic_nan!(y); true)   # NaN couples every entry, as for a scalar step
   σ = f.decreasing ? -1 : 1
-  if equal
-    _pava!(y, x, _buffer!(f.sums, T, n), _buffer!(f.sizes, Int, n), σ)
+  status = if equal
+    _pava!(y, x, _buffer!(f.sums, T, n), _buffer!(f.sizes, Int, n), σ, Val(true))
   else
-    _wpava!(y, x, γ, γmin, _buffer!(f.means, S, n), _buffer!(f.weights, S, n), _buffer!(f.sizes, Int, n), σ)
+    _wpava!(y, x, γ, γmin, _buffer!(f.means, S, n), _buffer!(f.weights, S, n), _buffer!(f.sizes, Int, n), σ, Val(true))
   end
-  nonfinite
+  _isotonic_status!(y, x, status)       # a NaN couples every entry, as for a scalar step
 end
 
 # The projection onto a hyperplane in the metric of Diagonal(1 ./ γ),

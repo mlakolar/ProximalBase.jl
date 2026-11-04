@@ -338,12 +338,12 @@ end
     _fiberprox_pairs!(y, fb, x, γT, s, o, T, v, Val(true))
 end
 
-# Whether the function of the off-diagonal pairs or the diagonal function is an identity regime.
+# Whether the function of the off-diagonal pairs or the diagonal function is in an identity regime
+# (both levels zero, or a zero step): the condition itself, also when levels and step are already zero.
 @inline function _fused_fiber_identity(fb, ::Type{T}, γT) where {T}
   f = fb.f
-  _fused_pair_levels(T(f.λ1), T(f.λ2), γT) !== (T(f.λ1), T(f.λ2), γT) ||
-    (fb.diagonal !== nothing &&
-     _fused_pair_levels(T(fb.diagonal.λ1), T(fb.diagonal.λ2), γT) !== (T(fb.diagonal.λ1), T(fb.diagonal.λ2), γT))
+  _fused_pair_identity(T(f.λ1), T(f.λ2), γT) ||
+    (fb.diagonal !== nothing && _fused_pair_identity(T(fb.diagonal.λ1), T(fb.diagonal.λ2), γT))
 end
 
 # Specialize the loop rules so the midpoint fallback does not inhibit vectorization.

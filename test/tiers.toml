@@ -132,6 +132,7 @@ thorough = [
   "metric",
   "nonfinite_inputs",
   "nonfinite_scalar",
+  "ordered_nan",
   "partial",
   "polyhedron",
   "precision",

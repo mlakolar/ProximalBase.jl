@@ -125,14 +125,25 @@ end
 @noinline function _hinge_step_exceptional(::Type{S}, γ, ay, w) where {S<:AbstractFloat}
   R = _working_type(S, γ, w)
   g, v, y = convert(R, γ), convert(R, w), convert(R, ay)
-  _recoverable_factors(g, v, y) || return _weight_coefficient(S, γ, ay, w * ay)   # zero, infinite, NaN: the weight decides
-  # significands in [1/2, 1) have no range problem; the combined exponent is split over the two
+  if !_recoverable_factors(g, v, y)
+    isfinite(y) & !iszero(y) || return _weight_coefficient(S, γ, ay, w * ay)   # not a label
+    # zero, infinite and NaN parameters: an infinite weight gives Inf and a zero weight 0 at every
+    # step, otherwise a zero step gives 0 and an infinite step Inf
+    (isnan(g) | isnan(v)) && return S(NaN)
+    isinf(v) && return S(Inf)
+    iszero(v) && return zero(S)
+    return iszero(g) ? zero(S) : S(Inf)
+  end
+  # significands in [1/2, 1) have no range problem; the combined exponent E is split over the two
   # factors that the exact scaled product then rounds once, so that no factor is rounded early
-  # where it is subnormal. The two significand products add a rounding of 2⁻ᵖ before it.
+  # where it is subnormal. The two significand products add a rounding of 2⁻ᵖ before it. The step
+  # lies in [2^(E-4), 2^E): beyond the range of R it is Inf or zero.
   mg, eg = frexp(g)
   mv, ev = frexp(v)
   my, ey = frexp(y)
   E = eg + ev + 2ey
+  E > exponent(floatmax(R)) + 5 && return S(Inf)
+  E < exponent(nextfloat(zero(R))) && return zero(S)
   E1 = E ÷ 2
   A, B = ldexp(mg * mv, E1), ldexp(my * my, E - E1)
   convert(S, _scaled_coefficient(A, B, one(R), A * B))

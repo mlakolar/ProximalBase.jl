@@ -67,6 +67,14 @@ end
   @test px(HingeLoss([1.0, -1.0], [1.0, 1.0]), [-1.0, 1.0], 0.5) == [-0.5, 0.5]
   # zero and infinite weights
   @test px(HingeLoss(nothing, Float32[0, Inf]), [-1.0, -1.0], big32) == [-1.0, 1.0]
+  # a step beyond floatmax is Inf (the margin goes to 1, result 1/y), not a finite wrong value
+  @test ProximalBase._hinge_step(Float64, 2.0^600, 2.0^500, 2.0^600) == Inf
+  @test ProximalBase._hinge_step(Float64, 2.0^1023, 2.0^3, 2.0^1023) == Inf
+  @test px(HingeLoss([2.0^500], [2.0^600]), [-2.0^400], 2.0^600) == [2.0^-500]
+  # a zero step is the identity although w|y| overflows; an infinite step with a tiny weight is the fixed point 1/y
+  @test px(HingeLoss([-3.0], [floatmax(Float64)]), [1.5], 0.0) == [1.5]
+  @test px(HingeLoss([-3f0], [floatmax(Float32)]), [1.5f0], 0f0) == [1.5f0]
+  @test px(HingeLoss([2.0^-30], [5e-324]), [0.9], Inf) == [2.0^30]
   # integer labels and weights
   @test px(HingeLoss([1, -1], [1, 1]), [-1.0, 1.0], 0.5) == [-0.5, 0.5]
   # a subnormal weight with a label below one: the step is not rounded in two stages. v = 0 gives s/y

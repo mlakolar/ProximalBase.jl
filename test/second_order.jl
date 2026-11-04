@@ -498,6 +498,16 @@ end
       @test q isa GLMLoss && !(all(isfinite, q.y) && all(isfinite, q.weights))
       @test quadratic_model!(q, f, [0.25]) === q
     end
+    # a non-finite response at a predictor where exp overflows (or the coefficient is not representable):
+    # the data are not finite, so the update returns and the response is not finite; no PrecisionError,
+    # and the in-place update equals the allocating one
+    for T in (Float64, Float32), η in (T(89), T(710), T(1e4)), y in (T(NaN), T(Inf), T(-Inf)), w in (T(1), T(1 / 8))
+      f = PoissonLoss(T[y], ones(T, 1, 1); weights = T[w], offset = T[η])
+      q = quadratic_model(f, T[0])
+      @test !isfinite(q.y[1])
+      @test quadratic_model!(q, f, T[0]) === q
+      @test isequal(q.y, quadratic_model(f, T[0]).y) && isequal(q.weights, quadratic_model(f, T[0]).weights)
+    end
     # zero weights: a zero-weight observation with a non-finite or overflowing predictor is zero, whatever its data
     f = PoissonLoss([NaN, 0.0, 1.0], [1.0; 720.0; 1.0;;]; weights = [0.0, 0.0, 1.0])
     q = quadratic_model(f, [1.0])

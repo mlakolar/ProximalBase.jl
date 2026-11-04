@@ -278,10 +278,20 @@ and its conjugate value under such a product throws instead of returning a wrong
 `value_and_prox!` of the conjugate then leaves its output as it was, however many ordinary wrappers
 (`Scaled`, `Translate`, `SingularValue`, `SeparableSum`) lie above the chain. An indicator has the same
 optimality violation under every finite positive factor.
-The levels fold through `Translate`, `Sum` and `SeparableSum` of such functions. Two cases are not
-recovered: the value of a chain whose leaf value overflows while the folded level is itself not a
-number in range, and an array step whose entries leave the range after the factors are applied
-(`Scaled(f, a)` with a single factor behaves the same). Exact zero and `Inf` scales merge as before.
+The levels fold through `Translate`, `Sum` and `SeparableSum` of such functions. A single
+`Scaled(f, a)` takes the route of a chain for a scalar step whose product with `a` is not a normal
+number (zero, infinite, negative and NaN steps, and indicators, keep their path). An array step
+takes the whole factor into the levels and passes the caller's array on unchanged; when the product
+of the levels and the factors is not a normal number, a power of two that centres the exponents of
+the entries moves from the step into the levels, which reads the step once and only on this route.
+A chain takes the route always. A single factor takes it when it lies outside the band `2^-E` to
+`2^E`, `E` a quarter of the exponent range of the element type (255 for `Float64`, 31 for
+`Float32`), a test on the factor alone, so that an ordinary call reads nothing more than before; for
+a factor inside the band, an entry of the step that is itself within `E` of a limit of the range is
+rounded together with the factor. Not recovered: the value of a chain whose leaf value overflows
+while the folded level is itself not a number in range; array-step entries whose exponents spread too
+far for the levels to hold them, which are rounded with the factors; and the steps of a function
+without levels to fold. Exact zero and `Inf` scales merge as before.
 
 **R2. Gradients and closed-form proximal outputs.** Each entry of a gradient,
 and each entry of a proximal output computed in closed form, follows R1's

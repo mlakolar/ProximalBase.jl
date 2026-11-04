@@ -121,7 +121,19 @@ is the penalty `1e-100 * norm(x, 1)`. The levels are folded through `Translate`,
 `SeparableSum` of such functions (indicators and the zero function pass through). The conjugate
 value of a function without levels to fold, under a product that is not a number in range,
 throws. Not recovered: the value of a chain whose leaf value overflows while the folded level is
-itself not a number in range, and the entries of an array step that the factors take out of range.
+itself not a number in range.
+
+A step is not rounded together with the factors. For a scalar step whose product with the
+factor is not a normal number, the exponent of the factors and of the step goes into the levels
+(for a single factor as for a chain). An array step takes the whole factor into the levels and
+passes the caller's array on unchanged; when the product of the levels and the factors is not a
+normal number, a power of two that centres the exponents of the entries moves from the step into the
+levels (the step is read once, only then). A single factor takes the array route when it lies outside
+the band `2^-E` to `2^E`, with `E` a quarter of the exponent range of the element type (255 for
+`Float64`, 31 for `Float32`), so that an ordinary call reads nothing more than before; for a factor
+inside the band, an entry of the step that is itself within `E` of a limit of the range is rounded
+together with the factor. Array-step entries whose exponents spread too far for the levels to hold
+them are rounded, and so are the steps of a function without levels to fold.
 A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its value, gradient and
 Hessian product at its own scale before the factors are applied, so an intermediate that leaves the
 range is lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` has

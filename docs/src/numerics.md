@@ -760,6 +760,12 @@ Neither is a numerical bug.
    library's exception propagates, and the function documents which outputs
    remain valid. There is no rollback.
 
+In a sum over blocks, slices or fibers (`SeparableSum`, `SliceSum`, `FiberSum`),
+only the failures of kind 1 that the functions check before writing are
+detected before the first block is written. A later block's failure of kind 2, 3
+or 4, such as `Conjugate`'s check that a finite input gave a finite result, is
+found by computing, and leaves the earlier blocks written.
+
 A prescribed NaN result is a result, not a failure.
 
 **O7. Aliasing.** `prox!(x, f, x, γ)` and `value_and_prox!(x, f, x, γ)` work

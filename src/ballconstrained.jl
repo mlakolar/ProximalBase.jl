@@ -35,6 +35,21 @@ the minimizers of `f`. On the sphere, `γ = Inf` is a step when the level is zer
 or some free entry (group) has weight zero, and projects onto the sphere within
 the zero-penalty entries; when every free entry (group) is penalized it throws.
 
+For a `NormL1` `f`, an argument with a NaN or infinite entry has these limits
+(decision 48). An entry with an infinite weight is hard-fixed: its output is zero
+whatever the argument. A NaN free entry, or two infinite free entries, give NaN in
+every free output, since their limit depends on how the argument diverges. One
+infinite free entry gives ±r there and zero elsewhere, the limit along finite
+arguments; in a `SymmetricSparseIterate` a mirrored off-diagonal pair is one
+entry, with limit ±r/√2 in each of its two entries. At `γ = Inf` the penalized
+entries are zero and project nothing, so only the free entries are governed. A NaN
+penalized entry at `γ = Inf` is a fixed endpoint, and leaves the free outputs as
+they are. An infinite penalized entry at `γ = Inf` is a joint limit in the argument
+and the step: with `x = (M, 0)`, `γ = M/2` gives the limit `(1, 0)` and `γ = 2M`
+gives `(0, 0)`, so the limit has no unique value. The output is then NaN in every entry
+that is not hard-fixed, the penalized ones included (and the value is NaN). A sphere with no entry of finite threshold throws an
+`ArgumentError` before anything is written.
+
 ```julia
 u = prox(Constrained(NormL1(λ), IndBallL2(1)), X * v)        # the step of the penalized matrix decomposition
 u = prox(Constrained(IndBallL0(k), IndSphereL2(1)), S * u)    # the truncated power method
@@ -132,6 +147,27 @@ value_and_prox!(y::AbstractArray, c::BallConstrained, x::AbstractArray, γ::Real
 function _value_and_prox_unchecked!(y::AbstractArray, c::BallConstrained, x::AbstractArray, γ::Real)
   _checkstep_nonneg(γ)
   _checkwrite(value_and_prox!, c, y, x)
+  _ball_projection!(y, c, x, γ)
+end
+# NormL1 on the ball. An argument with a NaN or infinite entry takes the exceptional path. When y may be x,
+# the argument is classified before anything is written. Otherwise x is intact, and the projection
+# stores a nonfinite norm exactly when some entry of x is NaN or infinite in a coordinate that is not
+# hard-fixed (a hard-fixed one may store NaN too, which only sends it to the exact path): the projection
+# then takes the exceptional path, which reads x. A finite argument takes the ordinary path, unchanged.
+function _value_and_prox_unchecked!(y::AbstractArray, c::BallConstrained{<:NormL1}, x::AbstractArray, γ::Real)
+  _checkstep_nonneg(γ)
+  _checkwrite(value_and_prox!, c, y, x)
+  _l1_ball_host(c, y, x) || return _ball_projection!(y, c, x, γ)
+  if Base.mightalias(y, x)
+    _has_nonfinite(x) && return _l1_nonfinite!(y, c, x, γ)
+    return _ball_projection!(y, c, x, γ)
+  end
+  v, ny = _ball_core!(y, c, x, γ)
+  isfinite(ny) ? v : _l1_nonfinite!(y, c, x, γ)
+end
+# the projection in y, its value and the norm of the stored point before scaling (nonfinite exactly when
+# the argument has a nonfinite entry in a coordinate that is not hard-fixed, for a NormL1: see above)
+function _ball_core!(y::AbstractArray, c::BallConstrained, x::AbstractArray, γ::Real)
   T = float(eltype(y))
   v = _value_and_inner_prox!(y, c.f, x, γ, T)
   ny = convert(T, _norm2(y))
@@ -141,8 +177,9 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::BallConstrained, x::Abs
     v = isfinite(v) && ny >= floatmin(T) && isfinite(t) && t >= floatmin(T) ? v * t :
         (_isindicator(c.f) ? zero(T) : convert(T, _value_unchecked(c.f, y)))
   end
-  v
+  v, ny
 end
+_ball_projection!(y::AbstractArray, c::BallConstrained, x::AbstractArray, γ::Real) = first(_ball_core!(y, c, x, γ))
 
 ####################################
 #  on the sphere
@@ -403,7 +440,7 @@ function _value_and_prox_unchecked!(y::SymmetricSparseIterate, c::SphereConstrai
     better && ((k, kr, kc, bestn, bestc) = (i, row, col, n, threshold))
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
-  nonfinite && return _sphere_nonfinite!(y, T)
+  nonfinite && return _l1_sphere_nonfinite(y, c, x, γ)
   if bestn > bestc
     return _sphere_l1_shrink!(y, x, f, γ, r, U, T, _LowerLayout(size(y, 1)))
   end
@@ -431,7 +468,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Nor
     (k == 0 || isinf(bestc) || (!isinf(threshold) && _margin_better(n, threshold, bestn, bestc))) && ((k, bestn, bestc) = (i, n, threshold))
   end
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
-  nonfinite && return _sphere_nonfinite!(y, T)
+  nonfinite && return _l1_sphere_nonfinite(y, c, x, γ)
   bestn > bestc && return _sphere_l1_shrink!(y, x, f, γ, r, U, T, _DenseLayout())
   negative = signbit(x[k])
   fill!(y, zero(eltype(y)))
@@ -545,6 +582,183 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{IndBa
   end
   zero(T)
 end
+
+####################################
+#  NormL1 on a ball or sphere at NaN and infinite arguments (#469, Stage 3A)
+####################################
+
+# The coordinates of the output that the projection of a NormL1 governs. A coordinate with an infinite
+# weight is hard-fixed: outside the domain, its output is zero whatever its argument holds (E2). Any
+# other coordinate has the threshold γλ0w: zero for a free coordinate (a zero weight, a zero level or a
+# zero step), positive for a penalized one, and infinite for a penalized one at γ = Inf. At γ = Inf the
+# penalized coordinates are zero at every finite argument, so they do not govern their outputs, and an
+# infinite one among them is a joint limit in x and γ, which has no unique value (E3).
+const _HARD_L1 = 0
+const _FREE_L1 = 1
+const _PENALIZED_L1 = 2
+
+@inline function _l1_class(f::NormL1, γ, ::Type{U}, k) where {U}
+  isinf(_entry(f.w, k)) && return _HARD_L1
+  iszero(_weight_product(U, γ, f.λ0, _entry(f.w, k))) ? _FREE_L1 : _PENALIZED_L1
+end
+@inline _governed_l1(cls, γ) = cls == _FREE_L1 || (cls == _PENALIZED_L1 && !isinf(γ))
+
+@inline _layout_get(::_DenseLayout, x, k) = x[k]
+@inline _layout_get(L::_LowerLayout, x, k) = x[mod1(k, L.p), cld(k, L.p)]
+_layout_zero!(::_DenseLayout, xs, k) = (xs[k] = zero(eltype(xs)); xs)
+function _layout_zero!(L::_LowerLayout, xs, k)
+  row, col = mod1(k, L.p), cld(k, L.p)
+  xs[row, col] = xs[col, row] = zero(eltype(xs))
+  xs
+end
+
+# What x holds over the governed coordinates: NaN entries, infinite entries (the first one, with its sign)
+# and whether an infinite penalized coordinate at γ = Inf makes the joint limit ambiguous. `finite` says
+# that some coordinate that is not hard-fixed has a finite threshold, so that the sphere is feasible.
+struct _L1Reading
+  nan::Int
+  inf::Int
+  first::Int
+  sign::Int
+  joint::Bool
+  finite::Bool
+end
+
+function _l1_reading(L, x, f::NormL1, γ, ::Type{U}) where {U}
+  nan = inf = first = sgn = 0
+  joint = finite = false
+  for k in _layout_indices(L, x)
+    cls = _l1_class(f, γ, U, k)
+    cls == _HARD_L1 && continue
+    finite |= isfinite(_weight_product(U, γ, f.λ0, _entry(f.w, k)))
+    v = _layout_get(L, x, k)
+    if _governed_l1(cls, γ)
+      if isnan(v)
+        nan += 1
+      elseif isinf(v)
+        inf += 1
+        inf == 1 && ((first, sgn) = (k, Int(sign(v))))
+      end
+    else
+      joint |= isinf(v)
+    end
+  end
+  _L1Reading(nan, inf, first, sgn, joint, finite)
+end
+
+# A copy of x, symmetric as x is, in which every coordinate that the projection does not govern is zero:
+# the finite kernel then projects the governed coordinates alone (their thresholds and norms do not
+# involve the zeroed ones, whose outputs are zero).
+function _l1_surrogate(L, x, f::NormL1, γ, ::Type{U}) where {U}
+  xs = Array{float(eltype(x))}(undef, size(x))
+  for k in eachindex(IndexLinear(), x)
+    xs[k] = x[k]
+  end
+  for k in _layout_indices(L, x)
+    _governed_l1(_l1_class(f, γ, U, k), γ) && continue
+    _layout_zero!(L, xs, k)
+  end
+  xs
+end
+
+# The output that takes NaN on the governed coordinates (every coordinate that is not hard-fixed when
+# joint, the joint limit) and zero elsewhere.
+function _l1_write_nan!(y, L, f::NormL1, γ, ::Type{U}, joint::Bool) where {U}
+  fill!(y, zero(eltype(y)))
+  nanv = convert(eltype(y), NaN)
+  for k in _layout_indices(L, y)
+    cls = _l1_class(f, γ, U, k)
+    cls == _HARD_L1 && continue
+    (joint || _governed_l1(cls, γ)) && _layout_put!(L, y, k, nanv)
+  end
+  y
+end
+
+# The output at a single infinite governed coordinate: ±r there, zero elsewhere. A mirrored pair of a
+# SymmetricSparseIterate is one coordinate counted twice in the norm (M2), so each entry of the pair is
+# ±r/√2.
+function _l1_write_unit!(y, L::_LowerLayout, rd::_L1Reading, r)
+  fill!(y, zero(eltype(y)))
+  k = rd.first
+  row, col = mod1(k, L.p), cld(k, L.p)
+  scale = row == col ? one(r) : sqrt(oftype(r, 2))
+  _layout_put!(L, y, k, convert(eltype(y), rd.sign * r / scale))
+  y
+end
+function _l1_write_unit!(y, L::_DenseLayout, rd::_L1Reading, r)
+  fill!(y, zero(eltype(y)))
+  _layout_put!(L, y, rd.first, convert(eltype(y), rd.sign * r))
+  y
+end
+
+# The projection at an argument with a NaN or infinite entry (E2, E3, M2). The argument is read before
+# anything is written, so y may be x. Nothing is classified from a narrowed copy: the entries are those of
+# the argument, after the symmetrization that the caller applied.
+#  - a joint infinite penalized coordinate at γ = Inf: NaN over every coordinate that is not hard-fixed;
+#  - a NaN governed coordinate, or two or more infinite ones: NaN over the governed coordinates;
+#  - one infinite governed coordinate: ±r there (±r/√2 in a mirrored pair), zero elsewhere;
+#  - otherwise the finite projection of the governed coordinates, which is the finite kernel's, run on a copy.
+# A sphere with no coordinate of finite threshold is infeasible and throws before anything is written.
+function _l1_nonfinite!(y::AbstractArray, c, x::AbstractArray, γ::Real)
+  T = float(eltype(y))
+  U = promote_type(float(eltype(x)), T)
+  f = c.f
+  sphere = c isa SphereConstrained
+  r = convert(T, sphere ? c.sphere.r : c.ball.r)
+  L = y isa SymmetricSparseIterate ? _LowerLayout(size(y, 1)) : _DenseLayout()
+  if !sphere && iszero(r)                      # the ball of radius zero is the singleton {0}
+    fill!(y, zero(eltype(y)))
+    return zero(T)
+  end
+  rd = _l1_reading(L, x, f, γ, U)
+  sphere && !rd.finite &&
+    throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step, and give some entry a finite weight"))
+  if isinf(γ) && rd.joint
+    _l1_write_nan!(y, L, f, γ, U, true)
+  elseif rd.nan > 0 || rd.inf > 1
+    _l1_write_nan!(y, L, f, γ, U, false)
+  elseif rd.inf == 1
+    _l1_write_unit!(y, L, rd, r)
+  else
+    return _finite_l1!(y, c, _l1_surrogate(L, x, f, γ, U), γ)
+  end
+  # O2: the value at the stored point, which is NaN wherever the stored point is: a zero weight
+  # would otherwise make the NaN entry a zero contribution to the value
+  any(isnan, y) ? convert(T, NaN) : convert(T, _value_unchecked(f, y))
+end
+
+# The exceptional path is taken only for a host argument with a finite radius; a device array keeps the
+# finite kernels (its exceptional coordinates are not classified yet: #366).
+# A sum of a NaN or infinite entry is not finite, and a sum of finite entries that overflows only sends the
+# argument to the exact classifier, which then runs the finite kernel as before. The sum is vectorized,
+# where a scan with a Boolean accumulator is not.
+_has_nonfinite(x::AbstractArray) = !isfinite(sum(x))
+# a sparse iterate has zeros outside its stored values, so only those are read (O(nnz), not O(length))
+_has_nonfinite(x::Union{SparseIterate, SymmetricSparseIterate}) = !isfinite(sum(view(x.nzval, 1:x.nnz)))
+_l1_ball_host(c::BallConstrained, y, x) = isfinite(c.ball.r) && !_is_device_array(x) && !_is_device_array(y)
+# the finite projection of a surrogate, which is finite by construction: the kernel itself, not its dispatch.
+# A ball whose output is narrower than the argument can overflow in the output type before the scaling
+# (a finite 1e100 stored in Float32): then the same kernel runs in the wider type and the result is narrowed.
+_finite_l1!(y, c::BallConstrained, x, γ) = _finite_ball!(y, c, x, γ, promote_type(float(eltype(x)), float(eltype(y))))
+_finite_l1!(y, c::SphereConstrained, x, γ) = _value_and_prox_unchecked!(y, c, x, γ)
+function _finite_ball!(y, c, x, γ, ::Type{U}) where {U}
+  T = float(eltype(y))
+  U === T && return _ball_projection!(y, c, x, γ)
+  b = similar(y, U)
+  _ball_core!(b, c, x, γ)
+  _narrow_into!(y, b)
+  # O2: the value at the stored output, not at the wider intermediate point, which can have a
+  # larger value (a coordinate that underflows to zero in y) or be infinite in T
+  any(isnan, y) ? convert(T, NaN) : convert(T, _value_unchecked(c.f, y))
+end
+_narrow_into!(y::SymmetricSparseIterate, b) = (p = size(y, 1); for c in 1:p, r in c:p
+    y[r, c] = convert(eltype(y), b[r, c])
+  end; y)
+_narrow_into!(y::AbstractArray, b) = (for k in eachindex(IndexLinear(), y)
+    y[k] = convert(eltype(y), b[k])
+  end; y)
+_l1_sphere_nonfinite(y, c, x, γ) =
+  _is_device_array(x) || _is_device_array(y) ? _sphere_nonfinite!(y, float(eltype(y))) : _l1_nonfinite!(y, c, x, γ)
 
 ####################################
 #  steps, checked before any block of a sum is written

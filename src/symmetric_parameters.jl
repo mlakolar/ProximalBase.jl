@@ -331,9 +331,31 @@ _check_hessian_shape(f, x, Hv, v) = true
 _check_hessian_shape(f::Union{ZeroFunction, LinearFunction, SqrNormL2}, x, Hv, v) =
   (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x))
 _check_hessian_shape(f::KronQuadratic, x, Hv, v) = (_checkshape(f, Hv); _checkshape(f, x))
+# The dimension errors of the products, found before a sum writes anything.
+# Each method takes the arguments that its hessian_vec! takes.
+@noinline _throw_product_shape(f, x) = throw(DimensionMismatch("the product with $(nameof(typeof(f))) does not fit an argument of size $(size(x))"))
+function _check_hessian_shape(f::QuadraticFunction, x::AbstractVector, Hv::AbstractVector, v::AbstractVector)
+  _checksize(Hv, x); _checkdirection(v, x)
+  length(x) == size(f.A, 2) || _throw_product_shape(f, x)
+  true
+end
+function _check_hessian_shape(f::LeastSquaresLoss, x::AbstractVecOrMat, Hv::AbstractVecOrMat, v::AbstractVecOrMat)
+  _checksize(Hv, x); _checkdirection(v, x)
+  size(x, 1) == size(f.X, 2) && size(x, 2) == size(f.tmp, 2) || _throw_product_shape(f, x)
+  true
+end
+_check_hessian_shape(f::GLMLoss, x::AbstractVector, Hv::AbstractVector, v::AbstractVector) =
+  (_checksize(Hv, x); _checkdirection(v, x); _checkpredictor(f, x); true)
+function _check_hessian_shape(f::LogDetLoss, x::AbstractMatrix, Hv::AbstractMatrix, v::AbstractMatrix)
+  _checksize(Hv, x); _checkdirection(v, x)
+  size(x) == size(f.S) || _throw_product_shape(f, x)
+  true
+end
 _check_hessian_shape(f::Union{Scaled, Tilt}, x, Hv, v) =
   (_checkparams(f, x); _check_hessian_shape(f.f, x, Hv, v))
 _check_hessian_shape(f::Translate, x, Hv, v) = _check_hessian_shape(f.f, _checkshifted(f, x), Hv, v)
+_check_hessian_shape(f::Precompose, x::AbstractArray, Hv, v) =
+  (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f.f, _checkimage(f, x)); true)
 _check_hessian_shape(f::Precompose, x, Hv, v) = (_checksize(Hv, x); _checkdirection(v, x))
 _check_hessian_shape(f::Regularize, x, Hv, v) =
   (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x); _check_hessian_shape(f.f, x, Hv, v))

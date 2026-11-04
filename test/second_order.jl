@@ -441,6 +441,33 @@ end
   out = fill(-1.0, 2, 2)
   @test_throws DimensionMismatch hessian_vec!(out, Sum(SqrNormL2(), kron), A, A)
   @test all(==(-1.0), out)
+  # a later built-in whose product cannot take the argument: every built-in with a Hessian,
+  # for an array and for a block of a tuple
+  rng = Xoshiro(3)
+  mismatched = (
+    "QuadraticFunction" => (QuadraticFunction(Matrix(1.0I, 3, 3)), [1.0, 2.0], [3.0, 4.0]),
+    "LeastSquaresLoss" => (LeastSquaresLoss(randn(rng, 6), randn(rng, 6, 3)), [1.0, 2.0], [3.0, 4.0]),
+    "LogisticLoss" => (LogisticLoss(Float64.(rand(rng, Bool, 6)), randn(rng, 6, 3)), [1.0, 2.0], [3.0, 4.0]),
+    "PoissonLoss" => (PoissonLoss(rand(rng, 0:3, 6), randn(rng, 6, 3)), [1.0, 2.0], [3.0, 4.0]),
+    "LogDetLoss" => (LogDetLoss(Matrix(1.0I, 3, 3)), Matrix(1.0I, 2, 2), Matrix(2.0I, 2, 2)),
+    "Precompose" => (Precompose(SqrNormL2(), Matrix(1.0I, 3, 4), 1.0), [1.0, 2.0], [3.0, 4.0]))   # A A' = I
+  for (name, (q, xq, vq)) in mismatched
+    @testset "$name" begin
+      out = fill(-7.0, size(xq))
+      @test_throws DimensionMismatch hessian_vec!(out, Sum(SqrNormL2(), q), xq, vq)
+      @test all(==(-7.0), out)
+      @test_throws DimensionMismatch hessian_vec!(out, Sum(SqrNormL2(), Scaled(q, 2)), xq, vq)
+      @test all(==(-7.0), out)
+      # the same function as a block of a tuple, after a block that is written first
+      xt, vt = (x[1], xq), (v[1], vq)
+      outt = (fill(-7.0, size(x[1])), fill(-7.0, size(xq)))
+      @test_throws DimensionMismatch hessian_vec!(outt, Sum(SeparableSum(SqrNormL2(), SqrNormL2()), SeparableSum(SqrNormL2(), q)), xt, vt)
+      @test all(==(-7.0), outt[1]) && all(==(-7.0), outt[2])
+      outt = (fill(-7.0, size(x[1])), fill(-7.0, size(xq)))
+      @test_throws DimensionMismatch hessian_vec!(outt, SeparableSum(SqrNormL2(), q), xt, vt)
+      @test all(==(-7.0), outt[1]) && all(==(-7.0), outt[2])
+    end
+  end
   # a built-in later function without a Hessian
   nohessian = SeparableSum(SqrNormL2(), NormL1(1.))
   @test !hashessian(Sum(s, nohessian))

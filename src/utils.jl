@@ -641,6 +641,23 @@ end
 # loop over a range is three times faster than one through iterate.
 function _simplex_threshold!(buf::AbstractVector{T}, x::AbstractArray, idx::AbstractVector{<:Integer}, a::T,
                              f::F = identity) where {T, F}
+  _simplex_pass!(buf, x, idx, a, f, Val(false))
+end
+
+# The same level, except that a NaN entry gives a NaN level. Condat's pass discards a NaN
+# (`NaN > ρ` is false) and the level stays finite; with the comparisons written as the
+# negations of their opposites (`!(y <= ρ)`, which is the same test on every other value) a NaN
+# is above every level, joins the candidates and its sum is NaN for good. The code is that of
+# the plain pass with other comparisons: no flag, no second pass. Only the equality simplex
+# uses it; the plain callers compile to the code they had (`Val(false)`).
+_simplex_threshold_strict!(buf::AbstractVector{T}, x::AbstractArray, idx::AbstractVector{<:Integer}, a::T,
+                           f::F = identity) where {T, F} = _simplex_pass!(buf, x, idx, a, f, Val(true))
+
+@inline _above(y, ρ, ::Val{false}) = y > ρ
+@inline _above(y, ρ, ::Val{true}) = !(y <= ρ)
+
+@inline function _simplex_pass!(buf::AbstractVector{T}, x::AbstractArray, idx::AbstractVector{<:Integer}, a::T,
+                                f::F, strict::Val) where {T, F}
   n = length(idx)
   n == 0 && return zero(T)
   j0 = firstindex(idx)
@@ -664,20 +681,20 @@ function _simplex_threshold!(buf::AbstractVector{T}, x::AbstractArray, idx::Abst
   @inbounds while j + 3 <= jend
     y₁, y₂ = convert(T, f(x[idx[j]])), convert(T, f(x[idx[j + 1]]))
     y₃, y₄ = convert(T, f(x[idx[j + 2]])), convert(T, f(x[idx[j + 3]]))
-    if (y₁ > ρ) | (y₂ > ρ) | (y₃ > ρ) | (y₄ > ρ)
-      nt, nv, s, ρ, many = _condat_step!(buf, y₁, nt, nv, s, ρ, a, cap)
-      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₂, nt, nv, s, ρ, a, cap))
-      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₃, nt, nv, s, ρ, a, cap))
-      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₄, nt, nv, s, ρ, a, cap))
+    if _above(y₁, ρ, strict) | _above(y₂, ρ, strict) | _above(y₃, ρ, strict) | _above(y₄, ρ, strict)
+      nt, nv, s, ρ, many = _condat_step!(buf, y₁, nt, nv, s, ρ, a, cap, strict)
+      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₂, nt, nv, s, ρ, a, cap, strict))
+      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₃, nt, nv, s, ρ, a, cap, strict))
+      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₄, nt, nv, s, ρ, a, cap, strict))
       many && break
     end
     j += 4
   end
   @inbounds while !many && j <= jend
-    nt, nv, s, ρ, many = _condat_step!(buf, convert(T, f(x[idx[j]])), nt, nv, s, ρ, a, cap)
+    nt, nv, s, ρ, many = _condat_step!(buf, convert(T, f(x[idx[j]])), nt, nv, s, ρ, a, cap, strict)
     j += 1
   end
-  many && return _simplex_threshold_michelot(x, idx, a, f)
+  many && return _simplex_threshold_michelot(x, idx, a, f, strict)
   _simplex_finish!(buf, nt, nv, s, a)
 end
 
@@ -685,9 +702,10 @@ end
 # joins the candidates when their level with y, (s + y - a)/(nv + 1), exceeds
 # y - a, and starts them anew if not. The last value is true when more than cap
 # entries have become candidates.
-@inline function _condat_step!(buf::AbstractVector{T}, y::T, nt::Int, nv::Int, s::T, ρ::T, a::T, cap::Int) where {T}
-  y > ρ || return nt, nv, s, ρ, false
-  if s > (y - a) * nv
+@inline function _condat_step!(buf::AbstractVector{T}, y::T, nt::Int, nv::Int, s::T, ρ::T, a::T, cap::Int,
+                               strict::Val) where {T}
+  _above(y, ρ, strict) || return nt, nv, s, ρ, false
+  if _above(s, (y - a) * nv, strict)
     nv += 1
     nv > cap && return nt, nv, s, ρ, true
     s += y
@@ -747,13 +765,13 @@ end
 # a vectorized pass. Condat's pass hands over to it when many entries become
 # candidates, as for a radius a that keeps a large share of them positive: its
 # level then starts far below the entries and rises slowly.
-function _simplex_threshold_michelot(x::AbstractArray, idx::AbstractVector{<:Integer}, a::T, f::F) where {T, F}
+function _simplex_threshold_michelot(x::AbstractArray, idx::AbstractVector{<:Integer}, a::T, f::F, strict::Val = Val(false)) where {T, F}
   τ, cnt = T(-Inf), -1                    # the first pass takes the level of all the entries
   for _ in 0:length(idx)
     s, c = zero(T), 0
     @inbounds @simd for j in idx
       y = convert(T, f(x[j]))
-      above = y > τ
+      above = _above(y, τ, strict)
       s += ifelse(above, y, zero(T))
       c += above
     end

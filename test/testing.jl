@@ -55,6 +55,15 @@ PB.isproximable(::Type{WrongValue}) = true
 PB.prox!(y::AbstractArray, f::WrongValue, x::AbstractArray, γ::Real) = (y .= shrink.(x, γ * f.λ))
 PB.value_and_prox!(y::AbstractArray, f::WrongValue, x::AbstractArray, γ::Real) = (prox!(y, f, x, γ); 2 * f(y))
 
+struct InPlaceValue <: AbstractFunction                # value_and_prox! reads x after writing y
+  λ::Float64
+end
+PB.isproximable(::Type{InPlaceValue}) = true
+(f::InPlaceValue)(x) = f.λ * norm(x, 1)
+PB.prox!(y::AbstractArray, f::InPlaceValue, x::AbstractArray, γ::Real) = (y .= shrink.(x, γ * f.λ))
+PB.value_and_prox!(y::AbstractArray, f::InPlaceValue, x::AbstractArray, γ::Real) =
+  (prox!(y, f, x, γ); f.λ * sum(v -> abs(shrink(v, γ * f.λ)), x))
+
 struct WrongGradient <: AbstractFunction               # ‖x‖²/2 with the gradient 2x
 end
 PB.issmooth(::Type{WrongGradient}) = true
@@ -422,6 +431,14 @@ PB.value_and_gradient!(g, r::Recorder, x) = (r.gradients[] += 1; value_and_gradi
                                         convex = true)) > 0
     @test failures(() -> PT.test_prox(IdentityProx(0.5), x, γ)) > 0
     @test failures(() -> PT.test_prox(WrongValue(0.5), x, γ)) > 0
+    # right with a separate output, and its point is right in place: only the value is wrong in place (O7)
+    ip = InPlaceValue(0.5)
+    y = similar(x)
+    @test value_and_prox!(y, ip, x, γ) ≈ ip(y)
+    z = copy(x)
+    @test value_and_prox!(z, ip, z, γ) < ip(z)
+    @test z ≈ y
+    @test failures(() -> PT.test_prox(ip, x, γ)) > 0
     @test failures(() -> PT.test_gradient(WrongGradient(), x)) > 0
     @test failures(() -> PT.test_separable(FalseZero(), x, γ)) > 0
     f = FalseZeroWrapper(Translate(SqrNormL2(), fill(0.1, length(x))))

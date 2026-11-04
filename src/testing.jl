@@ -56,7 +56,9 @@ VERSION >= v"1.11" && Core.eval(@__MODULE__, Expr(:public, :test_prox, :test_gra
 Test the proximal operator of `f` at `x` with step `γ`:
 
 - `prox`, `prox!` and [`value_and_prox!`](@ref) agree, `prox!` returns its
-  output and may overwrite its input, and the value is `f` at the result;
+  output, and the value is `f` at the result;
+- `prox!` and `value_and_prox!` with the output as the input (`y === x`) give
+  the same point, and `value_and_prox!` the same value, as with a separate output;
 - the result `p` is optimal: no nearby point, nor the proximal point of
   another input, has a smaller proximal objective
   `f(z) + ‖z - x‖²/(2γ)`, and for a convex `f` the subgradient inequality

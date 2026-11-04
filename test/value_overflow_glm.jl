@@ -1026,18 +1026,26 @@ end
     M = floatmax(T)
     for ℓ in (PB.Squared(), PB.Huber(1.0), PB.Logistic(), PB.Poisson(), PB.SquaredHinge(),
               PB.SmoothCheck(0.3, 0.2), PB.ConvolutionCheck(0.3, 0.2), ThrowsBelowZero())
-      for η in xs, p in xs, w in T[0.5, 1, 2, M], v in T[1, floatmin(T) / 4, 0], y in T[0, 1, 2]
+      # a mark is NaN, or a zero that leaves the accumulator finite
+      mark_ok(m, nan) = isnan(m) == nan && (nan || iszero(m))
+      vs = T[1, floatmin(T) / 4, 0]
+      bad = []   # (mark, inputs) that disagree, one @test per loss and type
+      for η in xs, p in xs, w in T[0.5, 1, 2, M], v in vs, dv in vs, y in T[0, 1, 2]
         vlift = PB._value_lifts(ℓ, w) & PB._lost_value(ℓ, v, η, y)
-        dlift = (w > 1) & PB._lost_deriv(ℓ, v, η, y)
+        dlift = (w > 1) & PB._lost_deriv(ℓ, dv, η, y)
         ηbad, pbad = !isfinite(η), !isfinite(p)
-        @test isnan(PB._value_mark(ℓ, w, v, η, y)) == (vlift | (ηbad & !PB._value_traps(ℓ)))
-        @test isnan(PB._gradient_mark(ℓ, w, v, p, η, y)) == (dlift | pbad | (ηbad & !PB._deriv_traps(ℓ)))
+        mark_ok(PB._value_mark(ℓ, w, v, η, y), vlift | (ηbad & !PB._value_traps(ℓ))) ||
+          push!(bad, (:value, η, w, v, y))
+        mark_ok(PB._gradient_mark(ℓ, w, dv, p, η, y), dlift | pbad | (ηbad & !PB._deriv_traps(ℓ))) ||
+          push!(bad, (:gradient, η, p, w, dv, y))
         for unweighted in (true, false)
           dtest = !(unweighted & PB._deriv_in_value(ℓ) & PB._value_traps(ℓ))
-          @test isnan(PB._value_deriv_mark(ℓ, w, v, v, p, η, y, unweighted)) ==
-            (vlift | dlift | (ηbad & !PB._value_traps(ℓ)) | (dtest & pbad))
+          mark_ok(PB._value_deriv_mark(ℓ, w, v, dv, p, η, y, unweighted),
+                  vlift | dlift | (ηbad & !PB._value_traps(ℓ)) | (dtest & pbad)) ||
+            push!(bad, (:value_and_gradient, unweighted, η, p, w, v, dv, y))
         end
       end
+      @test isempty(bad)
     end
   end
 end

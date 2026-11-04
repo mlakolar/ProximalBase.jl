@@ -167,6 +167,34 @@ end
   end
 end
 
+@testset "GLMLoss weight and offset checks on GPU arrays" begin
+  allowscalar(false)
+  # the checks run as a device reduction, also when Adapt rebuilds the loss (#579)
+  wmsg, omsg = "the weights must be finite and nonnegative", "the offset must be finite"
+  for T in test_types
+    yc, Xc, w, o = T[1, 0, 1], T[1 0; 0 1; 1 1], T[0.5, 0, 2], T[0.1, -0.2, 0]
+    y, X, β = DeviceArray(yc), DeviceArray(Xc), T[0.3, -0.7]
+    fc = LogisticLoss(yc, Xc; weights = w, offset = o)
+    f = LogisticLoss(y, X; weights = DeviceArray(w), offset = DeviceArray(o))
+    @test f.weights isa DeviceArray && f.offset isa DeviceArray
+    @test f(DeviceArray(β)) ≃ fc(β)
+    @test Adapt.adapt(DeviceArray, fc)(DeviceArray(β)) ≃ fc(β)
+    for bad in (T[1, Inf, 1], T[1, NaN, 1], T[1, -1, 1])
+      @test_throws ArgumentError(wmsg) LogisticLoss(y, X; weights = DeviceArray(bad))
+    end
+    for bad in (T[0, Inf, 0], T[0, NaN, 0], T[-Inf, 0, 0])
+      @test_throws ArgumentError(omsg) LogisticLoss(y, X; offset = DeviceArray(bad))
+    end
+  end
+  if Float64 in test_types && Float32 in test_types
+    # in the working precision: finite in Float64, it overflows Float32 data
+    y32, X32 = DeviceArray(Float32[1, 0]), DeviceArray(Float32[1 0; 0 1])
+    @test_throws ArgumentError(wmsg) LogisticLoss(y32, X32; weights = DeviceArray([1.0, 1e39]))
+    @test_throws ArgumentError(omsg) LogisticLoss(y32, X32; offset = DeviceArray([0.0, 1e39]))
+    @test LogisticLoss(y32, X32; weights = DeviceArray([1.0, 1e38]), offset = DeviceArray([0.0, -1e38])) isa GLMLoss
+  end
+end
+
 @testset "infinite and zero weights on GPU arrays" begin
   allowscalar(false)
   for T in test_types, λ in (0, 1)

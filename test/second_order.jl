@@ -477,6 +477,24 @@ end
   out = [-1.0, -1.0]
   @test_throws ArgumentError hessian_vec!(out, Sum(SqrNormL2(), NormL1(1.)), [1.0, 2.0], [1.0, 1.0])
   @test out == [-1.0, -1.0]
+  # the output must not be the point or the direction, nor one block of either (#324); x === v is allowed
+  for f in (Sum(s, s), Sum(s, Scaled(s, 2)), Scaled(Sum(s, s), 3))
+    xc, vc = map(copy, x), map(copy, v)
+    @test_throws ArgumentError hessian_vec!(xc, f, xc, vc)
+    @test_throws ArgumentError hessian_vec!(vc, f, xc, vc)
+    @test xc == x && vc == v
+    mixed = (similar(x[1]), vc[2])
+    @test_throws ArgumentError hessian_vec!(mixed, f, xc, vc)
+    @test vc == v
+    mixed = (xc[1], similar(x[2]))
+    @test_throws ArgumentError hessian_vec!(mixed, f, xc, vc)
+    @test xc == x
+    @test blocks_approx(hessian_vec(f, x, x), hessian_vec(f, x, map(copy, x)))
+  end
+  nestedpoint = (x, ([4.0, 5.0], [6.0]))
+  nestedout = (map(copy, x), nestedpoint[2])
+  @test_throws ArgumentError hessian_vec!(nestedout, Sum(nested, nested), nestedpoint, nestedpoint)
+  @test nestedpoint[2] == ([4.0, 5.0], [6.0])
   # wrong arity and block shapes of the output and the direction
   for bad in ((similar(x[1]),), (similar(x[1]), similar(x[2]), similar(x[2])), (similar(x[1]), zeros(2)), (zeros(3), similar(x[2])))
     @test_throws DimensionMismatch hessian_vec!(bad, Sum(s, s), x, v)

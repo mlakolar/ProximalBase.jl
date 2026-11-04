@@ -1195,13 +1195,16 @@ block by block on tuples. Sparse plus low-rank models, for example, take
 Blocks may themselves be tuples for nested sums. Allocating oracles and
 [`Conjugate`](@ref) preserve this block structure.
 Before writing any output, the oracles check all blocks, including functions
-inside wrappers, against the checks their own oracles run before writing.
-Scalar-step checks also follow supported wrappers before writing. Remaining
-gaps include array steps, entrywise steps inside box and linear constraints,
-spectral and singular-value wrappers, distance wrappers, intersections, ball,
-sphere and affine constraints, `NegLog`'s square root, and `Conjugate`'s finite
-result check. Failures during computation and user-defined oracle checks beyond
-`check_parameters` can still leave earlier blocks written.
+inside wrappers, against the checks their own oracles run before writing:
+shapes, parameters, and the scalar step, also through the supported wrappers.
+The check covers the conditions known without computing, the step validation
+that the supported functions and wrappers implement; it is not meant to reject
+a step that the function itself accepts. It does not cover every failure. A
+failure found only while computing can leave earlier blocks written: a step that
+a function rejects according to the values it sees, `Conjugate`'s check that a
+finite input gave a finite result, a search that finds a constraint empty, a
+failure inside an external library, and the oracles of user-defined functions
+beyond `check_parameters`. Block sums take scalar steps only.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F
@@ -1406,7 +1409,9 @@ function _checkstep_moreau(f, y, x, γ)
   _conjugate_isindicator(typeof(f)) && return _checkstep(prox!, f, y, x, one(γ))
   _checkstep_moreau_set(f, y, x, γ)
 end
-_checkstep_moreau_set(f::Union{IndBox, IndBallL2}, y, x, γ) = true
+_checkstep_moreau_set(f::IndBox, y, x, γ) = true
+# The set of the Moreau point is the ball of radius γ r, which a negative or NaN radius rejects.
+_checkstep_moreau_set(f::IndBallL2, y, x, γ) = (IndBallL2(_dilate(γ, f.r)); true)
 _checkstep_moreau_set(s::Scaled, y, x, γ) = _checkstep_moreau(s.f, y, x, γ)
 _checkstep_moreau_set(t::Translate, y, x, γ) = _checkstep_moreau(t.f, y, _StepInput(y), γ)
 

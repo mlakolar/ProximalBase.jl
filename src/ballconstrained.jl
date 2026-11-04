@@ -42,10 +42,13 @@ every free output, since their limit depends on how the argument diverges. One
 infinite free entry gives ±r there and zero elsewhere, the limit along finite
 arguments; in a `SymmetricSparseIterate` a mirrored off-diagonal pair is one
 entry, with limit ±r/√2 in each of its two entries. At `γ = Inf` the penalized
-entries are zero and project nothing, so only the free entries are governed, and
-an infinite penalized entry is a joint limit in the argument and the step with no
-unique value: NaN in every free output. A sphere with no entry of finite threshold
-throws an `ArgumentError` before anything is written.
+entries are zero and project nothing, so only the free entries are governed. A NaN
+penalized entry at `γ = Inf` is a fixed endpoint, and leaves the free outputs as
+they are. An infinite penalized entry at `γ = Inf` is a joint limit in the argument
+and the step: with `x = (M, 0)`, `γ = M/2` gives the limit `(1, 0)` and `γ = 2M`
+gives `(0, 0)`, so the limit has no unique value, and the output is NaN in every
+free entry (the value too). A sphere with no entry of finite threshold throws an
+`ArgumentError` before anything is written.
 
 ```julia
 u = prox(Constrained(NormL1(λ), IndBallL2(1)), X * v)        # the step of the penalized matrix decomposition
@@ -733,9 +736,25 @@ _has_nonfinite(x::AbstractArray) = !isfinite(sum(x))
 # a sparse iterate has zeros outside its stored values, so only those are read (O(nnz), not O(length))
 _has_nonfinite(x::Union{SparseIterate, SymmetricSparseIterate}) = !isfinite(sum(view(x.nzval, 1:x.nnz)))
 _l1_ball_host(c::BallConstrained, y, x) = isfinite(c.ball.r) && !_is_device_array(x) && !_is_device_array(y)
-# the finite projection of a surrogate, which is finite by construction: the kernel itself, not its dispatch
-_finite_l1!(y, c::BallConstrained, x, γ) = _ball_projection!(y, c, x, γ)
+# the finite projection of a surrogate, which is finite by construction: the kernel itself, not its dispatch.
+# A ball whose output is narrower than the argument can overflow in the output type before the scaling
+# (a finite 1e100 stored in Float32): then the same kernel runs in the wider type and the result is narrowed.
+_finite_l1!(y, c::BallConstrained, x, γ) = _finite_ball!(y, c, x, γ, promote_type(float(eltype(x)), float(eltype(y))))
 _finite_l1!(y, c::SphereConstrained, x, γ) = _value_and_prox_unchecked!(y, c, x, γ)
+function _finite_ball!(y, c, x, γ, ::Type{U}) where {U}
+  T = float(eltype(y))
+  U === T && return _ball_projection!(y, c, x, γ)
+  b = similar(y, U)
+  v, _ = _ball_core!(b, c, x, γ)
+  _narrow_into!(y, b)
+  convert(T, v)
+end
+_narrow_into!(y::SymmetricSparseIterate, b) = (p = size(y, 1); for c in 1:p, r in c:p
+    y[r, c] = convert(eltype(y), b[r, c])
+  end; y)
+_narrow_into!(y::AbstractArray, b) = (for k in eachindex(IndexLinear(), y)
+    y[k] = convert(eltype(y), b[k])
+  end; y)
 _l1_sphere_nonfinite(y, c, x, γ) =
   _is_device_array(x) || _is_device_array(y) ? _sphere_nonfinite!(y, float(eltype(y))) : _l1_nonfinite!(y, c, x, γ)
 

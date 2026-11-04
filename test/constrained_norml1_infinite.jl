@@ -388,6 +388,68 @@ end
   end
 end
 
+@testset "mixed precision: a finite argument that overflows a narrower output is not an infinite one" begin
+  # a finite 1e100 stored as Float32 is ∞ before the scaling: the projection runs in the wider type
+  c = ball(1.0)
+  x = Float64[1e100, 2.0]
+  y = zeros(Float32, 2)
+  v = value_and_prox!(y, c, x, 1.0)
+  @test y ≈ Float32[1, 0] && v ≈ 1f0 && v isa Float32
+  y = zeros(Float32, 2)
+  prox!(y, c, x, 1.0)
+  @test y ≈ Float32[1, 0]
+  y = zeros(Float32, 2)
+  v = value_and_prox!(y, c, Float64[-1e100, 2.0], 1.0)
+  @test y ≈ Float32[-1, 0] && v ≈ 1f0
+  # weights and both signs against the BigFloat reference: the largest error is the Float32 rounding
+  for xs in (Float64[1e100, 2.0], Float64[-1e100, 2.0], Float64[3e38, -3e38], Float64[1e200, 1e-3], Float64[5e37, 5e37]),
+      w in ([1.0, 1.0], [1.0, 2.0], [0.0, 1.0], [2.5, 0.25]), γ in (0.5, 1.0)
+    cw = Constrained(NormL1(1.0, w), IndBallL2(1.0))
+    ref = Float64.(ref_ball(BF.(xs), 1.0, w, γ, 1))
+    y = zeros(Float32, 2)
+    value_and_prox!(y, cw, xs, γ)
+    @test maximum(abs.(Float64.(y) .- ref)) < 1e-5
+  end
+  # the symmetric output: the Frobenius norm of the stored point, counted over the pairs
+  X = zeros(3, 3)
+  X[1, 1] = 1e100; X[2, 1] = X[1, 2] = 2e100; X[3, 3] = -1e100
+  Y = SymmetricSparseIterate(Float32, 3)
+  v = value_and_prox!(Y, c, X, 1.0)
+  @test Matrix(Y) ≈ Float32[1 2 0; 2 0 0; 0 0 -1] ./ sqrt(10f0) atol = 1e-6
+  @test v ≈ 6 / sqrt(10.0) atol = 1e-5                  # every entry of the stored point, the pair twice
+end
+
+@testset "boundary conditions: zero radius, overflowing thresholds, the γ = Inf endpoint, with the value" begin
+  # the ball of radius zero is {0}: a NaN or infinite argument gives zero, and the value is zero
+  z = Constrained(NormL1(1.0), IndBallL2(0.0))
+  for γ in (1.0, Inf), x in ([NaN, 2.0], [Inf, 2.0], [-Inf, NaN])
+    y = fill(7.0, 2)
+    v = value_and_prox!(y, z, x, γ)
+    @test y == [0.0, 0.0] && v == 0.0
+  end
+  # a threshold that overflows to ∞ from finite numbers is a finite penalty, not a hard-fixed weight:
+  # a finite argument gives zero, an infinite one its limit ±r e_k, with the value at the stored point
+  big = Constrained(NormL1(1e308), IndBallL2(1.0))
+  y = fill(7.0, 2)
+  @test value_and_prox!(y, big, [2.0, 2.0], 10.0) == 0.0 && y == [0.0, 0.0]
+  y = fill(7.0, 2)
+  v = value_and_prox!(y, big, [Inf, 2.0], 10.0)
+  @test y == [1.0, 0.0] && v == 1e308
+  # the sphere cannot have a finite threshold of that size: it throws, and writes nothing
+  s = Constrained(NormL1(1e308), IndSphereL2(1.0))
+  unchanged_on_throw(value_and_prox!, s, [2.0, 2.0], 10.0, fill(7.0, 2))
+  unchanged_on_throw(value_and_prox!, s, [Inf, 2.0], 10.0, fill(7.0, 2))
+  # γ = Inf at a penalized NaN: a fixed endpoint, the free output and the value are those of the free part
+  b = ball(1.0, [1.0, 1.0])
+  y = fill(7.0, 2)
+  v = value_and_prox!(y, b, [NaN, 0.0], Inf)
+  @test y == [0.0, 0.0] && v == 0.0
+  # γ = Inf at an infinite penalized argument: the joint limit, NaN in the output and in the value
+  y = fill(7.0, 2)
+  v = value_and_prox!(y, b, [Inf, 0.0], Inf)
+  @test all(isnan, y) && isnan(v)
+end
+
 end # testset
 end # setprecision
 

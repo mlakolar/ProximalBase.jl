@@ -104,7 +104,6 @@ end
   rules = "T5 R3"; problem = "positive exact scale 2^-1200 must not acquire zero-function meaning (#333)"
   expected = false
   observed = Scaled(Scaled(NormL1(1.0), pow2(Float64, -600)), pow2(Float64, -600)) isa ZeroFunction
-  broken = (group = :G9, baseline = Returned(v -> v === true))
 end
 # T7: rebuilding cached numbers in place is sufficient; identity is immaterial.
 f = IndIntersection(IndBox(0.0, 1.0))

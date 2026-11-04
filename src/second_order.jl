@@ -247,21 +247,25 @@ function quadratic_model!(q::GLMLoss{Squared, T, Vector{T}, <:Any, Vector{T}}, f
   η = _linear_predictor!(f, β)
   z, v = η, f.d
   floor = sqrt(eps(T))
+  vanished = false                       # a nonzero weight with a coefficient that rounded to zero
   @inbounds for i in eachindex(η)
     w = convert(T, _entry(f.weights, i))
     if iszero(w)
       v[i] = z[i] = zero(T)
       continue
     end
-    ηi, yi = η[i], f.y[i]
-    vi, zi = _irls_pair(f.loss, w, ηi, yi, floor)
-    # a finite observation must give finite, nonzero coefficients: an infinite or
-    # vanishing weight, or a non-finite response, is not the IRLS model of f;
-    # non-finite data propagate as before
-    (isfinite(vi) & isfinite(zi) & !iszero(vi)) || !(isfinite(ηi) & isfinite(yi) & isfinite(w)) ||
-      _irls_unrepresentable(i, ηi, w, vi, zi)
+    vi, zi = _irls_pair(f.loss, w, η[i], f.y[i], floor)
+    vanished |= iszero(vi)
     v[i], z[i] = vi, zi
   end
+  # a finite observation must give finite, nonzero coefficients: an infinite or vanishing
+  # weight, or a non-finite response, is not the IRLS model of f; non-finite data propagate
+  # as before. One pass over the staged values; only a suspicious result is looked at again.
+  finite = true
+  @inbounds @simd for i in eachindex(v)
+    finite &= isfinite(v[i]) & isfinite(z[i])
+  end
+  (finite & !vanished) || _irls_check(f, β, v, z)
   qw, qy = q.weights, q.y
   @inbounds @simd for i in eachindex(v)
     qw[i] = v[i]
@@ -270,10 +274,24 @@ function quadratic_model!(q::GLMLoss{Squared, T, Vector{T}, <:Any, Vector{T}}, f
   q
 end
 
-@noinline _irls_unrepresentable(i, η::T, w, v, z) where {T} =
-  throw(PrecisionError("the quadratic model of a GLMLoss has no representable IRLS coefficient and " *
-    "working response in $T at observation $i (linear predictor $η, weight $w, " *
-    "coefficient $v, working response $z); the model is unchanged"))
+# The staged pair (v, z) of f is not finite, or a coefficient vanished. A predictor, response or
+# weight that is itself not finite explains it (the result propagates, as before); otherwise
+# the first observation with finite data throws. The predictors are recomputed in a new array,
+# since f.η holds z; this path allocates.
+@noinline function _irls_check(f::GLMLoss{L, T}, β, v, z) where {L, T}
+  η = similar(f.η)
+  mul!(η, f.X, β)
+  f.offset === nothing || (η .+= f.offset)
+  for i in eachindex(v)
+    w = convert(T, _entry(f.weights, i))
+    iszero(w) && continue
+    (isfinite(v[i]) & isfinite(z[i]) & !iszero(v[i])) | !(isfinite(η[i]) & isfinite(f.y[i]) & isfinite(w)) && continue
+    throw(PrecisionError("the quadratic model of a GLMLoss has no representable IRLS coefficient and " *
+      "working response in $T at observation $i (linear predictor $(η[i]), weight $w, " *
+      "coefficient $(v[i]), working response $(z[i])); the model is unchanged"))
+  end
+  nothing
+end
 
 # (wℓ'', η - ℓ'/ℓ'') with ℓ'' floored at `floor`
 @inline function _irls_pair(ℓ::ScalarLoss, w::T, η::T, y, floor::T) where {T}

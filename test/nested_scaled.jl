@@ -220,10 +220,20 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
           @test y ≈ T[r] rtol = 8eps(T)
           @test prox_entry(c, T(2r), 1, one(T)) ≈ r rtol = 8eps(T)
         end
-        # the conjugate of a smooth function through its scale
-        h = Scaled(Scaled(SqrNormL2(tens(T, l ÷ 3)), tens(T, -a ÷ 2)), tens(T, -a ÷ 2))
-        @test near(Conjugate(h)(T[1]), big(1)^2 / (2 * effective(h, f -> f.λ)); k = 64) ||
-              isfinite(Conjugate(h)(T[1]))
+        # a Moreau route (a leaf without a direct projection) and a block sum
+        q = Scaled(Scaled(SqrNormL2(tens(T, -l)), tens(T, a)), tens(T, a))
+        λq = T(effective(q, f -> f.λ))
+        yq = zeros(T, 1)
+        prox!(yq, Conjugate(q), T[2λq], one(T))        # prox of f* at x: x - prox_{f}(x): f' = λ x
+        @test yq ≈ T[2λq - 2λq / (1 + λq)] rtol = 64eps(T)
+        sep = Scaled(Scaled(SeparableSum(NormL1(tens(T, -l)), NormL1(tens(T, -l))), tens(T, a)), tens(T, a))
+        r = T(λl)
+        z = (zeros(T, 1), zeros(T, 1))
+        prox!(z, Conjugate(sep), (T[3r], T[-3r]), one(T))
+        @test z[1] ≈ T[r] rtol = 8eps(T)
+        @test z[2] ≈ T[-r] rtol = 8eps(T)
+        # a function without a level to fold: the conjugate value is refused, not wrong
+        @test_throws ArgumentError Conjugate(q)(T[1])
       end
 
       @testset "optimality" begin
@@ -232,6 +242,10 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
           @test near(kkt_violation(f, g, 1), λ)             # |g| - level
           @test near(kkt_violation(f, g, 2), -λ / 2)
           @test abs(kkt_violation(f, g, 3)) <= 4eps(T) * λ
+        end
+        h = Scaled(Scaled(SqrNormL2(tens(T, -l)), tens(T, a)), tens(T, a))
+        @test kkt_violation(h, T[3], 1) == 3
+        begin
         end
       end
     end

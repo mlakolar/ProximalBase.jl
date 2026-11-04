@@ -102,6 +102,17 @@ is computed with the scale folded into the level for `NormL1`, `NormL1Nonneg`,
 `SparseGroupNormL2`, `NuclearNorm`, `TracePSD`, and the support functions of
 the ℓ1 and ℓ2 balls.
 
+`Scaled(Scaled(f, a), b)` is `Scaled(f, a * b)` when the product is an ordinary
+number. When it underflows, is subnormal or overflows, although the factors are
+finite and positive, the wrappers stay nested, so that the function is never replaced
+by `ZeroFunction` or an infinite scale because of an intermediate product. The value,
+the gradient, the proximal operator, `prox_entry`, the optimality violation, the
+Lipschitz constants and the conjugate then use the product of all the factors where
+the coefficient is formed: it is folded into the levels of the functions listed above,
+or applied to the result with its exponent last, so a chain such as `Scaled(Scaled(NormL1(1e300), 1e-200), 1e-200)`
+is the penalty `1e-100 * norm(x, 1)`. The conjugate value of a function without
+levels to fold, under a product that is not a number in range, throws.
+
 At zero scale, supported finite-parameter penalties and losses simplify to
 [`ZeroFunction`](@ref), while an indicator retains its domain and is returned
 unchanged. Zero scaling removes finite penalty terms and keeps domain constraints.
@@ -380,6 +391,8 @@ end
 # of the function at the gradient divided by the product of the factors, and multiplied by it.
 function _nested_kkt(kkt, s::Scaled, g)
   f, a = _scaled_chain(s)
+  # a smooth function has the violation |g|, whatever the scale
+  issmooth(typeof(f)) && return kkt(f, g)
   h = _fold_level(f, a)
   h === nothing ? _apply_scale(a, kkt(f, _ExpScaledArray(g, _scale_inverse(a)))) : kkt(h, g)
 end
@@ -2028,8 +2041,13 @@ end
 # normal number in range. A function without levels to fold takes the rounded factor.
 function _scaled_conjugate_value(f, y::AbstractArray, α::_ProjectionScale)
   g = _fold_level(f, α)
-  g === nothing ? _scaled_conjugate_value_rounded(f, y, α) : _conjugate_value(g, y)
+  g === nothing || return _conjugate_value(g, y)
+  a = _projection_real(α)
+  (isfinite(a) && !iszero(a)) || _nested_scale_error(f, a)
+  _scaled_conjugate_value_rounded(f, y, α)
 end
+@noinline _nested_scale_error(f, a) = throw(ArgumentError(
+  "the conjugate value of $(typeof(f)) under nested scales whose product $(iszero(a) ? "underflows" : "overflows") is not supported: $(typeof(f)) does not fold a scale into its level"))
 _scaled_conjugate_value(f, y::AbstractArray, α) = _scaled_conjugate_value_rounded(f, y, α)
 function _scaled_conjugate_value_rounded(f, y::AbstractArray, α)
   a = convert(float(eltype(y)), _projection_real(α))

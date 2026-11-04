@@ -517,6 +517,34 @@ function underflow_cases!(cases, rep; quick=false)
                      T,shape="$(p)x$q",layout,work=p*q*(p+q))
         end
     end
+    # a value that is exactly zero at a nonzero argument (A = 0, or an argument in the null space with normal
+    # products): below the worst-case threshold, so the exponent test of the trigger decides (supplemental gate)
+    for T in (quick ? (Float64,) : (Float32,Float64)), n in (quick ? (32,) : (32,256))
+        x = ones(T,n)
+        Z = zeros(T,n,n)
+        N = zeros(T,n,n)
+        for i in 1:2:n-1
+            N[i,i] = N[i+1,i+1] = 1; N[i,i+1] = N[i+1,i] = -1
+        end
+        for (layout,A) in (("zero",Z),("null",N))
+            f = QuadraticFunction(A); g = zeros(T,n)
+            checkv!() = f(x) == 0 || error("value differs from reference")
+            checkg!() = value_and_gradient!(g,f,x) == 0 || error("value differs from reference")
+            addcase!(cases,"quadratic_underflow","quadratic/value",() -> f(x),checkv!;T,shape=string(n),layout,work=n*n)
+            addcase!(cases,"quadratic_underflow","quadratic/value_and_gradient!",() -> value_and_gradient!(g,f,x),checkg!;
+                     T,shape=string(n),layout,work=n*n)
+        end
+    end
+    for T in (quick ? (Float64,) : (Float32,Float64)), (p,q) in (quick ? ((4,4),) : ((4,4),(32,32)))
+        rng = scenario_rng(rep,"kron_zero/$T/$p/$q")
+        Y = randn(rng,T,2q,q); B = Matrix(Symmetric(Y'Y/T(2q)+I)); Θ = randn(rng,T,p,q)
+        f = KronQuadratic(zeros(T,p,p),B); G = zeros(T,p,q)
+        checkv!() = f(Θ) == 0 || error("value differs from reference")
+        checkg!() = value_and_gradient!(G,f,Θ) == 0 || error("value differs from reference")
+        addcase!(cases,"quadratic_underflow","kron/value",() -> f(Θ),checkv!;T,shape="$(p)x$q",layout="zero",work=p*q*(p+q))
+        addcase!(cases,"quadratic_underflow","kron/value_and_gradient!",() -> value_and_gradient!(G,f,Θ),checkg!;
+                 T,shape="$(p)x$q",layout="zero",work=p*q*(p+q))
+    end
     # the recomputation: every call takes it (diagnostic; reported apart from the ordinary cases)
     for T in (quick ? (Float64,) : (Float32,Float64))
         rng = scenario_rng(rep,"underflow_recovery/$T")

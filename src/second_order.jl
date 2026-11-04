@@ -77,7 +77,7 @@ For a `GLMLoss`, `ℓ''ᵢ` is floored at `√eps`, as in IRLS, so that the work
 responses stay finite where the curvature vanishes (a Huber loss beyond `δ`);
 the gradient of `q` at `x` is still `∇f(x)` exactly. The coefficients `wᵢℓ''ᵢ`
 are the *effective* ones: a Poisson observation whose `exp(ηᵢ)` overflows still
-has a finite coefficient when `wᵢ exp(ηᵢ)` is representable (weight `1/8` at
+has a finite coefficient in `Float32` or `Float64` when `wᵢ exp(ηᵢ)` is representable (weight `1/8` at
 `η = 710` gives `exp(710)/8` and the working response `709`), and a coefficient
 or working response of a finite observation that is not representable in the
 working precision (or a nonzero weight whose coefficient rounds to zero) throws
@@ -240,6 +240,9 @@ function quadratic_model!(q::GLMLoss{Squared, T, Vector{T}, <:Any, Vector{T}}, f
   n = length(f.y)
   length(q.y) == n && length(q.weights) == n ||
     throw(DimensionMismatch("the model has $(length(q.y)) observations and the loss $n"))
+  # the staging buffers must not be the model's arrays, except as the same pair
+  (q.y === f.d || q.weights === f.η) &&
+    throw(ArgumentError("the model must not use the buffers of the loss for the other array"))
   η = _linear_predictor!(f, β)
   z, v = η, f.d
   floor = sqrt(eps(T))
@@ -254,7 +257,7 @@ function quadratic_model!(q::GLMLoss{Squared, T, Vector{T}, <:Any, Vector{T}}, f
     # a finite observation must give finite, nonzero coefficients: an infinite or
     # vanishing weight, or a non-finite response, is not the IRLS model of f;
     # non-finite data propagate as before
-    (isfinite(vi) & isfinite(zi) & !iszero(vi)) || !(isfinite(ηi) & isfinite(yi)) ||
+    (isfinite(vi) & isfinite(zi) & !iszero(vi)) || !(isfinite(ηi) & isfinite(yi) & isfinite(w)) ||
       _irls_unrepresentable(i, ηi, w, vi, zi)
     v[i], z[i] = vi, zi
   end
@@ -290,7 +293,8 @@ end
     return w * d2, η - convert(T, e - y) / d2
   end
   m, j = _exp_pow2(η)
-  _scaled_product(w, m, j), (η - one(T)) + convert(T, y * exp(-η))
+  R = promote_type(T, typeof(y))          # y exp(-η) in the precision of the data, as e - y is
+  _scaled_product(w, m, j), (η - one(T)) + convert(T, y * exp(-convert(R, η)))
 end
 
 # exp(x) = m 2^j for a finite x, with j = round(x/log 2) and x - j log 2 in two parts, the

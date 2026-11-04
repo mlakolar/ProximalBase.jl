@@ -223,6 +223,15 @@ near(v, ref, k, T = typeof(v)) = abs(big(v) - ref) <= k * big(eps(abs(T(ref))))
     # non-finite inputs propagate as before, they are not a range failure
     @test quadratic_model(poisson(Float64, 0, 1, 0), [NaN]) isa GLMLoss
     @test quadratic_model(poisson(Float64, 0, 1, 0), [Inf]) isa GLMLoss
+    fw = poisson(Float64, 0, 1, 0); fw.weights[1] = NaN
+    @test all(isnan, quadratic_model(fw, [0.0]).weights)
+    # a response y exp(-η) that leaves Float32 with a Float64 y is not dropped
+    f32 = GLMLoss(PB.Poisson(), [1e300], ones(Float32, 1, 1), [1e-10], nothing, zeros(Float32, 1), zeros(Float32, 1))
+    @test_throws PrecisionError quadratic_model(f32, Float32[110])
+    # a model that uses the buffers of the loss crosswise is refused before anything is written
+    fa = PoissonLoss([0.0, 1.0], ones(2, 1))
+    qa = GLMLoss(PB.Squared(), fa.d, fa.X, fa.η, nothing, zeros(2), zeros(2))
+    @test_throws ArgumentError quadratic_model!(qa, fa, [0.5])
     # a coefficient that rounds to zero: the gradient w ℓ' would be lost
     @test_throws PrecisionError quadratic_model(poisson(Float64, 0, 5e-324, 2), [-30.0])
     @test_throws PrecisionError quadratic_model(LogisticLoss([1.0], ones(1, 1); weights = [5e-324]), [0.0])

@@ -582,4 +582,181 @@ a_qm!(q, f, x) = quadratic_model!(q, f, x)
   @test allocs(a_hv!, HV, fk, SymmetricSparseIterate(P), V) == 0
 end
 
+
+# Tilt and Translate on tuples (#159): references apply the Hessians of the blocks to arrays.
+@testset "Tilt and Translate Hessians on tuples" begin
+  rng = Xoshiro(21)
+  X, y = randn(rng, 9, 3), randn(rng, 9)
+  f = SeparableSum(LeastSquaresLoss(y, X), SqrNormL2(2.0))
+  x, v = (randn(rng, 3), randn(rng, 2, 2)), (randn(rng, 3), randn(rng, 2, 2))
+  c = (randn(rng, 3), randn(rng, 2, 2))
+  b = (randn(rng, 3), randn(rng, 2, 2))
+  expected = (X' * (X * v[1]), 2.0 .* v[2])
+  # each function with the factor that multiplies the Hessian of f
+  for (g, scale) in ((Tilt(f, c, 1.5), 1.0), (Translate(f, b), 1.0), (Tilt(Translate(f, b), c, 0.5), 1.0),
+                     (Translate(Tilt(f, c, 0.5), b), 1.0), (Scaled(Tilt(f, c, 1.0), 3.0), 3.0),
+                     (Tilt(Scaled(f, 3.0), c), 3.0), (Translate(Sum(f, f), b), 2.0),
+                     (Tilt(Sum(f, Scaled(f, 2)), c), 3.0))
+    @test hashessian(g)
+    Hv = fresh(x)
+    @test hessian_vec!(Hv, g, x, v) === Hv
+    @test blocks_approx(Hv, map(t -> scale .* t, expected))
+    @test blocks_approx(hessian_vec(g, x, v), Hv)
+    # central differences of the gradient along v, with the structure of x kept
+    δ = 1e-6
+    fd = combine(gradient(g, along(x, v, δ)), gradient(g, along(x, v, -δ)), 2δ)
+    @test blocks_approx(Hv, fd, 1e-6)
+    # x and v may be the same tuple when Hv is separate
+    Hx = fresh(x)
+    @test hessian_vec!(Hx, g, x, x) === Hx
+    @test blocks_approx(Hx, map(t -> scale .* t, (X' * (X * x[1]), 2.0 .* x[2])))
+  end
+  # blocks of different sizes, nested tuples and long tuples
+  nf = SeparableSum(SeparableSum(SqrNormL2(), SqrNormL2(2)), SeparableSum(SqrNormL2(3), SqrNormL2(4)))
+  xn = (([1.0, 2.0], [3.0]), ([4.0 5.0; 6.0 7.0], [8.0, -9.0]))
+  vn = (([1.0, -1.0], [2.0]), ([1.0 0.0; 0.0 1.0], [3.0, 4.0]))
+  cn = (([0.5, 0.5], [1.0]), ([1.0 0.0; 0.0 1.0], [0.1, -0.1]))
+  weights = ((1, 2), (3, 4))
+  refn = ((weights[1][1] .* vn[1][1], weights[1][2] .* vn[1][2]), (weights[2][1] .* vn[2][1], weights[2][2] .* vn[2][2]))
+  for g in (Tilt(nf, cn, 1.0), Translate(nf, cn))
+    Hn = fresh(xn)
+    @test hessian_vec!(Hn, g, xn, vn) === Hn
+    @test blocks_approx(Hn, refn)
+  end
+  many = SeparableSum(ntuple(k -> SqrNormL2(k), 40)...)
+  xm = ntuple(k -> fill(Float64(k), 2), 40); vm = ntuple(k -> fill(1.0, 2), 40); cm = ntuple(k -> fill(0.1k, 2), 40)
+  for g in (Tilt(many, cm, 0.0), Translate(many, cm))
+    Hm = fresh(xm)
+    @test hessian_vec!(Hm, g, xm, vm) === Hm
+    @test blocks_approx(Hm, ntuple(k -> fill(Float64(k), 2), 40))
+    hv!(Hv, g, x, v) = hessian_vec!(Hv, g, x, v)
+    @test allocs(hv!, Hm, g, xm, vm) == 0
+    @inferred hessian_vec!(Hm, g, xm, vm)
+  end
+  # Float32 variables with Float64 data
+  x32, v32 = map(a -> Float32.(a), x), map(a -> Float32.(a), v)
+  for g in (Tilt(f, c, 1.5), Translate(f, b))
+    H32 = map(a -> zeros(Float32, size(a)), x)
+    @test hessian_vec!(H32, g, x32, v32) === H32
+    @test H32 isa Tuple{Vector{Float32}, Matrix{Float32}}
+    @test blocks_approx(H32, map(t -> Float32.(t), expected), 1e-4)
+  end
+end
+
+@testset "Tilt and Translate Hessians on tuples check before writing" begin
+  s = SeparableSum(SqrNormL2(), SqrNormL2(2))
+  x, v = ([1.0, 2.0], [3.0 4.0; 5.0 6.0]), ([0.5, 1.0], [1.0 0.0; 0.0 1.0])
+  ok = ([0.1, 0.2], [0.3 0.4; 0.5 0.6])
+  bad = ([0.1, 0.2], [0.3, 0.4, 0.5, 0.6])
+  sentinel = ([9.0, 8.0], [7.0 7.0; 7.0 7.0])
+  fresh_out() = map(copy, sentinel)
+  for mk in (p -> Tilt(s, p, 0.0), p -> Translate(s, p))
+    # parameters that do not fit, in the final block, in the arity and in the nesting
+    for param in (bad, (ok[1],), (ok..., [1.0]), (ok[1], (ok[2],)), (ok[1], zeros(2, 3)))
+      out = fresh_out()
+      @test_throws DimensionMismatch hessian_vec!(out, mk(param), x, v)
+      @test out == sentinel
+    end
+    # the output and the direction
+    for badout in ((sentinel[1],), (sentinel[1], sentinel[2], sentinel[2]), (sentinel[1], zeros(4)), (zeros(3), sentinel[2]))
+      out = map(copy, badout)
+      @test_throws DimensionMismatch hessian_vec!(out, mk(ok), x, v)
+      @test out == map(copy, badout)
+    end
+    out = fresh_out()
+    @test_throws DimensionMismatch hessian_vec!(out, mk(ok), x, (v[1], zeros(4)))
+    @test_throws DimensionMismatch hessian_vec!(out, mk(ok), x, (v[1],))
+    @test out == sentinel
+    # an inner function that fails in a later block: a parameter, and a block without a Hessian
+    later = SeparableSum(SqrNormL2(), SqrNormL2(1.0, ones(3)))
+    out = fresh_out()
+    @test_throws DimensionMismatch hessian_vec!(out, mk(ok) isa Tilt ? Tilt(later, ok, 0.0) : Translate(later, ok), x, v)
+    @test out == sentinel
+    nohessian = SeparableSum(SqrNormL2(), NormL1(0.1))
+    out = fresh_out()
+    @test_throws ArgumentError hessian_vec!(out, mk(ok) isa Tilt ? Tilt(nohessian, ok, 0.0) : Translate(nohessian, ok), x, v)
+    @test out == sentinel
+    # a nested inner wrapper
+    out = fresh_out()
+    inner = mk(ok) isa Tilt ? Translate(Tilt(s, bad, 0.0), ok) : Tilt(Translate(s, bad), ok, 0.0)
+    @test_throws DimensionMismatch hessian_vec!(out, inner, x, v)
+    @test out == sentinel
+    out = fresh_out()
+    inner = mk(ok) isa Tilt ? Scaled(Tilt(nohessian, ok, 0.0), 2.0) : Scaled(Translate(nohessian, ok), 2.0)
+    @test_throws ArgumentError hessian_vec!(out, inner, x, v)
+    @test out == sentinel
+    # Hv must not be x or v, nor a block of them; x and v may be the same
+    xa, va = map(copy, x), map(copy, v)
+    @test_throws ArgumentError hessian_vec!(xa, mk(ok), xa, va)
+    @test_throws ArgumentError hessian_vec!(va, mk(ok), xa, va)
+    @test xa == x && va == v
+    for outs in ((similar(x[1]), x[2]), (x[1], similar(x[2])), (similar(v[1]), v[2]), (v[1], similar(v[2])))
+      keep = map(copy, outs)
+      @test_throws ArgumentError hessian_vec!(outs, mk(ok), x, v)
+      @test x == ([1.0, 2.0], [3.0 4.0; 5.0 6.0]) && v == ([0.5, 1.0], [1.0 0.0; 0.0 1.0])
+    end
+    out = fresh(x)
+    @test hessian_vec!(out, mk(ok), x, x) === out
+    # also when the function is wrapped or nested
+    @test_throws ArgumentError hessian_vec!(xa, Scaled(mk(ok), 2.0), xa, va)
+    @test_throws ArgumentError hessian_vec!(va, Sum(mk(ok), mk(ok)), xa, va)
+    @test xa == x && va == v
+  end
+end
+
+@testset "quadratic models of Tilt and Translate on tuples" begin
+  rng = Xoshiro(31)
+  X1, X2 = randn(rng, 30, 3), randn(rng, 25, 2)
+  l1 = LogisticLoss(Float64.(rand(rng, Bool, 30)), X1)
+  l2 = LeastSquaresLoss(randn(rng, 25), X2)
+  sep = SeparableSum(l1, l2)
+  x, x′ = (randn(rng, 3) ./ 3, randn(rng, 2)), (randn(rng, 3) ./ 3, randn(rng, 2))
+  v = (randn(rng, 3), randn(rng, 2))
+  c, b = (randn(rng, 3), randn(rng, 2)), (randn(rng, 3) ./ 3, randn(rng, 2))
+  d = 0.7
+  Δ = map(t -> t ./ 10, v)
+  for (f, shift) in ((Tilt(sep, c, d), nothing), (Translate(sep, b), b))
+    @test hashessian(f)
+    q = quadratic_model(f, x)
+    @test q isa (f isa Tilt ? Tilt : Translate) && issmooth(q) && hashessian(q)
+    @test f isa Tilt ? (q.c === f.c && q.d == f.d) : q.b === f.b
+    @test blocks_approx(gradient(q, x), gradient(f, x), 1e-10)
+    @test blocks_approx(hessian_vec(q, x′, v), hessian_vec(f, x, v), 1e-10)
+    g = gradient(f, x)
+    @test q(along(x, Δ, 1.0)) - q(x) ≈ tdot(g, Δ) + tdot(Δ, hessian_vec(f, x, Δ)) / 2 rtol = 1e-8
+    # updated at a second point, in place
+    @test quadratic_model!(q, f, x′) === q
+    @test blocks_approx(gradient(q, x′), gradient(f, x′), 1e-10)
+    @test blocks_approx(hessian_vec(q, x, v), hessian_vec(f, x′, v), 1e-10)
+    @test q(along(x′, Δ, 1.0)) - q(x′) ≈ tdot(gradient(f, x′), Δ) + tdot(Δ, hessian_vec(f, x′, Δ)) / 2 rtol = 1e-8
+    # back to the first point
+    quadratic_model!(q, f, x)
+    @test blocks_approx(gradient(q, x), gradient(f, x), 1e-10)
+  end
+  # the expected construction: the model of the inner function at x (- b), wrapped again
+  qt, qu = quadratic_model(Tilt(sep, c, d), x), quadratic_model(Translate(sep, b), x)
+  innerq = quadratic_model(sep, map(-, x, b))
+  @test blocks_approx(gradient(qu, x), gradient(innerq, map(-, x, b)), 1e-10)
+  @test qt.f isa SeparableSum && qu.f isa SeparableSum
+  # nested tuples and the wrappers around them
+  nested = SeparableSum(sep, SeparableSum(SqrNormL2(0.5), SqrNormL2(2.0)))
+  xn = (x, (randn(rng, 4), randn(rng, 2, 2))); vn = (v, (randn(rng, 4), randn(rng, 2, 2)))
+  cn = (c, (randn(rng, 4), randn(rng, 2, 2)))
+  for g in (Tilt(nested, cn, 1.0), Translate(nested, cn), Scaled(Translate(nested, cn), 2.0), Tilt(Translate(nested, cn), cn))
+    q = quadratic_model(g, xn)
+    @test blocks_approx(gradient(q, xn), gradient(g, xn), 1e-10)
+    @test blocks_approx(hessian_vec(q, xn, vn), hessian_vec(g, xn, vn), 1e-10)
+    @test quadratic_model!(q, g, xn) === q
+  end
+  # invalid parameters are rejected, and the model of a function without a Hessian
+  badc = (c[1], zeros(3))
+  @test_throws DimensionMismatch quadratic_model(Tilt(sep, badc, 0.0), x)
+  @test_throws DimensionMismatch quadratic_model(Translate(sep, badc), x)
+  @test_throws DimensionMismatch quadratic_model(Translate(sep, (c[1],)), x)
+  @test_throws DimensionMismatch quadratic_model!(quadratic_model(Tilt(sep, c, 0.0), x), Tilt(sep, badc, 0.0), x)
+  @test_throws DimensionMismatch quadratic_model!(quadratic_model(Translate(sep, b), x), Translate(sep, badc), x)
+  @test_throws ArgumentError quadratic_model(Tilt(SeparableSum(NormL1(1.0), SqrNormL2()), c, 0.0), x)
+  @test_throws ArgumentError quadratic_model(Translate(SeparableSum(NormL1(1.0), SqrNormL2()), b), x)
+end
+
 end

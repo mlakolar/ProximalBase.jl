@@ -557,6 +557,19 @@ end
   check_symmetric(sphere(1.0, [pair21], [1.0]), X, to_matrix(P, refY, p))
 end
 
+@testset "the symmetric sphere fallback scales a finite pair whose norm and step product are beyond the normal range" begin
+  # the pair is the only penalized block with a nonpositive margin (its norm √2·1e308 is below the threshold
+  # 1.5e308); the diagonal is hard-fixed, so the fallback takes the pair along its own direction. The scaling
+  # r/‖x_G‖ is subnormal in Float64, so the symmetric group write takes its rescaled branch.
+  X = [0.0 1e308; 1e308 0.0]
+  c = Constrained(gnorm(1.0, [[1, 4], [2, 3]], [Inf, 1.5e308]), IndSphereL2(1.0))
+  want = [0.0 1 / sqrt(2); 1 / sqrt(2) 0.0]
+  check_symmetric(c, X, want)
+  y = zeros(2, 2)
+  v = value_and_prox!(y, c, X, 1.0)
+  @test isapprox(y, want; rtol = 1e-12) && v ≈ 1.5e308
+end
+
 @testset "a NaN in a stored pair is NaN in the whole block, on every storage" begin
   c = sphere(1.0, [[2, 4]], [1.0])
   X = zeros(3, 3)

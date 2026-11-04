@@ -698,6 +698,19 @@ function _min_nonzero_exponent(x::AbstractArray{T}) where {T<:AbstractFloat}
   exponent(m)
 end
 
+# On the bit patterns, where the integer minimum vectorizes: zeros are skipped, and an Inf or a NaN, whose
+# patterns exceed that of floatmax, never replaces it.
+function _min_nonzero_exponent(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
+  U = T === Float32 ? UInt32 : UInt64
+  mask = typemax(U) >> 1
+  m = reinterpret(U, floatmax(T))
+  @inbounds @simd for i in eachindex(x)
+    b = reinterpret(U, x[i]) & mask
+    m = min(m, ifelse(iszero(b), m, b))
+  end
+  exponent(reinterpret(T, m))
+end
+
 # An absolute error that the rounding of one product into P cannot exceed is denorm_min/2 =
 # eps floatmin/2. A quadratic form with n products per entry of A x then carries at most
 # n² eps floatmin max|x| / 4 of it, the N products of the final dots at most N eps floatmin / 2 more,

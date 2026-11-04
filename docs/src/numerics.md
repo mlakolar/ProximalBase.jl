@@ -225,15 +225,28 @@ This takes one pass over `x` (over `Θ` and `B` for `KronQuadratic`). A zero ent
 of sparse or structured data does not fire it, and neither does an argument that
 is exactly zero.
 
-The recomputation does not round a product before it is summed: each is formed
-as a significand and an exponent, so that the exponent range does not limit it,
-and the significand products and their sum are rounded as usual, to a few units
-of `eps` times the error scale of the terms. A value that is exactly zero at a
-nonzero argument (an argument in the null space of `A`, or `A = 0`) is below the
-threshold, and so each such call pays the recomputation, about 6 to 10 times
-the ordinary call. A cancellation to a value far below the terms is held to the
-error scale of the terms, as in the ordinary computation, unless the value
-itself falls below that threshold.
+When that threshold is met, the exponents of the operands decide whether
+anything was lost: if the exponents of the smallest nonzero entries of two
+factors add to at least `exponent(floatmin)`, no product of them is subnormal,
+and a sum with a subnormal result is exact, so the ordinary value carries only
+the ordinary relative errors, however small it is. This holds for each product
+of the computation (`A x`, `x'(A x)` and `b'x`; `A Θ`, `(A Θ) B`, `Θ'W` and
+`C'Θ`), and then the ordinary value is returned. A value that is exactly zero at
+a nonzero argument, because `A = 0` or the argument is in the null space of `A`
+with normal products, therefore costs a pass over the operands and one more
+product, not the recomputation. The test needs the computation in one type (a
+wider argument than the buffers is rounded elsewhere) and is not made for other
+element types.
+
+The recomputation, for a product that can be subnormal, does not round it
+before it is summed: each is formed as a significand and an exponent, so that
+the exponent range does not limit it, and the significand products and their sum
+are rounded as usual, to a few units of `eps` times the error scale of the
+terms. It costs about 30 times an ordinary `QuadraticFunction` call at
+`n = 256`, and a `KronQuadratic` call between 2 and several hundred times,
+depending on the tier. A cancellation to a value far below the terms is held to
+the error scale of the terms, as in the ordinary computation, unless the value
+itself falls below the threshold and a product can be subnormal.
 
 The coefficient matrices of a `KronQuadratic` fix the type of its buffers, and a
 wider argument is rounded into them before the check; an entry below the range

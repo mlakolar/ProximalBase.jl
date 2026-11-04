@@ -746,7 +746,34 @@ end
 # value of finite data), or when the products A x rounded into the buffer type P, and the final dots,
 # could have lost more than eps |v| (R1, #520).
 @inline function _quadratic_checked(f::QuadraticFunction, x, v, ::Type{P}) where {P}
-  (!isfinite(v) || _quadratic_underflow_risk(f, x, v, P)) ? _quadratic_value_recover(f, x, v) : v
+  if !isfinite(v) || (_quadratic_underflow_risk(f, x, v, P) && !_quadratic_products_normal(f, x, v, P))
+    _quadratic_value_recover(f, x, v)
+  else
+    v
+  end
+end
+
+# The threshold of _quadratic_underflow_risk is a worst case: it assumes that products may be subnormal.
+# When none can be, the ordinary value carries only relative errors, and the value is as accurate as the
+# ordinary computation (R1), however small it is, an exact zero of a null-space argument included.
+# Every nonzero product of two operands is normal if the sum of the exponents of their smallest nonzero
+# entries is at least exponent(floatmin): |a b| >= 2^(ea + eb) (Julia's exponent has a significand in
+# [1, 2)); a product with a zero is exact; and a sum with a subnormal result is exact. The products are
+# those of A x, of x and A x in the dot, and of b and x. The test is made on the operands and on
+# A x, which is recomputed into f.tmp (the buffer may hold A x + b, and an ordinary call has not
+# modified it; the cost is that of one product, on a path that is rare). It needs the whole computation
+# in the type P (a wider argument or buffer is rounded elsewhere). Data need not be tested for being
+# finite: a finite value has none that is not (an Inf makes a product Inf or NaN).
+@noinline function _quadratic_products_normal(f::QuadraticFunction, x, v, ::Type{P}) where {P}
+  (_underflow_checked(P) && eltype(x) === P && eltype(f.tmp) === P && typeof(v) === P &&
+   eltype(f.A) <: Union{Float32, Float64} && (f.b === nothing || eltype(f.b) <: Union{Float32, Float64})) ||
+    return false
+  emin = exponent(floatmin(P))
+  ex = _stored_minexp(x)
+  _stored_minexp(f.A) + ex >= emin || return false
+  f.b === nothing || _stored_minexp(f.b) + ex >= emin || return false
+  mul!(f.tmp, f.A, x)
+  _min_nonzero_exponent(f.tmp) + ex >= emin
 end
 
 # Rounding a product into P changes an entry of A x by at most denorm_min(P)/2 per term, and that
@@ -971,7 +998,27 @@ end
 # The ordinary value, or its recovery from overflow (a non-finite value) or from underflow of the
 # products A D and A D B into the buffer type, which loses what a large entry of D multiplies.
 @inline function _kron_checked(f::KronQuadratic, v, Θ)
-  (isfinite(v) && !_kron_underflow_risk(f, v)) ? v : _kron_value_recover(f, v, Θ)
+  if isfinite(v) && (!_kron_underflow_risk(f, v) || _kron_products_normal(f, v))
+    v
+  else
+    _kron_value_recover(f, v, Θ)
+  end
+end
+
+# The same as _quadratic_products_normal, on the products of A D, (A D) B, D W and C D: the recovery is
+# not needed if no nonzero product of the staged computation can be subnormal. f.AD holds A D; W = (A D) B
+# is recomputed (the buffer may hold W + C, symmetrized, and the output has been written).
+@noinline function _kron_products_normal(f::KronQuadratic{T}, v) where {T}
+  (_underflow_checked(T) && typeof(v) === T && eltype(f.A) <: Union{Float32, Float64} &&
+   eltype(f.B) <: Union{Float32, Float64} && (f.C === nothing || eltype(f.C) <: Union{Float32, Float64})) ||
+    return false
+  emin = exponent(floatmin(T))
+  ed = _min_nonzero_exponent(f.D)
+  _stored_minexp(f.A) + ed >= emin || return false
+  _min_nonzero_exponent(f.AD) + _stored_minexp(f.B) >= emin || return false
+  f.C === nothing || _stored_minexp(f.C) + ed >= emin || return false
+  mul!(f.W, f.AD, f.B)
+  _min_nonzero_exponent(f.W) + ed >= emin
 end
 
 # max|B| if a product of an entry of A and one of D can round into the subnormal range, and 0 if none can.

@@ -643,6 +643,49 @@ allocated_pow2(::Type{T}, E, a, b, c) where {T} = (pow2_three(T, E, a, b, c); @a
       end
     end
 
+    @testset "no recovery when no product can be subnormal (second review of #520)" begin
+      for T in (Float32, Float64)
+        emin = exponent(floatmin(T))
+        # A = 0, and an argument in the null space of A: the value is exactly zero at a nonzero x, below
+        # the worst-case threshold, and the exponent test shows that nothing was lost
+        for A in (zeros(T, 3, 3), T[1 -1 0; -1 1 0; 0 0 0], sparse(zeros(T, 3, 3)), Diagonal(zeros(T, 3)))
+          f = QuadraticFunction(A)
+          x = T[1, 1, 3]
+          x = A isa Matrix{T} && A[1, 1] == 1 ? T[1, 1, 3] : x
+          v = f(x)
+          @test v === zero(T)
+          @test PB._quadratic_underflow_risk(f, x, v, T)
+          @test PB._quadratic_products_normal(f, x, v, T)
+          @test value_and_gradient!(zeros(T, 3), f, x) === zero(T)
+          fb = QuadraticFunction(A, T[0, 0, 0])
+          @test PB._quadratic_products_normal(fb, x, v, T)
+        end
+        # a subnormal product of A and x: the recovery is needed
+        f = QuadraticFunction(reshape(T[nextfloat(zero(T))], 1, 1))
+        x = T[ldexp(one(T), T === Float32 ? 16 : 28)]
+        @test !PB._quadratic_products_normal(f, x, f(x), T)
+        # a subnormal product in the final dot, with normal products in A x
+        f = QuadraticFunction(reshape(T[ldexp(one(T), emin ÷ 2)], 1, 1), T[ldexp(one(T), emin ÷ 2 - 1)])
+        x = T[ldexp(one(T), emin - emin ÷ 2 - 1)]
+        @test !PB._quadratic_products_normal(f, x, f(x), T)
+        # a wider argument than the buffers is rounded elsewhere: not covered by the test
+        W = T === Float32 ? Float64 : BigFloat
+        T === Float32 && (@test !PB._quadratic_products_normal(QuadraticFunction(zeros(T, 2, 2)), W[1, 1], zero(T), T))
+        # Kron: the same, on A D, (A D) B, D W and C D
+        for (A, B) in ((zeros(T, 2, 2), T[1 0; 0 1]), (T[1 -1; -1 1], T[1 -1; -1 1]), (T[1 0; 0 1], zeros(T, 2, 2)))
+          fk = KronQuadratic(A, B)
+          Θ = T[1 2; 3 5]
+          vk = fk(Θ)
+          @test isfinite(vk)
+          @test PB._kron_products_normal(fk, vk)
+          @test within(vk, big_k(A, B, Θ)) || iszero(big_k(A, B, Θ))
+        end
+        fk = KronQuadratic(reshape(T[nextfloat(zero(T))], 1, 1), reshape(T[ldexp(one(T), emin ÷ 2)], 1, 1))
+        Θk = reshape(T[ldexp(one(T), T === Float32 ? 16 : 28)], 1, 1)
+        @test !PB._kron_products_normal(fk, fk(Θk))
+      end
+    end
+
     @testset "a wider argument than the coefficients is rounded into the buffers (known limitation)" begin
       # The Float32 buffer of a Float32 KronQuadratic receives a Float64 argument rounded to Float32, which
       # is zero here; T3 asks for the argument not to be rounded below the model precision. This is the

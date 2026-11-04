@@ -422,18 +422,19 @@ function _maximum_abs(x::AbstractArray)
 end
 
 # For Float32 and Float64 the maximum is taken on the bit patterns: with the sign cleared they are ordered like the
-# magnitudes, an integer maximum vectorizes where the NaN-aware float maximum is a scalar chain (the
-# trigger of #520 reads this on every value call), and a NaN or an Inf gives a NaN or an Inf as before.
+# magnitudes (as signed integers, whose maximum vectorizes on more targets than the unsigned one), an integer maximum vectorizes
+# where the NaN-aware float maximum is a scalar chain (the trigger of #520 reads this on every value call),
+# and a NaN or an Inf gives a NaN or an Inf as before.
 function _maximum_abs(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
-  U = T === Float32 ? UInt32 : UInt64
-  mask = typemax(U) >> 1
+  U = T === Float32 ? Int32 : Int64
   vals = _stored_values(x)
   m = zero(U)
   @inbounds @simd for i in eachindex(vals)
-    m = max(m, reinterpret(U, vals[i]) & mask)
+    m = max(m, reinterpret(U, vals[i]) & typemax(U))
   end
   reinterpret(T, m)
 end
+_maximum_abs(x::Diagonal{T}) where {T<:Union{Float32, Float64}} = _maximum_abs(x.diag)
 
 # Recopy before scaling: LAPACK destroys the input of the first decomposition.
 function _scaled_spectral_input!(A::AbstractMatrix{T}, X::AbstractMatrix) where {T<:AbstractFloat}
@@ -691,25 +692,29 @@ end
 # rounding into the subnormal range.
 function _min_nonzero_exponent(x::AbstractArray{T}) where {T<:AbstractFloat}
   m = floatmax(T)
-  @inbounds for v in x
+  @inbounds for v in _stored_values(x)
     a = abs(v)
     (iszero(a) || a >= m) || (m = a)
   end
   exponent(m)
 end
 
-# On the bit patterns, where the integer minimum vectorizes: zeros are skipped, and an Inf or a NaN, whose
-# patterns exceed that of floatmax, never replaces it.
+# On the bit patterns, where the integer minimum vectorizes: with the sign cleared, b - 1 is the bit pattern
+# of the magnitude minus one step, and for a zero it wraps to the largest integer, so that zeros are skipped
+# without a select. An Inf or a NaN, whose patterns exceed that of floatmax, never replaces it.
 function _min_nonzero_exponent(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
-  U = T === Float32 ? UInt32 : UInt64
-  mask = typemax(U) >> 1
-  m = reinterpret(U, floatmax(T))
-  @inbounds @simd for i in eachindex(x)
-    b = reinterpret(U, x[i]) & mask
-    m = min(m, ifelse(iszero(b), m, b))
+  U = T === Float32 ? Int32 : Int64
+  vals = _stored_values(x)
+  m = typemax(U)
+  @inbounds @simd for i in eachindex(vals)
+    m = min(m, ((reinterpret(U, vals[i]) & typemax(U)) - one(U)) & typemax(U))
   end
-  exponent(reinterpret(T, m))
+  fm = reinterpret(U, floatmax(T))
+  exponent(reinterpret(T, m == typemax(U) ? fm : min(m + one(U), fm)))
 end
+_min_nonzero_exponent(x::Diagonal) = _min_nonzero_exponent(x.diag)
+_stored_minexp(x) = _min_nonzero_exponent(x)
+_stored_minexp(x::_WrappedSparse) = _min_nonzero_exponent(parent(x))
 
 # An absolute error that the rounding of one product into P cannot exceed is denorm_min/2 =
 # eps floatmin/2. A quadratic form with n products per entry of A x then carries at most

@@ -60,6 +60,7 @@ standard = [
   "affine",
   "ballconstrained",
   "indicator_steps",
+  "direct_projection_infinite",
   "symmetric_sphere",
   "bernoulli",
   "binary",

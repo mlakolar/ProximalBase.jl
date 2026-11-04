@@ -178,7 +178,6 @@ end
   problem = "NaN projection cannot use indicator zero-value shortcut."
   expected = NaN
   observed = value_and_prox!(zeros(2), IndBallL2(1.0), [NaN, 0.0], 1.0)
-  broken = (group = :G2, baseline = Returned(v -> same(v, 0.0)))
 end
 
 @row begin

@@ -736,6 +736,12 @@ if !BASELINE
       @test isnan(PB._pow2_broadcast_sum(T, pair, T[Inf, -Inf], [0, 0]))
       @test isnan(PB._pow2_broadcast_sum(T, pair, T[NaN, 0.5], [0, 0]))
     end
+    # large terms of different significands that cancel only with their rounding errors carried along
+    # (review of 262ce757)
+    ms32 = Float32[0.98000276, 0.6838328, -0.98000276, -0.94564354, -0.6838328]
+    @test PB._pow2_broadcast_sum(Float32, pair, ms32, [300, 300, 300, 100, 300]) === ldexp(-0.94564354f0, 100)
+    ms64 = [-0.8091040536903062, 0.7714371019247288, -0.7378713589447876, -0.7714371019247288, 0.7378713589447876]
+    @test PB._pow2_broadcast_sum(Float64, pair, ms64, [-995, 2003, 1998, 2003, 1998]) === ldexp(-0.8091040536903062, -995)
   end
 
   # a user's loss keeps the ordinary term w ℓ(η, y), also when the predictor is recomputed

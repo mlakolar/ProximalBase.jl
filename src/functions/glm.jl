@@ -516,11 +516,18 @@ end
 _broadcast_sum(::Type{T}, f::F, η::AbstractVector, args::Vararg{Any, N}) where {T, F, N} =
   _broadcast_reduce(+, zero(T), f, η, args...)
 
-# Σ mᵢ 2^eᵢ over the pairs (mᵢ, eᵢ) = f(η, args...)ᵢ, rounded once. The terms within
-# precision + 2 + ⌈log₂ n⌉ binades of the largest are added in its units, exactly
-# aligned; the smaller ones in the units of the largest of them, so that they survive
-# an exact cancellation of the large ones. A non-finite term gives the sum of the
-# non-finite terms (Inf, -Inf or NaN). Reductions only, for the device as well.
+# Σ mᵢ 2^eᵢ over the pairs (mᵢ, eᵢ) = f(η, args...)ᵢ, rounded at the end. The terms
+# within precision + 2 + ⌈log₂ n⌉ binades of the largest are aligned exactly in its
+# units, the smaller ones in the units of the largest of them; each class is summed
+# with the rounding error of every addition carried along (TwoSum), so that the
+# large terms cancel to within about eps² of their scale before the small ones are
+# added. Two limits: what remains of the large class after that (a residue of order
+# eps² 2^E when the large terms do not cancel exactly in floating point) can still
+# dominate the small class, and terms more than about 1074 binades below the small
+# class's largest underflow in its units. Both are far below the accuracy of the
+# ordinary computation of the same terms (eps times their scale). A non-finite term
+# gives the sum of the non-finite terms (Inf, -Inf or NaN). Reductions only, for the
+# device as well.
 function _pow2_broadcast_sum(::Type{T}, f::F, η::AbstractVector, args::Vararg{Any, N}) where {T, F, N}
   nonfinite = _broadcast_reduce(+, zero(T), _PairNonfinite(f), η, args...)
   iszero(nonfinite) || return nonfinite
@@ -528,14 +535,22 @@ function _pow2_broadcast_sum(::Type{T}, f::F, η::AbstractVector, args::Vararg{A
   E == typemin(Int) && return zero(T)
   cut = E - (precision(T) + 2 + _log2_ceil(length(η)))
   E2 = _broadcast_reduce(max, typemin(Int), _PairExponent(f, cut), η, args...)
-  big, small = _broadcast_reduce(_add_pair, (zero(T), zero(T)), _PairAligned(f, E, E2, cut), η, args...)
+  z = zero(T)
+  bs, bc, ss, sc = _broadcast_reduce(_add_compensated, (z, z, z, z), _PairAligned(f, E, E2, cut), η, args...)
+  big, small = bs + bc, ss + sc
   E2 == typemin(Int) && return ldexp(big, E)
   mb, eb = frexp(big)
   ms, es = frexp(small)
   m, e = _pow2_add2(mb, eb + E, ms, es + E2)
   ldexp(m, e)
 end
-@inline _add_pair(a::Tuple, b::Tuple) = (a[1] + b[1], a[2] + b[2])
+# (sum, error) of two classes, combined with TwoSum (`_two_sum`, src/ballconstrained.jl):
+# the exact error of each addition is carried along
+@inline function _add_compensated(a::NTuple{4}, b::NTuple{4})
+  s1, e1 = _two_sum(a[1], b[1])
+  s2, e2 = _two_sum(a[3], b[3])
+  s1, a[2] + b[2] + e1, s2, a[4] + b[4] + e2
+end
 struct _PairNonfinite{F}
   f::F
 end
@@ -555,8 +570,8 @@ end
 @inline function (o::_PairAligned)(args...)
   m, e = o.f(args...)
   z = zero(m)
-  iszero(m) && return z, z
-  e >= o.cut ? (ldexp(m, e - o.E), z) : (z, ldexp(m, e - o.E2))
+  iszero(m) && return z, z, z, z
+  e >= o.cut ? (ldexp(m, e - o.E), z, z, z) : (z, z, ldexp(m, e - o.E2), z)
 end
 
 # the terms of one observation, for broadcasts: ordinary, and recovered

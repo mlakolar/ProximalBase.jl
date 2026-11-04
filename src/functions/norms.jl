@@ -74,19 +74,20 @@ function _norm2_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real, :
     y .= t .* x
     return V ? (_level_fits(T, f.λ) ? _norm2_value(convert(T, f.λ) * (nx - c), convert(T, f.λ), y) : _weighted_norm2(f.λ, y)) : zero(T)
   elseif isnan(nx)
-    return _norm2_nan!(y, x, c, nx, iszero(γ), Val(V))
+    return _norm2_nan!(y, x, isinf(γ) | isinf(f.λ), nx, iszero(γ), Val(V))
   else
     fill!(y, zero(eltype(y)))
     return zero(T)
   end
 end
 
-# A NaN entry makes the norm NaN, and a comparison with NaN selects no branch (E2). An infinite
-# threshold (an infinite weight or level, or γ = Inf) fixes the block at zero whatever it holds,
-# and γ = 0 is the identity, which keeps NaN in its own entry. Otherwise every output
-# depends on the NaN entry, so the whole block is NaN, and so is the value.
-@noinline function _norm2_nan!(y, x, c, nx::T, atzero::Bool, ::Val{V}) where {T, V}
-  if isinf(c) || isnan(c)
+# A NaN entry makes the norm NaN, and a comparison with NaN selects no branch (E2). An infinite level
+# or step (E4, or the constant map at γ = Inf) fixes the block at zero whatever it holds, and γ = 0
+# is the identity, which keeps NaN in its own entry. Otherwise every output depends on the NaN entry,
+# so the whole block is NaN, and so is the value. This is decided by the parameters: a finite
+# γλ whose product overflowed is no infinite level or step.
+@noinline function _norm2_nan!(y, x, fixed::Bool, nx::T, atzero::Bool, ::Val{V}) where {T, V}
+  if fixed
     fill!(y, zero(eltype(y)))
     return zero(T)
   elseif atzero
@@ -608,13 +609,17 @@ _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_
     return nx - c
   else
     # A NaN norm (E2) fails both comparisons and takes this branch: every output of the group depends
-    # on the NaN entry, so the group and its norm are NaN, unless an infinite c fixes the group at
-    # zero (E4). The fill value is a scalar, so that the loop is the one it was. With c = 0 the
-    # group is left as it is and its norm is NaN: it is the identity at the step γ = 0 and the NaN
-    # block when γλw only underflowed, which only the caller knows (_nan_steps!, after the loop).
-    nanblock = isnan(nx) & (c < Inf)
+    # on the NaN entry, so the group and its norm are NaN, unless the parameters fix the group at zero
+    # (E4, γ = Inf) or make it the identity (γ = 0). The fill value is a scalar, so that the loop is
+    # the one it was. With c = 0, Inf or NaN the parameters decide, not the product (it can have
+    # underflowed or overflowed): the group is then left as it is, with a NaN norm, for the caller
+    # (_nan_steps!, after the loop). The NormL2 callers of this kernel, an infinite coefficient, are
+    # a hard fix by construction.
+    nanx = isnan(nx)
+    settle = f isa GroupNormL2 ? (nanx & !((c > zero(c)) & (c < Inf))) : false
+    nanblock = f isa GroupNormL2 ? nanx : (nanx & (c < Inf))
     z = nanblock ? T(NaN) : zero(T)
-    if !(nanblock & iszero(c))
+    if !settle
       @inbounds for i in _writes(W, G)
         y[i] = z
       end
@@ -637,10 +642,12 @@ end
 end
 
 # After the loops, when the value is NaN: the groups the kernel left as they were because their
-# threshold is exactly 0 and their norm NaN. At the step γ = 0 (an accepted endpoint, #311) the map
-# is the identity, so such a group is copied (NaN stays in its own entries). A positive step whose
-# product γλw only underflowed to 0 still gives the NaN block. Returns the value at the stored output.
-# Not reached on finite data, and nothing to do for the ℓ∞ kernel, which does not leave a group.
+# threshold is 0, Inf or NaN and their norm NaN. The original parameters decide (E4 first): an infinite
+# weight, level or step fixes the group at zero; at the step γ = 0 (an accepted endpoint, #311) the map
+# is the identity, so the group is copied (NaN stays in its own entries); otherwise, also when the
+# product γλw only underflowed or overflowed, every output depends on the NaN: the NaN block.
+# Returns the value at the stored output. Not reached on finite data, and nothing to do for the ℓ∞
+# kernel, which does not leave a group.
 @inline _nan_steps!(::GroupNormLinf, y, X, ks, γ, ordinary, ::Type, v, yobj) = v
 function _nan_steps!(f::GroupNormL2, y, X, ks, γ, ::Val{O}, ::Type{W}, v, yobj) where {O, W}
   changed = false
@@ -650,17 +657,19 @@ function _nan_steps!(f::GroupNormL2, y, X, ks, γ, ::Val{O}, ::Type{W}, v, yobj)
     G = f.groups[k]
     γk = _entry(γ, k)
     c = O ? _positive_product(W, γk, f.λ0, f.w[k]) : _weight_product(W, γk, f.λ0, f.w[k])
-    iszero(c) || continue
+    ((c > zero(c)) & (c < Inf)) && continue
     isnan(_group_norm2(X, G)) || continue
-    _fill_group!(y, X, G, _group_writes(y, G), iszero(γk))
+    mode = (isinf(f.w[k]) | isinf(f.λ0) | isinf(γk)) ? 0 : iszero(γk) ? 1 : 2
+    _fill_group!(y, X, G, _group_writes(y, G), mode)
     changed = true
   end
   changed ? f(yobj) : v
 end
-@inline function _fill_group!(y, X, G, W, docopy::Bool)
+# mode 0: zeros, 1: copy of X, 2: NaN
+@inline function _fill_group!(y, X, G, W, mode::Int)
   T = eltype(y)
   @inbounds for i in _writes(W, G)
-    y[i] = docopy ? X[i] : T(NaN)
+    y[i] = mode == 0 ? zero(T) : mode == 1 ? X[i] : T(NaN)
   end
 end
 
@@ -923,8 +932,16 @@ end
     return atom(x, k)
   end
   nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], (isinf(f.w[k]) ? _weight_product(T, γ, f.λ0, f.w[k]) : _positive_product(T, γ, f.λ0, f.w[k])))
-  # a NaN group the kernel left (threshold 0): as it is at the step γ = 0, the NaN block otherwise
-  isnan(nrm) && !iszero(γ) && f isa GroupNormL2 && _fill_group!(x.storage, x.storage, x.groups[k], nothing, false)
+  # a NaN group the kernel left (threshold 0, Inf or NaN): the parameters decide as in _nan_steps!; the
+  # group is already the identity at the step γ = 0
+  if f isa GroupNormL2 && isnan(nrm)
+    if isinf(f.w[k]) | isinf(f.λ0) | isinf(γ)
+      _fill_group!(x.storage, x.storage, x.groups[k], nothing, 0)
+      nrm = zero(nrm)
+    elseif !iszero(γ)
+      _fill_group!(x.storage, x.storage, x.groups[k], nothing, 2)
+    end
+  end
   iszero(nrm) || activate!(x, k)
   atom(x, k)
 end

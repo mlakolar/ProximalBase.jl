@@ -183,6 +183,65 @@ end
   end
 end
 
+@testset "a finite parameter whose product overflowed or underflowed is no endpoint" begin
+  for T in (Float32, Float64)
+    nan = T(NaN)
+    x = T[NaN, 4, 0, 0, 0, 0, 0, 0, 0]
+    big = floatmax(T)
+    # γλ and γλw overflow to Inf, but the step, level and weights are finite: the NaN block, not zeros
+    for f in (NormL2(big), GroupNormL2(big, [1:9], T[1]), SparseGroupNormL2(T(0.1), big, [1:9], T[1]))
+      check(f, x, T(2), fill(nan, 9), nan)
+      f isa NormL2 || check(f, x, T[2], fill(nan, 9), nan)           # a step per group
+      # the actual endpoints and fixes stay: γ = Inf is the constant zero map, γ = 0 the identity
+      check(f, x, T(Inf), zeros(T, 9), zero(T))
+      check(f, x, T(0), x, nan)
+    end
+    # an infinite level or weight is the hard fix
+    check(NormL2(T(Inf)), x, T(2), zeros(T, 9), zero(T))
+    check(GroupNormL2(big, [1:9], T[Inf]), x, T(2), zeros(T, 9), zero(T))
+    check(SparseGroupNormL2(T(0.1), big, [1:9], T[Inf]), x, T(2), zeros(T, 9), zero(T))
+    # AtomIterate
+    for f in (GroupNormL2(big, [1:9], T[1]), SparseGroupNormL2(T(0.1), big, [1:9], T[1]))
+      a = AtomIterate(x, f)
+      y = copy(a)
+      @test isnan(value_and_prox!(y, f, a, T(2)))
+      @test all(isnan, y.storage)
+      a = AtomIterate(x, f)
+      prox_coordinate!(a, f, 1, T(2))
+      @test all(isnan, a.storage)
+      a = AtomIterate(x, f)
+      prox_coordinate!(a, f, 1, T(Inf))                               # the constant zero map
+      @test all(iszero, a.storage)
+    end
+    # device arrays
+    for f in (NormL2(big), GroupNormL2(big, [1:9], T[1]), SparseGroupNormL2(T(0.1), big, [1:9], T[1]))
+      for op in (prox!, value_and_prox!)
+        y = JLArray(fill(T(-7), 9))
+        r = op(y, f, JLArray(x), T(2))
+        @test all(isnan, Array(y))
+        op === value_and_prox! && @test isnan(r)
+        z = JLArray(copy(x))
+        op(z, f, z, T(2))
+        @test all(isnan, Array(z))
+      end
+    end
+  end
+  # the product underflows on the mixed-precision path: the level and the step are positive, so the NaN block
+  x = Float32[NaN, 4]
+  for f in (GroupNormL2(1e-100, [1:2], [1.0]), SparseGroupNormL2(0.0, 1e-100, [1:2], [1.0]))
+    check(f, x, 1e-100, Float32[NaN, NaN], NaN32)
+    for op in (prox!, value_and_prox!)
+      y = JLArray(fill(-7f0, 2))
+      r = op(y, f, JLArray(x), 1e-100)
+      @test all(isnan, Array(y))
+      op === value_and_prox! && @test isnan(r)
+      z = JLArray(copy(x))
+      op(z, f, z, 1e-100)
+      @test all(isnan, Array(z))
+    end
+  end
+end
+
 @testset "FiberSum(NormL2)" begin
   for T in (Float32, Float64)
     f = FiberSum(NormL2(T(1)))

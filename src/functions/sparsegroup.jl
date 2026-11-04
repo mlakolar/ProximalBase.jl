@@ -155,25 +155,27 @@ end
     return ns - c2, l1
   else
     # A NaN norm (E2) fails both comparisons and takes this branch: the group term couples the
-    # group, so the group and both its norms are NaN, unless an infinite threshold fixes the group
-    # at zero (E4). With c2 = 0 the group is left as it is and its norms are NaN: it is the identity
-    # at the step γ = 0 and the NaN block when γλw only underflowed, which only the caller knows
-    # (_nan_steps_sparse!, after the loop).
-    nanblock = isnan(ns) & (c1 < Inf) & (c2 < Inf)
-    z = nanblock ? T(NaN) : zero(T)
-    if !(nanblock & iszero(c2))
+    # group, so the group and both its norms are NaN, unless the parameters fix the group at zero
+    # (E4, γ = Inf) or make it the identity (γ = 0). With a threshold of 0, Inf or NaN the parameters
+    # decide, not the products (they can have underflowed or overflowed): the group is then left as it
+    # is, with NaN norms, for the caller (_nan_steps_sparse!, after the loop).
+    nanx = isnan(ns)
+    settle = nanx & !((c2 > zero(c2)) & (c2 < Inf) & (c1 < Inf))
+    z = nanx ? T(NaN) : zero(T)
+    if !settle
       @inbounds for i in _writes(W, G)
         y[i] = z
       end
     end
-    return nanblock ? (ns, ns) : (zero(S), zero(S))
+    return nanx ? (ns, ns) : (zero(S), zero(S))
   end
 end
 
-# After the loops, when the value is NaN: the groups the kernel left as they were because their group
-# threshold is exactly 0 and their norm NaN, as for _nan_steps!. At the step γ = 0 the map is the
-# identity (each entry as it is), and a positive step whose product only underflowed gives the NaN
-# block. Returns the value at the stored output.
+# After the loops, when the value is NaN: the groups the kernel left as they were because a threshold
+# is 0, Inf or NaN and their norm NaN, as for _nan_steps!. The original parameters decide (E4 first):
+# an infinite weight, level or step fixes the group at zero; at the step γ = 0 the map is the identity
+# (each entry as it is); otherwise, also when a product only underflowed or overflowed, the NaN block.
+# Returns the value at the stored output.
 function _nan_steps_sparse!(f::SparseGroupNormL2, y, X, ks, γ, ::Val{O}, ::Type{W}, v, yobj) where {O, W}
   changed = false
   T = eltype(y)
@@ -185,10 +187,14 @@ function _nan_steps_sparse!(f::SparseGroupNormL2, y, X, ks, γ, ::Val{O}, ::Type
     γk = _entry(γ, k)
     c1 = _l1_threshold(W, γk, f.λ1)
     c2 = O ? _positive_product(W, γk, f.λ0, f.w[k]) : _weight_product(W, γk, f.λ0, f.w[k])
-    iszero(c2) || continue
+    ((c2 > zero(c2)) & (c2 < Inf) & (c1 < Inf)) && continue
     isnan(_soft_group_norm(X, G, c1)) || continue
     wr = _group_writes(y, G)
-    if iszero(γk)
+    if isinf(f.w[k]) | isinf(f.λ0) | isinf(f.λ1) | isinf(γk)
+      @inbounds for i in _writes(wr, G)
+        y[i] = zero(T)
+      end
+    elseif iszero(γk)
       @inbounds for i in _writes(wr, G)
         y[i] = convert(T, shrink(convert(W, X[i]), c1))
       end
@@ -352,10 +358,18 @@ end
     return atom(x, k)
   end
   n2, _ = _sparse_shrink_group!(x.storage, x.storage, x.groups[k], _l1_threshold(T, γ, f.λ1), (isinf(f.w[k]) ? _weight_product(T, γ, f.λ0, f.w[k]) : _positive_product(T, γ, f.λ0, f.w[k])))
-  # a NaN group the kernel left (threshold 0): as it is at the step γ = 0 (c1 = 0 then), the NaN block otherwise
-  if isnan(n2) && !iszero(γ)
-    @inbounds for i in x.groups[k]
-      x.storage[i] = T(NaN)
+  # a NaN group the kernel left (a threshold 0, Inf or NaN): the parameters decide as in
+  # _nan_steps_sparse!; the group is already the identity at the step γ = 0 (c1 = 0 then)
+  if isnan(n2)
+    if isinf(f.w[k]) | isinf(f.λ0) | isinf(f.λ1) | isinf(γ)
+      @inbounds for i in x.groups[k]
+        x.storage[i] = zero(T)
+      end
+      n2 = zero(n2)
+    elseif !iszero(γ)
+      @inbounds for i in x.groups[k]
+        x.storage[i] = T(NaN)
+      end
     end
   end
   iszero(n2) || activate!(x, k)

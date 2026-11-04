@@ -353,6 +353,17 @@ end
         @test consistent(x)
       end
     end
+
+    @testset "input is converted exactly once" begin
+      count = Ref(0)
+      x = AtomIterate(Int, 4, 2)
+
+      @test fill!(x, OnceReal(count)) === x
+      @test count[] == 1
+      @test Vector(x) == ones(Int, 4)
+      @test collect(activecoordinates(x)) == [1, 2]
+      @test consistent(x)
+    end
   end
 
   @testset "atom views activate writes" begin

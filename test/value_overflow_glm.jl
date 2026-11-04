@@ -48,6 +48,12 @@ struct AbsLoss <: PB.ScalarLoss end
 PB.deriv(::AbsLoss, η::Real, y::Real) = sign(η - y)
 PB.deriv2(::AbsLoss, η::Real, y::Real) = zero(float(η))
 PB.curvature(::AbsLoss) = Inf
+# a user's loss defined only for y ≥ 0: (η - y)²/2, throwing elsewhere
+struct ThrowsBelowZero <: PB.ScalarLoss end
+(::ThrowsBelowZero)(η::Real, y::Real) = y < 0 ? throw(DomainError(y)) : abs2(η - y) / 2
+PB.deriv(::ThrowsBelowZero, η::Real, y::Real) = y < 0 ? throw(DomainError(y)) : η - y
+PB.deriv2(::ThrowsBelowZero, η::Real, y::Real) = one(float(η))
+PB.curvature(::ThrowsBelowZero) = 1.0
 const BASELINE = get(ENV, "GLM_BASELINE", "") == "1"
 
 # ---------------------------------------------------------------------------------------------
@@ -890,7 +896,28 @@ if !BASELINE
       v, dv = PB.value_and_deriv(PB.SquaredHinge(), zero(T), M)
       @test isfinite(v) && !isfinite(dv)                   # 1 and -2 floatmax
       @test !PB._value_traps(AbsLoss()) && !PB._deriv_traps(AbsLoss()) && !PB._deriv_in_value(AbsLoss())
+      @test !PB._pure_everywhere(AbsLoss())
+      # the trait properties at extreme loss parameters (bandwidths and δ subnormal, huge, Inf)
+      tiny, huge = nextfloat(zero(T)), M / 4
+      for ℓ in (PB.Huber(tiny), PB.Huber(huge), PB.Huber(T(Inf)), PB.SmoothCheck(T(0.3), tiny), PB.SmoothCheck(T(0.3), huge),
+                PB.SmoothCheck(prevfloat(one(T)), T(Inf)), PB.ConvolutionCheck(T(0.3), tiny), PB.ConvolutionCheck(T(0.7), T(Inf)),
+                PB.ConvolutionCheck(T(0.3), huge; kernel = :uniform))
+        for η in T[Inf, -Inf, NaN], y in ys
+          @test !isfinite(ℓ(η, y))
+        end
+        for η in ηs, y in ys, sη in (1, -1)
+          v, dv = PB.value_and_deriv(ℓ, sη * η, y)
+          @test isfinite(dv) || !isfinite(v)
+        end
+      end
     end
+
+    # a user's loss that throws where its weight is zero: no loop calls it there
+    fz = GLMLoss(ThrowsBelowZero(), [-1.0, 0.5], [1.0 0; 0 1]; weights = [0.0, 2.0])
+    @test fz([0.25, 1.0]) == 2 * 0.125
+    gz = zeros(2)
+    @test value_and_gradient!(gz, fz, [0.25, 1.0]) == 2 * 0.125 && gz == [0, 1]
+    @test gradient!(zeros(2), fz, [0.25, 1.0]) == [0, 1]
 
     # a predictor that overflows to ±Inf where the exact one is 0 (row [M, -M/2, -M] or its negative,
     # β = [2, 2, 1]: the products 2M = Inf, -M, -M): a finite ordinary value (SquaredHinge) or

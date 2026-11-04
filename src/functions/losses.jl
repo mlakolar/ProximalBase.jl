@@ -428,6 +428,7 @@ curvature(::SquaredHinge) = 2.0
 # about ulp(1)/2, so m² does not underflow; the derivative -2ym does when |y| is
 # far below 1.
 _lost_deriv(::SquaredHinge, v, η, y) = _below_normal(v) & !iszero(y) & (y * η < 1)
+_pure_everywhere(::SquaredHinge) = true   # src/functions/glm.jl
 @inline function _sqrhinge_margin(y::T, ηs::T, k::Int) where {T}
   k == 0 && return _sqrhinge_residual(y, ηs)
   (iszero(y) || y * ηs > 0) && return (iszero(y) ? one(T) : zero(T)), 0
@@ -491,6 +492,7 @@ _lost_deriv(::SmoothCheck, v, η, y) = _below_normal(v) & (η != y)
 # (src/functions/glm.jl, `_value_traps` and `_deriv_in_value`)
 _value_traps(::SmoothCheck) = true
 _deriv_in_value(::SmoothCheck) = true
+_pure_everywhere(::SmoothCheck) = true
 @inline function _smoothcheck_parts(ℓ::SmoothCheck, ηs::T, k::Int, y::T) where {T}
   m, e = _residual_pow2(ηs, k, y)
   τ, h = convert(T, ℓ.τ), convert(T, ℓ.h)
@@ -572,6 +574,7 @@ _lost_deriv(::ConvolutionCheck, v, η, y) = _below_normal(v)
 # linear for |u| ≥ h, NaN in the kernel zone; ℓ' bounded by 1/2 + |τ - 1/2|
 _value_traps(::ConvolutionCheck) = true
 _deriv_in_value(::ConvolutionCheck) = true
+_pure_everywhere(::ConvolutionCheck) = true
 _kernel_slope0(::ConvolutionCheck{<:Any, :uniform}) = 1
 _kernel_slope0(::ConvolutionCheck{<:Any, :epanechnikov}) = 3 // 2
 function _weighted_deriv(ℓ::ConvolutionCheck, w::T, ηs::T, k::Int, y::T) where {T}

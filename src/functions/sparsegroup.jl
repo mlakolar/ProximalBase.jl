@@ -125,7 +125,7 @@ end
 
 # y[G] ← the soft threshold of x[G] at c1, shrunk by c2 in Euclidean norm, which
 # may be in place; returns the ℓ2 and ℓ1 norms of the result
-@inline function _sparse_shrink_group!(y::AbstractArray{T}, x::AbstractArray, G, c1::S, c2::S, W = nothing, atzero::Bool = false)::Tuple{S, S} where {T, S}
+@inline function _sparse_shrink_group!(y::AbstractArray{T}, x::AbstractArray, G, c1::S, c2::S, W = nothing)::Tuple{S, S} where {T, S}
   ns = _soft_group_norm(x, G, c1)
   if ns > c2
     if isinf(ns) && isfinite(c2)
@@ -153,35 +153,32 @@ end
       (W === nothing || W === G) && (l1 += abs(v))
     end
     return ns - c2, l1
-  elseif isnan(ns)
-    return _nan_sparse_group!(y, x, G, c1, c2, ns, W, atzero)
   else
+    # A NaN norm (E2) fails both comparisons and takes this branch: the group term couples the
+    # group, so the group and both its norms are NaN, unless an infinite threshold fixes the group
+    # at zero (E4). The step γ = 0 is the identity, handled by the caller (_identity_sparse_group!).
+    nanblock = isnan(ns) & (c1 < Inf) & (c2 < Inf)
+    z = nanblock ? T(NaN) : zero(T)
     @inbounds for i in _writes(W, G)
-      y[i] = zero(T)
+      y[i] = z
     end
-    return zero(S), zero(S)
+    return nanblock ? (ns, ns) : (zero(S), zero(S))
   end
 end
 
-# The group has a NaN entry (E2); see _nan_group!. An infinite threshold fixes the group at zero,
-# and γ = 0 (atzero) leaves each entry as it is. Otherwise the group term couples the group,
-# so it is entirely NaN, and so are both norms of the stored group.
-@noinline function _nan_sparse_group!(y::AbstractArray{T}, x::AbstractArray, G, c1::S, c2::S, ns, W, atzero::Bool)::Tuple{S, S} where {T, S}
-  if isinf(c1) || isinf(c2) || isnan(c1) || isnan(c2)
-    @inbounds for i in _writes(W, G)
-      y[i] = zero(T)
-    end
-    return zero(S), zero(S)
-  elseif atzero
-    @inbounds for i in _writes(W, G)
-      y[i] = shrink(convert(S, x[i]), c1)
-    end
-  else
-    @inbounds for i in _writes(W, G)
-      y[i] = T(NaN)
-    end
+# At γ = 0 the map is the identity, so that NaN stays in its own entry; an infinite weight fixes
+# its group at zero instead. Returns the norms of the group, as the kernel does.
+@inline _identity_sparse_group(f::SparseGroupNormL2, ::Val{O}, γk, k) where {O} = !O && iszero(γk) && !isinf(f.w[k])
+@inline _identity_step(::SparseGroupNormL2, γ::Real) = iszero(γ)
+@inline function _identity_sparse_group!(y, x, G, W, ::Type{S}) where {S}
+  l1 = zero(S)
+  @inbounds for i in _writes(W, G)
+    y[i] = x[i]
   end
-  ns, ns
+  @inbounds for i in G
+    l1 += abs(convert(S, x[i]))
+  end
+  _group_norm2(x, G), l1
 end
 
 # γλ1, where a zero level gives zero at every step, including γ = Inf (E4 before the step).
@@ -231,8 +228,12 @@ value_and_prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Re
 
 # the step γ is a scalar or a vector with a step per group (see metric.jl)
 function _value_and_prox_groups!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Union{Real, AbstractVector})
-  isfinite(f.λ1) && _ordinary_group_weights(f, _model_type(y, x)) ?
-    _sparse_group_prox!(y, f, x, γ, Val(true)) : _sparse_group_prox!(y, f, x, γ, Val(false))
+  if isfinite(f.λ1) && _ordinary_group_weights(f, _model_type(y, x))
+    _identity_step(f, γ) && return _identity_prox!(f, y, x)
+    _sparse_group_prox!(y, f, x, γ, Val(true))
+  else
+    _sparse_group_prox!(y, f, x, γ, Val(false))
+  end
 end
 
 function _sparse_group_prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
@@ -249,7 +250,11 @@ function _sparse_group_prox!(y::AbstractArray, f::SparseGroupNormL2, x::Abstract
       n1 = _soft_group_only!(y, x, f.groups[k], _l1_threshold(W, γk, f.λ1), _group_writes(y, f.groups[k]))
       W === T || (n1 = _sumabs(y, f.groups[k]))        # O2: the values are those of the stored output
     else
-      n2, n1 = _sparse_shrink_group!(y, x, f.groups[k], _l1_threshold(W, γk, f.λ1), (O ? _positive_product(W, γk, f.λ0, f.w[k]) : _weight_product(W, γk, f.λ0, f.w[k])), _group_writes(y, f.groups[k]), iszero(γk))
+      n2, n1 = if _identity_sparse_group(f, ordinary, γk, k)
+        _identity_sparse_group!(y, x, f.groups[k], _group_writes(y, f.groups[k]), W)
+      else
+        _sparse_shrink_group!(y, x, f.groups[k], _l1_threshold(W, γk, f.λ1), (O ? _positive_product(W, γk, f.λ0, f.w[k]) : _weight_product(W, γk, f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+      end
       W === T || ((n2, n1) = (_group_norm2(y, f.groups[k]), _sumabs(y, f.groups[k])))
       v2 += _group_value(f, f.λ0, f.w[k], n2, y, f.groups[k], T, ordinary)
     end
@@ -288,8 +293,12 @@ value_and_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Real) 
 function _value_and_prox_groups!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Union{Real, AbstractVector})
   _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, SparseGroupNormL2, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
-  isfinite(f.λ1) && _ordinary_group_weights(f, float(eltype(y)), x.active, x.nactive) ?
-    _sparse_group_prox!(y, f, x, γ, Val(true)) : _sparse_group_prox!(y, f, x, γ, Val(false))
+  if isfinite(f.λ1) && _ordinary_group_weights(f, float(eltype(y)), x.active, x.nactive)
+    _identity_step(f, γ) && return _identity_prox!(f, y, x)
+    _sparse_group_prox!(y, f, x, γ, Val(true))
+  else
+    _sparse_group_prox!(y, f, x, γ, Val(false))
+  end
 end
 
 function _sparse_group_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterate, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
@@ -305,7 +314,11 @@ function _sparse_group_prox!(y::AtomIterate, f::SparseGroupNormL2, x::AtomIterat
     if (O && iszero(f.λ0)) || iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))
       n1 = _soft_group_only!(y.storage, y.storage, f.groups[k], _l1_threshold(T, γk, f.λ1))
     else
-      n2, n1 = _sparse_shrink_group!(y.storage, y.storage, f.groups[k], _l1_threshold(T, γk, f.λ1), (O ? _positive_product(T, γk, f.λ0, f.w[k]) : _weight_product(T, γk, f.λ0, f.w[k])), nothing, iszero(γk))
+      n2, n1 = if _identity_sparse_group(f, ordinary, γk, k)
+        _identity_sparse_group!(y.storage, y.storage, f.groups[k], nothing, T)
+      else
+        _sparse_shrink_group!(y.storage, y.storage, f.groups[k], _l1_threshold(T, γk, f.λ1), (O ? _positive_product(T, γk, f.λ0, f.w[k]) : _weight_product(T, γk, f.λ0, f.w[k])))
+      end
       v2 += _group_value(f, f.λ0, f.w[k], n2, y.storage, f.groups[k], T, ordinary)
     end
     iszero(f.λ1) || (v1 += convert(T, n1))
@@ -327,7 +340,11 @@ end
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
     return atom(x, k)
   end
-  n2, _ = _sparse_shrink_group!(x.storage, x.storage, x.groups[k], _l1_threshold(T, γ, f.λ1), (isinf(f.w[k]) ? _weight_product(T, γ, f.λ0, f.w[k]) : _positive_product(T, γ, f.λ0, f.w[k])), nothing, iszero(γ))
+  n2, _ = if _identity_sparse_group(f, Val(false), γ, k)
+    _identity_sparse_group!(x.storage, x.storage, x.groups[k], nothing, T)
+  else
+    _sparse_shrink_group!(x.storage, x.storage, x.groups[k], _l1_threshold(T, γ, f.λ1), (isinf(f.w[k]) ? _weight_product(T, γ, f.λ0, f.w[k]) : _positive_product(T, γ, f.λ0, f.w[k])))
+  end
   iszero(n2) || activate!(x, k)
   atom(x, k)
 end

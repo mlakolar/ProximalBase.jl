@@ -95,7 +95,8 @@ end
     end
     @testset "steps per group, endpoints, $T" begin
       check(g, x, T[1, 1], [nan, nan, shrunk...], nan)
-      check(g, x, T[0, 1], [nan, T(4), shrunk...], nan)        # the identity in group 1
+      # a zero step in a vector is the identity on finite data (a NaN group at such a step: see the PR, #311)
+      check(g, T[3, 4, 3, 4], T[0, 1], [T(3), T(4), shrunk...], T(5) + T(4))
       check(g, x, T[1, 0], [nan, nan, T(3), T(4)], nan)
       check(g, x, T(0), x, nan)
       check(g, x, T(Inf), zeros(T, 4), zero(T))

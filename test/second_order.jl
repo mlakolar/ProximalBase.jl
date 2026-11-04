@@ -546,6 +546,92 @@ end
     end
   end
 
+  @testset "below the floor: a response whose terms leave the range while their sum does not (review of #544)" begin
+    for T in (Float64, Float32)
+      h = sqrt(eps(T))
+      η = -floatmax(T)
+      # η + y/√eps with y/√eps above floatmax: the sum is representable (0.5 floatmax, 0.75 floatmax, 0, ...)
+      for c in (T(1.5), T(1.75), T(1), T(1.25), T(1.999))
+        y = c * (floatmax(T) * h)
+        f = poisson(T, η, 1, y)
+        q = quadratic_model(f, T[η])
+        v, z, = irls_reference(T, η, T(1), y)
+        @test isfinite(only(q.y)) && only(q.weights) == h
+        @test isapprox(only(q.y), T(z); atol = 4 * eps(T) * floatmax(T), rtol = 0)
+        @test q.y == quadratic_model!(q, f, T[η]).y
+        c > 1 && @test only(ordinary_model(f, T[η])[2]) == T(Inf)       # the direct expression overflows
+      end
+      # the sum itself does not fit: PrecisionError, and the model is unchanged
+      for c in (T(2.5), T(3))
+        y = c * (floatmax(T) * h)
+        f = poisson(T, η, 1, y)
+        q = quadratic_model(f, T[0])
+        before = deepcopy(q)
+        e = try quadratic_model!(q, f, T[η]); nothing catch e e end
+        @test e isa PrecisionError && occursin("observation 1", e.msg)
+        @test q.y == before.y && q.weights == before.weights
+        @test_throws PrecisionError quadratic_model(f, T[η])
+      end
+      # the negative side
+      y = -T(1.5) * (floatmax(T) * h)
+      @test_throws PrecisionError quadratic_model(poisson(T, η, 1, y), T[η])
+      # an ordinary finite pair below the floor is unchanged
+      f = poisson(T, -40, 1, 2)
+      @test quadratic_model(f, T[-40]).y == ordinary_model(f, T[-40])[2]
+    end
+    # an infinite or NaN predictor, response and weight still propagate
+    for bad in (-Inf, NaN)
+      q = quadratic_model(poisson(Float64, 0, 1, 1), [bad])
+      @test !isfinite(only(q.y))
+    end
+    for y in (Inf, NaN, -Inf)
+      @test !isfinite(only(quadratic_model(poisson(Float64, -floatmax(Float64), 1, y), [-floatmax(Float64)]).y))
+    end
+  end
+
+  @testset "non-finite data: the ordinary response, offsets of allocating models, allocation (review of #544)" begin
+    # a non-finite weight alone leaves the response of the ordinary computation (bit for bit)
+    for T in (Float32, Float64), bad in (T(NaN), T(Inf)), η in (T(1e-8), T(1), T(-3), T(30))
+      f = PoissonLoss(T[1], ones(T, 1, 1); weights = T[1])
+      f.weights[1] = bad
+      q = quadratic_model(f, T[η])
+      @test isequal(q.y, ordinary_model(f, T[η])[2])
+      @test !isfinite(only(q.weights))
+      @test isequal(quadratic_model!(q, f, T[η]).y, ordinary_model(f, T[η])[2])
+    end
+    # an overflowing predictor with a non-finite weight: no recovery, as before
+    for T in (Float32, Float64), bad in (T(NaN), T(Inf))
+      f = PoissonLoss(T[1], ones(T, 1, 1); weights = T[1])
+      f.weights[1] = bad
+      η = T === Float64 ? T(710) : T(89)
+      @test !isfinite(only(quadratic_model(f, T[η]).y))
+    end
+    # an offset made non-finite after the construction: the update of a model propagates it,
+    # the allocating call revalidates the offset (documented)
+    for T in (Float32, Float64), bad in (T(NaN), T(Inf), -T(Inf))
+      f = PoissonLoss(T[0], ones(T, 1, 1); offset = T[0])
+      q = quadratic_model(f, T[0])
+      f.offset[1] = bad
+      @test quadratic_model!(q, f, T[0]) === q
+      @test !isfinite(only(q.y)) || !isfinite(only(q.weights))
+      @test_throws ArgumentError quadratic_model(f, T[0])
+    end
+    # allocation: none for finite data (also at a large predictor), and a successful update with a
+    # non-finite observation checks the staged values in a new vector (documented)
+    alloc(f, q, b) = (quadratic_model!(q, f, b); @allocated quadratic_model!(q, f, b))
+    for n in (1, 10, 100)
+      f = PoissonLoss(zeros(n), ones(n, 1))
+      q = quadratic_model(f, [0.0])
+      @test alloc(f, q, [0.0]) == 0
+      fr = PoissonLoss(zeros(n), ones(n, 1); weights = fill(1 / 8, n))     # recovery at η = 710
+      qr = quadratic_model(fr, [710.0])
+      @test alloc(fr, qr, [710.0]) == 0 && only(unique(qr.y)) == 709.0
+      f.y[1] = NaN
+      @test quadratic_model!(q, f, [0.0]) === q
+      @test alloc(f, q, [0.0]) > 0
+    end
+  end
+
   @testset "known limitation: the working response cannot carry l'/l'' at a predictor of 1e30" begin
     # at η = -1e30 the pair (v, z) = (w √eps, η + y/√eps) rounds η - z to 0: the model's gradient is 0, not w(exp(η) - y);
     # the same before this change (a separate numerical-contract issue)

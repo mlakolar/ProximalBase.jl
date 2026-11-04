@@ -256,7 +256,16 @@ overflowing ``e^{\eta_i}`` and the working response is
 ``z_i = \eta_i - 1 + y_i e^{-\eta_i}``, so weight ``1/8`` at ``\eta = 710`` gives
 the coefficient ``e^{710}/8`` and the response ``709``. A coefficient or response that
 cannot be represented raises a [`PrecisionError`](@ref), and
-[`quadratic_model!`](@ref) then leaves the model as it was.
+[`quadratic_model!`](@ref) then leaves the model as it was. Below the curvature floor
+the response ``\eta_i + (y_i - e^{\eta_i})/\sqrt\varepsilon`` is formed so that a
+cancelling pair of terms that leave the range does not fail where their sum fits
+(``\eta = -\text{floatmax}`` and ``y/\sqrt\varepsilon`` just above it); only a sum that
+does not fit is an error. Non-finite data propagate as ``\mathrm{NaN}`` or ``\mathrm{Inf}``
+in the update of a model, without an error and without the recovery above;
+[`quadratic_model`](@ref) builds a new loss and checks the offset again, which must be finite as in
+the constructor, so an offset made non-finite after construction is an `ArgumentError`
+there. An update allocates nothing for finite data; one with a non-finite observation
+checks the staged values in a new vector of the length of `y`, and allocates.
 
 That all-or-nothing update has a measured cost: the pair of every observation is
 staged in the buffers of the loss and copied into the model last. The cost was

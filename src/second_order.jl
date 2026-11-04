@@ -66,7 +66,7 @@ Hessian. It retains the gradient at the model point.
 A proximal Newton method minimizes `q + g` with any solver and penalty `g`,
 then searches along the step on `f + g`. `quadratic_model!` updates a model
 returned by `quadratic_model(f, x₀)` to the model at `x`, in place and without
-allocating, and returns it. A model of a [`SeparableSum`](@ref) must have as
+allocating for finite data (see the `GLMLoss` case below), and returns it. A model of a [`SeparableSum`](@ref) must have as
 many blocks as `f`, and a model of a [`Sum`](@ref) as many parts; otherwise a
 `DimensionMismatch` is thrown. Each sum is checked when the update reaches it,
 before any of its own blocks change; a mismatch in a nested sum can therefore
@@ -94,7 +94,12 @@ is as it was and `q` can be updated again. `q` must own its arrays, as `quadrati
 makes it: `q.y` and `q.weights` must be two separate arrays, and none of the arrays of `f` (`y`,
 the weights, the offset and its buffers); an identical array is an `ArgumentError`, a view or
 reshape of one is not detected. Non-finite data propagate as
-`NaN`/`Inf` without an error. The all-or-nothing update holds for one `GLMLoss`:
+`NaN`/`Inf` without an error in the update of a model; `quadratic_model` builds a new
+loss and so checks the offset again, which must be finite, as in the constructor: an
+offset made non-finite after the construction is an `ArgumentError` there. Finite data
+allocate nothing; where a coefficient vanishes or an observation with non-finite data
+makes the staged values non-finite, the update checks them in a new vector of the length
+of `y` and then allocates. The all-or-nothing update holds for one `GLMLoss`:
 the models of a [`Sum`](@ref) or [`SeparableSum`](@ref) of such losses are
 updated one part after another. For `LogDetLoss`, `q` is
 written in the new point `z` rather than in the step `z - x`: minimizing
@@ -300,7 +305,7 @@ end
 # The staged pair (v, z) of f is not finite, or a coefficient vanished. A predictor, response or
 # weight that is itself not finite explains it (the result propagates, as before); otherwise
 # the first observation with finite data throws. The predictors are recomputed in a new array,
-# since f.η holds z; this path allocates.
+# since f.η holds z; this path allocates (a successful update with non-finite data too).
 @noinline function _irls_check(f::GLMLoss{L, T}, β, v, z) where {L, T}
   η = similar(f.η)
   mul!(η, f.X, β)
@@ -332,20 +337,32 @@ end
 # recomputed: w exp(η) = w m 2^j with the power of two held outside the range until the
 # final rounding, so that the coefficient is returned whenever it is representable (Inf
 # otherwise, which the caller rejects), and η - 1 + y exp(-η), the limit of
-# η - (exp(η) - y)/exp(η), as the response. Below the floor a non-finite result is the
-# result: y/√eps does not fit.
+# η - (exp(η) - y)/exp(η), as the response. Below the floor the coefficient is w √eps and
+# only the response can leave the range: η - (exp(η) - y)/√eps is a sum of two terms that
+# may each be out of range while the sum is not (η = -floatmax and y/√eps just above it),
+# so it is formed from halves, and is rejected by the caller only if the sum itself
+# does not fit. A non-finite weight, response or predictor is not recovered: it propagates
+# as before.
 @inline function _irls_pair(::Poisson, w::T, η::T, y, floor::T) where {T}
   e = exp(η)
   if isfinite(e)
     d2 = max(e, floor)
     v, z = w * d2, η - convert(T, e - y) / d2
-    (isfinite(v) & isfinite(z)) || e <= floor || !isfinite(y) || return _poisson_recovered(w, η, y)
+    if !(isfinite(v) & isfinite(z)) && isfinite(y) & isfinite(w)
+      e > floor && return _poisson_recovered(w, η, y)
+      isfinite(z) || !isfinite(η) || (z = _floored_response(η, convert(T, e - y), d2))
+    end
     return v, z
   end
-  isfinite(η) && return _poisson_recovered(w, η, y)
-  d2 = max(e, floor)                     # a non-finite predictor propagates as before
+  isfinite(η) & isfinite(y) & isfinite(w) && return _poisson_recovered(w, η, y)
+  d2 = max(e, floor)                     # non-finite data propagate as before
   w * d2, η - convert(T, e - y) / d2
 end
+
+# η - t/d2 for a finite η and t, as 2(η/2 - (t/2)/d2): the halves keep a cancelling pair of
+# terms in range, and the result overflows only if η - t/d2 itself does. Used only where
+# the direct expression was not finite, so the halves are far from the subnormal range.
+@noinline _floored_response(η::T, t::T, d2::T) where {T} = 2 * (η / 2 - (t / 2) / d2)
 
 @noinline function _poisson_recovered(w::T, η::T, y) where {T}
   m, j = _exp_split(η)

@@ -209,11 +209,24 @@ end
 
 prox!(y, s::Scaled, x, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
-_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) = (_checkparams(s, x); _prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)))
+_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
+  (_checkparams(s, x); _chained(s) ? _prox_chain!(y, s, x, γ) : _prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)))
 value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
-  (_checkparams(s, x); _value_at(s.α * _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)), y))
+  (_checkparams(s, x); _chained(s) ? _value_and_prox_chain!(y, s, x, γ) :
+   _value_at(s.α * _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)), y))
+# a chain scales each step by the product of all its factors, exponent last
+function _prox_chain!(y, s, x, γ::AbstractArray)
+  f, a = _scaled_chain(s)
+  _prox_unchecked!(y, f, x, _ExpScaledArray(γ, a))
+end
+function _value_and_prox_chain!(y, s, x, γ::AbstractArray)
+  f, a = _scaled_chain(s)
+  v = _value_and_prox_unchecked!(y, f, x, _ExpScaledArray(γ, a))
+  # a leaf value that left the range is recovered in the function's own units, as for a scalar step
+  _value_at(_scaled_value_by(f, a, y, v), y)
+end
 
 prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, t, y, x, γ); _prox_unchecked!(y, t, x, γ))
@@ -359,13 +372,16 @@ end
 # unweighted pooling.
 prox!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
-function _prox_unchecked!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractArray)
+_prox_unchecked!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractArray) =
+  (_isotonic_steps!(y, f, x, γ); y)
+# The projection; the pooling status (see _isotonic_stored_value).
+function _isotonic_steps!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractArray)
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   _check_metric_steps(f, γ)
   Base.require_one_based_indexing(γ)
   n = length(x)
-  n == 0 && return y
+  n == 0 && return 0
   T = float(eltype(y))
   S = promote_type(T, float(eltype(γ)))
   γmin = γmax = γ[1]
@@ -379,12 +395,12 @@ function _prox_unchecked!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ
   iszero(convert(S, γmin) / convert(S, γmax)) &&
     throw(ArgumentError("the ratio of the largest to the smallest step of IndIsotonic is too large to represent"))
   σ = f.decreasing ? -1 : 1
-  if equal
-    _pava!(y, x, _buffer!(f.sums, T, n), _buffer!(f.sizes, Int, n), σ)
+  status = if equal
+    _pava!(y, x, _buffer!(f.sums, T, n), _buffer!(f.sizes, Int, n), σ, Val(true))
   else
-    _wpava!(y, x, γ, γmin, _buffer!(f.means, S, n), _buffer!(f.weights, S, n), _buffer!(f.sizes, Int, n), σ)
+    _wpava!(y, x, γ, γmin, _buffer!(f.means, S, n), _buffer!(f.weights, S, n), _buffer!(f.sizes, Int, n), σ, Val(true))
   end
-  y
+  _isotonic_status!(y, x, status)       # a NaN couples every entry, as for a scalar step
 end
 
 # The projection onto a hyperplane in the metric of Diagonal(1 ./ γ),
@@ -472,8 +488,10 @@ end
 
 value_and_prox!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndHyperslab, IndSimplex, IndBallL1, IndIsotonic}, x::AbstractArray, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_unchecked!(y, f, x, γ))
-_value_and_prox_unchecked!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndHyperslab, IndSimplex, IndBallL1, IndIsotonic}, x::AbstractArray, γ::AbstractArray) =
+_value_and_prox_unchecked!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace, IndHyperslab, IndSimplex, IndBallL1}, x::AbstractArray, γ::AbstractArray) =
   (_prox_unchecked!(y, f, x, γ); zero(_valtype(y)))
+_value_and_prox_unchecked!(y::AbstractArray, f::IndIsotonic, x::AbstractArray, γ::AbstractArray) =
+  _isotonic_stored_value(y, _isotonic_steps!(y, f, x, γ))
 
 # The level ν with Σᵢ max(uᵢ - γᵢν, 0) = r for uᵢ = h(xᵢ), by Newton's method
 # from the left on this convex, decreasing, piecewise linear function. From
@@ -643,10 +661,13 @@ Base.@propagate_inbounds function coordinate_lipschitz(f::BernoulliLoss, k::Inte
   iszero(w) ? zero(w) : oftype(w, Inf)
 end
 
-coordinate_lipschitz(s::Scaled, k::Integer) = s.α * coordinate_lipschitz(s.f, k)
+coordinate_lipschitz(s::Scaled, k::Integer) = _chained(s) ?
+  _apply_scale(_scaled_chain(s)[2], coordinate_lipschitz(_scaled_chain(s)[1], k)) : s.α * coordinate_lipschitz(s.f, k)
 coordinate_lipschitz!(L::AbstractArray, s::Scaled) =
   (_check_lipschitz_arrays(s, L); _coordinate_lipschitz_unchecked!(L, s))
-_coordinate_lipschitz_unchecked!(L::AbstractArray, s::Scaled) = (_coordinate_lipschitz_unchecked!(L, s.f); L .*= s.α)
+_coordinate_lipschitz_unchecked!(L::AbstractArray, s::Scaled) = _chained(s) ?
+  (_coordinate_lipschitz_unchecked!(L, _scaled_chain(s)[1]); _scale!(L, _scaled_chain(s)[2])) :
+  (_coordinate_lipschitz_unchecked!(L, s.f); L .*= s.α)
 coordinate_lipschitz(t::Union{Tilt, Translate}, k::Integer) = coordinate_lipschitz(t.f, k)
 coordinate_lipschitz!(L::AbstractArray, t::Union{Tilt, Translate}) =
   (_check_lipschitz_arrays(t, L); _coordinate_lipschitz_unchecked!(L, t))

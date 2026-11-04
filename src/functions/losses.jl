@@ -10,8 +10,8 @@
 
 The check loss of quantile regression, `f(x) = Σᵢ wᵢ ρ_τ(xᵢ)` with
 `ρ_τ(u) = max(τu, (τ - 1)u)` for `τ ∈ (0, 1)`, and all `wᵢ = 1` when `w` is
-omitted. Its proximal operator moves an entry above `γwᵢτ` down by `γwᵢτ`, one
-below `-γwᵢ(1 - τ)` up by `γwᵢ(1 - τ)`, and sets those in between to zero.
+omitted. Its proximal operator moves an entry above `γτwᵢ` down by `γτwᵢ`, one
+below `-γ(1 - τ)wᵢ` up by `γ(1 - τ)wᵢ`, and sets those in between to zero.
 
 It is a function of residuals. Since `ρ_τ(-u) = ρ_{1-τ}(u)`, the loss
 `Σᵢ ρ_τ(yᵢ - zᵢ)` of predictions `z` of responses `y` is
@@ -50,28 +50,16 @@ Base.@propagate_inbounds function _value_entry_ordinary(f::CheckLoss, v::T, i::I
   _entry(f.w, i) * (v >= 0 ? τ * v : (τ - 1) * v)
 end
 _has_ordinary_value(::Type{<:CheckLoss}) = true
-# γw·t, in the documented order, for a level t in (0, 1), formed in the promotion R of S and the
-# factors and rounded once. For a scalar step and a scalar or absent weight γw is invariant, so its
-# range test is unswitched out of the loop (as in _positive_product). Otherwise the recovery of
-# _weight_coefficient decides; where γw is 0·Inf (a zero step with an infinite weight, or the
-# reverse) the weight decides.
-@inline function _check_threshold(::Type{S}, γ, w, t) where {S<:AbstractFloat}
-  R = _working_type(S, γ, w, t)
-  s = convert(R, γ) * convert(R, w)
-  floatmin(R) <= s <= floatmax(R) && return convert(S, s * convert(R, t))
-  _check_threshold_exceptional(S, γ, w, t)
-end
-@noinline function _check_threshold_exceptional(::Type{S}, γ, w, t) where {S<:AbstractFloat}
-  isnan(γ * w) & !isnan(γ) & !isnan(w) && return _weight_coefficient(S, γ, t, w)
-  _weight_coefficient(S, γ, w, t)
-end
 Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
   u = S(v)
   # the thresholds γwτ and γw(1-τ), each formed in the promotion of S and the factors, rounded once
-  hi = _check_threshold(S, γ, w, f.τ)
-  lo = _check_threshold(S, γ, w, _one_minus(S, f.τ))
+  # the thresholds γτwᵢ and γ(1-τ)wᵢ as for the other weighted penalties: the step and the level first
+  # (invariant in a loop over entries), then the weight; formed in the promotion of S and the factors
+  # and rounded once, with the range recovery and the zero and infinite weights of _weight_coefficient
+  hi = _weight_coefficient(S, γ, f.τ, w)
+  lo = _weight_coefficient(S, γ, _one_minus(S, f.τ), w)
   u > hi ? u - hi : (u < -lo ? u + lo : zero(S))
 end
 

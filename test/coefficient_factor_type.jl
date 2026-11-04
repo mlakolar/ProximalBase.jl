@@ -67,6 +67,8 @@ end
   @test px(HingeLoss([1.0, -1.0], [1.0, 1.0]), [-1.0, 1.0], 0.5) == [-0.5, 0.5]
   # zero and infinite weights
   @test px(HingeLoss(nothing, Float32[0, Inf]), [-1.0, -1.0], big32) == [-1.0, 1.0]
+  # integer labels and weights
+  @test px(HingeLoss([1, -1], [1, 1]), [-1.0, 1.0], 0.5) == [-0.5, 0.5]
   # a subnormal weight with a label below one: the step is not rounded in two stages. v = 0 gives s/y
   # with s = γw|y|², the exact product rounded once (BigFloat), within one ulp of s here
   for (y, w, γ) in ((-0.6069132140372439, 2.327553e-318, 144380.9785781732), (0.3, 5e-324 * 7, 2.0^40), (-0.9, 1e-320, 3.5e9))
@@ -79,16 +81,17 @@ end
   @test abs(prox_entry(HingeLoss(Float32[y32], Float32[w32]), 0f0, 1, γ32) * y32 - s32) <= 2eps(s32)
 end
 
-@testset "CheckLoss: Float16, and γw·τ in the documented order" begin
+@testset "CheckLoss: Float16, and the thresholds γτwᵢ and γ(1-τ)wᵢ rounded once" begin
   f = CheckLoss(Float16(0.75))
   @test prox_entry(f, Float16(4), 1, 2.0) === Float16(2.5)
   @test prox_entry(f, Float16(-4), 1, 2.0) === Float16(-3.5)
   @test prox_entry(CheckLoss(Float16(1 - 2.0^-10)), Float16(-2), 1, 2.0^10) === Float16(-1)
-  # γw is rounded first, then τ: (γw)τ in the promotion of the factors, one rounding to the destination
+  # the exact product (BigFloat) rounded once to the destination; the Float64 factors' promotion makes the
+  # intermediate rounding of γτ harmless for these inputs
   τ, γ, w = 0.7, 0.1, 3.0
   for u in (1.0000002f0, 2f0, -2f0)
-    hi = Float32((big(γ) * big(w)) * big(τ))
-    @test prox_entry(CheckLoss(τ, [w]), u, 1, γ) === (u > hi ? u - hi : (u < -Float32((big(γ) * big(w)) * (1 - big(τ))) ? u + Float32((big(γ) * big(w)) * (1 - big(τ))) : 0f0))
+    hi = Float32(big(γ) * big(w) * big(τ))
+    @test prox_entry(CheckLoss(τ, [w]), u, 1, γ) === (u > hi ? u - hi : (u < -Float32(big(γ) * big(w) * (1 - big(τ))) ? u + Float32(big(γ) * big(w) * (1 - big(τ))) : 0f0))
   end
 end
 

@@ -463,10 +463,12 @@ using Base.MPFR: libmpfr, MPFRRoundingMode, MPFRRoundDown, MPFRRoundUp
 # |w| exp(η). Rounding to nearest (`T(x, RoundNearest)`, an explicit mode) is monotone, so if lo and hi
 # round to the same T they are the correctly rounded value, the class (finite or Inf) included; otherwise
 # p is doubled. For η ≠ 0 the value is transcendental, so never a rounding boundary of T, and an unbounded
-# loop would end; for η = 0 the product is exact. The loop stops at 65536 bits: going past it would need
-# |w| exp(η) within about 2^-65000 (relative) of a rounding boundary of T. No such input is known (the
-# closest tested, w = floatmax and η near 2^-54, is about 2^-107 away), but none is proved impossible, and
-# for one the call throws PrecisionError instead of returning an uncertified value. Nothing here sets or reads the BigFloat precision or rounding
+# loop would end; for η = 0 the product is exact. The doubling stops at 65536 bits, so the last attempt is
+# at p = 40960 (Float32) or 35328 (Float64). Each of the four directed operations errs by less than
+# 2^(1-p) relative, so lo and hi are within about 2^(3-p) of each other, and bounds that still round to
+# different T put |w| exp(η) within about 2^-35000 (relative) of a rounding boundary of T. No such input is
+# known (the closest tested, w = floatmax and η near 2^-54, is about 2^-107 away), but none is proved
+# impossible, and for one the call throws PrecisionError instead of returning an uncertified value. Nothing here sets or reads the BigFloat precision or rounding
 # mode, and nothing takes a lock; the call allocates (BigFloat).
 # A zero weight or a NaN coefficient (0·Inf from an overflowed exponent, propagated as it was) is returned as is.
 @noinline function _poisson_upper(w::T, η::T, v::T) where {T<:Union{Float32, Float64}}

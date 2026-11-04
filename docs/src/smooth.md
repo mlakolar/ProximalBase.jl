@@ -269,8 +269,9 @@ class is certain there, and the value is accurate as such a product is. A coeffi
 clearly beyond the range, and otherwise it is evaluated in `BigFloat` arithmetic of an explicit
 precision with directed rounding, which is raised until both bounds round to the same `T`.
 That value is the correctly rounded ``w_i e^{\eta_i}``, and it is `Inf` exactly when the
-product rounds beyond `floatmax`. The precision is raised up to 65536 bits; needing more would
-take ``w_i e^{\eta_i}`` within about ``2^{-65000}`` (relative) of a rounding boundary of `T`.
+product rounds beyond `floatmax`. The precision is doubled at most up to 40960 bits for `Float32`
+and 35328 bits for `Float64`; bounds that still round differently there put ``w_i e^{\eta_i}``
+within about ``2^{-35000}`` (relative) of a rounding boundary of `T`.
 No such input is known, but none is ruled out either, and for one the update raises a
 [`PrecisionError`](@ref) rather than return a coefficient it has not certified. Below the curvature floor the coefficient is the single
 product ``w_i\sqrt\varepsilon``, and

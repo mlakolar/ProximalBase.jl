@@ -579,7 +579,7 @@ end
     @test atomindices(y, 2) === y.groups[2]          # the stored range itself
 
     @testset "invalid k" begin
-      for z in (x, y), k in (0, 4, -1, typemin(Int), typemax(Int), typemax(UInt))
+      for z in (x, y), k in (0, 4, -1, typemin(Int), typemax(Int), typemax(UInt), false, true)
         @test_throws BoundsError atomindices(z, k)
       end
       @test atomindices(x, Int8(2)) == [2, 5] && atomindices(y, UInt16(3)) == 5:6
@@ -624,6 +624,16 @@ end
       @test h[2:2] == [5] && h[:] == [2, 5]
       @test_throws BoundsError h[0]
       @test_throws BoundsError h[3]
+      # an exception does not hold the stored group, or the layout, which could then be written
+      for i in (0, 3, 5, Int32(5), typemax(Int))
+        err = try h[i]; nothing catch e e end
+        @test err isa BoundsError && err.a === h && !(err.a isa Array)
+      end
+      for k in (0, 4, false, true, -1, typemax(UInt))
+        err = try atomindices(x, k); nothing catch e e end
+        @test err isa BoundsError && !(err.a isa Array) && err.a !== x.groups
+      end
+      @test x.groups == layout
       @test x.groups == layout && atomindices(x, 2) == [2, 5]
       @test Base.IndexStyle(typeof(h)) == IndexLinear()
 

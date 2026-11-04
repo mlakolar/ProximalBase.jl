@@ -139,12 +139,12 @@ end
 
 Whether `a` and `b` have equal groups: the same number of groups, and the same indices in the
 same order in every group (`1:2` and `[1, 2]` are equal, `[2, 1]` is not). `a` and `b` are two
-[`AtomIterate`](@ref)s, or an `AtomIterate` and a function that has groups (a group penalty such
-as [`GroupNormL2`](@ref) or [`GroupMCP`](@ref), or [`IndBallGroupL0`](@ref)), in either order. This
-is the condition under which a group penalty and an iterate can be used together by
-[`prox_coordinate!`](@ref) and the four-argument [`kkt_violation`](@ref), and under which
-`copyto!` between two iterates copies only the active groups. `samegroups` is public but not
-exported.
+[`AtomIterate`](@ref)s, or an `AtomIterate` and a group penalty (any [`ProximalBase.AbstractGroupPenalty`](@ref),
+such as [`GroupNormL2`](@ref) or [`GroupMCP`](@ref)) or an [`IndBallGroupL0`](@ref), in either order. It is the
+test that a group penalty and an iterate must pass before [`prox_coordinate!`](@ref) and the
+four-argument [`kkt_violation`](@ref) write, that `value` and `prox!` of a group function pass to take the
+active-group paths, and that `copyto!` between two iterates passes to copy only the active groups.
+`samegroups` is public but not exported.
 
 An iterate remembers one group array that it has found equal to its own. The answer takes
 constant time when `a` and `b` share their group array, or both remember the same one, or one
@@ -154,7 +154,10 @@ remembers the group array of the other, so that asking again takes constant time
 replaced each time, so alternating between two equal group arrays that are different objects
 compares at every call; a comparison that finds the groups unequal remembers nothing and leaves
 the remembered array in place. Neither the cache nor the comparison allocates. The groups of
-penalties and iterates must not be mutated (see [`AtomIterate`](@ref)).
+penalties and iterates must not be mutated (see [`AtomIterate`](@ref)). Because the answer is
+remembered in the iterate, calling `samegroups` on one iterate from several threads at once is a
+data race, as it is for the other operations on an iterate (the stored value is always an equal
+layout).
 """
 function samegroups end
 
@@ -213,7 +216,7 @@ unchanged.
 Constructing the result takes constant time and does not allocate or copy, and it stays valid
 for as long as `x`: the groups of an iterate never change, and activating groups,
 `dropzeros!`, `copyto!` and the other writes of values do not affect it. `k` must be in
-`1:ncoordinates(x)`, or a `BoundsError` is thrown.
+`1:ncoordinates(x)`, or a `BoundsError` is thrown (a `Bool` is not a group index).
 
 The result can index any array: `view(g, atomindices(x, k))` is the part of `g` that belongs to
 group `k`. Mutating the array that `parentindices(atom(x, k))` returns is not supported.
@@ -226,7 +229,10 @@ atomindices(AtomIterate(6, 3), 2) === 3:4   # the stored range
 ```
 """
 function atomindices(x::AtomIterate, k::Integer)
-  checkbounds(x.groups, k)
+  # the error names the range of valid groups: a BoundsError holds the array it was thrown for, and
+  # that must not be a group or the layout
+  (!(k isa Bool) && checkbounds(Bool, x.groups, k)) ||
+    throw(BoundsError(Base.OneTo(length(x.groups)), k))
   @inbounds _group_indices(x.groups[k])
 end
 
@@ -242,7 +248,10 @@ Base.size(h::_GroupIndices) = size(h.ids)
 Base.IndexStyle(::Type{<:_GroupIndices}) = IndexLinear()
 Base.dataids(h::_GroupIndices) = Base.dataids(h.ids)    # as the array it wraps: aliasing checks still see the group
 Base.unaliascopy(h::_GroupIndices) = _GroupIndices(Base.unaliascopy(h.ids))   # view(A, h) copies an aliasing index in its own type
-Base.@propagate_inbounds Base.getindex(h::_GroupIndices, i::Int) = convert(Int, h.ids[i])
+Base.@propagate_inbounds function Base.getindex(h::_GroupIndices, i::Int)
+  @boundscheck checkbounds(h, i)      # the error names h: it must not hold the group
+  @inbounds convert(Int, h.ids[i])
+end
 Base.setindex!(::_GroupIndices, v, i::Int) =
   throw(ArgumentError("atomindices(x, k) is read-only: the groups of an AtomIterate cannot be changed"))
 

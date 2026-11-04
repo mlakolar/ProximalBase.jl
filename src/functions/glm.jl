@@ -522,10 +522,13 @@ _broadcast_sum(::Type{T}, f::F, η::AbstractVector, args::Vararg{Any, N}) where 
 # with the rounding error of every addition carried along (TwoSum). The error terms
 # themselves are added in ordinary arithmetic, so a class's sum is within
 # γ₂ₙ² Σ|terms| of its exact value (Ogita, Rump and Oishi's Sum2, γₖ = ku/(1 - ku),
-# u = eps/2, with 2n for a reduction tree); a class sum no larger than twice that is
-# indistinguishable from zero and is taken as zero, so large terms that cancel exactly
-# leave nothing, even when 2^E γ₂ₙ² is beyond floatmax. Two limits: a residue above that
-# bound dominates the small class, and a term below the subnormal range of T in the
+# u = eps/2, with 2n covering the sequential loop and a reduction tree); a class sum no
+# larger than twice that is indistinguishable from zero and is taken as zero, so large
+# terms that cancel exactly leave nothing, even when 2^E γ₂ₙ² is beyond floatmax. The
+# rule applies while 2nu ≤ 1/8 (n up to about a million for Float32), where the error it
+# can add, 3γ₂ₙ² Σ|terms|, is below the ordinary computation's n eps Σ|terms| and a sum
+# that does not cancel is never dropped; beyond that the sums are kept. Two limits: a
+# residue above that bound dominates the small class, and a term below the subnormal range of T in the
 # small class's units (more than about 149 binades below its largest for Float32,
 # 1074 for Float64) underflows there. Both errors are far below the accuracy of the
 # ordinary computation of the same terms (eps times their scale). A non-finite term
@@ -541,7 +544,7 @@ function _pow2_broadcast_sum(::Type{T}, f::F, η::AbstractVector, args::Vararg{A
   z = zero(T)
   bs, bc, ba, ss, sc, sa = _broadcast_reduce(_add_compensated, (z, z, z, z, z, z), _PairAligned(f, E, E2, cut), η, args...)
   nu = length(η) * eps(T)       # 2n u
-  g = nu < one(T) / 2 ? nu / (one(T) - nu) : zero(T)   # no bound for n ≥ 1/(4u): keep the sums
+  g = nu <= one(T) / 8 ? nu / (one(T) - nu) : zero(T)   # n > 1/(16u): keep the sums
   big, small = _beyond_error(bs + bc, g, ba), _beyond_error(ss + sc, g, sa)
   E2 == typemin(Int) && return ldexp(big, E)
   mb, eb = frexp(big)

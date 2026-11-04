@@ -773,6 +773,11 @@ if !BASELINE
     # random sums against BigFloat: exact pairs beyond the range, near-exact pairs whose residue is
     # in range, and terms in range, in random order; error within eps |sum| plus the compensated
     # summation's bound, an exactly cancelling sum is zero, and a sum beyond floatmax is infinite
+    # many terms: the zero rule is off beyond 2n u = 1/8, so a sum that does not cancel is kept
+    # (n near 1/(2 eps) once returned 0; review of b8d09379)
+    for n in (1_000_000, 3_600_000, 4_000_000)
+      @test PB._pow2_broadcast_sum(Float32, pair, fill(0.75f0, n), fill(100, n)) === ldexp(Float32(0.75n), 100)
+    end
     rng = Random.Xoshiro(358)
     for T in (Float32, Float64), trial in 1:400
       ms, es = random_pow2_terms(rng, T)

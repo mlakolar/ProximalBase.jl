@@ -1,7 +1,11 @@
 # A minimal Frank–Wolfe prototype that consumes `lmo_atom`, for matrix completion (issue #518,
 # consumer: ProximalSolvers #145). It is a benchmark script, not a solver.
 #
-#   julia --project=benchmark benchmark/frank_wolfe_prototype.jl <out.csv> <m> <n> <rank> <p> [reps] [seed]
+#   julia --project=benchmark benchmark/frank_wolfe_prototype.jl <out.csv> <m> <n> <rank> <p> [reps] [seed] [budget_s]
+#
+# `budget_s` (default 600) caps the work time of every single FW run and every single comparator run;
+# a tolerance not reached within the cap is a censored row, like one not reached within the iteration
+# limit. The CSV is rewritten after every repetition, so a killed job keeps its finished repetitions.
 #
 # Constrained problem   min ½‖P_Ω(X) − y‖²  s.t. ‖X‖_* ≤ δ,
 # penalized comparator  min ½‖P_Ω(X) − y‖² + λ‖X‖_*  by accelerated proximal gradient (FISTA with
@@ -26,6 +30,7 @@ m, n, rnk = parse(Int, ARGS[2]), parse(Int, ARGS[3]), parse(Int, ARGS[4])
 p = parse(Float64, ARGS[5])
 reps = length(ARGS) >= 6 ? parse(Int, ARGS[6]) : 5
 seed = length(ARGS) >= 7 ? parse(Int, ARGS[7]) : 145
+budget = length(ARGS) >= 8 ? parse(Float64, ARGS[8]) : 600.0
 tols = (1e-2, 1e-3, 1e-4)
 
 rng = Xoshiro(seed)
@@ -48,7 +53,7 @@ end
 
 # ---- the penalized reference solution X_λ, to high accuracy ----------------------------------------
 λ = 0.2 * opnorm(Matrix(G))
-function fista(λ; maxiter, target = nothing, f0F0 = nothing, record = false)
+function fista(λ; maxiter, target = nothing, f0F0 = nothing, record = false, budget = Inf)
   g = NuclearNorm(λ; partial = true)
   X, Xprev, Y, V = zeros(m, n), zeros(m, n), zeros(m, n), zeros(m, n)
   t = 1.0
@@ -79,6 +84,7 @@ function fista(λ; maxiter, target = nothing, f0F0 = nothing, record = false)
     Fold = Fnew
     push!(trace, (it, elapsed, Fnew))
     target !== nothing && Fnew - target <= f0F0 && break
+    elapsed > budget && break
   end
   X, trace
 end
@@ -103,7 +109,7 @@ end
 
 # ---- Frank–Wolfe with a factored iterate -------------------------------------------------------------
 verbose = get(ENV, "FW_VERBOSE", "false") == "true"
-function frank_wolfe(; method, maxiter, tol, exactgap = false)
+function frank_wolfe(; method, maxiter, tol, exactgap = false, budget = Inf)
   C = SingularValue(IndBallL1(δ))
   Xo = zeros(nobs)
   coefs, Us, Vs = Float64[], Vector{Float64}[], Vector{Float64}[]
@@ -137,6 +143,7 @@ function frank_wolfe(; method, maxiter, tol, exactgap = false)
       push!(coefs, γ); push!(Us, vec(u)); push!(Vs, vec(v))   # shared columns of the atom, not copies of a matrix
     end
     tmain += tw
+    tmain > budget && break
     fk = f(Xo) - fstar
     verbose && (k + 1) % 100 == 0 && (@printf("  fw it %d  t=%.2fs  (f-f*)/(f0-f*)=%.2e  gap=%.3e\n", k + 1, tmain, fk / (f0 - fstar), -d_dot_R); flush(stdout))
     if exactgap && (k + 1) % 10 == 0
@@ -175,15 +182,29 @@ function record_fw(rep, method, res, bytes)
     end
   end
 end
+# the paired decision: the median over repetitions of the ratio FW time / FISTA time, per tolerance
+function paired_report()
+  for method in ("fw-krylov", "fw-full"), t in tols
+    haskey(times, (method, t)) || continue
+    ratios = times[(method, t)] ./ times[("fista-nuclear", t)]
+    ok = filter(!isnan, ratios)
+    @printf("%-10s tol %.0e: reached %d/%d, median time FW/FISTA = %s (a ratio ≤ 0.8 meets the 20%% criterion)\n",
+            method, t, length(ok), length(ratios), isempty(ok) ? "n/a" : @sprintf("%.3f", sort(ok)[(length(ok) + 1) ÷ 2]))
+  end
+  flush(stdout)
+end
+write_rows() = open(out, "w") do io
+  foreach(r -> println(io, r), rows)
+end
 for rep in 1:reps
   # interleaved within a repetition: FW with the Krylov oracle, FW with the full oracle, the comparator
-  res, _, bytes = frank_wolfe(; method = :krylov, maxiter = 5_000, tol = 0.0)
+  res, _, bytes = frank_wolfe(; method = :krylov, maxiter = 5_000, tol = 0.0, budget)
   record_fw(rep, "krylov", res, bytes)
   if m * n <= 4_000_000
-    res, _, bytes = frank_wolfe(; method = :full, maxiter = 5_000, tol = 0.0)
+    res, _, bytes = frank_wolfe(; method = :full, maxiter = 5_000, tol = 0.0, budget)
     record_fw(rep, "full", res, bytes)
   end
-  Z, trace = fista(λ; maxiter = 5_000, target = Fstar, f0F0 = minimum(tols) * (f0 - fstar))
+  Z, trace = fista(λ; maxiter = 5_000, target = Fstar, f0F0 = minimum(tols) * (f0 - fstar), budget)
   sv = svdvals(Z)
   r = count(>(1e-8 * sv[1]), sv)
   state = 4 * sizeof(Float64) * m * n                   # X, Xprev, Y, V
@@ -198,14 +219,8 @@ for rep in 1:reps
     end
   end
   @printf("rep %d done\n", rep); flush(stdout)
-end
-# the paired decision: the median over repetitions of the ratio FW time / FISTA time, per tolerance
-for method in ("fw-krylov", "fw-full"), t in tols
-  haskey(times, (method, t)) || continue
-  ratios = times[(method, t)] ./ times[("fista-nuclear", t)]
-  ok = filter(!isnan, ratios)
-  @printf("%-10s tol %.0e: reached %d/%d, median time FW/FISTA = %s (a ratio ≤ 0.8 meets the 20%% criterion)\n",
-          method, t, length(ok), length(ratios), isempty(ok) ? "n/a" : @sprintf("%.3f", sort(ok)[(length(ok) + 1) ÷ 2]))
+  paired_report()
+  write_rows()
 end
 
 # honest gap: the approximate-oracle gap against the exact one, on a short run
@@ -213,6 +228,4 @@ _, gaps, _ = frank_wolfe(; method = :krylov, maxiter = 100, tol = 0.0, exactgap 
 for (k, g_approx, g_exact, sub) in gaps
   push!(rows, join((m, n, rnk, nobs, seed, 0, "gap-check", k, @sprintf("%.6e", g_approx), @sprintf("%.6e", g_exact), @sprintf("%.6e", sub), "", "", ""), ","))
 end
-open(out, "w") do io
-  foreach(r -> println(io, r), rows)
-end
+write_rows()

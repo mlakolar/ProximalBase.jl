@@ -113,10 +113,12 @@ every leaf must equal those of the variable, and the oracles check this, with th
 function's own parameters, before they write anything: a coefficient with the
 entries of a matrix block but another shape is rejected with a `DimensionMismatch`
 like one of another length, and nothing broadcasts. Scalar leaves, named tuples and
-nonreal arrays are rejected by the constructors, and the blocks of the variable
-must be dense arrays: a `SparseIterate`, `SymmetricSparseIterate` or `AtomIterate`
-as a block is refused with an `ArgumentError`, because the staged buffers do not
-carry their stored entries or their per-entry parameter checks. Tilt and Translate cover the value,
+nonreal arrays are rejected by the constructors. A `SparseIterate`,
+`SymmetricSparseIterate` or `AtomIterate` is refused with an `ArgumentError` as a
+block of the variable, because the staged buffers do not carry their stored entries
+or their per-entry parameter checks; supporting them would need its own design.
+No other array type is refused for being sparse or a view, but only dense arrays and
+views of them are tested as blocks. Tilt and Translate cover the value,
 the gradient, the fused value and gradient, the proximal operator and its fused
 value, the Hessian-vector product and the quadratic model, whenever the inner
 function does, with a real scalar step. The model of a tilt is the tilt of the
@@ -141,8 +143,13 @@ output last. A failure found before the output is written, in the structure,
 the sizes, a parameter, a step or a nested function, leaves the output unchanged,
 also when `y` is `x`. `prox!(x, t, x, γ)` returns `x` and agrees with the call
 that does not alias. The gradient and the Hessian-vector product refuse an output
-that is the point (or the direction) or one of its blocks, and `Symmetric` and
-`Hermitian` blocks are unsupported outputs, all before the first write.
+that is the point (or the direction) or one of its blocks. For the gradient and
+the proximal operator, an output block that is `Symmetric`, `Hermitian`, `Diagonal`,
+`Bidiagonal`, `Tridiagonal`, `SymTridiagonal`, triangular or `UpperHessenberg` is
+refused with an `ArgumentError` by its type, since the result fills the whole block.
+All of these checks come before the first write and before the inner function runs.
+The fused value of `Tilt` is formed from the staged result before the output is
+written.
 Failures inside user-defined oracles and external libraries are not rolled back.
 
 ## Entrywise scaling

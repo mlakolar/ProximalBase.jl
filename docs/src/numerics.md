@@ -215,18 +215,31 @@ inputs therefore take the ordinary computation, at its speed.
 The quadratic forms of [`QuadraticFunction`](@ref) and `KronQuadratic` are
 covered when an intermediate matrix product underflows. A product rounded into
 the buffer type loses at most `denorm_min/2`, which a large entry of the argument
-multiplies later; the value is recomputed if it is below
-`n² floatmin max|x| / 4` (for `KronQuadratic`,
-`floatmin max|Θ| p q² (1 + p max|B|) / 4`), the point at which that loss can exceed
-`eps` times the value. This needs one pass over `x` (over `Θ` and `B` for
-`KronQuadratic`) and does not fire at exact zeros of sparse or structured data.
-The recomputation sums the exact products as significands and exponents. A
-value that is exactly zero at a nonzero argument (an argument in the null space
-of `A`, or `A = 0`) is below the threshold, and so each such call pays the
-recomputation, about 6 to 10 times the ordinary call. A
-cancellation to a value far below the terms is held to the error scale of the
-terms, as in the ordinary computation, unless the value itself falls below that
-threshold.
+multiplies later, and the products of the final dot products lose the same each.
+The value is recomputed if it is below
+`floatmin (n² max|x| / 4 + n)` (for `KronQuadratic`,
+`floatmin (max|Θ| p q² (1 + p max|B|) / 4 + 2 p q)`), the point at which those
+losses can exceed `eps` times the value; where no product of an entry of `A` and
+one of `Θ` can be subnormal, the factor `max|B|` is not needed and is not read.
+This takes one pass over `x` (over `Θ` and `B` for `KronQuadratic`). A zero entry
+of sparse or structured data does not fire it, and neither does an argument that
+is exactly zero.
+
+The recomputation does not round a product before it is summed: each is formed
+as a significand and an exponent, so that the exponent range does not limit it,
+and the significand products and their sum are rounded as usual, to a few units
+of `eps` times the error scale of the terms. A value that is exactly zero at a
+nonzero argument (an argument in the null space of `A`, or `A = 0`) is below the
+threshold, and so each such call pays the recomputation, about 6 to 10 times
+the ordinary call. A cancellation to a value far below the terms is held to the
+error scale of the terms, as in the ordinary computation, unless the value
+itself falls below that threshold.
+
+The coefficient matrices of a `KronQuadratic` fix the type of its buffers, and a
+wider argument is rounded into them before the check; an entry below the range
+of the buffer type, such as `2^-200` in a `Float32` function, is lost (T3 asks
+for the argument not to be rounded below the model precision; this is a known
+limitation, the same before and after the treatment of underflow above).
 
 ```julia
 julia> SqrNormL2(1e-300)([1e200])

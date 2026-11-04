@@ -6,6 +6,7 @@ module ValueOverflowDataTest
 using Test
 using ProximalBase
 using LinearAlgebra
+using Random
 using SparseArrays
 using JLArrays
 
@@ -550,6 +551,106 @@ allocated_pow2(::Type{T}, E, a, b, c) where {T} = (pow2_three(T, E, a, b, c); @a
           @test isequal(KronQuadratic(Ak, Bk)(Θn), dot(Θn, (Ak * Θn) * Bk) / 2)
         end
       end
+    end
+
+    @testset "the stage-one shortcut of the Kron trigger (second review of #520)" begin
+      # Julia's exponent has a significand in [1, 2): |a| |d| >= 2^(ea + ed), so ea + ed >= exponent(floatmin)
+      # rules out a subnormal product of two entries (frexp's [1/2, 1) would need a margin of 2).
+      for T in (Float32, Float64)
+        emin = exponent(floatmin(T))
+        rng = Xoshiro(5200)
+        for _ in 1:20_000
+          ea, ed = rand(rng, -3:3), rand(rng, emin-3:emin+3)
+          a = ldexp(T(1) + rand(rng, T) * (1 - eps(T)), ea) * rand(rng, (T(1), T(-1)))
+          d = ldexp(T(1) + rand(rng, T) * (1 - eps(T)), ed)
+          (exponent(a) + exponent(d) >= emin) && @test abs(a * d) >= floatmin(T)
+        end
+        @test exponent(T(0.5)) + exponent(floatmin(T)) < emin       # the reviewer's example: not taken
+        p, q = 1, 4                                                  # p (p + q) < q^2: decided from exponents
+        B = Matrix(T(2)^(emin ÷ 2) * I, q, q)
+        amp(a, d) = (f = KronQuadratic(fill(T(a), 1, 1), B); f.D .= reshape(T.(d), 1, :); PB._stage_one_amplification(f))
+        @test amp(1, [floatmin(T), 1, 1, 1]) == 0                    # ea + ed == exponent(floatmin): product normal
+        @test amp(T(1.75), [floatmin(T), 1, 1, 1]) == 0              # 1.75 floatmin is normal
+        @test amp(T(0.5), [floatmin(T), 1, 1, 1]) == maximum(B)      # 2^-1 floatmin is subnormal: not taken
+        @test amp(T(0.875), [T(1.5) * floatmin(T), 1, 1, 1]) == maximum(B)   # conservative at ea + ed = emin - 1
+        @test amp(1, [0, 0, 1, 0]) == 0                              # zeros are skipped (their products are exact)
+        @test amp(1, [prevfloat(floatmin(T)), 1, 1, 1]) == maximum(B)
+      end
+      # cancellation in A D (exact, since a sum that is subnormal is exact) and a large B, with the
+      # shortcut taken: the value keeps its error against the scale of the terms
+      for (T, ed, eb) in ((Float32, -126, 90), (Float64, -1022, 900))
+        rng = Xoshiro(5201)
+        p, q = 2, 8
+        A = T[1 1; 1 1]
+        D1 = [ldexp(T(1) + rand(rng, T) / 2, ed + rand(rng, 0:3)) for _ in 1:q]
+        D = vcat(D1', -D1' .* (1 - eps(T)) .* T[(j % 3 == 0 ? 1 : 1 - eps(T)) for _ in 1:1, j in 1:q])
+        Bm = ldexp.(Matrix(Symmetric(rand(rng, T, q, q))) + T(q) * I, eb)
+        f = KronQuadratic(A, Bm)
+        @test p * (p + q) < q * q
+        r, sc = big_k(A, Bm, D), abs_k(A, Bm, D)
+        @test near_scale(f(D), r, sc)
+        @test near_scale(value_and_gradient!(zeros(T, p, q), f, D), r, sc)
+        D0 = vcat(D1', -D1')                                       # A D = 0: the value is exactly 0
+        @test f(D0) === zero(T)
+      end
+    end
+
+    @testset "the bit-pattern helpers _maximum_abs and _min_nonzero_exponent (second review of #520)" begin
+      for T in (Float32, Float64)
+        fm, fx, dm = floatmin(T), floatmax(T), nextfloat(zero(T))
+        @test PB._maximum_abs(T[]) === zero(T)
+        @test PB._maximum_abs(T[0, -0.0, 0]) === zero(T)               # signed zeros
+        @test PB._maximum_abs(T[-3, 2, 1]) === T(3)
+        @test PB._maximum_abs(T[prevfloat(fm), -fm]) === fm             # both sides of floatmin
+        @test PB._maximum_abs(T[-prevfloat(fm), 0]) === prevfloat(fm)
+        @test PB._maximum_abs(T[-dm, 0]) === dm                          # subnormals
+        @test PB._maximum_abs(T[fx, -fx, 1]) === fx
+        @test PB._maximum_abs(T[1, -Inf]) === T(Inf)
+        @test PB._maximum_abs(T[-Inf, 1, NaN]) |> isnan                  # a NaN is kept, wherever it is
+        @test PB._maximum_abs(T[NaN, 1]) |> isnan
+        @test PB._maximum_abs(T[1, 2, -NaN]) |> isnan
+        @test isequal(PB._maximum_abs(T[NaN, 1]), maximum(abs, T[NaN, 1]))
+        @test PB._maximum_abs(sparse(T[0 -5; 2 0])) === T(5)             # stored values only
+        @test PB._maximum_abs(view(T[1 9; 2 8; 3 7], 1:2, 1:1)) === T(2)  # views
+        @test PB._maximum_abs(view(T[1, 9, 2, 8, 3, 7], 1:2:5)) === T(3)
+        @test PB._maximum_abs(T[1 2; 3 4]') === T(4)
+        # the float fallback is unchanged
+        @test PB._maximum_abs(Float16[-3, 2]) === Float16(3)
+        @test PB._maximum_abs([1, -3]) === 3.0
+        @test PB._maximum_abs(BigFloat[-3, 2]) == 3
+
+        ef = exponent(fx)
+        @test PB._min_nonzero_exponent(T[]) == ef                        # nothing: exponent(floatmax)
+        @test PB._min_nonzero_exponent(T[0, -0.0]) == ef
+        @test PB._min_nonzero_exponent(T[3, -0.5, 0]) == -1
+        @test PB._min_nonzero_exponent(T[fm]) == exponent(fm)            # both sides of floatmin
+        @test PB._min_nonzero_exponent(T[prevfloat(fm)]) == exponent(fm) - 1
+        @test PB._min_nonzero_exponent(T[-dm]) == exponent(dm)           # subnormals
+        @test PB._min_nonzero_exponent(T[fx, -fx]) == ef
+        @test PB._min_nonzero_exponent(T[Inf, 4]) == 2                   # an Inf or a NaN is not a minimum
+        @test PB._min_nonzero_exponent(T[NaN, 2]) == 1                   # and never reaches exponent
+        @test PB._min_nonzero_exponent(T[NaN]) == ef
+        @test PB._min_nonzero_exponent(T[-Inf, 0]) == ef
+        @test PB._min_nonzero_exponent(sparse(T[0 -5; 2 0])) == exponent(T(2))  # nonzero entries
+        @test PB._min_nonzero_exponent(view(T[1 9; 4 8], 2:2, 1:1)) == 2
+        # the generic method (Float16) keeps its behavior on finite data
+        @test PB._min_nonzero_exponent(Float16[8, -2, 0]) == 1
+        # nothing is allocated
+        v = rand(T, 64)
+        PB._maximum_abs(v); PB._min_nonzero_exponent(v)
+        @test (@allocated PB._maximum_abs(v)) == 0
+        @test (@allocated PB._min_nonzero_exponent(v)) == 0
+      end
+    end
+
+    @testset "a wider argument than the coefficients is rounded into the buffers (known limitation)" begin
+      # The Float32 buffer of a Float32 KronQuadratic receives a Float64 argument rounded to Float32, which
+      # is zero here; T3 asks for the argument not to be rounded below the model precision. This is the
+      # behavior before #520 too; the trigger sees max|D| = 0 and cannot recover it.
+      A = fill(ldexp(1f0, -100), 1, 1)
+      f = KronQuadratic(A, copy(A))
+      Θ = fill(ldexp(1.0, -200), 1, 1)
+      @test_broken isequal(f(Θ), ldexp(1.0, -601))
     end
 
     @testset "_pow2_sum cancellation, as the underflow path will use it" begin

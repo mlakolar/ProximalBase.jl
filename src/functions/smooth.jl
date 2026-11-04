@@ -974,10 +974,17 @@ end
   (isfinite(v) && !_kron_underflow_risk(f, v)) ? v : _kron_value_recover(f, v, Θ)
 end
 
-# max|B| if a product of an entry of A and one of D can round into the subnormal range, and 0 if none can
-# (the error of the first product then is the ordinary relative one, which B does not amplify beyond
-# eps). Where p (p + q) < q², that is decided from the smallest nonzero entries of A and D, which costs less
-# than reading B.
+# max|B| if a product of an entry of A and one of D can round into the subnormal range, and 0 if none can.
+# Why 0 is sound: every nonzero product a d of the first stage is then normal, so it rounds with a relative
+# error of at most eps/2 (a product with a zero is exact), and the additions of the dot product lose
+# nothing absolute (a sum that is subnormal is exact; any other carries the usual relative error of the
+# partial sum). The error of an entry of A D is therefore at most about p eps Σ|a||d|, the same relative
+# bound as the ordinary computation; times B it is within the error scale S of the value (the sum of the
+# absolute terms), which R1 allows, and it does not need max|B| as a factor. Where p (p + q) < q², this is
+# decided from the smallest nonzero entries of A and D, which costs less than reading B. With Julia's
+# `exponent`, whose significand lies in [1, 2), |a d| >= 2^(ea + ed), so ea + ed >= exponent(floatmin)
+# rules out a subnormal product of two entries (a frexp exponent, with a significand in [1/2, 1), would
+# need a margin of 2); the boundary is tested in value_overflow_data.jl.
 @inline function _stage_one_amplification(f::KronQuadratic{T}) where {T}
   p, q = size(f.D)
   if p * (p + q) < q * q &&

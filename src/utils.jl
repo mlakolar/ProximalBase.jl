@@ -421,6 +421,20 @@ function _maximum_abs(x::AbstractArray)
   m
 end
 
+# For Float32 and Float64 the maximum is taken on the bit patterns: with the sign cleared they are ordered like the
+# magnitudes, an integer maximum vectorizes where the NaN-aware float maximum is a scalar chain (the
+# trigger of #520 reads this on every value call), and a NaN or an Inf gives a NaN or an Inf as before.
+function _maximum_abs(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
+  U = T === Float32 ? UInt32 : UInt64
+  mask = typemax(U) >> 1
+  vals = _stored_values(x)
+  m = zero(U)
+  @inbounds @simd for i in eachindex(vals)
+    m = max(m, reinterpret(U, vals[i]) & mask)
+  end
+  reinterpret(T, m)
+end
+
 # Recopy before scaling: LAPACK destroys the input of the first decomposition.
 function _scaled_spectral_input!(A::AbstractMatrix{T}, X::AbstractMatrix) where {T<:AbstractFloat}
   copyto!(A, X)

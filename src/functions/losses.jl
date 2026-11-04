@@ -54,13 +54,15 @@ Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ:
   S = float(T)
   w = _entry(f.w, i)
   s, τ, u = convert(S, _weight_coefficient(γ, w)), convert(S, f.τ), S(v)
-  # The same three cases in an order in which a NaN reaches u - sτ and stays NaN
-  # (u > sτ, u < -s(1 - τ) and the interval between are exclusive for any u that
-  # is not NaN). Past s < Inf only a NaN u, a NaN coefficient (an unchecked step) or a NaN-free
-  # call reaches the last branch: the map is constant (zero) at the step γ = Inf or a hard
-  # weight, and a NaN u stays NaN otherwise. A finite γw that overflows to s = Inf is no endpoint.
-  u <= s * τ ? (u >= -s * (1 - τ) ? zero(S) : u + s * (1 - τ)) :
-    (s < Inf ? u - s * τ : ((isnan(s) | !isnan(u) | (γ == Inf) | isinf(w)) ? zero(S) : u))
+  # The ordinary value is the base expression (a NaN u compares false twice and gives 0). A NaN u
+  # is repaired in one select: it stays NaN (E2) unless the map is constant, that is for the step
+  # γ == Inf with a positive weight or a hard weight w == Inf (a zero weight is free: E4 first), both
+  # read from the parameters and not from the derived coefficient s, which also overflows to Inf for
+  # finite parameters (and whose threshold s(1 - τ) is NaN for a hard weight when τ rounds to 1:
+  # such a finite u still gives 0). A NaN step (unchecked) keeps the old zero. Weights are
+  # nonnegative, so w < Inf is also false for NaN.
+  r = ifelse(u > s * τ, u - s * τ, ifelse(u < -s * (1 - τ), u + s * (1 - τ), zero(S)))
+  ifelse((u != u) & (w < Inf) & !isnan(γ) & ((γ < Inf) | (w == 0)), u, r)
 end
 
 # from zero, the objective decreases upward at rate -gᵢ - wᵢτ and downward at

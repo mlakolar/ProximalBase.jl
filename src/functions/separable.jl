@@ -802,14 +802,18 @@ Base.@propagate_inbounds function prox_entry(f::MCP, v::T, i::Integer, γ::Real)
     t > a * λ && return S(v)
     return sign(S(v)) * (t - s * λ) / (1 - s / a)
   end
-  # concave between 0 and aλ: the minimizer is 0 or the largest candidate
+  # The constant and free maps come first and are read from the parameters, not from their
+  # conversions: a zero level is the identity (E4); a step γ = Inf or an infinite level (the
+  # domain is {0}) gives 0. If aλ overflows in the working type the penalty is not representable
+  # (the old result is 0 at a finite entry, a NaN entry stays NaN).
+  iszero(f.λ) && return S(v)
+  (isinf(γ) | isinf(f.λ)) && return zero(S)
+  isinf(a * λ) && return t == t ? zero(S) : S(v)
+  # concave between 0 and aλ: the minimizer is 0 or the largest candidate. A NaN t makes h(u) NaN,
+  # so the test is "not h(u) >= h(0)" (the same as h(u) < h(0) without NaN): a NaN stays NaN.
   u = max(t, a * λ)
   h(z) = (z - t)^2 / (2s) + _mcp_penalty(λ, a, z)
-  h(u) < h(zero(S)) && return sign(S(v)) * u
-  # The comparison failed: the minimizer is 0, unless the entry is free (zero
-  # level, E4) or a NaN of a positive level, which stays NaN; at the step γ = Inf the map
-  # is constant. The parameters decide, not their conversions to the working type.
-  (iszero(f.λ) | (isnan(t) & !isinf(γ))) ? S(v) : zero(S)
+  !(h(u) >= h(zero(S))) ? sign(S(v)) * u : zero(S)
 end
 
 kkt_violation(f::MCP, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - f.λ)

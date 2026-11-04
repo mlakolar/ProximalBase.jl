@@ -271,6 +271,80 @@ end
 end
 
 
+# A valid quantile (inside (0, 1) in its own type) may round to 1 in the working type, which makes
+# the threshold s(1 - τ) of a hard weight or an infinite step 0⋅Inf = NaN: the finite entries are
+# still fixed at 0 (E4), as are NaN entries of a hard weight or an infinite step, while a finite
+# product that overflows is no endpoint and keeps a NaN entry NaN. Mixed precision: a Float64
+# quantile with Float32 data, and a BigFloat quantile with Float64 data.
+@testset "CheckLoss quantile that rounds to one in the working type" begin
+  for (T, tau) in ((Float32, prevfloat(1.0)), (Float64, prevfloat(BigFloat(1))), (Float32, nextfloat(0.0)))
+    @test 0 < tau < 1
+    @test T(tau) == one(T) || T(tau) == zero(T)
+    x = T[1.5, -1.5, 0.0, 1e30, -1e30]
+    for (label, w, γ) in (("hard weight", Inf, 1.0), ("infinite step", 1.0, Inf),
+                          ("zero weight", 0.0, 1.0), ("finite coefficient overflow", big(floatmax(T)) * 4, 1.0))
+      free = label == "zero weight"
+      # finite entries: fixed at 0 (hard weight, infinite step, overflow) or free (zero weight)
+      y, v = prox_paths(CheckLoss(tau, fill(w, length(x))), x, γ)
+      @test isequal(y, free ? x : zeros(T, length(x)))
+      @test iszero(v)
+      # a NaN entry: 0 for a hard weight or an infinite step, NaN (copied) for a zero weight, whose
+      # value stays 0, and NaN for the finite overflow, whose stored output makes the value NaN
+      y, v = prox_paths(CheckLoss(tau, [w]), T[NaN], γ)
+      if label == "hard weight" || label == "infinite step"
+        @test y[1] === zero(T) && v === zero(T)
+      elseif free
+        @test isnan(y[1]) && v === zero(T)
+      else
+        @test isnan(y[1]) && isnan(v)
+      end
+    end
+  end
+end
+
+# LogPenalty(Inf, ε) has the domain {0}: its proximal map is identically 0 on finite arguments at
+# every positive finite step, so 0 at a NaN entry too (entry, stored, aliased and fused); the
+# standalone value stays NaN there (it is the indicator of x = 0, which depends on x). A finite
+# level whose coefficient overflows is another case and keeps NaN.
+@testset "LogPenalty with an infinite level, $T" for T in (Float32, Float64)
+  for γ in T[0.5, 5, 100]
+    f = LogPenalty(T(Inf), T(1))
+    @test f(T[0]) === zero(T) && f(T[1]) === T(Inf) && isnan(f(T[NaN]))
+    @test iszero(prox(f, T[-10, -1, 0, 1, 10], γ))
+    y, v = prox_paths(f, T[NaN, 2], γ)
+    @test y[1] === zero(T) && y[2] === zero(T) && v === zero(T)
+    # a zero weight stays free, an infinite weight stays fixed
+    g = LogPenalty(T(Inf), T(1), T[0, 1])
+    y, v = prox_paths(g, T[NaN, NaN], γ)
+    @test isnan(y[1]) && y[2] === zero(T)
+    @test isnan(prox(LogPenalty(floatmax(Float64), 1.0), T[NaN], γ)[1])    # a finite level is no endpoint
+  end
+  @test isnan(prox(LogPenalty(T(floatmax(T) / 4), T(1)), T[NaN], T(8))[1])
+end
+
+# MCP beyond the switch: a step of Inf or an infinite level is a constant zero; a zero level the
+# identity; a finite level whose aλ overflows in the working type is no endpoint; infinite entries
+# give the infinite value (as below the switch) instead of the base's 0, which came from the NaN of
+# (Inf - Inf)^2 selecting the zero branch.
+@testset "MCP beyond the switch: constant maps, overflow and infinite entries, $T" for T in (Float32, Float64)
+  f = MCP(T(1), T(3))
+  for γ in T[3, 5]
+    y, v = prox_paths(f, T[NaN, 0.1, 5, -5], γ)
+    @test isnan(y[1]) && y[2] === zero(T) && y[3] == 5 && y[4] == -5 && isnan(v)
+  end
+  for γ in T[3, 5, 100]
+    @test isequal(prox(f, T[Inf, -Inf], γ), T[Inf, -Inf])
+    @test isnan(prox_paths(f, T[NaN], γ)[1][1])
+  end
+  y, v = prox_paths(f, T[NaN, 2], T(Inf))
+  @test iszero(y) && v === zero(T)
+  y, v = prox_paths(MCP(T(Inf), T(3)), T[NaN, 2], T(5))
+  @test iszero(y)                                   # (the value at 0 of an infinite level is Inf⋅0 = NaN, as at base)
+  big = T(floatmax(T) / 2)                          # a·λ overflows in T, λ and a are finite
+  y, v = prox_paths(MCP(big, T(3)), T[NaN, 1], T(5))
+  @test isnan(y[1]) && y[2] === zero(T) && isnan(v)
+end
+
 si_free(f) = (si = SparseIterate(2); si[1] = NaN; si[2] = 1.5; si)
 
 @testset "iterates" begin

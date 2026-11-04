@@ -130,11 +130,13 @@ _has_ordinary_value(::Type{<:LogPenalty}) = true
 
 # The result at a NaN z, decided by the parameters and not by the rounded coefficient c: an infinite
 # ε makes f the zero function on finite arguments (the identity); a NaN coefficient is the zero
-# level at γ = Inf (0⋅Inf), which is free; a NaN entry stays NaN, unless the step is Inf, where
-# the map is constant. (A finite γλw that overflows to Inf is no endpoint.)
+# level at γ = Inf (0⋅Inf), which is free; an infinite level has the domain {0}, so the map is
+# zero; a NaN entry stays NaN, unless the step is Inf, where the map is constant. (A finite γλw
+# that overflows to Inf is no endpoint.)
 @noinline function _log_penalty_nan(v::S, c::S, t::S, f, γ) where {S}
   isinf(f.ε) && return v
   isnan(c) && return iszero(f.λ) ? v : zero(S)
+  isinf(f.λ) && return zero(S)               # an infinite level: the domain is {0}, the map is 0
   isnan(t) && !(γ == Inf) ? v : zero(S)
 end
 

@@ -143,11 +143,14 @@ output last. A failure found before the output is written, in the structure,
 the sizes, a parameter, a step or a nested function, leaves the output unchanged,
 also when `y` is `x`. `prox!(x, t, x, γ)` returns `x` and agrees with the call
 that does not alias. The gradient and the Hessian-vector product refuse an output
-that is the point (or the direction) or one of its blocks. For the gradient and
-the proximal operator, an output block that is `Symmetric`, `Hermitian`, `Diagonal`,
-`Bidiagonal`, `Tridiagonal`, `SymTridiagonal`, triangular or `UpperHessenberg` is
-refused with an `ArgumentError` by its type, since the result fills the whole block.
-All of these checks come before the first write and before the inner function runs.
+that is the point (or the direction) or one of its blocks. For the gradient, the
+proximal operator and the Hessian-vector product, an output block that is `Symmetric`,
+`Hermitian`, `Diagonal`, `Bidiagonal`, `Tridiagonal`, `SymTridiagonal`, triangular or
+`UpperHessenberg` is refused with an `ArgumentError` by its type, since the result
+fills the whole block. All of these checks come before the first write and before the
+inner function runs, also when the function is inside a [`Scaled`](@ref), a
+[`Sum`](@ref) or a [`SeparableSum`](@ref), which check their parts before they write.
+A shape error keeps its `DimensionMismatch` when the output also has a refused type.
 The fused value of `Tilt` is formed from the staged result before the output is
 written.
 Failures inside user-defined oracles and external libraries are not rolled back.

@@ -704,6 +704,184 @@ end
   end
 end
 
+# a smooth function that counts its Hessian products
+mutable struct CountHess <: AbstractFunction
+  calls::Int
+end
+ProximalBase.issmooth(::Type{CountHess}) = true
+ProximalBase.hashessian(::Type{CountHess}) = true
+ProximalBase.hessian_vec!(Hv::AbstractArray, f::CountHess, x::AbstractArray, v::AbstractArray) = (f.calls += 1; copyto!(Hv, v))
+
+@testset "Tilt and Translate Hessians on tuples refuse restricted outputs before writing" begin
+  # output blocks that cannot take every entry; the type decides, no entry is read
+  restricted = (
+    "Diagonal" => () -> Diagonal(fill(-7.0, 2)),
+    "UpperTriangular" => () -> UpperTriangular(fill(-7.0, 2, 2)),
+    "LowerTriangular" => () -> LowerTriangular(fill(-7.0, 2, 2)),
+    "UnitUpperTriangular" => () -> UnitUpperTriangular(fill(-7.0, 2, 2)),
+    "UnitLowerTriangular" => () -> UnitLowerTriangular(fill(-7.0, 2, 2)),
+    "Bidiagonal" => () -> Bidiagonal(fill(-7.0, 2), fill(-7.0, 1), :U),
+    "Tridiagonal" => () -> Tridiagonal(fill(-7.0, 1), fill(-7.0, 2), fill(-7.0, 1)),
+    "SymTridiagonal" => () -> SymTridiagonal(fill(-7.0, 2), fill(-7.0, 1)),
+    "UpperHessenberg" => () -> UpperHessenberg(fill(-7.0, 2, 2)),
+    "Symmetric" => () -> Symmetric(fill(-7.0, 2, 2)),
+    "Hermitian" => () -> Hermitian(fill(-7.0, 2, 2)))
+  snap(y::AbstractArray) = Matrix(y)
+  snap(y::Tuple) = map(snap, y)
+  same(a, b) = isequal(a, b)
+  same(a::Tuple, b::Tuple) = length(a) == length(b) && all(map(same, a, b))
+  f = SeparableSum(SqrNormL2(), SqrNormL2())
+  x = ([1.0, 2.0], [1.0 2.0; 3.0 4.0])
+  v = ([2.0, 3.0], [4.0 5.0; 6.0 7.0])
+  c = (zeros(2), zeros(2, 2))
+  wrappers(g, c) = ("Tilt" => Tilt(g, c, 0.0), "Translate" => Translate(g, c))
+
+  @testset "$name, $W: direct, in the final block" for (name, make) in restricted, (W, w) in wrappers(f, c)
+    Hv = (fill(-7.0, 2), make()); before = snap(Hv)
+    @test_throws ArgumentError hessian_vec!(Hv, w, x, v)
+    @test same(snap(Hv), before)
+    # also when the restricted block comes first
+    Hv = (make(), fill(-7.0, 2, 2)); before = snap(Hv)
+    @test_throws ArgumentError hessian_vec!(Hv, w, (x[2], x[2]), (v[2], v[2]))
+  end
+
+  # the inner function is not run: the rejected output reaches none of its products
+  counted = SeparableSum(CountHess(0), CountHess(0))
+  cc = (zeros(2), zeros(2, 2))
+  for (name, make) in restricted, (W, w) in wrappers(counted, cc)
+    Hv = (fill(-7.0, 2), make()); before = snap(Hv)
+    @test_throws ArgumentError hessian_vec!(Hv, w, x, v)
+    @test same(snap(Hv), before)
+    @test all(g -> g.calls == 0, counted.fs)
+  end
+  # the counting function does work with an ordinary output
+  for (W, w) in wrappers(counted, cc)
+    Hv = (fill(-7.0, 2), fill(-7.0, 2, 2))
+    @test hessian_vec!(Hv, w, x, v) === Hv
+    @test Hv == v && all(g -> g.calls == 1, counted.fs)
+    foreach(g -> g.calls = 0, counted.fs)
+  end
+
+  # nested tuples: the restricted leaf is last, and every earlier leaf stays as it was
+  nf = SeparableSum(SeparableSum(SqrNormL2(), SqrNormL2()), SeparableSum(SqrNormL2(), SqrNormL2()))
+  nx = (([1.0, 2.0], [3.0]), ([4.0, 5.0], [1.0 2.0; 3.0 4.0]))
+  nv = (([2.0, 3.0], [1.0]), ([0.5, 0.5], [4.0 5.0; 6.0 7.0]))
+  nc = (([0.1, 0.1], [0.2]), ([0.3, 0.3], zeros(2, 2)))
+  for (name, make) in restricted, (W, w) in wrappers(nf, nc)
+    Hv = ((fill(-7.0, 2), fill(-7.0, 1)), (fill(-7.0, 2), make())); before = snap(Hv)
+    @test_throws ArgumentError hessian_vec!(Hv, w, nx, nv)
+    @test same(snap(Hv), before)
+  end
+
+  # an enclosing Scaled finds it
+  for (name, make) in restricted, (W, w) in wrappers(counted, cc)
+    Hv = (fill(-7.0, 2), make()); before = snap(Hv)
+    @test_throws ArgumentError hessian_vec!(Hv, Scaled(w, 2.0), x, v)
+    @test same(snap(Hv), before)
+    @test all(g -> g.calls == 0, counted.fs)
+  end
+
+  # an enclosing Sum finds it before its first summand is evaluated, whichever the order
+  for (name, make) in restricted, (W, w) in wrappers(counted, cc)
+    first_ok = SeparableSum(CountHess(0), CountHess(0))
+    for g in (Sum(first_ok, w), Sum(w, first_ok), Sum(first_ok, Scaled(w, 3.0), first_ok))
+      Hv = (fill(-7.0, 2), make()); before = snap(Hv)
+      @test_throws ArgumentError hessian_vec!(Hv, g, x, v)
+      @test same(snap(Hv), before)
+      @test all(h -> h.calls == 0, first_ok.fs)
+    end
+  end
+
+  # an enclosing SeparableSum: the first block is valid and counted, the second is a tuple wrapper
+  for (name, make) in restricted, mk in (cx -> Tilt(f, cx, 0.0), cx -> Translate(f, cx))
+    first_ok = CountHess(0)
+    sep = SeparableSum(first_ok, mk(c))
+    sx, sv = ([1.0, 2.0], x), ([1.0, 1.0], v)
+    Hv = (fill(-7.0, 2), (fill(-7.0, 2), make())); before = snap(Hv)
+    @test_throws ArgumentError hessian_vec!(Hv, sep, sx, sv)
+    @test same(snap(Hv), before) && first_ok.calls == 0
+    # and one more level, the wrapper in the middle
+    deep = SeparableSum(SeparableSum(CountHess(0), mk(c)), CountHess(0))
+    dx, dv = (sx, [3.0]), (sv, [1.0])
+    Hv = ((fill(-7.0, 2), (fill(-7.0, 2), make())), fill(-7.0, 1)); before = snap(Hv)
+    @test_throws ArgumentError hessian_vec!(Hv, deep, dx, dv)
+    @test same(snap(Hv), before)
+  end
+
+  # the precedence of the errors: a shape error keeps its DimensionMismatch, whatever the output types
+  for (W, w) in wrappers(f, c)
+    Hv = (fill(-7.0, 2), Diagonal(fill(-7.0, 2))); before = snap(Hv)
+    @test_throws DimensionMismatch hessian_vec!(Hv, w, x, (v[1],))                      # direction arity
+    @test_throws DimensionMismatch hessian_vec!(Hv, w, x, (v[1], zeros(3)))             # direction size
+    @test_throws DimensionMismatch hessian_vec!((Hv..., fill(0.0, 2)), w, x, v)         # output arity
+    @test same(snap(Hv), before)
+  end
+  Hv = (fill(-7.0, 2), Diagonal(fill(-7.0, 2)))
+  @test_throws DimensionMismatch hessian_vec!(Hv, Tilt(f, (c[1], zeros(2, 3)), 0.0), x, v)    # parameter size
+  @test_throws DimensionMismatch hessian_vec!(Hv, Translate(f, (c[1], zeros(2, 3))), x, v)
+  @test same(snap(Hv), (fill(-7.0, 2), Matrix(Diagonal(fill(-7.0, 2)))))
+
+  # ordinary dense outputs still work, against an independent reference
+  g = SeparableSum(SqrNormL2(2.0), SqrNormL2(3.0))
+  expected = (2.0 .* v[1], 3.0 .* v[2])
+  for (W, w) in wrappers(g, c)
+    Hv = map(similar, x)
+    @test hessian_vec!(Hv, w, x, v) === Hv
+    @test Hv == expected
+    @test hessian_vec!(Hv, Scaled(w, 2.0), x, v) === Hv && Hv == map(t -> 2.0 .* t, expected)
+    @test hessian_vec!(map(similar, x), Sum(w, w), x, v) == map(t -> 2.0 .* t, expected)
+    Hx = map(similar, x)                                       # x and v may be one tuple when Hv is separate
+    @test hessian_vec!(Hx, w, x, x) === Hx && Hx == (2.0 .* x[1], 3.0 .* x[2])
+    # a Symmetric output block is rejected (it cannot take the asymmetric product), a dense one is not
+    Hs = (similar(x[1]), Symmetric(fill(0.0, 2, 2)))
+    @test_throws ArgumentError hessian_vec!(Hs, w, x, v)
+  end
+
+  # the aliasing rules are unchanged
+  for (W, w) in wrappers(f, c)
+    xa, va = map(copy, x), map(copy, v)
+    @test_throws ArgumentError hessian_vec!(xa, w, xa, va)
+    @test_throws ArgumentError hessian_vec!(va, w, xa, va)
+    @test_throws ArgumentError hessian_vec!((similar(xa[1]), xa[2]), w, xa, va)
+    @test_throws ArgumentError hessian_vec!((va[1], similar(va[2])), w, xa, va)
+    @test xa == x && va == v
+  end
+
+  # an array output is not looked at by the tuple check: the array preflight is as it was
+  for w in (Tilt(SqrNormL2(), zeros(2, 2), 0.0), Translate(SqrNormL2(), zeros(2, 2)))
+    @test PB._check_hessian_shape(w, ones(2, 2), Diagonal(ones(2)), ones(2, 2)) === true
+  end
+
+  # no allocation in the preflight or the product of a warmed call, and inference
+  hv!(Hv, g, x, v) = hessian_vec!(Hv, g, x, v)
+  for (W, w) in wrappers(g, c)
+    Hv = map(similar, x)
+    @test allocs(hv!, Hv, w, x, v) == 0
+    @test (PB._check_second_order_arrays(w, x, Hv, v); @allocated PB._check_second_order_arrays(w, x, Hv, v)) == 0
+    @inferred hessian_vec!(Hv, w, x, v)
+  end
+  many = SeparableSum(ntuple(k -> SqrNormL2(k), 40)...)
+  xm = ntuple(k -> fill(Float64(k), 2), 40); vm = ntuple(k -> fill(1.0, 2), 40); cm = ntuple(k -> fill(0.1k, 2), 40)
+  for (W, w) in wrappers(many, cm)
+    Hm = fresh(xm)
+    @test hessian_vec!(Hm, w, xm, vm) === Hm
+    @test allocs(hv!, Hm, w, xm, vm) == 0
+    @test (PB._check_second_order_arrays(w, xm, Hm, vm); @allocated PB._check_second_order_arrays(w, xm, Hm, vm)) == 0
+  end
+  four = SeparableSum(SqrNormL2(), SqrNormL2(2), SqrNormL2(3), SqrNormL2(4))
+  x4, v4, c4 = ntuple(k -> fill(Float64(k), 3), 4), ntuple(k -> fill(1.0, 3), 4), ntuple(k -> fill(0.5, 3), 4)
+  for (W, w) in wrappers(four, c4)
+    H4 = fresh(x4)
+    @test hessian_vec!(H4, w, x4, v4) === H4
+    @test allocs(hv!, H4, w, x4, v4) == 0
+  end
+  for (W, w) in wrappers(nf, nc)
+    Hn = fresh(nx)
+    @test hessian_vec!(Hn, w, nx, nv) === Hn
+    @test allocs(hv!, Hn, w, nx, nv) == 0
+  end
+end
+
 @testset "quadratic models of Tilt and Translate on tuples" begin
   rng = Xoshiro(31)
   X1, X2 = randn(rng, 30, 3), randn(rng, 25, 2)

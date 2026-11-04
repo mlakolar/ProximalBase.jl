@@ -133,16 +133,51 @@ end
 lla_weight(f::NormLq, ::Real, ::Integer) = _no_lla(f)
 lla_weights!(w::AbstractArray, f::NormLq, x::AbstractArray) = (eltype(w) <: Real && eltype(x) <: Real || _real_error(:lla_weights!); _no_lla(f))
 
-# entry by entry over the dense array; a sparse iterate reads its entries in O(1)
-function lla_weights!(w::AbstractArray, f::SeparableFunction, x::AbstractArray)
+function _lla_weights_checked(w::AbstractArray, f::SeparableFunction, x::AbstractArray)
   eltype(w) <: Real && eltype(x) <: Real || _real_error(:lla_weights!)
   _checksize(w, x)
   _checkparams(f, x)
   check_symmetric_parameters(f, x)
+  # the model precision (T3): the scalar methods work in float(typeof(v))
+  return promote_type(float(eltype(w)), float(eltype(x)))
+end
+
+# entry by entry over the dense array; a sparse iterate reads its entries in O(1)
+function lla_weights!(w::AbstractArray, f::SeparableFunction, x::AbstractArray)
+  W = _lla_weights_checked(w, f, x)
   T = eltype(w)
-  W = promote_type(float(T), float(eltype(x)))   # the model precision (T3): the scalar methods work in float(typeof(v))
   @inbounds for i in eachindex(IndexLinear(), w, x)
     w[i] = convert(T, lla_weight(f, convert(W, x[i]), i))
+  end
+  return w
+end
+
+# LogPenalty: the ordinary slope of every entry is stored together with a flag that records whether
+# it is in range, which keeps the loop vectorized; only if some entry is not (a quotient that
+# under- or overflows, an infinite or NaN entry) a second pass recomputes just those entries by the
+# scalar method, from the unchanged argument. An argument that is the destination is read entry by
+# entry as before.
+function lla_weights!(w::AbstractArray, f::LogPenalty, x::AbstractArray)
+  W = _lla_weights_checked(w, f, x)
+  T = eltype(w)
+  if w === x
+    @inbounds for i in eachindex(IndexLinear(), w, x)
+      w[i] = convert(T, lla_weight(f, convert(W, x[i]), i))
+    end
+    return w
+  end
+  R = _working_type(W, f.λ, f.w === nothing ? true : zero(eltype(f.w)), f.ε)
+  a, e = convert(R, f.λ), convert(R, f.ε)
+  ok = true
+  @inbounds for i in eachindex(IndexLinear(), w, x)
+    r, k = _logpenalty_ordinary(W, a, convert(R, _entry(f.w, i)), e, abs(convert(W, x[i])))
+    w[i] = convert(T, r)
+    ok &= k
+  end
+  ok && return w
+  @inbounds for i in eachindex(IndexLinear(), w, x)
+    _, k = _logpenalty_ordinary(W, a, convert(R, _entry(f.w, i)), e, abs(convert(W, x[i])))
+    k || (w[i] = convert(T, lla_weight(f, convert(W, x[i]), i)))
   end
   return w
 end

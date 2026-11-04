@@ -144,26 +144,36 @@ Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ
 end
 
 # The slope λw/(ε + t) of the logarithmic penalty at |v| = t ≥ 0, in the precision U, formed in the
-# promotion R of U and the factors and rounded once: (λ/(ε + t))·w. The level quotient λ/ε does not
-# depend on the entry and bounds λ/(ε + t), so while it is a normal number the weight (which may
-# restore a range) multiplies a quotient that is in range for every entry, and the test is unswitched
-# out of a loop over entries. Otherwise, for finite nonzero factors, the slope is formed from
-# significands and one exponent, so that a division by ε that restores the range of a λw that
-# overflows or underflows is not lost (R3). Zero, infinite and NaN weights and levels keep the
-# meaning of _weight_coefficient.
+# promotion R of U and the factors and rounded once: (λ/(ε + t))·w. The ordinary arithmetic is exact
+# in its range while the quotient λ/(ε + t) is a normal number (this also excludes a denominator that
+# overflows, and a quotient that underflows before a weight could restore it); then the weight only
+# scales it. Otherwise, for finite nonzero factors, the slope is formed from significands and one
+# exponent, with the denominator in scaled units where ε + t overflows (R3). Zero, infinite and NaN
+# weights and levels keep the meaning of _weight_coefficient.
+@inline function _logpenalty_ordinary(::Type{U}, a::R, b::R, e::R, t) where {U<:AbstractFloat, R<:AbstractFloat}
+  q = a / (e + convert(R, t))
+  convert(U, q * b), (floatmin(R) <= q) & (q <= floatmax(R)) & isfinite(b)
+end
 @inline function _logpenalty_slope(::Type{U}, λ, w, ε, t) where {U<:AbstractFloat}
   R = _working_type(U, λ, w, ε)
-  a, b, e = convert(R, λ), convert(R, w), convert(R, ε)
-  q = a / e
-  floatmin(R) <= q <= floatmax(R) && return convert(U, (a / (e + convert(R, t))) * b)
-  _logpenalty_slope_exceptional(U, a, b, e + convert(R, t))
+  a, b, e, τ = convert(R, λ), convert(R, w), convert(R, ε), convert(R, t)
+  r, ok = _logpenalty_ordinary(U, a, b, e, τ)
+  ok ? r : _logpenalty_slope_exceptional(U, a, b, e, τ)
 end
-@noinline function _logpenalty_slope_exceptional(::Type{U}, a::R, b::R, d::R) where {U<:AbstractFloat, R<:AbstractFloat}
-  isinf(d) & isfinite(a) & isfinite(b) && return zero(U)      # finite λw over an infinite |v|: zero, not ∞/∞
-  _recoverable_factors(a, b, d) || return convert(U, _weight_coefficient(a, b) / d)
+@noinline function _logpenalty_slope_exceptional(::Type{U}, a::R, b::R, e::R, t::R) where {U<:AbstractFloat, R<:AbstractFloat}
+  d = e + t
+  scaled = isinf(d) & isfinite(e) & isfinite(t)               # a finite denominator beyond the range of R
+  if !scaled
+    isinf(d) & isfinite(a) & isfinite(b) && return zero(U)    # finite λw over an infinite |v|: zero, not ∞/∞
+    _recoverable_factors(a, b, d) || return convert(U, _weight_coefficient(a, b) / d)
+    md, ed = frexp(d)
+  else
+    _recoverable_factors(a, b, t) || return convert(U, _weight_coefficient(a, b) / floatmax(R))
+    md, ed = frexp(e / 2 + t / 2)                             # both are normal where their sum overflows
+    ed += 1
+  end
   ma, ea = frexp(a)
   mb, eb = frexp(b)
-  md, ed = frexp(d)
   convert(U, _ldexp_round((ma * mb) / md, ea + eb - ed))
 end
 kkt_violation(f::LogPenalty, g::AbstractArray, i::Integer) =

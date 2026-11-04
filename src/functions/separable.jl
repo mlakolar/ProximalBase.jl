@@ -740,6 +740,13 @@ end
 
 The ℓ0 penalty `f(x) = λ ⋅ #{i : xᵢ ≠ 0}`, nonconvex. Its proximal operator is
 hard thresholding: `xᵢ` is kept when `|xᵢ| > √(2γλ)` and set to zero otherwise.
+
+A NaN entry is undefined (E2 in the numerical contract). For `λ > 0` its value is NaN, and so
+is the proximal output at that entry, whenever the thresholding depends on the entry: for a
+finite `λ` and a finite step, `γ = 0` (the identity) included. At `λ = 0` the penalty is zero and
+the proximal operator is the identity at every step, `γ = Inf` and NaN entries included. An
+infinite `λ` or an infinite step gives zero at every entry, NaN included, since that map does
+not depend on the argument; the value at a NaN entry is NaN for every `λ > 0`.
 """
 struct NormL0{T<:Real} <: SeparableFunction
   λ::T
@@ -752,9 +759,32 @@ iszeropreserving(::NormL0) = true
 _counts_nonzeros(::NormL0) = true
 _scale_invariant(::NormL0) = true
 
-Base.@propagate_inbounds value_entry(f::NormL0, v::T, ::Integer) where {T<:Real} = iszero(v) ? zero(float(T)) : convert(float(T), f.λ)
+Base.@propagate_inbounds function value_entry(f::NormL0, v::T, ::Integer) where {T<:Real}
+  S = float(T)
+  iszero(v) ? zero(S) : (isnan(v) & !iszero(f.λ)) ? convert(S, NaN) : convert(S, f.λ)
+end
 Base.@propagate_inbounds prox_entry(f::NormL0, v::T, ::Integer, γ::Real) where {T<:Real} =
-  _square_exceeds(float(T), v, γ, f.λ) ? float(v) : zero(float(T))
+  _l0_keeps(float(T), v, γ, f.λ) ? float(v) : zero(float(T))
+
+# Whether hard thresholding keeps v: |v|² > 2γλ, as `_square_exceeds`, except at a NaN v. On the
+# ordinary path 2γλ is a normal number, so γ and λ are finite and positive and the output depends
+# on v; `!(|v|² <= 2γλ)` is `|v|² > 2γλ` for every non-NaN and keeps NaN, at no cost per entry.
+@inline function _l0_keeps(::Type{U}, v, γ, λ) where {U<:AbstractFloat}
+  R = _working_type(U, γ, λ)
+  x, a, b = convert(R, v), convert(R, γ), convert(R, λ)
+  q = 2 * a * b
+  floatmin(R) <= q <= floatmax(R) && return !(abs2(x) <= q)
+  _l0_keeps_exceptional(x, a, b, q)
+end
+# The other regimes, decided by the parameters before the argument (E4 first): a zero level is the
+# identity at every step, an infinite level is the zero map, a zero step is the identity, an
+# infinite step is the zero map, and a NaN argument is kept where the map is not constant.
+@noinline function _l0_keeps_exceptional(x::R, a::R, b::R, q::R) where {R<:AbstractFloat}
+  iszero(b) && return !iszero(x)
+  isinf(b) && return false
+  isnan(x) && return isfinite(a)
+  _square_exceeds_scaled(x, a, b, abs2(x), q)
+end
 restrict(f::NormL0, ::AbstractVector{<:Integer}) = f
 
 ####################################

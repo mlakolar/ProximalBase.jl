@@ -246,7 +246,9 @@ q(\beta) = \tfrac12 \sum_i w_i\,\ell''_i\,\big(\eta_i(\beta) - z_i\big)^2 + \tex
 with ``\ell'_i`` and ``\ell''_i`` evaluated at the current linear predictor. The
 curvature ``\ell''_i`` is floored at ``\sqrt{\varepsilon}``, so that the working
 responses stay finite where it vanishes (a Huber loss beyond ``\delta``); the
-gradient of ``q`` at the current point is still exact.
+gradient of ``q`` at the current point is still ``\nabla f``, up to the rounding of ``\eta_i - z_i``,
+which loses ``\ell'_i/\ell''_i`` when ``|\eta_i|`` exceeds it by more than ``1/\varepsilon``
+(a Poisson loss at ``\eta = -10^{30}``, say).
 
 The coefficients ``w_i\ell''_i`` are the effective ones, kept finite whenever they
 are representable: for a Poisson loss, ``w_i e^{\eta_i}`` is formed without the

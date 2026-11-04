@@ -75,7 +75,8 @@ be found after earlier sibling blocks were updated.
 
 For a `GLMLoss`, `ℓ''ᵢ` is floored at `√eps`, as in IRLS, so that the working
 responses stay finite where the curvature vanishes (a Huber loss beyond `δ`);
-the gradient of `q` at `x` is still `∇f(x)` exactly. The coefficients `wᵢℓ''ᵢ`
+the gradient of `q` at `x` is still `∇f(x)`, up to the rounding of `ηᵢ - zᵢ` (which loses `ℓ'ᵢ/ℓ''ᵢ`
+when `|ηᵢ|` exceeds it by more than `1/eps`, as for a Poisson loss at `η = -1e30`). The coefficients `wᵢℓ''ᵢ`
 are the *effective* ones: a Poisson observation whose `exp(ηᵢ)` overflows still
 has a finite coefficient in `Float32` or `Float64` when `wᵢ exp(ηᵢ)` is representable (weight `1/8` at
 `η = 710` gives `exp(710)/8` and the working response `709`), and a coefficient
@@ -240,9 +241,9 @@ function quadratic_model!(q::GLMLoss{Squared, T, Vector{T}, <:Any, Vector{T}}, f
   n = length(f.y)
   length(q.y) == n && length(q.weights) == n ||
     throw(DimensionMismatch("the model has $(length(q.y)) observations and the loss $n"))
-  # the staging buffers must not be the model's arrays, except as the same pair
-  (q.y === f.d || q.weights === f.η) &&
-    throw(ArgumentError("the model must not use the buffers of the loss for the other array"))
+  # the staging buffers η and d of the loss must not be arrays of the model (identity only)
+  (q.y === f.η || q.y === f.d || q.weights === f.η || q.weights === f.d) &&
+    throw(ArgumentError("the arrays of the model must not be the buffers η and d of the loss"))
   η = _linear_predictor!(f, β)
   z, v = η, f.d
   floor = sqrt(eps(T))
@@ -281,17 +282,29 @@ end
   w * d2, η - d1 / d2
 end
 
-# Poisson: ℓ' = exp(η) - y, ℓ'' = exp(η), one exponential for both. Where exp(η) overflows
-# at a finite η, the coefficient w exp(η) = w m 2^j is formed with the power of two held
-# outside the range until the final rounding, so that it is returned whenever it is
-# representable (Inf otherwise, which the caller rejects), and the response is
-# η - 1 + y exp(-η), the limit of η - (exp(η) - y)/exp(η) without the Inf/Inf.
+# Poisson: ℓ' = exp(η) - y, ℓ'' = exp(η), one exponential for both. The ordinary
+# expressions are evaluated first; only where exp(η) overflows at a finite η, or where
+# the coefficient or the response of a finite observation then leaves the range although
+# exp(η) is above the floor (exp(η) - y overflows for a large negative y, say), they are
+# recomputed: w exp(η) = w m 2^j with the power of two held outside the range until the
+# final rounding, so that the coefficient is returned whenever it is representable (Inf
+# otherwise, which the caller rejects), and η - 1 + y exp(-η), the limit of
+# η - (exp(η) - y)/exp(η), as the response. Below the floor a non-finite result is the
+# result: y/√eps does not fit.
 @inline function _irls_pair(::Poisson, w::T, η::T, y, floor::T) where {T}
   e = exp(η)
-  if isfinite(e) || !isfinite(η)
+  if isfinite(e)
     d2 = max(e, floor)
-    return w * d2, η - convert(T, e - y) / d2
+    v, z = w * d2, η - convert(T, e - y) / d2
+    (isfinite(v) & isfinite(z)) || e <= floor || !isfinite(y) || return _poisson_recovered(w, η, y)
+    return v, z
   end
+  isfinite(η) && return _poisson_recovered(w, η, y)
+  d2 = max(e, floor)                     # a non-finite predictor propagates as before
+  w * d2, η - convert(T, e - y) / d2
+end
+
+@noinline function _poisson_recovered(w::T, η::T, y) where {T}
   m, j = _exp_pow2(η)
   R = promote_type(T, typeof(y))          # y exp(-η) in the precision of the data, as e - y is
   _scaled_product(w, m, j), (η - one(T)) + convert(T, y * exp(-convert(R, η)))
@@ -299,12 +312,19 @@ end
 
 # exp(x) = m 2^j for a finite x, with j = round(x/log 2) and x - j log 2 in two parts, the
 # high one with trailing zeros so that j⋅hi is exact (fdlibm); m ≈ exp of a number in
-# [-log(2)/2, log(2)/2], to about one ulp, which exp(x + log w) would not give. The same
-# arithmetic as the exponent-recovery helper of the GLM value oracles (#358, part B);
-# one of them should replace the other where the two meet.
+# [-log(2)/2, log(2)/2], to about one ulp, which exp(x + log w) would not give. Beyond
+# `_exp_pow2_bound` the product with any weight leaves the range, and j would not be an
+# Int: m is then Inf (x > 0) or 0 (x < 0). The same arithmetic and the same bound as the
+# exponent-recovery helper of the GLM value oracles (#358, part B, `_exp_split` and
+# `_exp_bound`); whichever of the two pull requests merges second should delete its copy.
 @inline _exp_ln2_parts(::Type{Float64}) = (6.93147180369123816490e-01, 1.90821492927058770002e-10)
 @inline _exp_ln2_parts(::Type{Float32}) = (6.9314575195f-01, 1.4286067653f-06)
+# beyond this |x|, w exp(x) leaves the range for every finite w > 0, in either direction:
+# 2^(emax + 2 + precision - emin) is out of reach of any weight
+@inline _exp_pow2_bound(::Type{T}) where {T<:AbstractFloat} =
+  T((exponent(floatmax(T)) + 2 + precision(T) - exponent(floatmin(T))) * 0.6931471805599453)
 @inline function _exp_pow2(x::T) where {T<:Union{Float32, Float64}}
+  abs(x) > _exp_pow2_bound(T) && return (x > 0 ? T(Inf) : zero(T)), 0
   hi, lo = _exp_ln2_parts(T)
   j = round(x * T(1.4426950408889634))
   exp((x - j * hi) - j * lo), unsafe_trunc(Int, j)

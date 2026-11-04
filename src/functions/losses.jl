@@ -43,7 +43,7 @@ Base.@propagate_inbounds function value_entry(f::CheckLoss, v::T, i::Integer) wh
   τ = convert(float(T), f.τ)
   w = _entry(f.w, i)
   φ = v >= 0 ? τ * v : (τ - 1) * v
-  _weighted_value(w * φ, φ)
+  iszero(w) ? zero(φ) : _weighted_value(w * φ, φ)      # a zero weight leaves the entry free, NaN included
 end
 Base.@propagate_inbounds function _value_entry_ordinary(f::CheckLoss, v::T, i::Integer) where {T<:Real}
   τ = convert(float(T), f.τ)
@@ -54,7 +54,11 @@ Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ:
   S = float(T)
   w = _entry(f.w, i)
   s, τ, u = convert(S, _weight_coefficient(γ, w)), convert(S, f.τ), S(v)
-  u > s * τ ? u - s * τ : (u < -s * (1 - τ) ? u + s * (1 - τ) : zero(S))
+  # The same three cases in an order in which a NaN reaches u - sτ and stays NaN
+  # (u > sτ, u < -s(1 - τ) and the interval between are exclusive for any u that
+  # is not NaN); at an infinite coefficient the map is constant, so zero (as for
+  # a NaN coefficient, which an unchecked step may be).
+  u <= s * τ ? (u >= -s * (1 - τ) ? zero(S) : u + s * (1 - τ)) : (s < Inf ? u - s * τ : zero(S))
 end
 
 # from zero, the objective decreases upward at rate -gᵢ - wᵢτ and downward at
@@ -99,7 +103,7 @@ _checkparams(f::HingeLoss, x) = (_checkparam(f.y, x); _checkparam(f.w, x); true)
 Base.@propagate_inbounds function value_entry(f::HingeLoss, v::T, i::Integer) where {T<:Real}
   w = _entry(f.w, i)
   φ = max(1 - _entry(f.y, i) * v, zero(float(T)))
-  _weighted_value(w * φ, φ)
+  iszero(w) ? zero(φ) : _weighted_value(w * φ, φ)      # a zero weight leaves the entry free, NaN included
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::HingeLoss, v::T, i::Integer) where {T<:Real} =
   _entry(f.w, i) * max(1 - _entry(f.y, i) * v, zero(float(T)))
@@ -111,7 +115,8 @@ Base.@propagate_inbounds function prox_entry(f::HingeLoss, v::T, i::Integer, γ:
   w = _entry(f.w, i)
   s = convert(S, _weight_coefficient(γ, w)) * y^2
   u = y * S(v)
-  (u >= 1 ? u : (u < 1 - s ? u + s : one(S))) / y
+  # a NaN margin fails u < 1 and stays NaN: the test of u >= 1 is its complement
+  (u < 1 ? (u < 1 - s ? u + s : one(S)) : u) / y
 end
 
 # f is differentiable at zero, with derivative -wᵢyᵢ

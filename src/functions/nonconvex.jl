@@ -116,7 +116,8 @@ Base.@propagate_inbounds function value_entry(f::LogPenalty, v::T, i::Integer) w
   λ, w, φ = S(f.λ), S(_entry(f.w, i)), log1p(abs(S(v)) / S(f.ε))
   # The ratio can round to zero away from the fixed point.
   isinf(w) && return isnan(v) ? S(v) : iszero(v) ? zero(S) : S(Inf)
-  _weighted_value(_weight_coefficient(λ, w) * φ, φ)
+  c = _weight_coefficient(λ, w)
+  iszero(c) ? zero(S) : _weighted_value(c * φ, φ)      # a zero level or weight leaves the entry free, NaN included
 end
 Base.@propagate_inbounds function _value_entry_ordinary(f::LogPenalty, v::T, i::Integer) where {T<:Real}
   S = float(T)
@@ -124,22 +125,32 @@ Base.@propagate_inbounds function _value_entry_ordinary(f::LogPenalty, v::T, i::
 end
 _has_ordinary_value(::Type{<:LogPenalty}) = true
 
+# the result at a NaN z: a NaN coefficient is the free zero level at γ = Inf (0⋅Inf); a NaN
+# entry stays NaN at a finite coefficient
+@noinline _log_penalty_nan(v::S, c::S, t::S, λ) where {S} = ((isnan(c) & iszero(λ)) | (isnan(t) & isfinite(c))) ? v : zero(S)
+
 Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  c = _weight_coefficient(S, γ, f.λ, _entry(f.w, i))
+  w = _entry(f.w, i)
+  c = _weight_coefficient(S, γ, f.λ, w)
   ε, t = S(f.ε), abs(S(v))
+  # a zero level or weight leaves the entry free, an infinite weight fixes it at
+  # zero: both come before any NaN
   iszero(c) && return S(v)
-  isinf(_entry(f.w, i)) && return isnan(v) ? S(v) : zero(S)
+  isinf(w) && return zero(S)
   # the stationary points of c log(1 + z/ε) + (z - t)²/2 on z > 0 are the roots
   # of z² + (ε - t)z + c - εt; the larger is a local minimum. Without real roots
   # the objective increases on [0, ∞)
   d = (t + ε)^2 - 4c
-  d > 0 || return zero(S)
+  d <= 0 && return zero(S)
   r = sqrt(d)
   # the larger root, without cancellation: from the product c - εt of the roots
   # when the smaller one is computed accurately
   z = t >= ε ? (t - ε + r) / 2 : 2 * (c - ε * t) / (t - ε - r)
-  z > 0 || return zero(S)
+  # A NaN d (a NaN entry, or a NaN coefficient: the zero level at γ = Inf, 0⋅Inf,
+  # which is free) is not <= 0 and reaches here as a NaN z: the entry stays NaN,
+  # unless an infinite coefficient (γ = Inf) makes the map constant.
+  z > 0 || return isnan(z) ? _log_penalty_nan(S(v), c, t, f.λ) : zero(S)
   c * log1p(z / ε) + (z - t)^2 / 2 < t^2 / 2 ? sign(S(v)) * z : zero(S)
 end
 

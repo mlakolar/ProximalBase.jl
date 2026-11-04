@@ -330,8 +330,20 @@ end
 
 # Disjoint outputs can retry an overflowing midpoint from the original inputs.
 @inline function _fiberprox_pairs!(y, fb, x, γT, s, o, ::Type{T}, v::Val{V}) where {T, V}
+  if _fused_fiber_identity(fb, T, γT)
+    return V && !Base.mightalias(y, x) ? _fiberprox_pairs_identity!(y, fb, x, γT, s, o, T, v, Val(false)) :
+      _fiberprox_pairs_identity!(y, fb, x, γT, s, o, T, v, Val(true))
+  end
   V && !Base.mightalias(y, x) ? _fiberprox_pairs!(y, fb, x, γT, s, o, T, v, Val(false)) :
     _fiberprox_pairs!(y, fb, x, γT, s, o, T, v, Val(true))
+end
+
+# Whether the function of the off-diagonal pairs or the diagonal function is in an identity regime
+# (both levels zero, or a zero step): the condition itself, also when levels and step are already zero.
+@inline function _fused_fiber_identity(fb, ::Type{T}, γT) where {T}
+  f = fb.f
+  _fused_pair_identity(T(f.λ1), T(f.λ2), γT) ||
+    (fb.diagonal !== nothing && _fused_pair_identity(T(fb.diagonal.λ1), T(fb.diagonal.λ2), γT))
 end
 
 # Specialize the loop rules so the midpoint fallback does not inhibit vectorization.
@@ -359,6 +371,56 @@ end
         y[j, i, a], y[j, i, b] = u, w
       end
       V && (v += c * (T(f.λ1) * (abs(u) + abs(w)) + T(f.λ2) * abs(u - w)))
+    end
+  end
+  v
+end
+
+
+# The same loop in the regimes where a function of the fiber is the identity (see _fused_pair_levels):
+# only these calls pay for the levels being decided, the ordinary loop above is unchanged. A zero level
+# adds no value, whatever the entries (E4).
+@noinline function _fiberprox_pairs_identity!(y, fb::FiberSum{<:NormL1Fused, D}, x, γT,
+                                   ::Val{S}, ::Val{O}, ::Type{T}, ::Val{V}, ::Val{C}) where {D, S, O, T, V, C}
+  a, b = firstindex(x, 3), firstindex(x, 3) + 1
+  f = fb.f
+  # the identity regimes (both levels zero, zero step) are decided before the loop, per function
+  fl1, fl2, fγ = _fused_pair_levels(T(f.λ1), T(f.λ2), γT)
+  if fb.diagonal === nothing
+    dl1 = dl2 = dγ = zero(T)
+  else
+    dl1, dl2, dγ = _fused_pair_levels(T(fb.diagonal.λ1), T(fb.diagonal.λ2), γT)
+  end
+  # a zero level contributes no value, whatever the entries (E4)
+  fz1, fz2 = iszero(f.λ1), iszero(f.λ2)
+  fv1, fv2 = T(f.λ1), T(f.λ2)
+  if fb.diagonal === nothing
+    dz1 = dz2 = true
+    dv1 = dv2 = zero(T)
+  else
+    dz1, dz2 = iszero(fb.diagonal.λ1), iszero(fb.diagonal.λ2)
+    dv1, dv2 = T(fb.diagonal.λ1), T(fb.diagonal.λ2)
+  end
+  v = zero(T)
+  @inbounds for j in axes(x, 2), i in axes(x, 1)
+    S && i < j && continue
+    if O && i == j
+      d = fb.diagonal
+      if d === nothing
+        y[i, i, a], y[i, i, b] = x[i, i, a], x[i, i, b]
+      else
+        u, w = _prox_l1fused(T(x[i, i, a]), T(x[i, i, b]), dl1, dl2, dγ, Val(C))
+        y[i, i, a], y[i, i, b] = u, w
+        V && (v += ifelse(dz1, zero(T), dv1 * (abs(u) + abs(w))) + ifelse(dz2, zero(T), dv2 * abs(u - w)))
+      end
+    else
+      u, w = _prox_l1fused(T(x[i, j, a]), T(x[i, j, b]), fl1, fl2, fγ, Val(C))
+      y[i, j, a], y[i, j, b] = u, w
+      c = S && i != j ? 2 : 1
+      if c == 2
+        y[j, i, a], y[j, i, b] = u, w
+      end
+      V && (v += c * (ifelse(fz1, zero(T), fv1 * (abs(u) + abs(w))) + ifelse(fz2, zero(T), fv2 * abs(u - w))))
     end
   end
   v

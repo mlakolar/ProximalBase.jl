@@ -410,6 +410,18 @@ end
     value_and_prox!(y, cw, xs, γ)
     @test maximum(abs.(Float64.(y) .- ref)) < 1e-5
   end
+  # O2 on the wide path: the value is that of the stored Float32 point, not of the wider intermediate, whose
+  # penalty can be a tiny positive number (λ = 1e60) or infinite (λ = 1e300) where the stored point has zero
+  for λ in (1e60, 1e300)
+    f = NormL1(λ, [0.0, 1.0])
+    cw = Constrained(f, IndBallL2(1.0))
+    y = zeros(Float32, 2)
+    v = value_and_prox!(y, cw, Float64[1e100, 2.0], 1e-300)
+    @test y ≈ Float32[1, 0] && v === 0f0 && v == f(y)
+    y = zeros(Float32, 2)
+    v = value_and_prox!(y, cw, Float64[-1e100, 2.0], 1e-300)
+    @test y ≈ Float32[-1, 0] && v === 0f0
+  end
   # the reverse roles and same-type huge finite arguments, which the narrow path must not change
   y = zeros(Float64, 2)
   v = value_and_prox!(y, c, Float32[1e30, 2], 1.0)

@@ -745,9 +745,11 @@ function _finite_ball!(y, c, x, γ, ::Type{U}) where {U}
   T = float(eltype(y))
   U === T && return _ball_projection!(y, c, x, γ)
   b = similar(y, U)
-  v, _ = _ball_core!(b, c, x, γ)
+  _ball_core!(b, c, x, γ)
   _narrow_into!(y, b)
-  convert(T, v)
+  # O2: the value at the stored output, not at the wider intermediate point, which can have a
+  # larger value (a coordinate that underflows to zero in y) or be infinite in T
+  any(isnan, y) ? convert(T, NaN) : convert(T, _value_unchecked(c.f, y))
 end
 _narrow_into!(y::SymmetricSparseIterate, b) = (p = size(y, 1); for c in 1:p, r in c:p
     y[r, c] = convert(eltype(y), b[r, c])

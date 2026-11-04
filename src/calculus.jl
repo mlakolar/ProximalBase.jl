@@ -226,7 +226,7 @@ end
 # not a normal number takes the methods that combine the factors.
 @inline _chained(::Scaled) = false
 @inline _chained_scaled(f) = false
-@inline _chained_scaled(f::Scaled) = _chained(f)
+@inline _chained_scaled(f::Scaled) = _chained(f) || _chained_scaled(f.f)
 @inline _chained(s::Scaled{<:Scaled}) = _chain_exceptional(s.f, s.α)
 @inline _chain_exceptional(f, a) = false
 @inline _chain_exceptional(f::Scaled, a) = _nested_scales(a, f.α) || _chain_exceptional(f.f, a * f.α)
@@ -453,8 +453,8 @@ end
 # of the function at the gradient divided by the product of the factors, and multiplied by it.
 function _nested_kkt(kkt, s::Scaled, g)
   f, a = _scaled_chain(s)
-  # a smooth function has the violation |g|, whatever the scale
-  issmooth(typeof(f)) && return kkt(f, g)
+  # a smooth function has the violation |g|, whatever the scale, and an indicator is its own scaling
+  (issmooth(typeof(f)) || _isindicator(f)) && return kkt(f, g)
   h = _fold_level(f, a)
   h === nothing ? _apply_scale(a, kkt(f, _ExpScaledArray(g, _scale_inverse(a)))) : kkt(h, g)
 end
@@ -1575,7 +1575,7 @@ function _fold_level_step(s::Sum, α)
   any(isnothing, gs) ? nothing : Sum(gs, s.scratch)
 end
 # a chain anywhere among the blocks may refuse the value of the conjugate
-_chained_scaled(t::Translate) = _chained_scaled(t.f)
+_chained_scaled(t::Union{Translate, SingularValue}) = _chained_scaled(t.f)
 _chained_scaled(s::Union{SeparableSum, Sum}) = any(_chained_scaled, s.fs)
 
 issmooth(::Type{<:Sum{F}}) where {F} = all(issmooth, fieldtypes(F))

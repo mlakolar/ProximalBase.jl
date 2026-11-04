@@ -282,6 +282,40 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
         @test y ≈ T[2, -2, 0] rtol = 8eps(T)
         v = value_and_prox!(y, f, x, fill(γs, 3))
         @test near(v, effective(f, f -> f.λ0) * 4)
+        # the value that comes back with an array step is recovered in the function's own units when
+        # the leaf's value underflows: the step 10^(2a - l) is a normal number, the leaf's value
+        # 10^-l |y| is not, and the value of the chain is the product
+        let s = Scaled(Scaled(NormL1(tens(T, -l)), tens(T, a)), tens(T, a)), step = tens(T, -l)
+          λe = effective(s, f -> f.λ0)
+          x = T[3, -3] .* tens(T, -a)
+          γ = fill(step, 2)
+          thr = big(step) * λe                       # the threshold of the proximal operator
+          yref = [sign(big(xi)) * max(abs(big(xi)) - thr, 0) for xi in x]
+          vref = λe * sum(abs, yref)
+          @test PB._value_unchecked(s.f.f, T[2, 2] .* tens(T, -a)) == 0   # the leaf's own value is lost
+          y = zeros(T, 2)
+          v = value_and_prox!(y, s, x, γ)
+          @test all(near.(y, yref))
+          @test v > 0 && near(v, vref)
+          @test near(v, s(y))
+          # the output is the input
+          y = copy(x)
+          v = value_and_prox!(y, s, y, γ)
+          @test all(near.(y, yref))
+          @test v > 0 && near(v, vref)
+          # the point is that of prox!, with no second proximal computation
+          z = zeros(T, 2)
+          prox!(z, s, x, γ)
+          @test z == y
+        end
+        # an ordinary array step takes the same value as before, at no cost
+        let s = Scaled(Scaled(NormL1(T(0.2)), T(3)), T(5)), z = T[0.3, -0.7, 1.1], γ = T[0.1, 0.2, 0.3]
+          y = similar(z)
+          v = value_and_prox!(y, s, z, γ)
+          @test v ≈ s(y)
+          @test v ≈ 3T(5) * T(0.2) * sum(abs, y) rtol = 8eps(T)
+          @test allocs(value_and_prox!, y, s, z, γ) == 0
+        end
         # indicators ignore their scale
         ind = Scaled(Scaled(IndBox(zero(T), one(T)), tens(T, -a)), tens(T, -a))
         @test prox(ind, T[3, -1, 0.5], one(T)) == T[1, 0, 0.5]
@@ -340,6 +374,54 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
         y = (T[-777], T[-777])
         @test_throws ArgumentError value_and_prox!(y, Conjugate(SeparableSum(q, q)), (T[1], T[1]), one(T))
         @test y == (T[-777], T[-777])
+        # the chain may sit below ordinary wrappers: an ordinary outer scale, a translation, a
+        # block of a sum, a singular-value wrapper; the output is still left as it was, in place too
+        for g in (Scaled(Translate(q, T[0]), T(2)),
+                  Scaled(Scaled(Translate(q, T[0]), T(2)), T(3)),
+                  Translate(Scaled(q, T(2)), T[0]),
+                  Scaled(Translate(Scaled(q, T(2)), T[0]), T(3)))
+          @test PB._chained_scaled(g)
+          y = T[-777]
+          @test_throws ArgumentError value_and_prox!(y, Conjugate(g), T[1], one(T))
+          @test y == T[-777]
+          y = T[-777]
+          @test_throws ArgumentError value_and_prox!(y, Conjugate(g), y, one(T))
+          @test y == T[-777]
+        end
+        for g in (Scaled(SeparableSum(Translate(q, T[0]), SqrNormL2(one(T))), T(2)),
+                  SeparableSum(Scaled(q, T(2)), SqrNormL2(one(T))),
+                  SeparableSum(SqrNormL2(one(T)), Scaled(Translate(q, T[0]), T(2))))
+          @test PB._chained_scaled(g)
+          y = (T[-777], T[-777])
+          @test_throws ArgumentError value_and_prox!(y, Conjugate(g), (T[1], T[1]), one(T))
+          @test y == (T[-777], T[-777])
+        end
+        for g in (SingularValue(q), Scaled(SingularValue(q), T(2)))
+          @test PB._chained_scaled(g)
+          Y = fill(T(-777), 2, 2)
+          @test_throws ArgumentError value_and_prox!(Y, Conjugate(g), Matrix{T}(I, 2, 2), one(T))
+          @test Y == fill(T(-777), 2, 2)
+        end
+        # a chain that folds under ordinary wrappers still gives a value, and commits its point
+        for (g, mult) in ((Scaled(Translate(large, T[0]), T(2)), 2),
+                          (Scaled(Scaled(Translate(large, T[0]), T(2)), T(3)), 6))
+          @test PB._chained_scaled(g)
+          r = T(mult * λl)                              # the dual box of a multiple of the level
+          y = T[-777]
+          @test value_and_prox!(y, Conjugate(g), T[3r], one(T)) === zero(T)
+          @test y ≈ T[r] rtol = 8eps(T)
+          y = T[3r]
+          @test value_and_prox!(y, Conjugate(g), y, one(T)) === zero(T)
+          @test y ≈ T[r] rtol = 8eps(T)
+        end
+        # ordinary wrappers are not staged, and cost nothing extra
+        for g in (Scaled(Translate(SqrNormL2(one(T)), T[0]), T(2)), Scaled(Scaled(SqrNormL2(one(T)), T(2)), T(3)),
+                  SeparableSum(Scaled(SqrNormL2(one(T)), T(2)), SqrNormL2(one(T))), SingularValue(SqrNormL2(one(T))))
+          @test !PB._chained_scaled(g)
+        end
+        let g = Conjugate(Scaled(Translate(SqrNormL2(one(T)), zeros(T, 3)), T(2))), y = zeros(T, 3), x = T[0.3, -0.7, 1.1]
+          @test allocs(value_and_prox!, y, g, x, one(T)) == 0
+        end
       end
 
       @testset "optimality" begin
@@ -351,7 +433,40 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
         end
         h = Scaled(Scaled(SqrNormL2(tens(T, -l)), tens(T, a)), tens(T, a))
         @test kkt_violation(h, T[3], 1) == 3
-        begin
+        # an indicator is its own scaling: its violation does not depend on the factors, nor on
+        # whether their product, or its reciprocal, is a number
+        for ind in (IndBox(zero(T), one(T)), IndNonnegative())
+          g = T[-1, 2, 0]
+          for e in (a, -a), depth in (2, 3)
+            s = ind
+            for _ in 1:depth
+              s = Scaled(s, tens(T, e))
+            end
+            @test s isa Scaled{<:Scaled}
+            for i in 1:3
+              @test kkt_violation(s, g, i) === kkt_violation(ind, g, i)
+              @test kkt_violation(s, g, zeros(T, 3), i) === kkt_violation(ind, g, zeros(T, 3), i)
+            end
+            @test kkt_violation(s, g, 1) == 1
+            # an atom iterate takes the worst index of a group
+            x = AtomIterate(T, 3, 1)
+            @test kkt_violation(s, g, x, 1) === kkt_violation(ind, g, x, 1)
+            # a symmetric parameter takes the entry of the lower triangle
+            G = T[-1 2; 2 -3]
+            xs = SymmetricSparseIterate(zeros(T, 2, 2))
+            for k in 1:3
+              @test kkt_violation(s, G, xs, k) === kkt_violation(ind, G, xs, k)
+            end
+          end
+        end
+        # a penalty that needs its scale keeps it, by the folded level and by the reciprocal alike
+        let g = T[2 * λs, -λs / 2], x = zeros(T, 2)
+          @test near(kkt_violation(small, g, x, 1), λs)
+          @test near(kkt_violation(small, g, AtomIterate(T, 2, 1), 1), λs)
+        end
+        let s = Scaled(Scaled(NormL1(T(0.2)), T(3)), T(5))
+          @test kkt_violation(s, T[2, -0.1], 1) ≈ 2 - T(3) rtol = 8eps(T)      # |g| - 15 ⋅ 0.2
+          @test kkt_violation(s, T[2, -0.1], 2) ≈ T(0.1) - T(3) rtol = 8eps(T)
         end
       end
     end

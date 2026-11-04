@@ -223,7 +223,9 @@ function _prox_chain!(y, s, x, γ::AbstractArray)
 end
 function _value_and_prox_chain!(y, s, x, γ::AbstractArray)
   f, a = _scaled_chain(s)
-  _value_at(_apply_scale(a, _value_and_prox_unchecked!(y, f, x, _ExpScaledArray(γ, a))), y)
+  v = _value_and_prox_unchecked!(y, f, x, _ExpScaledArray(γ, a))
+  # a leaf value that left the range is recovered in the function's own units, as for a scalar step
+  _value_at(_scaled_value_by(f, a, y, v), y)
 end
 
 prox!(y::AbstractArray, t::Tilt, x::AbstractArray, γ::AbstractArray) =

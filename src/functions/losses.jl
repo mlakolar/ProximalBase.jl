@@ -119,16 +119,20 @@ end
 Base.@propagate_inbounds _value_entry_ordinary(f::HingeLoss, v::T, i::Integer) where {T<:Real} =
   _entry(f.w, i) * max(1 - _entry(f.y, i) * v, zero(float(T)))
 _has_ordinary_value(::Type{<:HingeLoss}) = true
-# The step γw|y|² formed in the promotion R of S and the factors, rounded once to S. For a scalar
-# step and unweighted entries γw is invariant, so its range test is unswitched out of the loop (as in
-# _positive_product). While γw is a normal number the step is (γw|y|)|y|: |y|² is never formed alone,
-# and γw|y| cannot overflow unless the step does. Otherwise the recovery of _weight_coefficient
-# decides, zero and infinite weights included, on a separate call.
-@inline function _hinge_step(::Type{S}, γ, ay::S, w) where {S<:AbstractFloat}
+# The step γw|y|² formed in the promotion R of S and the factors, rounded once to S. The ordinary
+# arithmetic, without a call, is (γw·|y|)·|y| in R, and it is the step while γw is a normal number
+# (the test is returned with it). Otherwise the recovery of _hinge_step_exceptional decides, zero and
+# infinite weights included, on a separate call. For a scalar step and unweighted entries γw is
+# invariant, so the test is unswitched out of a loop; an array loop (below) keeps the arithmetic
+# vectorized by testing all entries together.
+@inline function _hinge_step_ordinary(::Type{S}, γ, ay::S, w) where {S<:AbstractFloat}
   R = _working_type(S, γ, w)
   ab = convert(R, γ) * convert(R, w)
-  floatmin(R) <= ab <= floatmax(R) && return convert(S, (ab * convert(R, ay)) * convert(R, ay))
-  _hinge_step_exceptional(S, γ, ay, w)
+  convert(S, (ab * convert(R, ay)) * convert(R, ay)), (floatmin(R) <= ab) & (ab <= floatmax(R))
+end
+@inline function _hinge_step(::Type{S}, γ, ay::S, w) where {S<:AbstractFloat}
+  s, ok = _hinge_step_ordinary(S, γ, ay, w)
+  ok ? s : _hinge_step_exceptional(S, γ, ay, w)
 end
 @noinline function _hinge_step_exceptional(::Type{S}, γ, ay, w) where {S<:AbstractFloat}
   R = _working_type(S, γ, w)
@@ -152,13 +156,56 @@ end
 end
 
 # the proximal operator of γwᵢ max(0, 1 - u) at the margin u = yᵢv, mapped back
+@inline _hinge_apply(v::S, y::S, s::S) where {S<:AbstractFloat} = (u = y * v; (u >= 1 ? u : (u < 1 - s ? u + s : one(S))) / y)
 Base.@propagate_inbounds function prox_entry(f::HingeLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   y = convert(S, _entry(f.y, i))
-  w = _entry(f.w, i)
-  s = _hinge_step(S, γ, abs(y), w)
-  u = y * S(v)
-  (u >= 1 ? u : (u < 1 - s ? u + s : one(S))) / y
+  _hinge_apply(S(v), y, _hinge_step(S, γ, abs(y), _entry(f.w, i)))
+end
+
+# The array loop: the ordinary arithmetic of every entry is a branch-free expression, so that the loop
+# vectorizes, and the entries that need range recovery are found by a flag (C2: recovery only on a
+# reliable trigger). Without aliasing the flag is gathered while y is written and, if set, the loop is
+# redone with prox_entry from the untouched x. With y === x the entries are tested first, read-only.
+Base.@propagate_inbounds function _hinge_ordinary(f::HingeLoss, v::T, i::Integer, γ) where {T<:Real}
+  S = float(T)
+  y = convert(S, _entry(f.y, i))
+  s, ok = _hinge_step_ordinary(S, γ, abs(y), _entry(f.w, i))
+  _hinge_apply(S(v), y, s), ok
+end
+function _prox_sep_dense!(y::AbstractArray, f::HingeLoss, x::AbstractArray, γ)
+  _checkwrite(prox!, f, y, x)
+  _checkparam(γ, x)
+  T = eltype(y)
+  recover = true
+  if y === x
+    ok = true
+    @inbounds for i in eachindex(IndexLinear(), x)
+      ok &= _hinge_ordinary(f, x[i], i, _entry(γ, i))[2]
+    end
+    if ok
+      @inbounds for i in eachindex(IndexLinear(), y)
+        y[i] = convert(T, _hinge_ordinary(f, x[i], i, _entry(γ, i))[1])
+      end
+      return y
+    end
+  else
+    ok = true
+    @inbounds for i in eachindex(IndexLinear(), y, x)
+      r, oki = _hinge_ordinary(f, x[i], i, _entry(γ, i))
+      y[i] = convert(T, r)
+      ok &= oki
+    end
+    ok && return y
+  end
+  _prox_sep_recover!(y, f, x, γ)
+end
+@noinline function _prox_sep_recover!(y, f, x, γ)
+  T = eltype(y)
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i)))
+  end
+  y
 end
 
 # f is differentiable at zero, with derivative -wᵢyᵢ

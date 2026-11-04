@@ -144,16 +144,19 @@ Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ
 end
 
 # The slope λw/(ε + t) of the logarithmic penalty at |v| = t ≥ 0, in the precision U, formed in the
-# promotion R of U and the factors and rounded once. λw is the ordinary coefficient while it is a
-# normal number; otherwise, for finite nonzero factors, the quotient is formed from significands and
-# one exponent, so that a division by ε that restores the range of a λw that overflows or underflows
-# is not lost (R3). Zero, infinite and NaN weights and levels keep the meaning of _weight_coefficient.
+# promotion R of U and the factors and rounded once: (λ/(ε + t))·w. The level quotient λ/ε does not
+# depend on the entry and bounds λ/(ε + t), so while it is a normal number the weight (which may
+# restore a range) multiplies a quotient that is in range for every entry, and the test is unswitched
+# out of a loop over entries. Otherwise, for finite nonzero factors, the slope is formed from
+# significands and one exponent, so that a division by ε that restores the range of a λw that
+# overflows or underflows is not lost (R3). Zero, infinite and NaN weights and levels keep the
+# meaning of _weight_coefficient.
 @inline function _logpenalty_slope(::Type{U}, λ, w, ε, t) where {U<:AbstractFloat}
   R = _working_type(U, λ, w, ε)
-  a, b, d = convert(R, λ), convert(R, w), convert(R, ε) + convert(R, t)
-  p = a * b
-  floatmin(R) <= p <= floatmax(R) && return convert(U, p / d)
-  _logpenalty_slope_exceptional(U, a, b, d)
+  a, b, e = convert(R, λ), convert(R, w), convert(R, ε)
+  q = a / e
+  floatmin(R) <= q <= floatmax(R) && return convert(U, (a / (e + convert(R, t))) * b)
+  _logpenalty_slope_exceptional(U, a, b, e + convert(R, t))
 end
 @noinline function _logpenalty_slope_exceptional(::Type{U}, a::R, b::R, d::R) where {U<:AbstractFloat, R<:AbstractFloat}
   isinf(d) & isfinite(a) & isfinite(b) && return zero(U)      # finite λw over an infinite |v|: zero, not ∞/∞

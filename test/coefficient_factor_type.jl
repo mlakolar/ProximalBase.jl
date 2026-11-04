@@ -1,5 +1,5 @@
 module CoefficientFactorTypeTest
-using Test, ProximalBase
+using Test, ProximalBase, Random
 using ..TestUtils
 
 # Issue #519, losses, KKT diagnostics and LLA weights: a combined coefficient (γwτ, γw(1-τ), γwy²,
@@ -87,6 +87,32 @@ end
   y32, w32, γ32 = -0.6f0, 3f-44, 3f4
   s32 = Float32(big(γ32) * big(w32) * big(y32)^2)
   @test abs(prox_entry(HingeLoss(Float32[y32], Float32[w32]), 0f0, 1, γ32) * y32 - s32) <= 2eps(s32)
+end
+
+@testset "HingeLoss array loop: entries that need recovery among ordinary ones" begin
+  # one entry whose γw overflows Float32 but whose step γwy² = 1 is finite, one with a zero weight, one
+  # infinite weight; the others are ordinary. prox! must equal the entrywise prox_entry, aliased or not.
+  n = 40
+  rng = Random.MersenneTwister(555)
+  for T in (Float32, Float64)
+    b = T == Float32 ? T(2)^80 : T(2)^600
+    x = randn(rng, T, n)
+    w = rand(rng, T, n) .+ T(0.5)
+    lab = T.(rand(rng, (-1, 1), n))
+    w[7] = b; lab[7] = inv(b)                       # γw = b² overflows, γwy² = 1 at γ = b
+    w[11] = zero(T); w[12] = T(Inf)
+    γ = fill(T(0.7), n); γ[7] = b
+    f = HingeLoss(lab, w)
+    expected = [prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+    y = similar(x); @test prox!(y, f, x, γ) === y; @test y == expected
+    z = copy(x); @test prox!(z, f, z, γ) === z; @test z == expected
+    @test value_and_prox!(similar(x), f, x, γ) isa Real
+    # ordinary entries only: the vectorized path gives the same bits as prox_entry
+    g = HingeLoss(lab, rand(rng, T, n) .+ T(0.5))
+    e2 = [prox_entry(g, x[i], i, T(0.7)) for i in 1:n]
+    y2 = similar(x); prox!(y2, g, x, T(0.7)); @test y2 == e2
+    z2 = copy(x); prox!(z2, g, z2, T(0.7)); @test z2 == e2
+  end
 end
 
 @testset "CheckLoss: Float16, and the thresholds γτwᵢ and γ(1-τ)wᵢ rounded once" begin

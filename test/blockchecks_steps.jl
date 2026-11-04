@@ -219,32 +219,41 @@ end
   same_outcome(PointwiseMinimum(IndBox(-1.0, 1.0), IndNonnegative()), v, -Inf)
 end
 
-# A real spectrum is a plain vector, which a conjugate of a norm projects directly, and the
-# check of a spectral wrapper sees a size-only placeholder, which takes the Moreau branch of the
-# conjugate's check. The two must agree: every call the standalone oracle accepts is accepted in
-# a later block with the same result, and every rejection is the same exception.
+# A real spectrum is a plain vector, which a conjugate of a norm projects directly. Before the
+# check of a spectral wrapper saw arrays of the kernel's types, it saw a size-only placeholder,
+# which sent the conjugate of NormLinf to the Moreau branch and allocated; the check now forwards
+# the storage of the spectrum (`_projection_host`) and takes the kernel's branch. The standalone
+# oracle and a later block must agree: every call the standalone oracle accepts is accepted in a
+# block with the same result, and every rejection is the same exception.
 @testset "Spectral wrappers of conjugates agree with their blocks" begin
   S = [2.0 0.5 0.0; 0.5 1.5 0.2; 0.0 0.2 1.0]
   W = [2.0 0.5 0.1; 0.3 1.5 0.2]
   nonfinite = copy(S); nonfinite[1, 2] = NaN
-  inner = (NormLinf(1.0), NormLinf(0.0), GroupNormLinf(1.0, [1:2, 3:3]), Scaled(NormLinf(1.0), 2.0),
-           NormL1(1.0), NormL2(1.0), GroupNormL2(1.0, [1:2, 3:3]), IndNonnegative(),
+  groups = [1:2, 3:3]
+  inner = (NormLinf(1.0), NormLinf(0.0), GroupNormLinf(1.0, groups), Scaled(NormLinf(1.0), 2.0),
+           NormL1(1.0), NormL2(1.0), GroupNormL2(1.0, groups), IndNonnegative(),
            IndBallL2(1.0), IndBallL1(1.0), IndSimplex(1.0), SumLargest(2), SqrNormL2(1.0))
   steps = (-Inf, -1.0, -1e-3, -0.0, 0.0, 0.5, 1.0, 1e300, Inf, NaN)
-  # the wrappers reject functions that depend on the order of the entries
+  # Spectral rejects functions that depend on the order of the entries; SingularValue accepts them
   wrap(W, g) = try W(Conjugate(deepcopy(g))) catch e; e isa ArgumentError ? nothing : rethrow() end
-  built = 0
-  for T in (Float32, Float64), g in inner, γ in steps
-    for f in (wrap(Spectral, g), wrap(SingularValue, g))
+  wrapped = [(g, wrap(Spectral, g), wrap(SingularValue, g)) for g in inner]
+  # every wrapper is constructed, but the two that Spectral refuses
+  for (g, s, v) in wrapped
+    @test v isa SingularValue
+    @test (s === nothing) == (g isa Union{GroupNormLinf, GroupNormL2})
+  end
+  @test count(!isnothing, getindex.(wrapped, 2)) == length(inner) - 2
+  @test wrap(Spectral, NormLinf(1.0)) isa Spectral{<:Conjugate{<:NormLinf}}
+  @test wrap(SingularValue, NormLinf(1.0)) isa SingularValue{<:Conjugate{<:NormLinf}}
+  @test wrap(SingularValue, GroupNormLinf(1.0, groups)) isa SingularValue{<:Conjugate{<:GroupNormLinf}}
+  for T in (Float32, Float64), (g, s, v) in wrapped, γ in steps
+    for f in (s, v)
       f === nothing && continue
-      built += 1
       same_outcome(f, T.(S), γ)
       same_outcome(f, T.(nonfinite), γ)
       f isa SingularValue && same_outcome(f, T.(W), γ)
     end
   end
-  @test built >= 2 * 2 * length(steps) * 8
-  @test wrap(Spectral, NormLinf(1.0)) isa Spectral && wrap(SingularValue, NormLinf(1.0)) isa SingularValue
   # a rejection that the placeholder can foresee is found before the first block is written
   for T in (Float32, Float64), γ in (-1.0, NaN)
     block_failure(Spectral(Conjugate(IndBallL2(1.0))), T.(S), γ)
@@ -254,6 +263,13 @@ end
 
 @testset "Edge cases of the checks added for leaves that had none" begin
   v = [0.3, -0.2, 0.5]
+  # The shape is checked before the precision: a nonsquare BigFloat matrix is a shape error, a
+  # square one a precision error, whichever the oracle
+  for op in proximal, f in (Spectral(NormL1(1.0)), Spectral(Conjugate(NormLinf(1.0))))
+    @test_throws DimensionMismatch op(zeros(BigFloat, 2, 3), f, zeros(BigFloat, 2, 3), 1.0)
+    @test_throws DimensionMismatch op(zeros(BigFloat, 2, 3), f, zeros(BigFloat, 2, 3), -1.0)
+    @test_throws ArgumentError op(zeros(BigFloat, 3, 3), f, zeros(BigFloat, 3, 3), 1.0)
+  end
   S = [2.0 0.5 0.0; 0.5 1.5 0.2; 0.0 0.2 1.0]
   # LogDetLoss: the shape, then the step, then the input
   f = LogDetLoss(Matrix(1.0I, 3, 3))

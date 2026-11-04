@@ -88,6 +88,7 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, s::Spectra
   _checkreal(s, X)
   _checkreal(s, Y)
   _checksize(Y, X)
+  checksquare(X)
   _checkblas(s, float(eltype(Y)))
   z, λ = _spectral_check_arrays(s, Y, X)
   _checkwrite(value_and_prox!, s.f, z, λ)

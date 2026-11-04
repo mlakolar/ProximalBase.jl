@@ -1197,12 +1197,14 @@ Blocks may themselves be tuples for nested sums. Allocating oracles and
 Before writing any output, the oracles check all blocks, including functions
 inside wrappers, against the checks their own oracles run before writing:
 shapes, parameters, and the scalar step, also through the supported wrappers.
-The check rejects the steps that the function itself rejects, and no others.
-It does not make a failure atomic. A failure that only the computation finds
-can leave earlier blocks written: `Conjugate`'s check that a finite input gave
-a finite result, a search that finds a constraint empty, a failure inside an
-external library, and the oracles of user-defined functions beyond
-`check_parameters`. Block sums take scalar steps only.
+The check covers the conditions known without computing, the step validation
+that the supported functions and wrappers implement; it is not meant to reject
+a step that the function itself accepts. It does not cover every failure. A
+failure found only while computing can leave earlier blocks written: a step that
+a function rejects according to the values it sees, `Conjugate`'s check that a
+finite input gave a finite result, a search that finds a constraint empty, a
+failure inside an external library, and the oracles of user-defined functions
+beyond `check_parameters`. Block sums take scalar steps only.
 """
 struct SeparableSum{F<:Tuple} <: AbstractFunction
   fs::F

@@ -766,22 +766,27 @@ end
 Base.@propagate_inbounds prox_entry(f::NormL0, v::T, ::Integer, γ::Real) where {T<:Real} =
   _l0_keeps(float(T), v, γ, f.λ) ? float(v) : zero(float(T))
 
-# The value on a dense array of an IEEE type is λ times the number of nonzero entries, counted with the NaN
+# The value on a host array of an IEEE type is λ times the number of nonzero entries, counted with the NaN
 # entries in one pass (`_count_nan_values`, sets.jl): a NaN entry gives NaN unless the level is zero (E2, E4).
 # A sum of per-entry terms that tests each entry for NaN is slower than this count. Other arrays
-# (sparse and atom iterates, device arrays, other element types) sum `value_entry`.
-function _value_sep(f::NormL0, x::DenseArray{<:Base.IEEEFloat})
+# (sparse and atom iterates, device arrays, other element types) keep their own routes.
+function _value_sep(f::NormL0, x::Array{<:Base.IEEEFloat})
   _checkparams(f, x)
   T = _valtype(x)
   nz, nan = _count_nan_values(x)
-  λ = convert(T, f.λ)
-  nan && !iszero(λ) ? convert(T, NaN) : iszero(nz) ? zero(T) : λ * convert(T, nz)
+  _l0_count_value(f, T, nz, nan)
+end
+
+# The value from the count; a zero level is the stored one (E4), not the level converted to T, which can underflow.
+@inline function _l0_count_value(f::NormL0, ::Type{T}, nz, nan) where {T}
+  nan && !iszero(f.λ) && return convert(T, NaN)
+  iszero(nz) ? zero(T) : convert(T, f.λ) * convert(T, nz)
 end
 
 # The proximal operator and the value at its output in one pass over a dense array, for a scalar step:
 # the output, the number of its nonzero entries, and the sum of its entries that flags a NaN (the counts
 # of `_count_nan_values`, sets.jl).
-function _value_and_prox_sep!(y::DenseArray{<:Base.IEEEFloat}, f::NormL0, x::DenseArray, γ::Real)
+function _value_and_prox_sep!(y::Array{<:Base.IEEEFloat}, f::NormL0, x::Array, γ::Real)
   length(y) > 2^30 && return _value_sep(f, _prox_sep!(y, f, x, γ))
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
@@ -794,8 +799,7 @@ function _value_and_prox_sep!(y::DenseArray{<:Base.IEEEFloat}, f::NormL0, x::Den
     a += !iszero(w)
     z += w
   end
-  λ = convert(T, f.λ)
-  (isnan(z) && _l0_anynan(y)) && !iszero(λ) ? convert(T, NaN) : iszero(a) ? zero(T) : λ * convert(T, a)
+  _l0_count_value(f, T, a, isnan(z) && _l0_anynan(y))
 end
 
 # Whether hard thresholding keeps v: |v|² > 2γλ, as `_square_exceeds`, except at a NaN v. On the

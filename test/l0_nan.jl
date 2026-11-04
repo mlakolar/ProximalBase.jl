@@ -90,6 +90,40 @@ end
   @test same(Matrix(prox!(SymmetricSparseIterate(3), NormL0(0.0), S, Inf)), [0.0 NaN 0.0; NaN 0.0 0.0; 0.0 0.0 2.0])
 end
 
+@testset "NormL0 with a positive level that underflows in the element type" begin
+  # the level 1e-100 is positive: a NaN entry gives NaN although the level converted to Float32 is zero (E2, E4)
+  f, z = NormL0(1e-100), NormL0(0.0)
+  x = Float32[NaN, 1]
+  @test isnan(value_entry(f, NaN32, 1)) && isnan(f(view(x, :))) && isnan(f(x))
+  y = similar(x); @test isnan(value_and_prox!(y, f, x, 1f0)) && same(y, x)           # a scalar step
+  y = similar(x); @test isnan(value_and_prox!(y, f, x, Float32[1, 1])) && same(y, x) # a step per entry
+  a = copy(x);    @test isnan(value_and_prox!(a, f, a, 1f0)) && same(a, x)           # aliased
+  a = copy(x);    @test isnan(value_and_prox!(a, f, a, Float32[1, 1])) && same(a, x)
+  # the control: a zero level is the zero function, NaN included
+  @test z(x) == 0 && value_and_prox!(similar(x), z, x, 1f0) == 0 && value_and_prox!(similar(x), z, x, Float32[1, 1]) == 0
+  a = copy(x); @test value_and_prox!(a, z, a, 1f0) == 0 && same(a, x)
+  # finite entries: the level that underflows gives the converted value, as before
+  @test f(Float32[1, 2]) == 0f0 && value_and_prox!(similar(x), f, Float32[1, 2], 1f0) == 0f0
+  # Float64 argument and a level that underflows in Float32 arithmetic only
+  @test isnan(NormL0(1e-100)(Float64[NaN, 1]))
+end
+
+@testset "NormL0 values on a device array" begin
+  allowscalar(false)
+  for T in (Float32, Float64)
+    f = NormL0(T(0.3))
+    d = JLArray(T[1, 0, 2])
+    @test f(d) ≈ T(0.6)
+    y = similar(d); @test value_and_prox!(y, f, d, T(1)) ≈ T(0.6) && Array(y) == T[1, 0, 2]
+    a = copy(d);   @test value_and_prox!(a, f, a, T(1)) ≈ T(0.6) && Array(a) == T[1, 0, 2]
+    dn = JLArray(T[NaN, 1, 0])
+    @test isnan(f(dn))
+    y = similar(dn); @test isnan(value_and_prox!(y, f, dn, T(1))) && same(Array(y), T[NaN, 1, 0])
+    a = copy(dn);    @test isnan(value_and_prox!(a, f, a, T(1))) && same(Array(a), T[NaN, 1, 0])
+    @test NormL0(T(0))(dn) == 0
+  end
+end
+
 @testset "NormL0 on a device array at NaN" begin
   allowscalar(false)
   for T in (Float32, Float64)

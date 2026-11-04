@@ -95,21 +95,33 @@ end
 # Every entry counts: the counts of the nonzero entries and of the NaN ones, from the stored values of a
 # standard sparse array (its other entries are zero) and from all entries of any other array.
 _count_nan_all(x::AbstractArray) = _count_nan_values(x)
-_count_nan_all(x::Union{SparseVector, SparseMatrixCSC}) = _count_nan_values(view(nonzeros(x), 1:nnz(x)))
+_count_nan_all(x::SparseVector) = _count_nan_values(nonzeros(x))
+_count_nan_all(x::SparseMatrixCSC) = _count_nan_values(view(nonzeros(x), 1:nnz(x)))
 
-# The IEEE types are counted in blocks, with a counter as narrow as the entries (a 32-bit counter for a
-# 32-bit entry cannot overflow within a block), so that the masks of the comparison are added without
-# widening. NaN is found by carrying the sum of the entries, which is NaN whenever an entry is NaN and costs
-# one addition per entry, less than a second comparison; the sum of finite and infinite entries can also be
-# NaN (+Inf and -Inf, or an overflow), and then the entries are searched for a NaN, a cold path.
+# The IEEE types are counted with a counter as narrow as the entries (a 32-bit counter for a 32-bit entry), so
+# that the masks of the comparison are added without widening; an array with more than 2^30 entries is counted in
+# blocks, so that the counter cannot overflow. NaN is found by carrying the sum of the entries, which is NaN
+# whenever an entry is NaN and costs one addition per entry, less than a second comparison; the sum of finite and
+# infinite entries can also be NaN (+Inf and -Inf, or an overflow), and then the entries are searched for a NaN,
+# a cold path.
 function _count_nan_values(x::AbstractArray{T}) where {T<:Base.IEEEFloat}
-  A = sizeof(T) <= 4 ? Int32 : Int64
+  length(x) > 2^30 && return _count_nan_blocks(x)
+  a = zero(sizeof(T) <= 4 ? Int32 : Int64)
+  z = zero(T)
+  @inbounds @simd for i in eachindex(IndexLinear(), x)
+    v = x[i]
+    a += !iszero(v)
+    z += v
+  end
+  Int(a), isnan(z) && _l0_anynan(x)
+end
+@noinline function _count_nan_blocks(x::AbstractArray{T}) where {T<:Base.IEEEFloat}
   nz, z = 0, zero(T)
   r = eachindex(IndexLinear(), x)
   lo = first(r)
   while lo <= last(r)
     hi = min(lo + (2^30 - 1), last(r))
-    a = zero(A)
+    a = zero(Int64)
     @inbounds @simd for i in lo:hi
       v = x[i]
       a += !iszero(v)

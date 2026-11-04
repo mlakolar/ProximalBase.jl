@@ -117,8 +117,11 @@ the gradient, the proximal operator, `prox_entry`, the optimality violation, the
 Lipschitz constants and the conjugate then use the product of all the factors where
 the coefficient is formed: it is folded into the levels of the functions listed above,
 or applied to the result with its exponent last, so a chain such as `Scaled(Scaled(NormL1(1e300), 1e-200), 1e-200)`
-is the penalty `1e-100 * norm(x, 1)`. The conjugate value of a function without
-levels to fold, under a product that is not a number in range, throws.
+is the penalty `1e-100 * norm(x, 1)`. The levels are folded through `Translate`, `Sum` and
+`SeparableSum` of such functions (indicators and the zero function pass through). The conjugate
+value of a function without levels to fold, under a product that is not a number in range,
+throws. Not recovered: the value of a chain whose leaf value overflows while the folded level is
+itself not a number in range, and the entries of an array step that the factors take out of range.
 
 At zero scale, supported finite-parameter penalties and losses simplify to
 [`ZeroFunction`](@ref), while an indicator retains its domain and is returned
@@ -152,8 +155,10 @@ Scaled(f::AbstractFunction, α::Real) = Scaled{typeof(f), typeof(α)}(f, α)
   p = a * b
   p isa AbstractFloat && !(floatmin(typeof(p)) <= p <= floatmax(typeof(p)))
 end
-Scaled(f::Scaled, α::Real) =
+function Scaled(f::Scaled, α::Real)
+  _checknonneg("α", α)
   _nested_scales(f.α, α) ? Scaled{typeof(f), typeof(α)}(f, α) : Scaled(f.f, f.α * α)
+end
 
 @noinline _zero_scale_error(f) = throw(ArgumentError("zero scaling of $(typeof(f)) has no supported domain-preserving representation"))
 _zero_scaled(f::AbstractFunction) = _isindicator(f) ? f : _zero_scale_error(f)
@@ -281,6 +286,16 @@ function _fold_level(f::TracePSD, α)
   g
 end
 _fold_level(f::Scaled, α) = _fold_level(f.f, _projection_accumulate(α, f.α))
+# The levels as the proximal operator folds them together with the exponent of the step: a ridge
+# level that falls below the range multiplies the step by less than the range can resolve, so it
+# is dropped instead of discarding the fold.
+_fold_level_step(f, α) = _fold_level(f, α)
+function _fold_level_step(f::ElasticNet, α)
+  c1 = _folded_level(f.λ1, α)
+  c = iszero(f.λ2) ? f.λ2 : _apply_scale(α, f.λ2)
+  c2 = isfinite(c) && abs(c) < floatmin(typeof(float(c))) ? zero(c) : _folded_level(f.λ2, α)
+  c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
+end
 
 # Retry exceptional products in the function's own units and domain.
 @noinline function _scaled_value_recover(f, α, x, r)
@@ -338,7 +353,7 @@ prox!(y, s::Scaled, x, γ::Real) =
 @inline _scaled_step(s::Scaled, γ::Real) = _isindicator(s.f) && iszero(γ) ? γ : s.α * γ
 
 # What the function inside a nested chain receives for the step γ: the function, its step, and the
-# factor still to apply to its value (`nothing` when the function already carries the factors).
+# factor still to apply to its value.
 # - An indicator ignores its scale, so it keeps γ.
 # - A step that is not a finite positive number, which the function rejects or reads as a limit,
 #   is only multiplied.
@@ -348,6 +363,7 @@ prox!(y, s::Scaled, x, γ::Real) =
 #   products of level and step are those of the plain chain, formed in range. The leaf then
 #   never sees a step or a level that is not representable while their product is.
 # - A function without levels to fold gets the step as rounded.
+# The factor is the one that takes the value of the returned function to the value of the chain.
 function _nested_step(s::Scaled, γ::Real)
   f, a = _scaled_chain(s)
   _isindicator(f) && return (f, γ, a)
@@ -356,10 +372,10 @@ function _nested_step(s::Scaled, γ::Real)
   (T <: AbstractFloat && isfinite(γ) && γ > 0 && !(floatmin(T) <= step <= floatmax(T))) || return (f, step, a)
   mγ, eγ = frexp(float(γ))
   ma, ea = _projection_scale_parts(a)
-  g = _fold_level(f, _ProjectionScale(ma, Int(ea + eγ)))
-  g === nothing ? (f, step, a) : (g, convert(typeof(step), mγ), nothing)
+  g = _fold_level_step(f, _ProjectionScale(ma, Int(ea + eγ)))
+  # the value of g is 2^eγ times the value of the chain
+  g === nothing ? (f, step, a) : (g, convert(typeof(step), mγ), _ProjectionScale(oftype(ma, 0.5), Int(1 - eγ)))
 end
-_nested_value(f, a, x, v) = a === nothing ? v : _scaled_value_by(f, a, x, v, false)
 
 _prox_unchecked!(y, s::Scaled, x, γ::Real) = _chained(s) ? _prox_chain!(y, s, x, γ) :
   (_checkwrite(prox!, s, y, x); _prox_unchecked!(y, s.f, x, _scaled_step(s, γ)))
@@ -376,7 +392,7 @@ function _value_and_prox_chain!(y, s, x, γ)
   _checkwrite(value_and_prox!, s, y, x)
   g, step, a = _nested_step(s, γ)
   v = _value_and_prox_unchecked!(y, g, x, step)
-  _value_at(_nested_value(g, a, y, v), y)
+  _value_at(_scaled_value_by(g, a, y, v), y)
 end
 Base.@propagate_inbounds function prox_entry(s::Scaled, v::Real, i::Integer, γ::Real)
   if _chained(s)
@@ -1506,6 +1522,27 @@ struct Sum{F<:Tuple} <: AbstractFunction
   scratch::Scratch
 end
 Sum(fs::AbstractFunction...) = Sum(fs, Scratch())
+
+# α f(⋅ - b) is (α f)(⋅ - b), and the scale of a sum is the scale of every term. An indicator and
+# the zero function do not change under a positive scale.
+function _fold_level(t::Translate, α)
+  g = _fold_level(t.f, α)
+  g === nothing ? nothing : Translate(g, t.b, t.scratch, t.proxscratch)
+end
+_fold_block(f, α) = _isindicator(f) ? f : _fold_level(f, α)
+_fold_block(f::ZeroFunction, α) = f
+function _fold_blocks(fs::Tuple, α)
+  gs = map(f -> _fold_block(f, α), fs)
+  any(isnothing, gs) ? nothing : gs
+end
+function _fold_level(s::SeparableSum, α)
+  gs = _fold_blocks(s.fs, α)
+  gs === nothing ? nothing : SeparableSum(gs)
+end
+function _fold_level(s::Sum, α)
+  gs = _fold_blocks(s.fs, α)
+  gs === nothing ? nothing : Sum(gs, s.scratch)
+end
 
 issmooth(::Type{<:Sum{F}}) where {F} = all(issmooth, fieldtypes(F))
 isconvex(::Type{<:Sum{F}}) where {F} = all(isconvex, fieldtypes(F))

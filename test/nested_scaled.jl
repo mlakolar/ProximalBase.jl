@@ -72,6 +72,8 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
         @test o isa Scaled{<:NormL1} && o.α == T(6)
         @test_throws ArgumentError Scaled(Scaled(NormL1(one(T)), tens(T, a)), T(NaN))
         @test_throws ArgumentError Scaled(Scaled(NormL1(one(T)), tens(T, a)), -one(T))
+        @test_throws ArgumentError Scaled(small, -one(T))
+        @test_throws ArgumentError Scaled(Scaled(NormL1(one(T)), tens(T, -a)), -tens(T, -a))
         ind = Scaled(Scaled(IndBox(zero(T), one(T)), tens(T, -a)), tens(T, -a))
         @test ind isa Scaled{<:Scaled} && ind([T(0.5)]) == 0 && ind([T(2)]) == T(Inf)
         @test Scaled(ind, zero(T)) isa IndBox
@@ -181,6 +183,42 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
           q = Scaled(Scaled(SqrNormL2(1.0), 1e-200), 1e-200)
           prox!(y, q, [1.0], 1e300)                             # step 1e-100: prox of 1e-100 / 2 x^2
           @test y[1] ≈ 1 / (1 + 1e-100)
+        end
+        # the value at the proximal point, when the step's exponent goes into the levels
+        if T === Float64
+          f = Scaled(Scaled(NormL1(1e300), 1e-200), 1e-200)    # level 1e-100
+          y = zeros(3)
+          v = value_and_prox!(y, f, [3e-150, -3e-150, 0.5e-150], 1e-50)
+          @test y ≈ [2e-150, -2e-150, 0] rtol = 8eps()
+          @test v ≈ 4e-250 rtol = 8eps()
+          @test v ≈ f(y) rtol = 8eps()
+          for g in (Scaled(Scaled(ElasticNet(1e300, 1e-300), 1e-200), 1e-200),
+                    Scaled(Scaled(NormL2(1e300), 1e-200), 1e-200),
+                    Scaled(Scaled(GroupNormL2(1e300, [1:2, 3:3], [1.0, 1.0]), 1e-200), 1e-200))
+            y = zeros(3)
+            v = value_and_prox!(y, g, [3e-150, 4e-150, 0.5e-150], 1e-50)
+            @test v ≈ g(y) rtol = 1e-12
+            @test !iszero(v)
+          end
+          # a ridge level that is below the range does not discard the fold
+          en = Scaled(Scaled(ElasticNet(1e300, 1e-300), 1e-200), 1e-200)
+          y = zeros(1)
+          prox!(y, en, [3e-105], 1e-5)
+          @test y[1] ≈ 2e-105 rtol = 8eps()
+          # sums, blocks and translations of functions that fold
+          mk(l) = Scaled(Scaled(l, 1e-200), 1e-200)             # level 1e-100
+          @test mk(SeparableSum(NormL1(1e300), NormL1(1e300)))(([1e100], [1e100])) ≈ 2 rtol = 8eps()
+          @test mk(SeparableSum(NormL1(1e300), IndNonnegative()))(([1e100], [1.0])) ≈ 1 rtol = 8eps()
+          @test mk(Translate(NormL1(1e300), [0.0]))([1e100]) ≈ 1 rtol = 8eps()
+          @test mk(Translate(NormL1(1e300), [1e100]))([2e100]) ≈ 1 rtol = 8eps()
+          @test mk(Sum(NormL1(1e300), NormL1(1e300)))([1e100]) ≈ 2 rtol = 8eps()
+          y = zeros(1)
+          prox!(y, mk(Translate(NormL1(1e300), [0.0])), [3e-50], 1e50)
+          @test y[1] ≈ 2e-50 rtol = 8eps()
+          z = (zeros(1), zeros(1))
+          prox!(z, mk(SeparableSum(NormL1(1e300), NormL1(1e300))), ([3e-50], [3e-50]), 1e50)
+          @test z[1][1] ≈ 2e-50 rtol = 8eps()
+          @test z[2][1] ≈ 2e-50 rtol = 8eps()
         end
         # array steps keep the product's exponent last
         f = small

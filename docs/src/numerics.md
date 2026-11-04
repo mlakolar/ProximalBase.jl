@@ -271,7 +271,10 @@ levels, with the step reduced to its significand, for the functions of the
 scaled-value mechanism. Conjugates and their projections accumulate the factors the same way. A
 function that folds no level (a `SqrNormL2`, a loss) receives the step as the product rounds it,
 and its conjugate value under such a product throws instead of returning a wrong number.
-Exact zero and `Inf` scales merge as before.
+The levels fold through `Translate`, `Sum` and `SeparableSum` of such functions. Two cases are not
+recovered: the value of a chain whose leaf value overflows while the folded level is itself not a
+number in range, and an array step whose entries leave the range after the factors are applied
+(`Scaled(f, a)` with a single factor behaves the same). Exact zero and `Inf` scales merge as before.
 
 **R2. Gradients and closed-form proximal outputs.** Each entry of a gradient,
 and each entry of a proximal output computed in closed form, follows R1's

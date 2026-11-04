@@ -259,13 +259,16 @@ cannot be represented raises a [`PrecisionError`](@ref), and
 [`quadratic_model!`](@ref) then leaves the model as it was. Below the curvature floor
 the response ``\eta_i + (y_i - e^{\eta_i})/\sqrt\varepsilon`` is formed so that a
 cancelling pair of terms that leave the range does not fail where their sum fits
-(``\eta = -\text{floatmax}`` and ``y/\sqrt\varepsilon`` just above it); only a sum that
-does not fit is an error. Non-finite data propagate as ``\mathrm{NaN}`` or ``\mathrm{Inf}``
+(``\eta = -\text{floatmax}`` and ``y/\sqrt\varepsilon`` just above it): the sum is
+formed in 256-bit arithmetic and rounded once, so only a sum that does not fit is an error. Non-finite data propagate as ``\mathrm{NaN}`` or ``\mathrm{Inf}``
 in the update of a model, without an error and without the recovery above;
 [`quadratic_model`](@ref) builds a new loss and checks the offset again, which must be finite as in
 the constructor, so an offset made non-finite after construction is an `ArgumentError`
-there. An update allocates nothing for finite data; one with a non-finite observation
-checks the staged values in a new vector of the length of `y`, and allocates.
+there. An update allocates nothing as long as the staged coefficients and responses are finite
+and no coefficient vanished. Otherwise (a non-finite observation, a predictor that overflowed
+in ``X\beta`` plus the offset even for finite `X`, `\beta` and offset, or a vanished coefficient) it checks the
+staged values in a new vector of the length of `y` and allocates, whether it then throws or
+returns; a floor response of the cancelling kind above is formed in `BigFloat` and allocates too.
 
 That all-or-nothing update has a measured cost: the pair of every observation is
 staged in the buffers of the loss and copied into the model last. The cost was

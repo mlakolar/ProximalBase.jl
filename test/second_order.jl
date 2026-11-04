@@ -558,8 +558,32 @@ end
         v, z, = irls_reference(T, η, T(1), y)
         @test isfinite(only(q.y)) && only(q.weights) == h
         @test isapprox(only(q.y), T(z); atol = 4 * eps(T) * floatmax(T), rtol = 0)
-        @test q.y == quadratic_model!(q, f, T[η]).y
+        # the in-place update, from a model at another response, gives the same pair
+        f2 = poisson(T, η, 1, T(0.5) * (floatmax(T) * h))
+        qq = quadratic_model(f2, T[η])
+        f2.y[1] = y
+        before_y = copy(qq.y)
+        @test quadratic_model!(qq, f2, T[η]) === qq
+        @test before_y != qq.y && only(qq.y) == only(q.y) && only(qq.weights) == only(q.weights)
         c > 1 && @test only(ordinary_model(f, T[η])[2]) == T(Inf)       # the direct expression overflows
+      end
+      # the classification at the upper boundary is that of the exactly rounded sum, on both sides
+      let rng = MersenneTwister(544 + sizeof(T))
+        mism = 0
+        for _ in 1:3000
+          η = -floatmax(T) * (T(0.02) + T(0.9) * rand(rng, T))
+          # y so that η + y/√eps is within a few 1e-9 (Float32) or 1e-15 (Float64) of floatmax, either side
+          tgt = big(floatmax(T)) * (1 + (rand(rng) - 0.5) * 8 * big(eps(T)))
+          y = T((tgt - big(η)) * big(h))
+          ref = setprecision(BigFloat, 512) do
+            e = exp(big(η)); T(big(η) - (e - big(y)) / big(h))
+          end
+          f = poisson(T, η, 1, y)
+          got = try only(quadratic_model(f, T[η]).y) catch err; err end
+          ok = isfinite(ref) ? (got isa T && got == ref) : got isa PrecisionError
+          mism += !ok
+        end
+        @test mism == 0
       end
       # the sum itself does not fit: PrecisionError, and the model is unchanged
       for c in (T(2.5), T(3))

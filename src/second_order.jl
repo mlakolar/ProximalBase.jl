@@ -96,10 +96,13 @@ the weights, the offset and its buffers); an identical array is an `ArgumentErro
 reshape of one is not detected. Non-finite data propagate as
 `NaN`/`Inf` without an error in the update of a model; `quadratic_model` builds a new
 loss and so checks the offset again, which must be finite, as in the constructor: an
-offset made non-finite after the construction is an `ArgumentError` there. Finite data
-allocate nothing; where a coefficient vanishes or an observation with non-finite data
-makes the staged values non-finite, the update checks them in a new vector of the length
-of `y` and then allocates. The all-or-nothing update holds for one `GLMLoss`:
+offset made non-finite after the construction is an `ArgumentError` there. An update
+allocates nothing as long as the staged coefficients and responses are finite and no
+coefficient vanished. Otherwise (a non-finite observation, a predictor that overflowed
+in `Xβ + offset` even for finite `X`, `β` and offset, or a vanished coefficient) it
+checks the staged values in a new vector of the length of `y`, and allocates, whether
+it then throws or returns. A response below the curvature floor whose terms leave the
+range (`|ηᵢ|` and `yᵢ/√eps` near `floatmax`) is formed in `BigFloat` and allocates too. The all-or-nothing update holds for one `GLMLoss`:
 the models of a [`Sum`](@ref) or [`SeparableSum`](@ref) of such losses are
 updated one part after another. For `LogDetLoss`, `q` is
 written in the new point `z` rather than in the step `z - x`: minimizing
@@ -340,9 +343,9 @@ end
 # η - (exp(η) - y)/exp(η), as the response. Below the floor the coefficient is w √eps and
 # only the response can leave the range: η - (exp(η) - y)/√eps is a sum of two terms that
 # may each be out of range while the sum is not (η = -floatmax and y/√eps just above it),
-# so it is formed from halves, and is rejected by the caller only if the sum itself
-# does not fit. A non-finite weight, response or predictor is not recovered: it propagates
-# as before.
+# so it is formed in 256-bit arithmetic and rounded once, and the caller rejects it only if
+# that rounded sum is not finite (this branch allocates; it needs |η| and y/√eps near floatmax).
+# A non-finite weight, response or predictor is not recovered: it propagates as before.
 @inline function _irls_pair(::Poisson, w::T, η::T, y, floor::T) where {T}
   e = exp(η)
   if isfinite(e)
@@ -350,7 +353,7 @@ end
     v, z = w * d2, η - convert(T, e - y) / d2
     if !(isfinite(v) & isfinite(z)) && isfinite(y) & isfinite(w)
       e > floor && return _poisson_recovered(w, η, y)
-      isfinite(z) || !isfinite(η) || (z = _floored_response(η, convert(T, e - y), d2))
+      isfinite(z) || !isfinite(η) || (z = _floored_response(η, e, y, d2))
     end
     return v, z
   end
@@ -359,10 +362,13 @@ end
   w * d2, η - convert(T, e - y) / d2
 end
 
-# η - t/d2 for a finite η and t, as 2(η/2 - (t/2)/d2): the halves keep a cancelling pair of
-# terms in range, and the result overflows only if η - t/d2 itself does. Used only where
-# the direct expression was not finite, so the halves are far from the subnormal range.
-@noinline _floored_response(η::T, t::T, d2::T) where {T} = 2 * (η / 2 - (t / 2) / d2)
+# η - (e - y)/d2 for a finite η, e and y, evaluated in 256-bit arithmetic and rounded once to T:
+# the result is Inf exactly when the sum, not one of its terms, is out of range. Reached only
+# where the direct expression was not finite, so it allocates only for |η| and y/d2 near floatmax.
+@noinline _floored_response(η::T, e::T, y, d2::T) where {T} =
+  setprecision(BigFloat, 256) do
+    convert(T, BigFloat(η) - (BigFloat(e) - BigFloat(y)) / BigFloat(d2))
+  end
 
 @noinline function _poisson_recovered(w::T, η::T, y) where {T}
   m, j = _exp_split(η)

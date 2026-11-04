@@ -780,4 +780,501 @@ end
   end
 end
 
+
+# Tilt and Translate on tuples (#159): independent references are the blockwise formulas
+# evaluated with the functions of the blocks on arrays, never the tuple methods under test.
+tdot(a::AbstractArray, b::AbstractArray) = dot(a, b)
+tdot(a::Tuple, b::Tuple) = sum(map(tdot, a, b))
+map_blocks(f, a::AbstractArray, b::AbstractArray) = f(a, b)
+map_blocks(f, a::Tuple, b::Tuple) = map((u, v) -> map_blocks(f, u, v), a, b)
+copy_blocks(a::AbstractArray) = copy(a)
+copy_blocks(a::Tuple) = map(copy_blocks, a)
+# a separable sum of F() with the structure of x
+tuple_sum(x::Tuple, F) = SeparableSum(map(xk -> xk isa Tuple ? tuple_sum(xk, F) : F(), x)...)
+
+@testset "Tilt and Translate on tuples: constructors" begin
+  s = SeparableSum(SqrNormL2(), SqrNormL2(2))
+  c = ([1.0, 1.0], [1.0])
+  b = ([0.5, -0.5], [1.0])
+  t, u = Tilt(s, c, 1.5), Translate(s, b)
+  @test t.c === c && u.b === b                       # parameters are held, not copied
+  @test Tilt(s, c).d === 0.0 && Tilt(s, c).d isa Float64
+  @test Tilt(s, map(a -> Float32.(a), c)).d === 0.0f0     # the default constant follows the coefficients
+  @test Tilt(s, (Float32[1], Float64[2])).d === 0.0
+  @test Tilt(s, ([1, 2], [3])).d === 0.0
+  @test Tilt(s, c, 2).d === 2
+  @test Tilt(s, (c[1],)).c == (c[1],)                 # one block
+  nested = ((c[1], c[2]), ([1.0 2.0; 3.0 4.0], [1.0]))
+  @test Tilt(s, nested).c === nested && Translate(s, nested).b === nested
+  @test Translate(s, ([1.0 2.0; 3.0 4.0], [1.0, 2.0])).b[1] isa Matrix{Float64}
+  for T in (Tilt, Translate)
+    @test_throws ArgumentError T(s, ([1.0 + 1.0im], [1.0]))        # nonreal leaves
+    @test_throws ArgumentError T(s, ([1.0], (1.0im,)))
+    @test_throws ArgumentError T(s, (1.0, [1.0]))                  # scalar leaves
+    @test_throws ArgumentError T(s, ([1.0], (2.0,)))
+    @test_throws ArgumentError T(s, ())                            # no blocks
+    @test_throws MethodError T(s, (a = [1.0], b = [1.0]))          # named tuples
+  end
+  # the shapes are known when an oracle is called: the second parameter has the entries of the
+  # matrix block but not its shape
+  x = ([1.0, 2.0], [3.0 4.0; 5.0 6.0])
+  ok, bad = ([0.1, 0.2], [0.3 0.4; 0.5 0.6]), ([0.1, 0.2], [0.3, 0.4, 0.5, 0.6])
+  @test Tilt(s, ok)(x) isa Float64 && Translate(s, ok)(x) isa Float64
+  @test_throws DimensionMismatch Tilt(s, bad)(x)
+  @test_throws DimensionMismatch Translate(s, bad)(x)
+  @test_throws DimensionMismatch Tilt(s, ([0.1, 0.2],))(x)         # arity
+  @test_throws DimensionMismatch Translate(s, (ok..., [1.0]))(x)
+  @test_throws DimensionMismatch Tilt(s, [1.0, 2.0])(x)            # an array for a tuple
+  @test_throws DimensionMismatch Translate(s, (ok[1], (ok[2],)))(x)    # nesting
+  # arrays are unchanged
+  @test Tilt(NormL1(), [1.0, 2.0]).d === 0.0 && Tilt(NormL1(), Float32[1, 2]).d === 0.0f0
+  @test_throws ArgumentError Tilt(NormL1(), [1.0im])
+  @test_throws ArgumentError Translate(NormL1(), [1.0im])
+end
+
+@testset "Tilt on tuples" begin
+  s = SeparableSum(SqrNormL2(1.5), SqrNormL2(2.0))
+  x = ([2.0, -1.0], [3.0, -2.0])
+  c = ([0.25, -0.5], [1.0, 0.0])
+  d = 1.25
+  t = Tilt(s, c, d)
+  @test issmooth(t) && isproximable(t)
+  @test t(x) ≈ s(x) + dot(c[1], x[1]) + dot(c[2], x[2]) + d
+  refg = (1.5 .* x[1] .+ c[1], 2.0 .* x[2] .+ c[2])
+  g = map(similar, x)
+  @test gradient!(g, t, x) === g
+  @test blocks_approx(g, refg)
+  g2 = map(similar, x)
+  @test value_and_gradient!(g2, t, x) ≈ t(x)
+  @test blocks_approx(g2, refg)
+  @test blocks_approx(gradient(t, x), refg)
+  v, G = value_and_gradient(t, x)
+  @test v ≈ t(x) && blocks_approx(G, refg)
+  @test blocks_approx(check_gradient(t, x), refg)    # Testing.test_gradient on a homogeneous tuple
+
+  # proximal operators against the blockwise formula prox_{γf}(x - γc)
+  f = SeparableSum(SqrNormL2(1.5), NormL1(0.5))
+  γ = 0.4
+  ref = (prox(f.fs[1], x[1] .- γ .* c[1], γ), prox(f.fs[2], x[2] .- γ .* c[2], γ))
+  tp = Tilt(f, c, d)
+  @test isproximable(tp) && !issmooth(tp)
+  y = map(similar, x)
+  @test prox!(y, tp, x, γ) === y
+  @test blocks_approx(y, ref)
+  @test blocks_approx(prox(tp, x, γ), ref)
+  y = map(similar, x)
+  v = value_and_prox!(y, tp, x, γ)
+  @test blocks_approx(y, ref)
+  @test v ≈ f(ref) + dot(c[1], ref[1]) + dot(c[2], ref[2]) + d    # the value at the stored output
+  # in place
+  xi = map(copy, x)
+  @test prox!(xi, tp, xi, γ) === xi
+  @test blocks_approx(xi, ref)
+  xi = map(copy, x)
+  @test value_and_prox!(xi, tp, xi, γ) ≈ v
+  @test blocks_approx(xi, ref)
+  @test x == ([2.0, -1.0], [3.0, -2.0])              # the input of the nonaliased calls is untouched
+  # the step: zero and infinite steps where the function supports them
+  @test blocks_approx(prox(Tilt(SeparableSum(NormL1(1.0), NormL1(1.0)), c, 0.0), x, 0.0), x)
+
+  # matrices, nested tuples of unequal shapes, vectors and one block
+  fm = SeparableSum(NormL1(0.3), SqrNormL2(2.0))
+  xm = ([1.0, -2.0, 3.0], [1.0 -2.0; 0.5 4.0])
+  cm = ([0.1, 0.2, -0.3], [0.5 -0.5; 1.0 0.0])
+  refm = (prox(fm.fs[1], xm[1] .- γ .* cm[1], γ), prox(fm.fs[2], xm[2] .- γ .* cm[2], γ))
+  @test blocks_approx(prox(Tilt(fm, cm), xm, γ), refm)
+  nf = SeparableSum(SeparableSum(SqrNormL2(), NormL1(0.2)), SeparableSum(SqrNormL2(3), NormL1(0.1)))
+  xn = (([1.0, 2.0], [3.0]), ([4.0 5.0; 6.0 7.0], [8.0, -9.0]))
+  cn = (([0.5, 0.5], [1.0]), ([1.0 0.0; 0.0 1.0], [0.1, -0.1]))
+  refn = ((prox(SqrNormL2(), xn[1][1] .- γ .* cn[1][1], γ), prox(NormL1(0.2), xn[1][2] .- γ .* cn[1][2], γ)),
+          (prox(SqrNormL2(3), xn[2][1] .- γ .* cn[2][1], γ), prox(NormL1(0.1), xn[2][2] .- γ .* cn[2][2], γ)))
+  tn = Tilt(nf, cn, 0.5)
+  yn = fresh(xn)
+  @test prox!(yn, tn, xn, γ) === yn
+  @test blocks_approx(yn, refn)
+  vn = value_and_prox!(yn, tn, xn, γ)
+  @test vn ≈ nf(refn) + tdot(cn, refn) + 0.5
+  @test blocks_approx(prox(Tilt(SeparableSum(SqrNormL2(2.0)), (c[1],)), (x[1],), γ), (prox(SqrNormL2(2.0), x[1] .- γ .* c[1], γ),))
+  tg = Tilt(SeparableSum(SeparableSum(SqrNormL2(), SqrNormL2(2)), SeparableSum(SqrNormL2(3), SqrNormL2(4))), cn, 0.5)
+  @test blocks_approx(check_gradient(tg, xn), ((xn[1][1] .+ cn[1][1], 2 .* xn[1][2] .+ cn[1][2]), (3 .* xn[2][1] .+ cn[2][1], 4 .* xn[2][2] .+ cn[2][2])))
+
+  # Float32 variables with Float64 data, and Float64 outputs for Float32 arguments: block by
+  # block the same rounding as the array wrappers
+  x32 = map(a -> Float32.(a), x)
+  f32 = SeparableSum(SqrNormL2(1.5), NormL1(0.5))
+  smooth32 = SeparableSum(SqrNormL2(1.5), SqrNormL2(2.0))
+  for cdata in (c, map(a -> Float32.(a), c))
+    t32 = Tilt(f32, cdata, d)
+    @test t32(x32) isa Float32
+    g32 = map(similar, x32)
+    @test value_and_gradient!(g32, Tilt(smooth32, cdata, d), x32) isa Float32
+    @test g32 isa Tuple{Vector{Float32}, Vector{Float32}}
+    @test blocks_approx(g32, map((k, xk, ck) -> k .* xk .+ ck, (1.5, 2.0), x32, cdata))
+    y32 = map(similar, x32)
+    @test prox!(y32, t32, x32, γ) === y32
+    @test y32 isa Tuple{Vector{Float32}, Vector{Float32}}
+    arrayref = map((fk, ck, xk) -> prox(Tilt(fk, ck, d), xk, γ), f32.fs, cdata, x32)
+    @test y32 == arrayref
+    y32 = map(similar, x32)
+    @test value_and_prox!(y32, t32, x32, γ) isa Float32
+    @test y32 == arrayref
+    y64 = map(similar, x)
+    @test prox!(y64, t32, x32, γ) === y64
+    @test y64 isa Tuple{Vector{Float64}, Vector{Float64}}
+    @test y64 == map((fk, ck, xk, yk) -> prox!(similar(yk), Tilt(fk, ck, d), xk, γ), f32.fs, cdata, x32, y64)
+  end
+  @test check_gradient(Tilt(s, map(a -> Float32.(a), c), 1f0), x32) isa Tuple{Vector{Float32}, Vector{Float32}}
+end
+
+@testset "Translate on tuples" begin
+  s = SeparableSum(SqrNormL2(1.5), SqrNormL2(2.0))
+  x = ([2.0, -1.0], [3.0, -2.0])
+  b = ([0.3, -0.1], [0.5, 1.5])
+  u = Translate(s, b)
+  shifted = (x[1] .- b[1], x[2] .- b[2])
+  refg = (1.5 .* shifted[1], 2.0 .* shifted[2])
+  @test u(x) ≈ s(shifted)
+  g = map(similar, x)
+  @test gradient!(g, u, x) === g
+  @test blocks_approx(g, refg)
+  g2 = map(similar, x)
+  @test value_and_gradient!(g2, u, x) ≈ u(x)
+  @test blocks_approx(g2, refg)
+  @test blocks_approx(gradient(u, x), refg)
+  @test blocks_approx(check_gradient(u, x), refg)
+
+  f = SeparableSum(SqrNormL2(1.5), NormL1(0.5))
+  γ = 0.4
+  ref = (b[1] .+ prox(f.fs[1], x[1] .- b[1], γ), b[2] .+ prox(f.fs[2], x[2] .- b[2], γ))
+  up = Translate(f, b)
+  y = map(similar, x)
+  @test prox!(y, up, x, γ) === y
+  @test blocks_approx(y, ref)
+  @test blocks_approx(prox(up, x, γ), ref)
+  y = map(similar, x)
+  v = value_and_prox!(y, up, x, γ)
+  @test blocks_approx(y, ref)
+  @test v ≈ f((y[1] .- b[1], y[2] .- b[2]))
+  xi = map(copy, x)
+  @test prox!(xi, up, xi, γ) === xi
+  @test blocks_approx(xi, ref)
+  xi = map(copy, x)
+  @test value_and_prox!(xi, up, xi, γ) ≈ v
+  @test blocks_approx(xi, ref)
+  @test x == ([2.0, -1.0], [3.0, -2.0])
+
+  # matrices and nested tuples of unequal shapes
+  nf = SeparableSum(SeparableSum(SqrNormL2(), NormL1(0.2)), SeparableSum(SqrNormL2(3), NormL1(0.1)))
+  xn = (([1.0, 2.0], [3.0]), ([4.0 5.0; 6.0 7.0], [8.0, -9.0]))
+  bn = (([0.5, 0.5], [1.0]), ([1.0 0.0; 0.0 1.0], [0.1, -0.1]))
+  refn = ((bn[1][1] .+ prox(SqrNormL2(), xn[1][1] .- bn[1][1], γ), bn[1][2] .+ prox(NormL1(0.2), xn[1][2] .- bn[1][2], γ)),
+          (bn[2][1] .+ prox(SqrNormL2(3), xn[2][1] .- bn[2][1], γ), bn[2][2] .+ prox(NormL1(0.1), xn[2][2] .- bn[2][2], γ)))
+  un = Translate(nf, bn)
+  yn = fresh(xn)
+  @test prox!(yn, un, xn, γ) === yn
+  @test blocks_approx(yn, refn)
+  @test value_and_prox!(yn, un, xn, γ) ≈ nf(map_blocks((a, b) -> a .- b, yn, bn))
+  xi = copy_blocks(xn)
+  @test prox!(xi, un, xi, γ) === xi
+  @test blocks_approx(xi, refn)
+  sm = SeparableSum(SeparableSum(SqrNormL2(), SqrNormL2(2)), SeparableSum(SqrNormL2(3), SqrNormL2(4)))
+  @test check_gradient(Translate(sm, bn), xn) isa Tuple
+
+  # Float32 variables with Float64 data, and Float64 outputs for Float32 arguments
+  x32 = map(a -> Float32.(a), x)
+  f32 = SeparableSum(SqrNormL2(1.5), NormL1(0.5))
+  smooth32 = SeparableSum(SqrNormL2(1.5), SqrNormL2(2.0))
+  for bdata in (b, map(a -> Float32.(a), b))
+    u32 = Translate(f32, bdata)
+    @test u32(x32) isa Float32
+    g32 = map(similar, x32)
+    @test value_and_gradient!(g32, Translate(smooth32, bdata), x32) isa Float32
+    @test g32 isa Tuple{Vector{Float32}, Vector{Float32}}
+    @test blocks_approx(g32, map((k, xk, bk) -> k .* (xk .- bk), (1.5, 2.0), x32, bdata))
+    y32 = map(similar, x32)
+    prox!(y32, u32, x32, γ)
+    arrayref = map((fk, bk, xk) -> prox(Translate(fk, bk), xk, γ), f32.fs, bdata, x32)
+    @test y32 isa Tuple{Vector{Float32}, Vector{Float32}} && y32 == arrayref
+    y32 = map(similar, x32)
+    @test value_and_prox!(y32, u32, x32, γ) isa Float32
+    @test y32 == arrayref
+    y64 = map(similar, x)
+    prox!(y64, u32, x32, γ)
+    @test y64 isa Tuple{Vector{Float64}, Vector{Float64}}
+    @test y64 == map((fk, bk, xk, yk) -> prox!(similar(yk), Translate(fk, bk), xk, γ), f32.fs, bdata, x32, y64)
+  end
+end
+
+@testset "Tilt and Translate on tuples: many blocks and compositions" begin
+  γ = 0.3
+  for n in (1, 2, 4, 32, 40)
+    f = SeparableSum(ntuple(k -> isodd(k) ? SqrNormL2(k) : NormL1(0.1k), n)...)
+    x = ntuple(k -> Float64.(collect(1:(k % 3 + 1))) .- 1.5, n)
+    c = ntuple(k -> fill(0.1k, k % 3 + 1), n)
+    ref = ntuple(k -> prox(f.fs[k], x[k] .- γ .* c[k], γ), n)
+    @test blocks_approx(prox(Tilt(f, c, 1.0), x, γ), ref)
+    refu = ntuple(k -> c[k] .+ prox(f.fs[k], x[k] .- c[k], γ), n)
+    @test blocks_approx(prox(Translate(f, c), x, γ), refu)
+    h = Tilt(SeparableSum(ntuple(k -> SqrNormL2(k), n)...), c, 1.0)
+    @test blocks_approx(gradient(h, x), ntuple(k -> k .* x[k] .+ c[k], n))
+    @test value_and_gradient(h, x)[1] ≈ h(x)
+    hu = Translate(SeparableSum(ntuple(k -> SqrNormL2(k), n)...), c)
+    @test blocks_approx(gradient(hu, x), ntuple(k -> k .* (x[k] .- c[k]), n))
+  end
+  # a deeply nested tuple
+  deep(k) = k == 0 ? SqrNormL2(2) : SeparableSum(deep(k - 1), SqrNormL2(k))
+  deepx(k) = k == 0 ? [1.0, 2.0] : (deepx(k - 1), fill(Float64(k), 2))
+  deepc(k) = k == 0 ? [0.5, -0.5] : (deepc(k - 1), fill(0.1k, 2))
+  df, dx, dc = deep(6), deepx(6), deepc(6)
+  gt = gradient(Tilt(df, dc, 0.0), dx)
+  gu = gradient(Translate(df, dc), dx)
+  # the innermost block, then the outer blocks, with weight 2 and then k
+  @test gt[1][1][1][1][1][1] ≈ 2 .* [1.0, 2.0] .+ [0.5, -0.5]
+  @test gu[1][1][1][1][1][1] ≈ 2 .* ([1.0, 2.0] .- [0.5, -0.5])
+  @test gt[2] ≈ 6 .* fill(6.0, 2) .+ fill(0.6, 2) && gu[2] ≈ 6 .* (fill(6.0, 2) .- fill(0.6, 2))
+  @test Tilt(df, dc, 0.0)(dx) ≈ df(dx) + tdot(dc, dx)
+
+  # wrappers around the new functions and the new functions around wrappers
+  s = SeparableSum(SqrNormL2(1.5), NormL1(0.5))
+  x = ([2.0, -1.0], [3.0, -2.0]); c = ([0.25, -0.5], [1.0, 0.0]); b = ([0.3, -0.1], [0.5, 1.5]); d = 0.75; α = 2.5
+  tb, ub = Tilt(s, c, d), Translate(s, b)
+  ref_t = (prox(s.fs[1], x[1] .- γ .* α .* c[1], α * γ), prox(s.fs[2], x[2] .- γ .* α .* c[2], α * γ))
+  # prox of α(f + ⟨c, ·⟩ + d) at x is prox of αf at x - γαc
+  @test blocks_approx(prox(Scaled(tb, α), x, γ), ref_t)
+  @test blocks_approx(prox(Scaled(ub, α), x, γ), (b[1] .+ prox(s.fs[1], x[1] .- b[1], α * γ), b[2] .+ prox(s.fs[2], x[2] .- b[2], α * γ)))
+  @test blocks_approx(prox(Tilt(Scaled(s, α), c, d), x, γ), (prox(s.fs[1], x[1] .- γ .* c[1], α * γ), prox(s.fs[2], x[2] .- γ .* c[2], α * γ)))
+  @test blocks_approx(prox(Translate(Scaled(s, α), b), x, γ), (b[1] .+ prox(s.fs[1], x[1] .- b[1], α * γ), b[2] .+ prox(s.fs[2], x[2] .- b[2], α * γ)))
+  # Tilt(Translate) and Translate(Tilt): the inner shift happens first in each
+  tu = Tilt(Translate(s, b), c, d)
+  zz = map((xk, ck) -> xk .- γ .* ck, x, c)
+  @test blocks_approx(prox(tu, x, γ), map((zk, bk, fk) -> bk .+ prox(fk, zk .- bk, γ), zz, b, s.fs))
+  ut = Translate(Tilt(s, c, d), b)
+  zb = map(-, x, b)
+  @test blocks_approx(prox(ut, x, γ), map((zk, bk, ck, fk) -> bk .+ prox(fk, zk .- γ .* ck, γ), zb, b, c, s.fs))
+  sm = SeparableSum(SqrNormL2(1.5), SqrNormL2(2.0))
+  @test value_and_gradient(Scaled(Tilt(sm, c, d), α), x)[1] ≈ α * (sm(x) + tdot(c, x) + d)
+  @test blocks_approx(gradient(Scaled(Translate(sm, b), α), x), map((xk, bk, k) -> α * k .* (xk .- bk), x, b, (1.5, 2.0)))
+  @test blocks_approx(gradient(Tilt(Translate(sm, b), c, d), x), map((xk, bk, ck, k) -> k .* (xk .- bk) .+ ck, x, b, c, (1.5, 2.0)))
+  @test blocks_approx(gradient(Translate(Tilt(sm, c, d), b), x), map((xk, bk, ck, k) -> k .* (xk .- bk) .+ ck, x, b, c, (1.5, 2.0)))
+  @test check_gradient(Tilt(Translate(sm, b), c, d), x) isa Tuple
+  @test check_gradient(Translate(Scaled(Tilt(sm, c, d), α), b), x) isa Tuple
+  # with the tuple Sum of the earlier phase
+  m = Sum(sm, Scaled(sm, 2))
+  @test blocks_approx(gradient(Tilt(m, c, d), x), map((xk, ck, k) -> 3k .* xk .+ ck, x, c, (1.5, 2.0)))
+  @test blocks_approx(gradient(Translate(m, b), x), map((xk, bk, k) -> 3k .* (xk .- bk), x, b, (1.5, 2.0)))
+  @test check_gradient(Translate(Tilt(m, c, d), b), x) isa Tuple
+end
+
+@testset "Tilt and Translate on tuples check before writing" begin
+  x = ([1.0, 2.0], [3.0 4.0; 5.0 6.0])
+  sentinel = ([9.0, 8.0], [7.0 7.0; 7.0 7.0])
+  ok = ([0.1, 0.2], [0.3 0.4; 0.5 0.6])
+  bad = ([0.1, 0.2], [0.3, 0.4, 0.5, 0.6])          # the entries of the matrix block, not its shape
+  s = SeparableSum(SqrNormL2(), SqrNormL2(2))
+  l1 = SeparableSum(NormL1(0.3), NormL1(0.2))
+  wrappers = (Tilt => p -> Tilt(s, p, 0.0), Translate => p -> Translate(s, p))
+  proxwrappers = (Tilt => p -> Tilt(l1, p, 0.0), Translate => p -> Translate(l1, p))
+  fresh_sentinel() = map(copy, sentinel)
+  for (T, mk) in wrappers, op in (gradient!, value_and_gradient!)
+    for param in (bad, (ok[1],), (ok..., [1.0]), (ok[1], (ok[2],)), ([0.1, 0.2, 0.3], ok[2]), (ok[1], zeros(2, 3)))
+      out = fresh_sentinel()
+      @test_throws DimensionMismatch op(out, mk(param), x)
+      @test out == sentinel
+    end
+    # the output: arity and block shapes
+    for badout in ((sentinel[1],), (sentinel[1], sentinel[2], sentinel[2]), (sentinel[1], zeros(4)), (zeros(3), sentinel[2]))
+      out = map(copy, badout)
+      @test_throws DimensionMismatch op(out, mk(ok), x)
+      @test out == map(copy, badout)
+    end
+    # a later block of the inner function
+    later = T === Tilt ? Tilt(SeparableSum(SqrNormL2(), SqrNormL2(1.0, ones(3))), ok, 0.0) :
+                         Translate(SeparableSum(SqrNormL2(), SqrNormL2(1.0, ones(3))), ok)
+    out = fresh_sentinel()
+    @test_throws DimensionMismatch op(out, later, x)
+    @test out == sentinel
+    nestedbad = T === Tilt ? Tilt(SeparableSum(SqrNormL2(), Scaled(SeparableSum(SqrNormL2()), 2.0)), ok, 0.0) :
+                             Translate(SeparableSum(SqrNormL2(), Scaled(SeparableSum(SqrNormL2()), 2.0)), ok)
+    out = fresh_sentinel()
+    @test_throws MethodError op(out, nestedbad, x)
+    @test out == sentinel
+    # the gradient must not overwrite the point or one of its blocks
+    xa = map(copy, x)
+    @test_throws ArgumentError op(xa, mk(ok), xa)
+    @test xa == x
+    out = (similar(x[1]), x[2])
+    @test_throws ArgumentError op(out, mk(ok), x)
+    @test x[2] == [3.0 4.0; 5.0 6.0]
+    # outputs that refuse off-diagonal writes
+    for wrap in (Symmetric, Hermitian)
+      out = (fill(-7.0, 2), wrap(fill(-7.0, 2, 2)))
+      before = copy(out[2])
+      @test_throws ArgumentError op(out, mk(ok), x)
+      @test all(==(-7.0), out[1]) && out[2] == before
+    end
+  end
+  for (T, mk) in proxwrappers, op in (prox!, value_and_prox!), aliased in (false, true)
+    for param in (bad, (ok[1],), (ok..., [1.0]), (ok[1], (ok[2],)), (ok[1], zeros(2, 3)))
+      out = fresh_sentinel()
+      xin = aliased ? out : x
+      @test_throws DimensionMismatch op(out, mk(param), xin, 0.5)
+      @test out == sentinel
+    end
+    for badout in ((sentinel[1],), (sentinel[1], sentinel[2], sentinel[2]), (sentinel[1], zeros(4)), (zeros(3), sentinel[2]))
+      out = map(copy, badout)
+      @test_throws DimensionMismatch op(out, mk(ok), x, 0.5)
+      @test out == map(copy, badout)
+    end
+    # an invalid parameter of the inner function in a later block
+    badinner = SeparableSum(NormL1(0.3), NormL1(0.2, [1.0, 2.0, 3.0]))
+    wrapped = T === Tilt ? Tilt(badinner, ok, 0.0) : Translate(badinner, ok)
+    out = fresh_sentinel()
+    xin = aliased ? out : x
+    @test_throws DimensionMismatch op(out, wrapped, xin, 0.5)
+    @test out == sentinel
+    for wrap in (Symmetric, Hermitian)
+      out = (fill(-7.0, 2), wrap(fill(-7.0, 2, 2)))
+      before = copy(out[2])
+      @test_throws ArgumentError op(out, mk(ok), x, 0.5)
+      @test all(==(-7.0), out[1]) && out[2] == before
+    end
+  end
+  # steps that a later block rejects, before anything is written
+  rej = SeparableSum(NormL1(0.3), IndBallL2(1.0))
+  for T in (Tilt, Translate), op in (prox!, value_and_prox!), aliased in (false, true), γ in (-1.0, NaN)
+    wrapped = T === Tilt ? Tilt(rej, ok, 0.0) : Translate(rej, ok)
+    out = fresh_sentinel()
+    xin = aliased ? out : x
+    @test_throws ArgumentError op(out, wrapped, xin, γ)
+    @test out == sentinel
+    # also inside a nested wrapper
+    out = fresh_sentinel()
+    xin = aliased ? out : x
+    @test_throws ArgumentError op(out, Scaled(wrapped, 2.0), xin, γ)
+    @test out == sentinel
+  end
+  # zero and infinite steps where the function takes them
+  box = SeparableSum(IndBox(-1.0, 1.0), IndBox(-1.0, 1.0))
+  for γ in (0.0, Inf)
+    y = fresh(x)
+    @test prox!(y, Tilt(box, ok, 0.0), x, γ) === y
+    @test blocks_approx(y, map((xk, ck) -> prox(IndBox(-1.0, 1.0), xk .- γ .* ck, γ), x, ok))
+    y = fresh(x)
+    @test prox!(y, Translate(box, ok), x, γ) === y
+    @test blocks_approx(y, map((xk, bk) -> bk .+ prox(IndBox(-1.0, 1.0), xk .- bk, γ), x, ok))
+  end
+  # a nested function block with a step that its inner block rejects
+  nested = SeparableSum(SeparableSum(NormL1(0.3), NormL1(0.3)), rej)
+  nx = (x, x)
+  nok = (ok, ok)
+  nout = (map(copy, sentinel), map(copy, sentinel))
+  @test_throws ArgumentError prox!(nout, Translate(nested, nok), nx, -1.0)
+  @test nout == (sentinel, sentinel)
+  @test_throws ArgumentError prox!(nout, Tilt(nested, nok, 0.0), nx, NaN)
+  @test nout == (sentinel, sentinel)
+  # a tuple block of a separable sum is checked too
+  blk = SeparableSum(Tilt(rej, ok, 0.0), SqrNormL2())
+  bout = (map(copy, sentinel), [1.0])
+  @test_throws ArgumentError prox!(bout, blk, (x, [1.0]), -1.0)
+  @test bout == (sentinel, [1.0])
+end
+
+@testset "Tilt and Translate on tuples: buffers and allocations" begin
+  s = SeparableSum(SqrNormL2(1.5), NormL1(0.5))
+  smooth = SeparableSum(SqrNormL2(1.5), SqrNormL2(2.0))
+  x = ([2.0, -1.0], [3.0, -2.0]); c = ([0.25, -0.5], [1.0, 0.0]); γ = 0.4
+  t, u = Tilt(s, c, 1.0), Translate(s, c)
+  y = fresh(x)
+  prox!(y, t, x, γ)
+  buffer = t.scratch.buf
+  @test buffer !== nothing
+  prox!(y, t, x, γ)
+  @test t.scratch.buf === buffer                                  # the same shapes and types reuse it
+  @test all(bk -> all(a -> bk !== a, y) && all(a -> bk !== a, x) && all(a -> bk !== a, c), buffer[3])
+  y2 = ([1.0, 2.0, 3.0], [4.0])
+  c2 = ([0.1, 0.2, 0.3], [0.4])
+  t2 = Tilt(s, c2, 1.0)
+  out2 = fresh(y2)
+  prox!(out2, t2, y2, γ)                                          # another tuple with its own wrapper
+  @test blocks_approx(out2, map((fk, ck, xk) -> prox(fk, xk .- γ .* ck, γ), s.fs, c2, y2))
+  yy = fresh(y2)
+  @test_throws DimensionMismatch prox!(yy, t, y2, γ)               # c does not fit y2
+  y32 = map(a -> zeros(Float32, size(a)), x)
+  prox!(y32, t, x, γ)
+  @test t.scratch.buf !== buffer && t.scratch.buf[3] isa Tuple{Vector{Float32}, Vector{Float32}}   # another output type
+  yback = fresh(x)
+  @test blocks_approx(prox!(yback, t, x, γ), map((fk, ck, xk) -> prox(fk, xk .- γ .* ck, γ), s.fs, c, x))   # back to the original
+  # no stale data: the result does not depend on what an earlier call left in the buffer
+  @test blocks_approx(prox!(fresh(x), t, map(a -> 2 .* a, x), γ), map((fk, ck, xk) -> prox(fk, 2 .* xk .- γ .* ck, γ), s.fs, c, x))
+  @test blocks_approx(prox!(fresh(x), t, x, γ), map((fk, ck, xk) -> prox(fk, xk .- γ .* ck, γ), s.fs, c, x))
+  # Translate keeps its two buffers apart: values and gradients in the argument's precision, the
+  # proximal operator in the output's
+  g = fresh(x)
+  ug = Translate(smooth, c)
+  @test blocks_approx(gradient!(g, ug, x), map((k, xk, bk) -> k .* (xk .- bk), (1.5, 2.0), x, c))
+  vbuf = ug.scratch.buf
+  @test vbuf !== nothing && ug.proxscratch.buf === nothing
+  prox!(y, u, x, γ)
+  pbuf = u.proxscratch.buf
+  @test pbuf !== nothing && u.scratch.buf === nothing
+  upm = Translate(SeparableSum(SqrNormL2(1.5), SqrNormL2(2.0)), c)
+  for _ in 1:2
+    @test blocks_approx(gradient!(g, upm, x), map((k, xk, bk) -> k .* (xk .- bk), (1.5, 2.0), x, c))
+    @test blocks_approx(prox!(fresh(x), upm, x, γ), map((k, xk, bk) -> bk .+ prox(SqrNormL2(k), xk .- bk, γ), (1.5, 2.0), x, c))
+    @test upm.scratch.buf !== nothing && upm.proxscratch.buf !== nothing && upm.scratch.buf !== upm.proxscratch.buf
+  end
+  sbuf, pbuf2 = upm.scratch.buf, upm.proxscratch.buf
+  gradient!(g, upm, x); prox!(y, upm, x, γ); gradient!(g, upm, x)
+  @test upm.scratch.buf === sbuf && upm.proxscratch.buf === pbuf2
+  x32 = map(a -> Float32.(a), x)
+  value_and_gradient!(map(similar, x32), upm, x32)                  # a Float32 argument and a Float64 output
+  @test upm.scratch.buf[3] isa Tuple{Vector{Float32}, Vector{Float32}}
+  prox!(y, upm, x32, γ)
+  @test upm.proxscratch.buf[3] isa Tuple{Vector{Float64}, Vector{Float64}}
+  @test all(bk -> all(a -> bk !== a, y) && all(a -> bk !== a, x), upm.scratch.buf[3])
+
+  # warm calls allocate nothing, also for four, nested and forty blocks
+  vg!(g, f, x) = value_and_gradient!(g, f, x)
+  gr!(g, f, x) = gradient!(g, f, x)
+  vp!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
+  pr!(y, f, x, γ) = prox!(y, f, x, γ)
+  cases = Any[]
+  push!(cases, (x, c))
+  x4 = ntuple(k -> fill(Float64(k), 3), 4); c4 = ntuple(k -> fill(0.1k, 3), 4)
+  push!(cases, (x4, c4))
+  xn = (([1.0, 2.0], [3.0]), ([4.0 5.0; 6.0 7.0], [8.0, -9.0])); cn = (([0.5, 0.5], [1.0]), ([1.0 0.0; 0.0 1.0], [0.1, -0.1]))
+  push!(cases, (xn, cn))
+  x40 = ntuple(k -> fill(Float64(k), 2), 40); c40 = ntuple(k -> fill(0.01k, 2), 40)
+  push!(cases, (x40, c40))
+  for (xx, cc) in cases
+    sm = tuple_sum(xx, SqrNormL2)
+    pf = tuple_sum(xx, NormL1)
+    for W in (Tilt, Translate)
+      f = W === Tilt ? Tilt(sm, cc, 1.0) : Translate(sm, cc)
+      fp = W === Tilt ? Tilt(pf, cc, 1.0) : Translate(pf, cc)
+      gg, yy = fresh(xx), fresh(xx)
+      @test allocs(gr!, gg, f, xx) == 0
+      @test allocs(vg!, gg, f, xx) == 0
+      @test allocs(pr!, yy, fp, xx, 0.4) == 0
+      @test allocs(vp!, yy, fp, xx, 0.4) == 0
+      @test allocs(pr!, xx, fp, xx, 0.4) == 0
+    end
+  end
+  @inferred value_and_gradient!(fresh(x), Tilt(smooth, c, 1.0), x)
+  @inferred value_and_gradient!(fresh(x), Translate(smooth, c), x)
+  @inferred value_and_prox!(fresh(x), t, x, 0.4)
+  @inferred value_and_prox!(fresh(x), u, x, 0.4)
+end
+
+@testset "Conjugate of tuple Tilt and Translate" begin
+  l1 = SeparableSum(NormL1(0.3), NormL1(0.2))
+  x = ([1.0, 2.0], [3.0 4.0; 5.0 6.0]); c = ([0.1, 0.2], [0.3 0.4; 0.5 0.6]); γ = 0.7
+  # Moreau: prox_{γf*}(x) = x - γ prox_{f/γ}(x/γ), with f the tilt of the blocks
+  ref = map((xk, ck, fk) -> xk .- γ .* prox(Tilt(fk, ck, 0.0), xk ./ γ, 1 / γ), x, c, l1.fs)
+  @test blocks_approx(prox(Conjugate(Tilt(l1, c, 0.0)), x, γ), ref)
+  # the conjugate of a translation takes array translations only
+  @test_throws ArgumentError prox(Conjugate(Translate(l1, c)), x, γ)
+  @test_throws ArgumentError value_and_prox!(map(similar, x), Conjugate(Translate(l1, c)), x, γ)
+end
+
 end

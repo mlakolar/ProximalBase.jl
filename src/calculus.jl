@@ -222,6 +222,56 @@ _restrict_unchecked(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(_restrict_
 #  f + ⟨c, ⋅⟩ + d
 ####################################
 
+# Tuple parameters of Tilt and Translate pair with the argument block by block, also for
+# nested tuples. Every leaf of the parameter is an array of the real entries, and its size is
+# exactly the size of the block of the argument: equal lengths do not suffice, and nothing
+# broadcasts. The structure is known only when the argument is, so it is checked in the oracles.
+const _BlockParameter = Union{AbstractArray, Tuple}
+_check_parameter_leaves(name, c::AbstractArray) = eltype(c) <: Real || _real_error(name)
+function _check_parameter_leaves(name, c::Tuple)
+  isempty(c) && _throw_empty_parameter(name)
+  _check_parameter_leaf_blocks(name, c)
+end
+@generated _check_parameter_leaf_blocks(name, c::Tuple) =
+  _blockwise(k -> :(_check_parameter_leaves(name, c[$k])), fieldcount(c), true)
+_check_parameter_leaves(name, c) = _throw_parameter_leaf(name, c)
+@noinline _throw_empty_parameter(name) = throw(ArgumentError("a tuple parameter of $name needs at least one block"))
+@noinline _throw_parameter_leaf(name, c) = throw(ArgumentError(
+  "the blocks of a tuple parameter of $name must be arrays or tuples of arrays, got $(typeof(c))"))
+
+_check_tuple_parameter(c::AbstractArray, x::AbstractArray) =
+  size(c) == size(x) || _parameter_size_error(size(c), size(x))
+function _check_tuple_parameter(c::Tuple, x::Tuple)
+  length(c) == length(x) || _parameter_arity_error(length(c), length(x))
+  _check_tuple_parameter_blocks(c, x)
+end
+_check_tuple_parameter(c, x) = _parameter_structure_error()
+@generated _check_tuple_parameter_blocks(c::Tuple, x::Tuple) =
+  _blockwise(k -> :(_check_tuple_parameter(c[$k], x[$k])), min(fieldcount(c), fieldcount(x)), true)
+@noinline _parameter_size_error(sc, sx) =
+  throw(DimensionMismatch("a block of the parameter has size $sc and the block of the argument $sx"))
+@noinline _parameter_arity_error(n, m) =
+  throw(DimensionMismatch("the parameter has $n blocks and the argument $m"))
+@noinline _parameter_structure_error() =
+  throw(DimensionMismatch("the parameter and the argument do not have the same block structure"))
+# Tilt and Translate write whole blocks, which Symmetric and Hermitian outputs refuse
+_check_block_output(y) = true
+_check_block_output(::Union{Symmetric, Hermitian}) = throw(ArgumentError(
+  "Tilt and Translate need an output that accepts off-diagonal writes; use a dense matrix"))
+@generated _check_block_output(y::Tuple) = _blockwise(k -> :(_check_block_output(y[$k])), fieldcount(y), true)
+_checkparam(c::Tuple, x) = _check_tuple_parameter(c, x)
+_checkparam(c::AbstractArray, x::Tuple) = _check_tuple_parameter(c, x)
+_checkdot(c::Tuple, x::Tuple) = _check_tuple_parameter(c, x)
+
+# z = x - γc, in the precision of z, and the translation z = x - b, block by block
+_shift_tilt!(z::AbstractArray, x::AbstractArray, γ, c::AbstractArray) =
+  (z .= x .- convert(float(eltype(z)), γ) .* _checked_parameter(z, c))
+@generated _shift_tilt!(z::Tuple, x::Tuple, γ, c::Tuple) =
+  _blockwise(k -> :(_shift_tilt!(z[$k], x[$k], γ, c[$k])), min(fieldcount(z), fieldcount(x), fieldcount(c)), :z)
+_shift_translate!(z::AbstractArray, x::AbstractArray, b::AbstractArray) = (z .= x .- _checked_parameter(z, b))
+@generated _shift_translate!(z::Tuple, x::Tuple, b::Tuple) =
+  _blockwise(k -> :(_shift_translate!(z[$k], x[$k], b[$k])), min(fieldcount(z), fieldcount(x), fieldcount(b)), :z)
+
 """
     Tilt(f, c, d = 0)
 
@@ -231,22 +281,32 @@ augmented Lagrangians and of duality take this form.
 The proximal operator passes `x - γc` to `f` in a buffer that the function owns,
 so do not share one object between threads. A rejected inner call leaves the output
 unchanged. Sparse iterate buffers preserve stored entries and their order. `Symmetric` and `Hermitian` outputs are unsupported.
+
+For a variable that is a tuple of arrays, possibly nested, as for a
+[`SeparableSum`](@ref), `c` is a tuple of the same structure whose leaves are
+real arrays of the sizes of the blocks of `x`; `⟨c, x⟩` is the sum over the blocks and
+every block is shifted on its own. The oracles check the structure and every size
+before writing, and the proximal operator stages the result in the buffer and writes
+it to the output last, so a predictable failure leaves the output unchanged.
+The tuple methods cover the value, the gradient, the proximal operator, the
+Hessian-vector product and the quadratic model; the coordinate-level interfaces
+(`prox_entry`, `kkt_violation`, `restrict`) take array coefficients only.
 """
-struct Tilt{F<:AbstractFunction, C<:AbstractArray, D<:Real} <: AbstractFunction
+struct Tilt{F<:AbstractFunction, C<:_BlockParameter, D<:Real} <: AbstractFunction
   f::F
   c::C
   d::D
   scratch::Scratch
 
-  function Tilt{F, C, D}(f::F, c::C, d::D, scratch::Scratch) where {F<:AbstractFunction, C<:AbstractArray, D<:Real}
-    eltype(c) <: Real || _real_error(:Tilt)
+  function Tilt{F, C, D}(f::F, c::C, d::D, scratch::Scratch) where {F<:AbstractFunction, C<:_BlockParameter, D<:Real}
+    _check_parameter_leaves(:Tilt, c)
     new{F, C, D}(f, c, d, scratch)
   end
 end
-Tilt(f::F, c::C, d::D, scratch::Scratch) where {F<:AbstractFunction, C<:AbstractArray, D<:Real} = Tilt{F, C, D}(f, c, d, scratch)
-Tilt{F, C, D}(f::F, c::C, d::D) where {F<:AbstractFunction, C<:AbstractArray, D<:Real} = Tilt{F, C, D}(f, c, d, Scratch())
-Tilt(f::AbstractFunction, c::AbstractArray, d::Real) = Tilt(f, c, d, Scratch())
-Tilt(f::AbstractFunction, c::AbstractArray) = (eltype(c) <: Real || _real_error(:Tilt); Tilt(f, c, zero(float(eltype(c)))))
+Tilt(f::F, c::C, d::D, scratch::Scratch) where {F<:AbstractFunction, C<:_BlockParameter, D<:Real} = Tilt{F, C, D}(f, c, d, scratch)
+Tilt{F, C, D}(f::F, c::C, d::D) where {F<:AbstractFunction, C<:_BlockParameter, D<:Real} = Tilt{F, C, D}(f, c, d, Scratch())
+Tilt(f::AbstractFunction, c::_BlockParameter, d::Real) = Tilt(f, c, d, Scratch())
+Tilt(f::AbstractFunction, c::_BlockParameter) = (_check_parameter_leaves(:Tilt, c); Tilt(f, c, zero(_valtype(c))))
 
 for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Tilt{F}}) where {F} = $trait(F)
@@ -254,23 +314,27 @@ end
 
 (t::Tilt)(x) =
   (_check_value_arrays(t, x); _value_checked(t, x))
-_value_unchecked(t::Tilt, x) = (_checkreal(t, x); _value_at(_value_unchecked(t.f, x) + dot(t.c, x) + t.d, x))
+_value_unchecked(t::Tilt, x) = (_checkreal(t, x); _value_at(_value_unchecked(t.f, x) + _tuple_dot(t.c, x) + t.d, x))
 _checkvalue(t::Tilt, x) = (_checkvalue(t.f, x); _checkdot(t.c, x); true)
 value_and_gradient!(g, t::Tilt, x) =
   (_check_oracle_arrays(value_and_gradient!, t, g, x); _value_and_gradient_unchecked!(g, t, x))
-_value_and_gradient_unchecked!(g, t::Tilt, x) = (_checkwrite(value_and_gradient!, t, g, x); v = _value_and_gradient_unchecked!(g, t.f, x); g .+= _checked_parameter(g, t.c); _value_at(v + dot(t.c, x) + t.d, x))
+_value_and_gradient_unchecked!(g, t::Tilt, x) = (_checkwrite(value_and_gradient!, t, g, x); v = _value_and_gradient_unchecked!(g, t.f, x); _add_tilt!(g, t.c); _value_at(v + _tuple_dot(t.c, x) + t.d, x))
 gradient!(g, t::Tilt, x) =
   (_check_oracle_arrays(gradient!, t, g, x); _gradient_unchecked!(g, t, x))
-_gradient_unchecked!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); _gradient_unchecked!(g, t.f, x); g .+= _checked_parameter(g, t.c))
+_gradient_unchecked!(g, t::Tilt, x) = (_checkwrite(gradient!, t, g, x); _gradient_unchecked!(g, t.f, x); _add_tilt!(g, t.c))
+_add_tilt!(g, c) = (g .+= _checked_parameter(g, c))
+_add_tilt!(g::Tuple, c::Tuple) = _accumulate!(g, c)
 
 function _checkwrite(op::O, t::Tilt, g, x) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}}
   _checkreal(t, g); _checkreal(t, x)
   _checkgradient_output(g, x)
   _checkparams(t, x)
-  Base.Broadcast.check_broadcast_axes(axes(g), t.c)
-  _check_parameter_axes(g, t.c)
+  _check_tilt_axes(g, x, t.c)
   _checkwrite(op, t.f, g, x)
 end
+_check_tilt_axes(g, x, c) = (Base.Broadcast.check_broadcast_axes(axes(g), c); _check_parameter_axes(g, c))
+# exact sizes, so that no block of c broadcasts into a block of g
+_check_tilt_axes(g::Tuple, x::Tuple, c::Tuple) = (_check_block_output(g); _checksize(g, x))
 
 function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checkreal(t, y); _checkreal(t, x)
@@ -305,6 +369,34 @@ function _value_and_prox_unchecked!(y::AbstractArray, t::Tilt, x::AbstractArray,
   _wrapper_commit!(y, w)
   v
 end
+# The proximal operator of a tuple stages the result: x - γc is formed in a buffer of the
+# output's precision, f acts on it in place, and the output is written last.
+function _checkwrite(op::O, t::Tilt, y::Tuple, x::Tuple) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checkreal(t, y); _checkreal(t, x)
+  _check_block_output(y)
+  _checksize(y, x)
+  _checkparams(t, x)
+  _checkwrite(op, t.f, y, y)
+end
+prox!(y::Tuple, t::Tilt, x::Tuple, γ::Real) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, t, y, x, γ); _prox_unchecked!(y, t, x, γ))
+function _prox_unchecked!(y::Tuple, t::Tilt, x::Tuple, γ::Real)
+  _checkwrite(prox!, t, y, x)
+  z = _tuple_buffer!(t.scratch, y, x)
+  _shift_tilt!(z, x, γ, t.c)
+  _prox_unchecked!(z, t.f, z, γ)
+  _projection_commit!(y, z)
+end
+value_and_prox!(y::Tuple, t::Tilt, x::Tuple, γ::Real) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, t, y, x, γ); _value_and_prox_unchecked!(y, t, x, γ))
+function _value_and_prox_unchecked!(y::Tuple, t::Tilt, x::Tuple, γ::Real)
+  _checkwrite(value_and_prox!, t, y, x)
+  z = _tuple_buffer!(t.scratch, y, x)
+  _shift_tilt!(z, x, γ, t.c)
+  v = _value_and_prox_unchecked!(z, t.f, z, γ)
+  _projection_commit!(y, z)
+  _value_at(v + _tuple_dot(t.c, y) + t.d, y)
+end
 Base.@propagate_inbounds prox_entry(t::Tilt, v::Real, i::Integer, γ::Real) = prox_entry(t.f, v - γ * t.c[i], i, γ)
 _checkparams(t::Tilt, x) = (_checkparam(t.c, x); _checkparams(t.f, x))
 kkt_violation(t::Tilt, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); kkt_violation(t.f, _ShiftedArray(g, t.c), i))
@@ -326,21 +418,31 @@ proximal operator one in the output's, so do not share one object between thread
 A rejected inner call leaves the output unchanged. Sparse iterate buffers preserve
 stored entries and their order.
 `Symmetric` and `Hermitian` outputs are unsupported.
+
+For a variable that is a tuple of arrays, possibly nested, as for a
+[`SeparableSum`](@ref), `b` is a tuple of the same structure whose leaves are real
+arrays of the sizes of the blocks of `x`, and every block is shifted on its own.
+The oracles check the structure and every size before writing, and the proximal
+operator stages the result in the buffer and writes it to the output last, so a
+predictable failure leaves the output unchanged. The tuple methods cover the value,
+the gradient, the proximal operator, the Hessian-vector product and the quadratic
+model; the coordinate-level interfaces (`prox_entry`, `restrict`) and
+[`Conjugate`](@ref) take array translations only.
 """
-struct Translate{F<:AbstractFunction, B<:AbstractArray} <: AbstractFunction
+struct Translate{F<:AbstractFunction, B<:_BlockParameter} <: AbstractFunction
   f::F
   b::B
   scratch::Scratch
   proxscratch::Scratch
 
-  function Translate{F, B}(f::F, b::B, scratch::Scratch, proxscratch::Scratch) where {F<:AbstractFunction, B<:AbstractArray}
-    eltype(b) <: Real || _real_error(:Translate)
+  function Translate{F, B}(f::F, b::B, scratch::Scratch, proxscratch::Scratch) where {F<:AbstractFunction, B<:_BlockParameter}
+    _check_parameter_leaves(:Translate, b)
     new{F, B}(f, b, scratch, proxscratch)
   end
 end
-Translate(f::F, b::B, scratch::Scratch, proxscratch::Scratch) where {F<:AbstractFunction, B<:AbstractArray} = Translate{F, B}(f, b, scratch, proxscratch)
-Translate{F, B}(f::F, b::B) where {F<:AbstractFunction, B<:AbstractArray} = Translate{F, B}(f, b, Scratch(), Scratch())
-Translate(f::AbstractFunction, b::AbstractArray) = Translate(f, b, Scratch(), Scratch())
+Translate(f::F, b::B, scratch::Scratch, proxscratch::Scratch) where {F<:AbstractFunction, B<:_BlockParameter} = Translate{F, B}(f, b, scratch, proxscratch)
+Translate{F, B}(f::F, b::B) where {F<:AbstractFunction, B<:_BlockParameter} = Translate{F, B}(f, b, Scratch(), Scratch())
+Translate(f::AbstractFunction, b::_BlockParameter) = Translate(f, b, Scratch(), Scratch())
 
 for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Translate{F}}) where {F} = $trait(F)
@@ -358,16 +460,23 @@ function _shifted(t::Translate, x::AbstractArray)
   z .= x .- _checked_parameter(z, t.b)
 end
 
-(t::Translate)(x::AbstractArray) =
+# the shifted argument of a tuple, in a buffer of the argument's precision
+function _shifted_buffer(t::Translate, x::Tuple)
+  _checkparams(t, x)
+  _tuple_buffer!(t.scratch, x, x)
+end
+_shifted(t::Translate, x::Tuple) = _shift_translate!(_shifted_buffer(t, x), x, t.b)
+
+(t::Translate)(x::Union{AbstractArray, Tuple}) =
   (_check_value_arrays(t, x); _value_checked(t, x))
-_value_unchecked(t::Translate, x::AbstractArray) = _value_at(_value_unchecked(t.f, _shifted(t, x)), x)
-value_and_gradient!(g, t::Translate, x::AbstractArray) =
+_value_unchecked(t::Translate, x::Union{AbstractArray, Tuple}) = _value_at(_value_unchecked(t.f, _shifted(t, x)), x)
+value_and_gradient!(g, t::Translate, x::Union{AbstractArray, Tuple}) =
   (_check_oracle_arrays(value_and_gradient!, t, g, x); _value_and_gradient_unchecked!(g, t, x))
-_value_and_gradient_unchecked!(g, t::Translate, x::AbstractArray) =
+_value_and_gradient_unchecked!(g, t::Translate, x::Union{AbstractArray, Tuple}) =
   (_checkwrite(value_and_gradient!, t, g, x); _value_at(_value_and_gradient_unchecked!(g, t.f, _shifted(t, x)), x))
-gradient!(g, t::Translate, x::AbstractArray) =
+gradient!(g, t::Translate, x::Union{AbstractArray, Tuple}) =
   (_check_oracle_arrays(gradient!, t, g, x); _gradient_unchecked!(g, t, x))
-_gradient_unchecked!(g, t::Translate, x::AbstractArray) =
+_gradient_unchecked!(g, t::Translate, x::Union{AbstractArray, Tuple}) =
   (_checkwrite(gradient!, t, g, x); _gradient_unchecked!(g, t.f, _shifted(t, x)))
 
 _checkwrite(op::O, t::Translate, g, x::AbstractArray) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
@@ -378,6 +487,13 @@ function _checkshifted(t::Translate, x::AbstractArray)
   _checkparams(t, x)
   _checkbuffer(t.scratch, float(eltype(x)), size(x))
 end
+function _checkshifted(t::Translate, x::Tuple)
+  _checkparams(t, x)
+  _conjugate_checkbuffer(t.scratch, x, x)
+end
+_checkwrite(op::O, t::Translate, g::Tuple, x::Tuple) where {O<:Union{typeof(gradient!), typeof(value_and_gradient!)}} =
+  (_checkreal(t, g); _checkreal(t, x); _checkgradient_output(g, x); _check_block_output(g); _checksize(g, x); _checkwrite(op, t.f, g, _checkshifted(t, x)))
+_checkvalue(t::Translate, x::Tuple) = (_checkreal(t, x); _checkvalue(t.f, _checkshifted(t, x)))
 _checkvalue(t::Translate, x::AbstractArray) = (_checkreal(t, x); _checkvalue(t.f, _checkshifted(t, x)))
 
 function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
@@ -413,6 +529,35 @@ function _value_and_prox_unchecked!(y::AbstractArray, t::Translate, x::AbstractA
   v = _value_and_prox_unchecked!(w, t.f, z, γ)
   w .+= _checked_parameter(w, t.b)
   _wrapper_commit!(y, w)
+  _value_at(v, y)
+end
+# As for Tilt, the proximal operator of a tuple works in place on the staged x - b
+function _checkwrite(op::O, t::Translate, y::Tuple, x::Tuple) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
+  _checkreal(t, y); _checkreal(t, x)
+  _check_block_output(y)
+  _checksize(y, x)
+  _checkparams(t, x)
+  _checkwrite(op, t.f, y, y)
+end
+prox!(y::Tuple, t::Translate, x::Tuple, γ::Real) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, t, y, x, γ); _prox_unchecked!(y, t, x, γ))
+function _prox_unchecked!(y::Tuple, t::Translate, x::Tuple, γ::Real)
+  _checkwrite(prox!, t, y, x)
+  z = _tuple_buffer!(t.proxscratch, y, x)
+  _shift_translate!(z, x, t.b)
+  _prox_unchecked!(z, t.f, z, γ)
+  _accumulate!(z, t.b)
+  _projection_commit!(y, z)
+end
+value_and_prox!(y::Tuple, t::Translate, x::Tuple, γ::Real) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, t, y, x, γ); _value_and_prox_unchecked!(y, t, x, γ))
+function _value_and_prox_unchecked!(y::Tuple, t::Translate, x::Tuple, γ::Real)
+  _checkwrite(value_and_prox!, t, y, x)
+  z = _tuple_buffer!(t.proxscratch, y, x)
+  _shift_translate!(z, x, t.b)
+  v = _value_and_prox_unchecked!(z, t.f, z, γ)
+  _accumulate!(z, t.b)
+  _projection_commit!(y, z)
   _value_at(v, y)
 end
 Base.@propagate_inbounds prox_entry(t::Translate, v::Real, i::Integer, γ::Real) = t.b[i] + prox_entry(t.f, v - t.b[i], i, γ)
@@ -1390,6 +1535,8 @@ lipschitz(s::SeparableSum) = maximum(lipschitz, s.fs)
 _checkstep(op::O, s::Scaled, y, x, γ::Real) where {O} = _checkstep(op, s.f, y, x, _scaled_step(s, γ))
 _checkstep(op::O, t::Union{Tilt, Translate}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
   _checkstep(op, t.f, y, _StepInput(y), γ)
+_checkstep(op::O, t::Union{Tilt, Translate}, y::Tuple, x::Tuple, γ::Real) where {O} =
+  _checkstep(op, t.f, y, _step_input(y), γ)
 
 _checkstep(op::O, s::SeparableSum, y::Tuple, x::Tuple, γ::Real) where {O} =
   _checkstep_blocks(op, s.fs, y, x, γ)
@@ -1746,6 +1893,12 @@ function _conjugate_projection!(z, f::Translate, x, γ, α = 1)
   p = _projection_shifted!(f, z, x, γ)
   _conjugate_projection!(z, f.f, p, γ, α)
 end
+# the conjugate of a translation is available for array translations only
+@noinline _throw_tuple_translation() = throw(ArgumentError(
+  "Conjugate of a Translate with a tuple translation is not supported; its translation must be an array"))
+_conjugate_projection!(z, f::Translate{<:AbstractFunction, <:Tuple}, x, γ, α = 1) = _throw_tuple_translation()
+_conjugate_projection_value!(z, f::Translate{<:AbstractFunction, <:Tuple}, x, γ, α = 1) = _throw_tuple_translation()
+_moreau_set!(z, t::Translate{<:AbstractFunction, <:Tuple}, x, γ) = _throw_tuple_translation()
 _conjugate_entry(f::Scaled, v, i, γ) =
   convert(float(promote_type(typeof(v), typeof(γ))), _scaled_conjugate_entry(f.f, v, i, γ, f.α))
 _scaled_conjugate_entry(f::NormL1, v, i, γ, α) = _projection_clip(v, α, f.λ0, _entry(f.w, i))

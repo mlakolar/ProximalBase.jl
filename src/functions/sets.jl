@@ -763,8 +763,8 @@ const _DirectSet = Union{IndBallL1, IndBallL2, IndSphereL2, IndSimplex}
 # O2: the value is the one at the stored point, NaN when a NaN block was stored. These and
 # IndBallL0 (above) are the indicators whose generic shortcut (zero without looking) is replaced.
 function _value_and_prox_body!(y, f::_DirectSet, x, γ::Real = 1)
-  _checkwrite(value_and_prox!, f, y, x)      # the shapes before the step, as the generic body does
   _checkstep_nonneg(γ)
+  _checkwrite(value_and_prox!, f, y, x)
   _direct_prox!(y, f, x) ? convert(_valtype(y), NaN) : zero(_valtype(y))
 end
 

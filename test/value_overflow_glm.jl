@@ -5,7 +5,7 @@ module ValueOverflowGLMTest
 # floating-point range at a representable result (R1, R2, T1-T3, E2; #358 part B).
 #
 # Every case has a reference written from the mathematical definition of the loss, in BigFloat
-# at 512 bits, from the exact data (see `reference`). The same table runs as tests, or, with
+# at 2560 bits (512 where that is enough), from the exact data (see `reference`). The same table runs as tests, or, with
 # GLM_BASELINE=1 in the environment, as a table of outcomes (correct / finite-but-wrong /
 # non-finite) for f, value_and_gradient! and gradient!.
 
@@ -14,8 +14,33 @@ using ProximalBase
 using LinearAlgebra
 using SparseArrays
 using JLArrays
+using Random
 
 const PB = ProximalBase
+
+# 5 to 100 terms (m, e) for Σ m 2^e: pairs that cancel exactly beyond the range, pairs that differ
+# by one ulp beyond it (residue in range), and terms in range, at random separations
+function random_pow2_terms(rng, ::Type{T}) where {T}
+  n = rand(rng, 5:100)
+  hi, mid, lo = T === Float32 ? (200, 140, 120) : (1100, 1060, 1015)
+  spread = rand(rng, (0, 10, 40, 100))
+  ms, es = T[], Int[]
+  while length(ms) < n
+    m = T(rand(rng) / 2 + 0.5) * rand(rng, (-1, 1))
+    r = rand(rng)
+    if r < 0.3 && length(ms) <= n - 2
+      e = hi - rand(rng, 0:spread)
+      append!(ms, (m, -m)); append!(es, (e, e))
+    elseif r < 0.45 && length(ms) <= n - 2
+      e = mid - rand(rng, 0:min(spread, 20))
+      append!(ms, (m, -nextfloat(m))); append!(es, (e, e))
+    else
+      push!(ms, m); push!(es, lo - rand(rng, 0:spread))
+    end
+  end
+  p = randperm(rng, n)
+  ms[p], es[p]
+end
 
 # a user's loss, with the documented interface only: |η - y|
 struct AbsLoss <: PB.ScalarLoss end
@@ -742,6 +767,28 @@ if !BASELINE
     @test PB._pow2_broadcast_sum(Float32, pair, ms32, [300, 300, 300, 100, 300]) === ldexp(-0.94564354f0, 100)
     ms64 = [-0.8091040536903062, 0.7714371019247288, -0.7378713589447876, -0.7714371019247288, 0.7378713589447876]
     @test PB._pow2_broadcast_sum(Float64, pair, ms64, [-995, 2003, 1998, 2003, 1998]) === ldexp(-0.8091040536903062, -995)
+    # the documented underflow limit: a term below the subnormal range in the small class's units
+    # (review of d4333015; exact sum 786432)
+    @test PB._pow2_broadcast_sum(Float32, pair, Float32[0.75, -0.75, 0.5, -0.5, 0.75], [300, 300, 200, 200, 20]) === 0f0
+    # random sums against BigFloat: exact pairs beyond the range, near-exact pairs whose residue is
+    # in range, and terms in range, in random order; error within eps |sum| plus the compensated
+    # summation's bound, an exactly cancelling sum is zero, and a sum beyond floatmax is infinite
+    rng = Random.Xoshiro(358)
+    for T in (Float32, Float64), trial in 1:400
+      ms, es = random_pow2_terms(rng, T)
+      s = PB._pow2_broadcast_sum(T, pair, ms, es)
+      exact, A = setprecision(BigFloat, 4096) do
+        sum(ldexp(big(m), e) for (m, e) in zip(ms, es)), sum(abs(ldexp(big(m), e)) for (m, e) in zip(ms, es))
+      end
+      g = length(ms) * eps(T)
+      if !isfinite(T(exact))
+        @test s === T(exact)
+      elseif iszero(exact)
+        @test s === zero(T)
+      else
+        @test abs(big(s) - exact) <= 2eps(T) * abs(exact) + 6g^2 * A
+      end
+    end
   end
 
   # a user's loss keeps the ordinary term w ℓ(η, y), also when the predictor is recomputed

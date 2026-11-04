@@ -519,12 +519,15 @@ _broadcast_sum(::Type{T}, f::F, η::AbstractVector, args::Vararg{Any, N}) where 
 # Σ mᵢ 2^eᵢ over the pairs (mᵢ, eᵢ) = f(η, args...)ᵢ, rounded at the end. The terms
 # within precision + 2 + ⌈log₂ n⌉ binades of the largest are aligned exactly in its
 # units, the smaller ones in the units of the largest of them; each class is summed
-# with the rounding error of every addition carried along (TwoSum), so that the
-# large terms cancel to within about eps² of their scale before the small ones are
-# added. Two limits: what remains of the large class after that (a residue of order
-# eps² 2^E when the large terms do not cancel exactly in floating point) can still
-# dominate the small class, and terms more than about 1074 binades below the small
-# class's largest underflow in its units. Both are far below the accuracy of the
+# with the rounding error of every addition carried along (TwoSum). The error terms
+# themselves are added in ordinary arithmetic, so a class's sum is within
+# γ₂ₙ² Σ|terms| of its exact value (Ogita, Rump and Oishi's Sum2, γₖ = ku/(1 - ku),
+# u = eps/2, with 2n for a reduction tree); a class sum no larger than twice that is
+# indistinguishable from zero and is taken as zero, so large terms that cancel exactly
+# leave nothing, even when 2^E γ₂ₙ² is beyond floatmax. Two limits: a residue above that
+# bound dominates the small class, and a term below the subnormal range of T in the
+# small class's units (more than about 149 binades below its largest for Float32,
+# 1074 for Float64) underflows there. Both errors are far below the accuracy of the
 # ordinary computation of the same terms (eps times their scale). A non-finite term
 # gives the sum of the non-finite terms (Inf, -Inf or NaN). Reductions only, for the
 # device as well.
@@ -536,21 +539,25 @@ function _pow2_broadcast_sum(::Type{T}, f::F, η::AbstractVector, args::Vararg{A
   cut = E - (precision(T) + 2 + _log2_ceil(length(η)))
   E2 = _broadcast_reduce(max, typemin(Int), _PairExponent(f, cut), η, args...)
   z = zero(T)
-  bs, bc, ss, sc = _broadcast_reduce(_add_compensated, (z, z, z, z), _PairAligned(f, E, E2, cut), η, args...)
-  big, small = bs + bc, ss + sc
+  bs, bc, ba, ss, sc, sa = _broadcast_reduce(_add_compensated, (z, z, z, z, z, z), _PairAligned(f, E, E2, cut), η, args...)
+  nu = length(η) * eps(T)       # 2n u
+  g = nu < one(T) / 2 ? nu / (one(T) - nu) : zero(T)   # no bound for n ≥ 1/(4u): keep the sums
+  big, small = _beyond_error(bs + bc, g, ba), _beyond_error(ss + sc, g, sa)
   E2 == typemin(Int) && return ldexp(big, E)
   mb, eb = frexp(big)
   ms, es = frexp(small)
   m, e = _pow2_add2(mb, eb + E, ms, es + E2)
   ldexp(m, e)
 end
-# (sum, error) of two classes, combined with TwoSum (`_two_sum`, src/ballconstrained.jl):
-# the exact error of each addition is carried along
-@inline function _add_compensated(a::NTuple{4}, b::NTuple{4})
+# (sum, error, Σ|terms|) of two classes, combined with TwoSum (`_two_sum`,
+# src/ballconstrained.jl): the exact error of each addition is carried along
+@inline function _add_compensated(a::NTuple{6}, b::NTuple{6})
   s1, e1 = _two_sum(a[1], b[1])
-  s2, e2 = _two_sum(a[3], b[3])
-  s1, a[2] + b[2] + e1, s2, a[4] + b[4] + e2
+  s2, e2 = _two_sum(a[4], b[4])
+  s1, a[2] + b[2] + e1, a[3] + b[3], s2, a[5] + b[5] + e2, a[6] + b[6]
 end
+# a compensated class sum, or zero when it is within twice its error bound g² Σ|terms|
+@inline _beyond_error(s, g, a) = abs(s) <= 2 * g * g * a ? zero(s) : s
 struct _PairNonfinite{F}
   f::F
 end
@@ -563,15 +570,21 @@ end
 @inline (o::_PairExponent)(args...) = ((m, e) = o.f(args...); !iszero(m) & (e < o.below) ? e : typemin(Int))
 struct _PairAligned{F}
   f::F
-  E::Int
-  E2::Int
+  large_exp::Int
+  small_exp::Int
   cut::Int
 end
 @inline function (o::_PairAligned)(args...)
   m, e = o.f(args...)
   z = zero(m)
-  iszero(m) && return z, z, z, z
-  e >= o.cut ? (ldexp(m, e - o.E), z, z, z) : (z, z, ldexp(m, e - o.E2), z)
+  iszero(m) && return z, z, z, z, z, z
+  if e >= o.cut
+    x = ldexp(m, e - o.large_exp)
+    x, z, abs(x), z, z, z
+  else
+    x = ldexp(m, e - o.small_exp)
+    z, z, z, x, z, abs(x)
+  end
 end
 
 # the terms of one observation, for broadcasts: ordinary, and recovered

@@ -420,6 +420,13 @@ function ProximalBase.prox!(y::GPUArray, f::IndSimplex, x::GPUArray, ::Real)
   y .= max.(x .- _level(x, r, identity), zero(T))
 end
 
+# value_and_prox! of these two on device arrays keeps the device kernels above (the direct
+# projections' host code reads entries one by one); the device kernels do not yet classify NaN
+# and infinite arguments (#469 Stage 2 covers the host methods), so they store no NaN-block flag.
+for F in (:IndBallL1, :IndSimplex)   # one method per type: a Union would be ambiguous with the host method
+  @eval ProximalBase._direct_prox!(y::GPUArray, f::$F, x::GPUArray) = (prox!(y, f, x, 1); false)
+end
+
 ####################################
 #  Group norms: segmented reductions over the groups
 ####################################

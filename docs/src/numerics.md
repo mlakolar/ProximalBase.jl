@@ -762,11 +762,15 @@ Neither is a numerical bug.
 
 A prescribed NaN result is a result, not a failure.
 
-**O7. Aliasing.** `prox!(x, f, x, γ)` works for every function, recovery
-paths included; a recovery that needs the original argument does not read
-entries it has already overwritten. A partial overlap, such as a shifted view,
-is not supported. Gradient and Hessian-product outputs must be separate from
-their inputs unless a method documents otherwise (see [Conventions](@ref)).
+**O7. Aliasing.** `prox!(x, f, x, γ)` and `value_and_prox!(x, f, x, γ)` work
+for every function, recovery paths included; a recovery that needs the original
+argument does not read entries it has already overwritten. The guarantee is for
+an output that is the argument itself (`y === x`). Any other sharing of memory
+between the output and the argument is not supported: a shifted or reversed
+view, and also a view or reshape that covers the same entries. Such a call need
+not be detected and can return wrong values without an error. Gradient and
+Hessian-product outputs must be separate from their inputs unless a method
+documents otherwise (see [Conventions](@ref)).
 
 ## [Sparse and symmetric storage](@id numerics-storage)
 

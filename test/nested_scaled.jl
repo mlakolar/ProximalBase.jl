@@ -494,4 +494,191 @@ fixtures(::Type{Float32}) = (a = 20, l = 30)
 
 end
 
+# Steps that the factors take out of the range (#566): a single factor with a scalar or array step, and
+# a chain with an array step. The references are the proximal points with the coefficient
+# (product of the stored factors) * level * weight * step formed in BigFloat.
+function refprox(f, x, γ)
+  fs, leaf = factors(f)
+  leaf isa Translate && (leaf = leaf.f)       # the shifts in these tests are zero
+  a = foldl(*, big.(fs); init = big(1))
+  stepof(i) = big(γ isa AbstractArray ? γ[i] : γ)
+  w(i) = leaf.w === nothing ? big(1) : big(leaf.w[i])
+  soft(v, t) = sign(v) * max(abs(v) - t, 0)
+  if leaf isa NormL1
+    [soft(big(x[i]), a * big(leaf.λ0) * w(i) * stepof(i)) for i in eachindex(x)]
+  elseif leaf isa ElasticNet
+    [soft(big(x[i]), a * big(leaf.λ1) * w(i) * stepof(i)) / (1 + a * big(leaf.λ2) * stepof(i)) for i in eachindex(x)]
+  elseif leaf isa NormL2
+    t, n = a * big(leaf.λ) * stepof(1), sqrt(sum(abs2, big.(x)))
+    [n <= t ? big(0) : big(x[i]) * (1 - t / n) for i in eachindex(x)]
+  else  # GroupNormL2, with a step per group
+    y = zeros(BigFloat, length(x))
+    for (k, g) in enumerate(leaf.groups)
+      t, n = a * big(leaf.λ0) * big(leaf.w[k]) * stepof(k), sqrt(sum(abs2, big.(x[g])))
+      for i in g
+        y[i] = n <= t ? big(0) : big(x[i]) * (1 - t / n)
+      end
+    end
+    y
+  end
+end
+# the entries within 8 eps of the reference (an exact zero is zero)
+close(y, r) = all(i -> near(y[i], r[i]) || (iszero(r[i]) && iszero(y[i])), eachindex(y))
+# a value within 8 eps of the reference, or lost when the reference is below the range
+valnear(v::T, r) where {T} = r < floatmin(T) ? abs(big(v) - r) <= floatmin(T) : near(v, r)
+
+# the exponents of the factor a, of the level l and of the step g, so that the coefficient is in the range
+# while the product of the factor and the step is not
+steps566(::Type{Float64}) = (a = 200, l = 300, g = 50)
+steps566(::Type{Float32}) = (a = 25, l = 30, g = 10)
+
+@testset "steps outside the range of the factors (#566)" begin
+  for T in (Float32, Float64)
+    @testset "$T" begin
+      a, l, g = steps566(T).a, steps566(T).l, steps566(T).g
+      # exercise one function with the scalar step and the array step: the point, the aliased point and
+      # the value that comes with it
+      function check(f, x, γ, label; array = true)
+        r = refprox(f, x, γ)
+        @testset "$label" begin
+          n = length(x)
+          for step in (γ, γ isa AbstractArray || !array ? nothing : fill(γ, n))
+            step === nothing && continue
+            y = zeros(T, n)
+            prox!(y, f, x, step)
+            @test close(y, r)
+            @test all(isfinite, y)
+            y = copy(x)
+            prox!(y, f, y, step)
+            @test close(y, r)
+            y = zeros(T, n)
+            value_and_prox!(y, f, x, step)
+            @test close(y, r)
+            y = copy(x)
+            value_and_prox!(y, f, y, step)
+            @test close(y, r)
+          end
+          γ isa AbstractArray || @test close(prox(f, x, γ), r)
+          γ isa AbstractArray || !array || for k in 1:n
+            @test near(prox_entry(f, x[k], k, γ), r[k]) || (iszero(r[k]) && iszero(prox_entry(f, x[k], k, γ)))
+          end
+        end
+      end
+
+      # a single factor and a scalar step: the products of the factor with the level and of the factor
+      # with the step are both out of range or both fine, the coefficient is 10^(l - 2a)
+      θ = T(10)^(l - 2a)
+      x = T[3, -3, 0.5] .* θ
+      single = Scaled(NormL1(tens(T, l)), tens(T, -a))
+      check(single, x, tens(T, -a), "single factor, scalar step")
+      check(single, x, fill(tens(T, -a), 3), "single factor, array step")
+      # the factor is large and the step overflows with it: the coefficient is 10^(2a - l)
+      big_ = Scaled(NormL1(tens(T, -l)), tens(T, a))
+      x2 = T[3, -3, 0.5] .* T(10)^(2a - l)
+      check(big_, x2, tens(T, a), "single large factor, scalar step")
+      check(big_, x2, fill(tens(T, a), 3), "single large factor, array step")
+      # weights and levels of different size, entries of different size
+      weighted = Scaled(NormL1(tens(T, l), T[1, 2, 4]), tens(T, -a))
+      check(weighted, x, fill(tens(T, -a), 3), "single factor, weights")
+      check(weighted, x, T[1, 2, 4] .* tens(T, -a), "single factor, entries of different size")
+      en = Scaled(ElasticNet(tens(T, l), tens(T, l)), tens(T, -a))
+      check(en, x, fill(tens(T, -a), 3), "single factor, ElasticNet")
+      tr = Scaled(Translate(NormL1(tens(T, l)), T[0, 0, 0]), tens(T, -a))
+      check(tr, x, fill(tens(T, -a), 3), "single factor, Translate")
+      # a chain with an array step: the factors are 10^-a twice, the step is 10^-g
+      θc = T(10)^(l - 2a - g)
+      xc = T[3, -3, 0.5] .* θc
+      chain = Scaled(Scaled(NormL1(tens(T, l)), tens(T, -a)), tens(T, -a))
+      @test chain isa Scaled{<:Scaled}
+      check(chain, xc, tens(T, -g), "chain, scalar step (#549)")
+      check(chain, xc, fill(tens(T, -g), 3), "chain, array step")
+      check(Scaled(Scaled(NormL1(tens(T, l), T[1, 2, 4]), tens(T, -a)), tens(T, -a)), xc, fill(tens(T, -g), 3), "chain, weights")
+      check(Scaled(Scaled(ElasticNet(tens(T, l), tens(T, l)), tens(T, -a)), tens(T, -a)), xc, fill(tens(T, -g), 3), "chain, ElasticNet")
+      check(Scaled(Scaled(NormL1(tens(T, l)), tens(T, -a)), tens(T, -a)), xc, T[1, 1e3, 1e-3] .* tens(T, -g), "chain, entries of different size")
+      # a step per group
+      grp = Scaled(Scaled(GroupNormL2(tens(T, l), [1:2, 3:3], T[1, 1]), tens(T, -a)), tens(T, -a))
+      xg = T[3, 4, 0.5] .* θc
+      check(grp, xg, fill(tens(T, -g), 2), "chain, GroupNormL2 with a step per group")
+      grp1 = Scaled(GroupNormL2(tens(T, l), [1:2, 3:3], T[1, 1]), tens(T, -a))
+      check(grp1, T[3, 4, 0.5] .* θ, fill(tens(T, -a), 2), "single factor, GroupNormL2 with a step per group")
+      # a function with a level but no array-step proximal operator takes the scalar route
+      check(Scaled(NormL2(tens(T, l)), tens(T, -a)), T[3, 4] .* θ, tens(T, -a), "single factor, NormL2"; array = false)
+
+      @testset "values at the point" begin
+        y = zeros(T, 3)
+        v = value_and_prox!(y, single, x, fill(tens(T, -a), 3))
+        @test valnear(v, effective(single, f -> f.λ0) * sum(abs, big.(y)))
+        @test v > 0 && near(v, single(y))
+        v = value_and_prox!(y, single, x, tens(T, -a))
+        @test v > 0 && near(v, single(y))
+        v = value_and_prox!(y, chain, xc, fill(tens(T, -g), 3))
+        @test valnear(v, effective(chain, f -> f.λ0) * sum(abs, big.(y)))
+        v = value_and_prox!(y, chain, xc, tens(T, -g))
+        @test valnear(v, effective(chain, f -> f.λ0) * sum(abs, big.(y)))
+      end
+
+      @testset "scalar steps keep their meaning" begin
+        # zero, infinite, NaN and negative steps, and the infinite factor, as for the function inside
+        for γ in (zero(T), T(Inf), T(NaN), -tens(T, -a))
+          @test isequal(prox(single, x, γ), prox(single.f, x, single.α * γ))
+          @test isequal(prox(big_, x2, γ), prox(big_.f, x2, big_.α * γ))
+        end
+        inf = Scaled(NormL1(one(T)), T(Inf))
+        for γ in (T(0.5), zero(T))
+          @test isequal(prox(inf, x, γ), prox(inf.f, x, inf.α * γ))
+        end
+        # an indicator ignores its scale
+        ind = Scaled(IndBox(zero(T), one(T)), tens(T, -a))
+        @test prox(ind, T[3, -1, 0.5], tens(T, -a)) == T[1, 0, 0.5]
+        @test prox(Scaled(IndBox(zero(T), one(T)), tens(T, a)), T[3, -1, 0.5], tens(T, a)) == T[1, 0, 0.5]
+        # a function with no level to fold takes the step as the product rounds it, as before: the
+        # product 10^(-2a) is zero, so the point is the argument
+        q = Scaled(SqrNormL2(one(T)), tens(T, -a))
+        @test prox(q, T[1], tens(T, -a)) == T[1]
+      end
+
+      @testset "preflight leaves the output alone" begin
+        for f in (single, chain)
+          y = fill(T(7), 3)
+          @test_throws DimensionMismatch prox!(y, f, x, fill(tens(T, -a), 2))
+          @test y == fill(T(7), 3)
+          @test_throws DimensionMismatch prox!(y, f, x, fill(tens(T, -a), 4))
+          @test y == fill(T(7), 3)
+          @test_throws DimensionMismatch value_and_prox!(y, f, x, fill(tens(T, -a), 2))
+          @test y == fill(T(7), 3)
+          @test_throws DimensionMismatch prox!(zeros(T, 2), f, x, tens(T, -a))
+          @test_throws DimensionMismatch prox!(y, f, T[1, 2], tens(T, -a))
+          @test y == fill(T(7), 3)
+        end
+        bad = Scaled(NormL1(tens(T, l), T[1, 2]), tens(T, -a))   # two weights for three entries
+        y = fill(T(7), 3)
+        @test_throws DimensionMismatch prox!(y, bad, x, fill(tens(T, -a), 3))
+        @test y == fill(T(7), 3)
+      end
+
+      @testset "ordinary steps are untouched" begin
+        z, γ = T[0.3, -0.7, 1.1], T[0.1, 0.2, 0.3]
+        for f in (Scaled(NormL1(T(0.2)), T(3)), Scaled(NormL1(T(0.2), T[1, 2, 3]), T(3)),
+                  Scaled(ElasticNet(T(0.2), T(0.1)), T(3)), Scaled(Scaled(NormL1(T(0.2)), T(3)), T(5)))
+          y, yref = similar(z), similar(z)
+          for step in (T(0.1), γ)
+            prox!(y, f, z, step)
+            prox!(yref, f.f, z, f.α * step)
+            @test y == yref
+            @test allocs(prox!, y, f, z, step) == 0
+            @test allocs(value_and_prox!, y, f, z, step) == 0
+          end
+          @test allocs(prox_entry, f, z[1], 1, T(0.1)) == 0
+        end
+        # a factor at the edge of the band and a step that is itself ordinary
+        edge = Scaled(NormL1(one(T)), T(2)^(exponent(floatmax(T)) ÷ 4))
+        y, yref = zeros(T, 3), zeros(T, 3)
+        prox!(y, edge, z, T[0.1, 0.2, 0.3] .* T(2)^-(exponent(floatmax(T)) ÷ 4))
+        prox!(yref, edge.f, z, T[0.1, 0.2, 0.3])
+        @test y ≈ yref rtol = 8eps(T)
+      end
+    end
+  end
+end
+
 end

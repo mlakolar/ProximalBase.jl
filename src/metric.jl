@@ -210,20 +210,53 @@ end
 prox!(y, s::Scaled, x, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
 _prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
-  (_checkparams(s, x); _chained(s) ? _prox_chain!(y, s, x, γ) : _prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)))
+  (_checkparams(s, x); _array_route(s, x, γ) ? _prox_chain!(y, s, x, γ) : _prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)))
 value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
-  (_checkparams(s, x); _chained(s) ? _value_and_prox_chain!(y, s, x, γ) :
+  (_checkparams(s, x); _array_route(s, x, γ) ? _value_and_prox_chain!(y, s, x, γ) :
    _value_at(s.α * _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)), y))
-# a chain scales each step by the product of all its factors, exponent last
+
+# Whether an entry of an array step may leave the range in the product with the factors. A chain whose
+# factors have a product that is not a normal number takes the route below. A single factor does
+# when it is far from one, outside the band of a quarter of the exponent range (2^±255 for Float64,
+# 2^±31 for Float32), whatever the entries are: reading them to decide would cost a pass over the step
+# on every call. An entry of the step that is itself within a quarter of the range limit, with a factor
+# inside the band, is rounded with the product as before. An indicator ignores its scale.
+@inline _factor_band(::Type{T}) where {T<:AbstractFloat} = exponent(floatmax(T)) ÷ 4
+@inline _wide_factor(α::Real, ::Type{T}) where {T<:AbstractFloat} =
+  !(ldexp(one(T), -_factor_band(T)) <= α <= ldexp(one(T), _factor_band(T)))
+@inline _wide_factor_type(x::AbstractArray) = float(eltype(x))
+@inline _wide_factor_type(x) = nothing
+@inline _wide_factor(α::Real, ::Nothing) = false
+@inline function _wide_scale(s::Scaled, x, γ::AbstractArray)
+  α = s.α
+  (isfinite(α) && α > 0 && !_isindicator(s.f)) || return false
+  _wide_factor(α, float(promote_type(eltype(γ), typeof(α)))) || _wide_factor(α, _wide_factor_type(x))
+end
+@inline _array_route(s::Scaled, x, γ::AbstractArray) = _chained(s) || _wide_scale(s, x, γ)
+
+# The function and the steps that a proximal operator gets for the factors a and the step γ:
+# - `:folded`: the whole factor goes into the levels of the function, which must stay normal numbers,
+#   and the steps are the caller's array. The function forms the coefficient of an entry from the
+#   level, the weight and the step without a product that leaves the range, and its value is the
+#   value of the chain.
+# - `:rounded`: no level can be folded. A function with no level to fold takes each step multiplied
+#   by the factors with the exponent applied last, rounded into the step's type.
+function _array_fold(f, a, γ)
+  g = _fold_level(f, _NormalScale(a))
+  g === nothing ? (f, _ExpScaledArray(γ, a), :rounded) : (g, γ, :folded)
+end
 function _prox_chain!(y, s, x, γ::AbstractArray)
   f, a = _scaled_chain(s)
-  _prox_unchecked!(y, f, x, _ExpScaledArray(γ, a))
+  g, steps, _ = _array_fold(f, a, γ)
+  _prox_unchecked!(y, g, x, steps)
 end
 function _value_and_prox_chain!(y, s, x, γ::AbstractArray)
   f, a = _scaled_chain(s)
-  v = _value_and_prox_unchecked!(y, f, x, _ExpScaledArray(γ, a))
+  g, steps, kind = _array_fold(f, a, γ)
+  kind === :folded && return _value_at(_value_and_prox_unchecked!(y, g, x, steps), y)
+  v = _value_and_prox_unchecked!(y, g, x, steps)
   # a leaf value that left the range is recovered in the function's own units, as for a scalar step
   _value_at(_scaled_value_by(f, a, y, v), y)
 end

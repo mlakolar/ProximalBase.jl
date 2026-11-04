@@ -334,7 +334,8 @@ end
   for bad in ([Inf, 0.0], [0.0, NaN], [-Inf, 0.0])
     @test_throws ArgumentError(omsg) PoissonLoss(Float64[0, 1], [1.0 0.0; 0.0 1.0]; offset = bad)
   end
-  # the checks are isbits callables, which a GPU reduction can take (#579)
+  # the checks are isbits callables, which a GPU reduction can take (#579); the guard
+  # against a closure on the device path is the physical CUDA run of gpu_suite_basics.jl
   for T in (Float32, Float64)
     @test isbitstype(typeof(PB._FiniteWeight{T}())) && isbitstype(typeof(PB._FiniteOffset{T}()))
   end

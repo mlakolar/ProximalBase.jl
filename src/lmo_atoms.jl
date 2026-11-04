@@ -208,7 +208,12 @@ const _Fantope = Spectral{<:_CappedSimplex}
 
 # the arrays whose entries bound the entries of a matrix: the stored entries of a sparse one
 _stored_values(g::AbstractMatrix) = g
-_stored_values(g::SparseArrays.AbstractSparseMatrixCSC) = nonzeros(g)
+@static if isdefined(@__MODULE__, :_AbstractSparseMatrixCSC)
+  const _LMOSparseCSC = _AbstractSparseMatrixCSC
+else
+  const _LMOSparseCSC = SparseMatrixCSC
+end
+_stored_values(g::_LMOSparseCSC) = nonzeros(g)
 _stored_values(g::Union{Symmetric, Hermitian, Adjoint, Transpose}) = _stored_values(parent(g))
 
 # the checks that precede any computation or write: type, finiteness and the scale of g
@@ -453,8 +458,8 @@ function _symmetric_part!(A::Matrix{T}, g::AbstractMatrix, e::Int, negate::Bool)
 end
 # a sparse g is read through a dense copy: random access to a sparse matrix is slow
 _dense_for_read(g::AbstractMatrix) = g
-_dense_for_read(g::SparseArrays.AbstractSparseMatrixCSC) = Matrix(g)
-_dense_for_read(g::Union{Symmetric, Hermitian}) = parent(g) isa SparseArrays.AbstractSparseMatrixCSC ? Matrix(g) : g
+_dense_for_read(g::_LMOSparseCSC) = Matrix(g)
+_dense_for_read(g::Union{Symmetric, Hermitian}) = parent(g) isa _LMOSparseCSC ? Matrix(g) : g
 
 # the k smallest eigenpairs of the symmetric part of g / 2^e, ascending: values and vectors
 function _smallest_eigenpairs(s::Spectral, g::AbstractMatrix, ::Type{T}, e::Int, k::Int) where {T}

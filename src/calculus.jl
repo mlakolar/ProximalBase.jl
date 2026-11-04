@@ -4,6 +4,60 @@
 #
 ####################################
 
+# Retain exceptional wrapper products until the leaf coefficient is formed.
+struct _ProjectionScale{T}
+  m::T
+  e::Int
+end
+Base.broadcastable(a::_ProjectionScale) = Ref(a)
+Base.isfinite(a::_ProjectionScale) = isfinite(a.m)
+Base.isinf(a::_ProjectionScale) = isinf(a.m)
+Base.iszero(a::_ProjectionScale) = iszero(a.m)
+Base.isone(a::_ProjectionScale) = a.m == 0.5 && a.e == 1
+_projection_real(a::Real) = a
+_projection_real(a::_ProjectionScale) = ldexp(a.m, a.e)
+_projection_scale_parts(a::Real) = frexp(float(a))
+_projection_scale_parts(a::_ProjectionScale) = (a.m, a.e)
+function _projection_accumulate(a::Real, b::Real)
+  isone(a) && return b
+  (iszero(a) || iszero(b)) && return zero(float(a) + float(b))
+  p = float(a) * float(b)
+  (!isfinite(a) || !isfinite(b) || iszero(a) || iszero(b)) && return p
+  floatmin(typeof(float(p))) <= abs(p) <= floatmax(typeof(float(p))) && return p
+  ma, ea = frexp(float(a))
+  mb, eb = frexp(float(b))
+  m, e = frexp(ma * mb)
+  _ProjectionScale(m, Int(ea + eb + e))
+end
+function _projection_accumulate(a::_ProjectionScale, b::Real)
+  (!isfinite(b) || iszero(b)) && return b
+  mb, eb = frexp(float(b))
+  m, e = frexp(a.m * mb)
+  _ProjectionScale(m, Int(a.e + eb + e))
+end
+_projection_product(a, b, w) = _positive_product(a, b, w)
+_projection_product(a::_ProjectionScale, b, w) = _scaled_product(a.m, b, w, a.e)
+# f scaled by an accumulated factor, as nested wrappers when the factor is not a normal number:
+# pieces of at most half the exponent range, so that each is stored exactly
+_projection_scaled(f, α::Real) = Scaled(f, α)
+# Two wrappers hold any factor within twice that range, and have a type that inference follows;
+# the general case is the loop below.
+_projection_two_pieces(α::_ProjectionScale{T}) where {T} = abs(α.e) <= 2 * (exponent(floatmax(T)) ÷ 2)
+function _projection_scaled2(f, α::_ProjectionScale{T}) where {T}
+  h = α.e ÷ 2
+  Scaled(Scaled(f, ldexp(one(T), h)), ldexp(α.m, α.e - h))
+end
+function _projection_scaled(f, α::_ProjectionScale{T}) where {T}
+  step = exponent(floatmax(T)) ÷ 2
+  g, e = f, α.e
+  while abs(e) > step
+    k = copysign(step, e)
+    g = Scaled(g, ldexp(one(T), k))
+    e -= k
+  end
+  Scaled(g, ldexp(α.m, e))
+end
+
 # lazy views of a gradient for the optimality tests: c g and g + c
 struct _ScaledArray{T, N, A<:AbstractArray} <: AbstractArray{T, N}
   g::A
@@ -14,6 +68,18 @@ _ScaledArray{T}(g::AbstractArray{<:Any, N}, c) where {T, N} = _ScaledArray{T, N,
 Base.size(a::_ScaledArray) = size(a.g)
 Base.IndexStyle(::Type{<:_ScaledArray}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(a::_ScaledArray{T}, i::Int) where {T} = a.c * convert(T, a.g[i])
+
+# the entries of g times a factor that is not a normal number, with the exponent applied last
+struct _ExpScaledArray{T, N, A<:AbstractArray, S<:_ProjectionScale} <: AbstractArray{T, N}
+  g::A
+  a::S
+end
+_ExpScaledArray(g::AbstractArray{T, N}, a::_ProjectionScale{S}) where {T, N, S} =
+  _ExpScaledArray{promote_type(float(T), S), N, typeof(g), typeof(a)}(g, a)
+_ExpScaledArray(g::AbstractArray, a::Real) = _ScaledArray(g, a)
+Base.size(a::_ExpScaledArray) = size(a.g)
+Base.IndexStyle(::Type{<:_ExpScaledArray}) = IndexLinear()
+Base.@propagate_inbounds Base.getindex(a::_ExpScaledArray{T}, i::Int) where {T} = convert(T, _apply_scale(a.a, a.g[i]))
 
 struct _ShiftedArray{T, N, A<:AbstractArray, C<:AbstractArray} <: AbstractArray{T, N}
   g::A
@@ -43,6 +109,24 @@ is computed with the scale folded into the level for `NormL1`, `NormL1Nonneg`,
 `SparseGroupNormL2`, `NuclearNorm`, `TracePSD`, and the support functions of
 the ℓ1 and ℓ2 balls.
 
+`Scaled(Scaled(f, a), b)` is `Scaled(f, a * b)` when the product is an ordinary
+number. When it underflows, is subnormal or overflows, although the factors are
+finite and positive, the wrappers stay nested, so that the function is never replaced
+by `ZeroFunction` or an infinite scale because of an intermediate product. The value,
+the gradient, the proximal operator, `prox_entry`, the optimality violation, the
+Lipschitz constants and the conjugate then use the product of all the factors where
+the coefficient is formed: it is folded into the levels of the functions listed above,
+or applied to the result with its exponent last, so a chain such as `Scaled(Scaled(NormL1(1e300), 1e-200), 1e-200)`
+is the penalty `1e-100 * norm(x, 1)`. The levels are folded through `Translate`, `Sum` and
+`SeparableSum` of such functions (indicators and the zero function pass through). The conjugate
+value of a function without levels to fold, under a product that is not a number in range,
+throws. Not recovered: the value of a chain whose leaf value overflows while the folded level is
+itself not a number in range, and the entries of an array step that the factors take out of range.
+A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its value, gradient and
+Hessian product at its own scale before the factors are applied, so an intermediate that leaves the
+range is lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` has
+the value, gradient and Hessian product `Inf` at `[1e10]`, not `5e-81`, `1e-90` and `1e-90`.
+
 At zero scale, supported finite-parameter penalties and losses simplify to
 [`ZeroFunction`](@ref), while an indicator retains its domain and is returned
 unchanged. Zero scaling removes finite penalty terms and keeps domain constraints.
@@ -66,7 +150,19 @@ struct Scaled{F<:AbstractFunction, T<:Real} <: AbstractFunction
   end
 end
 Scaled(f::AbstractFunction, α::Real) = Scaled{typeof(f), typeof(α)}(f, α)
-Scaled(f::Scaled, α::Real) = Scaled(f.f, f.α * α)
+# Two scales merge when their product is an ordinary number. A product that is not a normal
+# number (it underflows, is subnormal or overflows) no longer says what the two factors said,
+# so the wrappers stay nested and every oracle forms the coefficient it needs from all of the
+# factors (`_scaled_chain`). Zero and infinite scales keep their meaning and merge as before.
+@inline function _nested_scales(a, b)
+  (isfinite(a) & isfinite(b) & (a > 0) & (b > 0)) || return false
+  p = a * b
+  p isa AbstractFloat && !(floatmin(typeof(p)) <= p <= floatmax(typeof(p)))
+end
+function Scaled(f::Scaled, α::Real)
+  _checknonneg("α", α)
+  _nested_scales(f.α, α) ? Scaled{typeof(f), typeof(α)}(f, α) : Scaled(f.f, f.α * α)
+end
 
 @noinline _zero_scale_error(f) = throw(ArgumentError("zero scaling of $(typeof(f)) has no supported domain-preserving representation"))
 _zero_scaled(f::AbstractFunction) = _isindicator(f) ? f : _zero_scale_error(f)
@@ -121,10 +217,51 @@ for trait in (:issmooth, :isproximable, :isseparable, :isconvex)
   @eval $trait(::Type{<:Scaled{F}}) where {F} = $trait(F)
 end
 
+# The function under a chain of nested scales, and the product of the chain: an ordinary
+# number, or a `_ProjectionScale` that keeps the factors' combined exponent when the product
+# is not a normal number. Only nested wrappers, which exist for such products, take this path.
+# The product is always a `_ProjectionScale` here, so that its type does not depend on the values.
+@inline _scale_start(a::Real) = ((m, e) = frexp(float(a)); _ProjectionScale(m, Int(e)))
+@inline _scaled_chain(f, a) = (f, a)
+@inline _scaled_chain(f::Scaled, a) = _scaled_chain(f.f, _projection_accumulate(a, f.α))
+@inline _scaled_chain(s::Scaled) = _scaled_chain(s.f, _scale_start(s.α))
+# Nested wrappers also arise with ordinary products (a block of a conjugate keeps its own scale in
+# a wrapper of its own), and those keep their recursive oracles. Only a chain whose product is
+# not a normal number takes the methods that combine the factors.
+@inline _chained(::Scaled) = false
+@inline _chained_scaled(f) = false
+@inline _chained_scaled(f::Scaled) = _chained(f) || _chained_scaled(f.f)
+@inline _chained(s::Scaled{<:Scaled}) = _chain_exceptional(s.f, s.α)
+@inline _chain_exceptional(f, a) = false
+@inline _chain_exceptional(f::Scaled, a) = _nested_scales(a, f.α) || _chain_exceptional(f.f, a * f.α)
+
+# a⋅v with the factor's exponent applied last, so that a product that is representable is
+# not lost to an intermediate; an ordinary factor is the plain product
+@inline _apply_scale(a::Real, v) = a * v
+@inline function _apply_scale(a::_ProjectionScale, v)
+  w = float(v)
+  (iszero(w) || !isfinite(w)) && return a.m * w
+  # the significand of v, so that neither a subnormal v nor the product of significands loses bits
+  R = promote_type(typeof(a.m), typeof(w))
+  mv, ev = frexp(convert(R, w))
+  ldexp(a.m * mv, a.e + ev)
+end
+# a < 1 and a > 1 of the product (the significand is in [1/2, 1))
+@inline _scale_below_one(a::Real) = a < 1
+@inline _scale_below_one(a::_ProjectionScale) = a.e <= 0
+@inline _scale_above_one(a::Real) = a > 1
+@inline _scale_above_one(a::_ProjectionScale) = a.e > 1 || (a.e == 1 && a.m > 0.5)
+# the reciprocal of a factor, as a factor
+_scale_inverse(a::Real) = inv(a)
+function _scale_inverse(a::_ProjectionScale)
+  m, e = frexp(inv(a.m))
+  _ProjectionScale(m, Int(e - a.e))
+end
+
 # Fold a scale into a normal level, retaining exact zero levels.
 function _folded_level(λ, α)
   iszero(λ) && return λ
-  c = α * λ
+  c = _apply_scale(α, λ)
   isfinite(c) && !iszero(c) && _level_fits(typeof(float(c)), c) ? c : nothing
 end
 _fold_level(::AbstractFunction, α) = nothing
@@ -161,44 +298,131 @@ function _fold_level(f::TracePSD, α)
   g.eig, g.pws, g.out, g.diag = f.eig, f.pws, f.out, f.diag
   g
 end
-_fold_level(f::Scaled, α) = _fold_level(f.f, α * f.α)
+_fold_level(f::Scaled, α) = _fold_level(f.f, _projection_accumulate(α, f.α))
+# The levels as the proximal operator folds them together with the exponent of the step: a ridge
+# level that falls below the range multiplies the step by less than the range can resolve, so it
+# is dropped instead of discarding the fold.
+_fold_level_step(f, α) = _fold_level(f, α)
+_fold_block_step(f, α) = _isindicator(f) ? f : _fold_level_step(f, α)
+_fold_block_step(f::ZeroFunction, α) = f
+function _fold_level_step(f::ElasticNet, α)
+  c1 = _folded_level(f.λ1, α)
+  c = iszero(f.λ2) ? f.λ2 : _apply_scale(α, f.λ2)
+  c2 = isfinite(c) && abs(c) < floatmin(typeof(float(c))) ? zero(c) : _folded_level(f.λ2, α)
+  c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
+end
 
 # Retry exceptional products in the function's own units and domain.
-@noinline function _scaled_value_recover(s, x, r)
-  g = _fold_level(s.f, s.α)
+@noinline function _scaled_value_recover(f, α, x, r)
+  g = _fold_level(f, α)
   g === nothing ? r : convert(typeof(r), _value_unchecked(g, x))
 end
 _scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
-@inline function _scaled_value(s, x, v, recover_inner_small = true)
-  r = s.α * v
-  if (!isfinite(r) && s.α < 1) || (_scaled_small(r) && !iszero(v)) ||
-     (recover_inner_small && _scaled_small(v) && s.α > 1)
-    return _scaled_value_recover(s, x, r)
+# The value α v of the function f with the scale α at the unscaled value v.
+@inline function _scaled_value_by(f, α, x, v, recover_inner_small = true)
+  r = _apply_scale(α, v)
+  if (!isfinite(r) && _scale_below_one(α)) || (_scaled_small(r) && !iszero(v)) ||
+     (recover_inner_small && _scaled_small(v) && _scale_above_one(α))
+    return _scaled_value_recover(f, α, x, r)
   end
   r
 end
+@inline _scaled_value(s, x, v, recover_inner_small = true) = _scaled_value_by(s.f, s.α, x, v, recover_inner_small)
 (s::Scaled)(x) =
   (_check_value_arrays(s, x); _value_checked(s, x))
-_value_unchecked(s::Scaled, x) = _value_at(_scaled_value(s, x, _value_unchecked(s.f, x)), x)
+_value_unchecked(s::Scaled, x) = _chained(s) ? _value_chain(s, x) : _value_at(_scaled_value(s, x, _value_unchecked(s.f, x)), x)
+# a chain is evaluated at the function inside it with the product of all its factors
+function _value_chain(s, x)
+  f, a = _scaled_chain(s)
+  _value_at(_scaled_value_by(f, a, x, _value_unchecked(f, x)), x)
+end
 _checkvalue(s::Scaled, x) = _checkvalue(s.f, x)
 _scale!(g::AbstractArray, α) = (g .*= α)
+_scale!(g::AbstractArray, α::_ProjectionScale) = (g .= _apply_scale.(α, g))
 @generated _scale!(g::Tuple, α) = _blockwise(k -> :(_scale!(g[$k], α)), fieldcount(g), :g)
 value_and_gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
-_value_and_gradient_unchecked!(g, s::Scaled, x) = (_checkwrite(value_and_gradient!, s, g, x); v = _value_and_gradient_unchecked!(g, s.f, x); _scale!(g, s.α); _value_at(_scaled_value(s, x, v), x))
+_value_and_gradient_unchecked!(g, s::Scaled, x) = _chained(s) ? _value_and_gradient_chain!(g, s, x) :
+  (_checkwrite(value_and_gradient!, s, g, x); v = _value_and_gradient_unchecked!(g, s.f, x); _scale!(g, s.α); _value_at(_scaled_value(s, x, v), x))
+function _value_and_gradient_chain!(g, s, x)
+  _checkwrite(value_and_gradient!, s, g, x)
+  f, a = _scaled_chain(s)
+  v = _value_and_gradient_unchecked!(g, f, x)
+  _scale!(g, a)
+  _value_at(_scaled_value_by(f, a, x, v), x)
+end
 gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(gradient!, s, g, x); _gradient_unchecked!(g, s, x))
-_gradient_unchecked!(g, s::Scaled, x) = (_checkwrite(gradient!, s, g, x); _gradient_unchecked!(g, s.f, x); _scale!(g, s.α))
+_gradient_unchecked!(g, s::Scaled, x) = _chained(s) ? _gradient_chain!(g, s, x) :
+  (_checkwrite(gradient!, s, g, x); _gradient_unchecked!(g, s.f, x); _scale!(g, s.α))
+function _gradient_chain!(g, s, x)
+  _checkwrite(gradient!, s, g, x)
+  f, a = _scaled_chain(s)
+  _gradient_unchecked!(g, f, x)
+  _scale!(g, a)
+end
 prox!(y, s::Scaled, x, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
 # The step that Scaled passes to f. The scale of an indicator does not matter, so a zero step stays
 # zero for α = Inf instead of becoming the NaN of Inf * 0; that NaN stays for any other f.
 @inline _scaled_step(s::Scaled, γ::Real) = _isindicator(s.f) && iszero(γ) ? γ : s.α * γ
-_prox_unchecked!(y, s::Scaled, x, γ::Real) = (_checkwrite(prox!, s, y, x); _prox_unchecked!(y, s.f, x, _scaled_step(s, γ)))
+
+# What the function inside a nested chain receives for the step γ: the function, its step, and the
+# factor still to apply to its value.
+# - An indicator ignores its scale, so it keeps γ.
+# - A step that is not a finite positive number, which the function rejects or reads as a limit,
+#   is only multiplied.
+# - The product of the factors and γ goes into the step when it is a normal number.
+# - Otherwise the exponent of the factors goes into the levels, with the step reduced to its
+#   significand, for the functions that fold a scale into their levels (`_fold_level`): the
+#   products of level and step are those of the plain chain, formed in range. The leaf then
+#   never sees a step or a level that is not representable while their product is.
+# - A function without levels to fold gets the step as rounded.
+# The factor is the one that takes the value of the returned function to the value of the chain.
+function _nested_step(s::Scaled, γ::Real)
+  f, a = _scaled_chain(s)
+  _isindicator(f) && return (f, γ, a)
+  step = _apply_scale(a, γ)
+  T = typeof(step)
+  (T <: AbstractFloat && isfinite(γ) && γ > 0 && !(floatmin(T) <= step <= floatmax(T))) || return (f, step, a)
+  mγ, eγ = frexp(float(γ))
+  ma, ea = _projection_scale_parts(a)
+  g = _fold_level_step(f, _ProjectionScale(ma, Int(ea + eγ)))
+  # g carries the levels without the ridge that may have been dropped: it is not the chain, and
+  # its value is not the value of the chain (`nothing` marks this)
+  g === nothing ? (f, step, a) : (g, convert(typeof(step), mγ), nothing)
+end
+
+_prox_unchecked!(y, s::Scaled, x, γ::Real) = _chained(s) ? _prox_chain!(y, s, x, γ) :
+  (_checkwrite(prox!, s, y, x); _prox_unchecked!(y, s.f, x, _scaled_step(s, γ)))
+function _prox_chain!(y, s, x, γ)
+  _checkwrite(prox!, s, y, x)
+  g, step, _ = _nested_step(s, γ)
+  _prox_unchecked!(y, g, x, step)
+end
 value_and_prox!(y, s::Scaled, x, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
-_value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ)); _value_at(_scaled_value(s, y, v, false), y))
-Base.@propagate_inbounds prox_entry(s::Scaled, v::Real, i::Integer, γ::Real) = prox_entry(s.f, v, i, s.α * γ)
+_value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = _chained(s) ? _value_and_prox_chain!(y, s, x, γ) :
+  (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ)); _value_at(_scaled_value(s, y, v, false), y))
+function _value_and_prox_chain!(y, s, x, γ)
+  _checkwrite(value_and_prox!, s, y, x)
+  g, step, a = _nested_step(s, γ)
+  if a === nothing
+    # the value of the chain at the output, not that of the folded function
+    _prox_unchecked!(y, g, x, step)
+    f, b = _scaled_chain(s)
+    return _value_at(_scaled_value_by(f, b, y, _value_unchecked(f, y)), y)
+  end
+  v = _value_and_prox_unchecked!(y, g, x, step)
+  _value_at(_scaled_value_by(g, a, y, v), y)
+end
+Base.@propagate_inbounds function prox_entry(s::Scaled, v::Real, i::Integer, γ::Real)
+  if _chained(s)
+    g, step, _ = _nested_step(s, γ)
+    return prox_entry(g, v, i, step)
+  end
+  prox_entry(s.f, v, i, s.α * γ)
+end
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
 _checkwrite(op::O, s::Scaled, y, x) where {O} = (_checkreal(s, y); _checkreal(s, x); (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checkwrite(op, s.f, y, x))
 iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
@@ -206,14 +430,37 @@ _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 _counts_nonzeros(f::Scaled) = _counts_nonzeros(f.f)
 _scale_invariant(f::Scaled) = _scale_invariant(f.f)
 # a scaled group penalty updates a group of an AtomIterate with a scaled step
-prox_coordinate!(x::AtomIterate, s::Scaled, k::Integer, γ::Real) = prox_coordinate!(x, s.f, k, s.α * γ)
+function prox_coordinate!(x::AtomIterate, s::Scaled, k::Integer, γ::Real)
+  if _chained(s)
+    g, step, _ = _nested_step(s, γ)
+    return prox_coordinate!(x, g, k, step)
+  end
+  prox_coordinate!(x, s.f, k, s.α * γ)
+end
 @inline _check_coordinate(x::AtomIterate, s::Scaled, k) = _check_coordinate(x, s.f, k)
-@inline _block_step!(x::AtomIterate, s::Scaled, k, u, γ, ctx) = _block_step!(x, s.f, k, u, s.α * γ, ctx)
+@inline function _block_step!(x::AtomIterate, s::Scaled, k, u, γ, ctx)
+  if _chained(s)
+    g, step, _ = _nested_step(s, γ)
+    return _block_step!(x, g, k, u, step, ctx)
+  end
+  _block_step!(x, s.f, k, u, s.α * γ, ctx)
+end
 kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
-  (eltype(g) <: Real || _real_error(:kkt_violation); iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i))
+  (eltype(g) <: Real || _real_error(:kkt_violation); _chained(s) ? _nested_kkt((f, h) -> kkt_violation(f, h, i), s, g) :
+   iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i))
 for X in (:AbstractArray, :AtomIterate)
   @eval _kkt_violation(s::Scaled, g::AbstractArray, x::$X, k::Integer) =
+    _chained(s) ? _nested_kkt((f, h) -> _kkt_violation(f, h, x, k), s, g) :
     iszero(s.α) ? _kkt_violation(ZeroFunction(), g, x, k) : s.α * _kkt_violation(s.f, _ScaledArray(g, inv(s.α)), x, k)
+end
+# The violation of a nested chain: that of the function with the factors folded into its levels, or
+# of the function at the gradient divided by the product of the factors, and multiplied by it.
+function _nested_kkt(kkt, s::Scaled, g)
+  f, a = _scaled_chain(s)
+  # a smooth function has the violation |g|, whatever the scale, and an indicator is its own scaling
+  (issmooth(typeof(f)) || _isindicator(f)) && return kkt(f, g)
+  h = _fold_level(f, a)
+  h === nothing ? _apply_scale(a, kkt(f, _ExpScaledArray(g, _scale_inverse(a)))) : kkt(h, g)
 end
 restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.α)
 _restrict_unchecked(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(_restrict_unchecked(s.f, S), s.α)
@@ -882,6 +1129,8 @@ end
 # positive-scaling formula deliberately does not cover it.
 function _conjugate_value(f::Scaled, y::AbstractArray)
   _checkconjugate(f, y)
+  # a chain keeps the exponent of the product of its factors until the leaf's level is formed
+  _chained(f) && return _scaled_conjugate_value(f.f, y, f.α)
   T = float(eltype(y))
   α = convert(T, f.α)
   α * _conjugate_value(f.f, _ScaledArray(y, inv(α)))
@@ -1071,7 +1320,8 @@ _stage_commit!(y::Tuple, z) = _projection_commit!(y, z)
 
 # the proximal point of the conjugate and its value, at the output
 function _conjugate_prox_value!(y, c::Conjugate, x, γ)
-  _support_fallback(c.f) && return _staged_prox_value!(y, c, x, γ)
+  # a chain may refuse the value after the point exists: stage, and commit only on success
+  (_support_fallback(c.f) || _chained_scaled(c.f)) && return _staged_prox_value!(y, c, x, γ)
   _prox_unchecked!(y, c, x, γ)
   _value_at(_conjugate_value(c.f, y), y)
 end
@@ -1243,6 +1493,8 @@ end
 _checkconjugate(s::SeparableSum, y::Tuple) = (_checkreal(s, y); _checkparams(s, y); _checkconjugate_blocks(s.fs, y))
 @generated _checkconjugate_blocks(fs::Tuple, y::Tuple) = _blockwise(k -> :(_checkconjugate(fs[$k], y[$k])), min(fieldcount(fs), fieldcount(y)), true)
 _checkscaledconjugate(s::SeparableSum, y::Tuple, α) = (_checkparams(s, y); _checkscaled_blocks(s.fs, y, α))
+# the checks validate parameters only, so the rounded product of the factors serves
+_checkscaledconjugate(f::Scaled, y::Tuple, α) = _checkscaledconjugate(f.f, y, f.α * α)
 @generated _checkscaled_blocks(fs::Tuple, y::Tuple, α) =
   _blockwise(k -> :(_checkscaledconjugate_block(fs[$k], y[$k], α)), min(fieldcount(fs), fieldcount(y)), true)
 _conjugate_value(s::SeparableSum, y::Tuple) = (_checkconjugate(s, y); _sum_conjugate(s.fs, y))
@@ -1304,6 +1556,42 @@ struct Sum{F<:Tuple} <: AbstractFunction
   scratch::Scratch
 end
 Sum(fs::AbstractFunction...) = Sum(fs, Scratch())
+
+# α f(⋅ - b) is (α f)(⋅ - b), and the scale of a sum is the scale of every term. An indicator and
+# the zero function do not change under a positive scale.
+function _fold_level(t::Translate, α)
+  g = _fold_level(t.f, α)
+  g === nothing ? nothing : Translate(g, t.b, t.scratch, t.proxscratch)
+end
+_fold_block(f, α) = _isindicator(f) ? f : _fold_level(f, α)
+_fold_block(f::ZeroFunction, α) = f
+function _fold_blocks(fs::Tuple, α)
+  gs = map(f -> _fold_block(f, α), fs)
+  any(isnothing, gs) ? nothing : gs
+end
+function _fold_level(s::SeparableSum, α)
+  gs = _fold_blocks(s.fs, α)
+  gs === nothing ? nothing : SeparableSum(gs)
+end
+function _fold_level(s::Sum, α)
+  gs = _fold_blocks(s.fs, α)
+  gs === nothing ? nothing : Sum(gs, s.scratch)
+end
+function _fold_level_step(t::Translate, α)
+  g = _fold_level_step(t.f, α)
+  g === nothing ? nothing : Translate(g, t.b, t.scratch, t.proxscratch)
+end
+function _fold_level_step(s::SeparableSum, α)
+  gs = map(f -> _fold_block_step(f, α), s.fs)
+  any(isnothing, gs) ? nothing : SeparableSum(gs)
+end
+function _fold_level_step(s::Sum, α)
+  gs = map(f -> _fold_block_step(f, α), s.fs)
+  any(isnothing, gs) ? nothing : Sum(gs, s.scratch)
+end
+# a chain anywhere among the blocks may refuse the value of the conjugate
+_chained_scaled(t::Union{Translate, SingularValue}) = _chained_scaled(t.f)
+_chained_scaled(s::Union{SeparableSum, Sum}) = any(_chained_scaled, s.fs)
 
 issmooth(::Type{<:Sum{F}}) where {F} = all(issmooth, fieldtypes(F))
 isconvex(::Type{<:Sum{F}}) where {F} = all(isconvex, fieldtypes(F))
@@ -1381,13 +1669,19 @@ _has_value(fb::FiberSum) = _has_value(fb.f) && (fb.diagonal === nothing || _has_
 #  Lipschitz constants of the gradients
 ####################################
 
-lipschitz(s::Scaled) = abs(s.α) * lipschitz(s.f)
+lipschitz(s::Scaled) = _chained(s) ? _apply_scale(_scaled_chain(s)[2], lipschitz(_scaled_chain(s)[1])) : abs(s.α) * lipschitz(s.f)
 lipschitz(t::Tilt) = lipschitz(t.f)
 lipschitz(t::Translate) = lipschitz(t.f)
 lipschitz(s::Sum) = sum(lipschitz, s.fs)
 lipschitz(s::SeparableSum) = maximum(lipschitz, s.fs)
 
-_checkstep(op::O, s::Scaled, y, x, γ::Real) where {O} = _checkstep(op, s.f, y, x, _scaled_step(s, γ))
+function _checkstep(op::O, s::Scaled, y, x, γ::Real) where {O}
+  if _chained(s)
+    g, step, _ = _nested_step(s, γ)
+    return _checkstep(op, g, y, x, step)
+  end
+  _checkstep(op, s.f, y, x, _scaled_step(s, γ))
+end
 _checkstep(op::O, t::Union{Tilt, Translate}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
   _checkstep(op, t.f, y, _StepInput(y), γ)
 
@@ -1442,40 +1736,6 @@ function _checkstep(op::O, c::Conjugate, y::Tuple, x::Tuple, γ::Real) where {O}
   _conjugate_isindicator(typeof(c.f)) && return _checkstep(prox!, c.f, p, x, one(float(typeof(γ))))
   _checkstep(prox!, c.f, p, _step_input(p), inv(γ))
 end
-
-# Retain exceptional wrapper products until the leaf coefficient is formed.
-struct _ProjectionScale{T}
-  m::T
-  e::Int
-end
-Base.broadcastable(a::_ProjectionScale) = Ref(a)
-Base.isfinite(a::_ProjectionScale) = isfinite(a.m)
-Base.isinf(a::_ProjectionScale) = isinf(a.m)
-Base.iszero(a::_ProjectionScale) = iszero(a.m)
-Base.isone(a::_ProjectionScale) = a.m == 0.5 && a.e == 1
-_projection_real(a::Real) = a
-_projection_real(a::_ProjectionScale) = ldexp(a.m, a.e)
-_projection_scale_parts(a::Real) = frexp(float(a))
-_projection_scale_parts(a::_ProjectionScale) = (a.m, a.e)
-function _projection_accumulate(a::Real, b::Real)
-  isone(a) && return b
-  (iszero(a) || iszero(b)) && return zero(float(a) + float(b))
-  p = float(a) * float(b)
-  (!isfinite(a) || !isfinite(b) || iszero(a) || iszero(b)) && return p
-  floatmin(typeof(float(p))) <= abs(p) <= floatmax(typeof(float(p))) && return p
-  ma, ea = frexp(float(a))
-  mb, eb = frexp(float(b))
-  m, e = frexp(ma * mb)
-  _ProjectionScale(m, Int(ea + eb + e))
-end
-function _projection_accumulate(a::_ProjectionScale, b::Real)
-  (!isfinite(b) || iszero(b)) && return b
-  mb, eb = frexp(float(b))
-  m, e = frexp(a.m * mb)
-  _ProjectionScale(m, Int(a.e + eb + e))
-end
-_projection_product(a, b, w) = _positive_product(a, b, w)
-_projection_product(a::_ProjectionScale, b, w) = _scaled_product(a.m, b, w, a.e)
 
 # Keep L1 coefficients separate from the legacy product used by other blocks.
 struct _L1ProjectionFactors{F}
@@ -1609,7 +1869,18 @@ _any_direct_projection(s::SeparableSum, x::Tuple) = _any_direct_projection_block
 _conjugate_projection!(z, f, x, γ, α = 1) = _conjugate_moreau!(z, f, x, γ, α)
 # Keep the original function concrete; merging it with Scaled boxes parameters.
 _conjugate_moreau!(z, f, x, γ, α) = isone(α) ?
-  _conjugate_moreau!(z, f, x, γ) : _conjugate_moreau!(z, Scaled(f, _projection_real(α)), x, γ)
+  _conjugate_moreau!(z, f, x, γ) : _conjugate_moreau_by!(z, f, x, γ, α)
+# The wrappers of an accumulated factor that is not a normal number have no fixed type: the
+# function barrier keeps the result of the call concrete.
+_conjugate_moreau_by!(z, f, x, γ, α::Real) = _conjugate_moreau!(z, Scaled(f, α), x, γ)
+function _conjugate_moreau_by!(z, f, x, γ, α::_ProjectionScale)
+  if _projection_two_pieces(α)
+    _conjugate_moreau!(z, _projection_scaled2(f, α), x, γ)
+  else
+    _conjugate_moreau!(z, _projection_scaled(f, α), x, γ)
+  end
+  z
+end
 function _conjugate_moreau!(z::AbstractArray, f, x::AbstractArray, γ)
   T = float(eltype(z))
   step = convert(T, γ)
@@ -1629,7 +1900,16 @@ _conjugate_moreau!(z::Tuple, f, x::Tuple, γ) = _conjugate_moreau_block!(z, f, x
 # Keep a block's own scale inside the sum's scaled reciprocal step.
 @inline _conjugate_block_scaled(f, α) = @inline Scaled{typeof(f), typeof(α)}(f, α)
 _conjugate_moreau_block!(z, f, x, γ, α) = isone(α) ?
-  _conjugate_moreau_block!(z, f, x, γ) : _conjugate_moreau_block!(z, _conjugate_block_scaled(f, _projection_real(α)), x, γ)
+  _conjugate_moreau_block!(z, f, x, γ) : _conjugate_moreau_block_by!(z, f, x, γ, α)
+_conjugate_moreau_block_by!(z, f, x, γ, α::Real) = _conjugate_moreau_block!(z, _conjugate_block_scaled(f, α), x, γ)
+function _conjugate_moreau_block_by!(z, f, x, γ, α::_ProjectionScale)
+  if _projection_two_pieces(α)
+    _conjugate_moreau_block!(z, _projection_scaled2(f, α), x, γ)
+  else
+    _conjugate_moreau_block!(z, _projection_scaled(f, α), x, γ)
+  end
+  z
+end
 # Tuple blocks narrow their arithmetic, but retain the original reciprocal step.
 function _conjugate_moreau_block!(z::Tuple, f, x::Tuple, γ)
   if _conjugate_isindicator(typeof(f))
@@ -1869,14 +2149,24 @@ function _conjugate_projection_value!(z, f, x, γ, α = 1)
 end
 # Separate scaled variants before computing a value, just as for the point.
 _conjugate_moreau_value!(z, f, x, γ, α, context) = isone(α) ?
-  _conjugate_moreau_value!(z, f, x, γ, context) :
-  _conjugate_moreau_value!(z, Scaled(f, _projection_real(α)), x, γ, context)
+  _conjugate_moreau_value!(z, f, x, γ, context) : _moreau_value_scaled!(z, f, x, γ, α, context)
 _conjugate_moreau_value!(z::Tuple, f, x::Tuple, γ, α, context::Val{true}) = isone(α) ?
-  _conjugate_moreau_value!(z, f, x, γ, context) :
-  _conjugate_moreau_value!(z, _conjugate_block_scaled(f, _projection_real(α)), x, γ, context)
+  _conjugate_moreau_value!(z, f, x, γ, context) : _moreau_value_block!(z, f, x, γ, α, context)
+# as for the point, a factor that is not a normal number gives wrappers without a fixed type
+_moreau_value_scaled!(z, f, x, γ, α::Real, context) = _conjugate_moreau_value!(z, Scaled(f, α), x, γ, context)
+function _moreau_value_scaled!(z, f, x, γ, α::_ProjectionScale, context)::_valtype(z)
+  _projection_two_pieces(α) ? _conjugate_moreau_value!(z, _projection_scaled2(f, α), x, γ, context) :
+    _conjugate_moreau_value!(z, _projection_scaled(f, α), x, γ, context)
+end
+_moreau_value_block!(z, f, x, γ, α::Real, context) = _conjugate_moreau_value!(z, _conjugate_block_scaled(f, α), x, γ, context)
+function _moreau_value_block!(z, f, x, γ, α::_ProjectionScale, context)::_valtype(z)
+  _projection_two_pieces(α) ? _conjugate_moreau_value!(z, _projection_scaled2(f, α), x, γ, context) :
+    _conjugate_moreau_value!(z, _projection_scaled(f, α), x, γ, context)
+end
 # Known block values can keep the scale in the step without a temporary wrapper.
 function _conjugate_moreau_value!(z::AbstractArray, f, x::AbstractArray, γ, α, context::Val{true})
   isone(α) && return _conjugate_moreau_value!(z, f, x, γ, context)
+  α isa _ProjectionScale && return _moreau_value_scaled!(z, f, x, γ, α, context)
   a = _projection_real(α)
   if !iszero(a) && _has_conjugate_value(f)
     _divide!(z, x, γ)
@@ -1896,6 +2186,8 @@ function _scaled_conjugate_value(f::Scaled, y::AbstractArray, α)::_valtype(y)
   end
   _scaled_conjugate_value(f.f, y, a)
 end
+_scaled_conjugate_value(f::Scaled, y::AbstractArray, α::_ProjectionScale) =
+  _scaled_conjugate_value(f.f, y, _projection_accumulate(α, f.α))
 _scaled_conjugate_value(f::Scaled, y::Tuple, α) =
   _scaled_conjugate_value(f.f, y, _projection_accumulate(α, f.α))
 # Keep exponent parts across a sum until each block's coefficient is complete.
@@ -1905,7 +2197,20 @@ function _scaled_conjugate_value(s::SeparableSum, y::Tuple, α::_ProjectionScale
 end
 @generated _sum_projection_scaled(fs::Tuple, y::Tuple, α) =
   _blocksum(k -> :(_scaled_conjugate_value(fs[$k], y[$k], α)), min(fieldcount(fs), fieldcount(y)))
-function _scaled_conjugate_value(f, y::AbstractArray, α)
+# (αf)* is the conjugate of f with α folded into its levels, which keeps a factor that is not a
+# normal number in range. A function without levels to fold takes the rounded factor.
+function _scaled_conjugate_value(f, y::AbstractArray, α::_ProjectionScale)::_valtype(y)
+  # an indicator and the zero function do not change under a positive scale
+  g = _fold_block(f, α)
+  g === nothing || return _conjugate_value(g, y)
+  a = _projection_real(α)
+  (isfinite(a) && !iszero(a)) || _nested_scale_error(f, a)
+  _scaled_conjugate_value_rounded(f, y, α)
+end
+@noinline _nested_scale_error(f, a) = throw(ArgumentError(
+  "the conjugate value of $(typeof(f)) under nested scales whose product $(iszero(a) ? "underflows" : "overflows") is not supported: $(typeof(f)) does not fold a scale into its level"))
+_scaled_conjugate_value(f, y::AbstractArray, α) = _scaled_conjugate_value_rounded(f, y, α)
+function _scaled_conjugate_value_rounded(f, y::AbstractArray, α)::_valtype(y)
   a = convert(float(eltype(y)), _projection_real(α))
   scaled = _ScaledArray(y, inv(a))
   _checkconjugate(f, scaled)

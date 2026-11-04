@@ -43,7 +43,7 @@ Julia: 1.10.12; platform: x86_64-linux-gnu-Linux; bounds: 1
 | element_types | constructor | Float32 normal Int64 bounds | cpu | #313: original integer lower=2^53+1 exceeds upper=2^53 before Float32 promotion | T5 | none | broken (G9) |
 | element_types | constructor | Float64 lower Float32 upper | cpu | lower=1+2^-30 exceeds upper=1 before rounding (#313) | T5 | none | passes |
 | element_types | constructor | Float64 parameter Float32 weight | cpu | constructor retains finite positive level 2^-600 without narrowing, constructor retains finite positive level 2^600 without narrowing | T5 | none | passes |
-| element_types | constructor | Float64 scales | cpu | positive exact scale 2^-1200 must not acquire zero-function meaning (#333) | T5 R3 | none | broken (G9) |
+| element_types | constructor | Float64 scales | cpu | positive exact scale 2^-1200 must not acquire zero-function meaning (#333) | T5 R3 | none | passes |
 | element_types | gradient | BigFloat data/argument/destination precision=128 | cpu | generic least-squares gradient for design=[1], response=[0], x=[2]; 32eps(BigFloat) budget | T7 A1 | none | passes |
 | element_types | gradient | argument/destination=Float32 Float64 level | cpu | gradient! returns its caller-owned destination | T1 | none | passes |
 | element_types | gradient | argument/destination=Float64 Float64 level | cpu | gradient! returns its caller-owned destination | T1 | none | passes |
@@ -324,7 +324,7 @@ Julia: 1.10.12; platform: x86_64-linux-gnu-Linux; bounds: 1
 | G6 | 42 |
 | G7 | 4 |
 | G8 | 13 |
-| G9 | 26 |
+| G9 | 25 |
 | G10 | 0 |
 | G11 | 9 |
 | G12 | 6 |

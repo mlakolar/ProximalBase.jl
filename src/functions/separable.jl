@@ -790,7 +790,7 @@ iszeropreserving(::MCP) = true
 Base.@propagate_inbounds function value_entry(f::MCP, v::T, ::Integer) where {T<:Real}
   S = float(T)
   λ, a, t = S(f.λ), S(f.a), abs(S(v))
-  iszero(λ) && return zero(S)                 # the zero function, NaN included
+  iszero(f.λ) && return zero(S)               # the zero function, NaN included
   t > a * λ ? a * λ^2 / 2 : λ * t - t^2 / (2a)   # a NaN entry takes the second branch
 end
 
@@ -807,9 +807,9 @@ Base.@propagate_inbounds function prox_entry(f::MCP, v::T, i::Integer, γ::Real)
   h(z) = (z - t)^2 / (2s) + _mcp_penalty(λ, a, z)
   h(u) < h(zero(S)) && return sign(S(v)) * u
   # The comparison failed: the minimizer is 0, unless the entry is free (zero
-  # level, E4) or a NaN of a positive level, which stays NaN; at γ = Inf the map
-  # is constant.
-  (iszero(λ) | (isnan(t) & !isinf(s))) ? S(v) : zero(S)
+  # level, E4) or a NaN of a positive level, which stays NaN; at the step γ = Inf the map
+  # is constant. The parameters decide, not their conversions to the working type.
+  (iszero(f.λ) | (isnan(t) & !isinf(γ))) ? S(v) : zero(S)
 end
 
 kkt_violation(f::MCP, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - f.λ)
@@ -849,7 +849,7 @@ end
 Base.@propagate_inbounds function value_entry(f::SCAD, v::T, ::Integer) where {T<:Real}
   S = float(T)
   λ, a, t = S(f.λ), S(f.a), abs(S(v))
-  iszero(λ) && return zero(S)                 # the zero function, NaN included
+  iszero(f.λ) && return zero(S)               # the zero function, NaN included
   # a NaN entry fails t > λ and reaches λ * t
   t > λ ? (t > a * λ ? λ^2 * (a + 1) / 2 : (2a * λ * t - t^2 - λ^2) / (2 * (a - 1))) : λ * t
 end
@@ -864,7 +864,7 @@ Base.@propagate_inbounds function prox_entry(f::SCAD, v::T, i::Integer, γ::Real
   end
   # concave on [λ, aλ]: compare the minimizers of the three pieces; a zero
   # level is the identity at every step
-  iszero(λ) && return S(v)
+  iszero(f.λ) && return S(v)
   h(z) = (z - t)^2 / (2s) + _scad_penalty(λ, a, z)
   best, hb = zero(S), h(zero(S))
   for z in (min(max(t - s * λ, zero(S)), λ), a * λ, max(t, a * λ))

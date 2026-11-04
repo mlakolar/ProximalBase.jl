@@ -157,6 +157,120 @@ end
   @test CheckLoss(0.5, [2.0, 3.0])([1.0, -2.0]) == 1.0 + 3.0
 end
 
+# the three ways to call prox for one function and entry: the entry oracle, a caller-owned output
+# with a sentinel, and the fused call, which also reports the value at the stored output
+function prox_paths(f, x, γ)
+  T = eltype(x)
+  y = fill(T(7), length(x))
+  prox!(y, f, x, γ)
+  z = copy(x)
+  prox!(z, f, z, γ)
+  yv = fill(T(7), length(x))
+  v = value_and_prox!(yv, f, x, γ)
+  w = copy(x)
+  vw = value_and_prox!(w, f, w, γ)
+  @test isequal(y, z) && isequal(y, yv) && isequal(y, w) && isequal(v, vw)
+  @test isequal(y[1], PB.prox_entry(f, x[1], 1, γ))
+  (y, v)
+end
+
+# A finite parameter never becomes an endpoint or a hard weight through the rounding of a
+# product: γλw that overflows to Inf is no constant map, so a NaN entry stays NaN (Float32 and
+# Float64); only the step γ = Inf and an infinite weight are endpoints.
+@testset "overflowing finite factors are no endpoints, $T" for T in (Float32, Float64)
+  big = T(floatmax(T) / 4)
+  x = T[NaN]
+  for (name, f, γ) in (("LogPenalty level", LogPenalty(big, T(1)), T(8)),
+                       ("LogPenalty weight", LogPenalty(T(1), T(1), T[big]), T(8)),
+                       ("LogPenalty step", LogPenalty(T(1), T(1)), big * 4),
+                       ("CheckLoss weight", CheckLoss(T(0.5), T[big]), T(8)),
+                       ("CheckLoss step", CheckLoss(T(0.5)), big * 4),
+                       ("HingeLoss weight", HingeLoss(nothing, T[big]), T(8)),
+                       ("MCP step", MCP(T(1), T(3)), big * 4),
+                       ("SCAD step", SCAD(T(1), T(3.7)), big * 4))
+    y, v = prox_paths(f, x, γ)
+    @test isnan(y[1])
+    @test isnan(v)
+  end
+  # Float64 factors that overflow in Float32 only: the working type does not decide
+  @test isnan(prox(CheckLoss(T(0.5)), x, 1e300)[1])
+  @test isnan(prox(MCP(T(1), T(3)), x, 1e300)[1])
+  @test isnan(prox(LogPenalty(T(1), T(1)), x, 1e300)[1])
+  # the genuine endpoints keep their meaning
+  for f in (LogPenalty(T(1), T(1)), CheckLoss(T(0.5)), MCP(T(1), T(3)))
+    y, v = prox_paths(f, x, T(Inf))
+    @test y[1] === zero(T) && v === zero(T)
+  end
+  for f in (LogPenalty(T(1), T(1), T[Inf]), CheckLoss(T(0.5), T[Inf]))
+    y, v = prox_paths(f, x, T(8))
+    @test y[1] === zero(T) && v === zero(T)
+  end
+  # and finite entries are as before: an overflowing coefficient thresholds everything
+  @test prox(CheckLoss(T(0.5), T[big]), T[1.5], T(8)) == T[0]
+end
+
+# E4 at a zero level: the identity at every finite step, including entries that are tiny (an
+# underflowing penalty), and the sign of zero (base: 0 for tiny entries at steps past the switch)
+@testset "zero level: tiny entries and signed zero, $T" for T in (Float32, Float64)
+  tiny = nextfloat(zero(T))
+  x = T[tiny, -tiny, 0, -0, 1e-30, -1e-30, 1e-44, 3, -3]
+  x[3] = 0; x[4] = -0.0
+  for f in (MCP(T(0), T(3)), SCAD(T(0), T(3.7))), γ in T[5, 100, 1e10, Inf]
+    y, v = prox_paths(f, x, γ)
+    @test isequal(y, x)                         # isequal tells -0.0 from 0.0
+    @test signbit(y[4]) && !signbit(y[3])
+    @test v === zero(T)
+    @test all(i -> isequal(PB.prox_entry(f, x[i], i, γ), x[i]), eachindex(x))
+  end
+  # a level of zero but a NaN entry: the identity, NaN copied
+  for f in (MCP(T(0), T(3)), SCAD(T(0), T(3.7)))
+    @test isnan(prox_paths(f, T[NaN], T(5))[1][1])
+    @test prox_paths(f, T[NaN], T(5))[2] === zero(T)
+  end
+  # a positive level at a tiny entry is still thresholded to zero at these steps
+  for f in (MCP(T(1), T(3)), SCAD(T(1), T(3.7)))
+    @test iszero(prox(f, T[tiny, -tiny], T(5)))
+  end
+end
+@testset "zero level: a Float64 entry whose square underflows (control)" begin
+  x = [1e-300, -1e-300, 1e-160, 2.0]
+  for f in (MCP(0.0, 3.0), SCAD(0.0, 3.7)), γ in (5.0, 100.0)
+    @test isequal(prox_paths(f, x, γ)[1], x)
+  end
+end
+
+# LogPenalty(λ, ε = Inf) is the zero function on finite arguments (log1p(|x|/Inf) = 0): the value
+# is 0, NaN included, and the proximal map is the identity at every step, including γ = Inf; an
+# infinite coordinate weight keeps its hard meaning, a zero weight stays free.
+@testset "LogPenalty with an infinite ε, $T" for T in (Float32, Float64)
+  f = LogPenalty(T(1), T(Inf))
+  @test f(T[0, 1, -100]) === zero(T)
+  @test f(T[NaN]) === zero(T)
+  @test f(T[NaN, 1.5]) === zero(T)
+  for γ in T[0, 0.5, 1, 100, Inf]
+    for x in (T[NaN, 1.5, -2, 0, 1e30], T[0.3, -3])
+      y, v = prox_paths(f, x, γ)
+      @test isequal(y, x)
+      @test v === zero(T)
+    end
+  end
+  # free and hard weights
+  g = LogPenalty(T(1), T(Inf), T[0, Inf, 2])
+  x = T[NaN, NaN, NaN]
+  @test g(T[NaN, 0, NaN]) === zero(T)
+  @test isnan(g(T[0, NaN, 0]))                  # the indicator of x₂ = 0 depends on x₂
+  @test g(T[1, 0, 3]) === zero(T) && g(T[1, 1, 3]) === T(Inf)
+  for γ in T[0.5, 1, Inf]
+    y, v = prox_paths(g, x, γ)
+    @test isnan(y[1]) && y[2] === zero(T) && isnan(y[3])
+    @test v === zero(T)                         # the value at the stored output: zero function, y₂ = 0
+    @test isequal(prox(g, T[1, 1, 1], γ), T[1, 0, 1])
+  end
+  # the level stays positive: zero level and infinite ε agree
+  @test isequal(prox(LogPenalty(T(0), T(1)), T[NaN, 2], T(Inf)), T[NaN, 2])
+end
+
+
 si_free(f) = (si = SparseIterate(2); si[1] = NaN; si[2] = 1.5; si)
 
 @testset "iterates" begin

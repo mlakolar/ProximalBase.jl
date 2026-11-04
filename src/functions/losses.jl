@@ -56,9 +56,11 @@ Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ:
   s, τ, u = convert(S, _weight_coefficient(γ, w)), convert(S, f.τ), S(v)
   # The same three cases in an order in which a NaN reaches u - sτ and stays NaN
   # (u > sτ, u < -s(1 - τ) and the interval between are exclusive for any u that
-  # is not NaN); at an infinite coefficient the map is constant, so zero (as for
-  # a NaN coefficient, which an unchecked step may be).
-  u <= s * τ ? (u >= -s * (1 - τ) ? zero(S) : u + s * (1 - τ)) : (s < Inf ? u - s * τ : zero(S))
+  # is not NaN). Past s < Inf only a NaN u, a NaN coefficient (an unchecked step) or a NaN-free
+  # call reaches the last branch: the map is constant (zero) at the step γ = Inf or a hard
+  # weight, and a NaN u stays NaN otherwise. A finite γw that overflows to s = Inf is no endpoint.
+  u <= s * τ ? (u >= -s * (1 - τ) ? zero(S) : u + s * (1 - τ)) :
+    (s < Inf ? u - s * τ : ((isnan(s) | !isnan(u) | (γ == Inf) | isinf(w)) ? zero(S) : u))
 end
 
 # from zero, the objective decreases upward at rate -gᵢ - wᵢτ and downward at

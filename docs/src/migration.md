@@ -324,9 +324,13 @@ removes coordinates. Three spellings change.
   Before 0.6 it copied the working set of `y`. For that copy, write
   `copyto!(x, y)`, which costs `O(nnz)` where the broadcast costs `O(length(x))`.
 - `copyto!` and `copy!` between two `SparseIterate`s of different shapes and
-  the same length are value writes in linear order; before 0.6 they threw a
-  `DimensionMismatch`. Between a `SparseIterate` and an `AtomIterate` of
-  different lengths they now throw a `DimensionMismatch` before writing.
+  the same length are value writes in linear order. Before 0.6, `copyto!`
+  threw a `DimensionMismatch` and `copy!` an `ArgumentError`. Between two
+  array iterates of different lengths, both now throw a `DimensionMismatch`
+  before writing. Before 0.6, `copyto!` between a `SparseIterate` and an
+  `AtomIterate` copied a shorter source into the first entries and threw a
+  `BoundsError` for a longer one, and `copy!` threw a `MethodError` (an
+  `ArgumentError` between a matrix and a vector).
 
 For example, take `x = SparseIterate(4); x[4] = 7; activate!(x, 2)`.
 `fill!(x, 0)` gave active coordinates `[]`. It now gives `[4, 2]`, and

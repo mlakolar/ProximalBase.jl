@@ -90,7 +90,7 @@ and flushed as it occurs, so a timeout keeps what was recorded. It prints the ID
 case and exits with status 1 if any case fails. `benchmark/check_only_test.jl` tests the driver on
 synthetic cases and the read-only input checks on a few real cases, then runs
 `benchmark/cases_test.jl`, which tests the sparse operands of the `products` cases and runs their
-reference checks for repetitions 1–10, in about a minute.
+reference checks for repetitions 1–10.
 
 ```sh
 JULIA_NUM_THREADS=1 julia --project=benchmark benchmark/check_only.jl
@@ -98,9 +98,10 @@ PB_SUITE=extended PB_GROUPS=products,sparse,atom,owner JULIA_NUM_THREADS=1 \
   julia --project=benchmark benchmark/check_only.jl
 ```
 
-CI runs the driver's tests and the quick suite (839 cases, about two minutes) on Julia lts and 1
-whenever the package tests run or the benchmark harness changes, and uploads the errors file of a
-failing run as the artifact `benchmark-check-errors-<version>-<attempt>`. The extended suite
+CI runs the driver's tests and the quick suite (839 cases) on Julia lts and 1 whenever the package
+tests run or the benchmark harness changes, and uploads the errors file of a failing run as the
+artifact `benchmark-check-errors-<version>-<attempt>`. On recent pull-request runs, CI's step for
+the driver's tests took 15–73 s and its quick-suite step between about 1.5 and 4 minutes. The extended suite
 (5,540 cases) is a manual run; its `products,sparse,atom,owner` cases need about 16 GB of memory
 in one process. `check_only.jl` is not part of the harness hash, which covers `run.jl` and
 `cases.jl`.
@@ -345,38 +346,6 @@ unchanged.
 ## Measurement and evidence
 
 Compilation, numerical checks and input/cache preparation are outside timing.
-
-### Read-only inputs
-
-Every case declares its read-only inputs (`addcase!(…; inputs = (; x, …))`, a required keyword): the
-arrays and iterates that the operation or `prepare` reads and must leave logically unchanged. These
-include operands, steps, weights, directions, index and trial-point arrays, the snapshots that
-`prepare` restores from, the arrays of the call site that a function object holds, and the shared
-working iterate of a case that leaves it unchanged. Destinations, state that a case changes (even
-when `prepare` restores it), workspaces, caches, scalars and function objects are not declared. A case
-with nothing to declare passes `inputs = (;)` with a comment.
-
-`measure!` and `check_only.jl` digest the inputs right after the pre-trial `validate()` (another case
-may legitimately have changed shared state before) and compare the digests after the trial, for every
-case, before the post-trial `validate()` of an automatic evaluation count (the sparse and atom
-validations restore the shared iterate first). A change throws
-``read-only input `x` changed during the trial of <id>``, and no metrics row is written. Profiling
-runs after the last check; it is diagnostic and writes no metrics.
-
-The digest is 64 bits over a logical record, computed by a loop over every stored element: a dense
-array by its size and elements (with `isequal` semantics: `-0.0` differs from `0.0`, NaNs are equal),
-a `Transpose` by its parent, a `Symmetric` by its whole parent (only the referenced triangle is
-meaningful), a view by its elements, a `SparseIterate` or `SymmetricSparseIterate` by its stored
-(coordinate, value) pairs, stored zeros included, sorted by coordinate, an `AtomIterate` by its sorted
-active groups, its entries and its group layout (through the build-time spelling of `atomindices`), and
-a tuple by its leaves. A digest names the input, not the entry.
-
-The builders (`addprox!`, `addcold!`, `addgrad!`, `addblockprox!`, `addblockgrad!`) compute their
-references when the case is built, from the untouched input and a copy of the function object, and
-start every validation by comparing their inputs with digests taken then
-(``read-only input `x` changed after the case was built``). So do the CD trace and the copies whose
-source is also the reference. Every other reference that depends on an array the operation reads is
-also computed when the case is built.
 Cases without a prepare step use automatic evaluations per sample, tuned within
 `PB_SECONDS`. Cases with a prepare step use one evaluation and reset their
 starting state before each sample.
@@ -424,3 +393,39 @@ detailed records are needed. Historical experiments remain recoverable in the
 The repeated CPU baseline and its raw-data locations are documented with
 [PR #102](https://github.com/mlakolar/ProximalBase.jl/pull/102) and its
 [original report](https://github.com/mlakolar/ProximalBase.jl/blob/0111d1bb4ca51b40c28d8ea5dab0f63be4d76e6a/benchmark/campaign/baselines/discovery-2026-10-25/README.md).
+
+### Read-only inputs
+
+Every case declares its read-only inputs (`addcase!(…; inputs = (; x, …))`, a required keyword): the
+arrays and iterates that the operation or `prepare` reads and must leave logically unchanged. These
+include operands, steps, weights, directions, index and trial-point arrays, the snapshots that
+`prepare` restores from, the arrays of the call site that a function object holds, and the shared
+working iterate of a case that leaves it unchanged. Destinations, state that a case changes (even
+when `prepare` restores it), workspaces, caches, scalars and function objects are not declared. A case
+with nothing to declare passes `inputs = (;)` with a comment.
+
+`measure!` and `check_only.jl` digest the inputs right after the pre-trial `validate()` (another case
+may legitimately have changed shared state before) and compare the digests after the trial, for every
+case, before the post-trial `validate()` of an automatic evaluation count (the sparse and atom
+validations restore the shared iterate first). A change throws
+``read-only input `x` changed during the trial of <id>``, and no metrics row is written. Profiling
+runs after the last check; it is diagnostic and writes no metrics.
+
+The digest is 64 bits over a logical record, computed by a loop over every stored element of type
+`Float32`, `Float64` or an integer type (an input of another element type is rejected when the case
+is built): a dense array by its size and elements (with `isequal` semantics: `-0.0` differs from `0.0`, NaNs are equal),
+a `Transpose` by its parent, a `Symmetric` by its whole parent (only the referenced triangle is
+meaningful), a view by its elements, a `SparseIterate` or `SymmetricSparseIterate` by its stored
+(coordinate, value) pairs, stored zeros included, sorted by coordinate, an `AtomIterate` by its sorted
+active groups, its entries and its group layout (through the build-time spelling of `atomindices`), and
+a tuple by its leaves. A digest names the input, not the entry.
+
+The builders (`addprox!`, `addcold!`, `addgrad!`, `addblockprox!`, `addblockgrad!`) compute their
+references when the case is built, from the untouched input and a copy of the function object, and
+start every validation by comparing their inputs with digests taken then
+(``read-only input `x` changed after the case was built``). So do the CD trace and the copies whose
+source is also the reference. Every other reference that depends on an array the operation reads is
+also computed when the case is built. A few checks still evaluate the output at check time, against
+inputs whose digests have just been verified: the value checks `f(y)` of a proximal output, the
+checks of a quadratic model (`q(x)`, `gradient(q, x)`, `hessian_vec(q, x, v)`) and the residual
+`y - X*β` of the CD trace.

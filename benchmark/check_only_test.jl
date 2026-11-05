@@ -128,6 +128,17 @@ end
     @test Vector(x)[7:9] == zeros(3) && digest(x) != h
     M = randn(3, 4)
     @test digest(transpose(M)) == digest(transpose(copy(M))) && digest(transpose(M)) != digest(M)
+    # digestable agrees with what digest supports: element types without a digest word are rejected
+    # when the case is built, and every accepted input can be digested
+    for a in (Float16[1, 2], big.([1.0, 2.0]), [Float16(1)], (zeros(2), Float16[1]))
+        @test !digestable(a)
+        @test_throws MethodError digest(a)
+        @test occursin("has no logical digest", message(() -> addcase!(PerfCase[], "synthetic", "f16", noop, noop; inputs = (; a))))
+    end
+    for a in (zeros(Float32, 3), [1, 2], [true, false], 1:4, [1:2, 3:4], [[1, 2], [3]], Symmetric(randn(3, 3)),
+              Diagonal([1.0, 2.0]), sparse([1.0 0; 0 2]), view(randn(6), 1:2:6), nothing, 2.5, (zeros(2), (ones(3),)))
+        @test digestable(a) && digest(a) isa UInt64
+    end
 end
 
 # the real cases: quick-suite IDs, from the smallest builders that contain them
@@ -165,6 +176,20 @@ byid(id) = only(filter(c -> c.meta.id == id, CS))
     b .+= 1
     @test occursin(after_build("x"), message(c.validate))
     copyto!(b, b0)
+    @test message(c.validate) == ""
+end
+
+@testset "the frozen reference: data held by a function object changed after construction" begin
+    # The center of Translate is created inside the function object, so it is not a declared input;
+    # the reference computed when the case was built catches the change, which a reference computed at
+    # check time from the live object would follow.
+    c = byid("compositions/Translate/value_and_gradient!/Float64/32/dense/warm")
+    f = c.operation.f
+    @test !any(v -> v === f.b, values(c.inputs))
+    @test message(c.validate) == ""
+    f.b .+= 1
+    @test occursin("value/gradient objective mismatch", message(c.validate))
+    f.b .-= 1
     @test message(c.validate) == ""
 end
 

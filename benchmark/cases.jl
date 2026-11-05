@@ -70,7 +70,9 @@ end
 # Base.hash of an array, which samples large arrays). Elements compare with isequal semantics: -0.0 and
 # 0.0 differ, any two NaNs are equal. Each step is the round of xxHash64, a bijection of the state for a
 # given word, so one changed word always changes the digest; a final murmur3 fmix64 spreads it.
-const DigestReal = Union{AbstractFloat,Integer}
+# the element types with a digest word; digestable rejects the others (Float16, BigFloat, …) when the case
+# is built, as no input uses them
+const DigestReal = Union{Float32,Float64,Integer}
 const DIGEST_SEED = 0x243f6a8885a308d3
 const DIGEST_P1 = 0x9e3779b185ebca87
 const DIGEST_P2 = 0xc2b2ae3d27d4eb4f

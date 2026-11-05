@@ -496,6 +496,31 @@ end
   @test P._zero_value_exponent(Berhu(1.0, nextfloat(0.0)), zeros(2)) === nothing
 end
 
+@testset "NaN entries (E2, #573)" begin
+  # a NaN in an entry the value depends on gives NaN, never a recovered number
+  for f in (CheckLoss(0.9, [1.0, 1.0, 0.0]), HingeLoss(nothing, [1.0, 1.0, 0.0]), LogPenalty(1e308, 1.0, [1.0, 1.0, 0.0]),
+            MCP(1e200, 3.0), SCAD(1e200, 3.7), GroupMCP(1e200, [[1], [2], [3]], [1.0, 1.0, 0.0]; a = 3.0))
+    @test isnan(Scaled(f, pow2(Float64, -600))([NaN, 1e300, 0.0]))
+    @test isnan(Scaled(f, pow2(Float64, 600))([NaN, 0.0, 0.0]))
+  end
+  # a NaN in a free entry (a zero weight) is ignored, and the rest is recovered
+  for (f, xo) in ((CheckLoss(0.9, [1.0, 1.0, 0.0]), [M, M]), (HingeLoss(nothing, [1.0, 1.0, 0.0]), [-M, -M]),
+                  (LogPenalty(1e308, 1.0, [1.0, 1.0, 0.0]), [1e300, 1e300]),
+                  (GroupMCP(1e200, [[1], [2], [3]], [1.0, 1.0, 0.0]; a = 3.0), [1e300, 1e300]))
+    α = pow2(Float64, -600)
+    @test agrees(Scaled(f, α)([xo; NaN]), ref(f, α, [xo; 0.0]), 4)
+  end
+  t = pow2(Float64, -1070)
+  for (f, x) in ((CheckLoss(0.5, [t, 0.0]), [pow2(Float64, -20), NaN]), (HingeLoss(nothing, [t, 0.0]), [1.0 - pow2(Float64, -20), NaN]),
+                 (LogPenalty(1.0, 1.0, [t, 0.0]), [pow2(Float64, -10), NaN]))
+    α = pow2(Float64, 100)
+    @test agrees(Scaled(f, α)(x), ref(f, α, [x[1], 0.0]), 2)
+  end
+  # a zero level, or an infinite ε, is the zero function, NaN included
+  @test Scaled(MCP(0.0, 3.0), pow2(Float64, 100))([NaN]) === 0.0
+  @test Scaled(LogPenalty(1.0, Inf), pow2(Float64, 100))([NaN, 1.0]) === 0.0
+end
+
 @testset "conformance row" begin
   @test Scaled(Translate(SqrNormL2(1.0), [0.0]), pow2(Float64, -1000))([pow2(Float64, 600)]) === pow2(Float64, 199)
 end

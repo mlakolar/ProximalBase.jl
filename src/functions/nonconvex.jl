@@ -917,6 +917,8 @@ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::CappedL1, v, 
   _weighted_term_add(acc, _entry(f.w, i), frexp(min(abs(u), convert(R, f.a))))
 end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::LogPenalty, v, i) where {R}
+  # a zero weight or an infinite ε leaves the entry free, NaN included, as in value_entry
+  (iszero(_entry(f.w, i)) || isinf(f.ε)) && return acc
   t, ε = abs(convert(R, v)), convert(R, f.ε)
   isfinite(t) || return nothing
   iszero(t) && return acc
@@ -957,9 +959,10 @@ function _value_parts(f::_RadialGroupPenalty, x::AbstractArray, v)
   acc = _expsum_start(R)
   for k in eachindex(f.groups)
     G, w = f.groups[k], f.w[k]
+    iszero(w) && continue                       # a zero weight leaves the group free, NaN included
     t = _group_norm_parts(R, x, G)
     t === nothing && return nothing
-    (iszero(t[1]) || iszero(w)) && continue
+    iszero(t[1]) && continue
     isfinite(w) || return nothing
     λ = _parts_product(_rparts(R, f.λ0), _rparts(R, w))
     acc = f isa GroupMCP ? _mcp_terms(acc, λ, f.a, t) : _scad_terms(acc, λ, f.a, t)

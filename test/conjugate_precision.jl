@@ -9,6 +9,7 @@ using Test
 using ProximalBase
 using ProximalBase: prox_entry
 using LinearAlgebra
+using JLArrays
 using ..TestUtils
 
 const PB = ProximalBase
@@ -485,6 +486,17 @@ end
     ref = big(γ) / (1 + big(γ))
     @test all(i -> relerr(y[i], ref) <= (γ < 1f-30 ? 1e-4 : 4 * eps(Float32)), 1:2)
   end
+  # a vector of one concrete type keeps the instance-level answer of its functions
+  fv = SliceSum([fi])
+  @test PB._data_of(fv) === Float64 && PB._data_of(SliceSum([Scaled(fi, 2.0)])) === Float64
+  for γ in (3f0, 1f-40), op in (prox!, value_and_prox!)
+    y = fill(7f0, 1, 1)
+    v = op(y, Conjugate(fv), zeros(Float32, 1, 1), γ)
+    y64 = fill(7f0, 1, 1)
+    v64 = op(y64, Conjugate(fv), zeros(Float32, 1, 1), Float64(γ))
+    @test relerr(y[1], -big(γ) / (1 + big(γ))) <= (γ < 1f-30 ? 1e-4 : 4 * eps(Float32))
+    @test y == y64 && isequal(v, v64)
+  end
   fa = SliceSum(QuadraticFunction[Q])
   @test_broken PB._data_of(fa) === Float64
   # the selector
@@ -504,6 +516,40 @@ end
   Q2 = QuadraticFunction([2.0 0.5; 0.5 1.0], [1.0, -1.0])
   @test allocs(prox!, y32, Conjugate(Q2), x32, 0.5f0) == 0
   @test allocs(value_and_prox!, y32, Conjugate(Q2), x32, 0.5f0) == 0
+end
+
+@testset "tuples beyond 32 blocks keep the data selector inferred and allocation free" begin
+  Q = QuadraticFunction(reshape([1.0], 1, 1), [1.0])
+  for n in (33, 40)
+    fs = ntuple(k -> iseven(k) ? SqrNormL2() : Translate(Scaled(Q, 2f0), [0.0]), n)
+    f = SeparableSum(fs...)
+    c = Conjugate(f)
+    x = ntuple(_ -> Float32[0], n)
+    y = ntuple(_ -> zeros(Float32, 1), n)
+    @test @inferred(PB._data_of(f)) === Float64
+    @test @inferred(PB._moreau_reciprocal(f, y, x, 3f0)) === inv(3.0)
+    @test allocs(prox!, y, c, x, 3f0) == 0
+    @test allocs(value_and_prox!, y, c, x, 3f0) == 0
+  end
+end
+
+@testset "device arrays: the lazy reciprocal converts each step before inverting" begin
+  # JLArrays dispatch to the extension of GPUArraysCore: Float64 argument and output, Float32 step array
+  c = Conjugate(ElasticNet(0.5, 2.0))
+  x = Float64[2, 3]
+  γ = Float32[3, 0.1]
+  refs = [ref_en(x[i], γ[i]) for i in 1:2]
+  for op in (prox!, value_and_prox!)
+    y = JLArray(zeros(2))
+    op(y, c, JLArray(x), JLArray(γ))
+    @test all(i -> relerr(Array(y)[i], refs[i]) <= 8 * eps(Float64), 1:2)
+    yh = zeros(2)
+    op(yh, c, x, γ)
+    @test Array(y) == yh
+    y64 = JLArray(zeros(2))
+    op(y64, c, JLArray(x), JLArray(Float64.(γ)))
+    @test Array(y64) == Array(y)
+  end
 end
 
 @testset "unchanged shortcuts" begin

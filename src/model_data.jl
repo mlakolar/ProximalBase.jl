@@ -10,10 +10,12 @@ _data_type(::Type) = Union{}
 # without a real element type (nothing, a function)
 _data_float(::Type{T}) where {T} = eltype(T) <: Real ? float(eltype(T)) : Union{}
 
+# promote_type with many arguments is not inferred beyond 32; as `_valtype`, fold pairwise
+_promote_fold(terms) = foldl((a, b) -> :(promote_type($a, $b)), terms[2:end]; init = terms[1])
 @generated function _data_types(::Type{F}) where {F<:Tuple}
   n = fieldcount(F)
   n == 0 && return :(Union{})
-  Expr(:call, :promote_type, (:(_data_type($(fieldtype(F, k)))) for k in 1:n)...)
+  _promote_fold([:(_data_type($(fieldtype(F, k)))) for k in 1:n])
 end
 
 # functions with data matrices and the vectors of their equations (T2)
@@ -53,7 +55,7 @@ _data_slices(::Type{F}) where {F<:Tuple} = _data_types(F)
 @generated function _data_union(::Type{E}) where {E}
   arms = Base.uniontypes(E)
   isempty(arms) && return :(Union{})
-  Expr(:call, :promote_type, (:(_data_type($t)) for t in arms)...)
+  _promote_fold([:(_data_type($t)) for t in arms])
 end
 _data_slices(::Type{F}) where {F<:AbstractVector} = _data_union(eltype(F))
 
@@ -75,10 +77,13 @@ _data_of(f::FiberSum) = promote_type(_data_of(f.f), _data_of(f.diagonal))
 @generated function _data_ofs(fs::Tuple)
   n = fieldcount(fs)
   n == 0 && return :(Union{})
-  Expr(:call, :promote_type, (:(_data_of(fs[$k])) for k in 1:n)...)
+  _promote_fold([:(_data_of(fs[$k])) for k in 1:n])
 end
 _data_of(f::Union{SeparableSum, Sum, PointwiseMinimum}) = _data_ofs(f.fs)
 _data_of(f::IndIntersection) = _data_ofs(f.sets)
 _data_of(f::SliceSum) = _data_slice_of(f.fs)
 _data_slice_of(fs::Tuple) = _data_ofs(fs)
-_data_slice_of(fs::AbstractVector) = _data_union(eltype(fs))
+# a vector of one concrete type: the instance of its first function says it (a SliceSum is not empty),
+# which keeps an operator whose element type exists only on the instance; a union of concrete types
+# takes the type-level answer of every arm
+_data_slice_of(fs::AbstractVector) = isconcretetype(eltype(fs)) ? _data_of(first(fs)) : _data_union(eltype(fs))

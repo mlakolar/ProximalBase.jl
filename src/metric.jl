@@ -480,10 +480,9 @@ function _prox_unchecked!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace
     g = _dot_normal(a, x) - _scaled_offset(f)
     f isa IndHalfspace && (g = max(g, zero(g)))
     t = _model_coefficient(y, g, _metric_sqnorm(f, x, γ))
-    # γᵢâᵢ in the coefficient's type, or the steps' if wider, so that a narrow product
-    # does not underflow before t multiplies it.
-    P = promote_type(typeof(t), float(eltype(γ)))
-    return y .= x .- t .* (P.(_checked_parameter(y, γ)) .* _checked_parameter(y, a))
+    # γᵢâᵢ in the coefficient's type, as for IndHyperslab.
+    T = typeof(t)
+    return y .= x .- t .* (T.(_checked_parameter(y, γ)) .* _checked_parameter(y, a))
   end
   g = _dot_normal(f.a, x) - f.b
   f isa IndHalfspace && (g = max(g, zero(g)))

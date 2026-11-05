@@ -1236,11 +1236,13 @@ function _prox_unchecked!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, :
 end
 _hyperslab_output!(y, x, a, t) = (y .= x .- t .* _checked_parameter(y, a))
 
-# The coefficient of the correction, (⟨a, x⟩ - b) over ‖a‖² or its metric version, in the
-# model precision: the output's type widened by the residual's, which already carries the
-# argument, the normal and the offset. A small coefficient whose correction is representable
-# is not rounded away before it multiplies the normal.
-@inline _model_coefficient(y, g, d) = convert(promote_type(float(eltype(y)), typeof(g)), g / d)
+# The coefficient of the correction, g / d with g = ⟨a, x⟩ - b and d = ‖a‖² or its metric
+# version, as for IndHyperslab, widened to the output's type when that is wider. It is
+# never rounded below the type of g / d or the output's.
+@inline function _model_coefficient(y, g, d)
+  t = g / d
+  convert(promote_type(float(eltype(y)), typeof(t)), t)
+end
 
 prox!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))

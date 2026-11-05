@@ -212,8 +212,9 @@ end
 end
 
 
-# The projection coefficient (⟨a, x⟩ - b) / ‖a‖² is kept in the model precision (T3):
-# rounding it to a narrow output first loses a representable correction (R2, R3).
+# The projection coefficient g / d, with g = ⟨a, x⟩ - b and d = ‖a‖² or Σ γᵢaᵢ², is not rounded
+# below the type of g / d or the output's: rounding it to a narrow output first loses a
+# representable correction (R2, R3). Inside that type it can still underflow (#631).
 function check_exact_projection(H, x, γ, expected)
   D = eltype(expected)
   if eltype(x) == D
@@ -233,7 +234,7 @@ function check_exact_projection(H, x, γ, expected)
 end
 
 @testset "projection coefficient precision" begin
-  @testset "coefficient below the output's range" begin
+  @testset "coefficient below a Float32 output's range" begin
     for F in (IndHyperplane, IndHalfspace), σ in (-1, 1),
         a in (σ * 2.0^100, [σ * 2.0^100]), γ in (1.0, 1f0, [1.0], Float32[1])
       H = F(a, 0)
@@ -261,7 +262,7 @@ end
     end
   end
 
-  @testset "coefficient above the output's range" begin
+  @testset "coefficient above a Float32 output's range" begin
     for F in (IndHyperplane, IndHalfspace), a in (2.0^-200, [2.0^-200]), γ in (1.0, [1.0], Float32[1])
       # The coefficient is 2^-200 / 2^-400 = 2^200, beyond Float32, and the correction
       # 2^200 · 2^-200 = 1 = x exactly; x violates the halfspace.
@@ -271,7 +272,8 @@ end
 
   @testset "scaled normal in a diagonal metric" begin
     # The normal is scaled by 2^-40 to (1, 2^-80). The second correction is
-    # t γ₂ â₂ = 2^80 · 2^-80 · 2^-80, while γ₂ â₂ = 2^-160 underflows in Float32.
+    # t γ₂ â₂ = 2^80 · 2^-80 · 2^-80. The Float64 argument makes the coefficient Float64,
+    # and γ₂ â₂ = 2^-160 is formed in that type; in Float32 it underflows (below).
     a = Float32[2.0^40, 2.0^-40]
     x = Float64[1, 0]
     γ = Float32[2.0^-80, 2.0^-80]
@@ -300,6 +302,9 @@ end
         @test abs(y[1] - expected[1]) <= eps(Float64) * norm(x)
       end
     end
+    # With a Float32 argument the coefficient and γ₂ â₂ are Float32, and γ₂ â₂ = 2^-160
+    # underflows although the correction -2^-80 is representable (#631).
+    @test_broken prox!(zeros(Float32, 2), IndHyperplane(a, 0f0), Float32[1, 0], γ) == Float32[0, -2.0^-80]
   end
 
   @testset "mixed argument and output precision" begin
@@ -310,6 +315,25 @@ end
       x = Float64[2.0^-125]
       check_exact_projection(H, x, γ, Float32[0])
       check_exact_projection(H, x, γ, [0.0])
+    end
+  end
+
+  @testset "integer normal" begin
+    for F in (IndHyperplane, IndHalfspace), γ in (1.0, 1f0, Float32[1], [1.0])
+      # The normal 2^62 is stored as an Int and the offset as Float64: ⟨a, x⟩ = 2^-38 > 0,
+      # which violates the halfspace, and ‖a‖² = 2^124. The coefficient 2^-162 is below
+      # Float32's range, and the correction 2^-162 · 2^62 = 2^-100 = x exactly.
+      check_exact_projection(F(1 << 62, 0), Float32[2.0^-100], γ, Float32[0])
+    end
+  end
+
+  @testset "Float64 steps with Float32 data" begin
+    for F in (IndHyperplane, IndHalfspace)
+      # ⟨a, x⟩ = 2^30 · 2^-130 = 2^-100 > 0 violates the halfspace. With the Float64 step,
+      # Σ γᵢaᵢ² = 2^60 is Float64 and the coefficient 2^-160 is below Float32's range
+      # but not Float64's; the correction 2^-160 · 2^30 = 2^-130 = x exactly (a Float32
+      # subnormal), so the projection is 0.
+      check_exact_projection(F(Float32[2.0^30], 0f0), Float32[2.0^-130], [1.0], Float32[0])
     end
   end
 

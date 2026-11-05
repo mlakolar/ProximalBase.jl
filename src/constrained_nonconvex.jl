@@ -58,56 +58,102 @@ Constrained(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, C::IndBox) =
   BoxConstrained(c.f, _intersect_boxes(c.box, C))
 Constrained(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, ::IndNonnegative) = Constrained(c, IndBox(0.0, Inf))
 
-Base.@propagate_inbounds function prox_entry(c::BoxConstrained{<:MCP}, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds prox_entry(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, v::Real, i::Integer, γ::Real) =
+  _box_entry(c, v, i, γ, Val(true))
+
+# fixed: whether a coordinate may be fixed by the parameters (see _box_fixes)
+Base.@propagate_inbounds function _box_entry(c::BoxConstrained{<:MCP}, v::T, i::Integer, γ::Real, ::Val{fixed}) where {T<:Real, fixed}
   S = float(T)
   f, s = c.f, convert(S, γ)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
-  s < f.a && return clamp(prox_entry(f, _box_fixed_nan(c, v, l, u), i, γ), l, u)
+  s < f.a && return clamp(prox_entry(f, fixed ? _box_fixed_nan(c, v, l, u) : v, i, γ), l, u)
   x, b = convert(S, v), convert(S, f.a) * convert(S, f.λ)
   # concave (linear for γ = a) between the kinks 0 and ±aλ, flat beyond, where
   # the vertex is x
-  ifelse(isnan(x), _box_nan_entry(c, x, l, u), _best_candidate(c, x, i, s, l, u, (b, -b, max(x, b), min(x, -b))))
+  _box_keep_nan(c, x, l, u, _best_candidate(c, x, i, s, l, u, (b, -b, max(x, b), min(x, -b))), Val(fixed))
 end
 
-Base.@propagate_inbounds function prox_entry(c::BoxConstrained{<:SCAD}, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function _box_entry(c::BoxConstrained{<:SCAD}, v::T, i::Integer, γ::Real, ::Val{fixed}) where {T<:Real, fixed}
   S = float(T)
   f, s = c.f, convert(S, γ)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
-  s < f.a - 1 && return clamp(prox_entry(f, _box_fixed_nan(c, v, l, u), i, γ), l, u)
+  s < f.a - 1 && return clamp(prox_entry(f, fixed ? _box_fixed_nan(c, v, l, u) : v, i, γ), l, u)
   x, λ = convert(S, v), convert(S, f.λ)
   b = convert(S, f.a) * λ
   # λ|t| up to λ, with the vertices x ∓ sλ; concave (or linear) between λ and aλ;
   # flat beyond aλ, with the vertex x
-  ifelse(isnan(x), _box_nan_entry(c, x, l, u),
-         _best_candidate(c, x, i, s, l, u,
-                         (λ, -λ, b, -b, clamp(x - s * λ, zero(S), λ), clamp(x + s * λ, -λ, zero(S)), max(x, b), min(x, -b))))
+  _box_keep_nan(c, x, l, u,
+                _best_candidate(c, x, i, s, l, u,
+                                (λ, -λ, b, -b, clamp(x - s * λ, zero(S), λ), clamp(x + s * λ, -λ, zero(S)), max(x, b), min(x, -b))),
+                Val(fixed))
 end
 
 # zero, when the box holds it, against the point of the box nearest to x, where
 # the penalty is λ
-Base.@propagate_inbounds function prox_entry(c::BoxConstrained{<:NormL0}, v::T, i::Integer, γ::Real) where {T<:Real}
+Base.@propagate_inbounds function _box_entry(c::BoxConstrained{<:NormL0}, v::T, i::Integer, γ::Real, ::Val{fixed}) where {T<:Real, fixed}
   S = float(T)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
   x = convert(S, v)
-  ifelse(isnan(x), _box_nan_entry(c, x, l, u), _best_candidate(c, x, i, convert(S, γ), l, u, (x,)))
+  _box_keep_nan(c, x, l, u, _best_candidate(c, x, i, convert(S, γ), l, u, (x,)), Val(fixed))
 end
 
 # A NaN entry (E2), after the maps that the parameters fix (E4): a box of one
 # point and an infinite level give the clamped zero at every entry, whatever
 # linear term a wrapper adds, so at NaN too. Otherwise the entry depends on x and
 # stays NaN, also at γ = Inf, where a tilted box can put the minimizer at a
-# corner; a zero level is the clamp, which keeps NaN. No comparison of the
-# objectives would keep it. The level is read as stored, not converted. Both
-# are selects, not branches, so that the ordinary loops keep their code.
+# corner; a zero level is the clamp, which keeps NaN. The level is read as
+# stored, not converted.
 @inline _box_constant(c::BoxConstrained, l, u) = (l == u) | isinf(c.f.λ)
-@inline _box_nan_entry(c::BoxConstrained, x::S, l::S, u::S) where {S} =
-  ifelse(_box_constant(c, l, u), clamp(zero(S), l, u), x)
+# On the nonconvex branch no comparison of the objectives keeps a NaN entry, so
+# a select does, which leaves the loop its code.
+@inline _box_keep_nan(c::BoxConstrained, x::S, l::S, u::S, best::S, ::Val{fixed}) where {S, fixed} =
+  ifelse(isnan(x), fixed ? ifelse(_box_constant(c, l, u), clamp(zero(S), l, u), x) : x, best)
 # On the convex branch (finite γ) the clamped proximal entry is NaN at a NaN
 # entry. Where the parameters fix the coordinate, it is taken at zero instead,
 # which gives the fixed value. The test of the level, which is the same for
 # every entry, comes first, so that the loop is split on it.
 @inline _box_fixed_nan(c::BoxConstrained, v, l, u) =
   isinf(c.f.λ) ? ifelse(isnan(v), zero(v), v) : ifelse(isnan(v) & (l == u), zero(v), v)
+
+# Whether the parameters may fix a coordinate of x: an infinite level, or a box
+# of one point after the conversion to the type of the entries, as _box_entry
+# sees it. Decided once per call for a box with scalar bounds, so that without
+# one the dense loop takes the arithmetic of finite entries alone. A box with
+# bounds per entry keeps the per-entry test, which costs no more than a pass
+# over its bounds would.
+_box_fixes(c::BoxConstrained, x::AbstractArray) =
+  isinf(c.f.λ) || convert(float(eltype(x)), c.box.l) == convert(float(eltype(x)), c.box.u)
+
+_prox_unchecked!(y::AbstractArray, c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, x::AbstractArray, γ::Real) =
+  (_checkwrite(prox!, c, y, x, γ); _box_prox_sep!(y, c, x, γ))
+_prox_unchecked!(y::AbstractArray, c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, x::AbstractArray, γ::AbstractArray) =
+  (_checkwrite(prox!, c, y, x, γ); _box_prox_sep!(y, c, x, γ))
+function _box_prox_sep!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ)
+  y isa Array && x isa Array && c.box.l isa Real && c.box.u isa Real && !_box_fixes(c, x) || return _prox_sep!(y, c, x, γ)
+  _checkparam(γ, x)
+  # with one step, the branch of _box_entry is decided once too. Each loop is a
+  # function of its own: in one body the compiler lost the vectorized code.
+  γ isa Real && _box_convex(c.f, convert(float(eltype(x)), γ)) ? _box_convex_loop!(y, c, x, γ) : _box_loop!(y, c, x, γ)
+end
+@noinline function _box_convex_loop!(y, c, x, γ)
+  T, S = eltype(y), float(eltype(x))
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
+    y[i] = convert(T, clamp(prox_entry(c.f, x[i], i, γ), l, u))
+  end
+  y
+end
+@noinline function _box_loop!(y, c, x, γ)
+  T = eltype(y)
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    y[i] = convert(T, _box_entry(c, x[i], i, _entry(γ, i), Val(false)))
+  end
+  y
+end
+# the convex branch of _box_entry, with the step s converted as there
+_box_convex(f::MCP, s) = s < f.a
+_box_convex(f::SCAD, s) = s < f.a - 1
+_box_convex(::NormL0, s) = false
 
 # the candidate with the smallest objective, each clamped to [l, u], with the
 # clamped zero and the finite ends of the interval; ties go toward zero, as in
@@ -159,7 +205,7 @@ end
 # level: the zero function ignores the NaN that the box still depends on.
 function _value_and_prox_box!(y, c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, x, γ)
   _checkwrite(value_and_prox!, c, y, x, γ)
-  _prox_sep!(y, c, x, γ)
+  _box_prox_sep!(y, c, x, γ)
   T = float(eltype(y))
   iszero(c.f.λ) ? convert(T, _value_unchecked(c, y)) : convert(T, _value_unchecked(c.f, y))
 end

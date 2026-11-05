@@ -16,6 +16,8 @@ proximal operator shrinks `x` towards zero: `max(1 - γλ/‖x‖, 0) x`. For th
 group lasso, a sum of such norms over groups of entries, use
 [`GroupNormL2`](@ref).
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
+With `λ = Inf` the value is `0` at the zero vector (also an empty one), `Inf` at any other
+argument without a NaN entry, and NaN at a NaN entry.
 """
 struct NormL2{T<:Real} <: AbstractFunction
   λ::T
@@ -35,7 +37,13 @@ function _weighted_norm2(λ::Real, x::AbstractArray)
   T = _valtype(x)
   iszero(λ) && return zero(T)
   _level_fits(T, λ) || return _converted_norm2(λ, x)
-  _norm2_value(convert(T, λ) * _norm2(x), convert(T, λ), x)
+  n = _norm2(x)
+  v = convert(T, λ) * n
+  isfinite(v) && return v
+  # An infinite level has the domain {0} (E4): 0 at the zero vector, where λ‖x‖ is Inf⋅0, Inf
+  # elsewhere and NaN at a NaN entry. The stored level decides: a finite level that converts
+  # without leaving the range is never infinite (R3).
+  isinf(λ) ? _weighted_value(v, n) : _norm2_value(v, convert(T, λ), x)
 end
 
 # Scale in the parameter's precision, without narrowing its level first.
@@ -309,6 +317,9 @@ level `τ`, `sign(xᵢ) min(|xᵢ|, τ)`: by Moreau's identity it is `x` minus t
 projection onto the ℓ1 ball of radius `γλ`, which takes O(n) expected time
 (Condat's algorithm).
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
+With `λ = Inf` the value is `0` at the zero vector (also an empty one), `Inf` at any other
+argument without a NaN entry and NaN at a NaN entry, and a positive step maps every argument,
+NaN entries included, to zero with the value `0`.
 """
 struct NormLinf{T<:Real} <: AbstractFunction
   λ::T
@@ -327,8 +338,12 @@ _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NormLinf, y::Abs
 
 function _weighted_normlinf(λ::Real, x::AbstractArray)
   T = _valtype(x)
-  _level_fits(T, λ) && return convert(T, λ) * norm(x, Inf)
-  _converted_normlinf(λ, x)
+  _level_fits(T, λ) || return _converted_normlinf(λ, x)
+  n = norm(x, Inf)
+  v = convert(T, λ) * n
+  # an infinite level: 0 at the zero vector (E4), decided by the stored level; a zero level
+  # keeps 0⋅Inf at an infinite entry
+  isnan(v) && isinf(λ) ? _weighted_value(v, n) : v
 end
 
 @noinline function _converted_normlinf(λ, x)
@@ -341,6 +356,12 @@ function value_and_prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Re
   x = _symmetric_argument(y, x)
   _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
+  # An infinite level at a positive step fixes every entry at zero, a NaN entry included (E4). The
+  # stored level decides, so a finite level whose product with γ overflows keeps its own path (R3).
+  if isinf(f.λ) && γ > 0
+    fill!(y, zero(eltype(y)))
+    return zero(T)
+  end
   c = _level_product(T, γ, f.λ)
   if norm(x, 1) <= c
     fill!(y, zero(eltype(y)))

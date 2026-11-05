@@ -101,7 +101,9 @@ Base.@propagate_inbounds Base.getindex(a::_ShiftedArray, i::Int) = a.g[i] + a.c[
 
 The function `α f(x)` for `α ≥ 0`, with the roles of `f`: its gradient is
 `α ∇f`, and its proximal operator `prox_{γαf}`, so that `0.5 * f` halves a loss
-and `(1/n) * f` averages one.
+and `(1/n) * f` averages one. An infinite factor gives the value `0` wherever `f` is `0`
+(an indicator inside its set, a norm at zero), including the value that `value_and_prox!`
+returns at its output.
 
 When `α f(x)` overflows or underflows although it is representable, the value
 is computed with the scale folded into the level for `NormL1`, `NormL1Nonneg`,
@@ -341,7 +343,10 @@ function _fold_level_step(f::ElasticNet, α)
 end
 
 # Retry exceptional products in the function's own units and domain.
-@noinline function _scaled_value_recover(f, α, x, r)
+# A NaN product at a value that is not NaN is Inf⋅0: an infinite factor where the function is 0,
+# which is 0 (an indicator inside its set, a norm at zero). A finite factor never gives it.
+@noinline function _scaled_value_recover(f, α, x, v, r)
+  isnan(r) && !isnan(v) && return zero(r)
   g = _fold_level(f, α)
   g === nothing ? r : convert(typeof(r), _value_unchecked(g, x))
 end
@@ -349,12 +354,15 @@ _scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
 # The value α v of the function f with the scale α at the unscaled value v.
 @inline function _scaled_value_by(f, α, x, v, recover_inner_small = true)
   r = _apply_scale(α, v)
-  if (!isfinite(r) && _scale_below_one(α)) || (_scaled_small(r) && !iszero(v)) ||
+  if (!isfinite(r) && (_scale_below_one(α) || (isnan(r) && !isnan(v)))) || (_scaled_small(r) && !iszero(v)) ||
      (recover_inner_small && _scaled_small(v) && _scale_above_one(α))
-    return _scaled_value_recover(f, α, x, r)
+    return _scaled_value_recover(f, α, x, v, r)
   end
   r
 end
+# α v with the stored factor α, for the routes that do not recover a product: an infinite factor
+# where the function is 0 gives 0
+@inline _scaled_product_value(α, v) = (r = α * v; isnan(r) && isinf(α) ? _weighted_value(r, v) : r)
 @inline _scaled_value(s, x, v, recover_inner_small = true) = _scaled_value_by(s.f, s.α, x, v, recover_inner_small)
 (s::Scaled)(x) =
   (_check_value_arrays(s, x); _value_checked(s, x))

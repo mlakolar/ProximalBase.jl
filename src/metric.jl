@@ -215,7 +215,7 @@ value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
   (_checkparams(s, x); _array_route(s, x, γ) ? _value_and_prox_chain!(y, s, x, γ) :
-   _value_at(s.α * _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)), y))
+   _value_at(_scaled_product_value(s.α, _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α))), y))
 
 # Whether an entry of an array step may leave the range in the product with the factors. A chain whose
 # factors have a product that is not a normal number takes the route below. A single factor does

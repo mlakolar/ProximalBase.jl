@@ -362,7 +362,8 @@ end
 function ProximalBase._weighted_normlinf(λ::Real, x::GPUArray)
   T = float(eltype(x))
   n = mapreduce(abs, max, x; init = zero(T))
-  _level_fits(T, λ) && return convert(T, λ) * n
+  # an infinite level: 0 at the zero vector (E4), decided by the stored level, as on the CPU
+  _level_fits(T, λ) && return (v = convert(T, λ) * n; isnan(v) && isinf(λ) ? _weighted_value(v, n) : v)
   R = promote_type(T, float(typeof(λ)))
   convert(T, convert(R, λ) * convert(R, n))
 end
@@ -374,6 +375,11 @@ function ProximalBase.value_and_prox!(y::GPUArray, f::NormLinf, x::GPUArray, γ:
   T = float(eltype(y))
   if iszero(f.λ)
     y === x || copyto!(y, x)
+    return zero(T)
+  end
+  # an infinite level at a positive step fixes every entry at zero, a NaN entry included (E4)
+  if isinf(f.λ) && γ > 0
+    fill!(y, zero(eltype(y)))
     return zero(T)
   end
   c = _level_product_device(T, γ, f.λ)

@@ -87,6 +87,11 @@ Every file is listed once in `tiers.toml`; full runs all of them, so the full ti
 exactly the files the old complete suite ran, plus the new files split out of them.
 `test/tier_selection.jl` checks this, the cumulative inclusion, and the CI risk rules.
 
+Files added since then sit with the files of the code they test. `infinite_level_values`
+(standard) holds the values of `NormL2`, `NormLinf`, `NuclearNorm` and `Scaled` with an infinite
+level or factor: family behaviour beside `norms` and `infinite_weights`, a few seconds of small
+cases, with no grid that would need the thorough tier.
+
 ## Measured times on GitHub
 
 End to end is from the run's creation to its last job (the gate); the test jobs run in

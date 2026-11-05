@@ -297,6 +297,34 @@ end
   end
 end
 
+# Scaled recovers α f(x) from the terms in parts when f(x) overflows or underflows (R1); a free
+# NaN entry (NormLq: also a free infinite one) contributes nothing there either.
+@testset "Scaled recovery past a free non-finite entry, $T" for T in (Float32, Float64)
+  big_ = T === Float64 ? (λ = 1e300, w = 1e10, α = 1e-20) : (λ = 1f30, w = 1f10, α = 1f-20)
+  small = T === Float64 ? (λ = 1e-300, w = 1e-30, α = 1e30) : (λ = 1f-30, w = 1f-30, α = 1f30)
+  for (λ, w2, α) in (big_, small), mk in ((λ, w) -> CappedL1(λ, one(T), w), (λ, w) -> NormLq(λ, T(0.5), w))
+    g = Scaled(mk(λ, T[0, w2]), α)
+    expected = g(T[0, 1])
+    @test isfinite(expected) && !iszero(expected)
+    @test expected ≈ T(big(λ) * big(w2) * big(α))
+    sexpected = g(SparseIterate(T[0, 1]))
+    @test sexpected ≈ expected
+    bad = g.f isa NormLq ? (T(NaN), T(Inf), T(-Inf)) : (T(NaN),)
+    for b in bad
+      @test g(T[b, 1]) === expected
+      @test g(SparseIterate(T[b, 1])) === sexpected
+    end
+    # a penalized NaN or infinite entry keeps its result
+    h = Scaled(mk(λ, T[1, w2]), α)
+    @test isnan(h(T[NaN, 1])) && isnan(h(SparseIterate(T[NaN, 1])))
+    if g.f isa NormLq
+      @test h(T[Inf, 1]) === T(Inf) && h(SparseIterate(T[Inf, 1])) === T(Inf)
+    else
+      @test h(T[Inf, 1]) === h(T[1, 1])
+    end
+  end
+end
+
 @testset "JLArrays, $T" for T in (Float32, Float64)
   allowscalar(false)
   x = T[NaN, 1]

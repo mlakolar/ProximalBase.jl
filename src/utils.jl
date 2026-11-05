@@ -573,6 +573,30 @@ function _pow2_weighted(::Type{R}, w, terms::Vararg{Tuple{Any, Int}, N}) where {
 end
 _pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_weighted(R, one(R), terms...)
 
+# exp(x) = m 2^j for a finite x: j = round(x/log 2) and x - j log 2 in two parts, the
+# high part with trailing zeros so that j·hi is exact (fdlibm). The error is that of exp on
+# [-log(2)/2, log(2)/2], about one ulp, where exp(x + log w) would carry the absolute error
+# of a large argument into the result. Beyond |x| > _exp_bound(T) the product with any
+# finite nonzero weight is out of the range (above) or rounds to zero (below), and j would
+# not be known to fit an Int: the result is (Inf, 0) or (0, 0) there, before any conversion.
+@inline _ln2_parts(::Type{Float64}) = (6.93147180369123816490e-01, 1.90821492927058770002e-10)
+@inline _ln2_parts(::Type{Float32}) = (6.9314575195f-01, 1.4286067653f-06)
+# 2^(emax + 2 + precision - emin): w exp(x) for x above it exceeds floatmax for every weight
+# w >= the smallest subnormal, and for x below its negative, rounds to zero for every
+# w <= floatmax
+@inline _exp_bound(::Type{T}) where {T<:AbstractFloat} =
+  T((exponent(floatmax(T)) + 2 + precision(T) - exponent(floatmin(T))) * 0.6931471805599453)
+@inline function _exp_split(x::T) where {T<:Union{Float32, Float64}}
+  isnan(x) && return x, 0
+  x > _exp_bound(T) && return T(Inf), 0
+  x < -_exp_bound(T) && return zero(T), 0
+  hi, lo = _ln2_parts(T)
+  j = round(x * T(1.4426950408889634))
+  exp((x - j * hi) - j * lo), unsafe_trunc(Int, j)
+end
+# other types: their own exp has no range limit to work around in practice
+@inline _exp_split(x::AbstractFloat) = frexp(exp(x))
+
 ####################################
 #
 #  Selection and projection onto the simplex
@@ -1231,7 +1255,8 @@ end
 
 A result cannot be certified or represented in the working precision (O6,
 case 3). Such a failure is distinct from invalid input and is not an
-`ArgumentError`. No function in this release raises `PrecisionError`.
+`ArgumentError`. In this release only [`quadratic_model`](@ref) and
+[`quadratic_model!`](@ref) of a [`GLMLoss`](@ref) raise it.
 """
 struct PrecisionError <: Exception
   msg::String

@@ -147,6 +147,1075 @@ end
   end
 end
 
+# The exact IRLS pair of one observation in BigFloat: the coefficient w max(exp(η), √eps)
+# and the working response η - (exp(η) - y)/max(exp(η), √eps), with the floor of the
+# working precision. It uses nothing of GLMLoss, whose own gradient is under recovery.
+function irls_reference(::Type{T}, η, w, y) where {T}
+  setprecision(BigFloat, 512) do
+    e = exp(big(η))
+    h = max(e, big(sqrt(eps(T))))
+    big(w) * h, big(η) - (e - big(y)) / h, big(w) * (e - big(y)), big(w) * h
+  end
+end
+
+# the unchanged ordinary computation of the model, as before the staged update
+function ordinary_model(f::GLMLoss{L, T}, β) where {L, T}
+  η = f.X * β
+  f.offset === nothing || (η .+= f.offset)
+  v, z = zeros(T, length(η)), zeros(T, length(η))
+  for i in eachindex(η)
+    w = f.weights === nothing ? one(T) : convert(T, f.weights[i])
+    iszero(w) && continue
+    d1 = convert(T, PB.deriv(f.loss, η[i], f.y[i]))
+    d2 = max(convert(T, PB.deriv2(f.loss, η[i], f.y[i])), sqrt(eps(T)))
+    v[i] = w * d2
+    z[i] = η[i] - d1 / d2
+  end
+  v, z
+end
+
+near(v, ref, k, T = typeof(v)) = abs(big(v) - ref) <= k * big(eps(abs(T(ref))))
+split_allocations(x) = (PB._exp_split(x); @allocated PB._exp_split(x))
+
+@testset "GLMLoss quadratic models at large Poisson predictors (#317)" begin
+  poisson(T, η, w, y) = PoissonLoss(T[y], ones(T, 1, 1); weights = T[w])
+
+  @testset "the pair, the gradient and the Hessian against exact references" begin
+    # (η, w, y), exceptional and ordinary; 710 with w = 1/8 has exp(710) > floatmax
+    for T in (Float64, Float32)
+      big_η = T === Float64 ? 710 : 89
+      cases = [(0, 1, 0), (0, 1, 3), (T === Float64 ? 700 : 88, 1, 0), (T === Float64 ? 700 : 88, 1, 2),
+               (big_η, 1 / 8, 0), (big_η, 1 / 8, 5), (big_η + 10, 2.0^-20, 0), (big_η, 2.0^-40, 3),
+               (-30, 1, 2), (T === Float64 ? -800 : -100, 1, 3 // 2)]
+      for (η, w, y) in cases
+        f = poisson(T, η, w, y)
+        q = quadratic_model(f, T[η])
+        v, z, g, H = irls_reference(T, T(η), T(w), T(y))
+        @test near(only(q.weights), v, 8, T)
+        @test only(q.y) ≈ z rtol = 20 * eps(T)
+        # the gradient of the model at the point is the gradient of f: w (exp(η) - y)
+        @test only(gradient(q, T[η])) ≈ g rtol = 1000 * eps(T)
+        # and its Hessian is the effective coefficient (X = 1)
+        @test near(only(hessian_vec(q, T[η], T[1])), H, 8, T)
+        @test isfinite(only(q.weights)) && isfinite(only(q.y))
+      end
+    end
+    # the working response of the issue
+    q = quadratic_model(poisson(Float64, 710, 1 / 8, 0), [710.0])
+    @test only(q.y) == 709
+    @test near(only(q.weights), exp(big(710)) / 8, 8)
+    # a deep recovery: w = 2^-1000 at η = 1400, exp(1400) ≈ 2^2019.7
+    q = quadratic_model(poisson(Float64, 1400, 2.0^-1000, 0), [1400.0])
+    @test near(only(q.weights), exp(big(1400)) * big(2)^-1000, 8)
+    @test only(q.y) == 1399
+  end
+
+  @testset "unrepresentable coefficients raise PrecisionError" begin
+    for (η, w) in ((710, 1.0), (710, 3.0), (800, 1.0), (700, 1e10), (1000, 1e-100), (1400, 2.0^-990))
+      f = poisson(Float64, η, w, 0)
+      @test_throws PrecisionError quadratic_model(f, [Float64(η)])
+      @test_throws ProximalBase.PrecisionError quadratic_model!(quadratic_model(f, [0.0]), f, [Float64(η)])
+    end
+    @test_throws PrecisionError quadratic_model(poisson(Float32, 89, 1, 0), Float32[89])
+    @test_throws PrecisionError quadratic_model(poisson(Float32, 100, 2.0^-10, 0), Float32[100])
+    e = try quadratic_model(poisson(Float64, 710, 1, 0), [710.0]); nothing catch e e end
+    @test e isa PrecisionError
+    @test occursin("observation 1", e.msg) && occursin("unchanged", e.msg)
+    # non-finite inputs propagate as before, they are not a range failure
+    @test quadratic_model(poisson(Float64, 0, 1, 0), [NaN]) isa GLMLoss
+    @test quadratic_model(poisson(Float64, 0, 1, 0), [Inf]) isa GLMLoss
+    fw = poisson(Float64, 0, 1, 0); fw.weights[1] = NaN
+    @test all(isnan, quadratic_model(fw, [0.0]).weights)
+    # a response y exp(-η) that leaves Float32 with a Float64 y is not dropped
+    f32 = GLMLoss(PB.Poisson(), [1e300], ones(Float32, 1, 1), [1e-10], nothing, zeros(Float32, 1), zeros(Float32, 1))
+    @test_throws PrecisionError quadratic_model(f32, Float32[110])
+    # a model that uses the buffers of the loss crosswise is refused before anything is written
+    fa = PoissonLoss([0.0, 1.0], ones(2, 1))
+    qa = GLMLoss(PB.Squared(), fa.d, fa.X, fa.η, nothing, zeros(2), zeros(2))
+    @test_throws ArgumentError quadratic_model!(qa, fa, [0.5])
+    # a coefficient that rounds to zero: the gradient w ℓ' would be lost
+    @test_throws PrecisionError quadratic_model(poisson(Float64, 0, 5e-324, 2), [-30.0])
+    @test_throws PrecisionError quadratic_model(LogisticLoss([1.0], ones(1, 1); weights = [5e-324]), [0.0])
+    # a subnormal coefficient is a coefficient
+    @test only(quadratic_model(poisson(Float64, 0, 5e-324, 2), [0.0]).weights) == 5e-324
+  end
+
+  @testset "the representability boundary" begin
+    for T in (Float64, Float32)
+      ηmax = T(log(big(floatmax(T))))
+      inside, outside = 0, 0
+      for η in (prevfloat(ηmax, 3), prevfloat(ηmax), ηmax, nextfloat(ηmax), nextfloat(ηmax, 3))
+        r = exp(big(η)) / floatmax(T)
+        abs(r - 1) < 64 * eps(T) && continue           # within the error of the computation
+        f = poisson(T, η, 1, 0)
+        if r < 1
+          inside += 1
+          q = quadratic_model(f, T[η])
+          @test near(only(q.weights), exp(big(η)), 8, T)
+        else
+          outside += 1
+          @test_throws PrecisionError quadratic_model(f, T[η])
+        end
+      end
+      @test inside >= 1 && outside >= 1
+      # weights scale the boundary
+      for k in (-3, 0, 3)
+        w = T(2)^k
+        η = T(ηmax + log(T(2)) * (-k) + T(0.5))        # w exp(η) ≈ √e floatmax
+        @test_throws PrecisionError quadratic_model(poisson(T, η, w, 0), T[η])
+        η = η - 1                                      # w exp(η) ≈ floatmax/√e
+        q = quadratic_model(poisson(T, η, w, 0), T[η])
+        @test near(only(q.weights), big(w) * exp(big(η)), 8, T)
+      end
+    end
+  end
+
+  @testset "zero weights" begin
+    f = PoissonLoss([0.0, 1.0], [1.0; 1.0;;]; weights = [0.0, 1.0])
+    q = quadratic_model(f, [710.0 - 700])             # η = 10: ordinary
+    @test q.weights[1] == 0 && q.y[1] == 0
+    # a zero-weight observation at an overflowing predictor takes no part
+    f = PoissonLoss([0.0, 1.0], [710.0 0.0; 0.0 1.0]; weights = [0.0, 1.0])
+    q = quadratic_model(f, [1.0, 0.0])
+    @test q.weights == [0.0, 1.0] && q.y == [0.0, -0.0 - (1.0 - 1.0) / 1.0]
+    q = quadratic_model(PoissonLoss([0.0], ones(1, 1); weights = [0.0]), [710.0])
+    @test q.weights == [0.0] && q.y == [0.0]
+  end
+
+  @testset "atomic updates" begin
+    allfields(a, b) = all(isequal(getfield(a, k), getfield(b, k)) for k in fieldnames(typeof(a)))
+    # failure at the last, the middle and the first of three observations
+    for (X, β0, β1, bad) in (([1.0 0.0; 0.5 0.5; 0.0 720.0], [0.0, 0.0], [1.0, 1.0], 3),
+                              ([1.0 0.0; 720.0 0.0; 0.0 1.0], [0.0, 0.0], [1.0, 0.5], 2),
+                              ([720.0 0.0; 1.0 0.0; 0.0 1.0], [0.0, 0.0], [1.0, 0.5], 1))
+      f = PoissonLoss([0.0, 1.0, 2.0], X; weights = [1.0, 0.5, 2.0], offset = [0.0, 0.1, 0.2])
+      q = quadratic_model(f, β0)
+      before = deepcopy(q)
+      y0, w0 = q.y, q.weights
+      e = try quadratic_model!(q, f, β1); nothing catch e e end
+      @test e isa PrecisionError
+      @test occursin("observation $bad", e.msg)
+      @test allfields(q, before)
+      @test q.y === y0 && q.weights === w0                      # the same arrays, the same contents
+      # a valid update afterwards is the model at that point
+      β2 = [0.4, 0.3]
+      @test quadratic_model!(q, f, β2) === q
+      q2 = quadratic_model(f, β2)
+      @test q.y == q2.y && q.weights == q2.weights
+      @test q.y === y0 && q.weights === w0
+      v, z = ordinary_model(f, β2)
+      @test q.y == z && q.weights == v
+    end
+    # the allocating call fails the same way
+    f = PoissonLoss([0.0, 0.0], reshape([1.0, 710.0], 2, 1))
+    @test_throws PrecisionError quadratic_model(f, [1.0])
+    # a failure after an earlier failure, then success, repeatedly
+    q = quadratic_model(f, [0.0])
+    for β in ([1.0], [0.0], [0.5], [1.0], [0.25])
+      before = deepcopy(q)
+      if β[1] == 1.0
+        @test_throws PrecisionError quadratic_model!(q, f, β)
+        @test allfields(q, before)
+      else
+        @test quadratic_model!(q, f, β) === q
+        @test q.weights == quadratic_model(f, β).weights
+      end
+    end
+  end
+
+  @testset "no change where nothing leaves the range" begin
+    Random.seed!(317)
+    n, p = 30, 4
+    X = randn(n, p)
+    β = randn(p) ./ 3
+    w = rand(n); w[3] = 0
+    o = randn(n) ./ 4
+    for T in (Float64, Float32)
+      X_, β_, w_, o_ = T.(X), T.(β), T.(w), T.(o)
+      for f in (LogisticLoss(T.(rand(0:1, n)), X_; weights = w_, offset = o_),
+                PoissonLoss(T.(rand(0:4, n)), X_; weights = w_, offset = o_),
+                PoissonLoss(T.(rand(0:4, n)), X_),
+                HuberLoss(T.(10 .* randn(n)), X_, T(0.1); weights = w_),
+                HuberLoss(T.(randn(n)), X_, T(0.5)))
+        q = quadratic_model(f, β_)
+        v, z = ordinary_model(f, β_)
+        @test q.weights == v && q.y == z                       # the same bits as the ordinary computation
+        @test quadratic_model!(q, f, 2 .* β_) === q
+        v, z = ordinary_model(f, 2 .* β_)
+        @test q.weights == v && q.y == z
+      end
+      # the model's gradient is exact where the Huber curvature is floored
+      fh = HuberLoss(T.(10 .* randn(n)), X_, T(0.1))
+      @test gradient(quadratic_model(fh, β_), β_) ≈ gradient(fh, β_) rtol = 100 * eps(T)
+    end
+    # Poisson at moderate and large predictors, an ordinary X, offsets: the model's gradient
+    f = PoissonLoss(rand(0:4, n), X; weights = w, offset = o)
+    for s in (0.0, 1.0, 100.0)
+      b = s .* sign.(β) .+ β .* (s == 0 ? 1 : 0)
+      η = X * b .+ o
+      maximum(η) < 700 || continue
+      g = X' * (w .* (exp.(η) .- f.y))
+      @test gradient(quadratic_model(f, b), b) ≈ g rtol = 1e-9
+    end
+  end
+end
+
+@testset "GLMLoss Poisson models: range recovery with exp(η) finite, the exponent bound, aliasing (#317)" begin
+  poisson(T, η, w, y) = PoissonLoss(T[y], ones(T, 1, 1); weights = T[w])
+  representable(T, η, w) = big(w) * exp(big(η)) < big(floatmax(T)) * (1 + big(2.0)^(-precision(T)))
+
+  @testset "exp(η) is finite and the response or the coefficient is not formed by the ordinary expressions" begin
+    for T in (Float64, Float32)
+      η = T === Float64 ? T(700) : T(88)
+      w = T === Float64 ? T(1e-306) : T(1e-36)
+      for y in (-floatmax(T), -floatmax(T) / 2, -floatmax(T) / 3, floatmax(T), T(5))
+        f = poisson(T, η, w, y)
+        v, z, g, H = irls_reference(T, η, w, y)
+        q = quadratic_model(f, T[η])
+        @test near(only(q.weights), v, 8, T)
+        @test only(q.y) ≈ z rtol = 20 * eps(T)
+        @test only(gradient(q, T[η])) ≈ g rtol = 1000 * eps(T)
+        @test near(only(hessian_vec(q, T[η], T[1])), H, 8, T)
+        # the ordinary expressions leave the range for a large negative y
+        y == -floatmax(T) && @test !isfinite(only(ordinary_model(f, T[η])[2]))
+      end
+    end
+    # η = 700, y = -floatmax, w = 1e-306 of the report
+    q = quadratic_model(poisson(Float64, 700, 1e-306, -floatmax(Float64)), [700.0])
+    @test isfinite(only(q.y)) && isfinite(only(q.weights))
+    v, z, g, H = irls_reference(Float64, 700.0, 1e-306, -floatmax(Float64))
+    @test only(q.y) ≈ z rtol = 1e-14
+    @test near(only(q.weights), v, 8)
+    # the effective-coefficient boundary w exp(η) = floatmax at η = 700, both sides
+    for T in (Float64, Float32)
+      η = T === Float64 ? T(700) : T(88)
+      wlim = big(floatmax(T)) / exp(big(η))
+      for (sgn, ok) in ((-1, true), (1, false))
+        w = T(wlim * (1 + sgn * big(10)^-6))
+        f = poisson(T, η, w, 0)
+        if ok
+          q = quadratic_model(f, T[η])
+          @test near(only(q.weights), big(w) * exp(big(η)), 8, T)
+          @test only(q.y) == η - 1
+        else
+          @test_throws PrecisionError quadratic_model(f, T[η])
+        end
+      end
+      # the response boundary at η = -1: z = η - 1 + y exp(1) leaves the range with |y|
+      ylim = big(floatmax(T)) / exp(big(1))
+      for s in (1, -1), (sgn, ok) in ((-1, true), (1, false))
+        y = T(s * ylim * (1 + sgn * big(10)^-6))
+        f = poisson(T, -1, 1, y)
+        if ok
+          q = quadratic_model(f, T[-1])
+          _, z, = irls_reference(T, T(-1), T(1), y)
+          @test only(q.y) ≈ z rtol = 20 * eps(T)
+        else
+          @test_throws PrecisionError quadratic_model(f, T[-1])
+        end
+      end
+    end
+    # bit patterns of the ordinary path: no recovery where the ordinary expressions are finite
+    for T in (Float64, Float32), η in (T(-30), T(-5), T(0), T(3), T(50)), y in (T(0), T(2.5), T(1e10), -T(1e10))
+      f = poisson(T, η, T(0.7), y)
+      v, z = ordinary_model(f, T[η])
+      q = quadratic_model(f, T[η])
+      @test only(q.weights) === only(v) && only(q.y) === only(z)
+    end
+  end
+
+  @testset "the exponent bound: no conversion of a huge exponent" begin
+    # the shared helper: exp(x) = m 2^j, Int exponent, nothing converted beyond the bound
+    @test PB._exp_split(1e20) == (Inf, 0) && PB._exp_split(-1e100) == (0.0, 0)
+    @test PB._exp_split(1f20) == (Inf32, 0) && PB._exp_split(-floatmax(Float32)) == (0f0, 0)
+    @test PB._exp_split(floatmax(Float64)) == (Inf, 0) && PB._exp_split(-floatmax(Float64)) == (0.0, 0)
+    @test PB._exp_split(Inf) == (Inf, 0) && PB._exp_split(-Inf) == (0.0, 0)
+    @test isnan(first(PB._exp_split(NaN))) && isnan(first(PB._exp_split(NaN32)))
+    for T in (Float64, Float32)
+      bound = PB._exp_bound(T)
+      @test @inferred(PB._exp_split(T(3))) isa Tuple{T, Int}
+      @test @inferred(PB._exp_split(T(1e30))) isa Tuple{T, Int}
+      @test split_allocations(T(710)) == 0
+      # beyond the bound no weight recovers the product: above it the smallest weight overflows,
+      # below it the largest weight rounds to zero (half the smallest subnormal)
+      @test big(nextfloat(zero(T))) * exp(big(bound)) > big(floatmax(T)) * (1 + big(2.0)^(-precision(T)))
+      @test big(floatmax(T)) * exp(-big(bound)) < big(nextfloat(zero(T))) / 2
+      @test PB._exp_split(nextfloat(bound)) == (T(Inf), 0) && PB._exp_split(-nextfloat(bound)) == (zero(T), 0)
+      # at the bound the exponent is small and the reduction is the usual one, within 2 ulp
+      for x in (bound, -bound, T(0), T(1), T(-1), T(0.5) * bound, T(-0.5) * bound, T(0.9) * bound, T(1e-5))
+        m, j = PB._exp_split(x)
+        @test abs(j) < 2^12
+        @test abs(big(m) * big(2.0)^j - exp(big(x))) <= 2 * big(eps(T)) * exp(big(x))
+      end
+    end
+    @test PB._exp_split(big(10.0)) == frexp(exp(big(10.0)))     # the fallback for another type
+    for (T, ηs) in ((Float64, (1e20, 1e100, 1e300, floatmax(Float64), 2000.0, 1456.0)),
+                    (Float32, (1f10, 1f20, 1f38, floatmax(Float32), 300f0, 194f0)))
+      for η in ηs, w in (one(T), nextfloat(zero(T)), floatmax(T))
+        f = poisson(T, η, w, 0)
+        @test_throws PrecisionError quadratic_model(f, T[η])
+        q = quadratic_model(f, T[0])
+        before = deepcopy(q)
+        @test_throws PrecisionError quadratic_model!(q, f, T[η])
+        @test q.y == before.y && q.weights == before.weights
+      end
+      # the smallest weight reaches the farthest: both sides of the boundary
+      wmin = nextfloat(zero(T))
+      for η in (T === Float64 ? (1453.0, 1454.0, 1455.0) : (190f0, 191f0, 192f0, 193f0))
+        f = poisson(T, η, wmin, 0)
+        if representable(T, η, wmin)
+          q = quadratic_model(f, T[η])
+          @test near(only(q.weights), big(wmin) * exp(big(η)), 8, T)
+          @test only(q.y) == η - 1
+        else
+          @test_throws PrecisionError quadratic_model(f, T[η])
+        end
+      end
+      # a very negative predictor floors, with no exponent to convert
+      for η in (T(-1e20), -floatmax(T))
+        q = quadratic_model(poisson(T, η, 1, 1), T[η])
+        @test only(q.weights) == sqrt(eps(T)) && isfinite(only(q.y))
+      end
+    end
+  end
+
+  @testset "a permitted non-finite observation does not hide an unrepresentable one" begin
+    allfields(a, b) = all(isequal(getfield(a, k), getfield(b, k)) for k in fieldnames(typeof(a)))
+    # observation 1 has a NaN response (propagates), observation 2 an unrepresentable coefficient
+    f = PoissonLoss([NaN, 0.0], reshape([1.0, 710.0], 2, 1))
+    q = quadratic_model(f, [0.0])
+    @test isnan(q.y[1]) && q.weights == [1.0, 1.0]
+    before = deepcopy(q)
+    e = try quadratic_model!(q, f, [1.0]); nothing catch e e end
+    @test e isa PrecisionError && occursin("observation 2", e.msg)
+    @test allfields(q, before)
+    @test quadratic_model!(q, f, [0.25]) === q
+    q2 = quadratic_model(f, [0.25])
+    @test isequal(q.y, q2.y) && q.weights == q2.weights
+    # non-finite data alone propagate, with no PrecisionError, in each of its forms
+    for f in (PoissonLoss([NaN, 0.0], ones(2, 1)), PoissonLoss([Inf, 0.0], ones(2, 1)), PoissonLoss([0.0, 1.0], [Inf; 1.0;;]))
+      q = quadratic_model(f, [0.5])
+      @test q isa GLMLoss && !(all(isfinite, q.y) && all(isfinite, q.weights))
+      @test quadratic_model!(q, f, [0.25]) === q
+    end
+    # a non-finite response at a predictor where exp overflows (or the coefficient is not representable):
+    # the data are not finite, so the update returns and the response is not finite; no PrecisionError,
+    # and the in-place update equals the allocating one
+    for T in (Float64, Float32), η in (T(89), T(710), T(1e4)), y in (T(NaN), T(Inf), T(-Inf)), w in (T(1), T(1 / 8))
+      f = PoissonLoss(T[y], ones(T, 1, 1); weights = T[w], offset = T[η])
+      q = quadratic_model(f, T[0])
+      @test !isfinite(q.y[1])
+      @test quadratic_model!(q, f, T[0]) === q
+      @test isequal(q.y, quadratic_model(f, T[0]).y) && isequal(q.weights, quadratic_model(f, T[0]).weights)
+    end
+    # zero weights: a zero-weight observation with a non-finite or overflowing predictor is zero, whatever its data
+    f = PoissonLoss([NaN, 0.0, 1.0], [1.0; 720.0; 1.0;;]; weights = [0.0, 0.0, 1.0])
+    q = quadratic_model(f, [1.0])
+    @test q.weights[1:2] == [0.0, 0.0] && q.y[1:2] == [0.0, 0.0] && isfinite(q.y[3]) && q.weights[3] == exp(1.0)
+    # all weights zero at any predictor
+    q = quadratic_model(PoissonLoss([0.0, 0.0], reshape([1.0, 1e20], 2, 1); weights = zeros(2)), [1.0])
+    @test q.weights == [0.0, 0.0] && q.y == [0.0, 0.0]
+  end
+
+  @testset "the exceptional cases of the report: coefficient, response, gradient and Hessian against BigFloat" begin
+    for (T, η, w, y) in ((Float64, 700, 1e-306, -floatmax(Float64)), (Float64, 710, 1 / 8, 0), (Float64, 1400, 2.0^-1000, 0),
+                         (Float64, 1400, 2.0^-1000, 3), (Float64, 1454, 5e-324, 0), (Float64, 710, 2.0^-40, 3),
+                         (Float32, 88, 1f-36, -floatmax(Float32)), (Float32, 89, 1 / 8, 0), (Float32, 190, 2f0^-149, 0))
+      f = poisson(T, η, w, y)
+      q = quadratic_model(f, T[η])
+      v, z, g, H = irls_reference(T, T(η), T(w), T(y))
+      @test near(only(q.weights), v, 8, T)
+      @test only(q.y) ≈ z rtol = 20 * eps(T)
+      @test only(gradient(q, T[η])) ≈ g rtol = 1000 * eps(T)
+      @test near(only(hessian_vec(q, T[η], T[1])), H, 8, T)
+    end
+    # unrepresentable: PrecisionError, never clamped
+    for (T, η, w) in ((Float64, 710, 1.0), (Float64, 1400, 2.0^-990), (Float32, 89, 1.0))
+      @test_throws PrecisionError quadratic_model(poisson(T, η, w, 0), T[η])
+    end
+    # the floor and underflow to zero: a coefficient that is subnormal is kept, one that rounds to zero is not
+    @test only(quadratic_model(poisson(Float64, -800, 1e-310, 1), [-800.0]).weights) == 1e-310 * sqrt(eps())
+    @test_throws PrecisionError quadratic_model(poisson(Float64, -800, 1e-320, 1), [-800.0])
+    # normal controls: Logistic and Huber agree with the ordinary computation bit for bit
+    n, p = 20, 3
+    X, β = randn(n, p), randn(p) ./ 3
+    for f in (LogisticLoss(rand(0:1, n), X), HuberLoss(10 .* randn(n), X, 0.1))
+      q = quadratic_model(f, β)
+      v, z = ordinary_model(f, β)
+      @test q.weights == v && q.y == z
+    end
+  end
+
+  @testset "below the floor: a response whose terms leave the range while their sum does not (review of #544)" begin
+    for T in (Float64, Float32)
+      h = sqrt(eps(T))
+      η = -floatmax(T)
+      # η + y/√eps with y/√eps above floatmax: the sum is representable (0.5 floatmax, 0.75 floatmax, 0, ...)
+      for c in (T(1.5), T(1.75), T(1), T(1.25), T(1.999))
+        y = c * (floatmax(T) * h)
+        f = poisson(T, η, 1, y)
+        q = quadratic_model(f, T[η])
+        v, z, = irls_reference(T, η, T(1), y)
+        @test isfinite(only(q.y)) && only(q.weights) == h
+        @test isapprox(only(q.y), T(z); atol = 4 * eps(T) * floatmax(T), rtol = 0)
+        # the in-place update, from a model at another response, gives the same pair
+        f2 = poisson(T, η, 1, T(0.5) * (floatmax(T) * h))
+        qq = quadratic_model(f2, T[η])
+        f2.y[1] = y
+        before_y = copy(qq.y)
+        @test quadratic_model!(qq, f2, T[η]) === qq
+        @test before_y != qq.y && only(qq.y) == only(q.y) && only(qq.weights) == only(q.weights)
+        c > 1 && @test only(ordinary_model(f, T[η])[2]) == T(Inf)       # the direct expression overflows
+      end
+      # the classification at the upper boundary is that of the exactly rounded sum, on both sides
+      let rng = MersenneTwister(544 + sizeof(T))
+        mism = 0
+        for _ in 1:3000
+          η = -floatmax(T) * (T(0.02) + T(0.9) * rand(rng, T))
+          # y so that η + y/√eps is within a few 1e-9 (Float32) or 1e-15 (Float64) of floatmax, either side
+          tgt = big(floatmax(T)) * (1 + (rand(rng) - 0.5) * 8 * big(eps(T)))
+          y = T((tgt - big(η)) * big(h))
+          ref = setprecision(BigFloat, 512) do
+            e = exp(big(η)); T(big(η) - (e - big(y)) / big(h))
+          end
+          f = poisson(T, η, 1, y)
+          got = try only(quadratic_model(f, T[η]).y) catch err; err end
+          ok = isfinite(ref) ? (got isa T && got == ref) : got isa PrecisionError
+          mism += !ok
+        end
+        @test mism == 0
+      end
+      # the sum itself does not fit: PrecisionError, and the model is unchanged
+      for c in (T(2.5), T(3))
+        y = c * (floatmax(T) * h)
+        f = poisson(T, η, 1, y)
+        q = quadratic_model(f, T[0])
+        before = deepcopy(q)
+        e = try quadratic_model!(q, f, T[η]); nothing catch e e end
+        @test e isa PrecisionError && occursin("observation 1", e.msg)
+        @test q.y == before.y && q.weights == before.weights
+        @test_throws PrecisionError quadratic_model(f, T[η])
+      end
+      # the negative side
+      y = -T(1.5) * (floatmax(T) * h)
+      @test_throws PrecisionError quadratic_model(poisson(T, η, 1, y), T[η])
+      # an ordinary finite pair below the floor is unchanged
+      f = poisson(T, -40, 1, 2)
+      @test quadratic_model(f, T[-40]).y == ordinary_model(f, T[-40])[2]
+    end
+    # an infinite or NaN predictor, response and weight still propagate
+    for bad in (-Inf, NaN)
+      q = quadratic_model(poisson(Float64, 0, 1, 1), [bad])
+      @test !isfinite(only(q.y))
+    end
+    for y in (Inf, NaN, -Inf)
+      @test !isfinite(only(quadratic_model(poisson(Float64, -floatmax(Float64), 1, y), [-floatmax(Float64)]).y))
+    end
+  end
+
+  @testset "a subnormal coefficient of the recovery is rounded once; no global BigFloat state (review of #544)" begin
+    exp_split = ProximalBase._exp_split
+    # the report: Float32 scratch, Float64 response out of Float32's range, so that the response is recovered
+    η, w, y = 2.2637296f0, 9.17786f-40, 3.7431058130238175e38
+    f = GLMLoss(ProximalBase.Poisson(), [y], ones(Float32, 1, 1), Float32[w], nothing, zeros(Float32, 1), zeros(Float32, 1))
+    m, j = exp_split(η)
+    ref = setprecision(BigFloat, 256) do; Float32(ldexp(big(w) * big(m), j)); end
+    @test only(quadratic_model(f, Float32[η]).weights) == ref
+    let rng = MersenneTwister(5440)
+      bad = 0
+      for _ in 1:600
+        # Float32 loss, Float64 response beyond floatmax(Float32): the response is recovered and finite where e^η > 1.1
+        T = Float32
+        ηT = T(0.2 + 5.8 * rand(rng)); wT = T(1.2e-38 * rand(rng) * 10.0^(-rand(rng) * 7))
+        iszero(wT) && continue
+        fT = GLMLoss(ProximalBase.Poisson(), [3.7e38], ones(T, 1, 1), T[wT], nothing, zeros(T, 1), zeros(T, 1))
+        mT, jT = exp_split(ηT)
+        refT = setprecision(BigFloat, 256) do; T(ldexp(big(wT) * big(mT), jT)); end
+        got = try only(quadratic_model(fT, T[ηT]).weights) catch err; err end
+        bad += !(refT == 0 ? got isa PrecisionError : got == refT)
+      end
+      @test bad == 0
+    end
+    # the floor response uses no BigFloat: the global precision is not touched, and nothing allocates
+    for ambient in (32, 64, 512)
+      setprecision(BigFloat, ambient) do
+        for T in (Float32, Float64)
+          η = -floatmax(T); y = T(1.5) * (floatmax(T) * sqrt(eps(T)))
+          f = poisson(T, η, 1, y)
+          b = T[η]
+          q = quadratic_model(f, b)
+          @test precision(BigFloat) == ambient
+          quadratic_model!(q, f, b)
+          @test (@allocated quadratic_model!(q, f, b)) == 0
+          @test isfinite(only(q.y))
+        end
+      end
+    end
+  end
+
+  @testset "Poisson coefficient w exp(η) at the overflow threshold: classification and correct rounding (round 7 of #544)" begin
+    # The coefficient of one observation with y = 0 (so the response η - 1 is always finite) is the correctly
+    # rounded w exp(η): finite (floatmax included) when w exp(η) < M = floatmax + ulp(floatmax)/2, and a
+    # PrecisionError, the model unchanged, when w exp(η) ≥ M. The references below are BigFloat at an explicit
+    # precision, written from this statement and nothing of the implementation.
+    bigprec(f, p) = setprecision(f, BigFloat, p)
+    threshold(::Type{T}, p) where {T} = bigprec(p) do; BigFloat(floatmax(T)) + BigFloat(eps(floatmax(T))) / 2; end
+    wexp_ref(::Type{T}, w, η, p) where {T} = bigprec(p) do; T(BigFloat(w) * exp(BigFloat(η))); end
+    one_obs(::Type{T}, w) where {T} = PoissonLoss(T[0], ones(T, 1, 1); weights = T[w])
+    outcome(f, ::Type{T}, η) where {T} = try only(quadratic_model(f, T[η]).weights) catch err; err end
+    allfields_equal(a, b) = all(isequal(getfield(a, k), getfield(b, k)) for k in fieldnames(typeof(a)))
+    # name, η, w, whether the coefficient is finite (as the references say)
+    named = [("A recovery, F32, finite", 154.59f0, 2.4788888f-29, true),
+             ("B recovery, F32, overflow", 93f0, 0.013882019f0, false),
+             ("C recovery, F64, finite", 719.0, 9.930773381465837e-5, true),
+             ("D recovery, F64, overflow", 710.0, 0.8046989017574928, false),
+             ("E ordinary, F64, overflow", nextfloat(2.0^-54), floatmax(Float64), false),
+             ("F ordinary, F64, finite", 2.0^-54, floatmax(Float64), true),
+             ("G ordinary, F32, overflow", nextfloat(2f0^-25), floatmax(Float32), false),
+             ("H ordinary, F32, finite", 2f0^-25, floatmax(Float32), true)]
+    near_lists = Dict{DataType, Vector{Any}}()          # filled by the sweep: (η, w, |w exp(η)/M - 1|)
+
+    @testset "the threshold M of the references" begin
+      # M is the midpoint of floatmax and 2^emax: 2^1024 (1 - 2^-54) and 2^128 (1 - 2^-25); it rounds to Inf, its predecessor does not
+      m64 = bigprec(256) do; big(2.0)^1024 * (1 - big(2.0)^-54); end
+      m32 = bigprec(256) do; big(2.0)^128 * (1 - big(2.0)^-25); end
+      @test threshold(Float64, 256) == m64
+      @test threshold(Float32, 256) == m32
+      for T in (Float32, Float64)
+        Mb = threshold(T, 256)
+        below = bigprec(256) do; prevfloat(Mb); end
+        inside = bigprec(256) do; BigFloat(floatmax(T)) * (1 + big(2.0)^-(precision(T) + 4)); end
+        @test isinf(T(Mb)) && T(below) === floatmax(T) && T(inside) === floatmax(T)
+      end
+    end
+
+    @testset "minimal regressions A-H: $(case[1])" for case in named
+      name, η, w, fin = case
+      T = typeof(η)
+      r1, r2 = wexp_ref(T, w, η, 1024), wexp_ref(T, w, η, 2048)
+      @test isequal(r1, r2)
+      @test isfinite(r1) == fin
+      f = one_obs(T, w)
+      q = quadratic_model(f, T[0])                      # a valid model, at η = 0
+      before = deepcopy(q)
+      if fin
+        m = quadratic_model(f, T[η])
+        @test only(m.weights) === r1 && isfinite(only(m.weights)) && isfinite(only(m.y))
+        @test only(m.y) == η - one(T)                   # η - ℓ'/ℓ'' = η - 1
+        @test quadratic_model!(q, f, T[η]) === q
+        @test only(q.weights) === r1 && isfinite(only(q.weights)) && isfinite(only(q.y))
+        @test isequal(q.y, m.y) && isequal(q.weights, m.weights)
+      else
+        @test_throws PrecisionError quadratic_model(f, T[η])
+        @test_throws PrecisionError quadratic_model!(q, f, T[η])
+        e1 = try quadratic_model(f, T[η]); nothing catch e e end
+        e2 = try quadratic_model!(q, f, T[η]); nothing catch e e end
+        for e in (e1, e2)
+          @test e isa PrecisionError && occursin("observation 1", sprint(showerror, e))
+        end
+        @test allfields_equal(q, before)
+        # a later valid update succeeds: at η = 0 the coefficient is w itself
+        @test quadratic_model!(q, f, T[0]) === q
+        @test only(q.weights) === w && only(q.y) == -one(T)
+        @test quadratic_model!(q, f, T[-1]) === q
+        @test isapprox(only(q.weights), T(wexp_ref(Float64, w, T(-1), 256)); rtol = 8 * eps(T))
+      end
+    end
+
+    @testset "a failure at position 1, 2 or 3 of three observations is atomic" begin
+      for (T, η, w) in ((Float64, 710.0, 0.8046989017574928), (Float32, 93f0, 0.013882019f0))   # D and B
+        @test !isfinite(wexp_ref(T, w, η, 1024))
+        for pos in 1:3
+          ws = T[w / 4, w / 16, w / 4]                    # the others are in the recovery range and representable
+          ws[pos] = w
+          f = PoissonLoss(zeros(T, 3), ones(T, 3, 1); weights = ws)
+          for k in setdiff(1:3, pos)
+            @test isfinite(wexp_ref(T, ws[k], η, 1024))
+          end
+          q = quadratic_model(f, T[0])
+          before = deepcopy(q)
+          y0, w0 = q.y, q.weights
+          @test_throws PrecisionError quadratic_model(f, T[η])
+          e1 = try quadratic_model(f, T[η]); nothing catch e e end
+          e2 = try quadratic_model!(q, f, T[η]); nothing catch e e end
+          for e in (e1, e2)
+            @test e isa PrecisionError && occursin("observation $pos", sprint(showerror, e))
+          end
+          @test allfields_equal(q, before)
+          @test q.y === y0 && q.weights === w0
+          β = T[0.3]
+          @test quadratic_model!(q, f, β) === q
+          q2 = quadratic_model(f, β)
+          @test isequal(q.y, q2.y) && isequal(q.weights, q2.weights) && q.y === y0 && q.weights === w0
+          @test all(isapprox.(q.weights, ws .* exp(T(0.3)); rtol = 8 * eps(T)))
+        end
+      end
+    end
+
+    @testset "boundary sweep, $T" for T in (Float32, Float64)
+      fm = floatmax(T)
+      ηexp = Float64(log(fm))                           # exp(η) overflows just above
+      bound = Float64(PB._exp_bound(T))
+      rng = MersenneTwister(317_544 + sizeof(T))
+      regions = ((:ordinary, 3000, () -> T(ηexp * (1 - 1e-4) * rand(rng))),
+                 (:above_exp, 2500, () -> T(ηexp + 20 * rand(rng))),
+                 (:large, 2500, () -> T(min(bound, ηexp + 20 + (bound - ηexp - 20) * rand(rng)))),
+                 (:tiny, 3000, () -> T((rand(rng, Bool) ? 1 : -1) * 2.0^(-20 - 40 * rand(rng)))))
+      st = Dict{Symbol, Int}()
+      bump(k) = (st[k] = get(st, k, 0) + 1; nothing)
+      failures = Any[]                                   # the first few, for the message
+      near = Any[]
+      f = one_obs(T, one(T))
+      q = quadratic_model(f, T[0])
+      t0 = time()
+      for (region, neta, gen) in regions, _ in 1:neta
+        η = gen()
+        # the weights around M/exp(η) and floatmax/exp(η), and some clearly below or beyond, with the exact class
+        ws, classes, dists, r1 = bigprec(1024) do
+          e = exp(BigFloat(η)); Mb = threshold(T, 1024); fmb = BigFloat(fm)
+          set = T[]
+          for b in (T(Mb / e), T(fmb / e))
+            (isfinite(b) && b > 0) || continue
+            down = up = b
+            push!(set, b)
+            for _ in 1:2
+              down = prevfloat(down); down > 0 && push!(set, down)
+              up = nextfloat(up); isfinite(up) && push!(set, up)
+            end
+          end
+          for x in (Mb / e * 1.0005, Mb / e * 1.01, fmb / e * 0.9995, fmb / e * 0.9985, fmb / e * 0.99)
+            b = T(x); (isfinite(b) && b > 0) && push!(set, b)
+          end
+          unique!(set)
+          Ps = [BigFloat(w) * e for w in set]
+          cls = map(Ps) do P
+            P < 0.999 * fmb && return :clearly_below
+            P <= fmb && return :below_floatmax
+            P < Mb && return :between_floatmax_and_M
+            P < Mb * (1 + big(2.0)^-24) && return :just_above_M
+            :beyond_M
+          end
+          set, cls, [Float64(abs(P / Mb - 1)) for P in Ps], [T(P) for P in Ps]
+        end
+        isempty(ws) && continue
+        r2 = bigprec(2048) do; e = exp(BigFloat(η)); [T(BigFloat(w) * e) for w in ws]; end
+        bump(:eta); bump(region)
+        β = T[η]
+        for (i, w) in enumerate(ws)
+          bump(:cases)
+          isequal(r1[i], r2[i]) || (bump(:reference_disagreements); continue)
+          ref, cl = r1[i], classes[i]
+          bump(cl); push!(near, (η, w, dists[i]))
+          f.weights[1] = w
+          got = outcome(f, T, η)
+          if (got isa T && isfinite(got)) != isfinite(ref) || (!isfinite(ref) && !(got isa PrecisionError))
+            bump(:classification_mismatches)
+            length(failures) < 5 && push!(failures, (T, η, w, ref, got))
+          elseif isfinite(ref)
+            # below 0.999 floatmax (with a margin of a few ulps) the first tier is accurate to a few ulps; above it, correctly rounded
+            if cl === :clearly_below && ref < 0.999 * fm * (1 + 64 * eps(T))
+              isapprox(got, ref; rtol = 8 * eps(T)) || (bump(:accuracy_mismatches); length(failures) < 5 && push!(failures, (T, η, w, ref, got)))
+            else
+              got === ref || (bump(:value_mismatches); length(failures) < 5 && push!(failures, (T, η, w, ref, got)))
+            end
+          end
+          if st[:cases] % 50 == 0                        # the same case through the in-place update
+            bump(:update_cases)
+            snap = deepcopy(q)
+            got2 = try (quadratic_model!(q, f, β) === q ? only(q.weights) : :not_the_same_object) catch err; err end
+            if got2 isa PrecisionError
+              allfields_equal(q, snap) || bump(:update_atomicity_failures)
+              got isa PrecisionError && occursin("observation 1", got.msg) && occursin("observation 1", got2.msg) || bump(:message_mismatches)
+            end
+            isequal(got, got2) || got isa PrecisionError && got2 isa PrecisionError || bump(:update_mismatches)
+          end
+        end
+      end
+      elapsed = time() - t0
+      sort!(near; by = last)
+      near_lists[T] = near
+      @info "sweep $T: $(st[:eta]) η, $(st[:cases]) weights ($(sort!(collect(st); by = first))), $(round(elapsed; digits = 1)) s" failures
+      @test get(st, :eta, 0) >= 10_000
+      for k in (:ordinary, :above_exp, :large, :tiny)
+        @test get(st, k, 0) >= 2000
+      end
+      for k in (:clearly_below, :below_floatmax, :between_floatmax_and_M, :just_above_M, :beyond_M)
+        @test get(st, k, 0) >= 100
+      end
+      @test get(st, :classification_mismatches, 0) == 0
+      @test get(st, :value_mismatches, 0) == 0
+      @test get(st, :accuracy_mismatches, 0) == 0
+      @test get(st, :reference_disagreements, 0) == 0
+      @test get(st, :update_cases, 0) >= 1000
+      @test get(st, :update_mismatches, 0) == 0
+      @test get(st, :update_atomicity_failures, 0) == 0
+      @test get(st, :message_mismatches, 0) == 0
+    end
+
+    @testset "the references are stable in the precision: the named cases and the sweep cases nearest to M" begin
+      for (name, η, w, _) in named
+        T = typeof(η)
+        r = [wexp_ref(T, w, η, p) for p in (512, 1024, 2048)]
+        @test isequal(r[1], r[2]) && isequal(r[2], r[3])
+      end
+      for T in (Float32, Float64)
+        @test length(near_lists[T]) >= 10_000
+        nearest = near_lists[T][1:200]
+        @test last(nearest[end]) < 1e-3
+        bad = count(nearest) do (η, w, _)
+          r = [wexp_ref(T, w, η, p) for p in (512, 1024, 2048)]
+          !(isequal(r[1], r[2]) && isequal(r[2], r[3]))
+        end
+        @test bad == 0
+      end
+    end
+
+    @testset "the result does not depend on the ambient BigFloat precision" begin
+      for p in (8, 64, 4096)
+        setprecision(BigFloat, p) do
+          for (name, η, w, fin) in named
+            T = typeof(η)
+            expected = fin ? wexp_ref(T, w, η, 1024) : PrecisionError
+            f = one_obs(T, w)
+            got = outcome(f, T, η)
+            @test fin ? got === expected : got isa PrecisionError
+            @test precision(BigFloat) == p
+            q = quadratic_model(f, T[0])
+            got2 = try quadratic_model!(q, f, T[η]); only(q.weights) catch err; err end
+            @test fin ? got2 === expected : got2 isa PrecisionError
+            @test precision(BigFloat) == p
+          end
+        end
+      end
+    end
+
+    @testset "concurrent tasks: certified results with an unusual ambient precision seen by every task" begin
+      # the cases A-D and the nearest-to-M cases of the sweep, with their sequential results
+      cases = Tuple{DataType, Any, Any}[(typeof(η), η, w) for (_, η, w, _) in named[1:4]]
+      for T in (Float64, Float32), (η, w, _) in near_lists[T][1:12]
+        push!(cases, (T, η, w))
+      end
+      expected = [outcome(one_obs(T, w), T, η) for (T, η, w) in cases]
+      @test count(x -> x isa PrecisionError, expected) >= 4 && count(x -> x isa PrecisionError, expected) < length(expected)
+      # the sequential results are the correctly classified, correctly rounded values
+      for (i, (T, η, w)) in enumerate(cases)
+        r = wexp_ref(T, w, η, 1024)
+        @test isfinite(r) ? expected[i] === r : expected[i] isa PrecisionError
+      end
+      prior = precision(BigFloat)
+      third77 = bigprec(77) do; BigFloat(1) / 3; end
+      third53 = bigprec(53) do; BigFloat(1) / 3; end
+      @test third77 != third53                                             # the observer can tell 77 bits from 53
+      wrong, bad_prec, bad_third, seen, done = (Threads.Atomic{Int}(0) for _ in 1:5)
+      try
+        setprecision(BigFloat, 77)
+        observers = [Threads.@spawn begin
+          while done[] == 0
+            Threads.atomic_add!(seen, 1)
+            precision(BigFloat(1)) == 77 || Threads.atomic_add!(bad_prec, 1)
+            BigFloat(1) / 3 == third77 || Threads.atomic_add!(bad_third, 1)
+            yield()
+          end
+        end for _ in 1:2]
+        workers = [Threads.@spawn begin
+          for _ in 1:10, (i, (T, η, w)) in enumerate(cases)
+            f = one_obs(T, w)                              # each task has its own loss and model
+            isequal(outcome(f, T, η), expected[i]) || Threads.atomic_add!(wrong, 1)
+            q = quadratic_model(f, T[0])
+            got = try quadratic_model!(q, f, T[η]); only(q.weights) catch err; err end
+            isequal(got, expected[i]) || Threads.atomic_add!(wrong, 1)
+            yield()
+          end
+        end for _ in 1:8]
+        foreach(wait, workers)
+        Threads.atomic_xchg!(done, 1)
+        foreach(wait, observers)
+      finally
+        setprecision(BigFloat, prior)
+      end
+      @test precision(BigFloat) == prior
+      @test seen[] > 0 && wrong[] == 0 && bad_prec[] == 0 && bad_third[] == 0
+    end
+
+    @testset "audit: the subnormal coefficient, explicit cases below, at and above floatmin, the smallest subnormal, underflow to zero" begin
+      # Near floatmin the contract is the single rounding of the product of the weight and the reduced exponential
+      # m 2^j (the library's own exponential, a few ulps from exp(η)): the references round w m 2^j once, from BigFloat.
+      # Float32 loss with a Float64 response beyond floatmax(Float32): e^η > 1.1 recovers the response and the coefficient.
+      T = Float32
+      recovered(w) = GLMLoss(ProximalBase.Poisson(), [3.7e38], ones(T, 1, 1), T[w], nothing, zeros(T, 1), zeros(T, 1))
+      seen = Dict{Symbol, Int}()
+      bad = 0
+      for η in T.(range(0.2, 6; length = 60))
+        m, j = PB._exp_split(η)
+        P1(w) = bigprec(512) do; ldexp(BigFloat(w) * BigFloat(m), j); end
+        w0 = bigprec(512) do; T(BigFloat(floatmin(T)) / (BigFloat(m) * big(2.0)^j)); end
+        ws = T[nextfloat(zero(T)), T(2) * nextfloat(zero(T)), T(3) * nextfloat(zero(T))]
+        for k in -3:3
+          w = w0; for _ in 1:abs(k); w = k < 0 ? prevfloat(w) : nextfloat(w); end
+          push!(ws, w)
+        end
+        for w in ws
+          iszero(w) && continue
+          P = P1(w)
+          ref = bigprec(512) do; T(P); end
+          cl = ref == nextfloat(zero(T)) ? :smallest_subnormal : ref == floatmin(T) ? (P < floatmin(T) ? :rounds_up_to_floatmin : :at_floatmin) :
+               ref < floatmin(T) ? :subnormal : :above_floatmin
+          seen[cl] = get(seen, cl, 0) + 1
+          got = outcome(recovered(w), T, η)
+          bad += !(got === ref)
+        end
+      end
+      @test bad == 0
+      for k in (:smallest_subnormal, :rounds_up_to_floatmin, :at_floatmin, :subnormal, :above_floatmin)
+        @test get(seen, k, 0) >= 1
+      end
+      # the ordinary path, both types: the product w exp(η) is rounded once, and a product that rounds to zero is a PrecisionError
+      for T in (Float32, Float64), η in T[-0.5, -1, -3, -6], w in (nextfloat(zero(T)), T(3) * nextfloat(zero(T)), floatmin(T) / 4, floatmin(T))
+        ref = bigprec(512) do; T(BigFloat(w) * BigFloat(exp(η))); end
+        got = outcome(one_obs(T, w), T, η)
+        @test iszero(ref) ? got isa PrecisionError : got === ref
+      end
+      @test iszero(wexp_ref(Float32, nextfloat(0f0), -1f0, 512)) && iszero(wexp_ref(Float64, nextfloat(0.0), -1.0, 512))
+      @test wexp_ref(Float32, nextfloat(0f0), -0.5f0, 512) === nextfloat(0f0)
+    end
+  end
+
+  @testset "the floor response: mixed precision at the overflow midpoint, no NaN, the floatmin boundary of the coefficient (review of #544)" begin
+    ref_sum(T, η, e, y, h) = setprecision(BigFloat, 512) do
+      T(big(η) - (big(e) - big(y)) / big(h))
+    end
+    # the reports: a Float64 response with Float32 scratch whose exact response lies 2^-55 below the overflow midpoint
+    let η = -7.440598f35, y = 1.1774515996114581e35
+      f = GLMLoss(ProximalBase.Poisson(), [y], ones(Float32, 1, 1), nothing, nothing, zeros(Float32, 1), zeros(Float32, 1))
+      @test only(quadratic_model(f, Float32[η]).y) == floatmax(Float32)
+      q = quadratic_model(f, Float32[0]); @test only(quadratic_model!(q, f, Float32[η]).y) == floatmax(Float32)
+    end
+    # sweeps of the boundary and of the overflow midpoint floatmax(1 + 2^-p), same type and mixed
+    for (T, Y) in ((Float32, Float32), (Float32, Float64), (Float64, Float64))
+      h = sqrt(eps(T))
+      rng = MersenneTwister(5441 + sizeof(T) + 7 * sizeof(Y))
+      mism = 0
+      for k in 1:4000
+        η = -floatmax(T) * (T(0.02) + T(0.9) * rand(rng, T))
+        centre = isodd(k) ? big(floatmax(T)) : big(floatmax(T)) * (1 + big(2.0)^-precision(T))   # boundary, midpoint
+        width = k % 4 < 2 ? 8 * big(eps(T)) : 1e-14 * big(1.0)                                    # near, and very near
+        tgt = centre * (1 + (rand(rng) - 0.5) * width)
+        y = Y((tgt - big(η)) * big(h))
+        f = GLMLoss(ProximalBase.Poisson(), [y], ones(T, 1, 1), nothing, nothing, zeros(T, 1), zeros(T, 1))
+        ref = ref_sum(T, η, exp(big(η)), y, h)
+        got = try only(quadratic_model(f, T[η]).y) catch err; err end
+        mism += !(isfinite(ref) ? (got isa T && got == ref) : got isa PrecisionError)
+      end
+      @test mism == 0
+    end
+    # no NaN from finite input, any sign, magnitude and precision; Inf exactly where the sum overflows
+    for T in (Float32, Float64, Float16)
+      h = sqrt(eps(T)); fm = floatmax(T)
+      for η in (-fm, -fm / 2, T(-3), zero(T), T(1), fm / 2, fm), c in (0, 0.25, 1, 1.5, 2.5, 3, 5), sg in (1, -1), e in (zero(T), h / 2, h)
+        y = T(sg) * T(c) * (fm * h)
+        z = ProximalBase._floored_response(η, e, y, h)
+        @test !isnan(z)
+        if T != Float16 && isfinite(y)
+          ref = ref_sum(T, η, e, y, h)
+          @test isfinite(z) == isfinite(ref)
+          isfinite(ref) && @test abs(big(z) - big(ref)) <= 4 * eps(T) * big(fm)
+        end
+      end
+    end
+    # a response that is not a float is converted to the working float type first, as e - y is (numerics T3):
+    # the model equals that of the converted response, for integers and rationals, in both API calls
+    for (η, y0) in ((-1.8697808f38, Int128(182045609535131808700852906315186176)),
+                    (-2.3926112f38, Int128(200097226578706225858804805414092800)), (-3.0f0, Int128(10)^30))
+      for y in (y0, y0 // Int128(1), Int64(7))
+        f = PoissonLoss([y], ones(Float32, 1, 1)); fc = PoissonLoss([Float32(y)], ones(Float32, 1, 1))
+        get(f) = try only(quadratic_model(f, Float32[η]).y) catch err; nameof(typeof(err)) end
+        @test isequal(get(f), get(fc))
+        # the in-place update: the same value or the same error, and the model unchanged on an error
+        upd(f) = (q = quadratic_model(f, Float32[0]); before = deepcopy(q);
+                  r = try only(quadratic_model!(q, f, Float32[η]).y) catch err; nameof(typeof(err)) end;
+                  r isa Symbol && @test all(isequal(getfield(q, k), getfield(before, k)) for k in fieldnames(typeof(q)));
+                  r)
+        @test isequal(upd(f), upd(fc)) && isequal(upd(f), get(f))
+      end
+    end
+    # a BigFloat response is computed at the current BigFloat precision and delivered in the loss's type
+    # The response is z = η + (y - e)/h at η = -floatmax/3 (so e = exp(η) = 0 and the curvature is the floor h = √eps),
+    # with y = c floatmax h formed in BigFloat, where it is finite: y/h = c floatmax does not fit in T, but
+    # z = (c - 1/3) floatmax does for c = 1.2 (z = 0.867 floatmax, a cancelling pair) and does not for c = 1.4
+    # (z = 1.067 floatmax: PrecisionError). The reference is the definition at the current precision: the
+    # BigFloat arithmetic of the expression at the precision `prec`, delivered in T (numerics T7). It equals the
+    # 1024-bit value for these data (asserted, so that the reference does not depend on the rounding of the steps).
+    for T in (Float32, Float64), prec in (64, 128, 256)
+      setprecision(BigFloat, prec) do
+        h = sqrt(eps(T)); M = floatmax(T); η = -M / 3; e = exp(η)
+        for (c, fits) in ((1.2, true), (1.4, false))
+          y = BigFloat(c) * BigFloat(M) * BigFloat(h)
+          @test isfinite(y) && precision(y) == prec
+          @test !isfinite(T(y / h))                                     # the term y/h alone does not fit
+          ref = T(η + (y - e) / h)
+          ref1024 = setprecision(BigFloat, 1024) do; T(η + (y - e) / h); end
+          @test isequal(ref, ref1024) && isfinite(ref) == fits
+          f = GLMLoss(ProximalBase.Poisson(), [y], ones(T, 1, 1), nothing, nothing, zeros(T, 1), zeros(T, 1))
+          q = quadratic_model(f, T[0]); before = deepcopy(q)            # a valid model, at η = 0
+          if fits
+            m = quadratic_model(f, T[η])
+            @test only(m.y) === ref && only(m.weights) === h            # the floor h: e = 0
+            @test quadratic_model!(q, f, T[η]) === q
+            @test only(q.y) === ref && only(q.weights) === h
+          else
+            @test_throws PrecisionError quadratic_model(f, T[η])
+            @test_throws PrecisionError quadratic_model!(q, f, T[η])
+            @test all(isequal(getfield(q, k), getfield(before, k)) for k in fieldnames(typeof(q)))
+          end
+          @test precision(BigFloat) == prec
+        end
+      end
+    end
+    # the coefficient at the floatmin boundary is rounded once as well (the reported case, and a grid)
+    let η = 1.105095f0, w = 3.892995f-39, exp_split = ProximalBase._exp_split
+      f = GLMLoss(ProximalBase.Poisson(), [1.1 * Float64(floatmax(Float32))], ones(Float32, 1, 1), Float32[w], nothing, zeros(Float32, 1), zeros(Float32, 1))
+      m, j = exp_split(η)
+      ref = setprecision(BigFloat, 512) do; Float32(ldexp(big(w) * big(m), j)); end
+      @test only(quadratic_model(f, Float32[η]).weights) === ref
+      rng = MersenneTwister(5442); bad = 0
+      for _ in 1:3000
+        ηT = Float32(0.2 + 5.8 * rand(rng))
+        wT = Float32(floatmin(Float32) / exp(ηT) * (1 + (rand(rng) - 0.5) * 1e-5))
+        fT = GLMLoss(ProximalBase.Poisson(), [3.7e38], ones(Float32, 1, 1), Float32[wT], nothing, zeros(Float32, 1), zeros(Float32, 1))
+        mT, jT = exp_split(ηT)
+        refT = setprecision(BigFloat, 512) do; Float32(ldexp(big(wT) * big(mT), jT)); end
+        bad += only(quadratic_model(fT, Float32[ηT]).weights) !== refT
+      end
+      @test bad == 0
+    end
+  end
+
+  @testset "non-finite data: the ordinary response, offsets of allocating models, allocation (review of #544)" begin
+    # a non-finite weight alone leaves the response of the ordinary computation (bit for bit)
+    for T in (Float32, Float64), bad in (T(NaN), T(Inf)), η in (T(1e-8), T(1), T(-3), T(30))
+      f = PoissonLoss(T[1], ones(T, 1, 1); weights = T[1])
+      f.weights[1] = bad
+      q = quadratic_model(f, T[η])
+      @test isequal(q.y, ordinary_model(f, T[η])[2])
+      @test !isfinite(only(q.weights))
+      @test isequal(quadratic_model!(q, f, T[η]).y, ordinary_model(f, T[η])[2])
+    end
+    # an overflowing predictor with a non-finite weight: no recovery, as before
+    for T in (Float32, Float64), bad in (T(NaN), T(Inf))
+      f = PoissonLoss(T[1], ones(T, 1, 1); weights = T[1])
+      f.weights[1] = bad
+      η = T === Float64 ? T(710) : T(89)
+      @test !isfinite(only(quadratic_model(f, T[η]).y))
+    end
+    # an offset made non-finite after the construction: the update of a model propagates it,
+    # the allocating call revalidates the offset (documented)
+    for T in (Float32, Float64), bad in (T(NaN), T(Inf), -T(Inf))
+      f = PoissonLoss(T[0], ones(T, 1, 1); offset = T[0])
+      q = quadratic_model(f, T[0])
+      f.offset[1] = bad
+      @test quadratic_model!(q, f, T[0]) === q
+      @test !isfinite(only(q.y)) || !isfinite(only(q.weights))
+      @test_throws ArgumentError quadratic_model(f, T[0])
+    end
+    # allocation: none for finite data (also at a large predictor), and a successful update with a
+    # non-finite observation checks the staged values in a new vector (documented)
+    alloc(f, q, b) = (quadratic_model!(q, f, b); @allocated quadratic_model!(q, f, b))
+    for n in (1, 10, 100)
+      f = PoissonLoss(zeros(n), ones(n, 1))
+      q = quadratic_model(f, [0.0])
+      @test alloc(f, q, [0.0]) == 0
+      fr = PoissonLoss(zeros(n), ones(n, 1); weights = fill(1 / 8, n))     # recovery at η = 710
+      qr = quadratic_model(fr, [710.0])
+      @test alloc(fr, qr, [710.0]) == 0 && only(unique(qr.y)) == 709.0
+      f.y[1] = NaN
+      @test quadratic_model!(q, f, [0.0]) === q
+      @test alloc(f, q, [0.0]) > 0
+    end
+  end
+
+  @testset "known limitation: the working response cannot carry l'/l'' at a predictor of 1e30" begin
+    # at η = -1e30 the pair (v, z) = (w √eps, η + y/√eps) rounds η - z to 0: the model's gradient is 0, not w(exp(η) - y);
+    # the same before this change (a separate numerical-contract issue)
+    f = PoissonLoss([1.0], ones(1, 1))
+    @test only(gradient(f, [-1e10])) == -1
+    @test only(gradient(quadratic_model(f, [-1e10]), [-1e10])) ≈ -1
+    @test_broken only(gradient(quadratic_model(f, [-1e30]), [-1e30])) ≈ -1
+  end
+
+  @testset "the arrays of the model are not the buffers of the loss" begin
+    allfields(a, b) = all(isequal(getfield(a, k), getfield(b, k)) for k in fieldnames(typeof(a)))
+    X = [1.0 0.0; 720.0 0.0; 0.0 1.0]               # the update at β = (1, 0.5) fails at observation 2
+    for (yb, wb) in ((:η, :own), (:d, :own), (:own, :η), (:own, :d), (:η, :d), (:d, :η))
+      f = PoissonLoss([0.0, 1.0, 2.0], X)
+      pick(b) = b === :η ? f.η : b === :d ? f.d : zeros(3)
+      y, w = pick(yb), pick(wb)
+      fill!(y, -3.0); fill!(w, 4.0)                      # sentinels: the update would overwrite them
+      q = GLMLoss(PB.Squared(), y, X; weights = w)
+      @test q.y === y && q.weights === w
+      before = deepcopy(q)
+      e = try quadratic_model!(q, f, [1.0, 0.5]); nothing catch e e end
+      @test e isa ArgumentError                          # refused up front, not a PrecisionError or a corrupted model
+      @test allfields(q, before)
+      @test q.y === y && q.weights === w
+      @test all(==(-3.0), q.y) && all(==(4.0), q.weights)
+    end
+    # the two arrays of the model are one, or one of them is an array of the loss's data: refused up front,
+    # and neither the loss nor the model changes
+    f = PoissonLoss([0.0, 1.0, 2.0], X; weights = [1.0, 0.5, 2.0], offset = [0.0, 0.1, 0.2])
+    shared = fill(2.0, 3)
+    for (name, yq, wq) in (("q.y === q.weights", shared, shared), ("q.y === f.y", f.y, zeros(3)),
+                           ("q.weights === f.y", zeros(3), f.y), ("q.y === f.weights", f.weights, zeros(3)),
+                           ("q.weights === f.weights", zeros(3), f.weights), ("q.y === f.offset", f.offset, zeros(3)),
+                           ("q.weights === f.offset", zeros(3), f.offset))
+      q = GLMLoss(PB.Squared(), yq, X; weights = wq, offset = f.offset)
+      @test q.X === f.X && q.offset === f.offset
+      qbefore = deepcopy(q)
+      fdata = (copy(f.y), copy(f.weights), copy(f.offset))
+      e = try quadratic_model!(q, f, [0.4, 0.3]); nothing catch e e end
+      @test e isa ArgumentError
+      @test allfields(q, qbefore)
+      @test (f.y, f.weights, f.offset) == fdata
+    end
+    # a model with its own arrays is unaffected
+    f = PoissonLoss([0.0, 1.0, 2.0], X)
+    q = quadratic_model(f, [0.0, 0.0])
+    @test quadratic_model!(q, f, [0.1, 0.2]) === q
+  end
+
+  @testset "the scratch buffers η and d of a loss are two arrays, and not its data" begin
+    # With η === d the staged pair (v, z) = (1, -1) of a Poisson observation at η = 0, y = 0
+    # was written into one array and the model got the weight -1, which passed the check.
+    X = ones(1, 1)
+    mk(y, w, o, η, d) = GLMLoss(PB.Poisson(), y, X, w, o, η, d)   # the positional constructor
+    buf = zeros(1)
+    @test_throws ArgumentError mk([0.0], [1.0], nothing, buf, buf)
+    @test_throws ArgumentError mk([0.0], [1.0], [0.0], buf, buf)
+    for (name, which) in (("y", 1), ("weights", 2), ("offset", 3))
+      for (buffer, other) in (("η", 1), ("d", 2))
+        data = (zeros(1), ones(1), zeros(1))
+        sc = data[which]
+        e = try
+          mk(data[1], data[2], data[3], other == 1 ? sc : zeros(1), other == 2 ? sc : zeros(1))
+          nothing
+        catch e
+          e
+        end
+        @test e isa ArgumentError
+      end
+    end
+    # separate arrays are accepted; so are equal ones, and data shared between y, weights and offset,
+    # which the update only reads
+    f = mk([0.0], [1.0], [0.0], zeros(1), zeros(1))
+    @test f.η !== f.d
+    shared = ones(1)
+    @test mk(shared, shared, shared, zeros(1), zeros(1)) isa GLMLoss
+    @test mk([0.0], [1.0], nothing, zeros(1), zeros(1)) isa GLMLoss
+    # the model of the Poisson observation at η = 0, y = 0, w = 1 is (v, z) = (1, -1)
+    q = quadratic_model(f, [0.0])
+    @test q.weights == [1.0] && q.y == [-1.0]
+  end
+end
+
 @testset "LogDetLoss" begin
   p = 6
   B = randn(3p, p)

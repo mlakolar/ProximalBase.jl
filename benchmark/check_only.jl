@@ -2,11 +2,13 @@
 #
 # It builds the cases exactly as `run.jl` does (same groups, suite, repetition seed and
 # measurement order) and, for every case, repeats what `measure!` does around the timed trial:
-# `validate()`, three `prepare(); op()` rounds, the allocation probe, and, for a case with an
-# automatic evaluation count, several samples of repeated evaluations followed by `validate()`
-# again. No BenchmarkTools trial, calibration or profile runs, and no metrics are written.
+# `validate()` and the digests of the read-only inputs, three `prepare(); op()` rounds, the
+# allocation probe, for a case with an automatic evaluation count several samples of repeated
+# evaluations, then, for every case, the comparison of the inputs with their digests, and, for an
+# automatic evaluation count, `validate()` again (`checks_before_trial` and `checks_after_trial` of
+# run.jl). No BenchmarkTools trial, calibration or profile runs, and no metrics are written.
 #
-# It includes `run.jl` unchanged, so the harness hash of a baseline does not change.
+# This file is not part of the harness hash, which covers run.jl and cases.jl.
 #
 #   JULIA_NUM_THREADS=1 julia --project=benchmark benchmark/check_only.jl
 #
@@ -24,7 +26,7 @@ const CHECK_EVALS = 10
 
 function check!(c::PerfCase)
     op, prep = c.operation, c.prepare
-    c.validate()
+    start = checks_before_trial(c)
     for _ in 1:3
         prep(); op()
     end
@@ -39,8 +41,9 @@ function check!(c::PerfCase)
                 op()
             end
         end
-        c.validate()
     end
+    # every case: the inputs against their digests; an automatic evaluation count: validate again
+    checks_after_trial(c, start)
     nothing
 end
 

@@ -80,13 +80,16 @@ function ProximalBase._prox_sep!(y::AnyGPUArray, f, x::AnyGPUArray, γ::Abstract
   y
 end
 # Parameter arrays cannot be captured in the kernel's function object.
-_enet_prox(v::T, γ, λ1, λ2, w) where {T} =
-  shrink(v, convert(float(T), _weight_coefficient(γ, λ1, w))) / (1 + convert(float(T), γ * λ2))
+# At γ = Inf the parts are decided as in prox_entry, from host decisions on the levels (G5).
+_enet_prox(v::T, γ, λ1, λ2, w, p1::Bool, p2::Bool) where {T} =
+  isinf(γ) ? ProximalBase._elastic_infinite_step(v, p1, p2, w) :
+             shrink(v, convert(float(T), _weight_coefficient(γ, λ1, w))) / (1 + convert(float(T), γ * λ2))
 function ProximalBase._prox_sep!(y::AnyGPUArray, f::ElasticNet, x::AnyGPUArray, γ::AbstractArray)
   _checkreal(f, γ)
   ProximalBase._checkwrite(prox!, f, y, x)
   ProximalBase._checkparam(γ, x)
-  y .= _enet_prox.(x, _steps(γ, x), _device_level(float(eltype(y)), f.λ1), _device_level(float(eltype(y)), f.λ2), _reshapeparam(_param(f.w), x))
+  y .= _enet_prox.(x, _steps(γ, x), _device_level(float(eltype(y)), f.λ1), _device_level(float(eltype(y)), f.λ2), _reshapeparam(_param(f.w), x),
+               f.λ1 > zero(f.λ1), f.λ2 > zero(f.λ2))
   y
 end
 
@@ -161,6 +164,8 @@ function ProximalBase._prox_sep!(y::AnyGPUArray, f::ElasticNet, x::AnyGPUArray, 
   _checkreal(f, y)
   _checksize(y, x)
   _checkparams(f, x)
+  # γλ is 0·Inf for a zero level; the parts are decided from the levels on the host (G5)
+  isinf(γ) && return (y .= ProximalBase._elastic_infinite_step.(x, f.λ1 > zero(f.λ1), f.λ2 > zero(f.λ2), _reshapeparam(_param(f.w), x)))
   y .= shrink.(x, _weight_coefficient.(_scalar(y, γ * f.λ1), _reshapeparam(_param(f.w), x))) ./ (1 + _scalar(y, γ * f.λ2))
 end
 function ProximalBase._value_dense(f::ElasticNet, x::GPUArray)

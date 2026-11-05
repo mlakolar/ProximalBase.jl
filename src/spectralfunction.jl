@@ -427,11 +427,12 @@ function _spectrum_scaled(f::AbstractFunction, s::AbstractVector, k::Int, b::_Pr
 end
 function _spectrum_scaled_by(f, s::AbstractVector{T}, a::_ProjectionScale) where {T}
   v = f(s)
-  # A function that has no level to fold the factor into, at a level outside the normal range of
-  # T, has lost its value to underflow at the spectrum of X/2^k: it keeps the ordinary result
-  # rather than a wrong finite one. (With normal levels, a value at that spectrum, whose largest
-  # entry is at least one, is small only through cancellation.)
-  _scaled_small(v) && !_spectrum_levels_normal(f, T) && return nothing
+  # A function that has neither a level to fold the factor into nor value parts (`_value_parts`), at
+  # a level outside the normal range of T, has lost its value to underflow at the spectrum of
+  # X/2^k: it keeps the ordinary result rather than a wrong finite one. (With normal levels, a
+  # value at that spectrum, whose largest entry is at least one, is small only through
+  # cancellation.) A function with value parts is recomputed by the recovery of Scaled.
+  _scaled_small(v) && !_has_value_parts(typeof(f)) && !_spectrum_levels_normal(f, T) && return nothing
   _scaled_value_by(f, a, s, v)
 end
 # whether the levels that no fold takes are zero, infinite or normal numbers of T
@@ -489,7 +490,7 @@ function _conjugate_spectrum_scaled(g::AbstractFunction, f0, s, k, b, _)
   # fold forms the Conjugate
   if g isa Union{IndBallL1, IndBallL2} &&
      ((!isfinite(r) && _scale_below_one(a)) || (_scaled_small(r) && !iszero(v)) || (_scaled_small(v) && _scale_above_one(a)))
-    return _scaled_value_recover(Conjugate(g), a, s, r)
+    return _scaled_value_recover(Conjugate(g), a, s, v, r)
   end
   r
 end

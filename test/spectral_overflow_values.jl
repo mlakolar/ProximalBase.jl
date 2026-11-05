@@ -107,20 +107,10 @@ end
       for λ in levels, mk in (NormL1, NormL2, NormLinf, l -> ElasticNet(l, zero(T)), l -> SumLargest(2, l), NormL1Nonneg,
                               l -> Conjugate(IndBallL1(l)), l -> Conjugate(IndBallL2(l)))
         f = mk(λ)
-        normal = λ >= floatmin(T)
+        # a subnormal level of SumLargest, which has no fold, is recovered by its value parts (#608)
         for (Z, σ, λs) in ((A, σA, λA), (X, σX, reverse(σX)))
-          v = SingularValue(f)(Z)
-          if normal || !(f isa SumLargest)
-            @test positive_ok(v, ref(f, σ), T, 1)
-          else
-            # no fold for SumLargest: the parts of #608 recover a subnormal level
-            @test_broken positive_ok(v, ref(f, σ), T, 1)
-          end
-          if PB._ispermutationinvariant(f)
-            w = Spectral(f)(Z)
-            normal || !(f isa SumLargest) ? (@test positive_ok(w, ref(f, λs), T, 1)) :
-              (@test_broken positive_ok(w, ref(f, λs), T, 1))
-          end
+          @test positive_ok(SingularValue(f)(Z), ref(f, σ), T, 1)
+          PB._ispermutationinvariant(f) && @test positive_ok(Spectral(f)(Z), ref(f, λs), T, 1)
         end
       end
       # support functions of a box and a simplex, at ordinary levels
@@ -147,10 +137,8 @@ end
         @test positive_ok(SingularValue(f)(A), big(2.0)^-254 * 2big(M), T, 1)
         @test positive_ok(SingularValue(NormL1(0.25))(A), big(0.25) * 2big(M), T, 1)
         @test positive_ok(SingularValue(SqrNormL2(2.0^-300))(A), big(2.0)^-300 / 2 * 4big(M)^2, T, 2)
-        # degree three: only a wider level gives a finite value; the parts of #608 recover it
-        v = SingularValue(CubeNormL2(2.0^-300))(A)
-        @test_broken positive_ok(v, big(2.0)^-300 / 3 * (2big(M))^3, T, 3)
-        @test v === T(Inf)          # meanwhile the ordinary result, not a wrong finite value
+        # degree three: only a wider level gives a finite value, which the value parts recover
+        @test positive_ok(SingularValue(CubeNormL2(2.0^-300))(A), big(2.0)^-300 / 3 * (2big(M))^3, T, 3)
       end
     end
 
@@ -374,16 +362,17 @@ end
                 SqrNormL2(l2, ones(T, 2)), TotalVariation1D(q), IndSOC())
         @test SingularValue(f)(A) === T(Inf)
       end
-      # levels outside the normal range of T without a fold: the parts of #608, or not covered (O3)
+      # levels outside the normal range of T without a fold or value parts: not covered (O3)
       Z = X
-      for f in (SumLargest(1, tiny), Conjugate(IndSimplex(tiny)), Conjugate(IndBox(-tiny, tiny)))
+      for f in (Conjugate(IndSimplex(tiny)), Conjugate(IndBox(-tiny, tiny)))
         @test Spectral(f)(Z) === T(Inf)          # no wrong finite value: the ordinary result
       end
       # A known departure from E3, kept until the follow-up on the vector kernels (O9): the Ky Fan
       # kernel's value at the infinite eigenvalue is NaN (l Σy with l = 0), at a finite matrix.
       @test isnan(Spectral(Conjugate(Constrained(IndBox(zero(T), tiny), IndHalfspace(1, tiny))))(Z))
-      @test SingularValue(SLOPE([tiny, zero(T)]))(Z) === T(Inf)
-      @test_broken positive_ok(SingularValue(SLOPE([tiny, zero(T)]))(Z), big(tiny) * σX[1], T, 1)   # #608
+      # SLOPE with a subnormal level: its value parts (#608)
+      @test positive_ok(SingularValue(SLOPE([tiny, zero(T)]))(Z), big(tiny) * σX[1], T, 1)
+      @test positive_ok(SingularValue(SumLargest(1, tiny))(Z), big(tiny) * σX[1], T, 1)
     end
 
     @testset "workspace reuse and arguments ($T)" begin

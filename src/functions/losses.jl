@@ -177,7 +177,7 @@ Base.@propagate_inbounds function _hinge_ordinary(f::HingeLoss, v::T, i::Integer
   s, ok = _hinge_step_ordinary(S, γ, y, _entry(f.w, i))
   _hinge_apply(S(v), y, s), ok
 end
-_aliases_parameters(y, f::HingeLoss) = y === f.y || y === f.w
+_aliases_parameters(y, f::HingeLoss, γ) = y === f.y || y === f.w || y === γ   # γ may be the step array
 @inline function _hinge_range_ok(::Type{S}, γ, w) where {S<:AbstractFloat}
   R = _working_type(S, γ, w)
   _normal_range(convert(R, γ) * convert(R, w))
@@ -187,7 +187,7 @@ function _prox_sep_dense!(y::AbstractArray, f::HingeLoss, x::AbstractArray, γ)
   _checkparam(γ, x)
   T = eltype(y)
   S = float(eltype(x))
-  _aliases_parameters(y, f) && return _prox_sep_recover!(y, f, x, γ)   # entry by entry: each parameter is read before it is written
+  _aliases_parameters(y, f, γ) && return _prox_sep_recover!(y, f, x, γ)   # entry by entry: each parameter is read before it is written
   ok = true
   if y === x
     @inbounds for i in eachindex(IndexLinear(), x)

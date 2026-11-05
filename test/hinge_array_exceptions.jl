@@ -142,4 +142,20 @@ end
   @test PB.lla_weights!(lw, f, [0.5, 0.5]) == [1e-100, 0.0]
 end
 
+@testset "the destination is the array of steps" begin
+  # y === γ for an array step: every step is read before it is written, as the entry loop did
+  n = 5
+  for S in (Float64, Float32), exc in (1, 3, 5)
+    big = S === Float64 ? S(2)^1020 : S(2)^120
+    w = ones(S, n); w[exc] = S === Float64 ? S(2)^20 : S(2)^20     # γ w overflows at the exceptional entry
+    γ = S[0.5, 1, 2, 3, 0.25]; γ[exc] = big
+    f = HingeLoss(ones(S, n), w); x = fill(S(-3), n)
+    want = [PB.prox_entry(f, x[i], i, γ[i]) for i in 1:n]
+    g = copy(γ); @test PB.prox!(g, f, x, g) === g && g == want
+    g = copy(γ); o = similar(g); PB.prox!(o, f, x, γ); @test o == want
+    g = copy(γ); v = PB.value_and_prox!(g, f, x, g); @test g == want
+    z = copy(x); g = copy(γ); PB.prox!(z, f, z, g); @test z == want        # y === x with an array step
+  end
+end
+
 end

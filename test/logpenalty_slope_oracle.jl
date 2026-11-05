@@ -128,4 +128,24 @@ end
   @test out[1] === 0.5 && out[2] === Inf && out[3] === 0.0 && out[4] === 0.0 && isnan(out[5])
 end
 
+@testset "weights of an abstract or wide element type" begin
+  # an abstract element type has no single working type: each entry is promoted by the scalar method
+  # (a BigFloat entry below Float64's range is not rounded to zero before the quotient 2^1000 scales it)
+  λ, ε = 2.0^500, 2.0^-500
+  x = [0.0, 0.0]
+  for w in (Real[BigFloat(2)^(-1100)], Real[BigFloat(2)^(-1100), 1.0], BigFloat[BigFloat(2)^(-1100), 1],
+            Real[2.0^-100, 2f0^-10], Float64[2.0^-100, 1.0], Float32[2f0^-100, 1f0])
+    f = LogPenalty(λ, ε, w)
+    xs = x[1:length(w)]
+    want = [PB.lla_weight(f, xs[i], i) for i in eachindex(xs)]
+    out = zeros(Float64, length(w))
+    @test PB.lla_weights!(out, f, xs) === out
+    @test out == want
+    @test all(>(0), out)
+  end
+  # the quoted values: (λ·w)/ε = 2^500 · 2^-1100 / 2^-500 = 2^-100
+  f = LogPenalty(λ, ε, Real[BigFloat(2)^(-1100)])
+  @test PB.lla_weights!(zeros(1), f, [0.0]) == [2.0^-100]
+end
+
 end

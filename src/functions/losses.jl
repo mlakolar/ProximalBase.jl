@@ -194,8 +194,10 @@ function _prox_sep_dense!(y::AbstractArray, f::HingeLoss, x::AbstractArray, γ)
       ok &= _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i))
     end
     ok || return _prox_sep_recover!(y, f, x, γ)
+    # read the destination, not x: y === x, but under two names the compiler's overlap test between the
+    # stores to y and the loads from x sends this loop to its scalar version (measured 3x slower)
     @inbounds for i in eachindex(IndexLinear(), y)
-      y[i] = convert(T, _hinge_ordinary(f, x[i], i, _entry(γ, i))[1])
+      y[i] = convert(T, _hinge_ordinary(f, y[i], i, _entry(γ, i))[1])
     end
     return y
   end

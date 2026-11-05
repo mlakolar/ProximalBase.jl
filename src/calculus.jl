@@ -101,9 +101,11 @@ Base.@propagate_inbounds Base.getindex(a::_ShiftedArray, i::Int) = a.g[i] + a.c[
 
 The function `α f(x)` for `α ≥ 0`, with the roles of `f`: its gradient is
 `α ∇f`, and its proximal operator `prox_{γαf}`, so that `0.5 * f` halves a loss
-and `(1/n) * f` averages one. An infinite factor gives the value `0` wherever `f` is `0`
-(an indicator inside its set, a norm at zero), including the value that `value_and_prox!`
-returns at its output.
+and `(1/n) * f` averages one. An infinite factor gives the value `0` where `f` is certainly `0`:
+an indicator inside its set, and `NormL1`, `NormL1Nonneg`, `NormL2`, `NormLinf`, `NuclearNorm`,
+`ElasticNet`, `GroupNormL2`, `GroupNormLinf` and `SparseGroupNormL2` at an argument that is zero on
+every entry they penalize; elsewhere a computed zero of `f` (another function, or a value that
+underflowed) gives NaN.
 
 When `α f(x)` overflows or underflows although it is representable, the value
 is computed with the scale folded into the level for `NormL1`, `NormL1Nonneg`,
@@ -342,14 +344,12 @@ function _fold_level_step(f::ElasticNet, α)
   c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
 end
 
-# Retry exceptional products in the function's own units and domain.
-# A NaN product at a value that is not NaN is Inf⋅0: an infinite factor where the function is 0,
-# which is 0 (an indicator inside its set, a norm at zero). A finite factor never gives it.
-@noinline function _scaled_value_recover(f, α, x, v, r)
-  if isnan(r)
-    isnan(v) || return zero(r)
-    _scale_below_one(α) || return r           # a NaN value, kept at a factor of at least one
-  end
+# Retry exceptional products in the function's own units and domain. The recovery takes the
+# unscaled value and forms α v again, so that the call from the inlined finite path stays small.
+# A NaN product at a value that is not NaN, with a factor of at least one, is Inf⋅0 (`_scaled_nan_value`).
+@noinline function _scaled_value_recover(f, α, x, v)
+  r = _apply_scale(α, v)
+  isnan(r) && !isnan(v) && !_scale_below_one(α) && return _scaled_nan_value(f, α, x, r)
   g = _fold_level(f, α)
   g === nothing ? r : convert(typeof(r), _value_unchecked(g, x))
 end
@@ -357,15 +357,59 @@ _scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
 # The value α v of the function f with the scale α at the unscaled value v.
 @inline function _scaled_value_by(f, α, x, v, recover_inner_small = true)
   r = _apply_scale(α, v)
-  if (!isfinite(r) && (_scale_below_one(α) || isnan(r))) || (_scaled_small(r) && !iszero(v)) ||
+  if (!isfinite(r) && _scale_below_one(α)) || (_scaled_small(r) && !iszero(v)) ||
      (recover_inner_small && _scaled_small(v) && _scale_above_one(α))
-    return _scaled_value_recover(f, α, x, v, r)
+    return _scaled_value_recover(f, α, x, v)
   end
   r
 end
-# α v with the stored factor α, for the routes that do not recover a product: an infinite factor
-# where the function is 0 gives 0
-@inline _scaled_product_value(α, v) = (r = α * v; isnan(r) && isinf(α) ? _weighted_value(r, v) : r)
+# Inf⋅0 at an infinite factor: 0 only where f is certainly 0 at x (`_exactly_zero_at`). A computed 0
+# may be a positive value that underflowed, whose scaled value is Inf, so it stays NaN.
+@noinline _scaled_nan_value(f, α, x, r) = _infinite_factor(α) && _exactly_zero_at(f, x) ? zero(r) : r
+_infinite_factor(α::Real) = isinf(α)
+_infinite_factor(α) = false
+# α v with the stored factor α, for the array-step route, which does not recover a product
+@inline _scaled_product_value(f, α, y, v) = (r = α * v; isnan(r) ? _scaled_nan_product(f, α, y, v, r) : r)
+@noinline _scaled_nan_product(f, α, y, v, r) = isnan(v) ? r : _scaled_nan_value(f, α, y, r)
+
+# Whether f(x) is exactly 0, decided from the argument and the stored parameters, never from a
+# computed value. An indicator: its value is exactly 0 or Inf, so a value that is not NaN and gives
+# NaN with an infinite factor is 0. The families below: their value is 0 exactly when every entry
+# they penalize is 0. An entry left free (a zero weight, a zero level with a finite weight, an index
+# in no group) must be finite, and nonnegative under NormL1Nonneg. Any other function: false.
+_exactly_zero_at(f, x) = _isindicator(f)
+_host_entries(x::AbstractArray) = _is_device_array(x) ? Array(x) : x
+_host_entries(::Nothing) = nothing
+# an entry with the weight w under the level λ is penalized (an infinite weight at any level)
+@inline _penalized(λ, w) = w > 0 && (λ > 0 || isinf(w))
+_free_entry(f, x) = isfinite(x)
+_free_entry(::NormL1Nonneg, x) = isfinite(x) && x >= 0
+function _exactly_zero_at(f::Union{NormL2, NormLinf, NuclearNorm}, x::AbstractArray)
+  h = _host_entries(x)
+  iszero(f.λ) ? all(isfinite, h) : all(iszero, h)
+end
+function _exactly_zero_at(f::Union{NormL1, NormL1Nonneg, ElasticNet}, x::AbstractArray)
+  h, w = _host_entries(x), _host_entries(f.w)
+  w === nothing || length(w) == length(h) || return false
+  λ = f isa ElasticNet ? f.λ1 : f.λ0
+  quadratic = f isa ElasticNet && f.λ2 > 0
+  for (j, i) in enumerate(eachindex(h))
+    xi = h[i]
+    wi = w === nothing ? one(λ) : w[j]
+    (quadratic || _penalized(λ, wi) ? iszero(xi) : _free_entry(f, xi)) || return false
+  end
+  true
+end
+function _exactly_zero_at(f::Union{GroupNormL2, GroupNormLinf, SparseGroupNormL2}, x::AbstractArray)
+  h = _host_entries(x)
+  length(f.group_of) <= length(h) || return false
+  l1 = f isa SparseGroupNormL2 && f.λ1 > 0
+  for (i, xi) in enumerate(h)
+    k = i <= length(f.group_of) ? f.group_of[i] : 0
+    (k != 0 && (l1 || _penalized(f.λ0, f.w[k])) ? iszero(xi) : isfinite(xi)) || return false
+  end
+  true
+end
 @inline _scaled_value(s, x, v, recover_inner_small = true) = _scaled_value_by(s.f, s.α, x, v, recover_inner_small)
 (s::Scaled)(x) =
   (_check_value_arrays(s, x); _value_checked(s, x))
@@ -460,7 +504,7 @@ end
 value_and_prox!(y, s::Scaled, x, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = _nested_route(s, γ) ? _value_and_prox_chain!(y, s, x, γ) :
-  (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ)); _value_at(_scaled_value(s, y, v, false), y))
+  (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ)); _value_at(_scaled_value(s, y, v, isinf(s.α)), y))
 @noinline function _value_and_prox_chain!(y, s, x, γ::Real)
   _checkwrite(value_and_prox!, s, y, x)
   g, step, a = _nested_step(s, γ)
@@ -2579,6 +2623,7 @@ function _spectrum_value(f::Scaled, v::AbstractVector{T}, k::Int) where {T}
   end
   a = _spectrum_value(f.f, v, k)
   r = f.α * a
+  isnan(r) && !isnan(a) && return convert(T, _scaled_nan_value(f.f, f.α, v, r))   # Inf⋅0, as for the value
   if (!isfinite(r) && f.α < 1) || (_scaled_small(r) && !iszero(a)) ||
      (_scaled_small(a) && f.α > 1)
     g = _fold_level(f.f, f.α)

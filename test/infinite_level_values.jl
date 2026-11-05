@@ -2,7 +2,9 @@ module InfiniteLevelValuesTest
 
 # E4 and O2 for an infinite level (#621). With λ = Inf the domain of NormL2, NormLinf and NuclearNorm
 # is {0}: the value is 0 at the zero vector or matrix, Inf at any other argument without a NaN entry,
-# and NaN at a NaN entry (E2). Scaled(f, Inf) has the value 0 wherever f is 0. The value returned by
+# and NaN at a NaN entry (E2). Scaled(f, Inf) has the value 0 where f is certainly 0 (an indicator inside
+# its set, the level families at an argument that is zero where they penalize), and NaN at any other
+# computed zero, which may be a positive value that underflowed. The value returned by
 # value_and_prox! is the value at the stored output (O2). The infinite level is decided by the stored
 # level, never by a converted level or by a product: a finite level such as 2^128 on Float32 data
 # keeps its finite value (R3). The controls at the end pass before and after the change.
@@ -147,7 +149,6 @@ scaled_cases(T) = (
   (NormLinf(one(T)), zeros(T, 2), T[1, 0]),
   (NuclearNorm(one(T)), zeros(T, 2, 2), T[1 0; 0 0]),
   (ElasticNet(one(T), one(T)), zeros(T, 2), T[1, 0]),
-  (SqrNormL2(one(T)), zeros(T, 2), T[1, 0]),
   (IndNonnegative(), T[1, 2], T[-1, 2]),
   (IndBallL2(one(T)), zeros(T, 2), T[2, 0]),
 )
@@ -171,17 +172,19 @@ scaled_cases(T) = (
       @test s isa Scaled{<:NormL1}
       @test same(s(zeros(T, 2)), zero(T))
     end
-    # nestings that do not merge
+    # nestings that do not merge: the infinite factor inside the translation decides on its own
+    # function; an infinite factor over a wrapper is not certain of a zero, which stays NaN
     o = zeros(T, 2)
-    for s in (Scaled(Translate(Scaled(NormL1(one(T)), T(Inf)), o), T(2)),
-              Scaled(Translate(Scaled(NormL1(one(T)), T(2)), o), T(Inf)))
-      @test same(s(zeros(T, 2)), zero(T))
-      @test same(s(T[1, 0]), T(Inf))
-    end
+    s = Scaled(Translate(Scaled(NormL1(one(T)), T(Inf)), o), T(2))
+    @test same(s(zeros(T, 2)), zero(T))
+    @test same(s(T[1, 0]), T(Inf))
     @test same(Translate(Scaled(NormL1(one(T)), T(Inf)), T[1, 1])(T[1, 1]), zero(T))
-    # tuples, iterates and device arrays
+    s = Scaled(Translate(Scaled(NormL1(one(T)), T(2)), o), T(Inf))
+    @test same(s(zeros(T, 2)), T(NaN))
+    @test same(s(T[1, 0]), T(Inf))
+    # tuples (a wrapper: NaN at zero), iterates and device arrays
     sep = Scaled(SeparableSum(NormL2(one(T)), NormL1(one(T))), T(Inf))
-    @test same(sep((zeros(T, 2), zeros(T, 2))), zero(T))
+    @test same(sep((zeros(T, 2), zeros(T, 2))), T(NaN))
     @test same(sep((T[1, 0], zeros(T, 2))), T(Inf))
     @test same(Scaled(NormL1(one(T)), T(Inf))(SymmetricSparseIterate(T, 3)), zero(T))
     g = GroupNormL2(one(T), [1:2, 3:4])
@@ -200,11 +203,11 @@ end
     check_zero_prox(Scaled(NuclearNorm(one(T)), T(Inf)), T[3 0; 0 4], one(T))
     # an array step (its own method) and nestings through Translate, with scalar and array steps
     o = zeros(T, 2)
-    for s in (Scaled(NormL1(one(T)), T(Inf)), Scaled(Translate(Scaled(NormL1(one(T)), T(Inf)), o), T(2)),
-              Scaled(Translate(Scaled(NormL1(one(T)), T(2)), o), T(Inf)))
+    for (s, want) in ((Scaled(NormL1(one(T)), T(Inf)), zero(T)), (Scaled(Translate(Scaled(NormL1(one(T)), T(Inf)), o), T(2)), zero(T)),
+                      (Scaled(Translate(Scaled(NormL1(one(T)), T(2)), o), T(Inf)), T(NaN)))
       for γ in (one(T), T[1, 1])
         v, y = vp(s, x, γ)
-        @test same(v, zero(T))
+        @test same(v, want)
         @test y == zeros(T, 2)
         @test same(s(y), v)
       end
@@ -217,21 +220,111 @@ end
     # tuples and iterates
     sep = Scaled(SeparableSum(NormL2(one(T)), NormL1(one(T))), T(Inf))
     y = (zeros(T, 2), zeros(T, 2))
-    @test same(value_and_prox!(y, sep, (T[3, 4], T[1, 2]), one(T)), zero(T))
+    @test same(value_and_prox!(y, sep, (T[3, 4], T[1, 2]), one(T)), T(NaN))   # a wrapper
     @test y == (zeros(T, 2), zeros(T, 2))
     g = GroupNormL2(one(T), [1:2, 3:4])
     a = AtomIterate(T[1, 2, 3, 4], g)
     y = copy(a)
     @test same(value_and_prox!(y, Scaled(g, T(Inf)), a, one(T)), zero(T))
     @test y.storage == zeros(T, 4)
-    # O1: the value is f(x); the gradient is as before (Inf⋅0 at a zero entry)
+    # value_and_gradient! uses the same rule: SqrNormL2 is not certain of its zero (NaN, as f(x)),
+    # and the gradient is as before (Inf⋅0 at a zero entry)
     s = Scaled(SqrNormL2(one(T)), T(Inf))
     g = fill(T(-7), 2)
     v = value_and_gradient!(g, s, zeros(T, 2))
-    @test same(v, zero(T))
+    @test same(v, T(NaN))
     @test same(v, s(zeros(T, 2)))
     @test isequal(g, gradient(s, zeros(T, 2)))
     @test isequal(g, T[NaN, NaN])
+  end
+end
+
+# A computed zero is not an exact zero: a positive value that underflowed has the exact scaled value
+# Inf. The value is 0 only where f is certainly 0 at the argument, and NaN (as before) where a
+# computed zero is not certain.
+nonzero_tiny(T) = (T[1, 2], T[1.0f-23, 0], T[floatmin(T) / 4, 0])
+tiny_families(T, λ) = (NormL1(λ), NormL1(λ, ones(T, 2)), NormL1Nonneg(λ), NormL2(λ), NormLinf(λ),
+                       ElasticNet(λ, λ), GroupNormL2(λ, [1:2], [1.0]), GroupNormLinf(λ, [1:2], [1.0]),
+                       SparseGroupNormL2(λ, λ, [1:2], [1.0]))
+never_false_zero(v, ::Type{T}) where {T} = (isnan(v) || v === T(Inf)) && v isa T
+
+@testset "Scaled with an infinite factor: no zero where the value underflowed" begin
+  allowscalar(false)
+  T = Float32
+  for λ in (1e-300, 2.0^-130), f in tiny_families(T, λ), x in nonzero_tiny(T)
+    s = Scaled(f, Inf)
+    @test never_false_zero(s(x), T)
+    @test never_false_zero(s(JLArray(x)), T)
+    v, y = vp(s, x, T(1))
+    @test same(v, s(y))                                       # O2 at the stored output
+  end
+  for λ in (1e-300, 2.0^-130)
+    s = Scaled(NuclearNorm(λ), Inf)
+    for X in (T[1 0; 0 2], T[1.0f-23 0; 0 0], T[floatmin(T) / 4 0; 0 0])
+      @test never_false_zero(s(X), T)
+    end
+  end
+  # the reported cases
+  @test same(Scaled(NormL1(1e-300), Inf)(Float32[1, 2]), NaN32)
+  @test same(Scaled(NormL2(1e-300), Inf)(Float32[1, 2]), NaN32)
+  @test same(Scaled(NormL1(1e-300), Inf)([1e-30, 0.0]), NaN)
+  @test same(Scaled(NormL1(1e-300), 1e300)(Float32[1, 2]), 3.0f0)          # a finite factor recovers it
+  # a function that is not certain of its zero: NaN at a computed zero, also at the zero vector
+  for (s, x) in ((Scaled(SqrNormL2(1.0f0), Inf), Float32[1.0f-23, 0]), (Scaled(SqrNormL2(1.0), Inf), [1e-170, 0.0]),
+                 (Scaled(SqrNormL2(1.0f0), Inf), zeros(Float32, 2)))
+    @test same(s(x), eltype(x)(NaN))
+    g = fill(eltype(x)(-7), 2)
+    @test same(value_and_gradient!(g, s, x), eltype(x)(NaN))
+    @test isequal(g, gradient(s, x))
+  end
+  @test same(Scaled(SqrNormL2(1.0f0), Inf)(JLArray(Float32[1.0f-23, 0])), NaN32)
+  @test same(Scaled(Scaled(Scaled(SqrNormL2(1.0), 2.0^600), 2.0^600), Inf)([1e-300, 0.0]), NaN)
+end
+
+@testset "Scaled with an infinite factor: the certain zeros of each family" begin
+  allowscalar(false)
+  for T in (Float32, Float64)
+    for f in tiny_families(T, one(T))
+      s = Scaled(f, T(Inf))
+      @test same(s(zeros(T, 2)), zero(T))
+      @test same(s(JLArray(zeros(T, 2))), zero(T))
+      @test never_false_zero(s(T[0, NaN]), T)
+      check_zero_prox(s, T[3, 4], one(T))
+      if isseparable(f)
+        v, y = vp(s, T[3, 4], T[1, 1])                        # the array step
+        @test same(v, zero(T))
+        @test y == zeros(T, 2)
+      end
+    end
+    s = Scaled(NuclearNorm(one(T)), T(Inf))
+    @test same(s(zeros(T, 2, 2)), zero(T))
+    @test same(s(JLArray(zeros(T, 2, 2))), zero(T))
+    # entries left free: a zero weight, a zero level with a finite weight, an index in no group
+    for (f, x, want) in ((NormL1(one(T), T[1, 0]), T[0, 5], zero(T)),
+                         (NormL1(one(T), T[1, 0]), T[0, NaN], T(NaN)),  # a free entry must be finite
+                         (NormL1(zero(T), T[0, Inf]), T[5, 0], zero(T)),
+                         (NormL1(zero(T), T[0, Inf]), T[0, 1], T(Inf)),
+                         (NormL1Nonneg(one(T), T[1, 0]), T[0, 5], zero(T)),
+                         (NormL1Nonneg(one(T), T[1, 0]), T[0, -5], T(Inf)),
+                         (ElasticNet(one(T), zero(T), T[1, 0]), T[0, 5], zero(T)),
+                         (ElasticNet(one(T), one(T), T[1, 0]), T[0, 5], T(Inf)),
+                         (SparseGroupNormL2(one(T), one(T), [1:2], [one(T)]), T[0, 0, 9], zero(T)),
+                         (GroupNormL2(one(T), [1:2, 3:4], T[1, 0]), T[0, 0, 5, 6], zero(T)),
+                         (GroupNormLinf(one(T), [1:2, 3:4], T[1, 0]), T[0, 0, 5, 6], zero(T)),
+                         (GroupNormL2(one(T), [1:2, 3:4], T[1, 0]), T[0, 1, 5, 6], T(Inf)))
+      @test same(Scaled(f, T(Inf))(x), want)
+    end
+  end
+end
+
+@testset "Spectral and SingularValue of an indicator under an infinite factor agree with value_and_prox!" begin
+  for T in (Float32, Float64), W in (Spectral, SingularValue),
+      f in (IndNonnegative(), IndBallL2(T(5)), IndBox(T(-5), T(5))),
+      X in (zeros(T, 2, 2), T[1 0; 0 1], T[1 0; 0 0], T[2 0; 0 -1])
+    s = W(Scaled(f, T(Inf)))
+    v, Y = vp(s, X, one(T))
+    @test !isnan(v)
+    @test same(s(Y), v)                                       # O2
   end
 end
 

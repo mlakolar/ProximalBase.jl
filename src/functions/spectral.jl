@@ -174,9 +174,8 @@ needed, a non-finite input gives an all-`NaN` proximal output.
 Thus the equivalence with `SingularValue(NormL1(λ))` holds for the returned
 value there, but at `λ = 0` its all-`NaN` output differs from the copied input.
 With `λ = Inf` the value is `0` at the zero matrix and `Inf` at any other finite
-matrix, and `value_and_prox!` returns `0` with its zero output at a finite input;
-the value of `SingularValue(NormL1(Inf))` at the zero matrix is that of
-`NormL1(Inf)` at the zero vector.
+matrix, and at a positive step `value_and_prox!` returns `0` with its zero output
+at a finite input.
 
 $_PARTIAL_NOTE The value `f(X)` alone needs every singular value and always
 takes the full decomposition.

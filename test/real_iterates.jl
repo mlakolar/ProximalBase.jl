@@ -199,6 +199,98 @@ end
   end
 end
 
+@testset "real-only bulk writes of SparseIterate and AtomIterate" begin
+  c = ComplexF64[1, 2im, 0, 0]
+  C = reshape(c, 2, 2)
+  hasdense = isdefined(SparseArrays, :CHOLMOD) && isdefined(SparseArrays.CHOLMOD, :Dense)
+  vector_iterates = ((() -> (x = SparseIterate(4); x[4] = 9.0; x), :SparseIterate),
+                     (() -> (x = AtomIterate(4, 2); x[4] = 9.0; x), :AtomIterate))
+  for (make, name) in vector_iterates
+    for write! in (x -> copyto!(x, c), x -> copy!(x, c), x -> (x .= c), x -> (x .= 2im),
+                   x -> fill!(x, 2im), x -> fill!(x, 1 + 0im), x -> fill!(x, 0im),
+                   x -> copyto!(x, ComplexF64[1, 0, 0, 0]), x -> copyto!(x, sparsevec(c)),
+                   x -> copyto!(x, ComplexF64[]))
+      x = make()
+      rejects(() -> write!(x), name, x)
+    end
+    if hasdense
+      x = make()
+      rejects(() -> copyto!(x, SparseArrays.CHOLMOD.Dense(reshape(c, 4, 1))), name, x)
+    end
+    # copy! from another length fails at resize! before the check
+    x = make(); saved = copy(x)
+    @test_throws MethodError copy!(x, ComplexF64[1, 2im])
+    @test isequal(x, saved) && collect(activecoordinates(x)) == collect(activecoordinates(saved))
+    # writes through wrappers follow Base's conversion
+    @test_throws InexactError (view(make(), 1:2) .= ComplexF64[1, 2im])
+    @test_throws InexactError (make()[:] = c)
+    @test_throws InexactError copyto!(make(), Number[1.0, 2im, 0, 0])
+  end
+  @test_throws InexactError (atom(AtomIterate(4, 2), 1) .= ComplexF64[1, 2im])
+  @test_throws Exception (coordinates(SparseIterate(4)) .= c)
+
+  makem() = (x = SparseIterate(2, 2); x[4] = 9.0; x)
+  for write! in (x -> copyto!(x, c), x -> copyto!(x, C), x -> copy!(x, C), x -> (x .= C), x -> fill!(x, 2im),
+                 x -> copyto!(x, sparse(C)), x -> copyto!(x, view(sparse(C), :, :)),
+                 x -> copyto!(x, sparse(C)'), x -> copyto!(x, transpose(sparse(C))),
+                 x -> copyto!(x, 2im * I), x -> copyto!(x, (1 + 0im) * I),
+                 x -> copyto!(x, qr(ComplexF64[1 2; 3 4]).Q))
+    x = makem()
+    rejects(() -> write!(x), :SparseIterate, x)
+  end
+  if hasdense
+    x = makem()
+    rejects(() -> copyto!(x, SparseArrays.CHOLMOD.Dense(C)), :SparseIterate, x)
+  end
+  @test_throws InexactError (vec(makem()) .= c)
+
+  # vec and the full-length reshape of a vector are the iterate itself
+  s0 = SparseIterate([0., 1.])
+  b0 = AtomIterate([0., 1.], [1:1, 2:2])
+  rejects(() -> (vec(s0) .= ComplexF64[1, 2im]), :SparseIterate, s0)
+  rejects(() -> (reshape(s0, 2) .= ComplexF64[1, 2im]), :SparseIterate, s0)
+  rejects(() -> (vec(b0) .= ComplexF64[1, 2im]), :AtomIterate, b0)
+  rejects(() -> SparseIterate(ComplexF64, 2), :SparseIterate)
+  rejects(() -> AtomIterate(ComplexF64, 4, 2), :AtomIterate)
+
+  # real sources keep their results
+  S = sparse([1.0 0; 0 2])
+  for src in (S, view(S, :, :), S', transpose(S))
+    y = SparseIterate(2, 2); y[2, 1] = 5.0
+    @test copyto!(y, src) === y
+    @test Matrix(y) == [1 0; 0 2] && nnz(y) == 3
+  end
+  @test Vector(copyto!(SparseIterate(4), S)) == [1, 0, 0, 2]
+  @test Vector(copyto!(AtomIterate(4, 2), S)) == [1, 0, 0, 2]
+  if hasdense
+    D = SparseArrays.CHOLMOD.Dense
+    v = reshape([1.0, 0, 0, 2], 4, 1)
+    @test Vector(copyto!(SparseIterate(4), D(v))) == [1, 0, 0, 2]
+    @test Matrix(copyto!(SparseIterate(2, 2), D([1.0 0; 0 2]))) == [1 0; 0 2]
+    @test Matrix(copyto!(SparseIterate(Float32, 2, 2), D([1.0 0; 0 2]))) == Float32[1 0; 0 2]
+    @test Vector(copyto!(AtomIterate(4, 2), D(v))) == [1, 0, 0, 2]
+    @test Vector(copyto!(AtomIterate(Float32, 4, 2), D(v))) == Float32[1, 0, 0, 2]
+  end
+  @test Matrix(copyto!(makem(), 2I)) == [2 0; 0 2]
+  Q = qr([2.0 1; 1 3], ColumnNorm()).Q
+  @test Matrix(copyto!(makem(), Q)) ≈ Matrix(Q)
+  for (make, name) in vector_iterates
+    @test Vector(copyto!(make(), Any[1.0, 2.0, 0, 0])) == [1, 2, 0, 0]
+    @test Vector(copyto!(make(), [7.0])) == [7, 0, 0, 9]
+    x = make()
+    @test_throws BoundsError copyto!(x, zeros(5))
+    @test Vector(x) == [0, 0, 0, 9]
+    for src in ([1, 2, 0, 0], [true, false, false, true], Float32[1, 2, 0, 0])
+      @test Vector(copyto!(make(), src)) == src
+    end
+    @test Vector(copyto!(make(), Float64[])) == [0, 0, 0, 9]
+    @test Vector(copy!(make(), [1.0, 2, 3, 4])) == [1, 2, 3, 4]
+    @test Vector(fill!(make(), 2)) == fill(2, 4)
+    x = fill!(make(), 0)
+    @test Vector(x) == zeros(4) && nactive(x) == 0
+  end
+end
+
 @testset "iterate dispatch" begin
   ambiguities = Test.detect_ambiguities(ProximalBase, LinearAlgebra; recursive = true)
   owned = filter(ambiguities) do pair

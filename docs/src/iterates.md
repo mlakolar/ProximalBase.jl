@@ -12,7 +12,13 @@ which are derived in [Coordinate descent](@ref).
 
 The entries of an iterate are real. A complex element type, or a complex
 operand of an iterate product, raises an `ArgumentError`; see
-[Precision](@ref).
+[Precision](@ref). Writing a complex source or value into an iterate with the
+constructor, `copyto!`, `copy!`, a broadcast or `fill!` raises it too, before
+anything is written, even when the imaginary part is zero. For a
+`SparseIterate` or an `AtomIterate`, a write through a view, through `vec` of a
+matrix or a `reshape` to another shape, or through [`atom`](@ref) converts each
+value as a plain array would, so a complex value raises an `InexactError`,
+possibly after part of the iterate has been written.
 
 ## Entries and coordinates
 

@@ -772,11 +772,12 @@ const _HostArray = Union{Array,
   SubArray{<:Any, <:Any, <:Union{Array, Base.ReshapedArray{<:Any, <:Any, <:Array}}},
   Base.ReshapedArray{<:Any, <:Any, <:Array}}
 # The destinations of the one-pass fused call, whose entries are independent: an Array, or a view or reshape of
-# one whose indices are integers and ranges. A view with an index vector can store two entries in one place, so
-# the count of the entries computed would not be that of the entries left in the output (O2).
+# one whose indices are integers, unit ranges and step ranges (whose step is never zero). A view with an index
+# vector, or with a range that can repeat an index (a StepRangeLen of step zero), can store two entries in one
+# place, so the count of the entries computed would not be that of the entries left in the output (O2).
 const _HostFloatDest = Union{Array{<:Base.IEEEFloat},
   SubArray{<:Base.IEEEFloat, <:Any, <:Union{Array, Base.ReshapedArray{<:Any, <:Any, <:Array}},
-           <:Tuple{Vararg{Union{Integer, AbstractRange}}}},
+           <:Tuple{Vararg{Union{Integer, AbstractUnitRange, StepRange}}}},
   Base.ReshapedArray{<:Base.IEEEFloat, <:Any, <:Array}}
 
 # The value on a host array of an IEEE type is λ times the number of nonzero entries, counted with the NaN

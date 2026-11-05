@@ -153,6 +153,18 @@ end
     y = view(fill(T(7), 2), [1, 1])
     v = value_and_prox!(y, f, x, T[1, 1])                 # a step per entry: the generic route
     @test v === f(y) && v === T(0)
+    y = view(fill(T(7), 2), Base.StepRangeLen(1, 0, 2))   # a range of step zero repeats an index
+    v = value_and_prox!(y, f, x, T(1))
+    @test v === f(y) && v === T(0) && Array(y) == T[0, 0]
+    y = view(fill(T(7), 4), Base.StepRangeLen(1, 2, 2))   # a StepRangeLen of nonzero step: the generic route
+    v = value_and_prox!(y, f, x, T(1))
+    @test v === T(0.25) && v === f(y) && Array(y) == T[2, 0]
+    y = view(fill(T(7), 2), 1:1:2)                        # step ranges and unit ranges: the one-pass route
+    v = value_and_prox!(y, f, x, T(1))
+    @test v === T(0.25) && v === f(y) && Array(y) == T[2, 0]
+    y = view(fill(T(7), 2), 2:-1:1)
+    v = value_and_prox!(y, f, x, T(1))
+    @test v === T(0.25) && v === f(y) && Array(y) == T[2, 0]
     y = view(fill(T(7), 2), [2, 1])                       # an index vector without a repeat
     v = value_and_prox!(y, f, x, T(1))
     @test v === T(0.25) && v === f(y) && Array(y) == T[2, 0]

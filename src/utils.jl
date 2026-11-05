@@ -618,6 +618,99 @@ end
 
 ####################################
 #
+#  Values as a significand and an exponent (R1, "Wrappers")
+#
+####################################
+
+# The scaled-value mechanism that `Scaled` uses when its value leaves the range (calculus.jl,
+# `_scaled_parts`). A function that implements it declares `_has_value_parts` and returns from
+# `_value_parts(f, x, v)`, given its ordinary value v (infinite, zero or subnormal), either
+# `nothing`, to keep the ordinary result, or (m, e): its value m 2^e, with m a finite float,
+# zero or in [1/2, 1) in magnitude, to the accuracy of its ordinary computation.
+_has_value_parts(::Type) = false
+_value_parts(f, x, v) = nothing
+# Exact-zero protection. When the ordinary value is exactly zero, `_zero_value_exponent(f, x)` gives
+# an exponent E with |f(x)| < 2^E for the exact value, from the parameters and the size of x (no pass
+# over x), `_EXACT_ZERO` when that zero is exact, or `nothing` when no such bound is known (the value
+# is then recomputed). A zero value that is not exact comes from underflow: a rounding into the
+# subnormal range loses less than δ/2, δ the smallest subnormal of the computation type, and a later
+# product with a bounded factor (a level, a weight, a logarithm) multiplies that loss. A zero that
+# comes from cancellation is within the accuracy of the ordinary computation (R1 measures it against
+# the sum of the magnitudes of the terms), which the recomputation does not improve on either.
+_zero_value_exponent(f, x) = nothing
+# n losses of at most δ/2, each multiplied by less than 2^amp, with a margin of two binades for the
+# relative errors of the ordinary sums: n δ 2^amp / 2 < 2^E
+@inline _underflow_exponent(::Type{T}, n::Integer, amp::Integer = 0) where {T} =
+  exponent(nextfloat(zero(T))) + _log2_ceil(n) + amp + 2
+# |log t| < 2^E for every positive t of type T (745 for Float64, 104 for Float32)
+@inline _log_exponent(::Type{T}) where {T} = exponent(-log(nextfloat(zero(T)))) + 1
+# (the exponent of the smallest nonzero |wᵢ|, e with every |wᵢ| < 2^e) of a weight array, read again
+# at every call (the weights may change between calls), or `nothing` for a weight array that is not of
+# Float32 or Float64, or not finite. One pass over 32-bit words, where the maximum and the minimum
+# vectorize on every x86 target: with the sign cleared, the bit patterns are ordered like the
+# magnitudes. A Float64 contributes its upper word (sign, exponent and the leading 20 bits of the
+# significand), which orders the magnitudes up to the lower word; rounding the lower word up for the
+# maximum and down for the minimum keeps both exponents conservative. A zero does not enter the
+# minimum; an Inf or a NaN has an upper word at least that of Inf.
+_weight_word(v::Float32) = reinterpret(Int32, v) & typemax(Int32)
+_weight_word(v::Float64) = ((reinterpret(UInt64, v) & 0x7fffffffffffffff) >> 32) % Int32
+_weight_nonzero(v::Float32) = !iszero(reinterpret(Int32, v) & typemax(Int32))
+_weight_nonzero(v::Float64) = !iszero(reinterpret(UInt64, v) & 0x7fffffffffffffff)
+_word_value(::Type{Float32}, h::Int32, up::Bool) = reinterpret(Float32, h)
+_word_value(::Type{Float64}, h::Int32, up::Bool) = reinterpret(Float64, (UInt64(h) << 32) | (up ? 0x00000000ffffffff : 0x0))
+function _weight_exponents(w::AbstractArray{T}) where {T<:Union{Float32, Float64}}
+  vals = _stored_values(w)
+  hi = zero(Int32)
+  lo = typemax(Int32)
+  @inbounds @simd for i in eachindex(vals)
+    v = vals[i]
+    h = _weight_word(v)
+    hi = max(hi, h)
+    lo = min(lo, ifelse(_weight_nonzero(v), h, typemax(Int32)))
+  end
+  hi >= _weight_word(T(Inf)) && return nothing
+  # no nonzero weight; a nonzero Float64 below 2^-1042 has a zero upper word
+  emin = lo == typemax(Int32) ? exponent(floatmax(T)) :
+         iszero(lo) ? exponent(nextfloat(zero(T))) : exponent(_word_value(T, lo, false))
+  (emin, _upper_exponent(_word_value(T, hi, true)))
+end
+_weight_exponents(w::AbstractArray) = nothing
+# Is a zero or subnormal value of f exact for every argument, by its type? Then a factor above one
+# has nothing to recover from it, and `Scaled` does not try (the test folds away at compile time).
+_zero_value_exact(f) = false
+# the marker of an exact zero, outside every exponent range (no Int exponent can equal it)
+struct _ExactZero end
+const _EXACT_ZERO = _ExactZero()
+# e with |a| < 2^e, from the bits of a Float64 or Float32 (a subnormal gives the exponent of
+# floatmin, an Inf or a NaN a large e): integer operations only, so that the bound above costs a
+# few independent instructions. It is an upper bound only: 2^(e-1) <= |a| holds for a normal a. The
+# bounds that use it from below (λ times the smallest weight) check λ with `_level_fits`, which a
+# subnormal λ stored in T passes; that is harmless: its e is then exponent(floatmin) + 1, so the test
+# e - 1 + exponent(min w) > exponent(floatmin) needs w >= 4 and gives c = λ w >= 4 δ, and the
+# remaining terms of those bounds count the losses of c as for a normal c.
+@inline _upper_exponent(a::Float64) = Int((reinterpret(UInt64, a) >> 52) & 0x7ff) - 1022
+@inline _upper_exponent(a::Float32) = Int((reinterpret(UInt32, a) >> 23) & 0xff) - 126
+@inline _upper_exponent(a::Real) = (b = abs(float(a)); iszero(b) ? -1000000 : isfinite(b) ? exponent(b) + 1 : 1000000)
+# Is an infinite ordinary value known to be the value, from the parameters and the size of x only?
+_infinite_value_exact(f, x) = false
+# Can the gradient output `out`, already written, share memory with a parameter that the
+# parts read? Decided from the identities of the arrays (O(1)).
+_parameter_alias(f, out) = false
+_mightalias_parameter(out, p) = false
+_mightalias_parameter(out::AbstractArray, p::AbstractArray) = Base.mightalias(out, p)
+# m 2^e with the significand normalized
+@inline function _parts(m, e::Int)
+  fm, fe = frexp(m)
+  (fm, Int(fe) + e)
+end
+# the product of two values given as parts, normalized
+@inline function _parts_product(a::Tuple, b::Tuple)
+  P = promote_type(typeof(a[1]), typeof(b[1]))
+  _parts(convert(P, a[1]) * convert(P, b[1]), a[2] + b[2])
+end
+
+####################################
+#
 #  Values recomputed when an intermediate underflows (R1, #520)
 #
 ####################################
@@ -1287,6 +1380,18 @@ end
   k == typemin(Int) && return _value_at(convert(R, λ) * zero(R), x)
   s = _square_scaled_sum(x, y, k, R)
   _value_at(_scaled_product(convert(R, λ), s, 2k - 1), x)
+end
+
+# Σ (xᵢ - yᵢ)² λ/2 as a significand and an exponent (the scaled-value mechanism), from the
+# recomputation above; a non-finite entry or level gives `nothing`
+@noinline function _square_parts(λ, x, y)
+  R = promote_type(_valtype(x), y === nothing ? _valtype(x) : _valtype(y), float(typeof(λ)))
+  (iszero(λ) || !isfinite(λ)) && return nothing
+  k = _square_exponent(x, y, R)
+  k == typemax(Int) && return nothing
+  k == typemin(Int) && return (zero(R), 0)
+  s = _square_scaled_sum(x, y, k, R)
+  _parts_product(frexp(convert(R, λ)), _parts(s, 2k - 1))
 end
 
 ####################################

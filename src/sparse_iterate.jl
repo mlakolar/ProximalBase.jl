@@ -11,6 +11,21 @@ coordinates (see [`ncoordinates`](@ref)) are its entries, in linear order.
 Setting an entry to zero keeps it in the list; call `dropzeros!` to remove
 stored zeros. The stored entries are the active coordinates
 ([`activecoordinates`](@ref)).
+
+Its entries are real. The constructors, two-argument `copyto!` from an array
+(for a matrix also from a `UniformScaling` or an orthogonal factor), `copy!`,
+broadcasting into `x` and `fill!` throw an `ArgumentError` for a source or value
+of complex type, even with a zero imaginary part, before anything is written.
+For a vector `x`, `vec(x)` and `reshape(x, length(x))` are `x` itself and are
+checked too. `copy!` from a source of another size throws Base's error first.
+The check reads types: a tuple, a generator or an array of abstract element type
+such as `Vector{Any}` passes it, and its values are converted one by one. Other
+writes also convert values one by one, as writes into a plain `Array` of the
+element type of `x` do: writes through a view, through `vec` of a matrix or a
+`reshape` to another shape, indexed assignment such as `x[i] = v` or `x[:] = c`,
+`copyto!` with offsets or index ranges, and `map!`. A complex value converted
+one by one throws an `InexactError`, possibly after part of `x` has been
+written.
 """
 mutable struct SparseIterate{T, N} <: AbstractArray{T, N}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
@@ -43,19 +58,26 @@ position writes each off-diagonal entry twice, and the second write wins.
 Whole-value writes are checked: the constructor, `copyto!`, `copy!`,
 broadcasting into `x`, `map!`, `axpy!`, `axpby!`, `transpose!`, `adjoint!`,
 `permutedims!` and `mul!`. The checks also cover indexed array assignment of
-every position in order (`x[:, :] = A`, `x[:] = v`), and broadcasting and
-`fill!` into full, in-order views and reshapes (`x[:, :] .= A`, `vec(x) .= v`).
+every position in order (`x[:, :] = A`, `x[:] = v`), and broadcasting,
+`fill!`, `copyto!` and `copy!` into full, in-order views and reshapes
+(`x[:, :] .= A`, `vec(x) .= v`, `copyto!(view(x, :, :), A)`).
 The covered wrappers are views whose parent is `x`, reshapes whose parent is
-`x`, and views of those reshapes. Use `:` or integer vectors matching each
-axis in order for a full two-index assignment or a full matrix view. A full
-single-index assignment accepts `:`, the integers `1:length(x)` in order, or
-`CartesianIndices(x)` with its shape.
-`copyto!(x, Q)` from an orthogonal factor is checked too.
+`x`, and views of those reshapes; Base makes a view of such a view a view of
+`x`, and a reshape of a reshape a reshape of `x`. Use `:` or integer vectors
+matching each axis in order for a full two-index assignment or a full matrix
+view. A full single-index assignment accepts `:`, the integers `1:length(x)`
+in order, or `CartesianIndices(x)` with its shape.
+`copyto!(x, Q)` from an orthogonal factor is checked too, as is `copyto!`
+from one into a full matrix view or reshape.
 
 Matrix values must have the axes of `x` and be exactly symmetric: entries
 `(r, c)` and `(c, r)` are equal, with `NaN` equal to `NaN`, compared before
 conversion to the element type of `x`. Linear full writes reshape their values
 in column-major order for this check; `x[:] = v` requires `p²` values.
+`copyto!` into a full view or reshape reads its source in linear order, as
+Base does, so the source needs `p²` values and not the axes of `x`:
+`copyto!(view(x, :, :), vec(A))` writes the symmetric `A`, while
+`copyto!(x, vec(A))` throws.
 If the axes differ or symmetry fails, the checked writers throw a
 `DimensionMismatch` or an `ArgumentError` before writing anything. To store
 one triangle of a matrix `A` that is not symmetric, write `Symmetric(A, :L)`
@@ -77,10 +99,13 @@ unchanged, transposed and adjoint operands; other flags throw before writing.
 
 Indexed array assignment, broadcasting and `fill!` into part of `x`, such as
 a row, a column, a block or a partial mask, throw an `ArgumentError` before
-writing. Logical-mask indexed assignment is rejected even for an all-true
-mask. `copyto!` with offsets or index ranges (including transpose flags),
+writing. `copyto!` and `copy!` into such a part through a view throw before
+writing too.
+Logical-mask indexed assignment is rejected even for an all-true mask.
+`copyto!` with offsets or index ranges (including transpose flags),
 `copy_transpose!` and `copy_adjoint!` with index ranges, `copyto!` from a tuple, a
-generator or a number, and the indexed `axpy!` also throw before writing.
+generator or a number, and the indexed `axpy!` also throw before writing, as
+does `copyto!` with offsets into a view or reshape.
 Out-of-bounds indices still throw a `BoundsError`.
 
 The position-wise writers `reverse!`, `sort!`, `accumulate!`, `kron!` and
@@ -112,10 +137,12 @@ results. Allocating `lu`, `qr`, `cholesky` and `bunchkaufman` use dense copies.
 
 Other functions that write an arbitrary array position by position are not
 checked; apply them to `Matrix(x)`. Scalar-write loops over every position
-stay unchecked. Other writes through a view or reshape, such as `copyto!`
-into a view and scalar writes through a view, stay unchecked too. The checks
-do not extend to other nested wrappers, such as `vec(view(x, :, :))`,
-including broadcasts and fills through them.
+stay unchecked. Other writes through a view or reshape stay unchecked too:
+indexed assignment such as `view(x, :, :)[:, :] = A`, scalar writes through a
+view, `copyto!` with index ranges, and `copyto!` from a tuple, a generator, a
+number or another non-array iterator.
+The checks do not extend to other nested wrappers, such as `vec(view(x, :, :))`
+or a view of it, including broadcasts, fills and copies through them.
 Two-argument `copyto!(x, itr)` from other non-array iterators is unchecked.
 A Base function can write part of `x` before reaching a check. `rand!` and
 `randn!` give a symmetric matrix but draw each off-diagonal entry twice.
@@ -642,6 +669,65 @@ function Base.copyto!(x::SparseIterate, y::SparseIterate)
     _copyto_stored!(x, y)
 end
 
+# The check reads the element type and runs before anything is written; a source
+# of abstract element type converts entry by entry, as in Base.
+function Base.copyto!(x::SparseIterate, y::AbstractArray)
+  _checkreal_broadcast(x, y)
+  invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
+end
+# Resolve ambiguities with SparseArrays: each runs the method that applies without the check.
+@static if isdefined(@__MODULE__, :_AbstractSparseMatrixCSC)
+  function Base.copyto!(x::SparseIterate{<:Any, 2}, y::_AbstractSparseMatrixCSC)
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractMatrix, _AbstractSparseMatrixCSC}, x, y)
+  end
+  function Base.copyto!(x::SparseIterate{T, 2}, y::Union{Adjoint{<:Any, <:_AbstractSparseMatrixCSC},
+                                                         Transpose{<:Any, <:_AbstractSparseMatrixCSC}}) where {T}
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractMatrix{T}, typeof(y)}, x, y)
+  end
+end
+# Newer SparseArrays also specializes matrix views and transposed sparse vectors.
+@static if isdefined(@__MODULE__, :_SparseMatrixCSCOrView)
+  function Base.copyto!(x::SparseIterate{T, 2}, y::_SparseMatrixCSCOrView) where {T}
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractMatrix{T}, typeof(y)}, x, y)
+  end
+end
+@static if isdefined(@__MODULE__, :_AdjOrTransSparseVectorOrView)
+  function Base.copyto!(x::SparseIterate{T, 2}, y::_AdjOrTransSparseVectorOrView) where {T}
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractMatrix{T}, typeof(y)}, x, y)
+  end
+end
+@static if isdefined(@__MODULE__, :_CHOLMODDense)
+  function Base.copyto!(x::SparseIterate, y::_CHOLMODDense)
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractArray, _CHOLMODDense}, x, y)
+  end
+  @static if isdefined(@__MODULE__, :_CHOLMODVTypes)
+    function Base.copyto!(x::SparseIterate{T}, y::_CHOLMODDense{T}) where {T<:_CHOLMODVTypes}
+      _checkreal_broadcast(x, y)
+      invoke(copyto!, Tuple{AbstractArray{T}, _CHOLMODDense{T}}, x, y)
+    end
+    function Base.copyto!(x::SparseIterate{T, 2}, y::_CHOLMODDense{T}) where {T<:_CHOLMODVTypes}
+      _checkreal_broadcast(x, y)
+      invoke(copyto!, Tuple{AbstractArray{T, 2}, _CHOLMODDense{T}}, x, y)
+    end
+  end
+end
+# I and orthogonal factors are not arrays, so their element type is checked here.
+function Base.copyto!(x::SparseIterate{<:Any, 2}, y::UniformScaling)
+  !(eltype(y) <: Complex) || _real_error(:SparseIterate)
+  invoke(copyto!, Tuple{AbstractMatrix, UniformScaling}, x, y)
+end
+@static if isdefined(@__MODULE__, :_AbstractQ)
+  function Base.copyto!(x::SparseIterate{<:Any, 2}, y::_AbstractQ)
+    !(eltype(y) <: Complex) || _real_error(:SparseIterate)
+    invoke(copyto!, Tuple{AbstractMatrix, _AbstractQ}, x, y)
+  end
+end
+
 function Base.copyto!(x::SparseIterate, bc::Broadcast.Broadcasted{Nothing})
   _checkreal_broadcast(x, bc)
   invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{Nothing}}, x, bc)
@@ -654,6 +740,7 @@ end
 
 # fill!(x, 0) removes the stored entries, as zeros are not stored
 function Base.fill!(x::SparseIterate, v)
+  _checkreal_broadcast(x, v)
   if iszero(v)
     _clear!(x)
   else
@@ -1751,6 +1838,59 @@ function Base.fill!(dest::_SymmetricBroadcastDest, v)
   fill!(x, v)
   dest
 end
+
+# copyto! through a full view or reshape uses the checked matrix writer. As in
+# Base, the source is read in linear order and needs the length, not the axes, of
+# the destination. A source with the axes of x keeps its own copyto! method.
+const _SymmetricArrayDest{T} = Union{_SymmetricView{T}, _SymmetricReshape{T}, _SymmetricReshapeView{T}}
+const _SymmetricMatrixDest{T} = Union{_SymmetricView{T, 2}, _SymmetricReshape{T, 2}, _SymmetricReshapeView{T, 2}}
+function _copyto_symmetric!(dest, src)
+  x = _checked_symmetric_parent(dest, "copyto!")
+  length(src) == length(dest) || throw(DimensionMismatch(
+    "copyto! source has $(length(src)) values and the destination has $(length(dest))"))
+  _copyto_reshaped!(x, src)
+  dest
+end
+_copyto_reshaped!(x, src) = axes(src) == axes(x) ? copyto!(x, src) : copyto!(x, reshape(src, size(x)))
+Base.copyto!(dest::_SymmetricBroadcastDest, src::AbstractArray) = _copyto_symmetric!(dest, src)
+# Resolve the sparse-source and factorization ambiguities, as for x itself.
+@static if isdefined(@__MODULE__, :_AbstractSparseMatrixCSC)
+  Base.copyto!(dest::_SymmetricMatrixDest, src::_AbstractSparseMatrixCSC) = _copyto_symmetric!(dest, src)
+  Base.copyto!(dest::_SymmetricMatrixDest, src::Union{Adjoint{<:Any,<:_AbstractSparseMatrixCSC},
+                                                    Transpose{<:Any,<:_AbstractSparseMatrixCSC}}) =
+    _copyto_symmetric!(dest, src)
+end
+@static if isdefined(@__MODULE__, :_SparseMatrixCSCOrView)
+  Base.copyto!(dest::_SymmetricMatrixDest, src::_SparseMatrixCSCOrView) = _copyto_symmetric!(dest, src)
+end
+@static if isdefined(@__MODULE__, :_AdjOrTransSparseVectorOrView)
+  Base.copyto!(dest::_SymmetricMatrixDest, src::_AdjOrTransSparseVectorOrView) = _copyto_symmetric!(dest, src)
+end
+@static if isdefined(@__MODULE__, :_CHOLMODDense)
+  Base.copyto!(dest::_SymmetricBroadcastDest, src::_CHOLMODDense) = _copyto_symmetric!(dest, src)
+  @static if isdefined(@__MODULE__, :_CHOLMODVTypes)
+    Base.copyto!(dest::_SymmetricArrayDest{T}, src::_CHOLMODDense{T}) where
+        {T<:_CHOLMODVTypes} = _copyto_symmetric!(dest, src)
+    Base.copyto!(dest::_SymmetricMatrixDest{T}, src::_CHOLMODDense{T}) where
+        {T<:_CHOLMODVTypes} = _copyto_symmetric!(dest, src)
+  end
+end
+# LinearAlgebra writes an identity before applying Q, so form the value in a buffer.
+function Base.copyto!(dest::_SymmetricMatrixDest, Q::_AbstractQ)
+  x = _checked_symmetric_parent(dest, "copyto!")
+  A = Matrix{promote_type(eltype(dest), eltype(Q))}(I, size(dest))
+  lmul!(Q, A)
+  _copyto_reshaped!(x, A)
+  dest
+end
+# Offsets copy part of the values, even when they cover every position.
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, ::AbstractArray) = _throw_partial("copyto! with offsets")
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, ::AbstractArray, ::Integer) = _throw_partial("copyto! with offsets")
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, ::AbstractArray, ::Integer, ::Integer) =
+  _throw_partial("copyto! with offsets")
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, src) = _throw_partial("copyto! with offsets")
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, src, ::Integer) = _throw_partial("copyto! with offsets")
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, src, ::Integer, ::Integer) = _throw_partial("copyto! with offsets")
 
 # Transposition and dimension permutation still require exactly symmetric values.
 LinearAlgebra.transpose!(x::SymmetricSparseIterate, A::AbstractMatrix) = copyto!(x, transpose(A))

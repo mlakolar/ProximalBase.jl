@@ -322,6 +322,15 @@ end
 # throws is not "missing": the call is made without a try, and the error surfaces.
 _has_standalone_value(f, z) = ProximalBase._has_value(f) && applicable(f, z)
 
+# Whether the value checks at the array a are skipped for lack of a method although f has a value
+# method for some arrays: a skip that would otherwise pass silently. A function without a value
+# (_has_value false) or without a one-argument method for any array is not reported.
+_value_check_skipped(f, a) =
+  ProximalBase._has_value(f) && !isempty(methods(f, (AbstractArray,))) && !applicable(f, a)
+
+# the function in a message: a wrapper's full type can be long
+_function_name(f) = string(nameof(typeof(f)))
+
 function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symmetric = false, rng = nothing)
   @test isseparable(f)
   p = prox(f, x, γ)
@@ -358,6 +367,16 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
     # the aggregate consequence f(0) = 0 and the sparse paths, where f has a value
     z = zeros(T, size(x))
     _has_standalone_value(f, z) && @test iszero(f(z))
+    # a value method that rejects the array skips the checks below: say so (at most one message)
+    if _value_check_skipped(f, z)
+      @info "test_separable: skipped the value checks at zero and on a SparseIterate: $(_function_name(f)) has a value method that does not accept a $(typeof(z))"
+    else
+      for a in (xs, pz)
+        _value_check_skipped(f, a) || continue
+        @info "test_separable: skipped the value checks on a SparseIterate: $(_function_name(f)) has a value method that does not accept a $(typeof(a))"
+        break
+      end
+    end
     # a value method may accept only dense arrays: the sparse paths need one for the iterate
     if _has_standalone_value(f, z) && _has_standalone_value(f, xs) && _has_standalone_value(f, pz)
       @test f(xs) ≈ f(xz)

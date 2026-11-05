@@ -183,7 +183,8 @@ checks are defined once the Test standard library is loaded, and they run
   against `prox!`, `value_entry` against the value, coordinate steps on the
   three iterates, and the O(nnz) paths when the function preserves zero. A
   zero-preserving function of any type that has a value must also have
-  `f(0) == 0`; a wrapper without a value method is not asked for one;
+  `f(0) == 0`; a wrapper without a value method is not asked for one, and a
+  value method that rejects the array skips its checks with an `@info`;
 - [`test_conjugate`](@ref ProximalBase.Testing.test_conjugate) and
   [`test_kkt`](@ref ProximalBase.Testing.test_kkt): Moreau's decomposition and
   the Fenchel–Young equality, and `kkt_violation` against the proximal operator;

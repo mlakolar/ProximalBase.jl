@@ -56,7 +56,7 @@ if args.list === nothing
   scope = tier !== nothing ? "tier $tier" : core ? "--core" : "the selection"
   hint = core ? "run without --core, or add --extra=<name>" : "use a higher --tier or --extra=<name>"
   errors, warnings = TestTiers.check_selectors(manifest, @__DIR__, runnable, keys(testsuite), args.positionals; scope, hint)
-  isempty(warnings) || @warn("test exclusions that match no test file:\n  " * join(warnings, "\n  "))
+  isempty(warnings) || @warn("test exclusions that remove no test file:\n  " * join(warnings, "\n  "))
   isempty(errors) || error("test names that select no test file (nothing was run):\n  " * join(errors, "\n  ") *
                            "\n`julia scripts/test.jl --list` shows the test names.")
 end

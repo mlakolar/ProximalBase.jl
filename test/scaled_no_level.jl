@@ -483,6 +483,14 @@ end
   @test P._zero_value_exponent(EpsInsensitiveLoss(0.1), zeros(Float32, 2)) isa Int
   @test P._zero_value_exponent(EpsInsensitiveLoss(0.75 * 2.0^-149), zeros(Float32, 2)) === nothing
   @test Scaled(EpsInsensitiveLoss(0.5), pow2(Float64, 1000))([0.25, -0.5]) === 0.0
+  # N3: with a = Inf a group term is λ wₖ t with no cap, and an underflowing coefficient is lifted by t
+  for G in (GroupMCP, GroupSCAD)
+    g = G(2.0^-600, [[1]], [2.0^-500]; a = Inf)
+    x = [2.0^50]
+    @test P._zero_value_exponent(g, x) === nothing
+    @test iszero(g(x))
+    @test agrees(Scaled(g, 2.0^30)(x), big(2.0)^30 * big(2.0)^-600 * big(2.0)^-500 * big(2.0)^50, 1)
+  end
   # a subnormal shape parameter of the argument type has no bound
   @test P._zero_value_exponent(MCP(1.0, nextfloat(0.0)), zeros(2)) === nothing
   @test P._zero_value_exponent(Berhu(1.0, nextfloat(0.0)), zeros(2)) === nothing

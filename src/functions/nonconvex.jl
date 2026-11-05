@@ -924,9 +924,11 @@ _has_value_parts(::Type{<:_RadialGroupPenalty}) = true
 # Exact-zero protection: the group norms are accurate (no square is rounded into the subnormal range
 # before the root) and zero only for a zero group, and the MCP or SCAD terms of the groups lose as for
 # the scalar penalties (separable.jl); a term is at most λ²wₖ²(a + 1)/2, so a coefficient λwₖ that
-# underflows leaves only a negligible term.
+# underflows leaves only a negligible term. That cap needs a finite a: with a = Inf the term is
+# λwₖ t with no cap, and a coefficient λwₖ that underflows is multiplied by an unbounded group norm
+# t, so an infinite a has no bound (the scalar penalties have a single level λ, which fits T).
 _zero_value_exponent(f::_RadialGroupPenalty, x::AbstractArray) = iszero(f.λ0) ? _EXACT_ZERO :
-  _level_fits(_valtype(x), f.a) && !isnan(f.a) && abs(convert(_valtype(x), f.a)) >= floatmin(_valtype(x)) ?
+  _level_fits(_valtype(x), f.a) && isfinite(f.a) && abs(convert(_valtype(x), f.a)) >= floatmin(_valtype(x)) ?
     _underflow_exponent(_valtype(x), length(f.groups) + 1, _mcp_scad_amp(convert(_valtype(x), f.a))) : nothing
 function _value_parts(f::_RadialGroupPenalty, x::AbstractArray, v)
   (iszero(f.λ0) || !isfinite(f.λ0) || isnan(f.a)) && return nothing

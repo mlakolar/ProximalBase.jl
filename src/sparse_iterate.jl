@@ -16,9 +16,9 @@ Its entries are real. The constructors, two-argument `copyto!` from an array
 (for a matrix also from a `UniformScaling` or an orthogonal factor), `copy!`,
 broadcasting into `x` and `fill!` throw an `ArgumentError` for a source or
 value of complex type, even with a zero imaginary part, before anything is
-written. `vec(x)` of a vector and `reshape(x, length(x))` are `x` itself and
-are checked too. `copy!` from a source of another size throws Base's error
-first. The check reads types: a tuple, a generator or an array of abstract
+written. For a vector `x`, `vec(x)` and `reshape(x, length(x))` are `x`
+itself and are checked too. `copy!` from a source of another size throws
+Base's error first. The check reads types: a tuple, a generator or an array of abstract
 element type such as `Vector{Any}` passes it, and its values are converted one
 by one. Other writes also convert values one by one, as writes into a plain
 `Array` of the element type of `x` do: writes through a view, through `vec` of
@@ -680,6 +680,24 @@ end
   function Base.copyto!(x::SparseIterate{<:Any, 2}, y::_AbstractSparseMatrixCSC)
     _checkreal_broadcast(x, y)
     invoke(copyto!, Tuple{AbstractMatrix, _AbstractSparseMatrixCSC}, x, y)
+  end
+  function Base.copyto!(x::SparseIterate{T, 2}, y::Union{Adjoint{<:Any, <:_AbstractSparseMatrixCSC},
+                                                         Transpose{<:Any, <:_AbstractSparseMatrixCSC}}) where {T}
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractMatrix{T}, typeof(y)}, x, y)
+  end
+end
+# Newer SparseArrays also specializes matrix views and transposed sparse vectors.
+@static if isdefined(@__MODULE__, :_SparseMatrixCSCOrView)
+  function Base.copyto!(x::SparseIterate{T, 2}, y::_SparseMatrixCSCOrView) where {T}
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractMatrix{T}, typeof(y)}, x, y)
+  end
+end
+@static if isdefined(@__MODULE__, :_AdjOrTransSparseVectorOrView)
+  function Base.copyto!(x::SparseIterate{T, 2}, y::_AdjOrTransSparseVectorOrView) where {T}
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractMatrix{T}, typeof(y)}, x, y)
   end
 end
 @static if isdefined(@__MODULE__, :_CHOLMODDense)

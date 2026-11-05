@@ -242,6 +242,11 @@ end
     x = makem()
     rejects(() -> copyto!(x, SparseArrays.CHOLMOD.Dense(C)), :SparseIterate, x)
   end
+  # transposed sparse vectors into a 1×4 matrix
+  for src in (sparsevec(c)', transpose(sparsevec(c)), view(sparsevec(c), :)')
+    x = SparseIterate(1, 4); x[1, 4] = 9.0
+    rejects(() -> copyto!(x, src), :SparseIterate, x)
+  end
   @test_throws InexactError (vec(makem()) .= c)
 
   # vec and the full-length reshape of a vector are the iterate itself
@@ -255,10 +260,16 @@ end
 
   # real sources keep their results
   S = sparse([1.0 0; 0 2])
-  for src in (S, view(S, :, :), S', transpose(S))
+  for src in (S, view(S, :, :), view(S, :, 1:2), S', transpose(S))
     y = SparseIterate(2, 2); y[2, 1] = 5.0
     @test copyto!(y, src) === y
     @test Matrix(y) == [1 0; 0 2] && nnz(y) == 3
+  end
+  v = sparsevec([1.0, 0, 0, 2])
+  for src in (v', transpose(v), view(v, :)')
+    y = SparseIterate(1, 4); y[1, 2] = 5.0
+    @test copyto!(y, src) === y
+    @test Matrix(y) == [1 0 0 2]
   end
   @test Vector(copyto!(SparseIterate(4), S)) == [1, 0, 0, 2]
   @test Vector(copyto!(AtomIterate(4, 2), S)) == [1, 0, 0, 2]

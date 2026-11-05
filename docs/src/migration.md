@@ -332,5 +332,19 @@ For example, take `x = SparseIterate(4); x[4] = 7; activate!(x, 2)`.
 `fill!(x, 0)` gave active coordinates `[]`. It now gives `[4, 2]`, and
 `dropzeros!(fill!(x, 0))` gives `[]`.
 
-To replace the working set by the support of a dense real array `A` of the same
-length that shares no memory with `x`, write `copyto!(dropzeros!(fill!(x, 0)), A)`.
+To replace the working set by the support of an array `A`, first check
+`length(A) == length(x)` (else throw a `DimensionMismatch`) and
+`eltype(A) <: Real` (else throw an `ArgumentError`). Then write
+`copyto!(dropzeros!(fill!(x, 0)), A)` when `A` is not an iterate of the same
+kind as `x`, shares no memory with `x`, and its reads and conversions to
+`eltype(x)` cannot fail, for example a real floating-point array into a
+floating-point `x`. Otherwise stage the values first, which leaves `x`
+unchanged if a read or conversion fails:
+
+```julia
+t = similar(x)
+for (i, j) in zip(eachindex(t), eachindex(A))
+    t[i] = A[j]
+end
+copyto!(x, t)
+```

@@ -39,12 +39,13 @@ function _weighted_norm2(λ::Real, x::AbstractArray)
   _level_fits(T, λ) || return _converted_norm2(λ, x)
   n = _norm2(x)
   v = convert(T, λ) * n
-  isfinite(v) && return v
-  # An infinite level has the domain {0} (E4): 0 at the zero vector, where λ‖x‖ is Inf⋅0, Inf
-  # elsewhere and NaN at a NaN entry. The stored level decides: a finite level that converts
-  # without leaving the range is never infinite (R3).
-  isinf(λ) ? _weighted_value(v, n) : _norm2_value(v, convert(T, λ), x)
+  isfinite(v) ? v : _nonfinite_norm2(v, λ, convert(T, λ), n, x)
 end
+
+# An infinite level has the domain {0} (E4): 0 at the zero vector, where λ‖x‖ is Inf⋅0, Inf
+# elsewhere and NaN at a NaN entry. The stored level λ decides: a finite level that converts
+# without leaving the range is never infinite (R3). A finite level recovers an overflow.
+@noinline _nonfinite_norm2(v, λ, c, n, x) = isinf(λ) ? _weighted_value(v, n) : _norm2_value(v, c, x)
 
 # Scale in the parameter's precision, without narrowing its level first.
 @noinline function _converted_norm2(λ, x)

@@ -346,7 +346,10 @@ end
 # A NaN product at a value that is not NaN is Inf⋅0: an infinite factor where the function is 0,
 # which is 0 (an indicator inside its set, a norm at zero). A finite factor never gives it.
 @noinline function _scaled_value_recover(f, α, x, v, r)
-  isnan(r) && !isnan(v) && return zero(r)
+  if isnan(r)
+    isnan(v) || return zero(r)
+    _scale_below_one(α) || return r           # a NaN value, kept at a factor of at least one
+  end
   g = _fold_level(f, α)
   g === nothing ? r : convert(typeof(r), _value_unchecked(g, x))
 end
@@ -354,7 +357,7 @@ _scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
 # The value α v of the function f with the scale α at the unscaled value v.
 @inline function _scaled_value_by(f, α, x, v, recover_inner_small = true)
   r = _apply_scale(α, v)
-  if (!isfinite(r) && (_scale_below_one(α) || (isnan(r) && !isnan(v)))) || (_scaled_small(r) && !iszero(v)) ||
+  if (!isfinite(r) && (_scale_below_one(α) || isnan(r))) || (_scaled_small(r) && !iszero(v)) ||
      (recover_inner_small && _scaled_small(v) && _scale_above_one(α))
     return _scaled_value_recover(f, α, x, v, r)
   end

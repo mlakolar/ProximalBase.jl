@@ -34,7 +34,7 @@ rows = String[]
 header = "label,family,case,method,T,shape,median_ms,min_ms,allocs,bytes,atom_bytes,retained_bytes,maxrss_mb,first_call_s_cold_only_for_first_case,steps,fallback,converged,rel_obj_err,note"
 
 function record!(family, case, method, T, shape, t; first = NaN, steps = "", fallback = "", converged = "", atom_bytes = "", retained = "", err = NaN, note = "")
-  note = string(note, note == "" ? "" : "; ", "blas=", BLAS.get_num_threads(), " julia=", Threads.nthreads())
+  note = replace(string(note, note == "" ? "" : "; ", "blas=", BLAS.get_num_threads(), " julia=", Threads.nthreads()), "," => ";")   # the CSV has no quoting
   push!(rows, join((label, family, case, method, T, shape, @sprintf("%.4f", median(t).time / 1e6),
                     @sprintf("%.4f", minimum(t).time / 1e6), t.allocs, t.memory, atom_bytes, retained, @sprintf("%.1f", Sys.maxrss() / 2^20), @sprintf("%.3f", first),
                     steps, fallback, converged, @sprintf("%.2e", err), note), ","))
@@ -180,10 +180,12 @@ for n in (1_000, 10_000)
   G = completion_gradient(Xoshiro(7), n, n, 0.002)
   a = lmo_atom(SingularValue(IndBallL1(1.0)), G; method = :krylov, fallback = false)
   push!(rows, join((label, "storage", "nuclear atom", "krylov", "Float64", "$(n)x$n", "", "", "", "", Base.summarysize(a), "", @sprintf("%.1f", Sys.maxrss() / 2^20), "", "", "disabled", "", "",
-                    "atom size only (atom_bytes); the Julia heap bytes allocated by a call are in the bytes column of the timing rows (not a peak; native workspace not counted), dense matrix would be $(8n * n) B"), ","))
+                    "atom size only (atom_bytes); the Julia heap bytes allocated by a call are in the bytes column of the timing rows (not a peak; native workspace not counted); dense matrix would be $(8n * n) B"), ","))
   @printf("storage: %dx%d atom %d B, dense %d B\n", n, n, Base.summarysize(a), 8n * n)
 end
 
+bad = [r for r in rows if count(==(','), r) != count(==(','), header)]   # no quoting: a comma in a field would shift the columns
+isempty(bad) || error("$(length(bad)) rows do not have $(count(==(','), header) + 1) fields, first: $(first(bad))")
 open(out, "w") do io
   println(io, header)
   foreach(r -> println(io, r), rows)

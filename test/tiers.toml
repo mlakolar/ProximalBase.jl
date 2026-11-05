@@ -141,6 +141,7 @@ thorough = [
   "ridge_precision",
   "rotatedsoc",
   "sparse_iterate",
+  "sparsegroup_infinite_level",
   "spectral_domain",
   "spectral_nonfinite_values",
   "spectral_overflow",

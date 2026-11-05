@@ -31,11 +31,11 @@ order of the entries. Its proximal operator acts on the eigenvalues: for
 `Spectral(IndNonnegative())` is [`IndPSD`](@ref)`()`, and
 `Spectral(NormL1Nonneg(λ))` is [`TracePSD`](@ref)`(λ)`. The proximal operator
 reads the upper triangle of its input, which should be symmetric. The domain of
-`F` is the finite symmetric matrices: the value is `Inf` at a matrix with a
-non-finite entry, also for a bounded `f`, and at a matrix that is not
-symmetric. When a decomposition is needed, any non-finite entry, including one in the
-lower triangle, gives an all-`NaN` proximal output; `value_and_prox!` returns
-`Inf`. Only functions that count nonzeros mask eigenvalues with magnitude at
+`F` is the finite symmetric matrices: the value is `NaN` at a matrix with a
+`NaN` entry, and `Inf` at a matrix with an infinite entry, also for a bounded
+`f`, and at a matrix that is not symmetric. When a decomposition is needed, any
+non-finite entry, including one in the lower triangle, gives an all-`NaN`
+proximal output; `value_and_prox!` returns the same value. Only functions that count nonzeros mask eigenvalues with magnitude at
 most `√ε·‖λ‖∞`. Other functions see the computed spectrum. Membership and
 domain tests use `√ε·max(1, |bound|, ‖λ‖∞)`; sums keep their own scaled
 tolerance. These decisions use scaled units when the spectrum overflows.
@@ -49,7 +49,20 @@ returned by `value_and_prox!` are computed in scaled units for unweighted
 `ElasticNet(λ, 0)`, `IndNonnegative`, `IndBallL0`, `ZeroFunction`, and boxes
 whose bounds are all zero or infinite. Other functions keep the ordinary
 result, which may be infinite, including `SqrNormL2`, bounded balls, weighted
-penalties and compositions. This rule does not change the standalone value.
+penalties and compositions.
+
+The standalone value at a finite input whose spectrum overflows is the value
+at the spectrum of `X/2ᵏ`, scaled by `2^(dk)` for a function of degree `d`,
+with the exponent applied last. This covers `NormL1`, `NormL2`, `NormLinf`,
+`SumLargest`, `NormL1Nonneg`, `ElasticNet`, uncentered `SqrNormL2`,
+`CubeNormL2`, the support functions of balls, boxes, simplices and
+the capped simplex, the conjugate of uncentered `SqrNormL2`, the conjugates of
+scaled `NormL1`, `NormL2` and `NormLinf`, and `Scaled` and `Constrained`
+forms of these. Functions without a level that a scale folds into, such
+as `SumLargest`, `CubeNormL2` and the support functions of boxes, keep the
+ordinary result at a level outside the normal range of the precision of `X`. Other functions, such as `NormLq`,
+centered or translated functions and functions of the user, keep the ordinary
+result, which may be infinite. See [Functions of a spectrum](@ref).
 
 $_SPECTRAL_NOTE
 """
@@ -102,13 +115,13 @@ function (s::Spectral)(X::AbstractMatrix)
   _checkblas(s, T)
   n = checksquare(X)
   if !_is_device_array(X)
-    all(isfinite, X) || return T(Inf)
+    all(isfinite, X) || return _nonfinite_value(X, T)
     _issymmetric_tol(X) || return T(Inf)
   end
   ws = _eig_workspace(s.eig, T, n)
   s.eig = ws
   copyto!(ws.A, X)
-  !_is_device_array(X) || all(isfinite, ws.A) || return T(Inf)
+  !_is_device_array(X) || all(isfinite, ws.A) || return _nonfinite_value(ws.A, T)
   !_is_device_array(X) || _issymmetric_tol(ws.A) || return T(Inf)
   λ = _eigvals!(ws)
   if _counts_nonzeros(s.f)
@@ -124,7 +137,10 @@ function (s::Spectral)(X::AbstractMatrix)
     return _scaled_spectral_membership!(s, ws, X)
   end
   _decided_on_spectrum(s.f) && return _spectrum_value(s.f, λ, 0)
-  convert(T, s.f(λ))
+  v = convert(T, s.f(λ))
+  # An overflowing spectrum: the value at the eigenvalues of X/2^k, when f has a recovery.
+  isempty(λ) || (_finite_value(λ[1]) && _finite_value(λ[end])) || !_spectrum_scalable(s.f) ? v :
+    _spectral_overflow_value!(s, ws, X, v)
 end
 
 # Keep the signs of eigenvalues that are separated from numerical zero.
@@ -180,8 +196,9 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   _checkstep(value_and_prox!, s, Y, X, γ)
   T = float(eltype(Y))
   if !all(isfinite, X)
+    v = _nonfinite_value(X, T)                    # before Y, which may be X, is written
     fill!(Y, T(NaN))
-    return T(Inf)
+    return v
   end
   n = checksquare(X)
   ws = _eig_workspace(s.eig, T, n)
@@ -321,4 +338,168 @@ end
   _rebuild_sym_signed!(B, V, z, B)
   _spectral_rescale!(Y, B, e, n, σ)
   convert(T, v)
+end
+
+####################################
+#  values at an overflowing spectrum
+####################################
+
+# A positively homogeneous f of degree d has f(2ᵏ s) = 2^(dk) f(s): at the spectrum s of X 2⁻ᵏ,
+# the value of F at X is the value of Scaled(f, 2^(dk)) at s, which the recovery of Scaled
+# forms with the exponent applied last (an exponent-only _ProjectionScale through
+# _scaled_value_by, so that a level the factor folds into is used at its own scale).
+_homogeneity_degree(::AbstractFunction) = nothing
+_homogeneity_degree(::Union{NormL1, NormL2, NormLinf, SumLargest, NormL1Nonneg, SLOPE}) = 1
+_homogeneity_degree(::CubeNormL2) = 3
+_homogeneity_degree(f::Conjugate) = _support_degree(f.f)
+# support functions are positively homogeneous of degree one
+_support_degree(::AbstractFunction) = nothing
+_support_degree(::Union{IndBallL1, IndBallL2, IndSimplex, IndBox,
+                        LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union{IndHyperplane, IndHalfspace}}}) = 1
+_support_degree(f::Scaled) = _support_degree(f.f)
+
+_scaled_leaf(f) = f
+_scaled_leaf(f::Scaled) = _scaled_leaf(f.f)
+# Conjugates whose recovery has its own method: the dual-norm balls and the squared norm.
+_conjugate_scalable(::AbstractFunction) = false
+_conjugate_scalable(::Union{NormL1{<:Real, Nothing}, NormL2, NormLinf, SqrNormL2{<:Real, Nothing}}) = true
+# Whether the value at an overflowing spectrum has a recovery, from the type: an unsupported
+# function, such as a function of the user's, keeps the ordinary result and costs no second decomposition.
+_spectrum_scalable(f::AbstractFunction) = _homogeneity_degree(f) !== nothing
+_spectrum_scalable(::Union{ElasticNet, SqrNormL2{<:Real, Nothing}}) = true
+_spectrum_scalable(f::Scaled) = _spectrum_scalable(f.f)
+_spectrum_scalable(c::Conjugate) = _conjugate_spectrum_scalable(c.f)
+_conjugate_spectrum_scalable(g) = _support_degree(g) !== nothing || _conjugate_scalable(_scaled_leaf(g))
+
+_unit_scale(::Type{T}) where {T} = _ProjectionScale(one(float(T)) / 2, 1)
+
+# The value b⋅f(2ᵏ s) at the spectrum s of X 2⁻ᵏ, where k > 0 because the spectrum of X overflowed
+# and b is the product of the scales around f; nothing when f has no recovery (the caller keeps its
+# own result). A zero or infinite scale keeps the ordinary result, so that exact zeros stay exact.
+function _spectrum_scaled(f::AbstractFunction, s::AbstractVector, k::Int, b::_ProjectionScale)
+  d = _homogeneity_degree(f)
+  d === nothing && return nothing
+  _spectrum_scaled_by(f, s, _ProjectionScale(b.m, b.e + d * k))
+end
+function _spectrum_scaled_by(f, s::AbstractVector{T}, a::_ProjectionScale) where {T}
+  v = f(s)
+  # A function that has no level to fold the factor into, at a level outside the normal range of
+  # T, has lost its value to underflow at the spectrum of X/2^k: it keeps the ordinary result
+  # rather than a wrong finite one. (With normal levels, a value at that spectrum, whose largest
+  # entry is at least one, is small only through cancellation.)
+  _scaled_small(v) && !_spectrum_levels_normal(f, T) && return nothing
+  _scaled_value_by(f, a, s, v)
+end
+# whether the levels that no fold takes are zero, infinite or normal numbers of T
+_normal_level(::Type{T}, λ) where {T} = iszero(λ) || !isfinite(λ) || abs(convert(T, λ)) >= floatmin(T)
+_spectrum_levels_normal(f, ::Type) = true
+_spectrum_levels_normal(f::Union{SumLargest, CubeNormL2}, ::Type{T}) where {T} = _normal_level(T, f.λ)
+_spectrum_levels_normal(f::SLOPE, ::Type{T}) where {T} = all(λ -> _normal_level(T, λ), f.λ)
+_support_levels_normal(f, ::Type) = true
+_support_levels_normal(f::Scaled, ::Type{T}) where {T} = _normal_level(T, f.α) && _support_levels_normal(f.f, T)
+_support_levels_normal(f::IndSimplex, ::Type{T}) where {T} = _normal_level(T, f.r)
+_support_levels_normal(f::IndBox, ::Type{T}) where {T} =
+  all(l -> _normal_level(T, l), f.l) && all(u -> _normal_level(T, u), f.u)
+function _support_levels_normal(c::LinearConstrained{<:IndBox{<:Real, <:Real}}, ::Type{T}) where {T}
+  a = _constant_normal(c.set.a)
+  _support_levels_normal(c.f, T) && _normal_level(T, a) && _normal_level(T, c.set.b) &&
+    _normal_level(T, float(c.set.b) / float(a))
+end
+function _spectrum_scaled(f::Scaled, s::AbstractVector, k::Int, b::_ProjectionScale)
+  g, c = _scaled_chain(f, b)
+  c isa _ProjectionScale ? _spectrum_scaled(g, s, k, c) : nothing
+end
+# The two levels have degrees one and two: the parts are recovered separately and added.
+function _spectrum_scaled(f::ElasticNet, s::AbstractVector, k::Int, b::_ProjectionScale)
+  iszero(f.λ2) && return _spectrum_scaled_by(f, s, _ProjectionScale(b.m, b.e + k))
+  iszero(f.λ1) && return _spectrum_scaled_by(f, s, _ProjectionScale(b.m, b.e + 2k))
+  v1 = _spectrum_scaled_by(ElasticNet(f.λ1, zero(f.λ2), f.w), s, _ProjectionScale(b.m, b.e + k))
+  v2 = _spectrum_scaled_by(ElasticNet(zero(f.λ1), f.λ2), s, _ProjectionScale(b.m, b.e + 2k))
+  v1 + v2
+end
+# (λ/2)‖x‖² is ElasticNet(0, λ), whose level the factor folds into.
+function _spectrum_scaled(f::SqrNormL2{<:Real, Nothing}, s::AbstractVector, k::Int, b::_ProjectionScale)
+  (iszero(f.λ) || !isfinite(f.λ)) && return nothing
+  _spectrum_scaled(ElasticNet(zero(f.λ), f.λ), s, k, b)
+end
+# The conjugate of f0 is evaluated through the value of the conjugate of f0 (_conjugate_value), so
+# that no Conjugate is formed unless a level is folded.
+_spectrum_scaled(c::Conjugate, s::AbstractVector, k::Int, b::_ProjectionScale) = _conjugate_scaled(c.f, s, k, b)
+function _conjugate_scaled(f0, s::AbstractVector{T}, k::Int, b::_ProjectionScale) where {T}
+  g, a = _scaled_chain(f0, _unit_scale(T))
+  a isa _ProjectionScale || return nothing
+  _conjugate_spectrum_scaled(g, f0, s, k, b, a)
+end
+# a support function: degree one, the recovery of Scaled at the value of the conjugate
+function _conjugate_spectrum_scaled(::AbstractFunction, f0, s, k, b, _)
+  T = eltype(s)
+  d = _support_degree(f0)
+  d === nothing && return nothing
+  a = _ProjectionScale(b.m, b.e + d * k)
+  v = _conjugate_value(f0, s)
+  _scaled_small(v) && !_support_levels_normal(f0, T) && return nothing
+  r = _apply_scale(a, v)
+  # the trigger of _scaled_value_by, whose recovery folds into the radius of a ball; only that
+  # fold forms the Conjugate
+  if f0 isa Union{IndBallL1, IndBallL2} &&
+     ((!isfinite(r) && _scale_below_one(a)) || (_scaled_small(r) && !iszero(v)) || (_scaled_small(v) && _scale_above_one(a)))
+    return _scaled_value_recover(Conjugate(f0), a, s, r)
+  end
+  r
+end
+# The conjugate of λ times a norm under the scales a is the indicator of the dual ball of radius
+# aλ, decided in the units of the spectrum, without forming aλ (the outer scales do not change an
+# indicator). Only this branch, at an overflowing spectrum, decides on the spectrum: ordinary
+# values keep the conjugate's own test.
+_conjugate_spectrum_scaled(g::NormL1{<:Real, Nothing}, f0, s, k, b, a) = _conjugate_ball_scaled(s, g.λ0, a, k, Inf)
+_conjugate_spectrum_scaled(g::NormL2, f0, s, k, b, a) = _conjugate_ball_scaled(s, g.λ, a, k, 2)
+_conjugate_spectrum_scaled(g::NormLinf, f0, s, k, b, a) = _conjugate_ball_scaled(s, g.λ, a, k, 1)
+function _conjugate_ball_scaled(s::AbstractVector{T}, λ, a::_ProjectionScale, k::Int, p) where {T}
+  isfinite(λ) || return _ind(isinf(λ) && λ > 0, T)
+  S = float(promote_type(T, typeof(λ), typeof(a.m)))
+  iszero(λ) && return _spectrum_ball_scaled(s, zero(S), 0, k, p)
+  mλ, eλ = frexp(S(λ))
+  _spectrum_ball_scaled(s, S(a.m) * mλ, a.e + Int(eλ), k, p)
+end
+# (aλ/2 ‖⋅‖²)*(y) = ‖y‖²/(2aλ) is ElasticNet(0, 1/m) with the factor 2^-e, for aλ = m 2^e.
+function _conjugate_spectrum_scaled(g::SqrNormL2{<:Real, Nothing}, f0, s, k, b, a)
+  (g.λ > 0 && isfinite(g.λ)) || return nothing
+  mλ, eλ = frexp(float(g.λ))
+  m, e = frexp(a.m * mλ)
+  _spectrum_scaled(ElasticNet(zero(m), inv(m)), s, k, _ProjectionScale(b.m, b.e - a.e - Int(eλ) - Int(e)))
+end
+# Decided functions: the domain in the units of the spectrum first, then the value.
+function _spectrum_scaled(f::NormL1Nonneg, s::AbstractVector{T}, k::Int, b::_ProjectionScale) where {T}
+  _checkparams(f, s)
+  iszero(_spectrum_value(IndNonnegative(), s, k)) || return T(Inf)
+  # Negative rounding contributes zero; the scaled spectrum is private to the workspace.
+  @inbounds for i in eachindex(s)
+    s[i] = max(s[i], zero(T))
+  end
+  _spectrum_scaled_by(f, s, _ProjectionScale(b.m, b.e + k))
+end
+function _spectrum_scaled(c::BoxConstrained, s::AbstractVector{T}, k::Int, b::_ProjectionScale) where {T}
+  _checkparams(c, s)
+  iszero(_spectrum_value(c.box, s, k)) || return T(Inf)
+  _spectrum_scaled(c.f, s, k, b)
+end
+function _spectrum_scaled(c::LinearConstrained, s::AbstractVector{T}, k::Int, b::_ProjectionScale) where {T}
+  _checkparams(c, s)
+  iszero(_spectrum_value(c.set, s, k)) || return T(Inf)
+  _spectrum_scaled(c.f, s, k, b)
+end
+
+# The ordinary value v at an overflowing spectrum, or the recovered value.
+@noinline function _spectrum_overflow_value(f, s::AbstractVector, k::Int, v)
+  _spectrum_scalable(f) || return v
+  r = _spectrum_scaled(f, s, k, _unit_scale(eltype(s)))
+  r === nothing ? v : convert(typeof(v), r)
+end
+
+# The eigenvalues of X/2^k, as for decisions, for the recovery of a continuous value.
+@noinline function _spectral_overflow_value!(s::Spectral, ws, X::AbstractMatrix, v)
+  copyto!(ws.A, X)
+  k = _magnitude_exponent(_maximum_abs(ws.A))
+  _scaled_spectral_input!(ws.A, _is_device_array(X) ? ws.A : X)
+  _spectrum_overflow_value(s.f, _eigvals!(ws), k, v)
 end

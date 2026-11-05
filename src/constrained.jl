@@ -986,9 +986,44 @@ function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union
     v[i] = set isa IndHyperplane ? z : max(z, zero(T))
   end
   m = β - n * l                                   # the sum of w, times u - l
-  iszero(u - l) && return l * total
+  if iszero(u - l)
+    r = l * total
+    return isfinite(r) ? r : _box_linear_scaled_value(c, y, r)
+  end
   κ = clamp(m / (u - l), zero(T), convert(T, n))
-  return l * total + (u - l) * _top_sum!(view(v, 1:n), κ)
+  # u - l, n l or the sum can overflow at a finite argument (R1)
+  isnan(κ) && return _box_linear_scaled_value(c, y, convert(T, NaN))
+  r = l * total + (u - l) * _top_sum!(view(v, 1:n), κ)
+  isfinite(r) ? r : _box_linear_scaled_value(c, y, r)
+end
+
+# The same support function in units of powers of two: the entries of y in units of 2^ey, and the
+# bounds and the offset in units of 2^eb, so that no sum or product leaves the range before the
+# exponents are applied. A non-finite argument keeps the ordinary result r.
+@noinline function _box_linear_scaled_value(c::LinearConstrained, y::AbstractArray, r::T) where {T}
+  my = _maximum_abs(y)
+  isfinite(my) || return r
+  box, set = c.f, c.set
+  a = _constant_normal(set.a)
+  n = length(y)
+  upper = set isa IndHyperplane || a > 0
+  s = upper ? one(T) : -one(T)
+  l, u = upper ? (convert(T, box.l), convert(T, box.u)) : (-convert(T, box.u), -convert(T, box.l))
+  β = _isscaled(set) ? s * convert(T, set.b / float(a)) : s * convert(T, set.b) / convert(T, a)
+  isfinite(β) || return r
+  ey = _magnitude_exponent(convert(T, my)) + 1
+  eb = _comparison_exponent(_magnitude_exponent(abs(l)), _magnitude_exponent(abs(u)), _magnitude_exponent(abs(β))) + 1
+  l, u, β = ldexp(l, -eb), ldexp(u, -eb), ldexp(β, -eb)
+  v = _buffer!(c.scratch, T, n)
+  total = zero(T)
+  @inbounds for (i, yi) in enumerate(y)
+    z = s * ldexp(convert(T, yi), -ey)
+    total += z
+    v[i] = set isa IndHyperplane ? z : max(z, zero(T))
+  end
+  iszero(u - l) && return ldexp(l * total, ey + eb)
+  κ = clamp((β - n * l) / (u - l), zero(T), convert(T, n))
+  ldexp(l * total + (u - l) * _top_sum!(view(v, 1:n), κ), ey + eb)
 end
 
 # the checks of the conjugate value above, before it computes

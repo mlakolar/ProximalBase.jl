@@ -347,6 +347,43 @@ numerical-zero threshold. For example, `SingularValue(NormL0(1))` at
 `Diagonal([2.0^60, 2, 0])` with step 1 returns `2`, while re-evaluating at its
 proximal point gives `1`.
 
+When the spectrum of a finite matrix overflows, the standalone values of
+`SingularValue(f)`, `Spectral(f)` and `Conjugate(SingularValue(f))` are taken
+from the spectrum `v` of `X/2^k`, the one the decisions above use. For an `f`
+that is positively homogeneous of degree `d`, `f(2^k v) = 2^(dk) f(v)`: the value
+is that of `Scaled(f, 2^(dk))` at `v`, formed by the same private recovery as
+other scaled values, so a level that leaves the range at that scale is folded
+and the exponent is applied last. A scale around `f`, chained or not, joins the
+same power of two. This covers `NormL1`, `NormL2`, `NormLinf`, `SumLargest`
+(signed spectra included), `SLOPE`, `NormL1Nonneg`, `ElasticNet` (its two
+levels separately), uncentered `SqrNormL2`, `CubeNormL2`, the support functions
+of the balls, boxes, simplices and the Ky Fan set, the conjugate of uncentered
+`SqrNormL2`, and `Constrained` forms of these, whose constraints are decided on
+`v` first. The conjugates of scaled `NormL1`, `NormL2` and `NormLinf` are
+decided on `v` against their radius in the same units, which is never formed
+in the original units. So `SingularValue(NormL1(1/4))` at
+`fill(floatmax(Float64), 2, 2)`, whose singular values are `2floatmax` and `0`,
+is `floatmax(Float64)/2`, where it was `Inf`.
+
+Not covered: functions without a level that a scale folds into (`SumLargest`,
+`SLOPE`, `CubeNormL2`, the support functions of boxes, simplices and the Ky Fan
+set) at a level outside the normal range of the matrix's precision;
+`NormLq`, whose degree is not an integer; centered and translated functions,
+`Precompose` and other transformations; penalties that are not homogeneous,
+such as `LogPenalty`; functions that `SingularValue` admits outside its
+documented domain (order-dependent penalties and cones); and functions of the
+user. These keep the ordinary result, which may be infinite. The values that
+`value_and_prox!` returns at an overflowing spectrum are not changed for the
+functions this paragraph adds.
+
+A matrix with a `NaN` entry gives the value `NaN` for every function of a
+spectrum computed by LAPACK (`SingularValue`, `Spectral`, `NuclearNorm`,
+`TracePSD`, `IndPSD`, `IndBallRank`, `IndStiefel`, `LogDetLoss` and the value
+of `Conjugate(SingularValue(f))`), in standalone calls and from
+`value_and_prox!`, and a matrix with an infinite entry and no `NaN` gives
+`Inf`; `NuclearNorm(0)` keeps `Inf` at both. The test runs before the
+decomposition, which never sees the entry.
+
 ## GPU arrays
 
 The separable functions work on GPU arrays: CUDA.jl's `CuArray`, and the other

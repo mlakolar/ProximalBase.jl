@@ -8,7 +8,9 @@
     Parts are still being implemented; [issue #366](https://github.com/mlakolar/ProximalBase.jl/issues/366)
     tracks the functions that do not yet conform. The changes to earlier
     results are listed in [Compatibility and migration](@ref).
-    [`PrecisionError`](@ref) exists, but no function in this release raises it.
+    [`PrecisionError`](@ref) is raised by `quadratic_model` and `quadratic_model!` of a
+    [`GLMLoss`](@ref) when an effective coefficient cannot be represented; no other
+    function in this release raises it.
 
 This page states what ProximalBase promises about the numbers it returns:
 their types, their accuracy, the decisions it takes on rounded quantities, and

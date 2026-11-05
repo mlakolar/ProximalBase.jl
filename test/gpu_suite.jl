@@ -1947,8 +1947,9 @@ end
         fc = GLMLoss(ℓ, y, X; weights = w)
         gc = zeros(Float64, p)
         @test v64 === f(DeviceArray(b64))
-        @test v64 ≃ value_and_gradient!(gc, fc, b64)
-        # the device forms X'd in the precision of g, the CPU in that of the data
+        # Float32 terms summed in another order on the device, and X'd formed in the
+        # precision of g on the device, in that of the data on the CPU
+        @test isapprox(v64, value_and_gradient!(gc, fc, b64); rtol = 8eps(Float32))
         @test isequal(host(g64), host(g64b)) && isapprox(host(g64), gc; rtol = 8eps(Float32))
       end
     end

@@ -126,6 +126,18 @@ _has_ordinary_value(::Type{<:HingeLoss}) = true
 # invariant, so the test is unswitched out of a loop; an array loop (below) keeps the arithmetic
 # vectorized by testing all entries together.
 @inline _normal_range(ab::R) where {R<:AbstractFloat} = (floatmin(R) <= ab) & (ab <= floatmax(R))
+# The same test for the IEEE types as one unsigned comparison: the bit patterns of the positive normal
+# numbers are exactly [bits(floatmin), bits(floatmax)]; zero, subnormals, negatives (sign bit), Inf and
+# NaN fall outside, the subtraction wrapping around (checked against the test above for every Float16 and
+# Float32 pattern and for random Float64 ones).
+_bits(::Type{Float16}) = UInt16
+_bits(::Type{Float32}) = UInt32
+_bits(::Type{Float64}) = UInt64
+@inline function _normal_range(ab::R) where {R<:Union{Float16, Float32, Float64}}
+  U = _bits(R)
+  lo = reinterpret(U, floatmin(R))
+  reinterpret(U, ab) - lo <= reinterpret(U, floatmax(R)) - lo
+end
 # The label enters with its sign: (ab·y)·y is (ab·|y|)·|y| bit for bit, and saves the abs.
 @inline function _hinge_step_ordinary(::Type{S}, γ, y::S, w) where {S<:AbstractFloat}
   R = _working_type(S, γ, w)

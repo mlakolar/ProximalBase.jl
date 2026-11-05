@@ -193,4 +193,17 @@ end
   z = Real[Float16(0)]; @test PB.prox!(z, ff, z, γ16)[1] == PB.prox_entry(ff, Float16(0), 1, γ16)
 end
 
+@testset "the range test as one unsigned comparison equals floatmin <= ab <= floatmax" begin
+  ref(ab::R) where {R} = (floatmin(R) <= ab) & (ab <= floatmax(R))
+  @test all(u -> PB._normal_range(reinterpret(Float16, u)) == ref(reinterpret(Float16, u)), typemin(UInt16):typemax(UInt16))
+  rng = MersenneTwister(5)
+  @test all(_ -> (u = rand(rng, UInt32); PB._normal_range(reinterpret(Float32, u)) == ref(reinterpret(Float32, u))), 1:200_000)
+  @test all(_ -> (u = rand(rng, UInt64); PB._normal_range(reinterpret(Float64, u)) == ref(reinterpret(Float64, u))), 1:200_000)
+  for T in (Float16, Float32, Float64), v in (zero(T), -zero(T), floatmin(T), prevfloat(floatmin(T)), nextfloat(floatmin(T)),
+                                               floatmax(T), prevfloat(floatmax(T)), T(Inf), -T(Inf), T(NaN), -floatmin(T), -floatmax(T))
+    @test PB._normal_range(v) == ref(v)
+  end
+  @test PB._normal_range(big"1.0") && !PB._normal_range(big"0.0")
+end
+
 end

@@ -176,4 +176,21 @@ end
   end
 end
 
+@testset "destinations that share memory with a parameter, integer outputs, abstract element types" begin
+  # independent review of the block loops: every entry reads its parameters before its slot is written
+  n = 6
+  f = HingeLoss(fill(3.0, n), fill(1e-300, n)); sc = PB.Scaled(f, 2.0); x = zeros(n); γ = fill(1.2345e-20, n)
+  want = PB.prox!(zeros(n), sc, x, copy(γ))
+  g = copy(γ); PB.prox!(g, sc, x, g); @test g == want                    # y === γ through a wrapper's step array
+  w = [0.0, 1, 1, 1, 1, 1]; fw = HingeLoss(ones(n), w)
+  @test PB.prox!(view(w, :), fw, fill(0.5, n), Inf) == [0.5, 1, 1, 1, 1, 1]   # y is a view of the weights
+  lab = fill(3.0, n); fl = HingeLoss(lab, fill(1e-300, n))
+  @test PB.prox!(view(lab, :), fl, zeros(n), 1e-15) == fill(3.0e-315, n)
+  fi = HingeLoss([2, 2, 2], [0.0, 1, 1])                                 # zero weight, infinite step, integer output
+  @test PB.prox!(zeros(Int, 3), fi, [0, 5, 7], Inf) == [0, 5, 7]
+  ff = HingeLoss(Float16[-6.758], Float16[0.00681]); γ16 = Float16(2.253e-5)   # abstract element type, narrow entries
+  @test PB.prox!(Real[0.0], ff, Real[Float16(0)], γ16)[1] == PB.prox_entry(ff, Float16(0), 1, γ16)
+  z = Real[Float16(0)]; @test PB.prox!(z, ff, z, γ16)[1] == PB.prox_entry(ff, Float16(0), 1, γ16)
+end
+
 end

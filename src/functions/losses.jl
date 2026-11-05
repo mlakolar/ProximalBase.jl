@@ -182,62 +182,45 @@ _aliases_parameters(y, f::HingeLoss, γ) = y === f.y || y === f.w || y === γ   
   R = _working_type(S, γ, w)
   _normal_range(convert(R, γ) * convert(R, w))
 end
+# element types of the data and the parameters; an abstract one (Vector{Real}) has no single working type
+# for the block test, so each entry is promoted by prox_entry
+_concrete_eltype(::Nothing) = true
+_concrete_eltype(::Real) = true
+_concrete_eltype(a::AbstractArray) = isconcretetype(eltype(a))
 function _prox_sep_dense!(y::AbstractArray, f::HingeLoss, x::AbstractArray, γ)
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
-  T = eltype(y)
   S = float(eltype(x))
   _aliases_parameters(y, f, γ) && return _prox_sep_recover!(y, f, x, γ)   # entry by entry: each parameter is read before it is written
-  ok = true
-  if y === x
-    return _hinge_inplace!(y, f, γ, S)
-  end
-  @inbounds for i in eachindex(IndexLinear(), y, x)
-    r, oki = _hinge_ordinary(f, x[i], i, _entry(γ, i))
-    y[i] = convert(T, r)
-    ok &= oki
-  end
-  ok && return y
-  _hinge_repair!(y, f, x, γ)
+  (_concrete_eltype(x) & _concrete_eltype(f.y) & _concrete_eltype(f.w) & _concrete_eltype(γ)) || return _prox_sep_recover!(y, f, x, γ)
+  _hinge_blocks!(y, y === x ? nothing : x, f, γ, S)   # nothing: in place, the loop names the one array once
 end
-# In place (y === x): block by block, so that the read-only test of a block (a vectorized reduction over
-# the coefficients, not touching x) and the writes of its result see the same cache-hot entries. A block
-# whose coefficients all have a normal product is written by the ordinary loop, any other block entry by
-# entry through prox_entry; each entry is read before it is written, and the parameter arrays are not y.
-function _hinge_inplace!(y, f, γ, ::Type{S}) where {S}
+# Blocks of 128 entries. The test of a block is a read-only, branch-free reduction over its coefficients
+# (vectorized); a block whose coefficients all have a normal product γw is written by the ordinary
+# loop (vectorized), any other block entry by entry through prox_entry (the recovery). Every entry reads
+# its value and all its parameters before its own slot of y is written, and no other slot, so a
+# destination that shares memory with a parameter array (a wrapper's step array, a view) stays exact.
+# The ordinary value is converted only where it is the result. With y === x the loop reads the
+# destination: under two names the compiler's overlap test between the stores to y and the loads from
+# x sent this loop to its scalar version (measured 3x slower).
+_hinge_source(y, ::Nothing) = y
+_hinge_source(y, x) = x
+function _hinge_blocks!(y, x, f, γ, ::Type{S}) where {S}
   T = eltype(y)
-  for blk in Iterators.partition(eachindex(IndexLinear(), y), 128)
+  src = _hinge_source(y, x)
+  for blk in Iterators.partition(eachindex(IndexLinear(), y, src), 128)
     ok = true
     @inbounds for i in blk
       ok &= _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i))
     end
     if ok
-      # read the destination, not x: y === x, but under two names the compiler's overlap test between the
-      # stores to y and the loads from x sends this loop to its scalar version (measured 3x slower)
       @inbounds for i in blk
-        y[i] = convert(T, _hinge_ordinary(f, y[i], i, _entry(γ, i))[1])
+        y[i] = convert(T, _hinge_ordinary(f, src[i], i, _entry(γ, i))[1])
       end
     else
       @inbounds for i in blk
-        y[i] = convert(T, prox_entry(f, y[i], i, _entry(γ, i)))
+        y[i] = convert(T, prox_entry(f, src[i], i, _entry(γ, i)))
       end
-    end
-  end
-  y
-end
-@noinline function _hinge_repair!(y, f, x, γ)
-  T = eltype(y)
-  S = float(eltype(x))
-  # blocks: the test of a block is a branch-free reduction (vectorized), the entries of a block that
-  # fails it are visited one by one, so that one exceptional entry costs one block and not the array
-  for blk in Iterators.partition(eachindex(IndexLinear(), y, x), 128)
-    ok = true
-    @inbounds for i in blk
-      ok &= _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i))
-    end
-    ok && continue
-    @inbounds for i in blk
-      _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i)) || (y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i))))
     end
   end
   y

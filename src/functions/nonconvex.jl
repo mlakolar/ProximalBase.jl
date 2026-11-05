@@ -680,7 +680,10 @@ _checkgroups(f::IndBallGroupL0, x::AbstractArray) =
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndBallGroupL0, y::AbstractArray, x::AbstractArray) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkgroups(f, x); true)
 
-_samegroups(f::IndBallGroupL0, x::AtomIterate) = _samelayout(f, x)
+# the functions whose groups an AtomIterate can be compared with
+const _GroupFunction = Union{AbstractGroupPenalty, IndBallGroupL0}
+samegroups(x::AtomIterate, f::_GroupFunction) = _samelayout(f, x)
+samegroups(f::_GroupFunction, x::AtomIterate) = _samelayout(f, x)
 
 # whether the entries of x in G are all zero, and, if not, whether there are at
 # most k of them
@@ -708,7 +711,7 @@ end
 
 function (f::IndBallGroupL0)(x::AtomIterate)
   _checkreal(f, x)
-  _samegroups(f, x) || return invoke(f, Tuple{AbstractArray}, x)
+  _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   nz, ok = 0, true
   for a in 1:x.nactive
     z, fits = _group_status(x.storage, f.groups[x.active[a]], f.k)
@@ -727,7 +730,7 @@ end
 
 function prox!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate, γ::Real)
   _checkwrite(prox!, f, y, x)
-  _samegroups(f, y) && _samegroups(f, x) ||
+  _samelayout(f, y) && _samelayout(f, x) ||
     return invoke(prox!, Tuple{AbstractArray, IndBallGroupL0, AbstractArray, Real}, y, f, x, γ)
   copyto!(y, x)
   _keep_largest_groups!(y.storage, f, view(y.active, 1:y.nactive))

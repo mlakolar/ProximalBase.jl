@@ -472,12 +472,64 @@ Block coordinate descent for the group lasso computes the trial point
 activates the group only when it ends nonzero. `AtomIterate(p, g)` builds an
 iterate that shares the groups of a group penalty `g`.
 
+### The groups of an iterate
+
+[`atomindices`](@ref)`(x, k)` returns the indices of the entries of group `k`, in the order in
+which `x` stores them, and `ProximalBase.samegroups(a, b)` tells whether two layouts are equal.
+Use them instead of reading the fields of `x`, which are private.
+
+`atomindices(x, k)` is a read-only `AbstractVector{<:Integer}`. A group that `x` stores as a
+range comes back as that range, with its own index type: a group stored as a
+`UnitRange{Int32}` is a `UnitRange{Int32}`, and `AtomIterate(p, K)` stores `UnitRange{Int}`s.
+Every other group is stored as a `Vector{Int}`, and comes back as a read-only wrapper whose
+element type is `Int`, so `Int32` vectors, mixed groups and collections of other integer types
+all give `Int`. Writing through the wrapper (`h[i] = v`, `fill!`, `copyto!`, `h .= v`, a `sort!`
+that moves an entry) throws an `ArgumentError` and leaves the layout unchanged; `copy` and
+`collect` give an ordinary array. The call takes constant time, does not allocate, and throws a
+`BoundsError` unless `k` is in `1:ncoordinates(x)`. The result stays valid for the lifetime
+of `x`: the groups of an iterate do not change, and activating groups, `dropzeros!`, `copyto!`
+and writes of values do not affect it. It indexes other arrays like any integer vector, for
+instance `view(g, atomindices(x, k))`. A vector group is wrapped, so such a view is not
+indexed by a `Vector{Int}`, and its norms and dot products take the generic paths.
+
+`atomindices` is the supported route to the layout. `parentindices(atom(x, k))` returns the
+private group array itself, and changing that array is unsupported: the groups and the map from
+entries to groups would disagree. The same holds for the fields of the wrapper that
+`atomindices` returns (`h.ids`) and for the fields of the iterate: they are internal, reading or
+writing them is not covered by this contract, and ProximalBase does not block `getproperty`.
+What the contract does cover is every documented operation on the result, and the exceptions
+that `atomindices(x, k)` and its wrapper throw: they name the range of valid groups or the
+wrapper, and do not hold a stored group. (`atom(x, k)` is unchanged: its `BoundsError` still names
+the stored groups.)
+
+`samegroups(a, b)` is `true` when `a` and `b` have the same number of groups and the same
+indices in the same order in every group, and `false` otherwise. `a` and `b` are two iterates,
+or an iterate and a group penalty or [`IndBallGroupL0`](@ref), in either order. Ranges and vectors
+with the same indices are equal, whatever their index types, and reordering the groups or the
+indices inside a group gives `false`. It is the check that [`prox_coordinate!`](@ref) makes
+before it writes and that the four-argument [`kkt_violation`](@ref)`(f, g, x, k)` makes before it
+computes; each throws a `DimensionMismatch` when it is `false`. The whole-array oracles do not
+require it: they compute the function of the vector for any layout, and use `samegroups` only to
+choose the faster active-group paths.
+
 An iterate and a group penalty whose groups are equal but were built separately
-also take the active-group paths. The first check compares the two layouts in
-full; the iterate then remembers the penalty's group array, so later checks take
-constant time. `copy` and `similar` keep what the iterate remembers, `copyto!`
-keeps the destination's, and an iterate built from a restricted penalty starts
-with nothing remembered.
+also take the active-group paths. Each iterate remembers one group array that it found equal to
+its own:
+
+- When `a` and `b` share their group array, `samegroups` takes constant time.
+- When two iterates remember the same array, or one remembers the other's, it also takes
+  constant time and writes nothing.
+- Otherwise it compares the two layouts in full, which takes time proportional to the total
+  size of the groups. If they are equal, the iterate (the first argument when both are iterates)
+  remembers the other's group array, so that asking again about that array takes constant time.
+  If they differ, it returns `false` and the iterate keeps what it remembered.
+- The slot holds one array. Alternating between two equal group arrays that are different
+  objects compares at every call, and an iterate that is also used with a penalty remembers
+  only the one it was last compared with.
+
+`copy` and `similar` keep what the iterate remembers, `copyto!` between two iterates
+keeps the destination's, and an iterate built from a restricted penalty starts with nothing
+remembered. Comparisons use no table or other storage.
 
 Group arrays and the indices inside them must not be mutated after a penalty
 or an iterate is built. This also applies to arrays retained by inner

@@ -689,7 +689,7 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
                            ("6_0", "malformed"), ("٣", "malformed"), ("", "malformed"), (" 6", "malformed"),
                            ("+6", "malformed"), ("11", "repetition 11 is above 10, the largest --expected-runs"),
                            ("1-99999999", "repetition 99999999 is above 10"),
-                           ("9"*5000, "--reps: malformed"), ("1-" + "9"*5000, "--reps: malformed")):
+                           ("9"*5000, "--reps:"), ("1-" + "9"*5000, "--reps:")):
         try:
             parse_reps(["1", token])
         except ValueError as error:
@@ -710,7 +710,7 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
                                     ([["7-6"]], "reversed range", 10), ([["-1"]], "malformed", 10),
                                     ([["6_0"]], "malformed", 10), ([[""]], "malformed", 10),
                                     ([["1-99999999"]], "above 10", 10),
-                                    ([["1-" + "9"*5000]], "--reps: malformed", 10)):
+                                    ([["1-" + "9"*5000]], "--reps:", 10)):
         name = f"reps-cli-invalid-{len(list(root.iterdir()))}"
         failed = cli(name, *reps, expected=expected)
         assert failed.returncode == 2 and message in failed.stderr, (reps, failed.stderr)

@@ -57,10 +57,14 @@ def parse_reps(tokens):
     Bounds, duplicates and emptiness are checked by select_reps."""
     reps = []
     for token in tokens:
+        malformed = ValueError(f"--reps: malformed repetition {token!r}; use k or a-b")
         if not re.fullmatch(r"[0-9]+(?:-[0-9]+)?", token, re.ASCII):
-            raise ValueError(f"--reps: malformed repetition {token!r}; use k or a-b")
+            raise malformed
         first, _, last = token.partition("-")
-        first, last = int(first), int(last or first)
+        try:
+            first, last = int(first), int(last or first)
+        except ValueError:   # a number beyond the int-string conversion limit
+            raise malformed from None
         if max(first, last) > 10:
             raise ValueError(f"--reps: repetition {max(first, last)} is above 10, the largest --expected-runs")
         if first > last:
@@ -305,7 +309,8 @@ if __name__ == "__main__":
     parser.add_argument("--timer-limit-multiple", type=float, default=10)
     parser.add_argument("--primary", help="file of primary case IDs, one per line (# comments)")
     parser.add_argument("--reps", nargs="+", action="extend", metavar="SPEC",
-                        help="repetitions to compare, each k or a-b (default: all); all repetitions are still validated")
+                        help="repetitions to compare, each k or a-b, after the positional arguments "
+                             "(default: all); all repetitions are still validated")
     args = parser.parse_args()
     try:
         compare(args.before, args.after, args.output, args.expected_runs, args.timer_limit_multiple,

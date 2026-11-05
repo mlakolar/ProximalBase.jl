@@ -355,8 +355,9 @@ A measurement is timer-limited when `median_ns * evals < K * timer_floor_ns`
 `evals` is also timer-limited. Older records can be summarized but fail record
 validation. Both analysis tools accept `--timer-limit-multiple K` (positive and finite; default 10). Any limited
 repetition marks the case/version's `timer_limited` column; comparisons check
-both sides. A ratio gate must filter on `timer_limited`. Comparisons retain
-ratios, intervals and allocation warnings, with a `timer-limited` assessment.
+both sides over the compared repetitions only. A ratio gate must filter on
+`timer_limited`. Comparisons retain ratios, intervals and allocation warnings,
+with a `timer-limited` assessment.
 Their CSV also records `timer_limited_by` (for example,
 `before:rep01,rep03;after:rep02`), `timer_limit_multiple`, and distinct
 `before_evals` / `after_evals` joined with `/`. Summary reports give the timer

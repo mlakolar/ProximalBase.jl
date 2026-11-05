@@ -208,9 +208,11 @@ Intermediates include a sum, a difference, a square, a product with a fixed
 factor such as `1/2`, and a level or weight that is not representable in `R`.
 
 The ordinary expression is evaluated first. Only when its result is out of
-range, or a sum of squares could have lost terms to underflow, is the value
-recomputed in units of a power of two, with the level applied last. Ordinary
-inputs therefore take the ordinary computation, at its speed.
+range, when a sum of squares could have lost terms to underflow, or, for the
+quadratic forms below, when an intermediate matrix product could have underflowed
+although the final value is a normal number, is the value recomputed in units of
+a power of two, with the level applied last. Ordinary inputs therefore take the
+ordinary computation, plus the cheap check that decides this.
 
 The quadratic forms of [`QuadraticFunction`](@ref) and `KronQuadratic` are
 covered when an intermediate matrix product underflows. A product rounded into
@@ -248,11 +250,18 @@ depending on the tier. A cancellation to a value far below the terms is held to
 the error scale of the terms, as in the ordinary computation, unless the value
 itself falls below the threshold and a product can be subnormal.
 
+The three costs differ. The check itself, one pass over the operands, is paid by
+every call. A value that is exactly zero at a nonzero argument pays one more
+product, as above; on the benchmark of #536 that was between 1.6 and 3.2 times the
+ordinary call. The recomputation is paid only by a call whose intermediate
+product can be subnormal, at the cost given above.
+
 The coefficient matrices of a `KronQuadratic` fix the type of its buffers, and a
 wider argument is rounded into them before the check; an entry below the range
 of the buffer type, such as `2^-200` in a `Float32` function, is lost (T3 asks
 for the argument not to be rounded below the model precision; this is a known
-limitation, the same before and after the treatment of underflow above).
+limitation, the same before and after the treatment of underflow above, and it
+is tracked in #584).
 
 ```julia
 julia> SqrNormL2(1e-300)([1e200])

@@ -713,6 +713,7 @@ allocated_pow2(::Type{T}, E, a, b, c) where {T} = (pow2_three(T, E, a, b, c); @a
       # The Float32 buffer of a Float32 KronQuadratic receives a Float64 argument rounded to Float32, which
       # is zero here; T3 asks for the argument not to be rounded below the model precision. This is the
       # behavior before #520 too; the trigger sees max|D| = 0 and cannot recover it.
+      # Tracked in #584; keep this @test_broken until that issue is fixed.
       A = fill(ldexp(1f0, -100), 1, 1)
       f = KronQuadratic(A, copy(A))
       Θ = fill(ldexp(1.0, -200), 1, 1)

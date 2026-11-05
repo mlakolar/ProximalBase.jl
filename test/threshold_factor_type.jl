@@ -140,8 +140,8 @@ end
   @test prox(h, [nextfloat(2.0^-600)], 2.0^-700) == [nextfloat(2.0^-600)]
   # ordinary tie and non-finite values
   @test prox(NormL0(2.0), [2.0], 1.0) == [0.0] && prox(NormL0(2.0), [nextfloat(2.0)], 1.0) == [nextfloat(2.0)]
-  # unchanged from the base: Inf is kept, NaN fails the comparison and gives zero
-  @test prox(NormL0(1.0), [Inf, NaN, 0.0], 1.0) == [Inf, 0.0, 0.0]
+  # Inf is kept, and NaN is kept as NaN where the map depends on the argument (E2, #560)
+  @test isequal(prox(NormL0(1.0), [Inf, NaN, 0.0], 1.0), [Inf, NaN, 0.0])
   @test prox(NormL0(1.0), [1.0], 0.0) == [1.0]                                        # γ = 0: identity
 end
 
@@ -207,7 +207,7 @@ end
   @test prox(NormL0(2.0^499), [2.0^600], 0.0) == [2.0^600]                              # γ = 0: identity
   @test prox(NormL0(0.0), [2.0^-600, 0.0], 2.0^700) == [2.0^-600, 0.0]                  # λ = 0: identity, zero stays zero
   @test prox(NormL0(Inf), [2.0^600], 2.0^700) == [0.0] && prox(NormL0(2.0^499), [2.0^600], Inf) == [0.0]
-  @test prox(NormL0(2.0^499), [NaN, Inf], 2.0^700) == [0.0, Inf]
+  @test isequal(prox(NormL0(2.0^499), [NaN, Inf], 2.0^700), [NaN, Inf])               # finite 2γλ outside the normal range: NaN stays NaN
 end
 
 @testset "LLA weights test the raw weight for infinity" begin

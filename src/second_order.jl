@@ -66,7 +66,7 @@ Hessian. It retains the gradient at the model point.
 A proximal Newton method minimizes `q + g` with any solver and penalty `g`,
 then searches along the step on `f + g`. `quadratic_model!` updates a model
 returned by `quadratic_model(f, x₀)` to the model at `x`, in place and without
-allocating, and returns it. A model of a [`SeparableSum`](@ref) must have as
+allocating for finite data (see the `GLMLoss` case below), and returns it. A model of a [`SeparableSum`](@ref) must have as
 many blocks as `f`, and a model of a [`Sum`](@ref) as many parts; otherwise a
 `DimensionMismatch` is thrown. Each sum is checked when the update reaches it,
 before any of its own blocks change; a mismatch in a nested sum can therefore
@@ -81,7 +81,43 @@ be found after earlier sibling blocks were updated.
 
 For a `GLMLoss`, `ℓ''ᵢ` is floored at `√eps`, as in IRLS, so that the working
 responses stay finite where the curvature vanishes (a Huber loss beyond `δ`);
-the gradient of `q` at `x` is still `∇f(x)` exactly. For `LogDetLoss`, `q` is
+the gradient of `q` at `x` is still `∇f(x)`, up to the rounding of `ηᵢ - zᵢ` (which loses `ℓ'ᵢ/ℓ''ᵢ`
+when `|ηᵢ|` exceeds it by more than `1/eps`, as for a Poisson loss at `η = -1e30`). The coefficients `wᵢℓ''ᵢ`
+are the *effective* ones: a Poisson observation whose `exp(ηᵢ)` overflows still
+has a finite coefficient in `Float32` or `Float64` when `wᵢ exp(ηᵢ)` is representable (weight `1/8` at
+`η = 710` gives `exp(710)/8` and the working response `709`), and a coefficient
+or working response of a finite observation that is not representable in the
+working precision (or a nonzero weight whose coefficient rounds to zero) throws
+a [`PrecisionError`](@ref), which is never clamped. `quadratic_model!` computes
+the whole model before it writes, so after a `PrecisionError` every field of `q`
+is as it was and `q` can be updated again. `q` must own its arrays, as `quadratic_model`
+makes it: `q.y` and `q.weights` must be two separate arrays, and none of the arrays of `f` (`y`,
+the weights, the offset and its buffers); an identical array is an `ArgumentError`, a view or
+reshape of one is not detected. Non-finite data propagate as
+`NaN`/`Inf` without an error in the update of a model; `quadratic_model` builds a new
+loss and so checks the offset again, which must be finite, as in the constructor: an
+offset made non-finite after the construction is an `ArgumentError` there. Allocation
+and global state, in four cases. (i) An ordinary update in `Float32` or `Float64` allocates nothing as
+long as the staged coefficients and responses are finite and no coefficient vanished.
+(ii) A recovery that does not need the certified tier below (the exponent split of a Poisson
+`exp(ηᵢ)` that overflows, a response below the curvature floor, the correction of a
+subnormal coefficient) allocates nothing either. A response below the curvature floor whose
+terms leave the range (`|ηᵢ|` and `yᵢ/√eps` near `floatmax`) is formed in double-word
+arithmetic and rounded once, for `Float32` and `Float64` responses; a response of another
+type (integer, rational) is first converted to the working float type, as `e - y` is. (iii) A
+Poisson coefficient `wᵢ exp(ηᵢ)` within about 0.1% of `floatmax` or past it, but not clearly
+past it, is rounded once, correctly, by a certified computation in `BigFloat`
+at an explicit precision (the result does not depend on the current `BigFloat` precision),
+and allocates; it is `Inf`, and so a [`PrecisionError`](@ref), exactly when the exact value
+reaches `floatmax + ulp/2`. Otherwise (a non-finite observation, a predictor that overflowed
+in `Xβ + offset` even for finite `X`, `β` and offset, or a vanished coefficient) the update
+checks the staged values in a new vector of the length of `y`, and allocates, whether
+it then throws or returns. A `BigFloat` response is computed in the current `BigFloat`
+precision and allocates. (iv) No production path reads or changes the process-global `BigFloat`
+precision or rounding mode, except that the arithmetic of a `BigFloat` response uses the current
+precision, as above. The all-or-nothing update holds for one `GLMLoss`:
+the models of a [`Sum`](@ref) or [`SeparableSum`](@ref) of such losses are
+updated one part after another. For `LogDetLoss`, `q` is
 written in the new point `z` rather than in the step `z - x`: minimizing
 `q(z) + λ‖z‖₁` over symmetric `z` is the Newton step of the QUIC algorithm for
 the graphical lasso (Hsieh, Sustik, Dhillon and Ravikumar, 2014), and
@@ -230,29 +266,237 @@ function quadratic_model(f::GLMLoss{L, T}, β::AbstractVector) where {L, T}
   _quadratic_model_unchecked!(GLMLoss(Squared(), zeros(T, n), f.X; weights = zeros(T, n), offset = f.offset), f, β)
 end
 
-# the IRLS model: weights wᵢℓ''ᵢ and working responses ηᵢ - ℓ'ᵢ/ℓ''ᵢ, with ℓ''
-# floored so that the responses stay finite; the model's gradient at β is
-# X'(wᵢℓ'ᵢ), the gradient of f, whatever the floor
+# The IRLS model: weights vᵢ = wᵢℓ''ᵢ and working responses zᵢ = ηᵢ - ℓ'ᵢ/ℓ''ᵢ, with ℓ''
+# floored so that the responses stay finite; the model's gradient at β is X'(wᵢℓ'ᵢ), the
+# gradient of f, whatever the floor.
+#
+# The pair (vᵢ, zᵢ) of every observation is staged in the buffers of f, zᵢ over ηᵢ
+# (read first) and vᵢ in d, and validated; q is written only once all of them are valid,
+# so that a failure at one observation leaves every field of q as it was (O6). The
+# buffers hold no result of f: gradient! and hessian_vec! overwrite them.
 function quadratic_model!(q::GLMLoss{Squared, T, Vector{T}, <:Any, Vector{T}}, f::GLMLoss{L, T},
                           β::AbstractVector) where {L, T}
   _checkreal(f, β)
   q.X === f.X && q.offset === f.offset ||
     throw(ArgumentError("the model must come from quadratic_model of the same loss"))
+  n = length(f.y)
+  length(q.y) == n && length(q.weights) == n ||
+    throw(DimensionMismatch("the model has $(length(q.y)) observations and the loss $n"))
+  # q owns its output arrays: neither may be the other, nor an array of the loss (the buffers η
+  # and d that stage the update, its data y, weights and offset, which the commit would
+  # overwrite); identity only, a view or a reshape is not detected (O7)
+  qy, qw = q.y, q.weights
+  (qy === qw || qy === f.η || qy === f.d || qy === f.y || qy === f.weights || qy === f.offset ||
+   qw === f.η || qw === f.d || qw === f.y || qw === f.weights || qw === f.offset) &&
+    throw(ArgumentError("q.y and q.weights must be separate arrays, and not arrays of the loss"))
   η = _linear_predictor!(f, β)
-  z, v = q.y, q.weights
+  z, v = η, f.d
   floor = sqrt(eps(T))
+  vanished = false                       # a nonzero weight with a coefficient that rounded to zero
   @inbounds for i in eachindex(η)
     w = convert(T, _entry(f.weights, i))
     if iszero(w)
       v[i] = z[i] = zero(T)
       continue
     end
-    d1 = convert(T, deriv(f.loss, η[i], f.y[i]))
-    d2 = max(convert(T, deriv2(f.loss, η[i], f.y[i])), floor)
-    v[i] = w * d2
-    z[i] = η[i] - d1 / d2
+    vi, zi = _irls_pair(f.loss, w, η[i], f.y[i], floor)
+    vanished |= iszero(vi)
+    v[i], z[i] = vi, zi
+  end
+  # a finite observation must give finite, nonzero coefficients: an infinite or vanishing
+  # weight, or a non-finite response, is not the IRLS model of f; non-finite data propagate
+  # as before. One pass over the staged values; only a suspicious result is looked at again.
+  finite = true
+  @inbounds @simd for i in eachindex(v)
+    finite &= isfinite(v[i]) & isfinite(z[i])
+  end
+  (finite & !vanished) || _irls_check(f, β, v, z)
+  @inbounds @simd for i in eachindex(v)
+    qw[i] = v[i]
+    qy[i] = z[i]
   end
   q
+end
+
+# The staged pair (v, z) of f is not finite, or a coefficient vanished. A predictor, response or
+# weight that is itself not finite explains it (the result propagates, as before); otherwise
+# the first observation with finite data throws. The predictors are recomputed in a new array,
+# since f.η holds z; this path allocates (a successful update with non-finite data too).
+@noinline function _irls_check(f::GLMLoss{L, T}, β, v, z) where {L, T}
+  η = similar(f.η)
+  mul!(η, f.X, β)
+  f.offset === nothing || (η .+= f.offset)
+  for i in eachindex(v)
+    w = convert(T, _entry(f.weights, i))
+    iszero(w) && continue
+    representable = isfinite(v[i]) & isfinite(z[i]) & !iszero(v[i])
+    finite_data = isfinite(η[i]) & isfinite(f.y[i]) & isfinite(w)
+    (representable | !finite_data) && continue   # a non-finite predictor, response or weight propagates
+    throw(PrecisionError("the quadratic model of a GLMLoss has no representable IRLS coefficient and " *
+      "working response in $T at observation $i (linear predictor $(η[i]), weight $w, " *
+      "coefficient $(v[i]), working response $(z[i])); the model is unchanged"))
+  end
+  nothing
+end
+
+# (wℓ'', η - ℓ'/ℓ'') with ℓ'' floored at `floor`
+@inline function _irls_pair(ℓ::ScalarLoss, w::T, η::T, y, floor::T) where {T}
+  d1 = convert(T, deriv(ℓ, η, y))
+  d2 = max(convert(T, deriv2(ℓ, η, y)), floor)
+  w * d2, η - d1 / d2
+end
+
+# Poisson: ℓ' = exp(η) - y, ℓ'' = exp(η), one exponential for both. There are three tiers.
+# (1) The ordinary expressions are evaluated first and returned when the coefficient is
+# below 0.999 floatmax in modulus (`_nearmax`) and the response is finite: w exp(η) is then
+# far from the overflow threshold, which an error of a few ulps cannot reach.
+# (2) Where exp(η) overflows at a finite η, or where the coefficient or the response of a
+# finite observation leaves the range although exp(η) is above the floor (exp(η) - y
+# overflows for a large negative y, say), they are recomputed: w exp(η) = w m 2^j with the
+# power of two held outside the range until the final rounding, and η - 1 + y exp(-η), the
+# limit of η - (exp(η) - y)/exp(η), as the response.
+# (3) A coefficient of either tier within 0.1% of floatmax or past it is not trusted, because
+# `w * exp(η)` and `w m 2^j` are approximations (a few ulps, 2^-50 relative at most for Float64)
+# that can fall on the wrong side of the overflow threshold floatmax + ulp/2; there the
+# coefficient is the correctly rounded w exp(η), Inf if that overflows (which the caller
+# rejects), from `_poisson_upper`. Below the floor the coefficient is w √eps and
+# only the response can leave the range: η - (exp(η) - y)/√eps is a sum of two terms that
+# may each be out of range while the sum is not (η = -floatmax and y/√eps just above it),
+# so it is formed in double-word arithmetic and rounded once (`_floored_response`), and the
+# caller rejects it only if that rounded sum is not finite.
+# A non-finite weight, response or predictor is not recovered: it propagates as before.
+@inline function _irls_pair(::Poisson, w::T, η::T, y, floor::T) where {T}
+  e = exp(η)
+  if isfinite(e)
+    d2 = max(e, floor)
+    v, z = w * d2, η - convert(T, e - y) / d2
+    if !((abs(v) < _nearmax(T)) & isfinite(z)) && isfinite(y) & isfinite(w)
+      if isfinite(v) & isfinite(z)         # v within 0.1% of floatmax: certify v, z is ordinary
+        e > floor && (v = _poisson_upper(w, η, v))
+        return v, z
+      end
+      e > floor && return _poisson_recovered(w, η, y)
+      isfinite(z) || !isfinite(η) || (z = _floored_response(η, e, y, d2))
+    end
+    return v, z
+  end
+  isfinite(η) & isfinite(y) & isfinite(w) && return _poisson_recovered(w, η, y)
+  d2 = max(e, floor)                     # non-finite data propagate as before
+  w * d2, η - convert(T, e - y) / d2
+end
+
+# η - (e - y)/d2 for a finite η, e and y, rounded once to T: the quotient (y/2)/d2 is held as a
+# sum qh + ql of two floats (ql is the exact remainder, by a fused multiply-add), added to η/2
+# by an error-free sum, and the sum is rounded once to T, through a round-to-odd value in the
+# working precision when that differs from T (so that no tie of the working precision decides
+# the rounding to T). The halves keep every term in range and the doubling at the end is exact,
+# so the result is Inf exactly when the sum, not one of its terms, is out of range (up to ties of
+# a relative width 2^-100). For Float32 and Float64 responses nothing here allocates or reads global
+# state (no BigFloat precision or rounding mode); a BigFloat response allocates and is computed in the
+# current BigFloat precision (T7).
+# The working precision R is that of the promotion of T and the response, as `e - y` is: a response
+# of another type (an integer, a rational) is converted to it first, as in the ordinary expression
+# (numerics T3), and a BigFloat response is computed at the BigFloat precision current (T7) and
+# then delivered in T; the once-rounding statement is for Float32 and Float64 responses (S1).
+@noinline function _floored_response(η::T, e::T, y, d2::T) where {T}
+  R = promote_type(T, typeof(y))
+  half = R(0.5)
+  ηh, yh, eh, dh = convert(R, η) * half, convert(R, y) * half, convert(R, e) * half, convert(R, d2)
+  qh = yh / dh                           # (y/2)/d2
+  isfinite(qh) || return convert(T, qh)  # |y/d2| > 2 floatmax: the sum exceeds floatmax
+  ql = fma(-qh, dh, yh) / dh             # qh + ql = (y/2)/d2 to about twice the precision
+  s = ηh + qh                            # s + sl = ηh + qh exactly, unless s overflowed
+  isfinite(s) || return convert(T, 2 * s)
+  bv = s - ηh
+  sl = (ηh - (s - bv)) + (qh - bv)
+  t = sl + (ql - eh / dh)
+  hi = s + t
+  lo = t - (hi - s)                      # hi + lo = s + t exactly (|s| ≥ |t|)
+  isfinite(hi) || return convert(T, 2 * hi)
+  R === T || (hi = _round_odd(hi, lo))
+  convert(T, 2 * hi)
+end
+
+# hi + lo, with hi = RN(hi + lo), rounded to odd: hi where lo = 0 or the last bit of hi is odd,
+# else the neighbor of hi toward lo. Rounding that value to a type with at most p - 2 bits is the
+# rounding of hi + lo (no double rounding).
+@inline function _round_odd(hi::R, lo::R) where {R<:Base.IEEEFloat}
+  (iszero(lo) || isodd(reinterpret(Base.uinttype(R), hi))) && return hi
+  lo > 0 ? nextfloat(hi) : prevfloat(hi)
+end
+# R not an IEEE type (BigFloat): the sum is rounded in the precision of R, and then to T (T7)
+@inline _round_odd(hi, lo) = hi
+
+@noinline function _poisson_recovered(w::T, η::T, y) where {T}
+  m, j = _exp_split(η)
+  R = promote_type(T, typeof(y))          # y exp(-η) in the precision of the data, as e - y is
+  v = _scaled_product(w, m, j)
+  # a coefficient in the subnormal range, or rounded to floatmin from below it, is rounded once as well (ldexp rounds a second time
+  # there, and before Julia 1.11 truncates); there the power j is small enough to be a float
+  if T <: Base.IEEEFloat && isfinite(v) && abs(v) <= floatmin(T) && !iszero(w) && !iszero(m) &&
+     exponent(floatmin(T)) <= j <= exponent(floatmax(T))
+    v = _scaled_coefficient(w, m, ldexp(one(T), j), v)
+  end
+  abs(v) < _nearmax(T) || (v = _poisson_upper(w, η, v))
+  v, (η - one(T)) + convert(T, y * exp(-convert(R, η)))
+end
+
+# 0.999 floatmax: a coefficient below it in modulus is not close enough to the overflow threshold
+# for the error of `w * exp(η)` or of the exponent split to change its class. Other types
+# keep the ordinary result: abs(v) < Inf is isfinite(v) (and fails for NaN, as isfinite does).
+@inline _nearmax(::Type{T}) where {T<:Union{Float32, Float64}} = T(0.999) * floatmax(T)
+@inline _nearmax(::Type{T}) where {T} = T(Inf)
+
+using Base.MPFR: libmpfr, MPFRRoundingMode, MPFRRoundDown, MPFRRoundUp
+
+# w exp(η) rounded once to T, to nearest with ties to even and Inf for a value at or past
+# floatmax + ulp/2: the coefficient of a finite w and η near or past the overflow threshold. It is
+# computed in two stages.
+# Screen: L = log2|w| + η log2(e), in Float64, is within 1e-11 of the exact log2|w exp(η)|
+# (|η| ≤ _exp_bound ≈ 1456 so |η log2(e)| ≤ 2100, two roundings of relative size 2^-53, and log2 of
+# a double within a few ulps of a value of modulus at most 1075), and log2(floatmax + ulp/2) is
+# below emax + 1. L > emax + 1 + 2^-9 therefore means that the exact value exceeds the threshold
+# by more than 0.13%, and the result is ±Inf. For η > _exp_bound(T) (where the exponent split gives
+# Inf) L exceeds emax + 2 even for the smallest subnormal weight, so the screen returns Inf there too.
+# Certification (Ziv): at the explicit precision p, lo = RD(RD(exp(η)) |w|) and hi = RU(RU(exp(η)) |w|)
+# (MPFR directed rounding, from `mpfr_exp` and `mpfr_mul` called at the destination precision) enclose
+# |w| exp(η). Rounding to nearest (`T(x, RoundNearest)`, an explicit mode) is monotone, so if lo and hi
+# round to the same T they are the correctly rounded value, the class (finite or Inf) included; otherwise
+# p is doubled. For η ≠ 0 the value is transcendental, so never a rounding boundary of T, and an unbounded
+# loop would end; for η = 0 the product is exact. The doubling stops at 65536 bits, so the last attempt is
+# at p = 40960 (Float32) or 35328 (Float64). Each of the four directed operations errs by less than
+# 2^(1-p) relative, so lo and hi are within about 2^(3-p) of each other, and bounds that still round to
+# different T put |w| exp(η) within about 2^-35000 (relative) of a rounding boundary of T. No such input is
+# known (the closest tested, w = floatmax and η near 2^-54, is about 2^-107 away), but none is proved
+# impossible, and for one the call throws PrecisionError instead of returning an uncertified value. Nothing here sets or reads the BigFloat precision or rounding
+# mode, and nothing takes a lock; the call allocates (BigFloat).
+# A zero weight or a NaN coefficient (0·Inf from an overflowed exponent, propagated as it was) is returned as is.
+@noinline function _poisson_upper(w::T, η::T, v::T) where {T<:Union{Float32, Float64}}
+  (iszero(w) | isnan(v)) && return v
+  aw = abs(w)
+  L = log2(Float64(aw)) + Float64(η) * 1.4426950408889634
+  L > exponent(floatmax(T)) + 1 + 2.0^-9 && return copysign(T(Inf), w)
+  p = 2 * precision(T) + 32
+  while p <= 65536
+    lo = T(_wexp_directed(Float64(aw), Float64(η), p, MPFRRoundDown), RoundNearest)
+    hi = T(_wexp_directed(Float64(aw), Float64(η), p, MPFRRoundUp), RoundNearest)
+    lo == hi && return copysign(lo, w)
+    p *= 2
+  end
+  throw(PrecisionError("w exp(η) could not be rounded to $T at 65536 bits (weight $w, linear predictor $η)"))
+end
+@inline _poisson_upper(w::T, η::T, v::T) where {T} = v
+
+# |w| exp(η) rounded toward r (MPFRRoundDown or MPFRRoundUp) at p bits, for finite w and η and
+# p ≥ 53: exp(η) rounded toward r, then multiplied by |w| and rounded toward r again. The inputs
+# are converted exactly, and no global precision or rounding mode is read.
+function _wexp_directed(w::Float64, η::Float64, p::Int, r::MPFRRoundingMode)
+  x = BigFloat(η, MPFRRoundDown; precision = p)
+  b = BigFloat(w, MPFRRoundDown; precision = p)
+  z = BigFloat(; precision = p)
+  ccall((:mpfr_exp, libmpfr), Int32, (Ref{BigFloat}, Ref{BigFloat}, MPFRRoundingMode), z, x, r)
+  ccall((:mpfr_mul, libmpfr), Int32, (Ref{BigFloat}, Ref{BigFloat}, Ref{BigFloat}, MPFRRoundingMode), z, z, b, r)
+  z
 end
 
 ####################################

@@ -84,7 +84,8 @@ unchanged, transposed and adjoint operands; other flags throw before writing.
 
 Indexed array assignment, broadcasting and `fill!` into part of `x`, such as
 a row, a column, a block or a partial mask, throw an `ArgumentError` before
-writing, as do `copyto!` and `copy!` into such a part through a view.
+writing. `copyto!` and `copy!` into such a part through a view throw before
+writing too.
 Logical-mask indexed assignment is rejected even for an all-true mask.
 `copyto!` with offsets or index ranges (including transpose flags),
 `copy_transpose!` and `copy_adjoint!` with index ranges, `copyto!` from a tuple, a
@@ -123,7 +124,8 @@ Other functions that write an arbitrary array position by position are not
 checked; apply them to `Matrix(x)`. Scalar-write loops over every position
 stay unchecked. Other writes through a view or reshape stay unchecked too:
 indexed assignment such as `view(x, :, :)[:, :] = A`, scalar writes through a
-view, `copyto!` with index ranges, and `copyto!` from a tuple or a generator.
+view, `copyto!` with index ranges, and `copyto!` from a tuple, a generator, a
+number or another non-array iterator.
 The checks do not extend to other nested wrappers, such as `vec(view(x, :, :))`
 or a view of it, including broadcasts, fills and copies through them.
 Two-argument `copyto!(x, itr)` from other non-array iterators is unchecked.

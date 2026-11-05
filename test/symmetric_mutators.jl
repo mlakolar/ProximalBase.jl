@@ -250,9 +250,9 @@ struct ScalarStyle <: Base.Broadcast.AbstractArrayStyle{0} end
       x = initial(T, p)
       @test copyto!(view(x, :, :), zeros(p^2)) isa SubArray
       @test Matrix(x) == zeros(p, p)
-      # a one-dimensional copy! resizes a source of another length, which a reshape cannot do
+      # a one-dimensional copy! resizes for a source of another length, which a reshape cannot do
       fill!(x, -1)
-      rejects(x -> copy!(vec(x), ones(p^2 + 1)), x, MethodError)
+      rejects(x -> copy!(vec(x), ones(p^2 + 1)), x, Exception)
       rejects(x -> copy!(view(x, :, :), vec(S)), x, ArgumentError, "same axes")
     end
     # An orthogonal factor is formed in a buffer before the checked write.

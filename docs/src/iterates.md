@@ -657,9 +657,10 @@ end
 
 Writing the trial into the internal storage of `x` (its fields) and then
 calling the four-argument form is not supported. While such a write is
-pending, the iterate disagrees with its working set: `nactive(x)` is 0 although
-`Vector(x)` is not zero, and functions that visit only the active groups ignore
-the written entries. If the next call throws, the iterate stays in that state.
+pending, the iterate disagrees with its working set: group ``k`` is missing
+from it, and `nactive(x)` does not count it, although `Vector(x)` is not zero
+in that group. Functions that visit only the active groups ignore the written
+entries. If the next call throws, the iterate stays in that state.
 
 ### Screening a zero coordinate
 
@@ -680,15 +681,23 @@ group ``k``:
 | `SparseGroupNormL2(λ1, λ2, groups, w)` | ``\lVert S_{\lambda_1}(g_{G_k})\rVert_2 - \lambda_2 w_k``, with ``S_{\lambda_1}`` soft thresholding at ``\lambda_1`` |
 | `GroupMCP(λ, groups, w)`, `GroupSCAD(λ, groups, w)` | ``\lVert g_{G_k}\rVert_2 - \lambda w_k`` |
 | `Scaled(f, α)` with ``\alpha > 0`` | ``\alpha`` times the screen of `f` at ``g/\alpha`` |
-| `Scaled(f, 0)` | `maximum(abs, view(g, atomindices(x, k)))` |
 | `Regularize(f, ρ, c)` | the screen of `f` at ``g - \rho c``, or at ``g`` without `c` |
 | a separable `f` | the largest `kkt_violation(f, g, i)` over the entries ``i`` of group ``k`` |
 
 The weights ``w_k`` are those of the penalty, with the defaults of its
-docstring: the square root of the group size, and 1 for `GroupNormLinf`. The
-table is not exhaustive. `IndBallGroupL0` has no screen, and neither has a
-function that is neither separable nor a group penalty, such as `NormL2`: both
-throw a `MethodError`. On an `AtomIterate`, the call throws a
+docstring: the square root of the group size, and 1 for `GroupNormLinf`.
+`Scaled(f, 0)` is the function that [`Scaled`](@ref) builds at zero scale. For
+a group penalty with finite weights this is the zero function, whose screen on
+an `AtomIterate` is `maximum(abs, view(g, atomindices(x, k)))`. Otherwise, as
+with an infinite weight or an indicator, the screen is that of the function
+`Scaled` builds.
+
+The table is not exhaustive. `IndBallGroupL0` has no screen and throws a
+`MethodError`, and so do some functions without a screen of their own, such as
+`NormL2`. Other functions behave differently: the array `Precompose` of a group
+penalty has a screen on an `AtomIterate` (see [Entrywise scaling](@ref)), and
+`MoreauEnvelope` of a function that is not separable throws an
+`ArgumentError`. On an `AtomIterate`, the call throws a
 `DimensionMismatch` when the groups of a group penalty differ from those of
 `x`, and a `BoundsError` when ``k`` is not a group.
 
@@ -714,7 +723,7 @@ v
 
 On a `SparseIterate`, ``k`` is an entry. For a separable `f` the call returns
 `kkt_violation(f, g, k)`. It checks neither ``k`` nor the length of `g` against
-`x`, and an index outside `g` throws a `BoundsError`. A group penalty screens
+`x`. A group penalty screens
 each entry with its group. When every entry of the group is zero in `x`, the
 call returns the screen of the group in the table. Otherwise it returns the
 screen of an entry at zero inside a nonzero group, `abs(g[k])`, or
@@ -812,12 +821,13 @@ them throws a `MethodError`. Loop over its active entries with
 `for k in activecoordinates(x), j in atomindices(x, k)`, reading or writing
 `x[j]`.
 
-Neither iterate allocates when a coordinate becomes active: its slots are
-reserved at construction.
+The slots of both iterates are reserved at construction, so activating a
+coordinate does not change the size of the arrays that the iterate stores.
 
 For a `SymmetricSparseIterate`, `nnz(x)` counts the stored coordinates of the
-lower triangle, stored zeros included. An off-diagonal pair counts once, so
-`nnz(x)` differs from the number of nonzero entries of `Matrix(x)`. Its other
+lower triangle, stored zeros included. Because an off-diagonal pair counts once
+and a stored zero counts too, `nnz(x)` can differ from the number of nonzero
+entries of `Matrix(x)`. Its other
 counts are tracked in
 [#391](https://github.com/mlakolar/ProximalBase.jl/issues/391).
 

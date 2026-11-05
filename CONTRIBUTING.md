@@ -55,8 +55,11 @@ run it: `quick` for a cheap test of a basic invariant or a serious regression,
 otherwise the tier of the code it tests. An unlisted file stops every test run and
 the CI plan, and a PR that changes `test/tiers.toml` runs the full tier. Files run alone in a sandbox module, and compilation takes most of
 their time, so a cheap file reaches few type combinations. Helper files that are
-only included go under `[not_tests]`. [`test/TESTING.md`](test/TESTING.md) records
-why each file sits in its tier.
+only included go under `[not_tests]`, and the test files that run a helper,
+directly or through another helper, under `[not_tests.run_through]`, which the
+error for a helper given as a test name uses; renaming or removing a test listed
+there means updating that table, or every test run stops on the manifest problem.
+[`test/TESTING.md`](test/TESTING.md) records why each file sits in its tier.
 
 ### Which tests CI runs
 
@@ -88,7 +91,8 @@ decision for your working tree against `origin/master`.
     change to them gets full, unless it only adds the lines of test files that
     the PR adds: the plan compares the parsed lists with the base, and then the
     new files run beside the PR's tier. Moving, removing or renaming a listed
-    file, or changing the helpers or environments, still gets full;
+    file, or changing the helpers, the environments or
+    `[not_tests.run_through]`, still gets full;
   - a path no rule knows: full.
 - **Labels** `test:standard`, `test:thorough` and `test:full` raise a PR's tier;
   they never lower it. `test:iterate-narrow` declares a narrow change to one

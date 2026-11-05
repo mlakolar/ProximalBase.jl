@@ -88,6 +88,47 @@ end
   @test MANIFEST.timeouts == Dict("quick" => 20, "standard" => 30, "thorough" => 45, "full" => 90)
 end
 
+# SMALL with more helpers, and with the test files that run two of them.
+const HELPERS = """
+  [tiers]
+  quick = ["a"]
+  standard = ["b"]
+  thorough = ["c"]
+  full = ["d/e"]
+  [not_tests]
+  helpers = ["h", "h2", "h3", "x/h"]
+  environments = ["env"]
+  """
+const RUN_THROUGH = HELPERS * "run_through = { h = [\"a\"], h2 = [\"c\", \"a\"] }\n"
+
+@testset "the test files that run each helper" begin
+  @test isempty(TestTiers.parse_manifest(SMALL).run_through)
+  @test TestTiers.parse_manifest(RUN_THROUGH).run_through == Dict("h" => ["a"], "h2" => ["c", "a"])
+  runs(text) = problems(() -> TestTiers.parse_manifest(HELPERS * "[not_tests.run_through]\n" * text))
+  # a helper under a directory is a quoted key
+  @test isempty(runs("h = [\"a\"]\n\"x/h\" = [\"d/e\"]\n"))
+  @test TestTiers.parse_manifest(HELPERS * "[not_tests.run_through]\n\"x/h\" = [\"d/e\"]\n").run_through == Dict("x/h" => ["d/e"])
+  # a key that is no helper, a runner that is no test
+  @test only(runs("zz = [\"a\"]\n")) == "not_tests.run_through has `zz`, which is not in not_tests.helpers"
+  @test only(runs("h = [\"zz\"]\n")) == "not_tests.run_through: helper `h` runs through `zz`, which is in no tier"
+  @test only(runs("h = [\"h2\"]\n")) == "not_tests.run_through: helper `h` runs through `h2`, which is a helper, not a test"
+  for name in ("env/x", "env")
+    @test only(runs("h = [\"$name\"]\n")) ==
+          "not_tests.run_through: helper `h` runs through `$name`, which is in a directory with an environment of its own"
+  end
+  # an empty list, a string, a list with something other than a name
+  for value in ("[]", "\"a\"", "[\"a\", 1]")
+    @test only(runs("h = $value\n")) == "not_tests.run_through: helper `h` needs a non-empty list of test names"
+  end
+  @test only(runs("h = [\"a\", \"a\"]\n")) == "not_tests.run_through: helper `h` lists `a` more than once"
+  p = problems(() -> TestTiers.parse_manifest(HELPERS * "run_through = [\"a\"]\n"))
+  @test only(p) == "not_tests.run_through must be a table of helper = [test names]"
+  # a key of [not_tests] written after the subtable belongs to the subtable
+  misplaced = replace(HELPERS, "environments = [\"env\"]\n" => "") * "[not_tests.run_through]\nh = [\"a\"]\nenvironments = [\"env\"]\n"
+  @test only(problems(() -> TestTiers.parse_manifest(misplaced))) ==
+        "not_tests.run_through has `environments`, which is not in not_tests.helpers"
+end
+
 # What filter_tests! keeps for these names; check_selectors must agree with it on what matches.
 function kept(names, positionals)
   suite = Dict{String, Any}(n => nothing for n in names)
@@ -96,91 +137,94 @@ function kept(names, positionals)
 end
 
 @testset "test names that select no test file, exclusions that remove none" begin
-  m = TestTiers.parse_manifest(SMALL)
+  m = TestTiers.parse_manifest(RUN_THROUGH)
   runnable = ["a", "b", "c", "d/e"]
   available = ["a", "b"] # the tier left after the tier and --extra
-  mktempdir() do dir
-    write(joinpath(dir, "a.jl"), "include(\"h.jl\")\n")
-    check(args...) = TestTiers.check_selectors(m, dir, runnable, available, collect(args); scope = "tier standard")
-    # names that match: nothing to say
-    @test check() == (String[], String[])
-    @test check("a") == check("a", "b", "!b") == check("!a") == check("") == (String[], String[])
-    # a typo is not hidden by a name that matches; every one is listed once, in the order given
-    errors, warnings = check("a", "ab", "zz", "ab")
-    @test isempty(warnings) && length(errors) == 2
-    @test startswith(errors[1], "`ab`: no test file starts with it") && startswith(errors[2], "`zz`:")
-    @test length(check("zz")[1]) == 1 # and alone
-    # a helper is no test, and the message names the file that includes it
-    @test only(check("a", "h")[1]) == "`h`: a helper that test files include, not a test; it runs through a"
-    @test only(check("!h")[2]) == "`!h`: a helper that test files include, not a test; it runs through a"
-    # a prefix of a helper is not the helper
-    @test only(check("h_")[1]) == "`h_`: no test file starts with it"
-    # a test outside the tier: an error that points to --tier and --extra, not a silent no match
-    errors, _ = check("c", "d/")
-    @test length(errors) == 2
-    @test occursin("matches only tests outside tier standard (c)", errors[1]) && occursin("--tier", errors[1]) && occursin("--extra", errors[1])
-    @test occursin("(d/e)", errors[2])
-    # an exclusion that matches nothing warns and is no error
-    errors, warnings = check("a", "!zz", "!c")
-    @test isempty(errors) && length(warnings) == 2
-    @test startswith(warnings[1], "`!zz`: no test file starts with it") && occursin("outside tier standard (c)", warnings[2])
-    @test check("!zz") == (String[], ["`!zz`: no test file starts with it"])
-    # an exclusion that matches an available test, but none that the included names select, removes nothing
-    @test check("a", "!b") == (String[], ["`!b`: it matches b, which the included names (a) do not select; it removes nothing"])
-    @test check("a", "!b", "!a", "!b") == (String[], ["`!b`: it matches b, which the included names (a) do not select; it removes nothing"])
-    @test check("a", "b", "!b") == check("!b") == check("a", "!a") == (String[], String[]) # it removes a selected test, or all of them
-    @test check("b", "a", "!b", "!a") == (String[], String[])
-    # when every included name is an error the exclusions keep today's reasons: no new warning buries the errors
-    errors, warnings = check("zz", "!b", "!c", "!yy")
-    @test only(errors) == "`zz`: no test file starts with it" && length(warnings) == 2
-    @test occursin("outside tier standard (c)", warnings[1]) && startswith(warnings[2], "`!yy`: no test file starts with it")
-    # an --extra test is available, and is dropped unless an included name selects it
-    extra = ["a", "b", "d/e"]
-    check_extra(args...) = TestTiers.check_selectors(m, dir, runnable, extra, collect(args); scope = "tier standard")
-    @test check_extra("a", "!d/") == (String[], ["`!d/`: it matches d/e, which the included names (a) do not select; it removes nothing"])
-    @test check_extra("a", "d/", "!d/") == check_extra("!d/") == (String[], String[])
-  end
+  check(args...) = TestTiers.check_selectors(m, runnable, available, collect(args); scope = "tier standard")
+  # names that match: nothing to say
+  @test check() == (String[], String[])
+  @test check("a") == check("a", "b", "!b") == check("!a") == check("") == (String[], String[])
+  # a typo is not hidden by a name that matches; every one is listed once, in the order given
+  errors, warnings = check("a", "ab", "zz", "ab")
+  @test isempty(warnings) && length(errors) == 2
+  @test startswith(errors[1], "`ab`: no test file starts with it") && startswith(errors[2], "`zz`:")
+  @test length(check("zz")[1]) == 1 # and alone
+  # a helper is no test, and the message names the test files listed for it, sorted, marking those
+  # outside the tier; a helper without an entry names none
+  @test only(check("a", "h")[1]) == "`h`: a helper that test files include, not a test; it runs through a"
+  @test only(check("!h")[2]) == "`!h`: a helper that test files include, not a test; it runs through a"
+  @test only(check("h2")[1]) == "`h2`: a helper that test files include, not a test; it runs through a, c (outside tier standard)"
+  @test only(check("h3")[1]) == "`h3`: a helper that test files include, not a test"
+  # a prefix of a helper is not the helper
+  @test only(check("h_")[1]) == "`h_`: no test file starts with it"
+  # a test outside the tier: an error that points to --tier and --extra, not a silent no match
+  errors, _ = check("c", "d/")
+  @test length(errors) == 2
+  @test occursin("matches only tests outside tier standard (c)", errors[1]) && occursin("--tier", errors[1]) && occursin("--extra", errors[1])
+  @test occursin("(d/e)", errors[2])
+  # an exclusion that matches nothing warns and is no error
+  errors, warnings = check("a", "!zz", "!c")
+  @test isempty(errors) && length(warnings) == 2
+  @test startswith(warnings[1], "`!zz`: no test file starts with it") && occursin("outside tier standard (c)", warnings[2])
+  @test check("!zz") == (String[], ["`!zz`: no test file starts with it"])
+  # an exclusion that matches an available test, but none that the included names select, removes nothing
+  @test check("a", "!b") == (String[], ["`!b`: it matches b, which the included names (a) do not select; it removes nothing"])
+  @test check("a", "!b", "!a", "!b") == (String[], ["`!b`: it matches b, which the included names (a) do not select; it removes nothing"])
+  @test check("a", "b", "!b") == check("!b") == check("a", "!a") == (String[], String[]) # it removes a selected test, or all of them
+  @test check("b", "a", "!b", "!a") == (String[], String[])
+  # when every included name is an error the exclusions keep today's reasons: no new warning buries the errors
+  errors, warnings = check("zz", "!b", "!c", "!yy")
+  @test only(errors) == "`zz`: no test file starts with it" && length(warnings) == 2
+  @test occursin("outside tier standard (c)", warnings[1]) && startswith(warnings[2], "`!yy`: no test file starts with it")
+  # an --extra test is available, and is dropped unless an included name selects it
+  extra = ["a", "b", "d/e"]
+  check_extra(args...) = TestTiers.check_selectors(m, runnable, extra, collect(args); scope = "tier standard")
+  @test check_extra("a", "!d/") == (String[], ["`!d/`: it matches d/e, which the included names (a) do not select; it removes nothing"])
+  @test check_extra("a", "d/", "!d/") == check_extra("!d/") == (String[], String[])
   # the matches and the included names are cut to three
-  mktempdir() do dir
-    wide = ["a1", "a2", "a3", "a4", "b1", "b2", "b3", "b4"]
-    errors, warnings = TestTiers.check_selectors(m, dir, wide, wide, ["b1", "b2", "b3", "b4", "!a"])
-    @test isempty(errors) && only(warnings) ==
-          "`!a`: it matches a1, a2, a3, ..., which the included names (b1, b2, b3, ...) do not select; it removes nothing"
-  end
-  # a helper that no test file includes: no file is named
-  mktempdir() do dir
-    write(joinpath(dir, "a.jl"), "# no include\n")
-    errors, _ = TestTiers.check_selectors(m, dir, runnable, available, ["h"])
-    @test only(errors) == "`h`: a helper that test files include, not a test"
-  end
+  wide = ["a1", "a2", "a3", "a4", "b1", "b2", "b3", "b4"]
+  errors, warnings = TestTiers.check_selectors(m, wide, wide, ["b1", "b2", "b3", "b4", "!a"])
+  @test isempty(errors) && only(warnings) ==
+        "`!a`: it matches a1, a2, a3, ..., which the included names (b1, b2, b3, ...) do not select; it removes nothing"
   # more than three tests outside the tier are cut short
-  wide = TestTiers.parse_manifest(SMALL)
-  errors, _ = TestTiers.check_selectors(wide, mktempdir(), ["a", "t1", "t2", "t3", "t4"], ["a"], ["t"])
+  errors, _ = TestTiers.check_selectors(m, ["a", "t1", "t2", "t3", "t4"], ["a"], ["t"])
   @test occursin("(t1, t2, t3, ...)", only(errors))
 end
 
 @testset "test names of the real catalog" begin
   runnable = TestTiers.select(MANIFEST, "full")
   quick = TestTiers.select(MANIFEST, "quick")
-  check(args...; available = runnable) = TestTiers.check_selectors(MANIFEST, DIR, runnable, available, collect(args); scope = "tier quick")
+  check(args...; available = runnable) = TestTiers.check_selectors(MANIFEST, runnable, available, collect(args); scope = "tier quick")
   # the reported case: a helper next to a test that runs it
   errors, warnings = check("second_order", "gpu_smoke", "gpu_suite_basics")
   @test isempty(warnings) && only(errors) == "`gpu_suite_basics`: a helper that test files include, not a test; it runs through gpu_smoke"
-  @test occursin("runs through gpu", only(check("gpu_suite")[1])) && !occursin("gpu_smoke", only(check("gpu_suite")[1]))
-  # helpers: none that a test file includes by name, and one that the test tier_selection includes
-  for helper in ("conformance/common", "testutils")
-    @test only(check(helper)[1]) == "`$helper`: a helper that test files include, not a test"
+  # every helper: the test files listed for it in tiers.toml, with the whole catalog available
+  # (first) and with tier quick (second), where a test outside the tier is marked
+  messages = [
+    "conformance/common" => ("`conformance/common`: a helper that test files include, not a test",
+                             "`conformance/common`: a helper that test files include, not a test"),
+    "gpu_prelude" => ("`gpu_prelude`: a helper that test files include, not a test; it runs through gpu, gpu_smoke",
+                      "`gpu_prelude`: a helper that test files include, not a test; it runs through gpu (outside tier quick), gpu_smoke"),
+    "gpu_suite" => ("`gpu_suite`: a helper that test files include, not a test; it runs through gpu",
+                    "`gpu_suite`: a helper that test files include, not a test; it runs through gpu (outside tier quick)"),
+    "gpu_suite_basics" => ("`gpu_suite_basics`: a helper that test files include, not a test; it runs through gpu_smoke",
+                           "`gpu_suite_basics`: a helper that test files include, not a test; it runs through gpu_smoke"),
+    "testutils" => ("`testutils`: a helper that test files include, not a test",
+                    "`testutils`: a helper that test files include, not a test"),
+    "tiers" => ("`tiers`: a helper that test files include, not a test; it runs through tier_selection",
+                "`tiers`: a helper that test files include, not a test; it runs through tier_selection"),
+  ]
+  @test sort(first.(messages)) == sort(MANIFEST.helpers)
+  for (helper, (whole, inquick)) in messages
+    @test only(check(helper)[1]) == whole
+    @test only(check(helper; available = quick)[1]) == inquick
   end
-  @test only(check("tiers")[1]) == "`tiers`: a helper that test files include, not a test; it runs through tier_selection"
-  # the test that runs a helper may lie outside the tier
-  @test only(check("gpu_suite"; available = quick)[1]) ==
-        "`gpu_suite`: a helper that test files include, not a test; it runs through gpu (outside tier quick)"
   # a directory with an environment of its own
   for name in ("cuda/runtests", "cuda", "oracles/")
     @test only(check(name)[1]) == "`$name`: a directory with an environment of its own that is run by hand, not a test"
   end
   # --core has other advice than a higher tier, which it cannot be combined with
-  errors, _ = TestTiers.check_selectors(MANIFEST, DIR, runnable, quick, ["second_order"]; scope = "--core", hint = "run without --core")
+  errors, _ = TestTiers.check_selectors(MANIFEST, runnable, quick, ["second_order"]; scope = "--core", hint = "run without --core")
   @test only(errors) == "`second_order`: it matches only tests outside --core (second_order); run without --core"
   # a typo and a name that the tier drops
   @test startswith(only(check("second_order", "second_ordr")[1]), "`second_ordr`: no test file starts")
@@ -222,6 +266,28 @@ end
       removes_nothing(n) = isempty(kept(available, includes)) ? kept(available, [n]) == sort(available) :
                            kept(available, [includes; n]) == kept(available, includes)
       @test flagged(warnings) == [n for n in unique(names) if startswith(n, "!") && removes_nothing(n)]
+    end
+  end
+end
+
+# The test files recorded in tiers.toml for each helper against the sources: a recorded test
+# names the helper's file, directly or through a helper whose file it names, and a test that
+# names a helper's file is recorded for it. A false match fails here; it never reaches a message.
+@testset "the recorded test files that run each helper match the sources" begin
+  source(name) = read(joinpath(DIR, name * ".jl"), String)
+  literal(helper) = "\"$(basename(helper)).jl\""
+  # the runner loads these for every test file, so no single test runs them
+  loaded = ["conformance/common", "testutils"]
+  @test all(h -> occursin(literal(h), source("runtests")), loaded)
+  @test !isempty(MANIFEST.run_through) && isempty(intersect(keys(MANIFEST.run_through), loaded))
+  for (helper, names) in MANIFEST.run_through, name in names
+    text = source(name)
+    through = [source(h) for h in MANIFEST.helpers if occursin(literal(h), text)]
+    @test occursin(literal(helper), text) || any(occursin(literal(helper)), through)
+  end
+  for name in TestTiers.select(MANIFEST, "full"), helper in setdiff(MANIFEST.helpers, loaded)
+    if occursin(literal(helper), source(name))
+      @test name in get(MANIFEST.run_through, helper, String[])
     end
   end
 end
@@ -423,6 +489,8 @@ end
   @test a === nothing && occursin("outside [tiers]", only(p))
   a, p = TestTiers.manifest_additions(old, replace(old, "environments = [\"cuda\", \"oracles\"]" => "environments = [\"cuda\"]"), String[])
   @test a === nothing && occursin("outside [tiers]", only(p))
+  a, p = TestTiers.manifest_additions(old, replace(old, "tiers = [\"tier_selection\"]" => "tiers = [\"tier_selection\", \"gpu\"]"), String[])
+  @test a === nothing && only(p) == "something outside [tiers] changed (helpers, environments or run_through)"
   a, p = TestTiers.manifest_additions(old, old * "\n[tiers.extra]\n", String[])
   @test a === nothing
   a, p = TestTiers.manifest_additions(old, "not toml [", String[])

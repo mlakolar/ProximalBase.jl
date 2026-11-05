@@ -11,7 +11,10 @@ A signed coordinate vertex `value * e_index` of an array of size `dims`, the res
 [`lmo_atom`](@ref) for [`IndSimplex`](@ref) and [`IndBallL1`](@ref). The fields are
 `dims::NTuple{N,Int}`, the size of the array, `index::Int`, the linear (column-major) index
 of the nonzero entry, and `value::T`; the zero atom has `index == 0` and `value == 0`. It
-stores O(1) numbers whatever the size of the array.
+stores O(1) numbers whatever the size of the array. The constructor checks the invariants that
+`dot`, `axpy!` and `Array` rely on: nonnegative dimensions whose product does not overflow,
+`index == 0` only with `value == 0`, and otherwise `1 <= index <= prod(dims)` with a finite
+nonzero `value`; it throws an `ArgumentError` for anything else.
 
 It supports `size`, `eltype`, `dot(g, a)`, `LinearAlgebra.axpy!(α, a, x)` for a dense `x`, and
 `Array(a)`.
@@ -20,7 +23,27 @@ struct VertexAtom{T<:AbstractFloat, N}
   dims::NTuple{N, Int}
   index::Int
   value::T
+  function VertexAtom{T, N}(dims::NTuple{N, Int}, index::Int, value::T) where {T<:AbstractFloat, N}
+    # the invariant that `Array`, `dot` and `axpy!` rely on when they index without a bounds check
+    all(>=(0), dims) || throw(ArgumentError("the dimensions of a VertexAtom must be nonnegative, got $dims"))
+    len = 1
+    for d in dims
+      (d == 0 || len <= typemax(Int) ÷ d) ||
+        throw(ArgumentError("the number of elements of an array of size $dims overflows Int"))
+      len *= d
+    end
+    if index == 0
+      iszero(value) || throw(ArgumentError("the zero atom (index 0) must have value 0, got $value"))
+    else
+      1 <= index <= len || throw(ArgumentError("the index $index is outside 1:$len, the linear indices of an array of size $dims " *
+                                               "(use index 0 and value 0 for the zero atom)"))
+      (isfinite(value) && !iszero(value)) || throw(ArgumentError("a vertex atom at index $index needs a finite nonzero " *
+                                                                  "value, got $value (use index 0 for the zero atom)"))
+    end
+    new{T, N}(dims, index, value)
+  end
 end
+VertexAtom(dims::NTuple{N, Int}, index::Int, value::T) where {T<:AbstractFloat, N} = VertexAtom{T, N}(dims, index, value)
 
 """
     LowRankAtom{T}
@@ -214,7 +237,7 @@ else
   const _LMOSparseCSC = SparseMatrixCSC
 end
 _stored_values(g::_LMOSparseCSC) = nonzeros(g)
-_stored_values(g::Union{Symmetric, Hermitian, Adjoint, Transpose}) = _stored_values(parent(g))
+_stored_values(g::Union{Adjoint, Transpose}) = _stored_values(parent(g))
 
 # the checks that precede any computation or write: type, finiteness and the scale of g
 function _atom_matrix(C, g::AbstractMatrix)
@@ -233,6 +256,33 @@ function _max_abs(g, ::Type{T}) where {T}
     a = abs(convert(T, x))
     isnan(a) && return a
     mx = max(mx, a)
+  end
+  mx
+end
+
+# A Symmetric or Hermitian matrix is the stored triangle and its mirror image: the entries of the other
+# triangle of the parent are never read by the decomposition, the products or `getindex`, so they must
+# not enter the finiteness check or the scale either. The scan is over the stored triangle only, and over
+# the stored entries of a sparse parent.
+function _max_abs(g::Union{Symmetric, Hermitian}, ::Type{T}) where {T}
+  P = parent(g)
+  lower = g.uplo == 'L'
+  mx = zero(T)
+  if P isa _LMOSparseCSC
+    rows, vals = rowvals(P), nonzeros(P)
+    @inbounds for j in axes(P, 2), k in nzrange(P, j)
+      i = rows[k]
+      (lower ? i >= j : i <= j) || continue
+      a = abs(convert(T, vals[k]))
+      isnan(a) && return a
+      mx = max(mx, a)
+    end
+  else
+    @inbounds for j in axes(P, 2), i in (lower ? (j:size(P, 1)) : (1:j))
+      a = abs(convert(T, P[i, j]))
+      isnan(a) && return a
+      mx = max(mx, a)
+    end
   end
   mx
 end

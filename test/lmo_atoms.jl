@@ -500,4 +500,134 @@ end
   @test Array(lmo_atom(D, As)) == Array(lmo_atom(D, Matrix(As)))
 end
 
+@testset "review P1: Symmetric and Hermitian read only their logical entries" begin
+  D = Spectral(IndSimplex(1.0))
+  # the example of the review: logically Diagonal([1, 2]), a NaN in the unused triangle
+  G = Symmetric([1.0 0.0; NaN 2.0], :U)
+  @test ProximalBase._max_abs(G, Float64) == 2.0
+  @test ProximalBase._max_abs(Symmetric([1.0 0.0; NaN 2.0], :L), Float64) |> isnan   # the NaN is logical there
+  @test Array(lmo_atom(D, G)) ≈ [1.0 0.0; 0.0 0.0]
+  @test Conjugate(D)(G) ≈ 2.0
+  Out = zeros(2, 2)
+  lmo!(Out, D, G)
+  @test Out ≈ [1.0 0.0; 0.0 0.0]
+  @test isnan(parent(G)[2, 1])                                   # the input is not modified
+
+  n = 7
+  for T in (Float64, Float32), wrapper in (Symmetric, Hermitian), uplo in (:U, :L)
+    tol = T == Float64 ? 1e-9 : 2e-3
+    S = let B = randn(T, n, n); (B + B') / 2 end              # the logical matrix
+    Sref = Matrix(wrapper(S, uplo))
+    λ, V = eigen(Symmetric(Sref))                              # independent references
+    clean = wrapper(copy(S), uplo)
+    a0 = lmo_atom(D, clean)
+    for hidden in (T(NaN), T(Inf), -T(Inf), floatmax(T), -floatmax(T), floatmax(T) / 4)
+      P = copy(S)
+      for j in 1:n, i in 1:n
+        (uplo == :U ? i > j : i < j) && (P[i, j] = hidden)       # the unused triangle
+      end
+      Gh = wrapper(P, uplo)
+      @test Matrix(Gh) == Sref                                   # the logical matrix is unchanged
+      @test ProximalBase._max_abs(Gh, T) == ProximalBase._max_abs(clean, T)
+      for method in (:full, :krylov)
+        a = lmo_atom(D, Gh; method)
+        @test abs(dot(Sref, a) - λ[1]) <= tol * max(1, abs(λ[1]))              # λ_min, the support value of −g
+        @test norm(Array(a) - V[:, 1] * V[:, 1]') <= 10 * tol                      # the eigenvector
+        method == :full && @test Array(a) == Array(a0)                          # the hidden entries are not read
+      end
+      for k in (2, n - 2)
+        F = Fantope(k)
+        a = lmo_atom(F, Gh)
+        @test abs(dot(Sref, a) - sum(λ[1:k])) <= tol * n
+        Q = V[:, 1:k]
+        @test norm(Array(a) - Q * Q') <= 10 * tol
+      end
+      Out = zeros(T, n, n)
+      lmo!(Out, D, Gh)
+      @test all(isfinite, Out) && Out == Array(a0)
+      @test abs(Conjugate(D)(Gh) - λ[end]) <= tol * max(1, abs(λ[end]))
+      @test isequal(parent(Gh)[uplo == :U ? 2 : 1, uplo == :U ? 1 : 2], hidden)       # the input is not modified
+    end
+    # a nonfinite entry of the logical triangle is still rejected
+    P = copy(S); P[uplo == :U ? 1 : 2, uplo == :U ? 2 : 1] = T(NaN)
+    @test_throws ArgumentError lmo_atom(D, wrapper(P, uplo))
+    P = copy(S); P[2, 2] = T(Inf)
+    @test_throws ArgumentError lmo_atom(D, wrapper(P, uplo))
+    @test Conjugate(D)(wrapper(P, uplo)) == T(Inf)
+  end
+end
+
+@testset "review P1: sparse Symmetric and Hermitian wrappers" begin
+  D = Spectral(IndSimplex(1.0))
+  n = 30
+  for wrapper in (Symmetric, Hermitian), uplo in (:U, :L)
+    S = sprandn(n, n, 0.2); S = S + S' + 5I                      # the logical matrix, symmetric and sparse
+    Sref = Matrix(wrapper(S, uplo))
+    λ, V = eigen(Symmetric(Sref))
+    for hidden in (NaN, Inf, -Inf, floatmax(Float64), 1e300)
+      I, J, X = findnz(S)
+      keep = [uplo == :U ? i <= j : i >= j for (i, j) in zip(I, J)]
+      # the stored entries of the logical triangle, and a hidden entry in every column of the other
+      hi = [uplo == :U ? (j + 1 <= n ? (j + 1, j) : nothing) : (j - 1 >= 1 ? (j - 1, j) : nothing) for j in 1:n]
+      hi = filter(!isnothing, hi)
+      P = sparse(vcat(I[keep], first.(hi)), vcat(J[keep], last.(hi)), vcat(X[keep], fill(hidden, length(hi))), n, n)
+      Gh = wrapper(P, uplo)
+      @test Matrix(Gh) ≈ Sref
+      @test nnz(P) >= length(hi)
+      @test ProximalBase._max_abs(Gh, Float64) == maximum(abs, Sref)
+      @test ProximalBase._max_abs(Gh, Float64) == ProximalBase._max_abs(wrapper(Matrix(P), uplo), Float64)
+      for method in (:full, :krylov)
+        a = lmo_atom(D, Gh; method)
+        @test abs(dot(Sref, a) - λ[1]) <= 1e-8 * max(1, abs(λ[1]))
+        @test norm(Array(a) - V[:, 1] * V[:, 1]') <= 1e-6
+      end
+      a = lmo_atom(Fantope(3), Gh)
+      @test abs(dot(Sref, a) - sum(λ[1:3])) <= 1e-8 * n
+      Out = zeros(n, n); lmo!(Out, D, Gh)
+      @test all(isfinite, Out) && norm(Out - V[:, 1] * V[:, 1]') <= 1e-6
+      @test abs(Conjugate(D)(Gh) - λ[end]) <= 1e-8 * max(1, abs(λ[end]))
+    end
+    # the scan is over the stored entries of the triangle: no allocation, whatever the order
+    Big = sprandn(4000, 4000, 1e-4); Big = Big + Big'
+    for w in (Symmetric(Big, uplo), Hermitian(Big, uplo))
+      ProximalBase._max_abs(w, Float64)
+      @test (@allocated ProximalBase._max_abs(w, Float64)) == 0
+    end
+  end
+end
+
+@testset "review P1: the constructor of VertexAtom keeps its invariant" begin
+  @test VertexAtom((3,), 2, 1.5) == VertexAtom{Float64, 1}((3,), 2, 1.5)
+  @test VertexAtom{Float32, 2}((2, 3), 6, -1f0).index == 6                   # the last linear index
+  @test VertexAtom{Float64, 1}((0,), 0, 0.0).index == 0                     # the zero atom of an empty array
+  @test VertexAtom{Float64, 2}((2, 3), 0, -0.0).index == 0
+  @test VertexAtom{Float64, 0}((), 1, 2.0).index == 1                       # a scalar has one linear index
+  for bad in (() -> VertexAtom{Float64, 1}((2,), 1000, 1.0),                # beyond the array
+              () -> VertexAtom{Float64, 1}((2,), 3, 1.0),
+              () -> VertexAtom{Float64, 1}((2,), -1, 1.0),
+              () -> VertexAtom{Float64, 1}((0,), 1, 1.0),                   # an empty array has no entry
+              () -> VertexAtom{Float64, 1}((-2,), 0, 0.0),                  # negative dimensions
+              () -> VertexAtom{Float64, 2}((3, -1), 0, 0.0),
+              () -> VertexAtom{Float64, 2}((typemax(Int), 2), 1, 1.0),      # the number of elements overflows
+              () -> VertexAtom{Float64, 3}((2^30, 2^30, 2^30), 1, 1.0),
+              () -> VertexAtom{Float64, 1}((3,), 0, 1.0),                   # index 0 only for the zero atom
+              () -> VertexAtom{Float64, 1}((3,), 1, 0.0),                   # a vertex has a nonzero value
+              () -> VertexAtom{Float64, 1}((3,), 1, NaN),
+              () -> VertexAtom{Float64, 1}((3,), 1, Inf),
+              () -> VertexAtom{Float64, 1}((3,), 0, NaN),
+              () -> VertexAtom((2, 3), 7, 1.0))
+    @test_throws ArgumentError bad()
+  end
+  # nothing is executed on an invalid atom: the constructor refuses it, and the valid ones behave as before
+  a = VertexAtom{Float64, 2}((2, 3), 5, 2.0)
+  @test Array(a) == reshape([0, 0, 0, 0, 2.0, 0], 2, 3)
+  x = zeros(2, 3); axpy!(3.0, a, x)
+  @test x[5] == 6.0 && count(!iszero, x) == 1
+  @test dot(ones(2, 3), a) == 2.0
+  for T in (Float32, Float64), C in (IndSimplex(1.0), IndBallL1(2.0)), g in (randn(T, 5), randn(T, 3, 2), zeros(T, 4))
+    a = lmo_atom(C, g)                                                       # lmo_atom still builds valid atoms
+    @test a == VertexAtom{T, ndims(g)}(size(g), a.index, a.value)
+  end
+end
+
 end

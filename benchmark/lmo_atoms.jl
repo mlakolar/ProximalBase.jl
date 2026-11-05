@@ -75,10 +75,10 @@ end
 
 # the lower bound of the oracle, for the objective error of a Krylov atom
 function nuclear_case(family, name, G, r; methods, T = Float64, reference = true)
-  C = SingularValue(IndBallL1(T(r)))
   ref = reference ? σmax(G) : NaN
   shape = "$(size(G, 1))x$(size(G, 2))" * (G isa SparseMatrixCSC ? " nnz=$(nnz(G))" : "")
   for method in methods
+    C = SingularValue(IndBallL1(T(r)))      # one set object per method: `retained_bytes` is that method's own workspace
     f = if method === :full
       () -> lmo_atom(C, G)
     elseif method === :krylov
@@ -122,7 +122,7 @@ function nuclear_case(family, name, G, r; methods, T = Float64, reference = true
       err = reference ? abs(dot(G, a) + r * ref) / (r * ref) : NaN
       abytes = string(Base.summarysize(a))
     end
-    record!(method in (:partial, :partialcold) ? "projection-baseline" : family, name, string(method), T, shape, t; first = f1, steps, fallback = fb, converged = conv, atom_bytes = abytes, err,
+    record!(method in (:partial, :partialcold) ? "projection-baseline" : family, name, string(method), T, shape, t; first = f1, steps, fallback = fb, converged = conv, atom_bytes = abytes, retained, err,
             note = method in (:partial, :partialcold) ? "rank-1 projection of #45, not an LMO; dense copy made outside the timing; warm = same input again" : (G isa SparseMatrixCSC && method === :full ? "includes densification" : ""))
   end
 end
@@ -155,7 +155,7 @@ for T in (Float64, Float32), n in (suite == "memgate" ? Int[] : suite == "quick"
     f = () -> lmo_atom(D, A; method)
     t, f1 = measure(f)
     a = lmo_atom(D, A; method)
-    record!("density", "gaussian", string(method), T, "n=$n", t; first = f1, atom_bytes = string(Base.summarysize(a)), err = abs(dot(A, a) - λ[1]) / abs(λ[1]),
+    record!("density", "gaussian", string(method), T, "n=$n", t; first = f1, atom_bytes = string(Base.summarysize(a)), retained = string(Base.summarysize(D)), err = abs(dot(A, a) - λ[1]) / abs(λ[1]),
             fallback = method === :krylov ? "enabled" : "", note = method === :krylov ? "dense input: fallback = true, whether it was used is not recorded" : "")
   end
   for k in (1, 5, 20, n ÷ 2, n - 1)
@@ -164,7 +164,7 @@ for T in (Float64, Float32), n in (suite == "memgate" ? Int[] : suite == "quick"
     t, f1 = measure(f)
     a = lmo_atom(F, A)
     ref = sum(λ[1:k])
-    record!("fantope", "gaussian", "full", T, "n=$n;k=$k", t; first = f1, atom_bytes = string(Base.summarysize(a)), err = abs(dot(A, a) - ref) / max(abs(ref), 1),
+    record!("fantope", "gaussian", "full", T, "n=$n;k=$k", t; first = f1, atom_bytes = string(Base.summarysize(a)), retained = string(Base.summarysize(F)), err = abs(dot(A, a) - ref) / max(abs(ref), 1),
             note = "factor storage $(sizeof(a.U)) B")
   end
   # the dense oracle and the support value, without and with materialization

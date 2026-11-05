@@ -355,6 +355,16 @@ _check_hessian_shape(f::LogDetLoss, x::AbstractMatrix, Hv::AbstractMatrix, v::Ab
 _check_hessian_shape(f::Union{Scaled, Tilt}, x, Hv, v) =
   (_checkparams(f, x); _check_hessian_shape(f.f, x, Hv, v))
 _check_hessian_shape(f::Translate, x, Hv, v) = _check_hessian_shape(f.f, _checkshifted(f, x), Hv, v)
+# A tuple product writes its blocks one after the other into the caller. An output block that cannot
+# accept every entry (Symmetric, Hermitian, Diagonal, banded, triangular, UpperHessenberg) or that is a
+# sparse iterate is refused by its type, as for the gradient and the proximal operator, before any block is
+# written and before any inner product runs (O6). Here, and not in the public hessian_vec!, so that an
+# enclosing Scaled, Sum or SeparableSum, which checks its parts before it writes, reaches it too. The
+# dimension checks of the inner function come first: a shape error keeps its DimensionMismatch.
+_check_hessian_shape(f::Tilt, x::Tuple, Hv::Tuple, v) =
+  (_checkparams(f, x); _check_hessian_shape(f.f, x, Hv, v); _check_block_output(Hv); true)
+_check_hessian_shape(f::Translate, x::Tuple, Hv::Tuple, v) =
+  (_check_hessian_shape(f.f, _checkshifted(f, x), Hv, v); _check_block_output(Hv); true)
 # the inner function at the image Ax, whose shape the product Hessian and direction share
 function _check_hessian_shape(f::Precompose, x::AbstractArray, Hv, v)
   _checksize(Hv, x); _checkdirection(v, x)

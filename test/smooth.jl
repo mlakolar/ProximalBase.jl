@@ -334,6 +334,13 @@ end
   for bad in ([Inf, 0.0], [0.0, NaN], [-Inf, 0.0])
     @test_throws ArgumentError(omsg) PoissonLoss(Float64[0, 1], [1.0 0.0; 0.0 1.0]; offset = bad)
   end
+  # the checks are isbits callables, which a GPU reduction can take (#579); the guard
+  # against a closure on the device path is the physical CUDA run of gpu_suite_basics.jl
+  for T in (Float32, Float64)
+    for c in (PB._FiniteWeight{T}(), PB._FiniteOffset{T}())
+      @test isbitstype(typeof(c)) && c isa Function
+    end
+  end
   # a weight or offset finite in Float64 overflows Float32 data
   y32, X32 = Float32[1, 0], Float32[1 0; 0 1]
   @test_throws ArgumentError(wmsg) LogisticLoss(y32, X32; weights = [1.0, 1e39])

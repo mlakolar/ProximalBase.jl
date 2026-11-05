@@ -67,12 +67,20 @@ value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::Abs
 struct _ReciprocalArray{T, N, A<:AbstractArray} <: AbstractArray{T, N}
   γ::A
 end
+# An array of steps whose element type is a union or abstract (`Union{Float32, Float64}[...]`) has no
+# concrete promotion: the model precision W stands for it, and each stored step is converted to the
+# promotion of W and its own type before it is inverted, then rounded once to W.
+_reciprocal_type(::Type{W}, ::Type{S}) where {W, S} =
+  (T = promote_type(W, float(S)); isconcretetype(T) ? T : W)
 _ReciprocalArray(::Type{W}, γ::AbstractArray{S, N}) where {W, S, N} =
-  _ReciprocalArray{promote_type(W, float(S)), N, typeof(γ)}(γ)
+  _ReciprocalArray{_reciprocal_type(W, S), N, typeof(γ)}(γ)
 _ReciprocalArray(f, y, x, γ::AbstractArray) = _ReciprocalArray(_moreau_model(f, y, x), γ)
 Base.size(a::_ReciprocalArray) = size(a.γ)
 Base.IndexStyle(::Type{<:_ReciprocalArray}) = IndexLinear()
-Base.@propagate_inbounds Base.getindex(a::_ReciprocalArray{T}, i::Int) where {T} = inv(convert(T, a.γ[i]))
+Base.@propagate_inbounds function Base.getindex(a::_ReciprocalArray{T}, i::Int) where {T}
+  v = a.γ[i]
+  convert(T, inv(convert(promote_type(T, float(typeof(v))), v)))
+end
 
 # functions built from functions pass the steps on, entry by entry
 prox!(y::AbstractArray, h::_ScalarPrecompose, x::AbstractArray, γ::AbstractArray) =

@@ -237,6 +237,29 @@ end
   @test relerr(prox_entry(Conjugate(ElasticNet(0.5, 2.0)), 2f0, 1, 3f0), ref_en(2f0, 3f0)) <= 4 * eps(Float32)
 end
 
+@testset "step arrays of a union or abstract element type" begin
+  # the declared element type has no concrete promotion, yet each stored Float32 step is a Float32
+  # step in a Float64 model: the points are those of the Float64 conversion of the stored steps
+  c = Conjugate(ElasticNet(0.5, 2.0))
+  x = [2.0, 3.0]
+  refs = [ref_en(x[i], Float32[3, 0.1][i]) for i in 1:2]
+  for g in (Union{Float32, Float64}[3f0, 0.1f0], AbstractFloat[3f0, 0.1f0], Real[3f0, 0.1f0]), op in (prox!, value_and_prox!)
+    y = zeros(2)
+    v = op(y, c, x, g)
+    @test all(i -> relerr(y[i], refs[i]) <= 8 * eps(Float64), 1:2)
+    y64 = zeros(2)
+    v64 = op(y64, c, x, Float64.(g))
+    @test y == y64 && isequal(v, v64)
+  end
+  @test eltype(PB._ReciprocalArray(Float64, Union{Float32, Float64}[3f0])) === Float64
+  @test PB._ReciprocalArray(Float64, Union{Float32, Float64}[3f0])[1] === inv(3.0)
+  # a Float64 entry in a Float32 model is rounded once to the model
+  @test PB._ReciprocalArray(Float32, Union{Float32, Float64}[0.1])[1] === Float32(inv(0.1))
+  # concrete arrays are as before
+  @test PB._ReciprocalArray(Float64, Float32[3])[1] === inv(3.0)
+  @test PB._ReciprocalArray(Float32, Float32[3])[1] === inv(3f0)
+end
+
 @testset "diagonal metric: Float32 step arrays" begin
   en = ElasticNet(0.5, 2.0)
   c = Conjugate(en)
@@ -497,6 +520,12 @@ end
     @test relerr(y[1], -big(γ) / (1 + big(γ))) <= (γ < 1f-30 ? 1e-4 : 4 * eps(Float32))
     @test y == y64 && isequal(v, v64)
   end
+  # Known gap (issue #597): an operator type whose element type differs between instances
+  M6 = Union{Matrix{Float32}, Matrix{Float64}}
+  fa32 = LinearImage(SqrNormL2(1f0, Float32[1]), ReviewMap{M6}(reshape(Float32[1], 1, 1)), 1f0)
+  fa64 = LinearImage(SqrNormL2(1f0, Float32[1]), ReviewMap{M6}(reshape(Float64[1], 1, 1)), 1f0)
+  @test typeof(fa32) === typeof(fa64)
+  @test_broken PB._data_of(SliceSum([fa32, fa64])) === Float64
   fa = SliceSum(QuadraticFunction[Q])
   @test_broken PB._data_of(fa) === Float64
   # the selector

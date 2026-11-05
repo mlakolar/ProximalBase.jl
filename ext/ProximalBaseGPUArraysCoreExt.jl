@@ -74,7 +74,7 @@ _steps(γ::AbstractArray, x) = _reshapeparam(γ, x)
 # each stored step is converted to the element type T of the lazy reciprocal before it is inverted, as
 # its getindex does on the host (#576); a callable of the type, so that the kernel captures no array
 struct _InvAs{T} end
-(::_InvAs{T})(v) where {T} = inv(convert(T, v))
+(::_InvAs{T})(v) where {T} = convert(T, inv(convert(promote_type(T, float(typeof(v))), v)))
 _steps(γ::ProximalBase._ReciprocalArray{T}, x) where {T} = broadcasted(_InvAs{T}(), _steps(γ.γ, x))
 function ProximalBase._prox_sep!(y::AnyGPUArray, f, x::AnyGPUArray, γ::AbstractArray)
   _checkreal(f, γ)

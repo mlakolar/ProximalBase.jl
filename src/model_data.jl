@@ -85,5 +85,8 @@ _data_of(f::SliceSum) = _data_slice_of(f.fs)
 _data_slice_of(fs::Tuple) = _data_ofs(fs)
 # a vector of one concrete type: the instance of its first function says it (a SliceSum is not empty),
 # which keeps an operator whose element type exists only on the instance; a union of concrete types
-# takes the type-level answer of every arm
+# takes the type-level answer of every arm. An operator whose element type differs between instances
+# of one concrete type, or an instance-only operator under a union of types, would need a runtime
+# promotion over the elements, which makes the model type a runtime value (dynamic dispatch and
+# allocation): a known gap, issue #597
 _data_slice_of(fs::AbstractVector) = isconcretetype(eltype(fs)) ? _data_of(first(fs)) : _data_union(eltype(fs))

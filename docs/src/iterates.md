@@ -10,15 +10,15 @@ which are derived in [Coordinate descent](@ref).
 | [`SymmetricSparseIterate`](@ref) | A sparse symmetric matrix | One lower-triangular entry and its symmetric counterpart |
 | [`AtomIterate`](@ref) | A vector partitioned into groups | One group of entries |
 
-The entries of an iterate are real. A complex element type, or a complex
-operand of an iterate product, raises an `ArgumentError`; see
-[Precision](@ref). Writing a complex source or value into a `SparseIterate` or
-an `AtomIterate` with the constructor, `copyto!`, `copy!`, a broadcast or
-`fill!` raises it too, before anything is written, even when the imaginary part
-is zero. A write through a view, through `vec` of a matrix or a `reshape` to
-another shape, or through [`atom`](@ref) converts each value as a plain array
-would, so a complex value raises an `InexactError`, possibly after part of the
-iterate has been written.
+The entries of an iterate are real. A complex element type, or a complex operand
+of an iterate product, raises an `ArgumentError`; see [Precision](@ref). Writing
+a complex source or value into a `SparseIterate` or an `AtomIterate` with the
+constructor, `copyto!`, `copy!`, a broadcast or `fill!` raises it too, before
+anything is written, even when the imaginary part is zero. A write into either
+of them through a view, through `vec` of a matrix or a `reshape` to another
+shape, or through [`atom`](@ref) converts each value as a plain array would, so
+a complex value raises an `InexactError`, possibly after part of the iterate has
+been written.
 
 ## Entries and coordinates
 

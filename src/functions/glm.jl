@@ -161,8 +161,8 @@ _lost_value(::ScalarLoss, v, η, y) = false
 _lost_deriv(::ScalarLoss, v, η, y) = false
 @inline _below_normal(v) = abs(v) < floatmin(float(typeof(v)))
 # Whether a lost value matters at the weight w: when w > 1 can lift it. A loss
-# whose own formula can return a lost value that is normal in exact arithmetic
-# (SmoothCheck squares the residual before dividing by a small h) says always.
+# whose own formula could return a value below floatmin where the exact value is
+# normal would say always; the built-in formulas avoid such intermediates.
 _value_lifts(::ScalarLoss, w) = w > one(w)
 @inline _value_ok(ℓ, w, v, p, η, y) = isfinite(p) & isfinite(η) & !(_value_lifts(ℓ, w) & _lost_value(ℓ, v, η, y))
 @inline _deriv_ok(ℓ, w, v, p, η, y) = isfinite(p) & isfinite(η) & !((w > one(w)) & _lost_deriv(ℓ, v, η, y))
@@ -487,7 +487,10 @@ function value_and_gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVe
   @inbounds for i in eachindex(η)
     w = convert(T, _entry(f.weights, i))
     if iszero(w)
+      # an inactive observation: a non-finite η (a non-finite entry of its row of
+      # X or of its offset) is marked, so that X'd leaves its row out
       d[i] = zero(T)
+      c += zero(T) * η[i]
       continue
     end
     ηi, yi = η[i], f.y[i]
@@ -496,8 +499,9 @@ function value_and_gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVe
     d[i] = pd = w * dv
     c += _value_deriv_mark(f.loss, w, v, dv, pd, ηi, yi, unweighted)
   end
-  isfinite(s + c) || (s = _glm_recover!(f, β, Val(true), Val(true)))
-  mul!(g, transpose(f.X), d)
+  recovered = !isfinite(s + c)
+  recovered && (s = _glm_recover!(f, β, Val(true), Val(true)))
+  _gradient_product!(g, f, recovered)
   _value_at(s, β)
 end
 
@@ -516,13 +520,14 @@ function gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVector) wher
       pd = w * dv
       z = iszero(w)
       d[i] = ifelse(z, zero(T), pd)
-      c += ifelse(z, zero(T), _gradient_mark(f.loss, w, dv, pd, ηi, yi))
+      c += ifelse(z, zero(T) * ηi, _gradient_mark(f.loss, w, dv, pd, ηi, yi))
     end
   else
     @inbounds for i in eachindex(η)
       w = convert(T, _entry(f.weights, i))
       if iszero(w)
         d[i] = zero(T)
+        c += zero(T) * η[i]
         continue
       end
       ηi, yi = η[i], f.y[i]
@@ -531,13 +536,42 @@ function gradient!(g::AbstractVector, f::GLMLoss{L, T}, β::AbstractVector) wher
       c += _gradient_mark(f.loss, w, dv, pd, ηi, yi)
     end
   end
-  isfinite(c) || _glm_recover!(f, β, Val(false), Val(true))
+  recovered = !isfinite(c)
+  recovered && _glm_recover!(f, β, Val(false), Val(true))
+  _gradient_product!(g, f, recovered)
+end
+
+# Inactive observations (weight zero) take no part: whatever the response, offset
+# or row of X of one holds, the terms and the gradient of the active ones are as
+# without it. A non-finite entry of such a row of X would reach X'd as 0 ⋅ NaN, so
+# after a recovery (which a non-finite η of an inactive observation starts) X'd
+# leaves those rows out; only then, and only when such an entry exists, it builds
+# the masked copy of X, which allocates.
+struct _ActiveFinite <: Function end
+@inline (::_ActiveFinite)(x, w) = iszero(w) | isfinite(x)
+struct _InactiveFinite <: Function end
+@inline (::_InactiveFinite)(x, w) = !iszero(w) | isfinite(x)
+struct _ActiveAbs <: Function end
+@inline (::_ActiveAbs)(x, w) = (a = abs(x); ifelse(iszero(w), zero(a), a))
+# finite at every active observation; w = true without weights
+_active_finite(::Nothing, w) = true
+_active_finite(x::AbstractArray, ::Bool) = _all_finite(x)
+_active_finite(x::AbstractArray, w::AbstractVector) = _broadcast_reduce(&, true, _ActiveFinite(), x, w)
+_active_maxabs(x::AbstractArray, ::Bool) = _stored_maxabs(x)
+_active_maxabs(x::AbstractArray, w::AbstractVector) =
+  _broadcast_reduce(max, zero(float(real(eltype(x)))), _ActiveAbs(), x, w)
+function _gradient_product!(g::AbstractVector, f::GLMLoss, recovered::Bool)
+  w = f.weights
+  if recovered && w !== nothing && !_broadcast_reduce(&, true, _InactiveFinite(), f.X, w)
+    return mul!(g, transpose(ifelse.(iszero.(w), zero(eltype(f.X)), f.X)), f.d)
+  end
   mul!(g, transpose(f.X), f.d)
 end
 
 # The recovery after an ordinary pass that did not keep every term, on the CPU and
 # on device arrays alike (broadcasts and reductions only). With a non-finite
-# argument, design, response or offset, the ordinary terms stand (E2). A
+# argument, or a non-finite design row, response or offset of an active
+# observation, the ordinary terms stand (E2); inactive observations do not count. A
 # predictor that is not finite is recomputed with β ⋅ 2^-k (and the offset
 # ⋅ 2^-k), so that no partial sum can overflow: η = ηs 2^k, with ηs in the
 # buffer d. Every observation is then evaluated again: the ordinary term where
@@ -548,11 +582,11 @@ end
 # ordinary pass on the device, with the tests of `_value_ok` and `_deriv_ok`.
 @noinline function _glm_recover!(f::GLMLoss{L, T}, β::AbstractVector, ::Val{V}, ::Val{D}) where {L, T, V, D}
   w = f.weights === nothing ? true : f.weights
-  if !(_all_finite(β) && _all_finite(f.X) && _all_finite(f.y) && _all_finite(f.offset))
+  if !(_all_finite(β) && _active_finite(f.X, w) && _active_finite(f.y, w) && _active_finite(f.offset, w))
     D && (f.d .= _PlainDeriv{T}(f.loss).(f.η, f.y, w))
     return V ? _broadcast_sum(T, _PlainValue{T}(f.loss), f.η, f.y, w) : zero(T)
   end
-  k = _all_finite(f.η) ? 0 : _recover_predictor!(f, β)
+  k = _active_finite(f.η, w) ? 0 : _recover_predictor!(f, β, w)
   s = V ? _broadcast_sum(T, _RecoveredValue{T}(f.loss, k), f.η, f.d, f.y, w) : zero(T)
   # terms beyond floatmax that cancel between observations, or partial sums that overflow:
   # the terms as significands and exponents, rounded once after the cancellation
@@ -566,10 +600,11 @@ end
 # d, and every non-finite η that is representable after all is replaced. β is
 # scaled in the wider of its type and T: a Float64 β with Float32 data can need a
 # k beyond the exponents of Float32.
-function _recover_predictor!(f::GLMLoss{L, T}, β::AbstractVector) where {L, T}
+function _recover_predictor!(f::GLMLoss{L, T}, β::AbstractVector, w) where {L, T}
   E = _max_exponent(T)
-  k = max(0, _bound_exponent(_stored_maxabs(f.X)) + _bound_exponent(_stored_maxabs(β)) + _log2_ceil(size(f.X, 2)) + 3 - E,
-          f.offset === nothing ? 0 : _bound_exponent(_stored_maxabs(f.offset)) + 3 - E)
+  # the bounds over the active rows (an inactive row may hold non-finite entries)
+  k = max(0, _bound_exponent(_active_maxabs(f.X, w)) + _bound_exponent(_stored_maxabs(β)) + _log2_ceil(size(f.X, 2)) + 3 - E,
+          f.offset === nothing ? 0 : _bound_exponent(_active_maxabs(f.offset, w)) + 3 - E)
   s = _power_factors(promote_type(T, float(eltype(β))), -k)
   mul!(f.d, f.X, β .* s[1] .* s[2])
   f.offset === nothing || (f.d .+= f.offset .* s[1] .* s[2])
@@ -580,7 +615,7 @@ end
 # a reduction of f.(η, args...) without materializing it: a loop on the CPU (a
 # reduction over a lazy broadcast allocates on Julia 1.10); the GPU extension
 # reduces on the device
-function _broadcast_reduce(op::O, init, f::F, η::AbstractVector, args::Vararg{Any, N}) where {O, F, N}
+function _broadcast_reduce(op::O, init, f::F, η::AbstractArray, args::Vararg{Any, N}) where {O, F, N}
   bc = Broadcast.instantiate(Broadcast.broadcasted(f, η, args...))
   r = init
   @inbounds for i in eachindex(bc)

@@ -466,12 +466,20 @@ struct SmoothCheck{T<:Real} <: ScalarLoss
   end
 end
 SmoothCheck(τ::Real, h::Real) = (p = promote(τ, h); SmoothCheck{typeof(p[1])}(p...))
+# In forms whose intermediates do not underflow or overflow where the value is
+# normal: the linear branches with the small factor τ (or 1 - τ) taken out,
+# τ(u - hτ/2) rather than τu - hτ²/2 (τ² can underflow before the product with a
+# large h); the middle one as (u/h) u/2 rather than u²/(2h) (u² can underflow, or
+# 2h overflow). In the middle |u| < h, so |u/h| < 1; where the value is normal,
+# u/h is at worst one bit below floatmin.
 @inline function value_and_deriv(ℓ::SmoothCheck, η::Real, y::Real)
   u = float(y - η)
   τ, h = convert(typeof(u), ℓ.τ), convert(typeof(u), ℓ.h)
-  u >= h * τ && return (τ * u - h * τ^2 / 2, -τ)
-  u <= -h * (1 - τ) && return ((τ - 1) * u - h * (1 - τ)^2 / 2, 1 - τ)
-  (u^2 / (2h), -u / h)
+  u >= h * τ && return (τ * (u - h * τ / 2), -τ)
+  σ = 1 - τ
+  u <= -h * σ && return (σ * (-u - h * σ / 2), σ)
+  q = u / h
+  (q * u / 2, -q)
 end
 (ℓ::SmoothCheck)(η::Real, y::Real) = value_and_deriv(ℓ, η, y)[1]
 deriv(ℓ::SmoothCheck, η::Real, y::Real) = value_and_deriv(ℓ, η, y)[2]
@@ -484,9 +492,9 @@ curvature(ℓ::SmoothCheck) = inv(float(ℓ.h))
 # The residual u = y - η as m 2^e; the branches as in value_and_deriv, the linear
 # ones as τ(u - hτ/2) and (1 - τ)(-u - h(1 - τ)/2) in units of 2^e, the middle one
 # as m²/(2 mₕ) in units of 2^(2e - eₕ).
+# with the forms of value_and_deriv a normal value is accurate; a value below
+# floatmin has lost accuracy, which only a weight w > 1 can lift (the default)
 _lost_value(::SmoothCheck, v, η, y) = _below_normal(v) & (η != y)
-# u² can underflow, or 2h overflow, where u²/(2h) is normal: recomputed at any weight
-_value_lifts(::SmoothCheck, w) = true
 _lost_deriv(::SmoothCheck, v, η, y) = _below_normal(v) & (η != y)
 # linear beyond a bounded zone of u = y - η, NaN in it; ℓ' bounded by max(τ, 1 - τ)
 # (src/functions/glm.jl, `_value_traps` and `_deriv_in_value`)

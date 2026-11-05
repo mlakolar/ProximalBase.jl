@@ -90,6 +90,14 @@ the earlier behavior applies.
   - At an admitted infinite step, a proximal map that is constant on finite
     arguments ignores a NaN entry: `prox(NormL1(1.0), [NaN], Inf)` is `[0]`,
     where it was `[NaN]`.
+- **GLM losses** ([#358](https://github.com/mlakolar/ProximalBase.jl/issues/358)).
+  - An observation with weight zero takes no part. A NaN or infinite response,
+    offset or row of `X` in it no longer turns the value or the gradient of the
+    active observations into `Inf` or NaN.
+  - `SmoothCheck` computes its pieces as `τ(u - hτ/2)`, `(1 - τ)(-u - h(1 - τ)/2)`
+    and `(u/h)u/2`. Where `τ²`, `u²` or `2h` left the range, the value is now
+    accurate: `SmoothCheck(1e-200, 1e300)` at `u = 2e100` gives `1.5e-100`, where
+    it gave `2e-100`. Elsewhere the value can differ in the last bit.
 - **Infinite entries.** A bounded projection at an argument with one infinite
   entry returns its limit, where it returned NaN or a partly NaN block
   ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), decision 48).

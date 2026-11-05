@@ -112,6 +112,13 @@ iterative estimate and needs backtracking or an independent bound when used
 to select a step. One value and gradient cost one product with ``X``, one pass
 over the observations and one product with ``X^\top``.
 
+An observation with weight zero takes no part. Whatever its response, offset or
+row of ``X`` holds, NaN and infinities included, the value and the gradient
+are those of the problem without it. The weights are read at each call, so
+setting a weight to zero removes the observation and setting it back restores
+it. A non-finite entry of an active observation follows E2 (the ordinary terms
+stand).
+
 | Scalar loss | ``\ell(\eta, y)`` | ``\ell'(\eta, y)`` | ``c_\ell`` | Constructor |
 |:-----|:-----|:-----|:-----|:-----|
 | `Squared()` | ``\tfrac12(\eta - y)^2`` | ``\eta - y`` | ``1`` | `GLMLoss(ProximalBase.Squared(), y, X)` |
@@ -134,6 +141,9 @@ quantile regression, so that coordinate descent and proximal Newton fit it
 without a linear program. `SmoothCheck(τ, h)` is its Moreau envelope
 ``\min_s \rho_\tau(s) + (s - u)^2/(2h)``: an asymmetric Huber loss that is
 quadratic on ``-h(1 - \tau) < u < h\tau`` and within ``h/2`` of ``\rho_\tau``.
+Its value is computed as ``\tau(u - h\tau/2)``, ``(1 - \tau)(-u - h(1 - \tau)/2)``
+and ``(u/h)\,u/2`` on the three pieces, so that no intermediate underflows or
+overflows where the value is in range.
 `ConvolutionCheck(τ, h)` convolves ``\rho_\tau`` with a kernel of bandwidth ``h``, the
 smoothing of the conquer estimator (He, Pan, Tan and Zhou, 2023). With the
 uniform or the Epanechnikov kernel (`kernel = :uniform` or `:epanechnikov`) it

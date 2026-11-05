@@ -1049,6 +1049,119 @@ end
     end
   end
 end
+# SmoothCheck in forms whose intermediates stay in range (review of 5344abd9): the value
+# and derivative against the formula in BigFloat, at extreme and ordinary parameters
+function smoothcheck_reference(τ, h, u)
+  τ, h, u = big(τ), big(h), big(u)
+  u >= h * τ && return τ * u - h * τ^2 / 2, -τ
+  u <= -h * (1 - τ) && return (τ - 1) * u - h * (1 - τ)^2 / 2, 1 - τ
+  u^2 / (2h), -u / h
+end
+function smoothcheck_cases(::Type{T}) where {T}
+  F32 = T === Float32
+  [  # (τ, h, u): the branch, and the intermediate that left the range before
+    (T(0.5), F32 ? T(1e-15) : T(1e-150), F32 ? T(1e-22) : T(1e-160)),     # central: u² underflowed
+    (T(0.3), floatmax(T) / 2, F32 ? T(1e10) : T(1e100)),                  # central: 2h overflowed
+    (T(0.3), floatmax(T), F32 ? T(1e18) : T(1e150)),                      # central, h = floatmax
+    (F32 ? T(1e-30) : T(1e-200), F32 ? T(1e30) : T(1e300), F32 ? T(2) : T(2e100)),   # upper: τ² underflowed
+    (F32 ? T(1e-30) : T(1e-200), floatmax(T), F32 ? T(1e9) : T(1e110)),   # upper, h = floatmax
+    (prevfloat(one(T)), floatmax(T) / 4, -floatmax(T) / 2),               # lower, 1 - τ one ulp
+    (T(0.3), one(T), T(0.2)), (T(0.3), one(T), T(-0.5)), (T(0.3), one(T), T(0.05)),  # ordinary
+    (T(0.9), T(2), T(-3)), (T(0.1), T(1e-3), T(7)),
+  ]
+end
+@testset "SmoothCheck: value and derivative without intermediates out of range" begin
+  setprecision(BigFloat, 512) do
+    for T in (Float32, Float64), (τ, h, u) in smoothcheck_cases(T)
+      ℓ = PB.SmoothCheck(τ, h)
+      vr, dr = smoothcheck_reference(τ, h, u)
+      @test isfinite(vr) && T(vr) > floatmin(T)
+      # direct scalar evaluation (η = 0, y = u)
+      v, dv = PB.value_and_deriv(ℓ, zero(T), u)
+      @test abs(big(v) - vr) <= 3eps(T) * abs(vr)
+      @test abs(big(dv) - dr) <= 3eps(T) * abs(dr)
+      @test ℓ(zero(T), u) === v && PB.deriv(ℓ, zero(T), u) === dv
+      # through GLMLoss: y = 0, X = 1, β = -u, so that the residual is u exactly
+      for wv in (nothing, zero(T), T(0.5), one(T), T(2))
+        wvec = wv === nothing ? nothing : T[wv]
+        wb = wv === nothing ? big(1) : big(wv)
+        for dev in (false, true)
+          A = dev ? JLArray : identity
+          f = GLMLoss(ℓ, A(T[0]), A(ones(T, 1, 1)); weights = wvec === nothing ? nothing : A(wvec))
+          β = A(T[-u])
+          g1, g2 = A(zeros(T, 1)), A(zeros(T, 1))
+          val, vg = f(β), value_and_gradient!(g1, f, β)
+          gradient!(g2, f, β)
+          if iszero(wb)
+            @test val === zero(T) && vg === zero(T) && all(iszero, Array(g1)) && all(iszero, Array(g2))
+          else
+            @test abs(big(val) - wb * vr) <= 3eps(T) * abs(wb * vr) && vg === val
+            @test abs(big(Array(g1)[1]) - wb * dr) <= 3eps(T) * abs(wb * dr)   # X = 1: the gradient is w ℓ'(η)
+            @test Array(g2) == Array(g1)
+          end
+        end
+      end
+    end
+  end
+end
+
+# Inactive observations (weight zero) take no part, whatever their row holds (review of
+# 5344abd9): the oracles equal those of the problem without them, on the CPU and on JLArrays
+@testset "inactive observations with non-finite rows do not disable the recovery" begin
+  for T in (Float32, Float64)
+    F32 = T === Float32
+    tiny, huge, big_b = F32 ? T(1e-30) : T(1e-300), F32 ? T(1e35) : T(1e300), F32 ? T(100) : T(1000)
+    for (ℓ, yact, bact) in ((PB.Poisson(), T(0), big_b),            # exp(η) overflows before w: recovery
+                            (PB.Logistic(), T(1), F32 ? T(120) : T(800)),   # the tail underflows, w lifts it
+                            (PB.Squared(), T(0.5), T(2)),           # ordinary: no recovery needed
+                            (PB.SmoothCheck(0.3, 0.2), T(0), T(3)),
+                            (AbsLoss(), T(0), T(2)))                # a user's loss: the branch loops
+      wact = ℓ isa PB.Poisson ? tiny : ℓ isa PB.Logistic ? huge : T(1.5)
+      # the active problem alone: rows 2 and 3, columns 1 and 2
+      Xa, ya, wa, oa = T[1 0.5; 0.25 1], T[yact, yact], T[wact, wact], T[0, 0]
+      β = T[bact, 0]
+      for bad in (:y_nan, :y_inf, :offset_nan, :offset_inf, :x_nan, :x_inf)
+        X = vcat(T[0 0], Xa); y = vcat(T[0], ya); w = vcat(T[0], wa); o = vcat(T[0], oa)
+        bad === :y_nan && (y[1] = T(NaN)); bad === :y_inf && (y[1] = T(Inf))
+        # the constructor requires a finite offset: a non-finite one only by mutation
+        obad = copy(o)
+        bad === :offset_nan && (obad[1] = T(NaN)); bad === :offset_inf && (obad[1] = T(-Inf))
+        bad === :x_nan && (X[1, 2] = T(NaN)); bad === :x_inf && (X[1, 1] = T(Inf))
+        for dev in (false, true)
+          A = dev ? JLArray : identity
+          fa = GLMLoss(ℓ, A(ya), A(Xa); weights = A(wa), offset = A(oa))
+          f = GLMLoss(ℓ, A(y), A(X); weights = A(w), offset = A(copy(o)))   # A = identity would share o
+          copyto!(f.offset, A(obad))
+          ga, g1, g2 = A(zeros(T, 2)), A(zeros(T, 2)), A(zeros(T, 2))
+          va = value_and_gradient!(ga, fa, A(β))
+          @testset "$(nameof(typeof(ℓ))) $T $bad $(dev ? "JLArray" : "CPU")" begin
+            @test isfinite(va) && all(isfinite, Array(ga))
+            @test f(A(β)) ≈ va rtol = 4eps(T)
+            @test value_and_gradient!(g1, f, A(β)) ≈ va rtol = 4eps(T)
+            @test Array(g1) ≈ Array(ga) rtol = 4eps(T)
+            gradient!(g2, f, A(β))
+            @test Array(g2) ≈ Array(ga) rtol = 4eps(T)
+          end
+        end
+        # the weight is read at each call: activated, the non-finite row counts (E2)
+        f = GLMLoss(ℓ, y, X; weights = copy(w), offset = copy(o))
+        copyto!(f.offset, obad)
+        f.weights[1] = one(T)
+        g = zeros(T, 2)
+        @test !isfinite(f(β)) && !isfinite(value_and_gradient!(g, f, β))
+        f.weights[1] = zero(T)
+        @test isfinite(value_and_gradient!(g, f, β))
+      end
+    end
+    # an active non-finite response still gives the ordinary non-finite result (E2)
+    f = GLMLoss(PB.Poisson(), T[NaN, 0], T[0 1; 1 0]; weights = T[1, tiny])
+    @test isnan(f(T[big_b, 1]))
+    # the ordinary path, inactive observations included, does not allocate
+    f = GLMLoss(PB.Logistic(), T[0, 1, 1], T[1 0.5; 0.25 1; 2 1]; weights = T[0, 1, 2])
+    β, g = T[0.3, -0.2], zeros(T, 2)
+    @test allocated_value(f, β) == 0 && allocated_vg(g, f, β) == 0 && allocated_grad(g, f, β) == 0
+  end
+end
 end # !BASELINE
 
 BASELINE && baseline()

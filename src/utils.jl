@@ -699,7 +699,7 @@ _parameter_alias(f, out) = false
 _mightalias_parameter(out, p) = false
 _mightalias_parameter(out::AbstractArray, p::AbstractArray) = Base.mightalias(out, p)
 # m 2^e with the significand normalized
-@inline function _parts(m, e::Int)
+@inline function _parts(m, e::Integer)
   fm, fe = frexp(m)
   (fm, Int(fe) + e)
 end
@@ -730,7 +730,7 @@ struct _ExpSum{R<:AbstractFloat}
   ex::Int
 end
 _expsum_start(::Type{R}) where {R<:AbstractFloat} = _ExpSum{R}(zero(R), zero(R), 0)
-@inline function _expsum_add(acc::_ExpSum{R}, m::R, e::Int) where {R}
+@inline function _expsum_add(acc::_ExpSum{R}, m::R, e::Integer) where {R}
   iszero(m) && return acc
   if iszero(acc.s) && iszero(acc.c)
     return _ExpSum{R}(m, zero(R), e)
@@ -749,7 +749,7 @@ end
   mb, eb = frexp(convert(R, b))
   _expsum_add(acc, ma * mb, ea + eb + k)
 end
-@inline function _expsum_term(acc::_ExpSum{R}, a, xi, mj::R, ej::Int, k::Int) where {R}
+@inline function _expsum_term(acc::_ExpSum{R}, a, xi, mj::R, ej::Integer, k::Int) where {R}
   (iszero(a) || iszero(xi)) && return acc
   ma, ea = frexp(convert(R, a))
   mi, ei = frexp(convert(R, xi))

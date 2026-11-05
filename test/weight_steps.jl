@@ -50,7 +50,10 @@ function reference_entry(f::CheckLoss, v::T, i::Integer, γ::Real) where {T<:Rea
   S = float(T)
   w = entry(f.w, i)
   s, τ, u = convert(S, coefficient(γ, w)), convert(S, f.τ), S(v)
-  u > s * τ ? u - s * τ : (u < -s * (1 - τ) ? u + s * (1 - τ) : zero(S))
+  # a NaN u stays NaN (E2), unless the map is constant: the step γ = Inf or an infinite weight
+  # (not a finite γw that overflows to Inf); a NaN coefficient keeps the old zero (#561)
+  u > s * τ ? u - s * τ : (u < -s * (1 - τ) ? u + s * (1 - τ) :
+    (isnan(u) && !isnan(s) && !(γ == Inf || isinf(w)) ? u : zero(S)))
 end
 
 function reference_entry(f::EpsInsensitiveLoss, v::T, i::Integer, γ::Real) where {T<:Real}
@@ -67,7 +70,7 @@ function reference_entry(f::HingeLoss, v::T, i::Integer, γ::Real) where {T<:Rea
   w = entry(f.w, i)
   s = convert(S, coefficient(γ, w)) * y^2
   u = y * S(v)
-  (u >= 1 ? u : (u < 1 - s ? u + s : one(S))) / y
+  (u >= 1 ? u : (u < 1 - s ? u + s : (isnan(u) ? u : one(S)))) / y      # a NaN margin stays NaN (E2, #561)
 end
 
 function reference_entry(f::CappedL1, v::T, i::Integer, γ::Real) where {T<:Real}

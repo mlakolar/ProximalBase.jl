@@ -1,7 +1,7 @@
 # A minimal Frank–Wolfe prototype that consumes `lmo_atom`, for matrix completion (issue #518,
 # consumer: ProximalSolvers #145). It is a benchmark script, not a solver.
 #
-#   julia --project=benchmark benchmark/frank_wolfe_prototype.jl <out.csv> <m> <n> <rank> <p> [reps] [seed] [budget_s]
+#   julia --project=benchmark benchmark/frank_wolfe_prototype.jl <out.csv> <m> <n> <rank> <p> [reps] [seed] [budget_s] [gapcheck]
 #
 # `budget_s` (default 600) caps the work time of every single FW run and every single comparator run;
 # a tolerance not reached within the cap is a censored row, like one not reached within the iteration
@@ -41,6 +41,7 @@ p = parse(Float64, ARGS[5])
 reps = length(ARGS) >= 6 ? parse(Int, ARGS[6]) : 5
 seed = length(ARGS) >= 7 ? parse(Int, ARGS[7]) : 145
 budget = length(ARGS) >= 8 ? parse(Float64, ARGS[8]) : 600.0
+gapcheck_only = length(ARGS) >= 9 && ARGS[9] == "gapcheck"   # only the approximate-versus-exact gap rows, no timed run
 const HEADER = "m,n,rank,obs,seed,rep,method,criterion,tol,time_s,iterations,atoms_or_rank,state_bytes,dense_bytes,reference_residual,value,note"
 const REF_RESIDUAL_MAX = 1e-8                           # acceptance of the reference solution: relative proximal-gradient residual
 tols = (1e-2, 1e-3, 1e-4)
@@ -139,6 +140,7 @@ function frank_wolfe(; method, maxiter, tol, exactgap = false, budget = Inf)
   result = Dict{Float64, Tuple{Float64, Int, Int}}()   # tol → (time, iterations, atoms)
   tmain = 0.0
   gaps = Tuple{Int, Float64, Float64, Float64}[]       # (iteration, approximate gap, exact gap, f − f*)
+  Xk = Xo                                              # the iterate of the last checked iteration (gap-check run only)
   fail_at = 0                                          # the iteration at which a Krylov oracle did not converge
   for k in 0:maxiter-1
     tw = @elapsed begin
@@ -152,6 +154,7 @@ function frank_wolfe(; method, maxiter, tol, exactgap = false, budget = Inf)
         nothing
       end
       a === nothing && break
+      exactgap && (k + 1) % 10 == 0 && (Xk = copy(Xo))     # the iterate of this oracle call, for the exact gap
       u, v = a.U, a.V                                  # a.U already carries the factor −δ
       gap_part = 0.0
       @inbounds for q in 1:nobs
@@ -176,12 +179,14 @@ function frank_wolfe(; method, maxiter, tol, exactgap = false, budget = Inf)
     fk = f(Xo) - fstar
     verbose && (k + 1) % 100 == 0 && (@printf("  fw it %d  t=%.2fs  (f-f*)/(f0-f*)=%.2e  gap=%.3e\n", k + 1, tmain, fk / (f0 - fstar), -d_dot_R); flush(stdout))
     if exactgap && (k + 1) % 10 == 0
-      # the exact gap needs the exact oracle: a dense SVD of the sparse gradient (small sizes only)
-      @. R = Xo - y
+      # the exact gap needs the exact oracle: a dense SVD of the sparse gradient (small sizes only). It is evaluated at
+      # the iterate X_k at which the Krylov atom was computed (`Xk`, saved before the update), so that the approximate
+      # and the exact gap are two values at the same point and approximate <= exact can be checked; f is also at X_k
+      @. R = Xk - y
       copyto!(Gk.nzval, R)
       σ1 = svdvals(Matrix(Gk))[1]
-      exact = dot(R, Xo) + δ * σ1
-      push!(gaps, (k + 1, -d_dot_R, exact, fk))
+      exact = dot(R, Xk) + δ * σ1
+      push!(gaps, (k + 1, -d_dot_R, exact, f(Xk) - fstar))
     end
     for t in tols
       haskey(result, t) || fk <= t * (f0 - fstar) && (result[t] = (tmain, k + 1, length(coefs)))
@@ -232,7 +237,7 @@ end
 write_rows() = open(out, "w") do io
   foreach(r -> println(io, r), rows)
 end
-for rep in 1:reps
+for rep in 1:(gapcheck_only ? 0 : reps)
   # interleaved within a repetition: FW with the Krylov oracle, FW with the full oracle, the comparator
   res, _, bytes, fail = frank_wolfe(; method = :krylov, maxiter = 5_000, tol = 0.0, budget)
   record_fw(rep, "krylov", res, bytes, fail)

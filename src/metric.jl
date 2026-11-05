@@ -215,7 +215,10 @@ value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
   (_checkparams(s, x); _array_route(s, x, γ) ? _value_and_prox_chain!(y, s, x, γ) :
-   _value_at(s.α * _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)), y))
+   _value_at(_indicator_product(s, _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α))), y))
+# An indicator ignores its scale and stays on this route. Its value is exactly 0 or Inf, so an infinite
+# factor at 0 gives 0, as `_scaled_nan_value` certifies on the other routes; a NaN value stays NaN.
+@inline _indicator_product(s::Scaled, v) = _isindicator(s.f) ? _weighted_value(s.α * v, v) : s.α * v
 
 # Whether an entry of an array step may leave the range in the product with the factors. A chain whose
 # factors have a product that is not a normal number takes the route below. A single factor does
@@ -223,7 +226,8 @@ _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
 # 2^±31 for Float32), whatever the entries are: reading them to decide would cost a pass over the step
 # on every call. An entry of the step that is itself within a quarter of the range limit, with a factor
 # inside the band, is rounded with the product as before. An indicator ignores its scale. An infinite
-# factor takes the route below too, which hands it on as before and applies the rule of its value there.
+# factor over any other function takes the route below too, which hands it on as before and applies the
+# rule of its value there.
 @inline _factor_band(::Type{T}) where {T<:AbstractFloat} = exponent(floatmax(T)) ÷ 4
 @inline _wide_factor(α::Real, ::Type{T}) where {T<:AbstractFloat} =
   !(ldexp(one(T), -_factor_band(T)) <= α <= ldexp(one(T), _factor_band(T)))
@@ -232,8 +236,7 @@ _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
 @inline _wide_factor(α::Real, ::Nothing) = false
 @inline function _wide_scale(s::Scaled, x, γ::AbstractArray)
   α = s.α
-  # an indicator ignores a finite scale; an infinite one takes the route for its value
-  (_isindicator(s.f) ? isinf(α) : α > 0) || return false
+  (α > 0 && !_isindicator(s.f)) || return false
   _wide_factor(α, float(promote_type(eltype(γ), typeof(α)))) || _wide_factor(α, _wide_factor_type(x))
 end
 @inline _array_route(s::Scaled, x, γ::AbstractArray) = _chained(s) || _wide_scale(s, x, γ)

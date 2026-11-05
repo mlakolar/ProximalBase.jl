@@ -127,6 +127,7 @@ thorough = [
   "gradient_alias",
   "graph",
   "infinite_group_weights",
+  "infinite_level_nan",
   "l2_nan_blocks",
   "large_inputs",
   "logdet_overflow",

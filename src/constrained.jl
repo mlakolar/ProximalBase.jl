@@ -1128,8 +1128,9 @@ Base.@propagate_inbounds _prox_entry_slope(f::SqrNormL2, v::Real, i::Integer, γ
 Base.@propagate_inbounds _prox_entry_slope(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) = _ridge_prox_slope(r, v, i, γ)
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = _weight_product(S, γ, f.λ0, _entry(f.w, i))
-  shrink(v, t), _slope(abs(v) > t, one(S))
+  # a fixed entry has an infinite threshold, so its slope is zero
+  z, t = _l1_prox_threshold(v, γ, f.λ0, _entry(f.w, i), S)
+  z, _slope(abs(v) > t, one(S))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)

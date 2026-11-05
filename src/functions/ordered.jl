@@ -472,6 +472,9 @@ are not all equal, because the rank of each entry, and so its threshold, depends
 every other entry; with equal weights each entry is soft-thresholded on its own and
 only the `NaN` entry stays `NaN`, and with all weights zero the function is zero and
 its proximal operator the identity, at every step.
+With `λ₁ = Inf` every `x ≠ 0` has an infinite value, so at a positive finite step
+the proximal output is zero whatever `x` holds, `NaN` and `±Inf` entries included
+(decision 49): `-0.0` where an entry is negative, `0.0` elsewhere, and its value `0`.
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct SLOPE{V<:AbstractVector{<:Real}} <: AbstractFunction
@@ -700,6 +703,16 @@ end
   f(y)
 end
 
+# The zero proximal point of an infinite first weight, with the signs that the computation below
+# gives a finite entry (a NaN entry gives 0.0), and its value at the stored output (O2).
+@noinline function _slope_zero!(y::AbstractVector, f::SLOPE, x::AbstractVector, ::Type{T}) where {T}
+  @inbounds for j in eachindex(y, x)
+    xj = x[j]
+    y[j] = signbit(xj) & !isnan(xj) ? -zero(T) : zero(T)    # each entry once, so y may be x
+  end
+  f(y)
+end
+
 function value_and_prox!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Real)
   _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
@@ -707,9 +720,14 @@ function value_and_prox!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Rea
   # E4 first: with every weight zero the function is zero and its proximal map the identity,
   # at every step (the product γλ is not formed, so γ = Inf gives no NaN)
   n > 0 && iszero(f.λ[1]) && return _slope_identity!(y, x, T)
+  # an infinite first weight: every x ≠ 0 has |x|₍₁₎ > 0 and an infinite value, so the domain is
+  # {0} and at a positive finite step the proximal point is zero whatever x holds (E4 before E2);
+  # read from the weight and the step as given (R3)
+  n > 0 && isinf(f.λ[1]) && γ > 0 && isfinite(γ) && return _slope_zero!(y, f, x, T)
   p, a, nan = _sortperm_abs!(f, x, T)
   # a NaN entry: the ranks, and so the thresholds, of the others depend on it (E2)
-  # (an infinite step or an infinite weight keeps the computation below, see LIM-056)
+  # (an infinite step, or an infinite weight at a zero or infinite step, keeps the computation
+  # below, see LIM-056)
   nan && !isinf(γ) && !isinf(f.λ[1]) && return _slope_nan!(y, f, x, γ, T)
   w = _buffer!(f.vals, T, n)
   g = convert(T, γ)

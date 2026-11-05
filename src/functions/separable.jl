@@ -231,6 +231,9 @@ Values follow the overflow rule in [Overflow and underflow of values](@ref).
 An infinite weight fixes the entry at
 zero at every level (the value is `Inf` away from zero), and a zero weight
 leaves it unpenalized at every level.
+An infinite level `λ0` at a positive step fixes every penalized entry (`wᵢ > 0`)
+at zero, so its output is `0` also where the argument is NaN or `±Inf`
+(decision 49). The value is `0` at the zero vector and stays NaN at a NaN entry.
 
 See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
@@ -258,7 +261,29 @@ Base.@propagate_inbounds function value_entry(f::NormL1, v::Real, i::Integer)
   ifelse(isinf(w) & !iszero(a), oftype(p, Inf) * a, p)
 end
 Base.@propagate_inbounds prox_entry(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
-  shrink(v, _weight_product(float(T), γ, f.λ0, _entry(f.w, i)))
+  first(_l1_prox_threshold(v, γ, f.λ0, _entry(f.w, i), float(T)))
+
+# Whether the level and the step, as given, fix a penalized entry (w > 0) at zero whatever it holds,
+# NaN and ±Inf included (E4 before E2): an infinite level at a positive step, finite or Inf, where
+# the domain of the entry is {0}. Never decided from the threshold γλ0w, which overflows for finite
+# parameters (R3) and is 0⋅Inf at a zero step.
+@inline _l1_fixing(γ, λ) = (γ > 0) & isinf(λ)
+@inline _l1_fixed(γ, λ, w) = (w > 0) & _l1_fixing(γ, λ)
+
+# The scalar proximal operator and its threshold γλ0w, as _weight_product forms it. In the ordinary
+# range of γλ0, where the step and the level are finite and positive, no entry is fixed, and the loop
+# keeps the bare soft thresholding.
+Base.@propagate_inbounds function _l1_prox_threshold(v, γ, λ, w, ::Type{S}) where {S}
+  R = _working_type(S, γ, λ, w)
+  ab = convert(R, γ) * convert(R, λ)
+  if floatmin(R) <= ab <= floatmax(R)
+    t = convert(S, ab * convert(R, w))
+    return shrink(v, t), t
+  end
+  t = _weight_product(S, γ, λ, w)
+  r = shrink(v, t)
+  ifelse(_l1_fixed(γ, λ, w), zero(r), r), t
+end
 
 kkt_violation(f::NormL1, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ0, _entry(f.w, i)))
@@ -269,7 +294,10 @@ function (f::NormL1{<:Real, Nothing})(x::DenseArray{<:AbstractFloat})
   T = float(eltype(x))
   iszero(f.λ0) && return zero(T)
   _level_fits(T, f.λ0) || return _converted_l1_value(f.λ0, x)
-  v = convert(T, f.λ0) * sum(abs, x)
+  s = sum(abs, x)
+  # an infinite level fixes every entry at zero (E4): the value at the zero vector is 0, not Inf⋅0
+  isinf(f.λ0) && iszero(s) && return zero(T)
+  v = convert(T, f.λ0) * s
   isfinite(v) || !isfinite(f.λ0) || !all(isfinite, x) ? v : _value_dense(f, x)
 end
 

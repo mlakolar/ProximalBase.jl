@@ -810,8 +810,10 @@ Base.@propagate_inbounds function prox_entry(f::MCP, v::T, i::Integer, γ::Real)
   (isinf(γ) | isinf(f.λ)) && return zero(S)
   isinf(a * λ) && return t == t ? zero(S) : S(v)
   # concave between 0 and aλ: the minimizer is 0 or the largest candidate. A NaN t makes h(u) NaN,
-  # so the test is "not h(u) >= h(0)" (the same as h(u) < h(0) without NaN): a NaN stays NaN.
-  u = max(t, a * λ)
+  # so the test is "not h(u) >= h(0)" (the same as h(u) < h(0) without NaN): a NaN stays NaN. An
+  # infinite t is kept at the old result 0 (h(u) = h(0) = Inf) by bounding u, which is a no-op for
+  # finite t; without the bound (Inf - Inf)² is NaN and would select the nonzero branch.
+  u = min(max(t, a * λ), floatmax(S))
   h(z) = (z - t)^2 / (2s) + _mcp_penalty(λ, a, z)
   !(h(u) >= h(zero(S))) ? sign(S(v)) * u : zero(S)
 end

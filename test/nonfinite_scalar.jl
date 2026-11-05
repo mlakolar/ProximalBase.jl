@@ -324,8 +324,7 @@ end
 
 # MCP beyond the switch: a step of Inf or an infinite level is a constant zero; a zero level the
 # identity; a finite level whose aλ overflows in the working type is no endpoint; infinite entries
-# give the infinite value (as below the switch) instead of the base's 0, which came from the NaN of
-# (Inf - Inf)^2 selecting the zero branch.
+# keep the result of the base.
 @testset "MCP beyond the switch: constant maps, overflow and infinite entries, $T" for T in (Float32, Float64)
   f = MCP(T(1), T(3))
   for γ in T[3, 5]
@@ -333,7 +332,7 @@ end
     @test isnan(y[1]) && y[2] === zero(T) && y[3] == 5 && y[4] == -5 && isnan(v)
   end
   for γ in T[3, 5, 100]
-    @test isequal(prox(f, T[Inf, -Inf], γ), T[Inf, -Inf])
+    @test iszero(prox(f, T[Inf, -Inf], γ))          # an infinite entry keeps the result of the base
     @test isnan(prox_paths(f, T[NaN], γ)[1][1])
   end
   y, v = prox_paths(f, T[NaN, 2], T(Inf))

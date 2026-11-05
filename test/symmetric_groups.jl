@@ -135,8 +135,8 @@ end
         x = SymmetricSparseIterate(B)
         v = value_and_prox!(x, f, x, one(T))
         if any(isnan, B)
-          @test all(iszero, x)
-          @test iszero(v)
+          @test all(isnan, x)     # E2: a NaN entry gives a NaN block (#559)
+          @test isnan(v)
         else
           @test isinf(x[1, 2]) && isinf(x[2, 1]) && isinf(v)
         end

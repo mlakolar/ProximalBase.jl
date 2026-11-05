@@ -55,7 +55,9 @@ entry1(::Type{T}) where {T} = (
           @test iszero(PB.prox_entry(f, v, 2, γ))
         end
         for γ in T[0, 0.5, 1]
-          @test isnan(PB.prox_entry(f, T(NaN), 2, γ))
+          # E4 comes first: the entry is fixed at zero (LogPenalty, #561); the others keep NaN
+          name === :LogPenalty ? @test(iszero(PB.prox_entry(f, T(NaN), 2, γ))) :
+                                 @test(isnan(PB.prox_entry(f, T(NaN), 2, γ)))
         end
         @test PB.kkt_violation(f, T[0.5, 0.5], 2) === T(-Inf)
         # arrays: entry 2 is fixed at zero
@@ -200,7 +202,8 @@ end
       for i in 1:4
         @test value_entry(z, zero(T), i) === zero(T)
         @test value_entry(z, T(3), i) === (i == 2 ? T(Inf) : zero(T))
-        @test isnan(value_entry(z, T(NaN), i))
+        # a zero level leaves a LogPenalty entry free (E4, #561), unless its weight is infinite
+        F === LogPenalty && i != 2 ? @test(iszero(value_entry(z, T(NaN), i))) : @test(isnan(value_entry(z, T(NaN), i)))
         @test kkt_violation(z, g, i) === (i == 2 ? T(-Inf) : abs(g[i]))
         @test allocs(value_entry, z, T(3), i) == 0
         @test allocs(prox_entry, z, T(3), i, one(T)) == 0

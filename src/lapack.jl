@@ -148,8 +148,8 @@ mutable struct SVDWorkspace{T<:_BlasReal}
   n::Int
   A::Matrix{T}                 # the input, destroyed
   s::Vector{T}                 # singular values, in descending order
-  U::Matrix{T}                 # m × min(m, n)
-  Vt::Matrix{T}                # min(m, n) × n
+  U::Matrix{T}                 # m × min(m, n); 0 × 0 until the first call with vectors
+  Vt::Matrix{T}                # min(m, n) × n; 0 × 0 until the first call with vectors
   work::Vector{T}
   iwork::Vector{_BlasInt}
   info::Base.RefValue{_BlasInt}
@@ -168,21 +168,31 @@ for (gesdd, T) in ((:dgesdd_, :Float64), (:sgesdd_, :Float32))
   end
 end
 
+# The vectors and the larger workspace they need are allocated on the first
+# call with vectors, so a workspace used only for values stays small.
 function SVDWorkspace(::Type{T}, m::Integer, n::Integer) where {T<:_BlasReal}
   k = min(m, n)
-  A, s, U, Vt = zeros(T, m, n), zeros(T, k), zeros(T, m, k), zeros(T, k, n)
+  A, s, U, Vt = zeros(T, m, n), zeros(T, k), zeros(T, 0, 0), zeros(T, 0, 0)
   work, iwork, info = zeros(T, 1), zeros(_BlasInt, max(1, 8k)), Ref{_BlasInt}(0)
-  lwork = 1
-  for jobz in ('S', 'N')                                  # workspace queries
-    _gesdd!(jobz, A, s, U, Vt, work, -1, iwork, info)
-    lwork = max(lwork, round(Int, work[1]))
-  end
-  SVDWorkspace{T}(m, n, A, s, U, Vt, resize!(work, lwork), iwork, info)
+  _gesdd!('N', A, s, U, Vt, work, -1, iwork, info)        # workspace query
+  SVDWorkspace{T}(m, n, A, s, U, Vt, resize!(work, max(1, round(Int, work[1]))), iwork, info)
+end
+
+# allocates U and Vt and grows the workspace for the vectors, once
+function _svd_vectors!(ws::SVDWorkspace{T}) where {T}
+  k = min(ws.m, ws.n)
+  (size(ws.U) == (ws.m, k) && size(ws.Vt) == (k, ws.n)) && return ws
+  ws.U, ws.Vt = zeros(T, ws.m, k), zeros(T, k, ws.n)
+  work = zeros(T, 1)
+  _gesdd!('S', ws.A, ws.s, ws.U, ws.Vt, work, -1, ws.iwork, ws.info)    # workspace query
+  length(ws.work) < round(Int, work[1]) && (ws.work = zeros(T, round(Int, work[1])))
+  ws
 end
 
 # The thin SVD of the matrix in ws.A, destroying it: returns s, U and Vt, owned
-# by ws. With vectors = false only s is computed.
+# by ws. With vectors = false only s is computed, and U and Vt are not touched.
 function _svd!(ws::SVDWorkspace; vectors::Bool = true)
+  vectors && _svd_vectors!(ws)
   info = _gesdd!(vectors ? 'S' : 'N', ws.A, ws.s, ws.U, ws.Vt, ws.work, length(ws.work), ws.iwork, ws.info)
   info == 0 || throw(LAPACKException(info))
   ws.s, ws.U, ws.Vt

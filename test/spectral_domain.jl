@@ -276,12 +276,12 @@ end
   @test SingularValue(IndBox(0f0, 1f0))(Float32[2f0^-138 0; 0 2f0^-139]) === 0f0
 end
 
-@testset "the conjugate value of SingularValue applies the mask" begin
+@testset "the conjugate value of SingularValue keeps the spectrum" begin
   for T in (Float32, Float64)
     τ = PB._tol(T)
     X = Matrix(Diagonal(T[1, τ / 2, τ / 2, τ / 2, τ / 2]))
-    @test SingularValue(NormL1(one(T)))(X) === one(T)
-    @test Conjugate(SingularValue(NormLinf(one(T))))(X) === zero(T)
+    @test SingularValue(NormL1(one(T)))(X) ≈ one(T) + 2τ rtol = 4eps(T)
+    @test Conjugate(SingularValue(NormLinf(one(T))))(X) === T(Inf)
     @test Conjugate(SingularValue(NormLinf(one(T))))(2X) === T(Inf)
     @test Conjugate(SingularValue(IndBallL1(one(T))))(X) === one(T)
   end

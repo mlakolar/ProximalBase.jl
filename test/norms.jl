@@ -171,12 +171,11 @@ end
         @test prox_coordinate!(ya, fp, k, γ) ≈ z[fp.groups[k]]
       end
       @test ya ≈ z
-      # a group written through atom becomes active if prox_coordinate! leaves it nonzero
+      # a trial point activates a group only if its step ends nonzero
       yb = AtomIterate(9, fp)
-      atom(yb, 1) .= [3., 4., 0.]
-      prox_coordinate!(yb, fp, 1, γ)
+      prox_coordinate!(yb, fp, 1, [3., 4., 0.], γ)
       @test isactive(yb, 1)
-      prox_coordinate!(yb, fp, 2, γ)
+      prox_coordinate!(yb, fp, 2, zeros(length(fp.groups[2])), γ)
       @test !isactive(yb, 2)
       @test_throws DimensionMismatch prox_coordinate!(yb, F(λ0, [1:9]), 1, γ)
       # as many groups, but other ones
@@ -408,7 +407,7 @@ end
   end
 end
 
-@testset "identity group coordinate steps activate view writes" begin
+@testset "identity group block steps and view writes" begin
   for T in (Float32,Float64)
     groups,weights = [1:2,3:4],zeros(T,2)
     for f in (GroupNormL2(one(T),groups,weights),GroupNormLinf(one(T),groups,weights),
@@ -416,11 +415,15 @@ end
               SparseGroupNormL2(zero(T),one(T),groups,weights))
       a = AtomIterate(zeros(T,4),f)
       atom(a,1)[1] = one(T)
-      @test !isactive(a,1)
-      prox_coordinate!(a,f,1,one(T))
+      @test isactive(a,1)
+      a = AtomIterate(zeros(T,4),f)
+      prox_coordinate!(a,f,1,T[1,0],one(T))
       @test isactive(a,1)
       @test nactive(a) == 1
       @test Vector(a) == T[1,0,0,0]
+      a = AtomIterate(zeros(T,4),f)
+      prox_coordinate!(a,f,1,T[0,0],one(T))
+      @test !isactive(a,1)
     end
   end
 end

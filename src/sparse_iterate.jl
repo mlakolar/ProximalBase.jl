@@ -35,37 +35,110 @@ same O(1) access as [`SparseIterate`](@ref). It is an ordinary `p × p` matrix:
 and iteration follow the dense matrix, so that an off-diagonal entry is visited
 twice.
 
-Writing `x[r, c]` writes `x[c, r]` too. The functions that write a matrix into
-`x` (the constructor, `copyto!`, `copy!`, broadcasting into `x`, `map!`, `axpy!`
-and `axpby!`) take a value with the axes of `x` that is exactly symmetric:
-entries `(r, c)` and `(c, r)` are equal, with `NaN` equal to `NaN`, compared
-before conversion to the element type of `x`. Otherwise they throw a
-`DimensionMismatch` or an `ArgumentError` before writing anything. To store one
-triangle of a matrix `A` that is not symmetric, write `Symmetric(A, :L)` or
-`Symmetric(A, :U)`. These functions write each entry of the lower triangle
+Read and write entries through the lower triangle, `r ≥ c`, for example with
+`for c in 1:p, r in c:p`. The position `x[c, r]` is the same entry as
+`x[r, c]`, so writing either position writes both. Code that writes every
+position writes each off-diagonal entry twice, and the second write wins.
+
+Whole-value writes are checked: the constructor, `copyto!`, `copy!`,
+broadcasting into `x`, `map!`, `axpy!`, `axpby!`, `transpose!`, `adjoint!`,
+`permutedims!` and `mul!`. The checks also cover indexed array assignment of
+every position in order (`x[:, :] = A`, `x[:] = v`), and broadcasting,
+`fill!`, `copyto!` and `copy!` into full, in-order views and reshapes
+(`x[:, :] .= A`, `vec(x) .= v`, `copyto!(view(x, :, :), A)`).
+The covered wrappers are views whose parent is `x`, reshapes whose parent is
+`x`, and views of those reshapes; Base makes a view of such a view a view of
+`x`, and a reshape of a reshape a reshape of `x`. Use `:` or integer vectors
+matching each axis in order for a full two-index assignment or a full matrix
+view. A full single-index assignment accepts `:`, the integers `1:length(x)`
+in order, or `CartesianIndices(x)` with its shape.
+`copyto!(x, Q)` from an orthogonal factor is checked too, as is `copyto!`
+from one into a full matrix view or reshape.
+
+Matrix values must have the axes of `x` and be exactly symmetric: entries
+`(r, c)` and `(c, r)` are equal, with `NaN` equal to `NaN`, compared before
+conversion to the element type of `x`. Linear full writes reshape their values
+in column-major order for this check; `x[:] = v` requires `p²` values.
+`copyto!` into a full view or reshape reads its source in linear order, as
+Base does, so the source needs `p²` values and not the axes of `x`:
+`copyto!(view(x, :, :), vec(A))` writes the symmetric `A`, while
+`copyto!(x, vec(A))` throws.
+If the axes differ or symmetry fails, the checked writers throw a
+`DimensionMismatch` or an `ArgumentError` before writing anything. To store
+one triangle of a matrix `A` that is not symmetric, write `Symmetric(A, :L)`
+or `Symmetric(A, :U)`. These functions write each entry of the lower triangle
 once. A broadcast whose arguments do not show that its value is symmetric is
 first evaluated at both positions of each off-diagonal entry, so a function
 with side effects runs more often and may give a value that is not symmetric.
-`copyto!` with offsets or index ranges and the indexed `axpy!` throw an
-`ArgumentError`. `fill!`, `rmul!` and `lmul!` by a number keep `x` symmetric.
-`replace` and `replace!` visit each entry of the lower triangle once, and their
-`count` counts those entries, column by column.
-`mul!` into `x` checks the unscaled product for exact symmetry in a buffer promoted
-from the destination and operand types, applies scalars and conversion at the final
-write, and leaves the product out when α = 0, as LinearAlgebra does.
 
-Other functions update the entries of `x` one position at a time and are not
-checked: indexed and view assignment such as
-`x[:, :] = A`, `copyto!` from an iterator, `transpose!`, `permutedims!`,
-`reverse!`, `triu!`, `tril!`, and scaling by a `Diagonal`. They can update an off-diagonal
-entry twice or store one of two different values. Functions that build a result
-that is not symmetric in `similar(x)`, such as `cumsum` or `circshift`, need
-`Matrix(x)`. `triu`, `tril` and `sparse` return a `SparseMatrixCSC`.
+With two array operands, `mul!` into `x` checks the unscaled product for exact
+symmetry in a buffer promoted from the destination and operand types, applies
+scalars and conversion at the final write, and leaves the product out when
+α = 0, as LinearAlgebra does. For `mul!` by a number, the array operand must
+have the axes of `x`. The seven-argument `mul!(x, tA, tB, A, B, α, β)`,
+when available, uses the same checks with flags `'N'`, `'T'` and `'C'` for
+unchanged, transposed and adjoint operands; other flags throw before writing.
+`fillband!(x, v, l, u)` checks that `v` is real and writes a symmetric band
+(`l == -u`) through the lower triangle once. An empty band (`l > u`) returns
+`x` unchanged.
+
+Indexed array assignment, broadcasting and `fill!` into part of `x`, such as
+a row, a column, a block or a partial mask, throw an `ArgumentError` before
+writing. `copyto!` and `copy!` into such a part through a view throw before
+writing too.
+Logical-mask indexed assignment is rejected even for an all-true mask.
+`copyto!` with offsets or index ranges (including transpose flags),
+`copy_transpose!` and `copy_adjoint!` with index ranges, `copyto!` from a tuple, a
+generator or a number, and the indexed `axpy!` also throw before writing, as
+does `copyto!` with offsets into a view or reshape.
+Out-of-bounds indices still throw a `BoundsError`.
+
+The position-wise writers `reverse!`, `sort!`, `accumulate!`, `kron!` and
+`copytrito!` (when available) throw an `ArgumentError` before writing.
+This also rejects `reverse(x)` with or without `dims`, `cumsum!`, `cumprod!`,
+and allocating `cumsum`, `cumprod` and `accumulate` with `dims`.
+`circshift!` and `circshift` of a nonempty `x` by a nonempty shift throw too.
+`triu!(x, k)` and `tril!(x, k)` return `x` unchanged only when every position
+is kept: `k ≤ 1 - p` for `triu!`, `k ≥ p - 1` for `tril!`, or any `k` when
+`p = 0`. Otherwise they throw an `ArgumentError` before writing.
+
+`lmul!`, `rmul!`, `ldiv!` and `rdiv!` by a matrix, a factorization, an
+orthogonal factor or a rotation throw an `ArgumentError` before writing, as
+does `ldiv!(x, A, B)` for such an operator `A`. Reductions into `x` (`sum!`,
+`prod!`, `maximum!`, `minimum!`, `count!`, `all!`, `any!`, `extrema!`,
+`findmax!` and `findmin!` with `x` as either destination), in-place
+factorizations (`lu!`, `qr!`, `cholesky!` and `bunchkaufman!`), `get!` and
+`sortperm!` also throw before writing. So do `fillband!` with a nonempty band
+that is not symmetric, and `read!`, `readbytes!` and `hex2bytes!`, which do
+not consume their input. Use `Matrix(x)` for these operations, or compute
+into a dense matrix and `copyto!` a symmetric result.
+
+`fill!`, and `rmul!`, `lmul!`, `rdiv!` and `ldiv!` by a number or a
+`UniformScaling`, keep `x` symmetric. `replace` and `replace!` visit each
+entry of the lower triangle once, and their `count` counts those entries,
+column by column. `triu`, `tril` and `sparse` return a `SparseMatrixCSC`.
+`sort(x; dims)` and `accumulate(op, x)` without `dims` keep their dense
+results. Allocating `lu`, `qr`, `cholesky` and `bunchkaufman` use dense copies.
+
+Other functions that write an arbitrary array position by position are not
+checked; apply them to `Matrix(x)`. Scalar-write loops over every position
+stay unchecked. Other writes through a view or reshape stay unchecked too:
+indexed assignment such as `view(x, :, :)[:, :] = A`, scalar writes through a
+view, `copyto!` with index ranges, and `copyto!` from a tuple, a generator, a
+number or another non-array iterator.
+The checks do not extend to other nested wrappers, such as `vec(view(x, :, :))`
+or a view of it, including broadcasts, fills and copies through them.
+Two-argument `copyto!(x, itr)` from other non-array iterators is unchecked.
+A Base function can write part of `x` before reaching a check. `rand!` and
+`randn!` give a symmetric matrix but draw each off-diagonal entry twice.
+`shuffle!` and `shuffle` give wrong values; use `Matrix(x)` instead.
 
 Its coordinates are the `p(p+1)/2` entries of the lower triangle, numbered
 column by column ([`tril_index`](@ref)): [`prox_coordinate!`](@ref) updates
 them, [`ncoordinates`](@ref) counts them, [`activecoordinates`](@ref) lists the
 stored ones and [`coordinates`](@ref) is a vector view of them.
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 mutable struct SymmetricSparseIterate{T} <: AbstractMatrix{T}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
@@ -117,27 +190,29 @@ end
 function _split_dot(a::AbstractArray, x::SparseIterate, sa, sx)
   _checksize(a, x)
   R = typeof(sx[1])
-  t = floatmax(R) / (2 * max(x.nnz, 1))
-  big = eb = small = es = zero(R)
+  acc = _split_start(R, x.nnz)
   @inbounds for k in 1:x.nnz
-    big, eb, small, es = _split_add(big, eb, small, es, a[x.nzval2ind[k]], x.nzval[k], sa, sx, t)
+    acc = _split_add(acc, a[x.nzval2ind[k]], x.nzval[k], sa, sx)
   end
-  big + eb, small + es
+  _split_finish(acc)
 end
 # each off-diagonal product separately: a[r, c] + a[c, r] can overflow on its own
 function _split_dot(a::AbstractArray, x::SymmetricSparseIterate, sa, sx)
   _checksize(a, x)
   R = typeof(sx[1])
-  t = floatmax(R) / (4 * max(x.nnz, 1))
-  big = eb = small = es = zero(R)
+  acc = _split_start(R, 2 * x.nnz)
   @inbounds for k in 1:x.nnz
     r, c = tril_cartesian(x.p, x.nzval2ind[k])
     u = x.nzval[k]
-    big, eb, small, es = _split_add(big, eb, small, es, a[r, c], u, sa, sx, t)
-    r == c || ((big, eb, small, es) = _split_add(big, eb, small, es, a[c, r], u, sa, sx, t))
+    acc = _split_add(acc, a[r, c], u, sa, sx)
+    r == c || (acc = _split_add(acc, a[c, r], u, sa, sx))
   end
-  big + eb, small + es
+  _split_finish(acc)
 end
+
+# the stored entries of an iterate: the recoveries of R1 read only these
+_stored_maxabs(x::Union{SparseIterate, SymmetricSparseIterate}) = _maximum_abs(view(x.nzval, 1:x.nnz))
+_all_finite(x::Union{SparseIterate, SymmetricSparseIterate}) = all(isfinite, view(x.nzval, 1:x.nnz))
 
 
 ####################################
@@ -180,14 +255,32 @@ of an [`AtomIterate`](@ref). Active-set solvers use them as the active set.
 """
 function nactive end
 
+# Read-only handle on the internal list of active IDs. A writable view would let a caller
+# break the agreement between the list and the reverse map of the iterate.
+struct _ActiveIDs <: AbstractVector{Int}
+  ids::SubArray{Int,1,Vector{Int},Tuple{UnitRange{Int}},true}
+end
+Base.size(h::_ActiveIDs) = size(h.ids)
+Base.IndexStyle(::Type{_ActiveIDs}) = IndexLinear()
+Base.dataids(h::_ActiveIDs) = Base.dataids(h.ids)     # as the view it wraps: aliasing checks still see the list
+Base.unaliascopy(h::_ActiveIDs) = _ActiveIDs(Base.unaliascopy(h.ids))   # view(A, h) copies an aliasing index in its own type
+Base.@propagate_inbounds Base.getindex(h::_ActiveIDs, i::Int) = h.ids[i]
+Base.setindex!(::_ActiveIDs, v, i::Int) =
+  throw(ArgumentError("activecoordinates(x) is read-only: write values through activevalues(x), or atom(x, k) for an AtomIterate"))
+
 """
     activecoordinates(x)
 
-A vector of the active coordinates of `x` (see [`nactive`](@ref)), in the order
-in which they became active, except that `dropzeros!` moves the last ones into
-the places of those it removes. The vector is a view of the internal list: it
-does not grow when coordinates become active, so call `activecoordinates` again
-after changing the active set.
+A read-only `AbstractVector{Int}` of the active coordinates of `x` (see
+[`nactive`](@ref)), in the order in which they became active, except that
+`dropzeros!` moves the last ones into the places of those it removes. It is a
+handle on the internal list, not a snapshot: nothing is copied, and it does not
+grow when coordinates become active, so call `activecoordinates` again after
+changing the active set: after an activation, after `dropzeros!`, and after a
+whole-state replacement such as `copyto!(x, y)`, which can reorder the list even
+when the active set and `nactive(x)` stay the same. Writing through it throws an `ArgumentError`, because
+the list and the iterate's reverse map must stay in agreement; write values
+through [`activevalues`](@ref) (or `atom(x, k)` for an [`AtomIterate`](@ref)).
 """
 function activecoordinates end
 
@@ -208,10 +301,31 @@ linear order, and the entries of the lower triangle for a
 """
 function coordinates end
 
+"""
+    activevalues(x::Union{SparseIterate, SymmetricSparseIterate})
+
+A writable vector view of the values of the active coordinates of `x`, in the
+order of [`activecoordinates`](@ref): entry `a` is the value of coordinate
+`activecoordinates(x)[a]`. Writing zero through it keeps the coordinate active;
+use [`dropzeros!`](@ref) to remove it. The view has the length [`nactive`](@ref)
+had when it was taken and does not grow, so, like `activecoordinates`, take it
+again after a coordinate becomes active, after `dropzeros!` or after a
+whole-state replacement such as `copyto!(x, y)`, each of which can reorder the
+active list. Nothing is copied.
+"""
+function activevalues end
+
 ncoordinates(x::_StoredIterate) = length(x.ind2nzval)
 nactive(x::_StoredIterate) = x.nnz
-activecoordinates(x::_StoredIterate) = view(x.nzval2ind, 1:x.nnz)
+activecoordinates(x::_StoredIterate) = _ActiveIDs(view(x.nzval2ind, 1:x.nnz))
+activevalues(x::_StoredIterate) = view(x.nzval, 1:x.nnz)
 isactive(x::_StoredIterate, k::Integer) = x.ind2nzval[k] != 0
+
+# aliasing hooks from Base (non-public functions); the owner reports its storage
+# arrays, so that activevalues(x), activecoordinates(x) and the views of x are all
+# seen to overlap x
+Base.dataids(x::SparseIterate) =
+  (Base.dataids(x.nzval)..., Base.dataids(x.nzval2ind)..., Base.dataids(x.ind2nzval)...)
 
 # the value of coordinate i
 Base.@propagate_inbounds function _getstored(x::_StoredIterate{T}, i::Integer) where {T}
@@ -286,21 +400,38 @@ function SparseArrays.dropzeros!(x::_StoredIterate)
   x
 end
 
+# Whether converting values of type S to T can throw. It cannot when S is a
+# subtype of T, nor between built-in real types where T is a floating-point type
+# (values round, and Float64 to Float32 overflows to Inf); any other pair is checked.
+const _BuiltinFloat = Union{Float16, Float32, Float64}
+const _BuiltinReal = Union{_BuiltinFloat, Bool, Int8, Int16, Int32, Int64, Int128,
+                           UInt8, UInt16, UInt32, UInt64, UInt128}
+_convert_may_throw(::Type{T}, ::Type{S}) where {T, S} =
+    !(S <: T || (isconcretetype(T) && T <: _BuiltinFloat && isconcretetype(S) && S <: _BuiltinReal))
+
+# The stored values of y as the destination's element type. A fallible conversion
+# runs once, here, before a copy writes anything, so a value that does not convert
+# throws with the destination unchanged; the copy then reads the converted buffer.
+_converted_values(::Type{T}, y::_StoredIterate{S}) where {T, S} =
+    _convert_may_throw(T, S) ? T[convert(T, y.nzval[k]) for k = 1:y.nnz] : y.nzval
+
 # Copy the stored entries of y into x, an iterate of the same size. When both are
 # sparse, touch only their stored entries; otherwise copying whole arrays is faster.
-function _copyto_stored!(x::_StoredIterate, y::_StoredIterate)
+function _copyto_stored!(x::_StoredIterate{T}, y::_StoredIterate) where {T}
+    vals = _converted_values(T, y)
     if 4 * (x.nnz + y.nnz) < length(x.ind2nzval)
         @inbounds for k = 1:x.nnz
             x.ind2nzval[x.nzval2ind[k]] = 0
         end
         @inbounds for k = 1:y.nnz
             i = y.nzval2ind[k]
-            x.nzval[k] = y.nzval[k]
+            x.nzval[k] = vals[k]
             x.nzval2ind[k] = i
             x.ind2nzval[i] = k
         end
     else
-        copyto!(x.nzval, y.nzval)
+        # only the stored values: entries past nnz are stale and may not convert
+        copyto!(x.nzval, 1, vals, 1, y.nnz)
         copyto!(x.nzval2ind, y.nzval2ind)
         copyto!(x.ind2nzval, y.ind2nzval)
     end
@@ -317,9 +448,10 @@ function _clear!(x::_StoredIterate)
   x
 end
 
-# Multiplying by a number scales the stored entries, in O(nnz), as for a sparse
-# matrix. The generic methods visit every index, among them (r, c) and (c, r) of a
-# SymmetricSparseIterate, which share storage, and so would scale it twice.
+# These fallback methods serve SymmetricSparseIterate and scale stored entries
+# in O(nnz). Generic methods would scale mirrored entries twice because they share
+# storage. For scalars that map zero to a nonzero value (Inf, NaN, a zero divisor),
+# the result depends on storage until #391 changes the owner's scaling.
 function LinearAlgebra.rmul!(x::_StoredIterate, s::Number)
   _checkreal(x, s)
   @inbounds for k = 1:x.nnz
@@ -348,6 +480,50 @@ function LinearAlgebra.ldiv!(s::Number, x::_StoredIterate)
   end
   x
 end
+
+
+# Scaling a SparseIterate is a value write equal to its broadcast in values,
+# working set and slot order. It costs O(nnz) when the scalar maps zero to zero,
+# and O(n) otherwise. The operation is assumed to be ordinary, pure arithmetic.
+# A failed conversion throws the broadcast's exception type and leaves a consistent
+# iterate, but partial writes need not match the broadcast: stored entries are
+# visited in slot order. If the unstored value cannot convert, nothing is written.
+function _scale!(x::SparseIterate{T}, s::Number, op::F) where {T, F}
+  _checkreal(x, s)
+  if _may_activate(x, s, op) && x.nnz < length(x.ind2nzval)
+    z = convert(T, op(zero(T), s))
+    iszero(z) || return _scale_all!(x, s, op, z)
+  end
+  @inbounds for k = 1:x.nnz
+    x.nzval[k] = op(x.nzval[k], s)
+  end
+  x
+end
+
+# Whether the scalar can activate an unstored coordinate, tested before the working
+# set is read: the fast path then costs one scalar test (#427). With IEEE entries and
+# an IEEE scalar, op(zero(T), s) cannot throw, and a zero result converts to zero.
+# Other pairs keep the full test, as op(zero(T), s) may throw where a fully stored
+# iterate scales fine: (0//1) / 0 does, and so may a user-defined Real.
+_may_activate(::SparseIterate{T}, s::Base.IEEEFloat, op::F) where {T <: Base.IEEEFloat, F} = !iszero(op(zero(T), s))
+_may_activate(::SparseIterate, s::Number, op::F) where {F} = true
+
+# The O(n) path, kept out of line: inlined, its stores give every call of _scale!,
+# the O(nnz) path included, a GC frame (#427).
+@noinline function _scale_all!(x::SparseIterate{T}, s::Number, op::F, z::T) where {T, F}
+  @inbounds for k = 1:x.nnz
+    x.nzval[k] = op(x.nzval[k], s)
+  end
+  @inbounds for i = 1:length(x.ind2nzval)
+    x.ind2nzval[i] == 0 && _store!(x, i, z)
+  end
+  x
+end
+
+LinearAlgebra.rmul!(x::SparseIterate, s::Number) = _scale!(x, s, *)
+LinearAlgebra.lmul!(s::Number, x::SparseIterate) = _scale!(x, s, (v, s) -> s * v)
+LinearAlgebra.rdiv!(x::SparseIterate, s::Number) = _scale!(x, s, /)
+LinearAlgebra.ldiv!(s::Number, x::SparseIterate) = _scale!(x, s, (v, s) -> s \ v)
 
 
 ####################################
@@ -631,7 +807,15 @@ function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIt
   scale = _product_scale(A, coef, α)
   # Stored-entry traversal wins for few coefficients; column order reads A
   # sequentially and matches LinearAlgebra's generic loop for denser coefficients.
-  # Measurements on x86-64 place the crossover between 2% and 5%, hence 1/32.
+  # The crossover density falls as columns of A get longer: for Float64 and a
+  # random entry order its median is 7-16% for 64 to 512 rows, 3-5% for 1024,
+  # about 1.5-2% for 2048 and 1-5% for 4096, on Apple M3, AMD Zen 3 and Intel
+  # Skylake-SP (larger for Float32), and it differs by a factor of two or more
+  # between those CPUs. No constant is best everywhere: 1/32 costs 2.5-5% of the
+  # time on average over densities of 0.5-50%, the best constant (1/16) 1-3%.
+  # A cutoff in bytes, min(1/8, 256/(m*sizeof(T))), cost 0.6-1.5%; that rule was
+  # not adopted because its gain over the best constant was under 2 points.
+  # See "Matrix coefficients" in docs/src/iterates.md.
   if 32 * nnz(coef) <= length(coef)
     p = size(coef, 1)
     @inbounds for inz = 1:nnz(coef)
@@ -852,7 +1036,10 @@ end
 struct SymmetricCoordinates{T} <: AbstractVector{T}
   x::SymmetricSparseIterate{T}
 end
-# aliasing hooks from Base (non-public functions)
+# aliasing hooks from Base (non-public functions); the owner reports its storage
+# arrays, so that activevalues(x) and the views of x are all seen to overlap x
+Base.dataids(x::SymmetricSparseIterate) =
+  (Base.dataids(x.nzval)..., Base.dataids(x.nzval2ind)..., Base.dataids(x.ind2nzval)...)
 Base.dataids(c::SymmetricCoordinates) = Base.dataids(c.x)
 Base.unaliascopy(c::SymmetricCoordinates) = coordinates(copy(c.x))
 
@@ -862,6 +1049,59 @@ Base.@propagate_inbounds Base.getindex(c::SymmetricCoordinates, k::Int) = _getst
 Base.@propagate_inbounds Base.setindex!(c::SymmetricCoordinates, v, k::Int) = (_setstored!(c.x, v, k); c)
 
 coordinates(x::SymmetricSparseIterate) = SymmetricCoordinates(x)
+
+# a read-only p × p view of x: the matrix that x represents, both triangles
+struct SymmetricMatrixView{T} <: AbstractMatrix{T}
+  x::SymmetricSparseIterate{T}
+end
+
+"""
+    matrixview(x::SymmetricSparseIterate)
+
+A live, read-only `p × p` matrix view of `x`: ordinary matrix indexing, both
+triangles, no copy of the data. Later writes to `x` show through it. Nothing can
+be written through the view or through a wrapper derived from it (`view`,
+`reshape`, `transpose`, `Symmetric`): the write is refused and `x` is
+unchanged. A generic allocating operation on the view (`A .+ 1`, `similar(A)`,
+`collect(A)`) returns an ordinary writable dense array. `mul!` of the view and a
+dense vector costs `O(p + nactive(x))`; other generic matrix operations on the
+view read all `p²` entries. Use `Matrix(x)` for an independent dense copy.
+
+!!! warning "Non-finite vectors"
+    The product skips absent coordinates but multiplies by stored ones, an
+    explicit stored zero included. With a non-finite `v`, a stored zero gives
+    `0 * Inf = NaN` where an absent coordinate gives `0`, so `dropzeros!(x)` can
+    change `mul!(y, matrixview(x), v)` although the matrix does not. This does
+    not yet satisfy the rule of the 0.6 contract (the same result, or the same
+    error, before and after `dropzeros!`); it is to be settled with the 0.6 owner.
+
+Entries `(r, c)` and `(c, r)` are one variable of `x`; a coordinate of `x` is
+reached through [`coordinates`](@ref), not through this view, so
+`matrixview(x)[4]` is a matrix linear index.
+"""
+matrixview(x::SymmetricSparseIterate) = SymmetricMatrixView(x)
+
+Base.size(A::SymmetricMatrixView) = size(A.x)
+Base.IndexStyle(::Type{<:SymmetricMatrixView}) = IndexCartesian()
+Base.@propagate_inbounds Base.getindex(A::SymmetricMatrixView, r::Int, c::Int) = A.x[r, c]
+# aliasing hooks from Base (non-public functions)
+Base.dataids(A::SymmetricMatrixView) = Base.dataids(A.x)
+Base.unaliascopy(A::SymmetricMatrixView) = SymmetricMatrixView(copy(A.x))
+Base.transpose(A::SymmetricMatrixView) = A
+Base.adjoint(A::SymmetricMatrixView{<:Real}) = A
+Base.Matrix(A::SymmetricMatrixView) = Matrix(A.x)
+Base.Array(A::SymmetricMatrixView) = Matrix(A.x)
+SparseArrays.sparse(A::SymmetricMatrixView) = sparse(A.x)
+
+# the stored-entry product, O(p + nactive), not the generic p² scan
+LinearAlgebra.mul!(C::AbstractVector, A::SymmetricMatrixView, B::AbstractVector) = mul!(C, A.x, B)
+LinearAlgebra.mul!(C::AbstractVector, A::SymmetricMatrixView, B::AbstractVector, α::Number, β::Number) =
+  mul!(C, A.x, B, α, β)
+
+function Base.show(io::IO, ::MIME"text/plain", A::SymmetricMatrixView)
+  print(io, "matrixview of a ")
+  show(io, MIME("text/plain"), A.x)
+end
 
 # A matrix written into x must have the axes of x and be exactly symmetric; the
 # checks run before anything is written. Symmetric(A, :L) keeps one triangle of
@@ -875,6 +1115,108 @@ _symmetric_by_type(A) = false
 _symmetric_by_type(::Union{SymmetricSparseIterate, Symmetric{<:Number}, Hermitian{<:Real},
                            Diagonal{<:Number}, SymTridiagonal{<:Number}}) = true
 _symmetric_by_type(A::Union{Adjoint, Transpose}) = _symmetric_by_type(parent(A))
+
+# The symmetric part (A + A') / 2, read lazily. The proximal point over symmetric
+# matrices at a matrix V that is not symmetric is the proximal point at its symmetric
+# part, for every function, so a SymmetricSparseIterate output reads its argument
+# through this wrapper. An entry pair that is not equal is averaged without overflow or
+# premature underflow, and exactly symmetrically; an opposite-infinity pair gives NaN.
+struct _SymmetricPart{T, A<:AbstractMatrix} <: AbstractMatrix{T}
+  A::A
+end
+_SymmetricPart(A::AbstractMatrix) = _SymmetricPart{typeof(zero(eltype(A)) / 2), typeof(A)}(A)
+Base.size(S::_SymmetricPart) = size(S.A)
+Base.axes(S::_SymmetricPart) = axes(S.A)
+Base.IndexStyle(::Type{<:_SymmetricPart}) = IndexCartesian()
+Base.dataids(S::_SymmetricPart) = Base.dataids(S.A)
+Base.@propagate_inbounds function Base.getindex(S::_SymmetricPart{T}, r::Int, c::Int) where {T}
+  a, b = convert(T, S.A[r, c]), convert(T, S.A[c, r])
+  _symequal(a, b) ? a : _symmetric_mean(a, b)
+end
+# The correctly rounded (a + b) / 2 when the sum is finite, which keeps subnormal digits;
+# the halves are taken first only when the sum overflows or a value is not finite, where
+# they cannot underflow. Addition commutes, so the result is symmetric in (a, b).
+@inline function _symmetric_mean(a::T, b::T) where {T}
+  s = a + b
+  isfinite(s) ? s / 2 : a / 2 + b / 2
+end
+_symmetric_by_type(::_SymmetricPart) = true
+Base.adjoint(S::_SymmetricPart{<:Real}) = S
+Base.transpose(S::_SymmetricPart) = S
+# the products of the decompositions keep the speed of BLAS: ((A + A') / 2) B = (A B + A' B) / 2
+# (strided output and factor, so that these methods meet neither those of a SymmetricSparseIterate
+# output nor the structured-matrix methods of LinearAlgebra, which differ between Julia versions)
+for (CT, BT) in ((:StridedMatrix, :StridedVecOrMat), (:StridedVector, :StridedVector))
+  @eval begin
+    function LinearAlgebra.mul!(C::$CT, S::_SymmetricPart{<:Real, <:StridedMatrix}, B::$BT, α::Number, β::Number)
+      h = α / 2
+      # halving α would lose the digits that the result keeps: scale the product instead
+      !iszero(α) && abs(h) < floatmin(typeof(h)) && return _scaled_symmetric_mul!(C, S, B, α, β)
+      mul!(C, S.A, B, h, β)
+      mul!(C, S.A', B, h, true)
+    end
+    LinearAlgebra.mul!(C::$CT, S::_SymmetricPart{<:Real, <:StridedMatrix}, B::$BT) = mul!(C, S, B, true, false)
+  end
+end
+
+# C = α (A + A')/2 B + β C for a tiny α, term by term: each product α s b is formed from
+# significands and one exponent, so that it is rounded once whatever the range of the
+# three factors (a global scaling of B cannot serve entries of very different sizes),
+# and the finite terms are then added. Slow, and used only when halving α would lose digits.
+function _scaled_symmetric_mul!(C, S::_SymmetricPart, B, α, β)
+  A = S.A
+  T = float(promote_type(eltype(A), eltype(B)))
+  a = T(α)
+  Cm = C isa AbstractVector ? reshape(C, :, 1) : C
+  Bm = B isa AbstractVector ? reshape(B, :, 1) : B
+  size(A, 1) == size(Cm, 1) && size(A, 2) == size(Bm, 1) && size(Cm, 2) == size(Bm, 2) ||
+    throw(DimensionMismatch("the product has shapes $(size(A)) * $(size(Bm)) into $(size(Cm))"))
+  @inbounds for k in axes(Bm, 2), i in axes(A, 1)
+    acc = zero(T)
+    for j in axes(A, 2)
+      acc += _product3(a, T(S[i, j]), T(Bm[j, k]))
+    end
+    Cm[i, k] = iszero(β) ? acc : acc + β * Cm[i, k]
+  end
+  C
+end
+# a * b * c rounded once (up to the product of the significands) for finite factors
+@inline function _product3(a::T, b::T, c::T) where {T<:AbstractFloat}
+  (iszero(a) || iszero(b) || iszero(c)) && return zero(T)
+  (isfinite(a) && isfinite(b) && isfinite(c)) || return a * b * c
+  fa, ea = frexp(a); fb, eb = frexp(b); fc, ec = frexp(c)
+  ldexp(fa * fb * fc, ea + eb + ec)
+end
+
+# The argument that a proximal map into y reads: x itself when y is not a
+# SymmetricSparseIterate, x is symmetric by type, or x is exactly symmetric (found by
+# a scan that stops at the first pair that differs, so an exactly symmetric matrix
+# keeps its fast paths and its results), otherwise the symmetric part of x. A size
+# that does not match y is left to the shape checks, which run before any entry is read.
+_symmetric_argument(y, x) = x
+function _symmetric_argument(y::SymmetricSparseIterate, x::AbstractMatrix)
+  _symmetric_by_type(x) && return x
+  # a device matrix is read on the host, as the decompositions do, so the rule holds for it too
+  _is_device_array(x) && return _symmetric_argument(y, Array(x))
+  _exactly_symmetric(x) ? x : _SymmetricPart(x)
+end
+_exactly_symmetric(x::AbstractMatrix) = size(x, 1) == size(x, 2) && _issymmetric_exact(x, _symequal)
+# A spectral function is defined on symmetric matrices, so its proximal map reads the
+# symmetric part of a matrix that is not symmetric by type, whatever the output.
+_spectral_argument(x) = x
+# A device matrix is read on the host, as the decompositions do.
+_spectral_argument(x::AbstractMatrix) =
+  _symmetric_by_type(x) ? x : _SymmetricPart(_is_device_array(x) ? Array(x) : x)
+# A tuple with no symmetric block, at any depth, is returned as it is; otherwise the
+# blocks are unrolled by type, nested tuples included.
+@inline _symmetric_argument(y::Tuple, x::Tuple) = _symmetric_blocks(y, x)
+_has_symmetric_type(::Type{<:SymmetricSparseIterate}) = true
+_has_symmetric_type(::Type{T}) where {T<:Tuple} = any(_has_symmetric_type, fieldtypes(T))
+_has_symmetric_type(::Type) = false
+@generated function _symmetric_blocks(y::Tuple, x::Tuple)
+  (fieldcount(y) == fieldcount(x) && _has_symmetric_type(y)) || return :x
+  Expr(:tuple, (:(_symmetric_argument(y[$k], x[$k])) for k in 1:fieldcount(y))...)
+end
 
 # the first pair (r, c), r > c, in column-major order, at which the square,
 # one-based A is not symmetric
@@ -896,15 +1238,104 @@ function _issymmetric_exact(A::SparseMatrixCSC, eq::E) where {E}
   true
 end
 
-_check_symmetric(A::AbstractMatrix) =
-  _symmetric_by_type(A) || _issymmetric_exact(A, _symequal) || _throw_asymmetric(A)
-@noinline function _throw_asymmetric(A::AbstractMatrix)
-  r, c = _asymmetric_pair(A, _symequal)
-  _throw_asymmetric(r, c, A[r, c], A[c, r])
+_check_symmetric(A::AbstractMatrix, subject = "the value written into a SymmetricSparseIterate", name = "A") =
+  _symmetric_by_type(A) || _issymmetric_exact(A, _symequal) || _throw_asymmetric(A, subject, name)
+
+# The one message for a matrix that must be exactly symmetric and is not: it names
+# the pair with the largest difference and the relative asymmetry
+# max |A[r, c] - A[c, r]| / max |A[i, j]|. The tolerance √eps only chooses the
+# wording; it never decides whether A is accepted. Differences and scales are
+# computed on halves, so that neither a wrapped integer difference nor a
+# difference of two large floats overflows. Entries without arithmetic (labels)
+# are reported without a relative asymmetry.
+# integers and rationals stay exact until the ratio is formed: adjacent integers
+# above 2^53 have the same Float64
+_exact(a) = a isa Union{Integer, Rational} ? big(a) : a
+_half(a) = Float64(abs(_exact(a) / 2))
+_halfdiff(a, b) = (d = Float64(abs(_exact(a) / 2 - _exact(b) / 2)); isnan(d) ? Inf : d)
+_rounding_type(::Type{T}) where {T} =
+  T <: Number && float(real(T)) <: AbstractFloat ? float(real(T)) : Float64
+
+# the pairs (i, j), i > j, that can differ: all of them, or for a sparse matrix the
+# stored entries, whose mirrors suffice
+function _foreach_pair(f::F, A::AbstractMatrix) where {F}
+  for j in axes(A, 2), i in j+1:size(A, 1)
+    f(i, j)
+  end
 end
-@noinline _throw_asymmetric(r, c, a, b) = throw(ArgumentError(
-  "the value written into a SymmetricSparseIterate must be symmetric, but entry ($r, $c) " *
-  "is $a and entry ($c, $r) is $b; use Symmetric(A, :L) to store the lower triangle of A"))
+function _foreach_pair(f::F, A::SparseMatrixCSC) where {F}
+  rows = rowvals(A)
+  for c in axes(A, 2), k in nzrange(A, c)
+    r = rows[k]
+    r == c || f(max(r, c), min(r, c))
+  end
+end
+function _max_half(A)
+  s = 0.0
+  for v in A
+    v isa Number && isfinite(v) && (s = max(s, _half(v)))
+  end
+  s
+end
+_max_half(A::SparseMatrixCSC) = _max_half(nonzeros(A))
+
+@noinline function _throw_asymmetric(A::AbstractMatrix, subject, name, where = "")
+  best, r, c = -1.0, 0, 0
+  labels = false
+  _foreach_pair(A) do i, j
+    x, y = A[i, j], A[j, i]
+    _symequal(x, y) && return
+    d = if x isa Number && y isa Number
+      _halfdiff(x, y)
+    else
+      labels = true
+      Inf
+    end
+    d > best && ((best, r, c) = (d, i, j))
+  end
+  r == 0 && throw(ArgumentError("$subject must be symmetric$where"))
+  relative = labels ? nothing : best / _max_half(A)
+  throw(ArgumentError(_asymmetry_message(subject, name, where, r, c, A[r, c], A[c, r], relative,
+                                         _rounding_type(eltype(A)))))
+end
+
+# A check of one pair, such as the coordinate of prox_coordinate!, reads only that
+# pair: its relative asymmetry is relative to the larger of the two entries.
+@noinline function _throw_asymmetric_pair(subject, name, where, r, c, x, y)
+  relative = if x isa Number && y isa Number
+    scale = max(isfinite(x) ? _half(x) : 0.0, isfinite(y) ? _half(y) : 0.0)
+    _halfdiff(x, y) / scale
+  end
+  throw(ArgumentError(_asymmetry_message(subject, name, where, r, c, x, y, relative,
+                                         _rounding_type(typeof(x)))))
+end
+
+function _asymmetry_message(subject, name, where, r, c, x, y, relative, T)
+  head = "$subject must be symmetric$where, but entry ($r, $c) is $x and entry ($c, $r) is $y"
+  relative === nothing && return head * "; pass Symmetric($name, :L) to keep the lower triangle of $name"
+  shown = isfinite(relative) ? round(relative; sigdigits = 2) : relative
+  relative < sqrt(eps(T)) ?
+    "$head (relative asymmetry $shown, the size of rounding error); if $name is symmetric in exact arithmetic, pass Symmetric($name, :L), or ($name + $name')/2" :
+    "$head (relative asymmetry $shown); pass Symmetric($name, :L) to keep the lower triangle of $name, or ($name + $name')/2 for its symmetric part"
+end
+
+# a parameter array a of f, a matrix or the vector of its p² entries, read as the
+# p × p matrix that the pair checks index; r = 0 checks every pair
+@noinline function _throw_asymmetric_parameter(f, name, a, p, r, c)
+  owner = f === nothing ? "the steps γ" : "the array $name of $(nameof(typeof(f)))"
+  label = f === nothing ? "γ" : string(name)
+  a isa AbstractMatrix && size(a) == (p, p) || (label = "reshape($label, $p, $p)")
+  where = " on a SymmetricSparseIterate"
+  r == 0 && _throw_asymmetric(reshape(a, p, p), owner, label, where)
+  _throw_asymmetric_pair(owner, label, where, r, c, a[(c - 1) * p + r], a[(r - 1) * p + c])
+end
+
+# A, which may live on a device and not allow scalar indexing: checked as a host copy
+# in its own element type, so that a mismatch cannot vanish in a promotion
+_host(A::Union{Matrix, SparseMatrixCSC}) = A
+_host(A::AbstractMatrix) = Matrix{eltype(A)}(A)
+_check_symmetric_host(A::AbstractMatrix, subject, name) =
+  _symmetric_by_type(A) || _check_symmetric(_host(A), subject, name)
 
 _check_axes(x::SymmetricSparseIterate, A::AbstractArray) = axes(A) == axes(x) || _throw_axes(x, A)
 @noinline _throw_axes(x, A) =
@@ -914,13 +1345,6 @@ _check_axes(x::SymmetricSparseIterate, A::AbstractArray) = axes(A) == axes(x) ||
 # input is symmetric: a SymmetricSparseIterate keeps the lower one
 _copyto_rounded!(Y, B) = copyto!(Y, B)
 _copyto_rounded!(Y::SymmetricSparseIterate, B) = copyto!(Y, Symmetric(B, :L))
-
-# c, a parameter written into y: when y is a SymmetricSparseIterate, it must
-# have the axes of y and be symmetric
-_check_symmetric_source(y, c) = true
-_check_symmetric_source(y::SymmetricSparseIterate, c::AbstractArray) = _check_axes(y, c)
-_check_symmetric_source(y::SymmetricSparseIterate, c::AbstractMatrix) =
-  _check_axes(y, c) && _check_symmetric(c)
 
 Base.convert(::Type{SymmetricSparseIterate{T}}, ::AbstractArray) where {T<:Complex} = _real_error(:SymmetricSparseIterate)
 
@@ -1028,6 +1452,10 @@ Base.copyto!(x::SymmetricSparseIterate, y::AbstractArray) = _throw_axes(x, y)
 @noinline _throw_partial(f) = throw(ArgumentError(
   "$f cannot write part of a SymmetricSparseIterate, whose positions (r, c) and (c, r) " *
   "are one entry; write a symmetric matrix with copyto!(x, A) or axpy!(α, A, x)"))
+@noinline _throw_positionwise(f, alternative) = throw(ArgumentError(
+  "$f would write a SymmetricSparseIterate position by position, and its result is not " *
+  "symmetric in general; $alternative"))
+
 Base.copyto!(x::SymmetricSparseIterate, ::Integer, ::AbstractArray, ::Integer, ::Integer) =
   _throw_partial("copyto! with offsets")
 Base.copyto!(x::SymmetricSparseIterate, ::CartesianIndices, ::AbstractArray, ::CartesianIndices) =
@@ -1041,6 +1469,378 @@ Base.copyto!(x::SymmetricSparseIterate, ::AbstractRange{Int}, ::AbstractRange{In
                ::_AbstractSparseMatrixCSC,
                ::CartesianIndices{2, <:Tuple{OrdinalRange{Int, Int}, OrdinalRange{Int, Int}}}) =
     _throw_partial("copyto! with index ranges")
+end
+
+# Transposed range copies still write individual matrix positions.
+Base.copyto!(x::SymmetricSparseIterate, ::AbstractUnitRange{Int}, ::AbstractUnitRange{Int},
+             ::AbstractChar, ::AbstractVecOrMat, ::AbstractUnitRange{Int}, ::AbstractUnitRange{Int}) =
+  _throw_partial("copyto! with a transpose flag and index ranges")
+_copy_transpose!(x::SymmetricSparseIterate, ::AbstractRange{Int}, ::AbstractRange{Int},
+                 ::AbstractVecOrMat, ::AbstractRange{Int}, ::AbstractRange{Int}) =
+  _throw_partial("copy_transpose! with index ranges")
+_copy_transpose!(x::SymmetricSparseIterate, ::AbstractUnitRange{Int}, ::AbstractUnitRange{Int},
+                 ::AbstractChar, ::AbstractVecOrMat, ::AbstractUnitRange{Int}, ::AbstractUnitRange{Int}) =
+  _throw_partial("copy_transpose! with a transpose flag and index ranges")
+@static if isdefined(@__MODULE__, :_copy_adjoint!)
+  _copy_adjoint!(x::SymmetricSparseIterate, ::AbstractRange{Int}, ::AbstractRange{Int},
+                ::AbstractVecOrMat, ::AbstractRange{Int}, ::AbstractRange{Int}) =
+    _throw_partial("copy_adjoint! with index ranges")
+end
+
+# Reading or decoding must reject the destination before consuming the input.
+Base.read!(io::IO, x::SymmetricSparseIterate) =
+  _throw_positionwise("read!", "read into a dense array, then call copyto!(x, A) with a symmetric result")
+Base.readbytes!(io::IO, x::SymmetricSparseIterate{UInt8}, nb = length(x)) =
+  _throw_positionwise("readbytes!", "read into a dense array, then call copyto!(x, A) with a symmetric result")
+Base.hex2bytes!(x::SymmetricSparseIterate{UInt8}, itr) =
+  _throw_positionwise("hex2bytes!", "decode into a dense array, then call copyto!(x, A) with a symmetric result")
+Base.hex2bytes!(x::SymmetricSparseIterate{UInt8}, itr::String) =
+  _throw_positionwise("hex2bytes!", "decode into a dense array, then call copyto!(x, A) with a symmetric result")
+
+# These position-wise writers cannot preserve shared symmetric entries.
+Base.reverse!(x::SymmetricSparseIterate; dims = :) =
+  _throw_positionwise("reverse!", "use reverse(Matrix(x); dims)")
+Base.sort!(x::SymmetricSparseIterate; kws...) =
+  _throw_positionwise("sort!", "use sort(Matrix(x); dims)")
+Base.accumulate!(op, x::SymmetricSparseIterate, A; kws...) =
+  _throw_positionwise("accumulate!", "accumulate into Matrix(x) instead")
+Base.kron!(x::SymmetricSparseIterate, A::AbstractVecOrMat, B::AbstractVecOrMat) =
+  _throw_positionwise("kron!", "use copyto!(x, kron(A, B))")
+Base.kron!(x::SymmetricSparseIterate, A::AbstractVecOrMat, B::Number) =
+  _throw_positionwise("kron!", "use copyto!(x, kron(A, B))")
+Base.kron!(x::SymmetricSparseIterate, A::Number, B::AbstractVecOrMat) =
+  _throw_positionwise("kron!", "use copyto!(x, kron(A, B))")
+@static if isdefined(LinearAlgebra, :copytrito!)
+  LinearAlgebra.copytrito!(x::SymmetricSparseIterate, A::AbstractMatrix, uplo::AbstractChar) =
+    _throw_positionwise("copytrito!", "use copyto!(x, A) with a symmetric matrix")
+end
+
+# Structured Kronecker and sparse triangular-copy sources specialize the writer.
+for (A, B) in ((AbstractMatrix, Diagonal), (Diagonal, AbstractMatrix), (Diagonal, Diagonal))
+  @eval Base.kron!(x::SymmetricSparseIterate, a::$A, b::$B) =
+    _throw_positionwise("kron!", "use copyto!(x, kron(A, B))")
+end
+@static if isdefined(LinearAlgebra, :copytrito!) && isdefined(@__MODULE__, :_AbstractSparseMatrixCSC)
+  LinearAlgebra.copytrito!(x::SymmetricSparseIterate, A::_AbstractSparseMatrixCSC, uplo::Char) =
+    _throw_positionwise("copytrito!", "use copyto!(x, A) with a symmetric matrix")
+end
+
+# Triangular masking is a no-op only when it keeps every position.
+function LinearAlgebra.triu!(x::SymmetricSparseIterate, k::Integer = 0)
+  (x.p == 0 || k <= 1 - x.p) && return x
+  _throw_positionwise("triu!", "use triu(x, k)")
+end
+function LinearAlgebra.tril!(x::SymmetricSparseIterate, k::Integer = 0)
+  (x.p == 0 || k >= x.p - 1) && return x
+  _throw_positionwise("tril!", "use tril(x, k)")
+end
+
+# Matrix, factorization, orthogonal-factor and rotation operands need a buffer.
+const _SymmetricMatrixOperand = Union{AbstractMatrix, Factorization, _AbstractQ, _AbstractRotation}
+LinearAlgebra.lmul!(A::_SymmetricMatrixOperand, x::SymmetricSparseIterate; kws...) =
+  _throw_positionwise("lmul!", "compute into a dense matrix, then copyto!(x, A) with a symmetric result")
+LinearAlgebra.rmul!(x::SymmetricSparseIterate, A::_SymmetricMatrixOperand; kws...) =
+  _throw_positionwise("rmul!", "compute into a dense matrix, then copyto!(x, A) with a symmetric result")
+LinearAlgebra.ldiv!(A::_SymmetricMatrixOperand, x::SymmetricSparseIterate; kws...) =
+  _throw_positionwise("ldiv!", "compute into a dense matrix, then copyto!(x, A) with a symmetric result")
+LinearAlgebra.rdiv!(x::SymmetricSparseIterate, A::_SymmetricMatrixOperand; kws...) =
+  _throw_positionwise("rdiv!", "compute into a dense matrix, then copyto!(x, A) with a symmetric result")
+LinearAlgebra.ldiv!(x::SymmetricSparseIterate, A::_SymmetricMatrixOperand, B::AbstractArray; kws...) =
+  _throw_positionwise("ldiv!", "compute into a dense matrix, then copyto!(x, A) with a symmetric result")
+
+# Resolve structured operands before any of their specialized writers run.
+for (f, operands) in (
+    (:lmul!, (Diagonal, Bidiagonal, LinearAlgebra.AbstractTriangular,
+      Union{LowerTriangular{T,S}, UpperTriangular{T,S}, UnitLowerTriangular{T,S},
+            UnitUpperTriangular{T,S}} where {T,S<:AbstractMatrix{T}},
+      LQ, _QRPackedQ, _AdjointQ{<:Any,<:_QRPackedQ},
+      _QRCompactWYQ, _AdjointQ{<:Any,<:_QRCompactWYQ},
+      _LQPackedQ, _AdjointQ{<:Any,<:_LQPackedQ},
+      _HessenbergQ, _AdjointQ{<:Any,<:_HessenbergQ},
+      _Rotation, _AdjointRotation{<:Any,<:_Rotation}, LinearAlgebra.Givens)),
+    (:rmul!, (Diagonal, Bidiagonal, LinearAlgebra.AbstractTriangular,
+      Union{LowerTriangular{T,S}, UpperTriangular{T,S}, UnitLowerTriangular{T,S},
+            UnitUpperTriangular{T,S}} where {T,S<:AbstractMatrix{T}},
+      _QRPackedQ, _AdjointQ{<:Any,<:_QRPackedQ},
+      _QRCompactWYQ, _AdjointQ{<:Any,<:_QRCompactWYQ},
+      _LQPackedQ, _AdjointQ{<:Any,<:_LQPackedQ},
+      _HessenbergQ, _AdjointQ{<:Any,<:_HessenbergQ},
+      _Rotation, _AdjointRotation{<:Any,<:_Rotation}, LinearAlgebra.Givens)),
+    (:ldiv!, (Diagonal, Bidiagonal, Tridiagonal, SymTridiagonal, UpperHessenberg,
+      Union{Adjoint{T,S},Transpose{T,S}} where {T,S<:Bidiagonal},
+      Union{Adjoint{T,S},Transpose{T,S}} where {T,S<:UpperHessenberg{T}},
+      LinearAlgebra.AbstractTriangular, _AbstractQ,
+      LQ, Cholesky, CholeskyPivoted, LU, LU{T,Tridiagonal{T,V}} where {T,V},
+      SVD, QR, _QRCompactWY, QRPivoted, Hessenberg, LDLt{<:Any,<:SymTridiagonal},
+      _AdjointFactorization{<:Any,<:LU}, _TransposeFactorization{<:Any,<:LU},
+      _AdjointFactorization{<:Any,<:LU{T,Tridiagonal{T,V}}} where {T,V},
+      _TransposeFactorization{<:Any,<:LU{T,Tridiagonal{T,V}}} where {T,V},
+      _AdjointFactorization{<:Any,<:Union{QR,_QRCompactWY,QRPivoted}},
+      _AdjointFactorization{<:Any,<:LQ}, _AdjointFactorization{<:Any,<:Hessenberg})),
+    (:rdiv!, (Diagonal, Bidiagonal, SymTridiagonal, UpperHessenberg,
+      Union{Adjoint{T,S},Transpose{T,S}} where {T,S<:Bidiagonal},
+      Union{Adjoint{T,S},Transpose{T,S}} where {T,S<:UpperHessenberg{T}},
+      LinearAlgebra.AbstractTriangular, _AbstractQ, Cholesky, CholeskyPivoted,
+      Hessenberg, LDLt{<:Any,<:SymTridiagonal}, LU, LU{T,Tridiagonal{T,V}} where {T,V},
+      _AdjointFactorization, _TransposeFactorization)))
+  for A in operands
+    if f === :lmul! || f === :ldiv!
+      @eval LinearAlgebra.$f(A::$A, x::SymmetricSparseIterate; kws...) =
+        _throw_positionwise($(string(f)), "compute into a dense matrix, then call copyto!(x, A) with a symmetric result")
+    else
+      @eval LinearAlgebra.$f(x::SymmetricSparseIterate, A::$A; kws...) =
+        _throw_positionwise($(string(f)), "compute into a dense matrix, then call copyto!(x, A) with a symmetric result")
+    end
+  end
+end
+# Typed factorization methods couple the factor and destination element types.
+for A in (QR, _QRCompactWY)
+  @eval LinearAlgebra.ldiv!(A::$A{T}, x::SymmetricSparseIterate{T}; kws...) where {T} =
+    _throw_positionwise("ldiv!", "solve into a dense matrix, then call copyto!(x, A) with a symmetric result")
+end
+LinearAlgebra.ldiv!(A::QRPivoted{T,<:StridedMatrix}, x::SymmetricSparseIterate{T}; kws...) where
+    {T<:Union{Float32,Float64,ComplexF32,ComplexF64}} =
+  _throw_positionwise("ldiv!", "solve into a dense matrix, then call copyto!(x, A) with a symmetric result")
+LinearAlgebra.ldiv!(A::BunchKaufman{T}, x::SymmetricSparseIterate{T}; kws...) where
+    {R<:Union{AbstractFloat,Rational}, T<:Union{R,Complex{R}}} =
+  _throw_positionwise("ldiv!", "solve into a dense matrix, then call copyto!(x, A) with a symmetric result")
+LinearAlgebra.ldiv!(A::Hessenberg{<:Complex,<:Any,<:AbstractMatrix{<:Real}},
+                    x::SymmetricSparseIterate{<:Complex}; kws...) =
+  _throw_positionwise("ldiv!", "solve into a dense matrix, then call copyto!(x, A) with a symmetric result")
+LinearAlgebra.rdiv!(x::SymmetricSparseIterate{<:Complex},
+                    A::Hessenberg{<:Complex,<:Any,<:AbstractMatrix{<:Real}}; kws...) =
+  _throw_positionwise("rdiv!", "solve into a dense matrix, then call copyto!(x, A) with a symmetric result")
+# Three-argument solves specialize both the operator and the right-hand side.
+for (A, B) in ((AbstractMatrix, AbstractArray), (Factorization, AbstractMatrix),
+               (LinearAlgebra.AbstractTriangular, AbstractVecOrMat), (Diagonal, AbstractVecOrMat),
+               (Bidiagonal, AbstractVecOrMat), (_AbstractQ, AbstractVecOrMat),
+               (Union{Adjoint{T,S},Transpose{T,S}} where {T,S<:Bidiagonal}, AbstractVecOrMat))
+  @eval LinearAlgebra.ldiv!(x::SymmetricSparseIterate, A::$A, B::$B; kws...) =
+    _throw_positionwise("ldiv!", "solve into a dense matrix, then call copyto!(x, A) with a symmetric result")
+end
+
+# Reductions must reject the destination before initializing its entries.
+for f in (:sum!, :prod!, :maximum!, :minimum!, :all!, :any!, :extrema!)
+  @eval begin
+    Base.$f(x::SymmetricSparseIterate, A::AbstractArray; kws...) =
+      _throw_positionwise($(string(f)), "reduce into a dense array, then call copyto!(x, A)")
+    Base.$f(f::Function, x::SymmetricSparseIterate, A::AbstractArray; kws...) =
+      _throw_positionwise($(string(f)), "reduce into a dense array, then call copyto!(x, A)")
+  end
+end
+Base.count!(x::SymmetricSparseIterate, A::Union{_AbstractBroadcasted, AbstractArray}; kws...) =
+  _throw_positionwise("count!", "reduce into a dense array, then call copyto!(x, A)")
+Base.count!(f, x::SymmetricSparseIterate, A::Union{_AbstractBroadcasted, AbstractArray}; kws...) =
+  _throw_positionwise("count!", "reduce into a dense array, then call copyto!(x, A)")
+for f in (:findmax!, :findmin!)
+  @eval begin
+    Base.$f(x::SymmetricSparseIterate, inds::AbstractArray, A::AbstractArray; kws...) =
+      _throw_positionwise($(string(f)), "reduce into a dense array, then call copyto!(x, A)")
+    Base.$f(vals::AbstractArray, x::SymmetricSparseIterate, A::AbstractArray; kws...) =
+      _throw_positionwise($(string(f)), "reduce into dense arrays, then call copyto!(x, A)")
+    Base.$f(vals::SymmetricSparseIterate, x::SymmetricSparseIterate, A::AbstractArray; kws...) =
+      _throw_positionwise($(string(f)), "reduce into dense arrays, then call copyto!(x, A)")
+  end
+end
+
+# In-place factorizations overwrite the symmetry shared by the two triangles.
+LinearAlgebra.lu!(x::SymmetricSparseIterate; kws...) =
+  _throw_positionwise("lu!", "use lu(Matrix(x))")
+for P in (Union{NoPivot, RowMaximum, RowNonZero}, Val{true}, Val{false})
+  @eval LinearAlgebra.lu!(x::SymmetricSparseIterate, pivot::$P; kws...) =
+    _throw_positionwise("lu!", "use lu(Matrix(x))")
+end
+LinearAlgebra.qr!(x::SymmetricSparseIterate; kws...) =
+  _throw_positionwise("qr!", "use qr(Matrix(x))")
+for P in (NoPivot, ColumnNorm, Val{true}, Val{false})
+  @eval LinearAlgebra.qr!(x::SymmetricSparseIterate, pivot::$P; kws...) =
+    _throw_positionwise("qr!", "use qr(Matrix(x))")
+end
+LinearAlgebra.cholesky!(x::SymmetricSparseIterate; kws...) =
+  _throw_positionwise("cholesky!", "use cholesky(Symmetric(Matrix(x)))")
+for P in (NoPivot, RowMaximum, Val{true}, Val{false})
+  @eval LinearAlgebra.cholesky!(x::SymmetricSparseIterate, pivot::$P; kws...) =
+    _throw_positionwise("cholesky!", "use cholesky(Symmetric(Matrix(x)))")
+end
+LinearAlgebra.bunchkaufman!(x::SymmetricSparseIterate, rook::Bool = false; kws...) =
+  _throw_positionwise("bunchkaufman!", "use bunchkaufman(Matrix(x))")
+
+# get! initializes the destination before copying a subset; sortperm! writes indices.
+Base.get!(x::SymmetricSparseIterate{T}, A::AbstractArray,
+          I::Union{AbstractRange, AbstractVector{Int}}, default::T) where {T} =
+  _throw_positionwise("get!", "use get! with a dense destination")
+Base.get!(x::SymmetricSparseIterate{T}, A::AbstractArray, I::_RangeVecIntList, default::T) where {T} =
+  _throw_positionwise("get!", "use get! with a dense destination")
+Base.sortperm!(x::SymmetricSparseIterate{T}, A::AbstractArray; kws...) where {T<:Integer} =
+  _throw_positionwise("sortperm!", "use sortperm(A; dims)")
+
+# AbstractQ copying first writes an identity, so form the whole value in a buffer.
+function Base.copyto!(x::SymmetricSparseIterate, Q::_AbstractQ)
+  A = Matrix{promote_type(eltype(x), eltype(Q))}(I, size(x))
+  lmul!(Q, A)
+  copyto!(x, A)
+end
+
+# Indexed array assignments must cover every position in storage order.
+_full_index(::Colon, ax) = true
+_full_index(I::AbstractVector{<:Integer}, ax) =
+  !(eltype(I) <: Bool) && length(I) == length(ax) && all(isequal(a, b) for (a, b) in zip(I, ax))
+_full_index(I, ax) = false
+_full_linear(I, x) = _full_index(I, 1:length(x))
+_full_linear(I::AbstractArray{CartesianIndex{2}}, x) =
+  size(I) == size(x) && all(isequal(a, b) for (a, b) in zip(I, CartesianIndices(x)))
+
+function _setindex_symmetric!(x, X, I...)
+  checkbounds(x, Base.to_indices(x, I)...)
+  if length(I) == 2
+    all(_full_index(I[d], axes(x, d)) for d in 1:2) || _throw_partial("setindex!")
+    return copyto!(x, X)
+  elseif length(I) == 1 && _full_linear(I[1], x)
+    length(X) == length(x) || _throw_axes(x, X)
+    return copyto!(x, reshape(X, size(x)))
+  end
+  _throw_partial("setindex!")
+end
+function Base.setindex!(x::SymmetricSparseIterate, X::AbstractArray, I...)
+  if any(i -> i isa Union{Colon, AbstractArray}, I)
+    return _setindex_symmetric!(x, X, I...)
+  end
+  invoke(setindex!, Tuple{AbstractArray, Any, Vararg{Any}}, x, X, I...)
+end
+# Preserve scalar assignment (and its conversion error for an array value).
+Base.setindex!(x::SymmetricSparseIterate, X::AbstractArray, r::Int, c::Int) =
+  invoke(setindex!, Tuple{SymmetricSparseIterate, Any, Int, Int}, x, X, r, c)
+
+# These common iterator sources can fail after a partial write.
+Base.copyto!(x::SymmetricSparseIterate, ::Union{Tuple, Base.Generator, Number}) =
+  _throw_positionwise("copyto! from an iterator", "collect the values into a symmetric matrix A and call copyto!(x, A)")
+Base.copyto!(x::SymmetricSparseIterate, ::Integer, ::AbstractArray) = _throw_partial("copyto! with offsets")
+Base.copyto!(x::SymmetricSparseIterate, ::Integer, ::AbstractArray, ::Integer) = _throw_partial("copyto! with offsets")
+Base.copyto!(x::SymmetricSparseIterate, ::Integer, src) = _throw_partial("copyto! with offsets")
+Base.copyto!(x::SymmetricSparseIterate, ::Integer, src, ::Integer) = _throw_partial("copyto! with offsets")
+Base.copyto!(x::SymmetricSparseIterate, ::Integer, src, ::Integer, ::Integer) =
+  _throw_partial("copyto! with offsets")
+
+# Broadcasting through a full view or reshape must use the checked matrix writer.
+const _SymmetricReshape = Base.ReshapedArray{T, N, P} where {T, N, P<:SymmetricSparseIterate}
+const _SymmetricView = SubArray{T, N, P} where {T, N, P<:SymmetricSparseIterate}
+const _SymmetricReshapeView = SubArray{T, N, P} where {T, N, P<:_SymmetricReshape}
+const _SymmetricBroadcastDest = Union{_SymmetricView, _SymmetricReshape, _SymmetricReshapeView}
+
+function _checked_symmetric_parent(dest::_SymmetricView, f)
+  x = parent(dest)
+  I = parentindices(dest)
+  length(I) == 2 && all(_full_index(I[d], axes(x, d)) for d in 1:2) ||
+    _throw_partial("$f into a view")
+  x
+end
+function _checked_symmetric_parent(dest::_SymmetricReshapeView, f)
+  R = parent(dest)
+  inds = view(LinearIndices(R), parentindices(dest)...)
+  length(dest) == length(R) && all(i == k for (i, k) in zip(inds, 1:length(R))) ||
+    _throw_partial("$f into a reshaped view")
+  parent(R)
+end
+_checked_symmetric_parent(dest::_SymmetricReshape, f) = parent(dest)
+function _broadcast_symmetric!(dest::_SymmetricView, bc)
+  copyto!(_checked_symmetric_parent(dest, "broadcast!"), bc)
+  dest
+end
+_broadcast_symmetric!(dest::Union{_SymmetricReshape, _SymmetricReshapeView}, bc) =
+  _broadcast_reshaped!(dest, _checked_symmetric_parent(dest, "broadcast!"), bc)
+function _broadcast_reshaped!(dest, x, bc)
+  axes(dest) == axes(bc) || throw(DimensionMismatch("broadcast! axes do not match destination"))
+  # Collect before conversion and before writing, including aliased updates.
+  vals = collect(bc)
+  copyto!(x, reshape(vals, size(x)))
+  dest
+end
+Base.copyto!(dest::_SymmetricBroadcastDest, bc::Broadcast.Broadcasted{Nothing}) = _broadcast_symmetric!(dest, bc)
+# Scalar broadcast fast paths use fill!, so it checks the same full destinations.
+function Base.fill!(dest::_SymmetricBroadcastDest, v)
+  x = _checked_symmetric_parent(dest, "fill! or broadcasting")
+  _checkreal_broadcast(x, v)
+  fill!(x, v)
+  dest
+end
+
+# copyto! through a full view or reshape uses the checked matrix writer. As in
+# Base, the source is read in linear order and needs the length, not the axes, of
+# the destination. A source with the axes of x keeps its own copyto! method.
+const _SymmetricArrayDest{T} = Union{_SymmetricView{T}, _SymmetricReshape{T}, _SymmetricReshapeView{T}}
+const _SymmetricMatrixDest{T} = Union{_SymmetricView{T, 2}, _SymmetricReshape{T, 2}, _SymmetricReshapeView{T, 2}}
+function _copyto_symmetric!(dest, src)
+  x = _checked_symmetric_parent(dest, "copyto!")
+  length(src) == length(dest) || throw(DimensionMismatch(
+    "copyto! source has $(length(src)) values and the destination has $(length(dest))"))
+  _copyto_reshaped!(x, src)
+  dest
+end
+_copyto_reshaped!(x, src) = axes(src) == axes(x) ? copyto!(x, src) : copyto!(x, reshape(src, size(x)))
+Base.copyto!(dest::_SymmetricBroadcastDest, src::AbstractArray) = _copyto_symmetric!(dest, src)
+# Resolve the sparse-source and factorization ambiguities, as for x itself.
+@static if isdefined(@__MODULE__, :_AbstractSparseMatrixCSC)
+  Base.copyto!(dest::_SymmetricMatrixDest, src::_AbstractSparseMatrixCSC) = _copyto_symmetric!(dest, src)
+  Base.copyto!(dest::_SymmetricMatrixDest, src::Union{Adjoint{<:Any,<:_AbstractSparseMatrixCSC},
+                                                    Transpose{<:Any,<:_AbstractSparseMatrixCSC}}) =
+    _copyto_symmetric!(dest, src)
+end
+@static if isdefined(@__MODULE__, :_SparseMatrixCSCOrView)
+  Base.copyto!(dest::_SymmetricMatrixDest, src::_SparseMatrixCSCOrView) = _copyto_symmetric!(dest, src)
+end
+@static if isdefined(@__MODULE__, :_AdjOrTransSparseVectorOrView)
+  Base.copyto!(dest::_SymmetricMatrixDest, src::_AdjOrTransSparseVectorOrView) = _copyto_symmetric!(dest, src)
+end
+@static if isdefined(@__MODULE__, :_CHOLMODDense)
+  Base.copyto!(dest::_SymmetricBroadcastDest, src::_CHOLMODDense) = _copyto_symmetric!(dest, src)
+  @static if isdefined(@__MODULE__, :_CHOLMODVTypes)
+    Base.copyto!(dest::_SymmetricArrayDest{T}, src::_CHOLMODDense{T}) where
+        {T<:_CHOLMODVTypes} = _copyto_symmetric!(dest, src)
+    Base.copyto!(dest::_SymmetricMatrixDest{T}, src::_CHOLMODDense{T}) where
+        {T<:_CHOLMODVTypes} = _copyto_symmetric!(dest, src)
+  end
+end
+# LinearAlgebra writes an identity before applying Q, so form the value in a buffer.
+function Base.copyto!(dest::_SymmetricMatrixDest, Q::_AbstractQ)
+  x = _checked_symmetric_parent(dest, "copyto!")
+  A = Matrix{promote_type(eltype(dest), eltype(Q))}(I, size(dest))
+  lmul!(Q, A)
+  _copyto_reshaped!(x, A)
+  dest
+end
+# Offsets copy part of the values, even when they cover every position.
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, ::AbstractArray) = _throw_partial("copyto! with offsets")
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, ::AbstractArray, ::Integer) = _throw_partial("copyto! with offsets")
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, ::AbstractArray, ::Integer, ::Integer) =
+  _throw_partial("copyto! with offsets")
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, src) = _throw_partial("copyto! with offsets")
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, src, ::Integer) = _throw_partial("copyto! with offsets")
+Base.copyto!(::_SymmetricBroadcastDest, ::Integer, src, ::Integer, ::Integer) = _throw_partial("copyto! with offsets")
+
+# Transposition and dimension permutation still require exactly symmetric values.
+LinearAlgebra.transpose!(x::SymmetricSparseIterate, A::AbstractMatrix) = copyto!(x, transpose(A))
+LinearAlgebra.transpose!(x::SymmetricSparseIterate, A::AbstractVector) = copyto!(x, transpose(A))
+LinearAlgebra.adjoint!(x::SymmetricSparseIterate, A::AbstractMatrix) = copyto!(x, adjoint(A))
+LinearAlgebra.adjoint!(x::SymmetricSparseIterate, A::AbstractVector) = copyto!(x, adjoint(A))
+function Base.permutedims!(x::SymmetricSparseIterate, A::AbstractArray, perm)
+  ndims(A) == ndims(x) || throw(MethodError(permutedims!, (x, A, perm)))
+  length(perm) == ndims(A) && isperm(perm) || _throw_symmetric_permutation()
+  copyto!(x, perm[1] == 1 ? A : transpose(A))
+end
+
+@noinline _throw_symmetric_permutation() = throw(ArgumentError(
+  "permutedims! requires a permutation of two dimensions; use (1, 2) or (2, 1)"))
+
+# Scalar multiplication must not fall back to length-only, position-wise writes.
+LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractArray, s::Number) = mul!(x, A, s, true, false)
+LinearAlgebra.mul!(x::SymmetricSparseIterate, s::Number, A::AbstractArray) = mul!(x, s, A, true, false)
+function LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractArray, s::Number, α::Number, β::Number)
+  _check_axes(x, A)
+  invoke(mul!, Tuple{AbstractArray, AbstractArray, Number, Number, Number}, x, A, s, α, β)
+end
+function LinearAlgebra.mul!(x::SymmetricSparseIterate, s::Number, A::AbstractArray, α::Number, β::Number)
+  _check_axes(x, A)
+  invoke(mul!, Tuple{AbstractArray, Number, AbstractArray, Number, Number}, x, s, A, α, β)
 end
 
 # Broadcasting into x computes each entry of the lower triangle once: visiting
@@ -1057,7 +1857,8 @@ function Base.copyto!(x::SymmetricSparseIterate, bc::Broadcast.Broadcasted{Nothi
   if !symmetric
     @inbounds for c = 1:p, r = c+1:p
       a, b = bc′[CartesianIndex(r, c)], bc′[CartesianIndex(c, r)]
-      _symequal(a, b) || _throw_asymmetric(r, c, a, b)
+      _symequal(a, b) || _throw_asymmetric([bc′[CartesianIndex(i, j)] for i in 1:p, j in 1:p],
+                                           "the value written into a SymmetricSparseIterate", "A")
     end
   end
   @inbounds for c = 1:p, r = c:p
@@ -1116,6 +1917,19 @@ function Base.fill!(x::SymmetricSparseIterate, v)
     @inbounds for k in eachindex(c)
       c[k] = v
     end
+  end
+  x
+end
+
+# A symmetric band visits each stored entry once; other nonempty bands cannot.
+function _fillband!(x::SymmetricSparseIterate{T}, v, l, u) where {T}
+  l > u && return x
+  l == -u || _throw_positionwise("fillband!", "fill a band in Matrix(x), then call copyto!(x, A) with a symmetric result")
+  _checkreal(x, v)
+  value = convert(T, v)
+  p = size(x, 1)
+  for c in 1:p, r in c:(c + min(u, p - c))
+    x[r, c] = value
   end
   x
 end
@@ -1231,6 +2045,18 @@ LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractVecOrMat, B::AbstractVe
 LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractVecOrMat, B::AbstractVecOrMat,
                   α::Number, β::Number) = _mul_symmetric!(x, A, B, α, β)
 
+# Flagged products use the same buffered symmetry and alias checks as mul!.
+@static if hasmethod(mul!, Tuple{AbstractMatrix, Char, Char, AbstractMatrix, AbstractMatrix, Number, Number})
+  @noinline _throw_mul_flag() = throw(ArgumentError(
+    "mul! into a SymmetricSparseIterate supports only flags 'N', 'T' and 'C'; use those flags or compute into a dense matrix"))
+  _symmetric_mul_operand(A, flag) = isequal(flag, 'N') ? A :
+    isequal(flag, 'T') ? transpose(A) : isequal(flag, 'C') ? adjoint(A) : _throw_mul_flag()
+  function LinearAlgebra.mul!(x::SymmetricSparseIterate, tA, tB,
+                             A::AbstractVecOrMat, B::AbstractVecOrMat, α::Number, β::Number)
+    mul!(x, _symmetric_mul_operand(A, tA), _symmetric_mul_operand(B, tB), α, β)
+  end
+end
+
 # uniform scaling operands use a diagonal with the required inner dimension
 LinearAlgebra.mul!(x::SymmetricSparseIterate, A::AbstractMatrix, J::UniformScaling,
                   α::Number, β::Number) =
@@ -1254,14 +2080,8 @@ function _mul_symmetric!(x::SymmetricSparseIterate, A, B, α, β)
   U = promote_type(eltype(x), Base.promote_op(+, T, T))
   P = Matrix{U}(undef, p, p)
   mul!(P, A, B)
-  pair = _asymmetric_pair(P, _symequal)
-  if pair !== nothing
-    r, c = pair
-    throw(ArgumentError(
-      "the product written into a SymmetricSparseIterate must be symmetric, but entry ($r, $c) " *
-      "is $(P[r, c]) and entry ($c, $r) is $(P[c, r]); " *
-      "use copyto!(x, Symmetric(P, :L)) with P = A * B, or (P + transpose(P)) / 2, to store a product that is not symmetric"))
-  end
+  _issymmetric_exact(P, _symequal) ||
+    _throw_asymmetric(P, "the product A * B written into a SymmetricSparseIterate", "(A * B)")
   if iszero(β)
     x .= P .* α
   else
@@ -1302,11 +2122,19 @@ function _mul_symsparse!(C::AbstractMatrix{T}, A::SymmetricSparseIterate{T}, B::
 end
 
 
+# checked before C is modified: C may be activevalues(A), or coordinates(A) when p == 1
+function _checkalias(C, A::SymmetricSparseIterate, B)
+  Base.mightalias(C, B) && throw(ArgumentError("the output of mul! must not be aliased with its input"))
+  Base.mightalias(C, A) && throw(ArgumentError("the output of mul! must not be aliased with the matrix, e.g. coordinates(X) or activevalues(X)"))
+  nothing
+end
+
 # any element types: the generic fallback would loop over all p² entries
 function LinearAlgebra.mul!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector)
   _checkreal(A, C); _checkreal(A, B)
   size(A, 2) == size(B, 1) || throw(DimensionMismatch())
   size(A, 1) == size(C, 1) || throw(DimensionMismatch())
+  _checkalias(C, A, B)
 
   fill!(C, zero(eltype(C)))
   i = 1
@@ -1407,7 +2235,27 @@ function LinearAlgebra.mul!(C::AbstractMatrix, A::SymmetricSparseIterate, B::Lin
 end
 function LinearAlgebra.mul!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector, α::Number, β::Number)
   _checkreal(A, C); _checkreal(A, B); _checkreal(A, α); _checkreal(A, β)
-  invoke(mul!, Tuple{AbstractVector, AbstractMatrix, AbstractVector, Number, Number}, C, A, B, α, β)
+  _mul_stored!(C, A, B, α, β)
+end
+
+# C = α A B + β C over the stored entries of A, O(p + nactive(A)) and no allocation.
+# As in BLAS, C is not read when β is zero and B is not read when α is zero.
+# A stored explicit zero still multiplies B, so with a non-finite B the product
+# can depend on whether a zero is stored (see the documentation of matrixview).
+function _mul_stored!(C::AbstractVector, A::SymmetricSparseIterate, B::AbstractVector, α::Number, β::Number)
+  p = A.p
+  length(B) == p || throw(DimensionMismatch("A has $p columns but B has length $(length(B))"))
+  length(C) == p || throw(DimensionMismatch("A has $p rows but C has length $(length(C))"))
+  _checkalias(C, A, B)
+  iszero(β) ? fill!(C, zero(eltype(C))) : isone(β) || rmul!(C, β)
+  iszero(α) && return C
+  @inbounds for k in 1:A.nnz
+    r, c = tril_cartesian(p, A.nzval2ind[k])
+    v = α * A.nzval[k]
+    C[r] += B[c] * v
+    r == c || (C[c] += B[r] * v)
+  end
+  C
 end
 function LinearAlgebra.mul!(C::AbstractMatrix, A::SymmetricSparseIterate, B::AbstractMatrix, α::Number, β::Number)
   _checkreal(A, C); _checkreal(A, B); _checkreal(A, α); _checkreal(A, β)

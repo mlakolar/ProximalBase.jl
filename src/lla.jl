@@ -75,6 +75,8 @@ f = MCP(0.5, 3)
 w = lla_weights(f, [0.0, 0.6, 2.0])     # [0.5, 0.3, 0.0]
 NormL1(1, w)                            # the penalty of the next stage
 ```
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 function lla_weights! end
 
@@ -94,22 +96,22 @@ lla_weights!(w::AbstractArray, f::AbstractFunction, x::AbstractArray) = (eltype(
 
 Base.@propagate_inbounds function lla_weight(f::NormL1, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  return _weight_coefficient(S(f.λ0), S(_entry(f.w, i)))
+  return _weight_coefficient(S, f.λ0, _entry(f.w, i))
 end
 
 Base.@propagate_inbounds function lla_weight(f::CappedL1, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  w = S(_entry(f.w, i))
-  c = _weight_coefficient(S(f.λ), w)
+  w = _entry(f.w, i)                       # the raw weight decides whether it is infinite
+  c = _weight_coefficient(S, f.λ, w)
   return ifelse((abs(S(v)) < S(f.a)) | isinf(w), c, zero(S))
 end
 
 Base.@propagate_inbounds function lla_weight(f::LogPenalty, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  w = S(_entry(f.w, i))
+  w = _entry(f.w, i)                       # the raw weight: a finite weight that overflows S is not infinite
   # The denominator can overflow while the entry remains fixed.
   isinf(w) && return isnan(v) ? S(v) : S(Inf)
-  return _weight_coefficient(S(f.λ), w) / (S(f.ε) + abs(S(v)))
+  return _weight_coefficient(S, f.λ, w) / (S(f.ε) + abs(S(v)))
 end
 
 function lla_weight(f::MCP, v::T, ::Integer) where {T<:Real}
@@ -132,6 +134,7 @@ function lla_weights!(w::AbstractArray, f::SeparableFunction, x::AbstractArray)
   eltype(w) <: Real && eltype(x) <: Real || _real_error(:lla_weights!)
   _checksize(w, x)
   _checkparams(f, x)
+  check_symmetric_parameters(f, x)
   T = eltype(w)
   @inbounds for i in eachindex(IndexLinear(), w, x)
     w[i] = convert(T, lla_weight(f, x[i], i))

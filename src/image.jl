@@ -410,6 +410,7 @@ function _image_scaled_rhs!(h::_QuadraticLinearImage, x)
 end
 
 function prox!(y::AbstractArray, h::LinearImage, x::AbstractArray, γ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, h, y, x)
   isfinite(γ) && γ > 0 || throw(ArgumentError("γ must be finite and positive"))
   if isfinite(_maximum_abs(x))
@@ -421,6 +422,7 @@ function prox!(y::AbstractArray, h::LinearImage, x::AbstractArray, γ::Real)
 end
 
 function value_and_prox!(y::AbstractArray, h::LinearImage, x::AbstractArray, γ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(value_and_prox!, h, y, x)
   isfinite(γ) && γ > 0 || throw(ArgumentError("γ must be finite and positive"))
   if !isfinite(_maximum_abs(x))

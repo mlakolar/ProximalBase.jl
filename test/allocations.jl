@@ -3,6 +3,7 @@ module AllocationsTest
 # The hot calls allocate nothing once a function object exists and has seen its
 # input once (to size its workspaces): f(x), prox!, value_and_prox!,
 # value_and_gradient!, gradient! and prox_coordinate!.
+# The quick-tier subset of these checks (representative entries) is in allocations_basics.jl.
 
 using Test
 using ProximalBase
@@ -53,12 +54,95 @@ end
   end
 end
 
+a_block!(x, f, k, u, γ) = prox_coordinate!(x, f, k, u, γ)
+block_alloc_once(x::X, f::F, k::K, u::U, γ::R) where {X, F, K, U, R} = @allocated a_block!(x, f, k, u, γ)
+
+@testset "block steps allocate nothing" begin
+  for x in (SymmetricSparseIterate(2),)
+    @test allocs(a_block!, x, NormL1(0.3), 1, 3., 0.7) == 0
+  end
+  for gs in ([1:2, 3:4], [[1, 3], [2, 4]])
+    x = AtomIterate(4, gs)
+    u = [3., -4.]
+    for f in (GroupNormLinf(0.4, gs),
+              SparseGroupNormL2(0.2, 0.4, gs), GroupMCP(0.4, gs), GroupSCAD(0.4, gs))
+      @test allocs(a_block!, x, f, 1, u, 0.7) == 0
+    end
+  end
+end
+
+@testset "block steps with a view u allocate nothing" begin
+  # A strided u must not be heap-allocated (it once was, through a Union-typed rebinding),
+  # for range and index-vector groups, active and inactive groups, zero and nonzero results.
+  p, g, k = 16, 4, 3
+  layouts = ([1:4, 5:8, 9:12, 13:16], [collect(j:4:16) for j in 1:4])
+  for T in (Float32, Float64), gs in layouts
+    G = gs[k]
+    fs = (GroupNormL2(T(0.1), gs), SparseGroupNormL2(T(0.1), T(0.1), gs), GroupNormLinf(T(0.1), gs))
+    for f in fs, large in (false, true), was in (false, true)
+      vals = large ? T[2, -3, 4, -5] : fill(T(0.001), 4)
+      contiguous = T[77, 77, 77, 77, 77, 77]; copyto!(contiguous, 2, vals, 1, 4)
+      strided = fill(T(77), 8); strided[1:2:7] .= vals
+      inputs = (copy(vals), view(contiguous, 2:5), view(strided, 1:2:7))
+      @test strides.(inputs[2:3]) == ((1,), (2,))
+      @test all(u -> eltype(u) === T && length(u) == g, inputs)
+      for u in inputs
+        x0 = zeros(T, p)
+        x0[gs[1]] .= T[1, -2, 3, -4]
+        x0[gs[4]] .= T[-1, 2, -3, 4]
+        was && (x0[G] .= T[0.5, -1, 1.5, -2])
+        # one call on a fresh iterate, after warming the method on others: the call that
+        # activates an inactive group is the one measured
+        for _ in 1:2
+          block_alloc_once(AtomIterate(x0, f), f, k, u, T(0.5))
+        end
+        x = AtomIterate(x0, f)
+        @test isactive(x, k) == was
+        before = Vector(x)
+        usnap = copy(u)
+        @test block_alloc_once(x, f, k, u, T(0.5)) == 0
+        trial = copy(before); trial[G] .= usnap
+        ref = prox(f, trial, T(0.5))
+        after = Vector(x)
+        @test u == usnap
+        @test isapprox(after[G], ref[G]; rtol = 10eps(T), atol = 10eps(T))
+        @test any(!iszero, after[G]) == large
+        other = setdiff(1:p, G)
+        @test after[other] == before[other]
+        expected_active = was || large
+        @test isactive(x, k) == expected_active
+        @test all(j -> isactive(x, j) == (j == k ? expected_active : j in (1, 4)), 1:4)
+        @test nactive(x) == 2 + expected_active
+      end
+    end
+  end
+end
+
+@testset "block steps with a view u aliasing the iterate" begin
+  # the copy of an aliasing u is kept; it may allocate. Results equal those of an independent u.
+  p = 16
+  for (gs, rng) in (([1:4, 5:8, 9:12, 13:16], 11:-2:5), ([collect(j:4:16) for j in 1:4], 15:-4:3))
+    for f in (GroupNormL2(0.1, gs), SparseGroupNormL2(0.1, 0.1, gs), GroupNormLinf(0.1, gs))
+      x0 = collect(1.0:p)
+      x = AtomIterate(x0, f)
+      u = view(x.storage, rng)
+      @test Base.mightalias(x, u)
+      indep = copy(u)
+      y = AtomIterate(x0, f)
+      prox_coordinate!(x, f, 3, u, 0.5)
+      prox_coordinate!(y, f, 3, indep, 0.5)
+      @test Vector(x) == Vector(y)
+      @test nactive(x) == nactive(y) && all(j -> isactive(x, j) == isactive(y, j), 1:4)
+    end
+  end
+end
+
 @testset "distinct group layouts allocate nothing" begin
   ranges = [1:2, 3:5, 6:6, 7:9]
   layouts = (ranges, collect.(ranges))
   v = [3., -4., 0., 0., 0., 0., 2., -1., 0.5]
   for gs in layouts
-    for f in (GroupNormL2(0.4, gs), GroupNormLinf(0.4, gs), SparseGroupNormL2(0.2, 0.4, gs),
+    for f in (GroupNormLinf(0.4, gs), SparseGroupNormL2(0.2, 0.4, gs),
               GroupMCP(0.4, gs), GroupSCAD(0.4, gs), IndBallGroupL0(1, gs; k = 1))
       for xgroups in layouts, ygroups in layouts
         xa = AtomIterate(v, xgroups)
@@ -155,7 +239,7 @@ end
       zero_alloc_prox(F(floatmin(T), fill(floatmin(T), length(z))), z; γ=T(0.7))
     end
     for f in (ZeroFunction(), LinearFunction(randn(p)), SqrNormL2(2.), SqrNormL2(1., randn(p)),
-              NormL1(0.3), NormL1(0.3, w), NormL1Nonneg(0.3, w), ElasticNet(0.3, 0.4, w), IndBox(-0.5, 0.5),
+              NormL1(0.3, w), NormL1Nonneg(0.3, w), ElasticNet(0.3, 0.4, w), IndBox(-0.5, 0.5),
               IndBox(-w, w), IndNonnegative(), NormL0(0.1), MCP(0.3), SCAD(0.3))
       @testset "$(nameof(typeof(f)))" begin
         zero_alloc_prox(f, x)
@@ -171,14 +255,14 @@ end
     # a SymmetricSparseIterate
     D = randn(8, 8); D = D + D'
     s = SymmetricSparseIterate(D)
-    for f in (NormL1(0.2), MCP(0.2), IndBox(-0.3, 0.3))
+    for f in (MCP(0.2), IndBox(-0.3, 0.3))
       zero_alloc_prox(f, s)
       @test allocs(a_cd!, s, f, 5, 0.7) == 0
     end
   end
 
   @testset "norms" begin
-    for f in (NormL2(0.4), NormLinf(0.4), GroupNormL2(0.4, groups), GroupNormLinf(0.4, groups))
+    for f in (NormL2(0.4), NormLinf(0.4), GroupNormLinf(0.4, groups))
       @testset "$(nameof(typeof(f)))" begin
         zero_alloc_prox(f, x)
         zero_alloc_prox(f, Float32.(x))
@@ -225,6 +309,16 @@ end
           zero_alloc_prox(f, x; γ = fill(0.7, p))
         end
       end
+    end
+  end
+
+  @testset "SLOPE value" begin
+    # n = 1500 sorts the magnitudes, 200 and 8000 the permutation
+    for T in (Float64, Float32), n in (200, 1500, 8000)
+      f = SLOPE(sort(rand(n); rev = true))
+      xv = randn(T, n)
+      a_value(f, xv)
+      @test allocs(a_value, f, xv) == 0
     end
   end
 
@@ -290,7 +384,7 @@ end
     B = randn(2n, p)
     S = Matrix(Symmetric(B'B / 2n))
     P = Matrix(I + 0.1 * Symmetric(randn(p, p)))
-    for (f, z) in ((QuadraticFunction(X'X, randn(p), 1.), x), (LeastSquaresLoss(y, X), x),
+    for (f, z) in ((QuadraticFunction(X'X, randn(p), 1.), x),
                    (LeastSquaresLoss(randn(n, 3), X), randn(p, 3)), (LogisticLoss(rand(0:1, n), X), x),
                    (PoissonLoss(rand(0:3, n), X), 0.1 .* x), (HuberLoss(y, X, 0.5), x),
                    (LogisticLoss(rand(0:1, n), X; weights = rand(n), offset = randn(n)), x),
@@ -307,7 +401,7 @@ end
     for z in (randn(p, 4), randn(4p), SparseIterate(sprandn(p, 4, 0.3)), SparseIterate(sprandn(4p, 0.3)))
       zero_alloc_grad(fk, z)
     end
-    zero_alloc_grad(KronQuadratic(S, P, randn(p, p)), SymmetricSparseIterate(P))
+    zero_alloc_grad(KronQuadratic(S, P, Matrix(Symmetric(randn(p, p)))), SymmetricSparseIterate(P))
     # products with sparse iterates
     zero_alloc_grad(LeastSquaresLoss(y, X), xs)
     zero_alloc_grad(LogisticLoss(rand(0:1, n), X), xs)
@@ -497,10 +591,23 @@ end
         (SeparableSum(NormL1(), SeparableSum(SqrNormL2(), NormL1())), (x, (copy(x), copy(x)))))
       c = Conjugate(f)
       out = ProximalBase._gradient_buffer(blocks)
-      # Julia 1.10 allocates 176 bytes for nested blocks, as it did before these buffers changed
-      skip = blocks[2] isa Tuple && VERSION < v"1.11"
-      @test allocs(a_prox!, out, c, blocks, T(0.5)) == 0 skip = skip
-      @test allocs(a_vprox!, out, c, blocks, T(0.5)) == 0 skip = skip
+      @test allocs(a_prox!, out, c, blocks, T(0.5)) == 0
+      @test allocs(a_vprox!, out, c, blocks, T(0.5)) == 0
+    end
+  end
+end
+
+
+@testset "direct conjugate projection buffers" begin
+  x, y, γ = randn(16), zeros(16), ones(16)
+  for f in (NormL1(), NormL1(0.7, ones(16)), NormL1Nonneg(), CheckLoss(0.3),
+            NormL2(), GroupNormL2(1.0, [1:4, 6:8], ones(2)),
+            Scaled(NormL2(), 2.0), Translate(NormL1(), ones(16)))
+    c = Conjugate(f)
+    @test allocs(prox!, y, c, x, 0.7) == 0
+    @test allocs(value_and_prox!, y, c, x, 0.7) == 0
+    if isseparable(f)
+      @test allocs(prox!, y, c, x, γ) == 0
     end
   end
 end

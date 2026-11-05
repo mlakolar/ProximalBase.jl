@@ -7,7 +7,7 @@ using LinearAlgebra
 using SparseArrays
 using Test
 import ProximalBase.Testing: test_prox, test_gradient, test_separable, test_conjugate, test_kkt, test_traits,
-                             allocations, brute_force_prox
+                             test_iterate, allocations, brute_force_prox
 
 # random points from the global generator, or from rng
 _randn(::Nothing, dims...) = randn(dims...)
@@ -70,6 +70,92 @@ function test_traits(f; smooth = false, proximable = false, separable = false, c
 end
 
 ####################################
+#  iterate bookkeeping
+####################################
+
+function test_iterate(x::AtomIterate)
+  ok = length(x.group_of) == length(x.storage)
+  @test length(x.group_of) == length(x.storage)
+  ok || return x
+  ok = length(x.position) == length(x.groups) == length(x.active)
+  @test length(x.position) == length(x.groups) == length(x.active)
+  ok || return x
+  ok = 0 <= x.nactive <= length(x.groups)
+  @test 0 <= x.nactive <= length(x.groups)
+  ok || return x
+  bad = [(k, i) for (k, G) in enumerate(x.groups) for i in G
+         if !(1 <= i <= length(x.storage))]
+  @test isempty(bad)
+  isempty(bad) || return x
+  memberships = zeros(Int, length(x.storage))
+  for G in x.groups, i in G
+    memberships[i] += 1
+  end
+  bad = (missing = findall(iszero, memberships), repeated = findall(>(1), memberships))
+  @test bad == (missing = Int[], repeated = Int[])
+  isempty(bad.missing) && isempty(bad.repeated) || return x
+  bad = [(k, i) for (k, G) in enumerate(x.groups) for i in G if x.group_of[i] != k]
+  @test isempty(bad)
+  active = falses(length(x.groups))
+  duplicates, out_of_range = Int[], Int[]
+  for a in 1:x.nactive
+    k = x.active[a]
+    if 1 <= k <= length(x.groups)
+      active[k] && push!(duplicates, a)
+      active[k] = true
+    else
+      push!(out_of_range, a)
+    end
+  end
+  @test isempty(duplicates)
+  @test isempty(out_of_range)
+  isempty(out_of_range) || return x
+  bad = [a for a in 1:x.nactive if x.position[x.active[a]] != a]
+  @test isempty(bad)
+  bad = [k for k in eachindex(x.groups) if !active[k] && x.position[k] != 0]
+  @test isempty(bad)
+  bad = [i for k in eachindex(x.groups) if !active[k] for i in x.groups[k]
+         if !iszero(x.storage[i])]
+  @test isempty(bad)
+  x
+end
+
+function test_iterate(x::Union{SparseIterate, SymmetricSparseIterate})
+  ok = length(x.nzval) == length(x.nzval2ind) == length(x.ind2nzval)
+  @test length(x.nzval) == length(x.nzval2ind) == length(x.ind2nzval)
+  ok || return x
+  if x isa SymmetricSparseIterate
+    ok = length(x.ind2nzval) == x.p * (x.p + 1) ÷ 2
+    @test length(x.ind2nzval) == x.p * (x.p + 1) ÷ 2
+    ok || return x
+  end
+  ok = 0 <= x.nnz <= length(x.ind2nzval)
+  @test 0 <= x.nnz <= length(x.ind2nzval)
+  ok || return x
+  stored = falses(length(x.ind2nzval))
+  duplicates, out_of_range = Int[], Int[]
+  for j in 1:x.nnz
+    i = x.nzval2ind[j]
+    if 1 <= i <= length(x.ind2nzval)
+      stored[i] && push!(duplicates, j)
+      stored[i] = true
+    else
+      push!(out_of_range, j)
+    end
+  end
+  @test isempty(duplicates)
+  @test isempty(out_of_range)
+  isempty(out_of_range) || return x
+  bad = [j for j in 1:x.nnz if x.ind2nzval[x.nzval2ind[j]] != j]
+  @test isempty(bad)
+  bad = [i for i in eachindex(x.ind2nzval) if !(0 <= x.ind2nzval[i] <= x.nnz)]
+  @test isempty(bad)
+  bad = [i for i in eachindex(x.ind2nzval) if !stored[i] && x.ind2nzval[i] != 0]
+  @test isempty(bad)
+  x
+end
+
+####################################
 #  proximal operators
 ####################################
 
@@ -90,6 +176,11 @@ function test_prox(f, x::AbstractArray, γ::Real; rtol = 1e-8, atol = 1e-10, loc
   z = copy(x)
   prox!(z, f, z, γ)
   @test _dense(z) ≈ _dense(p) rtol = rtol atol = atol
+  # in place, the combined call stores the point and returns the value of the separate call (O7)
+  z = copy(x)
+  vz = value_and_prox!(z, f, z, γ)
+  @test _dense(z) ≈ _dense(p3) rtol = rtol atol = atol
+  @test vz ≈ v rtol = sqrt(rtol) atol = sqrt(atol)
 
   # optimality
   xd, pd = _dense(x), _dense(p)
@@ -150,18 +241,95 @@ function test_gradient(f, x::AbstractArray; h = nothing, rtol = nothing, atol = 
   g
 end
 
+# A tuple argument holds arrays or nested tuples of arrays (the product spaces of SeparableSum), visited block by
+# block and never flattened. Its leaves share one floating type, which sets the same scale as for an array.
+# The type is found, and an unsupported argument rejected, before any oracle is called.
+_leaf_type(x::AbstractArray) = float(eltype(x))
+function _leaf_type(x::Tuple)
+  isempty(x) && throw(ArgumentError("test_gradient: a tuple argument needs at least one block"))
+  types = map(_leaf_type, x)
+  for T in types
+    T === types[1] || throw(ArgumentError(
+      "test_gradient requires tuple blocks with a common floating-point type; got $(types[1]) and $T"))
+  end
+  types[1]
+end
+_leaf_type(x) = throw(ArgumentError("test_gradient: a block must be an array or a tuple of blocks, not a $(typeof(x))"))
+
+# f(x, ys...) on the arrays of x and the matching arrays of ys, collected in the structure of x
+_mapblocks(f, x::AbstractArray, ys::AbstractArray...) = f(x, ys...)
+@generated function _mapblocks(f, x::Tuple, ys::Tuple...)
+  ProximalBase._blocktuple(k -> :(_mapblocks(f, x[$k], $((:(ys[$j][$k]) for j in eachindex(ys))...))), fieldcount(x))
+end
+
+# the same blocks, of the same sizes, and blockwise approximately equal
+_same_blocks(a::AbstractArray, b::AbstractArray) = size(a) == size(b)
+_same_blocks(a::Tuple, b::Tuple) = length(a) == length(b) && all(map(_same_blocks, a, b))
+_same_blocks(a, b) = false
+_approx(a::AbstractArray, b::AbstractArray) = a ≈ b
+_approx(a::Tuple, b::Tuple) = all(map(_approx, a, b))
+_agree(a, b) = _same_blocks(a, b) && _approx(a, b)
+
+function test_gradient(f, x::Tuple; h = nothing, rtol = nothing, atol = nothing, directions = 3, rng = nothing)
+  R = _leaf_type(x)
+  c = cbrt(eps(R) / eps(Float64))
+  h === nothing && (h = 1e-6c)
+  rtol === nothing && (rtol = 1e-5c)
+  atol === nothing && (atol = 1e-6c)
+  g = gradient(f, x)
+  ok = _same_blocks(g, x)
+  @test ok
+  ok || return g
+  g2 = _mapblocks(similar, g)
+  @test gradient!(g2, f, x) === g2
+  @test _agree(g2, g)
+  g3 = _mapblocks(similar, g)
+  v = value_and_gradient!(g3, f, x)
+  @test _agree(g3, g)
+  @test v ≈ f(x)
+  v4, g4 = value_and_gradient(f, x)
+  @test v4 ≈ v && _agree(g4, g)
+  xd = _mapblocks(Array, x)
+  xp = _mapblocks(a -> similar(a, float(eltype(a))), xd)
+  xm = _mapblocks(similar, xp)
+  for _ in 1:directions
+    d = _mapblocks(a -> _randn(rng, eltype(a), size(a)...), xp)
+    _mapblocks((p, a, e) -> (p .= a .+ h .* e), xp, xd, d)
+    _mapblocks((m, a, e) -> (m .= a .- h .* e), xm, xd, d)
+    fp, fm = f(xp), f(xm)
+    fd = (fp - fm) / (2h)
+    round_err = 8 * eps(R) * max(abs(fp), abs(fm)) / (2h)
+    @test fd ≈ ProximalBase._tuple_dot(g, d) rtol = rtol atol = max(atol * max(1, abs(fd)), round_err)
+  end
+  g
+end
+
 ####################################
 #  separable functions
 ####################################
 
-# x with about a third of its entries set to zero
+# x as floats (the iterates store prox results, which an Int array cannot), with about a third of its entries set to zero
 function _with_zeros(x::AbstractArray, rng)
-  z = copy(x)
+  z = float.(x)
   for i in eachindex(z)
     (rng === nothing ? rand() : rand(rng)) < 1 / 3 && (z[i] = 0)
   end
   z
 end
+
+# Whether f has a standalone value at the array z: ProximalBase's own list of functions without one
+# (a conjugate whose value is not implemented), and a method that accepts z. A method that exists but
+# throws is not "missing": the call is made without a try, and the error surfaces.
+_has_standalone_value(f, z) = ProximalBase._has_value(f) && applicable(f, z)
+
+# Whether the value checks at the array a are skipped for lack of a method although f has a value
+# method for some arrays: a skip that would otherwise pass silently. A function without a value
+# (_has_value false) or without a one-argument method for any array is not reported.
+_value_check_skipped(f, a) =
+  ProximalBase._has_value(f) && !isempty(methods(f, (AbstractArray,))) && !applicable(f, a)
+
+# the function in a message: a wrapper's full type can be long
+_function_name(f) = string(nameof(typeof(f)))
 
 function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symmetric = false, rng = nothing)
   @test isseparable(f)
@@ -177,10 +345,15 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
   xz = _with_zeros(x, rng)
   pz = prox(f, xz, γ)
   xs = SparseIterate(xz)
+  y = SparseIterate(float(eltype(x)), size(x)...)
   for k in 1:ncoordinates(xs)
     prox_coordinate!(xs, f, k, γ)
+    prox_coordinate!(y, f, k, xz[k], γ)
   end
   @test _dense(xs) ≈ _dense(pz)
+  @test _dense(y) ≈ _dense(pz)
+  @test nnz(y) == count(!iszero, y.nzval[1:nnz(y)])
+  test_iterate(y)
 
   # the stored entries only, when zero is preserved
   if iszeropreserving(f)
@@ -189,30 +362,67 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
     xs = SparseIterate(xz)
     ys = SparseIterate(xz)
     @test _dense(prox!(ys, f, xs, γ)) ≈ _dense(pz)
-    if f isa SeparableFunction
-      @test all(i -> iszero(value_entry(f, zero(T), i)), eachindex(x))
+    # the per-entry contract f_i(0) = 0, where the entries have values
+    f isa SeparableFunction && @test all(i -> iszero(value_entry(f, zero(T), i)), eachindex(x))
+    # the aggregate consequence f(0) = 0 and the sparse paths, where f has a value
+    z = zeros(T, size(x))
+    _has_standalone_value(f, z) && @test iszero(f(z))
+    # a value method that rejects the array skips the checks below: say so (at most one message)
+    if _value_check_skipped(f, z)
+      @info "test_separable: skipped the value checks at zero and on a SparseIterate: $(_function_name(f)) has a value method that does not accept a $(typeof(z))"
+    else
+      for a in (xs, pz)
+        _value_check_skipped(f, a) || continue
+        @info "test_separable: skipped the value checks on a SparseIterate: $(_function_name(f)) has a value method that does not accept a $(typeof(a))"
+        break
+      end
+    end
+    # a value method may accept only dense arrays: the sparse paths need one for the iterate
+    if _has_standalone_value(f, z) && _has_standalone_value(f, xs) && _has_standalone_value(f, pz)
       @test f(xs) ≈ f(xz)
-      @test value_and_prox!(ys, f, xs, γ) ≈ f(pz)
+      # a fresh destination, which prox! has not already filled: the value and the written point
+      yv = SparseIterate(xz)
+      @test value_and_prox!(yv, f, xs, γ) ≈ f(pz)
+      @test _dense(yv) ≈ _dense(pz)
     end
   end
 
   if groups !== nothing
     x isa AbstractVector || throw(ArgumentError("groups need a vector x"))
     a = AtomIterate(xz, groups)
+    y = AtomIterate(float(eltype(x)), length(x), groups)
     for k in 1:ncoordinates(a)
       prox_coordinate!(a, f, k, γ)
+      prox_coordinate!(y, f, k, xz[a.groups[k]], γ)
     end
     @test _dense(a) ≈ _dense(pz)
+    @test _dense(y) ≈ _dense(pz)
+    @test nactive(y) == count(k -> any(!iszero, atom(y, k)), activecoordinates(y))
+    test_iterate(y)
   end
 
   if symmetric
     size(x, 1) == size(x, 2) || throw(ArgumentError("symmetric = true needs a square x"))
     X = (_dense(x) .+ _dense(x)') ./ 2
     S = SymmetricSparseIterate(X)
+    valid = try
+      ProximalBase.check_symmetric_parameters(f, S)
+    catch err
+      err isa ArgumentError || rethrow()
+      false
+    end
+    @test valid
+    valid || return p
+    y = SymmetricSparseIterate(float(eltype(x)), size(x, 1))
     for k in 1:ncoordinates(S)
       prox_coordinate!(S, f, k, γ)
+      r, c = tril_cartesian(size(x, 1), k)
+      prox_coordinate!(y, f, k, X[r, c], γ)
     end
     @test Matrix(S) ≈ _dense(prox(f, X, γ))
+    @test Matrix(y) ≈ _dense(prox(f, X, γ))
+    @test nnz(y) == count(!iszero, y.nzval[1:nnz(y)])
+    test_iterate(y)
   end
   p
 end

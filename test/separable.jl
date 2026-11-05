@@ -14,6 +14,7 @@ Random.seed!(1)
 struct WeightedSquare <: SeparableFunction       # Σᵢ wᵢ xᵢ² / 2
   w::Vector{Float64}
 end
+ProximalBase.entry_parameters(f::WeightedSquare) = (:w => f.w,)
 ProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2
 ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
 ProximalBase.iszeropreserving(::WeightedSquare) = true
@@ -25,6 +26,7 @@ end
 
 struct ShiftedAbs <: SeparableFunction           # Σᵢ |xᵢ - 1|, which does not preserve zeros
 end
+ProximalBase.entry_parameters(f::ShiftedAbs) = ()
 ProximalBase.value_entry(::ShiftedAbs, v, i) = abs(v - 1)
 ProximalBase.prox_entry(::ShiftedAbs, v, i, γ) = 1 + sign(v - 1) * max(abs(v - 1) - γ, 0)
 

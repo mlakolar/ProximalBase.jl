@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 
-from compare import compare
+from compare import compare, parse_reps
 from summarize import summarize
 from validate import calibration_metadata, timer_limited, validate
 
@@ -20,18 +20,23 @@ def write_rows(path, rows):
         writer.writeheader(); writer.writerows(rows)
 
 
-def fixture(folder, factor, runs=10, allocated=0, case="analytic/control", evals=1000):
-    folder.mkdir()
-    for rep in range(1, runs+1):
-        prefix = str(folder / f"julia-1.13.2-rep{rep:02}")
+def fixture(folder, factor, runs=10, allocated=0, case="analytic/control", evals=1000, version="1.13.2",
+            multipliers=None):
+    """`multipliers[rep-1]` scales the times of a repetition (noise in paired ratios); a list
+    `allocated` gives the bytes of each repetition."""
+    folder.mkdir(exist_ok=True)   # several versions may share a directory
+    per_rep = allocated if isinstance(allocated, (list, tuple)) else [allocated]*runs
+    for rep, allocated in zip(range(1, runs+1), per_rep):
+        prefix = str(folder / f"julia-{version}-rep{rep:02}")
+        scale = factor*rep*(1 if multipliers is None else multipliers[rep-1])
         row = dict(id=case, family="control", name="control", dtype="Float64",
                    shape="1", layout="dense", phase="warm", expected_zero="true", rep=rep,
-                   mean_ns=factor*rep, median_ns=factor*rep, min_ns=factor*rep/2,
-                   max_ns=factor*rep*1.5, mean_bytes=allocated, min_bytes=allocated,
+                   mean_ns=scale, median_ns=scale, min_ns=scale/2,
+                   max_ns=scale*1.5, mean_bytes=allocated, min_bytes=allocated,
                    max_bytes=allocated, samples=3, gc_share=0, evals=evals)
         write_rows(Path(prefix+"-metrics.tsv"), [row])
         write_rows(Path(prefix+"-samples.tsv"),
-                   [dict(id=case, rep=rep, sample=i, time_ns=factor*rep*t)
+                   [dict(id=case, rep=rep, sample=i, time_ns=scale*t)
                     for i, t in enumerate((0.5, 1, 1.5), 1)])
         write_rows(Path(prefix+"-allocations.tsv"),
                    [dict(id=case, rep=rep, sample=i, bytes=allocated) for i in range(1, 11)])
@@ -42,7 +47,7 @@ def fixture(folder, factor, runs=10, allocated=0, case="analytic/control", evals
                     for i in range(1, 101)])
         Path(prefix+"-errors.tsv").write_text("id\texception\n")
         Path(prefix+"-metadata.toml").write_text(
-            f'julia="1.13.2"\nrep={rep}\ncpu="control"\ncpu_model="control"\nblas="control"\n'
+            f'julia="{version}"\nrep={rep}\ncpu="control"\ncpu_model="control"\nblas="control"\n'
             'blas_threads=1\njulia_threads=1\nbenchmarktools="control"\n'
             'seed_scheme="control"\nsamples_target=3\nseconds_limit=0.1\n'
             'calibration_samples=1000\ncalibration_seconds=1.0\ntune_seconds=0.1\n'
@@ -118,6 +123,242 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
     for path in after.glob("*-metadata.toml"):
         path.write_text(path.read_text().replace("a"*40, "c"*40))
     reject(before, after, root/"settings-mismatch", "configuration differs")
+    # check_bounds and os (#439): two known values must agree; a record without a key is unknown,
+    # never reported as matching.
+    def recorded_fixture(name, factor, **settings):
+        folder = root/name
+        fixture(folder, factor, 3)
+        for path in folder.glob("*-metadata.toml"):
+            path.write_text(path.read_text() + "".join(f'{k}="{v}"\n' for k, v in settings.items()))
+        return folder
+
+    def statuses(name, version="1.13.2"):
+        by_version = json.loads((root/name/"settings.json").read_text())["by_version"]
+        return {key: entry["status"] for key, entry in by_version[version].items()}
+
+    agreed = dict(check_bounds="default", os="Linux x86_64")
+    recorded_before = recorded_fixture("recorded-before", 2, **agreed)
+    recorded_after = recorded_fixture("recorded-after", 1, **agreed)
+    checked = validate(recorded_before, 3)
+    assert checked["valid"] and checked["unrecorded_settings"] == []
+    row = compare(recorded_before, recorded_after, root/"recorded-match", 3)[0]
+    assert math.isclose(row["paired_geometric_speedup"], 2) and row["timing_assessment"] == "faster"
+    assert statuses("recorded-match") == dict(check_bounds="match", os="match")
+    report = (root/"recorded-match"/"REPORT.md").read_text()
+    assert "Recorded settings, Julia 1.13.2: `check_bounds` default on both sides; `os` Linux x86_64 on both sides." in report
+    assert "verified" not in report
+    for key, value in (("check_bounds", "yes"), ("check_bounds", "no"), ("os", "Darwin arm64")):
+        conflicting = recorded_fixture(f"recorded-{key}-{value.split()[0]}", 1, **{**agreed, key: value})
+        assert validate(conflicting, 3)["valid"]
+        reject(recorded_before, conflicting, root/f"conflict-{key}-{value.split()[0]}",
+               f"Julia 1.13.2 {key}: before {agreed[key]}; after {value}", expected=3)
+        reject(conflicting, recorded_before, root/f"conflict-reverse-{key}-{value.split()[0]}",
+               f"Julia 1.13.2 {key}: before {value}; after {agreed[key]}", expected=3)
+    unrecorded = recorded_fixture("recorded-none", 1)
+    checked = validate(unrecorded, 3)
+    assert checked["valid"] and checked["unrecorded_settings"] == ["check_bounds", "os"]
+    row = compare(unrecorded, recorded_after, root/"unknown-before", 3)[0]
+    assert math.isclose(row["paired_geometric_speedup"], 1)
+    assert statuses("unknown-before") == dict(check_bounds="unknown_before", os="unknown_before")
+    report = (root/"unknown-before"/"REPORT.md").read_text()
+    assert "`check_bounds` unknown on the before side (default on the after side)" in report
+    assert "`check_bounds` and `os` could not be verified to match" in report
+    compare(recorded_after, unrecorded, root/"unknown-after", 3)
+    assert statuses("unknown-after") == dict(check_bounds="unknown_after", os="unknown_after")
+    compare(unrecorded, unrecorded, root/"unknown-both", 3)
+    assert statuses("unknown-both") == dict(check_bounds="unknown_both", os="unknown_both")
+    assert "`check_bounds` unknown on both sides" in (root/"unknown-both"/"REPORT.md").read_text()
+    # One key recorded on both sides, the other on one side only: one match, one unknown.
+    partial = recorded_fixture("recorded-partial", 1, check_bounds="default")
+    compare(recorded_before, partial, root/"partial", 3)
+    assert statuses("partial") == dict(check_bounds="match", os="unknown_after")
+    assert "`os` could not be verified to match" in (root/"partial"/"REPORT.md").read_text()
+    # Within one directory a setting may not change, appear or disappear between repetitions.
+    meta = recorded_after/"julia-1.13.2-rep02-metadata.toml"
+    saved = meta.read_text()
+    for edited in (saved.replace('check_bounds="default"', 'check_bounds="yes"'),
+                   saved.replace('os="Linux x86_64"', 'os="Darwin arm64"'),
+                   saved.replace('check_bounds="default"\n', ""),
+                   saved.replace('check_bounds="default"', 'check_bounds="maybe"'),
+                   saved.replace('os="Linux x86_64"', 'os=" "')):
+        meta.write_text(edited)
+        assert not validate(recorded_after, 3)["valid"]
+        reject(recorded_before, recorded_after, root/f"edited-{len(list(root.iterdir()))}", "Invalid results", expected=3)
+    meta.write_text(saved)
+    assert validate(recorded_after, 3)["valid"]
+    # A literal os = "<unrecorded>" is a recorded value, never a missing key (review of #471).
+    literal = recorded_fixture("recorded-literal", 1, check_bounds="default", os="<unrecorded>")
+    checked = validate(literal, 3)
+    assert checked["valid"] and checked["unrecorded_settings"] == []
+    literal_meta = literal/"julia-1.13.2-rep02-metadata.toml"
+    saved = literal_meta.read_text()
+    literal_meta.write_text(saved.replace('os="<unrecorded>"\n', ""))
+    assert not validate(literal, 3)["valid"]          # present in rep01 and rep03, absent in rep02
+    literal_meta.write_text(saved)
+    literal_too = recorded_fixture("recorded-literal-too", 2, check_bounds="default", os="<unrecorded>")
+    compare(literal_too, literal, root/"literal-match", 3)
+    assert statuses("literal-match") == dict(check_bounds="match", os="match")
+    assert "`os` <unrecorded> on both sides" in (root/"literal-match"/"REPORT.md").read_text()
+    compare(literal_too, partial, root/"literal-vs-missing", 3)
+    assert statuses("literal-vs-missing") == dict(check_bounds="match", os="unknown_after")
+    # Several Julia versions (review of #471): settings are compared within each version only.
+    V1, V2 = "1.10.0", "1.11.0"
+
+    def versions_fixture(name, factor, per_version):
+        folder = root/name
+        for version, settings in per_version.items():
+            fixture(folder, factor, 3, version=version)
+            for path in folder.glob(f"julia-{version}-rep*-metadata.toml"):
+                path.write_text(path.read_text() + "".join(f'{k}="{v}"\n' for k, v in settings.items()))
+        checked = validate(folder, 3)
+        assert checked["valid"] and checked["versions"] == [V1, V2], checked["issues"]
+        return folder
+
+    def settings_of(name):
+        return json.loads((root/name/"settings.json").read_text())["by_version"]
+
+    linux, darwin = "Linux x86_64", "Darwin arm64"
+    # Swapped known values: the value sets of both directories agree, every version disagrees.
+    for key, (a, b) in (("check_bounds", ("default", "yes")), ("os", (linux, darwin))):
+        swap_before = versions_fixture(f"swap-{key}-before", 2, {V1: {key: a}, V2: {key: b}})
+        swap_after = versions_fixture(f"swap-{key}-after", 1, {V1: {key: b}, V2: {key: a}})
+        out = root/f"swap-{key}"
+        reject(swap_before, swap_after, out, f"Julia {V1} {key}: before {a}; after {b}", expected=3)
+        error = json.loads((out/"errors.json").read_text())["error"]
+        assert f"Julia {V2} {key}: before {b}; after {a}" in error
+        assert not (out/"settings.json").exists() and not (out/"comparison.csv").exists()
+    # Matching values per version, different between versions: accepted, a match in each version.
+    per_version = {V1: dict(check_bounds="default", os=linux), V2: dict(check_bounds="yes", os=darwin)}
+    rows = compare(versions_fixture("multi-before", 2, per_version),
+                   versions_fixture("multi-after", 1, per_version), root/"multi-match", 3)
+    assert [r["julia"] for r in rows] == [f"julia-{V1}", f"julia-{V2}"]
+    assert all(math.isclose(r["paired_geometric_speedup"], 2) for r in rows)
+    assert settings_of("multi-match") == {
+        V1: dict(check_bounds=dict(status="match", before="default", after="default"),
+                 os=dict(status="match", before=linux, after=linux)),
+        V2: dict(check_bounds=dict(status="match", before="yes", after="yes"),
+                 os=dict(status="match", before=darwin, after=darwin))}
+    report = (root/"multi-match"/"REPORT.md").read_text()
+    assert f"Recorded settings, Julia {V1}: `check_bounds` default on both sides; `os` {linux} on both sides." in report
+    assert f"Recorded settings, Julia {V2}: `check_bounds` yes on both sides; `os` {darwin} on both sides." in report
+    assert "verified" not in report
+    # Missing on different sides in different versions: two unknowns, never a cross-version
+    # comparison of default (1.10, before) with yes (1.11, after).
+    compare(versions_fixture("crossed-before", 2, {V1: dict(check_bounds="default", os=linux), V2: dict(os=linux)}),
+            versions_fixture("crossed-after", 1, {V1: dict(os=linux), V2: dict(check_bounds="yes", os=linux)}),
+            root/"crossed", 3)
+    crossed = settings_of("crossed")
+    assert crossed[V1]["check_bounds"] == dict(status="unknown_after", before="default", after=None)
+    assert crossed[V2]["check_bounds"] == dict(status="unknown_before", before=None, after="yes")
+    assert crossed[V1]["os"]["status"] == crossed[V2]["os"]["status"] == "match"
+    report = (root/"crossed"/"REPORT.md").read_text()
+    assert f"Julia {V1}: `check_bounds` unknown on the after side (default on the before side)" in report
+    assert f"Julia {V2}: `check_bounds` unknown on the before side (yes on the after side)" in report
+    # One version fully matching, the other partly unknown: the unknowns stay with their version.
+    compare(versions_fixture("mixed-before", 2, {V1: dict(check_bounds="default", os=linux), V2: dict(check_bounds="no")}),
+            versions_fixture("mixed-after", 1, {V1: dict(check_bounds="default", os=linux), V2: {}}),
+            root/"mixed", 3)
+    assert statuses("mixed", V1) == dict(check_bounds="match", os="match")
+    assert statuses("mixed", V2) == dict(check_bounds="unknown_after", os="unknown_both")
+    lines = (root/"mixed"/"REPORT.md").read_text().splitlines()
+    first = next(l for l in lines if l.startswith(f"Recorded settings, Julia {V1}:"))
+    second = next(l for l in lines if l.startswith(f"Recorded settings, Julia {V2}:"))
+    assert "verified" not in first
+    assert "`check_bounds` and `os` could not be verified to match" in second
+    # A known mismatch in one version rejects even when the other version is unknown.
+    reject(versions_fixture("one-bad-before", 2, {V1: dict(check_bounds="default"), V2: {}}),
+           versions_fixture("one-bad-after", 1, {V1: dict(check_bounds="no"), V2: dict(check_bounds="no")}),
+           root/"one-bad", f"Julia {V1} check_bounds: before default; after no", expected=3)
+    # Three-outcome rule (#462): one-sided 95% bounds on slowdown = after/before, from the paired
+    # log ratios; pass below 1.05, investigate at >= 1.05 with the lower bound above 1.
+    def outcome_of(name, slowdown, multipliers=None, runs=5, primary=None, evals=1000, factor=100, allocated=0,
+                   reps=None):
+        before, after = root/f"{name}-before", root/f"{name}-after"
+        fixture(before, factor, runs, evals=evals)
+        fixture(after, factor*slowdown, runs, evals=evals, multipliers=multipliers, allocated=allocated)
+        assert validate(before, runs)["valid"] and validate(after, runs)["valid"]
+        results = compare(before, after, root/name, runs, primary=primary, reps=reps)
+        with (root/name/"outcomes.csv").open() as stream:
+            rows = list(csv.DictReader(stream))
+        assert len(rows) == len(results) == 1
+        return rows[0]
+
+    noise = [1.01, 0.99, 1.0, 1.02, 0.98]
+    x = [math.log(1.0*m) for m in noise]                          # log(after/before) at slowdown 1
+    margin = 2.132*statistics.stdev(x)/math.sqrt(5)
+    row = outcome_of("rule-pass", 1.0, noise)
+    assert row["timing_outcome"] == "pass" and row["role"] == "diagnostic" and row["reason"] == ""
+    assert math.isclose(float(row["slowdown"]), math.exp(statistics.mean(x)))
+    assert math.isclose(float(row["one_sided95_high"]), math.exp(statistics.mean(x)+margin))
+    assert math.isclose(float(row["one_sided95_low"]), math.exp(statistics.mean(x)-margin))
+    assert outcome_of("rule-investigate", 1.10, noise)["timing_outcome"] == "investigate"
+    wide = [1.10, 0.90, 1.0, 1.15, 0.88]
+    assert outcome_of("rule-inconclusive", 1.03, wide)["timing_outcome"] == "inconclusive"
+    # Not significant is not a pass: a 4% slowdown with wide noise stays inconclusive.
+    row = outcome_of("rule-not-significant", 1.04, wide)
+    assert row["timing_outcome"] == "inconclusive" and float(row["one_sided95_low"]) < 1 < float(row["one_sided95_high"])
+    # Boundaries without noise: 1.04 passes; exactly 1.05 is investigate, never pass.
+    assert outcome_of("rule-1.04", 1.04)["timing_outcome"] == "pass"
+    row = outcome_of("rule-1.05", 1.05)
+    assert row["timing_outcome"] == "investigate" and math.isclose(float(row["one_sided95_high"]), 1.05)
+    # A faster revision passes; a large slowdown with noise is investigate.
+    assert outcome_of("rule-faster", 0.8, wide)["timing_outcome"] == "pass"
+    assert outcome_of("rule-slower", 1.5, wide)["timing_outcome"] == "investigate"
+    # A single run or a timer-limited case is inconclusive, with the reason.
+    # Their observed slowdown is kept as a diagnostic; the bounds are unavailable.
+    row = outcome_of("rule-single", 1.2, runs=1)
+    assert (row["timing_outcome"], row["reason"]) == ("inconclusive", "single run")
+    assert math.isclose(float(row["slowdown"]), 1.2)
+    assert row["one_sided95_low"] == row["one_sided95_high"] == "nan"
+    row = outcome_of("rule-limited", 1.0, noise, evals=1, factor=1)
+    assert (row["timing_outcome"], row["reason"]) == ("inconclusive", "timer-limited")
+    assert math.isclose(float(row["slowdown"]), math.exp(statistics.mean(x)))
+    assert row["one_sided95_low"] == row["one_sided95_high"] == "nan"
+    row = outcome_of("rule-limited-primary", 1.0, noise, evals=1, factor=1, primary={"analytic/control"})
+    assert "| inconclusive; timer-limited | no |" in (root/"rule-limited-primary"/"REPORT.md").read_text()
+    assert f"| {math.exp(statistics.mean(x)):.3f} [unavailable] |" in (root/"rule-limited-primary"/"REPORT.md").read_text()
+    # Named primary cases: the role column and the report table; comparison.csv is unchanged.
+    row = outcome_of("rule-primary", 1.0, noise, primary={"analytic/control"})
+    assert row["role"] == "primary" and row["timing_outcome"] == "pass" and row["unexpected_allocation"] == "False"
+    report = (root/"rule-primary"/"REPORT.md").read_text()
+    assert "timing** outcomes, not an overall performance approval" in report
+    assert "| pass | no |" in report and "Unexpected allocation in" not in report
+    assert "Primary cases: 1 (pass 1, investigate 0, inconclusive 0)." in report
+    assert "| `analytic/control` | julia-1.13.2 |" in report and "Diagnostic cases: 0" in report
+    assert (root/"rule-primary"/"comparison.csv").read_text() == (root/"rule-pass"/"comparison.csv").read_text()
+    assert "Primary cases: 0" in (root/"rule-pass"/"REPORT.md").read_text()
+    with (root/"rule-pass"/"comparison.csv").open() as stream:
+        assert next(csv.reader(stream)) == [
+            "julia", "id", "paired_runs", "timer_limited", "timer_limited_by", "timer_limit_multiple",
+            "before_evals", "after_evals", "before_mean_ns", "after_mean_ns", "paired_geometric_speedup",
+            "ci95_low", "ci95_high", "timing_assessment", "before_mean_bytes", "after_mean_bytes",
+            "mean_bytes_change", "before_max_bytes", "after_max_bytes", "unexpected_allocation"]
+    # Timing passes, but the after side allocates in a case expected not to: the timing outcome is
+    # unchanged, and the allocation is flagged beside it and above the primary table.
+    row = outcome_of("rule-allocating", 1.0, noise, primary={"analytic/control"}, allocated=16)
+    assert row["timing_outcome"] == "pass" and row["unexpected_allocation"] == "True"
+    report = (root/"rule-allocating"/"REPORT.md").read_text()
+    assert "**Unexpected allocation in 1 primary case(s)**, whatever their timing outcome: `analytic/control` (julia-1.13.2)." in report
+    assert "| pass | **yes** |" in report
+    assert report.index("**Unexpected allocation in") < report.index("| Primary case |")
+    with (root/"rule-allocating"/"comparison.csv").open() as stream:
+        assert next(csv.DictReader(stream))["unexpected_allocation"] == "True"
+    # A named primary case that the comparison lacks is an error, not a silent omission.
+    try:
+        compare(root/"rule-pass-before", root/"rule-pass-after", root/"rule-typo", 5, primary={"analytic/typo"})
+    except ValueError as error:
+        assert "Primary cases not in the comparison: analytic/typo" in str(error)
+        assert (root/"rule-typo"/"errors.json").exists() and not (root/"rule-typo"/"outcomes.csv").exists()
+    else:
+        raise AssertionError("an unknown primary case was accepted")
+    # The command line reads the primary list from a file (comments and blank lines ignored).
+    listing = root/"primary.txt"
+    listing.write_text("# primary cases\n\nanalytic/control\n")
+    subprocess.run([sys.executable, str(Path(__file__).with_name("compare.py")), str(root/"rule-pass-before"),
+                    str(root/"rule-pass-after"), str(root/"rule-cli"), "--expected-runs", "5", "--primary", str(listing)],
+                   check=True, capture_output=True)
+    with (root/"rule-cli"/"outcomes.csv").open() as stream:
+        assert next(csv.DictReader(stream))["role"] == "primary"
     assert not validate(root/"empty")["valid"]
     # Strict batch-time rule, including its boundary and unusable floors.
     for evals, median, limited in ((1, 120, True), (1, 450, False), (10, 100, False),
@@ -305,5 +546,183 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
         with (output/"summary.csv").open() as stream:
             assert next(csv.DictReader(stream))["timer_limited"] == str(limited)
     assert timer_limited(dict(median_ns=120), dict(timer_floor_ns=30))
+    # A chosen subset of repetitions (--reps): each directory is validated whole, and only the
+    # chosen repetitions enter the pairing, the intervals, the outcomes and the flags.
+    script = str(Path(__file__).with_name("compare.py"))
+    T975, T95 = {3: 3.182, 4: 2.776}, {3: 2.353, 4: 2.132}
+    noisy = [1.01, 0.99, 1.0, 1.02, 0.98, 1.10, 0.90, 1.0, 1.15, 0.88]
+    reps_before, reps_after = root/"reps-before", root/"reps-after"
+    fixture(reps_before, 100, 10)
+    fixture(reps_after, 100, 10, multipliers=noisy)
 
-print("ANALYSIS_CONTROLS_PASSED repetitions=1,3,5,10; means,SD,t-intervals,paired-ratios,allocations,missing/wrong-repetitions,raw-corruption,unmatched-cases,settings-mismatch; timer-rule,boundary,mixed-evals,limited-sides,K-overrides,invalid-K,process-floors,unusable/constant/stepped-calibration,missing-calibration,legacy-records,quantized-tick,corrupt-median/evals/floor,eligible-2x,limited-ratio/allocation-warning")
+    def reps_outputs(name):
+        rows = {}
+        for filename in ("comparison.csv", "outcomes.csv"):
+            with (root/name/filename).open() as stream:
+                rows[filename] = list(csv.DictReader(stream))
+        return (rows["comparison.csv"], rows["outcomes.csv"], (root/name/"REPORT.md").read_text().splitlines(),
+                json.loads((root/name/"coverage.json").read_text()))
+
+    def check_subset(name, reps, decision):
+        compared, outcomes, report, coverage = reps_outputs(name)
+        row, out = compared[0], outcomes[0]
+        n = len(reps)
+        ratios = [-math.log(noisy[r-1]) for r in reps]
+        mu, half = statistics.mean(ratios), T975[n-1]*statistics.stdev(ratios)/math.sqrt(n)
+        assert row["paired_runs"] == out["paired_runs"] == str(n)
+        assert math.isclose(float(row["paired_geometric_speedup"]), math.exp(mu))
+        assert math.isclose(float(row["ci95_low"]), math.exp(mu-half))
+        assert math.isclose(float(row["ci95_high"]), math.exp(mu+half))
+        assert math.isclose(float(row["before_mean_ns"]), statistics.mean(100*r for r in reps))
+        assert math.isclose(float(row["after_mean_ns"]), statistics.mean(100*r*noisy[r-1] for r in reps))
+        margin = T95[n-1]*statistics.stdev(ratios)/math.sqrt(n)
+        assert math.isclose(float(out["slowdown"]), math.exp(-mu))
+        assert math.isclose(float(out["one_sided95_low"]), math.exp(-mu-margin))
+        assert math.isclose(float(out["one_sided95_high"]), math.exp(-mu+margin))
+        assert out["timing_outcome"] == decision and out["reason"] == ""
+        assert coverage["repetitions"] == reps and coverage["shared_measurements"] == n
+        return report
+
+    compare(reps_before, reps_after, root/"reps-1-5", 10, reps=[1, 2, 3, 4, 5])
+    report = check_subset("reps-1-5", [1, 2, 3, 4, 5], "pass")
+    assert report[2] == "Repetitions compared: 1-5 (5 of the 10 per Julia version in each directory)."
+    compare(reps_before, reps_after, root/"reps-6-10", 10, reps=parse_reps(["6-10"]))
+    report = check_subset("reps-6-10", [6, 7, 8, 9, 10], "inconclusive")
+    assert report[2] == "Repetitions compared: 6-10 (5 of the 10 per Julia version in each directory)."
+    compare(reps_before, reps_after, root/"reps-gap", 10, reps=parse_reps(["7", "1-3"]))
+    report = check_subset("reps-gap", [1, 2, 3, 7], "pass")
+    assert report[2] == "Repetitions compared: 1-3, 7 (4 of the 10 per Julia version in each directory)."
+    compare(reps_before, reps_after, root/"reps-all", 10)
+    compared, outcomes, report, coverage = reps_outputs("reps-all")
+    assert report[2] == "Repetitions compared: 1-10 (all 10 per Julia version in each directory)."
+    assert coverage["repetitions"] == list(range(1, 11)) and compared[0]["paired_runs"] == "10"
+    assert any("A case is limited if any compared repetition on either side is limited." in l for l in report)
+    compare(reps_before, reps_after, root/"reps-range", 10, reps=range(1, 11))
+    for filename in ("REPORT.md", "comparison.csv", "outcomes.csv", "coverage.json", "settings.json"):
+        assert (root/"reps-range"/filename).read_bytes() == (root/"reps-all"/filename).read_bytes()
+    report = (root/"single-limit-report"/"REPORT.md").read_text().splitlines()
+    assert report[2] == "Repetitions compared: 1 (all 1 per Julia version in each directory)."
+    assert json.loads((root/"single-limit-report"/"coverage.json").read_text())["repetitions"] == [1]
+    # One chosen repetition out of ten is a single run: exploratory, no interval or bounds.
+    row = compare(reps_before, reps_after, root/"reps-single", 10, reps=[8])[0]
+    assert row["paired_runs"] == 1 and row["timing_assessment"] == "single run; exploratory"
+    assert math.isnan(row["ci95_low"]) and math.isnan(row["ci95_high"])
+    compared, outcomes, report, coverage = reps_outputs("reps-single")
+    assert report[2] == "Repetitions compared: 8 (1 of the 10 per Julia version in each directory)."
+    assert f"| {1/noisy[7]:.3f} [unavailable] |" in "\n".join(report)
+    assert (outcomes[0]["timing_outcome"], outcomes[0]["reason"], outcomes[0]["paired_runs"]) == ("inconclusive", "single run", "1")
+    assert outcomes[0]["one_sided95_low"] == outcomes[0]["one_sided95_high"] == "nan"
+    # Timer-limited repetitions inside and outside the subset: only the chosen ones count.
+    limited_before, limited_after = root/"reps-limited-before", root/"reps-limited-after"
+    fixture(limited_before, 10, 10)
+    fixture(limited_after, 5, 10)
+    for rep in (2, 7):
+        metric_edit(limited_before, rep, evals=1)
+    assert validate(limited_before, 10)["valid"]
+    row = compare(limited_before, limited_after, root/"reps-limited-all", 10)[0]
+    assert row["timer_limited_by"] == "before:rep02,rep07"
+    row = compare(limited_before, limited_after, root/"reps-limited-in", 10, reps=[6, 7, 8, 9, 10])[0]
+    assert row["timer_limited"] and row["timer_limited_by"] == "before:rep07"
+    assert row["before_evals"] == "1/1000" and row["after_evals"] == "1000"
+    assert row["timing_assessment"] == "timer-limited" and row["paired_runs"] == 5
+    row = compare(limited_before, limited_after, root/"reps-limited-out", 10, reps=[8, 9, 10])[0]
+    assert not row["timer_limited"] and row["timer_limited_by"] == ""
+    assert row["before_evals"] == "1000" and row["timing_assessment"] == "faster"
+    row = compare(limited_before, limited_after, root/"reps-limited-single", 10, reps=[7])[0]
+    assert row["timing_assessment"] == "single run; exploratory; timer-limited"
+    outcomes = reps_outputs("reps-limited-single")[1]
+    assert (outcomes[0]["timing_outcome"], outcomes[0]["reason"]) == ("inconclusive", "timer-limited")
+    # An allocation in one after repetition flags the case only when that repetition is chosen.
+    alloc_before, alloc_after = root/"reps-alloc-before", root/"reps-alloc-after"
+    fixture(alloc_before, 100, 10)
+    fixture(alloc_after, 100, 10, allocated=[0]*9 + [16])
+    assert validate(alloc_after, 10)["valid"]
+    row = compare(alloc_before, alloc_after, root/"reps-alloc-out", 10, reps=[1, 2, 3, 4, 5])[0]
+    assert not row["unexpected_allocation"]
+    assert row["after_mean_bytes"] == row["after_max_bytes"] == row["mean_bytes_change"] == 0
+    row = compare(alloc_before, alloc_after, root/"reps-alloc-in", 10, reps=[6, 7, 8, 9, 10])[0]
+    assert row["unexpected_allocation"] and row["after_max_bytes"] == 16
+    assert math.isclose(row["after_mean_bytes"], 3.2) and math.isclose(row["mean_bytes_change"], 3.2)
+    assert reps_outputs("reps-alloc-in")[1][0]["unexpected_allocation"] == "True"
+    # Two Julia versions: the subset applies to each.
+    versions_before, versions_after = root/"reps-versions-before", root/"reps-versions-after"
+    for version in (V1, V2):
+        fixture(versions_before, 2, 10, version=version)
+    fixture(versions_after, 1, 10, version=V1)
+    fixture(versions_after, 1, 10, version=V2, multipliers=noisy)
+    rows = compare(versions_before, versions_after, root/"reps-versions", 10, reps=[6, 7, 8, 9, 10])
+    assert [(r["julia"], r["paired_runs"]) for r in rows] == [(f"julia-{V1}", 5), (f"julia-{V2}", 5)]
+    assert math.isclose(rows[0]["paired_geometric_speedup"], 2)
+    assert math.isclose(rows[1]["paired_geometric_speedup"],
+                        2/math.exp(statistics.mean(math.log(m) for m in noisy[5:])))
+    compared, outcomes, report, coverage = reps_outputs("reps-versions")
+    assert [o["paired_runs"] for o in outcomes] == ["5", "5"] and coverage["shared_measurements"] == 10
+    assert report[2] == "Repetitions compared: 6-10 (5 of the 10 per Julia version in each directory)."
+    # Named primary cases with a subset: the role, the table and the outcome follow the subset.
+    row = outcome_of("reps-primary-first", 1.0, noisy, runs=10, primary={"analytic/control"}, reps=[1, 2, 3, 4, 5])
+    assert (row["role"], row["timing_outcome"], row["paired_runs"]) == ("primary", "pass", "5")
+    report = (root/"reps-primary-first"/"REPORT.md").read_text()
+    assert "Primary cases: 1 (pass 1, investigate 0, inconclusive 0)." in report and "| pass | no |" in report
+    row = outcome_of("reps-primary-last", 1.0, noisy, runs=10, primary={"analytic/control"}, reps=[6, 7, 8, 9, 10])
+    assert (row["role"], row["timing_outcome"]) == ("primary", "inconclusive")
+    assert "Primary cases: 1 (pass 0, investigate 0, inconclusive 1)." in (root/"reps-primary-last"/"REPORT.md").read_text()
+    # Invalid selections are rejected before the output directory is created.
+    for reps, message, expected in (([11], "repetitions [11] are outside 1..10 (--expected-runs 10)", 10),
+                                    ([0, 12], "repetitions [0, 12] are outside 1..10", 10),
+                                    ([6], "repetitions [6] are outside 1..5 (--expected-runs 5)", 5),
+                                    ([6, 6], "repetitions [6] are selected more than once", 10),
+                                    (parse_reps(["1-5", "3-7"]), "repetitions [3, 4, 5] are selected more than once", 10),
+                                    ([], "selects no repetition", 10),
+                                    ([True], "must be integers", 10), ([6.0], "must be integers", 10),
+                                    (["6"], "must be integers", 10), ("6-10", "parse strings with parse_reps", 10),
+                                    ([11], "expected runs must be between 1 and 10", 11),
+                                    ([1], "expected runs must be between 1 and 10", 0)):
+        output = root/f"reps-invalid-{len(list(root.iterdir()))}"
+        try:
+            compare(reps_before, reps_after, output, expected, reps=reps)
+        except ValueError as error:
+            assert message in str(error), error
+            assert not output.exists()
+        else:
+            raise AssertionError(f"invalid repetitions accepted: {reps!r}")
+    for token, message in (("7-6", "reversed range '7-6'"), ("-1", "malformed"), ("1--3", "malformed"),
+                           ("6_0", "malformed"), ("٣", "malformed"), ("", "malformed"), (" 6", "malformed"),
+                           ("+6", "malformed"), ("11", "repetition 11 is above 10, the largest --expected-runs"),
+                           ("1-99999999", "repetition 99999999 is above 10"),
+                           ("9"*5000, "--reps:"), ("1-" + "9"*5000, "--reps:")):
+        try:
+            parse_reps(["1", token])
+        except ValueError as error:
+            assert message in str(error), error
+        else:
+            raise AssertionError(f"malformed repetition accepted: {token!r}")
+    assert parse_reps(["10", "6-9"]) == [10, 6, 7, 8, 9] and parse_reps(["6-6"]) == [6]
+    # The command line: errors exit 2 with the message; equivalent forms give identical files.
+    def cli(name, *reps, expected=10):
+        command = [sys.executable, script, str(reps_before), str(reps_after), str(root/name),
+                   "--expected-runs", str(expected)]
+        return subprocess.run(command + [arg for spec in reps for arg in ("--reps", *spec)],
+                              capture_output=True, text=True, timeout=60)
+
+    for reps, message, expected in (([["6"]], "outside 1..5 (--expected-runs 5)", 5),
+                                    ([["11"]], "above 10, the largest --expected-runs", 10),
+                                    ([["6"], ["6"]], "more than once", 10), ([["1-5", "3-7"]], "more than once", 10),
+                                    ([["7-6"]], "reversed range", 10), ([["-1"]], "malformed", 10),
+                                    ([["6_0"]], "malformed", 10), ([[""]], "malformed", 10),
+                                    ([["1-99999999"]], "above 10", 10),
+                                    ([["1-" + "9"*5000]], "--reps:", 10)):
+        name = f"reps-cli-invalid-{len(list(root.iterdir()))}"
+        failed = cli(name, *reps, expected=expected)
+        assert failed.returncode == 2 and message in failed.stderr, (reps, failed.stderr)
+        assert not (root/name).exists()
+    for name, reps in (("reps-cli-range", [["6-10"]]), ("reps-cli-list", [["6", "7", "8", "9", "10"]]),
+                       ("reps-cli-unsorted", [["10", "6-9"]]), ("reps-cli-repeated", [["6-8"], ["9", "10"]]),
+                       ("reps-cli-full", [["1-10"]]), ("reps-cli-none", [])):
+        assert cli(name, *reps).returncode == 0
+    for filename in ("REPORT.md", "comparison.csv", "outcomes.csv", "coverage.json", "settings.json"):
+        for name in ("reps-cli-list", "reps-cli-unsorted", "reps-cli-repeated", "reps-6-10"):
+            assert (root/name/filename).read_bytes() == (root/"reps-cli-range"/filename).read_bytes(), (name, filename)
+        assert (root/"reps-cli-full"/filename).read_bytes() == (root/"reps-cli-none"/filename).read_bytes()
+        assert (root/"reps-cli-none"/filename).read_bytes() == (root/"reps-all"/filename).read_bytes()
+
+print("ANALYSIS_CONTROLS_PASSED repetitions=1,3,5,10; means,SD,t-intervals,paired-ratios,allocations,missing/wrong-repetitions,raw-corruption,unmatched-cases,settings-mismatch,check_bounds/os-match/conflict/unknown/partial/within-run/literal-sentinel/per-version-swap/match/crossed-unknown/mixed; three-outcome pass/investigate/inconclusive/boundaries/single-run/timer-limited/diagnostic-slowdown/primary/allocation-flag/unknown-primary/cli; timer-rule,boundary,mixed-evals,limited-sides,K-overrides,invalid-K,process-floors,unusable/constant/stepped-calibration,missing-calibration,legacy-records,quantized-tick,corrupt-median/evals/floor,eligible-2x,limited-ratio/allocation-warning; reps subsets/intervals/bounds/non-contiguous/header/coverage/full-identity/single-run/limited-in-out/single-limited/allocation-in-out/two-versions/primary/api-errors/parse-errors/cli-errors/cli-forms")

@@ -17,14 +17,12 @@ The proximal oracles for linear sets, `IndPolyhedron`, `SumLargest`, the
 spectral functions (`NuclearNorm`, `IndBallRank`, `IndStiefel`, `IndPSD`,
 `TracePSD`, `Spectral` and `SingularValue`) and `LogDetLoss` do not reject
 non-finite input values: closed forms use IEEE arithmetic, and algorithms that
-cannot process them return `NaN` in every coupled output entry. At an input
-with any non-finite entry, `value_and_prox!` returns `Inf` for `NuclearNorm`,
-`SingularValue`, `Spectral`, `TracePSD`, `IndPSD`, `IndBallRank`, `IndStiefel`
-and `LogDetLoss`. This includes the identity outputs of `NuclearNorm(0)` and
-full-rank `IndBallRank`. A direct `Conjugate(SingularValue(f))` also returns
-`Inf` if its existing proximal path returns; paths that throw still throw.
-This rule is checked on the input; non-finite outputs from finite inputs
-keep their documented returned values.
+cannot process them return `NaN` in every coupled output entry. A NaN entry
+propagates to every result that depends on it, values included, and an
+infinite entry follows the function's formula or limit; see
+[NaN, infinities and degenerate parameters](@ref numerics-special). The
+functions that use LAPACK detect non-finite entries and never pass them to
+LAPACK.
 
 It balances decreasing ``g`` against staying near ``x``, and ``\gamma`` sets the
 balance. Two cases explain the name and its uses.
@@ -186,6 +184,7 @@ types, say which oracles it provides:
 | [`isseparable`](@ref) | [`prox_entry`](@ref), [`prox_coordinate!`](@ref), [`kkt_violation`](@ref) | ``f(x) = \sum_i f_i(x_i)`` |
 | [`isconvex`](@ref) | | convex |
 | [`hashessian`](@ref) | [`hessian_vec!`](@ref), [`quadratic_model`](@ref) | second derivatives, for Newton steps |
+| [`haslmo`](@ref) | [`lmo!`](@ref), [`lmo`](@ref) | a linear minimization oracle of a compact set, for Frank–Wolfe steps; a property of the instance |
 
 The allocating versions [`prox`](@ref), [`gradient`](@ref),
 [`value_and_gradient`](@ref) and [`hessian_vec`](@ref) return new arrays.
@@ -200,21 +199,28 @@ its data; its factorization type can change with the rank of `A`.
 
 - **Output first.** Mutating functions take their output first, as `mul!` does:
   `prox!(y, f, x, γ)` and `gradient!(g, f, x)`. The output of a proximal
-  operator may be its input: `prox!(x, f, x, γ)` works for every function. An
-  output that only partly overlaps the input, such as a shifted view of the
-  same array, is not supported. For `gradient!`, `value_and_gradient!` and
-  `hessian_vec!`, pass an output separate from the input unless a method's
-  documentation says otherwise. Built-in gradient oracles throw an
-  `ArgumentError` when the gradient output is the input (or a tuple block
-  is its input block), except where the function documents that the output
-  may be the input, as for [`CubeNormL2`](@ref).
+  operator may be its input: `prox!(x, f, x, γ)` and
+  `value_and_prox!(x, f, x, γ)` work for every function. That means the input
+  object itself. An output that shares memory with the input in any other way,
+  such as a shifted view of the same array, or a view or reshape that covers
+  the same entries, is not supported and is not detected (O7 in
+  [Agreement between oracles](@ref numerics-oracles)). For `gradient!`,
+  `value_and_gradient!` and `hessian_vec!`, pass an output separate from the
+  input unless a method's documentation says otherwise. Built-in gradient
+  oracles throw an `ArgumentError` when the gradient output is the input (or a
+  tuple block is its input block), except where the function documents that
+  the output may be the input, as for [`CubeNormL2`](@ref). Built-in Hessian
+  products, the wrappers included, throw an `ArgumentError` before writing
+  when the output is `x` or `v`, or a tuple block is the corresponding block of
+  either. The point and the direction may be the same array.
 - **The value at the result.** [`value_and_prox!`](@ref) stores the proximal
   point and returns the function's value there. Many functions get that value
   from the computation itself: the nuclear norm from the singular values it
-  thresholds, an indicator function as zero without checking membership, except
-  for spectral indicators at non-finite inputs, which return `Inf`. The
-  latter equals the value at an exact projection, but does not certify
-  feasibility for an inexact projection such as [`IndIntersection`](@ref).
+  thresholds, an indicator function as zero when the projection is exact. That
+  zero is not a feasibility certificate for an inexact projection such as
+  [`IndIntersection`](@ref). The value describes the stored output; the rule
+  and its named exceptions are O2 and O3 of the
+  [numerical contract](@ref numerics-oracles).
 - **Allocations.** Many built-in operations reuse their buffers for inputs of
   a fixed size and element type. The allocation tests check `f(x)`, `prox!`,
   `value_and_prox!`, `gradient!`, `value_and_gradient!`, `prox_entry` and
@@ -242,64 +248,104 @@ raises `ArgumentError("<Name> requires real entries")` before anything is
 written, where `<Name>` is the function called, the iterate type or the
 utility.
 
-Every scalar value has the argument's precision, `T = float(eltype(x))`.
-`f(x)` and `value_and_gradient!(g, f, x)` return `T` of `x`, and
-`value_and_prox!(y, f, x, γ)` returns `T` of the output `y`. For tuple
-arguments and outputs, `T` is the promotion over the blocks. An integer
-argument gives `Float64`.
-The value is accurate to the lower of `T` and the precision the function was
-built in: a function built in `Float32` and applied to a `Float64` argument
-returns a `Float64` value with `Float32` accuracy. Build a function in
-`Float64` for `Float64` accuracy. The rule covers every function in the
-package, including data losses, wrappers and functions with a proximal value
-but no standalone value, such as `Conjugate(ElasticNet(...))`. It is also the
-contract for functions users write.
+The precision rules are part of the [Numerical contract](@ref numerics), which
+states them in full, with their reasons. The 0.6 contract changes some earlier
+results, listed in [Compatibility and migration](@ref); issue
+[#366](https://github.com/mlakolar/ProximalBase.jl/issues/366) tracks the parts
+not yet implemented. In short:
 
-The spectral functions and sets, `Spectral`, `SingularValue`, `NuclearNorm`,
-`IndPSD`, `IndBallRank` and `TracePSD`, accept `Float32` and `Float64`
-arguments only. Other element types raise an `ArgumentError`.
+- **Types.** `f(x)` and `value_and_gradient!(g, f, x)` return
+  `T = float(eltype(x))`, and `value_and_prox!(y, f, x, γ)` returns `T` of the
+  output `y`. For tuple arguments and outputs, `T` is the promotion over the
+  blocks, and an integer argument gives `Float64`. Operations that write an
+  output keep its element type, and the allocating forms `prox`, `gradient`,
+  `value_and_gradient` and `hessian_vec` make arrays of `float(eltype(x))`.
+- **Mixed precision.** Each result is computed in its *model precision*: the
+  widest of the precision it is delivered in, its argument's precision and its
+  data's precision. Parameters (levels, weights, centers, bounds, steps) are
+  rounded once to it, after being combined, and define the problem that is
+  solved. Data (the matrices of data losses and quadratic functions, the
+  vectors in their equations, and the normals and offsets of linear sets) are
+  used as stored. A `Float64` literal such as the `0.1` in `NormL1(0.1)` costs
+  nothing extra on `Float32` data. To compute in `Float32` throughout, give
+  the argument, the data and the output in `Float32`.
+- **Element types.** `Float16` is rejected as an argument, output, direction or
+  data, and accepted as a parameter or step. The functions that use LAPACK
+  (`Spectral`, `SingularValue`, `NuclearNorm`, `IndPSD`, `IndBallRank`,
+  `TracePSD`, `IndStiefel`, `LogDetLoss`) accept `Float32` and `Float64` only.
+- **Special values.** NaN propagates to the results that depend on it, and an
+  infinite entry follows the function's formula or limit. Outside its domain,
+  a function's value is `+Inf` and its gradient NaN.
+- **Steps** follow [Steps per entry and diagonal metrics](@ref): negative and
+  NaN steps are rejected, and zero and infinite steps only where a function
+  names the limit.
+- **Combined calls.** The value from `value_and_prox!` describes the stored
+  output, and may be computed from the proximal intermediates, so it can differ
+  from `f(y)` in its last bits. The value from `value_and_gradient!` is
+  `f(x)`. In mixed precision, the array proximal operators of wrappers such as
+  `Translate` and `Tilt` round to the output's element type between stages,
+  so `prox!` and entrywise `prox_entry` can differ within a bound in each
+  stage's scale.
+- **Caches** follow the model precision and are rebuilt when it changes. A
+  mixed call can therefore allocate: `Precompose(NuclearNorm(0.5f0), 2f0)`
+  switches its inner SVD workspace between precisions with a `Float32`
+  argument and a `Float64` output.
 
-Steps follow the contract in [Steps per entry and diagonal metrics](@ref).
-Operations that write an output keep its element type: `prox!(y, f, x, γ)` with a `Float32` output writes `Float32`
-entries even when the argument, parameters and step are `Float64`. The
-allocating forms `prox`, `gradient`, `value_and_gradient` and `hessian_vec`
-make their arrays with element type `float(eltype(x))`.
+A result that cannot be certified or represented in the working precision
+raises [`PrecisionError`](@ref) under O6. This exception is distinct from
+`ArgumentError`, which signals invalid input. Only `quadratic_model` and
+`quadratic_model!` of a [`GLMLoss`](@ref) raise it in this release, when an
+effective coefficient of the model is not representable.
 
-Cache precision depends on the method. For `NuclearNorm`, the value workspace
-follows the argument's precision, and the proximal workspace follows the
-output's. The proximal buffer of `Conjugate` also follows the output.
-`LeastSquaresLoss` and `GLMLoss` keep buffers in the promoted floating type of
-the response and design matrix, independently of the argument's precision.
-`LogDetLoss` keeps its workspace in the data's precision and writes outputs of
-any precision by rounding.
-The shifted buffer for values and gradients of `Translate(f, b)` uses the
-argument's precision, `float(eltype(x))`; the proximal buffers of `Translate`,
-`Tilt` and `Regularize` follow the output's type. The feasibility calculation and
-tolerance of `IndAffine` use the promoted precision of the argument and data.
-`IndAffine` and `IndGraph` keep their feasibility tests; only the type of the
-returned zero or infinity follows the rule.
+### Overflow and underflow of values
 
-Constructors also differ. `NormL1(λ, w)` stores the scale and weights as given;
-`GroupNormL2(λ, groups, w)` converts both to their common floating type.
+A value that is a normal number is returned with the accuracy of the ordinary
+computation, even when an intermediate leaves the range of its type. Gradients
+and proximal outputs computed in closed form follow the same rule entry by
+entry, and a parameter whose rounding would lose range is recovered. For
+example, the ordinary expression overflows in the sum of squares:
 
-The value returned by `value_and_prox!` or `value_and_gradient!` can be
-computed from the proximal or gradient intermediates, so a proximal value can
-differ from `f(y)` in its last bits. Its type is that of `f(y)`, and the type
-of the value from `value_and_gradient!` is that of `f(x)`.
+```julia
+julia> SqrNormL2(1e-300)([1e200])
+5.0e99
 
-In mixed precision, array proximal operators of wrappers such as `Translate`
-and `Tilt` round to the output's element type at each stage. Consequently,
-`prox!` and entrywise calls to `prox_entry` can give different results; no
-bound on this difference is claimed.
+julia> (1e-300 / 2) * sum(abs2, [1e200])
+Inf
+```
 
-A mixed call can allocate when the additional value evaluation changes an
-inner function's cached precision. For example,
-`Precompose(NuclearNorm(0.5f0), 2f0)` switches its inner SVD workspace between
-precisions with a `Float32` argument and a `Float64` output.
+The rule, its cost (a few nanoseconds per call), the rejected alternative and
+its scope are in [Overflow and underflow](@ref numerics-range).
 
-To compute in `Float32` throughout, give the argument, the parameters, the
-data and the step in `Float32`; the functions then return `Float32` values and
-arrays.
+### Functions of a spectrum
+
+`SingularValue(f)` and `Spectral(f)` apply `f` to a computed spectrum. Only
+functions that count nonzeros, such as `NormL0` and `IndBallL0`, mask entries
+with magnitude at most `√ε·max|σ|`, where `ε = eps(T)` for the spectrum's
+floating-point type. Other functions see the computed spectrum. `IndBallRank`
+and the rank bound of `IndPSD(rank = r)` use the same relative threshold;
+numerical rank is invariant under scaling.
+
+Membership and domain tests use `√ε·max(1, |bound|, ‖λ‖∞)` in the original
+units. Sum constraints keep their own scaled tolerance, which accounts for
+cancellation and the normal's magnitude. On the spectrum `v` of `X/2^k`,
+bounds are scaled before narrowing and the tolerance is
+`√ε·max(2^-k, 2^-k|bound|, ‖v‖∞)`. The scale lookup costs O(1): the spectrum
+is sorted, so `‖v‖∞ = max(abs(v[1]), abs(v[end]))`, or zero when empty.
+
+Computed spectra carry errors of order `ε‖λ‖∞` in every entry. Such rounding
+moves a continuous `f` only by rounding, while a zero mask moves it by `√ε`.
+Masking every `f`, as `SingularValue` previously did, discards resolved small
+entries of continuous penalties. An absolute floor `√ε·max(1, σ₁)` on the
+rank threshold instead counts every sufficiently small matrix as rank zero.
+The relative threshold avoids this dependence on scale. When the spectrum
+overflows, or the mask threshold is not normal, the mask is computed in
+units scaled by a power of two.
+
+`value_and_prox!` returns `f` at the exact proximal spectrum. Re-evaluating at
+the returned point agrees only when retained entries lie above the
+numerical-zero threshold. For example, `SingularValue(NormL0(1))` at
+`Diagonal([2.0^60, 2, 0])` with step 1 returns `2`, while re-evaluating at its
+proximal point gives `1`.
 
 ## GPU arrays
 

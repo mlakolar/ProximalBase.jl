@@ -153,13 +153,17 @@ isconvex(::Type{<:BoxConstrained{F}}) where {F} = isconvex(F)
 isseparable(::Type{<:BoxConstrained}) = true
 _isindicator(::Type{<:BoxConstrained{F}}) where {F} = _isindicator(F)
 _isindicator(::Type{<:LinearConstrained{F}}) where {F} = _isindicator(F)
+_counts_nonzeros(f::Union{BoxConstrained, LinearConstrained}) = _counts_nonzeros(f.f)
+_scale_invariant(f::BoxConstrained) = _scale_invariant(f.f) && _cone_bound(f.box.l) && _cone_bound(f.box.u)
 
 ####################################
 #  on a box
 ####################################
 
 (c::BoxConstrained)(x::AbstractArray) =
-  (_checkreal(c, x); _checkparams(c, x); T = float(eltype(x)); iszero(c.box(x)) ? convert(T, c.f(x)) : T(Inf))
+  (_check_value_arrays(c, x); _value_checked(c, x))
+_value_unchecked(c::BoxConstrained, x::AbstractArray) =
+  (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.box, x)) ? convert(T, _value_unchecked(c.f, x)) : T(Inf))
 
 # the scalar problem is convex, so its minimizer on an interval is the nearest
 # point to its unconstrained minimizer
@@ -167,15 +171,23 @@ Base.@propagate_inbounds prox_entry(c::BoxConstrained, v::Real, i::Integer, γ::
   prox_entry(c.box, prox_entry(c.f, v, i, γ), i, γ)
 
 # γ is a scalar step or an array of steps, one per entry
-prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = (_checkwrite(prox!, c, y, x, γ); _prox_sep!(y, c, x, γ))
-prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = (_checkwrite(prox!, c, y, x, γ); _prox_sep!(y, c, x, γ))
-value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = _value_and_prox_box!(y, c, x, γ)
-value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_box!(y, c, x, γ)
+prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = (_checkwrite(prox!, c, y, x, γ); _prox_sep!(y, c, x, γ))
+prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = (_checkwrite(prox!, c, y, x, γ); _prox_sep!(y, c, x, γ))
+value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+_value_and_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::Real) = _value_and_prox_box!(y, c, x, γ)
+value_and_prox!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+_value_and_prox_unchecked!(y::AbstractArray, c::BoxConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_box!(y, c, x, γ)
 function _value_and_prox_box!(y, c, x, γ)
   _checkwrite(value_and_prox!, c, y, x, γ)
   _prox_sep!(y, c, x, γ)
   T = float(eltype(y))
-  _isindicator(c) ? zero(T) : convert(T, c.f(y))
+  _isindicator(c) ? zero(T) : convert(T, _value_unchecked(c.f, y))
 end
 
 _checkparams(c::BoxConstrained, x) = (_checkparams(c.f, x); _checkparams(c.box, x); true)
@@ -188,7 +200,14 @@ function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArra
 end
 # A step is needed only for conditional values of nested box constraints.
 _checkwrite(op::O, f, y, x, γ) where {O} = (_checkreal(f, γ); _checkwrite(op, f, y, x))
-_checkwrite(op::O, s::Scaled, y, x, γ::Real) where {O} = (_checkreal(s, y); _checkreal(s, x); _checkwrite(op, s.f, y, x, s.α * γ))
+function _checkwrite(op::O, s::Scaled, y, x, γ::Real) where {O}
+  _checkreal(s, y); _checkreal(s, x)
+  if _nested_route(s, γ)
+    g, step, _ = _nested_step(s, γ)
+    return _checkwrite(op, g, y, x, step)
+  end
+  _checkwrite(op, s.f, y, x, s.α * γ)
+end
 _checkwrite(op::O, s::Scaled, y, x, γ::AbstractArray) where {O} = (_checkreal(s, y); _checkreal(s, x); _checkreal(s, γ); _checkwrite(op, s.f, y, x, _ScaledArray(γ, s.α)))
 function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray, γ) where {O}
   _checkreal(t, γ)
@@ -217,9 +236,8 @@ function _checkwrite(op::O, s::SeparableSum, y::Tuple, x::Tuple, γ) where {O}
   _checkblocks(s, x)
   _checkwrite_blocks(op, s.fs, y, x, γ)
 end
-_checkwrite_blocks(op, ::Tuple{}, ::Tuple{}, ::Tuple{}, γ) = true
-_checkwrite_blocks(op::O, fs::Tuple, y::Tuple, x::Tuple, γ) where {O} =
-  (_checkwrite(op, first(fs), first(y), first(x), γ); _checkwrite_blocks(op, Base.tail(fs), Base.tail(y), Base.tail(x), γ))
+@generated _checkwrite_blocks(op, fs::Tuple, y::Tuple, x::Tuple, γ) =
+  _blockwise(k -> :(_checkwrite(op, fs[$k], y[$k], x[$k], γ)), fieldcount(fs), true)
 
 # Read the prospective output only when an inner value check fails.
 struct _BoxProxArray{T, N, C, X, G} <: AbstractArray{T, N}
@@ -270,7 +288,7 @@ _box_value_available(c::BoxConstrained, y) = _box_value_available(c.f, y)
 @inline function _check_box_value(c::BoxConstrained, y, p)
   _checkparams(c, y)
   _box_value_available(c.f, y) && return true
-  iszero(c.box(p)) && _check_box_value(c.f, y, p)
+  iszero(_value_unchecked(c.box, p)) && _check_box_value(c.f, y, p)
   true
 end
 @inline function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArray, γ) where {O}
@@ -306,7 +324,9 @@ _restrict_unchecked(c::BoxConstrained, S::AbstractVector{<:Integer}) =
 #  on a hyperplane, halfspace or hyperslab
 ####################################
 
-(c::LinearConstrained)(x::AbstractArray) = (_checkreal(c, x); _checkparams(c, x); T = float(eltype(x)); iszero(c.set(x)) ? convert(T, c.f(x)) : T(Inf))
+(c::LinearConstrained)(x::AbstractArray) =
+  (_check_value_arrays(c, x); _value_checked(c, x))
+_value_unchecked(c::LinearConstrained, x::AbstractArray) = (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.set, x)) ? convert(T, _value_unchecked(c.f, x)) : T(Inf))
 
 _checkparams(c::LinearConstrained, x) = (_checkparams(c.f, x); _checkparams(c.set, x); true)
 function _checkwrite(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
@@ -322,16 +342,34 @@ end
 # in the metric of Diagonal(1 ./ γ), where z(ν) has the entries
 # prox_{γᵢfᵢ}(xᵢ - γᵢνaᵢ)
 prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
-  (_checkreal(c, y); _checkreal(c, x); _linear_constrained_prox!(y, c, x, convert(float(eltype(y)), γ)))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+_prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
+  _linear_constrained_prox!(y, c, x, convert(float(eltype(y)), γ))
 prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
-  (_checkreal(c, y); _checkreal(c, x); _checkreal(c, γ); _checkparam(γ, x); _check_metric_steps(c, γ); _linear_constrained_prox!(y, c, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
+_prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
+  (_checkparam(γ, x); _check_metric_steps(c, γ); _linear_constrained_prox!(y, c, x, γ))
+# the ridge checks its steps and decides its route in one pass (see _ridge_checked_steps),
+# after the shapes: the pass reads the center without bounds checks
+function _prox_unchecked!(y::AbstractArray, c::LinearConstrained{<:SqrNormL2}, x::AbstractArray, γ::AbstractArray)
+  _checkparam(γ, x)
+  _checkwrite(prox!, c, y, x)
+  T = float(eltype(y))
+  valid, ordinary = _ridge_checked_steps(c.f, γ, x, T)
+  valid || _check_metric_steps(c, γ)           # raises its error
+  ordinary ? _linear_constrained_prox!(y, c, x, _RidgeSteps(γ), T) : _linear_constrained_prox!(y, c, x, γ, T)
+end
 
 function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ)
   _checkwrite(prox!, c, y, x)
   T = float(eltype(y))
+  _ridge_ordinary_route(c.f, γ, x, T) ? _linear_constrained_prox!(y, c, x, _RidgeSteps(γ), T) :
+                                        _linear_constrained_prox!(y, c, x, γ, T)
+end
+function _linear_constrained_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ, ::Type{T}) where {T}
   ν = _multiplier(c, x, γ, T)
   set = c.set
-  set isa IndHyperslab && iszero(ν) && return _prox_sep!(y, c.f, x, γ)
+  set isa IndHyperslab && iszero(ν) && return _prox_sep!(y, c.f, x, _steps(γ))
   if _isscaled(set)
     return _linear_constrained_output!(y, c.f, _normalized_normal(set.a, set.s), x, γ, ν)
   end
@@ -346,13 +384,82 @@ function _linear_constrained_output!(y, f, a, x, γ, ν::T) where {T}
   y
 end
 
-value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) = _value_and_prox_linear!(y, c, x, γ)
-value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_linear!(y, c, x, γ)
+# A ridge whose entries are decided once per call. Where every γᵢλ, formed as
+# prox_entry forms it for the arguments of the search, lies in the band of the ordinary
+# coefficient (so none needs the scaled one of R3), and, for centers wider than the
+# model precision W, every center entry keeps its range on rounding to W, the steps are
+# wrapped, and every pass of the search and the output take the ordinary entry without
+# a test, so that their loops have no call and vectorize. The decision is made at every
+# call, as the steps may change between calls; anything else (a step outside the band,
+# zero or not finite, a center entry that leaves W, another function or precision)
+# keeps the tested entries. A scalar step is wrapped only for a wider center: otherwise
+# its coefficient is already decided outside the loops. (A third route, for a wider
+# center that leaves W somewhere, cost a homogeneous call on 8 entries about 40 ns.)
+# The kernels index the steps and the centers alike, by the linear indices of x.
+struct _RidgeSteps{G}
+  γ::G
+end
+_steps(γ) = γ
+_steps(s::_RidgeSteps) = s.γ
+
+_ridge_ordinary_route(f, γ, x, ::Type) = false
+_ridge_ordinary_route(f::SqrNormL2, γ::AbstractArray, x::AbstractArray, ::Type{T}) where {T} =
+  last(_ridge_checked_steps(f, γ, x, T))
+function _ridge_ordinary_route(f::SqrNormL2, γ::Real, x::AbstractArray, ::Type{T}) where {T}
+  W, P, usable = _ridge_route_types(f, x, T)
+  usable && _ridge_wide_center(f, W) && !_ridge_needs_scaling(W, convert(T, γ), f.λ) && _ridge_all_fit(W, f.y)
+end
+@inline _ridge_wide_center(f::SqrNormL2, ::Type{W}) where {W} = f.y !== nothing && _ridge_center_wider(W, eltype(f.y))
+# W, the type of the arguments xᵢ - γᵢνaᵢ, P, the type of γᵢλ as _ridge_needs_scaling(W,
+# γᵢ, λ) forms it, and whether the route applies to them
+@inline function _ridge_route_types(f::SqrNormL2, x::AbstractArray, ::Type{T}) where {T}
+  W = float(promote_type(eltype(x), T))
+  P = promote_type(W, T, float(typeof(f.λ)))
+  usable = W <: Union{Float32, Float64} && P <: Union{Float32, Float64} &&
+           !(_ridge_wide_center(f, W) && !(eltype(f.y) <: Base.IEEEFloat))
+  W, P, usable
+end
+
+# Per-entry steps: whether they are valid (as _check_metric_steps checks them) and take
+# the route, in one pass, as every short loop before the search costs a call on few
+# entries (a separate check and route cost one on 8 entries about 40 ns).
+function _ridge_checked_steps(f::SqrNormL2, γ::AbstractArray, x::AbstractArray, ::Type{T}) where {T}
+  W, P, usable = _ridge_route_types(f, x, T)
+  usable || return _valid_steps(γ), false
+  _ridge_wide_center(f, W) ? _ridge_scan(W, P, f.λ, γ, T, f.y) : _ridge_scan(W, P, f.λ, γ, T, nothing)
+end
+_valid_steps(γ) = (v = true; for g in γ; v &= (g > zero(g)) & isfinite(g); end; v)
+@inline _ridge_center_fits(::Type, ::Nothing, i) = true
+Base.@propagate_inbounds _ridge_center_fits(::Type{W}, c, i) where {W} = _ridge_fits(W, c[i])
+function _ridge_scan(::Type{W}, ::Type{P}, λ, γ::AbstractArray, ::Type{T}, c) where {W, P, T}
+  λ, lo, hi = P(λ), P(_ridge_band_low(W)), P(_ridge_band_high(W))
+  valid, ok = true, true
+  @inbounds for i in eachindex(IndexLinear(), γ)
+    g = γ[i]
+    valid &= (g > zero(g)) & isfinite(g)
+    t = P(convert(T, g)) * λ
+    ok &= (lo <= t) & (t <= hi) & _ridge_center_fits(W, c, i)
+  end
+  valid, valid & ok
+end
+_constraint_gap(f::SqrNormL2, a, b, x::AbstractArray, ν::T, s::_RidgeSteps, v::Val) where {T} =
+  _constraint_gap(_OrdinaryRidge(f), a, b, x, ν, s.γ, v)
+_linear_constrained_output!(y, f::SqrNormL2, a, x, s::_RidgeSteps, ν::T) where {T} =
+  _linear_constrained_output!(y, _OrdinaryRidge(f), a, x, s.γ, ν)
+_metric_sqnorm(set::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::AbstractArray, s::_RidgeSteps) =
+  _metric_sqnorm(set, x, s.γ)
+
+value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+_value_and_prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::Real) = _value_and_prox_linear!(y, c, x, γ)
+value_and_prox!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) =
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
+_value_and_prox_unchecked!(y::AbstractArray, c::LinearConstrained, x::AbstractArray, γ::AbstractArray) = _value_and_prox_linear!(y, c, x, γ)
 function _value_and_prox_linear!(y, c, x, γ)
   _checkwrite(value_and_prox!, c, y, x, γ)
-  prox!(y, c, x, γ)
+  _prox_unchecked!(y, c, x, γ)
   T = float(eltype(y))
-  _isindicator(c) ? zero(T) : convert(T, c.f(y))
+  _isindicator(c) ? zero(T) : convert(T, _value_unchecked(c.f, y))
 end
 
 # φ(ν) = ⟨a, z⟩ - b at z = z(ν), and Σᵢ |aᵢzᵢ| + |b|, the scale of its rounding
@@ -925,6 +1032,73 @@ function _top_sum!(v::AbstractVector{T}, κ::T) where {T}
 end
 
 ####################################
+#  the linear minimization oracle of the capped simplex
+####################################
+
+# {s : 0 ≤ sᵢ ≤ 1, Σᵢ sᵢ = k} for an integer k, as Constrained(IndBox(0, 1), IndHyperplane(a, k)) with
+# a = 1 or an array of ones. Nothing else is recognized: other bounds, normals, halfspaces and
+# hyperslabs have no oracle. A scalar normal does not know the dimension, so 0 ≤ k ≤ n is
+# checked by lmo!, as for the empty simplex.
+const _CappedSimplex = LinearConstrained{<:IndBox{<:Real, <:Real}, <:IndHyperplane}
+
+_support_fallback(::_CappedSimplex) = false   # its support function is the sum of the k largest entries
+
+function haslmo(c::_CappedSimplex)
+  c.f.l == 0 && c.f.u == 1 && c.set.b >= 0 && isinteger(c.set.b) && isfinite(c.set.b) &&
+    _constant_normal(c.set.a) == 1
+end
+
+function lmo!(s::AbstractArray, c::_CappedSimplex, g::AbstractArray)
+  _checkreal(c, g)
+  _checkreal(c, s)
+  s isa Union{Array, SubArray{<:Any, <:Any, <:Array}} && eltype(s) <: AbstractFloat ||
+    throw(ArgumentError("the output of lmo! must be an Array, or a view of one, of floating-point numbers; got $(typeof(s))"))
+  _checksize(s, g)
+  _checkparams(c, g)
+  haslmo(c) || _lmo_unsupported(c)
+  n = length(g)
+  c.set.b <= n || throw(ArgumentError("the capped simplex with sum $(c.set.b) has no point of size $(size(g))"))
+  _capped_lmo!(s, c, g, Int(c.set.b))
+  s
+end
+
+function _capped_lmo!(s, c, g, k::Int)
+  T = eltype(s)
+  n = length(g)
+  # the minimizer does not depend on g when k is 0 or n (E2)
+  k == 0 && return fill!(s, zero(T))
+  k == n && return fill!(s, one(T))
+  v = _buffer!(c.scratch, eltype(g), n)
+  nan = false
+  @inbounds for i in 1:n
+    x = g[i]
+    nan |= isnan(x)
+    v[i] = x
+  end
+  nan && return fill!(s, T(NaN))
+  # the k-th smallest entry, then the entries below it, then the first ties
+  t = _kth_largest!(view(v, 1:n), n - k + 1)
+  below = 0
+  @inbounds for i in 1:n
+    below += v[i] < t
+  end
+  ties = k - below
+  # a single pass in linear order, reading g[i] before writing s[i]: s may be g
+  @inbounds for i in 1:n
+    x = g[i]
+    if x < t
+      s[i] = one(T)
+    elseif x == t && ties > 0
+      ties -= 1
+      s[i] = one(T)
+    else
+      s[i] = zero(T)
+    end
+  end
+  s
+end
+
+####################################
 #  the slopes of scalar proximal operators
 ####################################
 
@@ -948,25 +1122,24 @@ _has_prox_slope(::Type{<:BoxConstrained{F}}) where {F} = _has_prox_slope(F)
   (prox_entry(f, v, i, γ), one(float(T)))
 Base.@propagate_inbounds _prox_entry_slope(f::LinearFunction, v::T, i::Integer, γ::Real) where {T<:Real} =
   (prox_entry(f, v, i, γ), one(float(T)))
-Base.@propagate_inbounds function _prox_entry_slope(f::SqrNormL2, v::T, i::Integer, γ::Real) where {T<:Real}
-  S = float(T)
-  prox_entry(f, v, i, γ), inv(one(S) + convert(S, γ * f.λ))
-end
+# the slope is the weight prox_entry applies to the argument, also where γλ leaves the
+# range of the model type; _OrdinaryRidge takes the ordinary weight, as the tested route does
+Base.@propagate_inbounds _prox_entry_slope(f::SqrNormL2, v::Real, i::Integer, γ::Real) = _ridge_prox_slope(f, v, i, γ)
+Base.@propagate_inbounds _prox_entry_slope(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) = _ridge_prox_slope(r, v, i, γ)
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = convert(S, _weight_product(γ, f.λ0, _entry(f.w, i)))
+  t = _weight_product(S, γ, f.λ0, _entry(f.w, i))
   shrink(v, t), _slope(abs(v) > t, one(S))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = convert(S, _weight_product(γ, f.λ0, _entry(f.w, i)))
+  t = _weight_product(S, γ, f.λ0, _entry(f.w, i))
   max(v - t, zero(S)), _slope(v > t, one(S))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = convert(S, _weight_coefficient(γ, f.λ1, _entry(f.w, i)))
-  d = 1 + convert(S, γ * f.λ2)
-  shrink(v, t) / d, _slope(abs(v) > t, inv(d))
+  t = _weight_coefficient(S, γ, f.λ1, _entry(f.w, i))
+  _elastic_ridge(S, shrink(v, t), γ, f.λ2), _slope(abs(v) > t, _elastic_slope(S, γ, f.λ2))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::IndBox, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
@@ -975,8 +1148,13 @@ Base.@propagate_inbounds function _prox_entry_slope(f::IndBox, v::T, i::Integer,
 end
 @inline _prox_entry_slope(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} =
   (max(float(v), zero(float(T))), _slope(v > 0, one(float(T))))
-Base.@propagate_inbounds _prox_entry_slope(s::Scaled, v::Real, i::Integer, γ::Real) =
+Base.@propagate_inbounds function _prox_entry_slope(s::Scaled, v::Real, i::Integer, γ::Real)
+  if _nested_route(s, γ)
+    g, step, _ = _nested_step(s, γ)
+    return _prox_entry_slope(g, v, i, step)
+  end
   _prox_entry_slope(s.f, v, i, s.α * γ)
+end
 Base.@propagate_inbounds _prox_entry_slope(t::Tilt, v::Real, i::Integer, γ::Real) =
   _prox_entry_slope(t.f, v - γ * t.c[i], i, γ)
 Base.@propagate_inbounds function _prox_entry_slope(t::Translate, v::Real, i::Integer, γ::Real)
@@ -1031,4 +1209,27 @@ function _checkstep(op::O, c::LinearConstrained, y::AbstractArray, x::AbstractAr
     isfinite(v) || return true
   end
   _infeasible(c)
+end
+
+_decided_on_spectrum(::BoxConstrained) = true
+function _spectrum_value(c::BoxConstrained, v::AbstractVector{T}, k::Int) where {T}
+  _checkparams(c, v)
+  # A finite ordinary value needs neither relaxed membership nor a new sum.
+  if k == 0 && !_isindicator(c)
+    ordinary = c(v)
+    isfinite(ordinary) && return convert(T, ordinary)
+  end
+  iszero(_spectrum_value(c.box, v, k)) || return T(Inf)
+  convert(T, _spectrum_value(c.f, v, k))
+end
+_decided_on_spectrum(::LinearConstrained) = true
+function _spectrum_value(c::LinearConstrained, v::AbstractVector{T}, k::Int) where {T}
+  _checkparams(c, v)
+  # A finite ordinary value needs neither relaxed membership nor a new sum.
+  if k == 0 && !_isindicator(c)
+    ordinary = c(v)
+    isfinite(ordinary) && return convert(T, ordinary)
+  end
+  iszero(_spectrum_value(c.set, v, k)) || return T(Inf)
+  convert(T, _spectrum_value(c.f, v, k))
 end

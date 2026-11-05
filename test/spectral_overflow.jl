@@ -128,7 +128,7 @@ function base_value(f::IndBallRank, X)
   ws = PB._svd_workspace(f.ws, T, size(X)...)
   copyto!(ws.A, X)
   s, = PB._svd!(ws; vectors = false)
-  s[f.r + 1] <= sqrt(eps(T)) * max(one(T), s[1]) ? zero(T) : T(Inf)
+  s[f.r + 1] <= sqrt(eps(T)) * s[1] ? zero(T) : T(Inf)
 end
 
 function base_ispsd(f, X, r)
@@ -141,7 +141,8 @@ function base_ispsd(f, X, r)
   n == 0 && return true
   tol = sqrt(eps(T)) * max(one(T), abs(λ[1]), abs(λ[n]))
   λ[1] >= -tol || return false
-  r === nothing || count(>(tol), λ) <= r
+  ranktol = sqrt(eps(T)) * max(abs(λ[1]), abs(λ[n]))
+  r === nothing || count(>(ranktol), λ) <= r
 end
 
 base_value(f::IndPSD, X) = base_ispsd(f, X, f.rank) ? zero(eltype(X)) : eltype(X)(Inf)
@@ -154,7 +155,7 @@ function base_value(F::SingularValue, X)
   copyto!(ws.A, X)
   s, = PB._svd!(ws; vectors = false)
   c = isempty(s) ? zero(T) : sqrt(eps(T)) * s[1]
-  convert(T, F.f([v <= c ? zero(T) : v for v in s]))
+  convert(T, F.f(PB._counts_nonzeros(F.f) ? [v <= c ? zero(T) : v for v in s] : s))
 end
 
 function base_value(f::Spectral, X)
@@ -162,7 +163,9 @@ function base_value(f::Spectral, X)
   PB._issymmetric_tol(X) || return T(Inf)
   ws = PB._eig_workspace(f.eig, T, LinearAlgebra.checksquare(X))
   copyto!(ws.A, X)
-  convert(T, f.f(PB._eigvals!(ws)))
+  λ = PB._eigvals!(ws)
+  c = isempty(λ) ? zero(T) : sqrt(eps(T)) * max(abs(λ[1]), abs(λ[end]))
+  convert(T, f.f(PB._counts_nonzeros(f.f) ? [abs(v) <= c ? zero(T) : v for v in λ] : λ))
 end
 
 @testset "spectral overflow" begin
@@ -294,7 +297,7 @@ end
         end
       end
 
-      @testset "ordinary values match the base bitwise" begin
+      @testset "ordinary values match the spectrum reference bitwise" begin
         rng = Xoshiro(165)
         for (m, n) in ((3, 3), (4, 2), (2, 5))
           X = randn(rng, T, m, n)

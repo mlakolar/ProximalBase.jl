@@ -164,9 +164,8 @@ in units scaled by a power of two; its error relative to `‖X‖` matches an
 ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
 entry exceeding `floatmax` by less than the reconstruction's rounding bound
 is returned as `±floatmax`.
-When an intermediate sum overflows, or a weight is not representable in the
-argument's precision although the weighted value is representable, the value
-is computed in scaled units. The domain is the finite matrices: the
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
+The domain is the finite matrices: the
 value is `Inf` at a matrix with a non-finite entry, also for `λ = 0`.
 For `λ = 0`, the proximal operator copies its input. When a decomposition is
 needed, a non-finite input gives an all-`NaN` proximal output.
@@ -258,6 +257,7 @@ end
 end
 
 function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real)
+  X = _symmetric_argument(Y, X)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
   finite = all(isfinite, X)
@@ -291,7 +291,7 @@ function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, �
   _mul_lowrank!(Y, U, Vt, k, ws)
   _spectral_level_value(f.λ, v, s, c)
 end
-prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real) = (value_and_prox!(Y, f, X, γ); Y)
+prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real) = (X = _symmetric_argument(Y, X); value_and_prox!(Y, f, X, γ); Y)
 
 ####################################
 #  rank constraint
@@ -309,9 +309,11 @@ ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
 entry exceeding `floatmax` by less than the reconstruction's rounding bound
 is returned as `±floatmax`.
 
-Membership is reliable for every finite input within the floating-point
-tolerance; non-finite entries are not members. When `r ≥ minimum(size(X))`,
-the proximal operator copies its input, including at non-finite inputs.
+Numerical rank counts singular values above `√ε σ₁`, with no absolute floor,
+so the rank threshold is relative at every scale. See
+[Functions of a spectrum](@ref). Non-finite entries are not members. When
+`r ≥ minimum(size(X))`, the proximal operator copies its input, including at
+non-finite inputs.
 When a decomposition is needed, a non-finite input gives an all-`NaN` output.
 `value_and_prox!` returns `Inf` at a non-finite input and zero otherwise.
 
@@ -356,17 +358,20 @@ function (f::IndBallRank)(X::AbstractMatrix)
   !_is_device_array(X) || all(isfinite, ws.A) || return T(Inf)
   minimum(size(X)) <= f.r && return zero(T)
   s, = _svd!(ws; vectors = false)
-  _finite_value(s[1]) || return _rank_scaled_value(ws, X, f.r)
-  s[f.r + 1] <= _tol(T) * max(one(T), s[1]) ? zero(T) : T(Inf)
+  c = _tol(T) * s[1]
+  (!_finite_value(s[1]) || (s[1] > zero(T) && c <= floatmin(T))) &&
+    return _rank_scaled_value(ws, X, f.r)
+  s[f.r + 1] <= c ? zero(T) : T(Inf)
 end
 
 @noinline function _rank_scaled_value(ws::SVDWorkspace{T}, X::AbstractMatrix, r::Int) where {T}
-  α = _scaled_spectral_input!(ws.A, X)
+  _scaled_spectral_input!(ws.A, X)
   s, = _svd!(ws; vectors = false)
-  s[r + 1] <= _tol(T) * max(α, s[1]) ? zero(T) : T(Inf)
+  s[r + 1] <= _tol(T) * s[1] ? zero(T) : T(Inf)
 end
 
 function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
+  X = _symmetric_argument(Y, X)
   _checkwrite(prox!, f, Y, X)
   T = float(eltype(Y))
   if minimum(size(X)) <= f.r
@@ -394,6 +399,7 @@ function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
 end
 
 function value_and_prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
+  X = _symmetric_argument(Y, X)
   _checkwrite(value_and_prox!, f, Y, X)
   finite = all(isfinite, X)
   prox!(Y, f, X, γ)
@@ -483,6 +489,7 @@ function (f::IndStiefel)(X)
 end
 
 function prox!(Y, f::IndStiefel, X, ::Real)
+  X = _symmetric_argument(Y, X)
   _checkwrite(prox!, f, Y, X)
   X = _is_device_array(X) ? copyto!(_array_buffer!(f.input, eltype(X), size(X)), X) : X
   m = _maximum_abs(X)
@@ -505,6 +512,7 @@ function prox!(Y, f::IndStiefel, X, ::Real)
 end
 
 function value_and_prox!(Y, f::IndStiefel, X, γ::Real)
+  X = _symmetric_argument(Y, X)
   _checkwrite(value_and_prox!, f, Y, X)
   finite = all(isfinite, X)
   prox!(Y, f, X, γ)
@@ -532,9 +540,11 @@ ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
 entry exceeding `floatmax` by less than the reconstruction's rounding bound
 is returned as `±floatmax`.
 
-Membership is reliable for every finite input within the floating-point
-tolerance; non-finite entries are not members. At a non-finite input, the
-proximal output is all `NaN` and `value_and_prox!` returns `Inf`.
+The sign test uses `√ε·max(1, ‖λ‖∞)`. With a rank bound, numerical rank counts
+positive eigenvalues above `√ε·‖λ‖∞`, with no absolute floor. See
+[Functions of a spectrum](@ref). Non-finite entries are not members. At a
+non-finite input, the proximal output is all `NaN` and `value_and_prox!` returns
+`Inf`.
 
 $_PARTIAL_NOTE Without a rank, the partial projection pays when few
 eigenvalues are positive.
@@ -585,7 +595,12 @@ function _ispsd!(f, X::AbstractMatrix, r::Union{Nothing, Int})
   _finite_value(λ[1]) && _finite_value(λ[n]) || return _scaled_ispsd!(ws, X, r)
   tol = _tol(T) * max(one(T), abs(λ[1]), abs(λ[n]))
   λ[1] >= -tol || return false
-  r === nothing || count(>(tol), λ) <= r
+  r === nothing && return true
+  m = max(abs(λ[1]), abs(λ[n]))
+  c = _tol(T) * m
+  m > zero(T) && c <= floatmin(T) &&
+    return _scaled_ispsd!(ws, X, r)
+  count(>(c), λ) <= r
 end
 
 @noinline function _scaled_ispsd!(ws::SymEigenWorkspace{T}, X::AbstractMatrix, r::Union{Nothing, Int}) where {T}
@@ -593,7 +608,8 @@ end
   λ = _eigvals!(ws)
   tol = _tol(T) * max(α, abs(λ[1]), abs(λ[end]))
   λ[1] >= -tol || return false
-  r === nothing || count(>(tol), λ) <= r
+  c = _tol(T) * max(abs(λ[1]), abs(λ[end]))
+  r === nothing || count(>(c), λ) <= r
 end
 
 (f::IndPSD)(X::AbstractMatrix) = (_checkreal(f, X); _ispsd!(f, X, f.rank) ? zero(float(eltype(X))) : float(eltype(X))(Inf))
@@ -617,6 +633,7 @@ function _project_psd!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix)
 end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real)
+  X = _spectral_argument(X)
   _checkwrite(prox!, f, Y, X)
   all(isfinite, X) || return fill!(Y, convert(eltype(Y), NaN))
   if f.partial
@@ -626,6 +643,7 @@ function prox!(Y::AbstractMatrix, f::IndPSD{Nothing}, X::AbstractMatrix, ::Real)
 end
 
 function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
+  X = _spectral_argument(X)
   _checkwrite(prox!, f, Y, X)
   all(isfinite, X) || return fill!(Y, convert(eltype(Y), NaN))
   n = checksquare(X)
@@ -646,6 +664,7 @@ function prox!(Y::AbstractMatrix, f::IndPSD{Int}, X::AbstractMatrix, γ::Real)
 end
 
 function value_and_prox!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix, γ::Real)
+  X = _spectral_argument(X)
   _checkwrite(value_and_prox!, f, Y, X)
   finite = all(isfinite, X)
   prox!(Y, f, X, γ)
@@ -668,9 +687,7 @@ in units scaled by a power of two; its error relative to `‖X‖` matches an
 ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
 entry exceeding `floatmax` by less than the reconstruction's rounding bound
 is returned as `±floatmax`.
-When an intermediate sum overflows, or a weight is not representable in the
-argument's precision although the weighted value is representable, the value
-is computed in scaled units.
+Values follow the overflow rule in [Overflow and underflow of values](@ref).
 
 Membership in the positive semidefinite cone is reliable for every finite input
 within the floating-point tolerance; non-finite entries are not members.
@@ -740,6 +757,7 @@ end
 end
 
 function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real)
+  X = _spectral_argument(X)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
   all(isfinite, X) || (fill!(Y, T(NaN)); return T(Inf))
@@ -763,4 +781,4 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
   _spectral_level_value(f.λ, s, λ, c)
 end
 prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::Real) =
-  (value_and_prox!(Y, f, X, γ); Y)
+  (X = _spectral_argument(X); value_and_prox!(Y, f, X, γ); Y)

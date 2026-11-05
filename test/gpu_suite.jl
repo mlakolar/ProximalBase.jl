@@ -1,21 +1,7 @@
-# Shared reference-backend and physical-device cases. The entry point supplies
-# DeviceArray, test_types, host (synchronized copy), and ≃ (comparison).
-using Test, ProximalBase, LinearAlgebra, Random
-using GPUArraysCore: allowscalar
-import Adapt
-
-Random.seed!(1)
-
-# a separable function of one's own, a bits type: Σᵢ c xᵢ² / 2
-struct ScaledSquare{T} <: SeparableFunction
-  c::T
-end
-ProximalBase.value_entry(f::ScaledSquare, v, i) = f.c * v^2 / 2
-ProximalBase.prox_entry(f::ScaledSquare, v, i, γ) = v / (1 + γ * f.c)
-ProximalBase.iszeropreserving(::ScaledSquare) = true
-
-# the values agree, including Inf for a point outside a set
-same(a, b) = isinf(b) ? a == b : a ≃ b
+# Shared reference-backend and physical-device cases, included after gpu_prelude.jl (which
+# defines ScaledSquare and same). The entry point supplies DeviceArray, test_types, host
+# (synchronized copy), and ≃ (comparison).
+# The representative cases, run in the Quick tier by gpu_smoke.jl, are in gpu_suite_basics.jl.
 
 @testset "real entries on GPU arrays" begin
   allowscalar(false)
@@ -105,9 +91,10 @@ end
   for T in test_types
     xc = T.(x)
     xg = DeviceArray(xc)
-    for f in (NormL1(0.3), NormL1(0.3, T.(w)), NormL1Nonneg(0.3), NormL1Nonneg(0.3, T.(w)),
+    # NormL1(0.3), NormL1(0.3, T.(w)) and ScaledSquare(T(0.6)) are in gpu_suite_basics.jl.
+    for f in (NormL1Nonneg(0.3), NormL1Nonneg(0.3, T.(w)),
               ElasticNet(0.3, 0.5), ElasticNet(0.3, 0.5, T.(w)), IndBox(-0.5, 0.7), IndBox(T.(l), T.(u)),
-              IndBallLinf(0.4), IndNonnegative(), NormL0(0.2), MCP(0.3, 3.0), SCAD(0.3, 3.7), ScaledSquare(T(0.6)),
+              IndBallLinf(0.4), IndNonnegative(), NormL0(0.2), MCP(0.3, 3.0), SCAD(0.3, 3.7),
               SqrNormL2(0.7), SqrNormL2(0.7, T.(w)))
       @testset "$(nameof(typeof(f))), $T" begin
         fg = Adapt.adapt(DeviceArray, f)                       # its parameter arrays on the device
@@ -248,9 +235,10 @@ end
   for T in test_types
     xc = T.(x)
     xg = DeviceArray(xc)
-    # each function also with a level or radius at which the result is zero or x
-    for f in (NormL2(0.3), NormL2(100.), NormLinf(0.3), NormLinf(1e4), IndBallL2(1.), IndBallL2(1e3), IndBallL1(2.),
-              IndBallL1(1e4), IndBallL1(0.), IndSimplex(1.), IndSimplex(3., equality = false), IndSimplex(1e4, equality = false),
+    # each function also with a level or radius at which the result is zero or x;
+    # NormL2(0.3) and IndSimplex(1.) are in gpu_suite_basics.jl
+    for f in (NormL2(100.), NormLinf(0.3), NormLinf(1e4), IndBallL2(1.), IndBallL2(1e3), IndBallL1(2.),
+              IndBallL1(1e4), IndBallL1(0.), IndSimplex(3., equality = false), IndSimplex(1e4, equality = false),
               IndSimplex(1e4), IndSimplex(0.))
       @testset "$(nameof(typeof(f))), $T" begin
         yc = prox(f, xc, 0.8)
@@ -312,8 +300,9 @@ end
   for T in test_types
     xc = T.(x)
     xg = DeviceArray(xc)
-    # each function also with a level at which nothing or everything shrinks to zero
-    for f in (GroupNormL2(0.3, groups), GroupNormL2(0.3, groups, w), GroupNormL2(0., groups), GroupNormL2(50., groups),
+    # each function also with a level at which nothing or everything shrinks to zero;
+    # GroupNormL2(0.3, groups) is in gpu_suite_basics.jl
+    for f in (GroupNormL2(0.3, groups, w), GroupNormL2(0., groups), GroupNormL2(50., groups),
               GroupNormLinf(0.3, groups), GroupNormLinf(0.3, groups, w), GroupNormLinf(0., groups), GroupNormLinf(100., groups),
               SparseGroupNormL2(0.2, 0.3, groups), SparseGroupNormL2(0., 0.3, groups), SparseGroupNormL2(0.5, 1.5, groups, w),
               SparseGroupNormL2(0.2, 0., groups), IndBallGroupL0(3, groups), IndBallGroupL0(0, groups), IndBallGroupL0(20, groups))
@@ -436,37 +425,7 @@ end
   end
 end
 
-@testset "weighted norms at device overflow" begin
-  allowscalar(false)
-  for T in test_types
-    M = floatmax(T)
-    x = DeviceArray(T[M, M])
-    f = NormL2(T(1) / 4)
-    reference = sqrt(big(2)) * big(M) / 4
-    tolerance = 2big(eps(T(reference)))
-    v = f(x)
-    @test isfinite(v) && abs(big(v) - reference) <= tolerance
-    y = similar(x)
-    v = value_and_prox!(y, f, x, T(1) / 8)
-    @test isfinite(v) && abs(big(v) - reference) <= tolerance
-    expected = host(prox(f, x, T(1) / 8))
-    @test expected ≈ prox(f, T[M, M], T(1) / 8)       # the device shrink agrees with the host one
-    @test reinterpret(UInt8, host(y)) == reinterpret(UInt8, expected)
-    z = copy(x)
-    v = value_and_prox!(z, f, z, T(1) / 8)
-    @test isfinite(v) && abs(big(v) - reference) <= tolerance
-    @test reinterpret(UInt8, host(z)) == reinterpret(UInt8, expected)
-    v = NormL1(T(1) / 4)(x)
-    @test isfinite(v) && abs(big(v) - big(M) / 2) <= 2big(eps(M / 2))
-    u = nextfloat(zero(T))
-    reference = big(u) * sqrt(big(2)) * big(M)
-    v = NormL2(u)(x)
-    @test isfinite(v) && abs(big(v) - reference) <= 2big(eps(T(reference)))
-    # the spectral functions decompose on the host; the overflow fallback too
-    v = NuclearNorm(T(1) / 4)(DeviceArray(Matrix{T}(M * I, 2, 2)))
-    @test isfinite(v) && abs(big(v) - big(M) / 2) <= 2big(eps(M / 2))
-  end
-end
+# "weighted norms at device overflow" is in gpu_suite_basics.jl.
 
 @testset "zero penalty levels before device reductions" begin
   allowscalar(false)
@@ -505,8 +464,9 @@ end
   w, o = 0.5 .+ rand(n), 0.1 .* randn(n)
   for T in test_types
     Xc = T.(X)
-    for f in (LeastSquaresLoss(T.(y), Xc), LeastSquaresLoss(T.(Y), Xc), GLMLoss(ProximalBase.Squared(), T.(y), Xc),
-              LogisticLoss(T.(yb), Xc), PoissonLoss(T.(abs.(y)), Xc; offset = T.(o)), HuberLoss(T.(y), Xc, 0.5; weights = T.(w)),
+    # LeastSquaresLoss(T.(y), Xc) and LogisticLoss(T.(yb), Xc) are in gpu_suite_basics.jl.
+    for f in (LeastSquaresLoss(T.(Y), Xc), GLMLoss(ProximalBase.Squared(), T.(y), Xc),
+              PoissonLoss(T.(abs.(y)), Xc; offset = T.(o)), HuberLoss(T.(y), Xc, 0.5; weights = T.(w)),
               GLMLoss(ProximalBase.SmoothCheck(0.3, 0.2), T.(y), Xc; weights = T.(w), offset = T.(o)))
       @testset "$(nameof(typeof(f))) $(f isa GLMLoss ? nameof(typeof(f.loss)) : ndims(f.Y)), $T" begin
         fg = Adapt.adapt(DeviceArray, f)                      # X, y and the buffers on the device
@@ -623,7 +583,8 @@ end
   allowscalar(false)
   for T in test_types, λ in (0, 1)
     w = T[1, Inf, 0, 2]
-    for f in (NormL1(T(λ), w), NormL1Nonneg(T(λ), w), ElasticNet(T(λ), T(0.5), w))
+    # NormL1(T(λ), w) is in gpu_suite_basics.jl.
+    for f in (NormL1Nonneg(T(λ), w), ElasticNet(T(λ), T(0.5), w))
       fg = Adapt.adapt(DeviceArray, f)
       for x in (T[0.5, 0, -0.3, 1], T[0.5, 0.2, -0.3, 1])
         xg = DeviceArray(x)
@@ -873,15 +834,7 @@ end
     @test_throws DomainError prox!(Y, LogDetLoss(Matrix{T}(I, 3, 3)), D, -1)
     @test host(Y) == fill(T(17), 3, 3)
   end
-  # These matrix-set intersections predate the host decomposition paths.
-  D = typeof(DeviceArray(zeros(Float32, 1)))
-  F = Nothing
-  device_value = which(ProximalBase._value_dense, Tuple{F, D})
-  device_prox = which(ProximalBase._prox_sep!, Tuple{D, F, D, Float64})
-  known = (Set((device_value, which(ProximalBase._value_dense, Tuple{IndPattern, Vector{Float64}}))),
-           Set((device_value, which(ProximalBase._value_dense, Tuple{IndBanded, Matrix{Float64}}))),
-           Set((device_prox, which(ProximalBase._prox_sep!, Tuple{Matrix{Float64}, IndBanded, Matrix{Float64}, Float64}))))
-  @test all(pair -> Set(pair) in known, Test.detect_ambiguities(ProximalBase))
+  # The ambiguity guard for the GPU extension is in gpu_suite_basics.jl.
 end
 
 @testset "weighted values at overflow on GPU arrays" begin
@@ -1096,6 +1049,8 @@ end
     for λ1 in (F === SparseGroupNormL2 ? (0.0, 0.25) : (0.0,))
       for (λ, w, x, γ, expected, value) in (
           (1.0, [1e100], Float32[2], 0f0, Float32[2], Inf32),
+          (1.0, [1e40], Float32[1f-20], 0f0, Float32[1f-20], Float32(1e40 * Float64(1f-20))),
+          (1.0, [1e40], Float32[1f-20], 1f-30, Float32[0], 0f0),
           (0.0, [Inf, 1e100], Float32[2, 2], 0f0, Float32[0, 2], Float32(2λ1)),
           (0.0, [Inf, 1e100], Float32[2, 2], 1f0, Float32[0, 2-λ1], Float32(λ1*(2-λ1))),
           (1e-20, [1e40], Float32[2], 0f0, Float32[2], 2f20),
@@ -1366,8 +1321,8 @@ end
     γ = reshape(repeat(T[0.5, 1, 2], prod(dims) ÷ 3), dims)
     xg, γg = DeviceArray(x), DeviceArray(γ)
     @test host(prox(Berhu(1, 1), xg, γg)) ≃ prox(Berhu(1, 1), x, γ)
-    for f in (NormL1(), IndNonnegative(), IndBox(-1, 1), ElasticNet(1, 1), Berhu(1, 1),
-              ElasticNet(1, 1, fill(T(0.8), dims)))
+    # ElasticNet(1, 1, fill(T(0.8), dims)) is in gpu_suite_basics.jl.
+    for f in (NormL1(), IndNonnegative(), IndBox(-1, 1), ElasticNet(1, 1), Berhu(1, 1))
       c, cg = Conjugate(f), Conjugate(Adapt.adapt(DeviceArray, f))
       expected = prox(c, x, γ)
       y = similar(xg)
@@ -1466,5 +1421,369 @@ conjugate_blocks_match(a::Tuple, b::Tuple) = all(map(conjugate_blocks_match, a, 
         @test conjugate_blocks_match(y, expected)
       end
     end
+  end
+end
+
+@testset "33-block sums on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types
+    blocks = ntuple(_ -> T[0.5, -2], 33)
+    deviceblocks = map(DeviceArray, blocks)
+    s = SeparableSum(ntuple(_ -> SqrNormL2(), 33))
+    for f in (s, Conjugate(s))
+      y = prox(f, deviceblocks, T(0.5))
+      expected = prox(f, blocks, T(0.5))
+      @test conjugate_blocks_match(y, expected)
+      @test prox!(y, f, deviceblocks, T(0.5)) === y
+      @test same(value_and_prox!(y, f, deviceblocks, T(0.5)),
+                 value_and_prox!(deepcopy(blocks), f, blocks, T(0.5)))
+      @test conjugate_blocks_match(y, expected)
+    end
+  end
+end
+
+@testset "direct conjugate projections on device arrays" begin
+  allowscalar(false)
+    setprecision(BigFloat, 4096) do
+      for T in test_types
+        h = T === Float64 ? T(1e300) : T(1e30)
+        x = T[h, -h / 3, 2, 0, T(0.25)]
+        dx = DeviceArray(x)
+        for (f, ref) in (
+            (NormL1(), clamp.(BigFloat.(x), -1, 1)),
+            (NormL1Nonneg(), min.(BigFloat.(x), 1)),
+            (NormL1(T(0), T[Inf, 0, 2, 1, Inf]), BigFloat[x[1], 0, 0, 0, x[5]]),
+            (CheckLoss(T(0.3), T[1, 0, Inf, 2, 1]), clamp.(BigFloat.(x), BigFloat.(T[1, 0, Inf, 2, 1]) .* (BigFloat(T(0.3)) - 1), BigFloat.(T[1, 0, Inf, 2, 1]) .* BigFloat(T(0.3)))),
+            (ZeroFunction(), zeros(BigFloat, 5)),
+            (IndNonnegative(), min.(BigFloat.(x), 0)),
+            (Scaled(NormL1(), 2), clamp.(BigFloat.(x), -2, 2)),
+            (Translate(NormL1(), T[0, 0, 1, 0, 0]), clamp.(BigFloat.(x) .- BigFloat[0, 0, 1, 0, 0], -1, 1)))
+          c = Conjugate(Adapt.adapt(DeviceArray, f))
+          for γ in (1e-310, 1.0, 1e30)
+            expected = f isa Translate ? clamp.(BigFloat.(x) .- BigFloat(γ) .* BigFloat.(f.b), -1, 1) : ref
+            for y in (prox(c, dx, γ), prox(c, dx, DeviceArray(fill(T(γ), 5))))
+              a = host(y)
+              for i in eachindex(a)
+                r = expected[i]
+                @test abs(BigFloat(a[i]) - r) <= 4BigFloat(eps(T)) * abs(r) + 2BigFloat(nextfloat(zero(T)))
+                iszero(r) && @test iszero(a[i])
+              end
+            end
+          end
+        end
+        for x in (T[h, T(0.5), T(0.25)], T[floatmax(T) * T(0.8), floatmax(T) * T(0.8), T(1e-30)])
+          for f in (NormL2(), NormL2(floatmax(T) / 2))
+            X = BigFloat.(x)
+            ref = X .* min(BigFloat(1), BigFloat(f.λ) / norm(X))
+            a = host(prox(Conjugate(f), DeviceArray(x), 1e-310))
+            for i in eachindex(a)
+              @test abs(BigFloat(a[i]) - ref[i]) <= 8BigFloat(eps(T)) * abs(ref[i]) + 2BigFloat(nextfloat(zero(T)))
+            end
+          end
+        end
+        f = GroupNormL2(T(1), [[1, 2], [4]], T[1, 0])
+        X = BigFloat.(host(dx))
+        ref = zeros(BigFloat, 5)
+        ref[1:2] .= X[1:2] ./ norm(X[1:2])
+        c = Conjugate(Adapt.adapt(DeviceArray, f))
+        a = host(prox(c, dx, 1e-310))
+        for i in eachindex(a)
+          @test abs(BigFloat(a[i]) - ref[i]) <= 8BigFloat(eps(T)) * abs(ref[i]) + 2BigFloat(nextfloat(zero(T)))
+          iszero(ref[i]) && @test iszero(a[i])
+        end
+      end
+    end
+end
+
+
+@testset "direct conjugate device views and nested sums" begin
+  allowscalar(false)
+  for T in test_types
+    x = DeviceArray(T[1e30, -2, 3, 4])
+    c = Conjugate(NormL1())
+    @test host(prox(c, view(x, 1:3), 1e-310)) == T[1, -1, 1]
+    y = copy(x)
+    @test value_and_prox!(y, c, y, 1e-310) == 0
+    @test host(y) == T[1, -1, 1, 1]
+    f = NormL1(T(1), reshape(T[0, 1, 2, Inf], 2, 2))
+    @test host(prox(Conjugate(Adapt.adapt(DeviceArray, f)), x, 1.0)) == T[0, -1, 2, 4]
+    f = Adapt.adapt(DeviceArray, SeparableSum(NormL1(), SeparableSum(NormL2(), NormL1Nonneg())))
+    y = prox(Conjugate(f), (x, (DeviceArray(T[3, 4]), DeviceArray(T[-2, 1e30]))), 1e-310)
+    @test host(y[1]) == T[1, -1, 1, 1]
+    @test host(y[2][1]) ≈ T[0.6, 0.8]
+    @test host(y[2][2]) == T[-2, 1]
+  end
+end
+
+
+@testset "review regressions: direct device projection parameters" begin
+  allowscalar(false)
+  for T in test_types
+    ext = Base.get_extension(ProximalBase, :ProximalBaseGPUArraysCoreExt)
+    for a in (big"1", big"1e500", big"1e-500")
+      @test isbitstype(typeof(ext._device_projection_scale(T, a)))
+    end
+    for op in (prox!, value_and_prox!)
+      f = Adapt.adapt(DeviceArray, GroupNormL2(1.0, [1:2], [1.0]))
+      y = DeviceArray(zeros(Float32, 2))
+      v = op(y, Conjugate(f), DeviceArray([1e39, 0.0]), 1.0)
+      @test host(y) == Float32[1, 0]
+      op === value_and_prox! && @test v == 0
+      for (λ, a, w, expected) in ((Inf, 1.0, 1.0, T[3, 4]),
+                                (1.0, Inf, 1.0, T[3, 4]),
+                                (Inf, 1.0, 0.0, T[0, 0]),
+                                (0.0, Inf, Inf, T[3, 4]),
+                                (1.0, Inf, 0.0, T[0, 0]))
+        f = Adapt.adapt(DeviceArray, Scaled(GroupNormL2(λ, [1:2], [w]), a))
+        y = DeviceArray(zeros(T, 2))
+        v = op(y, Conjugate(f), DeviceArray(T[3, 4]), 1.0)
+        @test host(y) == expected
+        op === value_and_prox! && @test v == 0
+      end
+      for (f, expected) in ((NormL1(BigFloat(1)), T[1, -1]),
+                            (NormL1Nonneg(BigFloat(1)), T[1, -4]),
+                            (CheckLoss(BigFloat("0.25")), T[0.25, -0.75]),
+                            (Scaled(NormL1(), BigFloat(2)), T[2, -2]),
+                            (NormL2(BigFloat(5)), T[3, -4]))
+        y = DeviceArray(zeros(T, 2))
+        v = op(y, Conjugate(f), DeviceArray(T[3, -4]), 1.0)
+        @test host(y) ≈ expected rtol = 8eps(T)
+        op === value_and_prox! && @test v == 0
+      end
+      for (λ, a, input) in (T === Float64 ? ((T(1e300), T(1e-200), T(1)), (T(1e-300), T(1e200), T(1e200))) :
+                                           ((T(1e30), T(1e-30), T(1)), (T(1e-30), T(1e25), T(1e30))))
+        f = Scaled(SeparableSum(Scaled(NormL1(λ), a)), a)
+        y = (DeviceArray(zeros(T, 1)),)
+        v = op(y, Conjugate(f), (DeviceArray(T[input]),), 1.0)
+        expected = T(min(BigFloat(input), BigFloat(λ) * BigFloat(a)^2))
+        @test host(y[1])[1] ≈ expected rtol = 4eps(T)
+        op === value_and_prox! && @test v == 0
+      end
+      f = NormL1(big"1e330", fill(1e-300, 2))
+      y = DeviceArray(zeros(T, 2))
+      v = op(y, Conjugate(Adapt.adapt(DeviceArray, f)), DeviceArray(T[3e30, -3e30]), 1.0)
+      expected = T(BigFloat(f.λ0) * BigFloat(1e-300))
+      @test host(y) ≈ T[expected, -expected] rtol = 4eps(T)
+      op === value_and_prox! && @test v == 0
+      # A non-isbits scalar outside Float64 still has device-compatible parts.
+      f = Scaled(NormL1(big"1e500"), big"1e-500")
+      y = DeviceArray(zeros(T, 2))
+      v = op(y, Conjugate(f), DeviceArray(T[3, -4]), 1.0)
+      @test host(y) ≈ T[1, -1] rtol = 4eps(T)
+      op === value_and_prox! && @test v == 0
+    end
+  end
+end
+
+
+@testset "infinite device scales preserve zero clipping coefficients" begin
+  allowscalar(false)
+  for T in test_types, op in (prox!, value_and_prox!),
+      base in (NormL1(zero(T)), NormL1Nonneg(zero(T)),
+               NormL1(zero(T), T[0, 2, Inf]), NormL1Nonneg(zero(T), T[0, 2, Inf]),
+               NormL1(one(T), T[0, 2, Inf]), NormL1Nonneg(one(T), T[0, 2, Inf]),
+               CheckLoss(T(0.25), T[0, 2, Inf]))
+    f = Scaled(base, T(Inf))
+    c = Conjugate(Adapt.adapt(DeviceArray, f))
+    x, dx = T[-3, 2, -4], DeviceArray(T[-3, 2, -4])
+    expected = prox(Conjugate(f), x, 1.0)
+    @test expected == T[prox_entry(Conjugate(f), x[i], i, 1.0) for i in eachindex(x)]
+    for γ in (1.0, DeviceArray(ones(T, 3)))
+      y = DeviceArray(zeros(T, 3))
+      v = op(y, c, dx, γ)
+      @test host(y) == expected
+      @test all(isfinite, host(y))
+      op === value_and_prox! && @test v == 0
+    end
+    blocks = (DeviceArray(zeros(T, 3)),)
+    v = op(blocks, Conjugate(SeparableSum(c.f)), (dx,), 1.0)
+    @test host(blocks[1]) == expected
+    op === value_and_prox! && @test v == 0
+  end
+end
+
+@testset "direct conjugate infinite-weight domains on device arrays" begin
+  allowscalar(false)
+  for T in test_types, λ in (zero(T), T(0.5), T(Inf)),
+      w in (T[1, Inf, 0], T[Inf, Inf, Inf], T[0, 1, 2], T[floatmax(T) / 4, 1, Inf])
+    x = T[3, 4, 1, -2, 0.5, 0.5, 7]
+    for groups in ([1:2, 3:4, 5:6], [[1, 3], [4, 5], [6]])
+      base = GroupNormL2(λ, groups, w)
+      functions = isfinite(λ) ? (base, Scaled(base, zero(T)), Scaled(Scaled(base, T(2)), zero(T))) : (base,)
+      for f in functions
+        expected = x .- prox(f, x, one(T))
+        c = Conjugate(Adapt.adapt(DeviceArray, f))
+        for op in (prox!, value_and_prox!), alias in (false, true)
+          source = DeviceArray(x)
+          y = alias ? source : similar(source)
+          v = op(y, c, source, one(T))
+          result = host(y)
+          @test result ≈ expected rtol = 8eps(T) atol = 8eps(T)
+          op === value_and_prox! && @test v == 0
+          for k in eachindex(groups)
+            isinf(w[k]) && @test result[groups[k]] == x[groups[k]]
+          end
+          @test all(i -> any(G -> i in G, groups) || iszero(result[i]), eachindex(x))
+        end
+      end
+    end
+    for base in (GroupNormL2(λ, [[1], [2], [3]], w), NormL1(λ, w), NormL1Nonneg(λ, w))
+      functions = isfinite(λ) ? (base, Scaled(base, zero(T))) : (base,)
+      # Device group penalties support scalar steps; clipping also supports arrays.
+      steps = base isa GroupNormL2 ? (one(T),) : (one(T), T[0.5, 1, 2])
+      for f in functions, γ in steps
+        input = T[3, -4, 2]
+        expected = input .- γ .* prox(f, input ./ γ, inv.(γ))
+        c = Conjugate(Adapt.adapt(DeviceArray, f))
+        step = γ isa Real ? γ : DeviceArray(γ)
+        for op in (prox!, value_and_prox!)
+          y = DeviceArray(zeros(T, 3))
+          v = op(y, c, DeviceArray(input), step)
+          @test host(y) ≈ expected rtol = 8eps(T) atol = 8eps(T)
+          op === value_and_prox! && @test v == 0
+        end
+      end
+    end
+  end
+end
+
+@testset "device zero projection factors mask nonfinite entries" begin
+  allowscalar(false)
+  for T in test_types, bad in (T(Inf), T(-Inf), T(NaN))
+    for (base, input) in (
+        (GroupNormL2(zero(T), [[1], [2]], T[Inf, 1]), T[3, bad]),
+        (GroupNormL2(one(T), [[1], [2]], T[Inf, 0]), T[3, bad]),
+        (GroupNormL2(zero(T), [[1], [3]], T[Inf, 1]), T[3, bad, bad, bad]),
+        (GroupNormL2(one(T), [[1], [3]], T[Inf, 0]), T[3, bad, bad, bad]),
+        (GroupNormL2(one(T), [[1], [3]], T[Inf, 1]), T[3, bad, 0, bad]),
+        (GroupNormL2(zero(T), [[1]], T[Inf]), T[3, bad]),
+        (GroupNormL2(zero(T), [[1], [2]], T[1, 1]), T[bad, bad]),
+        (NormL2(one(T)), T[bad, bad]))
+      for zero_scale in (false, true)
+        # Only the zero-scaled ordinary ball has an explicit zero radius here.
+        base isa NormL2 && !zero_scale && continue
+        f = zero_scale ? Scaled(base, zero(T)) : base
+        adapted = Adapt.adapt(DeviceArray, base)
+        d = zero_scale ? Scaled(adapted, zero(T)) : adapted
+        for op in (prox!, value_and_prox!)
+          expected = similar(input)
+          reference = op(expected, Conjugate(f), input, one(T))
+          for device_f in (f, d), alias in (false, true)
+            source = DeviceArray(input)
+            y = alias ? source : similar(source)
+            value = op(y, Conjugate(device_f), source, one(T))
+            @test isequal(host(y), expected)
+            op === value_and_prox! && @test isequal(value, reference)
+            alias || @test isequal(host(source), input)
+          end
+        end
+      end
+    end
+  end
+end
+
+@testset "device primal zero factors mask nonfinite entries" begin
+  allowscalar(false)
+  for T in test_types, bad in (T(Inf), T(-Inf), T(NaN)),
+      F in (GroupNormL2, GroupNormLinf, SparseGroupNormL2), zero_scale in (false, true)
+    groups = [[1], [3]]
+    base = F === SparseGroupNormL2 ? F(T(0.25), one(T), groups, T[Inf, 1]) :
+      F(one(T), groups, T[Inf, 1])
+    f = zero_scale ? Scaled(base, zero(T)) : base
+    adapted = Adapt.adapt(DeviceArray, base)
+    d = zero_scale ? Scaled(adapted, zero(T)) : adapted
+    input = T[bad, bad, 3, bad]
+    for op in (prox!, value_and_prox!)
+      expected = similar(input)
+      reference = op(expected, f, input, one(T))
+      for device_f in (f, d), alias in (false, true)
+        source = DeviceArray(input)
+        y = alias ? source : similar(source)
+        value = op(y, device_f, source, one(T))
+        @test isequal(host(y), expected)
+        op === value_and_prox! && @test isequal(value, reference)
+        alias || @test isequal(host(source), input)
+      end
+    end
+  end
+end
+
+@testset "direct device group projections in scaled tuples" begin
+  allowscalar(false)
+  setprecision(BigFloat, 4096) do
+    for T in test_types, α in (one(T), T(2)), γ in (T(0.5), T(2))
+      f = Adapt.adapt(DeviceArray, GroupNormL2(T(2), [[1, 2]], T[1]))
+      c = Conjugate(Scaled(SeparableSum(f, NormL1()), α))
+      # The block's radius is 2α and the ungrouped third entry is zero.
+      expected = BigFloat[3, 4, 0] .* (2BigFloat(α) / 5)
+      for op in (prox!, value_and_prox!), alias in (false, true)
+        x = (DeviceArray(T[3, 4, 7]), DeviceArray(T[-3, 4]))
+        y = alias ? x : map(copy, x)
+        value = op(y, c, x, γ)
+        result = host(y[1])
+        for i in eachindex(result)
+          @test abs(BigFloat(result[i]) - expected[i]) <= 8BigFloat(eps(T)) * abs(expected[i]) + 2BigFloat(nextfloat(zero(T)))
+        end
+        @test iszero(result[3])
+        @test host(y[2]) == T[-α, α]
+        op === value_and_prox! && @test value === zero(T)
+      end
+    end
+  end
+end
+
+@testset "Linf conjugates retain device Moreau results" begin
+  allowscalar(false)
+  for T in test_types
+    h = T === Float64 ? T(1e300) : T(3e30)
+    input = T[h, 0.5, 0.25]
+    x = DeviceArray(input)
+    for base in (NormLinf(one(T)), GroupNormLinf(one(T), [1:2, 3:3])),
+        f in (base, Scaled(base, T(2)), Translate(base, T[0.5, 0.25, 0]),
+              Scaled(Translate(base, T[0.5, 0.25, 0]), T(2))),
+        device_f in (f, Adapt.adapt(DeviceArray, f)), γ in (one(T), T(0.5))
+      expected = similar(x)
+      # The unchanged Moreau kernel is the pre-part-B device computation.
+      ProximalBase._conjugate_moreau!(expected, device_f, x, γ)
+      for op in (prox!, value_and_prox!)
+        y = similar(x)
+        if op === value_and_prox! && device_f isa Scaled &&
+            device_f.f isa Translate && device_f.f.f isa NormLinf
+          # The pre-existing scaled value path uses a scalar-indexed norm.
+          @test_throws r"Scalar indexing is disallowed" op(y, Conjugate(device_f), x, γ)
+        else
+          op(y, Conjugate(device_f), x, γ)
+        end
+        @test isequal(host(y), host(expected))
+      end
+      # A wrapped device input must also avoid host scalar indexing.
+      y = prox(Conjugate(device_f), view(x, :), γ)
+      @test isequal(host(y), host(expected))
+    end
+    @test host(prox(Conjugate(NormLinf()), x)) == T[0, 0, 0]
+    @test host(prox(Conjugate(Adapt.adapt(DeviceArray, GroupNormLinf(1, [1:2, 3:3]))), x)) == T[0, 0, 0.25]
+  end
+end
+
+@testset "membership tolerance on device spectra" begin
+  allowscalar(false)
+  for T in test_types
+    c = T(1e10)
+    @test Spectral(IndBinary(zero(T), c))(DeviceArray(Matrix(Diagonal(T[c, c * eps(T)])))) == zero(T)
+    @test Spectral(Conjugate(IndNonnegative()))(DeviceArray(Matrix(Diagonal(T[-c, 1e-6])))) == zero(T)
+    @test Conjugate(SingularValue(NormLinf(one(T))))(DeviceArray(Matrix(Diagonal([one(T); fill(sqrt(eps(T)) / 4, 49)])))) == T(Inf)
+  end
+end
+
+@testset "a device argument into a symmetric iterate is read through its symmetric part" begin
+  V = [0.0 1.0; 3.0 0.0]
+  for T in test_types
+    X = T.(V)
+    y = SymmetricSparseIterate(T, 2)
+    prox!(y, NormL1(T(0.5)), DeviceArray(X), one(T))
+    @test y[2, 1] == T(1.5) && y[1, 2] == T(1.5)
+    y2 = SymmetricSparseIterate(T, 2)
+    @test value_and_prox!(y2, NormL1(T(0.5)), DeviceArray(X), one(T)) == T(1.5)     # 0.5 * (1.5 + 1.5)
+    @test Matrix(y2) == Matrix(y)
   end
 end

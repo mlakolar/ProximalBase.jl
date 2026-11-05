@@ -149,8 +149,8 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
     @test copyto!(x, SparseArrays.CHOLMOD.Dense(F)) === x && Matrix(x) == F
   end
 
-  @testset "the message names the first pair" begin
-    # (4, 1) comes first by columns, (3, 2) by rows
+  @testset "the message names the pair with the largest difference" begin
+    # (4, 1) comes first by columns, (3, 2) differs by more
     A = ones(4, 4)
     A[4, 1] = 2
     A[3, 2] = 5
@@ -160,7 +160,7 @@ axpby23!(x, A) = axpby!(2.0, A, 3.0, x)
       e
     end
     @test err isa ArgumentError
-    @test occursin("entry (4, 1) is 2.0 and entry (1, 4) is 1.0", sprint(showerror, err))
+    @test occursin("entry (3, 2) is 5.0 and entry (2, 3) is 1.0 (relative asymmetry 0.8)", sprint(showerror, err))
     @test occursin("Symmetric(A, :L)", sprint(showerror, err))
   end
 

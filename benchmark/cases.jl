@@ -484,7 +484,92 @@ function group_layout_cases!(cases, rep)
   end
 end
 
+# Values of QuadraticFunction and KronQuadratic (#520): the ordinary path of well-scaled inputs, which
+# pays only the underflow check (layout = dense, sparse, diagonal, square, rectangular), and, as
+# separate `layout=recovery` cases, calls whose intermediates underflow and take the recomputation.
+function underflow_cases!(cases, rep; quick=false)
+    for T in (quick ? (Float64,) : (Float32,Float64)), n in (quick ? (4,64) : (4,32,256,1024))
+        rng = scenario_rng(rep,"quadratic_underflow/$T/$n")
+        X = randn(rng,T,2n,n); H = Matrix(Symmetric(X'X/T(2n)+I)); b = randn(rng,T,n); x = randn(rng,T,n)
+        S = sprandn(rng,T,n,n,min(1.0,5/n)); Asp = S'S + I
+        for (layout,A) in (("dense",H),("sparse",Asp),("diagonal",Diagonal(diag(H))))
+            f = QuadraticFunction(A,b,zero(T)); g = zeros(T,n); Ad = Matrix(A)
+            ref() = dot(x,Ad*x)/2 + dot(b,x)
+            checkv!() = isapprox(f(x),ref();rtol=100tolerance(T),atol=100tolerance(T)) || error("value differs from reference")
+            checkg!() = isapprox(value_and_gradient!(g,f,x),ref();rtol=100tolerance(T),atol=100tolerance(T)) || error("value differs from reference")
+            addcase!(cases,"quadratic_underflow","quadratic/value",() -> f(x),checkv!;T,shape=string(n),layout,work=n*n)
+            addcase!(cases,"quadratic_underflow","quadratic/value_and_gradient!",() -> value_and_gradient!(g,f,x),checkg!;
+                     T,shape=string(n),layout,work=n*n)
+        end
+    end
+    for T in (quick ? (Float64,) : (Float32,Float64)), (p,q) in (quick ? ((4,4),(1,16)) : ((4,4),(32,32),(128,128),(1,64),(64,4)))
+        rng = scenario_rng(rep,"kron_underflow/$T/$p/$q")
+        X = randn(rng,T,2p,p); Y = randn(rng,T,2q,q)
+        A = Matrix(Symmetric(X'X/T(2p)+I)); B = Matrix(Symmetric(Y'Y/T(2q)+I))
+        Θ = randn(rng,T,p,q); C = randn(rng,T,p,q)
+        for (layout,f) in (("plain",KronQuadratic(A,B)),("linear",KronQuadratic(A,B,C)))
+            G = zeros(T,p,q)
+            ref() = dot(Θ,A*Θ*B)/2 + (layout=="linear" ? dot(C,Θ) : zero(T))
+            checkv!() = isapprox(f(Θ),ref();rtol=100tolerance(T),atol=100tolerance(T)) || error("value differs from reference")
+            checkg!() = isapprox(value_and_gradient!(G,f,Θ),ref();rtol=100tolerance(T),atol=100tolerance(T)) || error("value differs from reference")
+            addcase!(cases,"quadratic_underflow","kron/value",() -> f(Θ),checkv!;T,shape="$(p)x$q",layout,work=p*q*(p+q))
+            addcase!(cases,"quadratic_underflow","kron/value_and_gradient!",() -> value_and_gradient!(G,f,Θ),checkg!;
+                     T,shape="$(p)x$q",layout,work=p*q*(p+q))
+        end
+    end
+    # a value that is exactly zero at a nonzero argument (A = 0, or an argument in the null space with normal
+    # products): below the worst-case threshold, so the exponent test of the trigger decides (supplemental gate)
+    for T in (quick ? (Float64,) : (Float32,Float64)), n in (quick ? (32,) : (32,256))
+        x = ones(T,n)
+        Z = zeros(T,n,n)
+        N = zeros(T,n,n)
+        for i in 1:2:n-1
+            N[i,i] = N[i+1,i+1] = 1; N[i,i+1] = N[i+1,i] = -1
+        end
+        for (layout,A) in (("zero",Z),("null",N))
+            f = QuadraticFunction(A); g = zeros(T,n)
+            checkv!() = f(x) == 0 || error("value differs from reference")
+            checkg!() = value_and_gradient!(g,f,x) == 0 || error("value differs from reference")
+            addcase!(cases,"quadratic_underflow","quadratic/value",() -> f(x),checkv!;T,shape=string(n),layout,work=n*n)
+            addcase!(cases,"quadratic_underflow","quadratic/value_and_gradient!",() -> value_and_gradient!(g,f,x),checkg!;
+                     T,shape=string(n),layout,work=n*n)
+        end
+    end
+    for T in (quick ? (Float64,) : (Float32,Float64)), (p,q) in (quick ? ((4,4),) : ((4,4),(32,32)))
+        rng = scenario_rng(rep,"kron_zero/$T/$p/$q")
+        Y = randn(rng,T,2q,q); B = Matrix(Symmetric(Y'Y/T(2q)+I)); Θ = randn(rng,T,p,q)
+        f = KronQuadratic(zeros(T,p,p),B); G = zeros(T,p,q)
+        checkv!() = f(Θ) == 0 || error("value differs from reference")
+        checkg!() = value_and_gradient!(G,f,Θ) == 0 || error("value differs from reference")
+        addcase!(cases,"quadratic_underflow","kron/value",() -> f(Θ),checkv!;T,shape="$(p)x$q",layout="zero",work=p*q*(p+q))
+        addcase!(cases,"quadratic_underflow","kron/value_and_gradient!",() -> value_and_gradient!(G,f,Θ),checkg!;
+                 T,shape="$(p)x$q",layout="zero",work=p*q*(p+q))
+    end
+    # the recomputation: every call takes it (diagnostic; reported apart from the ordinary cases)
+    for T in (quick ? (Float64,) : (Float32,Float64))
+        rng = scenario_rng(rep,"underflow_recovery/$T")
+        sa, sb, sx = T===Float32 ? (-110,-125,80) : (-900,-1000,800)
+        n = 32
+        X = randn(rng,T,2n,n); H = Matrix(Symmetric(X'X/T(2n)+I))
+        k = T===Float32 ? -140 : -1060
+        Aq = ldexp.(H,k); xq = ldexp.(randn(rng,T,n),T===Float32 ? 30 : 40)
+        fq = QuadraticFunction(Aq); gq = zeros(T,n)
+        refq() = Float64(dot(big.(xq),big.(Aq)*big.(xq))/2)
+        checkq!() = isapprox(Float64(fq(xq)),refq();rtol=1e-4) || error("recovered value differs from BigFloat reference")
+        addcase!(cases,"quadratic_underflow","quadratic/value",() -> fq(xq),checkq!;T,shape=string(n),layout="recovery",
+                 work=n*n,zero_alloc=false)
+        p, q = 8, 8
+        Ak = ldexp.(H[1:p,1:p],sa); Bk = ldexp.(H[1:q,1:q],sb); Θk = ldexp.(randn(rng,T,p,q),sx)
+        fk = KronQuadratic(Ak,Bk)
+        refk() = Float64(dot(big.(Θk),big.(Ak)*big.(Θk)*big.(Bk))/2)
+        checkk!() = isapprox(Float64(fk(Θk)),refk();rtol=1e-4) || error("recovered value differs from BigFloat reference")
+        addcase!(cases,"quadratic_underflow","kron/value",() -> fk(Θk),checkk!;T,shape="$(p)x$q",layout="recovery",
+                 work=p*q*(p+q),zero_alloc=false)
+    end
+end
+
 function smooth_cases!(cases, rep; quick=false)
+    underflow_cases!(cases, rep; quick)
     for T in (quick ? (Float64,) : (Float32,Float64)), (n,p) in (quick ? ((128,32),) : ((128,32),(1024,256)))
         rng = scenario_rng(rep,"smooth/$T/$n/$p")
         X,y,x = randn(rng,T,n,p),randn(rng,T,n),T(0.03).*randn(rng,T,p)

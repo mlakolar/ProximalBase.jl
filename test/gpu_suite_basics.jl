@@ -2,6 +2,9 @@
 # device path (separable, nonseparable, group layouts on the host and the device, adapted
 # parameters, losses, array steps, overflow, infinite weights), each testset calling
 # allowscalar(false). gpu_suite.jl keeps the rest of each split loop and the other cases.
+# At the end: _maximum_abs of a Diagonal of a device vector (dispatch, values, a LeastSquaresLoss
+# with a Diagonal design) and the guard against ambiguities with the GPU extension, which
+# every GPU run executes (gpu_smoke in the Quick tier, and the physical CUDA run).
 # The entry point supplies DeviceArray, test_types, host, and ≃.
 
 @testset "separable functions on GPU arrays" begin
@@ -342,4 +345,91 @@ end
       @test host(alias) ≃ expected
     end
   end
+end
+
+using GPUArraysCore: AnyGPUArray
+
+@testset "maximum_abs of a Diagonal of a device vector: dispatch" begin
+  allowscalar(false)
+  ext = Base.get_extension(ProximalBase, :ProximalBaseGPUArraysCoreExt)
+  for T in (Float32, Float64)
+    D = typeof(DeviceArray(T[]))
+    pick(X) = which(ProximalBase._maximum_abs, Tuple{X})
+    new = pick(Diagonal{T, D})
+    generic, typed, host_diagonal, device = pick(Vector{Int}), pick(Vector{T}), pick(Diagonal{T, Vector{T}}), pick(D)
+    # each of the four methods is the one intended, and none is the new method
+    @test generic.module === ProximalBase && generic.sig == Tuple{typeof(ProximalBase._maximum_abs), AbstractArray}
+    @test typed.module === ProximalBase && typed.sig == (Tuple{typeof(ProximalBase._maximum_abs), AbstractArray{S}} where S<:Union{Float32, Float64})
+    @test host_diagonal.module === ProximalBase && host_diagonal.sig == (Tuple{typeof(ProximalBase._maximum_abs), Diagonal{S}} where S<:Union{Float32, Float64})
+    @test device.module === ext && device.sig == Tuple{typeof(ProximalBase._maximum_abs), AnyGPUArray}
+    @test new.module === ext
+    for m in (generic, typed, host_diagonal, device)
+      @test new !== m
+      @test new.sig <: m.sig
+      @test !(m.sig <: new.sig)
+      @test !Base.isambiguous(new, m)
+    end
+  end
+end
+
+@testset "maximum_abs of a Diagonal of a device vector: values" begin
+  allowscalar(false)
+  for T in test_types
+    cases = ((T[1, -3, 2], T(3)), (T[1, NaN, 2], nothing), (T[-Inf, 1], T(Inf)), (T[-0.0], zero(T)), (T[], zero(T)))
+    for (v, expected) in cases
+      r = ProximalBase._maximum_abs(Diagonal(DeviceArray(v)))
+      @test r isa T
+      @test isequal(r, ProximalBase._maximum_abs(DeviceArray(v)))
+      if expected !== nothing                              # no NaN: the result does not depend on the backend's max
+        @test isequal(r, expected)
+        @test isequal(r, ProximalBase._maximum_abs(Diagonal(v)))
+      end
+    end
+  end
+end
+
+@testset "LeastSquaresLoss with a Diagonal design on GPU arrays" begin
+  allowscalar(false)
+  for T in test_types
+    y = T[1, 2]
+    # Xβ overflows: the value is formed again from the largest entries of X, β and Y, which reads the design
+    fh = LeastSquaresLoss(y, Diagonal(T[floatmax(T) / 2, 1]))
+    fd = Adapt.adapt(DeviceArray, fh)
+    @test !(fd.X.diag isa Array)
+    β = T[4, 1]
+    @test same(fd(DeviceArray(β)), fh(β))
+    gh = zeros(T, 2)
+    vh = value_and_gradient!(gh, fh, β)
+    gd = DeviceArray(zeros(T, 2))
+    @test same(value_and_gradient!(gd, fd, DeviceArray(β)), vh)
+    @test isequal(host(gd), gh)
+    # nothing overflows
+    fh = LeastSquaresLoss(y, Diagonal(T[3, 1]))
+    fd = Adapt.adapt(DeviceArray, fh)
+    β = T[1, 1]
+    @test same(fd(DeviceArray(β)), fh(β))
+    gh = zeros(T, 2)
+    vh = value_and_gradient!(gh, fh, β)
+    gd = DeviceArray(zeros(T, 2))
+    @test same(value_and_gradient!(gd, fd, DeviceArray(β)), vh)
+    @test host(gd) ≃ gh
+  end
+end
+
+@testset "no new ambiguities with the GPU extension" begin
+  allowscalar(false)
+  # These matrix-set intersections predate the host decomposition paths.
+  D = typeof(DeviceArray(zeros(Float32, 1)))
+  F = Nothing
+  device_value = which(ProximalBase._value_dense, Tuple{F, D})
+  device_prox = which(ProximalBase._prox_sep!, Tuple{D, F, D, Float64})
+  known = (Set((device_value, which(ProximalBase._value_dense, Tuple{IndPattern, Vector{Float64}}))),
+           Set((device_value, which(ProximalBase._value_dense, Tuple{IndBanded, Matrix{Float64}}))),
+           Set((device_prox, which(ProximalBase._prox_sep!, Tuple{Matrix{Float64}, IndBanded, Matrix{Float64}, Float64}))))
+  # Only methods the package defines: another test file on the same worker may have added
+  # methods to ProximalBase functions (symmetric_parameters_trait's lla_weight does).
+  ours(m) = Base.moduleroot(m.module) !== Main
+  # Julia 1.10 prints the evaluated sides of ==, so a failure lists the pairs
+  unexpected = filter(pair -> all(ours, pair) && !(Set(pair) in known), Test.detect_ambiguities(ProximalBase))
+  @test unexpected == []
 end

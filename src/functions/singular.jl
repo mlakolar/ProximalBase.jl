@@ -72,13 +72,15 @@ The standalone value at a finite input whose spectrum overflows is the value
 at the spectrum of `X/2ᵏ`, scaled by `2^(dk)` for a function of degree `d`,
 with the exponent applied last. This covers `NormL1`, `NormL2`, `NormLinf`,
 `SumLargest`, `SLOPE`, `NormL1Nonneg`, `ElasticNet`, uncentered `SqrNormL2`,
-`CubeNormL2`, the support functions of balls, boxes, simplices and
-the Ky Fan set, the conjugate of uncentered `SqrNormL2`, the conjugates of
-scaled `NormL1`, `NormL2` and `NormLinf`, and `Scaled` and `Constrained`
-forms of these, also in `Conjugate(SingularValue(f))`. Functions without a
-level that a scale folds into, such as `SumLargest`, `SLOPE`, `CubeNormL2` and
-the support functions of boxes, keep the ordinary result at a level outside
-the normal range of the precision of `X`. Other functions, such as `NormLq`,
+`CubeNormL2`, the support functions of balls, boxes and simplices, the
+conjugate of uncentered `SqrNormL2`, the conjugates of scaled `NormL1`,
+`NormL2` and `NormLinf`, and `Scaled` and `Constrained` forms of these, also
+in `Conjugate(SingularValue(f))`. The Ky Fan norm and the other support
+functions of a box with a linear constraint keep the ordinary result, which
+may be `Inf` or `NaN` (#648). The support functions of boxes and simplices,
+which have no level that a scale folds into, keep the ordinary result at a
+level outside the normal range of the precision of `X`. Other functions, such
+as `NormLq`,
 centered or translated functions and functions of the user, keep the ordinary
 result, which may be infinite. See [Functions of a spectrum](@ref).
 

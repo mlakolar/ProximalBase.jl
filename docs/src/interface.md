@@ -357,8 +357,7 @@ and the exponent is applied last. A scale around `f`, chained or not, joins the
 same power of two. This covers `NormL1`, `NormL2`, `NormLinf`, `SumLargest`
 (signed spectra included), `SLOPE`, `NormL1Nonneg`, `ElasticNet` (its two
 levels separately), uncentered `SqrNormL2`, `CubeNormL2`, the support functions
-of the balls, boxes, simplices and the Ky Fan set, the conjugate of uncentered
-`SqrNormL2`, and `Constrained` forms of these, whose constraints are decided on
+of the balls, boxes and simplices, the conjugate of uncentered `SqrNormL2`, and `Constrained` forms of these, whose constraints are decided on
 `v` first. The conjugates of scaled `NormL1`, `NormL2` and `NormLinf` are
 decided on `v` against their radius in the same units, which is never formed
 in the original units. So `SingularValue(NormL1(1/4))` at
@@ -366,9 +365,11 @@ in the original units. So `SingularValue(NormL1(1/4))` at
 is `floatmax(Float64)/2` to within an ulp (the computed singular value is
 rounded), where it was `Inf`.
 
-Not covered: functions without a level that a scale folds into (`SumLargest`,
-`SLOPE`, `CubeNormL2`, the support functions of boxes, simplices and the Ky Fan
-set) at a level outside the normal range of the matrix's precision;
+Not covered: the support functions of a box with a linear constraint, such as
+the Ky Fan norm, whose kernel keeps its ordinary result, which may be `Inf` or
+`NaN` (#648); the support functions of boxes and simplices at a level outside
+the normal range of the matrix's precision, which have no level that a scale
+folds into;
 `NormLq`, whose degree is not an integer; centered and translated functions,
 `Precompose` and other transformations; penalties that are not homogeneous,
 such as `LogPenalty`; functions that `SingularValue` admits outside its

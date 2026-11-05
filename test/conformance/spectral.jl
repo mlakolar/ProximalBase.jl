@@ -203,10 +203,11 @@ const c = 64
     @row begin
       id = "spectral.kyfan-finite-" * string(T); case = ""; family = :spectral; oracle = :value
       types = string(T); backend = :cpu; rules = "R1,A5"
-      problem = "Ky Fan 1-norm with level 1/4 at M*I, a finite spectrum (M, M): the kernel's sum overflows; value M/4"
+      problem = "Ky Fan 1-norm with level 1/4 at M*I, a finite spectrum (M, M): the kernel's sum overflows; value M/4 (the box-linear kernel, #648)"
       expected = M / T(4)
       observed = SingularValue(Conjugate(Constrained(IndBox(zero(T), q), IndHalfspace(1, q))))(Matrix(M * I, 2, 2))
       compare = (a, b) -> typed_bound(a, b, c * eps(T) * b)
+      broken = (group = :G6, baseline = Returned(v -> same(v, T(NaN))))
     end
     @row begin
       id = "spectral.overflow-dual-ball-" * string(T); case = ""; family = :spectral; oracle = :value
@@ -229,7 +230,7 @@ const c = 64
   @notcovered :spectral :value "Float32/Float64" :cpu "R1: penalties that are not homogeneous (LogPenalty, Berhu, DistL2) at an infinite spectrum entry keep the ordinary value."
   @notcovered :spectral :value "Float32/Float64" :cpu "R1 (#356): MCP and SCAD with an overflowing threshold keep the ordinary value."
   @notcovered :spectral :value "Float32/Float64" :cpu "R1, decision 45: a function of the user keeps its ordinary value at an overflowing spectrum; within range it is covered (spectral.custom-inner)."
-  @notcovered :spectral :value "Float32/Float64" :cpu "R1: support functions of IndBox, IndSimplex and the Ky Fan set at levels outside the normal range have no fold; the ordinary value is kept (follow-up)."
+  @notcovered :spectral :value "Float32/Float64" :cpu "R1 (#648): support functions of a box with a linear constraint (the Ky Fan set) keep the ordinary value at an overflowing spectrum, and those of IndBox and IndSimplex at levels outside the normal range have no fold; the ordinary value is kept."
   @notcovered :spectral :value "Float32/Float64" :cpu "R1: the weighted dual ball Conjugate(Scaled(NormL1(M, w), 4)) at an overflowing spectrum keeps the ordinary value."
 
   # A5: analytic maps and independent Frobenius references.

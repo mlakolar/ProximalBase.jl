@@ -53,13 +53,6 @@ cref(f::IndBallL2, σ) = big(f.r) * sqrt(sum(abs2, σ))
 cref(f::IndBox, σ) = sum(v -> v >= 0 ? v * big(f.u) : v * big(f.l), σ)
 cref(f::IndSimplex, σ) = big(f.r) * (f.equality ? maximum(σ) : max(maximum(σ), 0))
 cref(f::SqrNormL2, σ) = sum(abs2, σ) / (2 * big(f.λ))
-# Ky Fan: the box [0, u] with the halfspace Σw ≤ u k
-function cref(c::PB.LinearConstrained, σ)
-  u, k = big(c.f.u), big(c.set.b) / big(c.f.u)
-  t = sort(max.(σ, 0); rev = true)
-  n = floor(Int, k)
-  u * (sum(t[1:n]) + (k - n) * (n < length(t) ? t[n + 1] : 0))
-end
 ref(c::PB.BoxConstrained, σ) = ref(c.f, σ)
 # The support function of {l ≤ x ≤ u, a Σx ≤ b} (or = b) at y, in 4096-bit BigFloat, which the
 # cancellation of its two terms needs: σ_C(y) = σ_{-C}(-y) turns a < 0 into a > 0.
@@ -75,17 +68,6 @@ function box_linear_ref(l, u, a, b, y, eq)
     j = floor(Int, κ)
     BigFloat(l * sum(y) + (u - l) * (sum(t[1:j]; init = big(0)) + (j < n ? (κ - j) * t[j + 1] : 0)); precision = 256)
   end
-end
-# The support function of {w : l ≤ w ≤ u, Σw ≤ β} at y, in BigFloat: w = l + (u - l) t with
-# 0 ≤ t ≤ 1 and Σt ≤ κ = (β - n l)/(u - l), so the value is l Σy plus u - l times the sum of the
-# ⌊κ⌋ largest positive parts and the fraction of the next.
-function kyfan_ref(l, u, β, y)
-  n = length(y)
-  l, u, β, y = big(l), big(u), big(β), big.(y)
-  κ = clamp((β - n * l) / (u - l), 0, n)
-  t = sort(max.(y, 0); rev = true)
-  j = floor(Int, κ)
-  l * sum(y) + (u - l) * (sum(t[1:j]; init = big(0)) + (j < n ? (κ - j) * t[j + 1] : 0))
 end
 
 degree(f) = 1
@@ -130,8 +112,7 @@ end
       end
       # support functions of a box and a simplex, at ordinary levels
       for f in (Conjugate(IndBallLinf(q)), Conjugate(IndBox(-T(1) / 2, q)), Conjugate(IndSimplex(q)),
-                Conjugate(IndSimplex(q; equality = false)),
-                Conjugate(Constrained(IndBox(zero(T), q), IndHalfspace(1, q))))
+                Conjugate(IndSimplex(q; equality = false)))
         @test positive_ok(SingularValue(f)(A), cref(f.f, σA), T, 1)
         @test positive_ok(SingularValue(f)(X), cref(f.f, σX), T, 1)
         @test positive_ok(Spectral(f)(X), cref(f.f, reverse(σX)), T, 1)
@@ -288,70 +269,74 @@ end
       end
     end
 
-    @testset "Ky Fan ($T)" begin
-      kf = Constrained(IndBox(zero(T), q), IndHalfspace(1, q))
-      @test positive_ok(Conjugate(kf)([M, M]), big(q) * big(M), T, 1)
-      @test positive_ok(SingularValue(Conjugate(kf))(Matrix(M * I, 2, 2)), big(q) * big(M), T, 1)
-      @test positive_ok(SingularValue(Conjugate(kf))(A), big(q) * 2big(M), T, 1)
-      @test Conjugate(kf)(T[1, 2]) === T(1) / 2                      # ordinary, unchanged
-      @test Conjugate(Constrained(IndBox(zero(T), zero(T)), IndHalfspace(1, zero(T))))([M, M]) === zero(T)
-      # u - l and n l overflow at a finite argument: no InexactError. The exact value 0 is a
-      # difference of terms near floatmax, which the scaled kernel cannot certify: NaN is kept
-      @test isnan(Conjugate(Constrained(IndBox(-M, M), IndHalfspace(1, zero(T))))(T[1, 1]))
-      capped = Constrained(IndBox(zero(T), q), IndHyperplane(1, q))
-      @test positive_ok(Conjugate(capped)([M, M]), big(q) * big(M), T, 1)
-      @test positive_ok(Conjugate(capped)([M, -M]), big(q) * big(M), T, 1)
-      # Bounds about a thousand binades apart: each term at its own exponent, so the lower bound
-      # and the offset are not flushed. The halfspace pins the sum at n l (κ = 0), or just above it
-      # (0 < κ below the range).
-      e = exponent(M)
-      lo, hi = ldexp(one(T), -(e ÷ 8)), ldexp(one(T), 7e ÷ 8)
-      for (l, u, β, y) in ((lo, hi, 2lo, [M, M]), (lo, M, 2lo, [M, M]), (lo, hi, 3lo, [M, M / 2]),
-                           (lo, M, 3lo, [M, M / 2]), (lo, hi, 3lo, [M, -M / 2]),
-                           (-M, M, M, [M / 4, -M / 4, M / 8]))
-        f = Conjugate(Constrained(IndBox(l, u), IndHalfspace(1, β)))
-        @test positive_ok(f(y), kyfan_ref(l, u, β, y), T, 1)
+    @testset "box with a linear constraint, not recovered (#648) ($T)" begin
+      # The support function of {l ≤ x ≤ u, a Σx ≤ b} (or = b), such as the Ky Fan norm, keeps the
+      # kernel of master, which #648 owns: each case is broken against its BigFloat reference, and
+      # master's current class (NaN, ±Inf, the 0.0 of #642, or an InexactError) is pinned.
+      kf(l, u, a, b, eq) = Conjugate(Constrained(IndBox(l, u), eq ? IndHyperplane(a, b) : IndHalfspace(a, b)))
+      vector_cases = T === Float64 ?
+        ((1e-30, 1e300, 1.0, 2e-30, [M, M], :inf),           # bounds a thousand binades apart
+         (-1e10, -1e-10, 1.0, -2e-10, [M, M], :nan),         # l Σy and (u - l) Σv cancel
+         (-1e10, -1e-10, 1.0, -2e-10, [1.0, 1.0], :zero),    # #642, at ordinary scale
+         (-1e12, -1e-3, 1.0, 2(-1e-3) - 3e-5, [M, M / 2], :nan),   # B4: κ rounds to n
+         (-4.0, -2.0, 1.0, -5.0, [M / 8, M / 4], :inf),      # #647: fractional κ
+         (-M, M, 1.0, 0.0, [1.0, 1.0], :inexact),            # u - l overflows: master throws
+         (-1e10, -1e-10, 1.0, -1.5e10, [M, M, -M / 2], :nan),  # exact value 0
+         (0.0, 0.25, 1.0, 0.25, [M, M], :nan)) :             # the Ky Fan 1-norm
+        ((1f-5, 1f30, 1f0, 2f-5, [M, M], :inf),
+         (-1f10, -1f-10, 1f0, -2f-10, [M, M], :nan),
+         (-1f10, -1f-10, 1f0, -2f-10, [1f0, 1f0], :zero),
+         (-1f12, -1f-3, 1f0, 2(-1f-3) - 3f-5, [M, M / 2], :nan),
+         (-4f0, -2f0, 1f0, -5f0, [M / 8, M / 4], :inf),
+         (-M, M, 1f0, 0f0, [1f0, 1f0], :inexact),
+         (0f0, 0.25f0, 1f0, 0.25f0, [M, M], :nan))
+      # B6: box(-(1 - 2^-j), 1) with the halfspace Σx ≤ 2^-j at [M, M], condition 15 to 2e9
+      js = T === Float64 ? (3:30) : (3:20)
+      cases = (vector_cases..., ((-(1 - ldexp(one(T), -j)), one(T), one(T), ldexp(one(T), -j), [M, M], :nan) for j in js)...)
+      for (l, u, a, b, y, class) in cases, eq in (false, true)
+        f = kf(l, u, a, b, eq)
+        r = box_linear_ref(l, u, a, b, y, eq)
+        if class === :inexact
+          @test_throws InexactError f(y)
+          @test_broken (try positive_ok(f(y), r, T, 1) catch; false end)   # #648
+          continue
+        end
+        v = f(y)
+        @test_broken positive_ok(v, r, T, 1)                                  # #648
+        class === :nan && @test isnan(v)
+        class === :inf && @test v === copysign(T(Inf), r)
+        class === :zero && @test v === zero(T)                                 # #642
       end
-      # the reproducers, at the exponents of Float64
+      # through the matrix wrappers, at overflowing and finite spectra
+      kq = kf(zero(T), q, one(T), q, false)
+      for (F, Z, r) in ((SingularValue(kq), Matrix(M * I, 2, 2), big(q) * big(M)),      # spectral.kyfan-finite
+                        (SingularValue(kq), A, big(q) * 2big(M)),
+                        (Spectral(kq), X, big(q) * σX[1]),
+                        (SingularValue(kf(zero(T), q, one(T), q, true)), A, big(q) * 2big(M)))
+        v = F(Z)
+        @test_broken positive_ok(v, r, T, 1)                                  # #648
+        @test isnan(v)
+      end
+      # #647 at ordinary scale: the fraction of κ selects in input order
+      for eq in (false, true)
+        v = Spectral(kf(zero(T), one(T), one(T), T(3) / 2, eq))(T[1 0; 0 2])
+        @test_broken v == T(5) / 2                                             # #647, #648
+        @test v == 2
+      end
       if T === Float64
-        @test positive_ok(Conjugate(Constrained(IndBox(1e-30, 1e300), IndHalfspace(1.0, 2e-30)))([M, M]),
-                          kyfan_ref(1e-30, 1e300, 2e-30, [M, M]), T, 1)
-        # a finite spectrum (M, M) whose sum overflows
-        kf = Conjugate(Constrained(IndBox(1e-300, M), IndHalfspace(1.0, 2e-300)))
-        @test positive_ok(SingularValue(kf)(Matrix(M * I, 2, 2)), kyfan_ref(1e-300, M, 2e-300, [M, M]), T, 1)
-        kf = Conjugate(Constrained(IndBox(1e-300, 1e300), IndHalfspace(1.0, 3e-300)))
-        @test positive_ok(SingularValue(kf)(Matrix(Diagonal([M, M / 2]))), kyfan_ref(1e-300, 1e300, 3e-300, [M, M / 2]), T, 1)
-        @test positive_ok(Spectral(kf)(Matrix(Diagonal([M, M / 2]))), kyfan_ref(1e-300, 1e300, 3e-300, [M, M / 2]), T, 1)
-        # O3: at a spectrum whose sum is finite the ordinary kernel is used, and its κ = 1e-600
-        # underflows, which loses the term (u - l) κ max v (unchanged from master)
-        @test_broken positive_ok(Spectral(kf)(Matrix(Diagonal([M, -M / 2]))), kyfan_ref(1e-300, 1e300, 3e-300, [M, -M / 2]), T, 1)
+        F = SingularValue(kf(1e-300, M, 1.0, 2e-300, false))
+        @test_broken positive_ok(F(Matrix(M * I, 2, 2)), box_linear_ref(1e-300, M, 1.0, 2e-300, [M, M], false), T, 1)   # #648
+        @test F(Matrix(M * I, 2, 2)) === Inf
+        # κ ≈ 1e-600 underflows at a finite spectrum
+        F = Spectral(kf(1e-300, 1e300, 1.0, 3e-300, false))
+        @test_broken positive_ok(F(Matrix(Diagonal([M, -M / 2]))), box_linear_ref(1e-300, 1e300, 1.0, 3e-300, [M, -M / 2], false), T, 1)   # #648
       end
-      # The two terms l Σy and (u - l) Σv cancel when l is far below u in magnitude: the value is
-      # taken from the upper bound, or the ordinary result is kept where it is ill-conditioned.
-      for (l, u, set, y) in ((-1e10, -1e-10, IndHalfspace(1, -2e-10), [M, M]), (-T(1), -T(1e-10), IndHalfspace(1, -T(2e-10)), [M, M]),
-                             (-1e300, -1e-30, IndHalfspace(1, -2e-30), [M, M]), (-1e300, -1e-30, IndHyperplane(1, -2e-30), [M, M]),
-                             (1e-30, 1e300, IndHalfspace(-1, -2e-30), [-M, -M]))
-        T === Float32 && max(abs(l), abs(u)) > 1e30 && continue
-        f = Conjugate(Constrained(IndBox(T(l), T(u)), set))
-        a, b = PB._constant_normal(set.a), set.b
-        @test positive_ok(f(y), box_linear_ref(T(l), T(u), a, T(b), y, set isa IndHyperplane), T, 1)
-      end
-      if T === Float64
-        kf = Conjugate(Constrained(IndBox(-1e300, -1e-30), IndHalfspace(1.0, -2e-30)))
-        @test positive_ok(SingularValue(kf)(Matrix(M * I, 2, 2)), box_linear_ref(-1e300, -1e-30, 1, -2e-30, [M, M], false), T, 1)
-        # ill-conditioned in this precision (the exact value 0 is a difference of terms near 1e298):
-        # the ordinary result, NaN, is kept rather than a wrong finite value
-        @test isnan(Conjugate(Constrained(IndBox(-1e10, -1e-10), IndHyperplane(1.0, -1.5e10)))([M, M, -M / 2]))
-        # A known departure, the cancellation of the ordinary kernel at ordinary scale (#642): the
-        # reference is -2e-10
-        @test Conjugate(Constrained(IndBox(-1e10, -1e-10), IndHalfspace(1.0, -2e-10)))([1.0, 1.0]) === 0.0
-        @test_broken positive_ok(Conjugate(Constrained(IndBox(-1e10, -1e-10), IndHalfspace(1.0, -2e-10)))([1.0, 1.0]),
-                                 box_linear_ref(-1e10, -1e-10, 1, -2e-10, [1.0, 1.0], false), T, 1)   # #642
-      end
-      # A known departure from E3, kept until the follow-up on the vector kernels (O9): at an
-      # infinite entry the kernel's value is NaN, where E3 gives Inf.
-      @test isnan(Conjugate(Constrained(IndBox(-M, M), IndHalfspace(1, zero(T))))(T[Inf, 1]))
-      @test isnan(Conjugate(Constrained(IndBox(zero(T), q), IndHalfspace(1, q)))(T[Inf, 1]))
+      # ordinary values, unchanged
+      @test kf(zero(T), q, one(T), q, false)(T[1, 2]) === T(1) / 2
+      @test kf(zero(T), zero(T), one(T), zero(T), false)(T[1, 2]) === zero(T)
+      # At an infinite entry the kernel gives NaN where E3 gives Inf, or throws (#648)
+      @test isnan(kf(zero(T), q, one(T), q, false)(T[Inf, 1]))
+      @test_throws InexactError kf(-M, M, one(T), zero(T), false)(T[Inf, 1])
     end
 
     @testset "rectangular and rank-deficient ($T)" begin
@@ -405,8 +390,8 @@ end
       for f in (Conjugate(IndSimplex(tiny)), Conjugate(IndBox(-tiny, tiny)))
         @test Spectral(f)(Z) === T(Inf)          # no wrong finite value: the ordinary result
       end
-      # A known departure from E3, kept until the follow-up on the vector kernels (O9): the Ky Fan
-      # kernel's value at the infinite eigenvalue is NaN (l Σy with l = 0), at a finite matrix.
+      # The kernel of a box with a linear constraint is not recovered (#648): at the overflowing
+      # eigenvalue its value is NaN (l Σy with l = 0), at a finite matrix.
       @test isnan(Spectral(Conjugate(Constrained(IndBox(zero(T), tiny), IndHalfspace(1, tiny))))(Z))
       # SLOPE with a subnormal level: its value parts (#608)
       @test positive_ok(SingularValue(SLOPE([tiny, zero(T)]))(Z), big(tiny) * σX[1], T, 1)

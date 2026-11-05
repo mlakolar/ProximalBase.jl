@@ -476,15 +476,14 @@ end
   _recoverable_factors(γ, λ2, one(W)) ? _ridge_slope(_ridge_scaled(W, γ, λ2)) : inv(1 + t)
 # γ = Inf (P1): the projection onto the minimizers of λ1 w|z| + λ2 z²/2. Each part is decided from
 # its parameters (p1: λ1 > 0, p2: λ2 > 0) and the weight, not from γλ, which is 0·Inf for a zero
-# level (E4). With an active part the map is 0 on finite arguments, so a NaN entry gives 0 (E2,
-# decision 48) and an infinite entry NaN (no joint limit, E1); with none it is shrink(v, 0), as at
+# level (E4). With an active part the map is 0 on finite arguments, and an infinite or NaN entry
+# gives NaN (no joint limit, E1); a wrapper such as Tilt can pass a NaN it formed from the step,
+# which is not a NaN entry of the caller's argument. With no active part it is shrink(v, 0), as at
 # every finite step. An infinite weight fixes the entry as at every finite step.
 @inline function _elastic_infinite_step(v::T, p1::Bool, p2::Bool, w) where {T<:Real}
   S = float(T)
-  hard = isinf(w)
-  l1 = hard | (p1 & (w > zero(w)))
-  z = shrink(v, ifelse(l1, S(Inf), zero(S))) / ifelse(p2, S(Inf), one(S))
-  ifelse(isnan(v) & (l1 | p2) & !hard, zero(S), z)
+  l1 = isinf(w) | (p1 & (w > zero(w)))
+  shrink(v, ifelse(l1, S(Inf), zero(S))) / ifelse(p2, S(Inf), one(S))
 end
 @inline function _elastic_infinite_slope(v::T, p1::Bool, p2::Bool, w) where {T<:Real}
   free = !(isinf(w) | (p1 & (w > zero(w))) | p2)

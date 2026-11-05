@@ -9,9 +9,9 @@ const PB = ProximalBase
 
 # ElasticNet with zero levels and weights at every admitted step (P1, E4; #594). At γ = Inf each part
 # is decided from its parameters: a zero level forms no product γ·0. With no active part the map is
-# the identity, NaN and ±Inf included; with an active part it is 0 at every finite argument, so a NaN
-# entry gives 0 (E2, decision 48) and an infinite entry NaN (no joint limit, E1). An infinite weight
-# fixes its entry as at every finite step. Finite steps are unchanged. NaN is compared with isequal.
+# the identity, NaN and ±Inf included; with an active part it is 0 at every finite argument, and a
+# NaN or infinite entry gives NaN, as at the base (no joint limit, E1). An infinite weight fixes its
+# entry as at every finite step. Finite steps are unchanged. NaN is compared with isequal.
 
 same(a, b) = isequal(a, b)
 
@@ -29,8 +29,7 @@ function ref_prox(v::T, λ1, λ2, w, γ) where {T<:AbstractFloat}
     if !(l1 || l2)                              # the zero function: a copy (-0 gives +0, as at every step)
       return iszero(v) ? zero(T) : v
     end
-    isnan(v) && return zero(T)
-    isinf(v) && return T(NaN)
+    isfinite(v) || return T(NaN)
     return l1 || iszero(v) ? zero(T) : copysign(zero(T), v)
   end
   isnan(v) && return v
@@ -132,8 +131,9 @@ end
   @test same(prox(ElasticNet(T(1), T(0), T[0, 1]), T[2, 3], Inf_), T[2, 0])
   @test same(prox(ElasticNet(T(0), T(0), T[Inf, 1]), T[2, 3], Inf_), T[0, 3])
   @test same(prox(ElasticNet(T(0), T(0)), T[2, 3], T[Inf, 1]), T[2, 3])
-  @test same(prox(ElasticNet(T(1), T(1)), T[2, NaN], Inf_), T[0, 0])
-  @test same(prox(ElasticNet(T(1), T(1)), T[Inf, NaN], Inf_), T[NaN, 0])
+  @test same(prox(ElasticNet(T(1), T(1)), T[2, NaN], Inf_), T[0, NaN])
+  @test same(prox(ElasticNet(T(1), T(1)), T[Inf, NaN], Inf_), T[NaN, NaN])
+  @test same(prox(ElasticNet(T(1), T(0)), T[NaN], Inf_), T[NaN])
   @test same(prox(ElasticNet(T(1), T(1), T[Inf, Inf]), T[NaN, -Inf], Inf_), T[NaN, NaN])
   @test same(prox(ElasticNet(T(0), T(0)), T[-0.0], Inf_), T[0])             # as at every finite step
   @test same(prox(ElasticNet(T(0), T(0)), T[-0.0], one(T)), T[0])
@@ -181,10 +181,10 @@ end
   x = T[2, -1, NaN]
   @test same(prox(Scaled(ElasticNet(T(1), T(1), T[Inf, 1, 1]), zero(T)), x, Inf_), T[0, -1, NaN])
   @test same(prox(T(0.5) * ElasticNet(T(0), T(0)), x, Inf_), x)
-  @test same(prox(T(0.5) * ElasticNet(T(1), T(0)), x, Inf_), T[0, 0, 0])
+  @test same(prox(T(0.5) * ElasticNet(T(1), T(0)), x, Inf_), T[0, 0, NaN])
   b = T[1, 1, 1]
   @test same(prox(Translate(ElasticNet(T(0), T(0)), b), x, Inf_), x)
-  @test same(prox(Translate(ElasticNet(T(1), T(0)), b), x, Inf_), b)
+  @test same(prox(Translate(ElasticNet(T(1), T(0)), b), x, Inf_), T[1, 1, NaN])
 
   xi = SparseIterate(sparsevec(T[2, 0, -1]))
   @test same(Vector(prox(ElasticNet(T(0), T(0)), xi, Inf_)), T[2, 0, -1])
@@ -201,15 +201,30 @@ end
   @test prox(Spectral(ElasticNet(T(0), T(1))), X, Inf_) == zeros(T, 2, 2)
 end
 
+@testset "Tilt at an infinite step, $T" for T in (Float32, Float64)
+  # Tilt passes x - γc, which is NaN at γ = Inf for a NaN or infinite entry (and for every entry when
+  # c = 0); an active part keeps that NaN, as at the base, and gives no finite point (E2, O2)
+  Inf_ = T(Inf)
+  for c in (2, 1, 0), x in (T[NaN], T[Inf])
+    y = fill(T(7), 1)
+    v = value_and_prox!(y, Tilt(ElasticNet(T(1), T(0)), T[c]), x, Inf_)
+    @test isnan(v) && same(y, T[NaN])
+  end
+  @test same(prox(Tilt(ElasticNet(T(1), T(0)), fill(T(1), 3)), T[NaN, -1, 2], Inf_), fill(T(NaN), 3))
+  @test same(prox(Tilt(ElasticNet(T(1), T(1)), fill(T(0), 3)), T[NaN, -1, 2], Inf_), fill(T(NaN), 3))
+  x = T[NaN, -1, 2, Inf, -Inf]
+  @test same(prox(Constrained(Tilt(ElasticNet(T(1), T(0)), fill(T(1), 5)), IndBox(T(-1), T(1))), x, Inf_), fill(T(NaN), 5))
+end
+
 @testset "argument and step types" begin
   @test same(prox(ElasticNet(0, 0), [2, -1], Inf), [2.0, -1.0])
   @test same(prox(ElasticNet(1, 0), [2, -1], Inf), [0.0, 0.0])
   @test same(prox_entry(ElasticNet(0, 0), 2, 1, Inf), 2.0)
   @test same(prox(ElasticNet(0.0, 0.0), big.([2.0, -1.0]), Inf), big.([2.0, -1.0]))
-  @test same(prox(ElasticNet(big(0.0), big(1.0)), [2.0, NaN], Inf), [0.0, 0.0])
-  @test same(prox(ElasticNet(0.0, 1.0), [2.0, NaN], Float16(Inf)), [0.0, 0.0])
+  @test same(prox(ElasticNet(big(0.0), big(1.0)), [2.0, NaN], Inf), [0.0, NaN])
+  @test same(prox(ElasticNet(0.0, 1.0), [2.0, NaN], Float16(Inf)), [0.0, NaN])
   @test same(prox(ElasticNet(0.0, 0.0), [2.0, NaN], Float16(Inf)), [2.0, NaN])
-  @test same(prox(ElasticNet(1f0, 0f0), Float32[2, NaN], Inf), Float32[0, 0])
+  @test same(prox(ElasticNet(1f0, 0f0), Float32[2, NaN], Inf), Float32[0, NaN])
   @test same(prox(ElasticNet(0f0, 0f0), Float16[2, NaN], Inf), Float16[2, NaN])
   @test same(prox!(zeros(Float32, 2), ElasticNet(0.0, 0.0), [2.0, -1.0], Inf), Float32[2, -1])
 end

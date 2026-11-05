@@ -226,10 +226,10 @@ def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10
                              for _, new in pairs)
             limited_by = []
             for side, index in (("before", 0), ("after", 1)):
-                reps = [f"rep{int(pair[index]['rep']):02d}" for pair in pairs
-                        if timer_limited(pair[index], pair[index]["_metadata"], timer_limit_multiple)]
-                if reps:
-                    limited_by.append(side + ":" + ",".join(reps))
+                limited_reps = [f"rep{int(pair[index]['rep']):02d}" for pair in pairs
+                                if timer_limited(pair[index], pair[index]["_metadata"], timer_limit_multiple)]
+                if limited_reps:
+                    limited_by.append(side + ":" + ",".join(limited_reps))
             limited = bool(limited_by)
             assessment = ("single run; exploratory" if runs == 1 else
                           "inconclusive" if mu-half <= 0 <= mu+half else

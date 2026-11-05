@@ -50,6 +50,20 @@ gives `(0, 0)`, so the limit has no unique value. The output is then NaN in ever
 that is not hard-fixed, the penalized ones included (and the value is NaN). A sphere with no entry of finite threshold throws an
 `ArgumentError` before anything is written.
 
+For a `GroupNormL2` `f`, the same limits hold group by group. An entry of a group
+with an infinite weight is hard-fixed: its output is zero whatever the argument
+holds, at every level and step, and a zero level does not remove it. A free entry
+(in no group, in a group of zero weight, or with a zero level or step) and a
+penalized entry at a finite step are governed: they determine the output. One
+infinite governed entry gives `±r` there and zero elsewhere, and in a
+`SymmetricSparseIterate` a mirrored off-diagonal pair is one entry, with `±r/√2`
+in each of its two stored entries. Two or more infinite governed entries, in one
+group or in several, and a NaN governed entry, give NaN in every governed output,
+since their direction depends on how they diverge. At `γ = Inf` the penalized
+entries are zero and a NaN there is ignored; an infinite penalized entry is a
+joint limit, so the output is NaN in every entry that is not hard-fixed. The
+value is that of the stored output, and NaN when the output is NaN.
+
 ```julia
 u = prox(Constrained(NormL1(λ), IndBallL2(1)), X * v)        # the step of the penalized matrix decomposition
 u = prox(Constrained(IndBallL0(k), IndSphereL2(1)), S * u)    # the truncated power method
@@ -164,6 +178,27 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::BallConstrained{<:NormL
   end
   v, ny = _ball_core!(y, c, x, γ)
   isfinite(ny) ? v : _l1_nonfinite!(y, c, x, γ)
+end
+# GroupNormL2 on the ball (#469, Stage 3B). A finite argument takes the group kernel, unchanged. An argument with
+# a NaN or infinite entry is classified before anything is written. The test is a reduction over the argument (its
+# stored entries for a sparse iterate): the group kernel gives NaN for a NaN in a penalized group, and the NaN limits
+# are decided here before anything is written; an infinite penalized entry at the infinite step gives a zero output.
+function _value_and_prox_unchecked!(y::AbstractArray, c::BallConstrained{<:GroupNormL2}, x::AbstractArray, γ::Real)
+  _checkstep_nonneg(γ)
+  _checkwrite(value_and_prox!, c, y, x)
+  _group_host(c, y, x) || return _ball_projection!(y, c, x, γ)
+  if Base.mightalias(y, x)
+    _has_nonfinite(x) && return _group_nonfinite!(y, c, x, γ)
+    return _ball_projection!(y, c, x, γ)
+  end
+  # A reduction over the grouped span sees a NaN in a penalized group before any output is written.
+  # An infinite or NaN entry outside the span is copied to the output and reaches its norm, which is checked below.
+  _group_span_nonfinite(x, c.f) && return _group_nonfinite!(y, c, x, γ)
+  # A finite argument stored in a narrower output can overflow there before the scaling (1e100 in Float32): a
+  # nonfinite stored norm then takes the wide projection of the surrogate, which is the finite one. The norm of
+  # the stored point before scaling is nonfinite also for a NaN or infinite entry outside the group span.
+  v, ny = _ball_core!(y, c, x, γ)
+  isfinite(ny) ? v : _group_nonfinite!(y, c, x, γ)
 end
 # the projection in y, its value and the norm of the stored point before scaling (nonfinite exactly when
 # the argument has a nonfinite entry in a coordinate that is not hard-fixed, for a NormL1: see above)
@@ -504,12 +539,21 @@ value_and_prox!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, x::Abstra
 function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, x::AbstractArray, γ::Real)
   _checkstep_nonneg(γ)
   _checkwrite(value_and_prox!, c, y, x)
+  _sphere_group!(y, c, x, γ, true)
+end
+# The sphere's kernel. With classify, a nonfinite norm (of an entry, or of a group, which can overflow from finite
+# entries too) sends the argument to the exact classification, which then runs this kernel with classify off on a
+# finite surrogate: an overflowing finite norm is then handled by the scaling of this kernel, not classified again.
+function _sphere_group!(y::AbstractArray, c::SphereConstrained{<:GroupNormL2}, x::AbstractArray, γ::Real, classify::Bool)
   T = float(eltype(y))
   U = promote_type(float(eltype(x)), T)       # the type in which the shrinkage compares
   f, r = c.f, convert(T, c.sphere.r)
   kbest, ibest, bestn, bestc = 0, 0, zero(U), zero(U)
+  # the loops read every entry, so the check costs nothing extra
+  nonfinite = false
   for k in eachindex(f.groups)
     n = convert(U, _group_norm2(x, f.groups[k]))
+    nonfinite |= !isfinite(n)
     threshold = _group_sphere_threshold(f, γ, U, k)
     (kbest == 0 || isinf(bestc) || (!isinf(threshold) && n - bestn > threshold - bestc)) && ((kbest, bestn, bestc) = (k, n, threshold))
   end
@@ -518,7 +562,12 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Gro
     n = convert(U, abs(x[i]))
     ((kbest == 0 && ibest == 0) || isinf(bestc) || n - bestn > -bestc) && ((kbest, ibest, bestn, bestc) = (0, i, n, zero(U)))
   end
+  # the entries in no group are not classified by the loops above, and a check inside the loop costs more than a
+  # vectorized reduction over the argument (the sum is nonfinite exactly for a NaN or infinite entry, and a finite
+  # sum that overflows only sends the argument to the exact classification, which resolves it)
+  nonfinite |= (!isempty(f.free) || length(x) > length(f.group_of)) && _has_nonfinite(x)
   isfinite(bestc) || throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
+  classify && nonfinite && _group_host(c, y, x) && return _group_nonfinite!(y, c, x, γ)
   if bestn > bestc
     v = convert(T, _value_and_prox_unchecked!(y, f, x, γ))
     m = maximum(abs, y)
@@ -541,7 +590,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::SphereConstrained{<:Gro
     fill!(y, zero(eltype(y)))
     _write_unit!(y, _diagonal_first(y, G), r)
   else
-    _scale_l2!(view(y, G), view(x, G), r, nG)
+    _group_direction!(y, x, G, r, nG)
     for i in eachindex(IndexLinear(), y)
       _group(f, i) == kbest || (y[i] = zero(eltype(y)))
     end
@@ -759,6 +808,183 @@ _narrow_into!(y::AbstractArray, b) = (for k in eachindex(IndexLinear(), y)
   end; y)
 _l1_sphere_nonfinite(y, c, x, γ) =
   _is_device_array(x) || _is_device_array(y) ? _sphere_nonfinite!(y, float(eltype(y))) : _l1_nonfinite!(y, c, x, γ)
+
+####################################
+#  GroupNormL2 on a ball or sphere at NaN and infinite arguments (#469, Stage 3B)
+####################################
+
+# The exceptional path is taken only for a host array (a device array keeps the finite kernels, #366), and only
+# for a ball of finite radius.
+_group_host(c::BallConstrained, y, x) = isfinite(c.ball.r) && !_is_device_array(x) && !_is_device_array(y)
+_group_host(c::SphereConstrained, y, x) = !_is_device_array(x) && !_is_device_array(y)
+
+# Whether an entry of the span of the groups (the first length(group_of) positions, which contain every grouped
+# index) is NaN or infinite: a sum of the span is nonfinite exactly then (an infinity cannot cancel to a finite sum),
+# and a finite sum that overflows is a false alarm that the classification resolves. A sparse iterate is read in
+# its stored values, and any other array is read in full.
+_group_span_nonfinite(x::Union{SparseIterate, SymmetricSparseIterate}, f) = _has_nonfinite(x)
+function _group_span_nonfinite(x::DenseArray, f::GroupNormL2)
+  m = min(length(f.group_of), length(x))
+  s = zero(float(eltype(x)))
+  @inbounds @simd for i in 1:m
+    s += x[i]
+  end
+  !isfinite(s)
+end
+_group_span_nonfinite(x::AbstractArray, f) = _has_nonfinite(x)
+
+# The output classes of the independent coordinates of a GroupNormL2 f at the step γ (E2, E3, E4). A coordinate
+# of a hard-fixed group, an infinite weight at every level and step, is zero whatever its argument holds. A free
+# one (in no group, in a group of zero weight, or with a zero level or step) and a penalized one at a finite step
+# are governed: their outputs depend on the whole argument. A penalized one at the infinite step is zero at every
+# finite argument, so it governs nothing, and an infinite one among them is a joint limit in x and γ (E3).
+const _HARD_G = 0
+const _FREE_G = 1
+const _PENALIZED_G = 2
+
+@inline function _group_class(f::GroupNormL2, γ, k::Integer)
+  g = _group(f, k)
+  g == 0 && return _FREE_G
+  w = f.w[g]
+  isinf(w) && return _HARD_G
+  (iszero(f.λ0) || iszero(w) || iszero(γ)) ? _FREE_G : _PENALIZED_G
+end
+@inline _governed_group(cls, γ) = cls == _FREE_G || (cls == _PENALIZED_G && !isinf(γ))
+
+# What x holds over the governed coordinates: the number of NaN entries, of infinite entries, the first infinite
+# one (its index and sign), and whether an infinite penalized coordinate at the infinite step makes the joint limit
+# undetermined. Each independent coordinate counts once: a mirrored pair is one (M2), so one pair is one infinity,
+# while two infinite coordinates in one group, or in two groups, give no determined direction (E3).
+struct _GroupReading
+  nan::Int
+  inf::Int
+  k1::Int
+  sign1::Int
+  joint::Bool
+end
+
+function _group_reading(L, x, f::GroupNormL2, γ)
+  nan = inf = k1 = sgn = 0
+  joint = false
+  for k in _layout_indices(L, x)
+    cls = _group_class(f, γ, k)
+    cls == _HARD_G && continue
+    v = _layout_get(L, x, k)
+    if _governed_group(cls, γ)
+      if isnan(v)
+        nan += 1
+      elseif isinf(v)
+        inf += 1
+        inf == 1 && ((k1, sgn) = (k, Int(sign(v))))
+      end
+    else
+      joint |= isinf(v)
+    end
+  end
+  _GroupReading(nan, inf, k1, sgn, joint)
+end
+
+# A copy of x, symmetric as x is, in which every coordinate that the projection does not govern is zero: the
+# finite kernel then projects the governed coordinates alone. A hard-fixed or non-governed output is zero in any
+# case, and its argument does not enter the governed projection.
+function _group_surrogate(L, x, f::GroupNormL2, γ)
+  xs = Array{float(eltype(x))}(undef, size(x))
+  for k in eachindex(IndexLinear(), x)
+    xs[k] = x[k]
+  end
+  for k in _layout_indices(L, x)
+    _governed_group(_group_class(f, γ, k), γ) && continue
+    _layout_zero!(L, xs, k)
+  end
+  xs
+end
+
+# NaN on the governed coordinates (every coordinate that is not hard-fixed at the joint limit), zero elsewhere
+function _group_write_nan!(y, L, f::GroupNormL2, γ, joint::Bool)
+  fill!(y, zero(eltype(y)))
+  nanv = convert(eltype(y), NaN)
+  for k in _layout_indices(L, y)
+    cls = _group_class(f, γ, k)
+    cls == _HARD_G && continue
+    (joint || _governed_group(cls, γ)) && _layout_put!(L, y, k, nanv)
+  end
+  y
+end
+
+# ±r at the one infinite governed coordinate, zero elsewhere. A mirrored pair of a SymmetricSparseIterate is
+# one coordinate counted twice in the norm (M2), so each of its two entries is ±r/√2.
+function _group_write_unit!(y, L, rd::_GroupReading, r)
+  fill!(y, zero(eltype(y)))
+  k = rd.k1
+  _layout_put!(L, y, k, convert(eltype(y), rd.sign1 * r / sqrt(_layout_mult(L, eltype(y), k))))
+  y
+end
+
+# NaN in the output, read without a scan of a sparse iterate's logical length (only its stored values)
+_has_nan_output(y::AbstractArray) = any(isnan, y)
+_has_nan_output(y::Union{SparseIterate, SymmetricSparseIterate}) = any(isnan, view(y.nzval, 1:y.nnz))
+
+# The projection at an argument with a NaN or infinite entry (E1, E2, E3, M2). The argument is classified before
+# anything is written, so y may be x. Nothing is read from the stored output except to write it.
+#  - a joint limit (an infinite penalized coordinate at γ = Inf): NaN over every coordinate that is not hard-fixed;
+#  - a governed NaN, or two or more infinite governed coordinates: NaN over the governed coordinates, where the
+#    penalized outputs at the infinite step are zero (they are fixed by the endpoint, whatever x holds);
+#  - one infinite governed coordinate: ±r there (±r/√2 in a mirrored pair), zero elsewhere;
+#  - otherwise the finite projection of the governed coordinates, which is the finite kernel's, run on a copy.
+# A sphere with no coordinate of finite threshold is infeasible and throws before anything is written.
+function _group_nonfinite!(y::AbstractArray, c, x::AbstractArray, γ::Real)
+  T = float(eltype(y))
+  U = promote_type(float(eltype(x)), T)
+  f = c.f
+  sphere = c isa SphereConstrained
+  r = convert(T, sphere ? c.sphere.r : c.ball.r)
+  L = y isa SymmetricSparseIterate ? _LowerLayout(size(y, 1)) : _DenseLayout()
+  # the ball of radius zero is the singleton {0} (E2); the test is on the radius itself, not on its rounding to T
+  if !sphere && iszero(c.ball.r)
+    fill!(y, zero(eltype(y)))
+    return zero(T)
+  end
+  rd = _group_reading(L, x, f, γ)
+  sphere && !_sphere_finite_threshold(f, γ, U, x) &&
+    throw(ArgumentError("sphere thresholds must be finite; rescale the penalty or step"))
+  if isinf(γ) && rd.joint
+    _group_write_nan!(y, L, f, γ, true)
+  elseif rd.nan > 0 || rd.inf > 1
+    _group_write_nan!(y, L, f, γ, false)
+  elseif rd.inf == 1
+    _group_write_unit!(y, L, rd, r)
+  else
+    return _finite_group!(y, c, _group_surrogate(L, x, f, γ), γ)
+  end
+  # O2: the value at the stored point, which is NaN wherever the stored point is (a zero weight would otherwise
+  # make a NaN entry a zero contribution to the value)
+  _has_nan_output(y) ? convert(T, NaN) : convert(T, _value_unchecked(f, y))
+end
+
+# the finite projection of a surrogate, finite by construction: the ball's group kernel at the model precision,
+# and the sphere's kernel, which reads the surrogate and writes y
+_finite_group!(y, c::BallConstrained, x, γ) = _finite_ball!(y, c, x, γ, promote_type(float(eltype(x)), float(eltype(y))))
+_finite_group!(y, c::SphereConstrained, x, γ) = _sphere_group!(y, c, x, γ, false)
+
+# y[G] ← r x[G]/‖x_G‖ for a group G of a sphere's shrinkage, scaled as _scale_l2!. A SymmetricSparseIterate stores each
+# mirrored pair once, so its group is written through the lower positions only (the pair is one stored value).
+_group_direction!(y::AbstractArray, x, G, r, nG) = _scale_l2!(view(y, G), view(x, G), r, nG)
+function _group_direction!(y::SymmetricSparseIterate, x, G, r, nG)
+  W = _group_writes(y, G)
+  t = r / nG
+  if isfinite(nG) && nG >= floatmin(typeof(nG)) && isfinite(t) && t >= floatmin(typeof(t))
+    for i in W
+      y[i] = t * x[i]
+    end
+  else
+    m = _maxabs(x, G)
+    n = sqrt(sum(abs2, x[i] / m for i in G))
+    for i in W
+      y[i] = (x[i] / m) * (r / n)
+    end
+  end
+  y
+end
 
 ####################################
 #  steps, checked before any block of a sum is written

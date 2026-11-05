@@ -336,9 +336,9 @@ _hessian_vec_unchecked!(Hv, s::Scaled, x, v) = _chained(s) ?
 hessian_vec!(Hv, t::Tilt, x, v) =
   (_check_second_order_arrays(t, x, Hv, v); _hessian_vec_unchecked!(Hv, t, x, v))
 _hessian_vec_unchecked!(Hv, t::Tilt, x, v) = (_checkparams(t, x); _hessian_vec_unchecked!(Hv, t.f, x, v))
-hessian_vec!(Hv, t::Translate, x::AbstractArray, v) =
+hessian_vec!(Hv, t::Translate, x::Union{AbstractArray, Tuple}, v) =
   (_check_second_order_arrays(t, x, Hv, v); _hessian_vec_unchecked!(Hv, t, x, v))
-_hessian_vec_unchecked!(Hv, t::Translate, x::AbstractArray, v) = _hessian_vec_unchecked!(Hv, t.f, _shifted(t, x), v)
+_hessian_vec_unchecked!(Hv, t::Translate, x::Union{AbstractArray, Tuple}, v) = _hessian_vec_unchecked!(Hv, t.f, _shifted(t, x), v)
 
 # the remaining functions' products added into Hv through the buffer b
 _add_hessian_vecs!(Hv, b, x, v, ::Tuple{}) = Hv
@@ -373,10 +373,13 @@ quadratic_model(s::Scaled, x) =
 _quadratic_model_unchecked(s::Scaled, x) = Scaled(_quadratic_model_unchecked(s.f, x), s.α)
 quadratic_model(t::Tilt, x) =
   (_check_second_order_arrays(t, x); _quadratic_model_unchecked(t, x))
-_quadratic_model_unchecked(t::Tilt, x) = (_checkreal(t, x); Tilt(_quadratic_model_unchecked(t.f, x), t.c, t.d))
-quadratic_model(t::Translate, x::AbstractArray) =
+_quadratic_model_unchecked(t::Tilt, x) = (_checkreal(t, x); _check_tilt_model(t, x); Tilt(_quadratic_model_unchecked(t.f, x), t.c, t.d))
+# a tuple of coefficients pairs with the point block by block
+_check_tilt_model(t::Tilt, x) = true
+_check_tilt_model(t::Tilt, x::Tuple) = _checkparam(t.c, x)
+quadratic_model(t::Translate, x::Union{AbstractArray, Tuple}) =
   (_check_second_order_arrays(t, x); _quadratic_model_unchecked(t, x))
-_quadratic_model_unchecked(t::Translate, x::AbstractArray) = Translate(_quadratic_model_unchecked(t.f, _shifted(t, x)), t.b)
+_quadratic_model_unchecked(t::Translate, x::Union{AbstractArray, Tuple}) = Translate(_quadratic_model_unchecked(t.f, _shifted(t, x)), t.b)
 quadratic_model(s::Sum, x) =
   (_check_second_order_arrays(s, x); _quadratic_model_unchecked(s, x))
 _quadratic_model_unchecked(s::Sum, x) = Sum(map(f -> _quadratic_model_unchecked(f, x), s.fs)...)
@@ -390,10 +393,10 @@ quadratic_model!(q::Scaled, s::Scaled, x) =
 _quadratic_model_unchecked!(q::Scaled, s::Scaled, x) = (_quadratic_model_unchecked!(q.f, s.f, x); q)
 quadratic_model!(q::Tilt, t::Tilt, x) =
   (_check_second_order_arrays(t, x); _quadratic_model_unchecked!(q, t, x))
-_quadratic_model_unchecked!(q::Tilt, t::Tilt, x) = (_checkreal(t, x); _quadratic_model_unchecked!(q.f, t.f, x); q)
-quadratic_model!(q::Translate, t::Translate, x::AbstractArray) =
+_quadratic_model_unchecked!(q::Tilt, t::Tilt, x) = (_checkreal(t, x); _check_tilt_model(t, x); _quadratic_model_unchecked!(q.f, t.f, x); q)
+quadratic_model!(q::Translate, t::Translate, x::Union{AbstractArray, Tuple}) =
   (_check_second_order_arrays(t, x); _quadratic_model_unchecked!(q, t, x))
-_quadratic_model_unchecked!(q::Translate, t::Translate, x::AbstractArray) = (_quadratic_model_unchecked!(q.f, t.f, _shifted(t, x)); q)
+_quadratic_model_unchecked!(q::Translate, t::Translate, x::Union{AbstractArray, Tuple}) = (_quadratic_model_unchecked!(q.f, t.f, _shifted(t, x)); q)
 quadratic_model!(q::Sum, s::Sum, x) =
   (_check_second_order_arrays(s, x); _quadratic_model_unchecked!(q, s, x))
 _quadratic_model_unchecked!(q::Sum, s::Sum, x) =

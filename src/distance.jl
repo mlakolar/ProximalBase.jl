@@ -339,6 +339,14 @@ function _distance_value_parts(f, x::AbstractArray, square::Bool)
   _parts_product(frexp(float(f.λ)), square ? _parts(m * m / 2, 2e) : (m, e))
 end
 _value_parts(f::DistL2, x::AbstractArray, v) = _distance_value_parts(f, x, false)
+# Exact-zero protection: the distance is accurate (hypot where its square leaves the range) and zero
+# only at a point of the set. DistL2 applies λ to its parts and rounds once; SqrDistL2 squares the
+# product of the distance and √(λ/2), whose rounding to zero, or whose own underflow, leaves less
+# than δ (1 + 4 eps). A level that does not keep its range in the value type of SqrDistL2 (which
+# converts it) has no such bound.
+_zero_value_exponent(f::DistL2, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), 1)
+_zero_value_exponent(f::SqrDistL2, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO :
+  _level_fits(float(eltype(x)), f.λ) ? _underflow_exponent(_valtype(x), 1) : nothing
 _value_parts(f::SqrDistL2, x::AbstractArray, v) = _distance_value_parts(f, x, true)
 
 # A subnormal interpolation weight can still move a large endpoint. Apply

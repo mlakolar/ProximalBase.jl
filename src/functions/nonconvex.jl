@@ -844,6 +844,37 @@ function _value_parts(f::Union{CappedL1, LogPenalty, NormLq}, x::AbstractArray, 
   _sep_value_parts(f, x, _sep_parts_type(x, f.λ, shape, f.w), f.λ)
 end
 _parameter_alias(f::Union{CappedL1, LogPenalty, NormLq}, out) = _mightalias_parameter(out, f.w)
+# Exact-zero protection, with the levels converted to the value type (where they must keep their
+# range). The ordinary term is (λ w) φ. CappedL1: λ w loses less than δ/2 where it underflows, and
+# φ = min(|v|, a) < 2^(e(a)) multiplies it; the product with φ loses less than δ/2. LogPenalty:
+# |v|/ε loses less than δ/2 where it underflows, which λ w multiplies (bounded by one pass over the
+# weights), and λ w loses less than δ/2, which φ ≤ log1p(floatmax/ε) < 2^11 multiplies. NormLq:
+# φ = |v|^q is unbounded, so a coefficient λ w that can underflow (λ times the smallest weight
+# below floatmin) has no bound; otherwise only the product loses less than δ/2.
+function _zero_value_exponent(f::CappedL1, x::AbstractArray)
+  T = _valtype(x)
+  iszero(f.λ) && return _EXACT_ZERO
+  (_level_fits(T, f.λ) && _level_fits(T, f.a)) || return nothing
+  _underflow_exponent(T, length(x), f.w === nothing ? 0 : 1 + max(0, _upper_exponent(convert(T, f.a))))
+end
+function _zero_value_exponent(f::LogPenalty, x::AbstractArray)
+  T = _valtype(x)
+  iszero(f.λ) && return _EXACT_ZERO
+  (_level_fits(T, f.λ) && _level_fits(T, f.ε)) || return nothing
+  eλ = _upper_exponent(convert(T, f.λ))
+  f.w === nothing && return _underflow_exponent(T, length(x), 1 + max(0, eλ))
+  we = _weight_exponents(f.w)
+  we === nothing ? nothing : _underflow_exponent(T, length(x), 1 + max(11, eλ + we[2]))
+end
+function _zero_value_exponent(f::NormLq, x::AbstractArray)
+  T = _valtype(x)
+  iszero(f.λ) && return _EXACT_ZERO
+  _level_fits(T, f.λ) || return nothing
+  f.w === nothing && return _underflow_exponent(T, length(x))
+  we = _weight_exponents(f.w)
+  (we !== nothing && _upper_exponent(convert(T, f.λ)) - 1 + we[1] > exponent(floatmin(T))) || return nothing
+  _underflow_exponent(T, length(x))
+end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::CappedL1, v, i) where {R}
   u = convert(R, v)
   isnan(u) && return nothing
@@ -875,6 +906,12 @@ end
 # pieces of the MCP and SCAD terms (separable.jl). A group with an infinite coefficient and a
 # nonzero entry is an infinite term, and the value is kept; a zero level is exact.
 _has_value_parts(::Type{<:_RadialGroupPenalty}) = true
+# Exact-zero protection: the group norms are accurate (no square is rounded into the subnormal range
+# before the root) and zero only for a zero group, and the MCP or SCAD terms of the groups lose as for
+# the scalar penalties (separable.jl); a term is at most λ²wₖ²(a + 1)/2, so a coefficient λwₖ that
+# underflows leaves only a negligible term.
+_zero_value_exponent(f::_RadialGroupPenalty, x::AbstractArray) = iszero(f.λ0) ? _EXACT_ZERO :
+  isfinite(f.a) ? _underflow_exponent(_valtype(x), length(f.groups) + 1, _mcp_scad_amp(convert(_valtype(x), f.a))) : nothing
 function _value_parts(f::_RadialGroupPenalty, x::AbstractArray, v)
   (iszero(f.λ0) || !isfinite(f.λ0) || !isfinite(f.a)) && return nothing
   R = promote_type(_valtype(x), float(typeof(f.λ0)))

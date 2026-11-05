@@ -399,9 +399,8 @@ end
   if iszero(v)
     E = _zero_value_exponent(f, x)
     E === nothing || E != _EXACT_ZERO || return false
-    # |α f(x)| < 2^(E + e) δ/2 for α < 2^e: below the normal range of the result R when
-    # 2^(E + e) <= floatmin(R)/(δ/2)
-    E === nothing || E + _scale_upper_exponent(α) > _zero_threshold(typeof(float(_apply_scale(α, v))), _valtype(x)) ||
+    # |α f(x)| < 2^(E + e) for α < 2^e: below the normal range of the result R when E + e <= exponent(floatmin(R))
+    E === nothing || E + _scale_upper_exponent(α) > exponent(floatmin(typeof(float(_apply_scale(α, v))))) ||
       return false
   elseif isinf(v)
     _infinite_value_exact(f, x) && return false
@@ -411,10 +410,9 @@ end
   out === nothing || !_parameter_alias(f, out)
 end
 _scaled_parts(f, α, x, v, out) = _parts_wanted(f, α, x, v, out) ? _value_parts_scaled(f, x, v, α) : nothing
-# e with α < 2^e, and the exponent of floatmin(R)/(δ/2), δ the smallest subnormal of T
+# e with α < 2^e
 @inline _scale_upper_exponent(α::Real) = _upper_exponent(α)
 @inline _scale_upper_exponent(a::_ProjectionScale) = a.e
-@inline _zero_threshold(::Type{R}, ::Type{T}) where {R, T} = exponent(floatmin(R)) - exponent(nextfloat(zero(T))) + 1
 # the parts of f, for wrappers that pass the scale on to the function inside them
 _value_parts_scaled(f, x, v, α) = _value_parts(f, x, v)
 # α m 2^e, rounded once: the product of the significands, with the exponents applied last
@@ -603,9 +601,13 @@ function _scale_times(α, a::_ProjectionScale)
   m, e = frexp(convert(P, ma) * convert(P, a.m))
   _ProjectionScale(m, Int(ea) + a.e + e)
 end
+# A zero value of s is a zero value of s.f, times the factor (|α f| < 2^(E + e)), or the product of
+# the factor and a value of s.f that is nonzero, which Scaled itself recomputes when it underflows,
+# so that the zero is then below δ: E is the larger of the two.
 function _zero_value_exponent(s::Scaled, x)
   E = _zero_value_exponent(s.f, x)
-  E === nothing || E == _EXACT_ZERO ? E : E + _upper_exponent(s.α)
+  E === nothing && return nothing
+  max(E == _EXACT_ZERO ? E : E + _upper_exponent(s.α), _underflow_exponent(_valtype(x), 1))
 end
 _parameter_alias(s::Scaled, out) = _parameter_alias(s.f, out)
 _infinite_value_exact(s::Scaled, x) = _infinite_value_exact(s.f, x)
@@ -915,6 +917,7 @@ function _value_parts_scaled(t::Translate, x::AbstractArray, v, α)
   _scaled_parts(t.f, α, z, v, nothing)
 end
 _value_parts_scaled(t::Translate, x, v, α) = nothing
+# the inner value at x - b, a difference that is exact where it is subnormal, with the same length
 _zero_value_exponent(t::Translate, x) = _zero_value_exponent(t.f, x)
 _infinite_value_exact(t::Translate, x) = _infinite_value_exact(t.f, x)
 _parameter_alias(t::Translate, out) = _mightalias_parameter(out, t.b) || _parameter_alias(t.f, out)

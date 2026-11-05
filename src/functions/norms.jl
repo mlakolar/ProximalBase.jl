@@ -231,6 +231,11 @@ function _value_parts(f::CubeNormL2, x::AbstractArray, v)
   _parts(((a * m) * m) * (m / 3), k + 3e)
 end
 
+# Exact-zero protection: the norm is accurate, with its square or its cube never rounded into the
+# subnormal range before the level is applied: a zero value is λ n²·(n/3) of normal factors rounded to
+# zero, or the recomputation above rounded once, below δ (1 + 4 eps) either way.
+_zero_value_exponent(f::CubeNormL2, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), 1)
+
 # A scale may not fit even when its product with an entry does. Round only
 # after combining the exponents, preserving zeros beside overflowing entries.
 @inline function _cube_scale(v::Real, m::T, e::Int) where {T}
@@ -1254,6 +1259,12 @@ end
 # The scaled-value mechanism: the recoveries above as a significand and an exponent. A level or an
 # entry that is not finite gives a value that is not recovered.
 _has_value_parts(::Type{<:NormL1Fused}) = true
+# Exact-zero protection: Σ|xᵢ| and Σ (2k - n - 1) a₍ₖ₎ lose nothing to underflow (a sum, or an integer
+# times an entry, whose result is subnormal is exact; a zero from cancellation is within the accuracy
+# of the ordinary sum), and only the products with the levels round into the subnormal range, or the
+# recovery rounds once: |f(x)| < n δ.
+_zero_value_exponent(f::NormL1Fused, x::AbstractVector) =
+  iszero(f.λ1) && iszero(f.λ2) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
 function _value_parts(f::NormL1Fused, x::AbstractVector, v)
   Base.require_one_based_indexing(x)
   (iszero(f.λ1) && iszero(f.λ2)) && return nothing

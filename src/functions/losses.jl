@@ -519,17 +519,26 @@ curvature(ℓ::ConvolutionCheck{<:Any, :epanechnikov}) = 3 / (4 * float(ℓ.h))
 
 # The scaled-value mechanism (`_sep_value_parts`, separable.jl): the terms w φ with φ as parts,
 # so that neither a margin y v, a square nor a product with a weight need be representable. A
-# term at a non-finite entry or label is the ordinary one. An unweighted value that is exactly
-# zero is exact: every term is zero or at least 2^-54 (hinge losses), or zero or exactly |v| - ε.
+# term at a non-finite entry or label is the ordinary one.
 _has_value_parts(::Type{<:Union{HingeLoss, SqrHingeLoss, EpsInsensitiveLoss, CheckLoss}}) = true
-# Without weights, a small value of these losses is exact, decided by the type: a hinge term
-# max(1 - yv, 0) is 0 or at least eps(1)/2 (1 - t for a float t < 1), and its square at least
-# eps(1)^2/4, a normal number; an ε-insensitive term |v| - ε that is subnormal is an exact
-# difference, and a sum whose result is subnormal is exact. A zero or subnormal value therefore
-# loses nothing to underflow, and Scaled skips the recovery for it.
+# Exact-zero protection. Without weights, a small value of these losses loses nothing to underflow,
+# decided by the type. A hinge term max(1 - t, 0), t the margin y v as rounded, is 0 or at least
+# eps(1)/2 (1 - t for a float t < 1), and its square at least eps(1)^2/4, a normal number; a margin
+# that rounds to 1 or more is a zero within the accuracy of the ordinary computation, measured
+# against the magnitudes of 1 and y v (R1), and the parts round the same margin. An ε-insensitive
+# term |v| - ε that is subnormal is an exact difference, and a sum whose result is subnormal is
+# exact. A zero or subnormal value is therefore exact, and Scaled skips the recovery for it.
 _zero_value_exact(::Union{HingeLoss{<:Any, Nothing}, SqrHingeLoss{<:Any, Nothing}, EpsInsensitiveLoss{<:Any, Nothing}}) = true
+# With weights, the term w φ is the last product, which loses less than δ/2: |f(x)| < n δ. The
+# check loss rounds τ v first, which loses less than δ/2 where it is subnormal and is then multiplied
+# by a weight: one pass over the weights bounds them (the unweighted loss multiplies by 1).
 _zero_value_exponent(f::Union{HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}, x::AbstractArray) =
-  f.w === nothing ? _EXACT_ZERO : nothing
+  f.w === nothing ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
+function _zero_value_exponent(f::CheckLoss, x::AbstractArray)
+  f.w === nothing && return _underflow_exponent(_valtype(x), length(x))
+  we = _weight_exponents(f.w)
+  we === nothing ? nothing : _underflow_exponent(_valtype(x), length(x), 1 + max(0, we[2]))
+end
 function _value_parts(f::Union{HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}, x::AbstractArray, v)
   iszero(v) && f.w === nothing && return nothing
   _sep_value_parts(f, x, _sep_parts_type(x, f isa EpsInsensitiveLoss ? f.ε : f.y, f.w))

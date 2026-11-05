@@ -68,6 +68,11 @@ end
 # The scaled-value mechanism: the recovery above as a significand and an exponent. A level or an
 # entry that is not finite gives a value that is not recovered.
 _has_value_parts(::Type{<:TotalVariation1D}) = true
+# Exact-zero protection, for these and FusedLasso: the gaps and the entries are exact where they are
+# subnormal, and their sums lose nothing to underflow; the products with the levels round into the
+# subnormal range (or the recovery above rounds once), so a zero value is below n δ.
+_zero_value_exponent(f::TotalVariation1D, x::AbstractVector) =
+  iszero(f.λ) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
 function _value_parts(f::TotalVariation1D, x::AbstractVector, v)
   iszero(f.λ) && return nothing
   (isfinite(f.λ) && all(isfinite, x)) || return nothing
@@ -218,6 +223,8 @@ end
 value_and_prox!(y::AbstractVector, f::FusedLasso, x::AbstractVector, γ::Real) = f(prox!(y, f, x, γ))
 
 _has_value_parts(::Type{<:FusedLasso}) = true
+_zero_value_exponent(f::FusedLasso, x::AbstractVector) =
+  iszero(f.λ1) && iszero(f.λ2) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
 function _value_parts(f::FusedLasso, x::AbstractVector, v)
   iszero(f.λ1) && iszero(f.λ2) && return nothing
   (isfinite(f.λ1) && isfinite(f.λ2) && all(isfinite, x)) || return nothing
@@ -660,6 +667,10 @@ end
 # The scaled-value mechanism: the sum above as a significand and an exponent, after sorting the
 # magnitudes again. A NaN or an infinite magnitude or weight gives a value that is not recovered.
 _has_value_parts(::Type{<:SLOPE}) = true
+# Exact-zero protection: Σ λₖ a₍ₖ₎ with the weights converted to the value type where they keep their
+# range (the recovery above otherwise), n products that each lose less than δ/2: |f(x)| < n δ.
+_zero_value_exponent(f::SLOPE, x::AbstractVector) =
+  (isempty(f.λ) || iszero(f.λ[1])) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
 function _value_parts(f::SLOPE, x::AbstractVector, v)
   Base.require_one_based_indexing(x)
   T = float(eltype(x))
@@ -929,6 +940,11 @@ function _sumlargest_parts(v::AbstractVector{T}, k::Int, λ) where {T}
   _parts_product(frexp(S(λ)), _parts(S(s + e), a))
 end
 _has_value_parts(::Type{<:SumLargest}) = true
+# Exact-zero protection: the sum of the selected entries is compensated and loses nothing to underflow
+# (a zero from cancellation is within its accuracy); λ multiplies it once, or the scaled branch rounds
+# once: |f(x)| < n δ.
+_zero_value_exponent(f::SumLargest, x::AbstractArray) =
+  iszero(f.λ) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
 function _value_parts(f::SumLargest, x::AbstractArray, v)
   iszero(f.λ) && return nothing
   f.k <= length(x) || return nothing

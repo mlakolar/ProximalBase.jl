@@ -534,6 +534,41 @@ _value_parts(f::Berhu, x::AbstractArray, v) =
 _parameter_alias(f::KLDivergence, out) = _mightalias_parameter(out, f.q)
 _parameter_alias(f::Berhu, out) = _mightalias_parameter(out, f.w)
 
+# Exact-zero protection. The value type T converts the level, which must keep its range there
+# (otherwise no bound). NegEntropy computes (λt) log t: λt loses less than δ/2 where it underflows,
+# and |log t| < 2^L multiplies the loss. KLDivergence applies λ to t log(t/q) - t + q, whose product
+# t log(t/q) loses less than δ/2: λ multiplies that loss (and a reference q wider than T, rounded to
+# T, has no bound). NegLog loses less than δ/2 in each product λ log t. Zeros from cancellation are
+# within the accuracy of the ordinary sums.
+_zero_value_exponent(f::NegEntropy, x::AbstractArray) = _level_fits(_valtype(x), f.λ) ?
+  _underflow_exponent(_valtype(x), length(x), _log_exponent(_valtype(x))) : nothing
+function _zero_value_exponent(f::KLDivergence, x::AbstractArray)
+  T = _valtype(x)
+  (_level_fits(T, f.λ) && promote_type(T, float(eltype(f.q))) === T) || return nothing
+  _underflow_exponent(T, length(x), 2 + max(0, _upper_exponent(convert(T, f.λ))))
+end
+_zero_value_exponent(f::NegLog, x::AbstractArray) =
+  _level_fits(_valtype(x), f.λ) ? _underflow_exponent(_valtype(x), length(x)) : nothing
+# Berhu: the coefficient c = λ w, then c t or c (t² + M²)/(2M). With c a normal number, c t and
+# c (t² + M²) lose less than δ/2 each, and the division by 2M multiplies that by 1/(2M); M² can
+# underflow, a loss that c/(2M) multiplies. Without weights c = λ; with weights one pass over them
+# bounds c, and a coefficient that can underflow (λ times the smallest weight below floatmin) is
+# then multiplied by an unbounded t: no bound.
+function _zero_value_exponent(f::Berhu, x::AbstractArray)
+  T = _valtype(x)
+  iszero(f.λ) && return _EXACT_ZERO
+  (_level_fits(T, f.λ) && _level_fits(T, f.M)) || return nothing
+  eλ, eM = _upper_exponent(convert(T, f.λ)), _upper_exponent(convert(T, f.M))
+  ec = eλ
+  if f.w !== nothing
+    we = _weight_exponents(f.w)
+    we === nothing && return nothing
+    eλ - 1 + we[1] > exponent(floatmin(T)) || return nothing
+    ec = eλ + we[2]
+  end
+  _underflow_exponent(T, length(x), 2 + max(0, ec) + max(0, 2 - eM))
+end
+
 @inline function _entry_terms(acc::_ExpSum{R}, f::NegEntropy, v, i) where {R}
   t = convert(R, v)
   (isfinite(t) && t >= 0) || return nothing

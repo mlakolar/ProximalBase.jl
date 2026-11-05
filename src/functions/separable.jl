@@ -872,13 +872,15 @@ _value_sep(f::NormL0, x::SymmetricSparseIterate) = invoke(_value_sep, Tuple{Any,
 _value_sep(f::NormL0, x::AtomIterate) = invoke(_value_sep, Tuple{Any, AtomIterate}, f, x)
 
 # The scaled-value mechanism: λ times the number of nonzero entries, in parts. A count of the entries
-# of a host IEEE array as above; the iterates and other arrays sum their terms. A value that is
-# exactly zero at a normal level counted no entry.
+# of a host IEEE array as above; the iterates and other arrays sum their terms.
 _has_value_parts(::Type{<:NormL0}) = true
+# Exact-zero protection: the value is λ, converted to the value type (where it must keep its range),
+# times a count or summed over the entries: one rounding of less than δ/2 per term, |f(x)| < n δ.
+_zero_value_exponent(f::NormL0, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO :
+  _level_fits(_valtype(x), f.λ) ? _underflow_exponent(_valtype(x), length(x)) : nothing
 function _value_parts(f::NormL0, x::AbstractArray, v)
   (iszero(f.λ) || !isfinite(f.λ)) && return nothing
   R = _sep_parts_type(x, f.λ)
-  iszero(v) && abs(convert(R, f.λ)) >= floatmin(R) && return nothing
   if x isa _HostArray && eltype(x) <: Base.IEEEFloat
     nz, nan = _count_nan_values(x)
     nan && return nothing
@@ -1079,6 +1081,14 @@ kkt_violation(f::SCAD, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _re
 restrict(f::SCAD, ::AbstractVector{<:Integer}) = f
 
 _has_value_parts(::Type{<:Union{MCP, SCAD}}) = true
+# Exact-zero protection: the pieces λt - t²/(2a), aλ²/2, (2aλt - t² - λ²)/(2(a - 1)) and λ²(a + 1)/2
+# lose less than δ/2 in each product or square that underflows, and a later factor a, 1/(2a) or
+# 1/(2(a - 1)) multiplies that loss; a term is at most λ²(a + 1)/2, so a level that underflows
+# leaves only a negligible term. The levels must keep their range in the value type.
+@inline _mcp_scad_amp(a) = 3 + max(0, _upper_exponent(a)) + max(0, 2 - _upper_exponent(a))
+_zero_value_exponent(f::Union{MCP, SCAD}, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO :
+  (_level_fits(_valtype(x), f.λ) && _level_fits(_valtype(x), f.a)) ?
+    _underflow_exponent(_valtype(x), length(x), _mcp_scad_amp(convert(_valtype(x), f.a))) : nothing
 function _value_parts(f::Union{MCP, SCAD}, x::AbstractArray, v)
   (iszero(f.λ) || !isfinite(f.λ) || !isfinite(f.a)) && return nothing
   _sep_value_parts(f, x, _sep_parts_type(x, f.λ))

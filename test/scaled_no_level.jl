@@ -300,6 +300,83 @@ end
   end
 end
 
+@testset "exact-zero protection" begin
+  t = pow2(Float64, -600)
+  # an ordinary value that is zero by underflow, which the factor brings into the normal range
+  for (name, f, x, α, n) in (
+      ("SqrNormL2 level", SqrNormL2(pow2(Float64, -900)), [pow2(Float64, -200)], pow2(Float64, 600), 1),
+      ("SqrNormL2 squares", SqrNormL2(1.0), [pow2(Float64, -540)], pow2(Float64, 60), 1),
+      ("SqrNormL2 sum", SqrNormL2(1.0), fill(pow2(Float64, -538), 4), pow2(Float64, 100), 4),
+      ("SqrNormL2 level above one", SqrNormL2(pow2(Float64, 100)), [t], pow2(Float64, 200), 1),
+      ("SqrNormL2 level below one", SqrNormL2(pow2(Float64, -1000)), [pow2(Float64, -40)], pow2(Float64, 100), 1),
+      ("SqrNormL2 center", SqrNormL2(pow2(Float64, -1000), [1.0]), [1.0 + pow2(Float64, -40)], pow2(Float64, 100), 1),
+      ("SqrNormL2 center level above one", SqrNormL2(pow2(Float64, 100), [t]), [2t], pow2(Float64, 200), 1),
+      ("CubeNormL2", CubeNormL2(pow2(Float64, -1000)), [pow2(Float64, -30)], pow2(Float64, 100), 1),
+      ("DistL2", DistL2(IndBox(0.0, 0.0), pow2(Float64, -1070)), [pow2(Float64, -10)], pow2(Float64, 100), 1),
+      ("SqrDistL2", SqrDistL2(IndBox(0.0, 0.0), pow2(Float64, -1000)), [pow2(Float64, -40)], pow2(Float64, 100), 1),
+      ("NormL1Fused", NormL1Fused(pow2(Float64, -1070), pow2(Float64, -1070)), [pow2(Float64, -10), 0.0, 0.0], pow2(Float64, 100), 6),
+      ("TotalVariation1D", TotalVariation1D(pow2(Float64, -1070)), [0.0, pow2(Float64, -10)], pow2(Float64, 100), 1),
+      ("FusedLasso", FusedLasso(pow2(Float64, -1070), pow2(Float64, -1070)), [0.0, pow2(Float64, -10)], pow2(Float64, 100), 3),
+      ("SLOPE", SLOPE([pow2(Float64, -1070), pow2(Float64, -1070)]), [pow2(Float64, -10), 0.0], pow2(Float64, 100), 2),
+      ("SumLargest", SumLargest(1, pow2(Float64, -1070)), [pow2(Float64, -10), 0.0], pow2(Float64, 100), 1),
+      ("NegEntropy", NegEntropy(pow2(Float64, -1000)), [pow2(Float64, -80)], pow2(Float64, 100), 1),
+      ("KLDivergence", KLDivergence([1e-300]; λ = pow2(Float64, -800)), [0.0], pow2(Float64, 1000), 1),
+      ("NegLog", NegLog(pow2(Float64, -1060)), [1.0 - pow2(Float64, -40)], pow2(Float64, 100), 1),
+      ("Berhu", Berhu(pow2(Float64, -1070), 1.0), [pow2(Float64, -10)], pow2(Float64, 100), 1),
+      ("HingeLoss w", HingeLoss(nothing, [pow2(Float64, -1070)]), [1.0 - pow2(Float64, -20)], pow2(Float64, 100), 1),
+      ("SqrHingeLoss w", SqrHingeLoss(nothing, [pow2(Float64, -1000)]), [1.0 - pow2(Float64, -40)], pow2(Float64, 100), 1),
+      ("EpsInsensitiveLoss w", EpsInsensitiveLoss(0.25, [pow2(Float64, -1070)]), [0.25 + pow2(Float64, -20)], pow2(Float64, 100), 1),
+      ("CheckLoss w", CheckLoss(0.5, [pow2(Float64, -1070)]), [pow2(Float64, -20)], pow2(Float64, 100), 1),
+      ("CheckLoss", CheckLoss(0.5), [nextfloat(0.0)], pow2(Float64, 100), 1),
+      ("CappedL1", CappedL1(pow2(Float64, -1070), 1.0), [pow2(Float64, -10)], pow2(Float64, 100), 1),
+      ("CappedL1 w", CappedL1(pow2(Float64, -600), 1.0, [pow2(Float64, -600)]), [0.5], pow2(Float64, 200), 1),
+      ("LogPenalty", LogPenalty(pow2(Float64, -1070), 1.0), [pow2(Float64, -10)], pow2(Float64, 100), 1),
+      ("LogPenalty w", LogPenalty(1.0, 1.0, [pow2(Float64, -1070)]), [pow2(Float64, -10)], pow2(Float64, 100), 1),
+      ("NormLq", NormLq(pow2(Float64, -1070), 0.5), [pow2(Float64, -40)], pow2(Float64, 100), 1),
+      ("NormLq w", NormLq(pow2(Float64, -600), 0.5, [pow2(Float64, -600)]), [4.0], pow2(Float64, 200), 1),
+      ("MCP", MCP(t, 3.0), [t], pow2(Float64, 1000), 2),
+      ("SCAD", SCAD(t, 3.7), [t / 2], pow2(Float64, 1000), 1),
+      ("GroupMCP", GroupMCP(t, [[1, 2]]; a = 3.0), [t, t], pow2(Float64, 1000), 2),
+      ("GroupSCAD", GroupSCAD(t, [[1, 2]]), [t, 0.0], pow2(Float64, 1000), 2),
+      ("Translate", Translate(SqrNormL2(pow2(Float64, -1000)), [1.0]), [1.0 + pow2(Float64, -40)], pow2(Float64, 600), 1),
+      ("Scaled∘Translate∘Scaled", Translate(Scaled(SqrNormL2(pow2(Float64, -900)), 2.0), [0.0]), [pow2(Float64, -200)], pow2(Float64, 600), 1))
+    @testset "hidden: $name" begin
+      @test iszero(f(x))
+      r = ref(f, α, x)
+      @test floatmin(Float64) <= abs(r) <= M
+      @test agrees(Scaled(f, α)(x), r, n)
+    end
+  end
+  # a level that does not keep its range in Float32 is rounded to zero by the ordinary value
+  @test iszero(NormL0(1e-50)(Float32[1, 0]))
+  @test agrees(Scaled(NormL0(1e-50), 1e30)(Float32[1, 0]), big(1e-50) * big(1e30), 1; wide = true)
+  # an exact zero stays zero, whether the factor lets the bound decide or the value is recomputed
+  for (name, f, x) in (
+      ("SqrNormL2", SqrNormL2(1.0), zeros(3)), ("SqrNormL2 y", SqrNormL2(1.0, [1.0, 2.0]), [1.0, 2.0]),
+      ("CubeNormL2", CubeNormL2(1.0), zeros(3)), ("DistL2", DistL2(IndBox(-1.0, 1.0), 2.0), [0.5, -0.5]),
+      ("SqrDistL2", SqrDistL2(IndBox(-1.0, 1.0)), [0.5, -0.5]), ("NormL1Fused", NormL1Fused(1.0, 1.0), zeros(3)),
+      ("TotalVariation1D", TotalVariation1D(1.0), fill(3.0, 4)), ("FusedLasso", FusedLasso(1.0, 1.0), zeros(3)),
+      ("SLOPE", SLOPE([2.0, 1.0]), zeros(2)), ("SumLargest", SumLargest(2, 1.0), zeros(3)),
+      ("NegEntropy", NegEntropy(), ones(3)), ("KLDivergence", KLDivergence([2.0, 3.0]), [2.0, 3.0]),
+      ("NegLog", NegLog(1.0), ones(3)), ("Berhu", Berhu(1.0, 1.0), zeros(3)), ("Berhu w", Berhu(1.0, 1.0, [1.0, 2.0]), zeros(2)),
+      ("HingeLoss", HingeLoss(), fill(2.0, 3)), ("HingeLoss w", HingeLoss(nothing, [1.0, 2.0]), fill(2.0, 2)),
+      ("SqrHingeLoss", SqrHingeLoss(), fill(2.0, 3)), ("EpsInsensitiveLoss", EpsInsensitiveLoss(0.5), [0.25, -0.5]),
+      ("CheckLoss", CheckLoss(0.3), zeros(3)), ("CheckLoss w", CheckLoss(0.3, [1.0, 2.0]), zeros(2)),
+      ("NormL0", NormL0(1.0), zeros(3)), ("CappedL1", CappedL1(1.0, 0.5), zeros(3)), ("LogPenalty", LogPenalty(1.0, 0.5), zeros(3)),
+      ("LogPenalty w", LogPenalty(1.0, 0.5, [1.0, 2.0]), zeros(2)), ("NormLq", NormLq(1.0, 0.5), zeros(3)),
+      ("NormLq w", NormLq(1.0, 0.5, [1.0, 2.0]), zeros(2)), ("MCP", MCP(1.0, 3.0), zeros(3)), ("SCAD", SCAD(1.0, 3.7), zeros(3)),
+      ("GroupMCP", GroupMCP(1.0, [[1, 2], [3]]; a = 3.0), zeros(3)), ("GroupSCAD", GroupSCAD(1.0, [[1, 2], [3]]), zeros(3)),
+      ("Translate", Translate(SqrNormL2(1.0), [1.0, 2.0]), [1.0, 2.0]))
+    @testset "exact: $name" begin
+      @test iszero(f(x))
+      for α in (2.0, pow2(Float64, 1000), 2f0)
+        v = Scaled(f, α)(x)
+        @test iszero(v) && v isa Float64
+      end
+    end
+  end
+end
+
 @testset "conformance row" begin
   @test Scaled(Translate(SqrNormL2(1.0), [0.0]), pow2(Float64, -1000))([pow2(Float64, 600)]) === pow2(Float64, 199)
 end

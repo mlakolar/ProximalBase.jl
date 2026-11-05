@@ -629,10 +629,29 @@ end
 # zero or in [1/2, 1) in magnitude, to the accuracy of its ordinary computation.
 _has_value_parts(::Type) = false
 _value_parts(f, x, v) = nothing
-# An exponent E with |f(x)| < 2^E δ/2, δ the smallest subnormal of the type of x, whenever the
-# ordinary value is exactly zero, from the parameters and the size of x only (`_EXACT_ZERO` when that
-# zero is exact), or `nothing` when no such bound is known.
+# Exact-zero protection. When the ordinary value is exactly zero, `_zero_value_exponent(f, x)` gives
+# an exponent E with |f(x)| < 2^E for the exact value, from the parameters and the size of x (no pass
+# over x), `_EXACT_ZERO` when that zero is exact, or `nothing` when no such bound is known (the value
+# is then recomputed). A zero value that is not exact comes from underflow: a rounding into the
+# subnormal range loses less than δ/2, δ the smallest subnormal of the computation type, and a later
+# product with a bounded factor (a level, a weight, a logarithm) multiplies that loss. A zero that
+# comes from cancellation is within the accuracy of the ordinary computation (R1 measures it against
+# the sum of the magnitudes of the terms), which the recomputation does not improve on either.
 _zero_value_exponent(f, x) = nothing
+# n losses of at most δ/2, each multiplied by less than 2^amp, with a margin of two binades for the
+# relative errors of the ordinary sums: n δ 2^amp / 2 < 2^E
+@inline _underflow_exponent(::Type{T}, n::Integer, amp::Integer = 0) where {T} =
+  exponent(nextfloat(zero(T))) + _log2_ceil(n) + amp + 2
+# |log t| < 2^E for every positive t of type T (745 for Float64, 104 for Float32)
+@inline _log_exponent(::Type{T}) where {T} = exponent(-log(nextfloat(zero(T)))) + 1
+# (the exponent of the smallest nonzero |wᵢ|, e with every |wᵢ| < 2^e) of a weight array, in one pass,
+# or `nothing` for a weight array that is not of Float32 or Float64, or not finite
+function _weight_exponents(w::AbstractArray)
+  eltype(w) <: Union{Float32, Float64} || return nothing
+  m = _maximum_abs(w)
+  isfinite(m) || return nothing
+  (_min_nonzero_exponent(w), _upper_exponent(m))
+end
 # Is a zero or subnormal value of f exact for every argument, by its type? Then a factor above one
 # has nothing to recover from it, and `Scaled` does not try (the test folds away at compile time).
 _zero_value_exact(f) = false

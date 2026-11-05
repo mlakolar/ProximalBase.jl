@@ -29,8 +29,11 @@ function source_metadata()
     catch
         true
     end
+    # the harness itself (this file and the case definitions), so a baseline names what produced it
+    here = @__DIR__
+    harness = [joinpath(here, "run.jl"), joinpath(here, "cases.jl")]
     Dict("source_path"=>root, "source_sha"=>revision, "source_dirty"=>dirty,
-         "source_hash"=>fingerprint(root, files))
+         "source_hash"=>fingerprint(root, files), "harness_hash"=>fingerprint(here, harness))
 end
 
 clean(s) = replace(string(s), '\t'=>' ', '\n'=>' ', '\r'=>' ')
@@ -168,6 +171,10 @@ function main()
     started=time()
     Random.seed!(rep)
     cases=build_cases(rep;suite,groups)
+    # Cases are built first, so their inputs do not depend on the selection.
+    selection=get(ENV,"PB_CASES","")
+    isempty(selection) || filter!(c -> occursin(Regex(selection),c.meta.id),cases)
+    isempty(cases) && error("PB_CASES selects no case")
     if get(ENV,"PB_LIST","false")=="true"
         foreach(c -> println(c.meta.id),cases)
         return
@@ -234,6 +241,8 @@ function main()
               "slurm_job_id"=>get(ENV,"SLURM_JOB_ID","none"),"julia_threads"=>Threads.nthreads(),
               "blas_threads"=>BLAS.get_num_threads(),"blas"=>string(BLAS.get_config()),
               "cpu"=>Sys.CPU_NAME,"cpu_model"=>Sys.cpu_info()[1].model,"benchmarktools"=>string(pkgversion(BenchmarkTools)),
+              "check_bounds"=>("default","yes","no")[Base.JLOptions().check_bounds+1],
+              "os"=>string(Sys.KERNEL," ",Sys.MACHINE),
               "cases"=>length(cases),"failures"=>failures,"samples_target"=>samples,
               "seconds_limit"=>seconds,"profile_seconds"=>profile_seconds,"elapsed_s"=>time()-started)
     merge!(meta,source_metadata())

@@ -28,12 +28,13 @@ _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!),
 (f::ZeroFunction)(x::AbstractArray) = (_checkreal(f, x); zero(_valtype(x)))
 
 function prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   y === x || copyto!(y, x)
   y
 end
 value_and_prox!(y::AbstractArray, f::ZeroFunction, x::AbstractArray, γ::Real) =
-  (_prox_unchecked!(y, f, x, γ); zero(_valtype(y)))
+  (x = _symmetric_argument(y, x); _prox_unchecked!(y, f, x, γ); zero(_valtype(y)))
 
 function value_and_gradient!(g::AbstractArray, f::ZeroFunction, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
@@ -75,7 +76,39 @@ isconvex(::Type{<:LinearFunction}) = true
 
 (f::LinearFunction)(x::AbstractArray) =
   (_check_value_arrays(f, x); _value_checked(f, x))
-_value_unchecked(f::LinearFunction, x::AbstractArray) = (_checkvalue(f, x); _value_at(dot(f.c, x) + f.d, x))
+_value_unchecked(f::LinearFunction, x::AbstractArray) = (_checkvalue(f, x); _value_at(_linear_value(f, x, dot(f.c, x) + f.d), x))
+
+# A dot that overflows, alone or with d, at a representable value is summed
+# again with x in units of 2^k, chosen so that no partial sum can overflow; d
+# keeps its own units, so that a small d survives a dot that cancels (R1).
+@inline _linear_value(f::LinearFunction, x, v) = isfinite(v) ? v : _linear_value_recover(f.c, f.d, x, v)
+@noinline function _linear_value_recover(c, d, x, v)
+  (_all_finite(x) && _all_finite(c) && isfinite(d)) || return v
+  R = typeof(v)
+  E = _max_exponent(R)
+  k = max(0, _bound_exponent(_stored_maxabs(c)) + _bound_exponent(_stored_maxabs(x)) + _log2_ceil(length(x)) + 2 - E)
+  p = convert(R, _linear_scaled_dot(c, x, _power_factors(R, -k)))
+  _pow2_sum(R, (p, k), (convert(R, d), 0))
+end
+# Σ cᵢ (xᵢ 2^-k), over the stored entries of x where it has them; other array
+# types (and device arrays) take the scaled copy of x with their own dot
+_linear_scaled_dot(c, x::Union{DenseArray, SparseIterate}, s) =
+  _is_device_array(x) || _is_device_array(c) ? _linear_scaled_copy_dot(c, x, s) : _scaled_dot(c, x, s)
+# a symmetric iterate counts an off-diagonal entry for both of its positions:
+# each position is a separate scaled product, so the doubled coefficient is
+# never formed
+function _linear_scaled_dot(c, x::SymmetricSparseIterate, s)
+  v = zero(s[1])
+  @inbounds for k in 1:x.nnz
+    r, j = tril_cartesian(x.p, x.nzval2ind[k])
+    q = float(_entry(c, (j - 1) * x.p + r)) * _scale_value(x.nzval[k], s)
+    v += q
+    r == j || (v += q)
+  end
+  v
+end
+_linear_scaled_dot(c, x, s) = _linear_scaled_copy_dot(c, x, s)
+_linear_scaled_copy_dot(c, x, s) = dot(c, x .* s[1] .* s[2])
 
 # Generic dot only needs equal lengths; specialized matrix methods check shapes.
 _dot_checks_size(::Type{C}, ::Type{X}) where {C, X} =
@@ -111,7 +144,7 @@ function _checkwrite(op::O, f::LinearFunction, y::AbstractArray, x::AbstractArra
 end
 
 prox!(y::AbstractArray, f::LinearFunction, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
 function _prox_unchecked!(y::AbstractArray, f::LinearFunction, x::AbstractArray, γ::Real)
   _checkwrite(prox!, f, y, x)
   γ = convert(float(eltype(y)), γ)
@@ -157,6 +190,26 @@ the ridge penalty, and for `λ = 1` the loss `‖x - y‖² / 2`. Smooth, with
 gradient `λ(x - y)`, separable, and proximable, with proximal operator
 `(x + γλy) / (1 + γλ)`. For a matrix `x`, `‖⋅‖` is the Frobenius norm.
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
+
+# Precision
+
+The level `λ`, the center `y` and the step are parameters; they are rounded once
+to the *model precision* of each result ([the numerical contract](@ref numerics),
+T3) and never widen it. That precision is the wider of the argument's and the
+destination's for a gradient or a proximal point, and the argument's for the value
+(so the value written by `value_and_prox!` is the value at the stored point, and
+`value_and_gradient!` returns the standalone value and writes the standalone
+gradient). The proximal weight `γλ` is formed from the unrounded factors before it
+is rounded.
+
+A parameter, a product or a coefficient that would leave the range of the model
+precision does not change a representable result (R2, R3): the gradient of
+`SqrNormL2(2^-1022, [-2^1023])` at `[2^1023]` is `[4.0]` although `x - y`
+overflows, and `prox!` of `SqrNormL2(2^800)` with step `2^800` at `[2^900]`
+gives `2^-700` in `Float64`, where `1/(1 + γλ)` is not a number. The ordinary
+computation runs first, and the recovery is chosen once per call from the
+parameters, except for a `Float64` center entry outside the range of a `Float32`
+model, which is handled for that entry.
 """
 struct SqrNormL2{T<:Real, Y<:Union{Nothing, AbstractArray}} <: AbstractFunction
   λ::T
@@ -230,34 +283,172 @@ function _value_unchecked(f::SqrNormL2, x::AbstractArray)
   _checkvalue(f, x)
   T = _valtype(x)
   iszero(f.λ) && return zero(T)
-  _square_value(f.λ, x, f.y)
+  y = f.y
+  # A center is a parameter: it is rounded to the model precision of the value, the
+  # argument's (T3), so a Float64 center does not widen a Float32 value.
+  T === Float32 && y !== nothing && eltype(y) === Float64 && return _ridge_value_wide_center(f.λ, x, y)
+  # a BigFloat center is rounded entry by entry, except where that leaves T's range (R3)
+  y !== nothing && T <: Union{Float32, Float64} && float(eltype(y)) <: BigFloat &&
+    return _square_value(f.λ, x, map(c -> _ridge_round_big(T, c), y))
+  _square_value(f.λ, x, y)
 end
 
 _checkvalue(f::SqrNormL2, x) = (_checkreal(f, x); _checkparams(f, x); f.y === nothing || _checksize(f.y, x); true)
+
+# Does a center entry keep its range when rounded to the model precision W (R3)?
+# Branchless, so that a loop over the entries still vectorizes. Free for a center
+# already stored in W; non-finite and zero entries convert without loss.
+@inline _ridge_fits(::Type{W}, c::W) where {W} = true
+@inline _ridge_fits(::Type{W}, c) where {W} = _level_fits(W, c)
+@inline function _ridge_fits(::Type{Float32}, c::Float64)
+  a = abs(c)
+  ((a >= Float64(floatmin(Float32))) & (a <= Float64(floatmax(Float32)))) | iszero(a) | !isfinite(a)
+end
+# Did rounding c to cw underflow (to zero or a subnormal)? An overflow gives an infinite
+# cw, which reaches the result and is caught there.
+@inline _ridge_underflows(::Type{W}, c, cw) where {W} = false
+@inline function _ridge_underflows(::Type{W}, c, cw::W) where {W<:Union{Float32, Float64}}
+  c isa W && return false
+  (abs(cw) < floatmin(W)) & !iszero(c)
+end
+# Can rounding the centers of eltype C to W leave W's range?
+@inline _ridge_center_wider(::Type{W}, ::Type{C}) where {W, C} = promote_type(W, float(C)) !== W
+# Every center entry keeps its range on rounding to W. One pass over c only, so an
+# output that aliases the argument is still unwritten when a fallback is chosen.
+function _ridge_all_fit(::Type{W}, c) where {W}
+  ok = true
+  for ci in c
+    ok &= _ridge_fits(W, ci)
+  end
+  ok
+end
+# Float64 centers, Float32 model: the largest magnitude and the smallest nonzero
+# magnitude decide (conservatively), compared as bit patterns, which vectorize.
+# b - 1 wraps for b = 0, so zeros do not enter the minimum. NaN and infinities
+# fail the test and take the checked path, which converts them without loss.
+const _F32_MAX_BITS = reinterpret(UInt64, Float64(floatmax(Float32)))
+const _F32_MIN_BITS = reinterpret(UInt64, Float64(floatmin(Float32)))
+function _ridge_all_fit(::Type{Float32}, c::AbstractArray{Float64})
+  hi = zero(UInt64)
+  lo = typemax(UInt64)
+  @inbounds @simd for i in eachindex(c)
+    b = reinterpret(UInt64, c[i]) & 0x7fffffffffffffff
+    hi = max(hi, b)
+    lo = min(lo, b - one(UInt64))
+  end
+  hi <= _F32_MAX_BITS && lo >= _F32_MIN_BITS - one(UInt64)
+end
+
+# Σ (xᵢ - round(cᵢ))² for a Float32 argument and a Float64 center. The ordinary
+# computation runs in Float32 when every center entry keeps its range on rounding;
+# otherwise the centers that fit are rounded and the scaled recovery of
+# _square_value sees them in Float64 (R3).
+@inline _ridge_round_big(::Type{T}, c) where {T} = _level_fits(T, c) ? oftype(c, T(c)) : c
+# a Float64 center entry rounded to Float32 where that keeps its range, as given otherwise
+@inline _ridge_round_center32(c::Float64) = _ridge_fits(Float32, c) ? Float64(Float32(c)) : c
+function _ridge_value_wide_center(λ, x, y)
+  T = Float32
+  s = 0.0           # the squares are exact in Float64; the sum accumulates there
+  u = false
+  @inbounds @simd for i in eachindex(x, y)
+    cw = T(y[i])
+    s += abs2(Float64(T(x[i]) - cw))
+    u |= _ridge_underflows(T, y[i], cw)
+  end
+  sT = T(s)
+  v = convert(T, λ) * sT / 2
+  if !u & isfinite(v) & (sT >= length(x) * (floatmin(T) / eps(T))) && _level_fits(T, λ)
+    return _value_at(v, x)
+  end
+  # a rounded center left the range, or the ordinary value is out of range
+  _exceptional_square_value(λ, x, map(_ridge_round_center32, y), sT, v)
+end
 
 value_and_gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray) =
   (_check_oracle_arrays(value_and_gradient!, f, g, x); _value_and_gradient_unchecked!(g, f, x))
 function _value_and_gradient_unchecked!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
   _checkwrite(value_and_gradient!, f, g, x)
-  λ = convert(float(eltype(g)), f.λ)
-  f.y === nothing ? (g .= λ .* x) : (g .= λ .* (x .- _checked_parameter(g, f.y)))
-  _value_unchecked(f, x)
+  v = _value_unchecked(f, x)      # before the gradient, which may be written over the center
+  _ridge_gradient!(g, f.λ, f.y, x)
+  v
 end
 gradient!(g::AbstractArray, f::SqrNormL2, x::AbstractArray) =
   (_check_oracle_arrays(gradient!, f, g, x); _gradient_unchecked!(g, f, x))
 function _gradient_unchecked!(g::AbstractArray, f::SqrNormL2, x::AbstractArray)
   _checkwrite(gradient!, f, g, x)
-  λ = convert(float(eltype(g)), f.λ)
-  f.y === nothing ? (g .= λ .* x) : (g .= λ .* (x .- _checked_parameter(g, f.y)))
+  _ridge_gradient!(g, f.λ, f.y, x)
+end
+
+# gᵢ = λ(xᵢ - cᵢ) in the model precision W of the gradient: the wider of the
+# destination and the argument. λ and c are rounded to W (T3), except where the
+# rounding leaves W's range (R3); an overflowing xᵢ - cᵢ does not hide a finite
+# gradient entry (R2).
+function _ridge_gradient!(g, λ, c, x)
+  W = _model_precision(eltype(g), eltype(x))
+  if _level_fits(W, λ)
+    l = convert(W, λ)
+    c === nothing && return g .= l .* x
+    cp = _checked_parameter(g, c)
+    if g isa DenseArray && x isa DenseArray && cp isa DenseArray && size(g) == size(x) == size(cp) &&
+       !Base.mightalias(g, cp)       # the repair pass rereads c
+      _ridge_gradient_dense!(g, l, x, cp)
+    else
+      g .= _ridge_gradient_entry.(l, x, cp)
+    end
+  else
+    R = promote_type(W, float(typeof(λ)))
+    l = convert(R, λ)
+    g .= _ridge_gradient_wide.(W, l, x, c === nothing ? zero(W) : _checked_parameter(g, c))
+  end
+  g
+end
+# The ordinary loop, which vectorizes; when a sum of the entries is not finite (an
+# overflowing difference or product, or a center that overflowed on rounding) or a
+# center underflowed, every entry is recomputed one by one. The gradient never aliases x.
+function _ridge_gradient_dense!(g, l::W, x, c) where {W}
+  t = zero(W)       # a non-finite entry makes the sum non-finite
+  u = false
+  @inbounds @simd for i in eachindex(g)
+    cw = W(c[i])
+    r = l * (W(x[i]) - cw)
+    g[i] = r
+    t += r
+    u |= _ridge_underflows(W, c[i], cw)
+  end
+  (u | !isfinite(t)) && _ridge_gradient_repair!(g, l, x, c)
+  g
+end
+@noinline function _ridge_gradient_repair!(g, l::W, x, c) where {W}
+  @inbounds for i in eachindex(g)
+    g[i] = _ridge_gradient_entry(l, x[i], c[i])
+  end
+end
+@inline function _ridge_gradient_entry(l::W, x, c) where {W}
+  _ridge_fits(W, c) || return _ridge_gradient_wide(W, l, x, c)
+  r = l * (W(x) - W(c))
+  isfinite(r) ? r : _ridge_gradient_overflow(l, W(x), W(c), r)
+end
+@noinline _ridge_gradient_overflow(l, x, c, r) =
+  isfinite(x) && isfinite(c) ? _scaled_product(l, x / 2 - c / 2, 1) : r
+# l is a level wider than W, or c is a center wider than W: the entry is computed in R
+function _ridge_gradient_wide(::Type{W}, l, x, c) where {W}
+  R = promote_type(W, typeof(l), float(typeof(c)))
+  cw = _ridge_fits(W, c) ? R(W(c)) : R(c)
+  r = R(l) * (R(x) - cw)
+  isfinite(r) ? r : _ridge_gradient_overflow(R(l), R(x), cw, r)
 end
 
 prox!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, f, z, x, γ); _prox_unchecked!(z, f, x, γ))
+  (x = _symmetric_argument(z, x); _check_oracle_arrays(prox!, f, z, x, γ); _prox_unchecked!(z, f, x, γ))
 function _prox_unchecked!(z::AbstractArray, f::SqrNormL2, x::AbstractArray, γ::Real)
   _checkwrite(prox!, f, z, x)
-  T = float(eltype(z))
-  a, b = _ridge_weights(T(γ), T(f.λ))
-  f.y === nothing ? (z .= a .* x) : (z .= _ridge_blend.(x, _checked_parameter(z, f.y), a, b))
+  W = _model_precision(eltype(z), eltype(x))
+  c = f.y === nothing ? nothing : _checked_parameter(z, f.y)
+  if _ridge_needs_scaling(W, γ, f.λ)
+    _ridge_prox!(z, _ridge_scaled(W, γ, f.λ), x, c)
+  else
+    _ridge_prox!(z, _ridge_ordinary(W, γ, f.λ), x, c)
+  end
 end
 
 function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), typeof(value_and_gradient!)}, f::SqrNormL2, y::AbstractArray, x::AbstractArray)
@@ -271,7 +462,9 @@ function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gr
 end
 
 # The convex weights 1/(1+γλ), γλ/(1+γλ), without overflowing γλ or
-# the numerator x + γλy of a centered proximal operator.
+# the numerator x + γλy of a centered proximal operator. Shared with Regularize,
+# the distance functions, the envelope and the metric prox; the ridge itself uses
+# _ridge_ordinary and _ridge_scaled below.
 @inline function _ridge_weights(γ::T, λ::T) where {T}
   t = γ * λ
   if t <= one(T)
@@ -291,16 +484,186 @@ end
   end
   a * x + b * y
 end
-function prox_entry(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real)
-  T = typeof(float(v))
-  a, _ = _ridge_weights(T(γ), T(f.λ))
-  a * v
+
+# The ridge proximal point (x + γλc)/(1 + γλ) = a x + b c with the convex weights
+# a = 1/(1+t), b = t/(1+t), t = γλ. t is formed once from the unrounded factors in
+# P = promote_type(W, factors) and rounded to the model precision W (T3).
+#
+# Ordinary: t, 1/t and both weights are normal numbers in W (or a factor is zero or
+# not finite, which keeps its earlier meaning). Scaled (R3): t = τ·2^k from the
+# significands; the smaller weight is carried as m·2^e and applied last, so a
+# coefficient that is not representable still acts on the coordinate.
+struct _RidgeOrdinary{W<:Real}
+  a::W
+  b::W
+  t::W
+end
+struct _RidgeScaled{W<:Real, P<:Real}
+  L::W              # the larger weight, in [1/2, 1]
+  m::W              # significand of the smaller weight, in (0, 1]
+  e::Int
+  small_x::Bool     # the smaller weight multiplies x (t > 1); else the center
+  γ::P
+  λ::P
+end
+
+@inline function _ridge_weights_t(t::W) where {W}
+  if t <= one(W)
+    d = one(W) + t
+    return inv(d), t / d
+  end
+  ρ = inv(t)
+  d = one(W) + ρ
+  ρ / d, inv(d)
+end
+
+# The decision is made once per call, from the factors, not from t: the product of
+# finite nonzero factors can underflow or overflow in P.
+@inline function _ridge_needs_scaling(::Type{W}, γ, λ) where {W}
+  W <: Union{Float32, Float64} || return false
+  P = promote_type(W, float(typeof(γ)), float(typeof(λ)))
+  t = P(γ) * P(λ)
+  # t in the band implies finite nonzero factors, so they are examined only outside it
+  (P(_ridge_band_low(W)) <= t <= P(_ridge_band_high(W))) && return false
+  isfinite(γ) & isfinite(λ) & !iszero(γ) & !iszero(λ)
+end
+# t, 1/t and both convex weights are normal in W for t in [2^-126, 2^125] (Float32)
+# and [2^-1022, 2^1021] (Float64)
+@inline _ridge_band_low(::Type{Float32}) = reinterpret(Float32, 0x00800000)          # 2^-126
+@inline _ridge_band_high(::Type{Float32}) = reinterpret(Float32, 0x7e000000)         # 2^125
+@inline _ridge_band_low(::Type{Float64}) = reinterpret(Float64, 0x0010000000000000)   # 2^-1022
+@inline _ridge_band_high(::Type{Float64}) = reinterpret(Float64, 0x7fc0000000000000)  # 2^1021
+@inline function _ridge_ordinary(::Type{W}, γ, λ) where {W}
+  P = promote_type(W, float(typeof(γ)), float(typeof(λ)))
+  tw = convert(W, P(γ) * P(λ))
+  a, b = _ridge_weights_t(tw)
+  _RidgeOrdinary{W}(a, b, tw)
+end
+@inline _ridge_scaled(::Type{W}, γ, λ) where {W} =
+  (P = promote_type(W, float(typeof(γ)), float(typeof(λ))); _ridge_scaled(W, P(γ), P(λ)))
+
+Base.@assume_effects :effect_free :nothrow :terminates_globally @noinline function _ridge_scaled(::Type{W}, γ::P, λ::P) where {W, P}
+  mγ, eγ = frexp(γ)
+  mλ, eλ = frexp(λ)
+  τ = convert(W, mγ * mλ)                    # in [1/4, 1]
+  k = eγ + eλ
+  if k > 0
+    r = inv(τ)
+    d = one(W) + r * ldexp(one(W), -k)
+    _RidgeScaled{W, P}(inv(d), r / d / 4, 2 - k, true, γ, λ)
+  else
+    d = one(W) + τ * ldexp(one(W), k)
+    _RidgeScaled{W, P}(inv(d), τ / d, k, false, γ, λ)
+  end
+end
+
+@inline function _ridge_scaled_blend(x::W, c::W, s::_RidgeScaled{W}) where {W}
+  big, small = s.small_x ? (c, x) : (x, c)
+  signbit(big) == signbit(small) ? big + ldexp(s.m * (small - big), s.e) :
+                                   s.L * big + ldexp(s.m * small, s.e)
+end
+
+@inline _ridge_apply(o::_RidgeOrdinary, x) = o.a * x
+@inline _ridge_apply(s::_RidgeScaled{W}, x) where {W} =
+  s.small_x ? ldexp(s.m * W(x), s.e) : s.L * W(x)
+@inline function _ridge_apply(o::_RidgeOrdinary{W}, x, c) where {W}
+  _ridge_fits(W, c) ? _ridge_blend(x, c, o.a, o.b) : _ridge_apply_wide(o, x, c)
+end
+@inline function _ridge_apply(s::_RidgeScaled{W}, x, c) where {W}
+  _ridge_fits(W, c) ? _ridge_scaled_blend(W(x), W(c), s) : _ridge_apply_wide(s, x, c)
+end
+# the same when every center entry is known to fit: no per-entry test
+@inline _ridge_apply_fit(o::_RidgeOrdinary, x, c) = _ridge_blend(x, c, o.a, o.b)
+@inline _ridge_apply_fit(s::_RidgeScaled{W}, x, c) where {W} = _ridge_scaled_blend(W(x), W(c), s)
+# A center outside W's range on rounding: the entry is computed in the wider type R.
+# For a hardware-float center, R holds x and c with room to spare (it is wider than W,
+# which holds x), so the plain convex combination cannot overflow. prox_entry inlines
+# it, so that a loop over the entries has no call and vectorizes (its weights do not
+# depend on the entry); the array methods call it, as before.
+@inline function _ridge_wide_entry(o::_RidgeOrdinary{W}, x, c::Base.IEEEFloat) where {W}
+  R = promote_type(W, typeof(c))
+  a, b = _ridge_weights_t(convert(R, o.t))
+  W(a * R(x) + b * c)
+end
+@noinline _ridge_apply_wide(o::_RidgeOrdinary, x, c::Base.IEEEFloat) = _ridge_wide_entry(o, x, c)
+@noinline function _ridge_apply_wide(o::_RidgeOrdinary{W}, x, c) where {W}
+  R = promote_type(W, float(typeof(c)))
+  a, b = _ridge_weights_t(convert(R, o.t))
+  W(_ridge_blend(R(x), R(c), a, b))
+end
+@noinline function _ridge_apply_wide(s::_RidgeScaled{W}, x, c) where {W}
+  R = promote_type(W, float(typeof(c)))
+  W(_ridge_scaled_blend(R(x), R(c), _ridge_scaled(R, promote_type(R, typeof(s.γ))(s.γ), promote_type(R, typeof(s.λ))(s.λ))))
+end
+
+_ridge_prox!(z, o::_RidgeOrdinary, x, ::Nothing) = (z .= o.a .* x)
+_ridge_prox!(z, s::_RidgeScaled, x, ::Nothing) = (z .= (xi -> _ridge_apply(s, xi)).(x))
+function _ridge_prox!(z, co::Union{_RidgeOrdinary{W}, _RidgeScaled{W}}, x, c) where {W}
+  # a center wider than W is tested once, before the loop: the pass reads c only,
+  # so an aliased output (z === x) is still unwritten when a fallback is chosen
+  if _ridge_center_wider(W, eltype(c)) && !_ridge_all_fit(W, c)
+    z .= ((xi, ci) -> _ridge_apply(co, xi, ci)).(x, c)
+  else
+    z .= ((xi, ci) -> _ridge_apply_fit(co, xi, ci)).(x, c)
+  end
+end
+
+@inline function prox_entry(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real)
+  W = typeof(float(v))
+  _ridge_needs_scaling(W, γ, f.λ) ? _ridge_apply(_ridge_scaled(W, γ, f.λ), W(v)) :
+                                    _ridge_apply(_ridge_ordinary(W, γ, f.λ), W(v))
 end
 Base.@propagate_inbounds function prox_entry(f::SqrNormL2, v::Real, i::Integer, γ::Real)
-  T = typeof(float(v))
-  a, b = _ridge_weights(T(γ), T(f.λ))
-  _ridge_blend(T(v), T(f.y[i]), a, b)
+  W = typeof(float(v))
+  _ridge_needs_scaling(W, γ, f.λ) ? _ridge_apply(_ridge_scaled(W, γ, f.λ), W(v), f.y[i]) :
+                                    _ridge_apply_entry(_ridge_ordinary(W, γ, f.λ), W(v), f.y[i])
 end
+@inline _ridge_apply_entry(o::_RidgeOrdinary, x, c) = _ridge_apply(o, x, c)
+@inline _ridge_apply_entry(o::_RidgeOrdinary, x, c::Base.IEEEFloat) =
+  _ridge_fits(typeof(o.a), c) ? _ridge_blend(x, c, o.a, o.b) : _ridge_wide_entry(o, x, c)
+# The ridge whose entries are known to take the ordinary coefficient, with every center
+# entry keeping its range in W: prox_entry without the tests, where
+# _ridge_needs_scaling(W, γ, f.λ) is false and the centers fit. Constrained uses it for
+# steps and centers it has checked, so that its loops have no call.
+struct _OrdinaryRidge{F<:SqrNormL2}
+  f::F
+end
+@inline prox_entry(r::_OrdinaryRidge{<:SqrNormL2{<:Real, Nothing}}, v::Real, ::Integer, γ::Real) =
+  (W = typeof(float(v)); _ridge_apply(_ridge_ordinary(W, γ, r.f.λ), W(v)))
+Base.@propagate_inbounds prox_entry(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) =
+  (W = typeof(float(v)); _ridge_apply_fit(_ridge_ordinary(W, γ, r.f.λ), W(v), r.f.y[i]))
+# The slope of the ridge proximal point in its argument is the weight that multiplies it:
+# the larger weight, or the smaller one carried as m·2^e (which rounds to 0 only where
+# the weight itself underflows). The center does not enter it.
+@inline _ridge_slope(o::_RidgeOrdinary) = o.a
+@inline _ridge_slope(s::_RidgeScaled) = s.small_x ? ldexp(s.m, s.e) : s.L
+
+# prox_entry and the slope of the ridge, from one coefficient: the value is computed by
+# the code of prox_entry, so that the two cannot disagree.
+@inline function _ridge_prox_slope(f::SqrNormL2{<:Real, Nothing}, v::Real, ::Integer, γ::Real)
+  W = typeof(float(v))
+  if _ridge_needs_scaling(W, γ, f.λ)
+    s = _ridge_scaled(W, γ, f.λ)
+    _ridge_apply(s, W(v)), _ridge_slope(s)
+  else
+    o = _ridge_ordinary(W, γ, f.λ)
+    _ridge_apply(o, W(v)), _ridge_slope(o)
+  end
+end
+Base.@propagate_inbounds function _ridge_prox_slope(f::SqrNormL2, v::Real, i::Integer, γ::Real)
+  W = typeof(float(v))
+  if _ridge_needs_scaling(W, γ, f.λ)
+    s = _ridge_scaled(W, γ, f.λ)
+    _ridge_apply(s, W(v), f.y[i]), _ridge_slope(s)
+  else
+    o = _ridge_ordinary(W, γ, f.λ)
+    _ridge_apply_entry(o, W(v), f.y[i]), _ridge_slope(o)
+  end
+end
+@inline _ridge_prox_slope(r::_OrdinaryRidge{<:SqrNormL2{<:Real, Nothing}}, v::Real, ::Integer, γ::Real) =
+  (W = typeof(float(v)); o = _ridge_ordinary(W, γ, r.f.λ); (_ridge_apply(o, W(v)), _ridge_slope(o)))
+Base.@propagate_inbounds _ridge_prox_slope(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) =
+  (W = typeof(float(v)); o = _ridge_ordinary(W, γ, r.f.λ); (_ridge_apply_fit(o, W(v), r.f.y[i]), _ridge_slope(o)))
 _checkparams(f::SqrNormL2, x) = _checkparam(f.y, x)
 
 kkt_violation(::SqrNormL2{<:Real, Nothing}, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]))
@@ -358,9 +721,10 @@ isconvex(::Type{<:QuadraticFunction}) = true
 
 function (f::QuadraticFunction)(x::AbstractVector)
   _checkreal(f, x)
-  mul!(f.tmp, f.A, x)
+  m = _mul_maxabs!(f.tmp, f.A, x)
   v = dot(x, f.tmp) / 2 + f.c
-  _value_at(f.b === nothing ? v : v + dot(f.b, x), x)
+  v = f.b === nothing ? v : v + dot(f.b, x)
+  _value_at(_quadratic_checked(f, x, v, eltype(f.tmp), m), x)
 end
 
 function value_and_gradient!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector)
@@ -369,13 +733,96 @@ function value_and_gradient!(g::AbstractVector, f::QuadraticFunction, x::Abstrac
     _gradient_unchecked!(g, f, x)
     return _value_unchecked(f, x)
   end
-  mul!(g, f.A, x)
+  m = _mul_maxabs!(g, f.A, x)
   v = dot(g, x) / 2 + f.c
   if f.b !== nothing
     g .+= f.b
     v += dot(f.b, x)
   end
-  _value_at(v, x)
+  _value_at(_quadratic_checked(f, x, v, eltype(g), m), x)
+end
+
+# y = A x, and max|x| for the trigger below. For a diagonal A the two are one pass: y[i] = d[i] x[i] is the
+# product that mul! rounds into y, so y is the same, and the maximum is read where x[i] is already loaded.
+@inline function _mul_maxabs!(y, A, x)
+  mul!(y, A, x)
+  _stored_maxabs(x)
+end
+@inline function _mul_maxabs!(y::StridedVector{P}, A::Diagonal{P}, x::StridedVector{P}) where {P<:Union{Float32, Float64}}
+  U = _int_type(P)
+  d = A.diag
+  (length(y) == length(d) == length(x)) || return invoke(_mul_maxabs!, Tuple{Any, Any, Any}, y, A, x)
+  m = zero(U)
+  @inbounds @simd for i in eachindex(y)
+    xi = x[i]
+    y[i] = d[i] * xi
+    m = max(m, reinterpret(U, xi) & typemax(U))
+  end
+  reinterpret(P, m)
+end
+
+# The ordinary value, or its recomputation from the exact products: after an overflow (a non-finite
+# value of finite data), or when the products A x rounded into the buffer type P, and the final dots,
+# could have lost more than eps |v| (R1, #520).
+@inline _quadratic_checked(f::QuadraticFunction, x, v, ::Type{P}) where {P} =
+  _quadratic_checked(f, x, v, P, _stored_maxabs(x))
+@inline function _quadratic_checked(f::QuadraticFunction, x, v, ::Type{P}, m) where {P}
+  if !isfinite(v) || (_quadratic_underflow_risk(f, x, v, P, m) && !_quadratic_products_normal(f, x, v, P))
+    _quadratic_value_recover(f, x, v)
+  else
+    v
+  end
+end
+
+# The threshold of _quadratic_underflow_risk is a worst case: it assumes that products may be subnormal.
+# When none can be, the ordinary value carries only relative errors, and the value is as accurate as the
+# ordinary computation (R1), however small it is, an exact zero of a null-space argument included.
+# Every nonzero product of two operands is normal if the sum of the exponents of their smallest nonzero
+# entries is at least exponent(floatmin): |a b| >= 2^(ea + eb) (Julia's exponent has a significand in
+# [1, 2)); a product with a zero is exact; and a sum with a subnormal result is exact. The products are
+# those of A x, of x and A x in the dot, and of b and x. The test is made on the operands and on
+# A x, which is recomputed into f.tmp (the buffer may hold A x + b, and an ordinary call has not
+# modified it; the cost is that of one product, on a path that is rare). It needs the whole computation
+# in the type P (a wider argument or buffer is rounded elsewhere). Data need not be tested for being
+# finite: a finite value has none that is not (an Inf makes a product Inf or NaN).
+@noinline function _quadratic_products_normal(f::QuadraticFunction, x, v, ::Type{P}) where {P}
+  (_underflow_checked(P) && eltype(x) === P && eltype(f.tmp) === P && typeof(v) === P &&
+   eltype(f.A) <: Union{Float32, Float64} && (f.b === nothing || eltype(f.b) <: Union{Float32, Float64})) ||
+    return false
+  emin = exponent(floatmin(P))
+  ex = _stored_minexp(x)
+  _stored_minexp(f.A) + ex >= emin || return false
+  f.b === nothing || _stored_minexp(f.b) + ex >= emin || return false
+  mul!(f.tmp, f.A, x)
+  _min_nonzero_exponent(f.tmp) + ex >= emin
+end
+
+# Rounding a product into P changes an entry of A x by at most denorm_min(P)/2 per term, and that
+# error is multiplied by an entry of x; the products x[i] (A x)[i] and b[i] x[i] of the dots lose up to
+# denorm_min(P)/2 each. |v| < floatmin(P) (n² max|x| / 4 + n) (see _underflow_threshold) is the condition
+# under which that can exceed eps |v|. A well-scaled value passes with
+# one pass over x. An exact zero of x, or any entry of A, does not fire it.
+@inline _quadratic_underflow_risk(f::QuadraticFunction, x, v, ::Type{P}) where {P} =
+  _quadratic_underflow_risk(f, x, v, P, _stored_maxabs(x))
+@inline function _quadratic_underflow_risk(f::QuadraticFunction, x, v, ::Type{P}, m) where {P}
+  (_underflow_checked(P) && _underflow_checked(typeof(v))) || return false
+  n = length(x)
+  iszero(m) && return false
+  abs(v) < _underflow_threshold(P, n * n / 4, m, n)
+end
+
+# ½ x'Ax + b'x + c summed from the exact products, each a significand and an exponent (_ExpSum), so that
+# no A[i,j] x[j] is rounded into a type that can lose it. The cost is that of A x with a few
+# bit operations per entry (exact zeros are skipped), and nothing is allocated.
+@noinline function _quadratic_value_recover(f::QuadraticFunction, x::AbstractVector, v)
+  R = typeof(v)
+  _all_finite(x) || return v
+  (_all_finite(f.A) && _all_finite(f.b) && isfinite(f.c)) || return v
+  acc = _expsum_start(promote_type(R, Float64))
+  acc = _expsum_quadratic(acc, f.A, x, -1)
+  f.b === nothing || (acc = _expsum_dot(acc, f.b, x, 0))
+  acc = _expsum_product(acc, f.c, one(R))
+  _expsum_value(R, acc)
 end
 
 function gradient!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector)
@@ -436,8 +883,14 @@ The quadratic `f(Θ) = ⟨Θ, AΘB⟩ / 2 + ⟨C, Θ⟩` of a `p × q` matrix `�
 symmetric positive semidefinite `A` (`p × p`) and `B` (`q × q`), with `C = 0`
 when omitted: `vec(Θ)'(B ⊗ A) vec(Θ) / 2 + vec(C)'vec(Θ)`, without forming the
 `pq × pq` matrix `B ⊗ A`. Smooth, with gradient `AΘB + C`; `size(f)` is
-`(p, q)`. `A` and `B` are stored as dense matrices; one that is symmetric only up
-to rounding, such as an inverse computed by `inv`, is symmetrized.
+`(p, q)`. `A` and `B` are stored as dense matrices and must be exactly
+symmetric: pairs `A[i, j]` and `A[j, i]` equal (exact numeric equality, with NaN matching
+NaN and `-0.0` matching `0.0`), or a `Symmetric`,
+`Hermitian` of reals or `Diagonal` matrix, which uses its stored triangle.
+Anything else throws an `ArgumentError` that names the pair with the largest
+difference and the relative asymmetry, with no tolerance, including `inv(S)` of a
+dense `S`, which is symmetric only up to rounding: use `inv(Symmetric(S))`,
+`inv(cholesky(S))` or `Symmetric(inv(S), :L)`. `C` need not be symmetric.
 
 `Θ` may be a `p × q` matrix, the vector `vec(Θ)`, a [`SparseIterate`](@ref) of
 either shape or, when `p = q`, a [`SymmetricSparseIterate`](@ref). On a
@@ -457,6 +910,8 @@ Examples:
   `svec(Θ)` is this function on a symmetric `Θ`, in coordinates that scale the
   off-diagonal entries by `√2`. For a symmetric iterate, use `-(E + E')/2`
   as the linear term.
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 struct KronQuadratic{T<:AbstractFloat, MC<:Union{Nothing, Matrix{T}}} <: AbstractFunction
   A::Matrix{T}
@@ -489,21 +944,10 @@ function KronQuadratic(A::AbstractMatrix, B::AbstractMatrix, C::Union{Nothing, A
   Cd = C === nothing ? nothing : Matrix{T}(C)
   all(isfinite, Ad) && all(isfinite, Bd) && (Cd === nothing || all(isfinite, Cd)) ||
     throw(ArgumentError("A, B and C must be finite"))
-  KronQuadratic{T, typeof(Cd)}(_symmetrized!(Ad, "A"), _symmetrized!(Bd, "B"), Cd, zeros(T, p, q), zeros(T, p,
+  _check_symmetric_host(A, "A", "A")
+  _check_symmetric_host(B, "B", "B")
+  KronQuadratic{T, typeof(Cd)}(Ad, Bd, Cd, zeros(T, p, q), zeros(T, p,
       q), zeros(T, p, q))
-end
-
-# M, which must be symmetric; one that is symmetric up to rounding, such as an
-# inverse computed by inv, becomes (M + M')/2
-function _symmetrized!(M::Matrix{T}, name) where {T}
-  issymmetric(M) && return M
-  δ = maximum(abs(M[i, j] - M[j, i]) for j in axes(M, 2) for i in j+1:size(M, 1))
-  δ <= sqrt(eps(T)) * maximum(abs, M) ||
-    throw(ArgumentError("$name must be symmetric (one that is symmetric up to rounding is accepted); wrap it in Symmetric to use one of its triangles"))
-  for j in axes(M, 2), i in j+1:size(M, 1)
-    M[i, j] = M[j, i] = (M[i, j] + M[j, i]) / 2
-  end
-  M
 end
 
 issmooth(::Type{<:KronQuadratic}) = true
@@ -550,7 +994,8 @@ function _value_unchecked(f::KronQuadratic, Θ::AbstractArray)
   mul!(f.AD, f.A, D)
   mul!(f.W, f.AD, f.B)
   v = dot(D, f.W) / 2
-  _value_at(f.C === nothing ? v : v + dot(f.C, D), Θ)
+  v = f.C === nothing ? v : v + dot(f.C, D)
+  _value_at(_kron_checked(f, v, Θ), Θ)
 end
 
 value_and_gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =
@@ -566,11 +1011,196 @@ function _value_and_gradient_unchecked!(G::AbstractArray, f::KronQuadratic, Θ::
     v += dot(f.C, D)
     W .+= f.C
   end
-  Θ isa SymmetricSparseIterate && _symmetrize!(W)
+  # the part of the gradient that acts on symmetric matrices: also when only the output is symmetric
+  (Θ isa SymmetricSparseIterate || G isa SymmetricSparseIterate) && _symmetrize!(W)
   copyto!(G, W)
-  _value_at(v, Θ)
+  _value_at(_kron_checked(f, v, Θ), Θ)
 end
 
+# The ordinary value, or its recovery from overflow (a non-finite value) or from underflow of the
+# products A D and A D B into the buffer type, which loses what a large entry of D multiplies.
+# Kept out of line: inlined into value_and_gradient! with a linear term, the trigger cost several times
+# more than its own (the Union-typed C splits the function, and the scans lost their vectorization)
+# in cluster and local timings.
+@noinline function _kron_checked(f::KronQuadratic, v, Θ)
+  if isfinite(v) && (!_kron_underflow_risk(f, v) || _kron_products_normal(f, v))
+    v
+  else
+    _kron_value_recover(f, v, Θ)
+  end
+end
+
+# The same as _quadratic_products_normal, on the products of A D, (A D) B, D W and C D: the recovery is
+# not needed if no nonzero product of the staged computation can be subnormal. f.AD holds A D; W = (A D) B
+# is recomputed (the buffer may hold W + C, symmetrized, and the output has been written).
+@noinline function _kron_products_normal(f::KronQuadratic{T}, v) where {T}
+  (_underflow_checked(T) && typeof(v) === T && eltype(f.A) <: Union{Float32, Float64} &&
+   eltype(f.B) <: Union{Float32, Float64} && (f.C === nothing || eltype(f.C) <: Union{Float32, Float64})) ||
+    return false
+  emin = exponent(floatmin(T))
+  ed = _min_nonzero_exponent(f.D)
+  _stored_minexp(f.A) + ed >= emin || return false
+  _min_nonzero_exponent(f.AD) + _stored_minexp(f.B) >= emin || return false
+  f.C === nothing || _stored_minexp(f.C) + ed >= emin || return false
+  mul!(f.W, f.AD, f.B)
+  _min_nonzero_exponent(f.W) + ed >= emin
+end
+
+# max|B| if a product of an entry of A and one of D can round into the subnormal range, and 0 if none can.
+# Why 0 is sound: every nonzero product a d of the first stage is then normal, so it rounds with a relative
+# error of at most eps/2 (a product with a zero is exact), and the additions of the dot product lose
+# nothing absolute (a sum that is subnormal is exact; any other carries the usual relative error of the
+# partial sum). The error of an entry of A D is therefore at most about p eps Σ|a||d|, the same relative
+# bound as the ordinary computation; times B it is within the error scale S of the value (the sum of the
+# absolute terms), which R1 allows, and it does not need max|B| as a factor. Where p (p + q) < q², this is
+# decided from the smallest nonzero entries of A and D, which costs less than reading B. With Julia's
+# `exponent`, whose significand lies in [1, 2), |a d| >= 2^(ea + ed), so ea + ed >= exponent(floatmin)
+# rules out a subnormal product of two entries (a frexp exponent, with a significand in [1/2, 1), would
+# need a margin of 2); the boundary is tested in value_overflow_data.jl.
+@inline function _stage_one_amplification(f::KronQuadratic{T}) where {T}
+  p, q = size(f.D)
+  if p * (p + q) < q * q &&
+     _min_nonzero_exponent(f.A) + _min_nonzero_exponent(f.D) >= exponent(floatmin(T))
+    return 0.0
+  end
+  Float64(_maximum_abs(f.B))
+end
+
+# Rounding into T changes an entry of A D by at most p denorm_min/2, that of A D B by at most q
+# max|B| times that plus q denorm_min/2, and the value by at most the sum of |D| times those: the
+# error that the products can have lost is at most
+# eps floatmin (max|D| p q² (1 + p max|B|) / 4 + 2 p q) (see _underflow_threshold; the 2 p q are the
+# products of the final dots), and it matters when it exceeds eps |v|. f.D holds Θ. The maxima are read on each call, not stored, because
+# f.A and f.B are fields that a caller can modify.
+@inline function _kron_underflow_risk(f::KronQuadratic{T}, v) where {T}
+  (_underflow_checked(T) && _underflow_checked(typeof(v))) || return false
+  D = f.D
+  m = _maximum_abs(D)
+  iszero(m) && return false
+  p, q = size(D)
+  abs(v) < _underflow_threshold(T, 0.25 * p * q * q * (1.0 + p * _stage_one_amplification(f)), m, 2p * q)
+end
+
+# A product or dot that overflows or underflows at a representable value (R1), recomputed in two tiers.
+#
+# Tier 1 runs in the owned buffers, which f.D enters holding Θ, at the cost of the two products. Three
+# exact power-of-two scalings keep each product of the staged computation away from both ends of
+# the range: Ds = D 2^-kd1 so that A Ds is about 2^-3 (the exponent of Ds is limited to ±Δ, so that
+# Ds is itself representable); A Ds by 2^-ka before the product with B, so that (A Ds 2^-ka) B is
+# about 2^-3; and Ds again, to D' = Ds 2^(δ2-δ), before the final dot. Then
+# ⟨Θ, AΘB⟩ = 2^(kdd+ka+kd1) ⟨D', (A Ds 2^-ka) B⟩ with D = D' 2^kdd. A single scale per stage
+# cannot separate a tiny entry of A that multiplies a huge entry of Θ from a large one that multiplies a
+# tiny entry, so the scaled result is held to the same bound as the ordinary one
+# (_kron_scaled_reliable): if the scaled products could have lost more than eps of it, tier 2 runs.
+#
+# Tier 2 sums the exact products, each a significand and an exponent (_ExpSum), in the order of the
+# two products: A Θ as one such pair per entry (a p × q matrix of significands and one of exponents),
+# then each entry of (A Θ) B, which is multiplied by Θ and added at once. It costs O(p q (p+q)) terms
+# of a few bit operations, allocates two p × q matrices, and runs only when tier 1 cannot be trusted.
+#
+# The linear term ⟨C, Θ⟩ is summed from the exact products before D is overwritten, and it is
+# added with the quadratic one by their exponents, rounded once.
+@noinline function _kron_value_recover(f::KronQuadratic{T}, v, Θ) where {T}
+  D, AD, W = f.D, f.AD, f.W
+  _all_finite(D) || return v               # A, B and C are finite by construction
+  R = typeof(v)
+  E = _max_exponent(T)
+  p, q = size(D)
+  Lp, Lq, Lpq = _log2_ceil(p), _log2_ceil(q), _log2_ceil(p * q)
+  Δ = max(0, E - 8 - Lpq)
+  AT = promote_type(R, Float64)
+  lin = f.C === nothing ? nothing : _expsum_pair(R, _expsum_dot(_expsum_start(AT), f.C, D, 0))
+  δ = clamp(-(_bound_exponent(_stored_maxabs(f.A)) + Lp + 3), -Δ, Δ)
+  kd1 = _bound_exponent(_stored_maxabs(D)) - δ
+  ok = _scale_exponent!(D, T, -kd1)                             # |Ds| < 2^δ
+  mul!(AD, f.A, D)
+  eb = _bound_exponent(_stored_maxabs(f.B))
+  α = clamp(-(eb + Lq + 3), -Δ, Δ)
+  ka = _bound_exponent(_stored_maxabs(AD)) - α
+  ok &= _scale_exponent!(AD, T, -ka)                            # |ADs| < 2^α
+  mul!(W, AD, f.B)
+  δ2 = clamp(-(_bound_exponent(_stored_maxabs(W)) + Lpq + 3), -Δ, Δ)
+  ok &= _scale_exponent!(D, T, δ2 - δ)                          # D' = Ds 2^(δ2-δ)
+  m = convert(R, dot(D, W)) / 2
+  q1 = (m, (kd1 + δ - δ2) + ka + kd1)
+  if !(ok && _kron_scaled_reliable(T, m, p, q, δ2, eb, ka))
+    _densify!(f, Θ)                                             # tier 2 needs Θ unscaled
+    q1 = _expsum_pair(R, _kron_exact_sum(f, AT))
+  end
+  lin === nothing ? _pow2_sum(R, q1) : _pow2_sum(R, q1, lin)
+end
+
+# The bound of _kron_underflow_risk, on the scaled products: Ds A has errors of at most p denorm_min/2, which the
+# scaling by 2^-ka and the product with B (at most 2^eb) amplify, and D' (below 2^δ2) multiplies.
+# The scaled quadratic value m is reliable if it exceeds floatmin max|D'| p q² (1 + p 2^(eb-ka)) / 4.
+function _kron_scaled_reliable(::Type{T}, m, p, q, δ2, eb, ka) where {T}
+  _underflow_checked(T) || return true
+  κ = 0.25 * p * q * q * (1.0 + p * ldexp(1.0, eb - ka))
+  abs(m) >= _underflow_threshold(T, κ, ldexp(1.0, δ2), p * q)
+end
+
+# ½ ⟨Θ, (A Θ) B⟩ as an _ExpSum, from f.D = Θ (finite)
+function _kron_exact_sum(f::KronQuadratic, ::Type{AT}) where {AT}
+  A, B, D = f.A, f.B, f.D
+  p, q = size(D)
+  M1 = Matrix{AT}(undef, p, q)
+  E1 = Matrix{Int}(undef, p, q)
+  col = Vector{_ExpSum{AT}}(undef, p)
+  zero_sum = _expsum_start(AT)
+  @inbounds for j in 1:q
+    fill!(col, zero_sum)
+    for k in 1:p
+      d = D[k, j]
+      iszero(d) && continue
+      md, ed = frexp(convert(AT, d))
+      for i in 1:p
+        a = A[i, k]
+        iszero(a) && continue
+        ma, ea = frexp(convert(AT, a))
+        col[i] = _expsum_add(col[i], ma * md, ea + ed)
+      end
+    end
+    for i in 1:p
+      M1[i, j], E1[i, j] = _expsum_pair(AT, col[i])
+    end
+  end
+  tot = zero_sum
+  @inbounds for j in 1:q
+    fill!(col, zero_sum)
+    for l in 1:q
+      b = B[l, j]
+      iszero(b) && continue
+      mb, eb = frexp(convert(AT, b))
+      for i in 1:p
+        m = M1[i, l]
+        iszero(m) && continue
+        col[i] = _expsum_add(col[i], m * mb, E1[i, l] + eb)
+      end
+    end
+    for i in 1:p
+      mw, ew = _expsum_pair(AT, col[i])
+      tot = _expsum_product(tot, D[i, j], mw, ew - 1)           # the factor 1/2
+    end
+  end
+  tot
+end
+# X scaled by 2^k in place; false if a nonzero entry left the normal range (a scaling down rounded it
+# into the subnormal range or to zero), which the bound of _kron_scaled_reliable does not cover
+function _scale_exponent!(X::AbstractArray, ::Type{T}, k::Int) where {T}
+  k == 0 && return true
+  lossless = true
+  if k < 0
+    mn = typemax(T)
+    @inbounds for v in X
+      a = abs(v)
+      (iszero(a) || a >= mn) || (mn = a)
+    end
+    lossless = mn == typemax(T) || exponent(mn) + k >= exponent(floatmin(T))
+  end
+  s = _power_factors(T, k)
+  X .= X .* s[1] .* s[2]
+  lossless
+end
 gradient!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =
   (_check_oracle_arrays(gradient!, f, G, Θ); _gradient_unchecked!(G, f, Θ))
 _gradient_unchecked!(G::AbstractArray, f::KronQuadratic, Θ::AbstractArray) =

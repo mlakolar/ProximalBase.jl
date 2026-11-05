@@ -36,6 +36,8 @@ proximable. [`isconvex`](@ref) tells a solver whether convex theory applies.
 To add a function, subtype `AbstractFunction`, make it callable, declare its
 traits for its type, as in `ProximalBase.issmooth(::Type{<:MyLoss}) = true`, and
 implement the oracles of those traits.
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 abstract type AbstractFunction end
 
@@ -118,8 +120,15 @@ Store the proximal operator
 
     prox_{γf}(x) = argmin_z  f(z) + ‖z - x‖² / (2γ)
 
-in `y` and return `y`. `y` may be `x`. For a nonconvex `f` the result is one of
-the minimizers.
+in `y` and return `y`. For a nonconvex `f` the result is one of the minimizers.
+
+The output may be the argument itself: `prox!(x, f, x, γ)` works for every
+function. Any other sharing of memory between `y` and `x` is not supported and
+is not detected, even when the two cover the same entries: a call such as
+`prox!(view(x, :), f, x, γ)`, or with a shifted or reversed view of `x`, can
+return wrong values without an error. Copy the argument first, as in
+`prox!(y, f, copy(x), γ)`. See O7 in
+[Agreement between oracles](@ref numerics-oracles).
 """
 function prox! end
 prox!(y, f::AbstractFunction, x) = prox!(y, f, x, 1)
@@ -148,9 +157,15 @@ way can be cheaper than `prox!` followed by `f(y)`. The conjugates that
 [`Conjugate`](@ref) lists as indicators follow the same convention; another conjugate whose
 value uses the Fenchel equality can return a small nonzero value even when it
 represents an indicator.
+
+The output may be the argument itself, as for [`prox!`](@ref):
+`value_and_prox!(x, f, x, γ)` stores the same point and returns the same value
+as with a separate output.
+Any other sharing of memory between `y` and `x` is not supported and is not
+detected.
 """
 value_and_prox!(y, f::AbstractFunction, x, γ::Real = 1) =
-  (_check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_body!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_body!(y, f, x, γ))
 _value_and_prox_unchecked!(y, f::AbstractFunction, x, γ::Real = 1) =
   _isbuiltin(f) ? _value_and_prox_body!(y, f, x, γ) : value_and_prox!(y, f, x, γ)
 function _value_and_prox_body!(y, f::AbstractFunction, x, γ::Real = 1)
@@ -196,6 +211,8 @@ An override of a public oracle replaces that boundary and should call
 iterate. Built-in wrappers also check their inner functions before writing.
 Raw entry oracles and `restrict` have no iterate to check; validate the original
 function before using them.
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 function entry_parameters end
 
@@ -212,6 +229,8 @@ This checks all pairs, even those absent from the iterate. Coordinate oracles
 check only their own pair. It does not check separately supplied step arrays
 or certify arrays against later mutation. A user override of a public oracle
 should call this check before writing; the declaration is trusted to be complete.
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 function check_symmetric_parameters end
 
@@ -226,13 +245,8 @@ _argument_type(::Type{<:AbstractFunction}) = Any
 _checkargument(f, x) = x isa _argument_type(typeof(f)) || throw(MethodError(f, (x,)))
 _checkgradient_output(g, x) = (g === x && throw(ArgumentError("the gradient must not overwrite x")); nothing)
 # blocks pair up to the shorter tuple; the size checks report a length mismatch
-_checkgradient_output(::Tuple{}, ::Tuple) = nothing
-_checkgradient_output(::Tuple, ::Tuple{}) = nothing
-_checkgradient_output(::Tuple{}, ::Tuple{}) = nothing
-function _checkgradient_output(g::Tuple, x::Tuple)
-  _checkgradient_output(first(g), first(x))
-  _checkgradient_output(Base.tail(g), Base.tail(x))
-end
+@generated _checkgradient_output(g::Tuple, x::Tuple) =
+  _blockwise(k -> :(_checkgradient_output(g[$k], x[$k])), min(fieldcount(g), fieldcount(x)), nothing)
 
 function _checkwrite(op, f, y, x)
   _checkreal(f, x)
@@ -249,12 +263,18 @@ function _checkwrite(op, f, y, x)
 end
 # Scalar-step checks inspect types and shapes; transformed inputs have no values.
 _checkstep(op, f, y, x, γ) = true
+# The steps of an indicator projection, and of the penalized ball and sphere kernels, are
+# the scalars in [0, Inf]; the comparison is written so that it rejects NaN.
+@inline _checkstep_nonneg(γ::Real) = γ >= 0 || _throw_step(γ)
+@noinline _throw_step(γ) = throw(ArgumentError("γ must be nonnegative, got $γ"))
 struct _StepInput{T, N, A<:AbstractArray{T, N}} <: AbstractArray{T, N}
   array::A
 end
 Base.size(x::_StepInput) = size(x.array)
 Base.axes(x::_StepInput) = axes(x.array)
 _step_values(x::AbstractArray) = true
+# A placeholder shows the storage of the array it stands for, never its values.
+_projection_host(x::_StepInput) = _projection_host(x.array)
 _step_values(x::_StepInput) = false
 _step_values(x::SubArray) = _step_values(parent(x))
 
@@ -294,17 +314,17 @@ function value_and_gradient! end
 
 # a dense array for the gradient at x, also when x is a sparse iterate
 _gradient_buffer(x::AbstractArray) = similar(Array{float(eltype(x))}, axes(x))
-_gradient_buffer(x::Tuple) = map(_gradient_buffer, x)
+@generated _gradient_buffer(x::Tuple) = _blocktuple(k -> :(_gradient_buffer(x[$k])), fieldcount(x))
 
 _prox_buffer(x::AbstractArray) = similar(x, float(eltype(x)))
 _prox_buffer(x::Union{Symmetric, Hermitian}) = Matrix{float(eltype(x))}(undef, size(x))
-_prox_buffer(x::Tuple) = map(_prox_buffer, x)
+@generated _prox_buffer(x::Tuple) = _blocktuple(k -> :(_prox_buffer(x[$k])), fieldcount(x))
 
 function _checksize(y::Tuple, x::Tuple)
   length(y) == length(x) || _block_size_error(length(y), length(x))
-  map(_checksize, y, x)
-  true
+  _checksize_blocks(y, x)
 end
+@generated _checksize_blocks(y::Tuple, x::Tuple) = _blockwise(k -> :(_checksize(y[$k], x[$k])), fieldcount(y), true)
 @noinline _block_size_error(n, m) = throw(DimensionMismatch("the output has $n blocks and the input $m"))
 
 prox(f::AbstractFunction, x::Tuple, γ::Real = 1) = prox!(_prox_buffer(x), f, x, γ)
@@ -343,6 +363,8 @@ the array, so that weights and bounds may depend on the entry; for a
 It touches no iterate and does not check parameter symmetry; a caller using a
 symmetric iterate must check its parameters first. [`prox_coordinate!`](@ref)
 updates a coordinate of one in place.
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 function prox_entry end
 
@@ -370,6 +392,8 @@ so a coordinate whose step ends at zero does not become stored or active.
 This form supports separable functions, the group penalties of this package,
 and their [`Scaled`](@ref) and [`Regularize`](@ref) versions. Other functions
 raise an error before writing.
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 function prox_coordinate! end
 
@@ -466,9 +490,9 @@ function prox_coordinate!(x::AtomIterate, f::AbstractFunction, k::Integer, u::Ab
   _checkreal(f, u)
   length(u) == length(x.groups[k]) ||
     throw(DimensionMismatch("u has length $(length(u)), group $k has size $(length(x.groups[k]))"))
-  if Base.mightalias(x, u)
-    u = collect(u)
-  end
+  # Rebinding u to collect(u) would give it the type Union{Vector, typeof(u)}, which
+  # heap-allocates a strided view u; pass the copy on instead.
+  Base.mightalias(x, u) && return _block_step!(x, f, k, collect(u), γ, ctx)
   _block_step!(x, f, k, u, γ, ctx)
 end
 
@@ -541,6 +565,8 @@ suffices. The second form takes a coordinate `k` of the point `x`: for a
 [`GroupNormL2`](@ref), the condition of an index involves the rest of its group,
 and on an [`AtomIterate`](@ref) `k` is a group, whose violation is
 `‖g[Gₖ]‖₂ - λ0 wₖ` (for a separable `f`, the largest over the group).
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 function kkt_violation end
 
@@ -664,3 +690,93 @@ _kkt_violation(f::AbstractFunction, g::AbstractArray, x::AbstractArray, i::Integ
   _isbuiltin(f) ? kkt_violation(f, g, i) : kkt_violation(f, g, x, i)
 _kkt_violation(f::AbstractFunction, g::AbstractArray, x::AtomIterate, k::Integer) =
   _isbuiltin(f) ? maximum(i -> kkt_violation(f, g, i), x.groups[k]) : kkt_violation(f, g, x, k)
+
+####################################
+#  Linear minimization oracles
+####################################
+
+"""
+    haslmo(C)
+
+Whether the set `C` (an indicator function) has a linear minimization oracle,
+[`lmo!`](@ref), on its documented input domain. It is `false` unless a set
+declares it. Unlike the other traits it is a property of the instance, not the
+type: [`IndBox`](@ref) has an oracle when every bound is finite, and
+[`IndSimplex`](@ref), [`IndBallL1`](@ref) and [`IndBallL2`](@ref) when the radius
+is finite, and the capped simplex `Constrained(IndBox(0, 1), IndHyperplane(a, k))`
+when `a` is `1` or an array of ones and `k` is a nonnegative integer; a scalar `a`
+does not know the dimension, so `0 ≤ k ≤ n` is checked by `lmo!`. A `false` means that the oracle is unsupported, which is a different
+statement from "the linear objective is unbounded below": an unbounded set can
+have a finite minimum for some directions, and `lmo!` makes no promise about
+sets outside the compact families it lists.
+"""
+haslmo(::AbstractFunction) = false
+
+"""
+    lmo!(s, C, g)
+
+Store in `s` a minimizer of the linear function `s ↦ dot(g, s)` over the compact
+set `C`, the linear minimization oracle of Frank–Wolfe methods, and return `s`.
+`C` must have [`haslmo`](@ref); otherwise `lmo!` throws an `ArgumentError`
+before writing. Supported sets: [`IndSimplex`](@ref) (equality and inequality),
+[`IndBallL1`](@ref), [`IndBallL2`](@ref), [`IndBox`](@ref) and
+[`IndBallLinf`](@ref) with finite bounds, and the capped simplex
+`Constrained(IndBox(0, 1), IndHyperplane(1, k))` (the normal `1` or an array of
+ones, an integer `0 ≤ k ≤ length(g)`). No other `LinearConstrained` set has an
+oracle: other bounds, normals, halfspaces and hyperslabs do not.
+
+| Set | `s` | Ties and degenerate cases |
+|:----|:----|:--------------------------|
+| `IndSimplex(r)` | `r eᵢ`, `i` the first index of the smallest `gᵢ` | with `equality = false`, `0` when `minᵢ gᵢ ≥ 0` (including a tie at `0`) |
+| `IndBallL1(r)` | `-r sign(gᵢ) eᵢ`, `i` the first index of the largest `\\|gᵢ\\|` | `0` when `g = 0` |
+| `IndBallL2(r)` | `-r g / ‖g‖₂` | `0` when `g = 0` |
+| `IndBox(l, u)`, `IndBallLinf(r)` | `lᵢ` if `gᵢ > 0`, `uᵢ` if `gᵢ < 0` | `lᵢ` when `gᵢ = 0` |
+| capped simplex, `k` | `sᵢ = 1` for the `k` smallest `gᵢ`, `0` elsewhere | the earliest indices among equal entries; `0` for `k = 0` and `1` for `k = n`, whatever `g` holds |
+
+The capped simplex selects in `O(n)` expected time, without sorting, and compares
+entries in their own type, so integers of any size keep their order. It keeps a
+copy of `g` in the scratch of the set, which is reused by later calls and by
+`Conjugate(C)`: use one set object per thread. An infeasible `k > length(g)`
+is an `ArgumentError`, and `NaN` in `g` gives `NaN` in all of `s` unless `k` is `0` or `n`.
+
+Arrays of any shape are vectors in linear (column-major) order, so "first
+index" is the first in that order and a matrix has the Frobenius pairing. `g`
+holds real numbers, and `s` must be an `Array`, or a view of one, of
+floating-point numbers of the size of `g`. A radius or bound is rounded to the
+element type of `s`; a finite one that overflows it is an `ArgumentError`, and one that underflows
+to zero is accepted as zero. The
+result is feasible up to that rounding. A radius of `0` gives `0`, and a box
+coordinate with `lᵢ = uᵢ` gives that value, whatever `g` holds there. Zeros are
+`+0.0`.
+
+`s` may be `g`; a partial overlap, such as shifted views of one array, is not
+supported. A `Symmetric` `g` is read as a dense matrix, and the result need not
+be symmetric. Validation precedes every write: a size mismatch is a
+`DimensionMismatch`, and an unsupported set, an invalid output or parameter, or
+an empty simplex with `equality = true` and a radius above the tolerance of the
+element type, an `ArgumentError`, with `s` unchanged.
+
+A `NaN` in `g` gives `NaN` in every output entry that depends on it: all of
+`s` for the simplex and the balls, entry `i` for the box. Infinite entries take
+the limit where it is determined: the simplex, the ℓ1 ball and the box compare
+entries, so `-Inf` wins the minimum and `±Inf` the largest magnitude; for the
+ℓ2 ball one infinite entry gives the vertex `-r sign(gᵢ) eᵢ`, and two or more
+give `NaN`. See [`prox!`](@ref) for the conventions the aliasing and the
+non-finite rules follow.
+"""
+function lmo!(s, C::AbstractFunction, g)
+  haslmo(C) || _lmo_unsupported(C)
+  throw(MethodError(lmo!, (s, C, g)))
+end
+
+@noinline _lmo_unsupported(C) = throw(ArgumentError(
+  "no linear minimization oracle for $(typeof(C)) with these parameters: haslmo(C) is false " *
+  "(only compact sets listed in lmo! are supported; this does not say the linear objective is unbounded)"))
+
+"""
+    lmo(C, g)
+
+Allocating version of [`lmo!`](@ref): the result is a dense `Array` of the size of `g` and
+the element type `float(eltype(g))`, also for a sparse or structured `g`.
+"""
+lmo(C::AbstractFunction, g::AbstractArray) = lmo!(Array{float(eltype(g))}(undef, size(g)), C, g)

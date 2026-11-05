@@ -176,6 +176,11 @@ function test_prox(f, x::AbstractArray, γ::Real; rtol = 1e-8, atol = 1e-10, loc
   z = copy(x)
   prox!(z, f, z, γ)
   @test _dense(z) ≈ _dense(p) rtol = rtol atol = atol
+  # in place, the combined call stores the point and returns the value of the separate call (O7)
+  z = copy(x)
+  vz = value_and_prox!(z, f, z, γ)
+  @test _dense(z) ≈ _dense(p3) rtol = rtol atol = atol
+  @test vz ≈ v rtol = sqrt(rtol) atol = sqrt(atol)
 
   # optimality
   xd, pd = _dense(x), _dense(p)
@@ -236,18 +241,86 @@ function test_gradient(f, x::AbstractArray; h = nothing, rtol = nothing, atol = 
   g
 end
 
+# A tuple argument holds arrays or nested tuples of arrays (the product spaces of SeparableSum), visited block by
+# block and never flattened. Its leaves share one floating type, which sets the same scale as for an array.
+# The type is found, and an unsupported argument rejected, before any oracle is called.
+_leaf_type(x::AbstractArray) = float(eltype(x))
+function _leaf_type(x::Tuple)
+  isempty(x) && throw(ArgumentError("test_gradient: a tuple argument needs at least one block"))
+  types = map(_leaf_type, x)
+  for T in types
+    T === types[1] || throw(ArgumentError(
+      "test_gradient requires tuple blocks with a common floating-point type; got $(types[1]) and $T"))
+  end
+  types[1]
+end
+_leaf_type(x) = throw(ArgumentError("test_gradient: a block must be an array or a tuple of blocks, not a $(typeof(x))"))
+
+# f(x, ys...) on the arrays of x and the matching arrays of ys, collected in the structure of x
+_mapblocks(f, x::AbstractArray, ys::AbstractArray...) = f(x, ys...)
+@generated function _mapblocks(f, x::Tuple, ys::Tuple...)
+  ProximalBase._blocktuple(k -> :(_mapblocks(f, x[$k], $((:(ys[$j][$k]) for j in eachindex(ys))...))), fieldcount(x))
+end
+
+# the same blocks, of the same sizes, and blockwise approximately equal
+_same_blocks(a::AbstractArray, b::AbstractArray) = size(a) == size(b)
+_same_blocks(a::Tuple, b::Tuple) = length(a) == length(b) && all(map(_same_blocks, a, b))
+_same_blocks(a, b) = false
+_approx(a::AbstractArray, b::AbstractArray) = a ≈ b
+_approx(a::Tuple, b::Tuple) = all(map(_approx, a, b))
+_agree(a, b) = _same_blocks(a, b) && _approx(a, b)
+
+function test_gradient(f, x::Tuple; h = nothing, rtol = nothing, atol = nothing, directions = 3, rng = nothing)
+  R = _leaf_type(x)
+  c = cbrt(eps(R) / eps(Float64))
+  h === nothing && (h = 1e-6c)
+  rtol === nothing && (rtol = 1e-5c)
+  atol === nothing && (atol = 1e-6c)
+  g = gradient(f, x)
+  ok = _same_blocks(g, x)
+  @test ok
+  ok || return g
+  g2 = _mapblocks(similar, g)
+  @test gradient!(g2, f, x) === g2
+  @test _agree(g2, g)
+  g3 = _mapblocks(similar, g)
+  v = value_and_gradient!(g3, f, x)
+  @test _agree(g3, g)
+  @test v ≈ f(x)
+  v4, g4 = value_and_gradient(f, x)
+  @test v4 ≈ v && _agree(g4, g)
+  xd = _mapblocks(Array, x)
+  xp = _mapblocks(a -> similar(a, float(eltype(a))), xd)
+  xm = _mapblocks(similar, xp)
+  for _ in 1:directions
+    d = _mapblocks(a -> _randn(rng, eltype(a), size(a)...), xp)
+    _mapblocks((p, a, e) -> (p .= a .+ h .* e), xp, xd, d)
+    _mapblocks((m, a, e) -> (m .= a .- h .* e), xm, xd, d)
+    fp, fm = f(xp), f(xm)
+    fd = (fp - fm) / (2h)
+    round_err = 8 * eps(R) * max(abs(fp), abs(fm)) / (2h)
+    @test fd ≈ ProximalBase._tuple_dot(g, d) rtol = rtol atol = max(atol * max(1, abs(fd)), round_err)
+  end
+  g
+end
+
 ####################################
 #  separable functions
 ####################################
 
-# x with about a third of its entries set to zero
+# x as floats (the iterates store prox results, which an Int array cannot), with about a third of its entries set to zero
 function _with_zeros(x::AbstractArray, rng)
-  z = copy(x)
+  z = float.(x)
   for i in eachindex(z)
     (rng === nothing ? rand() : rand(rng)) < 1 / 3 && (z[i] = 0)
   end
   z
 end
+
+# Whether f has a standalone value at the array z: ProximalBase's own list of functions without one
+# (a conjugate whose value is not implemented), and a method that accepts z. A method that exists but
+# throws is not "missing": the call is made without a try, and the error surfaces.
+_has_standalone_value(f, z) = ProximalBase._has_value(f) && applicable(f, z)
 
 function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symmetric = false, rng = nothing)
   @test isseparable(f)
@@ -280,10 +353,18 @@ function test_separable(f, x::AbstractVecOrMat, γ::Real; groups = nothing, symm
     xs = SparseIterate(xz)
     ys = SparseIterate(xz)
     @test _dense(prox!(ys, f, xs, γ)) ≈ _dense(pz)
-    if f isa SeparableFunction
-      @test all(i -> iszero(value_entry(f, zero(T), i)), eachindex(x))
+    # the per-entry contract f_i(0) = 0, where the entries have values
+    f isa SeparableFunction && @test all(i -> iszero(value_entry(f, zero(T), i)), eachindex(x))
+    # the aggregate consequence f(0) = 0 and the sparse paths, where f has a value
+    z = zeros(T, size(x))
+    _has_standalone_value(f, z) && @test iszero(f(z))
+    # a value method may accept only dense arrays: the sparse paths need one for the iterate
+    if _has_standalone_value(f, z) && _has_standalone_value(f, xs) && _has_standalone_value(f, pz)
       @test f(xs) ≈ f(xz)
-      @test value_and_prox!(ys, f, xs, γ) ≈ f(pz)
+      # a fresh destination, which prox! has not already filled: the value and the written point
+      yv = SparseIterate(xz)
+      @test value_and_prox!(yv, f, xs, γ) ≈ f(pz)
+      @test _dense(yv) ≈ _dense(pz)
     end
   end
 

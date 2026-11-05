@@ -139,7 +139,7 @@ end
 # The step is checked after the sizes and parameters and before the inner
 # function, as before the pre-write checks.
 prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real) =
-  (_check_oracle_arrays(prox!, e, y, x, t); _prox_unchecked!(y, e, x, t))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, e, y, x, t); _prox_unchecked!(y, e, x, t))
 function _prox_unchecked!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
   _checksize(y, x)
   _checkparams(e, x)
@@ -153,7 +153,7 @@ function _prox_unchecked!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray,
 end
 
 value_and_prox!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real) =
-  (_check_oracle_arrays(value_and_prox!, e, y, x, t); _value_and_prox_unchecked!(y, e, x, t))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, e, y, x, t); _value_and_prox_unchecked!(y, e, x, t))
 function _value_and_prox_unchecked!(y::AbstractArray, e::MoreauEnvelope, x::AbstractArray, t::Real)
   _checksize(y, x)
   _checkparams(e, x)
@@ -248,7 +248,7 @@ curvature(ℓ::Smoothed) = inv(float(ℓ.γ))
 _prox_slope(φ::NormL1, r::T, γ::T) where {T} = abs(r) > _weight_coefficient(γ, φ.λ0, _entry(φ.w, 1)) ? one(T) : zero(T)
 _prox_slope(φ::NormL1Nonneg, r::T, γ::T) where {T} = r > _weight_coefficient(γ, φ.λ0, _entry(φ.w, 1)) ? one(T) : zero(T)
 _prox_slope(φ::ElasticNet, r::T, γ::T) where {T} =
-  abs(r) > _weight_coefficient(γ, φ.λ1, _entry(φ.w, 1)) ? inv(1 + γ * convert(T, φ.λ2)) : zero(T)
+  abs(r) > _weight_coefficient(T, γ, φ.λ1, _entry(φ.w, 1)) ? _elastic_slope(T, γ, φ.λ2) : zero(T)
 _prox_slope(φ::IndBox, r::T, ::T) where {T} = _entry(φ.l, 1) < r < _entry(φ.u, 1) ? one(T) : zero(T)
 _prox_slope(::IndNonnegative, r::T, ::T) where {T} = r > 0 ? one(T) : zero(T)
 function _prox_slope(φ::SeparableFunction, r::T, γ::T) where {T}

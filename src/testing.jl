@@ -56,7 +56,9 @@ VERSION >= v"1.11" && Core.eval(@__MODULE__, Expr(:public, :test_prox, :test_gra
 Test the proximal operator of `f` at `x` with step `γ`:
 
 - `prox`, `prox!` and [`value_and_prox!`](@ref) agree, `prox!` returns its
-  output and may overwrite its input, and the value is `f` at the result;
+  output, and the value is `f` at the result;
+- `prox!` and `value_and_prox!` with the output as the input (`y === x`) give
+  the same point, and `value_and_prox!` the same value, as with a separate output;
 - the result `p` is optimal: no nearby point, nor the proximal point of
   another input, has a smaller proximal objective
   `f(z) + ‖z - x‖²/(2γ)`, and for a convex `f` the subgradient inequality
@@ -93,6 +95,15 @@ In Float32, a small gradient error can go undetected when `|f|` is large
 relative to the directional derivatives, because the comparison allows the
 finite difference's rounding error. Increasing `directions` raises the chance
 of detecting it.
+
+**Tuples.** `x` may be a tuple of arrays or nested tuples (as for `SeparableSum`),
+of different shapes but one floating type: `float(eltype(block))` must agree for
+all blocks, so mixing Float32 and Float64 blocks throws an `ArgumentError`
+before `f` is called. Model data and parameters may have other types. One
+random direction, an array per block drawn from `rng` in block order, moves all
+blocks; the difference is compared with the sum of the blockwise inner
+products, with the defaults of an array of that type. Scalars and empty tuples
+are rejected.
 """
 function test_gradient end
 
@@ -107,9 +118,22 @@ Test a separable `f` at the vector or matrix `x` with step `γ`:
   (a copy of `x` with some entries set to zero) gives the proximal point;
 - when [`iszeropreserving`](@ref)`(f)`, zero is fixed by every scalar proximal
   operator, and `prox!` on a `SparseIterate` agrees with the dense result;
-- for a zero-preserving `SeparableFunction`, every `value_entry` at zero is 0,
-  and the value and [`value_and_prox!`](@ref) on a `SparseIterate` agree with
-  the dense results. Zero-preserving wrappers need no value oracle;
+- for a zero-preserving `SeparableFunction`, every `value_entry` at zero is 0;
+- for any zero-preserving `f` with a standalone value, `f(0) == 0` exactly, and
+  the value and [`value_and_prox!`](@ref) on a `SparseIterate` agree with the
+  dense results (value and, into a fresh destination, written point). `f(0) == 0` is necessary for the per-entry contract
+  ``f_i(0) = 0`` but not sufficient: terms could cancel, so only a
+  `SeparableFunction` gets the per-entry check. A function is asked for a value only when the
+  package's private `_has_value` is true and `f` has a method for the array.
+  `_has_value` is false for a [`Conjugate`](@ref) whose value is not
+  implemented, and for the package's own wrappers (`Scaled`, `Translate`,
+  sums and similar) around one. It does not see inside a user-defined wrapper:
+  that wrapper is asked for a value whenever it has a method, and skipped when
+  it has none. The checks are independent. `f(0) == 0` needs a method for the
+  dense zero. The `SparseIterate` checks need a method for the iterate and for
+  the dense proximal point, so a value method for dense vectors only is tested
+  at zero alone. A value method that
+  exists is called without a `try`, so an error in it is reported as an error;
 - with `groups`, `prox_coordinate!` on each group of an [`AtomIterate`](@ref)
   gives the proximal point;
 - with `symmetric = true` and a square `x`, `prox_coordinate!` on each

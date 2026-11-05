@@ -47,14 +47,98 @@ change.
   `NormL1Fused` on pairs and tuples, `PointwiseMinimum`, and the conjugates of
   `IndBox`, `Translate`, centred `SqrNormL2` and `HingeLoss(y)`.
 - The data losses `LeastSquaresLoss`, `GLMLoss` and its specializations, and
-  `LogDetLoss` return the argument's precision instead of their data's. A loss
-  built from `Float32` data returns a `Float64` value, with `Float32`
-  accuracy, for a `Float64` argument.
+  `LogDetLoss` return the argument's precision instead of their data's. Under
+  the 0.6 contract, a loss built from `Float32` data computes a `Float64`
+  argument's value in `Float64` from the stored data (see below).
 - Wrappers of data losses, such as `Scaled` and `Sum`, follow the same rule.
 - The spectral functions and sets (`Spectral`, `SingularValue`,
   `NuclearNorm`, `IndPSD`, `IndBallRank`, `TracePSD`) raise an
   `ArgumentError` for element types other than `Float32` and `Float64`, where
   they raised a `MethodError`.
+
+## The numerical contract (0.6)
+
+0.6 adopts the [Numerical contract](@ref numerics). The changes below land in
+the pull requests tracked in
+[#366](https://github.com/mlakolar/ProximalBase.jl/issues/366); until then,
+the earlier behavior applies.
+
+- **Mixed precision.**
+  - Each result is computed in its model precision. Parameters are rounded
+    once to it, after being combined. Data and the geometry of linear sets are
+    used as stored.
+  - The value of `value_and_prox!` uses the converted parameters: centered
+    `SqrNormL2(1.0, [1 + 2^-28])` with a `Float32` output returns `0` where it
+    returned `2^-57`.
+  - A wider output forms combined parameters in its own precision.
+  - A wider argument keeps its digits with a narrower output.
+  - Data-holding functions with narrower data compute in the argument's
+    precision.
+- **NaN.** NaN propagates to every result that depends on it: a result
+  depends on an entry if changing that entry between finite values can change
+  it, with the step fixed (decision 48).
+  - The values of indicators, `NegEntropy` and the functions that use LAPACK at
+    a NaN entry are NaN, where they were `Inf`.
+  - `value_and_prox!` of an indicator at a NaN entry returns NaN, where it
+    returned `0`, unless the projection does not depend on that entry. The
+    radius-zero balls `IndBallL1(0)` and `IndBallL2(0)` project to zero with
+    value `0`, and a coordinate fixed by an infinite weight stays zero.
+  - The proximal outputs of `NormL2` and `GroupNormL2` at a NaN entry are NaN,
+    where they were zeros.
+  - A zero-level function, such as `NuclearNorm(0)`, returns `0` at a NaN
+    entry.
+  - At an admitted infinite step, a proximal map that is constant on finite
+    arguments ignores a NaN entry: `prox(NormL1(1.0), [NaN], Inf)` is `[0]`,
+    where it was `[NaN]`.
+- **Infinite entries.** A bounded projection at an argument with one infinite
+  entry returns its limit, where it returned NaN or a partly NaN block
+  ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), decision 48).
+  - `IndBallL1`, `IndBallL2` and `IndSphereL2` move to `±r` in that coordinate
+    and zero elsewhere: `prox(IndBallL2(1.0), [Inf, 0.0])` is `[1, 0]`, where
+    it was `[NaN, NaN]`, and `prox(IndBallL1(1.0), [Inf, 0.0])` is `[1, 0]`,
+    where it was `[NaN, 0]`. On a `SymmetricSparseIterate`, one infinite
+    off-diagonal gives `±r/2` (ℓ1) or `±r/sqrt(2)` (ℓ2) in each mirrored entry.
+  - `IndSimplex` selects the vertex of a single `+Inf` entry, where it
+    returned `[NaN, 0]`, and gives zero to `-Inf` entries.
+  - Two or more infinite entries whose relative growth decides the result give
+    NaN in the whole block.
+  - `IndBallL2(0)` projects to zero at an infinite entry, where it returned
+    NaN.
+  - `Constrained(NormL1, IndBallL2/IndSphereL2)` and
+    `Constrained(GroupNormL2, IndBallL2/IndSphereL2)` take the determined limits
+    group by group: a hard-fixed coordinate is zero, one infinite governed
+    coordinate gives `±r` there, and two or more, or a NaN governed coordinate,
+    give NaN over the coupled block
+    ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), Stages 3A
+    and 3B). The families `Constrained(IndBallL0, IndBallL2/IndSphereL2)` and
+    `Constrained(ZeroFunction, IndBallL2)` follow in later pull requests.
+- **Float16** arguments, outputs, directions and data are rejected with an
+  `ArgumentError`.
+- **Steps.** Negative and NaN steps raise an `ArgumentError`. Zero and infinite
+  steps are accepted only where a function names the limit.
+  - `Constrained(NormL1, IndBallL2)` and `Constrained(GroupNormL2, IndBallL2)`
+    name `γ = 0` and `γ = Inf`. The penalized spheres name `γ = 0`, and
+    `γ = Inf` only when the level is zero or some free coordinate or group has
+    no penalty; otherwise `γ = Inf` raises before writing, as it does now.
+  - A named endpoint with an infinite entry returns the joint limit over
+    finite steps and arguments, or NaN where that limit depends on the path:
+    `prox(NormL1(1.0), [Inf], Inf)` is NaN.
+- **Failures.**
+  - A search that cannot certify its result in the working precision, and a
+    quadratic model whose coefficients cannot be represented, raise a
+    dedicated precision exception, where some raised an `ArgumentError` or
+    returned `Inf` and NaN.
+  - Size mismatches raise `DimensionMismatch`.
+  - Non-finite coefficients of `LinearFunction` and `Tilt` are rejected at
+    construction.
+  - A built-in `hessian_vec!` call whose output is `x` or `v` raises an
+    `ArgumentError` before writing. `QuadraticFunction`, `Regularize` and `Sum`
+    returned wrong values there without an error; some other built-in calls
+    happened to return the correct product.
+- **`LogDetLoss`.** `value_and_prox!` returns `Inf` when the stored output is
+  singular, where it could return a finite value.
+- **Reproducibility.** Results are promised within their stated accuracy, not
+  bit for bit across versions.
 
 ## Matrix products
 
@@ -78,6 +162,24 @@ does not imply convexity or positive homogeneity.
 [`GLMLoss`](@ref). `IndBallLinf` and [`Constrained`](@ref) are constructor
 functions that return suitable concrete functions. Avoid dispatch that
 assumes every exported constructor name is a concrete type.
+
+## `LogDetLoss` and `KronQuadratic` check their matrices (0.6)
+
+`LogDetLoss(S)` and the matrices `A` and `B` of `KronQuadratic(A, B, C)` must now
+be exactly symmetric: pairs `(i, j)` and `(j, i)` equal (exact numeric equality, with NaN matching NaN and
+`-0.0` matching `0.0`), or a
+`Symmetric`, `Hermitian` of reals or `Diagonal` matrix. Anything else throws an
+`ArgumentError` that names the pair with the largest difference and the relative
+asymmetry `max |A[i, j] - A[j, i]| / max |A[i, j]|`, and says when that is the
+size of rounding error. Before 0.6, `LogDetLoss` kept the upper triangle and
+`KronQuadratic` averaged the triangles of a matrix that agreed to within `√eps`
+times its largest entry. `C` is unchanged. The messages of the checks in the
+two sections below are the same.
+
+| Before 0.6 | Now |
+|:---|:---|
+| `LogDetLoss(S)` with `S` not symmetric | `Symmetric(S, :U)` keeps the old upper-triangle values; `Symmetric(S, :L)` takes the lower |
+| `KronQuadratic(inv(S), …)`, or `A` or `B` symmetric only up to rounding | `inv(Symmetric(S))` or `inv(cholesky(S))`, which are exactly symmetric, or `Symmetric(inv(S), :L)`; `(M + M')/2` for the symmetric part |
 
 ## Writes into a `SymmetricSparseIterate` (0.6)
 
@@ -113,6 +215,46 @@ matrix and `copyto!` a symmetric result.
 | `mul!(x, v, s)` with a vector `v` of `p²` entries | `reshape(v, p, p)`, which must be symmetric |
 | `copyto!(x, itr)` from a tuple or a generator | `copyto!(x, reshape(collect(itr), p, p))`, which must be symmetric |
 
+## Per-entry parameters on a `SymmetricSparseIterate` (0.6)
+
+Arrays that assign a weight, bound or other parameter to each matrix entry
+must be exactly symmetric. Checked operations now throw an `ArgumentError`
+when they find different values at mirrored positions. Some calls check only
+the pairs they use; see [Symmetric parameters](@ref) for examples, the
+operation table and complete validation before a solver starts.
+Dense arrays, `SparseIterate` and `AtomIterate` are unchanged.
+
+The rows below list the earlier behavior and how to adapt.
+The linked operation table explains which symmetric arguments trigger checks.
+
+| Earlier behavior | New behavior and adaptation |
+|:---|:---|
+| In 0.5.4, weighted `NormL1` values counted weights from both triangles, while symmetric `prox!` used only the lower weight | Checked pairs must agree; choose one triangle with `Symmetric(W, :L)`, or revise the weights to match the intended model |
+| `prox!` into a `SymmetricSparseIterate` from a dense argument that is not symmetric threw, or stored the lower triangle's proximal point | The output is the proximal point at the symmetric part `(x + x') / 2`, for every built-in function; `Symmetric(x, :L)` still selects the lower triangle |
+| Spectral `prox!` read the upper triangle of a dense argument that is not symmetric | It decomposes the symmetric part, for dense outputs too |
+| `gradient!` and `hessian_vec!` of `KronQuadratic` into a symmetric output threw at a dense point that is not symmetric | They write the symmetric part of the result |
+| Values did not check parameter symmetry | Symmetric inputs trigger checks of stored pairs or all pairs, depending on the computation |
+| Gradients and gradient mappings did not check parameter symmetry | Symmetric outputs trigger checks; gradient mappings check both functions |
+| Hessian products and quadratic models did not check parameter symmetry | A symmetric point triggers full parameter validation, even with a dense Hessian-product output |
+| Coordinate curvature calls did not check parameter symmetry | Symmetric `L` in `coordinate_lipschitz!` triggers full validation |
+| Symmetric coordinate steps read the lower-triangle parameter without comparing its mirror | `prox_coordinate!` checks the pair at the chosen coordinate |
+| Four-argument `kkt_violation` read the lower entry of `g` | It uses the symmetric part at the chosen pair and checks that parameter pair; `+Inf` and `-Inf` at that pair throw `ArgumentError` |
+| Symmetric proximal calls read lower-triangle steps without comparing their mirrors | Proximal calls with symmetric outputs check the relevant step pairs too |
+| Separable `lla_weights!` did not check parameter symmetry | A symmetric input triggers full validation, including with a dense output or allocating `lla_weights` |
+| User `SeparableFunction` types needed no per-entry declaration | Define `ProximalBase.entry_parameters(f::MyFunction)` as a tuple such as `(:w => f.w,)`, or `()` when there are none |
+| Calls did not require or validate a per-entry declaration | Checked symmetric calls reject undeclared functions and malformed declarations with `ArgumentError` |
+| Wrappers and tuple blocks did not check declared arrays for symmetry | Checks also visit built-in wrappers and nested `SeparableSum` blocks |
+| `Testing.test_separable(...; symmetric = true)` did not validate declarations | It now validates the declaration and every mirrored parameter pair; it does not generate asymmetric copies of a user function |
+
+Averaging `(W + W') / 2` changes both weights and can change the model.
+It is not a general repair for patterns, bounds or labels, and the sum can
+overflow. For extension declarations and public oracle overrides, see
+[Separable functions](@ref extending-separable). Validation does not protect against later
+mutation; reconstruct functions when their parameter documentation requires it.
+
+These parameter checks complement the checks on values written into an
+iterate. See [Writes into a `SymmetricSparseIterate` (0.6)](@ref).
+
 ## Coordinate operations of a nonseparable `MoreauEnvelope` (0.6)
 
 `restrict` of a [`MoreauEnvelope`](@ref) of a nonseparable function, including
@@ -124,15 +266,13 @@ an `ArgumentError` instead of a `MethodError`. Restricting a group-penalty
 envelope, including as the smooth term of an active-set solver, is no longer
 supported. These coordinate operations require a separable underlying function.
 
-## User separable functions on symmetric iterates
+## The groups of an `AtomIterate` (0.6)
 
-For 0.6, a user `SeparableFunction` used on a `SymmetricSparseIterate` must define
-`ProximalBase.entry_parameters(f::MyFunction) = (:w => f.w,)`, listing every
-per-entry array, or return `()` when it has none. Undeclared functions throw
-`ArgumentError`. Dense arrays, `SparseIterate` and `AtomIterate` are unchanged.
-Public oracle overrides should call `ProximalBase.check_symmetric_parameters(f, x)`
-before writing. Solvers can use this check once before calling raw entry oracles;
-mutating parameter arrays later requires checking them again.
+The fields of an [`AtomIterate`](@ref), including `groups`, are private. Read the indices of
+group `k` with [`atomindices`](@ref)`(x, k)`, a read-only vector, instead of `x.groups[k]`, and
+compare layouts with `ProximalBase.samegroups(a, b)` instead of comparing `a.groups` and
+`b.groups`. `similar(x)` makes an iterate with the same groups. Changing the array that
+`parentindices(atom(x, k))` returns is not supported. See [AtomIterate](@ref).
 
 ## Writes through `atom(x, k)` (0.6)
 
@@ -151,3 +291,19 @@ ends nonzero.
 The `storage` field is internal. Writing into it can leave the iterate
 inconsistent. Activation follows the stored value: a value that rounds to
 zero in the element type does not activate a group or store a coordinate.
+
+## Scaling a `SparseIterate` by a number (0.6)
+
+`rmul!`, `lmul!`, `rdiv!` and `ldiv!` of a `SparseIterate` by a number now
+equal the corresponding broadcasts, `x .*= s`, `x .= s .* x`, `x ./= s` and
+`x .= s .\ x`, in values and in the working set. Before 0.6, they scaled
+only the stored entries. With an `Inf` or NaN multiplier or a zero divisor,
+unstored entries stayed zero.
+
+For example, take `x = SparseIterate(4); x[1] = 1; activate!(x, 2)`.
+`rmul!(x, Inf)` gave `[Inf, NaN, 0, 0]` with active coordinates `[1, 2]`.
+It now gives `[Inf, NaN, NaN, NaN]` with active coordinates `[1, 2, 3, 4]`.
+
+Finite multipliers and finite nonzero divisors still cost `O(nnz)` and give
+the same results as before. `SymmetricSparseIterate` keeps the earlier
+behavior for now.

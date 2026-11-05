@@ -384,13 +384,17 @@ end
   y32 = similar(Float32[1, 2, -0.5])
   @test value_and_prox!(y32, h32, Float32[1, 2, -0.5], 0.5f0) isa Float32
   @test y32 ≈ Float32[0.6, 2, -0.5]
-  # a symmetric iterate reads the lower triangle of the argument
+  # a symmetric iterate reads the symmetric part of the argument
   A, X = [2.0 1.0; 1.0 3.0], [1.0 5.0; 2.0 -0.5]
   hS = Precompose(f, A)
-  P = prox(hS, Symmetric(X, :L) |> Matrix, 0.5)
+  P = prox(hS, (X + X') / 2, 0.5)
   Y = SymmetricSparseIterate(2)
   @test value_and_prox!(Y, hS, X, 0.5) ≈ en(A .* P) rtol = 1e-14
   @test Matrix(Y) ≈ P rtol = 1e-14
+  # Symmetric(X, :L) selects the lower triangle
+  PL = prox(hS, Symmetric(X, :L) |> Matrix, 0.5)
+  @test value_and_prox!(Y, hS, Symmetric(X, :L), 0.5) ≈ en(A .* PL) rtol = 1e-14
+  @test Matrix(Y) ≈ PL rtol = 1e-14
   # errors of the inner value still come before the output is written
   y = fill(7.0, 4)
   @test_throws DimensionMismatch value_and_prox!(y, h, x, [0.5, 0.2])

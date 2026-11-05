@@ -364,10 +364,9 @@ _allocation_value_and_prox!(y, f, x, γ) = value_and_prox!(y, f, x, γ)
   f = SeparableSum(SqrNormL2(2.0), SeparableSum(Precompose(SqrNormL2(), 2.0), SqrNormL2()))
   x = ([3.0], ([3.0, 4.0], [5.0]))
   y = deepcopy(x)
-  # These are the nested tuple's measured counts before the wrapper checks.
-  for (op, base) in zip(oracles, (704, 576, 192, 192))
+  for op in oracles
     args = op in proximal ? (1.0,) : ()
-    @test PB.Testing.allocations(op, y, f, x, args...) <= (VERSION < v"1.11" ? base : 0)
+    @test PB.Testing.allocations(op, y, f, x, args...) == 0
   end
   x = [3.0 4.0; 5.0 6.0]
   for fs in ((Precompose(SqrNormL2(), 2.0), Precompose(SqrNormL2(), 2.0)),

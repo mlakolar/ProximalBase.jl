@@ -135,7 +135,7 @@ function _dykstra_round!(sets::Tuple, P, k, y, w, s)
 end
 
 prox!(out::AbstractArray, f::IndIntersection, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, f, out, x, γ); _prox_unchecked!(out, f, x, γ))
+  (x = _symmetric_argument(out, x); _check_oracle_arrays(prox!, f, out, x, γ); _prox_unchecked!(out, f, x, γ))
 function _prox_unchecked!(out::AbstractArray, f::IndIntersection, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, out, x)
   T = float(eltype(out))

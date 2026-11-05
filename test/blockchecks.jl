@@ -302,10 +302,8 @@ end
   nested = SeparableSum(flat, SqrNormL2())
   wrapped = SeparableSum(Translate(SqrNormL2(), ones(2)), Tilt(SqrNormL2(), ones(2, 1)),
                          Regularize(SqrNormL2(), 1.0, ones(2)))
-  for (f, point, isnested) in ((flat, x, false), (Scaled(flat, 2.0), x, false),
-                              (nested, (x, [6.0]), true), (wrapped, (x[1], x[1], x[1]), false))
-    # Nested SeparableSum already allocates on Julia 1.10.
-    isnested && VERSION < v"1.11" && continue
+  for (f, point) in ((flat, x), (Scaled(flat, 2.0), x),
+                     (nested, (x, [6.0])), (wrapped, (x[1], x[1], x[1])))
     y = deepcopy(point)
     for op in oracles
       if op in proximal

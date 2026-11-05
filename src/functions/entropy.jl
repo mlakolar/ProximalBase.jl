@@ -210,6 +210,15 @@ restrict(::NegLog, ::AbstractVector{<:Integer}) =
   throw(ArgumentError("restrict of NegLog is not supported: zero is outside its domain"))
 _restrict_unchecked(f::NegLog, ::AbstractVector{<:Integer}) = f
 
+# A negative step raises a DomainError at the first entry of these proximal points (the
+# logarithm of γλ, the square root of γ), whatever the input. Other steps, NaN included, are
+# the leaf's, as is the empty input, which has no entry to fail at. The kernels convert the
+# step to the float type of the input first, where a tiny negative step becomes -0.0.
+function _checkstep(op::O, f::Union{NegEntropy, KLDivergence, NegLog}, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  isempty(x) || !(convert(float(eltype(x)), γ) < 0) || throw(DomainError(γ, "the step of $(nameof(typeof(f))) must not be negative"))
+  true
+end
+
 ####################################
 #  Bernoulli loss on the probability scale
 ####################################
@@ -471,10 +480,10 @@ _has_ordinary_value(::Type{<:Berhu}) = true
 
 Base.@propagate_inbounds function prox_entry(f::Berhu, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  step, λ, w = S(γ), S(f.λ), S(_entry(f.w, i))
+  w = _entry(f.w, i)
   # Avoid rounding or overflow in the upper branch of an identity prox.
-  !isinf(w) && (iszero(step) || iszero(λ) || iszero(w)) && return S(v)
-  c = _weight_coefficient(step, λ, w)
+  !isinf(w) && (iszero(γ) || iszero(f.λ) || iszero(w)) && return S(v)
+  c = _weight_coefficient(S, γ, f.λ, _entry(f.w, i))
   M, t = S(f.M), abs(S(v))
   t <= M + c ? shrink(S(v), c) : S(v) * M / (M + c)
 end

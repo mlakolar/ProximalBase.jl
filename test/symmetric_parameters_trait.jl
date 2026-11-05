@@ -66,7 +66,7 @@ function rejects(op, y, message)
   @test isequal(state(y), before)
 end
 undeclared(f) = "$(nameof(typeof(f))) does not declare its per-entry parameters; define ProximalBase.entry_parameters(f::$(nameof(typeof(f)))) to return them, or () when it has none, to use it on a SymmetricSparseIterate"
-asymmetric(name, F = "MyL1") = "the array $name of $F must be symmetric on a SymmetricSparseIterate, but entry (2, 1) is 3.0 and entry (1, 2) is 1.0; use Symmetric(A, :L) to keep the lower triangle of A, or (A + A')/2 for its symmetric part"
+asymmetric(name, F = "MyL1") = "the array $name of $F must be symmetric on a SymmetricSparseIterate, but entry (2, 1) is 3.0 and entry (1, 2) is 1.0 (relative asymmetry 0.67); pass Symmetric($name, :L) to keep the lower triangle of $name, or ($name + $name')/2 for its symmetric part"
 wrappers(f) = (f, Scaled(f, 2.), Tilt(f, zeros(2, 2)),
                Precompose(f, 2.), Translate(f, zeros(2, 2)))
 

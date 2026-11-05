@@ -121,16 +121,54 @@ end
   true
 end
 
-# Copying must preserve the cached penalty layouts of both iterates.
-@inline function _samelayout(y::AtomIterate, x::AtomIterate)
+# Whether two iterates are known to have equal layouts without comparing them: the same
+# layout object, one remembered layout that both share, or a remembered layout that is the
+# other's own. Each remembered layout was found equal to the groups of its iterate when it
+# was stored, and equality of ordered lists is transitive, so a hit is never wrong.
+@inline _layouthit(y::AtomIterate, x::AtomIterate) =
   y.groups === x.groups ||
-    (y.layout_cache !== nothing && y.layout_cache === x.layout_cache) ||
-    y.layout_cache === x.groups || x.layout_cache === y.groups ||
-    y.groups == x.groups
-end
+  (y.layout_cache !== nothing && y.layout_cache === x.layout_cache) ||
+  y.layout_cache === x.groups || x.layout_cache === y.groups
 
+# Copying must preserve the cached penalty layouts of both iterates, so this comparison
+# remembers nothing.
+@inline _samelayout(y::AtomIterate, x::AtomIterate) = _layouthit(y, x) || y.groups == x.groups
 
-Base.dataids(x::AtomIterate) = Base.dataids(x.storage)
+"""
+    ProximalBase.samegroups(a, b)
+
+Whether `a` and `b` have equal groups: the same number of groups, and the same indices in the
+same order in every group (`1:2` and `[1, 2]` are equal, `[2, 1]` is not). `a` and `b` are two
+[`AtomIterate`](@ref)s, or an `AtomIterate` and a group penalty (any [`ProximalBase.AbstractGroupPenalty`](@ref),
+such as [`GroupNormL2`](@ref) or [`GroupMCP`](@ref)) or an [`IndBallGroupL0`](@ref), in either order. It is the
+check that [`prox_coordinate!`](@ref) makes before it writes and that the four-argument
+[`kkt_violation`](@ref)`(f, g, x, k)` makes before it computes (each throws a `DimensionMismatch` when it
+fails), that `value` and `prox!` of a group function make to take the active-group paths, and that `copyto!`
+between two iterates makes to copy only the active groups.
+`samegroups` is public but not exported.
+
+An iterate remembers one group array that it has found equal to its own. The answer takes
+constant time when `a` and `b` share their group array, or both remember the same one, or one
+remembers the other's. Otherwise the two are compared in full, which takes time proportional to
+the total size of the groups. If they are equal, the iterate `x` (`a` when both are iterates)
+remembers the group array of the other, so that asking again takes constant time. The one slot is
+replaced each time, so alternating between two equal group arrays that are different objects
+compares at every call; a comparison that finds the groups unequal remembers nothing and leaves
+the remembered array in place. Neither the cache nor the comparison allocates. The groups of
+penalties and iterates must not be mutated (see [`AtomIterate`](@ref)). Because the answer is
+remembered in the iterate, calling `samegroups` on one iterate from several threads at once is a
+data race, as it is for the other operations on an iterate (the stored value is always an equal
+layout).
+"""
+function samegroups end
+
+samegroups(a::AtomIterate, b::AtomIterate) =
+  _layouthit(a, b) || (a.groups == b.groups && (a.layout_cache = b.groups; true))
+
+# storage, active and position are owned by x; groups, group_of and the layout
+# cache are layout shared with copies and output buffers, so they are not reported
+Base.dataids(x::AtomIterate) =
+  (Base.dataids(x.storage)..., Base.dataids(x.active)..., Base.dataids(x.position)...)
 
 Base.length(x::AtomIterate) = length(x.storage)
 Base.size(x::AtomIterate) = size(x.storage)
@@ -146,7 +184,7 @@ end
 
 ncoordinates(x::AtomIterate) = length(x.groups)
 nactive(x::AtomIterate) = x.nactive
-activecoordinates(x::AtomIterate) = view(x.active, 1:x.nactive)
+activecoordinates(x::AtomIterate) = _ActiveIDs(view(x.active, 1:x.nactive))
 isactive(x::AtomIterate, k::Integer) = x.position[k] != 0
 
 """
@@ -164,6 +202,62 @@ function atom(x::AtomIterate, k::Integer)
   G = x.groups[k]
   @inbounds view(x, G)    # groups are a validated partition; only k needs a bounds check
 end
+
+"""
+    atomindices(x::AtomIterate, k::Integer)
+
+The indices of the entries of group `k`, in the order in which `x` stores them, as a
+read-only `AbstractVector{<:Integer}`. A group stored as a range is returned as that range,
+whatever its index type: a group stored as `UnitRange{Int32}` is returned as a
+`UnitRange{Int32}`. A group stored as a vector is returned as a read-only wrapper of the
+stored vector whose element type is `Int`. A write through the wrapper (`h[i] = v`, `fill!`,
+`copyto!`, `h .= v`, `sort!` and the like) throws an `ArgumentError` and leaves the groups
+unchanged.
+
+Constructing the result takes constant time and does not allocate or copy, and it stays valid
+for as long as `x`: the groups of an iterate never change, and activating groups,
+`dropzeros!`, `copyto!` and the other writes of values do not affect it. `k` must be in
+`1:ncoordinates(x)`, or a `BoundsError` is thrown (a `Bool` is not a group index).
+
+The result can index any array: `view(g, atomindices(x, k))` is the part of `g` that belongs to
+group `k`. The fields of `x` and of the wrapper (`h.ids`) are internal, and so is the array that
+`parentindices(atom(x, k))` returns: reading or changing them is not supported, and is not blocked.
+
+# Examples
+```julia
+x = AtomIterate(6, [[1, 4], [2, 5], [3, 6]])
+atomindices(x, 2) == [2, 5]                 # a read-only vector of Int
+atomindices(AtomIterate(6, 3), 2) === 3:4   # the stored range
+```
+"""
+function atomindices(x::AtomIterate, k::Integer)
+  # the error names the range of valid groups: a BoundsError holds the array it was thrown for, and
+  # that must not be a group or the layout
+  (!(k isa Bool) && checkbounds(Bool, x.groups, k)) ||
+    throw(BoundsError(Base.OneTo(length(x.groups)), k))
+  @inbounds _group_indices(x.groups[k])
+end
+
+_group_indices(G::AbstractRange{<:Integer}) = G
+_group_indices(G::AbstractVector{<:Integer}) = _GroupIndices(G)
+
+# Read-only handle on a group array of an iterate. A writable group would let a caller break the
+# agreement between the groups and the map from entries to groups (see _ActiveIDs). The contract covers
+# the operations on the handle and the exceptions that atomindices and the handle throw; the field `ids` is
+# internal like the fields of AtomIterate, and reading it is unsupported (getproperty is not blocked).
+struct _GroupIndices{V<:AbstractVector{<:Integer}} <: AbstractVector{Int}
+  ids::V
+end
+Base.size(h::_GroupIndices) = size(h.ids)
+Base.IndexStyle(::Type{<:_GroupIndices}) = IndexLinear()
+Base.dataids(h::_GroupIndices) = Base.dataids(h.ids)    # as the array it wraps: aliasing checks still see the group
+Base.unaliascopy(h::_GroupIndices) = _GroupIndices(Base.unaliascopy(h.ids))   # view(A, h) copies an aliasing index in its own type
+Base.@propagate_inbounds function Base.getindex(h::_GroupIndices, i::Int)
+  @boundscheck checkbounds(h, i)      # the error names h: it must not hold the group
+  @inbounds convert(Int, h.ids[i])
+end
+Base.setindex!(::_GroupIndices, v, i::Int) =
+  throw(ArgumentError("atomindices(x, k) is read-only: the groups of an AtomIterate cannot be changed"))
 
 # raw storage writes leave activation to the caller
 function _atom_storage(x::AtomIterate, k::Integer)
@@ -245,16 +339,19 @@ Base.copy(x::AtomIterate{T, G}) where {T, G} =
   AtomIterate{T, G}(copy(x.storage), x.groups, x.group_of, x.layout_cache, copy(x.active), copy(x.position), x.nactive)
 
 # with the same groups, only the entries of the active groups are copied
-function Base.copyto!(dest::AtomIterate, src::AtomIterate)
+function Base.copyto!(dest::AtomIterate{T}, src::AtomIterate{S}) where {T, S}
   dest === src && return dest
   length(dest) == length(src) || throw(DimensionMismatch())
   _samelayout(dest, src) ||
     return invoke(copyto!, Tuple{AbstractArray, AbstractArray}, dest, src)
+  # a fallible conversion runs once, before dest is touched, and the copy reads its result
+  bufs = _convert_may_throw(T, S) ?
+    [T[convert(T, v) for v in _atom_storage(src, src.active[a])] for a in 1:src.nactive] : nothing
   _zero_active!(dest)
   for a in 1:src.nactive
     k = src.active[a]
     activate!(dest, k)
-    copyto!(_atom_storage(dest, k), _atom_storage(src, k))
+    copyto!(_atom_storage(dest, k), bufs === nothing ? _atom_storage(src, k) : bufs[a])
   end
   dest
 end
@@ -270,10 +367,11 @@ function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{S}) where {S<:Br
 end
 
 function Base.fill!(x::AtomIterate, v)
-  if iszero(v)
+  s = convert(eltype(x), v)     # converted once, before x changes; activation follows the stored value
+  if iszero(s)
     _zero_active!(x)
   else
-    fill!(x.storage, v)
+    fill!(x.storage, s)
     for k in eachindex(x.groups)
       activate!(x, k)
     end

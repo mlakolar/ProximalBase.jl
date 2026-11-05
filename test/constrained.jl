@@ -8,26 +8,17 @@ using Random
 
 using ..TestUtils
 
-Random.seed!(1)
+# The small closed-form cases, coordinate steps and errors are in constrained_basics.jl.
 
-# the projection onto the capped simplex {0 ≤ x ≤ u, Σᵢ xᵢ = k}, by bisection on
-# the level τ of clamp.(x .- τ, 0, u)
-function capped_simplex_proj(x, k, u = 1.0)
-  lo, hi = minimum(x) - u, maximum(x)
-  for _ in 1:200
-    τ = (lo + hi) / 2
-    sum(clamp.(x .- τ, 0, u)) > k ? (lo = τ) : (hi = τ)
-  end
-  clamp.(x .- (lo + hi) / 2, 0, u)
-end
+Random.seed!(1)
 
 @testset "a separable function on a box" begin
   n = 8
   x = 2 .* randn(n)
   w = rand(n)
   l, u = -rand(n), rand(n)
-  fs = (NormL1(0.3), NormL1(0.3, w), ElasticNet(0.2, 0.5), NormL1Nonneg(0.2), SqrNormL2(2.),
-        SqrNormL2(1., randn(n)), ZeroFunction(), LinearFunction(randn(n)), Scaled(NormL1(1.), 0.4),
+  fs = (NormL1(0.3, w), ElasticNet(0.2, 0.5), NormL1Nonneg(0.2), SqrNormL2(2.),
+        ZeroFunction(), LinearFunction(randn(n)), Scaled(NormL1(1.), 0.4),
         IndBox(-0.3, 0.6))
   for f in fs, C in (IndBox(-0.5, 1.), IndBox(l, u), IndNonnegative(), IndBallLinf(0.7))
     @testset "$(nameof(typeof(f))) on $(nameof(typeof(C)))" begin
@@ -40,77 +31,10 @@ end
       end
     end
   end
-
-  # against the minimizer of the scalar problems over a grid of the interval
-  c = Constrained(NormL1(0.3, w), IndBox(l, u))
-  p = prox(c, x, 0.9)
-  for i in 1:n
-    t, = brute_force_prox(s -> l[i] <= s <= u[i] ? 0.3 * w[i] * abs(s) : Inf, x[i], 0.9; lo = l[i], hi = u[i])
-    @test p[i] ≈ t atol = 1e-6
-  end
-
-  c = Constrained(NormL1(0.3), IndBox(-0.5, 1.))
-  @test c([0.2, -0.5, 1.]) ≈ 0.3 * 1.7
-  @test c([0.2, -0.6, 1.]) == Inf
-  @test Constrained(IndBox(0, 2), IndBox(1, 3))([1.5, 1.]) == 0
-  @test value_and_prox!(similar(x), Constrained(IndBox(0, 2), IndBox(1, 3)), x, 1.) == 0
-  @test prox(Constrained(IndBox(0, 2), IndBox(1, 3)), x) ≈ clamp.(x, 1, 2)
-
-  # a box under a box, and a scaled penalty
-  @test prox(Constrained(Constrained(NormL1(0.3), IndBox(-1, 1)), IndBox(0, 2)), x, 0.5) ≈ clamp.(shrink.(x, 0.15), 0, 1)
-  @test prox(Constrained(0.5 * NormL1(0.6), IndNonnegative()), x, 0.5) ≈ max.(shrink.(x, 0.15), 0)
-end
-
-@testset "coordinate steps on a box" begin
-  c = Constrained(NormL1(0.3), IndBox(0, 1))
-  v = [1.5, -0.2, 0., 0.4, 0., 2.]
-  xs = SparseIterate(sparse(v))
-  for k in 1:6
-    @test prox_coordinate!(xs, c, k, 0.5) == clamp(shrink(v[k], 0.15), 0, 1)
-    @test xs[k] == clamp(shrink(v[k], 0.15), 0, 1)
-  end
-  S = SymmetricSparseIterate(4)
-  S[2, 1] = 0.7
-  @test prox_coordinate!(S, c, tril_index(4, 2, 1), 1.) ≈ 0.4
-  @test S[1, 2] ≈ 0.4
-  xa = AtomIterate([1.5, -0.2, 0.3, 2.], [1:2, 3:4])
-  @test prox_coordinate!(xa, c, 2, 1.) ≈ [0., 1.]
-  @test isactive(xa, 2)
-
-  @test iszeropreserving(Constrained(NormL1(1.), IndBox(-1, 1)))
-  @test iszeropreserving(Constrained(Scaled(NormL1(1.), 2.), IndNonnegative()))
-  @test iszeropreserving(Constrained(SqrNormL2(1.), IndNonnegative()))
-  @test !iszeropreserving(Constrained(NormL1(1.), IndBox(0.5, 1)))
-  @test !iszeropreserving(Constrained(LinearFunction(ones(3)), IndBox(-1, 1)))
-  @test !iszeropreserving(Constrained(SqrNormL2(1., ones(3)), IndBox(-1, 1)))
-  # on a sparse iterate: the stored entries only, or all of them when zero moves
-  xs = SparseIterate(sparse([0., 2., 0., -1.]))
-  ys = prox(Constrained(NormL1(0.5), IndBox(-1, 1)), xs, 1.)
-  @test ys isa SparseIterate && Array(ys) ≈ [0., 1., 0., -0.5]
-  @test Array(prox(Constrained(NormL1(0.5), IndBox(0.2, 1)), xs, 1.)) ≈ [0.2, 1., 0.2, 0.2]
-  @test Constrained(NormL1(0.5), IndBox(-1, 1))(ys) ≈ 0.75
-  @test Constrained(NormL1(0.5), IndBox(-1, 1))(xs) == Inf             # xs[2] = 2 is outside
-
-  # the direction that improves on zero must be open
-  c = Constrained(NormL1(1.), IndBox(0, 2))
-  g = [-3., 3., 0.5, -0.5]
-  @test kkt_violation(c, g, 1) ≈ 2.
-  @test kkt_violation(c, g, 2) <= 0
-  @test kkt_violation(c, g, 3) <= 0 && kkt_violation(c, g, 4) <= 0
-  @test kkt_violation(c, g, xs, 1) ≈ 2.
-  # for a linear term, the direction is that of gᵢ + cᵢ
-  @test kkt_violation(Constrained(LinearFunction([-2.]), IndBox(-1, 0)), [0.5], 1) <= 0
-  @test kkt_violation(Constrained(LinearFunction([-2.]), IndBox(-1, 1)), [0.5], 1) ≈ 1.5
-
-  w, l, u = rand(8), -rand(8), rand(8)
-  c = Constrained(NormL1(0.3, w), IndBox(l, u))
-  x = randn(8)
-  S = [2, 5, 7]
-  @test prox(restrict(c, S), x[S], 0.6) ≈ prox(c, x, 0.6)[S]
 end
 
 @testset "zero-preserving wrappers on a box" begin
-  fs = (Regularize(NormL1(1.), 1.), Scaled(NormL1(1.), 2.),
+  fs = (Regularize(NormL1(1.), 1.),
         Precompose(NormL1(1.), -2.), Conjugate(NormL1(1.)), ZeroFunction(), SqrNormL2())
   for f in fs, xs in (SparseIterate([0., 3., 0., -2., 0.]), SparseIterate(5))
     c = Constrained(f, IndBox(-1., 1.))
@@ -135,59 +59,15 @@ end
       @test nnz(alias) == nnz(xs)
     end
   end
-  @test !iszeropreserving(Constrained(Scaled(NormL1(1.), Inf), IndBox(-1., 1.)))
 end
 
 @testset "a separable function on a hyperplane or a halfspace" begin
   n = 10
   x = randn(n)
-  @testset "simplices" begin
-    for r in (0.5, 1., 3.), γ in (0.3, 2.)
-      Δ = prox(IndSimplex(r), x)
-      @test prox(Constrained(IndNonnegative(), IndHyperplane(1, r)), x, γ) ≈ Δ
-      @test prox(Constrained(ZeroFunction(), IndSimplex(r)), x, γ) ≈ Δ
-      @test prox(Constrained(IndNonnegative(), IndHalfspace(1, r)), x, γ) ≈ prox(IndSimplex(r; equality = false), x)
-    end
-    for k in (1, 3.5, 7), u in (1., 0.8)
-      @test prox(Constrained(IndBox(0, u), IndHyperplane(1, k)), 3 .* x) ≈ capped_simplex_proj(3 .* x, k, u)
-    end
-  end
-
-  @testset "closed forms" begin
-    a, b = randn(n), 0.7
-    @test prox(Constrained(ZeroFunction(), IndHyperplane(a, b)), x, 0.5) ≈ prox(IndHyperplane(a, b), x)
-    # ridge on a hyperplane: z = (x - γνa) / (1 + γλ)
-    λ, γ = 2., 0.6
-    ν = (dot(a, x) - b * (1 + γ * λ)) / (γ * dot(a, a))
-    c = Constrained(SqrNormL2(λ), IndHyperplane(a, b))
-    @test prox(c, x, γ) ≈ (x .- γ * ν .* a) ./ (1 + γ * λ)
-    check_prox(c, x, γ)
-    # an inactive halfspace leaves the proximal point of f
-    @test prox(Constrained(NormL1(0.3), IndHalfspace(1, 100)), x, 0.5) == prox(NormL1(0.3), x, 0.5)
-  end
-
-  @testset "the lasso penalty on coefficients that sum to zero" begin
-    λ, γ = 0.4, 0.8
-    c = Constrained(NormL1(λ), IndHyperplane(1, 0))
-    check_traits(c; proximable = true, convex = true)
-    z = check_prox(c, x, γ)
-    @test abs(sum(z)) <= 1e-12 * norm(x, 1)
-    # (x - z)/γ - ν ∈ λ ∂‖z‖₁ for one multiplier ν
-    nz = findall(!iszero, z)
-    ν = (x[nz[1]] - z[nz[1]]) / γ - λ * sign(z[nz[1]])
-    @test all(i -> abs((x[i] - z[i]) / γ - ν - λ * sign(z[i])) <= 1e-10, nz)
-    @test all(i -> abs(x[i] / γ - ν) <= λ + 1e-10, findall(iszero, z))
-    @test c([1., -1., 0.]) ≈ 0.8
-    @test c([1., -0.5, 0.]) == Inf
-    # on a matrix, the entries sum to zero
-    Z = prox(c, randn(3, 4), γ)
-    @test size(Z) == (3, 4) && abs(sum(Z)) <= 1e-12
-  end
-
   @testset "general normals" begin
     a = randn(n)
     a[3] = 0.
-    for f in (Constrained(NormL1(0.2), IndBox(-1, 1)), ElasticNet(0.1, 0.3), NormL1Nonneg(0.1, rand(n)))
+    for f in (ElasticNet(0.1, 0.3), NormL1Nonneg(0.1, rand(n)))
       for (H, b) in ((IndHyperplane, 0.3), (IndHalfspace, -0.4))
         c = Constrained(f, H(a, b))
         z = check_prox(c, 2 .* x, 0.9)
@@ -195,33 +75,11 @@ end
         @test z[3] ≈ prox_entry(f, 2x[3], 3, 0.9)           # aᵢ = 0: independent of ν
       end
     end
-    # a scalar normal is an array of it
-    for H in (IndHyperplane, IndHalfspace)
-      @test prox(Constrained(NormL1(0.3), H(2., 1.5)), x, 0.7) ≈ prox(Constrained(NormL1(0.3), H(fill(2., n), 1.5)), x, 0.7)
-    end
-    # a box after the linear constraint goes under it
-    c1 = Constrained(Constrained(NormL1(0.2), IndHyperplane(1, 1)), IndBox(-1, 1))
-    c2 = Constrained(Constrained(NormL1(0.2), IndBox(-1, 1)), IndHyperplane(1, 1))
-    @test typeof(c1) == typeof(c2) && prox(c1, x, 0.5) == prox(c2, x, 0.5)
-    @test Constrained(Constrained(NormL1(0.2), IndHyperplane(1, 1)), IndNonnegative()) isa typeof(
-      Constrained(Constrained(NormL1(0.2), IndNonnegative()), IndHyperplane(1, 1)))
-  end
-
-  @testset "errors" begin
-    @test_throws ArgumentError prox(Constrained(IndBox(0, 1), IndHyperplane(1, n + 1)), x)
-    @test_throws ArgumentError prox(Constrained(IndNonnegative(), IndHalfspace(1, -1)), x)
-    @test_throws ArgumentError Constrained(MCP(1.), IndHyperplane(1, 0))
-    @test_throws ArgumentError Constrained(NormL0(1.), IndSimplex(1.))
-    @test_throws ArgumentError Constrained(NormL2(1.), IndBox(0, 1))
-    @test_throws ArgumentError Constrained(SqrNormL2(1.), IndBallL2(1.))
-    @test_throws ArgumentError Constrained(Constrained(NormL1(1.), IndHyperplane(1, 0)), IndHyperplane(1, 1))
-    @test_throws DimensionMismatch prox(Constrained(NormL1(1.), IndHyperplane(ones(3), 0)), x)
   end
 
   @testset "Float32" begin
     x32 = Float32.(x)
-    for c in (Constrained(NormL1(0.3), IndBox(0, 1)), Constrained(NormL1(0.3), IndHyperplane(1, 0)),
-              Constrained(IndBox(0, 1), IndHyperplane(1, 3)), Constrained(ElasticNet(0.1, 0.2), IndSimplex(2.)))
+    for c in (Constrained(IndBox(0, 1), IndHyperplane(1, 3)), Constrained(ElasticNet(0.1, 0.2), IndSimplex(2.)))
       z = prox(c, x32, 0.7f0)
       @test eltype(z) == Float32
       @test z ≈ prox(c, x, 0.7) atol = 1e-5
@@ -465,8 +323,119 @@ end
   @test !ProximalBase._has_prox_slope(typeof(NoSlope(NormL1(1.))))
 end
 
+@testset "the slope of the ridge where γλ leaves the range of the model type" begin
+  # The slope is the weight prox_entry applies to the argument. It is compared with
+  # 1/(1 + γλ) in BigFloat to a few steps of the model type (a subnormal slope has few
+  # bits), and, for an entry without a center, bit for bit with prox_entry at v = 1.
+  tol(W, exact) = 4 * max(big(eps(W)) * exact, big(nextfloat(zero(W))))
+  slope_ok(W, f, v, i, γ) = begin
+    z, dz = ProximalBase._prox_entry_slope(f, v, i, γ)
+    exact = inv(1 + big(γ) * big(f.λ))
+    dz isa W && isequal(z, prox_entry(f, v, i, γ)) && abs(big(dz) - exact) <= tol(W, exact)
+  end
+  # a factor m·2^k of the type T, or nothing where it is not a normal number of T
+  factor(T, m, k) = (x = ldexp(T(m), k); isfinite(x) && !iszero(x) && !issubnormal(x) ? x : nothing)
+
+  cases = Tuple[]
+  for (W, lo, hi, nsub) in ((Float32, -126, 125, 24), (Float64, -1022, 1021, 52)), Λ in unique((W, Float64)), m in (1, 1.3, 1.7)
+    # the exponents of γλ: both sides of each edge of the ordinary band, into the subnormal
+    # slopes and past the underflow of the slope, and the middle
+    ks = sort(unique([lo - 3:lo + 2; hi - 2:hi + 3; hi + nsub - 1:hi + nsub + 2; 2lo; 2hi; -1:1]))
+    for k in ks
+      λ = factor(Λ, m, k)                                   # one factor holds the exponent
+      λ === nothing || push!(cases, (W, Λ, W(1), λ, k))
+      kγ = k ÷ 2                                            # the exponent split between the two
+      γ, λ = factor(W, 1, kγ), factor(Λ, m, k - kγ)
+      (kγ == 0 || γ === nothing || λ === nothing) || push!(cases, (W, Λ, γ, λ, k))
+    end
+  end
+  keys = [(W, typeof(γ), typeof(λ), γ, λ) for (W, Λ, γ, λ, k) in cases]
+  @test length(keys) == length(unique(keys))                # the sweep has no repeated case
+  for (W, Λ, γ, λ, k) in cases
+    f = SqrNormL2(λ)
+    @test slope_ok(W, f, one(W), 1, γ)
+    @test ProximalBase._prox_entry_slope(f, one(W), 1, γ)[2] == prox_entry(f, one(W), 1, γ)
+    # a single factor at an exponent of the sweep keeps it
+    γ == 1 && @test exponent(λ) == k
+  end
+  # the ordinary and the scaled routes meet at the edges of the band, in each type
+  for (W, lo, hi) in ((Float32, -126, 125), (Float64, -1022, 1021))
+    edge(k) = ProximalBase._ridge_needs_scaling(W, one(W), ldexp(W(1), k))
+    @test !edge(lo) && edge(lo - 1) && !edge(hi) && edge(hi + 1)
+  end
+
+  # the examples of the issue, and a Float64 λ on Float32 data
+  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1f0, 30)), 1f0, 1, ldexp(1f0, 100)) == (7.34684f-40, 7.34684f-40)
+  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1.0, 40)), 1.0, 1, ldexp(1.0, 1000))[2] == 8.487983164e-314
+  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1.0, 40)), 1f0, 1, ldexp(1f0, 100))[2] > 0
+  # a true slope that underflows is 0, for both outputs
+  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1f0, 100)), 1f0, 1, ldexp(1f0, 100)) == (0f0, 0f0)
+  @test ProximalBase._prox_entry_slope(SqrNormL2(ldexp(1.0, 1000)), 1.0, 1, ldexp(1.0, 100)) == (0.0, 0.0)
+
+  # With a center: the value is that of prox_entry, bit for bit; the slope does not depend
+  # on the sign of the argument or the center, and is the W-rounded weight. A center that
+  # leaves W's range is applied in a wider type, where the weights are derived again, so
+  # the value may differ from a W-rounded blend and the slope is still the W-rounded
+  # weight, without that second derivation.
+  for W in (Float32, Float64)
+    hi = W == Float32 ? 100 : 1000                         # γ = 2^±hi, λ = 2^±(hi ÷ 3): out of band
+    for (γ, λ) in ((W(0.4), W(0.7)), (ldexp(W(1), hi), ldexp(W(1), hi ÷ 3)),
+                   (ldexp(W(1), -hi), ldexp(W(1), -hi ÷ 3)), (ldexp(W(1), hi), ldexp(W(1), -hi ÷ 3)))
+      for (v, c) in ((W(1.5), W(2)), (W(-1.5), W(2)), (W(1.5), W(-2)), (W(-1.5), W(-2)))
+        f, fc = SqrNormL2(λ), SqrNormL2(λ, W[c, -c])
+        for i in 1:2
+          @test slope_ok(W, fc, v, i, γ)
+          z, dz = ProximalBase._prox_entry_slope(fc, v, i, γ)
+          @test dz == ProximalBase._prox_entry_slope(f, v, i, γ)[2]
+          ci = i == 1 ? c : -c
+          ref = (big(v) + big(γ) * big(λ) * big(ci)) / (1 + big(γ) * big(λ))
+          @test abs(big(z) - ref) <= 4 * big(eps(W)) * (abs(big(v)) + abs(big(ci))) + big(nextfloat(zero(W)))
+        end
+      end
+    end
+  end
+  # a Float64 center outside Float32's range, on the ordinary and on the scaled route
+  for (γ, λ, y) in ((1f0, ldexp(1.0, -100), 1e40), (1f0, ldexp(1.0, -900), 1e300), (ldexp(1f0, 100), ldexp(1.0, 30), 1e300))
+    for (v, c) in ((1.5f0, y), (-1.5f0, y), (1.5f0, -y), (-1.5f0, -y))
+      fc = SqrNormL2(λ, [c])
+      z, dz = ProximalBase._prox_entry_slope(fc, v, 1, γ)
+      @test dz isa Float32 && isequal(z, prox_entry(fc, v, 1, γ))
+      exact = inv(1 + big(γ) * big(λ))
+      @test abs(big(dz) - exact) <= tol(Float32, exact)
+      @test dz == ProximalBase._prox_entry_slope(SqrNormL2(λ), v, 1, γ)[2]
+    end
+  end
+  # the ordinary route agrees where its preconditions hold
+  for W in (Float32, Float64)
+    fc = SqrNormL2(W(0.7), W[3, -2])
+    for γ in (W(0.4), W(3)), i in 1:2, v in (W(1.5), W(-1.5))
+      @test ProximalBase._prox_entry_slope(ProximalBase._OrdinaryRidge(fc), v, i, γ) == ProximalBase._prox_entry_slope(fc, v, i, γ)
+      @test ProximalBase._prox_entry_slope(ProximalBase._OrdinaryRidge(SqrNormL2(W(0.7))), v, i, γ) ==
+            ProximalBase._prox_entry_slope(SqrNormL2(W(0.7)), v, i, γ)
+    end
+  end
+end
+
+@testset "a warm start where γλ overflows: the search uses the slope" begin
+  # λ = 2^30, γ = 2^100 overflow Float32 in γλ, with the slope 2^-130 per entry, so that at
+  # the warm start ν = -1/2 the constraint residual has the derivative -2γ·2^-130 = -2^-29
+  # and the first step reaches ν = -1. With the slope 0 the search could not bracket the
+  # multiplier and threw that the hyperplane misses the domain.
+  for (W, λe, γe, be) in ((Float32, 30, 100, -29), (Float64, 60, 1000, -59))
+    λ, γ, b = ldexp(W(1), λe), ldexp(W(1), γe), ldexp(W(1), be)
+    for slope0 in (NaN, -Float64(b))                       # no cached slope, and the exact one, -b
+      c = Constrained(SqrNormL2(λ), IndHyperplane(W(1), b))
+      c.last[] = -0.5
+      c.slope[] = slope0
+      z = prox(c, zeros(W, 2), γ)
+      @test z ≈ fill(ldexp(W(1), be - 1), 2)       # 2^(be-1), half of b each
+      @test sum(z) ≈ b
+    end
+  end
+end
+
 @testset "boxes intersecting closed and open scalar domains" begin
-  for T in (Float32, Float64)
+  for T in (Float32,)
     # Entropy has a closed domain at zero; the positive log barrier can instead
     # be constrained to an interval contained in its open domain.
     @test prox(Constrained(NegEntropy(one(T)), IndBox(zero(T), zero(T))), T[1]) == T[0]

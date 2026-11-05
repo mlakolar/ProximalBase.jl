@@ -173,9 +173,10 @@ function _minimum_candidates!(best, current, x, γ, indicator, v, score, fs::Tup
 end
 
 value_and_prox!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, g, y, x, γ); _value_and_prox_unchecked!(y, g, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, g, y, x, γ); _value_and_prox_unchecked!(y, g, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, g, y, x)
+  _minimum_checkstep(g, γ)
   best = _array_buffer!(g.best, eltype(y), size(y))
   current = _array_buffer!(g.current, eltype(y), size(y))
   indicator = _isindicator(g)
@@ -187,7 +188,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, g::PointwiseMinimum, x::Ab
 end
 
 prox!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, g, y, x, γ); _prox_unchecked!(y, g, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, g, y, x, γ); _prox_unchecked!(y, g, x, γ))
 function _prox_unchecked!(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::Real)
   _checkwrite(prox!, g, y, x)
   _value_and_prox_unchecked!(y, g, x, γ)
@@ -196,13 +197,23 @@ end
 
 for op in (:prox!, :value_and_prox!)
   @eval $op(y::AbstractArray, g::PointwiseMinimum, x::AbstractArray, γ::AbstractArray) =
-    (_checkreal(g, y); _checkreal(g, x); _checkreal(g, γ); throw(ArgumentError("PointwiseMinimum requires a scalar step")))
+    (x = _symmetric_argument(y, x); _checkreal(g, y); _checkreal(g, x); _checkreal(g, γ); throw(ArgumentError("PointwiseMinimum requires a scalar step")))
 end
 
 prox(g::PointwiseMinimum, x::AbstractArray, γ::AbstractArray) =
   (_checkreal(g, x); _checkreal(g, γ); throw(ArgumentError("PointwiseMinimum requires a scalar step")))
 
+# The scores of the candidates compare envelope energies at an infinite step, and the square
+# root of -Inf raises a DomainError there when the candidates give a score. A candidate whose
+# proximal point at -Inf is NaN used to return NaN without reaching it; the step -Inf is now
+# rejected for every non-indicator minimum, before any candidate runs. Indicators have no energy.
+@inline function _minimum_checkstep(g::PointwiseMinimum, γ::Real)
+  (isinf(γ) && γ < 0 && !_isindicator(g)) && sqrt(float(γ))
+  true
+end
+
 function _checkstep(op::O, g::PointwiseMinimum, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
+  _minimum_checkstep(g, γ)
   b = _checkbuffer(g.current, eltype(y), size(y))
   _checkstep_candidates(g.fs, b, x, γ)
 end

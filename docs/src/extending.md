@@ -17,14 +17,9 @@ Override `value_and_prox!` when the proximal computation gives the value more
 cheaply, and define [`lipschitz`](@ref) when a smooth function's constant is
 known.
 
-Values follow the rule in [Precision](@ref): `f(x)` and
-`value_and_gradient!(g, f, x)` return `T = float(eltype(x))`, and
-`value_and_prox!(y, f, x, γ)` returns `T` of `y`, whatever the precision of
-the parameters. Convert a value computed with wider parameters to `T` before
-returning it. The rule in [Overflow and underflow of values](@ref) is part of
-the same contract: when an intermediate can leave the range of `T` although
-the value is representable, check the ordinary result and recompute it in
-scaled units. The traits are defined on the type:
+Your function is held to the same numerical rules as the built-in ones; see
+[Numerical rules for your function](@ref) below. The traits are defined on
+the type:
 
 ```@example extending
 using ProximalBase, LinearAlgebra
@@ -57,7 +52,7 @@ constraint ``\sum_i x_i = 0`` has a multiplier ``\tau``, and for a fixed
 ``\tau`` the box projection is separable. Here a bisection on ``\tau`` replaces
 Condat's exact search.
 
-## Separable functions
+## [Separable functions](@id extending-separable)
 
 A separable function ``f(x) = \sum_i f_i(x_i)`` subtypes
 [`SeparableFunction`](@ref) and implements two scalar functions:
@@ -83,6 +78,7 @@ ProximalBase.value_entry(f::WeightedSquare, v, i) = f.w[i] * v^2 / 2
 ProximalBase.prox_entry(f::WeightedSquare, v, i, γ) = v / (1 + γ * f.w[i])
 ProximalBase.iszeropreserving(::WeightedSquare) = true
 ProximalBase.isconvex(::Type{WeightedSquare}) = true
+ProximalBase.entry_parameters(f::WeightedSquare) = (:w => f.w,)
 ProximalBase.check_parameters(f::WeightedSquare, x) =
   length(f.w) == length(x) || throw(DimensionMismatch("a parameter array has length $(length(f.w)) and the argument has length $(length(x))"))
 
@@ -98,12 +94,13 @@ weights fit the argument. The generic methods call it before writing any
 output, so a mismatched argument leaves outputs and iterates untouched.
 Before writing any output, `SeparableSum`, `SliceSum` and `FiberSum` check all
 blocks, slices or fibers, including functions inside wrappers, against the
-checks their own oracles run before writing. Earlier outputs can still be
-written if a failure occurs during computation, if a check depends on the
-step (such as `MoreauEnvelope`'s sum of its parameter and step), or if a
-user-defined function's oracles reject an argument that its `check_parameters`
-accepts. A few nested wrappers and structured matrices whose checks are not yet
-complete, such as a box constraint inside another one, can also leave them written.
+checks their own oracles run before writing. This is not atomicity: earlier
+outputs can still be written if a failure occurs during computation (such as
+`Conjugate`'s check that a finite input gave a finite result, or a search that
+finds a constraint empty), or if a user-defined function's oracles reject an
+argument that its `check_parameters` accepts. A few nested wrappers and
+structured matrices whose checks are not yet complete, such as a box constraint
+inside another one, can also leave them written.
 
 ```@example extending
 xs = SparseIterate(3)                          # a coordinate step on a sparse iterate
@@ -119,9 +116,53 @@ oracles and built-in wrappers check this before writing. An override of a
 public oracle should call [`ProximalBase.check_symmetric_parameters`](@ref)
 itself. This check covers every pair, including unstored entries, and walks
 built-in wrappers and `SeparableSum` tuples. It trusts the declaration to be
-complete. Raw entry oracles and `restrict` have no iterate; solvers should
-validate the original function before using them. Active-set solvers can also
+complete. See [Symmetric parameters](@ref) for the rule and which pairs each
+operation checks.
+
+Raw entry oracles and `restrict` have no iterate to check. A solver should
+first call `ProximalBase.check_symmetric_parameters(f, x)` on the original
+function, then call those oracles or restrict the function. Ordinary public
+calls still check, and later parameter changes require fresh validation.
+Some functions must also be rebuilt: `IndBox` computes whether its bounds
+contain zero and data for its membership test once, in its constructor.
+Changing the bounds leaves those saved values out of date.
+
+Active-set solvers can also
 use [`kkt_violation`](@ref) and [`restrict`](@ref).
+
+## Numerical rules for your function
+
+The [Numerical contract](@ref numerics) applies to functions you write. In
+practice:
+
+- **Return types** (T1). `f(x)` and `value_and_gradient!(g, f, x)` return
+  `T = float(eltype(x))`, and `value_and_prox!(y, f, x, γ)` returns `T` of `y`,
+  whatever the precision of the parameters. Written arrays keep their element
+  type. Convert a value computed with wider parameters to `T` before
+  returning it.
+- **Precision** (T3). Compute each result in its model precision: the widest
+  of the output's, the argument's and your data's precision. Round parameters
+  once, after combining them (form `γ·λ`, then round), and never round the
+  argument below its own precision.
+- **Overflow** (R1, R2). When an intermediate can leave the range of `T`
+  although the result is representable, check the ordinary result and
+  recompute it in scaled units.
+- **NaN and the domain** (E2, E6). Let NaN propagate to the results that depend
+  on it, and do not branch on a comparison that a NaN fails: `norm(x) > t` is
+  false for a NaN norm. Return `+Inf` outside the domain, and a NaN gradient
+  there.
+- **Failures** (O6). Check sizes (`DimensionMismatch`) and arguments
+  (`ArgumentError`) before writing any output.
+- **Aliasing** (O7). `prox!(x, f, x, γ)` and `value_and_prox!(x, f, x, γ)` must
+  work: read each entry you need, for the point and for the value, before
+  overwriting it. Gradient and Hessian-product outputs must be separate from
+  their inputs unless a method explicitly documents otherwise. Do not modify
+  the point `x` or the Hessian direction `v`; they may be the same array. The
+  built-in wrappers reject `Hv === x` and `Hv === v` themselves, also when they
+  wrap your function; a direct call of your method is not checked.
+- **Inside wrappers** (R1). In 0.6, `Scaled` recovers an overflowing inner
+  value only for the built-in functions. Your function is covered inside it as
+  long as its own value does not overflow.
 
 ## Testing a new function
 
@@ -132,15 +173,17 @@ parameters. It does not construct asymmetric copies of user functions. The
 checks are defined once the Test standard library is loaded, and they run
 `@test` inside your `@testset`:
 
-- [`test_prox`](@ref ProximalBase.Testing.test_prox): `prox`, `prox!` (also in
-  place) and `value_and_prox!` agree, and the result is optimal (the
+- [`test_prox`](@ref ProximalBase.Testing.test_prox): `prox`, `prox!` and
+  `value_and_prox!` agree, also in place, and the result is optimal (the
   subgradient inequality for a convex function, and no nearby point with a
   smaller proximal objective);
 - [`test_gradient`](@ref ProximalBase.Testing.test_gradient): the gradient
   against central finite differences;
 - [`test_separable`](@ref ProximalBase.Testing.test_separable): `prox_entry`
   against `prox!`, `value_entry` against the value, coordinate steps on the
-  three iterates, and the O(nnz) paths when the function preserves zero;
+  three iterates, and the O(nnz) paths when the function preserves zero. A
+  zero-preserving function of any type that has a value must also have
+  `f(0) == 0`; a wrapper without a value method is not asked for one;
 - [`test_conjugate`](@ref ProximalBase.Testing.test_conjugate) and
   [`test_kkt`](@ref ProximalBase.Testing.test_kkt): Moreau's decomposition and
   the Fenchel–Young equality, and `kkt_violation` against the proximal operator;

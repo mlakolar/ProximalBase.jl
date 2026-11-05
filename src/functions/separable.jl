@@ -42,6 +42,8 @@ The generic kernels call `check_parameters` before writing any output or
 updating a coordinate. On a `SymmetricSparseIterate`, also declare
 [`ProximalBase.entry_parameters`](@ref); public oracle overrides should call
 [`ProximalBase.check_symmetric_parameters`](@ref) before writing.
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 abstract type SeparableFunction <: AbstractFunction end
 
@@ -67,11 +69,11 @@ function value_entry end
   (_check_value_arrays(f, x); _value_sep(f, x))
 _value_unchecked(f::SeparableFunction, x::AbstractArray) = _isbuiltin(f) ? _value_sep(f, x) : f(x)
 prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_sep!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_sep!(y, f, x, γ))
 _prox_unchecked!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
   _isbuiltin(f) ? _prox_sep!(y, f, x, γ) : prox!(y, f, x, γ)
 value_and_prox!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_sep!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_sep!(y, f, x, γ))
 _value_and_prox_unchecked!(y::AbstractArray, f::SeparableFunction, x::AbstractArray, γ::Real) =
   _isbuiltin(f) ? _value_and_prox_sep!(y, f, x, γ) : value_and_prox!(y, f, x, γ)
 
@@ -229,6 +231,8 @@ Values follow the overflow rule in [Overflow and underflow of values](@ref).
 An infinite weight fixes the entry at
 zero at every level (the value is `Inf` away from zero), and a zero weight
 leaves it unpenalized at every level.
+
+See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
 struct NormL1{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ0::T
@@ -254,7 +258,7 @@ Base.@propagate_inbounds function value_entry(f::NormL1, v::Real, i::Integer)
   ifelse(isinf(w) & !iszero(a), oftype(p, Inf) * a, p)
 end
 Base.@propagate_inbounds prox_entry(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
-  shrink(v, convert(float(T), _weight_product(γ, f.λ0, _entry(f.w, i))))
+  shrink(v, _weight_product(float(T), γ, f.λ0, _entry(f.w, i)))
 
 kkt_violation(f::NormL1, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ0, _entry(f.w, i)))
@@ -321,7 +325,7 @@ Base.@propagate_inbounds function value_entry(f::NormL1Nonneg, v::T, i::Integer)
   end
 end
 Base.@propagate_inbounds prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
-  max(v - convert(float(T), _weight_product(γ, f.λ0, _entry(f.w, i))), zero(float(T)))
+  max(v - _weight_product(float(T), γ, f.λ0, _entry(f.w, i)), zero(float(T)))
 
 # moving up from zero decreases the objective when -gᵢ exceeds λ0 wᵢ
 kkt_violation(f::NormL1Nonneg, g::AbstractArray, i::Integer) =
@@ -462,9 +466,25 @@ end
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
 _has_ordinary_value(::Type{<:ElasticNet}) = true
+# z/(1 + γλ2) for the soft-thresholded z. While γλ2 is finite in W this is the division, as before.
+# Where it overflows W although both factors are finite, the scaled ridge of SqrNormL2 applies the
+# weight (R3), so that a coefficient that is not representable still acts on z.
+@inline function _elastic_ridge(::Type{W}, z, γ, λ2) where {W}
+  t = _typed_product(W, γ, λ2)
+  isfinite(t) ? z / (1 + t) : _elastic_ridge_wide(W, z, γ, λ2, t)
+end
+@noinline function _elastic_ridge_wide(::Type{W}, z, γ, λ2, t) where {W}
+  _recoverable_factors(γ, λ2, one(W)) ? _ridge_apply(_ridge_scaled(W, γ, λ2), convert(W, z)) : z / (1 + t)
+end
+@inline function _elastic_slope(::Type{W}, γ, λ2) where {W}
+  t = _typed_product(W, γ, λ2)
+  isfinite(t) ? inv(1 + t) : _elastic_slope_wide(W, γ, λ2, t)
+end
+@noinline _elastic_slope_wide(::Type{W}, γ, λ2, t) where {W} =
+  _recoverable_factors(γ, λ2, one(W)) ? _ridge_slope(_ridge_scaled(W, γ, λ2)) : inv(1 + t)
 Base.@propagate_inbounds function prox_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  shrink(v, convert(S, _weight_coefficient(γ, f.λ1, _entry(f.w, i)))) / (1 + convert(S, γ * f.λ2))
+  _elastic_ridge(S, shrink(v, _weight_coefficient(S, γ, f.λ1, _entry(f.w, i))), γ, f.λ2)
 end
 
 kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer) =
@@ -720,6 +740,13 @@ end
 
 The ℓ0 penalty `f(x) = λ ⋅ #{i : xᵢ ≠ 0}`, nonconvex. Its proximal operator is
 hard thresholding: `xᵢ` is kept when `|xᵢ| > √(2γλ)` and set to zero otherwise.
+
+A NaN entry is undefined (E2 in the numerical contract). For `λ > 0` its value is NaN, and so
+is the proximal output at that entry, whenever the thresholding depends on the entry: for a
+finite `λ` and a finite step, `γ = 0` (the identity) included. At `λ = 0` the penalty is zero and
+the proximal operator is the identity at every step, `γ = Inf` and NaN entries included. An
+infinite `λ` or an infinite step gives zero at every entry, NaN included, since that map does
+not depend on the argument; the value at a NaN entry is NaN for every `λ > 0`.
 """
 struct NormL0{T<:Real} <: SeparableFunction
   λ::T
@@ -732,9 +759,87 @@ iszeropreserving(::NormL0) = true
 _counts_nonzeros(::NormL0) = true
 _scale_invariant(::NormL0) = true
 
-Base.@propagate_inbounds value_entry(f::NormL0, v::T, ::Integer) where {T<:Real} = iszero(v) ? zero(float(T)) : convert(float(T), f.λ)
+Base.@propagate_inbounds function value_entry(f::NormL0, v::T, ::Integer) where {T<:Real}
+  S = float(T)
+  iszero(v) ? zero(S) : (isnan(v) & !iszero(f.λ)) ? convert(S, NaN) : convert(S, f.λ)
+end
 Base.@propagate_inbounds prox_entry(f::NormL0, v::T, ::Integer, γ::Real) where {T<:Real} =
-  abs2(v) > 2 * γ * f.λ ? float(v) : zero(float(T))
+  _l0_keeps(float(T), v, γ, f.λ) ? float(v) : zero(float(T))
+
+# The arrays in host memory: an Array, or a view or a reshape of one. A device array is none of these, whatever
+# its supertypes are (a GPU array is a DenseArray), and keeps its own routes.
+const _HostArray = Union{Array,
+  SubArray{<:Any, <:Any, <:Union{Array, Base.ReshapedArray{<:Any, <:Any, <:Array}}},
+  Base.ReshapedArray{<:Any, <:Any, <:Array}}
+# The destinations of the one-pass fused call, whose entries are independent: an Array, or a view or reshape of
+# one whose indices are integers, unit ranges and step ranges (whose step is never zero). A view with an index
+# vector, or with a range that can repeat an index (a StepRangeLen of step zero), can store two entries in one
+# place, so the count of the entries computed would not be that of the entries left in the output (O2).
+const _HostFloatDest = Union{Array{<:Base.IEEEFloat},
+  SubArray{<:Base.IEEEFloat, <:Any, <:Union{Array, Base.ReshapedArray{<:Any, <:Any, <:Array}},
+           <:Tuple{Vararg{Union{Integer, AbstractUnitRange, StepRange}}}},
+  Base.ReshapedArray{<:Base.IEEEFloat, <:Any, <:Array}}
+
+# The value on a host array of an IEEE type is λ times the number of nonzero entries, counted with the NaN
+# entries in one pass (`_count_nan_values`, sets.jl): a NaN entry gives NaN unless the level is zero (E2, E4).
+# A sum of per-entry terms that tests each entry for NaN is slower than this count. The iterates, which
+# sum their stored entries, device arrays and other element types keep their own routes.
+function _value_sep(f::NormL0, x::AbstractArray{<:Base.IEEEFloat})
+  _is_device_array(x) && return invoke(_value_sep, Tuple{Any, AbstractArray}, f, x)
+  _checkparams(f, x)
+  T = _valtype(x)
+  nz, nan = _count_nan_values(x)
+  _l0_count_value(f, T, nz, nan)
+end
+# the iterates that have their own routes (stored entries only)
+_value_sep(f::NormL0, x::SparseIterate) = invoke(_value_sep, Tuple{Any, SparseIterate}, f, x)
+_value_sep(f::NormL0, x::SymmetricSparseIterate) = invoke(_value_sep, Tuple{Any, SymmetricSparseIterate}, f, x)
+_value_sep(f::NormL0, x::AtomIterate) = invoke(_value_sep, Tuple{Any, AtomIterate}, f, x)
+
+# The value from the count; a zero level is the stored one (E4), not the level converted to T, which can underflow.
+@inline function _l0_count_value(f::NormL0, ::Type{T}, nz, nan) where {T}
+  nan && !iszero(f.λ) && return convert(T, NaN)
+  iszero(nz) ? zero(T) : convert(T, f.λ) * convert(T, nz)
+end
+
+# The proximal operator and the value at its output in one pass over an array with independent entries, for a scalar step:
+# the output, the number of its nonzero entries, and the sum of its entries that flags a NaN (the counts
+# of `_count_nan_values`, sets.jl).
+function _value_and_prox_sep!(y::_HostFloatDest, f::NormL0, x::_HostArray, γ::Real)
+  length(y) > 2^30 && return _value_sep(f, _prox_sep!(y, f, x, γ))
+  _checkwrite(prox!, f, y, x)
+  _checkparam(γ, x)
+  T = eltype(y)
+  a = zero(sizeof(T) <= 4 ? Int32 : Int64)
+  z = zero(T)
+  @inbounds @simd for i in eachindex(IndexLinear(), y, x)
+    w = convert(T, prox_entry(f, x[i], i, γ))
+    y[i] = w
+    a += !iszero(w)
+    z += w
+  end
+  _l0_count_value(f, T, a, isnan(z) && _l0_anynan(y))
+end
+
+# Whether hard thresholding keeps v: |v|² > 2γλ, as `_square_exceeds`, except at a NaN v. On the
+# ordinary path 2γλ is a normal number, so γ and λ are finite and positive and the output depends
+# on v; `!(|v|² <= 2γλ)` is `|v|² > 2γλ` for every non-NaN and keeps NaN, at no cost per entry.
+@inline function _l0_keeps(::Type{U}, v, γ, λ) where {U<:AbstractFloat}
+  R = _working_type(U, γ, λ)
+  x, a, b = convert(R, v), convert(R, γ), convert(R, λ)
+  q = 2 * a * b
+  floatmin(R) <= q <= floatmax(R) && return !(abs2(x) <= q)
+  _l0_keeps_exceptional(x, a, b, q)
+end
+# The other regimes, decided by the parameters before the argument (E4 first): a zero level is the
+# identity at every step, an infinite level is the zero map, a zero step is the identity, an
+# infinite step is the zero map, and a NaN argument is kept where the map is not constant.
+@noinline function _l0_keeps_exceptional(x::R, a::R, b::R, q::R) where {R<:AbstractFloat}
+  iszero(b) && return !iszero(x)
+  isinf(b) && return false
+  isnan(x) && return isfinite(a)
+  _square_exceeds_scaled(x, a, b, abs2(x), q)
+end
 restrict(f::NormL0, ::AbstractVector{<:Integer}) = f
 
 ####################################

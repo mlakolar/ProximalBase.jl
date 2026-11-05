@@ -106,7 +106,7 @@ Base.getindex(a::CountedValueArray, i::Int) = (a.reads[] += 1; a.data[i])
     a.data[2, 1] = 2.
     e = try f(x); nothing catch e; e end
     @test e isa ArgumentError
-    @test sprint(showerror, e) == "ArgumentError: the array $name of $owner must be symmetric on a SymmetricSparseIterate, but entry (2, 1) is 2.0 and entry (1, 2) is 1.0; use Symmetric(A, :L) to keep the lower triangle of A, or (A + A')/2 for its symmetric part"
+    @test sprint(showerror, e) == "ArgumentError: the array $name of $owner must be symmetric on a SymmetricSparseIterate, but entry (2, 1) is 2.0 and entry (1, 2) is 1.0 (relative asymmetry 0.5); pass Symmetric($name, :L) to keep the lower triangle of $name, or ($name + $name')/2 for its symmetric part"
     a.data[2, 1] = 1.
     f(x)
     @test allocs(f, x) == 0
@@ -158,7 +158,7 @@ end
   X = [.5 .2 .3; .2 .8 .4; .3 .4 .6]
   x = SymmetricSparseIterate(X)
   W = ones(3, 3); W[2, 1] = 2.
-  message = "the array w of NormL1 must be symmetric on a SymmetricSparseIterate, but entry (2, 1) is 2.0 and entry (1, 2) is 1.0; use Symmetric(A, :L) to keep the lower triangle of A, or (A + A')/2 for its symmetric part"
+  message = "the array w of NormL1 must be symmetric on a SymmetricSparseIterate, but entry (2, 1) is 2.0 and entry (1, 2) is 1.0 (relative asymmetry 0.5); pass Symmetric(w, :L) to keep the lower triangle of w, or (w + w')/2 for its symmetric part"
   for op in (prox!, value_and_prox!), γ in (1., ones(3, 3))
     f = Conjugate(NormL1(.1, W)); y = copy(x); before = state(y)
     e = try op(y, f, x, γ); nothing catch e; e end

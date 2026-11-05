@@ -214,12 +214,26 @@ value_and_prox!(y::AbstractVector, f::FusedLasso, x::AbstractVector, γ::Real) =
 # or with σ = -1 the nonincreasing one. Blocks of pooled entries sit on a stack,
 # their sums in s and their sizes in c; a new entry is pooled with the block
 # before it while their means violate the order. O(n); y may be v.
-function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{Int}, σ::Int) where {T}
+# With the argument Val(true) it reports what the pass saw, in the loop it already runs, and returns
+# an Int instead of y: 2 when an entry is NaN (nothing is written to y), otherwise the output is
+# written and the result is 1 when an entry was above the range bound or infinite (the output may
+# then hold a non-finite entry) and 0 when none was. The default Val(false) is the plain pooling.
+function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{Int}, σ::Int,
+                ::Val{D} = Val(false)) where {T, D}
   n = length(v)
   nb = 0
+  # with every |vᵢ| ≤ bound, the sums and the products compared below stay below
+  # floatmax; a larger finite entry redoes the pooling in means
+  # (a power of two ≥ 4n², so the bound is exact in every floating-point type, BigFloat included)
+  bound = T <: AbstractFloat ? ldexp(floatmax(T), -(2 * ceil(Int, log2(max(n, 1))) + 2)) : T(Inf)
+  over = false
+  nan = false
   @inbounds for i in 1:n
     nb += 1
-    s[nb] = convert(T, v[i])
+    e = convert(T, v[i])
+    over |= abs(e) > bound
+    D && (nan |= isnan(e))
+    s[nb] = e
     c[nb] = 1
     # the means of the last two blocks out of order: s₁/c₁ > s₂/c₂, times σ
     while nb > 1 && σ * (s[nb - 1] * c[nb] - s[nb] * c[nb - 1]) > 0
@@ -227,6 +241,12 @@ function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{In
       c[nb - 1] += c[nb]
       nb -= 1
     end
+  end
+  D && nan && return 2
+  # an infinite entry also sets the flag, but only a large finite one needs the means
+  if over && any(e -> bound < abs(e) < T(Inf), v)
+    D && return (_pava_means!(y, v, s, c, σ); 1)
+    return _pava_means!(y, v, s, c, σ)
   end
   i = 0
   @inbounds for b in 1:nb
@@ -236,27 +256,79 @@ function _pava!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{In
       y[i] = m
     end
   end
+  D ? Int(over) : y
+end
+
+# The same in block means, which never leave the range of the entries: for
+# entries too large for the sums of _pava!. The means are kept in a type that
+# holds a Float16 or Float32 entry and a block count exactly (Float64; the buffer
+# of the sums for the wider types) and rounded to T once, at the output. A pooled
+# mean is the convex combination of the two means, kept inside their interval.
+function _pava_means!(y::AbstractVector, v::AbstractVector, s::Vector{T}, c::Vector{Int}, σ::Int) where {T}
+  W = T <: Union{Float16, Float32} ? Float64 : T
+  m = W === T ? s : Vector{W}(undef, length(v))
+  nb = 0
+  @inbounds for i in 1:length(v)
+    nb += 1
+    m[nb] = convert(W, v[i])
+    c[nb] = 1
+    while nb > 1 && (σ > 0 ? m[nb - 1] > m[nb] : m[nb - 1] < m[nb])
+      m[nb - 1] = _convex_mean(m[nb - 1], m[nb], W(c[nb - 1]), W(c[nb]))
+      c[nb - 1] += c[nb]
+      nb -= 1
+    end
+  end
+  i = 0
+  @inbounds for b in 1:nb
+    r = convert(T, m[b])
+    for _ in 1:c[b]
+      i += 1
+      y[i] = r
+    end
+  end
   y
+end
+
+# (a·wa + b·wb)/(wa + wb) without a sum or difference of the entries, within [min(a, b), max(a, b)]
+@inline function _convex_mean(a, b, wa, wb)
+  t = wa + wb
+  clamp(a * (wa / t) + b * (wb / t), min(a, b), max(a, b))
 end
 
 # Weighted isotonic regression of x into y, with weights γmin/γᵢ and direction
 # σ. Blocks sit on a stack, their means in m, weights in W and sizes in c;
 # adjacent blocks are pooled while their means violate the order. O(n); y may be x.
-function _wpava!(y, x, γ, γmin, m::Vector{S}, W::Vector{S}, c::Vector{Int}, σ::Int) where {S}
+# With Val(true), as for _pava!: 2 when an entry is NaN (y untouched); otherwise y is written and the
+# result is 1 when an entry is not finite in the working type S (a wider argument entry that overflows
+# is infinite there, and pooling it can store a NaN) and 0 when all are finite, which keeps every mean finite.
+function _wpava!(y, x, γ, γmin, m::Vector{S}, W::Vector{S}, c::Vector{Int}, σ::Int,
+                 ::Val{D} = Val(false)) where {S, D}
   n = length(x)
   nb = 0
+  nan = bad = false
   @inbounds for i in 1:n
     nb += 1
-    m[nb] = convert(S, x[i])
+    mi = convert(S, x[i])
+    if D
+      nan |= isnan(mi)
+      bad |= !isfinite(mi)
+    end
+    m[nb] = mi
     W[nb] = convert(S, γmin) / convert(S, γ[i])
     c[nb] = 1
     while nb > 1 && σ * (m[nb - 1] - m[nb]) > 0
-      m[nb - 1] += (m[nb] - m[nb - 1]) * (W[nb] / (W[nb - 1] + W[nb]))
+      d = m[nb] - m[nb - 1]
+      if isinf(d) && isfinite(m[nb]) && isfinite(m[nb - 1])
+        m[nb - 1] = _convex_mean(m[nb - 1], m[nb], W[nb - 1], W[nb])   # the difference overflows
+      else
+        m[nb - 1] += d * (W[nb] / (W[nb - 1] + W[nb]))
+      end
       W[nb - 1] += W[nb]
       c[nb - 1] += c[nb]
       nb -= 1
     end
   end
+  D && nan && return 2
   i = 0
   @inbounds for b in 1:nb
     for _ in 1:c[b]
@@ -264,7 +336,7 @@ function _wpava!(y, x, γ, γmin, m::Vector{S}, W::Vector{S}, c::Vector{Int}, σ
       y[i] = convert(eltype(y), m[b])
     end
   end
-  y
+  D ? Int(bad) : y
 end
 
 ####################################
@@ -279,9 +351,13 @@ The indicator of the nondecreasing vectors `{x : x₁ ≤ x₂ ≤ … ≤ xₙ}
 projection, is isotonic regression, computed by pooling adjacent violators in
 O(n) time, in buffers that the function owns.
 
-The value accepts adjacent entries within the relative tolerance `√eps`, compares
+The value accepts adjacent entries within the relative tolerance `√eps` and compares
 pairs with an infinite entry exactly (`[Inf, Inf]` and `[-Inf, Inf]` are
-nondecreasing, `[Inf, 0]` is not), and excludes inputs with a `NaN` entry.
+nondecreasing, `[Inf, 0]` is not). A `NaN` entry of a vector of two or more entries
+makes the value, and every entry of the projection, `NaN`: whether the vector is
+feasible, and the pooled blocks, depend on every entry. A single entry is always
+feasible and is its own projection, `NaN` included. [`value_and_prox!`](@ref)
+returns the value at the stored projection.
 
 An array of steps `γ` gives weighted isotonic regression, minimizing
 `Σᵢ wᵢ(θᵢ − xᵢ)²` with `wᵢ = 1/γᵢ`. Only the ratios of the steps matter.
@@ -306,24 +382,73 @@ function (f::IndIsotonic)(x::AbstractVector)
   _checkreal(f, x)
   T = float(eltype(x))
   t = _tol(T)
-  length(x) == 1 && isnan(first(x)) && return T(Inf)
   # accept ordered pairs exactly; unordered pairs with a non-finite entry violate the order
   # for a > b the true difference is positive, so 0 < d rejects integer wraparound
   @inbounds for i in firstindex(x):lastindex(x)-1
     a, b = f.decreasing ? (x[i + 1], x[i]) : (x[i], x[i + 1])
     a <= b && continue
-    isfinite(a) && isfinite(b) || return T(Inf)
+    # a NaN decides feasibility of a vector of two or more entries (E2): the value is NaN
+    (isnan(a) || isnan(b)) && return T(NaN)
+    isfinite(a) && isfinite(b) || return _isotonic_infeasible(x, T)
     d = a - b
-    0 < d <= t * max(one(T), abs(a), abs(b)) || return T(Inf)
+    0 < d <= t * max(one(T), abs(a), abs(b)) || return _isotonic_infeasible(x, T)
   end
   zero(T)
 end
 
-function prox!(y::AbstractVector, f::IndIsotonic, x::AbstractVector, ::Real)
-  _checkwrite(prox!, f, y, x)
+# An unordered pair was found: Inf, unless a later entry is NaN.
+@noinline _isotonic_infeasible(x, ::Type{T}) where {T} = any(isnan, x) ? T(NaN) : T(Inf)
+
+@noinline _isotonic_anynan(x) = any(isnan, x)
+
+# The projection of a vector of two or more entries depends on every entry (pooling couples them),
+# so a NaN entry gives NaN everywhere (E2); a single entry is its own projection, NaN included.
+@noinline function _isotonic_nan!(y::AbstractArray, x::AbstractArray)
+  if length(y) >= 2
+    v = convert(float(eltype(y)), NaN)
+    @inbounds for i in eachindex(y)
+      y[i] = v
+    end
+  else
+    @inbounds for i in eachindex(y)
+      y[i] = convert(eltype(y), x[i])
+    end
+  end
+  y
+end
+
+# The pooling reports, in the loop it already runs, whether an entry was NaN (2, nothing written),
+# or (1) whether an entry was infinite, above the range bound, or infinite in the working type, and
+# otherwise (0) that the stored point is finite. The value at the stored point (O2) is NaN when the
+# projection stored a NaN (a NaN entry of a vector of two or more entries, or infinite entries
+# pooled to NaN), found by reading the stored point only when the status is not 0.
+@inline function _isotonic_status!(y, x, status::Int)
+  status == 2 && _isotonic_nan!(y, x)
+  status
+end
+@inline function _isotonic_stored_value(y::AbstractArray, status::Int)
+  T = _valtype(y)
+  status != 0 && length(y) >= 2 && _isotonic_anynan(y) ? convert(T, NaN) : zero(T)
+end
+
+# The projection for a scalar step; the pooling status (see above).
+function _isotonic_prox!(y::AbstractVector, f::IndIsotonic, x::AbstractVector)
   T = float(eltype(y))
   n = length(x)
-  _pava!(y, x, _buffer!(f.sums, T, n), _buffer!(f.sizes, Int, n), f.decreasing ? -1 : 1)
+  σ = f.decreasing ? -1 : 1
+  _isotonic_status!(y, x, _pava!(y, x, _buffer!(f.sums, T, n), _buffer!(f.sizes, Int, n), σ, Val(true)))
+end
+
+function prox!(y::AbstractVector, f::IndIsotonic, x::AbstractVector, ::Real)
+  _checkwrite(prox!, f, y, x)
+  _isotonic_prox!(y, f, x)
+  y
+end
+
+# The generic shortcut returns 0 for an indicator without looking at the stored point.
+function _value_and_prox_body!(y, f::IndIsotonic, x, γ::Real = 1)
+  _checkwrite(value_and_prox!, f, y, x)
+  _isotonic_stored_value(y, _isotonic_prox!(y, f, x))
 end
 
 ####################################
@@ -342,6 +467,11 @@ with `λ = (λ₁, 0, …, 0)` the ℓ∞ norm. Its proximal operator sorts the
 magnitudes, subtracts `γλ`, pools adjacent violators into a nonincreasing
 sequence, clips it at zero, and restores the order and the signs: O(n log n),
 in buffers that the function owns.
+A `NaN` entry of `x` makes every entry of the proximal output `NaN` when the weights
+are not all equal, because the rank of each entry, and so its threshold, depends on
+every other entry; with equal weights each entry is soft-thresholded on its own and
+only the `NaN` entry stays `NaN`, and with all weights zero the function is zero and
+its proximal operator the identity, at every step.
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct SLOPE{V<:AbstractVector{<:Real}} <: AbstractFunction
@@ -386,24 +516,49 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)},
   true
 end
 
-# the magnitudes a of x and the indices p that sort them in decreasing order,
-# in the buffers of f, allocating nothing: an in-place quicksort for short
+# the magnitudes a of x, the indices p that sort them in decreasing order, and
+# whether an entry is NaN (the order is then meaningless: the sort has no strict
+# weak order to use, and the callers do not read it), in the buffers of f,
+# allocating nothing: an in-place quicksort for short
 # vectors, and Base's sort with a scratch buffer, about twice as fast, once the
 # indirect comparisons of the quicksort leave the cache
 function _sortperm_abs!(f::SLOPE, x::AbstractVector, ::Type{T}) where {T}
   n = length(x)
   a = _buffer!(f.sums, T, n)
   p = _buffer!(f.perm, Int, n)
+  nan = false
   @inbounds for i in 1:n
-    a[i] = abs(convert(T, x[i]))
+    ai = abs(convert(T, x[i]))
+    a[i] = ai
     p[i] = i
+    nan |= isnan(ai)
   end
   if n <= 4096
     sort!(p; alg = QuickSort, lt = (i, j) -> a[i] > a[j])
   else
     sortperm!(p, a; rev = true, initialized = true, scratch = _buffer!(f.sizes, Int, n))
   end
-  p, a
+  p, a, nan
+end
+
+# The value needs only the sorted magnitudes, not the permutation: an in-place
+# quicksort of the magnitudes allocates nothing, and beats the permutation sort
+# for 1024 <= n <= 4096, where the cost of the permutation sort jumps at n = 4096.
+# Below 1024 it gains little or loses on some CPUs, and from n = 8192 on it is slower once the array
+# leaves the cache (Base's default sort and merge sort allocate). Chosen from
+# measurements on Apple silicon and x86-64, on Julia 1.13 and lts; other element
+# types keep the permutation.
+const _SLOPE_SORTED_MIN = 1024
+const _SLOPE_SORTED_MAX = 4096
+
+# the magnitudes of x in decreasing order, in the buffer f.sums; f.perm is untouched
+function _sorted_magnitudes!(f::SLOPE, x::AbstractVector, ::Type{T}) where {T}
+  n = length(x)
+  a = _buffer!(f.sums, T, n)
+  @inbounds for i in 1:n
+    a[i] = abs(convert(T, x[i]))
+  end
+  sort!(a; alg = QuickSort, rev = true)
 end
 
 function (f::SLOPE)(x::AbstractVector)
@@ -411,14 +566,31 @@ function (f::SLOPE)(x::AbstractVector)
   _checkparams(f, x)
   Base.require_one_based_indexing(x)
   T = float(eltype(x))
-  p, a = _sortperm_abs!(f, x, T)
+  if T <: Union{Float32, Float64} && _SLOPE_SORTED_MIN <= length(x) <= _SLOPE_SORTED_MAX
+    a = _sorted_magnitudes!(f, x, T)
+    _slope_sum(f, T, length(x), k -> a[k])
+  else
+    _slope_value_perm(f, x)
+  end
+end
+
+# the value through the permutation of the magnitudes
+function _slope_value_perm(f::SLOPE, x::AbstractVector)
+  T = float(eltype(x))
+  p, a, _ = _sortperm_abs!(f, x, T)
+  _slope_sum(f, T, length(x), k -> a[p[k]])
+end
+
+# the sum of the weights times the magnitudes in decreasing order, magnitude(k)
+function _slope_sum(f::SLOPE, ::Type{T}, n, magnitude::F) where {T, F}
+  n > 0 && iszero(f.λ[1]) && return zero(T)        # every weight zero: the zero function (E4)
   s = zero(T)
   fits = true
-  @inbounds for k in eachindex(p)
-    s += convert(T, f.λ[k]) * a[p[k]]
+  @inbounds for k in 1:n
+    s += convert(T, f.λ[k]) * magnitude(k)
     eltype(f.λ) === T || (fits &= _level_fits(T, f.λ[k]))
   end
-  _slope_value(s, fits, f.λ, k -> a[p[k]])
+  _slope_value(s, fits, f.λ, magnitude)
 end
 
 # Only an out-of-range sum needs a scan for nonfinite inputs.
@@ -462,11 +634,83 @@ end
   convert(T, _scaled_product(one(R), s + err, ea + eλ))::T
 end
 
+# the magnitude a less γλ, in the output type, rounded once when γ or λ does not fit it
+@inline function _slope_shifted(a, c, g, λk, γ, λ, fits, ::Type{R}, ::Type{T}) where {R, T}
+  if fits && (isfinite(c) || isinf(g) || isinf(λk))
+    a - c
+  else
+    convert(T, convert(R, a) - convert(R, γ) * convert(R, λ))
+  end
+end
+
+# The identity, with the value 0 of the zero function.
+function _slope_identity!(y::AbstractVector, x::AbstractVector, ::Type{T}) where {T}
+  y === x || copyto!(y, x)
+  zero(T)
+end
+
+# Whether the thresholds the finite path subtracts are the same for every rank, so that each entry is
+# soft-thresholded on its own. That is decided on the thresholds as that path forms them: exactly equal
+# weights, or, when the step and every weight fit the output type T and every product γλₖ is finite
+# (the ordinary shift a - γλₖ), equal rounded products, whatever the weights are. The recovery shift of
+# a weight or step that does not fit depends on the entry, so only exactly equal weights qualify then.
+function _slope_equal_thresholds(λ, γ, ::Type{T}) where {T}
+  n = length(λ)
+  λ[1] == λ[n] && return true
+  _level_fits(T, γ) || return false
+  g = convert(T, γ)
+  c1 = zero(T)
+  @inbounds for k in 1:n
+    eltype(λ) === T || _level_fits(T, λ[k]) || return false
+    λk = convert(T, λ[k])
+    c = g * λk
+    (isfinite(c) || isinf(g) || isinf(λk)) || return false
+    k == 1 ? (c1 = c) : (c == c1 || return false)
+  end
+  true
+end
+
+# value_and_prox! of SLOPE at an argument with a NaN entry, for a finite step. At γ = 0 the map is
+# the identity. With equal thresholds it is soft thresholding of each entry by γλ₁, which a NaN
+# does not reach. Otherwise every output depends on every entry, and so is NaN (E2).
+# The value is the one at the stored output (O2).
+@noinline function _slope_nan!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Real, ::Type{T}) where {T}
+  n = length(x)
+  λ = f.λ
+  if iszero(γ)
+    y === x || copyto!(y, x)
+  elseif _slope_equal_thresholds(λ, γ, T)
+    g = convert(T, γ)
+    λ1 = convert(T, λ[1])
+    c = g * λ1
+    R = promote_type(T, float(typeof(γ)), float(eltype(λ)))
+    fits = _level_fits(T, γ) && (eltype(λ) === T || _level_fits(T, λ[1]))
+    @inbounds for j in 1:n
+      xj = x[j]
+      if isnan(xj)
+        y[j] = convert(T, NaN)
+      else
+        wk = max(_slope_shifted(abs(convert(T, xj)), c, g, λ1, γ, λ[1], fits, R, T), zero(T))
+        y[j] = signbit(xj) ? -wk : wk
+      end
+    end
+  else
+    fill!(y, convert(T, NaN))
+  end
+  f(y)
+end
+
 function value_and_prox!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Real)
   _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
   n = length(x)
-  p, a = _sortperm_abs!(f, x, T)
+  # E4 first: with every weight zero the function is zero and its proximal map the identity,
+  # at every step (the product γλ is not formed, so γ = Inf gives no NaN)
+  n > 0 && iszero(f.λ[1]) && return _slope_identity!(y, x, T)
+  p, a, nan = _sortperm_abs!(f, x, T)
+  # a NaN entry: the ranks, and so the thresholds, of the others depend on it (E2)
+  # (an infinite step or an infinite weight keeps the computation below, see LIM-056)
+  nan && !isinf(γ) && !isinf(f.λ[1]) && return _slope_nan!(y, f, x, γ, T)
   w = _buffer!(f.vals, T, n)
   g = convert(T, γ)
   stepfits = _level_fits(T, γ)
@@ -477,11 +721,7 @@ function value_and_prox!(y::AbstractVector, f::SLOPE, x::AbstractVector, γ::Rea
     fits &= weightfits
     λk = convert(T, f.λ[k])
     c = g * λk
-    w[k] = if stepfits && weightfits && (isfinite(c) || isinf(g) || isinf(λk))
-      a[p[k]] - c
-    else
-      convert(T, convert(R, a[p[k]]) - convert(R, γ) * convert(R, f.λ[k]))
-    end
+    w[k] = _slope_shifted(a[p[k]], c, g, λk, γ, f.λ[k], stepfits && weightfits, R, T)
   end
   # the nearest nonincreasing sequence, clipped at zero, is the projection onto
   # the nonincreasing nonnegative sequences
@@ -736,7 +976,7 @@ function _sumlargest_prox!(y, f::SumLargest, x, γ, projection::Val, shift::Int 
 end
 
 prox!(y::AbstractArray, f::SumLargest, x::AbstractArray, γ::Real) =
-  _sumlargest_prox!(y, f, x, γ, Val(false))
+  _sumlargest_prox!(y, f, _symmetric_argument(y, x), γ, Val(false))
 value_and_prox!(y::AbstractArray, f::SumLargest, x::AbstractArray, γ::Real) = f(prox!(y, f, x, γ))
 
 function _checkstep(op::O, f::SumLargest, y::AbstractArray, x::AbstractArray, γ::Real) where {O}

@@ -164,7 +164,7 @@ end
 end
 
 prox!(y::AbstractArray, f::SqrDistL2, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
 function _prox_unchecked!(y::AbstractArray, f::SqrDistL2, x::AbstractArray, γ::Real)
   _checkwrite(prox!, f, y, x)
   T = float(eltype(y))
@@ -176,7 +176,7 @@ function _prox_unchecked!(y::AbstractArray, f::SqrDistL2, x::AbstractArray, γ::
 end
 
 value_and_prox!(y::AbstractArray, f::SqrDistL2, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_unchecked!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_unchecked!(y, f, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, f::SqrDistL2, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
@@ -408,7 +408,7 @@ function _distl2_prox!(y::AbstractArray, x::AbstractArray, p::AbstractArray, γ:
 end
 
 prox!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
 function _prox_unchecked!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real)
   _checkwrite(prox!, f, y, x)
   (iszero(f.λ) || iszero(γ)) && return copyto!(y, x)
@@ -419,7 +419,7 @@ function _prox_unchecked!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Rea
 end
 
 value_and_prox!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real) =
-  (_check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_unchecked!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, f, y, x, γ); _value_and_prox_unchecked!(y, f, x, γ))
 function _value_and_prox_unchecked!(y::AbstractArray, f::DistL2, x::AbstractArray, γ::Real)
   _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))

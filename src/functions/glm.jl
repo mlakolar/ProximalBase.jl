@@ -167,6 +167,12 @@ struct GLMLoss{L<:ScalarLoss, T<:AbstractFloat, Ty<:AbstractVector, TX<:Abstract
       O<:Union{Nothing, AbstractVector}, V<:AbstractVector{T}}
     all(a -> a === nothing || eltype(a) <: Real,
         (y, X, weights, offset, η, d)) || _real_error(:GLMLoss)
+    # η and d are scratch that gradient!, hessian_vec! and quadratic_model! overwrite, the
+    # last staging two values per observation in them: they must be two arrays, neither of
+    # them y, weights or offset. Identity only: a view or a reshape is not detected.
+    (η === d || η === y || η === weights || η === offset ||
+     d === y || d === weights || d === offset) &&
+      throw(ArgumentError("the buffers η and d of a GLMLoss must be separate arrays, and not y, weights or offset"))
     new{L, T, Ty, TX, W, O, V}(loss, y, X, weights, offset, η, d)
   end
 end
@@ -187,14 +193,24 @@ function GLMLoss(loss::ScalarLoss, y::AbstractVector, X::AbstractMatrix;
   offset === nothing || length(offset) == n || throw(DimensionMismatch("offset must have length $n"))
   T = float(promote_type(eltype(y), eltype(X)))
   # finite in the working precision, where the oracles use them
-  weights === nothing || all(t -> t isa Real && t >= 0 && isfinite(convert(T, t)), weights) ||
+  weights === nothing || all(_FiniteWeight{T}(), weights) ||
     throw(ArgumentError("the weights must be finite and nonnegative"))
-  offset === nothing || all(t -> t isa Real && isfinite(convert(T, t)), offset) ||
+  offset === nothing || all(_FiniteOffset{T}(), offset) ||
     throw(ArgumentError("the offset must be finite"))
   η, d = _zeros_like(y, T, n), _zeros_like(y, T, n)
   GLMLoss{typeof(loss), T, typeof(y), typeof(X), typeof(weights), typeof(offset), typeof(η)}(
     loss, y, X, weights, offset, η, d)
 end
+
+# The constructor's checks in the working precision T. They are singleton
+# structs, not closures over T: a closure that captures a type is not isbits,
+# and a GPU reduction (`all` on a device array, as Adapt rebuilds the loss)
+# cannot take it as a kernel argument. They are Functions, since GPUArrays
+# sends only `all(f::Function, A)` to a device reduction.
+struct _FiniteWeight{T} <: Function end
+(::_FiniteWeight{T})(t) where {T} = t isa Real && t >= 0 && isfinite(convert(T, t))
+struct _FiniteOffset{T} <: Function end
+(::_FiniteOffset{T})(t) where {T} = t isa Real && isfinite(convert(T, t))
 
 """
     LogisticLoss(y, X; weights = nothing, offset = nothing)

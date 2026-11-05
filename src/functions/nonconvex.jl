@@ -59,7 +59,7 @@ _has_ordinary_value(::Type{<:CappedL1}) = true
 
 Base.@propagate_inbounds function prox_entry(f::CappedL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  c = _weight_coefficient(S(γ), S(f.λ), S(_entry(f.w, i)))
+  c = _weight_coefficient(S, γ, f.λ, _entry(f.w, i))
   a, t = S(f.a), abs(S(v))
   z1 = min(max(t - c, zero(S)), a)          # the ℓ1 piece |z| ≤ a: soft thresholding, clipped at a
   z2 = max(t, a)                             # the constant piece |z| ≥ a
@@ -126,11 +126,10 @@ _has_ordinary_value(::Type{<:LogPenalty}) = true
 
 Base.@propagate_inbounds function prox_entry(f::LogPenalty, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  w = S(_entry(f.w, i))
-  c = _weight_coefficient(S(γ), S(f.λ), w)
+  c = _weight_coefficient(S, γ, f.λ, _entry(f.w, i))
   ε, t = S(f.ε), abs(S(v))
   iszero(c) && return S(v)
-  isinf(w) && return isnan(v) ? S(v) : zero(S)
+  isinf(_entry(f.w, i)) && return isnan(v) ? S(v) : zero(S)
   # the stationary points of c log(1 + z/ε) + (z - t)²/2 on z > 0 are the roots
   # of z² + (ε - t)z + c - εt; the larger is a local minimum. Without real roots
   # the objective increases on [0, ∞)
@@ -211,16 +210,19 @@ _has_ordinary_value(::Type{<:NormLq}) = true
 
 Base.@propagate_inbounds function prox_entry(f::NormLq, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  step, λ, w = S(γ), S(f.λ), S(_entry(f.w, i))
+  w0 = _entry(f.w, i)
   q, t = S(f.q), abs(S(v))
-  isinf(w) && return isnan(v) ? S(v) : zero(S)
-  (iszero(step) || iszero(λ) || iszero(w)) && return S(v)
-  μ = _positive_product(step, λ, w)
+  isinf(w0) && return isnan(v) ? S(v) : zero(S)
+  (iszero(γ) || iszero(f.λ) || iszero(w0)) && return S(v)
+  # the factors in the promotion of S and their types, rounded once (T3)
+  R = _working_type(S, γ, f.λ, w0)
+  step, λ, w = convert(R, γ), convert(R, f.λ), convert(R, w0)
+  μ = _positive_product(S, γ, f.λ, _entry(f.w, i))
   ordinary = isfinite(μ) && μ >= floatmin(S)
   # When μ cannot retain its precision, take the bounded powers of its factors
   # before multiplying. The threshold can fit even when μ does not.
   τ = if q == S(1)/2
-    S(3)/2 * (ordinary ? cbrt(μ)^2 : _positive_product(cbrt(step)^2, cbrt(λ)^2, cbrt(w)^2))
+    S(3)/2 * (ordinary ? cbrt(μ)^2 : convert(S, _positive_product(cbrt(step)^2, cbrt(λ)^2, cbrt(w)^2)))
   elseif ordinary
     power = inv(2 - q)
     # Separate powers retain subnormal μ without rounding μ*2(1-q)
@@ -230,7 +232,7 @@ Base.@propagate_inbounds function prox_entry(f::NormLq, v::T, i::Integer, γ::Re
   else
     power = inv(2 - q)
     coefficient = ((2 - q) / (2 - 2q)) * (2 * (1 - q))^power
-    coefficient * _positive_product(step^power, λ^power, w^power)
+    coefficient * convert(S, _positive_product(step^power, λ^power, w^power))
   end
   t <= τ && return zero(S)
   sign(S(v)) * _lq_root(t, μ, q, τ)
@@ -372,26 +374,26 @@ _rebuild(f::GroupMCP, λ0, groups, w) = GroupMCP(λ0, groups, w; a = f.a)
 _rebuild(f::GroupSCAD, λ0, groups, w) = GroupSCAD(λ0, groups, w; a = f.a)
 
 # the scalar penalty of group k, in the element type S
-_group_scalar(f::GroupMCP, ::Type{S}, k::Integer) where {S} = MCP{S}(convert(S, _weight_coefficient(f.λ0, f.w[k])), convert(S, f.a))
-_group_scalar(f::GroupSCAD, ::Type{S}, k::Integer) where {S} = SCAD{S}(convert(S, _weight_coefficient(f.λ0, f.w[k])), convert(S, f.a))
+_group_scalar(f::GroupMCP, ::Type{S}, k::Integer) where {S} = MCP{S}(_weight_coefficient(S, f.λ0, f.w[k]), convert(S, f.a))
+_group_scalar(f::GroupSCAD, ::Type{S}, k::Integer) where {S} = SCAD{S}(_weight_coefficient(S, f.λ0, f.w[k]), convert(S, f.a))
 
 # The ordinary kernels retain the scalar product and loops used for finite weights.
 _ordinary_radial_groups(f, ::Type{T}) where {T} = isfinite(f.λ0) &&
-  !mapreduce(w -> isinf(w) | isinf(convert(T, f.λ0 * w)), |, f.w; init = false)
+  !mapreduce(w -> isinf(w) | isinf(_typed_product(T, f.λ0, w)), |, f.w; init = false)
 # Matching atom layouts classify only coefficients the kernels will visit.
 function _ordinary_radial_groups(f, ::Type{T}, groups, n::Int) where {T}
   isfinite(f.λ0) || return false
   ordinary = true
   @inbounds @simd for a in 1:n
     w = f.w[groups[a]]
-    ordinary &= !isinf(w) & !isinf(convert(T, f.λ0 * w))
+    ordinary &= !isinf(w) & !isinf(_typed_product(T, f.λ0, w))
   end
   ordinary
 end
 _infinite_radial_coefficient(f, ::Type{T}, k) where {T} =
-  isinf(convert(T, _weight_coefficient(f.λ0, f.w[k])))
-_group_scalar(f::GroupMCP, ::Type{S}, k::Integer, ::Val{true}) where {S} = MCP{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
-_group_scalar(f::GroupSCAD, ::Type{S}, k::Integer, ::Val{true}) where {S} = SCAD{S}(convert(S, f.λ0 * f.w[k]), convert(S, f.a))
+  isinf(_weight_coefficient(T, f.λ0, f.w[k]))
+_group_scalar(f::GroupMCP, ::Type{S}, k::Integer, ::Val{true}) where {S} = MCP{S}(_typed_product(S, f.λ0, f.w[k]), convert(S, f.a))
+_group_scalar(f::GroupSCAD, ::Type{S}, k::Integer, ::Val{true}) where {S} = SCAD{S}(_typed_product(S, f.λ0, f.w[k]), convert(S, f.a))
 _group_scalar(f::_RadialGroupPenalty, ::Type{S}, k::Integer, ::Val{false}) where {S} = _group_scalar(f, S, k)
 
 @inline function _check_group_coordinate(f::_RadialGroupPenalty, x::AtomIterate, k::Integer)
@@ -420,7 +422,7 @@ function _check_group_scalars(f::_RadialGroupPenalty, ::Type{T}, groups, n::Int,
   _group_scalar(f, T, groups[1], ordinary)
   valid = true
   @inbounds @simd for a in 1:n
-    valid &= convert(T, f.λ0 * f.w[groups[a]]) >= zero(T)
+    valid &= _typed_product(T, f.λ0, f.w[groups[a]]) >= zero(T)
   end
   if !valid
     for a in 1:n
@@ -445,14 +447,14 @@ function _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::_Radial
   _checksize(y, x)
   _checkgroups(f, x)
   _check_symmetric_groups(f, y)
-  _check_prox_group_scalars(f, float(eltype(y)), y, x)
+  _check_prox_group_scalars(f, _model_type(y, x), y, x)
 end
 
 for Step in (Real, AbstractVector)
   @eval begin
-    value_and_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::$Step) = (_checkreal(f, x); _checkreal(f, y); _checkreal(f, γ); _value_and_prox_groups!(y, f, x, γ))
+    value_and_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::$Step) = (x = _symmetric_argument(y, x); _checkreal(f, x); _checkreal(f, y); _checkreal(f, γ); _value_and_prox_groups!(y, f, x, γ))
     value_and_prox!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIterate, γ::$Step) = (_checkreal(f, x); _checkreal(f, y); _checkreal(f, γ); _value_and_prox_groups!(y, f, x, γ))
-    prox!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::$Step) = (_checkreal(f, x); _checkreal(f, y); _checkreal(f, γ); _value_and_prox_groups!(y, f, x, γ); y)
+    prox!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::$Step) = (x = _symmetric_argument(y, x); _checkreal(f, x); _checkreal(f, y); _checkreal(f, γ); _value_and_prox_groups!(y, f, x, γ); y)
   end
 end
 
@@ -462,7 +464,7 @@ _dual_norm(::_RadialGroupPenalty, g, G) = _group_norm2(g, G)
 # y[G] ← the proximal operator of γp(‖⋅‖₂) at x[G], which may be in place: the
 # scalar proximal operator of p at the norm, along x[G]; returns the new norm
 @inline function _radial_shrink!(p, y::AbstractArray{T}, x::AbstractArray, G, γ, W = nothing) where {T}
-  nx = _group_norm2(x, G)
+  nx = convert(typeof(p.λ), _group_norm2(x, G))   # the scalar proximal operator works in the type of p
   r = iszero(nx) ? nx : prox_entry(p, nx, 1, γ)
   t = iszero(nx) ? nx : r / nx
   @inbounds for i in _writes(W, G)
@@ -537,7 +539,7 @@ function _radial_group_value(f::_RadialGroupPenalty, x::AtomIterate, ordinary::V
 end
 
 function _value_and_prox_groups!(y::AbstractArray, f::_RadialGroupPenalty, x::AbstractArray, γ::Union{Real, AbstractVector})
-  _ordinary_radial_groups(f, float(eltype(y))) ?
+  _ordinary_radial_groups(f, _model_type(y, x)) ?
     _radial_group_prox!(y, f, x, γ, Val(true)) : _radial_group_prox!(y, f, x, γ, Val(false))
 end
 
@@ -547,23 +549,27 @@ function _radial_group_prox!(y::AbstractArray, f::_RadialGroupPenalty, x::Abstra
   _check_symmetric_groups(f, y)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
-  _check_group_scalars(f, T, eachindex(f.groups), length(f.groups), ordinary)
+  W = _model_type(y, x)
+  _check_group_scalars(f, W, eachindex(f.groups), length(f.groups), ordinary)
   _copy_ungrouped!(y, f, x)
   v = zero(T)
   for k in eachindex(f.groups)
-    if !O && _infinite_radial_coefficient(f, T, k)
-      n = _shrink_group!(NormL2(one(T)), y, x, f.groups[k], convert(T, _weight_product(_entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+    if !O && _infinite_radial_coefficient(f, W, k)
+      n = _shrink_group!(NormL2(one(W)), y, x, f.groups[k], _weight_product(W, _entry(γ, k), f.λ0, f.w[k]), _group_writes(y, f.groups[k]))
+      W === T || (n = _group_norm2(y, f.groups[k]))   # O2: the value is that of the stored output
       iszero(n) || (v = T(Inf))
       continue
     end
-    p = _group_scalar(f, T, k, ordinary)
+    p = _group_scalar(f, W, k, ordinary)
     if iszero(p.λ)
       @inbounds for i in f.groups[k]
         y[i] = x[i]
       end
       continue
     end
-    v += convert(T, value_entry(p, _radial_shrink!(p, y, x, f.groups[k], convert(T, _entry(γ, k)), _group_writes(y, f.groups[k])), 1))
+    r = _radial_shrink!(p, y, x, f.groups[k], convert(W, _entry(γ, k)), _group_writes(y, f.groups[k]))
+    W === T || (r = convert(W, _group_norm2(y, f.groups[k])))
+    v += convert(T, value_entry(p, r, 1))
   end
   v
 end
@@ -588,7 +594,7 @@ function _radial_group_prox!(y::AtomIterate, f::_RadialGroupPenalty, x::AtomIter
   for a in 1:y.nactive
     k = y.active[a]
     if !O && _infinite_radial_coefficient(f, T, k)
-      n = _shrink_group!(NormL2(one(T)), y.storage, y.storage, f.groups[k], convert(T, _weight_product(_entry(γ, k), f.λ0, f.w[k])))
+      n = _shrink_group!(NormL2(one(T)), y.storage, y.storage, f.groups[k], _weight_product(T, _entry(γ, k), f.λ0, f.w[k]))
       iszero(n) || (v = T(Inf))
       continue
     end
@@ -612,7 +618,7 @@ end
 @inline function _unchecked_coordinate!(x::AtomIterate, f::_RadialGroupPenalty, k, γ, p)
   T = float(eltype(x))
   if _infinite_radial_coefficient(f, T, k)
-    n = _shrink_group!(NormL2(one(T)), x.storage, x.storage, x.groups[k], convert(T, _weight_product(γ, f.λ0, f.w[k])))
+    n = _shrink_group!(NormL2(one(T)), x.storage, x.storage, x.groups[k], _weight_product(T, γ, f.λ0, f.w[k]))
     iszero(n) || activate!(x, k)
     return atom(x, k)
   end
@@ -674,7 +680,10 @@ _checkgroups(f::IndBallGroupL0, x::AbstractArray) =
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::IndBallGroupL0, y::AbstractArray, x::AbstractArray) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkgroups(f, x); true)
 
-_samegroups(f::IndBallGroupL0, x::AtomIterate) = _samelayout(f, x)
+# the functions whose groups an AtomIterate can be compared with
+const _GroupFunction = Union{AbstractGroupPenalty, IndBallGroupL0}
+samegroups(x::AtomIterate, f::_GroupFunction) = _samelayout(f, x)
+samegroups(f::_GroupFunction, x::AtomIterate) = _samelayout(f, x)
 
 # whether the entries of x in G are all zero, and, if not, whether there are at
 # most k of them
@@ -702,7 +711,7 @@ end
 
 function (f::IndBallGroupL0)(x::AtomIterate)
   _checkreal(f, x)
-  _samegroups(f, x) || return invoke(f, Tuple{AbstractArray}, x)
+  _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
   nz, ok = 0, true
   for a in 1:x.nactive
     z, fits = _group_status(x.storage, f.groups[x.active[a]], f.k)
@@ -713,6 +722,7 @@ function (f::IndBallGroupL0)(x::AtomIterate)
 end
 
 function prox!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray, ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   y === x || copyto!(y, x)
   _keep_largest_groups!(y, f, eachindex(f.groups))
@@ -720,7 +730,7 @@ end
 
 function prox!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate, γ::Real)
   _checkwrite(prox!, f, y, x)
-  _samegroups(f, y) && _samegroups(f, x) ||
+  _samelayout(f, y) && _samelayout(f, x) ||
     return invoke(prox!, Tuple{AbstractArray, IndBallGroupL0, AbstractArray, Real}, y, f, x, γ)
   copyto!(y, x)
   _keep_largest_groups!(y.storage, f, view(y.active, 1:y.nactive))

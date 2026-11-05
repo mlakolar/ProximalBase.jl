@@ -3,6 +3,7 @@ module MixedPrecisionTest
 using Test
 using ProximalBase
 using LinearAlgebra
+using Random
 
 const PB = ProximalBase
 
@@ -642,6 +643,33 @@ const combinations = (
       @testset "$(c.name), parameters=$P, x=$Tx, output=$Ty, step=$S" begin
         check_rule(c, Tx, Ty, S)
       end
+    end
+  end
+end
+
+
+@testset "sphere prox of the ℓ1 norm: randomized margin comparisons against the exact order (#459)" begin
+  # Extended tier. Operands over the whole exponent range, subnormals and near floatmax, with
+  # the second margin placed at, or a few ulps from, the first; the one-subtraction comparison
+  # must give the exact order and agree with the compensated one.
+  mag(rng, ::Type{T}) where {T} = rand(rng, (
+    () -> T(abs(randn(rng))),
+    () -> ldexp(T(1 + rand(rng)), rand(rng, exponent(floatmin(T)):exponent(floatmax(T)))),
+    () -> reinterpret(T, rand(rng, one(Base.uinttype(T)):reinterpret(Base.uinttype(T), floatmin(T)))),
+    () -> prevfloat(floatmax(T), rand(rng, 0:2^16)),
+    () -> zero(T)))()
+  setprecision(BigFloat, 2300) do
+    for T in (Float16, Float32, Float64)
+      rng = Random.Xoshiro(4590)
+      wrong = 0
+      for _ in 1:20_000
+        bn, bt, t = mag(rng, T), mag(rng, T), mag(rng, T)
+        n = rand(rng, Bool) ? mag(rng, T) : nextfloat(t + (bn - bt), rand(rng, -3:3))
+        (isfinite(n) && n >= 0) || continue
+        exact = big(n) - big(t) > big(bn) - big(bt)
+        wrong += (PB._margin_better(n, t, bn, bt) != exact) + (PB._margin_better(n, t, bn, bt) != PB._margin_greater(n, t, bn, bt))
+      end
+      @test wrong == 0
     end
   end
 end

@@ -73,13 +73,33 @@ function _norm2_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real, :
     t = 1 - c / nx
     y .= t .* x
     return V ? (_level_fits(T, f.λ) ? _norm2_value(convert(T, f.λ) * (nx - c), convert(T, f.λ), y) : _weighted_norm2(f.λ, y)) : zero(T)
+  elseif isnan(nx)
+    return _norm2_nan!(y, x, isinf(γ) | isinf(f.λ), nx, iszero(γ), Val(V))
   else
     fill!(y, zero(eltype(y)))
     return zero(T)
   end
 end
-value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = _norm2_prox!(y, f, x, γ, Val(true))
-prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = (_norm2_prox!(y, f, x, γ, Val(false)); y)
+
+# A NaN entry makes the norm NaN, and a comparison with NaN selects no branch (E2). An infinite level
+# or step (E4, or the constant map at γ = Inf) fixes the block at zero whatever it holds, and γ = 0
+# is the identity, which keeps NaN in its own entry. Otherwise every output depends on the NaN entry,
+# so the whole block is NaN, and so is the value. This is decided by the parameters: a finite
+# γλ whose product overflowed is no infinite level or step.
+@noinline function _norm2_nan!(y, x, fixed::Bool, nx::T, atzero::Bool, ::Val{V}) where {T, V}
+  if fixed
+    fill!(y, zero(eltype(y)))
+    return zero(T)
+  elseif atzero
+    y === x || copyto!(y, x)
+  else
+    fill!(y, oftype(zero(eltype(y)), NaN))
+  end
+  V ? nx : zero(T)
+end
+value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) =
+  (x = _symmetric_argument(y, x); _norm2_prox!(y, f, x, γ, Val(true)))
+prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = (x = _symmetric_argument(y, x); _norm2_prox!(y, f, x, γ, Val(false)); y)
 
 @inline _norm2_shrink!(f::NormL2, y::AbstractArray, x::AbstractArray, c) =
   _shrink_group!(f, y, x, eachindex(IndexLinear(), x), c)
@@ -251,6 +271,7 @@ function _cube_prox_parts(γ::T, λ::T, m::T, e::Int) where {T}
 end
 
 function prox!(y::AbstractArray, f::CubeNormL2, x::AbstractArray, γ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
   if iszero(f.λ)
     y === x || copyto!(y, x)
@@ -272,7 +293,7 @@ function prox!(y::AbstractArray, f::CubeNormL2, x::AbstractArray, γ::Real)
 end
 
 value_and_prox!(y::AbstractArray, f::CubeNormL2, x::AbstractArray, γ::Real) =
-  (prox!(y, f, x, γ); f(y))
+  (x = _symmetric_argument(y, x); prox!(y, f, x, γ); f(y))
 
 lipschitz(f::CubeNormL2) = _ind(iszero(f.λ), float(typeof(f.λ)))
 
@@ -317,6 +338,7 @@ end
 end
 
 function value_and_prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Real)
+  x = _symmetric_argument(y, x)
   _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
   c = _level_product(T, γ, f.λ)
@@ -328,7 +350,7 @@ function value_and_prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Re
   y .= sign.(x) .* min.(abs.(x), τ)
   _level_fits(T, f.λ) ? convert(T, f.λ) * τ : _weighted_normlinf(f.λ, y)
 end
-prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Real) = (value_and_prox!(y, f, x, γ); y)
+prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Real) = (x = _symmetric_argument(y, x); value_and_prox!(y, f, x, γ); y)
 
 ####################################
 #  group norms  λ0 ⋅ Σₖ wₖ ‖x[Gₖ]‖
@@ -506,14 +528,14 @@ function _ordinary_group_weights(f, ::Type{T}) where {T}
   isfinite(f.λ0) || return false
   # Nonnegative weights make the largest product bound every coefficient.
   w = maximum(f.w; init = zero(eltype(f.w)))
-  isfinite(w) && isfinite(convert(T, f.λ0 * w))
+  isfinite(w) && isfinite(_typed_product(T, f.λ0, w))
 end
 function _ordinary_group_weights(f, ::Type{T}, ks, n) where {T}
   isfinite(f.λ0) || return false
   ordinary = true
   @inbounds @simd for a in 1:n
     w = f.w[ks[a]]
-    ordinary &= isfinite(w) & isfinite(convert(T, f.λ0 * w))
+    ordinary &= isfinite(w) & isfinite(_typed_product(T, f.λ0, w))
   end
   ordinary
 end
@@ -541,6 +563,7 @@ end
   _group_value(f, λ, w, n, x, G, T)
 
 @noinline function _scaled_group_value(f, λ, w, x, G, ordinary_norm)
+  isnan(ordinary_norm) && return convert(float(eltype(x)), ordinary_norm)   # a NaN group: not read from x
   T = float(eltype(x))
   R = promote_type(T, float(typeof(λ)), float(typeof(w)))
   m = convert(R, _maxabs(x, G))
@@ -563,6 +586,10 @@ end
 # the group of index i, 0 if i is in no group
 _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_of[i] : 0
 
+# the proximal kernels of an atom iterate run in the type of the output's storage: the argument is
+# copied or staged into it first
+@inline _model_type(y::AtomIterate, x::AtomIterate) = float(eltype(y))
+
 # the groups fit in x: the loops over a group skip the bounds checks
 @inline _checkgroups(f::AbstractGroupPenalty, x::AbstractArray) =
   length(x) >= length(f.group_of) || throw(BoundsError(x, length(f.group_of)))
@@ -581,6 +608,12 @@ _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_
     end
     return nx - c
   else
+    # A NaN norm (E2) fails both comparisons and takes this branch. The group is then left as it is,
+    # with a NaN norm, and settled by the caller after its loop (_nan_steps!), which knows the original
+    # step, level and weight: zeros (E4), the identity (γ = 0) or the NaN block. Apart from that single
+    # test, which a finite norm never takes, this is the zero fill of the kernel as it was. The NormL2
+    # callers of this kernel (an infinite coefficient) keep the zero fill, a hard fix by construction.
+    f isa GroupNormL2 && isnan(nx) && return nx
     @inbounds for i in _writes(W, G)
       y[i] = zero(T)
     end
@@ -588,10 +621,66 @@ _group(f::AbstractGroupPenalty, i::Integer) = i <= length(f.group_of) ? f.group_
   end
 end
 
+# A zero level with a finite weight is the identity (E4): NaN then stays in its own entry. Only the
+# rare weights of the general path (O = false) have such a group in the loop; an infinite weight
+# fixes its group at zero instead.
+@inline _identity_group(f::Union{NormL2, GroupNormL2}, ::Val{O}, k) where {O} =
+  !O && !isinf(f.w[k]) && iszero(f.λ0)
+@inline _identity_group(::GroupNormLinf, ::Val, k) = false
+# An infinite weight or level (only in the general path, O = false) fixes the group at zero whatever it
+# holds (E4), with the value of the zero group: decided here, not by a NaN pass, so that the value of
+# the other groups is the fused one.
+@inline _fixed_group(f::Union{NormL2, GroupNormL2}, ::Val{O}, γk, k) where {O} = !O && _hard_fixed(f, γk, k)
+@inline _fixed_group(::GroupNormLinf, ::Val, γk, k) = false
+# the parameters that fix a group at zero: an infinite weight, an infinite step, or an infinite level at a
+# positive step (at the step 0 the threshold of a group with a finite weight is 0, the identity)
+@inline _hard_fixed(f, γk, k) = isinf(f.w[k]) | isinf(γk) | (isinf(f.λ0) & !iszero(γk))
+@inline function _fixed_group!(y, G, W, ::Type{T}) where {T}
+  @inbounds for i in _writes(W, G)
+    y[i] = zero(eltype(y))
+  end
+  zero(T)
+end
+@inline function _identity_group!(y, x, G, W)
+  @inbounds for i in _writes(W, G)
+    y[i] = x[i]
+  end
+  _group_norm2(x, G)
+end
+
+# After the loops, when the value is NaN: the groups the kernel left as they were because their norm is
+# NaN. The original parameters decide (E4 first): an infinite weight, step or (at a positive step) level
+# fixes the group at zero; at the step γ = 0 (an accepted endpoint, #311) the map is the identity, so the
+# group is copied (NaN stays in its own entries); otherwise every output depends on the NaN, also when the
+# product γλw underflowed or overflowed: the NaN block. Returns the value at the stored output. Not
+# reached on finite data, and nothing to do for the ℓ∞ kernel, which does not leave a group.
+@inline _nan_steps!(::GroupNormLinf, y, X, ks, γ, ordinary, ::Type, v, yobj) = v
+function _nan_steps!(f::GroupNormL2, y, X, ks, γ, ::Val{O}, ::Type{W}, v, yobj) where {O, W}
+  changed = false
+  for k in ks
+    iszero(f.w[k]) && continue
+    _identity_group(f, Val(O), k) && continue
+    G = f.groups[k]
+    isnan(_group_norm2(X, G)) || continue
+    γk = _entry(γ, k)
+    mode = _hard_fixed(f, γk, k) ? 0 : iszero(γk) ? 1 : 2
+    _fill_group!(y, X, G, _group_writes(y, G), mode)
+    changed = true
+  end
+  changed ? f(yobj) : v
+end
+# mode 0: zeros, 1: copy of X, 2: NaN
+@inline function _fill_group!(y, X, G, W, mode::Int)
+  T = eltype(y)
+  @inbounds for i in _writes(W, G)
+    y[i] = mode == 0 ? zero(T) : mode == 1 ? X[i] : T(NaN)
+  end
+end
+
 # y[G] ← prox_{c‖⋅‖∞}(x[G]), which may be in place: the entries clipped at τ;
 # returns τ, the new norm of the group
 function _shrink_group!(f::GroupNormLinf, y::AbstractArray{T}, x::AbstractArray, G, c, W = nothing) where {T}
-  S = float(T)
+  S = promote_type(float(T), typeof(c))     # the type of the threshold: the model precision (T3)
   s = _sumabs(x, G)
   if s <= c
     @inbounds for i in _writes(W, G)
@@ -662,9 +751,9 @@ function _check_symmetric_groups(f, y::SymmetricSparseIterate)
 end
 
 value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::Real) =
-  (_checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
+  (x = _symmetric_argument(y, x); _checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::Real) =
-  (_checkwrite(prox!, f, y, x); value_and_prox!(y, f, x, γ); y)
+  (x = _symmetric_argument(y, x); _checkwrite(prox!, f, y, x); value_and_prox!(y, f, x, γ); y)
 
 # Copy indices outside the penalized groups, including those beyond the last
 # group. Call after checking sizes and groups; all proximal kernels leave these
@@ -683,8 +772,11 @@ end
 
 # the step γ is a scalar or a vector with a step per group (see metric.jl)
 function _value_and_prox_groups!(y::AbstractArray, f::HomogeneousGroupNorm, x::AbstractArray, γ::Union{Real, AbstractVector})
-  _ordinary_group_weights(f, float(eltype(y))) ?
-    _homogeneous_group_prox!(y, f, x, γ, Val(true)) : _homogeneous_group_prox!(y, f, x, γ, Val(false))
+  if _ordinary_group_weights(f, _model_type(y, x))
+    _homogeneous_group_prox!(y, f, x, γ, Val(true))
+  else
+    _homogeneous_group_prox!(y, f, x, γ, Val(false))
+  end
 end
 
 function _homogeneous_group_prox!(y::AbstractArray, f::HomogeneousGroupNorm, x::AbstractArray, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
@@ -692,6 +784,7 @@ function _homogeneous_group_prox!(y::AbstractArray, f::HomogeneousGroupNorm, x::
   _checkgroups(f, x)
   _checkgroupsteps(f, γ)
   T = float(eltype(y))
+  W = _model_type(y, x)
   if O && iszero(f.λ0)
     y === x || copyto!(y, x)
     return zero(T)
@@ -705,10 +798,18 @@ function _homogeneous_group_prox!(y::AbstractArray, f::HomogeneousGroupNorm, x::
       end
       continue
     end
-    nrm = _shrink_group!(f, y, x, f.groups[k], convert(T, O ? _positive_product(_entry(γ, k), f.λ0, f.w[k]) : _weight_product(_entry(γ, k), f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+    γk = _entry(γ, k)
+    nrm = if _identity_group(f, ordinary, k)
+      _identity_group!(y, x, f.groups[k], _group_writes(y, f.groups[k]))
+    elseif _fixed_group(f, ordinary, γk, k)
+      _fixed_group!(y, f.groups[k], _group_writes(y, f.groups[k]), W)
+    else
+      _shrink_group!(f, y, x, f.groups[k], (O ? _positive_product(W, γk, f.λ0, f.w[k]) : _weight_product(W, γk, f.λ0, f.w[k])), _group_writes(y, f.groups[k]))
+    end
+    W === T || isnan(nrm) || (nrm = _group_norm(f, y, f.groups[k]))   # O2: the value is that of the stored output
     v += _group_value(f, f.λ0, f.w[k], nrm, y, f.groups[k], T, ordinary)
   end
-  v
+  isnan(v) ? _nan_steps!(f, y, x, eachindex(f.groups), γ, ordinary, W, v, y) : v
 end
 
 # a step per group (see metric.jl): one entry for every group
@@ -787,8 +888,11 @@ value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::Rea
 function _value_and_prox_groups!(y::AtomIterate, f::HomogeneousGroupNorm, x::AtomIterate, γ::Union{Real, AbstractVector})
   _samelayout(f, x) && _samelayout(f, y) ||
     return invoke(_value_and_prox_groups!, Tuple{AbstractArray, HomogeneousGroupNorm, AbstractArray, Union{Real, AbstractVector}}, y, f, x, γ)
-  _ordinary_group_weights(f, float(eltype(y)), x.active, x.nactive) ?
-    _homogeneous_group_prox!(y, f, x, γ, Val(true)) : _homogeneous_group_prox!(y, f, x, γ, Val(false))
+  if _ordinary_group_weights(f, float(eltype(y)), x.active, x.nactive)
+    _homogeneous_group_prox!(y, f, x, γ, Val(true))
+  else
+    _homogeneous_group_prox!(y, f, x, γ, Val(false))
+  end
 end
 
 function _homogeneous_group_prox!(y::AtomIterate, f::HomogeneousGroupNorm, x::AtomIterate, γ::Union{Real, AbstractVector}, ordinary::Val{O}) where {O}
@@ -802,10 +906,15 @@ function _homogeneous_group_prox!(y::AtomIterate, f::HomogeneousGroupNorm, x::At
   for a in 1:y.nactive
     k = y.active[a]
     (iszero(f.w[k]) || (!O && iszero(f.λ0) && !isinf(f.w[k]))) && continue
-    nrm = _shrink_group!(f, y.storage, y.storage, f.groups[k], convert(T, O ? _positive_product(_entry(γ, k), f.λ0, f.w[k]) : _weight_product(_entry(γ, k), f.λ0, f.w[k])))
+    γk = _entry(γ, k)
+    nrm = if _fixed_group(f, ordinary, γk, k)
+      _fixed_group!(y.storage, f.groups[k], nothing, T)
+    else
+      _shrink_group!(f, y.storage, y.storage, f.groups[k], (O ? _positive_product(T, γk, f.λ0, f.w[k]) : _weight_product(T, γk, f.λ0, f.w[k])))
+    end
     v += _group_value(f, f.λ0, f.w[k], nrm, y.storage, f.groups[k], T, ordinary)
   end
-  v
+  isnan(v) ? _nan_steps!(f, y.storage, y.storage, view(y.active, 1:y.nactive), γ, ordinary, T, v, y) : v
 end
 
 # Validate the layout and group before a wrapper changes any entries.
@@ -832,7 +941,17 @@ end
     _allzero(x.storage, x.groups[k]) || activate!(x, k)
     return atom(x, k)
   end
-  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], convert(T, isinf(f.w[k]) ? _weight_product(γ, f.λ0, f.w[k]) : _positive_product(γ, f.λ0, f.w[k])))
+  nrm = _shrink_group!(f, x.storage, x.storage, x.groups[k], (isinf(f.w[k]) ? _weight_product(T, γ, f.λ0, f.w[k]) : _positive_product(T, γ, f.λ0, f.w[k])))
+  # a NaN group the kernel left (threshold 0, Inf or NaN): the parameters decide as in _nan_steps!; the
+  # group is already the identity at the step γ = 0
+  if f isa GroupNormL2 && isnan(nrm)
+    if _hard_fixed(f, γ, k)
+      _fill_group!(x.storage, x.storage, x.groups[k], nothing, 0)
+      nrm = zero(nrm)
+    elseif !iszero(γ)
+      _fill_group!(x.storage, x.storage, x.groups[k], nothing, 2)
+    end
+  end
   iszero(nrm) || activate!(x, k)
   atom(x, k)
 end
@@ -860,7 +979,10 @@ same way, and its proximal operator keeps the order of `v`. So the proximal
 operator sorts `v`, subtracts `γλ2 (2i - K - 1)` from the `i`-th smallest entry,
 pools adjacent violators into a nondecreasing sequence, restores the order, and
 soft-thresholds by `γλ1`: exact, in O(K log K), in buffers that the function
-owns.
+owns. A `NaN` entry of a vector of `K ≥ 3` entries makes the whole proximal output
+`NaN` when `λ2 > 0` and the step is positive, because every entry is fused with it;
+with `λ2 = 0` or a zero step only the `NaN` entry stays `NaN`. For a pair, in the
+tuple form, only the pair that holds the `NaN` is `NaN`.
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct NormL1Fused{T<:Real} <: AbstractFunction
@@ -1001,9 +1123,20 @@ end
   (shrink(u, t), shrink(v, t))
 end
 
+# E4 and the zero step (P1) come before the cross-entry arithmetic of the pair kernel: with both
+# levels zero the function is zero (the identity at every step, γ = Inf included), and a zero step
+# is the identity for finite levels. The kernel at levels and step zero returns its arguments, so
+# a NaN stays in its own entry. Three scalars per call or per loop, never inside the loop.
+@inline _fused_pair_identity(λ1, λ2, γ) =
+  (iszero(λ1) && iszero(λ2)) || (iszero(γ) && isfinite(λ1) && isfinite(λ2))
+@inline function _fused_pair_levels(λ1::T, λ2::T, γ::T) where {T}
+  _fused_pair_identity(λ1, λ2, γ) ? (zero(T), zero(T), zero(T)) : (λ1, λ2, γ)
+end
+
 function prox(f::NormL1Fused, xy::Tuple{Real, Real}, γ::Real = 1)
   T = float(promote_type(typeof(xy[1]), typeof(xy[2])))
-  _prox_l1fused(T(xy[1]), T(xy[2]), T(f.λ1), T(f.λ2), T(γ))
+  λ1, λ2, g = _fused_pair_levels(T(f.λ1), T(f.λ2), T(γ))
+  _prox_l1fused(T(xy[1]), T(xy[2]), λ1, λ2, g)
 end
 
 function prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real)
@@ -1013,7 +1146,7 @@ end
 
 @noinline function _prox_fused_arrays!(y, f, x, γ, ::Val{C}) where {C}
   T = float(promote_type(eltype(y[1]), eltype(y[2])))
-  λ1, λ2, γ = T(f.λ1), T(f.λ2), T(γ)
+  λ1, λ2, γ = _fused_pair_levels(T(f.λ1), T(f.λ2), T(γ))
   @inbounds for i in eachindex(x[1])
     y[1][i], y[2][i] = _prox_l1fused(T(x[1][i]), T(x[2][i]), λ1, λ2, γ, Val(C))
   end
@@ -1047,29 +1180,33 @@ prox(f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real = 1) =
 # a vector of K entries, all pairs fused: a fiber of K stacked matrices. Two
 # entries take the closed form of a pair.
 
-# the entries of x, and the indices p that sort them in increasing order, in the
-# buffers of f, allocating nothing: an in-place quicksort for short vectors, and
+# the entries of x, the indices p that sort them in increasing order, and whether an entry is
+# NaN (the order is then meaningless, and the callers do not read it), in the buffers of f,
+# allocating nothing: an in-place quicksort for short vectors, and
 # Base's sort with a scratch buffer for long ones, as for SLOPE
 function _sortperm_fused!(f::NormL1Fused, x::AbstractVector, ::Type{T}) where {T}
   n = length(x)
   a = _buffer!(f.sums, T, n)
   p = _buffer!(f.perm, Int, n)
+  nan = false
   @inbounds for i in 1:n
-    a[i] = convert(T, x[i])
+    ai = convert(T, x[i])
+    a[i] = ai
     p[i] = i
+    nan |= isnan(ai)
   end
   if n <= 4096
     sort!(view(p, 1:n); alg = QuickSort, lt = (i, j) -> a[i] < a[j])
   else
     sortperm!(view(p, 1:n), view(a, 1:n); initialized = true, scratch = _buffer!(f.sizes, Int, n))
   end
-  p, a
+  p, a, nan
 end
 
 @noinline function _recover_fused_vector(f, x, ::Type{T}, ordinary) where {T}
   all(isfinite, x) && isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
   R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
-  p, a = _sortperm_fused!(f, x, R)
+  p, a, _ = _sortperm_fused!(f, x, R)
   n = length(x)
   k = _magnitude_exponent(_maximum_abs(x))
   scale = _power_factors(R, -k)
@@ -1100,7 +1237,9 @@ end
   iszero(f.λ1) && iszero(f.λ2) && return zero(T)
   n = length(x)
   n == 2 && return @inbounds f((x[1], x[2]))
-  p, a = _sortperm_fused!(f, x, T)
+  # one entry has no pairs: the fusion term is an empty sum, and a NaN reaches only the ℓ1 term
+  n == 1 && isnan(@inbounds x[1]) && return iszero(f.λ1) ? zero(T) : T(NaN)
+  p, a, _ = _sortperm_fused!(f, x, T)
   v1, v2 = zero(T), zero(T)
   @inbounds for k in 1:n
     v1 += abs(a[p[k]])
@@ -1123,10 +1262,14 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     return V ? f(y) : zero(T)
   end
   if n == 2
-    @inbounds y[1], y[2] = _prox_l1fused(convert(T, x[1]), convert(T, x[2]), λ1, λ2, convert(T, γ))
+    l1, l2, g = _fused_pair_levels(λ1, λ2, convert(T, γ))
+    @inbounds y[1], y[2] = _prox_l1fused(convert(T, x[1]), convert(T, x[2]), l1, l2, g)
     return V ? @inbounds(f((y[1], y[2]))) : zero(T)
   end
-  p, a = _sortperm_fused!(f, x, T)          # x is read here, so y may be x
+  p, a, nan = _sortperm_fused!(f, x, T)     # x is read here, so y may be x
+  # a NaN entry: the fusion couples every entry to it (E2), unless the step or λ2 is zero; an infinite
+  # step or level keeps the computation below (LIM-056)
+  nan && !isinf(γ) && !isinf(f.λ1) && !isinf(f.λ2) && return _prox_fused_nan!(y, f, x, γ, Val(V), T)
   w = _buffer!(f.vals, T, n)
   t = convert(T, γ) * λ2
   @inbounds for k in 1:n
@@ -1145,6 +1288,25 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     v2 += (2k - n - 1) * wk
   end
   V ? _fused_vector_value(f, y, v1, v2, T) : zero(T)
+end
+
+# _prox_fused! at an argument with a NaN entry, for a finite step and finite levels, not both
+# levels zero. At γ = 0 the map is the identity, and with λ2 = 0 it is soft thresholding of each
+# entry by γλ1, which a NaN does not reach. Otherwise all pairs are fused and every output depends
+# on every entry, so it is NaN (E2). The value is the one at the stored output (O2).
+@noinline function _prox_fused_nan!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real,
+                                    ::Val{V}, ::Type{T}) where {V, T}
+  if iszero(γ)
+    y === x || copyto!(y, x)
+  elseif iszero(f.λ2)
+    c = convert(T, γ) * convert(T, f.λ1)
+    @inbounds for i in eachindex(x)
+      y[i] = shrink(convert(T, x[i]), c)
+    end
+  else
+    fill!(y, convert(T, NaN))
+  end
+  V ? f(y) : zero(T)
 end
 
 # Project onto an L2 ball without subtracting two nearly equal coordinates.

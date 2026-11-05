@@ -75,10 +75,11 @@ function _check_inner_arrays(fs::Tuple, x, domain)
 end
 function _check_entry_arrays(f::SeparableSum, x::Tuple, domain = _AllPairs())
   _checkblocks(f, x)
-  map((fk, xk) -> _check_entry_arrays(fk, xk,
-      domain isa _StoredValuePairs ? _stored_value_pairs(xk) : _AllPairs()), f.fs, x)
-  true
+  _check_entry_array_blocks(f.fs, x, domain)
 end
+@generated _check_entry_array_blocks(fs::Tuple, x::Tuple, domain) =
+  _blockwise(k -> :(_check_entry_arrays(fs[$k], x[$k],
+    domain isa _StoredValuePairs ? _stored_value_pairs(x[$k]) : _AllPairs())), min(fieldcount(fs), fieldcount(x)), true)
 function _check_entry_arrays(f::AbstractFunction, x::Tuple, domain = _AllPairs())
   _check_inner_arrays(_inner_functions(f), x, domain)
 end
@@ -96,14 +97,14 @@ end
 function _check_pair(f, name, a, p, r, c)
   r == c && return true
   u, v = a[(c - 1) * p + r], a[(r - 1) * p + c]
-  _symequal(u, v) || _throw_asymmetric_parameter(f, name, r, c, u, v)
+  _symequal(u, v) || _throw_asymmetric_parameter(f, name, a, p, r, c)
   true
 end
 function _check_pairs(f, name, a, p, ::_AllPairs)
   @inbounds for cb in 1:32:p, rb in cb:32:p
     for c in cb:min(cb + 31, p), r in max(c + 1, rb):min(rb + 31, p)
       u, v = a[(c - 1) * p + r], a[(r - 1) * p + c]
-      _symequal(u, v) || _throw_asymmetric_parameter(f, name, r, c, u, v)
+      _symequal(u, v) || _throw_asymmetric_parameter(f, name, a, p, 0, 0)
     end
   end
   true
@@ -145,7 +146,9 @@ _stored_value(f::Union{Scaled, Tilt, BallConstrained, SphereConstrained}) = _sto
 _stored_value(f::BoxConstrained) = _stored_value(f.f) && _stored_value(f.box)
 _stored_value(f::LinearConstrained) = _stored_value(f.f) && _stored_value(f.set)
 _stored_value(f::Regularize) = f.c === nothing && _stored_value(f.f)
-_stored_value(f::Union{Sum, SeparableSum, PointwiseMinimum}) = all(_stored_value, f.fs)
+_stored_value(f::Union{Sum, PointwiseMinimum}) = all(_stored_value, f.fs)
+@generated _stored_value(f::SeparableSum{F}) where {F} =
+  _blockall(k -> :(_stored_value(f.fs[$k])), fieldcount(F))
 _stored_value(f::IndIntersection) = all(_stored_value, f.sets)
 _stored_value_pairs(x::SymmetricSparseIterate) = _StoredPairs(x, x)
 _stored_value_pairs(x::Tuple) = _StoredValuePairs()
@@ -177,9 +180,10 @@ _check_value_shapes(::Tuple{}, x) = true
 _check_value_shapes(fs::Tuple, x) = (_check_value_shape(first(fs), x); _check_value_shapes(Base.tail(fs), x))
 function _check_value_shape(f::SeparableSum, x::Tuple)
   _checkparams(f, x)
-  map(_check_value_shape, f.fs, x)
-  true
+  _check_value_shape_blocks(f.fs, x)
 end
+@generated _check_value_shape_blocks(fs::Tuple, x::Tuple) =
+  _blockwise(k -> :(_check_value_shape(fs[$k], x[$k])), min(fieldcount(fs), fieldcount(x)), true)
 _check_value_arrays(f, x::Tuple) =
   (_checkreal(f, x); _check_value_shape(f, x);
    _check_entry_arrays(f, x, _stored_value(f) ? _StoredValuePairs() : _AllPairs()))
@@ -204,9 +208,10 @@ end
 function _check_write_arrays(op::O, f::SeparableSum, y::Tuple, x::Tuple) where {O}
   _checkblocks(f, x)
   _checksize(y, x)
-  map((fk, yk) -> _check_entry_arrays(fk, yk), f.fs, y)
-  true
+  _check_write_array_blocks(f.fs, y)
 end
+@generated _check_write_array_blocks(fs::Tuple, y::Tuple) =
+  _blockwise(k -> :(_check_entry_arrays(fs[$k], y[$k])), min(fieldcount(fs), fieldcount(y)), true)
 _entry_steps(::AbstractFunction) = true
 _entry_steps(::AbstractGroupPenalty) = false
 _entry_steps(f::Union{Scaled, Regularize, Tilt, Translate, Conjugate, _ScalarPrecompose, _ArrayPrecompose}) = _entry_steps(f.f)
@@ -221,7 +226,7 @@ _check_steps(op, f, y, x, γ) = true
 end
 _has_symmetric(x) = false
 _has_symmetric(::SymmetricSparseIterate) = true
-_has_symmetric(x::Tuple) = any(_has_symmetric, x)
+@generated _has_symmetric(x::Tuple) = _blockany(k -> :(_has_symmetric(x[$k])), fieldcount(x))
 
 # Only public boundaries check arrays. Inner kernels retain the existing shape
 # preflights, but never scan a caller's arrays a second time.
@@ -256,6 +261,7 @@ end
   "the gradient g has no symmetric part: entry ($r, $c) is $a and entry ($c, $r) is $b"))
 
 _kkt_violation(s::Scaled, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) =
+  _chained(s) ? _nested_kkt((f, h) -> _kkt_violation(f, h, x, k), s, g) :
   iszero(s.α) ? _kkt_violation(ZeroFunction(), g, x, k) :
     s.α * _kkt_violation(s.f, _ScaledArray(g, inv(s.α)), x, k)
 _kkt_violation(r::Regularize, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) =
@@ -311,6 +317,7 @@ function _check_second_order_arrays(f, x, Hv, v)
   _checkreal(f, Hv)
   _checkreal(f, x)
   _checkreal(f, v)
+  _checkhessian_output(Hv, x, v)
   _check_hessian_shape(f, x, Hv, v)
   _check_entry_arrays(f, x)
 end
@@ -326,14 +333,73 @@ _check_hessian_shape(f, x, Hv, v) = true
 _check_hessian_shape(f::Union{ZeroFunction, LinearFunction, SqrNormL2}, x, Hv, v) =
   (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x))
 _check_hessian_shape(f::KronQuadratic, x, Hv, v) = (_checkshape(f, Hv); _checkshape(f, x))
+# The dimension errors of the products, found before a sum writes anything.
+# Each method takes the arguments that its hessian_vec! takes.
+@noinline _throw_product_shape(f, x) = throw(DimensionMismatch("the product with $(nameof(typeof(f))) does not fit an argument of size $(size(x))"))
+_check_product_dims(f::QuadraticFunction, x) = length(x) == size(f.A, 2) || _throw_product_shape(f, x)
+_check_product_dims(f::LeastSquaresLoss, x) =
+  size(x, 1) == size(f.X, 2) && size(x, 2) == size(f.tmp, 2) || _throw_product_shape(f, x)
+_check_product_dims(f::GLMLoss, x) = _checkpredictor(f, x)
+function _check_product_dims(f::LogDetLoss{T}, x, Hv) where {T}
+  size(x) == size(f.S) || _throw_product_shape(f, x)
+  Hv isa StridedMatrix{T} || _throw_logdet_output(f)
+end
+_check_hessian_shape(f::QuadraticFunction, x::AbstractVector, Hv::AbstractVector, v::AbstractVector) =
+  (_checksize(Hv, x); _checkdirection(v, x); _check_product_dims(f, x); true)
+_check_hessian_shape(f::LeastSquaresLoss, x::AbstractVecOrMat, Hv::AbstractVecOrMat, v::AbstractVecOrMat) =
+  (_checksize(Hv, x); _checkdirection(v, x); _check_product_dims(f, x); true)
+_check_hessian_shape(f::GLMLoss, x::AbstractVector, Hv::AbstractVector, v::AbstractVector) =
+  (_checksize(Hv, x); _checkdirection(v, x); _check_product_dims(f, x); true)
+_check_hessian_shape(f::LogDetLoss, x::AbstractMatrix, Hv::AbstractMatrix, v::AbstractMatrix) =
+  (_checksize(Hv, x); _checkdirection(v, x); _check_product_dims(f, x, Hv); true)
 _check_hessian_shape(f::Union{Scaled, Tilt}, x, Hv, v) =
   (_checkparams(f, x); _check_hessian_shape(f.f, x, Hv, v))
 _check_hessian_shape(f::Translate, x, Hv, v) = _check_hessian_shape(f.f, _checkshifted(f, x), Hv, v)
+# A tuple product writes its blocks one after the other into the caller. An output block that cannot
+# accept every entry (Symmetric, Hermitian, Diagonal, banded, triangular, UpperHessenberg) or that is a
+# sparse iterate is refused by its type, as for the gradient and the proximal operator, before any block is
+# written and before any inner product runs (O6). Here, and not in the public hessian_vec!, so that an
+# enclosing Scaled, Sum or SeparableSum, which checks its parts before it writes, reaches it too. The
+# dimension checks of the inner function come first: a shape error keeps its DimensionMismatch.
+_check_hessian_shape(f::Tilt, x::Tuple, Hv::Tuple, v) =
+  (_checkparams(f, x); _check_hessian_shape(f.f, x, Hv, v); _check_block_output(Hv); true)
+_check_hessian_shape(f::Translate, x::Tuple, Hv::Tuple, v) =
+  (_check_hessian_shape(f.f, _checkshifted(f, x), Hv, v); _check_block_output(Hv); true)
+# the inner function at the image Ax, whose shape the product Hessian and direction share
+function _check_hessian_shape(f::Precompose, x::AbstractArray, Hv, v)
+  _checksize(Hv, x); _checkdirection(v, x)
+  z = _checkimage(f, x)
+  _checkparams(f.f, z)
+  _check_hessian_shape(f.f, z, z, z)
+  true
+end
 _check_hessian_shape(f::Precompose, x, Hv, v) = (_checksize(Hv, x); _checkdirection(v, x))
 _check_hessian_shape(f::Regularize, x, Hv, v) =
   (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x); _check_hessian_shape(f.f, x, Hv, v))
-_check_hessian_shape(f::Sum, x, Hv, v) = (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x))
-_check_hessian_shape(f::SeparableSum, x, Hv, v) = (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x))
+# A built-in function without a Hessian fails before any part of a sum writes; a
+# user-defined function is trusted to supply its own, also inside a wrapper.
+_check_hessian_support(f::AbstractFunction) = (_isbuiltin(f) && !hashessian(f) && _no_hessian(f); true)
+_check_hessian_support(f::Union{Scaled, Tilt, Translate, Regularize, Precompose}) = _check_hessian_support(f.f)
+_check_hessian_support(f::Union{Sum, SeparableSum}) = _check_hessian_support_parts(f.fs)
+@generated _check_hessian_support_parts(fs::Tuple) = _blockwise(k -> :(_check_hessian_support(fs[$k])), fieldcount(fs), true)
+
+# a sum checks every function, a separable sum every block, before the first product
+_check_hessian_shape(f::Sum, x, Hv, v) =
+  (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x); length(f.fs) > 1 && _check_sum_output(Hv); _check_hessian_support(f); _check_hessian_parts(f.fs, x, Hv, v))
+# a function of a sum: the sum has just checked the sizes, the direction and every
+# function's parameters, so only what its own product needs remains
+@generated _check_hessian_parts(fs::Tuple, x, Hv, v) =
+  _blockwise(k -> :(_check_hessian_part(fs[$k], x, Hv, v)), fieldcount(fs), true)
+_check_hessian_part(f, x, Hv, v) = _check_hessian_shape(f, x, Hv, v)
+_check_hessian_part(f::Union{ZeroFunction, LinearFunction, SqrNormL2}, x, Hv, v) = true
+_check_hessian_part(f::QuadraticFunction, x::AbstractVector, Hv::AbstractVector, v::AbstractVector) = (_check_product_dims(f, x); true)
+_check_hessian_part(f::LeastSquaresLoss, x::AbstractVecOrMat, Hv::AbstractVecOrMat, v::AbstractVecOrMat) = (_check_product_dims(f, x); true)
+_check_hessian_part(f::GLMLoss, x::AbstractVector, Hv::AbstractVector, v::AbstractVector) = (_check_product_dims(f, x); true)
+_check_hessian_part(f::LogDetLoss, x::AbstractMatrix, Hv::AbstractMatrix, v::AbstractMatrix) = (_check_product_dims(f, x, Hv); true)
+_check_hessian_shape(f::SeparableSum, x, Hv, v) =
+  (_checksize(Hv, x); _checkdirection(v, x); _checkparams(f, x); _check_hessian_support(f); _check_hessian_blocks(f.fs, x, Hv, v))
+@generated _check_hessian_blocks(fs::Tuple, x::Tuple, Hv::Tuple, v::Tuple) =
+  _blockwise(k -> :(_check_hessian_shape(fs[$k], x[$k], Hv[$k], v[$k])), min(fieldcount(fs), fieldcount(x), fieldcount(Hv), fieldcount(v)), true)
 
 _gradient_unchecked!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector) = gradient!(g, f, x)
 
@@ -367,19 +433,26 @@ end
 _value_scaled_dot(a, x, s, ::Val{false}) = _scaled_dot(a, x, s)
 _value_scaled_dot(a, x::SymmetricSparseIterate, s, ::Val{true}) = _checked_scaled_dot(a, x, s)
 _value_checked(f::LinearFunction, x::SymmetricSparseIterate) =
-  (_checkvalue(f, x); _value_at(_checked_value_dot(f.c, x) + f.d, x))
+  (_checkvalue(f, x); _value_at(_linear_value(f, x, _checked_value_dot(f.c, x) + f.d), x))
 _value_checked(f::Union{IndHyperplane, IndHalfspace, IndHyperslab}, x::SymmetricSparseIterate) =
   _normal_value(f, x, Val(true))
 _value_checked(f::Tilt, x::SymmetricSparseIterate) =
   _value_at(_value_checked(f.f, x) + _checked_value_dot(f.c, x) + f.d, x)
-_value_checked(f::Scaled, x::Union{SymmetricSparseIterate, Tuple}) =
-  _value_at(_scaled_value(f, x, _value_checked(f.f, x)), x)
+function _value_checked(s::Scaled, x::Union{SymmetricSparseIterate, Tuple})
+  if _chained(s)
+    f, a = _scaled_chain(s)
+    return _value_at(_scaled_value_by(f, a, x, _value_checked(f, x)), x)
+  end
+  _value_at(_scaled_value(s, x, _value_checked(s.f, x)), x)
+end
 _value_checked(f::Regularize, x::SymmetricSparseIterate) =
   (_checkparams(f, x); _value_at(_value_checked(f.f, x) + _ridge(f, x), x))
 _value_checked(f::Sum, x::Union{SymmetricSparseIterate, Tuple}) =
   _value_at(sum(g -> _value_checked(g, x), f.fs), x)
 _value_checked(f::SeparableSum, x::Tuple) =
-  (_checkparams(f, x); _value_at(sum(map(_value_checked, f.fs, x)), x))
+  (_checkparams(f, x); _value_at(_sum_checked_values(f.fs, x), x))
+@generated _sum_checked_values(fs::Tuple, x::Tuple) =
+  _blocksum(k -> :(_value_checked(fs[$k], x[$k])), min(fieldcount(fs), fieldcount(x)))
 _value_checked(f::PointwiseMinimum, x::SymmetricSparseIterate) =
   (_checkparams(f, x); _value_at(minimum(map(g -> _value_checked(g, x), f.fs)), x))
 _value_checked(f::BoxConstrained, x::SymmetricSparseIterate) =

@@ -35,6 +35,16 @@ the off-diagonal sparsity of a precision matrix:
 ```julia
 prox!(S, IndBallL0(s; diagonal = false), Symmetric(Θ, :L))   # S::SymmetricSparseIterate
 ```
+
+A NaN entry is undefined (E2 in the numerical contract). Let `m` be the number of entries that
+count (a mirrored pair counts once, and the diagonal of a matrix does not count with
+`diagonal = false`). For `0 < s < m` a NaN in a counted entry makes every counted output NaN, and
+so is the value `value_and_prox!` returns for it; a free diagonal is copied. For `s ≥ m` the
+projection is the identity, NaN included, and its value is `0`. For `s = 0` the projection is zero
+whatever the argument and its fused value is `0`. The value of the function at an argument with a
+NaN in a counted entry is NaN for every `s < m`, since the argument may or may not be in the set.
+When the NaN block is written into an output of integer element type, the `InexactError` is thrown
+before anything is written.
 """
 struct IndBallL0 <: AbstractFunction
   s::Int
@@ -65,42 +75,147 @@ end
 # whether every entry of x counts, as unless x is a matrix with a free diagonal
 _allcount(f::IndBallL0, x::AbstractArray) = f.diagonal || ndims(x) != 2
 
-function _count_nonzero(f::IndBallL0, x::AbstractArray)
-  _allcount(f, x) && return count(!iszero, x)
-  k = 0
+# the number of counted entries that are not zero (a NaN is not zero), and whether a counted entry is NaN,
+# in the one pass over x that the count takes anyway
+function _count_nan(f::IndBallL0, x::AbstractArray)
+  _allcount(f, x) && return _count_nan_all(x)
+  nz, nan = 0, false
   @inbounds for i in eachindex(IndexLinear(), x)
-    k += (!iszero(x[i]) & _counts(f, x, i))
+    v, c = x[i], _counts(f, x, i)
+    nz += (!iszero(v) & c)
+    nan |= (isnan(v) & c)
   end
-  k
+  nz, nan
 end
-function _count_nonzero(f::IndBallL0, x::SparseIterate)
-  f.diagonal || ndims(x) == 1 || return invoke(_count_nonzero, Tuple{IndBallL0, AbstractArray}, f, x)
-  count(!iszero, view(x.nzval, 1:x.nnz))
+function _count_nan(f::IndBallL0, x::SparseIterate)
+  f.diagonal || ndims(x) == 1 || return invoke(_count_nan, Tuple{IndBallL0, AbstractArray}, f, x)
+  _count_nan_values(view(x.nzval, 1:x.nnz))
 end
 
-(f::IndBallL0)(x::AbstractArray) = (_checkreal(f, x); _ind(_count_nonzero(f, x) <= f.s, _valtype(x)))
+# Every entry counts: the counts of the nonzero entries and of the NaN ones, from the stored values of a
+# standard sparse array (its other entries are zero) and from all entries of any other array.
+_count_nan_all(x::AbstractArray) = _count_nan_values(x)
+_count_nan_all(x::SparseVector) = _count_nan_values(nonzeros(x))
+_count_nan_all(x::SparseMatrixCSC) = _count_nan_values(view(nonzeros(x), 1:nnz(x)))
+
+# The IEEE types are counted with a counter as narrow as the entries (a 32-bit counter for a 32-bit entry), so
+# that the masks of the comparison are added without widening; an array with more than 2^30 entries is counted in
+# blocks, so that the counter cannot overflow. NaN is found by carrying the sum of the entries, which is NaN
+# whenever an entry is NaN and costs one addition per entry, less than a second comparison; the sum of finite and
+# infinite entries can also be NaN (+Inf and -Inf, or an overflow), and then the entries are searched for a NaN,
+# a cold path.
+function _count_nan_values(x::AbstractArray{T}) where {T<:Base.IEEEFloat}
+  length(x) > 2^30 && return _count_nan_blocks(x)
+  a = zero(sizeof(T) <= 4 ? Int32 : Int64)
+  z = zero(T)
+  @inbounds @simd for i in eachindex(IndexLinear(), x)
+    v = x[i]
+    a += !iszero(v)
+    z += v
+  end
+  Int(a), isnan(z) && _l0_anynan(x)
+end
+@noinline function _count_nan_blocks(x::AbstractArray{T}) where {T<:Base.IEEEFloat}
+  nz, z = 0, zero(T)
+  r = eachindex(IndexLinear(), x)
+  lo = first(r)
+  while lo <= last(r)
+    hi = min(lo + (2^30 - 1), last(r))
+    a = zero(Int64)
+    @inbounds @simd for i in lo:hi
+      v = x[i]
+      a += !iszero(v)
+      z += v
+    end
+    nz += a
+    lo = hi + 1
+  end
+  nz, isnan(z) && _l0_anynan(x)
+end
+@noinline _l0_anynan(x) = any(isnan, x)
+function _count_nan_values(x::AbstractArray)
+  nz, nan = 0, false
+  @inbounds @simd for i in eachindex(IndexLinear(), x)
+    v = x[i]
+    nz += !iszero(v)
+    nan |= isnan(v)
+  end
+  nz, nan
+end
+
+# the number of entries that count: one per coordinate, a free diagonal excluded
+_ncounted(f::IndBallL0, x::AbstractArray) = _allcount(f, x) ? length(x) : length(x) - min(size(x, 1), size(x, 2))
+_ncounted_symmetric(f::IndBallL0, p::Integer) = f.diagonal ? div(p * (p + 1), 2) : div(p * (p - 1), 2)
+
+# E2: with 0 < s < m counted entries, a NaN in one decides whether the point is in the set and which
+# entries are kept, so every counted output and the value depend on it; s ≥ m is the identity and
+# s = 0 the zero map
+@inline _nan_block_applies(f::IndBallL0, nan::Bool, m::Integer) = nan && 0 < f.s < m
+
+function (f::IndBallL0)(x::AbstractArray)
+  _checkreal(f, x)
+  T = _valtype(x)
+  f.s >= _ncounted(f, x) && return zero(T)     # the whole space: in the set whatever the entries are, NaN included
+  nz, nan = _count_nan(f, x)
+  nan ? convert(T, NaN) : _ind(nz <= f.s, T)
+end
 
 # the entries of the lower triangle of a symmetric matrix, the diagonal unless
 # it does not count
 function (f::IndBallL0)(x::Union{Symmetric, SymmetricSparseIterate})
   _checkreal(f, x)
   p = checksquare(x)
-  k = 0
+  T = _valtype(x)
+  f.s >= _ncounted_symmetric(f, p) && return zero(T)     # the whole space
+  k, nan = 0, false
   @inbounds for c in 1:p, r in (f.diagonal ? c : c + 1):p
-    k += !iszero(x[r, c])
+    v = x[r, c]
+    k += !iszero(v)
+    nan |= isnan(v)
   end
-  _ind(k <= f.s, _valtype(x))
+  nan ? convert(T, NaN) : _ind(k <= f.s, T)
 end
 
 function prox!(y::AbstractArray, f::IndBallL0, x::AbstractArray, γ::Real)
   _checkstep_nonneg(γ)
   x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
-  if _count_nonzero(f, x) <= f.s
+  _direct_prox!(y, f, x)
+  y
+end
+
+# The projection into y; true when it stored the NaN block (E2 above), whose value is NaN (O2).
+function _value_and_prox_body!(y, f::IndBallL0, x, γ::Real = 1)
+  _checkwrite(value_and_prox!, f, y, x)      # the shapes before the step, as the generic body does
+  _checkstep_nonneg(γ)
+  _direct_prox!(y, f, x) ? convert(_valtype(y), NaN) : zero(_valtype(y))
+end
+
+function _direct_prox!(y::AbstractArray, f::IndBallL0, x::AbstractArray)
+  m = _ncounted(f, x)
+  if f.s >= m                           # the whole space: the identity, NaN included, without a count
     y === x || copyto!(y, x)
-    return y
+    return false
+  end
+  nz, nan = _count_nan(f, x)
+  if _nan_block_applies(f, nan, m)
+    return _nan_counted!(y, f, x)
+  elseif nz <= f.s
+    y === x || copyto!(y, x)
+    return false
   end
   _allcount(f, x) ? _keep_largest_all!(y, f, x) : _keep_largest_counted!(y, f, x)
+  false
+end
+
+# NaN in every counted entry; a free diagonal is copied. The NaN is converted before anything is written.
+function _nan_counted!(y::AbstractArray, f::IndBallL0, x::AbstractArray)
+  _allcount(f, x) && return _nan_block!(y)
+  nanv = convert(eltype(y), NaN)
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    y[i] = _counts(f, x, i) ? nanv : x[i]
+  end
+  true
 end
 
 # every entry counts: loops without a test per entry, which vectorize
@@ -166,15 +281,25 @@ end
 function prox!(y::SparseIterate{<:Any, 1}, f::IndBallL0, x::SparseIterate{<:Any, 1}, γ::Real)
   _checkstep_nonneg(γ)
   _checkwrite(prox!, f, y, x)
-  nz = _count_nonzero(f, x)
-  if nz <= f.s
+  _direct_prox!(y, f, x)
+  y
+end
+function _direct_prox!(y::SparseIterate{<:Any, 1}, f::IndBallL0, x::SparseIterate{<:Any, 1})
+  if f.s >= length(x)                   # the whole space: the identity, NaN included
     y === x || copyto!(y, x)
-    return y
+    return false
+  end
+  nz, nan = _count_nan(f, x)
+  if _nan_block_applies(f, nan, length(x))
+    return _nan_block!(y)               # every coordinate of the vector is NaN, and stored
+  elseif nz <= f.s
+    y === x || copyto!(y, x)
+    return false
   elseif f.s == 0
     @inbounds for k in 1:y.nnz          # every entry is zero; y keeps its stored entries
       y.nzval[k] = zero(eltype(y))
     end
-    return y
+    return false
   end
   buf = _buffer!(f.scratch, float(eltype(x)), x.nnz)
   @inbounds for k in 1:x.nnz
@@ -191,7 +316,7 @@ function prox!(y::SparseIterate{<:Any, 1}, f::IndBallL0, x::SparseIterate{<:Any,
       ties -= 1
     end
   end
-  y
+  false
 end
 
 # a symmetric matrix: the entries of the lower triangle, each counted once and
@@ -199,6 +324,10 @@ end
 function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSparseIterate}, γ::Real)
   _checkstep_nonneg(γ)
   _checkwrite(prox!, f, y, x)
+  _direct_prox!(y, f, x)
+  y
+end
+function _direct_prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSparseIterate})
   p = checksquare(x)
   T = float(eltype(x))
   first_row(c) = f.diagonal ? c : c + 1
@@ -206,11 +335,20 @@ function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSpa
   buf = _buffer!(f.scratch, T, div(p * (p + 1), 2))
   k = 0
   nz = 0
+  nan = false
   @inbounds for c in 1:p, r in first_row(c):p
     a = _pairweight(f, r, c, w) * abs(x[r, c])
     k += 1
     buf[k] = a
     nz += !iszero(a)
+    nan |= isnan(a)
+  end
+  if _nan_block_applies(f, nan, k)        # E2: every coordinate that counts is NaN; a free diagonal is kept
+    nanv = convert(eltype(y), NaN)
+    @inbounds for c in 1:p, r in c:p
+      _set_symmetric!(y, !f.diagonal && r == c ? x[r, c] : nanv, r, c)
+    end
+    return true
   end
   τ = nz <= f.s ? -one(T) : f.s == 0 ? T(Inf) : _kth_largest!(view(buf, 1:k), f.s)
   ties = f.s
@@ -225,12 +363,12 @@ function prox!(y::AbstractMatrix, f::IndBallL0, x::Union{Symmetric, SymmetricSpa
       keep = true
     else
       a = _pairweight(f, r, c, w) * abs(v)
-      keep = a > τ || (a == τ && ties > 0)
+      keep = nz <= f.s || a > τ || (a == τ && ties > 0)        # nz ≤ s: the identity, NaN included
       keep && a == τ && (ties -= 1)
     end
     _set_symmetric!(y, keep ? v : zero(v), r, c)
   end
-  y
+  false
 end
 
 # the weight of entry (r, c) in the selection: when the diagonal counts, an
@@ -662,8 +800,8 @@ end
 
 const _DirectSet = Union{IndBallL1, IndBallL2, IndSphereL2, IndSimplex}
 
-# O2: the value is the one at the stored point, NaN when a NaN block was stored. This is the
-# only indicator whose generic shortcut (zero without looking) is replaced.
+# O2: the value is the one at the stored point, NaN when a NaN block was stored. These and
+# IndBallL0 (above) are the indicators whose generic shortcut (zero without looking) is replaced.
 function _value_and_prox_body!(y, f::_DirectSet, x, γ::Real = 1)
   _checkstep_nonneg(γ)
   _checkwrite(value_and_prox!, f, y, x)

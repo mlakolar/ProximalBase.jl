@@ -53,7 +53,6 @@ const baselines = Dict{String,Any}(
     problem = "Poisson at eta=710 has unrepresentable effective coefficient exp(710)"
     expected = Throws(:PrecisionError)
     observed = quadratic_model(PoissonLoss([0.0], ones(1, 1)), [710.0])
-    broken = (group = :G8, baseline = Returned(q -> q isa GLMLoss{ProximalBase.Squared, Float64} && same(q.weights, [Inf]) && same(q.y, [NaN])))
   end
   # P2m's later observation overflows; inspect exception and output separately.
   function update_model()
@@ -71,7 +70,6 @@ const baselines = Dict{String,Any}(
       q, before, loss = update_model()
       quadratic_model!(q, loss, [1.0])
     end
-    broken = (group = :G8, baseline = Returned(q -> q isa GLMLoss{ProximalBase.Squared, Float64} && same(q.weights, [exp(1.0), Inf]) && same(q.y, [0.0, NaN])))
   end
   @row begin
     id = "P2m.unchanged"; case = "P2m"; family = :second_order; oracle = :quadratic_model!
@@ -87,7 +85,6 @@ const baselines = Dict{String,Any}(
       end
       all(isequal(getfield(q, k), getfield(before, k)) for k in fieldnames(typeof(q)))
     end
-    broken = (group = :G8, baseline = Returned(v -> same(v, false)))
   end
   for part in (:weight, :response)
     @row begin
@@ -100,7 +97,6 @@ const baselines = Dict{String,Any}(
         part == :weight ? only(q.weights) : only(q.y)
       end
       compare = part == :weight ? ((v, w) -> within_ulps(v, w, 16)) : same
-      broken = (group = :G8, baseline = Returned(v -> same(v, part == :weight ? Inf : NaN)))
     end
   end
   @row begin

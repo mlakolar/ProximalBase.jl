@@ -69,7 +69,6 @@ end
   problem = "NaN affects its coordinate or the whole coupled block."
   expected = [NaN, NaN]
   observed = prox(NormL2(1.0), [NaN, 4.0], 1.0)
-  broken = (group = :G2, baseline = Returned(v -> same(v, [0.0, 0.0])))
 end
 
 @row begin
@@ -78,7 +77,6 @@ end
   problem = "NaN affects its coordinate or the whole coupled block."
   expected = [NaN, 3.0]
   observed = prox(GroupNormL2(1.0, [1:1, 2:2], [1.0, 1.0]), [NaN, 4.0], 1.0)
-  broken = (group = :G2, baseline = Returned(v -> same(v, [0.0, 3.0])))
 end
 
 @row begin
@@ -236,7 +234,6 @@ end
   problem = "NaN propagates only to dependent coordinates; coupled blocks are entirely NaN."
   expected = Float32[NaN, NaN]
   observed = prox(NormL2(one(Float32)), Float32[NaN, 4], one(Float32))
-  broken = (group = :G2, baseline = Returned(v -> same(v, Float32[0.0, 0.0])))
 end
 
 @row begin
@@ -269,7 +266,6 @@ end
   problem = "NaN propagates only to dependent coordinates; coupled blocks are entirely NaN."
   expected = Float32[NaN, NaN]
   observed = prox(GroupNormL2(one(Float32), [1:2], Float32[1]), Float32[NaN, 4], one(Float32))
-  broken = (group = :G2, baseline = Returned(v -> same(v, Float32[0.0, 0.0])))
 end
 
 @row begin
@@ -565,7 +561,6 @@ end
   problem = "NaN propagates only to dependent coordinates; coupled blocks are entirely NaN."
   expected = Float64[NaN, NaN]
   observed = prox(NormL2(one(Float64)), Float64[NaN, 4], one(Float64))
-  broken = (group = :G2, baseline = Returned(v -> same(v, [0.0, 0.0])))
 end
 
 @row begin
@@ -598,7 +593,6 @@ end
   problem = "NaN propagates only to dependent coordinates; coupled blocks are entirely NaN."
   expected = Float64[NaN, NaN]
   observed = prox(GroupNormL2(one(Float64), [1:2], Float64[1]), Float64[NaN, 4], one(Float64))
-  broken = (group = :G2, baseline = Returned(v -> same(v, [0.0, 0.0])))
 end
 
 @row begin

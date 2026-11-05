@@ -834,18 +834,7 @@ end
     @test_throws DomainError prox!(Y, LogDetLoss(Matrix{T}(I, 3, 3)), D, -1)
     @test host(Y) == fill(T(17), 3, 3)
   end
-  # These matrix-set intersections predate the host decomposition paths.
-  D = typeof(DeviceArray(zeros(Float32, 1)))
-  F = Nothing
-  device_value = which(ProximalBase._value_dense, Tuple{F, D})
-  device_prox = which(ProximalBase._prox_sep!, Tuple{D, F, D, Float64})
-  known = (Set((device_value, which(ProximalBase._value_dense, Tuple{IndPattern, Vector{Float64}}))),
-           Set((device_value, which(ProximalBase._value_dense, Tuple{IndBanded, Matrix{Float64}}))),
-           Set((device_prox, which(ProximalBase._prox_sep!, Tuple{Matrix{Float64}, IndBanded, Matrix{Float64}, Float64}))))
-  # Only methods the package defines: another test file on the same worker may have added
-  # methods to ProximalBase functions (symmetric_parameters_trait's lla_weight does).
-  ours(m) = Base.moduleroot(m.module) !== Main
-  @test all(pair -> Set(pair) in known, filter(pair -> all(ours, pair), Test.detect_ambiguities(ProximalBase)))
+  # The ambiguity guard for the GPU extension is in gpu_suite_basics.jl.
 end
 
 @testset "weighted values at overflow on GPU arrays" begin

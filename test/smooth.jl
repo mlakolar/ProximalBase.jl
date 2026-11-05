@@ -92,6 +92,17 @@ end
   @test f32(Float32.(x)) isa Float32
 end
 
+# R1 (#520): a normal value whose intermediate products underflow keeps its accuracy
+@testset "quadratic values whose products underflow" begin
+  A, B, Θ = fill(2.0^-900, 1, 1), fill(2.0^-1000, 1, 1), fill(2.0^800, 1, 1)
+  @test KronQuadratic(A, B)(Θ) === 2.0^-301
+  @test value_and_gradient!(zeros(1, 1), KronQuadratic(A, B), Θ) === 2.0^-301
+  a = nextfloat(0.0)
+  x = [2.0^28 + 0.25]
+  ref = big(a) * big(x[1])^2 / 2
+  @test abs(big(QuadraticFunction(fill(a, 1, 1))(x)) - ref) <= 4eps(Float64) * ref
+end
+
 @testset "KronQuadratic" begin
   p, q = 6, 4
   X, Y = randn(30, p), randn(30, q)
@@ -333,6 +344,13 @@ end
   @test_throws ArgumentError("GLMLoss requires real entries") LogisticLoss(yb, X; weights = complex.(w))
   for bad in ([Inf, 0.0], [0.0, NaN], [-Inf, 0.0])
     @test_throws ArgumentError(omsg) PoissonLoss(Float64[0, 1], [1.0 0.0; 0.0 1.0]; offset = bad)
+  end
+  # the checks are isbits callables, which a GPU reduction can take (#579); the guard
+  # against a closure on the device path is the physical CUDA run of gpu_suite_basics.jl
+  for T in (Float32, Float64)
+    for c in (PB._FiniteWeight{T}(), PB._FiniteOffset{T}())
+      @test isbitstype(typeof(c)) && c isa Function
+    end
   end
   # a weight or offset finite in Float64 overflows Float32 data
   y32, X32 = Float32[1, 0], Float32[1 0; 0 1]

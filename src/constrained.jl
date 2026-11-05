@@ -200,7 +200,14 @@ function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArra
 end
 # A step is needed only for conditional values of nested box constraints.
 _checkwrite(op::O, f, y, x, γ) where {O} = (_checkreal(f, γ); _checkwrite(op, f, y, x))
-_checkwrite(op::O, s::Scaled, y, x, γ::Real) where {O} = (_checkreal(s, y); _checkreal(s, x); _checkwrite(op, s.f, y, x, s.α * γ))
+function _checkwrite(op::O, s::Scaled, y, x, γ::Real) where {O}
+  _checkreal(s, y); _checkreal(s, x)
+  if _nested_route(s, γ)
+    g, step, _ = _nested_step(s, γ)
+    return _checkwrite(op, g, y, x, step)
+  end
+  _checkwrite(op, s.f, y, x, s.α * γ)
+end
 _checkwrite(op::O, s::Scaled, y, x, γ::AbstractArray) where {O} = (_checkreal(s, y); _checkreal(s, x); _checkreal(s, γ); _checkwrite(op, s.f, y, x, _ScaledArray(γ, s.α)))
 function _checkwrite(op::O, t::Tilt, y::AbstractArray, x::AbstractArray, γ) where {O}
   _checkreal(t, γ)
@@ -1141,8 +1148,13 @@ Base.@propagate_inbounds function _prox_entry_slope(f::IndBox, v::T, i::Integer,
 end
 @inline _prox_entry_slope(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} =
   (max(float(v), zero(float(T))), _slope(v > 0, one(float(T))))
-Base.@propagate_inbounds _prox_entry_slope(s::Scaled, v::Real, i::Integer, γ::Real) =
+Base.@propagate_inbounds function _prox_entry_slope(s::Scaled, v::Real, i::Integer, γ::Real)
+  if _nested_route(s, γ)
+    g, step, _ = _nested_step(s, γ)
+    return _prox_entry_slope(g, v, i, step)
+  end
   _prox_entry_slope(s.f, v, i, s.α * γ)
+end
 Base.@propagate_inbounds _prox_entry_slope(t::Tilt, v::Real, i::Integer, γ::Real) =
   _prox_entry_slope(t.f, v - γ * t.c[i], i, γ)
 Base.@propagate_inbounds function _prox_entry_slope(t::Translate, v::Real, i::Integer, γ::Real)

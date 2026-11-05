@@ -8,7 +8,9 @@
     Parts are still being implemented; [issue #366](https://github.com/mlakolar/ProximalBase.jl/issues/366)
     tracks the functions that do not yet conform. The changes to earlier
     results are listed in [Compatibility and migration](@ref).
-    [`PrecisionError`](@ref) exists, but no function in this release raises it.
+    [`PrecisionError`](@ref) is raised by `quadratic_model` and `quadratic_model!` of a
+    [`GLMLoss`](@ref) when an effective coefficient cannot be represented; no other
+    function in this release raises it.
 
 This page states what ProximalBase promises about the numbers it returns:
 their types, their accuracy, the decisions it takes on rounded quantities, and
@@ -208,9 +210,60 @@ Intermediates include a sum, a difference, a square, a product with a fixed
 factor such as `1/2`, and a level or weight that is not representable in `R`.
 
 The ordinary expression is evaluated first. Only when its result is out of
-range, or a sum of squares could have lost terms to underflow, is the value
-recomputed in units of a power of two, with the level applied last. Ordinary
-inputs therefore take the ordinary computation, at its speed.
+range, when a sum of squares could have lost terms to underflow, or, for the
+quadratic forms below, when an intermediate matrix product could have underflowed
+although the final value is a normal number, is the value recomputed in units of
+a power of two, with the level applied last. Ordinary inputs therefore take the
+ordinary computation, plus the cheap check that decides this.
+
+The quadratic forms of [`QuadraticFunction`](@ref) and `KronQuadratic` are
+covered when an intermediate matrix product underflows. A product rounded into
+the buffer type loses at most `denorm_min/2`, which a large entry of the argument
+multiplies later, and the products of the final dot products lose the same each.
+The value is recomputed if it is below
+`floatmin (n² max|x| / 4 + n)` (for `KronQuadratic`,
+`floatmin (max|Θ| p q² (1 + p max|B|) / 4 + 2 p q)`), the point at which those
+losses can exceed `eps` times the value; where no product of an entry of `A` and
+one of `Θ` can be subnormal, the factor `max|B|` is not needed and is not read.
+This takes one pass over `x` (over `Θ` and `B` for `KronQuadratic`). A zero entry
+of sparse or structured data does not fire it, and neither does an argument that
+is exactly zero.
+
+When that threshold is met, the exponents of the operands decide whether
+anything was lost: if the exponents of the smallest nonzero entries of two
+factors add to at least `exponent(floatmin)`, no product of them is subnormal,
+and a sum with a subnormal result is exact, so the ordinary value carries only
+the ordinary relative errors, however small it is. This holds for each product
+of the computation (`A x`, `x'(A x)` and `b'x`; `A Θ`, `(A Θ) B`, `Θ'W` and
+`C'Θ`), and then the ordinary value is returned. A value that is exactly zero at
+a nonzero argument, because `A = 0` or the argument is in the null space of `A`
+with normal products, therefore costs a pass over the operands and one more
+product, not the recomputation. The test needs the computation in one type (a
+wider argument than the buffers is rounded elsewhere) and is not made for other
+element types.
+
+The recomputation, for a product that can be subnormal, does not round it
+before it is summed: each is formed as a significand and an exponent, so that
+the exponent range does not limit it, and the significand products and their sum
+are rounded as usual, to a few units of `eps` times the error scale of the
+terms. It costs about 30 times an ordinary `QuadraticFunction` call at
+`n = 256`, and a `KronQuadratic` call between 2 and several hundred times,
+depending on the tier. A cancellation to a value far below the terms is held to
+the error scale of the terms, as in the ordinary computation, unless the value
+itself falls below the threshold and a product can be subnormal.
+
+The three costs differ. The check itself, one pass over the operands, is paid by
+every call. A value that is exactly zero at a nonzero argument pays one more
+product, as above; on the benchmark of #536 that was between 1.6 and 3.2 times the
+ordinary call. The recomputation is paid only by a call whose intermediate
+product can be subnormal, at the cost given above.
+
+The coefficient matrices of a `KronQuadratic` fix the type of its buffers, and a
+wider argument is rounded into them before the check; an entry below the range
+of the buffer type, such as `2^-200` in a `Float32` function, is lost (T3 asks
+for the argument not to be rounded below the model precision; this is a known
+limitation, the same before and after the treatment of underflow above, and it
+is tracked in #584).
 
 ```julia
 julia> SqrNormL2(1e-300)([1e200])
@@ -256,6 +309,42 @@ intermediate.
 The scaled-value mechanism is internal in 0.6. A function you write yourself
 is covered by R1 when evaluated directly. Inside `Scaled`, it is covered only
 while its own value does not overflow.
+
+*Nested scales.* `Scaled(Scaled(f, a), b)` merges the two scales into one when
+`a * b` is a normal number. When the factors are finite and positive but their
+product underflows, is subnormal or overflows, the wrappers stay nested: T5 forbids
+turning a finite positive scale into zero or `Inf`, and a merged scale would no
+longer say what `a` and `b` said. Each oracle then forms its coefficient from all the
+factors, with the exponent applied last (R3): the value, gradient, `prox!`,
+`value_and_prox!`, `prox_entry`, the step checks, array steps, the optimality
+violation, the Lipschitz constants and the Hessian product take the product of the
+chain; the steps of a proximal operator pass the product of the factors and the
+step to the function when that is a normal number, and otherwise fold the exponent into the
+levels, with the step reduced to its significand, for the functions of the
+scaled-value mechanism. Conjugates and their projections accumulate the factors the same way. A
+function that folds no level (a `SqrNormL2`, a loss, a `Tilt`) forms its value, gradient and Hessian
+product at its own scale before the factors are applied, so an intermediate that leaves the range is
+lost, not only a proximal step or a conjugate value (`Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)`
+at `[1e10]` gives `Inf` for all three, not `5e-81`, `1e-90` and `1e-90`; a single `Scaled` does the
+same); it receives the step as the product rounds it,
+and its conjugate value under such a product throws instead of returning a wrong number; a
+`value_and_prox!` of the conjugate then leaves its output as it was, however many ordinary wrappers
+(`Scaled`, `Translate`, `SingularValue`, `SeparableSum`) lie above the chain. An indicator has the same
+optimality violation under every finite positive factor.
+The levels fold through `Translate`, `Sum` and `SeparableSum` of such functions. A single
+`Scaled(f, a)` takes the route of a chain for a scalar step whose product with `a` is not a normal
+number (zero, infinite, negative and NaN steps, and indicators, keep their path). An array step
+takes the whole factor into the levels and passes the caller's array on unchanged; when the product
+of the levels and the factors is not a normal number, a power of two that centres the exponents of
+the entries moves from the step into the levels, which reads the step once and only on this route.
+A chain takes the route always. A single factor takes it when it lies outside the band `2^-E` to
+`2^E`, `E` a quarter of the exponent range of the element type (255 for `Float64`, 31 for
+`Float32`), a test on the factor alone, so that an ordinary call reads nothing more than before; for
+a factor inside the band, an entry of the step that is itself within `E` of a limit of the range is
+rounded together with the factor. Not recovered: the value of a chain whose leaf value overflows
+while the folded level is itself not a number in range; array-step entries whose exponents spread too
+far for the levels to hold them, which are rounded with the factors; and the steps of a function
+without levels to fold. Exact zero and `Inf` scales merge as before.
 
 **R2. Gradients and closed-form proximal outputs.** Each entry of a gradient,
 and each entry of a proximal output computed in closed form, follows R1's

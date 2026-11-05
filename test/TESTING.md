@@ -137,6 +137,11 @@ nothing was deleted. Assertion counts (from the runner) confirm it.
 | `conjugate_basics` | `conjugate_projections` (full) | Seven direct conjugate families (clipping, check loss, orthant, l2 ball, group l2 ball, huge·tiny scale, shift) in Float64 and Float32; the Float64 Moreau identity with infinite weights; nested mixed sums and failure atomicity; output aliasing of parameters; biconjugates; Float64 l1-ball radius accuracy and group l1 balls | 265693 = 259835 + 5858 |
 | `gpu_smoke` (with `gpu_prelude`, `gpu_suite_basics`) | `gpu` (full) | `NormL1` (plain and weighted) and the user bits type; `NormL2`, `IndSimplex`; `GroupNormL2` on host and device layouts; weighted norms at device overflow; least-squares and logistic losses with a design matrix; infinite weights; Moreau array steps | 21767 = 21469 + 298 |
 
+The ambiguity guard for the GPU extension moved from `gpu` to `gpu_smoke` (through `gpu_suite_basics`),
+and `gpu_suite_basics` gained the `_maximum_abs` tests for a `Diagonal` of a device vector. The
+runner's counts for `gpu` and `gpu_smoke`: 21469 and 319 at the base (21788 together, the guard
+failing there), 21468 and 412 at the head (21880 together): the guard's assertion moved, and 92 are new.
+
 `constrained`: one check in `ProximalBase.Testing.test_prox` runs only for random candidate
 points inside the constraint set, so its count depends on the random draws (110–112 for the
 moved block under seeds 1–12); the moved code changed which draws later testsets see.
@@ -420,14 +425,17 @@ the test. The times come from the CLI's jq as Unix time, so the planner no longe
 
 ## A test made independent of its worker
 
-`gpu_suite.jl`'s ambiguity check called `Test.detect_ambiguities(ProximalBase)`, which also sees
+The ambiguity check for the GPU extension is the last testset of `gpu_suite_basics.jl`, so
+`gpu_smoke` and the physical CUDA run execute it (it was in `gpu_suite.jl`). It calls
+`Test.detect_ambiguities(ProximalBase)`, which also sees
 methods that other test files add to ProximalBase functions in the same worker process. With
 `symmetric_parameters_trait` (its `MyL1` adds an `lla_weight` method) earlier on the worker, the
 check failed: on Discovery with Julia 1.13.3 and no test history (files in random order), and
 locally by running the two files in one process. Which files share a worker depends on the
-tier and on the timing history, so the check now ignores methods defined in test modules. The
-known package ambiguities and the assertion are unchanged. This is the only assertion whose
-input changed in this work.
+tier and on the timing history, so the check ignores methods defined in test modules. The
+known package ambiguities are unchanged; the assertion now prints the offending pairs when it
+fails, on every Julia version. When the tiers were introduced, this was the only assertion whose
+input changed.
 
 ## Per-file times
 

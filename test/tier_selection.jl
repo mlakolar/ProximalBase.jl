@@ -88,6 +88,126 @@ end
   @test MANIFEST.timeouts == Dict("quick" => 20, "standard" => 30, "thorough" => 45, "full" => 90)
 end
 
+# What filter_tests! keeps for these names; check_selectors must agree with it on what matches.
+function kept(names, positionals)
+  suite = Dict{String, Any}(n => nothing for n in names)
+  ParallelTestRunner.filter_tests!(suite, ParallelTestRunner.parse_args(positionals))
+  return sort!(collect(keys(suite)))
+end
+
+@testset "test names that match no test file" begin
+  m = TestTiers.parse_manifest(SMALL)
+  runnable = ["a", "b", "c", "d/e"]
+  available = ["a", "b"] # the tier left after the tier and --extra
+  mktempdir() do dir
+    write(joinpath(dir, "a.jl"), "include(\"h.jl\")\n")
+    check(args...) = TestTiers.check_selectors(m, dir, runnable, available, collect(args); scope = "tier standard")
+    # names that match: nothing to say
+    @test check() == (String[], String[])
+    @test check("a") == check("a", "b", "!b") == check("!a") == check("") == (String[], String[])
+    # a typo is not hidden by a name that matches; every one is listed once, in the order given
+    errors, warnings = check("a", "ab", "zz", "ab")
+    @test isempty(warnings) && length(errors) == 2
+    @test startswith(errors[1], "`ab`: no test file starts with it") && startswith(errors[2], "`zz`:")
+    @test length(check("zz")[1]) == 1 # and alone
+    # a helper is no test, and the message names the file that includes it
+    @test only(check("a", "h")[1]) == "`h`: a helper that test files include, not a test; it runs through a"
+    @test only(check("!h")[2]) == "`!h`: a helper that test files include, not a test; it runs through a"
+    # a prefix of a helper is not the helper
+    @test only(check("h_")[1]) == "`h_`: no test file starts with it"
+    # a test outside the tier: an error that points to --tier and --extra, not a silent no match
+    errors, _ = check("c", "d/")
+    @test length(errors) == 2
+    @test occursin("matches only tests outside tier standard (c)", errors[1]) && occursin("--tier", errors[1]) && occursin("--extra", errors[1])
+    @test occursin("(d/e)", errors[2])
+    # an exclusion that matches nothing warns and is no error
+    errors, warnings = check("a", "!zz", "!c")
+    @test isempty(errors) && length(warnings) == 2
+    @test startswith(warnings[1], "`!zz`: no test file starts with it") && occursin("outside tier standard (c)", warnings[2])
+    @test check("!zz") == (String[], ["`!zz`: no test file starts with it"])
+  end
+  # a helper that no test file includes: no file is named
+  mktempdir() do dir
+    write(joinpath(dir, "a.jl"), "# no include\n")
+    errors, _ = TestTiers.check_selectors(m, dir, runnable, available, ["h"])
+    @test only(errors) == "`h`: a helper that test files include, not a test"
+  end
+  # more than three tests outside the tier are cut short
+  wide = TestTiers.parse_manifest(SMALL)
+  errors, _ = TestTiers.check_selectors(wide, mktempdir(), ["a", "t1", "t2", "t3", "t4"], ["a"], ["t"])
+  @test occursin("(t1, t2, t3, ...)", only(errors))
+end
+
+@testset "test names of the real catalog" begin
+  runnable = TestTiers.select(MANIFEST, "full")
+  quick = TestTiers.select(MANIFEST, "quick")
+  check(args...; available = runnable) = TestTiers.check_selectors(MANIFEST, DIR, runnable, available, collect(args); scope = "tier quick")
+  # the reported case: a helper next to a test that runs it
+  errors, warnings = check("second_order", "gpu_smoke", "gpu_suite_basics")
+  @test isempty(warnings) && only(errors) == "`gpu_suite_basics`: a helper that test files include, not a test; it runs through gpu_smoke"
+  @test occursin("runs through gpu", only(check("gpu_suite")[1])) && !occursin("gpu_smoke", only(check("gpu_suite")[1]))
+  # helpers: none that a test file includes by name, and one that the test tier_selection includes
+  for helper in ("conformance/common", "testutils")
+    @test only(check(helper)[1]) == "`$helper`: a helper that test files include, not a test"
+  end
+  @test only(check("tiers")[1]) == "`tiers`: a helper that test files include, not a test; it runs through tier_selection"
+  # the test that runs a helper may lie outside the tier
+  @test only(check("gpu_suite"; available = quick)[1]) ==
+        "`gpu_suite`: a helper that test files include, not a test; it runs through gpu (outside tier quick)"
+  # a directory with an environment of its own
+  for name in ("cuda/runtests", "cuda", "oracles/")
+    @test only(check(name)[1]) == "`$name`: a directory with an environment of its own that is run by hand, not a test"
+  end
+  # --core has other advice than a higher tier, which it cannot be combined with
+  errors, _ = TestTiers.check_selectors(MANIFEST, DIR, runnable, quick, ["second_order"]; scope = "--core", hint = "run without --core")
+  @test only(errors) == "`second_order`: it matches only tests outside --core (second_order); run without --core"
+  # a typo and a name that the tier drops
+  @test startswith(only(check("second_order", "second_ordr")[1]), "`second_ordr`: no test file starts")
+  errors, _ = check("second_order", "gpu_smoke"; available = quick)
+  @test startswith(only(errors), "`second_order`: it matches only tests outside tier quick (second_order)")
+  @test check("!gpu_smoek") == (String[], ["`!gpu_smoek`: no test file starts with it"])
+  @test check("!gpu_smok") == (String[], String[]) # a prefix of gpu_smoke: it excludes that file
+  # prefixes keep selecting: a directory, a short name, an exact name, with an exclusion
+  @test check("conformance/", "second", "gpu_smoke", "!gpu_smoke") == (String[], String[])
+  @test check("conformance/", "!conformance/second_order") == (String[], String[])
+  # the check agrees with filter_tests! on which names match: a name is flagged exactly when the
+  # real function keeps nothing for it (an include) or removes nothing (an exclusion)
+  for names in (["gpu_smoke", "second_order"], ["gpu_suite_basics", "second_ordr", "conformance/"], ["!gpu_smoek", "lapack"],
+                ["tier_sel", "x"], ["!tier_selection", "!"], ["!!zz", "!!lapack", "", "!gpu_smok"], ["!x", "!lapack", "conformance"])
+    for available in (runnable, quick)
+      errors, warnings = check(names...; available)
+      flagged(msgs) = [first(split(m, "`:"; limit = 2))[2:end] for m in msgs]
+      @test flagged(errors) == [n for n in unique(names) if !startswith(n, "!") && isempty(kept(available, [n]))]
+      @test flagged(warnings) == [n for n in unique(names) if startswith(n, "!") && kept(available, [n]) == sort(available)]
+    end
+  end
+end
+
+# runtests.jl itself, as a process: the check runs before any worker starts and leaves --list alone.
+# The selections are chosen so that none of them would run a test file if it were accepted.
+@testset "runtests.jl rejects names that match no test file" begin
+  julia = `$(Base.julia_cmd()) --startup-file=no --project=$(dirname(Base.active_project()))`
+  function run_selection(args...)
+    out, err = IOBuffer(), IOBuffer()
+    p = run(pipeline(ignorestatus(`$julia $(joinpath(DIR, "runtests.jl")) $(collect(args))`); stdout = out, stderr = err))
+    return success(p), String(take!(out)), String(take!(err))
+  end
+  # a name that matches next to one that does not: an error, and no run starts
+  ok, out, err = run_selection("--tier=quick", "gpu_smoke", "gpu_suite_basics", "second_ordr")
+  @test !ok && !occursin("ProximalBase tests:", out)
+  @test occursin("`gpu_suite_basics`: a helper that test files include, not a test; it runs through gpu_smoke", err)
+  @test occursin("`second_ordr`: no test file starts with it", err) && occursin("scripts/test.jl --list", err)
+  # a name that the tier drops
+  ok, _, err = run_selection("--tier=quick", "gpu_smoke", "second_order")
+  @test !ok && occursin("`second_order`: it matches only tests outside tier quick", err)
+  # --core has its own advice
+  ok, _, err = run_selection("--core", "precision_mixed")
+  @test !ok && occursin("outside --core (precision_mixed); run without --core", err)
+  # --list shows the catalog, whatever the names
+  ok, out, err = run_selection("--tier=quick", "--list", "zz", "gpu_suite_basics")
+  @test ok && occursin("tier_selection", out) && !occursin("select no test file", err)
+end
+
 @testset "path patterns" begin
   matches(pattern, path) = occursin(TestTiers.glob_regex(pattern), path)
   @test matches("src/**", "src/functions/norms.jl")

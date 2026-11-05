@@ -210,9 +210,60 @@ Intermediates include a sum, a difference, a square, a product with a fixed
 factor such as `1/2`, and a level or weight that is not representable in `R`.
 
 The ordinary expression is evaluated first. Only when its result is out of
-range, or a sum of squares could have lost terms to underflow, is the value
-recomputed in units of a power of two, with the level applied last. Ordinary
-inputs therefore take the ordinary computation, at its speed.
+range, when a sum of squares could have lost terms to underflow, or, for the
+quadratic forms below, when an intermediate matrix product could have underflowed
+although the final value is a normal number, is the value recomputed in units of
+a power of two, with the level applied last. Ordinary inputs therefore take the
+ordinary computation, plus the cheap check that decides this.
+
+The quadratic forms of [`QuadraticFunction`](@ref) and `KronQuadratic` are
+covered when an intermediate matrix product underflows. A product rounded into
+the buffer type loses at most `denorm_min/2`, which a large entry of the argument
+multiplies later, and the products of the final dot products lose the same each.
+The value is recomputed if it is below
+`floatmin (n² max|x| / 4 + n)` (for `KronQuadratic`,
+`floatmin (max|Θ| p q² (1 + p max|B|) / 4 + 2 p q)`), the point at which those
+losses can exceed `eps` times the value; where no product of an entry of `A` and
+one of `Θ` can be subnormal, the factor `max|B|` is not needed and is not read.
+This takes one pass over `x` (over `Θ` and `B` for `KronQuadratic`). A zero entry
+of sparse or structured data does not fire it, and neither does an argument that
+is exactly zero.
+
+When that threshold is met, the exponents of the operands decide whether
+anything was lost: if the exponents of the smallest nonzero entries of two
+factors add to at least `exponent(floatmin)`, no product of them is subnormal,
+and a sum with a subnormal result is exact, so the ordinary value carries only
+the ordinary relative errors, however small it is. This holds for each product
+of the computation (`A x`, `x'(A x)` and `b'x`; `A Θ`, `(A Θ) B`, `Θ'W` and
+`C'Θ`), and then the ordinary value is returned. A value that is exactly zero at
+a nonzero argument, because `A = 0` or the argument is in the null space of `A`
+with normal products, therefore costs a pass over the operands and one more
+product, not the recomputation. The test needs the computation in one type (a
+wider argument than the buffers is rounded elsewhere) and is not made for other
+element types.
+
+The recomputation, for a product that can be subnormal, does not round it
+before it is summed: each is formed as a significand and an exponent, so that
+the exponent range does not limit it, and the significand products and their sum
+are rounded as usual, to a few units of `eps` times the error scale of the
+terms. It costs about 30 times an ordinary `QuadraticFunction` call at
+`n = 256`, and a `KronQuadratic` call between 2 and several hundred times,
+depending on the tier. A cancellation to a value far below the terms is held to
+the error scale of the terms, as in the ordinary computation, unless the value
+itself falls below the threshold and a product can be subnormal.
+
+The three costs differ. The check itself, one pass over the operands, is paid by
+every call. A value that is exactly zero at a nonzero argument pays one more
+product, as above; on the benchmark of #536 that was between 1.6 and 3.2 times the
+ordinary call. The recomputation is paid only by a call whose intermediate
+product can be subnormal, at the cost given above.
+
+The coefficient matrices of a `KronQuadratic` fix the type of its buffers, and a
+wider argument is rounded into them before the check; an entry below the range
+of the buffer type, such as `2^-200` in a `Float32` function, is lost (T3 asks
+for the argument not to be rounded below the model precision; this is a known
+limitation, the same before and after the treatment of underflow above, and it
+is tracked in #584).
 
 ```julia
 julia> SqrNormL2(1e-300)([1e200])

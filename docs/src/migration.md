@@ -266,6 +266,14 @@ an `ArgumentError` instead of a `MethodError`. Restricting a group-penalty
 envelope, including as the smooth term of an active-set solver, is no longer
 supported. These coordinate operations require a separable underlying function.
 
+## The groups of an `AtomIterate` (0.6)
+
+The fields of an [`AtomIterate`](@ref), including `groups`, are private. Read the indices of
+group `k` with [`atomindices`](@ref)`(x, k)`, a read-only vector, instead of `x.groups[k]`, and
+compare layouts with `ProximalBase.samegroups(a, b)` instead of comparing `a.groups` and
+`b.groups`. `similar(x)` makes an iterate with the same groups. Changing the array that
+`parentindices(atom(x, k))` returns is not supported. See [AtomIterate](@ref).
+
 ## Writes through `atom(x, k)` (0.6)
 
 Writes through [`atom`](@ref)`(x, k)` now activate the group, as `x[i] = v`

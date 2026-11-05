@@ -79,15 +79,18 @@ to independently checked accuracy on physical GPU hardware.
 
 `benchmark/check_only.jl` builds the same cases and runs every selected case's reference checks
 and warm-up, without timing it. It does what `measure!` does before and after the timed trial:
-`validate()`, three `prepare(); op()` rounds and the allocation probe. A case with an automatic
-evaluation count then gets two samples of ten evaluations and `validate()` again. The cases run
-in the measurement order of the repetition. The script reads `PB_SUITE`, `PB_GROUPS`,
+`validate()` and the digests of the case's read-only inputs, three `prepare(); op()` rounds and the
+allocation probe. A case with an automatic evaluation count then gets two samples of ten
+evaluations. Every case then has its inputs compared with their digests, and a case with an
+automatic evaluation count gets `validate()` again (see [Read-only inputs](#read-only-inputs)).
+The cases run in the measurement order of the repetition. The script reads `PB_SUITE`, `PB_GROUPS`,
 `PB_CASES`, `PB_REPETITION` and `PB_EXPECTED_PACKAGE_ROOT`. With `PB_OUTPUT` set, it writes
 `check-rep<NN>-errors.tsv` there: every failure with its exception and full stack trace, written
 and flushed as it occurs, so a timeout keeps what was recorded. It prints the ID of every failing
 case and exits with status 1 if any case fails. `benchmark/check_only_test.jl` tests the driver on
-synthetic cases and then runs `benchmark/cases_test.jl`, which tests the sparse operands of the
-`products` cases and runs their reference checks for repetitions 1–10, in under half a minute.
+synthetic cases and the read-only input checks on a few real cases, then runs
+`benchmark/cases_test.jl`, which tests the sparse operands of the `products` cases and runs their
+reference checks for repetitions 1–10.
 
 ```sh
 JULIA_NUM_THREADS=1 julia --project=benchmark benchmark/check_only.jl
@@ -95,12 +98,13 @@ PB_SUITE=extended PB_GROUPS=products,sparse,atom,owner JULIA_NUM_THREADS=1 \
   julia --project=benchmark benchmark/check_only.jl
 ```
 
-CI runs the driver's tests and the quick suite (693 cases, about a minute) on Julia lts and 1
-whenever the package tests run or the benchmark harness changes, and uploads the errors file of a
-failing run as the artifact `benchmark-check-errors-<version>-<attempt>`. The extended suite
-(5,195 cases, about four minutes) is a manual run; its `products,sparse,atom,owner` cases need
-about 16 GB of memory in one process. The script includes `run.jl` unchanged, so it does not
-change the harness hash of a baseline.
+CI runs the driver's tests and the quick suite (839 cases) on Julia lts and 1 whenever the package
+tests run or the benchmark harness changes, and uploads the errors file of a failing run as the
+artifact `benchmark-check-errors-<version>-<attempt>`. On recent pull-request runs, CI's step for
+the driver's tests took 15–73 s and its quick-suite step between about 1.5 and 4 minutes. The extended suite
+(5,540 cases) is a manual run; its `products,sparse,atom,owner` cases need about 16 GB of memory
+in one process. `check_only.jl` is not part of the harness hash, which covers `run.jl` and
+`cases.jl`.
 
 ## Iterate-family groups
 
@@ -118,10 +122,14 @@ A new case in `sparse`, `atom` or `owner` must keep these rules:
   (`storage`) to a write through `atom(x, k)`, and the layout-cache reset of `samegroups`
   (`layout_cache`) to no reset. The row keeps its ID and measures the other path.
 - It is checked against an independent reference built from the harness's own data (a dense
-  array, a CSC matrix, a formula), never against the kernel under test. A product starts from a
+  array, a CSC matrix, a formula), never against the kernel under test. A reference that depends on
+  an array the operation reads is computed when the case is built. A product starts from a
   sentinel output, so that a call that does nothing cannot pass. Where 0.5.x and 0.6 differ (the
   working set after a clear, the inactive entries after `rmul!(x, Inf)`), only the values both
   agree on are checked.
+- It declares its read-only inputs (see [Read-only inputs](#read-only-inputs)): the shared working
+  iterate only where the case leaves it logically unchanged, and the snapshot that `prepare`
+  restores it from where the case changes it.
 - A case that changes state restores it in `prepare`, outside the timed region, and runs with
   `evals = 1`. Every first activation takes distinct absent coordinates or groups, and the
   restore asserts that none is active.
@@ -385,3 +393,39 @@ detailed records are needed. Historical experiments remain recoverable in the
 The repeated CPU baseline and its raw-data locations are documented with
 [PR #102](https://github.com/mlakolar/ProximalBase.jl/pull/102) and its
 [original report](https://github.com/mlakolar/ProximalBase.jl/blob/0111d1bb4ca51b40c28d8ea5dab0f63be4d76e6a/benchmark/campaign/baselines/discovery-2026-10-25/README.md).
+
+### Read-only inputs
+
+Every case declares its read-only inputs (`addcase!(…; inputs = (; x, …))`, a required keyword): the
+arrays and iterates that the operation or `prepare` reads and must leave logically unchanged. These
+include operands, steps, weights, directions, index and trial-point arrays, the snapshots that
+`prepare` restores from, the arrays of the call site that a function object holds, and the shared
+working iterate of a case that leaves it unchanged. Destinations, state that a case changes (even
+when `prepare` restores it), workspaces, caches, scalars and function objects are not declared. A case
+with nothing to declare passes `inputs = (;)` with a comment.
+
+`measure!` and `check_only.jl` digest the inputs right after the pre-trial `validate()` (another case
+may legitimately have changed shared state before) and compare the digests after the trial, for every
+case, before the post-trial `validate()` of an automatic evaluation count (the sparse and atom
+validations restore the shared iterate first). A change throws
+``read-only input `x` changed during the trial of <id>``, and no metrics row is written. Profiling
+runs after the last check; it is diagnostic and writes no metrics.
+
+The digest is 64 bits over a logical record, computed by a loop over every stored element of type
+`Float32`, `Float64` or an integer type (an input of another element type is rejected when the case
+is built): a dense array by its size and elements (with `isequal` semantics: `-0.0` differs from `0.0`, NaNs are equal),
+a `Transpose` by its parent, a `Symmetric` by its whole parent (only the referenced triangle is
+meaningful), a view by its elements, a `SparseIterate` or `SymmetricSparseIterate` by its stored
+(coordinate, value) pairs, stored zeros included, sorted by coordinate, an `AtomIterate` by its sorted
+active groups, its entries and its group layout (through the build-time spelling of `atomindices`), and
+a tuple by its leaves. A digest names the input, not the entry.
+
+The builders (`addprox!`, `addcold!`, `addgrad!`, `addblockprox!`, `addblockgrad!`) compute their
+references when the case is built, from the untouched input and a copy of the function object, and
+start every validation by comparing their inputs with digests taken then
+(``read-only input `x` changed after the case was built``). So do the CD trace and the copies whose
+source is also the reference. Every other reference that depends on an array the operation reads is
+also computed when the case is built. A few comparisons use a value computed at check time instead of
+a stored reference: the value returned with a proximal output is compared with `f(y)`, and the
+residual of the CD trace with `y - X*β`. The checks of a quadratic model evaluate the model at check
+time (`q(x)`, `gradient(q, x)`, `hessian_vec(q, x, v)`) and compare the results with stored references.

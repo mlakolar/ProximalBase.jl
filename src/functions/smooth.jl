@@ -295,6 +295,21 @@ end
 
 _checkvalue(f::SqrNormL2, x) = (_checkreal(f, x); _checkparams(f, x); f.y === nothing || _checksize(f.y, x); true)
 
+# The scaled-value mechanism: the recomputation of _square_value in power-of-two units, with the
+# centers rounded as the value rounds them. A value that is exactly zero is below
+# λ n δ/4 < 2^E δ/2, δ the smallest subnormal, since every square rounded to zero.
+_has_value_parts(::Type{<:SqrNormL2}) = true
+function _value_parts(f::SqrNormL2, x::AbstractArray, v)
+  T = _valtype(x)
+  y = f.y
+  T === Float32 && y !== nothing && eltype(y) === Float64 && return _square_parts(f.λ, x, map(_ridge_round_center32, y))
+  y !== nothing && T <: Union{Float32, Float64} && float(eltype(y)) <: BigFloat &&
+    return _square_parts(f.λ, x, map(c -> _ridge_round_big(T, c), y))
+  _square_parts(f.λ, x, y)
+end
+@inline _zero_value_exponent(f::SqrNormL2, x::AbstractArray) = _upper_exponent(f.λ) + _log2_ceil(length(x))
+_parameter_alias(f::SqrNormL2, out) = _mightalias_parameter(out, f.y)
+
 # Does a center entry keep its range when rounded to the model precision W (R3)?
 # Branchless, so that a loop over the entries still vectorizes. Free for a center
 # already stored in W; non-finite and zero entries convert without loss.

@@ -324,6 +324,23 @@ function _value_unchecked(f::DistL2, x::AbstractArray)
   _distl2_value(T, f.λ, m, e)
 end
 
+# The scaled-value mechanism: the distance as a significand and an exponent (_distl2_parts), times
+# λ for DistL2 and λ/2 times its square for SqrDistL2, after one more projection.
+_has_value_parts(::Type{<:Union{DistL2, SqrDistL2}}) = true
+function _distance_value_parts(f, x::AbstractArray, square::Bool)
+  (iszero(f.λ) || !isfinite(f.λ)) && return nothing
+  T = float(eltype(x))
+  p = _distance_buffer(f, T, x)
+  _prox_unchecked!(p, f.f, x, one(T))
+  m, e = _distl2_parts(x, p)
+  m = float(m)
+  isfinite(m) || return nothing
+  iszero(m) && return (m, 0)
+  _parts_product(frexp(float(f.λ)), square ? _parts(m * m / 2, 2e) : (m, e))
+end
+_value_parts(f::DistL2, x::AbstractArray, v) = _distance_value_parts(f, x, false)
+_value_parts(f::SqrDistL2, x::AbstractArray, v) = _distance_value_parts(f, x, true)
+
 # A subnormal interpolation weight can still move a large endpoint. Apply
 # its exponent only after multiplication by the residual's significand.
 @inline function _distl2_blend(x::Real, p::Real, a::T, b::T, m::T, e::Int) where {T}

@@ -160,9 +160,10 @@ practice:
   the point `x` or the Hessian direction `v`; they may be the same array. The
   built-in wrappers reject `Hv === x` and `Hv === v` themselves, also when they
   wrap your function; a direct call of your method is not checked.
-- **Inside wrappers** (R1). In 0.6, `Scaled` recovers an overflowing inner
-  value only for the built-in functions. Your function is covered inside it as
-  long as its own value does not overflow.
+- **Inside wrappers** (R1). In 0.6, `Scaled` recovers an inner value that
+  leaves the range only for the built-in functions that its docstring lists.
+  Your function is covered inside it as long as its own value does not
+  overflow.
 
 ## Testing a new function
 

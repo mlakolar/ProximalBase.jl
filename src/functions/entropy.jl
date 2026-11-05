@@ -491,3 +491,88 @@ end
 kkt_violation(f::Berhu, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i)))
 restrict(f::Berhu, S::AbstractVector{<:Integer}) = Berhu(f.λ, f.M, _restrict_entries(f.w, S))
+
+####################################
+#  values as a significand and an exponent
+####################################
+
+# The scaled-value mechanism (`_sep_value_parts`, separable.jl). The terms t log t, the parts
+# t log(t/q), -t and q of the divergence (added separately, since they may cancel), and -log t
+# are summed in parts, with the level λ applied last. A value that is infinite because an entry is
+# outside the domain is found by one pass over the entries, before any logarithm, and kept.
+_has_value_parts(::Type{<:Union{NegEntropy, KLDivergence, NegLog, Berhu}}) = true
+# is an entry negative (or, with `strict`, not positive)? A reduction of comparisons that vectorizes;
+# a NaN entry gives a NaN value, handled before
+function _entry_outside(x::AbstractArray, strict::Bool)
+  T = _valtype(x)
+  bad = false
+  if strict
+    @inbounds @simd for i in eachindex(IndexLinear(), x)
+      bad |= !(convert(T, x[i]) > 0)
+    end
+  else
+    @inbounds @simd for i in eachindex(IndexLinear(), x)
+      bad |= convert(T, x[i]) < 0
+    end
+  end
+  bad
+end
+function _value_parts(f::Union{NegEntropy, KLDivergence}, x::AbstractArray, v)
+  v == Inf && _entry_outside(x, false) && return nothing
+  R = f isa KLDivergence ? _sep_parts_type(x, f.λ, f.q) : _sep_parts_type(x, f.λ)
+  _sep_value_parts(f, x, R, f.λ)
+end
+# |log t| <= 745 for every positive Float64 or Float32 t, so a value that is infinite while
+# 745 λ n is in range has an entry outside the domain (or an infinite one), decided without a pass
+@inline _infinite_value_exact(f::NegLog, x::AbstractArray) = 745 * Float64(f.λ) * length(x) < floatmax(_valtype(x)) / 2
+function _value_parts(f::NegLog, x::AbstractArray, v)
+  v == Inf && _entry_outside(x, true) && return nothing
+  _sep_value_parts(f, x, _sep_parts_type(x, f.λ), f.λ)
+end
+_value_parts(f::Berhu, x::AbstractArray, v) =
+  iszero(f.λ) || !isfinite(f.λ) ? nothing : _sep_value_parts(f, x, _sep_parts_type(x, f.λ, f.M, f.w))
+_parameter_alias(f::KLDivergence, out) = _mightalias_parameter(out, f.q)
+_parameter_alias(f::Berhu, out) = _mightalias_parameter(out, f.w)
+
+@inline function _entry_terms(acc::_ExpSum{R}, f::NegEntropy, v, i) where {R}
+  t = convert(R, v)
+  (isfinite(t) && t >= 0) || return nothing
+  iszero(t) && return acc
+  mt, et = frexp(t)
+  _term_add(acc, mt * log(t), et)
+end
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::KLDivergence, v, i) where {R}
+  t, q = convert(R, v), convert(R, _entry(f.q, i))
+  (isfinite(t) && isfinite(q)) || return nothing
+  t < 0 && return nothing
+  acc = _term_add(acc, frexp(q))
+  (acc === nothing || iszero(t)) && return acc
+  ratio = t / q
+  logratio = isfinite(ratio) && !iszero(ratio) ? log(ratio) : log(t) - log(q)
+  mt, et = frexp(t)
+  acc = _term_add(acc, mt * logratio, et)
+  acc === nothing && return nothing
+  _term_add(acc, -mt, et)
+end
+@inline function _entry_terms(acc::_ExpSum{R}, f::NegLog, v, i) where {R}
+  t = convert(R, v)
+  (t > 0 && isfinite(t)) || return _term_add(acc, t > 0 ? -log(t) : R(Inf), 0)
+  _term_add(acc, -log(t), 0)
+end
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::Berhu, v, i) where {R}
+  u, M = convert(R, v), convert(R, f.M)
+  (isfinite(u) && isfinite(M)) || return _term_add(acc, value_entry(f, v, i), 0)
+  t = abs(u)
+  iszero(t) && return acc
+  w = _entry(f.w, i)
+  (iszero(w)) && return acc
+  isfinite(w) || return nothing
+  c = _parts_product(_rparts(R, f.λ), _rparts(R, w))
+  t <= M && return _term_add(acc, _parts_product(c, frexp(t)))
+  # c (t² + M²)/(2M) = c t²/(2M) + c M/2
+  mt, et = frexp(t)
+  mM, eM = frexp(M)
+  acc = _term_add(acc, _parts_product(c, _parts(mt * mt / mM, 2et - eM - 1)))
+  acc === nothing && return nothing
+  _term_add(acc, _parts_product(c, (mM, eM - 1)))
+end

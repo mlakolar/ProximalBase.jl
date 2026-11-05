@@ -512,3 +512,50 @@ function deriv2(ℓ::ConvolutionCheck, η::Real, y::Real)
 end
 curvature(ℓ::ConvolutionCheck{<:Any, :uniform}) = inv(2 * float(ℓ.h))
 curvature(ℓ::ConvolutionCheck{<:Any, :epanechnikov}) = 3 / (4 * float(ℓ.h))
+
+####################################
+#  values as a significand and an exponent
+####################################
+
+# The scaled-value mechanism (`_sep_value_parts`, separable.jl): the terms w φ with φ as parts,
+# so that neither a margin y v, a square nor a product with a weight need be representable. A
+# term at a non-finite entry or label is the ordinary one. An unweighted value that is exactly
+# zero is exact: every term is zero or at least 2^-54 (hinge losses), or zero or exactly |v| - ε.
+_has_value_parts(::Type{<:Union{HingeLoss, SqrHingeLoss, EpsInsensitiveLoss, CheckLoss}}) = true
+_zero_value_exponent(f::Union{HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}, x::AbstractArray) =
+  f.w === nothing ? _EXACT_ZERO : nothing
+function _value_parts(f::Union{HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}, x::AbstractArray, v)
+  iszero(v) && f.w === nothing && return nothing
+  _sep_value_parts(f, x, _sep_parts_type(x, f isa EpsInsensitiveLoss ? f.ε : f.y, f.w))
+end
+_value_parts(f::CheckLoss, x::AbstractArray, v) = _sep_value_parts(f, x, _sep_parts_type(x, f.τ, f.w))
+_parameter_alias(f::Union{HingeLoss, SqrHingeLoss}, out) = _mightalias_parameter(out, f.y) || _mightalias_parameter(out, f.w)
+_parameter_alias(f::Union{EpsInsensitiveLoss, CheckLoss}, out) = _mightalias_parameter(out, f.w)
+
+# a term computed as the ordinary one, for a non-finite entry or parameter
+@inline _ordinary_term_add(acc::_ExpSum, f, v, i) = _term_add(acc, value_entry(f, v, i), 0)
+
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::HingeLoss, v, i) where {R}
+  y, u, w = convert(R, _entry(f.y, i)), convert(R, v), _entry(f.w, i)
+  (isfinite(y) && isfinite(u)) || return _ordinary_term_add(acc, f, v, i)
+  r, e = _sqrhinge_residual(y, u)
+  _weighted_term_add(acc, w, _parts(r, e))
+end
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::SqrHingeLoss, v, i) where {R}
+  y, u, w = convert(R, _entry(f.y, i)), convert(R, v), _entry(f.w, i)
+  isfinite(u) || return _ordinary_term_add(acc, f, v, i)
+  r, e = _sqrhinge_residual(y, u)
+  mr, er = frexp(r)
+  _weighted_term_add(acc, w, _parts(mr * mr, 2 * (er + e)))
+end
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::EpsInsensitiveLoss, v, i) where {R}
+  u = convert(R, v)
+  isfinite(u) || return _ordinary_term_add(acc, f, v, i)
+  _weighted_term_add(acc, _entry(f.w, i), frexp(max(abs(u) - convert(R, f.ε), zero(R))))
+end
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::CheckLoss, v, i) where {R}
+  u = convert(R, v)
+  isfinite(u) || return _ordinary_term_add(acc, f, v, i)
+  τ = convert(R, f.τ)
+  _weighted_term_add(acc, _entry(f.w, i), _parts_product(frexp(u >= 0 ? τ : τ - 1), frexp(u)))
+end

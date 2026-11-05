@@ -618,6 +618,48 @@ end
 
 ####################################
 #
+#  Values as a significand and an exponent (R1, "Wrappers")
+#
+####################################
+
+# The scaled-value mechanism that `Scaled` uses when its value leaves the range (calculus.jl,
+# `_scaled_parts`). A function that implements it declares `_has_value_parts` and returns from
+# `_value_parts(f, x, v)`, given its ordinary value v (infinite, zero or subnormal), either
+# `nothing`, to keep the ordinary result, or (m, e): its value m 2^e, with m a finite float,
+# zero or in [1/2, 1) in magnitude, to the accuracy of its ordinary computation.
+_has_value_parts(::Type) = false
+_value_parts(f, x, v) = nothing
+# An exponent E with |f(x)| < 2^E δ/2, δ the smallest subnormal of the type of x, whenever the
+# ordinary value is exactly zero, from the parameters and the size of x only (`_EXACT_ZERO` when that
+# zero is exact), or `nothing` when no such bound is known.
+_zero_value_exponent(f, x) = nothing
+const _EXACT_ZERO = typemin(Int) ÷ 2
+# e with |a| < 2^e, from the bits of a Float64 or Float32 (a subnormal gives the exponent of
+# floatmin, an Inf or a NaN a large e): integer operations only, so that the bound above costs a
+# few independent instructions
+@inline _upper_exponent(a::Float64) = Int((reinterpret(UInt64, a) >> 52) & 0x7ff) - 1022
+@inline _upper_exponent(a::Float32) = Int((reinterpret(UInt32, a) >> 23) & 0xff) - 126
+@inline _upper_exponent(a::Real) = (b = abs(float(a)); iszero(b) ? -1000000 : isfinite(b) ? exponent(b) + 1 : 1000000)
+# Is an infinite ordinary value known to be the value, from the parameters and the size of x only?
+_infinite_value_exact(f, x) = false
+# Can the gradient output `out`, already written, share memory with a parameter that the
+# parts read? Decided from the identities of the arrays (O(1)).
+_parameter_alias(f, out) = false
+_mightalias_parameter(out, p) = false
+_mightalias_parameter(out::AbstractArray, p::AbstractArray) = Base.mightalias(out, p)
+# m 2^e with the significand normalized
+@inline function _parts(m, e::Int)
+  fm, fe = frexp(m)
+  (fm, Int(fe) + e)
+end
+# the product of two values given as parts, normalized
+@inline function _parts_product(a::Tuple, b::Tuple)
+  P = promote_type(typeof(a[1]), typeof(b[1]))
+  _parts(convert(P, a[1]) * convert(P, b[1]), a[2] + b[2])
+end
+
+####################################
+#
 #  Values recomputed when an intermediate underflows (R1, #520)
 #
 ####################################
@@ -1287,6 +1329,18 @@ end
   k == typemin(Int) && return _value_at(convert(R, λ) * zero(R), x)
   s = _square_scaled_sum(x, y, k, R)
   _value_at(_scaled_product(convert(R, λ), s, 2k - 1), x)
+end
+
+# Σ (xᵢ - yᵢ)² λ/2 as a significand and an exponent (the scaled-value mechanism), from the
+# recomputation above; a non-finite entry or level gives `nothing`
+@noinline function _square_parts(λ, x, y)
+  R = promote_type(_valtype(x), y === nothing ? _valtype(x) : _valtype(y), float(typeof(λ)))
+  (iszero(λ) || !isfinite(λ)) && return nothing
+  k = _square_exponent(x, y, R)
+  k == typemax(Int) && return nothing
+  k == typemin(Int) && return (zero(R), 0)
+  s = _square_scaled_sum(x, y, k, R)
+  _parts_product(frexp(convert(R, λ)), _parts(s, 2k - 1))
 end
 
 ####################################

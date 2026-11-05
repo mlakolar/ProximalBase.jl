@@ -829,3 +829,82 @@ function _keep_entries_of_groups!(y::AbstractArray, f::IndBallGroupL0, ks, ::Typ
   end
   return y
 end
+
+####################################
+#  values as a significand and an exponent
+####################################
+
+# The scaled-value mechanism (`_sep_value_parts`, separable.jl): the terms λ w φ in parts, with
+# φ = min(|v|, a), log(1 + |v|/ε) (in parts where |v|/ε leaves the range) and |v|^q. An infinite
+# weight at a nonzero entry is an infinite term, and the value is kept.
+_has_value_parts(::Type{<:Union{CappedL1, LogPenalty, NormLq}}) = true
+function _value_parts(f::Union{CappedL1, LogPenalty, NormLq}, x::AbstractArray, v)
+  (iszero(f.λ) || !isfinite(f.λ)) && return nothing
+  shape = f isa CappedL1 ? f.a : f isa LogPenalty ? f.ε : f.q
+  _sep_value_parts(f, x, _sep_parts_type(x, f.λ, shape, f.w), f.λ)
+end
+_parameter_alias(f::Union{CappedL1, LogPenalty, NormLq}, out) = _mightalias_parameter(out, f.w)
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::CappedL1, v, i) where {R}
+  u = convert(R, v)
+  isnan(u) && return nothing
+  _weighted_term_add(acc, _entry(f.w, i), frexp(min(abs(u), convert(R, f.a))))
+end
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::LogPenalty, v, i) where {R}
+  t, ε = abs(convert(R, v)), convert(R, f.ε)
+  isfinite(t) || return nothing
+  iszero(t) && return acc
+  q = t / ε
+  φ = if isinf(q)
+    frexp(log(t) - log(ε))
+  elseif q < floatmin(R)
+    mt, et = frexp(t)
+    mε, eε = frexp(ε)
+    _parts(mt / mε, et - eε)
+  else
+    frexp(log1p(q))
+  end
+  _weighted_term_add(acc, _entry(f.w, i), φ)
+end
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::NormLq, v, i) where {R}
+  t = abs(convert(R, v))
+  isfinite(t) || return nothing
+  _weighted_term_add(acc, _entry(f.w, i), frexp(t^convert(R, f.q)))
+end
+
+# The group penalties: Σₖ pₖ(‖x[Gₖ]‖₂) with the norm of a group and the level λwₖ as parts, and the
+# pieces of the MCP and SCAD terms (separable.jl). A group with an infinite coefficient and a
+# nonzero entry is an infinite term, and the value is kept; a zero level is exact.
+_has_value_parts(::Type{<:_RadialGroupPenalty}) = true
+function _value_parts(f::_RadialGroupPenalty, x::AbstractArray, v)
+  (iszero(f.λ0) || !isfinite(f.λ0) || !isfinite(f.a)) && return nothing
+  R = promote_type(_valtype(x), float(typeof(f.λ0)))
+  acc = _expsum_start(R)
+  for k in eachindex(f.groups)
+    G, w = f.groups[k], f.w[k]
+    t = _group_norm_parts(R, x, G)
+    t === nothing && return nothing
+    (iszero(t[1]) || iszero(w)) && continue
+    isfinite(w) || return nothing
+    λ = _parts_product(_rparts(R, f.λ0), _rparts(R, w))
+    acc = f isa GroupMCP ? _mcp_terms(acc, λ, f.a, t) : _scad_terms(acc, λ, f.a, t)
+    acc === nothing && return nothing
+  end
+  _expsum_pair(R, acc)
+end
+# ‖x[G]‖₂ as parts, with the entries scaled by the largest before squaring; `nothing` for a
+# non-finite entry
+function _group_norm_parts(::Type{R}, x::AbstractArray, G) where {R}
+  m = zero(R)
+  @inbounds for i in G
+    a = abs(convert(R, x[i]))
+    isfinite(a) || return nothing
+    m = max(m, a)
+  end
+  iszero(m) && return (m, 0)
+  e = exponent(m)
+  s = zero(R)
+  @inbounds for i in G
+    s += abs2(ldexp(convert(R, x[i]), -e))
+  end
+  _parts(sqrt(s), e)
+end

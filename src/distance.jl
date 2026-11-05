@@ -324,6 +324,49 @@ function _value_unchecked(f::DistL2, x::AbstractArray)
   _distl2_value(T, f.λ, m, e)
 end
 
+# The scaled-value mechanism: the distance as a significand and an exponent (_distl2_parts), times
+# λ for DistL2 and λ/2 times its square for SqrDistL2, after one more projection.
+_has_value_parts(::Type{<:Union{DistL2, SqrDistL2}}) = true
+function _distance_value_parts(f, x::AbstractArray, square::Bool)
+  (iszero(f.λ) || !isfinite(f.λ)) && return nothing
+  T = float(eltype(x))
+  p = _distance_buffer(f, T, x)
+  _prox_unchecked!(p, f.f, x, one(T))
+  m, e = _distl2_parts(x, p)
+  m = float(m)
+  isfinite(m) || return nothing
+  iszero(m) && return (m, 0)
+  _parts_product(frexp(float(f.λ)), square ? _parts(m * m / 2, 2e) : (m, e))
+end
+_value_parts(f::DistL2, x::AbstractArray, v) = _distance_value_parts(f, x, false)
+# Exact-zero protection: the distance is accurate (hypot where its square leaves the range) and zero
+# only at a point of the set. DistL2 applies λ to its parts and rounds once; SqrDistL2 squares the
+# product of the distance and √(λ/2), whose rounding to zero, or whose own underflow, leaves less
+# than δ (1 + 4 eps). A level that does not keep its range in the value type of SqrDistL2 (which
+# converts it) has no such bound.
+# A gradient output that shares memory with the set's data would be read back by the projection
+# that the parts make after the gradient is written: an O(1) walk over the arrays the set stores
+# (into nested sets and tuples), which answers true when it cannot tell.
+_parameter_alias(f::Union{DistL2, SqrDistL2}, out) = _stored_mightalias(out, f.f, 0)
+_stored_mightalias(out, p::AbstractArray, depth) = _mightalias_parameter(out, p)
+_stored_mightalias(out, ::Union{Number, Nothing, Symbol, Scratch}, depth) = false
+_stored_mightalias(out, p::Tuple, depth) = any(q -> _stored_mightalias(out, q, depth + 1), p)
+@noinline function _stored_mightalias(out, s, depth)
+  T = typeof(s)
+  # a primitive value that is not a pointer (a Char, an enum, an integer) holds no memory to share
+  isprimitivetype(T) && !(T <: Ptr) && return false
+  (isstructtype(T) && depth < 8) || return true
+  for i in 1:fieldcount(T)
+    isdefined(s, i) || continue
+    _stored_mightalias(out, getfield(s, i), depth + 1) && return true
+  end
+  false
+end
+_zero_value_exponent(f::DistL2, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), 1)
+_zero_value_exponent(f::SqrDistL2, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO :
+  _level_fits(float(eltype(x)), f.λ) ? _underflow_exponent(_valtype(x), 1) : nothing
+_value_parts(f::SqrDistL2, x::AbstractArray, v) = _distance_value_parts(f, x, true)
+
 # A subnormal interpolation weight can still move a large endpoint. Apply
 # its exponent only after multiplication by the residual's significand.
 @inline function _distl2_blend(x::Real, p::Real, a::T, b::T, m::T, e::Int) where {T}

@@ -500,6 +500,17 @@ end
   @test Array(lmo_atom(D, As)) == Array(lmo_atom(D, Matrix(As)))
 end
 
+# bytes allocated by one warmed call of the scan; the call is made in a function body with a concretely typed argument
+function _allocated_max_abs(w)
+  ProximalBase._max_abs(w, Float64)
+  ProximalBase._max_abs(w, Float64)
+  b = typemax(Int)
+  for _ in 1:5
+    b = min(b, @allocated ProximalBase._max_abs(w, Float64))   # a real allocation occurs in every call
+  end
+  return b
+end
+
 @testset "review P1: Symmetric and Hermitian read only their logical entries" begin
   D = Spectral(IndSimplex(1.0))
   # the example of the review: logically Diagonal([1, 2]), a NaN in the unused triangle
@@ -589,9 +600,10 @@ end
     end
     # the scan is over the stored entries of the triangle: no allocation, whatever the order
     Big = sprandn(4000, 4000, 1e-4); Big = Big + Big'
+    # measured inside a function, so that `w` has a concrete type: the loop over a tuple of two wrapper types is
+    # not inferred, and on Julia 1.10 the boxed Float64 result of the dynamic call counts as 16 bytes
     for w in (Symmetric(Big, uplo), Hermitian(Big, uplo))
-      ProximalBase._max_abs(w, Float64)
-      @test (@allocated ProximalBase._max_abs(w, Float64)) == 0
+      @test _allocated_max_abs(w) == 0
     end
   end
 end

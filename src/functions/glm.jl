@@ -98,9 +98,13 @@ end
 (ℓ::Logistic)(η::Real, y::Real) = value_and_deriv(ℓ, η, y)[1]
 function deriv(::Logistic, η::Real, y::Real)
   η, y = promote(float(η), y)
-  e = exp(-abs(float(η)))
+  e = _logistic_deriv_exp(-abs(float(η)))
   η > 0 ? (1 - y) - e / (1 + e) : e / (1 + e) - y
 end
+# Base marks `exp` `@noinline`. Inlining it in Float64 lets `gradient!` vectorize its loop; the
+# result is the same `exp`, bitwise. Float32 keeps the call: inlined, it measured slower.
+@inline _logistic_deriv_exp(x::Float64) = @inline exp(x)
+@inline _logistic_deriv_exp(x) = exp(x)
 function deriv2(::Logistic, η::Real, ::Real)
   e = exp(-abs(float(η)))
   e / (1 + e)^2
@@ -116,7 +120,9 @@ log-likelihood up to a term in `y`. Its curvature is unbounded.
 struct Poisson <: ScalarLoss end
 @inline value_and_deriv(::Poisson, η::Real, y::Real) = (m = exp(float(η)); (m - y * η, m - y))
 (::Poisson)(η::Real, y::Real) = exp(float(η)) - y * η
-deriv(::Poisson, η::Real, y::Real) = exp(float(η)) - y
+# Base marks `exp` `@noinline`. Inlining it here lets `gradient!` vectorize its loop; the
+# result is the same `exp`, bitwise.
+deriv(::Poisson, η::Real, y::Real) = (@inline exp(float(η))) - y
 deriv2(::Poisson, η::Real, ::Real) = exp(float(η))
 curvature(::Poisson) = Inf
 

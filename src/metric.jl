@@ -232,7 +232,8 @@ _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
 @inline _wide_factor(α::Real, ::Nothing) = false
 @inline function _wide_scale(s::Scaled, x, γ::AbstractArray)
   α = s.α
-  (α > 0 && !_isindicator(s.f)) || return false
+  # an indicator ignores a finite scale; an infinite one takes the route for its value
+  (_isindicator(s.f) ? isinf(α) : α > 0) || return false
   _wide_factor(α, float(promote_type(eltype(γ), typeof(α)))) || _wide_factor(α, _wide_factor_type(x))
 end
 @inline _array_route(s::Scaled, x, γ::AbstractArray) = _chained(s) || _wide_scale(s, x, γ)

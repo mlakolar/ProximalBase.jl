@@ -301,7 +301,9 @@ end
     @test same(s(JLArray(zeros(T, 2, 2))), zero(T))
     # entries left free: a zero weight, a zero level with a finite weight, an index in no group
     for (f, x, want) in ((NormL1(one(T), T[1, 0]), T[0, 5], zero(T)),
-                         (NormL1(one(T), T[1, 0]), T[0, NaN], T(NaN)),  # a free entry must be finite
+                         (NormL1(one(T), T[1, 0]), T[0, NaN], zero(T)),  # a free entry may hold anything
+                         (NormL1(one(T), T[1, 0]), T[0, Inf], zero(T)),
+                         (GroupNormL2(one(T), [1:2]), T[0, 0, NaN], zero(T)),
                          (NormL1(zero(T), T[0, Inf]), T[5, 0], zero(T)),
                          (NormL1(zero(T), T[0, Inf]), T[0, 1], T(Inf)),
                          (NormL1Nonneg(one(T), T[1, 0]), T[0, 5], zero(T)),
@@ -325,6 +327,30 @@ end
     v, Y = vp(s, X, one(T))
     @test !isnan(v)
     @test same(s(Y), v)                                       # O2
+  end
+end
+
+@testset "Scaled with an infinite factor over an indicator: scalar and array steps agree" begin
+  allowscalar(false)
+  for T in (Float32, Float64)
+    x = T[3, 0.5, -7]
+    # the indicators that take array steps (a coupling set such as IndBallL2 has no array-step method)
+    for f in (IndNonnegative(), IndBox(T(-1), T(1)), Translate(IndBox(T(-1), T(1)), T[0.5, 0, 0]))
+      s = Scaled(f, T(Inf))
+      ys = fill(T(-7), 3)
+      vs = value_and_prox!(ys, s, x, one(T))
+      for γ in (T[1, 1, 1], T[2, 0.5, 1], fill(T(Inf), 3))
+        y = fill(T(-7), 3)
+        v = value_and_prox!(y, s, x, γ)
+        @test y == ys                                         # the projection, whatever the step
+        @test same(v, zero(T))
+        @test same(v, vs)
+        @test same(s(y), v)                                   # O2
+        z = fill(T(-7), 3)
+        @test prox!(z, s, x, γ) === z
+        @test z == ys
+      end
+    end
   end
 end
 
@@ -450,6 +476,28 @@ end
     @test same(value_and_gradient!(g, s, T[1, 0]), T(Inf))
     @test isequal(g, T[Inf, NaN])
     @test same(Scaled(NormL2(one(T)), T(Inf))(T[NaN, 0]), T(NaN))
+  end
+end
+
+@testset "controls: a zero level or weight frees an entry, as before" begin
+  # an entry the function does not read (a zero level, or a zero weight under a zero level) may hold
+  # anything; these values are 0 before and after the infinite-level change
+  for T in (Float32, Float64), v in (T(NaN), T(Inf), T(-Inf))
+    for f in (NormL1(zero(T)), NormL1(zero(T), T[1, Inf]), NormL1(zero(T), T[0, Inf]), NormL2(zero(T)),
+              GroupNormLinf(zero(T), [1:2], T[1]))
+      @test same(Scaled(f, T(Inf))(T[v, 0]), zero(T))
+    end
+    for f in (GroupNormL2(zero(T), [1:2], T[1]), GroupNormL2(zero(T), [1:2, 3:3], T[1, Inf]),
+              SparseGroupNormL2(zero(T), zero(T), [1:2], T[1]))
+      @test same(Scaled(f, T(Inf))(T[v, 0, 0]), zero(T))
+    end
+    isnan(v) && continue
+    for f in (ElasticNet(zero(T), zero(T)), ElasticNet(zero(T), zero(T), T[1, Inf]))
+      @test same(Scaled(f, T(Inf))(T[v, 0]), zero(T))
+    end
+  end
+  for T in (Float32, Float64), f in (NormL1Nonneg(zero(T)), NormL1Nonneg(zero(T), T[1, Inf]))
+    @test same(Scaled(f, T(Inf))(T[Inf, 0]), zero(T))
   end
 end
 

@@ -103,9 +103,9 @@ The function `α f(x)` for `α ≥ 0`, with the roles of `f`: its gradient is
 `α ∇f`, and its proximal operator `prox_{γαf}`, so that `0.5 * f` halves a loss
 and `(1/n) * f` averages one. An infinite factor gives the value `0` where `f` is certainly `0`:
 an indicator inside its set, and `NormL1`, `NormL1Nonneg`, `NormL2`, `NormLinf`, `NuclearNorm`,
-`ElasticNet`, `GroupNormL2`, `GroupNormLinf` and `SparseGroupNormL2` at an argument that is zero on
-every entry they penalize; elsewhere a computed zero of `f` (another function, or a value that
-underflowed) gives NaN.
+`ElasticNet`, `GroupNormL2`, `GroupNormLinf` and `SparseGroupNormL2` where `f` is `0` at an argument
+that is zero on every entry they penalize (an entry under a zero level or weight, or in no group, may
+hold anything); elsewhere a computed zero of `f` (another function, or a value that underflowed) gives NaN.
 
 When `α f(x)` overflows or underflows although it is representable, the value
 is computed with the scale folded into the level for `NormL1`, `NormL1Nonneg`,
@@ -372,30 +372,24 @@ _infinite_factor(α) = false
 _scaled_product_value(f, α, y, v) = (r = α * v; isnan(r) && !isnan(v) ? _scaled_nan_value(f, α, y, r) : r)
 
 # Whether f(x) is exactly 0, decided from the argument and the stored parameters, never from a
-# computed value. An indicator: its value is exactly 0 or Inf, so a value that is not NaN and gives
-# NaN with an infinite factor is 0. The families below: their value is 0 exactly when every entry
-# they penalize is 0. An entry left free (a zero weight, a zero level with a finite weight, an index
-# in no group) must be finite, and nonnegative under NormL1Nonneg. Any other function: false.
+# computed value. Called only where the computed value of f is 0 (not NaN). An indicator: its value
+# is exactly 0 or Inf. The families below: their value is 0 exactly when every entry they penalize
+# is 0. The entries they leave free (a zero level or weight, an index in no group) do not enter the
+# value, whatever they hold, as in the function's own value. Any other function: false.
 _exactly_zero_at(f, x) = _isindicator(f)
 _host_entries(x::AbstractArray) = _is_device_array(x) ? Array(x) : x
 _host_entries(::Nothing) = nothing
 # an entry with the weight w under the level λ is penalized (an infinite weight at any level)
 @inline _penalized(λ, w) = w > 0 && (λ > 0 || isinf(w))
-_free_entry(f, x) = isfinite(x)
-_free_entry(::NormL1Nonneg, x) = isfinite(x) && x >= 0
-function _exactly_zero_at(f::Union{NormL2, NormLinf, NuclearNorm}, x::AbstractArray)
-  h = _host_entries(x)
-  iszero(f.λ) ? all(isfinite, h) : all(iszero, h)
-end
+_exactly_zero_at(f::Union{NormL2, NormLinf, NuclearNorm}, x::AbstractArray) = iszero(f.λ) || all(iszero, _host_entries(x))
 function _exactly_zero_at(f::Union{NormL1, NormL1Nonneg, ElasticNet}, x::AbstractArray)
   h, w = _host_entries(x), _host_entries(f.w)
   w === nothing || length(w) == length(h) || return false
   λ = f isa ElasticNet ? f.λ1 : f.λ0
   quadratic = f isa ElasticNet && f.λ2 > 0
   for (j, i) in enumerate(eachindex(h))
-    xi = h[i]
     wi = w === nothing ? one(λ) : w[j]
-    (quadratic || _penalized(λ, wi) ? iszero(xi) : _free_entry(f, xi)) || return false
+    (quadratic || _penalized(λ, wi)) && !iszero(h[i]) && return false
   end
   true
 end
@@ -405,7 +399,7 @@ function _exactly_zero_at(f::Union{GroupNormL2, GroupNormLinf, SparseGroupNormL2
   l1 = f isa SparseGroupNormL2 && f.λ1 > 0
   for (i, xi) in enumerate(h)
     k = i <= length(f.group_of) ? f.group_of[i] : 0
-    (k != 0 && (l1 || _penalized(f.λ0, f.w[k])) ? iszero(xi) : isfinite(xi)) || return false
+    k != 0 && (l1 || _penalized(f.λ0, f.w[k])) && !iszero(xi) && return false
   end
   true
 end

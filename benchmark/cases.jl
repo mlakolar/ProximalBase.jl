@@ -17,6 +17,39 @@ function scenario_rng(rep, key)
     Xoshiro(seed)
 end
 
+# Number of nonzeros of a sparse operand with N entries at the given density: density * N
+# rounded to the nearest integer, at least 1.
+function fixed_count(N::Integer, density::Real)
+    N >= 1 || throw(ArgumentError("the number of entries must be at least 1, got $N"))
+    0 < density <= 1 || throw(ArgumentError("density must be in (0, 1], got $density"))
+    clamp(round(Int, density * N), 1, N)
+end
+
+# k standard normal values of type T, each redrawn from rng until it is not zero.
+function nonzero_randn(rng::AbstractRNG, ::Type{T}, k::Integer) where {T}
+    v = randn(rng, T, k)
+    for i in eachindex(v)
+        while iszero(v[i])
+            v[i] = randn(rng, T)
+        end
+    end
+    v
+end
+
+# A sparse vector or matrix with exactly fixed_count(N, density) nonzeros: distinct positions
+# drawn without replacement from rng, then normal values (never zero) from the same rng.
+function sprandn_fixed(rng::AbstractRNG, ::Type{T}, n::Integer, density::Real) where {T}
+    k = fixed_count(n, density)
+    ind = sort!(randperm(rng, n)[1:k])
+    SparseVector(Int(n), ind, nonzero_randn(rng, T, k))
+end
+
+function sprandn_fixed(rng::AbstractRNG, ::Type{T}, m::Integer, n::Integer, density::Real) where {T}
+    k = fixed_count(m * n, density)
+    lin = sort!(randperm(rng, m * n)[1:k])
+    sparse(mod1.(lin, m), cld.(lin, m), nonzero_randn(rng, T, k), Int(m), Int(n))
+end
+
 noop() = nothing
 tolerance(::Type{Float32}) = 5e-4
 tolerance(::Type{Float64}) = 2e-8
@@ -747,15 +780,34 @@ function tensor_cases!(cases,rep; quick=false)
     end
 end
 
+# The sparse operand of a product case, drawn from its own subkey; args are (n, density) or
+# (m, n, density).
+product_operand(rep, key, ::Type{T}, args...) where {T} = sprandn_fixed(scenario_rng(rep, key), T, args...)
+
+# The coefficient matrix of a switch_matrix case: the operand S and a SparseIterate x with the
+# same entries, stored in a random order drawn from the same subkey after S.
+function switch_operand(rep, ::Type{T}, m, density; p=1024, q=4) where {T}
+    rng = scenario_rng(rep, "products/switch/$T/$m/$density/x")
+    S = sprandn_fixed(rng, T, p, q, density)
+    I, J, V = findnz(S)
+    x = SparseIterate(T, p, q)
+    for k in randperm(rng, length(I)); x[I[k], J[k]] = V[k]; end
+    x, S
+end
+
+# Sparse operands hold exactly fixed_count(N, density) nonzeros, so `work` is the same in
+# every repetition; references are built from the operand itself.
 function product_cases!(cases,rep; quick=false)
     for T in (quick ? (Float64,) : (Float32,Float64)), p in (quick ? (256,) : (256,1024)), density in (quick ? (0.01,) : (0.01,0.2)), triangle in (quick ? (:U,) : (:U,:L))
         rng=scenario_rng(rep,"products/$T/$p/$density/$triangle")
         A=Symmetric(randn(rng,T,p,p),triangle)
-        xs=SparseIterate(sprandn(rng,T,p,density))
+        S=product_operand(rep,"products/$T/$p/$density/$triangle/xs",T,p,density)
+        xs=SparseIterate(S)
+        xd=Array(S)
         groups=[j:min(j+7,p) for j in 1:8:p]
-        xa=AtomIterate(dense(xs),GroupNormL2(T(0.3),groups))
+        xa=AtomIterate(xd,GroupNormL2(T(0.3),groups))
         for (layout,x) in (("sparse",xs),("atom",xa))
-            y=zeros(T,p); ref=A*dense(x)
+            y=zeros(T,p); ref=A*xd
             check!()=(mul!(y,A,x);close_enough(y,ref))
             addcase!(cases,"products","symmetric_$triangle",()->mul!(y,A,x),check!;
                      T,shape=string(p),layout="$(layout)_$density",evals=10,
@@ -764,18 +816,22 @@ function product_cases!(cases,rep; quick=false)
     end
     n = 512
     for T in (quick ? (Float64,) : (Float32,Float64)), p in (quick ? (256,) : (256,1024)), density in (quick ? (0.01,) : (0.01,0.2))
-        rng=scenario_rng(rep,"products/strided/$T/$p/$density")
+        key="products/strided/$T/$p/$density"
+        rng=scenario_rng(rep,key)
         A=randn(rng,T,n,p)
-        xs=SparseIterate(sprandn(rng,T,p,density))
-        xm=SparseIterate(sprandn(rng,T,p,4,density))
+        Sxs=product_operand(rep,key*"/xs",T,p,density)
+        Sxm=product_operand(rep,key*"/xm",T,p,4,density)
+        Sxt=product_operand(rep,key*"/xt",T,n,density)
+        xs=SparseIterate(Sxs)
+        xm=SparseIterate(Sxm)
         groups=[j:min(j+7,p) for j in 1:8:p]
-        xa=AtomIterate(dense(xs),GroupNormL2(T(0.3),groups))
-        xt=SparseIterate(sprandn(rng,T,n,density))
-        for (name,B,x) in (("strided_vector",A,xs),("strided_matrix",A,xm),
-                           ("strided_atom",A,xa),("transposed_vector",transpose(A),xt))
+        xa=AtomIterate(Array(Sxs),GroupNormL2(T(0.3),groups))
+        xt=SparseIterate(Sxt)
+        for (name,B,x,S) in (("strided_vector",A,xs,Sxs),("strided_matrix",A,xm,Sxm),
+                             ("strided_atom",A,xa,Sxs),("transposed_vector",transpose(A),xt,Sxt))
             shape="$(n)x$p" * (x === xm ? "x4" : "")
             layout="$(x isa AtomIterate ? "atom" : "sparse")_$density"
-            xd=dense(x)
+            xd=Array(S)
             out=x isa AbstractVector ? zeros(T,size(B,1)) : zeros(T,size(B,1),size(x,2))
             reference=B*xd
             work=size(B,1)*count(!iszero,xd)
@@ -802,11 +858,8 @@ function product_cases!(cases,rep; quick=false)
         rng=scenario_rng(rep,"products/switch/$T/$m/$density")
         p,q=1024,4
         A=randn(rng,T,m,p)
-        I,J,V=findnz(sprandn(rng,T,p,q,density))
-        perm=randperm(rng,length(I))
-        x=SparseIterate(T,p,q)
-        for k in perm; x[I[k],J[k]]=V[k]; end
-        xd=dense(x)
+        x,S=switch_operand(rep,T,m,density;p,q)
+        xd=Array(S)
         out=zeros(T,m,q)
         reference=A*xd
         work=m*count(!iszero,xd)

@@ -922,11 +922,17 @@ function _zero_value_exponent(f::NormLq, x::AbstractArray)
   (we !== nothing && _upper_exponent(convert(T, f.λ)) - 1 + we[1] > exponent(floatmin(T))) || return nothing
   _underflow_exponent(T, length(x), 1)
 end
+# A NaN entry of CappedL1, and a NaN or infinite entry of NormLq: no term where a zero weight, or
+# a zero level at a finite weight, leaves the entry free (as in value_entry), and otherwise no
+# recovery. The raw parameters decide; value_entry's value cannot enter the sum, which already
+# includes the level applied last, and a q that converts to zero makes it finite.
+Base.@propagate_inbounds function _nonfinite_entry_term(acc, f::Union{CappedL1, NormLq}, i)
+  w0 = _entry(f.w, i)
+  (iszero(w0) | (iszero(f.λ) & !isinf(w0))) ? acc : nothing
+end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::CappedL1, v, i) where {R}
   u = convert(R, v)
-  # a NaN entry as in value_entry: 0 where the entry is free, NaN (kept value) otherwise; never a
-  # finite nonzero term, so the level applied last does not rescale it
-  isnan(u) && return _term_add(acc, value_entry(f, v, i), 0)
+  isnan(u) && return _nonfinite_entry_term(acc, f, i)
   _weighted_term_add(acc, _entry(f.w, i), frexp(min(abs(u), convert(R, f.a))))
 end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::LogPenalty, v, i) where {R}
@@ -949,9 +955,7 @@ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::LogPenalty, v
 end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::NormLq, v, i) where {R}
   t = abs(convert(R, v))
-  # a NaN or infinite entry as in value_entry: 0 where the entry is free, NaN or Inf (kept value)
-  # otherwise; never a finite nonzero term, so the level applied last does not rescale it
-  isfinite(t) || return _term_add(acc, value_entry(f, v, i), 0)
+  isfinite(t) || return _nonfinite_entry_term(acc, f, i)
   _weighted_term_add(acc, _entry(f.w, i), frexp(t^convert(R, f.q)))
 end
 

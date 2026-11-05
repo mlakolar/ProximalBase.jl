@@ -325,6 +325,38 @@ end
   end
 end
 
+# At a penalized non-finite entry the recovery is declined, and the scaled value is the ordinary
+# α f(x). The entry's own value cannot stand in for its term: with q = 2^-160 or 1e-50, which
+# convert to zero in Float32, value_entry gives λ w NaN^0 = λ w, already including the level.
+@testset "Scaled recovery declines at a penalized non-finite entry, $T" for T in (Float32, Float64)
+  declined(g, x) = T(g.α * g.f(x))
+  for xs in (identity, SparseIterate)
+    # the q of the coefficient's overflow converts to zero in Float32
+    g = Scaled(NormLq(1e30, 1e-50, T[1, 1e10]), 1e-30)
+    for b in (T(NaN), T(Inf), T(-Inf))
+      x = xs(T[b, 1])
+      @test isequal(g(x), declined(g, x))
+      T === Float32 && !isnan(b) && @test g(x) === Inf32
+    end
+    # a subnormal level, a q that converts to zero, Bool, Int and absent weights
+    for w in (Bool[true], [1], nothing), b in (T(NaN), T(Inf), T(-Inf))
+      g = Scaled(NormLq(2.0^-130, 2.0^-160, w), 2.0^100)
+      x = xs(T[b])
+      @test isequal(g(x), declined(g, x))
+      T === Float32 && @test g(x) === 2.0f0^-30
+      h = Scaled(CappedL1(2.0^-130, 1, w), 2.0^100)
+      isnan(b) && @test isnan(h(xs(T[b])))
+    end
+    # the same parameters at a free entry: the term is skipped, the other entries are recovered
+    for w in (Bool[false, true], [0, 1]), b in (T(NaN), T(Inf), T(-Inf))
+      g = Scaled(NormLq(2.0^-130, 2.0^-160, w), 2.0^100)
+      @test g(xs(T[b, 1])) === g(xs(T[0, 1]))
+      h = Scaled(CappedL1(2.0^-130, 1, w), 2.0^100)
+      isnan(b) && @test h(xs(T[b, 1])) === h(xs(T[0, 1]))
+    end
+  end
+end
+
 @testset "JLArrays, $T" for T in (Float32, Float64)
   allowscalar(false)
   x = T[NaN, 1]

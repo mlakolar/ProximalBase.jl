@@ -659,8 +659,9 @@ Writing the trial into the internal storage of `x` (its fields) and then
 calling the four-argument form is not supported. While such a write is
 pending, the iterate disagrees with its working set if group ``k`` was
 inactive before the write: the group is missing from it, and `nactive(x)` does
-not count it, although `Vector(x)` is not zero in that group. Functions that visit only the active groups ignore the written
-entries. If the next call throws, the iterate stays in that state.
+not count it, although `Vector(x)` is not zero in that group. In that case,
+functions that visit only the active groups ignore the written entries. If the
+next call throws, the iterate stays in that state.
 
 ### Screening a zero coordinate
 

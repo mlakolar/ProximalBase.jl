@@ -180,9 +180,14 @@ end
       # The native identity shortcut needs no decomposition; the wrapper does.
       @test isequal(w, identity ? input : y)
       if op === value_and_prox!
-        # E2: NaN at a NaN entry; the zero level of NuclearNorm keeps Inf (E4, row S6)
-        @test isequal(vf, isnan(v) ? T(NaN) : T(Inf))
-        @test isequal(vg, g isa NuclearNorm && iszero(g.λ) ? T(Inf) : vf)
+        # E2: NaN at a NaN entry and Inf at an infinite one, except: the zero level of the nuclear
+        # norm is the zero function (E4, row S6), and IndBallL0(2) and IndBallRank(2) are the
+        # indicator of all 2 × 2 matrices, independent of a NaN entry (E2) and Inf at an infinite
+        # one (E3)
+        expected = g isa NuclearNorm && iszero(g.λ) ? zero(T) :
+          g isa IndBallRank && g.r >= 2 ? (isnan(v) ? zero(T) : T(Inf)) : isnan(v) ? T(NaN) : T(Inf)
+        @test isequal(vf, expected)
+        @test isequal(vg, expected)
       else
         @test vf === y
         @test vg === w

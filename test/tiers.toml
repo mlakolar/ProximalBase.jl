@@ -146,6 +146,7 @@ thorough = [
   "spectral_overflow_prox",
   "spectral_overflow_wrappers",
   "spectral_overflow_values",
+  "spectral_constant_values",
   "spectral_tolerance",
   "symmetric_argument",
   "symmetric_groups",

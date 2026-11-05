@@ -25,6 +25,18 @@ end
 
 identity_output(f) = f isa NuclearNorm && iszero(f.λ) || f isa IndBallRank && f.r >= 2
 
+# The fused value at a matrix with non-finite entries (E2, E3, E4; ruling 2b of PR #384): a function
+# of the singular values that is the zero function is 0 at every input, the indicator of all
+# matrices is 0 unless an entry is infinite, the fused value of a conjugate is decided by the
+# conjugate (unchanged), and every other function is NaN at a NaN entry and Inf otherwise.
+function fused_nonfinite(f, X, ::Type{T}) where {T}
+  p = minimum(size(X))
+  zerofun = f isa NuclearNorm && iszero(f.λ) || f isa SingularValue && f.f isa NormL1{<:Real, Nothing} && iszero(f.f.λ0)
+  whole = f isa IndBallRank && f.r >= p || f isa SingularValue && f.f isa IndBallL0 && f.f.s >= p
+  zerofun ? zero(T) : whole ? (any(isinf, X) ? T(Inf) : zero(T)) :
+    f isa Conjugate || !any(isnan, X) ? T(Inf) : T(NaN)
+end
+
 @testset "Input domain and unchanged outputs" begin
   for T in (Float32, Float64), f in cases(T), v in (T(Inf), -T(Inf), T(NaN)),
       index in (CartesianIndex(1, 1), CartesianIndex(1, 2), CartesianIndex(2, 1)),
@@ -33,10 +45,7 @@ identity_output(f) = f isa NuclearNorm && iszero(f.λ) || f isa IndBallRank && f
     input[index] = v
     x = copy(input)
     y = alias ? x : similar(x)
-    # E2: NaN at a NaN entry, except the zero level of NuclearNorm (E4, row S6) and the
-    # fused value of a conjugate, which the conjugate's own path decides (unchanged)
-    nan = isnan(v) && !(f isa NuclearNorm && iszero(f.λ)) && !(f isa Conjugate)
-    @test isequal(value_and_prox!(y, f, x, one(T)), nan ? T(NaN) : T(Inf))
+    @test isequal(value_and_prox!(y, f, x, one(T)), fused_nonfinite(f, input, T))
     @test isequal(y, identity_output(f) ? input : fill(T(NaN), 2, 2))
     alias || @test isequal(x, input)
   end
@@ -49,13 +58,13 @@ end
     input = T[Inf 0; 0 1]
     for x in (sparse(input), SymmetricSparseIterate(input), JLArray(input))
       y = x isa JLArray ? similar(x) : zeros(T, 2, 2)
-      @test value_and_prox!(y, f, x, one(T)) === T(Inf)
+      @test value_and_prox!(y, f, x, one(T)) === fused_nonfinite(f, input, T)
       @test isequal(Array(y), identity_output(f) ? input : fill(T(NaN), 2, 2))
       @test isequal(Matrix(x), input)
     end
     # Device outputs and aliasing use the same input-domain decision.
     x = JLArray(input)
-    @test value_and_prox!(x, f, x, one(T)) === T(Inf)
+    @test value_and_prox!(x, f, x, one(T)) === fused_nonfinite(f, input, T)
     @test isequal(Array(x), identity_output(f) ? input : fill(T(NaN), 2, 2))
   end
 end
@@ -81,7 +90,7 @@ end
     @test value ≈ f(y) atol = 20eps(T)
     @test allocs(value_and_prox!, y, f, x, one(T)) == 0
     bad = T[Inf 0; 0 1]
-    @test value_and_prox!(y, f, bad, one(T)) === T(Inf)
+    @test value_and_prox!(y, f, bad, one(T)) === fused_nonfinite(f, bad, T)
     @test allocs(value_and_prox!, y, f, bad, one(T)) == 0
     @test value_and_prox!(y, f, x, one(T)) === value
     @test isequal(y, expected)

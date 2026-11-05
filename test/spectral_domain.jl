@@ -24,9 +24,9 @@ legacy_inbox(v, l, u, t) = (v >= l - t * max(one(t), abs(l))) & (v <= u + t * ma
           Spectral(Conjugate(IndNonnegative())), Conjugate(SingularValue(NormLinf(o))), TracePSD(o))
     for X in (T[Inf 0; 0 1], T[-Inf 0; 0 1], T[NaN 0; 0 1], T[1 Inf; Inf 1], T[1 NaN; NaN 1])
       for f in fs
-        # E2: NaN at a NaN entry, except the zero level of NuclearNorm (E4, row S6)
-        nan = any(isnan, X) && !(f isa NuclearNorm && iszero(f.λ))
-        @test isequal(f(X), nan ? T(NaN) : T(Inf))
+        # E2: NaN at a NaN entry; the zero level of NuclearNorm is the zero function (E4, row S6)
+        expected = f isa NuclearNorm && iszero(f.λ) ? zero(T) : any(isnan, X) ? T(NaN) : T(Inf)
+        @test isequal(f(X), expected)
       end
       @test Spectral(NormL1Nonneg(o))(X) === TracePSD(o)(X)
       @test SingularValue(NormL1(o))(X) === NuclearNorm(o)(X)

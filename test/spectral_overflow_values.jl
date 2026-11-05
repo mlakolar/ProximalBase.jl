@@ -61,6 +61,17 @@ function cref(c::PB.LinearConstrained, σ)
   u * (sum(t[1:n]) + (k - n) * (n < length(t) ? t[n + 1] : 0))
 end
 ref(c::PB.BoxConstrained, σ) = ref(c.f, σ)
+# The support function of {w : l ≤ w ≤ u, Σw ≤ β} at y, in BigFloat: w = l + (u - l) t with
+# 0 ≤ t ≤ 1 and Σt ≤ κ = (β - n l)/(u - l), so the value is l Σy plus u - l times the sum of the
+# ⌊κ⌋ largest positive parts and the fraction of the next.
+function kyfan_ref(l, u, β, y)
+  n = length(y)
+  l, u, β, y = big(l), big(u), big(β), big.(y)
+  κ = clamp((β - n * l) / (u - l), 0, n)
+  t = sort(max.(y, 0); rev = true)
+  j = floor(Int, κ)
+  l * sum(y) + (u - l) * (sum(t[1:j]; init = big(0)) + (j < n ? (κ - j) * t[j + 1] : 0))
+end
 
 degree(f) = 1
 degree(::Union{SqrNormL2, Conjugate{<:SqrNormL2}}) = 2
@@ -248,6 +259,32 @@ end
       @test Conjugate(SingularValue(NormL1(q)))(A) === T(Inf)
     end
 
+    @testset "scaled balls at extreme radii ($T)" begin
+      # σ of Scaled(ι_C, α) is σ_C for α > 0, so the reference is r times the dual norm of the
+      # spectrum, whatever the scales (subnormal, tiny or large) around the ball.
+      radii = (tiny, floatmin(T), ldexp(one(T), -100), T === Float64 ? 1.234567e-318 : 1.2345f-42)
+      scales = (T(2), T(1) / 3, ldexp(one(T), -60), tiny, floatmax(T) / 4 * 3)
+      for r in radii, α in scales, (B, ref) in ((IndBallL1, (r, σ) -> big(r) * maximum(abs, σ)),
+                                               (IndBallL2, (r, σ) -> big(r) * sqrt(sum(abs2, σ))))
+        for (Z, σ, λs) in ((A, σA, λA), (X, σX, reverse(σX)))
+          g = Scaled(B(r), α)
+          @test positive_ok(Conjugate(SingularValue(g))(Z), ref(r, σ), T, 1)
+          @test positive_ok(SingularValue(Conjugate(g))(Z), ref(r, σ), T, 1)
+          @test positive_ok(Spectral(Conjugate(g))(Z), ref(r, λs), T, 1)
+          @test positive_ok(SingularValue(Conjugate(Scaled(Scaled(B(r), α), T(2))))(Z), ref(r, σ), T, 1)
+        end
+      end
+      if T === Float32
+        # mixed: a Float64 radius, subnormal in Float32 and normal in Float64, at a Float32 matrix
+        Y = fill(T(0.7) * M, 2, 2)
+        σY = [2big(T(0.7) * M), big(0)]
+        for r in (1.2345e-42, 1e-50), B in (IndBallL1, IndBallL2)
+          @test positive_ok(Conjugate(SingularValue(Scaled(B(r), 2.0)))(Y), big(r) * σY[1], T, 1)
+          @test positive_ok(SingularValue(Conjugate(Scaled(B(r), 3.0)))(Y), big(r) * σY[1], T, 1)
+        end
+      end
+    end
+
     @testset "Ky Fan ($T)" begin
       kf = Constrained(IndBox(zero(T), q), IndHalfspace(1, q))
       @test positive_ok(Conjugate(kf)([M, M]), big(q) * big(M), T, 1)
@@ -260,6 +297,35 @@ end
       capped = Constrained(IndBox(zero(T), q), IndHyperplane(1, q))
       @test positive_ok(Conjugate(capped)([M, M]), big(q) * big(M), T, 1)
       @test positive_ok(Conjugate(capped)([M, -M]), big(q) * big(M), T, 1)
+      # Bounds about a thousand binades apart: each term at its own exponent, so the lower bound
+      # and the offset are not flushed. The halfspace pins the sum at n l (κ = 0), or just above it
+      # (0 < κ below the range).
+      e = exponent(M)
+      lo, hi = ldexp(one(T), -(e ÷ 8)), ldexp(one(T), 7e ÷ 8)
+      for (l, u, β, y) in ((lo, hi, 2lo, [M, M]), (lo, M, 2lo, [M, M]), (lo, hi, 3lo, [M, M / 2]),
+                           (lo, M, 3lo, [M, M / 2]), (lo, hi, 3lo, [M, -M / 2]),
+                           (-M, M, zero(T), T[1, 1]), (-M, M, M, [M / 4, -M / 4, M / 8]))
+        f = Conjugate(Constrained(IndBox(l, u), IndHalfspace(1, β)))
+        @test positive_ok(f(y), kyfan_ref(l, u, β, y), T, 1)
+      end
+      # the reproducers, at the exponents of Float64
+      if T === Float64
+        @test positive_ok(Conjugate(Constrained(IndBox(1e-30, 1e300), IndHalfspace(1.0, 2e-30)))([M, M]),
+                          kyfan_ref(1e-30, 1e300, 2e-30, [M, M]), T, 1)
+        # a finite spectrum (M, M) whose sum overflows
+        kf = Conjugate(Constrained(IndBox(1e-300, M), IndHalfspace(1.0, 2e-300)))
+        @test positive_ok(SingularValue(kf)(Matrix(M * I, 2, 2)), kyfan_ref(1e-300, M, 2e-300, [M, M]), T, 1)
+        kf = Conjugate(Constrained(IndBox(1e-300, 1e300), IndHalfspace(1.0, 3e-300)))
+        @test positive_ok(SingularValue(kf)(Matrix(Diagonal([M, M / 2]))), kyfan_ref(1e-300, 1e300, 3e-300, [M, M / 2]), T, 1)
+        @test positive_ok(Spectral(kf)(Matrix(Diagonal([M, M / 2]))), kyfan_ref(1e-300, 1e300, 3e-300, [M, M / 2]), T, 1)
+        # O3: at a spectrum whose sum is finite the ordinary kernel is used, and its κ = 1e-600
+        # underflows, which loses the term (u - l) κ max v (unchanged from master)
+        @test_broken positive_ok(Spectral(kf)(Matrix(Diagonal([M, -M / 2]))), kyfan_ref(1e-300, 1e300, 3e-300, [M, -M / 2]), T, 1)
+      end
+      # A known departure from E3, kept until the follow-up on the vector kernels (O9): at an
+      # infinite entry the kernel's value is NaN, where E3 gives Inf.
+      @test isnan(Conjugate(Constrained(IndBox(-M, M), IndHalfspace(1, zero(T))))(T[Inf, 1]))
+      @test isnan(Conjugate(Constrained(IndBox(zero(T), q), IndHalfspace(1, q)))(T[Inf, 1]))
     end
 
     @testset "rectangular and rank-deficient ($T)" begin
@@ -310,11 +376,12 @@ end
       end
       # levels outside the normal range of T without a fold: the parts of #608, or not covered (O3)
       Z = X
-      for f in (SumLargest(1, tiny), Conjugate(IndSimplex(tiny)), Conjugate(IndBox(-tiny, tiny)),
-                Conjugate(Constrained(IndBox(zero(T), tiny), IndHalfspace(1, tiny))))
-        # no wrong finite value: the ordinary result (Inf, or NaN for the Ky Fan kernel's l Σy)
-        @test !isfinite(Spectral(f)(Z))
+      for f in (SumLargest(1, tiny), Conjugate(IndSimplex(tiny)), Conjugate(IndBox(-tiny, tiny)))
+        @test Spectral(f)(Z) === T(Inf)          # no wrong finite value: the ordinary result
       end
+      # A known departure from E3, kept until the follow-up on the vector kernels (O9): the Ky Fan
+      # kernel's value at the infinite eigenvalue is NaN (l Σy with l = 0), at a finite matrix.
+      @test isnan(Spectral(Conjugate(Constrained(IndBox(zero(T), tiny), IndHalfspace(1, tiny))))(Z))
       @test SingularValue(SLOPE([tiny, zero(T)]))(Z) === T(Inf)
       @test_broken positive_ok(SingularValue(SLOPE([tiny, zero(T)]))(Z), big(tiny) * σX[1], T, 1)   # #608
     end

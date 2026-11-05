@@ -633,6 +633,9 @@ _value_parts(f, x, v) = nothing
 # ordinary value is exactly zero, from the parameters and the size of x only (`_EXACT_ZERO` when that
 # zero is exact), or `nothing` when no such bound is known.
 _zero_value_exponent(f, x) = nothing
+# Is a zero or subnormal value of f exact for every argument, by its type? Then a factor above one
+# has nothing to recover from it, and `Scaled` does not try (the test folds away at compile time).
+_zero_value_exact(f) = false
 const _EXACT_ZERO = typemin(Int) ÷ 2
 # e with |a| < 2^e, from the bits of a Float64 or Float32 (a subnormal gives the exponent of
 # floatmin, an Inf or a NaN a large e): integer operations only, so that the bound above costs a

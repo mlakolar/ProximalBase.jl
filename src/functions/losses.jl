@@ -522,6 +522,12 @@ curvature(ℓ::ConvolutionCheck{<:Any, :epanechnikov}) = 3 / (4 * float(ℓ.h))
 # term at a non-finite entry or label is the ordinary one. An unweighted value that is exactly
 # zero is exact: every term is zero or at least 2^-54 (hinge losses), or zero or exactly |v| - ε.
 _has_value_parts(::Type{<:Union{HingeLoss, SqrHingeLoss, EpsInsensitiveLoss, CheckLoss}}) = true
+# Without weights, a small value of these losses is exact, decided by the type: a hinge term
+# max(1 - yv, 0) is 0 or at least eps(1)/2 (1 - t for a float t < 1), and its square at least
+# eps(1)^2/4, a normal number; an ε-insensitive term |v| - ε that is subnormal is an exact
+# difference, and a sum whose result is subnormal is exact. A zero or subnormal value therefore
+# loses nothing to underflow, and Scaled skips the recovery for it.
+_zero_value_exact(::Union{HingeLoss{<:Any, Nothing}, SqrHingeLoss{<:Any, Nothing}, EpsInsensitiveLoss{<:Any, Nothing}}) = true
 _zero_value_exponent(f::Union{HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}, x::AbstractArray) =
   f.w === nothing ? _EXACT_ZERO : nothing
 function _value_parts(f::Union{HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}, x::AbstractArray, v)

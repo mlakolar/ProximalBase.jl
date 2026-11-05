@@ -377,7 +377,7 @@ _scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
 @inline function _scaled_value_by(f, α, x, v, recover_inner_small = true, out = nothing)
   r = _apply_scale(α, v)
   if (!isfinite(r) && _scale_below_one(α)) || (_scaled_small(r) && !iszero(v)) ||
-     (recover_inner_small && _scaled_small(v) && _scale_above_one(α))
+     (recover_inner_small && !_zero_value_exact(f) && _scaled_small(v) && _scale_above_one(α))
     return _scaled_value_recover(f, α, x, v, r, out)
   end
   r

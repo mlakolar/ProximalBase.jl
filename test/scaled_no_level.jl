@@ -261,6 +261,17 @@ end
     @test Scaled(SqrNormL2(1.0), pow2(Float64, 60))(x) === pow2(Float64, -1021)
     @test abs(Scaled(SqrNormL2(1.0), 2.0)(x) - pow2(Float64, -1080)) <= floatmin(Float64)
     @test Scaled(HingeLoss(), 10.0)(fill(2.0, 5)) === 0.0
+    # unweighted hinge-type losses: a small value is exact by the type, and stays as computed
+    @test ProximalBase._zero_value_exact(HingeLoss()) && ProximalBase._zero_value_exact(SqrHingeLoss()) &&
+      ProximalBase._zero_value_exact(EpsInsensitiveLoss(0.1))
+    @test !ProximalBase._zero_value_exact(HingeLoss(nothing, [1.0])) && !ProximalBase._zero_value_exact(SqrNormL2(1.0))
+    @test Scaled(HingeLoss([2.0, -1.0]), pow2(Float64, 1000))([1.0, -3.0]) === 0.0
+    @test Scaled(EpsInsensitiveLoss(0.5), pow2(Float64, 1000))([0.25, -0.5]) === 0.0
+    @test Scaled(EpsInsensitiveLoss(0.0), pow2(Float64, 100))([nextfloat(0.0)]) === pow2(Float64, -974)
+    # with weights, an underflowed value is still recovered
+    w = pow2(Float64, -1070)
+    @test agrees(Scaled(HingeLoss(nothing, [w]), pow2(Float64, 1000))([0.5]), big(w) / 2 * big(2.0)^1000, 1)
+    @test agrees(Scaled(SqrHingeLoss(nothing, [w]), pow2(Float64, 1000))([0.5]), big(w) / 4 * big(2.0)^1000, 1)
     g = zeros(5)
     @test value_and_gradient!(g, Scaled(SqrHingeLoss(), 10.0), fill(2.0, 5)) === 0.0
     @test agrees(Scaled(NormL1(1.0), pow2(Float64, -600))([1e308, 1e308]), ref(NormL1(1.0), pow2(Float64, -600), [1e308, 1e308]), 2)

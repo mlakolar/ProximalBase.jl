@@ -929,6 +929,19 @@ struct _NonfiniteMoreau{T} end
 @inline (::_NonfiniteMoreau{T})(x, γ, z) where {T} = ifelse(isfinite(x), convert(T, x - γ * z) * zero(T), zero(T))
 _moreau_step(γ::Real, ::Type{T}) where {T} = convert(T, γ)
 _moreau_step(γ::AbstractArray, ::Type) = γ
+# The reciprocal 1/γ of a step in Moreau's identity is a combined expression (numerics T3, R3): it is
+# formed from the stored γ in P, the promotion of the model precision W and the float type of γ, and
+# passed on in P. Rounding 1/γ to the type of γ first, as inv(γ) does, puts the error of a Float32
+# step into a Float64 model. W is the promotion over the destination and the argument, over the
+# blocks of a tuple: a block-level call uses its own block's types.
+@inline _moreau_reciprocal(::Type{W}, γ::Real) where {W} = inv(convert(promote_type(W, float(typeof(γ))), γ))
+@inline _moreau_reciprocal(y, x, γ::Real) = _moreau_reciprocal(promote_type(_valtype(y), _valtype(x)), γ)
+# a/γ for a coefficient a, formed in the promotion of W and the types of a and γ, rounded once
+@inline function _moreau_ratio(::Type{W}, a::Real, γ::Real) where {W}
+  P = promote_type(W, float(typeof(a)), float(typeof(γ)))
+  convert(P, a) / convert(P, γ)
+end
+@inline _moreau_ratio(y, x, a::Real, γ::Real) = _moreau_ratio(promote_type(_valtype(y), _valtype(x)), a, γ)
 # whether y = x - γz, block by block, is not finite at a finite input; with
 # always = false, only an input wider than the output is checked
 function _moreau_nonfinite(y::AbstractArray, x::AbstractArray, z::AbstractArray, γ, always::Bool)
@@ -1022,7 +1035,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractA
   step = convert(T, γ)
   p = _array_buffer!(c.scratch, T, x)
   p .= x ./ step
-  fp = _value_and_prox_unchecked!(p, c.f, p, inv(step))
+  fp = _value_and_prox_unchecked!(p, c.f, p, _moreau_reciprocal(y, x, γ))
   _checkmoreau(y, x, p, step, γ, true)
   y .= x .- step .* p
   _value_at(dot(p, y) - fp, y)
@@ -1045,7 +1058,7 @@ Base.@propagate_inbounds function _conjugate_entry(f, v, i, γ)
     w = convert(S, v)
     w - prox_entry(f, w, i, one(S))
   else
-    v - γ * prox_entry(f, v / γ, i, inv(γ))
+    v - γ * prox_entry(f, v / γ, i, _moreau_reciprocal(float(typeof(v)), γ))
   end
 end
 Base.@propagate_inbounds function _conjugate_entry(f::IndBox, v, i, γ)
@@ -1165,7 +1178,7 @@ function _value_and_prox_unchecked!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
   _has_conjugate_value(c.f) && return _conjugate_prox_value!(y, c, x, γ)
   p = _tuple_buffer!(c.scratch, y, x)
   _divide!(p, x, γ)
-  fp = _value_and_prox_unchecked!(p, c.f, p, inv(γ))
+  fp = _value_and_prox_unchecked!(p, c.f, p, _moreau_reciprocal(y, x, γ))
   _checkmoreau(y, x, p, γ, γ, true)
   _moreau_output!(y, x, p, γ)
   _value_at(_tuple_dot(p, y) - fp, y)
@@ -1747,10 +1760,10 @@ function _checkstep(op::O, c::Conjugate, y::AbstractArray, x::AbstractArray, γ:
   step = convert(T, γ)
   p = _conjugate_checkbuffer(c.scratch, y, x)
   if op === value_and_prox! && !_isindicator(c) && !_has_conjugate_value(c.f)
-    return _checkstep(value_and_prox!, c.f, p, _StepInput(p), inv(step))
+    return _checkstep(value_and_prox!, c.f, p, _StepInput(p), _moreau_reciprocal(p, x, γ))
   end
   _moreau_free(typeof(c.f)) && return _checkstep_moreau(c.f, p, x, step)
-  _checkstep(prox!, c.f, p, _StepInput(p), inv(step))
+  _checkstep(prox!, c.f, p, _StepInput(p), _moreau_reciprocal(p, x, γ))
 end
 _checkstep(op::O, c::Conjugate{<:SumLargest}, y::AbstractArray, x::AbstractArray, γ::Real) where {O} =
   _checkstep(prox!, c.f, y, x, 1)
@@ -1778,10 +1791,10 @@ _step_buffer(x::AbstractArray{T, N}) where {T, N} = _StepBuffer{float(T), N}(siz
 function _checkstep(op::O, c::Conjugate, y::Tuple, x::Tuple, γ::Real) where {O}
   p = _step_buffer(y)
   if op === value_and_prox! && !_isindicator(c) && !_has_conjugate_value(c.f)
-    return _checkstep(value_and_prox!, c.f, p, _step_input(p), inv(γ))
+    return _checkstep(value_and_prox!, c.f, p, _step_input(p), _moreau_reciprocal(p, x, γ))
   end
   _conjugate_isindicator(typeof(c.f)) && return _checkstep(prox!, c.f, p, x, one(float(typeof(γ))))
-  _checkstep(prox!, c.f, p, _step_input(p), inv(γ))
+  _checkstep(prox!, c.f, p, _step_input(p), _moreau_reciprocal(p, x, γ))
 end
 
 # Keep L1 coefficients separate from the legacy product used by other blocks.
@@ -1937,7 +1950,7 @@ function _conjugate_moreau!(z::AbstractArray, f, x::AbstractArray, γ)
     z .= x .- z
   else
     z .= x ./ step
-    _prox_unchecked!(z, f, z, inv(step))
+    _prox_unchecked!(z, f, z, _moreau_reciprocal(z, x, γ))
     _checkmoreau(z, x, z, step, γ, true)
     z .= x .- step .* z
   end
@@ -1966,7 +1979,7 @@ function _conjugate_moreau_block!(z::Tuple, f, x::Tuple, γ)
     _moreau_output!(z, x, z, unit)
   else
     _divide!(z, x, γ)
-    _prox_unchecked!(z, f, z, inv(γ))
+    _prox_unchecked!(z, f, z, _moreau_reciprocal(z, x, γ))
     _checkmoreau(z, x, z, γ, γ, true)
     _moreau_output!(z, x, z, γ)
   end
@@ -1982,7 +1995,7 @@ end
     z .= x .- z
   else
     z .= x ./ step
-    _prox_unchecked!(z, f, z, inv(γ))
+    _prox_unchecked!(z, f, z, _moreau_reciprocal(z, x, γ))
     _checkmoreau(z, x, z, step, γ, true)
     z .= x .- step .* z
   end
@@ -2078,9 +2091,10 @@ _conjugate_entry(f::Scaled, v, i, γ) =
 _scaled_conjugate_entry(f::NormL1, v, i, γ, α) = _projection_clip(v, α, f.λ0, _entry(f.w, i))
 _scaled_conjugate_entry(f::NormL1Nonneg, v, i, γ, α) = _projection_upper(v, α, f.λ0, _entry(f.w, i))
 _scaled_conjugate_entry(f::CheckLoss, v, i, γ, α) = _projection_check(v, α, f.τ, _entry(f.w, i))
-_scaled_conjugate_entry(f, v, i, γ, α) = v - γ * prox_entry(f, v / γ, i, _projection_real(α) / γ)
+_scaled_conjugate_entry(f, v, i, γ, α) =
+  v - γ * prox_entry(f, v / γ, i, _moreau_ratio(float(typeof(v)), _projection_real(α), γ))
 _conjugate_entry(f::Translate, v, i, γ) = _direct_conjugate(typeof(f.f)) ?
-  _conjugate_entry(f.f, v - γ * f.b[i], i, γ) : v - γ * prox_entry(f, v / γ, i, inv(γ))
+  _conjugate_entry(f.f, v - γ * f.b[i], i, γ) : v - γ * prox_entry(f, v / γ, i, _moreau_reciprocal(float(typeof(v)), γ))
 
 _projection_commit!(y::AbstractArray, z::AbstractArray) = copyto!(y, z)
 _projection_check_commit(y, z) = true
@@ -2217,7 +2231,7 @@ function _conjugate_moreau_value!(z::AbstractArray, f, x::AbstractArray, γ, α,
   a = _projection_real(α)
   if !iszero(a) && _has_conjugate_value(f)
     _divide!(z, x, γ)
-    _prox_unchecked!(z, f, z, a * inv(γ))
+    _prox_unchecked!(z, f, z, _moreau_ratio(z, x, a, γ))
     _checkmoreau(z, x, z, γ, γ, true)
     _moreau_output!(z, x, z, γ)
     return _scaled_conjugate_value(f, z, a)
@@ -2277,7 +2291,7 @@ function _conjugate_moreau_value!(z, f, x, γ, context)
   end
   step = _conjugate_moreau_step(z, γ, context)
   _divide!(z, x, step)
-  fp = _value_and_prox_unchecked!(z, f, z, inv(step))
+  fp = _value_and_prox_unchecked!(z, f, z, _moreau_reciprocal(z, x, γ))
   _checkmoreau(z, x, z, step, γ, true)
   v = _projection_fenchel_value(z, x, step) - fp
   _moreau_output!(z, x, z, step)

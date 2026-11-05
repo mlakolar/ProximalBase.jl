@@ -61,11 +61,15 @@ value_and_prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ:
 prox!(y::AbstractArray, f::AbstractGroupPenalty, x::AbstractArray, γ::AbstractVector) = (x = _symmetric_argument(y, x); _value_and_prox_unchecked!(y, f, x, γ); y)
 value_and_prox!(y::AtomIterate, f::AbstractGroupPenalty, x::AtomIterate, γ::AbstractVector) = (_checkreal(f, γ); _checkwrite(value_and_prox!, f, y, x); _value_and_prox_groups!(y, f, x, γ))
 
-# the entrywise reciprocal of an array of steps, without allocating
+# the entrywise reciprocal of an array of steps, without allocating. Its element type T is the
+# promotion of the model precision W and the float type of the steps, as for a scalar step
+# (`_moreau_reciprocal`), and each step is converted to T before it is inverted
 struct _ReciprocalArray{T, N, A<:AbstractArray} <: AbstractArray{T, N}
   γ::A
 end
-_ReciprocalArray(γ::AbstractArray{T, N}) where {T, N} = _ReciprocalArray{float(T), N, typeof(γ)}(γ)
+_ReciprocalArray(::Type{W}, γ::AbstractArray{S, N}) where {W, S, N} =
+  _ReciprocalArray{promote_type(W, float(S)), N, typeof(γ)}(γ)
+_ReciprocalArray(y, x, γ::AbstractArray) = _ReciprocalArray(promote_type(_valtype(y), _valtype(x)), γ)
 Base.size(a::_ReciprocalArray) = size(a.γ)
 Base.IndexStyle(::Type{<:_ReciprocalArray}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(a::_ReciprocalArray{T}, i::Int) where {T} = inv(convert(T, a.γ[i]))
@@ -370,7 +374,7 @@ function _prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::
     y .= x .- z
   else
     z .= x ./ γ
-    _prox_unchecked!(z, c.f, z, _ReciprocalArray(γ))
+    _prox_unchecked!(z, c.f, z, _ReciprocalArray(z, x, γ))
     _checkmoreau(y, x, z, γ, γ, true)
     y .= x .- _checked_parameter(y, γ) .* z
   end
@@ -411,7 +415,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractA
   T = float(eltype(y))
   p = _array_buffer!(c.scratch, T, x)
   p .= x ./ γ
-  fp = _value_and_prox_unchecked!(p, c.f, p, _ReciprocalArray(γ))
+  fp = _value_and_prox_unchecked!(p, c.f, p, _ReciprocalArray(p, x, γ))
   _checkmoreau(y, x, p, γ, γ, true)
   y .= x .- _checked_parameter(y, γ) .* p
   _value_at(dot(p, y) - fp, y)

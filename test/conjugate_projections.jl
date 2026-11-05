@@ -517,11 +517,14 @@ end
     op(y, Conjugate(f), x, γ)
     @test y == ref
   end
-  # These remain genuine array calls, with the reciprocal of the narrowed step.
-  f = Scaled(SqrNormL2(), γ)
-  @test prox(Conjugate(f), Float32[γ], γ) == Float32[γ]
-  f = Scaled(MoreauEnvelope(NormL1(), 1.0), γ)
-  @test_throws ArgumentError prox(Conjugate(f), Float32[γ], γ)
+  # These remain genuine array calls. The reciprocal comes from the stored Float64 step (#576), so
+  # it is finite in the promoted type and the point is the exact one, γ/2; the Float32 reciprocal
+  # of the narrowed step overflowed to Inf and gave γ, and an error for the envelope.
+  for base in (SqrNormL2(), MoreauEnvelope(NormL1(), 1.0))
+    f = Scaled(base, γ)
+    @test prox(Conjugate(f), Float32[γ], γ) ≈ Float32[γ / 2] rtol = 1e-4
+    @test prox(Conjugate(f), [γ], γ) ≈ [γ / 2] rtol = 8eps()
+  end
 
   # Float32's original reciprocal overflows on master as well.
   bad = Float32(γ)

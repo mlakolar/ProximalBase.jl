@@ -132,7 +132,10 @@ Test a separable `f` at the vector or matrix `x` with step `γ`:
   it has none. The checks are independent. `f(0) == 0` needs a method for the
   dense zero. The `SparseIterate` checks need a method for the iterate and for
   the dense proximal point, so a value method for dense vectors only is tested
-  at zero alone. A value method that
+  at zero alone. When `f` has a value method for some arrays but none for the
+  array at hand, the checks that need it are skipped and one `@info` message
+  names the skipped checks and the rejected array type; a function without a
+  value method is skipped silently. A value method that
   exists is called without a `try`, so an error in it is reported as an error;
 - with `groups`, `prox_coordinate!` on each group of an [`AtomIterate`](@ref)
   gives the proximal point;

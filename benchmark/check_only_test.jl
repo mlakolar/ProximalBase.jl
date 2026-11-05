@@ -1,4 +1,5 @@
-# Fast tests of the check-only driver on synthetic cases; no benchmark case is built.
+# Fast tests of the check-only driver on synthetic cases, followed by cases_test.jl: the sparse
+# operands of the `products` cases and their reference checks for repetitions 1-10.
 #
 #   julia --project=<benchmark environment> benchmark/check_only_test.jl
 #
@@ -76,3 +77,5 @@ end
     end
     @test occursin("synthetic/bad", seen[])
 end
+
+include("cases_test.jl")

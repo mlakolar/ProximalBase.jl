@@ -179,14 +179,20 @@ end
     check_selectors(manifest, testdir, runnable, available, positionals; scope, hint) -> (errors, warnings)
 
 Check the test names given on the command line before ParallelTestRunner's `filter_tests!`
-applies them. That function keeps every test whose name starts with one of the names and drops
-a name that matches nothing without a message. Here `runnable` holds every test name, `available`
-the names left after the tier and `--extra` (`scope` says which) and `positionals` the names as
-given; one starting with `!` excludes. Returns the messages for the names that match no
-available test: `errors` for the names that select, `warnings` for the exclusions. A name that
-is a helper, a separate environment, or matches only tests outside the tier, says so; `hint` is
-the advice for the last case. The test files that include a helper are found by the literal
-`"<helper>.jl"` in their source.
+applies them. That function keeps every test whose name starts with one of the names that do
+not start with `!` (all tests if there is none), then drops every test whose name starts with
+one of the others, with all leading `!`s removed (so `!` alone is the empty prefix, which
+matches everything, and `!!x` is `x`). It drops a name that matches nothing without a message.
+Here `runnable` holds every test name, `available` the names left after the tier and `--extra`
+(`scope` says which) and `positionals` the names as given; one starting with `!` excludes.
+Returns `errors` for the names that select and match no available test, and `warnings` for the
+exclusions that remove no test the other names selected: one that matches no available test, or
+one that matches available tests but none of those the names selected (it removes nothing). It
+says nothing about an exclusion that removes every selected test. When every name that selects
+is an error, nothing is selected, so an exclusion warns only if it matches no available test,
+and the errors are not buried. A name that is a helper, a separate environment, or
+matches only tests outside the tier, says so; `hint` is the advice for the last case. The test
+files that include a helper are found by the literal `"<helper>.jl"` in their source.
 """
 function check_selectors(m::Manifest, testdir::AbstractString, runnable, available, positionals;
                          scope::AbstractString = "the selection",
@@ -195,6 +201,10 @@ function check_selectors(m::Manifest, testdir::AbstractString, runnable, availab
   warnings = String[]
   # Prefix matching, with the leading `!`s removed, as filter_tests! does.
   matches(names, prefix) = filter(n -> startswith(n, prefix), sort!(collect(names)))
+  cut(names) = join(first(names, 3), ", ") * (length(names) > 3 ? ", ..." : "")
+  # The tests that the names without `!` select: what filter_tests! applies the exclusions to.
+  includes = unique(filter(a -> !startswith(a, "!"), positionals))
+  selected = isempty(includes) ? sort!(collect(available)) : filter(n -> any(p -> startswith(n, p), includes), sort!(collect(available)))
   function reason(prefix)
     if prefix in m.helpers
       source(n) = (f = joinpath(testdir, n * ".jl"); isfile(f) ? read(f, String) : "")
@@ -207,14 +217,17 @@ function check_selectors(m::Manifest, testdir::AbstractString, runnable, availab
       return "a directory with an environment of its own that is run by hand, not a test"
     outside = matches(setdiff(runnable, available), prefix)
     isempty(outside) && return "no test file starts with it"
-    return "it matches only tests outside $scope ($(join(first(outside, 3), ", "))" *
-           (length(outside) > 3 ? ", ..." : "") * "); $hint"
+    return "it matches only tests outside $scope ($(cut(outside))); $hint"
   end
   for arg in unique(positionals)
     exclude = startswith(arg, "!")
     prefix = exclude ? lstrip(arg, '!') : arg
-    isempty(matches(available, prefix)) || continue
-    push!(exclude ? warnings : errors, "`$arg`: " * reason(prefix))
+    hits = matches(available, prefix)
+    if isempty(hits)
+      push!(exclude ? warnings : errors, "`$arg`: " * reason(prefix))
+    elseif exclude && !isempty(selected) && isempty(matches(selected, prefix))
+      push!(warnings, "`$arg`: it matches $(cut(hits)), which the included names ($(cut(includes))) do not select; it removes nothing")
+    end
   end
   return errors, warnings
 end

@@ -116,8 +116,8 @@ PB.prox_entry(f::ValueWrapper, v::Real, i::Integer, γ::Real) = prox_entry(f.f, 
 PB.prox!(y::AbstractArray, f::ValueWrapper, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
 (f::ValueWrapper{<:Any, true})(x::AbstractArray) = f.f(x)
 
-# value methods that accept dense vectors only (valid: not asked for the sparse paths), and ones that
-# are wrong only on a SparseIterate or only in value_and_prox!
+# value methods that accept dense vectors only (tested at zero alone, and reported as skipped on the
+# sparse paths), and ones that are wrong only on a SparseIterate or only in value_and_prox!
 struct VectorValue{F<:AbstractFunction} <: AbstractFunction
   f::F
 end
@@ -147,6 +147,25 @@ PB.value_and_prox!(y::AbstractArray, f::WrongFusedOutput, x::AbstractArray, γ::
   f.f(prox(f.f, x, γ))                                          # y is left as it was
 PB.value_and_prox!(y::AbstractArray, f::WrongFusedValue, x::AbstractArray, γ::Real) =
   (prox!(y, f.f, x, γ); f.f(y) + 1)
+
+# a vector-only value that is wrong at zero (a vacuous pass on a matrix x without the report), and a
+# callable whose only call method takes two arguments (no value method for any array)
+struct OffsetVectorValue{F<:AbstractFunction} <: AbstractFunction
+  f::F
+end
+struct TwoArgCall{F<:AbstractFunction} <: AbstractFunction
+  f::F
+end
+for W in (:OffsetVectorValue, :TwoArgCall)
+  @eval begin
+    PB.isseparable(::Type{<:$W}) = true
+    PB.iszeropreserving(::$W) = true
+    PB.prox_entry(f::$W, v::Real, i::Integer, γ::Real) = prox_entry(f.f, v, i, γ)
+    PB.prox!(y::AbstractArray, f::$W, x::AbstractArray, γ::Real) = prox!(y, f.f, x, γ)
+  end
+end
+(f::OffsetVectorValue)(x::Vector) = f.f(x) + 1
+(f::TwoArgCall)(x::AbstractArray, y::AbstractArray) = f.f(x) + f.f(y)
 
 struct WrongEntries <: SeparableFunction               # prox! overridden, disagreeing with prox_entry
   λ::Float64
@@ -364,14 +383,26 @@ PB.value_and_gradient!(g, r::Recorder, x) = (r.gradients[] += 1; value_and_gradi
     @test passes(() -> PT.test_separable(NormL1(0.5), [3, -2, 0, 1, -4, 2], γ; rng = Xoshiro(2), groups = 2))
     @test passes(() -> PT.test_separable(NormL1(0.5), [3 -2 1; -2 0 4; 1 4 -3], γ; rng = Xoshiro(2), symmetric = true))
     # zero-preserving functions with and without a standalone value
+    # (a function whose value checks all run, or that has no value method for an array, logs nothing)
     for f in (NormL1(0.5), Scaled(NormL1(0.5), 2.0), Conjugate(NormL1(0.5)), ValueWrapper(NormL1(0.5)),
-              ValueWrapper(Scaled(NormL1(0.5), 2.0)), VectorValue(NormL1(0.5)))
-      @test passes(() -> PT.test_separable(f, x, γ; rng = Xoshiro(2)))
+              ValueWrapper(Scaled(NormL1(0.5), 2.0)))
+      @test_logs @test passes(() -> PT.test_separable(f, x, γ; rng = Xoshiro(2)))
     end
     for f in (Conjugate(ElasticNet(0.3, 0.6)), Scaled(Conjugate(ElasticNet(0.3, 0.6)), 2.0),
-              ValueWrapper(NormL1(0.5); value = false))
+              ValueWrapper(NormL1(0.5); value = false), TwoArgCall(NormL1(0.5)))
       @test !PB._has_value(f) || !applicable(f, zeros(length(x)))
+      @test_logs @test passes(() -> PT.test_separable(f, x, γ; rng = Xoshiro(2)))
+    end
+    # a value method that rejects the array: valid, and the skipped checks are reported once
+    f = VectorValue(NormL1(0.5))
+    @test_logs (:info, r"skipped the value checks on a SparseIterate.*VectorValue.*SparseIterate") begin
       @test passes(() -> PT.test_separable(f, x, γ; rng = Xoshiro(2)))
+    end
+    @test_logs (:info, r"skipped the value checks at zero and on a SparseIterate.*VectorValue.*Matrix") begin
+      @test passes(() -> PT.test_separable(f, randn(4, 3), γ; rng = Xoshiro(2)))
+    end
+    @test_logs (:info, r"skipped the value checks at zero and on a SparseIterate.*VectorValue.*Matrix") begin
+      @test passes(() -> PT.test_separable(f, Matrix(Symmetric(randn(4, 4))), γ; rng = Xoshiro(2), symmetric = true))
     end
     @test passes(() -> PT.test_conjugate(NormL1(0.5), x, γ; conjugate = IndBallLinf(0.5)))
     @test passes(() -> PT.test_conjugate(NormL1(0.5), x, γ))
@@ -455,6 +486,21 @@ PB.value_and_gradient!(g, r::Recorder, x) = (r.gradients[] += 1; value_and_gradi
     @test count(r -> r isa Test.Fail, ts.results) == 1          # only the value at zero
     @test count(r -> r isa Test.Error, ts.results) == 0
     @test only(filter(r -> r isa Test.Fail, ts.results)).orig_expr == "iszero(f(z))"
+    f = OffsetVectorValue(NormL1(1.0))                          # f(0) = 1, which a matrix x cannot test
+    @test f(zeros(length(x))) == 1
+    ts = @test_logs (:info, r"skipped the value checks on a SparseIterate.*OffsetVectorValue") begin
+      @testset Collect "offset vector value" begin
+        PT.test_separable(f, x, γ; rng = Xoshiro(2))
+      end
+    end
+    @test count(r -> r isa Test.Fail, ts.results) == 1          # the value at zero
+    @test count(r -> r isa Test.Error, ts.results) == 0
+    ts = @test_logs (:info, r"skipped the value checks at zero.*OffsetVectorValue.*Matrix") begin
+      @testset Collect "offset vector value, matrix" begin
+        PT.test_separable(f, randn(4, 3), γ; rng = Xoshiro(2))
+      end
+    end
+    @test !any(r -> r isa Test.Fail || r isa Test.Error || r isa Test.Broken, ts.results)
     f = WrongSparseValue(NormL1(1.0))                           # f(SparseIterate) is off by 1
     ts = @testset Collect "wrong sparse value" begin
       PT.test_separable(f, x, γ; rng = Xoshiro(2))

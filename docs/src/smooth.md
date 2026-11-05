@@ -142,8 +142,10 @@ without a linear program. `SmoothCheck(τ, h)` is its Moreau envelope
 ``\min_s \rho_\tau(s) + (s - u)^2/(2h)``: an asymmetric Huber loss that is
 quadratic on ``-h(1 - \tau) < u < h\tau`` and within ``h/2`` of ``\rho_\tau``.
 Its value is computed as ``\tau(u - h\tau/2)``, ``(1 - \tau)(-u - h(1 - \tau)/2)``
-and ``(u/h)\,u/2`` on the three pieces, so that no intermediate underflows or
-overflows where the value is in range.
+and ``(u/h)\,u/2`` on the three pieces, the piece chosen by ``u/h`` against
+``\tau`` and ``-(1 - \tau)``. This avoids a material loss of accuracy where
+``\tau^2``, ``u^2``, ``2h`` or ``h\tau`` would leave the range while the value
+and derivative are in it.
 `ConvolutionCheck(τ, h)` convolves ``\rho_\tau`` with a kernel of bandwidth ``h``, the
 smoothing of the conquer estimator (He, Pan, Tan and Zhou, 2023). With the
 uniform or the Epanechnikov kernel (`kernel = :uniform` or `:epanechnikov`) it

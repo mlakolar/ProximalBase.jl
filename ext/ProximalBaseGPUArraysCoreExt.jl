@@ -1027,9 +1027,7 @@ end
 _ObsDeriv{T}(loss::L) where {T, L} = _ObsDeriv{T, L}(loss)
 function (o::_ObsDeriv{T})(η, y, w) where {T}
   weight = convert(T, w)
-  # an inactive observation: NaN for a non-finite η, so that the recovery runs
-  # and X'd leaves its row out (ProximalBase._gradient_product!)
-  iszero(weight) && return zero(T) * convert(T, η)
+  iszero(weight) && return zero(T)
   v = ProximalBase.deriv(o.loss, η, y)
   p = weight * v
   ifelse(ProximalBase._deriv_ok(o.loss, weight, v, p, η, y), convert(T, p), T(NaN))
@@ -1052,9 +1050,8 @@ function ProximalBase.value_and_gradient!(g::AbstractVector, f::_DeviceGLM{L, T}
   w = _param(f.weights)
   f.d .= _ObsDeriv{T}(f.loss).(η, f.y, w)
   s = _sum(T, _ObsValue{T}(f.loss), η, f.y, w, f.d)
-  recovered = !isfinite(s)
-  recovered && (s = ProximalBase._glm_recover!(f, β, Val(true), Val(true)))
-  ProximalBase._gradient_product!(g, f, recovered)
+  isfinite(s) || (s = ProximalBase._glm_recover!(f, β, Val(true), Val(true)))
+  ProximalBase._gradient_product!(g, f)
   return _value_at(s, β)
 end
 
@@ -1066,9 +1063,8 @@ function ProximalBase.gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::Abst
   _checksize(g, β)
   η = ProximalBase._linear_predictor!(f, β)
   f.d .= _ObsDeriv{T}(f.loss).(η, f.y, _param(f.weights))
-  recovered = !_all(!isnan, f.d)
-  recovered && ProximalBase._glm_recover!(f, β, Val(false), Val(true))
-  return ProximalBase._gradient_product!(g, f, recovered)
+  _all(!isnan, f.d) || ProximalBase._glm_recover!(f, β, Val(false), Val(true))
+  return ProximalBase._gradient_product!(g, f)
 end
 
 ####################################

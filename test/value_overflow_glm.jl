@@ -1162,6 +1162,148 @@ end
     @test allocated_value(f, β) == 0 && allocated_vg(g, f, β) == 0 && allocated_grad(g, f, β) == 0
   end
 end
+# The inactive-observation semantics over positions, several rows, all weights zero, sparse X
+# and a loss that throws when called on an inactive row (the reference is the problem with the
+# inactive rows removed)
+@testset "inactive observations: positions, several rows, sparse X, a throwing loss" begin
+  for T in (Float32, Float64)
+    F32 = T === Float32
+    tiny, big_b = F32 ? T(1e-30) : T(1e-300), F32 ? T(100) : T(1000)
+    # two active rows: one overflows exp(η) before the tiny weight (recovery), one ordinary
+    Xa, ya, wa = T[1 0.5; 0.25 1], T[0, 1], T[tiny, 2]
+    β = T[big_b, -1]
+    inactive_rows = (T[NaN Inf], T[-Inf NaN], T[Inf -Inf])
+    inactive_y = (T(NaN), T(Inf), T(-Inf))
+    for layout in (:before, :between, :after, :several)
+      rows = layout === :before ? [0, 1, 2] : layout === :between ? [1, 0, 2] :
+             layout === :after ? [1, 2, 0] : [0, 1, 0, 0, 2, 0]
+      X = zeros(T, length(rows), 2); y = zeros(T, length(rows)); w = zeros(T, length(rows))
+      bad = 0
+      for (i, r) in enumerate(rows)
+        if r == 0
+          bad += 1
+          X[i, :] = inactive_rows[mod1(bad, 3)]; y[i] = inactive_y[mod1(bad, 3)]
+        else
+          X[i, :] = Xa[r, :]; y[i] = ya[r]; w[i] = wa[r]
+        end
+      end
+      for sparse_x in (false, true), ℓ in (PB.Poisson(), ThrowsBelowZero())
+        ℓ isa ThrowsBelowZero && (y2 = copy(y); y2[w .== 0] .= -1)   # a call on an inactive row throws
+        yy = ℓ isa ThrowsBelowZero ? y2 : y
+        XX = sparse_x ? sparse(X) : X
+        XXa = sparse_x ? sparse(Xa) : Xa
+        fa = GLMLoss(ℓ, ya, XXa; weights = wa)
+        f = GLMLoss(ℓ, yy, XX; weights = copy(w))
+        ga, g1, g2 = zeros(T, 2), zeros(T, 2), zeros(T, 2)
+        va = value_and_gradient!(ga, fa, β)
+        @testset "$T $layout sparse=$sparse_x $(nameof(typeof(ℓ)))" begin
+          @test isfinite(va) && all(isfinite, ga)
+          @test f(β) ≈ va rtol = 4eps(T)
+          @test value_and_gradient!(g1, f, β) ≈ va rtol = 4eps(T)
+          @test g1 ≈ ga rtol = 4eps(T)
+          gradient!(g2, f, β)
+          @test g2 ≈ ga rtol = 4eps(T)
+        end
+      end
+      # JLArrays (dense X)
+      fa = GLMLoss(PB.Poisson(), JLArray(ya), JLArray(Xa); weights = JLArray(wa))
+      f = GLMLoss(PB.Poisson(), JLArray(y), JLArray(X); weights = JLArray(w))
+      ga, g1 = JLArray(zeros(T, 2)), JLArray(zeros(T, 2))
+      va = value_and_gradient!(ga, fa, JLArray(β))
+      @test f(JLArray(β)) ≈ va rtol = 4eps(T)
+      @test value_and_gradient!(g1, f, JLArray(β)) ≈ va rtol = 4eps(T)
+      @test Array(g1) ≈ Array(ga) rtol = 4eps(T)
+      gradient!(g1, f, JLArray(β))
+      @test Array(g1) ≈ Array(ga) rtol = 4eps(T)
+    end
+    # the review's example (comment 6646213238): the active value and gradient w e^η, in BigFloat
+    for dev in (false, true)
+      A = dev ? JLArray : identity
+      wt, bt = F32 ? (T(1e-30), T(100)) : (T(1e-300), T(1000))
+      f = PB.PoissonLoss(A(T[NaN, 0]), A(reshape(T[0, 1], 2, 1)); weights = A(T[0, wt]))
+      ref = T(big(wt) * exp(big(bt)))
+      g = A(zeros(T, 1))
+      @test f(A(T[bt])) ≈ ref rtol = 4eps(T)
+      @test value_and_gradient!(g, f, A(T[bt])) ≈ ref rtol = 4eps(T)
+      @test Array(g)[1] ≈ ref rtol = 4eps(T)
+      gradient!(g, f, A(T[bt]))
+      @test Array(g)[1] ≈ ref rtol = 4eps(T)
+    end
+    # all weights zero: value 0, gradient 0, whatever the rows hold, and the loss is not called
+    for ℓ in (PB.Poisson(), ThrowsBelowZero()), sparse_x in (false, true)
+      X = T[NaN 1; Inf -Inf]; f = GLMLoss(ℓ, T[-1, NaN], sparse_x ? sparse(X) : X; weights = T[0, 0])
+      g = fill(T(7), 2)
+      @test f(β) === zero(T)
+      @test value_and_gradient!(g, f, β) === zero(T) && g == zeros(T, 2)
+      fill!(g, T(7)); gradient!(g, f, β)
+      @test g == zeros(T, 2)
+    end
+  end
+end
+# The witnesses of the numerical review of 1d3677e8 (comment 6647339330)
+@testset "inactive rows with a sparse β, weights that round to zero, SmoothCheck thresholds" begin
+  setprecision(BigFloat, 2560) do
+    for T in (Float32, Float64)
+      # 1. a zero coefficient of a sparse β skips the column of the inactive non-finite entry,
+      # so that η is finite there: X'd must still leave that row out
+      for ℓ in (PB.Squared(), ThrowsBelowZero()), bad in (T(NaN), T(Inf), T(-Inf)),
+          mk in (identity, sparse), bmk in (SparseIterate, sparse), wz in (zero(T), -zero(T))
+        X = mk(T[1 0; 0 bad])
+        f = GLMLoss(ℓ, T[0, 0], X; weights = T[1, wz])
+        b = bmk(T[2, 0])
+        g1, g2 = zeros(T, 2), zeros(T, 2)
+        @test f(b) == 2 && value_and_gradient!(g1, f, b) == 2
+        gradient!(g2, f, b)
+        @test g1 == T[2, 0] && g2 == T[2, 0]
+      end
+      # JLArrays, dense β exposing the row, and the same reduced reference
+      f = GLMLoss(PB.Squared(), JLArray(T[0, 0]), JLArray(T[1 0; 0 NaN]); weights = JLArray(T[1, 0]))
+      g = JLArray(zeros(T, 2))
+      @test value_and_gradient!(g, f, JLArray(T[2, 0])) == 2 && Array(g) == T[2, 0]
+    end
+    # 2. a positive weight that is zero in the working precision is inactive everywhere
+    for dev in (false, true)
+      A = dev ? JLArray : identity
+      f = PB.PoissonLoss(A(Float32[0, NaN]), A(Float32[1 0; 0 1]); weights = A(Float64[1e-30, 1e-300]))
+      b, g = A(Float32[100, 0]), A(zeros(Float32, 2))
+      ref = Float32(big(1e-30) * exp(big(100)))
+      @test f(b) ≈ ref rtol = 4eps(Float32)
+      @test value_and_gradient!(g, f, b) ≈ ref rtol = 4eps(Float32)
+      @test Array(g)[1] ≈ ref rtol = 4eps(Float32)
+      @test Array(g)[2] == 0
+      gradient!(g, f, b)
+      @test Array(g)[1] ≈ ref rtol = 4eps(Float32)
+      @test Array(g)[2] == 0
+      f = GLMLoss(PB.Squared(), A(Float32[0, 0]), A(Float32[1 0; 0 NaN]); weights = A(Float64[1, 1e-300]))
+      g = A(zeros(Float32, 2))
+      @test value_and_gradient!(g, f, A(Float32[2, 0])) == 2 && Array(g) == Float32[2, 0]
+      gradient!(g, f, A(Float32[2, 0]))
+      @test Array(g) == Float32[2, 0]
+    end
+    # 3. SmoothCheck: the branch is not misplaced by an underflowing hτ, and a lifted
+    # subnormal value or derivative is recomputed with its linear correction
+    for T in (Float32, Float64)
+      s = nextfloat(zero(T))
+      @test PB.value_and_deriv(PB.SmoothCheck(T(0.5), s), zero(T), zero(T)) == (0, 0)   # exact fit
+      @test PB.value_and_deriv(PB.SmoothCheck(T(0.3), 4s), zero(T), s)[2] == T(-0.25)
+      w = floatmax(T)
+      for (τ, h, u) in ((T(0.9), s, s), (T(0.1), s, -s), (4s, T(0.3), s), (T(0.5), 8s, 2s))
+        ref_v, ref_d = smoothcheck_reference(τ, h, u)
+        for dev in (false, true)
+          A = dev ? JLArray : identity
+          f = GLMLoss(PB.SmoothCheck(τ, h), A(T[0]), A(ones(T, 1, 1)); weights = A(T[w]))
+          b, g1, g2 = A(T[-u]), A(zeros(T, 1)), A(zeros(T, 1))
+          v1, v2 = f(b), value_and_gradient!(g1, f, b)
+          gradient!(g2, f, b)
+          rv, rd = big(w) * ref_v, big(w) * ref_d
+          # (the weighted value of (4s, 0.3, s) is below the smallest subnormal: 0)
+          @test v1 == v2 && abs(big(v1) - rv) <= 4eps(T) * abs(rv) + big(nextfloat(zero(T))) / 2
+          @test abs(big(Array(g1)[1]) - rd) <= 4eps(T) * abs(rd) && Array(g2) == Array(g1)
+        end
+      end
+    end
+  end
+end
 end # !BASELINE
 
 BASELINE && baseline()

@@ -466,19 +466,22 @@ struct SmoothCheck{T<:Real} <: ScalarLoss
   end
 end
 SmoothCheck(τ::Real, h::Real) = (p = promote(τ, h); SmoothCheck{typeof(p[1])}(p...))
-# In forms whose intermediates do not underflow or overflow where the value is
-# normal: the linear branches with the small factor τ (or 1 - τ) taken out,
+# In forms that avoid a material loss of accuracy in their intermediates: the
+# branch is chosen by q = u/h against τ and -(1 - τ), not u against hτ (hτ can
+# underflow and misplace the branch, at an exact fit with a subnormal h for
+# instance); the linear branches take the small factor τ (or 1 - τ) out,
 # τ(u - hτ/2) rather than τu - hτ²/2 (τ² can underflow before the product with a
-# large h); the middle one as (u/h) u/2 rather than u²/(2h) (u² can underflow, or
-# 2h overflow). In the middle |u| < h, so |u/h| < 1; where the value is normal,
-# u/h is at worst one bit below floatmin.
+# large h); the middle one is q u/2 rather than u²/(2h) (u² can underflow, or 2h
+# overflow). In the middle |q| < 1, and where the value is normal q is at worst
+# one bit below floatmin. A value or derivative below floatmin has lost accuracy
+# (the recovery recomputes it where a weight lifts it).
 @inline function value_and_deriv(ℓ::SmoothCheck, η::Real, y::Real)
   u = float(y - η)
   τ, h = convert(typeof(u), ℓ.τ), convert(typeof(u), ℓ.h)
-  u >= h * τ && return (τ * (u - h * τ / 2), -τ)
   σ = 1 - τ
-  u <= -h * σ && return (σ * (-u - h * σ / 2), σ)
   q = u / h
+  q >= τ && return (τ * (u - h * τ / 2), -τ)
+  q <= -σ && return (σ * (-u - h * σ / 2), σ)
   (q * u / 2, -q)
 end
 (ℓ::SmoothCheck)(η::Real, y::Real) = value_and_deriv(ℓ, η, y)[1]
@@ -486,7 +489,7 @@ deriv(ℓ::SmoothCheck, η::Real, y::Real) = value_and_deriv(ℓ, η, y)[2]
 function deriv2(ℓ::SmoothCheck, η::Real, y::Real)
   u = float(y - η)
   τ, h = convert(typeof(u), ℓ.τ), convert(typeof(u), ℓ.h)
-  -h * (1 - τ) < u < h * τ ? inv(h) : zero(u)
+  -(1 - τ) < u / h < τ ? inv(h) : zero(u)   # the branches of value_and_deriv
 end
 curvature(ℓ::SmoothCheck) = inv(float(ℓ.h))
 # The residual u = y - η as m 2^e; the branches as in value_and_deriv, the linear
@@ -501,16 +504,34 @@ _lost_deriv(::SmoothCheck, v, η, y) = _below_normal(v) & (η != y)
 _value_traps(::SmoothCheck) = true
 _deriv_in_value(::SmoothCheck) = true
 _pure_everywhere(::SmoothCheck) = true
+# the branch from q = u/h = (m/mₕ) 2^(e - eₕ) against τ and -(1 - τ), compared
+# in significand and exponent, so that neither q nor hτ underflows on the way
 @inline function _smoothcheck_parts(ℓ::SmoothCheck, ηs::T, k::Int, y::T) where {T}
   m, e = _residual_pow2(ηs, k, y)
   τ, h = convert(T, ℓ.τ), convert(T, ℓ.h)
-  u = ldexp(-m, e)
-  -m, e, τ, h, (u >= h * τ ? 1 : u <= -h * (1 - τ) ? -1 : 0)
+  mh, eh = frexp(h)
+  qm, qe = -m / mh, e - eh
+  zone = _pow2_cmp(qm, qe, τ) >= 0 ? 1 : _pow2_cmp(qm, qe, -(1 - τ)) <= 0 ? -1 : 0
+  -m, e, τ, h, zone
 end
+# the sign of a 2^ea - b, for finite a and b
+@inline function _pow2_cmp(a::T, ea::Int, b::T) where {T}
+  (iszero(a) || iszero(b) || signbit(a) != signbit(b)) && return cmp(a, b)
+  ma, xa = frexp(a)
+  mb, xb = frexp(b)
+  xa += ea
+  xa == xb && return cmp(ma, mb)
+  s = xa > xb ? 1 : -1
+  signbit(a) ? -s : s
+end
+# c t/2 in units of 2^e, for positive c and t, without forming c t in T (it can
+# underflow before the units restore it)
+@inline _half_product_units(c::T, t::T, e::Int) where {T} =
+  (fc = frexp(c); ft = frexp(t); ldexp(fc[1] * ft[1], fc[2] + ft[2] - 1 - e))
 function _weighted_pair(ℓ::SmoothCheck, w::T, ηs::T, k::Int, y::T) where {T}
   m, e, τ, h, zone = _smoothcheck_parts(ℓ, ηs, k, y)
-  zone > 0 && return _pow2_pair(w, τ, m - ldexp(h * τ / 2, -e), e)
-  zone < 0 && return _pow2_pair(w, 1 - τ, -m - ldexp(h * (1 - τ) / 2, -e), e)
+  zone > 0 && return _pow2_pair(w, τ, m - _half_product_units(h, τ, e), e)
+  zone < 0 && return _pow2_pair(w, 1 - τ, -m - _half_product_units(h, 1 - τ, e), e)
   mh, eh = frexp(h)
   _pow2_pair(w, m * m / (2mh), 2e - eh)
 end

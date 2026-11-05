@@ -275,6 +275,27 @@ and unexpected warmed allocations. Single-run ratios are exploratory. Failed
 checks, missing repetitions, unmatched cases or incompatible settings prevent
 a comparison and retain diagnostics. An interval containing one is inconclusive.
 
+To compare only some repetitions, name them with `--reps` after the positional
+arguments, each as a number `k` or an inclusive range `a-b`:
+
+```sh
+python3 benchmark/compare.py benchmark/results/before benchmark/results/after \
+  benchmark/results/comparison --expected-runs 10 --reps 6-10
+```
+
+`--reps 6-10`, `--reps 6 7 8 9 10` and `--reps 6-8 --reps 9 10` are the same
+selection; `--reps 1-3 7` is allowed. A repetition outside `1..N` for
+`--expected-runs N`, one named twice (also through overlapping ranges) or a
+reversed range is an error. Both directories are still validated whole: every
+repetition `1..N` must exist and be valid, also those not compared. Everything
+except `settings.json` uses only the chosen repetitions: coverage, the
+timer-limited rule, the unexpected-allocation flag, the intervals and the
+timing outcomes, and `paired_runs` is the number chosen (one chosen repetition
+is a single run). Below its title, `REPORT.md` names the compared
+repetitions, for example `Repetitions compared: 6-10 (5 of the 10 per Julia
+version in each directory).`, and `coverage.json` lists them under
+`repetitions`; both are present without `--reps` as well.
+
 `check_bounds` and `os` are compared separately for each Julia version present on both sides;
 values of different versions are never compared. Two different known values in any version
 reject the comparison, and `errors.json` names each version and key. A record older than these

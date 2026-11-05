@@ -5,6 +5,7 @@ import csv
 import json
 import math
 from pathlib import Path
+import re
 import statistics
 import tomllib
 
@@ -47,6 +48,60 @@ def read_primary(path):
     """Case IDs, one per line; blank lines and lines starting with # are ignored."""
     lines = (line.strip() for line in Path(path).read_text().splitlines())
     return {line for line in lines if line and not line.startswith("#")}
+
+
+def parse_reps(tokens):
+    """Repetition numbers from --reps tokens, each an integer k or an inclusive range a-b.
+
+    Numbers above 10 (the largest --expected-runs) are rejected before a range is expanded.
+    Bounds, duplicates and emptiness are checked by select_reps."""
+    reps = []
+    for token in tokens:
+        if not re.fullmatch(r"[0-9]+(?:-[0-9]+)?", token, re.ASCII):
+            raise ValueError(f"--reps: malformed repetition {token!r}; use k or a-b")
+        first, _, last = token.partition("-")
+        first, last = int(first), int(last or first)
+        if max(first, last) > 10:
+            raise ValueError(f"--reps: repetition {max(first, last)} is above 10, the largest --expected-runs")
+        if first > last:
+            raise ValueError(f"--reps: reversed range {token!r}")
+        reps += range(first, last+1)
+    return reps
+
+
+def select_reps(reps, expected):
+    """The sorted repetitions to compare: all of 1..expected when reps is None.
+
+    reps holds plain integers, each in 1..expected and named once; strings go through parse_reps."""
+    if reps is None:
+        return list(range(1, expected+1))
+    if not 1 <= expected <= 10:
+        raise ValueError("expected runs must be between 1 and 10")
+    if isinstance(reps, str):
+        raise ValueError("reps must be integers; parse strings with parse_reps")
+    reps = list(reps)
+    if any(type(r) is not int for r in reps):
+        raise ValueError(f"reps must be integers: {reps}")
+    if not reps:
+        raise ValueError("--reps selects no repetition")
+    outside = sorted({r for r in reps if not 1 <= r <= expected})
+    if outside:
+        raise ValueError(f"repetitions {outside} are outside 1..{expected} (--expected-runs {expected})")
+    repeated = sorted({r for r in reps if reps.count(r) > 1})
+    if repeated:
+        raise ValueError(f"repetitions {repeated} are selected more than once in --reps")
+    return sorted(reps)
+
+
+def reps_note(selection, expected):
+    """The REPORT.md line naming the compared repetitions; consecutive ones as a range."""
+    spans, start = [], selection[0]
+    for previous, current in zip(selection, selection[1:] + [None]):
+        if current != previous + 1:
+            spans.append(str(start) if start == previous else f"{start}-{previous}")
+            start = current
+    share = f"all {expected}" if len(selection) == expected else f"{len(selection)} of the {expected}"
+    return f"Repetitions compared: {', '.join(spans)} ({share} per Julia version in each directory)."
 
 
 def load(root, expected):
@@ -121,8 +176,12 @@ def recorded_note(by_version):
     return notes
 
 
-def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10, primary=None):
+def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10, primary=None, reps=None):
+    """Pair the repetitions `reps` (default all of 1..expected) of two validated directories.
+
+    Each directory is validated whole; only the chosen repetitions enter the comparison."""
     check_timer_limit_multiple(timer_limit_multiple)
+    selection = select_reps(reps, expected)
     output = Path(output)
     if output.exists() and any(output.iterdir()):
         raise ValueError("Use a fresh comparison directory to avoid stale reports")
@@ -130,7 +189,11 @@ def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10
     try:
         before, old_configs, old_recorded = load(before_root, expected)
         after, new_configs, new_recorded = load(after_root, expected)
-        coverage = dict(shared_measurements=len(before.keys() & after.keys()),
+        chosen = set(selection)
+        before = {key: row for key, row in before.items() if key[2] in chosen}
+        after = {key: row for key, row in after.items() if key[2] in chosen}
+        runs = len(selection)
+        coverage = dict(repetitions=selection, shared_measurements=len(before.keys() & after.keys()),
                         before_only=sorted(before.keys()-after.keys()),
                         after_only=sorted(after.keys()-before.keys()))
         (output/"coverage.json").write_text(json.dumps(coverage, indent=2)+"\n")
@@ -168,12 +231,12 @@ def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10
                 if reps:
                     limited_by.append(side + ":" + ",".join(reps))
             limited = bool(limited_by)
-            assessment = ("single run; exploratory" if expected == 1 else
+            assessment = ("single run; exploratory" if runs == 1 else
                           "inconclusive" if mu-half <= 0 <= mu+half else
                           "faster" if mu > 0 else "slower")
             if limited:
-                assessment = "single run; exploratory; timer-limited" if expected == 1 else "timer-limited"
-            results.append(dict(julia=version, id=case, paired_runs=expected,
+                assessment = "single run; exploratory; timer-limited" if runs == 1 else "timer-limited"
+            results.append(dict(julia=version, id=case, paired_runs=runs,
                 timer_limited=limited, timer_limited_by=";".join(limited_by),
                 timer_limit_multiple=timer_limit_multiple,
                 before_evals="/".join(str(v) for v in sorted({int(old["evals"]) for old, _ in pairs})),
@@ -187,20 +250,20 @@ def compare(before_root, after_root, output, expected=1, timer_limit_multiple=10
                 unexpected_allocation=unexpected))
             decision, slowdown, lower, upper, reason = outcome(ratios, limited)
             outcomes.append(dict(julia=version, id=case, role="primary" if case in primary else "diagnostic",
-                paired_runs=expected, slowdown=slowdown, one_sided95_low=lower, one_sided95_high=upper,
+                paired_runs=runs, slowdown=slowdown, one_sided95_low=lower, one_sided95_high=upper,
                 timing_outcome=decision, reason=reason, unexpected_allocation=unexpected))
         with (output/"comparison.csv").open("w", newline="") as stream:
             writer = csv.DictWriter(stream, fieldnames=list(results[0]), lineterminator="\n")
             writer.writeheader(); writer.writerows(results)
-        lines = ["# ProximalBase revision comparison", "",
+        lines = ["# ProximalBase revision comparison", "", reps_note(selection, expected), "",
                  "Ratios above one favor the proposed revision. Intervals use paired log ratios across fresh process/input draws; they do not correct for correlated machine noise or multiple comparisons. Interleave revisions when confirming small differences.", "",
                  "Single-run ratios are exploratory and have no confidence interval. Allocation counts measure Julia heap bytes, not native allocations or peak memory.", "",
                  *recorded_note(settings),
-                 f"A measurement is timer-limited when median_ns * evals < {timer_limit_multiple:g} * timer_floor_ns (strict). With an unusable calibration (NaN floor), only evals == 1 is limited. A case is limited if any repetition on either side is limited. Timer-limited cases are not to be used for ratio gates.", "",
+                 f"A measurement is timer-limited when median_ns * evals < {timer_limit_multiple:g} * timer_floor_ns (strict). With an unusable calibration (NaN floor), only evals == 1 is limited. A case is limited if any compared repetition on either side is limited. Timer-limited cases are not to be used for ratio gates.", "",
                  "| Case | Julia | Before / after (µs) | Speedup [95% interval] | Mean bytes before / after | Maximum bytes before / after | Assessment |",
                  "|---|---|---:|---:|---:|---:|---|"]
         for row in results:
-            interval = ("unavailable" if expected == 1 else
+            interval = ("unavailable" if runs == 1 else
                         f"{row['ci95_low']:.3f}, {row['ci95_high']:.3f}")
             note = row["timing_assessment"]
             if row["unexpected_allocation"]:
@@ -241,9 +304,12 @@ if __name__ == "__main__":
     parser.add_argument("--expected-runs", type=int, choices=range(1, 11), default=1)
     parser.add_argument("--timer-limit-multiple", type=float, default=10)
     parser.add_argument("--primary", help="file of primary case IDs, one per line (# comments)")
+    parser.add_argument("--reps", nargs="+", action="extend", metavar="SPEC",
+                        help="repetitions to compare, each k or a-b (default: all); all repetitions are still validated")
     args = parser.parse_args()
     try:
         compare(args.before, args.after, args.output, args.expected_runs, args.timer_limit_multiple,
-                None if args.primary is None else read_primary(args.primary))
+                None if args.primary is None else read_primary(args.primary),
+                reps=None if args.reps is None else parse_reps(args.reps))
     except (ValueError, OSError, KeyError) as error:
         parser.exit(2, f"{error}\n")

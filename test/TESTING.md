@@ -377,8 +377,9 @@ names of test files that the PR adds (absent at the base, present at the head) a
 outside `[tiers]` changed, the lists decide quick and the new files run as changed test files.
 A removed, moved or renamed file, an added name that is not a new file, or a change to the
 helpers, the environments or `[not_tests.run_through]` (the test files that run each helper)
-still needs full; a listed name without a file stops the plan. Order and comments alone change
-nothing (quick).
+still needs full; a listed name without a file stops the plan. Order within the tier lists and
+comments alone change nothing (quick); reordering a `helpers` or `run_through` array is a change
+outside `[tiers]` and needs full.
 
 **Measured on GitHub** (scenario PRs #477–#483 against `ci/iterate-scenarios`, this branch at
 5bd6d95a; each changes a comment, so the time is the tests' alone; end to end from the run's
@@ -408,8 +409,10 @@ focus file is in full and only the iterate rules have a `narrow` tier) and the a
 (additions, order and comments, a removed, moved or renamed file, an unknown added name, helper,
 environment and `run_through` changes, unreadable TOML, and the plan with and without
 additions). It also checks the problems of `[not_tests.run_through]` and that the table agrees
-with the sources both ways: each recorded test names the helper's file, directly or through
-another helper, and each test that names a helper's file is recorded for it. The planner
+with the sources both ways, on the real catalog and on synthetic sources: each recorded test names
+the helper's file, directly or through one other helper, and each test that names a helper's file
+is recorded for it, except for the helpers that the runner loads for every test file (`testutils`,
+`conformance/common`). The planner
 was also run on synthetic commits: a new file and its line gave quick and the file; a moved file
 gave full with the reason; a listed name without a file stopped the plan.
 

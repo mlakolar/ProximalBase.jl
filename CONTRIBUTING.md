@@ -57,8 +57,10 @@ the CI plan, and a PR that changes `test/tiers.toml` runs the full tier. Files r
 their time, so a cheap file reaches few type combinations. Helper files that are
 only included go under `[not_tests]`, and the test files that run a helper,
 directly or through another helper, under `[not_tests.run_through]`, which the
-error for a helper given as a test name uses; renaming or removing a test listed
-there means updating that table, or every test run stops on the manifest problem.
+error for a helper given as a test name uses. A new test file that includes a
+helper is listed there too, and its PR then runs the full tier. Renaming or
+removing a test listed there, or a helper that is a key of that table, means
+updating the table, or every test run stops on the manifest problem.
 [`test/TESTING.md`](test/TESTING.md) records why each file sits in its tier.
 
 ### Which tests CI runs

@@ -270,26 +270,67 @@ end
   end
 end
 
-# The test files recorded in tiers.toml for each helper against the sources: a recorded test
-# names the helper's file, directly or through a helper whose file it names, and a test that
-# names a helper's file is recorded for it. A false match fails here; it never reaches a message.
+# The test files recorded in tiers.toml for each helper against the sources, both ways; `source(name)`
+# is the text of test/<name>.jl, a test or a helper, and `loaded` the helpers that the runner loads
+# for every test file. A file is named by the quoted literal `"<basename>.jl"`. Forward: a recorded
+# test names the helper's file, or names a helper whose source names it (one level); this checks
+# only that the literal appears, so a literal in a comment or a same-named file elsewhere also
+# passes. Reverse: a test that names a helper's file is recorded for it, so a false match fails the
+# test and never reaches a message. A test that includes a helper through another path form, such
+# as "dir/h.jl" or "../h.jl", is not seen by the reverse check. Returns one string per mismatch.
+function run_through_mismatches(m, source, loaded)
+  literal(helper) = "\"$(basename(helper)).jl\""
+  found = String[]
+  for helper in sort!(collect(keys(m.run_through))), name in m.run_through[helper]
+    text = source(name)
+    through = [source(h) for h in m.helpers if occursin(literal(h), text)]
+    occursin(literal(helper), text) || any(s -> occursin(literal(helper), s), through) ||
+      push!(found, "`$name` is recorded for helper `$helper` but names neither its file nor a helper that names it")
+  end
+  for name in sort!(collect(keys(m.tier))), helper in setdiff(m.helpers, loaded)
+    occursin(literal(helper), source(name)) && !(name in get(m.run_through, helper, String[])) &&
+      push!(found, "`$name` names the file of helper `$helper` but is not recorded for it")
+  end
+  return found
+end
+
 @testset "the recorded test files that run each helper match the sources" begin
   source(name) = read(joinpath(DIR, name * ".jl"), String)
-  literal(helper) = "\"$(basename(helper)).jl\""
   # the runner loads these for every test file, so no single test runs them
   loaded = ["conformance/common", "testutils"]
-  @test all(h -> occursin(literal(h), source("runtests")), loaded)
+  @test all(h -> occursin("\"$(basename(h)).jl\"", source("runtests")), loaded)
   @test !isempty(MANIFEST.run_through) && isempty(intersect(keys(MANIFEST.run_through), loaded))
-  for (helper, names) in MANIFEST.run_through, name in names
-    text = source(name)
-    through = [source(h) for h in MANIFEST.helpers if occursin(literal(h), text)]
-    @test occursin(literal(helper), text) || any(occursin(literal(helper)), through)
-  end
-  for name in TestTiers.select(MANIFEST, "full"), helper in setdiff(MANIFEST.helpers, loaded)
-    if occursin(literal(helper), source(name))
-      @test name in get(MANIFEST.run_through, helper, String[])
-    end
-  end
+  @test run_through_mismatches(MANIFEST, source, loaded) == String[]
+  # synthetic sources: t_chain runs h2 only through mid, empty.jl is an empty helper, and the
+  # runner loads loaded.jl
+  sources = Dict("t_direct" => "include(\"h.jl\")\n", "t_chain" => "include(\"mid.jl\")\n",
+                 "t_empty" => "include(\"empty.jl\")\n", "t_loaded" => "include(\"loaded.jl\")\n",
+                 "t_other" => "# no include\n", "h" => "\n", "mid" => "include(\"h2.jl\")\n", "h2" => "\n",
+                 "empty" => "", "loaded" => "\n")
+  synthetic(entries) = TestTiers.parse_manifest("""
+    [tiers]
+    quick = ["t_direct", "t_chain"]
+    standard = ["t_empty"]
+    thorough = ["t_loaded"]
+    full = ["t_other"]
+    [not_tests]
+    helpers = ["empty", "h", "h2", "loaded", "mid"]
+    [not_tests.run_through]
+    empty = ["t_empty"]
+    mid = ["t_chain"]
+    """ * entries)
+  mismatches(entries, loaded = ["loaded"]) = run_through_mismatches(synthetic(entries), n -> sources[n], loaded)
+  @test mismatches("h = [\"t_direct\"]\nh2 = [\"t_chain\"]\n") == String[]
+  # a helper that the runner does not load is reported where a test names it without an entry
+  @test mismatches("h = [\"t_direct\"]\nh2 = [\"t_chain\"]\n", String[]) ==
+        ["`t_loaded` names the file of helper `loaded` but is not recorded for it"]
+  # an empty helper file does not make a test run every helper
+  @test mismatches("h = [\"t_direct\"]\nh2 = [\"t_chain\", \"t_empty\"]\n") ==
+        ["`t_empty` is recorded for helper `h2` but names neither its file nor a helper that names it"]
+  # a recorded test that names nothing, and a test that names a helper without an entry
+  @test mismatches("h = [\"t_direct\", \"t_other\"]\nh2 = [\"t_chain\"]\n") ==
+        ["`t_other` is recorded for helper `h` but names neither its file nor a helper that names it"]
+  @test mismatches("h2 = [\"t_chain\"]\n") == ["`t_direct` names the file of helper `h` but is not recorded for it"]
 end
 
 # runtests.jl itself, as a process: the check runs before any worker starts and leaves --list alone.

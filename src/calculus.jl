@@ -368,9 +368,8 @@ end
 @noinline _scaled_nan_value(f, α, x, r) = _infinite_factor(α) && _exactly_zero_at(f, x) ? zero(r) : r
 _infinite_factor(α::Real) = isinf(α)
 _infinite_factor(α) = false
-# α v with the stored factor α, for the array-step route, which does not recover a product
-@inline _scaled_product_value(f, α, y, v) = (r = α * v; isnan(r) ? _scaled_nan_product(f, α, y, v, r) : r)
-@noinline _scaled_nan_product(f, α, y, v, r) = isnan(v) ? r : _scaled_nan_value(f, α, y, r)
+# α v with an infinite factor α, for the array-step route, which does not recover a product
+_scaled_product_value(f, α, y, v) = (r = α * v; isnan(r) && !isnan(v) ? _scaled_nan_value(f, α, y, r) : r)
 
 # Whether f(x) is exactly 0, decided from the argument and the stored parameters, never from a
 # computed value. An indicator: its value is exactly 0 or Inf, so a value that is not NaN and gives

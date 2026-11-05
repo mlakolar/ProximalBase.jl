@@ -376,6 +376,12 @@ struct GLMLoss{L<:ScalarLoss, T<:AbstractFloat, Ty<:AbstractVector, TX<:Abstract
       O<:Union{Nothing, AbstractVector}, V<:AbstractVector{T}}
     all(a -> a === nothing || eltype(a) <: Real,
         (y, X, weights, offset, η, d)) || _real_error(:GLMLoss)
+    # η and d are scratch that gradient!, hessian_vec! and quadratic_model! overwrite, the
+    # last staging two values per observation in them: they must be two arrays, neither of
+    # them y, weights or offset. Identity only: a view or a reshape is not detected.
+    (η === d || η === y || η === weights || η === offset ||
+     d === y || d === weights || d === offset) &&
+      throw(ArgumentError("the buffers η and d of a GLMLoss must be separate arrays, and not y, weights or offset"))
     new{L, T, Ty, TX, W, O, V}(loss, y, X, weights, offset, η, d)
   end
 end

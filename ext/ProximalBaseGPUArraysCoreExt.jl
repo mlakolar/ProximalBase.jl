@@ -619,18 +619,38 @@ function (l::_Weighted{T})(v, w) where {T}
   R = promote_type(T, float(typeof(w)))
   convert(T, _positive_product(convert(R, l.λ), convert(R, w), convert(R, v)))
 end
+# What the original level and step are, which the prepared (step, λ) of _group_levels can lose: a
+# mixed-precision fallback can turn a positive level into 0 or a finite product into Inf, and a
+# NaN is classified by the parameters, not by the prepared product (E4 before E2).
+struct _L2Flags
+  zerolevel::Bool
+  zerostep::Bool
+  infstep::Bool
+  inflevel::Bool
+  inflevel1::Bool       # an infinite ℓ1 level (the sparse group lasso)
+end
+_L2Flags(γ, λ0, inf1::Bool = false) = _L2Flags(iszero(λ0), iszero(γ), isinf(γ), isinf(λ0), inf1)
+# The groups fixed at zero by the original parameters, as _hard_fixed on the host: an infinite weight, an
+# infinite group level at a positive step (at the step 0 a finite weight keeps the identity), an infinite
+# step or an infinite ℓ1 level. A zero group level with a finite weight is the identity before the step.
+@inline _l2_fixed(fl::_L2Flags, w) = isinf(w) | (fl.inflevel & !fl.zerostep) | (!fl.zerolevel & (fl.infstep | fl.inflevel1))
 struct _L2Factor{T}
   step::T
   λ::T
+  flags::_L2Flags
 end
 (l::_L2Factor{T})(n, w) where {T} = iszero(w) ? one(T) :
   (c = _group_threshold(l.step, l.λ, w); n > c ? one(T) - c / n : zero(T))
 struct _L2Value{T}
   step::T
   λ::T
+  flags::_L2Flags
 end
-(l::_L2Value{T})(n, w) where {T} = iszero(w) ? zero(T) :
-  (c = _group_threshold(l.step, l.λ, w); n > c ? _Weighted(l.λ)(n - c, w) : zero(T))
+# A NaN norm gives NaN unless the group is fixed at zero (an infinite weight, level or step); the
+# value is then read again from the stored group, as for an overflowing value.
+(l::_L2Value{T})(n, w) where {T} = (iszero(w) || (l.flags.zerolevel && !isinf(w))) ? zero(T) :
+  (c = _group_threshold(l.step, l.λ, w);
+   n > c ? _Weighted(l.λ)(n - c, w) : (isnan(n) && !_l2_fixed(l.flags, w)) ? T(NaN) : zero(T))
 
 # Scale each group before squaring. A direct sum of squares can overflow or
 # underflow even when its norm, and hence its proximal factor, is representable.
@@ -656,6 +676,16 @@ end
 function (l::_L2Factor{T})(n, w, m, s) where {T}
   isfinite(n) && return l(n, w)
   iszero(w) && return one(T)
+  # E4 first, from the original parameters: an infinite weight or level fixes the group at zero, and
+  # a zero level with a finite weight is the identity, also at an infinite step
+  fl = l.flags
+  (isinf(w) | (fl.inflevel & !fl.zerostep)) && return zero(T)
+  fl.zerolevel && return one(T)
+  (fl.infstep | fl.inflevel1) && return zero(T)
+  # m is NaN exactly when an entry is NaN (the max propagates it), while an infinite entry only makes
+  # n NaN. A NaN entry (E2): γ = 0 is the identity, and otherwise the group is NaN, whatever the
+  # prepared product (a finite γλw that overflowed or underflowed is no hard fix or endpoint).
+  isnan(m) && return fl.zerostep ? one(T) : T(NaN)
   c = _group_threshold(l.step, l.λ, w)
   isfinite(m) && isfinite(c) ? max(one(T) - (c / m) / sqrt(s), zero(T)) : l(n, w)
 end
@@ -754,8 +784,8 @@ function _group_prox!(y, f::GroupNormL2, lay, x, γ::Real, ::Val{V}) where {V}
   for b in lay.blocks
     m, q = _group_norm_parts(_gather(yv, b), b, S)
     s = m .* sqrt.(q)
-    view(fac, b.pos) .= _L2Factor(step, λ).(vec(s), vec(b.w), vec(m), vec(q))
-    V && (v += _sum(S, _L2Value(step, λ), s, b.w))
+    view(fac, b.pos) .= _L2Factor(step, λ, _L2Flags(γ, f.λ0)).(vec(s), vec(b.w), vec(m), vec(q))
+    V && (v += _sum(S, _L2Value(step, λ, _L2Flags(γ, f.λ0)), s, b.w))
   end
   _scatter_back!(_scale, yv, lay, fac)
   return V && (!_level_preserved(S, γ) || !_level_preserved(S, f.λ0) || !isfinite(v)) ? _l2_part(S, yv, lay, f.λ0) : v
@@ -791,7 +821,8 @@ function _group_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real, ::Val{V}) where
   zero_group = iszero(f.λ0) && !_has_infinite_group_weight(lay)
   zero_group && iszero(f.λ1) && return zero(S)
   yv = vec(y)
-  c1 = _level_preserved(S, γ) && _level_preserved(S, f.λ1) ? convert(S, γ * f.λ1) : _level_product_device(S, γ, f.λ1)
+  # a zero ℓ1 level gives a zero threshold at every step, including γ = Inf: γ·0 is never formed (E4, D1)
+  c1 = iszero(f.λ1) ? zero(S) : _level_preserved(S, γ) && _level_preserved(S, f.λ1) ? convert(S, γ * f.λ1) : _level_product_device(S, γ, f.λ1)
   if zero_group
     yl = view(yv, 1:length(lay.gid))
     yl .= _SparseScale(c1, length(lay.pos)).(yl, one(S), lay.gid)
@@ -803,8 +834,8 @@ function _group_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real, ::Val{V}) where
   for b in lay.blocks
     m, q = _group_norm_parts(_gather(yv, b), b, S, _Shrink(c1))
     s = m .* sqrt.(q)
-    view(fac, b.pos) .= _L2Factor(step, λ).(vec(s), vec(b.w), vec(m), vec(q))
-    V && (v2 += _sum(S, _L2Value(step, λ), s, b.w))
+    view(fac, b.pos) .= _L2Factor(step, λ, _L2Flags(γ, f.λ0, isinf(f.λ1))).(vec(s), vec(b.w), vec(m), vec(q))
+    V && (v2 += _sum(S, _L2Value(step, λ, _L2Flags(γ, f.λ0, isinf(f.λ1))), s, b.w))
   end
   _scatter_back!(_SparseScale(c1, length(lay.pos)), yv, lay, fac)
   if V && (!_level_preserved(S, γ) || !_level_preserved(S, f.λ0) || !isfinite(v2))

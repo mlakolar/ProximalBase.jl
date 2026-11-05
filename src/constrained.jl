@@ -202,7 +202,7 @@ end
 _checkwrite(op::O, f, y, x, γ) where {O} = (_checkreal(f, γ); _checkwrite(op, f, y, x))
 function _checkwrite(op::O, s::Scaled, y, x, γ::Real) where {O}
   _checkreal(s, y); _checkreal(s, x)
-  if _chained(s)
+  if _nested_route(s, γ)
     g, step, _ = _nested_step(s, γ)
     return _checkwrite(op, g, y, x, step)
   end
@@ -1149,7 +1149,7 @@ end
 @inline _prox_entry_slope(::IndNonnegative, v::T, ::Integer, ::Real) where {T<:Real} =
   (max(float(v), zero(float(T))), _slope(v > 0, one(float(T))))
 Base.@propagate_inbounds function _prox_entry_slope(s::Scaled, v::Real, i::Integer, γ::Real)
-  if _chained(s)
+  if _nested_route(s, γ)
     g, step, _ = _nested_step(s, γ)
     return _prox_entry_slope(g, v, i, step)
   end

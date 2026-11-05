@@ -116,8 +116,8 @@ end
 # E2 / G4: NaN must survive comparisons in separable and coupled kernels.
 for (name, f, want, baseline) in (
     (:l1, NormL1(1f0), Float32[NaN, 3], nothing),
-    (:l2, NormL2(1f0), Float32[NaN, NaN], (group = :G11, baseline = Returned(v -> same(v, Float32[0, 0])))),
-    (:group, GroupNormL2(1f0, [1:1, 2:2]), Float32[NaN, 3], (group = :G11, baseline = Returned(v -> same(v, Float32[0, 3])))),
+    (:l2, NormL2(1f0), Float32[NaN, NaN], nothing),
+    (:group, GroupNormL2(1f0, [1:1, 2:2]), Float32[NaN, 3], nothing),
     (:box, IndBox(-1f0, 1f0), Float32[NaN, 1], nothing),
     (:ball, IndBallL1(1f0), Float32[NaN, NaN], (group = :G11, baseline = Returned(v -> same(v, Float32[NaN, 1])))))
   @row begin

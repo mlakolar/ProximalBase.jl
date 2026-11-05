@@ -60,10 +60,31 @@ end
   # an integer step is a Float64 step, as before
   @test PB._moreau_reciprocal(Float32, 2) === 0.5
   # the model of arrays and of tuples
-  @test PB._moreau_reciprocal(zeros(Float64, 2), zeros(Float32, 2), 3f0) === inv(3.0)
-  @test PB._moreau_reciprocal(zeros(Float32, 2), zeros(Float32, 2), 3f0) === inv(3f0)
-  @test PB._moreau_reciprocal((zeros(Float32, 1), (zeros(Float64, 1),)), (zeros(Float32, 1), (zeros(Float32, 1),)), 3f0) === inv(3.0)
-  @test PB._moreau_reciprocal((zeros(Float32, 1),), (zeros(Float32, 1),), 3f0) === inv(3f0)
+  f0 = SqrNormL2()
+  @test PB._moreau_reciprocal(f0, zeros(Float64, 2), zeros(Float32, 2), 3f0) === inv(3.0)
+  @test PB._moreau_reciprocal(f0, zeros(Float32, 2), zeros(Float32, 2), 3f0) === inv(3f0)
+  @test PB._moreau_reciprocal(f0, (zeros(Float32, 1), (zeros(Float64, 1),)), (zeros(Float32, 1), (zeros(Float32, 1),)), 3f0) === inv(3.0)
+  @test PB._moreau_reciprocal(f0, (zeros(Float32, 1),), (zeros(Float32, 1),), 3f0) === inv(3f0)
+  # the data of the function widen the model: Float64 data under Float32 arrays
+  Q = QuadraticFunction(reshape([1.0], 1, 1), [1.0])
+  Q32 = QuadraticFunction(reshape([1f0], 1, 1), [1f0])
+  z32 = zeros(Float32, 1)
+  @test PB._moreau_reciprocal(Q, z32, z32, 3f0) === inv(3.0)
+  @test PB._moreau_reciprocal(Q32, z32, z32, 3f0) === inv(3f0)
+  for g in (Scaled(Q, 2.0), Translate(Q, [1.0]), Tilt(Q, [1.0]), Conjugate(Q), SeparableSum(NormL1(), Q),
+            SeparableSum(NormL1(), SeparableSum(SqrNormL2(), Scaled(Q, 2.0))), Sum(Q, SqrNormL2()))
+    @test PB._moreau_reciprocal(g, z32, z32, 3f0) === inv(3.0)
+  end
+  for g in (Scaled(Q32, 2.0), SeparableSum(NormL1(), Q32), NormL1(), SqrNormL2(), ElasticNet(0.5, 2.0))
+    @test PB._moreau_reciprocal(g, z32, z32, 3f0) === inv(3f0)
+  end
+  @test PB._data_type(typeof(Q)) === Float64 && PB._data_type(typeof(Q32)) === Float32
+  @test PB._data_type(typeof(NormL1(1.0, Float64[1, 2]))) === Union{}
+  @test PB._data_type(typeof(LeastSquaresLoss(Float64[1, 2], Float64[1 2; 3 4]))) === Float64
+  @test PB._data_type(typeof(LeastSquaresLoss(Float32[1, 2], Float32[1 2; 3 4]))) === Float32
+  @test PB._data_type(typeof(IndHyperplane(Float64[1, 1], 1.0))) === Float64
+  @test PB._data_type(typeof(IndHyperplane(Float32[1, 1], 1f0))) === Float32
+  @test @inferred(PB._moreau_reciprocal(SeparableSum(NormL1(), Q), (z32, z32), (z32, z32), 3f0)) isa Float64
   # the coefficient form divides once
   @test PB._moreau_ratio(Float64, 2f0, 3f0) === 2.0 / 3.0
   @test PB._moreau_ratio(Float32, 2f0, 3f0) === 2f0 / 3f0
@@ -71,7 +92,7 @@ end
   # inferred, so that the hot paths do not box
   @test @inferred(PB._moreau_reciprocal(Float64, 3f0)) isa Float64
   @test @inferred(PB._moreau_reciprocal(Float32, 3f0)) isa Float32
-  @test @inferred(PB._moreau_reciprocal((zeros(Float32, 1), (zeros(Float64, 1),)), (zeros(Float32, 1), (zeros(Float32, 1),)), 3f0)) isa Float64
+  @test @inferred(PB._moreau_reciprocal(f0, (zeros(Float32, 1), (zeros(Float64, 1),)), (zeros(Float32, 1), (zeros(Float32, 1),)), 3f0)) isa Float64
 end
 
 @testset "the lazy reciprocal array" begin
@@ -86,8 +107,9 @@ end
   @test eltype(r32) === Float32 && collect(r32) == inv.(γ)
   # the promotion of the model and the steps, so that a wider step is not narrowed
   @test eltype(PB._ReciprocalArray(Float32, [3.0, 0.1])) === Float64
-  @test eltype(PB._ReciprocalArray((zeros(Float64, 2),), (zeros(Float32, 2),), γ[1:2])) === Float64
-  @test eltype(PB._ReciprocalArray(zeros(Float32, 2), zeros(Float32, 2), γ[1:2])) === Float32
+  @test eltype(PB._ReciprocalArray(NormL1(), (zeros(Float64, 2),), (zeros(Float32, 2),), γ[1:2])) === Float64
+  @test eltype(PB._ReciprocalArray(NormL1(), zeros(Float32, 2), zeros(Float32, 2), γ[1:2])) === Float32
+  @test eltype(PB._ReciprocalArray(QuadraticFunction(reshape([1.0], 1, 1), [1.0]), zeros(Float32, 2), zeros(Float32, 2), γ[1:2])) === Float64
   # a matrix of steps keeps its shape
   M = Float32[3 0.1; 7 1]
   rm = PB._ReciprocalArray(Float64, M)
@@ -341,16 +363,32 @@ end
   x = ([2.0], ([2.0], Float32[g]))
   for op in (prox!, value_and_prox!)
     ref = outcome(op, f, x, ([0.0], ([0.0], Float32[0])), Float64(g))
+    @test ref[1] === :ok          # the stored Float64 step is accepted, and so is the Float32 step
     a = outcome(op, f, x, ([0.0], ([0.0], Float32[0])), g)
-    a[1] === :err ? @test(all(==(7), a[3])) : @test(isequal(a, ref))
+    @test a[1] === :ok && isequal(a, ref)
     xa = deepcopy(x)
-    ok = try
-      op(xa, f, xa, g)
-      true
-    catch
-      false
-    end
-    ok ? @test(isequal(flat(xa), ref[2])) : @test(flat(xa) == flat(x))
+    op(xa, f, xa, g)              # aliased
+    @test isequal(flat(xa), ref[2])
+  end
+  # a step that is rejected is rejected before the sum writes its first block, aliased or not
+  for bad in (NaN32,), op in (prox!, value_and_prox!)
+    a = outcome(op, f, x, ([0.0], ([0.0], Float32[0])), bad)
+    @test a[1] === :err && a[2] === ArgumentError && all(==(7), a[3])
+    xa = deepcopy(x)
+    @test_throws ArgumentError op(xa, f, xa, bad)
+    @test xa == x
+  end
+  # all Float32: the Float32 reciprocal overflows, and both the check and the execution reject it
+  # before the first block of the sum is written
+  c32 = Conjugate(SeparableSum(NormL1(), Scaled(MoreauEnvelope(NormL1(), 1f0), g)))
+  f32 = SeparableSum(SqrNormL2(1f30), c32)
+  x32 = (Float32[2], (Float32[2], Float32[g]))
+  for op in (prox!, value_and_prox!)
+    a = outcome(op, f32, x32, (Float32[0], (Float32[0], Float32[0])), g)
+    @test a[1] === :err && a[2] === ArgumentError && all(==(7), a[3])
+    xa = deepcopy(x32)
+    @test_throws ArgumentError op(xa, f32, xa, g)
+    @test xa == x32
   end
   # the two oracles store the same point, also where the step leaves the Float32 range
   for γ in (1f-40, 3f0, 1f30)
@@ -361,6 +399,49 @@ end
     @test p[1] === v[1]
     p[1] === :ok && @test p[2] == v[2]
   end
+  # Known gap (R3), as on the base of #576: the Float32 reciprocal of 1f-40 overflows before the
+  # scale 1f-40 of the sum is applied, so the quadratic block is g instead of g/2 although the
+  # combined step g/g = 1 is normal. It is tracked on its own issue; the oracles agree on it.
+  g2 = 1f-40
+  cs = Conjugate(Scaled(SeparableSum(NormL1(), SqrNormL2()), g2))
+  ys = (zeros(Float32, 1), zeros(Float32, 1))
+  prox!(ys, cs, (Float32[g2], Float32[g2]), g2)
+  @test_broken ys[2][1] == g2 / 2
+end
+
+@testset "the data of a function widen the model" begin
+  # f(t) = t^2/2 + t with Float64 data under Float32 arrays: the dual proximal point at 0 is
+  # γ/(1 + γ), representable and without cancellation, for every Float32 step including 1f-40 whose
+  # Float32 reciprocal overflows
+  Q = QuadraticFunction(reshape([1.0], 1, 1), [1.0])
+  for γ in (3f0, 0.1f0, 1f-40), op in (prox!, value_and_prox!)
+    y = Float32[7]
+    op(y, Conjugate(Q), Float32[0], γ)
+    ref = big(γ) / (1 + big(γ))
+    @test y[1] isa Float32
+    @test relerr(y[1], ref) <= (γ < 1f-30 ? 1e-4 : 4 * eps(Float32))
+    # the stored Float64 step gives the same bits
+    y64 = Float32[7]
+    op(y64, Conjugate(Q), Float32[0], Float64(γ))
+    @test y64 == y
+    # inside a tuple, next to a block without data
+    c = Conjugate(SeparableSum(NormL1(), Q))
+    yt, xt = (Float32[7], Float32[7]), (Float32[2], Float32[0])
+    op(yt, c, xt, γ)
+    @test yt[1] == Float32[1] && relerr(yt[2][1], ref) <= (γ < 1f-30 ? 1e-4 : 4 * eps(Float32))
+    # wrapped
+    yw = Float32[7]
+    op(yw, Conjugate(Translate(Q, [0.0])), Float32[0], γ)
+    @test relerr(yw[1], ref) <= (γ < 1f-30 ? 1e-4 : 4 * eps(Float32))
+  end
+  # Float32 data keep the Float32 model and its plain reciprocal
+  Q32 = QuadraticFunction(reshape([1f0], 1, 1), [1f0])
+  @test_throws ArgumentError prox!(Float32[7], Conjugate(Q32), Float32[0], 1f-40)
+  # a Float32 model of data and arrays: allocations stay zero
+  x32, y32 = Float32[0.5, 1], zeros(Float32, 2)
+  Q2 = QuadraticFunction([2.0 0.5; 0.5 1.0], [1.0, -1.0])
+  @test allocs(prox!, y32, Conjugate(Q2), x32, 0.5f0) == 0
+  @test allocs(value_and_prox!, y32, Conjugate(Q2), x32, 0.5f0) == 0
 end
 
 @testset "unchanged shortcuts" begin

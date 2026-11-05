@@ -69,7 +69,7 @@ struct _ReciprocalArray{T, N, A<:AbstractArray} <: AbstractArray{T, N}
 end
 _ReciprocalArray(::Type{W}, γ::AbstractArray{S, N}) where {W, S, N} =
   _ReciprocalArray{promote_type(W, float(S)), N, typeof(γ)}(γ)
-_ReciprocalArray(y, x, γ::AbstractArray) = _ReciprocalArray(promote_type(_valtype(y), _valtype(x)), γ)
+_ReciprocalArray(f, y, x, γ::AbstractArray) = _ReciprocalArray(_moreau_model(f, y, x), γ)
 Base.size(a::_ReciprocalArray) = size(a.γ)
 Base.IndexStyle(::Type{<:_ReciprocalArray}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(a::_ReciprocalArray{T}, i::Int) where {T} = inv(convert(T, a.γ[i]))
@@ -374,7 +374,7 @@ function _prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractArray, γ::
     y .= x .- z
   else
     z .= x ./ γ
-    _prox_unchecked!(z, c.f, z, _ReciprocalArray(z, x, γ))
+    _prox_unchecked!(z, c.f, z, _ReciprocalArray(c.f, z, x, γ))
     _checkmoreau(y, x, z, γ, γ, true)
     y .= x .- _checked_parameter(y, γ) .* z
   end
@@ -415,7 +415,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::Conjugate, x::AbstractA
   T = float(eltype(y))
   p = _array_buffer!(c.scratch, T, x)
   p .= x ./ γ
-  fp = _value_and_prox_unchecked!(p, c.f, p, _ReciprocalArray(p, x, γ))
+  fp = _value_and_prox_unchecked!(p, c.f, p, _ReciprocalArray(c.f, p, x, γ))
   _checkmoreau(y, x, p, γ, γ, true)
   y .= x .- _checked_parameter(y, γ) .* p
   _value_at(dot(p, y) - fp, y)

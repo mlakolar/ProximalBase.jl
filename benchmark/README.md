@@ -42,6 +42,9 @@ extended suite adds `Constrained(SqrNormL2, IndHyperplane)` with per-entry steps
 and cold calls) and a scalar-step control (`layout=constrained`).
 The matrix group includes partial/full decompositions and fallback inputs.
 Construction plus first use is measured separately from workspace reuse.
+The sparse operands of the `products` group hold exactly density × N nonzeros, rounded to the
+nearest integer and at least 1 (N the number of entries), at random positions drawn from their
+own scenario keys, so the `work` of a case is the same in every repetition.
 
 The `owner` group measures `SymmetricSparseIterate` (reads, writes, first activation,
 coordinate sweeps, `mul!` (also with half of the stored coordinates explicit zeros), the
@@ -83,7 +86,8 @@ in the measurement order of the repetition. The script reads `PB_SUITE`, `PB_GRO
 `check-rep<NN>-errors.tsv` there: every failure with its exception and full stack trace, written
 and flushed as it occurs, so a timeout keeps what was recorded. It prints the ID of every failing
 case and exits with status 1 if any case fails. `benchmark/check_only_test.jl` tests the driver on
-synthetic cases in a few seconds.
+synthetic cases and then runs `benchmark/cases_test.jl`, which tests the sparse operands of the
+`products` cases and runs their reference checks for repetitions 1–10, in under half a minute.
 
 ```sh
 JULIA_NUM_THREADS=1 julia --project=benchmark benchmark/check_only.jl

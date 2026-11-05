@@ -23,6 +23,7 @@ quick = [
   "atom_iterate",
   "iterate_invariants",
   "iterate_queries",
+  "iterate_writes",
   "matrixview",
   "sparse_iterate_basics",
   "symmetric_parameters",

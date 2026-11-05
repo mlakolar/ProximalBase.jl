@@ -356,9 +356,23 @@ function Base.copyto!(dest::AtomIterate{T}, src::AtomIterate{S}) where {T, S}
   dest
 end
 
+Base.copy!(dest::AtomIterate, src::AtomIterate) = copyto!(dest, src)
+
+# a SparseIterate and an AtomIterate of the same length: a value write in linear order
+function Base.copyto!(x::SparseIterate, y::AtomIterate)
+  _check_iterate_lengths(x, y)
+  invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
+end
+function Base.copyto!(x::AtomIterate, y::SparseIterate)
+  _check_iterate_lengths(x, y)
+  invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
+end
+Base.copy!(x::SparseIterate, y::AtomIterate) = copyto!(x, y)
+Base.copy!(x::AtomIterate, y::SparseIterate) = copyto!(x, y)
+
 function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{Nothing})
   _checkreal_broadcast(x, bc)
-  invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{Nothing}}, x, bc)
+  _broadcast_loop!(x, bc)
 end
 
 function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{S}) where {S<:Broadcast.DefaultArrayStyle{0}}
@@ -369,7 +383,10 @@ end
 function Base.fill!(x::AtomIterate, v)
   s = convert(eltype(x), v)     # converted once, before x changes; activation follows the stored value
   if iszero(s)
-    _zero_active!(x)
+    # a value write: the active groups stay active (dropzeros!(fill!(x, 0)) removes them)
+    for a in 1:x.nactive
+      fill!(_atom_storage(x, x.active[a]), s)
+    end
   else
     fill!(x.storage, s)
     for k in eachindex(x.groups)

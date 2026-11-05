@@ -649,14 +649,36 @@ Base.Array(x::SparseIterate{T, 1}) where {T} = Vector(x)
 Base.Array(x::SparseIterate{T, 2}) where {T} = Matrix(x)
 
 
+# Between iterates of the same size, a state copy. Another shape of the same length is
+# a value write in linear order, as from any other array.
 function Base.copyto!(x::SparseIterate, y::SparseIterate)
-    size(x) == size(y) || throw(DimensionMismatch())
-    _copyto_stored!(x, y)
+    size(x) == size(y) && return _copyto_stored!(x, y)
+    _check_iterate_lengths(x, y)
+    invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
 end
+Base.copy!(x::SparseIterate, y::SparseIterate) = copyto!(x, y)
+
+# A copy between two array iterates of different lengths throws before writing.
+_check_iterate_lengths(x, y) = length(x) == length(y) ||
+    throw(DimensionMismatch("destination has length $(length(x)), source has length $(length(y))"))
 
 function Base.copyto!(x::SparseIterate, bc::Broadcast.Broadcasted{Nothing})
   _checkreal_broadcast(x, bc)
-  invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{Nothing}}, x, bc)
+  _broadcast_loop!(x, bc)
+end
+
+# A broadcast into an array iterate is the explicit loop over the unaliased
+# right-hand side: Base's loop without its shortcut to copyto!(x, y), which would
+# make x .= y a state copy when y is an iterate of the same kind. For a matrix the
+# loop runs over Cartesian indices, in linear order.
+@inline function _broadcast_loop!(x::AbstractArray, bc::Broadcast.Broadcasted{Nothing})
+  axes(x) == axes(bc) ||
+    throw(DimensionMismatch("destination axes $(axes(x)) do not match the broadcast axes $(axes(bc))"))
+  bc′ = Broadcast.preprocess(x, bc)
+  @inbounds for I in eachindex(bc′)
+    x[I] = bc′[I]
+  end
+  x
 end
 
 function Base.copyto!(x::_StoredIterate, bc::Broadcast.Broadcasted{S}) where {S<:Broadcast.DefaultArrayStyle{0}}
@@ -664,13 +686,17 @@ function Base.copyto!(x::_StoredIterate, bc::Broadcast.Broadcasted{S}) where {S<
   invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{S}}, x, bc)
 end
 
-# fill!(x, 0) removes the stored entries, as zeros are not stored
-function Base.fill!(x::SparseIterate, v)
-  if iszero(v)
-    _clear!(x)
+# fill! is a value write: the value is converted first, and a zero is written into
+# the stored entries, which stay stored (dropzeros!(fill!(x, 0)) removes them)
+function Base.fill!(x::SparseIterate{T}, v) where {T}
+  s = convert(T, v)
+  if iszero(s)
+    @inbounds for k in 1:x.nnz
+      x.nzval[k] = s
+    end
   else
     @inbounds for i in eachindex(x)
-      x[i] = v
+      x[i] = s
     end
   end
   x

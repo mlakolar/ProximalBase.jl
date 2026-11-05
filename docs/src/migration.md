@@ -307,3 +307,30 @@ It now gives `[Inf, NaN, NaN, NaN]` with active coordinates `[1, 2, 3, 4]`.
 Finite multipliers and finite nonzero divisors still cost `O(nnz)` and give
 the same results as before. `SymmetricSparseIterate` keeps the earlier
 behavior for now.
+
+## Writes into a `SparseIterate` or `AtomIterate` keep the working set (0.6)
+
+Every write through the array interface is now a value write: it activates the
+coordinates (groups) it makes nonzero and removes none. Only `dropzeros!`
+removes coordinates. Three spellings change.
+
+- `fill!(x, 0)` and `x .= 0` no longer clear the working set. They write zeros
+  into the active coordinates, which stay active. Base and LinearAlgebra
+  mutators that start with a `fill!`, such as `sum!(x, A)`, keep the working
+  set too. To clear, write `dropzeros!(fill!(x, 0))`.
+- `x .= y` with `y` an iterate of the same kind (a `SparseIterate` of the same
+  size, or an `AtomIterate` with equal groups) is a value write, like every
+  other broadcast: `x` keeps its working set and gains the nonzeros of `y`.
+  Before 0.6 it copied the working set of `y`. For that copy, write
+  `copyto!(x, y)`, which costs `O(nnz)` where the broadcast costs `O(length(x))`.
+- `copyto!` and `copy!` between two `SparseIterate`s of different shapes and
+  the same length are value writes in linear order; before 0.6 they threw a
+  `DimensionMismatch`. Between a `SparseIterate` and an `AtomIterate` of
+  different lengths they now throw a `DimensionMismatch` before writing.
+
+For example, take `x = SparseIterate(4); x[4] = 7; activate!(x, 2)`.
+`fill!(x, 0)` gave active coordinates `[]`. It now gives `[4, 2]`, and
+`dropzeros!(fill!(x, 0))` gives `[]`.
+
+To replace the working set by the support of a dense real array `A` of the same
+length that shares no memory with `x`, write `copyto!(dropzeros!(fill!(x, 0)), A)`.

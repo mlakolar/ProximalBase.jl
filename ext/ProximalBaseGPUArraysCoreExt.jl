@@ -1049,13 +1049,31 @@ function ProximalBase.value_and_gradient!(g::AbstractVector, f::_DeviceGLM{L, T}
   η = ProximalBase._linear_predictor!(f, β)
   w = _param(f.weights)
   f.d .= _ObsDeriv{T}(f.loss).(η, f.y, w)
-  s = _sum(T, _ObsValue{T}(f.loss), η, f.y, w, f.d)
-  isfinite(s) || (s = ProximalBase._glm_recover!(f, β, Val(true), Val(true)))
-  ProximalBase._gradient_product!(g, f)
+  if f.weights === nothing
+    s = _sum(T, _ObsValue{T}(f.loss), η, f.y, w, f.d)
+    isfinite(s) || (s = ProximalBase._glm_recover!(f, β, Val(true), Val(true)))
+    ProximalBase._gradient_product!(g, f)
+    return _value_at(s, β)
+  end
+  # The sum stays on the device (the reduction of `_sum`, with dims = 1 in place of
+  # dims = :), X'd follows it on the stream, and one transfer reads the sum together
+  # with the finiteness of X'd.
+  S = mapreduce(identity, +, instantiate(broadcasted(_ObsValue{T}(f.loss), η, f.y, w, f.d)); dims = 1, init = zero(T))
+  mul!(g, transpose(f.X), f.d)
+  flags, s = length(g) >= length(S) ? _gradient_state(_GradientState{T}(nothing, g, S), g) :
+                                      _gradient_state(_GradientState{T}(nothing, g, S), S)
+  if !isfinite(s)
+    s = ProximalBase._glm_recover!(f, β, Val(true), Val(true))
+    ProximalBase._gradient_product!(g, f)          # the recovery rewrote d
+  elseif !iszero(flags & 0x02)
+    _masked_product!(g, f)
+  end
   return _value_at(s, β)
 end
 
-# one reduction over d (a host synchronization) decides whether to recover
+# Unweighted, one reduction over d decides whether to recover. Weighted, X'd is formed
+# first, and one reduction over d and X'd decides both the recovery and the check of
+# X'd for a non-finite inactive row: one host synchronization.
 function ProximalBase.gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::AbstractVector) where {L, T}
   _checkreal(f, β)
   _checkreal(f, g)
@@ -1063,8 +1081,63 @@ function ProximalBase.gradient!(g::AbstractVector, f::_DeviceGLM{L, T}, β::Abst
   _checksize(g, β)
   η = ProximalBase._linear_predictor!(f, β)
   f.d .= _ObsDeriv{T}(f.loss).(η, f.y, _param(f.weights))
-  _all(!isnan, f.d) || ProximalBase._glm_recover!(f, β, Val(false), Val(true))
-  return ProximalBase._gradient_product!(g, f)
+  if f.weights === nothing
+    _all(!isnan, f.d) || ProximalBase._glm_recover!(f, β, Val(false), Val(true))
+    return ProximalBase._gradient_product!(g, f)
+  end
+  mul!(g, transpose(f.X), f.d)
+  o = _GradientState{T}(f.d, g, nothing)
+  flags = length(g) >= length(f.d) ? _gradient_state(o, g) : _gradient_state(o, f.d)
+  if !iszero(flags & 0x01)
+    ProximalBase._glm_recover!(f, β, Val(false), Val(true))
+    ProximalBase._gradient_product!(g, f)          # the recovery rewrote d
+  elseif !iszero(flags & 0x02)
+    _masked_product!(g, f)
+  end
+  return g
+end
+
+# The decision after X'd with weights, made by one reduction on the device and read by
+# one transfer. Entry i reads d[i] and g[i] where they exist, over the longest of the
+# arrays: bit 1 marks a NaN in d (a term the ordinary pass did not keep), bit 2 a
+# non-finite entry of g = X'd. The two tests stay separate: X'd need not show a NaN of
+# d (a sparse X with an empty row never reads it). With `s`, the one-entry device array
+# of the sum of the values, entry 1 also carries that sum, unchanged (bit 3 marks the
+# entry that carries it), so the value and the decision come back together.
+struct _GradientState{T, D, G, S}
+  d::D
+  g::G
+  s::S
+end
+_GradientState{T}(d::D, g::G, s::S) where {T, D, G, S} = _GradientState{T, D, G, S}(d, g, s)
+Adapt.adapt_structure(to, o::_GradientState{T}) where {T} =
+  _GradientState{T}(Adapt.adapt(to, o.d), Adapt.adapt(to, o.g), Adapt.adapt(to, o.s))
+@inline function _state_bits(o::_GradientState, i)
+  a = o.d !== nothing && i <= length(o.d) && @inbounds isnan(o.d[i])
+  b = i <= length(o.g) && @inbounds !isfinite(o.g[i])
+  UInt8(a) | UInt8(b) << 1
+end
+@inline (o::_GradientState{T, D, G, Nothing})(_, i) where {T, D, G} = _state_bits(o, i)
+@inline function (o::_GradientState{T})(_, i) where {T}
+  first = i == 1
+  (_state_bits(o, i) | UInt8(first) << 2, first ? @inbounds(o.s[1]) : zero(T))
+end
+# the flags of both, and the sum of the entry that carries it (no arithmetic on the sum)
+@inline _merge_state(a::Tuple, b::Tuple) = (a[1] | b[1], iszero(a[1] & 0x04) ? b[2] : a[2])
+# over the entries of x, one of the arrays of o and the longest; without s, x is empty
+# only when d and g are (nothing to test)
+function _gradient_state(o::_GradientState{T, D, G, Nothing}, x) where {T, D, G}
+  isempty(x) && return 0x00
+  mapreduce(identity, |, instantiate(broadcasted(o, x, LinearIndices(x))); init = 0x00)
+end
+_gradient_state(o::_GradientState{T}, x) where {T} =
+  mapreduce(identity, _merge_state, instantiate(broadcasted(o, x, LinearIndices(x))); init = (0x00, zero(T)))
+# X'd is not finite: formed again without the inactive rows when one of them is not
+# finite (the second half of `_gradient_product!`)
+function _masked_product!(g::AbstractVector, f::_DeviceGLM{L, T}) where {L, T}
+  w = f.weights
+  ProximalBase._broadcast_reduce(&, true, ProximalBase._InactiveFinite{T}(), f.X, w) && return g
+  mul!(g, transpose(ProximalBase._ActiveRows{T}().(f.X, w)), f.d)
 end
 
 ####################################

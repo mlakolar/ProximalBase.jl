@@ -1145,7 +1145,7 @@ Base.@propagate_inbounds function _prox_entry_slope(f::ElasticNet, v::T, i::Inte
   shrink(v, t) / (1 + r), _slope(abs(v) > t, inv(1 + r))
 end
 @noinline function _elastic_prox_slope_wide(::Type{S}, f::ElasticNet, v, w, γ, r) where {S}
-  if isinf(γ)
+  if γ == Inf
     z, dz = _elastic_infinite_slope(v, f.λ1 > zero(f.λ1), f.λ2 > zero(f.λ2), w)
     return convert(S, z), convert(S, dz)
   end

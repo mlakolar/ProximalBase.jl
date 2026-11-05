@@ -216,6 +216,54 @@ end
   @test same(prox(Constrained(Tilt(ElasticNet(T(1), T(0)), fill(T(1), 5)), IndBox(T(-1), T(1))), x, Inf_), fill(T(NaN), 5))
 end
 
+# A negative step is not admitted (P1); until it is rejected (#311) a −Inf step, scalar or as an
+# array entry, keeps the base's arithmetic and never takes the γ = +Inf rule: the coefficient γλ1w
+# as an IEEE product (0 for a zero weight under λ1 > 0), shrink(v, c)/(1 + γλ2), and the slope
+# abs(v) > c ? 1/(1 + γλ2) : 0. These pin the base's results.
+function ref_negative(v::T, λ1, λ2, w, γ) where {T<:AbstractFloat}
+  c = w == 0 && λ1 > 0 ? zero(T) : T(γ) * T(λ1) * T(w)
+  d = one(T) + T(γ) * T(λ2)
+  z = (max(v - c, zero(T)) + min(v + c, zero(T))) / d
+  z, abs(v) > c ? inv(d) : zero(T)
+end
+
+@testset "negative infinite steps, $T" for T in (Float32, Float64)
+  allowscalar(false)
+  x = T[2, -3, 0.25, 0, NaN, Inf]
+  ref(v, λ1, λ2, w, γ) = γ < 0 ? ref_negative(v, λ1, λ2, w, γ) : (ref_prox(v, λ1, λ2, w, γ), ref_slope(v, λ1, λ2, w, γ))
+  for (λ1, λ2) in LEVELS, w in (nothing, T[0, 1, Inf, 1, 0.5, 1])
+    f = enet(T, λ1, λ2, w)
+    fd = adapt(JLArray, f)
+    for γ in (T(-Inf), T[0.5, -Inf, -Inf, 1, -Inf, 0.5])
+      γi(i) = γ isa AbstractArray ? γ[i] : γ
+      r = [ref(x[i], λ1, λ2, weightof(w, i), γi(i)) for i in eachindex(x)]
+      want = first.(r)
+      check_routes(f, x, γ, want)
+      for i in eachindex(x)
+        @test same(PB._prox_entry_slope(f, x[i], i, γi(i)), r[i])
+      end
+      γd = γ isa AbstractArray ? JLArray(γ) : γ
+      @test same(Array(prox(fd, JLArray(x), γd)), want)
+      z = JLArray(copy(x))
+      @test prox!(z, fd, z, γd) === z && same(Array(z), want)
+      y = JLArray(fill(T(7), length(x)))
+      v = value_and_prox!(y, fd, JLArray(x), γd)
+      @test same(Array(y), want) && isnan(v)
+    end
+    if w === nothing
+      for v in T[2, -3, 0, NaN]
+        @test same(PB._prox_slope(f, v, T(-Inf)), last(ref_negative(v, λ1, λ2, 1, -Inf)))
+      end
+    end
+  end
+  y = fill(T(7), 2)
+  v = value_and_prox!(y, ElasticNet(T(1), T(0)), T[2, -3], T(-Inf))
+  @test isnan(v) && same(y, T[NaN, NaN])
+  y = fill(T(7), 2)
+  v = value_and_prox!(y, ElasticNet(T(1), T(0)), T[2, -3], T[0.5, -Inf])
+  @test isnan(v) && same(y, T[1.5, NaN])
+end
+
 @testset "argument and step types" begin
   @test same(prox(ElasticNet(0, 0), [2, -1], Inf), [2.0, -1.0])
   @test same(prox(ElasticNet(1, 0), [2, -1], Inf), [0.0, 0.0])

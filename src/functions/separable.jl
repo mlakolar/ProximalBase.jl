@@ -499,7 +499,7 @@ Base.@propagate_inbounds function prox_entry(f::ElasticNet, v::T, i::Integer, γ
   shrink(v, _weight_coefficient(S, γ, f.λ1, w)) / (1 + t)
 end
 @noinline function _elastic_prox_wide(::Type{S}, f::ElasticNet, v, w, γ, t) where {S}
-  isinf(γ) && return convert(S, _elastic_infinite_step(v, f.λ1 > zero(f.λ1), f.λ2 > zero(f.λ2), w))
+  γ == Inf && return convert(S, _elastic_infinite_step(v, f.λ1 > zero(f.λ1), f.λ2 > zero(f.λ2), w))
   _elastic_ridge_wide(S, shrink(v, _weight_coefficient(S, γ, f.λ1, w)), γ, f.λ2, t)
 end
 

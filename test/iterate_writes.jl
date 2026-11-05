@@ -159,6 +159,17 @@ end
     @test all(signbit, activevalues(x)) && ws(x) == [4, 2]
   end
 
+  @testset "a complex value is rejected before the zero write" begin
+    for mk in (mkS, mkA), z in (0im, 0.0 + 0im, 1 + 0im)
+      x = mk()
+      s = snapshot(x)
+      @test_throws ArgumentError fill!(x, z)
+      @test snapshot(x) == s
+      @test_throws ArgumentError (x .= z)
+      @test snapshot(x) == s
+    end
+  end
+
   @testset "matrices: the loop in linear order" begin
     mk() = (x = SparseIterate(3, 2); x[3, 2] = 7.0; activate!(x, 2); x)
     ym = SparseIterate(3, 2); ym[1, 1] = 3.0; activate!(ym, 5)

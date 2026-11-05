@@ -11,6 +11,23 @@ coordinates (see [`ncoordinates`](@ref)) are its entries, in linear order.
 Setting an entry to zero keeps it in the list; call `dropzeros!` to remove
 stored zeros. The stored entries are the active coordinates
 ([`activecoordinates`](@ref)).
+
+Its entries are real. The constructors, two-argument `copyto!` from an array
+(for a matrix also from a `UniformScaling` or an orthogonal factor), `copy!`,
+broadcasting into `x` and `fill!` throw an `ArgumentError` for a source or value
+of complex type, even with a zero imaginary part, before anything is written.
+For a vector `x`, `vec(x)` and `reshape(x, length(x))` are `x` itself and are
+checked too. `copy!` from a source of another size throws Base's error first,
+unless the source is a `SparseIterate` or an [`AtomIterate`](@ref): one of the
+same length is copied by value in linear order, and one of another length throws
+a `DimensionMismatch`. The check reads types: a tuple, a generator or an array of abstract element type
+such as `Vector{Any}` passes it, and its values are converted one by one. Other
+writes also convert values one by one, as writes into a plain `Array` of the
+element type of `x` do: writes through a view, through `vec` of a matrix or a
+`reshape` to another shape, indexed assignment such as `x[i] = v` or `x[:] = c`,
+`copyto!` with offsets or index ranges, and `map!`. A complex value converted
+one by one throws an `InexactError`, possibly after part of `x` has been
+written.
 """
 mutable struct SparseIterate{T, N} <: AbstractArray{T, N}
     nzval::Vector{T}            # stored nonzero values (1:nnz)
@@ -652,6 +669,7 @@ Base.Array(x::SparseIterate{T, 2}) where {T} = Matrix(x)
 # Between iterates of the same size, a state copy. Another shape of the same length is
 # a value write in linear order, as from any other array.
 function Base.copyto!(x::SparseIterate, y::SparseIterate)
+    _checkreal_broadcast(x, y)
     size(x) == size(y) && return _copyto_stored!(x, y)
     _check_iterate_lengths(x, y)
     invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
@@ -661,6 +679,65 @@ Base.copy!(x::SparseIterate, y::SparseIterate) = copyto!(x, y)
 # A copy between two array iterates of different lengths throws before writing.
 _check_iterate_lengths(x, y) = length(x) == length(y) ||
     throw(DimensionMismatch("destination has length $(length(x)), source has length $(length(y))"))
+
+# The check reads the element type and runs before anything is written; a source
+# of abstract element type converts entry by entry, as in Base.
+function Base.copyto!(x::SparseIterate, y::AbstractArray)
+  _checkreal_broadcast(x, y)
+  invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
+end
+# Resolve ambiguities with SparseArrays: each runs the method that applies without the check.
+@static if isdefined(@__MODULE__, :_AbstractSparseMatrixCSC)
+  function Base.copyto!(x::SparseIterate{<:Any, 2}, y::_AbstractSparseMatrixCSC)
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractMatrix, _AbstractSparseMatrixCSC}, x, y)
+  end
+  function Base.copyto!(x::SparseIterate{T, 2}, y::Union{Adjoint{<:Any, <:_AbstractSparseMatrixCSC},
+                                                         Transpose{<:Any, <:_AbstractSparseMatrixCSC}}) where {T}
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractMatrix{T}, typeof(y)}, x, y)
+  end
+end
+# Newer SparseArrays also specializes matrix views and transposed sparse vectors.
+@static if isdefined(@__MODULE__, :_SparseMatrixCSCOrView)
+  function Base.copyto!(x::SparseIterate{T, 2}, y::_SparseMatrixCSCOrView) where {T}
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractMatrix{T}, typeof(y)}, x, y)
+  end
+end
+@static if isdefined(@__MODULE__, :_AdjOrTransSparseVectorOrView)
+  function Base.copyto!(x::SparseIterate{T, 2}, y::_AdjOrTransSparseVectorOrView) where {T}
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractMatrix{T}, typeof(y)}, x, y)
+  end
+end
+@static if isdefined(@__MODULE__, :_CHOLMODDense)
+  function Base.copyto!(x::SparseIterate, y::_CHOLMODDense)
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractArray, _CHOLMODDense}, x, y)
+  end
+  @static if isdefined(@__MODULE__, :_CHOLMODVTypes)
+    function Base.copyto!(x::SparseIterate{T}, y::_CHOLMODDense{T}) where {T<:_CHOLMODVTypes}
+      _checkreal_broadcast(x, y)
+      invoke(copyto!, Tuple{AbstractArray{T}, _CHOLMODDense{T}}, x, y)
+    end
+    function Base.copyto!(x::SparseIterate{T, 2}, y::_CHOLMODDense{T}) where {T<:_CHOLMODVTypes}
+      _checkreal_broadcast(x, y)
+      invoke(copyto!, Tuple{AbstractArray{T, 2}, _CHOLMODDense{T}}, x, y)
+    end
+  end
+end
+# I and orthogonal factors are not arrays, so their element type is checked here.
+function Base.copyto!(x::SparseIterate{<:Any, 2}, y::UniformScaling)
+  !(eltype(y) <: Complex) || _real_error(:SparseIterate)
+  invoke(copyto!, Tuple{AbstractMatrix, UniformScaling}, x, y)
+end
+@static if isdefined(@__MODULE__, :_AbstractQ)
+  function Base.copyto!(x::SparseIterate{<:Any, 2}, y::_AbstractQ)
+    !(eltype(y) <: Complex) || _real_error(:SparseIterate)
+    invoke(copyto!, Tuple{AbstractMatrix, _AbstractQ}, x, y)
+  end
+end
 
 function Base.copyto!(x::SparseIterate, bc::Broadcast.Broadcasted{Nothing})
   _checkreal_broadcast(x, bc)
@@ -686,9 +763,11 @@ function Base.copyto!(x::_StoredIterate, bc::Broadcast.Broadcasted{S}) where {S<
   invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{S}}, x, bc)
 end
 
-# fill! is a value write: the value is converted first, and a zero is written into
-# the stored entries, which stay stored (dropzeros!(fill!(x, 0)) removes them)
+# fill! is a value write: the value is checked and converted first, and a zero is
+# written into the stored entries, which stay stored (dropzeros!(fill!(x, 0))
+# removes them)
 function Base.fill!(x::SparseIterate{T}, v) where {T}
+  _checkreal_broadcast(x, v)
   s = convert(T, v)
   if iszero(s)
     @inbounds for k in 1:x.nnz

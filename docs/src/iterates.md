@@ -661,7 +661,8 @@ pending, the iterate disagrees with its working set if group ``k`` was
 inactive before the write: the group is missing from it, and `nactive(x)` does
 not count it, although `Vector(x)` is not zero in that group. In that case,
 functions that visit only the active groups ignore the written entries. If the
-next call throws, the iterate stays in that state.
+next call fails one of the checks listed in [Steps on one coordinate](@ref),
+nothing is written and the iterate stays in that state.
 
 ### Screening a zero coordinate
 

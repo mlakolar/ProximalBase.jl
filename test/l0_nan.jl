@@ -142,6 +142,39 @@ end
   end
 end
 
+@testset "the fused value is that of the stored output, also in a view" begin
+  for T in (Float32, Float64)
+    f = NormL0(T(0.25))
+    x = T[2, 0]
+    # a destination with a repeated index keeps the last entry written: the value is that of what is left in it
+    y = view(fill(T(7), 2), [1, 1])
+    v = value_and_prox!(y, f, x, T(1))
+    @test v === f(y) && v === T(0) && Array(y) == T[0, 0]
+    y = view(fill(T(7), 2), [1, 1])
+    v = value_and_prox!(y, f, x, T[1, 1])                 # a step per entry: the generic route
+    @test v === f(y) && v === T(0)
+    y = view(fill(T(7), 2), [2, 1])                       # an index vector without a repeat
+    v = value_and_prox!(y, f, x, T(1))
+    @test v === T(0.25) && v === f(y) && Array(y) == T[2, 0]
+    # strided destinations: the one-pass route, with the same values
+    y = view(fill(T(7), 4), 1:2:3)
+    v = value_and_prox!(y, f, x, T(1))
+    @test v === T(0.25) && v === f(y) && Array(y) == T[2, 0]
+    y = view(fill(T(7), 4), 3:-2:1)
+    v = value_and_prox!(y, f, x, T(1))
+    @test v === T(0.25) && v === f(y) && Array(y) == T[2, 0]
+    a = view(T[2, 9, 0, 9], 1:2:4)                        # aliased
+    v = value_and_prox!(a, f, a, T(1))
+    @test v === T(0.25) && v === f(a) && Array(a) == T[2, 0]
+    # a NaN, in a strided and in an index-vector destination
+    xn = T[NaN, 1]
+    y = view(fill(T(7), 4), 1:2:3)
+    @test isnan(value_and_prox!(y, f, xn, T(1))) && same(Array(y), xn)
+    y = view(fill(T(7), 2), [2, 1])
+    @test isnan(value_and_prox!(y, f, xn, T(1))) && isnan(f(y))
+  end
+end
+
 @testset "NormL0 values on a device array" begin
   allowscalar(false)
   for T in (Float32, Float64)

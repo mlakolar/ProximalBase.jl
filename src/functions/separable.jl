@@ -771,8 +771,12 @@ Base.@propagate_inbounds prox_entry(f::NormL0, v::T, ::Integer, γ::Real) where 
 const _HostArray = Union{Array,
   SubArray{<:Any, <:Any, <:Union{Array, Base.ReshapedArray{<:Any, <:Any, <:Array}}},
   Base.ReshapedArray{<:Any, <:Any, <:Array}}
-const _HostFloatArray = Union{Array{<:Base.IEEEFloat},
-  SubArray{<:Base.IEEEFloat, <:Any, <:Union{Array, Base.ReshapedArray{<:Any, <:Any, <:Array}}},
+# The destinations of the one-pass fused call, whose entries are independent: an Array, or a view or reshape of
+# one whose indices are integers and ranges. A view with an index vector can store two entries in one place, so
+# the count of the entries computed would not be that of the entries left in the output (O2).
+const _HostFloatDest = Union{Array{<:Base.IEEEFloat},
+  SubArray{<:Base.IEEEFloat, <:Any, <:Union{Array, Base.ReshapedArray{<:Any, <:Any, <:Array}},
+           <:Tuple{Vararg{Union{Integer, AbstractRange}}}},
   Base.ReshapedArray{<:Base.IEEEFloat, <:Any, <:Array}}
 
 # The value on a host array of an IEEE type is λ times the number of nonzero entries, counted with the NaN
@@ -797,10 +801,10 @@ _value_sep(f::NormL0, x::AtomIterate) = invoke(_value_sep, Tuple{Any, AtomIterat
   iszero(nz) ? zero(T) : convert(T, f.λ) * convert(T, nz)
 end
 
-# The proximal operator and the value at its output in one pass over a dense array, for a scalar step:
+# The proximal operator and the value at its output in one pass over an array with independent entries, for a scalar step:
 # the output, the number of its nonzero entries, and the sum of its entries that flags a NaN (the counts
 # of `_count_nan_values`, sets.jl).
-function _value_and_prox_sep!(y::_HostFloatArray, f::NormL0, x::_HostArray, γ::Real)
+function _value_and_prox_sep!(y::_HostFloatDest, f::NormL0, x::_HostArray, γ::Real)
   length(y) > 2^30 && return _value_sep(f, _prox_sep!(y, f, x, γ))
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)

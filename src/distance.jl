@@ -283,7 +283,7 @@ end
 
 _distance_buffer(f::DistL2, ::Type{T}, x::AbstractArray) where {T} = _array_buffer!(f.scratch, T, size(x))
 
-@inline _distl2_ldexp(x::Real, e::Int) = ldexp(x, e)
+@inline _distl2_ldexp(x::Real, e::Integer) = ldexp(x, e)
 
 # Keep distances beyond floatmax in units of a power of two. Scaling the
 # endpoints before subtraction also covers an overflowing single residual.
@@ -307,7 +307,7 @@ function _distl2_parts(x::AbstractArray, p::AbstractArray)
 end
 
 # Delay narrowing λ until its exponent has been combined with the distance.
-@inline function _distl2_value(::Type{T}, λ::Real, m::Real, e::Int) where {T}
+@inline function _distl2_value(::Type{T}, λ::Real, m::Real, e::Integer) where {T}
   a, k = frexp(float(λ))
   T(ldexp(a * m, k + e))
 end
@@ -369,7 +369,7 @@ _value_parts(f::SqrDistL2, x::AbstractArray, v) = _distance_value_parts(f, x, tr
 
 # A subnormal interpolation weight can still move a large endpoint. Apply
 # its exponent only after multiplication by the residual's significand.
-@inline function _distl2_blend(x::Real, p::Real, a::T, b::T, m::T, e::Int) where {T}
+@inline function _distl2_blend(x::Real, p::Real, a::T, b::T, m::T, e::Integer) where {T}
   x, p = T(x), T(p)
   b >= floatmin(T) && return _ridge_blend(x, p, a, b)
   d = p - x
@@ -384,7 +384,7 @@ end
 
 # Near the threshold, subtract squared distances with their rounding errors
 # retained. Subtracting a rounded norm would lose the small remaining distance.
-@inline function _distl2_square_parts(x::Real, p::Real, e::Int, ::Type{S}) where {S}
+@inline function _distl2_square_parts(x::Real, p::Real, e::Integer, ::Type{S}) where {S}
   x, p = S(x), S(p)
   d = x - p
   k = -e
@@ -400,7 +400,7 @@ end
   q, fma(v, v, -q) + 2v * r + r * r
 end
 
-function _distl2_margin(x, p, gm::S, lm::S, k::Int, e::Int) where {S}
+function _distl2_margin(x, p, gm::S, lm::S, k::Int, e::Integer) where {S}
   s, err = zero(S), zero(S)
   @inbounds for i in eachindex(x, p)
     q, r = _distl2_square_parts(x[i], p[i], e, S)

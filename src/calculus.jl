@@ -398,7 +398,7 @@ end
   v isa AbstractFloat || return false
   if iszero(v)
     E = _zero_value_exponent(f, x)
-    E === nothing || E != _EXACT_ZERO || return false
+    E === _EXACT_ZERO && return false
     # |α f(x)| < 2^(E + e) for α < 2^e: below the normal range of the result R when E + e <= exponent(floatmin(R))
     E === nothing || E + _scale_upper_exponent(α) > exponent(floatmin(typeof(float(_apply_scale(α, v))))) ||
       return false
@@ -602,12 +602,14 @@ function _scale_times(α, a::_ProjectionScale)
   _ProjectionScale(m, Int(ea) + a.e + e)
 end
 # A zero value of s is a zero value of s.f, times the factor (|α f| < 2^(E + e)), or the product of
-# the factor and a value of s.f that is nonzero, which Scaled itself recomputes when it underflows,
-# so that the zero is then below δ: E is the larger of the two.
+# the factor and a value of s.f that is nonzero: Scaled's own trigger then fires (the product is
+# small while the value is not zero) and the result is α v rounded once, or the parts of a subnormal
+# v rounded once, so that the zero is below δ. E is the larger of the two.
 function _zero_value_exponent(s::Scaled, x)
   E = _zero_value_exponent(s.f, x)
   E === nothing && return nothing
-  max(E == _EXACT_ZERO ? E : E + _upper_exponent(s.α), _underflow_exponent(_valtype(x), 1))
+  U = _underflow_exponent(_valtype(x), 1)
+  E === _EXACT_ZERO ? U : max(E + _upper_exponent(s.α), U)
 end
 _parameter_alias(s::Scaled, out) = _parameter_alias(s.f, out)
 _infinite_value_exact(s::Scaled, x) = _infinite_value_exact(s.f, x)
@@ -917,7 +919,8 @@ function _value_parts_scaled(t::Translate, x::AbstractArray, v, α)
   _scaled_parts(t.f, α, z, v, nothing)
 end
 _value_parts_scaled(t::Translate, x, v, α) = nothing
-# the inner value at x - b, a difference that is exact where it is subnormal, with the same length
+# the bound of the inner function, for its value at the shifted argument as computed (the argument
+# the ordinary value and the parts both use), which has the length of x
 _zero_value_exponent(t::Translate, x) = _zero_value_exponent(t.f, x)
 _infinite_value_exact(t::Translate, x) = _infinite_value_exact(t.f, x)
 _parameter_alias(t::Translate, out) = _mightalias_parameter(out, t.b) || _parameter_alias(t.f, out)

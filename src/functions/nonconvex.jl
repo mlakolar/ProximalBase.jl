@@ -844,36 +844,51 @@ function _value_parts(f::Union{CappedL1, LogPenalty, NormLq}, x::AbstractArray, 
   _sep_value_parts(f, x, _sep_parts_type(x, f.λ, shape, f.w), f.λ)
 end
 _parameter_alias(f::Union{CappedL1, LogPenalty, NormLq}, out) = _mightalias_parameter(out, f.w)
-# Exact-zero protection, with the levels converted to the value type (where they must keep their
-# range). The ordinary term is (λ w) φ. CappedL1: λ w loses less than δ/2 where it underflows, and
-# φ = min(|v|, a) < 2^(e(a)) multiplies it; the product with φ loses less than δ/2. LogPenalty:
-# |v|/ε loses less than δ/2 where it underflows, which λ w multiplies (bounded by one pass over the
-# weights), and λ w loses less than δ/2, which φ ≤ log1p(floatmax/ε) < 2^11 multiplies. NormLq:
-# φ = |v|^q is unbounded, so a coefficient λ w that can underflow (λ times the smallest weight
-# below floatmin) has no bound; otherwise only the product loses less than δ/2.
+# Exact-zero protection: a proof per operation where a term can round into the subnormal range of the
+# value type T, each such rounding losing less than δ/2. The levels are converted to T, where they
+# must keep their range (normal or zero). The ordinary term is (λ w) φ with the weight converted to T
+# first, so weights of a wider type than T have no bound (the parts form λ w in the wider type).
+# - CappedL1: λ w loses less than δ/2 where it underflows, and φ = min(|v|, a) < 2^e(a) multiplies
+#   that loss; the product with φ loses less than δ/2. Per term less than (2^e(a) + 1) δ/2.
+# - LogPenalty: q = |v|/ε loses less than δ/2 where it underflows, and φ = log1p(q) passes that on,
+#   which λ w < 2^(e(λ) + e(w)) multiplies; λ w loses less than δ/2 where it underflows, which
+#   φ ≤ log(floatmax/ε) + 1 < log(floatmax) + |log floatmin| + 1 < 2^(L + 1) multiplies (ε is normal
+#   in T; L = _log_exponent(T)); the product loses less than δ/2. When λ times the smallest nonzero
+#   weight is a normal number, λ w never underflows, and the per-term loss is below
+#   (2^(e(λ) + e(w)) + 1) δ/2; otherwise below (2^(L+1) + 2^(e(λ) + e(w)) + 1) δ/2.
+# - NormLq: φ = |v|^q >= |v| is never zero for v ≠ 0, and where φ is subnormal its rounding loses
+#   less than δ/2 <= φ, so the true φ is below twice the rounded one; a coefficient λ w that can
+#   underflow (λ times the smallest nonzero weight below floatmin) is multiplied by an unbounded φ:
+#   no bound. Otherwise a zero term is the product rounded to zero, below δ/2, or 2 δ/2 for a
+#   subnormal φ.
+@inline _weights_fit(::Type{T}, w) where {T} = w === nothing || promote_type(T, float(eltype(w))) === T
 function _zero_value_exponent(f::CappedL1, x::AbstractArray)
   T = _valtype(x)
   iszero(f.λ) && return _EXACT_ZERO
-  (_level_fits(T, f.λ) && _level_fits(T, f.a)) || return nothing
+  (_level_fits(T, f.λ) && _level_fits(T, f.a) && _weights_fit(T, f.w)) || return nothing
   _underflow_exponent(T, length(x), f.w === nothing ? 0 : 1 + max(0, _upper_exponent(convert(T, f.a))))
 end
 function _zero_value_exponent(f::LogPenalty, x::AbstractArray)
   T = _valtype(x)
   iszero(f.λ) && return _EXACT_ZERO
-  (_level_fits(T, f.λ) && _level_fits(T, f.ε)) || return nothing
+  (_level_fits(T, f.λ) && _level_fits(T, f.ε) && _weights_fit(T, f.w)) || return nothing
   eλ = _upper_exponent(convert(T, f.λ))
-  f.w === nothing && return _underflow_exponent(T, length(x), 1 + max(0, eλ))
+  f.w === nothing && return _underflow_exponent(T, length(x), max(0, eλ))
   we = _weight_exponents(f.w)
-  we === nothing ? nothing : _underflow_exponent(T, length(x), 1 + max(11, eλ + we[2]))
+  we === nothing && return nothing
+  ec = eλ + we[2]
+  # λ is normal in T, so λ >= 2^(eλ - 1), and the smallest nonzero weight is at least 2^we[1]
+  eλ - 1 + we[1] > exponent(floatmin(T)) && return _underflow_exponent(T, length(x), max(0, ec))
+  _underflow_exponent(T, length(x), 1 + max(_log_exponent(T) + 1, ec))
 end
 function _zero_value_exponent(f::NormLq, x::AbstractArray)
   T = _valtype(x)
   iszero(f.λ) && return _EXACT_ZERO
-  _level_fits(T, f.λ) || return nothing
-  f.w === nothing && return _underflow_exponent(T, length(x))
+  (_level_fits(T, f.λ) && _weights_fit(T, f.w)) || return nothing
+  f.w === nothing && return _underflow_exponent(T, length(x), 1)
   we = _weight_exponents(f.w)
   (we !== nothing && _upper_exponent(convert(T, f.λ)) - 1 + we[1] > exponent(floatmin(T))) || return nothing
-  _underflow_exponent(T, length(x))
+  _underflow_exponent(T, length(x), 1)
 end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::CappedL1, v, i) where {R}
   u = convert(R, v)
@@ -911,9 +926,9 @@ _has_value_parts(::Type{<:_RadialGroupPenalty}) = true
 # the scalar penalties (separable.jl); a term is at most λ²wₖ²(a + 1)/2, so a coefficient λwₖ that
 # underflows leaves only a negligible term.
 _zero_value_exponent(f::_RadialGroupPenalty, x::AbstractArray) = iszero(f.λ0) ? _EXACT_ZERO :
-  isfinite(f.a) ? _underflow_exponent(_valtype(x), length(f.groups) + 1, _mcp_scad_amp(convert(_valtype(x), f.a))) : nothing
+  isnan(f.a) ? nothing : _underflow_exponent(_valtype(x), length(f.groups) + 1, _mcp_scad_amp(convert(_valtype(x), f.a)))
 function _value_parts(f::_RadialGroupPenalty, x::AbstractArray, v)
-  (iszero(f.λ0) || !isfinite(f.λ0) || !isfinite(f.a)) && return nothing
+  (iszero(f.λ0) || !isfinite(f.λ0) || isnan(f.a)) && return nothing
   R = promote_type(_valtype(x), float(typeof(f.λ0)))
   acc = _expsum_start(R)
   for k in eachindex(f.groups)

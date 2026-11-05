@@ -991,8 +991,15 @@ end
 # nor λ² need be representable; the tests between the pieces compare the same rounded products
 # as the ordinary value. The magnitude t is given as parts (mt, et), for the group penalties.
 @inline _parts_le(a::Tuple, b::Tuple) = iszero(a[1]) || (!iszero(b[1]) && (a[2] < b[2] || (a[2] == b[2] && a[1] <= b[1])))
+# a = Inf, which the constructors accept, is the limit of both penalties: λ t at every finite t (and an
+# infinite term at an infinite entry)
+@inline function _linear_limit_terms(acc::_ExpSum{R}, λ, t::Tuple) where {R}
+  t[2] >= typemax(Int) ÷ 8 && return nothing
+  _term_add(acc, _parts_product(_rparts(R, λ), t))
+end
 function _mcp_terms(acc::_ExpSum{R}, λ, a, t::Tuple) where {R}
   iszero(t[1]) && return acc
+  isinf(a) && return _linear_limit_terms(acc, λ, t)
   pλ, pa = _rparts(R, λ), _rparts(R, a)
   if _parts_le(t, _parts_product(pa, pλ))
     # λt - t²/(2a)
@@ -1006,6 +1013,7 @@ function _mcp_terms(acc::_ExpSum{R}, λ, a, t::Tuple) where {R}
 end
 function _scad_terms(acc::_ExpSum{R}, λ, a, t::Tuple) where {R}
   iszero(t[1]) && return acc
+  isinf(a) && return _linear_limit_terms(acc, λ, t)
   pλ, pa = _rparts(R, λ), _rparts(R, a)
   _parts_le(t, pλ) && return _term_add(acc, _parts_product(pλ, t))
   if _parts_le(t, _parts_product(pa, pλ))
@@ -1084,13 +1092,15 @@ _has_value_parts(::Type{<:Union{MCP, SCAD}}) = true
 # Exact-zero protection: the pieces λt - t²/(2a), aλ²/2, (2aλt - t² - λ²)/(2(a - 1)) and λ²(a + 1)/2
 # lose less than δ/2 in each product or square that underflows, and a later factor a, 1/(2a) or
 # 1/(2(a - 1)) multiplies that loss; a term is at most λ²(a + 1)/2, so a level that underflows
-# leaves only a negligible term. The levels must keep their range in the value type.
-@inline _mcp_scad_amp(a) = 3 + max(0, _upper_exponent(a)) + max(0, 2 - _upper_exponent(a))
+# leaves only a negligible term. The levels must keep their range in the value type. With a = Inf
+# the ordinary value is λt - t²/Inf = λt (MCP) or λt where t <= λ (SCAD, NaN beyond: kept as NaN),
+# one product per term.
+@inline _mcp_scad_amp(a) = isinf(a) ? 0 : 3 + max(0, _upper_exponent(a)) + max(0, 2 - _upper_exponent(a))
 _zero_value_exponent(f::Union{MCP, SCAD}, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO :
   (_level_fits(_valtype(x), f.λ) && _level_fits(_valtype(x), f.a)) ?
     _underflow_exponent(_valtype(x), length(x), _mcp_scad_amp(convert(_valtype(x), f.a))) : nothing
 function _value_parts(f::Union{MCP, SCAD}, x::AbstractArray, v)
-  (iszero(f.λ) || !isfinite(f.λ) || !isfinite(f.a)) && return nothing
+  (iszero(f.λ) || !isfinite(f.λ) || isnan(f.a)) && return nothing
   _sep_value_parts(f, x, _sep_parts_type(x, f.λ))
 end
 @inline function _entry_terms(acc::_ExpSum{R}, f::MCP, v, i) where {R}

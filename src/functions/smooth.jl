@@ -296,7 +296,7 @@ end
 _checkvalue(f::SqrNormL2, x) = (_checkreal(f, x); _checkparams(f, x); f.y === nothing || _checksize(f.y, x); true)
 
 # The scaled-value mechanism: the recomputation of _square_value in power-of-two units, with the
-# centers rounded as the value rounds them. A value that is exactly zero is below
+# centers rounded as the value rounds them.
 # Exact-zero protection: the ordinary value is λ/2 Σ (xᵢ - yᵢ)², with the sum in the type T of the
 # value. A difference is exact where it is subnormal and zero only for equal entries. Where a square
 # can underflow (the sum below n floatmin/eps), or the level does not fit T, the value is recomputed

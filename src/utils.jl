@@ -678,10 +678,13 @@ _weight_exponents(w::AbstractArray) = nothing
 # Is a zero or subnormal value of f exact for every argument, by its type? Then a factor above one
 # has nothing to recover from it, and `Scaled` does not try (the test folds away at compile time).
 _zero_value_exact(f) = false
-const _EXACT_ZERO = typemin(Int) ÷ 2
+# the marker of an exact zero, outside every exponent range (no Int exponent can equal it)
+struct _ExactZero end
+const _EXACT_ZERO = _ExactZero()
 # e with |a| < 2^e, from the bits of a Float64 or Float32 (a subnormal gives the exponent of
 # floatmin, an Inf or a NaN a large e): integer operations only, so that the bound above costs a
-# few independent instructions
+# few independent instructions. It is an upper bound only: 2^(e-1) <= |a| holds for a normal a, and
+# the bounds that use it from below (λ times the smallest weight) first require λ to be normal in T.
 @inline _upper_exponent(a::Float64) = Int((reinterpret(UInt64, a) >> 52) & 0x7ff) - 1022
 @inline _upper_exponent(a::Float32) = Int((reinterpret(UInt32, a) >> 23) & 0xff) - 126
 @inline _upper_exponent(a::Real) = (b = abs(float(a)); iszero(b) ? -1000000 : isfinite(b) ? exponent(b) + 1 : 1000000)

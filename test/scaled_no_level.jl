@@ -263,7 +263,9 @@ end
     @test Scaled(HingeLoss(), 10.0)(fill(2.0, 5)) === 0.0
     # unweighted hinge-type losses: a small value is exact by the type, and stays as computed
     @test ProximalBase._zero_value_exact(HingeLoss()) && ProximalBase._zero_value_exact(SqrHingeLoss()) &&
-      ProximalBase._zero_value_exact(EpsInsensitiveLoss(0.1))
+      ProximalBase._zero_value_exact(EpsInsensitiveLoss(0.1f0)) && ProximalBase._zero_value_exact(HingeLoss([1, -1]))
+    # an ε that Float32 arguments round, and labels of a wider type, do not get the trait
+    @test !ProximalBase._zero_value_exact(EpsInsensitiveLoss(0.1)) && !ProximalBase._zero_value_exact(HingeLoss([big(1.0)]))
     @test !ProximalBase._zero_value_exact(HingeLoss(nothing, [1.0])) && !ProximalBase._zero_value_exact(SqrNormL2(1.0))
     @test Scaled(HingeLoss([2.0, -1.0]), pow2(Float64, 1000))([1.0, -3.0]) === 0.0
     @test Scaled(EpsInsensitiveLoss(0.5), pow2(Float64, 1000))([0.25, -0.5]) === 0.0
@@ -412,6 +414,45 @@ end
       w .= whid
       @test agrees(s(xhid), ref(f, α, xhid), 1)
     end
+  end
+end
+
+@testset "parameters rounded to the argument type (proof-check regressions)" begin
+  # F1: a τ that does not keep its range in the argument type is rounded to zero by the value
+  f = CheckLoss(2.0^-160)
+  x = Float32[2f0^20]
+  @test iszero(f(x))
+  @test agrees(Scaled(f, 2f0^20)(x), big(2f0^20) * big(2.0)^-160 * big(2f0^20), 1; wide = true)
+  f = CheckLoss(big(2.0)^-1100)
+  @test agrees(Scaled(f, 2.0)([2.0^100]), 2 * big(2.0)^-1100 * big(2.0)^100, 1)
+  # F2: an ε that loses bits in the subnormal range of a Float32 argument
+  ε = 0.75 * 2.0^-149
+  x = Float32[2f0^-149]
+  @test agrees(Scaled(EpsInsensitiveLoss(ε), 2f0^100)(x), big(2f0)^100 * (big(2.0)^-149 - big(ε)), 1; wide = true)
+  @test agrees(Scaled(EpsInsensitiveLoss(ε, Float32[2f0^20]), 2f0^20)(x), big(2.0)^40 * (big(2.0)^-149 - big(ε)), 1; wide = true)
+  # F3: Float64 weights at a Float32 argument, rounded to Float32 before λ w
+  w = [2.0^-151]
+  @test agrees(Scaled(CappedL1(2f0^10, 1f0, w), 2f0^18)(Float32[1]), big(2.0)^18 * big(2.0)^10 * big(2.0)^-151, 1; wide = true)
+  @test agrees(Scaled(LogPenalty(2f0^16, 1f0, w), 2f0^8)(Float32[2f0^100]),
+               setprecision(() -> big(2.0)^8 * big(2.0)^16 * big(2.0)^-151 * log1p(big(2.0)^100), BigFloat, 512), 1; wide = true)
+  @test agrees(Scaled(NormLq(2f0^30, 0.5f0, w), 2f0^20)(Float32[2f0^-12]), big(2.0)^20 * big(2.0)^30 * big(2.0)^-151 * big(2.0)^-6, 1; wide = true)
+  @test agrees(Scaled(Berhu(2f0^30, 1f0, w), 2f0^17)(Float32[2f0^-8]), big(2.0)^17 * big(2.0)^30 * big(2.0)^-151 * big(2.0)^-8, 1; wide = true)
+  # F4: a = Inf, the limit λ t
+  for f in (MCP(2.0^-30, Inf), SCAD(2.0^-30, Inf), GroupMCP(2.0^-30, [[1]], [1.0]; a = Inf), GroupSCAD(2.0^-30, [[1]], [1.0]; a = Inf))
+    @test iszero(f([2.0^-1060]))
+    @test Scaled(f, 2.0^100)([2.0^-1060]) === 2.0^(100 - 30 - 1060)
+  end
+  @test Scaled(MCP(1.0, Inf), 2.0)(zeros(3)) === 0.0
+  # F5: BigFloat labels whose margins fall below the normal range of a Float32 argument
+  y = [big(1) - big(2)^-200]
+  @test agrees(Scaled(HingeLoss(y), 2f0^100)(Float32[1]), big(2.0)^100 * big(2.0)^-200, 1; wide = true)
+  y2 = [big(1) - big(2)^-100]
+  @test agrees(Scaled(SqrHingeLoss(y2), 2f0^100)(Float32[1]), big(2.0)^100 * big(2.0)^-200, 1; wide = true)
+  # F7: separate parts of the divergence that cancel to a negative sum give zero, not a negative value
+  f = KLDivergence([2.09046529458241e-309, 1.629083418530091e-299, 1.66611706167265e-310]; λ = 1.4000336625933035e-26)
+  x = [2.09046529458117e-309, 1.6290834150947478e-299, 1.66610326328733e-310]
+  for k in 116:118
+    @test Scaled(f, 2.0^k)(x) >= 0
   end
 end
 

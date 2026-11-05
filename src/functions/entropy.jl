@@ -520,11 +520,15 @@ end
 function _value_parts(f::Union{NegEntropy, KLDivergence}, x::AbstractArray, v)
   v == Inf && _entry_outside(x, false) && return nothing
   R = f isa KLDivergence ? _sep_parts_type(x, f.λ, f.q) : _sep_parts_type(x, f.λ)
-  _sep_value_parts(f, x, R, f.λ)
+  p = _sep_value_parts(f, x, R, f.λ)
+  # the divergence is nonnegative; its separate parts can cancel to a small negative sum
+  f isa KLDivergence && p !== nothing && p[1] < 0 ? (zero(p[1]), 0) : p
 end
 # |log t| <= 745 for every positive Float64 or Float32 t, so a value that is infinite while
-# 745 λ n is in range has an entry outside the domain (or an infinite one), decided without a pass
-@inline _infinite_value_exact(f::NegLog, x::AbstractArray) = 745 * Float64(f.λ) * length(x) < floatmax(_valtype(x)) / 2
+# 745 λ n is in range has an entry outside the domain (or an infinite one), decided without a pass.
+# Other types (BigFloat, whose |log t| is not bounded by 745) take the pass instead.
+@inline _infinite_value_exact(f::NegLog, x::AbstractArray) =
+  _valtype(x) <: Union{Float32, Float64} && 745 * Float64(f.λ) * length(x) < floatmax(_valtype(x)) / 2
 function _value_parts(f::NegLog, x::AbstractArray, v)
   v == Inf && _entry_outside(x, true) && return nothing
   _sep_value_parts(f, x, _sep_parts_type(x, f.λ), f.λ)
@@ -564,7 +568,9 @@ _zero_value_exponent(f::NegLog, x::AbstractArray) =
 function _zero_value_exponent(f::Berhu, x::AbstractArray)
   T = _valtype(x)
   iszero(f.λ) && return _EXACT_ZERO
-  (_level_fits(T, f.λ) && _level_fits(T, f.M)) || return nothing
+  # the weights are converted to T before c = λ w: a wider type has no bound
+  (_level_fits(T, f.λ) && _level_fits(T, f.M) && (f.w === nothing || promote_type(T, float(eltype(f.w))) === T)) ||
+    return nothing
   eλ, eM = _upper_exponent(convert(T, f.λ)), _upper_exponent(convert(T, f.M))
   ec = eλ
   if f.w !== nothing

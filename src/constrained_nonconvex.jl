@@ -62,26 +62,25 @@ Base.@propagate_inbounds function prox_entry(c::BoxConstrained{<:MCP}, v::T, i::
   S = float(T)
   f, s = c.f, convert(S, γ)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
-  s < f.a && return _box_convex_entry(c, v, i, γ, l, u)
+  s < f.a && return clamp(prox_entry(f, _box_fixed_nan(c, v, l, u), i, γ), l, u)
   x, b = convert(S, v), convert(S, f.a) * convert(S, f.λ)
-  isnan(x) && return _box_nan_entry(c, x, l, u)
   # concave (linear for γ = a) between the kinks 0 and ±aλ, flat beyond, where
   # the vertex is x
-  _best_candidate(c, x, i, s, l, u, (b, -b, max(x, b), min(x, -b)))
+  ifelse(isnan(x), _box_nan_entry(c, x, l, u), _best_candidate(c, x, i, s, l, u, (b, -b, max(x, b), min(x, -b))))
 end
 
 Base.@propagate_inbounds function prox_entry(c::BoxConstrained{<:SCAD}, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   f, s = c.f, convert(S, γ)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
-  s < f.a - 1 && return _box_convex_entry(c, v, i, γ, l, u)
+  s < f.a - 1 && return clamp(prox_entry(f, _box_fixed_nan(c, v, l, u), i, γ), l, u)
   x, λ = convert(S, v), convert(S, f.λ)
-  isnan(x) && return _box_nan_entry(c, x, l, u)
   b = convert(S, f.a) * λ
   # λ|t| up to λ, with the vertices x ∓ sλ; concave (or linear) between λ and aλ;
   # flat beyond aλ, with the vertex x
-  _best_candidate(c, x, i, s, l, u,
-                  (λ, -λ, b, -b, clamp(x - s * λ, zero(S), λ), clamp(x + s * λ, -λ, zero(S)), max(x, b), min(x, -b)))
+  ifelse(isnan(x), _box_nan_entry(c, x, l, u),
+         _best_candidate(c, x, i, s, l, u,
+                         (λ, -λ, b, -b, clamp(x - s * λ, zero(S), λ), clamp(x + s * λ, -λ, zero(S)), max(x, b), min(x, -b))))
 end
 
 # zero, when the box holds it, against the point of the box nearest to x, where
@@ -90,8 +89,7 @@ Base.@propagate_inbounds function prox_entry(c::BoxConstrained{<:NormL0}, v::T, 
   S = float(T)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
   x = convert(S, v)
-  isnan(x) && return _box_nan_entry(c, x, l, u)
-  _best_candidate(c, x, i, convert(S, γ), l, u, (x,))
+  ifelse(isnan(x), _box_nan_entry(c, x, l, u), _best_candidate(c, x, i, convert(S, γ), l, u, (x,)))
 end
 
 # A NaN entry (E2), after the maps that the parameters fix (E4): a box of one
@@ -99,17 +97,17 @@ end
 # linear term a wrapper adds, so at NaN too. Otherwise the entry depends on x and
 # stays NaN, also at γ = Inf, where a tilted box can put the minimizer at a
 # corner; a zero level is the clamp, which keeps NaN. No comparison of the
-# objectives would keep it. The level is read as stored, not converted.
+# objectives would keep it. The level is read as stored, not converted. Both
+# are selects, not branches, so that the ordinary loops keep their code.
 @inline _box_constant(c::BoxConstrained, l, u) = (l == u) | isinf(c.f.λ)
 @inline _box_nan_entry(c::BoxConstrained, x::S, l::S, u::S) where {S} =
-  _box_constant(c, l, u) ? clamp(zero(S), l, u) : x
-# The convex branch (finite γ), where the clamped proximal entry is already NaN
-# at a NaN entry, except for the maps that the parameters fix. A select, not a
-# branch, so that the ordinary loop keeps its code.
-Base.@propagate_inbounds function _box_convex_entry(c::BoxConstrained, v, i, γ, l::S, u::S) where {S}
-  r = clamp(prox_entry(c.f, v, i, γ), l, u)
-  ifelse(isnan(v) & _box_constant(c, l, u), clamp(zero(S), l, u), r)
-end
+  ifelse(_box_constant(c, l, u), clamp(zero(S), l, u), x)
+# On the convex branch (finite γ) the clamped proximal entry is NaN at a NaN
+# entry. Where the parameters fix the coordinate, it is taken at zero instead,
+# which gives the fixed value. The test of the level, which is the same for
+# every entry, comes first, so that the loop is split on it.
+@inline _box_fixed_nan(c::BoxConstrained, v, l, u) =
+  isinf(c.f.λ) ? ifelse(isnan(v), zero(v), v) : ifelse(isnan(v) & (l == u), zero(v), v)
 
 # the candidate with the smallest objective, each clamped to [l, u], with the
 # clamped zero and the finite ends of the interval; ties go toward zero, as in

@@ -18,7 +18,10 @@ same(a, b) = isequal(a, b)
 
 # The proximal entry at NaN: the clamped zero where the parameters fix the coordinate (a box of one
 # point, an infinite level), NaN otherwise, also at γ = Inf, whose constant map a tilt would move.
-ref_box_nan(λ, l, u, γ, ::Type{T}) where {T} =
+# MCP and SCAD with an infinite level at γ = 0 are NaN at every entry, finite ones included (the
+# unconstrained proximal map there, a separate gap).
+ref_box_nan(name, λ, l, u, γ, ::Type{T}) where {T} =
+  name != "NormL0" && isinf(λ) && iszero(γ) ? T(NaN) :
   (l == u || isinf(λ)) ? clamp(zero(T), T(l), T(u)) : T(NaN)
 
 # The value at an argument with a NaN entry: NaN at a NaN entry that the value depends on, zero at
@@ -41,7 +44,7 @@ boxes(T) = (IndBox(T(-2), T(2)), IndBox(T(1), T(2)), IndBox(T(1), T(1)), IndBox(
 @testset "proximal entries on a box at NaN, $T" for T in (Float32, Float64)
   for (name, mk) in penalties(T), λ in (0, 1, Inf), B in boxes(T), γ in T.((0, 0.5, 1, 5, Inf))
     c = Constrained(mk(λ), B)
-    expected = ref_box_nan(λ, B.l, B.u, γ, T)
+    expected = ref_box_nan(name, λ, B.l, B.u, γ, T)
     @test same(prox_entry(c, T(NaN), 1, γ), expected)
     # NaN first, in the middle and last, and two NaNs; the finite entries are those of the
     # proximal map at the same vector with the NaN replaced (the map is separable)

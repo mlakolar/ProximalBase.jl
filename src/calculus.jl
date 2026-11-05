@@ -1100,7 +1100,7 @@ _moreau_step(γ::AbstractArray, ::Type) = γ
 # blocks of a tuple: a block-level call uses its own block's types.
 @inline _moreau_reciprocal(::Type{W}, γ::Real) where {W} = inv(convert(promote_type(W, float(typeof(γ))), γ))
 # the model precision of a Conjugate call: the destination, the argument and the data of f (model_data.jl)
-@inline _moreau_model(f, y, x) = promote_type(_valtype(y), _valtype(x), _data_type(typeof(f)))
+@inline _moreau_model(f, y, x) = promote_type(_valtype(y), _valtype(x), _data_of(f))
 @inline _moreau_reciprocal(f, y, x, γ::Real) = _moreau_reciprocal(_moreau_model(f, y, x), γ)
 # The step of a tuple call, widened (exactly, or as it is when already wider) to the promotion P of the
 # model precision over all blocks and its own type. Every block then forms its reciprocal in the same P
@@ -1227,7 +1227,7 @@ Base.@propagate_inbounds function _conjugate_entry(f, v, i, γ)
     w = convert(S, v)
     w - prox_entry(f, w, i, one(S))
   else
-    v - γ * prox_entry(f, v / γ, i, _moreau_reciprocal(promote_type(float(typeof(v)), _data_type(typeof(f))), γ))
+    v - γ * prox_entry(f, v / γ, i, _moreau_reciprocal(promote_type(float(typeof(v)), _data_of(f)), γ))
   end
 end
 Base.@propagate_inbounds function _conjugate_entry(f::IndBox, v, i, γ)
@@ -2272,9 +2272,9 @@ _scaled_conjugate_entry(f::NormL1, v, i, γ, α) = _projection_clip(v, α, f.λ0
 _scaled_conjugate_entry(f::NormL1Nonneg, v, i, γ, α) = _projection_upper(v, α, f.λ0, _entry(f.w, i))
 _scaled_conjugate_entry(f::CheckLoss, v, i, γ, α) = _projection_check(v, α, f.τ, _entry(f.w, i))
 _scaled_conjugate_entry(f, v, i, γ, α) =
-  v - γ * prox_entry(f, v / γ, i, _moreau_ratio(promote_type(float(typeof(v)), _data_type(typeof(f))), _projection_real(α), γ))
+  v - γ * prox_entry(f, v / γ, i, _moreau_ratio(promote_type(float(typeof(v)), _data_of(f)), _projection_real(α), γ))
 _conjugate_entry(f::Translate, v, i, γ) = _direct_conjugate(typeof(f.f)) ?
-  _conjugate_entry(f.f, v - γ * f.b[i], i, γ) : v - γ * prox_entry(f, v / γ, i, _moreau_reciprocal(promote_type(float(typeof(v)), _data_type(typeof(f))), γ))
+  _conjugate_entry(f.f, v - γ * f.b[i], i, γ) : v - γ * prox_entry(f, v / γ, i, _moreau_reciprocal(promote_type(float(typeof(v)), _data_of(f)), γ))
 
 _projection_commit!(y::AbstractArray, z::AbstractArray) = copyto!(y, z)
 _projection_check_commit(y, z) = true

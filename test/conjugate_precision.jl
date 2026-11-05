@@ -8,6 +8,7 @@ module ConjugatePrecisionTest
 using Test
 using ProximalBase
 using ProximalBase: prox_entry
+using LinearAlgebra
 using ..TestUtils
 
 const PB = ProximalBase
@@ -23,6 +24,15 @@ function ref_en(x, γ; λ1 = 0.5, λ2 = 2.0, α = 1.0, b = 0.0)
 end
 # the quadratic block SqrNormL2() of a conjugate: x / (1 + γ)
 ref_sqr(x, γ) = big(x) / (1 + big(γ))
+
+# an operator with its element type on the instance only (the interface of LinearImage, test/image.jl)
+struct ReviewMap{M}
+  A::M
+end
+Base.size(L::ReviewMap, d::Integer) = size(L.A, d)
+Base.eltype(L::ReviewMap) = eltype(L.A)
+Base.adjoint(L::ReviewMap) = ReviewMap(L.A')
+LinearAlgebra.mul!(y, L::ReviewMap, x) = mul!(y, L.A, x)
 
 flat(y::Tuple) = reduce(vcat, flat.(y))
 flat(y::AbstractArray) = vec(copy(y))
@@ -446,6 +456,37 @@ end
       end
     end
   end
+  # an operator that is asked for its element type on the instance, as LinearImage and Precompose do
+  # (the interface of test/image.jl), with Float64 entries under Float32 arrays
+  Lm = ReviewMap(reshape([1.0], 1, 1))
+  @test eltype(typeof(Lm)) === Any && eltype(Lm) === Float64
+  fi = LinearImage(SqrNormL2(1f0, Float32[1]), Lm, 1f0)
+  @test PB._data_of(fi) === Float64
+  @test PB._data_of(Conjugate(Scaled(fi, 2.0))) === Float64
+  @test PB._data_of(SeparableSum(NormL1(), fi)) === Float64
+  @test PB._data_of(Precompose(SqrNormL2(), Lm, 1.0)) === Float64
+  for γ in (3f0, 1f-40), op in (prox!, value_and_prox!)
+    y = Float32[7]
+    v = op(y, Conjugate(fi), Float32[0], γ)
+    ref = -big(γ) / (1 + big(γ))
+    @test relerr(y[1], ref) <= (γ < 1f-30 ? 1e-4 : 4 * eps(Float32))
+    y64 = Float32[7]
+    v64 = op(y64, Conjugate(fi), Float32[0], Float64(γ))
+    @test y64 == y && isequal(v64, v)
+  end
+  # a vector of a union of concrete types has the data of every arm; an abstractly typed vector says
+  # nothing from its type (a known gap, issue #597)
+  Qd = QuadraticFunction(Diagonal([1.0]), [1.0])
+  fu = SliceSum(Union{typeof(Q), typeof(Qd)}[Q, Qd])
+  @test PB._data_of(fu) === Float64
+  for γ in (3f0, 1f-40), op in (prox!, value_and_prox!)
+    y = fill(7f0, 1, 2)
+    op(y, Conjugate(fu), zeros(Float32, 1, 2), γ)
+    ref = big(γ) / (1 + big(γ))
+    @test all(i -> relerr(y[i], ref) <= (γ < 1f-30 ? 1e-4 : 4 * eps(Float32)), 1:2)
+  end
+  fa = SliceSum(QuadraticFunction[Q])
+  @test_broken PB._data_of(fa) === Float64
   # the selector
   @test PB._data_type(typeof(Qc)) === Float64
   @test PB._data_type(typeof(SliceSum(Q))) === Float64 && PB._data_type(typeof(SliceSum([Q]))) === Float64

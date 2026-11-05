@@ -46,4 +46,39 @@ _data_type(::Type{<:IndIntersection{S}}) where {S<:Tuple} = _data_types(S)
 # the functions of the slices: a tuple, or a vector, whose element type must be concrete to say anything
 _data_type(::Type{<:SliceSum{F}}) where {F} = _data_slices(F)
 _data_slices(::Type{F}) where {F<:Tuple} = _data_types(F)
-_data_slices(::Type{F}) where {F<:AbstractVector} = _data_type(eltype(F))
+
+# A vector of functions whose element type is a union of concrete types: the data of every arm. An
+# abstract element type (`QuadraticFunction[...]`, `AbstractFunction[...]`) says nothing about the
+# data without looking at the elements, and gives Union{} (issue #597).
+@generated function _data_union(::Type{E}) where {E}
+  arms = Base.uniontypes(E)
+  isempty(arms) && return :(Union{})
+  Expr(:call, :promote_type, (:(_data_type($t)) for t in arms)...)
+end
+_data_slices(::Type{F}) where {F<:AbstractVector} = _data_union(eltype(F))
+
+# The same for a function and its operators, which are asked for their element type on the instance
+# (the interface of LinearImage and Precompose, as in test/image.jl: `Base.eltype(L)`, not
+# `eltype(typeof(L))`); this reads no entries. A function without such a field gives the
+# type-level answer above.
+_operator_float(L) = eltype(L) <: Real ? float(eltype(L)) : Union{}
+_data_of(f) = _data_type(typeof(f))
+_data_of(::Nothing) = Union{}
+for W in (:Scaled, :Tilt, :Translate, :Conjugate, :MoreauEnvelope, :Regularize, :_ArrayPrecompose, :SqrDistL2,
+          :DistL2, :BoxConstrained, :BallConstrained, :SphereConstrained, :SingularValue, :Spectral)
+  @eval _data_of(f::$W) = _data_of(f.f)
+end
+_data_of(f::LinearImage) = promote_type(_data_of(f.f), _operator_float(f.L))
+_data_of(f::Precompose) = promote_type(_data_of(f.f), _operator_float(f.A))
+_data_of(f::LinearConstrained) = promote_type(_data_of(f.f), _data_of(f.set))
+_data_of(f::FiberSum) = promote_type(_data_of(f.f), _data_of(f.diagonal))
+@generated function _data_ofs(fs::Tuple)
+  n = fieldcount(fs)
+  n == 0 && return :(Union{})
+  Expr(:call, :promote_type, (:(_data_of(fs[$k])) for k in 1:n)...)
+end
+_data_of(f::Union{SeparableSum, Sum, PointwiseMinimum}) = _data_ofs(f.fs)
+_data_of(f::IndIntersection) = _data_ofs(f.sets)
+_data_of(f::SliceSum) = _data_slice_of(f.fs)
+_data_slice_of(fs::Tuple) = _data_ofs(fs)
+_data_slice_of(fs::AbstractVector) = _data_union(eltype(fs))

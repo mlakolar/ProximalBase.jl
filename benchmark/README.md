@@ -42,6 +42,9 @@ extended suite adds `Constrained(SqrNormL2, IndHyperplane)` with per-entry steps
 and cold calls) and a scalar-step control (`layout=constrained`).
 The matrix group includes partial/full decompositions and fallback inputs.
 Construction plus first use is measured separately from workspace reuse.
+The sparse operands of the `products` group hold exactly density × N nonzeros, rounded to the
+nearest integer and at least 1 (N the number of entries), at random positions drawn from their
+own scenario keys, so the `work` of a case is the same in every repetition.
 
 The `owner` group measures `SymmetricSparseIterate` (reads, writes, first activation,
 coordinate sweeps, `mul!` (also with half of the stored coordinates explicit zeros), the
@@ -83,7 +86,8 @@ in the measurement order of the repetition. The script reads `PB_SUITE`, `PB_GRO
 `check-rep<NN>-errors.tsv` there: every failure with its exception and full stack trace, written
 and flushed as it occurs, so a timeout keeps what was recorded. It prints the ID of every failing
 case and exits with status 1 if any case fails. `benchmark/check_only_test.jl` tests the driver on
-synthetic cases in a few seconds.
+synthetic cases and then runs `benchmark/cases_test.jl`, which tests the sparse operands of the
+`products` cases and runs their reference checks for repetitions 1–10, in under half a minute.
 
 ```sh
 JULIA_NUM_THREADS=1 julia --project=benchmark benchmark/check_only.jl
@@ -275,6 +279,27 @@ and unexpected warmed allocations. Single-run ratios are exploratory. Failed
 checks, missing repetitions, unmatched cases or incompatible settings prevent
 a comparison and retain diagnostics. An interval containing one is inconclusive.
 
+To compare only some repetitions, name them with `--reps` after the positional
+arguments, each as a number `k` or an inclusive range `a-b`:
+
+```sh
+python3 benchmark/compare.py benchmark/results/before benchmark/results/after \
+  benchmark/results/comparison --expected-runs 10 --reps 6-10
+```
+
+`--reps 6-10`, `--reps 6 7 8 9 10` and `--reps 6-8 --reps 9 10` are the same
+selection; `--reps 1-3 7` is allowed. A repetition outside `1..N` for
+`--expected-runs N`, one named twice (also through overlapping ranges) or a
+reversed range is an error. Both directories are still validated whole: every
+repetition `1..N` must exist and be valid, also those not compared. Everything
+except `settings.json` uses only the chosen repetitions: coverage, the
+timer-limited rule, the unexpected-allocation flag, the intervals and the
+timing outcomes, and `paired_runs` is the number chosen (one chosen repetition
+is a single run). Below its title, `REPORT.md` names the compared
+repetitions, for example `Repetitions compared: 6-10 (5 of the 10 per Julia
+version in each directory).`, and `coverage.json` lists them under
+`repetitions`; both are present without `--reps` as well.
+
 `check_bounds` and `os` are compared separately for each Julia version present on both sides;
 values of different versions are never compared. Two different known values in any version
 reject the comparison, and `errors.json` names each version and key. A record older than these
@@ -334,8 +359,9 @@ A measurement is timer-limited when `median_ns * evals < K * timer_floor_ns`
 `evals` is also timer-limited. Older records can be summarized but fail record
 validation. Both analysis tools accept `--timer-limit-multiple K` (positive and finite; default 10). Any limited
 repetition marks the case/version's `timer_limited` column; comparisons check
-both sides. A ratio gate must filter on `timer_limited`. Comparisons retain
-ratios, intervals and allocation warnings, with a `timer-limited` assessment.
+both sides over the compared repetitions only. A ratio gate must filter on
+`timer_limited`. Comparisons retain ratios, intervals and allocation warnings,
+with a `timer-limited` assessment.
 Their CSV also records `timer_limited_by` (for example,
 `before:rep01,rep03;after:rep02`), `timer_limit_multiple`, and distinct
 `before_evals` / `after_evals` joined with `/`. Summary reports give the timer

@@ -1787,3 +1787,125 @@ end
     @test Matrix(y2) == Matrix(y)
   end
 end
+
+@testset "GLM gradients on GPU arrays: one decision after X'd with weights (PR #539)" begin
+  allowscalar(false)
+  # With weights, the device gradient! and value_and_gradient! form X'd first and decide
+  # the recovery and the check of X'd for a non-finite inactive row together. References:
+  # big floats for the ordinary terms, the problem without its inactive rows, and the CPU.
+  # (value, derivative, second derivative) of a term
+  bigterm(::ProximalBase.Poisson, η, y) = (exp(η) - y * η, exp(η) - y, exp(η))
+  bigterm(::ProximalBase.Squared, η, y) = (abs2(η - y) / 2, η - y, one(η))
+  bigterm(::ProximalBase.Logistic, η, y) = (σ = 1 / (1 + exp(-η)); (log1p(exp(η)) - y * η, σ - y, σ * (1 - σ)))
+  # The value and the gradient against big-float ones, with a forward error bound: 8 eps of
+  # the magnitudes of the terms and of the products, plus the rounding of the predictor
+  # (δηᵢ = (p + 2) eps Σₖ |Xᵢₖ βₖ|) carried through the first and second derivatives.
+  function check_big(ℓ, y, X, w, β, v, g)
+    T = eltype(y)
+    Xb, βb = big.(X), big.(β)
+    η = Xb * βb
+    δη = (size(X, 2) + 2) * eps(T) .* (abs.(Xb) * abs.(βb))
+    t = [iszero(w[i]) ? (big(0), big(0), big(0)) : big(w[i]) .* bigterm(ℓ, η[i], big(y[i])) for i in eachindex(y)]
+    vb, d, h = sum(first, t; init = big(0)), getindex.(t, 2), getindex.(t, 3)
+    @test abs(v - vb) <= 8eps(T) * sum(abs ∘ first, t; init = big(0)) + sum(abs.(d) .* δη) + floatmin(T)
+    bound = 8eps(T) .* (abs.(transpose(Xb)) * abs.(d)) .+ abs.(transpose(Xb)) * (abs.(h) .* δη) .+ floatmin(T)
+    @test all(abs.(g .- transpose(Xb) * d) .<= bound)
+  end
+  # finite entries close, the others equal (an overflowing term gives Inf or NaN on both)
+  agree(a::Real, b::Real) = isfinite(b) ? a ≃ b : isequal(a, b)
+  agree(a::AbstractArray, b::AbstractArray) =
+    (k = isfinite.(b); isequal(a[.!k], b[.!k]) && (!any(k) || a[k] ≃ b[k]))
+  function oracles(f, β)
+    T = eltype(f.d)
+    g1, g2 = DeviceArray(fill(T(-7), length(β))), DeviceArray(fill(T(-7), length(β)))
+    v = value_and_gradient!(g1, f, DeviceArray(β))
+    d1 = host(f.d)
+    gradient!(g2, f, DeviceArray(β))
+    v, host(g1), host(g2), d1, host(f.d)
+  end
+  for T in test_types
+    tiny = T === Float32 ? T(1e-30) : T(1e-300)
+    for ℓ in (ProximalBase.Poisson(), ProximalBase.Logistic(), ProximalBase.Squared()),
+        (n, p) in ((29, 7), (5, 17), (1, 1)), wk in (:none, :positive, :zeros)
+      rng = Xoshiro(hash((T, n, p, wk, typeof(ℓ))))
+      X = randn(rng, T, n, p)
+      y = ℓ isa ProximalBase.Squared ? randn(rng, T, n) : T.(rand(rng, 0:1, n))
+      w = wk == :none ? nothing : wk == :positive ? T(0.2) .+ 3 .* rand(rng, T, n) : T.(rand(rng, 0:2, n))
+      for β in (T(0.3) .* randn(rng, T, p), [isodd(j) ? zero(T) : T(0.5) for j in 1:p])   # dense, sparse coefficients
+        f = GLMLoss(ℓ, DeviceArray(y), DeviceArray(X); weights = w === nothing ? nothing : DeviceArray(w))
+        v, g1, g2, d1, d2 = oracles(f, β)
+        # the value is the sum of f, read with the decision; both oracles give the same gradient
+        @test v === f(DeviceArray(β))
+        @test isequal(g1, g2) && isequal(d1, d2)
+        check_big(ℓ, y, X, w === nothing ? ones(T, n) : w, β, v, g1)
+        fc = GLMLoss(ℓ, y, X; weights = w)
+        gc = zeros(T, p)
+        @test v ≃ value_and_gradient!(gc, fc, β)
+        @test g1 ≃ gc
+      end
+    end
+    for ℓ in (ProximalBase.Poisson(), ProximalBase.Logistic(), ProximalBase.Squared())
+      rng = Xoshiro(hash((T, :exceptional, typeof(ℓ))))
+      n, p = 9, 3
+      X = randn(rng, T, n, p)
+      y = ℓ isa ProximalBase.Squared ? randn(rng, T, n) : T.(rand(rng, 0:1, n))
+      w = T(0.5) .+ rand(rng, T, n)
+      β = T(0.3) .* randn(rng, T, p)
+      keep = setdiff(1:n, 4)
+      # non-finite inactive rows (of X, also where β is zero, of y): the problem without them
+      for row in (T[NaN, 1, 1], T[Inf, -Inf, 0], fill(T(NaN), 3)), yi in (y[4], T(NaN)), b in (β, T[0, β[2], β[3]])
+        Xb, yb, wb = copy(X), copy(y), copy(w)
+        Xb[4, :] = row; yb[4] = yi; wb[4] = 0
+        f = GLMLoss(ℓ, DeviceArray(yb), DeviceArray(Xb); weights = DeviceArray(wb))
+        v, g1, g2, d1, d2 = oracles(f, b)
+        fr = GLMLoss(ℓ, DeviceArray(y[keep]), DeviceArray(X[keep, :]); weights = DeviceArray(w[keep]))
+        vr, gr, _ = oracles(fr, b)
+        @test v ≈ vr rtol = 4eps(T)
+        @test g1 ≈ gr rtol = 4eps(T)
+        @test isequal(g1, g2) && isequal(d1, d2)
+        @test d1[4] === zero(T)
+      end
+      # non-finite active inputs keep the ordinary result (NaN where the terms are NaN)
+      for (Xb, b, wb) in ((setindex!(copy(X), T(NaN), 2, 2), β, w), (setindex!(copy(X), T(Inf), 2, 2), β, w),
+                          (X, T[β[1], NaN, β[3]], w), (setindex!(copy(X), T(Inf), 2, 2), β, nothing))
+        f = GLMLoss(ℓ, DeviceArray(y), DeviceArray(Xb); weights = wb === nothing ? nothing : DeviceArray(wb))
+        v, g1, g2, d1, d2 = oracles(f, b)
+        fc = GLMLoss(ℓ, y, Xb; weights = wb)
+        gc, gcg = zeros(T, p), zeros(T, p)
+        vc = value_and_gradient!(gc, fc, b)
+        gradient!(gcg, fc, b)
+        @test isequal(isnan(v), isnan(vc)) && isequal(isnan.(g1), isnan.(gc)) && isequal(isnan.(g2), isnan.(gcg))
+        @test !all(isfinite, g1)
+      end
+      # an overflowing predictor (recomputed in units of 2^k) and terms that underflow at a
+      # tiny weight (recomputed): the recovery rewrites d, and X'd is formed again
+      Xo = copy(X); Xo[2, :] .= floatmax(T) / 4
+      for (yb, Xb, wb, b) in ((y, Xo, w, T[4, 4, 4]), (y, Xo, nothing, T[4, 4, 4]),
+                              (T[0, 1], T[1 0.5; 0.25 1], T[tiny, 2], T[T === Float32 ? 100 : 1000, -1]),
+                              (T[0, NaN, 1], T[1 0.5; NaN 1; 0.25 1], T[tiny, 0, 2], T[T === Float32 ? 100 : 1000, -1]))
+        ℓ isa ProximalBase.Squared && length(yb) < 9 && continue
+        f = GLMLoss(ℓ, DeviceArray(yb), DeviceArray(Xb); weights = wb === nothing ? nothing : DeviceArray(wb))
+        v, g1, g2, d1, d2 = oracles(f, b)
+        fc = GLMLoss(ℓ, yb, Xb; weights = wb)
+        gc = zeros(T, length(b))
+        @test agree(v, value_and_gradient!(gc, fc, b))
+        @test agree(g1, gc) && agree(g2, gc)
+        @test isequal(d1, d2)
+        if length(yb) <= 3
+          @test isfinite(v) && all(isfinite, g1)
+          ℓ isa ProximalBase.Poisson && check_big(ℓ, yb, replace(Xb, NaN => 0), wb, b, v, g1)
+        end
+      end
+      # zero weights everywhere; empty problems (the value carried by the shorter array)
+      f = GLMLoss(ℓ, DeviceArray(y), DeviceArray(X); weights = DeviceArray(zeros(T, n)))
+      v, g1, g2, _ = oracles(f, β)
+      @test v === zero(T) && all(iszero, g1) && all(iszero, g2)
+      for (m, q) in ((0, 3), (3, 0), (0, 0))
+        f = GLMLoss(ℓ, DeviceArray(T.(1:m)), DeviceArray(zeros(T, m, q)); weights = DeviceArray(ones(T, m)))
+        v, g1, g2, _ = oracles(f, zeros(T, q))
+        @test v === f(DeviceArray(zeros(T, q))) && (m == 0 || v > 0)
+        @test isequal(g1, g2)
+      end
+    end
+  end
+end

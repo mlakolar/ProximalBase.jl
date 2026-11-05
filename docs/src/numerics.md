@@ -731,9 +731,9 @@ step `γ = 3f0` and `Float64` arguments and outputs, the quadratic block of
 to `Float64` accuracy, and the call gives the same bits as the step `3.0`. In a
 `Float32` model with a `Float32` step the reciprocal stays a `Float32`. A step
 whose `Float32` reciprocal would overflow, such as `1f-40`, has a finite
-reciprocal in a `Float64` model. The model precision of this reciprocal comes
-from the destination and the argument; the data of a function inside the
-conjugate do not widen it.
+reciprocal in a `Float64` model. A call on a tuple widens the step once to the
+promotion over all its blocks, so that every block and the check before writing
+form the same reciprocal.
 
 **P3. Diagonal metrics that do not fit in `W`.** Some metrics are not
 representable in `W` after conversion: the `Float64` steps `[1e-50, 2e-50]`

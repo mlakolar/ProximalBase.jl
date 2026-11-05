@@ -330,6 +330,39 @@ end
   end
 end
 
+@testset "no partial write when a block of an enclosing sum is checked" begin
+  # The conjugate's blocks have different precisions and the step is subnormal in Float32. The
+  # check of the whole tuple and the blocks that execute must agree, so that the sum around the
+  # conjugate never writes a block and then rejects: either the call succeeds with the point of the
+  # stored Float64 step, or nothing is written (aliased or not).
+  g = 1f-40
+  c = Conjugate(SeparableSum(NormL1(), Scaled(MoreauEnvelope(NormL1(), 1f0), g)))
+  f = SeparableSum(SqrNormL2(1e40), c)
+  x = ([2.0], ([2.0], Float32[g]))
+  for op in (prox!, value_and_prox!)
+    ref = outcome(op, f, x, ([0.0], ([0.0], Float32[0])), Float64(g))
+    a = outcome(op, f, x, ([0.0], ([0.0], Float32[0])), g)
+    a[1] === :err ? @test(all(==(7), a[3])) : @test(isequal(a, ref))
+    xa = deepcopy(x)
+    ok = try
+      op(xa, f, xa, g)
+      true
+    catch
+      false
+    end
+    ok ? @test(isequal(flat(xa), ref[2])) : @test(flat(xa) == flat(x))
+  end
+  # the two oracles store the same point, also where the step leaves the Float32 range
+  for γ in (1f-40, 3f0, 1f30)
+    cs = Conjugate(Scaled(SeparableSum(NormL1(), SqrNormL2()), γ))
+    xs = (Float32[γ], Float32[γ])
+    p = outcome(prox!, cs, xs, (zeros(Float32, 1), zeros(Float32, 1)), γ)
+    v = outcome(value_and_prox!, cs, xs, (zeros(Float32, 1), zeros(Float32, 1)), γ)
+    @test p[1] === v[1]
+    p[1] === :ok && @test p[2] == v[2]
+  end
+end
+
 @testset "unchanged shortcuts" begin
   # direct projections never form a reciprocal, and a step of any type gives the same point
   x = [0.5, -2.0, 1.5]

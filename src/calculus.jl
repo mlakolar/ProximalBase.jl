@@ -936,6 +936,10 @@ _moreau_step(γ::AbstractArray, ::Type) = γ
 # blocks of a tuple: a block-level call uses its own block's types.
 @inline _moreau_reciprocal(::Type{W}, γ::Real) where {W} = inv(convert(promote_type(W, float(typeof(γ))), γ))
 @inline _moreau_reciprocal(y, x, γ::Real) = _moreau_reciprocal(promote_type(_valtype(y), _valtype(x)), γ)
+# The step of a tuple call, widened (exactly, or as it is when already wider) to the promotion P of the
+# model precision over all blocks and its own type. Every block then forms its reciprocal in the same P
+# as the preflight of the whole tuple, whatever the precision of the block itself.
+@inline _moreau_tuple_step(y, x, γ::Real) = convert(promote_type(_valtype(y), _valtype(x), float(typeof(γ))), γ)
 # a/γ for a coefficient a, formed in the promotion of W and the types of a and γ, rounded once
 @inline function _moreau_ratio(::Type{W}, a::Real, γ::Real) where {W}
   P = promote_type(W, float(typeof(a)), float(typeof(γ)))
@@ -1147,8 +1151,9 @@ _tuple_dot(x::AbstractArray, y::AbstractArray) = dot(x, y)
 # as for arrays, with every block checked before any block is written
 prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, c, y, x, γ); _prox_unchecked!(y, c, x, γ))
-function _prox_unchecked!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
+function _prox_unchecked!(y::Tuple, c::Conjugate, x::Tuple, γ0::Real)
   _checkwrite(prox!, c, y, x)
+  γ = _moreau_tuple_step(y, x, γ0)
   p = _tuple_buffer!(c.scratch, y, x)
   _projection_fallback(c.f, y, x) ? _conjugate_projection_target!(p, c.f, y, x, γ) : _conjugate_projection!(p, c.f, x, γ)
   _check_projection_result(p, x, γ)
@@ -1164,8 +1169,9 @@ _value_and_prox_unchecked!(y::Tuple, c::Conjugate{<:Conjugate}, x::Tuple, γ::Re
 
 value_and_prox!(y::Tuple, c::Conjugate, x::Tuple, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, c, y, x, γ); _value_and_prox_unchecked!(y, c, x, γ))
-function _value_and_prox_unchecked!(y::Tuple, c::Conjugate, x::Tuple, γ::Real)
+function _value_and_prox_unchecked!(y::Tuple, c::Conjugate, x::Tuple, γ0::Real)
   _checkwrite(value_and_prox!, c, y, x)
+  γ = _moreau_tuple_step(y, x, γ0)
   _isindicator(c) && (_prox_unchecked!(y, c, x, γ); return _zero_value(y))
   if _any_direct_projection(c.f, x)
     z = _tuple_buffer!(c.scratch, y, x)
@@ -2231,7 +2237,7 @@ function _conjugate_moreau_value!(z::AbstractArray, f, x::AbstractArray, γ, α,
   a = _projection_real(α)
   if !iszero(a) && _has_conjugate_value(f)
     _divide!(z, x, γ)
-    _prox_unchecked!(z, f, z, _moreau_ratio(z, x, a, γ))
+    _prox_unchecked!(z, f, z, a * _moreau_reciprocal(z, x, γ))
     _checkmoreau(z, x, z, γ, γ, true)
     _moreau_output!(z, x, z, γ)
     return _scaled_conjugate_value(f, z, a)

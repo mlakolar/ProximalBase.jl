@@ -180,7 +180,7 @@ _constant_kind(g::IndBallL0, p) = g.s >= p ? :whole : nothing
 # symmetric part and is not classified.
 function _spectral_nonfinite_value(s::Spectral, X::AbstractMatrix, ::Type{T}) where {T}
   # the structure of f at the spectrum comes first (E1), as at a finite input
-  _checkvalue(s.f, _checkbuffer(s.z, T, (size(X, 1),)))
+  _checkvalue(s.f, _structure_spectrum(T, size(X, 1)))
   _constant_kind(s.f, size(X, 1)) === nothing && return _nonfinite_value(X, T)
   bytype = _symmetric_by_type(X)
   !bytype && _offdiagonal_nan(X) && return T(NaN)

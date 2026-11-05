@@ -131,10 +131,12 @@ function (F::SingularValue)(X::AbstractMatrix)
     ws = _svd_workspace(F.ws, T, size(X)...)
     F.ws = ws
     copyto!(ws.A, X)
-    all(isfinite, ws.A) || return (_checkvalue(F, X); _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), ws.A, T))
+    all(isfinite, ws.A) || return (_checkvalue(F.f, _structure_spectrum(T, minimum(size(X))));
+                                   _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), ws.A, T))
   else
     # the structure of f at the spectrum comes first (E1), as at a finite input
-    all(isfinite, X) || return (_checkvalue(F, X); _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), X, T))
+    all(isfinite, X) || return (_checkvalue(F.f, _structure_spectrum(T, minimum(size(X))));
+                                _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), X, T))
   end
   t, scaled, k = _masked_singular_values!(F, X; copied = _is_device_array(X))
   _decided_on_spectrum(F.f) && return _spectrum_value(F.f, scaled === nothing ? t : scaled, k)

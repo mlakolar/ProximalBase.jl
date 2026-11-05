@@ -391,7 +391,8 @@ A function whose value does not depend on the entries is the exception
 (E2, E4):
 
 - `NuclearNorm(0)`, and `SingularValue` of a zero-level unweighted `NormL1`,
-  `NormL2`, `NormLinf`, `SumLargest`, `CubeNormL2`, uncentered `SqrNormL2`,
+  `NormL2`, `NormLinf`, `SumLargest` (with `k ≤ minimum(size(X))`),
+  `CubeNormL2`, uncentered `SqrNormL2`,
   `ElasticNet(0, 0)` or `ZeroFunction()`, are the zero function: `0` at every
   input.
 - `IndBallRank(r)` and `SingularValue(IndBallL0(r))` with
@@ -399,9 +400,10 @@ A function whose value does not depend on the entries is the exception
   non-finite entries are all `NaN`, and `Inf` at an infinite entry.
 - The standalone value of `Spectral` of such a function, the indicator of the
   symmetric matrices, is `NaN` only at an off-diagonal `NaN` of a matrix that
-  is not symmetric by type, `Inf` at an infinite entry, and otherwise `0` or
-  `Inf` as the finite remainder is symmetric or not. Its `value_and_prox!`
-  keeps the general rule.
+  is not symmetric by type (also with an infinite entry: E2 gives the `NaN`
+  precedence), `Inf` at an infinite entry otherwise, and otherwise `0` or `Inf`
+  as the finite remainder is symmetric or not. Its `value_and_prox!` keeps the
+  general rule, which is not yet settled for this case.
 
 Weighted functions, functions with domain constraints and infinite levels keep
 the general rule, and the proximal outputs are unchanged.

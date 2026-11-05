@@ -1021,6 +1021,8 @@ end
     total += z
     v[i] = set isa IndHyperplane ? z : max(z, zero(T))
   end
+  hyperplane = set isa IndHyperplane
+  mv = maximum(abs, view(v, 1:n))                         # the largest |vᵢ|, in units of 2^ey
   el = _magnitude_exponent(abs(l)) + 1
   t1, e1 = ldexp(l, -el) * total, el + ey                 # l Σy
   ed = max(_magnitude_exponent(abs(u)), _magnitude_exponent(abs(l))) + 1
@@ -1028,7 +1030,8 @@ end
   iszero(d) && return ldexp(t1, e1)
   em = max(_magnitude_exponent(abs(β)), _magnitude_exponent(abs(l)) + ndigits(n; base = 2)) + 1
   m = ldexp(β, -em) - n * ldexp(l, -em)                   # β - n l
-  q = ldexp(m / d, em - ed)                               # κ before the clamp, at most 2^56 n
+  q = ldexp(m / d, em - ed)                               # κ before the clamp
+  clamped = m > 0 && q >= n                               # κ = n, exactly
   if m <= 0
     t2, e2 = zero(T), ed + ey
   elseif q < 1
@@ -1038,11 +1041,54 @@ end
   else
     t2, e2 = d * _top_sum!(view(v, 1:n), min(q, convert(T, n))), ed + ey
   end
-  # at the exponent of the larger nonzero term, so that the other is flushed only below its ulp
-  iszero(t1) && return ldexp(t2, e2)
-  iszero(t2) && return ldexp(t1, e1)
-  e = max(e1 + exponent(t1), e2 + exponent(t2))
-  ldexp(ldexp(t1, e1 - e) + ldexp(t2, e2 - e), e)
+  # The error: rounding of each term; of κ, which moves the value by (u - l) δκ max|v| with
+  # (u - l) κ = β - n l (none when κ = n); and, for the signed entries of a hyperplane, of their
+  # top sum, at most (u - l) κ max|v| in ulps.
+  κ = m <= 0 ? zero(T) : min(q, convert(T, n))
+  w, ok = _accurate_terms((t1, e1), (t2, e2), (clamped ? zero(T) : 2 * abs(m) * mv, em + ey),
+                          (hyperplane ? abs(d) * κ * mv : zero(T), ed + ey))
+  ok && return w
+  # The terms cancel, as when l is far below u in magnitude and κ = n: from the upper bound
+  # instead, x = u - (u - l) w′ with 0 ≤ w′ ≤ 1 and Σw′ ≥ n - κ (= for a hyperplane), the value is
+  # u Σy minus u - l times the smallest ⟨y, w′⟩ there. If this is not accurate either, the value
+  # is ill-conditioned in this precision, and the ordinary result is kept rather than a wrong
+  # finite value.
+  eu = _magnitude_exponent(abs(u)) + 1
+  t1, e1 = ldexp(u, -eu) * total, eu + ey                 # u Σy
+  k = clamped ? zero(T) : convert(T, n) - (m <= 0 ? zero(T) : q)   # the least Σw′
+  negatives = 0
+  @inbounds for (i, yi) in enumerate(y)
+    z = -s * ldexp(convert(T, yi), -ey)                     # -y, whose largest entries are the smallest of y
+    v[i] = z
+    negatives += z > 0
+  end
+  bottom = if !hyperplane && negatives >= k
+    # every negative entry of y, which carries at least the least mass
+    sum(z -> max(z, zero(T)), view(v, 1:n))
+  else
+    _top_sum!(view(v, 1:n), k)
+  end
+  t2, e2 = d * bottom, ed + ey                            # minus (u - l) min⟨y, w′⟩
+  # the error of k = n - κ is at most 3n ulps of 1, none when κ = n
+  w, ok = _accurate_terms((t1, e1), (t2, e2), (clamped ? zero(T) : 3 * n * abs(d) * mv, ed + ey),
+                          (hyperplane ? abs(d) * k * mv : zero(T), ed + ey))
+  ok ? w : r
+end
+
+# t1 2^e1 + t2 2^e2 at the exponent of the larger nonzero term, so that the other is flushed only
+# below its ulp, and whether it is accurate: the terms and the further error masses (in ulps of
+# their own) are at most 32 times the value, a relative error within 32 ulps or so.
+function _accurate_terms((t1, e1), (t2, e2), (x1, f1), (x2, f2))
+  T = typeof(t1)
+  e = typemin(Int)
+  for (t, f) in ((t1, e1), (t2, e2), (x1, f1), (x2, f2))
+    iszero(t) || (e = max(e, f + exponent(t)))
+  end
+  e == typemin(Int) && return zero(T), true
+  a, b = ldexp(t1, e1 - e), ldexp(t2, e2 - e)
+  w = a + b
+  mass = abs(a) + abs(b) + ldexp(abs(x1), f1 - e) + ldexp(abs(x2), f2 - e)
+  ldexp(w, e), mass <= 32 * abs(w)
 end
 
 # the checks of the conjugate value above, before it computes

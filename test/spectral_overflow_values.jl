@@ -61,6 +61,21 @@ function cref(c::PB.LinearConstrained, σ)
   u * (sum(t[1:n]) + (k - n) * (n < length(t) ? t[n + 1] : 0))
 end
 ref(c::PB.BoxConstrained, σ) = ref(c.f, σ)
+# The support function of {l ≤ x ≤ u, a Σx ≤ b} (or = b) at y, in 4096-bit BigFloat, which the
+# cancellation of its two terms needs: σ_C(y) = σ_{-C}(-y) turns a < 0 into a > 0.
+function box_linear_ref(l, u, a, b, y, eq)
+  setprecision(BigFloat, 4096) do
+    n = length(y)
+    l, u, b, y = big(l), big(u), big(b) / big(a), big.(y)
+    if a < 0
+      l, u, b, y = -u, -l, -b, -y
+    end
+    κ = clamp((b - n * l) / (u - l), 0, n)
+    t = sort(eq ? y : max.(y, 0); rev = true)
+    j = floor(Int, κ)
+    BigFloat(l * sum(y) + (u - l) * (sum(t[1:j]; init = big(0)) + (j < n ? (κ - j) * t[j + 1] : 0)); precision = 256)
+  end
+end
 # The support function of {w : l ≤ w ≤ u, Σw ≤ β} at y, in BigFloat: w = l + (u - l) t with
 # 0 ≤ t ≤ 1 and Σt ≤ κ = (β - n l)/(u - l), so the value is l Σy plus u - l times the sum of the
 # ⌊κ⌋ largest positive parts and the fraction of the next.
@@ -280,8 +295,9 @@ end
       @test positive_ok(SingularValue(Conjugate(kf))(A), big(q) * 2big(M), T, 1)
       @test Conjugate(kf)(T[1, 2]) === T(1) / 2                      # ordinary, unchanged
       @test Conjugate(Constrained(IndBox(zero(T), zero(T)), IndHalfspace(1, zero(T))))([M, M]) === zero(T)
-      # u - l and n l overflow at a finite argument: no InexactError
-      @test Conjugate(Constrained(IndBox(-M, M), IndHalfspace(1, zero(T))))(T[1, 1]) === zero(T)
+      # u - l and n l overflow at a finite argument: no InexactError. The exact value 0 is a
+      # difference of terms near floatmax, which the scaled kernel cannot certify: NaN is kept
+      @test isnan(Conjugate(Constrained(IndBox(-M, M), IndHalfspace(1, zero(T))))(T[1, 1]))
       capped = Constrained(IndBox(zero(T), q), IndHyperplane(1, q))
       @test positive_ok(Conjugate(capped)([M, M]), big(q) * big(M), T, 1)
       @test positive_ok(Conjugate(capped)([M, -M]), big(q) * big(M), T, 1)
@@ -292,7 +308,7 @@ end
       lo, hi = ldexp(one(T), -(e ÷ 8)), ldexp(one(T), 7e ÷ 8)
       for (l, u, β, y) in ((lo, hi, 2lo, [M, M]), (lo, M, 2lo, [M, M]), (lo, hi, 3lo, [M, M / 2]),
                            (lo, M, 3lo, [M, M / 2]), (lo, hi, 3lo, [M, -M / 2]),
-                           (-M, M, zero(T), T[1, 1]), (-M, M, M, [M / 4, -M / 4, M / 8]))
+                           (-M, M, M, [M / 4, -M / 4, M / 8]))
         f = Conjugate(Constrained(IndBox(l, u), IndHalfspace(1, β)))
         @test positive_ok(f(y), kyfan_ref(l, u, β, y), T, 1)
       end
@@ -309,6 +325,28 @@ end
         # O3: at a spectrum whose sum is finite the ordinary kernel is used, and its κ = 1e-600
         # underflows, which loses the term (u - l) κ max v (unchanged from master)
         @test_broken positive_ok(Spectral(kf)(Matrix(Diagonal([M, -M / 2]))), kyfan_ref(1e-300, 1e300, 3e-300, [M, -M / 2]), T, 1)
+      end
+      # The two terms l Σy and (u - l) Σv cancel when l is far below u in magnitude: the value is
+      # taken from the upper bound, or the ordinary result is kept where it is ill-conditioned.
+      for (l, u, set, y) in ((-1e10, -1e-10, IndHalfspace(1, -2e-10), [M, M]), (-T(1), -T(1e-10), IndHalfspace(1, -T(2e-10)), [M, M]),
+                             (-1e300, -1e-30, IndHalfspace(1, -2e-30), [M, M]), (-1e300, -1e-30, IndHyperplane(1, -2e-30), [M, M]),
+                             (1e-30, 1e300, IndHalfspace(-1, -2e-30), [-M, -M]))
+        T === Float32 && max(abs(l), abs(u)) > 1e30 && continue
+        f = Conjugate(Constrained(IndBox(T(l), T(u)), set))
+        a, b = PB._constant_normal(set.a), set.b
+        @test positive_ok(f(y), box_linear_ref(T(l), T(u), a, T(b), y, set isa IndHyperplane), T, 1)
+      end
+      if T === Float64
+        kf = Conjugate(Constrained(IndBox(-1e300, -1e-30), IndHalfspace(1.0, -2e-30)))
+        @test positive_ok(SingularValue(kf)(Matrix(M * I, 2, 2)), box_linear_ref(-1e300, -1e-30, 1, -2e-30, [M, M], false), T, 1)
+        # ill-conditioned in this precision (the exact value 0 is a difference of terms near 1e298):
+        # the ordinary result, NaN, is kept rather than a wrong finite value
+        @test isnan(Conjugate(Constrained(IndBox(-1e10, -1e-10), IndHyperplane(1.0, -1.5e10)))([M, M, -M / 2]))
+        # A known departure, the cancellation of the ordinary kernel at ordinary scale (#642): the
+        # reference is -2e-10
+        @test Conjugate(Constrained(IndBox(-1e10, -1e-10), IndHalfspace(1.0, -2e-10)))([1.0, 1.0]) === 0.0
+        @test_broken positive_ok(Conjugate(Constrained(IndBox(-1e10, -1e-10), IndHalfspace(1.0, -2e-10)))([1.0, 1.0]),
+                                 box_linear_ref(-1e10, -1e-10, 1, -2e-10, [1.0, 1.0], false), T, 1)   # #642
       end
       # A known departure from E3, kept until the follow-up on the vector kernels (O9): at an
       # infinite entry the kernel's value is NaN, where E3 gives Inf.

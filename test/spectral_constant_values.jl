@@ -96,7 +96,8 @@ end
         (T[1 i; i 1], T(Inf)),
         (T[n 0; 0 i], T(Inf)),          # diagonal NaN, infinite entry
         (T[n i; i 1], T(Inf)),
-        (T[1 n; i 1], T(NaN)),          # off-diagonal NaN with an infinite entry: dependent
+        (T[1 n; i 1], T(NaN)),          # off-diagonal NaN with an infinite entry: E2 determines NaN
+                                        # (dependence over finite values of the other entries)
         (fill(n, 2, 2), T(NaN)))
       for f in fs, (X, expected) in cases
         @test same(f(X), expected)
@@ -132,6 +133,21 @@ end
         end
         @test same(f(Symmetric(T[1 n; 0 1])), T(NaN))
       end
+    end
+  end
+
+  @testset "SumLargest(k, 0) needs k entries (E1)" begin
+    for T in (Float32, Float64)
+      f = SingularValue(SumLargest(5, zero(T)))
+      @test_throws DimensionMismatch f(T[1 0; 0 2])
+      @test_throws DimensionMismatch f(T[NaN 0; 0 2])
+      @test_throws DimensionMismatch f(T[Inf 0; 0 2])
+      @test_throws DimensionMismatch Spectral(SumLargest(5, zero(T)))(T[1 0; 0 2])
+      @test_throws DimensionMismatch Spectral(SumLargest(5, zero(T)))(T[NaN 0; 0 2])
+      @test_throws DimensionMismatch Spectral(SumLargest(5, one(T)))(T[NaN 0; 0 2])
+      @test_throws DimensionMismatch value_and_prox!(zeros(T, 2, 2), f, T[NaN 0; 0 2], one(T))
+      @test same(SingularValue(SumLargest(2, zero(T)))(T[NaN 0; 0 2]), zero(T))
+      @test same(SingularValue(SumLargest(3, zero(T)))(T[NaN 0 0; 0 2 0; 0 0 1]), zero(T))
     end
   end
 

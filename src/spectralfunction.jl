@@ -39,8 +39,10 @@ vectors (the zero-level functions and `IndBallL0` listed under
 its standalone value depends on a `NaN` entry only through symmetry: it is
 `NaN` at an off-diagonal `NaN` of a matrix that is not symmetric by type
 (`Symmetric`, `Hermitian`, `Diagonal`, `SymTridiagonal` or a
-`SymmetricSparseIterate`), `Inf` at an infinite entry, and otherwise `0` or
-`Inf` as the finite remainder is symmetric or not. `value_and_prox!` keeps the
+`SymmetricSparseIterate`, or a transpose or adjoint of one), also with an
+infinite entry (E2: the `NaN` takes precedence), `Inf` at an infinite entry
+otherwise, and otherwise `0` or `Inf` as the finite remainder is symmetric or
+not. `value_and_prox!` keeps the
 general rule. When a decomposition is needed, any
 non-finite entry, including one in the lower triangle, gives an all-`NaN`
 proximal output; `value_and_prox!` returns the same value. Only functions that count nonzeros mask eigenvalues with magnitude at
@@ -160,8 +162,10 @@ end
 _constant_kind(g, p) = nothing
 _constant_kind(::ZeroFunction, p) = :zero
 _constant_kind(g::NormL1{<:Real, Nothing}, p) = iszero(g.λ0) ? :zero : nothing
-_constant_kind(g::Union{NormL2, NormLinf, SumLargest, CubeNormL2, SqrNormL2{<:Real, Nothing}}, p) =
+_constant_kind(g::Union{NormL2, NormLinf, CubeNormL2, SqrNormL2{<:Real, Nothing}}, p) =
   iszero(g.λ) ? :zero : nothing
+# SumLargest(k, λ) needs at least k entries (E1, structure first): shorter spectra keep the error
+_constant_kind(g::SumLargest, p) = iszero(g.λ) && g.k <= p ? :zero : nothing
 _constant_kind(g::ElasticNet{<:Real, Nothing}, p) = iszero(g.λ1) && iszero(g.λ2) ? :zero : nothing
 _constant_kind(g::IndBallL0, p) = g.s >= p ? :whole : nothing
 
@@ -175,6 +179,8 @@ _constant_kind(g::IndBallL0, p) = g.s >= p ? :whole : nothing
 # Otherwise the value is NaN at a NaN entry and Inf at an infinite one. The fused call reads the
 # symmetric part and is not classified.
 function _spectral_nonfinite_value(s::Spectral, X::AbstractMatrix, ::Type{T}) where {T}
+  # the structure of f at the spectrum comes first (E1), as at a finite input
+  _checkvalue(s.f, _checkbuffer(s.z, T, (size(X, 1),)))
   _constant_kind(s.f, size(X, 1)) === nothing && return _nonfinite_value(X, T)
   bytype = _symmetric_by_type(X)
   !bytype && _offdiagonal_nan(X) && return T(NaN)

@@ -40,8 +40,9 @@ not absolutely symmetric.
 finite matrices: a matrix with an infinite entry has value `Inf`, and one with
 a `NaN` entry has value `NaN`, also for a bounded `f` such as `NormL0`. The
 exceptions are the inner functions whose value does not depend on the entries:
-the zero-level, unweighted `NormL1`, `NormL2`, `NormLinf`, `SumLargest`,
-uncentered `SqrNormL2`, `CubeNormL2` and `ElasticNet(0, 0)`, and
+the zero-level, unweighted `NormL1`, `NormL2`, `NormLinf`, `SumLargest(k, 0)`
+with `k ≤ minimum(size(X))`, uncentered `SqrNormL2`, `CubeNormL2` and
+`ElasticNet(0, 0)`, and
 `ZeroFunction()`, are the zero function, with value `0` at every input; and
 `IndBallL0(r)` with `r ≥ minimum(size(X))` is the indicator of all matrices,
 with value `0` when the non-finite entries are all `NaN` and `Inf` at an
@@ -130,9 +131,10 @@ function (F::SingularValue)(X::AbstractMatrix)
     ws = _svd_workspace(F.ws, T, size(X)...)
     F.ws = ws
     copyto!(ws.A, X)
-    all(isfinite, ws.A) || return _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), ws.A, T)
+    all(isfinite, ws.A) || return (_checkvalue(F, X); _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), ws.A, T))
   else
-    all(isfinite, X) || return _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), X, T)
+    # the structure of f at the spectrum comes first (E1), as at a finite input
+    all(isfinite, X) || return (_checkvalue(F, X); _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), X, T))
   end
   t, scaled, k = _masked_singular_values!(F, X; copied = _is_device_array(X))
   _decided_on_spectrum(F.f) && return _spectrum_value(F.f, scaled === nothing ? t : scaled, k)

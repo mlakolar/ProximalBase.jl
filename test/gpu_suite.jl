@@ -1793,22 +1793,27 @@ end
   # With weights, the device gradient! and value_and_gradient! form X'd first and decide
   # the recovery and the check of X'd for a non-finite inactive row together. References:
   # big floats for the ordinary terms, the problem without its inactive rows, and the CPU.
-  # (value, derivative, second derivative) of a term
-  bigterm(::ProximalBase.Poisson, η, y) = (exp(η) - y * η, exp(η) - y, exp(η))
-  bigterm(::ProximalBase.Squared, η, y) = (abs2(η - y) / 2, η - y, one(η))
-  bigterm(::ProximalBase.Logistic, η, y) = (σ = 1 / (1 + exp(-η)); (log1p(exp(η)) - y * η, σ - y, σ * (1 - σ)))
+  # (value, derivative, second derivative, magnitude of the value's operands, magnitude of
+  # the derivative's operands) of a term: a rounding error of an operand survives the
+  # cancellation between them (exp(η) - y near zero, for example)
+  bigterm(::ProximalBase.Poisson, η, y) = (e = exp(η); (e - y * η, e - y, e, e + abs(y * η), e + abs(y)))
+  bigterm(::ProximalBase.Squared, η, y) = (r = η - y; (abs2(r) / 2, r, one(η), abs(r) * (abs(η) + abs(y)), abs(η) + abs(y)))
+  bigterm(::ProximalBase.Logistic, η, y) =
+    (σ = 1 / (1 + exp(-η)); l = log1p(exp(η)); (l - y * η, σ - y, σ * (1 - σ), l + abs(y * η), σ + abs(y)))
   # The value and the gradient against big-float ones, with a forward error bound: 8 eps of
-  # the magnitudes of the terms and of the products, plus the rounding of the predictor
-  # (δηᵢ = (p + 2) eps Σₖ |Xᵢₖ βₖ|) carried through the first and second derivatives.
+  # the magnitudes of the operands of each term and of each product, plus the rounding of
+  # the predictor (δηᵢ = (p + 2) eps Σₖ |Xᵢₖ βₖ|) carried through the first and second
+  # derivatives.
   function check_big(ℓ, y, X, w, β, v, g)
     T = eltype(y)
     Xb, βb = big.(X), big.(β)
     η = Xb * βb
     δη = (size(X, 2) + 2) * eps(T) .* (abs.(Xb) * abs.(βb))
-    t = [iszero(w[i]) ? (big(0), big(0), big(0)) : big(w[i]) .* bigterm(ℓ, η[i], big(y[i])) for i in eachindex(y)]
-    vb, d, h = sum(first, t; init = big(0)), getindex.(t, 2), getindex.(t, 3)
-    @test abs(v - vb) <= 8eps(T) * sum(abs ∘ first, t; init = big(0)) + sum(abs.(d) .* δη) + floatmin(T)
-    bound = 8eps(T) .* (abs.(transpose(Xb)) * abs.(d)) .+ abs.(transpose(Xb)) * (abs.(h) .* δη) .+ floatmin(T)
+    t = [iszero(w[i]) ? ntuple(_ -> big(0), 5) : big(w[i]) .* bigterm(ℓ, η[i], big(y[i])) for i in eachindex(y)]
+    vb, d, h, mv, md = (getindex.(t, k) for k in 1:5)
+    @test abs(v - sum(vb; init = big(0))) <= 8eps(T) * sum(mv; init = big(0)) + sum(abs.(d) .* δη; init = big(0)) + floatmin(T)
+    A = abs.(transpose(Xb))
+    bound = 8eps(T) .* (A * (abs.(d) .+ md)) .+ A * (abs.(h) .* δη) .+ floatmin(T)
     @test all(abs.(g .- transpose(Xb) * d) .<= bound)
   end
   # finite entries close, the others equal (an overflowing term gives Inf or NaN on both)
@@ -1827,7 +1832,7 @@ end
     tiny = T === Float32 ? T(1e-30) : T(1e-300)
     for ℓ in (ProximalBase.Poisson(), ProximalBase.Logistic(), ProximalBase.Squared()),
         (n, p) in ((29, 7), (5, 17), (1, 1)), wk in (:none, :positive, :zeros)
-      rng = Xoshiro(hash((T, n, p, wk, typeof(ℓ))))
+      rng = Xoshiro(hash(string(T, n, p, wk, typeof(ℓ))))
       X = randn(rng, T, n, p)
       y = ℓ isa ProximalBase.Squared ? randn(rng, T, n) : T.(rand(rng, 0:1, n))
       w = wk == :none ? nothing : wk == :positive ? T(0.2) .+ 3 .* rand(rng, T, n) : T.(rand(rng, 0:2, n))
@@ -1845,7 +1850,7 @@ end
       end
     end
     for ℓ in (ProximalBase.Poisson(), ProximalBase.Logistic(), ProximalBase.Squared())
-      rng = Xoshiro(hash((T, :exceptional, typeof(ℓ))))
+      rng = Xoshiro(hash(string(T, :exceptional, typeof(ℓ))))
       n, p = 9, 3
       X = randn(rng, T, n, p)
       y = ℓ isa ProximalBase.Squared ? randn(rng, T, n) : T.(rand(rng, 0:1, n))
@@ -1896,6 +1901,17 @@ end
           ℓ isa ProximalBase.Poisson && check_big(ℓ, yb, replace(Xb, NaN => 0), wb, b, v, g1)
         end
       end
+      # near cancellation: ℓ'(η, y) of a few ulps from operands of order one (an error bound
+      # relative to the derivative alone would fail here)
+      yc = ℓ isa ProximalBase.Logistic ? T[0.5, 0.5] : T[1, 1]
+      for βc in (T[eps(T) / 4], T[-eps(T)], T[3eps(T)])
+        Xc = ℓ isa ProximalBase.Poisson ? T[1; 1;;] : ℓ isa ProximalBase.Logistic ? T[1; -1;;] : T[1; 1;;] .+ T[0; eps(T);;]
+        yy = ℓ isa ProximalBase.Squared ? Xc[:, 1] .* βc[1] .+ T[0, eps(T)] : yc
+        f = GLMLoss(ℓ, DeviceArray(yy), DeviceArray(Xc); weights = DeviceArray(T[1, 2]))
+        v, g1, g2, _ = oracles(f, βc)
+        @test isequal(g1, g2)
+        check_big(ℓ, yy, Xc, T[1, 2], βc, v, g1)
+      end
       # zero weights everywhere; empty problems (the value carried by the shorter array)
       f = GLMLoss(ℓ, DeviceArray(y), DeviceArray(X); weights = DeviceArray(zeros(T, n)))
       v, g1, g2, _ = oracles(f, β)
@@ -1905,6 +1921,35 @@ end
         v, g1, g2, _ = oracles(f, zeros(T, q))
         @test v === f(DeviceArray(zeros(T, q))) && (m == 0 || v > 0)
         @test isequal(g1, g2)
+      end
+      # a reduction over many entries (several blocks on a GPU): the value read with the
+      # decision is the sum f gives, from either the longer d or the longer g
+      for (m, q) in ((6000, 3), (3, 6000))
+        rng2 = Xoshiro(hash(string(T, m, q, typeof(ℓ))))
+        Xl = randn(rng2, T, m, q) ./ sqrt(T(q))
+        yl = ℓ isa ProximalBase.Squared ? randn(rng2, T, m) : T.(rand(rng2, 0:1, m))
+        wl = T.(rand(rng2, 0:2, m))
+        f = GLMLoss(ℓ, DeviceArray(yl), DeviceArray(Xl); weights = DeviceArray(wl))
+        βl = randn(rng2, T, q) ./ 4
+        v, g1, g2, d1, d2 = oracles(f, βl)
+        @test v === f(DeviceArray(βl)) && isequal(g1, g2) && isequal(d1, d2)
+        gc = zeros(T, q)
+        @test v ≃ value_and_gradient!(gc, GLMLoss(ℓ, yl, Xl; weights = wl), βl)
+        @test g1 ≃ gc
+      end
+      # a gradient output wider than the data: Float64 g and β with Float32 data
+      if T === Float32 && Float64 in test_types
+        f = GLMLoss(ℓ, DeviceArray(y), DeviceArray(X); weights = DeviceArray(w))
+        b64 = Float64.(β)
+        g64, g64b = DeviceArray(zeros(Float64, p)), DeviceArray(zeros(Float64, p))
+        v64 = value_and_gradient!(g64, f, DeviceArray(b64))
+        gradient!(g64b, f, DeviceArray(b64))
+        fc = GLMLoss(ℓ, y, X; weights = w)
+        gc = zeros(Float64, p)
+        @test v64 === f(DeviceArray(b64))
+        @test v64 ≃ value_and_gradient!(gc, fc, b64)
+        # the device forms X'd in the precision of g, the CPU in that of the data
+        @test isequal(host(g64), host(g64b)) && isapprox(host(g64), gc; rtol = 8eps(Float32))
       end
     end
   end

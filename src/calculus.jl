@@ -399,9 +399,12 @@ end
   if iszero(v)
     E = _zero_value_exponent(f, x)
     E === _EXACT_ZERO && return false
-    # |α f(x)| < 2^(E + e) for α < 2^e: below the normal range of the result R when E + e <= exponent(floatmin(R))
-    E === nothing || E + _scale_upper_exponent(α) > exponent(floatmin(typeof(float(_apply_scale(α, v))))) ||
-      return false
+    # |α f(x)| < 2^(E + e) for α < 2^e: below the normal range of the value when E + e is at most
+    # the exponent of its floatmin. The value is returned in the type of x (`_value_at`), whose
+    # normal range is the narrower when α is wider than x (a Float64 factor at a Float32 argument):
+    # the larger of the two exponents decides.
+    E === nothing || E + _scale_upper_exponent(α) >
+      max(exponent(floatmin(_valtype(x))), exponent(floatmin(typeof(float(_apply_scale(α, v)))))) || return false
   elseif isinf(v)
     _infinite_value_exact(f, x) && return false
   elseif isnan(v) || abs(v) >= floatmin(v)

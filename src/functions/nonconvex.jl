@@ -970,15 +970,19 @@ function _value_parts(f::_RadialGroupPenalty, x::AbstractArray, v)
   end
   _expsum_pair(R, acc)
 end
-# ‖x[G]‖₂ as parts, with the entries scaled by the largest before squaring; `nothing` for a
-# non-finite entry
+# ‖x[G]‖₂ as parts, with the entries scaled by the largest before squaring; `nothing` for a NaN
+# entry
 function _group_norm_parts(::Type{R}, x::AbstractArray, G) where {R}
   m = zero(R)
+  inf = false
   @inbounds for i in G
     a = abs(convert(R, x[i]))
-    isfinite(a) || return nothing
-    m = max(m, a)
+    isnan(a) && return nothing
+    isinf(a) ? (inf = true) : (m = max(m, a))
   end
+  # an infinite entry and no NaN: an infinite norm, as `_magnitude_parts` marks it, so that the MCP
+  # and SCAD terms take their cap (E3) and a = Inf gives an infinite term
+  inf && return (one(R) / 2, typemax(Int) ÷ 4)
   iszero(m) && return (m, 0)
   e = exponent(m)
   s = zero(R)

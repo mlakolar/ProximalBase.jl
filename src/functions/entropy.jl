@@ -611,7 +611,8 @@ end
 end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::Berhu, v, i) where {R}
   u, M = convert(R, v), convert(R, f.M)
-  (isfinite(u) && isfinite(M)) || return _term_add(acc, value_entry(f, v, i), 0)
+  # M = Inf, which the constructor accepts, is the linear piece c t at every finite entry
+  isfinite(u) || return _term_add(acc, value_entry(f, v, i), 0)
   t = abs(u)
   iszero(t) && return acc
   w = _entry(f.w, i)

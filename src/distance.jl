@@ -344,6 +344,22 @@ _value_parts(f::DistL2, x::AbstractArray, v) = _distance_value_parts(f, x, false
 # product of the distance and √(λ/2), whose rounding to zero, or whose own underflow, leaves less
 # than δ (1 + 4 eps). A level that does not keep its range in the value type of SqrDistL2 (which
 # converts it) has no such bound.
+# A gradient output that shares memory with the set's data would be read back by the projection
+# that the parts make after the gradient is written: an O(1) walk over the arrays the set stores
+# (into nested sets and tuples), which answers true when it cannot tell.
+_parameter_alias(f::Union{DistL2, SqrDistL2}, out) = _stored_mightalias(out, f.f, 0)
+_stored_mightalias(out, p::AbstractArray, depth) = _mightalias_parameter(out, p)
+_stored_mightalias(out, ::Union{Number, Nothing, Symbol, Scratch}, depth) = false
+_stored_mightalias(out, p::Tuple, depth) = any(q -> _stored_mightalias(out, q, depth + 1), p)
+@noinline function _stored_mightalias(out, s, depth)
+  T = typeof(s)
+  (isstructtype(T) && depth < 8) || return true
+  for i in 1:fieldcount(T)
+    isdefined(s, i) || continue
+    _stored_mightalias(out, getfield(s, i), depth + 1) && return true
+  end
+  false
+end
 _zero_value_exponent(f::DistL2, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), 1)
 _zero_value_exponent(f::SqrDistL2, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO :
   _level_fits(float(eltype(x)), f.λ) ? _underflow_exponent(_valtype(x), 1) : nothing

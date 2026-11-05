@@ -521,6 +521,46 @@ end
   @test Scaled(LogPenalty(1.0, Inf), pow2(Float64, 100))([NaN, 1.0]) === 0.0
 end
 
+@testset "terminal review round 1" begin
+  P = ProximalBase
+  # 1: a Float64 factor at a Float32 argument: the value is returned in Float32, so an exact zero is
+  # decided by the bound in Float32's range, while a hidden zero is still recovered
+  @test !P._parts_wanted(SqrNormL2(1f0), 2.0, zeros(Float32, 4), 0f0, nothing)
+  @test !P._parts_wanted(TotalVariation1D(1f0), 2.0, fill(3f0, 4), 0f0, nothing)
+  @test Scaled(TotalVariation1D(1f0), 2.0)(fill(3f0, 16)) === 0f0
+  x = Float32[2f0^-80]
+  @test iszero(SqrNormL2(1f0)(x))
+  @test agrees(Scaled(SqrNormL2(1f0), 2.0^60)(x), big(2.0)^60 * big(2.0)^-160 / 2, 1; wide = true)
+  for (f, x, α) in ((TotalVariation1D(2f0^-140), Float32[0, 2f0^-10], 2.0^40), (NormL1Fused(2f0^-140, 2f0^-140), Float32[2f0^-10, 0, 0], 2.0^40),
+                    (CubeNormL2(2f0^-120), Float32[2f0^-10], 2.0^40), (CheckLoss(0.5f0), Float32[nextfloat(0f0)], 2.0^40),
+                    (NegLog(2f0^-140), Float32[1 - 2f0^-20], 2.0^40), (MCP(2f0^-70, 3f0), Float32[2f0^-70], 2.0^100),
+                    (CappedL1(2f0^-140, 1f0), Float32[2f0^-10], 2.0^40), (SqrDistL2(IndBox(0f0, 0f0), 2f0^-120), Float32[2f0^-10], 2.0^40))
+    @test !(abs(f(x)) >= floatmin(Float32))
+    @test agrees(Scaled(f, α)(x), ref(f, α, x), 3; wide = true)
+  end
+  # 2: a gradient written over the data of the set returns the ordinary value
+  hi = [0.0, 3.0]
+  s = Scaled(SqrDistL2(IndBox([0.0, 3.0], hi), 2.0^-1000), 2.0^100)
+  @test value_and_gradient!(hi, s, [2.0^-40, 3.0]) === 0.0
+  hi2 = [0.0, 3.0]
+  @test P._parameter_alias(DistL2(IndBox([0.0, 3.0], hi2)), hi2) && !P._parameter_alias(DistL2(IndBox([0.0, 3.0], hi2)), zeros(2))
+  @test agrees(value_and_gradient!(zeros(2), Scaled(SqrDistL2(IndBox([0.0, 3.0], [0.0, 3.0]), 2.0^-1000), 2.0^100), [2.0^-40, 3.0]),
+               big(2.0)^100 * big(2.0)^-1001 * big(2.0)^-80, 1)
+  # 3a: Berhu with M = Inf is the linear piece
+  f = Berhu(1e308, Inf)
+  @test agrees(Scaled(f, 2.0^-600)([1e10, 1.0]), big(2.0)^-600 * big(1e308) * (big(1e10) + 1), 2)
+  f = Berhu(2.0^-1070, Inf)
+  @test agrees(Scaled(f, 2.0^100)([2.0^-10]), big(2.0)^100 * big(2.0)^-1070 * big(2.0)^-10, 1)
+  # 3b: a group with an infinite entry takes the cap (E3)
+  g = GroupMCP(1e200, [[1], [2]]; a = 3.0)
+  @test agrees(Scaled(g, 2.0^-600)([Inf, 1e300]), big(2.0)^-600 * 3 * big(1e200)^2, 2)
+  g = GroupMCP(2.0^-540, [[1]]; a = 3.0)
+  @test agrees(Scaled(g, 2.0^100)([Inf]), big(2.0)^100 * 3 * big(2.0)^-1080 / 2, 1)
+  # with a = Inf the term at an infinite entry is not finite, as the unscaled value
+  g = GroupMCP(1.0, [[1]]; a = Inf)
+  @test !isfinite(Scaled(g, 2.0^-600)([Inf])) && !isfinite(g([Inf]))
+end
+
 @testset "conformance row" begin
   @test Scaled(Translate(SqrNormL2(1.0), [0.0]), pow2(Float64, -1000))([pow2(Float64, 600)]) === pow2(Float64, 199)
 end

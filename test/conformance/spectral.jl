@@ -145,14 +145,14 @@ const c = 64
       types = "Float64"; backend = :cpu; rules = "E2,A5"
       problem = "NaN detected before LAPACK; spectral value is NaN (reverses #343)"
       expected = NaN; observed = f(Xnan)
-      broken = (group = :G6, baseline = Returned(v -> same(v, Inf)))
+      broken = name == "rank" ? nothing : (group = :G6, baseline = Returned(v -> same(v, Inf)))
     end
     @row begin
       id = "spectral.nan-" * name * ".fused"; case = ""; family = :spectral; oracle = :value_and_prox
       types = "Float64"; backend = :cpu; rules = "E2,O2,A5"
       problem = "NaN value for coupled NaN output"
       expected = NaN; observed = value_and_prox!(zeros(2, 2), f, Xnan, 1.0)
-      broken = (group = :G6, baseline = Returned(v -> same(v, Inf)))
+      broken = name == "rank" ? nothing : (group = :G6, baseline = Returned(v -> same(v, Inf)))
     end
     @row begin
       id = "spectral.nan-" * name * ".prox"; case = ""; family = :spectral; oracle = :prox

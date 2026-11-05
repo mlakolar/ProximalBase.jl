@@ -62,8 +62,9 @@ Base.@propagate_inbounds function prox_entry(c::BoxConstrained{<:MCP}, v::T, i::
   S = float(T)
   f, s = c.f, convert(S, γ)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
-  s < f.a && return clamp(prox_entry(f, v, i, γ), l, u)
+  s < f.a && return _box_convex_entry(c, v, i, γ, l, u)
   x, b = convert(S, v), convert(S, f.a) * convert(S, f.λ)
+  isnan(x) && return _box_nan_entry(c, x, l, u)
   # concave (linear for γ = a) between the kinks 0 and ±aλ, flat beyond, where
   # the vertex is x
   _best_candidate(c, x, i, s, l, u, (b, -b, max(x, b), min(x, -b)))
@@ -73,8 +74,9 @@ Base.@propagate_inbounds function prox_entry(c::BoxConstrained{<:SCAD}, v::T, i:
   S = float(T)
   f, s = c.f, convert(S, γ)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
-  s < f.a - 1 && return clamp(prox_entry(f, v, i, γ), l, u)
+  s < f.a - 1 && return _box_convex_entry(c, v, i, γ, l, u)
   x, λ = convert(S, v), convert(S, f.λ)
+  isnan(x) && return _box_nan_entry(c, x, l, u)
   b = convert(S, f.a) * λ
   # λ|t| up to λ, with the vertices x ∓ sλ; concave (or linear) between λ and aλ;
   # flat beyond aλ, with the vertex x
@@ -88,7 +90,25 @@ Base.@propagate_inbounds function prox_entry(c::BoxConstrained{<:NormL0}, v::T, 
   S = float(T)
   l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
   x = convert(S, v)
+  isnan(x) && return _box_nan_entry(c, x, l, u)
   _best_candidate(c, x, i, convert(S, γ), l, u, (x,))
+end
+
+# A NaN entry (E2), after the maps that the parameters fix (E4): a box of one
+# point and an infinite level give the clamped zero at every entry, whatever
+# linear term a wrapper adds, so at NaN too. Otherwise the entry depends on x and
+# stays NaN, also at γ = Inf, where a tilted box can put the minimizer at a
+# corner; a zero level is the clamp, which keeps NaN. No comparison of the
+# objectives would keep it. The level is read as stored, not converted.
+@inline _box_constant(c::BoxConstrained, l, u) = (l == u) | isinf(c.f.λ)
+@inline _box_nan_entry(c::BoxConstrained, x::S, l::S, u::S) where {S} =
+  _box_constant(c, l, u) ? clamp(zero(S), l, u) : x
+# The convex branch (finite γ), where the clamped proximal entry is already NaN
+# at a NaN entry, except for the maps that the parameters fix. A select, not a
+# branch, so that the ordinary loop keeps its code.
+Base.@propagate_inbounds function _box_convex_entry(c::BoxConstrained, v, i, γ, l::S, u::S) where {S}
+  r = clamp(prox_entry(c.f, v, i, γ), l, u)
+  ifelse(isnan(v) & _box_constant(c, l, u), clamp(zero(S), l, u), r)
 end
 
 # the candidate with the smallest objective, each clamped to [l, u], with the
@@ -108,6 +128,52 @@ Base.@propagate_inbounds function _best_candidate(c::BoxConstrained, x::S, i::In
   end
   best
 end
+
+# The value outside the box or with a NaN entry (E2, E4 first), as a sum over the
+# entries in which NaN takes precedence over Inf: NaN at a NaN entry that the
+# value depends on, zero at a NaN entry of a coordinate without bounds when the
+# level is zero (the zero function there), and the membership of the box
+# otherwise. Called only where the box value is not zero, so the ordinary path
+# pays nothing.
+struct _BoxNaNTerm{T}
+  free::Bool      # a zero level: an unbounded coordinate does not depend on its entry
+  t::T            # the membership tolerance
+end
+@inline function (b::_BoxNaNTerm{T})(v, l, u) where {T}
+  isnan(v) && return (b.free & (l == -Inf) & (u == Inf)) ? zero(T) : T(NaN)
+  _inbox(v, l, u, b.t) ? zero(T) : T(Inf)
+end
+@noinline function _box_nan_value(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, x::AbstractArray, ::Type{T}) where {T}
+  b = _BoxNaNTerm{T}(iszero(c.f.λ), _tol(T))
+  if _is_device_array(x)
+    s = sum(b.(x, _reshapeparam(c.box.l, x), _reshapeparam(c.box.u, x)); init = zero(T))
+  else
+    s = zero(T)
+    for i in eachindex(IndexLinear(), x)
+      s += b(x[i], _entry(c.box.l, i), _entry(c.box.u, i))
+    end
+  end
+  iszero(s) ? convert(T, _value_unchecked(c.f, x)) : s
+end
+
+# The value at the stored output (O2). The output is in the box, or NaN where it
+# depends on a NaN entry, which the penalty turns into NaN, except at a zero
+# level: the zero function ignores the NaN that the box still depends on.
+function _value_and_prox_box!(y, c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, x, γ)
+  _checkwrite(value_and_prox!, c, y, x, γ)
+  _prox_sep!(y, c, x, γ)
+  T = float(eltype(y))
+  iszero(c.f.λ) ? convert(T, _value_unchecked(c, y)) : convert(T, _value_unchecked(c.f, y))
+end
+
+# Counting functions under SingularValue (singular.jl) that are constant on the
+# spectra of length k: IndBallL0 with room for k nonzeros, a scaled one when its
+# function is, and one on a box when its function is and the box holds every
+# singular value.
+_count_constant(f::IndBallL0, k::Int) = f.s >= k
+_count_constant(f::Scaled, k::Int) = _count_constant(f.f, k)
+_count_constant(c::BoxConstrained, k::Int) =
+  _count_constant(c.f, k) && all(<=(0), c.box.l) && all(==(Inf), c.box.u)
 
 # At zero, MCP and SCAD have the kink of λ|t|: leaving zero pays when |gᵢ| > λ,
 # in the direction of -gᵢ, which the box must allow.

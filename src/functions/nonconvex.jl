@@ -674,6 +674,17 @@ of group IHT with sparsity within the groups. The projection ranks the groups by
 the norm of their `k` largest entries, keeps the `s` best, and within each the
 `k` largest entries (exactly `k` when there are ties, the earlier entries
 first).
+
+A NaN entry is undefined (E2 in the numerical contract). Let `K` be the number of
+groups. For `s = 0` or `k = 0` the projection is zero on every group whatever the
+argument, and its fused value is `0`. For `0 < s < K`, which groups are kept
+depends on every grouped entry, so a NaN in any group makes every grouped output
+NaN; on an [`AtomIterate`](@ref) all its groups are then active. For `s ≥ K`, a
+NaN in a group with more than `k` entries makes that group NaN, and the other
+groups are copied. Indices in no group are copied. [`value_and_prox!`](@ref)
+returns NaN when a NaN output is made, and `0` otherwise. The value at an
+argument with a NaN in a group is NaN unless `s ≥ K` and the group has at most
+`k` entries.
 """
 struct IndBallGroupL0{G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractFunction
   s::Int
@@ -706,80 +717,142 @@ const _GroupFunction = Union{AbstractGroupPenalty, IndBallGroupL0}
 samegroups(x::AtomIterate, f::_GroupFunction) = _samelayout(f, x)
 samegroups(f::_GroupFunction, x::AtomIterate) = _samelayout(f, x)
 
-# whether the entries of x in G are all zero, and, if not, whether there are at
-# most k of them
-function _group_status(x::AbstractArray, G, k::Int)
-  _allzero(x, G) && return (true, true)
-  length(G) <= k && return (false, true)
-  c = 0
-  @inbounds for i in G
-    c += !iszero(x[i])
+# Whether the value depends on the entries of the group G (E2): every group does
+# when fewer than all groups may be nonzero (s = 0 included), and a group with
+# more than k entries does through its count. Otherwise the set holds every
+# vector in G, NaN included.
+_group_l0_depends(f::IndBallGroupL0, G) = f.s < length(f.groups) || length(G) > f.k
+
+# whether the entries of x in G are all zero, whether there are at most k of
+# them, and, where the value depends on G, whether one is NaN. The NaN test reads
+# the whole group in one vectorized pass, a sum of magnitudes that is zero
+# exactly for a zero group and NaN exactly for a NaN entry.
+function _group_status(x::AbstractArray, G, k::Int, depends::Bool)
+  if !depends
+    _allzero(x, G) && return (true, true, false)
+    length(G) <= k && return (false, true, false)
   end
-  return (false, c <= k)
+  if length(G) <= k
+    a = _sumabs(x, G)
+    return (iszero(a), true, isnan(a))
+  end
+  c, nan = 0, false
+  @inbounds @simd for i in G
+    v = x[i]
+    c += !iszero(v)
+    nan |= v != v
+  end
+  return (iszero(c), c <= k, nan)
 end
 
 function (f::IndBallGroupL0)(x::AbstractArray)
   _checkreal(f, x)
   _checkgroups(f, x)
-  nz, ok = 0, true
+  nz, ok, nan = 0, true, false
   for G in f.groups
-    z, fits = _group_status(x, G, f.k)
+    z, fits, n = _group_status(x, G, f.k, _group_l0_depends(f, G))
     nz += !z
     ok &= fits
+    nan |= n
   end
-  _ind(ok && nz <= f.s, _valtype(x))
+  nan ? _valtype(x)(NaN) : _ind(ok && nz <= f.s, _valtype(x))
 end
 
 function (f::IndBallGroupL0)(x::AtomIterate)
   _checkreal(f, x)
   _samelayout(f, x) || return invoke(f, Tuple{AbstractArray}, x)
-  nz, ok = 0, true
+  nz, ok, nan = 0, true, false
   for a in 1:x.nactive
-    z, fits = _group_status(x.storage, f.groups[x.active[a]], f.k)
+    G = f.groups[x.active[a]]
+    z, fits, n = _group_status(x.storage, G, f.k, _group_l0_depends(f, G))
     nz += !z
     ok &= fits
+    nan |= n
   end
-  _ind(ok && nz <= f.s, _valtype(x))
+  nan ? _valtype(x)(NaN) : _ind(ok && nz <= f.s, _valtype(x))
 end
 
 function prox!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray, ::Real)
   x = _symmetric_argument(y, x)
   _checkwrite(prox!, f, y, x)
-  y === x || copyto!(y, x)
-  _keep_largest_groups!(y, f, eachindex(f.groups))
+  _group_l0_dense!(y, f, x)
+  y
 end
 
 function prox!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate, γ::Real)
   _checkwrite(prox!, f, y, x)
   _samelayout(f, y) && _samelayout(f, x) ||
     return invoke(prox!, Tuple{AbstractArray, IndBallGroupL0, AbstractArray, Real}, y, f, x, γ)
+  _group_l0_prox!(y, f, x)
+  y
+end
+
+# The value at the output (O2): NaN where the projection made a NaN output that
+# the value depends on, and zero otherwise, since the output is in the set. The
+# shortcut of the indicators, zero, would be a false feasibility.
+function _value_and_prox_body!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray, γ::Real)
+  _checkwrite(value_and_prox!, f, y, x)
+  T = _valtype(y)
+  _group_l0_dense!(y, f, x) == 0 ? zero(T) : T(NaN)
+end
+function _value_and_prox_body!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate, γ::Real)
+  _checkwrite(value_and_prox!, f, y, x)
+  _samelayout(f, y) && _samelayout(f, x) ||
+    return invoke(_value_and_prox_body!, Tuple{AbstractArray, IndBallGroupL0, AbstractArray, Real}, y, f, x, γ)
+  T = _valtype(y)
+  _group_l0_prox!(y, f, x) == 0 ? zero(T) : T(NaN)
+end
+
+# The projection into y, with the status of _keep_largest_groups!.
+function _group_l0_dense!(y::AbstractArray, f::IndBallGroupL0, x::AbstractArray)
+  y === x || copyto!(y, x)
+  _keep_largest_groups!(y, f, eachindex(f.groups))
+end
+# On an iterate with the groups of f, only the active groups are visited. When
+# every grouped output is NaN, the inactive groups are too, so all are activated.
+function _group_l0_prox!(y::AtomIterate, f::IndBallGroupL0, x::AtomIterate)
   copyto!(y, x)
-  _keep_largest_groups!(y.storage, f, view(y.active, 1:y.nactive))
+  status = _keep_largest_groups!(y.storage, f, view(y.active, 1:y.nactive))
+  status == 2 && fill!(y, NaN)
   dropzeros!(y)
+  status
 end
 
-# the magnitudes of entries of y in G, in w[1:length(G)]
+# the magnitudes of entries of y in G, in w[1:length(G)], and whether one is NaN
 function _group_magnitudes!(w::AbstractVector{T}, y::AbstractArray, G) where {T}
+  nan = false
   @inbounds for (t, i) in enumerate(G)
-    w[t] = abs(convert(T, y[i]))
+    a = abs(convert(T, y[i]))
+    w[t] = a
+    nan |= isnan(a)
   end
-  view(w, 1:length(G))
+  view(w, 1:length(G)), nan
 end
 
-# the norm of the k largest magnitudes of entries of y in G
+# the norm of the k largest magnitudes of entries of y in G; NaN exactly when an
+# entry is NaN, which is told before the selection that it would mislead
 function _top_norm(f::IndBallGroupL0, y::AbstractArray, G, ::Type{T}) where {T}
   length(G) <= f.k && return convert(T, _group_norm2(y, G))
   f.k == 0 && return zero(T)
-  v = _group_magnitudes!(_buffer!(f.entries, T, length(G)), y, G)
+  v, nan = _group_magnitudes!(_buffer!(f.entries, T, length(G)), y, G)
+  nan && return T(NaN)
   _kth_largest!(v, f.k)
   return norm(view(v, 1:f.k))
 end
 
 # zero all but the k entries of largest magnitude of y in G, the earlier first
-# among ties
+# among ties. Which entries are kept depends on every entry, so a NaN makes the
+# group NaN (E2), unless k = 0 zeroes it whatever its entries (E4 first). Returns
+# whether a NaN did.
 function _keep_largest_entries!(y::AbstractArray, f::IndBallGroupL0, G, ::Type{T}) where {T}
-  length(G) <= f.k && return y
-  v = _group_magnitudes!(_buffer!(f.entries, T, length(G)), y, G)
+  length(G) <= f.k && return false
+  v, nan = _group_magnitudes!(_buffer!(f.entries, T, length(G)), y, G)
+  if nan && f.k != 0
+    @inbounds for i in G
+      y[i] = T(NaN)
+    end
+    return true
+  end
   τ = f.k == 0 ? T(Inf) : _kth_largest!(v, f.k)
   above = 0
   @inbounds for i in G
@@ -796,25 +869,37 @@ function _keep_largest_entries!(y::AbstractArray, f::IndBallGroupL0, G, ::Type{T
       y[i] = zero(eltype(y))
     end
   end
-  return y
+  return false
 end
 
 # zero all but the s groups of largest norm among the groups ks of y, and with
 # a bound k on the entries, all but the k largest entries of each group kept;
-# the groups are ranked by the norm of those entries
+# the groups are ranked by the norm of those entries. Returns 0, or 1 when a NaN
+# made some groups NaN, or 2 when it made every grouped output NaN.
 function _keep_largest_groups!(y::AbstractArray, f::IndBallGroupL0, ks)
   T = float(eltype(y))
   n = length(ks)
   buf = _buffer!(f.scratch, T, 2n)
   nz = 0
+  nan = false
   @inbounds for (j, k) in enumerate(ks)
     nrm = _top_norm(f, y, f.groups[k], T)
     buf[j] = nrm
     nz += !iszero(nrm) || !_allzero(y, f.groups[k])
+    nan |= isnan(nrm)
+  end
+  # s = 0 and k = 0 zero every group below, whatever the entries (E4 first).
+  # Otherwise, with fewer places than groups, which groups are kept depends on
+  # every grouped entry, so a NaN norm, which only a NaN entry gives, makes every
+  # grouped output NaN (E2). The groups of an iterate that ks omits are zero.
+  if nan && 0 < f.s < length(f.groups) && f.k != 0
+    @inbounds for k in ks, i in f.groups[k]
+      y[i] = T(NaN)
+    end
+    return 2
   end
   if nz <= f.s
-    _keep_entries_of_groups!(y, f, ks, T)
-    return y
+    return _keep_entries_of_groups!(y, f, ks, T) ? 1 : 0
   end
   # the s-th largest norm, from a copy that the selection reorders
   @inbounds for j in 1:n
@@ -840,13 +925,14 @@ function _keep_largest_groups!(y::AbstractArray, f::IndBallGroupL0, ks)
       end
     end
   end
-  y
+  return 0
 end
 
 function _keep_entries_of_groups!(y::AbstractArray, f::IndBallGroupL0, ks, ::Type{T}) where {T}
-  f.k == typemax(Int) && return y
+  f.k == typemax(Int) && return false
+  nan = false
   for k in ks
-    _keep_largest_entries!(y, f, f.groups[k], T)
+    nan |= _keep_largest_entries!(y, f, f.groups[k], T)
   end
-  return y
+  return nan
 end

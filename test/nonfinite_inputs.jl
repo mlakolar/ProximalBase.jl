@@ -125,7 +125,7 @@ end
     fresh = deepcopy(f)
     value = value_and_prox!(y, f, x, 1.0)
     @test all(isnan, y)
-    @test value === Inf
+    @test isequal(value, f isa IndBallRank ? NaN : Inf)    # the rank indicator at its all-NaN output (O2)
     finite = [2.0 0.0; 0.0 1.0]
     @test isequal(prox(f, finite), prox(fresh, finite))
   end
@@ -180,8 +180,10 @@ end
       # The native identity shortcut needs no decomposition; the wrapper does.
       @test isequal(w, identity ? input : y)
       if op === value_and_prox!
-        @test vg === vf
-        @test vf === T(Inf)
+        # the value at each output (O2): the rank indicators give NaN at an all-NaN output, zero
+        # there when r ≥ 2 (every matrix), and the value of the copy that IndBallRank(2) stores
+        @test isequal(vf, f isa SingularValue && f.f isa IndBallL0 ? (f.f.s >= 2 ? zero(T) : T(NaN)) : T(Inf))
+        @test isequal(vg, g isa IndBallRank ? (identity ? (isinf(v) ? T(Inf) : zero(T)) : T(NaN)) : vf)
       else
         @test vf === y
         @test vg === w

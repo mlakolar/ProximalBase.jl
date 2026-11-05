@@ -164,7 +164,7 @@ for T in (Float64, Float32), n in (suite == "memgate" ? Int[] : suite == "quick"
     t, f1 = measure(f)
     a = lmo_atom(F, A)
     ref = sum(λ[1:k])
-    record!("fantope", "gaussian", "full", T, "n=$n,k=$k", t; first = f1, atom_bytes = string(Base.summarysize(a)), err = abs(dot(A, a) - ref) / max(abs(ref), 1),
+    record!("fantope", "gaussian", "full", T, "n=$n;k=$k", t; first = f1, atom_bytes = string(Base.summarysize(a)), err = abs(dot(A, a) - ref) / max(abs(ref), 1),
             note = "factor storage $(sizeof(a.U)) B")
   end
   # the dense oracle and the support value, without and with materialization

@@ -18,7 +18,7 @@ using ProximalBase: NormL1, NormL1Nonneg, ElasticNet, IndBox, IndNonnegative, Sq
                     _weight_coefficient, _weight_product, _weighted_value, _value_at, _valtype, _checkreal,
                     _reshapeparam
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
-using LinearAlgebra: mul!
+using LinearAlgebra: Diagonal, mul!
 using Base.Broadcast: broadcasted, instantiate
 import Adapt
 
@@ -1121,6 +1121,10 @@ Adapt.adapt_structure(to, f::ProximalBase.Scaled) = ProximalBase.Scaled(Adapt.ad
 Adapt.adapt_structure(to, f::ProximalBase.Translate) = ProximalBase.Translate(Adapt.adapt(to, f.f), Adapt.adapt(to, f.b))
 
 ProximalBase._maximum_abs(x::AnyGPUArray) = mapreduce(abs, max, x; init = zero(float(eltype(x))))
+# A Diagonal of a device vector is also an AnyGPUArray, so the Diagonal method of src/utils.jl is ambiguous with the one above;
+# this one is more specific than both and reduces the stored diagonal on the device.
+ProximalBase._maximum_abs(x::Diagonal{T, <:GPUArray{T, 1}}) where {T<:Union{Float32, Float64}} =
+  ProximalBase._maximum_abs(x.diag)
 
 function ProximalBase._project_l2!(y::AnyGPUArray, x::AnyGPUArray, λ, α = 1, w = 1)
   isinf(w) && return copyto!(y, x)

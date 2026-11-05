@@ -353,6 +353,8 @@ _stored_mightalias(out, ::Union{Number, Nothing, Symbol, Scratch}, depth) = fals
 _stored_mightalias(out, p::Tuple, depth) = any(q -> _stored_mightalias(out, q, depth + 1), p)
 @noinline function _stored_mightalias(out, s, depth)
   T = typeof(s)
+  # a primitive value that is not a pointer (a Char, an enum, an integer) holds no memory to share
+  isprimitivetype(T) && !(T <: Ptr) && return false
   (isstructtype(T) && depth < 8) || return true
   for i in 1:fieldcount(T)
     isdefined(s, i) || continue

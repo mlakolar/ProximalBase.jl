@@ -546,6 +546,24 @@ end
   @test P._parameter_alias(DistL2(IndBox([0.0, 3.0], hi2)), hi2) && !P._parameter_alias(DistL2(IndBox([0.0, 3.0], hi2)), zeros(2))
   @test agrees(value_and_gradient!(zeros(2), Scaled(SqrDistL2(IndBox([0.0, 3.0], [0.0, 3.0]), 2.0^-1000), 2.0^100), [2.0^-40, 3.0]),
                big(2.0)^100 * big(2.0)^-1001 * big(2.0)^-80, 1)
+  # the set's stored data may hold primitive fields (the Char of a Cholesky factor of a full-rank
+  # IndAffine), which cannot share memory with the output
+  for A in ([1.0 0.0], sparse([1.0 0.0]))
+    b = [0.0]
+    f = SqrDistL2(IndAffine(A, b))
+    s = Scaled(f, 2.0^-600)
+    x = [2.0^600, 3.0]
+    r = big(2.0)^-600 * big(2.0)^1200 / 2
+    @test !P._parameter_alias(f, zeros(2))
+    @test agrees(value_and_gradient!(zeros(2), s, x), r, 2)
+    @test agrees(s(x), r, 2)
+  end
+  # an output that is the b stored in the IndAffine gives the ordinary value
+  f = SqrDistL2(IndAffine([1.0 0.0; 0.0 1.0], [0.0, 0.0]))
+  bb = f.f.b
+  @test P._parameter_alias(f, bb)
+  @test value_and_gradient!(bb, Scaled(f, 2.0^-600), [2.0^600, 3.0]) === Inf
+
   # 3a: Berhu with M = Inf is the linear piece
   f = Berhu(1e308, Inf)
   @test agrees(Scaled(f, 2.0^-600)([1e10, 1.0]), big(2.0)^-600 * big(1e308) * (big(1e10) + 1), 2)

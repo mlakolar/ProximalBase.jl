@@ -410,30 +410,51 @@ end
 end
 
 @testset "the data of a function widen the model" begin
-  # f(t) = t^2/2 + t with Float64 data under Float32 arrays: the dual proximal point at 0 is
+  # f(t) = t^2/2 + t + c with Float64 data under Float32 arrays: the dual proximal point at 0 is
   # γ/(1 + γ), representable and without cancellation, for every Float32 step including 1f-40 whose
-  # Float32 reciprocal overflows
+  # Float32 reciprocal overflows; the dual value at the stored point is (y - 1)^2/2 - c
   Q = QuadraticFunction(reshape([1.0], 1, 1), [1.0])
-  for γ in (3f0, 0.1f0, 1f-40), op in (prox!, value_and_prox!)
-    y = Float32[7]
-    op(y, Conjugate(Q), Float32[0], γ)
-    ref = big(γ) / (1 + big(γ))
-    @test y[1] isa Float32
-    @test relerr(y[1], ref) <= (γ < 1f-30 ? 1e-4 : 4 * eps(Float32))
-    # the stored Float64 step gives the same bits
-    y64 = Float32[7]
-    op(y64, Conjugate(Q), Float32[0], Float64(γ))
-    @test y64 == y
-    # inside a tuple, next to a block without data
-    c = Conjugate(SeparableSum(NormL1(), Q))
-    yt, xt = (Float32[7], Float32[7]), (Float32[2], Float32[0])
-    op(yt, c, xt, γ)
-    @test yt[1] == Float32[1] && relerr(yt[2][1], ref) <= (γ < 1f-30 ? 1e-4 : 4 * eps(Float32))
-    # wrapped
-    yw = Float32[7]
-    op(yw, Conjugate(Translate(Q, [0.0])), Float32[0], γ)
-    @test relerr(yw[1], ref) <= (γ < 1f-30 ? 1e-4 : 4 * eps(Float32))
+  # the data in Float32 and the constant in Float64: the model of A, b and c is Float64
+  Qc = QuadraticFunction(reshape(Float32[1], 1, 1), Float32[1], 0.5)
+  for (name, f, c0) in (("Float64 data", Q, 0.0), ("Float64 constant only", Qc, 0.5))
+    for γ in (3f0, 0.1f0, 1f-40), op in (prox!, value_and_prox!)
+      tol = γ < 1f-30 ? 1e-4 : 4 * eps(Float32)
+      ref = big(γ) / (1 + big(γ))
+      y = Float32[7]
+      v = op(y, Conjugate(f), Float32[0], γ)
+      @test y[1] isa Float32
+      @test relerr(y[1], ref) <= tol
+      op === value_and_prox! && @test relerr(v, (big(y[1]) - 1)^2 / 2 - big(c0)) <= 16 * eps(Float32) + 1e-12 && v isa Float32
+      # the stored Float64 step gives the same bits
+      y64 = Float32[7]
+      v64 = op(y64, Conjugate(f), Float32[0], Float64(γ))
+      @test y64 == y && isequal(v64, v)
+      # inside a tuple, next to a block without data
+      ct = Conjugate(SeparableSum(NormL1(), f))
+      yt, xt = (Float32[7], Float32[7]), (Float32[2], Float32[0])
+      op(yt, ct, xt, γ)
+      @test yt[1] == Float32[1] && relerr(yt[2][1], ref) <= tol
+      # wrapped
+      yw = Float32[7]
+      op(yw, Conjugate(Translate(f, [0.0])), Float32[0], γ)
+      @test relerr(yw[1], ref) <= tol
+      # inside slices (a tuple, and a vector of functions)
+      for sl in (SliceSum(f), SliceSum([f]))
+        ys = fill(7f0, 1, 1)
+        op(ys, Conjugate(sl), zeros(Float32, 1, 1), γ)
+        @test relerr(ys[1], ref) <= tol
+      end
+    end
   end
+  # the selector
+  @test PB._data_type(typeof(Qc)) === Float64
+  @test PB._data_type(typeof(SliceSum(Q))) === Float64 && PB._data_type(typeof(SliceSum([Q]))) === Float64
+  @test PB._data_type(typeof(SliceSum(NormL1(), SqrNormL2()))) === Union{}
+  @test PB._data_type(typeof(SliceSum(NormL1(), Q))) === Float64
+  @test PB._data_type(typeof(IndIntersection(IndBallL2(1.0), IndHyperplane(Float64[1, 1], 1.0)))) === Float64
+  @test PB._data_type(typeof(Spectral(NormL1()))) === Union{}
+  @test PB._data_float(Matrix{Float32}) === Float32 && PB._data_float(Nothing) === Union{} &&
+        PB._data_float(typeof(identity)) === Union{} && PB._data_float(Float64) === Float64
   # Float32 data keep the Float32 model and its plain reciprocal
   Q32 = QuadraticFunction(reshape([1f0], 1, 1), [1f0])
   @test_throws ArgumentError prox!(Float32[7], Conjugate(Q32), Float32[0], 1f-40)

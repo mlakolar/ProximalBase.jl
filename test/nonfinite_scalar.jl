@@ -344,6 +344,34 @@ end
   @test isnan(y[1]) && y[2] === zero(T) && isnan(v)
 end
 
+# The objective of MCP beyond the switch overflows (λ² is Inf) while aλ is finite: the strict
+# comparison of the base selects 0, which is also the global minimizer at these small entries; a
+# NaN made by the arithmetic of the objective is not a NaN entry. The same for an infinite entry at
+# a level near floatmax, and for the GroupMCP caller of the scalar kernel.
+@testset "MCP beyond the switch: overflowing objective, finite entries, $T" for (T, level) in ((Float32, 1f20), (Float64, 1e200))
+  @test isfinite(T(3) * T(level)) && isinf(T(level)^2)
+  x = T[1, -1, 0.1, -0.1]
+  for γ in T[3, 5, 100]
+    f = MCP(T(level), T(3))
+    y, v = prox_paths(f, x, γ)
+    @test iszero(y) && v === zero(T)
+    @test PB.prox_entry(f, x[1], 1, γ) === zero(T)
+    y, v = prox_paths(f, T[NaN, 1], γ)
+    @test isnan(y[1]) && y[2] === zero(T) && isnan(v)       # a NaN entry still gives NaN
+  end
+  g = GroupMCP(T(level), [1:2])
+  y = fill(T(7), 2)
+  v = value_and_prox!(y, g, T[1, 0], T(5))
+  @test iszero(y) && v === zero(T)
+  z = T[1, 0]
+  prox!(z, g, z, T(5))
+  @test iszero(z)
+  # an infinite entry at a level near floatmax keeps the result of the base
+  y, v = prox_paths(MCP(floatmax(T), one(T)), T[Inf, -Inf], T(5))
+  @test iszero(y)
+end
+
+
 si_free(f) = (si = SparseIterate(2); si[1] = NaN; si[2] = 1.5; si)
 
 @testset "iterates" begin

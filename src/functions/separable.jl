@@ -894,13 +894,15 @@ Base.@propagate_inbounds function prox_entry(f::MCP, v::T, i::Integer, γ::Real)
   iszero(f.λ) && return S(v)
   (isinf(γ) | isinf(f.λ)) && return zero(S)
   isinf(a * λ) && return t == t ? zero(S) : S(v)
-  # concave between 0 and aλ: the minimizer is 0 or the largest candidate. A NaN t makes h(u) NaN,
-  # so the test is "not h(u) >= h(0)" (the same as h(u) < h(0) without NaN): a NaN stays NaN. An
-  # infinite t is kept at the old result 0 (h(u) = h(0) = Inf) by bounding u, which is a no-op for
-  # finite t; without the bound (Inf - Inf)² is NaN and would select the nonzero branch.
-  u = min(max(t, a * λ), floatmax(S))
-  h(z) = (z - t)^2 / (2s) + _mcp_penalty(λ, a, z)
-  !(h(u) >= h(zero(S))) ? sign(S(v)) * u : zero(S)
+  # A NaN entry stays NaN (E2); it is told apart here, before the objective, because the strict
+  # comparison below must stay the base's: a NaN made by the arithmetic of the objective (overflow
+  # of λ², an infinite entry) selects 0 as before.
+  t != t && return S(v)
+  # concave between 0 and aλ: the minimizer is 0 or the largest candidate; h(0) = t²/(2s) because the
+  # penalty at 0 is 0
+  u = max(t, a * λ)
+  hu = (u - t)^2 / (2s) + _mcp_penalty(λ, a, u)
+  ifelse(hu < t^2 / (2s), sign(S(v)) * u, zero(S))
 end
 
 kkt_violation(f::MCP, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - f.λ)

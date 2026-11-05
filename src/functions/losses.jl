@@ -50,11 +50,6 @@ Base.@propagate_inbounds function _value_entry_ordinary(f::CheckLoss, v::T, i::I
   _entry(f.w, i) * (v >= 0 ? τ * v : (τ - 1) * v)
 end
 _has_ordinary_value(::Type{<:CheckLoss}) = true
-# The largest weight whose entry keeps a NaN: a finite weight (weights are nonnegative, so a hard
-# weight w == Inf and a NaN weight are above the limit), or only a zero weight at the step Inf;
-# nothing at a NaN step. Loop invariant, so one comparison per entry.
-@inline _nan_weight_limit(γ, w) =
-  (F = float(typeof(w)); ifelse(isnan(γ), -one(F), ifelse(γ == Inf, zero(F), floatmax(F))))
 Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
   w = _entry(f.w, i)
@@ -65,9 +60,10 @@ Base.@propagate_inbounds function prox_entry(f::CheckLoss, v::T, i::Integer, γ:
   # This is read from the parameters and not from the derived coefficient s, which also overflows
   # to Inf for finite parameters, and whose threshold s(1 - τ) is NaN for a hard weight when τ
   # rounds to 1 (such a finite u still gives 0). A NaN step (unchecked) keeps the old zero.
+  # Weights are nonnegative, so w < Inf is also false for a NaN weight.
   a, b = s * τ, s * (1 - τ)
   r = ifelse(u > a, u - a, ifelse(u < -b, u + b, zero(S)))
-  ifelse((u != u) & (w <= _nan_weight_limit(γ, w)), u, r)
+  ifelse((u != u) & (γ == γ) & ((γ == Inf) ? (w == 0) : (w < Inf)), u, r)
 end
 
 # from zero, the objective decreases upward at rate -gᵢ - wᵢτ and downward at

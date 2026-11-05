@@ -869,7 +869,10 @@ same way, and its proximal operator keeps the order of `v`. So the proximal
 operator sorts `v`, subtracts `γλ2 (2i - K - 1)` from the `i`-th smallest entry,
 pools adjacent violators into a nondecreasing sequence, restores the order, and
 soft-thresholds by `γλ1`: exact, in O(K log K), in buffers that the function
-owns.
+owns. A `NaN` entry of a vector of `K ≥ 3` entries makes the whole proximal output
+`NaN` when `λ2 > 0` and the step is positive, because every entry is fused with it;
+with `λ2 = 0` or a zero step only the `NaN` entry stays `NaN`. For a pair, in the
+tuple form, only the pair that holds the `NaN` is `NaN`.
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct NormL1Fused{T<:Real} <: AbstractFunction
@@ -1010,9 +1013,20 @@ end
   (shrink(u, t), shrink(v, t))
 end
 
+# E4 and the zero step (P1) come before the cross-entry arithmetic of the pair kernel: with both
+# levels zero the function is zero (the identity at every step, γ = Inf included), and a zero step
+# is the identity for finite levels. The kernel at levels and step zero returns its arguments, so
+# a NaN stays in its own entry. Three scalars per call or per loop, never inside the loop.
+@inline _fused_pair_identity(λ1, λ2, γ) =
+  (iszero(λ1) && iszero(λ2)) || (iszero(γ) && isfinite(λ1) && isfinite(λ2))
+@inline function _fused_pair_levels(λ1::T, λ2::T, γ::T) where {T}
+  _fused_pair_identity(λ1, λ2, γ) ? (zero(T), zero(T), zero(T)) : (λ1, λ2, γ)
+end
+
 function prox(f::NormL1Fused, xy::Tuple{Real, Real}, γ::Real = 1)
   T = float(promote_type(typeof(xy[1]), typeof(xy[2])))
-  _prox_l1fused(T(xy[1]), T(xy[2]), T(f.λ1), T(f.λ2), T(γ))
+  λ1, λ2, g = _fused_pair_levels(T(f.λ1), T(f.λ2), T(γ))
+  _prox_l1fused(T(xy[1]), T(xy[2]), λ1, λ2, g)
 end
 
 function prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real)
@@ -1022,7 +1036,7 @@ end
 
 @noinline function _prox_fused_arrays!(y, f, x, γ, ::Val{C}) where {C}
   T = float(promote_type(eltype(y[1]), eltype(y[2])))
-  λ1, λ2, γ = T(f.λ1), T(f.λ2), T(γ)
+  λ1, λ2, γ = _fused_pair_levels(T(f.λ1), T(f.λ2), T(γ))
   @inbounds for i in eachindex(x[1])
     y[1][i], y[2][i] = _prox_l1fused(T(x[1][i]), T(x[2][i]), λ1, λ2, γ, Val(C))
   end
@@ -1056,29 +1070,33 @@ prox(f::NormL1Fused, x::Tuple{AbstractArray, AbstractArray}, γ::Real = 1) =
 # a vector of K entries, all pairs fused: a fiber of K stacked matrices. Two
 # entries take the closed form of a pair.
 
-# the entries of x, and the indices p that sort them in increasing order, in the
-# buffers of f, allocating nothing: an in-place quicksort for short vectors, and
+# the entries of x, the indices p that sort them in increasing order, and whether an entry is
+# NaN (the order is then meaningless, and the callers do not read it), in the buffers of f,
+# allocating nothing: an in-place quicksort for short vectors, and
 # Base's sort with a scratch buffer for long ones, as for SLOPE
 function _sortperm_fused!(f::NormL1Fused, x::AbstractVector, ::Type{T}) where {T}
   n = length(x)
   a = _buffer!(f.sums, T, n)
   p = _buffer!(f.perm, Int, n)
+  nan = false
   @inbounds for i in 1:n
-    a[i] = convert(T, x[i])
+    ai = convert(T, x[i])
+    a[i] = ai
     p[i] = i
+    nan |= isnan(ai)
   end
   if n <= 4096
     sort!(view(p, 1:n); alg = QuickSort, lt = (i, j) -> a[i] < a[j])
   else
     sortperm!(view(p, 1:n), view(a, 1:n); initialized = true, scratch = _buffer!(f.sizes, Int, n))
   end
-  p, a
+  p, a, nan
 end
 
 @noinline function _recover_fused_vector(f, x, ::Type{T}, ordinary) where {T}
   all(isfinite, x) && isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
   R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
-  p, a = _sortperm_fused!(f, x, R)
+  p, a, _ = _sortperm_fused!(f, x, R)
   n = length(x)
   k = _magnitude_exponent(_maximum_abs(x))
   scale = _power_factors(R, -k)
@@ -1109,7 +1127,9 @@ end
   iszero(f.λ1) && iszero(f.λ2) && return zero(T)
   n = length(x)
   n == 2 && return @inbounds f((x[1], x[2]))
-  p, a = _sortperm_fused!(f, x, T)
+  # one entry has no pairs: the fusion term is an empty sum, and a NaN reaches only the ℓ1 term
+  n == 1 && isnan(@inbounds x[1]) && return iszero(f.λ1) ? zero(T) : T(NaN)
+  p, a, _ = _sortperm_fused!(f, x, T)
   v1, v2 = zero(T), zero(T)
   @inbounds for k in 1:n
     v1 += abs(a[p[k]])
@@ -1132,10 +1152,14 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     return V ? f(y) : zero(T)
   end
   if n == 2
-    @inbounds y[1], y[2] = _prox_l1fused(convert(T, x[1]), convert(T, x[2]), λ1, λ2, convert(T, γ))
+    l1, l2, g = _fused_pair_levels(λ1, λ2, convert(T, γ))
+    @inbounds y[1], y[2] = _prox_l1fused(convert(T, x[1]), convert(T, x[2]), l1, l2, g)
     return V ? @inbounds(f((y[1], y[2]))) : zero(T)
   end
-  p, a = _sortperm_fused!(f, x, T)          # x is read here, so y may be x
+  p, a, nan = _sortperm_fused!(f, x, T)     # x is read here, so y may be x
+  # a NaN entry: the fusion couples every entry to it (E2), unless the step or λ2 is zero; an infinite
+  # step or level keeps the computation below (LIM-056)
+  nan && !isinf(γ) && !isinf(f.λ1) && !isinf(f.λ2) && return _prox_fused_nan!(y, f, x, γ, Val(V), T)
   w = _buffer!(f.vals, T, n)
   t = convert(T, γ) * λ2
   @inbounds for k in 1:n
@@ -1154,6 +1178,25 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     v2 += (2k - n - 1) * wk
   end
   V ? _fused_vector_value(f, y, v1, v2, T) : zero(T)
+end
+
+# _prox_fused! at an argument with a NaN entry, for a finite step and finite levels, not both
+# levels zero. At γ = 0 the map is the identity, and with λ2 = 0 it is soft thresholding of each
+# entry by γλ1, which a NaN does not reach. Otherwise all pairs are fused and every output depends
+# on every entry, so it is NaN (E2). The value is the one at the stored output (O2).
+@noinline function _prox_fused_nan!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real,
+                                    ::Val{V}, ::Type{T}) where {V, T}
+  if iszero(γ)
+    y === x || copyto!(y, x)
+  elseif iszero(f.λ2)
+    c = convert(T, γ) * convert(T, f.λ1)
+    @inbounds for i in eachindex(x)
+      y[i] = shrink(convert(T, x[i]), c)
+    end
+  else
+    fill!(y, convert(T, NaN))
+  end
+  V ? f(y) : zero(T)
 end
 
 # Project onto an L2 ball without subtracting two nearly equal coordinates.

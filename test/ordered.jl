@@ -121,11 +121,11 @@ end
       ([-Inf, 0], 0, Inf),
       ([1, Inf, 0], Inf, Inf),
       ([0, Inf, Inf], 0, Inf),
-      ([NaN, 0], Inf, Inf),
-      ([0, NaN], Inf, Inf),
-      ([NaN, NaN], Inf, Inf),
-      ([Inf, NaN], Inf, Inf),
-      ([NaN], Inf, Inf),
+      ([NaN, 0], NaN, NaN),                 # a NaN decides feasibility when there are two entries (E2)
+      ([0, NaN], NaN, NaN),
+      ([NaN, NaN], NaN, NaN),
+      ([Inf, NaN], NaN, NaN),
+      ([NaN], 0, 0),                        # a single entry is always feasible
       ([Inf], 0, 0),
       ([-Inf], 0, 0),
       (Float64[], 0, 0),
@@ -141,7 +141,7 @@ end
       (UInt8[0, 255], 0, Inf),
       (UInt8[255, 0], Inf, 0),
     )
-      @test f(v) == (decreasing ? decreasing_value : increasing_value)
+      @test isequal(f(v), float(decreasing ? decreasing_value : increasing_value))
     end
     @test f([Inf, Inf]) == 0
     t = sqrt(eps(Float64))
@@ -358,7 +358,7 @@ end
       check_slope_value(x, Float32.(λ))
       check_slope_value(x, T.(λ))
       check_slope_value(x, sort(rand(rng, 0:9, n); rev = true))
-      # a NaN is a NaN, also with a zero weight; an infinity with a zero weight is ignored
+      # a NaN is a NaN, also with a zero weight among the others; an infinity with a zero weight is ignored
       xn = copy(x); xn[n ÷ 2] = T(NaN)
       @test isnan(check_slope_value(xn, λ))
       λz = [λ[1:n-1]; 0.0]
@@ -367,7 +367,7 @@ end
       @test check_slope_value(xi, λ) == T(Inf)
       @test check_slope_value(xi, zeros(n)) == 0
       xi[n ÷ 3] = T(Inf); xi[n ÷ 4] = T(NaN)
-      @test isnan(check_slope_value(xi, zeros(n)))
+      @test check_slope_value(xi, zeros(n)) == 0          # every weight zero: the zero function (E4)
       λ1 = [1.0; zeros(n - 1)]
       xi = copy(x); xi[n ÷ 5] = T(Inf)
       @test check_slope_value(xi, λ1) == T(Inf)

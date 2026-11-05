@@ -135,6 +135,7 @@ thorough = [
   "logdet_overflow",
   "metric",
   "nonfinite_inputs",
+  "ordered_nan",
   "partial",
   "polyhedron",
   "precision",

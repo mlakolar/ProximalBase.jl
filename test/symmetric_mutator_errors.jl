@@ -202,6 +202,18 @@ end
       rejects(x -> copyto!(x, (1.0,)), x, ArgumentError, "position by position")
       rejects(x -> (view(x, 1:2, 1) .= 7), x, ArgumentError, "fill! or broadcasting into a view")
       rejects(x -> (view(vec(x), 1:2) .= 7), x, ArgumentError, "fill! or broadcasting into a reshaped view")
+      rejects(x -> copyto!(view(x, 1:2, 1), T[1, 2]), x, ArgumentError,
+              "copyto! into a view cannot write part of a SymmetricSparseIterate")
+      rejects(x -> copyto!(view(vec(x), 1:2), T[1, 2]), x, ArgumentError,
+              "copyto! into a reshaped view cannot write part")
+      rejects(x -> copyto!(view(x, :, :), adjoint(Q)), x, ArgumentError, "must be symmetric")
+      # LinearAlgebra copies an orthogonal factor only into a matrix.
+      rejects(x -> copyto!(vec(x), Q), x, MethodError)
+      rejects(x -> copyto!(view(x, :, :), T[1, 2]), x, DimensionMismatch,
+              "copyto! source has 2 values and the destination has 9")
+      rejects(x -> copyto!(vec(x), 1, T[1, 2], 1, 2), x, ArgumentError, "copyto! with offsets cannot write part")
+      rejects(x -> copyto!(vec(x), vec(T[1 2 3; 4 5 6; 7 8 9])), x, ArgumentError,
+              "must be symmetric, but entry (3, 1) is 7.0 and entry (1, 3) is 3.0")
     end
   end
 

@@ -295,6 +295,28 @@ end
 
 _checkvalue(f::SqrNormL2, x) = (_checkreal(f, x); _checkparams(f, x); f.y === nothing || _checksize(f.y, x); true)
 
+# The scaled-value mechanism: the recomputation of _square_value in power-of-two units, with the
+# centers rounded as the value rounds them.
+# Exact-zero protection: the ordinary value is λ/2 Σ (xᵢ - yᵢ)², with the sum in the type T of the
+# value. A difference is exact where it is subnormal and zero only for equal entries. Where a square
+# can underflow (the sum below n floatmin/eps), or the level does not fit T, the value is recomputed
+# in power-of-two units and rounded once (_square_value), so a zero value there is below δ. Otherwise
+# the sum is normal, with relative error below n eps, and a zero value is the product with λ/2
+# rounded to zero: below δ/2 (1 + n eps). The centers are rounded as the value rounds them, both
+# here and in the parts. So |f(x)| < n δ in every case, whatever λ is (λ = 0 is exact).
+_has_value_parts(::Type{<:SqrNormL2}) = true
+function _value_parts(f::SqrNormL2, x::AbstractArray, v)
+  T = _valtype(x)
+  y = f.y
+  T === Float32 && y !== nothing && eltype(y) === Float64 && return _square_parts(f.λ, x, map(_ridge_round_center32, y))
+  y !== nothing && T <: Union{Float32, Float64} && float(eltype(y)) <: BigFloat &&
+    return _square_parts(f.λ, x, map(c -> _ridge_round_big(T, c), y))
+  _square_parts(f.λ, x, y)
+end
+@inline _zero_value_exponent(f::SqrNormL2, x::AbstractArray) =
+  iszero(f.λ) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
+_parameter_alias(f::SqrNormL2, out) = _mightalias_parameter(out, f.y)
+
 # Does a center entry keep its range when rounded to the model precision W (R3)?
 # Branchless, so that a loop over the entries still vectorizes. Free for a center
 # already stored in W; non-finite and zero entries convert without loss.

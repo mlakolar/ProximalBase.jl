@@ -1,5 +1,6 @@
 # Tests of the check-only driver: synthetic cases, and the read-only input checks on real cases built
-# from the smallest groups that contain them (quick-suite IDs).
+# from the smallest groups that contain them (quick-suite IDs); then cases_test.jl: the sparse
+# operands of the `products` cases and their reference checks for repetitions 1-10.
 #
 #   julia --project=<benchmark environment> benchmark/check_only_test.jl
 #
@@ -231,3 +232,5 @@ end
         @test message(() -> check!(c)) == ""
     end
 end
+
+include("cases_test.jl")

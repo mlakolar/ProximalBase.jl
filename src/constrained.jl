@@ -997,23 +997,23 @@ function _conjugate_value(c::LinearConstrained{<:IndBox{<:Real, <:Real}, <:Union
   isfinite(r) ? r : _box_linear_scaled_value(c, y, r)
 end
 
-# The same support function in units of powers of two: the entries of y in units of 2^ey, and the
-# bounds and the offset in units of 2^eb, so that no sum or product leaves the range before the
-# exponents are applied. A non-finite argument keeps the ordinary result r.
+# The same support function in units of powers of two, a non-finite argument keeping the ordinary
+# result r. The entries of y are in units of 2^ey. Each term has its own exponent, so that a bound
+# far below another is not flushed: l Σy at the exponent of l, u - l at the larger exponent of u
+# and l, and β - n l at the larger exponent of β and n l, from which κ is formed.
 @noinline function _box_linear_scaled_value(c::LinearConstrained, y::AbstractArray, r::T) where {T}
+  n = length(y)
+  n == 0 && return r
   my = _maximum_abs(y)
   isfinite(my) || return r
   box, set = c.f, c.set
   a = _constant_normal(set.a)
-  n = length(y)
   upper = set isa IndHyperplane || a > 0
   s = upper ? one(T) : -one(T)
   l, u = upper ? (convert(T, box.l), convert(T, box.u)) : (-convert(T, box.u), -convert(T, box.l))
   β = _isscaled(set) ? s * convert(T, set.b / float(a)) : s * convert(T, set.b) / convert(T, a)
   isfinite(β) || return r
   ey = _magnitude_exponent(convert(T, my)) + 1
-  eb = _comparison_exponent(_magnitude_exponent(abs(l)), _magnitude_exponent(abs(u)), _magnitude_exponent(abs(β))) + 1
-  l, u, β = ldexp(l, -eb), ldexp(u, -eb), ldexp(β, -eb)
   v = _buffer!(c.scratch, T, n)
   total = zero(T)
   @inbounds for (i, yi) in enumerate(y)
@@ -1021,9 +1021,28 @@ end
     total += z
     v[i] = set isa IndHyperplane ? z : max(z, zero(T))
   end
-  iszero(u - l) && return ldexp(l * total, ey + eb)
-  κ = clamp((β - n * l) / (u - l), zero(T), convert(T, n))
-  ldexp(l * total + (u - l) * _top_sum!(view(v, 1:n), κ), ey + eb)
+  el = _magnitude_exponent(abs(l)) + 1
+  t1, e1 = ldexp(l, -el) * total, el + ey                 # l Σy
+  ed = max(_magnitude_exponent(abs(u)), _magnitude_exponent(abs(l))) + 1
+  d = ldexp(u, -ed) - ldexp(l, -ed)                       # u - l
+  iszero(d) && return ldexp(t1, e1)
+  em = max(_magnitude_exponent(abs(β)), _magnitude_exponent(abs(l)) + ndigits(n; base = 2)) + 1
+  m = ldexp(β, -em) - n * ldexp(l, -em)                   # β - n l
+  q = ldexp(m / d, em - ed)                               # κ before the clamp, at most 2^56 n
+  if m <= 0
+    t2, e2 = zero(T), ed + ey
+  elseif q < 1
+    # the fraction κ of the largest entry: (u - l) κ max v = m max v, without forming κ, which
+    # may be below the range
+    t2, e2 = m * maximum(view(v, 1:n)), em + ey
+  else
+    t2, e2 = d * _top_sum!(view(v, 1:n), min(q, convert(T, n))), ed + ey
+  end
+  # at the exponent of the larger nonzero term, so that the other is flushed only below its ulp
+  iszero(t1) && return ldexp(t2, e2)
+  iszero(t2) && return ldexp(t1, e1)
+  e = max(e1 + exponent(t1), e2 + exponent(t2))
+  ldexp(ldexp(t1, e1 - e) + ldexp(t2, e2 - e), e)
 end
 
 # the checks of the conjugate value above, before it computes

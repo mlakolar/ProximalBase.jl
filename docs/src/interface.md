@@ -363,7 +363,8 @@ of the balls, boxes, simplices and the Ky Fan set, the conjugate of uncentered
 decided on `v` against their radius in the same units, which is never formed
 in the original units. So `SingularValue(NormL1(1/4))` at
 `fill(floatmax(Float64), 2, 2)`, whose singular values are `2floatmax` and `0`,
-is `floatmax(Float64)/2`, where it was `Inf`.
+is `floatmax(Float64)/2` to within an ulp (the computed singular value is
+rounded), where it was `Inf`.
 
 Not covered: functions without a level that a scale folds into (`SumLargest`,
 `SLOPE`, `CubeNormL2`, the support functions of boxes, simplices and the Ky Fan
@@ -378,11 +379,32 @@ functions this paragraph adds.
 
 A matrix with a `NaN` entry gives the value `NaN` for every function of a
 spectrum computed by LAPACK (`SingularValue`, `Spectral`, `NuclearNorm`,
-`TracePSD`, `IndPSD`, `IndBallRank`, `IndStiefel`, `LogDetLoss` and the value
-of `Conjugate(SingularValue(f))`), in standalone calls and from
-`value_and_prox!`, and a matrix with an infinite entry and no `NaN` gives
-`Inf`; `NuclearNorm(0)` keeps `Inf` at both. The test runs before the
-decomposition, which never sees the entry.
+`TracePSD`, `IndPSD`, `IndBallRank`, `IndStiefel` and `LogDetLoss`), in
+standalone calls and from `value_and_prox!`, and a matrix with an infinite
+entry and no `NaN` gives `Inf`. The same holds for the standalone value of
+`Conjugate(SingularValue(f))` only: its call of `value_and_prox!` is not
+changed, and at a non-finite input it throws an `ArgumentError`, except where
+the conjugate is an indicator, such as that of a norm, whose value there is
+`Inf`. The test runs before the decomposition, which never sees the entry.
+
+A function whose value does not depend on the entries is the exception
+(E2, E4):
+
+- `NuclearNorm(0)`, and `SingularValue` of a zero-level unweighted `NormL1`,
+  `NormL2`, `NormLinf`, `SumLargest`, `CubeNormL2`, uncentered `SqrNormL2`,
+  `ElasticNet(0, 0)` or `ZeroFunction()`, are the zero function: `0` at every
+  input.
+- `IndBallRank(r)` and `SingularValue(IndBallL0(r))` with
+  `r ≥ minimum(size(X))` are the indicator of all matrices: `0` when the
+  non-finite entries are all `NaN`, and `Inf` at an infinite entry.
+- The standalone value of `Spectral` of such a function, the indicator of the
+  symmetric matrices, is `NaN` only at an off-diagonal `NaN` of a matrix that
+  is not symmetric by type, `Inf` at an infinite entry, and otherwise `0` or
+  `Inf` as the finite remainder is symmetric or not. Its `value_and_prox!`
+  keeps the general rule.
+
+Weighted functions, functions with domain constraints and infinite levels keep
+the general rule, and the proximal outputs are unchanged.
 
 ## GPU arrays
 

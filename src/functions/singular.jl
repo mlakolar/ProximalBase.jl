@@ -38,9 +38,15 @@ not absolutely symmetric.
 
 `isconvex` and the indicator property come from `f`. The domain of `F` is the
 finite matrices: a matrix with an infinite entry has value `Inf`, and one with
-a `NaN` entry has value `NaN`, also for a bounded `f` such as `NormL0`. When a
-decomposition is needed, a non-finite input gives an all-`NaN` proximal output;
-`value_and_prox!` returns the same value.
+a `NaN` entry has value `NaN`, also for a bounded `f` such as `NormL0`. The
+exceptions are the inner functions whose value does not depend on the entries:
+the zero-level, unweighted `NormL1`, `NormL2`, `NormLinf`, `SumLargest`,
+uncentered `SqrNormL2`, `CubeNormL2` and `ElasticNet(0, 0)`, and
+`ZeroFunction()`, are the zero function, with value `0` at every input; and
+`IndBallL0(r)` with `r ≥ minimum(size(X))` is the indicator of all matrices,
+with value `0` when the non-finite entries are all `NaN` and `Inf` at an
+infinite entry. When a decomposition is needed, a non-finite input gives an
+all-`NaN` proximal output; `value_and_prox!` returns the same value.
 Only functions that count nonzeros, such as `NormL0` and `IndBallL0`, treat
 singular values at most `√ε σ₁` as zero. Other functions see the computed
 spectrum. Membership and domain tests use `√ε·max(1, |bound|, σ₁)`; sum
@@ -124,9 +130,9 @@ function (F::SingularValue)(X::AbstractMatrix)
     ws = _svd_workspace(F.ws, T, size(X)...)
     F.ws = ws
     copyto!(ws.A, X)
-    all(isfinite, ws.A) || return _nonfinite_value(ws.A, T)
+    all(isfinite, ws.A) || return _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), ws.A, T)
   else
-    all(isfinite, X) || return _nonfinite_value(X, T)
+    all(isfinite, X) || return _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), X, T)
   end
   t, scaled, k = _masked_singular_values!(F, X; copied = _is_device_array(X))
   _decided_on_spectrum(F.f) && return _spectrum_value(F.f, scaled === nothing ? t : scaled, k)
@@ -184,7 +190,8 @@ function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix,
   _checkstep(value_and_prox!, F, Y, X, γ)
   T = float(eltype(Y))
   if !all(isfinite, X)
-    v = _nonfinite_value(X, T)                    # before Y, which may be X, is written
+    # before Y, which may be X, is written
+    v = _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), X, T)
     fill!(Y, T(NaN))
     return v
   end

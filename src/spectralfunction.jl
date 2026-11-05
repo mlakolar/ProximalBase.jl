@@ -33,7 +33,15 @@ order of the entries. Its proximal operator acts on the eigenvalues: for
 reads the upper triangle of its input, which should be symmetric. The domain of
 `F` is the finite symmetric matrices: the value is `NaN` at a matrix with a
 `NaN` entry, and `Inf` at a matrix with an infinite entry, also for a bounded
-`f`, and at a matrix that is not symmetric. When a decomposition is needed, any
+`f`, and at a matrix that is not symmetric. For an `f` that is constant on all
+vectors (the zero-level functions and `IndBallL0` listed under
+[`SingularValue`](@ref)), `F` is the indicator of the symmetric matrices, and
+its standalone value depends on a `NaN` entry only through symmetry: it is
+`NaN` at an off-diagonal `NaN` of a matrix that is not symmetric by type
+(`Symmetric`, `Hermitian`, `Diagonal`, `SymTridiagonal` or a
+`SymmetricSparseIterate`), `Inf` at an infinite entry, and otherwise `0` or
+`Inf` as the finite remainder is symmetric or not. `value_and_prox!` keeps the
+general rule. When a decomposition is needed, any
 non-finite entry, including one in the lower triangle, gives an all-`NaN`
 proximal output; `value_and_prox!` returns the same value. Only functions that count nonzeros mask eigenvalues with magnitude at
 most `√ε·‖λ‖∞`. Other functions see the computed spectrum. Membership and
@@ -115,13 +123,13 @@ function (s::Spectral)(X::AbstractMatrix)
   _checkblas(s, T)
   n = checksquare(X)
   if !_is_device_array(X)
-    all(isfinite, X) || return _nonfinite_value(X, T)
+    all(isfinite, X) || return _spectral_nonfinite_value(s, X, T)
     _issymmetric_tol(X) || return T(Inf)
   end
   ws = _eig_workspace(s.eig, T, n)
   s.eig = ws
   copyto!(ws.A, X)
-  !_is_device_array(X) || all(isfinite, ws.A) || return _nonfinite_value(ws.A, T)
+  !_is_device_array(X) || all(isfinite, ws.A) || return _spectral_nonfinite_value(s, ws.A, T)
   !_is_device_array(X) || _issymmetric_tol(ws.A) || return T(Inf)
   λ = _eigvals!(ws)
   if _counts_nonzeros(s.f)
@@ -141,6 +149,43 @@ function (s::Spectral)(X::AbstractMatrix)
   # An overflowing spectrum: the value at the eigenvalues of X/2^k, when f has a recovery.
   isempty(λ) || (_finite_value(λ[1]) && _finite_value(λ[end])) || !_spectrum_scalable(s.f) ? v :
     _spectral_overflow_value!(s, ws, X, v)
+end
+
+# Functions of a spectrum whose value does not depend on the entries (E2, E4). Explicit methods
+# only, with the default "not established": no inner function is evaluated to infer constancy. The
+# kind of g on spectra of length p is :zero when g is the zero function there (a zero level and no
+# domain constraint, E4), :whole when g is the indicator of all of ℝᵖ, and nothing otherwise.
+# Weighted and centered functions, infinite levels and functions with domain constraints have no
+# method. These are called only after a finiteness test failed.
+_constant_kind(g, p) = nothing
+_constant_kind(::ZeroFunction, p) = :zero
+_constant_kind(g::NormL1{<:Real, Nothing}, p) = iszero(g.λ0) ? :zero : nothing
+_constant_kind(g::Union{NormL2, NormLinf, SumLargest, CubeNormL2, SqrNormL2{<:Real, Nothing}}, p) =
+  iszero(g.λ) ? :zero : nothing
+_constant_kind(g::ElasticNet{<:Real, Nothing}, p) = iszero(g.λ1) && iszero(g.λ2) ? :zero : nothing
+_constant_kind(g::IndBallL0, p) = g.s >= p ? :whole : nothing
+
+# The standalone value at a non-finite X. For an inner function that is constant on ℝⁿ (_constant_kind),
+# Spectral(g) is the indicator of the symmetric matrices, its domain, which E4 keeps:
+# - in a matrix that is not symmetric by type, an off-diagonal NaN decides symmetry, so the value
+#   depends on it (E2) and is NaN;
+# - an infinite entry gives Inf, as an indicator of a set of real matrices (E3);
+# - otherwise the NaN entries are on the diagonal, or in a matrix symmetric by type, and do not
+#   decide membership (E2): the finite rest does.
+# Otherwise the value is NaN at a NaN entry and Inf at an infinite one. The fused call reads the
+# symmetric part and is not classified.
+function _spectral_nonfinite_value(s::Spectral, X::AbstractMatrix, ::Type{T}) where {T}
+  _constant_kind(s.f, size(X, 1)) === nothing && return _nonfinite_value(X, T)
+  bytype = _symmetric_by_type(X)
+  !bytype && _offdiagonal_nan(X) && return T(NaN)
+  any(isinf, X) && return T(Inf)
+  (bytype || _issymmetric_tol(X)) ? zero(T) : T(Inf)
+end
+function _offdiagonal_nan(X::AbstractMatrix)
+  @inbounds for j in axes(X, 2), i in axes(X, 1)
+    i != j && isnan(X[i, j]) && return true
+  end
+  false
 end
 
 # Keep the signs of eigenvalues that are separated from numerical zero.
@@ -351,7 +396,6 @@ end
 _homogeneity_degree(::AbstractFunction) = nothing
 _homogeneity_degree(::Union{NormL1, NormL2, NormLinf, SumLargest, NormL1Nonneg, SLOPE}) = 1
 _homogeneity_degree(::CubeNormL2) = 3
-_homogeneity_degree(f::Conjugate) = _support_degree(f.f)
 # support functions are positively homogeneous of degree one
 _support_degree(::AbstractFunction) = nothing
 _support_degree(::Union{IndBallL1, IndBallL2, IndSimplex, IndBox,
@@ -395,8 +439,8 @@ _normal_level(::Type{T}, λ) where {T} = iszero(λ) || !isfinite(λ) || abs(conv
 _spectrum_levels_normal(f, ::Type) = true
 _spectrum_levels_normal(f::Union{SumLargest, CubeNormL2}, ::Type{T}) where {T} = _normal_level(T, f.λ)
 _spectrum_levels_normal(f::SLOPE, ::Type{T}) where {T} = all(λ -> _normal_level(T, λ), f.λ)
+# (called on the leaf of a scale chain: a positive scale does not change an indicator)
 _support_levels_normal(f, ::Type) = true
-_support_levels_normal(f::Scaled, ::Type{T}) where {T} = _normal_level(T, f.α) && _support_levels_normal(f.f, T)
 _support_levels_normal(f::IndSimplex, ::Type{T}) where {T} = _normal_level(T, f.r)
 _support_levels_normal(f::IndBox, ::Type{T}) where {T} =
   all(l -> _normal_level(T, l), f.l) && all(u -> _normal_level(T, u), f.u)
@@ -430,20 +474,22 @@ function _conjugate_scaled(f0, s::AbstractVector{T}, k::Int, b::_ProjectionScale
   a isa _ProjectionScale || return nothing
   _conjugate_spectrum_scaled(g, f0, s, k, b, a)
 end
-# a support function: degree one, the recovery of Scaled at the value of the conjugate
-function _conjugate_spectrum_scaled(::AbstractFunction, f0, s, k, b, _)
+# A support function: degree one, the recovery of Scaled at the value of the conjugate. Every
+# support function here is that of a set, whose indicator a positive scale does not change, so the
+# value and the fold are those of the leaf g of the scale chain.
+function _conjugate_spectrum_scaled(g::AbstractFunction, f0, s, k, b, _)
   T = eltype(s)
-  d = _support_degree(f0)
+  d = _support_degree(g)
   d === nothing && return nothing
   a = _ProjectionScale(b.m, b.e + d * k)
-  v = _conjugate_value(f0, s)
-  _scaled_small(v) && !_support_levels_normal(f0, T) && return nothing
+  v = _conjugate_value(g, s)
+  _scaled_small(v) && !_support_levels_normal(g, T) && return nothing
   r = _apply_scale(a, v)
   # the trigger of _scaled_value_by, whose recovery folds into the radius of a ball; only that
   # fold forms the Conjugate
-  if f0 isa Union{IndBallL1, IndBallL2} &&
+  if g isa Union{IndBallL1, IndBallL2} &&
      ((!isfinite(r) && _scale_below_one(a)) || (_scaled_small(r) && !iszero(v)) || (_scaled_small(v) && _scale_above_one(a)))
-    return _scaled_value_recover(Conjugate(f0), a, s, r)
+    return _scaled_value_recover(Conjugate(g), a, s, r)
   end
   r
 end

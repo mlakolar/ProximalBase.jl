@@ -50,6 +50,18 @@ end
 # Called only after a finiteness test failed, so that finite inputs make no second pass.
 _nonfinite_value(X, ::Type{T}) where {T} = any(isnan, X) ? T(NaN) : T(Inf)
 
+# (_constant_kind, the kind of an inner function, is in spectralfunction.jl.)
+# The value of a function of the singular values of that kind at a non-finite X, or nothing. The
+# zero function is 0 at a NaN entry, on which it does not depend (E2, E4), and at an infinite entry,
+# its formula (E3). The indicator of all matrices does not depend on a NaN entry (E2), and is Inf
+# at an infinite entry, as an indicator of a set of real matrices (E3).
+_constant_nonfinite_value(kind, X, ::Type{T}) where {T} =
+  kind === :zero ? zero(T) : kind === :whole ? (any(isinf, X) ? T(Inf) : zero(T)) : nothing
+function _singular_nonfinite_value(kind, X, ::Type{T}) where {T}
+  v = _constant_nonfinite_value(kind, X, T)
+  v === nothing ? _nonfinite_value(X, T) : v
+end
+
 # whether X is symmetric, within the tolerance of the indicator functions
 function _issymmetric_tol(X::AbstractMatrix)
   n = checksquare(X)
@@ -169,15 +181,14 @@ ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
 entry exceeding `floatmax` by less than the reconstruction's rounding bound
 is returned as `±floatmax`.
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
-The domain is the finite matrices: the
+The
 value is `Inf` at a matrix with an infinite entry and `NaN` at one with a `NaN`
-entry; for `λ = 0` it is `Inf` at both.
-For `λ = 0`, the proximal operator copies its input. When a decomposition is
-needed, a non-finite input gives an all-`NaN` proximal output.
-`value_and_prox!` returns the same value at a non-finite input, also for `λ = 0`.
-Thus the equivalence with `SingularValue(NormL1(λ))` holds for the returned
-value there for `λ > 0`; at `λ = 0` its value at a `NaN` entry is `NaN`, and its
-all-`NaN` output differs from the copied input.
+entry. For `λ = 0` it is the zero function (E4): its value is `0` at every
+input, non-finite entries included, and the proximal operator copies its input.
+When a decomposition is needed, a non-finite input gives an all-`NaN` proximal
+output. `value_and_prox!` returns the same value at a non-finite input. The
+values agree with those of `SingularValue(NormL1(λ))`; at `λ = 0` its all-`NaN`
+output differs from the copied input.
 
 $_PARTIAL_NOTE The value `f(X)` alone needs every singular value and always
 takes the full decomposition.
@@ -225,9 +236,9 @@ function (f::NuclearNorm)(X::AbstractMatrix)
   isfinite(v) || !isfinite(f.λ) ? v : _scaled_nuclear_value!(ws, X, convert(T, f.λ))
 end
 
-# A zero level keeps its value at a non-finite input: the zero level's value there is decided by
-# its own rule (E4), not by the NaN of the decomposition (E2).
-_nuclear_nonfinite_value(f::NuclearNorm, X, ::Type{T}) where {T} = iszero(f.λ) ? T(Inf) : _nonfinite_value(X, T)
+# A zero level is the zero function (E4), whose value does not depend on the entries.
+_nuclear_nonfinite_value(f::NuclearNorm, X, ::Type{T}) where {T} =
+  _singular_nonfinite_value(iszero(f.λ) ? :zero : nothing, X, T)
 
 # the exponent from the workspace's copy, which also serves inputs on devices
 @noinline function _scaled_nuclear_value!(ws::SVDWorkspace{T}, X::AbstractMatrix, λ::Real) where {T}
@@ -324,10 +335,12 @@ Numerical rank counts singular values above `√ε σ₁`, with no absolute floo
 so the rank threshold is relative at every scale. See
 [Functions of a spectrum](@ref). Non-finite entries are not members. When
 `r ≥ minimum(size(X))`, the proximal operator copies its input, including at
-non-finite inputs.
+non-finite inputs, and the function is the indicator of all matrices: its value
+does not depend on a `NaN` entry, so it is `0` at a matrix whose non-finite
+entries are all `NaN`, and `Inf` at a matrix with an infinite entry.
 When a decomposition is needed, a non-finite input gives an all-`NaN` output.
-The value, also from `value_and_prox!`, is `NaN` at an input with a `NaN` entry
-and `Inf` at another non-finite input.
+Otherwise the value, also from `value_and_prox!`, is `NaN` at an input with a
+`NaN` entry and `Inf` at another non-finite input.
 
 $_PARTIAL_NOTE
 
@@ -361,13 +374,13 @@ function (f::IndBallRank)(X::AbstractMatrix)
   T = float(eltype(X))
   _checkblas(f, T)
   if !_is_device_array(X)
-    all(isfinite, X) || return _nonfinite_value(X, T)
+    all(isfinite, X) || return _rank_nonfinite_value(f, X, T)
     minimum(size(X)) <= f.r && return zero(T)
   end
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
   copyto!(ws.A, X)
-  !_is_device_array(X) || all(isfinite, ws.A) || return _nonfinite_value(ws.A, T)
+  !_is_device_array(X) || all(isfinite, ws.A) || return _rank_nonfinite_value(f, ws.A, T)
   minimum(size(X)) <= f.r && return zero(T)
   s, = _svd!(ws; vectors = false)
   c = _tol(T) * s[1]
@@ -375,6 +388,10 @@ function (f::IndBallRank)(X::AbstractMatrix)
     return _rank_scaled_value(ws, X, f.r)
   s[f.r + 1] <= c ? zero(T) : T(Inf)
 end
+
+# With r ≥ min(size(X)), the indicator of all matrices.
+_rank_nonfinite_value(f::IndBallRank, X, ::Type{T}) where {T} =
+  _singular_nonfinite_value(minimum(size(X)) <= f.r ? :whole : nothing, X, T)
 
 @noinline function _rank_scaled_value(ws::SVDWorkspace{T}, X::AbstractMatrix, r::Int) where {T}
   _scaled_spectral_input!(ws.A, X)
@@ -414,7 +431,7 @@ function value_and_prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, �
   X = _symmetric_argument(Y, X)
   _checkwrite(value_and_prox!, f, Y, X)
   finite = all(isfinite, X)
-  v = finite ? zero(_valtype(Y)) : _nonfinite_value(X, _valtype(Y))   # before Y, which may be X, is written
+  v = finite ? zero(_valtype(Y)) : _rank_nonfinite_value(f, X, _valtype(Y))   # before Y, which may be X, is written
   prox!(Y, f, X, γ)
   v
 end

@@ -175,6 +175,50 @@ function select(m::Manifest, tier::AbstractString)
   return files
 end
 
+"""
+    check_selectors(manifest, testdir, runnable, available, positionals; scope, hint) -> (errors, warnings)
+
+Check the test names given on the command line before ParallelTestRunner's `filter_tests!`
+applies them. That function keeps every test whose name starts with one of the names and drops
+a name that matches nothing without a message. Here `runnable` holds every test name, `available`
+the names left after the tier and `--extra` (`scope` says which) and `positionals` the names as
+given; one starting with `!` excludes. Returns the messages for the names that match no
+available test: `errors` for the names that select, `warnings` for the exclusions. A name that
+is a helper, a separate environment, or matches only tests outside the tier, says so; `hint` is
+the advice for the last case. The test files that include a helper are found by the literal
+`"<helper>.jl"` in their source.
+"""
+function check_selectors(m::Manifest, testdir::AbstractString, runnable, available, positionals;
+                         scope::AbstractString = "the selection",
+                         hint::AbstractString = "use a higher --tier or --extra=<name>")
+  errors = String[]
+  warnings = String[]
+  # Prefix matching, with the leading `!`s removed, as filter_tests! does.
+  matches(names, prefix) = filter(n -> startswith(n, prefix), sort!(collect(names)))
+  function reason(prefix)
+    if prefix in m.helpers
+      source(n) = (f = joinpath(testdir, n * ".jl"); isfile(f) ? read(f, String) : "")
+      files = filter(n -> occursin("\"$prefix.jl\"", source(n)), sort!(collect(runnable)))
+      files = [n in available ? n : "$n (outside $scope)" for n in files]
+      return "a helper that test files include, not a test" *
+             (isempty(files) ? "" : "; it runs through $(join(files, ", "))")
+    end
+    (prefix in m.environments || isenvironment(m, prefix)) &&
+      return "a directory with an environment of its own that is run by hand, not a test"
+    outside = matches(setdiff(runnable, available), prefix)
+    isempty(outside) && return "no test file starts with it"
+    return "it matches only tests outside $scope ($(join(first(outside, 3), ", "))" *
+           (length(outside) > 3 ? ", ..." : "") * "); $hint"
+  end
+  for arg in unique(positionals)
+    exclude = startswith(arg, "!")
+    prefix = exclude ? lstrip(arg, '!') : arg
+    isempty(matches(available, prefix)) || continue
+    push!(exclude ? warnings : errors, "`$arg`: " * reason(prefix))
+  end
+  return errors, warnings
+end
+
 # A glob over repository paths: `*` and `?` stay within a directory, `**` spans directories.
 function glob_regex(pattern::AbstractString)
   out = IOBuffer()

@@ -333,7 +333,8 @@ _checkparams(f::EpsInsensitiveLoss, x) = (_checkparam(f.w, x); true)
 Base.@propagate_inbounds function value_entry(f::EpsInsensitiveLoss, v::T, i::Integer) where {T<:Real}
   w = _entry(f.w, i)
   φ = max(abs(v) - convert(float(T), f.ε), zero(float(T)))
-  _weighted_value(w * φ, φ)
+  p = w * φ
+  ifelse(iszero(w), zero(p), _weighted_value(p, φ))    # a zero weight leaves the entry free, NaN included
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::EpsInsensitiveLoss, v::T, i::Integer) where {T<:Real} =
   _entry(f.w, i) * max(abs(v) - convert(float(T), f.ε), zero(float(T)))

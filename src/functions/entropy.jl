@@ -467,9 +467,14 @@ _checkparams(f::Berhu, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::Berhu, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  λ, w = S(f.λ), S(_entry(f.w, i))
+  w0 = _entry(f.w, i)
+  λ, w = S(f.λ), S(w0)
   c, M, t = _weight_coefficient(λ, w), S(f.M), abs(S(v))
-  _weighted_value(t <= M ? c * t : c * (t^2 + M^2) / (2M), t)
+  r = _weighted_value(t <= M ? c * t : c * (t^2 + M^2) / (2M), t)
+  # A zero weight, or a zero level at a finite weight, leaves the entry free, NaN included; an
+  # infinite weight keeps its constraint. The parameters decide, not their conversions. There r
+  # is ±0 or NaN, so only a NaN result needs the test, off the ordinary path.
+  isnan(r) && (iszero(w0) | (iszero(f.λ) & !isinf(w0))) ? zero(S) : r
 end
 Base.@propagate_inbounds function _value_entry_ordinary(f::Berhu, v::T, i::Integer) where {T<:Real}
   S = float(T)

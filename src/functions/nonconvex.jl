@@ -48,8 +48,14 @@ _checkparams(f::CappedL1, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::CappedL1, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  λ, w, m = S(f.λ), S(_entry(f.w, i)), min(abs(S(v)), S(f.a))
-  _weighted_value(_weight_coefficient(λ, w) * m, m)
+  w0 = _entry(f.w, i)
+  λ, w, m = S(f.λ), S(w0), min(abs(S(v)), S(f.a))
+  r = _weighted_value(_weight_coefficient(λ, w) * m, m)
+  # A zero weight, or a zero level at a finite weight, leaves the entry free, NaN included; an
+  # infinite weight keeps its constraint. The parameters decide, not their conversions. (Of the
+  # equivalent forms, this one keeps the sparse value loops at their speed.)
+  iszero(f.λ) && return isinf(w0) ? r : zero(S)
+  ifelse(iszero(w0), zero(S), r)
 end
 Base.@propagate_inbounds function _value_entry_ordinary(f::CappedL1, v::T, i::Integer) where {T<:Real}
   S = float(T)
@@ -220,8 +226,13 @@ _checkparams(f::NormLq, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::NormLq, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  λ, w, φ = S(f.λ), S(_entry(f.w, i)), abs(S(v))^S(f.q)
-  _weighted_value(_weight_coefficient(λ, w) * φ, φ)
+  w0 = _entry(f.w, i)
+  λ, w, φ = S(f.λ), S(w0), abs(S(v))^S(f.q)
+  r = _weighted_value(_weight_coefficient(λ, w) * φ, φ)
+  # A zero weight, or a zero level at a finite weight, leaves the entry free, NaN included; an
+  # infinite weight keeps its constraint. The parameters decide, not their conversions. There r
+  # is ±0 or NaN, so only a NaN result needs the test, off the ordinary path.
+  isnan(r) && (iszero(w0) | (iszero(f.λ) & !isinf(w0))) ? zero(S) : r
 end
 Base.@propagate_inbounds function _value_entry_ordinary(f::NormLq, v::T, i::Integer) where {T<:Real}
   S = float(T)

@@ -202,8 +202,8 @@ end
       for i in 1:4
         @test value_entry(z, zero(T), i) === zero(T)
         @test value_entry(z, T(3), i) === (i == 2 ? T(Inf) : zero(T))
-        # a zero level leaves a LogPenalty entry free (E4, #561), unless its weight is infinite
-        F === LogPenalty && i != 2 ? @test(iszero(value_entry(z, T(NaN), i))) : @test(isnan(value_entry(z, T(NaN), i)))
+        # a zero level leaves the entry free, NaN included (E4), unless its weight is infinite
+        i != 2 ? @test(iszero(value_entry(z, T(NaN), i))) : @test(isnan(value_entry(z, T(NaN), i)))
         @test kkt_violation(z, g, i) === (i == 2 ? T(-Inf) : abs(g[i]))
         @test allocs(value_entry, z, T(3), i) == 0
         @test allocs(prox_entry, z, T(3), i, one(T)) == 0

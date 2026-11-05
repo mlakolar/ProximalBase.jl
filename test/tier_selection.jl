@@ -95,7 +95,7 @@ function kept(names, positionals)
   return sort!(collect(keys(suite)))
 end
 
-@testset "test names that match no test file" begin
+@testset "test names that select no test file, exclusions that remove none" begin
   m = TestTiers.parse_manifest(SMALL)
   runnable = ["a", "b", "c", "d/e"]
   available = ["a", "b"] # the tier left after the tier and --extra
@@ -125,6 +125,27 @@ end
     @test isempty(errors) && length(warnings) == 2
     @test startswith(warnings[1], "`!zz`: no test file starts with it") && occursin("outside tier standard (c)", warnings[2])
     @test check("!zz") == (String[], ["`!zz`: no test file starts with it"])
+    # an exclusion that matches an available test, but none that the included names select, removes nothing
+    @test check("a", "!b") == (String[], ["`!b`: it matches b, which the included names (a) do not select; it removes nothing"])
+    @test check("a", "!b", "!a", "!b") == (String[], ["`!b`: it matches b, which the included names (a) do not select; it removes nothing"])
+    @test check("a", "b", "!b") == check("!b") == check("a", "!a") == (String[], String[]) # it removes a selected test, or all of them
+    @test check("b", "a", "!b", "!a") == (String[], String[])
+    # when every included name is an error the exclusions keep today's reasons: no new warning buries the errors
+    errors, warnings = check("zz", "!b", "!c", "!yy")
+    @test only(errors) == "`zz`: no test file starts with it" && length(warnings) == 2
+    @test occursin("outside tier standard (c)", warnings[1]) && startswith(warnings[2], "`!yy`: no test file starts with it")
+    # an --extra test is available, and is dropped unless an included name selects it
+    extra = ["a", "b", "d/e"]
+    check_extra(args...) = TestTiers.check_selectors(m, dir, runnable, extra, collect(args); scope = "tier standard")
+    @test check_extra("a", "!d/") == (String[], ["`!d/`: it matches d/e, which the included names (a) do not select; it removes nothing"])
+    @test check_extra("a", "d/", "!d/") == check_extra("!d/") == (String[], String[])
+  end
+  # the matches and the included names are cut to three
+  mktempdir() do dir
+    wide = ["a1", "a2", "a3", "a4", "b1", "b2", "b3", "b4"]
+    errors, warnings = TestTiers.check_selectors(m, dir, wide, wide, ["b1", "b2", "b3", "b4", "!a"])
+    @test isempty(errors) && only(warnings) ==
+          "`!a`: it matches a1, a2, a3, ..., which the included names (b1, b2, b3, ...) do not select; it removes nothing"
   end
   # a helper that no test file includes: no file is named
   mktempdir() do dir
@@ -170,15 +191,37 @@ end
   # prefixes keep selecting: a directory, a short name, an exact name, with an exclusion
   @test check("conformance/", "second", "gpu_smoke", "!gpu_smoke") == (String[], String[])
   @test check("conformance/", "!conformance/second_order") == (String[], String[])
-  # the check agrees with filter_tests! on which names match: a name is flagged exactly when the
-  # real function keeps nothing for it (an include) or removes nothing (an exclusion)
+  # an exclusion that removes nothing the included names selected
+  @test check("gpu_smoke", "!lapack") ==
+        (String[], ["`!lapack`: it matches lapack, which the included names (gpu_smoke) do not select; it removes nothing"])
+  @test check("gpu_smoke", "!lapack"; available = quick) == check("gpu_smoke", "!lapack")
+  @test only(check("conformance/", "!lapack")[2]) ==
+        "`!lapack`: it matches lapack, which the included names (conformance/) do not select; it removes nothing"
+  @test check("conformance/", "!conformance/second_order") == check("", "!lapack") == check("!lapack") == (String[], String[])
+  @test check("gpu_smoke", "!gpu_smoke") == (String[], String[]) # it removes every selected test: the runner stops on that
+  # every included name an error: the errors come first and the exclusions keep their reasons
+  errors, warnings = check("zz", "!lapack", "!zy")
+  @test only(errors) == "`zz`: no test file starts with it" && only(warnings) == "`!zy`: no test file starts with it"
+  # an --extra test is dropped unless an included name selects it
+  errors, warnings = check("gpu_smoke", "!second_order"; available = [quick; "second_order"])
+  @test isempty(errors) && only(warnings) ==
+        "`!second_order`: it matches second_order, which the included names (gpu_smoke) do not select; it removes nothing"
+  # the check agrees with filter_tests! on which names match: an include is flagged exactly when the
+  # real function keeps nothing for it, an exclusion when it removes nothing that the includes
+  # (every name without `!`, the erroring ones too) keep; if every include is an error, when it
+  # removes nothing from all the tests
   for names in (["gpu_smoke", "second_order"], ["gpu_suite_basics", "second_ordr", "conformance/"], ["!gpu_smoek", "lapack"],
-                ["tier_sel", "x"], ["!tier_selection", "!"], ["!!zz", "!!lapack", "", "!gpu_smok"], ["!x", "!lapack", "conformance"])
+                ["tier_sel", "x"], ["!tier_selection", "!"], ["!!zz", "!!lapack", "", "!gpu_smok"], ["!x", "!lapack", "conformance"],
+                ["gpu_smoke", "!lapack"], ["conformance/", "!conformance/second_order"], ["gpu_smoke", "!gpu_smoke"], ["zz", "!lapack"],
+                ["!", "gpu_smoke"], ["!!lapack", "gpu_smoke"], ["", "!lapack"], ["gpu_smoke", "!lapack", "!lapack"])
     for available in (runnable, quick)
       errors, warnings = check(names...; available)
       flagged(msgs) = [first(split(m, "`:"; limit = 2))[2:end] for m in msgs]
       @test flagged(errors) == [n for n in unique(names) if !startswith(n, "!") && isempty(kept(available, [n]))]
-      @test flagged(warnings) == [n for n in unique(names) if startswith(n, "!") && kept(available, [n]) == sort(available)]
+      includes = filter(n -> !startswith(n, "!"), names)
+      removes_nothing(n) = isempty(kept(available, includes)) ? kept(available, [n]) == sort(available) :
+                           kept(available, [includes; n]) == kept(available, includes)
+      @test flagged(warnings) == [n for n in unique(names) if startswith(n, "!") && removes_nothing(n)]
     end
   end
 end
@@ -197,6 +240,12 @@ end
   @test !ok && !occursin("ProximalBase tests:", out)
   @test occursin("`gpu_suite_basics`: a helper that test files include, not a test; it runs through gpu_smoke", err)
   @test occursin("`second_ordr`: no test file starts with it", err) && occursin("scripts/test.jl --list", err)
+  # an exclusion that removes nothing warns; the typo still stops the run
+  ok, out, err = run_selection("--tier=quick", "gpu_smoke", "!lapack", "second_ordr")
+  @test !ok && !occursin("ProximalBase tests:", out)
+  @test occursin("test exclusions that remove no test file:", err)
+  @test occursin("`!lapack`: it matches lapack, which the included names (gpu_smoke, second_ordr) do not select; it removes nothing", err)
+  @test occursin("`second_ordr`: no test file starts with it", err)
   # a name that the tier drops
   ok, _, err = run_selection("--tier=quick", "gpu_smoke", "second_order")
   @test !ok && occursin("`second_order`: it matches only tests outside tier quick", err)

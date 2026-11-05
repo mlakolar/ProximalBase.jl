@@ -188,8 +188,9 @@ Here `runnable` holds every test name, `available` the names left after the tier
 Returns `errors` for the names that select and match no available test, and `warnings` for the
 exclusions that remove no test the other names selected: one that matches no available test, or
 one that matches available tests but none of those the names selected (it removes nothing). It
-says nothing about an exclusion that removes every selected test, and none about an exclusion
-when every name that selects is an error. A name that is a helper, a separate environment, or
+says nothing about an exclusion that removes every selected test. When every name that selects
+is an error, nothing is selected, so an exclusion warns only if it matches no available test,
+and the errors are not buried. A name that is a helper, a separate environment, or
 matches only tests outside the tier, says so; `hint` is the advice for the last case. The test
 files that include a helper are found by the literal `"<helper>.jl"` in their source.
 """

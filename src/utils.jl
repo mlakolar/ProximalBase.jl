@@ -644,14 +644,37 @@ _zero_value_exponent(f, x) = nothing
   exponent(nextfloat(zero(T))) + _log2_ceil(n) + amp + 2
 # |log t| < 2^E for every positive t of type T (745 for Float64, 104 for Float32)
 @inline _log_exponent(::Type{T}) where {T} = exponent(-log(nextfloat(zero(T)))) + 1
-# (the exponent of the smallest nonzero |wᵢ|, e with every |wᵢ| < 2^e) of a weight array, in one pass,
-# or `nothing` for a weight array that is not of Float32 or Float64, or not finite
-function _weight_exponents(w::AbstractArray)
-  eltype(w) <: Union{Float32, Float64} || return nothing
-  m = _maximum_abs(w)
-  isfinite(m) || return nothing
-  (_min_nonzero_exponent(w), _upper_exponent(m))
+# (the exponent of the smallest nonzero |wᵢ|, e with every |wᵢ| < 2^e) of a weight array, read again
+# at every call (the weights may change between calls), or `nothing` for a weight array that is not of
+# Float32 or Float64, or not finite. One pass over 32-bit words, where the maximum and the minimum
+# vectorize on every x86 target: with the sign cleared, the bit patterns are ordered like the
+# magnitudes. A Float64 contributes its upper word (sign, exponent and the leading 20 bits of the
+# significand), which orders the magnitudes up to the lower word; rounding the lower word up for the
+# maximum and down for the minimum keeps both exponents conservative. A zero does not enter the
+# minimum; an Inf or a NaN has an upper word at least that of Inf.
+_weight_word(v::Float32) = reinterpret(Int32, v) & typemax(Int32)
+_weight_word(v::Float64) = ((reinterpret(UInt64, v) & 0x7fffffffffffffff) >> 32) % Int32
+_weight_nonzero(v::Float32) = !iszero(reinterpret(Int32, v) & typemax(Int32))
+_weight_nonzero(v::Float64) = !iszero(reinterpret(UInt64, v) & 0x7fffffffffffffff)
+_word_value(::Type{Float32}, h::Int32, up::Bool) = reinterpret(Float32, h)
+_word_value(::Type{Float64}, h::Int32, up::Bool) = reinterpret(Float64, (UInt64(h) << 32) | (up ? 0x00000000ffffffff : 0x0))
+function _weight_exponents(w::AbstractArray{T}) where {T<:Union{Float32, Float64}}
+  vals = _stored_values(w)
+  hi = zero(Int32)
+  lo = typemax(Int32)
+  @inbounds @simd for i in eachindex(vals)
+    v = vals[i]
+    h = _weight_word(v)
+    hi = max(hi, h)
+    lo = min(lo, ifelse(_weight_nonzero(v), h, typemax(Int32)))
+  end
+  hi >= _weight_word(T(Inf)) && return nothing
+  # no nonzero weight; a nonzero Float64 below 2^-1042 has a zero upper word
+  emin = lo == typemax(Int32) ? exponent(floatmax(T)) :
+         iszero(lo) ? exponent(nextfloat(zero(T))) : exponent(_word_value(T, lo, false))
+  (emin, _upper_exponent(_word_value(T, hi, true)))
 end
+_weight_exponents(w::AbstractArray) = nothing
 # Is a zero or subnormal value of f exact for every argument, by its type? Then a factor above one
 # has nothing to recover from it, and `Scaled` does not try (the test folds away at compile time).
 _zero_value_exact(f) = false

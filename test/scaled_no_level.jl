@@ -320,7 +320,7 @@ end
       ("SLOPE", SLOPE([pow2(Float64, -1070), pow2(Float64, -1070)]), [pow2(Float64, -10), 0.0], pow2(Float64, 100), 2),
       ("SumLargest", SumLargest(1, pow2(Float64, -1070)), [pow2(Float64, -10), 0.0], pow2(Float64, 100), 1),
       ("NegEntropy", NegEntropy(pow2(Float64, -1000)), [pow2(Float64, -80)], pow2(Float64, 100), 1),
-      ("KLDivergence", KLDivergence([1e-300]; λ = pow2(Float64, -800)), [0.0], pow2(Float64, 1000), 1),
+      ("KLDivergence level product", KLDivergence([1e-300]; λ = pow2(Float64, -800)), [0.0], pow2(Float64, 1000), 1),
       ("NegLog", NegLog(pow2(Float64, -1060)), [1.0 - pow2(Float64, -40)], pow2(Float64, 100), 1),
       ("Berhu", Berhu(pow2(Float64, -1070), 1.0), [pow2(Float64, -10)], pow2(Float64, 100), 1),
       ("HingeLoss w", HingeLoss(nothing, [pow2(Float64, -1070)]), [1.0 - pow2(Float64, -20)], pow2(Float64, 100), 1),
@@ -338,6 +338,17 @@ end
       ("SCAD", SCAD(t, 3.7), [t / 2], pow2(Float64, 1000), 1),
       ("GroupMCP", GroupMCP(t, [[1, 2]]; a = 3.0), [t, t], pow2(Float64, 1000), 2),
       ("GroupSCAD", GroupSCAD(t, [[1, 2]]), [t, 0.0], pow2(Float64, 1000), 2),
+      ("CubeNormL2 cube", CubeNormL2(1.0), [pow2(Float64, -400)], pow2(Float64, 1000), 1),
+      ("NegEntropy last product", NegEntropy(pow2(Float64, -1022)), [prevfloat(1.0)], pow2(Float64, 100), 1),
+      ("KLDivergence t log(t/q)", KLDivergence([2 * nextfloat(0.0)]; λ = pow2(Float64, 100)), [nextfloat(0.0)], 2.0, 3),
+      ("Berhu quadratic piece", Berhu(pow2(Float64, -300), pow2(Float64, -500)), [pow2(Float64, -400)], 2.0, 2),
+      ("Berhu square of M", Berhu(1.0, pow2(Float64, -600)), [pow2(Float64, -590)], 2.0, 2),
+      ("LogPenalty ratio", LogPenalty(1.0, pow2(Float64, 60)), [pow2(Float64, -1020)], pow2(Float64, 100), 1),
+      ("LogPenalty coefficient", LogPenalty(pow2(Float64, -600), 1.0, [pow2(Float64, -600)]), [1.0], pow2(Float64, 1000), 1),
+      ("MCP far piece", MCP(t, 3.0), [1.0], pow2(Float64, 1000), 1),
+      ("SCAD middle piece", SCAD(t, 3.7), [2t], pow2(Float64, 1000), 3),
+      ("SCAD far piece", SCAD(t, 3.7), [1.0], pow2(Float64, 1000), 1),
+      ("GroupMCP far piece", GroupMCP(t, [[1, 2]]; a = 3.0), [1.0, 1.0], pow2(Float64, 1000), 1),
       ("Translate", Translate(SqrNormL2(pow2(Float64, -1000)), [1.0]), [1.0 + pow2(Float64, -40)], pow2(Float64, 600), 1),
       ("Scaled∘Translate∘Scaled", Translate(Scaled(SqrNormL2(pow2(Float64, -900)), 2.0), [0.0]), [pow2(Float64, -200)], pow2(Float64, 600), 1))
     @testset "hidden: $name" begin
@@ -373,6 +384,33 @@ end
         v = Scaled(f, α)(x)
         @test iszero(v) && v isa Float64
       end
+    end
+  end
+end
+
+@testset "weights written in place between calls" begin
+  # the bounds read the weights at every call: a hidden zero is recovered after the weights change,
+  # and an exact zero stays zero after they change back
+  tiny = pow2(Float64, -1070)
+  for (name, mk, xhid, whid, α) in (
+      ("CheckLoss", w -> CheckLoss(0.5, w), [pow2(Float64, -20)], tiny, pow2(Float64, 100)),
+      ("LogPenalty", w -> LogPenalty(1.0, 1.0, w), [pow2(Float64, -10)], tiny, pow2(Float64, 100)),
+      ("NormLq", w -> NormLq(pow2(Float64, -600), 0.5, w), [4.0], pow2(Float64, -600), pow2(Float64, 200)),
+      ("Berhu", w -> Berhu(pow2(Float64, -600), 1.0, w), [0.5], pow2(Float64, -600), pow2(Float64, 1000)),
+      ("Berhu bound", w -> Berhu(pow2(Float64, -1000), 1.0, w), [pow2(Float64, -80)], 1.0, pow2(Float64, 100)))
+    @testset "$name" begin
+      w = [1.0]
+      f = mk(w)
+      s = Scaled(f, α)
+      @test s([0.0]) === 0.0
+      w .= whid
+      @test iszero(f(xhid))
+      @test agrees(s(xhid), ref(f, α, xhid), 1)
+      w .= 1.0
+      @test s([0.0]) === 0.0
+      @test Scaled(f, 2.0)([0.0]) === 0.0
+      w .= whid
+      @test agrees(s(xhid), ref(f, α, xhid), 1)
     end
   end
 end

@@ -534,12 +534,18 @@ _value_parts(f::Berhu, x::AbstractArray, v) =
 _parameter_alias(f::KLDivergence, out) = _mightalias_parameter(out, f.q)
 _parameter_alias(f::Berhu, out) = _mightalias_parameter(out, f.w)
 
-# Exact-zero protection. The value type T converts the level, which must keep its range there
-# (otherwise no bound). NegEntropy computes (λt) log t: λt loses less than δ/2 where it underflows,
-# and |log t| < 2^L multiplies the loss. KLDivergence applies λ to t log(t/q) - t + q, whose product
-# t log(t/q) loses less than δ/2: λ multiplies that loss (and a reference q wider than T, rounded to
-# T, has no bound). NegLog loses less than δ/2 in each product λ log t. Zeros from cancellation are
-# within the accuracy of the ordinary sums.
+# Exact-zero protection: a proof per operation where a term can round into the subnormal range,
+# each losing less than δ/2 (δ the smallest subnormal of the value type T); the level is converted
+# to T and must keep its range there (otherwise no bound). Zeros from cancellation are within the
+# accuracy of the ordinary sums (R1), and the recomputation does not improve on them either.
+# - NegEntropy, λ t log t evaluated as (λt) log t: the product λt loses less than δ/2, which
+#   |log t| < 2^L multiplies (L = _log_exponent(T)); the product with log t loses less than δ/2.
+#   Per term less than 2^L δ, over n terms |f(x)| < n 2^L δ.
+# - KLDivergence, λ (t log(t/q) - t + q): t/q and log are relative; the product t log(t/q) loses
+#   less than δ/2 where t is tiny; t and q are exact; the sum is exact where it is subnormal; the
+#   product with λ multiplies the loss by λ < 2^e(λ) and loses less than δ/2 itself. Per term
+#   less than (λ + 1) δ. A reference q wider than T would be rounded to T: no bound.
+# - NegLog, -λ log t: one product per term, less than δ/2; |f(x)| < n δ.
 _zero_value_exponent(f::NegEntropy, x::AbstractArray) = _level_fits(_valtype(x), f.λ) ?
   _underflow_exponent(_valtype(x), length(x), _log_exponent(_valtype(x))) : nothing
 function _zero_value_exponent(f::KLDivergence, x::AbstractArray)
@@ -549,11 +555,12 @@ function _zero_value_exponent(f::KLDivergence, x::AbstractArray)
 end
 _zero_value_exponent(f::NegLog, x::AbstractArray) =
   _level_fits(_valtype(x), f.λ) ? _underflow_exponent(_valtype(x), length(x)) : nothing
-# Berhu: the coefficient c = λ w, then c t or c (t² + M²)/(2M). With c a normal number, c t and
-# c (t² + M²) lose less than δ/2 each, and the division by 2M multiplies that by 1/(2M); M² can
-# underflow, a loss that c/(2M) multiplies. Without weights c = λ; with weights one pass over them
-# bounds c, and a coefficient that can underflow (λ times the smallest weight below floatmin) is
-# then multiplied by an unbounded t: no bound.
+# - Berhu, c = λ w, then c t (t ≤ M) or (c (t² + M²))/(2M): with c a normal number, c t loses less
+#   than δ/2; t² and M² lose less than δ/2 each, which c/(2M) multiplies; c (t² + M²) loses less
+#   than δ/2, which 1/(2M) < 2^(1 - e(M)) multiplies; the division loses less than δ/2. Per term
+#   less than 2^(max(0, e(c)) + max(0, 2 - e(M)) + 2) δ/2. Without weights c = λ; with weights one
+#   pass over them gives e(c) and decides whether c can underflow (λ times the smallest nonzero
+#   weight below floatmin), which an unbounded t would then multiply: no bound in that case.
 function _zero_value_exponent(f::Berhu, x::AbstractArray)
   T = _valtype(x)
   iszero(f.λ) && return _EXACT_ZERO

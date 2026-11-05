@@ -92,6 +92,17 @@ end
   @test f32(Float32.(x)) isa Float32
 end
 
+# R1 (#520): a normal value whose intermediate products underflow keeps its accuracy
+@testset "quadratic values whose products underflow" begin
+  A, B, Θ = fill(2.0^-900, 1, 1), fill(2.0^-1000, 1, 1), fill(2.0^800, 1, 1)
+  @test KronQuadratic(A, B)(Θ) === 2.0^-301
+  @test value_and_gradient!(zeros(1, 1), KronQuadratic(A, B), Θ) === 2.0^-301
+  a = nextfloat(0.0)
+  x = [2.0^28 + 0.25]
+  ref = big(a) * big(x[1])^2 / 2
+  @test abs(big(QuadraticFunction(fill(a, 1, 1))(x)) - ref) <= 4eps(Float64) * ref
+end
+
 @testset "KronQuadratic" begin
   p, q = 6, 4
   X, Y = randn(30, p), randn(30, q)

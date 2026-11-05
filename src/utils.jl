@@ -425,6 +425,25 @@ function _maximum_abs(x::AbstractArray)
   m
 end
 
+# The signed integer type of the same width, by dispatch (a conditional on the type is not folded by Julia 1.10)
+_int_type(::Type{Float32}) = Int32
+_int_type(::Type{Float64}) = Int64
+
+# For Float32 and Float64 the maximum is taken on the bit patterns: with the sign cleared they are ordered like the
+# magnitudes (as signed integers, whose maximum vectorizes on more targets than the unsigned one), an integer maximum vectorizes
+# where the NaN-aware float maximum is a scalar chain (the trigger of #520 reads this on every value call),
+# and a NaN or an Inf gives a NaN or an Inf as before.
+function _maximum_abs(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
+  U = _int_type(T)
+  vals = _stored_values(x)
+  m = zero(U)
+  @inbounds @simd for i in eachindex(vals)
+    m = max(m, reinterpret(U, vals[i]) & typemax(U))
+  end
+  reinterpret(T, m)
+end
+_maximum_abs(x::Diagonal{T}) where {T<:Union{Float32, Float64}} = _maximum_abs(x.diag)
+
 # Recopy before scaling: LAPACK destroys the input of the first decomposition.
 function _scaled_spectral_input!(A::AbstractMatrix{T}, X::AbstractMatrix) where {T<:AbstractFloat}
   copyto!(A, X)
@@ -596,6 +615,149 @@ _pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_wei
 end
 # other types: their own exp has no range limit to work around in practice
 @inline _exp_split(x::AbstractFloat) = frexp(exp(x))
+
+####################################
+#
+#  Values recomputed when an intermediate underflows (R1, #520)
+#
+####################################
+
+# Only these types have an exponent range that the recovery reasons about.
+_underflow_checked(::Type) = false
+_underflow_checked(::Type{<:Union{Float32, Float64}}) = true
+
+# A sum of terms m 2^e, each a significand m (|m| < 1) and an integer exponent, kept as the
+# compensated sum (s + c) 2^ex of the terms in the frame ex of the largest exponent seen so far. A
+# term in a larger frame rescales the sum (the part below 2^-1074 of the new frame is dropped,
+# which is below eps times the scale of the sum); a term in a smaller frame is added after
+# scaling it. Compensated additions keep a small term after larger ones cancel.
+struct _ExpSum{R<:AbstractFloat}
+  s::R
+  c::R
+  ex::Int
+end
+_expsum_start(::Type{R}) where {R<:AbstractFloat} = _ExpSum{R}(zero(R), zero(R), 0)
+@inline function _expsum_add(acc::_ExpSum{R}, m::R, e::Int) where {R}
+  iszero(m) && return acc
+  if iszero(acc.s) && iszero(acc.c)
+    return _ExpSum{R}(m, zero(R), e)
+  elseif e > acc.ex
+    d = acc.ex - e
+    s, c = _compensated_add(ldexp(acc.s, d), ldexp(acc.c, d), m)
+    return _ExpSum{R}(s, c, e)
+  end
+  s, c = _compensated_add(acc.s, acc.c, ldexp(m, e - acc.ex))
+  _ExpSum{R}(s, c, acc.ex)
+end
+# the term a b 2^k, with the product of the significands rounded once per factor
+@inline function _expsum_product(acc::_ExpSum{R}, a, b, k::Int = 0) where {R}
+  (iszero(a) || iszero(b)) && return acc
+  ma, ea = frexp(convert(R, a))
+  mb, eb = frexp(convert(R, b))
+  _expsum_add(acc, ma * mb, ea + eb + k)
+end
+@inline function _expsum_term(acc::_ExpSum{R}, a, xi, mj::R, ej::Int, k::Int) where {R}
+  (iszero(a) || iszero(xi)) && return acc
+  ma, ea = frexp(convert(R, a))
+  mi, ei = frexp(convert(R, xi))
+  _expsum_add(acc, (ma * mi) * mj, ea + ei + ej + k)
+end
+
+# Σ aᵢⱼ xᵢ xⱼ 2^k over the entries of A, with no product rounded into a narrower type: exact zeros are
+# skipped, the stored entries only of a sparse or diagonal matrix are visited
+function _expsum_quadratic(acc::_ExpSum{R}, A::AbstractMatrix, x::AbstractVector, k::Int) where {R}
+  @inbounds for j in 1:size(A, 2)
+    xj = x[j]
+    iszero(xj) && continue
+    mj, ej = frexp(convert(R, xj))
+    for i in 1:size(A, 1)
+      acc = _expsum_term(acc, A[i, j], x[i], mj, ej, k)
+    end
+  end
+  acc
+end
+function _expsum_quadratic(acc::_ExpSum{R}, A::SparseArrays.SparseMatrixCSC, x::AbstractVector, k::Int) where {R}
+  rv, nz = rowvals(A), nonzeros(A)
+  @inbounds for j in 1:size(A, 2)
+    xj = x[j]
+    iszero(xj) && continue
+    mj, ej = frexp(convert(R, xj))
+    for p in nzrange(A, j)
+      acc = _expsum_term(acc, nz[p], x[rv[p]], mj, ej, k)
+    end
+  end
+  acc
+end
+function _expsum_quadratic(acc::_ExpSum{R}, A::Diagonal, x::AbstractVector, k::Int) where {R}
+  d = A.diag
+  @inbounds for i in eachindex(d)
+    xi = x[i]
+    iszero(xi) && continue
+    mi, ei = frexp(convert(R, xi))
+    acc = _expsum_term(acc, d[i], xi, mi, ei, k)
+  end
+  acc
+end
+# Σ aᵢ xᵢ 2^k
+function _expsum_dot(acc::_ExpSum, a::AbstractArray, x::AbstractArray, k::Int)
+  _checksize(a, x)
+  @inbounds for i in eachindex(IndexLinear(), a, x)
+    acc = _expsum_product(acc, a[i], x[i], k)
+  end
+  acc
+end
+# the sum as one significand and exponent, for _pow2_sum, or rounded once into R
+function _expsum_pair(::Type{R}, acc::_ExpSum) where {R}
+  m = acc.s + acc.c
+  iszero(m) && return (zero(R), 0)
+  mm, ee = frexp(m)
+  (convert(R, mm), acc.ex + ee)
+end
+function _expsum_value(::Type{R}, acc::_ExpSum{A}) where {R, A}
+  m = acc.s + acc.c
+  iszero(m) && return zero(R)
+  convert(R, _scaled_product(one(A), m, acc.ex))
+end
+
+# The smallest nonzero |x_i| as an exponent (the exponent of floatmax if there is none): a product of two
+# entries with exponents e1 and e2 is at least 2^(e1+e2), so e1 + e2 ≥ exponent(floatmin) rules out its
+# rounding into the subnormal range.
+function _min_nonzero_exponent(x::AbstractArray{T}) where {T<:AbstractFloat}
+  m = floatmax(T)
+  @inbounds for v in _stored_values(x)
+    a = abs(v)
+    (iszero(a) || a >= m) || (m = a)
+  end
+  exponent(m)
+end
+
+# On the bit patterns, where the integer minimum vectorizes: with the sign cleared, b - 1 is the bit pattern
+# of the magnitude minus one step, and for a zero it wraps to the largest integer, so that zeros are skipped
+# without a select. An Inf or a NaN, whose patterns exceed that of floatmax, never replaces it.
+function _min_nonzero_exponent(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
+  U = _int_type(T)
+  vals = _stored_values(x)
+  m = typemax(U)
+  @inbounds @simd for i in eachindex(vals)
+    m = min(m, ((reinterpret(U, vals[i]) & typemax(U)) - one(U)) & typemax(U))
+  end
+  fm = reinterpret(U, floatmax(T))
+  exponent(reinterpret(T, m == typemax(U) ? fm : min(m + one(U), fm)))
+end
+_min_nonzero_exponent(x::Diagonal) = _min_nonzero_exponent(x.diag)
+_stored_minexp(x) = _min_nonzero_exponent(x)
+_stored_minexp(x::_WrappedSparse) = _min_nonzero_exponent(parent(x))
+
+# An absolute error that the rounding of one product into P cannot exceed is denorm_min/2 =
+# eps floatmin/2. A quadratic form with n products per entry of A x then carries at most
+# n² eps floatmin max|x| / 4 of it, the N products of the final dots at most N eps floatmin / 2 more,
+# and it matters when it exceeds eps times |v|: that is, when |v| < floatmin (n² max|x| / 4 + N). The bound is sound for any finite data, needs only
+# max|x| from the data, and does not fire at an exact zero of x. The threshold is kept in
+# Float64 and is Inf when it overflows (the recovery then runs, which is safe).
+@inline function _underflow_threshold(::Type{P}, κ, m, N = 0) where {P}
+  # κ floatmin first: floatmin max|x| alone underflows for a small max|x| (a huge κ then needs it)
+  (Float64(κ) * Float64(floatmin(P))) * Float64(m) + N * Float64(floatmin(P))
+end
 
 ####################################
 #

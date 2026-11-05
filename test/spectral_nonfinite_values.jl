@@ -33,7 +33,10 @@ identity_output(f) = f isa NuclearNorm && iszero(f.λ) || f isa IndBallRank && f
     input[index] = v
     x = copy(input)
     y = alias ? x : similar(x)
-    @test value_and_prox!(y, f, x, one(T)) === T(Inf)
+    # E2: NaN at a NaN entry, except the zero level of NuclearNorm (E4, row S6) and the
+    # fused value of a conjugate, which the conjugate's own path decides (unchanged)
+    nan = isnan(v) && !(f isa NuclearNorm && iszero(f.λ)) && !(f isa Conjugate)
+    @test isequal(value_and_prox!(y, f, x, one(T)), nan ? T(NaN) : T(Inf))
     @test isequal(y, identity_output(f) ? input : fill(T(NaN), 2, 2))
     alias || @test isequal(x, input)
   end
@@ -102,7 +105,7 @@ end
       bad = copy(x)
       bad[2, 1] = v
       output = alias ? bad : y
-      @test value_and_prox!(output, f, bad, one(T)) === T(Inf)
+      @test isequal(value_and_prox!(output, f, bad, one(T)), isnan(v) ? T(NaN) : T(Inf))
       @test all(isnan, output)
       @test f.pws === history
       @test (history.warm, history.rank) == (warm, rank)

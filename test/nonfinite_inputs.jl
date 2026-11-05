@@ -74,7 +74,7 @@ end
       result = op(y, f, x, 1.0)
       @test all(isnan, y)
       alias || @test isequal(x, input)
-      op === value_and_prox! && @test result === (f isa SumLargest ? NaN : f isa IndStiefel ? Inf : 0.0)
+      op === value_and_prox! && @test isequal(result, f isa SumLargest ? NaN : f isa IndStiefel ? (isnan(v) ? NaN : Inf) : 0.0)
     end
   end
   f = IndPolyhedron(ones(Float32, 1, 2), -Inf, 1)
@@ -125,7 +125,7 @@ end
     fresh = deepcopy(f)
     value = value_and_prox!(y, f, x, 1.0)
     @test all(isnan, y)
-    @test value === Inf
+    @test isequal(value, isnan(v) ? NaN : Inf)                 # E2
     finite = [2.0 0.0; 0.0 1.0]
     @test isequal(prox(f, finite), prox(fresh, finite))
   end
@@ -180,8 +180,9 @@ end
       # The native identity shortcut needs no decomposition; the wrapper does.
       @test isequal(w, identity ? input : y)
       if op === value_and_prox!
-        @test vg === vf
-        @test vf === T(Inf)
+        # E2: NaN at a NaN entry; the zero level of NuclearNorm keeps Inf (E4, row S6)
+        @test isequal(vf, isnan(v) ? T(NaN) : T(Inf))
+        @test isequal(vg, g isa NuclearNorm && iszero(g.λ) ? T(Inf) : vf)
       else
         @test vf === y
         @test vg === w
@@ -200,7 +201,7 @@ end
       y = alias ? x : zeros(T, 2, 2)
       result = op(y, f, x, one(T))
       @test isequal(y, fill(T(NaN), 2, 2))
-      op === value_and_prox! && @test result === T(Inf)
+      op === value_and_prox! && @test isequal(result, isnan(v) ? T(NaN) : T(Inf))
       alias || @test isequal(x, input)
       f isa Spectral && @test f.eig === nothing
       f isa LogDetLoss && @test iszero(f.eig.A)

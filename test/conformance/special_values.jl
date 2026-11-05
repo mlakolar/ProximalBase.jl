@@ -512,7 +512,6 @@ end
   problem = "Spectral block is entirely undefined at a NaN entry, before LAPACK."
   expected = Float32(NaN)
   observed = NuclearNorm(one(Float32))(Float32[NaN 0; 0 1])
-  broken = (group = :G6, baseline = Returned(v -> same(v, Inf32)))
 end
 
 @row begin
@@ -839,7 +838,6 @@ end
   problem = "Spectral block is entirely undefined at a NaN entry, before LAPACK."
   expected = Float64(NaN)
   observed = NuclearNorm(one(Float64))(Float64[NaN 0; 0 1])
-  broken = (group = :G6, baseline = Returned(v -> same(v, Inf)))
 end
 
 @row begin

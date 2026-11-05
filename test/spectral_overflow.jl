@@ -250,12 +250,13 @@ end
           for X in (T[v 0; 0 1], T[1 v; v 1]), Z in logical_inputs(X)
             before = Matrix(Z)
             for f in functions
-              @test f(Z) === T(Inf)
+              # E2: a NaN entry gives NaN, an infinite one Inf
+              @test isequal(f(Z), isnan(v) ? T(NaN) : T(Inf))
             end
             @test isequal(Matrix(Z), before)
           end
           for Z in logical_inputs(fill(v, 1, 1))
-            @test IndBallRank(1)(Z) === T(Inf)
+            @test isequal(IndBallRank(1)(Z), isnan(v) ? T(NaN) : T(Inf))
           end
         end
       end
@@ -445,8 +446,8 @@ end
             @test value_and_prox!(Y, f, X, γ) === (f isa NuclearNorm ? T(Inf) : zero(T))
             @test samebits(Y, X)
           end
-          @test TracePSD(λ)(X) === T(Inf)
-          @test LogDetLoss(E, one(T))(X) === T(Inf)
+          @test isequal(TracePSD(λ)(X), isnan(v) ? T(NaN) : T(Inf))
+          @test isequal(LogDetLoss(E, one(T))(X), isnan(v) ? T(NaN) : T(Inf))
         end
         for f in (NormL1(one(T)), NormL2(one(T)))
           @test f(T[Inf, 1]) === T(Inf)

@@ -107,11 +107,27 @@ function profile_alloc!(io, c::PerfCase)
     flush(io)
 end
 
+# The reference checks around a trial; `check!` in check_only.jl runs the same two steps.
+# Before: the case's validation, then the digests of its read-only inputs. They are taken after the
+# validation, not at construction: another case may legitimately have changed shared state, and the
+# question is whether this case changes its inputs during its own warm-up, probes and trial.
+function checks_before_trial(c::PerfCase)
+    c.validate()
+    input_digests(c.inputs)
+end
+# After: the inputs are compared with those digests for every case, fixed or automatic evaluation count,
+# before the post-trial validation (the sparse and atom validations restore the shared iterate first).
+function checks_after_trial(c::PerfCase, start)
+    check_inputs(c.inputs, start, "during the trial of $(c.meta.id)")
+    c.evals===nothing && c.validate()
+    nothing
+end
+
 function measure!(c::PerfCase, metrics, raw, allocations, profiles, allocation_profiles,
                   rep, samples, seconds, profile_seconds)
     op,prep=c.operation,c.prepare
     # JIT work and correctness checks are outside measured samples.
-    c.validate()
+    start=checks_before_trial(c)
     for _ in 1:3
         prep(); op()
     end
@@ -124,7 +140,8 @@ function measure!(c::PerfCase, metrics, raw, allocations, profiles, allocation_p
     else
         run(b;evals=c.evals,samples=samples,seconds=seconds)
     end
-    c.evals===nothing && c.validate()
+    # the metrics row is written only after both checks pass
+    checks_after_trial(c,start)
     times=trial.times
     isempty(times) && error("empty benchmark trial")
     gc_share=sum(trial.gctimes)/max(sum(times),1)

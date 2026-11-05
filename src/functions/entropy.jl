@@ -497,3 +497,139 @@ end
 kkt_violation(f::Berhu, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ, _entry(f.w, i)))
 restrict(f::Berhu, S::AbstractVector{<:Integer}) = Berhu(f.λ, f.M, _restrict_entries(f.w, S))
+
+####################################
+#  values as a significand and an exponent
+####################################
+
+# The scaled-value mechanism (`_sep_value_parts`, separable.jl). The terms t log t, the parts
+# t log(t/q), -t and q of the divergence (added separately, since they may cancel), and -log t
+# are summed in parts, with the level λ applied last. A value that is infinite because an entry is
+# outside the domain is found by one pass over the entries, before any logarithm, and kept.
+_has_value_parts(::Type{<:Union{NegEntropy, KLDivergence, NegLog, Berhu}}) = true
+# is an entry negative (or, with `strict`, not positive)? A reduction of comparisons that vectorizes;
+# a NaN entry gives a NaN value, handled before
+function _entry_outside(x::AbstractArray, strict::Bool)
+  T = _valtype(x)
+  bad = false
+  if strict
+    @inbounds @simd for i in eachindex(IndexLinear(), x)
+      bad |= !(convert(T, x[i]) > 0)
+    end
+  else
+    @inbounds @simd for i in eachindex(IndexLinear(), x)
+      bad |= convert(T, x[i]) < 0
+    end
+  end
+  bad
+end
+function _value_parts(f::Union{NegEntropy, KLDivergence}, x::AbstractArray, v)
+  v == Inf && _entry_outside(x, false) && return nothing
+  R = f isa KLDivergence ? _sep_parts_type(x, f.λ, f.q) : _sep_parts_type(x, f.λ)
+  p = _sep_value_parts(f, x, R, f.λ)
+  # the divergence is nonnegative; its separate parts can cancel to a small negative sum
+  f isa KLDivergence && p !== nothing && p[1] < 0 ? (zero(p[1]), 0) : p
+end
+# |log t| <= 745 for every positive Float64 or Float32 t, so a value that is infinite while
+# 745 λ n is in range has an entry outside the domain (or an infinite one), decided without a pass.
+# Other types (BigFloat, whose |log t| is not bounded by 745) take the pass instead.
+@inline _infinite_value_exact(f::NegLog, x::AbstractArray) =
+  _valtype(x) <: Union{Float32, Float64} && 745 * Float64(f.λ) * length(x) < floatmax(_valtype(x)) / 2
+function _value_parts(f::NegLog, x::AbstractArray, v)
+  v == Inf && _entry_outside(x, true) && return nothing
+  _sep_value_parts(f, x, _sep_parts_type(x, f.λ), f.λ)
+end
+_value_parts(f::Berhu, x::AbstractArray, v) =
+  iszero(f.λ) || !isfinite(f.λ) ? nothing : _sep_value_parts(f, x, _sep_parts_type(x, f.λ, f.M, f.w))
+_parameter_alias(f::KLDivergence, out) = _mightalias_parameter(out, f.q)
+_parameter_alias(f::Berhu, out) = _mightalias_parameter(out, f.w)
+
+# Exact-zero protection: a proof per operation where a term can round into the subnormal range,
+# each losing less than δ/2 (δ the smallest subnormal of the value type T); the level is converted
+# to T and must keep its range there (otherwise no bound). Zeros from cancellation are within the
+# accuracy of the ordinary sums (R1), and the recomputation does not improve on them either.
+# - NegEntropy, λ t log t evaluated as (λt) log t: the product λt loses less than δ/2, which
+#   |log t| < 2^L multiplies (L = _log_exponent(T)); the product with log t loses less than δ/2.
+#   Per term less than 2^L δ, over n terms |f(x)| < n 2^L δ.
+# - KLDivergence, λ (t log(t/q) - t + q): t/q and log are relative; the product t log(t/q) loses
+#   less than δ/2 where t is tiny; t and q are exact; the sum is exact where it is subnormal; the
+#   product with λ multiplies the loss by λ < 2^e(λ) and loses less than δ/2 itself. Per term
+#   less than (λ + 1) δ. A reference q wider than T would be rounded to T: no bound.
+# - NegLog, -λ log t: one product per term, less than δ/2; |f(x)| < n δ.
+_zero_value_exponent(f::NegEntropy, x::AbstractArray) = _level_fits(_valtype(x), f.λ) ?
+  _underflow_exponent(_valtype(x), length(x), _log_exponent(_valtype(x))) : nothing
+function _zero_value_exponent(f::KLDivergence, x::AbstractArray)
+  T = _valtype(x)
+  (_level_fits(T, f.λ) && promote_type(T, float(eltype(f.q))) === T) || return nothing
+  _underflow_exponent(T, length(x), 2 + max(0, _upper_exponent(convert(T, f.λ))))
+end
+_zero_value_exponent(f::NegLog, x::AbstractArray) =
+  _level_fits(_valtype(x), f.λ) ? _underflow_exponent(_valtype(x), length(x)) : nothing
+# - Berhu, c = λ w, then c t (t ≤ M) or (c (t² + M²))/(2M): with c a normal number, c t loses less
+#   than δ/2; t² and M² lose less than δ/2 each, which c/(2M) multiplies; c (t² + M²) loses less
+#   than δ/2, which 1/(2M) < 2^(1 - e(M)) multiplies; the division loses less than δ/2. Per term
+#   less than 2^(max(0, e(c)) + max(0, 2 - e(M)) + 2) δ/2. Without weights c = λ; with weights one
+#   pass over them gives e(c) and decides whether c can underflow (λ times the smallest nonzero
+#   weight below floatmin), which an unbounded t would then multiply: no bound in that case. A
+#   subnormal λ of T passes `_level_fits`, which is harmless (see `_upper_exponent`). A subnormal M
+#   would also pass, but 1/(2M) is then not below 2^(1 - e(M)), so M must be a normal number in T.
+function _zero_value_exponent(f::Berhu, x::AbstractArray)
+  T = _valtype(x)
+  iszero(f.λ) && return _EXACT_ZERO
+  # the weights are converted to T before c = λ w: a wider type has no bound
+  (_level_fits(T, f.λ) && _level_fits(T, f.M) && abs(convert(T, f.M)) >= floatmin(T) &&
+   (f.w === nothing || promote_type(T, float(eltype(f.w))) === T)) || return nothing
+  eλ, eM = _upper_exponent(convert(T, f.λ)), _upper_exponent(convert(T, f.M))
+  ec = eλ
+  if f.w !== nothing
+    we = _weight_exponents(f.w)
+    we === nothing && return nothing
+    eλ - 1 + we[1] > exponent(floatmin(T)) || return nothing
+    ec = eλ + we[2]
+  end
+  _underflow_exponent(T, length(x), 2 + max(0, ec) + max(0, 2 - eM))
+end
+
+@inline function _entry_terms(acc::_ExpSum{R}, f::NegEntropy, v, i) where {R}
+  t = convert(R, v)
+  (isfinite(t) && t >= 0) || return nothing
+  iszero(t) && return acc
+  mt, et = frexp(t)
+  _term_add(acc, mt * log(t), et)
+end
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::KLDivergence, v, i) where {R}
+  t, q = convert(R, v), convert(R, _entry(f.q, i))
+  (isfinite(t) && isfinite(q)) || return nothing
+  t < 0 && return nothing
+  acc = _term_add(acc, frexp(q))
+  (acc === nothing || iszero(t)) && return acc
+  ratio = t / q
+  logratio = isfinite(ratio) && !iszero(ratio) ? log(ratio) : log(t) - log(q)
+  mt, et = frexp(t)
+  acc = _term_add(acc, mt * logratio, et)
+  acc === nothing && return nothing
+  _term_add(acc, -mt, et)
+end
+@inline function _entry_terms(acc::_ExpSum{R}, f::NegLog, v, i) where {R}
+  t = convert(R, v)
+  (t > 0 && isfinite(t)) || return _term_add(acc, t > 0 ? -log(t) : R(Inf), 0)
+  _term_add(acc, -log(t), 0)
+end
+Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::Berhu, v, i) where {R}
+  u, M = convert(R, v), convert(R, f.M)
+  # M = Inf, which the constructor accepts, is the linear piece c t at every finite entry
+  isfinite(u) || return _term_add(acc, value_entry(f, v, i), 0)
+  t = abs(u)
+  iszero(t) && return acc
+  w = _entry(f.w, i)
+  (iszero(w)) && return acc
+  isfinite(w) || return nothing
+  c = _parts_product(_rparts(R, f.λ), _rparts(R, w))
+  t <= M && return _term_add(acc, _parts_product(c, frexp(t)))
+  # c (t² + M²)/(2M) = c t²/(2M) + c M/2
+  mt, et = frexp(t)
+  mM, eM = frexp(M)
+  acc = _term_add(acc, _parts_product(c, _parts(mt * mt / mM, 2et - eM - 1)))
+  acc === nothing && return nothing
+  _term_add(acc, _parts_product(c, (mM, eM - 1)))
+end

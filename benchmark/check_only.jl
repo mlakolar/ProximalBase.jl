@@ -13,7 +13,8 @@
 # Settings: PB_SUITE, PB_GROUPS, PB_CASES, PB_REPETITION and PB_EXPECTED_PACKAGE_ROOT as in
 # `run.jl`; PB_OUTPUT, when set, receives `check-rep<NN>-errors.tsv` (every failure with its stack
 # trace, written as it occurs). It exits with status 1 when a case fails and prints the ID of
-# every failing case. benchmark/check_only_test.jl tests `check!` and `check_cases!`.
+# every failing case. benchmark/check_only_test.jl tests `check!` and `check_cases!`, and, through
+# benchmark/cases_test.jl, the sparse operands and reference checks of the `products` cases.
 include("run.jl")
 
 # A timed trial of a case with an automatic evaluation count calls `prepare()` once per sample

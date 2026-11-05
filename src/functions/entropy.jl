@@ -564,13 +564,15 @@ _zero_value_exponent(f::NegLog, x::AbstractArray) =
 #   than δ/2, which 1/(2M) < 2^(1 - e(M)) multiplies; the division loses less than δ/2. Per term
 #   less than 2^(max(0, e(c)) + max(0, 2 - e(M)) + 2) δ/2. Without weights c = λ; with weights one
 #   pass over them gives e(c) and decides whether c can underflow (λ times the smallest nonzero
-#   weight below floatmin), which an unbounded t would then multiply: no bound in that case.
+#   weight below floatmin), which an unbounded t would then multiply: no bound in that case. A
+#   subnormal λ of T passes `_level_fits`, which is harmless (see `_upper_exponent`). A subnormal M
+#   would also pass, but 1/(2M) is then not below 2^(1 - e(M)), so M must be a normal number in T.
 function _zero_value_exponent(f::Berhu, x::AbstractArray)
   T = _valtype(x)
   iszero(f.λ) && return _EXACT_ZERO
   # the weights are converted to T before c = λ w: a wider type has no bound
-  (_level_fits(T, f.λ) && _level_fits(T, f.M) && (f.w === nothing || promote_type(T, float(eltype(f.w))) === T)) ||
-    return nothing
+  (_level_fits(T, f.λ) && _level_fits(T, f.M) && abs(convert(T, f.M)) >= floatmin(T) &&
+   (f.w === nothing || promote_type(T, float(eltype(f.w))) === T)) || return nothing
   eλ, eM = _upper_exponent(convert(T, f.λ)), _upper_exponent(convert(T, f.M))
   ec = eλ
   if f.w !== nothing

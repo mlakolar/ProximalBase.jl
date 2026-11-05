@@ -926,7 +926,8 @@ _has_value_parts(::Type{<:_RadialGroupPenalty}) = true
 # the scalar penalties (separable.jl); a term is at most λ²wₖ²(a + 1)/2, so a coefficient λwₖ that
 # underflows leaves only a negligible term.
 _zero_value_exponent(f::_RadialGroupPenalty, x::AbstractArray) = iszero(f.λ0) ? _EXACT_ZERO :
-  isnan(f.a) ? nothing : _underflow_exponent(_valtype(x), length(f.groups) + 1, _mcp_scad_amp(convert(_valtype(x), f.a)))
+  _level_fits(_valtype(x), f.a) && !isnan(f.a) && abs(convert(_valtype(x), f.a)) >= floatmin(_valtype(x)) ?
+    _underflow_exponent(_valtype(x), length(f.groups) + 1, _mcp_scad_amp(convert(_valtype(x), f.a))) : nothing
 function _value_parts(f::_RadialGroupPenalty, x::AbstractArray, v)
   (iszero(f.λ0) || !isfinite(f.λ0) || isnan(f.a)) && return nothing
   R = promote_type(_valtype(x), float(typeof(f.λ0)))

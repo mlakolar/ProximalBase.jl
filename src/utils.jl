@@ -683,8 +683,11 @@ struct _ExactZero end
 const _EXACT_ZERO = _ExactZero()
 # e with |a| < 2^e, from the bits of a Float64 or Float32 (a subnormal gives the exponent of
 # floatmin, an Inf or a NaN a large e): integer operations only, so that the bound above costs a
-# few independent instructions. It is an upper bound only: 2^(e-1) <= |a| holds for a normal a, and
-# the bounds that use it from below (λ times the smallest weight) first require λ to be normal in T.
+# few independent instructions. It is an upper bound only: 2^(e-1) <= |a| holds for a normal a. The
+# bounds that use it from below (λ times the smallest weight) check λ with `_level_fits`, which a
+# subnormal λ stored in T passes; that is harmless: its e is then exponent(floatmin) + 1, so the test
+# e - 1 + exponent(min w) > exponent(floatmin) needs w >= 4 and gives c = λ w >= 4 δ, and the
+# remaining terms of those bounds count the losses of c as for a normal c.
 @inline _upper_exponent(a::Float64) = Int((reinterpret(UInt64, a) >> 52) & 0x7ff) - 1022
 @inline _upper_exponent(a::Float32) = Int((reinterpret(UInt32, a) >> 23) & 0xff) - 126
 @inline _upper_exponent(a::Real) = (b = abs(float(a)); iszero(b) ? -1000000 : isfinite(b) ? exponent(b) + 1 : 1000000)

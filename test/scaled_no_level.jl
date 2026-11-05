@@ -456,6 +456,38 @@ end
   end
 end
 
+@testset "trait and bound boundaries (proof-check round 2)" begin
+  P = ProximalBase
+  # N1: a finite Float64 a that overflows a Float32 argument has no bound, and the value is recovered
+  for G in (GroupMCP, GroupSCAD)
+    g = G(2.0^-160, [[1]], [1.0]; a = 2.0^200)
+    x = Float32[2f0^30]
+    @test P._zero_value_exponent(g, x) === nothing
+    r = setprecision(512) do
+      l, a, t = big(2.0)^-160, big(2.0)^200, big(2.0)^30
+      2^10 * (G === GroupMCP ? l * t - t^2 / (2a) : (2a * l * t - t^2 - l^2) / (2 * (a - 1)))
+    end
+    @test iszero(g(x))
+    @test agrees(Scaled(g, 2f0^10)(x), r, 3; wide = true)
+  end
+  # N2: BigInt labels form the margin in BigFloat; the trait is for fixed-width integers only
+  yb = BigInt[big(2)^130 - 1]
+  f = SqrHingeLoss(yb)
+  x = Float32[2f0^-130]
+  @test !P._zero_value_exact(f) && !P._zero_value_exact(HingeLoss(yb))
+  @test agrees(Scaled(f, 2.0^200)(x), big(2.0)^200 * big(2.0)^-260, 2; wide = true)
+  @test P._zero_value_exact(HingeLoss(Int32[1, -1])) && P._zero_value_exact(SqrHingeLoss(UInt8[1])) &&
+    P._zero_value_exact(HingeLoss(Bool[1, 1]))
+  # ε that converts exactly to the argument type: an exact zero; one that does not keep its range: no bound
+  @test P._zero_value_exponent(EpsInsensitiveLoss(0.1), zeros(2)) === P._EXACT_ZERO
+  @test P._zero_value_exponent(EpsInsensitiveLoss(0.1), zeros(Float32, 2)) isa Int
+  @test P._zero_value_exponent(EpsInsensitiveLoss(0.75 * 2.0^-149), zeros(Float32, 2)) === nothing
+  @test Scaled(EpsInsensitiveLoss(0.5), pow2(Float64, 1000))([0.25, -0.5]) === 0.0
+  # a subnormal shape parameter of the argument type has no bound
+  @test P._zero_value_exponent(MCP(1.0, nextfloat(0.0)), zeros(2)) === nothing
+  @test P._zero_value_exponent(Berhu(1.0, nextfloat(0.0)), zeros(2)) === nothing
+end
+
 @testset "conformance row" begin
   @test Scaled(Translate(SqrNormL2(1.0), [0.0]), pow2(Float64, -1000))([pow2(Float64, 600)]) === pow2(Float64, 199)
 end

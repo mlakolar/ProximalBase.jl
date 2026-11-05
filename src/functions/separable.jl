@@ -1094,10 +1094,12 @@ _has_value_parts(::Type{<:Union{MCP, SCAD}}) = true
 # 1/(2(a - 1)) multiplies that loss; a term is at most λ²(a + 1)/2, so a level that underflows
 # leaves only a negligible term. The levels must keep their range in the value type. With a = Inf
 # the ordinary value is λt - t²/Inf = λt (MCP) or λt where t <= λ (SCAD, NaN beyond: kept as NaN),
-# one product per term.
+# one product per term. A subnormal a of T would pass `_level_fits`, but 1/(2a) is then not below
+# 2^(1 - e(a)), so a must be a normal number in T (or Inf); a subnormal λ is harmless as for the
+# other levels, since a term is at most λ²(a + 1)/2.
 @inline _mcp_scad_amp(a) = isinf(a) ? 0 : 3 + max(0, _upper_exponent(a)) + max(0, 2 - _upper_exponent(a))
 _zero_value_exponent(f::Union{MCP, SCAD}, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO :
-  (_level_fits(_valtype(x), f.λ) && _level_fits(_valtype(x), f.a)) ?
+  (_level_fits(_valtype(x), f.λ) && _level_fits(_valtype(x), f.a) && abs(convert(_valtype(x), f.a)) >= floatmin(_valtype(x))) ?
     _underflow_exponent(_valtype(x), length(x), _mcp_scad_amp(convert(_valtype(x), f.a))) : nothing
 function _value_parts(f::Union{MCP, SCAD}, x::AbstractArray, v)
   (iszero(f.λ) || !isfinite(f.λ) || isnan(f.a)) && return nothing

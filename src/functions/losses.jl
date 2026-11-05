@@ -529,8 +529,9 @@ _has_value_parts(::Type{<:Union{HingeLoss, SqrHingeLoss, EpsInsensitiveLoss, Che
 #   number in every argument type (1 - t for a float t < 1); its square is at least 2^-108, also
 #   normal. A margin that rounds to 1 or more is a zero within the accuracy of the ordinary
 #   computation, measured against the magnitudes of 1 and y v (R1), and the parts round the same
-#   margin. Labels of a wider type, such as BigFloat, can give a term below the normal range of T,
-#   which converting it to T loses: the bound below applies instead.
+#   margin. Labels of a wider type (BigFloat, and BigInt, whose margin is formed in BigFloat) can
+#   give a term below the normal range of T, which converting it to T loses: the bound below
+#   applies instead. Fixed-width integer and Bool labels promote with T to T or to Float64.
 # - ε-insensitive without weights, with an ε of a type that converts exactly into every argument
 #   type (Bool, 8- and 16-bit integers, Float16, Float32): |v| - ε that is subnormal is an exact
 #   difference, and a sum whose result is subnormal is exact. Another ε is rounded to T first; an ε
@@ -538,7 +539,7 @@ _has_value_parts(::Type{<:Union{HingeLoss, SqrHingeLoss, EpsInsensitiveLoss, Che
 #   accuracy of the ordinary computation (measured against ε), and only the last roundings lose:
 #   the bound below; an ε that does not keep its range (a subnormal or zero in T) has no bound.
 # In those trait cases a zero or subnormal value is exact, and Scaled skips the recovery for it.
-const _HingeExactLabels = Union{Nothing, AbstractArray{<:Union{Integer, Float16, Float32, Float64}}}
+const _HingeExactLabels = Union{Nothing, AbstractArray{<:Union{Bool, Base.BitInteger, Float16, Float32, Float64}}}
 const _ExactEps = Union{Bool, Int8, UInt8, Int16, UInt16, Float16, Float32}
 _zero_value_exact(::Union{HingeLoss{<:_HingeExactLabels, Nothing}, SqrHingeLoss{<:_HingeExactLabels, Nothing},
                           EpsInsensitiveLoss{<:_ExactEps, Nothing}}) = true
@@ -548,7 +549,12 @@ _zero_value_exact(::Union{HingeLoss{<:_HingeExactLabels, Nothing}, SqrHingeLoss{
 # the weights bounds them (the unweighted loss multiplies by 1).
 function _zero_value_exponent(f::Union{HingeLoss, SqrHingeLoss, EpsInsensitiveLoss}, x::AbstractArray)
   _zero_value_exact(f) && return _EXACT_ZERO
-  f isa EpsInsensitiveLoss && !_level_fits(_valtype(x), f.ε) && return nothing
+  if f isa EpsInsensitiveLoss
+    T = _valtype(x)
+    # an ε that converts exactly to T makes |v| - ε exact where it is subnormal, as for the trait
+    f.w === nothing && convert(T, f.ε) == f.ε && return _EXACT_ZERO
+    _level_fits(T, f.ε) || return nothing
+  end
   _underflow_exponent(_valtype(x), length(x))
 end
 function _zero_value_exponent(f::CheckLoss, x::AbstractArray)

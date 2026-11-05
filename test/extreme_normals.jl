@@ -211,4 +211,165 @@ end
   end
 end
 
+
+# The projection coefficient (⟨a, x⟩ - b) / ‖a‖² is kept in the model precision (T3):
+# rounding it to a narrow output first loses a representable correction (R2, R3).
+function check_exact_projection(H, x, γ, expected)
+  D = eltype(expected)
+  if eltype(x) == D
+    y = prox(H, x, γ)
+    @test y isa typeof(expected)
+    @test y == expected
+    z = copy(x)
+    @test prox!(z, H, z, γ) === z
+    @test z == expected
+  end
+  y = fill!(similar(expected), NaN)
+  @test prox!(y, H, x, γ) === y
+  @test y == expected
+  y = fill!(similar(expected), NaN)
+  @test value_and_prox!(y, H, x, γ) === zero(D)
+  @test y == expected
+end
+
+@testset "projection coefficient precision" begin
+  @testset "coefficient below the output's range" begin
+    for F in (IndHyperplane, IndHalfspace), σ in (-1, 1),
+        a in (σ * 2.0^100, [σ * 2.0^100]), γ in (1.0, 1f0, [1.0], Float32[1])
+      H = F(a, 0)
+      # ⟨a, x⟩ = 1, so the coefficient is 2^-200 and the correction 2^-200 · a = x exactly;
+      # this side violates the halfspace for either sign of the normal.
+      x = Float32[σ * 2.0^-100]
+      check_exact_projection(H, x, γ, Float32[0])
+      # The other side is feasible and is returned unchanged.
+      F === IndHalfspace && check_exact_projection(H, -x, γ, -x)
+    end
+  end
+
+  @testset "scaled normal with a subnormal output" begin
+    c = 1.5 * 2.0^300
+    @test Float32[2.0^-149] == [nextfloat(0f0)]
+    for F in (IndHyperplane, IndHalfspace), a in (c, -c), γ in (1.0, [1.0], Float32[1])
+      b = a * 2.0^-149
+      # From 0 the projection onto ⟨a, x⟩ = b is b / a = 2^-149 exactly, a Float32 subnormal.
+      # The halfspace contains 0 when b > 0, so only the negative normal is active.
+      @test b / a == 2.0^-149
+      expected = F === IndHalfspace && a > 0 ? Float32[0] : Float32[2.0^-149]
+      for normal in (a, [a])
+        check_exact_projection(F(normal, b), Float32[0], γ, expected)
+      end
+    end
+  end
+
+  @testset "coefficient above the output's range" begin
+    for F in (IndHyperplane, IndHalfspace), a in (2.0^-200, [2.0^-200]), γ in (1.0, [1.0], Float32[1])
+      # The coefficient is 2^-200 / 2^-400 = 2^200, beyond Float32, and the correction
+      # 2^200 · 2^-200 = 1 = x exactly; x violates the halfspace.
+      check_exact_projection(F(a, 0), Float32[1], γ, Float32[0])
+    end
+  end
+
+  @testset "scaled normal in a diagonal metric" begin
+    # The normal is scaled by 2^-40 to (1, 2^-80). The second correction is
+    # t γ₂ â₂ = 2^80 · 2^-80 · 2^-80, while γ₂ â₂ = 2^-160 underflows in Float32.
+    a = Float32[2.0^40, 2.0^-40]
+    x = Float64[1, 0]
+    γ = Float32[2.0^-80, 2.0^-80]
+    for D in (Float32, Float64), F in (IndHyperplane, IndHalfspace)
+      expected = setprecision(BigFloat, 256) do
+        # x violates the halfspace, so both sets have the same projection.
+        D.(projection_ref(a, 0, x, γ))
+      end
+      @test expected[2] == -D(2.0^-80)
+      ys = [prox!(fill(D(NaN), 2), F(a, 0f0), x, γ)]
+      y = fill(D(NaN), 2)
+      @test value_and_prox!(y, F(a, 0f0), x, γ) === zero(D)
+      push!(ys, y)
+      if D === Float64
+        push!(ys, prox(F(a, 0f0), x, γ))
+        z = copy(x)
+        @test prox!(z, F(a, 0f0), z, γ) === z
+        push!(ys, z)
+      end
+      for y in ys
+        @test y isa Vector{D}
+        @test y[2] == expected[2]
+        # The exact first entry is about 2^-160: zero in Float32. In Float64 it is
+        # within the normwise accuracy, since Σ γᵢaᵢ² is formed in the normal's type.
+        D === Float32 && @test y[1] == expected[1] == 0
+        @test abs(y[1] - expected[1]) <= eps(Float64) * norm(x)
+      end
+    end
+  end
+
+  @testset "mixed argument and output precision" begin
+    for F in (IndHyperplane, IndHalfspace), a in (2f0^30, [2f0^30]), γ in (1.0, 1f0, [1.0], Float32[1])
+      # The Float64 argument raises the model precision: the coefficient 2^-95 / 2^60 = 2^-155
+      # is below Float32's range, and the correction 2^-155 · 2^30 = 2^-125 = x exactly.
+      H = F(a, 0f0)
+      x = Float64[2.0^-125]
+      check_exact_projection(H, x, γ, Float32[0])
+      check_exact_projection(H, x, γ, [0.0])
+    end
+  end
+
+  @testset "sparse arguments and wrappers" begin
+    for F in (IndHyperplane, IndHalfspace), a in (2.0^100, [2.0^100, 2.0^100]),
+        γ in (1.0, [1.0, 1.0], Float32[1, 1])
+      H = F(a, 0)
+      # ⟨a, x⟩ = 1 and ‖a‖² = 2^201: the correction 2^-201 · 2^100 = 2^-101 per entry.
+      x = Float32[2.0^-100, 0]
+      expected = Float32[2.0^-101, -2.0^-101]
+      check_exact_projection(H, x, γ, expected)
+      y = SparseIterate(Float32, 2)
+      @test prox!(y, H, SparseIterate(x), γ) === y
+      @test Array(y) == expected
+      y = SparseIterate(Float32, 2)
+      @test value_and_prox!(y, H, SparseIterate(x), γ) === 0f0
+      @test Array(y) == expected
+      z = SparseIterate(x)
+      @test prox!(z, H, z, γ) === z
+      @test Array(z) == expected
+    end
+    for F in (IndHyperplane, IndHalfspace), γ in (1.0, [1.0], Float32[1])
+      # x - b = 2^-101 projects to 0, so the result is b: the set is {u : 2^100 (u - b) = 0}.
+      T = Translate(F(2.0^100, 0), Float32[2.0^-101])
+      check_exact_projection(T, Float32[2.0^-100], γ, Float32[2.0^-101])
+    end
+  end
+
+  @testset "argument checks run before writing" begin
+    for F in (IndHyperplane, IndHalfspace), a in ([2.0^100, 1.0], 2.0^100, [1.5 * 2.0^300, 2.0^300])
+      H = F(a, 0)
+      x = Float32[0.25, 0.5]
+      for op in (prox!, value_and_prox!)
+        function rejects(E, y, x, γ)
+          y0, x0 = copy(y), copy(x)
+          @test_throws E op(y, H, x, γ)
+          @test isequal(y, y0)
+          @test isequal(x, x0)
+        end
+        message = ArgumentError("the steps of $(nameof(F)) must be positive and finite")
+        for bad in (-1f0, NaN32, 0f0, Inf32)
+          rejects(message, fill(NaN32, 2), x, Float32[1, bad])
+          alias = copy(x)
+          rejects(message, alias, alias, Float32[bad, 1])
+        end
+        rejects(DimensionMismatch, fill(NaN32, 2), x, ones(Float32, 3))
+        for γ in (1f0, ones(Float32, 2))
+          rejects(DimensionMismatch, fill(NaN32, 3), x, γ)
+          rejects(ArgumentError, fill(NaN32, 2), ComplexF32.(x), γ)
+          # An integer output takes only integer values; this projection has none.
+          @test_throws InexactError op(zeros(Int, 2), H, x, γ)
+        end
+        if a isa AbstractArray
+          for γ in (1f0, ones(Float32, 3))
+            rejects(DimensionMismatch, fill(NaN32, 3), Float32[0.25, 0.5, 1], γ)
+          end
+        end
+      end
+    end
+  end
+end
+
 end

@@ -425,7 +425,7 @@ references when the case is built, from the untouched input and a copy of the fu
 start every validation by comparing their inputs with digests taken then
 (``read-only input `x` changed after the case was built``). So do the CD trace and the copies whose
 source is also the reference. Every other reference that depends on an array the operation reads is
-also computed when the case is built. A few checks still evaluate the output at check time, against
-inputs whose digests have just been verified: the value checks `f(y)` of a proximal output, the
+also computed when the case is built. A few checks still evaluate the output at check time instead of
+comparing it with a stored reference: the value checks `f(y)` of a proximal output, the
 checks of a quadratic model (`q(x)`, `gradient(q, x)`, `hessian_vec(q, x, v)`) and the residual
 `y - X*β` of the CD trace.

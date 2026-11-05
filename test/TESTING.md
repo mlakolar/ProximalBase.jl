@@ -434,7 +434,8 @@ check failed: on Discovery with Julia 1.13.3 and no test history (files in rando
 locally by running the two files in one process. Which files share a worker depends on the
 tier and on the timing history, so the check ignores methods defined in test modules. The
 known package ambiguities are unchanged; the assertion now prints the offending pairs when it
-fails, on every Julia version. This is the only assertion whose input changed in this work.
+fails, on every Julia version. When the tiers were introduced, this was the only assertion whose
+input changed.
 
 ## Per-file times
 

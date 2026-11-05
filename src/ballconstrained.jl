@@ -181,8 +181,8 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::BallConstrained{<:NormL
 end
 # GroupNormL2 on the ball (#469, Stage 3B). A finite argument takes the group kernel, unchanged. An argument with
 # a NaN or infinite entry is classified before anything is written. The test is a reduction over the argument (its
-# stored entries for a sparse iterate): the group kernel zeroes a NaN in a penalized group and so reports none, and
-# an infinite penalized entry at the infinite step gives a zero output too.
+# stored entries for a sparse iterate): the group kernel gives NaN for a NaN in a penalized group, and the NaN limits
+# are decided here before anything is written; an infinite penalized entry at the infinite step gives a zero output.
 function _value_and_prox_unchecked!(y::AbstractArray, c::BallConstrained{<:GroupNormL2}, x::AbstractArray, γ::Real)
   _checkstep_nonneg(γ)
   _checkwrite(value_and_prox!, c, y, x)
@@ -191,7 +191,7 @@ function _value_and_prox_unchecked!(y::AbstractArray, c::BallConstrained{<:Group
     _has_nonfinite(x) && return _group_nonfinite!(y, c, x, γ)
     return _ball_projection!(y, c, x, γ)
   end
-  # A NaN in a penalized group is zeroed by the group kernel, so only a reduction over the grouped span can see it.
+  # A reduction over the grouped span sees a NaN in a penalized group before any output is written.
   # An infinite or NaN entry outside the span is copied to the output and reaches its norm, which is checked below.
   _group_span_nonfinite(x, c.f) && return _group_nonfinite!(y, c, x, γ)
   # A finite argument stored in a narrower output can overflow there before the scaling (1e100 in Float32): a

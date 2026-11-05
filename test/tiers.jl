@@ -30,14 +30,16 @@ const NARROW_LABEL = "test:iterate-narrow"
 """
     Manifest
 
-The parsed tiers.toml: the lowest tier of each test file, the helper files that are not tests
-and the directories with environments of their own; with tier-rules.toml also the rules that
-map changed paths to tiers, the policy for package code without tests and the CI timeouts.
+The parsed tiers.toml: the lowest tier of each test file, the helper files that are not tests,
+the test files that run some of the helpers and the directories with environments of their
+own; with tier-rules.toml also the rules that map changed paths to tiers, the policy for
+package code without tests and the CI timeouts.
 """
 struct Manifest
   tier::Dict{String, String}
   helpers::Vector{String}
   environments::Vector{String}
+  run_through::Dict{String, Vector{String}}
   rules::Vector{Rule}
   untested::String
   timeouts::Dict{String, Int}
@@ -94,6 +96,34 @@ function parse_manifest(data::AbstractDict)
   for file in helpers
     haskey(tier, file) && push!(problems, "`$file` is both a helper and in tier `$(tier[file])`")
   end
+  # The test files that run each helper, named in the error for a helper given as a test name.
+  run_through = Dict{String, Vector{String}}()
+  table = get(other, "run_through", Dict{String, Any}())
+  if !(table isa AbstractDict)
+    push!(problems, "not_tests.run_through must be a table of helper = [test names]")
+    table = Dict{String, Any}()
+  end
+  for helper in sort!(collect(keys(table)))
+    runners = table[helper]
+    if !(helper in helpers)
+      push!(problems, "not_tests.run_through has `$helper`, which is not in not_tests.helpers")
+    elseif !(runners isa AbstractVector && !isempty(runners) && all(r -> r isa AbstractString, runners))
+      push!(problems, "not_tests.run_through: helper `$helper` needs a non-empty list of test names")
+    else
+      names = String[runners...]
+      for name in unique(names)
+        count(==(name), names) > 1 && push!(problems, "not_tests.run_through: helper `$helper` lists `$name` more than once")
+        if name in helpers
+          push!(problems, "not_tests.run_through: helper `$helper` runs through `$name`, which is a helper, not a test")
+        elseif name in environments || isenvironment(environments, name)
+          push!(problems, "not_tests.run_through: helper `$helper` runs through `$name`, which is in a directory with an environment of its own")
+        elseif !haskey(tier, name)
+          push!(problems, "not_tests.run_through: helper `$helper` runs through `$name`, which is in no tier")
+        end
+      end
+      run_through[helper] = names
+    end
+  end
   rules = Rule[]
   for (i, rule) in enumerate(get(data, "risk", Any[]))
     t = get(rule, "tier", "")
@@ -117,10 +147,11 @@ function parse_manifest(data::AbstractDict)
     timeouts[t] = minutes
   end
   isempty(problems) || throw(ManifestError(problems))
-  return Manifest(tier, helpers, environments, rules, untested, timeouts)
+  return Manifest(tier, helpers, environments, run_through, rules, untested, timeouts)
 end
 
-isenvironment(m::Manifest, name) = any(dir -> startswith(name, dir * "/"), m.environments)
+isenvironment(environments::AbstractVector, name) = any(dir -> startswith(name, dir * "/"), environments)
+isenvironment(m::Manifest, name) = isenvironment(m.environments, name)
 
 """
     discover(testdir) -> Vector{String}
@@ -176,30 +207,39 @@ function select(m::Manifest, tier::AbstractString)
 end
 
 """
-    check_selectors(manifest, testdir, runnable, available, positionals; scope, hint) -> (errors, warnings)
+    check_selectors(manifest, runnable, available, positionals; scope, hint) -> (errors, warnings)
 
 Check the test names given on the command line before ParallelTestRunner's `filter_tests!`
-applies them. That function keeps every test whose name starts with one of the names and drops
-a name that matches nothing without a message. Here `runnable` holds every test name, `available`
-the names left after the tier and `--extra` (`scope` says which) and `positionals` the names as
-given; one starting with `!` excludes. Returns the messages for the names that match no
-available test: `errors` for the names that select, `warnings` for the exclusions. A name that
-is a helper, a separate environment, or matches only tests outside the tier, says so; `hint` is
-the advice for the last case. The test files that include a helper are found by the literal
-`"<helper>.jl"` in their source.
+applies them. That function keeps every test whose name starts with one of the names that do
+not start with `!` (all tests if there is none), then drops every test whose name starts with
+one of the others, with all leading `!`s removed (so `!` alone is the empty prefix, which
+matches everything, and `!!x` is `x`). It drops a name that matches nothing without a message.
+Here `runnable` holds every test name, `available` the names left after the tier and `--extra`
+(`scope` says which) and `positionals` the names as given; one starting with `!` excludes.
+Returns `errors` for the names that select and match no available test, and `warnings` for the
+exclusions that remove no test the other names selected: one that matches no available test, or
+one that matches available tests but none of those the names selected (it removes nothing). It
+says nothing about an exclusion that removes every selected test. When every name that selects
+is an error, nothing is selected, so an exclusion warns only if it matches no available test,
+and the errors are not buried. A name that is a helper, a separate environment, or
+matches only tests outside the tier, says so; `hint` is the advice for the last case. The test
+files that run a helper are those listed for it in `[not_tests.run_through]` of
+test/tiers.toml; a helper without an entry gets no names.
 """
-function check_selectors(m::Manifest, testdir::AbstractString, runnable, available, positionals;
+function check_selectors(m::Manifest, runnable, available, positionals;
                          scope::AbstractString = "the selection",
                          hint::AbstractString = "use a higher --tier or --extra=<name>")
   errors = String[]
   warnings = String[]
   # Prefix matching, with the leading `!`s removed, as filter_tests! does.
   matches(names, prefix) = filter(n -> startswith(n, prefix), sort!(collect(names)))
+  cut(names) = join(first(names, 3), ", ") * (length(names) > 3 ? ", ..." : "")
+  # The tests that the names without `!` select: what filter_tests! applies the exclusions to.
+  includes = unique(filter(a -> !startswith(a, "!"), positionals))
+  selected = isempty(includes) ? sort!(collect(available)) : filter(n -> any(p -> startswith(n, p), includes), sort!(collect(available)))
   function reason(prefix)
     if prefix in m.helpers
-      source(n) = (f = joinpath(testdir, n * ".jl"); isfile(f) ? read(f, String) : "")
-      files = filter(n -> occursin("\"$prefix.jl\"", source(n)), sort!(collect(runnable)))
-      files = [n in available ? n : "$n (outside $scope)" for n in files]
+      files = [n in available ? n : "$n (outside $scope)" for n in sort(get(m.run_through, prefix, String[]))]
       return "a helper that test files include, not a test" *
              (isempty(files) ? "" : "; it runs through $(join(files, ", "))")
     end
@@ -207,14 +247,17 @@ function check_selectors(m::Manifest, testdir::AbstractString, runnable, availab
       return "a directory with an environment of its own that is run by hand, not a test"
     outside = matches(setdiff(runnable, available), prefix)
     isempty(outside) && return "no test file starts with it"
-    return "it matches only tests outside $scope ($(join(first(outside, 3), ", "))" *
-           (length(outside) > 3 ? ", ..." : "") * "); $hint"
+    return "it matches only tests outside $scope ($(cut(outside))); $hint"
   end
   for arg in unique(positionals)
     exclude = startswith(arg, "!")
     prefix = exclude ? lstrip(arg, '!') : arg
-    isempty(matches(available, prefix)) || continue
-    push!(exclude ? warnings : errors, "`$arg`: " * reason(prefix))
+    hits = matches(available, prefix)
+    if isempty(hits)
+      push!(exclude ? warnings : errors, "`$arg`: " * reason(prefix))
+    elseif exclude && !isempty(selected) && isempty(matches(selected, prefix))
+      push!(warnings, "`$arg`: it matches $(cut(hits)), which the included names ($(cut(includes))) do not select; it removes nothing")
+    end
   end
   return errors, warnings
 end
@@ -354,7 +397,7 @@ are new in the change (`new_files`: names, as in the tier lists, of test files t
 `additions` are their names (empty when nothing in the tier lists changed) and `problems` is
 empty. Otherwise `additions` is `nothing` and `problems` says why: a file removed from the
 lists or moved to another tier, an added name that is not a new file of the change, or a
-change outside [tiers] (helpers, environments).
+change outside [tiers] (helpers, environments, run_through).
 """
 function manifest_additions(old_text::AbstractString, new_text::AbstractString, new_files)
   old_data, new_data, old, new = try
@@ -377,7 +420,7 @@ function manifest_additions(old_text::AbstractString, new_text::AbstractString, 
     name in new_files || push!(problems, "`$name` is added to tier `$(new.tier[name])`, but test/$name.jl is not a new file of this change")
   end
   outside(d) = filter(kv -> kv.first != "tiers", d)
-  outside(old_data) == outside(new_data) || push!(problems, "something outside [tiers] changed (helpers or environments)")
+  outside(old_data) == outside(new_data) || push!(problems, "something outside [tiers] changed (helpers, environments or run_through)")
   return isempty(problems) ? (additions, problems) : (nothing, problems)
 end
 

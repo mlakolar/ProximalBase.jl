@@ -312,3 +312,28 @@ It now gives `[Inf, NaN, NaN, NaN]` with active coordinates `[1, 2, 3, 4]`.
 Finite multipliers and finite nonzero divisors still cost `O(nnz)` and give
 the same results as before. `SymmetricSparseIterate` keeps the earlier
 behavior for now.
+
+## Complex values written into a `SparseIterate` or an `AtomIterate` (0.6)
+
+Two-argument `copyto!`, `copy!` and `fill!` into a [`SparseIterate`](@ref) or
+an [`AtomIterate`](@ref) now check the element type of the source or value, as
+the constructors and broadcasts already did. A complex source or value throws
+an `ArgumentError` before anything is written. Before 0.6, `copyto!` and
+`copy!` from a complex array converted entry by entry: a nonzero imaginary
+part threw an `InexactError` after the earlier entries had been written, and a
+zero imaginary part was accepted. `fill!` threw an `InexactError` for a
+nonzero imaginary part and accepted `fill!(x, 1 + 0im)` and `fill!(x, 0im)`.
+`copyto!(x, λ * I)` and `copyto!(x, Q)` from an orthogonal factor into a
+matrix `SparseIterate` are checked too. Before 0.6, a complex one with zero
+imaginary parts, such as `(1 + 0im) * I`, was accepted, and one with a nonzero
+imaginary part wrote `x` before it failed.
+
+Writes through a view, through `vec` of a matrix or a `reshape` to another
+shape, and through `atom(x, k)` keep Base's conversion: a complex value throws
+an `InexactError`, possibly after a partial write.
+
+| Before 0.6 | Now |
+|:---|:---|
+| `copyto!(x, c)` or `copy!(x, c)` with a complex `c` whose imaginary parts are zero | `copyto!(x, real(c))` |
+| `fill!(x, 1 + 0im)` or `fill!(x, 0im)` | `fill!(x, real(v))` |
+| `copyto!(x, (1 + 0im) * I)`, or a complex orthogonal factor with zero imaginary parts | `copyto!(x, real(λ) * I)`, or a real factor |

@@ -16,7 +16,10 @@ over disjoint groups `Gₖ = groups[k]` of (linear) indices of `x`, with the
 weights `wₖ = √|Gₖ|` by default, as in [`GroupNormL2`](@ref). The group term
 selects groups and the ℓ1 term zeroes entries inside a selected group (Simon,
 Friedman, Hastie and Tibshirani, 2013); `λ1 = 0` gives the group lasso. Indices
-in no group are not penalized.
+in no group are not penalized. An infinite `λ1` fixes every grouped entry at
+zero, as the proximal operator does: the value is then 0 when those entries are
+zero, `Inf` when one is nonzero and NaN when one is NaN; indices in no group stay
+free.
 
 Its proximal operator is exact: soft thresholding at `γλ1`, then the shrinkage of
 each group at `γλ2wₖ`, in one pass over a group, which also gives the value.
@@ -67,6 +70,9 @@ _group_norm(::SparseGroupNormL2, x, G) = _group_norm2(x, G)
 # The L1 sum covers penalized groups only, including for an active iterate.
 @inline function _sparse_l1_value(f, x, v, ::Type{T}) where {T}
   iszero(f.λ1) && return zero(T)
+  # an infinite level fixes every grouped entry at zero: v, a sum of absolute values, is zero exactly
+  # when each entry is, so the term is 0 there, Inf where v > 0 and NaN where v is NaN
+  isinf(f.λ1) && return convert(T, _weighted_value(f.λ1 * v, v))
   _level_fits(T, f.λ1) && isfinite(v) && return convert(T, f.λ1) * v
   _scaled_sparse_l1(f, x, T)
 end

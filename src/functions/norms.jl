@@ -195,7 +195,7 @@ end
 
 # Keep all four factors in range until the final rounding, as _positive_product
 # does for three. In particular, neither λ/3 nor n³ needs to be representable.
-function _cube_value_parts(λ::T, m::T, e::Int) where {T}
+function _cube_value_parts(λ::T, m::T, e::Integer) where {T}
   (iszero(m) || !isfinite(m)) && return λ * m
   a, k = frexp(λ)
   ldexp(((a * m) * m) * (m / 3), k + 3e)
@@ -219,9 +219,26 @@ function (f::CubeNormL2)(x::AbstractArray)
   convert(T, _cube_value_parts(λ, m, e))
 end
 
+# The scaled-value mechanism: the factors of _cube_value_parts as a significand and an exponent.
+_has_value_parts(::Type{<:CubeNormL2}) = true
+function _value_parts(f::CubeNormL2, x::AbstractArray, v)
+  (iszero(f.λ) || !isfinite(f.λ)) && return nothing
+  S = promote_type(float(eltype(x)), float(typeof(f.λ)))
+  m, e = _cube_norm_parts(x, _norm2(x), S)
+  iszero(m) && return (zero(S), 0)
+  isfinite(m) || return nothing
+  a, k = frexp(convert(S, f.λ))
+  _parts(((a * m) * m) * (m / 3), k + 3e)
+end
+
+# Exact-zero protection: the norm is accurate, with its square or its cube never rounded into the
+# subnormal range before the level is applied: a zero value is λ n²·(n/3) of normal factors rounded to
+# zero, or the recomputation above rounded once, below δ (1 + 4 eps) either way.
+_zero_value_exponent(f::CubeNormL2, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), 1)
+
 # A scale may not fit even when its product with an entry does. Round only
 # after combining the exponents, preserving zeros beside overflowing entries.
-@inline function _cube_scale(v::Real, m::T, e::Int) where {T}
+@inline function _cube_scale(v::Real, m::T, e::Integer) where {T}
   a = convert(T, v)
   iszero(a) && return a
   b, k = frexp(a)
@@ -253,7 +270,7 @@ end
 
 # With z = γλn, write 1/(1/2 + √(z + 1/4)) as a bounded factor times a
 # power of two. Neither z nor the shrinkage factor has to fit in T.
-function _cube_prox_parts(γ::T, λ::T, m::T, e::Int) where {T}
+function _cube_prox_parts(γ::T, λ::T, m::T, e::Integer) where {T}
   if !isfinite(m) || !isfinite(γ) || iszero(γ)
     return (2 / (1 + sqrt(1 + 4 * γ * λ * m)), 0)
   end
@@ -1019,6 +1036,20 @@ isconvex(::Type{<:NormL1Fused}) = true
 # Normalize weighted terms together, so subnormal contributions round once.
 @noinline function _fused_scaled_value(terms, k, ::Type{T}) where {T}
   R = typeof(first(terms)[2])
+  m, e = _fused_scaled_sum(terms, k)
+  e == typemin(Int) && return zero(T)
+  # Generator inference can lose the term type on Julia 1.10.
+  convert(T, _scaled_product(one(R), m, e))::T
+end
+# the same sum as a significand and an exponent (the scaled-value mechanism)
+function _fused_scaled_parts(terms, k)
+  R = typeof(first(terms)[2])
+  m, e = _fused_scaled_sum(terms, k)
+  e == typemin(Int) ? (zero(R), 0) : _parts(m, e)
+end
+# the weighted terms as s 2^e, with e = typemin(Int) when every term is zero
+function _fused_scaled_sum(terms, k)
+  R = typeof(first(terms)[2])
   e = typemin(Int)
   for term in terms
     λ, v = term[1], term[2]
@@ -1027,23 +1058,23 @@ isconvex(::Type{<:NormL1Fused}) = true
       e = max(e, exponent(R(λ)) + exponent(v) + units)
     end
   end
-  e == typemin(Int) && return zero(T)
+  e == typemin(Int) && return (zero(R), e)
   s = c = zero(R)
   for term in terms
     λ, v = term[1], term[2]
     units = length(term) == 2 ? k : term[3]
     s, c = _compensated_add(s, c, _scaled_product(R(λ), v, units - e))
   end
-  # Generator inference can lose the term type on Julia 1.10.
-  convert(T, _scaled_product(one(R), s + c, e))::T
+  (s + c, e)
 end
 
-@noinline function _recover_fused_pair(f, xy, ::Type{T}) where {T}
+@noinline _recover_fused_pair(f, xy, ::Type{T}) where {T} = _fused_scaled_value(_fused_pair_terms(f, xy, T)..., T)
+function _fused_pair_terms(f, xy, ::Type{T}) where {T}
   R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
   k = _magnitude_exponent(max(abs(R(xy[1])), abs(R(xy[2]))))
   scale = _power_factors(R, -k)
   u, v = _scale_value(R(xy[1]), scale), _scale_value(R(xy[2]), scale)
-  _fused_scaled_value(((f.λ1, abs(u) + abs(v)), (f.λ2, abs(u - v))), k, T)
+  ((f.λ1, abs(u) + abs(v)), (f.λ2, abs(u - v))), k
 end
 
 # The unchecked pair expression also serves the aggregate array reduction.
@@ -1229,6 +1260,9 @@ end
 @noinline function _recover_fused_vector(f, x, ::Type{T}, ordinary) where {T}
   isinf(f.λ1) && return _fused_fixed_value(T, any(isnan, x), all(iszero, x))
   all(isfinite, x) && isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
+  _fused_scaled_value(_fused_vector_terms(f, x, T)..., T)
+end
+function _fused_vector_terms(f, x, ::Type{T}) where {T}
   R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
   p, a, _ = _sortperm_fused!(f, x, R)
   n = length(x)
@@ -1243,7 +1277,25 @@ end
       s2, c2 = _compensated_add(s2, c2, (R(i) * R(n - i)) * gap)
     end
   end
-  _fused_scaled_value(((f.λ1, s1 + c1), (f.λ2, s2 + c2)), k, T)
+  ((f.λ1, s1 + c1), (f.λ2, s2 + c2)), k
+end
+
+# The scaled-value mechanism: the recoveries above as a significand and an exponent. A level or an
+# entry that is not finite gives a value that is not recovered.
+_has_value_parts(::Type{<:NormL1Fused}) = true
+# Exact-zero protection: Σ|xᵢ| and Σ (2k - n - 1) a₍ₖ₎ lose nothing to underflow (a sum, or an integer
+# times an entry, whose result is subnormal is exact; a zero from cancellation is within the accuracy
+# of the ordinary sum), and only the products with the levels round into the subnormal range, or the
+# recovery rounds once: |f(x)| < n δ.
+_zero_value_exponent(f::NormL1Fused, x::AbstractVector) =
+  iszero(f.λ1) && iszero(f.λ2) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
+function _value_parts(f::NormL1Fused, x::AbstractVector, v)
+  Base.require_one_based_indexing(x)
+  (iszero(f.λ1) && iszero(f.λ2)) && return nothing
+  (isfinite(f.λ1) && isfinite(f.λ2) && all(isfinite, x)) || return nothing
+  T = float(eltype(x))
+  length(x) == 2 && return _fused_scaled_parts(_fused_pair_terms(f, (x[1], x[2]), _valtype((x[1], x[2])))...)
+  _fused_scaled_parts(_fused_vector_terms(f, x, T)...)
 end
 
 @inline function _fused_vector_value(f, x, v1, v2, ::Type{T}) where {T}

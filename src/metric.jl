@@ -488,8 +488,7 @@ function _prox_unchecked!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace
     f isa IndHalfspace && (g = max(g, zero(g)))
     t = _model_coefficient(y, g, _metric_sqnorm(f, x, γ))
     # γᵢâᵢ in the coefficient's type, as for IndHyperslab.
-    T = typeof(t)
-    return y .= x .- t .* (T.(_checked_parameter(y, γ)) .* _checked_parameter(y, a))
+    return _hyperslab_metric_output!(y, x, a, γ, t)
   end
   g = _dot_normal(f.a, x) - f.b
   f isa IndHalfspace && (g = max(g, zero(g)))

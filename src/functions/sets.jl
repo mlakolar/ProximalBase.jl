@@ -1237,8 +1237,9 @@ end
 _hyperslab_output!(y, x, a, t) = (y .= x .- t .* _checked_parameter(y, a))
 
 # The coefficient of the correction, g / d with g = ⟨a, x⟩ - b and d = ‖a‖² or its metric
-# version, as for IndHyperslab, widened to the output's type when that is wider. It is
-# never rounded below the type of g / d or the output's.
+# version, formed as in IndHyperslab. Unlike IndHyperslab, it is then widened to a wider
+# output type, which does not recompute it in that type (#362). It is never rounded below
+# the type of g / d or the output's.
 @inline function _model_coefficient(y, g, d)
   t = g / d
   convert(promote_type(float(eltype(y)), typeof(t)), t)

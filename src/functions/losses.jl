@@ -189,7 +189,12 @@ Base.@propagate_inbounds function _hinge_ordinary(f::HingeLoss, v::T, i::Integer
   s, ok = _hinge_step_ordinary(S, γ, y, _entry(f.w, i))
   _hinge_apply(S(v), y, s), ok
 end
-_aliases_parameters(y, f::HingeLoss, γ) = y === f.y || y === f.w || y === γ   # γ may be the step array
+# the destination may share memory with a parameter (the step array of a wrapper, a view of the weights)
+_shares_memory(y, ::Union{Nothing, Real}) = false
+# a lazy wrapper of an array (a scaled or reciprocal step array) may not report the memory it reads, so
+# any parameter that is not strided memory counts as possibly shared: its entries are then read one by one
+_shares_memory(y, p::AbstractArray) = y === p || Base.mightalias(y, p) || !(p isa StridedArray || p isa AbstractRange)
+_aliases_parameters(y, f::HingeLoss, γ) = _shares_memory(y, f.y) || _shares_memory(y, f.w) || _shares_memory(y, γ)
 @inline function _hinge_range_ok(::Type{S}, γ, w) where {S<:AbstractFloat}
   R = _working_type(S, γ, w)
   _normal_range(convert(R, γ) * convert(R, w))
@@ -205,7 +210,37 @@ function _prox_sep_dense!(y::AbstractArray, f::HingeLoss, x::AbstractArray, γ)
   S = float(eltype(x))
   _aliases_parameters(y, f, γ) && return _prox_sep_recover!(y, f, x, γ)   # entry by entry: each parameter is read before it is written
   (_concrete_eltype(x) & _concrete_eltype(f.y) & _concrete_eltype(f.w) & _concrete_eltype(γ)) || return _prox_sep_recover!(y, f, x, γ)
-  _hinge_blocks!(y, y === x ? nothing : x, f, γ, S)   # nothing: in place, the loop names the one array once
+  y === x && return _hinge_blocks!(y, nothing, f, γ, S)   # nothing: in place, the loop names the one array once
+  eltype(y) <: AbstractFloat || return _hinge_blocks!(y, x, f, γ, S)   # an ordinary value is converted only where it is the result
+  # The ordinary arithmetic of every entry is a branch-free expression, so that the loop vectorizes, and the
+  # entries that need range recovery are found by a flag (C2: recovery only on a reliable trigger); the
+  # parameters are not y here, so the recovery can read them again.
+  T = eltype(y)
+  ok = true
+  @inbounds for i in eachindex(IndexLinear(), y, x)
+    r, oki = _hinge_ordinary(f, x[i], i, _entry(γ, i))
+    y[i] = convert(T, r)
+    ok &= oki
+  end
+  ok && return y
+  _hinge_repair!(y, f, x, γ)
+end
+@noinline function _hinge_repair!(y, f, x, γ)
+  T = eltype(y)
+  S = float(eltype(x))
+  # blocks: the test of a block is a branch-free reduction (vectorized), the entries of a block that fails it
+  # are visited one by one, so that one exceptional entry costs one block and not the array
+  for blk in Iterators.partition(eachindex(IndexLinear(), y, x), 128)
+    ok = true
+    @inbounds for i in blk
+      ok &= _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i))
+    end
+    ok && continue
+    @inbounds for i in blk
+      _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i)) || (y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i))))
+    end
+  end
+  y
 end
 # Blocks of 128 entries. The test of a block is a read-only, branch-free reduction over its coefficients
 # (vectorized); a block whose coefficients all have a normal product γw is written by the ordinary

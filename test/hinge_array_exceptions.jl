@@ -158,4 +158,22 @@ end
   end
 end
 
+@testset "blocks of the in-place and repair loops (exceptional entries at block edges)" begin
+  # the loops work on blocks of 128 entries: planted entries at the last and first index of a block, in
+  # a short last block, and many of them; in place, out of place and entry by entry agree bit for bit
+  rng = MersenneTwister(519)
+  for S in (Float32, Float64), n in (127, 128, 129, 300, 1000), labelled in (true, false)
+    x = randn(rng, S, n); w = rand(rng, S, n) .+ S(0.2)
+    tiny = 3 * nextfloat(zero(S))
+    for pos in (Int[], [1], [128], [129], [n], [1, 128, 129, 256, n], collect(1:7:n))
+      ww = copy(w); foreach(i -> i <= n && (ww[i] = tiny), pos)
+      f = labelled ? HingeLoss(S.(rand(rng, (-1, 1), n)), ww) : HingeLoss(nothing, ww)
+      γ = S(0.7)
+      want = [PB.prox_entry(f, x[i], i, γ) for i in 1:n]
+      y = similar(x); PB.prox!(y, f, x, γ); @test y == want
+      z = copy(x); @test PB.prox!(z, f, z, γ) === z; @test z == want
+    end
+  end
+end
+
 end

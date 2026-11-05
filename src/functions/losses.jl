@@ -190,16 +190,7 @@ function _prox_sep_dense!(y::AbstractArray, f::HingeLoss, x::AbstractArray, γ)
   _aliases_parameters(y, f, γ) && return _prox_sep_recover!(y, f, x, γ)   # entry by entry: each parameter is read before it is written
   ok = true
   if y === x
-    @inbounds for i in eachindex(IndexLinear(), x)
-      ok &= _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i))
-    end
-    ok || return _prox_sep_recover!(y, f, x, γ)
-    # read the destination, not x: y === x, but under two names the compiler's overlap test between the
-    # stores to y and the loads from x sends this loop to its scalar version (measured 3x slower)
-    @inbounds for i in eachindex(IndexLinear(), y)
-      y[i] = convert(T, _hinge_ordinary(f, y[i], i, _entry(γ, i))[1])
-    end
-    return y
+    return _hinge_inplace!(y, f, γ, S)
   end
   @inbounds for i in eachindex(IndexLinear(), y, x)
     r, oki = _hinge_ordinary(f, x[i], i, _entry(γ, i))
@@ -209,11 +200,45 @@ function _prox_sep_dense!(y::AbstractArray, f::HingeLoss, x::AbstractArray, γ)
   ok && return y
   _hinge_repair!(y, f, x, γ)
 end
+# In place (y === x): block by block, so that the read-only test of a block (a vectorized reduction over
+# the coefficients, not touching x) and the writes of its result see the same cache-hot entries. A block
+# whose coefficients all have a normal product is written by the ordinary loop, any other block entry by
+# entry through prox_entry; each entry is read before it is written, and the parameter arrays are not y.
+function _hinge_inplace!(y, f, γ, ::Type{S}) where {S}
+  T = eltype(y)
+  for blk in Iterators.partition(eachindex(IndexLinear(), y), 128)
+    ok = true
+    @inbounds for i in blk
+      ok &= _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i))
+    end
+    if ok
+      # read the destination, not x: y === x, but under two names the compiler's overlap test between the
+      # stores to y and the loads from x sends this loop to its scalar version (measured 3x slower)
+      @inbounds for i in blk
+        y[i] = convert(T, _hinge_ordinary(f, y[i], i, _entry(γ, i))[1])
+      end
+    else
+      @inbounds for i in blk
+        y[i] = convert(T, prox_entry(f, y[i], i, _entry(γ, i)))
+      end
+    end
+  end
+  y
+end
 @noinline function _hinge_repair!(y, f, x, γ)
   T = eltype(y)
   S = float(eltype(x))
-  @inbounds for i in eachindex(IndexLinear(), y, x)
-    _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i)) || (y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i))))
+  # blocks: the test of a block is a branch-free reduction (vectorized), the entries of a block that
+  # fails it are visited one by one, so that one exceptional entry costs one block and not the array
+  for blk in Iterators.partition(eachindex(IndexLinear(), y, x), 128)
+    ok = true
+    @inbounds for i in blk
+      ok &= _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i))
+    end
+    ok && continue
+    @inbounds for i in blk
+      _hinge_range_ok(S, _entry(γ, i), _entry(f.w, i)) || (y[i] = convert(T, prox_entry(f, x[i], i, _entry(γ, i))))
+    end
   end
   y
 end

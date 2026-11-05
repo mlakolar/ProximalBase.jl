@@ -195,7 +195,7 @@ end
 
 # Keep all four factors in range until the final rounding, as _positive_product
 # does for three. In particular, neither λ/3 nor n³ needs to be representable.
-function _cube_value_parts(λ::T, m::T, e::Int) where {T}
+function _cube_value_parts(λ::T, m::T, e::Integer) where {T}
   (iszero(m) || !isfinite(m)) && return λ * m
   a, k = frexp(λ)
   ldexp(((a * m) * m) * (m / 3), k + 3e)
@@ -238,7 +238,7 @@ _zero_value_exponent(f::CubeNormL2, x::AbstractArray) = iszero(f.λ) ? _EXACT_ZE
 
 # A scale may not fit even when its product with an entry does. Round only
 # after combining the exponents, preserving zeros beside overflowing entries.
-@inline function _cube_scale(v::Real, m::T, e::Int) where {T}
+@inline function _cube_scale(v::Real, m::T, e::Integer) where {T}
   a = convert(T, v)
   iszero(a) && return a
   b, k = frexp(a)
@@ -270,7 +270,7 @@ end
 
 # With z = γλn, write 1/(1/2 + √(z + 1/4)) as a bounded factor times a
 # power of two. Neither z nor the shrinkage factor has to fit in T.
-function _cube_prox_parts(γ::T, λ::T, m::T, e::Int) where {T}
+function _cube_prox_parts(γ::T, λ::T, m::T, e::Integer) where {T}
   if !isfinite(m) || !isfinite(γ) || iszero(γ)
     return (2 / (1 + sqrt(1 + 4 * γ * λ * m)), 0)
   end

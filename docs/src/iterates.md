@@ -657,9 +657,9 @@ end
 
 Writing the trial into the internal storage of `x` (its fields) and then
 calling the four-argument form is not supported. While such a write is
-pending, the iterate disagrees with its working set: group ``k`` is missing
-from it, and `nactive(x)` does not count it, although `Vector(x)` is not zero
-in that group. Functions that visit only the active groups ignore the written
+pending, the iterate disagrees with its working set if group ``k`` was
+inactive before the write: the group is missing from it, and `nactive(x)` does
+not count it, although `Vector(x)` is not zero in that group. Functions that visit only the active groups ignore the written
 entries. If the next call throws, the iterate stays in that state.
 
 ### Screening a zero coordinate
@@ -687,8 +687,11 @@ group ``k``:
 The weights ``w_k`` are those of the penalty, with the defaults of its
 docstring: the square root of the group size, and 1 for `GroupNormLinf`.
 `Scaled(f, 0)` is the function that [`Scaled`](@ref) builds at zero scale. For
-a group penalty with finite weights this is the zero function, whose screen on
-an `AtomIterate` is `maximum(abs, view(g, atomindices(x, k)))`. Otherwise, as
+a group penalty with finite levels, a finite shape parameter (`a` of `GroupMCP`
+and `GroupSCAD`) and finite weights this is the zero function, whose screen on
+an `AtomIterate` is `maximum(abs, view(g, atomindices(x, k)))`; a level or shape
+parameter that is not finite makes `Scaled(f, 0)` throw an `ArgumentError`
+when it is built. Otherwise, as
 with an infinite weight or an indicator, the screen is that of the function
 `Scaled` builds.
 

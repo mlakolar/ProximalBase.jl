@@ -145,6 +145,9 @@ spectral_cases(T) = (
   (SingularValue(Constrained(NormL0(T(0)), IndNonnegative())), true))
 
 copies(f) = f isa IndBallRank && f.r >= 2
+# NormL0(0) is the zero function, 0 also at an infinite entry; the other constant functions are
+# indicators of sets of real matrices, Inf there (maintainer decision on PR #384, option A)
+zerofunction(f) = f isa SingularValue && f.f isa NormL0 && iszero(f.f.λ)
 
 @testset "counting functions of the singular values at NaN, $T" for T in (Float32, Float64)
   for (f, constant) in spectral_cases(T), dims in ((2, 2), (2, 3)),
@@ -153,9 +156,9 @@ copies(f) = f isa IndBallRank && f.r >= 2
     input[I] = w === :inf ? T(Inf) : T(NaN)
     w === :both && (input[2, 2] = -T(Inf))
     hasinf = w !== :nan
-    # the value: NaN where it depends on the NaN, zero for a constant function at NaN alone, and
-    # Inf at an infinite entry otherwise
-    expected = constant ? (hasinf ? T(Inf) : zero(T)) : (w === :inf ? T(Inf) : T(NaN))
+    # the value: NaN where it depends on the NaN, zero for a constant function at NaN alone and for
+    # the zero function at every input, and Inf at an infinite entry otherwise
+    expected = constant ? (hasinf && !zerofunction(f) ? T(Inf) : zero(T)) : (w === :inf ? T(Inf) : T(NaN))
     @test same(f(input), expected)
     # the fused value at the output: a copy (IndBallRank(2)) or all NaN
     for alias in (false, true)
@@ -181,9 +184,9 @@ copies(f) = f isa IndBallRank && f.r >= 2
     @test allocs(g, X) == 0
     @test allocs(value_and_prox!, y, g, X, one(T)) == 0
   end
-  # the functions that do not count nonzeros keep Inf
-  @test SingularValue(NormL1(T(1)))(X) === T(Inf)
-  @test value_and_prox!(similar(X), SingularValue(NormL1(T(1))), X, one(T)) === T(Inf)
+  # the functions that do not count nonzeros follow E2 at a NaN entry too (PR #384)
+  @test same(SingularValue(NormL1(T(1)))(X), T(NaN))
+  @test same(value_and_prox!(similar(X), SingularValue(NormL1(T(1))), X, one(T)), T(NaN))
   # finite matrices keep their values
   F = T[3 0; 0 1]
   @test SingularValue(NormL0(T(1)))(F) === T(2) && IndBallRank(1)(F) === T(Inf) && IndBallRank(2)(F) === zero(T)

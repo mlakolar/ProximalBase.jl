@@ -75,7 +75,7 @@ end
       result = op(y, f, x, 1.0)
       @test all(isnan, y)
       alias || @test isequal(x, input)
-      op === value_and_prox! && @test result === (f isa SumLargest ? NaN : f isa IndStiefel ? Inf : 0.0)
+      op === value_and_prox! && @test isequal(result, f isa SumLargest ? NaN : f isa IndStiefel ? (isnan(v) ? NaN : Inf) : 0.0)
     end
   end
   f = IndPolyhedron(ones(Float32, 1, 2), -Inf, 1)
@@ -126,7 +126,8 @@ end
     fresh = deepcopy(f)
     value = value_and_prox!(y, f, x, 1.0)
     @test all(isnan, y)
-    @test isequal(value, f isa IndBallRank ? NaN : Inf)    # the rank indicator at its all-NaN output (O2)
+    # E2, except the rank indicator, which gives its value at the all-NaN output (O2)
+    @test isequal(value, f isa IndBallRank ? NaN : isnan(v) ? NaN : Inf)
     finite = [2.0 0.0; 0.0 1.0]
     @test isequal(prox(f, finite), prox(fresh, finite))
   end
@@ -181,10 +182,14 @@ end
       # The native identity shortcut needs no decomposition; the wrapper does.
       @test isequal(w, identity ? input : y)
       if op === value_and_prox!
-        # the value at each output (O2): the rank indicators give NaN at an all-NaN output, zero
-        # there when r ≥ 2 (every matrix), and the value of the copy that IndBallRank(2) stores
-        @test isequal(vf, f isa SingularValue && f.f isa IndBallL0 ? (f.f.s >= 2 ? zero(T) : T(NaN)) : T(Inf))
-        @test isequal(vg, g isa IndBallRank ? (identity ? (isinf(v) ? T(Inf) : zero(T)) : T(NaN)) : vf)
+        # A counting function gives its value at the all-NaN output of a decomposition (O2):
+        # NaN, or zero when it is constant (r ≥ 2, every matrix); IndBallRank(2) copies its input
+        # and gives the value of the copy. The other functions follow E2 (NaN at a NaN entry, Inf
+        # at an infinite one), except the zero level of the nuclear norm, the zero function (E4,
+        # row S6).
+        e2 = g isa NuclearNorm && iszero(g.λ) ? zero(T) : isnan(v) ? T(NaN) : T(Inf)
+        @test isequal(vf, f isa SingularValue && f.f isa IndBallL0 ? (f.f.s >= 2 ? zero(T) : T(NaN)) : e2)
+        @test isequal(vg, g isa IndBallRank ? (identity ? (isinf(v) ? T(Inf) : zero(T)) : T(NaN)) : e2)
       else
         @test vf === y
         @test vg === w
@@ -203,7 +208,7 @@ end
       y = alias ? x : zeros(T, 2, 2)
       result = op(y, f, x, one(T))
       @test isequal(y, fill(T(NaN), 2, 2))
-      op === value_and_prox! && @test result === T(Inf)
+      op === value_and_prox! && @test isequal(result, isnan(v) ? T(NaN) : T(Inf))
       alias || @test isequal(x, input)
       f isa Spectral && @test f.eig === nothing
       f isa LogDetLoss && @test iszero(f.eig.A)

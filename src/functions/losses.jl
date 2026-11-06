@@ -179,27 +179,27 @@ restrict(f::SqrHingeLoss, S::AbstractVector{<:Integer}) = SqrHingeLoss(_restrict
 @inline function _sqrhinge_residual(y::T, v::T) where {T}
   r = max(one(T) - y * v, zero(T))
   isfinite(r) && return r, 0
-  my, ey = frexp(y)
-  mv, ev = frexp(v)
+  my, ey = _frexp(y)
+  mv, ev = _frexp(v)
   e = ey + ev
   ldexp(one(T), -e) - my * mv, e
 end
 
-@inline function _sqrhinge_value(w::T, r::T, e::Int) where {T}
+@inline function _sqrhinge_value(w::T, r::T, e::Integer) where {T}
   e == 0 && return _positive_product(w, r, r)
-  mw, ew = frexp(w)
-  mr, er = frexp(r)
+  mw, ew = _frexp(w)
+  mr, er = _frexp(r)
   ldexp(mw * mr * mr, ew + 2 * (er + e))
 end
 
 # The factor 2 must also survive when w|y|r is below the subnormal range.
-@inline function _sqrhinge_slope(y::T, w::T, r::T, e::Int) where {T}
+@inline function _sqrhinge_slope(y::T, w::T, r::T, e::Integer) where {T}
   (iszero(w) || iszero(r)) && return zero(T)
   p = _positive_product(w, abs(y), r)
   e == 0 && floatmin(T) <= p <= floatmax(T) && return 2p
-  mw, ew = frexp(w)
-  my, ey = frexp(abs(y))
-  mr, er = frexp(r)
+  mw, ew = _frexp(w)
+  my, ey = _frexp(abs(y))
+  mr, er = _frexp(r)
   ldexp(2 * mw * my * mr, ew + ey + er + e)
 end
 
@@ -213,10 +213,10 @@ end
 # Scale the numerator and denominator separately when a blend weight or its
 # endpoint is outside the floating-point range, but their product need not be.
 @noinline function _sqrhinge_prox(v::T, y::T, w::T, γ::T) where {T}
-  mv, ev = frexp(v)
-  my, ey = frexp(y)
-  mw, ew = frexp(w)
-  mg, eg = frexp(γ)
+  mv, ev = _frexp(v)
+  my, ey = _frexp(y)
+  mw, ew = _frexp(w)
+  mg, eg = _frexp(γ)
   et = eg + ew + 2ey
   ed = max(0, et)
   d = ldexp(one(T), -ed) + ldexp(2 * mg * mw * my^2, et - ed)
@@ -335,9 +335,11 @@ _checkparams(f::EpsInsensitiveLoss, x) = (_checkparam(f.w, x); true)
 Base.@propagate_inbounds function value_entry(f::EpsInsensitiveLoss, v::T, i::Integer) where {T<:Real}
   w = _entry(f.w, i)
   φ = max(abs(v) - convert(float(T), f.ε), zero(float(T)))
-  # Where φ is NaN (a NaN entry, or an infinite one where ε is Inf in the entry's type, which a
-  # finite ε can round to), a zero weight leaves the entry free; other weights give NaN, and
-  # other entries take the expression below unchanged.
+  # An infinite ε makes the loss zero, whatever the entry.
+  isinf(f.ε) && return zero(w * φ)
+  # Where φ is NaN (a NaN entry, or an infinite one where a finite ε rounds to Inf in the entry's
+  # type), a zero weight leaves the entry free; other weights give NaN, and other entries take
+  # the expression below unchanged.
   isnan(φ) && return iszero(w) ? zero(w * φ) : w * φ
   _weighted_value(w * φ, φ)
 end
@@ -411,7 +413,7 @@ function _conjugate_value(f::EpsInsensitiveLoss, s::AbstractArray)
     _within(a, convert(T, _entry(f.w, i)), T) || return T(Inf)
     v += a
   end
-  iszero(f.ε) ? zero(T) : convert(T, f.ε) * v
+  iszero(f.ε) || iszero(v) ? zero(T) : convert(T, f.ε) * v
 end
 
 ####################################

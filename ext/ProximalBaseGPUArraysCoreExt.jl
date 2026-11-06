@@ -161,7 +161,7 @@ function ProximalBase._value_dense(f::NormL1Nonneg, x::GPUArray)
   _checkreal(f, x)
   T = float(eltype(x))
   t = _tol(T)
-  _all(v -> v >= -t, x) || return T(Inf)
+  _all(v -> v >= -t, x) || return mapreduce(isnan, |, x; init = false) ? T(NaN) : T(Inf)
   f.w === nothing && iszero(f.λ0) && return zero(T)
   _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(max, x, zero(T))), _reshapeparam(_param(f.w), x))
 end
@@ -374,6 +374,7 @@ end
 function ProximalBase._weighted_normlinf(λ::Real, x::GPUArray)
   T = float(eltype(x))
   n = mapreduce(abs, max, x; init = zero(T))
+  isinf(λ) && return iszero(n) ? zero(T) : n * T(Inf)
   _level_fits(T, λ) && return convert(T, λ) * n
   R = promote_type(T, float(typeof(λ)))
   convert(T, convert(R, λ) * convert(R, n))
@@ -384,6 +385,10 @@ function ProximalBase.value_and_prox!(y::GPUArray, f::NormLinf, x::GPUArray, γ:
   _checkreal(f, y)
   _checksize(y, x)
   T = float(eltype(y))
+  if isinf(f.λ) && γ > 0 && isfinite(γ)       # the indicator of {0}: zero at every entry
+    fill!(y, zero(eltype(y)))
+    return zero(T)
+  end
   if iszero(f.λ)
     y === x || copyto!(y, x)
     return zero(T)
@@ -832,6 +837,13 @@ function _group_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real, ::Val{V}) where
   _checkgroups(f, x)
   S = float(eltype(y))
   y === x || copyto!(y, x)
+  # an infinite ℓ1 level, as stored, fixes every grouped entry at zero at every step, whatever the
+  # entry, the group level and the weights, as on the host; the value is 0
+  if isinf(f.λ1)
+    yl = view(vec(y), 1:length(lay.gid))
+    yl .= _SparseScale(zero(S), length(lay.pos)).(yl, zero(S), lay.gid)
+    return zero(S)
+  end
   zero_group = iszero(f.λ0) && !_has_infinite_group_weight(lay)
   zero_group && iszero(f.λ1) && return zero(S)
   yv = vec(y)

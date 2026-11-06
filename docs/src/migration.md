@@ -87,6 +87,9 @@ the earlier behavior applies.
     where they were zeros.
   - A zero-level function, such as `NuclearNorm(0)`, returns `0` at a NaN
     entry.
+  - `NormL1Nonneg` at a NaN entry is NaN, where it was `Inf`, and
+    `EpsInsensitiveLoss` with `ε = Inf` is `0` at NaN and `±Inf` entries,
+    where it was NaN.
   - At an admitted infinite step, a proximal map that is constant on finite
     arguments ignores a NaN entry: `prox(NormL1(1.0), [NaN], Inf)` is `[0]`,
     where it was `[NaN]`.
@@ -96,6 +99,17 @@ the earlier behavior applies.
     and `NormL1Fused` with an infinite ℓ1 level at a positive finite step.
     At the zero vector, `NormL1(Inf)` (a dense array, no weights) and
     `NormL1Fused(Inf, λ2)` give the value `0`, where they gave NaN.
+  - `NormLinf(Inf)` is the indicator of `{0}` (decision 49, #663): at a finite
+    positive step its proximal map is zero at every entry,
+    `prox(NormLinf(Inf), [1.0, NaN], 1.0)` is `[0, 0]`, where it was
+    `[-Inf, NaN]`. Its value at the zero vector is `0`, where it was NaN, and
+    so is the value of the conjugate of `IndBallL1(Inf)` there. A zero,
+    infinite, negative or NaN step keeps its results.
+  - `SparseGroupNormL2` with an infinite ℓ1 level sets every grouped entry to
+    zero at every step, also with a zero group level or weight:
+    `prox(SparseGroupNormL2(Inf, 0.0, [1:2], [0.0]), [3.0, 4.0, 9.0], 0.0)` is
+    `[0, 0, 9]`, where it was `[NaN, NaN, 9]`, and a NaN or infinite grouped
+    entry gives `0` at a positive step, where it gave NaN.
 - **Infinite entries.** A bounded projection at an argument with one infinite
   entry returns its limit, where it returned NaN or a partly NaN block
   ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), decision 48).

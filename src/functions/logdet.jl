@@ -12,9 +12,9 @@ The Gaussian negative log-likelihood `f(X) = w (tr(SX) - log det X)` for finite
 precision matrix `X`, for an exactly symmetric `S` such as a sample covariance (`S` that is not
 symmetric, even by one ulp, throws an `ArgumentError`: pass `Symmetric(S, :L)` or
 `Symmetric(S, :U)` to use a triangle), and
-`Inf` when `X` is not positive definite, has a nonfinite entry, or fails the
+`Inf` when `X` is not positive definite, has an infinite entry, or fails the
 symmetry check `abs(X[i,j] - X[j,i]) ≤ sqrt(eps(T)) * max(1, abs(X[i,j]),
-abs(X[j,i]))`, with `T = eltype(X)`. The loss of the graphical lasso.
+abs(X[j,i]))`, with `T = eltype(X)`; `NaN` when `X` has a `NaN` entry. The loss of the graphical lasso.
 
 It is smooth on the positive definite matrices, with gradient `w(S - X⁻¹)`,
 which [`value_and_gradient!`](@ref) computes from one Cholesky factorization;
@@ -30,7 +30,8 @@ log-determinant is not accurate. Entries exceeding `floatmax` within the
 reconstruction's rounding bound saturate. The log-determinant uses the mapped
 roots and the trace uses the stored output. That output can round to a singular
 matrix, so the returned value can be finite even when `f(Y)` is `Inf`.
-At a non-finite input, the proximal output is all `NaN` and the returned value is `Inf`.
+At a non-finite input, the proximal output is all `NaN` and the returned value is `NaN` when an
+entry is `NaN`, `Inf` otherwise.
 For a nonsymmetric proximal input, `X` is replaced by its symmetric part:
 the skew part contributes only a constant to the proximal objective.
 Both use workspaces that `f` owns, sized by `S`, and
@@ -106,7 +107,8 @@ function (f::LogDetLoss{T})(X::AbstractMatrix) where {T}
   _checkreal(f, X)
   X = _is_device_array(X) ? copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X) : X
   ld = _logdet_chol!(f, X)
-  ld === nothing ? _valtype(X)(Inf) : _value_at(_logdet_value(f, X, ld), X)
+  # outside the domain; a NaN entry gives NaN (E2), tested only on this branch
+  ld === nothing ? _nonfinite_value(X, _valtype(X)) : _value_at(_logdet_value(f, X, ld), X)
 end
 
 @inline function _logdet_value(f::LogDetLoss, X::AbstractMatrix, ld)
@@ -175,7 +177,7 @@ _checkstep(op::O, f::LogDetLoss, y::AbstractMatrix, x::AbstractMatrix, γ::Real)
 function value_and_prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix, γ::Real) where {T}
   _checkwrite(value_and_prox!, f, Y, X)
   root_step = _logdet_root_step(f, γ, X)
-  all(isfinite, X) || (fill!(Y, _valtype(Y)(NaN)); return _valtype(Y)(Inf))
+  all(isfinite, X) || (v = _nonfinite_value(X, _valtype(Y)); fill!(Y, _valtype(Y)(NaN)); return v)
   X = _is_device_array(X) ? copyto!(_array_buffer!(_logdet_scratch!(f)[1], eltype(X), size(X)), X) : X
   B = _blas_ready(Y) ? Y : f.C
   A = f.eig.A

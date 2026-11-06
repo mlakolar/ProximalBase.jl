@@ -9,6 +9,9 @@ module SparseGroupInfiniteLevelTest
 
 using Test, ProximalBase, SparseArrays, JLArrays, Adapt
 
+# The grid of the proximal map over group levels, weights, steps, iterates, device routes and
+# wrappers is in sparsegroup_infinite_prox.jl (#620).
+
 # the same type, the same class (NaN, ±Inf, finite) and the same value
 agree(a::Real, b::Real) = typeof(a) == typeof(b) && (isnan(a) || isnan(b) ? isnan(a) && isnan(b) : a == b)
 agree(a::AbstractArray, b::AbstractArray) =
@@ -25,16 +28,16 @@ end
 
 # value_and_prox! into a separate output (filled with a sentinel) and in place: the value is the one
 # at the stored output (O2), against both f and the reference; returns the stored outputs
-function fused(f, x, γ; reference = true)
+function fused(f, x, γ)
   T = float(eltype(x))
   y = fill(T(-7), size(x))
   v = value_and_prox!(y, f, copy(x), γ)
   @test agree(v, f(y))
-  reference && @test agree(v, ref(f, y))
+  @test agree(v, ref(f, y))
   z = copy(x)
   u = value_and_prox!(z, f, z, γ)
   @test agree(u, f(z))
-  reference && @test agree(u, ref(f, z))
+  @test agree(u, ref(f, z))
   @test agree(z, y)
   @test agree(u, v)
   v, y
@@ -100,23 +103,26 @@ end
       end
     end
   end
-  # a zero group level or weight soft-thresholds at γ⋅Inf; finite entries go to zero
+  # a zero group level or weight: the infinite ℓ1 level still fixes the grouped entries at zero,
+  # whatever they hold (#620)
   for f in (SparseGroupNormL2(T(Inf), T(0), [1:2], T[1]), SparseGroupNormL2(T(Inf), T(1), [1:2], T[0]))
-    for γ in (T(1), T(0.5), T[1])
-      v, y = fused(f, T[3, 4, 9], γ)
-      @test agree(y, T[0, 0, 9])
-      @test v === zero(T)
-      v, y = fused(f, T[3, 4, nan], γ)
-      @test agree(y, T[0, 0, nan])
-      @test v === zero(T)
-      # at a NaN grouped entry only the value at the stored output is checked
-      fused(f, T[nan, 4, 9], γ)
+    for γ in (T(1), T(0.5), T(Inf), T[1])
+      for (x, want) in ((T[3, 4, 9], T[0, 0, 9]), (T[3, 4, nan], T[0, 0, nan]), (T[nan, 4, 9], T[0, 0, 9]),
+                        (T[Inf, 4, 9], T[0, 0, 9]), (T[nan, nan, nan], T[0, 0, nan]))
+        v, y = fused(f, x, γ)
+        @test agree(y, want)
+        @test v === zero(T)
+      end
     end
   end
-  # the step 0: only the value at the stored output is checked
+  # the step 0 also fixes the grouped entries at zero, for every group level and weight (#620)
   for f in (SparseGroupNormL2(T(Inf), T(1), [1:2], T[1]), SparseGroupNormL2(T(Inf), T(0), [1:2], T[1]),
             SparseGroupNormL2(T(Inf), T(1), [1:2], T[0]))
-    fused(f, T[3, 4, 9], zero(T); reference = false)
+    for (x, want) in ((T[3, 4, 9], T[0, 0, 9]), (T[nan, 4, nan], T[0, 0, nan]))
+      v, y = fused(f, x, zero(T))
+      @test agree(y, want)
+      @test v === zero(T)
+    end
   end
   # a step per group, two groups
   f = SparseGroupNormL2(T(Inf), T(1), [1:2, 4:5], T[1, 1])
@@ -136,21 +142,20 @@ end
       @test agree(f(AtomIterate(copy(x), f)), ref(f, x))
     end
     for x in (T[3, 4, 9], T[nan, 4, 9], T[3, 4, Inf])
-      # the first group of the second function soft-thresholds at γ⋅Inf (a zero group level and a
-      # finite weight): at a NaN entry only the value at the stored output is checked
-      pinned = !(iszero(f.λ0) && isnan(x[1]))
+      # every group is fixed at zero, also the first group of the second function (a zero group
+      # level and a finite weight) at a NaN entry
       xa = AtomIterate(copy(x), f)
       ya = AtomIterate(fill(T(-7), 3), f)
       v = value_and_prox!(ya, f, xa, T(1))
       @test agree(v, f(ya))
       @test agree(v, ref(f, collect(ya)))
-      pinned && @test agree(collect(ya), zeros(T, 3))
-      pinned && @test v === zero(T)
+      @test agree(collect(ya), zeros(T, 3))
+      @test v === zero(T)
       za = AtomIterate(copy(x), f)
       u = value_and_prox!(za, f, za, T(1))
       @test agree(u, f(za))
       @test agree(collect(za), collect(ya))
-      pinned && @test u === zero(T)
+      @test u === zero(T)
     end
   end
 end
@@ -211,13 +216,20 @@ end
   v, y = fused(fm, T[3, 4, 9], 1.0)
   @test agree(y, T[0, 0, 9])
   @test v === zero(T)
-  # a finite level is never treated as infinite, even where it does not fit the data type (R3)
-  fr = SparseGroupNormL2(1e300, 1.0, [1:2], [1.0])
-  @test fr(T[0, 0, 9]) === zero(T)
-  @test fr(T[1, 0, 9]) === (T === Float32 ? T(Inf) : 1e300)
-  y = similar(T[3, 4, 9])
-  @test value_and_prox!(y, fr, T[3, 4, 9], 1.0) === zero(T)
-  @test agree(y, T[0, 0, 9])
+  # a finite level is never treated as infinite, even where it does not fit the data type (R3): the
+  # stored level 2^128 with a zero group level; the step 0 is the identity, with the value 2^28 there
+  fr = SparseGroupNormL2(ldexp(1.0, 128), 0.0, [1:2], [1.0])
+  x = T[ldexp(one(T), -100), 0, 9]
+  @test fr(x) === T(ldexp(1.0, 28))
+  for g in (fr, adapt(JLArray, fr)), dev in (identity, JLArray)
+    g === fr || dev === JLArray || continue
+    y = dev(fill(T(-7), 3))
+    @test value_and_prox!(y, g, dev(copy(x)), 0.0) === T(ldexp(1.0, 28))
+    @test Array(y) == x
+    y = dev(fill(T(-7), 3))
+    @test value_and_prox!(y, g, dev(copy(x)), 1.0) === zero(T)
+    @test Array(y) == T[0, 0, 9]
+  end
 end
 
 @testset "device arrays (JLArrays), $T" for T in (Float32, Float64)
@@ -234,24 +246,23 @@ end
       @test agree(g(dev(x)), f(x))
       @test agree(g(dev(x)), ref(f, x))
     end
-    # both branches of value_and_prox!, separate output and in place: the stored output of the CPU,
-    # and the value there; with a zero group level or weight at a NaN grouped entry only the value at
-    # the stored output is checked
-    soft = (iszero(f.λ0) && !isinf(f.w[1])) || iszero(f.w[1])
+    # value_and_prox!, separate output and in place: the stored output of the CPU, and the value
+    # there, also with a zero group level or weight at a NaN grouped entry
     for x in (T[3, 4, 9], T[3, 4, nan], T[nan, 4, 9])
-      pinned = !(soft && isnan(x[1]))
       ref_y = fill(T(-7), 3)
       ref_v = value_and_prox!(ref_y, f, copy(x), T(1))
+      @test agree(ref_y, T[0, 0, x[3]])
+      @test ref_v === zero(T)
       y = dev(fill(T(-7), 3))
       v = value_and_prox!(y, g, dev(x), T(1))
       @test agree(v, f(host(y)))
-      pinned && @test agree(host(y), ref_y)
-      pinned && @test agree(v, ref_v)
+      @test agree(host(y), ref_y)
+      @test agree(v, ref_v)
       z = dev(copy(x))
       u = value_and_prox!(z, g, z, T(1))
       @test agree(u, f(host(z)))
-      pinned && @test agree(host(z), ref_y)
-      pinned && @test agree(u, ref_v)
+      @test agree(host(z), ref_y)
+      @test agree(u, ref_v)
     end
   end
 end

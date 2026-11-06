@@ -613,7 +613,6 @@ end
   expected = Float32[1, 0]
   observed = prox!(zeros(Float32, 2), IndHyperplane(Float32[1, 1], 1f0), Float32[2, 2], [1e-50, 2e-50])
   compare = (a, b) -> length(a) == 2 && all(typed_bound(a[i], b[i], 16eps(Float32)) for i in eachindex(b))
-  broken = (group = :G3, baseline = Returned(v -> same(v, Float32[-Inf, -Inf])))
 end
 
 @row begin
@@ -631,7 +630,7 @@ end
   problem = "Metric ratio underflows Float32; reject before writing."
   expected = Throws(:ArgumentError)
   observed = prox!(Float32[7, 7], IndHyperplane(Float32[1, 1], 1f0), Float32[2, 2], [floatmin(Float64), floatmax(Float64)])
-  broken = (group = :G3, baseline = Returned(v -> same(v, Float32[2.0, 2.0])))
+  broken = (group = :G3, baseline = Returned(v -> same(v, Float32[2, -1])))
 end
 
 @row begin
@@ -640,7 +639,7 @@ end
   problem = "Metric ratio underflows Float32; reject before writing."
   expected = Float32[7, 7]
   observed = let y = Float32[7, 7]; try prox!(y, IndHyperplane(Float32[1, 1], 1f0), Float32[2, 2], [floatmin(Float64), floatmax(Float64)]) catch end; y end
-  broken = (group = :G3, baseline = Returned(v -> same(v, Float32[2.0, 2.0])))
+  broken = (group = :G3, baseline = Returned(v -> same(v, Float32[2, -1])))
 end
 
 @row begin

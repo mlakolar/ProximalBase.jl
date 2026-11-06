@@ -189,7 +189,7 @@ function _sep_terms(acc, f, x::AtomIterate)
   acc
 end
 # the term m 2^e, or `nothing` when it is not finite
-@inline function _term_add(acc::_ExpSum{R}, m, e::Int) where {R}
+@inline function _term_add(acc::_ExpSum{R}, m, e::Integer) where {R}
   m = convert(R, m)
   isfinite(m) || return nothing
   iszero(m) && return acc

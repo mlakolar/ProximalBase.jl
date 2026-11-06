@@ -1253,13 +1253,21 @@ function _prox_unchecked!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, :
 end
 _hyperslab_output!(y, x, a, t) = (y .= x .- t .* _checked_parameter(y, a))
 
+# The coefficient of the correction, g / d with g = ⟨a, x⟩ - b and d = ‖a‖² or its metric
+# version, formed as in IndHyperslab. Unlike IndHyperslab, it is then widened to a wider
+# output type, which does not recompute it in that type (#362). It is never rounded below
+# the type of g / d or the output's.
+@inline function _model_coefficient(y, g, d)
+  t = g / d
+  convert(promote_type(float(eltype(y)), typeof(t)), t)
+end
+
 prox!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
 function _prox_unchecked!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
   _isscaled(f) && return _scaled_normal_prox!(y, f, x)
-  T = float(eltype(y))
-  t = convert(T, (_dot_normal(f.a, x) - f.b) / _normal_sqnorm(f, x))
+  t = _model_coefficient(y, _dot_normal(f.a, x) - f.b, _normal_sqnorm(f, x))
   y .= x .- t .* _checked_parameter(y, f.a)
 end
 prox!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, γ::Real) =
@@ -1267,17 +1275,15 @@ prox!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, γ::Real) =
 function _prox_unchecked!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
   _isscaled(f) && return _scaled_normal_prox!(y, f, x)
-  T = float(eltype(y))
-  t = convert(T, max(_dot_normal(f.a, x) - f.b, zero(f.b)) / _normal_sqnorm(f, x))
+  t = _model_coefficient(y, max(_dot_normal(f.a, x) - f.b, zero(f.b)), _normal_sqnorm(f, x))
   y .= x .- t .* _checked_parameter(y, f.a)
 end
 
 function _scaled_normal_prox!(y, f, x)
-  T = float(eltype(y))
   a = _normalized_normal(f.a, f.s)
   g = _dot_normal(a, x) - _scaled_offset(f)
   f isa IndHalfspace && (g = max(g, zero(g)))
-  t = convert(T, g / _normal_sqnorm(f, x))
+  t = _model_coefficient(y, g, _normal_sqnorm(f, x))
   y .= x .- t .* _checked_parameter(y, a)
 end
 

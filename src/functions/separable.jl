@@ -569,25 +569,41 @@ end
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
 _has_ordinary_value(::Type{<:ElasticNet}) = true
-# z/(1 + γλ2) for the soft-thresholded z. While γλ2 is finite in W this is the division, as before.
-# Where it overflows W although both factors are finite, the scaled ridge of SqrNormL2 applies the
-# weight (R3), so that a coefficient that is not representable still acts on z.
-@inline function _elastic_ridge(::Type{W}, z, γ, λ2) where {W}
-  t = _typed_product(W, γ, λ2)
-  isfinite(t) ? z / (1 + t) : _elastic_ridge_wide(W, z, γ, λ2, t)
-end
+# z/(1 + γλ2) for the soft-thresholded z, where γλ2 overflows W although both factors are finite:
+# the scaled ridge of SqrNormL2 applies the weight (R3), so that a coefficient that is not
+# representable still acts on z.
 @noinline function _elastic_ridge_wide(::Type{W}, z, γ, λ2, t) where {W}
   _recoverable_factors(γ, λ2, one(W)) ? _ridge_apply(_ridge_scaled(W, γ, λ2), convert(W, z)) : z / (1 + t)
 end
-@inline function _elastic_slope(::Type{W}, γ, λ2) where {W}
-  t = _typed_product(W, γ, λ2)
-  isfinite(t) ? inv(1 + t) : _elastic_slope_wide(W, γ, λ2, t)
-end
 @noinline _elastic_slope_wide(::Type{W}, γ, λ2, t) where {W} =
   _recoverable_factors(γ, λ2, one(W)) ? _ridge_slope(_ridge_scaled(W, γ, λ2)) : inv(1 + t)
+# γ = Inf (P1): the projection onto the minimizers of λ1 w|z| + λ2 z²/2. Each part is decided from
+# its parameters (p1: λ1 > 0, p2: λ2 > 0) and the weight, not from γλ, which is 0·Inf for a zero
+# level (E4). With an active part the map is 0 on finite arguments, and an infinite or NaN entry
+# gives NaN (no joint limit, E1); a wrapper such as Tilt can pass a NaN it formed from the step,
+# which is not a NaN entry of the caller's argument. With no active part it is shrink(v, 0), as at
+# every finite step. An infinite weight fixes the entry as at every finite step.
+@inline function _elastic_infinite_step(v::T, p1::Bool, p2::Bool, w) where {T<:Real}
+  S = float(T)
+  l1 = isinf(w) | (p1 & (w > zero(w)))
+  shrink(v, ifelse(l1, S(Inf), zero(S))) / ifelse(p2, S(Inf), one(S))
+end
+@inline function _elastic_infinite_slope(v::T, p1::Bool, p2::Bool, w) where {T<:Real}
+  free = !(isinf(w) | (p1 & (w > zero(w))) | p2)
+  _elastic_infinite_step(v, p1, p2, w), _slope(free & (abs(v) > zero(v)), one(float(T)))
+end
+# While γλ2 is finite in S this is shrink(v, γλ1w)/(1 + γλ2), as before. A nonfinite γλ2 is the
+# trigger for both exceptions: an overflow at a finite step, and every γ = Inf.
 Base.@propagate_inbounds function prox_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  _elastic_ridge(S, shrink(v, _weight_coefficient(S, γ, f.λ1, _entry(f.w, i))), γ, f.λ2)
+  w = _entry(f.w, i)
+  t = _typed_product(S, γ, f.λ2)
+  isfinite(t) || return _elastic_prox_wide(S, f, v, w, γ, t)
+  shrink(v, _weight_coefficient(S, γ, f.λ1, w)) / (1 + t)
+end
+@noinline function _elastic_prox_wide(::Type{S}, f::ElasticNet, v, w, γ, t) where {S}
+  γ == Inf && return convert(S, _elastic_infinite_step(v, f.λ1 > zero(f.λ1), f.λ2 > zero(f.λ2), w))
+  _elastic_ridge_wide(S, shrink(v, _weight_coefficient(S, γ, f.λ1, w)), γ, f.λ2, t)
 end
 
 kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer) =

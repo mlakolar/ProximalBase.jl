@@ -138,6 +138,10 @@ the earlier behavior applies.
     infinite level. Finite levels, a zero step, other penalties in the box and the standalone
     value (`Inf` away from the domain) keep their earlier behaviour. Coordinate updates of a `SparseIterate` or an `AtomIterate`
     do not run the check yet.
+  - `value_and_prox!` of `FiberSum(NormL1Fused(...))` on two slices, into a separate output, at a zero level,
+    a zero step or a free diagonal (`diagonal = nothing`) beside a fused pair near `floatmax`, stores
+    the output of `prox!` (finite there, where a midpoint overflow stored `Inf`) and returns the value of
+    that output, where it returned `Inf` or NaN (#667).
   - `SparseGroupNormL2` with an infinite ℓ1 level sets every grouped entry to
     zero at every step, also with a zero group level or weight:
     `prox(SparseGroupNormL2(Inf, 0.0, [1:2], [0.0]), [3.0, 4.0, 9.0], 0.0)` is

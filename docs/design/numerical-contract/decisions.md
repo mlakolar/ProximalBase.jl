@@ -2097,6 +2097,20 @@ as stored but overflows a conversion); and every function that is not in the lis
 folded, rescaled, shortcut or discarded by its size: the exact statements above are the whole
 treatment, which is also why the working precision and the finite results are those of before.
 
+An infinite-level `NormL1` on a box that misses its domain raises before writing (#666,
+O6). `Constrained(NormL1(Inf), IndBox(l, u))` at a finite or infinite positive step fixes
+every coordinate with a weight `wᵢ > 0` (all coordinates without weights; an infinite weight
+is positive) at `0`, so a feasible point exists only where `lᵢ ≤ 0 ≤ uᵢ`; the clamp of the
+hard zero into a box that excludes it, which returned the nearest endpoint, is not feasible.
+`prox!` and `value_and_prox!` throw `ArgumentError("the IndBox misses the domain of NormL1")`
+(the wording of the hyperplane case) before the first write, decided from the stored level,
+the weights, the step and the bounds as given. A coordinate with `wᵢ = 0` is free and is not
+checked, and a box that contains `0` keeps the hard zero of the infinite level. The
+standalone value of the infeasible function stays `Inf`. Only `NormL1` directly under `Constrained` with an
+infinite level is decided: a finite level, `NormL1Nonneg`, `ElasticNet`, the group norms,
+wrappers inside the box, and the coordinate updates of the sparse and atom iterates are
+unchanged (follow-ups).
+
 Excluded, and unchanged:
 
 - `γ = 0` with an infinite level. P1 makes the separable `γ = 0` limit the

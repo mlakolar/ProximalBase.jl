@@ -81,7 +81,13 @@ The caller must ensure that the set meets the domain of `f`. For a convex
 function on a box, the method clamps the unconstrained proximal point even
 when the intersection is empty. Neither that point nor the returned value
 certifies feasibility; `value_and_prox!` returns zero for an indicator even in
-this improper case. On a hyperplane, halfspace or hyperslab, the search throws
+this improper case. The exception is a [`NormL1`](@ref) with a stored infinite level
+`λ0 = Inf`: at a positive step it fixes every entry with a positive weight at zero, so a
+box that excludes zero at such an entry raises an `ArgumentError` ("the IndBox misses the
+domain of NormL1") before anything is written. A zero weight leaves its entry free, a
+zero or non-positive step is not decided here, and other functions and wrappers are not
+checked. The standalone value of an infeasible function at an argument stays `Inf`.
+On a hyperplane, halfspace or hyperslab, the search throws
 an `ArgumentError` if it cannot bracket a multiplier. This is not a general test
 for an empty intersection: rounding may put a point on the closure of an open
 domain, and a finite multiplier may not exist when the set meets only the
@@ -298,12 +304,32 @@ end
 @inline function _checkwrite(op::O, c::BoxConstrained, y::AbstractArray, x::AbstractArray, γ) where {O}
   _checkreal(c, γ)
   _checkwrite(op, c, y, x)
+  _check_box_domain(c, x, γ)
   if op === value_and_prox! && !_isindicator(c)
     _checkparam(γ, x)
     _check_box_value(c.f, y, _BoxProxArray(y, c, x, γ))
   end
   true
 end
+
+# An infinite level at a positive step fixes every penalized entry (w > 0) of NormL1 at zero, and the
+# clamp of that zero into a box that excludes it is not feasible. Decided from the stored level, the
+# weights, the step and the bounds as given, before anything is written; nothing is evaluated for
+# another function, for a finite level, or for a box that contains zero. Other families are not decided.
+_check_box_domain(::BoxConstrained, x, γ) = nothing
+@inline function _check_box_domain(c::BoxConstrained{<:NormL1}, x, γ)
+  isinf(c.f.λ0) && !c.box.zp && _check_box_fixed(c, x, γ)
+  nothing
+end
+function _check_box_fixed(c::BoxConstrained{<:NormL1}, x, γ)
+  f, box = c.f, c.box
+  for i in eachindex(IndexLinear(), x)
+    _l1_fixed(_entry(γ, i), f.λ0, _entry(f.w, i)) &&
+      !((_entry(box.l, i) <= 0) & (_entry(box.u, i) >= 0)) && _box_misses_domain(f)
+  end
+  nothing
+end
+@noinline _box_misses_domain(f) = throw(ArgumentError("the IndBox misses the domain of $(nameof(typeof(f)))"))
 
 # Membership can return Inf without evaluating the inner value.
 _checkvalue(c::BoxConstrained, x::AbstractArray) = (_checkreal(c, x); _checkparams(c, x))

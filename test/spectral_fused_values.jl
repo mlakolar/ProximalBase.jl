@@ -359,8 +359,9 @@ end
     Y = fill(T(7), 3, 3)
     @test isnan(value_and_prox!(Y, SingularValue(NormL0(one(T))), X, 1))
     @test all(isnan, Y)
+    # the value of Spectral at the argument (E2): NaN at a NaN entry, Inf at an infinite one
     Y = fill(T(7), 3, 3)
-    @test value_and_prox!(Y, Spectral(NormL0(one(T))), X, 1) === T(Inf)
+    @test value_and_prox!(Y, Spectral(NormL0(one(T))), X, 1) === (isnan(x) ? T(NaN) : T(Inf))
     @test all(isnan, Y)
     Y = fill(T(7), 3, 3)
     @test isnan(value_and_prox!(Y, IndBallRank(1), X, 1))

@@ -159,7 +159,9 @@ end
         dropzeros!(x)                   # the last active coordinate moves into the gap
         @test activecoordinates(x) == [2]
         @test ncoordinates(x) == 6
-        @test coordinates(x) === x
+        @test coordinates(x) !== x
+        @test coordinates(x) isa AbstractVector && length(coordinates(x)) == 6
+        @test collect(coordinates(x)) == Vector(x)
     end
 
     @testset "setindex! converts" begin

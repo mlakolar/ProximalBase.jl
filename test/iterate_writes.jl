@@ -382,6 +382,73 @@ end
   end
 end
 
+@testset "coordinates(x) is an ordinary vector that writes values (FP-7)" begin
+  mk(T) = (x = SparseIterate(T, 5); x[2] = T(3); activate!(x, 4); x)
+  stored(x) = x.nzval[1:x.nnz]
+  @testset "fill! with a zero writes into the stored entries" begin
+    for T in (Float64, Float32), zero_value in (0, 0.0, 0im, T(0))
+      x = mk(T); c = coordinates(x)
+      r = fill!(c, zero_value)
+      @test r === c
+      @test Array(x) == zeros(T, 5)
+      @test ws(x) == [2, 4]
+    end
+    x = mk(Float64)
+    fill!(coordinates(x), -0.0)
+    @test all(signbit, stored(x)) && ws(x) == [2, 4]
+    @test Array(x) == zeros(5)
+    x = mk(Float32)
+    fill!(coordinates(x), 1e-50)     # rounds to zero in Float32, as in a plain vector
+    @test stored(x) == Float32[0, 0] && ws(x) == [2, 4]
+    x = mk(Float64)
+    coordinates(x) .= 0
+    @test Array(x) == zeros(5) && ws(x) == [2, 4]
+    x = SparseIterate(Float64, 2, 3); x[2, 2] = 1.0
+    fill!(coordinates(x), 0)
+    @test Array(x) == zeros(2, 3) && ws(x) == [4]
+    @test isempty(ws(dropzeros!(x)))
+  end
+  @testset "fill! with a nonzero value" begin
+    x = mk(Float64); c = coordinates(x)
+    r = fill!(c, 1 + 0im)
+    @test r === c && Array(x) == ones(5) && sort(ws(x)) == 1:5
+    x = mk(Float64)
+    fill!(coordinates(x), NaN)
+    @test all(isnan, Array(x)) && sort(ws(x)) == 1:5
+    x = SparseIterate(Float64, 2, 3)
+    fill!(coordinates(x), 2)
+    @test Array(x) == fill(2.0, 2, 3) && sort(ws(x)) == 1:6
+  end
+  @testset "fill! converts like a plain vector, before writing" begin
+    x = mk(Float64); before = snapshot(x)
+    @test_throws InexactError fill!(coordinates(x), 2im)
+    @test snapshot(x) == before
+    xi = SparseIterate(Int, 5); xi[2] = 3; before = snapshot(xi)
+    @test_throws InexactError fill!(coordinates(xi), 0.5)
+    @test snapshot(xi) == before
+    fill!(coordinates(xi), 2.0)
+    @test Array(xi) == fill(2, 5)
+  end
+  @testset "the view as a source and as a destination is a value write" begin
+    for (x, y) in ((SparseIterate(Float64, 2, 3), SparseIterate(Float64, 2, 3)),
+                   (SparseIterate(6), SparseIterate(6)))
+      x[2] = 5.0; activate!(x, 6)
+      y[1] = 3.0
+      copyto!(x, coordinates(y))
+      @test ws(x) == [2, 6, 1] && Array(x)[1] == 3.0 && Array(x)[2] == 0.0
+      @test ws(y) == [1]
+    end
+    v = SparseIterate(4); v[2] = 9.0
+    coordinates(v) .= SparseIterate([1.0, 0, 0, 0])
+    @test ws(v) == [2, 1] && Vector(v) == [1.0, 0, 0, 0]
+    xm = SparseIterate(Float64, 2, 3); xm[2, 1] = 1.0
+    ym = SparseIterate(Float64, 2, 3); ym[1, 1] = 3.0
+    coordinates(xm) .= vec(ym)
+    @test ws(xm) == [2, 1] && Array(xm) == [3.0 0 0; 0 0 0]
+    @test_throws DimensionMismatch (coordinates(xm) .= ym)
+  end
+end
+
 zero_fill!(x) = (fill!(x, 0); nothing)
 assign!(x, y) = (x .= y; nothing)
 

@@ -168,6 +168,22 @@ end
   end
 end
 
+a_coordinates(x) = coordinates(x)
+a_fill_coordinates!(x, v) = (fill!(coordinates(x), v); nothing)
+a_get_coordinate(x, k) = coordinates(x)[k]
+a_set_coordinate!(x, k, v) = (coordinates(x)[k] = v; nothing)
+
+@testset "the coordinate view of a SparseIterate allocates nothing" begin
+  @testset "$T, $(length(shape))-dimensional" for T in (Float32, Float64), shape in ((40,), (5, 8))
+    x = SparseIterate(T, shape...); x[4] = 2; activate!(x, 9)
+    @test allocs(a_coordinates, x) == 0
+    @test allocs(a_get_coordinate, x, 4) == 0
+    @test allocs(a_set_coordinate!, x, 5, one(T)) == 0
+    @test allocs(a_fill_coordinates!, x, 0) == 0
+    @test allocs(a_fill_coordinates!, x, zero(T)) == 0
+  end
+end
+
 @testset "zero allocations" begin
   n, p = 50, 20
   X = randn(n, p)

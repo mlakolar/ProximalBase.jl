@@ -42,6 +42,8 @@ repetitions 1 to 3.
 | `crosscheck-pinned-start.tsv`, `crosscheck-pinned-end.tsv`, `restore-probe.txt` | independent-loop cross-check and the restore probe | recovered from a record (section 3) |
 | twelve `julia-1.13.3-rep0{1,2,3}-errors.tsv` | failed cases of each run | not retained (section 4) |
 
+The archive of these inputs is `data/iterate-family-0.5-evidence.tar.gz`; `tools/reproduce.py` regenerates both baseline files from it (see [`tools/README.md`](tools/README.md)).
+
 ### Custody of the retained metrics, metadata and comparison files
 
 These files were copied on 2026-11-02, before the measurement campaign directory was removed. No hash

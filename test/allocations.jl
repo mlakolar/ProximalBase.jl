@@ -499,6 +499,43 @@ end
   end
 end
 
+# The projections that recompute in powers of two when the dot product, the residual or the
+# correction overflows (#563) also allocate nothing: scalar and vector steps, plain and rescaled
+# normals, scalar and array normals, arrays and iterates.
+@testset "zero allocations when the projection overflows" begin
+  for T in (Float32, Float64)
+    M = floatmax(T)
+    e4 = exponent(M) ÷ 4
+    up = ldexp(one(T), e4 + 45)
+    original = T[M, 0.4M, 0.4M]
+    for F in (IndHyperplane, IndHalfspace), a in (T[1, 1, 1], T(1), up .* T[1, 1, 1], up),
+        γ in (T(1), T[1, 2, 3], fill(M / 2, 3))
+      f = F(a, 0)
+      x, y = copy(original), similar(original)
+      @test a_prox!(y, f, x, γ) === y
+      @test all(isfinite, y)
+      @test allocs(a_reset_prox!, y, f, x, γ, original) == 0
+      @test allocs(a_reset_vprox!, y, f, x, γ, original) == 0
+      @test allocs(a_reset_prox!, x, f, x, γ, original) == 0
+      @test allocs(a_reset_vprox!, x, f, x, γ, original) == 0
+      xs, ys = SparseIterate(original), SparseIterate(T, 3)
+      a_prox!(ys, f, xs, γ)
+      @test allocs(a_prox!, ys, f, xs, γ) == 0
+      xa, ya = AtomIterate(original, [1:1, 2:3]), AtomIterate(T, 3, [1:1, 2:3])
+      a_prox!(ya, f, xa, γ)
+      @test allocs(a_prox!, ya, f, xa, γ) == 0
+    end
+    X = T[1 0.4 0; 0.4 0 0; 0 0 0] .* M
+    for F in (IndHyperplane, IndHalfspace), a in (ones(T, 3, 3), T(1), up .* ones(T, 3, 3)), γ in (T(1), T[1 2 3; 2 1 2; 3 2 1])
+      f = F(a, 0)
+      xs, ys = SymmetricSparseIterate(X), SymmetricSparseIterate(T, 3)
+      a_prox!(ys, f, xs, γ)
+      @test allocs(a_prox!, ys, f, xs, γ) == 0
+      @test allocs(a_vprox!, ys, f, xs, γ) == 0
+    end
+  end
+end
+
 function zero_alloc_large_value(f, x, expected)
   @test a_value(f, x) == expected
   @test allocs(a_value, f, x) == 0

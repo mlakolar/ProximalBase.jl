@@ -64,7 +64,7 @@ iterate-family design, the cases of the
 `baselines/iterate-family-0.5.md`. The FD-7 handle sweeps that `owner` once held are the
 `sweep_activecoordinates` cases of these groups. [Iterate-family groups](#iterate-family-groups)
 lists the fixtures and the rows that need a note.
-The inputs of that baseline and the tools that regenerate it are archived in
+The inputs of that baseline and the tools that regenerate it are described in
 [`baselines/tools/README.md`](baselines/tools/README.md).
 
 For example, select matrix operations across the extended input sizes:

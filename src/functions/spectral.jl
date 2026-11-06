@@ -46,6 +46,31 @@ function _mul_lowrank!(Y::AbstractMatrix, U::Matrix, Vt::Matrix, k::Integer, ws:
   Y
 end
 
+# The value at a matrix with a non-finite entry (E2): NaN when an entry is NaN, otherwise Inf.
+# Called only after a finiteness test failed, so that finite inputs make no second pass.
+_nonfinite_value(X, ::Type{T}) where {T} = any(isnan, X) ? T(NaN) : T(Inf)
+
+# The value at a matrix A with a non-finite entry of a function that is constant on the spectra
+# (constant) or not. A function that is not constant is NaN at a NaN entry (E2), which takes
+# precedence, and Inf at an infinite entry. A constant one does not depend on a NaN entry (E2,
+# E4), and is Inf at an infinite entry, as an indicator of a set of real matrices (E3).
+function _count_nonfinite_value(constant::Bool, A::AbstractArray, ::Type{T}) where {T}
+  constant && return any(isinf, A) ? T(Inf) : zero(T)
+  any(isnan, A) ? T(NaN) : T(Inf)
+end
+
+# (_constant_kind, the kind of an inner function, is in spectralfunction.jl.)
+# The value of a function of the singular values of that kind at a non-finite X, or nothing. The
+# zero function is 0 at a NaN entry, on which it does not depend (E2, E4), and at an infinite entry,
+# its formula (E3). The indicator of all matrices is _count_nonfinite_value's constant.
+_constant_nonfinite_value(kind, X, ::Type{T}) where {T} =
+  kind === :zero ? zero(T) : kind === :whole ? _count_nonfinite_value(true, X, T) : nothing
+# (The coverage counter never fires on this signature line; the body lines below are hit.)
+function _singular_nonfinite_value(kind, X, ::Type{T}) where {T}  # COV_EXCL_LINE
+  v = _constant_nonfinite_value(kind, X, T)
+  v === nothing ? _nonfinite_value(X, T) : v
+end
+
 # whether X is symmetric, within the tolerance of the indicator functions
 function _issymmetric_tol(X::AbstractMatrix)
   n = checksquare(X)
@@ -166,13 +191,14 @@ ordinary decomposition, and components below `eps*‖X‖` are not resolved; an
 entry exceeding `floatmax` by less than the reconstruction's rounding bound
 is returned as `±floatmax`.
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
-The domain is the finite matrices: the
-value is `Inf` at a matrix with a non-finite entry, also for `λ = 0`.
-For `λ = 0`, the proximal operator copies its input. When a decomposition is
-needed, a non-finite input gives an all-`NaN` proximal output.
-`value_and_prox!` returns `Inf` at a non-finite input, also for `λ = 0`.
-Thus the equivalence with `SingularValue(NormL1(λ))` holds for the returned
-value there, but at `λ = 0` its all-`NaN` output differs from the copied input.
+The
+value is `Inf` at a matrix with an infinite entry and `NaN` at one with a `NaN`
+entry. For `λ = 0` it is the zero function (E4): its value is `0` at every
+input, non-finite entries included, and the proximal operator copies its input.
+When a decomposition is needed, a non-finite input gives an all-`NaN` proximal
+output. `value_and_prox!` returns the same value at a non-finite input. The
+values agree with those of `SingularValue(NormL1(λ))`; at `λ = 0` its all-`NaN`
+output differs from the copied input.
 With `λ = Inf` the value is `0` at the zero matrix and `Inf` at any other finite
 matrix, and at a positive step `value_and_prox!` returns `0` with its zero output
 at a finite input.
@@ -209,13 +235,13 @@ function (f::NuclearNorm)(X::AbstractMatrix)
   T = float(eltype(X))
   _checkblas(f, T)
   if !_is_device_array(X)
-    all(isfinite, X) || return T(Inf)
+    all(isfinite, X) || return _nuclear_nonfinite_value(f, X, T)
     iszero(f.λ) && return zero(T)
   end
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
   copyto!(ws.A, X)
-  !_is_device_array(X) || all(isfinite, ws.A) || return T(Inf)
+  !_is_device_array(X) || all(isfinite, ws.A) || return _nuclear_nonfinite_value(f, ws.A, T)
   iszero(f.λ) && return zero(T)
   s, = _svd!(ws; vectors = false)
   _level_fits(T, f.λ) || return convert(T, _scaled_nuclear_value!(ws, X, float(f.λ)))
@@ -226,6 +252,10 @@ function (f::NuclearNorm)(X::AbstractMatrix)
   # (overflow in the decomposition) still gives Inf. The stored level decides (R3).
   isinf(f.λ) ? (all(iszero, s) ? zero(T) : T(Inf)) : _scaled_nuclear_value!(ws, X, convert(T, f.λ))
 end
+
+# A zero level is the zero function (E4), whose value does not depend on the entries.
+_nuclear_nonfinite_value(f::NuclearNorm, X, ::Type{T}) where {T} =
+  _singular_nonfinite_value(iszero(f.λ) ? :zero : nothing, X, T)
 
 # The value λ v that NuclearNorm returns with its thresholded spectrum v. An infinite level fixes
 # the output at zero for a positive step, and the value there is 0, not Inf⋅0 (E4, O2). The stored
@@ -275,11 +305,12 @@ function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, �
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
   finite = all(isfinite, X)
+  bad = finite ? zero(T) : _nuclear_nonfinite_value(f, X, T)  # before Y, which may be X, is written
   if iszero(f.λ)
     Y === X || copyto!(Y, X)
-    return finite ? zero(T) : T(Inf)
+    return bad
   end
-  finite || (fill!(Y, T(NaN)); return T(Inf))
+  finite || (fill!(Y, T(NaN)); return bad)
   c = _level_product(T, γ, f.λ)
   if f.partial
     pv = _partial_nuclear!(Y, f, X, c)
@@ -334,8 +365,9 @@ at that copy. Otherwise a non-finite input gives an all-`NaN` output, and
 `value_and_prox!` returns NaN there. At a finite input it returns the value at
 the stored output: zero, except that when the rank threshold `√ε σ₁` is not a
 normal number, rounding to the destination's elements can leave a matrix of
-numerical rank above `r`, whose value is `Inf`, and a conversion that overflows
-the destination's type gives `Inf` or NaN.
+numerical rank above `r`, whose value is `Inf`; at an overflowing spectrum, an
+entry of the rescaled output beyond the range of the type gives `Inf`; and a
+conversion that overflows the destination's type gives `Inf` or NaN.
 
 $_PARTIAL_NOTE
 
@@ -479,9 +511,9 @@ not be continuous across rank-deficient inputs.
 
 The value is `0` when `‖XᵀX - I‖_F ≤ sqrt(eps(T)) √k`, with
 `T = float(eltype(X))`, and `Inf` otherwise. This tolerance is not a
-feasibility certificate. Nonfinite entries give value `Inf` and an all-`NaN`
-proximal output;
-`value_and_prox!` returns `Inf` at these inputs. Arguments must be real
+feasibility certificate. Non-finite entries give an all-`NaN` proximal output,
+and the value `NaN` when an entry is `NaN` and `Inf` otherwise, also from
+`value_and_prox!`. Arguments must be real
 matrices, and projection outputs must have element type `Float32` or
 `Float64`. Integer arguments are converted. Inputs are scaled before
 conversion to the output's precision, since positive scaling leaves the
@@ -526,7 +558,8 @@ function (f::IndStiefel)(X)
   _checkparams(f, X)
   T = float(eltype(X))
   A = _is_device_array(X) ? copyto!(_array_buffer!(f.input, T, size(X)), X) : X
-  isfinite(_maximum_abs(A)) || return T(Inf)
+  m = _maximum_abs(A)                 # NaN when an entry is NaN
+  isfinite(m) || return convert(T, m)
   X = A
   k = size(X, 2)
   k == 0 && return zero(T)
@@ -567,8 +600,9 @@ function value_and_prox!(Y, f::IndStiefel, X, γ::Real)
   X = _symmetric_argument(Y, X)
   _checkwrite(value_and_prox!, f, Y, X)
   finite = all(isfinite, X)
+  v = finite ? zero(_valtype(Y)) : _nonfinite_value(X, _valtype(Y))   # before Y, which may be X, is written
   prox!(Y, f, X, γ)
-  finite ? zero(_valtype(Y)) : _valtype(Y)(Inf)
+  v
 end
 
 ####################################
@@ -595,8 +629,8 @@ is returned as `±floatmax`.
 The sign test uses `√ε·max(1, ‖λ‖∞)`. With a rank bound, numerical rank counts
 positive eigenvalues above `√ε·‖λ‖∞`, with no absolute floor. See
 [Functions of a spectrum](@ref). Non-finite entries are not members. At a
-non-finite input, the proximal output is all `NaN` and `value_and_prox!` returns
-`Inf`.
+non-finite input, the proximal output is all `NaN`, and the value, also from
+`value_and_prox!`, is `NaN` when an entry is `NaN` and `Inf` otherwise.
 
 $_PARTIAL_NOTE Without a rank, the partial projection pays when few
 eigenvalues are positive.
@@ -636,12 +670,18 @@ function _ispsd!(f, X::AbstractMatrix, r::Union{Nothing, Int})
   T = float(eltype(X))
   _checkblas(f, T)
   n = checksquare(X)
-  !_is_device_array(X) && !_issymmetric_tol(X) && return false
+  # nothing at a non-finite input, which the callers resolve as NaN or Inf (E2)
+  if !_is_device_array(X)
+    all(isfinite, X) || return nothing
+    _issymmetric_tol(X) || return false
+  end
   ws = _eig_workspace(f.eig, T, n)
   f.eig = ws
   copyto!(ws.A, X)
-  !_is_device_array(X) || _issymmetric_tol(ws.A) || return false
-  all(isfinite, ws.A) || return false
+  if _is_device_array(X)
+    all(isfinite, ws.A) || return nothing
+    _issymmetric_tol(ws.A) || return false
+  end
   λ = _eigvals!(ws)
   n == 0 && return true
   _finite_value(λ[1]) && _finite_value(λ[n]) || return _scaled_ispsd!(ws, X, r)
@@ -664,7 +704,12 @@ end
   r === nothing || count(>(c), λ) <= r
 end
 
-(f::IndPSD)(X::AbstractMatrix) = (_checkreal(f, X); _ispsd!(f, X, f.rank) ? zero(float(eltype(X))) : float(eltype(X))(Inf))
+function (f::IndPSD)(X::AbstractMatrix)
+  _checkreal(f, X)
+  T = float(eltype(X))
+  p = _ispsd!(f, X, f.rank)
+  p === nothing ? _nonfinite_value(_is_device_array(X) ? f.eig.A : X, T) : p ? zero(T) : T(Inf)
+end
 
 # the projection onto the cone through all eigenpairs, in the workspace f.eig
 function _project_psd!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix)
@@ -719,8 +764,9 @@ function value_and_prox!(Y::AbstractMatrix, f::IndPSD, X::AbstractMatrix, γ::Re
   X = _spectral_argument(X)
   _checkwrite(value_and_prox!, f, Y, X)
   finite = all(isfinite, X)
+  v = finite ? zero(_valtype(Y)) : _nonfinite_value(X, _valtype(Y))   # before Y, which may be X, is written
   prox!(Y, f, X, γ)
-  finite ? zero(_valtype(Y)) : _valtype(Y)(Inf)
+  v
 end
 
 ####################################
@@ -743,8 +789,8 @@ Values follow the overflow rule in [Overflow and underflow of values](@ref).
 
 Membership in the positive semidefinite cone is reliable for every finite input
 within the floating-point tolerance; non-finite entries are not members.
-At a non-finite input, the proximal output is all `NaN` and
-`value_and_prox!` returns `Inf`.
+At a non-finite input, the proximal output is all `NaN`, and the value, also
+from `value_and_prox!`, is `NaN` when an entry is `NaN` and `Inf` otherwise.
 
 $_PARTIAL_NOTE
 
@@ -790,7 +836,9 @@ function (f::TracePSD)(X::AbstractMatrix)
   _checkreal(f, X)
   X = _is_device_array(X) ? copyto!(_array_buffer!(f.out, eltype(X), size(X)), X) : X
   T = float(eltype(X))
-  _ispsd!(f, X, nothing) || return T(Inf)
+  p = _ispsd!(f, X, nothing)
+  p === nothing && return _nonfinite_value(X, T)
+  p || return T(Inf)
   _level_fits(T, f.λ) || return _scaled_trace_value(f, X)
   v = convert(T, f.λ) * _trace!(f, X)
   isfinite(v) || !isfinite(f.λ) ? v : _scaled_trace_value(f, X)
@@ -812,7 +860,7 @@ function value_and_prox!(Y::AbstractMatrix, f::TracePSD, X::AbstractMatrix, γ::
   X = _spectral_argument(X)
   _checkwrite(value_and_prox!, f, Y, X)
   T = float(eltype(Y))
-  all(isfinite, X) || (fill!(Y, T(NaN)); return T(Inf))
+  all(isfinite, X) || (v = _nonfinite_value(X, T); fill!(Y, T(NaN)); return v)
   c = _level_product(T, γ, f.λ)
   if f.partial
     pv = _partial_psd!(Y, f, X, c, 0, f.λ)

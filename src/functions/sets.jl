@@ -500,13 +500,28 @@ end
 _spectrum_scale(v::AbstractVector{T}) where {T} = isempty(v) ? zero(T) : max(abs(v[1]), abs(v[end]))
 _decided_on_spectrum(::AbstractFunction) = false
 _decided_on_spectrum(::Union{IndBallL1, IndBallL2, IndBox, IndNonnegative, IndBinary, NormL1Nonneg}) = true
-_spectrum_value(f::AbstractFunction, v, k::Int) = f(k == 0 || _scale_invariant(f) ? v : ldexp.(v, k))
+# At an overflowing spectrum (k > 0), a function with a recovery takes the value in the units of
+# the spectrum (see _spectrum_scaled); k < 0 is a tiny spectrum of a function that counts nonzeros.
+function _spectrum_value(f::AbstractFunction, v, k::Int)
+  (k == 0 || _scale_invariant(f)) && return f(v)
+  if k > 0
+    r = _spectrum_scaled(f, v, k, _unit_scale(eltype(v)))
+    r === nothing || return r
+  end
+  f(ldexp.(v, k))
+end
 
 # Scale bounds before narrowing, keeping the absolute floor in original units.
 function _spectrum_ball(v::AbstractVector{T}, bound, k::Int, p) where {T}
   isfinite(bound) || return _ind(isinf(bound) && bound > 0, T)
   S = float(promote_type(T, typeof(bound)))
-  α, r = ldexp(one(S), -k), ldexp(S(bound), -k)
+  _spectrum_ball_scaled(v, S(bound), 0, k, p)
+end
+# The bound mb 2^eb, finite, which is not formed when it is outside the range.
+function _spectrum_ball_scaled(v::AbstractVector{T}, mb::S, eb::Int, k::Int, p) where {T, S}
+  α, r = ldexp(one(S), -k), ldexp(mb, eb - k)
+  # A bound beyond the range of the scaled units contains the (finite) spectrum.
+  _finite_value(r) || return zero(T)
   m = S(_spectrum_scale(v))
   n = p == 1 ? sum(abs, v) : p == 2 ? _norm2(v) : m
   slack = r + _tol(T) * max(α, abs(r), m)
@@ -516,7 +531,7 @@ function _spectrum_ball(v::AbstractVector{T}, bound, k::Int, p) where {T}
   factors = _power_factors(S, -e)
   n = p == 1 ? _scaled_sum(v, factors, abs) :
     p == 2 ? sqrt(_scaled_sumabs2(v, factors)) : ldexp(m, -e)
-  r = ldexp(S(bound), -k - e)
+  r = ldexp(mb, eb - k - e)
   slack = _tol(T) * max(ldexp(one(S), -k - e), abs(r), ldexp(m, -e))
   _ind(n <= r + slack, T)
 end
@@ -540,6 +555,11 @@ function _spectrum_value(f::NormL1Nonneg, v::AbstractVector{T}, k::Int) where {T
   _checkparams(f, v)
   # Preserve the ordinary reduction when its domain test already accepts.
   k == 0 && all(x -> x >= -_tol(T), v) && return f(v)
+  # An overflowing spectrum: the domain, then the value in its units, when it is recovered.
+  if k > 0
+    r = _spectrum_scaled(f, v, k, _unit_scale(T))
+    r === nothing || return convert(T, r)
+  end
   iszero(_spectrum_value(IndNonnegative(), v, k)) || return T(Inf)
   # Only the domain decision changes; negative rounding contributes zero.
   s = zero(T)

@@ -674,7 +674,7 @@ for [`GLMLoss`](@ref), and `Inf` where none exists:
 | `f` | `Lₖ` |
 |:----|:-----|
 | [`LeastSquaresLoss`](@ref) | `‖X[:, j]‖²` for the row `j` of entry `k` |
-| [`GLMLoss`](@ref) | `curvature(ℓ) ⋅ Σᵢ wᵢ X[i, k]²`; `Inf` for `PoissonLoss` |
+| [`GLMLoss`](@ref) | `curvature(ℓ) ⋅ Σᵢ wᵢ X[i, k]²`; `Inf` for `PoissonLoss` and an `IdentityBernoulli` loss |
 | [`QuadraticFunction`](@ref) | `A[k, k]` |
 | [`KronQuadratic`](@ref) | `A[r, r] B[c, c]` for entry `(r, c)` of `Θ` |
 | [`SqrNormL2`](@ref)`(λ)` | `λ` |

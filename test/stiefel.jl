@@ -136,13 +136,13 @@ end
     for v in (T(NaN), T(Inf), -T(Inf), floatmax(T))
       Y = copy(X)
       Y[1, 1] = v
-      @test f(Y) === T(Inf)
+      @test isequal(f(Y), isnan(v) ? T(NaN) : T(Inf))
       if !isfinite(v)
         for op in (prox!, value_and_prox!)
           Z = similar(Y)
           result = op(Z, f, Y, one(T))
           @test all(isnan, Z)
-          op === value_and_prox! && @test result === T(Inf)
+          op === value_and_prox! && @test isequal(result, isnan(v) ? T(NaN) : T(Inf))
         end
       end
     end

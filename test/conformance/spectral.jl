@@ -143,20 +143,34 @@ const c = 64
       types = "Float64"; backend = :cpu; rules = "E2,A5"
       problem = "NaN detected before LAPACK; spectral value is NaN (reverses #343)"
       expected = NaN; observed = f(Xnan)
-      broken = name == "rank" ? nothing : (group = :G6, baseline = Returned(v -> same(v, Inf)))
     end
     @row begin
       id = "spectral.nan-" * name * ".fused"; case = ""; family = :spectral; oracle = :value_and_prox
       types = "Float64"; backend = :cpu; rules = "E2,O2,A5"
       problem = "NaN value for coupled NaN output"
       expected = NaN; observed = value_and_prox!(zeros(2, 2), f, Xnan, 1.0)
-      broken = name == "rank" ? nothing : (group = :G6, baseline = Returned(v -> same(v, Inf)))
     end
     @row begin
       id = "spectral.nan-" * name * ".prox"; case = ""; family = :spectral; oracle = :prox
       types = "Float64"; backend = :cpu; rules = "E2,A5"
       problem = "Every entry of the coupled output depends on the NaN"
       expected = fill(NaN, 2, 2); observed = prox!(zeros(2, 2), f, Xnan, 1.0)
+    end
+  end
+
+  # E1 at a non-finite input: parameters that do not fit the spectrum throw DimensionMismatch at a
+  # finite input; at a NaN or infinite entry the structure is not checked yet (#686, G2).
+  for (name, f, X, v) in (
+      ("linear-constrained.nan", SingularValue(Constrained(NormL1(1.0, ones(3)), IndHalfspace(-1.0, 0.0))), [NaN 0.0; 0.0 2.0], NaN),
+      ("linear-constrained.inf", SingularValue(Constrained(NormL1(1.0, ones(3)), IndHalfspace(-1.0, 0.0))), [Inf 0.0; 0.0 2.0], Inf),
+      ("weights.nan", SingularValue(NormL1(1.0, ones(3))), [NaN 0.0; 0.0 2.0], NaN),
+      ("sumlargest.inf", Spectral(SumLargest(5, 1.0)), [Inf 0.0; 0.0 2.0], Inf))
+    @row begin
+      id = "spectral.e1-nonfinite." * name; case = ""; family = :spectral; oracle = :validation
+      types = "Float64"; backend = :cpu; rules = "E1"
+      problem = "Structure first (E1): parameters that do not fit the spectrum throw, as at a finite input; not checked at a non-finite input yet (#686)"
+      expected = Throws(:DimensionMismatch); observed = f(X)
+      broken = (group = :G2, baseline = Returned(r -> same(r, v)))
     end
   end
 
@@ -170,9 +184,68 @@ const c = 64
       problem = "Spectrum of M*ones(2,2) is (2M,0); power-of-two recovery, bound c=64 pending in contract"
       expected = M / T(2); observed = f(fill(M, 2, 2))
       compare = (a, b) -> typed_bound(a, b, c * eps(T) * b)
-      broken = name in ("singular", "eigen") ? (group = :G6, baseline = Returned(v -> same(v, T(Inf)))) : nothing
     end
   end
+
+  # R1, R4: standalone values at an overflowing spectrum through the scaled recovery (#283, part 2b).
+  for T in (Float32, Float64)
+    M = floatmax(T)
+    A = fill(M, 2, 2)
+    q = T(1 / 4)
+    B = [A zeros(T, 2, 2); zeros(T, 2, 2) -A]
+    @row begin
+      id = "spectral.overflow-conjugate-singular-" * string(T); case = ""; family = :spectral; oracle = :value
+      types = string(T); backend = :cpu; rules = "R1,A5"
+      problem = "Conjugate(SingularValue(IndBallL1(1/4))) at M*ones(2,2): support function (1/4)*sigma_1 = M/2; bound c=64 pending"
+      expected = M / T(2); observed = Conjugate(SingularValue(IndBallL1(q)))(A)
+      compare = (a, b) -> typed_bound(a, b, c * eps(T) * b)
+    end
+    @row begin
+      id = "spectral.overflow-signed-cancel-" * string(T); case = ""; family = :spectral; oracle = :value
+      types = string(T); backend = :cpu; rules = "R1,A5"
+      problem = "Spectral(SumLargest(2, 1/4)) at blockdiag(A, -A), eigenvalues (-2M, 0, 0, 2M): M/2; signed bound c*p*eps*lambda*norm(X)"
+      expected = M / T(2); observed = Spectral(SumLargest(2, q))(B)
+      compare = (a, b) -> typed_bound(a, b, c * 4 * eps(T) * M / 2)
+    end
+    @row begin
+      id = "spectral.overflow-signed-negative-" * string(T); case = ""; family = :spectral; oracle = :value
+      types = string(T); backend = :cpu; rules = "R1,A5"
+      problem = "Spectral(SumLargest(2, 1/4)) at -M*ones(2,2), eigenvalues (-2M, 0): -M/2; signed bound c*p*eps*lambda*norm(X)"
+      expected = -M / T(2); observed = Spectral(SumLargest(2, q))(-A)
+      compare = (a, b) -> typed_bound(a, b, c * 2 * eps(T) * M / 2)
+    end
+    @row begin
+      id = "spectral.kyfan-finite-" * string(T); case = ""; family = :spectral; oracle = :value
+      types = string(T); backend = :cpu; rules = "R1,A5"
+      problem = "Ky Fan 1-norm with level 1/4 at M*I, a finite spectrum (M, M): the kernel's sum overflows; value M/4 (the box-linear kernel, #648)"
+      expected = M / T(4)
+      observed = SingularValue(Conjugate(Constrained(IndBox(zero(T), q), IndHalfspace(1, q))))(Matrix(M * I, 2, 2))
+      compare = (a, b) -> typed_bound(a, b, c * eps(T) * b)
+      broken = (group = :G6, baseline = Returned(v -> same(v, T(NaN))))
+    end
+    @row begin
+      id = "spectral.overflow-dual-ball-" * string(T); case = ""; family = :spectral; oracle = :value
+      types = string(T); backend = :cpu; rules = "R1,R4"
+      problem = "Conjugate(SingularValue(Scaled(NormL1(M), 4))) at M*ones(2,2): sigma_1 = 2M within the radius 4M, which is not formed"
+      expected = zero(T); observed = Conjugate(SingularValue(Scaled(NormL1(M), T(4))))(A)
+    end
+    @row begin
+      id = "spectral.overflow-subnormal-scale-" * string(T); case = ""; family = :spectral; oracle = :value
+      types = string(T); backend = :cpu; rules = "R1,A5"
+      problem = "SingularValue(Scaled(NormL1(1), nextfloat(0))) at M*ones(2,2): the subnormal scale folds into the level; bound c=64 pending"
+      expected = bigref(() -> big(nextfloat(zero(T))) * 2 * big(M), T)
+      observed = SingularValue(Scaled(NormL1(one(T)), nextfloat(zero(T))))(A)
+      compare = (a, b) -> typed_bound(a, b, c * eps(T) * b)
+    end
+  end
+  @notcovered :spectral :value "Float32/Float64" :cpu "R1: NormLq has a degree that is not an integer, so 2^(qk) is not an exponent-only scale; the ordinary value at an overflowing spectrum is kept."
+  @notcovered :spectral :value "Float32/Float64" :cpu "R1: order-dependent penalties (TotalVariation1D, FusedLasso, NormL1Fused, group norms) and cone indicators (IndSOC) that SingularValue admits outside its documented domain keep the ordinary value at an overflowing spectrum."
+  @notcovered :spectral :value "Float32/Float64" :cpu "R1, G7 (#357): Translate, centered SqrNormL2 and Precompose are not homogeneous in the spectrum; the ordinary value at an overflowing spectrum is kept."
+  @notcovered :spectral :value "Float32/Float64" :cpu "R1: penalties that are not homogeneous (LogPenalty, Berhu, DistL2) at an infinite spectrum entry keep the ordinary value."
+  @notcovered :spectral :value "Float32/Float64" :cpu "R1 (#356): MCP and SCAD with an overflowing threshold keep the ordinary value."
+  @notcovered :spectral :value "Float32/Float64" :cpu "R1, decision 45: a function of the user keeps its ordinary value at an overflowing spectrum; within range it is covered (spectral.custom-inner)."
+  @notcovered :spectral :value "Float32/Float64" :cpu "R1 (#648): support functions of a box with a linear constraint (the Ky Fan set) keep the ordinary value at an overflowing spectrum, and those of IndBox and IndSimplex at levels outside the normal range have no fold; the ordinary value is kept."
+  @notcovered :spectral :value "Float32/Float64" :cpu "R1: the weighted dual ball Conjugate(Scaled(NormL1(M, w), 4)) at an overflowing spectrum keeps the ordinary value."
 
   # A5: analytic maps and independent Frobenius references.
   for (name, f, X, ref) in (("psd", IndPSD(), [2.0 1; 1 2], [2.0 1; 1 2]),

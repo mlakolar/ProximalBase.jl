@@ -36,12 +36,14 @@ singular values. It needs the halfspace: the conjugate of the capped simplex,
 with the hyperplane `Σᵢ wᵢ = k`, is the sum of the `k` largest entries, which is
 not absolutely symmetric.
 
-`isconvex` and the indicator property come from `f`. A matrix with an infinite
-entry has value `Inf`; for a bounded `f` such as `NormL0` this is not yet the
-limit that E3 asks for. At a matrix with a NaN entry, a function that counts
-nonzeros, such as `NormL0` or `IndBallL0`, has value NaN (E2), or `0` when it
-takes the same value at every spectrum, as `NormL0(0)` and `IndBallL0(r)` with
-`r ≥ minimum(size(X))` do; other functions still give `Inf` there. When a
+`isconvex` and the indicator property come from `f`. At a matrix with a NaN
+entry, a function that counts nonzeros, such as `NormL0` or `IndBallL0`, has
+value NaN (E2), also when another entry is infinite. One that takes the same
+value at every spectrum, as `NormL0(0)` and `IndBallL0(r)` with
+`r ≥ minimum(size(X))` do, has value `0` at NaN entries alone and `Inf` at an
+infinite entry. Otherwise an infinite entry gives `Inf`, which for a bounded `f`
+such as `NormL0` is not yet the limit that E3 asks for, and the functions that
+do not count nonzeros give `Inf` at a NaN entry too. When a
 decomposition is needed, a non-finite input gives an all-`NaN` proximal output;
 `value_and_prox!` returns the value of a counting function at that output, NaN,
 or `0` when the function is constant, and `Inf` for the other functions.

@@ -153,9 +153,11 @@ package's indicator functions, return `0` without checking membership, except
 where the stored output has a NaN that the value depends on, which gives NaN, as
 for [`IndBallL0`](@ref), [`IndBallGroupL0`](@ref), [`IndBallRank`](@ref) and
 `SingularValue(IndBallL0(r))` (the last two at a non-finite input that needs a
-decomposition), and for the other spectral indicators at non-finite inputs,
-which return `Inf`. This
-equals `f(y)` when the projection is exact, but is not a feasibility certificate
+decomposition). `IndBallRank` with `r ≥ minimum(size(X))` copies its input and
+returns the value of the copy: `Inf` at an infinite entry, and `0` when the only
+non-finite entries are NaN. The other spectral indicators return `Inf` at
+non-finite inputs. This equals `f(y)` when the projection is exact, but is
+not a feasibility certificate
 for an inexact projection such as [`IndIntersection`](@ref). Computing the value this
 way can be cheaper than `prox!` followed by `f(y)`. The conjugates that
 [`Conjugate`](@ref) lists as indicators follow the same convention; another conjugate whose

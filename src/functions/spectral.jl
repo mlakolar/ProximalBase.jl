@@ -65,7 +65,8 @@ end
 # its formula (E3). The indicator of all matrices is _count_nonfinite_value's constant.
 _constant_nonfinite_value(kind, X, ::Type{T}) where {T} =
   kind === :zero ? zero(T) : kind === :whole ? _count_nonfinite_value(true, X, T) : nothing
-function _singular_nonfinite_value(kind, X, ::Type{T}) where {T}
+# (The coverage counter never fires on this signature line; the body lines below are hit.)
+function _singular_nonfinite_value(kind, X, ::Type{T}) where {T}  # COV_EXCL_LINE
   v = _constant_nonfinite_value(kind, X, T)
   v === nothing ? _nonfinite_value(X, T) : v
 end

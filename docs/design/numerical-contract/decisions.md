@@ -2153,7 +2153,9 @@ Excluded, and unchanged:
   under an infinite level.
 - An infinite fusion level alone, `NormL1Fused(λ1, Inf)` with a finite
   `λ1`: its domain is the vectors with equal entries (`x1 = x2` for the tuple
-  form), which is not a constant map.
+  form), which is not a constant map, so the rule above does not cover it. It
+  is no longer unchanged: #664 gives it the projection onto the equal entries
+  followed by the ℓ1 shrink (the `NormL1Fused` bullet with `λ2 = Inf` above).
 - An infinite coordinate weight under a finite level. Its entry is constant
   too, but testing every weight costs the weighted loops 8–28%, so it is a
   separate question for all the separable families.

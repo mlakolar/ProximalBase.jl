@@ -377,16 +377,56 @@ end
       prox!(sentinel, s, x, γ)
       @test isequal(sentinel, y) && isequal(prox(s, x, γ), y)
     end
-    # a scalar step takes the same decision
+    # A scalar step folds the whole exponent of the product into the levels, and the fixed entry is
+    # zero whatever the weights of the other entries are; the free entry keeps its finite penalty
+    # (its threshold is below the range and the value at the output is the scaled value of the
+    # function, a little above zero)
     for (αs, γs) in ((T === Float64 ? (1e-160, 1e-160) : (1f-20, 1f-20)), (T === Float64 ? (1e-300, 1e-300) : (1f-30, 1f-30)))
       s2 = Scaled(f, αs)
       y = zeros(T, 2)
       v = value_and_prox!(y, s2, x, γs)
-      # the ridge below the range is dropped by the step fold itself, so the fixed entry is zero; for the
-      # group function the fold is declined and the result is the unfolded one, which is not pinned
-      name == "ElasticNet" && @test isequal(y, T[1, 0])
+      @test isequal(y, T[1, 0])
       @test isequal(v, s2(y))
+      name == "SparseGroupNormL2" && @test v ≈ αs rtol = 8eps(T)      # λ1 |y1| = 1 at the scale αs
+      a = copy(x)
+      va = value_and_prox!(a, s2, a, γs)
+      @test isequal(a, y) && isequal(va, v)
+      sentinel = fill(T(-7), 2)
+      prox!(sentinel, s2, x, γs)
+      @test isequal(sentinel, y) && isequal(prox(s2, x, γs), y)
+      # a chain of factors takes the route of the scalar step
+      @test isequal(prox(Scaled(Scaled(f, αs), one(T)), x, γs), y)
     end
+  end
+  # the same call for the group function on an AtomIterate, a coordinate at a time
+  let f = SparseGroupNormL2(T(1), inf, [1:1, 2:2], T[0, 1]), tiny = T === Float64 ? T(1e-300) : T(1f-30)
+    s = Scaled(f, tiny)
+    for (k, expected) in ((1, T[1, 2]), (2, T[1, 0]))
+      a = AtomIterate(T[1, 2], f)
+      prox_coordinate!(a, s, k, tiny)
+      @test isequal(collect(a), expected)
+    end
+  end
+  # an entry of the free group of subnormal magnitude: the finite level below the range that is dropped
+  # (a threshold of 1e-400, or 1e-60 in Float32) is far below half the spacing of the subnormal numbers,
+  # so the entry equals the exact result, the BigFloat one rounded to the type, and differs from the
+  # unrounded one by less than floatmin
+  let tiny = T === Float64 ? T(1e-200) : T(1f-30), x1 = T === Float64 ? T(1e-310) : T(1f-40)
+    for f in (SparseGroupNormL2(T(1), inf, [1:1, 2:2], T[0, 1]), ElasticNet(inf, T(1), T[0, 1]))
+      y = zeros(T, 2)
+      value_and_prox!(y, Scaled(f, tiny), T[x1, 2], tiny)
+      exact = f isa ElasticNet ? big(x1) / (1 + big(tiny) * big(tiny)) : big(x1) - big(tiny) * big(tiny)
+      @test y[1] == T(exact) && y[2] == 0
+      @test abs(big(y[1]) - exact) < big(floatmin(T))
+    end
+  end
+  # An array step is not folded: its entries differ by orders of magnitude from the exponent folded into
+  # the levels, so the finite level cannot be dropped, and with a zero weight the fold is declined. The
+  # result is the one of the step rounded with the factor (the product 1e-620 is the step 0 at the entry
+  # of the fixed group), which is not the hard domain of that group. This is the result before the
+  # change, and a follow-up issue tracks it; the rows above with the large array steps are exact.
+  let f = SparseGroupNormL2(T(1), inf, [1:1, 2:2], T[0, 1]), α = T === Float64 ? T(1e-310) : T(1f-40)
+    @test isequal(prox(Scaled(f, α), T[1, 2], T[α, α]), T[1, 2])
   end
   # an infinite level with positive weights still drops it: the same functions without the zero weight
   check(Scaled(ElasticNet(inf, T(1), T[1, 1]), α), x, T[hi, hi], zeros(T, 2); value = nothing)

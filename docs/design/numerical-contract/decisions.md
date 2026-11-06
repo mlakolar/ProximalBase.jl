@@ -2049,9 +2049,13 @@ the rounded step `0` (the identity of `γ = 0` for `NormL1`, the NaN of
 stored (R3): a finite level whose product overflows or underflows keeps its
 finite meaning. `SLOPE` and `NormL1Fused` fold their levels for such a step only
 when a level is infinite, and in the functions with several levels the finite ones
-that fall below the range are dropped to zero then, since the map is constant. An
-array step and a chain of factors take the same route, and the values of scaled
-functions are unchanged.
+that fall below the range are dropped to zero then: for a scalar step the leaf
+receives the significand of the step, so the dropped coefficient is below `floatmin`
+and an entry changes by less than that, whatever the weights are. A chain of factors
+takes the same route, and the values of scaled functions are unchanged. An array step
+drops the finite level only when no weight is zero (its entries are not folded, so
+the drop is not bounded); with a zero weight the earlier result is kept, and that
+case is excluded here.
 
 Excluded, and unchanged:
 

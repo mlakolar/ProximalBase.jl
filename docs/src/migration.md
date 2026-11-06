@@ -110,7 +110,9 @@ the earlier behavior applies.
     is subnormal or overflows, for chains of `Scaled`, array steps and
     `value_and_prox!`, whose value is `0`, as long as no finite level of the
     function overflows with it: `Scaled(NormL1Fused(Inf, 1.0), 1e300)` at the step
-    `1e300` keeps its NaN. A zero, infinite, negative or NaN step and finite levels,
+    `1e300` keeps its NaN. For an array step, `ElasticNet` and `SparseGroupNormL2`
+    with a zero weight and a finite second level keep the earlier result when the
+    product underflows. A zero, infinite, negative or NaN step and finite levels,
     including a finite level that overflows, keep their results.
 - **Infinite entries.** A bounded projection at an argument with one infinite
   entry returns its limit, where it returned NaN or a partly NaN block

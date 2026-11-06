@@ -155,9 +155,11 @@ A level that is stored as infinite stays infinite under a positive finite factor
 their product is: `Scaled(NormL1(Inf), 1e-300)` at the step `1e-300` has the proximal map of the
 domain `{0}`, as at the step `1`, and not the identity of a step rounded to zero. A finite level
 whose product overflows is not read as infinite. For `SLOPE`, `NormL1Fused` and the functions with
-two levels, a finite level whose product falls below the range is then dropped to zero, for
-`ElasticNet` and `SparseGroupNormL2` only when no weight is zero (a zero weight leaves entries free
-that the finite level still acts on).
+two levels, a finite level whose product falls below the range is then dropped to zero, which
+changes an entry by less than `floatmin`. For an array step the drop is not bounded, and
+`ElasticNet` and `SparseGroupNormL2` make it only when no weight is zero (a zero weight leaves entries
+free that the finite level still acts on); with a zero weight the fold is declined and the result is
+the one of a step rounded with the factor, as before.
 A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its gradient and Hessian
 product at its own scale before the factors are applied, so an intermediate that leaves the range is
 lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` at `[1e10]`
@@ -317,9 +319,17 @@ end
 # is stored as infinite is a hard constraint, not a product to form: under a positive finite scale it
 # stays infinite (`_folded_level`), where a finite level whose product leaves the range is refused.
 # With `flush`, a finite level whose product falls below the range is dropped to zero instead, and
-# `seen` records that an infinite level was met: the function is then constant on its domain {0},
-# and the levels that do not matter are not allowed to discard the fold (`_nested_step` keeps such a
-# fold only when `seen`).
+# `seen` records that an infinite level was met: the function is then constant on its domain {0}
+# wherever a weight does not free it, and the levels that do not matter are not allowed to discard
+# the fold (`_nested_step` keeps such a fold only when `seen`).
+# The error of the drop is below floatmin in the coefficient that the leaf forms. For a scalar step the
+# whole exponent of the product α γ is folded into the levels and the leaf receives the significand
+# mγ in [1/2, 1): the dropped level c has |c| < floatmin, so the leaf's coefficient mγ c is below
+# floatmin too, whatever the weights are: a soft threshold that small changes an entry by less than
+# floatmin, and a ridge by a relative amount below floatmin (an entry of that magnitude can lose its
+# whole threshold, as the product rounded to a zero step does). An array step is not folded: its entries differ by orders of magnitude from the
+# exponent in the levels, so the same drop is not bounded (a step of 1e300 against a level of 1e-310),
+# and it is made only when no weight is zero (`_hard_levels`).
 struct _HardScale{S, R<:Union{Nothing, Base.RefValue{Bool}}}
   s::S
   flush::Bool
@@ -370,7 +380,8 @@ end
 # For an array step, a function with two levels one of which is infinite is constant on its domain
 # {0} when no weight leaves a coordinate or a group free: the finite level that falls below the
 # range is then dropped to zero instead of discarding the fold. With a zero weight the finite level
-# still acts on the free entries, and the fold is declined.
+# still acts on the free entries, through steps that the drop cannot bound (see `_HardScale`), and the
+# fold is declined.
 function _hard_levels(f, α::_NormalScale, λs::Tuple)
   cs = map(λ -> _folded_level(λ, α), λs)
   any(isnothing, cs) || return cs
@@ -417,15 +428,7 @@ _fold_level(f::Scaled, α) = _fold_level(f.f, _projection_accumulate(α, f.α))
 _fold_level_step(f, α) = _fold_level(f, α)
 _fold_block_step(f, α) = _isindicator(f) ? f : _fold_level_step(f, α)
 _fold_block_step(f::ZeroFunction, α) = f
-# The second try of a step drops finite levels only for a function whose weights are all positive
-# (see `_hard_levels`); otherwise it is the plain fold.
-_unflushed(f, α) = α
-_unflushed(f, α::_HardScale) = α.flush && !_weights_positive(f) ? _HardScale(α.s) : α
-function _fold_level_step(f::SparseGroupNormL2, α)
-  _fold_level(f, _unflushed(f, α))
-end
-function _fold_level_step(f::ElasticNet, α0)
-  α = _unflushed(f, α0)
+function _fold_level_step(f::ElasticNet, α)
   c1 = _folded_level(f.λ1, α)
   c = iszero(f.λ2) ? f.λ2 : _apply_scale(α, f.λ2)
   c2 = isfinite(c) && abs(c) < floatmin(typeof(float(c))) ? zero(c) : _folded_level(f.λ2, α)

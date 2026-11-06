@@ -58,8 +58,16 @@ Constrained(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, C::IndBox) =
   BoxConstrained(c.f, _intersect_boxes(c.box, C))
 Constrained(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, ::IndNonnegative) = Constrained(c, IndBox(0.0, Inf))
 
-Base.@propagate_inbounds prox_entry(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, v::Real, i::Integer, γ::Real) =
+Base.@propagate_inbounds prox_entry(c::BoxConstrained{<:Union{MCP, SCAD}}, v::Real, i::Integer, γ::Real) =
   _box_entry(c, v, i, γ, Val(true))
+# NormL0 written out: through _box_entry the compiler no longer vectorizes the
+# loop of a box with bounds per entry. The same values as _box_entry(…, Val(true)).
+Base.@propagate_inbounds function prox_entry(c::BoxConstrained{<:NormL0}, v::T, i::Integer, γ::Real) where {T<:Real}
+  S = float(T)
+  l, u = convert(S, _entry(c.box.l, i)), convert(S, _entry(c.box.u, i))
+  x = convert(S, v)
+  ifelse(isnan(x), ifelse(_box_constant(c, l, u), clamp(zero(S), l, u), x), _best_candidate(c, x, i, convert(S, γ), l, u, (x,)))
+end
 
 # fixed: whether a coordinate may be fixed by the parameters (see _box_fixes)
 Base.@propagate_inbounds function _box_entry(c::BoxConstrained{<:MCP}, v::T, i::Integer, γ::Real, ::Val{fixed}) where {T<:Real, fixed}

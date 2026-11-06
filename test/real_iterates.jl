@@ -228,6 +228,18 @@ end
   end
   @test_throws InexactError (atom(AtomIterate(4, 2), 1) .= ComplexF64[1, 2im])
   @test_throws Exception (coordinates(SparseIterate(4)) .= c)
+  # the coordinate view has no check of its own: it writes as a plain vector of the element type
+  let fixture() = (x = SparseIterate(4); x[3] = 1.0; x)
+    x = fixture()
+    @test_throws InexactError (coordinates(x) .= c)
+    @test Vector(x) == [1.0, 0, 1, 0]
+    x = fixture()
+    @test_throws InexactError copyto!(coordinates(x), c)
+    @test Vector(x) == [1.0, 0, 1, 0]
+    x = fixture()
+    @test_throws InexactError (coordinates(x)[2] = 2im)
+    @test Vector(x) == [0.0, 0, 1, 0]
+  end
 
   makem() = (x = SparseIterate(2, 2); x[4] = 9.0; x)
   for write! in (x -> copyto!(x, c), x -> copyto!(x, C), x -> copy!(x, C), x -> (x .= C), x -> fill!(x, 2im),

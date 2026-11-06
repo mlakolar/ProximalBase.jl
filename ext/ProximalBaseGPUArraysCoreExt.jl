@@ -924,14 +924,51 @@ function _value(f::IndBallGroupL0, lay, x)
   _checkreal(f, x)
   _checkgroups(f, x)
   xv = vec(x)
-  nz, ok = 0, true
+  K = length(lay.pos)
+  nz, ok, nan = 0, true, false
   for b in lay.blocks
-    c = _segreduce(!iszero, +, 0, _gather(xv, b), b)
+    # the nonzero entries of each group and, in the high bits, its NaN entries, in one reduction
+    c = _segreduce(_nonzero_nan, +, 0, _gather(xv, b), b)
     nz += _sum(Int, >(0), c)
-    ok &= _all(<=(f.k), c)
+    # a NaN in a group the value depends on (E2): every group when fewer than all
+    # may be nonzero, and with a bound k the groups with more than k entries. One
+    # reduction when every group fits and none has such a NaN, as on ordinary
+    # inputs; the two are told apart only otherwise.
+    d = _NoDependentNaN(f.s < K, f.k)
+    _all(_FitsNoDependentNaN(_CountFits(f.k), d), c, b.len) && continue
+    nan |= !_all(d, c, b.len)
+    ok &= _all(_CountFits(f.k), c)
   end
-  return _ind(ok && nz <= f.s, float(eltype(x)))
+  return nan ? float(eltype(x))(NaN) : _ind(ok && nz <= f.s, float(eltype(x)))
 end
+
+# One for a nonzero entry, NaN included, plus 2^32 for a NaN entry: a group has
+# fewer than 2^32 entries, so the low bits count its nonzero entries and the high
+# bits its NaN entries.
+const _NAN_UNIT = 1 << 32
+_nonzero_nan(v) = Int(!iszero(v)) + (isnan(v) ? _NAN_UNIT : 0)
+struct _CountFits
+  k::Int
+end
+(f::_CountFits)(c) = (c & (_NAN_UNIT - 1)) <= f.k
+# whether a group has no NaN entry that the value depends on
+struct _NoDependentNaN
+  all::Bool       # every group counts
+  k::Int
+end
+(d::_NoDependentNaN)(c, len) = !((c >= _NAN_UNIT) & (d.all | (len > d.k)))
+struct _FitsNoDependentNaN
+  fits::_CountFits
+  d::_NoDependentNaN
+end
+(p::_FitsNoDependentNaN)(c, len) = p.fits(c) & p.d(c, len)
+
+# The norm of a group from its largest magnitude m and scaled sum of squares q:
+# Inf at an infinite entry, where m⋅√q is NaN ((Inf/Inf)²), as on the CPU, so
+# that only a NaN entry gives NaN.
+_l0_group_norm(m, q) = isinf(m) ? m : m * sqrt(q)
+
+_nan_if(v, nan, _) = nan ? oftype(v, NaN) : v
 
 _keep(v, keep, _) = keep ? v : zero(v)
 
@@ -939,7 +976,7 @@ _keep(v, keep, _) = keep ? v : zero(v)
 # the s largest on the host, among the K norms, as the CPU does, the earlier
 # groups first among ties. With a bound k on the entries of a group, it would
 # need a selection inside each group, which runs on the CPU only.
-function _group_prox!(y, f::IndBallGroupL0, lay, x, ::Real, ::Val)
+function _group_prox!(y, f::IndBallGroupL0, lay, x, ::Real, ::Val{V}) where {V}
   _checkreal(f, x)
   _checkreal(f, y)
   _checksize(y, x)
@@ -952,9 +989,21 @@ function _group_prox!(y, f::IndBallGroupL0, lay, x, ::Real, ::Val)
   K = length(lay.pos)
   norms = similar(yv, S, K)
   for b in lay.blocks
-    view(norms, b.pos) .= vec(_group_norms(_gather(yv, b), b, S))
+    m, q = _group_norm_parts(_gather(yv, b), b, S)
+    view(norms, b.pos) .= vec(_l0_group_norm.(m, q))
   end
-  keep = _keep_groups(Array(norms), lay.pos, f.s)
+  hnorms = Array(norms)
+  # s = 0 zeroes every group below, whatever the entries (E4 first), and s ≥ K
+  # keeps them all. Otherwise which groups are kept depends on every grouped
+  # entry, so a NaN norm, which only a NaN entry gives, makes every grouped output
+  # NaN (E2), as on the CPU; the fused value is then NaN.
+  if 0 < f.s < K && any(isnan, hnorms)
+    grouped = fill(true, K + 1)
+    grouped[K + 1] = false
+    _scatter_back!(_nan_if, yv, lay, copyto!(similar(yv, Bool, K + 1), grouped))
+    return V ? S(NaN) : zero(S)
+  end
+  keep = _keep_groups(hnorms, lay.pos, f.s)
   _scatter_back!(_keep, yv, lay, copyto!(similar(yv, Bool, K + 1), keep))
   return zero(S)
 end

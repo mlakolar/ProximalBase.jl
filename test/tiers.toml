@@ -95,6 +95,7 @@ standard = [
   "stiefel",
   "sumlargest",
   "scaled_no_level",
+  "nested_scaled_values",
   "threshold_factor_type",
   "threshold_precision",
   "argument_threshold_precision",

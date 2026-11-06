@@ -95,6 +95,10 @@ holds the proximal map of `SparseGroupNormL2` with an infinite ℓ1 level: a gri
 weights, steps and non-finite entries on vectors, `AtomIterate`, `SymmetricSparseIterate`
 outputs, JLArrays and the wrappers, about 60,000 assertions, beside its siblings
 `sparsegroup_infinite_level` and `l2_nan_blocks`.
+`nested_scaled_values` (standard) holds the values of nested `Scaled` chains whose product does not
+fold into a normal level, a grid over the levelled families and the wrappers that fold them in both
+directions and in Float32 and Float64, and the fused values at the stored output, next to
+`nested_scaled`: a few seconds, with no grid that would need the thorough tier.
 
 ## Measured times on GitHub
 

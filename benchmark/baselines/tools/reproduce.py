@@ -83,7 +83,7 @@ def extract(archive, dest):
     except (tarfile.TarError, EOFError, zlib.error, OSError) as exc:
         if isinstance(exc, ToolError):
             raise
-        raise ToolError(f"cannot read the archive {archive}: {type(exc).__name__}: {exc}")
+        raise ToolError(f"cannot read or extract the archive {archive}: {type(exc).__name__}: {exc}")
 
 
 def generate(work):

@@ -425,7 +425,7 @@ end
       for f in (NormL1(T(Inf)), NormL1(T(Inf), T[1, 0]), SLOPE(T[Inf, 1]), NormL1Fused(T(Inf), one(T)),
                 Scaled(NormL1(T(Inf)), T(2)), Constrained(NormL1(T(Inf)), IndBox(0, Inf)))
         F = SingularValue(f)
-        @test PB._constant_kind(f, 2) === nothing
+        @test PB._constant_kind(f, 2, true) === nothing
         for Z in (A, X, T[1 0; 0 0], T[2 1; 1 3], T[Inf 0; 0 2])
           @test F(Z) === T(Inf)
         end

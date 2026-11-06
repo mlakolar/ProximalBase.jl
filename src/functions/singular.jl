@@ -38,16 +38,20 @@ not absolutely symmetric.
 
 `isconvex` and the indicator property come from `f`. The domain of `F` is the
 finite matrices: a matrix with an infinite entry has value `Inf`, and one with
-a `NaN` entry has value `NaN`, also for a bounded `f` such as `NormL0`. The
-exceptions are the inner functions whose value does not depend on the entries:
-the zero-level, unweighted `NormL1`, `NormL2`, `NormLinf`, `SumLargest(k, 0)`
-with `k ≤ minimum(size(X))`, uncentered `SqrNormL2`, `CubeNormL2` and
-`ElasticNet(0, 0)`, and
-`ZeroFunction()`, are the zero function, with value `0` at every input; and
-`IndBallL0(r)` with `r ≥ minimum(size(X))` is the indicator of all matrices,
-with value `0` when the non-finite entries are all `NaN` and `Inf` at an
-infinite entry. When a decomposition is needed, a non-finite input gives an
-all-`NaN` proximal output; `value_and_prox!` returns the same value.
+a `NaN` entry has value `NaN` (E2), also for a bounded `f` such as `NormL0` and
+also when another entry is infinite. The exceptions are the inner functions
+whose value does not depend on the entries:
+- the zero-level, unweighted `NormL1`, `NormL2`, `NormLinf`, `SumLargest(k, 0)`
+  with `k ≤ minimum(size(X))`, uncentered `SqrNormL2`, `CubeNormL2` and
+  `ElasticNet(0, 0)`, and `ZeroFunction()`, are the zero function, with value
+  `0` at every input;
+- `NormL0(0)` and `IndBallL0(r)` with `r ≥ minimum(size(X))`, also scaled or
+  on a box that holds every singular value, have value `0` when the non-finite
+  entries are all `NaN`, and `Inf` at an infinite entry.
+When a decomposition is needed, a non-finite input gives an all-`NaN` proximal
+output. `value_and_prox!` returns the value at that output for a function that
+counts nonzeros (`NaN`, or `0` when the function is constant), and otherwise
+the same value as `F`.
 Only functions that count nonzeros, such as `NormL0` and `IndBallL0`, treat
 singular values at most `√ε σ₁` as zero. Other functions see the computed
 spectrum. Membership and domain tests use `√ε·max(1, |bound|, σ₁)`; sum
@@ -128,9 +132,10 @@ function _singular_values!(F::SingularValue, X::AbstractMatrix; copied::Bool = f
   s
 end
 
-# The domain is the finite matrices: a non-finite entry gives Inf. Singular
-# values within rounding of zero count as zero for counting functions. An
-# overflowing spectrum decides membership in scaled units.
+# A non-finite entry gives NaN at a NaN entry and Inf otherwise, unless f is
+# constant (_singular_nonfinite_value). Singular values within rounding of zero
+# count as zero for counting functions. An overflowing spectrum decides
+# membership in scaled units.
 function (F::SingularValue)(X::AbstractMatrix)
   _checkreal(F, X)
   T = float(eltype(X))
@@ -140,11 +145,11 @@ function (F::SingularValue)(X::AbstractMatrix)
     F.ws = ws
     copyto!(ws.A, X)
     all(isfinite, ws.A) || return (_check_spectrum_structure(F.f, T, minimum(size(X)));
-                                   _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), ws.A, T))
+                                   _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X)), true), ws.A, T))
   else
     # the structure of f at the spectrum comes first (E1), as at a finite input
     all(isfinite, X) || return (_check_spectrum_structure(F.f, T, minimum(size(X)));
-                                _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), X, T))
+                                _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X)), true), X, T))
   end
   t, scaled, k = _masked_singular_values!(F, X; copied = _is_device_array(X))
   _decided_on_spectrum(F.f) && return _spectrum_value(F.f, scaled === nothing ? t : scaled, k)
@@ -152,6 +157,15 @@ function (F::SingularValue)(X::AbstractMatrix)
   v = convert(T, F.f(t))
   # An overflowing spectrum: the value at the singular values of X/2^k, when f has a recovery.
   scaled === nothing || _finite_value(t[1]) ? v : _spectrum_overflow_value(F.f, scaled, k, v)
+end
+
+# The value of value_and_prox! at a non-finite X, whose proximal output is all NaN. For a function
+# that counts nonzeros, the value at that output (O2): zero when the function is constant
+# (_constant_kind), NaN otherwise. For the other functions, the value at X (E2).
+function _singular_fused_nonfinite_value(f, X::AbstractMatrix, ::Type{T}) where {T}
+  kind = _constant_kind(f, minimum(size(X)), true)
+  _counts_nonzeros(f) && return kind === nothing ? T(NaN) : zero(T)
+  _singular_nonfinite_value(kind, X, T)
 end
 
 # Only counting functions mask numerical zeros. At extreme scales, return
@@ -203,7 +217,7 @@ function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix,
   T = float(eltype(Y))
   if !all(isfinite, X)
     # before Y, which may be X, is written
-    v = _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), X, T)
+    v = _singular_fused_nonfinite_value(F.f, X, T)
     fill!(Y, T(NaN))
     return v
   end

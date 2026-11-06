@@ -250,9 +250,10 @@ end
           for X in (T[v 0; 0 1], T[1 v; v 1]), Z in logical_inputs(X)
             before = Matrix(Z)
             for f in functions
-              # E2: a NaN entry gives NaN, an infinite one Inf; IndBallRank(2) at a 2 × 2 matrix is
-              # the indicator of all matrices, which does not depend on a NaN entry
-              whole = f isa IndBallRank && f.r >= 2
+              # E2: a NaN entry gives NaN, an infinite one Inf; IndBallRank(2) and SingularValue of
+              # IndBallL0(2) at a 2 × 2 matrix are the indicator of all matrices, which does not
+              # depend on a NaN entry
+              whole = f isa IndBallRank && f.r >= 2 || f isa SingularValue && f.f isa IndBallL0 && f.f.s >= 2
               @test isequal(f(Z), isnan(v) ? (whole ? zero(T) : T(NaN)) : T(Inf))
             end
             @test isequal(Matrix(Z), before)

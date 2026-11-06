@@ -125,7 +125,8 @@ end
     fresh = deepcopy(f)
     value = value_and_prox!(y, f, x, 1.0)
     @test all(isnan, y)
-    @test isequal(value, isnan(v) ? NaN : Inf)                 # E2
+    # E2, except the rank indicator, which gives its value at the all-NaN output (O2)
+    @test isequal(value, f isa IndBallRank ? NaN : isnan(v) ? NaN : Inf)
     finite = [2.0 0.0; 0.0 1.0]
     @test isequal(prox(f, finite), prox(fresh, finite))
   end
@@ -180,14 +181,14 @@ end
       # The native identity shortcut needs no decomposition; the wrapper does.
       @test isequal(w, identity ? input : y)
       if op === value_and_prox!
-        # E2: NaN at a NaN entry and Inf at an infinite one, except: the zero level of the nuclear
-        # norm is the zero function (E4, row S6), and IndBallL0(2) and IndBallRank(2) are the
-        # indicator of all 2 × 2 matrices, independent of a NaN entry (E2) and Inf at an infinite
-        # one (E3)
-        expected = g isa NuclearNorm && iszero(g.λ) ? zero(T) :
-          g isa IndBallRank && g.r >= 2 ? (isnan(v) ? zero(T) : T(Inf)) : isnan(v) ? T(NaN) : T(Inf)
-        @test isequal(vf, expected)
-        @test isequal(vg, expected)
+        # A counting function gives its value at the all-NaN output of a decomposition (O2):
+        # NaN, or zero when it is constant (r ≥ 2, every matrix); IndBallRank(2) copies its input
+        # and gives the value of the copy. The other functions follow E2 (NaN at a NaN entry, Inf
+        # at an infinite one), except the zero level of the nuclear norm, the zero function (E4,
+        # row S6).
+        e2 = g isa NuclearNorm && iszero(g.λ) ? zero(T) : isnan(v) ? T(NaN) : T(Inf)
+        @test isequal(vf, f isa SingularValue && f.f isa IndBallL0 ? (f.f.s >= 2 ? zero(T) : T(NaN)) : e2)
+        @test isequal(vg, g isa IndBallRank ? (identity ? (isinf(v) ? T(Inf) : zero(T)) : T(NaN)) : e2)
       else
         @test vf === y
         @test vg === w

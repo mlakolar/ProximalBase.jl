@@ -211,7 +211,8 @@ unit(f::SumLargest, T) = SumLargest(f.k, one(T))
               @test isequal(a, b)
               a[1] === :value && (@test samebits(Y, R))
             else
-              expected = any(isnan, B) ? T(NaN) : T(Inf)       # E2
+              # a counting function gives its value at the all-NaN output (O2, #614); the others E2
+              expected = W === SingularValue && f isa NormL0 || any(isnan, B) ? T(NaN) : T(Inf)
               @test isequal(value_and_prox!(Y, W(f), B, one(T)), expected)
               @test all(isnan, Y)
             end
@@ -222,8 +223,11 @@ unit(f::SumLargest, T) = SumLargest(f.k, one(T))
           f isa IndBox && f.l isa AbstractArray && continue
           for q in (T(Inf), T(-Inf), T(NaN)), B in (T[q 0; 0 1], T[1 q; q 1], T[1 q; 0 1], T[1 0; q 1])
             Y = similar(B)
-            # E2; SingularValue(ZeroFunction()) is the zero function (E4), 0 at every input
-            expected = W === SingularValue && f isa ZeroFunction ? zero(T) : isnan(q) ? T(NaN) : T(Inf)
+            # A counting function gives its value at the all-NaN output (O2, #614): NaN, or 0 when it
+            # holds every singular value. SingularValue(ZeroFunction()) is the zero function (E4),
+            # 0 at every input. The others follow E2.
+            expected = W === SingularValue && f isa IndBallL0 ? (f.s >= 2 ? zero(T) : T(NaN)) :
+                       W === SingularValue && f isa ZeroFunction ? zero(T) : isnan(q) ? T(NaN) : T(Inf)
             @test isequal(value_and_prox!(Y, W(f), B, one(T)), expected)
             @test all(isnan, Y)
           end

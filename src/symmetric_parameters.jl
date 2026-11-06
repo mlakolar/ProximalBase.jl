@@ -458,6 +458,9 @@ _value_checked(f::PointwiseMinimum, x::SymmetricSparseIterate) =
 _value_checked(f::BoxConstrained, x::SymmetricSparseIterate) =
   (_checkparams(f, x); T = float(eltype(x));
    iszero(_value_checked(f.box, x)) ? convert(T, _value_checked(f.f, x)) : T(Inf))
+_value_checked(f::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, x::SymmetricSparseIterate) =
+  (_checkparams(f, x); T = float(eltype(x));
+   iszero(_value_checked(f.box, x)) ? convert(T, _value_checked(f.f, x)) : _box_nan_value(f, x, T))
 _value_checked(f::LinearConstrained, x::SymmetricSparseIterate) =
   (_checkparams(f, x); T = float(eltype(x));
    iszero(_value_checked(f.set, x)) ? convert(T, _value_checked(f.f, x)) : T(Inf))

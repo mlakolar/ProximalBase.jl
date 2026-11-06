@@ -155,21 +155,33 @@ function (s::Spectral)(X::AbstractMatrix)
     _spectral_overflow_value!(s, ws, X, v)
 end
 
-# Functions of a spectrum whose value does not depend on the entries (E2, E4). Explicit methods
-# only, with the default "not established": no inner function is evaluated to infer constancy. The
-# kind of g on spectra of length p is :zero when g is the zero function there (a zero level and no
-# domain constraint, E4), :whole when g is the indicator of all of ℝᵖ, and nothing otherwise.
-# Weighted and centered functions, infinite levels and functions with domain constraints have no
-# method. These are called only after a finiteness test failed.
-_constant_kind(g, p) = nothing
-_constant_kind(::ZeroFunction, p) = :zero
-_constant_kind(g::NormL1{<:Real, Nothing}, p) = iszero(g.λ0) ? :zero : nothing
-_constant_kind(g::Union{NormL2, NormLinf, CubeNormL2, SqrNormL2{<:Real, Nothing}}, p) =
+# Functions of a spectrum whose value does not depend on the entries (E2, E4), the one place where
+# SingularValue, Spectral, NuclearNorm's wrappers and the counting functions are classified.
+# Explicit methods only, with the default "not established": no inner function is evaluated to
+# infer constancy. The kind of g on spectra of length p, which are nonnegative when nonneg (singular
+# values), is :zero when g is the zero function there (a zero level and no domain constraint, E4),
+# :whole when g has the value of the indicator of all of ℝᵖ (0 at NaN entries alone, Inf at an
+# infinite entry), and nothing otherwise. Weighted and centered functions, infinite levels and other
+# functions with domain constraints have no method. These are called only after a finiteness test
+# failed.
+_constant_kind(g, p, nonneg::Bool) = nothing
+_constant_kind(::ZeroFunction, p, nonneg::Bool) = :zero
+_constant_kind(g::NormL1{<:Real, Nothing}, p, nonneg::Bool) = iszero(g.λ0) ? :zero : nothing
+_constant_kind(g::Union{NormL2, NormLinf, CubeNormL2, SqrNormL2{<:Real, Nothing}}, p, nonneg::Bool) =
   iszero(g.λ) ? :zero : nothing
 # SumLargest(k, λ) needs at least k entries (E1, structure first): shorter spectra keep the error
-_constant_kind(g::SumLargest, p) = iszero(g.λ) && g.k <= p ? :zero : nothing
-_constant_kind(g::ElasticNet{<:Real, Nothing}, p) = iszero(g.λ1) && iszero(g.λ2) ? :zero : nothing
-_constant_kind(g::IndBallL0, p) = g.s >= p ? :whole : nothing
+_constant_kind(g::SumLargest, p, nonneg::Bool) = iszero(g.λ) && g.k <= p ? :zero : nothing
+_constant_kind(g::ElasticNet{<:Real, Nothing}, p, nonneg::Bool) = iszero(g.λ1) && iszero(g.λ2) ? :zero : nothing
+# The counting functions (#614): IndBallL0 with room for p nonzeros, and the zero level of NormL0.
+# NormL0(0) is the zero function, but takes #614's value Inf at an infinite entry until the
+# maintainer rules on constant functions at an infinite entry.
+_constant_kind(g::IndBallL0, p, nonneg::Bool) = g.s >= p ? :whole : nothing
+_constant_kind(g::NormL0, p, nonneg::Bool) = iszero(g.λ) ? :whole : nothing
+# A scaled counting function, when its function is constant; and one on a box that holds every
+# singular value (l ≤ 0, u = Inf), on a nonnegative spectrum.
+_constant_kind(f::Scaled, p, nonneg::Bool) = _counts_nonzeros(f.f) ? _constant_kind(f.f, p, nonneg) : nothing
+_constant_kind(c::BoxConstrained, p, nonneg::Bool) =
+  nonneg && _counts_nonzeros(c.f) && all(<=(0), c.box.l) && all(==(Inf), c.box.u) ? _constant_kind(c.f, p, nonneg) : nothing
 
 # The standalone value at a non-finite X. For an inner function that is constant on ℝⁿ (_constant_kind),
 # The structure of f at the placeholder spectrum x (E1): the checks of its value and of its
@@ -246,7 +258,7 @@ end
 function _spectral_nonfinite_value(s::Spectral, X::AbstractMatrix, ::Type{T}) where {T}
   # the structure of f at the spectrum comes first (E1), as at a finite input
   _check_spectrum_structure(s.f, T, size(X, 1))
-  _constant_kind(s.f, size(X, 1)) === nothing && return _nonfinite_value(X, T)
+  _constant_kind(s.f, size(X, 1), false) === nothing && return _nonfinite_value(X, T)
   bytype = _symmetric_by_type(X)
   !bytype && _offdiagonal_nan(X) && return T(NaN)
   any(isinf, X) && return T(Inf)

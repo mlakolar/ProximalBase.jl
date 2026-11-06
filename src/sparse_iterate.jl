@@ -326,9 +326,10 @@ throws an `InexactError`, possibly after part of `x` has been written; the view
 has no complex check of its own. Its products and reductions are those of an
 ordinary vector (IEEE, `O(length(x))`): for the sparse product use `x` itself, as
 in `dot(v, x)`. `copyto!(coordinates(x), coordinates(y))` is a value write, while
-`copyto!(x, y)` is the state copy. A call that takes both `x` and `coordinates(x)`
-copies the source once first, so that its result is that of copying the source
-before writing.
+`copyto!(x, y)` is the state copy. A `copyto!`, `copy!` or broadcast that takes both `x` and
+`coordinates(x)` copies the source once first, so that its result is that of copying
+the source before writing; other calls, such as `mul!` with the view as both output and
+input, behave as they do on an aliased plain vector.
 """
 function coordinates end
 

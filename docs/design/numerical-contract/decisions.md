@@ -2039,6 +2039,20 @@ The first families, with the proofs:
   conjugate of `IndBallL1(Inf)`, which shares the reduction, follows at the
   zero vector.
 
+A wrapper step that is not a normal number keeps this domain (#666). `Scaled(f, α)`
+at a positive finite step `γ` reads `f` at `αγ`; when the product underflows to
+zero, is subnormal or overflows, the exponent of the factors and the step goes
+into the levels of `f`, and a level that is stored as `Inf` stays `Inf` under a
+positive finite scale, where it had made the fold give up and the leaf receive
+the rounded step `0` (the identity of `γ = 0` for `NormL1`, the NaN of
+`Inf⋅0` for `SLOPE`, `NormL1Fused` and `NormLinf`). The infinite level is read as
+stored (R3): a finite level whose product overflows or underflows keeps its
+finite meaning. `SLOPE` and `NormL1Fused` fold their levels for such a step only
+when a level is infinite, and in the functions with several levels the finite ones
+that fall below the range are dropped to zero then, since the map is constant. An
+array step and a chain of factors take the same route, and the values of scaled
+functions are unchanged.
+
 Excluded, and unchanged:
 
 - `γ = 0` with an infinite level. P1 makes the separable `γ = 0` limit the

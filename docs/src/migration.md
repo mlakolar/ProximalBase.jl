@@ -102,6 +102,14 @@ the earlier behavior applies.
     `[-Inf, NaN]`. Its value at the zero vector is `0`, where it was NaN, and
     so is the value of the conjugate of `IndBallL1(Inf)` there. A zero,
     infinite, negative or NaN step keeps its results.
+  - A wrapper step that is not a normal number keeps the hard domain of an
+    infinite level (decision 49, #666): `prox(Scaled(NormL1(Inf), 1e-300), [1.0, 2.0, 3.0], 1e-300)`
+    is `[0, 0, 0]`, where it was the identity `[1, 2, 3]`, and `SLOPE` with an
+    infinite first weight, `NormL1Fused` with an infinite ℓ1 level and `NormLinf(Inf)`
+    give zeros, where they gave NaN. This holds for a product `αγ` that underflows,
+    is subnormal or overflows, for chains of `Scaled`, array steps and
+    `value_and_prox!`, whose value is `0`. A zero, infinite, negative or NaN step and
+    finite levels, including a finite level that overflows, keep their results.
 - **Infinite entries.** A bounded projection at an argument with one infinite
   entry returns its limit, where it returned NaN or a partly NaN block
   ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), decision 48).

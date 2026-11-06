@@ -151,6 +151,11 @@ the band `2^-E` to `2^E`, with `E` a quarter of the exponent range of the elemen
 inside the band, an entry of the step that is itself within `E` of a limit of the range is rounded
 together with the factor. Array-step entries whose exponents spread too far for the levels to hold
 them are rounded, and so are the steps of a function without levels to fold.
+A level that is stored as infinite stays infinite under a positive finite factor and step, whatever
+their product is: `Scaled(NormL1(Inf), 1e-300)` at the step `1e-300` has the proximal map of the
+domain `{0}`, as at the step `1`, and not the identity of a step rounded to zero. A finite level
+whose product overflows is not read as infinite. For `SLOPE`, `NormL1Fused` and the functions with
+two levels, a finite level whose product falls below the range is then dropped to zero.
 A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its gradient and Hessian
 product at its own scale before the factors are applied, so an intermediate that leaves the range is
 lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` at `[1e10]`
@@ -306,7 +311,45 @@ function _projection_accumulate(a::_NormalScale, b::Real)
   p = _projection_accumulate(a.s, b)
   p isa _ProjectionScale ? _NormalScale(p) : p
 end
+# The scale of a step, which the exponent of a step that is not a normal number joins. A level that
+# is stored as infinite is a hard constraint, not a product to form: under a positive finite scale it
+# stays infinite (`_folded_level`), where a finite level whose product leaves the range is refused.
+# With `flush`, a finite level whose product falls below the range is dropped to zero instead, and
+# `seen` records that an infinite level was met: the function is then constant on its domain {0},
+# and the levels that do not matter are not allowed to discard the fold (`_nested_step` keeps such a
+# fold only when `seen`).
+struct _HardScale{S, R<:Union{Nothing, Base.RefValue{Bool}}}
+  s::S
+  flush::Bool
+  seen::R
+end
+_HardScale(s) = _HardScale(s, false, nothing)
+_apply_scale(a::_HardScale, v) = _apply_scale(a.s, v)
+function _projection_accumulate(a::_HardScale, b::Real)
+  p = _projection_accumulate(a.s, b)
+  p isa _ProjectionScale ? _HardScale(p, a.flush, a.seen) : p
+end
+@inline _hard_scale(a::Real) = isfinite(a) && a > 0
+@inline _hard_scale(a::_ProjectionScale) = isfinite(a.m) && a.m > 0
+@inline _hard_scale(a::_NormalScale) = _hard_scale(a.s)
+@inline _hard_scale(a::_HardScale) = _hard_scale(a.s)
+function _folded_level(λ, α::_HardScale)
+  if isinf(λ) && _hard_scale(α)
+    α.seen === nothing || (α.seen[] = true)
+    return λ
+  end
+  c = _folded_level(λ, α.s)
+  c === nothing && α.flush && _hard_scale(α) ? _flushed_level(λ, α.s) : c
+end
+function _flushed_level(λ, a)
+  c = _apply_scale(a, λ)
+  isfinite(c) && abs(c) < floatmin(typeof(float(c))) ? zero(c) : nothing
+end
+@inline _flush_scale(::Any) = false
+@inline _flush_scale(a::_HardScale) = a.flush
+# the infinite level of the array fold stays infinite as well (the scale is the factors alone there)
 function _folded_level(λ, α::_NormalScale)
+  isinf(λ) && _hard_scale(α) && return λ
   c = _folded_level(λ, α.s)
   c === nothing || iszero(c) || abs(c) >= floatmin(typeof(float(c))) ? c : nothing
 end
@@ -321,6 +364,23 @@ end
 function _fold_level(f::ElasticNet, α)
   c1, c2 = _folded_level(f.λ1, α), _folded_level(f.λ2, α)
   c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
+end
+# For an array step, a function with two levels one of which is infinite is constant on its domain
+# {0}: the finite level that falls below the range is dropped to zero instead of discarding the fold
+function _hard_levels(α::_NormalScale, λs::Tuple)
+  cs = map(λ -> _folded_level(λ, α), λs)
+  any(isnothing, cs) || return cs
+  (_hard_scale(α) && any(isinf, λs)) || return nothing
+  cs = map((λ, c) -> c === nothing ? _flushed_level(λ, α.s) : c, λs, cs)
+  any(isnothing, cs) ? nothing : cs
+end
+function _fold_level(f::ElasticNet, α::_NormalScale)
+  cs = _hard_levels(α, (f.λ1, f.λ2))
+  cs === nothing ? nothing : ElasticNet(cs[1], cs[2], f.w)
+end
+function _fold_level(f::SparseGroupNormL2, α::_NormalScale)
+  cs = _hard_levels(α, (f.λ1, f.λ0))
+  cs === nothing ? nothing : SparseGroupNormL2(cs[1], cs[2], f.groups, f.w)
 end
 function _fold_level(f::Union{GroupNormL2, GroupNormLinf}, α)
   c = _folded_level(f.λ0, α)
@@ -356,6 +416,19 @@ function _fold_level_step(f::ElasticNet, α)
   c = iszero(f.λ2) ? f.λ2 : _apply_scale(α, f.λ2)
   c2 = isfinite(c) && abs(c) < floatmin(typeof(float(c))) ? zero(c) : _folded_level(f.λ2, α)
   c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
+end
+# SLOPE and NormL1Fused fold into their levels for a step only, and only on the second try of a
+# step (`flush`), which is kept only for an infinite level, the case that the plain route loses: the
+# steps and values of finite levels keep the route that they had
+function _fold_level_step(f::NormL1Fused, α)
+  _flush_scale(α) || return nothing
+  c1, c2 = _folded_level(f.λ1, α), _folded_level(f.λ2, α)
+  c1 === nothing || c2 === nothing ? nothing : NormL1Fused(c1, c2)
+end
+function _fold_level_step(f::SLOPE, α)
+  _flush_scale(α) || return nothing
+  cs = map(λ -> _folded_level(λ, α), f.λ)
+  any(isnothing, cs) ? nothing : SLOPE(identity.(cs))
 end
 
 # Retry exceptional products in the function's own units and domain: with the scale folded into
@@ -502,7 +575,15 @@ function _nested_step(s::Scaled, γ::Real)
   (T <: AbstractFloat && isfinite(γ) && γ > 0 && !(floatmin(T) <= step <= floatmax(T))) || return (f, step, a)
   mγ, eγ = frexp(float(γ))
   ma, ea = _projection_scale_parts(a)
-  g = _fold_level_step(f, _ProjectionScale(ma, Int(ea + eγ)))
+  P = _ProjectionScale(ma, Int(ea + eγ))
+  g = _fold_level_step(f, _HardScale(P))
+  if g === nothing
+    # a level that is infinite keeps the function constant on {0}: the finite levels that fall below
+    # the range are dropped, and the fold is taken only then
+    seen = Ref(false)
+    h = _fold_level_step(f, _HardScale(P, true, seen))
+    seen[] && (g = h)
+  end
   # g carries the levels without the ridge that may have been dropped: it is not the chain, and
   # its value is not the value of the chain (`nothing` marks this)
   g === nothing ? (f, step, a) : (g, convert(typeof(step), mγ), nothing)

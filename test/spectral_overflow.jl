@@ -567,10 +567,10 @@ end
     check_rounded(v, big(M32) / 2)
   end
   @test LogDetLoss(Matrix{Float32}(I, 2, 2), 0.25f0)(1e300 * Matrix(1.0I, 2, 2)) === -Inf
-  # Non-finite weights keep their base values.
-  @test NormL1(Inf)(zeros(2)) === 0.0          # an infinite level fixes every entry at zero (decision 49)
-  @test isnan(NormL2(Inf)(zeros(2)))
-  @test isnan(NuclearNorm(Inf)(zeros(2, 2)))
+  # An infinite level of NormL1 (decision 49), NormL2 and NuclearNorm has the value 0 at zero (E4).
+  @test NormL1(Inf)(zeros(2)) === 0.0
+  @test NormL2(Inf)(zeros(2)) === 0.0
+  @test NuclearNorm(Inf)(zeros(2, 2)) === 0.0
 end
 
 end

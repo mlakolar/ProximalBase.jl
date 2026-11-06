@@ -16,6 +16,8 @@ proximal operator shrinks `x` towards zero: `max(1 - γλ/‖x‖, 0) x`. For th
 group lasso, a sum of such norms over groups of entries, use
 [`GroupNormL2`](@ref).
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
+With `λ = Inf` the value is `0` at the zero vector (also an empty one), `Inf` at any other
+argument without a NaN entry, and NaN at a NaN entry.
 """
 struct NormL2{T<:Real} <: AbstractFunction
   λ::T
@@ -35,8 +37,15 @@ function _weighted_norm2(λ::Real, x::AbstractArray)
   T = _valtype(x)
   iszero(λ) && return zero(T)
   _level_fits(T, λ) || return _converted_norm2(λ, x)
-  _norm2_value(convert(T, λ) * _norm2(x), convert(T, λ), x)
+  n = _norm2(x)
+  v = convert(T, λ) * n
+  isfinite(v) ? v : _nonfinite_norm2(v, λ, convert(T, λ), n, x)
 end
+
+# An infinite level has the domain {0} (E4): 0 at the zero vector, where λ‖x‖ is Inf⋅0, Inf
+# elsewhere and NaN at a NaN entry. The stored level λ decides: a finite level that converts
+# without leaving the range is never infinite (R3). A finite level recovers an overflow.
+@noinline _nonfinite_norm2(v, λ, c, n, x) = isinf(λ) ? _weighted_value(v, n) : _norm2_value(v, c, x)
 
 # Scale in the parameter's precision, without narrowing its level first.
 @noinline function _converted_norm2(λ, x)

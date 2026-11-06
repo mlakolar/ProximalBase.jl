@@ -75,6 +75,7 @@ standard = [
   "distance",
   "envelope",
   "examples",
+  "infinite_level_values",
   "infinite_weights",
   "matrixsets",
   "metric_steps",

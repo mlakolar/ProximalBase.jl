@@ -218,18 +218,23 @@ _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
    _value_at(_scaled_value_overflow(s.f, s.α, y, _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α))), y))
 # α v at the output y of an array step with a factor inside the band: a product that overflows
 # with α < 1 is recovered as for a scalar step (the levels with the factor folded in, or the
-# parts of the value); an underflow is not (#359)
+# parts of the value); an underflow is not (#359). An indicator ignores its scale and stays on this
+# route for any factor: its value is exactly 0 or Inf, so an infinite factor at 0 gives 0, as
+# `_scaled_nan_value` certifies on the other routes, and a NaN value stays NaN.
 @inline function _scaled_value_overflow(f, α, y, v)
   r = α * v
-  (!isfinite(r) && _scale_below_one(α)) ? _scaled_value_recover(f, α, y, v, r) : r
+  (!isfinite(r) && _scale_below_one(α)) ? _scaled_value_recover(f, α, y, v, r) : _indicator_product(f, r, v)
 end
+@inline _indicator_product(f, r, v) = _isindicator(f) ? _weighted_value(r, v) : r
 
 # Whether an entry of an array step may leave the range in the product with the factors. A chain whose
 # factors have a product that is not a normal number takes the route below. A single factor does
 # when it is far from one, outside the band of a quarter of the exponent range (2^±255 for Float64,
 # 2^±31 for Float32), whatever the entries are: reading them to decide would cost a pass over the step
 # on every call. An entry of the step that is itself within a quarter of the range limit, with a factor
-# inside the band, is rounded with the product as before. An indicator ignores its scale.
+# inside the band, is rounded with the product as before. An indicator ignores its scale. An infinite
+# factor over any other function takes the route below too, which hands it on as before and applies the
+# rule of its value there.
 @inline _factor_band(::Type{T}) where {T<:AbstractFloat} = exponent(floatmax(T)) ÷ 4
 @inline _wide_factor(α::Real, ::Type{T}) where {T<:AbstractFloat} =
   !(ldexp(one(T), -_factor_band(T)) <= α <= ldexp(one(T), _factor_band(T)))
@@ -238,7 +243,7 @@ end
 @inline _wide_factor(α::Real, ::Nothing) = false
 @inline function _wide_scale(s::Scaled, x, γ::AbstractArray)
   α = s.α
-  (isfinite(α) && α > 0 && !_isindicator(s.f)) || return false
+  (α > 0 && !_isindicator(s.f)) || return false
   _wide_factor(α, float(promote_type(eltype(γ), typeof(α)))) || _wide_factor(α, _wide_factor_type(x))
 end
 @inline _array_route(s::Scaled, x, γ::AbstractArray) = _chained(s) || _wide_scale(s, x, γ)
@@ -278,12 +283,20 @@ function _shifted_fold(f, a::_ProjectionScale, γ::AbstractArray)
   end
   nothing
 end
+# a single infinite factor: the steps multiplied by it, as for a factor inside the band
+@inline _infinite_alone(s) = s isa Scaled && !_chained(s) && isinf(s.α)
 function _prox_chain!(y, s, x, γ::AbstractArray)
+  _infinite_alone(s) && return _prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α))
   f, a = _scaled_chain(s)
   g, steps, _ = _array_fold(f, a, γ)
   _prox_unchecked!(y, g, x, steps)
 end
 function _value_and_prox_chain!(y, s, x, γ::AbstractArray)
+  if _infinite_alone(s)
+    # the value at the stored output under the rule of an infinite factor (`_scaled_nan_value`)
+    v = _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α))
+    return _value_at(_scaled_product_value(s.f, s.α, y, v), y)
+  end
   f, a = _scaled_chain(s)
   g, steps, kind = _array_fold(f, a, γ)
   kind === :folded && return _value_at(_value_and_prox_unchecked!(y, g, x, steps), y)

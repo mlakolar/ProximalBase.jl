@@ -357,6 +357,84 @@ end
   end
 end
 
+# An infinite ε makes EpsInsensitiveLoss zero on every finite argument, so its value does not
+# depend on the entry: it is 0 at NaN and ±Inf, at every weight (an infinite weight restricts the
+# entry to the zero set of the term, which is the whole line). The raw ε decides.
+@testset "EpsInsensitiveLoss with infinite ε, $T" for T in (Float32, Float64)
+  nan, inf = T(NaN), T(Inf)
+  special = T[NaN, Inf, -Inf, 0, -0.0, 1, -2, floatmax(T), -floatmax(T)]
+  for ε in (inf, Inf), w in (nothing, T[0, 1, Inf])
+    f = EpsInsensitiveLoss(ε, w)
+    for v in special, i in 1:3
+      @test PB.value_entry(f, v, i) === zero(T)
+    end
+    # dense values
+    for x in (T[NaN, Inf, -Inf], T[Inf, Inf, Inf], T[NaN, NaN, NaN], T[1, -2, 0], T[0, NaN, 1], T[-Inf, 1, NaN])
+      @test f(x) === zero(T)
+      @test f(x[1:3]) === zero(T)
+    end
+    # a long vector, past the blocks of the dense loop
+    x = T[special[mod1(i, 9)] for i in 1:600]
+    for k in (3, 100, 512, 513, 514, 600)
+      f2 = EpsInsensitiveLoss(ε, w === nothing ? nothing : repeat(w, 200)[1:k])
+      @test f2(x[1:k]) === zero(T)
+      @test f2(fill(nan, k)) === zero(T)
+    end
+    # sparse iterates
+    si = SparseIterate(T, 3)
+    si[1] = nan; si[2] = inf
+    @test f(si) === zero(T)
+    fsym = EpsInsensitiveLoss(ε, w === nothing ? nothing : T[0 1; 1 Inf])
+    @test fsym(SymmetricSparseIterate(T[NaN Inf; Inf -Inf])) === zero(T)
+    # fused value, with a separate and the aliased output; the proximal map is the identity
+    x = T[NaN, Inf, -Inf]
+    v, va, y, z = fused(f, x, one(T))
+    @test v === zero(T) && va === zero(T)
+    @test isequal(y, x) && isequal(z, x)
+    @test isequal(prox(f, x, one(T)), x)
+    # Scaled
+    g = Scaled(f, 2)
+    @test g(x) == 0 && !isnan(g(x))
+    @test g(SparseIterate(sparsevec(x))) == 0
+  end
+  # a weight type wider than the data
+  T === Float32 && for w in (Float64[0, 1, Inf], nothing)
+    f = EpsInsensitiveLoss(Inf, w)
+    for v in special[1:3], i in 1:3
+      @test PB.value_entry(f, v, i) === (w === nothing ? 0f0 : 0.0)
+    end
+  end
+  # the conjugate: ε Σ|s| on the box |sᵢ| ≤ wᵢ, zero at the origin and Inf elsewhere in it
+  for ε in (inf, Inf)
+    c = Conjugate(EpsInsensitiveLoss(ε))
+    @test c(zeros(T, 2)) === zero(T)
+    @test c(T[0.5, 0]) === inf
+    @test c(T[2, 0]) === inf
+    y = fill(T(7), 2)
+    v = value_and_prox!(y, c, zeros(T, 2), one(T))
+    @test v === zero(T) && iszero(y)
+    w = T[0, 1, Inf]
+    cw = Conjugate(EpsInsensitiveLoss(ε, w))
+    @test cw(zeros(T, 3)) === zero(T)
+    @test cw(T[0, 0.5, 3]) === inf
+    # an infinite weight does not bound its coordinate
+    @test cw(T[0, 0, 5]) === inf
+  end
+  # a finite ε is unchanged: the entries NaN, Inf, -Inf, 1, 1/4, -2 and 5/4 at the weights 1 and
+  # [0, 1, Inf]
+  expected = (nothing => T[NaN Inf Inf 0.75 0 1.75 1; NaN Inf Inf 0.75 0 1.75 1; NaN Inf Inf 0.75 0 1.75 1],
+              T[0, 1, Inf] => T[0 0 0 0 0 0 0; NaN Inf Inf 0.75 0 1.75 1; NaN Inf Inf Inf 0 Inf Inf])
+  for (w, table) in expected
+    f = EpsInsensitiveLoss(T(0.25), w)
+    for (j, v) in enumerate(T[NaN, Inf, -Inf, 1, 0.25, -2, 1.25]), i in 1:3
+      @test isequal(PB.value_entry(f, v, i), table[i, j])
+    end
+    @test f(T[0.25, 0, 0.25]) === zero(T)
+    @test isnan(f(T[NaN, 1, 0])) === (w === nothing)
+    @test f(T[0, 1.25, 0]) === T(1)
+  end
+end
+
 @testset "JLArrays, $T" for T in (Float32, Float64)
   allowscalar(false)
   x = T[NaN, 1]
@@ -369,6 +447,34 @@ end
     v = value_and_prox!(yg, fg, xg, one(T))
     @test isequal(v, fused(f, x, one(T))[1])
     @test isequal(Array(yg), prox(f, x, one(T)))
+  end
+  # EpsInsensitiveLoss with infinite ε is zero at NaN and ±Inf; NormL1Nonneg at NaN is NaN, and
+  # at a negative entry Inf, whichever of the two comes with the other entries
+  for w in (nothing, T[0, 1, Inf]), ε in (T(Inf), Inf)
+    fg = Adapt.adapt(JLArray, EpsInsensitiveLoss(ε, w))
+    for x in (T[NaN, Inf, -Inf], T[NaN, 1, 2], T[Inf, Inf, Inf], T[1, -2, 0])
+      @test fg(JLArray(x)) === zero(T)
+    end
+    yg = similar(JLArray(T[NaN, Inf, -Inf]))
+    @test value_and_prox!(yg, fg, JLArray(T[NaN, Inf, -Inf]), one(T)) === zero(T)
+    @test isequal(Array(yg), T[NaN, Inf, -Inf])
+  end
+  for w in (nothing, T[0, 1, Inf], T[1, 2, 3]), λ in (0, 1, Inf)
+    f = NormL1Nonneg(T(λ), w)
+    fg = Adapt.adapt(JLArray, f)
+    for x in (T[NaN, 1, 2], T[1, NaN, 0], T[NaN, -1, 2], T[-Inf, NaN, 0], T[NaN, NaN, NaN])
+      @test isnan(fg(JLArray(x)))
+      @test isnan(f(x))
+    end
+    for x in (T[-1, 1, 2], T[1, -Inf, 0], T[-1e-2, 0, 0])
+      @test fg(JLArray(x)) === T(Inf) === f(x)
+    end
+    for x in (T[0, 0, 0], T[0.5, 0, 2], T[-PB._tol(T) / 2, 0, 0])
+      @test fg(JLArray(x)) === f(x)
+    end
+    yg = similar(JLArray(T[NaN, 1, 2]))
+    @test isnan(value_and_prox!(yg, fg, JLArray(T[NaN, 1, 2]), one(T)))
+    @test isnan(Array(yg)[1])
   end
 end
 

@@ -488,18 +488,21 @@ function _prox_unchecked!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace
 end
 
 # _check_metric_steps, which also returns the largest step: the loop reads every step anyway. For
-# Float32 and Float64 it is branch-free, so that it vectorizes, and takes the maximum on the bit
-# patterns as _maximum_abs does; it then throws for the first invalid step, if any.
+# Float32 and Float64 it is branch-free, so that it vectorizes, and works on the bit patterns, which
+# are ordered like the values among the positive finite numbers (as _maximum_abs uses): the steps
+# are all positive and finite exactly when the smallest pattern is positive as an integer (a zero,
+# a negative number and -0.0 are not) and the largest is below that of Inf (Inf and NaN are not).
+# It throws for an invalid step before the largest is returned.
 function _check_linear_steps(f, γ::AbstractArray{T}) where {T<:Union{Float32, Float64}}
   U = _int_type(T)
-  valid, m = true, zero(U)
+  lo, hi = typemax(U), zero(U)
   @inbounds @simd for i in eachindex(γ)
-    g = γ[i]
-    valid &= (g > zero(T)) & (abs(g) < oftype(g, Inf))
-    m = max(m, reinterpret(U, g) & typemax(U))
+    b = reinterpret(U, γ[i])
+    lo = min(lo, b)
+    hi = max(hi, b)
   end
-  valid || _throw_linear_steps(f)
-  reinterpret(T, m)
+  (lo > zero(U)) & (hi < reinterpret(U, T(Inf))) || _throw_linear_steps(f)
+  reinterpret(T, hi)
 end
 function _check_linear_steps(f, γ::AbstractArray)
   m = zero(eltype(γ))

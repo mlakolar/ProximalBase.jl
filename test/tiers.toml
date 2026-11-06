@@ -91,6 +91,7 @@ standard = [
   "sqrhinge",
   "stiefel",
   "sumlargest",
+  "scaled_no_level",
   "threshold_factor_type",
   "threshold_precision",
   "argument_threshold_precision",
@@ -142,6 +143,7 @@ thorough = [
   "ridge_precision",
   "rotatedsoc",
   "sparse_iterate",
+  "sparsegroup_infinite_level",
   "spectral_domain",
   "spectral_nonfinite_values",
   "spectral_overflow",
@@ -162,6 +164,7 @@ thorough = [
   "value_overflow_fused",
   "value_overflow_sqrnorm",
   "weighted_overflow",
+  "zero_weight_nan",
 ]
 
 # Exhaustive catalogs whose cases repeat paths the tiers above already reach, and family files
@@ -198,3 +201,12 @@ helpers = ["conformance/common", "gpu_prelude", "gpu_suite", "gpu_suite_basics",
 # Directories with a Project.toml of their own, run by hand: cuda/ needs an NVIDIA GPU and
 # oracles/ needs JuMP and conic solvers. No tier runs them.
 environments = ["cuda", "oracles"]
+
+[not_tests.run_through]
+# The test files that run each helper, directly or through another helper; the error for a
+# helper given as a test name names them. A helper that the runner loads for every test file
+# (testutils, conformance/common) has no entry. A helper under a directory is a quoted key.
+gpu_prelude = ["gpu", "gpu_smoke"]
+gpu_suite = ["gpu"]
+gpu_suite_basics = ["gpu_smoke"]
+tiers = ["tier_selection"]

@@ -143,8 +143,13 @@ or applied to the result with its exponent last, so a chain such as `Scaled(Scal
 is the penalty `1e-100 * norm(x, 1)`. The levels are folded through `Translate`, `Sum` and
 `SeparableSum` of such functions (indicators and the zero function pass through). The conjugate
 value of a function without levels to fold, under a product that is not a number in range,
-throws. Not recovered: the value of a chain whose leaf value overflows while the folded level is
-itself not a number in range.
+throws. The value of a function with levels, whose leaf value overflows or underflows when the whole
+product does not fold into normal levels (`Scaled(Scaled(Scaled(NormL1(1e300), 1e-300), 1e-300), 1e-300)`
+at `[1e300]` is `1e-300`), is computed at levels that are normal numbers, with the power of two
+that this takes out of the product applied last. Not recovered: levels whose exponents are too far
+apart for one normal fold (`Sum(NormL1(1e300), NormL2(1e-300))` under such a chain at `[1e300]`),
+weights or entries for which no normal level gives a leaf value that is a finite normal number, and
+results that are subnormal.
 
 A step is not rounded together with the factors. For a scalar step whose product with the
 factor is not a normal number, the exponent of the factors and of the step goes into the levels
@@ -364,15 +369,135 @@ function _fold_level_step(f::ElasticNet, α)
   c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
 end
 
+# The scale of the fold that recovers a value: only a fold into normal levels is used. A subnormal
+# level has fewer bits than the factors give, and the partial fold below recovers those values at
+# normal levels. A factor that is not a finite positive IEEE number (an infinite one, an Int or a
+# BigFloat) folds as it is.
+_value_fold_scale(α::_ProjectionScale) = _NormalScale(α)
+_value_fold_scale(α::Base.IEEEFloat) = isfinite(α) && α > 0 ? _NormalScale(_scale_start(α)) : α
+_value_fold_scale(α) = α
+
+# The partial fold. When no normal level holds the whole factor, the value of a function with
+# levels is still the value at levels that do: it is positively homogeneous in them, so the factor
+# α splits as 2^k β, with β small or large enough that β times every level is a normal number, the
+# function folded with β is evaluated at x, and 2^k is applied last, to the significand of that value.
+#
+# `_fold_level(f, probe)` runs the fold of every function that has one (the levels of `ElasticNet`
+# and `SparseGroupNormL2`, a `Translate`, `Sum` or `SeparableSum` of such functions with the
+# factors of their `Scaled` terms, the radius of the conjugate of a ball) with a scale that records
+# instead of multiplying. For a level λ times the factors inside, in [2^q, 2^(q+1)), a shift s makes
+# β = a.m 2^s times it a normal number of the type T of the fold when q + s - 1 ≥ exponent(floatmin(T))
+# and q + s + 1 ≤ exponent(floatmax(T)). The product of the two significands is in [1/4, 1), so these
+# bounds are conservative by up to a binade at each end (and by one more at the top, where floatmax
+# is below 2^(exponent + 1)): every shift in the window gives levels that `_NormalScale` accepts,
+# and the window may miss a shift at its very edge. The bounds are also those of the type of the
+# value, so that the levels are normal there too. The window of several levels is the
+# intersection. It is empty when their exponents are too far apart, and for an infinite level,
+# which is refused; the partial fold then gives no value.
+mutable struct _ShiftWindow
+  lo::Int
+  hi::Int
+end
+struct _LevelProbe{S}
+  w::_ShiftWindow
+  a::_ProjectionScale{S}   # the factors of the `Scaled` terms inside, as a product
+  emin::Int                # the exponent range of the type of the value
+  emax::Int
+end
+function _apply_scale(p::_LevelProbe, λ)
+  w = float(λ)
+  T = promote_type(typeof(p.a.m), typeof(w))
+  if !isfinite(w) || !(T <: Base.IEEEFloat)
+    p.w.lo = typemax(Int)
+    return w
+  end
+  mλ, eλ = frexp(w)
+  _, e = frexp(convert(T, p.a.m) * convert(T, mλ))
+  q = p.a.e + Int(eλ) + Int(e) - 1
+  p.w.lo = max(p.w.lo, max(exponent(floatmin(T)), p.emin) + 1 - q)
+  p.w.hi = min(p.w.hi, min(exponent(floatmax(T)), p.emax) - 1 - q)
+  w
+end
+function _projection_accumulate(p::_LevelProbe, b::Real)
+  c = _projection_accumulate(p.a, b)
+  c isa _ProjectionScale ? _LevelProbe(p.w, c, p.emin, p.emax) : c
+end
+# The shifts (lo, hi) at which every level of f folds into a normal number, or nothing.
+function _level_window(f, ::Type{S}, ::Type{V}) where {S, V}
+  w = _ShiftWindow(typemin(Int), typemax(Int))
+  g = _fold_level(f, _LevelProbe(w, _ProjectionScale(S(0.5), 1), exponent(floatmin(V)), exponent(floatmax(V))))
+  g === nothing || w.lo == typemin(Int) || w.hi == typemax(Int) || w.lo > w.hi ? nothing : (w.lo, w.hi)
+end
+# The value of f folded with the shift s, when it is a finite normal number.
+function _shifted_fold_value(f, a::_ProjectionScale, s::Int, x)
+  g = _fold_level(f, _NormalScale(_ProjectionScale(a.m, s)))
+  g === nothing && return nothing
+  u = _value_unchecked(g, x)
+  u isa Base.IEEEFloat && isfinite(u) && abs(u) >= floatmin(typeof(u)) ? u : nothing
+end
+_partial_scale(α::_ProjectionScale{<:Base.IEEEFloat}) = isfinite(α.m) && !iszero(α.m) ? α : nothing
+_partial_scale(α::Base.IEEEFloat) = isfinite(α) && α > 0 ? _scale_start(α) : nothing
+_partial_scale(α) = nothing
+# The factor as a product and the direction of the partial fold: -1 where the leaf value overflowed under
+# a factor below one, so that the levels are taken as low as they go; 1 where it is zero or subnormal
+# under a factor above one, so as high as they go; 0 where neither holds (a NaN or a normal value, whose
+# product is already the correctly rounded value, or a factor of one) or the factor is not a finite
+# positive IEEE number.
+@inline function _partial_plan(α, v)
+  v isa Base.IEEEFloat || return nothing, 0
+  a = _partial_scale(α)
+  a === nothing && return nothing, 0
+  isinf(v) && return a, _scale_below_one(a) ? -1 : 0
+  a, _scaled_small(v) && _scale_above_one(a) ? 1 : 0
+end
+# The value α f(x) by the partial fold, or nothing where it gives no finite normal value at any level of
+# the window: the caller then keeps what it had. The first evaluation is at the end of the window that
+# the direction asks for; a value within a few precisions of either end of the range of its type is
+# evaluated once more with the shift that brings it to the middle (the sum of its terms is then not at
+# the edge of the range of the terms), and that value is used if it is a finite normal number. The power
+# of two goes last, through `_apply_parts`: a normal result is the folded significand rounded once, and a
+# result outside the range is 0 or ±Inf.
+@noinline function _scaled_value_partial(f, a::_ProjectionScale, d::Int, x, v, r)
+  d > 0 && iszero(v) && _exactly_zero_at(f, x) && return nothing
+  win = _level_window(f, typeof(a.m), typeof(v))
+  win === nothing && return nothing
+  lo, hi = win
+  s = d < 0 ? lo : hi
+  u = _shifted_fold_value(f, a, s, x)
+  u === nothing && return nothing
+  T = typeof(u)
+  e = exponent(u)
+  if e < exponent(floatmin(T)) + precision(T) + 16 || e > exponent(floatmax(T)) - precision(T) - 16
+    s1 = clamp(s - e, lo, hi)
+    u1 = s1 == s ? nothing : _shifted_fold_value(f, a, s1, x)
+    if u1 !== nothing
+      s = s1
+      u = u1
+    end
+  end
+  m, k = frexp(u)
+  convert(typeof(r), _apply_parts(_ProjectionScale(oftype(a.m, 0.5), a.e - s + 1), m, k))
+end
+
 # Retry exceptional products in the function's own units and domain: with the scale folded into
-# the levels, or else from the value of f as a significand and a power of two (`_value_parts`),
-# with the exponents applied last. `out` is a gradient already written, which the parts must not
-# read in place of a parameter. A NaN product at a value that is not NaN, which the fold does not
-# recover, is Inf⋅0 at an infinite factor: 0 where f is certainly 0 (`_scaled_nan_value`), and
-# otherwise what the parts give.
+# the levels, or else (where the levels have no normal fold) with the factor split in two, the
+# fold into a subnormal level where that finds no value either, or else from the value of f as a
+# significand and a power of two (`_value_parts`), with the exponents applied last. `out` is a
+# gradient already written, which the parts must not read in place of a parameter. A NaN product at
+# a value that is not NaN, which the fold does not recover, is Inf⋅0 at an infinite factor: 0 where
+# f is certainly 0 (`_scaled_nan_value`), and otherwise what the parts give.
 @noinline function _scaled_value_recover(f, α, x, v, r, out = nothing)
-  g = _fold_level(f, α)
+  g = _fold_level(f, _value_fold_scale(α))
   g === nothing || return convert(typeof(r), _value_unchecked(g, x))
+  a, d = _partial_plan(α, v)
+  if d != 0
+    z = _scaled_value_partial(f, a, d, x, v, r)
+    z === nothing || return z
+    # no level that is a normal number gives a finite normal leaf value (levels of very different
+    # size, say): the fold into a subnormal level, which has fewer bits but may still hold the value
+    g = _fold_level(f, α)
+    g === nothing || return convert(typeof(r), _value_unchecked(g, x))
+  end
   if isnan(r) && !isnan(v)
     z = _scaled_nan_value(f, α, x, r)
     iszero(z) && return z

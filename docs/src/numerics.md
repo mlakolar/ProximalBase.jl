@@ -345,8 +345,11 @@ A chain takes the route always. A single factor takes it when it lies outside th
 `2^E`, `E` a quarter of the exponent range of the element type (255 for `Float64`, 31 for
 `Float32`), a test on the factor alone, so that an ordinary call reads nothing more than before; for
 a factor inside the band, an entry of the step that is itself within `E` of a limit of the range is
-rounded together with the factor. Not recovered: the value of a chain whose leaf value overflows
-while the folded level is itself not a number in range; array-step entries whose exponents spread too
+rounded together with the factor. When no normal level holds the whole product, the value of a
+function with levels is computed at levels that are normal numbers, with the power of two that this
+takes out of the product applied last. Not recovered: levels whose exponents are too far apart for
+one normal fold, weights or entries for which no normal level gives a leaf value that is a finite
+normal number, and subnormal results; array-step entries whose exponents spread too
 far for the levels to hold them, which are rounded with the factors; and the steps of a function
 without levels to fold. Exact zero and `Inf` scales merge as before.
 

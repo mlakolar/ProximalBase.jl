@@ -326,7 +326,7 @@ end
     value = value_and_prox!(Y, f, X, one(T))
     reference = value_and_prox!(R, f, Float32.(X), one(T))
     legacy!(B, f, X, one(T))
-    @test reference === T(Inf)
+    @test isequal(reference, f isa IndBallRank ? T(NaN) : T(Inf))   # the rank indicator at its all-NaN output (O2)
     @test all(isnan, R)
     @test isequal(Y, B)
   end

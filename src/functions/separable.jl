@@ -306,6 +306,9 @@ Values follow the overflow rule in [Overflow and underflow of values](@ref).
 An infinite weight fixes the entry at
 zero at every level (the value is `Inf` away from zero), and a zero weight
 leaves it unpenalized at every level.
+An infinite level `λ0` at a positive step fixes every penalized entry (`wᵢ > 0`)
+at zero, so its output is `0` also where the argument is NaN or `±Inf`
+(decision 49). The value is `0` at the zero vector and stays NaN at a NaN entry.
 
 See [Symmetric parameters](@ref) for which arrays must be symmetric and which calls check them.
 """
@@ -333,7 +336,29 @@ Base.@propagate_inbounds function value_entry(f::NormL1, v::Real, i::Integer)
   ifelse(isinf(w) & !iszero(a), oftype(p, Inf) * a, p)
 end
 Base.@propagate_inbounds prox_entry(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real} =
-  shrink(v, _weight_product(float(T), γ, f.λ0, _entry(f.w, i)))
+  first(_l1_prox_threshold(v, γ, f.λ0, _entry(f.w, i), float(T)))
+
+# Whether the level and the step, as given, fix a penalized entry (w > 0) at zero whatever it holds,
+# NaN and ±Inf included (E4 before E2): an infinite level at a positive step, finite or Inf, where
+# the domain of the entry is {0}. Never decided from the threshold γλ0w, which overflows for finite
+# parameters (R3) and is 0⋅Inf at a zero step.
+@inline _l1_fixing(γ, λ) = (γ > 0) & isinf(λ)
+@inline _l1_fixed(γ, λ, w) = (w > 0) & _l1_fixing(γ, λ)
+
+# The scalar proximal operator and its threshold γλ0w, as _weight_product forms it. In the ordinary
+# range of γλ0, where the step and the level are finite and positive, no entry is fixed, and the loop
+# keeps the bare soft thresholding.
+Base.@propagate_inbounds function _l1_prox_threshold(v, γ, λ, w, ::Type{S}) where {S}
+  R = _working_type(S, γ, λ, w)
+  ab = convert(R, γ) * convert(R, λ)
+  if floatmin(R) <= ab <= floatmax(R)
+    t = convert(S, ab * convert(R, w))
+    return shrink(v, t), t
+  end
+  t = _weight_product(S, γ, λ, w)
+  r = shrink(v, t)
+  ifelse(_l1_fixed(γ, λ, w), zero(r), r), t
+end
 
 kkt_violation(f::NormL1, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); abs(g[i]) - _weight_coefficient(f.λ0, _entry(f.w, i)))
@@ -344,7 +369,10 @@ function (f::NormL1{<:Real, Nothing})(x::DenseArray{<:AbstractFloat})
   T = float(eltype(x))
   iszero(f.λ0) && return zero(T)
   _level_fits(T, f.λ0) || return _converted_l1_value(f.λ0, x)
-  v = convert(T, f.λ0) * sum(abs, x)
+  s = sum(abs, x)
+  # an infinite level fixes every entry at zero (E4): the value at the zero vector is 0, not Inf⋅0
+  isinf(f.λ0) && iszero(s) && return zero(T)
+  v = convert(T, f.λ0) * s
   isfinite(v) || !isfinite(f.λ0) || !all(isfinite, x) ? v : _value_dense(f, x)
 end
 
@@ -369,7 +397,7 @@ end
 
 The weighted ℓ1 norm restricted to the nonnegative orthant:
 `f(x) = λ0 Σᵢ wᵢ xᵢ` for `x ≥ 0`, and `Inf` otherwise, the penalty of the
-nonnegative lasso. Its proximal operator is `max(x - γλ0w, 0)`.
+nonnegative lasso. Its proximal operator is `max(x - γλ0w, 0)`. A NaN entry gives NaN.
 """
 struct NormL1Nonneg{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ0::T
@@ -396,7 +424,9 @@ Base.@propagate_inbounds function value_entry(f::NormL1Nonneg, v::T, i::Integer)
     p = _positive_product(f.λ0, w, a)
     ifelse(isinf(w) & !iszero(a), oftype(p, Inf) * a, p)
   else
-    S(Inf)
+    # NaN depends on the entry at every level and weight, so it is not turned into the Inf of a
+    # failed membership test; one type for every branch
+    oftype(_positive_product(f.λ0, _entry(f.w, i), zero(S)), isnan(v) ? NaN : Inf)
   end
 end
 Base.@propagate_inbounds prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
@@ -409,7 +439,7 @@ restrict(f::NormL1Nonneg, S::AbstractVector{<:Integer}) = NormL1Nonneg(f.λ0, _r
 
 @inline _l1_value(::NormL1, v, a) = a * abs(v)
 @inline _l1_value(::NormL1Nonneg, v::T, a) where {T} =
-  ifelse(v >= -_tol(T), a * max(v, zero(T)), T(Inf))
+  ifelse(v < -_tol(T), T(Inf), a * max(v, zero(T)))
 
 @inline function _l1_value_sum(f, x::Array{T}, allow_zero::Bool) where {T<:Union{Float32,Float64}}
   s = zero(T)
@@ -541,25 +571,41 @@ end
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::ElasticNet, v::Real, i::Integer) = f.λ1 * _entry(f.w, i) * abs(v) + f.λ2 * abs2(v) / 2
 _has_ordinary_value(::Type{<:ElasticNet}) = true
-# z/(1 + γλ2) for the soft-thresholded z. While γλ2 is finite in W this is the division, as before.
-# Where it overflows W although both factors are finite, the scaled ridge of SqrNormL2 applies the
-# weight (R3), so that a coefficient that is not representable still acts on z.
-@inline function _elastic_ridge(::Type{W}, z, γ, λ2) where {W}
-  t = _typed_product(W, γ, λ2)
-  isfinite(t) ? z / (1 + t) : _elastic_ridge_wide(W, z, γ, λ2, t)
-end
+# z/(1 + γλ2) for the soft-thresholded z, where γλ2 overflows W although both factors are finite:
+# the scaled ridge of SqrNormL2 applies the weight (R3), so that a coefficient that is not
+# representable still acts on z.
 @noinline function _elastic_ridge_wide(::Type{W}, z, γ, λ2, t) where {W}
   _recoverable_factors(γ, λ2, one(W)) ? _ridge_apply(_ridge_scaled(W, γ, λ2), convert(W, z)) : z / (1 + t)
 end
-@inline function _elastic_slope(::Type{W}, γ, λ2) where {W}
-  t = _typed_product(W, γ, λ2)
-  isfinite(t) ? inv(1 + t) : _elastic_slope_wide(W, γ, λ2, t)
-end
 @noinline _elastic_slope_wide(::Type{W}, γ, λ2, t) where {W} =
   _recoverable_factors(γ, λ2, one(W)) ? _ridge_slope(_ridge_scaled(W, γ, λ2)) : inv(1 + t)
+# γ = Inf (P1): the projection onto the minimizers of λ1 w|z| + λ2 z²/2. Each part is decided from
+# its parameters (p1: λ1 > 0, p2: λ2 > 0) and the weight, not from γλ, which is 0·Inf for a zero
+# level (E4). With an active part the map is 0 on finite arguments, and an infinite or NaN entry
+# gives NaN (no joint limit, E1); a wrapper such as Tilt can pass a NaN it formed from the step,
+# which is not a NaN entry of the caller's argument. With no active part it is shrink(v, 0), as at
+# every finite step. An infinite weight fixes the entry as at every finite step.
+@inline function _elastic_infinite_step(v::T, p1::Bool, p2::Bool, w) where {T<:Real}
+  S = float(T)
+  l1 = isinf(w) | (p1 & (w > zero(w)))
+  shrink(v, ifelse(l1, S(Inf), zero(S))) / ifelse(p2, S(Inf), one(S))
+end
+@inline function _elastic_infinite_slope(v::T, p1::Bool, p2::Bool, w) where {T<:Real}
+  free = !(isinf(w) | (p1 & (w > zero(w))) | p2)
+  _elastic_infinite_step(v, p1, p2, w), _slope(free & (abs(v) > zero(v)), one(float(T)))
+end
+# While γλ2 is finite in S this is shrink(v, γλ1w)/(1 + γλ2), as before. A nonfinite γλ2 is the
+# trigger for both exceptions: an overflow at a finite step, and every γ = Inf.
 Base.@propagate_inbounds function prox_entry(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  _elastic_ridge(S, shrink(v, _weight_coefficient(S, γ, f.λ1, _entry(f.w, i))), γ, f.λ2)
+  w = _entry(f.w, i)
+  t = _typed_product(S, γ, f.λ2)
+  isfinite(t) || return _elastic_prox_wide(S, f, v, w, γ, t)
+  shrink(v, _weight_coefficient(S, γ, f.λ1, w)) / (1 + t)
+end
+@noinline function _elastic_prox_wide(::Type{S}, f::ElasticNet, v, w, γ, t) where {S}
+  γ == Inf && return convert(S, _elastic_infinite_step(v, f.λ1 > zero(f.λ1), f.λ2 > zero(f.λ2), w))
+  _elastic_ridge_wide(S, shrink(v, _weight_coefficient(S, γ, f.λ1, w)), γ, f.λ2, t)
 end
 
 kkt_violation(f::ElasticNet, g::AbstractArray, i::Integer) =

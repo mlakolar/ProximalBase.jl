@@ -1987,6 +1987,97 @@ amendment 21A, and withdrawn after the second review; it was never approved.
 `prox(NormL1(1.0), [Inf], Inf)` stays NaN. The changes are listed in
 [Compatibility and migration](../../src/migration.md).
 
+### 49. Infinite levels whose proximal map is constant (E2, E3, E4; #595)
+
+**Decided** (maintainer, 2026-11-05, option A on #595). Where an admitted
+infinite level makes a proximal map, or an output entry or block, constant on
+all finite arguments, a NaN in an entry that the constant does not depend on
+does not reach it: the output is the constant, normally zero. This is E2's
+dependence rule applied after E4's restriction, with the parameters and the
+step fixed. It is not a rule that infinite parameters map NaN to zero:
+each family proves its constant map first. Standalone values follow E2 and E3
+as before (NaN at a NaN entry), and `value_and_prox!` returns the value at the
+stored output (O2). The level and the step are read as given, before any
+conversion, so a finite level that overflows the working precision keeps its
+finite meaning (R3).
+
+The first families, with the proofs:
+
+- *`NormL1`, `f(x) = λ0 Σᵢ wᵢ|xᵢ|`.* At a step `γ > 0` (finite, or the
+  named endpoint `Inf`), an entry with `λ0 = Inf` and `wᵢ > 0` has the term
+  `+Inf⋅|xᵢ|` except at `xᵢ = 0`, so its separable proximal problem has the
+  unique minimizer `0` for every finite `xᵢ`. An entry with `wᵢ = 0` is free
+  (E4). Array steps apply the rule entry by entry. A `±Inf` entry in a fixed
+  coordinate also gives `0`: with the step fixed the map is constant, and at
+  `γ = Inf` every finite step gives the zero map, so the joint limit is `0`
+  (E3, decision 48). The domain of the entry is `{0}` whatever linear term a
+  wrapper such as `Tilt` adds, so the constant is right at `γ = Inf` too.
+  The value of `NormL1(Inf)` at the zero vector, which the dense unweighted
+  path gave as NaN (`Inf⋅0`), is `0`, the value at the point of the domain
+  `{0}` (E4, E6).
+- *`SLOPE`, `f(x) = Σₖ λₖ|x|₍ₖ₎` with `λ₁ ≥ λ₂ ≥ … ≥ 0`.* With `λ₁ = Inf`,
+  every `x ≠ 0` has `|x|₍₁₎ > 0` and `f(x) = Inf`, so the domain is `{0}` and
+  at every finite `γ > 0` the proximal point is `0` for every finite argument.
+  The output keeps the sign the finite computation gives an entry (`-0.0` for a
+  negative one) and is `0.0` at a NaN.
+- *`NormL1Fused`.* The vector form is `λ1 Σₖ|vₖ| + λ2 Σ_{k<l}|vₖ - vₗ|`, the
+  tuple form `Σᵢ λ1(|x1ᵢ| + |x2ᵢ|) + λ2|x1ᵢ - x2ᵢ|`. With `λ1 = Inf` and any
+  `λ2 ≥ 0` (finite or infinite) the domain of both is `{0}`, and at every
+  finite `γ > 0` the proximal point is `0`, for the pair, the tuple, the vector
+  of any length and each function of a `FiberSum` (the diagonal one on its
+  own). The value is `0` at zero, `Inf` at a nonzero argument and NaN at a NaN
+  entry.
+- *`NormLinf`, `f(x) = λ maxᵢ|xᵢ|`.* With `λ = Inf`, `f(z) = Inf⋅max|zᵢ|`
+  is `0` at `z = 0` and `+Inf` at every other finite `z`, so `f` is the
+  indicator of `{0}`. For a fixed finite `γ > 0` the unique minimizer of
+  `f(z) + ‖z - x‖²/(2γ)` is `0` for every finite `x`. A `±Inf` entry also gives
+  `0`: with the step fixed the map is the constant map (E3). The output is
+  `+0.0` at every entry (no signed-zero convention), `value_and_prox!` returns
+  `0`, and the finite-level coupled block is unchanged. The standalone value is
+  `0` at the zero vector, where the dense reduction gave NaN (`Inf⋅0`) (E4, E6),
+  `Inf` at a nonzero finite argument and NaN at a NaN entry. The value of the
+  conjugate of `IndBallL1(Inf)`, which shares the reduction, follows at the
+  zero vector.
+
+Excluded, and unchanged:
+
+- `γ = 0` with an infinite level. P1 makes the separable `γ = 0` limit the
+  projection onto the closure of the domain, which this decision does not
+  assert for `NormL1(Inf)`; the identity that the implementation returns is
+  kept until the maintainer rules on it.
+- `γ = Inf` for `SLOPE` and `NormL1Fused`, which name no endpoint, and
+  negative or NaN steps, which are not validated yet (#311).
+- `NormLinf(Inf)` at `γ = 0`, at `γ = Inf`, and at a negative or NaN step: the
+  rule above covers a finite positive step only, and these steps keep their
+  results.
+- `NormL1` with a finite level at `γ = Inf`. Its endpoint map is zero at
+  every finite argument, but a NaN entry keeps the earlier result: a wrapper
+  such as `Tilt` shifts the argument by `γc`, which forms NaN by itself at
+  `γ = Inf`, and the inner map cannot tell that NaN from the caller's. The rule
+  at `γ = Inf` is kept only where the entry is fixed by its own domain, as
+  under an infinite level.
+- An infinite fusion level alone, `NormL1Fused(λ1, Inf)` with a finite
+  `λ1`: its domain is the vectors with equal entries (`x1 = x2` for the tuple
+  form), which is not a constant map.
+- An infinite coordinate weight under a finite level. Its entry is constant
+  too, but testing every weight costs the weighted loops 8–28%, so it is a
+  separate question for all the separable families.
+- Other families with infinite levels (`NormL1Nonneg`, `FusedLasso`,
+  `ElasticNet`, the nonconvex penalties, spectral functions):
+  each needs its own proof, and is listed for follow-up.
+
+`Constrained(NormL1, IndBallL2)` and `Constrained(NormL1, IndSphereL2)`
+classify an entry under an infinite level at a positive step as hard-fixed,
+as they classify an infinite weight, so their outputs agree with the inner
+proximal map whether or not the output is the argument (O7).
+
+*History.* #595 asked whether an infinite level is (a) a constant-zero map,
+whose NaN entries become `0` by E2, or (b) outside the NaN rules, with the
+documentation saying so. The campaign pull requests for E2 (#571, #572) had
+kept the old results for infinite levels until this was settled. Option (a)
+treats a map that is constant on finite arguments as constant, and keeps a NaN
+where an output depends on it. Implemented in #615.
+
 ## Evidence used
 
 - Acceptance cases V1–V9, S1–S10 and the logistic tail, run at `3f90a29`;

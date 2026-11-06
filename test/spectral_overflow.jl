@@ -250,12 +250,14 @@ end
           for X in (T[v 0; 0 1], T[1 v; v 1]), Z in logical_inputs(X)
             before = Matrix(Z)
             for f in functions
-              @test f(Z) === T(Inf)
+              # the rank indicators at NaN (E2): NaN, or zero when r ≥ 2 (every 2 × 2 matrix)
+              @test isequal(f(Z), !isnan(v) ? T(Inf) : f isa IndBallRank && f.r >= 2 ? zero(T) :
+                                  f isa IndBallRank || f isa SingularValue && f.f isa IndBallL0 ? T(NaN) : T(Inf))
             end
             @test isequal(Matrix(Z), before)
           end
           for Z in logical_inputs(fill(v, 1, 1))
-            @test IndBallRank(1)(Z) === T(Inf)
+            @test IndBallRank(1)(Z) === (isnan(v) ? zero(T) : T(Inf))   # r ≥ 1 = minimum(size): every matrix
           end
         end
       end
@@ -562,10 +564,10 @@ end
     check_rounded(v, big(M32) / 2)
   end
   @test LogDetLoss(Matrix{Float32}(I, 2, 2), 0.25f0)(1e300 * Matrix(1.0I, 2, 2)) === -Inf
-  # Non-finite weights keep their base values.
-  @test isnan(NormL1(Inf)(zeros(2)))
-  @test isnan(NormL2(Inf)(zeros(2)))
-  @test isnan(NuclearNorm(Inf)(zeros(2, 2)))
+  # An infinite level of NormL1 (decision 49), NormL2 and NuclearNorm has the value 0 at zero (E4).
+  @test NormL1(Inf)(zeros(2)) === 0.0
+  @test NormL2(Inf)(zeros(2)) === 0.0
+  @test NuclearNorm(Inf)(zeros(2, 2)) === 0.0
 end
 
 end

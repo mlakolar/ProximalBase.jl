@@ -164,6 +164,10 @@ _scale_invariant(f::BoxConstrained) = _scale_invariant(f.f) && _cone_bound(f.box
   (_check_value_arrays(c, x); _value_checked(c, x))
 _value_unchecked(c::BoxConstrained, x::AbstractArray) =
   (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.box, x)) ? convert(T, _value_unchecked(c.f, x)) : T(Inf))
+# MCP, SCAD and NormL0 on a box: a NaN entry gives NaN where the value depends
+# on it (constrained_nonconvex.jl).
+_value_unchecked(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, x::AbstractArray) =
+  (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.box, x)) ? convert(T, _value_unchecked(c.f, x)) : _box_nan_value(c, x, T))
 
 # the scalar problem is convex, so its minimizer on an interval is the nearest
 # point to its unconstrained minimizer
@@ -1128,8 +1132,9 @@ Base.@propagate_inbounds _prox_entry_slope(f::SqrNormL2, v::Real, i::Integer, γ
 Base.@propagate_inbounds _prox_entry_slope(r::_OrdinaryRidge, v::Real, i::Integer, γ::Real) = _ridge_prox_slope(r, v, i, γ)
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = _weight_product(S, γ, f.λ0, _entry(f.w, i))
-  shrink(v, t), _slope(abs(v) > t, one(S))
+  # a fixed entry has an infinite threshold, so its slope is zero
+  z, t = _l1_prox_threshold(v, γ, f.λ0, _entry(f.w, i), S)
+  z, _slope(abs(v) > t, one(S))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
@@ -1138,8 +1143,19 @@ Base.@propagate_inbounds function _prox_entry_slope(f::NormL1Nonneg, v::T, i::In
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = _weight_coefficient(S, γ, f.λ1, _entry(f.w, i))
-  _elastic_ridge(S, shrink(v, t), γ, f.λ2), _slope(abs(v) > t, _elastic_slope(S, γ, f.λ2))
+  w = _entry(f.w, i)
+  r = _typed_product(S, γ, f.λ2)
+  isfinite(r) || return _elastic_prox_slope_wide(S, f, v, w, γ, r)
+  t = _weight_coefficient(S, γ, f.λ1, w)
+  shrink(v, t) / (1 + r), _slope(abs(v) > t, inv(1 + r))
+end
+@noinline function _elastic_prox_slope_wide(::Type{S}, f::ElasticNet, v, w, γ, r) where {S}
+  if γ == Inf
+    z, dz = _elastic_infinite_slope(v, f.λ1 > zero(f.λ1), f.λ2 > zero(f.λ2), w)
+    return convert(S, z), convert(S, dz)
+  end
+  t = _weight_coefficient(S, γ, f.λ1, w)
+  _elastic_ridge_wide(S, shrink(v, t), γ, f.λ2, r), _slope(abs(v) > t, _elastic_slope_wide(S, γ, f.λ2, r))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::IndBox, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)

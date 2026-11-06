@@ -87,6 +87,11 @@ Every file is listed once in `tiers.toml`; full runs all of them, so the full ti
 exactly the files the old complete suite ran, plus the new files split out of them.
 `test/tier_selection.jl` checks this, the cumulative inclusion, and the CI risk rules.
 
+Files added since then sit with the files of the code they test. `infinite_level_values`
+(standard) holds the values of `NormL2`, `NormLinf`, `NuclearNorm` and `Scaled` with an infinite
+level or factor: family behaviour beside `norms` and `infinite_weights`, a few seconds of small
+cases, with no grid that would need the thorough tier.
+
 ## Measured times on GitHub
 
 End to end is from the run's creation to its last job (the gate); the test jobs run in
@@ -350,9 +355,9 @@ change is narrow, shared or architectural is the author's declaration, checked i
 
 **Focus groups**, chosen by what the files protect (worker seconds on Julia lts from the full
 run 41364805347), beside the iterate files of quick (`active_handle`, `atom_iterate`,
-`iterate_invariants`, `iterate_queries`, `matrixview`, `sparse_iterate_basics`,
-`symmetric_parameters`, `symmetric_products`, `wrapper_buffers`, `allocations_basics`,
-`block_step_failures`):
+`iterate_invariants`, `iterate_queries`, `iterate_writes`, `matrixview`,
+`sparse_iterate_basics`, `symmetric_parameters`, `symmetric_products`, `wrapper_buffers`,
+`allocations_basics`, `block_step_failures`):
 
 | Rule | Focus files | Why | Worker s |
 |---|---|---|---:|

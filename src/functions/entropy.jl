@@ -467,7 +467,13 @@ _checkparams(f::Berhu, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::Berhu, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  λ, w = S(f.λ), S(_entry(f.w, i))
+  w0 = _entry(f.w, i)
+  # A NaN entry gives 0 where a zero weight, or a zero level at a finite weight, leaves it free
+  # (E4), and NaN elsewhere, an infinite weight included; the raw parameters decide, not their
+  # conversions. Other entries take the expression below. (Of the equivalent forms, testing
+  # the entry first keeps the sparse value loops at their speed.)
+  isnan(v) && return (iszero(w0) | (iszero(f.λ) & !isinf(w0))) ? zero(S) : S(v)
+  λ, w = S(f.λ), S(w0)
   c, M, t = _weight_coefficient(λ, w), S(f.M), abs(S(v))
   _weighted_value(t <= M ? c * t : c * (t^2 + M^2) / (2M), t)
 end

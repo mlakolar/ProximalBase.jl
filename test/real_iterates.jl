@@ -228,6 +228,18 @@ end
   end
   @test_throws InexactError (atom(AtomIterate(4, 2), 1) .= ComplexF64[1, 2im])
   @test_throws Exception (coordinates(SparseIterate(4)) .= c)
+  # the coordinate view has no check of its own: it writes as a plain vector of the element type
+  let fixture() = (x = SparseIterate(4); x[3] = 1.0; x)
+    x = fixture()
+    @test_throws InexactError (coordinates(x) .= c)
+    @test Vector(x) == [1.0, 0, 1, 0]
+    x = fixture()
+    @test_throws InexactError copyto!(coordinates(x), c)
+    @test Vector(x) == [1.0, 0, 1, 0]
+    x = fixture()
+    @test_throws InexactError (coordinates(x)[2] = 2im)
+    @test Vector(x) == [0.0, 0, 1, 0]
+  end
 
   makem() = (x = SparseIterate(2, 2); x[4] = 9.0; x)
   for write! in (x -> copyto!(x, c), x -> copyto!(x, C), x -> copy!(x, C), x -> (x .= C), x -> fill!(x, 2im),
@@ -297,8 +309,8 @@ end
     @test Vector(copyto!(make(), Float64[])) == [0, 0, 0, 9]
     @test Vector(copy!(make(), [1.0, 2, 3, 4])) == [1, 2, 3, 4]
     @test Vector(fill!(make(), 2)) == fill(2, 4)
-    x = fill!(make(), 0)
-    @test Vector(x) == zeros(4) && nactive(x) == 0
+    x = fill!(make(), 0)                       # a value write keeps the working set
+    @test Vector(x) == zeros(4) && nactive(x) == 1 && nactive(dropzeros!(x)) == 0
   end
 end
 

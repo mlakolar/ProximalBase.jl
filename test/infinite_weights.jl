@@ -40,17 +40,11 @@ entry1(::Type{T}) where {T} = (
     fs = penalties(T, λ, T[1, Inf])
     for name in keys(fs)
       f = fs[name]
-      nonneg = name === :NormL1Nonneg
       @testset "$name, $T, λ = $λ" begin
         @test PB.value_entry(f, T(0), 2) === T(0)
         @test PB.value_entry(f, T(0.5), 2) === T(Inf)
-        if nonneg
-          @test PB.value_entry(f, T(-0.5), 2) === T(Inf)
-          @test PB.value_entry(f, T(NaN), 2) === T(Inf)
-        else
-          @test PB.value_entry(f, T(-0.5), 2) === T(Inf)
-          @test isnan(PB.value_entry(f, T(NaN), 2))
-        end
+        @test PB.value_entry(f, T(-0.5), 2) === T(Inf)
+        @test isnan(PB.value_entry(f, T(NaN), 2))
         for v in T[1, -1, floatmax(T), -floatmax(T)], γ in T[0, 0.5, 1]
           @test iszero(PB.prox_entry(f, v, 2, γ))
         end
@@ -79,6 +73,103 @@ entry1(::Type{T}) where {T} = (
         @test y[2] == 0
       end
     end
+  end
+end
+
+# NormL1Nonneg at a NaN entry: the value depends on the entry at every level and weight (a zero
+# level or weight removes the penalty, not the domain; an infinite one fixes the entry at zero),
+# so a failed membership test is not an Inf there, and NaN takes precedence over ±Inf in a sum.
+# Entries below -sqrt(eps) stay Inf, and the other finite entries keep their values.
+function nonneg_ref(f, x::AbstractVector{T}) where {T}
+  any(isnan, x) && return T(NaN)
+  s = zero(T)
+  for i in eachindex(x)
+    λ, w = f.λ0, f.w === nothing ? 1 : f.w[i]
+    a = max(x[i], zero(T))
+    s += x[i] < -PB._tol(T) ? T(Inf) :
+         iszero(a) || iszero(w) || (iszero(λ) && !isinf(w)) ? zero(T) :
+         isinf(λ) || isinf(w) ? T(Inf) : T(λ) * T(w) * a
+  end
+  s
+end
+
+@testset "NormL1Nonneg at a NaN entry, $T" for T in (Float32, Float64)
+  nan, inf, tol = T(NaN), T(Inf), PB._tol(T)
+  weights = (nothing, T[0, 1, Inf], T[1, 2, 3])
+  for λ in (0, 1, Inf), w in weights
+    f = NormL1Nonneg(T(λ), w)
+    @testset "λ = $λ, w = $w" begin
+      for v in (nan, T(NaN) * -1), i in 1:3
+        @test isnan(PB.value_entry(f, v, i))
+      end
+      for v in (T(-1), -inf, -2tol), i in 1:3
+        @test PB.value_entry(f, v, i) == inf
+      end
+      for v in (T(0), -tol / 2, T(0.5), T(3)), i in 1:3
+        @test PB.value_entry(f, v, i) isa Union{Float32, Float64}
+      end
+      # dense values: NaN wherever it sits, with other entries of either kind of non-finite or
+      # infeasible value; the other vectors take the values of the definition
+      for j in 1:3, others in (T[0.5, 2], T[-1, 0.5], T[-inf, 2], T[inf, 0.5], T[0, 0])
+        x = insert!(copy(others), j, nan)
+        @test isnan(f(x))
+        @test isnan(f(x[1:3]))
+        @test isnan(nonneg_ref(f, x))
+      end
+      for x in (T[0.5, 0, 2], T[0, 0, 0], T[-tol / 2, 1, 2], T[1, 2, 3], T[-1, 0.5, 2], T[0.5, -inf, 2],
+                T[0.5, 0, inf], T[0.5, 0.25, 0])
+        @test f(x) === nonneg_ref(f, x)
+      end
+      @test isnan(f(T[NaN, -1, 1]))
+      @test f(T[-1, 0.5, 2]) === T(Inf)
+      # the value of the fused call, at the stored NaN output
+      y = similar(T[1, 2, 3])
+      v = value_and_prox!(y, f, T[NaN, 1, 2], T(1))
+      @test isnan(v) && isnan(y[1])
+      v = value_and_prox!(y, f, T[1, NaN, 2], T(1))
+      @test isnan(v) && isnan(y[2])
+      # sparse iterates
+      for j in 1:3
+        si = SparseIterate(T, 3)
+        si[j] = nan
+        @test isnan(f(si))
+      end
+      si = SparseIterate(T, 3)
+      si[1] = T(-1); si[2] = nan
+      @test isnan(f(si))
+      si[2] = T(0.5)
+      @test f(si) === T(Inf)
+    end
+  end
+  # a long vector: the blocks of the dense loops and the fallbacks
+  n = 600
+  for λ in (0, 1, Inf), w in (nothing, repeat(T[0, 1, Inf], 200), repeat(T[1, 2, 3], 200))
+    f = NormL1Nonneg(T(λ), w)
+    x = zeros(T, n)
+    for i in 1:n
+      x[i] = w !== nothing && isinf(w[i]) ? T(0) : T(0.5)
+    end
+    @test f(x) === nonneg_ref(f, x)
+    for j in (1, 2, 3, 300, 512, 513, 514, n)
+      z = copy(x)
+      z[j] = nan
+      @test isnan(f(z))
+      z[(j % n) + 1] = T(-1)
+      @test isnan(f(z))
+      z[j] = T(-1)
+      z[(j % n) + 1] = x[(j % n) + 1]
+      @test f(z) === T(Inf)
+      z[j] = -inf
+      @test f(z) === T(Inf)
+    end
+  end
+  # symmetric iterates
+  for λ in (0, 1, Inf), w in (nothing, T[1 2; 2 3], T[0 1; 1 Inf])
+    f = NormL1Nonneg(T(λ), w)
+    @test isnan(f(SymmetricSparseIterate(T[1 NaN; NaN 1])))
+    @test isnan(f(SymmetricSparseIterate(T[NaN 0; 0 1])))
+    @test isnan(f(SymmetricSparseIterate(T[NaN -1; -1 1])))
+    @test f(SymmetricSparseIterate(T[1 -1; -1 1])) === T(Inf)
   end
 end
 
@@ -202,8 +293,8 @@ end
       for i in 1:4
         @test value_entry(z, zero(T), i) === zero(T)
         @test value_entry(z, T(3), i) === (i == 2 ? T(Inf) : zero(T))
-        # a zero level leaves a LogPenalty entry free (E4, #561), unless its weight is infinite
-        F === LogPenalty && i != 2 ? @test(iszero(value_entry(z, T(NaN), i))) : @test(isnan(value_entry(z, T(NaN), i)))
+        # a zero level leaves the entry free, NaN included (E4), unless its weight is infinite
+        i != 2 ? @test(iszero(value_entry(z, T(NaN), i))) : @test(isnan(value_entry(z, T(NaN), i)))
         @test kkt_violation(z, g, i) === (i == 2 ? T(-Inf) : abs(g[i]))
         @test allocs(value_entry, z, T(3), i) == 0
         @test allocs(prox_entry, z, T(3), i, one(T)) == 0

@@ -24,7 +24,7 @@ legacy_inbox(v, l, u, t) = (v >= l - t * max(one(t), abs(l))) & (v <= u + t * ma
           Spectral(Conjugate(IndNonnegative())), Conjugate(SingularValue(NormLinf(o))), TracePSD(o))
     for X in (T[Inf 0; 0 1], T[-Inf 0; 0 1], T[NaN 0; 0 1], T[1 Inf; Inf 1], T[1 NaN; NaN 1])
       for f in fs
-        @test f(X) === T(Inf)
+        @test isequal(f(X), f isa SingularValue && f.f isa NormL0 && any(isnan, X) ? T(NaN) : T(Inf))   # E2 for counting functions
       end
       @test Spectral(NormL1Nonneg(o))(X) === TracePSD(o)(X)
       @test SingularValue(NormL1(o))(X) === NuclearNorm(o)(X)

@@ -122,6 +122,7 @@ thorough = [
   "conjugate_steps",
   "constrained",
   "converted_weights",
+  "elasticnet_zero_levels",
   "expcone",
   "extreme_normals",
   "fibers",

@@ -357,26 +357,31 @@ and the exponent is applied last. A scale around `f`, chained or not, joins the
 same power of two. This covers `NormL1`, `NormL2`, `NormLinf`, `SumLargest`
 (signed spectra included), `SLOPE`, `NormL1Nonneg`, `ElasticNet` (its two
 levels separately), uncentered `SqrNormL2`, `CubeNormL2`, the support functions
-of the balls, boxes and simplices, the conjugate of uncentered `SqrNormL2`, and `Constrained` forms of these, whose constraints are decided on
-`v` first. The conjugates of scaled `NormL1`, `NormL2` and `NormLinf` are
-decided on `v` against their radius in the same units, which is never formed
-in the original units. So `SingularValue(NormL1(1/4))` at
-`fill(floatmax(Float64), 2, 2)`, whose singular values are `2floatmax` and `0`,
-is `floatmax(Float64)/2` to within an ulp (the computed singular value is
-rounded), where it was `Inf`.
+of the balls, boxes and simplices, the conjugate of uncentered `SqrNormL2`, and
+`Constrained` forms of these, whose constraints are decided on `v` first. A
+weighted `NormL1`, `NormL1Nonneg` or `ElasticNet` is a sum of products of a
+level, a weight and an entry of `v`, which can lose its value to underflow
+although each factor is normal: when its value at `v` is zero or subnormal, it
+is recovered only by folding the scale into a normal level, and only when the
+value so computed is not below the normal range or every term is an exact zero;
+otherwise it keeps the ordinary result. The conjugates of scaled `NormL1`,
+`NormL2` and `NormLinf` are decided on `v` against their radius in the same
+units, which is never formed in the original units. So
+`SingularValue(NormL1(1/4))` at `fill(floatmax(Float64), 2, 2)`, whose
+singular values are `2floatmax` and `0`, is `floatmax(Float64)/2` to within an
+ulp (the computed singular value is rounded), where it was `Inf`.
 
 Not covered: the support functions of a box with a linear constraint, such as
 the Ky Fan norm, whose kernel keeps its ordinary result, which may be `Inf` or
-`NaN` (#648); the support functions of boxes and simplices at a level outside
-the normal range of the matrix's precision, which have no level that a scale
-folds into;
-`NormLq`, whose degree is not an integer; centered and translated functions,
-`Precompose` and other transformations; penalties that are not homogeneous,
-such as `LogPenalty`; functions that `SingularValue` admits outside its
-documented domain (order-dependent penalties and cones); and functions of the
-user. These keep the ordinary result, which may be infinite. The values that
-`value_and_prox!` returns at an overflowing spectrum are not changed for the
-functions this paragraph adds.
+`NaN`, or an `InexactError` (#648); the support functions of boxes and simplices
+at a level outside the normal range of the matrix's precision, which have no
+level that a scale folds into; `NormLq`, whose degree is not an integer;
+centered and translated functions, `Precompose` and other transformations;
+penalties that are not homogeneous, such as `LogPenalty`; functions that
+`SingularValue` admits outside its documented domain (order-dependent
+penalties and cones); and functions of the user. These keep the ordinary
+result, which may be infinite. The values that `value_and_prox!` returns at an
+overflowing spectrum are not changed for the functions this paragraph adds.
 
 A matrix with a `NaN` entry gives the value `NaN` for every function of a
 spectrum computed by LAPACK (`SingularValue`, `Spectral`, `NuclearNorm`,

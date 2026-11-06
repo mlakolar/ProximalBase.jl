@@ -72,9 +72,9 @@ support functions of a box with a linear constraint, such as that of the
 capped simplex, keep the ordinary result (#648). The support functions of
 boxes and simplices, which have no level that a scale folds into, keep the
 ordinary result at a level outside the normal range of the precision of `X`.
-Other functions, such as `NormLq`,
-centered or translated functions and functions of the user, keep the ordinary
-result, which may be infinite. See [Functions of a spectrum](@ref).
+Other functions, such as `NormLq`, centered or translated functions and
+functions of the user, keep the ordinary result, which may be infinite. See
+[Functions of a spectrum](@ref).
 
 $_SPECTRAL_NOTE
 """
@@ -182,7 +182,7 @@ _constant_kind(g::IndBallL0, p) = g.s >= p ? :whole : nothing
 # symmetric part and is not classified.
 function _spectral_nonfinite_value(s::Spectral, X::AbstractMatrix, ::Type{T}) where {T}
   # the structure of f at the spectrum comes first (E1), as at a finite input
-  _checkvalue(s.f, _structure_spectrum(T, size(X, 1)))
+  _check_spectrum_structure(s.f, T, size(X, 1))
   _constant_kind(s.f, size(X, 1)) === nothing && return _nonfinite_value(X, T)
   bytype = _symmetric_by_type(X)
   !bytype && _offdiagonal_nan(X) && return T(NaN)
@@ -436,13 +436,40 @@ function _spectrum_scaled(f::AbstractFunction, s::AbstractVector, k::Int, b::_Pr
 end
 function _spectrum_scaled_by(f, s::AbstractVector{T}, a::_ProjectionScale) where {T}
   v = f(s)
+  _spectrum_weighted(f) && return _weighted_spectrum_scaled(f, s, a, v)
   # A function that has neither a level to fold the factor into nor value parts (`_value_parts`), at
   # a level outside the normal range of T, has lost its value to underflow at the spectrum of
-  # X/2^k: it keeps the ordinary result rather than a wrong finite one. (With normal levels, a
-  # value at that spectrum, whose largest entry is at least one, is small only through
+  # X/2^k: it keeps the ordinary result rather than a wrong finite one. (With normal levels and no
+  # weights, a value at that spectrum, whose largest entry is at least one, is small only through
   # cancellation.) A function with value parts is recomputed by the recovery of Scaled.
   _scaled_small(v) && !_has_value_parts(typeof(f)) && !_spectrum_levels_normal(f, T) && return nothing
   _scaled_value_by(f, a, s, v)
+end
+# A weighted function (a nonzero level and weights) is a sum of products of the level, a weight
+# and an entry of the spectrum. Such a product can lose its value to underflow although each
+# factor is normal, so a small value at the spectrum of X/2^k is no bound on the value at X. Only
+# a fold carries the factor into those products, and only into a normal level: each term is then a
+# product rounded once (`_positive_product`), and the sum of these nonnegative terms is accurate
+# when it is a normal number or infinite, or when every term is an exact zero. A normal value at
+# the spectrum is accurate and scales with one rounding, also below the normal range, and an
+# infinite one stays infinite under a scale above one. Otherwise the function keeps the ordinary
+# result.
+_spectrum_weighted(f) = false
+_spectrum_weighted(f::Union{NormL1, NormL1Nonneg}) = f.w !== nothing && !iszero(f.λ0)
+_spectrum_weighted(f::ElasticNet) = f.w !== nothing && !iszero(f.λ1)
+@noinline function _weighted_spectrum_scaled(f, s::AbstractVector, a::_ProjectionScale, v)
+  r = _apply_scale(a, v)
+  _scaled_small(v) || ((isfinite(v) || !_scale_below_one(a)) && return r)
+  g = _fold_level(f, _NormalScale(a))
+  g === nothing && return nothing
+  u = convert(typeof(r), _value_unchecked(g, s))
+  !_scaled_small(u) || (iszero(u) && _weighted_terms_zero(f.w, s)) ? u : nothing
+end
+function _weighted_terms_zero(w, s::AbstractVector)
+  @inbounds for i in eachindex(s)
+    iszero(s[i]) || iszero(_entry(w, i)) || return false
+  end
+  true
 end
 # whether the levels that no fold takes are zero, infinite or normal numbers of T
 _normal_level(::Type{T}, λ) where {T} = iszero(λ) || !isfinite(λ) || abs(convert(T, λ)) >= floatmin(T)
@@ -464,7 +491,7 @@ function _spectrum_scaled(f::ElasticNet, s::AbstractVector, k::Int, b::_Projecti
   iszero(f.λ1) && return _spectrum_scaled_by(f, s, _ProjectionScale(b.m, b.e + 2k))
   v1 = _spectrum_scaled_by(ElasticNet(f.λ1, zero(f.λ2), f.w), s, _ProjectionScale(b.m, b.e + k))
   v2 = _spectrum_scaled_by(ElasticNet(zero(f.λ1), f.λ2), s, _ProjectionScale(b.m, b.e + 2k))
-  v1 + v2
+  v1 === nothing || v2 === nothing ? nothing : v1 + v2
 end
 # (λ/2)‖x‖² is ElasticNet(0, λ), whose level the factor folds into.
 function _spectrum_scaled(f::SqrNormL2{<:Real, Nothing}, s::AbstractVector, k::Int, b::_ProjectionScale)

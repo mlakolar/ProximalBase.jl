@@ -75,14 +75,18 @@ with the exponent applied last. This covers `NormL1`, `NormL2`, `NormLinf`,
 `CubeNormL2`, the support functions of balls, boxes and simplices, the
 conjugate of uncentered `SqrNormL2`, the conjugates of scaled `NormL1`,
 `NormL2` and `NormLinf`, and `Scaled` and `Constrained` forms of these, also
-in `Conjugate(SingularValue(f))`. The Ky Fan norm and the other support
-functions of a box with a linear constraint keep the ordinary result, which
-may be `Inf` or `NaN` (#648). The support functions of boxes and simplices,
-which have no level that a scale folds into, keep the ordinary result at a
-level outside the normal range of the precision of `X`. Other functions, such
-as `NormLq`,
-centered or translated functions and functions of the user, keep the ordinary
-result, which may be infinite. See [Functions of a spectrum](@ref).
+in `Conjugate(SingularValue(f))`. A weighted `NormL1`, `NormL1Nonneg` or
+`ElasticNet` whose value at that spectrum is zero or subnormal is recovered
+only by folding the scale into a normal level, and only when the value so
+computed is not below the normal range or every term is an exact zero. The
+Ky Fan norm and the other support functions of a box with a linear constraint
+keep the ordinary result, which may be `Inf` or `NaN`, or an `InexactError`
+(#648).
+The support functions of boxes and simplices, which have no level that a
+scale folds into, keep the ordinary result at a level outside the normal range
+of the precision of `X`. Other functions, such as `NormLq`, centered or
+translated functions and functions of the user, keep the ordinary result,
+which may be infinite. See [Functions of a spectrum](@ref).
 
 $_SPECTRAL_NOTE
 """
@@ -133,11 +137,11 @@ function (F::SingularValue)(X::AbstractMatrix)
     ws = _svd_workspace(F.ws, T, size(X)...)
     F.ws = ws
     copyto!(ws.A, X)
-    all(isfinite, ws.A) || return (_checkvalue(F.f, _structure_spectrum(T, minimum(size(X))));
+    all(isfinite, ws.A) || return (_check_spectrum_structure(F.f, T, minimum(size(X)));
                                    _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), ws.A, T))
   else
     # the structure of f at the spectrum comes first (E1), as at a finite input
-    all(isfinite, X) || return (_checkvalue(F.f, _structure_spectrum(T, minimum(size(X))));
+    all(isfinite, X) || return (_check_spectrum_structure(F.f, T, minimum(size(X)));
                                 _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X))), X, T))
   end
   t, scaled, k = _masked_singular_values!(F, X; copied = _is_device_array(X))

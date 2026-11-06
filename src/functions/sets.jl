@@ -555,8 +555,11 @@ function _spectrum_value(f::NormL1Nonneg, v::AbstractVector{T}, k::Int) where {T
   _checkparams(f, v)
   # Preserve the ordinary reduction when its domain test already accepts.
   k == 0 && all(x -> x >= -_tol(T), v) && return f(v)
-  # An overflowing spectrum: the domain, then the value in its units.
-  k > 0 && return convert(T, _spectrum_scaled(f, v, k, _unit_scale(T)))
+  # An overflowing spectrum: the domain, then the value in its units, when it is recovered.
+  if k > 0
+    r = _spectrum_scaled(f, v, k, _unit_scale(T))
+    r === nothing || return convert(T, r)
+  end
   iszero(_spectrum_value(IndNonnegative(), v, k)) || return T(Inf)
   # Only the domain decision changes; negative rounding contributes zero.
   s = zero(T)

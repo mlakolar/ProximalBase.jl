@@ -50,6 +50,15 @@ end
 # parameters, which come first, E1) at a non-finite input, where no spectrum is computed. It holds
 # no storage, so that the check allocates nothing; its values must not be read.
 _structure_spectrum(::Type{T}, p::Integer) where {T} = StepRangeLen(zero(T), zero(T), p)
+# The structure of f at a spectrum of length p: the checks of its value and its recursive
+# parameters, which the value checks of some wrappers do not reach (the inner function of a
+# LinearConstrained, whose value check is that of its set).
+function _check_spectrum_structure(f, ::Type{T}, p::Integer) where {T}
+  x = _structure_spectrum(T, p)
+  _checkvalue(f, x)
+  _checkparams(f, x)
+  nothing
+end
 
 # The value at a matrix with a non-finite entry (E2): NaN when an entry is NaN, otherwise Inf.
 # Called only after a finiteness test failed, so that finite inputs make no second pass.

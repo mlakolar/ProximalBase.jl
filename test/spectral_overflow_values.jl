@@ -5,7 +5,7 @@ module SpectralOverflowValuesTest
 # formulas of f at an exact spectrum, or at the LAPACK spectrum of an unscaled matrix scaled
 # exactly; homogeneity is an additional check only.
 
-using Test, ProximalBase, LinearAlgebra
+using Test, ProximalBase, LinearAlgebra, Random
 using ..TestUtils
 
 const PB = ProximalBase
@@ -33,6 +33,15 @@ function signed_ok(v, ref::BigFloat, ::Type{R}, scale::BigFloat, p) where {R}
     isinf(v) && return sign(v) == sign(ref)
   end
   isfinite(v) && abs(big(v) - ref) <= b
+end
+
+# Weighted functions (T1): a finite value is within the budget of its reference; a value that is
+# not finite is the ordinary result, which the recovery keeps.
+function weighted_ok(v, ref::BigFloat, ::Type{R}, p) where {R}
+  v isa R || return false
+  isfinite(v) || return true
+  ref > big(floatmax(R)) && return false
+  abs(big(v) - ref) <= C * p * eps(R) * ref + 4p * big(nextfloat(zero(R)))
 end
 
 # BigFloat values of f at a spectrum σ (singular values or eigenvalues), with the levels as stored.
@@ -289,6 +298,7 @@ end
          (-1f12, -1f-3, 1f0, 2(-1f-3) - 3f-5, [M, M / 2], :nan),
          (-4f0, -2f0, 1f0, -5f0, [M / 8, M / 4], :inf),
          (-M, M, 1f0, 0f0, [1f0, 1f0], :inexact),
+         (-1f10, -1f-10, 1f0, -1.5f10, [M, M, -M / 2], :nan),   # exact value 0 (#648)
          (0f0, 0.25f0, 1f0, 0.25f0, [M, M], :nan))
       # B6: box(-(1 - 2^-j), 1) with the halfspace Σx ≤ 2^-j at [M, M], condition 15 to 2e9
       js = T === Float64 ? (3:30) : (3:20)
@@ -337,6 +347,69 @@ end
       # At an infinite entry the kernel gives NaN where E3 gives Inf, or throws (#648)
       @test isnan(kf(zero(T), q, one(T), q, false)(T[Inf, 1]))
       @test_throws InexactError kf(-M, M, one(T), zero(T), false)(T[Inf, 1])
+    end
+
+    @testset "weighted functions ($T)" begin
+      # A product of the level and a weight can underflow although each factor is normal: a small
+      # value at the scaled spectrum is recovered only by a fold into a normal level whose value is
+      # normal, or exactly zero term by term; otherwise the ordinary result stays.
+      E = exponent(floatmax(T)) - 3                       # σX = 25(3/4, 1/4) 2^E
+      wsum(w, σ) = sum(big.(w) .* σ)
+      # the examples of the review: no fold reaches the products, the ordinary result stays
+      if T === Float64
+        @test isnan(SingularValue(Scaled(NormL1(2.0^-600, fill(2.0^-600, 2)), 2.0^1000))(X))   # 25⋅2^820
+        @test SingularValue(NormL1(4.0, fill(tiny, 2)))(X) === Inf                             # 100⋅2^-54
+      else
+        @test SingularValue(NormL1(4f0, fill(1e-50, 2)))(X) === Inf32                          # 2.1267647f-11
+      end
+      small = (fill(tiny, 2), fill(nextfloat(0.0), 2), fill(ldexp(1.0, -1060), 2))
+      for w in small, F in (SingularValue(NormL1(T(4), w)), SingularValue(NormL1Nonneg(T(4), w)),
+                            SingularValue(ElasticNet(T(4), zero(T), w)), SingularValue(ElasticNet(T(4), l2, w)),
+                            SingularValue(Scaled(NormL1(T(4), w), T(2))),
+                            SingularValue(Constrained(NormL1(T(4), w), IndBox(0, Inf))),
+                            SingularValue(Constrained(NormL1(T(4), w), IndHalfspace(-one(T), zero(T)))),
+                            SingularValue(Scaled(Constrained(NormL1Nonneg(T(4), w), IndBox(0, Inf)), T(2))))
+        v = F(X)
+        @test weighted_ok(v, 4 * wsum(w, σX), T, 2)
+        @test !isfinite(v)                                  # the level 4 folds out of range
+      end
+      # recovered: the product of level and weight underflows at the scaled spectrum, the fold does not
+      λ = ldexp(one(T), -20)
+      for w in (fill(ldexp(one(T), 2 - exponent(floatmax(T))), 2), fill(ldexp(1.0, -150), 2), [ldexp(one(T), -110), zero(T)])
+        r = big(λ) * wsum(w, σX)
+        for f in (NormL1(λ, w), NormL1Nonneg(λ, w), ElasticNet(λ, zero(T), w), Constrained(NormL1(λ, w), IndBox(0, Inf)),
+                  Constrained(NormL1(λ, w), IndHalfspace(-one(T), zero(T))))
+          v = SingularValue(f)(X)
+          @test isfinite(v) && weighted_ok(v, r, T, 2)
+        end
+        v = SingularValue(Scaled(NormL1(λ, w), T(1) / 4))(X)
+        @test isfinite(v) && weighted_ok(v, r / 4, T, 2)
+      end
+      # exact zeros term by term: zero weights
+      for f in (NormL1(q, zeros(T, 2)), NormL1Nonneg(q, zeros(T, 2)), ElasticNet(q, zero(T), zeros(T, 2)))
+        @test SingularValue(f)(X) === zero(T)
+        @test SingularValue(f)(A) === zero(T)
+      end
+      # a seeded sweep of levels, weights (in T and Float64) and outer scales at exact spectra:
+      # σX, and √2 M twice for Q
+      Q = T[1 1; -1 1] .* M
+      σQ = fill(sqrt(big(2)) * big(M), 2)
+      rng = MersenneTwister(384)
+      nrec = 0
+      for trial in 1:120, WT in (T, Float64)
+        Z, σ = rand(rng, Bool) ? (X, σX) : (Q, σQ)
+        e(S, lo) = ldexp(S(1 + rand(rng)), rand(rng, lo:exponent(floatmax(S))))
+        w = [rand(rng) < 0.15 ? zero(WT) : e(WT, exponent(floatmin(WT)) - precision(WT) + 1) for _ in 1:2]
+        λ, α = e(T, exponent(floatmin(T))), e(T, exponent(floatmin(T)))
+        r = big(λ) * wsum(w, σ)
+        for (f, s) in ((NormL1(λ, w), 1), (NormL1Nonneg(λ, w), 1), (ElasticNet(λ, zero(T), w), 1),
+                       (Scaled(NormL1(λ, w), α), big(α)), (Constrained(NormL1(λ, w), IndBox(0, Inf)), 1))
+          v = SingularValue(f)(Z)
+          @test weighted_ok(v, s * r, T, 2)
+          nrec += isfinite(v) && !iszero(r)
+        end
+      end
+      @test nrec > 0
     end
 
     @testset "BigFloat levels ($T)" begin
@@ -440,6 +513,18 @@ end
           @test isequal(value_and_prox!(W, F, W, one(T)), isnan(v) ? T(NaN) : T(Inf))
         end
       end
+      # E1: the recursive parameters of f come first, as at a finite input, also the inner
+      # function of a LinearConstrained (whose value check is that of its set)
+      F = SingularValue(Constrained(NormL1(one(T), ones(T, 3)), IndHalfspace(-one(T), zero(T))))
+      for Z in (T[NaN 0; 0 2], T[Inf 0; 0 2], T[1 0; 0 2])
+        @test_throws DimensionMismatch F(Z)
+        Y = fill(T(7), 2, 2)
+        @test_throws DimensionMismatch value_and_prox!(Y, F, Z, one(T))
+        @test all(==(7), Y)
+      end
+      G = SingularValue(Constrained(NormL1(one(T), ones(T, 2)), IndHalfspace(-one(T), zero(T))))
+      @test isnan(G(T[NaN 0; 0 2]))
+      @test G(T[Inf 0; 0 2]) === T(Inf)
     end
   end
 end

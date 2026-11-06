@@ -2,12 +2,12 @@
 
 This directory holds the tools that generated `benchmark/baselines/iterate-family-0.5.md` and
 `benchmark/baselines/iterate-family-0.5.csv`, and an archive of the inputs they were generated from.
-`reproduce.py` regenerates both files from the archive and compares them byte for byte with the
-committed ones. [`iterate-family-0.5-provenance.md`](../iterate-family-0.5-provenance.md) records where each
+`reproduce.py` regenerates both files from the archive, compares them byte for byte with the
+committed ones and runs the [checks](#checks) below. [`iterate-family-0.5-provenance.md`](../iterate-family-0.5-provenance.md) records where each
 input came from and what was verified; this page covers the files and the commands.
 
 The five original tools are committed unchanged (same bytes as when the baseline was generated).
-`pack_evidence.py` and `reproduce.py` are new.
+`pack_evidence.py`, `reproduce.py`, `check_evidence.py`, `check_historical.py` and `historical/validate.py` are new.
 
 | file | what it is |
 |:--|:--|
@@ -17,7 +17,10 @@ The five original tools are committed unchanged (same bytes as when the baseline
 | `crosscheck.jl` | independent `time_ns` loops, the source of the cross-check files (original, manual) |
 | `restore_probe.jl` | the first-activation loop with two restore methods, the source of `restore-probe.txt` (original, manual) |
 | `pack_evidence.py` | builds the archive deterministically from its 45 files |
-| `reproduce.py` | extracts the archive, runs the generator, compares the outputs |
+| `reproduce.py` | extracts the archive, checks the evidence, runs the generator, compares the outputs, runs `verify_csv3.py` |
+| `check_evidence.py` | the structure, identity, A/A and count checks of the extracted evidence |
+| `check_historical.py` | the battery that CI runs: `reproduce.py` and negative tests on tampered copies |
+| `historical/validate.py` | the timer-limited rule of the baseline run, frozen |
 | `../data/iterate-family-0.5-evidence.tar.gz` | the archived inputs |
 
 `crosscheck.jl` and `restore_probe.jl` are manual scripts for the pinned 0.5.x API of the baseline. They
@@ -34,27 +37,38 @@ python3 benchmark/baselines/tools/reproduce.py
 From any other directory, give the script's path, for example
 `python3 <repository>/benchmark/baselines/tools/reproduce.py`. The script finds the repository from its own location. It checks the archive against the pinned SHA-256,
 extracts the 45 members into a temporary directory, runs `make_baseline.py` there with `python -I -B`, and
-compares the generated md and csv with the committed files. It writes nothing inside the repository.
-Expected output:
+compares the generated md and csv with the committed files, and runs the checks. It writes nothing inside the
+repository. It runs six steps (archive integrity, extraction, structure and identity checks, generator and byte comparison,
+`verify_csv3.py`, A/A and count checks); a failed step does not stop the later ones, so every problem is printed.
+Expected output (the A/A and counts lines are shortened here):
 
 ```text
+python 3.13.13 | packaged by conda-forge | (main, ...) [...]
 archive SHA-256 ae0235adad9f932ceb95ea3ad1709621d73fa0a506dd231b9c442fd005b1bf87 (pinned value)
 extracted 45 members
+structure and identity: passed
 iterate-family-0.5.md: identical, SHA-256 9055d230ecb74a654d5bb3beb315d25b1298260ae6373615b90d7edf99a968f2
 iterate-family-0.5.csv: identical, SHA-256 cb8348bb8099e91fce8ac733454682a82f26d875db9f98ad92bc0a8479c71705
-result: both files identical
+verify_csv3: no mismatch; rows, timer-limited, gate and conclusive counts as pinned
+aa: 3719 cases; bit-equal paired_geometric_speedup 3719, ci95_low 3719, ...; largest distance 0 ulps (bound 4)
+counts: cases 3719, timer_limited_base 94, ..., gate5 1092, ...
+A/A and counts: passed
+result: both files identical, all checks passed
 ```
 
-Exit code 0: both files are identical. 1: a generated file differs from the committed one (the output names it
-and gives both hashes). 2: any other failure, such as an archive, usage, generator or file-system error (the message is on stderr).
+Exit code 0: both files are identical and every check passed. 1: a generated file differs from the committed one or a
+check failed (the output names the check, the file, the case, the repetition and the field; a failed check takes
+precedence over a crash of the generator). 2: any other failure, such as an archive, usage, generator or file-system error
+(the message is on stderr).
 
 Options:
 
 - `--keep DIR` keeps the extraction (`DIR/iterate-family-0.5-evidence`) and the generated files
   (`DIR/generated`). `DIR` must not exist or must be empty.
 - `--archive PATH` uses another archive and skips the hash check. It is meant for tests: a changed archive
-  that the generator accepts gives exit code 1, a truncated archive or one with a missing or extra member
-  gives exit code 2.
+  that the generator accepts gives exit code 1 if a check fails or the outputs differ, a truncated archive or one with a
+  missing or extra member gives exit code 2.
+- `--baseline-dir DIR` reads the committed md and csv from `DIR` instead of this directory's parent. It is meant for tests.
 
 The generator, `verify_csv3.py` and `identity.py` can also be run by hand on a kept extraction. With `E` the
 extraction directory (`DIR/iterate-family-0.5-evidence`), from the repository root:
@@ -78,7 +92,7 @@ The generator by hand, run from the directory that holds `iterate-family-0.5-evi
 ```sh
 python3 -I -B REPO/benchmark/baselines/tools/make_baseline.py --reps 3 \
   --groups iterate-family-0.5-evidence/base-groups --layouts iterate-family-0.5-evidence/base-layouts \
-  --benchmark-dir REPO/benchmark \
+  --benchmark-dir REPO/benchmark/baselines/tools/historical \
   --harness-commit 5d43d165722bfb5a401abf735ba2a673d9ee0946 \
   --source-commit def81ec9d021c39ed1727cfeb9598357291dd60d \
   --crosscheck iterate-family-0.5-evidence/crosscheck-pinned-start.tsv \
@@ -88,8 +102,65 @@ python3 -I -B REPO/benchmark/baselines/tools/make_baseline.py --reps 3 \
   --out-md iterate-family-0.5.md --out-csv iterate-family-0.5.csv
 ```
 
-`REPO/benchmark` must hold the `validate.py` whose `timer_limited` the generator imports. `-I` stops Python from
-importing from the script's directory and `-B` stops it from writing bytecode.
+The generator imports `timer_limited` from the `validate.py` in `--benchmark-dir`. `historical/` holds the rule of the
+baseline run, frozen (see below), so that the baseline does not depend on `benchmark/validate.py`, which changes.
+`-I` stops Python from importing from the script's directory and `-B` stops it from writing bytecode.
+
+## Checks
+
+`python3 benchmark/baselines/tools/check_historical.py` runs the battery below and prints one
+`HISTORICAL_BASELINE_PASSED` line with the Python version. `benchmark/check_analysis.py`, which CI runs, runs it
+(in its own interpreter, with a 120 s limit). It writes only into temporary directories.
+
+`check_evidence.py` (also usable by hand: `check_evidence.py EXTRACTION [BASELINE_DIR]`) checks the extracted
+evidence, in this order. A failed structure check skips the others.
+
+- **Structure.** Each of the twelve result directories (base and A/A, groups and layouts) holds the metadata, metrics and
+  error files of repetitions 1 to 3 and nothing else; every case appears once per file; each metrics file has exactly its kind's
+  case set (3,455 groups, 264 layouts, equal to the case set of its comparison file; the union equals the 3,719 cases of the
+  committed csv), the `rep` column of its repetition, and the `cases` of its metadata; the error files are empty.
+- **Identity.** All twelve metadata files agree on the harness hash, the source commit and hash, Julia and the settings
+  (the generator's sixteen keys and more; the values of `harness_hash`, `source_sha`, `source_hash`, `julia` and `groups` are
+  pinned), the tree was clean, there were no failures, the timer floor is finite and positive. The comparison files record
+  Julia 1.13.3, three paired runs and the timer limit multiple 10, and `coverage.json` no unmatched case. The generator itself
+  checks the identity only across the base files.
+- **A/A comparison.** For every case, the speedup, the 95% interval and the means of the comparison files are recomputed from
+  the raw `mean_ns` of the base and A/A repetitions with the arithmetic of the historical `compare.py`: the paired
+  geometric speedup is base over A/A, and the interval is `exp(mean ± t·sd/√3)` of the log ratios with t = 4.303, the
+  value in `summarize.py` that produced the archived intervals (`verify_csv3.py` uses 4.30265 and a tolerance). Each
+  recomputed figure must agree with the archived one within 4 units in the last place: the archive was computed on
+  macOS, and the `exp` and `log` of another platform's libm can differ by one unit. On macOS all 3,719 cases are
+  bit-equal; on Linux a few cases differ by one unit. A change below 4 units cannot alter a published figure, since the
+  baseline rounds to four decimals. `timer_limited` and `timing_assessment` are recomputed too, by the frozen rule and
+  the historical rule.
+- **Committed csv.** `aa_ratio` and `aa_half_width` equal the four-decimal strings of the archived columns, `gate5` equals
+  "neither side timer-limited, A/A half width at most 5%, and not one of the two diagnostic first-activation layouts" (16 cases
+  match that predicate, 2 of them would otherwise gate, so 1,094 become 1,092), and `timer_limited` and `work_varies` are
+  recomputed from the base repetitions.
+- **Counts**, recomputed and compared with the csv and with pinned values: 3,719 cases (3,455 and 264); 94 timer-limited
+  (94 on the base side, 94 on the A/A side, none on the A/A side only); 3,625 not timer-limited, 1,092 of them can gate 5%,
+  2,533 cannot; 104 with varying work; 104 A/A flags (intervals that exclude 1) among the 3,625.
+
+The timer-limited rule is `historical/validate.py`: `check_timer_limit_multiple` and `timer_limited` copied verbatim from
+`benchmark/validate.py` at `5d43d165`, the harness of the run. `check_evidence.py` loads it by path, and `reproduce.py`
+passes its directory to the generator. Its SHA-256 is pinned in `check_historical.py`. The five original tools are unchanged.
+
+`check_historical.py` runs these tests:
+
+- `reproduce.py` exits 0, twice, and the two runs generate identical bytes.
+- The A/A arithmetic on synthetic data: base `[2, 4, 8]` over A/A `[1, 2, 4]` gives a speedup of exactly 2 with a zero-width
+  interval, the reverse gives 0.5, and an example with spread agrees with a hand-computed t = 4.303 interval.
+- The frozen rule: its hash; a row without `evals` is limited; with a NaN or missing floor only `evals == 1` is limited;
+  `median_ns × evals == 10 × floor` is not limited; the multiple is used; an invalid multiple raises.
+- Isolation: in a copy of the tools beside a `benchmark/validate.py` that raises on import, `reproduce.py` still exits 0,
+  and, as a control, the generator given that directory fails.
+- Negative tests. Each makes one change to a temporary copy of the evidence (the test fails if the file did not change) and
+  requires the message of the check meant for it, naming the file, the case and the field: a deleted, a duplicated, a
+  replaced metrics row; a removed repetition file; a wrong `rep` column; swapped A/A repetitions of one case (the speedup
+  does not change, the interval does); a wrong `harness_hash` in one A/A metadata file, also end to end through
+  `pack_evidence.py` and `reproduce.py --archive`; a changed `ci95_low` and a changed speedup in the comparison files; a
+  flipped `gate5` and a changed `aa_half_width` in a copy of the csv, end to end through `reproduce.py --baseline-dir`;
+  and an A/A-side `median_ns` of 1, which exercises the A/A side of the timer rule that the real data never does.
 
 ## The archive
 

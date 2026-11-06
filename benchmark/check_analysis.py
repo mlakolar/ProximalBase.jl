@@ -725,4 +725,11 @@ with tempfile.TemporaryDirectory(prefix="pb-analysis-control-") as temporary:
         assert (root/"reps-cli-full"/filename).read_bytes() == (root/"reps-cli-none"/filename).read_bytes()
         assert (root/"reps-cli-none"/filename).read_bytes() == (root/"reps-all"/filename).read_bytes()
 
+# The baseline tools get their own interpreter: this script imports the modern validate.py, and the
+# baseline checks must not (they use the frozen historical rule).
+historical = subprocess.run([sys.executable, "-I", "-B", str(Path(__file__).resolve().parent/"baselines/tools/check_historical.py")],
+                            capture_output=True, text=True, timeout=120)
+assert historical.returncode == 0, f"check_historical.py exited with {historical.returncode}\n{historical.stdout}\n{historical.stderr}"
+print(historical.stdout.strip().splitlines()[-1])
+
 print("ANALYSIS_CONTROLS_PASSED repetitions=1,3,5,10; means,SD,t-intervals,paired-ratios,allocations,missing/wrong-repetitions,raw-corruption,unmatched-cases,settings-mismatch,check_bounds/os-match/conflict/unknown/partial/within-run/literal-sentinel/per-version-swap/match/crossed-unknown/mixed; three-outcome pass/investigate/inconclusive/boundaries/single-run/timer-limited/diagnostic-slowdown/primary/allocation-flag/unknown-primary/cli; timer-rule,boundary,mixed-evals,limited-sides,K-overrides,invalid-K,process-floors,unusable/constant/stepped-calibration,missing-calibration,legacy-records,quantized-tick,corrupt-median/evals/floor,eligible-2x,limited-ratio/allocation-warning; reps subsets/intervals/bounds/non-contiguous/header/coverage/full-identity/single-run/limited-in-out/single-limited/allocation-in-out/two-versions/primary/api-errors/parse-errors/cli-errors/cli-forms")

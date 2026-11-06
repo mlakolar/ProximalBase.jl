@@ -388,6 +388,8 @@ python3 benchmark/validate.py benchmark/results benchmark/results/validation.jso
 python3 benchmark/check_analysis.py
 ```
 
+`check_analysis.py` also runs [`baselines/tools/check_historical.py`](baselines/tools/README.md), the checks of the 0.5 baseline.
+
 Generated results, environments and profiles are ignored by Git. Put the concise
 finding and relevant limitations in the PR, and use durable attachments when
 detailed records are needed. Historical experiments remain recoverable in the

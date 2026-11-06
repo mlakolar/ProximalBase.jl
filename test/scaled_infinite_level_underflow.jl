@@ -5,16 +5,19 @@ module ScaledInfiniteLevelUnderflowTest
 # overflows reads f at the product αγ. An infinite level (a stored Inf, not a finite level that
 # overflows the working precision) stays infinite under a positive finite scale, so the proximal map
 # is the constant map of the domain {0}, and not the identity (γ = 0) or the NaN of Inf * 0 that a
-# product rounded to zero gave. Scalar steps, array steps, chains of Scaled, prox_entry and
-# prox_coordinate! take the same route; zero, infinite, negative and NaN steps, finite levels and the
-# values of scaled functions keep their results.
+# product rounded to zero gave. The call takes this route only when the function holds a stored infinite
+# level, every block of it is a function with an infinite level whose other levels the infinite level makes
+# irrelevant (or an indicator), and every factor and step is a positive finite number; no finite level or
+# factor is folded, multiplied or combined. Scalar steps, array steps, chains of Scaled, prox_entry and
+# prox_coordinate! take the same route.
+# Supported (exact, tested against the constant map and BigFloat): the issue's rows, the groups, `ElasticNet`,
+# `SparseGroupNormL2`, chains, nested blocks. Declined (the earlier result, pinned as the leaf at the rounded
+# product or as a literal of the earlier result, with a follow-up): a finite level that is relevant on a free
+# coordinate (a zero weight), a finite sibling block, an infinite, zero, negative or NaN factor or step
+# inside a block or in the chain, and every function without a stored infinite level.
 # Outputs are compared with isequal, so a stored zero is +0.0 and NaN equals NaN. Expected outputs are
 # the map of the unscaled function at step 1, which is the same constant map at every positive step
 # (decision 49), literal zeros and identities written here, or BigFloat references.
-# Supported (exact): an infinite level survives the fold; a finite level is removed only when the infinite level
-# fixes every coordinate that it touches. Unsupported (the earlier result, pinned where it is tested, with a
-# follow-up): a finite level that is relevant on a free coordinate (a zero weight) or on a finite sibling block,
-# under a product that is not a normal number and a level that the exponent shift cannot form.
 
 using Test, ProximalBase, Random
 
@@ -48,6 +51,13 @@ function same_outcome(a, b)
   rb = try b() catch e; e end
   ra isa Exception || rb isa Exception ? (ra isa Exception && rb isa Exception && typeof(ra) === typeof(rb)) : isequal(ra, rb)
 end
+
+# The declined class (the earlier result is kept, and an infinite level can be lost): a finite level that is
+# relevant on a coordinate that the infinite level leaves free (a zero weight), or a finite sibling block. A
+# call of the class is pinned to the result of the steps rounded with the factor, the leaf at the rounded product.
+declined(f::ElasticNet) = isinf(f.λ1) && !isinf(f.λ2) && !iszero(f.λ2) && !all(>(0), f.w)
+declined(f::SparseGroupNormL2) = !isinf(f.λ1) && isinf(f.λ0) && !iszero(f.λ1) && !all(>(0), f.w)
+declined(f) = false
 
 # the leaves with an infinite level, the argument [1, 2, 3], and whether the value is pinned at 0
 # (NormL2(Inf) has the value NaN at the zero vector, which is not part of this rule)
@@ -389,21 +399,15 @@ end
       prox!(sentinel, s, x, γ)
       @test isequal(sentinel, y) && isequal(prox(s, x, γ), y)
     end
-    # A scalar step. The ridge of the elastic net is below the range, and the step fold drops it (its own
-    # rule, with the leaf's coefficient below floatmin), so the fixed entry is zero. For the group function the
-    # ℓ1 level is a finite level on the free group: the fold is declined, the result is that of the product
-    # rounded to zero, and the group with a positive weight is not fixed. This is the unsupported class
-    # (a finite level that is relevant on a free coordinate, under a product that is not a normal number); the
-    # result is pinned to that of the earlier route, which is the leaf at the rounded product.
+    # A scalar step: the ridge of the elastic net and the ℓ1 level of the group function are finite levels that
+    # are relevant on the free coordinate, so the call is declined and the result is that of the product
+    # rounded to zero, with the group of a positive weight not fixed. This is the declined class (a finite level
+    # that is relevant on a free coordinate); it is pinned to the earlier route, the leaf at the rounded product.
     for (αs, γs) in ((T === Float64 ? (1e-300, 1e-300) : (1f-30, 1f-30)),)
       s2 = Scaled(f, αs)
       y = zeros(T, 2)
       v = value_and_prox!(y, s2, x, γs)
-      if name == "ElasticNet"
-        @test isequal(y, T[1, 0])
-      else
-        @test isequal(y, prox(f, x, αs * γs))
-      end
+      @test isequal(y, prox(f, x, αs * γs))
       @test isequal(v, s2(y))
       a = copy(x)
       va = value_and_prox!(a, s2, a, γs)
@@ -447,24 +451,23 @@ end
     @test isequal(prox(f, arg, 1e-300), z)
     @test isequal(prox(f, arg, 1e-160), z)
   end
-  # a finite scaled block next to an infinite one under a product of 1e-600: its folded level is not a
-  # number, the fold is declined and the call keeps the result of the product rounded to zero (the
-  # unsupported class: a finite sibling block). When the finite level can be formed, both blocks fold.
+  # a finite scaled block next to an infinite one: the call is declined and keeps the result of the product
+  # rounded to zero (the declined class: a finite sibling block); no finite level or factor is folded.
   f = Scaled(SeparableSum(Scaled(NormL1(1.0), 2.0), Scaled(NormL1(Inf), 3.0)), 1e-300)
   @test isequal(prox(f, arg, 1e-300), prox(f.f, arg, 0.0))
   f = Scaled(SeparableSum(Scaled(NormL1(1e300), 2.0), Scaled(NormL1(Inf), 3.0)), 1e-300)
-  @test isequal(prox(f, arg, 1e-300), ([1.0, 2.0], [0.0, 0.0]))
+  @test isequal(prox(f, arg, 1e-300), prox(f.f, arg, 0.0))
 end
 
 ####################################
-#  a finite block next to an infinite one: the unsupported class
+#  a finite block next to an infinite one: the declined class
 ####################################
 
 # A finite SLOPE has no fold of its own (it folds only with an infinite first level), so a sum of it and an
 # infinite block declines the fold and keeps the result of the product rounded with the factor: 1e-160 1e-200
 # is 1e-360, which is zero, and the entries come back unchanged. The finite block gives the exact map and the
 # infinite block loses its constraint: the unsupported class (a finite sibling block), tracked as a follow-up.
-@testset "a finite sibling that cannot fold keeps the earlier result" begin
+@testset "a finite SLOPE sibling is declined" begin
   f = Scaled(SeparableSum(NormL1(Inf), SLOPE([1e100, 5e99])), 1e-160)
   @test isequal(prox(f, ([1.0, 2.0], [1e-310, -1e-310]), 1e-200), ([1.0, 2.0], [1e-310, -1e-310]))
 end
@@ -548,7 +551,7 @@ end
   @test nearref(y, ref_elastic(x, big(1e-310) .* [big(1e300), big(1e300)], Inf, 1.0, [0.0, 1.0]), x, Float64)
   @test y[2] == 0 && y[1] < 1 && v > 0 && isequal(v, f(y))
   # a scalar step on a group function with a zero weight
-  # (the unsupported class: a finite level on a free coordinate under a product that is not a normal number;
+  # (the declined class: a finite level that is relevant on a free coordinate;
   # the result is that of the earlier route, the leaf at the rounded product, and a follow-up issue tracks it)
   f = Scaled(SparseGroupNormL2(1.0, Inf, [1:1, 2:2], [0.0, 1.0]), 1e-300)
   y = zeros(2)
@@ -594,9 +597,9 @@ end
         (ElasticNet(λ, inf, w), ref_elastic(x, t, λ, inf, w), y -> val_elastic(α, y, λ, inf, w)),
         (SparseGroupNormL2(λ, inf, groups, w), ref_sparsegroup(x, t, λ, inf, w, groups), y -> val_sparsegroup(α, y, λ, inf, w, groups)),
         (SparseGroupNormL2(inf, λ, groups, w), ref_sparsegroup(x, t, inf, λ, w, groups), y -> val_sparsegroup(α, y, inf, λ, w, groups)))
-      # the group function with an ℓ1 level that is finite and a zero weight is the unsupported class: its
-      # finite level acts on a free group (checked against the earlier route where the product is zero)
-      if f isa SparseGroupNormL2 && isinf(f.λ0) && !isinf(f.λ1) && !all(>(0), f.w)
+      # a finite level that is relevant on a free coordinate is the declined class (checked against the earlier
+      # route where the product is zero)
+      if declined(f)
         α * γ == 0 && @test isequal(prox(Scaled(f, α), x, γ), prox(f, x, α * γ))
         continue
       end
@@ -617,9 +620,9 @@ end
         (SparseGroupNormL2(inf, T(1), groups, w), ref_sparsegroup(x, t, inf, T(1), w, groups), y -> val_sparsegroup(α, y, inf, T(1), w, groups)),
         (ElasticNet(inf, T(1), T[0, 1, 0, 1, 1] .* w[[1, 2, 3, 3, 3]]), ref_elastic(x, t, inf, T(1), T[0, 1, 0, 1, 1] .* w[[1, 2, 3, 3, 3]]),
          y -> val_elastic(α, y, inf, T(1), T[0, 1, 0, 1, 1] .* w[[1, 2, 3, 3, 3]])))
-      # an infinite group level with a zero weight and a finite ℓ1 level is the unsupported class (the product
-      # is zero here: the result of the earlier route)
-      if f isa SparseGroupNormL2 && isinf(f.λ0) && !isinf(f.λ1) && !all(>(0), f.w)
+      # a finite level that is relevant on a free coordinate is the declined class (the product is zero here: the
+      # result of the earlier route)
+      if declined(f)
         @test isequal(prox(Scaled(f, α), x, γ), prox(f, x, α * γ))
         continue
       end
@@ -651,29 +654,33 @@ end
   γs = T === Float64 ? T[1e300, 1e-5, 1, 1e-300] : T[1f30, 1f-5, 1, 1f-30]
   x = T[1, 2]
   for α in αs, g1 in γs, g2 in γs, w1 in (T(0), T(1e-3), T(1), wbig), w2 in (T(0), T(1e-3), T(1), wbig), λ in (T(1), T(1e-10))
-    # with a zero weight the finite level acts on a free entry: the cases of a finite level that is a normal
-    # number once the scale is folded in (no fixed entry is then affected); with positive weights the
-    # infinite level fixes every entry, and the finite level is irrelevant
-    (iszero(w1) || iszero(w2)) && !(big(α) * big(λ) >= big(floatmin(T))) && continue
     t = [big(α) * big(g1), big(α) * big(g2)]
     w = T[w1, w2]
     γ = T[g1, g2]
+    # with a zero weight the finite level acts on a free entry: the declined class, pinned to the steps rounded
+    # with the factor (where no product is subnormal, as the rounding of such a product is not pinned)
+    rounded = T[α * g1, α * g2]
+    pinned = all(p -> iszero(p) || isinf(p) || p >= floatmin(T), rounded)
     for (f, ref, val) in (
         (ElasticNet(inf, λ, w), ref_elastic(x, t, inf, λ, w), y -> val_elastic(α, y, inf, λ, w)),
         (ElasticNet(λ, inf, w), ref_elastic(x, t, λ, inf, w), y -> val_elastic(α, y, λ, inf, w)),
         (SparseGroupNormL2(λ, inf, [1:1, 2:2], w), ref_sparsegroup(x, t, λ, inf, w, [1:1, 2:2]), y -> val_sparsegroup(α, y, λ, inf, w, [1:1, 2:2])),
         (SparseGroupNormL2(inf, λ, [1:1, 2:2], w), ref_sparsegroup(x, t, inf, λ, w, [1:1, 2:2]), y -> val_sparsegroup(α, y, inf, λ, w, [1:1, 2:2])))
+      if declined(f)
+        pinned && @test isequal(prox(Scaled(f, α), x, γ), prox(f, x, rounded))
+        continue
+      end
       check_ref(Scaled(f, α), x, γ, ref, val)
     end
   end
 end
 
-@testset "finite siblings of an infinite block, $T" for T in (Float32, Float64)
-  # The sum is folded only when every block can be folded exactly: the infinite block keeps its level, and
-  # the finite block needs its level formed by the exponent shift (a nonzero number). Then the infinite
-  # block is zero and the finite block is the exact map. Otherwise the fold is declined and the call keeps
-  # the result of the product rounded with the factor (here the product is zero in the cells that are
-  # pinned): the unsupported class, a finite sibling block, tracked as a follow-up.
+@testset "finite siblings of an infinite block are declined, $T" for T in (Float32, Float64)
+  # A finite sibling block is declined: no finite level is folded, and the call keeps the result of the
+  # product rounded with the factor. Where that product is a positive number the infinite block stays fixed
+  # and the finite block is the exact map (checked against BigFloat); where the product is zero the infinite
+  # block loses its constraint, and the call is pinned to the leaf at the rounded product: the declined
+  # class, a finite sibling block, tracked as a follow-up.
   inf = T(Inf)
   wbig = T === Float64 ? T(1e300) : T(1f30)
   smallest = nextfloat(zero(T))
@@ -708,10 +715,10 @@ end
   x = T[1, 2]
   b = T[0.5, -1]
   g = SparseGroupNormL2(inf, T(1), [1:1, 2:2], T[0, 1])      # the infinite ℓ1 level fixes every group
-  e = ElasticNet(inf, T(1), T[0, 1])
+  e = ElasticNet(inf, T(0), T[0, 1])        # no finite level that acts
   t = fill(big(α1) * big(α2) * big(γ) * 2, 2)       # the inner factor 2 of the scaled block
   rg = ref_sparsegroup(x, t, inf, T(1), T[0, 1], [1:1, 2:2])
-  re = ref_elastic(x, t, inf, T(1), T[0, 1])
+  re = ref_elastic(x, t, inf, T(0), T[0, 1])
   for (f, ref) in ((Scaled(Scaled(Scaled(g, T(2)), α1), α2), rg),
                    (Scaled(Scaled(Scaled(e, T(2)), α1), α2), re))
     y = zeros(T, 2)
@@ -724,7 +731,7 @@ end
   f = Scaled(Scaled(SeparableSum(Scaled(g, T(2)), Translate(e, tr)), α1), α2)
   res = prox(f, (x, x), γ)
   @test nearref(res[1], rg, x, T) && res[1][2] == 0
-  re2 = ref_elastic(x .- tr, fill(big(α1) * big(α2) * big(γ), 2), inf, T(1), T[0, 1])
+  re2 = ref_elastic(x .- tr, fill(big(α1) * big(α2) * big(γ), 2), inf, T(0), T[0, 1])
   @test nearref(res[2], re2 .+ tr, x, T) && res[2][2] == tr[2]
 end
 
@@ -733,8 +740,8 @@ end
 #  parameters and arguments of different precisions
 ####################################
 
-# A finite sibling whose level the fold cannot form is not discarded: the call keeps the result of the steps
-# rounded with the factor, and the leaf forms the coefficient in the type of its own arithmetic. Float32
+# A finite sibling is declined: the call keeps the result of the steps rounded with the factor, and the leaf
+# forms the coefficient in the type of its own arithmetic. Float32
 # parameters on a Float64 argument keep a coefficient of 1e-50, which is a normal Float64 number (here the
 # product 1e-40 is a Float32 subnormal, with its 5 digits). The references are BigFloat.
 @testset "mixed precision of the parameters and the call" begin
@@ -857,16 +864,14 @@ end
 end
 
 ####################################
-#  the fold of a finite level needs a normal number; a tree without an infinite level takes its earlier route
+#  finite siblings are declined; a tree without a stored infinite level takes its earlier route
 ####################################
 
-# A finite level next to an infinite one is folded only when the folded value is a normal number: a
-# subnormal one has lost bits that a large weight would restore into the range (the coefficient is
-# level times weight times the product), so the fold is declined and the call keeps the result of the product
-# rounded with the factor, which is accurate here (the product is a positive subnormal step). The references
-# are BigFloat; the subnormal step carries about 14 digits (Float64) or 5 (Float32), which multiplies the
-# change that the threshold makes.
-@testset "a finite level that folds to a subnormal is not folded, $T" for T in (Float32, Float64)
+# A finite sibling of an infinite block is the declined class: no finite level is folded, and the call keeps
+# the result of the product rounded with the factor, which is accurate here (the product is a positive
+# subnormal step). The references are BigFloat; the subnormal step carries about 14 digits (Float64) or 5
+# (Float32), which multiplies the change that the threshold makes.
+@testset "a finite sibling with a subnormal folded level is declined, $T" for T in (Float32, Float64)
   inf = T(Inf)
   # the folded level is about 1e-322 (1e-45 in Float32), and the weight brings the coefficient back
   α, γ, λ, wbig, x1 = T === Float64 ? (T(1e-160), T(1e-150), T(1e-12), T(1e300), T(2e-22)) :
@@ -929,6 +934,96 @@ end
   @test prox(fi, arg, 1e-200) == ([0.0, 0.0], [0.0, 0.0])
   fi = Scaled(Scaled(Translate(Scaled(SLOPE([Inf, 1.0]), 3.0), zeros(2)), 2.0), 1e-200)
   @test prox(fi, [1.0, 2.0], 1e-200) == [0.0, 0.0]
+end
+
+####################################
+#  the three findings of the review of round 7, against the earlier results
+####################################
+
+# 1. A finite level is never folded, so the working precision of the leaf is untouched: a Float32 level
+# and scale on a Float64 argument give the result that they always gave, which is the BigFloat result.
+@testset "working precision of a finite level and a finite scale" begin
+  a = 1.5f0
+  γ = ldexp(1f0, -128)
+  λ = 1f30
+  tt = Float64(a) * Float64(γ) * Float64(λ)
+  groups = [1:1, 2:2]
+  w = Float32[0, 1]
+  # the review's call, and the earlier result as a literal
+  f = Scaled(SparseGroupNormL2(λ, Inf32, groups, w), a)
+  @test prox(f, [2tt, 2.0], γ) == [4.408103881914371e-9, 0.0]
+  ref = ref_sparsegroup([2tt, 2.0], fill(big(a) * big(γ), 2), λ, Inf, w, groups)
+  @test all(abs.(prox(f, [2tt, 2.0], γ) .- Float64.(ref)) .<= 4eps() .* [2tt, 2.0])
+  # aliases, a coordinate update, the same total coefficient split between two factors, array steps
+  y = zeros(2)
+  v = value_and_prox!(y, f, [2tt, 2.0], γ)
+  @test y == [4.408103881914371e-9, 0.0] && isequal(v, f(y))
+  al = [2tt, 2.0]
+  value_and_prox!(al, f, al, γ)
+  @test al == y
+  at = AtomIterate([2tt, 2.0], f.f)
+  prox_coordinate!(at, f, 1, γ)
+  @test collect(at)[1] == 4.408103881914371e-9
+  for (a2, γ2) in ((ldexp(1.5f0, -40), ldexp(1f0, -88)), (ldexp(1.5f0, -80), ldexp(1f0, -48)))
+    t2 = Float64(a2) * Float64(γ2) * Float64(λ)
+    g2 = Scaled(SparseGroupNormL2(λ, Inf32, groups, w), a2)
+    r2 = ref_sparsegroup([2t2, 2.0], fill(big(a2) * big(γ2), 2), λ, Inf, w, groups)
+    @test all(abs.(prox(g2, [2t2, 2.0], γ2) .- Float64.(r2)) .<= 4eps() .* [2t2, 2.0])
+    @test all(abs.(prox(g2, [2t2, 2.0], [γ2, γ2]) .- Float64.(r2)) .<= 4eps() .* [2t2, 2.0])
+    g3 = Scaled(Scaled(SparseGroupNormL2(λ, Inf32, groups, w), a2), 1f0)
+    @test all(abs.(prox(g3, [2t2, 2.0], γ2) .- Float64.(r2)) .<= 4eps() .* [2t2, 2.0])
+  end
+  # finite siblings of other kinds next to an infinite block (the declined class)
+  for g in (NormL1(λ, Float32[1, 0]), ElasticNet(λ, 0f0, Float32[1, 0]), GroupNormL2(λ, groups, Float32[1, 0]),
+            SparseGroupNormL2(0f0, λ, groups, Float32[1, 0]))
+    rg = g isa NormL1 || g isa ElasticNet ? ref_elastic([2tt, 2.0], fill(big(a) * big(γ), 2), λ, 0f0, Float32[1, 0]) :
+         ref_sparsegroup([2tt, 2.0], fill(big(a) * big(γ), 2), 0f0, λ, Float32[1, 0], groups)
+    res = prox(Scaled(SeparableSum(NormL1(Inf32), g), a), ([1.0, 2.0], [2tt, 2.0]), γ)
+    @test all(abs.(res[2] .- Float64.(rg)) .<= 4eps() .* [2tt, 2.0])
+  end
+  # everything in Float32
+  f32 = Scaled(SparseGroupNormL2(λ, Inf32, groups, w), a)
+  r32 = ref_sparsegroup(Float32[2Float32(tt), 2], fill(big(a) * big(γ), 2), λ, Inf, w, groups)
+  @test all(abs.(prox(f32, Float32[2Float32(tt), 2], γ) .- Float32.(r32)) .<= 4eps(Float32) .* Float32[2Float32(tt), 2])
+end
+
+# 2. An infinite, zero or NaN factor inside a block keeps the earlier result, and never throws where it did not.
+@testset "a factor that is not positive finite inside a block keeps the earlier result" begin
+  arg = ([1.0, 2.0], [3.0, 4.0])
+  nan = ([NaN, NaN], [3.0, 4.0])
+  for blk in (Scaled(NormL1(1.0), Inf), Scaled(NormL1(Inf), Inf), Scaled(ElasticNet(Inf, 0.0), Inf),
+              Scaled(Scaled(NormL1(Inf), 1e300), Inf), Translate(Scaled(NormL1(Inf), Inf), [0.0, 0.0]))
+    for outer in (1e-300, 1e-200)
+      f = Scaled(SeparableSum(blk, NormL1(Inf)), outer)
+      @test isequal(prox(f, arg, outer), nan)
+      y = (zeros(2), zeros(2))
+      v = value_and_prox!(y, f, arg, outer)
+      @test isequal(y, nan) && isnan(v)
+    end
+  end
+  # the factor outside is infinite too, or the steps of an array call
+  @test prox(Scaled(NormL1(Inf), Inf), [1.0, 2.0], [1.0, 1.0]) == [0.0, 0.0]
+  @test prox(Scaled(Scaled(NormL1(Inf), Inf), 1e-300), [1.0, 2.0], [1.0, 1e-300]) == [0.0, 0.0]
+end
+
+# 3. A finite ridge is never shortcut: a call that the new route declines is the earlier call, on BigFloat too.
+@testset "the ridge of a declined call is the earlier result" begin
+  setprecision(BigFloat, 256) do
+    γ = ldexp(1f0, -128)
+    f = Scaled(ElasticNet(Inf32, 1f0, Float32[0, 1]), 1.5f0)
+    ref = 1 / (1 + BigFloat(1.5f0) * BigFloat(γ))
+    y = zeros(BigFloat, 2)
+    v = value_and_prox!(y, f, BigFloat[1, 2], γ)
+    @test y[1] == parse(BigFloat, "0.9999999999999999999999999999999999999955918961844164218451172379854165787081973")
+    @test abs(y[1] - ref) < big"1e-70" && y[2] == 0
+    @test v == parse(BigFloat, "0.7499999999999999999999999999999999999933878442766246327676758569781248680623046")
+    a = BigFloat[1, 2]
+    value_and_prox!(a, f, a, γ)
+    @test a == y
+    @test prox(f, BigFloat[1, 2], γ) == y
+    g = Scaled(Scaled(ElasticNet(Inf32, 1f0, Float32[0, 1]), 0.75f0), 2f0)
+    @test abs(prox(g, BigFloat[1, 2], γ)[1] - ref) < big"1e-70"
+  end
 end
 
 end

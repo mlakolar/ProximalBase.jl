@@ -2041,52 +2041,44 @@ The first families, with the proofs:
 
 A wrapper step that is not a normal number keeps this domain (#666). `Scaled(f, α)`
 at a positive finite step `γ` reads `f` at `αγ`; when the product underflows to
-zero, is subnormal or overflows, the exponent of the factors and the step goes
-into the levels of `f`, and a level that is stored as `Inf` stays `Inf` under a
-positive finite scale, where it had made the fold give up and the leaf receive
-the rounded step `0` (the identity of `γ = 0` for `NormL1`, the NaN of
-`Inf⋅0` for `SLOPE`, `NormL1Fused` and `NormLinf`). The infinite level is read as
-stored (R3): a finite level whose product overflows or underflows keeps its
-finite meaning. Only exact statements are made about a finite level next to an
-infinite one:
+zero, is subnormal or overflows, a level that is stored as `Inf` made the old fold
+give up and the leaf receive the rounded step `0` (the identity of `γ = 0` for
+`NormL1`, the NaN of `Inf⋅0` for `SLOPE`, `NormL1Fused` and `NormLinf`). An infinite
+level is a hard constraint that no positive finite factor or step changes, so the call
+takes a route on which nothing finite is folded, multiplied or combined. The infinite
+level is read as stored (R3): a finite level whose product overflows or underflows is
+never read as infinite. The route is taken only when all of these hold, and every other
+call keeps the route that it had:
 
-- *Removed*, when the infinite level fixes every coordinate that the finite level
-  touches, so that it cannot matter: `SLOPE` or `NormL1Fused` with an infinite first
+- the function holds a stored infinite level, through `Scaled`, `Translate` and sums;
+- every block is a function with an infinite level whose other levels the infinite level
+  makes irrelevant (it fixes every coordinate that they touch), or an indicator or the zero
+  function: `NormL1`, `NormL1Nonneg`, `NormL2`, `NormLinf`, the group norms, `NuclearNorm`
+  and `TracePSD` with an infinite level; `SLOPE` and `NormL1Fused` with an infinite first
   level (the domain is `{0}`; the other levels of a `SLOPE` become zeros as a block, which
-  keeps them nonincreasing); `ElasticNet` with an infinite ridge level, or with an
-  infinite ℓ1 level and every weight positive; `SparseGroupNormL2` with an infinite ℓ1
-  level, or with an infinite group level and every group weight positive. A weight of
-  zero leaves its coordinate free, and the finite level acts there. A group level that
-  is removed is replaced by a positive one, because the leaf takes its hard path for an
-  infinite ℓ1 level before it reads the group level, and a group level of zero sends it
-  to the soft-threshold path first, which does not fix a NaN or infinite entry.
-- *Folded*, when the folded value is a normal number (the exponent of the product folded
-  into the level; a subnormal one has lost bits that a large weight would restore into
-  the range), together with the infinite level: the leaf gets the significand of the step.
-- Otherwise the fold is declined, and the leaf gets the step as rounded, as before: no
-  finite level is discarded by its size.
+  keeps them nonincreasing); `ElasticNet` with an infinite ridge level, or with an infinite
+  ℓ1 level and every weight positive, or with the finite levels zero; `SparseGroupNormL2`
+  with an infinite ℓ1 level (as #657 defines it: every grouped entry is zero at every
+  step), or with an infinite group level and every group weight positive, or a zero ℓ1
+  level. The weights are tested by value, with no arithmetic on them, and a weight of zero
+  leaves its coordinate free, where a finite level acts;
+- every factor of a block and of the chain, and the step, is a positive finite number; for
+  an array step, every entry.
 
-All of this is entered only when the function tree holds a stored infinite level, read from
-the parameters (a level that is finite as stored is never read as infinite), through `Scaled`,
-`Translate` and sums; a tree without one takes the route that it always had, in every block, so
-that finite-level results are those of before by construction. An array step is folded only
-when every entry is a positive finite number; a negative,
-NaN, zero or infinite entry keeps the result of the steps rounded with the factor, in
-every entry. A block that is itself scaled, the blocks of a sum and a `Translate` take the
-same route (a scaled block under a finite level folds as it did), and the values of scaled
-functions are unchanged. A sum folds only when every
-block does: the blocks with a fold (the norms, the groups, `ElasticNet`,
-`SparseGroupNormL2`, the nuclear norm, indicators, and `Scaled`, `Translate` and sums of
-these) and `SLOPE` and `NormL1Fused` with an infinite first level; a finite `SLOPE` or
-`NormL1Fused` next to an infinite block has no fold, so the sum keeps its earlier result.
-The step fold of `ElasticNet` has its own rule, a ridge level below the range is dropped,
-which is earlier behavior and is not part of this treatment.
+On that route the leaf gets a step of any positive finite size and the array step is the
+caller's; the levels that the infinite level makes irrelevant are removed, and the factors
+of the blocks are dropped, since they cannot change the constant map.
 
-*Not covered*, where the earlier result stays and the infinite level can be lost: a
-finite level that is relevant on a free coordinate (a zero weight of `ElasticNet` or
-`SparseGroupNormL2`: its ℓ1 level, or its group level, which the infinite level does not
-fix) or on a finite sibling block, when the product is not a normal number and the level
-cannot be formed by the exponent shift. These are tracked in a follow-up issue.
+*Declined*, where the earlier result stays and an infinite level can be lost (a follow-up
+issue tracks them): a finite level that is relevant on a coordinate that the infinite level
+leaves free (a zero weight of `ElasticNet` or `SparseGroupNormL2`, or a finite level of a
+function whose infinite level does not fix it); a finite sibling block next to an infinite
+one; a factor or step that is zero, negative, infinite or NaN, in the chain, in a block or in
+an array step; a function without a stored infinite level (including a level that is finite
+as stored but overflows a conversion); and every function that is not in the list above
+(`Conjugate`, `Tilt`, the finite `SLOPE` or `NormL1Fused`, and so on). A finite level is never
+folded, rescaled, shortcut or discarded by its size: the exact statements above are the whole
+treatment, which is also why the working precision and the finite results are those of before.
 
 Excluded, and unchanged:
 

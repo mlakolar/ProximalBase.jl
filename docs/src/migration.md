@@ -109,18 +109,17 @@ the earlier behavior applies.
     infinite level (decision 49, #666): `prox(Scaled(NormL1(Inf), 1e-300), [1.0, 2.0, 3.0], 1e-300)`
     is `[0, 0, 0]`, where it was the identity `[1, 2, 3]`, and `SLOPE` with an
     infinite first weight, `NormL1Fused` with an infinite ℓ1 level, `NormLinf(Inf)`,
-    `ElasticNet` and `SparseGroupNormL2` give zeros on the fixed coordinates, where they
-    gave NaN or the identity. This holds for a product `αγ` that underflows, is
-    subnormal or overflows, for chains of `Scaled`, blocks of sums, array steps and
-    `value_and_prox!`. A finite level next to an infinite one is removed only when the
-    infinite level fixes every coordinate that it touches, and is otherwise folded when
-    the folded value is a normal number; if not, the earlier result stays. A function without a
-    stored infinite level takes the route that it always had. Not covered (the earlier result
-    stays, and an infinite level can be lost): a finite level that acts on a free coordinate
-    (a zero weight of `ElasticNet` or `SparseGroupNormL2`) or on a finite sibling block, when
-    the product is not a normal number and the level cannot be formed by the exponent shift.
-    An array step is folded only when every entry is positive and finite. A zero, infinite,
-    negative or NaN step keeps its result, and so do finite levels.
+    `ElasticNet` and `SparseGroupNormL2` with an infinite level that fixes every coordinate
+    that their other levels touch give zeros, where they gave NaN or the identity. This
+    holds for a product `αγ` that underflows, is subnormal or overflows, for chains of
+    `Scaled`, blocks of sums, array steps with positive finite entries and
+    `value_and_prox!`. Nothing finite is folded, multiplied or combined on this route, so a
+    finite level, a finite factor and the working precision keep their results. Declined, with
+    the earlier result: a finite level that acts on a coordinate that the infinite level leaves
+    free (a zero weight), a finite sibling block next to an infinite one, a factor or step that
+    is zero, negative, infinite or NaN (in the chain, in a block, or an array entry), and a
+    function without a stored infinite level; an infinite level can still be lost there, and a
+    follow-up issue tracks these configurations.
   - `SparseGroupNormL2` with an infinite ℓ1 level sets every grouped entry to
     zero at every step, also with a zero group level or weight:
     `prox(SparseGroupNormL2(Inf, 0.0, [1:2], [0.0]), [3.0, 4.0, 9.0], 0.0)` is

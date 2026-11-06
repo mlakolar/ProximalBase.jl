@@ -157,24 +157,21 @@ the band `2^-E` to `2^E`, with `E` a quarter of the exponent range of the elemen
 inside the band, an entry of the step that is itself within `E` of a limit of the range is rounded
 together with the factor. Array-step entries whose exponents spread too far for the levels to hold
 them are rounded, and so are the steps of a function without levels to fold.
-A level that is stored as infinite stays infinite under a positive finite factor and step, whatever
-their product is: `Scaled(NormL1(Inf), 1e-300)` at the step `1e-300` has the proximal map of the
-domain `{0}`, as at the step `1`, and not the identity of a step rounded to zero. A finite level
-whose product overflows is not read as infinite. A finite level next to an infinite one is removed
-only when the infinite level fixes every coordinate that it touches: `SLOPE` and `NormL1Fused` with an
-infinite first level, `ElasticNet` with an infinite ridge level or with an infinite ℓ1 level and every weight
-positive, `SparseGroupNormL2` with an infinite ℓ1 level or with an infinite group level and every group
-weight positive. Every other finite level is folded when the folded value is a normal number, and otherwise
-the fold is declined and the call keeps the result of the product rounded with the factor. All of this applies
-only to a function that holds a stored infinite level (through `Scaled`, `Translate` and sums); any other
-takes the route that it always had. A sum folds only when every
-block does: the blocks with a fold (the norms and groups, `ElasticNet`, `SparseGroupNormL2`, the nuclear
-norm, indicators, and `Scaled`, `Translate` and sums of these), and `SLOPE` and `NormL1Fused` with an
-infinite first level. An array step is folded only when every entry is a positive finite number; a
-negative, NaN, zero or infinite entry keeps its result. Not covered, where the earlier result stays (an
-infinite level can then be lost): a finite level that acts on a free coordinate (a zero weight of
-`ElasticNet` or `SparseGroupNormL2`) or a finite sibling block, when the product is not a normal number
-and the level cannot be formed by the exponent shift.
+A level that is stored as infinite is a hard constraint, which no product of a factor and a step can
+change: `Scaled(NormL1(Inf), 1e-300)` at the step `1e-300` has the proximal map of the domain `{0}`, as at
+the step `1`, and not the identity of a step rounded to zero. A call takes this route only when its function
+holds a stored infinite level (through `Scaled`, `Translate` and sums), every block of it is a function
+with an infinite level whose other levels the infinite level makes irrelevant, or an indicator, and every
+factor and step is a positive finite number. These are `NormL1`, `NormL1Nonneg`, `NormL2`, `NormLinf`,
+the group norms, `NuclearNorm` and `TracePSD` with an infinite level; `SLOPE` and `NormL1Fused` with an
+infinite first level; `ElasticNet` with an infinite ridge level, or an infinite ℓ1 level and every weight
+positive, or with the finite levels zero; `SparseGroupNormL2` with an infinite ℓ1 level, or an infinite
+group level and every group weight positive, or a zero ℓ1 level. No finite level or factor is folded,
+multiplied or combined on this route: the leaf gets the step of any positive finite size, and the levels
+that the infinite level makes irrelevant are removed. Every other call, a function with a finite level
+that acts, a finite sibling block, a factor or step that is zero, negative, infinite or NaN, or a function
+without a stored infinite level, takes the route that it always had. An array step takes the route only
+when every entry is positive and finite.
 A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its gradient and Hessian
 product at its own scale before the factors are applied, so an intermediate that leaves the range is
 lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` at `[1e10]`
@@ -320,71 +317,17 @@ function _folded_level(λ, α)
 end
 # A scale that only folds into levels that are normal numbers. A subnormal level has fewer bits and
 # is no longer the coefficient that an array step multiplies, entry by entry.
-# `γ` is the array of steps (`nothing` when it is not known): an infinite level stays infinite only
-# when every entry of the steps is a positive finite number, as the scalar fold requires of its step
-# (a negative, NaN, zero or infinite entry keeps the result that it had, which no fold of the levels can
-# give an entry of its own).
-struct _NormalScale{T, G}
+struct _NormalScale{T}
   s::_ProjectionScale{T}
-  γ::G
 end
-_NormalScale(s) = _NormalScale(s, nothing)
 _apply_scale(a::_NormalScale, v) = _apply_scale(a.s, v)
-_steps_hard(::Nothing) = false
-_steps_hard(γ) = all(g -> g isa Real && isfinite(g) && g > 0, γ)
 # An explicit zero or infinite factor is not a scale to fold: the accumulation returns it as a plain
 # number, as for `_ProjectionScale`, and no level folds it (`_folded_level` refuses the product).
 function _projection_accumulate(a::_NormalScale, b::Real)
   p = _projection_accumulate(a.s, b)
-  p isa _ProjectionScale ? _NormalScale(p, a.γ) : p
+  p isa _ProjectionScale ? _NormalScale(p) : p
 end
-# The scale of a step, which the exponent of a step that is not a normal number joins. A level that
-# is stored as infinite is a hard constraint, not a product to form: under a positive finite scale it
-# stays infinite (`_folded_level`), where a finite level whose product leaves the range is refused.
-#
-# Only exact statements are made about the finite levels next to an infinite one:
-# - A finite level is removed when the infinite level fixes every coordinate that it touches, so that it
-#   cannot matter at all (`_fixes_all`): `SLOPE` and `NormL1Fused` with an infinite first level (the
-#   domain is {0}); `ElasticNet` with an infinite ridge level, or an infinite ℓ1 level and every weight
-#   positive; `SparseGroupNormL2` with an infinite ℓ1 level, or an infinite group level and every group
-#   weight positive. A weight of zero leaves its coordinate free, and the finite level acts there.
-#   The weights are tested by value, with no arithmetic on them.
-# - Any other finite level is folded when the folded value is a normal number (a subnormal one has lost
-#   bits that a weight can restore into the range), and otherwise the fold is declined and the function
-#   keeps the route that it had: the leaf gets the step rounded. No finite level is discarded by its size.
-# - All of this is entered only when the function tree holds an infinite level as stored
-#   (`_has_infinite_level`, read from the parameters, through `Scaled`, `Translate` and sums); a tree
-#   without one takes the route that it always had, in every block. This leaves a function with a finite level that acts on a free
-#   coordinate, or a finite block next to an infinite one, at the result that it had when the product is
-#   not a normal number and the level cannot be formed.
-# The array step is folded only when every entry is a positive finite number (`_NormalScale`).
-struct _HardScale{S}
-  s::S
-end
-_apply_scale(a::_HardScale, v) = _apply_scale(a.s, v)
-function _projection_accumulate(a::_HardScale, b::Real)
-  p = _projection_accumulate(a.s, b)
-  p isa _ProjectionScale ? _HardScale(p) : p
-end
-@inline _hard_scale(a::Real) = isfinite(a) && a > 0
-@inline _hard_scale(a::_ProjectionScale) = isfinite(a.m) && a.m > 0
-@inline _hard_scale(a::_NormalScale) = _hard_scale(a.s) && _steps_hard(a.γ)
-@inline _hard_scale(a::_HardScale) = _hard_scale(a.s)
-# the scales of a step that keep an infinite level, and remove the levels that it makes irrelevant
-@inline _removes(::Any) = false
-@inline _removes(a::Union{_HardScale, _NormalScale}) = _hard_scale(a)
-_weights_positive(::Nothing) = true
-_weights_positive(w) = all(x -> x > 0, w)
-function _folded_level(λ, α::_HardScale)
-  isinf(λ) && _hard_scale(α) && return λ
-  c = _folded_level(λ, α.s)
-  # a finite level is folded only when the folded value is a normal number, as for an array step: a
-  # subnormal one has lost bits that a large weight would restore into the range
-  c === nothing || iszero(c) || abs(c) >= floatmin(typeof(float(c))) ? c : nothing
-end
-# the infinite level of the array fold stays infinite as well (the scale is the factors alone there)
 function _folded_level(λ, α::_NormalScale)
-  isinf(λ) && _hard_scale(α) && return λ
   c = _folded_level(λ, α.s)
   c === nothing || iszero(c) || abs(c) >= floatmin(typeof(float(c))) ? c : nothing
 end
@@ -396,17 +339,7 @@ for (F, level) in ((:NormL1, :λ0), (:NormL1Nonneg, :λ0), (:NormL2, :λ), (:Nor
     c === nothing ? nothing : $F($(args.args...))
   end
 end
-# The functions with two levels, one of which can fix every coordinate that the other touches: the other
-# level is then removed (see `_HardScale`). The group level that is removed is replaced by a positive one:
-# the leaf takes its hard path for an infinite ℓ1 level before it reads the group level, but a group level
-# of zero sends it to the soft-threshold path first, which does not fix a NaN or infinite entry.
-_fixes_all(f::ElasticNet) = isinf(f.λ2) || (isinf(f.λ1) && _weights_positive(f.w))
-_fixes_all(f::SparseGroupNormL2) = isinf(f.λ1) || (isinf(f.λ0) && _weights_positive(f.w))
-_removed(f::ElasticNet) = ElasticNet(isinf(f.λ1) ? f.λ1 : zero(f.λ1), isinf(f.λ2) ? f.λ2 : zero(f.λ2), f.w)
-_removed(f::SparseGroupNormL2) =
-  SparseGroupNormL2(isinf(f.λ1) ? f.λ1 : zero(f.λ1), isinf(f.λ0) ? f.λ0 : one(f.λ0), f.groups, f.w)
 function _fold_level(f::ElasticNet, α)
-  _fixes_all(f) && _removes(α) && return _removed(f)
   c1, c2 = _folded_level(f.λ1, α), _folded_level(f.λ2, α)
   c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
 end
@@ -415,7 +348,6 @@ function _fold_level(f::Union{GroupNormL2, GroupNormLinf}, α)
   c === nothing ? nothing : _rebuild(f, c, f.groups, f.w)
 end
 function _fold_level(f::SparseGroupNormL2, α)
-  _fixes_all(f) && _removes(α) && return _removed(f)
   c1, c0 = _folded_level(f.λ1, α), _folded_level(f.λ0, α)
   c1 === nothing || c0 === nothing ? nothing : SparseGroupNormL2(c1, c0, f.groups, f.w)
 end
@@ -441,28 +373,10 @@ _fold_level_step(f, α) = _fold_level(f, α)
 _fold_block_step(f, α) = _isindicator(f) ? f : _fold_level_step(f, α)
 _fold_block_step(f::ZeroFunction, α) = f
 function _fold_level_step(f::ElasticNet, α)
-  _fixes_all(f) && _removes(α) && return _removed(f)
   c1 = _folded_level(f.λ1, α)
   c = iszero(f.λ2) ? f.λ2 : _apply_scale(α, f.λ2)
   c2 = isfinite(c) && abs(c) < floatmin(typeof(float(c))) ? zero(c) : _folded_level(f.λ2, α)
   c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
-end
-# A block that is itself scaled: the factor joins the scale of the step, and the function under it folds as
-# it does under the scale of a value (`_fold_level`: finite levels as before), except for the functions that
-# fold only for a step (`SLOPE`, `NormL1Fused` with an infinite first level) and the wrappers around them.
-_fold_level_step(f::Scaled, α::_HardScale) = _fold_scaled_step(f.f, _projection_accumulate(α, f.α))
-_fold_scaled_step(f, α::_HardScale) = _fold_level(f, α)
-_fold_scaled_step(f::Union{SLOPE, NormL1Fused, Scaled}, α::_HardScale) = _fold_level_step(f, α)
-# SLOPE and NormL1Fused fold into their levels for a step only, and only with an infinite first level:
-# the domain is {0}, every other level is irrelevant and is replaced by zero (for SLOPE as a block, which
-# keeps the levels nonincreasing). A finite one keeps the route that it had.
-function _fold_level_step(f::NormL1Fused, α::_HardScale)
-  (isinf(f.λ1) && _removes(α)) || return nothing
-  NormL1Fused(f.λ1, isinf(f.λ2) ? f.λ2 : zero(f.λ2))
-end
-function _fold_level_step(f::SLOPE, α::_HardScale)
-  (any(isinf, f.λ) && _removes(α)) || return nothing
-  SLOPE(map(λ -> isinf(λ) ? λ : zero(float(λ)), f.λ))
 end
 
 # Retry exceptional products in the function's own units and domain: with the scale folded into
@@ -656,11 +570,14 @@ function _nested_step(s::Scaled, γ::Real)
   T = typeof(step)
   (T <: AbstractFloat && isfinite(γ) && γ > 0 && !(floatmin(T) <= step <= floatmax(T))) || return (f, step, a)
   mγ, eγ = frexp(float(γ))
+  # A function with a stored infinite level, all of whose blocks are fixed by it, does not depend on the
+  # factor and the step (`_hard_function`): nothing finite is folded. Otherwise the earlier route.
+  if _has_infinite_level(f) && _hard_scale(a)
+    h = _hard_function(f)
+    h === nothing || return (h, convert(typeof(step), mγ), nothing)
+  end
   ma, ea = _projection_scale_parts(a)
-  P = _ProjectionScale(ma, Int(ea + eγ))
-  # the fold of an infinite level (`_HardScale`) is entered only when the function holds one, as stored;
-  # a function without one takes the route that it always had, in every block
-  g = _fold_level_step(f, _has_infinite_level(f) ? _HardScale(P) : P)
+  g = _fold_level_step(f, _ProjectionScale(ma, Int(ea + eγ)))
   # g carries the levels without the ridge that may have been dropped: it is not the chain, and
   # its value is not the value of the chain (`nothing` marks this)
   g === nothing ? (f, step, a) : (g, convert(typeof(step), mγ), nothing)
@@ -2074,7 +1991,18 @@ function _fold_level_step(s::SeparableSum, α)
   gs = map(f -> _fold_block_step(f, α), s.fs)
   any(isnothing, gs) ? nothing : SeparableSum(gs)
 end
-_fold_scaled_step(f::Union{Translate, SeparableSum, Sum}, α::_HardScale) = _fold_level_step(f, α)
+function _fold_level_step(s::Sum, α)
+  gs = map(f -> _fold_block_step(f, α), s.fs)
+  any(isnothing, gs) ? nothing : Sum(gs, s.scratch)
+end
+# The functions that a stored infinite level fixes, for a positive finite factor and step. The infinite level
+# makes the map the constant map of its domain, whatever positive finite number the factors and the step
+# are, so the call needs no factor and no step folded into a finite level: `_hard_function(f)` is f without the
+# factors of its blocks and with the finite levels that the infinite level makes irrelevant removed, or
+# `nothing` when some block is not of this kind, and the call keeps the route that it had.
+_hard_scale(a::Real) = isfinite(a) && a > 0
+_hard_scale(a::_ProjectionScale) = isfinite(a.m) && a.m > 0
+_steps_hard(γ) = all(g -> g isa Real && isfinite(g) && g > 0, γ)
 # a stored infinite level in the function tree, read from the parameters as stored
 _has_infinite_level(::AbstractFunction) = false
 for (F, fields) in ((:NormL1, (:λ0,)), (:NormL1Nonneg, (:λ0,)), (:NormL2, (:λ,)), (:NormLinf, (:λ,)),
@@ -2087,8 +2015,50 @@ _has_infinite_level(f::SLOPE) = any(isinf, f.λ)
 _has_infinite_level(f::Scaled) = _has_infinite_level(f.f)
 _has_infinite_level(f::Translate) = _has_infinite_level(f.f)
 _has_infinite_level(f::Union{SeparableSum, Sum}) = any(_has_infinite_level, f.fs)
-function _fold_level_step(s::Sum, α)
-  gs = map(f -> _fold_block_step(f, α), s.fs)
+# the weights are tested by value, with no arithmetic on them
+_weights_positive(::Nothing) = true
+_weights_positive(w) = all(x -> x > 0, w)
+_hard_function(f) = _isindicator(f) ? f : _hard(f)
+_hard(::AbstractFunction) = nothing
+_hard(f::ZeroFunction) = f
+# one level, infinite
+for (F, level) in ((:NormL1, :λ0), (:NormL1Nonneg, :λ0), (:NormL2, :λ), (:NormLinf, :λ), (:GroupNormL2, :λ0),
+                   (:GroupNormLinf, :λ0), (:NuclearNorm, :λ), (:TracePSD, :λ))
+  @eval _hard(f::$F) = isinf(f.$level) ? f : nothing
+end
+# an infinite first level fixes every entry (the domain is {0}); the other levels are zeros, as a block, which
+# keeps the levels of a SLOPE nonincreasing
+_hard(f::SLOPE) = any(isinf, f.λ) ? SLOPE(map(λ -> isinf(λ) ? λ : zero(float(λ)), f.λ)) : nothing
+_hard(f::NormL1Fused) = isinf(f.λ1) ? NormL1Fused(f.λ1, isinf(f.λ2) ? f.λ2 : zero(f.λ2)) : nothing
+# two levels: the finite level is irrelevant when the infinite level fixes every coordinate that it
+# touches (a weight of zero leaves its coordinate free), or when it is zero
+function _hard(f::ElasticNet)
+  (isinf(f.λ1) || isinf(f.λ2)) || return nothing
+  zeroed = (isinf(f.λ1) || iszero(f.λ1)) && (isinf(f.λ2) || iszero(f.λ2))
+  (zeroed || isinf(f.λ2) || _weights_positive(f.w)) || return nothing
+  ElasticNet(isinf(f.λ1) ? f.λ1 : zero(f.λ1), isinf(f.λ2) ? f.λ2 : zero(f.λ2), f.w)
+end
+# an infinite ℓ1 level fixes every grouped entry at every step, whatever the group level and weights are
+function _hard(f::SparseGroupNormL2)
+  isinf(f.λ1) && return f
+  isinf(f.λ0) && (iszero(f.λ1) || _weights_positive(f.w)) || return nothing
+  SparseGroupNormL2(zero(f.λ1), f.λ0, f.groups, f.w)
+end
+# a factor is irrelevant when it is a positive finite number; any other factor keeps the earlier route
+function _hard(f::Scaled)
+  c = f.α
+  (c isa Real && isfinite(c) && c > 0) ? _hard_function(f.f) : nothing
+end
+function _hard(t::Translate)
+  g = _hard_function(t.f)
+  g === nothing ? nothing : Translate(g, t.b, t.scratch, t.proxscratch)
+end
+function _hard(s::SeparableSum)
+  gs = map(_hard_function, s.fs)
+  any(isnothing, gs) ? nothing : SeparableSum(gs)
+end
+function _hard(s::Sum)
+  gs = map(_hard_function, s.fs)
   any(isnothing, gs) ? nothing : Sum(gs, s.scratch)
 end
 # a chain anywhere among the blocks may refuse the value of the conjugate

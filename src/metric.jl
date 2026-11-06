@@ -487,16 +487,30 @@ function _prox_unchecked!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace
                  _metric_set_prox!(y, f, x, γ, f.a, f.b, mγ)
 end
 
-# _check_metric_steps, which also returns the largest step: the loop reads every step anyway.
+# _check_metric_steps, which also returns the largest step: the loop reads every step anyway. For
+# Float32 and Float64 it is branch-free, so that it vectorizes, and takes the maximum on the bit
+# patterns as _maximum_abs does; it then throws for the first invalid step, if any.
+function _check_linear_steps(f, γ::AbstractArray{T}) where {T<:Union{Float32, Float64}}
+  U = _int_type(T)
+  valid, m = true, zero(U)
+  @inbounds @simd for i in eachindex(γ)
+    g = γ[i]
+    valid &= (g > zero(T)) & (abs(g) < oftype(g, Inf))
+    m = max(m, reinterpret(U, g) & typemax(U))
+  end
+  valid || _throw_linear_steps(f)
+  reinterpret(T, m)
+end
 function _check_linear_steps(f, γ::AbstractArray)
   m = zero(eltype(γ))
   for g in γ
-    g > zero(g) && isfinite(g) ||
-      throw(ArgumentError("the steps of $(nameof(typeof(f))) must be positive and finite"))
+    g > zero(g) && isfinite(g) || _throw_linear_steps(f)
     m = ifelse(g > m, g, m)
   end
   m
 end
+@noinline _throw_linear_steps(f) =
+  throw(ArgumentError("the steps of $(nameof(typeof(f))) must be positive and finite"))
 
 # The working normal a and offset b: those of f, or the normalized ones; mγ = max γᵢ.
 function _metric_set_prox!(y, f, x, γ, a, b, mγ)

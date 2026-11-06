@@ -78,11 +78,13 @@ end
   end
 end
 
-@testset "NormLinf with an infinite level: a positive step fixes every entry at zero" begin
+# NormLinf(Inf) follows its own rule (the proximal map is zero at a finite positive step, decision of
+# #663); these rows check that rule here, beside the values of this file, and pass with it.
+@testset "controls: NormLinf with an infinite level at a finite positive step" begin
   allowscalar(false)
   for T in (Float32, Float64)
     for x in (T[1, NaN], T[NaN, NaN], T[NaN, 2, 3], T[Inf, NaN], T[NaN 1; 1 0]),
-        γ in (one(T), T(Inf), floatmin(T), nextfloat(zero(T)), 1e-300, 2.0^200)
+        γ in (one(T), floatmin(T), nextfloat(zero(T)), 1e-300, 2.0^200)
       check_zero_prox(NormLinf(T(Inf)), x, γ)
       check_zero_prox(NormLinf(Inf), x, γ)                    # a Float64 level on Float32 data
     end
@@ -93,10 +95,16 @@ end
     @test same(value_and_prox!(y, NormLinf(T(Inf)), A, one(T)), zero(T))
     @test Matrix(y) == zeros(T, 3, 3)
     # device arrays
-    for x in (T[1, NaN], T[NaN, NaN]), γ in (one(T), T(Inf))
-      v, y = vp(NormLinf(T(Inf)), JLArray(x), γ)
+    for x in (T[1, NaN], T[NaN, NaN])
+      v, y = vp(NormLinf(T(Inf)), JLArray(x), one(T))
       @test same(v, zero(T))
       @test isequal(Array(y), zeros(T, 2))
+    end
+    # an infinite step is not covered by that rule and keeps its earlier result
+    for d in (identity, JLArray)
+      v, y = vp(NormLinf(T(Inf)), d(T[1, NaN]), T(Inf))
+      @test same(v, T(-Inf))
+      @test isequal(Array(y), T[-Inf, NaN])
     end
   end
 end

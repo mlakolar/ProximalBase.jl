@@ -247,7 +247,7 @@ Julia: 1.10.12; platform: x86_64-linux-gnu-Linux; bounds: 1
 | spectral | prox | arg=Float64 destination=Float64 parameter=Float64 step=Float64 data=Float64 | cpu | LogDetLoss at zero, S=0, gamma*w=1; c=64 pending in contract, storage exact | T3,A5 | none | passes |
 | spectral | value | Float32 | cpu | Spectrum of M*ones(2,2) is (2M,0); power-of-two recovery, bound c=64 pending in contract | R1,A5 | none | passes; broken (G6) |
 | spectral | value | Float64 | cpu | NaN detected before LAPACK; spectral value is NaN (reverses #343), Spectrum of M*ones(2,2) is (2M,0); power-of-two recovery, bound c=64 pending in contract, User-defined inner function at spectrum (4,2); A5 bound 64eps(R)*reference, constant pending | E2,A5, R1,A5 | none | passes; broken (G6) |
-| spectral | value_and_prox | Float64 | cpu | NaN value for coupled NaN output | E2,O2,A5 | none | broken (G6) |
+| spectral | value_and_prox | Float64 | cpu | NaN value for coupled NaN output | E2,O2,A5 | none | passes; broken (G6) |
 | spectral | value_and_prox | Float64 arg, Float32 destination | cpu | O2: scalar of the fused call equals rank_indicator_ref (independent closed-form singular values, threshold sqrt(eps(Float32))*sigma1 in Float32 scaled units) of the matrix that same call stored; observed is the pair (scalar, reference of the stored matrix) | A4,A5,O2 | L5 | broken (G6) |
 | spectral | value_and_prox | Float64 arg/data/step, Float32 destination | cpu | Decision 39: stored output is singular; scalar of the fused call | O2,O3 | L2 | broken (G6) |
 | steps | prox | Float32 | cpu | Full-domain nonconvex zero-step endpoint is identity., Named separable endpoint: domain closure at zero; minimizer set at infinity., Scalar indicator endpoints retain projection; exact dyadic fixture., Zero step projects onto closure of positive half-line. | P1 | none | passes |
@@ -321,7 +321,7 @@ Julia: 1.10.12; platform: x86_64-linux-gnu-Linux; bounds: 1
 | G3 | 30 |
 | G4 | 51 |
 | G5 | 27 |
-| G6 | 42 |
+| G6 | 40 |
 | G7 | 3 |
 | G8 | 8 |
 | G9 | 25 |

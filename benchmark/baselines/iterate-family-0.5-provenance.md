@@ -38,7 +38,7 @@ repetitions 1 to 3.
 |:--|:--|:--|
 | `julia-1.13.3-rep0{1,2,3}-metrics.tsv` and `-metadata.toml` in `base-groups`, `base-layouts`, `aa-groups`, `aa-layouts` | measured metrics and run metadata | retained (24 files) |
 | `cmp-groups/comparison.csv`, `cmp-layouts/comparison.csv` | A/A comparison of `base-*` against `aa-*`, output of `compare.py --expected-runs 3` | retained |
-| `cmp-{groups,layouts}/coverage.json`, `REPORT.md` | by-products of the comparison | retained, read by no tool |
+| `cmp-{groups,layouts}/coverage.json`, `REPORT.md` | by-products of the comparison | retained, read by none of the original tools |
 | `crosscheck-pinned-start.tsv`, `crosscheck-pinned-end.tsv`, `restore-probe.txt` | independent-loop cross-check and the restore probe | recovered from a record (section 3) |
 | twelve `julia-1.13.3-rep0{1,2,3}-errors.tsv` | failed cases of each run | not retained (section 4) |
 
@@ -57,8 +57,9 @@ copied. The files are corroborated, not signed:
 
 The full per-file inventory with SHA-256 is on
 [PR #725](https://github.com/mlakolar/ProximalBase.jl/pull/725#issuecomment-6693712712), not here: the
-B1 archive redacts the host, path and job fields of the metadata files, which changes those hashes (no
-tool reads these fields, probe P7).
+B1 archive redacts the host, path and job fields of the metadata files, which changes those hashes. The generator and
+`verify_csv3.py` do not read these fields (probe P7); `identity.py` displays the host and job fields
+(section 7).
 
 ## 3. Recovery of the three probe files
 
@@ -197,5 +198,6 @@ Verified by recomputation: the two fingerprints, the committed csv and md from t
 3,719 comparison rows, the counts of section 6, and the outputs on five Python versions.
 
 Not verifiable: the bytes of the three recovered files beyond what section 3 pins; the contents of the
-error files; the retained metrics against their originals, for which no hash exists. Any later use of this
-record should state these three points again.
+error files; the retained metrics against their originals, for which no hash exists; and the
+per-repetition `min_ns` and `median_ns` values against the original timing samples, which were not
+retained. Any later use of this record should state these four points again.

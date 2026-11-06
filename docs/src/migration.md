@@ -108,8 +108,10 @@ the earlier behavior applies.
     infinite first weight, `NormL1Fused` with an infinite ℓ1 level and `NormLinf(Inf)`
     give zeros, where they gave NaN. This holds for a product `αγ` that underflows,
     is subnormal or overflows, for chains of `Scaled`, array steps and
-    `value_and_prox!`, whose value is `0`. A zero, infinite, negative or NaN step and
-    finite levels, including a finite level that overflows, keep their results.
+    `value_and_prox!`, whose value is `0`, as long as no finite level of the
+    function overflows with it: `Scaled(NormL1Fused(Inf, 1.0), 1e300)` at the step
+    `1e300` keeps its NaN. A zero, infinite, negative or NaN step and finite levels,
+    including a finite level that overflows, keep their results.
 - **Infinite entries.** A bounded projection at an argument with one infinite
   entry returns its limit, where it returned NaN or a partly NaN block
   ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), decision 48).

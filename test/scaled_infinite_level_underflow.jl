@@ -344,4 +344,89 @@ near(y, r, x, ::Type{T}) where {T} = all(abs.(y .- T.(r)) .<= 4eps(T) .* max.(ab
   @test isequal(prox(Scaled(NormL1(T(1), T[0, 1, 1]), floatmax(T)), T[1, 2, 3], T(2)), T[1, 0, 0])
 end
 
+####################################
+#  a zero weight leaves entries free: the finite level still acts on them
+####################################
+
+# The finite level of a function with an infinite one is dropped to zero only when the infinite level
+# fixes every entry. With a zero weight an entry is free, and the finite level (a ridge, or the
+# ℓ1 level of a group that has weight zero) acts on it: the fold is declined, the result is that of the
+# finite penalty and the value is the value at the stored output (O2).
+@testset "zero weights, $T" for T in (Float32, Float64)
+  inf = T(Inf)
+  α = T === Float64 ? T(1e-310) : T(1f-40)           # subnormal in its type
+  hi = T === Float64 ? T(1e300) : T(1f30)            # αγ = 1e-10 for γ = hi
+  x = T[1, 2]
+  # the reference: entry 1 is free, entry 2 is fixed at 0
+  ridge(γ1) = isinf(γ1) ? zero(T) : T(big(x[1]) / (1 + big(γ1) * big(α) * 1))
+  soft(γ1) = isinf(γ1) ? zero(T) : T(max(big(x[1]) - big(γ1) * big(α), 0))
+  for (name, f, ref) in (("ElasticNet", ElasticNet(inf, T(1), T[0, 1]), ridge),
+                         ("SparseGroupNormL2", SparseGroupNormL2(T(1), inf, [1:1, 2:2], T[0, 1]), soft))
+    s = Scaled(f, α)
+    for γ in (T[hi, hi], T[inf, hi], T[hi, inf], T[hi / 2, hi / 2], T[hi, T(1)])
+      expected = T[ref(γ[1]), 0]
+      y = zeros(T, 2)
+      v = value_and_prox!(y, s, x, γ)
+      @test all(abs.(y .- expected) .<= 2eps(T) .* abs.(expected))
+      @test isequal(v, s(y))
+      isinf(γ[1]) || @test v > 0          # the finite penalty of the free entry is not removed
+      a = copy(x)
+      va = value_and_prox!(a, s, a, γ)
+      @test isequal(a, y) && isequal(va, v)
+      sentinel = fill(T(-7), 2)
+      prox!(sentinel, s, x, γ)
+      @test isequal(sentinel, y) && isequal(prox(s, x, γ), y)
+    end
+    # a scalar step takes the same decision
+    for (αs, γs) in ((T === Float64 ? (1e-160, 1e-160) : (1f-20, 1f-20)), (T === Float64 ? (1e-300, 1e-300) : (1f-30, 1f-30)))
+      s2 = Scaled(f, αs)
+      y = zeros(T, 2)
+      v = value_and_prox!(y, s2, x, γs)
+      # the ridge below the range is dropped by the step fold itself, so the fixed entry is zero; for the
+      # group function the fold is declined and the result is the unfolded one, which is not pinned
+      name == "ElasticNet" && @test isequal(y, T[1, 0])
+      @test isequal(v, s2(y))
+    end
+  end
+  # an infinite level with positive weights still drops it: the same functions without the zero weight
+  check(Scaled(ElasticNet(inf, T(1), T[1, 1]), α), x, T[hi, hi], zeros(T, 2); value = nothing)
+  check(Scaled(SparseGroupNormL2(T(1), inf, [1:1, 2:2], T[1, 1]), α), x, T[hi, hi], zeros(T, 2); value = nothing)
+end
+
+####################################
+#  a block that is itself scaled
+####################################
+
+@testset "Scaled blocks of a sum" begin
+  arg = ([1.0, 2.0], [3.0, 4.0])
+  z = ([0.0, 0.0], [0.0, 0.0])
+  # both blocks have the domain {0}; the first block is a scaled SLOPE that the step fold reaches through its factor
+  for f in (Scaled(SeparableSum(Scaled(SLOPE([Inf, 1.0]), 2.0), NormL1(Inf)), 1e-300),
+            Scaled(SeparableSum(Scaled(Scaled(SLOPE([Inf, 1.0]), 2.0), 3.0), NormL1(Inf)), 1e-300),
+            Scaled(Scaled(SeparableSum(Scaled(Scaled(SLOPE([Inf, 1.0]), 1e-100), 1e100), Scaled(NormL1(Inf), 5.0)), 1e-200), 1e-100),
+            Scaled(SeparableSum(Scaled(NormL1Fused(Inf, 1.0), 2.0), NormL1(Inf)), 1e-300),
+            Scaled(SeparableSum(Scaled(Scaled(NormL1Fused(Inf, 1.0), 2.0), 0.5), Scaled(SLOPE([Inf, 1.0]), 3.0)), 1e-300),
+            Scaled(SeparableSum(Translate(Scaled(SLOPE([Inf, 1.0]), 2.0), [0.0, 0.0]), NormL1(Inf)), 1e-300))
+    @test isequal(prox(f, arg, 1e-300), z)
+    @test isequal(prox(f, arg, 1e-160), z)
+  end
+  # a finite block inside a scaled block keeps its meaning: the identity at a step this small
+  f = Scaled(SeparableSum(Scaled(NormL1(1.0), 2.0), Scaled(NormL1(Inf), 3.0)), 1e-300)
+  @test isequal(prox(f, arg, 1e-300), ([1.0, 2.0], [0.0, 0.0]))
+end
+
+####################################
+#  a finite block next to an infinite one
+####################################
+
+# The block with the infinite level and the finite block of a sum share the exponent of the chain: the
+# product of the scale and the step, 1e-360, is below the range, and the finite block is folded as every
+# function in a chain is. The levels of the SLOPE become 1e-60 and 5e-61, the thresholds 1e-260 and
+# 5e-261, which are above the subnormal entries 1e-310, so their proximal point is zero. Without the fold
+# the product rounds to the zero step and the entries come back unchanged.
+@testset "a finite sibling of an infinite block is folded with it" begin
+  f = Scaled(SeparableSum(NormL1(Inf), SLOPE([1e100, 5e99])), 1e-160)
+  @test isequal(prox(f, ([1.0, 2.0], [1e-310, -1e-310]), 1e-200), ([0.0, 0.0], [0.0, -0.0]))
+end
+
 end

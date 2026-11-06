@@ -155,7 +155,9 @@ A level that is stored as infinite stays infinite under a positive finite factor
 their product is: `Scaled(NormL1(Inf), 1e-300)` at the step `1e-300` has the proximal map of the
 domain `{0}`, as at the step `1`, and not the identity of a step rounded to zero. A finite level
 whose product overflows is not read as infinite. For `SLOPE`, `NormL1Fused` and the functions with
-two levels, a finite level whose product falls below the range is then dropped to zero.
+two levels, a finite level whose product falls below the range is then dropped to zero, for
+`ElasticNet` and `SparseGroupNormL2` only when no weight is zero (a zero weight leaves entries free
+that the finite level still acts on).
 A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its gradient and Hessian
 product at its own scale before the factors are applied, so an intermediate that leaves the range is
 lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` at `[1e10]`
@@ -366,20 +368,24 @@ function _fold_level(f::ElasticNet, α)
   c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
 end
 # For an array step, a function with two levels one of which is infinite is constant on its domain
-# {0}: the finite level that falls below the range is dropped to zero instead of discarding the fold
-function _hard_levels(α::_NormalScale, λs::Tuple)
+# {0} when no weight leaves a coordinate or a group free: the finite level that falls below the
+# range is then dropped to zero instead of discarding the fold. With a zero weight the finite level
+# still acts on the free entries, and the fold is declined.
+function _hard_levels(f, α::_NormalScale, λs::Tuple)
   cs = map(λ -> _folded_level(λ, α), λs)
   any(isnothing, cs) || return cs
-  (_hard_scale(α) && any(isinf, λs)) || return nothing
+  (_hard_scale(α) && any(isinf, λs) && _weights_positive(f)) || return nothing
   cs = map((λ, c) -> c === nothing ? _flushed_level(λ, α.s) : c, λs, cs)
   any(isnothing, cs) ? nothing : cs
 end
+_weights_positive(f::ElasticNet) = f.w === nothing || all(>(0), f.w)
+_weights_positive(f::SparseGroupNormL2) = all(>(0), f.w)
 function _fold_level(f::ElasticNet, α::_NormalScale)
-  cs = _hard_levels(α, (f.λ1, f.λ2))
+  cs = _hard_levels(f, α, (f.λ1, f.λ2))
   cs === nothing ? nothing : ElasticNet(cs[1], cs[2], f.w)
 end
 function _fold_level(f::SparseGroupNormL2, α::_NormalScale)
-  cs = _hard_levels(α, (f.λ1, f.λ0))
+  cs = _hard_levels(f, α, (f.λ1, f.λ0))
   cs === nothing ? nothing : SparseGroupNormL2(cs[1], cs[2], f.groups, f.w)
 end
 function _fold_level(f::Union{GroupNormL2, GroupNormLinf}, α)
@@ -411,12 +417,22 @@ _fold_level(f::Scaled, α) = _fold_level(f.f, _projection_accumulate(α, f.α))
 _fold_level_step(f, α) = _fold_level(f, α)
 _fold_block_step(f, α) = _isindicator(f) ? f : _fold_level_step(f, α)
 _fold_block_step(f::ZeroFunction, α) = f
-function _fold_level_step(f::ElasticNet, α)
+# The second try of a step drops finite levels only for a function whose weights are all positive
+# (see `_hard_levels`); otherwise it is the plain fold.
+_unflushed(f, α) = α
+_unflushed(f, α::_HardScale) = α.flush && !_weights_positive(f) ? _HardScale(α.s) : α
+function _fold_level_step(f::SparseGroupNormL2, α)
+  _fold_level(f, _unflushed(f, α))
+end
+function _fold_level_step(f::ElasticNet, α0)
+  α = _unflushed(f, α0)
   c1 = _folded_level(f.λ1, α)
   c = iszero(f.λ2) ? f.λ2 : _apply_scale(α, f.λ2)
   c2 = isfinite(c) && abs(c) < floatmin(typeof(float(c))) ? zero(c) : _folded_level(f.λ2, α)
   c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
 end
+# a block that is itself scaled: the factor joins the scale of the step, which keeps its state
+_fold_level_step(f::Scaled, α) = _fold_level_step(f.f, _projection_accumulate(α, f.α))
 # SLOPE and NormL1Fused fold into their levels for a step only, and only on the second try of a
 # step (`flush`), which is kept only for an infinite level, the case that the plain route loses: the
 # steps and values of finite levels keep the route that they had

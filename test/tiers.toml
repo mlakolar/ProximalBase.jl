@@ -123,6 +123,7 @@ thorough = [
   "conjugate_steps",
   "constrained",
   "converted_weights",
+  "elasticnet_zero_levels",
   "expcone",
   "extreme_normals",
   "fibers",
@@ -164,6 +165,7 @@ thorough = [
   "value_overflow_fused",
   "value_overflow_sqrnorm",
   "weighted_overflow",
+  "zero_weight_nan",
 ]
 
 # Exhaustive catalogs whose cases repeat paths the tiers above already reach, and family files

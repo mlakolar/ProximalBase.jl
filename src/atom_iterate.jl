@@ -495,8 +495,8 @@ function LinearAlgebra.dot(v::Union{StridedVector, SparseIterate{<:Any, 1}, Atom
   s = zero(promote_type(eltype(v), eltype(x)))
   @inbounds for a in 1:x.nactive, j in x.groups[x.active[a]]
     w, c = v[j], x.storage[j]
-    (iszero(c) || (!(v isa StridedVector) && iszero(w))) && continue
-    s += dot(w, c)
+    t = dot(w, c)
+    s += ifelse(iszero(c) | (!(v isa StridedVector) & iszero(w)), zero(t), t)    # a select, not a branch
   end
   s
 end

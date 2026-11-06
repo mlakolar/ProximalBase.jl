@@ -1123,8 +1123,8 @@ function LinearAlgebra.dot(x::SparseIterate{<:Any, 1}, y::SparseIterate{<:Any, 1
     s = zero(promote_type(eltype(x), eltype(y)))
     @inbounds for k = 1:nnz(x)
         a, b = x.nzval[k], y[x.nzval2ind[k]]
-        (iszero(a) || iszero(b)) && continue
-        s += dot(a, b)
+        t = dot(a, b)
+        s += ifelse(iszero(a) | iszero(b), zero(t), t)    # a select: a branch on the data mispredicts
     end
     s
 end

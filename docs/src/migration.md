@@ -105,6 +105,11 @@ the earlier behavior applies.
     `[-Inf, NaN]`. Its value at the zero vector is `0`, where it was NaN, and
     so is the value of the conjugate of `IndBallL1(Inf)` there. A zero,
     infinite, negative or NaN step keeps its results.
+  - `SparseGroupNormL2` with an infinite ℓ1 level sets every grouped entry to
+    zero at every step, also with a zero group level or weight:
+    `prox(SparseGroupNormL2(Inf, 0.0, [1:2], [0.0]), [3.0, 4.0, 9.0], 0.0)` is
+    `[0, 0, 9]`, where it was `[NaN, NaN, 9]`, and a NaN or infinite grouped
+    entry gives `0` at a positive step, where it gave NaN.
 - **Infinite entries.** A bounded projection at an argument with one infinite
   entry returns its limit, where it returned NaN or a partly NaN block
   ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), decision 48).

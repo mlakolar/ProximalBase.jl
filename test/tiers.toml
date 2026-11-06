@@ -150,6 +150,7 @@ thorough = [
   "rotatedsoc",
   "sparse_iterate",
   "sparsegroup_infinite_level",
+  "sparsegroup_infinite_prox",
   "spectral_domain",
   "spectral_fused_values",
   "spectral_nonfinite_values",

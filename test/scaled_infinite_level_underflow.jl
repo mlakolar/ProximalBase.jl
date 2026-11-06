@@ -110,7 +110,8 @@ overflows(::Type{Float32}) = [(1f30, 1f30), (floatmax(Float32), 2f0), (2f0, floa
   @test prox(Scaled(NormL1(Inf), 1e-300), x, 0.0) == x
   @test prox(Scaled(Scaled(NormL1(Inf), 1e-200), 1e-200), x, 0.0) == x
   @test prox(Scaled(NormL1(Inf), 1e-300), x, [0.0, 0.0, 0.0]) == x
-  @test prox(Scaled(NormL1(Inf), 1e-300), x, [0.0, 1e-300, 1.0]) == [1.0, 0.0, 0.0]
+  # an array step with a zero entry keeps the result of the steps rounded with the factor, in every entry
+  @test prox(Scaled(NormL1(Inf), 1e-300), x, [0.0, 1e-300, 1.0]) == prox(NormL1(Inf), x, [0.0, 1e-600, 1e-300])
 end
 
 ####################################
@@ -169,8 +170,9 @@ end
       check(Scaled(leaf, tiny), x, γs, ref)
       check(Scaled(Scaled(leaf, tiny), T(tiny)), x, γs, ref)
     end
-    # an exact zero entry of the step is the result of the function at that step
-    check(Scaled(leaf, tiny), x, T[0, tiny, tiny], prox(leaf, x, T[0, 1, 1]); value = nothing)
+    # an exact zero entry of the step is not a positive step: the call keeps the result of the steps rounded with
+    # the factor, in every entry (the array fold is made only when every step is positive and finite)
+    check(Scaled(leaf, tiny), x, T[0, tiny, tiny], prox(leaf, x, T[0, tiny * tiny, tiny * tiny]); value = nothing)
   end
   # the weights decide which entries are fixed
   leaf = NormL1(inf, T[1, 0, 1])
@@ -716,5 +718,133 @@ end
   @test nearref(res[2], re2 .+ tr, x, T) && res[2][2] == tr[2]
 end
 
+
+####################################
+#  the type of the call decides the range that a discarded coefficient is compared with
+####################################
+
+# The coefficient of a level that the fold cannot form is compared with floatmin of the type in which the
+# leaf forms it: the type of the call, and not of the parameters. Float32 parameters on a Float64
+# argument keep a coefficient of 1e-50, which is a normal Float64 number; it is not discarded, and the
+# result is the one of the steps rounded with the factor (here the product 1e-40 is a Float32 subnormal,
+# with its 5 digits). The references are BigFloat.
+@testset "mixed precision of the parameters and the call" begin
+  x2 = [1.0, 2e-50]
+  w = Float32[0, 1f10]
+  groups = [1:1, 2:2]
+  t = fill(big(1f-20) * big(1f-20), 2)
+  siblings = (("ElasticNet", ElasticNet(1f-20, 0f0, w), ref_elastic(x2, t, 1f-20, 0f0, w)),
+              ("NormL1", NormL1(1f-20, w), ref_elastic(x2, t, 1f-20, 0f0, w)),
+              ("SparseGroupNormL2", SparseGroupNormL2(0f0, 1f-20, groups, w), ref_sparsegroup(x2, t, 0f0, 1f-20, w, groups)),
+              ("GroupNormL2", GroupNormL2(1f-20, groups, w), ref_sparsegroup(x2, t, 0f0, 1f-20, w, groups)))
+  for (name, g, ref) in siblings
+    f = Scaled(SeparableSum(NormL1(Inf32), g), 1f-20)
+    res = prox(f, ([1.0, 2.0], x2), 1f-20)
+    @test res[1] == [0.0, 0.0]
+    # the product 1e-40 is a Float32 subnormal: its relative error, 3e-5, multiplies the change of the entry
+    @test abs(res[2][2] - Float64(ref[2])) <= 4eps() * 2e-50 + 3e-5 * abs(2e-50 - Float64(ref[2]))
+    @test abs(res[2][2] - 2e-50) > 1e-51                        # the threshold is not discarded
+    y = (zeros(2), zeros(2))
+    v = value_and_prox!(y, f, ([1.0, 2.0], x2), 1f-20)
+    @test y == res && isapprox(v, f(y); rtol = 1e-4)
+    a = ([1.0, 2.0], copy(x2))
+    va = value_and_prox!(a, f, a, 1f-20)
+    @test a == res && va == v
+  end
+  # the reverse: Float64 parameters on a Float32 argument; the output cannot hold a coefficient below its range
+  t64 = fill(big(1e-20) * big(1e-20), 2)
+  g = ElasticNet(1e-20, 0.0, [0.0, 1e10])
+  f = Scaled(SeparableSum(NormL1(Inf), g), 1e-20)
+  res = prox(f, (Float32[1, 2], Float32[1, 2f-30]), 1e-20)
+  @test res[1] == Float32[0, 0]
+  @test nearref(res[2], ref_elastic(Float32[1, 2f-30], t64, 1e-20, 0.0, [0.0, 1e10]), Float32[1, 2f-30], Float32)
+  # all in Float32: the coefficient 1e-50 is below floatmin(Float32), and the entry equals the exact result
+  g32 = ElasticNet(1f-20, 0f0, w)
+  f32 = Scaled(SeparableSum(NormL1(Inf32), g32), 1f-20)
+  res = prox(f32, (Float32[1, 2], Float32[1, 2f-30]), 1f-20)
+  @test res[1] == Float32[0, 0]
+  @test nearref(res[2], ref_elastic(Float32[1, 2f-30], t, 1f-20, 0f0, w), Float32[1, 2f-30], Float32)
+end
+
+####################################
+#  every entry that the infinite level fixes stays fixed when a finite level is removed
+####################################
+
+# A leaf rebuilt without an irrelevant finite level keeps the result of the leaf with it: the infinite
+# level fixes every entry, whatever the entry is (NaN and infinite entries included, E2 and E3), and the
+# result is the constant map, which is the map of the unscaled function at a step of 1.
+@testset "removing an irrelevant level keeps the hard path, $T" for T in (Float32, Float64)
+  inf = T(Inf)
+  wbig = T === Float64 ? T(1e300) : T(1f30)
+  big_ = wbig
+  tiny = T === Float64 ? T(1e-300) : T(1f-30)
+  G = [1:1, 2:2, 3:4]
+  xs = (T[1, 2, 3, 4], T[NaN, 2, 3, 4], T[Inf, -Inf, 3, NaN], T[1, NaN, NaN, Inf], T[NaN, NaN, NaN, NaN], T[-Inf, 0, 0, 1])
+  leaves = (SparseGroupNormL2(inf, big_, G, T[1, 1, 1]), SparseGroupNormL2(inf, T(1), G, T[1, 2, 1e-3]),
+            SparseGroupNormL2(big_, inf, G, T[1, 1, 1]), SparseGroupNormL2(T(1), inf, G, T[1, 1, 1]),
+            SparseGroupNormL2(inf, T(1e-3), [1:2, 3:3], T[1, 1]),
+            ElasticNet(inf, big_, T[1, 1, 1, 1]), ElasticNet(inf, T(1), T[1, 1, 1, 1]), ElasticNet(big_, inf, T[1, 1, 1, 1]),
+            SLOPE(T[inf, big_, 1, 1]), SLOPE(T[inf, 1, tiny, 0]), NormL1Fused(inf, big_), NormL1Fused(inf, T(1)))
+  for f in leaves, x in xs
+    ref = prox(f, x, one(T))
+    for (α, γ) in ((big_, big_), (tiny, tiny), (tiny, T(1)), (T(1), tiny))
+      check(Scaled(f, α), x, γ, ref; value = nothing)
+      s = Scaled(f, α)
+      y = similar(x)
+      all(iszero, ref) && @test value_and_prox!(y, s, x, γ) === zero(T)
+    end
+    # a group function takes one step per group, an elastic net one per entry
+    n = f isa SparseGroupNormL2 ? length(f.groups) : length(x)
+    f isa Union{SLOPE, NormL1Fused} && continue
+    for γs in (fill(big_, n), fill(tiny, n), T[tiny, 1, big_, tiny][1:n])
+      check(Scaled(f, tiny), x, γs, prox(f, x, ones(T, n)); value = nothing)
+      check(Scaled(f, big_), x, γs, prox(f, x, ones(T, n)); value = nothing)
+    end
+  end
+  # the array call of the review: a zero step entry keeps its earlier result in every entry
+  f = Scaled(SparseGroupNormL2(inf, big_, [1:1, 2:2], T[1, 1]), big_)
+  @test isequal(prox(f, T[1, 2], T[0, 1]), prox(SparseGroupNormL2(inf, big_, [1:1, 2:2], T[1, 1]), T[1, 2], T[0, big_ * 1]))
+  # the calls of the review
+  for x in (T[NaN, 2], T[Inf, 2], T[1, 2])
+    @test isequal(prox(f, x, big_), zeros(T, 2))
+  end
+end
+
+####################################
+#  array steps with an excluded entry keep their results in every entry
+####################################
+
+# A negative, NaN, zero or infinite entry of an array step is outside the rule (decision 49): the call keeps
+# the result of the steps rounded with the factor, for the entries that are positive as well. The array fold
+# of an infinite level is made only when every entry is positive and finite.
+@testset "array steps with excluded entries, $T" for T in (Float32, Float64)
+  inf = T(Inf)
+  tiny = T === Float64 ? T(1e-300) : T(1f-30)
+  x = T[1, 2, 3]
+  excluded = (T(-1) * tiny, T(NaN), T(0), inf, T(-0.0), T(-1))
+  for leaf in (ElasticNet(inf, T(1), T[0, 1, 1]), NormL1(inf), NormL1Nonneg(inf), NormL1(inf, T[1, 0, 1]), ElasticNet(T(1), inf, T[0, 1, 1]))
+    for bad in excluded, pos in (tiny, T(1)), k in 1:3
+      γ = fill(pos, 3)
+      γ[k] = bad
+      for α in (tiny, T(1) / tiny)
+        s = Scaled(leaf, α)
+        rounded = [α * g for g in γ]               # the steps rounded with the factor, as before the change
+        @test isequal(prox(s, x, γ), prox(leaf, x, rounded))
+        y = zeros(T, 3)
+        value_and_prox!(y, s, x, γ)
+        @test isequal(y, prox(leaf, x, rounded))
+        a = copy(x)
+        value_and_prox!(a, s, a, γ)
+        @test isequal(a, y)
+      end
+    end
+  end
+  # the scalar route takes a positive finite step only
+  for leaf in (ElasticNet(inf, T(1), T[0, 1, 1]), NormL1(inf), SLOPE(T[inf, 1, 1]), NormL1Fused(inf, T(1)), SparseGroupNormL2(inf, T(1), [1:2, 3:3], T[1, 1]))
+    for bad in excluded
+      @test same_outcome(() -> prox(Scaled(leaf, tiny), x, bad), () -> prox(leaf, x, tiny * bad))
+    end
+  end
+end
 
 end

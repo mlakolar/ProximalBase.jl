@@ -256,7 +256,7 @@ end
 #   function with no level to fold takes each step multiplied by the factors with the exponent
 #   applied last, rounded into the step's type.
 function _array_fold(f, a, γ)
-  g = _fold_level(f, _NormalScale(a))
+  g = _fold_level(f, _NormalScale(a, γ))
   g === nothing || return g, γ, :folded
   shifted = _shifted_fold(f, a, γ)
   shifted === nothing ? (f, _ExpScaledArray(γ, a), :rounded) : (shifted..., :shifted)
@@ -273,7 +273,7 @@ function _shifted_fold(f, a::_ProjectionScale, γ::AbstractArray)
   kmin, kmax = hi - exponent(floatmax(S)), lo - exponent(floatmin(S))
   kmin > kmax && return nothing
   for k in (clamp((lo + hi) ÷ 2, kmin, kmax), kmax, kmin)
-    g = _fold_level(f, _NormalScale(_ProjectionScale(a.m, a.e + k)))
+    g = _fold_level(f, _NormalScale(_ProjectionScale(a.m, a.e + k), γ))
     g === nothing || return g, _ExpScaledArray(γ, _ProjectionScale(S(0.5), 1 - k))
   end
   nothing

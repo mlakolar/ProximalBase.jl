@@ -2058,13 +2058,16 @@ form is classified by what it does:
 - *Relevant on free coordinates*, where a zero weight leaves a coordinate or a
   group free: the finite level acts there, and the positive-weight coordinates stay
   fixed. It is kept when it folds, and discarded only when its whole coefficient
-  `mγ · scale · level · weight` is below `floatmin`, formed from exponents
-  (`2^(e + eλ + ew)` bounds it, with `ew` the exponent of the largest weight that
-  multiplies the level) so that a large weight is counted before the product can
-  underflow. The error is a bound, not an exact zero: below `floatmin` for every
-  entry (a threshold, or the norm of a group) and a relative error below `floatmin`
-  for a ridge. An entry of that magnitude can lose its threshold, as a product rounded
-  to zero does.
+  `mγ · scale · level · weight` is below `floatmin` of the type of the call (the
+  element type of the output, or the type of the step if wider, and not the type of
+  the parameters: a `Float32` coefficient of `1e-50` is a normal `Float64` number),
+  formed from exponents (`2^(e + eλ + ew)` bounds it, with `ew` the exponent of the
+  largest weight that multiplies the level) so that a large weight is counted before
+  the product can underflow. The two bounds are different statements. For a soft
+  threshold, and for the threshold on the norm of a group, the absolute change of every
+  entry is below `floatmin`. For a ridge, the relative change of every entry is below
+  `floatmin`, which is not an absolute bound. Neither is an exact zero: an entry of
+  that magnitude can lose its threshold, as a product rounded to zero does.
 - Otherwise the fold is declined and the function keeps the route that it had. This is
   the case of a finite block of a sum whose scaled level underflows to zero while a large
   weight brings its coefficient above `floatmin`, and of an array step on `ElasticNet`
@@ -2073,9 +2076,21 @@ form is classified by what it does:
   exists); the infinite level of a positive-weight coordinate can be lost there, as at base.
   These configurations are excluded here and tracked.
 
-`SLOPE` and `NormL1Fused` fold their levels for such a step only when a level is
-infinite. A chain of factors, a block that is itself scaled and the blocks of a sum take the
-same route, and the values of scaled functions are unchanged.
+A level that is removed keeps the leaf on its hard path: a group level that is irrelevant
+is replaced by a positive one (a group level of zero sends `SparseGroupNormL2` to its
+soft-threshold path before the check of an infinite ℓ1 level, which does not fix a NaN or
+infinite entry), and the finite levels of a `SLOPE` with an infinite first level are replaced
+by zeros, which keeps them nonincreasing. An array step is folded only when every entry is a
+positive finite number; a negative, NaN, zero or infinite entry keeps the result of the steps
+rounded with the factor, in every entry. `SLOPE` and `NormL1Fused` fold their levels for such a
+step only when a level is infinite. A chain of factors, a block that is itself scaled and the
+blocks of a sum take the same route, and the values of scaled functions are unchanged.
+
+A block that is itself scaled, inside a sum, now takes the step fold that it would take alone.
+This corrects finite results that the earlier route lost: in a sweep of 6960 calls of a
+`SeparableSum` of scaled `ElasticNet` and weighted `NormL1` blocks, 94 outputs changed, each
+closer to the BigFloat reference (the earlier route rounded the product of the factors and the
+step to zero, and returned the argument where a large weight kept the coefficient in range).
 
 Excluded, and unchanged:
 

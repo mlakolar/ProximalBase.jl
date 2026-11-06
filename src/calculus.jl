@@ -159,8 +159,10 @@ whose product overflows is not read as infinite. In `SLOPE`, `NormL1Fused`, `Ela
 treated by what they do next to an infinite level: a level that the infinite level makes irrelevant (it
 fixes every coordinate the level touches) is removed; a level that acts on free coordinates (a zero
 weight) is kept when it folds, and is discarded only when its whole coefficient, the product of the
-scale, the step, the level and the largest weight that multiplies it, is below `floatmin`, which changes
-an entry by less than `floatmin` for a threshold and by a relative amount below `floatmin` for a ridge.
+scale, the step, the level and the largest weight that multiplies it, is below `floatmin` of the type of
+the call, which changes an entry by less than `floatmin` (absolute) for a threshold and by a relative
+amount below `floatmin` for a ridge. An array step is folded only when every entry is positive and
+finite; a negative, NaN, zero or infinite entry keeps the result that it had.
 Not covered, where the fold is declined and the earlier result stays (an infinite level can then be lost):
 a finite block of a sum whose scaled level underflows to zero while a large weight brings its coefficient
 back above `floatmin`, and an array step on `ElasticNet` or `SparseGroupNormL2` with a zero weight and a
@@ -310,15 +312,23 @@ function _folded_level(λ, α)
 end
 # A scale that only folds into levels that are normal numbers. A subnormal level has fewer bits and
 # is no longer the coefficient that an array step multiplies, entry by entry.
-struct _NormalScale{T}
+# `γ` is the array of steps (`nothing` when it is not known): an infinite level stays infinite only
+# when every entry of the steps is a positive finite number, as the scalar fold requires of its step
+# (a negative, NaN, zero or infinite entry keeps the result that it had, which no fold of the levels can
+# give an entry of its own).
+struct _NormalScale{T, G}
   s::_ProjectionScale{T}
+  γ::G
 end
+_NormalScale(s) = _NormalScale(s, nothing)
 _apply_scale(a::_NormalScale, v) = _apply_scale(a.s, v)
+_steps_hard(::Nothing) = false
+_steps_hard(γ) = all(g -> g isa Real && isfinite(g) && g > 0, γ)
 # An explicit zero or infinite factor is not a scale to fold: the accumulation returns it as a plain
 # number, as for `_ProjectionScale`, and no level folds it (`_folded_level` refuses the product).
 function _projection_accumulate(a::_NormalScale, b::Real)
   p = _projection_accumulate(a.s, b)
-  p isa _ProjectionScale ? _NormalScale(p) : p
+  p isa _ProjectionScale ? _NormalScale(p, a.γ) : p
 end
 # The scale of a step, which the exponent of a step that is not a normal number joins. A level that
 # is stored as infinite is a hard constraint, not a product to form: under a positive finite scale it
@@ -337,11 +347,15 @@ end
 #   mγ · (scale) · level · weight with the significand mγ in [1/2, 1), and the scale holds the exponent
 #   of the product α γ. With the exponents e (scale), eλ (level) and ew (largest weight that multiplies
 #   the level), the coefficient t is below 2^(e + eλ + ew) because every significand is below 1; the
-#   level is discarded when that is at most the exponent of floatmin, so t < floatmin, formed from the
-#   exponents without a product that can underflow before a large weight restores it. The change of
+#   level is discarded when that is at most the exponent of floatmin of the type of the call (`T`: the
+#   element type of the output, or the type of the step if wider, and not the type of the parameters,
+#   since the leaf forms the coefficient in the call's type), so t < floatmin, formed from the exponents
+#   without a product that can underflow before a large weight restores it. The absolute change of
 #   every entry is then below t for a soft threshold (and for a group threshold on the norm of a
-#   group), and the relative change is below t for a ridge. An entry below floatmin can lose its whole
-#   threshold, as the product rounded to a zero step does.
+#   group); for a ridge it is the relative change that is below t, which is not an absolute bound. An
+#   entry below floatmin can lose its whole threshold, as the product rounded to a zero step does.
+#   A level that is removed keeps the leaf on its hard path: see `_kept_group_level` and `SLOPE`.
+#   The array step is folded only when every entry is positive and finite (`_NormalScale`).
 # - A level that is not discarded, and cannot be folded, discards the fold: the function keeps the
 #   route that it had. This is the case of a finite level whose scaled coefficient underflows while its
 #   weight brings the product back into the range.
@@ -349,27 +363,28 @@ end
 # orders of magnitude, so there is no bound: only the exact removal is made (`_hard_levels`).
 struct _HardScale{S, R<:Union{Nothing, Base.RefValue{Bool}}, W}
   s::S
+  T::DataType         # the type in which the leaf forms its coefficient: that of the call, and not of the parameters
   flush::Bool
   seen::R
   w::W                # the weights of the level that is folded (`nothing`: none), read only to discard
   exact::Bool         # the level that is folded is irrelevant: it is removed, whatever it is
 end
-_HardScale(s) = _HardScale(s, false, nothing, nothing, false)
-_HardScale(s, flush, seen) = _HardScale(s, flush, seen, nothing, false)
+_HardScale(s, T) = _HardScale(s, T, false, nothing, nothing, false)
+_HardScale(s, T, flush, seen) = _HardScale(s, T, flush, seen, nothing, false)
 _apply_scale(a::_HardScale, v) = _apply_scale(a.s, v)
 function _projection_accumulate(a::_HardScale, b::Real)
   p = _projection_accumulate(a.s, b)
-  p isa _ProjectionScale ? _HardScale(p, a.flush, a.seen, a.w, a.exact) : p
+  p isa _ProjectionScale ? _HardScale(p, a.T, a.flush, a.seen, a.w, a.exact) : p
 end
 @inline _hard_scale(a::Real) = isfinite(a) && a > 0
 @inline _hard_scale(a::_ProjectionScale) = isfinite(a.m) && a.m > 0
-@inline _hard_scale(a::_NormalScale) = _hard_scale(a.s)
+@inline _hard_scale(a::_NormalScale) = _hard_scale(a.s) && _steps_hard(a.γ)
 @inline _hard_scale(a::_HardScale) = _hard_scale(a.s)
 # the scale for the level that the weights w multiply, and for a level that is irrelevant
 @inline _withw(α, w) = α
-@inline _withw(a::_HardScale, w) = _HardScale(a.s, a.flush, a.seen, w, a.exact)
+@inline _withw(a::_HardScale, w) = _HardScale(a.s, a.T, a.flush, a.seen, w, a.exact)
 @inline _irrelevant(α) = α
-@inline _irrelevant(a::_HardScale) = _HardScale(a.s, a.flush, a.seen, a.w, true)
+@inline _irrelevant(a::_HardScale) = _HardScale(a.s, a.T, a.flush, a.seen, a.w, true)
 # the exponent e of the largest weight, m = f 2^e with f in [1/2, 1): far below the range for zero
 # weights, far above for an infinite one (no level is discarded then)
 _weight_exponent(::Nothing) = 0
@@ -393,7 +408,8 @@ function _flushed_level(λ, a::_HardScale)
   T = typeof(float(_apply_scale(a.s, λ)))
   a.exact && return zero(T)
   es = _projection_scale_parts(a.s)[2]
-  es + frexp(float(λ))[2] + _weight_exponent(a.w) <= exponent(floatmin(T)) ? zero(T) : nothing
+  # against the range of the type of the call, which can be wider than the type of the parameters
+  es + frexp(float(λ))[2] + _weight_exponent(a.w) <= exponent(floatmin(a.T)) ? zero(T) : nothing
 end
 @inline _flush_scale(::Any) = false
 @inline _flush_scale(a::_HardScale) = a.flush
@@ -432,7 +448,7 @@ function _fold_level(f::ElasticNet, α::_NormalScale)
 end
 function _fold_level(f::SparseGroupNormL2, α::_NormalScale)
   cs = _hard_levels(f, α, (f.λ1, f.λ0))
-  cs === nothing ? nothing : SparseGroupNormL2(cs[1], cs[2], f.groups, f.w)
+  cs === nothing ? nothing : SparseGroupNormL2(cs[1], _kept_group_level(f.λ0, cs[2]), f.groups, f.w)
 end
 function _fold_level(f::Union{GroupNormL2, GroupNormLinf}, α)
   c = _folded_level(f.λ0, _withw(α, f.w))
@@ -481,8 +497,13 @@ function _fold_level_step(f::SparseGroupNormL2, α)
   α0 = _withw(α, f.w)
   α0 = flush && isinf(f.λ1) ? _irrelevant(α0) : α0
   c1, c0 = _folded_level(f.λ1, α1), _folded_level(f.λ0, α0)
-  c1 === nothing || c0 === nothing ? nothing : SparseGroupNormL2(c1, c0, f.groups, f.w)
+  c1 === nothing || c0 === nothing ? nothing : SparseGroupNormL2(c1, _kept_group_level(f.λ0, c0), f.groups, f.w)
 end
+# A group level that is removed as irrelevant (the ℓ1 level is infinite) is replaced by a positive one,
+# whose value does not matter: the leaf takes its hard path for the infinite ℓ1 level before it reads the
+# group level, but a group level of zero sends it to the soft-threshold path first, which does not fix a
+# NaN or infinite entry.
+_kept_group_level(λ0, c0) = iszero(c0) && !iszero(λ0) ? one(c0) : c0
 # a block that is itself scaled: the factor joins the scale of the step, which keeps its state
 _fold_level_step(f::Scaled, α) = _fold_level_step(f.f, _projection_accumulate(α, f.α))
 # SLOPE and NormL1Fused fold into their levels for a step only, and only on the second try of a
@@ -497,8 +518,14 @@ function _fold_level_step(f::NormL1Fused, α)
 end
 function _fold_level_step(f::SLOPE, α)
   _flush_scale(α) || return nothing
-  β = any(isinf, f.λ) ? _irrelevant(α) : α
-  cs = map(λ -> _folded_level(λ, β), f.λ)
+  if any(isinf, f.λ) && _hard_scale(α)
+    # an infinite first level fixes every entry: the finite levels are irrelevant and are replaced by
+    # zeros, so that the levels stay nonincreasing whichever of them the scale could form
+    α.seen === nothing || (α.seen[] = true)
+    return SLOPE(map(λ -> isinf(λ) ? λ : zero(float(λ)), f.λ))
+  end
+  # a finite SLOPE next to an infinite block: a level below the range goes to zero, in order
+  cs = map(λ -> _folded_level(λ, α), f.λ)
   any(isnothing, cs) ? nothing : SLOPE(identity.(cs))
 end
 
@@ -638,7 +665,12 @@ end
 # Not marked `@noinline`: the result is a union of tuples (folded or plain function, and the factor or
 # `nothing`), which a call that is not inlined must box (144 bytes per call). The callers that sit
 # in a loop over `prox_entry` are the ones that are not inlined (`_prox_entry_nested`).
-function _nested_step(s::Scaled, γ::Real)
+# The element type of the output of a call, in which a leaf forms its coefficients
+_call_type(y::AbstractArray{<:Real}) = float(eltype(y))
+_call_type(y::Tuple) = isempty(y) ? Float64 : mapreduce(_call_type, promote_type, y)
+_call_type(y::Real) = float(typeof(y))
+_call_type(y) = Float64
+function _nested_step(s::Scaled, γ::Real, ::Type{R} = Float64) where {R}
   f, a = _scaled_chain(s)
   _isindicator(f) && return (f, γ, a)
   step = _apply_scale(a, γ)
@@ -647,12 +679,15 @@ function _nested_step(s::Scaled, γ::Real)
   mγ, eγ = frexp(float(γ))
   ma, ea = _projection_scale_parts(a)
   P = _ProjectionScale(ma, Int(ea + eγ))
-  g = _fold_level_step(f, _HardScale(P))
+  # the type in which the leaf forms its coefficient: that of the call (R, the element type of the
+  # output) or of the step if wider; the default is the one that discards the least
+  RT = promote_type(R, T)
+  g = _fold_level_step(f, _HardScale(P, RT))
   if g === nothing
     # a level that is infinite keeps the function constant on {0}: the finite levels that fall below
     # the range are dropped, and the fold is taken only then
     seen = Ref(false)
-    h = _fold_level_step(f, _HardScale(P, true, seen))
+    h = _fold_level_step(f, _HardScale(P, RT, true, seen))
     seen[] && (g = h)
   end
   # g carries the levels without the ridge that may have been dropped: it is not the chain, and
@@ -664,7 +699,7 @@ _prox_unchecked!(y, s::Scaled, x, γ::Real) = _nested_route(s, γ) ? _prox_chain
   (_checkwrite(prox!, s, y, x); _prox_unchecked!(y, s.f, x, _scaled_step(s, γ)))
 @noinline function _prox_chain!(y, s, x, γ::Real)
   _checkwrite(prox!, s, y, x)
-  g, step, _ = _nested_step(s, γ)
+  g, step, _ = _nested_step(s, γ, _call_type(y))
   _prox_unchecked!(y, g, x, step)
 end
 value_and_prox!(y, s::Scaled, x, γ::Real) =
@@ -673,7 +708,7 @@ _value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = _nested_route(s, γ) ? _
   (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ)); _value_at(_scaled_value(s, y, v, false), y))
 @noinline function _value_and_prox_chain!(y, s, x, γ::Real)
   _checkwrite(value_and_prox!, s, y, x)
-  g, step, a = _nested_step(s, γ)
+  g, step, a = _nested_step(s, γ, _call_type(y))
   if a === nothing
     # the value of the chain at the output, not that of the folded function
     _prox_unchecked!(y, g, x, step)
@@ -688,7 +723,7 @@ Base.@propagate_inbounds function prox_entry(s::Scaled, v::Real, i::Integer, γ:
   prox_entry(s.f, v, i, s.α * γ)
 end
 @noinline function _prox_entry_nested(s::Scaled, v::Real, i::Integer, γ::Real)
-  g, step, _ = _nested_step(s, γ)
+  g, step, _ = _nested_step(s, γ, float(typeof(v)))
   prox_entry(g, v, i, step)
 end
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
@@ -700,7 +735,7 @@ _scale_invariant(f::Scaled) = _scale_invariant(f.f)
 # a scaled group penalty updates a group of an AtomIterate with a scaled step
 function prox_coordinate!(x::AtomIterate, s::Scaled, k::Integer, γ::Real)
   if _nested_route(s, γ)
-    g, step, _ = _nested_step(s, γ)
+    g, step, _ = _nested_step(s, γ, _call_type(x))
     return prox_coordinate!(x, g, k, step)
   end
   prox_coordinate!(x, s.f, k, s.α * γ)
@@ -708,7 +743,7 @@ end
 @inline _check_coordinate(x::AtomIterate, s::Scaled, k) = _check_coordinate(x, s.f, k)
 @inline function _block_step!(x::AtomIterate, s::Scaled, k, u, γ, ctx)
   if _nested_route(s, γ)
-    g, step, _ = _nested_step(s, γ)
+    g, step, _ = _nested_step(s, γ, _call_type(x))
     return _block_step!(x, g, k, u, step, ctx)
   end
   _block_step!(x, s.f, k, u, s.α * γ, ctx)
@@ -2160,7 +2195,7 @@ lipschitz(s::SeparableSum) = maximum(lipschitz, s.fs)
 
 function _checkstep(op::O, s::Scaled, y, x, γ::Real) where {O}
   if _nested_route(s, γ)
-    g, step, _ = _nested_step(s, γ)
+    g, step, _ = _nested_step(s, γ, _call_type(y))
     return _checkstep(op, g, y, x, step)
   end
   _checkstep(op, s.f, y, x, _scaled_step(s, γ))

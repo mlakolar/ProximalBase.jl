@@ -1000,6 +1000,11 @@ owns. A `NaN` entry of a vector of `K ≥ 3` entries makes the whole proximal ou
 `NaN` when `λ2 > 0` and the step is positive, because every entry is fused with it;
 with `λ2 = 0` or a zero step only the `NaN` entry stays `NaN`. For a pair, in the
 tuple form, only the pair that holds the `NaN` is `NaN`.
+With `λ1 = Inf` the domain is `{0}`, whatever `λ2`: at a positive finite step the
+proximal output is zero in every form, also where the argument is `NaN` or `±Inf`
+(decision 49), and the value is `0` at zero, `Inf` at a nonzero argument and `NaN`
+at a `NaN` entry. An infinite `λ2` alone restricts the domain to equal entries,
+which is not a constant map, and has no such rule.
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct NormL1Fused{T<:Real} <: AbstractFunction
@@ -1094,12 +1099,24 @@ end
   _checked_fused_pair_value(f, xy, T)
 end
 
+# An infinite ℓ1 level makes the domain {0}, whatever λ2 (E4): the value is NaN at a NaN entry (E2),
+# 0 at zero and Inf elsewhere, where the products would give Inf⋅0 (decision 49). The ordinary sums
+# are never finite then, so the checked paths below decide.
+@inline _fused_fixed_value(::Type{T}, nan::Bool, zero_::Bool) where {T} =
+  nan ? T(NaN) : zero_ ? zero(T) : T(Inf)
+# ... and at a positive finite step the proximal point is zero whatever the argument holds. Read
+# from the level and the step as given: a finite level never becomes a hard constraint (R3).
+@inline _fused_zero(f::NormL1Fused, γ) = isinf(f.λ1) && γ > 0 && isfinite(γ)
+
 @noinline function _checked_fused_pair_value(f, xy, ::Type{T}) where {T}
+  isinf(f.λ1) && return _fused_fixed_value(T, isnan(xy[1]) | isnan(xy[2]), iszero(xy[1]) & iszero(xy[2]))
   ordinary = _fused_pair_value(f, xy)
   all(isfinite, xy) && isfinite(f.λ1) && isfinite(f.λ2) ? _recover_fused_pair(f, xy, T) : ordinary
 end
 
 @noinline function _recover_fused_arrays(f, x, ::Type{T}, ordinary) where {T}
+  isinf(f.λ1) && return _fused_fixed_value(T, any(isnan, x[1]) || any(isnan, x[2]),
+                                           all(iszero, x[1]) && all(iszero, x[2]))
   R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
   isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
   m = zero(R)
@@ -1166,6 +1183,7 @@ end
 
 function prox(f::NormL1Fused, xy::Tuple{Real, Real}, γ::Real = 1)
   T = float(promote_type(typeof(xy[1]), typeof(xy[2])))
+  _fused_zero(f, γ) && return (zero(T), zero(T))
   λ1, λ2, g = _fused_pair_levels(T(f.λ1), T(f.λ2), T(γ))
   _prox_l1fused(T(xy[1]), T(xy[2]), λ1, λ2, g)
 end
@@ -1176,6 +1194,11 @@ function prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused, x::Tuple{
 end
 
 @noinline function _prox_fused_arrays!(y, f, x, γ, ::Val{C}) where {C}
+  if _fused_zero(f, γ)
+    fill!(y[1], zero(eltype(y[1])))
+    fill!(y[2], zero(eltype(y[2])))
+    return y
+  end
   T = float(promote_type(eltype(y[1]), eltype(y[2])))
   λ1, λ2, γ = _fused_pair_levels(T(f.λ1), T(f.λ2), T(γ))
   @inbounds for i in eachindex(x[1])
@@ -1235,6 +1258,7 @@ function _sortperm_fused!(f::NormL1Fused, x::AbstractVector, ::Type{T}) where {T
 end
 
 @noinline function _recover_fused_vector(f, x, ::Type{T}, ordinary) where {T}
+  isinf(f.λ1) && return _fused_fixed_value(T, any(isnan, x), all(iszero, x))
   all(isfinite, x) && isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
   _fused_scaled_value(_fused_vector_terms(f, x, T)..., T)
 end
@@ -1303,15 +1327,31 @@ end
 value_and_prox!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real) = _prox_fused!(y, f, x, γ, Val(true))
 prox!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real) = (_prox_fused!(y, f, x, γ, Val(false)); y)
 
+# Whether a nonnegative level is neither zero nor infinite, in one unsigned comparison: the rare
+# levels that the ordinary path does not serve
+@inline function _fused_inner_level(v::T) where {T<:Union{Float16, Float32, Float64}}
+  U = T === Float64 ? UInt64 : T === Float32 ? UInt32 : UInt16
+  reinterpret(U, v) - one(U) < reinterpret(U, T(Inf)) - one(U)
+end
+@inline _fused_inner_level(v) = zero(v) < v < oftype(v, Inf)
+
 # the proximal operator of all pairs fused, and the value at the result if V
 function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real, ::Val{V}) where {V}
   _checkwrite(V ? value_and_prox! : prox!, f, y, x)
   T = float(eltype(y))
   λ1, λ2 = convert(T, f.λ1), convert(T, f.λ2)
   n = length(x)
-  if iszero(λ1) && iszero(λ2)
-    y === x || copyto!(y, x)
-    return V ? f(y) : zero(T)
+  if !_fused_inner_level(λ1)
+    if iszero(λ1) && iszero(λ2)
+      y === x || copyto!(y, x)
+      return V ? f(y) : zero(T)
+    end
+    # an infinite ℓ1 level: the domain is {0}, so at a positive finite step the proximal point is
+    # zero whatever x holds (E4 before E2), before the pair kernel and the sort
+    if _fused_zero(f, γ)
+      fill!(y, zero(T))
+      return V ? f(y) : zero(T)
+    end
   end
   if n == 2
     l1, l2, g = _fused_pair_levels(λ1, λ2, convert(T, γ))
@@ -1320,7 +1360,8 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
   end
   p, a, nan = _sortperm_fused!(f, x, T)     # x is read here, so y may be x
   # a NaN entry: the fusion couples every entry to it (E2), unless the step or λ2 is zero; an infinite
-  # step or level keeps the computation below (LIM-056)
+  # step, an infinite λ2, or an infinite ℓ1 level at a zero or infinite step keeps the computation
+  # below (LIM-056)
   nan && !isinf(γ) && !isinf(f.λ1) && !isinf(f.λ2) && return _prox_fused_nan!(y, f, x, γ, Val(V), T)
   w = _buffer!(f.vals, T, n)
   t = convert(T, γ) * λ2

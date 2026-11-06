@@ -105,7 +105,9 @@ and `(1/n) * f` averages one. An infinite factor gives the value `0` where `f` i
 an indicator inside its set, and `NormL1`, `NormL1Nonneg`, `NormL2`, `NormLinf`, `NuclearNorm`,
 `ElasticNet`, `GroupNormL2`, `GroupNormLinf` and `SparseGroupNormL2` where `f` is `0` at an argument
 that is zero on every entry they penalize (an entry under a zero level or weight, or in no group, may
-hold anything); elsewhere a computed zero of `f` (another function, or a value that underflowed) gives NaN.
+hold anything); elsewhere a computed zero of `f` gives NaN, except where the value of `f` is recovered
+from its significand and exponent (the functions without a level listed below, on host arrays), which
+gives `±Inf` at a value that underflowed.
 
 When `α f(x)` overflows or underflows although it is representable, the value
 is computed with the scale folded into the level for `NormL1`, `NormL1Nonneg`,
@@ -392,8 +394,10 @@ _scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
   end
   r
 end
-# Inf⋅0 at an infinite factor: 0 only where f is certainly 0 at x (`_exactly_zero_at`). A computed 0
-# may be a positive value that underflowed, whose scaled value is Inf, so it stays NaN.
+# Inf⋅0 at an infinite factor: 0 only where f is certainly 0 at x (`_exactly_zero_at`); otherwise the
+# product r is returned unchanged. A computed 0 may be a positive value that underflowed, whose scaled
+# value is ±Inf: the recovery then tries the parts of the value, which give ±Inf for such a value on
+# host arrays, and the NaN stays where they do not apply.
 @noinline _scaled_nan_value(f, α, x, r) = _infinite_factor(α) && _exactly_zero_at(f, x) ? zero(r) : r
 _infinite_factor(α::Real) = isinf(α)
 _infinite_factor(α) = false

@@ -1270,11 +1270,11 @@ function _prox_unchecked!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, :
 end
 
 # Branch before passing the normal: the scaled and unscaled normals have different types.
-_linear_set_prox!(y, f, x) = _isscaled(f) ?
+@inline _linear_set_prox!(y, f, x) = _isscaled(f) ?
   _linear_set_prox!(y, f, x, _normalized_normal(f.a, f.s), _scaled_offset(f)) :
   _linear_set_prox!(y, f, x, f.a, f.b)
 # The working normal a and offset b: those of f, or the normalized ones.
-function _linear_set_prox!(y, f, x, a, b)
+@inline function _linear_set_prox!(y, f, x, a, b)
   g = _dot_normal(a, x) - b                  # the residual; a halfspace clamps it only below
   d = _normal_sqnorm(f, x)
   t = _model_coefficient(y, f isa IndHalfspace ? max(g, zero(g)) : g, d)
@@ -1298,7 +1298,8 @@ end
 # Two facts bound the arithmetic. (F1) An overflow is absorbing: once a term, a partial sum or
 # the subtraction of b overflows, g is ±Inf or NaN (Inf - Inf), whatever the order of the sum, the
 # lanes of the dot product or a fused multiply-add. So a finite g means that none of them
-# overflowed. It is tested before a halfspace's max(g, 0), which would turn -Inf into 0. (F2) If
+# overflowed. For a halfspace it is tested before max(g, 0), which would turn -Inf into 0; for a
+# hyperplane the test of t covers it, as g / d is then infinite or NaN. (F2) If
 # |t| R ≤ B for an upper bound R of the magnitudes of the factors that t multiplies, then every
 # such product is at most B (1 + 2^-p)^2 < floatmax(S): the factor 2 absorbs the roundings in
 # t, R and the products.
@@ -1317,8 +1318,11 @@ end
 @inline _half_floatmax(::Type{S}) where {S<:AbstractFloat} = floatmax(S) / 2
 @inline _normal_bound(f, a::Real, ::Type{S}) where {S} = abs(convert(S, float(a)))
 @inline _normal_bound(f, a::AbstractArray, ::Type{S}) where {S} = sqrt(convert(S, f.q))
+# A hyperplane's g is NaN or infinite exactly when its t is, which fails the second test.
+@inline _raw_finite(::IndHyperplane, g) = true
+@inline _raw_finite(::IndHalfspace, g) = _finite_value(g)
 @inline function _scalar_step_safe(f, a, g, t::S) where {S}
-  _finite_value(g) && abs(t) * _normal_bound(f, a, S) <= _half_floatmax(S)
+  _raw_finite(f, g) && abs(t) * _normal_bound(f, a, S) <= _half_floatmax(S)
 end
 
 # The projection x - (g / d) c with c = a, or γ .* a in a diagonal metric, formed in powers of

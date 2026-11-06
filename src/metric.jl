@@ -535,7 +535,8 @@ end
 # product, g, then d = Σᵢ γᵢαᵢ² (formed by _metric_sqnorm, as before), then t = g / d, and then
 # the correction cᵢ = (t γᵢ) αᵢ for a normal that is not scaled, or t (γᵢ âᵢ) for a scaled one,
 # where the scaled normal's products are formed in the order of _hyperslab_metric_output!.
-# - By (F1), a finite g covers the dot product and the offset.
+# - By (F1), a finite g covers the dot product and the offset (for a hyperplane the test of t
+#   below covers it: g is infinite or NaN exactly when t is, d being finite and positive).
 # - The terms of d are nonnegative, so a finite d covers every γᵢαᵢ² and the sum (αᵢ² itself
 #   cannot overflow, since |αᵢ| ≤ 2^(emax / 4), or < 2 when scaled). Without it, d = Inf and a
 #   finite g would give t = 0 and y = x without a warning.
@@ -549,7 +550,7 @@ end
 @inline function _metric_step_safe(f, a, g, d, t::S, mγ) where {S}
   B, m, γm = _half_floatmax(S), abs(t), convert(S, mγ)
   p = γm * _normal_bound(f, a, S)
-  _finite_value(g) && _finite_value(d) &&
+  _raw_finite(f, g) && _finite_value(d) &&
     (_isscaled(f) ? p <= B && m * p <= B : m * γm <= B && m * p <= B)
 end
 

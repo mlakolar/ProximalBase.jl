@@ -23,12 +23,14 @@ const PB = ProximalBase
 # (A1) where the ordinary loop did
 samevalue(a, b) = isequal(a, b) || (isfinite(a) && isfinite(b) && isapprox(a, b; rtol = 64 * eps(typeof(a))))
 
+# A destination of another type (dest, a mixed-precision call) leaves the aliased call out.
 # prox!, and value_and_prox! into a fresh output, an output holding a sentinel, a NaN-filled output and
 # the argument itself (a copy): the outputs are identical (O7), the values are those of the stored
 # output (O2), checked exactly (exact = true) or within the reduction order. The result is the tuple of
 # the separate value, the output and the aliased value.
-function check(fb, x, γ; exact = true, expected = nothing, value = nothing, aliasvalue = true)
-  T = float(eltype(x))
+function check(fb, x, γ; exact = true, expected = nothing, value = nothing, aliasvalue = true, dest = float(eltype(x)))
+  T = dest
+  mixed = T !== float(eltype(x))
   p = fill(T(-7), size(x))
   prox!(p, fb, x, γ)
   outs = Any[]
@@ -38,8 +40,9 @@ function check(fb, x, γ; exact = true, expected = nothing, value = nothing, ali
     push!(vals, value_and_prox!(y, fb, x, γ))
     push!(outs, y)
   end
-  a = copy(x)
-  va = value_and_prox!(a, fb, a, γ)
+  # the aliased call stores into the argument: its type is the destination's only when they agree
+  a = mixed ? copy(p) : copy(x)
+  va = mixed ? T(fb(p)) : value_and_prox!(a, fb, a, γ)
   fy = fb(p)
   bad = Symbol[]
   isequal(a, p) || push!(bad, :aliased_output)
@@ -242,6 +245,114 @@ end
     @test (@allocated value_and_prox!(y, fb, x, 0.7)) <= 128
     a .= x
     @test (@allocated value_and_prox!(a, fb, a, 0.7)) <= 128
+  end
+end
+
+####################################
+#  a destination narrower than the argument: the stored output decides (finite x, infinite y)
+####################################
+
+diagonal_idx(I) = I[1] == I[2]
+offdiag_idx(I) = I[1] != I[2]
+
+# Float64 data into a Float32 output: floatmax(Float64) is Inf32 in the output, and the free fibers
+# hold it, so x is finite and the stored output is not. The value is that of the stored output: the
+# infinities of the free fibers add no value (E4) and do not scale the sum of the other fibers.
+@testset "Float64 input into a Float32 output" begin
+  fm32, fm64 = Float64(floatmax(Float32)), floatmax(Float64)
+  # the reviewer's example
+  x = fill(fm32, 2, 2, 2)
+  x[1, 2, :] .= fm64
+  x[2, 1, :] .= fm64
+  fb = FiberSum(NormL1Fused(0.0, 0.0); diagonal = NormL1Fused(0.125, 0.125))
+  y = fill(-7.0f0, size(x))
+  v = value_and_prox!(y, fb, x, 1.0)
+  @test (all(isfinite, x), v, fb(y)) === (true, 1.7014117f38, 1.7014117f38)
+  for sym in (false, true), γ in (1.0, 0.5, 0.0, 0), n in (2, 3)
+    # (a) the zero-level function on the off-diagonal fibers, fused pairs on the diagonal
+    # (b) roles swapped, (c) a free diagonal
+    for (kind, fbm) in ((:a, FiberSum(NormL1Fused(0.0, 0.0); diagonal = NormL1Fused(0.125, 0.125), symmetric = sym)),
+                        (:b, FiberSum(NormL1Fused(0.0625, 0.0625); diagonal = NormL1Fused(0.0, 0.0), symmetric = sym)),
+                        (:c, FiberSum(NormL1Fused(0.0625, 0.0625); diagonal = nothing, symmetric = sym)))
+      free = kind === :a ? offdiag_idx : diagonal_idx
+      x = fill(fm32, n, n, 2)
+      for I in CartesianIndices((n, n))
+        free(I) && (x[I, :] .= fm64)
+      end
+      v, y, _ = check(fbm, x, γ; dest = Float32)
+      @test isfinite(v) && v === fbm(y)
+      @test any(isinf, y)
+    end
+    # a coupled overflow: a fused pair at floatmax(Float64) stores Inf32 in both entries, the value is
+    # that of the stored output, whatever it is
+    x = fill(fm32, n, n, 2)
+    x[1, 1, :] .= fm64
+    check(FiberSum(NormL1Fused(0.0, 0.0); diagonal = NormL1Fused(0.125, 0.125), symmetric = sym), x, γ; dest = Float32)
+    check(FiberSum(NormL1Fused(0.0625, 0.0625); diagonal = nothing, symmetric = sym), x, γ; dest = Float32)
+  end
+  # Float32 data into a Float64 output, and equal types: the same checks
+  for sym in (false, true)
+    x = fill(floatmax(Float32), 3, 3, 2)
+    x[1, 2, :] .= NaN
+    x[2, 1, :] .= NaN
+    check(FiberSum(NormL1Fused(0.0, 0.0); diagonal = NormL1Fused(0.125, 0.125), symmetric = sym), x, 1.0; dest = Float64)
+  end
+end
+
+@testset "regression guard: K = 3 view route, Float64 input into a Float32 output" begin
+  fm32, fm64 = Float64(floatmax(Float32)), floatmax(Float64)
+  for sym in (false, true), γ in (1.0, 0.0)
+    x = fill(fm32, 3, 3, 3)
+    for I in CartesianIndices((3, 3))
+      I[1] != I[2] && (x[I, :] .= fm64)
+    end
+    check(FiberSum(NormL1Fused(0.0, 0.0); diagonal = NormL1Fused(0.125, 0.125), symmetric = sym), x, γ; dest = Float32, exact = false)
+    check(FiberSum(NormL1(0.0); diagonal = NormL1(0.125), symmetric = sym), x, γ; dest = Float32, exact = false)
+  end
+end
+
+####################################
+#  a slice axis that does not start at 1 (the pair kernel accepts it; the fiber views of fb(y) do not)
+####################################
+
+struct Shifted{T, N} <: AbstractArray{T, N}
+  data::Array{T, N}
+  starts::NTuple{N, Int}
+end
+Base.size(a::Shifted) = size(a.data)
+Base.axes(a::Shifted{T, N}) where {T, N} =
+  ntuple(d -> Base.IdentityUnitRange(a.starts[d]:a.starts[d] + size(a, d) - 1), N)
+Base.IndexStyle(::Type{<:Shifted}) = IndexCartesian()
+Base.getindex(a::Shifted{T, N}, i::Vararg{Int, N}) where {T, N} = a.data[ntuple(d -> i[d] - a.starts[d] + 1, N)...]
+Base.setindex!(a::Shifted{T, N}, v, i::Vararg{Int, N}) where {T, N} =
+  setindex!(a.data, v, ntuple(d -> i[d] - a.starts[d] + 1, N)...)
+
+@testset "an output with a slice axis that does not start at 1 keeps its results" begin
+  fb = FiberSum(NormL1Fused(0.0, 0.0); diagonal = NormL1Fused(0.125, 0.125))
+  for starts in ((1, 1, -2), (0, 0, 1), (1, 1, 5))
+    # a NaN in a fused diagonal pair beside free NaN-free fibers: the value is NaN (E2), no exception
+    x = Shifted(ones(2, 2, 2), starts)
+    x.data[1, 1, 1] = NaN
+    y = Shifted(fill(-7.0, 2, 2, 2), starts)
+    v = value_and_prox!(y, fb, x, 1.0)
+    @test isnan(v)
+    @test isequal(y.data[:, :, 1], [NaN 1.0; 1.0 0.875]) && isequal(y.data[:, :, 2], [NaN 1.0; 1.0 0.875])
+    z = Shifted(fill(-7.0, 2, 2, 2), starts)
+    prox!(z, fb, x, 1.0)
+    @test isequal(z.data, y.data)
+    a = Shifted(copy(x.data), starts)
+    @test isnan(value_and_prox!(a, fb, a, 1.0)) && isequal(a.data, y.data)
+    # a zero step and the roles swapped
+    y = Shifted(fill(-7.0, 2, 2, 2), starts)
+    @test isnan(value_and_prox!(y, fb, x, 0.0))
+    fs = FiberSum(NormL1Fused(0.125, 0.125); diagonal = NormL1Fused(0.0, 0.0))
+    y = Shifted(fill(-7.0, 2, 2, 2), starts)
+    # the NaN sits in a fiber of the zero-level function here: free, no value (E4)
+    @test value_and_prox!(y, fs, x, 1.0) === 0.4375
+    # entries that are finite and large: the call returns, as at base (no exception)
+    xb = Shifted(fill(floatmax(Float64), 2, 2, 2), starts)
+    y = Shifted(fill(-7.0, 2, 2, 2), starts)
+    @test value_and_prox!(y, fb, xb, 1.0) isa Float64
   end
 end
 

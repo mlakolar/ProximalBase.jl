@@ -566,12 +566,25 @@ end
   product = γ * ρ
   isfinite(product) ? γ / (one(T) + product) : inv(ρ) / (one(T) + inv(γ) / ρ)
 end
+# The same at a level that is zero as given (zero_level, from r.ρ, not from its conversion to the
+# working type, which can round a tiny level to zero). The weights are then (1, 0) and the step of f
+# is γ at every step, as for every finite one; at an infinite step the product γρ is Inf⋅0 in the
+# formulas. The first form is a branch, for a step taken once per call; the second two are selects,
+# for the steps of a loop over entries, which they leave free of a branch.
+@inline function _regularize_parameters(γ::T, ρ::T, zero_level::Bool) where {T}
+  zero_level && return one(T), zero(T), γ
+  a, b = _ridge_weights(γ, ρ)
+  a, b, _regularize_step(γ, ρ)
+end
+@inline _regularize_weights(γ::T, ρ::T, zero_level::Bool) where {T} =
+  _ridge_weights(ifelse(zero_level, one(T), γ), ρ)
+@inline _regularize_step(γ::T, ρ::T, zero_level::Bool) where {T} =
+  ifelse(zero_level, γ, _regularize_step(γ, ρ))
 function _shrunk!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
   T = float(eltype(y))
-  step, ρ = convert(T, γ), convert(T, r.ρ)
-  a, b = _ridge_weights(step, ρ)
+  a, b, step = _regularize_parameters(convert(T, γ), convert(T, r.ρ), iszero(r.ρ))
   r.c === nothing ? (y .= a .* x) : (y .= _ridge_blend.(x, _checked_parameter(y, r.c), a, b))
-  _regularize_step(step, ρ)
+  step
 end
 
 # the shrunk point in a buffer owned by r, so that y is unchanged when f throws
@@ -598,10 +611,10 @@ end
 
 Base.@propagate_inbounds function prox_entry(r::Regularize, v::Real, i::Integer, γ::Real)
   T = float(typeof(v))
-  step, ρ = convert(T, γ), convert(T, r.ρ)
-  a, b = _ridge_weights(step, ρ)
+  step, ρ, zero_level = convert(T, γ), convert(T, r.ρ), iszero(r.ρ)
+  a, b = _regularize_weights(step, ρ, zero_level)
   w = r.c === nothing ? a * v : _ridge_blend(v, r.c[i], a, b)
-  prox_entry(r.f, w, i, _regularize_step(step, ρ))
+  prox_entry(r.f, w, i, _regularize_step(step, ρ, zero_level))
 end
 _checkparams(r::Regularize, x) = (_checkparam(r.c, x); _checkparams(r.f, x))
 
@@ -620,8 +633,7 @@ end
 @inline function _unchecked_coordinate!(x::AtomIterate, r::Regularize{<:AbstractGroupPenalty}, k, γ, ctx)
   T = eltype(x)
   S = float(T)
-  step, ρ = convert(S, γ), convert(S, r.ρ)
-  a, b = _ridge_weights(step, ρ)
+  a, b, step = _regularize_parameters(convert(S, γ), convert(S, r.ρ), iszero(r.ρ))
   if T <: AbstractFloat
     # activate before reads or the inner step can fail
     was = isactive(x, k)
@@ -629,7 +641,7 @@ end
     @inbounds for i in x.groups[k]
       x.storage[i] = r.c === nothing ? a * x.storage[i] : _ridge_blend(x.storage[i], r.c[i], a, b)
     end
-    _unchecked_coordinate!(x, r.f, k, _regularize_step(step, ρ), ctx)
+    _unchecked_coordinate!(x, r.f, k, step, ctx)
     if !was && isactive(x, k) && !_anynonzero(x.storage, x.groups[k])
       _deactivate!(x, k)
     end
@@ -645,7 +657,7 @@ end
       active = true
     end
   end
-  _unchecked_coordinate!(x, r.f, k, _regularize_step(step, ρ), ctx)
+  _unchecked_coordinate!(x, r.f, k, step, ctx)
   # the group was appended last and no other group changed; restore the list
   if !was && isactive(x, k) && !_anynonzero(x.storage, x.groups[k])
     _deactivate!(x, k)
@@ -730,7 +742,7 @@ _has_value(f::Union{Precompose, _ArrayPrecompose, Regularize, Spectral, BoxConst
 
 function _checkstep(op::O, r::Regularize, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
   T = float(eltype(y))
-  _checkstep(op, r.f, y, _StepInput(y), _regularize_step(convert(T, γ), convert(T, r.ρ)))
+  _checkstep(op, r.f, y, _StepInput(y), last(_regularize_parameters(convert(T, γ), convert(T, r.ρ), iszero(r.ρ))))
 end
 function _checkstep(op::O, h::Precompose, y::AbstractArray, x::AbstractArray, γ::Real) where {O}
   z = _checkimage(h, x)

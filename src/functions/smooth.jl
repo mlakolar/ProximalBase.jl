@@ -484,9 +484,11 @@ function _checkwrite(op::Union{typeof(prox!), typeof(value_and_prox!), typeof(gr
 end
 
 # The convex weights 1/(1+γλ), γλ/(1+γλ), without overflowing γλ or
-# the numerator x + γλy of a centered proximal operator. Shared with Regularize,
-# the distance functions, the envelope and the metric prox; the ridge itself uses
-# _ridge_ordinary and _ridge_scaled below.
+# the numerator x + γλy of a centered proximal operator. Shared with Regularize
+# (its scalar and array steps), the distance functions and SqrHingeLoss; the ridge itself uses
+# _ridge_ordinary and _ridge_scaled below. A zero level at an infinite step is the product
+# Inf⋅0 here, and the weights are NaN: a caller that admits it decides on the level as given
+# (Regularize does), before it converts the level to the working type.
 @inline function _ridge_weights(γ::T, λ::T) where {T}
   t = γ * λ
   if t <= one(T)
@@ -555,9 +557,11 @@ end
 @inline _ridge_band_high(::Type{Float32}) = reinterpret(Float32, 0x7e000000)         # 2^125
 @inline _ridge_band_low(::Type{Float64}) = reinterpret(Float64, 0x0010000000000000)   # 2^-1022
 @inline _ridge_band_high(::Type{Float64}) = reinterpret(Float64, 0x7fc0000000000000)  # 2^1021
+# A level that is zero as given makes t = 0 at every step, an infinite one included, where the
+# product γλ is Inf⋅0: the weights are then (1, 0), as at every finite step.
 @inline function _ridge_ordinary(::Type{W}, γ, λ) where {W}
   P = promote_type(W, float(typeof(γ)), float(typeof(λ)))
-  tw = convert(W, P(γ) * P(λ))
+  tw = ifelse(iszero(λ), zero(W), convert(W, P(γ) * P(λ)))
   a, b = _ridge_weights_t(tw)
   _RidgeOrdinary{W}(a, b, tw)
 end

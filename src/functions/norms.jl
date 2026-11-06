@@ -16,6 +16,8 @@ proximal operator shrinks `x` towards zero: `max(1 - γλ/‖x‖, 0) x`. For th
 group lasso, a sum of such norms over groups of entries, use
 [`GroupNormL2`](@ref).
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
+With `λ = Inf` the value is `0` at the zero vector (also an empty one), `Inf` at any other
+argument without a NaN entry, and NaN at a NaN entry.
 """
 struct NormL2{T<:Real} <: AbstractFunction
   λ::T
@@ -35,8 +37,15 @@ function _weighted_norm2(λ::Real, x::AbstractArray)
   T = _valtype(x)
   iszero(λ) && return zero(T)
   _level_fits(T, λ) || return _converted_norm2(λ, x)
-  _norm2_value(convert(T, λ) * _norm2(x), convert(T, λ), x)
+  n = _norm2(x)
+  v = convert(T, λ) * n
+  isfinite(v) ? v : _nonfinite_norm2(v, λ, convert(T, λ), n, x)
 end
+
+# An infinite level has the domain {0} (E4): 0 at the zero vector, where λ‖x‖ is Inf⋅0, Inf
+# elsewhere and NaN at a NaN entry. The stored level λ decides: a finite level that converts
+# without leaving the range is never infinite (R3). A finite level recovers an overflow.
+@noinline _nonfinite_norm2(v, λ, c, n, x) = isinf(λ) ? _weighted_value(v, n) : _norm2_value(v, c, x)
 
 # Scale in the parameter's precision, without narrowing its level first.
 @noinline function _converted_norm2(λ, x)
@@ -184,10 +193,10 @@ _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), t
 _cube_norm_ordinary(n) = sqrt(floatmin(typeof(n))) <= n <= sqrt(floatmax(typeof(n)))
 
 function _cube_norm_parts(x, n, ::Type{T}) where {T}
-  _cube_norm_ordinary(n) && return frexp(convert(T, n))
+  _cube_norm_ordinary(n) && return _frexp(convert(T, n))
   m = _maximum_abs(x)
   (iszero(m) || !isfinite(m)) && return (convert(T, m), 0)
-  _, e = frexp(m)
+  _, e = _frexp(m)
   s = _power_factors(T, -e)
   a, k = frexp(sqrt(_scaled_sumabs2(x, s)))
   a, e + k
@@ -274,9 +283,9 @@ function _cube_prox_parts(γ::T, λ::T, m::T, e::Integer) where {T}
   if !isfinite(m) || !isfinite(γ) || iszero(γ)
     return (2 / (1 + sqrt(1 + 4 * γ * λ * m)), 0)
   end
-  a, k = frexp(γ)
-  b, j = frexp(λ)
-  c, i = frexp((a * b) * m)
+  a, k = _frexp(γ)
+  b, j = _frexp(λ)
+  c, i = _frexp((a * b) * m)
   h = k + j + e + i
   if h <= 0
     return (2 / (1 + sqrt(1 + 4 * ldexp(c, h))), 0)
@@ -326,6 +335,15 @@ level `τ`, `sign(xᵢ) min(|xᵢ|, τ)`: by Moreau's identity it is `x` minus t
 projection onto the ℓ1 ball of radius `γλ`, which takes O(n) expected time
 (Condat's algorithm).
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
+
+With an infinite level, `NormLinf(Inf)` is the indicator of `{0}`: its value is
+`0` at the zero vector, `Inf` at a nonzero finite argument and NaN at an
+argument with a NaN entry. At a finite positive step its proximal map is
+identically zero, at a NaN or infinite entry as well as at a finite one, and
+`value_and_prox!` returns `0`. A zero, infinite, negative or NaN step is not
+covered by this rule and keeps its earlier results; a finite level or step
+whose product overflows the working precision is not infinite and keeps the
+finite-level computation.
 """
 struct NormLinf{T<:Real} <: AbstractFunction
   λ::T
@@ -344,8 +362,15 @@ _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::NormLinf, y::Abs
 
 function _weighted_normlinf(λ::Real, x::AbstractArray)
   T = _valtype(x)
+  isinf(λ) && return _infinite_normlinf(T, x)
   _level_fits(T, λ) && return convert(T, λ) * norm(x, Inf)
   _converted_normlinf(λ, x)
+end
+
+# an infinite level: the indicator of {0}, with 0 at the zero vector instead of Inf⋅0
+@noinline function _infinite_normlinf(::Type{T}, x) where {T}
+  n = norm(x, Inf)
+  iszero(n) ? zero(T) : convert(T, n) * T(Inf)
 end
 
 @noinline function _converted_normlinf(λ, x)
@@ -354,10 +379,14 @@ end
   convert(T, convert(R, λ) * convert(R, norm(x, Inf)))
 end
 
+@noinline _zero_normlinf!(y, ::Type{T}) where {T} = (fill!(y, zero(eltype(y))); zero(T))
+
 function value_and_prox!(y::AbstractArray, f::NormLinf, x::AbstractArray, γ::Real)
   x = _symmetric_argument(y, x)
   _checkwrite(value_and_prox!, f, y, x)
   T = float(eltype(y))
+  # an infinite level at a finite positive step: the indicator of {0}, zero at every entry
+  isinf(f.λ) && γ > 0 && isfinite(γ) && return _zero_normlinf!(y, T)
   c = _level_product(T, γ, f.λ)
   if norm(x, 1) <= c
     fill!(y, zero(eltype(y)))

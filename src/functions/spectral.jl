@@ -120,7 +120,8 @@ end
   B = Y isa StridedMatrix{T} && _blas_ready(Y) ? Y : ws.A
   _mul_lowrank!(B, U, Vt, k, ws)
   _spectral_rescale!(Y, B, e, max(size(X)...), _maximum_abs(s))
-  _scaled_product(λ, v, e)
+  p = _scaled_product(λ, v, e)
+  f isa NuclearNorm ? _infinite_level_value(p, f.λ, v) : p
 end
 
 _scaled_eigen!(ws::SymEigenWorkspace) = _eigen!(ws)
@@ -172,6 +173,9 @@ needed, a non-finite input gives an all-`NaN` proximal output.
 `value_and_prox!` returns `Inf` at a non-finite input, also for `λ = 0`.
 Thus the equivalence with `SingularValue(NormL1(λ))` holds for the returned
 value there, but at `λ = 0` its all-`NaN` output differs from the copied input.
+With `λ = Inf` the value is `0` at the zero matrix and `Inf` at any other finite
+matrix, and at a positive step `value_and_prox!` returns `0` with its zero output
+at a finite input.
 
 $_PARTIAL_NOTE The value `f(X)` alone needs every singular value and always
 takes the full decomposition.
@@ -216,8 +220,18 @@ function (f::NuclearNorm)(X::AbstractMatrix)
   s, = _svd!(ws; vectors = false)
   _level_fits(T, f.λ) || return convert(T, _scaled_nuclear_value!(ws, X, float(f.λ)))
   v = convert(T, f.λ) * sum(s)
-  isfinite(v) || !isfinite(f.λ) ? v : _scaled_nuclear_value!(ws, X, convert(T, f.λ))
+  isfinite(v) && return v
+  # An infinite level has the domain {0} (E4): 0 when every singular value is zero, Inf otherwise.
+  # The input is finite here; the test is on exact zeros, so that a spectrum that is not finite
+  # (overflow in the decomposition) still gives Inf. The stored level decides (R3).
+  isinf(f.λ) ? (all(iszero, s) ? zero(T) : T(Inf)) : _scaled_nuclear_value!(ws, X, convert(T, f.λ))
 end
+
+# The value λ v that NuclearNorm returns with its thresholded spectrum v. An infinite level fixes
+# the output at zero for a positive step, and the value there is 0, not Inf⋅0 (E4, O2). The stored
+# level decides, never its product with the step (R3).
+@inline _infinite_level_value(p, λ, v) = isnan(p) && isinf(λ) ? _weighted_value(p, v) : p
+@inline _nuclear_level_value(λ, v, s, c) = _infinite_level_value(_spectral_level_value(λ, v, s, c), λ, v)
 
 # the exponent from the workspace's copy, which also serves inputs on devices
 @noinline function _scaled_nuclear_value!(ws::SVDWorkspace{T}, X::AbstractMatrix, λ::Real) where {T}
@@ -289,7 +303,7 @@ function value_and_prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, �
   end
   f.partial && _warm_start_svd!(f, U, k)
   _mul_lowrank!(Y, U, Vt, k, ws)
-  _spectral_level_value(f.λ, v, s, c)
+  _nuclear_level_value(f.λ, v, s, c)
 end
 prox!(Y::AbstractMatrix, f::NuclearNorm, X::AbstractMatrix, γ::Real) = (X = _symmetric_argument(Y, X); value_and_prox!(Y, f, X, γ); Y)
 

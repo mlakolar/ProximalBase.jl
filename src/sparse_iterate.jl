@@ -23,7 +23,8 @@ same length is copied by value in linear order, and one of another length throws
 a `DimensionMismatch`. The check reads types: a tuple, a generator or an array of abstract element type
 such as `Vector{Any}` passes it, and its values are converted one by one. Other
 writes also convert values one by one, as writes into a plain `Array` of the
-element type of `x` do: writes through a view, through `vec` of a matrix or a
+element type of `x` do: writes through a view, through `coordinates(x)`, through
+`vec` of a matrix or a
 `reshape` to another shape, indexed assignment such as `x[i] = v` or `x[:] = c`,
 `copyto!` with offsets or index ranges, and `map!`. A complex value converted
 one by one throws an `InexactError`, possibly after part of `x` has been
@@ -311,10 +312,24 @@ function isactive end
 """
     coordinates(x)
 
-A vector view of the coordinates of `x` (see [`ncoordinates`](@ref)): `x`
-itself for a [`SparseIterate`](@ref), whose coordinates are its entries in
-linear order, and the entries of the lower triangle for a
-[`SymmetricSparseIterate`](@ref). Writing through the view writes `x`.
+A vector view of the coordinates of `x` (see [`ncoordinates`](@ref)): the
+entries of a [`SparseIterate`](@ref) in linear order, whatever its shape, and the
+entries of the lower triangle for a [`SymmetricSparseIterate`](@ref). The view is
+an `AbstractVector` of length `ncoordinates(x)` indexed by coordinate, live (a
+later write to `x` shows through it) and writable, and building it copies
+nothing. It is never `x` itself.
+
+The view is an ordinary vector of the element type of `x`. A write through it is
+a value write: it activates the coordinates it makes nonzero and removes none,
+and converts the value as a write into a plain vector does, so a complex value
+throws an `InexactError`, possibly after part of `x` has been written; the view
+has no complex check of its own. Its products and reductions are those of an
+ordinary vector (IEEE, `O(length(x))`): for the sparse product use `x` itself, as
+in `dot(v, x)`. `copyto!(coordinates(x), coordinates(y))` is a value write, while
+`copyto!(x, y)` is the state copy. A `copyto!`, `copy!` or broadcast that takes both `x` and
+`coordinates(x)` copies the source once first, so that its result is that of copying
+the source before writing; other calls, such as `mul!` with the view as both output and
+input, behave as they do on an aliased plain vector.
 """
 function coordinates end
 
@@ -595,7 +610,36 @@ Base.IndexStyle(::Type{<:SparseIterate}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(x::SparseIterate, i::Int) = _getstored(x, i)
 Base.@propagate_inbounds Base.setindex!(x::SparseIterate, v, i::Int) = _setstored!(x, v, i)
 
-coordinates(x::SparseIterate) = x
+# the coordinates of x, its entries in linear order, as a vector
+struct SparseCoordinates{T, N} <: AbstractVector{T}
+  x::SparseIterate{T, N}
+end
+
+# the error is built from x, so that the view does not escape on the checked path
+@noinline _coordinates_boundserror(x::SparseIterate, i) = throw(BoundsError(SparseCoordinates(x), i))
+
+Base.size(c::SparseCoordinates) = (length(c.x),)
+Base.IndexStyle(::Type{<:SparseCoordinates}) = IndexLinear()
+Base.@propagate_inbounds function Base.getindex(c::SparseCoordinates, i::Int)
+  @boundscheck (1 <= i <= length(c.x)) || _coordinates_boundserror(c.x, i)
+  @inbounds _getstored(c.x, i)
+end
+Base.@propagate_inbounds function Base.setindex!(c::SparseCoordinates, v, i::Int)
+  @boundscheck (1 <= i <= length(c.x)) || _coordinates_boundserror(c.x, i)
+  @inbounds _setstored!(c.x, v, i)
+  c
+end
+
+# aliasing hooks from Base (non-public functions): the view overlaps x, and an aliased
+# source is copied first
+Base.dataids(c::SparseCoordinates) = Base.dataids(c.x)
+Base.unaliascopy(c::SparseCoordinates) = coordinates(copy(c.x))
+
+# the value is converted as for a plain vector of the element type, then written as
+# fill!(x, v) writes it: a zero goes to the stored entries only
+Base.fill!(c::SparseCoordinates{T}, v) where {T} = (fill!(c.x, convert(T, v)); c)
+
+@inline coordinates(x::SparseIterate{T, N}) where {T, N} = SparseCoordinates{T, N}(x)
 
 ## similar
 #

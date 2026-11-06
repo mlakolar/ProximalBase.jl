@@ -31,8 +31,9 @@ Its entries are real. The constructors, two-argument `copyto!` from an array,
 `copy!`, broadcasting into `x` and `fill!` throw an `ArgumentError` for a source
 or value of complex type, even with a zero imaginary part, before anything is
 written. `vec(x)` and `reshape(x, length(x))` are `x` itself and are checked
-too. `copy!` from a source of another length throws Base's error first. The
-check reads types: a tuple, a generator or an array of abstract element type
+too. `copy!` from a source of another length throws Base's error first, unless
+the source is an `AtomIterate` or a [`SparseIterate`](@ref), which throws a
+`DimensionMismatch`. The check reads types: a tuple, a generator or an array of abstract element type
 such as `Vector{Any}` passes it, and its values are converted one by one. Other
 writes also convert values one by one, as writes into a plain `Vector` of the
 element type of `x` do: writes through `atom(x, k)` or another view, indexed
@@ -369,6 +370,8 @@ function Base.copyto!(dest::AtomIterate{T}, src::AtomIterate{S}) where {T, S}
   dest
 end
 
+Base.copy!(dest::AtomIterate, src::AtomIterate) = copyto!(dest, src)
+
 # The check reads the element type and runs before anything is written; a source
 # of abstract element type converts entry by entry, as in Base.
 function Base.copyto!(x::AtomIterate, y::AbstractArray)
@@ -389,9 +392,24 @@ end
   end
 end
 
+# A SparseIterate and an AtomIterate of the same length: a value write in linear
+# order, after the real check and the length check.
+function Base.copyto!(x::SparseIterate, y::AtomIterate)
+  _checkreal_broadcast(x, y)
+  _check_iterate_lengths(x, y)
+  invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
+end
+function Base.copyto!(x::AtomIterate, y::SparseIterate)
+  _checkreal_broadcast(x, y)
+  _check_iterate_lengths(x, y)
+  invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
+end
+Base.copy!(x::SparseIterate, y::AtomIterate) = copyto!(x, y)
+Base.copy!(x::AtomIterate, y::SparseIterate) = copyto!(x, y)
+
 function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{Nothing})
   _checkreal_broadcast(x, bc)
-  invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{Nothing}}, x, bc)
+  _broadcast_loop!(x, bc)
 end
 
 function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{S}) where {S<:Broadcast.DefaultArrayStyle{0}}
@@ -403,7 +421,10 @@ function Base.fill!(x::AtomIterate, v)
   _checkreal_broadcast(x, v)
   s = convert(eltype(x), v)     # converted once, before x changes; activation follows the stored value
   if iszero(s)
-    _zero_active!(x)
+    # a value write: the active groups stay active (dropzeros!(fill!(x, 0)) removes them)
+    for a in 1:x.nactive
+      fill!(_atom_storage(x, x.active[a]), s)
+    end
   else
     fill!(x.storage, s)
     for k in eachindex(x.groups)

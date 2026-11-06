@@ -117,7 +117,7 @@ baseline run, frozen (see below), so that the baseline does not depend on `bench
 `check_evidence.py` (also usable by hand: `check_evidence.py EXTRACTION [BASELINE_DIR]`) checks the extracted
 evidence, in this order. A failed structure check skips the others.
 
-- **Structure.** Each of the twelve result directories (base and A/A, groups and layouts) holds the metadata, metrics and
+- **Structure.** Each of the four result directories (`base-groups`, `base-layouts`, `aa-groups`, `aa-layouts`) holds the metadata, metrics and
   error files of repetitions 1 to 3 and nothing else; every case appears once per file; each metrics file has exactly its kind's
   case set (3,455 groups, 264 layouts, equal to the case set of its comparison file; the union equals the 3,719 cases of the
   committed csv), the `rep` column of its repetition, and the `cases` of its metadata; the error files are empty. The values
@@ -140,9 +140,10 @@ evidence, in this order. A failed structure check skips the others.
   baseline rounds to four decimals. `timer_limited` and `timing_assessment` are recomputed too, by the frozen rule and
   the historical rule.
 - **Committed csv.** `aa_ratio` and `aa_half_width` equal the four-decimal strings of the archived columns, `gate5` equals
-  "neither side timer-limited, A/A half width at most 5%, and not one of the two diagnostic first-activation layouts" (16 cases
-  match that predicate, 2 of them would otherwise gate, so 1,094 become 1,092), and `timer_limited` and `work_varies` are
-  recomputed from the base repetitions.
+  "neither side timer-limited, A/A half width at most 5%, and not a diagnostic row" (the `first_activation` rows of the `sparse`
+  family with the layouts `absent_distinct_batch` and `absent_distinct_batch_x16`; see [Diagnostic rows](#diagnostic-rows)).
+  16 cases are diagnostic rows, and 2 of them would otherwise gate, so 1,094 become 1,092. `timer_limited` and `work_varies`
+  are recomputed from the base repetitions.
 - **Counts**, recomputed and compared with the csv and with pinned values: 3,719 cases (3,455 and 264); 94 timer-limited
   (94 on the base side, 94 on the A/A side, none on the A/A side only); 3,625 not timer-limited, 1,092 of them can gate 5%,
   2,533 cannot; 104 with varying work; 104 A/A flags (intervals that exclude 1) among the 3,625.
@@ -155,6 +156,10 @@ data that nobody foresaw, not a finding about the baseline.
 The timer-limited rule is `historical/validate.py`: `check_timer_limit_multiple` and `timer_limited` copied verbatim from
 `benchmark/validate.py` at `5d43d165`, the harness of the run. `check_evidence.py` loads it by path, and `reproduce.py`
 passes its directory to the generator. Its SHA-256 is pinned in `check_historical.py`. The five original tools are unchanged.
+
+`5d43d165` is not in the history of master; the baseline was merged as the squash commit `9dba71ee` (#429). In both commits
+`benchmark/run.jl`, `cases.jl`, `validate.py`, `compare.py` and `summarize.py` are the same files (identical blobs), so
+these files can be read from a plain clone.
 
 `check_historical.py` runs these tests:
 
@@ -179,6 +184,22 @@ passes its directory to the generator. Its SHA-256 is pinned in `check_historica
   the tools whose `verify_csv3.py` raises, `reproduce.py` exits 1 and names `verify_csv3.py`. With the generator or the
   `verify_csv3` wrapper replaced by a function that raises (an exception of `reproduce.py` itself), the exit code is 1 after
   an evidence failure and 2 when nothing else failed.
+
+## The comparator
+
+The archived `comparison.csv` files are the output of `compare.py` as of the harness commit `5d43d165`. Its arithmetic, with
+t = 4.303, reproduces them: bit-equal where they were computed, within 4 units in the last place elsewhere (see the A/A
+comparison check above). The current `benchmark/compare.py` has since gained settings checks (#471), three outcomes (#499) and
+`--reps` (#603). It is not used for the historical check, which recomputes the historical arithmetic itself. The `gate5`
+column of the baseline is the historical gate and is not the pass rule of a pull request today; that rule is the three
+outcomes described under [Compare revisions](../../README.md#compare-revisions) in `benchmark/README.md`.
+
+## Diagnostic rows
+
+The `first_activation` rows of the `sparse` family with the layouts `absent_distinct_batch` and `absent_distinct_batch_x16`
+(16 rows) are diagnostic and never gate: `gate5` is false for them in the committed csv. The `atom` and `owner` rows with
+the same layouts are not affected and gate under the usual rule. The instability of these rows between machines is open in
+#461. See the [Iterate-family groups](../../README.md#iterate-family-groups) section of `benchmark/README.md`.
 
 ## The archive
 
@@ -280,13 +301,15 @@ a cross-file equality check on these fields loses nothing.
 - `check_only.jl` (now `benchmark/check_only.jl`) and `sabotage2.jl`, which accompanied the tools, are
   not included: they test the harness, not the baseline.
 
-The tools have the limitations listed in section 7 of the provenance record. The generator checks its
-identity keys only across the base metadata, and `verify_csv3.py` exits 0 whatever it finds.
+The original tools have the limitations listed in section 7 of the provenance record, which maps each gap to what closes it.
+`check_evidence.py` and `reproduce.py` close most of them. Run alone, `verify_csv3.py` still exits 0 whatever it finds, and
+the generator still checks its identity keys only across the base metadata.
 
 ## Python versions
 
 The generator is byte-identical in its outputs on Python 3.11.9, 3.12.8, 3.12.15, 3.13.2 and 3.13.13
-(provenance record, section 5). `reproduce.py` and `pack_evidence.py` were run on 3.11, 3.12 and 3.13 when they were added. The generator
+(provenance record, section 5). `reproduce.py`, `check_evidence.py`, `check_historical.py` and `pack_evidence.py` were
+verified on Linux with 3.11.9 and 3.12.8 and on macOS with 3.12 and 3.13. CI runs the runner's `python3` (3.11 or later). The generator
 writes the md in the platform's text mode, so the outputs are byte-identical on Linux and macOS (newline `\n`);
 other platforms are not tested.
 

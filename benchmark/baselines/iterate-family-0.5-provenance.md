@@ -2,9 +2,8 @@
 
 This page records where every input of [`iterate-family-0.5.md`](iterate-family-0.5.md) and
 [`iterate-family-0.5.csv`](iterate-family-0.5.csv) came from, what was verified, and what rests on a
-record alone. It was written for issue #721 (phase B0 of #463, the parent issue). It adds no measurement
-and changes neither baseline file. The next phases are #722 (B1, archive the inputs and tools) and
-#723 (B2, a regression check on the archived inputs).
+record alone. It belongs to the record of issue #463 (phases #721 to #724). It adds no measurement
+and changes neither baseline file.
 
 The committed files are:
 
@@ -26,6 +25,10 @@ here. Two of its values were recomputed independently from git, with the `finger
 | `source_hash` | `a1583f070615bd3ea38705eacda4401ca1c6bafd` | `Project.toml`, `src/**/*.jl` and `ext/**/*.jl` (51 files) at the source commit `def81ec9d021c39ed1727cfeb9598357291dd60d` |
 
 Both equal the values recorded in all twelve metadata files (`harness_hash` and `source_hash`).
+
+`5d43d165` is not in the history of master; the baseline was merged as the squash commit `9dba71ee` (#429). In both commits
+`benchmark/run.jl`, `cases.jl`, `validate.py`, `compare.py` and `summarize.py` are the same files (identical blobs), so
+these files can be read, and the `harness_hash` recomputed, from a plain clone.
 
 ## 2. Inputs
 
@@ -53,14 +56,15 @@ copied. The files are corroborated, not signed:
 - the generator, run on them, reproduces both committed outputs byte for byte (section 5);
 - the `comparison.csv` files were recomputed from the `mean_ns` values of the retained base and A/A
   metrics: `paired_geometric_speedup`, `ci95_low` and `ci95_high` are exactly equal (`==`) for 3,719
-  of 3,719 cases (probe P6, section 6);
+  of 3,719 cases on macOS, where the archive was computed; on Linux a few values differ by one unit in the
+  last place ([`tools/README.md`](tools/README.md), A/A comparison; probe P6, section 6);
 - the `harness_hash` and `source_hash` of all twelve metadata files equal the independent recomputation
   of section 1 (probe P5).
 
 The full per-file inventory with SHA-256 is on
 [PR #725](https://github.com/mlakolar/ProximalBase.jl/pull/725#issuecomment-6693712712), not here: the
-B1 archive redacts the host, path and job fields of the metadata files, which changes those hashes. The generator and
-`verify_csv3.py` do not read these fields (probe P7); `identity.py` displays the host and job fields
+archive redacts the host, path and job fields of the metadata files, which changes those hashes. The generator and
+`verify_csv3.py` do not read these fields (probe P7); `identity.py` prints `"redacted"` for them on the archive
 (section 7).
 
 ## 3. Recovery of the three probe files
@@ -102,8 +106,9 @@ the same outputs.
 
 ## 5. Reproduction
 
-The baseline was generated with `make_baseline.py`, written for the 0.5 baseline and kept outside the
-repository (B1 archives it). Its README gives this invocation of the committed baseline:
+The baseline was generated with `make_baseline.py`, written for the 0.5 baseline; it is at
+[`tools/make_baseline.py`](tools/make_baseline.py). The README that accompanied the original tools gives this invocation
+of the committed baseline:
 
 ```sh
 python3.13 make_baseline.py --reps 3 --groups <base-groups dir> --layouts <base-layouts dir> \
@@ -139,7 +144,7 @@ Results:
 | P4 | `harness_hash` planted in one base metadata file (one line changed) | generator exits 1 with `metadata key harness_hash differs`; `verify_csv3.py` exits 0 with no mismatches; `identity.py` lists both values and exits 0 |
 | P4 | `harness_hash` planted in one A/A metadata file (one line changed) | generator exits 0, outputs byte-identical; `verify_csv3.py` exits 0; `identity.py` lists both values and exits 0 |
 | P5 | fingerprints recomputed from git | both equal the recorded values (section 1) |
-| P6 | archived `comparison.csv` recomputed from the base and A/A `mean_ns` | with t = 4.303 (the table in `benchmark/summarize.py` at `5d43d165`): `paired_geometric_speedup`, `ci95_low` and `ci95_high` exact for 3,719 of 3,719. With t = 4.302652729911275: speedup exact, 0 of 3,719 bounds exact |
+| P6 | archived `comparison.csv` recomputed from the base and A/A `mean_ns` | with t = 4.303 (the table in `benchmark/summarize.py` at `5d43d165`): `paired_geometric_speedup`, `ci95_low` and `ci95_high` exact for 3,719 of 3,719 on macOS, where the archive was computed (on Linux a few values differ by one unit in the last place; see [`tools/README.md`](tools/README.md)). With t = 4.302652729911275: speedup exact, 0 of 3,719 bounds exact |
 | P7 | host, path and job fields redacted in all twelve metadata files (48 lines changed) | generator exits 0, outputs byte-identical; `verify_csv3.py` reports no mismatches |
 
 The acceptance test is the byte comparison of the generated md and csv with the committed files.
@@ -164,35 +169,42 @@ the gate with half-widths 0.0242 and 0.0434. The committed md is left as it is; 
 
 ## 7. Limitations of the original tools
 
-The original tools are preserved by B1 (#722) and their limitations are addressed by B2 (#723).
+The original tools are committed unchanged in `tools/`. Each gap below is closed by `check_evidence.py` and
+`reproduce.py` (see [`tools/README.md`](tools/README.md)), closed elsewhere, or still open.
 
 `verify_csv3.py`:
 
-- exits 0 whatever the mismatch count (P2, P4); it fails only on a missing file or id (B2);
+- exits 0 whatever the mismatch count (P2, P4); it fails only on a missing file or id. `reproduce.py` makes it gating:
+  a nonzero exit, a first line other than `rows 3719 | mismatches: none`, or counts other than the pinned ones, is a failed check;
 - compares at printed precision (relative 6e-4, plus 5e-4 absolute for the spread and the A/A fields),
-  and uses t = 4.302652729911275, which differs from the historical comparator's 4.303 (P6). B2 uses
-  4.303 when it checks the archived comparison (B2);
-- loops over csv rows only, so it misses rows that are absent or duplicated (B2);
+  and uses t = 4.302652729911275, which differs from the historical comparator's 4.303 (P6).
+  `check_evidence.py` checks the archived comparison with t = 4.303, within 4 units in the last place;
+- loops over csv rows only, so it misses rows that are absent or duplicated. `check_evidence.py` checks the rows, the ids
+  and their union;
 - never reads `cmp-*/comparison.csv`, the md, the error files, `failures`, `harness_hash`, or any
-  metadata key except `timer_floor_ns` (B2).
+  metadata key except `timer_floor_ns`. `check_evidence.py` and `reproduce.py` read all of them.
 
 The generator:
 
 - checks sixteen identity and settings keys (among them `harness_hash`, `source_hash`, `source_sha`,
   `julia`, `cpu_model`, `os`, `check_bounds`) only across the base metadata, never across the A/A
   metadata (P4). It compares `source_sha` with `--source-commit`, but `--harness-commit` is only printed
-  and is never compared with `harness_hash` (B2);
-- ignores the `julia` and `paired_runs` columns of `comparison.csv`, and extra ids in it (B2).
+  and is never compared with `harness_hash`. `check_evidence.py` checks the identity across all twelve metadata files
+  and pins `harness_hash`, `source_sha`, `source_hash` and `julia`; the generator itself is unchanged;
+- ignores the `julia` and `paired_runs` columns of `comparison.csv`, and extra ids in it. `check_evidence.py` checks both
+  columns and the case set.
 
-Other tools:
+Other tools and inputs:
 
-- `identity.py` only displays the identity keys (exit code 0 always) and prints host and job fields,
-  so its output must not be published as is (B1 ports the script).
+- `identity.py` only displays the identity keys (exit code 0 always). It printed host and job fields; the archive
+  redacts them, and `identity.py` prints `"redacted"` for them. It still only displays, by design.
+- `benchmark/validate.py` changes over time, and the generator imports `timer_limited` from the directory it is given.
+  `tools/historical/validate.py` is the frozen rule of the baseline run, and `reproduce.py` passes that directory.
 - The historical `compare.py` cannot be re-run on the retained data, because it requires the calibration
-  files, which were not retained. The comparison files can still be recomputed exactly from the retained
-  metrics (P6) (B2).
-- The NaN-floor branch of `timer_limited` is never exercised: all twelve recorded timer floors are 20 or 21 ns,
-  and every row has `evals`.
+  files, which were not retained. The comparison files can still be recomputed from the retained
+  metrics (P6), which `check_evidence.py` does on every run.
+- The NaN-floor branch of `timer_limited` is never exercised by the data: all twelve recorded timer floors are 20 or 21 ns,
+  and every row has `evals`. A synthetic test in `check_historical.py` covers it.
 
 ## 8. What is verified and what is not
 
@@ -203,3 +215,6 @@ Not verifiable: the bytes of the three recovered files beyond what section 3 pin
 error files; the retained metrics against their originals, for which no hash exists; and the
 per-repetition `min_ns` and `median_ns` values against the original timing samples, which were not
 retained. Any later use of this record should state these four points again.
+
+`reproduce.py` checks the archived inputs offline against the committed files, and `benchmark/check_analysis.py` runs it,
+with negative tests, in CI.

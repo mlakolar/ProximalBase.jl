@@ -130,7 +130,7 @@ Results:
 |:--|:--|:--|
 | P1 | generator with `validate.py` at `5d43d165722bfb5a401abf735ba2a673d9ee0946` (harness commit) | md and csv byte-identical to the committed files |
 | P1 | the same with `validate.py` at `233c11cc284284fbd29df487308b4ee962f875a1`, last changed by `d4c3f70d692dd53a263d132513f1428a61d3463f` (#471) | byte-identical. `timer_limited` and `check_timer_limit_multiple` are textually identical in the two versions; the differences are confined to `validate()` and the helpers it uses |
-| P1 to P3 | Python 3.11.9, 3.12.8, 3.12.15, 3.13.2 and 3.13.13 | identical logs and outputs on every version |
+| P1 to P3 | Python 3.11.9, 3.12.8, 3.12.15, 3.13.2 and 3.13.13 | identical results and byte-identical outputs on every version |
 | P2 | the original `verify_csv3.py` on the committed csv | 3,719 rows, no mismatches; 94 timer-limited (either side, by its own inline rule), 3,625 not; 1,092 can gate (csv: 1,092); 104 A/A-conclusive among the 3,625 |
 | P3 | count with each `validate.timer_limited`, independent of the generator | 3,719 cases, 94 timer-limited, with both `validate.py` versions |
 | P4 | `harness_hash` planted in one base metadata file (one line changed) | generator exits 1 with `metadata key harness_hash differs`; `verify_csv3.py` exits 0 with no mismatches; `identity.py` lists both values and exits 0 |
@@ -157,8 +157,7 @@ Recomputed from the committed csv and from the archived comparison files.
 The md says "2533 have an A/A interval wider than ±5%". The number 2,533 is the count of
 non-timer-limited cases that cannot gate (3,625 minus 1,092). Of these, 2,531 have an A/A half-width above
 5%. The other two are the diagnostic `first_activation` rows of `sparse`, which are forced off
-the gate with half-widths 0.0242 and 0.0434. The committed md is left as it is; a correction belongs to a
-change that regenerates it (#722 or #723).
+the gate with half-widths 0.0242 and 0.0434. The committed md is left as it is; the baseline files do not change in #463.
 
 ## 7. Limitations of the original tools
 
@@ -176,20 +175,21 @@ The original tools are preserved by B1 (#722) and their limitations are addresse
 
 The generator:
 
-- checks its identity keys (`harness_hash`, `source_hash`, `source_sha`, `julia`, `cpu_model`, `os`,
-  `check_bounds`, `timer_floor_ns`) only across the base metadata, never across the A/A metadata (P4),
-  and never against the pinned commit: `--harness-commit` is only printed (B2);
+- checks sixteen identity and settings keys (among them `harness_hash`, `source_hash`, `source_sha`,
+  `julia`, `cpu_model`, `os`, `check_bounds`) only across the base metadata, never across the A/A
+  metadata (P4). It compares `source_sha` with `--source-commit`, but `--harness-commit` is only printed
+  and is never compared with `harness_hash` (B2);
 - ignores the `julia` and `paired_runs` columns of `comparison.csv`, and extra ids in it (B2).
 
 Other tools:
 
 - `identity.py` only displays the identity keys (exit code 0 always) and prints host and job fields,
-  so B1 archives its output only after redaction (B1).
+  so its output must not be published as is (B1 ports the script).
 - The historical `compare.py` cannot be re-run on the retained data, because it requires the calibration
   files, which were not retained. The comparison files can still be recomputed exactly from the retained
   metrics (P6) (B2).
-- The NaN-floor branch of `timer_limited` is never exercised: all twelve timer floors are 20 or 21 ns, and
-  every row has `evals` (`timer_floor_ns`).
+- The NaN-floor branch of `timer_limited` is never exercised: all twelve recorded timer floors are 20 or 21 ns,
+  and every row has `evals`.
 
 ## 8. What is verified and what is not
 
@@ -197,5 +197,5 @@ Verified by recomputation: the two fingerprints, the committed csv and md from t
 3,719 comparison rows, the counts of section 6, and the outputs on five Python versions.
 
 Not verifiable: the bytes of the three recovered files beyond what section 3 pins; the contents of the
-error files; the retained metrics against their originals, for which no hash exists. A future change
-that regenerates the md should state these three points again.
+error files; the retained metrics against their originals, for which no hash exists. Any later use of this
+record should state these three points again.

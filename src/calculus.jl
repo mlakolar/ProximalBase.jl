@@ -419,7 +419,7 @@ _scaled_parts(f, α, x, v, out) = _parts_wanted(f, α, x, v, out) ? _value_parts
 # the parts of f, for wrappers that pass the scale on to the function inside them
 _value_parts_scaled(f, x, v, α) = _value_parts(f, x, v)
 # α m 2^e, rounded once: the product of the significands, with the exponents applied last
-function _apply_parts(α, m, e::Int)
+function _apply_parts(α, m, e::Integer)
   ma, ea = _projection_scale_parts(α)
   P = promote_type(typeof(float(ma)), typeof(m))
   _scaled_product(convert(P, ma), convert(P, m), Int(ea) + e)

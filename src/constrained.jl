@@ -1142,8 +1142,19 @@ Base.@propagate_inbounds function _prox_entry_slope(f::NormL1Nonneg, v::T, i::In
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::ElasticNet, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  t = _weight_coefficient(S, γ, f.λ1, _entry(f.w, i))
-  _elastic_ridge(S, shrink(v, t), γ, f.λ2), _slope(abs(v) > t, _elastic_slope(S, γ, f.λ2))
+  w = _entry(f.w, i)
+  r = _typed_product(S, γ, f.λ2)
+  isfinite(r) || return _elastic_prox_slope_wide(S, f, v, w, γ, r)
+  t = _weight_coefficient(S, γ, f.λ1, w)
+  shrink(v, t) / (1 + r), _slope(abs(v) > t, inv(1 + r))
+end
+@noinline function _elastic_prox_slope_wide(::Type{S}, f::ElasticNet, v, w, γ, r) where {S}
+  if γ == Inf
+    z, dz = _elastic_infinite_slope(v, f.λ1 > zero(f.λ1), f.λ2 > zero(f.λ2), w)
+    return convert(S, z), convert(S, dz)
+  end
+  t = _weight_coefficient(S, γ, f.λ1, w)
+  _elastic_ridge_wide(S, shrink(v, t), γ, f.λ2, r), _slope(abs(v) > t, _elastic_slope_wide(S, γ, f.λ2, r))
 end
 Base.@propagate_inbounds function _prox_entry_slope(f::IndBox, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)

@@ -40,7 +40,7 @@ function refprox(::Type{T}, λ1, γ, x) where {T}
     m = refmean(x)
     c = BigFloat(γ) * BigFloat(λ1)
     z = sign(m) * max(abs(m) - c, 0)
-    (fill(T(z), n), T(4) * eps(T) * T(min(abs(m) + c, BigFloat(floatmax(T)))) + nextfloat(zero(T)))
+    (fill(T(z), n), T(4) * eps(T) * T(min(abs(m) + c, BigFloat(floatmax(T)))) + 2 * nextfloat(zero(T)))
   end
 end
 # the output y of a call against the reference, entry by entry
@@ -605,6 +605,156 @@ end
   col = view(M, :, 2)
   @test closeprox(prox(f, col, 1.0), 0.5, 1.0, [4.0, 5.0, 6.0])
   @test closeprox(prox(f, view(M, 1, :), 1.0), 0.5, 1.0, [1.0, 4.0, 7.0, 10.0])
+end
+
+####################################
+#  round 2: the working type, the mean at cancellation, the endpoint steps
+####################################
+
+@testset "NormL1Fused(λ1, Inf): the mean and the threshold keep the precision of the argument (T3, R3)" begin
+  f0 = NormL1Fused(0.0, Inf)
+  # finite entries of a wider argument are not narrowed to infinities or rounded before the mean
+  for op in (prox!, value_and_prox!)
+    y = zeros(Float32, 3)
+    op(y, f0, [1e100, -1e100, 3.0], 1.0)
+    @test y == ones(Float32, 3)
+    y = zeros(Float32, 3)
+    op(y, f0, [16777217.0, -16777216.0, 2.0], 1.0)
+    @test y == ones(Float32, 3)
+    y = zeros(Float16, 4)
+    op(y, f0, [1e10, -1e10, 3.0, 1.0], 1.0)
+    @test y == fill(Float16(1), 4)
+    y = zeros(Float32, 3)
+    op(y, f0, Float64[1e300, -1e300, 6.0], 1.0)
+    @test y == fill(Float32(2), 3)
+  end
+  @test prox(f0, [1e100, -1e100, 3.0], 1.0) == ones(3)
+  # the threshold is formed in the working type too, and z is rounded once, on store
+  f = NormL1Fused(0.5, Inf)
+  y = zeros(Float32, 3)
+  v = value_and_prox!(y, f, [1e100, -1e100, 3.0], 1.0)
+  @test y == fill(Float32(0.5), 3) && v === f(y) && v === Float32(0.75)
+  y = zeros(Float32, 3)
+  value_and_prox!(y, NormL1Fused(1e-9, Inf), [1e100, -1e100, 3.0], 0.5)
+  @test y == ones(Float32, 3)       # 1 - 5e-10 rounds to 1 in Float32, after the mean in Float64
+  y = zeros(Float32, 3)
+  prox!(y, f0, fill(1e300, 3), 1.0)  # a result that overflows the destination is Inf, not an error
+  @test y == fill(Inf32, 3)
+  # integer, Float32 and BigFloat arguments
+  @test prox(f0, [1, -2, 7, 4], 1.0) == fill(2.5, 4)
+  @test prox(f0, Float32[1, -2, 7, 4], 1.0) == fill(2.5f0, 4) && eltype(prox(f0, Float32[1, -2, 7, 4], 1.0)) === Float32
+  y = zeros(3)
+  prox!(y, f0, Float32[1e30, -1e30, 3], 1.0)
+  @test y == ones(3)
+  @test prox(f0, BigFloat[1, 2, 6], BigFloat(1)) == fill(BigFloat(3), 3)
+  # FiberSum, the view route of K = 3 slices: the fibers are narrowed to the output only on store
+  for sym in (false, true), diagonal in (nothing, :same)
+    f = NormL1Fused(0.0, Inf)
+    fb = FiberSum(f; diagonal = diagonal === :same ? f : nothing, symmetric = sym)
+    A = zeros(3, 3, 3)
+    for i in 1:3, j in 1:3
+      A[i, j, :] = [1e100, -1e100, 3.0]
+    end
+    Y = zeros(Float32, 3, 3, 3)
+    v = value_and_prox!(Y, fb, A, 1.0)
+    # the fibers of the off-diagonal pairs; the free diagonal fibers keep their entries, narrowed
+    off = [I for I in CartesianIndices(Y) if I[1] != I[2] || diagonal === :same]
+    @test all(==(1f0), Y[off]) && isequal(v, fb(Y))
+    Y = zeros(Float32, 3, 3, 3)
+    prox!(Y, fb, A, 1.0)
+    @test all(==(1f0), Y[off])
+  end
+end
+
+# the mean of a vector against the BigFloat sum, correct to the rounding of the result and, in the
+# subnormal range, to two minimum subnormals
+function meancheck(T, x)
+  y = prox(NormL1Fused(zero(T), T(Inf)), x, one(T))
+  length(y) == length(x) && closeprox(y, zero(T), one(T), x)
+end
+
+@testset "NormL1Fused(λ1, Inf): the mean after an overflow keeps a small residual (BigFloat reference)" begin
+  for T in (Float32, Float64)
+    d, M = nextfloat(zero(T)), floatmax(T)
+    # the reviewer's cases: the exact means are 32 d and 8 d / 5 (a minimum subnormal)
+    x = zeros(T, 65)
+    x[1:4] = T[M, M, -M, -M]
+    x[end] = 2080d
+    @test prox(NormL1Fused(zero(T), T(Inf)), x, one(T)) == fill(32d, 65)
+    @test meancheck(T, x)
+    x = T[M, M, -M, -M, 8d]
+    @test prox(NormL1Fused(zero(T), T(Inf)), x, one(T)) == fill(2d, 5)     # 1.6 d rounds to 2 d
+    @test meancheck(T, x)
+    for perm in ([1, 2, 3, 4, 5], [5, 1, 3, 2, 4], [3, 5, 1, 4, 2])
+      @test meancheck(T, x[perm])
+    end
+    # the same, aliased and by value_and_prox!
+    y = copy(x)
+    value_and_prox!(y, NormL1Fused(zero(T), T(Inf)), y, one(T))
+    @test y == fill(2d, 5)
+    # a grid: pairs of large entries that cancel exactly, a tail of multiples of d, a subnormal final mean
+    rng = MersenneTwister(20261107)
+    bigs = T[M, M / 2, M / 3, M * T(0.75), nextfloat(M / 2), prevfloat(M), M / 7]
+    for n in (5, 6, 9, 17, 33, 65, 100, 257, 1000), pairs in (1, 2, 3, 4), tail in (1, 8, 2080), _ in 1:3
+      2pairs < n || continue
+      x = zeros(T, n)
+      for j in 1:pairs
+        v = rand(rng, bigs)
+        x[2j-1] = v
+        x[2j] = -v
+      end
+      x[2pairs+1:end] .= d .* T.(rand(rng, 0:tail, n - 2pairs))
+      shuffle!(rng, x)
+      @test meancheck(T, x)
+    end
+    # the large entries cancel exactly in pairs of unequal magnitude, a small tail of other sizes
+    for n in (7, 12, 40), _ in 1:6
+      big = [rand(rng, bigs) * T(1 - 0.01 * rand(rng)) for _ in 1:3]
+      x = T[big; -big; T(1e-30) * T.(randn(rng, n - 6))]
+      shuffle!(rng, x)
+      @test meancheck(T, x)
+    end
+    # same-sign large entries, and large entries that cancel to a few quanta, plus a small tail
+    for n in (3, 4, 5, 8, 31, 64, 200), _ in 1:6
+      @test meancheck(T, M .* T.(rand(rng, n) .* 0.5 .+ 0.5))
+      x = M .* T.(2 .* rand(rng, n) .- 1)
+      @test meancheck(T, x)
+      x = [M * T(1 - 2.0^-20 * rand(rng)) for _ in 1:n]
+      x[1:2:end] .*= -1
+      @test meancheck(T, x)
+      x = T[M, M, M * T(0.5), -M, -M, -M * T(0.5), 1, 2, 3, 4]
+      @test meancheck(T, shuffle(rng, x))
+    end
+  end
+end
+
+@testset "NormL1Fused(λ1, Inf): endpoint steps keep their outputs, the repair of a separate output included" begin
+  # the earlier results at a zero, infinite, negative and NaN step (#311, #665): not supported values.
+  # The repair of a separate output at a pair near floatmax is taken at a finite positive step only.
+  M = floatmax()
+  f = NormL1Fused(0.5, Inf)
+  fb = FiberSum(f; diagonal = nothing)
+  A = zeros(2, 2, 2)
+  A[:, :, 1] .= M
+  A[:, :, 2] .= M
+  for (γ, sep, alias, value) in ((Inf, NaN, 0.0, NaN), (0.0, Inf, M, NaN), (-1.0, Inf, Inf, Inf), (NaN, NaN, NaN, NaN))
+    y = ([0.0], [0.0])
+    v = value_and_prox!(y, f, ([M], [M]), γ)
+    @test isequal(y[1][1], sep) && isequal(v, value) && (γ == -1 ? isequal(y[2][1], -Inf) : isequal(y[2][1], sep))
+    a = ([M], [M])
+    value_and_prox!(a, f, a, γ)
+    @test isequal(a[1][1], alias) && isequal(prox!(([0.0], [0.0]), f, ([M], [M]), γ)[1][1], alias)
+    Y = zeros(2, 2, 2)
+    u = value_and_prox!(Y, fb, A, γ)
+    @test isequal(Y[1, 2, 1], sep) && isequal(u, value) && (γ == -1 ? isequal(Y[1, 2, 2], -Inf) : isequal(Y[1, 2, 2], sep))
+    B = copy(A)
+    value_and_prox!(B, fb, B, γ)
+    @test isequal(B[1, 2, 1], alias)
+  end
+  # at a finite positive step the repair is taken: the separate and the aliased outputs agree
+  y = ([0.0], [0.0])
+  v = value_and_prox!(y, f, ([M], [M]), 1.0)
+  @test y == ([M], [M]) && v === M
 end
 
 end

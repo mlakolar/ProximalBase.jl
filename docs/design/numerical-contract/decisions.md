@@ -2043,13 +2043,27 @@ The first families, with the proofs:
   a separate output included (O7). The route reads the stored `λ2` and `λ1`
   and the step as given (R3): a finite `λ2` whose product with the step
   overflows keeps the finite-level computation, `λ1 = Inf` keeps the hard zero
-  above, and a zero, infinite, negative or NaN step keeps its results, which
-  the library does not document as supported for a vector of K ≥ 3 entries
-  (#311, #665). The proximal output of the pair, the tuple of arrays, the
+  above, and a zero, infinite, negative or NaN step keeps the earlier proximal
+  outputs in every form, the stored output of `value_and_prox!` included
+  (the repair of a separate output at a pair near `floatmax` is taken at a
+  finite positive step only), which the library does not document as supported
+  for a vector of K ≥ 3 entries (#311, #665); the value that `value_and_prox!`
+  returns is the value at that stored output, by the value rule above. The proximal output of the pair, the tuple of arrays, the
   vector of two entries and the pair route of `FiberSum` was this one already
-  (their value was not); the mean of the other
-  vectors is formed by a compensated sum, scaled by a power of two only where
-  the sum itself overflows.
+  (their value was not). The mean of the other vectors and the threshold
+  are formed in the promoted type of the argument and of the output (at least
+  `Float32`), and `z` is rounded once, when it is stored (T3, R3): a finite
+  entry of a wider argument is never narrowed to an infinity before the mean.
+  The sum is a compensated sum, except that the entries whose sums could
+  overflow (above `floatmax 2⁻ˢʰ` for `2ˢʰ > K`) are summed exactly as
+  integers: if they cancel exactly, the mean is that of the other entries, so a
+  small residual is kept; otherwise the total is combined in scaled pieces and
+  the quotient carries the exponent separately. The accuracy that is proved is
+  the rounding of the compensated sum, plus at most two minimum subnormals
+  where the scaled pieces of the small entries underflow; correct rounding is
+  not claimed. The pair, tuple and K = 2 routes, and the ordinary finite-level
+  route, still convert the argument to the type of the output, as before
+  (follow-up).
 - *`NormLinf`, `f(x) = λ maxᵢ|xᵢ|`.* With `λ = Inf`, `f(z) = Inf⋅max|zᵢ|`
   is `0` at `z = 0` and `+Inf` at every other finite `z`, so `f` is the
   indicator of `{0}`. For a fixed finite `γ > 0` the unique minimizer of

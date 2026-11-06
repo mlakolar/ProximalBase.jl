@@ -116,8 +116,13 @@ the earlier behavior applies.
     unequal entries has the value `Inf` as before. `value_and_prox!` of a tuple of arrays or of
     `FiberSum` of two slices into a separate output stores the output of `prox!` for a pair near
     `floatmax`, where it stored `Inf`. The pair, the tuple of arrays and the vector of two
-    entries gave the common value already. `λ1 = Inf`, a finite `λ2`, and a zero, infinite,
-    negative or NaN step keep their results.
+    entries gave the common value already. The mean of a vector of K ≠ 2 entries is formed in the
+    precision of the argument and of the output, and rounded when stored:
+    `prox!(zeros(Float32, 3), NormL1Fused(0.0, Inf), [1e100, -1e100, 3.0], 1.0)` is `[1, 1, 1]`.
+    `λ1 = Inf`, a finite `λ2`, and the proximal outputs at a zero, infinite, negative or NaN
+    step keep their results, the stored output of `value_and_prox!` included (the repair of a
+    separate output near `floatmax` is taken at a finite positive step only); the value that
+    `value_and_prox!` returns is the value at that stored output.
   - A wrapper step that is not a normal number keeps the hard domain of an
     infinite level (decision 49, #666): `prox(Scaled(NormL1(Inf), 1e-300), [1.0, 2.0, 3.0], 1e-300)`
     is `[0, 0, 0]`, where it was the identity `[1, 2, 3]`, and `SLOPE` with an

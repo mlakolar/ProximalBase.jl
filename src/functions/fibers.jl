@@ -324,7 +324,7 @@ function _fiberprox!(y::AbstractArray{<:Any, 3}, fb::FiberSum{<:NormL1Fused, D},
     isfinite(v) && fits && return v
     # the recoveries below decline an infinite level; a function that it fixes adds no value
     (z[1] || z[2]) && return _fixed_fibers_value!(y, fb, x, γ, T, v)
-    !isfinite(v) && _fused_equal_fibers(fb) && return _equal_fibers_value!(y, fb, x, γ, T, v)
+    !isfinite(v) && _fused_equal_fibers(fb) && γ > 0 && isfinite(γ) && return _equal_fibers_value!(y, fb, x, γ, T, v)
     if !isfinite(v) && !Base.mightalias(y, x)
       return _recover_fused_fiberprox!(y, fb, x, γ, own, T, v)
     end
@@ -336,8 +336,9 @@ end
 # A function of the fibers with an infinite fusion level and a finite ℓ1 level (#664): the loop's value
 # is Inf⋅0 at a constant pair. The value is that of the fiber functions at the stored output (O2), the
 # standalone one, which holds the rule of the infinite fusion level; a separate output is first
-# recomputed with the checked midpoint, which the loop skips there. An output with other axes keeps the
-# loop's value, as the fiber views need one-based axes.
+# recomputed with the checked midpoint, which the loop skips there. Only at a finite positive step: a
+# zero, infinite, negative or NaN step keeps the loop's output and value exactly. An output with other
+# axes keeps the loop's value, as the fiber views need one-based axes.
 @inline _fused_equal_fibers(fb) = _fused_equal_entries(fb.f) ||
   (fb.diagonal !== nothing && _fused_equal_entries(fb.diagonal))
 @noinline function _equal_fibers_value!(y, fb, x, γ, ::Type{T}, ordinary) where {T}

@@ -26,6 +26,19 @@ deactivating a group. [`ncoordinates`](@ref) is the number of groups,
 [`nactive`](@ref), [`activecoordinates`](@ref) and [`isactive`](@ref) give the
 active groups, and [`atom`](@ref) is a view of `x` at the entries of a group.
 Writing through this view follows the same activation rule as writing to `x`.
+
+Its entries are real. The constructors, two-argument `copyto!` from an array,
+`copy!`, broadcasting into `x` and `fill!` throw an `ArgumentError` for a source
+or value of complex type, even with a zero imaginary part, before anything is
+written. `vec(x)` and `reshape(x, length(x))` are `x` itself and are checked
+too. `copy!` from a source of another length throws Base's error first. The
+check reads types: a tuple, a generator or an array of abstract element type
+such as `Vector{Any}` passes it, and its values are converted one by one. Other
+writes also convert values one by one, as writes into a plain `Vector` of the
+element type of `x` do: writes through `atom(x, k)` or another view, indexed
+assignment such as `x[i] = v` or `x[:] = c`, `copyto!` with offsets or index
+ranges, and `map!`. A complex value converted one by one throws an
+`InexactError`, possibly after part of `x` has been written.
 """
 mutable struct AtomIterate{T, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractVector{T}
   storage::Vector{T}       # the entries; those of inactive groups are zero
@@ -356,6 +369,26 @@ function Base.copyto!(dest::AtomIterate{T}, src::AtomIterate{S}) where {T, S}
   dest
 end
 
+# The check reads the element type and runs before anything is written; a source
+# of abstract element type converts entry by entry, as in Base.
+function Base.copyto!(x::AtomIterate, y::AbstractArray)
+  _checkreal_broadcast(x, y)
+  invoke(copyto!, Tuple{AbstractArray, AbstractArray}, x, y)
+end
+# Resolve ambiguities with SparseArrays: each runs the method that applies without the check.
+@static if isdefined(@__MODULE__, :_CHOLMODDense)
+  function Base.copyto!(x::AtomIterate, y::_CHOLMODDense)
+    _checkreal_broadcast(x, y)
+    invoke(copyto!, Tuple{AbstractArray, _CHOLMODDense}, x, y)
+  end
+  @static if isdefined(@__MODULE__, :_CHOLMODVTypes)
+    function Base.copyto!(x::AtomIterate{T}, y::_CHOLMODDense{T}) where {T<:_CHOLMODVTypes}
+      _checkreal_broadcast(x, y)
+      invoke(copyto!, Tuple{AbstractArray{T}, _CHOLMODDense{T}}, x, y)
+    end
+  end
+end
+
 function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{Nothing})
   _checkreal_broadcast(x, bc)
   invoke(copyto!, Tuple{AbstractArray, Broadcast.Broadcasted{Nothing}}, x, bc)
@@ -367,6 +400,7 @@ function Base.copyto!(x::AtomIterate, bc::Broadcast.Broadcasted{S}) where {S<:Br
 end
 
 function Base.fill!(x::AtomIterate, v)
+  _checkreal_broadcast(x, v)
   s = convert(eltype(x), v)     # converted once, before x changes; activation follows the stored value
   if iszero(s)
     _zero_active!(x)

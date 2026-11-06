@@ -240,15 +240,16 @@ end
 end
 
 # A computed zero is not an exact zero: a positive value that underflowed has the exact scaled value
-# Inf. The value is 0 only where f is certainly 0 at the argument, and NaN (as before) where a
-# computed zero is not certain.
+# Inf. The value is 0 only where f is certainly 0 at the argument; elsewhere a computed zero keeps the
+# value it has without this rule: NaN, or Inf where the value of f is recovered from its significand
+# and exponent (the scaled-value mechanism of functions without a level). These pass before and after.
 nonzero_tiny(T) = (T[1, 2], T[1.0f-23, 0], T[floatmin(T) / 4, 0])
 tiny_families(T, λ) = (NormL1(λ), NormL1(λ, ones(T, 2)), NormL1Nonneg(λ), NormL2(λ), NormLinf(λ),
                        ElasticNet(λ, λ), GroupNormL2(λ, [1:2], [1.0]), GroupNormLinf(λ, [1:2], [1.0]),
                        SparseGroupNormL2(λ, λ, [1:2], [1.0]))
 never_false_zero(v, ::Type{T}) where {T} = (isnan(v) || v === T(Inf)) && v isa T
 
-@testset "Scaled with an infinite factor: no zero where the value underflowed" begin
+@testset "controls: no zero where the value underflowed under an infinite factor" begin
   allowscalar(false)
   T = Float32
   for λ in (1e-300, 2.0^-130), f in tiny_families(T, λ), x in nonzero_tiny(T)
@@ -269,16 +270,19 @@ never_false_zero(v, ::Type{T}) where {T} = (isnan(v) || v === T(Inf)) && v isa T
   @test same(Scaled(NormL2(1e-300), Inf)(Float32[1, 2]), NaN32)
   @test same(Scaled(NormL1(1e-300), Inf)([1e-30, 0.0]), NaN)
   @test same(Scaled(NormL1(1e-300), 1e300)(Float32[1, 2]), 3.0f0)          # a finite factor recovers it
-  # a function that is not certain of its zero: NaN at a computed zero, also at the zero vector
-  for (s, x) in ((Scaled(SqrNormL2(1.0f0), Inf), Float32[1.0f-23, 0]), (Scaled(SqrNormL2(1.0), Inf), [1e-170, 0.0]),
-                 (Scaled(SqrNormL2(1.0f0), Inf), zeros(Float32, 2)))
-    @test same(s(x), eltype(x)(NaN))
+  # a function that is not certain of its zero: its value recovered from the significand and the
+  # exponent where it underflowed (Inf), NaN at the zero vector and on a device
+  for (s, x, want) in ((Scaled(SqrNormL2(1.0f0), Inf), Float32[1.0f-23, 0], Inf32), (Scaled(SqrNormL2(1.0), Inf), [1e-170, 0.0], Inf),
+                       (Scaled(SqrNormL2(1.0f0), Inf), zeros(Float32, 2), NaN32))
+    @test same(s(x), want)
     g = fill(eltype(x)(-7), 2)
-    @test same(value_and_gradient!(g, s, x), eltype(x)(NaN))
+    @test same(value_and_gradient!(g, s, x), want)
     @test isequal(g, gradient(s, x))
   end
   @test same(Scaled(SqrNormL2(1.0f0), Inf)(JLArray(Float32[1.0f-23, 0])), NaN32)
-  @test same(Scaled(Scaled(Scaled(SqrNormL2(1.0), 2.0^600), 2.0^600), Inf)([1e-300, 0.0]), NaN)
+  @test same(Scaled(Scaled(Scaled(SqrNormL2(1.0), 2.0^600), 2.0^600), Inf)([1e-300, 0.0]), Inf)
+  # a zero level folded with the factor keeps its own value (TracePSD has no zero certificate)
+  @test same(Scaled(TracePSD(0.0), Inf)([1.0 0; 0 1]), 0.0)
 end
 
 @testset "Scaled with an infinite factor: the certain zeros of each family" begin

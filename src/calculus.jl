@@ -111,7 +111,24 @@ When `α f(x)` overflows or underflows although it is representable, the value
 is computed with the scale folded into the level for `NormL1`, `NormL1Nonneg`,
 `NormL2`, `NormLinf`, `ElasticNet`, the homogeneous group norms,
 `SparseGroupNormL2`, `NuclearNorm`, `TracePSD`, and the support functions of
-the ℓ1 and ℓ2 balls.
+the ℓ1 and ℓ2 balls. For functions without such a level, it is computed from
+the value of `f` as a significand and a power of two, with `α` applied last, for
+`SqrNormL2`, `CubeNormL2`, `SqrDistL2`, `DistL2`, `NormL1Fused`,
+`TotalVariation1D`, `FusedLasso`, `SLOPE`, `SumLargest`, `NegEntropy`,
+`KLDivergence`, `NegLog`, `Berhu`, `HingeLoss`, `SqrHingeLoss`,
+`EpsInsensitiveLoss`, `CheckLoss`, `NormL0`, `CappedL1`, `LogPenalty`, `NormLq`,
+`MCP`, `SCAD`, `GroupMCP` and `GroupSCAD`, and for `Translate` and nested
+`Scaled` of these. This holds for the value, the value of
+`value_and_gradient!` and, when `α f` overflows, the value of `value_and_prox!`,
+on host arrays (an `Array`, a view or a reshape of one, the iterates, sparse
+arrays and ranges); other array types and tuple arguments keep the ordinary
+result. A `value_and_gradient!` whose gradient output may share memory with a
+parameter of `f` returns the ordinary value. Not covered: the data functions
+(`LinearFunction`, `QuadraticFunction`, the least-squares and GLM losses,
+`BernoulliLoss`; #609), the sums and other wrappers (`Sum`, `SeparableSum`,
+`Tilt`, `MoreauEnvelope`, `Conjugate`; #359), wrappers that transform the
+argument (#357), spectral functions (#384), and `Regularize`, `Constrained`,
+`PointwiseMinimum` and the gradients of these functions (#610).
 
 `Scaled(Scaled(f, a), b)` is `Scaled(f, a * b)` when the product is an ordinary
 number. When it underflows, is subnormal or overflows, although the factors are
@@ -138,10 +155,11 @@ the band `2^-E` to `2^E`, with `E` a quarter of the exponent range of the elemen
 inside the band, an entry of the step that is itself within `E` of a limit of the range is rounded
 together with the factor. Array-step entries whose exponents spread too far for the levels to hold
 them are rounded, and so are the steps of a function without levels to fold.
-A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its value, gradient and
-Hessian product at its own scale before the factors are applied, so an intermediate that leaves the
-range is lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` has
-the value, gradient and Hessian product `Inf` at `[1e10]`, not `5e-81`, `1e-90` and `1e-90`.
+A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its gradient and Hessian
+product at its own scale before the factors are applied, so an intermediate that leaves the range is
+lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` at `[1e10]`
+has the value `5e-81`, recovered as above, but the gradient and Hessian product `Inf`, not `1e-90`
+(#610).
 
 At zero scale, supported finite-parameter penalties and losses simplify to
 [`ZeroFunction`](@ref), while an indicator retains its domain and is returned
@@ -344,22 +362,33 @@ function _fold_level_step(f::ElasticNet, α)
   c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
 end
 
-# Retry exceptional products in the function's own units and domain. The recovery takes the
-# unscaled value and forms α v again, so that the call from the inlined finite path stays small.
-# A NaN product at a value that is not NaN, with a factor of at least one, is Inf⋅0 (`_scaled_nan_value`).
-@noinline function _scaled_value_recover(f, α, x, v)
-  r = _apply_scale(α, v)
-  isnan(r) && !isnan(v) && !_scale_below_one(α) && return _scaled_nan_value(f, α, x, r)
+# Retry exceptional products in the function's own units and domain: with the scale folded into
+# the levels, or else from the value of f as a significand and a power of two (`_value_parts`),
+# with the exponents applied last. `out` is a gradient already written, which the parts must not
+# read in place of a parameter. A NaN product at a value that is not NaN, which the fold does not
+# recover, is Inf⋅0 at an infinite factor: 0 where f is certainly 0 (`_scaled_nan_value`), and
+# otherwise what the parts give.
+@noinline function _scaled_value_recover(f, α, x, v, r, out = nothing)
   g = _fold_level(f, α)
-  g === nothing ? r : convert(typeof(r), _value_unchecked(g, x))
+  g === nothing || return convert(typeof(r), _value_unchecked(g, x))
+  if isnan(r) && !isnan(v)
+    z = _scaled_nan_value(f, α, x, r)
+    iszero(z) && return z
+  end
+  _parts_wanted(f, α, x, v, out) || return r
+  _recover_from_parts(f, α, x, v, r)
+end
+@noinline function _recover_from_parts(f, α, x, v, r)
+  p = _value_parts_scaled(f, x, v, α)
+  p === nothing ? r : convert(typeof(r), _apply_parts(α, p[1], p[2]))
 end
 _scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
 # The value α v of the function f with the scale α at the unscaled value v.
-@inline function _scaled_value_by(f, α, x, v, recover_inner_small = true)
+@inline function _scaled_value_by(f, α, x, v, recover_inner_small = true, out = nothing)
   r = _apply_scale(α, v)
   if (!isfinite(r) && _scale_below_one(α)) || (_scaled_small(r) && !iszero(v)) ||
-     (recover_inner_small && _scaled_small(v) && _scale_above_one(α))
-    return _scaled_value_recover(f, α, x, v)
+     (recover_inner_small && !_zero_value_exact(f) && _scaled_small(v) && _scale_above_one(α))
+    return _scaled_value_recover(f, α, x, v, r, out)
   end
   r
 end
@@ -403,6 +432,48 @@ function _exactly_zero_at(f::Union{GroupNormL2, GroupNormLinf, SparseGroupNormL2
   end
   true
 end
+
+# The scaled-value mechanism (R1, "Wrappers"). A function with `_has_value_parts` returns its
+# value at x as (m, e), the value m 2^e with a finite significand m, or `nothing` to keep the
+# ordinary result (`_value_parts`, defaults in utils.jl). Only host arrays take it; a NaN value
+# stays NaN, and a normal value is its own significand and exponent, so the function is asked
+# only for a value that is infinite, zero or subnormal. An exactly zero value whose true value,
+# times α, cannot be a normal number (`_zero_value_exponent`) is not recomputed.
+@inline _parts_argument(x) = false
+@inline _parts_argument(::Union{Array, _HostArray, SparseIterate, SymmetricSparseIterate, AtomIterate,
+                                SparseArrays.AbstractSparseArray, AbstractRange}) = true
+@inline function _parts_wanted(f, α, x, v, out)
+  _has_value_parts(typeof(f)) || return false
+  _parts_argument(x) || return false
+  v isa AbstractFloat || return false
+  if iszero(v)
+    E = _zero_value_exponent(f, x)
+    E === _EXACT_ZERO && return false
+    # |α f(x)| < 2^(E + e) for α < 2^e: below the normal range of the value when E + e is at most
+    # the exponent of its floatmin. The value is returned in the type of x (`_value_at`), whose
+    # normal range is the narrower when α is wider than x (a Float64 factor at a Float32 argument):
+    # the larger of the two exponents decides.
+    E === nothing || E + _scale_upper_exponent(α) >
+      max(exponent(floatmin(_valtype(x))), exponent(floatmin(typeof(float(_apply_scale(α, v)))))) || return false
+  elseif isinf(v)
+    _infinite_value_exact(f, x) && return false
+  elseif isnan(v) || abs(v) >= floatmin(v)
+    return false
+  end
+  out === nothing || !_parameter_alias(f, out)
+end
+_scaled_parts(f, α, x, v, out) = _parts_wanted(f, α, x, v, out) ? _value_parts_scaled(f, x, v, α) : nothing
+# e with α < 2^e
+@inline _scale_upper_exponent(α::Real) = _upper_exponent(α)
+@inline _scale_upper_exponent(a::_ProjectionScale) = a.e
+# the parts of f, for wrappers that pass the scale on to the function inside them
+_value_parts_scaled(f, x, v, α) = _value_parts(f, x, v)
+# α m 2^e, rounded once: the product of the significands, with the exponents applied last
+function _apply_parts(α, m, e::Integer)
+  ma, ea = _projection_scale_parts(α)
+  P = promote_type(typeof(float(ma)), typeof(m))
+  _scaled_product(convert(P, ma), convert(P, m), Int(ea) + e)
+end
 @inline _scaled_value(s, x, v, recover_inner_small = true) = _scaled_value_by(s.f, s.α, x, v, recover_inner_small)
 (s::Scaled)(x) =
   (_check_value_arrays(s, x); _value_checked(s, x))
@@ -419,13 +490,13 @@ _scale!(g::AbstractArray, α::_ProjectionScale) = (g .= _apply_scale.(α, g))
 value_and_gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
 _value_and_gradient_unchecked!(g, s::Scaled, x) = _chained(s) ? _value_and_gradient_chain!(g, s, x) :
-  (_checkwrite(value_and_gradient!, s, g, x); v = _value_and_gradient_unchecked!(g, s.f, x); _scale!(g, s.α); _value_at(_scaled_value(s, x, v), x))
+  (_checkwrite(value_and_gradient!, s, g, x); v = _value_and_gradient_unchecked!(g, s.f, x); _scale!(g, s.α); _value_at(_scaled_value_by(s.f, s.α, x, v, true, g), x))
 function _value_and_gradient_chain!(g, s, x)
   _checkwrite(value_and_gradient!, s, g, x)
   f, a = _scaled_chain(s)
   v = _value_and_gradient_unchecked!(g, f, x)
   _scale!(g, a)
-  _value_at(_scaled_value_by(f, a, x, v), x)
+  _value_at(_scaled_value_by(f, a, x, v, true, g), x)
 end
 gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(gradient!, s, g, x); _gradient_unchecked!(g, s, x))
@@ -559,6 +630,42 @@ function _nested_kkt(kkt, s::Scaled, g)
 end
 restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.α)
 _restrict_unchecked(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(_restrict_unchecked(s.f, S), s.α)
+
+# The parts of a scaled function inside another wrapper: those of the function under the chain,
+# times the product of its factors, which the scale still to apply multiplies further.
+_has_value_parts(::Type{<:Scaled{F}}) where {F} = _has_value_parts(F)
+_value_parts(s::Scaled, x, v) = _value_parts_scaled(s, x, v, true)
+function _value_parts_scaled(s::Scaled, x, v, α)
+  f, a = _scaled_chain(s)
+  isfinite(a.m) && !iszero(a.m) || return nothing
+  vf = _value_unchecked(f, x)
+  vf isa AbstractFloat || return nothing
+  p = isfinite(vf) && abs(vf) >= floatmin(vf) ? frexp(vf) :
+    _scaled_parts(f, _scale_times(α, a), x, vf, nothing)
+  p === nothing && return nothing
+  P = promote_type(typeof(a.m), typeof(p[1]))
+  m, e = frexp(convert(P, a.m) * convert(P, p[1]))
+  (m, e + a.e + p[2])
+end
+# the product of a factor and a chain's product, as a factor
+function _scale_times(α, a::_ProjectionScale)
+  ma, ea = _projection_scale_parts(α)
+  P = promote_type(typeof(float(ma)), typeof(a.m))
+  m, e = frexp(convert(P, ma) * convert(P, a.m))
+  _ProjectionScale(m, Int(ea) + a.e + e)
+end
+# A zero value of s is a zero value of s.f, times the factor (|α f| < 2^(E + e)), or the product of
+# the factor and a value of s.f that is nonzero: Scaled's own trigger then fires (the product is
+# small while the value is not zero) and the result is α v rounded once, or the parts of a subnormal
+# v rounded once, so that the zero is below δ. E is the larger of the two.
+function _zero_value_exponent(s::Scaled, x)
+  E = _zero_value_exponent(s.f, x)
+  E === nothing && return nothing
+  U = _underflow_exponent(_valtype(x), 1)
+  E === _EXACT_ZERO ? U : max(E + _upper_exponent(s.α), U)
+end
+_parameter_alias(s::Scaled, out) = _parameter_alias(s.f, out)
+_infinite_value_exact(s::Scaled, x) = _infinite_value_exact(s.f, x)
 
 ####################################
 #  f + ⟨c, ⋅⟩ + d
@@ -855,6 +962,21 @@ _checkwrite(op::O, t::Translate, g::Tuple, x::Tuple) where {O<:Union{typeof(grad
   (_checkreal(t, g); _checkreal(t, x); _checkgradient_output(g, x); _check_block_output(g); _checksize(g, x); _checkwrite(op, t.f, g, _checkshifted(t, x)))
 _checkvalue(t::Translate, x::Tuple) = (_checkreal(t, x); _checkvalue(t.f, _checkshifted(t, x)))
 _checkvalue(t::Translate, x::AbstractArray) = (_checkreal(t, x); _checkvalue(t.f, _checkshifted(t, x)))
+# The value of f at x - b as a significand and an exponent, while x - b is in range: an argument
+# that overflowed on translation is not recovered (#357).
+_has_value_parts(::Type{<:Translate{F}}) where {F} = _has_value_parts(F)
+_value_parts(t::Translate, x, v) = _value_parts_scaled(t, x, v, true)
+function _value_parts_scaled(t::Translate, x::AbstractArray, v, α)
+  z = _shifted(t, x)
+  _all_finite(z) || return nothing
+  _scaled_parts(t.f, α, z, v, nothing)
+end
+_value_parts_scaled(t::Translate, x, v, α) = nothing
+# the bound of the inner function, for its value at the shifted argument as computed (the argument
+# the ordinary value and the parts both use), which has the length of x
+_zero_value_exponent(t::Translate, x) = _zero_value_exponent(t.f, x)
+_infinite_value_exact(t::Translate, x) = _infinite_value_exact(t.f, x)
+_parameter_alias(t::Translate, out) = _mightalias_parameter(out, t.b) || _parameter_alias(t.f, out)
 
 function _checkwrite(op::O, t::Translate, y::AbstractArray, x::AbstractArray) where {O<:Union{typeof(prox!), typeof(value_and_prox!)}}
   _checkreal(t, y); _checkreal(t, x)

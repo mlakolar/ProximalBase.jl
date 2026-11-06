@@ -747,6 +747,10 @@ end
 end
 function _weighted_grouped_l1(::Type{T}, λ, xv, lay) where {T}
   iszero(λ) && return zero(T)
+  if isinf(λ)    # an infinite level fixes every grouped entry at zero, as in _sparse_l1_value
+    v = _grouped_l1(T, xv, lay)
+    return convert(T, _weighted_value(λ * v, v))
+  end
   v = _level_fits(T, λ) ? convert(T, λ) * _grouped_l1(T, xv, lay) : T(Inf)
   isfinite(v) ? v : _scaled_grouped_l1(T, λ, xv, lay)
 end

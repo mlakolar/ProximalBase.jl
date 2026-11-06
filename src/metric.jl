@@ -215,10 +215,17 @@ value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
   (_checkparams(s, x); _array_route(s, x, γ) ? _value_and_prox_chain!(y, s, x, γ) :
-   _value_at(_indicator_product(s, _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α))), y))
-# An indicator ignores its scale and stays on this route. Its value is exactly 0 or Inf, so an infinite
-# factor at 0 gives 0, as `_scaled_nan_value` certifies on the other routes; a NaN value stays NaN.
-@inline _indicator_product(s::Scaled, v) = _isindicator(s.f) ? _weighted_value(s.α * v, v) : s.α * v
+   _value_at(_scaled_value_overflow(s.f, s.α, y, _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α))), y))
+# α v at the output y of an array step with a factor inside the band: a product that overflows
+# with α < 1 is recovered as for a scalar step (the levels with the factor folded in, or the
+# parts of the value); an underflow is not (#359). An indicator ignores its scale and stays on this
+# route for any factor: its value is exactly 0 or Inf, so an infinite factor at 0 gives 0, as
+# `_scaled_nan_value` certifies on the other routes, and a NaN value stays NaN.
+@inline function _scaled_value_overflow(f, α, y, v)
+  r = α * v
+  (!isfinite(r) && _scale_below_one(α)) ? _scaled_value_recover(f, α, y, v, r) : _indicator_product(f, r, v)
+end
+@inline _indicator_product(f, r, v) = _isindicator(f) ? _weighted_value(r, v) : r
 
 # Whether an entry of an array step may leave the range in the product with the factors. A chain whose
 # factors have a product that is not a normal number takes the route below. A single factor does
@@ -488,17 +495,17 @@ function _prox_unchecked!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace
   _checkparams(f, x)
   _checkparam(γ, x)
   _check_metric_steps(f, γ)
-  T = float(eltype(y))
   if _isscaled(f)
     a = _normalized_normal(f.a, f.s)
     g = _dot_normal(a, x) - _scaled_offset(f)
     f isa IndHalfspace && (g = max(g, zero(g)))
-    t = convert(T, g / _metric_sqnorm(f, x, γ))
-    return y .= x .- t .* (_checked_parameter(y, γ) .* _checked_parameter(y, a))
+    t = _model_coefficient(y, g, _metric_sqnorm(f, x, γ))
+    # γᵢâᵢ in the coefficient's type, as for IndHyperslab.
+    return _hyperslab_metric_output!(y, x, a, γ, t)
   end
   g = _dot_normal(f.a, x) - f.b
   f isa IndHalfspace && (g = max(g, zero(g)))
-  t = convert(T, g / _metric_sqnorm(f, x, γ))
+  t = _model_coefficient(y, g, _metric_sqnorm(f, x, γ))
   y .= x .- t .* _checked_parameter(y, γ) .* _checked_parameter(y, f.a)
 end
 

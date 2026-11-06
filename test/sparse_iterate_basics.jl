@@ -291,7 +291,7 @@ end
             before = copy(coef)
             dims = ndims(coef) == 1 ? (2,) : (2, size(coef, 2))
             reference = mul!(fill(NaN, dims...), M, coef)
-            @test isnan(reference[1]) && reference[2] == 8.
+            @test reference[1] == 2. && reference[2] == 8.      # the explicit zero at 1 meets Inf and contributes nothing (M1)
             if ndims(coef) == 2
                 @test reference[:, 2] == [-3., -5.]
                 @test all(iszero, view(reference, :, 3:size(coef, 2)))

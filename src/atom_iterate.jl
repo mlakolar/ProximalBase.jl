@@ -487,13 +487,16 @@ end
 
 # dot(v, x) = Σ vⱼ xⱼ over the entries of the active groups of x; other
 # vectors than these take the generic method, as SparseArrays has its own for
-# sparse vectors
+# sparse vectors. A zero entry of x contributes nothing, even against ±Inf or
+# NaN in v (numerics M1), and so does a zero of v when v is an iterate too.
 function LinearAlgebra.dot(v::Union{StridedVector, SparseIterate{<:Any, 1}, AtomIterate}, x::AtomIterate)
   _checkreal(x, v)
   length(v) == length(x) || throw(DimensionMismatch())
   s = zero(promote_type(eltype(v), eltype(x)))
   @inbounds for a in 1:x.nactive, j in x.groups[x.active[a]]
-    s += dot(v[j], x.storage[j])
+    w, c = v[j], x.storage[j]
+    (iszero(c) || (!(v isa StridedVector) && iszero(w))) && continue
+    s += dot(w, c)
   end
   s
 end

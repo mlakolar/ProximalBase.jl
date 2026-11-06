@@ -30,6 +30,22 @@ function check_product_state(x, before)
     @test x.ind2nzval == before.ind2nzval
 end
 
+# The M1 reference: the sum over the coordinates where the iterate's coefficient is nonzero
+# (where both iterates' are, for two). The finite entries are small integers, so every
+# summation order gives the same result and isequal compares classes (FN-4); a zero of a
+# dense operand is an IEEE zero.
+strong(v, x) = sum((v[j] * x[j] for j in 1:length(x) if !iszero(x[j])); init = zero(promote_type(eltype(v), eltype(x))))
+strong2(x, y) = sum((x[j] * y[j] for j in 1:length(x) if !iszero(x[j]) && !iszero(y[j]));
+                    init = zero(promote_type(eltype(x), eltype(y))))
+
+# The five-argument form into a reused out: β = 0 overwrites the NaN already in out, β = 1 keeps it.
+function check_five(M, x, ref)
+    T = eltype(ref)
+    o = fill(T(NaN), size(ref)); o[end] = 1
+    @test isequal(mul!(copy(o), M, x, 2, 0), 2 .* ref)
+    @test isequal(mul!(copy(o), M, x, 2, 1), 2 .* ref .+ o)
+end
+
 @testset "sparseIterate" begin
 
     @testset "show" begin
@@ -237,6 +253,106 @@ end
                 @test_throws DimensionMismatch("A has first dimension 3, length of coef is 4") mul!(zeros(4), M, SparseIterate(4), α, β)
                 @test_throws DimensionMismatch("A has second dimension 4, length of out is 3") mul!(zeros(3), M, SparseIterate(3), α, β)
             end
+        end
+    end
+
+    @testset "zero coefficients are strong (M1, FT12)" begin
+        for T in (Float32, Float64), bad in T.((NaN, Inf, -Inf)), k in 1:5, stored in (true, false)
+            # coefficients [0, 2, 0, -1, 0]: explicit zeros at 1 and 5, an unstored zero at 3
+            x = SparseIterate(T, 5); x[2] = 2; x[4] = -1; activate!(x, 1); activate!(x, 5)
+            stored || dropzeros!(x)
+            before = copy(x)
+            v = T[1, 2, 3, 4, 5]; v[k] = bad                          # a non-finite entry at k
+            A = T[1 2 3 4 5; -1 0 2 1 3]; A[:, k] .= bad              # a non-finite column k
+            ref = [strong(view(A, i, :), x) for i in 1:2]
+            @test isequal(dot(v, x), strong(v, x)) && isequal(dot(x, v), strong(v, x))
+            @test isequal(dot(view(A, 2, :), x), ref[2])
+            for M in (A, transpose(permutedims(A)), permutedims(A)')
+                @test isequal(M * x, ref)
+                check_five(M, x, ref)
+            end
+            P = T[2 1 0 1 3; 1 2 1 0 1; 0 1 2 1 0; 1 0 1 2 1; 3 1 0 1 2]; P[k, :] .= bad; P[:, k] .= bad
+            for uplo in (:U, :L)
+                refP = [strong(view(P, i, :), x) for i in 1:5]
+                @test isequal(Symmetric(P, uplo) * x, refP)
+                check_five(Symmetric(P, uplo), x, refP)
+            end
+            # two iterates: y holds the non-finite entry alone, or with explicit zeros
+            # everywhere else, so that dot walks y or x
+            for padded in (false, true)
+                y = SparseIterate(T, 5); y[k] = bad
+                padded && foreach(j -> activate!(y, j), 1:5)
+                @test isequal(dot(x, y), strong2(x, y)) && isequal(dot(y, x), strong2(x, y))
+            end
+            # a non-finite coefficient that meets a zero of a dense operand propagates
+            w = copy(x); w[2] = bad
+            @test isnan(dot(T[1, 0, 1, 1, 1], w)) && isequal(dot(T[1, 0, 1, 1, 1], w), strong(T[1, 0, 1, 1, 1], w))
+            B = T[1 2 3 4 5; -1 0 2 1 3]                                # B[2, 2] == 0 meets w[2]
+            @test isnan((B * w)[2]) && isequal(B * w, [strong(view(B, i, :), w) for i in 1:2])
+            @test isequal(transpose(permutedims(B)) * w, B * w)
+            check_product_state(x, before)
+        end
+    end
+
+    @testset "matrix coefficients: zero coefficients are strong (M1, FT12)" begin
+        for T in (Float32, Float64), bad in T.((NaN, Inf, -Inf)), p in (64, 3), k in 1:3, stored in (true, false)
+            # explicit zeros at (1, 1) and (1, 2)
+            X = SparseIterate(T, p, 2); X[2, 1] = 2; X[3, 2] = -1; activate!(X, 1); activate!(X, p + 1)
+            stored || dropzeros!(X)
+            @test (32 * nnz(X) <= length(X)) == (p == 64)           # the stored-entry walk for p = 64
+            before = copy(X)
+            Xd = Matrix(X)
+            A = T.(reshape(0:2p-1, 2, p) .% 5 .- 2); A[:, k] .= bad
+            ref = [strong(view(A, i, :), view(Xd, :, c)) for i in 1:2, c in 1:2]
+            @test isequal(A * X, ref)                               # LinearAlgebra's * reaches this mul!
+            @test parentmodule(which(mul!, typeof.((ref, A, X)))) == ProximalBase
+            check_five(A, X, ref)
+            P = T.(reshape(0:p*p-1, p, p) .% 3); P = P + P'; P[k, :] .= bad; P[:, k] .= bad
+            for uplo in (:U, :L)
+                refP = [strong(view(P, i, :), view(Xd, :, c)) for i in 1:p, c in 1:2]
+                @test isequal(Symmetric(P, uplo) * X, refP)
+                check_five(Symmetric(P, uplo), X, refP)
+            end
+            a = T.(1:p); a[k] = bad; b = T[1, -1]
+            @test isequal(dot(a, X, b), sum((a[i] * Xd[i, j] * b[j] for i in 1:p, j in 1:2 if !iszero(Xd[i, j])); init = zero(T)))
+            check_product_state(X, before)
+        end
+    end
+
+    @testset "the zero test comes before α (M1)" begin
+        x = SparseIterate(2); x[2] = 1e-300; activate!(x, 1)
+        # α·c underflows to zero, and the nonzero coefficient still meets NaN
+        @test isnan(only(mul!(zeros(1), [Inf NaN], x, 1e-300, 0)))
+        @test isnan(only(mul!(zeros(1), transpose([Inf; NaN;;]), x, 1e-300, 0)))
+        @test isnan(mul!(zeros(2), Symmetric([1.0 NaN; NaN 1.0]), x, 1e-300, 0)[1])
+        for p in (64, 3)
+            X = SparseIterate(p, 1); X[2, 1] = 1e-300; activate!(X, 1)
+            @test isnan(only(mul!(zeros(1, 1), fill(NaN, 1, p), X, 1e-300, 0)))
+            @test isnan(mul!(zeros(p, 1), Symmetric(fill(NaN, p, p)), X, 1e-300, 0)[1])
+        end
+        # α = Inf does not meet the explicit zero: no Inf · 0
+        x[2] = 1
+        @test mul!(zeros(1), [5.0 2.0], x, Inf, 0) == [Inf]
+        @test mul!(zeros(2), Symmetric([5.0 2.0; 2.0 1.0]), x, Inf, 0) == [Inf, Inf]
+        for p in (64, 3)
+            X = SparseIterate(p, 1); X[2, 1] = 1; activate!(X, 1)
+            @test mul!(zeros(1, 1), fill(2.0, 1, p), X, Inf, 0) == fill(Inf, 1, 1)
+        end
+    end
+
+    @testset "an empty product ignores α (M1)" begin
+        # no nonzero coefficient: out becomes β·out on every path, also for α = Inf or NaN
+        A = [1.0 2.0 3.0; 4.0 5.0 6.0]
+        for coef in (SparseIterate(3), (z = SparseIterate(3); activate!(z, 1); activate!(z, 3); z)),
+            α in (Inf, NaN), β in (0.0, 1.0)
+            o = [7.0, NaN]
+            expected = iszero(β) ? zeros(2) : o
+            @test isequal(mul!(copy(o), A, coef, α, β), expected)
+            for M in (transpose(permutedims(A)), permutedims(A)')
+                @test isequal(mul!(copy(o), M, coef, α, β), expected)
+            end
+            @test isequal(mul!([7.0, NaN, 1.0], Symmetric([1.0 2 3; 2 4 5; 3 5 6]), coef, α, β),
+                          iszero(β) ? zeros(3) : [7.0, NaN, 1.0])
         end
     end
 

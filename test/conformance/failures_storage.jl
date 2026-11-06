@@ -598,7 +598,6 @@ end
   id = "failures_storage.strong-zero.dot.t-s"; case = ""; family = :failures_storage; oracle = :product
   types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
   expected = 0.0; observed = dot(m1_t(), m1_s())
-  broken = (group = :G2, baseline = Returned(v -> same(v, NaN)))
 end
 
 # both orders walk t, whose NaN meets an unstored zero
@@ -606,14 +605,12 @@ end
   id = "failures_storage.strong-zero.dot.t-s2"; case = ""; family = :failures_storage; oracle = :product
   types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
   expected = 0.0; observed = dot(m1_t(), m1_s2())
-  broken = (group = :G2, baseline = Returned(v -> same(v, NaN)))
 end
 
 @row begin
   id = "failures_storage.strong-zero.dot.s2-t"; case = ""; family = :failures_storage; oracle = :product
   types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
   expected = 0.0; observed = dot(m1_s2(), m1_t())
-  broken = (group = :G2, baseline = Returned(v -> same(v, NaN)))
 end
 
 @row begin
@@ -624,104 +621,88 @@ end
 end
 
 # A stored NaN of one iterate against an unstored zero of the other, in both orders.
-for (name, x, y, base) in (("sparse-atom.nan-in-atom", m1_s1, m1_anan, NaN), ("atom-sparse.nan-in-atom", m1_anan, m1_s1, NaN),
-                           ("sparse-atom.nan-in-sparse", m1_snan, m1_a1, 0.0), ("atom-sparse.nan-in-sparse", m1_a1, m1_snan, 0.0),
-                           ("atom-atom.walk-a1", m1_anan, m1_a1, 0.0), ("atom-atom.walk-nan", m1_a1, m1_anan, NaN))
+for (name, x, y) in (("sparse-atom.nan-in-atom", m1_s1, m1_anan), ("atom-sparse.nan-in-atom", m1_anan, m1_s1),
+                     ("sparse-atom.nan-in-sparse", m1_snan, m1_a1), ("atom-sparse.nan-in-sparse", m1_a1, m1_snan),
+                     ("atom-atom.walk-a1", m1_anan, m1_a1), ("atom-atom.walk-nan", m1_a1, m1_anan))
   @row begin
     id = "failures_storage.strong-zero.dot." * name; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = 0.0; observed = dot(x(), y())
-    broken = isnan(base) ? (group = :G2, baseline = Returned(v -> same(v, NaN))) : nothing
   end
 end
 
 for (tag, stored) in (("stored", true), ("dropped", false))
-  nan = stored ? (group = :G2, baseline = Returned(v -> same(v, NaN))) : nothing
   @row begin
     id = "failures_storage.strong-zero.dot.u-w.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = 1.0; observed = dot(m1_u(stored), m1_w())
-    broken = nan
   end
   @row begin
     id = "failures_storage.strong-zero.dot.w-u.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = 1.0; observed = dot(m1_w(), m1_u(stored))
-    broken = nan
   end
   @row begin
     id = "failures_storage.strong-zero.dot.row-u.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = 1.0; observed = dot(m1_A()[1, :], m1_u(stored))
-    broken = nan
   end
   @row begin
     id = "failures_storage.strong-zero.dot.u-row.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = 1.0; observed = dot(m1_u(stored), m1_A()[1, :])
-    broken = nan
   end
   @row begin
     id = "failures_storage.strong-zero.mul.A-u.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = [1.0, 1.0]; observed = m1_A() * m1_u(stored)
-    broken = stored ? (group = :G2, baseline = Returned(v -> same(v, [NaN, NaN]))) : nothing
   end
   @row begin
     id = "failures_storage.strong-zero.mul5.A-u.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = [2.0, 2.0]; observed = mul!(zeros(2), m1_A(), m1_u(stored), 2, 0)
-    broken = stored ? (group = :G2, baseline = Returned(v -> same(v, [NaN, NaN]))) : nothing
   end
   @row begin
     id = "failures_storage.strong-zero.mul.transpose-u.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = [1.0, 1.0]; observed = transpose(permutedims(m1_A())) * m1_u(stored)
-    broken = stored ? (group = :G2, baseline = Returned(v -> same(v, [NaN, NaN]))) : nothing
   end
   @row begin
     id = "failures_storage.strong-zero.mul.adjoint-u.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = [1.0, 1.0]; observed = permutedims(m1_A())' * m1_u(stored)
-    broken = stored ? (group = :G2, baseline = Returned(v -> same(v, [NaN, NaN]))) : nothing
   end
   @row begin
     id = "failures_storage.strong-zero.mul.symmetric-u.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = [0.0, 1.0, 0.0]; observed = m1_S3() * m1_u(stored)
-    broken = stored ? (group = :G2, baseline = Returned(v -> same(v, [NaN, 1.0, 0.0]))) : nothing
   end
   for (walk, p) in (("stored-entry-walk", 64), ("column-walk", 3))
     @row begin
       id = "failures_storage.strong-zero.mul.matrix-$walk.$tag"; case = ""; family = :failures_storage; oracle = :product
       types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
       expected = [1.0 1.0; 1.0 1.0]; observed = m1_AX(p) * m1_X(p, stored)
-      broken = stored ? (group = :G2, baseline = Returned(v -> same(v, [NaN 1.0; NaN 1.0]))) : nothing
     end
   end
   @row begin
     id = "failures_storage.strong-zero.mul.symmetric-matrix.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = [0.0 0.0; 1.0 0.0; 0.0 1.0]; observed = m1_S3() * m1_X(3, stored)
-    broken = stored ? (group = :G2, baseline = Returned(v -> same(v, [NaN 0.0; 1.0 0.0; 0.0 1.0]))) : nothing
   end
   @row begin
     id = "failures_storage.strong-zero.dot3.Z.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = 1.0; observed = dot([NaN, 1.0], m1_Z(stored), [1.0, 1.0])
-    broken = nan
   end
   @row begin
     id = "failures_storage.strong-zero.atom.dot-v-a.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = 1.0; observed = dot([NaN, 0.0, 1.0, 0.0], m1_a(stored))
-    broken = nan
   end
   @row begin
     id = "failures_storage.strong-zero.atom.dot-a-v.$tag"; case = ""; family = :failures_storage; oracle = :product
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
     expected = 1.0; observed = dot(m1_a(stored), [NaN, 0.0, 1.0, 0.0])
-    broken = nan
   end
   @row begin
     id = "failures_storage.strong-zero.atom.mul.$tag"; case = ""; family = :failures_storage; oracle = :product
@@ -770,7 +751,6 @@ for (tag, stored) in (("stored", true), ("dropped", false))
     id = "failures_storage.strong-zero.value.least-squares.$tag"; case = ""; family = :failures_storage; oracle = :value
     types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_VALUE
     expected = 0.0; observed = m1_f()(m1_fs(stored))
-    broken = nan
   end
   @row begin
     id = "failures_storage.strong-zero.value.least-squares-atom.$tag"; case = ""; family = :failures_storage; oracle = :value

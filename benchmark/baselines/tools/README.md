@@ -187,7 +187,7 @@ a cross-file equality check on these fields loses nothing.
   samples they were computed from are not retained.
 - The historical `compare.py` cannot be re-run on this data, since it needs the calibration files. The two
   `comparison.csv` files are retained as its output.
-- `check_only.jl` (now `benchmark/check_only.jl`) and `sabotage2.jl`, listed in the original notes below, are
+- `check_only.jl` (now `benchmark/check_only.jl`) and `sabotage2.jl`, which accompanied the tools, are
   not included: they test the harness, not the baseline.
 
 The tools have the limitations listed in section 7 of the provenance record. The generator checks its
@@ -202,15 +202,17 @@ other platforms are not tested.
 
 ## Original notes
 
-The notes below are the README that accompanied the tools before they were added to the repository.
-They predate the move: the paths and the run they mention are of that time, `check_only.jl` is now
-`benchmark/check_only.jl`, and `sabotage2.jl` is not included.
+The notes below are the README that accompanied the tools before they were added to the repository
+(the baseline itself was committed by PR #429, merge commit 9dba71ee). They are quoted verbatim except for two
+omissions, each marked `[…]`: the line on how the tools were written, and the entries of two scripts that are
+not included. `check_only.jl` is now `benchmark/check_only.jl`; `sabotage2.jl` belonged to the check-only
+work (#440). The notes predate the move into the repository, so the paths and the run they mention are of that
+time.
 
 ````text
 # Tools of the #420 baseline run (kept outside the repository)
 
-Written by the orchestrator during run `run-20261101T1915-issue420-19c1` (PR #429, merged as 9dba71ee).
-They are not part of the repository; the committed baseline files were produced with them.
+[…]
 
 - `make_baseline.py`: generates `benchmark/baselines/iterate-family-0.5.{md,csv}` from the result directories of
   three repetitions (groups and layouts), the A/A comparison (`compare.py` output of set `base` against set `aa`),
@@ -226,8 +228,7 @@ They are not part of the repository; the committed baseline files were produced 
   node is hard-coded for this baseline.
 - `crosscheck.jl`: plain `time_ns` loops for first activation (256 and 4096 coordinates), the active sweep and `dot(v, x)`.
 - `restore_probe.jl`: the first-activation loop with two restore methods (`dropzeros!` against `copyto!`).
-- `check_only.jl`: builds the harness cases and runs every reference check without timing.
-- `sabotage2.jl`: the sabotage tests of review round 2 (each strengthened check must fail under its sabotage).
+[…]
 - `verify_csv3.py`: recomputes every csv figure and the A/A columns from the raw metrics and metadata.
 - `identity.py`: lists the identity keys of the metadata files of the result directories.
 

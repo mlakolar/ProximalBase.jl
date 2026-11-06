@@ -86,7 +86,7 @@ export
 
 # A public statement does not parse on Julia 1.10.
 VERSION >= v"1.11" && Core.eval(@__MODULE__, Expr(:public,
-  :ScalarLoss, :Squared, :Logistic, :Poisson, :Huber, :SquaredHinge,
+  :ScalarLoss, :Squared, :Logistic, :Poisson, :IdentityBernoulli, :Huber, :SquaredHinge,
   :SmoothCheck, :ConvolutionCheck, :deriv, :deriv2, :curvature,
   :value_and_deriv, :Smoothed, :AbstractGroupPenalty, :Testing, :check_parameters,
   :entry_parameters, :check_symmetric_parameters, :samegroups))

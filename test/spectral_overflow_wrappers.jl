@@ -208,11 +208,18 @@ unit(f::SumLargest, T) = SumLargest(f.k, one(T))
               R = similar(B)
               a = outcome!(value_and_prox!, Y, W(f), B, one(T))
               b = outcome!(legacy!, R, W(f), B, one(T))
-              @test isequal(a, b)
-              a[1] === :value && (@test samebits(Y, R))
+              if PB._counts_nonzeros(f)
+                # a counting function returns the value at the stored output (O2), not the count of the proximal spectrum
+                @test a[1] === :value && isequal(a[2], W(f)(Y))
+                @test b[1] === :value && samebits(Y, R)
+              else
+                @test isequal(a, b)
+                a[1] === :value && (@test samebits(Y, R))
+              end
             else
-              expected = W === SingularValue && f isa NormL0 ? T(NaN) : T(Inf)   # a counting function at its all-NaN output (O2)
-              @test value_and_prox!(Y, W(f), B, one(T)) === expected
+              # a counting function gives its value at the all-NaN output (O2, #614); the others E2
+              expected = W === SingularValue && f isa NormL0 || any(isnan, B) ? T(NaN) : T(Inf)
+              @test isequal(value_and_prox!(Y, W(f), B, one(T)), expected)
               @test all(isnan, Y)
             end
           end
@@ -222,8 +229,12 @@ unit(f::SumLargest, T) = SumLargest(f.k, one(T))
           f isa IndBox && f.l isa AbstractArray && continue
           for q in (T(Inf), T(-Inf), T(NaN)), B in (T[q 0; 0 1], T[1 q; q 1], T[1 q; 0 1], T[1 0; q 1])
             Y = similar(B)
-            expected = W === SingularValue && f isa IndBallL0 ? T(NaN) : T(Inf)   # a counting function at its all-NaN output (O2)
-            @test value_and_prox!(Y, W(f), B, one(T)) === expected
+            # A counting function gives its value at the all-NaN output (O2, #614): NaN, or 0 when it
+            # holds every singular value. SingularValue(ZeroFunction()) is the zero function (E4),
+            # 0 at every input. The others follow E2.
+            expected = W === SingularValue && f isa IndBallL0 ? (f.s >= 2 ? zero(T) : T(NaN)) :
+                       W === SingularValue && f isa ZeroFunction ? zero(T) : isnan(q) ? T(NaN) : T(Inf)
+            @test isequal(value_and_prox!(Y, W(f), B, one(T)), expected)
             @test all(isnan, Y)
           end
         end

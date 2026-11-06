@@ -7,7 +7,7 @@ Pages = ["functions/smooth.jl", "functions/leastsquares.jl", "functions/glm.jl",
 Private = false
 Filter = t -> !(t in (SeparableFunction, value_entry, iszeropreserving,
   ProximalBase.AbstractGroupPenalty, ProximalBase.ScalarLoss,
-  ProximalBase.Squared, ProximalBase.Logistic, ProximalBase.Poisson,
+  ProximalBase.Squared, ProximalBase.Logistic, ProximalBase.Poisson, ProximalBase.IdentityBernoulli,
   ProximalBase.Huber, ProximalBase.SquaredHinge, ProximalBase.SmoothCheck,
   ProximalBase.ConvolutionCheck, ProximalBase.Smoothed, ProximalBase.deriv,
   ProximalBase.deriv2, ProximalBase.curvature, ProximalBase.value_and_deriv))
@@ -27,6 +27,7 @@ ProximalBase.ScalarLoss
 ProximalBase.Squared
 ProximalBase.Logistic
 ProximalBase.Poisson
+ProximalBase.IdentityBernoulli
 ProximalBase.Huber
 ProximalBase.SquaredHinge
 ProximalBase.SmoothCheck

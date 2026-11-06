@@ -134,7 +134,30 @@ end
   problem = "Zero nuclear level has no domain constraint and copies NaN input."
   expected = 0.0
   observed = NuclearNorm(0.0)([NaN 0.0; 0.0 1.0])
-  broken = (group = :G2, baseline = Returned(v -> same(v, Inf)))
+end
+
+for T in (Float32, Float64)
+  @row begin
+    id = "special_values.zero-level-spectral.inf.value." * string(T); case = ""; family = :special_values; oracle = :value
+    types = string(T); backend = :cpu; rules = "E3 E4"
+    problem = "A zero-level function of the singular values is the zero function; its formula at an infinite entry is 0."
+    expected = (zero(T), zero(T))
+    observed = (NuclearNorm(zero(T))(T[Inf 0; 0 1]), SingularValue(NormLinf(zero(T)))(T[1 -Inf; NaN 1]))
+  end
+  @row begin
+    id = "special_values.full-rank-ball.nan.value." * string(T); case = ""; family = :special_values; oracle = :value
+    types = string(T); backend = :cpu; rules = "E2 E3"
+    problem = "IndBallRank(r), r >= min(size), is the indicator of all matrices: independent of a NaN entry, Inf at an infinite entry."
+    expected = (zero(T), T(Inf))
+    observed = (IndBallRank(2)(T[1 NaN; NaN 1]), IndBallRank(2)(T[NaN Inf; 0 1]))
+  end
+  @row begin
+    id = "special_values.spectral-constant.nan.value." * string(T); case = ""; family = :special_values; oracle = :value
+    types = string(T); backend = :cpu; rules = "E2 E4"
+    problem = "Spectral of a zero-level norm is the indicator of the symmetric matrices: a diagonal NaN does not decide symmetry, an off-diagonal NaN does."
+    expected = (zero(T), T(NaN))
+    observed = (Spectral(NormL1(zero(T)))(T[NaN 1; 1 2]), Spectral(NormL1(zero(T)))(T[2 NaN; 1 2]))
+  end
 end
 
 @row begin
@@ -512,7 +535,6 @@ end
   problem = "Spectral block is entirely undefined at a NaN entry, before LAPACK."
   expected = Float32(NaN)
   observed = NuclearNorm(one(Float32))(Float32[NaN 0; 0 1])
-  broken = (group = :G6, baseline = Returned(v -> same(v, Inf32)))
 end
 
 @row begin
@@ -839,7 +861,6 @@ end
   problem = "Spectral block is entirely undefined at a NaN entry, before LAPACK."
   expected = Float64(NaN)
   observed = NuclearNorm(one(Float64))(Float64[NaN 0; 0 1])
-  broken = (group = :G6, baseline = Returned(v -> same(v, Inf)))
 end
 
 @row begin

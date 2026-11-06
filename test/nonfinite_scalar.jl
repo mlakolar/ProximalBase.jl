@@ -150,6 +150,25 @@ end
     @test PB.value_entry(fh, NaN, 1) == 0
     @test isnan(PB.value_entry(fh, NaN, 2))
   end
+  @testset "NormL1Nonneg has one type at every entry" begin
+    # in the domain, out of it and at NaN; the result type is that of the in-domain value, so
+    # unweighted functions and wider levels or weights give Float64 at Float32 entries
+    for (f, R) in ((NormL1Nonneg(1f0), Float64), (NormL1Nonneg(1f0, Float32[0, 2, Inf]), Float32),
+                   (NormL1Nonneg(), Float64), (NormL1Nonneg(1.0), Float64), (NormL1Nonneg(0), Float64),
+                   (NormL1Nonneg(1.0, Float64[0.0, 2.0, Inf]), Float64), (NormL1Nonneg(1.0, Float32[1, 2, 3]), Float64))
+      for v in args, i in 1:3
+        @test @inferred(PB.value_entry(f, v, i)) isa R
+      end
+      @test @inferred(PB.value_entry(f, -1f0, 1)) === R(Inf)
+      @test isnan(@inferred(PB.value_entry(f, NaN32, 1)))
+    end
+    # the dense values stay in the data type
+    for f in (NormL1Nonneg(1f0), NormL1Nonneg(), NormL1Nonneg(1.0, Float64[1.0, 2.0, 3.0]))
+      @test f(Float32[1, -1, 0]) === Inf32
+      @test f(Float32[1, 2, 0]) isa Float32
+      @test f(Float32[1, NaN, 0]) isa Float32 && isnan(f(Float32[1, NaN, 0]))
+    end
+  end
   @testset "controls" begin
     for v in args, i in 1:3
       @test @inferred(PB.value_entry(EpsInsensitiveLoss(0.1, ws), v, i)) isa Float64

@@ -3,7 +3,8 @@
 
 usage: python3 benchmark/baselines/tools/reproduce.py [--archive PATH] [--keep DIR]
 
-The script finds the repository from its own location, so it can be run from any directory. It
+The script finds the repository from its own location, so it can be run from any directory when it is
+given by its path. It
 
   1. checks the SHA-256 of data/iterate-family-0.5-evidence.tar.gz against the pinned value
      (skipped when --archive is given, which is meant for tests);
@@ -15,10 +16,11 @@ The script finds the repository from its own location, so it can be run from any
 Nothing is written inside the repository. --keep DIR keeps the extraction and the generated files
 in DIR, which must not exist or must be empty.
 
-Exit codes: 0 both files are identical; 1 a file differs; 2 an archive, usage or generator error.
+Exit codes: 0 both files are identical; 1 a generated file differs from the committed one; 2 any other
+failure (archive, usage, generator, file system or unexpected error).
 Python 3.11 or later (the generator needs tomllib); standard library only.
 """
-import argparse, hashlib, os, shutil, subprocess, sys, tarfile, tempfile, zlib
+import argparse, hashlib, os, shutil, subprocess, sys, tarfile, tempfile, traceback, zlib
 
 sys.dont_write_bytecode = True
 
@@ -158,6 +160,13 @@ def main(argv):
         return run(args)
     except ToolError as exc:
         print(f"reproduce.py: {exc}", file=sys.stderr)
+        return 2
+    except (OSError, EOFError, zlib.error, tarfile.TarError) as exc:
+        print(f"reproduce.py: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:
+        print(f"reproduce.py: unexpected error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        traceback.print_exc()
         return 2
 
 

@@ -25,13 +25,14 @@ are not run by CI, and the archive holds their recorded output, not a way to re-
 
 ## Reproduce the baseline
 
-From any directory, with Python 3.11 or later:
+From the repository root, with Python 3.11 or later:
 
 ```sh
 python3 benchmark/baselines/tools/reproduce.py
 ```
 
-The script finds the repository from its own location. It checks the archive against the pinned SHA-256,
+From any other directory, give the script's path, for example
+`python3 <repository>/benchmark/baselines/tools/reproduce.py`. The script finds the repository from its own location. It checks the archive against the pinned SHA-256,
 extracts the 45 members into a temporary directory, runs `make_baseline.py` there with `python -I -B`, and
 compares the generated md and csv with the committed files. It writes nothing inside the repository.
 Expected output:
@@ -45,7 +46,7 @@ result: both files identical
 ```
 
 Exit code 0: both files are identical. 1: a generated file differs from the committed one (the output names it
-and gives both hashes). 2: an archive, usage or generator error (the generator's error output is shown).
+and gives both hashes). 2: any other failure, such as an archive, usage, generator or file-system error (the message is on stderr).
 
 Options:
 

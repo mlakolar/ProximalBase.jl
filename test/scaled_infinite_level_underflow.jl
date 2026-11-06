@@ -856,4 +856,79 @@ end
   end
 end
 
+####################################
+#  the fold of a finite level needs a normal number; a tree without an infinite level takes its earlier route
+####################################
+
+# A finite level next to an infinite one is folded only when the folded value is a normal number: a
+# subnormal one has lost bits that a large weight would restore into the range (the coefficient is
+# level times weight times the product), so the fold is declined and the call keeps the result of the product
+# rounded with the factor, which is accurate here (the product is a positive subnormal step). The references
+# are BigFloat; the subnormal step carries about 14 digits (Float64) or 5 (Float32), which multiplies the
+# change that the threshold makes.
+@testset "a finite level that folds to a subnormal is not folded, $T" for T in (Float32, Float64)
+  inf = T(Inf)
+  # the folded level is about 1e-322 (1e-45 in Float32), and the weight brings the coefficient back
+  α, γ, λ, wbig, x1 = T === Float64 ? (T(1e-160), T(1e-150), T(1e-12), T(1e300), T(2e-22)) :
+                                      (T(1f-20), T(1f-20), T(1f-5), T(1f30), T(2f-15))
+  groups = [1:1, 2:2]
+  w = T[0, wbig]
+  x2 = T[1, x1]
+  t = fill(big(α) * big(γ), 2)
+  smallest = nextfloat(zero(T))
+  δ = 2 * big(smallest) / (big(α) * big(γ))
+  siblings = ((NormL1(λ, w), ref_elastic(x2, t, λ, T(0), w)),
+              (ElasticNet(λ, T(0), w), ref_elastic(x2, t, λ, T(0), w)),
+              (GroupNormL2(λ, groups, w), ref_sparsegroup(x2, t, T(0), λ, w, groups)),
+              (SparseGroupNormL2(T(0), λ, groups, w), ref_sparsegroup(x2, t, T(0), λ, w, groups)),
+              (SparseGroupNormL2(λ, T(0), groups, T[1, 1]), ref_sparsegroup(x2, t, λ, T(0), T[1, 1], groups)))
+  for (g, ref) in siblings
+    f = Scaled(SeparableSum(NormL1(inf), g), α)
+    arg = (T[1, 2], x2)
+    res = prox(f, arg, γ)
+    @test all(iszero, res[1])
+    @test all(abs.(res[2] .- T.(ref)) .<= 4eps(T) .* max.(abs.(x2), abs.(T.(ref))) .+ T.(δ .* abs.(big.(x2) .- ref)))
+    y = (zeros(T, 2), zeros(T, 2))
+    v = value_and_prox!(y, f, arg, γ)
+    @test isequal(y, res) && isapprox(v, f(y); rtol = 1e-3)
+    a = (T[1, 2], copy(x2))
+    va = value_and_prox!(a, f, a, γ)
+    @test isequal(a, res) && isequal(va, v)
+    # a chain of factors takes the same route
+    @test isequal(prox(Scaled(Scaled(f.f, T(1)), α), arg, γ), res)
+  end
+end
+
+@testset "a tree without a stored infinite level takes its earlier route" begin
+  # the finite level 1e300 of the review: ridge below the range, scaled Translate block in a sum. Base results,
+  # pinned (the new step fold is not entered without an infinite level).
+  arg = ([1e-100, 3e-100], zeros(2))
+  for (e, expected) in ((ElasticNet(1e300, 1.0), [1e-100, 3e-100]),
+                        (ElasticNet(1e300, 1.0, [1e-5, 2.0]), [1e-100, 3e-100]),
+                        (GroupNormL2(1e300, [1:1, 2:2]), [0.0, 1.0000000000000001e-100]),
+                        (SparseGroupNormL2(1e300, 1.0, [1:1, 2:2]), [1e-100, 3e-100]))
+    f = Scaled(SeparableSum(Scaled(Translate(e, zeros(2)), 2.0), NormL1(1e300)), 1e-200)
+    res = prox(f, arg, 1e-200)
+    @test res[1] == expected && res[2] == [0.0, 0.0]
+    y = (zeros(2), zeros(2))
+    value_and_prox!(y, f, arg, 1e-200)
+    @test y == res
+  end
+  f = Scaled(SeparableSum(Scaled(Translate(NormL1(1e300, [1.0, 1e10]), zeros(2)), 2.0), NormL1(1e300)), 1e-200)
+  @test prox(f, arg, 1e-200) == ([0.0, 0.0], [0.0, 0.0])
+  # Float32 arguments and parameters, and a Float64 level that overflows Float32 (read as stored, it is finite)
+  f32 = Scaled(SeparableSum(Scaled(Translate(ElasticNet(1f30, 1f0), zeros(Float32, 2)), 2f0), NormL1(1f30)), 1f-30)
+  @test prox(f32, (Float32[1f-10, 3f-10], zeros(Float32, 2)), 1f-30) == (Float32[1f-10, 3f-10], Float32[0, 0])
+  g = Scaled(SeparableSum(Scaled(Translate(ElasticNet(1e300, 1.0), zeros(Float32, 2)), 2f0), NormL1(1e300)), 1f-30)
+  @test prox(g, (Float32[1f-10, 3f-10], zeros(Float32, 2)), 1f-30) == (Float32[0, 0], Float32[0, 0])
+  h = Scaled(Scaled(Translate(ElasticNet(1e300, 1.0), zeros(Float32, 2)), 2f0), 1f-30)
+  @test prox(h, Float32[1f-10, 3f-10], 1f-30) == Float32[0, 0]
+  @test prox(Scaled(Scaled(Translate(ElasticNet(1e300, 1.0), zeros(2)), 1e-100), 1e-100), [1e-100, 3e-100], 1e-100) == [0.0, 0.0]
+  # the same trees with a stored infinite level are in the new route
+  fi = Scaled(SeparableSum(Scaled(Translate(ElasticNet(Inf, 1.0, [1.0, 1.0]), zeros(2)), 2.0), NormL1(Inf)), 1e-200)
+  @test prox(fi, arg, 1e-200) == ([0.0, 0.0], [0.0, 0.0])
+  fi = Scaled(Scaled(Translate(Scaled(SLOPE([Inf, 1.0]), 3.0), zeros(2)), 2.0), 1e-200)
+  @test prox(fi, [1.0, 2.0], 1e-200) == [0.0, 0.0]
+end
+
 end

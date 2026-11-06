@@ -158,8 +158,10 @@ whose product overflows is not read as infinite. A finite level next to an infin
 only when the infinite level fixes every coordinate that it touches: `SLOPE` and `NormL1Fused` with an
 infinite first level, `ElasticNet` with an infinite ridge level or with an infinite ℓ1 level and every weight
 positive, `SparseGroupNormL2` with an infinite ℓ1 level or with an infinite group level and every group
-weight positive. Every other finite level is folded when the scale can form it, and otherwise the fold is
-declined and the call keeps the result of the product rounded with the factor. A sum folds only when every
+weight positive. Every other finite level is folded when the folded value is a normal number, and otherwise
+the fold is declined and the call keeps the result of the product rounded with the factor. All of this applies
+only to a function that holds a stored infinite level (through `Scaled`, `Translate` and sums); any other
+takes the route that it always had. A sum folds only when every
 block does: the blocks with a fold (the norms and groups, `ElasticNet`, `SparseGroupNormL2`, the nuclear
 norm, indicators, and `Scaled`, `Translate` and sums of these), and `SLOPE` and `NormL1Fused` with an
 infinite first level. An array step is folded only when every entry is a positive finite number; a
@@ -341,9 +343,12 @@ end
 #   positive; `SparseGroupNormL2` with an infinite ℓ1 level, or an infinite group level and every group
 #   weight positive. A weight of zero leaves its coordinate free, and the finite level acts there.
 #   The weights are tested by value, with no arithmetic on them.
-# - Any other finite level is folded when the scale can form it (it is a normal number), and otherwise
-#   the fold is declined and the function keeps the route that it had: the leaf gets the step rounded. No
-#   finite level is discarded by its size. This leaves a function with a finite level that acts on a free
+# - Any other finite level is folded when the folded value is a normal number (a subnormal one has lost
+#   bits that a weight can restore into the range), and otherwise the fold is declined and the function
+#   keeps the route that it had: the leaf gets the step rounded. No finite level is discarded by its size.
+# - All of this is entered only when the function tree holds an infinite level as stored
+#   (`_has_infinite_level`, read from the parameters, through `Scaled`, `Translate` and sums); a tree
+#   without one takes the route that it always had, in every block. This leaves a function with a finite level that acts on a free
 #   coordinate, or a finite block next to an infinite one, at the result that it had when the product is
 #   not a normal number and the level cannot be formed.
 # The array step is folded only when every entry is a positive finite number (`_NormalScale`).
@@ -366,7 +371,10 @@ _weights_positive(::Nothing) = true
 _weights_positive(w) = all(x -> x > 0, w)
 function _folded_level(λ, α::_HardScale)
   isinf(λ) && _hard_scale(α) && return λ
-  _folded_level(λ, α.s)
+  c = _folded_level(λ, α.s)
+  # a finite level is folded only when the folded value is a normal number, as for an array step: a
+  # subnormal one has lost bits that a large weight would restore into the range
+  c === nothing || iszero(c) || abs(c) >= floatmin(typeof(float(c))) ? c : nothing
 end
 # the infinite level of the array fold stays infinite as well (the scale is the factors alone there)
 function _folded_level(λ, α::_NormalScale)
@@ -436,17 +444,17 @@ end
 # A block that is itself scaled: the factor joins the scale of the step, and the function under it folds as
 # it does under the scale of a value (`_fold_level`: finite levels as before), except for the functions that
 # fold only for a step (`SLOPE`, `NormL1Fused` with an infinite first level) and the wrappers around them.
-_fold_level_step(f::Scaled, α) = _fold_scaled_step(f.f, _projection_accumulate(α, f.α))
-_fold_scaled_step(f, α) = _fold_level(f, α)
-_fold_scaled_step(f::Union{SLOPE, NormL1Fused, Scaled}, α) = _fold_level_step(f, α)
+_fold_level_step(f::Scaled, α::_HardScale) = _fold_scaled_step(f.f, _projection_accumulate(α, f.α))
+_fold_scaled_step(f, α::_HardScale) = _fold_level(f, α)
+_fold_scaled_step(f::Union{SLOPE, NormL1Fused, Scaled}, α::_HardScale) = _fold_level_step(f, α)
 # SLOPE and NormL1Fused fold into their levels for a step only, and only with an infinite first level:
 # the domain is {0}, every other level is irrelevant and is replaced by zero (for SLOPE as a block, which
 # keeps the levels nonincreasing). A finite one keeps the route that it had.
-function _fold_level_step(f::NormL1Fused, α)
+function _fold_level_step(f::NormL1Fused, α::_HardScale)
   (isinf(f.λ1) && _removes(α)) || return nothing
   NormL1Fused(f.λ1, isinf(f.λ2) ? f.λ2 : zero(f.λ2))
 end
-function _fold_level_step(f::SLOPE, α)
+function _fold_level_step(f::SLOPE, α::_HardScale)
   (any(isinf, f.λ) && _removes(α)) || return nothing
   SLOPE(map(λ -> isinf(λ) ? λ : zero(float(λ)), f.λ))
 end
@@ -595,7 +603,10 @@ function _nested_step(s::Scaled, γ::Real)
   (T <: AbstractFloat && isfinite(γ) && γ > 0 && !(floatmin(T) <= step <= floatmax(T))) || return (f, step, a)
   mγ, eγ = frexp(float(γ))
   ma, ea = _projection_scale_parts(a)
-  g = _fold_level_step(f, _HardScale(_ProjectionScale(ma, Int(ea + eγ))))
+  P = _ProjectionScale(ma, Int(ea + eγ))
+  # the fold of an infinite level (`_HardScale`) is entered only when the function holds one, as stored;
+  # a function without one takes the route that it always had, in every block
+  g = _fold_level_step(f, _has_infinite_level(f) ? _HardScale(P) : P)
   # g carries the levels without the ridge that may have been dropped: it is not the chain, and
   # its value is not the value of the chain (`nothing` marks this)
   g === nothing ? (f, step, a) : (g, convert(typeof(step), mγ), nothing)
@@ -2009,7 +2020,19 @@ function _fold_level_step(s::SeparableSum, α)
   gs = map(f -> _fold_block_step(f, α), s.fs)
   any(isnothing, gs) ? nothing : SeparableSum(gs)
 end
-_fold_scaled_step(f::Union{Translate, SeparableSum, Sum}, α) = _fold_level_step(f, α)
+_fold_scaled_step(f::Union{Translate, SeparableSum, Sum}, α::_HardScale) = _fold_level_step(f, α)
+# a stored infinite level in the function tree, read from the parameters as stored
+_has_infinite_level(::AbstractFunction) = false
+for (F, fields) in ((:NormL1, (:λ0,)), (:NormL1Nonneg, (:λ0,)), (:NormL2, (:λ,)), (:NormLinf, (:λ,)),
+                    (:ElasticNet, (:λ1, :λ2)), (:GroupNormL2, (:λ0,)), (:GroupNormLinf, (:λ0,)),
+                    (:SparseGroupNormL2, (:λ1, :λ0)), (:NormL1Fused, (:λ1, :λ2)), (:NuclearNorm, (:λ,)),
+                    (:TracePSD, (:λ,)))
+  @eval _has_infinite_level(f::$F) = $(foldl((a, b) -> :($a || isinf(f.$b)), fields[2:end]; init = :(isinf(f.$(fields[1])))))
+end
+_has_infinite_level(f::SLOPE) = any(isinf, f.λ)
+_has_infinite_level(f::Scaled) = _has_infinite_level(f.f)
+_has_infinite_level(f::Translate) = _has_infinite_level(f.f)
+_has_infinite_level(f::Union{SeparableSum, Sum}) = any(_has_infinite_level, f.fs)
 function _fold_level_step(s::Sum, α)
   gs = map(f -> _fold_block_step(f, α), s.fs)
   any(isnothing, gs) ? nothing : Sum(gs, s.scratch)

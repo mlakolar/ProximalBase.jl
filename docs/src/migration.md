@@ -111,7 +111,8 @@ the earlier behavior applies.
     subnormal or overflows, for chains of `Scaled`, blocks of sums, array steps and
     `value_and_prox!`. A finite level next to an infinite one is removed only when the
     infinite level fixes every coordinate that it touches, and is otherwise folded when
-    the scale can form it; if not, the earlier result stays. Not covered (the earlier result
+    the folded value is a normal number; if not, the earlier result stays. A function without a
+    stored infinite level takes the route that it always had. Not covered (the earlier result
     stays, and an infinite level can be lost): a finite level that acts on a free coordinate
     (a zero weight of `ElasticNet` or `SparseGroupNormL2`) or on a finite sibling block, when
     the product is not a normal number and the level cannot be formed by the exponent shift.

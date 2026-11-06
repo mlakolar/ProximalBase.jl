@@ -2060,13 +2060,17 @@ infinite one:
   is removed is replaced by a positive one, because the leaf takes its hard path for an
   infinite ℓ1 level before it reads the group level, and a group level of zero sends it
   to the soft-threshold path first, which does not fix a NaN or infinite entry.
-- *Folded*, when the scale can form it (a number once the exponent of the product is
-  folded into the level), together with the infinite level: the leaf gets the
-  significand of the step.
+- *Folded*, when the folded value is a normal number (the exponent of the product folded
+  into the level; a subnormal one has lost bits that a large weight would restore into
+  the range), together with the infinite level: the leaf gets the significand of the step.
 - Otherwise the fold is declined, and the leaf gets the step as rounded, as before: no
   finite level is discarded by its size.
 
-An array step is folded only when every entry is a positive finite number; a negative,
+All of this is entered only when the function tree holds a stored infinite level, read from
+the parameters (a level that is finite as stored is never read as infinite), through `Scaled`,
+`Translate` and sums; a tree without one takes the route that it always had, in every block, so
+that finite-level results are those of before by construction. An array step is folded only
+when every entry is a positive finite number; a negative,
 NaN, zero or infinite entry keeps the result of the steps rounded with the factor, in
 every entry. A block that is itself scaled, the blocks of a sum and a `Translate` take the
 same route (a scaled block under a finite level folds as it did), and the values of scaled

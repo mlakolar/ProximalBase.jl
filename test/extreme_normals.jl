@@ -4,6 +4,8 @@ using Test
 using ProximalBase
 using LinearAlgebra
 
+const PRECISION_AT_START = precision(BigFloat)
+
 normal_entries(a::Real, x) = fill(BigFloat(a), length(x))
 normal_entries(a::AbstractArray, x) = BigFloat.(a)
 
@@ -480,7 +482,7 @@ function plain_formula(H, x, γ)
 end
 
 @testset "overflowing dot products, residuals and corrections" begin
-  setprecision(BigFloat, OVERFLOW_PRECISION)
+  setprecision(BigFloat, OVERFLOW_PRECISION) do  # scoped: test files share worker processes
   @testset "the two examples of the issue" begin
     M = floatmax(Float64)
     @test prox(IndHalfspace([1.0, 1.0], 0.0), [M, M], 1.0) == [0.0, 0.0]
@@ -743,6 +745,11 @@ end
       @test y ≈ [2.0^1000, 2.0^1000]
     end
   end
+  end
+end
+
+@testset "the global BigFloat precision is unchanged" begin
+  @test precision(BigFloat) == PRECISION_AT_START
 end
 
 end

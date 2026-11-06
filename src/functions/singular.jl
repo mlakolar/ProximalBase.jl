@@ -78,7 +78,9 @@ conjugate of uncentered `SqrNormL2`, the conjugates of scaled `NormL1`,
 in `Conjugate(SingularValue(f))`. A weighted `NormL1`, `NormL1Nonneg` or
 `ElasticNet` whose value at that spectrum is zero or subnormal is recovered
 only by folding the scale into a normal level, and only when the value so
-computed is not below the normal range or every term is an exact zero. The
+computed is not below the normal range or every term is an exact zero. The two
+homogeneous parts of `ElasticNet` are recovered or declined each on its own, so
+a part that is declined keeps the ordinary result for the whole value. The
 Ky Fan norm and the other support functions of a box with a linear constraint
 keep the ordinary result, which may be `Inf` or `NaN`, or an `InexactError`
 (#648).

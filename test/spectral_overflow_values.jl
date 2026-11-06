@@ -44,6 +44,9 @@ function weighted_ok(v, ref::BigFloat, ::Type{R}, p) where {R}
   abs(big(v) - ref) <= C * p * eps(R) * ref + 4p * big(nextfloat(zero(R)))
 end
 
+# Warmed bytes of a call at a non-finite input, which never fills a cache of f (a cold cache).
+nonfinite_bytes(F, Z) = (F(Z); F(Z); @allocated F(Z))
+
 # BigFloat values of f at a spectrum σ (singular values or eigenvalues), with the levels as stored.
 topk(σ, k) = sum(sort(σ; rev = true)[1:k])
 ref(f::NormL1{<:Real, Nothing}, σ) = big(f.λ0) * sum(abs, σ)
@@ -298,7 +301,7 @@ end
          (-1f12, -1f-3, 1f0, 2(-1f-3) - 3f-5, [M, M / 2], :nan),
          (-4f0, -2f0, 1f0, -5f0, [M / 8, M / 4], :inf),
          (-M, M, 1f0, 0f0, [1f0, 1f0], :inexact),
-         (-1f10, -1f-10, 1f0, -1.5f10, [M, M, -M / 2], :nan),   # exact value 0 (#648)
+         (-8f9, -1f-10, 1f0, -1.2f10, [M, M, -M / 2], :nan),    # exact value 0 (#648)
          (0f0, 0.25f0, 1f0, 0.25f0, [M, M], :nan))
       # B6: box(-(1 - 2^-j), 1) with the halfspace Σx ≤ 2^-j at [M, M], condition 15 to 2e9
       js = T === Float64 ? (3:30) : (3:20)
@@ -410,6 +413,9 @@ end
         end
       end
       @test nrec > 0
+      # each homogeneous part of ElasticNet is recovered or declined on its own: here the linear
+      # part cannot fold, so the whole value keeps the ordinary result
+      T === Float32 && @test SingularValue(ElasticNet(2.0^-300, 2.0^-260, fill(2.0^-100, 2)))(X) === Inf32
     end
 
     @testset "BigFloat levels ($T)" begin
@@ -525,6 +531,27 @@ end
       G = SingularValue(Constrained(NormL1(one(T), ones(T, 2)), IndHalfspace(-one(T), zero(T))))
       @test isnan(G(T[NaN 0; 0 2]))
       @test G(T[Inf 0; 0 2]) === T(Inf)
+      # The structure check builds no temporaries: wrappers that check their argument through a
+      # buffer take a placeholder of the transformed shape (0 bytes, as master at these inputs).
+      P = Precompose(NormL1(), Matrix{T}(I, 2, 2), one(T))
+      for f in (P, Precompose(NormL1(), T(2)), Translate(NormL1(q), zeros(T, 2)), Tilt(P, ones(T, 2)),
+                Regularize(P, one(T)), MoreauEnvelope(P, one(T)), Scaled(Translate(NormL1(q), zeros(T, 2)), T(2)),
+                Precompose(Translate(NormL1(), zeros(T, 2)), Matrix{T}(I, 2, 2), one(T)),
+                Constrained(Translate(NormL1(q), zeros(T, 2)), IndHalfspace(-one(T), zero(T))))
+        for Z in (T[NaN 0; 0 2], T[Inf 0; 0 2])
+          F = SingularValue(f)
+          @test isequal(F(Z), any(isnan, Z) ? T(NaN) : T(Inf))
+          @test nonfinite_bytes(SingularValue(f), Z) == 0
+        end
+      end
+      # and their structure still comes first
+      for f in (Precompose(NormL1(), Matrix{T}(I, 3, 3), one(T)), Precompose(NormL1(one(T), ones(T, 3)), Matrix{T}(I, 2, 2), one(T)),
+                Translate(NormL1(), zeros(T, 3)), Tilt(NormL1(), ones(T, 3)), Regularize(NormL1(), one(T), ones(T, 3)),
+                MoreauEnvelope(Translate(NormL1(), zeros(T, 3)), one(T)))
+        for Z in (T[NaN 0; 0 2], T[Inf 0; 0 2], T[1 0; 0 2])
+          @test_throws DimensionMismatch SingularValue(f)(Z)
+        end
+      end
     end
   end
 end

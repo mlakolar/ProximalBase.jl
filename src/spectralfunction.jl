@@ -172,6 +172,69 @@ _constant_kind(g::ElasticNet{<:Real, Nothing}, p) = iszero(g.λ1) && iszero(g.λ
 _constant_kind(g::IndBallL0, p) = g.s >= p ? :whole : nothing
 
 # The standalone value at a non-finite X. For an inner function that is constant on ℝⁿ (_constant_kind),
+# The structure of f at the placeholder spectrum x (E1): the checks of its value and of its
+# recursive parameters, without temporaries, so that a non-finite input allocates nothing.
+# - A leaf takes its value and parameter checks, which read no entries of x.
+# - A wrapper that checks its argument through a buffer (the image of a Precompose, the shifted
+#   argument of a Translate, the proximal point of a Moreau envelope) makes its own size checks
+#   and passes a placeholder of the transformed shape to the function inside it.
+# - The inner function of a LinearConstrained, which its value check does not reach, is checked
+#   too.
+# Precompose, Regularize and MoreauEnvelope are defined after this file, so the generic method
+# selects them.
+function _spectrum_structure(f, x)
+  f isa Precompose && return _precompose_structure(f, x)
+  f isa Regularize && return _regularize_structure(f, x)
+  f isa MoreauEnvelope && return (_checkreal(f, x); _spectrum_structure(f.f, x))
+  _checkvalue(f, x)
+  _checkparams(f, x)
+  nothing
+end
+_spectrum_structure(s::Scaled, x) = _spectrum_structure(s.f, x)
+function _spectrum_structure(t::Tilt, x)
+  _spectrum_structure(t.f, x)
+  _checkdot(t.c, x)
+  _checkparam(t.c, x)
+  nothing
+end
+function _spectrum_structure(t::Translate, x::AbstractArray)
+  _checkreal(t, x)
+  size(x) == size(t.b) || throw(DimensionMismatch("x has size $(size(x)) and b $(size(t.b))"))
+  _checkparam(t.b, x)
+  _spectrum_structure(t.f, x)
+end
+function _spectrum_structure(c::BoxConstrained, x)
+  _checkreal(c, x)
+  _spectrum_structure(c.f, x)
+  _checkparams(c.box, x)
+  nothing
+end
+function _spectrum_structure(c::LinearConstrained, x)
+  _checkreal(c, x)
+  _checkvalue(c.set, x)
+  _spectrum_structure(c.f, x)
+  _checkparams(c.set, x)
+  nothing
+end
+function _precompose_structure(h, x)
+  _checkreal(h, x)
+  if h.A isa AbstractMatrix
+    _checkargument(h, x)
+    size(h.A, 2) == length(x) ||
+      throw(DimensionMismatch("A has $(size(h.A, 2)) columns and the argument has length $(length(x))"))
+    _spectrum_structure(h.f, _structure_spectrum(float(promote_type(eltype(x), eltype(h.A))), size(h.A, 1)))
+  else
+    _spectrum_structure(h.f, _structure_spectrum(float(promote_type(eltype(x), typeof(h.A))), length(x)))
+  end
+end
+function _regularize_structure(r, x)
+  _checkreal(r, x)
+  _checkparam(r.c, x)
+  _spectrum_structure(r.f, x)
+  r.c === nothing || _checksize(x, r.c)
+  nothing
+end
+
 # Spectral(g) is the indicator of the symmetric matrices, its domain, which E4 keeps:
 # - in a matrix that is not symmetric by type, an off-diagonal NaN decides symmetry, so the value
 #   depends on it (E2) and is NaN;

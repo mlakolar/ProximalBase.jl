@@ -175,7 +175,7 @@ The original tools are committed unchanged in `tools/`. Each gap below is closed
 `verify_csv3.py`:
 
 - exits 0 whatever the mismatch count (P2, P4); it fails only on a missing file or id. `reproduce.py` makes it gating:
-  a nonzero exit, or a first line other than `mismatches: none`, is a failed check;
+  a nonzero exit, a first line other than `rows 3719 | mismatches: none`, or counts other than the pinned ones, is a failed check;
 - compares at printed precision (relative 6e-4, plus 5e-4 absolute for the spread and the A/A fields),
   and uses t = 4.302652729911275, which differs from the historical comparator's 4.303 (P6).
   `check_evidence.py` checks the archived comparison with t = 4.303, within 4 units in the last place;

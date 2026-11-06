@@ -117,7 +117,7 @@ baseline run, frozen (see below), so that the baseline does not depend on `bench
 `check_evidence.py` (also usable by hand: `check_evidence.py EXTRACTION [BASELINE_DIR]`) checks the extracted
 evidence, in this order. A failed structure check skips the others.
 
-- **Structure.** Each of the twelve result directories (base and A/A, groups and layouts) holds the metadata, metrics and
+- **Structure.** Each of the four result directories (`base-groups`, `base-layouts`, `aa-groups`, `aa-layouts`) holds the metadata, metrics and
   error files of repetitions 1 to 3 and nothing else; every case appears once per file; each metrics file has exactly its kind's
   case set (3,455 groups, 264 layouts, equal to the case set of its comparison file; the union equals the 3,719 cases of the
   committed csv), the `rep` column of its repetition, and the `cases` of its metadata; the error files are empty. The values
@@ -142,7 +142,7 @@ evidence, in this order. A failed structure check skips the others.
 - **Committed csv.** `aa_ratio` and `aa_half_width` equal the four-decimal strings of the archived columns, `gate5` equals
   "neither side timer-limited, A/A half width at most 5%, and not a diagnostic row" (the `first_activation` rows of the `sparse`
   family with the layouts `absent_distinct_batch` and `absent_distinct_batch_x16`; see [Diagnostic rows](#diagnostic-rows)).
-  16 cases match that predicate and 2 of them would otherwise gate, so 1,094 become 1,092. `timer_limited` and `work_varies`
+  16 cases are diagnostic rows, and 2 of them would otherwise gate, so 1,094 become 1,092. `timer_limited` and `work_varies`
   are recomputed from the base repetitions.
 - **Counts**, recomputed and compared with the csv and with pinned values: 3,719 cases (3,455 and 264); 94 timer-limited
   (94 on the base side, 94 on the A/A side, none on the A/A side only); 3,625 not timer-limited, 1,092 of them can gate 5%,

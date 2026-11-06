@@ -2048,7 +2048,8 @@ level is a hard constraint that no positive finite factor or step changes, so th
 takes a route on which nothing finite is folded, multiplied or combined. The contract of
 that route is exact: *the call returns what the same function returns at a step whose
 product is an ordinary (normal) positive number*, the hard domain `{0}` at finite
-arguments included. It is not the mathematical constant map at every nonfinite argument:
+arguments included, up to the sign of a zero (`ElasticNet(1.0, Inf)` at `[-1.0]` is `[0.0]` at
+step 1 and `[-0.0]` at step 0.75 and in the wrapper). It is not the mathematical constant map at every nonfinite argument:
 how a leaf treats a NaN or infinite entry at an ordinary step is that leaf's own rule
 (this decision settles `NormL1`, `SLOPE`, `NormL1Fused` and `NormLinf`; the others are
 tracked in #662), and the call follows it. The infinite level is read as stored (R3): a
@@ -2062,8 +2063,15 @@ taken only when all of these hold, and every other call keeps the route that it 
   leaf skips one;
 - every block is a function with an infinite level whose other levels the infinite level
   makes irrelevant (it fixes every coordinate that they touch), or an indicator or the zero
-  function that holds no function inside (a scaled or translated indicator is a wrapper and
-  is classified as one; a constrained or composed indicator is declined): `NormL1`,
+  function of the library's closed list of plain-data indicators (`IndBox`, `IndNonnegative`,
+  `IndBinary`, `IndBallL0`, `IndBallL1`, `IndBallL2`, `IndSphereL2`, `IndSimplex`,
+  `IndHyperplane`, `IndHalfspace`, `IndHyperslab`, `IndSOC`, `IndRotatedSOC`, `IndExpPrimal`,
+  `IndExpDual`, `IndPattern`, `IndBanded`, `IndToeplitz`, `IndIsotonic`, `IndBallGroupL0`: the
+  fields of each are numbers, arrays of numbers, flags, index lists or internal buffers; a
+  positive finite `Scaled` or a `Translate` of one is classified as the wrapper it is, and is
+  accepted; any other indicator is declined as a whole, by dispatch on the list and with no
+  reflection on field types: intersections, constrained or composed indicators, spectral and
+  factorized ones, user types): `NormL1`,
   `NormL1Nonneg`, `NormL2`, `NormLinf`, the group norms, `NuclearNorm` and `TracePSD` with an
   infinite level; `SLOPE` and `NormL1Fused` with an infinite first level (the domain is `{0}`;
   the other levels of a `SLOPE` become zeros as a block, which keeps them nonincreasing);
@@ -2083,7 +2091,7 @@ issue tracks them): a finite level that is relevant on a coordinate that the inf
 leaves free (a zero weight of `ElasticNet` or `SparseGroupNormL2`, or a finite level of a
 function whose infinite level does not fix it); a finite sibling block next to an infinite
 one; a factor or step that is zero, negative, infinite or NaN, in the chain, in a block or in
-an array step, also under an indicator or a translated indicator; a function without a stored infinite level (including a level that is finite
+an array step, also under an indicator or a translated indicator; an indicator that is not on the list above, also under a `Scaled` or a `Translate`; a function without a stored infinite level (including a level that is finite
 as stored but overflows a conversion); and every function that is not in the list above
 (`Conjugate`, `Tilt`, the finite `SLOPE` or `NormL1Fused`, and so on). A finite level is never
 folded, rescaled, shortcut or discarded by its size: the exact statements above are the whole

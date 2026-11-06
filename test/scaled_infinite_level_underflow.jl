@@ -23,6 +23,26 @@ using Test, ProximalBase, Random
 
 const PB = ProximalBase
 
+# indicators that are not on the library's list of plain-data indicators: a user type, and one with an optional
+# function field (the classification is by a closed list, so both are declined as a whole)
+struct UserBox <: AbstractFunction
+  l::Float64
+  u::Float64
+end
+PB._isindicator(::Type{UserBox}) = true
+PB.isproximable(::Type{UserBox}) = true
+PB.prox!(y, f::UserBox, x, g::Real) = (y .= clamp.(x, f.l, f.u); y)
+PB.value_and_prox!(y, f::UserBox, x, g::Real) = (PB.prox!(y, f, x, g); all(a -> f.l <= a <= f.u, x) ? 0.0 : Inf)
+(f::UserBox)(x) = all(a -> f.l <= a <= f.u, x) ? 0.0 : Inf
+struct OptionalIndicator{F<:AbstractFunction} <: AbstractFunction
+  f::Union{Nothing, F}
+end
+PB._isindicator(::Type{<:OptionalIndicator}) = true
+PB.isproximable(::Type{<:OptionalIndicator}) = true
+PB.prox!(y, o::OptionalIndicator, x, g::Real) = prox!(y, o.f, x, g)
+PB.value_and_prox!(y, o::OptionalIndicator, x, g::Real) = value_and_prox!(y, o.f, x, g)
+(o::OptionalIndicator)(x) = o.f(x)
+
 # prox, then prox! and value_and_prox! into a fresh output, an output holding a sentinel, and the
 # argument itself (a copy); every entry with isequal, and the value against the value at the stored
 # output (O2). A value that is `nothing` is not pinned.
@@ -1164,6 +1184,83 @@ end
   # a Translate that overflows in the subtraction is the leaf's own call too
   tr = Translate(ElasticNet(Inf, 1.0), [-1e308, 0.0])
   @test isequal(prox(Scaled(tr, 1e-300), [1e308, 1.0], 1e-300), prox(tr, [1e308, 1.0], 1.0))
+end
+
+####################################
+#  the indicators: a closed list, everything else declined as a whole
+####################################
+
+# An indicator is accepted as a leaf only when it is on the list of the library's plain-data indicators; an
+# intersection, a constrained or composed indicator, a user type, an indicator with an optional function field,
+# and every wrapper of such (also under a finite `Scaled` or a `Translate`) is declined, and the call keeps
+# master's result and value, without a new exception. The reference is master's result: `([1, 2], [1, 1])`
+# with the value `Inf`, the infinite level of the first block unfixed at the rounded step.
+@testset "indicators outside the list are declined without an exception" begin
+  arg = ([1.0, 2.0], [3.0, 4.0])
+  box = IndBox(-1.0, 1.0)
+  inter = IndIntersection{Tuple}((box,), 1e-10, 100, true)
+  inter2 = IndIntersection{Tuple{Vararg{AbstractFunction}}}((box,), 1e-10, 100, true)
+  blocks = ((inter, ([1.0, 2.0], [1.0, 1.0])), (inter2, ([1.0, 2.0], [1.0, 1.0])),
+            (Translate(inter, [1.0, 1.0]), ([1.0, 2.0], [2.0, 2.0])), (Translate(inter2, [1.0, 1.0]), ([1.0, 2.0], [2.0, 2.0])),
+            (Scaled(inter, 2.0), ([1.0, 2.0], [1.0, 1.0])), (Scaled(Translate(inter2, [1.0, 1.0]), 3.0), ([1.0, 2.0], [2.0, 2.0])),
+            (IndIntersection(box, IndNonnegative()), ([1.0, 2.0], [1.0, 1.0])),
+            (UserBox(-1.0, 1.0), ([1.0, 2.0], [1.0, 1.0])), (Scaled(UserBox(-1.0, 1.0), 2.0), ([1.0, 2.0], [1.0, 1.0])),
+            (Translate(UserBox(-1.0, 1.0), [1.0, 1.0]), ([1.0, 2.0], [2.0, 2.0])),
+            (OptionalIndicator(Scaled(box, Inf)), ([1.0, 2.0], [1.0, 1.0])), (OptionalIndicator(Scaled(box, 2.0)), ([1.0, 2.0], [1.0, 1.0])),
+            (OptionalIndicator{typeof(box)}(nothing), nothing))
+  for (blk, expected) in blocks
+    expected === nothing && continue
+    f = Scaled(SeparableSum(NormL1(Inf), blk), 1e-300)
+    @test PB._hard_function(f.f) === nothing
+    @test isequal(prox(f, arg, 1e-300), expected)
+    y = (zeros(2), zeros(2))
+    @test prox!(y, f, arg, 1e-300) === y && isequal(y, expected)
+    v = value_and_prox!(y, f, arg, 1e-300)
+    @test isequal(y, expected) && v == Inf
+    a = ([1.0, 2.0], [3.0, 4.0])
+    va = value_and_prox!(a, f, a, 1e-300)
+    @test isequal(a, expected) && va == Inf
+    s = (fill(-7.0, 2), fill(-7.0, 2))
+    prox!(s, f, arg, 1e-300)
+    @test isequal(s, expected)
+  end
+  # the classifier is total: abstract, union, tuple and indefinite types are not inspected, and are declined
+  for f in (OptionalIndicator{typeof(box)}(nothing), OptionalIndicator(box), inter, inter2, UserBox(0.0, 1.0))
+    @test PB._hard_function(f) === nothing
+  end
+  # an indicator that is a plain-data one is accepted
+  @test PB._hard_function(box) === box && PB._hard_function(IndNonnegative()) === IndNonnegative()
+end
+
+# Every indicator of the list, alone, translated and under a positive finite factor, next to a hard block: the hard
+# block is the hard zero and the call is that of the same function at an ordinary step.
+@testset "the listed indicators are accepted, $T" for T in (Float32, Float64)
+  tiny = T === Float64 ? T(1e-300) : T(1f-30)
+  one3 = T[1, 1, 1]
+  listed = Any[(IndBox(T(-1), T(1)), T[3, -4, 0.5]), (IndNonnegative(), T[3, -4, 0.5]), (IndBinary(T(0), T(1)), T[3, -4, 0.5]),
+               (IndBallL0(1), T[3, -4, 0.5]), (IndBallL1(T(1)), T[3, -4, 0.5]), (IndBallL2(T(1)), T[3, -4, 0.5]), (IndSphereL2(T(1)), T[3, -4, 0.5]),
+               (IndSimplex(T(1)), T[3, -4, 0.5]), (IndHyperplane(one3, T(1)), T[3, -4, 0.5]), (IndHalfspace(one3, T(1)), T[3, -4, 0.5]),
+               (IndHyperslab(one3, T(0), T(1)), T[3, -4, 0.5]), (IndSOC(), T[3, -4, 0.5]), (IndRotatedSOC(), T[3, -4, 0.5]),
+               (IndExpPrimal(), T[3, -4, 0.5]), (IndExpDual(), T[3, -4, 0.5]), (IndIsotonic(), T[3, -4, 0.5]), (IndBallGroupL0(1, [1:3]), T[3, -4, 0.5]),
+               (IndPattern(BitArray([1 0; 0 1])), T[1 2; 3 4]), (IndBanded(0, 0, 2, 2), T[1 2; 3 4]), (IndToeplitz(), T[1 2; 3 4])]
+  for (ind, x2) in listed
+    @test PB._hard_function(ind) === ind
+    shift = x2 isa AbstractMatrix ? zeros(T, 2, 2) : zeros(T, 3)
+    for blk in (ind, Scaled(ind, T(2)), Translate(Scaled(ind, T(3)), shift))
+      inner = SeparableSum(NormL1(T(Inf)), blk)
+      arg = (T[1, 2], x2)
+      ref = try prox(inner, arg, one(T)) catch e; e end
+      ref isa Exception && continue
+      f = Scaled(inner, tiny)
+      @test PB._hard_function(inner) !== nothing
+      res = prox(f, arg, tiny)
+      @test res[1] == T[0, 0]
+      @test isequal(z0(res[1]), z0(ref[1])) && isequal(res[2], ref[2])
+      y = (zeros(T, 2), similar(x2))
+      value_and_prox!(y, f, arg, tiny)
+      @test isequal(z0(y[1]), z0(ref[1])) && isequal(y[2], ref[2])
+    end
+  end
 end
 
 end

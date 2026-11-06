@@ -941,7 +941,8 @@ beyond the largest finite value is `±Inf`; it is never clamped. An argument wit
 a NaN or infinite entry follows the formula in IEEE arithmetic. An array of
 positive finite steps `γ` gives the projection in the metric of
 `Diagonal(1 ./ γ)`, with the same guarantee; steps whose weighted squared norm
-`Σᵢ γᵢaᵢ²`, or whose products with the normal, underflow are outside it.
+`Σᵢ γᵢaᵢ²`, or whose products with the normal, underflow are outside it, and so
+are arguments of `Float16` entries with more than about `2^11` entries.
 Accuracy is limited by the less precise of the function's floating-point type
 and the output type.
 """
@@ -1329,11 +1330,16 @@ end
 # k is chosen from the exponents of the largest entry and of the offset. With α = a 2^e the
 # working normal (e = 0 unless it is scaled), G = ⟨α, x 2^-k⟩ - b 2^(e-k) is ĝ 2^-k for the
 # residual ĝ. Each x 2^-k is below 2 in magnitude and |αᵢ| ≤ 2^(emax / 4) (below 2 when scaled),
-# and |b 2^(e-k)| < 2, so |G| < n 2^(emax / 4 + 2) + 2 is finite; the offset is formed with the
-# exponent e - k directly, never as b 2^e. A halfspace is active exactly when G > 0.
-# d = D 2^w with D in [1, 2) when d is finite; when d overflowed (a diagonal metric) D is the sum
-# of γᵢ 2^-w αᵢ² with 2^w the exponent of the largest step, and D ≥ 1/2 because d ≥ floatmax, so
-# t″ = G / D is finite. Then t = t″ 2^J with J = k - w, and the correction cᵢ = t″ γᵢ αᵢ 2^J is
+# and |b 2^(e-k)| < 2, so |G| < n 2^(emax / 4 + 2) + 2, which is below floatmax for every n of a
+# Float32 or Float64 array and, for Float16 (emax / 4 = 3), for n < 2^11; the offset is formed with
+# the exponent e - k directly, never as b 2^e. A halfspace is active exactly when G > 0.
+# d = D 2^w with D in [1, 2) where d is the scalar step's, or a scalar normal's with finite d. For
+# steps γ and an array normal, D is formed here in S, from the exponent w of the largest term
+# γᵢαᵢ² (αᵢ widened to S before it is squared) and the sum of the terms with 2^-w applied to the
+# significands, so that D is in [1, 8n) whatever d overflowed or lost to the narrower type of its
+# own terms. For a scalar normal with d = Inf, D is q times the sum of γᵢ 2^-w with 2^w the
+# exponent of the largest step, and D ≥ 1/2 as d ≥ floatmax. So D ≥ 1/2, and t″ = G / D is finite
+# with |G| as above. Then t = t″ 2^J with J = k - w, and the correction cᵢ = t″ γᵢ αᵢ 2^J is
 # formed from the significands of the three factors with the power of two last, so that no factor
 # or partial product over- or underflows; xᵢ itself is never scaled and an αᵢ = 0 leaves it
 # unchanged. Where cᵢ itself exceeds floatmax, a representable yᵢ = xᵢ - cᵢ needs |cᵢ| ≤
@@ -1354,17 +1360,30 @@ end
   true
 end
 
-function _extreme_denominator(f, a, d, γ, ::Type{S}) where {S}
+# d = D 2^w, for the scalar step and for a scalar normal in a diagonal metric ...
+function _extreme_denominator(f, a, d, ::Nothing, ::Type{S}) where {S}
+  w = exponent(d)
+  ldexp(convert(S, d), -w), w
+end
+function _extreme_denominator(f, a::Real, d, γ::AbstractArray, ::Type{S}) where {S}
   if isfinite(d)
     w = exponent(d)
     return ldexp(convert(S, d), -w), w
   end
   w = exponent(_maximum_abs(γ))
-  s = _power_factors(S, -w)
-  a isa Real && return convert(S, f.q) * _scaled_sum(γ, s), w
+  convert(S, f.q) * _scaled_sum(γ, _power_factors(S, -w)), w
+end
+# ... and for steps with an array normal, from the largest term of the sum.
+function _extreme_denominator(f, a::AbstractArray, d, γ::AbstractArray, ::Type{S}) where {S}
+  w = typemin(Int)
+  @inbounds for i in eachindex(IndexLinear(), γ)
+    α, g = convert(S, float(a[i])), convert(S, γ[i])
+    iszero(α) || (w = max(w, exponent(g) + 2exponent(α)))
+  end
   D = zero(S)
   @inbounds for i in eachindex(IndexLinear(), γ)
-    D += _scale_value(γ[i], s) * abs2(convert(S, float(a[i])))
+    α = convert(S, float(a[i]))
+    D += _scaled_product(convert(S, γ[i]), α, α, -w)
   end
   D, w
 end

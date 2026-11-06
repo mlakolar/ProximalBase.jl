@@ -481,19 +481,29 @@ function _prox_unchecked!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace
   _checksize(y, x)
   _checkparams(f, x)
   _checkparam(γ, x)
-  _check_metric_steps(f, γ)
+  mγ = _check_linear_steps(f, γ)
   # Branch before passing the normal: the scaled and unscaled normals have different types.
-  _isscaled(f) ? _metric_set_prox!(y, f, x, γ, _normalized_normal(f.a, f.s), _scaled_offset(f)) :
-                 _metric_set_prox!(y, f, x, γ, f.a, f.b)
+  _isscaled(f) ? _metric_set_prox!(y, f, x, γ, _normalized_normal(f.a, f.s), _scaled_offset(f), mγ) :
+                 _metric_set_prox!(y, f, x, γ, f.a, f.b, mγ)
 end
 
-# The working normal a and offset b: those of f, or the normalized ones.
-function _metric_set_prox!(y, f, x, γ, a, b)
+# _check_metric_steps, which also returns the largest step: the loop reads every step anyway.
+function _check_linear_steps(f, γ::AbstractArray)
+  m = zero(eltype(γ))
+  for g in γ
+    g > zero(g) && isfinite(g) ||
+      throw(ArgumentError("the steps of $(nameof(typeof(f))) must be positive and finite"))
+    m = ifelse(g > m, g, m)
+  end
+  m
+end
+
+# The working normal a and offset b: those of f, or the normalized ones; mγ = max γᵢ.
+function _metric_set_prox!(y, f, x, γ, a, b, mγ)
   g = _dot_normal(a, x) - b                  # the residual; a halfspace clamps it only below
-  d, mγ, mp = _metric_terms(f, a, γ)
+  d = _metric_sqnorm(f, x, γ)
   t = _model_coefficient(y, f isa IndHalfspace ? max(g, zero(g)) : g, d)
-  if !_metric_step_safe(_isscaled(f), g, d, t, mγ, mp) &&
-      _extreme_projection!(y, f, x, a, d, γ, typeof(t))
+  if !_metric_step_safe(f, a, g, d, t, mγ) && _extreme_projection!(y, f, x, a, d, γ, typeof(t))
     return y
   end
   if _isscaled(f)
@@ -503,45 +513,27 @@ function _metric_set_prox!(y, f, x, γ, a, b)
   y .= x .- t .* _checked_parameter(y, γ) .* _checked_parameter(y, a)
 end
 
-# d = Σᵢ γᵢαᵢ², formed as _metric_sqnorm forms it, with the largest step mγ = max γᵢ and the
-# largest product mp = max γᵢ|αᵢ| from the same pass (for a scalar normal, Σᵢ γᵢ and its product
-# with |α|, which bound them). All three are nonnegative, so an overflow is +Inf and a NaN is
-# impossible, and a maximum can be an ifelse.
-function _metric_terms(f, a::Real, γ)
-  T = float(promote_type(eltype(γ), typeof(f.q)))
-  σ = convert(T, sum(γ))
-  convert(T, f.q) * σ, σ, σ * abs(convert(T, float(a)))
-end
-function _metric_terms(f, a::AbstractArray, γ)
-  T = float(promote_type(eltype(γ), typeof(f.q)))
-  d = mγ = mp = zero(T)
-  @inbounds for i in eachindex(IndexLinear(), γ)
-    gi, ai = convert(T, γ[i]), float(a[i])
-    d += gi * convert(T, abs2(ai))
-    p = gi * abs(convert(T, ai))
-    mγ = ifelse(gi > mγ, gi, mγ)
-    mp = ifelse(p > mp, p, mp)
-  end
-  d, mγ, mp
-end
-
 # The diagonal-step counterpart of _scalar_step_safe (see src/functions/sets.jl for the facts F1
-# and F2 and for B = floatmax(S) / 2). The order of evaluation is the dot product, g, then d, then
-# t = g / d, and then the correction cᵢ = (t γᵢ) αᵢ for a normal that is not scaled, or
-# t (γᵢ âᵢ) for a scaled one, where the scaled normal's products are formed in the order of
-# _hyperslab_metric_output!. By (F1), a finite g covers the dot product and the offset. The terms
-# of d are nonnegative, so a finite d covers every γᵢαᵢ² and the sum (αᵢ² itself cannot overflow
-# since |αᵢ| ≤ 2^(emax / 4), or < 2 when scaled); d = Inf with a finite g would give t = 0 and
-# y = x without a warning. An infinite or NaN t fails both products below, since mγ > 0. By (F2),
-# |t| mγ ≤ B covers every partial product t γᵢ (γᵢ ≤ mγ), |t| mp ≤ B every final product
-# (γᵢ|αᵢ| ≤ mp up to rounding), and mp ≤ B every γᵢ âᵢ of the scaled order; an mp that overflows
-# in the type of d is Inf and fails. For a scalar normal σ ≥ γᵢ replaces mγ.
+# and F2 and for B = floatmax(S) / 2, S the type of t). The order of evaluation is the dot
+# product, g, then d = Σᵢ γᵢαᵢ² (formed by _metric_sqnorm, as before), then t = g / d, and then
+# the correction cᵢ = (t γᵢ) αᵢ for a normal that is not scaled, or t (γᵢ âᵢ) for a scaled one,
+# where the scaled normal's products are formed in the order of _hyperslab_metric_output!.
+# - By (F1), a finite g covers the dot product and the offset.
+# - The terms of d are nonnegative, so a finite d covers every γᵢαᵢ² and the sum (αᵢ² itself
+#   cannot overflow, since |αᵢ| ≤ 2^(emax / 4), or < 2 when scaled). Without it, d = Inf and a
+#   finite g would give t = 0 and y = x without a warning.
+# - An infinite or NaN t fails the two products below, since mγ > 0.
+# - Let mγ = max γᵢ, R = |α| for a scalar normal and R = √q ≥ max |αᵢ| (1 - 2^-p) for an array
+#   normal, and P = mγ R ≥ γᵢ|αᵢ| (up to the same rounding). By (F2), |t| mγ ≤ B covers every
+#   partial product t γᵢ of a normal that is not scaled, P ≤ B every partial product γᵢ âᵢ of a
+#   scaled one, and |t| P ≤ B every final product. A P that overflows in S is Inf and fails.
 # It fires on an argument whose formula was finite only within a factor 2 of an overflow of one
-# of these (for a scalar normal, up to the number of entries for equal steps).
-@inline function _metric_step_safe(scaled::Bool, g, d, t::S, mγ, mp) where {S}
-  B, m = _half_floatmax(S), abs(t)
+# of these, and for an array normal and steps of very different sizes up to 2 √n times that.
+@inline function _metric_step_safe(f, a, g, d, t::S, mγ) where {S}
+  B, m, γm = _half_floatmax(S), abs(t), convert(S, mγ)
+  p = γm * _normal_bound(f, a, S)
   _finite_value(g) && _finite_value(d) &&
-    (scaled ? mp <= B && m * mp <= B : m * mγ <= B && m * mp <= B)
+    (_isscaled(f) ? p <= B && m * p <= B : m * γm <= B && m * p <= B)
 end
 
 prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, γ::AbstractArray) =

@@ -695,6 +695,30 @@ end
     end
   end
 
+  @testset "a model type narrower than the data" begin
+    # The squares of the normal entries underflow in Float32, as do the products of Float32 steps
+    # with them, but not in the Float64 model of the projection; the entries 1 and 2 of the exact
+    # projection are beyond floatmax and the others are within the bound.
+    a = Float32[-5.713f-40, -2.5967962f-13, 2.7628436f-11, -4.1102825f-13, -4.8f-44]
+    x = [1.2911956633587734e307, -1.593686991591948e307, 5.510386459094743e307, -3.19143653438417e307, 1.8894918353094168e307]
+    γ = [7.760465636490048e303, 2.5402850971441077e203, 1.2194554501014753e190, 2.1865531330082964e194, 1.8768120776652858e185]
+    for F in (IndHyperplane, IndHalfspace)
+      H = F(a, 1.0431324f38)
+      setprecision(BigFloat, OVERFLOW_PRECISION) do
+        ref = projection_ref(a, H.b, x, γ; half = F === IndHalfspace)
+        bound = overflow_bound(a, H.b, x, γ, Float64)
+        y = prox(H, x, γ)
+        for i in eachindex(x)
+          if abs(ref[i]) > floatmax(Float64)
+            @test y[i] == sign(ref[i]) * Inf
+          else
+            @test abs(BigFloat(y[i]) - ref[i]) <= bound[i]
+          end
+        end
+      end
+    end
+  end
+
   @testset "preflight at the arguments of the overflowing projections" begin
     M = floatmax(Float64)
     for F in (IndHyperplane, IndHalfspace), op in (prox!, value_and_prox!)

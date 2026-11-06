@@ -96,6 +96,12 @@ the earlier behavior applies.
     and `NormL1Fused` with an infinite ℓ1 level at a positive finite step.
     At the zero vector, `NormL1(Inf)` (a dense array, no weights) and
     `NormL1Fused(Inf, λ2)` give the value `0`, where they gave NaN.
+  - `NormLinf(Inf)` is the indicator of `{0}` (decision 49, #663): at a finite
+    positive step its proximal map is zero at every entry,
+    `prox(NormLinf(Inf), [1.0, NaN], 1.0)` is `[0, 0]`, where it was
+    `[-Inf, NaN]`. Its value at the zero vector is `0`, where it was NaN, and
+    so is the value of the conjugate of `IndBallL1(Inf)` there. A zero,
+    infinite, negative or NaN step keeps its results.
 - **Infinite entries.** A bounded projection at an argument with one infinite
   entry returns its limit, where it returned NaN or a partly NaN block
   ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), decision 48).

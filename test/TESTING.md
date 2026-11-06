@@ -90,7 +90,11 @@ exactly the files the old complete suite ran, plus the new files split out of th
 Files added since then sit with the files of the code they test. `infinite_level_values`
 (standard) holds the values of `NormL2`, `NormLinf`, `NuclearNorm` and `Scaled` with an infinite
 level or factor: family behaviour beside `norms` and `infinite_weights`, a few seconds of small
-cases, with no grid that would need the thorough tier.
+cases, with no grid that would need the thorough tier. `sparsegroup_infinite_prox` (thorough)
+holds the proximal map of `SparseGroupNormL2` with an infinite ℓ1 level: a grid over group levels,
+weights, steps and non-finite entries on vectors, `AtomIterate`, `SymmetricSparseIterate`
+outputs, JLArrays and the wrappers, about 60,000 assertions, beside its siblings
+`sparsegroup_infinite_level` and `l2_nan_blocks`.
 
 ## Measured times on GitHub
 

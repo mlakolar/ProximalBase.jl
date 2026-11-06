@@ -87,6 +87,9 @@ the earlier behavior applies.
     where they were zeros.
   - A zero-level function, such as `NuclearNorm(0)`, returns `0` at a NaN
     entry.
+  - `NormL1Nonneg` at a NaN entry is NaN, where it was `Inf`, and
+    `EpsInsensitiveLoss` with `ε = Inf` is `0` at NaN and `±Inf` entries,
+    where it was NaN.
   - At an admitted infinite step, a proximal map that is constant on finite
     arguments ignores a NaN entry: `prox(NormL1(1.0), [NaN], Inf)` is `[0]`,
     where it was `[NaN]`.
@@ -96,6 +99,12 @@ the earlier behavior applies.
     and `NormL1Fused` with an infinite ℓ1 level at a positive finite step.
     At the zero vector, `NormL1(Inf)` (a dense array, no weights) and
     `NormL1Fused(Inf, λ2)` give the value `0`, where they gave NaN.
+  - `NormLinf(Inf)` is the indicator of `{0}` (decision 49, #663): at a finite
+    positive step its proximal map is zero at every entry,
+    `prox(NormLinf(Inf), [1.0, NaN], 1.0)` is `[0, 0]`, where it was
+    `[-Inf, NaN]`. Its value at the zero vector is `0`, where it was NaN, and
+    so is the value of the conjugate of `IndBallL1(Inf)` there. A zero,
+    infinite, negative or NaN step keeps its results.
 - **Infinite entries.** A bounded projection at an argument with one infinite
   entry returns its limit, where it returned NaN or a partly NaN block
   ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), decision 48).
@@ -383,3 +392,38 @@ for (i, j) in zip(eachindex(t), eachindex(A))
 end
 copyto!(x, t)
 ```
+
+## `coordinates(x)` of a `SparseIterate` is a vector view (0.6)
+
+[`coordinates`](@ref)`(x)` of a [`SparseIterate`](@ref) is now a vector view of
+the entries of `x`, for a vector and for a matrix alike, as it already was for a
+[`SymmetricSparseIterate`](@ref). Before 0.6 it was `x` itself, of the shape of
+`x`. Code that relied on that changes in six ways.
+
+- `coordinates(x) === x` no longer holds. For a matrix `x`, `size(coordinates(x))`
+  is `(length(x),)` and not `size(x)`, so a loop over `axes(coordinates(x), 1)`
+  now visits every coordinate. Indexing by coordinate, `coordinates(x)[k]`, is
+  unchanged.
+- A write through the view converts the value as a write into a plain vector
+  does. A complex value throws an `InexactError`, possibly after part of `x` has
+  been written, where `coordinates(x) .= c` threw an `ArgumentError` before
+  writing for a vector `x`, and a `DimensionMismatch` for a matrix `x` (the view
+  was the matrix, of another shape than `c`). `fill!(coordinates(x), 0im)` and `fill!(coordinates(x), 1 + 0im)` are
+  accepted, and `fill!(coordinates(x), 2im)` throws before writing.
+- Products and reductions of the view are those of an ordinary vector: IEEE
+  arithmetic, and `O(length(x))`. `dot(v, coordinates(x))` was the sparse
+  `O(nnz)` product that skips absent coordinates, so with a NaN in `v` at an
+  absent coordinate it gave a number and now gives NaN. For the sparse product
+  write `dot(v, x)`.
+- `copyto!(coordinates(x), coordinates(y))` is a value write: `x` keeps its
+  working set and gains the nonzeros of `y`. Before 0.6, for a vector it copied
+  the working set of `y`. For that copy, write `copyto!(x, y)`.
+- The view as a source is a plain vector too. `copyto!(x, coordinates(y))` and
+  `copy!(x, coordinates(y))` were the state copy and are now a value write: `x`
+  keeps its working set and gains the nonzeros of `y`; for the state copy write
+  `copyto!(x, y)`. A view shorter than `x` copies a prefix, as any vector does,
+  where `copyto!(x, y)` throws a `DimensionMismatch`. For a matrix `x`,
+  `copy!(xm, coordinates(ym))` throws Base's `ArgumentError` for the axes of a
+  vector and a matrix.
+- `fill!(coordinates(x), 0)` writes zeros into the stored entries, which stay
+  active, as `fill!(x, 0)` does; to clear, write `dropzeros!(fill!(x, 0))`.

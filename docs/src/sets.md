@@ -382,6 +382,16 @@ A scalar `a` stands for an array of `a`s of the size of the argument, so
 size. [`Constrained`](@ref) restricts a convex separable function to a
 hyperplane, a halfspace or a hyperslab.
 
+The projections onto a hyperplane and a halfspace, with a scalar step or with an
+array of steps `γ` (the metric of ``\mathrm{diag}(1 ./ \gamma)``), are accurate for
+every finite argument whose projection is representable: where the dot product
+``\langle a, v\rangle``, the residual or the correction ``\mu a`` would overflow in
+the working precision, they are formed in exact powers of two, and an entry of the
+projection beyond the largest finite value is `±Inf`, never clamped. Steps whose
+weighted squared norm ``\sum_i \gamma_i a_i^2`` underflows are outside this
+guarantee. See the docstrings of [`IndHyperplane`](@ref) and
+[`IndHalfspace`](@ref).
+
 [`IndHyperslab`](@ref)`(a, l, u)` bounds one linear functional on both sides.
 Its projection keeps a point inside the slab and otherwise projects onto the
 violated bound, in one pass over the entries for the correction. Equal bounds

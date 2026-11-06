@@ -951,9 +951,18 @@ copying; construct a new function after changing `a` in place.
 Every finite nonzero normal is accepted, including subnormal and integer
 entries; `b` must be finite. The normal and `b` are scaled by exact powers of
 two when needed to keep the squared norm in range. The membership value is
-reliable for all finite inputs, within its floating-point tolerance. The
-projection is accurate when the scaled `b`, the scaled residual and the output
-are representable; inputs near `floatmax` are outside this projection guarantee.
+reliable for all finite inputs, within its floating-point tolerance.
+
+Every finite argument whose projection is representable in the output type is
+projected, also when the dot product `⟨a, x⟩`, the residual `⟨a, x⟩ - b` or the
+correction of the formula would overflow in the working precision: the
+projection is then formed in exact powers of two. An entry of the projection
+beyond the largest finite value is `±Inf`; it is never clamped. An argument with
+a NaN or infinite entry follows the formula in IEEE arithmetic. An array of
+positive finite steps `γ` gives the projection in the metric of
+`Diagonal(1 ./ γ)`, with the same guarantee; steps whose weighted squared norm
+`Σᵢ γᵢaᵢ²`, or whose products with the normal, underflow are outside it, and so
+are arguments of `Float16` entries with more than about `2^11` entries.
 Accuracy is limited by the less precise of the function's floating-point type
 and the output type.
 """
@@ -983,11 +992,13 @@ construct a new function after changing an array `a` in place.
 Every finite nonzero normal is accepted, including subnormal and integer
 entries; `b` must be finite. As for [`IndHyperplane`](@ref), powers of two
 rescale the normal and `b` when needed. The membership value is reliable for all
-finite inputs, within its floating-point tolerance. The projection is accurate
-when the scaled `b`, the scaled residual and the output are representable;
-inputs near `floatmax` are outside this projection guarantee. Accuracy is
-limited by the less precise of the function's floating-point type and the
-output type.
+finite inputs, within its floating-point tolerance. As for
+[`IndHyperplane`](@ref), every finite argument whose projection is representable
+in the output type is projected, also when the dot product, the residual or the
+correction of the formula would overflow; an entry of the projection beyond the
+largest finite value is `±Inf`, and an argument with a NaN or infinite entry
+follows the formula in IEEE arithmetic. Accuracy is limited by the less precise
+of the function's floating-point type and the output type.
 """
 struct IndHalfspace{A<:Union{Real, AbstractArray}, T<:Real} <: AbstractFunction
   a::A
@@ -1269,26 +1280,152 @@ prox!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
 function _prox_unchecked!(y::AbstractArray, f::IndHyperplane, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
-  _isscaled(f) && return _scaled_normal_prox!(y, f, x)
-  t = _model_coefficient(y, _dot_normal(f.a, x) - f.b, _normal_sqnorm(f, x))
-  y .= x .- t .* _checked_parameter(y, f.a)
+  _linear_set_prox!(y, f, x)
 end
 prox!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, f, y, x, γ); _prox_unchecked!(y, f, x, γ))
 function _prox_unchecked!(y::AbstractArray, f::IndHalfspace, x::AbstractArray, ::Real)
   _checkwrite(prox!, f, y, x)
-  _isscaled(f) && return _scaled_normal_prox!(y, f, x)
-  t = _model_coefficient(y, max(_dot_normal(f.a, x) - f.b, zero(f.b)), _normal_sqnorm(f, x))
-  y .= x .- t .* _checked_parameter(y, f.a)
+  _linear_set_prox!(y, f, x)
 end
 
-function _scaled_normal_prox!(y, f, x)
-  a = _normalized_normal(f.a, f.s)
-  g = _dot_normal(a, x) - _scaled_offset(f)
-  f isa IndHalfspace && (g = max(g, zero(g)))
-  t = _model_coefficient(y, g, _normal_sqnorm(f, x))
+# Branch before passing the normal: the scaled and unscaled normals have different types.
+@inline _linear_set_prox!(y, f, x) = _isscaled(f) ?
+  _linear_set_prox!(y, f, x, _normalized_normal(f.a, f.s), _scaled_offset(f)) :
+  _linear_set_prox!(y, f, x, f.a, f.b)
+# The working normal a and offset b: those of f, or the normalized ones.
+@inline function _linear_set_prox!(y, f, x, a, b)
+  g = _dot_normal(a, x) - b                  # the residual; a halfspace clamps it only below
+  d = _normal_sqnorm(f, x)
+  t = _model_coefficient(y, f isa IndHalfspace ? max(g, zero(g)) : g, d)
+  if !_scalar_step_safe(f, a, g, t) && _extreme_projection!(y, f, x, a, d, nothing, typeof(t))
+    return y
+  end
   y .= x .- t .* _checked_parameter(y, a)
 end
+
+####################################
+#  projections at overflowing intermediates
+####################################
+
+# The formula x - t a, with t = g / d and g = ⟨a, x⟩ - b, overflows in an intermediate result
+# for finite arguments whose projection is representable (#563). The ordinary arithmetic stays as
+# it was; a scalar test of the values it already has decides whether any of its intermediate
+# results can have overflowed, and only then is the projection recomputed in powers of two
+# (_extreme_projection!). Write S for the type of t and B = floatmax(S) / 2. The comparisons below
+# are written `v <= B` or `isfinite(v)`, so that a NaN fails them and fires the recomputation.
+#
+# Two facts bound the arithmetic. (F1) An overflow is absorbing: once a term, a partial sum or
+# the subtraction of b overflows, g is ±Inf or NaN (Inf - Inf), whatever the order of the sum, the
+# lanes of the dot product or a fused multiply-add. So a finite g means that none of them
+# overflowed. For a halfspace it is tested before max(g, 0), which would turn -Inf into 0; for a
+# hyperplane the test of t covers it, as g / d is then infinite or NaN. (F2) If
+# |t| R ≤ B for an upper bound R of the magnitudes of the factors that t multiplies, then every
+# such product is at most B (1 + 2^-p)^2 < floatmax(S): the factor 2 absorbs the roundings in
+# t, R and the products.
+#
+# Scalar step. The order of evaluation is the dot product, g, the clamp, t = g / d, the products
+# t αᵢ and the differences xᵢ - t αᵢ, with α the working normal (scaled when f is). d is
+# f.q = Σ αᵢ² or f.q n for a scalar normal; with e = emax / 4, _normal_cache keeps max |αᵢ| in
+# [2^-e, 2^e], or in [1, 2) when scaled, so d is normal and finite and t = g / d overflows only
+# through g. By (F1) a finite g covers the dot product and the offset. |t| R ≤ B covers t (an
+# infinite or NaN t fails it) and, by (F2), every t αᵢ, with R = |α| for a scalar normal and
+# R = √q ≥ max |αᵢ| (1 - 2^-p) for an array normal, since q ≥ αᵢ² up to the rounding of the sum.
+# The difference xᵢ - t αᵢ of two finite numbers overflows only when the exact projection does not
+# fit.
+# Where it fires on an argument whose formula was finite: g or a partial sum within floatmax of
+# overflow, or |t| R > floatmax / 2 (an array normal: R up to √n times max |αᵢ|).
+@inline _half_floatmax(::Type{S}) where {S<:AbstractFloat} = floatmax(S) / 2
+@inline _normal_bound(f, a::Real, ::Type{S}) where {S} = abs(convert(S, float(a)))
+@inline _normal_bound(f, a::AbstractArray, ::Type{S}) where {S} = sqrt(convert(S, f.q))
+# A hyperplane's g is NaN or infinite exactly when its t is, which fails the second test.
+@inline _raw_finite(::IndHyperplane, g) = true
+@inline _raw_finite(::IndHalfspace, g) = _finite_value(g)
+@inline function _scalar_step_safe(f, a, g, t::S) where {S}
+  _raw_finite(f, g) && abs(t) * _normal_bound(f, a, S) <= _half_floatmax(S)
+end
+
+# The projection x - (g / d) c with c = a, or γ .* a in a diagonal metric, formed in powers of
+# two, for an argument whose entries are all finite. The write is the projection's only effect;
+# false means that nothing was written and the formula's own result stands: a NaN or infinite
+# entry in x (IEEE propagation, as before), or a d below floatmin, where the coefficient
+# underflows (#631, kept as it was).
+#
+# k is chosen from the exponents of the largest entry and of the offset. With α = a 2^e the
+# working normal (e = 0 unless it is scaled), G = ⟨α, x 2^-k⟩ - b 2^(e-k) is ĝ 2^-k for the
+# residual ĝ. Each x 2^-k is below 2 in magnitude and |αᵢ| ≤ 2^(emax / 4) (below 2 when scaled),
+# and |b 2^(e-k)| < 2, so |G| < n 2^(emax / 4 + 2) + 2, which is below floatmax for every n of a
+# Float32 or Float64 array and, for Float16 (emax / 4 = 3), for n < 2^11; the offset is formed with
+# the exponent e - k directly, never as b 2^e. A halfspace is active exactly when G > 0.
+# d = D 2^w with D in [1, 2) where d is the scalar step's, or a scalar normal's with finite d. For
+# steps γ and an array normal, D is formed here in S, from the exponent w of the largest term
+# γᵢαᵢ² (αᵢ widened to S before it is squared) and the sum of the terms with 2^-w applied to the
+# significands, so that D is in [1, 8n) whatever d overflowed or lost to the narrower type of its
+# own terms. For a scalar normal with d = Inf, D is q times the sum of γᵢ 2^-w with 2^w the
+# exponent of the largest step, and D ≥ 1/2 as d ≥ floatmax. So D ≥ 1/2, and t″ = G / D is finite
+# with |G| as above. Then t = t″ 2^J with J = k - w, and the correction cᵢ = t″ γᵢ αᵢ 2^J is
+# formed from the significands of the three factors with the power of two last, so that no factor
+# or partial product over- or underflows; xᵢ itself is never scaled and an αᵢ = 0 leaves it
+# unchanged. Where cᵢ itself exceeds floatmax, a representable yᵢ = xᵢ - cᵢ needs |cᵢ| ≤
+# 2 floatmax, and yᵢ = 2 (xᵢ / 2 - cᵢ / 2) is formed; beyond that, the result is ±Inf.
+@noinline function _extreme_projection!(y, f, x, a, d, γ, ::Type{S}) where {S}
+  isfinite(d) && !(d >= floatmin(typeof(d))) && return false
+  m = _maximum_abs(x)
+  isfinite(m) || return false
+  e = exponent(f.s[1]) + exponent(f.s[2])
+  k = _comparison_exponent(_magnitude_exponent(m), _magnitude_exponent(abs(f.b)) + e)
+  G = _scaled_dot(a, x, _power_factors(S, -k)) - ldexp(convert(S, f.b), e - k)
+  if f isa IndHalfspace ? !(G > 0) : iszero(G)
+    y === x || (y .= x)
+    return true
+  end
+  D, w = _extreme_denominator(f, a, d, γ, S)
+  _extreme_output!(y, _ExtremeOutput(G / D, k - w), x, a, γ)
+  true
+end
+
+# d = D 2^w, for the scalar step and for a scalar normal in a diagonal metric ...
+function _extreme_denominator(f, a, d, ::Nothing, ::Type{S}) where {S}
+  w = exponent(d)
+  ldexp(convert(S, d), -w), w
+end
+function _extreme_denominator(f, a::Real, d, γ::AbstractArray, ::Type{S}) where {S}
+  if isfinite(d)
+    w = exponent(d)
+    return ldexp(convert(S, d), -w), w
+  end
+  w = exponent(_maximum_abs(γ))
+  convert(S, f.q) * _scaled_sum(γ, _power_factors(S, -w)), w
+end
+# ... and for steps with an array normal, from the largest term of the sum.
+function _extreme_denominator(f, a::AbstractArray, d, γ::AbstractArray, ::Type{S}) where {S}
+  w = typemin(Int)
+  @inbounds for i in eachindex(IndexLinear(), γ)
+    α, g = convert(S, float(a[i])), convert(S, γ[i])
+    iszero(α) || (w = max(w, exponent(g) + 2exponent(α)))
+  end
+  D = zero(S)
+  @inbounds for i in eachindex(IndexLinear(), γ)
+    α = convert(S, float(a[i]))
+    D += _scaled_product(convert(S, γ[i]), α, α, -w)
+  end
+  D, w
+end
+
+struct _ExtremeOutput{S<:AbstractFloat}
+  t::S
+  J::Int
+end
+@inline function _scaled_correction(o::_ExtremeOutput{S}, xi, γi, ai) where {S}
+  xs, γs, α = convert(S, xi), convert(S, γi), convert(S, float(ai))
+  c = _scaled_product(o.t, γs, α, o.J)
+  isfinite(c) && return xs - c
+  ldexp(xs / 2 - _scaled_product(o.t, γs, α, o.J - 1), 1)
+end
+@inline (o::_ExtremeOutput{S})(xi, ai) where {S} = _scaled_correction(o, xi, one(S), ai)
+@inline (o::_ExtremeOutput)(xi, ai, γi) = _scaled_correction(o, xi, γi, ai)
+_extreme_output!(y, o, x, a, ::Nothing) = (y .= o.(x, _checked_parameter(y, a)))
+_extreme_output!(y, o, x, a, γ) = (y .= o.(x, _checked_parameter(y, a), _checked_parameter(y, γ)))
 
 _decided_on_spectrum(::Union{IndHyperplane, IndHalfspace, IndHyperslab}) = true
 function _spectrum_value(f::Union{IndHyperplane, IndHalfspace, IndHyperslab}, v::AbstractVector{T}, k::Int) where {T}

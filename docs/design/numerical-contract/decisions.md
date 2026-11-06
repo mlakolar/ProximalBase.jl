@@ -2027,6 +2027,17 @@ The first families, with the proofs:
   of any length and each function of a `FiberSum` (the diagonal one on its
   own). The value is `0` at zero, `Inf` at a nonzero argument and NaN at a NaN
   entry.
+- *`NormLinf`, `f(x) = λ maxᵢ|xᵢ|`.* With `λ = Inf`, `f(z) = Inf⋅max|zᵢ|`
+  is `0` at `z = 0` and `+Inf` at every other finite `z`, so `f` is the
+  indicator of `{0}`. For a fixed finite `γ > 0` the unique minimizer of
+  `f(z) + ‖z - x‖²/(2γ)` is `0` for every finite `x`. A `±Inf` entry also gives
+  `0`: with the step fixed the map is the constant map (E3). The output is
+  `+0.0` at every entry (no signed-zero convention), `value_and_prox!` returns
+  `0`, and the finite-level coupled block is unchanged. The standalone value is
+  `0` at the zero vector, where the dense reduction gave NaN (`Inf⋅0`) (E4, E6),
+  `Inf` at a nonzero finite argument and NaN at a NaN entry. The value of the
+  conjugate of `IndBallL1(Inf)`, which shares the reduction, follows at the
+  zero vector.
 
 Excluded, and unchanged:
 
@@ -2036,6 +2047,9 @@ Excluded, and unchanged:
   kept until the maintainer rules on it.
 - `γ = Inf` for `SLOPE` and `NormL1Fused`, which name no endpoint, and
   negative or NaN steps, which are not validated yet (#311).
+- `NormLinf(Inf)` at `γ = 0`, at `γ = Inf`, and at a negative or NaN step: the
+  rule above covers a finite positive step only, and these steps keep their
+  results.
 - `NormL1` with a finite level at `γ = Inf`. Its endpoint map is zero at
   every finite argument, but a NaN entry keeps the earlier result: a wrapper
   such as `Tilt` shifts the argument by `γc`, which forms NaN by itself at
@@ -2049,7 +2063,7 @@ Excluded, and unchanged:
   too, but testing every weight costs the weighted loops 8–28%, so it is a
   separate question for all the separable families.
 - Other families with infinite levels (`NormL1Nonneg`, `FusedLasso`,
-  `NormLinf`, `ElasticNet`, the nonconvex penalties, spectral functions):
+  `ElasticNet`, the nonconvex penalties, spectral functions):
   each needs its own proof, and is listed for follow-up.
 
 `Constrained(NormL1, IndBallL2)` and `Constrained(NormL1, IndSphereL2)`

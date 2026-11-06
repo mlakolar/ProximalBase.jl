@@ -418,6 +418,28 @@ end
       T === Float32 && @test SingularValue(ElasticNet(2.0^-300, 2.0^-260, fill(2.0^-100, 2)))(X) === Inf32
     end
 
+    @testset "infinite levels (decision 49) ($T)" begin
+      # The domain of an infinite level is {0}: the value is 0 at the zero matrix and Inf at every
+      # other one, also at an overflowing spectrum, where no recovery takes an infinite level; NaN at
+      # a NaN entry (E2). An infinite level is not a constant function.
+      for f in (NormL1(T(Inf)), NormL1(T(Inf), T[1, 0]), SLOPE(T[Inf, 1]), NormL1Fused(T(Inf), one(T)),
+                Scaled(NormL1(T(Inf)), T(2)), Constrained(NormL1(T(Inf)), IndBox(0, Inf)))
+        F = SingularValue(f)
+        @test PB._constant_kind(f, 2) === nothing
+        for Z in (A, X, T[1 0; 0 0], T[2 1; 1 3], T[Inf 0; 0 2])
+          @test F(Z) === T(Inf)
+        end
+        @test F(zeros(T, 2, 2)) === zero(T)
+        @test isnan(F(T[NaN 0; 0 2]))
+        @test isnan(value_and_prox!(similar(A), F, T[NaN 0; 0 2], one(T)))
+      end
+      for f in (NormL1(T(Inf)), Scaled(NormL1(T(Inf)), T(2)))
+        @test Spectral(f)(X) === T(Inf)
+        @test Spectral(f)(zeros(T, 2, 2)) === zero(T)
+        @test isnan(Spectral(f)(T[NaN 0; 0 2]))
+      end
+    end
+
     @testset "BigFloat levels ($T)" begin
       # A BigFloat level takes the recovery through frexp of a BigFloat, whose exponent is an Int32
       # on some platforms (#645): every exponent is converted before it enters a _ProjectionScale.

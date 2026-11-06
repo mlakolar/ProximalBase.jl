@@ -208,8 +208,14 @@ unit(f::SumLargest, T) = SumLargest(f.k, one(T))
               R = similar(B)
               a = outcome!(value_and_prox!, Y, W(f), B, one(T))
               b = outcome!(legacy!, R, W(f), B, one(T))
-              @test isequal(a, b)
-              a[1] === :value && (@test samebits(Y, R))
+              if PB._counts_nonzeros(f)
+                # a counting function returns the value at the stored output (O2), not the count of the proximal spectrum
+                @test a[1] === :value && isequal(a[2], W(f)(Y))
+                @test b[1] === :value && samebits(Y, R)
+              else
+                @test isequal(a, b)
+                a[1] === :value && (@test samebits(Y, R))
+              end
             else
               expected = W === SingularValue && f isa NormL0 ? T(NaN) : T(Inf)   # a counting function at its all-NaN output (O2)
               @test value_and_prox!(Y, W(f), B, one(T)) === expected

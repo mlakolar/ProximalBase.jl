@@ -169,7 +169,7 @@ _constant_kind(::ZeroFunction, p, nonneg::Bool) = :zero
 _constant_kind(g::NormL1{<:Real, Nothing}, p, nonneg::Bool) = iszero(g.λ0) ? :zero : nothing
 _constant_kind(g::Union{NormL2, NormLinf, CubeNormL2, SqrNormL2{<:Real, Nothing}}, p, nonneg::Bool) =
   iszero(g.λ) ? :zero : nothing
-# SumLargest(k, λ) needs at least k entries (E1, structure first): shorter spectra keep the error
+# SumLargest(k, λ) needs at least k entries: on a shorter spectrum it is not constant (N7)
 _constant_kind(g::SumLargest, p, nonneg::Bool) = iszero(g.λ) && g.k <= p ? :zero : nothing
 _constant_kind(g::ElasticNet{<:Real, Nothing}, p, nonneg::Bool) = iszero(g.λ1) && iszero(g.λ2) ? :zero : nothing
 # The counting functions (#614): IndBallL0 with room for p nonzeros is the indicator of every

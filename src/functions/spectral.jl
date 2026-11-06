@@ -384,8 +384,9 @@ function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
 end
 
 # The truncated decomposition into Y. Returns the largest singular value of the
-# decomposition, in the working type, or zero when Y is a copy of X, all NaN, or computed
-# in scaled units.
+# decomposition, in the working type; zero when Y is a copy of X or all NaN, where the value
+# needs no check; and Inf when the decomposition overflowed and Y was computed in scaled
+# units, whose entries can exceed the range of the type, so that the value is not certified.
 function _rank_prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
   T = float(eltype(Y))
   if minimum(size(X)) <= f.r
@@ -402,7 +403,7 @@ function _rank_prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::R
   s, U, Vt = _svd!(ws)
   if _spectral_overflow(s, X, ws)
     _scaled_svd_prox!(Y, f, X, γ, ws)
-    return zero(T)
+    return T(Inf)
   end
   σ = s[1]
   @inbounds for j in 1:f.r
@@ -417,7 +418,7 @@ function _rank_prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::R
 end
 
 # Whether a conversion from the element type S to T can leave an entry that T cannot hold.
-_narrows(::Type{S}, ::Type{T}) where {S, T} = sizeof(float(S)) > sizeof(T)
+_narrows(::Type{S}, ::Type{T}) where {S, T} = floatmax(float(S)) > floatmax(T)
 
 function value_and_prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
   X = _symmetric_argument(Y, X)
@@ -431,9 +432,13 @@ function value_and_prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, �
   if copies
     # a finite input that the destination's type cannot hold is not a finite copy
     iszero(v) && _narrows(eltype(X), T) && !all(isfinite, Y) && return T(Inf)
-  elseif !iszero(σ) && (!isfinite(σ) || _tol(T) * σ <= floatmin(T))
-    # A threshold that is not normal, or a non-finite decomposition: rounding to the
-    # elements of Y can leave numerical rank above r, so the value is the one at Y.
+  elseif !iszero(σ) && (!(σ <= floatmax(T) / 2) || _tol(T) * σ <= floatmin(T))
+    # A threshold that is not normal, a decomposition that is not finite or comes close to the
+    # range of T, or one computed in scaled units: rounding to the elements of Y can leave
+    # numerical rank above r, or an entry that T cannot hold, so the value is the one at Y.
+    # Otherwise the value 0 rests on the rank-(r+1) singular value that the rounding of Y
+    # adds, O(ε σ₁) up to the dimension factors of the stored matrix, far below √ε σ₁ for
+    # dimensions well below 1/√ε; it is not a certificate for arbitrary dimensions.
     return f(Y)
   end
   v

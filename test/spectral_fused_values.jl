@@ -233,6 +233,37 @@ end
   end
 end
 
+@testset "overflow-scaled output: a finite argument whose truncation has an entry above floatmax" begin
+  # the spectrum overflows, the output is computed in scaled units and rescaled; an entry of the
+  # rank-one part exceeds the range of the type and is stored as Inf, so that the value is that of
+  # the stored matrix
+  makers = (() -> IndBallRank(1), () -> IndBallRank(1; partial = true), () -> SingularValue(IndBallL0(1)),
+            () -> Spectral(IndBallL0(1)))
+  for T in (Float32, Float64), c in (1, 9 // 10)
+    M = T(c) * floatmax(T)
+    X = T[M M; M 0]
+    for make in makers
+      v, fy, Y = fused(make(), X, T)
+      @test isequal(v, fy)
+      all(isfinite, Y) || @test v === T(Inf)          # a matrix with an infinite entry
+      @test consistent(make, X, T)
+      # aliasing the destination and the argument
+      Ya = copy(X)
+      f = make()
+      va = value_and_prox!(Ya, f, Ya, 1)
+      @test isequal(va, v)
+      @test isequal(va, f(Ya))
+      @test isequal(Ya, Y)
+    end
+    # the proximal output is rank one in the other families too: an entry that fits keeps the value 0
+    Xfit = T[M 0; 0 0]
+    for make in makers
+      v, fy, _ = fused(make(), Xfit, T)
+      @test v === fy === zero(T)
+    end
+  end
+end
+
 @testset "IndBallRank: a finite argument that the destination cannot hold" begin
   X = [1e300 0.0; 0.0 1.0]
   # a rank bound that every matrix meets copies the argument; the copy overflows
@@ -369,6 +400,20 @@ end
   X = JLArray([1e300 0.0; 0.0 1.0])
   Y = JLArray(zeros(Float32, 2, 2))
   @test value_and_prox!(Y, IndBallRank(2), X, 1) === Inf32
+  # an overflow-scaled output with an entry above floatmax
+  for T in (Float32, Float64), make in (() -> IndBallRank(1), () -> IndBallRank(1; partial = true),
+                                        () -> SingularValue(IndBallL0(1)), () -> Spectral(IndBallL0(1)))
+    M = floatmax(T)
+    X = JLArray(T[M M; M 0])
+    Y = similar(X)
+    f = make()
+    v = value_and_prox!(Y, f, X, 1)
+    @test isequal(v, f(Y))
+    @test !isfinite(v)
+    Ya = similar(X); copyto!(Ya, X)
+    va = value_and_prox!(Ya, make(), Ya, 1)
+    @test isequal(va, v)
+  end
 end
 
 end

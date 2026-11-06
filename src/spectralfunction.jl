@@ -197,7 +197,10 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   z = _buffer!(s.z, T, n)
   length(z) == n || resize!(z, n)
   if _scales_spectral_prox(s.f) && _spectral_overflow(λ, X, ws, s.out)
-    return _scaled_wrapper_eigen_prox!(Y, s, X, γ, ws, z)
+    v = _scaled_wrapper_eigen_prox!(Y, s, X, γ, ws, z)
+    # The output is rescaled to the original units, where an entry can exceed the range of T:
+    # a function that counts nonzeros has the value at the stored matrix.
+    return _counts_nonzeros(s.f) ? s(Y) : v
   end
   σ = _counts_nonzeros(s.f) ? _maximum_abs(λ) : zero(T)
   v = value_and_prox!(z, s.f, λ, γ)

@@ -193,7 +193,9 @@ end
 # size up to 1000 (Float32 and Float64, at least 3 draws each) it was at most 1.6ε·max|t|,
 # against c = 2.9e3·ε·max|t| in Float32 and 6.7e7·ε·max|t| in Float64. Testing it would send
 # every call with a zero in t to the second decomposition once δ reaches c (Float32, p ≥ 723),
-# which took 1.5 times as long at p = 1000.
+# which took 1.5 times as long at p = 1000. This rests on those measurements, for dimensions p
+# well below 1/√ε (2.9e3 in Float32, 6.7e7 in Float64, where 4·p·ε reaches the threshold only
+# at a quarter of that); it is not a certificate for arbitrary dimensions.
 # Otherwise the value is the standalone evaluation on t with the entries at most c set to
 # zero; t is overwritten, no longer needed after the reconstruction.
 function _stored_count_value!(f, t::AbstractVector{T}, σ::T, p::Int) where {T}
@@ -254,7 +256,10 @@ function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix,
   t = _vector_buffer(F.t, T, length(s))
   F.t = t
   if _scales_spectral_prox(F.f) && _spectral_overflow(s, X, ws)
-    return _scaled_wrapper_svd_prox!(Y, F, X, γ, ws, t)
+    v = _scaled_wrapper_svd_prox!(Y, F, X, γ, ws, t)
+    # The output is rescaled to the original units, where an entry can exceed the range of T:
+    # a function that counts nonzeros has the value at the stored matrix.
+    return _counts_nonzeros(F.f) ? F(Y) : v
   end
   σ = _counts_nonzeros(F.f) ? _maximum_abs(s) : zero(T)
   v = value_and_prox!(t, F.f, s, γ)

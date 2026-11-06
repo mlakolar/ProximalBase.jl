@@ -128,7 +128,8 @@ end
 
 @testset "BigFloat squared hinge with an overflowing residual" begin
   setprecision(BigFloat, 256) do
-    P = 2^62 - 10                            # y v = -2^(P + 20) is beyond the range of a BigFloat
+    P = Int(Base.MPFR.get_emax()) - 10       # y v = -2^(P + 20) is beyond the exponent range of a BigFloat, on any platform
+    @test -P >= Base.MPFR.get_emin()         # so that w = 2^-P is representable
     y, v = ldexp(big(1.0), 20), -ldexp(big(1.0), P)
     @test !isfinite(y * v)
     w = ldexp(big(1.0), -P)

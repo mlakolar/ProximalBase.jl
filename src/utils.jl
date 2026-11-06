@@ -181,8 +181,9 @@ end
 @inline function _scaled_product(w::T, v::T, k::Integer) where {T<:AbstractFloat}
   (iszero(w) || iszero(v)) && return w * v
   (isfinite(w) && isfinite(v)) || return w * v
-  mw, ew = frexp(w)
-  mv, ev = frexp(abs(v))
+  k = Int(k)
+  mw, ew = _frexp(w)
+  mv, ev = _frexp(abs(v))
   copysign(ldexp(_positive_product(mw, mv, one(T)), ew + ev + k), v)
 end
 
@@ -206,9 +207,10 @@ end
   a, b, c = promote(float(a), float(b), float(c))
   (iszero(a) || iszero(b) || iszero(c)) && return zero(a)
   (isfinite(a) && isfinite(b) && isfinite(c)) || return (a * b) * c
-  ma, ea = frexp(a)
-  mb, eb = frexp(b)
-  mc, ec = frexp(c)
+  k = Int(k)
+  ma, ea = _frexp(a)
+  mb, eb = _frexp(b)
+  mc, ec = _frexp(c)
   ldexp((ma * mb) * mc, ea + eb + ec + k)
 end
 

@@ -184,7 +184,7 @@ _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), t
 _cube_norm_ordinary(n) = sqrt(floatmin(typeof(n))) <= n <= sqrt(floatmax(typeof(n)))
 
 function _cube_norm_parts(x, n, ::Type{T}) where {T}
-  _cube_norm_ordinary(n) && return frexp(convert(T, n))
+  _cube_norm_ordinary(n) && return _frexp(convert(T, n))
   m = _maximum_abs(x)
   (iszero(m) || !isfinite(m)) && return (convert(T, m), 0)
   _, e = _frexp(m)

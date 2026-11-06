@@ -108,6 +108,75 @@ end
   @test y == [0.0, 0.0]
 end
 
+@testset "value of a zero weight has the type of the other weights" begin
+  args = Float32[0.5, -2, 0, -0.0, NaN, Inf, -Inf]
+  ws = [0.0, 2.0, Inf]
+  # the value, widened to Float64, is bitwise the reference (NaN payloads aside)
+  same(a, b) = (a = Float64(a); a === b || (isnan(a) && isnan(b)))
+  # φ is formed in the type of the argument; a zero weight leaves the entry free (E4), an
+  # infinite weight is the indicator of φ = 0
+  weighted(w, φ) = iszero(w) ? 0.0 : (isinf(w) && iszero(φ) ? 0.0 : w * Float64(φ))
+  τ = Float32(0.3)
+  @testset "CheckLoss" begin
+    f = CheckLoss(0.3, ws)
+    for (i, w) in enumerate(ws), v in args
+      φ = v >= 0 ? τ * v : (τ - 1) * v
+      @test @inferred(PB.value_entry(f, v, i)) isa Float64
+      @test same(PB.value_entry(f, v, i), weighted(w, φ))
+    end
+    @test same(PB.value_entry(f, -0.0f0, 2), -0.0)
+    @test same(PB.value_entry(f, -0.0f0, 3), 0.0)
+    @test same(PB.value_entry(f, NaN32, 1), 0.0)
+  end
+  @testset "HingeLoss" begin
+    f = HingeLoss(nothing, ws)
+    for (i, w) in enumerate(ws), v in args
+      φ = max(1 - 1 * v, 0)
+      @test @inferred(PB.value_entry(f, v, i)) isa Float64
+      @test same(PB.value_entry(f, v, i), weighted(w, φ))
+    end
+    @test same(PB.value_entry(f, Inf32, 2), 0.0)
+    @test same(PB.value_entry(f, Inf32, 3), 0.0)
+    @test same(PB.value_entry(f, NaN32, 1), 0.0)
+  end
+  @testset "BigFloat weights on Float64 data" begin
+    fc = CheckLoss(0.3, BigFloat[0, 2])
+    fh = HingeLoss(nothing, BigFloat[0, 2])
+    for f in (fc, fh), i in 1:2, v in (0.5, -2.0, NaN, Inf)
+      @test @inferred(PB.value_entry(f, v, i)) isa BigFloat
+    end
+    @test PB.value_entry(fc, NaN, 1) == 0
+    @test isnan(PB.value_entry(fc, NaN, 2))
+    @test PB.value_entry(fh, NaN, 1) == 0
+    @test isnan(PB.value_entry(fh, NaN, 2))
+  end
+  @testset "controls" begin
+    for v in args, i in 1:3
+      @test @inferred(PB.value_entry(EpsInsensitiveLoss(0.1, ws), v, i)) isa Float64
+    end
+    for v in args, i in 1:2
+      @test @inferred(PB.value_entry(SqrHingeLoss(nothing, [0.0, 2.0]), v, i)) isa Float64
+    end
+    for v in args
+      @test @inferred(PB.value_entry(CheckLoss(0.3), v, 1)) isa Float32
+      @test @inferred(PB.value_entry(HingeLoss(), v, 1)) isa Float32
+    end
+  end
+  @testset "dense, sparse and value_and_prox! results are Float32" begin
+    x = Float32[NaN, -1, 0]
+    for f in (CheckLoss(0.3, ws), HingeLoss(nothing, ws))
+      @test f(x) isa Float32
+      @test f(Float32[NaN, 0.5, 2]) isa Float32
+      si = SparseIterate(Float32, 3)
+      si[1] = NaN32; si[2] = -1f0
+      @test f(si) isa Float32
+      @test value_and_prox!(similar(x), f, x, 1f0) isa Float32
+    end
+    @test HingeLoss(nothing, [0.0, 2.0])(Float32[NaN, -1]) === 4f0
+    @test CheckLoss(0.3, [0.0, 2.0])(Float32[NaN, -1]) === Float32(2.0 * Float64((τ - 1) * -1f0))
+  end
+end
+
 @testset "zero level is the identity at every step (finite entries)" begin
   x = [2.0, -1.0, 0.5, 0.0, 5.0]
   for f in (MCP(0, 3), SCAD(0, 3.7), LogPenalty(0, 1), LogPenalty(0.0, 0.5)), γ in (0.0, 0.3, 1.0, 3.0, 10.0, Inf)

@@ -128,6 +128,16 @@ the earlier behavior applies.
     indicator, a user type; also under a `Scaled` or a `Translate`), and a
     function without a stored infinite level; an infinite level can still be lost there, and a
     follow-up issue tracks these configurations.
+  - A box that misses the domain of an infinite-level `NormL1` raises before writing
+    (decision 49, #666): `prox(Constrained(NormL1(Inf), IndBox(1.0, 2.0)), [1.0, 2.0], 1.0)`
+    throws `ArgumentError("the IndBox misses the domain of NormL1")`, where it returned
+    `[1.0, 1.0]`, the clamp of the hard zero into the box. The same holds for `prox!`,
+    `value_and_prox!`, array steps and `Scaled(Constrained(...), α)` at a positive step, with
+    the check on the entries of positive weight (a zero weight leaves its entry free), and
+    nothing is written before the error. A box that contains zero gives the hard zero as before,
+    and so do a finite level, a zero step, other penalties in the box and the standalone value
+    (`Inf` away from the domain). Coordinate updates of a `SparseIterate` or an `AtomIterate`
+    do not run the check yet.
   - `SparseGroupNormL2` with an infinite ℓ1 level sets every grouped entry to
     zero at every step, also with a zero group level or weight:
     `prox(SparseGroupNormL2(Inf, 0.0, [1:2], [0.0]), [3.0, 4.0, 9.0], 0.0)` is

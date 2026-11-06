@@ -64,6 +64,7 @@ standard = [
   "ballconstrained",
   "indicator_steps",
   "direct_projection_infinite",
+  "constrained_box_infeasible",
   "constrained_norml1_infinite",
   "constrained_groupnorml2_infinite",
   "symmetric_sphere",

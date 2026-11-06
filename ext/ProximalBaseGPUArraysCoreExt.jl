@@ -118,8 +118,15 @@ function ProximalBase._prox_sep!(y::AnyGPUArray, f::NormL1, x::AnyGPUArray, γ::
   _checkreal(f, y)
   _checksize(y, x)
   _checkparams(f, x)
-  y .= shrink.(x, _WeightLevel(_group_levels(float(eltype(y)), γ, f.λ0)...).(_reshapeparam(_param(f.w), x)))
+  w = _reshapeparam(_param(f.w), x)
+  t = _WeightLevel(_group_levels(float(eltype(y)), γ, f.λ0)...)
+  # the rule of prox_entry, decided on the host from the level and the step as given
+  ProximalBase._l1_fixing(γ, f.λ0) || return (y .= shrink.(x, t.(w)))
+  y .= _l1_fixed_prox.(x, t.(w), w)
 end
+# prox_entry of a NormL1 whose infinite level fixes the penalized entries at zero
+_l1_fixed_prox(v, t, w) = (r = shrink(v, t); ifelse(w > 0, zero(r), r))
+
 # Keep the ordinary reduction; recover exceptional sums in power-of-two units.
 function ProximalBase._value_dense(f::NormL1, x::GPUArray)
   _checkreal(f, x)

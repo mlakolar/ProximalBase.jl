@@ -162,6 +162,30 @@ the band `2^-E` to `2^E`, with `E` a quarter of the exponent range of the elemen
 inside the band, an entry of the step that is itself within `E` of a limit of the range is rounded
 together with the factor. Array-step entries whose exponents spread too far for the levels to hold
 them are rounded, and so are the steps of a function without levels to fold.
+A level that is stored as infinite is a hard constraint, which no product of a factor and a step can
+change: `Scaled(NormL1(Inf), 1e-300)` at the step `1e-300` has the proximal map of the domain `{0}`, as at
+the step `1`, and not the identity of a step rounded to zero. The contract of this route is exact: the call
+returns what the same function returns at a step whose product is an ordinary (normal) positive number, the
+hard domain `{0}` at finite arguments included, up to the sign of a zero (`ElasticNet(1.0, Inf)` at `[-1.0]` gives
+`[0.0]` at the step `1` and `[-0.0]` at the step `0.75` and in the wrapper). How a leaf treats a NaN or infinite entry of the argument at an
+ordinary step is that leaf's own rule (decision 49 settles `NormL1`, `SLOPE`, `NormL1Fused` and `NormLinf`; the
+others are tracked in #662), and the call follows it. A call takes this route only when its function holds a
+stored infinite level (through `Scaled`, `Translate` and sums), every factor of the whole tree, indicators and
+translated or nested wrappers included, and the step are positive finite numbers (for an array step, every
+entry), and every block is a function with an infinite level whose other levels the infinite level makes
+irrelevant, or an indicator of the library's list of plain-data indicators (`IndBox`, `IndNonnegative`, `IndBinary`,
+`IndBallL0`, `IndBallL1`, `IndBallL2`, `IndSphereL2`, `IndSimplex`, `IndHyperplane`, `IndHalfspace`, `IndHyperslab`, `IndSOC`,
+`IndRotatedSOC`, `IndExpPrimal`, `IndExpDual`, `IndPattern`, `IndBanded`, `IndToeplitz`, `IndIsotonic`, `IndBallGroupL0`), also
+under a positive finite `Scaled` or a `Translate`. These are `NormL1`, `NormL1Nonneg`, `NormL2`, `NormLinf`,
+the group norms, `NuclearNorm` and `TracePSD` with an infinite level; `SLOPE` and `NormL1Fused` with an infinite
+first level; `ElasticNet` with an infinite ridge level, or an infinite ℓ1 level and every weight positive, or with
+the finite levels zero; `SparseGroupNormL2` with an infinite ℓ1 level, or an infinite group level and every group
+weight positive, or a zero ℓ1 level. No finite level or factor is folded, multiplied or combined on this route:
+the leaf gets the step of any positive finite size, and the levels that the infinite level makes irrelevant are
+removed. Every other call, a function with a finite level that acts, a finite sibling block, a factor or step that
+is zero, negative, infinite or NaN anywhere in the tree, an indicator that is not on that list (an intersection, a
+constrained or composed indicator, a spectral or factorized one, a user type; also under a `Scaled` or a `Translate`), or a
+function without a stored infinite level, takes the route that it always had.
 A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its gradient and Hessian
 product at its own scale before the factors are applied, so an intermediate that leaves the range is
 lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` at `[1e10]`
@@ -680,6 +704,12 @@ function _nested_step(s::Scaled, γ::Real)
   T = typeof(step)
   (T <: AbstractFloat && isfinite(γ) && γ > 0 && !(floatmin(T) <= step <= floatmax(T))) || return (f, step, a)
   mγ, eγ = frexp(float(γ))
+  # A function with a stored infinite level, all of whose blocks are fixed by it, does not depend on the
+  # factor and the step (`_hard_function`): nothing finite is folded. Otherwise the earlier route.
+  if _has_infinite_level(f) && _hard_scale(a)
+    h = _hard_function(f)
+    h === nothing || return (h, convert(typeof(step), mγ), nothing)
+  end
   ma, ea = _projection_scale_parts(a)
   g = _fold_level_step(f, _ProjectionScale(ma, Int(ea + eγ)))
   # g carries the levels without the ridge that may have been dropped: it is not the chain, and
@@ -2097,6 +2127,85 @@ function _fold_level_step(s::SeparableSum, α)
 end
 function _fold_level_step(s::Sum, α)
   gs = map(f -> _fold_block_step(f, α), s.fs)
+  any(isnothing, gs) ? nothing : Sum(gs, s.scratch)
+end
+# The functions that a stored infinite level fixes, for a positive finite factor and step. The infinite level
+# makes the map the constant map of its domain, whatever positive finite number the factors and the step
+# are, so the call needs no factor and no step folded into a finite level: `_hard_function(f)` is f without the
+# factors of its blocks and with the finite levels that the infinite level makes irrelevant removed, or
+# `nothing` when some block is not of this kind, and the call keeps the route that it had.
+_hard_scale(a::Real) = isfinite(a) && a > 0
+_hard_scale(a::_ProjectionScale) = isfinite(a.m) && a.m > 0
+_steps_hard(γ) = all(g -> g isa Real && isfinite(g) && g > 0, γ)
+# a stored infinite level in the function tree, read from the parameters as stored
+_has_infinite_level(::AbstractFunction) = false
+for (F, fields) in ((:NormL1, (:λ0,)), (:NormL1Nonneg, (:λ0,)), (:NormL2, (:λ,)), (:NormLinf, (:λ,)),
+                    (:ElasticNet, (:λ1, :λ2)), (:GroupNormL2, (:λ0,)), (:GroupNormLinf, (:λ0,)),
+                    (:SparseGroupNormL2, (:λ1, :λ0)), (:NormL1Fused, (:λ1, :λ2)), (:NuclearNorm, (:λ,)),
+                    (:TracePSD, (:λ,)))
+  @eval _has_infinite_level(f::$F) = $(foldl((a, b) -> :($a || isinf(f.$b)), fields[2:end]; init = :(isinf(f.$(fields[1])))))
+end
+_has_infinite_level(f::SLOPE) = any(isinf, f.λ)
+_has_infinite_level(f::Scaled) = _has_infinite_level(f.f)
+_has_infinite_level(f::Translate) = _has_infinite_level(f.f)
+_has_infinite_level(f::Union{SeparableSum, Sum}) = any(_has_infinite_level, f.fs)
+# the weights are tested by value, with no arithmetic on them
+_weights_positive(::Nothing) = true
+_weights_positive(w) = all(x -> x > 0, w)
+# The wrappers are classified first, so that every factor of the tree is validated (`_hard(::Scaled)`) before
+# anything is accepted: a scaled or translated indicator is a wrapper and is never taken as a leaf. An
+# indicator is accepted as a leaf only when it is one of the library's plain-data indicators, listed here by
+# name (their fields are numbers, arrays of numbers, flags, index lists and internal buffers, none of which
+# can hold a function); every other indicator (constrained, composed or intersected ones, spectral and
+# factorized ones, user types, any other subtype) is declined as a whole. The classification is by dispatch
+# on this list, with no reflection on the fields of a type, so it is total.
+const _PlainIndicator = Union{IndBox, IndNonnegative, IndBinary, IndBallL0, IndBallL1, IndBallL2, IndSphereL2,
+                              IndSimplex, IndHyperplane, IndHalfspace, IndHyperslab, IndSOC, IndRotatedSOC,
+                              IndExpPrimal, IndExpDual, IndPattern, IndBanded, IndToeplitz, IndIsotonic,
+                              IndBallGroupL0}
+_hard_function(f::Union{Scaled, Translate, SeparableSum, Sum}) = _hard(f)
+_hard_function(f::_PlainIndicator) = f
+_hard_function(f) = _hard(f)
+_hard(_) = nothing
+_hard(f::ZeroFunction) = f
+# one level, infinite
+for (F, level) in ((:NormL1, :λ0), (:NormL1Nonneg, :λ0), (:NormL2, :λ), (:NormLinf, :λ), (:GroupNormL2, :λ0),
+                   (:GroupNormLinf, :λ0), (:NuclearNorm, :λ), (:TracePSD, :λ))
+  @eval _hard(f::$F) = isinf(f.$level) ? f : nothing
+end
+# an infinite first level fixes every entry (the domain is {0}); the other levels are zeros, as a block, which
+# keeps the levels of a SLOPE nonincreasing
+_hard(f::SLOPE) = any(isinf, f.λ) ? SLOPE(map(λ -> isinf(λ) ? λ : zero(float(λ)), f.λ)) : nothing
+_hard(f::NormL1Fused) = isinf(f.λ1) ? NormL1Fused(f.λ1, isinf(f.λ2) ? f.λ2 : zero(f.λ2)) : nothing
+# two levels: the finite level is irrelevant when the infinite level fixes every coordinate that it
+# touches (a weight of zero leaves its coordinate free), or when it is zero
+function _hard(f::ElasticNet)
+  (isinf(f.λ1) || isinf(f.λ2)) || return nothing
+  zeroed = (isinf(f.λ1) || iszero(f.λ1)) && (isinf(f.λ2) || iszero(f.λ2))
+  (zeroed || isinf(f.λ2) || _weights_positive(f.w)) || return nothing
+  ElasticNet(isinf(f.λ1) ? f.λ1 : zero(f.λ1), isinf(f.λ2) ? f.λ2 : zero(f.λ2), f.w)
+end
+# an infinite ℓ1 level fixes every grouped entry at every step, whatever the group level and weights are
+function _hard(f::SparseGroupNormL2)
+  isinf(f.λ1) && return f
+  isinf(f.λ0) && (iszero(f.λ1) || _weights_positive(f.w)) || return nothing
+  SparseGroupNormL2(zero(f.λ1), f.λ0, f.groups, f.w)
+end
+# a factor is irrelevant when it is a positive finite number; any other factor keeps the earlier route
+function _hard(f::Scaled)
+  c = f.α
+  (c isa Real && isfinite(c) && c > 0) ? _hard_function(f.f) : nothing
+end
+function _hard(t::Translate)
+  g = _hard_function(t.f)
+  g === nothing ? nothing : Translate(g, t.b, t.scratch, t.proxscratch)
+end
+function _hard(s::SeparableSum)
+  gs = map(_hard_function, s.fs)
+  any(isnothing, gs) ? nothing : SeparableSum(gs)
+end
+function _hard(s::Sum)
+  gs = map(_hard_function, s.fs)
   any(isnothing, gs) ? nothing : Sum(gs, s.scratch)
 end
 # a chain anywhere among the blocks may refuse the value of the conjugate

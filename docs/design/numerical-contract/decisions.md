@@ -2039,6 +2039,64 @@ The first families, with the proofs:
   conjugate of `IndBallL1(Inf)`, which shares the reduction, follows at the
   zero vector.
 
+A wrapper step that is not a normal number keeps this domain (#666). `Scaled(f, α)`
+at a positive finite step `γ` reads `f` at `αγ`; when the product underflows to
+zero, is subnormal or overflows, a level that is stored as `Inf` made the old fold
+give up and the leaf receive the rounded step `0` (the identity of `γ = 0` for
+`NormL1`, the NaN of `Inf⋅0` for `SLOPE`, `NormL1Fused` and `NormLinf`). An infinite
+level is a hard constraint that no positive finite factor or step changes, so the call
+takes a route on which nothing finite is folded, multiplied or combined. The contract of
+that route is exact: *the call returns what the same function returns at a step whose
+product is an ordinary (normal) positive number*, the hard domain `{0}` at finite
+arguments included, up to the sign of a zero (`ElasticNet(1.0, Inf)` at `[-1.0]` is `[0.0]` at
+step 1 and `[-0.0]` at step 0.75 and in the wrapper). It is not the mathematical constant map at every nonfinite argument:
+how a leaf treats a NaN or infinite entry at an ordinary step is that leaf's own rule
+(this decision settles `NormL1`, `SLOPE`, `NormL1Fused` and `NormLinf`; the others are
+tracked in #662), and the call follows it. The infinite level is read as stored (R3): a
+finite level whose product overflows or underflows is never read as infinite. The route is
+taken only when all of these hold, and every other call keeps the route that it had:
+
+- the function holds a stored infinite level, through `Scaled`, `Translate` and sums;
+- every factor of the whole tree, indicators and translated or nested wrappers included,
+  and the step, is a positive finite number; for an array step, every entry. The factors are
+  validated before any block is classified, so that no shortcut for an indicator or a hard
+  leaf skips one;
+- every block is a function with an infinite level whose other levels the infinite level
+  makes irrelevant (it fixes every coordinate that they touch), or an indicator or the zero
+  function of the library's closed list of plain-data indicators (`IndBox`, `IndNonnegative`,
+  `IndBinary`, `IndBallL0`, `IndBallL1`, `IndBallL2`, `IndSphereL2`, `IndSimplex`,
+  `IndHyperplane`, `IndHalfspace`, `IndHyperslab`, `IndSOC`, `IndRotatedSOC`, `IndExpPrimal`,
+  `IndExpDual`, `IndPattern`, `IndBanded`, `IndToeplitz`, `IndIsotonic`, `IndBallGroupL0`: the
+  fields of each are numbers, arrays of numbers, flags, index lists or internal buffers; a
+  positive finite `Scaled` or a `Translate` of one is classified as the wrapper it is, and is
+  accepted; any other indicator is declined as a whole, by dispatch on the list and with no
+  reflection on field types: intersections, constrained or composed indicators, spectral and
+  factorized ones, user types): `NormL1`,
+  `NormL1Nonneg`, `NormL2`, `NormLinf`, the group norms, `NuclearNorm` and `TracePSD` with an
+  infinite level; `SLOPE` and `NormL1Fused` with an infinite first level (the domain is `{0}`;
+  the other levels of a `SLOPE` become zeros as a block, which keeps them nonincreasing);
+  `ElasticNet` with an infinite ridge level, or with an infinite ℓ1 level and every weight
+  positive, or with the finite levels zero; `SparseGroupNormL2` with an infinite ℓ1 level (as
+  #657 defines it), or with an infinite group level and every group weight positive, or a
+  zero ℓ1 level. The weights are tested by value, with no arithmetic on them, and a weight of
+  zero leaves its coordinate free, where a finite level acts. Each accepted leaf gives the
+  hard zero at a finite argument at an ordinary step, which is checked.
+
+On that route the leaf gets a step of any positive finite size and the array step is the
+caller's; the levels that the infinite level makes irrelevant are removed, and the factors
+of the blocks are dropped, since they cannot change the constant map.
+
+*Declined*, where the earlier result stays and an infinite level can be lost (a follow-up
+issue tracks them): a finite level that is relevant on a coordinate that the infinite level
+leaves free (a zero weight of `ElasticNet` or `SparseGroupNormL2`, or a finite level of a
+function whose infinite level does not fix it); a finite sibling block next to an infinite
+one; a factor or step that is zero, negative, infinite or NaN, in the chain, in a block or in
+an array step, also under an indicator or a translated indicator; an indicator that is not on the list above, also under a `Scaled` or a `Translate`; a function without a stored infinite level (including a level that is finite
+as stored but overflows a conversion); and every function that is not in the list above
+(`Conjugate`, `Tilt`, the finite `SLOPE` or `NormL1Fused`, and so on). A finite level is never
+folded, rescaled, shortcut or discarded by its size: the exact statements above are the whole
+treatment, which is also why the working precision and the finite results are those of before.
+
 Excluded, and unchanged:
 
 - `γ = 0` with an infinite level. P1 makes the separable `γ = 0` limit the

@@ -261,6 +261,12 @@ end
 #   function with no level to fold takes each step multiplied by the factors with the exponent
 #   applied last, rounded into the step's type.
 function _array_fold(f, a, γ)
+  # a function that a stored infinite level fixes does not depend on the factors and the steps, when all
+  # are positive finite numbers (`_hard_function`): its steps are the caller's array, and nothing is folded
+  if _has_infinite_level(f) && _hard_scale(a) && _steps_hard(γ)
+    h = _hard_function(f)
+    h === nothing || return h, γ, :folded
+  end
   g = _fold_level(f, _NormalScale(a))
   g === nothing || return g, γ, :folded
   shifted = _shifted_fold(f, a, γ)

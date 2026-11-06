@@ -134,6 +134,7 @@ thorough = [
   "graph",
   "infinite_group_weights",
   "infinite_level_nan",
+  "scaled_infinite_level_underflow",
   "l2_nan_blocks",
   "large_inputs",
   "logdet_overflow",

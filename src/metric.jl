@@ -103,29 +103,33 @@ end
 struct _RegularizeSteps{T, N, A<:AbstractArray} <: AbstractArray{T, N}
   γ::A
   ρ::T
+  zero_level::Bool      # the level is zero as given, not as converted to T
 end
-_RegularizeSteps(γ::AbstractArray{<:Any, N}, ρ::T) where {T, N} =
-  _RegularizeSteps{T, N, typeof(γ)}(γ, ρ)
+_RegularizeSteps(γ::AbstractArray{<:Any, N}, ρ::T, zero_level::Bool) where {T, N} =
+  _RegularizeSteps{T, N, typeof(γ)}(γ, ρ, zero_level)
 Base.size(a::_RegularizeSteps) = size(a.γ)
 Base.IndexStyle(::Type{<:_RegularizeSteps}) = IndexLinear()
-Base.@propagate_inbounds Base.getindex(a::_RegularizeSteps{T}, i::Int) where {T} =
-  _regularize_step(convert(T, a.γ[i]), a.ρ)
+Base.@propagate_inbounds function Base.getindex(a::_RegularizeSteps{T}, i::Int) where {T}
+  γ = a.γ[i]
+  _regularize_step(convert(T, γ), a.ρ, a.zero_level & (γ == Inf))
+end
 
-@inline function _regularize_shrink(v, γ, ρ::T) where {T}
-  a, b = _ridge_weights(convert(T, γ), ρ)
+# the step γ is the step as given: the endpoint is decided before it is converted to T
+@inline function _regularize_shrink(v, γ, ρ::T, zero_level::Bool) where {T}
+  a, b = _regularize_weights(convert(T, γ), ρ, zero_level & (γ == Inf))
   a * v
 end
-@inline function _regularize_shrink(v, c, γ, ρ::T) where {T}
-  a, b = _ridge_weights(convert(T, γ), ρ)
+@inline function _regularize_shrink(v, c, γ, ρ::T, zero_level::Bool) where {T}
+  a, b = _regularize_weights(convert(T, γ), ρ, zero_level & (γ == Inf))
   _ridge_blend(v, c, a, b)
 end
 
 function _shrunk!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::AbstractArray)
   T = float(eltype(y))
-  ρ = convert(T, r.ρ)
-  r.c === nothing ? (y .= _regularize_shrink.(x, _checked_parameter(y, γ), ρ)) :
-                    (y .= _regularize_shrink.(x, _checked_parameter(y, r.c), _checked_parameter(y, γ), ρ))
-  _RegularizeSteps(γ, ρ)
+  ρ, zero_level = convert(T, r.ρ), iszero(r.ρ)
+  r.c === nothing ? (y .= _regularize_shrink.(x, _checked_parameter(y, γ), ρ, zero_level)) :
+                    (y .= _regularize_shrink.(x, _checked_parameter(y, r.c), _checked_parameter(y, γ), ρ, zero_level))
+  _RegularizeSteps(γ, ρ, zero_level)
 end
 
 function _check_regularize_group_steps(op, r, y, x, γ)
@@ -156,17 +160,17 @@ function _value_and_prox_regularize_groups!(y, r::Regularize{<:AbstractGroupPena
   _checkwrite(op, r, y, x)
   z = _output_buffer!(r.scratch, y)
   T = float(eltype(z))
-  ρ = convert(T, r.ρ)
+  ρ, zero_level = convert(T, r.ρ), iszero(r.ρ)
   for k in eachindex(r.f.groups)
-    step = convert(T, γ[k])
+    step = γ[k]
     @inbounds for i in r.f.groups[k]
-      z[i] = r.c === nothing ? _regularize_shrink(x[i], step, ρ) :
-                              _regularize_shrink(x[i], r.c[i], step, ρ)
+      z[i] = r.c === nothing ? _regularize_shrink(x[i], step, ρ, zero_level) :
+                              _regularize_shrink(x[i], r.c[i], step, ρ, zero_level)
     end
   end
   # Run in the buffer even for dense outputs, committing only after success.
   w = _wrapper_output(z, z)
-  steps = _RegularizeSteps(γ, ρ)
+  steps = _RegularizeSteps(γ, ρ, zero_level)
   if op === prox!
     _prox_unchecked!(w, r.f, z, steps)
     return _wrapper_commit!(y, w)

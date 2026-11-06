@@ -65,7 +65,12 @@ _has_ordinary_value(::Type{<:CappedL1}) = true
 
 Base.@propagate_inbounds function prox_entry(f::CappedL1, v::T, i::Integer, γ::Real) where {T<:Real}
   S = float(T)
-  c = _weight_coefficient(S, γ, f.λ, _entry(f.w, i))
+  # A level that is zero as given and the step Inf make γλ the product Inf⋅0. The coefficient is
+  # then that of the step 1, which is also that of every positive finite step (0 with the sign of the
+  # level, or Inf at an infinite weight). Any other step, NaN and negative ones included, keeps the
+  # arithmetic of the coefficient. The choice depends on the function and the step only, so a loop
+  # over entries keeps its vectorization.
+  c = _weight_coefficient(S, ifelse(iszero(f.λ) & (γ == Inf), one(γ), γ), f.λ, _entry(f.w, i))
   a, t = S(f.a), abs(S(v))
   z1 = min(max(t - c, zero(S)), a)          # the ℓ1 piece |z| ≤ a: soft thresholding, clipped at a
   z2 = max(t, a)                             # the constant piece |z| ≥ a

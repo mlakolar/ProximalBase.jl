@@ -20,9 +20,12 @@ A failed step does not stop the later ones, so that every problem is printed. No
 the repository. --keep DIR keeps the extraction and the generated files in DIR, which must not exist
 or must be empty. --baseline-dir DIR reads the committed md and csv from DIR (meant for tests).
 
-Exit codes: 0 everything passed; 1 a generated file differs from the committed one or a check failed
-(a check or output failure takes precedence over a crash of a later step); 2 any other failure (archive, usage,
-generator, file system or unexpected error).
+Exit codes: 0 everything passed; 1 a generated file differs from the committed one, or a check failed (the
+checks of check_evidence.py, or verify_csv3.py exiting nonzero, a crash of it included); 2 any other failure
+(archive, usage, file system, a crash of the generator or an exception of this script) when nothing else failed.
+A crash of the generator, or an exception of this script while running a step (for example a subprocess that
+cannot be started), is reported and the later steps still run; it gives exit 1 if another failure was found
+and exit 2 if not.
 Python 3.11 or later (the generator needs tomllib); standard library only.
 """
 import argparse, hashlib, os, re, shutil, subprocess, sys, tarfile, tempfile, traceback, zlib

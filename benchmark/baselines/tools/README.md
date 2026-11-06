@@ -57,9 +57,11 @@ result: both files identical, all checks passed
 ```
 
 Exit code 0: both files are identical and every check passed. 1: a generated file differs from the committed one or a
-check failed (the output names the check, the file, the case, the repetition and the field; a failed check takes
-precedence over a crash of a later step). 2: any other failure, such as an archive, usage, generator or file-system error
-(the message is on stderr).
+check failed (the output names the check, the file, the case, the repetition and the field). A check here includes
+`verify_csv3.py`: a nonzero exit of it, a crash included, is a failed check. 2: any other failure, such as an archive,
+usage, generator or file-system error (the message is on stderr). A crash of the generator, or an exception of
+`reproduce.py` itself while it runs a step (for example a subprocess that cannot be started), does not stop the later
+steps; it gives exit 1 if another failure was found, and exit 2 if nothing else failed.
 
 Options:
 
@@ -173,8 +175,10 @@ passes its directory to the generator. Its SHA-256 is pinned in `check_historica
 - Data the later checks would crash on, each also end to end (`reproduce.py --archive` exits 1, no traceback): a
   non-numeric `timer_floor_ns`, `evals` of `1.5` and of `0`, a negative `ci95_high`, a scalar `before_only` in
   `coverage.json`, a metadata file that is not UTF-8.
-- The backstop: a check that raises gives the `could not complete` error with the exception type; a crash of the generator
-  or of `verify_csv3.py` gives exit 1 after an evidence failure and exit 2 when nothing else failed.
+- The backstop: a check that raises gives the `could not complete` error with the exception type. In a temporary copy of
+  the tools whose `verify_csv3.py` raises, `reproduce.py` exits 1 and names `verify_csv3.py`. With the generator or the
+  `verify_csv3` wrapper replaced by a function that raises (an exception of `reproduce.py` itself), the exit code is 1 after
+  an evidence failure and 2 when nothing else failed.
 
 ## The archive
 

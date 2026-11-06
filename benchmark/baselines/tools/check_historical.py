@@ -240,7 +240,8 @@ def unexpected_data_tampers(ext, tmp):
 
 
 def check_backstop(tmp):
-    """An unexpected exception becomes a named error with its type, and a failed evidence check keeps exit 1."""
+    """An unexpected exception in a check becomes a named error with its type; an exception of reproduce.py itself while
+    running a step (the wrapper functions replaced here, not the subprocess) keeps exit 1 after an evidence failure."""
     real, ext = ce.frozen, os.path.join(tmp, "keep1", rp.TOP)
     def boom():
         raise RuntimeError("boom")
@@ -269,7 +270,7 @@ def check_backstop(tmp):
             setattr(rp, target, {"generate": real_generate, "verify_csv3": real_verify}[target])
     finally:
         rp.generate, rp.verify_csv3 = real_generate, real_verify
-    say("ok: reproduce.py: a crash of the generator or of verify_csv3 gives exit 1 after an evidence failure and exit 2 alone")
+    say("ok: reproduce.py: an exception in the generator or verify_csv3 wrapper (exception path): exit 1 after an evidence failure, exit 2 alone")
 
 
 def csv_tampers(tmp):
@@ -325,6 +326,12 @@ def check_reproduce_and_isolation(tmp):
     code, text = tool(os.path.join(tools, "reproduce.py"))
     expect(code == 0 and "all checks passed" in text, f"reproduce.py beside a stub validate.py: exit {code}; {text[-600:]}")
     say("ok: isolation: the generator fails with a stub benchmark/validate.py (control), reproduce.py beside it exits 0")
+    # a verify_csv3.py that raises, in the same copy: its nonzero exit is a failed check (exit 1), named in the output
+    write(os.path.join(tools, "verify_csv3.py"), 'raise RuntimeError("verify_csv3 stub failure")\n')
+    code, text = tool(os.path.join(tools, "reproduce.py"))
+    expect(code == 1 and "verify_csv3.py exited with 1: RuntimeError: verify_csv3 stub failure" in text and "Traceback" not in text,
+           f"reproduce.py beside a verify_csv3.py that raises: exit {code}; {text[-600:]}")
+    say("ok: a verify_csv3.py that raises (subprocess in a copy of the tools): reproduce.py exits 1 naming verify_csv3.py")
 
 
 def main():

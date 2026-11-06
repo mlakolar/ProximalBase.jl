@@ -339,6 +339,20 @@ end
       @test_throws InexactError kf(-M, M, one(T), zero(T), false)(T[Inf, 1])
     end
 
+    @testset "BigFloat levels ($T)" begin
+      # A BigFloat level takes the recovery through frexp of a BigFloat, whose exponent is an Int32
+      # on some platforms (#645): every exponent is converted before it enters a _ProjectionScale.
+      @test positive_ok(SingularValue(NormL1(big(q)))(A), big(q) * 2big(M), T, 1)
+      @test positive_ok(SingularValue(Conjugate(IndBallL1(big(q))))(A), big(q) * 2big(M), T, 1)
+      @test positive_ok(Spectral(Constrained(NormL1(big(q)), IndBox(0, Inf)))(A), big(q) * 2big(M), T, 1)
+      @test SingularValue(Conjugate(Scaled(NormL1(big(M)), big(4))))(A) === zero(T)
+      @test SingularValue(Conjugate(Scaled(NormL2(big(M)), T(4))))(fill(M, 8, 8)) === T(Inf)
+      Y = fill(T(5) / 8 * M, 2, 2)
+      @test positive_ok(SingularValue(Conjugate(SqrNormL2(big(M))))(Y), (5big(M) / 4)^2 / (2big(M)), T, 2)
+      @test positive_ok(SingularValue(SqrNormL2(big(l2)))(A), big(l2) / 2 * 4big(M)^2, T, 2)
+      T === Float32 && @test positive_ok(SingularValue(CubeNormL2(big(2.0)^-300))(A), big(2.0)^-300 / 3 * (2big(M))^3, T, 3)
+    end
+
     @testset "rectangular and rank-deficient ($T)" begin
       for Z in (fill(M, 2, 3), fill(M, 3, 2))
         σ = [sqrt(big(6)) * big(M), big(0)]

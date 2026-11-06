@@ -12,9 +12,11 @@ HISTORICAL_BASELINE_PASSED, with the Python version; any failure exits with a me
   frozen rule historical/validate.py has its pinned hash and the historical behaviour of timer_limited;
   isolation   a replaced benchmark/validate.py does not reach the generator or reproduce.py (with a control
               that shows the replacement would have failed the generator);
-  negative    tampered copies of the evidence, one change each, are caught by the check meant for them.
+  negative    tampered copies of the evidence, one change each, are caught by the check meant for them,
+              including data that the later checks would crash on (named structure errors, no traceback);
+  backstop    an unexpected exception in a check becomes a named error, and the exit codes of reproduce.py.
 """
-import csv, hashlib, io, math, os, shutil, subprocess, sys, tempfile
+import contextlib, csv, hashlib, io, math, os, re, shutil, subprocess, sys, tempfile
 
 sys.dont_write_bytecode = True
 TOOLS = os.path.dirname(os.path.abspath(__file__))
@@ -201,6 +203,75 @@ def evidence_tampers(ext, tmp):
     say(f"negative ok: end to end, reproduce.py --archive exits 1 with: identity: harness_hash in {rel} ...")
 
 
+def unexpected_data_tampers(ext, tmp):
+    """Data that the dependent checks would crash on: each must be a named structure error, never a traceback,
+    also through reproduce.py --archive (exit 1)."""
+    floor = lambda t: re.sub(r"(?m)^timer_floor_ns = .*$", 'timer_floor_ns = "broken"', t)
+    def table(change):
+        return lambda d, rel: tamper_table(d, rel, change, "\t" if rel.endswith(".tsv") else ",")
+    def utf8(d, rel):
+        path = os.path.join(d, rel)
+        data = open(path, "rb").read()
+        open(path, "wb").write(b"# \xff\n" + data)
+        expect(open(path, "rb").read() != data, f"the tamper of {rel} did not change the file")
+    cases = (("timer_floor_ns not a number", f"base-groups/{J}-rep01-metadata.toml", "timer_floor_ns",
+              lambda d, rel: tamper_text(d, rel, floor)),
+             ("evals 1.5", f"aa-groups/{J}-rep01-metrics.tsv", "evals",
+              table(lambda r: r[3].__setitem__(r[0].index("evals"), "1.5"))),
+             ("evals 0", f"base-layouts/{J}-rep02-metrics.tsv", "evals",
+              table(lambda r: r[3].__setitem__(r[0].index("evals"), "0"))),
+             ("ci95_high -1", "cmp-groups/comparison.csv", "ci95_high",
+              table(lambda r: r[3].__setitem__(r[0].index("ci95_high"), "-1"))),
+             ("coverage before_only 1", "cmp-layouts/coverage.json", "before_only",
+              lambda d, rel: tamper_text(d, rel, lambda t: t.replace('"before_only": []', '"before_only": 1'))),
+             ("metadata not UTF-8", f"aa-layouts/{J}-rep03-metadata.toml", "cannot be read", utf8))
+    for n, (name, rel, field, edit) in enumerate(cases):
+        d = copy(ext, tmp, f"u_{n}")
+        edit(d, rel)
+        errors = ce.check(d, rp.BASELINES)
+        expect(not any("could not complete" in e for e in errors), f"{name}: a backstop error instead of a structure error: {errors[:3]}")
+        caught(name, errors, rel, rel, field)
+        out = os.path.join(tmp, f"u_{n}.tar.gz")
+        code, text = tool(os.path.join(TOOLS, "pack_evidence.py"), d, out)
+        expect(code == 0, f"pack_evidence.py failed: {text}")
+        code, text = tool(os.path.join(TOOLS, "reproduce.py"), "--archive", out)
+        expect(code == 1 and "Traceback" not in text and rel in text, f"{name}: reproduce.py --archive exit {code}; {text[-500:]}")
+        say(f"negative ok: {name}, end to end: reproduce.py --archive exits 1 without a traceback")
+
+
+def check_backstop(tmp):
+    """An unexpected exception becomes a named error with its type, and a failed evidence check keeps exit 1."""
+    real, ext = ce.frozen, os.path.join(tmp, "keep1", rp.TOP)
+    def boom():
+        raise RuntimeError("boom")
+    ce.frozen = boom
+    try:
+        errors = ce.check(ext, rp.BASELINES)
+    finally:
+        ce.frozen = real
+    expect(errors == ["aa/counts: could not complete: RuntimeError: boom"], f"backstop: {errors}")
+    say(f"ok: backstop: an exception in a stage gives the error {errors[0]!r}")
+    # reproduce.py: an evidence failure (harness_hash of one A/A file) with a later crash is still exit 1, a crash alone is exit 2
+    d = copy(ext, tmp, "b_identity")
+    tamper_text(d, f"aa-groups/{J}-rep02-metadata.toml", lambda t: t.replace(ce.PIN["harness_hash"], "0" * 40))
+    out = os.path.join(tmp, "b_identity.tar.gz")
+    expect(tool(os.path.join(TOOLS, "pack_evidence.py"), d, out)[0] == 0, "pack_evidence.py failed")
+    real_generate, real_verify = rp.generate, rp.verify_csv3
+    def crash(*args):
+        raise RuntimeError("late crash")
+    try:
+        for target in ("generate", "verify_csv3"):
+            setattr(rp, target, crash)
+            for archive, want in ((out, 1), (None, 2)):
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    code = rp.main(["--archive", archive] if archive else [])
+                expect(code == want, f"{target} crashing with {'a failed evidence check' if archive else 'no other failure'}: exit {code}, expected {want}")
+            setattr(rp, target, {"generate": real_generate, "verify_csv3": real_verify}[target])
+    finally:
+        rp.generate, rp.verify_csv3 = real_generate, real_verify
+    say("ok: reproduce.py: a crash of the generator or of verify_csv3 gives exit 1 after an evidence failure and exit 2 alone")
+
+
 def csv_tampers(tmp):
     d = os.path.join(tmp, "t_csv")
     os.makedirs(d)
@@ -270,6 +341,8 @@ def main():
             expect(render(list(csv.reader(text.splitlines(), delimiter=delimiter)), delimiter) == text, f"cannot rewrite {path}")
         structure_tampers(ext, tmp)
         evidence_tampers(ext, tmp)
+        unexpected_data_tampers(ext, tmp)
+        check_backstop(tmp)
         csv_tampers(tmp)
     say("HISTORICAL_BASELINE_PASSED python " + " ".join(sys.version.split()))
 

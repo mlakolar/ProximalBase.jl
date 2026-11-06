@@ -58,7 +58,7 @@ result: both files identical, all checks passed
 
 Exit code 0: both files are identical and every check passed. 1: a generated file differs from the committed one or a
 check failed (the output names the check, the file, the case, the repetition and the field; a failed check takes
-precedence over a crash of the generator). 2: any other failure, such as an archive, usage, generator or file-system error
+precedence over a crash of a later step). 2: any other failure, such as an archive, usage, generator or file-system error
 (the message is on stderr).
 
 Options:
@@ -118,10 +118,14 @@ evidence, in this order. A failed structure check skips the others.
 - **Structure.** Each of the twelve result directories (base and A/A, groups and layouts) holds the metadata, metrics and
   error files of repetitions 1 to 3 and nothing else; every case appears once per file; each metrics file has exactly its kind's
   case set (3,455 groups, 264 layouts, equal to the case set of its comparison file; the union equals the 3,719 cases of the
-  committed csv), the `rep` column of its repetition, and the `cases` of its metadata; the error files are empty.
+  committed csv), the `rep` column of its repetition, and the `cases` of its metadata; the error files are empty. The values
+  the later checks read are validated here, so that bad data gives a named error and not a crash: `timer_floor_ns` a finite
+  positive number, `evals` a positive integer (not `1.5`, `0` or `1e3`), the numeric columns of the comparison files finite
+  and `ci95_low`, `ci95_high` positive, `coverage.json` an object with list `before_only` and `after_only` and an integer
+  `shared_measurements`, and every file readable (also as UTF-8 and TOML).
 - **Identity.** All twelve metadata files agree on the harness hash, the source commit and hash, Julia and the settings
   (the generator's sixteen keys and more; the values of `harness_hash`, `source_sha`, `source_hash`, `julia` and `groups` are
-  pinned), the tree was clean, there were no failures, the timer floor is finite and positive. The comparison files record
+  pinned), the tree was clean, there were no failures. The comparison files record
   Julia 1.13.3, three paired runs and the timer limit multiple 10, and `coverage.json` no unmatched case. The generator itself
   checks the identity only across the base files.
 - **A/A comparison.** For every case, the speedup, the 95% interval and the means of the comparison files are recomputed from
@@ -140,6 +144,11 @@ evidence, in this order. A failed structure check skips the others.
 - **Counts**, recomputed and compared with the csv and with pinned values: 3,719 cases (3,455 and 264); 94 timer-limited
   (94 on the base side, 94 on the A/A side, none on the A/A side only); 3,625 not timer-limited, 1,092 of them can gate 5%,
   2,533 cannot; 104 with varying work; 104 A/A flags (intervals that exclude 1) among the 3,625.
+
+Each stage of `check_evidence.py` after the structure check also runs under a backstop: an exception that the
+validation did not foresee becomes an error of the form `<stage>: could not complete: <ExceptionType>: <message>`, the
+errors already found are kept, and the dependent stages are skipped. Such a message names a defect of the checks or
+data that nobody foresaw, not a finding about the baseline.
 
 The timer-limited rule is `historical/validate.py`: `check_timer_limit_multiple` and `timer_limited` copied verbatim from
 `benchmark/validate.py` at `5d43d165`, the harness of the run. `check_evidence.py` loads it by path, and `reproduce.py`
@@ -161,6 +170,11 @@ passes its directory to the generator. Its SHA-256 is pinned in `check_historica
   `pack_evidence.py` and `reproduce.py --archive`; a changed `ci95_low` and a changed speedup in the comparison files; a
   flipped `gate5` and a changed `aa_half_width` in a copy of the csv, end to end through `reproduce.py --baseline-dir`;
   and an A/A-side `median_ns` of 1, which exercises the A/A side of the timer rule that the real data never does.
+- Data the later checks would crash on, each also end to end (`reproduce.py --archive` exits 1, no traceback): a
+  non-numeric `timer_floor_ns`, `evals` of `1.5` and of `0`, a negative `ci95_high`, a scalar `before_only` in
+  `coverage.json`, a metadata file that is not UTF-8.
+- The backstop: a check that raises gives the `could not complete` error with the exception type; a crash of the generator
+  or of `verify_csv3.py` gives exit 1 after an evidence failure and exit 2 when nothing else failed.
 
 ## The archive
 

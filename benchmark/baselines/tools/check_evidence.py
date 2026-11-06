@@ -9,7 +9,8 @@ groups of checks, in this order; a failed structure check skips the others, whic
 fail on missing data:
 
   structure  the twelve result directories hold exactly repetitions 1-3, every case once, every file
-             with the expected row count, case set and repetition, the error files empty;
+             with the expected row count, case set and repetition, the error files empty, and every value
+             the later checks read well formed (so that bad data is a named error, not a crash);
   identity   the twelve metadata files record the same harness, source, Julia, settings and kind;
   aa/counts  the A/A comparison (speedup, 95% interval, means, timer-limited, assessment) is recomputed
              from the raw means of the base and A/A repetitions, the committed csv columns aa_ratio,
@@ -20,6 +21,9 @@ The timer-limited rule is the frozen historical/validate.py, loaded by its path.
 of the historical compare.py. Archived floats are compared within ULPS units in the last place of the
 larger value: the archive was computed on macOS, and the exp and log of another platform's libm may
 differ by one unit. Every figure the baseline publishes is rounded to four decimals.
+
+A stage that raises anyway is reported as "<stage>: could not complete: <ExceptionType>: <message>" (the
+errors found so far are kept, the dependent stages skipped): a defect of the checks, not a finding.
 
 Standard library only; Python 3.11 or later. Each error names the check, the file, the case, the repetition
 and the field where they apply.
@@ -92,7 +96,7 @@ class Errors:
 
     def __init__(self):
         self.items, self.seen, self.dropped = [], collections.Counter(), collections.Counter()
-        self.structure = False
+        self.structure = self.crashed = False
 
     def add(self, check, field, message):
         if check == "structure":
@@ -137,6 +141,19 @@ def numbers(rows, rel, errs, fields, positive=()):
                          f"not a finite{' positive' if f in positive else ''} number")
 
 
+def integers(rows, rel, errs, fields):
+    """Every field of every row is a positive integer in the form int() accepts (so not 1.5, 1e3 or an empty string)."""
+    for row in rows:
+        for f in fields:
+            try:
+                good = int(row[f]) > 0
+            except (TypeError, ValueError):
+                good = False
+            if not good:
+                errs.add("structure", f"{rel} {f}", f"{rel}, case {row.get('id')}: field {f} is {row.get(f)!r}, "
+                         f"not a positive integer")
+
+
 def case_set(rows, rel, errs, expected):
     """Row count and uniqueness of ids; returns the id set."""
     ids = [r.get("id") for r in rows]
@@ -155,6 +172,24 @@ def same_cases(have, want, rel, against, errs):
                      f"e.g. {sorted(ids, key=str)[0]}")
 
 
+def guarded(stage):
+    """Turn an unexpected exception of a stage into a named error, so that no traceback hides the findings so far.
+    The message names the exception type: it is a defect of the checks or of unforeseen data, not a finding."""
+    def wrap(fn):
+        def run(*args):
+            errs = next(a for a in args if isinstance(a, Errors))
+            try:
+                return fn(*args)
+            except Exception as exc:
+                errs.add(stage, "could not complete", f"could not complete: {type(exc).__name__}: {exc}")
+                errs.crashed = True
+                return None
+        run.__name__, run.__doc__ = fn.__name__, fn.__doc__
+        return run
+    return wrap
+
+
+@guarded("structure")
 def check_structure(root, baseline_dir, errs):
     """Load the evidence; return it, or None if a structure check failed (the errors are in errs)."""
     ev = SimpleNamespace(root=root, runs={}, cmp={}, coverage={}, csv={}, meta={})
@@ -167,16 +202,23 @@ def check_structure(root, baseline_dir, errs):
                                             "ci95_high", "timing_assessment"), ",")
         if rows is not None:
             numbers(rows, rel, errs, ("before_mean_ns", "after_mean_ns", "paired_geometric_speedup", "ci95_low",
-                                      "ci95_high"), positive=("ci95_low",))
+                                      "ci95_high"), positive=("ci95_low", "ci95_high"))
             cmp_ids[k] = case_set(rows, rel, errs, N_CASES[k])
             ev.cmp[k] = {r["id"]: r for r in rows}
         rel = f"cmp-{k}/coverage.json"
         try:
             with open(os.path.join(root, rel), encoding="utf-8") as fh:
-                ev.coverage[k] = json.load(fh)
-            [ev.coverage[k][x] for x in ("shared_measurements", "before_only", "after_only")]
-        except (OSError, ValueError, KeyError, TypeError) as exc:
-            errs.add("structure", rel, f"{rel} cannot be read as coverage: {type(exc).__name__}: {exc}")
+                cov = json.load(fh)
+        except (OSError, ValueError) as exc:         # includes JSON and UTF-8 decoding errors
+            errs.add("structure", rel, f"{rel} cannot be read: {type(exc).__name__}: {exc}")
+        else:
+            bad = [f for f in ("before_only", "after_only") if not isinstance(cov, dict) or not isinstance(cov.get(f), list)]
+            if not isinstance(cov, dict) or isinstance(cov.get("shared_measurements"), bool) or not isinstance(cov.get("shared_measurements"), int):
+                bad.append("shared_measurements")
+            for f in bad:
+                errs.add("structure", rel + f, f"{rel}: field {f} is {cov.get(f) if isinstance(cov, dict) else cov!r}, "
+                         f"expected {'an integer' if f == 'shared_measurements' else 'a list'} in a JSON object")
+            ev.coverage[k] = cov
     rows = read_table(baseline_dir, CSV_NAME, errs, ("id", "family", "name", "layout", "work_varies", "timer_limited",
                                                      "aa_ratio", "aa_half_width", "gate5"), ",")
     csv_ids = None
@@ -207,8 +249,8 @@ def check_structure(root, baseline_dir, errs):
                     try:
                         with open(os.path.join(root, stem + "metadata.toml"), "rb") as fh:
                             meta = tomllib.load(fh)
-                    except (OSError, tomllib.TOMLDecodeError) as exc:
-                        errs.add("structure", stem, f"{stem}metadata.toml cannot be read: {exc}")
+                    except (OSError, ValueError) as exc:      # includes TOMLDecodeError and UnicodeDecodeError
+                        errs.add("structure", stem, f"{stem}metadata.toml cannot be read: {type(exc).__name__}: {exc}")
                 rows = (read_table(root, stem + "metrics.tsv", errs, ("id", "rep", "work", "evals", "mean_ns", "median_ns"), "\t")
                         if prefix + "metrics.tsv" in found else None)
                 if (prefix + "errors.tsv" in found
@@ -219,7 +261,8 @@ def check_structure(root, baseline_dir, errs):
                     continue
                 rel = stem + "metrics.tsv"
                 ids = case_set(rows, rel, errs, N_CASES[k])
-                numbers(rows, rel, errs, ("work", "evals", "median_ns", "mean_ns"), positive=("mean_ns",))
+                numbers(rows, rel, errs, ("work", "median_ns", "mean_ns"), positive=("mean_ns",))
+                integers(rows, rel, errs, ("evals",))
                 if k in cmp_ids:
                     same_cases(ids, cmp_ids[k], rel, f"cmp-{k}/comparison.csv", errs)
                 for row in rows:
@@ -228,6 +271,10 @@ def check_structure(root, baseline_dir, errs):
                                  f"expected {r} (repetition {r})")
                 if meta is not None:
                     ev.meta[stem + "metadata.toml"] = (role, k, r, meta)
+                    floor = meta.get("timer_floor_ns")      # read by the timer rule of every dependent check
+                    if isinstance(floor, bool) or not isinstance(floor, (int, float)) or not math.isfinite(floor) or floor <= 0:
+                        errs.add("structure", stem + "floor", f"{stem}metadata.toml: field timer_floor_ns is {floor!r}, "
+                                 f"expected a finite positive number")
                     if meta.get("cases") != len(rows):
                         errs.add("structure", stem + "cases", f"{stem}metadata.toml: field cases is {meta.get('cases')!r}, "
                                  f"{rel} has {len(rows)} rows")
@@ -235,6 +282,7 @@ def check_structure(root, baseline_dir, errs):
     return None if errs.structure else ev
 
 
+@guarded("identity")
 def check_identity(ev, errs):
     """The metadata files agree on the run, and the comparison files on their settings."""
     ref = None
@@ -248,9 +296,6 @@ def check_identity(ev, errs):
             errs.add("identity", "failures", f"failures in {rel} is {meta.get('failures')!r}, expected 0")
         if meta.get("rep") != r:
             errs.add("identity", "rep", f"rep in {rel} is {meta.get('rep')!r}, expected {r}")
-        floor = meta.get("timer_floor_ns")
-        if isinstance(floor, bool) or not isinstance(floor, (int, float)) or not math.isfinite(floor) or floor <= 0:
-            errs.add("identity", "timer_floor_ns", f"timer_floor_ns in {rel} is {floor!r}, expected a finite positive number")
         ref = ref or (rel, meta)
         for key in SAME_KEYS:
             if key not in meta:
@@ -268,6 +313,7 @@ def check_identity(ev, errs):
                      f"{cov['after_only'][:2]}, shared_measurements {cov['shared_measurements']!r}, expected none and {n}")
 
 
+@guarded("aa/counts")
 def check_aa_counts(ev, errs, info):
     """Recompute the A/A comparison, the csv columns and the counts; info collects report lines."""
     rule = frozen()
@@ -342,7 +388,8 @@ def check(root, baseline_dir=BASELINES, info=None):
     ev = check_structure(root, baseline_dir, errs)
     if ev is not None:
         check_identity(ev, errs)
-        check_aa_counts(ev, errs, info)
+        if not errs.crashed:
+            check_aa_counts(ev, errs, info)
     return errs.list()
 
 

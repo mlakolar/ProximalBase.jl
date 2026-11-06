@@ -21,7 +21,7 @@ the repository. --keep DIR keeps the extraction and the generated files in DIR, 
 or must be empty. --baseline-dir DIR reads the committed md and csv from DIR (meant for tests).
 
 Exit codes: 0 everything passed; 1 a generated file differs from the committed one or a check failed
-(a check failure takes precedence over a crash of the generator); 2 any other failure (archive, usage,
+(a check or output failure takes precedence over a crash of a later step); 2 any other failure (archive, usage,
 generator, file system or unexpected error).
 Python 3.11 or later (the generator needs tomllib); standard library only.
 """
@@ -111,7 +111,8 @@ def generate(work):
            "--out-md", f"{out_dir}/{OUTPUTS[0]}", "--out-csv", f"{out_dir}/{OUTPUTS[1]}"]
     proc = subprocess.run(cmd, cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if proc.returncode != 0:
-        raise ToolError(f"make_baseline.py exited with {proc.returncode}\n{proc.stderr.strip()}")
+        last = (proc.stderr.strip().splitlines() or [""])[-1]      # its traceback ends with the cause
+        raise ToolError(f"make_baseline.py exited with {proc.returncode}: {last}")
     return [f"{out_dir}/{n}" for n in OUTPUTS]
 
 
@@ -120,8 +121,8 @@ def verify_csv3(work, baseline):
     proc = subprocess.run([sys.executable, "-I", "-B", VERIFY, os.path.join(work, TOP), os.path.join(baseline, OUTPUTS[1])],
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     lines, problems = proc.stdout.splitlines() + ["", "", ""], []
-    if proc.returncode != 0:
-        problems.append(f"verify_csv3.py exited with {proc.returncode}: {(proc.stderr.strip().splitlines() or [''])[-1]}")
+    if proc.returncode != 0:      # it crashed on data the checks of the evidence should have named
+        return [f"verify_csv3.py exited with {proc.returncode}: {(proc.stderr.strip().splitlines() or [''])[-1]}"]
     c = check_evidence.COUNTS
     if lines[0] != f"rows {c['cases']} | mismatches: none":
         problems.append(f"verify_csv3.py: first line is {lines[0]!r}, expected 'rows {c['cases']} | mismatches: none'")
@@ -167,6 +168,7 @@ def run(args):
         ev = check_evidence.check_structure(os.path.join(work, TOP), baseline, errs)
         if ev is not None:
             check_evidence.check_identity(ev, errs)
+        crashed = errs.crashed
         failed |= report("structure and identity", errs.list())
         if not errs.list():
             print("structure and identity: passed")
@@ -182,15 +184,20 @@ def run(args):
                 else:
                     print(f"{name}: DIFFERENT, generated {a}, committed {b}")
                     failed = True
-        except ToolError as exc:
-            crash = exc
-            print(f"generator: FAILED: {exc}")
-        problems = verify_csv3(work, baseline) if os.path.isfile(os.path.join(baseline, OUTPUTS[1])) else ["no committed csv"]
-        failed |= report("verify_csv3", problems)
-        if not problems:
-            print("verify_csv3: no mismatch; rows, timer-limited, gate and conclusive counts as pinned")
-        if ev is None:
-            print("A/A and counts: skipped, the structure check failed")
+        except Exception as exc:         # a crash must not hide the checks that follow, nor an evidence failure above
+            crash = crash or exc
+            print(f"generator: FAILED: {type(exc).__name__}: {exc}")
+        try:
+            problems = verify_csv3(work, baseline) if os.path.isfile(os.path.join(baseline, OUTPUTS[1])) else ["no committed csv"]
+            failed |= report("verify_csv3", problems)
+            if not problems:
+                print("verify_csv3: no mismatch; rows, timer-limited, gate and conclusive counts as pinned")
+        except Exception as exc:
+            crash = crash or exc
+            print(f"verify_csv3: FAILED: {type(exc).__name__}: {exc}")
+        if ev is None or crashed:
+            print("A/A and counts: skipped, an earlier evidence check failed to complete" if crashed else
+                  "A/A and counts: skipped, the structure check failed")
         else:
             errs, info = check_evidence.Errors(), []
             check_evidence.check_aa_counts(ev, errs, info)
@@ -198,6 +205,8 @@ def run(args):
             failed |= report("A/A and counts", errs.list())
             if not errs.list():
                 print("A/A and counts: passed")
+        if failed and crash is not None:
+            print(f"{type(crash).__name__} in a later step is reported above; the evidence or output failure gives the exit code")
         if crash is not None and not failed:
             raise crash
         print("result:", "a generated file differs or a check failed" if failed else "both files identical, all checks passed")

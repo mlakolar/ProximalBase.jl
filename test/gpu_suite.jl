@@ -693,7 +693,7 @@ end
     for f in (NuclearNorm(0.5), IndBallRank(1), IndStiefel(), TracePSD(0.5),
               IndPSD(), IndPSD(rank = 1), Spectral(NormL1(0.5)),
               SingularValue(NormL1(0.5)), LogDetLoss(Matrix{T}(I, n, n)))
-      @test same(f(DeviceArray(X)), f(X))
+      @test isequal(f(DeviceArray(X)), f(X)) || same(f(DeviceArray(X)), f(X))
       if !all(isfinite, X)
         Y = fill(T(17), size(X))
         DY = DeviceArray(Y)

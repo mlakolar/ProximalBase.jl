@@ -481,19 +481,77 @@ function _prox_unchecked!(y::AbstractArray, f::Union{IndHyperplane, IndHalfspace
   _checksize(y, x)
   _checkparams(f, x)
   _checkparam(γ, x)
-  _check_metric_steps(f, γ)
+  mγ = _check_linear_steps(f, γ)
+  # Branch before passing the normal: the scaled and unscaled normals have different types.
+  _isscaled(f) ? _metric_set_prox!(y, f, x, γ, _normalized_normal(f.a, f.s), _scaled_offset(f), mγ) :
+                 _metric_set_prox!(y, f, x, γ, f.a, f.b, mγ)
+end
+
+# _check_metric_steps, which also returns the largest step: the loop reads every step anyway. For
+# Float32 and Float64 it is branch-free, so that it vectorizes, and works on the bit patterns, which
+# are ordered like the values among the positive finite numbers (as _maximum_abs uses): the steps
+# are all positive and finite exactly when the smallest pattern is positive as an integer (a zero,
+# a negative number and -0.0 are not) and the largest is below that of Inf (Inf and NaN are not).
+# It throws for an invalid step before the largest is returned.
+function _check_linear_steps(f, γ::AbstractArray{T}) where {T<:Union{Float32, Float64}}
+  U = _int_type(T)
+  lo, hi = typemax(U), zero(U)
+  @inbounds @simd for i in eachindex(γ)
+    b = reinterpret(U, γ[i])
+    lo = min(lo, b)
+    hi = max(hi, b)
+  end
+  (lo > zero(U)) & (hi < reinterpret(U, T(Inf))) || _throw_linear_steps(f)
+  reinterpret(T, hi)
+end
+function _check_linear_steps(f, γ::AbstractArray)
+  m = zero(eltype(γ))
+  for g in γ
+    g > zero(g) && isfinite(g) || _throw_linear_steps(f)
+    m = ifelse(g > m, g, m)
+  end
+  m
+end
+@noinline _throw_linear_steps(f) =
+  throw(ArgumentError("the steps of $(nameof(typeof(f))) must be positive and finite"))
+
+# The working normal a and offset b: those of f, or the normalized ones; mγ = max γᵢ.
+function _metric_set_prox!(y, f, x, γ, a, b, mγ)
+  g = _dot_normal(a, x) - b                  # the residual; a halfspace clamps it only below
+  d = _metric_sqnorm(f, x, γ)
+  t = _model_coefficient(y, f isa IndHalfspace ? max(g, zero(g)) : g, d)
+  if !_metric_step_safe(f, a, g, d, t, mγ) && _extreme_projection!(y, f, x, a, d, γ, typeof(t))
+    return y
+  end
   if _isscaled(f)
-    a = _normalized_normal(f.a, f.s)
-    g = _dot_normal(a, x) - _scaled_offset(f)
-    f isa IndHalfspace && (g = max(g, zero(g)))
-    t = _model_coefficient(y, g, _metric_sqnorm(f, x, γ))
     # γᵢâᵢ in the coefficient's type, as for IndHyperslab.
     return _hyperslab_metric_output!(y, x, a, γ, t)
   end
-  g = _dot_normal(f.a, x) - f.b
-  f isa IndHalfspace && (g = max(g, zero(g)))
-  t = _model_coefficient(y, g, _metric_sqnorm(f, x, γ))
-  y .= x .- t .* _checked_parameter(y, γ) .* _checked_parameter(y, f.a)
+  y .= x .- t .* _checked_parameter(y, γ) .* _checked_parameter(y, a)
+end
+
+# The diagonal-step counterpart of _scalar_step_safe (see src/functions/sets.jl for the facts F1
+# and F2 and for B = floatmax(S) / 2, S the type of t). The order of evaluation is the dot
+# product, g, then d = Σᵢ γᵢαᵢ² (formed by _metric_sqnorm, as before), then t = g / d, and then
+# the correction cᵢ = (t γᵢ) αᵢ for a normal that is not scaled, or t (γᵢ âᵢ) for a scaled one,
+# where the scaled normal's products are formed in the order of _hyperslab_metric_output!.
+# - By (F1), a finite g covers the dot product and the offset (for a hyperplane the test of t
+#   below covers it: g is infinite or NaN exactly when t is, d being finite and positive).
+# - The terms of d are nonnegative, so a finite d covers every γᵢαᵢ² and the sum (αᵢ² itself
+#   cannot overflow, since |αᵢ| ≤ 2^(emax / 4), or < 2 when scaled). Without it, d = Inf and a
+#   finite g would give t = 0 and y = x without a warning.
+# - An infinite or NaN t fails the two products below, since mγ > 0.
+# - Let mγ = max γᵢ, R = |α| for a scalar normal and R = √q ≥ max |αᵢ| (1 - 2^-p) for an array
+#   normal, and P = mγ R ≥ γᵢ|αᵢ| (up to the same rounding). By (F2), |t| mγ ≤ B covers every
+#   partial product t γᵢ of a normal that is not scaled, P ≤ B every partial product γᵢ âᵢ of a
+#   scaled one, and |t| P ≤ B every final product. A P that overflows in S is Inf and fails.
+# It fires on an argument whose formula was finite only within a factor 2 of an overflow of one
+# of these, and for an array normal and steps of very different sizes up to 2 √n times that.
+@inline function _metric_step_safe(f, a, g, d, t::S, mγ) where {S}
+  B, m, γm = _half_floatmax(S), abs(t), convert(S, mγ)
+  p = γm * _normal_bound(f, a, S)
+  _raw_finite(f, g) && _finite_value(d) &&
+    (_isscaled(f) ? p <= B && m * p <= B : m * γm <= B && m * p <= B)
 end
 
 prox!(y::AbstractArray, f::IndHyperslab, x::AbstractArray, γ::AbstractArray) =

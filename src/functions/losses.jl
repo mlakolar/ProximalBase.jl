@@ -335,9 +335,11 @@ _checkparams(f::EpsInsensitiveLoss, x) = (_checkparam(f.w, x); true)
 Base.@propagate_inbounds function value_entry(f::EpsInsensitiveLoss, v::T, i::Integer) where {T<:Real}
   w = _entry(f.w, i)
   φ = max(abs(v) - convert(float(T), f.ε), zero(float(T)))
-  # Where φ is NaN (a NaN entry, or an infinite one where ε is Inf in the entry's type, which a
-  # finite ε can round to), a zero weight leaves the entry free; other weights give NaN, and
-  # other entries take the expression below unchanged.
+  # An infinite ε makes the loss zero, whatever the entry.
+  isinf(f.ε) && return zero(w * φ)
+  # Where φ is NaN (a NaN entry, or an infinite one where a finite ε rounds to Inf in the entry's
+  # type), a zero weight leaves the entry free; other weights give NaN, and other entries take
+  # the expression below unchanged.
   isnan(φ) && return iszero(w) ? zero(w * φ) : w * φ
   _weighted_value(w * φ, φ)
 end
@@ -411,7 +413,7 @@ function _conjugate_value(f::EpsInsensitiveLoss, s::AbstractArray)
     _within(a, convert(T, _entry(f.w, i)), T) || return T(Inf)
     v += a
   end
-  iszero(f.ε) ? zero(T) : convert(T, f.ε) * v
+  iszero(f.ε) || iszero(v) ? zero(T) : convert(T, f.ε) * v
 end
 
 ####################################

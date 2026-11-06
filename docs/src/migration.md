@@ -87,6 +87,9 @@ the earlier behavior applies.
     where they were zeros.
   - A zero-level function, such as `NuclearNorm(0)`, returns `0` at a NaN
     entry.
+  - `NormL1Nonneg` at a NaN entry is NaN, where it was `Inf`, and
+    `EpsInsensitiveLoss` with `ε = Inf` is `0` at NaN and `±Inf` entries,
+    where it was NaN.
   - At an admitted infinite step, a proximal map that is constant on finite
     arguments ignores a NaN entry: `prox(NormL1(1.0), [NaN], Inf)` is `[0]`,
     where it was `[NaN]`.

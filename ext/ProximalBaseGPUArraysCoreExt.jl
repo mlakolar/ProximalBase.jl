@@ -151,7 +151,7 @@ function ProximalBase._value_dense(f::NormL1Nonneg, x::GPUArray)
   _checkreal(f, x)
   T = float(eltype(x))
   t = _tol(T)
-  _all(v -> v >= -t, x) || return T(Inf)
+  _all(v -> v >= -t, x) || return mapreduce(isnan, |, x; init = false) ? T(NaN) : T(Inf)
   f.w === nothing && iszero(f.λ0) && return zero(T)
   _sum(T, _WeightValue(_scalar(x, f.λ0)), instantiate(broadcasted(max, x, zero(T))), _reshapeparam(_param(f.w), x))
 end

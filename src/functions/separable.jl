@@ -369,7 +369,7 @@ end
 
 The weighted ℓ1 norm restricted to the nonnegative orthant:
 `f(x) = λ0 Σᵢ wᵢ xᵢ` for `x ≥ 0`, and `Inf` otherwise, the penalty of the
-nonnegative lasso. Its proximal operator is `max(x - γλ0w, 0)`.
+nonnegative lasso. Its proximal operator is `max(x - γλ0w, 0)`. A NaN entry gives NaN.
 """
 struct NormL1Nonneg{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
   λ0::T
@@ -396,7 +396,9 @@ Base.@propagate_inbounds function value_entry(f::NormL1Nonneg, v::T, i::Integer)
     p = _positive_product(f.λ0, w, a)
     ifelse(isinf(w) & !iszero(a), oftype(p, Inf) * a, p)
   else
-    S(Inf)
+    # NaN depends on the entry at every level and weight, so it is not turned into the Inf of a
+    # failed membership test; one type for every branch
+    oftype(_positive_product(f.λ0, _entry(f.w, i), zero(S)), isnan(v) ? NaN : Inf)
   end
 end
 Base.@propagate_inbounds prox_entry(f::NormL1Nonneg, v::T, i::Integer, γ::Real) where {T<:Real} =
@@ -409,7 +411,7 @@ restrict(f::NormL1Nonneg, S::AbstractVector{<:Integer}) = NormL1Nonneg(f.λ0, _r
 
 @inline _l1_value(::NormL1, v, a) = a * abs(v)
 @inline _l1_value(::NormL1Nonneg, v::T, a) where {T} =
-  ifelse(v >= -_tol(T), a * max(v, zero(T)), T(Inf))
+  ifelse(v < -_tol(T), T(Inf), a * max(v, zero(T)))
 
 @inline function _l1_value_sum(f, x::Array{T}, allow_zero::Bool) where {T<:Union{Float32,Float64}}
   s = zero(T)

@@ -2047,50 +2047,42 @@ positive finite scale, where it had made the fold give up and the leaf receive
 the rounded step `0` (the identity of `γ = 0` for `NormL1`, the NaN of
 `Inf⋅0` for `SLOPE`, `NormL1Fused` and `NormLinf`). The infinite level is read as
 stored (R3): a finite level whose product overflows or underflows keeps its
-finite meaning. Next to an infinite level, a finite level that the fold cannot
-form is classified by what it does:
+finite meaning. Only exact statements are made about a finite level next to an
+infinite one:
 
-- *Irrelevant*, when the infinite level fixes every coordinate that it touches
-  (`SLOPE` or `NormL1Fused` with an infinite first level, `ElasticNet` with an
-  infinite ridge level or with an infinite ℓ1 level and positive weights,
-  `SparseGroupNormL2` with an infinite ℓ1 level or with an infinite group level and
-  positive group weights): the level is removed, which is exact.
-- *Relevant on free coordinates*, where a zero weight leaves a coordinate or a
-  group free: the finite level acts there, and the positive-weight coordinates stay
-  fixed. It is kept when it folds, and discarded only when its whole coefficient
-  `mγ · scale · level · weight` is below `floatmin` of the type of the call (the
-  element type of the output, or the type of the step if wider, and not the type of
-  the parameters: a `Float32` coefficient of `1e-50` is a normal `Float64` number),
-  formed from exponents (`2^(e + eλ + ew)` bounds it, with `ew` the exponent of the
-  largest weight that multiplies the level) so that a large weight is counted before
-  the product can underflow. The two bounds are different statements. For a soft
-  threshold, and for the threshold on the norm of a group, the absolute change of every
-  entry is below `floatmin`. For a ridge, the relative change of every entry is below
-  `floatmin`, which is not an absolute bound. Neither is an exact zero: an entry of
-  that magnitude can lose its threshold, as a product rounded to zero does.
-- Otherwise the fold is declined and the function keeps the route that it had. This is
-  the case of a finite block of a sum whose scaled level underflows to zero while a large
-  weight brings its coefficient above `floatmin`, and of an array step on `ElasticNet`
-  or `SparseGroupNormL2` with a zero weight and a finite level that is not a normal number
-  once the scale is folded in (the array step is not folded, so no bound on the entries
-  exists); the infinite level of a positive-weight coordinate can be lost there, as at base.
-  These configurations are excluded here and tracked.
+- *Removed*, when the infinite level fixes every coordinate that the finite level
+  touches, so that it cannot matter: `SLOPE` or `NormL1Fused` with an infinite first
+  level (the domain is `{0}`; the other levels of a `SLOPE` become zeros as a block, which
+  keeps them nonincreasing); `ElasticNet` with an infinite ridge level, or with an
+  infinite ℓ1 level and every weight positive; `SparseGroupNormL2` with an infinite ℓ1
+  level, or with an infinite group level and every group weight positive. A weight of
+  zero leaves its coordinate free, and the finite level acts there. A group level that
+  is removed is replaced by a positive one, because the leaf takes its hard path for an
+  infinite ℓ1 level before it reads the group level, and a group level of zero sends it
+  to the soft-threshold path first, which does not fix a NaN or infinite entry.
+- *Folded*, when the scale can form it (a number once the exponent of the product is
+  folded into the level), together with the infinite level: the leaf gets the
+  significand of the step.
+- Otherwise the fold is declined, and the leaf gets the step as rounded, as before: no
+  finite level is discarded by its size.
 
-A level that is removed keeps the leaf on its hard path: a group level that is irrelevant
-is replaced by a positive one (a group level of zero sends `SparseGroupNormL2` to its
-soft-threshold path before the check of an infinite ℓ1 level, which does not fix a NaN or
-infinite entry), and the finite levels of a `SLOPE` with an infinite first level are replaced
-by zeros, which keeps them nonincreasing. An array step is folded only when every entry is a
-positive finite number; a negative, NaN, zero or infinite entry keeps the result of the steps
-rounded with the factor, in every entry. `SLOPE` and `NormL1Fused` fold their levels for such a
-step only when a level is infinite. A chain of factors, a block that is itself scaled and the
-blocks of a sum take the same route, and the values of scaled functions are unchanged.
+An array step is folded only when every entry is a positive finite number; a negative,
+NaN, zero or infinite entry keeps the result of the steps rounded with the factor, in
+every entry. A block that is itself scaled, the blocks of a sum and a `Translate` take the
+same route (a scaled block under a finite level folds as it did), and the values of scaled
+functions are unchanged. A sum folds only when every
+block does: the blocks with a fold (the norms, the groups, `ElasticNet`,
+`SparseGroupNormL2`, the nuclear norm, indicators, and `Scaled`, `Translate` and sums of
+these) and `SLOPE` and `NormL1Fused` with an infinite first level; a finite `SLOPE` or
+`NormL1Fused` next to an infinite block has no fold, so the sum keeps its earlier result.
+The step fold of `ElasticNet` has its own rule, a ridge level below the range is dropped,
+which is earlier behavior and is not part of this treatment.
 
-A block that is itself scaled, inside a sum, now takes the step fold that it would take alone.
-This corrects finite results that the earlier route lost: in a sweep of 6960 calls of a
-`SeparableSum` of scaled `ElasticNet` and weighted `NormL1` blocks, 94 outputs changed, each
-closer to the BigFloat reference (the earlier route rounded the product of the factors and the
-step to zero, and returned the argument where a large weight kept the coefficient in range).
+*Not covered*, where the earlier result stays and the infinite level can be lost: a
+finite level that is relevant on a free coordinate (a zero weight of `ElasticNet` or
+`SparseGroupNormL2`: its ℓ1 level, or its group level, which the infinite level does not
+fix) or on a finite sibling block, when the product is not a normal number and the level
+cannot be formed by the exponent shift. These are tracked in a follow-up issue.
 
 Excluded, and unchanged:
 

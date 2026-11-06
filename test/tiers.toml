@@ -137,6 +137,7 @@ thorough = [
   "nonfinite_inputs",
   "nonfinite_scalar",
   "l0_nan",
+  "normlinf_infinite_level",
   "ordered_nan",
   "partial",
   "polyhedron",

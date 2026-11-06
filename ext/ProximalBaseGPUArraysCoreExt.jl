@@ -374,6 +374,7 @@ end
 function ProximalBase._weighted_normlinf(λ::Real, x::GPUArray)
   T = float(eltype(x))
   n = mapreduce(abs, max, x; init = zero(T))
+  isinf(λ) && return iszero(n) ? zero(T) : n * T(Inf)
   _level_fits(T, λ) && return convert(T, λ) * n
   R = promote_type(T, float(typeof(λ)))
   convert(T, convert(R, λ) * convert(R, n))
@@ -384,6 +385,10 @@ function ProximalBase.value_and_prox!(y::GPUArray, f::NormLinf, x::GPUArray, γ:
   _checkreal(f, y)
   _checksize(y, x)
   T = float(eltype(y))
+  if isinf(f.λ) && γ > 0 && isfinite(γ)       # the indicator of {0}: zero at every entry
+    fill!(y, zero(eltype(y)))
+    return zero(T)
+  end
   if iszero(f.λ)
     y === x || copyto!(y, x)
     return zero(T)

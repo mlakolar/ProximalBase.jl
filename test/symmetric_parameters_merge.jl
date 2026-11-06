@@ -48,7 +48,8 @@ end
   X = fill(Inf, 2, 2)
   for f in (IndPSD(), IndBallRank(1), IndStiefel(), Conjugate(SingularValue(NormL1(.2))))
     y = zeros(2, 2)
-    @test value_and_prox!(y, Scaled(f, 2.), X, 1.) == Inf
+    # the rank indicator at its all-NaN output (O2) is NaN
+    @test isequal(value_and_prox!(y, Scaled(f, 2.), X, 1.), f isa IndBallRank ? NaN : Inf)
     @test all(isnan, y)
   end
 end

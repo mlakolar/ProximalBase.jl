@@ -184,7 +184,8 @@ end
         @test norm(x, 1) == 7. && norm(x, Inf) == 4. && norm(x, 0) == 2.
         @test norm(x, -Inf) == 0.                     # the entries that are not stored count
         @test fill!(x, 0) === x
-        @test nnz(x) == 0 && Vector(x) == zeros(4)
+        @test nnz(x) == 2 && activecoordinates(x) == [2, 4] && Vector(x) == zeros(4)   # a value write
+        @test nnz(dropzeros!(x)) == 0
         fill!(x, 2.)
         @test Vector(x) == fill(2., 4)
     end

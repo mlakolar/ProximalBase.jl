@@ -164,6 +164,10 @@ _scale_invariant(f::BoxConstrained) = _scale_invariant(f.f) && _cone_bound(f.box
   (_check_value_arrays(c, x); _value_checked(c, x))
 _value_unchecked(c::BoxConstrained, x::AbstractArray) =
   (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.box, x)) ? convert(T, _value_unchecked(c.f, x)) : T(Inf))
+# MCP, SCAD and NormL0 on a box: a NaN entry gives NaN where the value depends
+# on it (constrained_nonconvex.jl).
+_value_unchecked(c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, x::AbstractArray) =
+  (_checkparams(c, x); T = float(eltype(x)); iszero(_value_unchecked(c.box, x)) ? convert(T, _value_unchecked(c.f, x)) : _box_nan_value(c, x, T))
 
 # the scalar problem is convex, so its minimizer on an interval is the nearest
 # point to its unconstrained minimizer

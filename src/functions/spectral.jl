@@ -325,11 +325,13 @@ is returned as `±floatmax`.
 
 Numerical rank counts singular values above `√ε σ₁`, with no absolute floor,
 so the rank threshold is relative at every scale. See
-[Functions of a spectrum](@ref). Non-finite entries are not members. When
-`r ≥ minimum(size(X))`, the proximal operator copies its input, including at
-non-finite inputs.
-When a decomposition is needed, a non-finite input gives an all-`NaN` output.
-`value_and_prox!` returns `Inf` at a non-finite input and zero otherwise.
+[Functions of a spectrum](@ref). An infinite entry is not a member. A NaN
+entry gives the value NaN (E2), except when `r ≥ minimum(size(X))`: the set is
+then every matrix, and the value is `0` at NaN entries alone and `Inf` at an
+infinite entry. When `r ≥ minimum(size(X))`, the proximal operator copies its
+input, including at non-finite inputs, and `value_and_prox!` returns the value
+at that copy. Otherwise a non-finite input gives an all-`NaN` output, and
+`value_and_prox!` returns NaN there and zero at a finite input.
 
 $_PARTIAL_NOTE
 
@@ -363,13 +365,13 @@ function (f::IndBallRank)(X::AbstractMatrix)
   T = float(eltype(X))
   _checkblas(f, T)
   if !_is_device_array(X)
-    all(isfinite, X) || return T(Inf)
+    all(isfinite, X) || return _count_nonfinite_value(minimum(size(X)) <= f.r, X, T)
     minimum(size(X)) <= f.r && return zero(T)
   end
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
   copyto!(ws.A, X)
-  !_is_device_array(X) || all(isfinite, ws.A) || return T(Inf)
+  !_is_device_array(X) || all(isfinite, ws.A) || return _count_nonfinite_value(minimum(size(X)) <= f.r, ws.A, T)
   minimum(size(X)) <= f.r && return zero(T)
   s, = _svd!(ws; vectors = false)
   c = _tol(T) * s[1]
@@ -415,9 +417,13 @@ end
 function value_and_prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
   X = _symmetric_argument(Y, X)
   _checkwrite(value_and_prox!, f, Y, X)
-  finite = all(isfinite, X)
+  T = _valtype(Y)
+  # the value at the output, read from X before Y, which may be X, is written:
+  # a copy of X, or all NaN after a decomposition of a non-finite X (O2)
+  copies = minimum(size(X)) <= f.r
+  v = all(isfinite, X) ? zero(T) : copies ? _count_nonfinite_value(true, X, T) : T(NaN)
   prox!(Y, f, X, γ)
-  finite ? zero(_valtype(Y)) : _valtype(Y)(Inf)
+  v
 end
 
 ####################################

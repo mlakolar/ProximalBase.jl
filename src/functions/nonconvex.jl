@@ -48,8 +48,14 @@ _checkparams(f::CappedL1, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::CappedL1, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  λ, w, m = S(f.λ), S(_entry(f.w, i)), min(abs(S(v)), S(f.a))
-  _weighted_value(_weight_coefficient(λ, w) * m, m)
+  w0 = _entry(f.w, i)
+  λ, w, m = S(f.λ), S(w0), min(abs(S(v)), S(f.a))
+  r = _weighted_value(_weight_coefficient(λ, w) * m, m)
+  # A zero weight, or a zero level at a finite weight, leaves the entry free, NaN included; an
+  # infinite weight keeps its constraint. The parameters decide, not their conversions. (Of the
+  # equivalent forms, this one keeps the sparse value loops at their speed.)
+  iszero(f.λ) && return isinf(w0) ? r : zero(S)
+  ifelse(iszero(w0), zero(S), r)
 end
 Base.@propagate_inbounds function _value_entry_ordinary(f::CappedL1, v::T, i::Integer) where {T<:Real}
   S = float(T)
@@ -220,8 +226,13 @@ _checkparams(f::NormLq, x) = (_checkparam(f.w, x); true)
 
 Base.@propagate_inbounds function value_entry(f::NormLq, v::T, i::Integer) where {T<:Real}
   S = float(T)
-  λ, w, φ = S(f.λ), S(_entry(f.w, i)), abs(S(v))^S(f.q)
-  _weighted_value(_weight_coefficient(λ, w) * φ, φ)
+  w0 = _entry(f.w, i)
+  λ, w, φ = S(f.λ), S(w0), abs(S(v))^S(f.q)
+  r = _weighted_value(_weight_coefficient(λ, w) * φ, φ)
+  # A zero weight, or a zero level at a finite weight, leaves the entry free, NaN included; an
+  # infinite weight keeps its constraint. The parameters decide, not their conversions. There r
+  # is ±0 or NaN, so only a NaN result needs the test, off the ordinary path.
+  isnan(r) && (iszero(w0) | (iszero(f.λ) & !isinf(w0))) ? zero(S) : r
 end
 Base.@propagate_inbounds function _value_entry_ordinary(f::NormLq, v::T, i::Integer) where {T<:Real}
   S = float(T)
@@ -911,9 +922,17 @@ function _zero_value_exponent(f::NormLq, x::AbstractArray)
   (we !== nothing && _upper_exponent(convert(T, f.λ)) - 1 + we[1] > exponent(floatmin(T))) || return nothing
   _underflow_exponent(T, length(x), 1)
 end
+# A NaN entry of CappedL1, and a NaN or infinite entry of NormLq: no term where a zero weight, or
+# a zero level at a finite weight, leaves the entry free (as in value_entry), and otherwise no
+# recovery. The raw parameters decide; value_entry's value cannot enter the sum, which already
+# includes the level applied last, and a q that converts to zero makes it finite.
+Base.@propagate_inbounds function _nonfinite_entry_term(acc, f::Union{CappedL1, NormLq}, i)
+  w0 = _entry(f.w, i)
+  (iszero(w0) | (iszero(f.λ) & !isinf(w0))) ? acc : nothing
+end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::CappedL1, v, i) where {R}
   u = convert(R, v)
-  isnan(u) && return nothing
+  isnan(u) && return _nonfinite_entry_term(acc, f, i)
   _weighted_term_add(acc, _entry(f.w, i), frexp(min(abs(u), convert(R, f.a))))
 end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::LogPenalty, v, i) where {R}
@@ -936,7 +955,7 @@ Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::LogPenalty, v
 end
 Base.@propagate_inbounds function _entry_terms(acc::_ExpSum{R}, f::NormLq, v, i) where {R}
   t = abs(convert(R, v))
-  isfinite(t) || return nothing
+  isfinite(t) || return _nonfinite_entry_term(acc, f, i)
   _weighted_term_add(acc, _entry(f.w, i), frexp(t^convert(R, f.q)))
 end
 

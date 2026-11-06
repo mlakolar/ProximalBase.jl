@@ -470,11 +470,13 @@ end
       @test same(v, want)
       @test isequal(y, wanty)
     end
-    # NuclearNorm at a non-finite input keeps its documented rule
+    # NuclearNorm at a non-finite input keeps its documented rule: NaN at a NaN entry (E2, PR #384),
+    # Inf at an infinite one; an infinite level is never constant
     for X in (T[1 NaN; 0 0], T[0 Inf; 0 0])
-      @test same(NuclearNorm(T(Inf))(X), T(Inf))
+      want = any(isnan, X) ? T(NaN) : T(Inf)
+      @test same(NuclearNorm(T(Inf))(X), want)
       v, Y = vp(NuclearNorm(T(Inf)), X, one(T))
-      @test same(v, T(Inf))
+      @test same(v, want)
       @test all(isnan, Y)
     end
     # the rank indicator shares the overflowing route of the nuclear norm

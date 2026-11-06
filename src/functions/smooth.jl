@@ -557,14 +557,19 @@ end
 @inline _ridge_band_high(::Type{Float32}) = reinterpret(Float32, 0x7e000000)         # 2^125
 @inline _ridge_band_low(::Type{Float64}) = reinterpret(Float64, 0x0010000000000000)   # 2^-1022
 @inline _ridge_band_high(::Type{Float64}) = reinterpret(Float64, 0x7fc0000000000000)  # 2^1021
-# A level that is zero as given and the step Inf make the product γλ Inf⋅0. The weights are then
-# those of the step 1, which are also those of every positive finite step: (1, 0) with the sign of
-# the level. Any other step, NaN and negative ones included, keeps the arithmetic of the product.
 @inline function _ridge_ordinary(::Type{W}, γ, λ) where {W}
   P = promote_type(W, float(typeof(γ)), float(typeof(λ)))
-  tw = convert(W, ifelse(iszero(λ) & (γ == Inf), one(P), P(γ)) * P(λ))
+  tw = convert(W, P(γ) * P(λ))
   a, b = _ridge_weights_t(tw)
-  _RidgeOrdinary{W}(a, b, tw)
+  # A level that is zero as given and the step Inf as given (not as converted, which turns a finite step
+  # beyond the range into Inf) make the product γλ Inf⋅0. The weights are then those of the step 1,
+  # which are also those of every positive finite step: (1, ±0) with the sign of the level. Any other
+  # step, NaN and negative ones included, keeps the arithmetic of the product. The selects follow the
+  # weights, so that they wait behind the division, and they are no branch to a call: the loops over the
+  # entries of a ridge keep their vectorization.
+  endpoint = iszero(λ) & (γ == Inf)
+  t1 = convert(W, one(P) * P(λ))
+  _RidgeOrdinary{W}(ifelse(endpoint, one(W), a), ifelse(endpoint, t1, b), ifelse(endpoint, t1, tw))
 end
 @inline _ridge_scaled(::Type{W}, γ, λ) where {W} =
   (P = promote_type(W, float(typeof(γ)), float(typeof(λ))); _ridge_scaled(W, P(γ), P(λ)))

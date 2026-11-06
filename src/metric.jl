@@ -109,15 +109,18 @@ _RegularizeSteps(γ::AbstractArray{<:Any, N}, ρ::T, zero_level::Bool) where {T,
   _RegularizeSteps{T, N, typeof(γ)}(γ, ρ, zero_level)
 Base.size(a::_RegularizeSteps) = size(a.γ)
 Base.IndexStyle(::Type{<:_RegularizeSteps}) = IndexLinear()
-Base.@propagate_inbounds Base.getindex(a::_RegularizeSteps{T}, i::Int) where {T} =
-  _regularize_step(convert(T, a.γ[i]), a.ρ, a.zero_level)
+Base.@propagate_inbounds function Base.getindex(a::_RegularizeSteps{T}, i::Int) where {T}
+  γ = a.γ[i]
+  _regularize_step(convert(T, γ), a.ρ, a.zero_level & (γ == Inf))
+end
 
+# the step γ is the step as given: the endpoint is decided before it is converted to T
 @inline function _regularize_shrink(v, γ, ρ::T, zero_level::Bool) where {T}
-  a, b = _regularize_weights(convert(T, γ), ρ, zero_level)
+  a, b = _regularize_weights(convert(T, γ), ρ, zero_level & (γ == Inf))
   a * v
 end
 @inline function _regularize_shrink(v, c, γ, ρ::T, zero_level::Bool) where {T}
-  a, b = _regularize_weights(convert(T, γ), ρ, zero_level)
+  a, b = _regularize_weights(convert(T, γ), ρ, zero_level & (γ == Inf))
   _ridge_blend(v, c, a, b)
 end
 
@@ -159,7 +162,7 @@ function _value_and_prox_regularize_groups!(y, r::Regularize{<:AbstractGroupPena
   T = float(eltype(z))
   ρ, zero_level = convert(T, r.ρ), iszero(r.ρ)
   for k in eachindex(r.f.groups)
-    step = convert(T, γ[k])
+    step = γ[k]
     @inbounds for i in r.f.groups[k]
       z[i] = r.c === nothing ? _regularize_shrink(x[i], step, ρ, zero_level) :
                               _regularize_shrink(x[i], r.c[i], step, ρ, zero_level)

@@ -341,15 +341,16 @@ function frozen_function(::Type{T}, family, kind, centered, level) where {T}
   end
 end
 
-# every route of f at the step γ on x: the point of prox, the entries one by one, and array steps
+# every route of f at the step γ on x, with γ as given (a Float64 step on Float32 data is not converted
+# before the oracle sees it): the point of prox, the entries one by one, and array steps
 function frozen_routes(f, x::Vector{T}, γ, array) where {T}
   n = length(x)
-  r = Pair{Symbol, Any}[:prox => outcome(() -> prox(f, x, T(γ))),
-                        :inplace => outcome(() -> (z = copy(x); prox!(z, f, z, T(γ)); z)),
-                        :fused => outcome(() -> (z = similar(x); value_and_prox!(z, f, x, T(γ)); z)),
-                        :entry => outcome(() -> [prox_entry(f, x[i], i, T(γ)) for i in 1:n])]
-  array && push!(r, :array => outcome(() -> prox(f, x, fill(T(γ), n))),
-                    :arrayfused => outcome(() -> (z = similar(x); value_and_prox!(z, f, x, fill(T(γ), n)); z)))
+  r = Pair{Symbol, Any}[:prox => outcome(() -> prox(f, x, γ)),
+                        :inplace => outcome(() -> (z = copy(x); prox!(z, f, z, γ); z)),
+                        :fused => outcome(() -> (z = similar(x); value_and_prox!(z, f, x, γ); z)),
+                        :entry => outcome(() -> [prox_entry(f, x[i], i, γ) for i in 1:n])]
+  array && push!(r, :array => outcome(() -> prox(f, x, fill(γ, n))),
+                    :arrayfused => outcome(() -> (z = similar(x); value_and_prox!(z, f, x, fill(γ, n)); z)))
   r
 end
 
@@ -359,10 +360,10 @@ function frozen_group_routes(::Type{T}, centered, level, γ) where {T}
   f = GroupNormL2(T(2.5), FGROUPS, T[1, 0])
   r = Regularize(f, T(level), centered ? T[FGC...] : nothing)
   x = T[FGX...]
-  res = Pair{Symbol, Any}[:prox => outcome(() -> prox(r, x, T(γ))),
-                          :steps => outcome(() -> prox(r, x, fill(T(γ), 2)))]
+  res = Pair{Symbol, Any}[:prox => outcome(() -> prox(r, x, γ)),
+                          :steps => outcome(() -> prox(r, x, fill(γ, 2)))]
   for k in 1:2
-    push!(res, Symbol(:coord, k) => outcome(() -> (xi = AtomIterate(copy(x), FGROUPS); prox_coordinate!(xi, r, k, T(γ)); Vector(xi))))
+    push!(res, Symbol(:coord, k) => outcome(() -> (xi = AtomIterate(copy(x), FGROUPS); prox_coordinate!(xi, r, k, γ); Vector(xi))))
   end
   res
 end
@@ -517,6 +518,64 @@ const FROZEN_GROUPS = [
   (:group, true, -0.0, Inf) => (prox = [0.0, 0.0, 0.0, -0.0], coord1 = [0.0, 0.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0]),
 ]
 
+# A finite step beyond the range of Float32, on Float32 data (a Float64 step, as given): the base reads
+# it as Inf after the conversion and keeps the arithmetic of the formulas, so it is no endpoint. The
+# step -1e100 is invalid and keeps the base arithmetic. Float64 data keeps 1e100 finite. The values of
+# CappedL1 and SqrNormL2 do not depend on the element type, those of Regularize do.
+const FROZEN_OVERFLOW = [
+  (:capped, :plain, false, 0.0, 1.0e100) => (f32 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf]),
+  (:capped, :plain, false, 0.0, -1.0e100) => (f32 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf]),
+  (:capped, :plain, false, -0.0, 1.0e100) => (f32 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf]),
+  (:capped, :plain, false, -0.0, -1.0e100) => (f32 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf]),
+  (:capped, :weighted, false, 0.0, 1.0e100) => (f32 = [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf], f64 = [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf]),
+  (:capped, :weighted, false, 0.0, -1.0e100) => (f32 = [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf], f64 = [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf]),
+  (:capped, :weighted, false, -0.0, 1.0e100) => (f32 = [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf], f64 = [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf]),
+  (:capped, :weighted, false, -0.0, -1.0e100) => (f32 = [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf], f64 = [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf]),
+  (:sqr, :plain, false, 0.0, 1.0e100) => (f32 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf]),
+  (:sqr, :plain, false, 0.0, -1.0e100) => (f32 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf]),
+  (:sqr, :plain, false, -0.0, 1.0e100) => (f32 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf]),
+  (:sqr, :plain, false, -0.0, -1.0e100) => (f32 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf]),
+  (:sqr, :plain, true, 0.0, 1.0e100) => (f32 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf]),
+  (:sqr, :plain, true, 0.0, -1.0e100) => (f32 = [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf]),
+  (:sqr, :plain, true, -0.0, 1.0e100) => (f32 = [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf]),
+  (:sqr, :plain, true, -0.0, -1.0e100) => (f32 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf]),
+  (:sqr, :box, false, 0.0, 1.0e100) => (f32 = [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0], f64 = [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0]),
+  (:sqr, :box, false, 0.0, -1.0e100) => (f32 = [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0], f64 = [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0]),
+  (:sqr, :box, false, -0.0, 1.0e100) => (f32 = [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0], f64 = [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0]),
+  (:sqr, :box, false, -0.0, -1.0e100) => (f32 = [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0], f64 = [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0]),
+  (:sqr, :box, true, 0.0, 1.0e100) => (f32 = [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, NaN, 0.0], f64 = [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, NaN, 0.0]),
+  (:sqr, :box, true, 0.0, -1.0e100) => (f32 = [0.5, 0.0, 1.0, 0.0, 0.0, 0.0, NaN, NaN, 0.0], f64 = [0.5, 0.0, 1.0, 0.0, 0.0, 0.0, NaN, NaN, 0.0]),
+  (:sqr, :box, true, -0.0, 1.0e100) => (f32 = [0.5, 0.0, 1.0, 0.0, 0.0, 0.0, NaN, NaN, 0.0], f64 = [0.5, 0.0, 1.0, 0.0, 0.0, 0.0, NaN, NaN, 0.0]),
+  (:sqr, :box, true, -0.0, -1.0e100) => (f32 = [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, NaN, 0.0], f64 = [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, NaN, 0.0]),
+  (:reg, :zero, false, 0.0, 1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf]),
+  (:reg, :zero, false, 0.0, -1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf]),
+  (:reg, :zero, false, -0.0, 1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf]),
+  (:reg, :zero, false, -0.0, -1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf]),
+  (:reg, :zero, true, 0.0, 1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf]),
+  (:reg, :zero, true, 0.0, -1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf]),
+  (:reg, :zero, true, -0.0, 1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf]),
+  (:reg, :zero, true, -0.0, -1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf]),
+  (:reg, :l1, false, 0.0, 1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, NaN, Inf, -Inf]),
+  (:reg, :l1, false, 0.0, -1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, NaN, Inf, -Inf]),
+  (:reg, :l1, false, -0.0, 1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, NaN, Inf, -Inf]),
+  (:reg, :l1, false, -0.0, -1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, NaN, Inf, -Inf]),
+  (:reg, :l1, true, 0.0, 1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, NaN, NaN, -Inf]),
+  (:reg, :l1, true, 0.0, -1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, NaN, NaN, -Inf]),
+  (:reg, :l1, true, -0.0, 1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, NaN, NaN, -Inf]),
+  (:reg, :l1, true, -0.0, -1.0e100) => (f32 = [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], f64 = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, NaN, NaN, -Inf]),
+]
+
+const FROZEN_OVERFLOW_GROUPS = [
+  (:group, false, 0.0, 1.0e100) => (f32 = (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]), f64 = (prox = [0.0, 0.0, 0.0, -0.0], coord1 = [0.0, 0.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0])),
+  (:group, false, 0.0, -1.0e100) => (f32 = (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]), f64 = (prox = [1.5000000000000001e100, 2.0e100, 0.0, -0.0], coord1 = [1.5000000000000001e100, 2.0e100, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0])),
+  (:group, false, -0.0, 1.0e100) => (f32 = (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]), f64 = (prox = [0.0, 0.0, 0.0, -0.0], coord1 = [0.0, 0.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0])),
+  (:group, false, -0.0, -1.0e100) => (f32 = (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]), f64 = (prox = [1.5000000000000001e100, 2.0e100, 0.0, -0.0], coord1 = [1.5000000000000001e100, 2.0e100, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0])),
+  (:group, true, 0.0, 1.0e100) => (f32 = (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]), f64 = (prox = [0.0, 0.0, 0.0, 0.0], coord1 = [0.0, 0.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, 0.0])),
+  (:group, true, 0.0, -1.0e100) => (f32 = (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]), f64 = (prox = [1.5000000000000001e100, 2.0e100, 0.0, -0.0], coord1 = [1.5000000000000001e100, 2.0e100, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0])),
+  (:group, true, -0.0, 1.0e100) => (f32 = (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]), f64 = (prox = [0.0, 0.0, 0.0, -0.0], coord1 = [0.0, 0.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0])),
+  (:group, true, -0.0, -1.0e100) => (f32 = (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]), f64 = (prox = [1.5000000000000001e100, 2.0e100, 0.0, 0.0], coord1 = [1.5000000000000001e100, 2.0e100, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, 0.0])),
+]
+
 @testset "frozen base values, $T" for T in (Float32, Float64)
   x = T[FX...]
   for ((family, kind, centered, level, γ), want) in FROZEN
@@ -532,6 +591,25 @@ const FROZEN_GROUPS = [
       w = route === :coord1 ? want.coord1 : route === :coord2 ? want.coord2 : want.prox
       ok = same(got, T.(w))
       ok || @info "frozen group value differs" centered level γ route got w
+      @test ok
+    end
+  end
+  # the steps beyond the range of Float32: each element type has its own base values
+  for ((family, kind, centered, level, γ), want) in FROZEN_OVERFLOW
+    f = frozen_function(T, family, kind, centered, level)
+    w = T === Float32 ? want.f32 : want.f64
+    for (route, got) in frozen_routes(f, x, γ, family !== :sqr)
+      ok = same(got, T.(w))
+      ok || @info "frozen overflow value differs" family kind centered level γ route got w
+      @test ok
+    end
+  end
+  for ((_, centered, level, γ), want0) in FROZEN_OVERFLOW_GROUPS
+    want = T === Float32 ? want0.f32 : want0.f64
+    for (route, got) in frozen_group_routes(T, centered, level, γ)
+      w = route === :coord1 ? want.coord1 : route === :coord2 ? want.coord2 : want.prox
+      ok = same(got, T.(w))
+      ok || @info "frozen overflow group value differs" centered level γ route got w
       @test ok
     end
   end
@@ -556,6 +634,20 @@ end
   @test same(prox(SqrNormL2(nz, T[0]), T[-0.0], Inf_), T[-0.0])
   @test same(prox(Regularize(ZeroFunction(), nz, T[0]), T[-0.0], Inf_), T[-0.0])
   @test same(prox_entry(Regularize(ZeroFunction(), nz, T[0]), T(-0.0), 1, Inf_), T(-0.0))
+  # a finite step beyond the range of the data type is no endpoint, whatever the zero sign of the level
+  for ρ in (z, nz)
+    r = Regularize(ZeroFunction(), ρ)
+    big = 1e100                                       # a Float64 step, as given
+    want = T === Float32 ? T[NaN] : T[0.5]
+    @test same(prox(r, T[0.5], big), want)
+    @test same(prox(r, T[0.5], [big]), want)
+    @test same([prox_entry(r, T(0.5), 1, big)], want)
+    @test same(prox(Regularize(GroupNormL2(T(0.5), [1:1], T[0]), ρ), T[0.5], [big]), want)
+    xi = AtomIterate(T[0.5], [1:1])
+    prox_coordinate!(xi, Regularize(GroupNormL2(T(0.5), [1:1], T[0]), ρ), 1, big)
+    @test same(Vector(xi), want)
+    @test same(prox(r, T[0.5], Inf), T[0.5])          # next to a true Inf
+  end
   # a NaN step is neither rejected nor read as a step: the result is that of the base
   for (f, want) in ((CappedL1(z, T(1)), T[1]), (SqrNormL2(z), T[NaN]), (Regularize(ZeroFunction(), z), T[NaN]),
                     (CappedL1(nz, T(1)), T[1]), (SqrNormL2(nz), T[NaN]), (Regularize(ZeroFunction(), nz), T[NaN]))

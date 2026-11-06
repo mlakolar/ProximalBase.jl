@@ -837,6 +837,13 @@ function _group_prox!(y, f::SparseGroupNormL2, lay, x, γ::Real, ::Val{V}) where
   _checkgroups(f, x)
   S = float(eltype(y))
   y === x || copyto!(y, x)
+  # an infinite ℓ1 level, as stored, fixes every grouped entry at zero at every step, whatever the
+  # entry, the group level and the weights, as on the host; the value is 0
+  if isinf(f.λ1)
+    yl = view(vec(y), 1:length(lay.gid))
+    yl .= _SparseScale(zero(S), length(lay.pos)).(yl, zero(S), lay.gid)
+    return zero(S)
+  end
   zero_group = iszero(f.λ0) && !_has_infinite_group_weight(lay)
   zero_group && iszero(f.λ1) && return zero(S)
   yv = vec(y)

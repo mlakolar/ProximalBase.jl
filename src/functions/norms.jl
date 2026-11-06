@@ -1032,8 +1032,18 @@ tuple form, only the pair that holds the `NaN` is `NaN`.
 With `λ1 = Inf` the domain is `{0}`, whatever `λ2`: at a positive finite step the
 proximal output is zero in every form, also where the argument is `NaN` or `±Inf`
 (decision 49), and the value is `0` at zero, `Inf` at a nonzero argument and `NaN`
-at a `NaN` entry. An infinite `λ2` alone restricts the domain to equal entries,
-which is not a constant map, and has no such rule.
+at a `NaN` entry. An infinite `λ2` with a finite `λ1` restricts the domain to vectors of equal entries (and
+to pairs with `x1ᵢ = x2ᵢ` in the tuple form), which is not a constant map: at a positive finite
+step the proximal output of a vector is `z` in every entry, `z = shrink(mean(v), γλ1)`, the
+projection onto the constant vectors followed by the ℓ1 shrink (the threshold is `γλ1`: the
+squared distance on the constants is `K (z - mean(v))² / 2γ` and the ℓ1 term `K λ1 |z|`), with
+the mean formed without overflow. A single entry has no pairs and is shrunk by `γλ1`. A `NaN` entry
+gives `NaN` in every entry (every entry is fused with it), a pair with `NaN` gives `NaN` in both,
+and `±Inf` entries give the form of a pair: infinities of one sign give that infinity, of both signs
+`NaN`. The value is `λ1 Σₖ |vₖ|` at a vector of equal finite entries (the fusion term is exactly
+zero), `Inf` at any other finite vector, and `NaN` at a `NaN` entry; `value_and_prox!` returns it
+at the stored output. A zero, infinite, negative or `NaN` step keeps the earlier results, which are
+not documented as supported (decision 49, #664).
 Values follow the overflow rule in [Overflow and underflow of values](@ref).
 """
 struct NormL1Fused{T<:Real} <: AbstractFunction
@@ -1140,12 +1150,14 @@ end
 @noinline function _checked_fused_pair_value(f, xy, ::Type{T}) where {T}
   isinf(f.λ1) && return _fused_fixed_value(T, isnan(xy[1]) | isnan(xy[2]), iszero(xy[1]) & iszero(xy[2]))
   ordinary = _fused_pair_value(f, xy)
+  _fused_equal_entries(f) && return _fused_equal_value(f, (xy[1], xy[2]), T, ordinary)
   all(isfinite, xy) && isfinite(f.λ1) && isfinite(f.λ2) ? _recover_fused_pair(f, xy, T) : ordinary
 end
 
 @noinline function _recover_fused_arrays(f, x, ::Type{T}, ordinary) where {T}
   isinf(f.λ1) && return _fused_fixed_value(T, any(isnan, x[1]) || any(isnan, x[2]),
                                            all(iszero, x[1]) && all(iszero, x[2]))
+  _fused_equal_entries(f) && return _fused_equal_arrays_value(f, x, T, ordinary)
   R = promote_type(T, float(typeof(f.λ1)), float(typeof(f.λ2)))
   isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
   m = zero(R)
@@ -1162,6 +1174,51 @@ end
     u, w = _scale_value(u, scale), _scale_value(w, scale)
     h == 1 ? (f.λ1, abs(u) + abs(w), k) : (f.λ2, abs(u - w), k)
   end for i in eachindex(x[1], x[2]), h in 1:2)
+  _fused_scaled_value(terms, 0, T)
+end
+
+# An infinite fusion level with a finite ℓ1 level (#664): the domain is the equal entries, so the value
+# is the ℓ1 term at an argument of equal finite entries (the fusion term is exactly zero there, never
+# Inf⋅0), Inf at another finite argument and NaN at a NaN entry (E2). An infinite entry keeps the
+# ordinary value. Read from the stored levels (R3): the ordinary sums never reach here with finite
+# values, so only the checked paths decide.
+@inline _fused_equal_entries(f::NormL1Fused) = isinf(f.λ2) && isfinite(f.λ1)
+
+# λ1 times n |c|, scaled so that neither the product nor the factor overflows
+function _fused_equal_term(λ1, ::Type{T}, n::Integer, c) where {T}
+  (iszero(λ1) || iszero(c) || n == 0) && return zero(T)
+  R = promote_type(T, float(typeof(λ1)), float(typeof(c)))
+  rc = R(c)
+  k = _magnitude_exponent(abs(rc))
+  u = _scale_value(rc, _power_factors(R, -k))
+  _fused_scaled_value(((λ1, R(n) * abs(u)),), k, T)
+end
+
+# a vector, or the two entries of a pair
+function _fused_equal_value(f, x, ::Type{T}, ordinary) where {T}
+  any(isnan, x) && return T(NaN)
+  all(isfinite, x) || return ordinary
+  isempty(x) && return zero(T)
+  c = first(x)
+  all(==(c), x) || return T(Inf)
+  _fused_equal_term(f.λ1, T, length(x), c)
+end
+
+# the tuple form: independent pairs, every pair of equal entries
+function _fused_equal_arrays_value(f, x, ::Type{T}, ordinary) where {T}
+  x1, x2 = x
+  (any(isnan, x1) || any(isnan, x2)) && return T(NaN)
+  (all(isfinite, x1) && all(isfinite, x2)) || return ordinary
+  for i in eachindex(x1, x2)
+    x1[i] == x2[i] || return T(Inf)
+  end
+  (isempty(x1) || iszero(f.λ1)) && return zero(T)
+  R = promote_type(T, float(typeof(f.λ1)))
+  terms = (begin
+    u = R(x1[i])
+    k = _magnitude_exponent(abs(u))
+    (f.λ1, 2 * abs(_scale_value(u, _power_factors(R, -k))), k)
+  end for i in eachindex(x1, x2))
   _fused_scaled_value(terms, 0, T)
 end
 
@@ -1248,7 +1305,9 @@ function value_and_prox!(y::Tuple{AbstractArray, AbstractArray}, f::NormL1Fused,
 end
 
 @noinline function _recover_fused_arrayprox!(y, f, x, γ, ordinary)
-  isfinite(f.λ1) && isfinite(f.λ2) && all(isfinite, x[1]) && all(isfinite, x[2]) || return ordinary
+  # an infinite fusion level with a finite ℓ1 level is recovered too: the unchecked midpoint of a
+  # pair near floatmax overflows there as well (#664)
+  isfinite(f.λ1) && all(isfinite, x[1]) && all(isfinite, x[2]) || return ordinary
   f(prox!(y, f, x, γ))
 end
 
@@ -1288,6 +1347,7 @@ end
 
 @noinline function _recover_fused_vector(f, x, ::Type{T}, ordinary) where {T}
   isinf(f.λ1) && return _fused_fixed_value(T, any(isnan, x), all(iszero, x))
+  _fused_equal_entries(f) && return _fused_equal_value(f, x, T, ordinary)
   all(isfinite, x) && isfinite(f.λ1) && isfinite(f.λ2) || return ordinary
   _fused_scaled_value(_fused_vector_terms(f, x, T)..., T)
 end
@@ -1387,6 +1447,12 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     @inbounds y[1], y[2] = _prox_l1fused(convert(T, x[1]), convert(T, x[2]), l1, l2, g)
     return V ? @inbounds(f((y[1], y[2]))) : zero(T)
   end
+  # an infinite fusion level with a finite ℓ1 level, at a positive finite step: the projection onto
+  # the constant vectors, then the ℓ1 shrink (#664). Decided from the stored levels and the step as
+  # given, before the order of the entries and the thresholds γλ2 (2k - n - 1) are formed.
+  if n > 0 && isinf(f.λ2) && isfinite(f.λ1) && γ > 0 && isfinite(γ)
+    return _prox_fused_equal!(y, f, x, γ, Val(V), T)
+  end
   p, a, nan = _sortperm_fused!(f, x, T)     # x is read here, so y may be x
   # a NaN entry: the fusion couples every entry to it (E2), unless the step or λ2 is zero; an infinite
   # step, an infinite λ2, or an infinite ℓ1 level at a zero or infinite step keeps the computation
@@ -1410,6 +1476,43 @@ function _prox_fused!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::
     v2 += (2k - n - 1) * wk
   end
   V ? _fused_vector_value(f, y, v1, v2, T) : zero(T)
+end
+
+# the common output z of an infinite fusion level, z = shrink(mean(x), γλ1), and the value at it. The
+# mean is read first, so y may be x. A NaN entry gives NaN, infinite entries of one sign that infinity
+# and of both signs NaN, as the pair form does (decision 49, #664).
+@noinline function _prox_fused_equal!(y::AbstractVector, f::NormL1Fused, x::AbstractVector, γ::Real,
+                                      ::Val{V}, ::Type{T}) where {V, T}
+  z = shrink(_fused_mean(x, T), _level_product(T, γ, f.λ1))
+  fill!(y, z)
+  V ? f(y) : zero(T)
+end
+
+# The mean of the entries of x in T: a compensated sum, which overflows only when the sum does, and
+# then the entries scaled down by the power of two 2^s > n, so that no partial sum overflows, and the
+# quotient scaled back; the result is finite for finite entries (the mean lies between the extremes).
+function _fused_mean(x::AbstractVector, ::Type{T}) where {T}
+  n = length(x)
+  nan = pinf = ninf = false
+  s = c = zero(T)
+  @inbounds for i in 1:n
+    a = convert(T, x[i])
+    nan |= isnan(a)
+    pinf |= a == T(Inf)
+    ninf |= a == T(-Inf)
+    s, c = _compensated_add(s, c, a)
+  end
+  (nan | (pinf & ninf)) && return T(NaN)
+  pinf && return T(Inf)
+  ninf && return T(-Inf)
+  t = s + c
+  isfinite(t) && return t / n
+  sh = 8 * sizeof(n) - leading_zeros(n)     # n < 2^sh
+  s = c = zero(T)
+  @inbounds for i in 1:n
+    s, c = _compensated_add(s, c, ldexp(convert(T, x[i]), -sh))
+  end
+  ldexp((s + c) / n, sh)
 end
 
 # _prox_fused! at an argument with a NaN entry, for a finite step and finite levels, not both

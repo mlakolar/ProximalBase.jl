@@ -2027,6 +2027,29 @@ The first families, with the proofs:
   of any length and each function of a `FiberSum` (the diagonal one on its
   own). The value is `0` at zero, `Inf` at a nonzero argument and NaN at a NaN
   entry.
+- *`NormL1Fused` with `λ2 = Inf` and a finite `λ1` (#664).* The domain is the
+  vectors of equal entries (the pairs `x1ᵢ = x2ᵢ` in the tuple form). This is
+  not a constant map, so the rule of this decision (a NaN does not reach a
+  constant output) does not apply, and E2 stands. On the constants `z·1` of
+  length K the objective is `K(z − m)²/(2γ) + Kλ1|z|` up to a constant, with
+  `m` the mean of the entries, so at a positive finite step the proximal point
+  is `z·1`, `z = shrink(m, γλ1)` (the threshold is `γλ1`, not `Kγλ1`). A vector
+  of one entry has no pairs and is shrunk by `γλ1`. A NaN entry gives NaN in
+  every entry of its group (E2), infinite entries of one sign give that
+  infinity and of both signs NaN, as the pair form already gave. The value is
+  `λ1 Σₖ|vₖ|` at equal finite entries (the fusion term is exactly zero, E4,
+  where the products gave `Inf⋅0`), `Inf` at any other finite argument and NaN
+  at a NaN entry, and `value_and_prox!` returns it at the stored output (O2),
+  a separate output included (O7). The route reads the stored `λ2` and `λ1`
+  and the step as given (R3): a finite `λ2` whose product with the step
+  overflows keeps the finite-level computation, `λ1 = Inf` keeps the hard zero
+  above, and a zero, infinite, negative or NaN step keeps its results, which
+  the library does not document as supported for a vector of K ≥ 3 entries
+  (#311, #665). The proximal output of the pair, the tuple of arrays, the
+  vector of two entries and the pair route of `FiberSum` was this one already
+  (their value was not); the mean of the other
+  vectors is formed by a compensated sum, scaled by a power of two only where
+  the sum itself overflows.
 - *`NormLinf`, `f(x) = λ maxᵢ|xᵢ|`.* With `λ = Inf`, `f(z) = Inf⋅max|zᵢ|`
   is `0` at `z = 0` and `+Inf` at every other finite `z`, so `f` is the
   indicator of `{0}`. For a fixed finite `γ > 0` the unique minimizer of

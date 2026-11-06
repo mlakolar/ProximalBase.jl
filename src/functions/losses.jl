@@ -43,7 +43,8 @@ Base.@propagate_inbounds function value_entry(f::CheckLoss, v::T, i::Integer) wh
   τ = convert(float(T), f.τ)
   w = _entry(f.w, i)
   φ = v >= 0 ? τ * v : (τ - 1) * v
-  iszero(w) ? zero(φ) : _weighted_value(w * φ, φ)      # a zero weight leaves the entry free, NaN included
+  p = w * φ
+  iszero(w) ? zero(p) : _weighted_value(p, φ)          # a zero weight leaves the entry free, NaN included
 end
 Base.@propagate_inbounds function _value_entry_ordinary(f::CheckLoss, v::T, i::Integer) where {T<:Real}
   τ = convert(float(T), f.τ)
@@ -108,7 +109,8 @@ _checkparams(f::HingeLoss, x) = (_checkparam(f.y, x); _checkparam(f.w, x); true)
 Base.@propagate_inbounds function value_entry(f::HingeLoss, v::T, i::Integer) where {T<:Real}
   w = _entry(f.w, i)
   φ = max(1 - _entry(f.y, i) * v, zero(float(T)))
-  iszero(w) ? zero(φ) : _weighted_value(w * φ, φ)      # a zero weight leaves the entry free, NaN included
+  p = w * φ
+  iszero(w) ? zero(p) : _weighted_value(p, φ)          # a zero weight leaves the entry free, NaN included
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::HingeLoss, v::T, i::Integer) where {T<:Real} =
   _entry(f.w, i) * max(1 - _entry(f.y, i) * v, zero(float(T)))
@@ -333,6 +335,10 @@ _checkparams(f::EpsInsensitiveLoss, x) = (_checkparam(f.w, x); true)
 Base.@propagate_inbounds function value_entry(f::EpsInsensitiveLoss, v::T, i::Integer) where {T<:Real}
   w = _entry(f.w, i)
   φ = max(abs(v) - convert(float(T), f.ε), zero(float(T)))
+  # Where φ is NaN (a NaN entry, or an infinite one where ε is Inf in the entry's type, which a
+  # finite ε can round to), a zero weight leaves the entry free; other weights give NaN, and
+  # other entries take the expression below unchanged.
+  isnan(φ) && return iszero(w) ? zero(w * φ) : w * φ
   _weighted_value(w * φ, φ)
 end
 Base.@propagate_inbounds _value_entry_ordinary(f::EpsInsensitiveLoss, v::T, i::Integer) where {T<:Real} =

@@ -159,19 +159,23 @@ together with the factor. Array-step entries whose exponents spread too far for 
 them are rounded, and so are the steps of a function without levels to fold.
 A level that is stored as infinite is a hard constraint, which no product of a factor and a step can
 change: `Scaled(NormL1(Inf), 1e-300)` at the step `1e-300` has the proximal map of the domain `{0}`, as at
-the step `1`, and not the identity of a step rounded to zero. A call takes this route only when its function
-holds a stored infinite level (through `Scaled`, `Translate` and sums), every block of it is a function
-with an infinite level whose other levels the infinite level makes irrelevant, or an indicator, and every
-factor and step is a positive finite number. These are `NormL1`, `NormL1Nonneg`, `NormL2`, `NormLinf`,
-the group norms, `NuclearNorm` and `TracePSD` with an infinite level; `SLOPE` and `NormL1Fused` with an
-infinite first level; `ElasticNet` with an infinite ridge level, or an infinite ℓ1 level and every weight
-positive, or with the finite levels zero; `SparseGroupNormL2` with an infinite ℓ1 level, or an infinite
-group level and every group weight positive, or a zero ℓ1 level. No finite level or factor is folded,
-multiplied or combined on this route: the leaf gets the step of any positive finite size, and the levels
-that the infinite level makes irrelevant are removed. Every other call, a function with a finite level
-that acts, a finite sibling block, a factor or step that is zero, negative, infinite or NaN, or a function
-without a stored infinite level, takes the route that it always had. An array step takes the route only
-when every entry is positive and finite.
+the step `1`, and not the identity of a step rounded to zero. The contract of this route is exact: the call
+returns what the same function returns at a step whose product is an ordinary (normal) positive number, the
+hard domain `{0}` at finite arguments included. How a leaf treats a NaN or infinite entry of the argument at an
+ordinary step is that leaf's own rule (decision 49 settles `NormL1`, `SLOPE`, `NormL1Fused` and `NormLinf`; the
+others are tracked in #662), and the call follows it. A call takes this route only when its function holds a
+stored infinite level (through `Scaled`, `Translate` and sums), every factor of the whole tree, indicators and
+translated or nested wrappers included, and the step are positive finite numbers (for an array step, every
+entry), and every block is a function with an infinite level whose other levels the infinite level makes
+irrelevant, or an indicator without a function inside. These are `NormL1`, `NormL1Nonneg`, `NormL2`, `NormLinf`,
+the group norms, `NuclearNorm` and `TracePSD` with an infinite level; `SLOPE` and `NormL1Fused` with an infinite
+first level; `ElasticNet` with an infinite ridge level, or an infinite ℓ1 level and every weight positive, or with
+the finite levels zero; `SparseGroupNormL2` with an infinite ℓ1 level, or an infinite group level and every group
+weight positive, or a zero ℓ1 level. No finite level or factor is folded, multiplied or combined on this route:
+the leaf gets the step of any positive finite size, and the levels that the infinite level makes irrelevant are
+removed. Every other call, a function with a finite level that acts, a finite sibling block, a factor or step that
+is zero, negative, infinite or NaN anywhere in the tree, a wrapper around an indicator, or a function without a
+stored infinite level, takes the route that it always had.
 A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its gradient and Hessian
 product at its own scale before the factors are applied, so an intermediate that leaves the range is
 lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` at `[1e10]`
@@ -2018,7 +2022,15 @@ _has_infinite_level(f::Union{SeparableSum, Sum}) = any(_has_infinite_level, f.fs
 # the weights are tested by value, with no arithmetic on them
 _weights_positive(::Nothing) = true
 _weights_positive(w) = all(x -> x > 0, w)
-_hard_function(f) = _isindicator(f) ? f : _hard(f)
+# The wrappers are classified first, so that every factor of the tree is validated (`_hard(::Scaled)`) before
+# anything is accepted: an indicator that is a wrapper (a scaled or translated one) is never taken as a leaf. A
+# leaf indicator holds no function; one that does (a constrained or composed indicator) is declined.
+_hard_function(f::Union{Scaled, Translate, SeparableSum, Sum}) = _hard(f)
+_hard_function(f) = _leaf_indicator(f) ? f : _hard(f)
+_leaf_indicator(f) = _isindicator(f) && !any(_holds_function, fieldtypes(typeof(f)))
+_holds_function(::Type{T}) where {T} =
+  T === Any || T <: AbstractFunction || (T <: Tuple && any(_holds_function, fieldtypes(T))) ||
+  (T <: AbstractArray && _holds_function(eltype(T)))
 _hard(::AbstractFunction) = nothing
 _hard(f::ZeroFunction) = f
 # one level, infinite

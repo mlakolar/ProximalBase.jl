@@ -45,6 +45,23 @@ function check(f, x, γ, expected; value = zero(float(eltype(x))))
   end
 end
 
+# as `check`, up to the sign of a zero: the sign of a zero that a leaf gives can depend on the step (for a
+# soft threshold of a negative entry), and the route takes a step of any positive finite size
+z0(a) = a .+ zero(eltype(a))
+function check0(f, x, γ, expected)
+  T = float(eltype(x))
+  @test isequal(z0(prox(f, x, γ)), z0(expected))
+  for op in (prox!, value_and_prox!)
+    fresh = similar(x, T)
+    op(fresh, f, x, γ)
+    sentinel = fill(T(-7), size(x))
+    op(sentinel, f, x, γ)
+    alias = copy(x)
+    op(alias, f, alias, γ)
+    @test isequal(z0(fresh), z0(expected)) && isequal(z0(sentinel), z0(expected)) && isequal(z0(alias), z0(expected))
+  end
+end
+
 # the same result, or the same error, of two calls
 function same_outcome(a, b)
   ra = try a() catch e; e end
@@ -1024,6 +1041,129 @@ end
     g = Scaled(Scaled(ElasticNet(Inf32, 1f0, Float32[0, 1]), 0.75f0), 2f0)
     @test abs(prox(g, BigFloat[1, 2], γ)[1] - ref) < big"1e-70"
   end
+end
+
+####################################
+#  the contract: the same function at an ordinary positive step
+####################################
+
+# The call returns what the same function returns at a step whose product is an ordinary (normal) positive
+# number, the hard domain {0} at finite arguments included; a NaN or infinite entry follows the leaf's own rule
+# at an ordinary step (decision 49 for NormL1, SLOPE, NormL1Fused and NormLinf; the others are tracked in #662),
+# up to the sign of a zero. Every accepted leaf, with finite, NaN, infinite and mixed arguments, scalar and array steps, aliases and the
+# value at the stored output; the reference is the leaf's own call at the steps 1 and 0.75.
+function accepted_leaves(::Type{T}) where {T}
+  inf = T(Inf)
+  big_ = T === Float64 ? T(1e300) : T(1f30)
+  G = [1:1, 2:3]
+  [(NormL1(inf), 3), (NormL1(inf, T[1, 0, 2]), 3), (NormL1(inf, T[1, 1, 1]), 3), (NormL1Nonneg(inf), 3), (NormL2(inf), 3), (NormLinf(inf), 3),
+   (GroupNormL2(inf, G), 2), (GroupNormLinf(inf, G), 2), (GroupNormL2(inf, G, T[1, 0]), 2),
+   (ElasticNet(inf, T(0)), 3), (ElasticNet(inf, T(0), T[1, 0, 2]), 3), (ElasticNet(inf, big_, T[1, 2, 3]), 3), (ElasticNet(inf, T(1), T[1, 1, 1]), 3),
+   (ElasticNet(T(1), inf), 3), (ElasticNet(T(1), inf, T[1, 0, 1]), 3), (ElasticNet(T(0), inf), 3), (ElasticNet(inf, inf), 3), (ElasticNet(inf, inf, T[1, 0, 1]), 3),
+   (SparseGroupNormL2(inf, T(1), G, T[1, 1]), 2), (SparseGroupNormL2(inf, T(0), G, T[1, 1]), 2), (SparseGroupNormL2(inf, big_, G, T[0, 1]), 2),
+   (SparseGroupNormL2(T(1), inf, G, T[1, 2]), 2), (SparseGroupNormL2(T(0), inf, G, T[0, 1]), 2), (SparseGroupNormL2(inf, inf, G, T[1, 1]), 2),
+   (SLOPE(T[inf, 1, T(0.5)]), 3), (SLOPE(T[inf, inf, 0]), 3), (SLOPE(T[inf, big_, 1]), 3),
+   (NormL1Fused(inf, T(1)), 3), (NormL1Fused(inf, T(0)), 3), (NormL1Fused(inf, inf), 3)]
+end
+
+@testset "the contract, vector leaves, $T" for T in (Float32, Float64)
+  big_ = T === Float64 ? T(1e300) : T(1f30)
+  tiny = T === Float64 ? T(1e-300) : T(1f-30)
+  sub = T === Float64 ? T(1e-160) : T(1f-20)         # a subnormal product with itself
+  xs = (T[1, 2, 3], T[-1, 0, 5], T[big_, -big_, 1], T[NaN, 2, 3], T[Inf, -Inf, 3], T[1, NaN, Inf], T[NaN, NaN, NaN], T[Inf, 1, 0], T[-Inf, 1, 2])
+  for (leaf, n) in accepted_leaves(T), x in xs
+    r1, r75 = prox(leaf, x, one(T)), prox(leaf, x, T(0.75))
+    @test isequal(z0(r1), z0(r75))
+    free = (leaf isa Union{NormL1, ElasticNet} && !isnothing(leaf.w) && any(iszero, leaf.w)) ||
+           (leaf isa Union{GroupNormL2, SparseGroupNormL2} && any(iszero, leaf.w))
+    all(isfinite, x) && !free && @test all(iszero, r1)        # the hard zero at a finite argument (no free coordinate)
+    for (α, γ) in ((tiny, tiny), (big_, big_), (sub, sub), (tiny, T(1)))
+      s = Scaled(leaf, α)
+      check0(s, x, γ, r1)
+      y = similar(x)
+      v = value_and_prox!(y, s, x, γ)
+      @test isequal(v, s(y))
+    end
+    # array steps with positive finite entries (one per group for a group function)
+    leaf isa Union{NormL2, NormLinf, SLOPE, NormL1Fused} ||        # these take no array step
+      for γs in (fill(tiny, n), T[tiny, 1, big_][1:n], fill(big_, n))
+        check0(Scaled(leaf, tiny), x, γs, r1)
+      end
+    # a chain of factors
+    check0(Scaled(Scaled(leaf, sub), sub), x, T(1), r1)
+  end
+end
+
+@testset "the contract, matrix leaves, $T" for T in (Float32, Float64)
+  tiny = T === Float64 ? T(1e-300) : T(1f-30)
+  for leaf in (NuclearNorm(T(Inf)), TracePSD(T(Inf)))
+    for X in (T[1 2; 2 3], T[1 0; 0 -2], T[4 1; 1 4], T[NaN 1; 1 2], T[Inf 0; 0 1])
+      ref = try prox(leaf, X, one(T)) catch e; e end
+      ref isa Exception && continue
+      @test isequal(z0(ref), z0(prox(leaf, X, T(0.75))))
+      s = Scaled(leaf, tiny)
+      @test isequal(z0(prox(s, X, tiny)), z0(ref))
+      Y = similar(X)
+      v = value_and_prox!(Y, s, X, tiny)
+      @test isequal(z0(Y), z0(ref)) && isequal(v, s(Y))
+      A = copy(X)
+      value_and_prox!(A, s, A, tiny)
+      @test isequal(z0(A), z0(ref))
+      all(isfinite, X) && @test all(iszero, ref)
+    end
+  end
+end
+
+# Every factor of the tree is validated before a block is accepted: an infinite factor inside any block, under an
+# indicator or a translated indicator included, keeps the earlier result in every block (literals of the earlier
+# result; the value is Inf where an indicator is violated, as before).
+@testset "an excluded factor under an indicator keeps the earlier result, $T" for T in (Float32, Float64)
+  inf = T(Inf)
+  tiny = T === Float64 ? T(1e-300) : T(1f-30)
+  arg = (T[1, 2], T[3, 4])
+  box = IndBox(T(-1), T(1))
+  for (blk, expected) in ((Scaled(box, inf), (T[1, 2], T[1, 1])),
+                          (Translate(Scaled(box, inf), T[1, 1]), (T[1, 2], T[2, 2])),
+                          (Scaled(Scaled(IndNonnegative(), T(2)), inf), (T[1, 2], T[3, 4])),
+                          (Translate(Scaled(Scaled(box, T(3)), inf), T[1, 1]), (T[1, 2], T[2, 2])))
+    f = Scaled(SeparableSum(NormL1(inf), blk), tiny)
+    @test isequal(prox(f, arg, tiny), expected)
+    y = (zeros(T, 2), zeros(T, 2))
+    v = value_and_prox!(y, f, arg, tiny)
+    @test isequal(y, expected) && v == inf
+    a = (T[1, 2], T[3, 4])
+    va = value_and_prox!(a, f, a, tiny)
+    @test isequal(a, expected) && va == inf
+    # the step of an array call, and the same block alone under the chain
+    @test isequal(prox(Scaled(SeparableSum(NormL1(inf), blk), tiny), arg, tiny), expected)
+  end
+  # the same blocks with finite factors are accepted, and give the hard zero and the indicator's own projection
+  for blk in (Scaled(box, T(2)), Translate(Scaled(box, T(3)), T[1, 1]), box, Translate(box, T[1, 1]))
+    f = Scaled(SeparableSum(NormL1(inf), blk), tiny)
+    @test isequal(prox(f, arg, tiny), prox(f.f, arg, one(T)))
+    @test prox(f, arg, tiny)[1] == T[0, 0]
+  end
+end
+
+# The review's reproducers of round 8: a nonfinite entry follows the leaf's own rule at an ordinary step (the
+# reference), which is not what the earlier route gave (NormL1Nonneg: [Inf, 1], the elastic nets: [NaN, NaN],
+# the earlier route kept the entry free at a step rounded to zero); a finite argument gives the hard zero.
+@testset "nonfinite entries follow the leaf's rule at an ordinary step" begin
+  x = [Inf, 1.0]
+  for (leaf, expected) in ((NormL1Nonneg(Inf), [NaN, 0.0]), (ElasticNet(Inf, 1.0), [NaN, 0.0]), (ElasticNet(1.0, Inf), [NaN, 0.0]))
+    @test isequal(prox(leaf, x, 1.0), expected)
+    @test isequal(prox(Scaled(leaf, 1e-300), x, 1e-300), expected)
+    @test isequal(prox(Scaled(leaf, 1e-300), x, [1e-300, 1e-300]), expected)
+    @test all(iszero, prox(Scaled(leaf, 1e-300), [1.0, 1.0], 1e-300))
+    y = zeros(2)
+    v = value_and_prox!(y, Scaled(leaf, 1e-300), x, 1e-300)
+    @test isequal(y, expected) && isequal(v, Scaled(leaf, 1e-300)(y))
+  end
+  @test isequal(prox(Scaled(GroupNormLinf(Inf, [1:2]), 1e-300), [NaN, 2.0], 1e-300), prox(GroupNormLinf(Inf, [1:2]), [NaN, 2.0], 1.0))
+  @test prox(Scaled(GroupNormLinf(Inf, [1:2]), 1e-300), [1.0, 2.0], 1e-300) == [0.0, 0.0]
+  # a Translate that overflows in the subtraction is the leaf's own call too
+  tr = Translate(ElasticNet(Inf, 1.0), [-1e308, 0.0])
+  @test isequal(prox(Scaled(tr, 1e-300), [1e308, 1.0], 1e-300), prox(tr, [1e308, 1.0], 1.0))
 end
 
 end

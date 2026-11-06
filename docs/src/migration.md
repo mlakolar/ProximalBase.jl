@@ -113,11 +113,15 @@ the earlier behavior applies.
     that their other levels touch give zeros, where they gave NaN or the identity. This
     holds for a product `αγ` that underflows, is subnormal or overflows, for chains of
     `Scaled`, blocks of sums, array steps with positive finite entries and
-    `value_and_prox!`. Nothing finite is folded, multiplied or combined on this route, so a
+    `value_and_prox!`. The call returns what the same function returns at an ordinary positive
+    step, the hard domain `{0}` at finite arguments included; a NaN or infinite entry follows the
+    leaf's own rule at an ordinary step (decision 49 for `NormL1`, `SLOPE`, `NormL1Fused` and
+    `NormLinf`; the others are tracked in #662), so `prox(Scaled(NormL1Nonneg(Inf), 1e-300), [Inf, 1.0], 1e-300)`
+    is `[NaN, 0]`, as `NormL1Nonneg(Inf)` gives at step 1. Nothing finite is folded, multiplied or combined on this route, so a
     finite level, a finite factor and the working precision keep their results. Declined, with
     the earlier result: a finite level that acts on a coordinate that the infinite level leaves
     free (a zero weight), a finite sibling block next to an infinite one, a factor or step that
-    is zero, negative, infinite or NaN (in the chain, in a block, or an array entry), and a
+    is zero, negative, infinite or NaN (in the chain, in a block, under an indicator, or an array entry), and a
     function without a stored infinite level; an infinite level can still be lost there, and a
     follow-up issue tracks these configurations.
   - `SparseGroupNormL2` with an infinite ℓ1 level sets every grouped entry to

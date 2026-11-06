@@ -364,4 +364,30 @@ end
   end
 end
 
+@testset "FiberSum: a fixed function beside a finite one near floatmax" begin
+  # the finite function's value overflows in the loop's sum but not at the stored output, and the
+  # fixed pairs hold NaN: the value is that of the stored output (O2), whether or not it is the
+  # argument (O7), and a separate output takes the midpoint without overflow
+  for T in (Float32, Float64), swap in (false, true), symmetric in (false, true)
+    fixed, finite = NormL1Fused(T(Inf), T(1)), NormL1Fused(T(0.1), T(0.1))
+    fb = swap ? FiberSum(finite; diagonal = fixed, symmetric) : FiberSum(fixed; diagonal = finite, symmetric)
+    X = fill(T(NaN), 2, 2, 2)
+    if swap
+      X[1, 2, :] .= floatmax(T)
+      X[2, 1, :] .= floatmax(T)
+    else
+      X[1, 1, :] .= floatmax(T)
+      X[2, 2, :] .= one(T)
+    end
+    expected = replace(X, T(NaN) => zero(T))
+    swap || (expected[2, 2, :] .= T(0.9))
+    Y = similar(X)
+    v = value_and_prox!(Y, fb, X, T(1))
+    A = copy(X)
+    va = value_and_prox!(A, fb, A, T(1))
+    @test isequal(Y, expected) && isequal(A, expected) && isequal(prox(fb, X, T(1)), expected)
+    @test isfinite(fb(expected)) && v === fb(Y) && va === fb(A)
+  end
+end
+
 end

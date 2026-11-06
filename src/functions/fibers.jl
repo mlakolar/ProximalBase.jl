@@ -322,6 +322,8 @@ function _fiberprox!(y::AbstractArray{<:Any, 3}, fb::FiberSum{<:NormL1Fused, D},
     fits = _fused_levels_fit(T, f) &&
       (fb.diagonal === nothing || _fused_levels_fit(T, fb.diagonal))
     isfinite(v) && fits && return v
+    # the recoveries below decline an infinite level; a function that it fixes adds no value
+    (z[1] || z[2]) && return _fixed_fibers_value!(y, fb, x, γ, T, v)
     if !isfinite(v) && !Base.mightalias(y, x)
       return _recover_fused_fiberprox!(y, fb, x, γ, own, T, v)
     end
@@ -428,6 +430,15 @@ end
     end
   end
   v
+end
+
+# The value when an infinite ℓ1 level fixes one of the functions and the sum of the other's terms is
+# not finite or its levels do not fit: the value at the stored output, where the fixed pairs are zero
+# and their entries, NaN included, are not read again. A separate output is first recomputed with the
+# checked midpoint, which the loop skips there.
+@noinline function _fixed_fibers_value!(y, fb, x, γ, ::Type{T}, ordinary) where {T}
+  isfinite(ordinary) || Base.mightalias(y, x) || prox!(y, fb, x, γ)
+  convert(T, fb(y))
 end
 
 @noinline function _recover_fused_fiberprox!(y, fb, x, γ, own, ::Type{T}, ordinary) where {T}

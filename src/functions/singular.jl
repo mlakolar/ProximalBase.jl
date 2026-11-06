@@ -36,17 +36,24 @@ singular values. It needs the halfspace: the conjugate of the capped simplex,
 with the hyperplane `Σᵢ wᵢ = k`, is the sum of the `k` largest entries, which is
 not absolutely symmetric.
 
-`isconvex` and the indicator property come from `f`. At a matrix with a NaN
-entry, a function that counts nonzeros, such as `NormL0` or `IndBallL0`, has
-value NaN (E2), also when another entry is infinite. One that takes the same
-value at every spectrum, as `NormL0(0)` and `IndBallL0(r)` with
-`r ≥ minimum(size(X))` do, has value `0` at NaN entries alone and `Inf` at an
-infinite entry. Otherwise an infinite entry gives `Inf`, which for a bounded `f`
-such as `NormL0` is not yet the limit that E3 asks for, and the functions that
-do not count nonzeros give `Inf` at a NaN entry too. When a
-decomposition is needed, a non-finite input gives an all-`NaN` proximal output;
-`value_and_prox!` returns the value of a counting function at that output, NaN,
-or `0` when the function is constant, and `Inf` for the other functions.
+`isconvex` and the indicator property come from `f`. The domain of `F` is the
+finite matrices: a matrix with an infinite entry has value `Inf`, and one with
+a `NaN` entry has value `NaN` (E2), also for a bounded `f` such as `NormL0` and
+also when another entry is infinite. The exceptions are the inner functions
+whose value does not depend on the entries:
+- the zero-level, unweighted `NormL1`, `NormL2`, `NormLinf`, `SumLargest(k, 0)`
+  with `k ≤ minimum(size(X))`, uncentered `SqrNormL2`, `CubeNormL2`,
+  `ElasticNet(0, 0)` and `NormL0(0)`, and `ZeroFunction()`, are the zero
+  function, with value `0` at every input, also at an infinite entry;
+- `IndBallL0(r)` with `r ≥ minimum(size(X))`, also scaled, and a constant
+  counting function on a box that holds every singular value are the
+  indicator of a set of real matrices that holds every finite matrix, with
+  value `0` when the non-finite entries are all `NaN`, and `Inf` at an
+  infinite entry.
+When a decomposition is needed, a non-finite input gives an all-`NaN` proximal
+output. `value_and_prox!` returns the value at that output for a function that
+counts nonzeros (`NaN`, or `0` when the function is constant), and otherwise
+the same value as `F`.
 Only functions that count nonzeros, such as `NormL0` and `IndBallL0`, treat
 singular values at most `√ε σ₁` as zero. Other functions see the computed
 spectrum. Membership and domain tests use `√ε·max(1, |bound|, σ₁)`; sum
@@ -58,7 +65,6 @@ not normal. See [Functions of a spectrum](@ref).
 the returned matrix agrees only when retained entries exceed the numerical-zero
 threshold. The value of `Conjugate(SingularValue(f))` is `f*` at the computed
 singular values of `Y`, with the same membership tolerance and finite domain.
-Whether another `f` evaluates an overflowing spectrum correctly depends on `f`.
 
 At a finite input whose spectrum overflows, the proximal output and the value
 returned by `value_and_prox!` are computed in scaled units for unweighted
@@ -66,7 +72,29 @@ returned by `value_and_prox!` are computed in scaled units for unweighted
 `ElasticNet(λ, 0)`, `IndNonnegative`, `IndBallL0`, `ZeroFunction`, and boxes
 whose bounds are all zero or infinite. Other functions keep the ordinary
 result, which may be infinite, including `SqrNormL2`, bounded balls, weighted
-penalties and compositions. This rule does not change the standalone value.
+penalties and compositions.
+
+The standalone value at a finite input whose spectrum overflows is the value
+at the spectrum of `X/2ᵏ`, scaled by `2^(dk)` for a function of degree `d`,
+with the exponent applied last. This covers `NormL1`, `NormL2`, `NormLinf`,
+`SumLargest`, `SLOPE`, `NormL1Nonneg`, `ElasticNet`, uncentered `SqrNormL2`,
+`CubeNormL2`, the support functions of balls, boxes and simplices, the
+conjugate of uncentered `SqrNormL2`, the conjugates of scaled `NormL1`,
+`NormL2` and `NormLinf`, and `Scaled` and `Constrained` forms of these, also
+in `Conjugate(SingularValue(f))`. A weighted `NormL1`, `NormL1Nonneg` or
+`ElasticNet` whose value at that spectrum is zero or subnormal is recovered
+only by folding the scale into a normal level, and only when the value so
+computed is not below the normal range or every term is an exact zero. The two
+homogeneous parts of `ElasticNet` are recovered or declined each on its own, so
+a part that is declined keeps the ordinary result for the whole value. The
+Ky Fan norm and the other support functions of a box with a linear constraint
+keep the ordinary result, which may be `Inf` or `NaN`, or an `InexactError`
+(#648).
+The support functions of boxes and simplices, which have no level that a
+scale folds into, keep the ordinary result at a level outside the normal range
+of the precision of `X`. Other functions, such as `NormLq`, centered or
+translated functions and functions of the user, keep the ordinary result,
+which may be infinite. See [Functions of a spectrum](@ref).
 
 $_SPECTRAL_NOTE
 """
@@ -106,10 +134,10 @@ function _singular_values!(F::SingularValue, X::AbstractMatrix; copied::Bool = f
   s
 end
 
-# A non-finite entry gives Inf, or for a counting function the value of
-# _count_nonfinite_value. Singular values within rounding of zero count as zero
-# for counting functions. An overflowing spectrum decides membership in scaled
-# units.
+# A non-finite entry gives NaN at a NaN entry and Inf otherwise, unless f is
+# constant (_singular_nonfinite_value). Singular values within rounding of zero
+# count as zero for counting functions. An overflowing spectrum decides
+# membership in scaled units.
 function (F::SingularValue)(X::AbstractMatrix)
   _checkreal(F, X)
   T = float(eltype(X))
@@ -118,37 +146,27 @@ function (F::SingularValue)(X::AbstractMatrix)
     ws = _svd_workspace(F.ws, T, size(X)...)
     F.ws = ws
     copyto!(ws.A, X)
-    all(isfinite, ws.A) || return _singular_nonfinite_value(F.f, ws.A, T)
+    all(isfinite, ws.A) || return _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X)), true), ws.A, T)
   else
-    all(isfinite, X) || return _singular_nonfinite_value(F.f, X, T)
+    # The structure of f is not checked at a non-finite input (E1 there is #686).
+    all(isfinite, X) || return _singular_nonfinite_value(_constant_kind(F.f, minimum(size(X)), true), X, T)
   end
   t, scaled, k = _masked_singular_values!(F, X; copied = _is_device_array(X))
   _decided_on_spectrum(F.f) && return _spectrum_value(F.f, scaled === nothing ? t : scaled, k)
   _counts_nonzeros(F.f) && _scale_invariant(F.f) && scaled !== nothing && return convert(T, F.f(scaled))
-  convert(T, F.f(t))
+  v = convert(T, F.f(t))
+  # An overflowing spectrum: the value at the singular values of X/2^k, when f has a recovery.
+  scaled === nothing || _finite_value(t[1]) ? v : _spectrum_overflow_value(F.f, scaled, k, v)
 end
 
-# Whether a function that counts nonzeros takes the same value, zero, at every
-# spectrum of length k (E4 first): the zero level of NormL0, and IndBallL0 with
-# room for k nonzeros. IndBallL0, scaled and box-constrained ones are in
-# constrained_nonconvex.jl, after their types.
-_count_constant(f, k::Int) = false
-_count_constant(f::NormL0, k::Int) = iszero(f.λ)
-
-# The value at a matrix A with a non-finite entry. For a counting function, a NaN
-# entry gives NaN (E2) unless the function is constant, and an infinite entry
-# gives Inf; NaN takes precedence when the value depends on it. A constant one is
-# Inf at an infinite entry and zero at NaN entries alone. Other functions give Inf.
-function _count_nonfinite_value(constant::Bool, A::AbstractArray, ::Type{T}) where {T}
-  constant && return any(isinf, A) ? T(Inf) : zero(T)
-  any(isnan, A) ? T(NaN) : T(Inf)
+# The value of value_and_prox! at a non-finite X, whose proximal output is all NaN. For a function
+# that counts nonzeros, the value at that output (O2): zero when the function is constant
+# (_constant_kind), NaN otherwise. For the other functions, the value at X (E2).
+function _singular_fused_nonfinite_value(f, X::AbstractMatrix, ::Type{T}) where {T}
+  kind = _constant_kind(f, minimum(size(X)), true)
+  _counts_nonzeros(f) && return kind === nothing ? T(NaN) : zero(T)
+  _singular_nonfinite_value(kind, X, T)
 end
-_singular_nonfinite_value(f, A::AbstractMatrix, ::Type{T}) where {T} =
-  _counts_nonzeros(f) ? _count_nonfinite_value(_count_constant(f, min(size(A)...)), A, T) : T(Inf)
-# The value at an all-NaN output (O2): zero for a constant counting function, NaN
-# for another counting function, and Inf for the other functions.
-_singular_nan_output_value(f, k::Int, ::Type{T}) where {T} =
-  _counts_nonzeros(f) ? (_count_constant(f, k) ? zero(T) : T(NaN)) : T(Inf)
 
 # Only counting functions mask numerical zeros. At extreme scales, return
 # both the original units and the resolved spectrum of X scaled by 2^-k.
@@ -198,8 +216,10 @@ function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix,
   _checkstep(value_and_prox!, F, Y, X, γ)
   T = float(eltype(Y))
   if !all(isfinite, X)
+    # before Y, which may be X, is written
+    v = _singular_fused_nonfinite_value(F.f, X, T)
     fill!(Y, T(NaN))
-    return _singular_nan_output_value(F.f, min(size(X)...), T)
+    return v
   end
   ws = _svd_workspace(F.ws, T, size(X)...)
   F.ws = ws
@@ -256,11 +276,18 @@ _checkconjugate(F::SingularValue, Y::AbstractMatrix) = (_checkreal(F, Y); _check
 function _conjugate_value(F::SingularValue, Y::AbstractMatrix)
   _checkconjugate(F, Y)
   _checkblas(F, float(eltype(Y)))
-  all(isfinite, Y) || return float(eltype(Y))(Inf)
+  all(isfinite, Y) || return _nonfinite_value(Y, float(eltype(Y)))
   f = Conjugate(F.f)
   t, scaled, k = _masked_singular_values!(F, Y; mask = _counts_nonzeros(f))
   _decided_on_spectrum(f) && return _spectrum_value(f, scaled === nothing ? t : scaled, k)
-  _conjugate_value(F.f, t)
+  v = _conjugate_value(F.f, t)
+  # the recovery works from F.f, so that no conjugate escapes this call
+  scaled === nothing || _finite_value(t[1]) ? v : _conjugate_overflow_value(F.f, scaled, k, v)
+end
+@noinline function _conjugate_overflow_value(g, s::AbstractVector, k::Int, v)
+  _conjugate_spectrum_scalable(g) || return v
+  r = _conjugate_scaled(g, s, k, _unit_scale(eltype(s)))
+  r === nothing ? v : convert(typeof(v), r)
 end
 
 @noinline function _scaled_wrapper_svd_prox!(Y, F::SingularValue, X, γ, ws::SVDWorkspace{T}, t) where {T}

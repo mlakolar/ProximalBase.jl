@@ -347,6 +347,80 @@ numerical-zero threshold. For example, `SingularValue(NormL0(1))` at
 `Diagonal([2.0^60, 2, 0])` with step 1 returns `2`, while re-evaluating at its
 proximal point gives `1`.
 
+When the spectrum of a finite matrix overflows, the standalone values of
+`SingularValue(f)`, `Spectral(f)` and `Conjugate(SingularValue(f))` are taken
+from the spectrum `v` of `X/2^k`, the one the decisions above use. For an `f`
+that is positively homogeneous of degree `d`, `f(2^k v) = 2^(dk) f(v)`: the value
+is that of `Scaled(f, 2^(dk))` at `v`, formed by the same private recovery as
+other scaled values, so a level that leaves the range at that scale is folded
+and the exponent is applied last. A scale around `f`, chained or not, joins the
+same power of two. This covers `NormL1`, `NormL2`, `NormLinf`, `SumLargest`
+(signed spectra included), `SLOPE`, `NormL1Nonneg`, `ElasticNet` (its two
+levels separately), uncentered `SqrNormL2`, `CubeNormL2`, the support functions
+of the balls, boxes and simplices, the conjugate of uncentered `SqrNormL2`, and
+`Constrained` forms of these, whose constraints are decided on `v` first. A
+weighted `NormL1`, `NormL1Nonneg` or `ElasticNet` is a sum of products of a
+level, a weight and an entry of `v`, which can lose its value to underflow
+although each factor is normal: when its value at `v` is zero or subnormal, it
+is recovered only by folding the scale into a normal level, and only when the
+value so computed is not below the normal range or every term is an exact zero;
+otherwise it keeps the ordinary result. The conjugates of scaled `NormL1`,
+`NormL2` and `NormLinf` are decided on `v` against their radius in the same
+units, which is never formed in the original units. So
+`SingularValue(NormL1(1/4))` at `fill(floatmax(Float64), 2, 2)`, whose
+singular values are `2floatmax` and `0`, is `floatmax(Float64)/2` to within an
+ulp (the computed singular value is rounded), where it was `Inf`.
+
+Not covered: the support functions of a box with a linear constraint, such as
+the Ky Fan norm, whose kernel keeps its ordinary result, which may be `Inf` or
+`NaN`, or an `InexactError` (#648); the support functions of boxes and simplices
+at a level outside the normal range of the matrix's precision, which have no
+level that a scale folds into; `NormLq`, whose degree is not an integer;
+centered and translated functions, `Precompose` and other transformations;
+penalties that are not homogeneous, such as `LogPenalty`; functions that
+`SingularValue` admits outside its documented domain (order-dependent
+penalties and cones); and functions of the user. These keep the ordinary
+result, which may be infinite. The values that `value_and_prox!` returns at an
+overflowing spectrum are not changed for the functions this paragraph adds.
+
+A matrix with a `NaN` entry gives the value `NaN` for every function of a
+spectrum computed by LAPACK (`SingularValue`, `Spectral`, `NuclearNorm`,
+`TracePSD`, `IndPSD`, `IndBallRank`, `IndStiefel` and `LogDetLoss`), in
+standalone calls and from `value_and_prox!`, and a matrix with an infinite
+entry and no `NaN` gives `Inf`. The same holds for the standalone value of
+`Conjugate(SingularValue(f))` only: its call of `value_and_prox!` is not
+changed, and at a non-finite input it throws an `ArgumentError`, except where
+the conjugate is an indicator, such as that of a norm, whose value there is
+`Inf`. The test runs before the decomposition, which never sees the entry.
+The functions that count nonzeros (`IndBallRank`, and `SingularValue` of
+`NormL0` or `IndBallL0`) are the exception in `value_and_prox!`, which returns
+their value at the stored output (O2): the value of the copy for `IndBallRank(r)`
+with `r ≥ minimum(size(X))`; otherwise the output is all `NaN`, where the value
+is `NaN`, or `0` for a function that is constant (below).
+
+A function whose value does not depend on the entries is the exception
+(E2, E4):
+
+- `NuclearNorm(0)`, and `SingularValue` of a zero-level unweighted `NormL1`,
+  `NormL2`, `NormLinf`, `SumLargest` (with `k ≤ minimum(size(X))`),
+  `CubeNormL2`, uncentered `SqrNormL2`, `ElasticNet(0, 0)`, `NormL0(0)` or
+  `ZeroFunction()`, are the zero function: `0` at every input, also at an
+  infinite entry.
+- `IndBallRank(r)` and `SingularValue(IndBallL0(r))` with
+  `r ≥ minimum(size(X))`, and `SingularValue` of a constant counting function
+  on a box that holds every singular value, are the indicator of a set of real
+  matrices that holds every finite matrix: `0` when the non-finite entries are
+  all `NaN`, and `Inf` at an infinite entry.
+- The standalone value of `Spectral` of such a function, the indicator of the
+  symmetric matrices, is `NaN` only at an off-diagonal `NaN` of a matrix that
+  is not symmetric by type (also with an infinite entry: E2 gives the `NaN`
+  precedence), `Inf` at an infinite entry otherwise, and otherwise `0` or `Inf`
+  as the finite remainder is symmetric or not. Its `value_and_prox!` keeps the
+  general rule, which is not yet settled for this case.
+
+Weighted functions, functions with domain constraints and infinite levels keep
+the general rule, and the proximal outputs are unchanged.
+
 ## GPU arrays
 
 The separable functions work on GPU arrays: CUDA.jl's `CuArray`, and the other

@@ -155,8 +155,8 @@ for [`IndBallL0`](@ref), [`IndBallGroupL0`](@ref), [`IndBallRank`](@ref) and
 `SingularValue(IndBallL0(r))` (the last two at a non-finite input that needs a
 decomposition). `IndBallRank` with `r ≥ minimum(size(X))` copies its input and
 returns the value of the copy: `Inf` at an infinite entry, and `0` when the only
-non-finite entries are NaN. The other spectral indicators return `Inf` at
-non-finite inputs. This equals `f(y)` when the projection is exact, but is
+non-finite entries are NaN. The other spectral indicators return `NaN` at an
+input with a `NaN` entry and `Inf` at another non-finite input (E2). This equals `f(y)` when the projection is exact, but is
 not a feasibility certificate
 for an inexact projection such as [`IndIntersection`](@ref). Computing the value this
 way can be cheaper than `prox!` followed by `f(y)`. The conjugates that

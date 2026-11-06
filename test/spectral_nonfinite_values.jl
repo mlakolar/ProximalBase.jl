@@ -118,7 +118,8 @@ end
       bad = copy(x)
       bad[2, 1] = v
       output = alias ? bad : y
-      @test isequal(value_and_prox!(output, f, bad, one(T)), fused_nonfinite(f, bad, T))
+      fused = fused_nonfinite(f, bad, T)          # before an aliased output overwrites bad
+      @test isequal(value_and_prox!(output, f, bad, one(T)), fused)
       @test all(isnan, output)
       @test f.pws === history
       @test (history.warm, history.rank) == (warm, rank)

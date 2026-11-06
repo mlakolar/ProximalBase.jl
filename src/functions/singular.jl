@@ -42,12 +42,14 @@ a `NaN` entry has value `NaN` (E2), also for a bounded `f` such as `NormL0` and
 also when another entry is infinite. The exceptions are the inner functions
 whose value does not depend on the entries:
 - the zero-level, unweighted `NormL1`, `NormL2`, `NormLinf`, `SumLargest(k, 0)`
-  with `k ≤ minimum(size(X))`, uncentered `SqrNormL2`, `CubeNormL2` and
-  `ElasticNet(0, 0)`, and `ZeroFunction()`, are the zero function, with value
-  `0` at every input;
-- `NormL0(0)` and `IndBallL0(r)` with `r ≥ minimum(size(X))`, also scaled or
-  on a box that holds every singular value, have value `0` when the non-finite
-  entries are all `NaN`, and `Inf` at an infinite entry.
+  with `k ≤ minimum(size(X))`, uncentered `SqrNormL2`, `CubeNormL2`,
+  `ElasticNet(0, 0)` and `NormL0(0)`, and `ZeroFunction()`, are the zero
+  function, with value `0` at every input, also at an infinite entry;
+- `IndBallL0(r)` with `r ≥ minimum(size(X))`, also scaled, and a constant
+  counting function on a box that holds every singular value are the
+  indicator of a set of real matrices that holds every finite matrix, with
+  value `0` when the non-finite entries are all `NaN`, and `Inf` at an
+  infinite entry.
 When a decomposition is needed, a non-finite input gives an all-`NaN` proximal
 output. `value_and_prox!` returns the value at that output for a function that
 counts nonzeros (`NaN`, or `0` when the function is constant), and otherwise

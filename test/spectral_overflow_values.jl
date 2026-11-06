@@ -534,11 +534,14 @@ end
         for v in (T(NaN), T(Inf), -T(Inf)), Z in (T[v 0; 0 1], T[1 v; v 1], T[1 v; 0 1])
           @test isequal(F(Z), isnan(v) ? T(NaN) : T(Inf))
           F isa Conjugate && continue
+          # the fused value: E2, except IndBallRank(1), a counting function, which gives its value
+          # at the all-NaN output (O2, #614)
+          fused = F isa IndBallRank || isnan(v) ? T(NaN) : T(Inf)
           Y = similar(Z)
-          @test isequal(value_and_prox!(Y, F, Z, one(T)), isnan(v) ? T(NaN) : T(Inf))
+          @test isequal(value_and_prox!(Y, F, Z, one(T)), fused)
           # an aliased destination: the value is decided before it is written
           W = copy(Z)
-          @test isequal(value_and_prox!(W, F, W, one(T)), isnan(v) ? T(NaN) : T(Inf))
+          @test isequal(value_and_prox!(W, F, W, one(T)), fused)
         end
       end
       # E1: the recursive parameters of f come first, as at a finite input, also the inner

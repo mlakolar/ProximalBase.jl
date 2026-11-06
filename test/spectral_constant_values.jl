@@ -1,7 +1,11 @@
 module SpectralConstantValuesTest
 
 # Functions of a spectrum whose value does not depend on the entries, at non-finite entries
-# (E2, E3, E4; PR #384, ruling 2b). The references are exact: 0, Inf or NaN.
+# (E2, E3, E4; PR #384, ruling 2b, and the maintainer's decision, option A: a zero-valued function
+# is 0 also at an infinite entry, the indicator of a set of real matrices Inf there). The
+# references are exact: 0, Inf or NaN. The fused value of a counting function (#614) is its value
+# at the stored output (O2): a copy for IndBallRank(r ≥ p), otherwise all NaN, where a constant
+# counting function is 0 and another NaN.
 
 using Test, ProximalBase, LinearAlgebra, SparseArrays
 using JLArrays: JLArray
@@ -12,10 +16,10 @@ const PB = ProximalBase
 # the zero function under E4: a zero level and no domain constraint
 zero_inner(T) = (NormL1(zero(T)), NormL2(zero(T)), NormLinf(zero(T)), SumLargest(1, zero(T)),
                  SumLargest(2, zero(T)), CubeNormL2(zero(T)), SqrNormL2(zero(T)),
-                 ElasticNet(zero(T), zero(T)), ZeroFunction())
+                 ElasticNet(zero(T), zero(T)), ZeroFunction(), NormL0(zero(T)))
 # general rule: weights, centers, infinite levels, domain constraints, other zero-level functions
 general_inner(T) = (NormL1(zero(T), T[1, Inf]), NormL1(zero(T), T[0, 1]), NormL1(T(Inf)), NormL2(T(Inf)),
-                    SqrNormL2(zero(T), T[1, 2]), NormL0(zero(T)), NormL1(one(T)), IndBallL0(1),
+                    SqrNormL2(zero(T), T[1, 2]), NormL0(one(T)), NormL1(one(T)), IndBallL0(1),
                     NormL1Nonneg(zero(T)), IndNonnegative(), Conjugate(NormL1(zero(T))),
                     Constrained(NormL1(zero(T)), IndBox(0, Inf)))
 
@@ -59,7 +63,8 @@ end
       for alias in (false, true)
         x = copy(X)
         y = alias ? x : fill(T(17), size(X))
-        @test same(value_and_prox!(y, f, x, one(T)), whole)
+        # IndBallRank copies X; SingularValue(IndBallL0) is 0 at its all-NaN output (O2, #614)
+        @test same(value_and_prox!(y, f, x, one(T)), f isa IndBallRank ? whole : zero(T))
         @test isequal(y, f isa IndBallRank ? X : fill(T(NaN), size(X)))
       end
     end
@@ -77,7 +82,18 @@ end
       catch e
         e
       end
-      v isa Exception || @test same(v, general_value(X, T))
+      # a counting function at its all-NaN output (O2, #614); the others E2
+      counting = f isa IndBallRank || f isa SingularValue && PB._counts_nonzeros(f.f)
+      v isa Exception || @test same(v, counting ? T(NaN) : general_value(X, T))
+    end
+  end
+  # the same functions at a finite input
+  for T in (Float32, Float64)
+    X = T[3 1; 1 2]
+    for f in (NuclearNorm(zero(T)), (SingularValue(g) for g in zero_inner(T))..., IndBallRank(2),
+              SingularValue(IndBallL0(2)), (Spectral(g) for g in zero_inner(T))...)
+      @test same(f(X), zero(T))
+      @test same(value_and_prox!(similar(X), f, X, one(T)), zero(T))
     end
   end
 

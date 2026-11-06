@@ -392,18 +392,25 @@ entry and no `NaN` gives `Inf`. The same holds for the standalone value of
 changed, and at a non-finite input it throws an `ArgumentError`, except where
 the conjugate is an indicator, such as that of a norm, whose value there is
 `Inf`. The test runs before the decomposition, which never sees the entry.
+The functions that count nonzeros (`IndBallRank`, and `SingularValue` of
+`NormL0` or `IndBallL0`) are the exception in `value_and_prox!`, which returns
+their value at the stored output (O2): the value of the copy for `IndBallRank(r)`
+with `r ≥ minimum(size(X))`; otherwise the output is all `NaN`, where the value
+is `NaN`, or `0` for a function that is constant (below).
 
 A function whose value does not depend on the entries is the exception
 (E2, E4):
 
 - `NuclearNorm(0)`, and `SingularValue` of a zero-level unweighted `NormL1`,
   `NormL2`, `NormLinf`, `SumLargest` (with `k ≤ minimum(size(X))`),
-  `CubeNormL2`, uncentered `SqrNormL2`,
-  `ElasticNet(0, 0)` or `ZeroFunction()`, are the zero function: `0` at every
-  input.
+  `CubeNormL2`, uncentered `SqrNormL2`, `ElasticNet(0, 0)`, `NormL0(0)` or
+  `ZeroFunction()`, are the zero function: `0` at every input, also at an
+  infinite entry.
 - `IndBallRank(r)` and `SingularValue(IndBallL0(r))` with
-  `r ≥ minimum(size(X))` are the indicator of all matrices: `0` when the
-  non-finite entries are all `NaN`, and `Inf` at an infinite entry.
+  `r ≥ minimum(size(X))`, and `SingularValue` of a constant counting function
+  on a box that holds every singular value, are the indicator of a set of real
+  matrices that holds every finite matrix: `0` when the non-finite entries are
+  all `NaN`, and `Inf` at an infinite entry.
 - The standalone value of `Spectral` of such a function, the indicator of the
   symmetric matrices, is `NaN` only at an off-diagonal `NaN` of a matrix that
   is not symmetric by type (also with an infinite entry: E2 gives the `NaN`

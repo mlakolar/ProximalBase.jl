@@ -44,6 +44,19 @@ function weighted_ok(v, ref::BigFloat, ::Type{R}, p) where {R}
   abs(big(v) - ref) <= C * p * eps(R) * ref + 4p * big(nextfloat(zero(R)))
 end
 
+# A user operator for Precompose (T5): the identity of order n, through mul! and adjoint.
+struct EyeOp{T}
+  n::Int
+end
+Base.eltype(::Type{EyeOp{T}}) where {T} = T
+Base.size(a::EyeOp, d::Int) = a.n
+Base.adjoint(a::EyeOp) = a
+LinearAlgebra.mul!(y::AbstractVector, a::EyeOp, x::AbstractVector) = copyto!(y, x)
+function LinearAlgebra.mul!(y::AbstractVector, a::EyeOp, x::AbstractVector, α::Number, β::Number)
+  iszero(β) ? (y .= α .* x) : (y .= α .* x .+ β .* y)
+  y
+end
+
 # Warmed bytes of a call at a non-finite input, which never fills a cache of f (a cold cache).
 nonfinite_bytes(F, Z) = (F(Z); F(Z); @allocated F(Z))
 
@@ -544,38 +557,49 @@ end
           @test isequal(value_and_prox!(W, F, W, one(T)), fused)
         end
       end
-      # E1: the recursive parameters of f come first, as at a finite input, also the inner
-      # function of a LinearConstrained (whose value check is that of its set)
-      F = SingularValue(Constrained(NormL1(one(T), ones(T, 3)), IndHalfspace(-one(T), zero(T))))
-      for Z in (T[NaN 0; 0 2], T[Inf 0; 0 2], T[1 0; 0 2])
-        @test_throws DimensionMismatch F(Z)
-        Y = fill(T(7), 2, 2)
-        @test_throws DimensionMismatch value_and_prox!(Y, F, Z, one(T))
-        @test all(==(7), Y)
+      # Parameters that do not fit the spectrum: DimensionMismatch at a finite input and from
+      # value_and_prox!, whose checks come first (the destination is unchanged). The standalone
+      # value at a non-finite input does not check the structure yet (E1, #686): its current
+      # value is pinned, NaN at a NaN entry and Inf otherwise, never finite.
+      for f in (Constrained(NormL1(one(T), ones(T, 3)), IndHalfspace(-one(T), zero(T))),
+                Precompose(NormL1(), Matrix{T}(I, 3, 3), one(T)), Precompose(NormL1(one(T), ones(T, 3)), Matrix{T}(I, 2, 2), one(T)),
+                Translate(NormL1(), zeros(T, 3)), Tilt(NormL1(), ones(T, 3)), Regularize(NormL1(), one(T), ones(T, 3)),
+                MoreauEnvelope(Translate(NormL1(), zeros(T, 3)), one(T)))
+        F = SingularValue(f)
+        @test_throws DimensionMismatch F(T[1 0; 0 2])
+        for Z in (T[NaN 0; 0 2], T[Inf 0; 0 2], T[-Inf 0; 0 2])
+          @test isequal(F(Z), any(isnan, Z) ? T(NaN) : T(Inf))                  # #686
+          Y = fill(T(7), 2, 2)
+          @test_throws DimensionMismatch value_and_prox!(Y, F, Z, one(T))
+          @test all(==(7), Y)
+        end
       end
       G = SingularValue(Constrained(NormL1(one(T), ones(T, 2)), IndHalfspace(-one(T), zero(T))))
       @test isnan(G(T[NaN 0; 0 2]))
       @test G(T[Inf 0; 0 2]) === T(Inf)
-      # The structure check builds no temporaries: wrappers that check their argument through a
-      # buffer take a placeholder of the transformed shape (0 bytes, as master at these inputs).
+      # Wrappers whose value checks use a buffer, and wrappers whose standalone value needs no
+      # standalone value of the function inside them (T4) or a user operator (T5): the value at a
+      # non-finite input reads only the input and allocates nothing (0 bytes, as master).
       P = Precompose(NormL1(), Matrix{T}(I, 2, 2), one(T))
       for f in (P, Precompose(NormL1(), T(2)), Translate(NormL1(q), zeros(T, 2)), Tilt(P, ones(T, 2)),
                 Regularize(P, one(T)), MoreauEnvelope(P, one(T)), Scaled(Translate(NormL1(q), zeros(T, 2)), T(2)),
                 Precompose(Translate(NormL1(), zeros(T, 2)), Matrix{T}(I, 2, 2), one(T)),
-                Constrained(Translate(NormL1(q), zeros(T, 2)), IndHalfspace(-one(T), zero(T))))
-        for Z in (T[NaN 0; 0 2], T[Inf 0; 0 2])
+                Constrained(Translate(NormL1(q), zeros(T, 2)), IndHalfspace(-one(T), zero(T))),
+                MoreauEnvelope(Conjugate(ElasticNet(one(T), one(T))), one(T)),       # T4
+                Precompose(NormL1(one(T)), EyeOp{T}(2), one(T)))                     # T5
+        for Z in (T[NaN 0; 0 2], T[Inf 0; 0 2], T[-Inf 0; 0 2], T[NaN 0; 0 Inf])
           F = SingularValue(f)
-          @test isequal(F(Z), any(isnan, Z) ? T(NaN) : T(Inf))
+          expected = any(isnan, Z) ? T(NaN) : T(Inf)
+          @test isequal(F(Z), expected)
           @test nonfinite_bytes(SingularValue(f), Z) == 0
+          for alias in (false, true)
+            x = copy(Z)
+            y = alias ? x : fill(T(7), 2, 2)
+            @test isequal(value_and_prox!(y, F, x, one(T)), expected)
+            @test all(isnan, y)
+          end
         end
-      end
-      # and their structure still comes first
-      for f in (Precompose(NormL1(), Matrix{T}(I, 3, 3), one(T)), Precompose(NormL1(one(T), ones(T, 3)), Matrix{T}(I, 2, 2), one(T)),
-                Translate(NormL1(), zeros(T, 3)), Tilt(NormL1(), ones(T, 3)), Regularize(NormL1(), one(T), ones(T, 3)),
-                MoreauEnvelope(Translate(NormL1(), zeros(T, 3)), one(T)))
-        for Z in (T[NaN 0; 0 2], T[Inf 0; 0 2], T[1 0; 0 2])
-          @test_throws DimensionMismatch SingularValue(f)(Z)
-        end
+        @test isfinite(SingularValue(f)(T[1 0; 0 2]))
       end
     end
   end

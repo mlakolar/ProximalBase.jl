@@ -160,6 +160,22 @@ const c = 64
     end
   end
 
+  # E1 at a non-finite input: parameters that do not fit the spectrum throw DimensionMismatch at a
+  # finite input; at a NaN or infinite entry the structure is not checked yet (#686, G2).
+  for (name, f, X, v) in (
+      ("linear-constrained.nan", SingularValue(Constrained(NormL1(1.0, ones(3)), IndHalfspace(-1.0, 0.0))), [NaN 0.0; 0.0 2.0], NaN),
+      ("linear-constrained.inf", SingularValue(Constrained(NormL1(1.0, ones(3)), IndHalfspace(-1.0, 0.0))), [Inf 0.0; 0.0 2.0], Inf),
+      ("weights.nan", SingularValue(NormL1(1.0, ones(3))), [NaN 0.0; 0.0 2.0], NaN),
+      ("sumlargest.inf", Spectral(SumLargest(5, 1.0)), [Inf 0.0; 0.0 2.0], Inf))
+    @row begin
+      id = "spectral.e1-nonfinite." * name; case = ""; family = :spectral; oracle = :validation
+      types = "Float64"; backend = :cpu; rules = "E1"
+      problem = "Structure first (E1): parameters that do not fit the spectrum throw, as at a finite input; not checked at a non-finite input yet (#686)"
+      expected = Throws(:DimensionMismatch); observed = f(X)
+      broken = (group = :G2, baseline = Returned(r -> same(r, v)))
+    end
+  end
+
   for T in (Float32, Float64), (name, f) in (("nuclear", NuclearNorm(T(1 / 4))),
       ("trace", TracePSD(T(1 / 4))), ("singular", SingularValue(NormL1(T(1 / 4)))),
       ("eigen", Spectral(NormL1(T(1 / 4)))))

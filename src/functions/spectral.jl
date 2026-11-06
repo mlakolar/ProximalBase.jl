@@ -46,13 +46,6 @@ function _mul_lowrank!(Y::AbstractMatrix, U::Matrix, Vt::Matrix, k::Integer, ws:
   Y
 end
 
-# A placeholder spectrum of length p, for the checks of the structure of an inner function (sizes and
-# parameters, which come first, E1) at a non-finite input, where no spectrum is computed. It holds
-# no storage, so that the check allocates nothing; its values must not be read.
-_structure_spectrum(::Type{T}, p::Integer) where {T} = StepRangeLen(zero(T), zero(T), p)
-# The structure of f at a spectrum of length p (`_spectrum_structure`, spectralfunction.jl).
-_check_spectrum_structure(f, ::Type{T}, p::Integer) where {T} = _spectrum_structure(f, _structure_spectrum(T, p))
-
 # The value at a matrix with a non-finite entry (E2): NaN when an entry is NaN, otherwise Inf.
 # Called only after a finiteness test failed, so that finite inputs make no second pass.
 _nonfinite_value(X, ::Type{T}) where {T} = any(isnan, X) ? T(NaN) : T(Inf)

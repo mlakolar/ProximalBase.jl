@@ -326,19 +326,21 @@ end
       check_none_active(x)
     end
 
-    @testset "active groups are cleared by a value that converts to zero" begin
-      # the 0.5.x rule: a zero fill! empties the working set (#424 changes it for 0.6)
-      for clear! in (x -> fill!(x, c), x -> (x .= c))
+    @testset "a value that converts to zero keeps the active groups" begin
+      # a zero fill! is a value write; dropzeros! then removes the groups
+      for zero! in (x -> fill!(x, c), x -> (x .= c))
         x = fresh()
         x[1], x[4] = 3, 5
         @test active_set(x) == Set([1, 2])
-        @test clear!(x) === x
+        @test zero!(x) === x
+        @test Vector(x) == zeros(Float32, 4) && active_set(x) == Set([1, 2]) && consistent(x)
+        dropzeros!(x)
         check_none_active(x)
       end
       x = fresh()
       x[3] = 1
       fill!(x, 0.0)                              # same result as the unconverted zero
-      check_none_active(x)
+      @test Vector(x) == zeros(Float32, 4) && active_set(x) == Set([2]) && consistent(x)
     end
 
     @testset "a failed conversion leaves the iterate unchanged" begin
@@ -445,9 +447,8 @@ end
         dropzeros!(x)
         filter!(k -> any(!iszero, v[groups[k]]), act)
       else
-        fill!(x, 0.)
+        fill!(x, 0.)                     # a value write: the active groups stay
         fill!(v, 0.)
-        empty!(act)
       end
       ok &= x == v && active_set(x) == act && consistent(x)
       ok &= Set(activecoordinates(x)) == act
@@ -505,7 +506,8 @@ end
     xi[7] = 2.0
     @test copyto!(di, xi) === di && Vector(di) == Vector(xi) && consistent(di)
 
-    @test fill!(y, 0.) == zeros(9) && y.nactive == 0
+    n = y.nactive
+    @test n == 3 && fill!(y, 0.) == zeros(9) && y.nactive == n && consistent(y)
     fill!(y, 1.5)
     @test y == fill(1.5, 9) && y.nactive == 5
 

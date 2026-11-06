@@ -154,12 +154,17 @@ them are rounded, and so are the steps of a function without levels to fold.
 A level that is stored as infinite stays infinite under a positive finite factor and step, whatever
 their product is: `Scaled(NormL1(Inf), 1e-300)` at the step `1e-300` has the proximal map of the
 domain `{0}`, as at the step `1`, and not the identity of a step rounded to zero. A finite level
-whose product overflows is not read as infinite. For `SLOPE`, `NormL1Fused` and the functions with
-two levels, a finite level whose product falls below the range is then dropped to zero, which
-changes an entry by less than `floatmin`. For an array step the drop is not bounded, and
-`ElasticNet` and `SparseGroupNormL2` make it only when no weight is zero (a zero weight leaves entries
-free that the finite level still acts on); with a zero weight the fold is declined and the result is
-the one of a step rounded with the factor, as before.
+whose product overflows is not read as infinite. In `SLOPE`, `NormL1Fused`, `ElasticNet`,
+`SparseGroupNormL2` and the blocks of a sum around them, the finite levels that the fold cannot form are
+treated by what they do next to an infinite level: a level that the infinite level makes irrelevant (it
+fixes every coordinate the level touches) is removed; a level that acts on free coordinates (a zero
+weight) is kept when it folds, and is discarded only when its whole coefficient, the product of the
+scale, the step, the level and the largest weight that multiplies it, is below `floatmin`, which changes
+an entry by less than `floatmin` for a threshold and by a relative amount below `floatmin` for a ridge.
+Not covered, where the fold is declined and the earlier result stays (an infinite level can then be lost):
+a finite block of a sum whose scaled level underflows to zero while a large weight brings its coefficient
+back above `floatmin`, and an array step on `ElasticNet` or `SparseGroupNormL2` with a zero weight and a
+finite level that is not a normal number once the scale is folded into it.
 A function without levels to fold (a `SqrNormL2`, a loss, a `Tilt`) forms its gradient and Hessian
 product at its own scale before the factors are applied, so an intermediate that leaves the range is
 lost, as under a single `Scaled`: `Scaled(Scaled(SqrNormL2(1e300), 1e-200), 1e-200)` at `[1e10]`
@@ -318,44 +323,77 @@ end
 # The scale of a step, which the exponent of a step that is not a normal number joins. A level that
 # is stored as infinite is a hard constraint, not a product to form: under a positive finite scale it
 # stays infinite (`_folded_level`), where a finite level whose product leaves the range is refused.
-# With `flush`, a finite level whose product falls below the range is dropped to zero instead, and
-# `seen` records that an infinite level was met: the function is then constant on its domain {0}
-# wherever a weight does not free it, and the levels that do not matter are not allowed to discard
-# the fold (`_nested_step` keeps such a fold only when `seen`).
-# The error of the drop is below floatmin in the coefficient that the leaf forms. For a scalar step the
-# whole exponent of the product α γ is folded into the levels and the leaf receives the significand
-# mγ in [1/2, 1): the dropped level c has |c| < floatmin, so the leaf's coefficient mγ c is below
-# floatmin too, whatever the weights are: a soft threshold that small changes an entry by less than
-# floatmin, and a ridge by a relative amount below floatmin (an entry of that magnitude can lose its
-# whole threshold, as the product rounded to a zero step does). An array step is not folded: its entries differ by orders of magnitude from the
-# exponent in the levels, so the same drop is not bounded (a step of 1e300 against a level of 1e-310),
-# and it is made only when no weight is zero (`_hard_levels`).
-struct _HardScale{S, R<:Union{Nothing, Base.RefValue{Bool}}}
+#
+# The second try of a step (`flush`) also discards finite levels that the fold refuses, for a function
+# in which an infinite level was met (`seen`; `_nested_step` keeps such a fold only then). What a finite
+# level does once an infinite level is present decides how it is discarded:
+# - Irrelevant (`exact`): the infinite level fixes every coordinate that the finite level touches
+#   (`SLOPE` and `NormL1Fused` with an infinite first level; `ElasticNet` with an infinite ridge level,
+#   or an infinite ℓ1 level and positive weights; `SparseGroupNormL2` with an infinite ℓ1 level, or an
+#   infinite group level and positive group weights). The level is removed, which is exact.
+# - Relevant on free coordinates (a zero weight leaves them free, as the finite part of a mixed
+#   function): the level is discarded only when its whole effective coefficient is below `floatmin`,
+#   which is a bound on the error and not an exact zero. The leaf forms the coefficient
+#   mγ · (scale) · level · weight with the significand mγ in [1/2, 1), and the scale holds the exponent
+#   of the product α γ. With the exponents e (scale), eλ (level) and ew (largest weight that multiplies
+#   the level), the coefficient t is below 2^(e + eλ + ew) because every significand is below 1; the
+#   level is discarded when that is at most the exponent of floatmin, so t < floatmin, formed from the
+#   exponents without a product that can underflow before a large weight restores it. The change of
+#   every entry is then below t for a soft threshold (and for a group threshold on the norm of a
+#   group), and the relative change is below t for a ridge. An entry below floatmin can lose its whole
+#   threshold, as the product rounded to a zero step does.
+# - A level that is not discarded, and cannot be folded, discards the fold: the function keeps the
+#   route that it had. This is the case of a finite level whose scaled coefficient underflows while its
+#   weight brings the product back into the range.
+# An array step is not folded, and the entries of the step differ from the exponent in the scale by
+# orders of magnitude, so there is no bound: only the exact removal is made (`_hard_levels`).
+struct _HardScale{S, R<:Union{Nothing, Base.RefValue{Bool}}, W}
   s::S
   flush::Bool
   seen::R
+  w::W                # the weights of the level that is folded (`nothing`: none), read only to discard
+  exact::Bool         # the level that is folded is irrelevant: it is removed, whatever it is
 end
-_HardScale(s) = _HardScale(s, false, nothing)
+_HardScale(s) = _HardScale(s, false, nothing, nothing, false)
+_HardScale(s, flush, seen) = _HardScale(s, flush, seen, nothing, false)
 _apply_scale(a::_HardScale, v) = _apply_scale(a.s, v)
 function _projection_accumulate(a::_HardScale, b::Real)
   p = _projection_accumulate(a.s, b)
-  p isa _ProjectionScale ? _HardScale(p, a.flush, a.seen) : p
+  p isa _ProjectionScale ? _HardScale(p, a.flush, a.seen, a.w, a.exact) : p
 end
 @inline _hard_scale(a::Real) = isfinite(a) && a > 0
 @inline _hard_scale(a::_ProjectionScale) = isfinite(a.m) && a.m > 0
 @inline _hard_scale(a::_NormalScale) = _hard_scale(a.s)
 @inline _hard_scale(a::_HardScale) = _hard_scale(a.s)
+# the scale for the level that the weights w multiply, and for a level that is irrelevant
+@inline _withw(α, w) = α
+@inline _withw(a::_HardScale, w) = _HardScale(a.s, a.flush, a.seen, w, a.exact)
+@inline _irrelevant(α) = α
+@inline _irrelevant(a::_HardScale) = _HardScale(a.s, a.flush, a.seen, a.w, true)
+# the exponent e of the largest weight, m = f 2^e with f in [1/2, 1): far below the range for zero
+# weights, far above for an infinite one (no level is discarded then)
+_weight_exponent(::Nothing) = 0
+function _weight_exponent(w)
+  m = isempty(w) ? zero(eltype(w)) : maximum(w)
+  iszero(m) && return typemin(Int) ÷ 4
+  isfinite(m) || return typemax(Int) ÷ 4
+  frexp(float(m))[2]
+end
+_weights_positive(::Nothing) = true
+_weights_positive(w) = all(>(0), w)
 function _folded_level(λ, α::_HardScale)
   if isinf(λ) && _hard_scale(α)
     α.seen === nothing || (α.seen[] = true)
     return λ
   end
   c = _folded_level(λ, α.s)
-  c === nothing && α.flush && _hard_scale(α) ? _flushed_level(λ, α.s) : c
+  c === nothing && α.flush && _hard_scale(α) ? _flushed_level(λ, α) : c
 end
-function _flushed_level(λ, a)
-  c = _apply_scale(a, λ)
-  isfinite(c) && abs(c) < floatmin(typeof(float(c))) ? zero(c) : nothing
+function _flushed_level(λ, a::_HardScale)
+  T = typeof(float(_apply_scale(a.s, λ)))
+  a.exact && return zero(T)
+  es = _projection_scale_parts(a.s)[2]
+  es + frexp(float(λ))[2] + _weight_exponent(a.w) <= exponent(floatmin(T)) ? zero(T) : nothing
 end
 @inline _flush_scale(::Any) = false
 @inline _flush_scale(a::_HardScale) = a.flush
@@ -368,8 +406,9 @@ end
 _fold_level(::AbstractFunction, α) = nothing
 for (F, level) in ((:NormL1, :λ0), (:NormL1Nonneg, :λ0), (:NormL2, :λ), (:NormLinf, :λ))
   args = F in (:NormL1, :NormL1Nonneg) ? :(c, f.w) : :(c,)
+  wα = F in (:NormL1, :NormL1Nonneg) ? :(_withw(α, f.w)) : :α
   @eval function _fold_level(f::$F, α)
-    c = _folded_level(f.$level, α)
+    c = _folded_level(f.$level, $wα)
     c === nothing ? nothing : $F($(args.args...))
   end
 end
@@ -377,20 +416,16 @@ function _fold_level(f::ElasticNet, α)
   c1, c2 = _folded_level(f.λ1, α), _folded_level(f.λ2, α)
   c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
 end
-# For an array step, a function with two levels one of which is infinite is constant on its domain
-# {0} when no weight leaves a coordinate or a group free: the finite level that falls below the
-# range is then dropped to zero instead of discarding the fold. With a zero weight the finite level
-# still acts on the free entries, through steps that the drop cannot bound (see `_HardScale`), and the
-# fold is declined.
+# For an array step only the exact removal is made (see `_HardScale`): a function with two levels one of
+# which is infinite, when the infinite level fixes every coordinate that the finite level touches.
 function _hard_levels(f, α::_NormalScale, λs::Tuple)
   cs = map(λ -> _folded_level(λ, α), λs)
   any(isnothing, cs) || return cs
-  (_hard_scale(α) && any(isinf, λs) && _weights_positive(f)) || return nothing
-  cs = map((λ, c) -> c === nothing ? _flushed_level(λ, α.s) : c, λs, cs)
-  any(isnothing, cs) ? nothing : cs
+  (_hard_scale(α) && _fixes_all(f)) || return nothing
+  map((λ, c) -> c === nothing ? zero(typeof(float(_apply_scale(α, λ)))) : c, λs, cs)
 end
-_weights_positive(f::ElasticNet) = f.w === nothing || all(>(0), f.w)
-_weights_positive(f::SparseGroupNormL2) = all(>(0), f.w)
+_fixes_all(f::ElasticNet) = isinf(f.λ2) || (isinf(f.λ1) && _weights_positive(f.w))
+_fixes_all(f::SparseGroupNormL2) = isinf(f.λ1) || (isinf(f.λ0) && _weights_positive(f.w))
 function _fold_level(f::ElasticNet, α::_NormalScale)
   cs = _hard_levels(f, α, (f.λ1, f.λ2))
   cs === nothing ? nothing : ElasticNet(cs[1], cs[2], f.w)
@@ -400,7 +435,7 @@ function _fold_level(f::SparseGroupNormL2, α::_NormalScale)
   cs === nothing ? nothing : SparseGroupNormL2(cs[1], cs[2], f.groups, f.w)
 end
 function _fold_level(f::Union{GroupNormL2, GroupNormLinf}, α)
-  c = _folded_level(f.λ0, α)
+  c = _folded_level(f.λ0, _withw(α, f.w))
   c === nothing ? nothing : _rebuild(f, c, f.groups, f.w)
 end
 function _fold_level(f::SparseGroupNormL2, α)
@@ -429,24 +464,41 @@ _fold_level_step(f, α) = _fold_level(f, α)
 _fold_block_step(f, α) = _isindicator(f) ? f : _fold_level_step(f, α)
 _fold_block_step(f::ZeroFunction, α) = f
 function _fold_level_step(f::ElasticNet, α)
-  c1 = _folded_level(f.λ1, α)
+  # what the finite levels do once a level is infinite (see `_HardScale`): irrelevant when the
+  # infinite level fixes every coordinate, otherwise the ridge acts on the free ones
+  fixed = _flush_scale(α) && _fixes_all(f)
+  αw = fixed ? _irrelevant(_withw(α, f.w)) : _withw(α, f.w)
+  α2 = fixed ? _irrelevant(α) : α
+  c1 = _folded_level(f.λ1, αw)
   c = iszero(f.λ2) ? f.λ2 : _apply_scale(α, f.λ2)
-  c2 = isfinite(c) && abs(c) < floatmin(typeof(float(c))) ? zero(c) : _folded_level(f.λ2, α)
+  c2 = isfinite(c) && abs(c) < floatmin(typeof(float(c))) ? zero(c) : _folded_level(f.λ2, α2)
   c1 === nothing || c2 === nothing ? nothing : ElasticNet(c1, c2, f.w)
+end
+function _fold_level_step(f::SparseGroupNormL2, α)
+  flush = _flush_scale(α)
+  # the ℓ1 level is irrelevant when every group is fixed, the group level when the ℓ1 level is infinite
+  α1 = flush && isinf(f.λ0) && _weights_positive(f.w) ? _irrelevant(α) : α
+  α0 = _withw(α, f.w)
+  α0 = flush && isinf(f.λ1) ? _irrelevant(α0) : α0
+  c1, c0 = _folded_level(f.λ1, α1), _folded_level(f.λ0, α0)
+  c1 === nothing || c0 === nothing ? nothing : SparseGroupNormL2(c1, c0, f.groups, f.w)
 end
 # a block that is itself scaled: the factor joins the scale of the step, which keeps its state
 _fold_level_step(f::Scaled, α) = _fold_level_step(f.f, _projection_accumulate(α, f.α))
 # SLOPE and NormL1Fused fold into their levels for a step only, and only on the second try of a
 # step (`flush`), which is kept only for an infinite level, the case that the plain route loses: the
-# steps and values of finite levels keep the route that they had
+# steps and values of finite levels keep the route that they had. With an infinite first level every
+# finite level is irrelevant.
 function _fold_level_step(f::NormL1Fused, α)
   _flush_scale(α) || return nothing
-  c1, c2 = _folded_level(f.λ1, α), _folded_level(f.λ2, α)
+  c1 = _folded_level(f.λ1, α)
+  c2 = _folded_level(f.λ2, isinf(f.λ1) ? _irrelevant(α) : α)
   c1 === nothing || c2 === nothing ? nothing : NormL1Fused(c1, c2)
 end
 function _fold_level_step(f::SLOPE, α)
   _flush_scale(α) || return nothing
-  cs = map(λ -> _folded_level(λ, α), f.λ)
+  β = any(isinf, f.λ) ? _irrelevant(α) : α
+  cs = map(λ -> _folded_level(λ, β), f.λ)
   any(isnothing, cs) ? nothing : SLOPE(identity.(cs))
 end
 

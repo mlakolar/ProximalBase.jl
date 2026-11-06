@@ -105,15 +105,17 @@ the earlier behavior applies.
   - A wrapper step that is not a normal number keeps the hard domain of an
     infinite level (decision 49, #666): `prox(Scaled(NormL1(Inf), 1e-300), [1.0, 2.0, 3.0], 1e-300)`
     is `[0, 0, 0]`, where it was the identity `[1, 2, 3]`, and `SLOPE` with an
-    infinite first weight, `NormL1Fused` with an infinite ℓ1 level and `NormLinf(Inf)`
-    give zeros, where they gave NaN. This holds for a product `αγ` that underflows,
-    is subnormal or overflows, for chains of `Scaled`, array steps and
-    `value_and_prox!`, whose value is `0`, as long as no finite level of the
-    function overflows with it: `Scaled(NormL1Fused(Inf, 1.0), 1e300)` at the step
-    `1e300` keeps its NaN. For an array step, `ElasticNet` and `SparseGroupNormL2`
-    with a zero weight and a finite second level keep the earlier result when the
-    product underflows. A zero, infinite, negative or NaN step and finite levels,
-    including a finite level that overflows, keep their results.
+    infinite first weight, `NormL1Fused` with an infinite ℓ1 level, `NormLinf(Inf)`,
+    `ElasticNet` and `SparseGroupNormL2` give zeros on the fixed coordinates, where they
+    gave NaN or the identity. This holds for a product `αγ` that underflows, is
+    subnormal or overflows, for chains of `Scaled`, array steps and `value_and_prox!`.
+    A finite level that acts on free coordinates (a zero weight) is kept, and
+    is discarded only when its whole coefficient is below `floatmin` (a change of every entry
+    below `floatmin`). Not covered, where the earlier result stays: a finite block of a sum
+    whose scaled level underflows to zero while a large weight keeps its coefficient above
+    `floatmin`, and an array step on `ElasticNet` or `SparseGroupNormL2` with a zero weight and
+    a finite level that is not a normal number once the scale is folded in. A zero, infinite,
+    negative or NaN step and finite levels keep their results.
 - **Infinite entries.** A bounded projection at an argument with one infinite
   entry returns its limit, where it returned NaN or a partly NaN block
   ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), decision 48).

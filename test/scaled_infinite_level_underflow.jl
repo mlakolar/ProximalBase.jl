@@ -348,10 +348,10 @@ end
 #  a zero weight leaves entries free: the finite level still acts on them
 ####################################
 
-# The finite level of a function with an infinite one is dropped to zero only when the infinite level
-# fixes every entry. With a zero weight an entry is free, and the finite level (a ridge, or the
-# ℓ1 level of a group that has weight zero) acts on it: the fold is declined, the result is that of the
-# finite penalty and the value is the value at the stored output (O2).
+# With a zero weight an entry is free, and the finite level (a ridge, or the ℓ1 level of a group that has
+# weight zero) acts on it. On an array step it is kept when the scale folds into it and the fold is
+# otherwise declined unless the infinite level fixes every entry; on a scalar step it is folded, or
+# discarded when its whole coefficient is below floatmin. The value is the value at the stored output (O2).
 @testset "zero weights, $T" for T in (Float32, Float64)
   inf = T(Inf)
   α = T === Float64 ? T(1e-310) : T(1f-40)           # subnormal in its type
@@ -379,7 +379,7 @@ end
     end
     # A scalar step folds the whole exponent of the product into the levels, and the fixed entry is
     # zero whatever the weights of the other entries are; the free entry keeps its finite penalty
-    # (its threshold is below the range and the value at the output is the scaled value of the
+    # (its threshold is below floatmin and the value at the output is the scaled value of the
     # function, a little above zero)
     for (αs, γs) in ((T === Float64 ? (1e-160, 1e-160) : (1f-20, 1f-20)), (T === Float64 ? (1e-300, 1e-300) : (1f-30, 1f-30)))
       s2 = Scaled(f, αs)
@@ -419,14 +419,6 @@ end
       @test y[1] == T(exact) && y[2] == 0
       @test abs(big(y[1]) - exact) < big(floatmin(T))
     end
-  end
-  # An array step is not folded: its entries differ by orders of magnitude from the exponent folded into
-  # the levels, so the finite level cannot be dropped, and with a zero weight the fold is declined. The
-  # result is the one of the step rounded with the factor (the product 1e-620 is the step 0 at the entry
-  # of the fixed group), which is not the hard domain of that group. This is the result before the
-  # change, and a follow-up issue tracks it; the rows above with the large array steps are exact.
-  let f = SparseGroupNormL2(T(1), inf, [1:1, 2:2], T[0, 1]), α = T === Float64 ? T(1e-310) : T(1f-40)
-    @test isequal(prox(Scaled(f, α), T[1, 2], T[α, α]), T[1, 2])
   end
   # an infinite level with positive weights still drops it: the same functions without the zero weight
   check(Scaled(ElasticNet(inf, T(1), T[1, 1]), α), x, T[hi, hi], zeros(T, 2); value = nothing)
@@ -468,5 +460,261 @@ end
   f = Scaled(SeparableSum(NormL1(Inf), SLOPE([1e100, 5e99])), 1e-160)
   @test isequal(prox(f, ([1.0, 2.0], [1e-310, -1e-310]), 1e-200), ([0.0, 0.0], [0.0, -0.0]))
 end
+
+####################################
+#  levels and weights: references in BigFloat, formed here, not by the package
+####################################
+
+# What a finite level does once an infinite level is present (see `_HardScale` in src/calculus.jl):
+# irrelevant (the infinite level fixes every coordinate it touches): removed; relevant on the free
+# coordinates (a zero weight): kept, or discarded only when its whole coefficient is below floatmin, which
+# changes an entry by less than floatmin (soft threshold) or by a relative amount below floatmin (ridge).
+# The references below are the exact proximal maps in BigFloat; entries are compared to the rounded
+# reference with 4 units in the last place of the larger of the argument and the result, plus floatmin.
+bsoft(v, t) = iszero(t) ? v : (isinf(t) ? zero(v) : sign(v) * max(abs(v) - t, 0))
+bcoef(λ, w) = iszero(w) ? big(0) : (isinf(λ) ? big(Inf) : big(λ) * big(w))     # λ w with 0 Inf = 0 (a free entry)
+# the elastic net with the steps t (the product of the scale and the step, per entry)
+function ref_elastic(x, t, λ1, λ2, w)
+  map(eachindex(x)) do i
+    u = bsoft(big(x[i]), t[i] * bcoef(λ1, w[i]))
+    isinf(λ2) ? zero(u) : u / (1 + t[i] * big(λ2))
+  end
+end
+# the sparse group lasso with the steps t (one per entry, constant on a group)
+function ref_sparsegroup(x, t, λ1, λ0, w, groups)
+  y = zeros(BigFloat, length(x))
+  for (k, g) in enumerate(groups)
+    u = [bsoft(big(x[i]), t[i] * big(λ1)) for i in g]
+    nu = sqrt(sum(abs2, u))
+    thr = t[g[1]] * bcoef(λ0, w[k])
+    y[g] .= (iszero(nu) ? big(1) : (isinf(thr) ? big(0) : max(1 - thr / nu, 0))) .* u
+  end
+  y
+end
+# the value of the scale times the function at y
+function val_elastic(α, y, λ1, λ2, w)
+  tot = big(0)
+  for i in eachindex(y)
+    yi = big(y[i])
+    a = iszero(yi) || iszero(w[i]) ? big(0) : (isinf(λ1) ? big(Inf) : big(λ1) * big(w[i]) * abs(yi))
+    tot += a + (isinf(λ2) ? (iszero(yi) ? big(0) : big(Inf)) : big(λ2) / 2 * yi^2)
+  end
+  big(α) * tot
+end
+function val_sparsegroup(α, y, λ1, λ0, w, groups)
+  tot = big(0)
+  for (k, g) in enumerate(groups)
+    yg = big.(y[g])
+    nrm = sqrt(sum(abs2, yg))
+    tot += isinf(λ1) ? (all(iszero, yg) ? big(0) : big(Inf)) : big(λ1) * sum(abs, yg)
+    tot += iszero(nrm) || iszero(w[k]) ? big(0) : (isinf(λ0) ? big(Inf) : big(λ0) * big(w[k]) * nrm)
+  end
+  big(α) * tot
+end
+nearref(y, r, x, ::Type{T}) where {T} = all(abs.(y .- T.(r)) .<= 4eps(T) .* max.(abs.(x), abs.(T.(r))) .+ floatmin(T))
+# the value of value_and_prox! at the stored output, against the BigFloat value there (the value in the
+# type of the output can itself be inexact, as a square below floatmin)
+valnear(v, r, ::Type{T}) where {T} = (isinf(r) && isinf(v)) || abs(big(v) - r) <= 8eps(T) * abs(r) + floatmin(T)
+
+# check a scaled function at the step γ against the reference r(y), and the value against val(y): separate,
+# sentinel and aliased outputs
+function check_ref(s, x, γ, ref, val; T = float(eltype(x)))
+  y = zeros(T, length(x))
+  v = value_and_prox!(y, s, x, γ)
+  @test nearref(y, ref, x, T)
+  @test valnear(v, val(y), T)
+  @test isequal(prox(s, x, γ), y)
+  a = copy(x)
+  va = value_and_prox!(a, s, a, γ)
+  @test isequal(a, y) && isequal(va, v)
+  z = fill(T(-7), length(x))
+  prox!(z, s, x, γ)
+  @test isequal(z, y)
+end
+
+@testset "the reproducers of the reviews" begin
+  # an array step on a function with a zero weight: the ridge acts on the free entry, which is not dropped
+  f = Scaled(ElasticNet(Inf, 1.0, [0.0, 1.0]), 1e-310)
+  x = [1.0, 2.0]
+  y = zeros(2)
+  v = value_and_prox!(y, f, x, [1e300, 1e300])
+  @test nearref(y, ref_elastic(x, big(1e-310) .* [big(1e300), big(1e300)], Inf, 1.0, [0.0, 1.0]), x, Float64)
+  @test y[2] == 0 && y[1] < 1 && v > 0 && isequal(v, f(y))
+  # a scalar step on a group function with a zero weight: the group with a positive weight stays fixed
+  f = Scaled(SparseGroupNormL2(1.0, Inf, [1:1, 2:2], [0.0, 1.0]), 1e-300)
+  y = zeros(2)
+  v = value_and_prox!(y, f, x, 1e-300)
+  @test y == [1.0, 0.0] && v ≈ 1e-300 && isequal(v, f(y))
+  # a finite block with a large weight next to an infinite block: its coefficient 1e-160 1e-150 1e-100 1e300
+  # = 1e-110 is far above floatmin, and the entry 2e-110 loses half its size in the exact map
+  g = ElasticNet(1e-100, 0.0, [0.0, 1e300])
+  xs = ([1.0, 2.0], [1.0, 2e-110])
+  ref = ref_elastic(xs[2], fill(big(1e-160) * big(1e-150), 2), 1e-100, 0.0, [0.0, 1e300])
+  for f in (Scaled(SeparableSum(NormL1(Inf), g), 1e-160), Scaled(g, 1e-160))
+    res = prox(f, f.f isa SeparableSum ? xs : xs[2], 1e-150)
+    r = f.f isa SeparableSum ? res[2] : res
+    # the product 1e-310 is a subnormal step, which carries about 14 digits, as before the change
+    @test isapprox(r, Float64.(ref); rtol = 1e-13)
+    @test abs(r[2] - 1e-110) < 1e-120          # about 1e-110, not 2e-110
+    f.f isa SeparableSum && @test res[1] == [0.0, 0.0]
+  end
+end
+
+# the exponents: products of the scale and the step from just above floatmin to far below the smallest
+# subnormal, split between the scale and the step in two ways
+function exponent_grid(::Type{T}) where {T}
+  ks = T === Float64 ? (290, 305, 308, 310, 320, 323, 330, 400, 500) : (30, 35, 38, 40, 44, 45, 50, 60, 80)
+  lim = T === Float64 ? 323 : 44
+  [(T(10.0^(-k * f)), T(10.0^(-k * (1 - f)))) for k in ks for f in (0.5, 0.3) if k * f <= lim && k * (1 - f) <= lim]
+end
+
+@testset "levels and weights at a scalar step, $T" for T in (Float32, Float64)
+  inf = T(Inf)
+  wbig = T === Float64 ? T(1e300) : T(1f30)
+  wsmall = T(1e-3)
+  levels = (T(1), T === Float64 ? T(1e-100) : T(1f-10))
+  x = T[1, 2]
+  groups = [1:1, 2:2]
+  for (α, γ) in exponent_grid(T), w1 in (T(0), wsmall, T(1), wbig), w2 in (T(0), wsmall, T(1), wbig), λ in levels
+    t = fill(big(α) * big(γ), 2)
+    w = T[w1, w2]
+    for (f, ref, val) in (
+        (ElasticNet(inf, λ, w), ref_elastic(x, t, inf, λ, w), y -> val_elastic(α, y, inf, λ, w)),
+        (ElasticNet(λ, inf, w), ref_elastic(x, t, λ, inf, w), y -> val_elastic(α, y, λ, inf, w)),
+        (SparseGroupNormL2(λ, inf, groups, w), ref_sparsegroup(x, t, λ, inf, w, groups), y -> val_sparsegroup(α, y, λ, inf, w, groups)),
+        (SparseGroupNormL2(inf, λ, groups, w), ref_sparsegroup(x, t, inf, λ, w, groups), y -> val_sparsegroup(α, y, inf, λ, w, groups)))
+      check_ref(Scaled(f, α), x, γ, ref, val)
+    end
+  end
+end
+
+@testset "mixed hard and free groups and entries, $T" for T in (Float32, Float64)
+  inf = T(Inf)
+  α, γ = T === Float64 ? (T(1e-200), T(1e-200)) : (T(1f-25), T(1f-25))
+  x = T[1, 2, 3, 4, 5]
+  t = fill(big(α) * big(γ), 5)
+  groups = [1:2, 3:3, 4:5]
+  for w in (T[0, 1, 0], T[1, 0, 1], T[0, 0, 1], T[1, 1, 1], T[0, 0, 0])
+    for (f, ref, val) in (
+        (SparseGroupNormL2(T(1), inf, groups, w), ref_sparsegroup(x, t, T(1), inf, w, groups), y -> val_sparsegroup(α, y, T(1), inf, w, groups)),
+        (SparseGroupNormL2(inf, T(1), groups, w), ref_sparsegroup(x, t, inf, T(1), w, groups), y -> val_sparsegroup(α, y, inf, T(1), w, groups)),
+        (ElasticNet(inf, T(1), T[0, 1, 0, 1, 1] .* w[[1, 2, 3, 3, 3]]), ref_elastic(x, t, inf, T(1), T[0, 1, 0, 1, 1] .* w[[1, 2, 3, 3, 3]]),
+         y -> val_elastic(α, y, inf, T(1), T[0, 1, 0, 1, 1] .* w[[1, 2, 3, 3, 3]])))
+      check_ref(Scaled(f, α), x, γ, ref, val)
+    end
+  end
+  # a coordinate at a time on an AtomIterate: the hard groups are zero, the free groups are not
+  f = SparseGroupNormL2(T(1), inf, groups, T[0, 1, 0])
+  ref = ref_sparsegroup(x, t, T(1), inf, T[0, 1, 0], groups)
+  for k in 1:3
+    a = AtomIterate(copy(x), f)
+    prox_coordinate!(a, Scaled(f, α), k, γ)
+    @test nearref(collect(a)[groups[k]], ref[groups[k]], x[groups[k]], T)
+    @test all(iszero, collect(a)[groups[k]]) == (k == 2)
+  end
+end
+
+@testset "array steps and weights, $T" for T in (Float32, Float64)
+  inf = T(Inf)
+  wbig = T === Float64 ? T(1e300) : T(1f30)
+  αs = T === Float64 ? T[1e-200, 1e-100, 1e100, 1e300] : T[1f-25, 1f-20, 1f20, 1f30]
+  γs = T === Float64 ? T[1e300, 1e-5, 1, 1e-300] : T[1f30, 1f-5, 1, 1f-30]
+  x = T[1, 2]
+  for α in αs, g1 in γs, g2 in γs, w1 in (T(0), T(1e-3), T(1), wbig), w2 in (T(0), T(1e-3), T(1), wbig), λ in (T(1), T(1e-10))
+    # with a zero weight the finite level acts on a free entry: the cases of a finite level that is a normal
+    # number once the scale is folded in (no fixed entry is then affected); with positive weights the
+    # infinite level fixes every entry, and the finite level is irrelevant
+    (iszero(w1) || iszero(w2)) && !(big(α) * big(λ) >= big(floatmin(T))) && continue
+    t = [big(α) * big(g1), big(α) * big(g2)]
+    w = T[w1, w2]
+    γ = T[g1, g2]
+    for (f, ref, val) in (
+        (ElasticNet(inf, λ, w), ref_elastic(x, t, inf, λ, w), y -> val_elastic(α, y, inf, λ, w)),
+        (ElasticNet(λ, inf, w), ref_elastic(x, t, λ, inf, w), y -> val_elastic(α, y, λ, inf, w)),
+        (SparseGroupNormL2(λ, inf, [1:1, 2:2], w), ref_sparsegroup(x, t, λ, inf, w, [1:1, 2:2]), y -> val_sparsegroup(α, y, λ, inf, w, [1:1, 2:2])),
+        (SparseGroupNormL2(inf, λ, [1:1, 2:2], w), ref_sparsegroup(x, t, inf, λ, w, [1:1, 2:2]), y -> val_sparsegroup(α, y, inf, λ, w, [1:1, 2:2])))
+      check_ref(Scaled(f, α), x, γ, ref, val)
+    end
+  end
+end
+
+@testset "the entry around the threshold, $T" for T in (Float32, Float64)
+  # entries from the smallest subnormal to 1 with a threshold t = αγ near floatmin and the smallest
+  # subnormal: the result is the exact one rounded, up to floatmin where a level below the range is dropped
+  inf = T(Inf)
+  smallest = nextfloat(zero(T))
+  xs = T[smallest, 4smallest, floatmin(T) / 2, floatmin(T), 3floatmin(T), T(1e-3), T(1)]
+  for (α, γ) in exponent_grid(T), x1 in xs
+    x = T[x1, 2]
+    t = fill(big(α) * big(γ), 2)
+    for (f, ref, val) in (
+        (SparseGroupNormL2(T(1), inf, [1:1, 2:2], T[0, 1]), ref_sparsegroup(x, t, T(1), inf, T[0, 1], [1:1, 2:2]), y -> val_sparsegroup(α, y, T(1), inf, T[0, 1], [1:1, 2:2])),
+        (ElasticNet(inf, T(1), T[0, 1]), ref_elastic(x, t, inf, T(1), T[0, 1]), y -> val_elastic(α, y, inf, T(1), T[0, 1])))
+      s = Scaled(f, α)
+      y = zeros(T, 2)
+      v = value_and_prox!(y, s, x, γ)
+      @test y[2] == 0
+      # the change of the free entry against the exact result is below floatmin, and a ridge below its relative bound
+      @test abs(big(y[1]) - ref[1]) <= 4eps(T) * max(abs(big(x1)), abs(ref[1])) + big(floatmin(T))
+      @test valnear(v, val(y), T)
+    end
+  end
+end
+
+@testset "finite siblings of an infinite block, $T" for T in (Float32, Float64)
+  # The finite block is folded with the chain, discarded only when its whole coefficient (the product,
+  # the level and the largest weight) is below floatmin, and otherwise the fold is declined. A product
+  # that is a representable number keeps the step as it is, so the hard block stays fixed. The
+  # configurations with a product that underflows to zero while a large weight brings the coefficient
+  # above floatmin are not covered: there the fold is declined and the infinite block is not fixed.
+  inf = T(Inf)
+  wbig = T === Float64 ? T(1e300) : T(1f30)
+  for (α, γ) in exponent_grid(T), w1 in (T(0), T(1e-3), T(1)), w2 in (T(0), T(1e-3), T(1), wbig), λ1 in (T(1), T === Float64 ? T(1e-100) : T(1f-10)), λ2 in (T(0), T(1))
+    tt = big(α) * big(γ)
+    # a product within a factor 2 of half the smallest subnormal number can round either way (the rounding
+    # of ldexp differs between Julia versions), so only products from twice the smallest subnormal count
+    supported = α * γ >= 2 * nextfloat(zero(T)) || tt * big(λ1) * big(max(w1, w2)) < big(floatmin(T))
+    supported || continue
+    f = Scaled(SeparableSum(NormL1(inf), ElasticNet(λ1, λ2, T[w1, w2])), α)
+    # the second entry is twice its own threshold where that is a normal number, so that the threshold matters
+    thr = big(λ1) * big(w2) * tt
+    x2 = T[1, thr > big(floatmin(T)) ? T(2thr) : T(2)]
+    r = ref_elastic(x2, [tt, tt], λ1, λ2, T[w1, w2])
+    res = prox(f, (T[1, 2], x2), γ)
+    @test all(iszero, res[1])
+    # a product that is a subnormal number is a step with few digits: its relative error, at most the
+    # smallest subnormal over the product, multiplies the change that the threshold makes
+    δ = α * γ > 0 && α * γ < floatmin(T) ? 2 * big(nextfloat(zero(T))) / big(α * γ) : big(0)
+    @test all(abs.(res[2] .- T.(r)) .<= 4eps(T) .* max.(abs.(x2), abs.(T.(r))) .+ floatmin(T) .+ T.(δ .* abs.(big.(x2) .- r)))
+  end
+end
+
+@testset "nested Scaled, SeparableSum and Translate around the group functions, $T" for T in (Float32, Float64)
+  inf = T(Inf)
+  α1, α2 = T === Float64 ? (T(1e-100), T(1e-100)) : (T(1f-20), T(1f-20))
+  γ = α1
+  x = T[1, 2]
+  b = T[0.5, -1]
+  g = SparseGroupNormL2(T(1), inf, [1:1, 2:2], T[0, 1])
+  e = ElasticNet(inf, T(1), T[0, 1])
+  t = fill(big(α1) * big(α2) * big(γ) * 2, 2)       # the inner factor 2 of the scaled block
+  rg = ref_sparsegroup(x, t, T(1), inf, T[0, 1], [1:1, 2:2])
+  re = ref_elastic(x, t, inf, T(1), T[0, 1])
+  for (f, ref) in ((Scaled(Scaled(Scaled(g, T(2)), α1), α2), rg),
+                   (Scaled(Scaled(Scaled(e, T(2)), α1), α2), re))
+    y = zeros(T, 2)
+    v = value_and_prox!(y, f, x, γ)
+    @test nearref(y, ref, x, T) && y[2] == 0
+    @test isequal(prox(f, x, γ), y)
+  end
+  # a sum of blocks with a scaled block and a translate: each block as alone
+  tr = T[3, 4]
+  f = Scaled(Scaled(SeparableSum(Scaled(g, T(2)), Translate(e, tr)), α1), α2)
+  res = prox(f, (x, x), γ)
+  @test nearref(res[1], rg, x, T) && res[1][2] == 0
+  re2 = ref_elastic(x .- tr, fill(big(α1) * big(α2) * big(γ), 2), inf, T(1), T[0, 1])
+  @test nearref(res[2], re2 .+ tr, x, T) && res[2][2] == tr[2]
+end
+
 
 end

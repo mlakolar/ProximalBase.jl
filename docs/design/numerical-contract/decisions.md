@@ -2047,15 +2047,35 @@ positive finite scale, where it had made the fold give up and the leaf receive
 the rounded step `0` (the identity of `γ = 0` for `NormL1`, the NaN of
 `Inf⋅0` for `SLOPE`, `NormL1Fused` and `NormLinf`). The infinite level is read as
 stored (R3): a finite level whose product overflows or underflows keeps its
-finite meaning. `SLOPE` and `NormL1Fused` fold their levels for such a step only
-when a level is infinite, and in the functions with several levels the finite ones
-that fall below the range are dropped to zero then: for a scalar step the leaf
-receives the significand of the step, so the dropped coefficient is below `floatmin`
-and an entry changes by less than that, whatever the weights are. A chain of factors
-takes the same route, and the values of scaled functions are unchanged. An array step
-drops the finite level only when no weight is zero (its entries are not folded, so
-the drop is not bounded); with a zero weight the earlier result is kept, and that
-case is excluded here.
+finite meaning. Next to an infinite level, a finite level that the fold cannot
+form is classified by what it does:
+
+- *Irrelevant*, when the infinite level fixes every coordinate that it touches
+  (`SLOPE` or `NormL1Fused` with an infinite first level, `ElasticNet` with an
+  infinite ridge level or with an infinite ℓ1 level and positive weights,
+  `SparseGroupNormL2` with an infinite ℓ1 level or with an infinite group level and
+  positive group weights): the level is removed, which is exact.
+- *Relevant on free coordinates*, where a zero weight leaves a coordinate or a
+  group free: the finite level acts there, and the positive-weight coordinates stay
+  fixed. It is kept when it folds, and discarded only when its whole coefficient
+  `mγ · scale · level · weight` is below `floatmin`, formed from exponents
+  (`2^(e + eλ + ew)` bounds it, with `ew` the exponent of the largest weight that
+  multiplies the level) so that a large weight is counted before the product can
+  underflow. The error is a bound, not an exact zero: below `floatmin` for every
+  entry (a threshold, or the norm of a group) and a relative error below `floatmin`
+  for a ridge. An entry of that magnitude can lose its threshold, as a product rounded
+  to zero does.
+- Otherwise the fold is declined and the function keeps the route that it had. This is
+  the case of a finite block of a sum whose scaled level underflows to zero while a large
+  weight brings its coefficient above `floatmin`, and of an array step on `ElasticNet`
+  or `SparseGroupNormL2` with a zero weight and a finite level that is not a normal number
+  once the scale is folded in (the array step is not folded, so no bound on the entries
+  exists); the infinite level of a positive-weight coordinate can be lost there, as at base.
+  These configurations are excluded here and tracked.
+
+`SLOPE` and `NormL1Fused` fold their levels for such a step only when a level is
+infinite. A chain of factors, a block that is itself scaled and the blocks of a sum take the
+same route, and the values of scaled functions are unchanged.
 
 Excluded, and unchanged:
 

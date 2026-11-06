@@ -148,6 +148,7 @@ thorough = [
   "sparse_iterate",
   "sparsegroup_infinite_level",
   "spectral_domain",
+  "spectral_fused_values",
   "spectral_nonfinite_values",
   "spectral_overflow",
   "spectral_overflow_prox",

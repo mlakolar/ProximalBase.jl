@@ -317,7 +317,11 @@ then every matrix, and the value is `0` at NaN entries alone and `Inf` at an
 infinite entry. When `r ≥ minimum(size(X))`, the proximal operator copies its
 input, including at non-finite inputs, and `value_and_prox!` returns the value
 at that copy. Otherwise a non-finite input gives an all-`NaN` output, and
-`value_and_prox!` returns NaN there and zero at a finite input.
+`value_and_prox!` returns NaN there. At a finite input it returns the value at
+the stored output: zero, except that when the rank threshold `√ε σ₁` is not a
+normal number, rounding to the destination's elements can leave a matrix of
+numerical rank above `r`, whose value is `Inf`, and a conversion that overflows
+the destination's type gives `Inf` or NaN.
 
 $_PARTIAL_NOTE
 
@@ -375,21 +379,32 @@ end
 function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
   X = _symmetric_argument(Y, X)
   _checkwrite(prox!, f, Y, X)
+  _rank_prox!(Y, f, X, γ)
+  Y
+end
+
+# The truncated decomposition into Y. Returns the largest singular value of the
+# decomposition, in the working type, or zero when Y is a copy of X, all NaN, or computed
+# in scaled units.
+function _rank_prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
   T = float(eltype(Y))
   if minimum(size(X)) <= f.r
     Y === X || copyto!(Y, X)
-    return Y
+    return zero(T)
   end
-  all(isfinite, X) || return fill!(Y, T(NaN))
-  f.partial && _partial_rank!(Y, f, X, T) !== nothing && return Y
+  all(isfinite, X) || (fill!(Y, T(NaN)); return zero(T))
+  if f.partial && _partial_rank!(Y, f, X, T) !== nothing
+    return (f.pws::PartialSVDWorkspace{T}).s[1]
+  end
   ws = _svd_workspace(f.ws, T, size(X)...)
   f.ws = ws
   copyto!(ws.A, X)
   s, U, Vt = _svd!(ws)
   if _spectral_overflow(s, X, ws)
     _scaled_svd_prox!(Y, f, X, γ, ws)
-    return Y
+    return zero(T)
   end
+  σ = s[1]
   @inbounds for j in 1:f.r
     t = s[j]
     @simd for i in axes(U, 1)
@@ -398,7 +413,11 @@ function prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
   end
   f.partial && _warm_start_svd!(f, U, f.r)
   _mul_lowrank!(Y, U, Vt, f.r, ws)
+  σ
 end
+
+# Whether a conversion from the element type S to T can leave an entry that T cannot hold.
+_narrows(::Type{S}, ::Type{T}) where {S, T} = sizeof(float(S)) > sizeof(T)
 
 function value_and_prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, γ::Real)
   X = _symmetric_argument(Y, X)
@@ -408,7 +427,15 @@ function value_and_prox!(Y::AbstractMatrix, f::IndBallRank, X::AbstractMatrix, �
   # a copy of X, or all NaN after a decomposition of a non-finite X (O2)
   copies = minimum(size(X)) <= f.r
   v = all(isfinite, X) ? zero(T) : copies ? _count_nonfinite_value(true, X, T) : T(NaN)
-  prox!(Y, f, X, γ)
+  σ = _rank_prox!(Y, f, X, γ)
+  if copies
+    # a finite input that the destination's type cannot hold is not a finite copy
+    iszero(v) && _narrows(eltype(X), T) && !all(isfinite, Y) && return T(Inf)
+  elseif !iszero(σ) && (!isfinite(σ) || _tol(T) * σ <= floatmin(T))
+    # A threshold that is not normal, or a non-finite decomposition: rounding to the
+    # elements of Y can leave numerical rank above r, so the value is the one at Y.
+    return f(Y)
+  end
   v
 end
 

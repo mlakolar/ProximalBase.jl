@@ -132,6 +132,7 @@ thorough = [
   "expcone",
   "extreme_normals",
   "fibers",
+  "fibers_midpoint_overflow",
   "gradient_alias",
   "graph",
   "infinite_group_weights",

@@ -441,11 +441,33 @@ end
   convert(T, fb(y))
 end
 
+# A separate output whose value is not finite: the loop took the unchecked midpoint, which overflows
+# for a pair near floatmax. With finite levels the output is recomputed with the checked midpoint
+# (prox!) and the value is decided on the stored output y, not on the argument (O2). Where the entries
+# of x are not all finite, a NaN gives a NaN output in the ordinary regimes and ends the recovery there.
+# Where a function of the fiber is the identity (both levels zero, or a zero step), or the diagonal is
+# left free, those NaN entries stay in their own fibers and add no value (E4), so they do not stand in
+# the way of an unrelated fiber. When x is finite but y is not (an infinity in a free fiber that the
+# narrower element type of y created), the scaled recovery would read that infinity as the scale of the
+# sum, so the value is that of the fiber functions at y. In both, the value is fb(y), which keeps a NaN
+# in a coupled pair (E2) and an overflow of the stored result (E3). The fiber views of fb(y) need
+# one-based axes: an output with other axes, which the pair kernel accepts, keeps the earlier recovery.
 @noinline function _recover_fused_fiberprox!(y, fb, x, γ, own, ::Type{T}, ordinary) where {T}
   f, d = fb.f, fb.diagonal
   isfinite(f.λ1) && isfinite(f.λ2) &&
-    (d === nothing || (isfinite(d.λ1) && isfinite(d.λ2))) && all(isfinite, x) || return ordinary
+    (d === nothing || (isfinite(d.λ1) && isfinite(d.λ2))) || return ordinary
+  if Base.has_offset_axes(y)
+    all(isfinite, x) || return ordinary
+    prox!(y, fb, x, γ)
+    return _recover_fused_fibers(fb, y, own, T, ordinary)
+  end
+  if !all(isfinite, x)
+    _fused_fiber_identity(fb, T, T(γ)) || d === nothing || return ordinary
+    prox!(y, fb, x, γ)
+    return convert(T, fb(y))
+  end
   prox!(y, fb, x, γ)
+  all(isfinite, y) || return convert(T, fb(y))
   _recover_fused_fibers(fb, y, own, T, ordinary)
 end
 

@@ -2012,6 +2012,9 @@ The first families, with the proofs:
   `γ = Inf` every finite step gives the zero map, so the joint limit is `0`
   (E3, decision 48). The domain of the entry is `{0}` whatever linear term a
   wrapper such as `Tilt` adds, so the constant is right at `γ = Inf` too.
+  The value of `NormL1(Inf)` at the zero vector, which the dense unweighted
+  path gave as NaN (`Inf⋅0`), is `0`, the value at the point of the domain
+  `{0}` (E4, E6).
 - *`SLOPE`, `f(x) = Σₖ λₖ|x|₍ₖ₎` with `λ₁ ≥ λ₂ ≥ … ≥ 0`.* With `λ₁ = Inf`,
   every `x ≠ 0` has `|x|₍₁₎ > 0` and `f(x) = Inf`, so the domain is `{0}` and
   at every finite `γ > 0` the proximal point is `0` for every finite argument.

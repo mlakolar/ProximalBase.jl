@@ -65,6 +65,22 @@ function check_product_state(x, before)
   @test x.position == before.position
 end
 
+# The M1 reference: the sum over the coordinates where the iterate's coefficient is nonzero
+# (where both iterates' are, for two). The finite entries are small integers, so every
+# summation order gives the same result and isequal compares classes (FN-4); a zero of a
+# dense operand is an IEEE zero.
+strong(v, x) = sum((v[j] * x[j] for j in 1:length(x) if !iszero(x[j])); init = zero(promote_type(eltype(v), eltype(x))))
+strong2(x, y) = sum((x[j] * y[j] for j in 1:length(x) if !iszero(x[j]) && !iszero(y[j]));
+                    init = zero(promote_type(eltype(x), eltype(y))))
+
+# The five-argument form into a reused out: β = 0 overwrites the NaN already in out, β = 1 keeps it.
+function check_five(M, x, ref)
+  T = eltype(ref)
+  o = fill(T(NaN), size(ref)); o[end] = 1
+  @test isequal(mul!(copy(o), M, x, 2, 0), 2 .* ref)
+  @test isequal(mul!(copy(o), M, x, 2, 1), 2 .* ref .+ o)
+end
+
 @testset "AtomIterate" begin
 
   @testset "scaling by Inf writes inactive groups (FN-9)" begin
@@ -627,6 +643,41 @@ end
       x[2] = before[2]
       @test all(isnan, mul!(fill(NaN, 2), A, x, 1.0, 1.0))
       check_product_state(x, before)
+    end
+  end
+
+  @testset "zero coefficients are strong (M1, FT12)" begin
+    for T in (Float32, Float64), bad in T.((NaN, Inf, -Inf)), k in 1:6, stored in (true, false),
+        layout in ([1:2, 3:4, 5:6], [[2, 1], [4, 3], [6, 5]])
+      # group 1 active with zeros, group 2 holding [2, 0], group 3 inactive
+      a = AtomIterate(T, 6, layout); a[3] = 2; activate!(a, 1)
+      stored || dropzeros!(a)
+      before = copy(a)
+      v = T[1, 2, 3, 4, 5, 6]; v[k] = bad
+      @test isequal(dot(v, a), strong(v, a)) && isequal(dot(a, v), strong(v, a))
+      # pairs of iterates, in both orders: the non-finite entry in the SparseIterate against the
+      # zeros of a, in another AtomIterate against the zeros of a, and in b against the zeros
+      # of a SparseIterate
+      s = SparseIterate(T, 6); s[k] = bad; k == 3 || (s[3] = 3); activate!(s, 4)
+      @test isequal(dot(s, a), strong2(s, a)) && isequal(dot(a, s), strong2(s, a))
+      b = AtomIterate(T, 6, layout); b[k] = bad; k == 3 || (b[3] = 3)
+      @test isequal(dot(a, b), strong2(a, b)) && isequal(dot(b, a), strong2(a, b))
+      s0 = SparseIterate(T, 6); s0[3] = 3; activate!(s0, 1); activate!(s0, 5)  # explicit zeros at 1 and 5
+      stored || dropzeros!(s0)
+      @test isequal(dot(s0, b), strong2(s0, b)) && isequal(dot(b, s0), strong2(s0, b))
+      # a non-finite entry of b that meets a zero of a dense operand propagates
+      @test isequal(dot(T[0, 0, 1, 1, 0, 0], b), strong(T[0, 0, 1, 1, 0, 0], b))
+      A = T[1 2 3 4 5 6; -1 0 2 1 3 1]; A[:, k] .= bad
+      refA = [strong(view(A, i, :), a) for i in 1:2]
+      @test isequal(A * a, refA)
+      check_five(A, a, refA)
+      P = T.(reshape(0:35, 6, 6) .% 3); P = P + P'; P[k, :] .= bad; P[:, k] .= bad
+      for uplo in (:U, :L)
+        refP = [strong(view(P, i, :), a) for i in 1:6]
+        @test isequal(Symmetric(P, uplo) * a, refP)
+        check_five(Symmetric(P, uplo), a, refP)
+      end
+      check_product_state(a, before)
     end
   end
 

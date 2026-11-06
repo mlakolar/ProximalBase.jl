@@ -915,6 +915,12 @@ end
 
 ## multiplication
 
+# In the products and inner products below, a zero coefficient of the iterate,
+# stored or not, contributes nothing, even against ±Inf or NaN in the other
+# operand (numerics M1): each kernel tests the stored value, before any scaling
+# by α, so that an α·c that underflows still multiplies and α = Inf does not
+# turn a zero coefficient into NaN.
+
 function *(A::StridedMatrix{Ta}, x::SparseIterate{Tx, 1}) where {Ta,Tx}
   _checkreal(x, A)
     m, n = size(A)
@@ -935,8 +941,10 @@ function LinearAlgebra.mul!(out::StridedVector, A::StridedMatrix, coef::SparseIt
   iszero(α) && return out
   scale = _product_scale(A, coef, α)
   @inbounds for inz = 1:nnz(coef)
+    v = coef.nzval[inz]
+    iszero(v) && continue
     indColumn = coef.nzval2ind[inz]
-    c = scale * coef.nzval[inz]
+    c = scale * v
     @simd for i = 1:size(A, 1)
       out[i] += c*A[i, indColumn]
     end
@@ -968,8 +976,10 @@ function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIt
   if 32 * nnz(coef) <= length(coef)
     p = size(coef, 1)
     @inbounds for inz = 1:nnz(coef)
+      v = coef.nzval[inz]
+      iszero(v) && continue
       j, k = mod1(coef.nzval2ind[inz], p), cld(coef.nzval2ind[inz], p)
-      c = scale * coef.nzval[inz]
+      c = scale * v
       @simd for i = 1:size(A, 1)
         out[i, k] += c * A[i, j]
       end
@@ -978,7 +988,9 @@ function LinearAlgebra.mul!(out::StridedMatrix, A::StridedMatrix, coef::SparseIt
     @inbounds for k = 1:size(coef, 2), j = 1:size(coef, 1)
       pos = coef.ind2nzval[j, k]
       pos == 0 && continue
-      c = scale * coef.nzval[pos]
+      v = coef.nzval[pos]
+      iszero(v) && continue
+      c = scale * v
       @simd for i = 1:size(A, 1)
         out[i, k] += c * A[i, j]
       end
@@ -1026,7 +1038,8 @@ function LinearAlgebra.mul!(out::StridedVector, A::_StridedSymmetric, x::SparseI
   iszero(α) && return out
   scale = _product_scale(A, x, α)
   @inbounds for k in 1:x.nnz
-    _symmetric_axpy!(out, A, x.nzval2ind[k], scale * x.nzval[k])
+    v = x.nzval[k]
+    iszero(v) || _symmetric_axpy!(out, A, x.nzval2ind[k], scale * v)
   end
   out
 end
@@ -1041,8 +1054,10 @@ function LinearAlgebra.mul!(out::StridedMatrix, A::_StridedSymmetric, x::SparseI
   scale = _product_scale(A, x, α)
   p = size(x, 1)
   @inbounds for k in 1:x.nnz
+    v = x.nzval[k]
+    iszero(v) && continue
     j, col = mod1(x.nzval2ind[k], p), cld(x.nzval2ind[k], p)
-    _symmetric_axpy!(view(out, :, col), A, j, scale * x.nzval[k])
+    _symmetric_axpy!(view(out, :, col), A, j, scale * v)
   end
   out
 end
@@ -1069,11 +1084,16 @@ function LinearAlgebra.mul!(out::StridedVector, trans_a::TransposedStridedMatrix
     length(out) == size(A, 2) || throw(DimensionMismatch("A has second dimension $(size(A,2)), length of out is $(length(out))"))
 
     iszero(α) && return _scale_product_output!(out, β)
+    # No nonzero coefficient: the sum is empty, and out becomes β·out as on the strided
+    # path, also for an α of Inf or NaN. The test stops at the first nonzero coefficient.
+    any(!iszero, view(coef.nzval, 1:nnz(coef))) || return _scale_product_output!(out, β)
     scale = _product_scale(A, coef, α)
     @inbounds for j = 1:size(A, 2)
         s = zero(eltype(out))
         @simd for inz = 1:nnz(coef)
-            s += A[coef.nzval2ind[inz], j] * coef.nzval[inz]
+            v = coef.nzval[inz]
+            t = A[coef.nzval2ind[inz], j] * v
+            s += ifelse(iszero(v), zero(t), t)    # a select, not a branch, keeps the loop vectorized
         end
         out[j] = iszero(β) ? scale * s : scale * s + β * out[j]
     end
@@ -1088,18 +1108,23 @@ function LinearAlgebra.dot(v::StridedVector, coef::SparseIterate{<:Any, 1})
     length(v) == length(coef) || throw(DimensionMismatch())
     s = zero(promote_type(eltype(v), eltype(coef)))
     @inbounds @simd for icoef = 1:nnz(coef)
-        s += dot(v[coef.nzval2ind[icoef]], coef.nzval[icoef])
+        c = coef.nzval[icoef]
+        t = dot(v[coef.nzval2ind[icoef]], c)
+        s += ifelse(iszero(c), zero(t), t)    # a select, not a branch, keeps the loop vectorized
     end
     s
 end
 LinearAlgebra.dot(coef::SparseIterate{<:Any, 1}, v::StridedVector) = dot(v, coef)
 
+# Both operands are iterates, so a zero of either contributes nothing.
 function LinearAlgebra.dot(x::SparseIterate{<:Any, 1}, y::SparseIterate{<:Any, 1})
     length(x) == length(y) || throw(DimensionMismatch())
     nnz(x) > nnz(y) && return dot(y, x)
     s = zero(promote_type(eltype(x), eltype(y)))
     @inbounds for k = 1:nnz(x)
-        s += dot(x.nzval[k], y[x.nzval2ind[k]])
+        a, b = x.nzval[k], y[x.nzval2ind[k]]
+        t = dot(a, b)
+        s += ifelse(iszero(a) | iszero(b), zero(t), t)    # a select: a branch on the data mispredicts
     end
     s
 end
@@ -1111,8 +1136,10 @@ function LinearAlgebra.dot(a::StridedVector, X::SparseIterate{<:Any, 2}, b::Stri
   m = size(X, 1)
   s = zero(promote_type(eltype(a), eltype(X), eltype(b)))
   @inbounds for k = 1:nnz(X)
+    v = X.nzval[k]
+    iszero(v) && continue
     i = X.nzval2ind[k]
-    s += a[mod1(i, m)] * X.nzval[k] * b[cld(i, m)]
+    s += a[mod1(i, m)] * v * b[cld(i, m)]
   end
   s
 end

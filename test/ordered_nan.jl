@@ -60,10 +60,12 @@ end
     @test z(T[3, NaN, Inf]) === zero(T) && z(T[3, 1, 2]) === zero(T)
     # a zero step: the identity
     check_all(f, T[3, NaN, 2], T(0), T[3, NaN, 2])
-    # an infinite step or an infinite weight keeps the master computation (LIM-056, #469)
+    # an infinite step keeps the master computation (LIM-056, #469)
     @test isequal(prox(f, T[3, NaN, 2], T(Inf)), T[0, NaN, 0])
+    # an infinite first weight at a positive finite step: the domain is {0}, so the output is zero
+    # whatever the entries hold (decision 49)
     @test prox(SLOPE(T[Inf, 1, 0.5]), T[1, 2, 0.5], T(1)) == zeros(T, 3)
-    @test isequal(prox(SLOPE(T[Inf, 1, 0.5]), T[1, NaN, 0.5], T(1)), T[0, NaN, 0])
+    check_all(SLOPE(T[Inf, 1, 0.5]), T[1, NaN, 0.5], T(1), zeros(T, 3); value = zero(T))
     # finite arguments are unchanged
     @test prox(f, T[3, -2, 0.5], T(0.5)) == prox(SLOPE(T[3, 2, 1]), T[3, -2, 0.5], T(0.5))
     @test prox(SLOPE(zeros(T, 3)), T[3, -2, 0.5], T(Inf)) == T[3, -2, 0.5]
@@ -278,7 +280,7 @@ end
     @test allocs(prox!, yb, h, x, 1.0) == 0
     @test allocs(value_and_prox!, yb, h, x, 1.0) == 0
   end
-  # an infinite level keeps the master computation (LIM-056)
+  # an infinite ℓ1 level: the domain is {0}, and the output zero (decision 49)
   @test prox(NormL1Fused(Inf, 1.0), [1.0, 2.0, 0.5], 1.0) == zeros(3)
   # a fiber of three or more slices is a vector; the fibers are independent, and K = 2 uses pairs
   for K in (2, 3, 4)

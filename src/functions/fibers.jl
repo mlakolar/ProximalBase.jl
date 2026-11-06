@@ -308,18 +308,22 @@ function _fiberprox!(y::AbstractArray{<:Any, 3}, fb::FiberSum{<:NormL1Fused, D},
   size(x, 3) == 2 || return _fiberprox_views!(y, fb, x, γ, Val(V))
   own = _owndiagonal(fb, x)
   T = float(eltype(y))
+  # the functions that an infinite ℓ1 level fixes at zero, from the levels and the step as given
+  z = (_fused_zero(fb.f, γ), fb.diagonal !== nothing && _fused_zero(fb.diagonal, γ))
   v = if fb.symmetric
-    own ? _fiberprox_pairs!(y, fb, x, T(γ), Val(true), Val(true), T, Val(V)) :
-      _fiberprox_pairs!(y, fb, x, T(γ), Val(true), Val(false), T, Val(V))
+    own ? _fiberprox_pairs!(y, fb, x, T(γ), z, Val(true), Val(true), T, Val(V)) :
+      _fiberprox_pairs!(y, fb, x, T(γ), z, Val(true), Val(false), T, Val(V))
   else
-    own ? _fiberprox_pairs!(y, fb, x, T(γ), Val(false), Val(true), T, Val(V)) :
-      _fiberprox_pairs!(y, fb, x, T(γ), Val(false), Val(false), T, Val(V))
+    own ? _fiberprox_pairs!(y, fb, x, T(γ), z, Val(false), Val(true), T, Val(V)) :
+      _fiberprox_pairs!(y, fb, x, T(γ), z, Val(false), Val(false), T, Val(V))
   end
   f = fb.f
   if V
     fits = _fused_levels_fit(T, f) &&
       (fb.diagonal === nothing || _fused_levels_fit(T, fb.diagonal))
     isfinite(v) && fits && return v
+    # the recoveries below decline an infinite level; a function that it fixes adds no value
+    (z[1] || z[2]) && return _fixed_fibers_value!(y, fb, x, γ, T, v)
     if !isfinite(v) && !Base.mightalias(y, x)
       return _recover_fused_fiberprox!(y, fb, x, γ, own, T, v)
     end
@@ -329,10 +333,10 @@ function _fiberprox!(y::AbstractArray{<:Any, 3}, fb::FiberSum{<:NormL1Fused, D},
 end
 
 # Disjoint outputs can retry an overflowing midpoint from the original inputs.
-@inline function _fiberprox_pairs!(y, fb, x, γT, s, o, ::Type{T}, v::Val{V}) where {T, V}
-  if _fused_fiber_identity(fb, T, γT)
-    return V && !Base.mightalias(y, x) ? _fiberprox_pairs_identity!(y, fb, x, γT, s, o, T, v, Val(false)) :
-      _fiberprox_pairs_identity!(y, fb, x, γT, s, o, T, v, Val(true))
+@inline function _fiberprox_pairs!(y, fb, x, γT, z, s, o, ::Type{T}, v::Val{V}) where {T, V}
+  if z[1] || z[2] || _fused_fiber_identity(fb, T, γT)
+    return V && !Base.mightalias(y, x) ? _fiberprox_pairs_identity!(y, fb, x, γT, z, s, o, T, v, Val(false)) :
+      _fiberprox_pairs_identity!(y, fb, x, γT, z, s, o, T, v, Val(true))
   end
   V && !Base.mightalias(y, x) ? _fiberprox_pairs!(y, fb, x, γT, s, o, T, v, Val(false)) :
     _fiberprox_pairs!(y, fb, x, γT, s, o, T, v, Val(true))
@@ -379,8 +383,10 @@ end
 
 # The same loop in the regimes where a function of the fiber is the identity (see _fused_pair_levels):
 # only these calls pay for the levels being decided, the ordinary loop above is unchanged. A zero level
-# adds no value, whatever the entries (E4).
-@noinline function _fiberprox_pairs_identity!(y, fb::FiberSum{<:NormL1Fused, D}, x, γT,
+# adds no value, whatever the entries (E4). The same loop serves a function that an infinite ℓ1 level
+# fixes at zero (zf for the off-diagonal pairs, zd for the diagonal): its pairs are zero whatever they
+# hold, and add no value.
+@noinline function _fiberprox_pairs_identity!(y, fb::FiberSum{<:NormL1Fused, D}, x, γT, (zf, zd),
                                    ::Val{S}, ::Val{O}, ::Type{T}, ::Val{V}, ::Val{C}) where {D, S, O, T, V, C}
   a, b = firstindex(x, 3), firstindex(x, 3) + 1
   f = fb.f
@@ -409,21 +415,30 @@ end
       if d === nothing
         y[i, i, a], y[i, i, b] = x[i, i, a], x[i, i, b]
       else
-        u, w = _prox_l1fused(T(x[i, i, a]), T(x[i, i, b]), dl1, dl2, dγ, Val(C))
+        u, w = zd ? (zero(T), zero(T)) : _prox_l1fused(T(x[i, i, a]), T(x[i, i, b]), dl1, dl2, dγ, Val(C))
         y[i, i, a], y[i, i, b] = u, w
-        V && (v += ifelse(dz1, zero(T), dv1 * (abs(u) + abs(w))) + ifelse(dz2, zero(T), dv2 * abs(u - w)))
+        V && !zd && (v += ifelse(dz1, zero(T), dv1 * (abs(u) + abs(w))) + ifelse(dz2, zero(T), dv2 * abs(u - w)))
       end
     else
-      u, w = _prox_l1fused(T(x[i, j, a]), T(x[i, j, b]), fl1, fl2, fγ, Val(C))
+      u, w = zf ? (zero(T), zero(T)) : _prox_l1fused(T(x[i, j, a]), T(x[i, j, b]), fl1, fl2, fγ, Val(C))
       y[i, j, a], y[i, j, b] = u, w
       c = S && i != j ? 2 : 1
       if c == 2
         y[j, i, a], y[j, i, b] = u, w
       end
-      V && (v += c * (ifelse(fz1, zero(T), fv1 * (abs(u) + abs(w))) + ifelse(fz2, zero(T), fv2 * abs(u - w))))
+      V && !zf && (v += c * (ifelse(fz1, zero(T), fv1 * (abs(u) + abs(w))) + ifelse(fz2, zero(T), fv2 * abs(u - w))))
     end
   end
   v
+end
+
+# The value when an infinite ℓ1 level fixes one of the functions and the sum of the other's terms is
+# not finite or its levels do not fit: the value at the stored output, where the fixed pairs are zero
+# and their entries, NaN included, are not read again. A separate output is first recomputed with the
+# checked midpoint, which the loop skips there.
+@noinline function _fixed_fibers_value!(y, fb, x, γ, ::Type{T}, ordinary) where {T}
+  isfinite(ordinary) || Base.mightalias(y, x) || prox!(y, fb, x, γ)
+  convert(T, fb(y))
 end
 
 @noinline function _recover_fused_fiberprox!(y, fb, x, γ, own, ::Type{T}, ordinary) where {T}

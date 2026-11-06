@@ -90,6 +90,12 @@ the earlier behavior applies.
   - At an admitted infinite step, a proximal map that is constant on finite
     arguments ignores a NaN entry: `prox(NormL1(1.0), [NaN], Inf)` is `[0]`,
     where it was `[NaN]`.
+  - An infinite level whose proximal map is constant ignores a NaN or infinite
+    entry (decision 49): `prox(NormL1(Inf), [1.0, NaN], 1.0)` is `[0, 0]`,
+    where it was `[0, NaN]`, and so for `SLOPE` with an infinite first weight
+    and `NormL1Fused` with an infinite ℓ1 level at a positive finite step.
+    At the zero vector, `NormL1(Inf)` (a dense array, no weights) and
+    `NormL1Fused(Inf, λ2)` give the value `0`, where they gave NaN.
 - **Infinite entries.** A bounded projection at an argument with one infinite
   entry returns its limit, where it returned NaN or a partly NaN block
   ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), decision 48).

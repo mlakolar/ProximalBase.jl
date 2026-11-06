@@ -350,9 +350,9 @@ change is narrow, shared or architectural is the author's declaration, checked i
 
 **Focus groups**, chosen by what the files protect (worker seconds on Julia lts from the full
 run 41364805347), beside the iterate files of quick (`active_handle`, `atom_iterate`,
-`iterate_invariants`, `iterate_queries`, `matrixview`, `sparse_iterate_basics`,
-`symmetric_parameters`, `symmetric_products`, `wrapper_buffers`, `allocations_basics`,
-`block_step_failures`):
+`iterate_invariants`, `iterate_queries`, `iterate_writes`, `matrixview`,
+`sparse_iterate_basics`, `symmetric_parameters`, `symmetric_products`, `wrapper_buffers`,
+`allocations_basics`, `block_step_failures`):
 
 | Rule | Focus files | Why | Worker s |
 |---|---|---|---:|

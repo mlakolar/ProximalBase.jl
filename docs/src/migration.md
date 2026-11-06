@@ -90,6 +90,12 @@ the earlier behavior applies.
   - At an admitted infinite step, a proximal map that is constant on finite
     arguments ignores a NaN entry: `prox(NormL1(1.0), [NaN], Inf)` is `[0]`,
     where it was `[NaN]`.
+  - An infinite level whose proximal map is constant ignores a NaN or infinite
+    entry (decision 49): `prox(NormL1(Inf), [1.0, NaN], 1.0)` is `[0, 0]`,
+    where it was `[0, NaN]`, and so for `SLOPE` with an infinite first weight
+    and `NormL1Fused` with an infinite ℓ1 level at a positive finite step.
+    At the zero vector, `NormL1(Inf)` (a dense array, no weights) and
+    `NormL1Fused(Inf, λ2)` give the value `0`, where they gave NaN.
 - **Infinite entries.** A bounded projection at an argument with one infinite
   entry returns its limit, where it returned NaN or a partly NaN block
   ([#469](https://github.com/mlakolar/ProximalBase.jl/issues/469), decision 48).
@@ -332,3 +338,48 @@ an `InexactError`, possibly after a partial write.
 | `copyto!(x, c)` or `copy!(x, c)` with a complex `c` whose imaginary parts are zero | `copyto!(x, real(c))` |
 | `fill!(x, 1 + 0im)` or `fill!(x, 0im)` | `fill!(x, real(v))` |
 | `copyto!(x, (1 + 0im) * I)`, or a complex orthogonal factor with zero imaginary parts | `copyto!(x, real(λ) * I)`, or a real factor |
+
+## Writes into a `SparseIterate` or `AtomIterate` keep the working set (0.6)
+
+Every write through the array interface is now a value write: it activates the
+coordinates (groups) it makes nonzero and removes none. Only `dropzeros!`
+removes coordinates. Three spellings change.
+
+- `fill!(x, 0)` and `x .= 0` no longer clear the working set. They write zeros
+  into the active coordinates, which stay active. Base and LinearAlgebra
+  mutators that start with a `fill!`, such as `sum!(x, A)`, keep the working
+  set too. To clear, write `dropzeros!(fill!(x, 0))`.
+- `x .= y` with `y` an iterate of the same kind (a `SparseIterate` of the same
+  size, or an `AtomIterate` with equal groups) is a value write, like every
+  other broadcast: `x` keeps its working set and gains the nonzeros of `y`.
+  Before 0.6 it copied the working set of `y`. For that copy, write
+  `copyto!(x, y)`, which costs `O(nnz)` where the broadcast costs `O(length(x))`.
+- `copyto!` and `copy!` between two `SparseIterate`s of different shapes and
+  the same length are value writes in linear order. Before 0.6, `copyto!`
+  threw a `DimensionMismatch` and `copy!` an `ArgumentError`. Between two
+  array iterates of different lengths, both now throw a `DimensionMismatch`
+  before writing. Before 0.6, `copyto!` between a `SparseIterate` and an
+  `AtomIterate` copied a shorter source into the first entries and threw a
+  `BoundsError` for a longer one, and `copy!` threw a `MethodError` (an
+  `ArgumentError` between a matrix and a vector).
+
+For example, take `x = SparseIterate(4); x[4] = 7; activate!(x, 2)`.
+`fill!(x, 0)` gave active coordinates `[]`. It now gives `[4, 2]`, and
+`dropzeros!(fill!(x, 0))` gives `[]`.
+
+To replace the working set by the support of an array `A`, first check
+`length(A) == length(x)` (else throw a `DimensionMismatch`) and
+`eltype(A) <: Real` (else throw an `ArgumentError`). Then write
+`copyto!(dropzeros!(fill!(x, 0)), A)` when `A` is not an iterate of the same
+kind as `x`, shares no memory with `x`, and its reads and conversions to
+`eltype(x)` cannot fail, for example a real floating-point array into a
+floating-point `x`. Otherwise stage the values first, which leaves `x`
+unchanged if a read or conversion fails:
+
+```julia
+t = similar(x)
+for (i, j) in zip(eachindex(t), eachindex(A))
+    t[i] = A[j]
+end
+copyto!(x, t)
+```

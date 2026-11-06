@@ -567,7 +567,7 @@ end
   end
   @test LogDetLoss(Matrix{Float32}(I, 2, 2), 0.25f0)(1e300 * Matrix(1.0I, 2, 2)) === -Inf
   # Non-finite weights keep their base values.
-  @test isnan(NormL1(Inf)(zeros(2)))
+  @test NormL1(Inf)(zeros(2)) === 0.0          # an infinite level fixes every entry at zero (decision 49)
   @test isnan(NormL2(Inf)(zeros(2)))
   @test isnan(NuclearNorm(Inf)(zeros(2, 2)))
 end

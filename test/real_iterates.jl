@@ -297,8 +297,8 @@ end
     @test Vector(copyto!(make(), Float64[])) == [0, 0, 0, 9]
     @test Vector(copy!(make(), [1.0, 2, 3, 4])) == [1, 2, 3, 4]
     @test Vector(fill!(make(), 2)) == fill(2, 4)
-    x = fill!(make(), 0)
-    @test Vector(x) == zeros(4) && nactive(x) == 0
+    x = fill!(make(), 0)                       # a value write keeps the working set
+    @test Vector(x) == zeros(4) && nactive(x) == 1 && nactive(dropzeros!(x)) == 0
   end
 end
 

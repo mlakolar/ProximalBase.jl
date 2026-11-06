@@ -86,7 +86,7 @@ this improper case. The exception is a [`NormL1`](@ref) with a stored infinite l
 box that excludes zero at such an entry raises an `ArgumentError` ("the IndBox misses the
 domain of NormL1") before anything is written. A zero weight leaves its entry free, a
 zero or non-positive step is not decided here, and other functions and wrappers are not
-checked. The value of the constrained function at an argument is `Inf` as before.
+checked. The standalone value of an infeasible function at an argument stays `Inf`.
 On a hyperplane, halfspace or hyperslab, the search throws
 an `ArgumentError` if it cannot bracket a multiplier. This is not a general test
 for an empty intersection: rounding may put a point on the closure of an open

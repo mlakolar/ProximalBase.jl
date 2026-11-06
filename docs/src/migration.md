@@ -134,9 +134,9 @@ the earlier behavior applies.
     `[1.0, 1.0]`, the clamp of the hard zero into the box. The same holds for `prox!`,
     `value_and_prox!`, array steps and `Scaled(Constrained(...), α)` at a positive step, with
     the check on the entries of positive weight (a zero weight leaves its entry free), and
-    nothing is written before the error. A box that contains zero gives the hard zero as before,
-    and so do a finite level, a zero step, other penalties in the box and the standalone value
-    (`Inf` away from the domain). Coordinate updates of a `SparseIterate` or an `AtomIterate`
+    nothing is written before the error. A box that contains zero keeps the hard zero of an
+    infinite level. Finite levels, a zero step, other penalties in the box and the standalone
+    value (`Inf` away from the domain) keep their earlier behaviour. Coordinate updates of a `SparseIterate` or an `AtomIterate`
     do not run the check yet.
   - `SparseGroupNormL2` with an infinite ℓ1 level sets every grouped entry to
     zero at every step, also with a zero group level or weight:

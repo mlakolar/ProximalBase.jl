@@ -2105,8 +2105,8 @@ hard zero into a box that excludes it, which returned the nearest endpoint, is n
 `prox!` and `value_and_prox!` throw `ArgumentError("the IndBox misses the domain of NormL1")`
 (the wording of the hyperplane case) before the first write, decided from the stored level,
 the weights, the step and the bounds as given. A coordinate with `wᵢ = 0` is free and is not
-checked, and a box that contains `0` gives the hard zero as before. The standalone value of
-the infeasible function stays `Inf`. Only `NormL1` directly under `Constrained` with an
+checked, and a box that contains `0` keeps the hard zero of the infinite level. The
+standalone value of the infeasible function stays `Inf`. Only `NormL1` directly under `Constrained` with an
 infinite level is decided: a finite level, `NormL1Nonneg`, `ElasticNet`, the group norms,
 wrappers inside the box, and the coordinate updates of the sparse and atom iterates are
 unchanged (follow-ups).

@@ -169,6 +169,9 @@ helpers with `mul!` on `view(A, :, G)` or its transpose.
 For `A_mul_X_mul_B`, use `A * X * B`, with `X` represented as a
 `SparseIterate` matrix rather than a vector of its entries. A single entry is
 `dot(view(A, :, r), X, view(B, :, c))` for symmetric real `A` and `B`.
+That `dot` skips the zero coefficients of `X` (M1 of the
+[Numerical contract](@ref numerics-storage)) and `A * X * B` is not one of M1's
+products, so the two can differ when `A` or `B` has a non-finite entry.
 For `A_mul_UUt_mul_B`, use `(A * U) * transpose(B * U)`; its entry helper
 becomes `dot(U' * view(A, :, r), U' * view(B, :, c))` in the same real setting.
 
@@ -432,3 +435,39 @@ the entries of `x`, for a vector and for a matrix alike, as it already was for a
   vector and a matrix.
 - `fill!(coordinates(x), 0)` writes zeros into the stored entries, which stay
   active, as `fill!(x, 0)` does; to clear, write `dropzeros!(fill!(x, 0))`.
+
+## Products of an iterate: zero coefficients are strong (0.6)
+
+In the products and inner products that ProximalBase defines for a
+[`SparseIterate`](@ref) or an [`AtomIterate`](@ref), a zero coefficient of the
+iterate, stored or not, now contributes nothing, even against `±Inf` or NaN in
+the other operand. These are `dot` with a strided vector or another iterate,
+`dot(a, X, b)` for a matrix `X`, and `mul!` and `*` with a strided, transposed,
+adjoint or `Symmetric` matrix; M1 of the
+[Numerical contract](@ref numerics-storage) lists them. Before 0.6, the
+`SparseIterate` products skipped unstored zeros and multiplied stored ones, so
+`0 · NaN` gave NaN, and the `AtomIterate` `dot` multiplied the zeros of its
+active groups: a result could change with `dropzeros!` and with the order of
+the arguments.
+
+For example, take `A = [NaN 1 0; NaN 1 0]` and
+`u = SparseIterate(3); u[2] = 1; activate!(u, 1)`, with an explicit zero at 1.
+`A * u` gave `[NaN, NaN]`, and `[1.0, 1.0]` after `dropzeros!(u)`; it now gives
+`[1.0, 1.0]` both times. With `s = [1, 0, 0]` and `t = [0, NaN, 0]` as
+`SparseIterate`s, `dot(s, t)` gave `0.0` and `dot(t, s)` NaN; both now give
+`0.0`. Values and gradients computed through these products change with them:
+`LeastSquaresLoss([1, 1], [NaN 1; NaN 1])` at `z = SparseIterate([0.0, 1.0])`
+gave `0.0`, and NaN once `activate!(z, 1)` stored an explicit zero at 1; it now
+gives `0.0` both times. With no nonzero coefficient, the five-argument `mul!`
+now leaves `β * out` (zero for `β = 0`) also for an infinite or NaN `α`, where
+the transposed product gave NaN, and so did the others when every stored
+coefficient was zero.
+
+A non-finite entry that meets a nonzero coefficient still propagates, and a
+zero of a dense operand is still an IEEE zero: with `w[1] = Inf`,
+`dot([0, 1, 0], w)` is NaN. For IEEE propagation through a zero coefficient,
+multiply the dense array: `A * Vector(x)`. Products that ProximalBase does not
+define, such as `sparse(A) * x`, products of objects built from an iterate,
+such as `view(x, :)`, `coordinates(x)` and `atom(x, k)`, and scaling by a number
+follow IEEE arithmetic and are unchanged. The products of a
+`SymmetricSparseIterate` keep the earlier behavior for now.

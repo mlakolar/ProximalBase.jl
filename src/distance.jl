@@ -400,7 +400,7 @@ end
   q, fma(v, v, -q) + 2v * r + r * r
 end
 
-function _distl2_margin(x, p, gm::S, lm::S, k::Int, e::Integer) where {S}
+function _distl2_margin(x, p, gm::S, lm::S, k::Integer, e::Integer) where {S}
   s, err = zero(S), zero(S)
   @inbounds for i in eachindex(x, p)
     q, r = _distl2_square_parts(x[i], p[i], e, S)
@@ -420,9 +420,9 @@ function _distl2_prox!(y::AbstractArray, x::AbstractArray, p::AbstractArray, γ:
   iszero(γ) && return copyto!(y, x)
   S = promote_type(float(eltype(x)), float(eltype(y)), typeof(float(γ)), typeof(float(λ)))
   dm, de = _distl2_parts(x, p)
-  gm, ge = frexp(S(γ))
-  lm, le = frexp(S(λ))
-  tm, te = frexp(gm * lm)
+  gm, ge = _frexp(S(γ))
+  lm, le = _frexp(S(λ))
+  tm, te = _frexp(gm * lm)
   te += ge + le
   # Non-finite arguments must propagate even when the step is infinite.
   snap = isfinite(dm) && !isnan(tm) && (isinf(tm) ||
@@ -443,7 +443,7 @@ function _distl2_prox!(y::AbstractArray, x::AbstractArray, p::AbstractArray, γ:
     y .= x .+ (tm / dm) .* (p .- x)
     return y
   end
-  m, e = frexp(tm / S(dm))
+  m, e = _frexp(tm / S(dm))
   e += te - de
   b = refined ? one(S) - a : ldexp(m, e)
   refined || (a = (S(dm) - ldexp(tm, te - de)) / S(dm))

@@ -184,10 +184,10 @@ _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!), typeof(gradient!), t
 _cube_norm_ordinary(n) = sqrt(floatmin(typeof(n))) <= n <= sqrt(floatmax(typeof(n)))
 
 function _cube_norm_parts(x, n, ::Type{T}) where {T}
-  _cube_norm_ordinary(n) && return frexp(convert(T, n))
+  _cube_norm_ordinary(n) && return _frexp(convert(T, n))
   m = _maximum_abs(x)
   (iszero(m) || !isfinite(m)) && return (convert(T, m), 0)
-  _, e = frexp(m)
+  _, e = _frexp(m)
   s = _power_factors(T, -e)
   a, k = frexp(sqrt(_scaled_sumabs2(x, s)))
   a, e + k
@@ -274,9 +274,9 @@ function _cube_prox_parts(γ::T, λ::T, m::T, e::Integer) where {T}
   if !isfinite(m) || !isfinite(γ) || iszero(γ)
     return (2 / (1 + sqrt(1 + 4 * γ * λ * m)), 0)
   end
-  a, k = frexp(γ)
-  b, j = frexp(λ)
-  c, i = frexp((a * b) * m)
+  a, k = _frexp(γ)
+  b, j = _frexp(λ)
+  c, i = _frexp((a * b) * m)
   h = k + j + e + i
   if h <= 0
     return (2 / (1 + sqrt(1 + 4 * ldexp(c, h))), 0)

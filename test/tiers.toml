@@ -140,6 +140,7 @@ thorough = [
   "nonfinite_scalar",
   "l0_kernels_nan",
   "l0_nan",
+  "normlinf_infinite_level",
   "ordered_nan",
   "partial",
   "polyhedron",

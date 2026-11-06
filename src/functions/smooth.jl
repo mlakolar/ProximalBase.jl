@@ -557,11 +557,12 @@ end
 @inline _ridge_band_high(::Type{Float32}) = reinterpret(Float32, 0x7e000000)         # 2^125
 @inline _ridge_band_low(::Type{Float64}) = reinterpret(Float64, 0x0010000000000000)   # 2^-1022
 @inline _ridge_band_high(::Type{Float64}) = reinterpret(Float64, 0x7fc0000000000000)  # 2^1021
-# A level that is zero as given makes t = 0 at every step, an infinite one included, where the
-# product γλ is Inf⋅0: the weights are then (1, 0), as at every finite step.
+# A level that is zero as given and the step Inf make the product γλ Inf⋅0. The weights are then
+# those of the step 1, which are also those of every positive finite step: (1, 0) with the sign of
+# the level. Any other step, NaN and negative ones included, keeps the arithmetic of the product.
 @inline function _ridge_ordinary(::Type{W}, γ, λ) where {W}
   P = promote_type(W, float(typeof(γ)), float(typeof(λ)))
-  tw = ifelse(iszero(λ), zero(W), convert(W, P(γ) * P(λ)))
+  tw = convert(W, ifelse(iszero(λ) & (γ == Inf), one(P), P(γ)) * P(λ))
   a, b = _ridge_weights_t(tw)
   _RidgeOrdinary{W}(a, b, tw)
 end

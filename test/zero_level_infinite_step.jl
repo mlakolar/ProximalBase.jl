@@ -15,8 +15,15 @@ const PB = ProximalBase
 # and Regularize(f, 0) equals f, bitwise: the signs of zeros, NaN and ±Inf included (an infinite weight
 # gives NaN at a NaN entry, as at every finite step). Finite steps and positive levels are unchanged;
 # the positive-level controls are pinned at the values before the change. NaN is compared with isequal.
+# The infinite step is the only step that changes: a level or a step of either zero sign, a NaN step and a
+# negative infinite step keep the arithmetic of the base. The frozen section pins literal values taken
+# at the base, for both zero signs of the level and of the step, so that a change shared by the finite
+# path and the step 1 cannot hide in a reference computed by the code under test.
 
 same(a, b) = isequal(a, b)
+
+# the class of a value: NaN, an infinity of either sign, or finite
+value_class(v) = isnan(v) ? :nan : isinf(v) ? (v > 0 ? :pinf : :ninf) : :finite
 
 # the first error of a call, for the comparison of error types and messages
 caught(f) = try; f(); nothing; catch e; e; end
@@ -51,6 +58,7 @@ function check_routes(f, x::AbstractVector{T}, γ, ref) where {T}
   yr = fill(T(7), length(x))
   vr = value_and_prox!(yr, f, x, ref)
   @test same(y, yr) && same(v, vr)
+  f isa PB.BoxConstrained || @test value_class(v) == value_class(f(y))   # the fused value is the value at the stored point
   z = copy(x)
   v = value_and_prox!(z, f, z, γ)
   @test same(z, yr) && same(v, vr)
@@ -66,7 +74,7 @@ end
   Inf_ = T(Inf)
   @testset "weights $wc" for wc in WEIGHTS
     w = weightsof(T, n)[wc]
-    for (λ, a) in ((T(0), T(1)), (0, 1), (0.0, 1.0)), wrap in (identity, f -> Scaled(f, 0))
+    for (λ, a) in ((T(0), T(1)), (0, 1), (0.0, 1.0), (T(-0.0), T(1)), (-0.0, 1.0)), wrap in (identity, f -> Scaled(f, 0))
       check_routes(wrap(CappedL1(λ, a, w)), x, Inf_, one(T))
     end
     # a factor 0 folds a positive level into a zero one
@@ -104,7 +112,7 @@ end
   n = length(x)
   Inf_ = T(Inf)
   centers = T[0.25, -3, 2, 0, 1, -1, 5, 0.5, 0, 2, -2]
-  for λ in (T(0), 0, 0.0)
+  for λ in (T(0), 0, 0.0, T(-0.0), -0.0)
     for f in (SqrNormL2(λ), SqrNormL2(λ, centers), Constrained(SqrNormL2(λ), IndBox(T(0), T(1))),
               Constrained(SqrNormL2(λ, centers), IndBox(T(0), T(1))),
               Scaled(SqrNormL2(1), 0))
@@ -122,6 +130,11 @@ end
   # the weights of the ridge, which the slope of the box route and the entries share
   @test PB._ridge_ordinary(T, Inf_, T(0)) === PB._ridge_ordinary(T, one(T), T(0))
   @test PB._ridge_ordinary(T, Inf, 0) === PB._ridge_ordinary(T, 1, 0)
+  @test PB._ridge_ordinary(T, Inf_, T(-0.0)) === PB._ridge_ordinary(T, one(T), T(-0.0))
+  @test signbit(PB._ridge_ordinary(T, Inf_, T(-0.0)).b) && !signbit(PB._ridge_ordinary(T, Inf_, T(0)).b)
+  # every other step keeps the arithmetic of the product: a NaN or a negative infinite step is no endpoint
+  @test isnan(PB._ridge_ordinary(T, T(NaN), T(0)).a) && isnan(PB._ridge_ordinary(T, T(NaN), T(-0.0)).a)
+  @test isnan(PB._ridge_ordinary(T, T(-Inf), T(0)).a)
 end
 
 ####################################
@@ -133,7 +146,7 @@ end
 # is v for a finite entry other than -0 (the blend gives +0 there, at every step), so the arguments of a
 # centered case are finite and have no -0. The fused value is checked where the stored point is finite:
 # r(y) adds the ridge 0⋅y², which is NaN at an infinite entry at every step.
-function check_regularize(f, x::AbstractVector{T}, γ; c = nothing, ρs = (0, T(0), 0.0)) where {T}
+function check_regularize(f, x::AbstractVector{T}, γ; c = nothing, ρs = (0, T(0), 0.0, T(-0.0), -0.0)) where {T}
   want = prox(f, x, γ)
   yf = fill(T(7), length(x))
   vf = value_and_prox!(yf, f, x, γ)
@@ -149,6 +162,7 @@ function check_regularize(f, x::AbstractVector{T}, γ; c = nothing, ρs = (0, T(
     v = value_and_prox!(y, r, x, γ)
     @test same(y, yf)
     all(isfinite, y) && @test same(v, vf)
+    @test value_class(v) == value_class(r(y))            # the fused value is the value at the stored point
     z = copy(x)
     v = value_and_prox!(z, r, z, γ)
     @test same(z, yf)
@@ -292,6 +306,263 @@ end
     @test same(prox(Regularize(ZeroFunction(), 0.0f0), Float64[3, -2], Inf), [3.0, -2.0])
     @test same(prox(Regularize(ZeroFunction(), 0.0), xs, Inf), xs)
     @test same(prox(Regularize(ZeroFunction(), big(0.0)), Float64[3, -2], Inf), [3.0, -2.0])
+  end
+end
+
+####################################
+#  Frozen base values
+####################################
+
+# Literal results taken at the base commit, for the levels +0 and -0 and the steps +0, -0, 1, NaN, -Inf and
+# Inf, on the arguments FX (and the centers FC, the weights FW). At the step Inf they are the results of the
+# step 1 (for Regularize: the shrunk point of the step 1, then f at Inf), with the signs of zeros. Every
+# other step keeps the arithmetic of the base, a NaN step included: it is neither rejected nor read as a
+# step. Each route must give them: prox, prox!, the fused point, prox_entry, array steps, per-group steps
+# and the coordinate step.
+const FX = (0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf)          # the arguments
+const FC = (0.25, -3.0, 2.0, 0.0, 1.0, -1.0, 5.0, 0.5, 0.0)           # the centers
+const FW = (0.0, 1.0, Inf, 0.5, 1.0, 0.0, 2.0, Inf, 1.0)              # the weights
+const FGROUPS = [1:2, 3:4]
+const FGX = (3.0, 4.0, 0.0, -0.0)
+const FGC = (1.0, -1.0, 0.0, 2.0)
+
+# the exception of a call, or its value
+outcome(f) = try f() catch e; e end
+
+function frozen_function(::Type{T}, family, kind, centered, level) where {T}
+  c = centered ? T[FC...] : nothing
+  if family === :capped
+    CappedL1(T(level), T(1), kind === :weighted ? T[FW...] : nothing)
+  elseif family === :sqr
+    f = SqrNormL2(T(level), c)
+    kind === :box ? Constrained(f, IndBox(T(0), T(1))) : f
+  else
+    Regularize(kind === :zero ? ZeroFunction() : NormL1(T(1)), T(level), c)
+  end
+end
+
+# every route of f at the step γ on x: the point of prox, the entries one by one, and array steps
+function frozen_routes(f, x::Vector{T}, γ, array) where {T}
+  n = length(x)
+  r = Pair{Symbol, Any}[:prox => outcome(() -> prox(f, x, T(γ))),
+                        :inplace => outcome(() -> (z = copy(x); prox!(z, f, z, T(γ)); z)),
+                        :fused => outcome(() -> (z = similar(x); value_and_prox!(z, f, x, T(γ)); z)),
+                        :entry => outcome(() -> [prox_entry(f, x[i], i, T(γ)) for i in 1:n])]
+  array && push!(r, :array => outcome(() -> prox(f, x, fill(T(γ), n))),
+                    :arrayfused => outcome(() -> (z = similar(x); value_and_prox!(z, f, x, fill(T(γ), n)); z)))
+  r
+end
+
+# the group routes of Regularize(GroupNormL2, level[, c]): the point of prox, per-group steps, and the
+# coordinate step of each group on an AtomIterate (the other groups stay as they are)
+function frozen_group_routes(::Type{T}, centered, level, γ) where {T}
+  f = GroupNormL2(T(2.5), FGROUPS, T[1, 0])
+  r = Regularize(f, T(level), centered ? T[FGC...] : nothing)
+  x = T[FGX...]
+  res = Pair{Symbol, Any}[:prox => outcome(() -> prox(r, x, T(γ))),
+                          :steps => outcome(() -> prox(r, x, fill(T(γ), 2)))]
+  for k in 1:2
+    push!(res, Symbol(:coord, k) => outcome(() -> (xi = AtomIterate(copy(x), FGROUPS); prox_coordinate!(xi, r, k, T(γ)); Vector(xi))))
+  end
+  res
+end
+
+const FROZEN = [
+  (:capped, :plain, false, 0.0, 0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :plain, false, 0.0, -0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :plain, false, 0.0, 1.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :plain, false, 0.0, NaN) => [1.0, -1.0, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :plain, false, 0.0, -Inf) => [1.0, -1.0, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :plain, false, 0.0, Inf) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :plain, false, -0.0, 0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :plain, false, -0.0, -0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :plain, false, -0.0, 1.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :plain, false, -0.0, NaN) => [1.0, -1.0, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :plain, false, -0.0, -Inf) => [1.0, -1.0, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :plain, false, -0.0, Inf) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :weighted, false, 0.0, 0.0) => [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:capped, :weighted, false, 0.0, -0.0) => [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:capped, :weighted, false, 0.0, 1.0) => [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:capped, :weighted, false, 0.0, NaN) => [1.0, -1.0, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :weighted, false, 0.0, -Inf) => [1.0, -1.0, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :weighted, false, 0.0, Inf) => [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:capped, :weighted, false, -0.0, 0.0) => [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:capped, :weighted, false, -0.0, -0.0) => [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:capped, :weighted, false, -0.0, 1.0) => [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:capped, :weighted, false, -0.0, NaN) => [1.0, -1.0, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :weighted, false, -0.0, -Inf) => [1.0, -1.0, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:capped, :weighted, false, -0.0, Inf) => [0.5, -0.5, 0.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:sqr, :plain, false, 0.0, 0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:sqr, :plain, false, 0.0, -0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:sqr, :plain, false, 0.0, 1.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:sqr, :plain, false, 0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :plain, false, 0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :plain, false, 0.0, Inf) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:sqr, :plain, false, -0.0, 0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:sqr, :plain, false, -0.0, -0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:sqr, :plain, false, -0.0, 1.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:sqr, :plain, false, -0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :plain, false, -0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :plain, false, -0.0, Inf) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:sqr, :plain, true, 0.0, 0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:sqr, :plain, true, 0.0, -0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf],
+  (:sqr, :plain, true, 0.0, 1.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:sqr, :plain, true, 0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :plain, true, 0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :plain, true, 0.0, Inf) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:sqr, :plain, true, -0.0, 0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf],
+  (:sqr, :plain, true, -0.0, -0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:sqr, :plain, true, -0.0, 1.0) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf],
+  (:sqr, :plain, true, -0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :plain, true, -0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :plain, true, -0.0, Inf) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf],
+  (:sqr, :box, false, 0.0, 0.0) => [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0],
+  (:sqr, :box, false, 0.0, -0.0) => [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0],
+  (:sqr, :box, false, 0.0, 1.0) => [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0],
+  (:sqr, :box, false, 0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :box, false, 0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :box, false, 0.0, Inf) => [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0],
+  (:sqr, :box, false, -0.0, 0.0) => [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0],
+  (:sqr, :box, false, -0.0, -0.0) => [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0],
+  (:sqr, :box, false, -0.0, 1.0) => [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0],
+  (:sqr, :box, false, -0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :box, false, -0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :box, false, -0.0, Inf) => [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, 1.0, 0.0],
+  (:sqr, :box, true, 0.0, 0.0) => [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, NaN, 0.0],
+  (:sqr, :box, true, 0.0, -0.0) => [0.5, 0.0, 1.0, 0.0, 0.0, 0.0, NaN, NaN, 0.0],
+  (:sqr, :box, true, 0.0, 1.0) => [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, NaN, 0.0],
+  (:sqr, :box, true, 0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :box, true, 0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :box, true, 0.0, Inf) => [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, NaN, 0.0],
+  (:sqr, :box, true, -0.0, 0.0) => [0.5, 0.0, 1.0, 0.0, 0.0, 0.0, NaN, NaN, 0.0],
+  (:sqr, :box, true, -0.0, -0.0) => [0.5, 0.0, 1.0, 0.0, 0.0, -0.0, NaN, NaN, 0.0],
+  (:sqr, :box, true, -0.0, 1.0) => [0.5, 0.0, 1.0, 0.0, 0.0, 0.0, NaN, NaN, 0.0],
+  (:sqr, :box, true, -0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :box, true, -0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:sqr, :box, true, -0.0, Inf) => [0.5, 0.0, 1.0, 0.0, 0.0, 0.0, NaN, NaN, 0.0],
+  (:reg, :zero, false, 0.0, 0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:reg, :zero, false, 0.0, -0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:reg, :zero, false, 0.0, 1.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:reg, :zero, false, 0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :zero, false, 0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :zero, false, 0.0, Inf) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:reg, :zero, false, -0.0, 0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:reg, :zero, false, -0.0, -0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:reg, :zero, false, -0.0, 1.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:reg, :zero, false, -0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :zero, false, -0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :zero, false, -0.0, Inf) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, Inf, -Inf],
+  (:reg, :zero, true, 0.0, 0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:reg, :zero, true, 0.0, -0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf],
+  (:reg, :zero, true, 0.0, 1.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:reg, :zero, true, 0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :zero, true, 0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :zero, true, 0.0, Inf) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:reg, :zero, true, -0.0, 0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf],
+  (:reg, :zero, true, -0.0, -0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, -0.0, NaN, NaN, -Inf],
+  (:reg, :zero, true, -0.0, 1.0) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf],
+  (:reg, :zero, true, -0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :zero, true, -0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :zero, true, -0.0, Inf) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf],
+  (:reg, :l1, false, 0.0, 0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, Inf, -Inf],
+  (:reg, :l1, false, 0.0, -0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, Inf, -Inf],
+  (:reg, :l1, false, 0.0, 1.0) => [0.0, 0.0, 1.0, -1.0, 0.0, 0.0, NaN, Inf, -Inf],
+  (:reg, :l1, false, 0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :l1, false, 0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :l1, false, 0.0, Inf) => [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, NaN, NaN, NaN],
+  (:reg, :l1, false, -0.0, 0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, Inf, -Inf],
+  (:reg, :l1, false, -0.0, -0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, Inf, -Inf],
+  (:reg, :l1, false, -0.0, 1.0) => [0.0, 0.0, 1.0, -1.0, 0.0, 0.0, NaN, Inf, -Inf],
+  (:reg, :l1, false, -0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :l1, false, -0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :l1, false, -0.0, Inf) => [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, NaN, NaN, NaN],
+  (:reg, :l1, true, 0.0, 0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf],
+  (:reg, :l1, true, 0.0, -0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf],
+  (:reg, :l1, true, 0.0, 1.0) => [0.0, 0.0, 1.0, -1.0, 0.0, 0.0, NaN, NaN, -Inf],
+  (:reg, :l1, true, 0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :l1, true, 0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :l1, true, 0.0, Inf) => [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, NaN, NaN, NaN],
+  (:reg, :l1, true, -0.0, 0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf],
+  (:reg, :l1, true, -0.0, -0.0) => [0.5, -0.5, 2.0, -2.0, 0.0, 0.0, NaN, NaN, -Inf],
+  (:reg, :l1, true, -0.0, 1.0) => [0.0, 0.0, 1.0, -1.0, 0.0, 0.0, NaN, NaN, -Inf],
+  (:reg, :l1, true, -0.0, NaN) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :l1, true, -0.0, -Inf) => [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN],
+  (:reg, :l1, true, -0.0, Inf) => [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, NaN, NaN, NaN],
+]
+
+const FROZEN_GROUPS = [
+  (:group, false, 0.0, 0.0) => (prox = [3.0, 4.0, 0.0, -0.0], coord1 = [3.0, 4.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0]),
+  (:group, false, 0.0, -0.0) => (prox = [3.0, 4.0, 0.0, -0.0], coord1 = [3.0, 4.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0]),
+  (:group, false, 0.0, 1.0) => (prox = [1.5, 2.0, 0.0, -0.0], coord1 = [1.5, 2.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0]),
+  (:group, false, 0.0, NaN) => (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]),
+  (:group, false, 0.0, -Inf) => (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]),
+  (:group, false, 0.0, Inf) => (prox = [0.0, 0.0, 0.0, -0.0], coord1 = [0.0, 0.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0]),
+  (:group, false, -0.0, 0.0) => (prox = [3.0, 4.0, 0.0, -0.0], coord1 = [3.0, 4.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0]),
+  (:group, false, -0.0, -0.0) => (prox = [3.0, 4.0, 0.0, -0.0], coord1 = [3.0, 4.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0]),
+  (:group, false, -0.0, 1.0) => (prox = [1.5, 2.0, 0.0, -0.0], coord1 = [1.5, 2.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0]),
+  (:group, false, -0.0, NaN) => (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]),
+  (:group, false, -0.0, -Inf) => (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]),
+  (:group, false, -0.0, Inf) => (prox = [0.0, 0.0, 0.0, -0.0], coord1 = [0.0, 0.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0]),
+  (:group, true, 0.0, 0.0) => (prox = [3.0, 4.0, 0.0, 0.0], coord1 = [3.0, 4.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, 0.0]),
+  (:group, true, 0.0, -0.0) => (prox = [3.0, 4.0, 0.0, -0.0], coord1 = [3.0, 4.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0]),
+  (:group, true, 0.0, 1.0) => (prox = [1.5, 2.0, 0.0, 0.0], coord1 = [1.5, 2.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, 0.0]),
+  (:group, true, 0.0, NaN) => (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]),
+  (:group, true, 0.0, -Inf) => (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]),
+  (:group, true, 0.0, Inf) => (prox = [0.0, 0.0, 0.0, 0.0], coord1 = [0.0, 0.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, 0.0]),
+  (:group, true, -0.0, 0.0) => (prox = [3.0, 4.0, 0.0, -0.0], coord1 = [3.0, 4.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0]),
+  (:group, true, -0.0, -0.0) => (prox = [3.0, 4.0, 0.0, 0.0], coord1 = [3.0, 4.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, 0.0]),
+  (:group, true, -0.0, 1.0) => (prox = [1.5, 2.0, 0.0, -0.0], coord1 = [1.5, 2.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0]),
+  (:group, true, -0.0, NaN) => (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]),
+  (:group, true, -0.0, -Inf) => (prox = [NaN, NaN, NaN, NaN], coord1 = [NaN, NaN, 0.0, -0.0], coord2 = [3.0, 4.0, NaN, NaN]),
+  (:group, true, -0.0, Inf) => (prox = [0.0, 0.0, 0.0, -0.0], coord1 = [0.0, 0.0, 0.0, -0.0], coord2 = [3.0, 4.0, 0.0, -0.0]),
+]
+
+@testset "frozen base values, $T" for T in (Float32, Float64)
+  x = T[FX...]
+  for ((family, kind, centered, level, γ), want) in FROZEN
+    f = frozen_function(T, family, kind, centered, level)
+    for (route, got) in frozen_routes(f, x, γ, family !== :sqr)
+      ok = same(got, T.(want))
+      ok || @info "frozen value differs" family kind centered level γ route got want
+      @test ok
+    end
+  end
+  for ((_, centered, level, γ), want) in FROZEN_GROUPS
+    for (route, got) in frozen_group_routes(T, centered, level, γ)
+      w = route === :coord1 ? want.coord1 : route === :coord2 ? want.coord2 : want.prox
+      ok = same(got, T.(w))
+      ok || @info "frozen group value differs" centered level γ route got w
+      @test ok
+    end
+  end
+end
+
+# the inputs that show the two ways to go wrong, by name (the base values)
+@testset "signed zeros and NaN steps, named inputs, $T" for T in (Float32, Float64)
+  z, nz, N, Inf_ = zero(T), -zero(T), T(NaN), T(Inf)
+  # a level of negative zero at the step 1: the sign of the product is kept, on every route
+  @test same(prox(SqrNormL2(nz, T[0]), T[-0.0], one(T)), T[-0.0])
+  r = Regularize(ZeroFunction(), nz, T[0])
+  @test same(prox(r, T[-0.0], one(T)), T[-0.0])
+  @test same(prox_entry(r, T(-0.0), 1, one(T)), T(-0.0))
+  @test same(prox(r, T[-0.0], T[1]), T[-0.0])
+  # a level of positive zero at the step -0
+  @test same(prox(SqrNormL2(z, T[0]), T[-0.0], nz), T[-0.0])
+  r = Regularize(ZeroFunction(), z, T[0])
+  @test same(prox(r, T[-0.0], nz), T[-0.0])
+  @test same(prox_entry(r, T(-0.0), 1, nz), T(-0.0))
+  @test same(prox(r, T[-0.0], T[-0.0]), T[-0.0])
+  # and the same at the endpoint, where the sign is that of the level
+  @test same(prox(SqrNormL2(nz, T[0]), T[-0.0], Inf_), T[-0.0])
+  @test same(prox(Regularize(ZeroFunction(), nz, T[0]), T[-0.0], Inf_), T[-0.0])
+  @test same(prox_entry(Regularize(ZeroFunction(), nz, T[0]), T(-0.0), 1, Inf_), T(-0.0))
+  # a NaN step is neither rejected nor read as a step: the result is that of the base
+  for (f, want) in ((CappedL1(z, T(1)), T[1]), (SqrNormL2(z), T[NaN]), (Regularize(ZeroFunction(), z), T[NaN]),
+                    (CappedL1(nz, T(1)), T[1]), (SqrNormL2(nz), T[NaN]), (Regularize(ZeroFunction(), nz), T[NaN]))
+    y = T[7]
+    @test !(outcome(() -> prox!(y, f, T[0.5], N)) isa Exception)
+    @test same(y, want)
+    @test same([prox_entry(f, T(0.5), 1, N)], want)
   end
 end
 

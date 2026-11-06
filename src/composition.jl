@@ -567,19 +567,24 @@ end
   isfinite(product) ? γ / (one(T) + product) : inv(ρ) / (one(T) + inv(γ) / ρ)
 end
 # The same at a level that is zero as given (zero_level, from r.ρ, not from its conversion to the
-# working type, which can round a tiny level to zero). The weights are then (1, 0) and the step of f
-# is γ at every step, as for every finite one; at an infinite step the product γρ is Inf⋅0 in the
+# working type, which can round a tiny level to zero) and the step Inf, where the product γρ is
+# Inf⋅0. The weights are then those of the step 1, which are also those of every positive finite
+# step: (1, 0) with the sign of the level. The step of f is γ, as it is for every finite step
+# (γ/(1 ± 0)). Any other step, NaN and negative ones included, keeps the arithmetic of the
 # formulas. The first form is a branch, for a step taken once per call; the second two are selects,
 # for the steps of a loop over entries, which they leave free of a branch.
 @inline function _regularize_parameters(γ::T, ρ::T, zero_level::Bool) where {T}
-  zero_level && return one(T), zero(T), γ
+  if zero_level & (γ == T(Inf))
+    a, b = _ridge_weights(one(T), ρ)
+    return a, b, γ
+  end
   a, b = _ridge_weights(γ, ρ)
   a, b, _regularize_step(γ, ρ)
 end
 @inline _regularize_weights(γ::T, ρ::T, zero_level::Bool) where {T} =
-  _ridge_weights(ifelse(zero_level, one(T), γ), ρ)
+  _ridge_weights(ifelse(zero_level & (γ == T(Inf)), one(T), γ), ρ)
 @inline _regularize_step(γ::T, ρ::T, zero_level::Bool) where {T} =
-  ifelse(zero_level, γ, _regularize_step(γ, ρ))
+  ifelse(zero_level & (γ == T(Inf)), γ, _regularize_step(γ, ρ))
 function _shrunk!(y::AbstractArray, r::Regularize, x::AbstractArray, γ::Real)
   T = float(eltype(y))
   a, b, step = _regularize_parameters(convert(T, γ), convert(T, r.ρ), iszero(r.ρ))

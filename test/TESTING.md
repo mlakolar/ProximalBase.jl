@@ -90,7 +90,11 @@ exactly the files the old complete suite ran, plus the new files split out of th
 Files added since then sit with the files of the code they test. `infinite_level_values`
 (standard) holds the values of `NormL2`, `NormLinf`, `NuclearNorm` and `Scaled` with an infinite
 level or factor: family behaviour beside `norms` and `infinite_weights`, a few seconds of small
-cases, with no grid that would need the thorough tier.
+cases, with no grid that would need the thorough tier. `sparsegroup_infinite_prox` (thorough)
+holds the proximal map of `SparseGroupNormL2` with an infinite ℓ1 level: a grid over group levels,
+weights, steps and non-finite entries on vectors, `AtomIterate`, `SymmetricSparseIterate`
+outputs, JLArrays and the wrappers, about 60,000 assertions, beside its siblings
+`sparsegroup_infinite_level` and `l2_nan_blocks`.
 
 ## Measured times on GitHub
 
@@ -454,6 +458,9 @@ input changed.
 From the full run 41364805347 (Julia lts on an AMD EPYC 9V74, Windows on an EPYC 9V45). A file's
 time includes compiling what earlier files on its worker had not compiled, so it depends on
 the order: `gpu_smoke` takes 9 s on Windows because `gpu` had already run on that worker.
+Files added after that run have no time in the table: `spectral_fused_values` (thorough) checks
+that the value `value_and_prox!` returns for the counting functions of `SingularValue` and
+`Spectral`, and for `IndBallRank`, is the standalone value at the matrix it stored.
 
 <details><summary>Every test file, its tier and its time</summary>
 

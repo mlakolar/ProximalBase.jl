@@ -24,11 +24,22 @@ function cases(T)
 end
 
 identity_output(f) = f isa NuclearNorm && iszero(f.λ) || f isa IndBallRank && f.r >= 2
-# The fused value at a non-finite input (O2): the rank indicators give the value at their output,
-# NaN when it is all NaN, and that of the copy when r ≥ minimum(size); the others keep Inf.
-fused_nonfinite(f, input, ::Type{T}) where {T} =
-  f isa IndBallRank && f.r >= minimum(size(input)) ? (any(isinf, input) ? T(Inf) : zero(T)) :
-  f isa IndBallRank || f isa SingularValue && f.f isa IndBallL0 ? T(NaN) : T(Inf)
+# The fused value at a matrix with non-finite entries.
+# - The counting functions give the value at their output (O2, #614): IndBallRank with
+#   r ≥ minimum(size) copies its input and gives the value of the copy (0 unless an entry is
+#   infinite); otherwise the output is all NaN, where the value is NaN, or 0 for SingularValue of
+#   IndBallL0 with room for every singular value.
+# - A function of the singular values that is the zero function is 0 at every input (E4; ruling 2b
+#   of PR #384).
+# - The fused value of a conjugate is decided by the conjugate (unchanged), and every other
+#   function is NaN at a NaN entry and Inf otherwise (E2).
+function fused_nonfinite(f, X, ::Type{T}) where {T}
+  p = minimum(size(X))
+  f isa IndBallRank && return f.r >= p ? (any(isinf, X) ? T(Inf) : zero(T)) : T(NaN)
+  f isa SingularValue && f.f isa IndBallL0 && return f.f.s >= p ? zero(T) : T(NaN)
+  zerofun = f isa NuclearNorm && iszero(f.λ) || f isa SingularValue && f.f isa NormL1{<:Real, Nothing} && iszero(f.f.λ0)
+  zerofun ? zero(T) : f isa Conjugate || !any(isnan, X) ? T(Inf) : T(NaN)
+end
 
 @testset "Input domain and unchanged outputs" begin
   for T in (Float32, Float64), f in cases(T), v in (T(Inf), -T(Inf), T(NaN)),
@@ -107,7 +118,8 @@ end
       bad = copy(x)
       bad[2, 1] = v
       output = alias ? bad : y
-      @test isequal(value_and_prox!(output, f, bad, one(T)), fused_nonfinite(f, x, T))
+      fused = fused_nonfinite(f, bad, T)          # before an aliased output overwrites bad
+      @test isequal(value_and_prox!(output, f, bad, one(T)), fused)
       @test all(isnan, output)
       @test f.pws === history
       @test (history.warm, history.rank) == (warm, rank)

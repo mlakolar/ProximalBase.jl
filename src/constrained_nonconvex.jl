@@ -218,15 +218,6 @@ function _value_and_prox_box!(y, c::BoxConstrained{<:Union{MCP, SCAD, NormL0}}, 
   iszero(c.f.λ) ? convert(T, _value_unchecked(c, y)) : convert(T, _value_unchecked(c.f, y))
 end
 
-# Counting functions under SingularValue (singular.jl) that are constant on the
-# spectra of length k: IndBallL0 with room for k nonzeros, a scaled one when its
-# function is, and one on a box when its function is and the box holds every
-# singular value.
-_count_constant(f::IndBallL0, k::Int) = f.s >= k
-_count_constant(f::Scaled, k::Int) = _count_constant(f.f, k)
-_count_constant(c::BoxConstrained, k::Int) =
-  _count_constant(c.f, k) && all(<=(0), c.box.l) && all(==(Inf), c.box.u)
-
 # At zero, MCP and SCAD have the kink of λ|t|: leaving zero pays when |gᵢ| > λ,
 # in the direction of -gᵢ, which the box must allow.
 function kkt_violation(c::BoxConstrained{<:Union{MCP, SCAD}}, g::AbstractArray, i::Integer)

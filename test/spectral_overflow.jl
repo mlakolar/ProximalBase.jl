@@ -250,14 +250,17 @@ end
           for X in (T[v 0; 0 1], T[1 v; v 1]), Z in logical_inputs(X)
             before = Matrix(Z)
             for f in functions
-              # the rank indicators at NaN (E2): NaN, or zero when r ≥ 2 (every 2 × 2 matrix)
-              @test isequal(f(Z), !isnan(v) ? T(Inf) : f isa IndBallRank && f.r >= 2 ? zero(T) :
-                                  f isa IndBallRank || f isa SingularValue && f.f isa IndBallL0 ? T(NaN) : T(Inf))
+              # E2: a NaN entry gives NaN, an infinite one Inf; IndBallRank(2) and SingularValue of
+              # IndBallL0(2) at a 2 × 2 matrix are the indicator of all matrices, which does not
+              # depend on a NaN entry
+              whole = f isa IndBallRank && f.r >= 2 || f isa SingularValue && f.f isa IndBallL0 && f.f.s >= 2
+              @test isequal(f(Z), isnan(v) ? (whole ? zero(T) : T(NaN)) : T(Inf))
             end
             @test isequal(Matrix(Z), before)
           end
           for Z in logical_inputs(fill(v, 1, 1))
-            @test IndBallRank(1)(Z) === (isnan(v) ? zero(T) : T(Inf))   # r ≥ 1 = minimum(size): every matrix
+            # the indicator of all 1 × 1 matrices (E2, E3)
+            @test isequal(IndBallRank(1)(Z), isnan(v) ? zero(T) : T(Inf))
           end
         end
       end
@@ -441,14 +444,14 @@ end
         for v in (T(Inf), T(-Inf), T(NaN)), λ in (zero(T), -zero(T))
           X = T[v 0; 0 1]
           for f in (NormL1(λ), NormL2(λ), NuclearNorm(λ))
-            # the domain of the spectral functions is the finite matrices
-            @test f(X) === (f isa NuclearNorm ? T(Inf) : zero(T))
+            # a zero level is the zero function (E4), 0 at every input
+            @test f(X) === zero(T)
             Y = similar(X)
-            @test value_and_prox!(Y, f, X, γ) === (f isa NuclearNorm ? T(Inf) : zero(T))
+            @test value_and_prox!(Y, f, X, γ) === zero(T)
             @test samebits(Y, X)
           end
-          @test TracePSD(λ)(X) === T(Inf)
-          @test LogDetLoss(E, one(T))(X) === T(Inf)
+          @test isequal(TracePSD(λ)(X), isnan(v) ? T(NaN) : T(Inf))
+          @test isequal(LogDetLoss(E, one(T))(X), isnan(v) ? T(NaN) : T(Inf))
         end
         for f in (NormL1(one(T)), NormL2(one(T)))
           @test f(T[Inf, 1]) === T(Inf)

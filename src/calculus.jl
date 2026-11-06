@@ -2740,6 +2740,11 @@ function _spectrum_value(f::Scaled, v::AbstractVector{T}, k::Int) where {T}
     ordinary = f(v)
     isfinite(ordinary) && return convert(T, ordinary)
   end
+  # An overflowing spectrum: the scales reach the leaf, after the domain decisions.
+  if k > 0 && !_isindicator(f)
+    s = _spectrum_scaled(f, v, k, _unit_scale(T))
+    s === nothing || return convert(T, s)
+  end
   a = _spectrum_value(f.f, v, k)
   r = f.α * a
   isnan(r) && !isnan(a) && return convert(T, _scaled_nan_value(f.f, f.α, v, r))   # Inf⋅0, as for the value

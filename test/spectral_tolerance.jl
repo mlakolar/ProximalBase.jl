@@ -199,7 +199,8 @@ end
   @test NormL1Nonneg(1)([1e10, -1.0]) == Inf
   F = SingularValue(NormL0(1))
   Y = zeros(3, 3)
-  @test value_and_prox!(Y, F, Matrix(Diagonal([2.0^60, 2, 0])), 1) == 2
+  # the value at the stored matrix, whose singular value 2 is below the threshold
+  @test value_and_prox!(Y, F, Matrix(Diagonal([2.0^60, 2, 0])), 1) == 1
   @test F(Y) == 1
 end
 

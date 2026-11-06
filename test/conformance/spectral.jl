@@ -112,8 +112,6 @@ const c = 64
       (scalar = value, reference = rank_indicator_ref(Y))
     end
     compare = (o, _) -> same(o.scalar, o.reference)
-    # Specific: a zero scalar at a stored matrix of numerical rank two.
-    broken = (group = :G6, baseline = Returned(o -> same(o.scalar, 0f0) && same(o.reference, Inf32)))
   end
   residual5 = Y -> norm(Float64.(Y) - X5)
   @row begin

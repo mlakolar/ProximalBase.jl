@@ -49,8 +49,13 @@ proximal output; `value_and_prox!` returns the same value. Only functions that c
 most `√ε·‖λ‖∞`. Other functions see the computed spectrum. Membership and
 domain tests use `√ε·max(1, |bound|, ‖λ‖∞)`; sums keep their own scaled
 tolerance. These decisions use scaled units when the spectrum overflows.
-See [Functions of a spectrum](@ref), including the caveat on re-evaluating
-values returned by `value_and_prox!`. A function with weights, bounds or normals
+See [Functions of a spectrum](@ref). For a function that counts nonzeros,
+`value_and_prox!` returns the value of `Spectral(f)` at the stored matrix: the
+entries of the proximal spectrum at most `√ε` times the largest magnitude count
+as zero, and when that decision is not certain (an entry within the rounding of
+the threshold, a threshold that is not normal, a spectrum or output that is not
+finite) the value is the one at the stored matrix itself, from a second
+decomposition. A function with weights, bounds or normals
 that differ between entries depends on their order and is rejected.
 
 At a finite input whose spectrum overflows, the proximal output and the value
@@ -59,7 +64,8 @@ returned by `value_and_prox!` are computed in scaled units for unweighted
 `ElasticNet(λ, 0)`, `IndNonnegative`, `IndBallL0`, `ZeroFunction`, and boxes
 whose bounds are all zero or infinite. Other functions keep the ordinary
 result, which may be infinite, including `SqrNormL2`, bounded balls, weighted
-penalties and compositions.
+penalties and compositions. For `IndBallL0` the value is that of the stored
+matrix, whose entries in the original units can exceed the range of the type.
 
 The standalone value at a finite input whose spectrum overflows is the value
 at the spectrum of `X/2ᵏ`, scaled by `2^(dk)` for a function of degree `d`,
@@ -276,10 +282,19 @@ function value_and_prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::
   z = _buffer!(s.z, T, n)
   length(z) == n || resize!(z, n)
   if _scales_spectral_prox(s.f) && _spectral_overflow(λ, X, ws, s.out)
-    return _scaled_wrapper_eigen_prox!(Y, s, X, γ, ws, z)
+    v = _scaled_wrapper_eigen_prox!(Y, s, X, γ, ws, z)
+    # The output is rescaled to the original units, where an entry can exceed the range of T:
+    # a function that counts nonzeros has the value at the stored matrix.
+    return _counts_nonzeros(s.f) ? s(Y) : v
   end
+  σ = _counts_nonzeros(s.f) ? _maximum_abs(λ) : zero(T)
   v = value_and_prox!(z, s.f, λ, γ)
   _rebuild_sym_signed!(Y, V, z, _blas_ready(Y) ? Y : _array_buffer!(s.out, T, (n, n)))
+  if _counts_nonzeros(s.f)
+    w = _stored_count_value!(s.f, z, σ, n)
+    w === nothing && return s(Y)
+    return w
+  end
   convert(T, v)
 end
 prox!(Y::AbstractMatrix, s::Spectral, X::AbstractMatrix, γ::Real) =

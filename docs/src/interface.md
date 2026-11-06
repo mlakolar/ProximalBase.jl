@@ -341,11 +341,20 @@ The relative threshold avoids this dependence on scale. When the spectrum
 overflows, or the mask threshold is not normal, the mask is computed in
 units scaled by a power of two.
 
-`value_and_prox!` returns `f` at the exact proximal spectrum. Re-evaluating at
-the returned point agrees only when retained entries lie above the
-numerical-zero threshold. For example, `SingularValue(NormL0(1))` at
-`Diagonal([2.0^60, 2, 0])` with step 1 returns `2`, while re-evaluating at its
-proximal point gives `1`.
+For a function that counts nonzeros, `value_and_prox!` returns the value at the
+stored matrix, with the same zero mask: the entries of the proximal spectrum at
+most `√ε·max|σ|` count as zero. For example, `SingularValue(NormL0(1))` at
+`Diagonal([2.0^60, 2, 0])` with step 1 stores a matrix whose second singular
+value is below the threshold and returns `1`, as does re-evaluating at it. When
+an entry of the proximal spectrum lies within the rounding of the threshold, the
+threshold is not a normal number, the spectrum or the stored matrix is not
+finite, or the proximal output was computed in scaled units at an overflowing
+spectrum (`IndBallL0`), the value is computed from the stored matrix itself.
+`IndBallRank` does the same when the rank threshold is not normal, where
+rounding to the destination's elements can change the numerical rank, at an
+overflowing spectrum, where the rescaled output can have an entry beyond the
+range of the type, and when the conversion to the destination's type overflows. Other functions return `f` at the proximal
+spectrum, and re-evaluation at the stored matrix differs from it by rounding.
 
 When the spectrum of a finite matrix overflows, the standalone values of
 `SingularValue(f)`, `Spectral(f)` and `Conjugate(SingularValue(f))` are taken

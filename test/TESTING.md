@@ -458,6 +458,9 @@ input changed.
 From the full run 41364805347 (Julia lts on an AMD EPYC 9V74, Windows on an EPYC 9V45). A file's
 time includes compiling what earlier files on its worker had not compiled, so it depends on
 the order: `gpu_smoke` takes 9 s on Windows because `gpu` had already run on that worker.
+Files added after that run have no time in the table: `spectral_fused_values` (thorough) checks
+that the value `value_and_prox!` returns for the counting functions of `SingularValue` and
+`Spectral`, and for `IndBallRank`, is the standalone value at the matrix it stored.
 
 <details><summary>Every test file, its tier and its time</summary>
 

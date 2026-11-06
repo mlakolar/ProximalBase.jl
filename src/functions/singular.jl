@@ -61,9 +61,15 @@ constraints keep their own scaled tolerance. The zero mask is resolved in
 scaled units when the largest singular value overflows or its threshold is
 not normal. See [Functions of a spectrum](@ref).
 
-`value_and_prox!` returns `f` at the exact proximal spectrum. Re-evaluation at
-the returned matrix agrees only when retained entries exceed the numerical-zero
-threshold. The value of `Conjugate(SingularValue(f))` is `f*` at the computed
+`value_and_prox!` returns `f` at the proximal spectrum. For a function that
+counts nonzeros it returns the value of `SingularValue(f)` at the stored matrix:
+the entries of the proximal spectrum at most `√ε` times the largest count as
+zero, as in the value at `Y`. When that decision is not certain, because an
+entry lies within the rounding of the zero threshold, the threshold is not
+normal, or the spectrum or the output is not finite, the value is the one at
+the stored matrix itself, from a second decomposition. Re-evaluation at `Y`
+then returns the same value. For the other functions re-evaluation agrees up to
+rounding. The value of `Conjugate(SingularValue(f))` is `f*` at the computed
 singular values of `Y`, with the same membership tolerance and finite domain.
 
 At a finite input whose spectrum overflows, the proximal output and the value
@@ -72,7 +78,8 @@ returned by `value_and_prox!` are computed in scaled units for unweighted
 `ElasticNet(λ, 0)`, `IndNonnegative`, `IndBallL0`, `ZeroFunction`, and boxes
 whose bounds are all zero or infinite. Other functions keep the ordinary
 result, which may be infinite, including `SqrNormL2`, bounded balls, weighted
-penalties and compositions.
+penalties and compositions. For `IndBallL0` the value is that of the stored
+matrix, whose entries in the original units can exceed the range of the type.
 
 The standalone value at a finite input whose spectrum overflows is the value
 at the spectrum of `X/2ᵏ`, scaled by `2^(dk)` for a function of degree `d`,
@@ -186,6 +193,48 @@ function _masked_singular_values!(F::SingularValue, X::AbstractMatrix; copied::B
   t, nothing, 0
 end
 
+# The value of a function that counts nonzeros at the stored output Y = U Diagonal(t) Vᵀ
+# (O2), from the proximal spectrum t, the largest magnitude σ of the spectrum before the
+# proximal step, and the larger dimension p. The standalone value reads the singular
+# (or eigen-) values of Y, whose zero mask differs from the one of t only through the
+# rounding of the reconstruction and of the decomposition of Y. Returns nothing when t
+# cannot decide the value and the standalone value at Y must be used:
+#   - the spectrum or the output is not finite or may overflow (|Yᵢⱼ| ≤ max|t|);
+#   - the zero threshold c = √ε·max|t| is not normal, where the standalone mask is resolved
+#     in scaled units, and rounding of Y onto the subnormal grid can change its rank;
+#   - a nonzero entry of t lies within δ = 4·p·ε·max|t| of c. The singular values of Y differ
+#     from |t| by the error of the reconstruction (O(ε·max|t|)) plus the backward error of
+#     the decomposition of Y (O(p·ε·max|t|)); 4·p·ε is the bound of _spectral_rescale!.
+#     Measured on random matrices (100 draws for sizes up to 300, 3 at 1000, Float32 and
+#     Float64), the singular values moved by at most 21ε·max|t|.
+# An entry that is exactly zero is not tested: it is a direction that Y does not have, and the
+# value the standalone computation gives there is rounding noise. In Gaussian matrices of
+# size up to 1000 (Float32 and Float64, at least 3 draws each) it was at most 1.6ε·max|t|,
+# against c = 2.9e3·ε·max|t| in Float32 and 6.7e7·ε·max|t| in Float64. Testing it would send
+# every call with a zero in t to the second decomposition once δ reaches c (Float32, p ≥ 723),
+# which took 1.5 times as long at p = 1000. This rests on those measurements, for dimensions p
+# well below 1/√ε (2.9e3 in Float32, 6.7e7 in Float64, where 4·p·ε reaches the threshold only
+# at a quarter of that); it is not a certificate for arbitrary dimensions.
+# Otherwise the value is the standalone evaluation on t with the entries at most c set to
+# zero; t is overwritten, no longer needed after the reconstruction.
+function _stored_count_value!(f, t::AbstractVector{T}, σ::T, p::Int) where {T}
+  m = _maximum_abs(t)
+  max(m, σ) <= floatmax(T) / 2 || return nothing
+  if m > zero(T)
+    c = _tol(T) * m
+    c <= floatmin(T) && return nothing
+    δ = 4 * p * eps(T) * m
+    near = false
+    @inbounds for j in eachindex(t)
+      a = abs(t[j])
+      near |= !iszero(a) & (abs(a - c) <= δ)
+      a <= c && (t[j] = zero(T))
+    end
+    near && return nothing
+  end
+  convert(T, _decided_on_spectrum(f) ? _spectrum_value(f, t, 0) : f(t))
+end
+
 @noinline function _scaled_singular_mask!(F::SingularValue, X::AbstractMatrix, s::Vector{T}, t::Vector{T}, mask::Bool) where {T}
   copyto!(t, s)
   ws = _svd_workspace(F.ws, T, size(X)...)
@@ -228,8 +277,12 @@ function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix,
   t = _vector_buffer(F.t, T, length(s))
   F.t = t
   if _scales_spectral_prox(F.f) && _spectral_overflow(s, X, ws)
-    return _scaled_wrapper_svd_prox!(Y, F, X, γ, ws, t)
+    v = _scaled_wrapper_svd_prox!(Y, F, X, γ, ws, t)
+    # The output is rescaled to the original units, where an entry can exceed the range of T:
+    # a function that counts nonzeros has the value at the stored matrix.
+    return _counts_nonzeros(F.f) ? F(Y) : v
   end
+  σ = _counts_nonzeros(F.f) ? _maximum_abs(s) : zero(T)
   v = value_and_prox!(t, F.f, s, γ)
   # scale the singular vectors up to the last nonzero singular value
   k = 0
@@ -243,6 +296,11 @@ function value_and_prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix,
     end
   end
   _mul_lowrank!(Y, U, Vt, k, ws)
+  if _counts_nonzeros(F.f)
+    w = _stored_count_value!(F.f, t, σ, max(size(X)...))
+    w === nothing && return F(Y)
+    return w
+  end
   convert(T, v)
 end
 prox!(Y::AbstractMatrix, F::SingularValue, X::AbstractMatrix, γ::Real) = (X = _symmetric_argument(Y, X); value_and_prox!(Y, F, X, γ); Y)

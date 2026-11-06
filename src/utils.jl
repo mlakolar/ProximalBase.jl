@@ -178,7 +178,7 @@ end
 @inline _weighted_value(p, φ) = ifelse(isnan(p) & !isnan(φ), zero(p), p)
 
 # Keep the power outside the floating-point range until the final rounding.
-@inline function _scaled_product(w::T, v::T, k::Int) where {T<:AbstractFloat}
+@inline function _scaled_product(w::T, v::T, k::Integer) where {T<:AbstractFloat}
   (iszero(w) || iszero(v)) && return w * v
   (isfinite(w) && isfinite(v)) || return w * v
   mw, ew = frexp(w)
@@ -202,7 +202,7 @@ end
 end
 
 # Three bounded significands, with the power applied after all factors.
-@inline function _scaled_product(a::Real, b::Real, c::Real, k::Int)
+@inline function _scaled_product(a::Real, b::Real, c::Real, k::Integer)
   a, b, c = promote(float(a), float(b), float(c))
   (iszero(a) || iszero(b) || iszero(c)) && return zero(a)
   (isfinite(a) && isfinite(b) && isfinite(c)) || return (a * b) * c
@@ -406,13 +406,19 @@ _tol(::Type) = sqrt(eps(Float64))
 
 # Powers of two keep the units of a comparison without rounding the scale.
 # Split a power that is outside the range of a single floating-point factor.
-@inline function _power_factors(::Type{T}, k::Int) where {T<:AbstractFloat}
+@inline function _power_factors(::Type{T}, k::Integer) where {T<:AbstractFloat}
+  k = Int(k)
   k1 = clamp(k, exponent(nextfloat(zero(T))), exponent(floatmax(T)))
   (ldexp(one(T), k1), ldexp(one(T), k - k1))
 end
 @inline _scale_value(v, s) = (float(v) * s[1]) * s[2]
-@inline _magnitude_exponent(v) = iszero(v) ? 0 : exponent(v)
-@inline _comparison_exponent(es::Int...) = max(0, es...)
+@inline _magnitude_exponent(v) = iszero(v) ? 0 : Int(exponent(v))
+@inline _comparison_exponent(es::Integer...) = max(0, map(Int, es)...)
+# frexp with an Int exponent: frexp(::BigFloat) returns an Int32 exponent where a C long is 32 bits (Windows)
+@inline function _frexp(x)
+  m, e = frexp(x)
+  (m, Int(e))
+end
 
 # The stored values suffice for maxima; symmetric multiplicities do not matter.
 _stored_values(x::AbstractArray) = x
@@ -614,7 +620,7 @@ _pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_wei
   exp((x - j * hi) - j * lo), unsafe_trunc(Int, j)
 end
 # other types: their own exp has no range limit to work around in practice
-@inline _exp_split(x::AbstractFloat) = frexp(exp(x))
+@inline _exp_split(x::AbstractFloat) = _frexp(exp(x))
 
 ####################################
 #

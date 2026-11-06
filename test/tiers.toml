@@ -14,6 +14,7 @@ quick = [
   "ci_gate",
   "compat",
   "docstrings",
+  "int32_exponents",
   "interface",
   "readme",
   "tier_selection",

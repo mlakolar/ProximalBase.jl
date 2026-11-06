@@ -2,6 +2,7 @@ module ConformanceFailuresStorageTest
 
 using Test
 using ProximalBase
+using LinearAlgebra
 using ..Conformance
 
 # O6-O7/M1-M3: failure atomicity, aliasing, and storage semantics.
@@ -557,6 +558,232 @@ end
   problem = "#355 dense Regularize: exact first entry 1, fractional second entry 1/2; reject destination before writing."
   expected = Int[7, 7]
   observed = let y = Int[7, 7]; try value_and_prox!(y, Regularize(NormL1(), 1.0), [3.0, 2.0], 1.0) catch end; y end
+end
+
+# M1 (FT12, FT14): a zero coefficient of an iterate, stored or not, contributes nothing to
+# the products of FN-2, even against ±Inf or NaN; a value computed through one inherits it.
+# Every fixture is built afresh; with `stored = false` its explicit zeros are dropped first.
+m1_drop(x, stored) = stored ? x : dropzeros!(x)
+m1_s() = (s = SparseIterate(3); s[1] = 1.0; s)                                          # [1, 0, 0]
+m1_t() = (t = SparseIterate(3); t[2] = NaN; t)                                          # [0, NaN, 0]
+m1_s2() = (s = SparseIterate(3); s[1] = 1.0; s[3] = 1.0; s)                             # [1, 0, 1]
+m1_u(stored) = (u = SparseIterate(3); u[2] = 1.0; activate!(u, 1); m1_drop(u, stored))  # an explicit zero at 1
+m1_w() = (w = SparseIterate(3); w[1] = NaN; w[2] = 1.0; w[3] = 1.0; w)                  # [NaN, 1, 1]
+m1_A() = [NaN 1.0 0.0; NaN 1.0 0.0]
+m1_S3() = Symmetric([NaN 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0])
+m1_Z(stored) = (Z = SparseIterate(2, 2); Z[2, 2] = 1.0; activate!(Z, 1); m1_drop(Z, stored))
+# p = 64: the stored-entry walk; p = 3: the column walk. An explicit zero at (1, 1).
+m1_X(p, stored) = (X = SparseIterate(p, 2); X[2, 1] = 1.0; X[3, 2] = 1.0; activate!(X, 1); m1_drop(X, stored))
+m1_AX(p) = (A = ones(2, p); A[:, 1] .= NaN; A)
+m1_a(stored) = (a = AtomIterate(4, [1:2, 3:4]); a[3] = 1.0; activate!(a, 1); m1_drop(a, stored))  # group 1: zeros
+m1_anan() = (a = AtomIterate(4, [1:2, 3:4]); a[3] = NaN; a)                            # group 2 active
+m1_a1() = (a = AtomIterate(4, [1:2, 3:4]); a[1] = 1.0; a)                              # group 1 active
+m1_s1() = (s = SparseIterate(4); s[1] = 1.0; s)
+m1_snan() = (s = SparseIterate(4); s[3] = NaN; s)
+m1_owner(stored) = (X = SymmetricSparseIterate(3); X[2, 2] = 1.0; activate!(X, tril_index(3, 3, 1)); m1_drop(X, stored))
+m1_M() = [1.0 2.0 NaN; 2.0 3.0 4.0; NaN 4.0 5.0]
+m1_f() = LeastSquaresLoss([1, 1], [NaN 1; NaN 1])
+m1_fs(stored) = (s = SparseIterate(2); s[2] = 1.0; activate!(s, 1); m1_drop(s, stored))
+const M1_PRODUCT = "FT12: a zero coefficient of the iterate, stored or not, contributes nothing against NaN or Inf; reference: the sum over the nonzero coefficients."
+const M1_OWNER = "FT12, the owner (#391 Phase 1c): the matrixview products and inner products skip zero coefficients."
+const M1_VALUE = "FT14: a data-loss value through an iterate product inherits strong zeros; reference: the residual over the nonzero coefficients."
+
+@row begin
+  id = "failures_storage.strong-zero.dot.s-t"; case = ""; family = :failures_storage; oracle = :product
+  types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+  expected = 0.0; observed = dot(m1_s(), m1_t())
+end
+
+@row begin
+  id = "failures_storage.strong-zero.dot.t-s"; case = ""; family = :failures_storage; oracle = :product
+  types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+  expected = 0.0; observed = dot(m1_t(), m1_s())
+  broken = (group = :G2, baseline = Returned(v -> same(v, NaN)))
+end
+
+# both orders walk t, whose NaN meets an unstored zero
+@row begin
+  id = "failures_storage.strong-zero.dot.t-s2"; case = ""; family = :failures_storage; oracle = :product
+  types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+  expected = 0.0; observed = dot(m1_t(), m1_s2())
+  broken = (group = :G2, baseline = Returned(v -> same(v, NaN)))
+end
+
+@row begin
+  id = "failures_storage.strong-zero.dot.s2-t"; case = ""; family = :failures_storage; oracle = :product
+  types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+  expected = 0.0; observed = dot(m1_s2(), m1_t())
+  broken = (group = :G2, baseline = Returned(v -> same(v, NaN)))
+end
+
+@row begin
+  id = "failures_storage.strong-zero.dot.dense-zero"; case = ""; family = :failures_storage; oracle = :product
+  types = "Float64"; backend = :cpu; rules = "M1 E3"
+  problem = "FT12: a non-finite coefficient of the iterate meets a zero of a dense operand, an IEEE zero, and propagates."
+  expected = NaN; observed = dot([0.0, 1.0, 0.0], (w = SparseIterate(3); w[1] = Inf; w))
+end
+
+# A stored NaN of one iterate against an unstored zero of the other, in both orders.
+for (name, x, y, base) in (("sparse-atom.nan-in-atom", m1_s1, m1_anan, NaN), ("atom-sparse.nan-in-atom", m1_anan, m1_s1, NaN),
+                           ("sparse-atom.nan-in-sparse", m1_snan, m1_a1, 0.0), ("atom-sparse.nan-in-sparse", m1_a1, m1_snan, 0.0),
+                           ("atom-atom.walk-a1", m1_anan, m1_a1, 0.0), ("atom-atom.walk-nan", m1_a1, m1_anan, NaN))
+  @row begin
+    id = "failures_storage.strong-zero.dot." * name; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+    expected = 0.0; observed = dot(x(), y())
+    broken = isnan(base) ? (group = :G2, baseline = Returned(v -> same(v, NaN))) : nothing
+  end
+end
+
+for (tag, stored) in (("stored", true), ("dropped", false))
+  nan = stored ? (group = :G2, baseline = Returned(v -> same(v, NaN))) : nothing
+  @row begin
+    id = "failures_storage.strong-zero.dot.u-w.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+    expected = 1.0; observed = dot(m1_u(stored), m1_w())
+    broken = nan
+  end
+  @row begin
+    id = "failures_storage.strong-zero.dot.w-u.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+    expected = 1.0; observed = dot(m1_w(), m1_u(stored))
+    broken = nan
+  end
+  @row begin
+    id = "failures_storage.strong-zero.dot.row-u.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+    expected = 1.0; observed = dot(m1_A()[1, :], m1_u(stored))
+    broken = nan
+  end
+  @row begin
+    id = "failures_storage.strong-zero.dot.u-row.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+    expected = 1.0; observed = dot(m1_u(stored), m1_A()[1, :])
+    broken = nan
+  end
+  @row begin
+    id = "failures_storage.strong-zero.mul.A-u.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+    expected = [1.0, 1.0]; observed = m1_A() * m1_u(stored)
+    broken = stored ? (group = :G2, baseline = Returned(v -> same(v, [NaN, NaN]))) : nothing
+  end
+  @row begin
+    id = "failures_storage.strong-zero.mul5.A-u.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+    expected = [2.0, 2.0]; observed = mul!(zeros(2), m1_A(), m1_u(stored), 2, 0)
+    broken = stored ? (group = :G2, baseline = Returned(v -> same(v, [NaN, NaN]))) : nothing
+  end
+  @row begin
+    id = "failures_storage.strong-zero.mul.transpose-u.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+    expected = [1.0, 1.0]; observed = transpose(permutedims(m1_A())) * m1_u(stored)
+    broken = stored ? (group = :G2, baseline = Returned(v -> same(v, [NaN, NaN]))) : nothing
+  end
+  @row begin
+    id = "failures_storage.strong-zero.mul.adjoint-u.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+    expected = [1.0, 1.0]; observed = permutedims(m1_A())' * m1_u(stored)
+    broken = stored ? (group = :G2, baseline = Returned(v -> same(v, [NaN, NaN]))) : nothing
+  end
+  @row begin
+    id = "failures_storage.strong-zero.mul.symmetric-u.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+    expected = [0.0, 1.0, 0.0]; observed = m1_S3() * m1_u(stored)
+    broken = stored ? (group = :G2, baseline = Returned(v -> same(v, [NaN, 1.0, 0.0]))) : nothing
+  end
+  for (walk, p) in (("stored-entry-walk", 64), ("column-walk", 3))
+    @row begin
+      id = "failures_storage.strong-zero.mul.matrix-$walk.$tag"; case = ""; family = :failures_storage; oracle = :product
+      types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+      expected = [1.0 1.0; 1.0 1.0]; observed = m1_AX(p) * m1_X(p, stored)
+      broken = stored ? (group = :G2, baseline = Returned(v -> same(v, [NaN 1.0; NaN 1.0]))) : nothing
+    end
+  end
+  @row begin
+    id = "failures_storage.strong-zero.mul.symmetric-matrix.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+    expected = [0.0 0.0; 1.0 0.0; 0.0 1.0]; observed = m1_S3() * m1_X(3, stored)
+    broken = stored ? (group = :G2, baseline = Returned(v -> same(v, [NaN 0.0; 1.0 0.0; 0.0 1.0]))) : nothing
+  end
+  @row begin
+    id = "failures_storage.strong-zero.dot3.Z.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+    expected = 1.0; observed = dot([NaN, 1.0], m1_Z(stored), [1.0, 1.0])
+    broken = nan
+  end
+  @row begin
+    id = "failures_storage.strong-zero.atom.dot-v-a.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+    expected = 1.0; observed = dot([NaN, 0.0, 1.0, 0.0], m1_a(stored))
+    broken = nan
+  end
+  @row begin
+    id = "failures_storage.strong-zero.atom.dot-a-v.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+    expected = 1.0; observed = dot(m1_a(stored), [NaN, 0.0, 1.0, 0.0])
+    broken = nan
+  end
+  @row begin
+    id = "failures_storage.strong-zero.atom.mul.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_PRODUCT
+    expected = [1.0]; observed = [NaN 0.0 1.0 0.0] * m1_a(stored)
+  end
+  # The owner: marked until #391 Phase 1c brings the 0.6 owner under M1.
+  owner = (base) -> stored ? (group = :G2, baseline = Returned(v -> same(v, base))) : nothing
+  @row begin
+    id = "failures_storage.strong-zero.owner.mul.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_OWNER
+    expected = [0.0, 1.0, 0.0]; observed = mul!(zeros(3), matrixview(m1_owner(stored)), [Inf, 1.0, 0.0])
+    broken = owner([0.0, 1.0, NaN])
+  end
+  @row begin
+    id = "failures_storage.strong-zero.owner.mul5.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_OWNER
+    expected = [0.0, 1.0, 0.0]; observed = mul!(zeros(3), matrixview(m1_owner(stored)), [Inf, 1.0, 0.0], 1.0, 0.0)
+    broken = owner([0.0, 1.0, NaN])
+  end
+  @row begin
+    id = "failures_storage.strong-zero.owner.times.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_OWNER
+    expected = [0.0, 1.0, 0.0]; observed = matrixview(m1_owner(stored)) * [Inf, 1.0, 0.0]
+    broken = owner([0.0, 1.0, NaN])
+  end
+  @row begin
+    id = "failures_storage.strong-zero.owner.dot-M-X.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_OWNER
+    expected = 3.0; observed = dot(m1_M(), m1_owner(stored))
+    broken = owner(NaN)
+  end
+  @row begin
+    id = "failures_storage.strong-zero.owner.dot-X-M.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_OWNER
+    expected = 3.0; observed = dot(m1_owner(stored), m1_M())
+    broken = owner(NaN)
+  end
+  @row begin
+    id = "failures_storage.strong-zero.owner.dot3.$tag"; case = ""; family = :failures_storage; oracle = :product
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_OWNER
+    expected = 1.0; observed = dot([NaN, 1.0, 1.0], m1_owner(stored), [1.0, 1.0, 1.0])
+    broken = owner(NaN)
+  end
+  @row begin
+    id = "failures_storage.strong-zero.value.least-squares.$tag"; case = ""; family = :failures_storage; oracle = :value
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_VALUE
+    expected = 0.0; observed = m1_f()(m1_fs(stored))
+    broken = nan
+  end
+  @row begin
+    id = "failures_storage.strong-zero.value.least-squares-atom.$tag"; case = ""; family = :failures_storage; oracle = :value
+    types = "Float64"; backend = :cpu; rules = "M1"; problem = M1_VALUE
+    expected = 0.0; observed = LeastSquaresLoss([1], [NaN 0 1 0])(m1_a(stored))
+  end
+end
+
+@row begin
+  id = "failures_storage.strong-zero.value.least-squares-dense"; case = ""; family = :failures_storage; oracle = :value
+  types = "Float64"; backend = :cpu; rules = "M1 E2"
+  problem = "FT14: at a dense argument the zero meets the NaN data as an IEEE zero."
+  expected = NaN; observed = m1_f()([0.0, 1.0])
 end
 
 end

@@ -239,6 +239,16 @@ end
             end
         end
     end
+
+    @testset "finite overflow can depend on the order (FN-4, A1)" begin
+        # The sum follows the walk, which takes the argument with fewer stored entries (the
+        # first at a tie), so a finite partial sum can overflow in one order only. The values
+        # are those of today and are allowed to differ (numerics M1 and A1).
+        M = floatmax(Float64)
+        x = SparseIterate([M, M, -M]); y = SparseIterate(3); y[1] = 1; y[3] = 1; y[2] = 1
+        @test dot(x, y) == Inf
+        @test dot(y, x) == M
+    end
 end
 
 @testset "sparseSymmetricIterate" begin
